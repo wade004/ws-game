@@ -365,6 +365,32 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+数值设计落地阶段 N4 · T-N4-6（ADR-0034 决策 2；08 第 7.4 节；04 第 1.1 节表清单）：新增表
+`econ.value_curve`（物品等级 → 基准价值，断点表，横轴 `CurveAxis.ItemLevel`）与
+`econ.gold_base_curve`（等级 → 金币基数，断点表，横轴 `CurveAxis.Level`，本任务只登记 schema，
+消费留给 T-N4-7）；新增价格公式共用类型 `Core.Gameplay.Economy.EconomyPriceFormula`（基准价值 =
+`econ.value_curve(item_level)` × `item.quality_definition.price_multiplier` ×
+`item.slot_definition.price_coefficient`，`item.template.value_override` 存在时整体取代基准价值）；
+`econ.vendor.sell_items[].price_amount` 改为可选（`VendorSellItem` 新增 `HasPriceAmount` 属性与
+对应七参数构造重载，ABI 只增不改，旧六参数构造函数与 `PriceAmount` 属性语义不变）——未填时
+`EconomyHost.Buy` 按价格公式算出买价，填了则手填优先（回归安全，逐位不变）；`EconomyOptions.
+DefaultBuyPricePct` 重新定位为"售价比例"策略项（字段名与默认值 0.25 不变，语义由"任一商人手填
+售价的百分之几"改为"基准价值的百分之几"）——`EconomyHost.Sell` 无 `buy_price_rule` 时的缺省售价
+公式同步改用价值公式，`buy_price_rule` 存在时既有 Expr 求值语义不变（硬性规则：禁止改该表达式
+语义）；`EconomyOptions` 新增 `ValueCurveId`（缺省 `econ.value.default`）与
+`PriceDeviationWarningThreshold`（缺省 0.2）。新增校验规则 `EconomyPriceDeviatesFormulaRule`
+（检查名 `econ_price_deviates_formula`，04 第 5 节该行原文未给出具体检查名，本任务暂按此采纳、
+待设计层确认；`NonEscalatable = true`）：`sell_items[].price_amount`/`item.template.value_override`
+与纯公式值偏离超过阈值报 Warning，未填 `price_amount` 的条目不参与该分支检查。
+`Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll` 新增五参数重载
+（`economyValueCurveId`/`economyPriceDeviationThreshold`），既有 1/3 参数重载保留、转发默认值不变
+（回归）。数据侧：`data/_sample/econ/` 新增 `econ.value_curve.json`/`econ.gold_base_curve.json`
+两条曲线样例；既有 `econ.vendor.json` 的 `item.sample_tonic` 条目去掉 `price_amount`，作为"缺省
+走公式"的样例（原手填值 5 与新价格公式在阈值内不产生偏离警告，见 `EconomyPriceFormula`/曲线样例
+数值判断）。
+
 ## [1.33.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N3"技能"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 9/14 节，T-N3-1～T-N3-11）——落地 ADR-0031 全部决策：效果值缩放契约、使用条件、节拍锁、来源缺失冻结、瘟疫刷新、控制类别、群体超出策略（拍板 7）、武器百分比基于秒伤乘一拍、`skill.budget_rule` 与技能预算 Analyzer、结算类原语集合、独立的优先级表求值组件——不新增任何效果原语。

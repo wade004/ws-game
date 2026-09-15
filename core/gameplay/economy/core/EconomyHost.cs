@@ -23,8 +23,23 @@ namespace Core.Gameplay.Economy
     /// 经 <c>IExprHostFactory.CreateFor(unitId, null, null)</c> 求值，取其数值结果作为"每件收购价"
     /// （内容作者目前只能引用 <c>self.*</c> 里"出售者"自身的既有字段，如
     /// <c>self.level</c>，不能引用物品属性——这是一处记录在案、未解决的契约缺口，不在本任务修复范围）；
-    /// 不存在时按拍板默认公式 <c>DefaultBuyPricePct × 该物品在任一商人的售价</c>（找不到售价则收购价
-    /// 为 0，货币种类退化为"全局已加载的第一种货币"，见 <see cref="ResolveSellCurrency"/>）。
+    /// **T-N4-6（ADR-0034 决策 2）起，不存在时改按价格公式**——售价 = <see
+    /// cref="EconomyPriceFormula.TryComputeBaseValue"/> 算出的基准价值 × <see
+    /// cref="EconomyOptions.DefaultBuyPricePct"/>（重定位为"售价比例"策略项，字段名/默认值不变，见
+    /// 该属性判断记录）；公式算不出（本 registry 未加载 <c>item.template</c>/<c>econ.value_curve</c>，
+    /// 如既有隔离测试场景）时回退 T-N4-6 之前的旧口径——<c>DefaultBuyPricePct × 该物品在任一商人的
+    /// 手填售价</c>（找不到则收购价为 0），保证既有全部用例逐位不变，见 <see cref="ComputeSellPrice"/>。
+    /// 货币种类解析口径不变：<see cref="FindAnyVendorSellPrice"/> 命中优先，找不到退化为"全局已加载的
+    /// 第一种货币"（<see cref="ResolveSellCurrency"/>）。
+    /// </para>
+    /// <para>
+    /// 判断记录 1b——<see cref="Buy"/> 的买价公式（T-N4-6；ADR-0034 决策 2）：
+    /// <c>sell_items[].price_amount</c>（<see cref="VendorSellItem.HasPriceAmount"/>）填写时按原样
+    /// 用该整数值（<c>long</c> 精确乘法，逐位不变，回归安全）；未填时买价 = <see
+    /// cref="EconomyPriceFormula.TryComputeBaseValue"/> 算出的基准价值（<c>econ.value_curve</c> ×
+    /// 品质价格倍率 × 槽位价格系数，<c>item.template.value_override</c> 优先整体取代），算不出时按 0
+    /// 处理（同"公式算不出"的一贯兜底口径，不抛异常——校验期应已由 <see
+    /// cref="EconomyPriceDeviatesFormulaRule"/> 之外的内容审查发现这类缺口，运行期只兜底不阻断）。
     /// </para>
     /// <para>
     /// 判断记录 2——<see cref="Buy"/> 的"满包回滚不扣款"顺序：先检查限量库存与余额（只读，不改任何
@@ -347,7 +362,11 @@ namespace Core.Gameplay.Economy
                 return PurchaseResult.Fail(PurchaseFailureReason.InsufficientStock);
             }
 
-            var price = sellItem.PriceAmount * count;
+            // T-N4-6（ADR-0034 决策 2；判断记录 1b）：price_amount 填了走原样整数乘法（回归安全，
+            // 逐位不变）；未填按价格公式算基准价值，算不出按 0 处理。
+            var price = sellItem.HasPriceAmount
+                ? sellItem.PriceAmount * count
+                : (long)((ComputeBaseValue(itemId) ?? 0.0) * count);
             if (GetBalance(unitId, sellItem.PriceCurrencyId) < price)
             {
                 return PurchaseResult.Fail(PurchaseFailureReason.InsufficientFunds);
@@ -447,21 +466,27 @@ namespace Core.Gameplay.Economy
                 return (perItem, foundCurrency ?? ResolveSellCurrency());
             }
 
-            return foundCurrency.HasValue
-                ? (foundPrice * _options.DefaultBuyPricePct, foundCurrency.Value)
-                : (0.0, ResolveSellCurrency());
+            // T-N4-6（ADR-0034 决策 2；判断记录 1）：售价 = 基准价值 × 售价比例（DefaultBuyPricePct
+            // 重定位，见该属性判断记录）；基准价值优先走价格公式，公式算不出（本 registry 未加载
+            // item.template/econ.value_curve，如既有隔离测试场景）时回退 T-N4-6 之前的旧口径——
+            // "该物品在任一商人的手填售价"（foundPrice，找不到则为 0），保证既有全部用例逐位不变。
+            var baseValue = ComputeBaseValue(templateId) ?? foundPrice;
+            var currency = foundCurrency ?? ResolveSellCurrency();
+            return (baseValue * _options.DefaultBuyPricePct, currency);
         }
 
         /// <summary>按 <c>Id</c> 序数遍历全部已加载商人（判断记录 1"任一商人"），返回第一条命中
-        /// <paramref name="templateId"/> 的 <c>sell_items</c> 项的价格与货币；找不到返回 <c>(0,
-        /// null)</c>。</summary>
+        /// <paramref name="templateId"/> 且 <see cref="VendorSellItem.HasPriceAmount"/> 为真的
+        /// <c>sell_items</c> 项的价格与货币；找不到返回 <c>(0, null)</c>。T-N4-6：未填
+        /// <c>price_amount</c> 的条目不是"真实手填价格"，跳过继续找下一条（同一物品可能在别的商人
+        /// 处填了价格），全都没填则视为找不到。</summary>
         private (long Price, Id? CurrencyId) FindAnyVendorSellPrice(Id templateId)
         {
             foreach (var vendorId in _vendorOrder)
             {
                 foreach (var sellItem in _vendors[vendorId].SellItems)
                 {
-                    if (sellItem.ItemId.Equals(templateId))
+                    if (sellItem.ItemId.Equals(templateId) && sellItem.HasPriceAmount)
                     {
                         return (sellItem.PriceAmount, sellItem.PriceCurrencyId);
                     }
@@ -469,6 +494,18 @@ namespace Core.Gameplay.Economy
             }
 
             return (0, null);
+        }
+
+        /// <summary>T-N4-6（ADR-0034 决策 2）：<paramref name="templateId"/> 的基准价值——委托 <see
+        /// cref="EconomyPriceFormula.TryComputeBaseValue"/>，本 registry 未加载 <c>item.template</c>
+        /// 该记录时返回 <c>null</c>（"算不出"，不是"算出 0"，把兜底口径留给调用方，见
+        /// <see cref="Buy"/>/<see cref="ComputeSellPrice"/> 各自判断记录）。</summary>
+        private double? ComputeBaseValue(Id templateId)
+        {
+            var templateRecord = _registry.Get(EconomyPriceFormula.ItemTemplateTable, templateId);
+            return templateRecord == null
+                ? (double?)null
+                : EconomyPriceFormula.TryComputeBaseValue(_registry, templateRecord, _options.ValueCurveId);
         }
 
         /// <summary>全局找不到任何该物品的售价数据时的货币兜底（判断记录 1）：取全部已加载货币里

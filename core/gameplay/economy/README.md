@@ -1,11 +1,15 @@
 # L4 玩法层 · economy（货币与商人）
 
 职责：落地 08_玩法层_掉落任务对话关卡.md 第 7 节 Economy——货币（`econ.currency`）余额增减、商人
-（`econ.vendor`）购买/出售、限量库存与两种补货策略（`on_map_enter`/`timer`）。对应 01 第 L4 模块表
-`economy` 行（契约 `EconomyHost.buy/sell(...)`、数据表 `econ.currency`/`econ.vendor`、事件
+（`econ.vendor`）购买/出售、限量库存与两种补货策略（`on_map_enter`/`timer`）、价格公式（`econ.value_curve`/
+`econ.gold_base_curve`，ADR-0034 决策 2，T-N4-6）。对应 01 第 L4 模块表 `economy` 行（契约
+`EconomyHost.buy/sell(...)`、数据表 `econ.currency`/`econ.vendor`/`econ.value_curve`/
+`econ.gold_base_curve`、事件
 `economy.currency_changed`/`economy.item_purchased`/`economy.item_sold`/`economy.vendor_restocked`）。
 
-依赖：L0（`data_registry`/`event_bus`/`expr`）、L3（`Core.Carriers.Common.IInventoryHost`）、L2
+依赖：L0（`data_registry`/`event_bus`/`expr`）、L3（`Core.Carriers.Common.IInventoryHost`；T-N4-6 起
+价格公式按表名字符串读取 `item.template`/`item.quality_definition`/`item.slot_definition` 三张
+`Core.Carriers.Item` 表，不引用该模块的强类型 schema 常量，见 `EconomyPriceFormula` 判断记录）、L2
 （`core/rules/common.IExprHostFactory`；`core/rules/expr_host.RulesExprSchema.Base`（默认，可由
 调用方传入合并后的 schema 覆盖）用于解析 `buy_price_rule`）。经 `Core.Gameplay.csproj` 既有的
 `Core.Carriers` 项目引用传递可见。
@@ -17,25 +21,34 @@ economy/
   README.md
   contracts/
     CurrencyDef.cs                econ.currency 强类型视图
-    VendorDef.cs                  VendorRestockPolicy/VendorSellItem/VendorDef 强类型模型
-    EconomySchemas.cs             econ.currency/econ.vendor 的 TableSchema（顶层字段）
+    VendorDef.cs                  VendorRestockPolicy/VendorSellItem/VendorDef 强类型模型（T-N4-6：
+                                   VendorSellItem 新增 HasPriceAmount + 对应构造重载）
+    EconomySchemas.cs             econ.currency/econ.vendor/econ.value_curve/econ.gold_base_curve
+                                   的 TableSchema（T-N4-6 新增后两张）
     IEconomyHost.cs                契约接口
     PurchaseResult.cs             Buy 返回值 + 失败原因枚举
     SellResult.cs                  Sell 返回值 + 失败原因枚举
-    EconomyOptions.cs              收购价默认比例等策略配置
+    EconomyOptions.cs              售价比例（重定位）、价值曲线 id、偏离警告阈值等策略配置（T-N4-6）
     Events.cs                      EconomyEventKeys + 四个事件类型
     EconomyExprSchemaEntries.cs    player.currency(currencyId): Int 登记
     ChainedExprGroupProvider.cs    player 分组"链式包装"合并帮助类型
   core/
-    EconomyDataParser.cs           DataRecord -> CurrencyDef/VendorDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 10）
+    EconomyDataParser.cs           DataRecord -> CurrencyDef/VendorDef（运行期解析，ADR-0019/F1b 起校验期不再共用，见判断记录 10；T-N4-6：price_amount 可选解析）
     EconomyContentValidationRule.cs sell_items 内登记表达不了的业务判断（ADR-0019/F1b 收窄，见判断记录 10）
-    EconomyHost.cs                  IEconomyHost 唯一实现
+    EconomyPriceFormula.cs         T-N4-6 新增：econ.value_curve 价格公式（基准价值 = 曲线 ×
+                                   品质价格倍率 × 槽位价格系数，value_override 优先），运行期与
+                                   校验期共用
+    EconomyPriceDeviatesFormulaRule.cs T-N4-6 新增："手填价格偏离公式"警告
+                                   （检查名 econ_price_deviates_formula，待设计层确认）
+    EconomyHost.cs                  IEconomyHost 唯一实现（T-N4-6：Buy/Sell 缺省走价格公式）
     PlayerCurrencyExprGroupProvider.cs  player.currency 的 IExprGroupProvider 实现
     CurrencyPersistable.cs          player.currencies 段
     VendorStockPersistable.cs       world.vendor_stock 段（补录，可选）
   tests/
     EconomyTestSupport.cs           DataRegistry/EventBus/Fake 装配帮助
     EconomyHostTests.cs             Add/TryPay/Buy/Sell/补货/持久化/Expr 求值用例
+    T_N4_6_EconomyPriceFormulaTests.cs 价格公式（含 value_override 优先）、售价比例、偏离警告
+                                   正负例、NonEscalatable、新表 schema 覆盖
 ```
 
 ## 判断记录
@@ -50,12 +63,17 @@ economy/
    属性——**这是一处记录在案、未解决的契约缺口**，需要新增一个"物品属性"Expr 分组（或扩展
    `self`）才能真正支持，不在本任务修复范围。
 
-2. **收购价的默认公式与货币解析**：没有 `buy_price_rule` 时，收购价 =
-   `EconomyOptions.DefaultBuyPricePct（默认 0.25）× 该物品在任一商人的售价`——"任一商人"按 `Id` 序数
-   遍历全部已加载 `econ.vendor`，取第一条命中该物品模板的 `sell_items` 项的价格与货币；找不到时收购价
-   为 0，货币种类退化为"全局已加载货币里 `Id` 序数最靠前的一种"（一种货币都没有登记视为内容配置错误，
-   抛异常）。`buy_price_rule` 存在但该物品在任何商人处都找不到售价时，价格仍按 Expr 求值结果，货币
-   种类沿用同一套"任一商人/全局兜底"解析。
+2. **收购价的默认公式与货币解析（T-N4-6 起改写，ADR-0034 决策 2）**：没有 `buy_price_rule` 时，
+   售价 = `EconomyPriceFormula.TryComputeBaseValue`（`econ.value_curve(item_level)` × 品质价格倍率 ×
+   槽位价格系数，`item.template.value_override` 优先整体取代）算出的基准价值 ×
+   `EconomyOptions.DefaultBuyPricePct`（重定位为"售价比例"，字段名/默认值 0.25 不变）；公式算不出
+   （本 `IDataRegistryView` 未加载 `item.template`/`econ.value_curve`，如既有隔离测试场景、
+   `CR130_01_BuyFailureTransactionTests` 把 `item.template` 登记进另一个独立 `DataRegistry` 实例）
+   时回退 T-N4-6 之前的旧口径——`该物品在任一商人的手填售价`（"任一商人"按 `Id` 序数遍历全部已加载
+   `econ.vendor`，取第一条命中该物品模板且 `VendorSellItem.HasPriceAmount` 为真的 `sell_items` 项）。
+   货币种类解析口径不变：命中优先，找不到退化为"全局已加载货币里 `Id` 序数最靠前的一种"（一种货币都
+   没有登记视为内容配置错误，抛异常）。`buy_price_rule` 存在时价格仍按 Expr 求值结果（硬性规则：
+   禁止改该表达式语义），货币种类沿用同一套解析，不受价格公式介入影响。
 
 3. **`Buy` 的"满包回滚不扣款"顺序**：先只读校验（限量库存、余额），确认余额足够后才调用
    `IInventoryHost.AddItem`；用前后 `CountOf` 差值判定实际加入数量（同
@@ -151,6 +169,27 @@ economy/
     `EconomySchemas.cs`/`EconomyContentValidationRule.cs` 判断记录、
     `tests/EconomySchemaCoverageTests.cs`。
 
+11. **T-N4-6：`VendorSellItem.PriceAmount` 从必填改可选，走"新增属性 + 新增构造重载"而不是改
+    既有属性类型（如 `long?`）**：硬性规则 5（ABI 只允许新增）——把既有 `long PriceAmount { get; }`
+    属性的类型改成 `long?` 会同时破坏源码兼容（旧调用方 `long x = item.PriceAmount;` 编译失败）与
+    二进制兼容（属性访问器方法签名变化）。改为新增 `HasPriceAmount`（bool）属性 + 一个新增
+    七参数构造重载（显式接受 `hasPriceAmount`），旧六参数构造函数原样保留、内部转发并恒把
+    `HasPriceAmount` 置真——旧调用方（含 `EconomyHostTests` 既有全部用例）不做任何改动，行为逐位
+    不变。`price_amount` 未在 JSON 里出现时，`EconomyDataParser.ParseSellItem` 用新构造重载传入
+    `priceAmount: 0`（占位，不参与任何计算）、`hasPriceAmount: false`。
+
+12. **T-N4-6：价格公式算不出时的两套独立兜底口径，不是同一份"缺省值"**：`EconomyHost.Buy`
+    （买价）与 `ComputeSellPrice`（售价）在 `EconomyPriceFormula.TryComputeBaseValue` 返回 `null`
+    （本 `IDataRegistryView` 未加载 `item.template`/`econ.value_curve`——既有隔离测试场景的常态）
+    时各自选了不同的兜底：`Buy` 直接按 0 处理（未填 `price_amount` 又算不出公式值，视为内容配置
+    缺口，运行期不阻断只兜底）；`ComputeSellPrice` 回退 T-N4-6 之前的旧口径（"该物品在任一商人的
+    手填售价 × 售价比例"），是刻意为之——保证 `EconomyHostTests.
+    Sell_UsesDefaultBuyPricePercentOfVendorSellPrice_AndPublishesEvent` 等既有全部用例（其登记的
+    最小测试 registry 从不加载 `item.template`）逐位不变，不需要为了新公式重写既有回归用例。
+    `EconomyPriceDeviatesFormulaRule`（内容校验）则是第三套口径：算不出直接跳过该条记录、不产生
+    告警，因为没有公式值就无从比较偏离——三处口径不同是"运行期要有个数、宁可粗糙也不抛异常"与
+    "校验期没有依据就不下判断"两种场景的正常分歧，不是实现疏漏。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `econ.vendor.sell_items` 元素结构（对照 `EconomyDataParser.ParseSellItem` 运行时解析代码）：
@@ -159,10 +198,31 @@ economy/
 |---|---|---|---|
 | `item_id` | Id | 是 | `item.<template>`；判断记录：层次上 `item.template`（L3）在 `econ.vendor`（L4）之下、可以 `Reference`，但本模块自身测试装配（`EconomyTestSupport.MakeRegistry`、`CR130_01_BuyFailureTransactionTests`）历来把 `item.template` 登记进另一个独立 `DataRegistry` 实例、与 `econ.vendor` 不在同一份加载结果里，登记为 `Reference` 会因"目标表在本 registry 里从未加载"对现有全部测试数据误报，因此退回 `Id`；此前也从未校验过其存在性，本次未新增（与 loot `ref` 的处理不同，是刻意保持行为不变，不是遗漏） |
 | `price_currency_id` | Reference(`econ.currency`) | 是 | 同模块同层，两张表总是一起加载，交给 `reference_integrity` 检查项 |
-| `price_amount` | Int | 是 | `>=0` 是登记表达不了的数值范围约束，保留为 `EconomyContentValidationRule` 业务判断 |
+| `price_amount` | Int | **否（T-N4-6 起，此前是）** | 分阶段落地计划 T-N4-6（ADR-0034 决策 2）：改为可选——未填时 `EconomyHost.Buy` 按价格公式算出买价，`VendorSellItem.HasPriceAmount` 为假、`PriceAmount` 占位为 0。填了则 `>=0` 是登记表达不了的数值范围约束，保留为 `EconomyContentValidationRule` 业务判断；与公式偏离超带宽报警告，见下方"手填价格偏离公式"一节 |
 | `stock_limit` | Int | 否 | 缺省不限量；`>=0`（提供时）同上保留为业务判断 |
 | `restock_policy` | Enum(`on_map_enter`\|`timer`) | 否 | 缺省 `VendorRestockPolicy.None`（无自动补货），对应运行时三态枚举中除 `None` 外的两个字符串字面量 |
 | `restock_timer` | Number | 否 | `restock_policy=timer` 时必须提供且 `>0`——条件必填 + 数值范围的复合约束，登记表达不了，保留为业务判断 |
+
+## 价格公式与"手填价格偏离公式"（分阶段落地计划 T-N4-6；ADR-0034 决策 2；08 第 7.4 节）
+
+```
+基准价值 = econ.value_curve(item_level) × item.quality_definition.price_multiplier × item.slot_definition.price_coefficient
+          （item.template.value_override 存在时整体取代基准价值本身）
+买价     = 基准价值（sell_items[].price_amount 手填时以手填为准）
+售价     = 基准价值 × 售价比例（EconomyOptions.DefaultBuyPricePct，重定位，buy_price_rule 存在时以其为准）
+```
+
+新增 `econ.value_curve`（物品等级 → 基准价值）、`econ.gold_base_curve`（等级 → 金币基数，本任务只
+登记 schema，消费留给 T-N4-7 掉落货币条目/任务金币）两张断点表（04 第 3.6 节通用曲线形态，
+`curve_monotonic_finite` 自动覆盖）。共用算法见 `EconomyPriceFormula`（运行期 `EconomyHost.Buy`/
+`ComputeSellPrice` 与内容校验 `EconomyPriceDeviatesFormulaRule` 共用同一份实现，不重复）。
+
+新增校验规则 `EconomyPriceDeviatesFormulaRule`（检查名 `econ_price_deviates_formula`——04 第 5 节该行
+原文未给出具体检查名，本任务暂按此采纳，待设计层确认；`NonEscalatable = true`，同组既有警告"抓意图
+不抓手滑"口径）：核对 `sell_items[].price_amount`（手填买价）与 `item.template.value_override`
+（手填基准价值）各自与纯公式值（忽略 `value_override`）的偏离比例，超过 `EconomyOptions.
+PriceDeviationWarningThreshold`（缺省 0.2，同 `ItemWeaponDamageDeviatesDpsCurveRule` 既定阈值类推）
+报 Warning；未填 `price_amount` 的条目没有"手填值"可比较，不参与该分支检查。
 
 判断记录：`item_id` 存在性未登记为新的业务检查（见上表），与 `core/gameplay/loot` 对 `ref` 新增
 "目标表已加载才检查"的宽松存在性判断不同——这不是遗漏，而是"运行时解析代码为唯一依据"（04 第
