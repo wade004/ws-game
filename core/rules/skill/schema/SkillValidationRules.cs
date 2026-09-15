@@ -571,4 +571,79 @@ namespace Core.Rules.Skill
             }
         }
     }
+
+    /// <summary>
+    /// T-N3-5（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 10；06 第 3.6
+    /// 节 2026-09-14 修订段"校验项'无时间成本'"；04 第 5 节数值类校验分级表"无时间成本"行）：
+    /// "主动技能 <c>cast_time</c> 为零且 <c>respects_gcd</c> 为真（未声明为反应类）"——防住"全部瞬发
+    /// 一起放"的退化，是去掉公共冷却后节拍功能的替代物（06 §3.6 原文）。
+    /// <para>
+    /// **契约疑点（上报，待设计层确认）**：04 第 5 节该表同组绝大多数行都标注"检查名 xxx"，唯独
+    /// "无时间成本"一行没有给出具体检查名。本规则临时判定检查名为 <see cref="Check"/> =
+    /// "skill_no_time_cost"（沿用本文件既有 <c>PassiveSkillNoCastTimeRule</c>/
+    /// <c>CastTimeChannelTimeExclusiveRule</c> 等围绕 <c>cast_time</c> 的检查名 snake_case 惯例）；
+    /// 若设计层后续拍板另一名字，只需同步改本常量，无消费方按字面字符串匹配（见测试）。
+    /// </para>
+    /// <para>
+    /// 判定条件严格对齐 04 原文三个并列条件：<c>kind == "active"</c>（被动技能不适用，见
+    /// <see cref="PassiveSkillNoCastTimeRule"/> 已覆盖被动技能自己的"不得声明非零 cast_time"，两条
+    /// 规则职责不重叠）、<c>cast_time</c> 未填或为 0、<c>respects_gcd</c> 为真（为假即 06 §3.1 修订
+    /// 段定义的"反应类技能"，本就声明为可插入他技能动作中，不受"全部瞬发一起放"退化影响，因此不报）。
+    /// 额外判断记录（04 原文未提及，本规则按 06 §3.1"<c>cast_time</c> 与 <c>channel_time</c> 互斥
+    /// 语义"补充）：<c>channel_time</c> 非零（纯引导技能，<c>cast_time</c> 恒为 0）不受本规则约束——
+    /// 引导技能自身的 <c>channel_time</c> 就是它的时间成本，不属于"无时间成本"，只在
+    /// <c>channel_time</c> 未声明或同为 0 时才纳入判定，避免把合法的纯引导技能误报。
+    /// </para>
+    /// 04 第 5 节该表"警告"整组登记为不可提升（<see cref="NonEscalatable"/> = true，"抓意图不抓
+    /// 手滑"，见数值总纲第 6 节、<c>Core.Carriers.Item.ItemBudgetValidationRule.NonEscalatable</c>
+    /// 同一处理口径）。
+    /// </summary>
+    public sealed class SkillNoTimeCostWarningRule : IValidationRule
+    {
+        public const string Check = "skill_no_time_cost";
+
+        public bool NonEscalatable => true;
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            if (!view.Tables.Contains("skill.def"))
+            {
+                yield break;
+            }
+
+            foreach (var record in view.GetAll("skill.def"))
+            {
+                if (!record.TryGetString("kind", out var kind) || kind != "active")
+                {
+                    continue;
+                }
+
+                var castTime = record.TryGetNumber("cast_time", out var ct) ? ct : 0;
+                if (castTime != 0)
+                {
+                    continue;
+                }
+
+                var channelTime = record.TryGetNumber("channel_time", out var cht) ? cht : 0;
+                if (channelTime != 0)
+                {
+                    continue;
+                }
+
+                if (!record.TryGetBool("respects_gcd", out var respectsGcd) || !respectsGcd)
+                {
+                    // respects_gcd 缺失（结构层已报 required_field，本规则不重复）或显式为 false
+                    // （06 §3.1 定义的"反应类技能"，本就允许插入他技能动作中）均不报。
+                    continue;
+                }
+
+                yield return new ValidationIssue(
+                    ValidationSeverity.Warning, "skill.def", Check,
+                    "主动技能 cast_time 为零且 respects_gcd 为真（未声明为反应类）：没有节拍锁约束，会" +
+                    "造成\"全部瞬发一起放\"的退化（06 第 3.6 节）——若确有意为之（如打断/格挡/保命一类" +
+                    "反应类技能），把 respects_gcd 改为 false；否则请补上非零 cast_time/channel_time",
+                    recordKey: record.Key, field: "cast_time");
+            }
+        }
+    }
 }

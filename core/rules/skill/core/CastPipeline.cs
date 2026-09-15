@@ -6,6 +6,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
 using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
+using Core.Numbers.StatBlock;
 using Core.Rules.Common;
 
 namespace Core.Rules.Skill
@@ -142,6 +143,15 @@ namespace Core.Rules.Skill
         /// </summary>
         private readonly IExprHostFactory? _exprHostFactory;
 
+        /// <summary>
+        /// T-N3-5（ADR-0031 决策 10；06 第 3.1 节 2026-09-14 修订段"急速缩短动作时长"）：
+        /// <see cref="ComputeCastTime"/> 折算急速用的属性宿主，可选（新增十五参数重载参数，见该重载
+        /// 判断记录）。为 <c>null</c>（旧调用方经十二/十三/十四参数构造函数构造，未传本参数）时
+        /// <see cref="ComputeCastTime"/> 恒不做急速折算，与 <see cref="SkillOptions.HasteAffectsActionTime"/>
+        /// 默认关闭时的行为等价（双重保险，不只依赖 <see cref="SkillOptions"/> 一侧的开关）。
+        /// </summary>
+        private readonly IStatHost? _statHost;
+
         private readonly Dictionary<Id, CastState> _casting = new Dictionary<Id, CastState>();
         private readonly Dictionary<(Id Unit, Id School), double> _schoolLocks = new Dictionary<(Id, Id), double>();
 
@@ -216,6 +226,39 @@ namespace Core.Rules.Skill
                 bus, options, diagnostics, navigation)
         {
             _exprHostFactory = exprHostFactory;
+        }
+
+        /// <summary>
+        /// T-N3-5 新增重载：携带 <see cref="_statHost"/>（<see cref="ComputeCastTime"/> 折算急速用，见
+        /// 该字段判断记录）。判断记录（不是给上方十四参数重载再加一个可选参数，同该重载"不是给主
+        /// 构造函数追加可选参数"同一套 ABI 兼容惯例）：本重载十五个参数全部不带默认值，与既有
+        /// 十二/十三/十四参数构造函数参数个数均不重叠，互不冲突——恰好传 15 个参数时精确匹配本重载。
+        /// <see cref="SkillHost"/> 是本模块唯一的生产组装点，已改为调用本重载（见其构造函数判断
+        /// 记录），旧的 12/13/14 参数签名继续保留供其余既有调用方（含测试内的直接构造，若存在）
+        /// 源码/二进制兼容，不强制它们迁移——这些旧构造函数在 T-N3-5 之前本就不认识急速折算这件事，
+        /// <see cref="_statHost"/> 恒为 <c>null</c>、<see cref="ComputeCastTime"/> 按未开启处理，是
+        /// 既有降级路径的延伸，不是新的破坏性行为。
+        /// </summary>
+        public CastPipeline(
+            SkillDefCache defs,
+            CooldownTracker cooldowns,
+            AuraHost auraHost,
+            EffectDispatcher effects,
+            ITargetHost targetHost,
+            IUnitAccess units,
+            ISpatialQuery? spatialQuery,
+            IPowerHost powerHost,
+            SpellModResolver spellMods,
+            IEventBus bus,
+            SkillOptions options,
+            ISkillDiagnostics diagnostics,
+            INavigation2D? navigation,
+            IExprHostFactory? exprHostFactory,
+            IStatHost? statHost)
+            : this(defs, cooldowns, auraHost, effects, targetHost, units, spatialQuery, powerHost, spellMods,
+                bus, options, diagnostics, navigation, exprHostFactory)
+        {
+            _statHost = statHost;
         }
 
         /// <summary>
@@ -1309,8 +1352,79 @@ namespace Core.Rules.Skill
             }
         }
 
-        private double ComputeCastTime(Id casterId, SkillDef def) =>
-            Math.Max(0, _spellMods.Apply(casterId, SpellModDimension.CastTime, def.Id, def.School, def.Tags, def.CastTime));
+        /// <summary>
+        /// T-N3-5（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md) 决策 10；06
+        /// 第 3.1 节 2026-09-14 修订段）：动作时长（<c>cast_time</c>）先按既有
+        /// <see cref="SpellModDimension.CastTime"/> 维度聚合 SpellMod（惯例不变，T-N3-5 之前的唯一
+        /// 逻辑），随后新增急速折算。<see cref="SkillOptions.HasteAffectsActionTime"/> 为
+        /// <c>false</c>（默认，硬性规则"禁止默认开启急速缩短"）、<see cref="SkillOptions.HasteStat"/>
+        /// 未声明、或本实例未接到 <see cref="_statHost"/>（旧构造函数调用方）三者任一成立，直接返回
+        /// SpellMod 聚合后的值，与 T-N3-5 之前逐位一致（回归）。
+        /// <para>
+        /// 开启时：<see cref="ReadHastePercent"/> 读取 <see cref="SkillOptions.HasteStat"/> 的最终值
+        /// 并夹到 <c>[0, SkillOptions.MaxHastePct]</c>（百分比数值，如 20 表示 20%，见该字段判断
+        /// 记录），折算公式 <c>castTime / (1 + haste% / 100)</c>。
+        /// </para>
+        /// <para>
+        /// 下限（<see cref="SkillOptions.MinActionSeconds"/>）判断记录：只夹住急速造成的缩短——
+        /// <c>haste &lt;= 0</c>（未取得任何有效急速值：属性值为 0、施法者未注册、或
+        /// <see cref="SkillOptions.HasteStat"/> 未登记，均按 0 处理）时直接返回未折算的原始值，不
+        /// 套用下限。理由：06 原文"下限"语境是"急速能把动作时长压多低"，不是"全部技能的最短动作
+        /// 时长"——若把下限当作无条件的全局地板，会让 authoring 本就低于下限的瞬发技能在开启本
+        /// 策略项后被意外拉长，与"默认不受影响"的最小惊讶原则冲突（落地方案 T-N3-5 契约疑点，上报
+        /// 待设计层确认，此为临时判断）。
+        /// </para>
+        /// </summary>
+        private double ComputeCastTime(Id casterId, SkillDef def)
+        {
+            var baseCastTime = Math.Max(
+                0, _spellMods.Apply(casterId, SpellModDimension.CastTime, def.Id, def.School, def.Tags, def.CastTime));
+
+            if (!_options.HasteAffectsActionTime || !_options.HasteStat.HasValue || _statHost == null)
+            {
+                return baseCastTime;
+            }
+
+            var hastePct = ReadHastePercent(casterId, _options.HasteStat.Value);
+            if (hastePct <= 0)
+            {
+                return baseCastTime;
+            }
+
+            var shortened = baseCastTime / (1.0 + hastePct / 100.0);
+            return Math.Max(shortened, _options.MinActionSeconds);
+        }
+
+        /// <summary>
+        /// 读取 <paramref name="hasteStat"/> 的最终值并夹到 <c>[0, SkillOptions.MaxHastePct]</c>
+        /// （见 <see cref="SkillOptions.HasteStat"/>/<see cref="SkillOptions.MaxHastePct"/> 判断
+        /// 记录）。属性未在 <c>stat.definition</c> 登记（<see cref="ArgumentException"/>）或施法者
+        /// 未在 <see cref="_statHost"/> 注册（<see cref="InvalidOperationException"/>）均按 0（不
+        /// 折算）处理，不阻断施法——同 <c>Core.Rules.Combat.Resolver.GetStatSafe</c>/C02 判断记录
+        /// "属性缺失或单位未注册按 0 处理，不抛异常"同一惯例；前者额外记一条诊断警告（数据配置问题，
+        /// 值得提醒），后者不警告（施法者未注册属于正常的单位生命周期边缘状态，不是内容错误）。
+        /// </summary>
+        private double ReadHastePercent(Id casterId, Id hasteStat)
+        {
+            double raw;
+            try
+            {
+                raw = _statHost!.GetStat(casterId, hasteStat);
+            }
+            catch (ArgumentException)
+            {
+                _diagnostics.Warn(
+                    $"SkillOptions.HasteStat \"{hasteStat}\" 未在 stat.definition 登记，"
+                    + "ComputeCastTime 急速折算按 0 处理。");
+                return 0.0;
+            }
+            catch (InvalidOperationException)
+            {
+                return 0.0;
+            }
+
+            return Math.Min(Math.Max(raw, 0.0), _options.MaxHastePct);
+        }
 
         /// <summary>
         /// 步骤 1.5"使用条件"求值（ADR-0031 决策 9，06 第 3.1/3.6 节 2026-09-14 修订）。

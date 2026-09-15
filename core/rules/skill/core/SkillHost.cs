@@ -189,12 +189,13 @@ namespace Core.Rules.Skill
                 projectileSpawner, weaponDamageQuery, options1);
             _auraHost.EffectSink = _effectDispatcher;
 
-            // T-N3-4：改用带 exprHostFactory 的十四参数重载（见 CastPipeline 该重载判断记录），供
-            // 施法管线步骤 1.5"使用条件"求值——复用本类型已经传给 _procHost 的同一个实例，不是新增
-            // 依赖。
+            // T-N3-5：改用带 statHost 的十五参数重载（见 CastPipeline 该重载判断记录），供施法管线
+            // ComputeCastTime 折算急速——复用本构造函数已经传给 _auraHost/_effectDispatcher 的同一个
+            // statHost 实例，不是新增依赖（T-N3-4 之前是十四参数重载，携带 exprHostFactory 供步骤 1.5
+            // "使用条件"求值）。
             _pipeline = new CastPipeline(
                 _defs, _cooldowns, _auraHost, _effectDispatcher, targetHost, _units, spatialQuery,
-                powerHost, _spellMods, eventBus, options1, _diagnostics, navigation, exprHostFactory);
+                powerHost, _spellMods, eventBus, options1, _diagnostics, navigation, exprHostFactory, statHost);
 
             // R05 收边补齐（外部审计 5e779c6，P2；见 Core.Rules.Common.TimeModelRescaledEvent
             // 类型判断记录）：本类型是 CooldownTracker/AuraHost 的组合根，在这里订阅一次、原子

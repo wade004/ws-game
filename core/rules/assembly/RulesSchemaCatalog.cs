@@ -157,6 +157,10 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new ChargesRechargeTimeZeroWarningRule());
             registry.RegisterValidationRule(new ChargesMaxAtLeastOneRule());
 
+            // T-N3-5（04 第 5 节"无时间成本"、ADR-0031 决策 10）：见 SkillValidationRules.cs
+            // SkillNoTimeCostWarningRule 判断记录。
+            registry.RegisterValidationRule(new SkillNoTimeCostWarningRule());
+
             // 消费方反馈 2026-09-10"同一光环多个 Proc 触发器静默忽略问题"：单光环允许多个
             // proc_trigger，但同一光环内重复引用同一个 proc_def 在加载期拒绝（见
             // SkillValidationRules.cs AuraProcTriggerDuplicateRule 判断记录）。

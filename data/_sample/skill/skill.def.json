@@ -10,7 +10,7 @@
       "tags": ["skill.tag.sample_melee"],
       "cast_time": 0,
       "cost": [{ "power_type": "arch.power.mana", "amount": 10 }],
-      "respects_gcd": true,
+      "respects_gcd": false,
       "target_shape_ref": "target.chain.sample_nearest_enemy",
       "effects": [
         {
@@ -44,7 +44,7 @@
       "tags": ["skill.tag.sample_ranged"],
       "cast_time": 0,
       "cost": [{ "power_type": "arch.power.mana", "amount": 10 }],
-      "respects_gcd": true,
+      "respects_gcd": false,
       "target_shape_ref": "target.chain.sample_nearest_enemy",
       "effects": [
         {

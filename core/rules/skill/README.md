@@ -898,6 +898,56 @@ skill/
     效果原语，未改动 `architecture/06_规则层_属性技能战斗AI.md`（其 2026-09-14 修订段已预先描述
     本任务落地的契约，属既有文档，本任务不重复修订）。
 
+52. **T-N3-5（[ADR-0031](../../../architecture/adr/0031-技能数值契约与预算.md) 决策 10；06 第
+    3.1/3.6 节 2026-09-14 修订段；13 新游戏接入指南"公共冷却与节拍锁"行；分阶段落地计划第 14 节
+    N3 任务表第五行）：`CastPipeline.ComputeCastTime` 接入急速策略项（缩短动作时长）与下限；04 第
+    5 节"无时间成本"新增警告规则。**急速折算**：`SkillOptions` 新增 `HasteAffectsActionTime`
+    （bool，缺省 `false`，硬性规则"禁止默认开启急速缩短"）、`HasteStat`（`Id?`，急速属性的
+    `stat.definition` id，缺省 `null`）、`MinActionSeconds`（double，缺省 0，动作时长下限，见
+    `SkillOptions.MinActionSeconds` 判断记录"下限只夹住急速造成的缩短"）、`MaxHastePct`（double，
+    缺省 100，急速硬上限，占位式合理起点，不代表任何产品决策）。`ComputeCastTime` 在
+    `HasteAffectsActionTime` 与 `HasteStat` 均满足、且本实例经新增十五参数 `CastPipeline` 构造函数
+    重载接到了 `IStatHost`（`SkillHost` 已改为传自己已持有的同一个 `statHost`）三个条件同时成立时，
+    读取 `IStatHost.GetStat(casterId, HasteStat)` 的最终值——按"百分比数值"解释（如 20 表示
+    20%，与 `Core.Rules.Combat.CombatOptions.DamageDonePctStat` 等既有百分比属性同一惯例，`/100`
+    换算），先夹到 `[0, MaxHastePct]`（负值——理论上的"减速"——本任务不处理，按 0），公式
+    `castTime / (1 + haste% / 100)`；折算结果再与 `MinActionSeconds` 取较大值，但仅当
+    `haste > 0`（确实发生了缩短）才套用下限——`haste <= 0`（属性值为 0、施法者未在 `IStatHost`
+    注册、或 `HasteStat` 未登记）直接返回未折算原值，不受下限影响，避免 authoring 本就低于下限的
+    技能被本策略项意外拉长（见 `ComputeCastTime`/`ReadHastePercent` 判断记录，属**契约疑点，上报，
+    待设计层确认**：06 原文"下限"语境只说"急速能把动作时长压多低"，未明确是否也约束未受急速影响的
+    技能，本任务按"只夹缩短"临时判定）。三个条件任一不满足（默认状态、旧构造函数调用方）
+    `ComputeCastTime` 逐位不变，回归验证见测试"Haste_DisabledByDefault_CastTimeUnaffected_
+    Regression"/"Haste_EnabledButHasteStatNotConfigured_CastTimeUnaffected"。
+    <br/><br/>
+    **无时间成本警告**：新增 `SkillNoTimeCostWarningRule`（`core/rules/skill/schema/
+    SkillValidationRules.cs`，检查名 `skill_no_time_cost`——**契约疑点（上报，待设计层确认）**：04
+    第 5 节该表同组其余行均标注"检查名 xxx"，唯独"无时间成本"一行未给出，本任务临时判定；
+    `NonEscalatable = true`，数值类警告惯例）。判定条件严格对齐 04/06 原文"主动技能 `cast_time` 为
+    零且 `respects_gcd` 为真（未声明为反应类）"——只有这两个并列条件，不涉及冷却/消耗/是否占节拍
+    （早先任务书草稿的宽泛表述"无 cast_time 且不占节拍/无冷却/无消耗"以架构原文为准收窄）；额外按
+    06 §3.1 `cast_time`/`channel_time` 互斥语义补充：`channel_time` 非零（纯引导技能）不受本规则
+    约束，避免误报合法的纯引导技能。已在 `core/rules/assembly/RulesSchemaCatalog.cs` 注册。
+    <br/><br/>
+    **样例数据调整**：`data/_sample/skill/skill.def.json` 的 `skill.sample_strike`/
+    `skill.sample_bolt`（`cast_time: 0`、原 `respects_gcd: true`）在新规则下命中警告，改为
+    `respects_gcd: false`（声明为反应类）以消除警告，不放宽规则本身——经查证 `ReplayWorldBuilder`/
+    `core/rules/tests/Integration/FightWorldBuilder.cs` 均使用各自独立内联的技能定义（不读
+    `data/_sample`），全仓库无 `GcdEnabled = true` 的既有测试，且两个样例本身 `cast_time: 0`（瞬发，
+    不写入 `_casting`），故本次调整不影响任何既有测试行为与 Replay/Perf 基线（已验证 `Replay`
+    12+2+10 例与全量 `Tests.*` 回归绿）。样例的进一步系统性调整留给 T-N3-11（任务书原定"T-N3-11 会
+    调整 `cast_time: 0` 样例"）。
+    <br/><br/>
+    测试：`core/rules/skill/tests/T_N3_5_HasteAndNoTimeCostWarningTests.cs`（急速缩短基础公式 1
+    例、硬上限夹取 1 例、下限夹取 1 例、haste=0 不套用下限 1 例、默认关闭回归 1 例、开启但未配置
+    `HasteStat` 回归 1 例，共 6 例；无时间成本警告正例 1、负例 4——非零 `cast_time`/反应类/引导技能
+    /被动技能各 1，共 5 例；合计 11 例）。全量 `Tests.Rules`（709 例，含新增 11 例）/`Replay`
+    （12+2+10 例）回归全绿，`Replay` 基线零改动（`ReplayWorldBuilder` 独立内联夹具不受影响）。ABI
+    探针（基线 1.32.0）breaks=0，新增 9 行（`CastPipeline` 一个新构造函数重载、`SkillOptions` 四个
+    新属性、`SkillNoTimeCostWarningRule` 新类型 4 行，其余 17 行为 T-N3-1～T-N3-4 既有新增，非本
+    任务引入）。不新增任何效果原语，未改动 `architecture/06_规则层_属性技能战斗AI.md`/
+    `architecture/04_数据与内容管线.md`（两者 2026-09-14 修订段已预先描述本任务落地的契约）。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：
