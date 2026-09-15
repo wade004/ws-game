@@ -19,9 +19,9 @@ Item——物品模板字段（`item.template` 及五张配套表）、背包 `I
 ```
 item/
   README.md
-  schema/README.md         六张 item.* 表的字段说明与判断记录
+  schema/README.md         九张 item.* 表的字段说明与判断记录（T-N2-1 起：六张既有表 + 三条新曲线表）
   contracts/
-    ItemSchemas.cs          六张表的 TableSchema 声明
+    ItemSchemas.cs          九张表的 TableSchema 声明
     ItemOptions.cs           InventoryOptions/InventoryFullPolicy/ItemOptions
     SkillGranter.cs           装备联动"学习/遗忘技能"的具名委托（ISkillHost 契约缺口绕过）
     WeaponProfile.cs          EquipmentHost.GetWeaponProfile 的返回值类型
@@ -31,7 +31,7 @@ item/
     EquipmentHost.cs            IEquipmentHost 实现（穿脱联动本体）
     ItemEffectExtension.cs      IEffectExtension 实现：create_item
     ItemBudgetCurve.cs          budget_curve 线性插值 + 预算消耗量计算
-    ItemValidationRules.cs      预算超标/武器槽/套装归属/堆叠数四条 IValidationRule
+    ItemValidationRules.cs      预算超标/武器槽/套装归属/堆叠数/授权重复/品质倍率顺序六条 IValidationRule
     ItemInstanceJson.cs         ItemInstance ↔ JSON（两个存档段共用）
     ItemPersistable.cs           InventoryPersistable + EquipmentPersistable
     InMemoryItemDiagnostics.cs
@@ -50,7 +50,9 @@ item/
 ## 数据表清单
 
 见 `schema/README.md`：`item.template`、`item.slot_definition`、`item.quality_definition`、
-`item.budget_curve`、`item.set`、`item.affix`（扩展位，只登记 schema 不实现）。
+`item.budget_curve`、`item.set`、`item.affix`（扩展位，只登记 schema 不实现）；T-N2-1（ADR-0032）
+新增 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve` 三条曲线表（只登记 schema
+与 `curve_monotonic_finite` 校验，消费实现随后续任务落地）。
 
 ## 设计要点与判断记录
 
@@ -242,6 +244,25 @@ item/
     的根治，本类自身的"先校验后提交"是第一层，不能只靠 `SaveSystem`/事件抑制兜底。见
     `Tests.Carriers.Item.CORE_170_03_EquipmentPersistableLoadFailureTests`、`Tests.Gameplay.
     Assembly.CORE_170_03_SaveRollbackEventSuppressionTests`。
+
+16. **T-N2-1（分阶段落地计划、ADR-0032）：槽位/品质/模板新字段、`stat_roll_ref` 改兼容位、三条新
+    曲线表登记，只登记 schema、不接消费实现**——本任务范围严格限定在"字段与表登记 + 品质倍率顺序
+    阻断校验"，不改动 `ItemBudgetCurve.SumConsumed`/`EquipmentHost.GetWeaponBaseDamage`/
+    `TryGetRequiredLevel` 等既有运行时公式（消耗侧权重/指数 k、护甲/武器秒伤求值、需求等级反推、
+    授予预算校验分别留给 T-N2-4/T-N2-6/T-N2-9）。新增 `ItemQualityMultiplierOrderRule`
+    （check 名 `item_quality_multiplier_order`）：按 `sort_weight` 升序分组比较
+    `budget_multiplier`/`price_multiplier`，组内并列不比较、跨组不递减——04 第 5 节"品质倍率顺序"
+    一行未给出具体检查名，本名称按任务书"04 §5 或 `item_quality_*` 前缀"取值，**上报待设计层确认**。
+    三条新曲线表（`item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve`）复用 T-N0-1
+    的 `CurveSchema.BreakpointsField`（横轴 `CurveAxis.ItemLevel`），新表无需迁移链，`entries` 自动
+    受 T-N0-3 的 `curve_monotonic_finite` 通用规则约束，不为本模块单开曲线专属校验。
+    `item.quality_definition.grant_budget_share`/`price_multiplier` 是否必填、缺省值取多少，
+    ADR-0032 决策 2 原文未明确（只对 `affix_count` 标"可选"）——按既有 `budget_multiplier` 同类字段
+    口径类推（`required: false`，倍率类缺省 1、占比类缺省 0），**上报待设计层确认**，见
+    `schema/README.md`"品质定义"小节判断记录与 `ItemSchemas.QualityDefinition` 类型顶部注释。见
+    `core/carriers/item/tests/ItemSchemaCoverageTests.cs`（17 条新增用例：三条新曲线表命中/缺必填/
+    范围越界、槽位/品质/模板新字段命中/范围越界）、`ItemValidationRulesTests.cs`（品质倍率顺序正例/
+    负例/并列不比较 3 条）。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

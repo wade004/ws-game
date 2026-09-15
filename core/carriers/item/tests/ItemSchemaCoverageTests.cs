@@ -32,6 +32,9 @@ namespace Tests.Carriers.Item
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ArmorCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.WeaponDpsCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ReqLevelCurve);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
             registry.RegisterSchema(StatDefinitionSchema());
@@ -266,6 +269,228 @@ namespace Tests.Carriers.Item
 
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "entries[0].y");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-1（ADR-0032）：item.armor_curve/item.weapon_dps_curve/item.req_level_curve 三条新
+        // 曲线表——命中 + 缺必填/范围越界坏形状
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ArmorCurveEntries_WellFormed_LoadsWithoutErrors()
+        {
+            var rows = "[{\"id\":\"item.armor.cov_sample\",\"entries\":[{\"x\":1,\"y\":5},{\"x\":10,\"y\":50}]}]";
+
+            var source = BaseSource().Add("item.armor_curve", Envelope("item.armor_curve", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void ArmorCurveEntries_MissingY_ReportsRequiredField()
+        {
+            var rows = "[{\"id\":\"item.armor.cov_bad\",\"entries\":[{\"x\":1}]}]";
+
+            var source = BaseSource().Add("item.armor_curve", Envelope("item.armor_curve", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "required_field" && i.Field == "entries[0].y");
+        }
+
+        [Fact]
+        public void WeaponDpsCurveEntries_WellFormed_LoadsWithoutErrors()
+        {
+            var rows = "[{\"id\":\"item.weapon_dps.cov_sample\",\"entries\":[{\"x\":1,\"y\":4},{\"x\":10,\"y\":20}]}]";
+
+            var source = BaseSource().Add("item.weapon_dps_curve", Envelope("item.weapon_dps_curve", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void WeaponDpsCurveEntries_NonPositiveY_ReportsFieldRange()
+        {
+            // y 登记 > 0（武器秒伤须为正数，见 ItemSchemas.WeaponDpsCurve 判断记录）。
+            var rows = "[{\"id\":\"item.weapon_dps.cov_bad\",\"entries\":[{\"x\":1,\"y\":0}]}]";
+
+            var source = BaseSource().Add("item.weapon_dps_curve", Envelope("item.weapon_dps_curve", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "entries[0].y");
+        }
+
+        [Fact]
+        public void ReqLevelCurveEntries_WellFormed_LoadsWithoutErrors()
+        {
+            var rows = "[{\"id\":\"item.req_level.cov_sample\",\"entries\":[{\"x\":1,\"y\":1},{\"x\":60,\"y\":60}]}]";
+
+            var source = BaseSource().Add("item.req_level_curve", Envelope("item.req_level_curve", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void ReqLevelCurveEntries_NegativeY_ReportsFieldRange()
+        {
+            // y 登记 >= 0（需求等级不可为负，见 ItemSchemas.ReqLevelCurve 判断记录）。
+            var rows = "[{\"id\":\"item.req_level.cov_bad\",\"entries\":[{\"x\":1,\"y\":-1}]}]";
+
+            var source = BaseSource().Add("item.req_level_curve", Envelope("item.req_level_curve", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "entries[0].y");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-1（ADR-0032 决策 1）：item.slot_definition.budget_coefficient/price_coefficient
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void SlotDefinition_BudgetPriceCoefficient_WellFormed_LoadsWithoutErrors()
+        {
+            var slotRows = "[{\"id\":\"item.slot.cov_coef_ok\",\"name_key\":\"l10n.slot.cov_coef_ok\"," +
+                "\"budget_coefficient\":0.75,\"price_coefficient\":0.5}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition", slotRows))
+                .Add("item.quality_definition", Envelope("item.quality_definition",
+                    "[{\"id\":\"item.quality.cov_sample\",\"name_key\":\"l10n.quality.cov_sample\"}]"));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void SlotDefinition_BudgetCoefficientZero_ReportsFieldRange()
+        {
+            // budget_coefficient 登记 > 0（不含 0，见 ItemSchemas.SlotDefinition 判断记录）。
+            var slotRows = "[{\"id\":\"item.slot.cov_coef_bad\",\"name_key\":\"l10n.slot.cov_coef_bad\"," +
+                "\"budget_coefficient\":0}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition", slotRows))
+                .Add("item.quality_definition", Envelope("item.quality_definition",
+                    "[{\"id\":\"item.quality.cov_sample\",\"name_key\":\"l10n.quality.cov_sample\"}]"));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "budget_coefficient");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-1（ADR-0032 决策 2）：item.quality_definition.affix_count/grant_budget_share/
+        // price_multiplier
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void QualityDefinition_NewFields_WellFormed_LoadsWithoutErrors()
+        {
+            var qualityRows = "[{\"id\":\"item.quality.cov_new_ok\",\"name_key\":\"l10n.quality.cov_new_ok\"," +
+                "\"affix_count\":2,\"grant_budget_share\":0.3,\"price_multiplier\":1.2}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition",
+                    "[{\"id\":\"item.slot.cov_sample\",\"name_key\":\"l10n.slot.cov_sample\"}]"))
+                .Add("item.quality_definition", Envelope("item.quality_definition", qualityRows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void QualityDefinition_GrantBudgetShareAboveOne_ReportsFieldRange()
+        {
+            // grant_budget_share 登记 [0,1]（占比不得超过一，见 ItemSchemas.QualityDefinition 判断记录）。
+            var qualityRows = "[{\"id\":\"item.quality.cov_share_bad\",\"name_key\":\"l10n.quality.cov_share_bad\"," +
+                "\"grant_budget_share\":1.5}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition",
+                    "[{\"id\":\"item.slot.cov_sample\",\"name_key\":\"l10n.slot.cov_sample\"}]"))
+                .Add("item.quality_definition", Envelope("item.quality_definition", qualityRows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "grant_budget_share");
+        }
+
+        [Fact]
+        public void QualityDefinition_AffixCountNegative_ReportsFieldRange()
+        {
+            // affix_count 登记 >= 0，见 ItemSchemas.QualityDefinition 判断记录。
+            var qualityRows = "[{\"id\":\"item.quality.cov_affix_bad\",\"name_key\":\"l10n.quality.cov_affix_bad\"," +
+                "\"affix_count\":-1}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition",
+                    "[{\"id\":\"item.slot.cov_sample\",\"name_key\":\"l10n.slot.cov_sample\"}]"))
+                .Add("item.quality_definition", Envelope("item.quality_definition", qualityRows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "affix_count");
+        }
+
+        // -----------------------------------------------------------------
+        // T-N2-1（ADR-0032）：item.template.value_override/budget_note
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ValueOverride_WellFormed_LoadsWithoutErrors()
+        {
+            var rows = TemplateRow("item.cov_value_override_ok", "item.slot.cov_sample", "item.quality.cov_sample",
+                "\"value_override\":25.5");
+
+            var source = BaseSource().Add("item.template", Envelope("item.template", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void ValueOverride_Negative_ReportsFieldRange()
+        {
+            // value_override 登记 >= 0（基准价值不可为负，见 ItemSchemas.Template 判断记录）。
+            var rows = TemplateRow("item.cov_value_override_bad", "item.slot.cov_sample", "item.quality.cov_sample",
+                "\"value_override\":-1");
+
+            var source = BaseSource().Add("item.template", Envelope("item.template", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "value_override");
+        }
+
+        [Fact]
+        public void BudgetNote_WellFormed_LoadsWithoutErrors()
+        {
+            var rows = TemplateRow("item.cov_budget_note_ok", "item.slot.cov_sample", "item.quality.cov_sample",
+                "\"budget_note\":\"超模说明样例\"");
+
+            var source = BaseSource().Add("item.template", Envelope("item.template", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
         private static string SampleSkillDefRow(string id) =>

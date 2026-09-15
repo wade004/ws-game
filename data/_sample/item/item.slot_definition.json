@@ -7,14 +7,18 @@
       "name_key": "l10n.item.slot.sample_main_hand.name",
       "sort_weight": 1,
       "is_weapon": true,
-      "is_equipment": true
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0
     },
     {
       "id": "item.slot.sample_bag",
       "name_key": "l10n.item.slot.sample_bag.name",
       "sort_weight": 90,
       "is_weapon": false,
-      "is_equipment": false
+      "is_equipment": false,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0
     }
   ]
 }

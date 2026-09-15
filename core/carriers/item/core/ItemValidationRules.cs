@@ -294,4 +294,96 @@ namespace Core.Carriers.Item
             }
         }
     }
+
+    /// <summary>
+    /// 品质倍率顺序校验（分阶段落地计划 T-N2-1；ADR-0032 决策 2"品质倍率的大小顺序必须与排序权重
+    /// 一致（阻断校验）"；04 第 5 节数值类校验项分级表"品质倍率顺序"行："item.quality_definition
+    /// 的预算倍率与价格倍率大小顺序与排序权重一致"）。
+    /// <para>
+    /// 判断记录（检查名）：04 第 5 节该行未像同表其余阻断项那样给出具体检查名（对照"曲线单调有限"→
+    /// <c>curve_monotonic_finite</c>、"派生无环"→<c>stat_definition_derivation_cycle</c> 等均括号
+    /// 注明检查名，本行没有）。按任务书"检查名按 04 §5 或 item_quality_* 前缀，标注待确认"取
+    /// <c>item_quality_multiplier_order</c>，上报待设计层确认，见本任务汇报"契约疑点"一节。
+    /// </para>
+    /// <para>
+    /// 判断记录（"顺序一致"的操作化定义、并列取值的处理）：契约原文"大小顺序须与排序权重一致"未展开
+    /// 到"严格递增"还是"不递减"、"sort_weight 相等时如何处理"两个细节。本规则按 <c>sort_weight</c>
+    /// 升序分组（同 <see cref="ItemQualityMultiplierOrderRule"/> 命名同义），组内 <c>sort_weight</c>
+    /// 相同的记录彼此不比较（并列品质的相对顺序未定义，不应被本规则强行约束），但整组的取值必须
+    /// >= 所有更低 <c>sort_weight</c> 分组已出现过的最大值——即"不递减"而非"严格递增"，与 04 第 3.6
+    /// 节曲线单调校验"纵轴不递减（允许平台段）"同一处理口径，允许两档品质倍率相同（如两档都是
+    /// <c>budget_multiplier: 1</c>）。<c>budget_multiplier</c>/<c>price_multiplier</c> 缺省值分别为
+    /// 1（既有/本次新增字段缺省，见 <see cref="ItemSchemas.QualityDefinition"/>），未显式填写的记录
+    /// 按缺省值参与比较。
+    /// </para>
+    /// </summary>
+    public sealed class ItemQualityMultiplierOrderRule : IValidationRule
+    {
+        public const string Check = "item_quality_multiplier_order";
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            var records = new List<DataRecord>(view.GetAll("item.quality_definition"));
+            if (records.Count == 0)
+            {
+                yield break;
+            }
+
+            // 按 sort_weight 升序、同权重按 Key 稳定排序，保证多次运行结果确定。
+            records.Sort((a, b) =>
+            {
+                var wa = a.TryGetInt("sort_weight", out var sa) ? sa : 0;
+                var wb = b.TryGetInt("sort_weight", out var sb) ? sb : 0;
+                var cmp = wa.CompareTo(wb);
+                return cmp != 0 ? cmp : string.CompareOrdinal(a.Key, b.Key);
+            });
+
+            foreach (var issue in CheckField(records, "budget_multiplier"))
+            {
+                yield return issue;
+            }
+            foreach (var issue in CheckField(records, "price_multiplier"))
+            {
+                yield return issue;
+            }
+        }
+
+        private static IEnumerable<ValidationIssue> CheckField(List<DataRecord> sortedRecords, string field)
+        {
+            var groupMax = double.NegativeInfinity;
+            var previousWeight = long.MinValue;
+            var runningMaxBeforeGroup = double.NegativeInfinity;
+            var hasPrevious = false;
+
+            foreach (var record in sortedRecords)
+            {
+                var weight = record.TryGetInt("sort_weight", out var w) ? w : 0;
+                var value = record.TryGetNumber(field, out var v) ? v : 1.0;
+
+                if (hasPrevious && weight != previousWeight)
+                {
+                    // 分组切换：把上一分组的最大值并入"更低 sort_weight 已出现过的最大值"基线。
+                    runningMaxBeforeGroup = groupMax;
+                    groupMax = double.NegativeInfinity;
+                }
+
+                if (value < runningMaxBeforeGroup)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, "item.quality_definition", Check,
+                        $"{field} ({value:0.###}) 低于更低 sort_weight 分档已出现的最大值 " +
+                        $"({runningMaxBeforeGroup:0.###})：品质倍率大小顺序须与排序权重一致（ADR-0032 决策 2）",
+                        recordKey: record.Key, field: field);
+                }
+
+                if (value > groupMax)
+                {
+                    groupMax = value;
+                }
+
+                previousWeight = weight;
+                hasPrevious = true;
+            }
+        }
+    }
 }

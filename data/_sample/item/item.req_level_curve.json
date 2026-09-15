@@ -1,0 +1,14 @@
+{
+  "table": "item.req_level_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.req_level.default",
+      "entries": [
+        { "x": 1, "y": 1 },
+        { "x": 10, "y": 10 },
+        { "x": 60, "y": 60 }
+      ]
+    }
+  ]
+}

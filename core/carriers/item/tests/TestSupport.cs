@@ -9,7 +9,8 @@ using Core.Rules.Common;
 namespace Tests.Carriers.Item
 {
     /// <summary>本模块测试共用夹具：事件总线（登记四个 item.* 事件 key）、DataRegistry 构造帮助
-    /// 方法（注册六张 item.* schema + stat.definition）、<see cref="IEffectSink"/>/<see
+    /// 方法（注册九张 item.* schema——T-N2-1 起含 <c>armor_curve</c>/<c>weapon_dps_curve</c>/
+    /// <c>req_level_curve</c> 三条新曲线表 + stat.definition）、<see cref="IEffectSink"/>/<see
     /// cref="IUnitAccess"/> 的测试假实现、记录型 <see cref="Core.Carriers.Item.SkillGranter"/>。</summary>
     internal static class TestSupport
     {
@@ -58,6 +59,10 @@ namespace Tests.Carriers.Item
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            // T-N2-1（ADR-0032 决策 4/5）：护甲/武器秒伤/需求等级三条新曲线表，登记同 BudgetCurve。
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ArmorCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.WeaponDpsCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ReqLevelCurve);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
             registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);

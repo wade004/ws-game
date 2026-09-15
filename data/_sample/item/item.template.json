@@ -14,7 +14,8 @@
       "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
       "display_ref": "display.map.sample_blade",
       "stack_size": 1,
-      "name_key": "l10n.item.sample_blade.name"
+      "name_key": "l10n.item.sample_blade.name",
+      "value_override": 25
     },
     {
       "id": "item.sample_model_sword",
@@ -28,7 +29,8 @@
       "weapon_profile": { "damage_min": 3, "damage_max": 6, "speed": 1.5, "weapon_school": "school.physical" },
       "display_ref": "display.map.sample_model_sword",
       "stack_size": 1,
-      "name_key": "l10n.item.sample_model_sword.name"
+      "name_key": "l10n.item.sample_model_sword.name",
+      "budget_note": "样例：预算利用率偏低为演示数据，非超模说明"
     },
     {
       "id": "item.sample_tonic",

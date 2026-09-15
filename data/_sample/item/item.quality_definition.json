@@ -6,13 +6,19 @@
       "id": "item.quality.sample_common",
       "name_key": "l10n.item.quality.sample_common.name",
       "sort_weight": 1,
-      "budget_multiplier": 1.0
+      "budget_multiplier": 1.0,
+      "affix_count": 2,
+      "grant_budget_share": 0.0,
+      "price_multiplier": 1.0
     },
     {
       "id": "item.quality.sample_rare",
       "name_key": "l10n.item.quality.sample_rare.name",
       "sort_weight": 2,
-      "budget_multiplier": 1.5
+      "budget_multiplier": 1.5,
+      "affix_count": 3,
+      "grant_budget_share": 0.2,
+      "price_multiplier": 1.5
     }
   ]
 }

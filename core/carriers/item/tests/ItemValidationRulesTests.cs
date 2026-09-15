@@ -335,5 +335,71 @@ namespace Tests.Carriers.Item
 
             Assert.Empty(issues);
         }
+
+        // -----------------------------------------------------------------
+        // T-N2-1（ADR-0032 决策 2）：品质倍率顺序须与 sort_weight 一致
+        // -----------------------------------------------------------------
+
+        private static IDataRegistryView BuildQualityView(string qualityJson)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", qualityJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+            });
+        }
+
+        [Fact]
+        public void QualityMultiplierOrderRule_IncreasingWithSortWeight_NoIssue()
+        {
+            var view = BuildQualityView(
+                "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 1.0, \"price_multiplier\": 1.0}," +
+                "{\"id\": \"item.quality.rare\", \"name_key\": \"l10n.item.quality.rare\", \"sort_weight\": 2," +
+                " \"budget_multiplier\": 1.5, \"price_multiplier\": 1.5}," +
+                "{\"id\": \"item.quality.epic\", \"name_key\": \"l10n.item.quality.epic\", \"sort_weight\": 3," +
+                " \"budget_multiplier\": 1.5, \"price_multiplier\": 2.0}]");
+
+            var issues = new ItemQualityMultiplierOrderRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void QualityMultiplierOrderRule_DecreasingBudgetMultiplier_ReportsError()
+        {
+            // sort_weight 2 的品质 budget_multiplier（0.8）低于 sort_weight 1 已出现的最大值（1.0），
+            // 顺序与排序权重不一致（ADR-0032 决策 2）。
+            var view = BuildQualityView(
+                "[{\"id\": \"item.quality.common\", \"name_key\": \"l10n.item.quality.common\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 1.0, \"price_multiplier\": 1.0}," +
+                "{\"id\": \"item.quality.rare\", \"name_key\": \"l10n.item.quality.rare\", \"sort_weight\": 2," +
+                " \"budget_multiplier\": 0.8, \"price_multiplier\": 1.5}]");
+
+            var issues = new ItemQualityMultiplierOrderRule().Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemQualityMultiplierOrderRule.Check, issue.Check);
+            Assert.Equal("budget_multiplier", issue.Field);
+            Assert.Equal("item.quality.rare", issue.RecordKey);
+        }
+
+        [Fact]
+        public void QualityMultiplierOrderRule_SameSortWeightDifferentMultiplier_NoIssue()
+        {
+            // 并列 sort_weight 的两个品质彼此不比较（相对顺序未定义，见类型判断记录）。
+            var view = BuildQualityView(
+                "[{\"id\": \"item.quality.side_a\", \"name_key\": \"l10n.item.quality.side_a\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 1.2, \"price_multiplier\": 1.0}," +
+                "{\"id\": \"item.quality.side_b\", \"name_key\": \"l10n.item.quality.side_b\", \"sort_weight\": 1," +
+                " \"budget_multiplier\": 0.8, \"price_multiplier\": 1.0}]");
+
+            var issues = new ItemQualityMultiplierOrderRule().Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
     }
 }

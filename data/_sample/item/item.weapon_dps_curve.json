@@ -1,0 +1,14 @@
+{
+  "table": "item.weapon_dps_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.weapon_dps.default",
+      "entries": [
+        { "x": 1, "y": 4 },
+        { "x": 10, "y": 20 },
+        { "x": 60, "y": 120 }
+      ]
+    }
+  ]
+}

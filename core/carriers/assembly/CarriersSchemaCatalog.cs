@@ -60,6 +60,10 @@ namespace Core.Carriers.Assembly
             registry.RegisterSchema(ItemSchemas.SlotDefinition);
             registry.RegisterSchema(ItemSchemas.QualityDefinition);
             registry.RegisterSchema(ItemSchemas.BudgetCurve);
+            // T-N2-1（ADR-0032 决策 4/5）：护甲/武器秒伤/需求等级三条新曲线表，登记与注册同 BudgetCurve。
+            registry.RegisterSchema(ItemSchemas.ArmorCurve);
+            registry.RegisterSchema(ItemSchemas.WeaponDpsCurve);
+            registry.RegisterSchema(ItemSchemas.ReqLevelCurve);
             registry.RegisterSchema(ItemSchemas.Set);
             registry.RegisterSchema(ItemSchemas.Affix);
 
@@ -70,6 +74,9 @@ namespace Core.Carriers.Assembly
             // 相邻缺口根治（第五轮外部审核 audit-5e779c6-20260907，WA 报告"需要说明的取舍"第 3 条）：
             // grants.auras 同一物品内重复登记同一个 aura_def，见 ItemGrantsAurasDuplicateRule 判断记录。
             registry.RegisterValidationRule(new ItemGrantsAurasDuplicateRule());
+            // T-N2-1（ADR-0032 决策 2；04 第 5 节"品质倍率顺序"阻断校验）：budget_multiplier/
+            // price_multiplier 大小顺序须与 sort_weight 一致，见 ItemQualityMultiplierOrderRule 判断记录。
+            registry.RegisterValidationRule(new ItemQualityMultiplierOrderRule());
 
             // item.template.slot/quality/set_id 三个字段已在 ItemSchemas.Template 声明为
             // FieldKind.Reference，data_registry 内置 reference_integrity 校验自动生效，不需要本类

@@ -227,11 +227,23 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   T-N0-2 起的 `rules[].non_escalatable` 字段），本规则天然落入同一渲染分组，不需要新增前端
   分支；若编辑器给"属性详情"面板加"谁在引用我"反查视图，本规则的扫描逻辑（全部已注册表的
   `Reference`/`SoftReference`/`Map` 键引用字段）可直接复用同一份实现思路。
+- **数值设计落地阶段 N2 · T-N2-1（Unreleased）**：`item.slot_definition`/`item.quality_definition`/
+  `item.template` 三张既有表新增字段（`budget_coefficient`/`price_coefficient`；`affix_count`/
+  `grant_budget_share`/`price_multiplier`；`value_override`/`budget_note`），`stat_roll_ref`
+  描述改为兼容位；新表 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve`（断点表
+  曲线，横轴 `CurveAxis.ItemLevel`，形态与既有 `item.budget_curve` 一致）。新校验规则
+  `ItemQualityMultiplierOrderRule`（检查名 `item_quality_multiplier_order`）出现在
+  `toolchain/validator --json`/`--list-tables --json` 的 `rules[]` 里；编辑器品质编辑界面若提供
+  `budget_multiplier`/`price_multiplier` 输入控件，应据 `sort_weight` 实时提示顺序冲突（同校验
+  逻辑：按排序权重分组，跨组不得递减）。`toolchain/validator --list-tables --json` 对三条新曲线
+  表的 `field_meta.curve` 输出 `{shape: "breakpoints", axis: "item_level"}`（复用既有导出结构，
+  不新增字段）。
 
 ## [Unreleased]
 
 新增 `toolchain/unity_test_triage.py`：Unity EditMode/PlayMode 测试结果分诊脚本，从 NUnit3 结果 XML 与 Unity 日志里抽出失败用例的执行窗口、窗口内首个异常/断言（并提醒 NUnit message 只是最后一次异常）与 Warning/Error 摘要；已接入 `check.ps1` 失败分支自动调用（排查复盘 2026-09-15-PlayMode-PRES180）。
 新增 Unity 测试程序集内的 `[TestFirstChance]` 首个异常记录回调：测试运行期把每个断言/未预期日志异常的第一现场打进 Unity 日志，与上条分诊脚本配套，弥补 Unity 批处理日志不打印用例边界与异常发生时机的已知限制。
+数值设计落地阶段 N2 · T-N2-1（ADR-0032 决策 1/2/4/5）：`item.slot_definition` 新增 `budget_coefficient`/`price_coefficient`；`item.quality_definition` 新增 `affix_count`（可选）/`grant_budget_share`/`price_multiplier`，`budget_multiplier`/`price_multiplier` 大小顺序须与 `sort_weight` 一致（新校验规则 `ItemQualityMultiplierOrderRule`，检查名 `item_quality_multiplier_order`）；`item.template` 新增 `value_override`/`budget_note`，`stat_roll_ref` 描述改为"由 `item.affix` 取代的兼容位"；新表 `item.armor_curve`/`item.weapon_dps_curve`/`item.req_level_curve`（物品等级→护甲值/武器秒伤/需求等级的断点表曲线，复用 `CurveSchema.BreakpointsField`，横轴 `CurveAxis.ItemLevel`，自动受 `curve_monotonic_finite` 约束）。本任务只登记 schema/注册/品质倍率顺序校验，消耗公式/护甲武器秒伤求值/需求等级反推等运行时消费实现留给后续任务（T-N2-4/6/9）。
 
 ### 修复
 
