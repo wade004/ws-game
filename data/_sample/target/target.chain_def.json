@@ -23,6 +23,32 @@
       "sort_by": { "key": "distance", "direction": "asc" },
       "max_targets": 3,
       "overflow_policy": "split"
+    },
+    {
+      "id": "target.chain.sample_cone_enemies",
+      "source": "all_in_shape",
+      "shape": { "kind": "cone", "angle": 60, "radius": 20 },
+      "filters": ["relation:hostile", "alive"],
+      "sort_by": { "key": "distance", "direction": "asc" },
+      "max_targets": 2,
+      "overflow_policy": "truncate"
+    },
+    {
+      "id": "target.chain.sample_line_enemies",
+      "source": "all_in_shape",
+      "shape": { "kind": "line", "length": 25, "width": 4 },
+      "filters": ["relation:hostile", "alive"],
+      "sort_by": { "key": "distance", "direction": "asc" },
+      "max_targets": 2,
+      "overflow_policy": "cap"
+    },
+    {
+      "id": "target.chain.sample_nearest_object",
+      "source": "nearest_in_shape",
+      "shape": { "kind": "circle", "radius": 5 },
+      "filters": ["tag:skill.tag.sample_object"],
+      "sort_by": { "key": "distance", "direction": "asc" },
+      "max_targets": 1
     }
   ]
 }

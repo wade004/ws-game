@@ -72,6 +72,14 @@ EXPECTED_DISPLAY_ROWS = {
     "display.map.sample_chestplate": ("item.sample_chestplate", "item"),
     "display.map.sample_boots": ("item.sample_boots", "item"),
     "display.map.sample_ring": ("item.sample_ring", "item"),
+    # T-N3-11（数值设计落地阶段 N3 样例充实）：skill.def 新增 4 条技能（sample_rest/
+    # sample_lockpick/sample_burst/sample_parry）同样各需一条 display.map 覆盖行才能满足
+    # DisplayMapCoverageRule；复用 sprite.item.sample_blade 精灵集，不新增素材，同上面
+    # skill/aura 补齐行同一惯例。
+    "display.map.sample_rest": ("skill.sample_rest", "skill"),
+    "display.map.sample_lockpick": ("skill.sample_lockpick", "skill"),
+    "display.map.sample_burst": ("skill.sample_burst", "skill"),
+    "display.map.sample_parry": ("skill.sample_parry", "skill"),
 }
 
 

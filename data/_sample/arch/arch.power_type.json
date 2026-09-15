@@ -9,9 +9,10 @@
         "kind": "fixed",
         "value": 120
       },
+      "refill_on_leave_combat": true,
       "start_full": true,
       "override": true,
-      "description": "示例覆盖：演示 override 语义——本行整行替换 data/_framework 的 arch.power.health（固定上限 100），改成另一个固定值 120（T-N1-9：ADR-0030 决策 8「资源上限固定、回复速率派生」为推荐默认，撤回此前「改为随 stat.stamina 成长」的示例，改回固定值；仍保留 override:true 以继续演示行覆盖语义，只是覆盖后的值本身也是固定值而非引用属性）"
+      "description": "示例覆盖：演示 override 语义——本行整行替换 data/_framework 的 arch.power.health（固定上限 100），改成另一个固定值 120（T-N1-9：ADR-0030 决策 8「资源上限固定、回复速率派生」为推荐默认，撤回此前「改为随 stat.stamina 成长」的示例，改回固定值；仍保留 override:true 以继续演示行覆盖语义，只是覆盖后的值本身也是固定值而非引用属性）；T-N3-11：整行替换会连带丢失 data/_framework 那份的 refill_on_leave_combat:true（override 语义是整行替换，不是逐字段合并），本行需要显式重复声明才能保持06 第 4.5 节「脱战自动回满同样适用于生命……默认启用」这一策略在合并后的数据集里依旧生效"
     },
     {
       "id": "arch.power.sample_vigor",
@@ -21,7 +22,8 @@
         "stat": "stat.stamina"
       },
       "regen_out_of_combat": 2,
-      "refill_on_leave_combat": true
+      "refill_on_leave_combat": true,
+      "description": "回复型资源示例（06 第 2.2 节 2026-09-14 修订段「填充规则两种，职业选一种：回复型（起始满、匀速回复）、积累型（起始空、随战斗行为产出、脱战衰减清空）——两者都是既有字段的取值组合」）：start_full 缺省 true（起始满），regen_out_of_combat 脱战匀速回复，refill_on_leave_combat 脱战瞬间直接回满——与下方 arch.power.sample_fury（积累型）对照"
     },
     {
       "id": "arch.power.mana",
@@ -32,6 +34,20 @@
       },
       "regen_in_combat": 5,
       "regen_out_of_combat": 15
+    },
+    {
+      "id": "arch.power.sample_fury",
+      "name_key": "l10n.power.sample_fury.name",
+      "max_source": {
+        "kind": "fixed",
+        "value": 100
+      },
+      "regen_in_combat": 10,
+      "decay_out_of_combat": 50,
+      "refill_on_leave_combat": false,
+      "start_full": false,
+      "min": 0,
+      "description": "积累型资源示例（T-N3-11；06 第 2.2 节 2026-09-14 修订段「积累型（起始空、随战斗行为产出、脱战衰减清空）」；ADR-0031 决策 3）：start_full:false 起始空，regen_in_combat 战斗中随行为产出（真实游戏通常改由 energize 技能效果驱动，本样例用被动 regen_in_combat 代表同一约定字段组合），decay_out_of_combat 脱战后快速衰减清零（不设 refill_on_leave_combat，二者语义相反、不应同时声明），字段本身沿用既有 arch.power_type schema（regen_in_combat/decay_out_of_combat/start_full 均是 T-N3-11 之前已登记的既有字段，见 PowerSchemas.PowerType），未新增任何字段"
     }
   ]
 }

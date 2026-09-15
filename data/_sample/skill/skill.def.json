@@ -79,6 +79,88 @@
           "params": { "aura_def": "skill.aura_def.sample_fortify" }
         }
       ]
+    },
+    {
+      "id": "skill.sample_rest",
+      "school": "school.nature",
+      "kind": "active",
+      "range": 0,
+      "tags": ["skill.tag.sample_rest"],
+      "cast_time": 3.0,
+      "respects_gcd": true,
+      "use_condition": "not combat.in_combat",
+      "target_shape_ref": "target.chain.sample_self",
+      "effects": [
+        {
+          "kind": "heal",
+          "params": {
+            "base_curve_ref": "skill.base_curve.sample_level_curve",
+            "scaling": [
+              { "stat": "stat.stamina", "coefficient": 2.0 },
+              { "stat": "stat.intellect", "coefficient": 1.0 }
+            ],
+            "school": "school.nature"
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.sample_lockpick",
+      "school": "school.arcane",
+      "kind": "active",
+      "range": 5,
+      "tags": ["skill.tag.sample_utility"],
+      "cast_time": 1.5,
+      "cost": [{ "power_type": "arch.power.mana", "amount": 5 }],
+      "respects_gcd": true,
+      "use_condition": "target.has_tag(skill.tag.sample_object)",
+      "target_shape_ref": "target.chain.sample_nearest_object",
+      "effects": [{ "kind": "open_lock" }]
+    },
+    {
+      "id": "skill.sample_burst",
+      "school": "school.fire",
+      "kind": "active",
+      "range": 30,
+      "tags": ["skill.tag.sample_nuke"],
+      "cast_time": 2.5,
+      "cost": [{ "power_type": "arch.power.mana", "amount": 60 }],
+      "cooldown_duration": 30.0,
+      "respects_gcd": true,
+      "budget_note": "示例超模大招：刻意突破 skill.budget_rule.default 的玩家档带宽，用于演示 SkillBudgetAnalyzer 已确认偏离分支（当前未接入 ISkillBudgetAnchorProvider，SkillBudgetValidationRule 不做实际比值校验，仅作字段样例）",
+      "target_shape_ref": "target.chain.sample_nearest_enemy",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_curve_ref": "skill.base_curve.sample_level_curve",
+            "scaling": [
+              { "stat": "stat.spell_power", "coefficient": 3.0 },
+              { "stat": "stat.intellect", "coefficient": 1.0 }
+            ],
+            "school": "school.fire"
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.sample_parry",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 5,
+      "tags": ["skill.tag.sample_reactive"],
+      "cast_time": 0,
+      "cost": [{ "power_type": "arch.power.mana", "amount": 5 }],
+      "cooldown_duration": 8.0,
+      "respects_gcd": false,
+      "use_condition": "combat.in_combat",
+      "target_shape_ref": "target.chain.sample_nearest_enemy",
+      "effects": [
+        {
+          "kind": "interrupt",
+          "params": { "lock_school": "school.physical", "lock_duration": 2.0 }
+        }
+      ]
     }
   ]
 }

@@ -52,13 +52,35 @@ namespace Core.Rules.Assembly
         /// 注册 L0 内置 + L1 五模块 + L2 四模块的全部 <see cref="TableSchema"/> 与
         /// <see cref="IValidationRule"/>，并 <see cref="IDataRegistry.DeclareReference"/> 已知的
         /// 外键（见本方法末尾"已知外键清单"）。不调用 <see cref="IDataRegistry.LoadAll"/>——加载
-        /// 时机由调用方决定（通常紧跟在本方法之后）。
+        /// 时机由调用方决定（通常紧跟在本方法之后）。等价于
+        /// <see cref="RegisterAll(IDataRegistry, SkillOptions)"/> 传 <c>skillOptions: null</c>——
+        /// <c>MaxEffectsPerSkillRule</c> 按硬编码默认值 8 注册，逐位不变（见该重载判断记录）。
         /// </summary>
         public static void RegisterAll(IDataRegistry registry)
         {
+            RegisterAll(registry, skillOptions: null);
+        }
+
+        /// <summary>
+        /// T-N3-11（分阶段落地计划第 14 节 N3 任务表第十一行"MaxEffectsPerSkillRule 接
+        /// SkillOptions"）：<see cref="RegisterAll(IDataRegistry)"/> 的新重载，额外接收调用方的
+        /// <see cref="SkillOptions"/>——<c>MaxEffectsPerSkillRule</c> 的构造参数此前在
+        /// <c>RegisterL2Schemas</c>（私有方法）内硬编码为 8（见该方法内联注释"8 是 SkillOptions.
+        /// MaxEffectsPerSkill 的默认值……构造参数须与运行期实际生效的上限一致"），本重载改为读取
+        /// <c>skillOptions.MaxEffectsPerSkill</c>，保证数据校验期的上限与
+        /// <see cref="Core.Rules.Skill.CastPipeline"/>/<see cref="Core.Rules.Skill.EffectDispatcher"/>
+        /// 等运行期消费方共用同一份 <see cref="SkillOptions"/> 实例时两边上限天然一致，不需要调用方
+        /// 自己额外注册一条重复规则（见 <c>RegisterL2Schemas</c> 该行此前判断记录"两条规则同时跑
+        /// 不冲突，只是多余"——本重载落地后这条多余登记不再需要，但旧写法仍然合法）。
+        /// <c>skillOptions</c> 为 <c>null</c>（含 <see cref="RegisterAll(IDataRegistry)"/> 无参重载）
+        /// 时按硬编码默认值 8 注册，与本重载引入之前逐位一致（回归）。ABI：新增重载，不改动既有
+        /// <see cref="RegisterAll(IDataRegistry)"/> 签名/行为。
+        /// </summary>
+        public static void RegisterAll(IDataRegistry registry, SkillOptions? skillOptions)
+        {
             RegisterL0Schemas(registry);
             RegisterL1Schemas(registry);
-            RegisterL2Schemas(registry);
+            RegisterL2Schemas(registry, skillOptions);
             DeclareKnownReferences(registry);
             RegisterTimeFieldConsistencyRule(registry);
         }
@@ -121,7 +143,7 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new ArchClassDerivationOverrideValidationRule());
         }
 
-        private static void RegisterL2Schemas(IDataRegistry registry)
+        private static void RegisterL2Schemas(IDataRegistry registry, SkillOptions? skillOptions = null)
         {
             registry.RegisterSchema(SkillSchemas.Def);
             registry.RegisterSchema(SkillSchemas.AuraDef);
@@ -145,12 +167,14 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(AiSchemas.Rotation);
             registry.RegisterSchema(AiSchemas.PatrolPath);
 
-            // 8 是 SkillOptions.MaxEffectsPerSkill 的默认值（见该类型注释），MaxEffectsPerSkillRule
-            // 的构造参数须与运行期实际生效的上限一致，否则数据校验期允许、运行期却又拒绝
-            // （或反过来）。RulesAssembly 若使用非默认 SkillOptions.MaxEffectsPerSkill，调用方
-            // 需要自己额外登记一条用同一上限构造的 MaxEffectsPerSkillRule（本方法登记的这一条
-            // 仍会生效，两条规则同时跑不冲突，只是多余）。
-            registry.RegisterValidationRule(new MaxEffectsPerSkillRule(8));
+            // T-N3-11：MaxEffectsPerSkillRule 的构造参数须与运行期实际生效的上限一致，否则数据
+            // 校验期允许、运行期却又拒绝（或反过来）——此前硬编码 8（SkillOptions.MaxEffectsPerSkill
+            // 的默认值），本任务改为读取调用方经 RegisterAll(IDataRegistry, SkillOptions) 传入的
+            // skillOptions.MaxEffectsPerSkill；skillOptions 为 null（含旧的 RegisterAll(IDataRegistry)
+            // 无参重载）时回退同一硬编码默认值 8，与本次改动之前逐位一致（回归）。调用方若经旧无参
+            // 重载注册、又想要非默认上限，仍可按此前既有做法自己额外登记一条用同一上限构造的
+            // MaxEffectsPerSkillRule（两条规则同时跑不冲突，只是多余）。
+            registry.RegisterValidationRule(new MaxEffectsPerSkillRule(skillOptions?.MaxEffectsPerSkill ?? 8));
             registry.RegisterValidationRule(new StackCategoryConflictRule());
             registry.RegisterValidationRule(new CastTimeChannelTimeExclusiveRule());
             registry.RegisterValidationRule(new PassiveSkillNoCastTimeRule());

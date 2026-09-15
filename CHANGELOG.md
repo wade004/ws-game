@@ -436,6 +436,37 @@ T-N3-4 起覆盖 `ConditionNotMet`/`ActionLocked`）、不就绪直接跳过、�
 `Core.Rules.Skill.SkillHost.GetSkillReadiness` 对既有回放/Perf 场景涉及的技能给出的
 `IsReady` 结论与随后一次 `CastSkill` 的成败判定一致，新增的预筛不改变最终选中结果）。
 
+数值设计落地阶段 N3 · T-N3-11（ADR-0031 决策 3/11；分阶段落地计划第 14 节 N3 任务表第十一行）：
+样例与框架数据补齐 + `MaxEffectsPerSkillRule` 接 `SkillOptions`。`Core.Rules.Assembly.
+RulesSchemaCatalog` 新增重载 `RegisterAll(IDataRegistry, SkillOptions?)`：读取
+`SkillOptions.MaxEffectsPerSkill`（该属性早于本任务存在，缺省 8）作为 `MaxEffectsPerSkillRule`
+的构造上限，取代此前硬编码 8；既有无参 `RegisterAll(IDataRegistry)` 改为转发本重载并传
+`skillOptions: null`，行为逐位不变（回归）。ABI：仅新增一个公开重载，未改动任何既有签名。
+数据侧：`data/_sample/skill/skill.def.json` 新增 4 条技能（`sample_rest`——脱战限定
+`use_condition: "not combat.in_combat"`；`sample_lockpick`——目标类型限定
+`use_condition: "target.has_tag(...)"`；`sample_burst`——`budget_note` 超模说明示例；
+`sample_parry`——反应类 + 真实 `cooldown_duration` 的补充示例），多条效果使用 `scaling` 列表
+（≥2 缩放属性）+ `base_curve_ref`；新增 `data/_sample/skill/skill.base_curve.json`（T-N3-2
+登记 schema 时的空壳，本任务补首条真实等级曲线）；`data/_sample/target/target.chain_def.json`
+新增 `overflow_policy` 三态（`truncate`/`split`/`cap`）各一条真实链；`data/_sample/arch/
+arch.power_type.json` 新增积累型资源示例 `arch.power.sample_fury`（`start_full:false` +
+`regen_in_combat` + `decay_out_of_combat`，与既有回复型示例 `sample_vigor` 对照，均为既有字段
+组合，无新增字段）；`data/_framework/arch/arch.power_type.json` 的 `arch.power.health` 补
+`refill_on_leave_combat: true`（06 第 4.5 节"脱战自动回满同样适用于生命……默认启用"；**契约
+核对结论：该字段与运行时消费——`PowerSchemas.PowerType.RefillOnLeaveCombat`/
+`PowerHost.SetInCombat`——均早于本阶段存在，本任务不涉及任何代码改动**，只补框架默认数据；
+`data/_sample` 侧同 id 的 `override:true` 覆盖行同步补上，否则整行替换会连带丢失这一策略）。
+**勘误**：任务书给出的 `use_condition` 示例写法 `!combat.in_combat` 与实际 Expr 词法/语法不符
+（`core/foundation/expr/core/ExprLexer.cs` 对单独 `!` 直接抛异常，取反须用关键字 `not`），样例
+已按 `not combat.in_combat` 落地，详见 `data/README.md`"skill N3 示例数据"一节。`cast_time: 0`
+样例复核结论：既有 `sample_strike`/`sample_bolt`（T-N3-5 已改 `respects_gcd:false`）维持不动
+——两者均带 `cost`，已满足"反应类且有冷却/消耗"的收紧标准，重新设计会牵动节拍锁"反应类插入"
+资格判定、波及 6 个既有测试文件；改为新增 `sample_parry` 作为补充示例坐实该标准。不新增任何
+效果原语，不改变任何 schema 字段，回放基线零改动（`ReplayWorldBuilder` 等独立内联夹具不受
+`data/_sample` 改动影响）。测试：新增
+`core/rules/tests/Integration/T_N3_11_RulesSchemaCatalogSkillOptionsTests.cs`（3 例：无参重载
+回归、显式 `null` 与无参等价、注入自定义上限后加载期真的按注入值拦截）。
+
 ## [1.32.0] - 2026-09-15
 
 MINOR 版本：数值设计落地阶段 N2"装备与掉落"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 8/14 节，T-N2-1～T-N2-11）——落地 ADR-0032 全部决策：预算消耗公式、槽位与品质倍率、护甲与武器秒伤曲线、预算反解、装备评分、词缀转正为预算份额包、掉落三次掷骰、物品实例携带品质与词缀身份、背包容量来源、模板加词缀最大份额超预算阻断校验。

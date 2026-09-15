@@ -5,9 +5,13 @@
     {
       "id": "arch.power.health",
       "name_key": "l10n.power.health.name",
-      "max_source": { "kind": "fixed", "value": 100 },
+      "max_source": {
+        "kind": "fixed",
+        "value": 100
+      },
+      "refill_on_leave_combat": true,
       "start_full": true,
-      "description": "框架级默认：固定上限 100，游戏可用 override 改为随属性成长"
+      "description": "框架级默认：固定上限 100，游戏可用 override 改为随属性成长；T-N3-11：脱战回满默认启用（06 第 4.5 节 2026-09-14 修订段，ADR-0031），字段与运行时消费均已由 PowerSchemas.PowerType.refill_on_leave_combat 与 PowerHost.SetInCombat 落地（先于本阶段存在，本任务只补数据），见 data/README.md N3 样例一节判断记录"
     }
   ]
 }

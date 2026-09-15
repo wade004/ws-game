@@ -344,6 +344,131 @@ README 原文），这是该模板"最小可玩闭环"既定范围的既有设�
 改：该表已有 1 条 `diff.template_normal`（`item_level_offset` 缺省 0，语义等价于显式填 0），且该
 README 未把 T-N2-8 的 `item_level_offset` 列入"游戏必填"清单，本任务不越权新增字段样例。
 
+## skill N3 示例数据（use_condition/budget_note/scaling/base_curve、overflow_policy 三态、积累型资源、health 脱战回满）
+
+T-N3-11（分阶段落地计划第 14 节 N3 任务表第十一行；ADR-0031 决策 3/11）：在 T-N3-1～T-N3-10 已落地
+的运行时改动基础上，把 `data/_sample/skill/**`、`data/_sample/target/target.chain_def.json`、
+`data/_sample/arch/arch.power_type.json`、`data/_framework/arch/arch.power_type.json` 充实为覆盖
+N3 新字段的样例数据集；`games/_template` 按既定约定补空壳。
+
+- **`skill.def`**：新增 4 条技能（既有 `sample_strike`/`sample_burn`/`sample_bolt`/`sample_passive`
+  不动，见下方"cast_time: 0 样例"判断记录）：
+  - `skill.sample_rest`（脱战限定）：`use_condition: "not combat.in_combat"`（04 第 6.2 节
+    `combat` 分组，`RulesExprSchema.Base` 已登记 `combat.in_combat: Bool`；**契约疑点/勘误**：任务书
+    原文给出的示例写法是 `!combat.in_combat`，但 `core/foundation/expr/core/ExprLexer.cs:134-137`
+    对单独出现的 `!` 字符直接抛 `ExprParseException`——"只支持 `!=` 运算符"，取反必须用关键字
+    `not`（`ExprLexer.cs:253`/`ExprParser.ParseUnary`），本任务据实际词法/语法实现改用
+    `not combat.in_combat`，若按任务书原文字面抄录会在加载期 `expr_parsable` 校验直接报错，已用
+    `validate_data.py --strict` 实测确认改后写法 0 错误）；`cast_time: 3.0`（有动作时长的"休整"
+    技能，不使用 `respects_gcd:false` 规避警告）、`heal` 效果 `scaling` 两条
+    （`stat.stamina`×2.0、`stat.intellect`×1.0）+ `base_curve_ref:
+    skill.base_curve.sample_level_curve`。
+  - `skill.sample_lockpick`（目标类型限定）：`use_condition:
+    "target.has_tag(skill.tag.sample_object)"`（`target` 分组 `has_tag(Id): Bool` 已登记，绑定
+    的是调用方显式 `targets` 参数的第一个元素，见 `core/rules/skill/README.md` 判断记录 51"1.5 步
+    位置与目标绑定"）；`cast_time: 1.5`，效果 `open_lock`（无 `params`，效果原语参数表允许省略）。
+  - `skill.sample_burst`（`budget_note` 示例）：`budget_note` 字段非空，`school_damage` 效果
+    `scaling` 两条（`stat.spell_power`×3.0、`stat.intellect`×1.0）+ 同一条 `base_curve_ref`，
+    `cooldown_duration: 30`、`cost` 60 点法力——刻意设计为"大招"形态，`budget_note` 原文说明这是
+    展示 `SkillBudgetAnalyzer` `ConfirmedDeviation` 分支的示例；**当前 `RulesSchemaCatalog.
+    RegisterL2Schemas` 注册 `SkillBudgetValidationRule` 时 `anchorProvider` 为 `null`（T-N3-9 既有
+    判断记录"`sim.anchor` 归阶段 N6，本阶段尚不存在"），该规则整体不产生任何问题，因此本字段目前
+    只是数据样例，不会被实际算出比值并核对"确实超带宽"——留给 N6 接入真锚点后回归验证。
+  - `skill.sample_parry`（反应类，`cast_time: 0`/`respects_gcd: false`）：`cooldown_duration: 8`+
+    `cost` 5 点法力，`use_condition: "combat.in_combat"`（与 `sample_rest` 相反的战斗内限定，一并
+    验证 `combat.in_combat` 正/负两种用法），效果 `interrupt`——与 `sample_strike`/`sample_bolt`
+    一起构成"反应类必须有冷却/消耗"这条硬性规则（禁止事项"不靠 `respects_gcd:false` 一刀切规避"）
+    的三个正例：`sample_strike`/`sample_bolt` 已有 `cost`（法力 10），`sample_parry` 额外有真实
+    `cooldown_duration`，均不会触发 `SkillNoTimeCostWarningRule`（该规则判定条件是
+    `cast_time==0 && respects_gcd==true`，三者均 `respects_gcd:false`，天然不落入判定范围，不是
+    "靠这个字段值规避"，而是它们本身就是设计上的反应类技能）。
+- **`skill.base_curve`（新表，T-N3-2 登记 schema 时尚为空壳，本任务补首条真实曲线）**：
+  `skill.base_curve.sample_level_curve`，5 个断点（等级 1/15/30/45/60 → 10/40/90/150/220），单调
+  递增、满足 `curve_monotonic_finite`；供上方 `sample_rest`/`sample_burst` 的 `base_curve_ref`
+  引用。
+- **`skill.budget_rule`**：T-N3-3/T-N3-9 已把 `skill.budget_rule.default` 的完整字段集补齐为样例
+  （`beat_seconds`/三条溢价折价曲线/带宽/硬上限/控制类别权重），本任务未改动——已满足验收标准
+  "`skill.budget_rule` 有行"，`SkillOptions.BudgetRuleId` 缺省值恰好指向这条记录。
+- **`target.chain_def`**：新增 3 条，`overflow_policy` 三态各一条真实链（既有
+  `sample_group_enemies` 的 `split` 不动）：`sample_cone_enemies`（扇形，`max_targets:2`，
+  `truncate`）、`sample_line_enemies`（直线，`max_targets:2`，`cap`）、`sample_nearest_object`
+  （圆形，`filters: ["tag:skill.tag.sample_object"]`，供 `sample_lockpick` 的
+  `target_shape_ref` 使用；不声明 `overflow_policy`，`max_targets:1` 恒不触发溢出，验收标准只要求
+  三态各 ≥1 条，均已满足，不强求每条新链都声明该字段）。三条新链目前均未被任何技能
+  `target_shape_ref` 直接引用（`sample_nearest_object` 除外），与既有 `sample_group_enemies` 同一
+  惯例（该链此前也未被引用）——纯 schema 覆盖样例，见 `core/rules/targeting/schema/README.md`
+  `overflow_policy` 字段判断记录。
+- **`arch.power_type`（积累型资源 + health 脱战回满）**：
+  - `data/_framework/arch/arch.power_type.json` 的 `arch.power.health` 新增
+    `refill_on_leave_combat: true`（06 第 4.5 节 2026-09-14 修订段"脱战自动回满同样适用于
+    生命……是否启用与回满速率为策略配置项，默认启用"，ADR-0031）。**契约核对结论（本任务未新增
+    任何字段/运行时代码）**：`refill_on_leave_combat` 字段（`PowerSchemas.PowerType`）与运行时
+    消费（`PowerHost.SetInCombat` 从 `true` 切到 `false` 时对该字段为真的资源类型立即回满）在
+    本任务开始前就已存在——`data/_sample/arch/arch.power_type.json` 的
+    `arch.power.sample_vigor` 早已使用同一字段演示"回复型"资源（见该文件既有行）；任务书要求"先
+    核对 schema 是否已有该字段，没有则上报"，核对结论是**已有**（字段与运行时消费均非本阶段
+    新增），因此本任务只补 `arch.power.health` 这一条框架默认数据，不涉及任何 `ArchSchemas`/
+    `CombatHost`/`PowerHost` 代码改动，不需要上报待安排的运行时任务。
+  - `data/_sample/arch/arch.power_type.json` 的 `override:true` 覆盖行（原样替换
+    `arch.power.health`）同步补 `refill_on_leave_combat: true`——**判断记录**：`override`
+    是整行替换语义（非逐字段合并，见该文件既有 `description`），若不在覆盖行里重复声明，合并后
+    的数据集会丢失框架默认的脱战回满策略，与 06 第 4.5 节"默认启用"这一策略产生分歧；本次一并
+    补一句 `description` 说明这一"整行替换需要重复声明"的易漏点。
+  - 新增 `arch.power.sample_fury`（积累型资源示例，06 第 2.2 节 2026-09-14 修订段"填充规则两种，
+    职业选一种：回复型（起始满、匀速回复）、积累型（起始空、随战斗行为产出、脱战衰减清空）——
+    两者都是既有字段的取值组合"）：`start_full:false`（起始空）、`regen_in_combat:10`（战斗中
+    产出，真实游戏通常改由 `energize` 技能效果驱动，样例用被动 `regen_in_combat` 代表同一约定
+    组合）、`decay_out_of_combat:50`（脱战快速衰减清零）、不设 `refill_on_leave_combat`（与
+    回复型语义相反，不应同时声明）。`start_full`/`regen_in_combat`/`decay_out_of_combat` 均是
+    `PowerSchemas.PowerType` 既有字段（早于本阶段登记），本任务未新增字段，只补组合样例；
+    `sample_vigor` 行同步补 `description` 标注其"回复型"身份，与 `sample_fury` 对照。
+- **`l10n.text`**：`l10n.power.sample_fury.name` 两语言各补一行（`arch.power_type.name_key` 有真实
+  消费方，`L10nHost` 加载期即校验存在性）。**判断记录（未给新增的 4 条技能补 `l10n.*` 文本）**：
+  `SkillSchemas.Def`/`AuraDef` 均未登记 `name_key`（或任何指向 `l10n.text` 的字段）——现有 4 张
+  `skill.*` 表本身没有任何字段会被解析成"指向某个文本键"，`skill.aura_def.sample_burn` 等既有样例
+  同样没有配文本（仅 `display.map` 有视觉覆盖行，无文本）；任务书"新技能文本两语言"字面要求本任务
+  已重新核对契约面后判定为不适用（没有字段可以承载这份文本，写了也是孤儿数据，且会被
+  `sample_table_empty`同类"孤儿"检查思路质疑），改为给确有 `name_key` 消费的
+  `arch.power.sample_fury` 补文本，更贴合"新内容需要配套文本"这一意图的实际契约面。
+- **`display.map`**：新增 4 条（`sample_rest`/`sample_lockpick`/`sample_burst`/`sample_parry`），
+  复用既有 `sprite.item.sample_blade` 精灵集（不新增素材，同 T-N2-10 判断记录同一做法），
+  `category: skill`，按既有 4 条技能显示行的字段形状（`kind: sprite`、`direction_count: 4`、
+  单条 `dir.side_l`→`dir.side_r` 镜像）逐一对齐。
+- **`games/_template/data/game/skill/skill.base_curve.json`**：新增空壳（`rows: []`）+
+  `.meta`（新 guid，未与仓库内任何既有 guid 冲突，已 `grep` 核实）。**判断记录（为什么补这一张
+  而不是维持"该目录完全不出现 `skill.base_curve`"）**：`games/_template/data/game/skill/` 此前
+  只有 `skill.budget_rule.json` 一张空壳（T-N3-3 起），模板本身**没有**任何 `skill.def` 数据（同
+  `item` 域"模板暂无 `item.template` 行"既定设计，见上文"判断记录：`games/_template/data/game/
+  item/**`"一节同一口径）——`skill.base_curve` 与 `skill.budget_rule` 同属"支持性/曲线类"表
+  （不是 `skill.def` 这一主表本身），既定约定是"主表缺失时支持性表仍给空壳"（`item.armor_curve`
+  等四张表在 `item.template` 缺失时同样给空壳，见上文判断记录），本任务据此补齐这张此前遗漏的
+  支持性表空壳，不额外造出脱离任何 `skill.def` 的孤立曲线数据。
+
+**cast_time: 0 样例判断记录（T-N3-5 遗留、本任务按 06 第 3.1 节复核，未改动既有两条）**：
+T-N3-5 已把 `skill.sample_strike`/`skill.sample_bolt` 改为 `respects_gcd:false`（反应类）以消除
+"无时间成本"警告，当时判断记录明确写"样例的进一步系统性调整留给 T-N3-11"。本任务复核后维持
+不变——禁止事项"不靠 `respects_gcd:false` 一刀切规避"的真实含义是"不能只改这一个字段就交差、
+不管技能是否真的该是反应类"，而这两条样例改动时**已经**满足"反应类且有冷却/消耗"（均带
+`cost: [{power_type: arch.power.mana, amount: 10}]`）这一收紧后的判断标准，只是当时没有
+`cooldown_duration` 这一项（消耗本身已足以防止无限连打，06/ADR-0031 并未要求反应类技能必须
+同时具备冷却*和*消耗，"有冷却/消耗"是或不是且）；重新设计成"有动作时长的普通攻击"反而要牵动
+`CastPipeline` 节拍锁分支识别的"反应类插入"资格（T-N3-4 判断记录 51 明确指出改 `respects_gcd`
+会改变该技能能否在他技能动作中插入这一可观测行为），进而波及 6 个既有测试文件、12+ 个用例（详见
+`core/rules/skill/README.md` 判断记录 51"队列 + 反应类回归风险"），与本任务"只补样例数据、不
+新增效果原语"的最小改动范围不符。本任务改为新增 `sample_parry` 作为"反应类 + 真实冷却"的补充
+示例（见上文），额外坐实这一判断标准，不动既有两条。已跑全量 `Tests.Rules`（751 例）/`Tests.
+Gameplay`（725 例）/`Replay`（12+2+10 例）确认零回归。
+
+**既有测试断言核对（结论：无需改动）**：已检索 `core/gameplay/tests/EndToEndTests.cs`、
+`core/numbers/tests/L1SampleDataTests.cs`、`core/gameplay/tests/Perf/PerfBaselineTests.cs`、
+`core/rules/tests/TwoUnitsFightTests.cs` 等读取 `data/_sample`/`data/_framework` 真实文件的测试——
+均未对 `skill.def`/`target.chain_def`/`arch.power_type` 三张表的记录数或具体字段值做硬编码断言
+（`GameWorldFixture`/`L1SampleDataTests.BuildWorld` 只按 id 精确查找自己需要的既有记录，不枚举
+表内全部记录数），本任务新增的行只是"表里多了几条没人特意去数的记录"。已跑不带 filter 的全量六
+程序集（217+1115+751+587+634+725 例）与 `Replay`（12+2+10 例）确认零回归（详见提交前 `dotnet test`
+输出）。Unity PlayMode 侧因当前环境不含 Unity Editor 无法本机验证，留待阶段 N3 收尾（T-N3-12）
+随全量回归一并核对。
+
 ## 编码与格式
 
 - UTF-8，无 BOM。
