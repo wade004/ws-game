@@ -66,6 +66,12 @@ namespace Tests.Carriers.Item
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
             registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
             registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            // T-N2-3（ADR-0032 决策 3）：消耗公式读取 stat.weight/stat.rating_conversion，注册同
+            // stat.definition——未在 configure 里塞行的用例，两张表 GetAll 返回空列表，
+            // ItemBudgetCurve.BuildStatBudgetInfo 对没有权重记录的属性按缺省权重 1 回退（见该方法
+            // 判断记录），不影响既有未提供这两张表数据的测试夹具。
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Weight);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
             // ADR-0019 F1c：grants.skills/auras、item.set.bonuses[].aura_ref 登记为
             // Reference(skill.def)/Reference(skill.aura_def)（L3 引用 L2 程序集合法），
             // reference_integrity 内建校验因此需要这两张表已加载——本模块测试用到的 skill/aura id

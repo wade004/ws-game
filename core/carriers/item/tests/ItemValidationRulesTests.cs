@@ -450,5 +450,112 @@ namespace Tests.Carriers.Item
 
             Assert.Empty(issues);
         }
+
+        // -----------------------------------------------------------------
+        // T-N2-3（ADR-0032 决策 3/10）：预算消耗公式加权改造集成到 ItemBudgetValidationRule 后的
+        // 槽位系数、预算利用率过低警告——手算数值见 ItemBudgetCurveComputeConsumedTests（公式本身的
+        // 6+ 组 k=1/k=1.5 手算不在本文件重复，这里只覆盖 Validate() 这一集成层：曲线×品质倍率×槽位
+        // 系数算预算上限、利用率阈值判定）。
+        // -----------------------------------------------------------------
+
+        private const string SlotWithCoefficientJson =
+            "[{\"id\": \"item.slot.ring\", \"name_key\": \"l10n.item.slot.ring\", \"budget_coefficient\": 0.5}," +
+            "{\"id\": \"item.slot.consumable\", \"name_key\": \"l10n.item.slot.consumable\", \"is_equipment\": false}]";
+
+        private static IDataRegistryView BuildBudgetFormulaView(string templateJson)
+        {
+            return TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotWithCoefficientJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
+                source.Add("item.template", TestSupport.Table("item.template", templateJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+                // 故意不注册 stat.weight 行：ComputeConsumed 对没有对应记录的属性按缺省权重 1 回退
+                // （见 ItemBudgetCurve.BuildStatBudgetInfo 判断记录），本组用例只关心槽位系数/利用率
+                // 阈值这一层，不需要额外权重变量。
+            });
+        }
+
+        [Fact]
+        public void BudgetRule_SlotBudgetCoefficient_ShrinksLimit_PreviouslyOkItemNowExceeds()
+        {
+            // 手算（"含槽位系数的一组"）：item_level=1 → 曲线预算 20，quality.common 倍率 1，
+            // item.slot.ring 槽位系数 0.5 ⇒ 上限 = 20×1×0.5 = 10。stats 单一 flat 词条 value=15，
+            // 权重缺省 1 ⇒ 消耗 = 15。15 > 10，超预算报错——同样的 15 点若槽位系数是 1（既有
+            // BudgetRule_WithinBudget_NoIssue 用的 consumable 槽位）本应在 20 的上限内合法，槽位系数
+            // 把上限砍半后才超标，验证槽位系数确实乘进了预算上限。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_ring\", \"slot\": \"item.slot.ring\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.sample_ring\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.sample_ring\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 15}]}]");
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Error, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.Check, issue.Check);
+        }
+
+        [Fact]
+        public void BudgetRule_UtilizationBelowThreshold_ReportsNonEscalatableWarning()
+        {
+            // 正例（利用率警告）：item_level=1 → 上限 20（quality/槽位系数均 1）。stats 消耗 8，
+            // 利用率 8/20 = 0.4 < 默认阈值 0.7 ⇒ 警告，检查名 item_budget_utilization_low，且不产生
+            // 超预算 Error（8 < 20）。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_underfilled\", \"slot\": \"item.slot.consumable\", " +
+                " \"quality\": \"item.quality.common\", \"item_level\": 1, " +
+                " \"display_ref\": \"display.item.sample_underfilled\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n.item.sample_underfilled\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 8}]}]");
+
+            var rule = new ItemBudgetValidationRule(new Id("item.budget.default"));
+            var issues = rule.Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.CheckUtilizationLow, issue.Check);
+            Assert.True(rule.NonEscalatable);
+        }
+
+        [Fact]
+        public void BudgetRule_UtilizationAtOrAboveThreshold_NoIssue()
+        {
+            // 负例：同一预算上限 20，stats 消耗 15，利用率 15/20 = 0.75 >= 默认阈值 0.7，不报警告
+            // （也不超预算）。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_wellfilled\", \"slot\": \"item.slot.consumable\", " +
+                " \"quality\": \"item.quality.common\", \"item_level\": 1, " +
+                " \"display_ref\": \"display.item.sample_wellfilled\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n.item.sample_wellfilled\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 15}]}]");
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default")).Validate(view).ToList();
+
+            Assert.Empty(issues);
+        }
+
+        [Fact]
+        public void BudgetRule_CustomUtilizationThreshold_OverloadOverridesDefault()
+        {
+            // T-N2-3 新增构造重载：同 BudgetRule_UtilizationAtOrAboveThreshold_NoIssue 的 0.75 利用率，
+            // 默认阈值 0.7 下不报警告；显式传入阈值 0.9 后 0.75 < 0.9，应报警告——验证新重载确实生效
+            // （不是默认值的静默复制）。
+            var view = BuildBudgetFormulaView(
+                "[{\"id\": \"item.sample_customthreshold\", \"slot\": \"item.slot.consumable\", " +
+                " \"quality\": \"item.quality.common\", \"item_level\": 1, " +
+                " \"display_ref\": \"display.item.sample_customthreshold\", \"stack_size\": 5," +
+                " \"name_key\": \"l10n.item.sample_customthreshold\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 15}]}]");
+
+            var issues = new ItemBudgetValidationRule(new Id("item.budget.default"), 0.9).Validate(view).ToList();
+
+            var issue = Assert.Single(issues);
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal(ItemBudgetValidationRule.CheckUtilizationLow, issue.Check);
+        }
     }
 }

@@ -32,6 +32,12 @@ namespace Core.Carriers.Assembly
         /// 而漂移）。</summary>
         public static readonly Id DefaultItemBudgetCurveId = new Id("item.budget.default");
 
+        /// <summary>T-N2-3（ADR-0032 决策 10"预算利用率低于阈值（默认七成）警告……可配置"）：<see
+        /// cref="ItemBudgetValidationRule"/> 新增构造重载用的默认阈值，同 <see
+        /// cref="ItemBudgetValidationRule.DefaultUtilizationWarningThreshold"/>。</summary>
+        public static readonly double DefaultItemBudgetUtilizationWarningThreshold =
+            ItemBudgetValidationRule.DefaultUtilizationWarningThreshold;
+
         /// <summary>
         /// 注册 L0 内置 + L1 五模块 + L2 四模块（经 <see cref="RulesSchemaCatalog.RegisterAll"/>）+
         /// L3 三模块（item 六张表、creature 两张表、gobj 两张表）的全部 <see cref="TableSchema"/> 与
@@ -47,14 +53,32 @@ namespace Core.Carriers.Assembly
         /// 记录的同类风险）。</param>
         public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId = null)
         {
+            RegisterAll(registry, itemBudgetCurveId, itemBudgetUtilizationWarningThreshold: null);
+        }
+
+        /// <summary>T-N2-3 新增重载（硬性规则 5：ABI 只允许新增，<see cref="RegisterAll(IDataRegistry,
+        /// Id?)"/> 既有两参数签名不得改，见上一重载）：额外接受 <see
+        /// cref="ItemBudgetValidationRule"/> 的预算利用率警告阈值。</summary>
+        /// <param name="registry">目标注册表。</param>
+        /// <param name="itemBudgetCurveId">同上一重载。</param>
+        /// <param name="itemBudgetUtilizationWarningThreshold"><see cref="ItemBudgetValidationRule"/>
+        /// 预算利用率警告阈值，缺省（<c>null</c>）取 <see
+        /// cref="DefaultItemBudgetUtilizationWarningThreshold"/>（ADR-0032 决策 10"默认七成，可
+        /// 配置"——本参数即"可配置"落地位置之一，见 <see cref="ItemBudgetValidationRule"/> 类型判断
+        /// 记录"待设计层确认"）。</param>
+        public static void RegisterAll(IDataRegistry registry, Id? itemBudgetCurveId,
+            double? itemBudgetUtilizationWarningThreshold)
+        {
             RulesSchemaCatalog.RegisterAll(registry);
 
-            RegisterItemSchemas(registry, itemBudgetCurveId ?? DefaultItemBudgetCurveId);
+            RegisterItemSchemas(registry, itemBudgetCurveId ?? DefaultItemBudgetCurveId,
+                itemBudgetUtilizationWarningThreshold ?? DefaultItemBudgetUtilizationWarningThreshold);
             RegisterCreatureSchemas(registry);
             RegisterGobjSchemas(registry);
         }
 
-        private static void RegisterItemSchemas(IDataRegistry registry, Id budgetCurveId)
+        private static void RegisterItemSchemas(IDataRegistry registry, Id budgetCurveId,
+            double utilizationWarningThreshold)
         {
             registry.RegisterSchema(ItemSchemas.Template);
             registry.RegisterSchema(ItemSchemas.SlotDefinition);
@@ -67,7 +91,7 @@ namespace Core.Carriers.Assembly
             registry.RegisterSchema(ItemSchemas.Set);
             registry.RegisterSchema(ItemSchemas.Affix);
 
-            registry.RegisterValidationRule(new ItemBudgetValidationRule(budgetCurveId));
+            registry.RegisterValidationRule(new ItemBudgetValidationRule(budgetCurveId, utilizationWarningThreshold));
             registry.RegisterValidationRule(new ItemWeaponProfileRule());
             registry.RegisterValidationRule(new ItemSetMembershipRule());
             registry.RegisterValidationRule(new ItemStackSizeRule());

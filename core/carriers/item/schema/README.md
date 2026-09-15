@@ -81,7 +81,7 @@ T-N2-3/T-N2-4。
 | `is_weapon` | Bool | 否 | `false` | 实现期补录：该槽位是否为武器槽 |
 | `accepts` | IdList | 否 | `[]` | 允许放入本槽位的物品 `slot` 取值列表（跨槽兼容）；未提供时只接受与本槽位 id 完全相同的 `item.template.slot` |
 | `is_equipment` | Bool | 否 | `true` | 阶段 3 整理补录：该槽位是否为真正的装备位；`false` 表示分类桶（消耗品/材料一类，仅用于满足 `item.template.slot` 的引用完整性），不可经 `EquipmentHost.Equip` 装备（返回 `SlotMismatch`），也不受 `ItemStackSizeRule` 的"装备类 stack_size 必须为 1"约束 |
-| `budget_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1/3）：槽位预算系数，预算上限 = 预算曲线(item_level) × 品质预算倍率 × 本系数；范围 `> 0`；消费实现随 T-N2-4 落地 |
+| `budget_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1/3）：槽位预算系数，预算上限 = 预算曲线(item_level) × 品质预算倍率 × 本系数；范围 `> 0`；消费实现见下 `item.budget_curve`（T-N2-3，`ItemBudgetValidationRule` 已接入，不再是 T-N2-4 待办） |
 | `price_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1；ADR-0034）：槽位价格系数，买价 = 基准价值 × 品质价格倍率 × 本系数；范围 `> 0`；消费实现随 ADR-0034 落地任务接入 |
 
 ## `item.quality_definition`
@@ -108,11 +108,21 @@ T-N2-3/T-N2-4。
 |---|---|---|---|
 | `id` | Id | 是 | `item.budget.<name>` |
 | `entries` | Array | 是 | 通用断点表 `[{x:Int, y:Number}]`（`x` = 物品等级，`y` = 预算上限；04 第 3.6 节 `CurveSchema.BreakpointsField`，横轴 `ItemLevel`），按 `x` 线性插值（`ItemBudgetCurve.Interpolate` → `PiecewiseCurve.Evaluate`），越界夹取到端点；`curve_monotonic_finite` 规则要求非空、有限、`x` 无重复、`y` 不递减。schema 版本 2（T-N0-4）：v1 的 `{item_level, budget}` 由 1→2 迁移环节改名，旧数据文件无需手改即可加载 |
+| `exponent` | Number | 否 | T-N2-3 新增（ADR-0032 决策 3）：消耗公式 `(Σ(值×权重)^k)^(1/k)` 的指数 `k`，缺省 `1.5`（`ItemBudgetCurve.DefaultExponent`）；范围 `> 0`。**判断记录（登记位置）**：ADR-0032/07/数值总纲三处原文只给"k 默认 1.5，数据配置"，未指明具体字段位置——上报待设计层确认，本任务选择登记在预算曲线记录自身（同一游戏若有多条预算曲线服务不同物品档位，可各自配置不同 k） |
 
-预算校验公式（07 第 1.2 节）：`Σ|stats[].value|`（`pct`/`mult` 按 ×100 折算，`flat` 原值）不得超过
-`budget_curve(item_level) × quality.budget_multiplier`。曲线 id 由 `ItemOptions.BudgetCurveId`
-指定（构造 `ItemBudgetValidationRule` 时传入）。**判断记录**：T-N2-1 只登记三条新曲线表与校验，
-本条公式尚未接入槽位系数/权重表/指数 k（ADR-0032 决策 3 的消耗侧补齐），随 T-N2-4 落地。
+预算上限公式（07 第 1.2 节修订段；ADR-0032 决策 3）：
+`预算曲线(item_level) × quality.budget_multiplier × slot_definition.budget_coefficient`。
+
+消耗公式（T-N2-3 起，取代旧式 `Σ|stats[].value|`（`pct`/`mult` ×100 折算）——旧式仍以
+`ItemBudgetCurve.SumConsumed` 保留、不再被本规则调用，见该方法判断记录）：
+`(Σ(属性值_i × 权重_i)^k)^(1/k)`，权重来自 `stat.weight`（没有对应记录时按缺省权重 1 回退，非 0，
+见 `ItemBudgetCurve.BuildStatBudgetInfo` 判断记录；不展开 `class_overrides`，校验期没有职业上下文）；
+`category == percent` 的属性，`op=pct`/`mult` 的值先经该属性引用的 `stat.rating_conversion` 换算曲线
+反函数折回点数（`op=flat` 的值本就是点数，恒等操作；换算所需的"单位等级"取该模板的 `item_level`）；
+非 `percent` 属性沿用既有 `pct`/`mult` ×100 折算。曲线 id 由 `ItemOptions.BudgetCurveId` 指定（构造
+`ItemBudgetValidationRule` 时传入）；公式的详细 op/category 组合判断记录、"折回点数"方向的推导依据
+见 `ItemBudgetCurve.ComputeConsumed` 类型注释——**上报待设计层确认**（契约原文未展开到这一操作化
+层面）。
 
 ## `item.armor_curve`
 
@@ -180,7 +190,8 @@ T-N2-2（ADR-0032 决策 7；07 第 1.6 节修订段"随机词缀由留位转正
 
 | 规则 | 检查项名 | 说明 |
 |---|---|---|
-| `item_budget_exceeded` | `ItemBudgetValidationRule` | 预算超标（见上）|
+| `item_budget_exceeded` | `ItemBudgetValidationRule` | 预算超标（消耗公式见上）|
+| `item_budget_utilization_low` | `ItemBudgetValidationRule`（Warning，不可提升，T-N2-3，ADR-0032 决策 10） | 预算利用率（消耗 / 上限）低于阈值（默认 `0.7`，构造重载 `ItemBudgetValidationRule(Id, double)` 可配置，`CarriersSchemaCatalog.RegisterAll` 新增重载同步可配置）；04 第 5 节"装备预算利用率过低"一行未给出具体检查名，同上一行口径，**上报待设计层确认** |
 | `item_weapon_profile_missing`/`item_weapon_profile_unexpected` | `ItemWeaponProfileRule` | `weapon_profile` 当且仅当 `slot_definition.is_weapon` 为真时存在 |
 | `item_set_membership_mismatch` | `ItemSetMembershipRule` | `set_id` 的 `pieces` 包含该物品 |
 | `item_stack_size_min`/`item_stack_size_equipment_not_one` | `ItemStackSizeRule` | `stack_size >= 1`；装备类（`slot` 指向 `is_equipment` 不为 false 的 `slot_definition`）`stack_size == 1` |

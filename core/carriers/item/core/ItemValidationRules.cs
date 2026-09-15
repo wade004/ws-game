@@ -6,24 +6,70 @@ using Core.Foundation.DataRegistry;
 namespace Core.Carriers.Item
 {
     /// <summary>
-    /// 预算超标校验（见 04 第 5 节检查项清单"预算超标"、07 第 1.2 节预算公式契约）：一件
-    /// <c>item.template</c> 的 <c>Σ|stats.value|</c>（<c>pct</c>/<c>mult</c> ×100 折算，见 <see
-    /// cref="ItemBudgetCurve.SumConsumed"/>）不得超过 <c>item.budget_curve(item_level) ×
-    /// quality.budget_multiplier</c>。曲线 id 由构造参数 <paramref name="budgetCurveId"/> 指定（同
+    /// 预算超标 + 预算利用率过低校验（见 04 第 5 节检查项清单"装备预算超标（消耗侧补齐）"/"装备预算
+    /// 利用率过低"、07 第 1.2 节预算公式契约、ADR-0032 决策 3/10）：一件 <c>item.template</c> 的加权
+    /// 消耗 <c>(Σ(属性值×权重)^k)^(1/k)</c>（见 <see cref="ItemBudgetCurve.ComputeConsumed"/>）不得
+    /// 超过 <c>item.budget_curve(item_level) × quality.budget_multiplier ×
+    /// slot.budget_coefficient</c>；低于该上限的 <see cref="UtilizationWarningThreshold"/> 比例
+    /// （默认七成）报警告。曲线 id 由构造参数 <paramref name="budgetCurveId"/> 指定（同
     /// <c>MaxEffectsPerSkillRule(int)</c> 惯例：策略配置项经构造参数传入，不在规则内部读取任何
     /// 全局配置）。调用方需要 <c>registry.RegisterValidationRule(new
     /// ItemBudgetValidationRule(options.BudgetCurveId))</c> 才会生效。
+    /// <para>
+    /// 判断记录（T-N2-3，"ItemBudgetValidationRule 改为能拿到 registry 视图（新增重载）"——
+    /// **上报待设计层确认**）：任务书原文要求本规则"改签名拿 registry 视图"，但 <see
+    /// cref="IValidationRule.Validate"/> 本就以 <see cref="IDataRegistryView"/> 为唯一参数——新公式
+    /// 需要的 <c>stat.weight</c>/<c>stat.definition</c>/<c>stat.rating_conversion</c>/
+    /// <c>item.slot_definition</c> 四张表均可经 <see cref="Validate"/> 既有的 <paramref
+    /// name="view"/>（下方）直接查询，不需要在<b>构造期</b>额外注入一份 registry 视图（构造发生在
+    /// <c>RegisterAll</c> 阶段，此时数据尚未 <c>LoadAll</c>，即便注入了也是空视图，见
+    /// <see cref="Core.Carriers.Assembly.CarriersSchemaCatalog"/> 类型顶部判断记录"不调用
+    /// <c>IDataRegistry.LoadAll</c>"）。本任务把"改签名"具体落实为新增一个可配置"预算利用率警告
+    /// 阈值"的构造重载（<see cref="ItemBudgetValidationRule(Id, double)"/>）——落地 ADR-0032 决策 10
+    /// "阈值默认七成，可配置"，旧的单参数构造函数保留并转发默认阈值（硬性规则 5：ABI 只允许新增，
+    /// 既有构造签名不得改）。若"registry 视图"另有所指（如某种预先解析好的共享查询对象），需要设计
+    /// 层进一步澄清后再补一个真正接受 <see cref="IDataRegistryView"/> 的构造重载。
+    /// </para>
     /// </summary>
     public sealed class ItemBudgetValidationRule : IValidationRule
     {
         public const string Check = "item_budget_exceeded";
 
-        private readonly Id _budgetCurveId;
+        /// <summary>预算利用率过低检查名（分阶段落地计划 T-N2-3；ADR-0032 决策 10；04 第 5 节"装备
+        /// 预算利用率过低"一行未给出具体检查名，同 <see cref="ItemQualityMultiplierOrderRule"/>/
+        /// <see cref="ItemAffixStatMixRatioSumRule"/> 同一处理口径，按 <c>item_budget_*</c> 前缀取
+        /// <c>item_budget_utilization_low</c>——**上报待设计层确认**。</summary>
+        public const string CheckUtilizationLow = "item_budget_utilization_low";
 
+        /// <summary>预算利用率警告阈值缺省值（ADR-0032 决策 10"默认七成"）。</summary>
+        public const double DefaultUtilizationWarningThreshold = 0.7;
+
+        private readonly Id _budgetCurveId;
+        private readonly double _utilizationWarningThreshold;
+
+        /// <summary>沿用默认预算利用率警告阈值（<see cref="DefaultUtilizationWarningThreshold"/>）的
+        /// 既有构造签名，硬性规则 5（ABI 只允许新增）不得改，转发到 <see cref="ItemBudgetValidationRule
+        /// (Id, double)"/>。</summary>
         public ItemBudgetValidationRule(Id budgetCurveId)
+            : this(budgetCurveId, DefaultUtilizationWarningThreshold)
+        {
+        }
+
+        /// <summary>T-N2-3 新增重载：显式指定预算利用率警告阈值（ADR-0032 决策 10"默认七成，可
+        /// 配置"），见类型判断记录。</summary>
+        public ItemBudgetValidationRule(Id budgetCurveId, double utilizationWarningThreshold)
         {
             _budgetCurveId = budgetCurveId;
+            _utilizationWarningThreshold = utilizationWarningThreshold;
         }
+
+        /// <summary>04 第 5 节"警告级这一组登记为不可提升"（数值类校验警告"抓意图不抓手滑"，见
+        /// <see cref="IValidationRule.NonEscalatable"/> 判断记录原文即以"装备预算利用率过低"为例）：
+        /// 本规则同时产出 <see cref="Check"/>（Error）与 <see cref="CheckUtilizationLow"/>（Warning）
+        /// 两种严重级别，<see cref="NonEscalatable"/> 只影响后者在 <c>WarningsBlock</c> 严格级别下
+        /// 是否计入阻断（见 <see cref="ValidationReport"/> 聚合逻辑：Error 计数与 NonEscalatable
+        /// 无关，恒阻断），对前者没有影响。</summary>
+        public bool NonEscalatable => true;
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
@@ -52,12 +98,29 @@ namespace Core.Carriers.Item
 
             // T-N0-4：解析一次为 PiecewiseCurve，逐模板插值不再重建曲线。
             var curve = ItemBudgetCurve.ParseCurve(curveRecord);
+            // T-N2-3（ADR-0032 决策 3）：消耗公式指数 k，登记在预算曲线记录自身的可选字段
+            // exponent（见 ItemSchemas.BudgetCurve 判断记录），缺省 ItemBudgetCurve.DefaultExponent。
+            var exponent = curveRecord.TryGetNumber("exponent", out var exponentValue)
+                ? exponentValue
+                : ItemBudgetCurve.DefaultExponent;
 
             var qualityMultipliers = new Dictionary<string, double>();
             foreach (var q in view.GetAll("item.quality_definition"))
             {
                 qualityMultipliers[q.Key] = q.TryGetNumber("budget_multiplier", out var m) ? m : 1.0;
             }
+
+            // T-N2-3（ADR-0032 决策 1/3；07 第 1.2 节修订段）：槽位预算系数，缺省 1（未登记视为全额
+            // 槽位，见 ItemSchemas.SlotDefinition.budget_coefficient 判断记录）。
+            var slotCoefficients = new Dictionary<string, double>();
+            foreach (var s in view.GetAll("item.slot_definition"))
+            {
+                slotCoefficients[s.Key] = s.TryGetNumber("budget_coefficient", out var c) ? c : 1.0;
+            }
+
+            // T-N2-3：一次性构建属性权重/换算信息表，逐模板复用（见 ItemBudgetCurve.BuildStatBudgetInfo
+            // 判断记录）。
+            var statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
 
             foreach (var record in templates)
             {
@@ -71,16 +134,29 @@ namespace Core.Carriers.Item
                     continue;
                 }
 
-                var multiplier = qualityMultipliers.TryGetValue(quality, out var m2) ? m2 : 1.0;
-                var budget = ItemBudgetCurve.Interpolate(curve, (int)itemLevel) * multiplier;
-                var consumed = ItemBudgetCurve.SumConsumed(stats);
+                var qualityMultiplier = qualityMultipliers.TryGetValue(quality, out var m2) ? m2 : 1.0;
+                var slotCoefficient = record.TryGetString("slot", out var slot) &&
+                    slotCoefficients.TryGetValue(slot, out var sc) ? sc : 1.0;
+                var budget = ItemBudgetCurve.Interpolate(curve, (int)itemLevel) * qualityMultiplier * slotCoefficient;
+                var consumed = ItemBudgetCurve.ComputeConsumed(stats, statInfo, (int)itemLevel, exponent);
 
                 if (consumed > budget)
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, "item.template", Check,
                         $"stats 消耗预算 {consumed:0.###} 超过上限 {budget:0.###}" +
-                        $"（item_level={itemLevel}, quality={quality}）",
+                        $"（item_level={itemLevel}, quality={quality}, slot={slot}）",
+                        recordKey: record.Key, field: "stats");
+                    continue;
+                }
+
+                if (budget > 0 && consumed / budget < _utilizationWarningThreshold)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, "item.template", CheckUtilizationLow,
+                        $"预算利用率 {(consumed / budget):P1} 低于阈值 {_utilizationWarningThreshold:P0}" +
+                        $"（消耗 {consumed:0.###} / 上限 {budget:0.###}，item_level={itemLevel}, quality={quality}, " +
+                        $"slot={slot}）：抓漏填，可能是模板忘记补全属性词条",
                         recordKey: record.Key, field: "stats");
                 }
             }

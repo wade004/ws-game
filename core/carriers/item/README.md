@@ -276,7 +276,9 @@ item/
     原文均把"之和不超过一"紧跟在 `stat_mix` 单字段后描述；04 第 5 节该行同样未给出具体检查名，
     按任务书"04 §5 或 `item_affix_*` 前缀"取值，**上报待设计层确认**（同 T-N2-1 的
     `item_quality_multiplier_order` 同一处理口径）。"模板加词缀最大份额超预算"与"预算利用率过低"
-    两条校验需要消耗公式（T-N2-3）与预算反解（T-N2-4）才能核算，本任务不实现，只登记字段。
+    两条校验本任务（T-N2-2）不实现，只登记字段；**勘误（见下方 T-N2-3 判断记录 18）**：后者只需
+    消耗公式（消耗/上限比值），T-N2-3 已落地，不必等 T-N2-4 预算反解；前者仍需预算反解算出"可抽
+    词缀最大份额对应的等效消耗"，确实要等 T-N2-4。
     `item.template.affixes` 语义由"词缀引用（扩展位）"改写为"该模板掉落时可抽取的词缀候选白名单"
     （落地改动点清单 E2 用语"可抽词缀池约束"，二选一"该模板可挂的词缀/或固定词缀"（任务书用语）
     与"可抽词缀池约束"（落地改动点清单用语）本任务按后者实现——**上报待设计层确认**，"固定词缀"
@@ -287,6 +289,73 @@ item/
     `core/carriers/item/tests/ItemSchemaCoverageTests.cs`（新增 7 条：命中、缺必填、`stat_mix`
     引用不存在的属性、`ratio` 越界、`quality_pool` 引用不存在的品质、`weight` 越界、`grants`
     命中）、`ItemValidationRulesTests.cs`（份额之和超一/未超各 1 条）。
+
+18. **T-N2-3（分阶段落地计划、ADR-0032 决策 3/10）：预算消耗公式改加权 `(Σ(值×权重)^k)^(1/k)`，
+    百分比属性经换算曲线折点，上限乘槽位系数；新增预算利用率过低 Warning**——新增
+    `ItemBudgetCurve.ComputeConsumed`/`BuildStatBudgetInfo`（连同新增公开类型 `StatBudgetInfo`）
+    取代 `ItemBudgetValidationRule` 内对旧式 `ItemBudgetCurve.SumConsumed`（`Σ|value|`，`pct`/`mult`
+    ×100 折算）的调用——旧方法本身原样保留（硬性规则 5：ABI 只允许新增），只是不再是校验路径，供
+    仍直接引用它的外部代码继续编译。判断记录见下（详细推导另见各自类型/方法 XML 注释，本节只列
+    要点与"上报待设计层确认"清单）：
+    - **权重来源与缺省值**：`stat.weight.weight`（ADR-0030 决策 7 基础权重，不展开
+      `class_overrides`——校验期核算"这件物品模板"本身，没有"当前职业"上下文，见
+      `ItemBudgetCurve.BuildStatBudgetInfo` 判断记录）；**没有对应 `stat.weight` 记录时缺省权重取
+      1（`ItemBudgetCurve.DefaultWeight`），不是该表类型注释里"显式登记 `weight:0`"的那个 0**——
+      两者是不同场景，契约未明文规定"没有记录"这一情形的缺省值，按"避免过渡态下消耗公式整体退化
+      为恒 0"选 1，**上报待设计层确认**。
+    - **指数 k 的登记位置**：契约三处（ADR-0032 决策 3、07 第 1.2 节修订段、数值总纲第 4.4 节）均
+      只给"k 默认 1.5，数据配置"，未指明字段位置。本任务登记为 `item.budget_curve` 记录自身的可选
+      字段 `exponent`（缺省 1.5）——**上报待设计层确认**，见 `ItemSchemas.BudgetCurve` 判断记录。
+    - **"百分比属性折回点数"的操作化定义**：契约只给一句话，未展开到 op/category 组合。本任务依据
+      `EquipmentHost.ApplyGrants`（`stats[]` 的权威消费者）与 `StatHost.ComputeFinal`（运行时聚合
+      管线：`flat` 值贡献进换算前点数和，`pct`/`mult` 直接乘进换算后的百分比/乘区）反推：
+      `category==percent` 且 `op=flat` 的值本就是点数，不折算；`op=pct`/`mult` 的值是作者按"最终
+      百分比效果"填写的，经该属性引用曲线的反函数（`RatingConversionEvaluator.ToPoints`）折回点数
+      （换算所需"单位等级"取物品自身 `item_level`，非 `requirements.level`——后者可能未填，且随
+      T-N2-9 才由曲线反推，本任务不依赖它）；非 `percent` 属性沿用既有 `pct`/`mult` ×100 折算，
+      未改动。**上报待设计层确认**，见 `ItemBudgetCurve.ComputeConsumed` 类型注释。
+    - **反函数抽取为公开共享静态工具**：`StatHost.ConvertRating` 内部原本私有手写的"点数→百分比"
+      断点/饱和两分支求值式子，提升为 `Core.Numbers.StatBlock.RatingConversionEvaluator`（正向
+      `ToPercent` + 新增反向 `ToPoints`）；`StatHost` 自身同一私有嵌套枚举
+      `RatingConversionShape` 也提升为该命名空间下的公开类型，两处删除重复定义，改为共用——满足
+      硬性规则"禁止复制插值实现"，`core/numbers/stat_block` 既有测试（`RatingConversionMigrationTests`
+      等 105 条）验证重构后结果逐位不变。饱和形态反函数在 `percent >= 1`（曲线永远达不到的百分比）
+      时返回 `double.PositiveInfinity`，不抛异常，交给调用方（预算消耗求和）自然判定为超预算；
+      `ComputeConsumed` 额外对 `weight == 0` 短路避免 `Infinity × 0 = NaN` 这一浮点陷阱。
+    - **槽位系数接入预算上限**：`ItemBudgetValidationRule.Validate` 新增读取 `item.slot_definition.
+      budget_coefficient`（缺省 1），预算上限 = 曲线值 × 品质倍率 × 槽位系数；T-N2-1 登记时留的
+      "消费实现随 T-N2-4 落地"备注在 `item.slot_definition.budget_coefficient` 这一项上已提前由本
+      任务接入（护甲/武器秒伤两条曲线的消费仍留给 T-N2-4/E7/E8，未受影响）。
+    - **`ItemBudgetValidationRule` "改签名拿 registry 视图"的落地方式（新增构造重载）**：
+      `Validate(IDataRegistryView view)` 本就以 view 为参数，新公式需要的四张表（`stat.weight`/
+      `stat.definition`/`stat.rating_conversion`/`item.slot_definition`）均可经该既有参数查询，不
+      需要在构造期（`RegisterAll` 阶段，此时数据尚未 `LoadAll`，注入了也是空视图）额外注入一份
+      registry 视图。本任务把"改签名"具体落实为新增构造重载 `ItemBudgetValidationRule(Id, double)`
+      ——落地 ADR-0032 决策 10"阈值默认七成，可配置"，旧的单参数构造函数保留并转发默认阈值；
+      `CarriersSchemaCatalog.RegisterAll` 同步新增一个三参数重载（旧的两参数签名原样保留，硬性
+      规则 5）。**若"registry 视图"另有所指，上报待设计层确认**，见 `ItemBudgetValidationRule`
+      类型判断记录。
+    - **检查名**：新增 Warning `item_budget_utilization_low`（04 第 5 节"装备预算利用率过低"一行
+      未给出具体检查名，同 `item_quality_multiplier_order`/`item_affix_stat_mix_ratio_sum` 一贯
+      处理口径，**上报待设计层确认**）；`ItemBudgetValidationRule.NonEscalatable` 改为 `true`
+      （`IValidationRule.NonEscalatable` 契约文档原文即以"装备预算利用率过低"为例——只影响本规则
+      产出的 Warning 在 `WarningsBlock` 严格级别下是否计入阻断，既有 `item_budget_exceeded` 的
+      Error 不受影响，见 `ValidationReport` 聚合逻辑）。
+    - **示例数据调整**：`data/_sample/item/item.template.json` 的 `item.sample_blade`/
+      `item.sample_model_sword` 两条 `stats[].value` 由 2 改为 15（原值在新公式下利用率仅 10%，
+      触发新警告；样例非框架默认值，按任务书"不得调阈值迁就，调整示例数据"处理，调整后利用率
+      75% ≥ 70% 阈值）；`item.sample_model_sword` 原先的 `budget_note`（"预算利用率偏低为演示
+      数据，非超模说明"）随之删除——`budget_note` 语义（ADR-0032 决策 6"橙装独特技能凭
+      `budget_note` 免检"）与预算利用率警告无关，不消费该字段，调高数值后这条说明也不再成立。
+      `data/_sample/item/item.budget_curve.json` 补一条 `exponent: 1.5`（与缺省值相同，仅作为
+      新字段的样例展示）。`games/_template` 目前没有 `item.template.json`（空壳表阶段，T-N2-10
+      才补），本任务不涉及。见 `toolchain/validator --data-root data/_sample` 实测
+      `ItemBudgetValidationRule: error (non-escalatable), hits 0`。
+    - **测试**：`core/carriers/item/tests/ItemBudgetCurveComputeConsumedTests.cs`（新增 8 条：
+      k=1 三组、k=1.5 三组——含断点表/饱和曲线换算折点各一组、缺省权重回退一组、NaN 防御回归一条）、
+      `ItemValidationRulesTests.cs`（新增 4 条：槽位系数缩小上限致超预算、利用率警告正例、利用率
+      不触发负例、自定义阈值构造重载生效）；`core/numbers/stat_block` 既有 105 条测试验证
+      `RatingConversionEvaluator` 重构无回归，未新增/删除该模块测试用例数。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

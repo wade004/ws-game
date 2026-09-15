@@ -49,7 +49,11 @@ stat_block/
                无条件执行、换算触发条件改 category=="percent"、改读 v2 的
                conversion_ref（不再读已废弃的 is_rating/rating_conversion_ref）、
                ConvertRating 按 stat.rating_conversion 登记的形态（entries 断点表 /
-               saturation 二元饱和）求值）
+               saturation 二元饱和）求值；T-N2-3 起 ConvertRating 委托
+               RatingConversionEvaluator.ToPercent，不再自带私有插值/饱和公式）
+               RatingConversionEvaluator.cs（T-N2-3 新增：命名空间级公开
+               RatingConversionShape 枚举 + ToPercent/ToPoints 静态求值器，供本类型与
+               Core.Carriers.Item 的装备预算消耗公式共用，见上方 T-N2-3 一节）
   schema/      README.md（字段表）
   tests/       StatHostTests.cs（T-N1-2：两轮聚合/clamp 夹取时机/失效传播/拓扑序
                稳定/派生成环防御/派生无环校验规则/抗性维度 v2 原生用例；T-N1-3：
@@ -339,6 +343,33 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   `Reference(stat.definition)` 的字段都算作消费者，不局限于 04 原文逐字列出的四类，属于对
   "或任一表达式引用"收尾措辞的从宽解释——设计层裁定（2026-09-14）：采纳，比 04 原文四例更宽是
   正确方向，不收紧。
+
+## T-N2-3：ConvertRating 求值式子提升为公开共享静态工具 RatingConversionEvaluator
+
+分阶段落地计划 T-N2-3（ADR-0032 决策 3"实际消耗……百分比属性先经换算曲线折回点数再乘权重"）：装备
+预算消耗公式（`core/carriers/item/core/ItemBudgetCurve.ComputeConsumed`，L3）需要对 `category==
+percent` 属性做"百分比→点数"折算，这是 `StatHost.ConvertRating`（本模块，L1）"点数→百分比"正向求值
+的反函数——两者必须共用同一份断点/饱和曲线插值实现，否则就是硬性规则明令禁止的"复制插值实现"。
+
+- **新增公开类型**（`core/numbers/stat_block/core/RatingConversionEvaluator.cs`）：命名空间级
+  `RatingConversionShape` 枚举（取代此前 `StatHost` 内部私有同名嵌套枚举，`StatHost` 自身也改用
+  这个公开版本，删除重复定义）+ `RatingConversionEvaluator` 静态类，`ToPercent`（正向，逐运算复刻
+  迁移前 `ConvertRating`/`EvaluateSaturation` 手写式子）与新增 `ToPoints`（反向，装备预算消耗侧
+  消费）两个方法。
+- **`StatHost.ConvertRating` 改为委托调用**：方法体从"手写断点插值 + 饱和公式"改为一行委托
+  `RatingConversionEvaluator.ToPercent(...)`，原私有 `EvaluateSaturation`/`DivideByPointsPerPercent`
+  两个辅助方法随之删除（不再需要，逻辑已搬到共享工具）。本类型对外可见行为、既有测试
+  （`RatingConversionMigrationTests` 等，全模块 105 条）断言的结果不变——重构只移动实现位置，不改
+  公式本身，测试全绿即视为验证通过，不属于本任务定义的"新增测试用例"。
+- **反函数 `ToPoints` 的判断记录**：断点表形态反函数恒存在（`pointsPerPercent(level)` 只依赖等级，
+  不依赖 `rawValue`，正向映射对 `rawValue` 线性）；饱和形态反函数仅当 `percent < 1` 时有限，
+  `percent >= 1`（曲线永远达不到的百分比，正常运行时数据不会产生，但装备预算侧允许内容作者填任意
+  "折算前"百分比输入）时返回 `double.PositiveInfinity`，不抛异常，交给调用方（预算消耗求和）判定
+  超预算——同 `ToPercent` 既有"内容错误被静默降级"处理口径的延伸，不是本次新发明的容错策略。
+- **本模块自身消费方仍是 `StatHost`**：本模块不引用 `Core.Carriers.Item`（依赖方向不允许反向），
+  `ItemBudgetCurve.ComputeConsumed` 单方面引用本模块的 `RatingConversionEvaluator`（L3 依赖 L1
+  合法，同既有 `stat.definition`/`stat.weight`/`stat.rating_conversion` 三表已经被 L3 读取的
+  先例）。
 
 ## 用法
 

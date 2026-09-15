@@ -273,7 +273,17 @@ namespace Core.Carriers.Item
         /// v1 的 <c>{item_level, budget}</c> 逐元素改名为 <c>{x, y}</c>（其余键原样保留）。运行时解析
         /// 与插值委托 <see cref="CurveSchema.ReadBreakpoints(DataRecord, string)"/>/
         /// <c>Core.Foundation.Common.PiecewiseCurve</c>；通用规则 <c>curve_monotonic_finite</c> 自动
-        /// 覆盖本表。</para></summary>
+        /// 覆盖本表。</para>
+        /// <para>
+        /// 判断记录（T-N2-3，<c>exponent</c> 字段登记位置）：ADR-0032 决策 3/07 第 1.2 节修订段/数值
+        /// 总纲第 4.4 节三处原文均只给出"实际消耗 = (Σ(属性值×权重)^k)^(1/k)，k 默认 1.5，数据配置"，
+        /// 没有指明 k 具体登记在哪张表的哪个字段——**上报待设计层确认**，本任务按任务书给出的候选
+        /// 位置之一实现：登记为 <c>item.budget_curve</c> 记录上的可选字段 <c>exponent</c>（缺省 1.5，
+        /// 与消耗曲线同表意味着"哪条预算曲线用哪个指数"可以按曲线各自配置，同一游戏若有多条预算曲线
+        /// 服务不同物品档位时不必共用一个 k）。范围 <c>&gt; 0</c>（非正指数在 <c>(...)^(1/k)</c> 意义
+        /// 下无定义或退化）。消费实现（<see cref="ItemBudgetCurve.ComputeConsumed"/>）见该类型判断
+        /// 记录。
+        /// </para></summary>
         public static readonly TableSchema BudgetCurve = new TableSchema(
             name: "item.budget_curve",
             primaryKey: "id",
@@ -287,6 +297,11 @@ namespace Core.Carriers.Item
                         "（04 第 3.6 节通用曲线形态；v1 字段名 item_level/budget 经 1→2 迁移改名）",
                     xDescription: "采样点对应的物品等级",
                     yDescription: "该物品等级对应的属性预算上限"),
+                new FieldSchema("exponent", FieldKind.Number, required: false,
+                    description: "分阶段落地计划 T-N2-3（ADR-0032 决策 3；07 第 1.2 节修订段；数值总纲" +
+                        "第 4.4 节）：消耗公式 (Σ(属性值×权重)^k)^(1/k) 的指数 k，缺省 1.5（见本表类型" +
+                        "判断记录，登记位置待设计层确认）。范围 > 0")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
             },
             migrations: new[]
             {

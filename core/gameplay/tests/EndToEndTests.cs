@@ -241,7 +241,10 @@ namespace Tests.Gameplay
             Assert.True(result.Success, result.Reason.ToString());
 
             var strengthAfter = fx.Gameplay.Carriers.Rules.Stats.GetStat(GameWorldFixture.PlayerId, GameWorldFixture.StatStrength);
-            Assert.Equal(strengthBefore + 2, strengthAfter, 6); // item.sample_blade.stats: stat.strength flat +2
+            // item.sample_blade.stats: stat.strength flat +15（T-N2-3：样例数值由 +2 调整为 +15，
+            // 新预算消耗公式下 +2 利用率仅一成，触发新增 item_budget_utilization_low 警告，见
+            // core/carriers/item/README.md 判断记录 18）。
+            Assert.Equal(strengthBefore + 15, strengthAfter, 6);
 
             // item.equipped 走 IEventBus.Enqueue（tick 末 EventDispatch 阶段才真正派发给订阅者，见
             // 03 第 9 节），本用例不推进任何 tick，手动 DispatchPending 一次才能观察到它。
