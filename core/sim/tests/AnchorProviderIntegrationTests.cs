@@ -109,9 +109,13 @@ namespace Tests.Sim
         /// <summary>回归：<c>data/_framework</c> + <c>data/_sample</c>（既有 <see
         /// cref="SimTestWorldFactory.BuildWorld"/> 路径，<c>data/_sample</c> 本身也含 5 行 <c>sim.anchor</c>
         /// 演示数据，见 <c>core/sim/README.md</c>"HeadlessWorldBuilder 自动装配锚点提供者"判断记录）
-        /// 在锚点接入后仍能正常装配、不阻断——data/_sample 两条曾经产生偏离的技能
-        /// （<c>skill.sample_rest</c>/<c>skill.sample_burst</c>）均已补 <c>budget_note</c>，锚点接入后
-        /// 归"已确认"警告，不升级为阻断（见两处补丁与该文件 skill.def.json 改动）。</summary>
+        /// 在锚点接入后仍能正常装配、不阻断——data/_sample 曾经因锚点接入产生偏离警告的三条技能
+        /// （<c>skill.sample_strike</c>/<c>skill.sample_rest</c>/<c>skill.sample_burst</c>）经
+        /// T-N6-7 把 <c>sim.anchor.l1.dps</c> 从占位值 10 校准为 45 后，比值已全部回落到
+        /// <c>skill.budget_rule.default</c> 玩家档带宽内，不再产生任何 <c>skill_budget_deviation</c>
+        /// 警告（不只是"已确认警告不阻断"，是真的不再警告，见 <c>core/sim/README.md</c>"T-N6-7
+        /// 判断记录"40）；<c>skill.sample_rest</c>/<c>skill.sample_burst</c> 的 <c>budget_note</c>
+        /// 字段本身按该判断记录保留（记录历史设计意图，当前不被任何规则分支实际读取）。</summary>
         [Fact]
         public void SampleData_StillLoadsWithoutBlockingAfterAnchorWiring()
         {

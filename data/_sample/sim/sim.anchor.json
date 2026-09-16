@@ -6,7 +6,7 @@
       "id": "sim.anchor.l1",
       "level": 1,
       "hp": 100,
-      "dps": 10,
+      "dps": 45,
       "ttk_seconds": 5,
       "ttd_seconds": 8,
       "expected_item_level": 1,

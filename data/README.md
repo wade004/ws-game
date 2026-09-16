@@ -373,7 +373,18 @@ N3 新字段的样例数据集；`games/_template` 按既定约定补空壳。
     展示 `SkillBudgetAnalyzer` `ConfirmedDeviation` 分支的示例；**当前 `RulesSchemaCatalog.
     RegisterL2Schemas` 注册 `SkillBudgetValidationRule` 时 `anchorProvider` 为 `null`（T-N3-9 既有
     判断记录"`sim.anchor` 归阶段 N6，本阶段尚不存在"），该规则整体不产生任何问题，因此本字段目前
-    只是数据样例，不会被实际算出比值并核对"确实超带宽"——留给 N6 接入真锚点后回归验证。
+    只是数据样例，不会被实际算出比值并核对"确实超带宽"——留给 N6 接入真锚点后回归验证。**T-N6-7
+    勘误**：N6 接入真锚点（T-N6-3a）后，`sim.anchor.l1.dps` 沿用最初的示例占位值 10 时确实按预期
+    算出真实超带宽比值（3.53），但同时把从未真正校准过的 `data/_sample/sim/sim.anchor.json` 一并
+    暴露成"示例技能预算全体失真"（`skill.sample_strike`/`sample_rest` 分别产生 1.30/5.08 的比值，
+    见 `core/sim/README.md` 判断记录 19/20）——这与"`data/_sample` 全量 `--strict` 零错误零警告"
+    这条既有门禁不变量（`toolchain/tests/test_validate_data_summon_only_rule_default_wiring.py`）
+    冲突。T-N6-7 把 `sim.anchor.l1.dps` 从 10 校准为 45（详见 `core/sim/README.md`"T-N6-7 判断
+    记录"）后，三条技能的比值均回落到 `skill.budget_rule.default` 玩家档带宽 [0.80,1.20] 内，
+    `budget_note` 本身不再被任何规则分支实际读取（`SkillBudgetAnalyzer.Classify` 只在
+    `ratio > 1+bandwidth` 时才检查 `budget_note`）——本字段按任务书"若不再需要就撤掉，需要就保留
+    并说明"的后一选项保留，作为"这条技能设计意图上刻意大开销/演示已确认偏离分支"的历史说明，不
+    代表当前真的处于超带宽状态。
   - `skill.sample_parry`（反应类，`cast_time: 0`/`respects_gcd: false`）：`cooldown_duration: 8`+
     `cost` 5 点法力，`use_condition: "combat.in_combat"`（与 `sample_rest` 相反的战斗内限定，一并
     验证 `combat.in_combat` 正/负两种用法），效果 `interrupt`——与 `sample_strike`/`sample_bolt`

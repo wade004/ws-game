@@ -843,3 +843,39 @@ core/sim/
     走的是阈值分支、不是被某个隐藏的精确相等判据吞掉——把 `ExactMatchEpsilon` 做成
     `BaselineCompareOptions` 上的可写属性，测试可以显式收紧到 `1e-15`，不需要依赖"被扰动的
     统计量数值恰好多大"这种脆弱的隐式耦合，见该测试判断记录。
+
+## T-N6-7 判断记录
+
+40. **第 0 步根治：`data/_sample/sim/sim.anchor.json` 的 `sim.anchor.l1.dps` 从 10 校准为 45**：
+    详见 `data/README.md`"skill N3 示例数据"一节 T-N6-7 勘误与本文件下方摘要——T-N6-3a 接入真实
+    锚点提供者后，`data/_sample` 的 `skill.sample_strike`/`sample_rest`/`sample_burst` 三条早于
+    N6 就存在的示例技能（T-N3-11 落地）分别产生比值 1.30/5.08/3.53 的 `skill_budget_deviation`
+    警告；`ConfirmedDeviation`（已确认，后两者已补 `budget_note`）与 `UnconfirmedDeviation`
+    （待确认，`sample_strike`）在 `SkillBudgetAnalyzer.Classify` 里都仍会产出一条 `[warning]`
+    （`budget_note` 只影响是否升级为阻断错误，不影响是否产生警告本身），3 条警告与
+    `toolchain/tests/test_validate_data_summon_only_rule_default_wiring.py::
+    test_unmodified_sample_data_still_zero_errors_zero_warnings` 断言的字面
+    `"errors 0, warnings 0"` 直接冲突。根因是 `sim.anchor.l1.dps=10` 是 T-N6-2a 阶段"仅供
+    schema/`AnchorTable` 测试使用"的占位值，从未与早于 N6 就存在的示例技能预算消耗做过校准。
+    <br/>**修复**：只改 `sim.anchor.l1.dps`（10→45），不改任何示例技能、不改测试——45 是三者中
+    最吃紧的 `skill.sample_rest`（原比值 5.08）按 `ratio_new = ratio_old × 10 / anchorDpsNew`
+    换算需要的最小值（≈42.33）之上留出约 15% 安全边际；换算后三者新比值约
+    0.29/1.13/0.78，均落入 `skill.budget_rule.default` 玩家档带宽 [0.80,1.20]
+    （`Classify` 实际只判定上界 `ratio<=1+bandwidth`，"[0.80,1.20]"是校验消息的描述文本，不是
+    代码里真的判定下界）。只改 L1 一行，L2～L5 与 `hp`/`ttk_seconds` 等其它字段未动——
+    `SimAnchorValidationRule` 未对 `dps` 做跨行单调性约束（只约束 `expected_item_level`，见
+    判断记录 6 附近），既有测试（`AnchorProviderIntegrationTests`/`HeadlessWorldBuilderSimTests`）
+    只断言"不阻断"/"表有 5 行"这类结构性事实，未断言具体 `dps` 取值，不受影响。优先改锚点、不改
+    示例技能：三条技能的数值早已服务"演示 `use_condition`/`budget_note`/`scaling`/
+    `base_curve_ref` 字段写法"这一 T-N3-11 既定目的（见 `data/README.md`），`sim.anchor` 是
+    T-N6-2a 才补的新表、从未真正校准，是影响面最小的根治点。
+    <br/>**`budget_note` 未撤**：校准后比值已回落带宽内，`budget_note` 不再被 `Classify` 任何
+    分支实际读取，但按任务书"若不再需要就撤掉，需要就保留并说明"的后一选项保留——它记录着
+    T-N3-11 时"演示 `ConfirmedDeviation` 分支"的设计意图，删除会抹去这段历史说明；保留处于
+    "存在但不被触发"的无害闲置状态，不影响 0 警告验收。`AnchorProviderIntegrationTests
+    .SampleData_StillLoadsWithoutBlockingAfterAnchorWiring` 方法上方注释同步改为如实反映"校准后
+    已不产生任何警告"的当前状态。
+    <br/>**验证**：`python toolchain/validate_data.py --strict` → `errors 0, warnings 0`；
+    `python -m pytest toolchain/tests -q` 全过（242 passed, 4 skipped）；`dotnet build
+    Core.sln -c Debug`/`dotnet test Core.sln`（4249 例）无副作用——本次只改了一个 JSON 数据文件的
+    一个数值字段与相关 Markdown/注释说明，未触碰任何生产代码。
