@@ -1018,3 +1018,63 @@ core/sim/
     比对签名。步骤 3a `FightRunner.Run(new FightRunnerOptions { /* ... */ })`
     本就是占位写法（字段全部省略），不含可编译的真实参数，不是本次要根治的对象，不在复刻范围
     （两份文档该行原样保留）。
+
+## 深度复审领域 E 判断记录
+
+47. **`FightRunner.FightAccumulator.IsLandedHit` 命中率统计未排除免疫吸收（E-M2 必须修）**：本类型
+    判断记录"采样口径"一节称命中率数的是"多少次尝试里有多少次真正落地"，`IsLandedHit` 此前只读
+    `ResolveResult.Hit`，未读 `ResolveResult.Immune`——一次被完全免疫吸收的攻击 `Hit` 仍可能是
+    `Hit`/`Crit`/`Block`/`GlancingBlow`，`FinalAmount` 却恒为 0 且不触发 `combat.damage_dealt`
+    事件，此前会被误计入 `PlayerLanded`/`CreatureLanded`，系统性高估命中率。嵌入数据集未配置任何
+    伤害免疫光环，问题此前处于"正确但未被任何测试触达"的隐蔽状态。
+    <br/>**修复**：`IsLandedHit` 改接收整个 `ResolveResult` 并在判定首位排除 `Immune=true`；
+    `OnResolve` 两处调用点同步改传 `result`（而不是 `result.Hit`）。
+    <br/>**验证**：新增 `FightRunnerTests.FightAccumulator_ImmuneResolve_CountsAttemptButNotLanded`
+    ——直接构造 `FightRunner.FightAccumulator`，经其公开的 `CombatOptions.ResolveTrace` 回调手工喂入
+    一条 `Immune=true` 的 `ResolveResult`，断言 `PlayerAttempts` 照常计数但 `PlayerLanded` 不递增；
+    随后再喂一条 `Immune=false` 的正常命中，确认 `PlayerLanded` 恢复正常递增（防止修复反向回归成
+    恒 false）。三份基线（`sim_baseline.ps1`/simrunner 全场景）不受影响——嵌入数据集本就不含免疫
+    结算，修复前后命中率计数逐位相同。
+48. **`CoverageSimulation` 三处离群值排序无并列 tie-break（E-S1 建议修，已采纳）**：`AnalyzeSkills`/
+    `AnalyzeItems`/`AnalyzeCreatures` 此前用 `List<T>.Sort((a, b) => b.Deviation.CompareTo(a.Deviation))`
+    ——不稳定排序且无次级排序键，与 `BaselineComparer.SortedRows()`"并列按 Path 用 `StringComparer
+    .Ordinal` 兜底"的既有惯例不一致；技能/装备/生物里"完全合规、`Deviation` 恰好相等"（如多个装备
+    模板 `Ratio` 都精确等于 1.0）的场景现实存在，并列项之间的相对顺序此前不保证跨机器/跨 .NET 版本
+    可重现。
+    <br/>**修复**：新增公开静态方法 `CoverageOutlierRow.SortByDeviationDescendingThenById`（按
+    `Deviation` 降序、并列按 `Id.Value` 用 `StringComparer.Ordinal` 升序 tie-break），三处调用点
+    统一改用它；连带把 `CoverageOutlierRow` 构造函数由 `internal` 放宽为 `public`（纯 ABI 新增，
+    惯例同 `core/carriers/item/README.md`"选用公开重载而非 internal"判断记录——本仓库不对测试程序
+    集声明 `InternalsVisibleTo`，`internal` 成员测试不可达）。
+    <br/>**验证**：新增 `CoverageSimulationTests.SortByDeviationDescendingThenById_TiedDeviation
+    _SortsByIdAscending`——手工构造含并列 `Deviation` 的行（含乱序/降序输入），断言排序结果按
+    `Deviation` 降序、并列按 `Id` 升序稳定收敛，不依赖嵌入数据集是否恰好产生并列离群值这一脆弱
+    前提。真实嵌入数据集的三份基线经本次修复后逐场景比对 `exceeded=0`（见门禁 G1）；若未来基线
+    因真实并列项顺序变化需要 `--update-baseline` 更新，会在同一提交里说明，本次未发生。
+49. **`sim.scenario.bandwidths` 键名拼写错误全链路静默失效（E-S2 建议修，已采纳）**：`bandwidths`
+    在 schema 里登记为 `MapSchema.FreeKeyed`（自由字符串键，"本表不枚举合法键"），全链路（schema、
+    `SimScenarioValidationRule`、`BaselineComparer.ResolveTolerance`、`GrowthSimulation`/
+    `ArenaSimulation` 的 `ResolveBandwidths`）此前都只用 `TryGetValue` 静默回退默认值——任何一处
+    拼错键名（如误把 `level_duration` 写成 `leve_duration`）都不会在任何环节报出诊断，内容作者
+    永远不会知道自己配置的带宽从未生效。
+    <br/>**修复**：新增 `SimBandwidthKeys.KnownKeys`（`BaselineComparer.cs`，与
+    `BaselineCompareOptions.DefaultLeafBandwidthKeys` 的取值单一来源——直接取该映射表全部取值去重，
+    不新开一张平行维护的键清单）；`SimScenarioValidationRule` 新增警告级检查
+    `sim_scenario_bandwidth_key_unknown`（不可提升，本类型 `NonEscalatable` 因此由默认 `false`
+    改为显式 `true`，同 `SimAnchorValidationRule` 判断记录同一处理口径——只影响本类产出的 Warning
+    是否在 `WarningsBlock` 下阻断，不影响 `LevelCoverageCheck` 这条 Error 的阻断力）：`bandwidths`
+    的键若不属于 `SimBandwidthKeys.KnownKeys`，报一条"未识别的带宽键，可能是拼写错误，本次不会
+    生效"的诊断。已并入 `Presentation.Assembly.NumericValidationRuleCatalog`"仿真"分组（见
+    `presentation/assembly/README.md` 对应判断记录），04 第 5 节分级表同步勘误一行，总数
+    23→24（阻断 15，警告 9）。
+    <br/>**验证**：新增 `SimSchemaTests.Scenario_MisspelledBandwidthKey_ReportsWarningNotBlocking`
+    （拼写错误键名产出不阻断的警告，消息含具体键名）与
+    `Scenario_AllKnownBandwidthKeys_NoUnknownBandwidthKeyWarning`（全部九个已知键的正例对照，确认
+    修复本身不矫枉过正）。`data/_sample`/`games/_template`/嵌入数据集（`core/sim/tests/data`）已
+    逐条核对，全部 `bandwidths` 键均落在已知集合内，`--strict` 下 warnings 仍为 0。
+50. **深度复审 E-M1（presentation 层，非本模块直接改动，交叉记录）**：`Presentation.Assembly
+    .NumericValidationRuleCatalog` 此前遗漏 `sim.anchor`/`sim.scenario` 三行检查（T-N6-8a 当时
+    记录"目录不收录"），深度复审领域 E 发现该口径与 04 文档"23 行"不一致后已并入，详见
+    `presentation/assembly/README.md` 对应判断记录与 `NumericValidationRuleCatalog.cs` 类型级
+    判断记录——本模块（`Core.Sim`）自身除新增 `SimBandwidthKeys`（记录 49）外无需改动，三条 sim
+    检查规则实现本身（`SimAnchorValidationRule`/`SimScenarioValidationRule`）不变。

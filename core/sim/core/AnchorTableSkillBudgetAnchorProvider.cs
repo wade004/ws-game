@@ -132,6 +132,21 @@ namespace Core.Sim
             return level > table.MaxLevel ? table.MaxLevel : level;
         }
 
+        /// <summary>
+        /// 判断记录（2026-09-16，深度复审 E 测试覆盖缺口 5：暴露只读解析结果供诊断/测试观察）：
+        /// 本次解析实际选中的标准玩家 (职业, 品质)，见类型判断记录"标准玩家 (职业,品质) 解析顺序"
+        /// （显式覆盖 &gt; <c>sim.scenario</c> 字典序最小行 &gt; <c>item.quality_definition</c> 最低
+        /// <c>sort_weight</c>）。首次访问即触发并缓存解析（与 <see cref="GetAnchorDps"/>/<see
+        /// cref="GetExpectedScalingStatValue"/> 首次调用触发解析同一时机约定）。纯新增只读属性——
+        /// 一方面供编辑器/诊断工具展示"当前锚点计算实际在用哪个 (职业,品质)"，另一方面让
+        /// <c>AnchorTableSkillBudgetAnchorProviderTests</c> 可以脱离 <see cref="ExpectedStatCalculator"/>
+        /// 所需的完整依赖表集合（<c>stat.definition</c>/<c>stat.weight</c>/<c>prog.level_curve</c>
+        /// 等），只用 <c>item.quality_definition</c> 单表直接验证 <c>sort_weight</c> 并列时的选择
+        /// 顺序（多行 <c>sort_weight</c> 相等时取先注册的一行，不是任何形式的 id 字典序，见该测试
+        /// 判断记录）。
+        /// </summary>
+        public (Id ClassId, Id QualityId) ResolvedStandardPlayer => ResolveStandardPlayer();
+
         private ExpectedStatCalculator GetCalculator()
         {
             var (classId, qualityId) = ResolveStandardPlayer();
