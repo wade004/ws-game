@@ -1429,6 +1429,28 @@ CarriersAssembly` 在装配期把真正实现（`Core.Carriers.Unit.MovementHost
     地面请求与既有单位目标入口互斥且互不替代，共 8 例）；既有单位目标测试套件（`CastPipelineFlowTests`/
     `CastPipelineFailureTests`/`DiscreteModeCastPipelineTests` 等）不改一行断言、全部通过。
 
+## 消费方反馈第 45 条判断记录（2026-09-17）
+
+`SkillBudgetAnalyzer.Analyze`/`ComputeGrantValue` 此前内部一律用严格的 `view.Get`/`view.GetAll`
+（包括构造内部 `SkillDefCache` 时传入的 registry 引用），registry 阻断态（任意记录的任意诊断为
+Error，全局级别、不按表/记录粒度）下即便触发阻断的记录与本次分析的技能、`skill.budget_rule`/
+`target.chain_def`/`stat.weight`/`arch.power_type` 等支持表完全无关，仍会抛
+`InvalidOperationException`，炸穿内容工具"仍需展示这个技能的预算分析"的场景。
+
+**修复**：`Analyze`/`ComputeGrantValue` 一律先把 `view` 包一层 `Core.Foundation.DataRegistry
+.TolerantRegistryView`（若已经是该类型则直接复用），此后全程只用包装后的引用，包括传给内部
+`SkillDefCache` 构造函数的引用——`SkillDefCache` 本身不改动（它同时服务 `SkillHost` 等运行期
+宿主，运行期读取必须继续遵守 `EnsureReadable`，见 11 第 4 节"运行时不做静默降级"），只是分析
+入口私有持有的那一份实例喂给它一个容错视图，不影响运行期宿主用真实 `view` 构造的另一个
+`SkillDefCache` 实例。`SkillBudgetResult` 新增 `IsDegraded`/`MissingTables` 只读属性（新构造
+函数重载，旧 16 参构造函数恒 `IsDegraded=false`）；被分析的 `skillId` 本身"因阻断读不到"与
+"确实不存在"两种情形分开处理——前者不再抛 `ArgumentException`，归 `SkillBudgetVerdict
+.NotApplicable` 并标 `IsDegraded=true`；后者维持既有行为继续抛异常（调用方用法错误）。
+
+**验证**：`T_N3_9_SkillBudgetAnalyzerTests` 新增用例——用一条与 skill.* 五张表完全无关的坏
+引用触发 `reference_integrity` 使 registry 整体阻断，断言 `Analyze` 不抛异常且结果与非阻断态
+逐位一致（`IsDegraded` 为 `false`，具体 `DataRegistry` 场景下 skill.* 表本身未受影响）。
+
 ## 不负责什么
 
 - 不实现命中判定、暴击、护甲/抗性减免、免疫吸收后的实际扣血扣蓝——06 第 4.1 节结算管线本身完全

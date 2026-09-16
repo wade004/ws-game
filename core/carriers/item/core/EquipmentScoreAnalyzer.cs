@@ -57,15 +57,22 @@ namespace Core.Carriers.Item
         {
             if (view == null) throw new ArgumentNullException(nameof(view));
 
+            // 消费方反馈第 45 条判断记录：先包一层 TolerantRegistryView 再传给下面两步，让
+            // BuildStatBudgetInfo（stat.* 三张支持表）与 ScoreCore（item.template 本身）共用同一个
+            // 包装实例——TolerantRegistryView.Wrap 对已经是该类型的入参直接复用，不会重复包装，
+            // 两步的降级记录（MissingTables）因此汇总在同一份 tolerant.Diagnostics 里，不会互相
+            // 看不见对方那一半。
+            var tolerant = TolerantRegistryView.Wrap(view);
+
             // 2026-09-16 深度复审 B-S1：本重载没有调用方预先构建好的 StatBudgetInfo 可复用，只能
             // 自己现场按 classId 建一次——单次评分场景性能影响可忽略；需要在遍历大量模板/等级点位时
             // 反复调用 Score 的场景（如 core/sim/core/CoverageSimulation.cs、GrowthSimulation.cs）
             // 应改用下方接受预构建 statBudgetInfo 的重载，见该重载判断记录。
             var statInfo = classId.HasValue
-                ? ItemBudgetCurve.BuildStatBudgetInfo(view, classId.Value)
-                : ItemBudgetCurve.BuildStatBudgetInfo(view);
+                ? ItemBudgetCurve.BuildStatBudgetInfo(tolerant, classId.Value)
+                : ItemBudgetCurve.BuildStatBudgetInfo(tolerant);
 
-            return ScoreCore(templateId, classId, view, statInfo, additionalStats, exponent);
+            return ScoreCore(templateId, classId, tolerant, statInfo, additionalStats, exponent);
         }
 
         /// <summary>
@@ -95,6 +102,22 @@ namespace Core.Carriers.Item
 
         /// <summary>2026-09-16 深度复审 B-S1 抽取：两个公开 <c>Score</c> 重载共用的核心评分逻辑，
         /// 逐字保留自改动前的公开 <c>Score</c> 方法，不改变任何既有行为/输出。</summary>
+        /// <summary>
+        /// 消费方反馈第 45 条（2026-09-17）判断记录：<paramref name="view"/> 一律先包一层 <see
+        /// cref="TolerantRegistryView"/>（若已经是该类型则直接复用，见该类型 <c>Wrap</c> 判断记录），
+        /// 内部对 <c>item.template</c> 本身及 <see cref="ItemBudgetCurve.ComputeConsumed"/> 前置的
+        /// <c>stat.*</c> 支持表的读取因此从"阻断态一律抛异常"变成"读不到就按空/降级处理"——registry
+        /// 阻断态是整体级别的（<c>DataRegistry.EnsureReadable</c> 不按表/记录粒度），即便触发阻断的
+        /// 记录/字段与 <paramref name="templateId"/> 本身及三张支持表完全无关，此前也会直接抛
+        /// <see cref="InvalidOperationException"/>，炸穿"编辑器用户改坏了别的记录，仍想看这件装备
+        /// 评分"的场景（同 <c>ItemBudgetCurve.BuildStatBudgetInfo</c> 判断记录，一样的复现步骤）。
+        /// <paramref name="templateId"/> 本身"因阻断读不到"（<c>view.TryGet</c> 返回 <c>false</c>）
+        /// 与"确实不存在"（返回 <c>true</c> 但记录为 <c>null</c>）两种情形分开处理：前者不再抛
+        /// <see cref="ArgumentException"/>，改为返回一条 <see cref="EquipmentScoreResult.IsDegraded"/>
+        /// = <c>true</c>、<see cref="EquipmentScoreResult.Score"/> = 0 的降级结果（连"物品等级"都
+        /// 拿不到，无法计算任何有意义的评分，0 是最安全的占位值，不是"算出来是 0"）；后者维持既有
+        /// 行为（调用方传了个不存在的模板 id，是调用方用法错误，继续抛异常）。
+        /// </summary>
         private static EquipmentScoreResult ScoreCore(
             Id templateId,
             Id? classId,
@@ -103,9 +126,19 @@ namespace Core.Carriers.Item
             IReadOnlyList<(Id Stat, double Value)>? additionalStats,
             double exponent)
         {
-            var record = view.Get("item.template", templateId);
+            var tolerant = TolerantRegistryView.Wrap(view);
+
+            var record = tolerant.Get("item.template", templateId);
             if (record == null)
             {
+                if (tolerant.WasMissing("item.template"))
+                {
+                    // 阻断态读不到（与 templateId 是否存在无关）：见方法判断记录，降级返回而不是抛异常。
+                    return new EquipmentScoreResult(
+                        templateId, classId, itemLevel: 0, score: 0, exponent, new Dictionary<Id, double>(),
+                        isDegraded: true, missingTables: tolerant.MissingTables);
+                }
+
                 throw new ArgumentException($"物品模板 \"{templateId}\" 不存在", nameof(templateId));
             }
 
@@ -131,7 +164,9 @@ namespace Core.Carriers.Item
                 }
             }
 
-            return new EquipmentScoreResult(templateId, classId, itemLevel, score, exponent, weightsUsed);
+            return new EquipmentScoreResult(
+                templateId, classId, itemLevel, score, exponent, weightsUsed,
+                isDegraded: tolerant.IsDegraded, missingTables: tolerant.MissingTables);
         }
 
         /// <summary>两个评分结果的大小比较（同 <c>IComparable&lt;T&gt;.CompareTo</c> 惯例：负数表示

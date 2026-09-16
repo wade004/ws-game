@@ -467,6 +467,15 @@ loot/
       新增测试：`LootHostRollTests
       .TwoDisjointCycles_CyclePathText_IsDeterministic_StartsFromSmallestIdInEachComponent`。
 
+## 消费方反馈第 45 条判断记录（2026-09-17）
+
+审计结论：`LootTableAnalyzer.ExpectedProbabilities` 不适用（N/A）——反馈原文点名的问题是"只读
+分析入口内部对 `IDataRegistryView` 用严格 `Get`/`GetAll`，registry 阻断态下抛异常"，但
+`ExpectedProbabilities` 签名是 `(LootTableDef def, LootAnalysisContext context)`，全文不接受
+`IDataRegistryView` 参数、不读 registry（`def`/`context` 都是调用方已经解析好的强类型对象，嵌套
+`loot.*` 展开也只查 `context.Tables`——一个调用方自带的内存字典，不是 registry），因此不会有
+`EnsureReadable` 抛异常的风险，本条反馈不涉及本模块改动。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `loot.table.groups` 元素结构（对照 `LootTableParser.ParseGroup`/`ParseEntry` 运行时解析代码）：

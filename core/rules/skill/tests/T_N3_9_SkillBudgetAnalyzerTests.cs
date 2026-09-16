@@ -64,12 +64,28 @@ namespace Tests.Rules.Skill
             // skill.aura_def，既有 9 处调用点都只测 isAura: false（技能）路径，本表此前未登记。
             private readonly List<JsonObject> _auraDefs = new List<JsonObject>();
 
+            // 消费方反馈第 45 条（2026-09-17）新增：与 skill.* 五张表完全无关的最小表对
+            // （test.widget 引用 test.owner），只服务 BuildAllowBlocking，供用例注入一条坏引用
+            // 触发 reference_integrity，不影响既有任何用例（默认不注册这两张表 schema）。
+            private readonly List<JsonObject> _widgets = new List<JsonObject>();
+
             public Registry SkillDef(JsonObject row) { _skillDefs.Add(row); return this; }
             public Registry Book(JsonObject row) { _books.Add(row); return this; }
             public Registry BudgetRule(JsonObject row) { _budgetRules.Add(row); return this; }
             public Registry Rotation(JsonObject row) { _rotations.Add(row); return this; }
             public Registry Creature(JsonObject row) { _creatures.Add(row); return this; }
             public Registry AuraDef(JsonObject row) { _auraDefs.Add(row); return this; }
+
+            public Registry Widget(string id, string? ownerRef)
+            {
+                var fields = new List<(string, JsonValue)> { ("id", J.S(id)) };
+                if (ownerRef != null)
+                {
+                    fields.Add(("owner", J.S(ownerRef)));
+                }
+                _widgets.Add(J.O(fields.ToArray()));
+                return this;
+            }
 
             /// <summary>T-N5-3 新增：<see cref="Build(IEnumerable{IValidationRule}?, DataRegistryStrictness)"/>
             /// 每次调用后的完整 <see cref="ValidationReport"/>——既有 9 处 <c>Build()</c> 调用点只关心
@@ -129,6 +145,47 @@ namespace Tests.Rules.Skill
                         "测试数据未通过校验：\n" + string.Join("\n", report.Issues));
                 }
 
+                return registry;
+            }
+
+            /// <summary>消费方反馈第 45 条（2026-09-17）新增：同 <see cref="Build(IEnumerable{IValidationRule}?,
+            /// DataRegistryStrictness)"/>，额外注册 <see cref="Widget"/> 用到的 <c>test.widget</c>/
+            /// <c>test.owner</c> 表对，且不在 <see cref="ValidationReport.IsBlocking"/> 为 <c>true</c>
+            /// 时抛异常——供故意构造"阻断态" registry 的用例使用（验证 <see
+            /// cref="SkillBudgetAnalyzer.Analyze"/> 在阻断态下不抛异常）。</summary>
+            public IDataRegistryView BuildAllowBlocking(out ValidationReport report)
+            {
+                var source = new InMemoryDataSource();
+                source.Add("skill.def", TableJson("skill.def", _skillDefs));
+                source.Add("skill.book", TableJson("skill.book", _books));
+                source.Add("skill.budget_rule", TableJson("skill.budget_rule", _budgetRules));
+                source.Add("ai.rotation", TableJson("ai.rotation", _rotations));
+                source.Add("creature.template", TableJson("creature.template", _creatures));
+                source.Add("skill.aura_def", TableJson("skill.aura_def", _auraDefs));
+                source.Add("test.widget", TableJson("test.widget", _widgets));
+
+                var bus = new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
+                    new EventBusOptions { StrictCatalog = false });
+                var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+                registry.RegisterSchema(SkillSchemas.Def);
+                registry.RegisterSchema(SkillSchemas.Book);
+                registry.RegisterSchema(SkillSchemas.BudgetRule);
+                registry.RegisterSchema(AiSchemas.Rotation);
+                registry.RegisterSchema(TableSchema.Unschematized("creature.template", "id"));
+                registry.RegisterSchema(SkillSchemas.AuraDef);
+                registry.RegisterSchema(new TableSchema(
+                    "test.widget", "id", 1,
+                    new[]
+                    {
+                        new FieldSchema("id", FieldKind.Id, required: true),
+                        new FieldSchema("owner", FieldKind.Reference, required: false, referenceTable: "test.owner"),
+                    }));
+                registry.RegisterSchema(new TableSchema(
+                    "test.owner", "id", 1,
+                    new[] { new FieldSchema("id", FieldKind.Id, required: true) }));
+
+                report = registry.LoadAll();
+                LastReport = report;
                 return registry;
             }
         }
@@ -597,6 +654,55 @@ namespace Tests.Rules.Skill
             var unparseable = Assert.Single(report.Issues, i => i.Check == SkillBudgetValidationRule.UnparseableRecordCheck);
             Assert.Equal(ValidationSeverity.Warning, unparseable.Severity);
             Assert.Equal("skill.n47_blank_required_ids", unparseable.RecordKey);
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 45 条（2026-09-17）：阻断态下不抛异常 + 降级标记如实反映
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Analyze_NonBlockingState_MatchesPreChangeResult_NotDegraded()
+        {
+            var view = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n45_ok", baseValue: 10))
+                .Book(Book("skill.book.n45", (1, "skill.n45_ok")))
+                .BudgetRule(DefaultBudgetRule())
+                .Build();
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            var result = SkillBudgetAnalyzer.Analyze(new Id("skill.n45_ok"), view, options: null, provider);
+
+            Assert.Equal(1.0, result.Ratio, 6);
+            Assert.Equal(SkillBudgetVerdict.Pass, result.Verdict);
+            Assert.False(result.IsDegraded);
+            Assert.Empty(result.MissingTables);
+        }
+
+        [Fact]
+        public void Analyze_BlockingState_UnrelatedReferenceIntegrityError_DoesNotThrow_AndNotDegraded()
+        {
+            // 反馈原文复现：registry 因与本次分析用到的 skill.* 五张表完全无关的坏引用
+            // （test.widget.owner 指向不存在的 test.owner.ghost）整体阻断。
+            var registry = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n45_blocked", baseValue: 10))
+                .Book(Book("skill.book.n45_blocked", (1, "skill.n45_blocked")))
+                .BudgetRule(DefaultBudgetRule())
+                .Widget("test.widget.a", "test.owner.ghost")
+                .BuildAllowBlocking(out var report);
+            Assert.True(report.IsBlocking);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("skill.def"));
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+
+            // 修复前：下面这行会抛 InvalidOperationException——即使被分析的技能/skill.* 支持表与
+            // 触发阻断的 test.widget.owner 毫无关系。修复后：不抛异常，且结果与非阻断态完全一致
+            // （不真的降级——具体 DataRegistry 场景下这些表本身没受影响）。
+            var result = SkillBudgetAnalyzer.Analyze(new Id("skill.n45_blocked"), view: registry, options: null, provider);
+
+            Assert.Equal(1.0, result.Ratio, 6);
+            Assert.Equal(SkillBudgetVerdict.Pass, result.Verdict);
+            Assert.False(result.IsDegraded);
+            Assert.Empty(result.MissingTables);
         }
     }
 }
