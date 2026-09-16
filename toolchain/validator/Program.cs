@@ -676,6 +676,28 @@ namespace Toolchain.Validator
                         }
                     }
                     sb.Append(']');
+                    sb.Append(',');
+
+                    // 消费方反馈第 46 条收口（验收报告"必须修项"根治，1.38.0）：既有 "field_meta.
+                    // deprecated" 只覆盖顶层字段（04 第 3.4 节），嵌套在 Fields/Item/Map 值/Variants
+                    // 分支内的废弃字段（如 quest.def.rewards.xp、skill.def 效果参数
+                    // scaling_stat/coefficient）此前 FieldSchema.IsDeprecated 已正确登记，但本导出
+                    // 路径吐不出来（见 SchemaFieldDeprecationExport 类型顶部判断记录）。新增
+                    // "deprecated_paths"：按 SchemaFieldDeprecationExport.Collect 递归收集本表全部
+                    // （含顶层与任意深度嵌套）废弃字段，点路径记法与 "field_ranges"/SchemaAudit 的
+                    // FieldPath 记法一致。追加在既有 "migrations" 字段之后、闭合大括号之前，不改动
+                    // "field_meta" 既有形状，保持此前 --json 输出对不消费本键的调用方逐字节兼容。
+                    sb.Append("\"deprecated_paths\":[");
+                    if (fieldSchema != null)
+                    {
+                        var deprecatedPaths = SchemaFieldDeprecationExport.Collect(fieldSchema);
+                        for (var d = 0; d < deprecatedPaths.Count; d++)
+                        {
+                            if (d > 0) sb.Append(',');
+                            AppendDeprecatedPathJson(sb, deprecatedPaths[d]);
+                        }
+                    }
+                    sb.Append(']');
 
                     sb.Append('}');
                 }
@@ -961,6 +983,17 @@ namespace Toolchain.Validator
                 sb.Append("\"note\":").Append(field.DeprecationNote == null ? "null" : "\"" + JsonEscape(field.DeprecationNote) + "\"");
                 sb.Append('}');
             }
+            sb.Append('}');
+        }
+
+        /// <summary>见 <see cref="PrintJson"/> 里 <c>deprecated_paths</c> 字段的判断记录。</summary>
+        private static void AppendDeprecatedPathJson(StringBuilder sb, DeprecatedFieldInfo info)
+        {
+            sb.Append('{');
+            sb.Append("\"path\":\"").Append(JsonEscape(info.FieldPath)).Append("\",");
+            sb.Append("\"since\":\"").Append(JsonEscape(info.Since)).Append("\",");
+            sb.Append("\"replaced_by\":").Append(info.ReplacedBy == null ? "null" : "\"" + JsonEscape(info.ReplacedBy) + "\"").Append(',');
+            sb.Append("\"note\":").Append(info.Note == null ? "null" : "\"" + JsonEscape(info.Note) + "\"");
             sb.Append('}');
         }
 

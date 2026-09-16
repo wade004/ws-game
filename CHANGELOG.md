@@ -464,6 +464,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   消费方反馈第 47 条）。
 - `FileSystemDataSource` 新增 `DataSourceOptions`（可选构造项，默认开启跳过非数据表 JSON，ABI
   只新增）。
+- `toolchain/validator --list-tables --json` 每张表条目新增 `deprecated_paths`
+  （`[{path, since, replaced_by, note}]`，`presentation/assembly/SchemaFieldDeprecationExport`）：
+  按点路径记法（同 `field_ranges` 的 `FieldPath` 记法）递归全量导出本表全部（含顶层与任意深度
+  嵌套）已登记废弃元数据的字段——既有 `field_meta.deprecated` 只覆盖顶层字段，`quest.def
+  .rewards.xp`、`skill.def`/`skill.aura_def` 效果参数 `scaling_stat`/`coefficient` 等嵌套字段
+  此前这条导出路径读不到（独立验收反馈第 46 条落地遗留的必须修项收口）。
 
 ### 变更
 
@@ -501,7 +507,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - `editor/docs/编辑器产品文档.md`/`.html`（v2.17）第 4.1 节新增两行契约面——"只读分析入口阻断态
   容错"（消费方反馈第 45 条）与"字段级 Id 语法与规则解析容错"（消费方反馈第 47 条）；变更记录表
   追加 v2.17（反馈 45）/v2.17（反馈 47）两行；现有 v2.17 行补充 `item.template.stat_roll_ref`
-  收口说明。
+  收口说明；`TableSchema`/`FieldSchema` 一行描述追加 `deprecated_paths` 说明，变更记录表再追加
+  v2.17（反馈 46 CLI 收口）一行。
 - `docs/升级指南/1.29.0到1.37.0-数值设计专项.md` 附录 C"废弃与替代 API 总表"补一行
   `item.template.stat_roll_ref → affixes（1.32.0）`。
 
@@ -513,7 +520,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   本身语义不变（仍表示"取值类型根本不对"）。
 - **废弃字段元数据可替代手工清单**：`Editor.Core.Validation.DeprecatedFieldHints` 一类自建静态
   清单可退役，改从 `FieldSchema.IsDeprecated`/`DeprecatedSince`/`ReplacedBy`/`DeprecationNote`
-  或 `--list-tables --json` 的 `field_meta.deprecated` 读取。
+  读取；走命令行路径的消费方——顶层字段读 `--list-tables --json` 的 `field_meta.deprecated`，
+  嵌套字段（`field_meta` 不覆盖）改读新增的 `deprecated_paths`（点路径，全量导出含顶层与任意
+  深度嵌套）。
 - **只读分析入口容错后包装可退役**：`Editor.Core.Validation.TolerantRegistryView` 一类自建结构性
   包装可退役，改用框架原生 `Core.Foundation.DataRegistry.TolerantRegistryView`。
 - **`stat_roll_ref` 标废弃**：`item.template.stat_roll_ref` 现已结构化标记为废弃（`ReplacedBy:

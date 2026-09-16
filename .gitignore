@@ -58,3 +58,7 @@ architecture/落地计划/audit-*/**/obj-*/
 # T-N6-6：toolchain/sim_baseline.ps1 默认输出目录（报告/差异，非基线本身——基线文件在
 # core/sim/tests/baseline/，随代码提交，不受本条目影响）。
 .sim_out/
+# 独立验收（1.38.0 验收报告第 7 项）判断记录：.cache/ 是手工搭建的一次性发布消费探针工作区
+# （如 .cache/ws-game-<ver>/release-probes/，含 bin/obj 构建产物），本地探针缓存，不入库；
+# 未被任何仓库脚本（build.ps1/check.ps1/toolchain/*.ps1）生成，纯手工/一次性操作产物。
+.cache/

@@ -264,6 +264,100 @@ def test_check_mode_no_changes_needed_returns_zero(tmp_path: Path) -> None:
     assert exit_code == 0
 
 
+# 消费方反馈第 46 条收口（验收报告"必须修项"根治，1.38.0）：`--list-tables --json` 新增表级
+# `deprecated_paths`（见 `toolchain/validator/Program.cs` `PrintJson` 判断记录、
+# `presentation/assembly/SchemaFieldDeprecationExport.cs`）——本文件用的两张真实表 `quest.def`/
+# `skill.def` 的实际字段值（人工核实 `dotnet exec <build>/bin/Validator/*/Validator.dll --list-tables
+# --json` 真实输出得到，见该文件判断记录里的字段路径记法）：quest.def.rewards.xp（嵌套在 `rewards`
+# 对象子结构里）、skill.def 效果参数 scaling_stat/coefficient（嵌套在 `effects[]` 变体 case 的
+# `params` 子结构里，school_damage/heal 两个 case 各自一份）。
+FIELD_ORDER_MAP_WITH_DEPRECATED_PATHS = {
+    "quest.def": ["id", "title_key", "rewards", "repeatable"],
+    "skill.def": ["id", "kind", "effects"],
+}
+
+QUEST_DEF_DEPRECATED_PATHS = [
+    {"path": "rewards.xp", "since": "1.34.0", "replaced_by": "xp_equivalent", "note": None},
+]
+
+SKILL_DEF_DEPRECATED_PATHS = [
+    {"path": "effects[]{kind=school_damage}.params.coefficient", "since": "1.33.0", "replaced_by": "scaling", "note": None},
+    {"path": "effects[]{kind=school_damage}.params.scaling_stat", "since": "1.33.0", "replaced_by": "scaling", "note": None},
+    {"path": "effects[]{kind=heal}.params.coefficient", "since": "1.33.0", "replaced_by": "scaling", "note": None},
+    {"path": "effects[]{kind=heal}.params.scaling_stat", "since": "1.33.0", "replaced_by": "scaling", "note": None},
+]
+
+
+def _fake_validator_run_with_deprecated_paths(cmd, cwd=None, capture_output=False, text=False, encoding=None, errors=None):
+    assert "--list-tables" in cmd
+    assert "--json" in cmd
+    deprecated_paths_by_table = {
+        "quest.def": QUEST_DEF_DEPRECATED_PATHS,
+        "skill.def": SKILL_DEF_DEPRECATED_PATHS,
+    }
+    payload = {
+        "tables": len(FIELD_ORDER_MAP_WITH_DEPRECATED_PATHS),
+        "records": 0,
+        "errors": 0,
+        "warnings": 0,
+        "blocking": False,
+        "tables_list": [
+            {
+                "name": table,
+                "record_count": 0,
+                "fields": fields,
+                "deprecated_paths": deprecated_paths_by_table[table],
+            }
+            for table, fields in FIELD_ORDER_MAP_WITH_DEPRECATED_PATHS.items()
+        ],
+        "issues": [],
+        "overrides": [],
+        "disabled_optional_rules": [],
+        "enabled_optional_rules": [],
+    }
+    return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+
+def test_get_field_order_map_ignores_deprecated_paths_field(tmp_path: Path) -> None:
+    """`tables_list` 条目新增 `deprecated_paths` 后，`get_field_order_map`（本工具唯一消费
+    `tables_list` 的入口）应继续只提取 `fields`/`schema_version`，不因为多出的新键报错或改变既有
+    行为——新增字段必须是纯粹的追加，不影响任何既有消费方。"""
+    toolchain_copy = _make_toolchain_copy(tmp_path)
+    module = _load_format_data_copy(toolchain_copy)
+    # 判断记录：同文件其它用例同一手法（见上方多处同一注释），不直接改写全局 shutil/subprocess，
+    # 改为只重新绑定本次动态加载出的这个模块实例自己的名字，且不依赖当前机器是否装了 dotnet。
+    module.shutil = SimpleNamespace(which=lambda name: "/fake/dotnet")
+    module.subprocess = SimpleNamespace(run=_fake_validator_run_with_deprecated_paths)
+
+    field_order_map, schema_version_map = module.get_field_order_map(toolchain_copy, [tmp_path / "data_root"])
+
+    assert field_order_map["quest.def"] == ["id", "title_key", "rewards", "repeatable"]
+    assert field_order_map["skill.def"] == ["id", "kind", "effects"]
+    assert schema_version_map["quest.def"] == 1
+    assert schema_version_map["skill.def"] == 1
+
+
+def test_quest_def_and_skill_def_deprecated_paths_cover_nested_fields() -> None:
+    """锁死验收报告点名核实过的两处真实嵌套废弃字段：quest.def.rewards.xp（对象子结构）与
+    skill.def 效果参数 scaling_stat/coefficient（变体 case 子结构，school_damage/heal 各一份）——
+    此前 `field_meta.deprecated` 只覆盖顶层字段，这两处嵌套路径 CLI 导出读不到；`deprecated_paths`
+    新增之后应能读到。"""
+    quest_paths = {entry["path"] for entry in QUEST_DEF_DEPRECATED_PATHS}
+    assert "rewards.xp" in quest_paths
+    xp_entry = next(e for e in QUEST_DEF_DEPRECATED_PATHS if e["path"] == "rewards.xp")
+    assert xp_entry["since"] == "1.34.0"
+    assert xp_entry["replaced_by"] == "xp_equivalent"
+
+    skill_paths = {entry["path"] for entry in SKILL_DEF_DEPRECATED_PATHS}
+    assert "effects[]{kind=school_damage}.params.scaling_stat" in skill_paths
+    assert "effects[]{kind=school_damage}.params.coefficient" in skill_paths
+    assert "effects[]{kind=heal}.params.scaling_stat" in skill_paths
+    assert "effects[]{kind=heal}.params.coefficient" in skill_paths
+    for entry in SKILL_DEF_DEPRECATED_PATHS:
+        assert entry["since"] == "1.33.0"
+        assert entry["replaced_by"] == "scaling"
+
+
 if __name__ == "__main__":
     import sys as _sys
 
