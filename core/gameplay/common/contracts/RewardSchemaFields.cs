@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.DataRegistry;
 
 namespace Core.Gameplay.Common
@@ -19,6 +20,13 @@ namespace Core.Gameplay.Common
     /// 上游若要收口，应当让本方法也改为返回带 <c>Fields: QuestSchemas.RewardsFields</c> 的
     /// <see cref="FieldSchema"/>（会引入对 <c>Core.Gameplay.Quest</c> 命名空间的依赖，因此未在本次
     /// P3 范围内顺带做——那是一次行为变更，不是纯文档修正）。
+    /// </para>
+    /// <para>
+    /// 整合反馈第 45/46/47 条时收口（ABI 硬性规则：公开成员禁止删除）：<see cref="Rewards"/> 确认
+    /// 全仓零调用方（<c>git grep</c> 核实，仅本类型/文档注释里以 <c>RewardSchemaFields.Rewards()</c>
+    /// 字面量出现在判断记录里，均非真实调用），但它是 <c>public static</c> 成员，不能物理删除，改标
+    /// <see cref="ObsoleteAttribute"/> 说明现状与收口路线；上文已过期的"目前没有任何调用方"表述随本次
+    /// 一并保留（仍属实，只是新增了 Obsolete 标记这一层）。
     /// </para>
     /// <para>
     /// Object/联合值的边界：<c>Fields</c> 能表达"有哪些具名子字段、各自什么 <see cref="FieldKind"/>"，
@@ -46,8 +54,21 @@ namespace Core.Gameplay.Common
         /// <see cref="RewardBundle.Empty"/>）。判断记录：目前仍只登记裸 <see cref="FieldKind.Object"/>
         /// （不带 <see cref="FieldSchema.Fields"/>），见类型顶部判断记录——当前没有任何调用方，三张
         /// 表都各自用自己的、带 <c>Fields</c> 的登记方式。</summary>
+        /// <remarks>整合反馈第 45/46/47 条时收口：本方法无调用方，是 ABI 兼容性保留的死代码，不要
+        /// 在新代码里引用；三张真实表登记的 <c>rewards</c> 字段（如
+        /// <see cref="Core.Gameplay.Quest.QuestSchemas.RewardsFields"/>）各自带完整
+        /// <see cref="FieldSchema.Fields"/>，其中 <c>xp</c> 子字段已用
+        /// <see cref="FieldSchema.WithDeprecated"/> 登记结构化废弃元数据
+        /// （<c>DeprecatedSince: "1.34.0"</c>，<c>ReplacedBy: "xp_equivalent"</c>），请从那里读取
+        /// 权威的废弃信息，不要依赖本方法下面这行 Description 里的自由文本。</remarks>
+        [Obsolete("无调用方的历史遗留帮助方法，保留仅为不破坏既有公开 API 形状（ABI 规则禁止删除公开成员）。"
+            + "三张表现各自登记带 Fields 的 rewards（见 Core.Gameplay.Quest.QuestSchemas.RewardsFields），"
+            + "其 xp 子字段的废弃状态已用 FieldSchema.WithDeprecated 结构化标记，不要新增对本方法的调用。")]
         public static FieldSchema Rewards(bool required = false) => new FieldSchema(
             "rewards", FieldKind.Object, required,
-            description: "{items, xp（已废弃）, xp_equivalent, level, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle（T-N4-4 新增 xp_equivalent/level）");
+            description: "{items, xp（已废弃，结构化标记见 QuestSchemas.RewardsFields 的 xp 字段"
+                + " FieldSchema.WithDeprecated：ReplacedBy=xp_equivalent，本方法未登记 Fields，无法在"
+                + "此处附加同款元数据）, xp_equivalent, level, currency, skills, world_flags,"
+                + " talent_points}，见 Core.Gameplay.Common.RewardBundle（T-N4-4 新增 xp_equivalent/level）");
     }
 }
