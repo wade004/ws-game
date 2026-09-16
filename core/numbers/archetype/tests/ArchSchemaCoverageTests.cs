@@ -207,5 +207,55 @@ namespace Tests.Numbers.Archetype
             Assert.Contains(report.Issues, i =>
                 i.Check == Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName);
         }
+
+        /// <summary>
+        /// 深度复审 A（测试覆盖缺口 #4）补测：验证"<c>derivation_overrides[].source</c> 引用一个
+        /// 完全不存在的 <c>stat.definition</c> 记录"这一场景的实际行为。
+        /// <para>
+        /// 判断记录（2026-09-16，如实记录探测结果，不属于本单 A-M1/A-S1 修复范围，未改动生产代码）：
+        /// <see cref="Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule"/> 类型顶部的
+        /// 判断记录声称"读不到 stat.definition 对应记录时……直接跳过该条目，留给 reference_integrity
+        /// 单独报，避免同一条数据两条规则各报一次造成报告噪音"，但实测显示该方法的
+        /// <c>Validate</c> 实现里并没有对应的"跳过"分支（<c>validEdges.Contains</c> 判定对"引用不
+        /// 存在"和"引用存在但不是一条真实派生边"两种情形一视同仁，均会报错）——<c>source</c> 引用
+        /// 完全不存在的记录时，<c>reference_integrity</c> 与本规则的 <see
+        /// cref="Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName"/> 会
+        /// <b>同时</b>报错，不是文档描述的"只报一次"。本测试如实记录这一实测行为（而不是断言文档
+        /// 描述的行为），供设计层裁定：是修代码补上"跳过"分支使其与文档一致，还是修文档承认"两条
+        /// 规则本来就会同时报"这一现状；本单只做只读探测，不改动
+        /// <c>ArchClassDerivationOverrideValidationRule.cs</c> 本身（该文件不在本单必须修/建议修
+        /// 清单内）。
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void ClassDerivationOverrides_SourceReferencesNonExistentStat_BothReferenceIntegrityAndOverrideRuleReport()
+        {
+            var rows = "[{\"id\":\"arch.class.cov_override_unknown\",\"name_key\":\"l10n.arch.class.cov_override_unknown.name\"," +
+                "\"primary_stat\":\"stat.cov_might2\",\"base_stats\":{\"stat.cov_might2\":10},\"power_types\":[]," +
+                "\"derivation_overrides\":[{\"stat\":\"stat.cov_power2\",\"source\":\"stat.cov_totally_missing\",\"coefficient\":2.0}]}]";
+            var extraStatDefinitionRows =
+                "[{\"id\":\"stat.cov_might2\",\"name_key\":\"l10n.stat.cov_might2.name\",\"category\":\"primary\"}," +
+                "{\"id\":\"stat.cov_power2\",\"name_key\":\"l10n.stat.cov_power2.name\",\"category\":\"derived\"," +
+                "\"derived_from\":[{\"stat\":\"stat.cov_might2\",\"coefficient\":1.0}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add(Core.Numbers.StatBlock.StatSchemas.Definition.Name,
+                    Envelope(Core.Numbers.StatBlock.StatSchemas.Definition.Name, extraStatDefinitionRows))
+                .Add(Core.Numbers.Archetype.ArchSchemas.Class.Name,
+                    Envelope(Core.Numbers.Archetype.ArchSchemas.Class.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(Core.Numbers.Archetype.ArchSchemas.Class);
+            registry.RegisterValidationRule(new Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "reference_integrity"
+                && i.Field == "derivation_overrides[0].source");
+            // 实测现状：本规则并未如文档所述"跳过"，同一条数据两条规则都报了——见本方法判断记录。
+            Assert.Contains(report.Issues, i =>
+                i.Check == Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName);
+        }
     }
 }

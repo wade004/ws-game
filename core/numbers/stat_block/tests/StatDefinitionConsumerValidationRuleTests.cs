@@ -376,5 +376,74 @@ namespace Tests.Numbers.StatBlock
             Assert.Equal(1, report.NonEscalatableWarningCount);
             Assert.False(report.IsBlocking);
         }
+
+        // -----------------------------------------------------------------
+        // 深度复审 A（测试覆盖缺口 #5）补测：动态 DeclareReference 声明来源（类型判断记录 (1)）——
+        // 当前仓库确实"尚无表以这种方式指向 stat.definition"，本条用自建的 test.declare_ref_holder
+        // 最小表 + IDataRegistry.DeclareReference 手工构造这条分支，真实数据集无法触达，只有本单测
+        // 能验证其正确性（同类型判断记录原文）。
+        // -----------------------------------------------------------------
+
+        /// <summary>本测试类自建的最小表：一个 <c>target_stat</c> 字段登记为 <see cref="FieldKind.Id"/>
+        /// （不是 <see cref="FieldKind.Reference"/>——否则会被规则扫描逻辑第 (2) 部分"schema 级
+        /// Reference 字段"扫到，测不出第 (1) 部分"动态 DeclareReference"这条独立路径），其"整字段
+        /// 指向 stat.definition"这层语义完全靠 <see cref="IDataRegistry.DeclareReference(string, string, string)"/>
+        /// 动态登记，不经过 schema。</summary>
+        private static TableSchema DeclareRefHolderSchema() => new TableSchema(
+            "test.declare_ref_holder", "id", 1,
+            new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("target_stat", FieldKind.Id, required: false),
+            });
+
+        [Fact]
+        public void HasConsumer_ViaDynamicDeclareReference_NoWarning_ButUnrelatedStatStillReportsWarning()
+        {
+            const string definitions = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.only_via_declare_reference"", ""name_key"": ""l10n.a"", ""category"": ""misc"" },
+                    { ""id"": ""stat.truly_unreferenced"", ""name_key"": ""l10n.b"", ""category"": ""misc"" }
+                ]
+            }";
+            const string holders = @"
+            {
+                ""table"": ""test.declare_ref_holder"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""test.declare_ref_holder.entry_a"", ""target_stat"": ""stat.only_via_declare_reference"" }
+                ]
+            }";
+
+            var source = new InMemoryDataSource()
+                .Add("stat.definition", definitions)
+                .Add("test.declare_ref_holder", holders);
+
+            var registry = new DataRegistry(source, MakeBus(),
+                new DataRegistryOptions { Strictness = DataRegistryStrictness.WarningsAllowed });
+            registry.RegisterSchema(StatSchemas.Definition);
+            registry.RegisterSchema(DeclareRefHolderSchema());
+            // 核心动作：只靠动态 DeclareReference 登记"test.declare_ref_holder.target_stat 整字段
+            // 指向 stat.definition"这条声明——schema 里 target_stat 是普通 FieldKind.Id，不是
+            // Reference，规则扫描逻辑第 (2) 部分（schema 级 Reference/SoftReference/Map 键引用）
+            // 天然看不到它，只有第 (1) 部分（GetReferenceDeclarations）能捕获。
+            registry.DeclareReference("test.declare_ref_holder", "target_stat", "stat.definition");
+            registry.RegisterValidationRule(new StatDefinitionConsumerValidationRule());
+
+            var report = registry.LoadAll();
+
+            // 被动态声明的引用命中的属性：不应报"无消费者"。
+            Assert.DoesNotContain(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.only_via_declare_reference");
+            // 对照组：真正没有任何消费者的属性仍然应该被报——证明"不报"不是规则整体失效，
+            // 而是动态声明确实生效命中了对应属性。
+            Assert.Contains(report.Issues,
+                i => i.Check == StatDefinitionConsumerValidationRule.CheckNoConsumer &&
+                     i.RecordKey == "stat.truly_unreferenced");
+        }
     }
 }
