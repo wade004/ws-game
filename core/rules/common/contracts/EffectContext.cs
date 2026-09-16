@@ -135,6 +135,23 @@ namespace Core.Rules.Common
         /// </summary>
         public double TargetCoefficient { get; }
 
+        /// <summary>
+        /// 深度复审 C-S2（2026-09-16）新增：本次结算对应的效果原语在其所属 <c>skill.aura_def.effects</c>
+        /// 数组里的下标——只有经 <c>Core.Rules.Skill.AuraHost.FirePeriodic</c> 产生的周期性光环结算
+        /// （<see cref="IsPeriodic"/> 为真且 <see cref="AuraInstanceId"/> 非空）才会显式提供；其余全部
+        /// 调用点（含经既有构造函数构造的实例）恒为 <c>null</c>。
+        /// <para>
+        /// 用途：<c>EffectDispatcher._lastPeriodicEffectValue</c> 冻结缓存键此前只有
+        /// <c>(AuraInstanceId, Kind, School)</c> 三元组——如果同一个 <c>skill.aura_def</c> 声明两条
+        /// "同类型同学派"的周期效果（如两段 <c>periodic_damage</c> 都标 <c>school.physical</c> 但
+        /// <c>base_value</c>/<c>coefficient</c> 不同），来源单位注销之后两条效果会共享同一个缓存
+        /// 槛位——后写入的一条覆盖前一条，其中一条的贡献被静默丢弃（见该字段判断记录）。补上本字段
+        /// 后，缓存键变为 <c>(AuraInstanceId, Kind, School, EffectEntryIndex)</c>，两条效果各自独立
+        /// 冻结，不再互相覆盖。
+        /// </para>
+        /// </summary>
+        public int? EffectEntryIndex { get; }
+
         public EffectContext(
             Id sourceId,
             Id targetId,
@@ -174,6 +191,7 @@ namespace Core.Rules.Common
             // T-N3-8：本构造函数不带 targetCoefficient 参数（ABI 规则禁止改动既有签名），恒取 1.0
             // （见 TargetCoefficient 属性判断记录）。
             TargetCoefficient = 1.0;
+            EffectEntryIndex = null;
         }
 
         /// <summary>
@@ -226,6 +244,7 @@ namespace Core.Rules.Common
             SourceKind = SourceKind.Unknown;
             // T-N3-8：同上一构造函数判断记录，本构造函数同样不带 targetCoefficient 参数，恒取 1.0。
             TargetCoefficient = 1.0;
+            EffectEntryIndex = null;
         }
 
         /// <summary>
@@ -285,6 +304,7 @@ namespace Core.Rules.Common
             // T-N3-8：本构造函数（T-N1-6 补充 sourceKind 时新增）同样不带 targetCoefficient 参数，
             // 恒取 1.0（见下一构造函数）。
             TargetCoefficient = 1.0;
+            EffectEntryIndex = null;
         }
 
         /// <summary>
@@ -345,6 +365,65 @@ namespace Core.Rules.Common
             GroundPoint = groundPoint;
             SourceKind = sourceKind;
             TargetCoefficient = targetCoefficient;
+            EffectEntryIndex = null;
+        }
+
+        /// <summary>
+        /// 深度复审 C-S2 新增重载（2026-09-16）：携带 <see cref="EffectEntryIndex"/>。判断记录（同
+        /// 上一构造函数"T-N3-8 新增重载"同一条 ABI 兼容惯例）：既有十八参数构造函数（含
+        /// <c>targetCoefficient</c>）已经没有任何可选参数，直接追加第十九个参数会改变其物理 IL
+        /// 签名，对已编译好的外部消费方二进制是破坏性变更；本重载十九个参数全部不带默认值（理由
+        /// 同上：写成可选参数会与既有构造函数在调用点产生重载二义性），与既有四个构造函数在参数
+        /// 个数上不重叠（15/16/17/18 对 19），互不冲突。
+        /// <para>
+        /// 生产路径只有 <c>Core.Rules.Skill.AuraHost.FirePeriodic</c> 改经本构造函数，<paramref
+        /// name="effectEntryIndex"/> 是该效果在 <c>AuraDef.Effects</c> 数组里的下标（见 <see
+        /// cref="EffectEntryIndex"/> 判断记录）；其余调用点（<c>CastPipeline.ExecuteEffectsOnly</c>/
+        /// <c>ProjectileHost.ApplyOnHitEffects</c>/纯脚本测试构造等）不涉及"同一光环内多条同类型
+        /// 同学派周期效果互相覆盖"这一问题场景，继续使用既有构造函数（得到 <c>null</c>，语义上
+        /// 等价于"不适用/未提供"）即可，不强制迁移。
+        /// </para>
+        /// </summary>
+        public EffectContext(
+            Id sourceId,
+            Id targetId,
+            Id skillId,
+            EffectKind kind,
+            Id school,
+            double baseValue,
+            double coefficient,
+            JsonObject? @params,
+            Id? auraInstanceId,
+            bool isPeriodic,
+            bool canCrit,
+            bool canMiss,
+            IReadOnlyList<Id>? tags,
+            int triggerChainDepth,
+            Id? attackInstanceId,
+            Vec2? groundPoint,
+            SourceKind sourceKind,
+            double targetCoefficient,
+            int? effectEntryIndex)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            SkillId = skillId;
+            Kind = kind;
+            School = school;
+            BaseValue = baseValue;
+            Coefficient = coefficient;
+            Params = @params ?? EmptyParams;
+            AuraInstanceId = auraInstanceId;
+            IsPeriodic = isPeriodic;
+            CanCrit = canCrit;
+            CanMiss = canMiss;
+            Tags = tags ?? EmptyTags;
+            TriggerChainDepth = triggerChainDepth;
+            AttackInstanceId = attackInstanceId;
+            GroundPoint = groundPoint;
+            SourceKind = sourceKind;
+            TargetCoefficient = targetCoefficient;
+            EffectEntryIndex = effectEntryIndex;
         }
     }
 }

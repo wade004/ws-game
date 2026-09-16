@@ -47,10 +47,11 @@ namespace Core.Rules.Skill
         /// <summary>T-N3-7（[ADR-0031](../../../../architecture/adr/0031-技能数值契约与预算.md)
         /// 决策 4；06 第 3.3 节 2026-09-14 修订段"周期效果动态计算，不做快照……对象已被移除则冻结为
         /// 最后一次算出的每跳值"）：周期性效果（<c>periodic_damage</c>/<c>periodic_heal</c>）"最后
-        /// 一次来源仍注册时算出的完整效果值"缓存——键为 (光环实例 id, 效果原语类型, 学派)，值为
-        /// <see cref="ApplyDamageOrHeal"/> 算出的 <c>value</c>（<c>base_value</c> + Σscaling，
-        /// SpellMod 应用之前）。只在来源仍注册（<see cref="IStatHost.IsRegistered"/>）时写入；来源
-        /// 已注销时优先读本缓存而不重算（见该方法判断记录 C02 修订）。
+        /// 一次来源仍注册时算出的完整效果值"缓存——键为 (光环实例 id, 效果原语类型, 学派, 效果在
+        /// <c>AuraDef.Effects</c> 数组里的下标)，值为 <see cref="ApplyDamageOrHeal"/> 算出的
+        /// <c>value</c>（<c>base_value</c> + Σscaling，SpellMod 应用之前）。只在来源仍注册（<see
+        /// cref="IStatHost.IsRegistered"/>）时写入；来源已注销时优先读本缓存而不重算（见该方法判断
+        /// 记录 C02 修订）。
         /// <para>
         /// 判断记录（缓存物理位置选在本类型，不是 <c>Core.Rules.Skill.AuraHost.AuraInstanceState</c>）：
         /// 06 原文"光环实例为此缓存最后一跳值"字面上把归属写在光环实例上，但"base + Σscaling"这条
@@ -58,8 +59,19 @@ namespace Core.Rules.Skill
         /// <c>AuraHost.FirePeriodic</c>，该方法就需要独立重算一遍同一公式才能算出要缓存的值，
         /// 两处分别维护同一公式，日后任一处改动都可能悄悄产生分歧。缓存键含光环实例 id 已经把值
         /// 锁定到具体的光环实例，逻辑上仍是"光环实例的缓存"，只是不借助 <c>AuraInstanceState</c>
-        /// 存储；这样只需扩大本类型内部状态（无需改动 <see cref="Core.Rules.Common.EffectContext"/>/
-        /// <see cref="IEffectSink"/> 任何公开契约）即可实现，符合硬性规则"ABI 只允许新增"。
+        /// 存储；这样只需扩大本类型内部状态即可实现，符合硬性规则"ABI 只允许新增"。
+        /// </para>
+        /// <para>
+        /// 判断记录（深度复审 C-S2 修复，2026-09-16，键补第四段"效果下标"）：原键是
+        /// (光环实例 id, 效果原语类型, 学派) 三元组——如果同一个 <c>skill.aura_def</c> 声明两条
+        /// "同类型同学派"的周期效果（如两段 <c>periodic_damage</c> 都标 <c>school.physical</c> 但
+        /// <c>base_value</c>/<c>coefficient</c> 不同），来源单位注销之后两条效果会共享同一个缓存
+        /// 槛位——后写入的一条覆盖前一条，冻结后两条效果事实上退化为同一个值，其中一条的贡献被
+        /// 静默丢弃。补上 <see cref="Core.Rules.Common.EffectContext.EffectEntryIndex"/>（该效果在
+        /// <c>AuraDef.Effects</c> 数组里的下标，<c>AuraHost.FirePeriodic</c> 新增参数传入）后，两条
+        /// 效果各自落在不同的缓存槛位，不再互相覆盖——这是本类型内部状态的进一步扩大，<see
+        /// cref="Core.Rules.Common.EffectContext"/> 只新增了一个可空属性与一个新增构造重载（ABI
+        /// 只允许新增，不影响任何既有调用点）。
         /// </para>
         /// <para>
         /// 不做生命周期清理：光环实例移除后本字典的对应条目不会被主动删除。<c>AuraHost._seq</c>
@@ -68,8 +80,8 @@ namespace Core.Rules.Skill
         /// 风险（同本模块其余"不主动清理、靠不重用 id 保证正确性"的既有惯例）。
         /// </para>
         /// </summary>
-        private readonly Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School), double> _lastPeriodicEffectValue =
-            new Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School), double>();
+        private readonly Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School, int EntryIndex), double> _lastPeriodicEffectValue =
+            new Dictionary<(Id AuraInstanceId, EffectKind Kind, Id School, int EntryIndex), double>();
 
         /// <summary>
         /// ADR-0026《技能位移的连续模式》：<c>move</c> 效果原语 <c>motion: continuous</c> 分支的
@@ -275,12 +287,12 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            List<(Id AuraInstanceId, EffectKind Kind, Id School)>? toRemove = null;
+            List<(Id AuraInstanceId, EffectKind Kind, Id School, int EntryIndex)>? toRemove = null;
             foreach (var key in _lastPeriodicEffectValue.Keys)
             {
                 if (key.AuraInstanceId.Equals(auraInstanceId))
                 {
-                    (toRemove ??= new List<(Id, EffectKind, Id)>()).Add(key);
+                    (toRemove ??= new List<(Id, EffectKind, Id, int)>()).Add(key);
                 }
             }
 
@@ -339,8 +351,13 @@ namespace Core.Rules.Skill
                 // 是否还活着无关）。非周期效果（AuraInstanceId 为 null）与"周期效果但尚无缓存"
                 // （见下方冷启动分支）都落入 else 分支正常计算。
                 var isPeriodicAura = context.IsPeriodic && context.AuraInstanceId.HasValue;
+                // 深度复审 C-S2（2026-09-16）：键补第四段 EntryIndex（该效果在 AuraDef.Effects 数组
+                // 里的下标，见 _lastPeriodicEffectValue 判断记录）——同一光环内两条"同类型同学派"的
+                // 周期效果不再共享同一个缓存槛位。EffectEntryIndex 只有 AuraHost.FirePeriodic 产生的
+                // 结算才会提供；理论上不会出现 isPeriodicAura 为真但 EffectEntryIndex 为空的情形
+                // （周期性光环结算只经这一条生产路径产生），??  -1 只是防御性兜底，不代表预期分支。
                 var periodicCacheKey = isPeriodicAura
-                    ? (context.AuraInstanceId!.Value, context.Kind, context.School)
+                    ? (context.AuraInstanceId!.Value, context.Kind, context.School, context.EffectEntryIndex ?? -1)
                     : default;
                 var sourceRegistered = _statHost.IsRegistered(context.SourceId);
 
@@ -505,11 +522,16 @@ namespace Core.Rules.Skill
             // AttackInstanceId/SourceKind 的既有转发惯例）——value 已经在上面按该系数缩放过一次，
             // 这里转发只是保留"这次结算的分配系数是多少"这条信息，不会被下游重复应用（结算管线
             // 固定步骤本身不读取 EffectContext.TargetCoefficient 做二次运算）。
+            // 深度复审 C-S2（2026-09-16）：同一条转发惯例，原样转发 context.EffectEntryIndex——
+            // 本方法自己不消费它（消费方是上面已经用过缓存键的 _lastPeriodicEffectValue 读写逻辑，
+            // 到这里已经用完），只是不让它像 AttackInstanceId 那类字段曾经的教训一样被 outbound
+            // 重建静默丢弃。
             var outbound = new EffectContext(
                 context.SourceId, context.TargetId, context.SkillId, context.Kind, context.School,
                 value, coefficient, mergedParams, context.AuraInstanceId, context.IsPeriodic, context.CanCrit, context.CanMiss,
                 context.Tags, context.TriggerChainDepth, context.AttackInstanceId, groundPoint: null,
-                sourceKind: context.SourceKind, targetCoefficient: context.TargetCoefficient);
+                sourceKind: context.SourceKind, targetCoefficient: context.TargetCoefficient,
+                effectEntryIndex: context.EffectEntryIndex);
 
             return _combatHost.ResolveEffect(outbound);
         }

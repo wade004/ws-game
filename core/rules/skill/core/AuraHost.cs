@@ -506,7 +506,7 @@ namespace Core.Rules.Skill
                     while (acc >= interval)
                     {
                         acc -= interval;
-                        FirePeriodic(instance, entry);
+                        FirePeriodic(instance, entry, i);
                     }
 
                     instance.PeriodicAccumulators[i] = acc;
@@ -527,7 +527,12 @@ namespace Core.Rules.Skill
             }
         }
 
-        private void FirePeriodic(AuraInstanceState instance, AuraEffectEntry entry)
+        /// <summary>深度复审 C-S2（2026-09-16）新增 <paramref name="entryIndex"/>：<paramref
+        /// name="entry"/> 在其所属 <c>AuraDef.Effects</c> 数组里的下标——原样戳进 <see
+        /// cref="EffectContext.EffectEntryIndex"/>，供 <c>EffectDispatcher</c> 的周期效果冻结缓存键
+        /// 区分同一光环内"同类型同学派"的多条周期效果（见该字段判断记录）。调用点固定传入循环变量
+        /// <c>i</c>（见 <see cref="Update"/> 的周期效果遍历循环），不需要额外查表。</summary>
+        private void FirePeriodic(AuraInstanceState instance, AuraEffectEntry entry, int entryIndex)
         {
             if (EffectSink == null)
             {
@@ -563,7 +568,9 @@ namespace Core.Rules.Skill
                 triggerChainDepth: 0,
                 attackInstanceId: null,
                 groundPoint: null,
-                sourceKind: sourceKind);
+                sourceKind: sourceKind,
+                targetCoefficient: 1.0,
+                effectEntryIndex: entryIndex);
 
             EffectSink.ApplyEffect(context);
         }

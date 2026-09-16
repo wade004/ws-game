@@ -672,14 +672,22 @@ namespace Core.Rules.Skill
                             "max(动作时长, 一拍常数)），T-N3-3 起同时是 weapon_damage_pct 原语运行期" +
                             "公式\"武器秒伤 × 一拍常数 × 百分比\"的乘数（ADR-0031 决策 1/2、06 第 3.2 " +
                             "节 2026-09-14 修订段）；缺省 1.0（记录不存在/表未注册时同一缺省值，见 " +
-                            "EffectDispatcher.ResolveBeatSeconds 判断记录）")
+                            "EffectDispatcher.ResolveBeatSeconds 判断记录）。设计层裁定（深度复审 " +
+                            "C-S3，2026-09-16）：本字段是预算记账常数，不是按 tick 执行、参与离散步" +
+                            "推进/衰减的\"持续时间状态\"，离散模式下不要求取整数——不纳入" +
+                            "TimeFieldConsistencyRule 的离散整数一致性校验（同 cast_time/" +
+                            "cooldown_duration 等真正参与离散步计数的时间字段区分对待），06 文档给出的" +
+                            "示例值（如半秒）在纯离散模式游戏里同样合法")
                     .WithRange(FieldRange.Range(min: 0, minExclusive: true))
                     .WithUnit(FieldUnit.Time),
                 new FieldSchema("periodic_time_discount", FieldKind.Number, required: false,
                         description: "T-N3-9：周期效果（apply_aura 引用的光环含 periodic_damage/" +
                             "periodic_heal）的施放时间当量折价系数——T = 光环总持续时间 × 本字段（06 " +
                             "第 3.10 节公式行注释\"周期效果按总持续时间乘折价\"）；缺省 1.0（不折价，" +
-                            "字段名为本任务临时判定，见本表类型判断记录\"施放时间当量规则\"）。范围 (0,1]")
+                            "字段名为本任务临时判定，见本表类型判断记录\"施放时间当量规则\"）。范围 (0,1]。" +
+                            "设计层裁定（深度复审 C-S3，2026-09-16）：本字段同 beat_seconds，是预算记账" +
+                            "常数（无量纲折价系数，不是时长），不纳入 TimeFieldConsistencyRule 的离散" +
+                            "整数一致性校验")
                     .WithRange(FieldRange.Range(min: 0, minExclusive: true, max: 1)),
                 CurveSchema.BreakpointsField("cooldown_premium_curve", CurveAxis.Value, required: false,
                     description: "T-N3-9：冷却溢价曲线，横轴为\"冷却 ÷ 施放时间当量 T\"的比值，纵轴为" +

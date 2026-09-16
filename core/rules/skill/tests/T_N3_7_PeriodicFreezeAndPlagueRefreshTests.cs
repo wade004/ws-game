@@ -354,6 +354,50 @@ namespace Tests.Rules.Skill
             Assert.Equal(105, world.Combat.ResolveCalls[world.Combat.ResolveCalls.Count - 1].BaseValue);
         }
 
+        /// <summary>
+        /// 深度复审 C-S2 修复回归测试（2026-09-16）：<c>_lastPeriodicEffectValue</c> 缓存键此前只有
+        /// (AuraInstanceId, Kind, School) 三元组——同一光环内两条"同类型同学派"的周期效果（都是
+        /// <c>periodic_damage</c> + 同一学派，来自 <c>skill.aura_def.effects</c> 数组里两个不同下标）
+        /// 会共享同一个缓存槛位，来源注销后其中一条的贡献会被另一条静默覆盖。补上 <see
+        /// cref="EffectContext.EffectEntryIndex"/> 后，两条效果各占独立的缓存槛位。
+        /// </summary>
+        [Fact]
+        public void PeriodicFreeze_TwoEntriesInSameAura_SameKindAndSchool_DoNotOverwriteEachOthersFrozenCache()
+        {
+            var world = new SkillWorldBuilder().Stat("stat.n37_c_s2_power", defaultBase: 10).Build();
+            var dispatcher = Assert.IsType<EffectDispatcher>(world.Host.EffectSink);
+            world.AddUnit(Source);
+            world.AddUnit(Target);
+
+            var sharedAuraInstance = new Id("skill.aura_inst.n37_c_s2_shared");
+
+            EffectContext MakeContext(double baseValue, int entryIndex) => new EffectContext(
+                Source, Target, Skill, EffectKind.SchoolDamage, School, baseValue, coefficient: 0,
+                @params: null, auraInstanceId: sharedAuraInstance, isPeriodic: true, canCrit: true, canMiss: false,
+                tags: null, triggerChainDepth: 0, attackInstanceId: null, groundPoint: null,
+                sourceKind: SourceKind.Unknown, targetCoefficient: 1.0, effectEntryIndex: entryIndex);
+
+            // 两条效果——entryIndex=0 用 base=5，entryIndex=1 用 base=9（均不带 scaling，直接用
+            // base_value 本身当作可辨识值）——来源仍在时各写各的缓存槛位。
+            world.Host.EffectSink.ApplyEffect(MakeContext(5, entryIndex: 0));
+            world.Host.EffectSink.ApplyEffect(MakeContext(9, entryIndex: 1));
+
+            Assert.Equal(5, world.Combat.ResolveCalls[0].BaseValue);
+            Assert.Equal(9, world.Combat.ResolveCalls[1].BaseValue);
+            // 核心断言（C-S2）：两条效果各占一个缓存槛位，不共享——修复前这里会是 1。
+            Assert.Equal(2, dispatcher.PeriodicCacheCount);
+
+            world.Stats.UnregisterUnit(Source);
+
+            // 来源注销后重放：故意把两条的 base_value 都改写成明显不同的数字（若被误判为同一缓存
+            // 槛位、后写覆盖先写，会读到"另一条"的冻结值或改写后的新值，而不是各自正确的冻结值）。
+            world.Host.EffectSink.ApplyEffect(MakeContext(999, entryIndex: 0));
+            world.Host.EffectSink.ApplyEffect(MakeContext(888, entryIndex: 1));
+
+            Assert.Equal(5, world.Combat.ResolveCalls[2].BaseValue); // entryIndex=0 冻结在自己的 5，不是 9。
+            Assert.Equal(9, world.Combat.ResolveCalls[3].BaseValue); // entryIndex=1 冻结在自己的 9，不是 5。
+        }
+
         [Fact]
         public void PeriodicCache_ClearPeriodicCache_RemovesEveryEntryRegardlessOfInstance()
         {

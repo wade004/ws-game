@@ -586,17 +586,37 @@ namespace Core.Rules.Skill
             return ruleRecord != null && ruleRecord.TryGetNumber(monsterField, out var v2) ? v2 : monsterDefault;
         }
 
+        /// <summary>
+        /// 判断记录（深度复审 C-M1 修复，2026-09-16）：带宽是对称区间——<c>SkillSchemas.cs</c> 的
+        /// <c>player_bandwidth</c> 字段文档、<c>SkillValidationRules.cs</c> 的
+        /// <c>skill_budget_deviation</c> 警告文案（把下界 <c>1-bandwidth</c> 也打印出来）、
+        /// <c>architecture/adr/0031-技能数值契约与预算.md</c>、
+        /// <c>architecture/数值设计/00_数值总纲.md</c> 四处描述均一致："比值在
+        /// <c>[1-带宽, 1+带宽]</c> 内视为带宽内通过"。旧实现只判了 <c>ratio &lt;= 1+bandwidth</c>
+        /// 这一上界，从未判 <c>ratio &lt; 1-bandwidth</c> 这一下界——任何写小两个数量级的效果值
+        /// （忘记加 scaling、系数写漏、单位写错）永远被判定为 Pass，与本项校验"抓手滑"的设计初衷
+        /// 不一致（"二写成零点二"和"零点二写成二"是同一类手滑，旧实现只抓后一种）。现补齐下界：
+        /// 落在 <c>[1-bandwidth, 1+bandwidth]</c>（闭区间，边界值判 Pass）内才 Pass；越界（无论偏高
+        /// 还是偏低）且没有 <paramref name="budgetNote"/> 时归 <see
+        /// cref="SkillBudgetVerdict.UnconfirmedDeviation"/>，有 note 时归 <see
+        /// cref="SkillBudgetVerdict.ConfirmedDeviation"/>；04 文档只定义了"硬上限"这一上侧阻断概念、
+        /// 未定义"硬下限"，<paramref name="hardCap"/> 判定天然只对偏高一侧生效，偏低越界不会被误判为
+        /// <see cref="SkillBudgetVerdict.HardCapExceeded"/>（<paramref name="hardCap"/> 恒大于
+        /// <c>1+bandwidth</c>，<c>ratio &lt; 1-bandwidth</c> 时 <c>ratio &gt; hardCap</c> 不可能成立）。
+        /// </summary>
         private static SkillBudgetVerdict Classify(double ratio, double bandwidth, double hardCap, string? budgetNote)
         {
+            var lowerBound = 1.0 - bandwidth;
             var upperBound = 1.0 + bandwidth;
-            if (ratio <= upperBound)
+            if (ratio >= lowerBound && ratio <= upperBound)
             {
                 return SkillBudgetVerdict.Pass;
             }
 
             if (!string.IsNullOrEmpty(budgetNote))
             {
-                // 硬性规则"禁止阻断带说明的超模技能"：有说明时无论是否超硬上限，一律归"已确认"警告。
+                // 硬性规则"禁止阻断带说明的超模技能"：有说明时无论是偏高还是偏低、是否超硬上限，
+                // 一律归"已确认"警告。
                 return SkillBudgetVerdict.ConfirmedDeviation;
             }
 
