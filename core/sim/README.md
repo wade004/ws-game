@@ -102,6 +102,111 @@ T-N6-4）。成长仿真的简化路径模型："打同级怪 → 真实结算�
 T-N6-4b 校准后的锚点重新核算（T-N6-4b 遗留的已知不一致，见该处 README 判断记录），20 级仍为
 满级 0。
 
+T-N6-6（本次任务，ADR-0035 决策 5"报告为结构化产物、基线对比工具输出改动前后统计量差异"）：
+统计量快照与基线对比。新增 `SimReport`（统一信封：场景 id + kind + 数据集指纹
+`SimReport.ComputeDatasetFingerprint`（对参与装载的全部表、全部记录按表名/记录 key 排序后逐条
+FNV-1a 64 位累加，算法选型同 `core/foundation/save_system` `WorldSnapshot.Capture` 同款——只是
+同款选型，独立实现，见该类型判断记录）+ 框架版本字符串（调用方传入，本类型不解析）+ 种子 +
+统计量平铺表 `Stats: IReadOnlyList<SimStat>`（`Path`/`Value`/`Anchor?`/`Deviation?`/`Level?`）+
+原始报告 `RawReport`），三个工厂方法 `FromArenaReport`/`FromGrowthReport`/`FromCoverageReport`
+把三类既有报告拍平成统一形状（路径命名方案与叶子名对齐 `ScenarioDef.Bandwidths` 既有键名的判断
+记录见 `SimReport.cs` 类型注释）。新增 `SimBaseline`（既往快照的最小形状
+`{schema_version, scenario_id, kind, dataset_fingerprint, generated_with_version, seed,
+stats: {path: value}}`，只做 `FromReport`/`ToJson`/`Parse` 文本↔类型转换，不做磁盘路径解析，
+惯例同 `HeadlessWorldOptions.DataSources`"数据来源必须注入"）。新增 `BaselineComparer.Compare`
+逐 `path` 比对当前 `SimReport` 与既往 `SimBaseline`，容差来源优先级"场景 `bandwidths` 中同名
+统计量（按叶子名子串匹配）> `BaselineCompareOptions.RelativeTolerance` 默认相对 1%（对
+`|baselineValue|` 不超过 `AbsoluteToleranceForZeroBaseline`（默认 1e-9）时改用该值本身作绝对
+容差）"，产出 `BaselineDiff`（`Same`/`Within`/`Exceeded`/`Added`/`Removed` 五态分类，全程只用
+`<`/`<=` 阈值比较，不出现浮点精确相等，见 `BaselineComparer`/`BaselineCompareOptions` 类型判断
+记录）。新增命令行入口 `toolchain/simrunner`（`SimRunner.csproj`，工程惯例照抄
+`toolchain/validator` 的 `lib/` 分发分支）与薄封装 `toolchain/sim_baseline.ps1`，详见下方"命令行
+入口"与"基线更新流程"两节。新增并提交三份基线 `core/sim/tests/baseline/*.json`（对应嵌入数据集
+三个场景，见下方"基线文件"一节）。联调过程中发现并根治了 `CoverageSimulation`（T-N6-5 遗留）
+的一处真实确定性缺陷——`AnalyzeSkills`/`MeasureItemMarginalImpact`/`AnalyzeCreatures` 三处用
+`string.GetHashCode()`（.NET 逐进程随机化哈希）派生仿真种子，导致同一 `base_seed`、同一份数据
+在不同进程里跑出不同结果，与仓库通篇"同种子确定性"矛盾；改用确定性的 FNV-1a 32 位字符串哈希
+`CoverageSimulation.StableIdHash`，详见该方法判断记录。
+
+## 命令行入口：`toolchain/simrunner`
+
+```
+dotnet run --project toolchain/simrunner -- run \
+  --scenario all --framework-root data/_framework --data-root core/sim/tests/data \
+  --out <out-dir> [--baseline-dir core/sim/tests/baseline] [--update-baseline] \
+  [--json] [--runs <n>] [--version <str>]
+```
+
+- `--scenario <id>|all`：场景短 id（如 `sim_arena_matrix`，自动补全 `sim.scenario.` 前缀）或
+  `all`（`ScenarioCatalog.All` 全部场景，按 id 排序逐个跑）。
+- `--framework-root <dir>`（必填，单个）+ `--data-root <dir>`（必填，可重复）：拼成
+  `IDataSource` 列表（框架根在前）传给 `ArenaSimulation`/`GrowthSimulation`/`CoverageSimulation
+  .Run`；发现场景所需的"探测世界"用哪个职业构造见判断记录 36。
+- `--out <dir>`：写 `<scenario短id>.report.json`（`SimReport.ToJson()`）；有基线时另写
+  `<scenario短id>.diff.txt`/`.diff.json`（`BaselineDiff.ToText()`/`ToJson()`）。
+- `--baseline-dir <dir>`（可选）：基线文件所在目录，文件名 `<scenario短id>.json`。不传时不做
+  任何比对（纯跑仿真、写报告）。
+- `--update-baseline`：用当前报告覆盖 `--baseline-dir` 下对应文件（需同时传 `--baseline-dir`），
+  写前打印将被覆盖文件的路径与统计量条数。
+- `--runs <n>`：覆盖全部选中场景的 `runs`（经 `ScenarioDef.WithRuns`），仅用于快速冒烟；报告里
+  `runs_override` 字段如实记录。
+- `--json`：额外把每个场景的 `BaselineDiff.ToJson()` 打印到标准输出（人读摘要行不受影响）。
+- `--version <str>`：写入 `SimReport.GeneratedWithVersion`/`SimBaseline.GeneratedWithVersion`
+  的框架版本字符串，本工具不解析、不校验，默认 `"unknown"`。
+
+退出码：
+- **0**：全部选中场景均无 `Exceeded`/`Removed`（含"未传 `--baseline-dir`，不做比对"这一情形）。
+- **1**：至少一个场景的 `BaselineDiff.HasBlockingDifference`（存在 `Exceeded` 或 `Removed`）。
+- **2**：参数错误，或数据装载阻断（`HeadlessWorldBuilder.Build` 抛出的校验阻断异常、目录不存在、
+  数据根内找不到 `sim.scenario` 行等）。
+- **3**：传了 `--baseline-dir` 但至少一个场景对应的基线文件不存在，且未传 `--update-baseline`
+  ——与 0/1/2 三种情形都不同（不是参数写错，也不是跑出来的结果不通过，是"调用方明确要求比对但
+  没有东西可比"这一第三种状态，见 `Program.cs` 类型判断记录"退出码 3 独立于 0/1/2"）。
+
+控制台每个场景一行摘要（供 `check.ps1`/CI 直接判读）：
+`scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n> result=PASS|FAIL`，末尾一行
+`RESULT=OK|FAIL`。
+
+判断记录 36（探测场景目录时用哪个职业构造"探测世界"）：见 `Program.cs`
+`DiscoverBootstrapPlayerClass` 方法判断记录——`HeadlessWorldBuilder.Build` 要求一个真实存在的
+`PlayerClassId`（否则装配阶段直接抛"未知职业"异常），但本工具在拿到 `ScenarioCatalog` 之前恰恰
+不知道该传哪个职业；`AnchorTable`/`ScenarioCatalog` 本身只依赖 `sim.anchor`/`sim.scenario` 两表
+数据、与玩家职业无关，为了拿到它们而必须先构造一整套可玩世界，是这层 API 形状带来的鸡生蛋
+问题。本工具直接扫描全部数据源的 `sim.scenario` 表文件文本（`IDataSource.ListTables` +
+`DataTableSource.ReadText`，不经过 `DataRegistry`）取第一行 `player.class_id`/`player.level`
+作探测用参数——只是为"装配一次探测世界"这一引导步骤找一个真实存在的职业，不含任何校验/解析
+业务逻辑，真正的场景解析仍全部经由 `ScenarioCatalog` 完成。
+
+## 基线文件
+
+`core/sim/tests/baseline/{sim_arena_matrix,sim_growth_full,sim_coverage_all}.json`——嵌入数据集
+三个场景各一份，`SimBaseline.ToJson()` 格式，随本任务提交、由 `--update-baseline` 生成（生成
+命令见下方"基线更新流程"）。
+
+判断记录 37（为何不与数据集同目录，单独放 `tests/baseline/`）：`core/sim/tests/data/` 是"内容
+数据"（供装配根/仿真运行器读取的 `sim.*`/`skill.*`/`item.*` 等表），基线文件是"这份内容数据配上
+当前代码跑出来的历史快照"——两者生命周期不同（改一条技能数值应该让基线比对报出差异，而不是
+"因为基线和数据放在同一棵目录树下，改数据的提交顺手把基线也搅进去、看不出这是两个独立的
+变更"）。放在 `tests/baseline/` 也符合"基线是测试固件"的既有惯例（同
+`core/gameplay/tests/Replay/replay_baseline.json`）。
+
+## 基线更新流程
+
+惯例同 `core/gameplay/tests/Replay/README.md`"如何更新基线"一节，同一原理（比对失败本身不说明
+对错，只说明结果变了，这两者之间需要一道人工确认关卡）：
+
+1. **先确认这是一次有意的数值/结算行为变化**（调了曲线、改了公式、调了带宽），而不是意外回归。
+   若是意外回归，应该去修那个改动，不是更新基线掩盖它。
+2. 跑一次不带 `--update-baseline` 的比对，看差异：
+   `./toolchain/sim_baseline.ps1 -Scenario all`（或直接调用 `toolchain/simrunner`，见上方
+   "命令行入口"）。
+3. 打开 `.sim_out/<scenario短id>.diff.txt`，人工审阅每一条 `Exceeded`/`Removed` 是否对应你在
+   第 1 步确认的具体改动（不应该有"看不懂为什么变"的行）。
+4. 确认无误后，同一份改动里加 `-UpdateBaseline` 重新生成基线：
+   `./toolchain/sim_baseline.ps1 -Scenario all -UpdateBaseline`。
+5. **提交信息里必须注明本次更新了 sim 基线以及原因**，与本次数值/结算改动同一提交，不要把基线
+   更新悄悄混进一次无关改动的提交里。
+
 ## 目录
 
 ```
@@ -171,7 +276,24 @@ core/sim/
                               填充技能"单技能秒伤占比实测，直接调用 SkillHost.CastSkill，不经
                               RotationEvaluator）、装备按 EquipmentScoreAnalyzer/预算消耗比（额外
                               做同种子基准装 vs 换单件的秒伤边际变化实测）、生物按同级标准玩家
-                              1v1 的 TTK/TTD 与锚点偏离；三张表各自按 |偏离| 降序排列
+                              1v1 的 TTK/TTD 与锚点偏离；三张表各自按 |偏离| 降序排列。T-N6-6 新增
+                              私有方法 StableIdHash（FNV-1a 32 位）替换三处此前用
+                              string.GetHashCode() 派生种子的调用点，根治跨进程不确定性，见该
+                              方法判断记录
+    SimReport.cs              T-N6-6：SimStat（一条统计量：path/value/anchor?/deviation?/
+                              level?）+ SimReport（统一信封：场景 id/kind/数据集指纹/框架版本/
+                              种子/runs_override?/bandwidths/stats/raw_report）；
+                              FromArenaReport/FromGrowthReport/FromCoverageReport 三个工厂方法
+                              把既有报告拍平成统一形状；ComputeDatasetFingerprint（FNV-1a 64 位，
+                              对全部已加载表/记录排序后累加）
+    SimBaseline.cs             T-N6-6：既往快照的最小形状（schema_version/scenario_id/kind/
+                              dataset_fingerprint/generated_with_version/seed/stats:{path:
+                              value}}）；FromReport/ToJson/Parse，不做磁盘路径解析（读写文件是
+                              toolchain/simrunner 的职责）
+    BaselineComparer.cs        T-N6-6：BaselineDiffStatus（Same/Within/Exceeded/Added/Removed）+
+                              BaselineCompareOptions（容差配置）+ BaselineDiffRow/BaselineDiff +
+                              BaselineComparer.Compare；容差来源优先级"场景 bandwidths 同名统计量
+                              > 默认相对容差"，全程阈值比较不出现浮点精确相等
   schema/
     SimSchemas.cs             T-N6-2a：sim.anchor/sim.scenario 的 TableSchema 声明
     SimValidationRules.cs     T-N6-2a：SimAnchorValidationRule/SimScenarioValidationRule
@@ -229,16 +351,27 @@ core/sim/
                              T-N6-5：跑一次完整 sim_coverage_all（共享同一份 IClassFixture 结果，
                              打印总耗时）断言三张表均非空、按 |偏离| 降序排列、两条注入探针分别
                              排在技能表/装备表第一位、ToJson() 确定性
+    BaselineComparerTests.cs T-N6-6：验收 5 全套——同种子独立重跑两次（缩小 runs，见类型判断
+                             记录）三个场景 SimReport.ToJson() 逐字节相同且 BaselineComparer 全部
+                             Same；内存覆盖 arch.class.sim_warrior.base_stats.stat.strength
+                             重跑 arena 后至少一条 Exceeded、player_max_health 不受影响；1e-12
+                             量级相对扰动分类为 Within（浮点比对无精确相等）；SimBaseline 经
+                             ToJson/Parse 往返后比较仍全部 Same；SimReport.ToJson() 字段完整性
     data/                    T-N6-2b：嵌入式最小仿真数据集，见 data/README.md（数据清单、锚点
                              推导公式与手算表、判断记录）——不进 data/_sample（拍板 10）
+  tests/baseline/            T-N6-6：三个场景各一份 SimBaseline JSON 快照（sim_arena_matrix/
+                             sim_growth_full/sim_coverage_all），随本任务生成并提交，见本文件
+                             "基线文件"/"基线更新流程"两节
 ```
 
 ## 不负责什么
 
-- 不实现报告输出与基线对比工具（ADR-0035 决策 5）——留给后续任务（T-N6-6 及之后）。T-N6-5 已把
-  三级仿真的后两级（成长仿真 `GrowthSimulation`、内容覆盖仿真 `CoverageSimulation`）补齐，三级
-  仿真本身（决策 3）至此全部落地；`GrowthReport`/`CoverageReport` 都已是结构化产物（`ToJson()`
-  确定性序列化），但"与基线比对、输出统计量差异"这一层工具本任务未做。
+- T-N6-6 已落地报告输出与基线对比工具（ADR-0035 决策 5）——`SimReport`/`SimBaseline`/
+  `BaselineComparer` 与命令行入口 `toolchain/simrunner`，见上方相应章节。本任务不改
+  `check.ps1`/`ci.yml`/`build.ps1`/`adapters/headless/README.md`（把 `simrunner` 接入门禁/CI/
+  发布清单归 T-N6-7），只提供可被它们调用的入口；不把 `toolchain/simrunner` 纳入 `dist/`
+  打包（`Core.Sim`/`Adapters.Stub` 本身尚未进入任何发布清单，见判断记录 10 同一缺口，`SimRunner
+  .csproj` 的 `lib/` 分发分支目前无法在独立发行包内解析，同 `Validator.csproj` 已知缺口）。
 - 不把 `Core.Sim.dll` 同步进 Unity 工作台工程——`build.ps1` 的 `$CoreAssemblies` 是显式列出
   Foundation/Numbers/Rules/Carriers/Gameplay 五个程序集名的数组（不是通配符抓取
   `Core.*.dll`），本任务未改动这份清单，`Core.Sim` 因此天然不会被同步；`Core.Sim` 依赖
@@ -658,3 +791,55 @@ core/sim/
     "已确认"分组、不阻断）；装备触发的 `item_budget_utilization_low` 本身
     `NonEscalatable`（04 第 5 节原文即以"装备预算利用率过低"为该判定口径的示例——"抓意图不抓
     手滑"），没有类似 `budget_note` 的字段级确认机制，如实记录为"预期内的警告"，不做抑制。
+
+## T-N6-6 判断记录
+
+36. **`CoverageSimulation` 三处种子派生改用 `StableIdHash`（FNV-1a 32 位），根治跨进程不确定性
+    ——T-N6-5 遗留、由本任务基线比对首次验证出的真实缺陷**：`AnalyzeSkills`/
+    `MeasureItemMarginalImpact`/`AnalyzeCreatures` 三处此前用 `skillId.Value.GetHashCode()`/
+    `templateId.Value.GetHashCode()`/`creatureTemplateId.Value.GetHashCode()` 派生独立仿真种子；
+    `string.GetHashCode()` 在 .NET Core 默认对字符串哈希做逐进程随机化（防哈希 DoS 攻击的安全
+    特性），同一个 id 字符串在不同进程里的返回值并不相同。T-N6-5 阶段的 `CoverageSimulationTests`
+    确定性用例只在同一进程内重跑两次比较（xunit 单个测试方法内），从未跨进程验证过；T-N6-6 联调
+    `toolchain/simrunner` 时第一次用两次独立的 `dotnet run` 进程跑同一 `base_seed`/同一份数据，
+    发现 `coverage.creature.*`/`coverage.skill.*.secondary_measurement` 等统计量逐次运行不一致
+    （`BaselineComparer` 报出 11 条 `Exceeded`，见联调过程记录），与仓库通篇"同种子确定性"的既有
+    判断记录（如 `ArenaReport.ToJson` 判断记录"同一场景同 `base_seed` 两次调用逐字节相同"）直接
+    矛盾。**修复**（`core/sim/core/CoverageSimulation.cs`，新增私有方法 `StableIdHash`）：改用
+    FNV-1a 32 位对 id 字符串的 UTF-8 字节做确定性哈希，跨进程/跨机器同输入恒同输出，不改变三个
+    调用方法的任何行为契约（返回值只是"一个由 id 派生的 int"，取值范围/用途不变）。修复后
+    `toolchain/simrunner run --scenario all` 两次独立进程运行的 `*.report.json` 逐字节相同（含
+    coverage 场景），`dotnet test Core.sln` 全量回归无副作用（`CoverageSimulationTests` 断言的是
+    "分类排序第一位"这类相对关系，不依赖具体种子取值，未受影响）。这是本任务唯一触碰
+    `core/sim/core/` 下 T-N6-5 既有生产代码的改动，且是"根治优先"（任务书硬性规则）要求的必要
+    修复——本任务的验收 5-①（"同种子重跑，`BaselineComparer` 对三个场景全部 `Same`"）离不开这条
+    真正成立的确定性不变量，绕开它（比如只用同进程内重跑）会让验收流于形式。
+37. **`SimReport`/`SimBaseline`/`BaselineComparer` 为何是三个独立类型，不合并成一个**：
+    `SimReport` 是"一次仿真运行的完整快照"（含原始报告、设计锚点偏离等丰富上下文，供人/工具排查
+    问题）；`SimBaseline` 是"够用来做回归比对的最小信息"（只有 path→value，任务书原文指定的精简
+    形状，供长期提交进 git 历史、diff 时噪声最小）；`BaselineComparer` 是"给定前两者产出第三种
+    结果"的纯函数运算，不持有任何状态。三者职责边界清晰对应任务书章节结构（3.1 统计量快照/基线
+    文件格式、3.1 比对器），合并成一个类型会让"运行时报告"与"持久化基线"这两种生命周期完全不同
+    的数据混在一起，`SimBaseline` 也无法再保持"最小、diff 友好"这一设计目标。
+38. **容差解析为何按"叶子名子串匹配"而不是精确匹配整段路径**：`ScenarioDef.Bandwidths`
+    （`sim.scenario.bandwidths`）登记的键是"统计量类别名"（如 `dps`/`hp`/`ttk`/`ttd`/
+    `hit_rate`/`level_duration`/`item_level`/`gold`），不是某一条具体路径——同一个类别名要覆盖
+    "该类别下全部等级/偏移格子"的容差（如 `dps` 要同时覆盖 `arena.reconciliation.L1.dps`、
+    `arena.L1.off+0.player_dps_mean`、`arena.L5.off-3.player_dps_mean`……），精确匹配整段路径
+    做不到这种"一对多"覆盖，子串匹配（取最长匹配 key，避免 `hp`/`hit_rate` 之类短 key 誤配长
+    叶子名的歧义）是能让"同名统计量复用同一条设计带宽"这一任务书原文要求生效的最简单实现。
+    `growth`/`coverage` 场景的叶子名特意对齐 `Bandwidths` 既有键名字面值（见 `SimReport`
+    类型判断记录"叶子名对齐带宽键名"），这条子串匹配规则因此对它们总是精确命中；`arena` 场景
+    的按格子统计量（`win_rate`/`ttk_mean_seconds` 等）叶子名与 `Bandwidths` 键名不完全一样，
+    子串匹配能命中一部分（如 `ttk_mean_seconds` 命中 `ttk`），命中不到的退回默认相对容差 1%，
+    这是有意的设计取舍（这些格子统计量本就是探索性观测，不是任务书要求锚定设计带宽的对账等式，
+    见 `SimReport` 类型判断记录"`Anchor`/`Deviation` 与 `BaselineComparer` 的偏离是两件不同的
+    事"）。
+39. **`BaselineDiffStatus.Same` 的 `ExactMatchEpsilon` 阈值为何是可配置项，不是硬编码常量**：
+    默认值 `1e-9`（绝对值）是为"同种子重跑、逐位相同"这一最常见场景挑的边界——真实的同种子重跑
+    产生的差异恒为字面 `0.0`（同一段代码同一份输入，IEEE754 double 运算是确定性的，不存在"差了
+    一点点噪声"这种中间状态），`1e-9` 因此有充足的安全边际。但 `BaselineComparerTests`
+    "1e-12 扰动"用例需要故意构造一个"差异真实存在但小到接近浮点噪声量级"的场景来证明比较逻辑
+    走的是阈值分支、不是被某个隐藏的精确相等判据吞掉——把 `ExactMatchEpsilon` 做成
+    `BaselineCompareOptions` 上的可写属性，测试可以显式收紧到 `1e-15`，不需要依赖"被扰动的
+    统计量数值恰好多大"这种脆弱的隐式耦合，见该测试判断记录。

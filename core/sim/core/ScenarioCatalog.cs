@@ -118,6 +118,17 @@ namespace Core.Sim
             AnchorRef = anchorRef;
             Note = note;
         }
+
+        /// <summary>T-N6-6：返回一份仅 <see cref="Runs"/> 被替换、其余字段原样保留的副本——供
+        /// <c>toolchain/simrunner</c> 的 <c>--runs</c> 快速冒烟覆盖使用（任务书原文"<c>--runs</c> 覆盖
+        /// 场景 <c>runs</c>（仅用于快速冒烟）"）。ABI：纯新增公开方法，不改动
+        /// <see cref="ScenarioDef"/> 既有任何成员。<see cref="ScenarioDef"/> 构造函数是
+        /// <c>internal</c>（只应由 <see cref="ScenarioCatalog"/> 从已加载数据解析产出，见类型判断
+        /// 记录），调用方（不同程序集，如 <c>Toolchain.SimRunner</c>）因此无法自行拼一个"改了某个
+        /// 字段"的 <see cref="ScenarioDef"/>——本方法是唯一开放的、显式声明用途的例外口子，只允许
+        /// 覆盖 <see cref="Runs"/> 这一个字段。</summary>
+        public ScenarioDef WithRuns(int runs) => new ScenarioDef(
+            Id, Kind, Player, Opponent, Levels, LevelFrom, LevelTo, runs, BaseSeed, MaxTicks, Bandwidths, AnchorRef, Note);
     }
 
     /// <summary>

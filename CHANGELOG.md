@@ -645,6 +645,44 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   既有"档位×品质×槽位"网格断言不变。`dotnet test Core.sln` 全量回归（4244 例，4233 基线 + 11
   新增）验证无副作用；`toolchain/abi_probe.ps1` 针对基线 1.35.0 确认 `breaks=0`（`Core.Sim` 不在
   `dist/` 打包清单内，本任务全部改动实际不影响可探测的 ABI 表面）。
+- **数值设计落地阶段 N6 · T-N6-6**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 5：统计量快照、基线 JSON、带带宽比对器、差异报告、命令行入口）：`core/sim` 新增
+  `SimReport`（统一信封：场景 id/kind/`ComputeDatasetFingerprint`——对全部已加载表/记录排序后
+  FNV-1a 64 位累加，算法选型同 `WorldSnapshot.Capture` 同款、独立实现/框架版本字符串/种子/
+  `runs_override?`/`bandwidths`/`stats: IReadOnlyList<SimStat>`——`path`/`value`/`anchor?`/
+  `deviation?`/`level?`/`raw_report`，`ToJson()` 确定性序列化；三个工厂方法
+  `FromArenaReport`/`FromGrowthReport`/`FromCoverageReport` 把既有三类报告拍平为统一形状）、
+  `SimBaseline`（既往快照最小形状 `{schema_version, scenario_id, kind, dataset_fingerprint,
+  generated_with_version, seed, stats:{path:value}}`，只做 `FromReport`/`ToJson`/`Parse`，不做
+  磁盘路径解析）、`BaselineComparer`（`BaselineDiffStatus`
+  `Same`/`Within`/`Exceeded`/`Added`/`Removed` 五态；容差来源优先级"场景 `bandwidths` 同名统计量
+  （叶子名子串匹配）> 默认相对容差 1%（`BaselineCompareOptions.RelativeTolerance`，基线值接近 0
+  时改用绝对容差）"；全程 `<`/`<=` 阈值比较，不出现浮点精确相等，`ExactMatchEpsilon` 可配置）。
+  `ScenarioDef` 新增公开方法 `WithRuns(int): ScenarioDef`（ABI 纯新增，仅替换 `Runs`，供命令行
+  `--runs` 快速冒烟覆盖使用）。新增命令行入口 `toolchain/simrunner`（`SimRunner.csproj`，已加入
+  `Core.sln`，工程惯例照抄 `toolchain/validator` 的 `lib/` 分发分支）：`run --scenario <id>|all
+  --framework-root <dir> --data-root <dir>... --out <dir> [--baseline-dir <dir>]
+  [--update-baseline] [--json] [--runs <n>] [--version <str>]`，退出码 `0`=无
+  `Exceeded`/`Removed`、`1`=存在、`2`=参数错误/数据装载阻断、`3`=传了 `--baseline-dir` 但基线
+  文件不存在且未传 `--update-baseline`（独立于其余三种退出码，见 `Program.cs` 判断记录）；控制台
+  每场景一行摘要 `scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n>
+  result=PASS|FAIL`，末尾 `RESULT=OK|FAIL`，供 `check.ps1`/CI 直接判读。新增薄封装
+  `toolchain/sim_baseline.ps1`（`-Scenario`/`-UpdateBaseline`/`-Out`/`-BaselineDir`/`-Runs`/
+  `-Version`/`-ArtifactsPath`）。新增并提交三份基线
+  `core/sim/tests/baseline/{sim_arena_matrix,sim_growth_full,sim_coverage_all}.json`（对应嵌入
+  数据集三个场景，`SimBaseline.ToJson()` 格式）。**根治缺陷（T-N6-5 遗留，本任务基线比对首次
+  验证出）**：`CoverageSimulation` 三处（`AnalyzeSkills`/`MeasureItemMarginalImpact`/
+  `AnalyzeCreatures`）此前用 `string.GetHashCode()`（.NET 逐进程随机化哈希）派生仿真种子，导致
+  同一 `base_seed`、同一份数据在不同进程里跑出不同结果，与仓库通篇"同种子确定性"矛盾；改用
+  确定性的 FNV-1a 32 位字符串哈希 `CoverageSimulation.StableIdHash`。新增测试
+  `Tests.Sim.BaselineComparerTests`（5 例：三场景同种子独立重跑两次 `ToJson` 逐字节相同且
+  `BaselineComparer` 全部 `Same`；内存覆盖 `arch.class.sim_warrior.base_stats.stat.strength`
+  重跑 arena 后至少一条 `Exceeded`、`player_max_health` 不受影响；1e-12 量级相对扰动分类为
+  `Within`——浮点比对无精确相等；`SimBaseline` 经 JSON 往返后比较仍全部 `Same`；`SimReport.ToJson()`
+  字段完整性）。`dotnet test Core.sln` 全量回归（4249 例，4244 基线 + 5 新增）验证无副作用；
+  `toolchain/abi_probe.ps1` 针对基线 1.35.0 确认 `breaks=0`。本任务不改
+  `check.ps1`/`ci.yml`/`build.ps1`/`adapters/headless/README.md`，把 `simrunner` 接入门禁/CI/
+  发布清单归 T-N6-7。
 
 ## [1.35.0] - 2026-09-16
 

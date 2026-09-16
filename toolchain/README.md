@@ -241,6 +241,19 @@ dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] 
 阻断（`errors == 0`）；`1` 阻断；`2` 命令行参数错误（白名单文件不存在/格式非法）。`check.ps1`
 "元数据门禁"步骤即上面这条命令，`-Quick` 下也跑（秒级，不需要 Unity/构建产物）。
 
+## `toolchain/simrunner`（数值仿真报告与基线比对命令行工具，T-N6-6）
+
+`toolchain/simrunner/SimRunner.csproj`（`net8.0` 控制台项目，已加入 `Core.sln`，工程惯例照抄
+`toolchain/validator` 的 `lib/` 分发分支）：对给定数据根跑 `sim.scenario` 场景，产出统一信封
+`Core.Sim.SimReport`（`*.report.json`），可选与既往基线 `Core.Sim.SimBaseline` 比对输出差异
+（`*.diff.txt`/`*.diff.json`）或用 `--update-baseline` 覆写基线。命令用法、参数、退出码约定、
+控制台摘要格式详见 `core/sim/README.md`"命令行入口"一节；基线更新的五步流程（同
+`core/gameplay/tests/Replay/README.md`"如何更新基线"一节同一原理）见该文件"基线更新流程"一节，
+薄封装脚本 `toolchain/sim_baseline.ps1` 提供 `-Scenario`/`-UpdateBaseline`/`-Out`/
+`-ArtifactsPath` 等参数。本工具与 `toolchain/validator` 是并列的两个独立控制台工程，各自维护
+一份不含业务逻辑的 `DiskFileSystem`（只读磁盘适配层），互不引用。尚未接入 `check.ps1`/CI/
+`dist/` 打包（留给 T-N6-7），本工具只提供可被它们调用的入口。
+
 ## 生成事件常量（gen_event_constants.py）
 
 读取事件词汇登记表 `data/_sample/found/found.event_catalog.json`，为每一行生成一个

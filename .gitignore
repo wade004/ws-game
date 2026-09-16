@@ -55,3 +55,6 @@ toolchain/registry/*.log
 # 审计归档目录里由 dotnet build 产生的 obj-*/ 中间目录（如 audit-8160178 的 api-compat 复现工程曾误提交
 # obj-current17zip/ 等），编译器自动生成的 AssemblyInfo.cs / AssemblyAttributes.cs 不是证据，不提交。
 architecture/落地计划/audit-*/**/obj-*/
+# T-N6-6：toolchain/sim_baseline.ps1 默认输出目录（报告/差异，非基线本身——基线文件在
+# core/sim/tests/baseline/，随代码提交，不受本条目影响）。
+.sim_out/

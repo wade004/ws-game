@@ -166,6 +166,35 @@ namespace Core.Sim
         private static readonly Id GameId = new Id("game.sim_coverage");
         private static readonly Vec2 CreatureSpawnOffset = new Vec2(3, 0);
 
+        /// <summary>T-N6-6 根治：<see cref="AnalyzeSkills"/>/<see cref="MeasureItemMarginalImpact"/>/
+        /// <see cref="AnalyzeCreatures"/> 三处用技能/装备/生物 id 派生独立仿真种子时，此前用的是
+        /// <c>string.GetHashCode()</c>——.NET Core 默认对字符串哈希做逐进程随机化（防哈希 DoS
+        /// 攻击的安全特性），同一个 id 字符串在不同进程里的 <c>GetHashCode()</c> 结果并不相同。
+        /// T-N6-6 联调 <c>toolchain/simrunner</c> 的基线比对时第一次真正验证"同一 <c>base_seed</c>、
+        /// 同一份数据、跨进程重复跑一次覆盖仿真"这条本该成立的确定性不变量（此前
+        /// <c>CoverageSimulationTests</c> 的确定性用例只验证同一进程内重跑，从未跨进程比较过），
+        /// 发现 <c>coverage.creature.*</c>/<c>coverage.skill.*.secondary_measurement</c> 等统计量
+        /// 逐次运行不一致——根因定位到此处，与仓库通篇"同种子确定性"的既有判断记录（如
+        /// <see cref="ArenaReport.ToJson"/> 判断记录"同一场景同 base_seed 两次调用逐字节相同"）直接
+        /// 矛盾，是 T-N6-5 遗留的真实缺陷，不是本任务自己的回归。改用 FNV-1a 32 位对 id 字符串的
+        /// UTF-8 字节做确定性哈希——跨进程、跨机器同输入恒同输出，不改变本方法调用方的任何行为契约
+        /// （返回值只是"一个由 id 派生的 int"，取值范围/用途不变，只是不再随进程漂移）。</summary>
+        private static int StableIdHash(string text)
+        {
+            unchecked
+            {
+                const uint offsetBasis = 2166136261;
+                const uint prime = 16777619;
+                var hash = offsetBasis;
+                foreach (var b in System.Text.Encoding.UTF8.GetBytes(text))
+                {
+                    hash ^= b;
+                    hash *= prime;
+                }
+                return (int)hash;
+            }
+        }
+
         public static CoverageReport Run(
             ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
             bool failOnUnknownTable = false)
@@ -290,7 +319,7 @@ namespace Core.Sim
             var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
             {
                 DataSources = dataSources,
-                Seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, level, 777_000, skillId.Value.GetHashCode()),
+                Seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, level, 777_000, StableIdHash(skillId.Value)),
                 MapId = MapId,
                 PlayerClassId = classId,
                 PlayerLevel = level,
@@ -441,7 +470,7 @@ namespace Core.Sim
             var classId = scenario.Player.ClassId;
             var level = scenario.Player.Level;
             var baselineQualityId = scenario.Player.QualityId!.Value;
-            var seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, level, 888_000, templateId.Value.GetHashCode());
+            var seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, level, 888_000, StableIdHash(templateId.Value));
             var creatureId = scenario.Opponent.CreatureId;
 
             double RunOnce(Id? swapTemplateId)
@@ -516,7 +545,7 @@ namespace Core.Sim
                 var ttdSamples = new List<double>();
                 for (var runIndex = 0; runIndex < runs; runIndex++)
                 {
-                    var seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, clampedLevel, 555_000, runIndex ^ creatureTemplateId.Value.GetHashCode());
+                    var seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, clampedLevel, 555_000, runIndex ^ StableIdHash(creatureTemplateId.Value));
                     var fight = FightRunner.Run(new FightRunnerOptions
                     {
                         DataSources = dataSources,

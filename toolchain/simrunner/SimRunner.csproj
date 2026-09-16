@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>SimRunner</AssemblyName>
+    <RootNamespace>Toolchain.SimRunner</RootNamespace>
+  </PropertyGroup>
+
+  <!-- T-N6-6：工程惯例照抄 toolchain/validator/Validator.csproj 的 lib/ 分发分支（见该文件判断
+       记录）——源码仓库内（本文件与 core/sim 同处一棵 git 工作树）用 ProjectReference，独立发行包内
+       （dist ZIP、UPM 包）改引用 lib/ 下的预编译 DLL。本工具只依赖 Core.Sim（经其既有 ProjectReference
+       链传递可见 Adapters.Stub/Core.Gameplay/Core.Carriers/Core.Rules/Core.Numbers/Core.Foundation），
+       不需要 Presentation.Common（不做 ContentValidationAssembly 那一层内容校验，只调用
+       HeadlessWorldBuilder/ArenaSimulation/GrowthSimulation/CoverageSimulation/BaselineComparer 这些
+       Core.Sim 自己的公开 API）。
+
+       判断记录（当前 dist/UPM 发行通道尚未真正补齐 lib/Core.Sim.dll、本工具因此暂无法在独立发行包内
+       构建）：与 Validator.csproj 同一已知缺口（见该文件判断记录 10、core/sim/README.md"不负责什么"
+       一节）——build.ps1 尚未把 Core.Sim/Adapters.Stub 纳入任何发布清单，这份缺口留给 T-N6-7 一并
+       处理，不在本任务范围内提前改 build.ps1。源码仓库内构建（本仓库、CI、check.ps1 全量/-Quick）
+       不受影响，永远走下面的 ProjectReference 分支。 -->
+  <ItemGroup Condition="Exists('..\..\core\sim\Core.Sim.csproj')">
+    <ProjectReference Include="..\..\core\sim\Core.Sim.csproj" />
+    <ProjectReference Include="..\..\adapters\stub\Adapters.Stub.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\core\sim\Core.Sim.csproj')">
+    <Reference Include="Core.Sim">
+      <HintPath>lib\Core.Sim.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Adapters.Stub">
+      <HintPath>lib\Adapters.Stub.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Foundation">
+      <HintPath>lib\Core.Foundation.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
