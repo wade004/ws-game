@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Core.Foundation.Common;
 
 namespace Core.Foundation.DataRegistry
@@ -315,6 +316,109 @@ namespace Core.Foundation.DataRegistry
             return this;
         }
 
+        /// <summary>消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）："X.Y.Z" 版本号格式，与
+        /// <c>docs/升级指南/*.md</c>、<c>CHANGELOG.md</c> 记录版本号的既有记法一致；同
+        /// <see cref="Core.Foundation.Common.Id"/> 的构造期格式校验惯例，编译为静态只读字段避免
+        /// 每次 <see cref="WithDeprecated"/> 调用重新构造。</summary>
+        private static readonly Regex DeprecatedSinceVersionRegex = new Regex(
+            "^\\d+\\.\\d+\\.\\d+$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        /// <summary>消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：该字段是否已废弃——结构化
+        /// 标记，供内容工具（<c>--list-tables --json</c> 导出）与 <c>SchemaAudit</c> 门禁区分"这个字段
+        /// 废弃了"与"这个字段只是 Description 里恰好提到了别的字段名"这两种此前无法区分的情形（原始
+        /// 案例：编辑器侧 <c>Editor.Core.Validation.DeprecatedFieldHints</c> 静态清单与升级指南附录 C
+        /// 人工核对，见该反馈"影响"一节）。只能经 <see cref="WithDeprecated"/> 登记一次；未登记时为
+        /// <c>false</c>，<see cref="DeprecatedSince"/>/<see cref="ReplacedBy"/>/<see cref="DeprecationNote"/>
+        /// 均为 <c>null</c>（向后兼容，同 <see cref="Range"/>/<see cref="Curve"/> 等既有登记惯例）。</summary>
+        public bool IsDeprecated { get; private set; }
+
+        /// <summary>见 <see cref="WithDeprecated"/>。字段被标记废弃起始生效的版本号（<c>"X.Y.Z"</c>），
+        /// 与 <c>docs/升级指南</c> 记录该字段废弃时间点的版本号一致。</summary>
+        public string? DeprecatedSince { get; private set; }
+
+        /// <summary>见 <see cref="WithDeprecated"/>。同表内取代本字段的字段名；<c>null</c> 表示"废弃后
+        /// 无同表替代字段"（如 <c>StatHostOptions.EnableRatingConversion</c> 一类"无替代——功能始终
+        /// 启用"的历史案例，见升级指南附录 C）。非空时须是同一级字段清单里已登记的字段名——校验时机见
+        /// <see cref="WithDeprecated"/> 判断记录（登记顺序问题，改在字段清单组装处校验：本类型
+        /// <c>fields</c> 参数构造分支、<see cref="TableSchema"/> 构造函数）。</summary>
+        public string? ReplacedBy { get; private set; }
+
+        /// <summary>见 <see cref="WithDeprecated"/>。可选的补充说明（如迁移注意事项），供内容工具原样
+        /// 展示；不替代 <see cref="Description"/>，只是废弃这一件事本身的额外说明。</summary>
+        public string? DeprecationNote { get; private set; }
+
+        /// <summary>登记 <see cref="IsDeprecated"/>/<see cref="DeprecatedSince"/>/<see cref="ReplacedBy"/>/
+        /// <see cref="DeprecationNote"/>（消费方反馈第 46 条，04 第 3.4 节勘误"字段废弃元数据"）；同
+        /// <see cref="WithCurve"/>/<see cref="WithSoftReference"/> 等既有"修饰方法追加可选元数据"惯例，
+        /// 不改动既有构造函数签名。只能设置一次（重复设置抛异常，同 <see cref="WithRange"/> 惯例）。
+        /// <para>
+        /// 判断记录（<paramref name="sinceVersion"/> 格式在此校验，<paramref name="replacedBy"/> 存在性
+        /// 不在此校验）：<paramref name="sinceVersion"/> 的格式合法性只依赖它自己的字符串内容，不依赖
+        /// 任何登记顺序，因此像 <see cref="WithFreeIds"/> 的 <c>reason</c> 必填检查一样在挂载时直接拒绝
+        /// 非法值。<paramref name="replacedBy"/> 则不同——它必须是"同一级字段清单里已登记的字段名"，但
+        /// <see cref="WithDeprecated"/> 调用发生在单个 <see cref="FieldSchema"/> 实例构造完成之后、被
+        /// 装进它所属的兄弟字段清单（<see cref="Fields"/>/<c>TableSchema.Fields</c> 等）之前——此时这个
+        /// 字段对象既不知道自己最终会被放进哪份清单，也看不到清单里的其它兄弟字段，无法在这里判断
+        /// <paramref name="replacedBy"/> 是否存在。因此这条存在性校验推迟到"兄弟字段清单第一次被完整
+        /// 组装"的地方，见本类型构造函数 <c>fields</c> 参数分支与 <see cref="TableSchema"/> 构造函数——
+        /// 两处都已经拿到完整的兄弟清单，能一次性校验完，且报错发生在装配期（而不是留到
+        /// <c>SchemaAudit</c> 门禁才发现），出错位置更接近登记代码本身。<c>SchemaAudit</c> 仍对
+        /// <c>IsDeprecated</c>/<c>DeprecatedSince</c>/<c>ReplacedBy</c> 的自洽性做一次冗余复查
+        /// （<c>field_deprecated_metadata</c> 检查，同 <c>field_group</c> 判断记录"理论上不可能触发、
+        /// 仍留一道可枚举的软失败防线"这条既有风格）。
+        /// </para>
+        /// </summary>
+        public FieldSchema WithDeprecated(string sinceVersion, string? replacedBy, string? note = null)
+        {
+            if (IsDeprecated) throw new InvalidOperationException($"字段 \"{Name}\"：Deprecated 已设置，不可重复设置");
+            if (string.IsNullOrWhiteSpace(sinceVersion) || !DeprecatedSinceVersionRegex.IsMatch(sinceVersion))
+            {
+                throw new ArgumentException(
+                    $"字段 \"{Name}\"：DeprecatedSince \"{sinceVersion ?? "<null>"}\" 格式非法，须形如 \"X.Y.Z\"",
+                    nameof(sinceVersion));
+            }
+            if (replacedBy != null && string.IsNullOrWhiteSpace(replacedBy))
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：ReplacedBy 若传入不能是空白字符串，无同表替代字段请传 null", nameof(replacedBy));
+            }
+            if (replacedBy == Name)
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：ReplacedBy 不能指向自身", nameof(replacedBy));
+            }
+
+            IsDeprecated = true;
+            DeprecatedSince = sinceVersion;
+            ReplacedBy = replacedBy;
+            DeprecationNote = note;
+            return this;
+        }
+
+        /// <summary>见 <see cref="WithDeprecated"/> 判断记录：在某份"兄弟字段清单"（本类型 <c>fields</c>
+        /// 参数、<see cref="TableSchema.Fields"/>）第一次被完整组装时，校验清单内每个已标记
+        /// <see cref="IsDeprecated"/> 且 <see cref="ReplacedBy"/> 非空的字段，其 <see cref="ReplacedBy"/>
+        /// 取值必须是同一份清单里某个字段的 <see cref="Name"/>。<paramref name="ownerLabel"/> 只用于
+        /// 报错信息定位（"字段 X 的 Fields" 或 "表 Y"）。</summary>
+        internal static void ValidateDeprecatedReplacedBy(string ownerLabel, IReadOnlyList<FieldSchema> siblings)
+        {
+            for (var i = 0; i < siblings.Count; i++)
+            {
+                var field = siblings[i];
+                if (!field.IsDeprecated || field.ReplacedBy == null) continue;
+
+                var found = false;
+                for (var j = 0; j < siblings.Count; j++)
+                {
+                    if (siblings[j].Name == field.ReplacedBy) { found = true; break; }
+                }
+
+                if (!found)
+                {
+                    throw new ArgumentException(
+                        $"{ownerLabel}：字段 \"{field.Name}\" 的 ReplacedBy \"{field.ReplacedBy}\" 未在同级字段清单中找到（消费方反馈第 46 条）");
+                }
+            }
+        }
+
         public FieldSchema(
             string name,
             FieldKind kind,
@@ -363,6 +467,13 @@ namespace Core.Foundation.DataRegistry
             if (fields != null && (variants != null || variantsFactory != null))
             {
                 throw new ArgumentException($"字段 \"{name}\"：Fields 与 Variants 互斥", nameof(variants));
+            }
+
+            // 消费方反馈第 46 条：见 WithDeprecated 判断记录——本次构造把 fields 这份兄弟字段清单
+            // 第一次完整组装出来，是校验清单内 ReplacedBy 存在性的第一个可行时机。
+            if (fields != null)
+            {
+                ValidateDeprecatedReplacedBy($"字段 \"{name}\" 的 Fields", fields);
             }
 
             Name = name;

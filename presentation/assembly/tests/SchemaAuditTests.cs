@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Presentation.Assembly;
@@ -1132,6 +1133,193 @@ namespace Tests.Presentation.Assembly
 
             Assert.Contains(report.Issues, i =>
                 i.Severity == "error" && i.Check == "field_curve_shape" && i.FieldPath == "curve" && i.Message.Contains("必填"));
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：field_deprecated_metadata 自洽检查。
+        // 判断记录：本检查项的两个命中条件（IsDeprecated 为真但 DeprecatedSince 为空；ReplacedBy 非空
+        // 但在同表/同级找不到）在实践中都已经被 FieldSchema.WithDeprecated 的必填校验与
+        // FieldSchema/TableSchema 构造函数装配期的 ReplacedBy 存在性校验堵死——同 FieldGroup_
+        // DefaultsByKindAndName_NoIssue 一样，走公开 API 构造不出能触发本检查的非法状态，故本节只有
+        // "合法登记不误报"的回归测试，没有"命中"的正例测试（同 field_group 既有测试风格）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void DeprecatedMetadata_ValidTopLevelUsage_NoIssue()
+        {
+            var table = new TableSchema("test.deprecated_top_level", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "主键"),
+                new FieldSchema("old_field", FieldKind.Number, required: false, description: "旧字段")
+                    .WithDeprecated("1.31.0", "new_field"),
+                new FieldSchema("new_field", FieldKind.Number, required: false, description: "新字段"),
+            }).WithOwnership(SchemaLayer.Foundation, "test");
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_deprecated_metadata");
+            Assert.True(table.GetField("old_field")!.IsDeprecated);
+        }
+
+        [Fact]
+        public void DeprecatedMetadata_ValidNoReplacementUsage_NoIssue()
+        {
+            var table = SingleFieldTable("test.deprecated_no_replacement",
+                new FieldSchema("old_flag", FieldKind.Bool, required: false, description: "旧开关")
+                    .WithDeprecated("1.31.0", null, note: "无替代——功能始终启用"));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_deprecated_metadata");
+        }
+
+        [Fact]
+        public void DeprecatedMetadata_ValidNestedUsage_NoIssue()
+        {
+            var table = SingleFieldTable("test.deprecated_nested",
+                new FieldSchema("container", FieldKind.Object, required: false, description: "容器", fields: new[]
+                {
+                    new FieldSchema("old_child", FieldKind.Number, required: false, description: "旧子字段")
+                        .WithDeprecated("1.33.0", "new_child"),
+                    new FieldSchema("new_child", FieldKind.Number, required: false, description: "新子字段"),
+                }));
+
+            var report = SchemaAudit.Run(new[] { table }, SchemaAuditAllowlist.Empty);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "field_deprecated_metadata");
+        }
+
+        /// <summary>
+        /// 消费方反馈第 46 条："打标清单与附录 C 一致"交叉测试：解析
+        /// <c>docs/升级指南/1.29.0到1.37.0-数值设计专项.md</c> 附录 C"废弃与替代 API 总表"里第一列
+        /// （"旧 API / 旧字段"）用反引号写出的数据字段路径，逐一断言对应的 <see cref="FieldSchema.IsDeprecated"/>
+        /// 已在真实登记（<see cref="SchemaAudit.EnumerateRegisteredSchemas"/>）里为 <c>true</c>——这样
+        /// 附录 C 今后新增一行数据字段（表.字段全小写点分记法）却忘了同步补
+        /// <see cref="FieldSchema.WithDeprecated"/> 时，本测试会失败，而不是像本条反馈原始案例那样
+        /// 只能靠人工核对才发现漂移。
+        /// <para>
+        /// 判断记录（只挑"看起来是数据字段路径"的行，跳过纯 C# API 签名行）：附录 C 同一张表里混了
+        /// 两类"旧 API / 旧字段"——<c>StatHostOptions.EnableRatingConversion</c>/
+        /// <c>IWeaponDamageQuery.GetWeaponBaseDamage</c> 一类是 C# 方法/属性签名（首段以大写字母开头，
+        /// 不受本次反馈"字段废弃元数据"覆盖，见反馈原文范围仅限 <c>FieldSchema</c>），
+        /// <c>stat.definition.group</c> 一类才是本反馈要打标的数据字段路径（全小写点分）——用
+        /// "首反引号 token 是否整体匹配 <c>^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$</c>"这一条规则区分两者，
+        /// 不需要逐行硬编码判断。
+        /// </para>
+        /// <para>
+        /// 判断记录（<c>rewards.xp</c> 一行的特殊形状）：这一行的锚点 <c>rewards.xp</c> 本身不带表名
+        /// 前缀（真正的表名——<c>quest.def</c>/<c>encounter.def</c>/<c>achv.def</c>——写在括注里，
+        /// 三张表共用同一份 <c>QuestSchemas.RewardsFields</c>，见该判断记录）。本测试不为这一种形状
+        /// 单独硬编码表名，而是把同一格锚点之后其它同样满足"全小写点分"格式的反引号 token 都当作候选
+        /// 表名，用 <see cref="SchemaAudit.EnumerateRegisteredSchemas"/> 的真实表名集合筛出确实存在的
+        /// 那些——能通过这条筛选的只有真表名，不会误把 <c>rewards.xp</c> 自己或纯字段名token 当成表。
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void AppendixC_DeprecatedDataFieldRows_MatchFieldSchemaIsDeprecated()
+        {
+            var repoRoot = FindRepoRoot();
+            var docPath = Path.Combine(repoRoot, "docs", "升级指南", "1.29.0到1.37.0-数值设计专项.md");
+            Assert.True(File.Exists(docPath), $"找不到升级指南文档：{docPath}");
+            var text = File.ReadAllText(docPath);
+
+            const string startMarker = "### 附录 C：废弃与替代 API 总表";
+            const string endMarker = "### 附录 D：";
+            var startIndex = text.IndexOf(startMarker, StringComparison.Ordinal);
+            Assert.True(startIndex >= 0, "找不到附录 C 小节标题，文档结构可能已变化");
+            var endIndex = text.IndexOf(endMarker, startIndex, StringComparison.Ordinal);
+            Assert.True(endIndex > startIndex, "找不到附录 D 小节标题，无法界定附录 C 范围");
+            var section = text.Substring(startIndex, endIndex - startIndex);
+
+            var schemas = SchemaAudit.EnumerateRegisteredSchemas();
+            var schemasByName = schemas.ToDictionary(s => s.Name, StringComparer.Ordinal);
+            var registeredTableNames = new HashSet<string>(schemasByName.Keys, StringComparer.Ordinal);
+
+            var dottedTokenRegex = new Regex(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$", RegexOptions.CultureInvariant);
+            var bareTokenRegex = new Regex(@"^[a-z][a-z0-9_]*$", RegexOptions.CultureInvariant);
+            var backtickTokenRegex = new Regex(@"`([^`]+)`", RegexOptions.CultureInvariant);
+
+            var directChecks = new List<(string table, string field, string rawRow)>();
+            var nestedChecks = new List<(string table, string topField, string subField, string rawRow)>();
+
+            var dataRowCount = 0;
+            foreach (var line in section.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (!trimmed.StartsWith("|", StringComparison.Ordinal)) continue;
+                if (trimmed.StartsWith("|---", StringComparison.Ordinal)) continue; // 分隔行
+                if (trimmed.Contains("旧 API / 旧字段")) continue; // 表头行
+
+                var cells = trimmed.Trim('|').Split('|');
+                if (cells.Length == 0) continue;
+                var firstCell = cells[0];
+
+                var tokenMatches = backtickTokenRegex.Matches(firstCell);
+                if (tokenMatches.Count == 0) continue;
+
+                var tokens = tokenMatches.Select(m => m.Groups[1].Value).ToList();
+                var anchor = tokens[0];
+                if (!dottedTokenRegex.IsMatch(anchor)) continue; // C# API 签名行，不是数据字段路径
+
+                dataRowCount++;
+                var anchorSegments = anchor.Split('.');
+
+                if (anchorSegments.Length >= 3)
+                {
+                    // "domain.table.field" 形状：前两段是表名，其余段是字段名（本文档目前没有比这更深
+                    // 的字段嵌套路径出现在附录 C 里）。同格其它裸字段名 token（无点）是同一张表的
+                    // 兄弟字段。
+                    var table = anchorSegments[0] + "." + anchorSegments[1];
+                    var field = string.Join(".", anchorSegments.Skip(2));
+                    directChecks.Add((table, field, trimmed));
+
+                    foreach (var bare in tokens.Skip(1).Where(t => bareTokenRegex.IsMatch(t)))
+                    {
+                        directChecks.Add((table, bare, trimmed));
+                    }
+                }
+                else
+                {
+                    // 两段锚点（如 rewards.xp）：真正的表名写在同一格的其它反引号 token 里，用"是否为
+                    // 已注册的真实表名"筛出来，而不是硬编码。
+                    var topField = anchorSegments[0];
+                    var subField = anchorSegments[1];
+                    var actualTables = tokens.Skip(1).Where(t => dottedTokenRegex.IsMatch(t) && registeredTableNames.Contains(t)).ToList();
+                    Assert.True(actualTables.Count > 0, $"附录 C 行 \"{trimmed}\" 的锚点 \"{anchor}\" 不含表名前缀，且同格找不到任何已注册的表名 token 作为回退");
+
+                    foreach (var table in actualTables)
+                    {
+                        nestedChecks.Add((table, topField, subField, trimmed));
+                    }
+                }
+            }
+
+            // 判断记录：先断言"确实解析出了预期数量的可核对数据字段行"，防止将来 dottedTokenRegex/
+            // backtickTokenRegex 的书写细节变化导致本测试"什么都没解析到、自然全部通过"这种假阳性
+            // （消费方反馈第 46 条设计阶段明文列出的行数：stat.definition/item.affix/prog.xp_source/
+            // rewards.xp 共 4 行；整合反馈第 45/46/47 条时收口 item.template.stat_roll_ref 一并补登
+            // WithDeprecated、同批加入附录 C，行数改为 5 行）。
+            Assert.Equal(5, dataRowCount);
+            Assert.NotEmpty(directChecks);
+            Assert.NotEmpty(nestedChecks);
+
+            foreach (var (table, field, rawRow) in directChecks)
+            {
+                Assert.True(schemasByName.TryGetValue(table, out var schema), $"附录 C 行 \"{rawRow}\" 引用的表 \"{table}\" 未在真实登记里找到");
+                var fieldSchema = schema!.GetField(field);
+                Assert.True(fieldSchema != null, $"附录 C 行 \"{rawRow}\" 引用的字段 \"{table}.{field}\" 未在真实登记里找到");
+                Assert.True(fieldSchema!.IsDeprecated, $"附录 C 行 \"{rawRow}\" 标记为废弃，但 \"{table}.{field}\" 的 FieldSchema.IsDeprecated 仍为 false");
+            }
+
+            foreach (var (table, topField, subField, rawRow) in nestedChecks)
+            {
+                Assert.True(schemasByName.TryGetValue(table, out var schema), $"附录 C 行 \"{rawRow}\" 引用的表 \"{table}\" 未在真实登记里找到");
+                var topFieldSchema = schema!.GetField(topField);
+                Assert.True(topFieldSchema?.Fields != null, $"附录 C 行 \"{rawRow}\" 引用的字段 \"{table}.{topField}\" 未登记 Fields 子结构");
+                var subFieldSchema = topFieldSchema!.Fields!.SingleOrDefault(f => f.Name == subField);
+                Assert.True(subFieldSchema != null, $"附录 C 行 \"{rawRow}\" 引用的嵌套字段 \"{table}.{topField}.{subField}\" 未在真实登记里找到");
+                Assert.True(subFieldSchema!.IsDeprecated, $"附录 C 行 \"{rawRow}\" 标记为废弃，但 \"{table}.{topField}.{subField}\" 的 FieldSchema.IsDeprecated 仍为 false");
+            }
         }
     }
 }

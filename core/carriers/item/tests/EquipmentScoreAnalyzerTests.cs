@@ -286,5 +286,55 @@ namespace Tests.Carriers.Item
             Assert.False(double.IsNaN(result.Score), "class_overrides 权重为 0 时不应产生 NaN");
             Assert.Equal(0.0, result.Score, 9);
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 45 条（2026-09-17）：阻断态下不抛异常 + 降级标记如实反映
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Score_NonBlockingState_MatchesPreChangeResult_NotDegraded()
+        {
+            var view = BuildView(
+                "[" + Template("item.tpl.n45_ok", 1,
+                    "[{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 10}]") + "]");
+
+            var result = EquipmentScoreAnalyzer.Score(new Id("item.tpl.n45_ok"), classId: null, view: view);
+
+            Assert.Equal(10.0, result.Score, 9);
+            Assert.False(result.IsDegraded);
+            Assert.Empty(result.MissingTables);
+        }
+
+        [Fact]
+        public void Score_BlockingState_UnrelatedReferenceIntegrityError_DoesNotThrow_AndNotDegraded()
+        {
+            // 反馈原文复现：registry 因与本次评分用到的 item.template/stat.* 完全无关的坏引用
+            // （test.widget.owner 指向不存在的 test.owner.ghost）整体阻断。
+            var registry = TestSupport.BuildRegistryAllowBlocking(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson));
+                source.Add("stat.weight", TestSupport.Table("stat.weight", StatWeightJson));
+                source.Add("arch.class", TestSupport.Table("arch.class", ArchClassJson));
+                source.Add("item.template", TestSupport.Table("item.template",
+                    "[" + Template("item.tpl.n45_blocked", 1,
+                        "[{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 10}]") + "]"));
+                source.Add("test.widget", TestSupport.Table("test.widget",
+                    "[{\"id\": \"test.widget.a\", \"owner\": \"test.owner.ghost\"}]"));
+            }, out var report);
+            Assert.True(report.IsBlocking);
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("item.template"));
+
+            // 修复前：下面这行会抛 InvalidOperationException——即使被评分的物品模板/三张 stat.*
+            // 支持表与触发阻断的 test.widget.owner 毫无关系。修复后：不抛异常，且结果与非阻断态
+            // 完全一致（不真的降级——具体 DataRegistry 场景下这些表本身没受影响）。
+            var result = EquipmentScoreAnalyzer.Score(new Id("item.tpl.n45_blocked"), classId: null, view: registry);
+
+            Assert.Equal(10.0, result.Score, 9);
+            Assert.False(result.IsDegraded);
+            Assert.Empty(result.MissingTables);
+        }
     }
 }

@@ -131,10 +131,11 @@ namespace Tests.Gameplay.Encounter
             Assert.DoesNotContain(report.Issues, i => i.Check == "unknown_subfield");
         }
 
-        /// <summary>ADR-0024 第二批登记新增覆盖：值不是合法 Id 格式时报 <c>field_type</c>（同顶层
-        /// <c>FieldKind.Id</c> 字段的既有行为，子层递归复用同一份实现）。</summary>
+        /// <summary>ADR-0024 第二批登记新增覆盖：值不是合法 Id 格式时报 <c>field_id_format</c>（同顶层
+        /// <c>FieldKind.Id</c> 字段的既有行为，子层递归复用同一份实现；消费方反馈第 47 条改此前混用
+        /// 的 <c>field_type</c> 为专用检查名）。</summary>
         [Fact]
-        public void AiRotationOverride_ValueNotValidId_ReportsFieldType()
+        public void AiRotationOverride_ValueNotValidId_ReportsFieldIdFormat()
         {
             var rows = "[{\"id\": \"encounter.sample_map_bad_value\", \"units\": " + MinimalUnits + ", " +
                 "\"phases\": [{\"enter_condition\": \"combat.in_combat\", " +
@@ -145,7 +146,7 @@ namespace Tests.Gameplay.Encounter
 
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i =>
-                i.Check == "field_type" && i.Field == "phases[0].ai_rotation_override[creature.whatever_key]");
+                i.Check == "field_id_format" && i.Field == "phases[0].ai_rotation_override[creature.whatever_key]");
         }
 
         [Fact]
@@ -224,8 +225,10 @@ namespace Tests.Gameplay.Encounter
             Assert.Equal("phases[0].enter_condition", issue.Field);
         }
 
+        /// <summary>消费方反馈第 47 条：IdList 元素是字符串但不满足 Id 语法时报 <c>field_id_format</c>
+        /// （此前混用 <c>field_type</c>）。</summary>
         [Fact]
-        public void WaveSpawnRefs_MalformedIdElement_ReportsFieldTypeAtIndexedPath()
+        public void WaveSpawnRefs_MalformedIdElement_ReportsFieldIdFormatAtIndexedPath()
         {
             var rows = "[{\"id\": \"encounter.sample_bad_spawn_ref_shape\", \"units\": " + MinimalUnits + ", " +
                 "\"waves\": [{\"trigger_condition\": \"self.is_alive\", \"spawn_refs\": [\"spawn.ok\", \"NOT VALID\"]}], " +
@@ -234,7 +237,7 @@ namespace Tests.Gameplay.Encounter
             var report = LoadDefRows(rows);
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "waves[0].spawn_refs[1]");
+            Assert.Contains(report.Issues, i => i.Check == "field_id_format" && i.Field == "waves[0].spawn_refs[1]");
         }
 
         [Fact]

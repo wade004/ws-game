@@ -128,5 +128,54 @@ namespace Tests.Rules.Skill
             Assert.Equal("skill.def", field.SoftReferenceTable);
             Assert.Null(field.SoftReferenceDomain);
         }
+
+        /// <summary>消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：反馈原文明确点名的
+        /// <c>skill.def</c>/<c>skill.aura_def</c> 效果参数 <c>scaling_stat</c>/<c>coefficient</c> 旧
+        /// 单字段写法（T-N3-2 起由 <c>scaling</c> 列表取代，见 <c>SkillSchemas.DamageOrHealParams</c>/
+        /// <c>PeriodicParamsCase</c> 判断记录）——两处（非周期 school_damage/heal 共用
+        /// <c>DamageOrHealParams</c>；周期 periodic_damage/periodic_heal 各自内联同名字段）均须补登记
+        /// <see cref="FieldSchema.WithDeprecated"/>，本测试锁死四个变体分支都已打标，防止后续改动漏
+        /// 掉其中一处（该字段不在升级指南附录 C 里单列，交叉测试见
+        /// <c>presentation/assembly/tests/SchemaAuditTests.cs</c>"附录 C 一致性"分节，本测试补上
+        /// 附录 C 覆盖不到的这一处）。</summary>
+        [Theory]
+        [InlineData("school_damage")]
+        [InlineData("heal")]
+        public void DamageOrHealParams_ScalingStatAndCoefficient_AreDeprecated(string kind)
+        {
+            var effectsField = SkillSchemas.Def.GetField("effects");
+            var paramsFields = effectsField!.Item!.Variants!.Cases[kind].Single(f => f.Name == "params").Fields!;
+
+            var coefficient = paramsFields.Single(f => f.Name == "coefficient");
+            var scalingStat = paramsFields.Single(f => f.Name == "scaling_stat");
+
+            Assert.True(coefficient.IsDeprecated);
+            Assert.Equal("1.33.0", coefficient.DeprecatedSince);
+            Assert.Equal("scaling", coefficient.ReplacedBy);
+
+            Assert.True(scalingStat.IsDeprecated);
+            Assert.Equal("1.33.0", scalingStat.DeprecatedSince);
+            Assert.Equal("scaling", scalingStat.ReplacedBy);
+        }
+
+        [Theory]
+        [InlineData("periodic_damage")]
+        [InlineData("periodic_heal")]
+        public void PeriodicEffectParams_ScalingStatAndCoefficient_AreDeprecated(string kind)
+        {
+            var effectsField = SkillSchemas.AuraDef.GetField("effects");
+            var paramsFields = effectsField!.Item!.Variants!.Cases[kind].Single(f => f.Name == "params").Fields!;
+
+            var coefficient = paramsFields.Single(f => f.Name == "coefficient");
+            var scalingStat = paramsFields.Single(f => f.Name == "scaling_stat");
+
+            Assert.True(coefficient.IsDeprecated);
+            Assert.Equal("1.33.0", coefficient.DeprecatedSince);
+            Assert.Equal("scaling", coefficient.ReplacedBy);
+
+            Assert.True(scalingStat.IsDeprecated);
+            Assert.Equal("1.33.0", scalingStat.DeprecatedSince);
+            Assert.Equal("scaling", scalingStat.ReplacedBy);
+        }
     }
 }

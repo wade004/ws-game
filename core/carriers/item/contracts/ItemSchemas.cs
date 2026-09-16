@@ -163,7 +163,14 @@ namespace Core.Carriers.Item
                     description: "兼容位（分阶段落地计划 T-N2-1；ADR-0032；07 第 1.6 节修订段"
                         + "\"stat_roll_ref 留位由 affixes 正式字段取代，保留兼容位不再规划\"）：随机属性"
                         + "由本版起改经 item.affix（budget_share/stat_mix/quality_pool/weight，见 T-N2-2）"
-                        + "承担，本字段不再是待展开的扩展位，只作历史数据兼容读取位，不登记 SoftReferenceTable"),
+                        + "承担，本字段不再是待展开的扩展位，只作历史数据兼容读取位，不登记 SoftReferenceTable")
+                    // 消费方反馈第 46 条收口：上面 Description 已用自由文本写明"留位由 affixes 正式
+                    // 字段取代"，补登记为结构化元数据——ReplacedBy 指向同表（item.template）真实存在
+                    // 的同级字段 "affixes"（IdList，见本文件上方 affixes 字段登记），版本号与该字段
+                    // 引入版本一致（T-N2-2，CHANGELOG 1.32.0）。
+                    .WithDeprecated("1.32.0", "affixes",
+                        note: "随机属性改经 item.affix（budget_share/stat_mix/quality_pool/weight）承担，"
+                            + "item.template.affixes 字段登记该模板可抽取的词缀候选白名单"),
                 new FieldSchema("value_override", FieldKind.Number, required: false,
                     description: "基准价值覆盖（ADR-0032 决策；07 第 1.1 节修订段；ADR-0034）：未填按 "
                         + "econ.value_curve 公式（08 第 7.4 节，未落地）算出基准价值；填了且偏离公式超带宽"
@@ -485,7 +492,18 @@ namespace Core.Carriers.Item
                 new FieldSchema("effects", FieldKind.Array, required: false,
                     description: "已废弃占位字段（分阶段落地计划 T-N2-2 起）：由 stat_mix/grants 取代，" +
                         "保留一个版本周期仅作历史数据读取兼容，本版起不再解析、新数据不应再填写，一个" +
-                        "版本周期后随后续词缀相关任务物理删除"),
+                        "版本周期后随后续词缀相关任务物理删除")
+                    // 消费方反馈第 46 条：ReplacedBy 只接受单个同级字段名，但本字段实际由 stat_mix 与
+                    // grants 两个字段共同取代（见上方 Description、升级指南附录 C 同一行"budget_share/
+                    // stat_mix/quality_pool/weight"——附录 C 的表述口径是"item.affix 整表 T-N2-2 新增的
+                    // 四个必填字段"，比本字段 Description 给出的"stat_mix/grants"更宽，两处表述不完全
+                    // 一致，如实记录在 note 里，不强行只挑一个塞进 ReplacedBy）；登记 ReplacedBy=null
+                    // （不代表"无替代"，代表"替代关系是多字段，无法用单个字段名表达"），完整取代关系
+                    // 见 DeprecationNote。
+                    .WithDeprecated("1.32.0", replacedBy: null,
+                        note: "由 stat_mix + grants 两个字段共同取代（升级指南附录 C 一行给出更宽口径" +
+                            "\"budget_share/stat_mix/quality_pool/weight\"，指整表 T-N2-2 新增字段，" +
+                            "非本字段的一一对应替代）"),
             }).WithOwnership(SchemaLayer.Carriers, "item");
     }
 }

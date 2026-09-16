@@ -219,12 +219,32 @@ namespace Core.Carriers.Item
         /// </summary>
         public static IReadOnlyDictionary<Id, StatBudgetInfo> BuildStatBudgetInfo(IDataRegistryView view)
         {
+            return BuildStatBudgetInfo(view, out _);
+        }
+
+        /// <summary>
+        /// 消费方反馈第 45 条（2026-09-17）新增重载：同上，额外用 <paramref name="diagnostics"/> 回吐
+        /// "这次调用是否因 registry 阻断态读不到某些支持表"（<see cref="TolerantReadDiagnostics
+        /// .IsDegraded"/>/<see cref="TolerantReadDiagnostics.MissingTables"/>）——本方法与不带
+        /// <paramref name="diagnostics"/> 的既有重载现在共用同一份内部实现：<paramref name="view"/>
+        /// 一律先包一层 <see cref="TolerantRegistryView"/>（若已经是该类型则直接复用，不重复包装），
+        /// 内部对 <c>stat.definition</c>/<c>stat.weight</c>/<c>stat.rating_conversion</c> 三张支持表
+        /// 的读取因此从"阻断态一律抛异常"变成"读不到就按空集合处理"（见 <see cref="TolerantRegistryView"/>
+        /// 类型判断记录：具体 <see cref="Core.Foundation.DataRegistry.DataRegistry"/> 场景下这三张
+        /// 支持表通常仍完整可读，即便触发阻断的记录/字段与它们完全无关，结果因此也不真的"降级"，只是
+        /// 不再抛异常——这正是消费方反馈第 45 条复现场景要修复的问题）。不带 <paramref name="diagnostics"/>
+        /// 的既有重载转调本方法、丢弃诊断信息，行为在非阻断态下逐位不变，阻断态下从"抛异常"变为
+        /// "不抛异常、按 <see cref="TolerantRegistryView"/> 语义降级"。
+        /// </summary>
+        public static IReadOnlyDictionary<Id, StatBudgetInfo> BuildStatBudgetInfo(IDataRegistryView view, out TolerantReadDiagnostics diagnostics)
+        {
             if (view == null) throw new ArgumentNullException(nameof(view));
 
-            var (categories, conversions) = BuildCategoriesAndConversions(view);
+            var tolerant = TolerantRegistryView.Wrap(view);
+            var (categories, conversions) = BuildCategoriesAndConversions(tolerant);
 
             var weights = new Dictionary<Id, double>();
-            foreach (var w in view.GetAll("stat.weight"))
+            foreach (var w in tolerant.GetAll("stat.weight"))
             {
                 if (w.TryGetId("stat", out var statId) && w.TryGetNumber("weight", out var weight))
                 {
@@ -232,6 +252,7 @@ namespace Core.Carriers.Item
                 }
             }
 
+            diagnostics = tolerant.Diagnostics;
             return ComposeStatBudgetInfo(categories, conversions, statId => weights.TryGetValue(statId, out var w2) ? w2 : DefaultWeight);
         }
 
@@ -248,12 +269,21 @@ namespace Core.Carriers.Item
         /// </summary>
         public static IReadOnlyDictionary<Id, StatBudgetInfo> BuildStatBudgetInfo(IDataRegistryView view, Id classId)
         {
+            return BuildStatBudgetInfo(view, classId, out _);
+        }
+
+        /// <summary>消费方反馈第 45 条（2026-09-17）新增重载：同上（按职业覆盖），额外用 <paramref
+        /// name="diagnostics"/> 回吐降级诊断——与 <see cref="BuildStatBudgetInfo(IDataRegistryView,
+        /// out TolerantReadDiagnostics)"/> 同一份判断记录，只是多了职业覆盖这一层查找。</summary>
+        public static IReadOnlyDictionary<Id, StatBudgetInfo> BuildStatBudgetInfo(IDataRegistryView view, Id classId, out TolerantReadDiagnostics diagnostics)
+        {
             if (view == null) throw new ArgumentNullException(nameof(view));
 
-            var (categories, conversions) = BuildCategoriesAndConversions(view);
+            var tolerant = TolerantRegistryView.Wrap(view);
+            var (categories, conversions) = BuildCategoriesAndConversions(tolerant);
 
             var weights = new Dictionary<Id, double>();
-            foreach (var w in view.GetAll("stat.weight"))
+            foreach (var w in tolerant.GetAll("stat.weight"))
             {
                 if (!w.TryGetId("stat", out var statId) || !w.TryGetNumber("weight", out var baseWeight))
                 {
@@ -279,6 +309,7 @@ namespace Core.Carriers.Item
                 weights[statId] = resolvedWeight;
             }
 
+            diagnostics = tolerant.Diagnostics;
             return ComposeStatBudgetInfo(categories, conversions, statId => weights.TryGetValue(statId, out var w2) ? w2 : DefaultWeight);
         }
 

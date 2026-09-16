@@ -939,6 +939,28 @@ namespace Toolchain.Validator
                 sb.Append("\"axis\":\"").Append(CurveAxisName(field.Curve.Axis)).Append('"');
                 sb.Append('}');
             }
+            sb.Append(',');
+
+            // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）："导出给内容工具"：登记了
+            // FieldSchema.WithDeprecated 时导出 {since, replaced_by, note}（未登记 replacedBy/note 时对应
+            // 子键为 null，同其它可选元数据字段惯例）；未登记 IsDeprecated 时整个 "deprecated" 键为
+            // null——内容工具（本反馈原始案例：编辑器侧 Editor.Core.Validation.DeprecatedFieldHints）
+            // 据此可直接从 schema 回吐读取废弃提示，不需要再手工维护一份与 Description/升级指南人工
+            // 核对的静态清单。追加在既有 "curve" 字段之后，不改动任何既有字段，保持此前 --json 输出对
+            // 不消费本键的调用方逐字节兼容。
+            sb.Append("\"deprecated\":");
+            if (!field.IsDeprecated)
+            {
+                sb.Append("null");
+            }
+            else
+            {
+                sb.Append('{');
+                sb.Append("\"since\":\"").Append(JsonEscape(field.DeprecatedSince ?? "")).Append("\",");
+                sb.Append("\"replaced_by\":").Append(field.ReplacedBy == null ? "null" : "\"" + JsonEscape(field.ReplacedBy) + "\"").Append(',');
+                sb.Append("\"note\":").Append(field.DeprecationNote == null ? "null" : "\"" + JsonEscape(field.DeprecationNote) + "\"");
+                sb.Append('}');
+            }
             sb.Append('}');
         }
 

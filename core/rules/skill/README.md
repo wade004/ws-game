@@ -1247,6 +1247,25 @@ skill/
     数据/内容管线零告警。真正核算预算比值需要调用方自行 `new SkillBudgetValidationRule(realProvider)`
     另行注册（不经 `RulesSchemaCatalog`）。
     <br/><br/>
+    **判断记录（消费方反馈第 47 条根治，2026-09-17）**：`Validate` 对每条 `skill.def` 记录调用
+    `SkillBudgetAnalyzer.Analyze` 时，原先只 `catch (ArgumentException)` 兜底"结构非法记录跳过、不
+    中断整批预算校验"——但 `SkillDefCache.ParseSkillDef` → `DataRecord.GetId("school"/"target_shape_ref")`
+    对结构合法字符串但非法 Id 语法的字段（如空字符串）抛出的是
+    `Core.Foundation.DataRegistry.DataFieldException`（不是 `ArgumentException` 子类），未被原
+    `catch` 拦下，一路冒出中断 `DataRegistry.LoadAll`。改为 `catch (Exception ex) when (ex is
+    ArgumentException || ex is DataFieldException)`，且不再彻底静默：改产出一条 Warning 级、
+    `NonEscalatable` 的诊断（检查名 `skill_budget_record_unparseable`），说明该记录结构不合法已由
+    字段级校验（新检查名 `field_id_format`，见 `core/foundation/data_registry/README.md`"判断记录
+    （消费方反馈第 47 条）"）报告、本规则仅跳过不重复诊断——同一根治方式也应用到
+    `Core.Carriers.Item.ItemGrantValueExceedsShareRule`（此前对
+    `SkillBudgetAnalyzer.ComputeGrantValue` 的调用完全没有 try/catch 兜底，见
+    `core/carriers/item/README.md`"判断记录（消费方反馈第 47 条）"）。全仓库 `catch (ArgumentException)`
+    逐处核查：`GameplayAssembly.cs`/`CreatureDeathLootListener.cs`/`ProgressionPersistable.cs`/
+    `Resolver.cs`/`CastPipeline.cs` 的既有 `catch (ArgumentException)` 均环绕运行期宿主查询 API
+    （`SceneRouter.LoadScene`/`ICreatureTemplateQuery.Get`/`IStatHost.GetStat` 等"未注册 id 抛
+    `ArgumentException`"契约），不经 `SkillDefCache`/`DataRecord.GetId` 一类数据解析入口，不属于
+    同类缺口，不改动。
+    <br/><br/>
     **T-N6-3a 回填：`sim.anchor` 已落地接入，本段"归阶段 N6"已兑现**——`Core.Sim
     .AnchorTableSkillBudgetAnchorProvider` 是 `ISkillBudgetAnchorProvider` 的真实实现（`GetAnchorDps`
     查 `AnchorTable`，`GetExpectedScalingStatValue` 委托新增的 `Core.Sim.ExpectedStatCalculator`），
@@ -1409,6 +1428,28 @@ CarriersAssembly` 在装配期把真正实现（`Core.Carriers.Unit.MovementHost
     `AtRequest`/`AtRelease` 两种快照策略在施法期间点移动时的行为差异、技能未声明地面目标时拒绝、
     地面请求与既有单位目标入口互斥且互不替代，共 8 例）；既有单位目标测试套件（`CastPipelineFlowTests`/
     `CastPipelineFailureTests`/`DiscreteModeCastPipelineTests` 等）不改一行断言、全部通过。
+
+## 消费方反馈第 45 条判断记录（2026-09-17）
+
+`SkillBudgetAnalyzer.Analyze`/`ComputeGrantValue` 此前内部一律用严格的 `view.Get`/`view.GetAll`
+（包括构造内部 `SkillDefCache` 时传入的 registry 引用），registry 阻断态（任意记录的任意诊断为
+Error，全局级别、不按表/记录粒度）下即便触发阻断的记录与本次分析的技能、`skill.budget_rule`/
+`target.chain_def`/`stat.weight`/`arch.power_type` 等支持表完全无关，仍会抛
+`InvalidOperationException`，炸穿内容工具"仍需展示这个技能的预算分析"的场景。
+
+**修复**：`Analyze`/`ComputeGrantValue` 一律先把 `view` 包一层 `Core.Foundation.DataRegistry
+.TolerantRegistryView`（若已经是该类型则直接复用），此后全程只用包装后的引用，包括传给内部
+`SkillDefCache` 构造函数的引用——`SkillDefCache` 本身不改动（它同时服务 `SkillHost` 等运行期
+宿主，运行期读取必须继续遵守 `EnsureReadable`，见 11 第 4 节"运行时不做静默降级"），只是分析
+入口私有持有的那一份实例喂给它一个容错视图，不影响运行期宿主用真实 `view` 构造的另一个
+`SkillDefCache` 实例。`SkillBudgetResult` 新增 `IsDegraded`/`MissingTables` 只读属性（新构造
+函数重载，旧 16 参构造函数恒 `IsDegraded=false`）；被分析的 `skillId` 本身"因阻断读不到"与
+"确实不存在"两种情形分开处理——前者不再抛 `ArgumentException`，归 `SkillBudgetVerdict
+.NotApplicable` 并标 `IsDegraded=true`；后者维持既有行为继续抛异常（调用方用法错误）。
+
+**验证**：`T_N3_9_SkillBudgetAnalyzerTests` 新增用例——用一条与 skill.* 五张表完全无关的坏
+引用触发 `reference_integrity` 使 registry 整体阻断，断言 `Analyze` 不抛异常且结果与非阻断态
+逐位一致（`IsDegraded` 为 `false`，具体 `DataRegistry` 场景下 skill.* 表本身未受影响）。
 
 ## 不负责什么
 

@@ -1078,3 +1078,27 @@ core/sim/
     `presentation/assembly/README.md` 对应判断记录与 `NumericValidationRuleCatalog.cs` 类型级
     判断记录——本模块（`Core.Sim`）自身除新增 `SimBandwidthKeys`（记录 49）外无需改动，三条 sim
     检查规则实现本身（`SimAnchorValidationRule`/`SimScenarioValidationRule`）不变。
+
+## 消费方反馈第 45 条判断记录（2026-09-17）
+
+51. **`ExpectedStatCalculator` 阻断态下不再抛异常**：构造函数此前一律用严格的 `view.Get`/
+    `view.GetAll` 读取 `arch.class`/`stat.definition`/`stat.weight`/`item.slot_definition` 等表，
+    `Compute` 内部经 `IBudgetSolver.Solve` 继续用同一个 `view`——registry 阻断态（全局级别、不按
+    表/记录粒度）下即便触发阻断的记录与这些表完全无关，仍会抛 `InvalidOperationException`。
+    <br/>**修复**：构造函数把入参 `view` 一律先包一层 `Core.Foundation.DataRegistry
+    .TolerantRegistryView`，字段 `_view` 改持有包装后的引用，此后全程（包括 `Compute` 传给
+    `IBudgetSolver.Solve` 的引用）只用它；新增只读属性 `IsDegraded`/`MissingTables`（实时读
+    `_view` 的同名成员，不是构造期快照）。`arch.class` 记录本身"因阻断读不到"与"确实未登记"两种
+    情形分开处理——前者不再抛 `ArgumentException`，改为职业相关字段全部按空/缺省处理；后者维持
+    既有行为继续抛异常（调用方传了个不存在的职业 id，是用法错误）。`IBudgetSolver`/`BudgetSolver
+    .Solve` 本身不改动（它同时服务 `EquipmentHost.ApplyAffixValues` 等运行期宿主，见
+    `core/carriers/item/README.md` 消费方反馈第 45 条判断记录），本类型只是把自己私有持有的
+    容错视图传给它，不影响运行期宿主用真实 view 直接调用的另一条路径。`AnchorTable` 本身不在本次
+    改动范围（它是 `HeadlessWorldBuilder` 唯一的构造路径，调用方本就只在 `LoadAll` 通过校验之后
+    才会构造它，不是本条反馈治理的"只读分析入口"）。
+    <br/>**验证**：`ExpectedStatCalculatorTests` 新增用例——最小夹具（`arch.class`/
+    `stat.definition`/`sim.anchor` 三张表 + 一条与之无关的坏引用触发阻断），断言构造与
+    `Compute` 均不抛异常、结果与非阻断态逐位一致（`IsDegraded` 为 `false`），以及"职业 id 确实
+    不存在"仍继续抛 `ArgumentException` 的回归对照。审计范围内 `core/sim/core
+    /StandardPlayerBuilder.cs`（同样调用 `IBudgetSolver.Solve`、疑似同类只读分析场景）未纳入本次
+    改动——超出反馈原文列出的入口清单，留待设计层确认是否需要一并处理。

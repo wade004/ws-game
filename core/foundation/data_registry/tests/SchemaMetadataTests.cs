@@ -336,5 +336,141 @@ namespace Tests.Foundation.Data
             Assert.True(TimeModelRules.IsTimeField(timeField));
             Assert.False(TimeModelRules.IsTimeField(plainField));
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：FieldSchema.WithDeprecated 行为、
+        // 重复设置防护、格式校验，以及 ReplacedBy 存在性校验的两个装配时机
+        // （TableSchema 顶层 Fields / FieldSchema 构造函数 fields 参数）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void WithDeprecated_SetsAllProperties()
+        {
+            var field = new FieldSchema("old_field", FieldKind.Number, required: false)
+                .WithDeprecated("1.31.0", "new_field", note: "补充说明");
+
+            Assert.True(field.IsDeprecated);
+            Assert.Equal("1.31.0", field.DeprecatedSince);
+            Assert.Equal("new_field", field.ReplacedBy);
+            Assert.Equal("补充说明", field.DeprecationNote);
+        }
+
+        [Fact]
+        public void WithDeprecated_Undeprecated_DefaultsToFalseAndNulls()
+        {
+            var field = new FieldSchema("plain_field", FieldKind.Number, required: false);
+
+            Assert.False(field.IsDeprecated);
+            Assert.Null(field.DeprecatedSince);
+            Assert.Null(field.ReplacedBy);
+            Assert.Null(field.DeprecationNote);
+        }
+
+        [Fact]
+        public void WithDeprecated_ReplacedByNull_MeansNoReplacement()
+        {
+            // 同 StatHostOptions.EnableRatingConversion 一类历史案例（升级指南附录 C："无替代——
+            // 换算层始终启用"）：ReplacedBy 传 null 是合法的、显式的"无同表替代字段"声明。
+            var field = new FieldSchema("old_flag", FieldKind.Bool, required: false)
+                .WithDeprecated("1.31.0", null);
+
+            Assert.True(field.IsDeprecated);
+            Assert.Null(field.ReplacedBy);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("1.2")]
+        [InlineData("1.2.3.4")]
+        [InlineData("v1.2.3")]
+        [InlineData("1.2.x")]
+        public void WithDeprecated_InvalidSinceVersionFormat_Throws(string? sinceVersion)
+        {
+            var field = new FieldSchema("old_field", FieldKind.Number, required: false);
+            Assert.Throws<System.ArgumentException>(() => field.WithDeprecated(sinceVersion!, null));
+        }
+
+        [Fact]
+        public void WithDeprecated_BlankReplacedBy_Throws()
+        {
+            var field = new FieldSchema("old_field", FieldKind.Number, required: false);
+            Assert.Throws<System.ArgumentException>(() => field.WithDeprecated("1.31.0", "   "));
+        }
+
+        [Fact]
+        public void WithDeprecated_ReplacedBySelf_Throws()
+        {
+            var field = new FieldSchema("old_field", FieldKind.Number, required: false);
+            Assert.Throws<System.ArgumentException>(() => field.WithDeprecated("1.31.0", "old_field"));
+        }
+
+        [Fact]
+        public void WithDeprecated_CalledTwice_Throws()
+        {
+            var field = new FieldSchema("old_field", FieldKind.Number, required: false)
+                .WithDeprecated("1.31.0", null);
+            Assert.Throws<System.InvalidOperationException>(() => field.WithDeprecated("1.32.0", null));
+        }
+
+        [Fact]
+        public void TableSchema_TopLevelReplacedByExists_ConstructsWithoutThrowing()
+        {
+            var table = new TableSchema("test.deprecated_top_ok", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("old_field", FieldKind.Number, required: false).WithDeprecated("1.31.0", "new_field"),
+                new FieldSchema("new_field", FieldKind.Number, required: false),
+            });
+
+            Assert.True(table.GetField("old_field")!.IsDeprecated);
+        }
+
+        [Fact]
+        public void TableSchema_TopLevelReplacedByMissing_Throws()
+        {
+            Assert.Throws<System.ArgumentException>(() => new TableSchema("test.deprecated_top_missing", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("old_field", FieldKind.Number, required: false).WithDeprecated("1.31.0", "does_not_exist"),
+            }));
+        }
+
+        [Fact]
+        public void FieldSchemaFields_NestedReplacedByExists_ConstructsWithoutThrowing()
+        {
+            var parent = new FieldSchema("container", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("old_child", FieldKind.Number, required: false).WithDeprecated("1.31.0", "new_child"),
+                new FieldSchema("new_child", FieldKind.Number, required: false),
+            });
+
+            Assert.True(parent.Fields![0].IsDeprecated);
+        }
+
+        [Fact]
+        public void FieldSchemaFields_NestedReplacedByMissing_Throws()
+        {
+            Assert.Throws<System.ArgumentException>(() => new FieldSchema("container", FieldKind.Object, required: false, fields: new[]
+            {
+                new FieldSchema("old_child", FieldKind.Number, required: false).WithDeprecated("1.31.0", "does_not_exist"),
+            }));
+        }
+
+        [Fact]
+        public void FieldSchemaFields_NestedReplacedByOnlyExistsAtParentTable_StillThrows()
+        {
+            // ReplacedBy 只在"同一份兄弟字段清单"里查找——嵌套子结构里的字段不能声明 ReplacedBy 指向
+            // 表顶层的字段（两者不是同一级），即便顶层确实有一个同名字段。
+            Assert.Throws<System.ArgumentException>(() => new TableSchema("test.deprecated_nested_cannot_reach_top", "id", 1, new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("sibling_at_top", FieldKind.Number, required: false),
+                new FieldSchema("container", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("old_child", FieldKind.Number, required: false).WithDeprecated("1.31.0", "sibling_at_top"),
+                }),
+            }));
+        }
     }
 }

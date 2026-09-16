@@ -71,7 +71,8 @@ data_registry/
 | `schema_version` | `schema_version` 超过当前代码期望版本、或低于当前版本但缺迁移环节 |
 | `primary_key` | 主键字段缺失/格式非法、内容表 id 的 domain 前缀与表名首段不符、主键重复 |
 | `required_field` | 必填字段缺失（或值为 JSON `null`，视为未提供） |
-| `field_type` | 字段 JSON 类型与声明的 `FieldKind` 不符，含 `Id`/`IdList` 格式、`Enum` 取值 |
+| `field_type` | 字段 JSON 类型与声明的 `FieldKind` 不符（含 `Enum` 取值不在合法集合内）；`Id`/`Reference`/`IdList` 逐元素/`Map` 值种类为 `Id`/`Reference` 时的值，取值不是 JSON 字符串归本项——值确是字符串但不满足 Id 语法改报下一行 `field_id_format`（消费方反馈第 47 条改动前两者混用本检查名，见该行判断记录） |
+| `field_id_format` | 消费方反馈第 47 条：`Id`/`Reference` 字段（含子结构内递归复用同一实现登记为这两种种类的子字段）与 `IdList` 逐元素、`Map` 值种类为 `Id`/`Reference` 时的值——取值是字符串但不满足 `Id.IsValidFormat`（全小写点分领域.名称）时报出，阻断级；与上一行 `field_type` 互斥，同一处至多命中其中一种。**判断记录**：此前这类值也报 `field_type`（笼统覆盖"类型不符"与"格式非法"两种情形），规则解析入口（如 `SkillDefCache.ParseSkillDef` 内部 `DataRecord.GetId`）对同一非法值再次解析时抛出的是 `DataFieldException`，而依赖该入口的规则（如 `SkillBudgetValidationRule`）原先只 `catch (ArgumentException)`，未被拦下、一路冒出中断整批 `LoadAll`——本检查名让这类坏形状在字段级就先被拦下并产出可定位诊断，配合规则侧同批把 `catch` 扩大为同时覆盖 `ArgumentException`/`DataFieldException`（且不再彻底静默，改产出规则自己的 Warning 诊断，见 `core/rules/skill/README.md`/`core/carriers/item/README.md`"判断记录（消费方反馈第 47 条根治）"），双层根治：字段级先拦、规则级兜底不中断批处理 |
 | `reference_integrity` | `Reference` 字段（含 `ReferenceTable`/`ReferenceDomain`）与 `DeclareReference` 动态声明的引用目标不存在；ADR-0022 起同样覆盖登记了 `ReferenceTable`/`ReferenceDomain` 的 `IdList` 字段——按同款规则逐个校验其每个元素（元素路径形如 `field[2]`），不是只校验 `Id` 单值字段 |
 | `field_range` | ADR-0021：字段登记了 `FieldSchema.Range`（数值下上界）时，`Number`/`Int` 字段的值超出该范围（`ValidateFieldRange`，见字段级校验小节判断记录——只在登记了范围时触发，未登记不检查） |
 | `text_key_exists` | `TextKey` 字段的值在 `l10n.text` 表按 `DefaultLocale` 查不到；`l10n.text` 表未加载时降级为 Warning |
@@ -139,6 +140,39 @@ data_registry/
 
 既有曲线表（`item.budget_curve`/`stat.rating_conversion`/`combat.resist_curve` 的 `table` 分支）迁移到
 本形态与通用单调有限规则 `curve_monotonic_finite` 分别是分阶段落地计划 T-N0-4/T-N0-5 与 T-N0-3 的内容。
+
+## 字段废弃元数据（消费方反馈第 46 条，2026-09-17）
+
+判断记录：反馈原文——`FieldSchema` 此前没有任何结构化方式标记"该字段已废弃"，废弃事实只写在自由
+文本的 `Description`（如 `"{items, xp（已废弃）, xp_equivalent, ...}"`）与升级指南附录 C 里，内容工具
+（消费方原始案例：`Editor.Core.Validation.DeprecatedFieldHints`）只能手工维护一份与两处人工核对的
+静态清单，框架升级后清单漂移没有编译期/加载期保证。
+
+- `FieldSchema` 新增只读属性 `IsDeprecated`/`DeprecatedSince`（起始版本，`"X.Y.Z"`）/`ReplacedBy`
+  （同一级字段清单里已登记的字段名，`null` 表示无同表替代字段）/`DeprecationNote`（可选补充说明）
+  与修饰方法 `WithDeprecated(sinceVersion, replacedBy, note?)`（同 `WithCurve`/`WithSoftReference`
+  "修饰方法追加可选元数据"惯例，不改动既有构造签名，只能设置一次）。
+- **两段校验，时机不同**：`sinceVersion` 的格式合法性（须形如 `X.Y.Z`）只依赖它自己的字符串内容，
+  在 `WithDeprecated` 挂载时直接拒绝非法值（同 `WithFreeIds` 的 `reason` 必填检查一样的既有风格）。
+  `ReplacedBy` 的存在性依赖"同一级字段清单里有没有这个名字"，但 `WithDeprecated` 调用发生在单个
+  `FieldSchema` 实例构造完成之后、被装进它所属的兄弟字段清单之前——此时看不到兄弟字段，无法在挂载
+  时判断。推迟到"兄弟字段清单第一次被完整组装"的地方校验：`FieldSchema` 构造函数的 `fields` 参数
+  分支（嵌套 `Object` 子结构）与 `TableSchema` 构造函数（表顶层 `Fields`）——两处都已拿到完整的兄弟
+  清单，校验不合法直接抛 `ArgumentException`，不留到运行期或门禁才发现。
+- `toolchain/validator --list-tables --json` 的 `field_meta` 新增 `deprecated`（`{since, replaced_by,
+  note}`，未登记 `IsDeprecated` 时为 `null`），内容工具可直接从 schema 回吐读取废弃提示。
+- `SchemaAudit`（`--schema-audit`）新增 `field_deprecated_metadata` 检查：`IsDeprecated` 为真时
+  `DeprecatedSince` 必须非空、`ReplacedBy` 非空时须在（顶层）字段清单里存在——这两条在实践中已经被
+  上面的构造期校验堵死，本检查是同 `field_group` 一样"理论上不可能触发、仍留一道可枚举软失败防线"
+  的既有风格，不加白名单。
+- 已知废弃字段（升级指南附录 C）与反馈原文点名的字段均已补登记：`stat.definition` 的
+  `group`/`min`/`max`/`is_rating`/`rating_conversion_ref`（1.31.0）、`item.affix.effects`（1.32.0，
+  由 `stat_mix`+`grants` 两个字段共同取代，`ReplacedBy` 登记为 `null`，取代关系写在
+  `DeprecationNote`）、`prog.xp_source` 的 `base_xp`/`weight`（1.34.0→`base_curve_ref`）、
+  `quest.def`/`encounter.def`/`achv.def` 共用的 `rewards.xp`（1.34.0→`xp_equivalent`，三张表共用同一份
+  `QuestSchemas.RewardsFields` 子结构，登记一次即三表同步生效）、`skill.def`/`skill.aura_def` 效果参数
+  `scaling_stat`/`coefficient`（1.33.0→`scaling` 列表，非周期 `school_damage`/`heal` 与周期
+  `periodic_damage`/`periodic_heal` 四个变体分支各自登记）。
 
 ## 校验规则元数据与不可提升警告（分阶段落地计划 T-N0-2，04 第 5 节数值类校验项分级表）
 

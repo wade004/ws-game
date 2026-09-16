@@ -504,10 +504,16 @@ namespace Core.Foundation.DataRegistry
         public DataRecord? Get(string table, string key)
         {
             EnsureReadable();
-            return _tables.TryGetValue(table, out var t) && t.ByKey.TryGetValue(key, out var record) ? record : null;
+            return GetUnchecked(table, key);
         }
 
         public DataRecord? Get(string table, CommonId id) => Get(table, id.Value);
+
+        /// <summary>不经过 <see cref="EnsureReadable"/> 的内部读取——<see cref="Get(string, string)"/>
+        /// 与消费方反馈第 45 条新增的显式 <see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/>
+        /// 共用同一份实现，只是前者多一道阻断检查（同 <see cref="GetAllUnchecked"/> 判断记录）。</summary>
+        private DataRecord? GetUnchecked(string table, string key) =>
+            _tables.TryGetValue(table, out var t) && t.ByKey.TryGetValue(key, out var record) ? record : null;
 
         public IReadOnlyList<DataRecord> GetAll(string table)
         {
@@ -712,6 +718,24 @@ namespace Core.Foundation.DataRegistry
             records = QueryUnchecked(table, node);
             return true;
         }
+
+        /// <summary>消费方反馈第 45 条（2026-09-17）：<see cref="IDataRegistryView.TryGetAll"/> 的
+        /// 同族显式实现，覆盖单记录 <see cref="Get(string, string)"/>——同一份判断记录，直接调用
+        /// <see cref="GetUnchecked"/>，不经过 <see cref="EnsureReadable"/>，因此阻断态下也能读取、
+        /// 恒返回 <c>true</c>；记录本就不存在时与 <see cref="Get(string, string)"/> 行为一致，
+        /// <paramref name="record"/> 置 <c>null</c>（而不是 <c>false</c>），"表/记录不存在"与"数据
+        /// 整体阻断"是两件独立的事，这里只处理后者。</summary>
+        bool IDataRegistryView.TryGet(string table, string key, out DataRecord? record)
+        {
+            record = GetUnchecked(table, key);
+            return true;
+        }
+
+        /// <summary>消费方反馈第 45 条：<see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/>
+        /// 的同族显式实现，覆盖 <see cref="Get(string, CommonId)"/>（<c>CommonId</c> 重载）——语义
+        /// 完全相同。</summary>
+        bool IDataRegistryView.TryGet(string table, CommonId id, out DataRecord? record) =>
+            ((IDataRegistryView)this).TryGet(table, id.Value, out record);
 
         private void EnsureReadable()
         {
@@ -1288,9 +1312,20 @@ namespace Core.Foundation.DataRegistry
                     break;
 
                 case FieldKind.Id:
-                    if (!(raw is JsonString sid && CommonId.IsValidFormat(sid.Value)))
+                    if (!(raw is JsonString sid))
                     {
                         AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Id");
+                    }
+                    else if (!CommonId.IsValidFormat(sid.Value))
+                    {
+                        // 消费方反馈第 47 条（04 第 5 节勘误"Id 语法合法"）：取值确是字符串、只是不满足
+                        // Id 语法（如空字符串）时，从笼统的 field_type 拆出专用检查名 field_id_format——
+                        // 这类记录此前只能在字段级校验之后、规则解析入口（如 SkillDefCache.ParseSkillDef
+                        // 内部的 DataRecord.GetId）再次尝试解析 Id 时才发现值非法，此时已经来不及产出普通
+                        // 诊断，只能抛 DataFieldException；提前在这里拦下，使规则解析入口遇到的只剩"结构
+                        // 已在字段级报过、无需重复报告"的已知情形（配合 SkillBudgetValidationRule 等规则
+                        // 对该类异常的兜底，见 core/rules/skill/schema/SkillValidationRules.cs 判断记录）。
+                        AddFieldIdFormatError(issues, table, recordKey, fieldPath, sid.Value);
                     }
                     else if (field.AllowedValues != null && !ContainsAllowedValue(field.AllowedValues, sid.Value))
                     {
@@ -1551,6 +1586,20 @@ namespace Core.Foundation.DataRegistry
                 $"字段 \"{fieldPath}\" 期望 {expected}，实际 JSON 类型 {raw.Kind}", recordKey: recordKey, field: fieldPath));
         }
 
+        /// <summary>消费方反馈第 47 条（04 第 5 节勘误"Id 语法合法"）：取值确是 JSON 字符串、只是不
+        /// 满足 <see cref="CommonId.IsValidFormat"/> 时报专用检查名 <c>field_id_format</c>，与"取值
+        /// 根本不是字符串"的 <c>field_type</c>（<see cref="AddFieldTypeError"/>）区分——两者互斥，同一
+        /// 处至多命中其中一种。<see cref="FieldKind.Id"/>/<see cref="FieldKind.Reference"/> 顶层与
+        /// 子结构递归、<see cref="FieldKind.IdList"/> 逐元素、<see cref="MapSchema.ValueSchema"/> 值
+        /// 种类为 <see cref="FieldKind.Id"/>/<see cref="FieldKind.Reference"/> 时的值，均调用本方法
+        /// （不新增平行实现，同 ADR-0019 子结构递归复用惯例）。</summary>
+        private static void AddFieldIdFormatError(List<ValidationIssue> issues, string table, string recordKey, string fieldPath, string actualValue)
+        {
+            issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_id_format",
+                $"字段 \"{fieldPath}\" 取值 \"{actualValue}\" 不满足 Id 语法（应为全小写点分领域.名称，如 \"skill.fireball\"）",
+                recordKey: recordKey, field: fieldPath));
+        }
+
         /// <summary>ADR-0021（04 第 4 节勘误"范围约束"）：<see cref="FieldSchema.Range"/> 已登记时，
         /// 在类型检查（<c>field_type</c>，见调用方 <see cref="ValidateFieldValue"/> 的 Int/Number
         /// 分支）通过之后再检查数值是否落在范围内——类型错误优先于范围错误报告，一条记录同一字段
@@ -1595,14 +1644,23 @@ namespace Core.Foundation.DataRegistry
 
             for (int i = 0; i < arr.Count; i++)
             {
-                if (!(arr[i] is JsonString s) || !CommonId.IsValidFormat(s.Value))
+                var elementPath = $"{fieldPath}[{i}]";
+
+                if (!(arr[i] is JsonString s))
                 {
                     issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_type",
-                        $"字段 \"{fieldPath}\" 第 {i} 个元素不是合法 Id", recordKey: recordKey, field: fieldPath));
+                        $"字段 \"{fieldPath}\" 第 {i} 个元素不是字符串", recordKey: recordKey, field: elementPath));
                     continue;
                 }
 
-                var elementPath = $"{fieldPath}[{i}]";
+                // 消费方反馈第 47 条：元素是字符串但不满足 Id 语法时改报 field_id_format，与"元素根本
+                // 不是字符串"的 field_type 区分（见 AddFieldIdFormatError 判断记录）。
+                if (!CommonId.IsValidFormat(s.Value))
+                {
+                    AddFieldIdFormatError(issues, table, recordKey, elementPath, s.Value);
+                    continue;
+                }
+
                 var value = s.Value;
 
                 // 消费方反馈第 28 条（04 第 3.4 节勘误"IdList/Id 固定取值登记"）：登记了 AllowedValues
@@ -1647,9 +1705,17 @@ namespace Core.Foundation.DataRegistry
 
         private void ValidateReferenceField(string table, string recordKey, string fieldPath, FieldSchema field, JsonValue raw, List<ValidationIssue> issues)
         {
-            if (!(raw is JsonString s) || !CommonId.IsValidFormat(s.Value))
+            if (!(raw is JsonString s))
             {
                 AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "Reference(Id)");
+                return;
+            }
+
+            // 消费方反馈第 47 条：值确是字符串、只是不满足 Id 语法时改报 field_id_format（见
+            // AddFieldIdFormatError 判断记录），与"值根本不是字符串"的 field_type 区分。
+            if (!CommonId.IsValidFormat(s.Value))
+            {
+                AddFieldIdFormatError(issues, table, recordKey, fieldPath, s.Value);
                 return;
             }
 
@@ -1683,7 +1749,7 @@ namespace Core.Foundation.DataRegistry
         /// 建立 <see cref="_nonDefaultLocalesCache"/>/<see cref="_localeFallbackCache"/>——
         /// <c>l10n.locale</c> 未加载时两者都置 null（<see cref="ValidateTextKeyField"/> 据此跳过
         /// 非默认语言告警，不额外报错）；id 字段格式不合法的行（本身会被 <c>l10n.locale</c> 自身的
-        /// <c>field_type</c> 校验单独报出）在这里直接跳过，不参与本缓存。</summary>
+        /// <c>field_id_format</c> 校验单独报出，消费方反馈第 47 条）在这里直接跳过，不参与本缓存。</summary>
         private void BuildLocaleValidationCaches()
         {
             if (!_tables.TryGetValue("l10n.locale", out var localeTable))

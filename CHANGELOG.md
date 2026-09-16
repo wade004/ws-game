@@ -416,15 +416,117 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （`core/sim`）产出，当前仅为契约意向。纯文档变更，不涉及代码。HTML 版同步新增内容；HTML 自
   v2.6 起累积的历史缺口（v2.7～v2.15 期间第 4.1 节新增的其余契约面尚未回填 HTML）不在本条改动
   范围，已在 HTML 头部说明如实标注；该缺口已由 T-N5-5（同版本）回填，详见下方正文"文档"小节。
+- **消费方反馈第 45/46/47 条（1.38.0，[回复文档](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45-47条.md)）**：
+  第 45 条——`IDataRegistryView.TryGet`（带默认实现）、`Core.Foundation.DataRegistry
+  .TolerantRegistryView`（`Wrap`/`IsDegraded`/`MissingTables`/`WasMissing`），
+  `ItemBudgetCurve.BuildStatBudgetInfo`/`EquipmentScoreAnalyzer.Score`/`SkillBudgetAnalyzer
+  .Analyze`/`ComputeGrantValue`/`ExpectedStatCalculator` 等只读分析入口阻断态下不再抛异常，
+  `EquipmentScoreResult`/`SkillBudgetResult`/`ExpectedStatCalculator` 新增
+  `IsDegraded`/`MissingTables`；`IBudgetSolver.Solve`/`SkillDefCache` 等运行期入口不变。第 46
+  条——`FieldSchema.WithDeprecated`/`IsDeprecated`/`DeprecatedSince`/`ReplacedBy`/
+  `DeprecationNote`，新增检查名 `field_deprecated_metadata`，`--list-tables --json` 的
+  `field_meta` 新增 `deprecated` 键。第 47 条——**行为变更**：字段级"Id 语法非法"诊断从
+  `field_type` 拆出，改报新检查名 `field_id_format`；`SkillBudgetValidationRule`/
+  `ItemGrantValueExceedsShareRule` 补齐异常兜底，新增检查名
+  `skill_budget_record_unparseable`/`item_grant_value_unparseable`。编辑器产品文档 v2.17 同批
+  补齐第 4.1 节两行契约面，`Editor.Core.Validation.TolerantRegistryView`/
+  `DeprecatedFieldHints` 两个自建包装/清单均可退役。
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-09-17
+
+编辑器上游反馈第 45/46/47 条 + 数据校验器非数据表 JSON 跳过。
+
+### 新增
+
+- `IDataRegistryView` 新增带默认实现的 `TryGet(string table, string key, out DataRecord?
+  record)`（及 `CommonId` 重载），语义与既有 `TryGetAll` 对称——阻断态返回 `false`，非阻断态与
+  `Get` 一致；`DataRegistry` 显式覆盖为直接读内部快照（消费方反馈第 45 条）。
+- `Core.Foundation.DataRegistry.TolerantRegistryView`（`sealed class`，实现
+  `IDataRegistryView`，静态工厂 `Wrap(view)` 对已是该类型的入参直接复用）：把任意
+  `IDataRegistryView` 包装成"读不到就退化为空/null，不向外抛阻断异常"的只读视图，新增
+  `IsDegraded`/`MissingTables`/`WasMissing(table)`（消费方反馈第 45 条）。
+- `ItemBudgetCurve.BuildStatBudgetInfo` 新增两个带 `out TolerantReadDiagnostics diagnostics`
+  出参的重载（纯新增）；`EquipmentScoreResult`/`SkillBudgetResult` 各新增一个带
+  `isDegraded`/`missingTables` 两参的构造函数重载（纯新增，ABI 只新增）与对应
+  `IsDegraded`/`MissingTables` 只读属性；`ExpectedStatCalculator` 新增同名属性（消费方反馈第
+  45 条）。
+- `FieldSchema` 新增 `WithDeprecated(string sinceVersion, string? replacedBy, string? note =
+  null)` 修饰方法与 `IsDeprecated`/`DeprecatedSince`/`ReplacedBy`/`DeprecationNote` 四个只读
+  属性（同 `WithCurve`/`WithSoftReference` 既有惯例，不破坏既有构造签名）；`toolchain/validator
+  --list-tables --json` 的 `field_meta` 新增 `deprecated`（`{since, replaced_by, note}`，未
+  登记为 `null`）；`--schema-audit` 新增检查名 `field_deprecated_metadata`（消费方反馈第 46
+  条）。
+- `DataRegistry` 字段级校验新增检查名 `field_id_format`（阻断级，见"变更"一节行为说明）；
+  `SkillBudgetValidationRule`/`ItemGrantValueExceedsShareRule` 新增检查名
+  `skill_budget_record_unparseable`/`item_grant_value_unparseable`（均 Warning，不可提升，
+  消费方反馈第 47 条）。
+- `FileSystemDataSource` 新增 `DataSourceOptions`（可选构造项，默认开启跳过非数据表 JSON，ABI
+  只新增）。
+
+### 变更
+
+- **行为变更（消费方反馈第 47 条）**：字段级"取值确是字符串但不满足 Id 语法"（如空字符串）的
+  诊断，此前笼统归入 `field_type`，现拆出改报专用检查名 `field_id_format`——`Id`/`Reference`
+  （含子结构递归）、`IdList` 逐元素、`Map` 值种类为 `Id`/`Reference` 时的值均受影响；取值本身
+  不是字符串仍归 `field_type`，`Map` 键格式校验不受影响（仍归 `reference_integrity`）。**按检查
+  名过滤/映射诊断的消费方需跟进**，见"迁移说明"。
+- `SkillBudgetValidationRule.Validate` 的 `catch` 由仅 `ArgumentException` 扩大为同时捕获
+  `Core.Foundation.DataRegistry.DataFieldException`，遇到结构非法记录时不再彻底静默，改产出
+  `skill_budget_record_unparseable` 诊断（消费方反馈第 47 条）。
+- `ItemGrantValueExceedsShareRule` 原本对 `SkillBudgetAnalyzer.ComputeGrantValue` 的调用零
+  try/catch 兜底，补齐异常兜底，改产出 `item_grant_value_unparseable` 诊断（消费方反馈第 47
+  条）。
+- `ItemBudgetCurve.BuildStatBudgetInfo`/`EquipmentScoreAnalyzer.Score`/`SkillBudgetAnalyzer
+  .Analyze`/`ComputeGrantValue`/`ExpectedStatCalculator` 内部改用 `TolerantRegistryView`
+  包装：registry 阻断态下不再抛 `InvalidOperationException`，改按容错语义返回降级结果（非阻断态
+  行为逐位不变，消费方反馈第 45 条）。`IBudgetSolver.Solve`/`SkillDefCache` 等运行期入口不变，
+  仍遵守"运行时不做静默降级"。
+- `item.template.stat_roll_ref` 补登 `.WithDeprecated("1.32.0", "affixes", ...)`（整合反馈
+  45/46/47 条同批收口，Description 早已用自由文本写明该事实，本次补为结构化标记）。
+- `Core.Gameplay.Common.RewardSchemaFields.Rewards()`（无调用方的历史遗留公开方法）标
+  `[Obsolete]`——ABI 规则禁止删除公开成员，不物理删除；Description 里的"xp（已废弃）"改写为指向
+  `QuestSchemas.RewardsFields` 的 `xp` 字段结构化标记（整合反馈 45/46/47 条同批收口）。
+
 ### 修复
 
-- `toolchain/validate_data.py`/`toolchain/validator`（`core/foundation/data_registry.FileSystemDataSource`）
-  数据根目录里非数据表 JSON 文件（如游戏侧 UPM 包根目录的 `package.json`）不再被误判成数据表、
-  报出假的"缺少顶层字段 table/schema_version/rows"错误；`FileSystemDataSource` 新增
-  `DataSourceOptions`（可选构造项，默认开启跳过，ABI 只新增）。
+- `toolchain/validate_data.py`/`toolchain/validator`（`core/foundation/data_registry
+  .FileSystemDataSource`）数据根目录里非数据表 JSON 文件（如游戏侧 UPM 包根目录的
+  `package.json`）不再被误判成数据表、报出假的"缺少顶层字段 table/schema_version/rows"错误。
+
+### 文档
+
+- 新建 [消费方反馈-2026-09-17-编辑器-第45-47条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45-47条.md)。
+- `editor/docs/编辑器产品文档.md`/`.html`（v2.17）第 4.1 节新增两行契约面——"只读分析入口阻断态
+  容错"（消费方反馈第 45 条）与"字段级 Id 语法与规则解析容错"（消费方反馈第 47 条）；变更记录表
+  追加 v2.17（反馈 45）/v2.17（反馈 47）两行；现有 v2.17 行补充 `item.template.stat_roll_ref`
+  收口说明。
+- `docs/升级指南/1.29.0到1.37.0-数值设计专项.md` 附录 C"废弃与替代 API 总表"补一行
+  `item.template.stat_roll_ref → affixes（1.32.0）`。
+
+### 迁移说明
+
+- **`field_type` → `field_id_format` 过滤跟进**：消费方若按检查名过滤/分类诊断（如问题面板按
+  `Check` 归类、消费方反馈第 43 条的 `TryGetOptionalRuleByCheck` 一类按检查名索引的逻辑），需要
+  把此前隐含在 `field_type` 里的"Id 语法非法"部分改指向新检查名 `field_id_format`；`field_type`
+  本身语义不变（仍表示"取值类型根本不对"）。
+- **废弃字段元数据可替代手工清单**：`Editor.Core.Validation.DeprecatedFieldHints` 一类自建静态
+  清单可退役，改从 `FieldSchema.IsDeprecated`/`DeprecatedSince`/`ReplacedBy`/`DeprecationNote`
+  或 `--list-tables --json` 的 `field_meta.deprecated` 读取。
+- **只读分析入口容错后包装可退役**：`Editor.Core.Validation.TolerantRegistryView` 一类自建结构性
+  包装可退役，改用框架原生 `Core.Foundation.DataRegistry.TolerantRegistryView`。
+- **`stat_roll_ref` 标废弃**：`item.template.stat_roll_ref` 现已结构化标记为废弃（`ReplacedBy:
+  "affixes"`），消费方若仍在读取该字段，应尽快迁移到 `affixes`。
+
+### 编辑器接入建议
+
+- 问题面板按检查名过滤/分类诊断的逻辑，需要跟进 `field_id_format` 这一新检查名（见"迁移说明"）。
+- `skill_budget_record_unparseable`/`item_grant_value_unparseable` 两个新增诊断出现时不需要
+  重复排查——对应记录的结构问题已由字段级检查项单独报出。
+- `IBudgetSolver.Solve` 仍是唯一的运行期预算求解权威入口，阻断态行为未变；只读分析/展示场景请用
+  本版本新增的容错入口，不要对运行期入口做额外包装。
+- 详见回复文档"对编辑器的使用建议"一节。
 
 ## [1.37.0] - 2026-09-16
 

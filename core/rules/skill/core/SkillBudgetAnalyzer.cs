@@ -82,7 +82,29 @@ namespace Core.Rules.Skill
         /// <paramref name="options"/> 缺省时按 <c>new SkillOptions().BudgetRuleId</c>（缺省
         /// <c>skill.budget_rule.default</c>，同 <c>EffectDispatcher</c> 惯例）；<paramref
         /// name="anchorProvider"/> 缺省时按 <see cref="NullSkillBudgetAnchorProvider.Instance"/>
-        /// （见该类型判断记录"未接入时是否当真"）。</summary>
+        /// （见该类型判断记录"未接入时是否当真"）。
+        /// <para>
+        /// 消费方反馈第 45 条（2026-09-17）判断记录：<paramref name="view"/> 一律先包一层 <see
+        /// cref="Core.Foundation.DataRegistry.TolerantRegistryView"/>（若已经是该类型则直接复用），
+        /// 本方法体内此后全程只用包装后的引用（包括传给 <see cref="SkillDefCache"/> 的构造参数、
+        /// <see cref="ComputeEffectContributions"/>/<see cref="ComputeCostRatio"/>/<see
+        /// cref="ResolveMaxTargets"/> 等私有辅助方法）——registry 阻断态是整体级别的（<c>DataRegistry
+        /// .EnsureReadable</c> 不按表/记录粒度），即便触发阻断的记录/字段与本次分析的技能、
+        /// <c>skill.budget_rule</c>/<c>target.chain_def</c>/<c>stat.weight</c>/<c>arch.power_type</c>
+        /// 等支持表完全无关，此前也会直接抛 <see cref="InvalidOperationException"/>，炸穿"编辑器
+        /// 用户改坏了别的记录，仍想看这个技能的预算分析"的场景（同 <c>ItemBudgetCurve
+        /// .BuildStatBudgetInfo</c> 判断记录，一样的复现步骤）。<paramref name="skillId"/> 本身
+        /// "因阻断读不到"（<c>TolerantRegistryView.WasMissing("skill.def")</c>）与"确实不存在"两种
+        /// 情形分开处理：前者不再抛 <see cref="ArgumentException"/>，改为归 <see
+        /// cref="SkillBudgetVerdict.NotApplicable"/>（同"不参与预算校验"分支的既有降级形态，加
+        /// 标 <see cref="SkillBudgetResult.IsDegraded"/> = <c>true</c>）；后者维持既有行为（调用方
+        /// 传了个不存在的技能 id，是调用方用法错误，继续抛异常）。<see cref="SkillDefCache"/> 本身
+        /// 不改动（它同时服务 <see cref="Core.Rules.Skill.SkillHost"/> 等运行期宿主，运行期读取
+        /// 必须继续遵守 <c>EnsureReadable</c>——见 11 第 4 节"运行时不做静默降级"），本方法只是给
+        /// 它构造时喂一个自己私有持有的容错视图，不影响运行期宿主用真实 <paramref name="view"/>
+        /// 构造的另一个 <see cref="SkillDefCache"/> 实例。
+        /// </para>
+        /// </summary>
         public static SkillBudgetResult Analyze(
             Id skillId,
             IDataRegistryView view,
@@ -91,13 +113,25 @@ namespace Core.Rules.Skill
         {
             if (view == null) throw new ArgumentNullException(nameof(view));
 
-            var skillRecord = view.Get("skill.def", skillId);
+            var tolerant = TolerantRegistryView.Wrap(view);
+
+            var skillRecord = tolerant.Get("skill.def", skillId);
             if (skillRecord == null)
             {
+                if (tolerant.WasMissing("skill.def"))
+                {
+                    return new SkillBudgetResult(
+                        skillId, participates: false, SkillBudgetTier.Unattributed, level: 0,
+                        effectiveValue: 0, timeEquivalent: 0, cooldownPremium: 0, rangeDiscount: 0,
+                        costPremium: 0, anchorDps: 0, budgetLimit: 0, ratio: 0,
+                        bandwidth: 0, hardCap: 0, budgetNote: null, SkillBudgetVerdict.NotApplicable,
+                        isDegraded: true, missingTables: tolerant.MissingTables);
+                }
+
                 throw new ArgumentException($"技能 \"{skillId}\" 不存在", nameof(skillId));
             }
 
-            var defs = new SkillDefCache(view);
+            var defs = new SkillDefCache(tolerant);
             var skillDef = defs.GetSkillDef(skillId);
             var provider = anchorProvider ?? NullSkillBudgetAnchorProvider.Instance;
             var budgetRuleId = options?.BudgetRuleId ?? DefaultBudgetRuleId;
@@ -108,19 +142,20 @@ namespace Core.Rules.Skill
                     skillId, participates: false, SkillBudgetTier.Unattributed, level: 0,
                     effectiveValue: 0, timeEquivalent: 0, cooldownPremium: 0, rangeDiscount: 0,
                     costPremium: 0, anchorDps: 0, budgetLimit: 0, ratio: 0,
-                    bandwidth: 0, hardCap: 0, budgetNote: null, SkillBudgetVerdict.NotApplicable);
+                    bandwidth: 0, hardCap: 0, budgetNote: null, SkillBudgetVerdict.NotApplicable,
+                    isDegraded: tolerant.IsDegraded, missingTables: tolerant.MissingTables);
             }
 
             defs.TryResolveBudgetAttribution(skillId, out var tier, out var level);
 
-            var ruleRecord = view.Get("skill.budget_rule", budgetRuleId);
+            var ruleRecord = tolerant.Get("skill.budget_rule", budgetRuleId);
             var beatSeconds = ruleRecord != null && ruleRecord.TryGetNumber("beat_seconds", out var bs) ? bs : 1.0;
             var periodicDiscount = ruleRecord != null && ruleRecord.TryGetNumber("periodic_time_discount", out var pd) ? pd : 1.0;
 
-            var maxTargets = ResolveMaxTargets(view, skillDef.TargetShapeRef);
+            var maxTargets = ResolveMaxTargets(tolerant, skillDef.TargetShapeRef);
 
             var (effectiveValue, periodicTimeCandidate) =
-                ComputeEffectContributions(skillDef, defs, view, level, provider, ruleRecord, maxTargets);
+                ComputeEffectContributions(skillDef, defs, tolerant, level, provider, ruleRecord, maxTargets);
 
             double timeEquivalent;
             if (periodicTimeCandidate.HasValue)
@@ -149,7 +184,7 @@ namespace Core.Rules.Skill
                 rangeDiscount = 1.0;
             }
 
-            var costRatio = ComputeCostRatio(skillDef.Cost, view);
+            var costRatio = ComputeCostRatio(skillDef.Cost, tolerant);
             var costPremium = EvaluateCurveOrNeutral(ruleRecord, "cost_premium_curve", costRatio);
 
             var anchorDps = provider.GetAnchorDps(level);
@@ -169,7 +204,8 @@ namespace Core.Rules.Skill
             return new SkillBudgetResult(
                 skillId, participates: true, tier, level,
                 effectiveValue, timeEquivalent, cooldownPremium, rangeDiscount, costPremium,
-                anchorDps, budgetLimit, ratio, bandwidth, hardCap, budgetNote, verdict);
+                anchorDps, budgetLimit, ratio, bandwidth, hardCap, budgetNote, verdict,
+                isDegraded: tolerant.IsDegraded, missingTables: tolerant.MissingTables);
         }
 
         /// <summary>结算类原语判定（06 第 3.2 节 2026-09-14 修订段"结算类原语集合"；精确判定
@@ -307,6 +343,9 @@ namespace Core.Rules.Skill
         /// 直接决定期望缩放属性的求值点，见调用方 <c>ItemGrantValueExceedsShareRule</c> 判断记录。
         /// </para>
         /// </summary>
+        /// <summary>消费方反馈第 45 条判断记录：同 <see cref="Analyze"/>，<paramref name="view"/>
+        /// 一律先包一层 <see cref="TolerantRegistryView"/>（若已经是该类型则直接复用），本方法体
+        /// 内此后全程只用包装后的引用，理由与 <see cref="Analyze"/> 判断记录相同。</summary>
         public static double ComputeGrantValue(
             Id id, bool isAura, IDataRegistryView view, int level,
             ISkillBudgetAnchorProvider anchorProvider, SkillOptions? options = null)
@@ -314,27 +353,29 @@ namespace Core.Rules.Skill
             if (view == null) throw new ArgumentNullException(nameof(view));
             if (anchorProvider == null) throw new ArgumentNullException(nameof(anchorProvider));
 
+            var tolerant = TolerantRegistryView.Wrap(view);
+
             if (!isAura)
             {
-                if (view.Get("skill.def", id) == null)
+                if (tolerant.Get("skill.def", id) == null)
                 {
                     return 0;
                 }
 
-                var result = Analyze(id, view, options, anchorProvider);
+                var result = Analyze(id, tolerant, options, anchorProvider);
                 return result.Participates ? result.EffectiveValue : 0;
             }
 
-            var defs = new SkillDefCache(view);
+            var defs = new SkillDefCache(tolerant);
             if (!defs.TryGetAuraDef(id, out var auraDef) || !AuraContainsSettlementEffect(auraDef))
             {
                 return 0;
             }
 
             var budgetRuleId = options?.BudgetRuleId ?? DefaultBudgetRuleId;
-            var ruleRecord = view.Get("skill.budget_rule", budgetRuleId);
+            var ruleRecord = tolerant.Get("skill.budget_rule", budgetRuleId);
             var (value, _) = ComputeAuraSettlementValue(
-                auraDef, defs, view, level, anchorProvider, ruleRecord,
+                auraDef, defs, tolerant, level, anchorProvider, ruleRecord,
                 maxTargets: 1, // 授予的光环没有 target_shape_ref，见方法顶部判断记录，按单目标处理。
                 cooldownDuration: 0);
             return value;

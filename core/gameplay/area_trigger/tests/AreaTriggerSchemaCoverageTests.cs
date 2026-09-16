@@ -151,8 +151,10 @@ namespace Tests.Gameplay.AreaTrigger
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
+        /// <summary>消费方反馈第 47 条：值确是字符串、只是不满足 Id 语法时报 <c>field_id_format</c>
+        /// （此前混用 <c>field_type</c>）。</summary>
         [Fact]
-        public void ParamsFields_TargetMapBadIdFormat_ReportsFieldTypeWithNestedPath()
+        public void ParamsFields_TargetMapBadIdFormat_ReportsFieldIdFormatWithNestedPath()
         {
             var row = J.O(
                 ("id", J.S("area.sample_door")),
@@ -164,7 +166,7 @@ namespace Tests.Gameplay.AreaTrigger
             var report = LoadRows(row);
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "params.target_map");
+            Assert.Contains(report.Issues, i => i.Check == "field_id_format" && i.Field == "params.target_map");
         }
 
         [Fact]
