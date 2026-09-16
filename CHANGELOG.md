@@ -435,6 +435,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 变更记录）。详见 `core/gameplay/tests/Perf/README.md`"机器归一化口径"节判断记录。托管运行器实测
 见 Perf README。
 
+文档：新增 `docs/升级指南/`（`README.md` 索引 + `1.29.0到1.36.0-数值设计专项.md`）——覆盖数值
+设计专项 N0～N6 七个版本（1.30.0～1.36.0）的跨版本升级路径与检查表，与 `CHANGELOG.md` 各版本
+"迁移说明"（记单版增量）互补；根 `README.md`、`architecture/13_新游戏接入指南.md` 已加一句指向。
+
 ## [1.36.0] - 2026-09-16
 
 MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 12/14 节，T-N6-1～T-N6-8b）——落地 [ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)：新增 `core/sim`（无头运行器装配根从测试程序集上提为可发布模块、`sim.scenario`/`sim.anchor` 两表、标准玩家生成器、三级仿真——战斗仿真/成长仿真/内容覆盖仿真、统计量快照与带带宽比对器的基线比对、命令行入口 `toolchain/simrunner`）；`core/sim/tests/data` 嵌入式最小仿真数据集（拍板 10）跑通对账等式、越级矩阵形状、成长四条轨迹、内容覆盖离群值探针四类验收；接入 `check.ps1`/CI/发布分发清单；文档收尾（本计划末节"落地进度记录"新增 N6 记录、06/05 移动速度属性 id 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档 sim 域口径说明）。
@@ -812,6 +816,35 @@ MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶�
   Catalog` 目录不收录）不计入本行所述的 20 行只读登记，编辑器如需展示 sim 域检查项目前需直接读
   04 或等待后续单独契约面。细节勘误，文档版本号不变（v2.16），变更记录表新增一行标注"v2.16
   （勘误）"。
+
+### 迁移说明
+
+- **无阻断性变化**：`core/sim`、`sim.anchor`/`sim.scenario`、`toolchain/simrunner` 均是"不使用即
+  不受影响"的纯增量交付——不填这两张表、不跑 `simrunner` 的游戏，升级后现有内容、存档、既有 API
+  行为逐位不变。
+- **`sim.anchor`/`sim.scenario` 两表仅供无头仿真与内容工具读取**：运行期宿主不读，`games/_template`
+  按约定留空壳（`rows: []`）；游戏层若不打算接入数值仿真，两表可以一直留空。
+- **锚点表一旦提供真实数据（行数 > 0），三条此前被短路的预算校验立即生效**：`skill_budget_hard_
+  cap_exceeded`（阻断）、`skill_budget_deviation`/`item_grant_value_exceeds_share`（警告，不可
+  提升）此前因装配根 `anchorProvider` 恒为 `null` 而"整条规则不产生任何问题"（04"预算类校验的
+  锚点依赖"段），示例数据零告警；填了 `sim.anchor` 后这三项会用真实数据重新核算，游戏层已有的
+  技能/装备预算若从未被真正检查过，升级并填表后可能第一次冒出真实问题，需要评审并补 `budget_note`
+  或调整数值，不是回归缺陷。
+- **`creature.tier_definition.gold_multiplier`（缺省 1）/`ICreatureFactory.Spawn(...,int level)`/
+  `ICreatureLevelScaler` 新增**：默认不改变现有掉钱与生成行为；游戏层需要"分档怪掉钱倍率"生效，
+  需显式给对应分档记录填该字段。
+- **`Core.Sim`/`toolchain/simrunner` 随构建产物分发**：`dist/<ver>/adapters/headless/`、
+  `toolchain/simrunner/{bin,lib}/`、私服包 `com.gamefoundation.adapter.headless`/
+  `com.gamefoundation.toolchain` 均新增对应文件；`MANIFEST.txt` 新增 `[simrunner]` 段与
+  `[headless_assemblies]` 段 `Core.Sim.dll` 条目。
+- **`check.ps1` 步骤数由 24 变 25**：新增"数值仿真基线比对"步骤（`-Quick` 下按硬性规则整体
+  SKIP，全量/`-SkipUnity` 均真跑）；游戏层若复制了本仓库 `check.ps1` 骨架或对步骤总数/顺序有
+  硬编码断言，需要同步更新。
+- **`stat.move_speed` 正式写入 06 文档**：确认为框架默认移动速度属性 id（消费者是移动系统），
+  是文档确认而非行为变化；游戏层若此前已用别的属性 id 承载移动速度，需要经
+  `MovementOptions.MoveSpeedStat` 显式配置（此前即需要，本次不新增约束）。
+
+跨版本升级见 [docs/升级指南/1.29.0到1.36.0-数值设计专项.md](docs/升级指南/1.29.0到1.36.0-数值设计专项.md)。
 
 ## [1.35.0] - 2026-09-16
 
@@ -1827,6 +1860,32 @@ MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶�
   `data/_sample` 迁移后数据（`item.budget_curve`/`stat.rating_conversion` v2）经 `validate_data.py
   --strict` 与迁移回归测试核对一致。模板数据经 `validate_data.py --framework-root data/_framework
   --data-root games/_template/data/game --strict` 零错误零警告（等价于 `validate.ps1 -Strict`）。
+
+### 迁移说明
+
+- **`item.budget_curve`/`stat.rating_conversion` schema 1→2**：`entries` 元素改名
+  `{item_level, budget}`/`{level, points_per_percent}` → `{x, y}`；旧数据文件无需手改，加载期
+  经迁移链自动补齐；游戏层若有工具绕过框架加载直接读原始 JSON，需要改读 `x`/`y`。
+- **整表迁移仍走 `SchemaMigrator.MigrateEnvelope`**（ADR-0029）：内容工具批量迁移这两张表并
+  写回磁盘应调用该权威入口，不要自行拼接迁移逻辑。
+- **`data/_sample` 的 `stat.rating_conversion` 示例值改为随等级不递减**：示例数据集本身未启用
+  评级换算，不影响任何运行时数值；游戏层若复制过这份示例数据且已启用评级换算，需要核对递减方向
+  是否符合新规则 `curve_monotonic_finite`。
+- **新增阻断检查名 `curve_monotonic_finite`**：对全部登记为断点表形态的曲线字段统一生效（预算/
+  护甲/秒伤/需求等级/价值/金币基数/换算/减免等一切以等级或物品等级为横轴、按断点表登记的曲线），
+  要求断点非空、逐值有限、横轴严格递增无重复、纵轴不递减（允许平台段）；游戏层若有自定义曲线数据
+  违反此约束，升级后加载会报错。
+- **新增阻断检查名 `level_curve_xp_monotonic`**：`prog.level_curve.xp_to_next` 沿等级不递减
+  （末级条目按约定为 0 不参与比较）；游戏层若有类似"高等级所需经验反而更少"的自定义曲线需要修正。
+- **新增元数据门禁 `field_curve_shape`**：只在框架/游戏层自行新增登记曲线形态字段时触发，检查
+  字段种类/子结构是否与登记的曲线形态（断点表/饱和）相符；游戏层通常不直接触碰这项。
+- **`toolchain/validator --json` 新增 `rules[]` 与 `issues[].group/note/rule_id`**：均为纯新增
+  字段，既有字段不变；若消费方按字段集合数量做精确断言（而非只读已知字段）需要更新预期。
+- **不可提升警告新语义**：校验规则元数据新增 `NonEscalatable` 标记，这组警告在
+  `Strictness=WarningsBlock` 下不会被提升为阻断；若游戏层此前依赖"全部警告在 WarningsBlock 下
+  都会阻断"这一假设，需要重新核对。
+
+跨版本升级见 [docs/升级指南/1.29.0到1.36.0-数值设计专项.md](docs/升级指南/1.29.0到1.36.0-数值设计专项.md)。
 
 ## [1.29.0] - 2026-09-14
 
