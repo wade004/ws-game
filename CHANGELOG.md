@@ -421,11 +421,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [1.36.0] - 2026-09-16
 
-MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 12/14 节，T-N6-1～T-N6-8a）——落地 [ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)：新增 `core/sim`（无头运行器装配根从测试程序集上提为可发布模块、`sim.scenario`/`sim.anchor` 两表、标准玩家生成器、三级仿真——战斗仿真/成长仿真/内容覆盖仿真、统计量快照与带带宽比对器的基线比对、命令行入口 `toolchain/simrunner`）；`core/sim/tests/data` 嵌入式最小仿真数据集（拍板 10）跑通对账等式、越级矩阵形状、成长四条轨迹、内容覆盖离群值探针四类验收；接入 `check.ps1`/CI/发布分发清单；文档收尾（本计划末节"落地进度记录"新增 N6 记录、06/05 移动速度属性 id 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档 sim 域口径说明）。
+MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 12/14 节，T-N6-1～T-N6-8b）——落地 [ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)：新增 `core/sim`（无头运行器装配根从测试程序集上提为可发布模块、`sim.scenario`/`sim.anchor` 两表、标准玩家生成器、三级仿真——战斗仿真/成长仿真/内容覆盖仿真、统计量快照与带带宽比对器的基线比对、命令行入口 `toolchain/simrunner`）；`core/sim/tests/data` 嵌入式最小仿真数据集（拍板 10）跑通对账等式、越级矩阵形状、成长四条轨迹、内容覆盖离群值探针四类验收；接入 `check.ps1`/CI/发布分发清单；文档收尾（本计划末节"落地进度记录"新增 N6 记录、06/05 移动速度属性 id 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档 sim 域口径说明）。
 
 回放/Perf 基线：零改动，原因——`core/gameplay/tests/Replay`/`Perf` 只装配 L2 `RulesAssembly`，本阶段全部改动（新模块 `core/sim`、`toolchain/simrunner`、`check.ps1`/`.github/workflows/ci.yml`/`build.ps1` 分发清单、文档）均落在新模块与工具链/文档层，不触达该装配路径；`dotnet test Core.sln` 全量回归（4249 例）与 `Tests.Gameplay` 的 `ReplayBaselineTests` 全绿，各任务提交时逐一复核，见下方各条目与该计划末节"落地进度记录"N6 一节。
 
-提交链：`d6b4bd0`（T-N6-1）、`1bb18b5`（T-N6-2a）、`209970b`（T-N6-2b）、`aa6d96a`（T-N6-3a）、`7d4ca34`（T-N6-3b，`n6/creature-level` 并行分支）、合并 `9517e9c`（`n6/creature-level`：T-N6-3b `CreatureFactory.Spawn` 等级覆盖与 `creature.tier_definition.gold_multiplier` 接入掉钱公式，`--no-ff` 合入本分支）、`235a120`（T-N6-4）、`c7aee6c`（T-N6-4b，设计层复核根治两处根因）、`27f5260`（T-N6-5）、`db34812`（T-N6-6）、`29315f7`（T-N6-7a，根治示例数据零警告不变量）、`522df64`（T-N6-7）、本笔提交（T-N6-8a：落地进度记录、06/05 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档口径说明、1.36.0 变更记录），分支 `n6/sim`，合并提交与发布提交由 `build.ps1 -Release 1.36.0` 产生，见标签 `v1.36.0`。
+提交链：`d6b4bd0`（T-N6-1）、`1bb18b5`（T-N6-2a）、`209970b`（T-N6-2b）、`aa6d96a`（T-N6-3a）、`7d4ca34`（T-N6-3b，`n6/creature-level` 并行分支）、合并 `9517e9c`（`n6/creature-level`：T-N6-3b `CreatureFactory.Spawn` 等级覆盖与 `creature.tier_definition.gold_multiplier` 接入掉钱公式，`--no-ff` 合入本分支）、`235a120`（T-N6-4）、`c7aee6c`（T-N6-4b，设计层复核根治两处根因）、`27f5260`（T-N6-5）、`db34812`（T-N6-6）、`29315f7`（T-N6-7a，根治示例数据零警告不变量）、`522df64`（T-N6-7）、`96ee4cb`（T-N6-8a：落地进度记录、06/05 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档口径说明、1.36.0 变更记录）、本笔提交（T-N6-8b：复核建议修复——`adapters/headless/README.md`/`toolchain/registry/manifests/adapter-headless/README.md`"数值仿真骨架"示例代码按真实签名重写并配套测试守护、`BaselineComparer` 容差解析改为叶子名精确匹配显式映射表），分支 `n6/sim`，合并提交与发布提交由 `build.ps1 -Release 1.36.0` 产生，见标签 `v1.36.0`。
 
 ### 新增
 
@@ -758,6 +758,22 @@ MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶�
   占位值 10 校准为 45，消除锚点真实接入后三条早于 N6 就存在的示例技能触发的
   `skill_budget_deviation` 警告与既有"示例数据 `--strict` 零错误零警告"不变量的冲突，详见上方
   "变更"小节 T-N6-7 条目。
+- **T-N6-8b（复核建议，本笔提交）**：`adapters/headless/README.md`/`toolchain/registry/
+  manifests/adapter-headless/README.md`"数值仿真骨架"一节示例代码此前不可编译——
+  `ArenaSimulation.Run(world.Options, scenarioDef)` 系凭空杜撰（`HeadlessWorld` 没有 `Options`
+  属性，真实签名是 `Run(ScenarioDef, AnchorTable, IReadOnlyList<IDataSource>, bool)`）、
+  `SimReport.FromArenaReport(arenaReport, scenarioDef, frameworkVersion: "1.36.0")` 缺
+  `IDataRegistryView registry` 参数且具名参数拼错（应为 `generatedWithVersion`）；按真实签名
+  重写示例，新增 `core/sim/tests/HeadlessReadmeExampleTests.cs` 逐字复刻该代码路径并接入
+  `dotnet test Core.sln` 守护。`Core.Sim.BaselineComparer.ResolveTolerance` 容差解析此前按
+  "叶子名子串匹配"（`leaf.IndexOf(bandwidthKey)`）关联场景带宽，审计发现该实现会把语义不相关的
+  叶子名误配到带宽键（`growth.summary.cumulative_gold_via_balance`/`via_events` 两行因叶子名含
+  子串 `"gold"` 被误配到 `growth` 场景 25% 带宽，削弱了这两行"两条记账路径应彼此一致"这一代码
+  正确性核对本该有的敏感度）；改为 `BaselineCompareOptions.LeafBandwidthKeys` 显式精确映射表
+  （默认表 `DefaultLeafBandwidthKeys` 覆盖全部现存叶子名，可整份覆盖），新增
+  `BaselineComparerTests` 四条用例验证不再误配（`player_max_health`/含 `"_hp_"` 的技能 id 叶子）、
+  已登记叶子名仍生效、三个场景同种子重跑仍 `exceeded=0`。详见 `core/sim/README.md`"T-N6-8b
+  判断记录"记录 45/46。
 
 ### 文档
 

@@ -115,7 +115,9 @@ FNV-1a 64 位累加，算法选型同 `core/foundation/save_system` `WorldSnapsh
 stats: {path: value}}`，只做 `FromReport`/`ToJson`/`Parse` 文本↔类型转换，不做磁盘路径解析，
 惯例同 `HeadlessWorldOptions.DataSources`"数据来源必须注入"）。新增 `BaselineComparer.Compare`
 逐 `path` 比对当前 `SimReport` 与既往 `SimBaseline`，容差来源优先级"场景 `bandwidths` 中同名
-统计量（按叶子名子串匹配）> `BaselineCompareOptions.RelativeTolerance` 默认相对 1%（对
+统计量（按叶子名精确匹配 `BaselineCompareOptions.LeafBandwidthKeys` 显式映射表，T-N6-8b 根治，
+见下方"T-N6-8b 判断记录"一节——此段原文曾是"按叶子名子串匹配"，已被取代）> `BaselineCompareOptions
+.RelativeTolerance` 默认相对 1%（对
 `|baselineValue|` 不超过 `AbsoluteToleranceForZeroBaseline`（默认 1e-9）时改用该值本身作绝对
 容差）"，产出 `BaselineDiff`（`Same`/`Within`/`Exceeded`/`Added`/`Removed` 五态分类，全程只用
 `<`/`<=` 阈值比较，不出现浮点精确相等，见 `BaselineComparer`/`BaselineCompareOptions` 类型判断
@@ -830,7 +832,10 @@ core/sim/
     结果"的纯函数运算，不持有任何状态。三者职责边界清晰对应任务书章节结构（3.1 统计量快照/基线
     文件格式、3.1 比对器），合并成一个类型会让"运行时报告"与"持久化基线"这两种生命周期完全不同
     的数据混在一起，`SimBaseline` 也无法再保持"最小、diff 友好"这一设计目标。
-38. **容差解析为何按"叶子名子串匹配"而不是精确匹配整段路径**：`ScenarioDef.Bandwidths`
+38.（**T-N6-8b 已取代，见下方"T-N6-8b 判断记录"一节记录 45**：本记录保留作历史决策存档——
+    当时选择子串匹配确有其理由，但审计发现它对语义不相关的叶子名存在误配隐患，T-N6-8b 改为精确
+    匹配显式映射表，正文"容差来源优先级"一句已同步更新，不再按本记录描述的方式解析。）
+    **容差解析为何按"叶子名子串匹配"而不是精确匹配整段路径**：`ScenarioDef.Bandwidths`
     （`sim.scenario.bandwidths`）登记的键是"统计量类别名"（如 `dps`/`hp`/`ttk`/`ttd`/
     `hit_rate`/`level_duration`/`item_level`/`gold`），不是某一条具体路径——同一个类别名要覆盖
     "该类别下全部等级/偏移格子"的容差（如 `dps` 要同时覆盖 `arena.reconciliation.L1.dps`、
@@ -955,3 +960,61 @@ core/sim/
     从 `Test-ZipEntryExists`/`Get-ZipEntryTo` 内部正常抛出、被 `Invoke-CheckStep`（经
     `check.ps1` 调用时）或 PowerShell 默认的 `$ErrorActionPreference = "Stop"`（独立调用时）
     如实中断。
+
+## T-N6-8b 判断记录
+
+45. **容差解析从"叶子名子串匹配"（记录 38）改为"叶子名精确匹配显式映射表"——复核建议根治**：
+    设计层复核发现记录 38 的子串匹配（`leaf.IndexOf(key)`，取最长匹配 key）存在把语义不相关的
+    叶子名误配到带宽键的隐患——审计（`git grep -n "new SimStat("` 核对 `SimReport.cs` 三个
+    `Extract*Stats` 方法产出的全部固定叶子名）发现 `growth.summary.cumulative_gold_via_balance`/
+    `cumulative_gold_via_events` 两行的叶子名恰好含子串 `"gold"`，在旧实现下会被误配到 `growth`
+    场景登记的 `gold` 带宽（25%），而这两行的真实用途是"两条独立记账路径（API 调用 vs 事件流）
+    是否彼此一致"这一代码正确性核对，不是设计带宽要覆盖的对象——用 25% 的宽松容差掩盖，会削弱这
+    条核对本该有的敏感度（一次记账路径分叉的代码回归，只要幅度在 25% 以内就不会被基线比对发现）。
+    `player_max_health`（`hp` 是否会误配）、技能 id 叶子含 `"_hp_"` 子串（如
+    `skill_share.skill.sim_hp_regen`）两类风险经复核确认在当前仓库实际数据下不会命中（前者
+    `"player_max_health"` 字面不含子串 `"hp"`；后者当前嵌入数据集/`data/_sample` 全部技能 id 均
+    不含 `"_hp_"`，`git grep -n '"id"[[:space:]]*:[[:space:]]*"skill\.'` 核对过），但"当前数据集
+    恰好没撞上"不是"这套匹配规则本身安全"的证明——任何后续新增的统计量字段名/技能 id 命名都可能
+    意外撞上一个短带宽键（`hp`/`dps`/`ttk`/`ttd`/`gold` 全是 2～3 个字符的常见英文片段），子串
+    匹配这条规则本身的风险面随数据集增长只会扩大，不会收敛。
+    <br/>**修复**：`BaselineCompareOptions` 新增 `LeafBandwidthKeys`
+    （`IReadOnlyDictionary<string leaf, string bandwidthKey>`，可整份覆盖）与默认表
+    `DefaultLeafBandwidthKeys`——对上面审计出的全部固定叶子名逐一显式登记该不该映射、映射到哪个
+    带宽键（逐项理由见该字段判断记录），`ResolveTolerance`（连带公开为 `public static`，供单元
+    测试直接构造边界叶子名验证，不需要为每个边界情形另跑一整套仿真只为凑出一条真实统计量路径）
+    改为查这张表的精确命中，不再做任何子串/前缀猜测；命中表但当前场景 `Bandwidths` 没有登记该键
+    时，与查不到叶子名一样退回默认相对容差——两种"没有覆盖"情形处理方式统一，不再区分。
+    `growth.summary.cumulative_gold_via_*` 两行因此从"借道 gold 带宽 25%"变为"默认相对容差
+    1%"，这是有意收紧、不是需要修补的副作用（任务书原文"若映射修正导致某统计量容差变化，基线
+    本身不变，只看比对结果"）。
+    <br/>**验证**：新增 `BaselineComparerTests.ResolveTolerance_PlayerMaxHealth_DoesNotUseHpBandwidth`/
+    `ResolveTolerance_SkillIdLeafContainingHpSubstring_DoesNotUseHpBandwidth`（直接构造边界叶子名，
+    证明不再误配）、`ResolveTolerance_RegisteredLeaf_UsesScenarioBandwidth`（三类已登记叶子名仍
+    按原有分类生效，证明"该配的还配得上"）、
+    `Compare_AfterLeafBandwidthKeysFix_SameSeedRerun_AllThreeScenarios_StillZeroExceeded`（三个真实
+    场景各自同种子独立重跑两次，容差表改过之后仍 `exceeded=0`——因为同种子重跑逐位相同，落在
+    `ExactMatchEpsilon` 分支，容差收紧与否都不影响这条不变量，见该测试判断记录）。既有
+    `Compare_SameSeedRerun_AllThreeScenarios_AllSame`/`Compare_MutatedStrengthBaseStat_*`/
+    `Compare_TinyRelativePerturbation_*` 三条既有用例无改动、全绿（构造/断言均未依赖具体哪张容差
+    映射表实现，只依赖 `Compare` 的行为契约）。
+46. **`adapters/headless/README.md`/`toolchain/registry/manifests/adapter-headless/README.md`
+    "数值仿真骨架"示例代码此前不可编译——复核建议根治**：两份文档"无头宿主怎么用"示例代码写的是
+    `ArenaSimulation.Run(world.Options, scenarioDef)`（`HeadlessWorld` 根本没有 `Options` 属性，
+    真实签名是 `Run(ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource>
+    dataSources, bool failOnUnknownTable = false)`，见 `ArenaSimulation.cs` 第 246 行附近）与
+    `SimReport.FromArenaReport(arenaReport, scenarioDef, frameworkVersion: "1.36.0")`（真实签名
+    额外需要 `IDataRegistryView registry` 参数、且具名参数是 `generatedWithVersion` 不是
+    `frameworkVersion`，见 `SimReport.cs` 第 157 行附近）——两处签名都是凭空杜撰，从未真正编译过。
+    根因是这两份文档从 T-N6-7 起随分发产物新增该节时，作者按记忆/直觉写了示例代码，没有配套测试
+    守护、也没有实际编译验证过。
+    <br/>**修复**：按真实签名重写示例（构造数据源 → `HeadlessWorldBuilder.Build` 取
+    `AnchorTable`/`Registry`/`ScenarioCatalog` → `ArenaSimulation.Run` → `SimReport
+    .FromArenaReport` → `BaselineComparer.Compare`），新增
+    `core/sim/tests/HeadlessReadmeExampleTests.cs`
+    `ReadmeExample_HeadlessWorldBuilderThroughBaselineCompare_CompilesAndRuns`，逐字复刻这条修复
+    后的代码路径并接入 `dotnet test Core.sln`——签名一旦再漂移，本测试先于任何人工核对之前编译
+    失败，两份 README 顶部/对应小节新增"与本测试同步维护"的显式指引，不再依赖人工记得去翻文档
+    比对签名。步骤 3a `FightRunner.Run(new FightRunnerOptions { /* ... */ })`
+    本就是占位写法（字段全部省略），不含可编译的真实参数，不是本次要根治的对象，不在复刻范围
+    （两份文档该行原样保留）。

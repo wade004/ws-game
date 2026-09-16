@@ -71,11 +71,16 @@ engine.Clock.Advance(1.0 / 60.0);
 using Core.Sim;
 
 var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions { /* DataSources/Seed/... */ });
+var anchors = world.AnchorTable!;        // HeadlessWorld 没有 Options 属性——三级仿真运行器各自
+                                          // 只吃 scenario/anchors/dataSources 三个参数，不吃 world。
+var scenario = world.ScenarioCatalog!.Get(new Id("sim.scenario.<your_arena_scenario>"));
 var player = StandardPlayerBuilder.Build(world, classId, level: 20, expectedQualityId);
-var arenaReport = ArenaSimulation.Run(world.Options, scenarioDef);
+var arenaReport = ArenaSimulation.Run(scenario, anchors, dataSources);
+var report = SimReport.FromArenaReport(arenaReport, scenario, world.Registry, generatedWithVersion: "1.36.0");
 ```
 
 命令行入口 `simrunner`（预编译产物随 `com.gamefoundation.toolchain` 包 `Tools~/simrunner/bin/`
 分发）与完整用法/退出码/基线更新流程见框架仓库 `core/sim/README.md`（本文件只是分发产物内的
 精简指引，与 `adapters/headless/README.md`"数值仿真骨架"一节同一份信息面向 npm 私服通道的
-独立版本）。
+独立版本；该文件示例代码路径由 `core/sim/tests/HeadlessReadmeExampleTests.cs` 逐字复刻守护，
+本文件是它的精简摘录，改动同步维护，不单独另测）。

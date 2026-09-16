@@ -55,32 +55,43 @@ Runtime/Plugins/Core/`，或本 zip 快照同一路径。
 
 ### 无头宿主怎么用：装配 + 三类仿真 + 基线比对
 
+（下方示例代码路径与 `core/sim/tests/HeadlessReadmeExampleTests.cs` 逐字复刻并随本文件同步维护——
+本文件只随分发产物提供、不参与编译，示例是否真的能编译/跑通全靠那份测试守护，改动任一方都要同步
+改另一方。）
+
 ```csharp
 using Core.Sim;
+using Core.Foundation.Common;
 
-// 1. 装配一整套 L0～L4 世界（复用桩适配层，见 HeadlessWorldOptions 各字段）。
+// 1. 构造数据源并装配一整套 L0～L4 世界（复用桩适配层，见 HeadlessWorldOptions 各字段）。
 var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
 {
-    DataSources = dataSources,           // IReadOnlyList<IDataSource>，框架根在前
+    DataSources = dataSources,           // IReadOnlyList<IDataSource>，框架根在前；须含 sim.anchor/
+                                          // sim.scenario 两表才能取到下方 AnchorTable/ScenarioCatalog
     Seed = 20260916001UL,
     FileSystem = new Adapters.Stub.StubFileSystem(),
     MapId = mapId,
     PlayerClassId = playerClassId,
     PlayerLevel = 20,
 });
+var anchors = world.AnchorTable!;        // 数据源含 sim.anchor 时非空（HeadlessWorld 没有 Options
+                                          // 属性——三级仿真运行器各自只吃 scenario/anchors/dataSources
+                                          // 三个参数，见下方"依赖哪几个 DLL"一节同一惯例）。
+var registry = world.Registry;           // IDataRegistryView，供 SimReport.FromArenaReport 算数据集指纹。
+var arenaScenario = world.ScenarioCatalog!.Get(new Id("sim.scenario.<your_arena_scenario>"));
 
 // 2. 标准玩家生成器（等级+职业 -> 学技能 -> 按预算生成并装备"标准装"）。
 var player = StandardPlayerBuilder.Build(world, playerClassId, level: 20, expectedQualityId);
 
 // 3a. 战斗仿真：标准玩家对指定生物模板按指定等级出生，逐 tick 智能释放优先级表直至一方死亡/超时。
 var fightResult = FightRunner.Run(new FightRunnerOptions { /* ... */ });
-// 3b. 场景运行器：对 sim.scenario 里 kind=arena/growth/coverage 的场景按登记参数批量跑。
-var arenaReport = ArenaSimulation.Run(world.Options, scenarioDef);
-var growthReport = GrowthSimulation.Run(world.Options, scenarioDef);
-var coverageReport = CoverageSimulation.Run(world.Options, scenarioDef);
+// 3b. 场景运行器：对 sim.scenario 里 kind=arena/growth/coverage 的场景按登记参数批量跑；
+//     scenario.Kind 须与调用的 *Simulation.Run 一致（否则抛 ArgumentException），三者互相独立、
+//     各自新建自己的世界，不复用上面装配好的 world 实例。
+var arenaReport = ArenaSimulation.Run(arenaScenario, anchors, dataSources);
 
 // 4. 拍平成统一报告信封，与既往基线比对。
-var report = SimReport.FromArenaReport(arenaReport, scenarioDef, frameworkVersion: "1.36.0");
+var report = SimReport.FromArenaReport(arenaReport, arenaScenario, registry, generatedWithVersion: "1.36.0");
 var baseline = SimBaseline.Parse(File.ReadAllText("baseline/sim_arena_matrix.json"));
 var diff = BaselineComparer.Compare(report, baseline, new BaselineCompareOptions());
 if (diff.HasBlockingDifference) { /* Exceeded/Removed：需要人工确认是否为有意的数值改动 */ }

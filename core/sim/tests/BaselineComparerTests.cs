@@ -249,6 +249,104 @@ namespace Tests.Sim
             Assert.All(diff.Rows, row => Assert.Equal(BaselineDiffStatus.Same, row.Status));
         }
 
+        /// <summary>T-N6-8b 根治：<c>player_max_health</c> 叶子名不得命中场景带宽键 <c>hp</c>——
+        /// 精确匹配下 <see cref="BaselineComparer.ResolveTolerance"/> 必须退回默认相对容差 1%，不是
+        /// <c>hp</c> 带宽的 25%（惯例同 <c>core/sim/README.md</c>"叶子名子串匹配"判断记录被取代后
+        /// 新增的判断记录；此前的子串实现字面上并不会误配这一具体叶子名，本用例是为锁死这条不变量，
+        /// 防止未来任何改名/新增字段意外引入误配）。</summary>
+        [Fact]
+        public void ResolveTolerance_PlayerMaxHealth_DoesNotUseHpBandwidth()
+        {
+            var bandwidths = new Dictionary<string, double> { ["hp"] = 0.25, ["dps"] = 0.25 };
+            var options = new BaselineCompareOptions();
+
+            var tolerance = BaselineComparer.ResolveTolerance(
+                "arena.L10.off+3.player_max_health", 1000.0, bandwidths, options);
+
+            Assert.Equal(options.RelativeTolerance * 1000.0, tolerance, precision: 9);
+        }
+
+        /// <summary>T-N6-8b 根治：技能 id 叶子名恰好含 <c>"_hp_"</c> 子串时（如
+        /// <c>skill_share.skill.sim_hp_regen</c> 的叶子 <c>sim_hp_regen</c>）不得命中场景带宽键
+        /// <c>hp</c>——旧的子串匹配实现会因为 <c>"sim_hp_regen".IndexOf("hp") &gt;= 0</c> 而误配，
+        /// 精确匹配表因为叶子名整体不是登记键必须退回默认相对容差。本仓库嵌入数据集当前没有任何
+        /// 技能 id 恰好长这样（<c>git grep</c> 核对过 <c>core/sim/tests/data/skill/*.json</c> 全部
+        /// 技能 id，均不含 <c>"_hp_"</c>），本用例直接构造边界叶子名验证这条不变量，不依赖真实数据集
+        /// 凑出一个刚好撞上的 id。</summary>
+        [Fact]
+        public void ResolveTolerance_SkillIdLeafContainingHpSubstring_DoesNotUseHpBandwidth()
+        {
+            var bandwidths = new Dictionary<string, double> { ["hp"] = 0.25 };
+            var options = new BaselineCompareOptions();
+
+            var tolerance = BaselineComparer.ResolveTolerance(
+                "arena.L5.off+0.skill_share.skill.sim_hp_regen", 500.0, bandwidths, options);
+
+            Assert.Equal(options.RelativeTolerance * 500.0, tolerance, precision: 9);
+        }
+
+        /// <summary>T-N6-8b 根治：精确匹配表对登记过的叶子名仍要生效——否则上一条用例只证明了"不再
+        /// 误配"，没证明"该配的还配得上"这条同等重要的另一面。覆盖 <c>arena</c> 格子统计量
+        /// （<c>ttk_mean_seconds</c> → <c>ttk</c>）、<c>arena.reconciliation</c>（<c>hp</c> →
+        /// <c>hp</c>）、<c>growth</c> 每级轨迹（<c>gold</c> → <c>gold</c>）三类叶子名，对应
+        /// <see cref="BaselineCompareOptions.DefaultLeafBandwidthKeys"/> 判断记录逐项列出的三个
+        /// 分类。</summary>
+        [Theory]
+        [InlineData("arena.L10.off+3.ttk_mean_seconds", "ttk")]
+        [InlineData("arena.reconciliation.L5.hp", "hp")]
+        [InlineData("growth.L5.gold", "gold")]
+        public void ResolveTolerance_RegisteredLeaf_UsesScenarioBandwidth(string path, string bandwidthKey)
+        {
+            var bandwidths = new Dictionary<string, double> { [bandwidthKey] = 0.25 };
+            var options = new BaselineCompareOptions();
+
+            var tolerance = BaselineComparer.ResolveTolerance(path, 1000.0, bandwidths, options);
+
+            Assert.Equal(0.25 * 1000.0, tolerance, precision: 9);
+        }
+
+        /// <summary>T-N6-8b 根治：容差映射表修正后，三个真实场景（各自缩小到 <c>runs=2</c>，惯例同
+        /// <see cref="Compare_SameSeedRerun_AllThreeScenarios_AllSame"/>）同种子独立重跑两次仍必须
+        /// 全部 <see cref="BaselineDiffStatus.Same"/>、<c>exceeded=0</c>——证明容差映射表的收紧
+        /// （<c>growth.summary.cumulative_gold_via_*</c> 两行从此改用默认 1% 容差、不再借道
+        /// <c>gold</c> 带宽 25%）没有让任何真实统计量在同种子重跑下产生假阳性（任务书原文"若映射
+        /// 修正导致某统计量容差变化，基线本身不变，只看比对结果"——重跑逐位相同，容差收紧与否都不
+        /// 影响 <see cref="BaselineCompareOptions.ExactMatchEpsilon"/> 分支的判定）。与
+        /// <see cref="Compare_SameSeedRerun_AllThreeScenarios_AllSame"/> 是同一条不变量在"容差表
+        /// 改过之后"这个时间点上的复核，不是重复用例。</summary>
+        [Fact]
+        public void Compare_AfterLeafBandwidthKeysFix_SameSeedRerun_AllThreeScenarios_StillZeroExceeded()
+        {
+            var dataSources = SimTestWorldFactory.BuildEmbeddedDataSources();
+            var world = SimTestWorldFactory.BuildFromEmbeddedDataset(seed: 1);
+            var catalog = world.ScenarioCatalog!;
+            var anchors = world.AnchorTable!;
+            var registry = world.Registry;
+
+            var arena = catalog.Get(new Id("sim.scenario.sim_arena_matrix")).WithRuns(2);
+            var growth = catalog.Get(new Id("sim.scenario.sim_growth_full")).WithRuns(2);
+            var coverage = catalog.Get(new Id("sim.scenario.sim_coverage_all")).WithRuns(2);
+
+            AssertZeroExceeded("arena", () => SimReport.FromArenaReport(
+                ArenaSimulation.Run(arena, anchors, dataSources), arena, registry, "test"));
+            AssertZeroExceeded("growth", () => SimReport.FromGrowthReport(
+                GrowthSimulation.Run(growth, anchors, dataSources), growth, registry, "test"));
+            AssertZeroExceeded("coverage", () => SimReport.FromCoverageReport(
+                CoverageSimulation.Run(coverage, anchors, dataSources), coverage, registry, "test"));
+        }
+
+        private void AssertZeroExceeded(string label, Func<SimReport> run)
+        {
+            var first = run();
+            var second = run();
+            var baseline = SimBaseline.FromReport(first);
+            var diff = BaselineComparer.Compare(second, baseline);
+            _output.WriteLine($"{label}: exceeded={diff.ExceededCount} same={diff.SameCount} within={diff.WithinCount}");
+            Assert.Equal(0, diff.ExceededCount);
+            Assert.Equal(0, diff.AddedCount);
+            Assert.Equal(0, diff.RemovedCount);
+        }
+
         [Fact]
         public void SimReport_ToJson_IsValidJsonWithExpectedTopLevelFields()
         {
