@@ -148,6 +148,18 @@ common/
    点，本任务落在 `rewards` 子结构自身（`rewards.level`），详见 `RewardBundle.FromRecord`
    判断记录"reward_level 挂载点"。
 
+## 2026-09-16 深度复审 D-M1 判断记录：新增 `SummonCreditResolver` 共享内部辅助
+
+新增 `core/gameplay/common/core/SummonCreditResolver.cs`（`internal static class`，命名空间
+`Core.Gameplay.Common`）：把"击杀者 id"解析为"记账单位 id"（ADR-0033 决策 3"召唤物击杀归
+主人"）——此前只有 `Core.Gameplay.ProgressionBridge.CreatureDeathXpListener.ResolveCreditUnit`
+一份实现，`Core.Gameplay.Loot.CreatureDeathLootListener` 的 `OnKill` 货币入账分支完全没有做这
+一步（复审报告 D-M1 指出的必须修缺陷：生物互殺/玩家召唤物击杀时金币入账对象错误）。修复时把
+这段逻辑抽成静态方法，两个监听器（分属 `progression_bridge`/`loot` 两个不同模块）现在共同调用
+同一份实现，避免日后再次出现"一处改了归属解析逻辑、另一处忘了同步"的漂移。`internal` 可见性
+足够——`Core.Gameplay.csproj` 是单一程序集，`progression_bridge`/`loot` 两个子目录都编译进同一
+个 `Core.Gameplay.dll`。
+
 ## 不负责什么
 
 - 不实现"组合支付"（`ExtendedCost` 多货币/多物品组合支付）与"多选一奖励"（08 第 2.4 节

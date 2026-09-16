@@ -34,6 +34,7 @@ namespace Core.Gameplay.Loot
         private readonly Func<double> _lootMultiplierProvider;
         private readonly Core.Gameplay.Difficulty.IDifficultyHost? _difficultyHost;
         private readonly Core.Gameplay.Economy.IEconomyHost? _economyHost;
+        private readonly ISummonHost? _summons;
 
         public CreatureDeathLootListener(
             IEventBus bus,
@@ -95,6 +96,31 @@ namespace Core.Gameplay.Loot
             : this(bus, lootHost, templates, units, world, lootMultiplierProvider, difficultyHost)
         {
             _economyHost = economyHost;
+        }
+
+        /// <summary>
+        /// 2026-09-16 深度复审 D-M1 新增重载（ABI 硬性规则"只允许新增"，不改既有 8 参构造函数签名）：
+        /// 额外接受 <paramref name="summons"/>，供 <see cref="OnUnitDied"/> 在货币入账分支前把
+        /// <c>evt.KillerId</c> 解析为记账单位（召唤物击杀者归主人，逻辑同 <see
+        /// cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener.ResolveCreditUnit"/>，两者
+        /// 共同调用 <see cref="Core.Gameplay.Common.SummonCreditResolver.ResolveCreditUnit"/>）。未
+        /// 提供（<c>null</c>——既有构造重载走的路径，或本重载显式传 null）时，记账单位恒等于
+        /// <c>evt.KillerId</c> 本身（同 <see cref="Core.Gameplay.Common.SummonCreditResolver
+        /// .ResolveCreditUnit"/> "无召唤宿主可用"退化语义），不影响未注入本参数的既有调用点行为。
+        /// </summary>
+        public CreatureDeathLootListener(
+            IEventBus bus,
+            LootHost lootHost,
+            ICreatureTemplateQuery templates,
+            IUnitAccess units,
+            IWorldSim world,
+            Func<double>? lootMultiplierProvider,
+            Core.Gameplay.Difficulty.IDifficultyHost? difficultyHost,
+            Core.Gameplay.Economy.IEconomyHost? economyHost,
+            ISummonHost? summons)
+            : this(bus, lootHost, templates, units, world, lootMultiplierProvider, difficultyHost, economyHost)
+        {
+            _summons = summons;
         }
 
         private void OnUnitDied(UnitDiedEvent evt)
@@ -176,17 +202,31 @@ namespace Core.Gameplay.Loot
             // GroundPickup 语义（货币随其它掉落物一并落地，不静默丢弃），不是"归属死亡单位自己"或
             // "直接丢弃"，理由：没有击杀者就没有 OnKill 策略要求的"击杀者"这一入账对象，落地待拾取
             // 是唯一不丢钱的选择。
+            //
+            // 判断记录（2026-09-16 深度复审 D-M1 根治：击杀者身份核对 + 召唤物归属解析）：此前本分支
+            // 只要 evt.KillerId 有值就无条件 Add 进 evt.KillerId 自己的钱包——生物互殺（击杀者是怪物）
+            // 时金币进了一个通常几秒后就销毁的运行期单位钱包，永久遗失；玩家召唤物击杀目标时金币进了
+            // 召唤物自己的钱包，玩家收不到。现在先经 SummonCreditResolver.ResolveCreditUnit（同
+            // CreatureDeathXpListener.ResolveCreditUnit 同款逻辑，两者共用同一份静态辅助）把
+            // evt.KillerId 解析为记账单位（召唤物→其主人），再核对 IUnitAccess.GetSourceKind 是否为
+            // SourceKind.Player——不是玩家（且不归属任何玩家召唤物）时，整条产出（不只是货币条目）
+            // 原样退回 GroundPickup 语义（下方 groundOutcomes 保持 = outcomes 不变，随其它掉落物一并
+            // 落地），与上面"击杀者为空"的既有处理口径一致，不静默丢弃。
             var groundOutcomes = outcomes;
+            Id? creditUnitId = evt.KillerId.HasValue
+                ? Core.Gameplay.Common.SummonCreditResolver.ResolveCreditUnit(_summons, evt.KillerId.Value)
+                : null;
             if (_economyHost != null
                 && _economyHost.DepositPolicy == Core.Gameplay.Economy.CurrencyDepositPolicy.OnKill
-                && evt.KillerId.HasValue)
+                && creditUnitId.HasValue
+                && _units.GetSourceKind(creditUnitId.Value) == SourceKind.Player)
             {
                 var remaining = new List<LootRollOutcome>(outcomes.Count);
                 foreach (var outcome in outcomes)
                 {
                     if (outcome.TemplateId.Domain == "econ")
                     {
-                        _economyHost.Add(evt.KillerId.Value, outcome.TemplateId, outcome.Count, sourceId: evt.UnitId);
+                        _economyHost.Add(creditUnitId.Value, outcome.TemplateId, outcome.Count, sourceId: evt.UnitId);
                     }
                     else
                     {
