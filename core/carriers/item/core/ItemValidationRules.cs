@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -931,6 +932,16 @@ namespace Core.Carriers.Item
     {
         public const string Check = "item_grant_value_exceeds_share";
 
+        /// <summary>消费方反馈第 47 条：本规则原先对 <see cref="SkillBudgetAnalyzer.ComputeGrantValue"/>
+        /// 的调用没有任何 try/catch 兜底——若 <c>grants.skills</c>/<c>grants.auras</c> 引用的 Id 字面量
+        /// 结构非法（如空字符串，<c>new Id(...)</c> 直接抛 <see cref="System.ArgumentException"/>）或
+        /// 被引用的 <c>skill.def</c>/<c>skill.aura_def</c> 记录本身结构非法（间接经
+        /// <see cref="SkillDefCache"/> 解析抛 <see cref="ArgumentException"/>/
+        /// <see cref="Core.Foundation.DataRegistry.DataFieldException"/>），异常会一路冒出中断整批
+        /// 校验——同 <see cref="Core.Rules.Skill.SkillBudgetValidationRule"/> 判断记录的根治方式：
+        /// 跳过该条授予项、改产出本检查名的 Warning，不再让一条坏授予项中断整批校验。</summary>
+        public const string UnparseableGrantCheck = "item_grant_value_unparseable";
+
         public bool NonEscalatable => true;
 
         private const double Epsilon = 1e-9;
@@ -1027,28 +1038,66 @@ namespace Core.Carriers.Item
                 var allowance = budget * grantShare;
 
                 var totalGrantValue = 0.0;
+                string? parseErrorMessage = null;
+
                 if (skillIds != null)
                 {
                     foreach (var entry in skillIds)
                     {
                         if (entry is JsonString skillIdText)
                         {
-                            totalGrantValue += SkillBudgetAnalyzer.ComputeGrantValue(
-                                new Id(skillIdText.Value), isAura: false, view, (int)itemLevel, _anchorProvider, _skillOptions);
+                            // 消费方反馈第 47 条：new Id(...)（引用字面量本身结构非法，如空字符串）与
+                            // ComputeGrantValue 内部间接经 SkillDefCache 解析被引用的 skill.def/
+                            // skill.aura_def 记录（该记录结构非法）都可能抛异常——此前完全没有 try/catch
+                            // 兜底，任一情形都会中断整批校验；跳出 yield 不能出现在 catch 块内（CS1631），
+                            // 故先记录错误信息、break 出内层循环，待 try/catch 结束后再统一产出诊断并
+                            // continue 到下一条 item.template 记录（同 SkillBudgetValidationRule 判断
+                            // 记录"跳过该条记录、不重复诊断"，这里的"记录"对应一件装备，一件装备任一
+                            // 授予项解析失败即整件跳过超预算份额判定，不用部分求和的 totalGrantValue
+                            // 误判"未超预算"）。
+                            try
+                            {
+                                totalGrantValue += SkillBudgetAnalyzer.ComputeGrantValue(
+                                    new Id(skillIdText.Value), isAura: false, view, (int)itemLevel, _anchorProvider, _skillOptions);
+                            }
+                            catch (Exception ex) when (ex is ArgumentException || ex is DataFieldException)
+                            {
+                                parseErrorMessage = $"grants.skills 引用 \"{skillIdText.Value}\" 解析失败：{ex.Message}";
+                                break;
+                            }
                         }
                     }
                 }
 
-                if (auraIds != null)
+                if (parseErrorMessage == null && auraIds != null)
                 {
                     foreach (var entry in auraIds)
                     {
                         if (entry is JsonString auraIdText)
                         {
-                            totalGrantValue += SkillBudgetAnalyzer.ComputeGrantValue(
-                                new Id(auraIdText.Value), isAura: true, view, (int)itemLevel, _anchorProvider, _skillOptions);
+                            try
+                            {
+                                totalGrantValue += SkillBudgetAnalyzer.ComputeGrantValue(
+                                    new Id(auraIdText.Value), isAura: true, view, (int)itemLevel, _anchorProvider, _skillOptions);
+                            }
+                            catch (Exception ex) when (ex is ArgumentException || ex is DataFieldException)
+                            {
+                                parseErrorMessage = $"grants.auras 引用 \"{auraIdText.Value}\" 解析失败：{ex.Message}";
+                                break;
+                            }
                         }
                     }
+                }
+
+                if (parseErrorMessage != null)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, "item.template", UnparseableGrantCheck,
+                        $"{parseErrorMessage}（该记录结构不合法已由字段级校验报告，本规则跳过超预算" +
+                        "份额校验，不重复诊断）",
+                        recordKey: record.Key, field: "grants",
+                        group: null, note: null, ruleId: null);
+                    continue;
                 }
 
                 if (totalGrantValue > allowance + Epsilon)

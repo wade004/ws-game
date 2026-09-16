@@ -83,7 +83,17 @@ namespace Tests.Rules.Skill
             /// <summary>T-N5-3 新增重载：<paramref name="rules"/>/<paramref name="strictness"/> 均省略
             /// 时与既有零参 <see cref="Build()"/> 行为完全一致（不注册额外规则、
             /// <see cref="DataRegistryStrictness.WarningsAllowed"/>）。</summary>
-            public IDataRegistryView Build(IEnumerable<IValidationRule>? rules, DataRegistryStrictness strictness)
+            public IDataRegistryView Build(IEnumerable<IValidationRule>? rules, DataRegistryStrictness strictness) =>
+                Build(rules, strictness, throwIfBlocking: true);
+
+            /// <summary>消费方反馈第 47 条：既有 <see cref="Build(IEnumerable{IValidationRule}?,
+            /// DataRegistryStrictness)"/> 在 <c>report.IsBlocking</c> 时主动 throw——对绝大多数既有
+            /// 用例这是有用的"测试数据本身没配对"提前失败信号，但本条要验收的恰恰是"字段级阻断态
+            /// 报告如实产出、<see cref="DataRegistry.LoadAll"/> 本身不应表现为异常"，需要在阻断态下也
+            /// 拿到 <see cref="IDataRegistryView"/> 与 <see cref="LastReport"/> 供断言，因此新增
+            /// <paramref name="throwIfBlocking"/> = <c>false</c> 的调用路径，不改变既有零参/两参
+            /// 重载的默认行为。</summary>
+            public IDataRegistryView Build(IEnumerable<IValidationRule>? rules, DataRegistryStrictness strictness, bool throwIfBlocking)
             {
                 var source = new InMemoryDataSource();
                 source.Add("skill.def", TableJson("skill.def", _skillDefs));
@@ -113,7 +123,7 @@ namespace Tests.Rules.Skill
 
                 var report = registry.LoadAll();
                 LastReport = report;
-                if (report.IsBlocking)
+                if (throwIfBlocking && report.IsBlocking)
                 {
                     throw new InvalidOperationException(
                         "测试数据未通过校验：\n" + string.Join("\n", report.Issues));
@@ -533,6 +543,60 @@ namespace Tests.Rules.Skill
                 new Id("skill.aura_def.n3_9_grant_missing"), isAura: true, view, level: 1, provider);
 
             Assert.Equal(0.0, value, 6);
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 47 条根治验收：SkillBudgetValidationRule.Validate 此前只 catch
+        // ArgumentException，SkillDefCache.ParseSkillDef → DataRecord.GetId("school") 对结构合法
+        // 字符串但非法 Id 语法的字段（如空字符串）抛出的是 DataFieldException（不是
+        // ArgumentException 子类），未被拦下、一路冒出中断整批 LoadAll。本组用例复现反馈原文场景
+        // （必填 FieldKind.Id 字段留空的最小 skill.def 记录）——直接调用 Registry.Build()（内部走
+        // 完整 DataRegistry.LoadAll 流程，锚点已接线：注入非 null 的 FakeAnchorProvider）不应抛出，
+        // 报告应同时包含字段级 field_id_format 阻断诊断与规则级 skill_budget_record_unparseable
+        // 诊断（不是彻底静默跳过）。
+        // -----------------------------------------------------------------
+
+        private static JsonObject MinimalRequiredFieldsOnlySkill(string id) => J.O(
+            ("id", J.S(id)),
+            ("school", J.S("")), // 必填 FieldKind.Id 字段留空——反馈原文触发形态
+            ("kind", J.S("active")),
+            ("range", J.N(0)),
+            ("cast_time", J.N(0)),
+            ("respects_gcd", J.B(false)),
+            ("target_shape_ref", J.S("")), // 同上，第二个必填 Id 字段留空
+            ("effects", J.A()));
+
+        [Fact]
+        public void Validate_RecordWithBlankRequiredIdFields_DoesNotThrow_ReportsFieldIdFormatAndUnparseableWarning()
+        {
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            var registryBuilder = new Registry()
+                .SkillDef(MinimalRequiredFieldsOnlySkill("skill.n47_blank_required_ids"))
+                .BudgetRule(DefaultBudgetRule());
+
+            // 故意不用两参 Build() 重载——它在 report.IsBlocking 时会主动 throw（既有用例的"测试数据
+            // 没配对"提前失败信号），这里恰恰要断言"阻断态报告如实产出、LoadAll 本身不抛异常"，
+            // 用三参重载关掉这道保护。
+            var ex = Record.Exception(() => registryBuilder.Build(
+                rules: new IValidationRule[] { new SkillBudgetValidationRule(provider) },
+                strictness: DataRegistryStrictness.WarningsAllowed,
+                throwIfBlocking: false));
+
+            Assert.Null(ex);
+
+            var report = registryBuilder.LastReport;
+            Assert.True(report.IsBlocking, "必填 Id 字段留空应触发字段级阻断，但阻断态本身不应表现为异常");
+
+            Assert.Contains(report.Issues, i =>
+                i.Check == "field_id_format" && i.Table == "skill.def" && i.Field == "school");
+            Assert.Contains(report.Issues, i =>
+                i.Check == "field_id_format" && i.Table == "skill.def" && i.Field == "target_shape_ref");
+
+            // 规则级：不再彻底静默——产出一条 Warning 级、说明"该记录已由字段级校验报告、本规则跳过"
+            // 的诊断，而不是让异常直接冒出 LoadAll。
+            var unparseable = Assert.Single(report.Issues, i => i.Check == SkillBudgetValidationRule.UnparseableRecordCheck);
+            Assert.Equal(ValidationSeverity.Warning, unparseable.Severity);
+            Assert.Equal("skill.n47_blank_required_ids", unparseable.RecordKey);
         }
     }
 }

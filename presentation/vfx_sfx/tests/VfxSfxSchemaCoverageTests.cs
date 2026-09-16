@@ -38,8 +38,10 @@ namespace Tests.Presentation.VfxSfx
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
+        /// <summary>消费方反馈第 47 条：Map 值种类为 <c>Id</c> 且取值不满足 Id 语法时报
+        /// <c>field_id_format</c>（此前混用 <c>field_type</c>）。</summary>
         [Fact]
-        public void CastAnimOverride_ValueNotValidId_ReportsFieldTypeWithBracketPath()
+        public void CastAnimOverride_ValueNotValidId_ReportsFieldIdFormatWithBracketPath()
         {
             var rows = "[{\"id\":\"display.weapon_style.cov_bad\",\"auto_attack_anim\":\"anim.cov_swing\"," +
                 "\"cast_anim_override\":{\"skill.cov_fireball\":\"not a valid id\"}}]";
@@ -54,7 +56,7 @@ namespace Tests.Presentation.VfxSfx
 
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i =>
-                i.Check == "field_type" && i.Field == "cast_anim_override[skill.cov_fireball]");
+                i.Check == "field_id_format" && i.Field == "cast_anim_override[skill.cov_fireball]");
         }
 
         [Fact]

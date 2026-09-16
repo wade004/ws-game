@@ -71,7 +71,8 @@ data_registry/
 | `schema_version` | `schema_version` 超过当前代码期望版本、或低于当前版本但缺迁移环节 |
 | `primary_key` | 主键字段缺失/格式非法、内容表 id 的 domain 前缀与表名首段不符、主键重复 |
 | `required_field` | 必填字段缺失（或值为 JSON `null`，视为未提供） |
-| `field_type` | 字段 JSON 类型与声明的 `FieldKind` 不符，含 `Id`/`IdList` 格式、`Enum` 取值 |
+| `field_type` | 字段 JSON 类型与声明的 `FieldKind` 不符（含 `Enum` 取值不在合法集合内）；`Id`/`Reference`/`IdList` 逐元素/`Map` 值种类为 `Id`/`Reference` 时的值，取值不是 JSON 字符串归本项——值确是字符串但不满足 Id 语法改报下一行 `field_id_format`（消费方反馈第 47 条改动前两者混用本检查名，见该行判断记录） |
+| `field_id_format` | 消费方反馈第 47 条：`Id`/`Reference` 字段（含子结构内递归复用同一实现登记为这两种种类的子字段）与 `IdList` 逐元素、`Map` 值种类为 `Id`/`Reference` 时的值——取值是字符串但不满足 `Id.IsValidFormat`（全小写点分领域.名称）时报出，阻断级；与上一行 `field_type` 互斥，同一处至多命中其中一种。**判断记录**：此前这类值也报 `field_type`（笼统覆盖"类型不符"与"格式非法"两种情形），规则解析入口（如 `SkillDefCache.ParseSkillDef` 内部 `DataRecord.GetId`）对同一非法值再次解析时抛出的是 `DataFieldException`，而依赖该入口的规则（如 `SkillBudgetValidationRule`）原先只 `catch (ArgumentException)`，未被拦下、一路冒出中断整批 `LoadAll`——本检查名让这类坏形状在字段级就先被拦下并产出可定位诊断，配合规则侧同批把 `catch` 扩大为同时覆盖 `ArgumentException`/`DataFieldException`（且不再彻底静默，改产出规则自己的 Warning 诊断，见 `core/rules/skill/README.md`/`core/carriers/item/README.md`"判断记录（消费方反馈第 47 条根治）"），双层根治：字段级先拦、规则级兜底不中断批处理 |
 | `reference_integrity` | `Reference` 字段（含 `ReferenceTable`/`ReferenceDomain`）与 `DeclareReference` 动态声明的引用目标不存在；ADR-0022 起同样覆盖登记了 `ReferenceTable`/`ReferenceDomain` 的 `IdList` 字段——按同款规则逐个校验其每个元素（元素路径形如 `field[2]`），不是只校验 `Id` 单值字段 |
 | `field_range` | ADR-0021：字段登记了 `FieldSchema.Range`（数值下上界）时，`Number`/`Int` 字段的值超出该范围（`ValidateFieldRange`，见字段级校验小节判断记录——只在登记了范围时触发，未登记不检查） |
 | `text_key_exists` | `TextKey` 字段的值在 `l10n.text` 表按 `DefaultLocale` 查不到；`l10n.text` 表未加载时降级为 Warning |

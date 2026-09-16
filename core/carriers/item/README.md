@@ -867,6 +867,21 @@ item/
       超占比报警告、未超占比不报、超占比但有 `budget_note` 豁免、未注入 `anchorProvider` 时整体
       跳过，覆盖验收标准"装备授予价值超占比 Warning 正负例各 1"）；T-N6-3a 新增锚点真实接入后的
       端到端断言见 `core/sim/tests/AnchorProviderIntegrationTests.cs`。
+    - **判断记录（消费方反馈第 47 条根治，2026-09-17）**：本规则对 `SkillBudgetAnalyzer
+      .ComputeGrantValue` 的两处调用（`grants.skills`/`grants.auras` 各一处）此前完全没有 try/catch
+      兜底——`grants.skills[]`/`grants.auras[]` 引用的 Id 字面量结构非法（`new Id(...)` 直接抛
+      `ArgumentException`）或被引用的 `skill.def`/`skill.aura_def` 记录本身结构非法（间接经
+      `SkillDefCache` 解析抛 `ArgumentException`/`Core.Foundation.DataRegistry.DataFieldException`），
+      异常会一路冒出中断整批 `DataRegistry.LoadAll`——同 `Core.Rules.Skill
+      .SkillBudgetValidationRule` 判断记录的根治方式（见 `core/rules/skill/README.md`"判断记录
+      （消费方反馈第 47 条根治）"）：新增 `catch (Exception ex) when (ex is ArgumentException ||
+      ex is DataFieldException)`，命中任一授予项即整件装备跳过本项超占比判定（不用部分求和的
+      `totalGrantValue` 误判"未超预算"），改产出一条 Warning 级、`NonEscalatable` 的诊断（检查名
+      `ItemGrantValueExceedsShareRule.UnparseableGrantCheck` =
+      `item_grant_value_unparseable`），不再彻底静默。字段级同一根治：`FieldKind.Id`/`Reference`/
+      `IdList` 逐元素、`Map` 值种类为 `Id`/`Reference` 时的值，取值是字符串但不满足 Id 语法时，从
+      笼统的 `field_type` 拆出专用检查名 `field_id_format`（见
+      `core/foundation/data_registry/README.md`"判断记录（消费方反馈第 47 条）"）。
 
 ## 契约缺口清单（本次未新增/未修改 `core/rules/*`）
 

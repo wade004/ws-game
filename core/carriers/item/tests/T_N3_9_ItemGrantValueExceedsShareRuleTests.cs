@@ -202,5 +202,70 @@ namespace Tests.Carriers.Item
 
             Assert.Empty(issues);
         }
+
+        /// <summary>消费方反馈第 47 条根治验收（<see cref="ItemGrantValueExceedsShareRule"/> 同构一条，
+        /// 见 <see cref="Core.Rules.Skill.SkillBudgetValidationRule"/> 判断记录）：本规则此前对
+        /// <see cref="Core.Rules.Skill.SkillBudgetAnalyzer.ComputeGrantValue"/> 的调用完全没有 try/
+        /// catch 兜底——<c>grants.skills</c> 引用的 <c>skill.def</c> 记录若结构非法（必填 <c>Id</c>
+        /// 字段留空），间接经 <see cref="Core.Rules.Skill.SkillDefCache"/> 解析抛出的
+        /// <see cref="Core.Foundation.DataRegistry.DataFieldException"/> 会一路冒出中断整批
+        /// <see cref="DataRegistry.LoadAll"/>。本用例不像其余用例那样直接调 <c>rule.Validate(view)</c>
+        /// ——那需要一个可读的 <see cref="IDataRegistryView"/>，而本场景的数据本身就是字段级阻断态
+        /// （<c>_blocked</c> 为真时任何 <c>GetAll</c> 都会先于本规则的异常被 <c>EnsureReadable</c>
+        /// 拦下），必须像生产环境一样走完整的 <c>LoadAll</c>（规则在其内部"_blocked 暂时为 false"
+        /// 的窗口期执行，见 <see cref="DataRegistry"/> 类型判断记录），只检查最终报告。</summary>
+        [Fact]
+        public void GrantValue_ReferencedSkillDefHasBlankRequiredIdFields_LoadAllDoesNotThrow_ReportsFieldIdFormatAndUnparseableWarning()
+        {
+            const string slot = "[{\"id\": \"item.slot.n47_grant\", \"name_key\": \"l10n.n47_grant_slot\"}]";
+            const string quality =
+                "[{\"id\": \"item.quality.n47_grant\", \"name_key\": \"l10n.n47_grant_quality\", " +
+                "\"budget_multiplier\": 1, \"grant_budget_share\": 0.1}]";
+            const string budgetCurve = "[{\"id\": \"item.budget.n47_grant\", \"entries\": [{\"item_level\": 1, \"budget\": 20}]}]";
+            const string template =
+                "[{\"id\": \"item.n47_grant\", \"slot\": \"item.slot.n47_grant\", \"quality\": \"item.quality.n47_grant\", " +
+                "\"item_level\": 1, \"display_ref\": \"display.n47_grant\", \"stack_size\": 1, \"name_key\": \"l10n.n47_grant_item\", " +
+                "\"grants\": {\"skills\": [\"skill.n47_grant_blank_required_ids\"]}}]";
+            // 必填 FieldKind.Id 字段（school/target_shape_ref）留空——反馈原文触发形态，同
+            // T_N3_9_SkillBudgetAnalyzerTests 的 MinimalRequiredFieldsOnlySkill。
+            const string skillDef =
+                "[{\"id\": \"skill.n47_grant_blank_required_ids\", \"school\": \"\", \"kind\": \"active\", \"range\": 0," +
+                " \"cast_time\": 0, \"respects_gcd\": false, \"target_shape_ref\": \"\", \"effects\": []}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", TestSupport.Table("item.slot_definition", slot))
+                .Add("item.quality_definition", TestSupport.Table("item.quality_definition", quality))
+                .Add("item.budget_curve", TestSupport.Table("item.budget_curve", budgetCurve))
+                .Add("item.template", TestSupport.Table("item.template", template))
+                .Add("skill.def", TestSupport.Table("skill.def", skillDef))
+                .Add("skill.aura_def", TestSupport.Table("skill.aura_def", "[]"));
+
+            var registry = new DataRegistry(source, TestSupport.CreateBus(),
+                new DataRegistryOptions { FailOnUnknownTable = false, Strictness = DataRegistryStrictness.WarningsAllowed });
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.AuraDef);
+            registry.RegisterValidationRule(
+                new ItemGrantValueExceedsShareRule(new Id("item.budget.n47_grant"), new FakeAnchorProvider()));
+
+            ValidationReport? report = null;
+            var ex = Record.Exception(() => report = registry.LoadAll());
+
+            Assert.Null(ex);
+            Assert.NotNull(report);
+            Assert.True(report!.IsBlocking, "必填 Id 字段留空应触发字段级阻断，但阻断态本身不应表现为异常");
+
+            Assert.Contains(report.Issues, i =>
+                i.Check == "field_id_format" && i.Table == "skill.def" && i.Field == "school");
+            Assert.Contains(report.Issues, i =>
+                i.Check == "field_id_format" && i.Table == "skill.def" && i.Field == "target_shape_ref");
+
+            var unparseable = Assert.Single(report.Issues, i => i.Check == ItemGrantValueExceedsShareRule.UnparseableGrantCheck);
+            Assert.Equal(ValidationSeverity.Warning, unparseable.Severity);
+            Assert.Equal("item.n47_grant", unparseable.RecordKey);
+        }
     }
 }
