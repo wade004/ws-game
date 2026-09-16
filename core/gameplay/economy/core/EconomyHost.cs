@@ -73,6 +73,17 @@ namespace Core.Gameplay.Economy
         private readonly Dictionary<Id, Dictionary<Id, long>> _balances = new Dictionary<Id, Dictionary<Id, long>>();
         private readonly Dictionary<Id, Dictionary<Id, StockState>> _stock = new Dictionary<Id, Dictionary<Id, StockState>>();
 
+        /// <summary>
+        /// 2026-09-16 深度复审 D-S2：<see cref="FindAnyVendorSellPrice"/> 的按 <c>templateId</c> 索引
+        /// 缓存——该方法此前每次调用都线性扫描全部已加载商人 × 全部出售条目（O(商人数 × 商品数)），
+        /// 只在"该物品在任一商人处都没有手填 price_amount"时才会被触发、且只发生在玩家主动
+        /// <see cref="Sell"/> 时（不在任何 tick/热路径），当前数据规模下影响可忽略，但商人/商品数量
+        /// 较大时值得预建索引。<see cref="ReloadFromRegistry"/> 重建 <c>_vendors</c>/<c>_vendorOrder</c>
+        /// 之后同步重建本索引，失效口径与那两个字段完全一致（同一次 reload 一并刷新，不存在"索引
+        /// 落后于 _vendors"的中间态）。</summary>
+        private readonly Dictionary<Id, (long Price, Id? CurrencyId)> _vendorSellPriceIndex =
+            new Dictionary<Id, (long Price, Id? CurrencyId)>();
+
         public EconomyHost(
             IDataRegistryView registry,
             IEventBus bus,
@@ -168,6 +179,29 @@ namespace Core.Gameplay.Economy
             }
 
             _vendorOrder.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+
+            RebuildVendorSellPriceIndex();
+        }
+
+        /// <summary>2026-09-16 深度复审 D-S2：按 <see cref="_vendorOrder"/>（已排序）与每个商人自身
+        /// <c>SellItems</c> 列表原有顺序重建 <see cref="_vendorSellPriceIndex"/>——逐位复刻改动前
+        /// <see cref="FindAnyVendorSellPrice"/> 双重 <c>foreach</c> 的命中优先级："按 Id 序数遍历全部
+        /// 已加载商人，返回第一条命中 templateId 且 HasPriceAmount 为真的 sell_items 项"：同一
+        /// templateId 第一次被写入索引后，后续（同一商人靠后的条目、或序数更靠后的商人）命中的条目
+        /// 不再覆盖，保证索引查询结果与改动前的线性扫描逐位一致。</summary>
+        private void RebuildVendorSellPriceIndex()
+        {
+            _vendorSellPriceIndex.Clear();
+            foreach (var vendorId in _vendorOrder)
+            {
+                foreach (var sellItem in _vendors[vendorId].SellItems)
+                {
+                    if (sellItem.HasPriceAmount && !_vendorSellPriceIndex.ContainsKey(sellItem.ItemId))
+                    {
+                        _vendorSellPriceIndex[sellItem.ItemId] = (sellItem.PriceAmount, sellItem.PriceCurrencyId);
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -537,22 +571,15 @@ namespace Core.Gameplay.Economy
         /// <paramref name="templateId"/> 且 <see cref="VendorSellItem.HasPriceAmount"/> 为真的
         /// <c>sell_items</c> 项的价格与货币；找不到返回 <c>(0, null)</c>。T-N4-6：未填
         /// <c>price_amount</c> 的条目不是"真实手填价格"，跳过继续找下一条（同一物品可能在别的商人
-        /// 处填了价格），全都没填则视为找不到。</summary>
-        private (long Price, Id? CurrencyId) FindAnyVendorSellPrice(Id templateId)
-        {
-            foreach (var vendorId in _vendorOrder)
-            {
-                foreach (var sellItem in _vendors[vendorId].SellItems)
-                {
-                    if (sellItem.ItemId.Equals(templateId) && sellItem.HasPriceAmount)
-                    {
-                        return (sellItem.PriceAmount, sellItem.PriceCurrencyId);
-                    }
-                }
-            }
-
-            return (0, null);
-        }
+        /// 处填了价格），全都没填则视为找不到。
+        /// <para>
+        /// 判断记录（2026-09-16 深度复审 D-S2：改按索引查询，不再线性扫描）：改为查询
+        /// <see cref="_vendorSellPriceIndex"/>（<see cref="ReloadFromRegistry"/> 已同步重建，见该
+        /// 字段判断记录），O(1) 命中，逐位保留原双重 <c>foreach</c> 的命中优先级语义。
+        /// </para>
+        /// </summary>
+        private (long Price, Id? CurrencyId) FindAnyVendorSellPrice(Id templateId) =>
+            _vendorSellPriceIndex.TryGetValue(templateId, out var found) ? found : (0, null);
 
         /// <summary>
         /// T-N4-11（阶段 N4 独立复核缺口修复；<see cref="IEconomyHost.TryGetSellItemPrice"/> 判断

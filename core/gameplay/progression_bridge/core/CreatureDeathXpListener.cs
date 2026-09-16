@@ -105,12 +105,17 @@ namespace Core.Gameplay.ProgressionBridge
         /// <summary>ADR-0033 决策 3"召唤物击杀归主人"：<paramref name="killerId"/> 是某个已登记召唤物
         /// 时改记其主人；否则原样返回 <paramref name="killerId"/> 本身（包括"是玩家本人"与"是普通
         /// 生物，非玩家、非召唤物"两种情形，留给调用方按 <see cref="IUnitAccess.GetSourceKind"/>
-        /// 继续判断）。</summary>
-        private Id ResolveCreditUnit(Id killerId)
-        {
-            var owner = _summons?.GetOwner(killerId);
-            return owner.HasValue ? owner.Value : killerId;
-        }
+        /// 继续判断）。
+        /// <para>
+        /// 判断记录（2026-09-16 深度复审 D-M1 抽取）：本方法与
+        /// <see cref="Core.Gameplay.Loot.CreatureDeathLootListener"/> 货币入账分支需要的"击杀者→记账
+        /// 单位"解析逐字同构，两处一直各自维护一份容易漂移——改为共同调用
+        /// <see cref="Core.Gameplay.Common.SummonCreditResolver.ResolveCreditUnit"/>，本方法保留原
+        /// 名称/签名不变（只是内部转发），不影响任何既有调用点。
+        /// </para>
+        /// </summary>
+        private Id ResolveCreditUnit(Id killerId) =>
+            Core.Gameplay.Common.SummonCreditResolver.ResolveCreditUnit(_summons, killerId);
 
         /// <summary>死亡单位所属生物模板的分档 id（<c>creature.tier_definition</c>），供
         /// <see cref="XpContext.TierId"/> 登记——本类不消费该字段本身（T-N4-4"分档与难度经验倍率

@@ -393,10 +393,19 @@ namespace Core.Sim
         /// <c>additionalStats</c> 参数本身就只应传"模板自身之外的额外贡献"，模板 <c>stats[]</c> 由
         /// <c>EquipmentScoreAnalyzer.Score</c> 自己从 <c>item.template</c> 记录里读，见该方法
         /// <c>MergeStats</c> 判断记录）——若这里再把模板字面值也塞进 <c>additionalStats</c>，会造成
-        /// 重复计入。</summary>
+        /// 重复计入。
+        /// <para>复审整合项 2（B-S1）：新增可选 <paramref name="statBudgetInfo"/> 参数（本方法为
+        /// <c>internal</c>，非公开 ABI 面，直接加参数不违反"契约只新增"硬性规则，见 <see
+        /// cref="EquipmentScoreAnalyzer"/>/<see cref="Core.Carriers.Item.IBudgetSolver"/> 公开新增重载
+        /// 的同一动机判断记录）——传入时逐条 <see cref="Core.Carriers.Item.IBudgetSolver.Solve"/> 改走
+        /// 8 参重载，跳过内部重建；省略（<c>null</c>）时行为与改动前逐字一致。调用方（<see
+        /// cref="Core.Sim.GrowthSimulation.ScoreCandidate"/>）每次换装评分都要对同一批词缀反解，
+        /// 在其所属的成长仿真单次运行内 <c>classId</c> 固定不变，循环外构建一次即可复用整个仿真过程。
+        /// </para></summary>
         internal static IReadOnlyDictionary<Id, double> ComputeAffixContribution(
             IDataRegistryView registry, IBudgetSolver solver, Id budgetCurveId,
-            int itemLevel, Id qualityId, Id slotId, IReadOnlyList<Id> affixIds)
+            int itemLevel, Id qualityId, Id slotId, IReadOnlyList<Id> affixIds,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo>? statBudgetInfo = null)
         {
             var result = new Dictionary<Id, double>();
 
@@ -444,7 +453,9 @@ namespace Core.Sim
                     continue;
                 }
 
-                var solved = solver.Solve(itemLevel, qualityId, slotId, normalizedMix, budgetCurveId, shareOfBudget, registry);
+                var solved = statBudgetInfo != null
+                    ? solver.Solve(itemLevel, qualityId, slotId, normalizedMix, budgetCurveId, shareOfBudget, registry, statBudgetInfo)
+                    : solver.Solve(itemLevel, qualityId, slotId, normalizedMix, budgetCurveId, shareOfBudget, registry);
                 foreach (var kv in solved.Values)
                 {
                     result.TryGetValue(kv.Key, out var existing);

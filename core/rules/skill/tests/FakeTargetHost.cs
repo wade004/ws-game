@@ -57,14 +57,24 @@ namespace Tests.Rules.Skill
 
         public IReadOnlyList<Id> Resolve(Id chainId, Id casterId, Id? currentTarget) => Resolve(chainId, casterId);
 
+        /// <summary>深度复审 C（测试覆盖缺口 #3）补测新增：<see cref="ResolveWithCoefficients"/> 被
+        /// 调用的总次数——供验证"引导技能多次 tick 复用同一份系数字典"（<c>CastPipeline.CastState
+        /// .TargetCoefficients</c> 只在读条/引导开始时解析一次，全程复用，不逐跳重新解析目标链，见
+        /// 该字段判断记录）这一既定行为：如果每跳都重新调用一次 <c>ITargetHost.ResolveWithCoefficients</c>，
+        /// 本计数器会 &gt; 1。</summary>
+        public int ResolveWithCoefficientsCallCount { get; private set; }
+
         /// <summary>见 <see cref="_chainsWithCoefficients"/> 判断记录：登记过时直接返回；未登记的
         /// 链退化为接口默认实现同一语义（旧 <see cref="Resolve(Id, Id, Id?)"/> 结果整体赋系数 1、
         /// <see cref="TargetOverflowPolicy.Truncate"/>、<c>cap=0</c>），不强制每个测试都显式配置。</summary>
-        public TargetResolution ResolveWithCoefficients(Id chainId, Id casterId, Id? currentTarget = null) =>
-            _chainsWithCoefficients.TryGetValue(chainId, out var resolution)
+        public TargetResolution ResolveWithCoefficients(Id chainId, Id casterId, Id? currentTarget = null)
+        {
+            ResolveWithCoefficientsCallCount++;
+            return _chainsWithCoefficients.TryGetValue(chainId, out var resolution)
                 ? resolution
                 : new TargetResolution(
                     Resolve(chainId, casterId, currentTarget).Select(id => (id, 1.0)), TargetOverflowPolicy.Truncate, cap: 0);
+        }
 
         public IReadOnlyList<Id> FilterExplicitTargets(Id chainId, Id casterId, IReadOnlyList<Id> targets)
         {

@@ -129,6 +129,24 @@ namespace Core.Sim
             };
     }
 
+    /// <summary>
+    /// 判断记录（2026-09-16，深度复审 E-S2）：<c>sim.scenario.bandwidths</c>（schema 里登记为
+    /// <see cref="Core.Foundation.DataRegistry.MapSchema.FreeKeyed"/> 自由字符串键，见
+    /// <c>SimSchemas.cs</c>"本表不枚举合法键"）
+    /// 的合法带宽键集合，与 <see cref="BaselineCompareOptions.DefaultLeafBandwidthKeys"/> 单一来源——
+    /// 直接取该映射表全部取值（去重），不新开一张平行维护的键清单，改一处两处都跟着变。供
+    /// <c>SimScenarioValidationRule</c>（<c>sim_scenario_bandwidth_key_unknown</c> 警告级检查，
+    /// E-S2）校验内容作者填的 <c>bandwidths</c> 键名是否拼写错误——此前全链路（schema、校验规则、
+    /// <see cref="BaselineComparer.ResolveTolerance"/>、<c>GrowthSimulation</c>/
+    /// <c>ArenaSimulation</c> 的 <c>ResolveBandwidths</c>）都只用 <c>TryGetValue</c> 静默回退默认
+    /// 容差/带宽，拼错键名不会在任何环节报出诊断。
+    /// </summary>
+    public static class SimBandwidthKeys
+    {
+        public static readonly IReadOnlyCollection<string> KnownKeys =
+            new HashSet<string>(BaselineCompareOptions.DefaultLeafBandwidthKeys.Values, StringComparer.Ordinal);
+    }
+
     /// <summary>一条统计量的基线对比结果——<see cref="BaselineComparer.Compare"/> 的输出粒度。</summary>
     public sealed class BaselineDiffRow
     {

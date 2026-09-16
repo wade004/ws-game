@@ -270,6 +270,26 @@ foreach ($dll in $baselineAvailableDllNames) {
     $summaryLines.Add("  $dll = $h")
 }
 
+# 复审整合项 1 根治（review_E.md T-N6-7 遗留缺口）：Core.Sim.dll 若在基线里已存在（如本次基线
+# 1.36.0），abi_surface（System.Reflection.MetadataLoadContext）反射解析它的公开成员签名时同样
+# 需要 Adapters.Stub.dll 在同一目录（见下方"当前工作树"一侧的同款判断记录，第 374 行起）——此前
+# 只在 current-lib 一侧拷贝了这份依赖，baseline 侧（consumer\lib\）漏拷贝，Core.Sim.dll 一旦真的
+# 从基线解出（$baselineAvailableDllNames 含 Core.Sim.dll），下面 abi_surface dump 基线侧就会因为
+# 找不到 Adapters.Stub.dll 抛 FileNotFoundException（探针在"应该跑通"的正常路径上直接崩溃）。
+# 照搬当前侧同一处理：从基线 zip 里按同一 entry 后缀尝试解出 Adapters.Stub.dll，找不到就跳过（旧
+# 基线本就不含 Core.Sim.dll，自然也不需要这份依赖，不算错误）。
+$baselineAdaptersStubDest = Join-Path $OutDir "consumer\lib\Adapters.Stub.dll"
+if ($baselineAvailableDllNames -contains "Core.Sim.dll") {
+    $baselineAdaptersStubSuffix = "toolchain/validator/lib/Adapters.Stub.dll"
+    if (Test-ZipEntryExists -ZipPath $BaselineZip -EntrySuffix $baselineAdaptersStubSuffix) {
+        Get-ZipEntryTo -ZipPath $BaselineZip -EntrySuffix $baselineAdaptersStubSuffix -Destination $baselineAdaptersStubDest
+        Write-ProbeLine "已解出基线 DLL（Core.Sim.dll 的表面 dump 解析依赖，不参与比对）：Adapters.Stub.dll"
+        $summaryLines.Add("  Adapters.Stub.dll（基线侧，Core.Sim.dll 解析依赖）= " + (Get-FileHash -LiteralPath $baselineAdaptersStubDest -Algorithm SHA256).Hash.ToLowerInvariant())
+    } else {
+        throw "基线 zip 含 Core.Sim.dll 但不含 $baselineAdaptersStubSuffix ——基线包本身不完整，abi_surface 无法反射解析基线侧 Core.Sim.dll 的公开成员签名"
+    }
+}
+
 Copy-Item -LiteralPath (Join-Path $ProbeDir "AbiProbeConsumer.csproj") -Destination (Join-Path $OutDir "consumer\AbiProbeConsumer.csproj")
 Copy-Item -LiteralPath (Join-Path $ProbeDir "Program.cs") -Destination (Join-Path $OutDir "consumer\Program.cs")
 

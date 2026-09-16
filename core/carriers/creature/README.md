@@ -220,6 +220,17 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
     `core/gameplay/assembly.GameplayAssembly`，见 `core/gameplay/loot/README.md` 判断记录 17
     "T-N6-3b 变更记录"。
 
+12. **2026-09-16 深度复审 B-S2 判断记录（建议修，已采纳）**：`xp_multiplier`（判断记录 9）/
+    `gold_multiplier`（判断记录 11）两个字段补 `.WithRange(FieldRange.Range(min: 0))`——此前均
+    未加范围约束，内容作者误填负值时：`xp_multiplier` 负值会让 `ExtraXpMultiplierProvider` 算出
+    负经验，`ProgressionHost.AddXpCore` 对负 `amount` 直接抛 `ArgumentOutOfRangeException`（运行
+    期崩溃，不是校验期诊断）；`gold_multiplier` 负值不会崩溃（`LootHost.ResolveCurrencyOutcome`
+    的 `amount > 0` 才产出，负值静默变成"这一条不产出货币"），但掩盖了一个明显的数据配置错误、
+    且没有诊断信息帮助定位。同 `stat.weight.weight` 既有处理口径（`WithRange(min: 0)`），schema
+    版本不升。新增测试：`CreatureSchemaCoverageTests
+    .TierDefinition_NegativeXpMultiplier_ReportsFieldRange`/
+    `.TierDefinition_NegativeGoldMultiplier_ReportsFieldRange`。
+
 ## 不负责什么
 
 - 不实现刷新表（`SpawnHost`，L4）——本模块只提供 `ICreatureFactory` 供其调用，`summon_only`

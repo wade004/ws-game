@@ -384,6 +384,33 @@ namespace Core.Numbers.Progression
                 // 属性写入才被动补救（见外部审计 N08）。事件本身携带的 OldLevel/NewLevel 字段值不变，
                 // 只调整"字段赋值"与"发布事件"两个语句的先后顺序。
                 unit.Level = newLevel;
+
+                // 2026-09-16 深度复审 D-M2 根治：判断"这一步是不是本次批量升级（一次 AddXp 跨多级）
+                // 的最后一步"——曲线已到（有效）顶，或者按当前剩余 Xp 已经不够继续升下一级。只在
+                // 最后一步先把聚合成长写入 StatHost，再发布该级的 LevelUpEvent；中间级不调用
+                // ApplyGrowth（维持"成长只聚合写入一次"的既有契约，见循环外原本的调用点已删除，
+                // 改到这里）。这样 LevelUpEvent 订阅者（如 RulesAssembly 的
+                // Powers.RecomputeMax/RefillAll）在处理这批升级里"确实会触发回满"的那一次事件时，
+                // 这批升级带来的属性成长已经写入——不会像修复前那样，读到"成长生效前"的旧上限。
+                // 判断记录（不是"永远只在最终 leveledUp 后调用一次"这种更简单的写法）：那种写法需要
+                // 把 ApplyGrowth 移到 while 循环外、且仍在发布最后一个 LevelUpEvent 之前调用，但
+                // "循环外、最后一次发布之前"这一时间点在当前"逐级发布"的循环结构里根本不存在
+                // （最后一次 PublishImmediate 就在循环体内，循环外的语句只能在它之后执行）——因此
+                // 必须把"最后一步"的判断下沉到循环体内部，在这一级对应的 PublishImmediate 之前
+                // 插入调用，才能同时满足"成长只聚合写入一次"与"逐级发布、处理器看到当时等级"两条
+                // 既有契约。
+                var isFinalStepOfThisBatch = unit.Level >= effectiveMaxLevel;
+                if (!isFinalStepOfThisBatch)
+                {
+                    var nextXpToNext = unit.Curve.Entries[unit.Level - 1].XpToNext;
+                    isFinalStepOfThisBatch = nextXpToNext <= 0 || unit.Xp < nextXpToNext;
+                }
+
+                if (isFinalStepOfThisBatch)
+                {
+                    ApplyGrowth(unitId, unit);
+                }
+
                 _bus.PublishImmediate(new LevelUpEvent(unitId, oldLevel, newLevel));
                 leveledUp = true;
             }
@@ -398,7 +425,11 @@ namespace Core.Numbers.Progression
 
             if (leveledUp)
             {
-                ApplyGrowth(unitId, unit);
+                // 2026-09-16 深度复审 D-M2：ApplyGrowth 已经移到上面 while 循环内部、"本次批量升级
+                // 最后一步"发布 LevelUpEvent 之前调用（见该处判断记录），这里不再重复调用——原写法
+                // 在循环结束后才聚合写入一次成长，本身满足"只写一次"，但同一批升级里所有 LevelUpEvent
+                // 已经先于它发布完毕，订阅者（如 RulesAssembly 的 Powers.RefillAll）看到的是"成长
+                // 生效前"的旧上限，这正是 D-M2 要根治的时序缺陷。
                 // CORE-170-02 根治：升级后同步外部实体字段——LevelUpEvent 是 PublishImmediate 同步
                 // 派发，本行放在事件已经发布之后，与 unit.Level 赋值先于事件发布（见上方 N08 收边
                 // 补齐同一惯例）不矛盾：LevelSync 的消费者（WorldUnitAccess.SetLevel）只是把最终

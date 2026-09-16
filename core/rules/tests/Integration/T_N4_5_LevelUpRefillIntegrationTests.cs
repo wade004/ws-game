@@ -31,6 +31,12 @@ namespace Tests.Rules.Integration
         private static readonly Id ManaPower = new Id("arch.power.n4_5_mana");
         private static readonly Id ComboPower = new Id("arch.power.n4_5_combo"); // 积累型：start_full=false
 
+        // 2026-09-16 深度复审 D-M2 回归专用：上限来源是属性（max_source.kind=stat）且该属性靠等级
+        // 曲线成长——报告复现的正是"资源池挂属性、属性靠等级成长"这个最常见配置组合下的时序缺陷。
+        private static readonly Id StatCurveId = new Id("prog.curve.n4_5_refill_stat");
+        private static readonly Id VitStat = new Id("stat.n4_5_vit");
+        private static readonly Id StatHealthPower = new Id("arch.power.n4_5_health_stat");
+
         private const string ProgLevelCurveJson = @"
         {
             ""table"": ""prog.level_curve"",
@@ -41,6 +47,13 @@ namespace Tests.Rules.Integration
                       { ""level"": 1, ""xp_to_next"": 100, ""growth"": {} },
                       { ""level"": 2, ""xp_to_next"": 100, ""growth"": {} },
                       { ""level"": 3, ""xp_to_next"": 0, ""growth"": {} }
+                  ] },
+                { ""id"": ""prog.curve.n4_5_refill_stat"", ""max_level"": 4,
+                  ""entries"": [
+                      { ""level"": 1, ""xp_to_next"": 100, ""growth"": {} },
+                      { ""level"": 2, ""xp_to_next"": 100, ""growth"": { ""stat.n4_5_vit"": 50 } },
+                      { ""level"": 3, ""xp_to_next"": 100, ""growth"": { ""stat.n4_5_vit"": 30 } },
+                      { ""level"": 4, ""xp_to_next"": 0, ""growth"": {} }
                   ] }
             ]
         }";
@@ -55,7 +68,18 @@ namespace Tests.Rules.Integration
                 { ""id"": ""arch.power.n4_5_mana"", ""name_key"": ""l10n.power.n4_5_mana.name"",
                   ""max_source"": { ""kind"": ""fixed"", ""value"": 50 }, ""start_full"": true },
                 { ""id"": ""arch.power.n4_5_combo"", ""name_key"": ""l10n.power.n4_5_combo.name"",
-                  ""max_source"": { ""kind"": ""fixed"", ""value"": 5 }, ""start_full"": false }
+                  ""max_source"": { ""kind"": ""fixed"", ""value"": 5 }, ""start_full"": false },
+                { ""id"": ""arch.power.n4_5_health_stat"", ""name_key"": ""l10n.power.n4_5_health_stat.name"",
+                  ""max_source"": { ""kind"": ""stat"", ""stat"": ""stat.n4_5_vit"" }, ""start_full"": true }
+            ]
+        }";
+
+        private const string StatDefinitionWithVitJson = @"
+        {
+            ""table"": ""stat.definition"",
+            ""schema_version"": 1,
+            ""rows"": [
+                { ""id"": ""stat.n4_5_vit"", ""name_key"": ""l10n.stat.n4_5_vit.name"", ""category"": ""primary"" }
             ]
         }";
 
@@ -74,8 +98,6 @@ namespace Tests.Rules.Integration
 
         private const string ResistCurveJson = @"{ ""table"": ""combat.resist_curve"", ""schema_version"": 1, ""rows"": [] }";
 
-        private const string StatDefinitionJson = @"{ ""table"": ""stat.definition"", ""schema_version"": 1, ""rows"": [] }";
-
         private static Core.Rules.Assembly.RulesAssembly Build(out IEventBus bus, ProgressionOptions? progressionOptions)
         {
             var busLocal = new EventBus(
@@ -83,7 +105,7 @@ namespace Tests.Rules.Integration
                 new EventBusOptions { StrictCatalog = false });
 
             var source = new InMemoryDataSource()
-                .Add("stat.definition", StatDefinitionJson)
+                .Add("stat.definition", StatDefinitionWithVitJson)
                 .Add("prog.level_curve", ProgLevelCurveJson)
                 .Add("arch.power_type", PowerTypeJson)
                 .Add("combat.hit_table_config", HitTableJson)
@@ -182,6 +204,67 @@ namespace Tests.Rules.Integration
             Assert.Equal(2, rules.Progression.GetLevel(Unit));
             Assert.Equal(40, rules.Powers.GetPower(Unit, HealthPower)); // 未回满。
             Assert.Empty(changed);
+        }
+
+        // -----------------------------------------------------------------
+        // 2026-09-16 深度复审 D-M2 回归：max_source.kind=stat 且该属性有非零 growth 时，升级回满
+        // 必须回满到"这一级成长生效之后"的新上限，不能停在成长生效前的旧上限（复审报告复现：修复前
+        // Max/Current 停在 0，成长写入后才追到 50，RefillAll 早已跑完）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LevelUp_MaxSourceIsStatWithGrowth_RefillsToNewMaxAfterGrowthApplied()
+        {
+            var rules = Build(out var bus, progressionOptions: null); // RefillOnLevelUp 缺省 true。
+
+            rules.Stats.RegisterUnit(Unit);
+            rules.Progression.RegisterUnit(Unit, StatCurveId);
+            rules.Powers.RegisterUnit(Unit, new[] { StatHealthPower });
+            bus.DispatchPending();
+
+            // 升级前：stat.n4_5_vit 无基础值、无成长修正，恒为 0——Max/Current 均为 0。
+            Assert.Equal(0, rules.Stats.GetStat(Unit, VitStat));
+            Assert.Equal(0, rules.Powers.GetPowerMax(Unit, StatHealthPower));
+            Assert.Equal(0, rules.Powers.GetPower(Unit, StatHealthPower));
+
+            // 100 经验，曲线 1 级门槛 100——恰好升到 2 级，2 级 growth.stat.n4_5_vit=50。
+            rules.Progression.AddXp(Unit, XpSourceId, 100);
+            bus.DispatchPending();
+
+            Assert.Equal(2, rules.Progression.GetLevel(Unit));
+            Assert.Equal(50, rules.Stats.GetStat(Unit, VitStat)); // 成长确实写入了。
+            // 修复前：这里会读到 0（RefillAll 执行那一刻 Max 还是成长生效前的旧值）。
+            Assert.Equal(50, rules.Powers.GetPowerMax(Unit, StatHealthPower));
+            Assert.Equal(50, rules.Powers.GetPower(Unit, StatHealthPower));
+        }
+
+        /// <summary>跨两级：一次 <c>AddXp</c> 触发两次 <see cref="LevelUpEvent"/>（2 级、3 级分别都有
+        /// growth），确认"成长只聚合写入一次"（<c>ProgressionHostTests
+        /// .AddXp_CrossesTwoLevels_FiresTwoLevelUpEvents_AndWritesCumulativeGrowthOnce</c> 既有契约）
+        /// 与"升级回满到新上限"同时成立——升级回满这条链路不是只在跨一级时才正确。</summary>
+        [Fact]
+        public void LevelUp_CrossTwoLevelsInOneAddXp_MaxSourceIsStatWithGrowth_RefillsToFinalCumulativeMax()
+        {
+            var rules = Build(out var bus, progressionOptions: null);
+
+            rules.Stats.RegisterUnit(Unit);
+            rules.Progression.RegisterUnit(Unit, StatCurveId);
+            rules.Powers.RegisterUnit(Unit, new[] { StatHealthPower });
+            bus.DispatchPending();
+
+            var levelUpCount = 0;
+            bus.Subscribe<LevelUpEvent>(ProgressionEventKeys.LevelUp, e => levelUpCount++);
+
+            // 200 经验：1 级门槛 100、2 级门槛 100——一次 AddXp 连升两级（1→2→3），2/3 级 growth 累计
+            // 50+30=80。
+            rules.Progression.AddXp(Unit, XpSourceId, 200);
+            bus.DispatchPending();
+
+            Assert.Equal(3, rules.Progression.GetLevel(Unit));
+            Assert.Equal(2, levelUpCount); // 逐级发布两次 LevelUpEvent，既有契约不变。
+            Assert.Equal(80, rules.Stats.GetStat(Unit, VitStat)); // 累计成长只聚合写入一次。
+            Assert.Equal(80, rules.Powers.GetPowerMax(Unit, StatHealthPower));
+            Assert.Equal(80, rules.Powers.GetPower(Unit, StatHealthPower));
         }
 
         /// <summary>最小化的 <see cref="Core.Rules.Common.IUnitAccess"/> 假实现——惯例同

@@ -341,5 +341,46 @@ namespace Tests.Carriers.Item
             Assert.Equal(viaExplicit.TargetBudget, viaDefault.TargetBudget, 9);
             Assert.Equal(viaExplicit.Values[StrengthId], viaDefault.Values[StrengthId], 9);
         }
+
+        /// <summary>
+        /// 2026-09-16 深度复审 B-S1：<see cref="IBudgetSolver"/> 新增的 8 参重载（接受调用方预先
+        /// 构建好的 <see cref="ItemBudgetCurve.StatBudgetInfo"/> 字典）在多次调用间复用同一份信息，
+        /// 结果必须与"每次都自建"的既有 7 参重载逐位一致——验证"复用同一份信息"这个优化路径没有
+        /// 悄悄改变任何反解结果。
+        /// </summary>
+        [Fact]
+        public void Solve_ReusingPrebuiltStatBudgetInfoAcrossMultipleCalls_MatchesAutoBuildingOverload()
+        {
+            var view = BuildView();
+            IBudgetSolver solver = new BudgetSolver();
+            var statBudgetInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
+
+            var mixes = new[]
+            {
+                new (Id Stat, double Ratio)[] { (StrengthId, 1.0) },
+                new (Id Stat, double Ratio)[] { (StrengthId, 0.6), (StaminaId, 0.4) },
+                new (Id Stat, double Ratio)[] { (CritRatingId, 1.0) },
+            };
+
+            foreach (var mix in mixes)
+            {
+                var viaAutoBuild = solver.Solve(
+                    itemLevel: 3, qualityId: new Id("item.quality.rare"), slotId: new Id("item.slot.chest"),
+                    statMix: mix, budgetCurveId: new Id("item.budget.default"), shareOfBudget: 0.7, view: view);
+
+                // 同一份 statBudgetInfo 反复传入多次调用，不重新构建。
+                var viaPrebuilt = solver.Solve(
+                    itemLevel: 3, qualityId: new Id("item.quality.rare"), slotId: new Id("item.slot.chest"),
+                    statMix: mix, budgetCurveId: new Id("item.budget.default"), shareOfBudget: 0.7, view: view,
+                    statBudgetInfo: statBudgetInfo);
+
+                Assert.Equal(viaAutoBuild.TargetBudget, viaPrebuilt.TargetBudget, 9);
+                Assert.Equal(viaAutoBuild.ActualConsumed, viaPrebuilt.ActualConsumed, 9);
+                foreach (var kv in viaAutoBuild.Values)
+                {
+                    Assert.Equal(kv.Value, viaPrebuilt.Values[kv.Key], 9);
+                }
+            }
+        }
     }
 }

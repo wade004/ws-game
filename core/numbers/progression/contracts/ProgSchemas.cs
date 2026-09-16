@@ -58,9 +58,17 @@ namespace Core.Numbers.Progression
                         // growth、talent_points）"）：新增可选字段，缺省 0，不需要迁移、不升 schema
                         // 版本（纯新增可选字段）。ProgressionHost 对本字段的消费（写入天赋点余额）
                         // 留 T-N4-2，本任务只登记字段形状。
+                        //
+                        // 判断记录（2026-09-16 深度复审 D-S1：截至 1.36.0 仍未消费，正文补一句提示）：
+                        // 设计层裁定（2026-09-16：采纳）"talent_points 的实际消费（天赋系统接入）留待
+                        // 后续任务"——框架侧（ProgressionHost/IProgressionHost）从未读取过本字段，
+                        // 运行期填了任何数值都不产生任何效果；此前只有 README.md 判断记录写明这一点，
+                        // 正文（本字段描述）没有同步提示，接入方容易误以为框架已经处理了发放，见本
+                        // 复审报告 D-S1。
                         new FieldSchema("talent_points", FieldKind.Int, required: false,
-                            description: "该级获得的天赋点数，缺省 0（ADR-0033 决策 2）；" +
-                                "消费实现（写入天赋点余额）留 T-N4-2，本任务只登记数据形状")
+                            description: "该级获得的天赋点数，缺省 0（ADR-0033 决策 2）；框架当前只" +
+                                "登记与累计该字段本身，运行期不消费——天赋点余额/发放/存档由游戏层" +
+                                "自行订阅 progression.level_up 累加并实现（2026-09-16 深度复审 D-S1）")
                             .WithRange(FieldRange.Range(min: 0)),
                     }, description: "单级成长条目"),
                     description: "Array<{level:Int, xp_to_next:Int, growth:Object<stat_id,Number>, " +

@@ -419,25 +419,101 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-性能基线用例机器归一化口径（不改本机门槛）：`core/gameplay/tests/Perf/PerfBaselineTests.cs` 四条
-性能基线用例的阈值比较改为按运行机器的参考负载耗时归一化——新增
-`Tests.Gameplay.Perf.PerfMachineCalibration`（确定性、与被测代码无关的固定工作量，取 5 次运行
-中位数，进程内只测一次并缓存）；机器系数 = 本机参考负载耗时 ÷ `perf_baseline.json` 新增字段
-`reference_workload_ms`（记录基线时基线机的同一参考负载耗时），限幅 [1, `calibration_factor_max`
-（当前 8）]；四条用例的有效阈值 = 原阈值 × 机器系数，基线机上系数 ≈ 1，与改动前等价。四条用例
-无论成败都通过 `ITestOutputHelper` 输出一行诊断（用例名/中位数/阈值/系数/归一化后阈值/参考负载
-耗时）；`check.ps1` 的 `dotnet test Core.sln` 步骤改用 trx logger 落盘结果、跑完后从 trx 中挑出
-这四行显式回显到 CI transcript，不改变该步骤对其余全部用例的输出量。背景：1.36.0 发布工作流的
-`TickCost_FullPipeline_MedianOfSampledTicks_WithinBaselineThreshold` 曾在共享 runner 上因机器
-繁忙连续两次误报"超阈值"（实测中位数约为基线阈值 1.43～1.44 倍，第三次重跑通过，本机对比确认无
-真实回归），本次改动让阈值判定本身吸收这一类机器速度差异，不再单纯依赖重跑。架构文档勘误：
-`architecture/11_工程规范与测试.md` 第 6 节"性能基线"行补充归一化口径说明（版本号不变，见该文档
-变更记录）。详见 `core/gameplay/tests/Perf/README.md`"机器归一化口径"节判断记录。托管运行器实测
-见 Perf README。
+## [1.37.0] - 2026-09-16
 
-文档：新增 `docs/升级指南/`（`README.md` 索引 + `1.29.0到1.36.0-数值设计专项.md`）——覆盖数值
-设计专项 N0～N6 七个版本（1.30.0～1.36.0）的跨版本升级路径与检查表，与 `CHANGELOG.md` 各版本
-"迁移说明"（记单版增量）互补；根 `README.md`、`architecture/13_新游戏接入指南.md` 已加一句指向。
+N0～N6 深度代码复审（五个领域）修复版：必须修 7 项、建议修 11 项、测试覆盖缺口 19 条；契约只
+新增。
+
+### 修复
+
+- `StatHost.RecomputeRatingStats`/`RemoveModifiersBySource` 改为批量传播派生失效，修复多来源
+  派生属性在单次调用内广播错误中间值（A-M1）。
+- `SkillBudgetAnalyzer.Classify` 补齐技能预算带宽下界判定，修复严重弱于预算的技能永远判"通过"
+  （C-M1）；`data/_sample` 与嵌入数据集相应校正/补 `budget_note`。
+- `EquipmentHost.GetWeaponDps` 改用装备实例真实品质（B-M1）。
+- `CreatureDeathLootListener.OnKill` 货币入账核对击杀者身份并解析召唤物归属，非玩家击杀退回
+  落地（D-M1）。
+- 升级回满时序：`ProgressionHost.AddXpCore` 在最后一级发布 `LevelUpEvent` 前先写入聚合成长，
+  `RulesAssembly` 订阅先 `RecomputeMax` 再 `RefillAll`（D-M2）。
+- 数值仿真命中率统计排除被免疫全额吸收的结算（E-M2）。
+- `toolchain/abi_probe.ps1` 基线侧补齐 `Core.Sim.dll` 依赖抽取（整合项 1）。
+- `ArchClassDerivationOverrideValidationRule` 引用不存在时跳过（整合项 4）。
+
+### 变更
+
+- `SkillHost.GetSkillReadiness` 的 `ActionLocked` 判定补齐排队窗口（C-S1）。
+- `EffectDispatcher` 周期效果冻结缓存键加入效果下标（C-S2）。
+- `Resolver.BuildDamageTakenStatIds` 去重结果缓存（A-S1）。
+- `creature.tier_definition.xp_multiplier`/`gold_multiplier` 补非负范围校验（B-S2）。
+- `LootContentValidationRule` 成环检测报错文本可重现（B-S3）。
+- `EconomyHost.FindAnyVendorSellPrice` 改索引查询（D-S2）。
+- `NumericValidationRuleCatalog` 并入 `sim.anchor`/`sim.scenario` 三项检查，新增"仿真"分组
+  （E-M1，推翻 N6 收尾"目录不收录"裁定）；`SimScenarioValidationRule` 新增
+  `sim_scenario_bandwidth_key_unknown` 警告（E-S2）；目录总数 20→24（阻断 15 + 警告 9）。
+- `skill.budget_rule.beat_seconds`/`periodic_time_discount` 明确为记账常数，离散模式不要求整数
+  （C-S3，文档）。
+- `prog.level_curve.talent_points` 明确框架只登记累计、运行期无消费入口（D-S1，文档）。
+- 仿真侧调用点（`CoverageSimulation`/`GrowthSimulation`/`StandardPlayerBuilder`）改用修复单 2
+  新增的接受预构建 `StatBudgetInfo` 的重载，循环外构建一次，避免装备预算相关热路径重复扫描
+  `stat.definition`/`stat.weight`/`stat.rating_conversion` 三张表（整合项 2，数值零差异）。
+
+### 新增
+
+- `EffectContext.EffectEntryIndex` 与配套构造重载；`CastPipeline.GetCastingRemaining`。
+- `IBudgetSolver.Solve`/`EquipmentScoreAnalyzer.Score` 接受预构建 `StatBudgetInfo` 的重载。
+- `CreatureDeathLootListener` 接受 `ISummonHost?` 的构造重载；共享辅助 `SummonCreditResolver`。
+- `CoverageOutlierRow.SortByDeviationDescendingThenById`；
+  `Core.Sim.SimBandwidthKeys.KnownKeys`；
+  `AnchorTableSkillBudgetAnchorProvider.ResolvedStandardPlayer`。
+- `core/sim/tests` 补品质骰结果偏离模板默认品质对武器秒伤/一场战斗累计伤害的对照测试（B 报告
+  测试覆盖缺口 2，整合项 3）——嵌入数据集新增测试专用技能/优先级表，仅供该用例使用。
+
+### 文档
+
+- 新增 `docs/升级指南/`（`README.md` 索引 + `1.29.0到1.37.0-数值设计专项.md`）——覆盖数值
+  设计专项 N0～N6 七个版本（1.30.0～1.36.0）的跨版本升级路径与检查表，与 `CHANGELOG.md` 各版本
+  "迁移说明"（记单版增量）互补；根 `README.md`、`architecture/13_新游戏接入指南.md` 已加一句
+  指向。
+- 性能基线用例机器归一化口径（不改本机门槛）：`core/gameplay/tests/Perf/PerfBaselineTests.cs`
+  四条性能基线用例的阈值比较改为按运行机器的参考负载耗时归一化——新增
+  `Tests.Gameplay.Perf.PerfMachineCalibration`（确定性、与被测代码无关的固定工作量，取 5 次运行
+  中位数，进程内只测一次并缓存）；机器系数 = 本机参考负载耗时 ÷ `perf_baseline.json` 新增字段
+  `reference_workload_ms`（记录基线时基线机的同一参考负载耗时），限幅 [1, `calibration_factor_max`
+  （当前 8）]；四条用例的有效阈值 = 原阈值 × 机器系数，基线机上系数 ≈ 1，与改动前等价。四条用例
+  无论成败都通过 `ITestOutputHelper` 输出一行诊断（用例名/中位数/阈值/系数/归一化后阈值/参考负载
+  耗时）；`check.ps1` 的 `dotnet test Core.sln` 步骤改用 trx logger 落盘结果、跑完后从 trx 中挑出
+  这四行显式回显到 CI transcript，不改变该步骤对其余全部用例的输出量。背景：1.36.0 发布工作流的
+  `TickCost_FullPipeline_MedianOfSampledTicks_WithinBaselineThreshold` 曾在共享 runner 上因机器
+  繁忙连续两次误报"超阈值"（实测中位数约为基线阈值 1.43～1.44 倍，第三次重跑通过，本机对比确认无
+  真实回归），本次改动让阈值判定本身吸收这一类机器速度差异，不再单纯依赖重跑。架构文档勘误：
+  `architecture/11_工程规范与测试.md` 第 6 节"性能基线"行补充归一化口径说明（版本号不变，见该
+  文档变更记录）。详见 `core/gameplay/tests/Perf/README.md`"机器归一化口径"节判断记录。托管运行
+  器实测见 Perf README。
+- `architecture/04_数据与内容管线.md`/`architecture/06_规则层_属性技能战斗AI.md` 正文勘误：
+  `prog.level_curve.talent_points` 补一句"框架只登记与加载期校验，运行期无消费入口，天赋点
+  余额/发放/存档由接入方自行实现"（D-S1，此前只在 `core/numbers/progression/README.md` 一处
+  判断记录里说明，正文未同步）。
+
+### 迁移说明
+
+- 技能预算下界生效后，既有内容可能新增警告（处理方式：校正数值，或补 `budget_note` 说明设计
+  意图）。
+- 击杀掉钱归属变化：`CreatureDeathLootListener` 现核对击杀者身份并解析召唤物归属，非玩家击杀
+  （或无法归属的召唤物击杀）不再入账落地。
+- 升级回满行为修正：逐级升级路径的最后一级现在先聚合成长再发布 `LevelUpEvent`，回满时机可能
+  与此前版本存在细微差异（结果更准确，不是回退）。
+- 武器秒伤按装备实例真实品质计算（此前按模板默认品质）——掉落三次掷骰产出的常规装备，武器
+  秒伤与一场战斗内 `weapon_damage_pct` 类技能的伤害数值可能因此变化（数值更准确，不是回退）。
+- 数值类校验目录计数由 20 行变为 24 行（新增仿真分组三项 + `sim_scenario_bandwidth_key_unknown`
+  一项警告），若编辑器一侧按目录行数或分组名单做了硬编码假设，需要同步更新。
+
+### 编辑器接入建议
+
+- 若编辑器内置了数值类校验目录的本地缓存/展示（如按分组渲染检查项列表），需要跟进本版新增
+  的"仿真"分组三项检查与 `sim_scenario_bandwidth_key_unknown` 一项警告，目录总数由 20 行改为
+  24 行（阻断 15 + 警告 9）。
+- 若编辑器展示武器秒伤/技能伤害预览，建议改用装备实例真实品质（`ItemInstance.Quality`）而不是
+  模板默认品质，避免预览值与运行期实际结算不一致（B-M1 修复前两者恒等，修复后可能出现偏差）。
 
 ## [1.36.0] - 2026-09-16
 
@@ -844,7 +920,7 @@ MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶�
   是文档确认而非行为变化；游戏层若此前已用别的属性 id 承载移动速度，需要经
   `MovementOptions.MoveSpeedStat` 显式配置（此前即需要，本次不新增约束）。
 
-跨版本升级见 [docs/升级指南/1.29.0到1.36.0-数值设计专项.md](docs/升级指南/1.29.0到1.36.0-数值设计专项.md)。
+跨版本升级见 [docs/升级指南/1.29.0到1.37.0-数值设计专项.md](docs/升级指南/1.29.0到1.37.0-数值设计专项.md)。
 
 ## [1.35.0] - 2026-09-16
 
@@ -1885,7 +1961,7 @@ MINOR 版本：数值设计落地阶段 N0"横切前置"（[数值设计分阶�
   `Strictness=WarningsBlock` 下不会被提升为阻断；若游戏层此前依赖"全部警告在 WarningsBlock 下
   都会阻断"这一假设，需要重新核对。
 
-跨版本升级见 [docs/升级指南/1.29.0到1.36.0-数值设计专项.md](docs/升级指南/1.29.0到1.36.0-数值设计专项.md)。
+跨版本升级见 [docs/升级指南/1.29.0到1.37.0-数值设计专项.md](docs/升级指南/1.29.0到1.37.0-数值设计专项.md)。
 
 ## [1.29.0] - 2026-09-14
 

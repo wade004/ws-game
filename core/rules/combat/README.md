@@ -379,6 +379,27 @@ combat/
       开关为假不移除 1 组、开关为真但 `MountAuraDispelType` 未配置不移除 1 组、委托未接线不
       抛异常 1 组、已在战不重复移除 1 组）。
 
+## 深度复审 A-S1 修复（2026-09-16）：`Resolver.BuildDamageTakenStatIds` 去重结果缓存
+
+- **背景**：深度复审（N0～N6 数值设计专项）发现 T-N1-7 新增的 `Resolver.BuildDamageTakenStatIds`
+  （目标乘区实际读取属性集合 = `{DamageTakenPctStat} ∪ DamageTakenPctStats`，去重）每次调用都新建
+  一个 `HashSet<Id>` 与一个 `List<Id>`，而该方法在 `Resolve` 步骤 6"目标乘区"里对每一次非治疗伤害
+  结算都调用一次——即每次武器命中/法术伤害/DoT tick 都分配这两个集合，与本模块"避免每 tick 产生
+  大量临时分配"的既有原则相悖（不影响任何计算结果，纯粹是可避免的 GC 分配）。
+- **修法**：缓存去重结果为 `Resolver` 的三个实例字段（`_damageTakenStatIdsCache`/
+  `_damageTakenStatIdsCacheKeyStat`/`_damageTakenStatIdsCacheKeyExtra`）——`CombatOptions` 本身可写
+  （各属性均带 `set`），不能假定其在 `Resolver` 实例生命周期内绝对不变，因此按"引用相等"缓存：只要
+  `CombatOptions.DamageTakenPctStat` 的值与 `CombatOptions.DamageTakenPctStats` 的列表引用都与上一次
+  算缓存时相同，直接返回同一个缓存实例；任一项变化（配置在装配阶段之后被重新赋值）才重新计算一次
+  并更新缓存键。`Id` 按值比较，`DamageTakenPctStats` 列表按 `ReferenceEquals` 比较（同一个列表实例
+  被原地修改不在本次判断记录约束范围内，同 `CombatOptions` 其余只读快照式集合属性"装配阶段设定
+  一次"的既有惯例）。
+- **回归测试**（`core/rules/combat/tests/ResolverScopedReductionTests.cs`，经反射调用私有方法的
+  白盒断言）：`BuildDamageTakenStatIds_RepeatedCallsWithUnchangedOptions_ReturnSameCachedInstance`
+  （多次调用返回同一实例）、
+  `BuildDamageTakenStatIds_AfterDamageTakenPctStatsReassigned_InvalidatesCacheAndRecomputes`
+  （列表引用变化后缓存正确失效并重新计算）。
+
 ## 契约缺口 / 未决问题
 
 - `IThreatTable` 契约的方法签名对"是否每单位一份实例"没有强约束（见判断记录 1），如果后续

@@ -607,11 +607,15 @@ namespace Core.Gameplay.Assembly
             // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/
             // powers/statsRef 那样用闭包延迟回填）——供 OnUnitDied 构造 RollContext 时取
             // IDifficultyHost.ItemLevelOffset（见 CreatureDeathLootListener 该构造重载判断记录）。
+            // 2026-09-16 深度复审 D-M1：追加 summons: Carriers.Summons，供 OnUnitDied 货币入账前把
+            // 击杀者解析为记账单位（召唤物→主人），与下面 CreatureDeathXpListener 的既有装配点保持
+            // 一致（该处一直就传了 summons，见其判断记录）。
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
                 lootMultiplierProvider: () => Difficulty.LootMultiplier,
                 difficultyHost: Difficulty,
-                economyHost: deferredEconomyHost);
+                economyHost: deferredEconomyHost,
+                summons: Carriers.Summons);
 
             // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 2"接线
             // 顺序先掉落后经验"）：接在 CreatureDeathLootListener 构造之后，订阅同一个 unit.died；

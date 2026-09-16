@@ -149,10 +149,14 @@ namespace Tests.Numbers.Progression
         private const string N42LevelDiffRows =
             "[{\"id\":\"combat.level_diff.n42\",\"xp_factor\":[{\"x\":-5,\"y\":0.1},{\"x\":0,\"y\":1.0},{\"x\":5,\"y\":1.5}]}]";
 
-        // 五条经验来源：kill/quest 各带 base_curve_ref + level_diff_ref；discovery 一条不接
+        // 六条经验来源：kill/quest 各带 base_curve_ref + level_diff_ref；discovery 一条不接
         // level_diff_ref（验证"探索本就不查表"），另一条故意也接上 level_diff_ref（验证"即便接了
-        // 也不生效"，见 ComputeCurveBasedRawAmount 判断记录）；末一条只用于"旧字段兼容：曲线优先"
-        // 用例，故意同时保留 base_xp/weight 与 base_curve_ref、不填 kind（兜底按 kill 处理）。
+        // 也不生效"，见 ComputeCurveBasedRawAmount 判断记录）；倒数第二条只用于"旧字段兼容：曲线
+        // 优先"用例，故意同时保留 base_xp/weight 与 base_curve_ref、不填 kind（兜底按 kill 处理）；
+        // 末一条（2026-09-16 深度复审 D-S3）只登记 base_curve_ref（base_xp 只是满足 schema
+        // required:true、不影响折算——base_curve_ref 存在时优先），不填 kind，专供
+        // GrantXp_NoKind_FallsBackToKillBranch_UsesExtraXpMultiplierProvider 用例锁定
+        // "kind 缺省确实执行 kill 分支代码路径"（不是仅数值上恰好与 kill 分支一致）。
         private const string N42XpSourceRows = @"[
             { ""id"": ""prog.xp.kill_n42"", ""kind"": ""kill"", ""base_xp"": 1,
               ""base_curve_ref"": ""prog.xp_base_curve.n42"", ""level_diff_ref"": ""combat.level_diff.n42"" },
@@ -163,7 +167,8 @@ namespace Tests.Numbers.Progression
             { ""id"": ""prog.xp.discovery_ignorediff_n42"", ""kind"": ""discovery"", ""base_xp"": 1,
               ""base_curve_ref"": ""prog.xp_base_curve.n42"", ""level_diff_ref"": ""combat.level_diff.n42"" },
             { ""id"": ""prog.xp.legacy_with_curve_n42"", ""base_xp"": 999, ""weight"": 2,
-              ""base_curve_ref"": ""prog.xp_base_curve.n42"" }
+              ""base_curve_ref"": ""prog.xp_base_curve.n42"" },
+            { ""id"": ""prog.xp.no_kind_n42"", ""base_xp"": 1, ""base_curve_ref"": ""prog.xp_base_curve.n42"" }
         ]";
 
         /// <summary>占位 <c>combat.level_diff_table</c> schema——真实字段表归 <c>Core.Rules.Combat.
@@ -715,6 +720,35 @@ namespace Tests.Numbers.Progression
             var granted = host.GrantXp(unit, new Id("prog.xp.kill_n42"), new XpContext(sourceLevel: 3));
 
             Assert.Equal(30, granted);
+        }
+
+        /// <summary>
+        /// 2026-09-16 深度复审 D-S3：<c>prog.xp.no_kind_n42</c> 不登记 <c>kind</c> 字段——
+        /// <c>ComputeCurveBasedRawAmount</c> 的判断记录明确"kind 缺省按 kill 处理"，但此前没有任何
+        /// 用例真正锁定这一行为，只是恰好数值上与其它分支撞在一起（因为多数测试都没配置
+        /// <see cref="ProgressionOptions.ExtraXpMultiplierProvider"/>，kill 分支与 quest/discovery
+        /// 分支在那种配置下算出同一个数）。本用例故意配置一个非 1 的
+        /// <c>ExtraXpMultiplierProvider</c>——只有 <c>kill</c>（包含 kind 缺省兜底）分支会调用它，
+        /// <c>quest</c>/<c>discovery</c> 分支完全不读这个委托：baseAmount=Evaluate(5)=500，
+        /// 若真的走了 kill 分支：500×3.0(倍率)×1.0(无 level_diff_ref)=1500；若误落到 quest/discovery
+        /// 分支：500×1.0(Equivalent 缺省)×1.0=500——断言 1500 而不是 500，才能真正证明"kind 缺省"
+        /// 执行的是 kill 分支代码路径，不只是数值上凑巧相同。
+        /// </summary>
+        [Fact]
+        public void GrantXp_NoKind_FallsBackToKillBranch_UsesExtraXpMultiplierProvider()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var options = new ProgressionOptions { ExtraXpMultiplierProvider = (unitId, sourceId, tierId) => 3.0 };
+            var host = MakeHostWithOptions(registry, bus, writers, options);
+            var unit = new Id("unit.n4_s3_no_kind_01");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 5);
+
+            var granted = host.GrantXp(unit, new Id("prog.xp.no_kind_n42"), new XpContext(sourceLevel: 5));
+
+            Assert.Equal(1500, granted);
         }
 
         // -----------------------------------------------------------------

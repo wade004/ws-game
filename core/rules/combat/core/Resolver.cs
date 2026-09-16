@@ -574,6 +574,19 @@ namespace Core.Rules.Combat
         // T-N1-7：步骤 1（被暴击减免介入暴击率）与步骤 6（目标乘区）共用的按显式 id 清单 + 作用域求和
         // -----------------------------------------------------------------
 
+        /// <summary>深度复审 A-S1（2026-09-16）新增的去重结果缓存——见 <see
+        /// cref="BuildDamageTakenStatIds"/> 判断记录。</summary>
+        private IReadOnlyList<Id>? _damageTakenStatIdsCache;
+
+        /// <summary>上一次算出 <see cref="_damageTakenStatIdsCache"/> 时使用的
+        /// <see cref="CombatOptions.DamageTakenPctStat"/> 值，用于判断缓存是否仍然有效。</summary>
+        private Id _damageTakenStatIdsCacheKeyStat;
+
+        /// <summary>上一次算出 <see cref="_damageTakenStatIdsCache"/> 时使用的
+        /// <see cref="CombatOptions.DamageTakenPctStats"/> 列表引用（按引用相等比较，见 <see
+        /// cref="BuildDamageTakenStatIds"/> 判断记录）。</summary>
+        private IReadOnlyList<Id>? _damageTakenStatIdsCacheKeyExtra;
+
         /// <summary>
         /// T-N1-7（[ADR-0030](../../../../architecture/adr/0030-属性系统派生换算与来源类别.md)
         /// 决策 5；06 第 4.1 节 2026-09-14 修订段）：目标乘区实际读取的属性 id 集合 =
@@ -581,18 +594,43 @@ namespace Core.Rules.Combat
         /// 出现顺序去重（<see cref="CombatOptions.DamageTakenPctStat"/> 恒排在最前）——保证既有单
         /// 属性配置项即便也被显式列进 <see cref="CombatOptions.DamageTakenPctStats"/>，也只计入
         /// 一次（见该属性判断记录）。
+        /// <para>
+        /// 判断记录（深度复审 A-S1 修复，2026-09-16）：本方法在 <see cref="Resolve"/> 步骤 6 的
+        /// "目标乘区"里对<b>每一次</b>非治疗伤害结算都调用一次，原实现每次都新建一个
+        /// <see cref="HashSet{T}"/> 与一个 <see cref="List{T}"/>——是战斗结算热路径上可避免的 GC
+        /// 分配（与本模块"避免每 tick 产生大量临时分配"的既有原则相悖），不影响任何计算结果。
+        /// <see cref="CombatOptions"/> 本身可写（各属性均带 <c>set</c>），不能假定它在
+        /// <see cref="Resolver"/> 实例生命周期内绝对不变，因此不能只缓存一次就永久复用——这里按
+        /// "引用相等"缓存：只要 <see cref="CombatOptions.DamageTakenPctStat"/> 的值与
+        /// <see cref="CombatOptions.DamageTakenPctStats"/> 的列表引用都与上一次算缓存时相同，就直接
+        /// 返回同一个缓存实例；任一项变化（配置在装配阶段之后被重新赋值）才重新计算一次并更新缓存
+        /// 键。<see cref="Id"/> 是值语义，按值比较；<see cref="CombatOptions.DamageTakenPctStats"/>
+        /// 是引用类型，按 <see cref="object.ReferenceEquals(object?, object?)"/> 比较——同一个列表
+        /// 实例被原地修改（而不是整体替换成新实例）不属于本类判断记录约束范围（同 <see
+        /// cref="CombatOptions"/> 其余只读快照式集合属性的既有惯例：装配阶段设定一次，不支持热改
+        /// 内容后原地变更同一实例）。
+        /// </para>
         /// </summary>
         private IReadOnlyList<Id> BuildDamageTakenStatIds()
         {
+            var stat = _options.DamageTakenPctStat;
+            var extra = _options.DamageTakenPctStats;
+
+            if (_damageTakenStatIdsCache != null
+                && _damageTakenStatIdsCacheKeyStat == stat
+                && ReferenceEquals(_damageTakenStatIdsCacheKeyExtra, extra))
+            {
+                return _damageTakenStatIdsCache;
+            }
+
             var seen = new HashSet<Id>();
             var result = new List<Id>();
 
-            if (seen.Add(_options.DamageTakenPctStat))
+            if (seen.Add(stat))
             {
-                result.Add(_options.DamageTakenPctStat);
+                result.Add(stat);
             }
 
-            var extra = _options.DamageTakenPctStats;
             for (int i = 0; i < extra.Count; i++)
             {
                 if (seen.Add(extra[i]))
@@ -601,6 +639,9 @@ namespace Core.Rules.Combat
                 }
             }
 
+            _damageTakenStatIdsCache = result;
+            _damageTakenStatIdsCacheKeyStat = stat;
+            _damageTakenStatIdsCacheKeyExtra = extra;
             return result;
         }
 

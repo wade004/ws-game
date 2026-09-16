@@ -38,6 +38,7 @@
       "cast_time": 0,
       "respects_gcd": false,
       "target_shape_ref": "target.chain.sim_self",
+      "budget_note": "深度复审 C-M1（2026-09-16）：永久生存类被动（stamina +20 flat，skill.aura_def.sim_toughness 无 duration），SkillBudgetAnalyzer.ComputeBuffValue 对永久增益按设计不参与增益价值计算（见该方法判断记录），比值恒为 0 属设计意图，不是数值遗漏。",
       "effects": [
         {
           "kind": "apply_aura",
@@ -59,6 +60,7 @@
       "cooldown_duration": 30.0,
       "respects_gcd": true,
       "target_shape_ref": "target.chain.sim_self",
+      "budget_note": "深度复审 C-M1（2026-09-16）：短时小幅团队增益（攻击强度 +15%，持续 20 秒，30 秒冷却），刻意保持低预算占比，不与主输出技能竞争预算，比值偏低属设计意图。",
       "effects": [
         {
           "kind": "apply_aura",
@@ -204,6 +206,27 @@
         }
       ],
       "budget_note": "T-N6-5 覆盖仿真探针（skill_probe）：预算比值刻意远超预算上限，验证覆盖仿真离群值列表排序——不进 skill.book/ai.rotation，不参与任何真实战斗结算，只作为 skill.def 全表扫描的数据行存在。"
+    },
+    {
+      "id": "skill.sim_review_b_weapon_pct_strike",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 5,
+      "tags": [
+        "skill.tag.sim_melee"
+      ],
+      "cast_time": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.sim_nearest_enemy",
+      "effects": [
+        {
+          "kind": "weapon_damage_pct",
+          "params": {
+            "pct": 1.0
+          }
+        }
+      ],
+      "budget_note": "复审整合项 3（B 报告测试覆盖缺口 2，2026-09-16）：仅供 T_ReviewB_Gap2_WeaponQualityDriftBattleDamageTests 使用的专用武器伤害技能（weapon_damage_pct pct=1.0），不进 skill.book、只由 ai.rotation.sim_review_b_weapon_pct 单独引用，不参与任何标准玩家/覆盖仿真/成长仿真的真实战斗结算或预算带宽评估，budget_note 只为满足 SkillBudgetAnalyzer 的既有'有说明的越界一律归已确认偏差'口径，不代表数值设计意图。"
     }
   ]
 }

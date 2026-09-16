@@ -41,6 +41,16 @@
           "skill_id": "skill.sim_creature_bite_elite"
         }
       ]
+    },
+    {
+      "id": "ai.rotation.sim_review_b_weapon_pct",
+      "entries": [
+        {
+          "priority": 10,
+          "condition": "true",
+          "skill_id": "skill.sim_review_b_weapon_pct_strike"
+        }
+      ]
     }
   ]
 }

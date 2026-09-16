@@ -663,6 +663,17 @@ namespace Core.Numbers.StatBlock
             PropagateDerivedInvalidation(unitId, unit, modifier.Stat);
         }
 
+        /// <summary>
+        /// 判断记录（深度复审 A-M1 修复，2026-09-16）：本方法在一次调用内可能同时移除多个属性上
+        /// 来自 <paramref name="sourceId"/> 的修正——如果两个（或更多）这样"直接受影响"的属性同为
+        /// 某个 <c>derived</c> 属性的 <c>derived_from</c> 来源，旧实现逐个属性立即调用 <see
+        /// cref="PropagateDerivedInvalidation"/> 会让该派生属性在同一次调用内被计算并广播多次，其中
+        /// 除最后一次外全部是"只有部分来源已刷新"的错误中间值（与 <see cref="RecomputeRatingStats"/>
+        /// 的 A-M1 缺陷同一模式，见该方法判断记录）。现改为：先对全部直接受影响属性移除修正、只记录
+        /// 旧值不立即重算；移除完毕后交给 <see cref="RecomputeAffectedStatsBatch"/> 按拓扑序统一重算
+        /// 一次（直接受影响属性自身与它们的传递依赖者同属一批，谁在拓扑序里先谁后由该方法保证），
+        /// 确保任意属性在本次调用内只被计算一次、只广播 0 或 1 条 <see cref="StatChangedEvent"/>。
+        /// </summary>
         public void RemoveModifiersBySource(Id unitId, Id sourceId)
         {
             var unit = RequireUnit(unitId);
@@ -671,6 +682,8 @@ namespace Core.Numbers.StatBlock
             // 不是 ModifiersByStat 字典本身，这里不需要防御字典结构变化，只是避免在同一次
             // foreach 里既读又写字典的心智负担。
             var stats = new List<Id>(unit.ModifiersByStat.Keys);
+            var directlyAffected = new HashSet<Id>();
+            var oldValues = new Dictionary<Id, double>();
             for (int i = 0; i < stats.Count; i++)
             {
                 var stat = stats[i];
@@ -684,20 +697,24 @@ namespace Core.Numbers.StatBlock
                 if (!hasSource) continue;
 
                 var def = _definitions[stat];
-                var oldValue = ComputeFinal(unitId, unit, def);
-
-                list.RemoveAll(mod => mod.SourceId == sourceId);
-
-                var newValue = ComputeFinal(unitId, unit, def);
-                unit.Cache[stat] = newValue;
-
-                if (newValue != oldValue)
-                {
-                    _bus.Enqueue(new StatChangedEvent(unitId, stat, oldValue, newValue));
-                }
-
-                PropagateDerivedInvalidation(unitId, unit, stat);
+                // 移除前先捕获旧值——批量重算阶段会先把全部直接受影响属性的修正一次性移除完毕
+                // 再统一计算最终值，这里的旧值必须在任何移除发生之前拍下来，否则会拍到"部分属性
+                // 已经移除、部分尚未移除"的中间态。
+                oldValues[stat] = ComputeFinal(unitId, unit, def);
+                directlyAffected.Add(stat);
             }
+
+            if (directlyAffected.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var stat in directlyAffected)
+            {
+                unit.ModifiersByStat[stat].RemoveAll(mod => mod.SourceId == sourceId);
+            }
+
+            RecomputeAffectedStatsBatch(unitId, unit, directlyAffected, oldValues);
         }
 
         public IReadOnlyList<StatModifier> GetModifiers(Id unitId, Id stat)
@@ -740,8 +757,24 @@ namespace Core.Numbers.StatBlock
         /// <para>
         /// 判断记录（T-N1-2 追加）：06 第 1.1 节修订段"来源属性或派生系数变化时派生属性重算，与既有
         /// '等级变化驱动评级缓存重算'同一通知路径"——本方法重算某条评级属性后，如果恰好有其它派生
-        /// 属性以它为 <c>derived_from</c> 来源，同样要经 <see cref="PropagateDerivedInvalidation"/>
-        /// 传播失效，否则"评级属性只因等级变化而改变"这条路径会绕过派生缓存失效，留下过期值。
+        /// 属性以它为 <c>derived_from</c> 来源，同样要传播失效，否则"评级属性只因等级变化而改变"
+        /// 这条路径会绕过派生缓存失效，留下过期值。
+        /// </para>
+        /// <para>
+        /// 判断记录（深度复审 A-M1 修复，2026-09-16）：一个单位等级变化会在同一次调用内让<b>全部</b>
+        /// 带 <see cref="StatDefinition.ConversionRef"/> 的属性一起重算——如果某个 <c>derived</c>
+        /// 属性同时以两个（或更多）这样的评级属性为 <c>derived_from</c> 来源，旧实现"每命中一个评级
+        /// 属性就立即调用一次 <see cref="PropagateDerivedInvalidation"/>"会让该派生属性被计算并广播
+        /// 多次：除最后一次外，前面几次广播出去的 <see cref="StatChangedEvent.NewValue"/> 都只是"部分
+        /// 来源已按新等级刷新、部分仍停留在旧等级"的错误中间值，不是任何稳定状态对应的值，而且具体
+        /// 广播几次、中间值是多少还取决于 <c>_definitions.Values</c>（<see cref="Dictionary{TKey,
+        /// TValue}"/>）的枚举顺序——不属于 API 契约保证范围。现改为与 <see
+        /// cref="RecomputeDerivationOverrideAffectedStats"/> 同一批量模式：第一遍只重算全部带
+        /// <see cref="StatDefinition.ConversionRef"/> 的属性本身并写入缓存、收集到
+        /// <c>directlyAffected</c> 集合，不在遍历中途传播失效；全部重算完毕后交给 <see
+        /// cref="RecomputeAffectedStatsBatch"/> 对 <c>directlyAffected</c> 的传递依赖并集按 <see
+        /// cref="_topoOrder"/> 统一重算一次，确保任意受影响属性（含它自己）在本次调用内只被计算
+        /// 一次、只广播 0 或 1 条 <see cref="StatChangedEvent"/>，且值必为最终稳定值。
         /// </para>
         /// </summary>
         public void RecomputeRatingStats(Id unitId)
@@ -751,6 +784,8 @@ namespace Core.Numbers.StatBlock
                 return;
             }
 
+            var directlyAffected = new HashSet<Id>();
+            var oldValues = new Dictionary<Id, double>();
             foreach (var def in _definitions.Values)
             {
                 if (!def.ConversionRef.HasValue)
@@ -758,17 +793,19 @@ namespace Core.Numbers.StatBlock
                     continue;
                 }
 
-                var hasCached = unit.Cache.TryGetValue(def.Id, out var oldValue);
-                var newValue = ComputeFinal(unitId, unit, def);
-                unit.Cache[def.Id] = newValue;
-
-                if (hasCached && newValue != oldValue)
+                directlyAffected.Add(def.Id);
+                if (unit.Cache.TryGetValue(def.Id, out var oldValue))
                 {
-                    _bus.Enqueue(new StatChangedEvent(unitId, def.Id, oldValue, newValue));
+                    oldValues[def.Id] = oldValue;
                 }
-
-                PropagateDerivedInvalidation(unitId, unit, def.Id);
             }
+
+            if (directlyAffected.Count == 0)
+            {
+                return;
+            }
+
+            RecomputeAffectedStatsBatch(unitId, unit, directlyAffected, oldValues);
         }
 
         /// <summary>
@@ -955,6 +992,80 @@ namespace Core.Numbers.StatBlock
                 if (result.Add(dependent))
                 {
                     CollectTransitiveDependents(dependent, result);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 深度复审 A-M1 修复（2026-09-16）新增的通用批量重算入口：一次逻辑操作（一次 <see
+        /// cref="RecomputeRatingStats"/> 调用、一次 <see cref="RemoveModifiersBySource"/> 调用等）内，
+        /// 如果同时有<b>多个</b>属性的底层输入（base/modifier，或 <see cref="RecomputeRatingStats"/>
+        /// 场景下的评级换算结果）发生变化，调用方必须先把这些"直接受影响"属性（<paramref
+        /// name="directlyAffected"/>）的底层输入全部变更完毕，再调用本方法一次性收尾——不能像
+        /// A-M1 缺陷那样每变更一个属性就立即调用 <see cref="PropagateDerivedInvalidation"/>，否则一个
+        /// 同时依赖多个直接受影响属性的派生属性会在本次调用内被重算并广播多次，其中除最后一次外全部
+        /// 是"部分来源已刷新、部分尚未刷新"的错误中间值。
+        /// <para>
+        /// 处理方式：<paramref name="directlyAffected"/> 本身与它们的全部传递依赖者按 <see
+        /// cref="_topoOrder"/>（来源恒先于派生，见 <see cref="BuildDerivationGraph"/>）统一遍历一次；
+        /// 拓扑序保证处理到任何一个属性时，它在本次批次里依赖的全部上游属性（无论是
+        /// <paramref name="directlyAffected"/> 里的另一个成员，还是更上游的传递依赖者）都已经完成
+        /// 本轮重算并写回缓存，因此每个属性只会被 <see cref="ComputeFinal"/> 计算一次，且这一次算出
+        /// 的就是最终稳定值。
+        /// </para>
+        /// <para>
+        /// <paramref name="directlyAffected"/> 里的属性：旧值取 <paramref
+        /// name="capturedOldValues"/>（调用方必须在变更底层输入<b>之前</b>捕获，避免拍到"部分属性
+        /// 已变更、部分尚未变更"的批内中间态）——该字典没有对应键时，视为"此前从未被缓存过"，只写入
+        /// 新值、不与任何旧值比较、不广播事件（同 <see cref="GetStat"/> 惯用的"未查询过不主动补算/
+        /// 补发事件"口径）。不在 <paramref name="directlyAffected"/> 里的传递依赖者：只处理"此前已经
+        /// 被缓存过"的（<see cref="UnitStats.Cache"/> 命中），未命中的维持惰性、下一次 <see
+        /// cref="GetStat"/> 现算时自然读到最新状态——与 <see cref="PropagateDerivedInvalidation"/>/
+        /// <see cref="RecomputeDerivationOverrideAffectedStats"/> 同一惰性口径。
+        /// </para>
+        /// </summary>
+        private void RecomputeAffectedStatsBatch(
+            Id unitId,
+            UnitStats unit,
+            HashSet<Id> directlyAffected,
+            Dictionary<Id, double> capturedOldValues)
+        {
+            var allAffected = new HashSet<Id>(directlyAffected);
+            foreach (var stat in directlyAffected)
+            {
+                CollectTransitiveDependents(stat, allAffected);
+            }
+
+            for (int i = 0; i < _topoOrder.Count; i++)
+            {
+                var stat = _topoOrder[i];
+                if (!allAffected.Contains(stat))
+                {
+                    continue;
+                }
+
+                bool hasOldValue;
+                double oldValue;
+                if (directlyAffected.Contains(stat))
+                {
+                    hasOldValue = capturedOldValues.TryGetValue(stat, out oldValue);
+                }
+                else
+                {
+                    hasOldValue = unit.Cache.TryGetValue(stat, out oldValue);
+                    if (!hasOldValue)
+                    {
+                        continue; // 传递依赖者从未被缓存过：维持惰性，不主动补算。
+                    }
+                }
+
+                var def = _definitions[stat];
+                var newValue = ComputeFinal(unitId, unit, def);
+                unit.Cache[stat] = newValue;
+
+                if (hasOldValue && newValue != oldValue)
+                {
+                    _bus.Enqueue(new StatChangedEvent(unitId, stat, oldValue, newValue));
                 }
             }
         }

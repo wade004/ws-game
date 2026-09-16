@@ -362,6 +362,18 @@ namespace Core.Rules.Assembly
             {
                 if (resolvedProgressionOptions.RefillOnLevelUp && Powers.IsRegistered(evt.UnitId))
                 {
+                    // 2026-09-16 深度复审 D-M2 根治：先显式同步刷新一次上限，再回满。本事件处理器
+                    // 与上方第 341 行 StatChangedEvent 订阅的 Powers.RecomputeMax（同一 IEventBus
+                    // 派发批次内，PowerHost.RefillAll 读取的是 PowerState.Max 这个缓存字段）之间的
+                    // 顺序关系不可靠——ProgressionHost.AddXpCore 里本次批量升级最后一步的成长写入
+                    // （见该方法判断记录）触发的 stat.changed 是 Enqueue（不是 PublishImmediate），
+                    // 此刻还没派发，缓存的 Max 仍是"这一级成长生效前"的旧值；等 stat.changed 真正被
+                    // DispatchPending 消费、RecomputeMax 算出新上限时，本订阅早已用旧 Max 跑完
+                    // RefillAll，Current 永远追不上新上限（复审报告 D-M2 复现）。同构先例见
+                    // core/sim/core/HeadlessWorldBuilder.cs 出生等级 >1 场景的既有修复判断记录
+                    // ——不能指望后续某次 DispatchPending 补上，必须在这里显式同步调用一次
+                    // RecomputeMax。
+                    Powers.RecomputeMax(evt.UnitId);
                     Powers.RefillAll(evt.UnitId, ProgressionEventKeys.LevelUp);
                 }
             });

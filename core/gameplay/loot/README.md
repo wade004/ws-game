@@ -437,6 +437,36 @@ loot/
     - **回放/Perf 基线核查**：`--filter "FullyQualifiedName~Replay"` 全绿，基线零改动——回放场景
       不触达本任务改动的任一路径（同判断记录 15/16 既有核查结论）。
 
+18. **2026-09-16 深度复审 D-M1/B-S3 判断记录**：
+    - **D-M1（必须修）**：`CreatureDeathLootListener.OnUnitDied` 的 `OnKill` 货币入账分支此前只要
+      `evt.KillerId.HasValue` 就无条件 `Add` 进 `evt.KillerId` 自己的钱包——不核对击杀者是否为
+      玩家、也不做"召唤物击杀归主人"的归属解析（判断记录 17 同批新增的 `CreatureDeathXpListener`
+      有这一步，本类当时没有）。生物互殺（击杀者是怪物）时金币静默存入一个通常几秒后就销毁的
+      运行期单位钱包，永久遗失；玩家召唤物击杀目标时金币进了召唤物自己的钱包，玩家收不到。新增
+      构造重载接受可选 `ISummonHost? summons`（ABI 只增不改，同判断记录 17"T-N4-7 新增重载"款
+      ABI 判断）；`OnUnitDied` 在货币入账前先经
+      `Core.Gameplay.Common.SummonCreditResolver.ResolveCreditUnit`（与
+      `CreatureDeathXpListener.ResolveCreditUnit` 共用的同一份静态辅助，见
+      `core/gameplay/common/core/SummonCreditResolver.cs`，避免两处各自维护一份同构逻辑）把
+      `evt.KillerId` 解析为记账单位，再核对 `IUnitAccess.GetSourceKind` 是否为
+      `SourceKind.Player`——不是玩家（且不归属任何玩家召唤物）时，整条产出（不只是货币条目）
+      原样退回 `GroundPickup` 语义，与"击杀者为空"的既有处理口径一致，不静默丢弃。
+      `GameplayAssembly.cs` 第 6 步的生产装配调用点同步追加 `summons: Carriers.Summons`（对齐
+      `CreatureDeathXpListener` 一贯就有的装配点）。新增测试：
+      `T_N4_7_CreatureDeathCurrencyDepositTests
+      .OnUnitDied_OnKillPolicy_KillerIsNonPlayerCreature_FallsBackToGroundLoot_
+      NotDepositedIntoCreatureWallet`/
+      `.OnUnitDied_OnKillPolicy_KillerIsPlayerSummon_CreditsOwnerWallet_NotSummonWallet`；既有
+      `OnUnitDied_OnKillPolicy_WithKiller_DepositsCurrencyImmediately_NoGroundLoot` 的夹具补上
+      "击杀者显式注册为世界里的 `PlayerUnit`"这一步（此前只是一个裸 `Id`，修复前不核对身份也能
+      通过，掩盖了这个缺口）。
+    - **B-S3（建议修，已采纳）**：`LootContentValidationRule` 的成环检测 DFS 起点改为按 `Id`
+      序数排序后的稳定顺序，不再直接依赖 `Dictionary<Id, List<Id>>` 的枚举顺序（未定义，不同
+      进程/哈希种子下可能不同）——数据里同时存在多个独立成环组件时，报出的 `cyclePath` 文本现在
+      可重现，同本文件"随机确定性"（判断记录 1）"不依赖 `GetAll` 既有顺序是否稳定"一贯口径。
+      新增测试：`LootHostRollTests
+      .TwoDisjointCycles_CyclePathText_IsDeterministic_StartsFromSmallestIdInEachComponent`。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `loot.table.groups` 元素结构（对照 `LootTableParser.ParseGroup`/`ParseEntry` 运行时解析代码）：

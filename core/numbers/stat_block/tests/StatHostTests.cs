@@ -345,6 +345,135 @@ namespace Tests.Numbers.StatBlock
             Assert.Null(exception);
         }
 
+        // -----------------------------------------------------------------
+        // 深度复审 A-M1 修复回归测试（2026-09-16）：RecomputeRatingStats 一次调用内同时重算全部带
+        // conversion_ref 的属性，如果一个 derived 属性同时以两个这样的评级属性为 derived_from 来源，
+        // 旧实现逐个属性立即 PropagateDerivedInvalidation 会让该派生属性被计算并广播多次，其中除
+        // 最后一次外全部是"部分来源已刷新、部分尚未刷新"的错误中间值。stat.rate_x/stat.rate_y 均
+        // category=percent 带各自的 conversion_ref（1 级/10 级 ppp 分别为 10/5 与 10/2，两者在
+        // 10 级都会实际变化，保证无论 _definitions.Values 枚举到谁在前，旧实现都会产生一次错误的
+        // 中间值广播）；stat.combo 为 category=derived，derived_from=[rate_x, rate_y]（系数均 1.0）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RecomputeRatingStats_DerivedFromMultipleRatingSources_FiresExactlyOneStatChangedWithFinalValue()
+        {
+            const string statDefJson = @"
+            {
+                ""table"": ""stat.definition"",
+                ""schema_version"": 2,
+                ""rows"": [
+                    { ""id"": ""stat.rate_x"", ""name_key"": ""l10n.a"", ""category"": ""percent"", ""default_base"": 0,
+                      ""conversion_ref"": ""stat.rating.multi_x"" },
+                    { ""id"": ""stat.rate_y"", ""name_key"": ""l10n.b"", ""category"": ""percent"", ""default_base"": 0,
+                      ""conversion_ref"": ""stat.rating.multi_y"" },
+                    { ""id"": ""stat.combo"", ""name_key"": ""l10n.c"", ""category"": ""derived"",
+                      ""derived_from"": [ { ""stat"": ""stat.rate_x"", ""coefficient"": 1.0 }, { ""stat"": ""stat.rate_y"", ""coefficient"": 1.0 } ] }
+                ]
+            }";
+            const string ratingJson = @"
+            {
+                ""table"": ""stat.rating_conversion"",
+                ""schema_version"": 1,
+                ""rows"": [
+                    { ""id"": ""stat.rating.multi_x"", ""entries"": [ { ""level"": 1, ""points_per_percent"": 10 }, { ""level"": 10, ""points_per_percent"": 5 } ] },
+                    { ""id"": ""stat.rating.multi_y"", ""entries"": [ { ""level"": 1, ""points_per_percent"": 10 }, { ""level"": 10, ""points_per_percent"": 2 } ] }
+                ]
+            }";
+
+            var level = 1;
+            LevelLookup lookup = _ => level;
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (registry, report) = BuildRegistry(bus, statDefJson, ratingJson, new StatDefinitionValidationRule());
+            Assert.False(report.IsBlocking);
+            var host = new StatHost(registry, bus, new StatHostOptions { LevelLookup = lookup });
+
+            var rateX = new Id("stat.rate_x");
+            var rateY = new Id("stat.rate_y");
+            var combo = new Id("stat.combo");
+
+            var unit = new Id("unit.multi_rating_combo");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, rateX, 50.0);
+            host.SetBase(unit, rateY, 50.0);
+            bus.DispatchPending();
+
+            // 1 级：rate_x percent = 50/10 = 5；rate_y percent = 50/10 = 5；combo = 5+5 = 10。
+            Assert.Equal(10.0, host.GetStat(unit, combo), 10);
+
+            level = 10;
+            captured.Clear();
+
+            host.RecomputeRatingStats(unit);
+            bus.DispatchPending();
+
+            // 10 级：rate_x percent = 50/5 = 10；rate_y percent = 50/2 = 25；combo 最终稳定值 = 35。
+            Assert.Equal(35.0, host.GetStat(unit, combo), 10);
+
+            // 核心断言（A-M1）：combo 在本次调用内只应该收到 1 条 StatChangedEvent，且其值直接是
+            // 最终稳定值 35，不应该先广播一次"只有一个来源已按新等级刷新"的中间值（15 或 30，取决于
+            // _definitions.Values 的枚举顺序——旧实现下具体是哪个值本身就不受 API 契约保证）。
+            var comboEvents = captured.FindAll(e => e.Stat == combo);
+            Assert.Single(comboEvents);
+            Assert.Equal(10.0, comboEvents[0].OldValue, 10);
+            Assert.Equal(35.0, comboEvents[0].NewValue, 10);
+
+            // 顺带确认两个直接来源各自也只广播一次、值是各自的最终稳定值——A-M1 修复不应该影响
+            // "直接受影响属性自身"这一半的既有行为。
+            var rateXEvents = captured.FindAll(e => e.Stat == rateX);
+            Assert.Single(rateXEvents);
+            Assert.Equal(10.0, rateXEvents[0].NewValue, 10);
+
+            var rateYEvents = captured.FindAll(e => e.Stat == rateY);
+            Assert.Single(rateYEvents);
+            Assert.Equal(25.0, rateYEvents[0].NewValue, 10);
+        }
+
+        // -----------------------------------------------------------------
+        // 深度复审 A-M1 修复回归测试（2026-09-16）：同一批次问题同样存在于 RemoveModifiersBySource——
+        // 一次调用可能同时移除多个属性上来自同一来源的修正，如果两者同为一个 derived 属性的来源，
+        // 旧实现逐个属性立即 PropagateDerivedInvalidation 同样会产生多次广播/错误中间值。复用既有
+        // "多来源派生"夹具 stat.derived_x（derived_from = [src_a×2.0, src_b×0.5]）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void RemoveModifiersBySource_DerivedFromMultipleDirectlyAffectedSources_FiresExactlyOneStatChangedWithFinalValue()
+        {
+            var (host, captured, bus) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.a_m1_remove_modifiers_multi_source");
+            var source = new Id("src.a_m1_multi_source_gear");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 10.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            // derived_x = 10*2.0 + 10*0.5 = 25。
+            Assert.Equal(25.0, host.GetStat(unit, StatDerivedX), 10);
+
+            host.AddModifier(unit, new StatModifier(StatSrcA, StatModifierOp.Flat, 5.0, source));
+            host.AddModifier(unit, new StatModifier(StatSrcB, StatModifierOp.Flat, 4.0, source));
+            // src_a=15, src_b=14 -> derived_x = 15*2.0 + 14*0.5 = 30+7 = 37。
+            Assert.Equal(37.0, host.GetStat(unit, StatDerivedX), 10);
+            bus.DispatchPending();
+            captured.Clear();
+
+            host.RemoveModifiersBySource(unit, source);
+            bus.DispatchPending();
+
+            // 两条修正同一来源、同一次调用内一起移除：src_a/src_b 都回退到 10.0，
+            // derived_x 回退到最终稳定值 25.0。
+            Assert.Equal(10.0, host.GetStat(unit, StatSrcA), 10);
+            Assert.Equal(10.0, host.GetStat(unit, StatSrcB), 10);
+            Assert.Equal(25.0, host.GetStat(unit, StatDerivedX), 10);
+
+            // 核心断言（A-M1）：derived_x 只应该收到 1 条 StatChangedEvent，值直接是最终稳定值 25，
+            // 不应该先广播一次"只有一个来源已回退"的中间值（30 或 19，取决于 stats 快照的遍历顺序）。
+            var derivedEvents = captured.FindAll(e => e.Stat == StatDerivedX);
+            Assert.Single(derivedEvents);
+            Assert.Equal(37.0, derivedEvents[0].OldValue, 10);
+            Assert.Equal(25.0, derivedEvents[0].NewValue, 10);
+        }
+
         [Fact]
         public void RatingConversion_MidLevelInterpolatesBetweenEntries()
         {
@@ -1450,6 +1579,88 @@ namespace Tests.Numbers.StatBlock
 
             Assert.Equal(505.0, host.GetStat(unit, StatDerivedX), 10);
             Assert.Contains(captured, e => e.Stat == StatDerivedX && e.OldValue == 205.0 && e.NewValue == 505.0);
+        }
+
+        // -----------------------------------------------------------------
+        // 深度复审 A（测试覆盖缺口 #2）补测：事件计数通用不变式——任意写入路径（SetBase/AddModifier/
+        // RemoveModifiersBySource/SetDerivationCoefficientOverrides/RecomputeRatingStats）对任意
+        // 受影响属性，单次调用内只应该广播 0 或 1 条 StatChangedEvent，不应该出现同一属性在同一次
+        // 调用里被广播两次及以上（A-M1 缺陷的通用形态）。复用 DerivedStatDefinitionJson 夹具里
+        // "src_a 同时是 derived_x/derived_neg/derived_clamped_self 三个派生属性来源"这一天然的
+        // 分支结构（一个来源变化会同时传播给三个派生属性），逐一执行几类写入操作，每次操作后校验
+        // 该不变式。
+        // -----------------------------------------------------------------
+
+        private static void AssertNoStatFiresMoreThanOnce(List<StatChangedEvent> captured, string context)
+        {
+            var counts = new Dictionary<Id, int>();
+            foreach (var e in captured)
+            {
+                counts.TryGetValue(e.Stat, out var c);
+                counts[e.Stat] = c + 1;
+            }
+
+            foreach (var kv in counts)
+            {
+                Assert.True(kv.Value <= 1,
+                    $"[{context}] 属性 \"{kv.Key}\" 在同一次调用内被广播了 {kv.Value} 条 StatChangedEvent" +
+                    "（不变式：任意写入路径对任意受影响属性单次调用内只应广播 0 或 1 条）");
+            }
+        }
+
+        [Fact]
+        public void EventCountInvariant_AnyWritePath_NeverFiresSameStatMoreThanOnceInOneCall()
+        {
+            var (host, captured, bus) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.event_count_invariant");
+            var source = new Id("src.event_count_invariant_gear");
+            host.RegisterUnit(unit);
+
+            host.SetBase(unit, StatSrcA, 10.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            // 提前查询一遍，让全部派生属性进缓存——PropagateDerivedInvalidation/批量重算只处理
+            // "此前已经被缓存过"的属性，不主动补算未查询过的属性（既有惰性口径）。
+            host.GetStat(unit, StatDerivedX);
+            host.GetStat(unit, StatDerivedNeg);
+            host.GetStat(unit, StatDerivedClampedSelf);
+            bus.DispatchPending();
+
+            // 1) SetBase：src_a 变化同时传播给 derived_x/derived_neg/derived_clamped_self 三个
+            // 派生属性——单属性变更路径，本就该只广播一次，用作基线。
+            captured.Clear();
+            host.SetBase(unit, StatSrcA, 20.0);
+            bus.DispatchPending();
+            AssertNoStatFiresMoreThanOnce(captured, "SetBase(src_a)");
+
+            // 2) AddModifier：同样是单属性直接变更路径。
+            captured.Clear();
+            host.AddModifier(unit, new StatModifier(StatSrcA, StatModifierOp.Flat, 5.0, source));
+            bus.DispatchPending();
+            AssertNoStatFiresMoreThanOnce(captured, "AddModifier(src_a)");
+
+            // 3) RemoveModifiersBySource：一次调用里 src_a 一个属性被撤销修正（本夹具只在 src_a 上
+            // 加过修正），核心批量场景见 RemoveModifiersBySource_DerivedFromMultipleDirectlyAffectedSources_
+            // FiresExactlyOneStatChangedWithFinalValue（A-M1 专项回归），这里作为不变式回归的一环。
+            captured.Clear();
+            host.RemoveModifiersBySource(unit, source);
+            bus.DispatchPending();
+            AssertNoStatFiresMoreThanOnce(captured, "RemoveModifiersBySource(src_a)");
+
+            // 4) SetDerivationCoefficientOverrides：批量重算受影响集合（RecomputeDerivationOverrideAffectedStats
+            // 既有正确批量模式），同样应满足不变式。
+            captured.Clear();
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcA, 3.0) });
+            bus.DispatchPending();
+            AssertNoStatFiresMoreThanOnce(captured, "SetDerivationCoefficientOverrides");
+
+            // 5) RecomputeRatingStats（A-M1 主场景）：本夹具不带评级属性，调用应是幂等 no-op，
+            // 同样不应该产生任何重复广播（0 次也满足"<=1"不变式，回归覆盖见
+            // RecomputeRatingStats_DerivedFromMultipleRatingSources_FiresExactlyOneStatChangedWithFinalValue
+            // 使用的独立评级夹具）。
+            captured.Clear();
+            host.RecomputeRatingStats(unit);
+            bus.DispatchPending();
+            AssertNoStatFiresMoreThanOnce(captured, "RecomputeRatingStats(no rating stats)");
         }
     }
 }

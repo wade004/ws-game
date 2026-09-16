@@ -60,12 +60,16 @@ namespace Tests.Rules.Skill
             private readonly List<JsonObject> _budgetRules = new List<JsonObject>();
             private readonly List<JsonObject> _rotations = new List<JsonObject>();
             private readonly List<JsonObject> _creatures = new List<JsonObject>();
+            // 深度复审 C（测试覆盖缺口 #4）补测新增：ComputeGrantValue(isAura: true) 需要读
+            // skill.aura_def，既有 9 处调用点都只测 isAura: false（技能）路径，本表此前未登记。
+            private readonly List<JsonObject> _auraDefs = new List<JsonObject>();
 
             public Registry SkillDef(JsonObject row) { _skillDefs.Add(row); return this; }
             public Registry Book(JsonObject row) { _books.Add(row); return this; }
             public Registry BudgetRule(JsonObject row) { _budgetRules.Add(row); return this; }
             public Registry Rotation(JsonObject row) { _rotations.Add(row); return this; }
             public Registry Creature(JsonObject row) { _creatures.Add(row); return this; }
+            public Registry AuraDef(JsonObject row) { _auraDefs.Add(row); return this; }
 
             /// <summary>T-N5-3 新增：<see cref="Build(IEnumerable{IValidationRule}?, DataRegistryStrictness)"/>
             /// 每次调用后的完整 <see cref="ValidationReport"/>——既有 9 处 <c>Build()</c> 调用点只关心
@@ -87,6 +91,7 @@ namespace Tests.Rules.Skill
                 source.Add("skill.budget_rule", TableJson("skill.budget_rule", _budgetRules));
                 source.Add("ai.rotation", TableJson("ai.rotation", _rotations));
                 source.Add("creature.template", TableJson("creature.template", _creatures));
+                source.Add("skill.aura_def", TableJson("skill.aura_def", _auraDefs));
 
                 var bus = new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()),
                     new EventBusOptions { StrictCatalog = false });
@@ -96,6 +101,7 @@ namespace Tests.Rules.Skill
                 registry.RegisterSchema(SkillSchemas.BudgetRule);
                 registry.RegisterSchema(AiSchemas.Rotation);
                 registry.RegisterSchema(TableSchema.Unschematized("creature.template", "id"));
+                registry.RegisterSchema(SkillSchemas.AuraDef);
 
                 if (rules != null)
                 {
@@ -254,6 +260,74 @@ namespace Tests.Rules.Skill
             Assert.Equal(SkillBudgetVerdict.ConfirmedDeviation, result.Verdict);
         }
 
+        // -----------------------------------------------------------------
+        // 深度复审 C-M1 修复回归测试（2026-09-16）：SkillBudgetAnalyzer.Classify 此前只判了带宽
+        // 上界（ratio <= 1+bandwidth 一律 Pass），从未判下界（ratio < 1-bandwidth）——任何写小
+        // 两个数量级的效果值会静默通过校验。补齐下界后的对称区间行为回归。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void UnconfirmedDeviation_BelowBandwidthLowerBound_NoBudgetNote()
+        {
+            var view = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n3_9_below_lower_unconfirmed", baseValue: 5))
+                .Book(Book("skill.book.n3_9", (1, "skill.n3_9_below_lower_unconfirmed")))
+                .BudgetRule(DefaultBudgetRule())
+                .Build();
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            // 比值 = 5/10 = 0.5，低于缺省玩家带宽下界 0.8，未超硬上限（不适用，本身就是偏低），
+            // 未填 budget_note——C-M1 修复前这里会被误判为 Pass（旧实现只判 ratio <= 1.2）。
+            var result = SkillBudgetAnalyzer.Analyze(new Id("skill.n3_9_below_lower_unconfirmed"), view, options: null, provider);
+
+            Assert.Equal(0.5, result.Ratio, 6);
+            Assert.Null(result.BudgetNote);
+            Assert.Equal(SkillBudgetVerdict.UnconfirmedDeviation, result.Verdict);
+        }
+
+        [Fact]
+        public void ConfirmedDeviation_BelowBandwidthLowerBound_WithBudgetNote()
+        {
+            var view = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n3_9_below_lower_confirmed", baseValue: 5,
+                    budgetNote: "设计意图：削弱型技能，价值本就低于常规带宽"))
+                .Book(Book("skill.book.n3_9", (1, "skill.n3_9_below_lower_confirmed")))
+                .BudgetRule(DefaultBudgetRule())
+                .Build();
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            var result = SkillBudgetAnalyzer.Analyze(new Id("skill.n3_9_below_lower_confirmed"), view, options: null, provider);
+
+            Assert.Equal(0.5, result.Ratio, 6);
+            Assert.NotNull(result.BudgetNote);
+            Assert.Equal(SkillBudgetVerdict.ConfirmedDeviation, result.Verdict);
+        }
+
+        /// <summary>边界值应判定为 Pass（<c>&gt;=</c>/<c>&lt;=</c> 均取等号）——上界/下界各一组。</summary>
+        [Fact]
+        public void Pass_RatioExactlyAtBandwidthBoundaries()
+        {
+            var lowerView = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n3_9_lower_boundary", baseValue: 8)) // 8/10 = 0.8
+                .Book(Book("skill.book.n3_9", (1, "skill.n3_9_lower_boundary")))
+                .BudgetRule(DefaultBudgetRule())
+                .Build();
+            var upperView = new Registry()
+                .SkillDef(SchoolDamageSkill("skill.n3_9_upper_boundary", baseValue: 12)) // 12/10 = 1.2
+                .Book(Book("skill.book.n3_9", (1, "skill.n3_9_upper_boundary")))
+                .BudgetRule(DefaultBudgetRule())
+                .Build();
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            var lowerResult = SkillBudgetAnalyzer.Analyze(new Id("skill.n3_9_lower_boundary"), lowerView, options: null, provider);
+            var upperResult = SkillBudgetAnalyzer.Analyze(new Id("skill.n3_9_upper_boundary"), upperView, options: null, provider);
+
+            Assert.Equal(0.8, lowerResult.Ratio, 6);
+            Assert.Equal(SkillBudgetVerdict.Pass, lowerResult.Verdict);
+            Assert.Equal(1.2, upperResult.Ratio, 6);
+            Assert.Equal(SkillBudgetVerdict.Pass, upperResult.Verdict);
+        }
+
         [Fact]
         public void HardCapExceeded_OverHardCap_NoBudgetNote()
         {
@@ -385,6 +459,80 @@ namespace Tests.Rules.Skill
             // 习得等级（7），不是怪物档等级。
             Assert.Equal(SkillBudgetTier.Player, result.Tier);
             Assert.Equal(7, result.Level);
+        }
+
+        // -----------------------------------------------------------------
+        // 深度复审 C（测试覆盖缺口 #4）补测：ComputeGrantValue(isAura: true) 对含 absorb/control
+        // 效果的光环求值——既有 9 处调用点均只覆盖 periodic_damage/mod_stat 路径（经 Analyze 走
+        // isAura: false 的技能分支），absorb/control 两条分支此前缺直接用例。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ComputeGrantValue_IsAuraTrue_AbsorbEffect_ReturnsAbsorbAmount()
+        {
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.n3_9_grant_absorb")),
+                ("duration", J.N(10)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("absorb")),
+                        ("params", J.O(("amount", J.N(50)), ("school", J.S("school.physical"))))))));
+
+            var view = new Registry()
+                .AuraDef(aura)
+                .BudgetRule(DefaultBudgetRule())
+                .Build();
+
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            var value = SkillBudgetAnalyzer.ComputeGrantValue(
+                new Id("skill.aura_def.n3_9_grant_absorb"), isAura: true, view, level: 1, provider);
+
+            // absorb 分支直接取 params.amount，不经过基础值/系数/缩放公式（见
+            // ComputeAuraSettlementValue 的 AuraEffectKind.Absorb 分支）。
+            Assert.Equal(50.0, value, 6);
+        }
+
+        [Fact]
+        public void ComputeGrantValue_IsAuraTrue_ControlEffect_ReturnsDurationTimesCategoryWeight()
+        {
+            var aura = J.O(
+                ("id", J.S("skill.aura_def.n3_9_grant_control")),
+                ("duration", J.N(10)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("control")),
+                        ("params", J.O(
+                            ("flags", J.A(J.S("no_move"))),
+                            ("category", J.S("root"))))))));
+            var budgetRule = J.O(
+                ("id", J.S("skill.budget_rule.n3_9_grant_control")),
+                ("beat_seconds", J.N(1.0)),
+                ("control_category_weights", J.O(("root", J.N(3.0)))));
+
+            var view = new Registry()
+                .AuraDef(aura)
+                .BudgetRule(budgetRule)
+                .Build();
+
+            var options = new SkillOptions { BudgetRuleId = new Id("skill.budget_rule.n3_9_grant_control") };
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+            var value = SkillBudgetAnalyzer.ComputeGrantValue(
+                new Id("skill.aura_def.n3_9_grant_control"), isAura: true, view, level: 1, provider, options);
+
+            // 06 第 3.10 节"控制价值 = 时长 × 目标数 × 控制类别权重"——授予的光环没有 target_shape_ref，
+            // ComputeGrantValue 按单目标处理（maxTargets: 1，见该方法判断记录），
+            // = 10（duration） × 1（targetCount） × 3.0（root 类别权重）= 30。
+            Assert.Equal(30.0, value, 6);
+        }
+
+        [Fact]
+        public void ComputeGrantValue_IsAuraTrue_UnknownAuraDef_ReturnsZero()
+        {
+            var view = new Registry().BudgetRule(DefaultBudgetRule()).Build();
+            var provider = new FakeAnchorProvider { AnchorDps = 10.0 };
+
+            var value = SkillBudgetAnalyzer.ComputeGrantValue(
+                new Id("skill.aura_def.n3_9_grant_missing"), isAura: true, view, level: 1, provider);
+
+            Assert.Equal(0.0, value, 6);
         }
     }
 }

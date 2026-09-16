@@ -339,6 +339,14 @@ namespace Core.Sim
                 // 已经公开的既有方法在正确的时机调用一遍。
                 gameplay.Carriers.Rules.Powers.RecomputeMax(options.PlayerId);
                 gameplay.Carriers.Rules.Powers.RefillAll(options.PlayerId, Core.Numbers.Progression.ProgressionEventKeys.LevelUp);
+
+                // 复审整合项 5（交叉引用，2026-09-16）：本节"先成长、再手动 RecomputeMax +
+                // RefillAll"是装配根对"凭空出生在等级 N"这一特殊场景的补救，不是通用升级路径本身。
+                // 同一类"回满时序"问题在真实升级路径（逐级 GrantXp 到达新等级）上，已由
+                // ProgressionHost.AddXpCore（在最后一级发布 LevelUpEvent 前先写入聚合成长）与
+                // RulesAssembly 订阅（先 RecomputeMax 再 RefillAll）根治，见深度复审 D-M2；两处是
+                // 同一构型问题在两条不同路径（出生即高等级 vs 逐级升级）各自的落地点，互不重复也
+                // 互不依赖，此处仅作交叉引用，不改变本节既有逻辑。
             }
 
             spatial.Register(options.PlayerId, player.Position, options.PlayerSpawnRadius);

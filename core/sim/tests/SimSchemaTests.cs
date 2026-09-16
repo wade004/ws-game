@@ -258,5 +258,51 @@ namespace Tests.Sim
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == Core.Sim.SimScenarioValidationRule.LevelCoverageCheck);
         }
+
+        // -----------------------------------------------------------------
+        // sim.scenario.bandwidths 键名反例（深度复审 E-S2：拼写错误全链路静默失效，无任何诊断）
+        // -----------------------------------------------------------------
+
+        /// <summary>反例：拼写错误的带宽键（<c>leve_duration</c> 少打一个 <c>l</c>）此前全链路静默
+        /// 忽略——本用例锁死修复后的行为：产出一条不阻断的警告，而不是继续悄无声息。</summary>
+        [Fact]
+        public void Scenario_MisspelledBandwidthKey_ReportsWarningNotBlocking()
+        {
+            var row = "{\"id\": \"sim.scenario.t\", \"kind\": \"arena\", " +
+                "\"player\": {\"class_id\": \"arch.class.t\", \"level\": 1}, " +
+                "\"opponent\": {\"creature_id\": \"creature.t\"}, " +
+                "\"levels\": [1], \"runs\": 5, \"base_seed\": 1, \"max_ticks\": 100, " +
+                "\"bandwidths\": {\"dps\": 0.1, \"leve_duration\": 0.2}}";
+            var registry = BuildRegistry(scenarioRowsJson: "[" + row + "]");
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.Contains(report.Issues, i =>
+                i.Check == Core.Sim.SimScenarioValidationRule.BandwidthKeyUnknownCheck &&
+                i.Severity == ValidationSeverity.Warning &&
+                i.Message.Contains("leve_duration"));
+        }
+
+        /// <summary>正例对照：全部已知带宽键（<c>dps</c>/<c>hp</c>/<c>ttk</c>/<c>ttd</c>/
+        /// <c>hit_rate</c>/<c>level_duration</c>/<c>item_level</c>/<c>gold</c>/<c>win_rate</c>，见
+        /// <see cref="Core.Sim.SimBandwidthKeys.KnownKeys"/>）不触发 <see
+        /// cref="Core.Sim.SimScenarioValidationRule.BandwidthKeyUnknownCheck"/>——防止修复本身矫枉过正
+        /// 把合法键也判成拼写错误。</summary>
+        [Fact]
+        public void Scenario_AllKnownBandwidthKeys_NoUnknownBandwidthKeyWarning()
+        {
+            var row = "{\"id\": \"sim.scenario.t\", \"kind\": \"arena\", " +
+                "\"player\": {\"class_id\": \"arch.class.t\", \"level\": 1}, " +
+                "\"opponent\": {\"creature_id\": \"creature.t\"}, " +
+                "\"levels\": [1], \"runs\": 5, \"base_seed\": 1, \"max_ticks\": 100, " +
+                "\"bandwidths\": {\"dps\": 0.1, \"hp\": 0.1, \"ttk\": 0.1, \"ttd\": 0.1, " +
+                "\"hit_rate\": 0.1, \"level_duration\": 0.1, \"item_level\": 0.1, \"gold\": 0.1, " +
+                "\"win_rate\": 0.1}}";
+            var registry = BuildRegistry(scenarioRowsJson: "[" + row + "]");
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.DoesNotContain(report.Issues, i => i.Check == Core.Sim.SimScenarioValidationRule.BandwidthKeyUnknownCheck);
+        }
     }
 }

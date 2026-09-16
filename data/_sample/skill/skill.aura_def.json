@@ -11,12 +11,13 @@
       "effects": [
         {
           "kind": "periodic_damage",
-          "params": { "interval": 1.0, "base_value": 5, "coefficient": 1.0, "school": "school.fire" }
+          "params": { "interval": 1.0, "base_value": 14, "coefficient": 1.0, "school": "school.fire" }
         }
       ]
     },
     {
       "id": "skill.aura_def.sample_mount_speed",
+      "duration": 120.0,
       "max_stacks": 1,
       "dispel_type": "skill.dispel.mount",
       "effects": [
@@ -28,6 +29,7 @@
     },
     {
       "id": "skill.aura_def.sample_fortify",
+      "duration": 12.0,
       "max_stacks": 1,
       "effects": [
         {

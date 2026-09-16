@@ -207,5 +207,53 @@ namespace Tests.Numbers.Archetype
             Assert.Contains(report.Issues, i =>
                 i.Check == Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName);
         }
+
+        /// <summary>
+        /// 深度复审 A（测试覆盖缺口 #4）补测，复审整合项 4 更新（2026-09-16，设计层裁定：采纳）：
+        /// 验证"<c>derivation_overrides[].source</c> 引用一个完全不存在的 <c>stat.definition</c>
+        /// 记录"这一场景的正确行为。
+        /// <para>
+        /// 判断记录（从"如实记录现状"改为"锁定正确行为"）：本用例最初（深度复审 A）如实记录了一个
+        /// 缺口——<see cref="Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule"/>
+        /// 类型顶部判断记录声称"读不到 stat.definition 对应记录时……直接跳过该条目，留给
+        /// reference_integrity 单独报"，但当时的 <c>Validate</c> 实现并没有对应的"跳过"分支，
+        /// <c>source</c> 引用完全不存在的记录时 <c>reference_integrity</c> 与本规则会同时报错，与
+        /// 文档描述不符。复审整合项 4 已在 <c>ArchClassDerivationOverrideValidationRule.Validate</c>
+        /// 补上该跳过分支（<c>stat</c>/<c>source</c> 任一侧对应的 <c>stat.definition</c> 记录不存在
+        /// 就 <c>continue</c>，不再重复报错）——这是把"错误行为的锁定"改成"正确行为的锁定"，不是
+        /// 放宽既有断言：<c>reference_integrity</c> 依旧报错（该检查项本身未改动），只是本规则不再
+        /// 对同一条数据凑一份重复噪音。
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void ClassDerivationOverrides_SourceReferencesNonExistentStat_OnlyReferenceIntegrityReports()
+        {
+            var rows = "[{\"id\":\"arch.class.cov_override_unknown\",\"name_key\":\"l10n.arch.class.cov_override_unknown.name\"," +
+                "\"primary_stat\":\"stat.cov_might2\",\"base_stats\":{\"stat.cov_might2\":10},\"power_types\":[]," +
+                "\"derivation_overrides\":[{\"stat\":\"stat.cov_power2\",\"source\":\"stat.cov_totally_missing\",\"coefficient\":2.0}]}]";
+            var extraStatDefinitionRows =
+                "[{\"id\":\"stat.cov_might2\",\"name_key\":\"l10n.stat.cov_might2.name\",\"category\":\"primary\"}," +
+                "{\"id\":\"stat.cov_power2\",\"name_key\":\"l10n.stat.cov_power2.name\",\"category\":\"derived\"," +
+                "\"derived_from\":[{\"stat\":\"stat.cov_might2\",\"coefficient\":1.0}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add(Core.Numbers.StatBlock.StatSchemas.Definition.Name,
+                    Envelope(Core.Numbers.StatBlock.StatSchemas.Definition.Name, extraStatDefinitionRows))
+                .Add(Core.Numbers.Archetype.ArchSchemas.Class.Name,
+                    Envelope(Core.Numbers.Archetype.ArchSchemas.Class.Name, rows));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(Core.Numbers.Archetype.ArchSchemas.Class);
+            registry.RegisterValidationRule(new Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "reference_integrity"
+                && i.Field == "derivation_overrides[0].source");
+            // 修复后：本规则对"引用本身就不存在"的情形跳过，不再与 reference_integrity 重复报错。
+            Assert.DoesNotContain(report.Issues, i =>
+                i.Check == Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName);
+        }
     }
 }

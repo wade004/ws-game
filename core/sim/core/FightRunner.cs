@@ -295,8 +295,22 @@ namespace Core.Sim
                 PlayerDamageBySkill.Clear();
             }
 
-            private static bool IsLandedHit(HitResult hit) =>
-                hit != HitResult.Miss && hit != HitResult.Dodge && hit != HitResult.Parry;
+            /// <summary>
+            /// 判断记录（2026-09-16，深度复审 E-M2：命中率统计须排除免疫吸收）：本类型注释"采样口径"
+            /// 一节称命中率数的是"多少次尝试里有多少次真正落地"，并强调"两份数据在'确实落地'的交集
+            /// 上逐条一致（同一次结算，<c>combat.damage_dealt.Amount == ResolveResult.FinalAmount</c>）"
+            /// ——按此定义"真正落地"等价于 <c>!result.Immune</c>：<see cref="Core.Rules.Combat.Resolver.Resolve"/>
+            /// 的免疫吸收判定发生在 <see cref="HitResult"/> 已确定之后，一次被完全免疫吸收的攻击
+            /// <c>Hit</c> 仍可能是 <c>Hit</c>/<c>Crit</c>/<c>Block</c>/<c>GlancingBlow</c>，但
+            /// <c>FinalAmount</c> 恒为 0 且不触发 <c>combat.damage_dealt</c> 事件——此前 <c>IsLandedHit</c>
+            /// 只读 <c>HitResult</c>，会把"骰子判定命中、但被免疫全额吸收"的一次结算计入
+            /// <see cref="PlayerLanded"/>/<see cref="CreatureLanded"/>，系统性高估命中率；改为接收整个
+            /// <see cref="ResolveResult"/> 并在参数首位排除 <c>Immune=true</c>，与"真正落地"的既有文档
+            /// 口径对齐。当前嵌入数据集（<c>core/sim/tests/data</c>）未配置任何伤害免疫光环，既有 88 例
+            /// <c>Tests.Sim</c> 用例与三份基线因此不受影响（复核见 <c>FightAccumulatorTests</c> 新增用例）。
+            /// </summary>
+            private static bool IsLandedHit(ResolveResult result) =>
+                !result.Immune && result.Hit != HitResult.Miss && result.Hit != HitResult.Dodge && result.Hit != HitResult.Parry;
 
             private void OnResolve(EffectContext ctx, ResolveResult result)
             {
@@ -305,14 +319,14 @@ namespace Core.Sim
                 if (ctx.SourceId.Equals(_playerId) && ctx.TargetId.Equals(_creatureId))
                 {
                     PlayerAttempts++;
-                    if (IsLandedHit(result.Hit)) PlayerLanded++;
+                    if (IsLandedHit(result)) PlayerLanded++;
                     PlayerDamageBySkill.TryGetValue(ctx.SkillId, out var existing);
                     PlayerDamageBySkill[ctx.SkillId] = existing + result.FinalAmount;
                 }
                 else if (ctx.SourceId.Equals(_creatureId) && ctx.TargetId.Equals(_playerId))
                 {
                     CreatureAttempts++;
-                    if (IsLandedHit(result.Hit)) CreatureLanded++;
+                    if (IsLandedHit(result)) CreatureLanded++;
                 }
             }
 

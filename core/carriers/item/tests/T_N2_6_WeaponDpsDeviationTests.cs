@@ -122,6 +122,54 @@ namespace Tests.Carriers.Item
             Assert.Equal(30.0, dps, 9);
         }
 
+        // 2026-09-16 深度复审 B-M1：装备品质 ≠ 模板默认品质（掉落三次掷骰的常规产出）时，
+        // GetWeaponDps 必须按实例真实品质（instance.Quality）计算，不能退回模板自身登记的默认
+        // quality 字段。DpsTemplateJson 里 item.t6_weapon_a 的模板默认品质是 item.quality.t6_rare
+        // （budget_multiplier=1.5），这里额外注册一条更高的品质 item.quality.t6_epic
+        // （budget_multiplier=3.0），用 AddItem 的四参重载显式传入不同于模板默认的 qualityId 模拟
+        // "掉落品质骰命中 epic"，再原样 Equip（三参重载会转发 instance.Quality）。
+        private const string DpsEpicQualityJson =
+            "[{\"id\": \"item.quality.t6_rare\", \"name_key\": \"l10n.item.quality.t6_rare\"," +
+            " \"budget_multiplier\": 1.5}," +
+            "{\"id\": \"item.quality.t6_epic\", \"name_key\": \"l10n.item.quality.t6_epic\"," +
+            " \"budget_multiplier\": 3.0}]";
+
+        [Fact]
+        public void GetWeaponDps_InstanceQualityDeviatesFromTemplateDefault_UsesInstanceQuality()
+        {
+            var registry = TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", DpsSlotJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", DpsEpicQualityJson));
+                source.Add("item.weapon_dps_curve", TestSupport.Table("item.weapon_dps_curve", DpsWeaponDpsCurveJson));
+                source.Add("item.template", TestSupport.Table("item.template", DpsTemplateJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", DpsStatDefJson));
+            });
+
+            var bus = TestSupport.CreateBus();
+            var inventory = new InventoryHost(registry, bus);
+            var statHost = new StatHost(registry, bus);
+            var effectSink = new FakeEffectSink();
+            var skillGranter = new RecordingSkillGranter();
+            var unitAccess = new FakeUnitAccess().Add(DpsPlayer, 10);
+            var options = new ItemOptions { WeaponDpsCurveId = new Id("item.weapon_dps.t6_default") };
+            var equipment = new EquipmentHost(
+                registry, bus, inventory, statHost, effectSink, skillGranter.Grant, unitAccess, options);
+
+            statHost.RegisterUnit(DpsPlayer);
+            // 模拟掉落三次掷骰命中了比模板默认（t6_rare, ×1.5）更高的品质 t6_epic（×3.0）。
+            inventory.AddItem(DpsPlayer, new Id("item.t6_weapon_a"), 1, new Id("item.quality.t6_epic"), null);
+            var items = inventory.ListItems(DpsPlayer);
+            var instanceId = items[items.Count - 1].InstanceId;
+
+            equipment.Equip(DpsPlayer, instanceId, new Id("item.slot.t6_weapon"));
+            var dps = equipment.GetWeaponDps(DpsPlayer);
+
+            // 手算：曲线(1)=10 × 品质预算倍率 3.0（instance.Quality=t6_epic，不是模板默认 t6_rare
+            // 的 1.5）× 武器槽位系数 2.0 = 60。若仍误用模板默认品质会得到 30（同上一条用例）。
+            Assert.Equal(60.0, dps, 9);
+        }
+
         [Fact]
         public void GetWeaponDps_NoWeaponEquipped_ReturnsZero()
         {

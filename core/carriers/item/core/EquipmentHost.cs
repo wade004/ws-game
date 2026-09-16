@@ -604,14 +604,12 @@ namespace Core.Carriers.Item
         /// cref="TryGetFirstWeaponSlot"/>）；未装备任何武器槽、或曲线找不到对应记录时返回 0，不抛
         /// 异常（同 <see cref="ApplyArmorValue"/>"曲线缺失按不写处理"既有口径）。
         /// <para>
-        /// 判断记录（品质取值来源——ItemInstance 尚不携带品质身份）：<see cref="Core.Carriers.Common
-        /// .ItemInstance"/> 要到 T-N2-7 才新增 <c>Quality</c> 字段（见 <see cref="Equip(Id, Id, Id,
-        /// Id?, System.Collections.Generic.IReadOnlyList{Id})"/> 判断记录），本模块当前无法查询"这件
-        /// 已装备武器实例实际是什么品质"——本方法与 <see cref="ApplyArmorValue"/>/<see
-        /// cref="ApplyAffixValues"/> 同样的既有限制，统一取武器模板自身登记的 <c>quality</c> 字段（不
-        /// 是穿戴时若显式传入的 <c>qualityId</c> 参数，那个参数只在穿戴那一刻用于词缀反解，不落地为
-        /// 可事后查询的状态）。T-N2-7 落地后，若需要按实例真实品质求秒伤，需要改造为从
-        /// <see cref="ItemInstance.Quality"/> 读取，本方法签名不受影响（只改内部实现）。
+        /// 判断记录（品质取值来源，2026-09-16 深度复审 B-M1 修正）：品质预算倍率改为读取这件已装备
+        /// 实例真实的 <see cref="ItemInstance.Quality"/>（掉落三次掷骰、<see cref="Equip(Id, Id, Id,
+        /// Id?, System.Collections.Generic.IReadOnlyList{Id})"/> 穿戴时写入），不再取武器模板自身
+        /// 登记的静态默认 <c>quality</c> 字段——同批 <see cref="ApplyAffixValues"/> 早已在 T-N2-7 落地
+        /// 时改用 <c>resolvedQuality</c>，本方法此前遗漏未跟进，导致"装备品质 ≠ 模板默认品质"（掉落
+        /// 系统的常规产出）场景下武器秒伤按错误的品质倍率计算，见复审报告 B-M1。
         /// </para>
         /// </summary>
         public double GetWeaponDps(Id unitId)
@@ -638,7 +636,7 @@ namespace Core.Carriers.Item
             var itemLevel = (int)template.GetInt("item_level");
             var baseDps = curve.Evaluate(itemLevel);
 
-            var qualityRecord = _registry.Get("item.quality_definition", template.GetId("quality"));
+            var qualityRecord = _registry.Get("item.quality_definition", instance.Quality);
             var qualityMultiplier = qualityRecord != null && qualityRecord.TryGetNumber("budget_multiplier", out var qm)
                 ? qm
                 : 1.0;
@@ -828,6 +826,12 @@ namespace Core.Carriers.Item
             var slot = template.GetId("slot");
             var itemLevel = (int)template.GetInt("item_level");
 
+            // 2026-09-16 深度复审 B-S1：在词缀循环外一次性构建 StatBudgetInfo，循环内经 IBudgetSolver
+            // 新增的 8 参重载复用同一份——此前一件 N 词缀的装备穿戴一次会触发 N 次全表扫描
+            // （stat.definition/stat.weight/stat.rating_conversion）+ N 次新 Dictionary 分配，见该
+            // 重载判断记录。
+            var statBudgetInfo = ItemBudgetCurve.BuildStatBudgetInfo(_registry);
+
             foreach (var affixId in affixIds)
             {
                 var affixRecord = _registry.Get("item.affix", affixId);
@@ -892,7 +896,8 @@ namespace Core.Carriers.Item
                 }
 
                 var result = _budgetSolver.Solve(
-                    itemLevel, qualityId, slot, normalizedMix, _options.BudgetCurveId, shareOfBudget, _registry);
+                    itemLevel, qualityId, slot, normalizedMix, _options.BudgetCurveId, shareOfBudget, _registry,
+                    statBudgetInfo);
 
                 foreach (var kv in result.Values)
                 {

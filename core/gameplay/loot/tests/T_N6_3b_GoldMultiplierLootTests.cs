@@ -202,6 +202,10 @@ namespace Tests.Gameplay.Loot
             var creature = LootTestSupport.AddCreature(f.World, creatureId, MapId, monsterTemplateId, new Vec2(0, 0));
             creature.Level = 10;
             var killerId = new Id("player.n6_3b_killer");
+            // 2026-09-16 深度复审 D-M1 根治后：CreatureDeathLootListener.OnUnitDied 在货币入账前核对
+            // 击杀者 SourceKind 是否为 Player（同 T_N4_7_CreatureDeathCurrencyDepositTests 判断
+            // 记录），显式登记为世界里的 PlayerUnit，否则 GetSourceKind 会退化为 Unknown。
+            LootTestSupport.AddPlayer(f.World, killerId, MapId, new Vec2(0, 0));
 
             f.Bus.Enqueue(new UnitDiedEvent(creatureId, killerId));
             f.Bus.DispatchPending();
@@ -236,6 +240,8 @@ namespace Tests.Gameplay.Loot
             var creature = LootTestSupport.AddCreature(f.World, creatureId, MapId, monsterTemplateId, new Vec2(0, 0));
             creature.Level = 10;
             var killerId = new Id("player.n6_3b_killer_2");
+            // 2026-09-16 深度复审 D-M1 根治后：同上一条用例判断记录，显式登记击杀者为世界里的玩家。
+            LootTestSupport.AddPlayer(f.World, killerId, MapId, new Vec2(0, 0));
 
             f.Bus.Enqueue(new UnitDiedEvent(creatureId, killerId));
             f.Bus.DispatchPending();

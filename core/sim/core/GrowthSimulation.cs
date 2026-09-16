@@ -385,6 +385,11 @@ namespace Core.Sim
             var creatureFamily = ResolveCreatureFamily(registry, scenario.Opponent);
             var budgetSolver = new BudgetSolver();
 
+            // 复审整合项 2（B-S1）：本次仿真运行内 classId 全程固定，ProcessAcquiredItems 每次拾取都会
+            // 对若干候选装备评分/反解，循环外（单次 RunOnce 只构建一次）建好 StatBudgetInfo、贯穿全程
+            // 复用，避免每件候选装备都重新扫描 stat.definition/stat.weight/stat.rating_conversion。
+            var statBudgetInfo = ItemBudgetCurve.BuildStatBudgetInfo(registry, classId);
+
             double cumulativeXpViaApi = 0.0;
             var levels = new List<GrowthLevelSample>();
 
@@ -472,7 +477,7 @@ namespace Core.Sim
                     PickUpAllGroundLoot(world, PlayerId, MapId);
                     ProcessAcquiredItems(
                         registry, budgetSolver, inventory, equipment, economy,
-                        classId, vendorId, goldCurrencyId, equipmentSlots);
+                        classId, vendorId, goldCurrencyId, equipmentSlots, statBudgetInfo);
 
                     world.Clock.Advance(anchor.KillIntervalSeconds);
                     levelDuration += anchor.KillIntervalSeconds;
@@ -553,7 +558,8 @@ namespace Core.Sim
             IDataRegistryView registry, IBudgetSolver solver,
             Core.Carriers.Item.InventoryHost inventory, Core.Carriers.Item.EquipmentHost equipment,
             Core.Gameplay.Economy.EconomyHost economy,
-            Id classId, Id? vendorId, Id? goldCurrencyId, IReadOnlyList<Id> equipmentSlots)
+            Id classId, Id? vendorId, Id? goldCurrencyId, IReadOnlyList<Id> equipmentSlots,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statBudgetInfo)
         {
             var items = inventory.ListItems(PlayerId);
             var equippedInstanceIds = new HashSet<Id>();
@@ -585,7 +591,7 @@ namespace Core.Sim
                 }
 
                 var itemLevel = (int)template.GetInt("item_level");
-                var newScore = ScoreCandidate(registry, solver, classId, item.TemplateId, item.Quality, item.Affixes, itemLevel, slotId);
+                var newScore = ScoreCandidate(registry, solver, classId, item.TemplateId, item.Quality, item.Affixes, itemLevel, slotId, statBudgetInfo);
 
                 var currentRef = equipment.GetEquipped(PlayerId, slotId);
                 double currentScore = double.NegativeInfinity;
@@ -598,7 +604,7 @@ namespace Core.Sim
                         var currentItemLevel = currentTemplate != null && currentTemplate.TryGetInt("item_level", out var lvl) ? (int)lvl : 1;
                         currentScore = ScoreCandidate(
                             registry, solver, classId, currentInstance.Value.TemplateId,
-                            currentInstance.Value.Quality, currentInstance.Value.Affixes, currentItemLevel, slotId);
+                            currentInstance.Value.Quality, currentInstance.Value.Affixes, currentItemLevel, slotId, statBudgetInfo);
                     }
                 }
 
@@ -619,13 +625,14 @@ namespace Core.Sim
 
         private static double ScoreCandidate(
             IDataRegistryView registry, IBudgetSolver solver, Id classId,
-            Id templateId, Id qualityId, IReadOnlyList<Id> affixIds, int itemLevel, Id slotId)
+            Id templateId, Id qualityId, IReadOnlyList<Id> affixIds, int itemLevel, Id slotId,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statBudgetInfo)
         {
             var budgetCurveId = StandardPlayerBuilder.DefaultBudgetCurveId;
             var affixContribution = StandardPlayerBuilder.ComputeAffixContribution(
-                registry, solver, budgetCurveId, itemLevel, qualityId, slotId, affixIds);
+                registry, solver, budgetCurveId, itemLevel, qualityId, slotId, affixIds, statBudgetInfo);
             var additionalStats = affixContribution.Select(kv => (kv.Key, kv.Value)).ToList();
-            var result = EquipmentScoreAnalyzer.Score(templateId, classId, registry, additionalStats);
+            var result = EquipmentScoreAnalyzer.Score(templateId, classId, registry, statBudgetInfo, additionalStats);
             return result.Score;
         }
 
