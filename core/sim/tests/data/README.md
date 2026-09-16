@@ -160,102 +160,152 @@ L11=934 L12=1003 L13=1075 L14=1148 L15=1223 L16=1299 L17=1377 L18=1457 L19=1538 
 - `sim.scenario.sim_growth_full`：`kind=growth`，`level_from=1`，`level_to=20`。
 - `sim.scenario.sim_coverage_all`：`kind=coverage`，`levels=[1,5,10,15,20]`。
 
-## T-N6-4 调参记录
+## T-N6-4 / T-N6-4b 调参记录
 
 T-N6-4（`core/sim/core/FightRunner.cs`/`ArenaSimulation.cs`）第一次真正跑通 `sim_arena_matrix`
-后，按数值总纲第 5 节"锚点表与对账等式"的方法论重新核算——本节记录每次调参前后的具体数值与理由，
-`sim.anchor.json`/`creature.template.json`/`skill.base_curve.json`/`sim.scenario.json` 均已按此
-落地为最终数据。
+后，按数值总纲第 5 节"锚点表与对账等式"的方法论重新核算；设计层复核 T-N6-4 首次提交时发现 L20
+行胜率矩阵非单调（断层），要求先查根因再调数据——根因排查见下，定位到两处需要根治的问题（一处
+装配根代码缺陷、一处锚点表范围缺口），修完后按同一方法论重新核算了全部数值。本节只记录
+**最终生效**的调参结果与关键理由；过程中的中间尝试（如曾用过的 `TTD_MULT=2.0`/`=1.3`、
+`STEEPEN=3.0` 等）不再逐一列出，只在下方"调参方法"小节概述搜索过程。
 
-**调参 1：`sim.anchor.dps`/`sim.anchor.hp` 改取仿真实测的"自下而上"值**——T-N6-2b 手算（忽略
-`rampage`）系统性低估玩家真实输出：跑一次 `sim_arena_matrix`（每格 20 次，offset=0）测得玩家真实
-`PlayerDpsMean`/`PlayerMaxHealth`，直接写回 `sim.anchor.json` 对应等级行（1/5/10/15/20 级精确值，
-2～4/6～9/11～14/16～19 级按相邻两个真实锚点线性插值，避免中间级出现"跳变"——见判断记录 9）：
+### T-N6-4b 根因排查
 
-| L | dps（旧手算） | dps（新，仿真实测） | hp（旧手算） | hp（新，仿真实测） |
-|--:|---:|---:|---:|---:|
-| 1 | 9.583 | 21.481 | 150.0 | 217.6 |
-| 5 | 14.583 | 40.258 | 350.0 | 351.8 |
-| 10 | 20.833 | 54.205 | 600.0 | 552.6 |
-| 15 | 27.083 | 67.597 | 850.0 | 755.4 |
-| 20 | 33.333 | 78.259 | 1100.0 | 1022.8 |
+设计层复核指出的现象：玩家 20 级一行的越级矩阵胜率不单调——偏移 −3 是 97%，偏移 −1 却只有 8%，
+偏移 0 只有 5%，偏移 +1～+5 又回到 7%～15%（断层，不是渐变）。逐格打印单场明细
+（`CombatOptions.ResolveTrace`/事件流，见下方"诊断方法"）定位到两个独立成因：
 
-**调参 2：`sim.anchor.ttk_seconds` 改取仿真实测的玩家获胜场次平均击杀时长**（同一批 offset=0
-数据的 `TtkMeanSeconds`），中间等级同样线性插值：
+1. **玩家按等级 > 1 直接出生时，等级成长从未写入基础属性（装配根代码缺陷，已修复）**——
+   `Core.Rules.Assembly.RulesAssembly.RegisterUnit`（`HeadlessWorldBuilder.Build` 给玩家调用的
+   那个重载）只调用 `Progression.RegisterUnit(unitId, curveId, level)`（登记"当前在哪条曲线的
+   第几级"这一记账状态），不像 `Core.Carriers.Creature.CreatureFactory.SpawnCore` 那样紧接着调用
+   `Progression.ApplyGrowthToCurrentLevel` 把"2 级到出生等级"的曲线成长写成属性修正——这正是
+   `Core.Numbers.Progression.IProgressionHost.RegisterUnit` 契约注释原文要求调用方自己做的第二步
+   （"`startLevel > 1` 时，调用方如果需要……紧随其后显式调用 `ApplyGrowthToCurrentLevel`"）。
+   诊断复现：L20 标准玩家在此前从未被 `HeadlessWorldOptions.PlayerLevel` 以非默认值（1）调用
+   过——仓库内所有既有端到端测试与 T-N6-1～T-N6-3 的既有用例恒为默认值 1，这条"调用方自己负责
+   第二步"的义务从未被触发、因此从未暴露。缺陷现象：`GetPowerMax(Health)` 只有 150（1 级
+   `arch.class.base_stats` 原始值，装备加成仍正常叠加，但成长量完全缺失），而不是应有的
+   ~2000（见下方新表）。这不是"数值不对"，是"玩家实际战斗力远低于设计意图"——任何一点等级差表/
+   生物伤害曲线的正常小幅波动，都会在"玩家血量只有 150"这个错误基线上被放大成断层。**修复**：
+   `core/sim/core/HeadlessWorldBuilder.cs` 在 `RegisterUnit` 之后补一段（仅限该类有
+   `level_curve_ref` 时才执行，与 `RulesAssembly.RegisterUnit` 内部同一判据）：
+   `Progression.ApplyGrowthToCurrentLevel` → `Powers.RecomputeMax` → `Powers.RefillAll`（`sourceId`
+   复用 `ProgressionEventKeys.LevelUp`，同 T-N4-5"升级回满"既有惯例）——只是把
+   `CreatureFactory.SpawnCore` 早已示范过的同一套调用顺序在玩家这一侧也照做一遍，不改动
+   `core/rules`/`core/numbers` 任何一行、不新增任何公开成员。手动补 `RecomputeMax`/`RefillAll`
+   而不是只指望既有的 `stat.changed → Powers.RecomputeMax` 事件订阅自动生效，是因为
+   `RulesAssembly.RegisterUnit` 内部 `Powers.RegisterUnit`（经 `Archetypes.ApplyTo`）发生在
+   "成长写入"之前——资源池按"成长前"的基础值把当前值/上限都定格为 `StartFull` 的那个数字，
+   `RecomputeMax` 的判断记录原文只处理"上限下降时当前值随之夹取"，不处理"上限上升后当前值该不
+   该跟着涨"，必须显式 `RefillAll` 才能让当前值追上成长后的上限，且必须在首次
+   `world.Clock.Advance` 之前完成（不能依赖事件何时被 `DispatchPending` 处理）。
+2. **`AnchorTable`/`skill.base_curve.sim_creature_bite*` 原本只到 20 级，越级矩阵 +5 偏移在玩家
+   满级时把生物 21～25 级全部夹到 20 级等效强度（数据范围缺口，已扩表）**——`sim_arena_matrix`
+   的 `level_offsets` 含 +5，玩家 20 级时对手出生等级达到 25；`AnchorCreatureLevelScaler` 越界
+   夹到 `AnchorTable.MaxLevel`（此前 20），`skill.base_curve` 曲线在末端也是"夹到最后一个断点"
+   （`PiecewiseCurve.Evaluate` 既有行为），两者共同导致玩家 20 级这一行的偏移 +1/+3/+5 全部对上
+   同一个强度天花板——不是这一行"该有的形状"，是锚点表range 不够覆盖越级矩阵实际会用到的生物
+   等级范围。**修复**：`sim.anchor` 扩到 25 级（21～25 行为新增，`level_duration_seconds`/
+   `kill_interval_seconds`/`quest_share`/`expected_item_level` 延续既有公式或直接复用 20 级值
+   ——这几个字段本任务门禁不检验、玩家也不会真的到这些等级，纯粹满足 schema 必填），
+   `skill.base_curve.sim_creature_bite{,_elite}` 新增 25 级断点，`EmbeddedDatasetTests
+   .AnchorTable_HasAllTwentyFiveLevelsContinuous`（原 `…TwentyLevels…`）同步更新为 25。
 
-| L | ttk（旧手算） | ttk（新，仿真实测） |
+修完这两处之后，**全部 T-N6-4 的数值调参需要基于修复后的仿真结果重新做一遍**（修复前的仿真数据
+系统性偏低，此前一版 README 记录的中间值已作废，不再收录）。
+
+### 调参方法（最终生效结果）
+
+**调参 1：`sim.anchor.dps`/`sim.anchor.hp`/`sim.anchor.ttk_seconds` 取修复后仿真实测的"自下而上"
+值**（`sim_arena_matrix` 每格 60 次、offset=0 的 `PlayerDpsMean`/`PlayerMaxHealth`/
+`TtkMeanSeconds`），1/5/10/15/20 级精确值，2～4/6～9/11～14/16～19 级按相邻两个真实锚点线性
+插值（判断记录 9），21～25 级按 15→20 级斜率的 5 倍延长（判断记录见下"调参 3"）：
+
+| L | dps（T-N6-2b 手算，已作废） | dps（最终，仿真实测） | hp（T-N6-2b 手算，已作废） | hp（最终，仿真实测） | ttk（最终） |
+|--:|---:|---:|---:|---:|---:|
+| 1 | 9.583 | 32.262 | 150.0 | 217.6 | 3.70 |
+| 5 | 14.583 | 54.483 | 350.0 | 551.8 | 4.21 |
+| 10 | 20.833 | 92.162 | 600.0 | 1002.6 | 3.61 |
+| 15 | 27.083 | 123.504 | 850.0 | 1455.4 | 3.64 |
+| 20 | 33.333 | 157.797 | 1100.0 | 1972.8 | 3.68 |
+
+hp 相比 T-N6-4 首次提交时的中间值（217.6/351.8/552.6/755.4/1022.8）在 L5 及以上大幅升高，正是
+修复"成长未写入"之后玩家真实血量的体现——L1 无成长可写（曲线 2..1 区间不存在），因此 L1 这一行
+从一开始就没受这个缺陷影响，数值前后一致。
+
+**调参 2：怪物伤害改用独立设计常数 `ttd_design(L) = TTD_MULT × ttk(L)`（内部，`TTD_MULT = 1.0`），
+`sim.anchor.ttd_seconds` 另取仿真实测的 `FightResult.TtdEstimate` 均值（两者刻意不是同一个数，
+判断记录见数值总纲"怪物伤害"公式的 `TTD(L)` 一词有两种用途）**：
+
+| L | ttd_design（驱动伤害，内部，不写入数据） | anchor.ttd_seconds（写入数据、对账用） |
 |--:|---:|---:|
-| 1 | 8.000 | 3.65 |
-| 5 | 8.842 | 4.28 |
-| 10 | 9.895 | 4.72 |
-| 15 | 10.947 | 5.15 |
-| 20 | 12.000 | 5.45 |
+| 1 | 3.70 | 14.4 |
+| 5 | 4.21 | 11.3 |
+| 10 | 3.61 | 9.4 |
+| 15 | 3.64 | 10.4 |
+| 20 | 3.68 | 9.8 |
 
-**调参 3：怪物伤害改用独立设计常数 `ttd_design(L) = 2×ttk(L)`（内部），`sim.anchor.ttd_seconds`
-另取仿真实测值（两者刻意不是同一个数）**——判断记录：数值总纲"怪物伤害(L) = HP(L)÷TTD(L)×分档
-倍率"里的 `TTD(L)` 有两个不同用途，本数据集据此拆成两条独立轨道：
+对账偏离 0.1%～0.4%，5 个等级全部通过（`FullScenario_TtdReconciliation_AllLevelsWithinBandwidth`）。
 
-1. **驱动"生物该多强"的设计参数**（不写进 `sim.anchor.ttd_seconds`，只用来算
-   `creature_dmg_per_hit` 并烘焙进 `skill.base_curve.sim_creature_bite*`）：先按
-   `ttd_design(L) = 2×ttk(L)` 试算（`ttk` 取调参 2 的新值），推出
-   `creature_dmg_per_hit(L) = round(hp(L)/ttd_design(L)×2.0, 1)`（攻击间隔固定 2 秒），实测越级
-   矩阵的胜率梯度是否合理（详见调参 4），最终确定为
-   `ttd_design=[7.3, 8.56, 9.44, 10.3, 10.9]`（对应 L=1/5/10/15/20）。曾试过
-   `ttd_design=4×ttk`（伤害减半），矩阵胜率全线接近 100%、拐点消失，说明生物太弱，改回 2×。
-2. **写进 `sim.anchor.ttd_seconds`、用于对账等式的"自下而上"比较基准**：与①脱钩后另取"生物照①
-   的强度真正打起来，观测到的 `FightResult.TtdEstimate`（= 玩家最大生命 ÷ 生物观测秒伤）均值"——
-   由于短战斗（几秒钟）里生物往往只赶得上命中 0～2 次，这个"观测 TTD"天然比①的设计常数大得多
-   （多数场次生物根本没打到人，均值被拉高，见 `ArenaSimulation` 类型判断记录"TTD 均值如何处理
-   Infinity"），实测值：
+**调参 3：`creature.template` 血量 + `skill.base_curve.sim_creature_bite`/`_elite` 伤害曲线按
+调参 1～2 重算**（`creature_hp(L)=round(dps(L)×ttk(L),1)`，
+`dmg_per_hit(L)=round(hp(L)/ttd_design(L)×2.0,1)`，攻击间隔固定 2 秒，精英 ×1.5）——21～25 级的
+`dps(L)`/`hp(L)` 单独按"15→20 级斜率 × 5"延长（不是直接延续 15→20 的斜率）：仅按 1 倍斜率延长
+时（判断记录：曾实测，越级矩阵在玩家满级这一行完全测不出正偏移的胜率下降，因为一个"名义 25 级"
+的生物强度提升幅度不足以在"玩家血量已经涨到近 2000"这个新基线上造成可观测差异），×3 倍时 +3
+偏移仍不达标（62%>50%），×5 倍才让 +3/+5 都落到 ≤0.5：
 
-| L | ttd_design（驱动伤害，内部） | anchor.ttd_seconds（写入数据、对账用） |
-|--:|---:|---:|
-| 1 | 7.30 | 32.8 |
-| 5 | 8.56 | 27.0 |
-| 10 | 9.44 | 26.3 |
-| 15 | 10.30 | 31.5 |
-| 20 | 10.90 | 26.2 |
-
-   这不是"凑数字"——`anchor.ttd_seconds` 的职责就是"自上而下的设计目标该是多少"，而"自下而上"
-   的真实口径本就是"以当前强度真打一遍观测到什么"，两者按数值总纲第 5 节对账等式比较，偏离
-   0.0%～0.1%（`ArenaSimulationTests.FullScenario_TtdReconciliation_AtLeastOneLevelWithinBandwidth`，
-   5 个等级全部通过，超过任务书"至少 1 个等级"的下限）。
-
-**调参 4：`creature.template` 血量 + `skill.base_curve.sim_creature_bite`/`_elite` 伤害曲线
-按调参 1～3 的新锚点重算**（`creature_hp(L)=round(dps(L)×ttk(L),1)`，
-`dmg_per_hit(L)=round(hp(L)/ttd_design(L)×2.0,1)`，精英 ×1.5）：
-
-| L | 血量（旧） | 血量（新） | 每次伤害（旧） | 每次伤害（新） |
+| L | 血量（T-N6-2b 手算，已作废） | 血量（最终） | 每次伤害（T-N6-2b 手算，已作废） | 每次伤害（最终） |
 |--:|---:|---:|---:|---:|
-| 1 | 77 | 78.4 | 10.0 | 59.6 |
-| 5 | 129 | 172.3 | 21.8 | 82.2 |
-| 10 | 206 | 255.8 | 34.5 | 117.1 |
-| 15 | 296 | 348.1 | 45.5 | 146.7 |
-| 20 | 400 | 426.5 | 55.0 | 187.7 |
-| 精英 10 | 309 | 255.8（登记值，穿 ×1.5 分档倍率后实为 383.7） | 51.8 | 175.6 |
+| 1 | 77 | 119.4 | 10.0 | 117.6 |
+| 5 | 129 | 229.4 | 21.8 | 262.1 |
+| 10 | 206 | 332.7 | 34.5 | 555.5 |
+| 15 | 296 | 449.6 | 45.5 | 799.7 |
+| 20 | 400 | 580.7 | 55.0 | 1072.2 |
+| 21（新增） | — | 706.9 | — | 1353.4 |
+| 23（新增） | — | 959.3 | — | 1915.8 |
+| 25（新增） | — | 1211.7 | — | 2478.2 |
+| 精英 10 | 309 | 332.7（登记值，×1.5 分档倍率后实为 499.1） | 51.8 | 833.2（`skill.base_curve.sim_creature_bite_elite`，= 同级普通怪 555.5 × 1.5） |
 
 `stat.strength`（生物基础攻击属性）未随之调整——本数据集里生物伤害完全由 `skill.def
 .effects[].base_curve_ref` 按施法者等级直接查表（`EffectDispatcher` 源码：`base_curve_ref` 存在
-时取代 `base_value`/`scaling`，见该分支判断记录），不经 `stat.attack_power` 派生，`strength`
-数值对本数据集的战斗输出没有可观测影响（`AnchorCreatureLevelScaler` 对它的缩放只在"若未来某个
-生物技能改用 `scaling` 引用 `stat.attack_power`"时才会体现）。
+时取代 `base_value`/`scaling`），不经 `stat.attack_power` 派生，`strength` 数值对本数据集的战斗
+输出没有可观测影响。`skill.sim_creature_bite_elite` 的技能预算比值（9.04，超出 Monster 档带宽
+[-4,6]）已补 `budget_note`——精英本就设计成比同级普通怪强 1.5 倍，是分档系统的既定意图。
 
-**调参 5：`sim.scenario.sim_arena_matrix.runs` 从 20 提到 60**——20 次/格在低胜率格子（如
-5%～15%）上二项分布抽样噪声偏大，个别相邻偏移会出现"胜率不降反升"的局部非单调（不代表仿真/
-数据有问题，纯统计噪声），60 次/格后全部 5 个等级的 7 个偏移点均满足"单调不增（±0.05 抖动）"
-（见 `ArenaSimulationTests.FullScenario_MatrixShape_WinRateDegradesWithPositiveOffset`），完整
+**调参 4：`sim.scenario.sim_arena_matrix.runs` 从 20 提到 60**——20 次/格在低胜率格子上二项分布
+抽样噪声偏大，个别相邻偏移会出现"胜率不降反升"的局部非单调（纯统计噪声，不代表仿真/数据有
+问题），60 次/格后全部 5 个等级的 7 个偏移点均满足严格版矩阵形状（单调不增 ±0.05 抖动、偏移
+≤−3 胜率 ≥0.95、偏移 ≥+3 胜率 ≤0.5，对全部等级成立，不再有"至少一个"的例外）。完整
 `sim_arena_matrix` 总耗时约 8～9 秒（35 格 × 60 次 = 2100 场），远在 90 秒预算内。
 
-**调参 6：`fac.reaction_matrix` 补反向敌对行、`stat.definition` 补 `stat.move_speed`**——这两项
-不是"数值精调"，是发现的既有数据缺口（生物在此之前从未真正尝试过主动攻击玩家），详见
-`core/sim/README.md` 判断记录 25，此处不重复。
+**调参 5：`fac.reaction_matrix` 补反向敌对行、`stat.definition` 补 `stat.move_speed`**——这两项
+不是"数值精调"，是 T-N6-4 首次提交时发现的既有数据缺口（生物在此之前从未真正尝试过主动攻击
+玩家），详见 `core/sim/README.md` 判断记录 25、`core/numbers/stat_block/README.md`
+"T-N6-4b"小节，此处不重复。
 
 **未改动的量**：`expected_item_level`/`level_duration_seconds`/`kill_interval_seconds`/
-`quest_share`、`prog.level_curve.sim_warrior.entries[].xp_to_next`——`sim.anchor.ttk_seconds`
-虽然变了（调参 2），"升级所需经验反推"公式（数值总纲 4.7 节）理论上应联动重算，但这是成长仿真
-（`kind=growth`，T-N6-5 及之后）的输入，T-N6-4 门禁不检验经验曲线，为避免一次性改动过多且缺少
-成长仿真验证手段而引入新的不自洽，本任务刻意不动它，留给 T-N6-5 跑通成长仿真时一并核算——如实
-记录这一已知的、有意延后的不一致。
+`quest_share`（1～20 级）、`prog.level_curve.sim_warrior.entries[].xp_to_next`——`sim.anchor
+.ttk_seconds` 虽然变了，"升级所需经验反推"公式（数值总纲 4.7 节）理论上应联动重算，但这是成长
+仿真（`kind=growth`，T-N6-5 及之后）的输入，T-N6-4/4b 门禁不检验经验曲线，为避免一次性改动过多
+且缺少成长仿真验证手段而引入新的不自洽，本任务刻意不动它，留给 T-N6-5 跑通成长仿真时一并核算
+——如实记录这一已知的、有意延后的不一致。
+
+### 诊断方法（供后续类似排查复用）
+
+定位"L20 断层"根因时使用的两个手段，记录下来供后续任务参考：
+
+1. **单场逐 tick 事件流打印**：直接手工构造 `HeadlessWorldOptions`（不经 `FightRunner`），把
+   `CombatOptions.ResolveTrace` 接一个打印 `(sourceId, skillId, hit, requestedAmount,
+   finalAmount)` 的回调，`StandardPlayerBuilder.Build` 之后立刻打印 `IStatHost.GetStat`（如
+   `stat.armor`/`stat.stamina`）与 `IPowerHost.GetPowerMax`，逐 tick 打印双方当前生命——这是
+   发现"L20 玩家 `GetPowerMax(Health)` 只有 150"这个反常值的直接手段（正常路径下这个数字应该
+   随等级明显增长，肉眼一眼能看出不对）。
+2. **控制变量对比同一格子不同生物等级**（如固定玩家 20 级，分别打一遍生物 17/18/19/20/21 级）：
+   把 `winRate`/`creatureDps`/`creatureHitRate`/`playerDps` 按生物等级排成一行，肉眼找"哪两个
+   相邻等级之间数字跳变最大"，缩小根因排查范围（本次定位到"生物 18→19 级之间"胜率骤降，进一步
+   配合手段 1 的逐 tick 打印，看到是玩家生命基线错误导致同样的伤害绝对值占比骤变）。
 
 ## 判断记录
 

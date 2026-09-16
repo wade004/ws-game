@@ -8,9 +8,13 @@ namespace Tests.Sim
     /// T-N6-2b：嵌入式最小仿真数据集（<c>core/sim/tests/data</c>，见该目录 README.md）的装配/内容
     /// 断言——数据本身的合法性已由 <c>toolchain/validate_data.py --strict --framework-root
     /// data/_framework --data-root core/sim/tests/data</c>（errors 0）覆盖，本文件只断言任务书列出的
-    /// 几条"能被装配根消费"的验收点：装载零阻断、<see cref="Core.Sim.AnchorTable"/> 1～20 级连续、
-    /// 三个场景可取、生物/物品模板档位数量、标准职业学技能后能打死一只 1 级普通怪且玩家获胜、同种子
-    /// 两次逐 tick 一致。
+    /// 几条"能被装配根消费"的验收点：装载零阻断、<see cref="Core.Sim.AnchorTable"/> 1～25 级连续
+    /// （T-N6-4b 从 1～20 扩到 1～25——越级矩阵 <c>sim.scenario.sim_arena_matrix</c> 允许玩家 20 级
+    /// 时对手偏移 +5，生物出生等级达到 25，若锚点表只到 20，<c>AnchorCreatureLevelScaler</c> 会把
+    /// 21～25 级一律夹到 20 级等效强度，导致越级矩阵最高一行（玩家 20 级）正偏移几档强度完全相同、
+    /// 胜率无法继续下降，见 <c>core/sim/tests/data/README.md</c>"T-N6-4b 根因排查"）、三个场景可取、
+    /// 生物/物品模板档位数量、标准职业学技能后能打死一只 1 级普通怪且玩家获胜、同种子两次逐 tick
+    /// 一致。
     /// </summary>
     public sealed class EmbeddedDatasetTests
     {
@@ -23,13 +27,13 @@ namespace Tests.Sim
         }
 
         [Fact]
-        public void AnchorTable_HasAllTwentyLevelsContinuous()
+        public void AnchorTable_HasAllTwentyFiveLevelsContinuous()
         {
             var world = SimTestWorldFactory.BuildFromEmbeddedDataset(seed: 20260916101UL);
 
             Assert.NotNull(world.AnchorTable);
-            Assert.Equal(20, world.AnchorTable!.MaxLevel);
-            for (var level = 1; level <= 20; level++)
+            Assert.Equal(25, world.AnchorTable!.MaxLevel);
+            for (var level = 1; level <= 25; level++)
             {
                 Assert.True(world.AnchorTable.TryGet(level, out _), $"sim.anchor 应含 level={level}");
             }

@@ -559,6 +559,41 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   命中率/技能占比之和/资源曲线、完整 `sim_arena_matrix`（2100 场，~8～9 秒）的对账等式
   （dps/hp ≥3 个等级、ttd ≥1 个等级在带宽内）与矩阵形状（单调不增、越级胜率梯度、拐点存在）、
   `ArenaReport.ToJson()` 确定性）。
+- **数值设计落地阶段 N6 · T-N6-4b**（设计层复核 T-N6-4 首次提交后要求根治的两处根因，而不是
+  放宽验收标准）：① `Core.Sim.HeadlessWorldBuilder.Build` 此前给玩家按 `PlayerLevel > 1` 直接
+  出生时，只调用 `Progression.RegisterUnit` 登记等级记账状态，未像
+  `Core.Carriers.Creature.CreatureFactory.SpawnCore` 那样紧接着调用
+  `Progression.ApplyGrowthToCurrentLevel` 补写"2 级到出生等级"的曲线成长——`IProgressionHost
+  .RegisterUnit` 契约注释原文明确这第二步须由调用方自己完成；此前仓库内从未有调用方以非默认值
+  （1）使用过 `HeadlessWorldOptions.PlayerLevel`，缺口因此从未暴露，直到 T-N6-4 的
+  `ArenaSimulation` 第一次让玩家在等级 5/10/15/20 直接出生。现象：L20 标准玩家战斗中的
+  `IPowerHost.GetPowerMax(Health)` 只有 150（1 级基础值），远低于应有的 ~2000，越级矩阵最高
+  一行的胜率因此在错误的低生命基线上剧烈失真（非单调断层）。修复：`HeadlessWorldBuilder.Build`
+  在 `RegisterUnit` 之后补调用 `Progression.ApplyGrowthToCurrentLevel` → `Powers.RecomputeMax`
+  → `Powers.RefillAll`（均为 `core/rules`/`core/numbers` 已公开的既有成员，不新增任何公开
+  成员、不改动"被仿真模块"一行代码），惠及任何以 `PlayerLevel > 1` 使用本装配根的调用方（不限于
+  T-N6-4），`PlayerLevel == 1` 不受影响。② `sim.anchor`/`skill.base_curve.sim_creature_bite*`
+  此前只到 20 级，`sim_arena_matrix` 允许玩家满级（20）时对手偏移 +5，生物出生等级达到 25，
+  越界夹到 `AnchorTable.MaxLevel`（此前 20）导致玩家 20 级这一行的正偏移 +1/+3/+5 全部对上同一
+  强度天花板——扩表到 25 级根治（`sim.anchor` 新增 21～25 五行，`dps`/`hp` 按 15→20 级斜率的
+  5 倍延长；`skill.base_curve.sim_creature_bite{,_elite}` 新增 25 级断点）。两处修复后按数值
+  总纲第 5 节方法论重新核算全部锚点/生物数值（`sim.anchor.dps`/`hp`/`ttk_seconds`/`ttd_seconds`、
+  `creature.template` 血量、`skill.base_curve.sim_creature_bite*` 伤害曲线，详见
+  `core/sim/tests/data/README.md`"T-N6-4 / T-N6-4b 调参记录"），`ArenaSimulationTests` 验收标准
+  收紧为任务书原文的严格版本：DPS/HP 对账改为 5 个等级全部在带宽内（不再是 ≥3）；矩阵形状改为
+  对场景定义的全部等级、每一个 ≥+3 的偏移点都要求胜率 ≤0.5（不再有"至少一个满足"的例外，
+  T-N6-4 首次提交时的判断记录 26 已标注撤销）。`FightResult` 新增 `CreatureHitRate`（生物对
+  玩家的命中率，口径同既有 `PlayerHitRate` 对称，根因排查需要的诊断字段，纯新增属性）。
+  `skill.sim_creature_bite_elite` 新增 `budget_note`（精英分档伤害刻意高于 Monster 档预算带宽，
+  是分档系统 1.5 倍强度的既定意图，不是数值手滑）。`EmbeddedDatasetTests
+  .AnchorTable_HasAllTwentyFiveLevelsContinuous`（原 `…TwentyLevelsContinuous`）、
+  `AnchorCreatureLevelScalerTests.Spawn_AboveMaxAnchorLevel_ClampsToMaxLevel`（越界夹取边界从
+  "20 vs 25"改为"25 vs 30"）随锚点表扩容同步更新，`Core.Numbers.StatBlock
+  .StatDefinitionConsumerValidationRule.FrameworkBuiltinConsumerStatIds` 补充判断记录说明
+  `stat.move_speed` 的真正消费者是 `Core.Carriers.Unit.MovementTickHandler.ResolveSpeed`
+  （`core/sim` 自己的 `SimpleMoveModel` 不读取该属性，此前汇报的归因不够精确，已在
+  `core/numbers/stat_block/README.md` 更正）。`dotnet test Core.sln` 全量回归（4233 例）验证
+  两处修复对既有全部用例无副作用。
 
 ## [1.35.0] - 2026-09-16
 

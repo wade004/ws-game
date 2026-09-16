@@ -34,6 +34,13 @@ namespace Core.Sim
         /// <summary>玩家对生物的命中率——见类型判断记录"命中率口径"。</summary>
         public double PlayerHitRate { get; }
 
+        /// <summary>T-N6-4b 新增：生物对玩家的命中率，口径与 <see cref="PlayerHitRate"/> 对称（分子＝
+        /// <c>ResolveTrace</c> 里 <c>Hit ∉ {Miss,Dodge,Parry}</c> 的计数、分母＝该方向全部
+        /// <c>ResolveTrace</c> 回调计数）——诊断"生物越级矩阵为何在某些格子胜率骤变"时定位
+        /// 未命中/命中占比用，见 <c>ArenaSimulation</c>/<c>core/sim/tests/data/README.md</c>
+        /// "T-N6-4b 根因排查"一节。</summary>
+        public double CreatureHitRate { get; }
+
         /// <summary>技能 id → 该技能落地伤害占玩家总落地伤害的比例，之和为 1（<see cref="PlayerTotalDamage"/>
         /// 为 0 时为空字典，之和为 0，见类型判断记录"技能占比之和恒为 1 的前提"）。</summary>
         public IReadOnlyDictionary<Id, double> PlayerSkillDamageShare { get; }
@@ -59,7 +66,7 @@ namespace Core.Sim
 
         internal FightResult(
             FightOutcome outcome, double durationSeconds, int ticksUsed,
-            double playerTotalDamage, double creatureTotalDamage, double playerHitRate,
+            double playerTotalDamage, double creatureTotalDamage, double playerHitRate, double creatureHitRate,
             IReadOnlyDictionary<Id, double> playerSkillDamageShare,
             IReadOnlyDictionary<Id, IReadOnlyList<ResourceSample>> playerResourceCurves,
             IReadOnlyDictionary<Id, IReadOnlyList<ResourceSample>> creatureResourceCurves,
@@ -73,6 +80,7 @@ namespace Core.Sim
             CreatureTotalDamage = creatureTotalDamage;
             CreatureDps = durationSeconds > 0 ? creatureTotalDamage / durationSeconds : 0.0;
             PlayerHitRate = playerHitRate;
+            CreatureHitRate = creatureHitRate;
             PlayerSkillDamageShare = playerSkillDamageShare;
             PlayerResourceCurves = playerResourceCurves;
             CreatureResourceCurves = creatureResourceCurves;
@@ -247,7 +255,11 @@ namespace Core.Sim
             double creatureTotalDamage = 0.0;
             var playerAttempts = 0;
             var playerLanded = 0;
+            var creatureAttempts = 0;
+            var creatureLanded = 0;
             var playerDamageBySkill = new Dictionary<Id, double>();
+
+            bool IsLandedHit(HitResult hit) => hit != HitResult.Miss && hit != HitResult.Dodge && hit != HitResult.Parry;
 
             void OnResolve(EffectContext ctx, ResolveResult result)
             {
@@ -257,8 +269,14 @@ namespace Core.Sim
                 if (ctx.SourceId.Equals(playerId) && ctx.TargetId.Equals(creatureId))
                 {
                     playerAttempts++;
+                    if (IsLandedHit(result.Hit)) playerLanded++;
                     playerDamageBySkill.TryGetValue(ctx.SkillId, out var existing);
                     playerDamageBySkill[ctx.SkillId] = existing + result.FinalAmount;
+                }
+                else if (ctx.SourceId.Equals(creatureId) && ctx.TargetId.Equals(playerId))
+                {
+                    creatureAttempts++;
+                    if (IsLandedHit(result.Hit)) creatureLanded++;
                 }
             }
 
@@ -330,7 +348,6 @@ namespace Core.Sim
                         if (dealt.SourceId.Equals(playerId) && dealt.TargetId.Equals(creatureId))
                         {
                             playerTotalDamage += dealt.Amount;
-                            playerLanded++;
                         }
                         else if (dealt.SourceId.Equals(creatureId) && dealt.TargetId.Equals(playerId))
                         {
@@ -377,6 +394,7 @@ namespace Core.Sim
             }
 
             double playerHitRate = playerAttempts > 0 ? (double)playerLanded / playerAttempts : 0.0;
+            double creatureHitRate = creatureAttempts > 0 ? (double)creatureLanded / creatureAttempts : 0.0;
 
             var playerCurvesOut = playerCurves.ToDictionary(
                 kv => kv.Key, kv => (IReadOnlyList<ResourceSample>)Downsample(kv.Value, options.MaxResourceCurveSamples));
@@ -386,7 +404,7 @@ namespace Core.Sim
             var playerMaxHealth = powers.GetPowerMax(playerId, WellKnownPowers.Health);
 
             return new FightResult(
-                outcome, durationSeconds, tick, playerTotalDamage, creatureTotalDamage, playerHitRate,
+                outcome, durationSeconds, tick, playerTotalDamage, creatureTotalDamage, playerHitRate, creatureHitRate,
                 skillShare, playerCurvesOut, creatureCurvesOut, playerMaxHealth, playerId, creatureId);
         }
 

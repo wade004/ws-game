@@ -270,6 +270,61 @@ namespace Core.Sim
             };
             world.AddEntity(player);
             gameplay.Carriers.Rules.RegisterUnit(options.PlayerId, options.PlayerClassId, options.PlayerRaceId, options.PlayerLevel);
+
+            // T-N6-4b 根治（设计层复核发现"L20 越级矩阵断层"，根因见判断记录"玩家按等级 > 1 直接
+            // 出生时成长未写入"）：Core.Rules.Assembly.RulesAssembly.RegisterUnit（供玩家使用的
+            // 版本）只调用 Progression.RegisterUnit（登记"当前在哪条曲线的第几级"这一记账状态），
+            // 不像 Core.Carriers.Creature.CreatureFactory.SpawnCore 那样紧接着调用
+            // Progression.ApplyGrowthToCurrentLevel 把"2 级到出生等级"的曲线成长写成属性修正——这不是
+            // 遗漏个例，是 Core.Numbers.Progression.IProgressionHost.RegisterUnit 契约文档原文明确
+            // 要求调用方自己做的第二步："startLevel > 1 时，调用方如果需要把……曲线成长一次性写为
+            // 修正，紧随其后显式调用 ApplyGrowthToCurrentLevel"（见该方法契约注释）。此前仓库内全部
+            // 调用 HeadlessWorldOptions.PlayerLevel 的既有场景恒为默认值 1（T-N6-1 该选项判断记录
+            // "本任务本身只消费默认值"），这条"调用方自己负责第二步"的义务从未被触发过、因此从未
+            // 暴露——直到 T-N6-4 的 ArenaSimulation 第一次真正让玩家在等级 5/10/15/20 直接出生。
+            // 未补这一步时，玩家的基础属性（含 stat.stamina，驱动生命值上限）停留在 1 级的
+            // arch.class.base_stats 原始值，装备加成仍会正常叠加，但"应有的成长量"完全缺失——
+            // 诊断复现：L20 标准玩家在未打过一次 RecomputeMax 之前 GetPowerMax(Health) 只有 150
+            // （1 级基础值 + 尚未叠加成长），而不是仿真实测应有的 ~1022；越级矩阵里"L20 行胜率沿
+            // 偏移骤变、不单调"正是这一缺陷的放大镜——玩家实际生命远低于预期，任何一点等级差表/
+            // 生物伤害曲线的正常小幅波动都会在"玩家只有 150 血"这个错误基线上被放大成"多打一拍就是
+            // 死、少打一拍就是活"的临界效应（见 core/sim/tests/data/README.md"T-N6-4b 根因排查"）。
+            // 本修复只是把 Core.Carriers.Creature.CreatureFactory 早已示范过的同一套两步调用顺序
+            // （RegisterUnit 紧接 ApplyGrowthToCurrentLevel）在玩家这一侧也照做一遍，不改动
+            // core/rules/core/numbers 任何一行、不新增任何公开成员，纯粹是装配根内部调用顺序的
+            // 补全；guard 条件复刻 RulesAssembly.RegisterUnit 内部判断
+            // classRecord.TryGetId("level_curve_ref", ...) 是否成立的同一逻辑（该类没有登记成长
+            // 曲线时 Progression.RegisterUnit 从未被调用，直接调用 ApplyGrowthToCurrentLevel 会因
+            // "单位未注册"抛 ArgumentException，见该方法契约注释）。
+            var playerClassRecord = registry.Get("arch.class", options.PlayerClassId);
+            if (playerClassRecord != null && playerClassRecord.TryGetId("level_curve_ref", out _))
+            {
+                gameplay.Carriers.Rules.Progression.ApplyGrowthToCurrentLevel(options.PlayerId);
+
+                // 判断记录（补写成长之后为何还要手动 RecomputeMax + RefillAll，不能只指望
+                // RulesAssembly 既有的 stat.changed → Powers.RecomputeMax 订阅自动生效）：
+                // CreatureFactory.SpawnCore 对生物是"先成长、后 Powers.RegisterUnit"，资源池注册
+                // 那一刻读到的基础属性已经是成长后的值，天生正确，不需要任何后续补救。但
+                // RulesAssembly.RegisterUnit（玩家走的路径）里 Powers.RegisterUnit 是在
+                // Archetypes.ApplyTo 内部完成的、且发生在本方法上面调用 RegisterUnit 那一行——
+                // 也就是先于这里才补上的 ApplyGrowthToCurrentLevel，这个顺序在
+                // RulesAssembly.RegisterUnit 内部固定、不可重排（该方法属于"被仿真模块"，本任务
+                // 硬性规则不得修改）。资源池初次注册时已经按"成长前"的基础属性值把当前值/上限都
+                // 定格为 StartFull 的那个（偏低的）数字；stat.changed 订阅只会调用
+                // Powers.RecomputeMax（重新按最新属性算上限），其判断记录原文明确"上限下降导致
+                // 当前值超出新上限时才夹取当前值"——只处理下降夹取，不处理上限上升后当前值该不该
+                // 跟着涨，因此单靠这条既有订阅无法让"当前值"追上成长后应有的上限。显式调用
+                // RecomputeMax（保证不依赖事件何时被 DispatchPending 处理——本调用发生在首次
+                // world.Clock.Advance 之前，若单纯指望事件订阅，"出生即成长"的玩家会在第一个
+                // tick 结算之前始终顶着注册时的偏低生命上限）+ RefillAll（sourceId 复用
+                // ProgressionEventKeys.LevelUp，同 T-N4-5"升级回满"既有惯例的来源标记）两步，是
+                // "凭空出生在等级 N"与"从 1 级一路升到 N 级、每级都回满一次"这两条路径在效果上
+                // 应该等价的最小补齐——不新增任何 core/rules/core/numbers 的公开成员，只是把它们
+                // 已经公开的既有方法在正确的时机调用一遍。
+                gameplay.Carriers.Rules.Powers.RecomputeMax(options.PlayerId);
+                gameplay.Carriers.Rules.Powers.RefillAll(options.PlayerId, Core.Numbers.Progression.ProgressionEventKeys.LevelUp);
+            }
+
             spatial.Register(options.PlayerId, player.Position, options.PlayerSpawnRadius);
             gameplay.Economy.RegisterUnit(options.PlayerId);
 

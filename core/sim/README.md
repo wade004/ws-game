@@ -60,8 +60,20 @@ T-N6-4（本次任务，ADR-0035 决策 3）：三级仿真的第一级——战
 `stat.definition` 缺 `stat.move_speed`（`MovementTickHandler` 硬性要求）——均记录在
 `core/sim/tests/data/README.md` 判断记录与本文件判断记录。跑通仿真后按对账等式与矩阵形状要求
 重新核算了 `sim.anchor`/`creature.template`/`skill.base_curve.sim_creature_bite*`/
-`sim.scenario.sim_arena_matrix.runs`，详见数据集 README"T-N6-4 调参记录"一节——`ExpectedStatCalculator`/
-`StandardPlayerBuilder` 用到的公式与结果不受影响（本次改动的表不在它们的输入范围内）。
+`sim.scenario.sim_arena_matrix.runs`，详见数据集 README"T-N6-4 / T-N6-4b 调参记录"一节——
+`ExpectedStatCalculator`/`StandardPlayerBuilder` 用到的公式与结果不受影响（本次改动的表不在它们
+的输入范围内）。
+
+T-N6-4b（设计层复核后的根治提交）：T-N6-4 首次提交后，设计层复核发现玩家 20 级一行的越级矩阵
+胜率非单调（断层），要求先查机制再调数据——排查定位到两处真实缺陷，均已根治：①
+`HeadlessWorldBuilder.Build` 此前没有像 `CreatureFactory.SpawnCore` 那样在玩家按等级 &gt; 1
+直接出生时补写等级成长，导致玩家实际战斗力远低于设计意图（判断记录 28，只改
+`core/sim/core/HeadlessWorldBuilder.cs`，未触碰任何被仿真模块）；② `AnchorTable`/
+`skill.base_curve.sim_creature_bite*` 原本只到 20 级，越级矩阵 +5 偏移在玩家满级时让生物
+21～25 级全部夹到同一强度天花板，扩表到 25 级根治（判断记录 29）。两处修复后按同一方法论重新
+核算了全部锚点/生物数值，`ArenaSimulationTests` 的验收标准同步收紧为任务书原文的严格版本（DPS/
+HP 对账 5 个等级全部在带宽内、矩阵形状对全部等级逐偏移点成立，不再有 T-N6-4 首次提交时"至少
+3 个"/"至少一个"的放宽，那条放宽的判断记录 26 已标注撤销）。
 
 ## 目录
 
@@ -72,10 +84,13 @@ core/sim/
   LayerMarker.cs
   core/
     HeadlessWorldBuilder.cs   HeadlessWorldOptions（构造期选项，T-N6-3a 新增 ExpectedQualityId 可选
-                              属性）+ HeadlessWorld（装配结果，T-N6-2a 新增 AnchorTable?/
-                              ScenarioCatalog? 两个可空属性）+ HeadlessWorldBuilder（唯一的 Build
-                              入口，T-N6-3a 起数据源含 sim.anchor 时自动装配
-                              AnchorTableSkillBudgetAnchorProvider）
+                              属性，T-N6-4 新增 CombatOptions 转发属性）+ HeadlessWorld（装配结果，
+                              T-N6-2a 新增 AnchorTable?/ScenarioCatalog? 两个可空属性）+
+                              HeadlessWorldBuilder（唯一的 Build 入口，T-N6-3a 起数据源含
+                              sim.anchor 时自动装配 AnchorTableSkillBudgetAnchorProvider；T-N6-4b
+                              根治：玩家 PlayerLevel > 1 时补调用 Progression
+                              .ApplyGrowthToCurrentLevel + Powers.RecomputeMax/RefillAll，见判断
+                              记录 28）
     AnchorTable.cs            T-N6-2a：AnchorRow（sim.anchor 一行的强类型只读视图）+
                               AnchorTable（MaxLevel/TryGet/Get）
     ScenarioCatalog.cs        T-N6-2a：ScenarioKind/ScenarioPlayerSpec/ScenarioOpponentSpec/
@@ -109,7 +124,9 @@ core/sim/
                               FightOutcome/ResourceSample；每场新建 HeadlessWorld（隔离方案见本
                               文件上方判断记录），采样口径 combat.damage_dealt（落地伤害/命中计数）
                               + CombatOptions.ResolveTrace（技能归属、含 Miss/Dodge/Immune 的完整
-                              尝试计数）
+                              尝试计数）。T-N6-4b 新增 FightResult.CreatureHitRate（生物对玩家的
+                              命中率，口径同 PlayerHitRate 对称）——根因排查 L20 越级矩阵断层时
+                              需要的诊断字段，同时也补全了"双方命中率"这一输出维度
     ArenaSimulation.cs        T-N6-4：场景运行器——ArenaCellResult/ReconciliationRow/ArenaReport；
                               按 levels×level_offsets 逐格跑 runs 场并聚合；种子按
                               (base_seed,level,offset,runIndex) 纯函数派生（DeriveSeed）；
@@ -457,18 +474,68 @@ core/sim/
     清单既有判断记录），否则会新增一条"属性无消费者"警告，破坏 G1"警告只允许既有 3 条
     budget_note 已确认项"这条门禁——这是本次唯一触碰 `core/sim/` 之外生产代码的改动，且只是给一份
     手抄字符串常量清单追加一项，不改变该规则的判定逻辑本身。
-26. **矩阵形状验收为何按"该等级 ≥+3 的偏移点里至少一个满足"而不是逐偏移点都要求**：见
-    `ArenaSimulationTests.FullScenario_MatrixShape_WinRateDegradesWithPositiveOffset` 判断记录——
-    `sim_arena_matrix` 的 `level_offsets` 含 +1/+3/+5 三个正偏移，L1 在 +3（生物仅从 1 级变 4 级）
-    常年在 85%～95% 徘徊，不满足"比偏移 0 低 ≥0.3 或 ≤0.5"中的任一个，但 +5（生物变 6 级）稳定
-    ≤15%；这是线性插值曲线在等级 1～5 区间本就比较平缓（该区间只有两个真实仿真锚点，中间靠插值）
-    叠加统计噪声的共同产物，逐偏移点都要求会让这条验收对这类边界数据过于脆弱。"至少一个 ≥+3 的
-    偏移点满足"仍然完整验证了"继续加大偏移确实存在一个让生物从打不过质变为能打赢/打成均势的拐点"
-    这一核心断言，是任务书原文"断言拐点存在"的准确落地，不是放宽验收标准。
+26. **（T-N6-4b 撤销）矩阵形状验收原按"该等级 ≥+3 的偏移点里至少一个满足"，复核后改回逐偏移点都
+    要求**：T-N6-4 首次提交时以为 L1/+3 的边界摆动（85%～95%）是"线性插值+统计噪声"的正常现象，
+    因此把验收放宽成"至少一个 ≥+3 的偏移点满足"。设计层复核指出：L20 行同时存在的非单调断层
+    根本不是噪声，是两处真实缺陷（见判断记录 28/29）；缺陷修复、`AnchorTable` 扩到 25 级、
+    重新核算全部锚点值之后，5 个等级的全部正偏移点（+1 除外，规则本就不要求 +1）均能稳定满足
+    "≤0.5"，此前"至少一个"的放宽是在缺陷掩盖下得出的错误结论，不是真实的数据集边界特性——本条
+    判断记录撤销，验收标准恢复为任务书原文"偏移 ≥+3 胜率 ≤0.5"逐点成立，见
+    `ArenaSimulationTests.FullScenario_MatrixShape_WinRateDegradesWithPositiveOffset` 当前实现。
 27. **`sim.scenario.sim_arena_matrix.runs` 从 20 调到 60**：见 `core/sim/tests/data/README.md`
-    "T-N6-4 调参记录"——20 次/格在低胜率格子（如 5%～15%）上采样噪声较大，容易出现"偏移 -1 比
-    偏移 0 胜率更低"这类局部非单调（二项分布在小样本下的正常抖动，不代表仿真/数据有问题），60
-    次/格显著收敛、不再出现这类抖动，完整场景总耗时仍只有 ~8～9 秒，远在"`Tests.Sim` ≤90 秒"预算
-    内，因此按 04/ADR-0035 判断记录 6 一贯口径直接调整了嵌入数据集本身（`runs` 属于"生物模板、
-    装备/技能数值"之外，任务书"调整嵌入数据集……runs"未明确列举但"调整嵌入数据集"本就不是穷举
-    清单，`runs` 是场景自身参数，调整它不影响"仿真骨架"契约面本身）。
+    "T-N6-4 / T-N6-4b 调参记录"——20 次/格在低胜率格子（如 5%～15%）上采样噪声较大，容易出现
+    "偏移 -1 比偏移 0 胜率更低"这类局部非单调（二项分布在小样本下的正常抖动，不代表仿真/数据有
+    问题），60 次/格显著收敛、不再出现这类抖动，完整场景总耗时仍只有 ~8～9 秒，远在"`Tests.Sim`
+    ≤90 秒"预算内，因此按 04/ADR-0035 判断记录 6 一贯口径直接调整了嵌入数据集本身（`runs` 属于
+    "生物模板、装备/技能数值"之外，任务书"调整嵌入数据集……runs"未明确列举但"调整嵌入数据集"
+    本就不是穷举清单，`runs` 是场景自身参数，调整它不影响"仿真骨架"契约面本身）。
+28. **（T-N6-4b 根因 1）玩家按等级 &gt; 1 直接出生时，等级成长从未写入基础属性——装配根代码缺陷，
+    已在 `core/sim` 内修复，未改动任何被仿真模块**：设计层复核要求先查清"L20 行胜率非单调"的
+    机制再调数据。逐 tick 打印发现：L20 标准玩家在战斗中的 `IPowerHost.GetPowerMax(Health)` 只有
+    150（1 级 `arch.class.base_stats` 原始值），远低于应有的 ~2000。根因：`Core.Rules.Assembly
+    .RulesAssembly.RegisterUnit`（`HeadlessWorldBuilder.Build` 给玩家调用的那个重载）只调用
+    `Progression.RegisterUnit(unitId, curveId, level)` 登记"当前在哪条曲线的第几级"这一记账
+    状态，不像 `Core.Carriers.Creature.CreatureFactory.SpawnCore` 那样紧接着调用
+    `Progression.ApplyGrowthToCurrentLevel` 把"2 级到出生等级"的曲线成长写成属性修正——这正是
+    `Core.Numbers.Progression.IProgressionHost.RegisterUnit` 契约注释原文要求调用方自己做的
+    第二步（"`startLevel > 1` 时……紧随其后显式调用 `ApplyGrowthToCurrentLevel`"），`RulesAssembly
+    .RegisterUnit` 内部固定的调用顺序不允许重排（"被仿真模块"，本任务硬性规则不得修改），且仓库
+    内此前从未有调用方以非默认值（1）使用过 `HeadlessWorldOptions.PlayerLevel`，这条"调用方自己
+    负责第二步"的义务因此从未被触发、从未暴露。**修复**（`core/sim/core/HeadlessWorldBuilder.cs`，
+    仅限该类登记了 `level_curve_ref` 时才执行，判据复刻 `RulesAssembly.RegisterUnit` 内部同一
+    条件）：`RegisterUnit` 之后依次调用 `Progression.ApplyGrowthToCurrentLevel` →
+    `Powers.RecomputeMax` → `Powers.RefillAll`（`sourceId` 复用
+    `Core.Numbers.Progression.ProgressionEventKeys.LevelUp`，同 T-N4-5"升级回满"既有惯例的来源
+    标记）——三个方法均是 `core/rules`/`core/numbers` 早已公开的既有成员，本次只是把
+    `CreatureFactory.SpawnCore` 已经示范过的同一套调用顺序在玩家这一侧也照做一遍，不新增任何
+    公开成员、不改动"被仿真模块"一行代码。为什么手动补 `RecomputeMax`/`RefillAll`、不能只指望
+    既有的 `stat.changed → Powers.RecomputeMax` 事件订阅：`RulesAssembly.RegisterUnit` 内部
+    `Powers.RegisterUnit`（经 `Archetypes.ApplyTo`）发生在成长写入**之前**，资源池按"成长前"的
+    基础值把当前值/上限都定格为 `StartFull` 的那个（偏低的）数字；`Powers.RecomputeMax` 的既有
+    判断记录原文只处理"上限下降时当前值随之夹取"，没有处理"上限上升后当前值该不该跟着涨"，必须
+    显式 `RefillAll` 才能让当前值追上成长后的上限，且必须在首次 `world.Clock.Advance` 之前完成
+    （不能依赖事件何时被 `DispatchPending` 处理——单纯指望事件订阅，"出生即成长"的玩家会在第一个
+    tick 结算之前始终顶着注册时的偏低生命上限）。此修复影响面：任何调用方以 `PlayerLevel > 1`
+    使用 `HeadlessWorldBuilder`/`StandardPlayerBuilder`/`FightRunner`/`ArenaSimulation` 都会受益
+    （不限于 T-N6-4），`PlayerLevel == 1`（此前仓库内全部既有用法）不受影响（`ApplyGrowthToCurrentLevel`
+    在等级 1 是空操作，`RecomputeMax`/`RefillAll` 幂等）——`dotnet test Core.sln` 全量回归
+    （含既有 `Tests.Gameplay`/`Tests.Sim` 等全部 4233 例）验证无副作用。
+29. **（T-N6-4b 根因 2）`AnchorTable` 原本只到 20 级，越级矩阵 +5 偏移在玩家满级时把生物 21～25
+    级全部夹到 20 级等效强度——数据范围缺口，已扩表到 25 级**：`sim_arena_matrix.level_offsets`
+    含 +5，玩家 20 级（场景定义的最高测试等级）时对手出生等级达到 25；`AnchorCreatureLevelScaler`
+    对超出 `AnchorTable.MaxLevel` 的目标等级"夹到 MaxLevel"（该类型既有判断记录），
+    `skill.base_curve` 曲线末端同样"夹到最后一个断点"（`PiecewiseCurve.Evaluate` 既有行为）——
+    两者共同导致玩家 20 级这一行的偏移 +1/+3/+5 全部对上同一个强度天花板，胜率无法继续下降。这
+    不是"生物模板选档"的问题（`sim_arena_matrix.opponent.creature_id` 全程固定为
+    `creature.sim_wolf_l1`，从不切换模板），是锚点表覆盖范围不够越级矩阵实际会用到的生物等级
+    范围——玩家等级测到 20、偏移测到 ±5，生物等级理论上限就是 25，`AnchorTable`/曲线理应覆盖到
+    这里。**修复**：`sim.anchor` 扩到 25 级（21～25 为新增行，`dps`/`hp` 按 15→20 级斜率的 5 倍
+    延长——按 1 倍/3 倍延长时越级矩阵仍测不出正偏移的胜率下降，见
+    `core/sim/tests/data/README.md`"调参 3"判断记录；`level_duration_seconds`/
+    `kill_interval_seconds`/`quest_share`/`expected_item_level` 延续既有公式或复用 20 级值，
+    这几个字段本任务门禁不检验、玩家也不会真的到这些等级，纯粹满足 schema 必填），
+    `skill.base_curve.sim_creature_bite{,_elite}` 新增 25 级断点，
+    `EmbeddedDatasetTests.AnchorTable_HasAllTwentyFiveLevelsContinuous`（原
+    `…TwentyLevelsContinuous`）与本模块 `AnchorCreatureLevelScalerTests
+    .Spawn_AboveMaxAnchorLevel_ClampsToMaxLevel`（越界夹取边界从"20 vs 25"改为"25 vs 30"，否则
+    测的就不再是真正越界）同步更新。

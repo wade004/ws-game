@@ -8,7 +8,7 @@
       "level": 1,
       "tier": "creature.tier.sim_normal",
       "base_stats": {
-        "stat.stamina": 78.4,
+        "stat.stamina": 119.4,
         "stat.strength": 12
       },
       "faction_id": "fac.sim_hostile",
@@ -23,7 +23,7 @@
       "level": 5,
       "tier": "creature.tier.sim_normal",
       "base_stats": {
-        "stat.stamina": 172.3,
+        "stat.stamina": 229.4,
         "stat.strength": 24
       },
       "faction_id": "fac.sim_hostile",
@@ -38,7 +38,7 @@
       "level": 10,
       "tier": "creature.tier.sim_normal",
       "base_stats": {
-        "stat.stamina": 255.8,
+        "stat.stamina": 332.7,
         "stat.strength": 39
       },
       "faction_id": "fac.sim_hostile",
@@ -53,7 +53,7 @@
       "level": 15,
       "tier": "creature.tier.sim_normal",
       "base_stats": {
-        "stat.stamina": 348.1,
+        "stat.stamina": 449.6,
         "stat.strength": 54
       },
       "faction_id": "fac.sim_hostile",
@@ -68,7 +68,7 @@
       "level": 20,
       "tier": "creature.tier.sim_normal",
       "base_stats": {
-        "stat.stamina": 426.5,
+        "stat.stamina": 580.7,
         "stat.strength": 69
       },
       "faction_id": "fac.sim_hostile",
@@ -83,7 +83,7 @@
       "level": 10,
       "tier": "creature.tier.sim_elite",
       "base_stats": {
-        "stat.stamina": 255.8,
+        "stat.stamina": 332.7,
         "stat.strength": 39
       },
       "faction_id": "fac.sim_hostile",

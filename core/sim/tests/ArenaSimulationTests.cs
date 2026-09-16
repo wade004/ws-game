@@ -67,9 +67,9 @@ namespace Tests.Sim
             Assert.Equal(scenario.Levels.Count, report.Reconciliation.Count);
         }
 
-        /// <summary>验收 1：对账等式——≥3 个等级在偏移 0 上 DPS 与 HP 均在带宽内。</summary>
+        /// <summary>验收 1（T-N6-4b 复核后收紧：DPS/HP 改为 5 个等级全部在带宽内，不再是 ≥3）。</summary>
         [Fact]
-        public void FullScenario_Reconciliation_AtLeastThreeLevelsWithinBandwidth()
+        public void FullScenario_Reconciliation_AllLevelsWithinBandwidth()
         {
             var report = _fixture.Report;
             var dpsPassCount = report.Reconciliation.Count(r => r.DpsPass);
@@ -85,26 +85,32 @@ namespace Tests.Sim
                     $"ttd_td={row.TtdTopDown:F1} ttd_bu={row.TtdBottomUp:F1} dev={row.TtdDeviation:P1} pass={row.TtdPass}");
             }
 
-            Assert.True(dpsPassCount >= 3, $"DPS 对账应至少 3 个等级在带宽内，实际 {dpsPassCount}/{report.Reconciliation.Count}");
-            Assert.True(hpPassCount >= 3, $"HP 对账应至少 3 个等级在带宽内，实际 {hpPassCount}/{report.Reconciliation.Count}");
+            Assert.True(dpsPassCount == report.Reconciliation.Count,
+                $"DPS 对账应 5 个等级全部在带宽内，实际 {dpsPassCount}/{report.Reconciliation.Count}");
+            Assert.True(hpPassCount == report.Reconciliation.Count,
+                $"HP 对账应 5 个等级全部在带宽内，实际 {hpPassCount}/{report.Reconciliation.Count}");
         }
 
-        /// <summary>验收补充：TTD 估计与 anchor.ttd 偏离在带宽内（至少 1 个等级）。</summary>
+        /// <summary>验收补充：TTD 估计与 anchor.ttd 偏离在带宽内——任务书原文只要求"至少 1 个等级"，
+        /// T-N6-4b 调参后实测 5 个等级全部在带宽内（偏离 &lt;1%），按实际达到的水平收紧断言，作为
+        /// 更强的回归防护（不是任务书门槛本身的变化）。</summary>
         [Fact]
-        public void FullScenario_TtdReconciliation_AtLeastOneLevelWithinBandwidth()
+        public void FullScenario_TtdReconciliation_AllLevelsWithinBandwidth()
         {
-            var ttdPassCount = _fixture.Report.Reconciliation.Count(r => r.TtdPass);
-            Assert.True(ttdPassCount >= 1, $"TTD 对账应至少 1 个等级在带宽内，实际 {ttdPassCount}/{_fixture.Report.Reconciliation.Count}");
+            var report = _fixture.Report;
+            var ttdPassCount = report.Reconciliation.Count(r => r.TtdPass);
+            Assert.True(ttdPassCount == report.Reconciliation.Count,
+                $"TTD 对账实测应 5 个等级全部在带宽内，实际 {ttdPassCount}/{report.Reconciliation.Count}");
         }
 
-        /// <summary>验收 2：矩阵形状——同一玩家等级内，胜率沿偏移单调不增（允许 ±0.05 抖动）；
-        /// 偏移 ≤ −3 胜率 ≥ 0.95；偏移 ≥ +3 的偏移点里至少一个满足"胜率比偏移 0 低 ≥ 0.3（或 ≤ 0.5）"
-        /// ——断言拐点存在。判断记录（为何"至少一个"而不是逐偏移点都要求）：见
-        /// <c>core/sim/tests/data/README.md</c>"矩阵形状调参"一节——L1 在 offset+3（生物仅比玩家高 3
-        /// 级，从 1 级到 4 级）常年在 85%～95% 徘徊，不满足两个条件中的任一个，但 offset+5 稳定满足
-        /// （通常 ≤15%）；逐偏移点都要求在统计噪声与线性插值曲线低等级区间较平缓的共同作用下过于脆弱，
-        /// "至少一个 ≥+3 的偏移点满足"同样验证了"继续加大偏移确实存在让生物从打不过质变为能打赢/打成
-        /// 均势"这一拐点断言的核心内容。</summary>
+        /// <summary>验收 2（T-N6-4b 复核后收紧，对场景定义的全部等级成立，不再有"至少一个"的
+        /// 例外）：同一玩家等级内，胜率沿偏移单调不增（允许 ±0.05 抖动）；偏移 ≤ −3 胜率 ≥ 0.95；
+        /// 偏移 ≥ +3 的每一个偏移点胜率都 ≤ 0.5。根因与解法见
+        /// <c>core/sim/tests/data/README.md</c>"T-N6-4b 调参记录"：L20 行此前断层/不满足，根因是
+        /// 玩家按等级 &gt; 1 直接出生时成长未写入（见 <c>HeadlessWorldBuilder.Build</c> 判断记录）
+        /// 叠加 <c>AnchorTable</c> 原本只到 20 级、越级矩阵 +5 偏移在玩家满级时把生物等级 21～25 全部
+        /// 夹到与 20 级相同强度两个因素——前者已在装配根修复，后者已把 <c>AnchorTable</c>/
+        /// <c>skill.base_curve.sim_creature_bite*</c> 扩到 25 级并重新标定。</summary>
         [Fact]
         public void FullScenario_MatrixShape_WinRateDegradesWithPositiveOffset()
         {
@@ -129,25 +135,16 @@ namespace Tests.Sim
                         $"的 {prev:P0} 回升超过 ±5% 抖动");
                 }
 
-                var winRate0 = cellsByOffset[0].WinRate;
-
                 foreach (var negOffset in offsetsAscending.Where(o => o <= -3))
                 {
                     Assert.True(cellsByOffset[negOffset].WinRate >= 0.95,
                         $"L{level}：偏移 {negOffset} 胜率应 ≥ 0.95，实际 {cellsByOffset[negOffset].WinRate:P0}");
                 }
 
-                var positiveOffsets = offsetsAscending.Where(o => o >= 3).ToList();
-                if (positiveOffsets.Count > 0)
+                foreach (var posOffset in offsetsAscending.Where(o => o >= 3))
                 {
-                    var anyQualifies = positiveOffsets.Any(o =>
-                    {
-                        var wr = cellsByOffset[o].WinRate;
-                        return (winRate0 - wr) >= 0.3 || wr <= 0.5;
-                    });
-                    Assert.True(anyQualifies,
-                        $"L{level}：偏移 >= +3 的格子里应至少一个胜率比偏移 0（{winRate0:P0}）低 >= 0.3 或 <= 0.5——" +
-                        $"实际：{string.Join(", ", positiveOffsets.Select(o => $"{o}:{cellsByOffset[o].WinRate:P0}"))}");
+                    Assert.True(cellsByOffset[posOffset].WinRate <= 0.5,
+                        $"L{level}：偏移 {posOffset} 胜率应 ≤ 0.5，实际 {cellsByOffset[posOffset].WinRate:P0}");
                 }
             }
         }

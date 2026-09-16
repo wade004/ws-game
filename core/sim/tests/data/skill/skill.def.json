@@ -174,7 +174,8 @@
             "school": "school.physical"
           }
         }
-      ]
+      ],
+      "budget_note": "T-N6-4b：精英分档基础攻击，base_curve_ref 数值 = 同级普通怪 skill.sim_creature_bite × creature.tier.sim_elite 的 1.5 倍分档倍率（数值总纲 4.2 节公式），刻意高于 Monster 档预算带宽——精英本就设计成比同级普通怪更强，这是分档系统的既定意图，不是数值手滑。"
     }
   ]
 }
