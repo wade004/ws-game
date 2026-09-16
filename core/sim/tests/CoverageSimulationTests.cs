@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Core.Foundation.Common;
@@ -114,6 +115,39 @@ namespace Tests.Sim
             var report1 = CoverageSimulation.Run(_fixture.Scenario, _fixture.World.AnchorTable!, dataSources);
             var report2 = CoverageSimulation.Run(_fixture.Scenario, _fixture.World.AnchorTable!, dataSources);
             Assert.Equal(report1.ToJson(), report2.ToJson());
+        }
+
+        /// <summary>
+        /// 深度复审 E-S1：<see cref="CoverageOutlierRow.SortByDeviationDescendingThenById"/> 并列
+        /// tie-break——手工构造三条 <c>Deviation</c> 恰好相等（含一条与其它 <c>Deviation</c> 不同的
+        /// 对照行）的记录，不依赖嵌入数据集是否真的产生并列离群值。断言：(1) 不同 <c>Deviation</c>
+        /// 之间仍按降序排列；(2) <c>Deviation</c> 相等的行之间按 <see cref="Id"/>（<c>Value</c>，
+        /// <c>Ordinal</c>）升序排列，即便输入顺序是乱序/降序也稳定收敛到同一结果（验证的是排序结果
+        /// 本身的确定性，不是"不改变输入相对顺序"这种真正的稳定排序语义）。
+        /// </summary>
+        [Fact]
+        public void SortByDeviationDescendingThenById_TiedDeviation_SortsByIdAscending()
+        {
+            CoverageOutlierRow MakeRow(string id, double deviation) => new CoverageOutlierRow(
+                new Id(id), CoverageCategory.Item, statistic: 1.0, baseline: 1.0, deviation: deviation,
+                level: CoverageOutlierLevel.Info, secondaryMeasurement: null, note: null);
+
+            // 故意打乱输入顺序（先放 id 靠后的并列行，中间插一条更高 deviation 的行）。
+            var input = new List<CoverageOutlierRow>
+            {
+                MakeRow("item.template.zzz_tied", 0.5),
+                MakeRow("item.template.higher", 0.9),
+                MakeRow("item.template.aaa_tied", 0.5),
+                MakeRow("item.template.mmm_tied", 0.5),
+            };
+
+            var sorted = CoverageOutlierRow.SortByDeviationDescendingThenById(input);
+
+            Assert.Equal(4, sorted.Count);
+            Assert.Equal("item.template.higher", sorted[0].Id.Value);
+            Assert.Equal("item.template.aaa_tied", sorted[1].Id.Value);
+            Assert.Equal("item.template.mmm_tied", sorted[2].Id.Value);
+            Assert.Equal("item.template.zzz_tied", sorted[3].Id.Value);
         }
     }
 }

@@ -55,7 +55,17 @@ namespace Core.Sim
 
         public string? Note { get; }
 
-        internal CoverageOutlierRow(
+        /// <summary>
+        /// 判断记录（2026-09-16，深度复审 E-S1）：由 <c>internal</c> 放宽为 <c>public</c>——纯 ABI
+        /// 新增（此前的 <c>internal</c> 调用方不受影响，只是新增了外部可调用的入口），惯例同
+        /// `core/carriers/item/README.md`"选用公开重载而非 internal"判断记录：`core/sim/tests/
+        /// Tests.Sim.csproj` 以 `ProjectReference` 引用 `Core.Sim.csproj`（编译为独立程序集），本仓库
+        /// 不对测试程序集声明 `InternalsVisibleTo`，`internal` 成员测试不可达；放宽为 `public` 让
+        /// <c>CoverageSimulationTests</c> 能直接构造两条 <see cref="Deviation"/> 相等的行，验证
+        /// <see cref="SortByDeviationDescendingThenById"/> 的并列 tie-break（E-S1 修复），不需要
+        /// 依赖嵌入数据集恰好产生并列离群值这种脆弱前提。
+        /// </summary>
+        public CoverageOutlierRow(
             Id id, CoverageCategory category, double statistic, double baseline, double deviation,
             CoverageOutlierLevel level, double? secondaryMeasurement, string? note)
         {
@@ -68,6 +78,19 @@ namespace Core.Sim
             SecondaryMeasurement = secondaryMeasurement;
             Note = note;
         }
+
+        /// <summary>
+        /// 判断记录（2026-09-16，深度复审 E-S1）：<see cref="CoverageSimulation"/> 的
+        /// <c>AnalyzeSkills</c>/<c>AnalyzeItems</c>/<c>AnalyzeCreatures</c> 三处共用的排序逻辑——按
+        /// <see cref="Deviation"/> 降序，并列时按 <see cref="Id"/>（<see cref="Core.Foundation.Common.Id.Value"/>，
+        /// <see cref="System.StringComparer.Ordinal"/>）升序 tie-break，与
+        /// <c>BaselineComparer.SortedRows()</c> 的既有惯例一致。提取为公开静态方法，一方面消除三处
+        /// 重复的 <c>OrderByDescending</c>/<c>ThenBy</c> 表达式，另一方面让
+        /// <c>CoverageSimulationTests</c> 可以脱离真实仿真数据、直接构造两条 <see cref="Deviation"/>
+        /// 相等的行来验证并列排序的确定性（不依赖嵌入数据集"恰好产生并列离群值"这个脆弱前提）。
+        /// </summary>
+        public static List<CoverageOutlierRow> SortByDeviationDescendingThenById(IEnumerable<CoverageOutlierRow> rows) =>
+            rows.OrderByDescending(r => r.Deviation).ThenBy(r => r.Id.Value, StringComparer.Ordinal).ToList();
 
         internal JsonObject ToJson() => new JsonObjectBuilder()
             .Add("id", new JsonString(Id.Value))
@@ -158,6 +181,22 @@ namespace Core.Sim
     /// 门槛的强力技能，见嵌入数据集 README"技能设计取舍"）——取该表最后一条的 <c>skill_id</c> 作填充
     /// 技能；被测技能本身恰好是最后一条（如 <c>skill.sim_warrior_strike</c> 自己）时填充技能与被测
     /// 技能相同，退化为"一直连续施放这一条"，符合预期（不是缺陷）。
+    /// </para>
+    /// <para>
+    /// <b>判断记录（2026-09-16，深度复审 E-S1：离群值排序的并列 tie-break）</b>：<c>AnalyzeSkills</c>/
+    /// <c>AnalyzeItems</c>/<c>AnalyzeCreatures</c> 三处此前用 <c>List&lt;T&gt;.Sort((a, b) =&gt;
+    /// b.Deviation.CompareTo(a.Deviation))</c> 排序——<c>List&lt;T&gt;.Sort</c> 是不稳定排序，且没有
+    /// 任何次级排序键；技能/装备/生物里"完全合规、<c>Deviation</c> 恰好相等"（如多个装备模板 `Ratio`
+    /// 都精确等于 1.0，<c>Deviation</c> 都是 0）的场景现实存在，排序结果在并列项之间的相对顺序因此不
+    /// 保证跨机器/跨 .NET 版本可重现，与仓库通篇"报告输出确定性"的既有严格惯例（<see
+    /// cref="Core.Sim.BaselineDiff.SortedRows"/> 显式用 <c>.ThenBy(r =&gt; r.Path,
+    /// StringComparer.Ordinal)</c> 兜底并列）不一致。三处改为共用新增的公开静态方法
+    /// <see cref="CoverageOutlierRow.SortByDeviationDescendingThenById"/>，与
+    /// <c>BaselineComparer.SortedRows()</c> 同一惯例；不影响 <c>BaselineComparer</c> 本身的正确性
+    /// （按 <c>Path</c> 用 <c>Dictionary</c> 比对，与数组下标顺序无关），只影响
+    /// <see cref="CoverageReport.ToJson"/> 输出数组在并列项之间的顺序是否确定性可重现。见
+    /// <c>CoverageSimulationTests.SortByDeviationDescendingThenById_TiedDeviation_SortsByIdAscending</c>
+    /// 新增用例。
     /// </para>
     /// </summary>
     public static class CoverageSimulation
@@ -278,7 +317,9 @@ namespace Core.Sim
                     result.BudgetNote));
             }
 
-            rows.Sort((a, b) => b.Deviation.CompareTo(a.Deviation));
+            // 深度复审 E-S1（2026-09-16）：排序改用 CoverageOutlierRow.SortByDeviationDescendingThenById
+            // （见该方法判断记录），修复 List<T>.Sort 不稳定排序且无并列 tie-break 的问题。
+            rows = CoverageOutlierRow.SortByDeviationDescendingThenById(rows);
             return rows;
         }
 
@@ -436,7 +477,9 @@ namespace Core.Sim
                 rows.Add(new CoverageOutlierRow(templateId, CoverageCategory.Item, ratio, 1.0, deviation, level, marginalDelta, note: null));
             }
 
-            rows.Sort((a, b) => b.Deviation.CompareTo(a.Deviation));
+            // 深度复审 E-S1（2026-09-16）：排序改用 CoverageOutlierRow.SortByDeviationDescendingThenById
+            // （见该方法判断记录），修复 List<T>.Sort 不稳定排序且无并列 tie-break 的问题。
+            rows = CoverageOutlierRow.SortByDeviationDescendingThenById(rows);
             return rows;
         }
 
@@ -582,7 +625,9 @@ namespace Core.Sim
                     double.IsInfinity(ttdDeviation) ? (double?)null : ttdDeviation, note: null));
             }
 
-            rows.Sort((a, b) => b.Deviation.CompareTo(a.Deviation));
+            // 深度复审 E-S1（2026-09-16）：排序改用 CoverageOutlierRow.SortByDeviationDescendingThenById
+            // （见该方法判断记录），修复 List<T>.Sort 不稳定排序且无并列 tie-break 的问题。
+            rows = CoverageOutlierRow.SortByDeviationDescendingThenById(rows);
             return rows;
         }
 

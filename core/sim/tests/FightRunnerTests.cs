@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Rules.Common;
 using Core.Sim;
 using Xunit;
 using Xunit.Abstractions;
@@ -136,6 +137,61 @@ namespace Tests.Sim
             _output.WriteLine($"HeadlessWorldBuilder.Build 平均耗时 = {avgMs:F2} ms（{iterations} 次连续调用）");
 
             Assert.True(avgMs < 100, $"Build 平均耗时 {avgMs:F2}ms 超出隔离方案判断记录假设的安全边界");
+        }
+
+        /// <summary>
+        /// 深度复审 E-M2：命中率统计须排除被免疫全额吸收的结算，见 <see
+        /// cref="FightRunner.FightAccumulator.IsLandedHit(ResolveResult)"/> 判断记录。本用例不依赖
+        /// 嵌入数据集配置任何免疫光环——直接构造 <see cref="FightRunner.FightAccumulator"/>，通过其
+        /// 公开的 <see cref="CombatOptions.ResolveTrace"/> 回调手工喂入 <c>Immune=true</c> 的
+        /// <see cref="ResolveResult"/>（<c>Hit=Crit</c>，模拟"骰子判定暴击命中、但被免疫全额吸收"），
+        /// 断言 <see cref="FightRunner.FightAccumulator.PlayerAttempts"/> 照常计数（确实发起了一次
+        /// 尝试）但 <see cref="FightRunner.FightAccumulator.PlayerLanded"/> 不应递增（未真正落地）；
+        /// 随后再喂一条 <c>Immune=false</c> 的正常命中，确认 <c>PlayerLanded</c> 恢复正常递增（防止
+        /// 修复把 <c>IsLandedHit</c> 改成恒 false 这种反向回归）。
+        /// </summary>
+        [Fact]
+        public void FightAccumulator_ImmuneResolve_CountsAttemptButNotLanded()
+        {
+            var accumulator = new FightRunner.FightAccumulator();
+            var playerId = new Id("test.player");
+            var creatureId = new Id("test.creature");
+            var skillId = new Id("test.skill");
+            var schoolId = new Id("school.physical");
+            accumulator.BeginFight(playerId, creatureId);
+
+            var immuneResult = new ResolveResult(
+                hit: HitResult.Crit,
+                requestedAmount: 100.0,
+                finalAmount: 0.0,
+                absorbed: 0.0,
+                immune: true,
+                isHeal: false);
+            var ctx = new EffectContext(
+                sourceId: playerId,
+                targetId: creatureId,
+                skillId: skillId,
+                kind: EffectKind.SchoolDamage,
+                school: schoolId,
+                baseValue: 100.0,
+                coefficient: 1.0);
+
+            accumulator.CombatOptions.ResolveTrace!.Invoke(ctx, immuneResult);
+
+            Assert.Equal(1, accumulator.PlayerAttempts);
+            Assert.Equal(0, accumulator.PlayerLanded);
+
+            var landedResult = new ResolveResult(
+                hit: HitResult.Hit,
+                requestedAmount: 50.0,
+                finalAmount: 50.0,
+                absorbed: 0.0,
+                immune: false,
+                isHeal: false);
+            accumulator.CombatOptions.ResolveTrace!.Invoke(ctx, landedResult);
+
+            Assert.Equal(2, accumulator.PlayerAttempts);
+            Assert.Equal(1, accumulator.PlayerLanded);
         }
     }
 }
