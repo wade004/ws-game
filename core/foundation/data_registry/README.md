@@ -205,6 +205,41 @@ L1 模块自身）临时构造 `TableSchema` 并 `RegisterSchema`。
 `core/foundation/engine_adapter/README.md`"IFileSystem"一节）；`adapters/stub/StubFileSystem.cs`
 已按此约定实现。
 
+## `FileSystemDataSource` 跳过非数据表 JSON 文件（`DataSourceOptions.SkipNonTableJsonFiles`）
+
+判断记录（数据根非数据表 JSON 误判修复任务，2026-09-16）：`FileSystemDataSource.ListTables()`
+默认（`DataSourceOptions.SkipNonTableJsonFiles = true`）不再把 `rootDir` 下递归找到的每个
+`*.json` 文件都当成数据表候选——游戏侧仓库常见"数据目录旁边/上层还有 `package.json` 之类配置
+文件"的布局（如 UPM 包根目录），一旦数据根把这些文件也递归进去，会被误判成表名 `"package"` 的
+数据表，报出一堆"缺少顶层字段 table/schema_version/rows"的假错误（游戏运行期
+`Adapter.Unity` 的 `GameFoundationBootstrap`/`FrameworkResidentHost` 构造 `FileSystemDataSource`
+指向的目录同样可能混有这类文件，不止内容工具场景）。
+
+判定规则（"非数据表 JSON 候选判定"，见 `FileSystemDataSource.cs` 类型注释）：
+
+1. 文件名（去掉 `.json`）含至少一个 `.` 时，取第一个 `.` 之前的字符串作为"域"；域必须匹配
+   `^[a-z][a-z0-9_]*$`——覆盖 `<域>.<表名>.json` 这一主流命名约定（如 `arch.class.json`）。
+2. 文件名完全等于 `camera_profile`/`ui_layout_definition`/`shell_menu_definition` 这三张 04 第
+   2.2 节勘误登记的单段名命名例外时，域取 `TableSchema.WithDomain` 登记的固定值（`camera`/`ui`/
+   `shell`，见 `contracts/TableSchema.cs` 该判断记录）。
+3. 以上两种方式都得不到域的文件（如 `package.json`）判定为非数据表，跳过。
+4. 能得到域的文件还需"直接在数据根下，或所在的直接上级目录名等于该域"——对应
+   `data/README.md` 记录的 `<domain>/<table>.json` 目录约定；"直接在数据根下"这一分支是为了
+   兼容测试夹具常见的扁平布局。不满足则同样判定为非数据表，跳过（挡住"文件名凑巧带合法域前缀、
+   但没放在对应域目录下"的配置文件，如误放的 `arch.config.json`）。
+
+跳过的文件不参与加载/校验，累积在新增只读属性 `FileSystemDataSource.SkippedNonTableFiles`
+里——本类型不做任何控制台/日志输出，是否、如何展示这份清单交给调用方决定（`toolchain/validator`
+的用法见 `toolchain/README.md`"运行校验器"一节判断记录）。需要恢复"递归目录下全部 JSON 都当表"
+旧行为的调用方，显式传入 `new FileSystemDataSource(fs, rootDir, new DataSourceOptions
+{ SkipNonTableJsonFiles = false })` 即可（新增的三参数构造函数，原两参数构造函数签名不变，
+ABI 只新增，见 `contracts/DataSourceOptions.cs` 判断记录）。
+
+`toolchain/validate_data.py` 第一道骨架检查内的 `is_data_table_candidate`/`_resolve_table_domain`
+是同一条规则的独立实现（Python/C# 两个工具链各自的运行时边界不共享代码），修改本规则时两处
+必须同步更新；回归测试见 `core/foundation/data_registry/tests/FileSystemDataSourceSkipsNonTableJsonTests.cs`
+与 `toolchain/tests/test_validate_data_skips_nontable_json.py`。
+
 ## 不负责什么
 
 - 不实现任何具体业务校验规则（效果数上限、预算、叠加冲突等），只提供 `IValidationRule` 扩展点。

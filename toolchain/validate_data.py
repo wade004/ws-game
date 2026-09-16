@@ -44,6 +44,21 @@ Program.cs``）。第一道骨架检查只做"若出现必须是布尔值"这一
 以 ``--data-root`` 重复参数透传给 ``toolchain/validator``，由其调用
 ``DataRegistry.LoadAll(IReadOnlyList<IDataSource>)`` 做真正的合并加载与合并规则校验。
 
+**判断记录（数据根非数据表 JSON 误判修复任务，2026-09-16）**：``--data-root`` 指向的目录递归找到的
+``*.json`` 文件不再一律当成数据表——游戏侧仓库常见"数据目录旁边/上层还有 ``package.json`` 之类配置
+文件"的布局（典型如 UPM 包根目录：``games/_template/package.json`` 与 ``games/_template/data/``
+同级），此前一旦 ``--data-root`` 指向的目录把这些文件也递归进去，会被误判成表名 ``"package"`` 的
+数据表，报出一堆"缺少顶层字段 table/schema_version/rows"的假错误。``is_data_table_candidate`` 按
+04 第 2.2 节"域"约定 + ``core/foundation/data_registry/contracts/TableSchema.cs`` 登记的三张单段名
+命名例外（``camera_profile``/``ui_layout_definition``/``shell_menu_definition``）判定一个 JSON 文件
+"像不像数据表"：文件名需要能解析出"域"（``<域>.<表名>.json`` 的首段，或前述单段名例外的固定域），
+且文件要么直接在数据根下、要么放在与该域同名的子目录下——不满足则视为非数据表文件，跳过（打一行
+``[skip] ...`` 提示到标准错误，不算错误/警告，不计入 ``files_checked``）。与
+``core/foundation/data_registry/core/FileSystemDataSource.cs``（第二道真实校验、以及游戏运行期
+``DataRegistry.LoadAll`` 共用的发现逻辑）是同一条规则的两份独立实现，改动需两处同步，详细规则见
+两处各自的函数/类型级判断记录；回归测试见
+``toolchain/tests/test_validate_data_skips_nontable_json.py``。
+
 返回码约定：
     0 —— 两道检查全部通过，无错误。
     1 —— 至少一道检查报出错误（``--strict`` 下 Warning 也算，见下）。
@@ -137,8 +152,22 @@ from _console import ensure_utf8_stdio  # noqa: E402
 # domain 首字符必须是字母。
 ID_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
+# 04 第 2.2 节"域"约定的字符集：小写字母开头，其后小写字母/数字/下划线——与 ID_RE 的 domain 段
+# 同一字符集，供下面"非数据表 JSON 候选判定"复用（见 _resolve_table_domain 判断记录）。
+_DOMAIN_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
 # 需要特殊主键处理的表名（复合主键 key+locale，见 04 第 7.2 节）。
 L10N_TEXT_TABLE = "l10n.text"
+
+# 04 第 2.2 节勘误登记的三张单段名命名例外（数据表文件名不含 "."），与
+# core/foundation/data_registry/contracts/TableSchema.cs 的 Domain/WithDomain 判断记录、
+# core/foundation/data_registry/core/FileSystemDataSource.cs 同名列表逐字一致（改动任一处需同步
+# 另外两处，见 FileSystemDataSource.cs 类型判断记录"非数据表 JSON 候选判定"）。
+_SINGLE_SEGMENT_TABLE_DOMAINS = {
+    "camera_profile": "camera",
+    "ui_layout_definition": "ui",
+    "shell_menu_definition": "shell",
+}
 
 
 class FileErrors(list):
@@ -269,6 +298,62 @@ def find_repo_root() -> Path:
 
 def iter_json_files(root: Path) -> Iterable[Path]:
     yield from sorted(root.rglob("*.json"))
+
+
+def _resolve_table_domain(stem: str) -> str | None:
+    """解析文件名（已去掉 ``.json``）对应的"域"；返回 ``None`` 表示这个文件名本身就不像数据表
+    （不满足 ``<域>.<表名>`` 命名，也不是登记过的单段名例外）。
+
+    判断记录（数据根非数据表 JSON 误判修复任务，2026-09-16，"非数据表 JSON 候选判定"）：与
+    ``core/foundation/data_registry/core/FileSystemDataSource.cs`` 的 ``TryResolveDomain`` 是同一条
+    规则的两份独立实现（Python/C# 两个工具链各自的运行时边界不共享代码），修改时两处必须同步更新，
+    详细判断记录见该 C# 文件类型注释。规则本身：
+
+    1. 文件名含至少一个 ``.`` 时，取第一个 ``.`` 之前的字符串作为域；域必须匹配 ``_DOMAIN_TOKEN_RE``
+       （与 ``ID_RE`` 的 domain 段同一字符集），覆盖 ``<域>.<表名>.json`` 这一主流命名约定。
+    2. 文件名完全等于 ``_SINGLE_SEGMENT_TABLE_DOMAINS`` 登记的三个单段名例外时，域取该字典的固定值。
+    3. 以上两种方式都得不到域，返回 ``None``（如 ``package.json`` 的 stem ``"package"``：无 ``.``，
+       也不在例外表里）。
+    """
+    mapped = _SINGLE_SEGMENT_TABLE_DOMAINS.get(stem)
+    if mapped is not None:
+        return mapped
+
+    dot_index = stem.find(".")
+    if dot_index <= 0:
+        return None
+
+    first_segment = stem[:dot_index]
+    if not _DOMAIN_TOKEN_RE.match(first_segment):
+        return None
+
+    return first_segment
+
+
+def is_data_table_candidate(root: Path, path: Path) -> bool:
+    """判断 ``path``（``root`` 之下的某个 ``*.json`` 文件）是否"看起来是数据表"，决定要不要交给
+    第一道骨架检查（第二道真实校验的判定逻辑见
+    ``core/foundation/data_registry/core/FileSystemDataSource.cs`` 的 ``IsDataTableCandidate``，两处
+    是同一条规则的独立实现，见 ``_resolve_table_domain`` 判断记录）。
+
+    先解析出文件名对应的域（见 ``_resolve_table_domain``），域不存在直接判非候选；域存在时还要求
+    "文件直接在 ``root`` 下（相对路径只有一段），或文件所在的直接上级目录名等于该域"——对应
+    ``data/README.md`` 记录的 ``data/_framework/<domain>/<table>.json`` 目录约定。"直接在 root 下"
+    这一分支专为兼容 ``toolchain/tests`` 里常见的扁平测试夹具（数据根下直接放 ``test.thing.json``，
+    不建 ``test/`` 子目录）保留；不满足则判定为非数据表文件，挡住形如
+    ``some_unrelated_dir/arch.config.json`` 这类"文件名凑巧带合法域前缀、但没放在对应域目录下"的
+    配置文件被误当表处理（``xxx.config.json`` 场景）。
+    """
+    domain = _resolve_table_domain(path.stem)
+    if domain is None:
+        return False
+
+    rel_parts = path.relative_to(root).parts
+    if len(rel_parts) <= 1:
+        return True
+
+    parent_dir = rel_parts[-2]
+    return parent_dir == domain
 
 
 def validate_file(path: Path, verbose: bool) -> list[str]:
@@ -408,8 +493,19 @@ def main(argv: list[str] | None = None) -> int:
 
     for target_root in target_roots:
         for path in iter_json_files(target_root):
-            total_files += 1
             rel_path = path.relative_to(repo_root) if _is_relative_to(path, repo_root) else path
+
+            # 判断记录（数据根非数据表 JSON 误判修复任务，2026-09-16）：数据根目录里常混有非数据表
+            # 的 JSON（典型如游戏侧 UPM 包根目录的 package.json，见
+            # core/foundation/data_registry/core/FileSystemDataSource.cs 同名判断记录）——is_data_table_candidate
+            # 判定不像数据表的文件直接跳过，不计入 total_files/total_errors，只打一行提示（不是
+            # Warning/Error，--strict 下也不阻断，恒打到标准错误，--json 模式下同样不进入
+            # skeleton_result，保持该 JSON 结构逐字节兼容）。
+            if not is_data_table_candidate(target_root, path):
+                print(f"[skip] {rel_path}: 非数据表文件（不符合 <域>.<表名>.json 命名约定，或未放在对应域子目录/数据根下）", file=sys.stderr)
+                continue
+
+            total_files += 1
             file_errors = validate_file(path, args.verbose)
             for message in file_errors:
                 if args.json:

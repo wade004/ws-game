@@ -101,6 +101,16 @@ python toolchain/validate_data.py
   `DataRegistryStrictness.WarningsBlock`）。
 - `--skip-dotnet`：只跑第一道骨架检查，跳过第二道（没有安装 .NET SDK 的环境可用）。
 
+判断记录（数据根非数据表 JSON 误判修复任务，2026-09-16）：`--data-root` 指向的目录下，递归找到
+的 `*.json` 文件不再一律当成数据表——游戏侧仓库常见"数据目录旁边/上层还有 `package.json` 之类
+配置文件"的布局（如 UPM 包根目录），"看起来不像数据表"的文件（文件名解析不出 04 第 2.2 节"域"、
+或不在对应域子目录/数据根下，`package.json`/误放的 `xxx.config.json` 皆属此类）会被跳过，
+打一行 `[skip] <path>: 非数据表文件（...）` 到标准错误（不是 Warning/Error，`--strict` 下也不
+阻断，不计入下方"checked N files"）。两道校验（本脚本第一道骨架检查、`toolchain/validator`
+第二道真实校验，以及游戏运行期 `Core.Foundation.DataRegistry.DataRegistry.LoadAll` 本身）走同一
+条判定规则的独立实现，见 `core/foundation/data_registry/core/FileSystemDataSource.cs` 类型注释、
+`validate_data.py` 内 `is_data_table_candidate` 函数注释。
+
 ## 返回码约定
 
 - `0`：两道检查全部通过，无错误。
