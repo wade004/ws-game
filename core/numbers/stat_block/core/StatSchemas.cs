@@ -134,22 +134,35 @@ namespace Core.Numbers.StatBlock
                 new FieldSchema("group", FieldKind.Enum, required: false, enumValues: GroupValues,
                     description: "（废弃，v2 起由 category 取代，迁移链自动转换；保留一个版本周期不删，拍板 1；" +
                         "T-N1-2 起放宽为可选——StatHost.LoadDefinitions 已不再读取本字段，见 GroupValues 判断记录）" +
-                        "聚合分组：primary/secondary/derived/resistance"),
+                        "聚合分组：primary/secondary/derived/resistance")
+                    // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：把上面 Description 里已经
+                    // 自由文本写明的废弃事实（升级指南附录 C 同一行）补登记为结构化元数据，供内容工具
+                    // 直接从 schema 回吐读取，不需要再手工维护一份与 Description 人工核对的静态清单。
+                    // ReplacedBy 取值取 Description/迁移函数判断记录里明文给出的对应新字段（group→
+                    // category 是拍板 1 明文规定，见 MigrateDefinitionV1ToV2 判断记录）。
+                    .WithDeprecated("1.31.0", "category"),
                 new FieldSchema("default_base", FieldKind.Number, required: false,
                     description: "未显式 SetBase 时的基础值，缺省 0"),
                 new FieldSchema("min", FieldKind.Number, required: false,
                     description: "（废弃，v2 起由嵌套 clamp.min 取代，迁移链自动转换；保留一个版本周期不删，拍板 2）" +
-                        "最终值下限（可空）"),
+                        "最终值下限（可空）")
+                    // 消费方反馈第 46 条：ReplacedBy 只能指向同级字段名——"clamp.min" 是嵌套路径，不是
+                    // stat.definition 顶层字段名，故登记为容纳该嵌套字段的顶层对象字段 "clamp"（见
+                    // ClampSchema 判断记录"取代原平级 min/max"）。
+                    .WithDeprecated("1.31.0", "clamp"),
                 new FieldSchema("max", FieldKind.Number, required: false,
                     description: "（废弃，v2 起由嵌套 clamp.max 取代，迁移链自动转换；保留一个版本周期不删，拍板 2）" +
-                        "最终值上限（可空）"),
+                        "最终值上限（可空）")
+                    .WithDeprecated("1.31.0", "clamp"),
                 new FieldSchema("is_rating", FieldKind.Bool, required: false,
                     description: "（废弃，v2 起由 category=percent 取代，迁移链自动转换；保留一个版本周期不删，" +
-                        "ADR-0030 决策 1/3）评级换算启用时，本属性是否先过曲线，缺省 false"),
+                        "ADR-0030 决策 1/3）评级换算启用时，本属性是否先过曲线，缺省 false")
+                    .WithDeprecated("1.31.0", "category", note: "取值 category=percent 时对应旧 is_rating=true"),
                 new FieldSchema("rating_conversion_ref", FieldKind.Reference, required: false,
                     referenceTable: "stat.rating_conversion",
                     description: "（废弃，v2 起由 conversion_ref 取代，迁移链自动转换；保留一个版本周期不删，" +
-                        "ADR-0030 决策 1）指向 stat.rating_conversion 的曲线引用，仅 is_rating=true 时有意义"),
+                        "ADR-0030 决策 1）指向 stat.rating_conversion 的曲线引用，仅 is_rating=true 时有意义")
+                    .WithDeprecated("1.31.0", "conversion_ref"),
                 new FieldSchema("description", FieldKind.String, required: false,
                     description: "属性说明文本，供编辑器/文档展示，可为空"),
             },

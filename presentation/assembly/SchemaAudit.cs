@@ -41,7 +41,8 @@ namespace Presentation.Assembly
         /// <c>soft_reference_kind</c>（消费方反馈第 28/29 条，04 第 3.4 节勘误）/
         /// <c>id_description_reference_hint</c>（消费方反馈第 30 条，告警级，04 第 3.4 节勘误）/
         /// <c>declared_reference_unregistered</c>（消费方反馈第 37 条，告警级，04 第 4 节勘误）/
-        /// <c>field_curve_shape</c>（分阶段落地计划 T-N0-1，04 第 3.6 节"曲线形态登记"）。</summary>
+        /// <c>field_curve_shape</c>（分阶段落地计划 T-N0-1，04 第 3.6 节"曲线形态登记"）/
+        /// <c>field_deprecated_metadata</c>（消费方反馈第 46 条，04 第 3.4 节勘误"字段废弃元数据"）。</summary>
         public string Check { get; }
 
         public string Message { get; }
@@ -267,6 +268,33 @@ namespace Presentation.Assembly
             }
         }
 
+        /// <summary>
+        /// 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：<c>ReplacedBy</c> 存在性冗余复查，
+        /// 只覆盖表的顶层字段——嵌套子结构（<see cref="FieldSchema.Fields"/>）内的 <c>ReplacedBy</c>
+        /// 存在性已经在 <see cref="FieldSchema"/> 构造函数装配兄弟字段清单时就近校验并抛异常（见
+        /// <see cref="FieldSchema.WithDeprecated"/> 判断记录），能走到这里的表已经是构造期校验通过的
+        /// 合法登记，本方法命中在实践中"理论上不可能触发"（同 <see cref="WalkField"/> 里
+        /// <c>field_group</c> 检查一样的既有风格），仍作为一道不依赖运行期异常、可被
+        /// <c>--schema-audit</c>/测试枚举出来的软失败防线，不加白名单（消费方反馈原文"不加白名单"）。
+        /// 只查顶层是因为 <see cref="TableSchema.GetField"/> 本身只索引顶层字段——对非顶层字段用它
+        /// 查找会把"合法存在但不在顶层"误判为"不存在"，故本方法刻意不递归进 <see cref="WalkField"/>。
+        /// </summary>
+        private static void CheckTopLevelDeprecatedReplacedBy(TableSchema schema, List<SchemaAuditIssue> issues)
+        {
+            var fields = schema.Fields;
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var field = fields[i];
+                if (!field.IsDeprecated || field.ReplacedBy == null) continue;
+
+                if (schema.GetField(field.ReplacedBy) == null)
+                {
+                    issues.Add(new SchemaAuditIssue("error", schema.Name, field.Name, "field_deprecated_metadata",
+                        $"字段 \"{field.Name}\" 的 ReplacedBy \"{field.ReplacedBy}\" 在表 \"{schema.Name}\" 的顶层字段清单里找不到（消费方反馈第 46 条）"));
+                }
+            }
+        }
+
         /// <summary>见 <see cref="KnownTimeFieldPaths"/>。</summary>
         private static void CheckKnownTimeFieldsHaveUnit(IReadOnlyList<TableSchema> schemas, List<SchemaAuditIssue> issues)
         {
@@ -386,6 +414,7 @@ namespace Presentation.Assembly
                 }
 
                 CheckTableOwnership(schema, issues);
+                CheckTopLevelDeprecatedReplacedBy(schema, issues);
 
                 var fields = schema.Fields;
                 for (var f = 0; f < fields.Count; f++)
@@ -583,6 +612,17 @@ namespace Presentation.Assembly
             if (field.Curve != null)
             {
                 CheckCurveShape(tableName, path, field, issues);
+            }
+
+            // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）自洽检查：IsDeprecated 为真时
+            // DeprecatedSince 必须非空——FieldSchema.WithDeprecated 的必填校验已经在构造期堵死这条路
+            // （同 field_group 判断记录"理论上不可能触发、仍留一道软失败防线"的既有风格）；ReplacedBy
+            // 存在性的复查见 CheckTopLevelDeprecatedReplacedBy（只覆盖顶层，理由见该方法判断记录），
+            // 这里覆盖全部深度，两处共用同一个检查名 "field_deprecated_metadata"。
+            if (field.IsDeprecated && string.IsNullOrWhiteSpace(field.DeprecatedSince))
+            {
+                issues.Add(new SchemaAuditIssue("error", tableName, path, "field_deprecated_metadata",
+                    $"字段 \"{path}\" 登记为 IsDeprecated，但 DeprecatedSince 为空（消费方反馈第 46 条）"));
             }
 
             if (field.Kind == FieldKind.Reference)

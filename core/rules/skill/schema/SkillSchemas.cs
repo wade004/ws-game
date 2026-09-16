@@ -117,11 +117,16 @@ namespace Core.Rules.Skill
         private static readonly IReadOnlyList<FieldSchema> DamageOrHealParams = new[]
         {
             new FieldSchema("base_value", FieldKind.Number, required: false, description: "基础值，缺省 0；base_curve_ref 存在时被其取代（见该字段判断记录）"),
-            new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缩放系数，缺省 0；scaling 列表存在时不参与效果值组装，只随 EffectContext 原样转发（见 EffectDispatcher.ApplyDamageOrHeal 判断记录）"),
+            new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缩放系数，缺省 0；scaling 列表存在时不参与效果值组装，只随 EffectContext 原样转发（见 EffectDispatcher.ApplyDamageOrHeal 判断记录）")
+                // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：与 scaling_stat 是同一语义
+                // 的旧写法一半（见上方 Description、本文件顶部判断记录），升级指南附录 C 未单列本字段，
+                // 但反馈原文明确把 scaling_stat/coefficient 一起列为待打标对象，一并登记。
+                .WithDeprecated("1.33.0", "scaling"),
             new FieldSchema("school", FieldKind.Id, required: false, description: "缺省取 skill.def.school"),
             new FieldSchema("scaling_stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
                 description: "旧单字段缩放属性写法，缺省不缩放（判断记录：stat.definition 属 L1，本模块已依赖 StatBlock 程序集，登记为 Reference 不违反分层）；" +
-                    "T-N3-2 起 scaling 列表为权威写法，本字段与 coefficient 搭配的旧读取路径保留兼容（硬性规则：禁止删除），scaling 列表非空时不再读取本字段"),
+                    "T-N3-2 起 scaling 列表为权威写法，本字段与 coefficient 搭配的旧读取路径保留兼容（硬性规则：禁止删除），scaling 列表非空时不再读取本字段")
+                .WithDeprecated("1.33.0", "scaling"),
             ScalingListField,
             BaseCurveRefField,
         };
@@ -442,7 +447,10 @@ namespace Core.Rules.Skill
             new FieldSchema("interval", FieldKind.Number, required: true, description: "周期间隔，以时间单位计（见判断记录）")
                 .WithRange(FieldRange.Range(min: 0, minExclusive: true)).WithUnit(FieldUnit.Time),
             new FieldSchema("base_value", FieldKind.Number, required: false, description: "缺省 0"),
-            new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缺省 0"),
+            new FieldSchema("coefficient", FieldKind.Number, required: false, description: "缺省 0")
+                // 消费方反馈第 46 条：同 DamageOrHealParams.coefficient 判断记录，周期效果分支的
+                // coefficient/scaling_stat 是同一套旧写法，一并打标。
+                .WithDeprecated("1.33.0", "scaling"),
             new FieldSchema("school", FieldKind.Id, required: true, description: "无缺省（见判断记录）"),
             // P3-04 根治（外部审计 audit-c9ff301-20260909）：AuraHost.FirePeriodic 组装的
             // EffectContext 与 school_damage/heal 走的是同一条 EffectDispatcher.ApplyDamageOrHeal
@@ -453,7 +461,8 @@ namespace Core.Rules.Skill
             // 字段不报错，不影响已经这样填写的数据）。
             new FieldSchema("scaling_stat", FieldKind.Reference, required: false, referenceTable: "stat.definition",
                 description: "旧单字段缩放属性写法，缺省不缩放（同 DamageOrHealParams.scaling_stat，两条效果路径共用同一份 EffectDispatcher.ApplyDamageOrHeal 结算逻辑）；" +
-                    "T-N3-2 起 scaling 列表为权威写法，见该字段判断记录"),
+                    "T-N3-2 起 scaling 列表为权威写法，见该字段判断记录")
+                .WithDeprecated("1.33.0", "scaling"),
             // T-N3-2：与 DamageOrHealParams 共用同一份字段实例（"登记一次、多处复用"），见本文件
             // ScalingListField/BaseCurveRefField 顶部判断记录。
             ScalingListField,
