@@ -537,6 +537,14 @@
       "kind": "sprite",
       "sprite_set_id": "sprite.sim_placeholder",
       "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_review_b_weapon_pct_strike",
+      "category": "skill",
+      "logical_id": "skill.sim_review_b_weapon_pct_strike",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
     }
   ]
 }

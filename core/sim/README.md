@@ -914,6 +914,27 @@ core/sim/
     上报设计层，未按任务书字面的"27/28"数字反向修改任何既有步骤的注册方式来凑数，避免为了凑
     一个数字而扭曲不相关步骤的分类）。
 
+    补充（2026-09-17，`fix/sim-dataset-display-map`，反馈 46 后续 bug 修复：`check.ps1` 新增
+    "6a. `core/sim/tests/data` 单独 `--strict` 校验"）：上面这条判断记录写于 `-Il2cpp` 开关
+    尚未引入本脚本之前，当时"全量/`-SkipUnity`/`-Quick` 三者恰好一致"是真实的（IL2CPP 三步
+    还不存在，不存在分叉）。`-Il2cpp` 开关引入后，`check.ps1` 实际存在两个不同的"总步骤数"
+    族群——`if ($SkipUnity) { 6 个 Add-SkippedStep（Unity 四步 + 消费方演练折叠） } else { Unity
+    四步 + 消费方演练分别注册 + `if (-not $Il2cpp) { 3 个 Add-SkippedStep } else { 3 个
+    Invoke-CheckStep }`（IL2CPP 三步） }`——`-Quick`/`-SkipUnity` 族只注册 6 个 Unity 相关槽位，
+    全量族（不传 `-SkipUnity`）注册 9 个（Unity 四步 + 消费方演练 + IL2CPP 三步，无论 PASS 还是
+    SKIP 都算注册），两族相差固定 3。已用 `Grep` 实测数过全部 `Invoke-CheckStep`/
+    `Add-SkippedStep` 调用点并按分支归类核对：非 Unity 部分（步骤 0～9，含本次新增 6a）共 19
+    个，`-Quick`/`-SkipUnity` 族 19+6=25，全量族 19+9=28，与归档证据
+    `architecture/落地计划/audit-24a11fe-20260910/followup-2026-09-10c.md:128`
+    "门禁通过：全部 27 步（24 PASS + 3 SKIP，均为预期的 IL2CPP 分支）"（T-N6-7 新增"数值仿真
+    基线比对"**之前**的全量族：24+3=27，之后变 25+3=28）互相印证一致；`build.ps1 -Release`
+    默认不传 `-SkipUnity`/`-Il2cpp`（README.md"发布流程"一节；`build.ps1` 全文无 `-Il2cpp`
+    调用点），命中的正是全量族。本次新增 6a 步骤不受 `-Quick`/`-SkipUnity`/`-Il2cpp` 任何一个
+    开关门控，两个族群各自 +1：`-Quick`/`-SkipUnity` 族 25→26，全量族 28→29。上面那段"27/28
+    与实际不一致"的历史陈述记录的是**更早一版**任务书数字（当时 `-Il2cpp` 尚不存在，全量族
+    确实等于 `-Quick`/`-SkipUnity` 族，任务书"27→28"的说法与实测的"24→25"不一致）——与本次
+    "28→29"是两个不同时间点的独立事实，不互相覆盖，均如实分别保留。）
+
 42. **`build.ps1`：`adapters/headless/` 与 `toolchain/validator/lib/` 两处补 `Core.Sim.dll`/
     `Adapters.Stub.dll` 的取值来源为何不互相依赖（各自独立取源码仓库原始构建产物）**：
     `Core.Sim.dll` 分发到三处（`adapters/headless/`、`toolchain/validator/lib/`、
