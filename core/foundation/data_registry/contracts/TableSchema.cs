@@ -182,6 +182,11 @@ namespace Core.Foundation.DataRegistry
                 }
                 _fieldsByName.Add(f.Name, f);
             }
+
+            // 消费方反馈第 46 条（见 FieldSchema.WithDeprecated 判断记录）：本次构造把顶层 Fields 这份
+            // 兄弟字段清单第一次完整组装出来——顶层字段的 ReplacedBy 存在性校验推迟到这里；嵌套子结构
+            // （FieldSchema.Fields）的同类校验在 FieldSchema 构造函数里就近完成，见该类型判断记录。
+            FieldSchema.ValidateDeprecatedReplacedBy($"表 \"{name}\"", Fields);
         }
 
         public FieldSchema? GetField(string name) => _fieldsByName.TryGetValue(name, out var f) ? f : null;

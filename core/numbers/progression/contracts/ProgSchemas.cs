@@ -148,10 +148,14 @@ namespace Core.Numbers.Progression
                         "可选——见本字段上方判断记录（旧数据兼容）"),
                 new FieldSchema("base_xp", FieldKind.Int, required: true,
                     description: "该来源单次授予的基础经验值" +
-                        "（废弃，base_curve_ref 存在时优先，保留一个版本周期，拍板 4）"),
+                        "（废弃，base_curve_ref 存在时优先，保留一个版本周期，拍板 4）")
+                    // 消费方反馈第 46 条：把上面 Description 已写明的废弃事实（升级指南附录 C 同一行
+                    // "prog.xp_source.base_xp/weight → base_curve_ref，1.34.0"）补登记为结构化元数据。
+                    .WithDeprecated("1.34.0", "base_curve_ref"),
                 new FieldSchema("weight", FieldKind.Number, required: false,
                     description: "省略时按 1 处理（见 IProgressionHost.GrantFromSource）" +
-                        "（废弃，base_curve_ref 存在时优先，保留一个版本周期，拍板 4）"),
+                        "（废弃，base_curve_ref 存在时优先，保留一个版本周期，拍板 4）")
+                    .WithDeprecated("1.34.0", "base_curve_ref"),
                 XpSourceBaseCurveRefField,
                 XpSourceLevelDiffRefField,
                 // T-N4-1（ADR-0033 决策 3）：探索类一次性标志键前缀，kind=discovery 时使用

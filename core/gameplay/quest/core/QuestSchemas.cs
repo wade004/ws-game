@@ -185,7 +185,11 @@ namespace Core.Gameplay.Quest
             new FieldSchema("xp", FieldKind.Number, required: false,
                 description: "已废弃（T-N4-4，ADR-0033 决策 3：任务定义的经验奖励字段写当量不写绝对数，" +
                     "禁止新内容直发绝对数经验）——保留一个版本周期供旧数据兼容读取，xp_equivalent 存在时以其为准，" +
-                    "见 Core.Gameplay.Common.RewardDispatcher 判断记录；缺省 0，不能为负数（RewardBundle 构造期硬约束，业务判断见 QuestContentValidationRule）"),
+                    "见 Core.Gameplay.Common.RewardDispatcher 判断记录；缺省 0，不能为负数（RewardBundle 构造期硬约束，业务判断见 QuestContentValidationRule）")
+                // 消费方反馈第 46 条（04 第 3.4 节勘误"字段废弃元数据"）：本字段是 quest.def/
+                // encounter.def/achv.def 三表共用的 RewardsFields 一部分（见本文件类型顶部判断记录），
+                // 只需在这里登记一次，三张表的 "rewards" 字段都引用同一个 FieldSchema 实例。
+                .WithDeprecated("1.34.0", "xp_equivalent"),
 
             // T-N4-4 新增（ADR-0033 决策 3；08 第 2.1 节 2026-09-14 修订段）：xp_equivalent（当量）+
             // level（折算所需的任务/遭遇等级）取代绝对数写法，见 Core.Gameplay.Common.RewardBundle
