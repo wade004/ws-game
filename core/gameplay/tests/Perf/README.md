@@ -60,6 +60,24 @@ perf <用例名> median=<ms> threshold=<ms> factor=<x.xx> effective_threshold=<m
 记录见 `check.ps1` 该步骤注释——`console;verbosity=normal/detailed` 会把全部用例的通过行一起
 刷出来，不是"只有 Perf 四条用例输出"的最小改动）。
 
+### 托管运行器实测（2026-09-16，CI 运行 35057843972，提交 29d21f8）
+
+```
+perf TickCost_MedianOfSampledTicks_WithinBaselineThreshold median=0.0482 threshold=0.1042 factor=8.00 effective_threshold=0.8340 reference=401.5660
+perf TickCost_FullPipeline_MedianOfSampledTicks_WithinBaselineThreshold median=31.6217 threshold=32.2220 factor=8.00 effective_threshold=257.7760 reference=401.5660
+perf SpatialQueryCost_MedianOf1000Queries_WithinBaselineThreshold median=0.0493 threshold=0.1110 factor=8.00 effective_threshold=0.8880 reference=401.5660
+perf SaveSerializationCost_MedianOfRepeatedSaves_WithinBaselineThreshold median=1.5263 threshold=4.2322 factor=8.00 effective_threshold=33.8580 reference=401.5660
+```
+
+判断记录：
+
+1. 参考负载在托管运行器上慢 9.2 倍（401.6 对基线 43.663ms），完整管线只慢 4.3 倍（31.6 对
+   7.3ms），说明单线程参考负载高估了整体减速，系数被上限 8 截住是预期内的保护。
+2. 截住后有效阈值对实测的余量约 8 倍，与基线机上约 4.4 倍余量同量级，因此上限 8 暂不调整。
+3. 归一化前托管运行器上完整管线实测 31.6ms 对绝对阈值 32.2ms 只有 2% 余量，1.36.0 发布工作流
+   两次失败（46ms）与此前的通过都在噪声边缘，这是本口径立项的直接证据。若日后上限持续被截住且
+   余量失衡，再考虑把参考负载换成更贴近完整管线的混合形态。
+
 ## 如何更新基线
 
 1. 临时在 `LoadBaseline()` 调用处后面加一行 `Console.WriteLine("MEDIAN_MS=" + median)`（或直接
