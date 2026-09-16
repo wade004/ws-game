@@ -419,6 +419,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- `toolchain/validate_data.py`/`toolchain/validator`（`core/foundation/data_registry.FileSystemDataSource`）
+  数据根目录里非数据表 JSON 文件（如游戏侧 UPM 包根目录的 `package.json`）不再被误判成数据表、
+  报出假的"缺少顶层字段 table/schema_version/rows"错误；`FileSystemDataSource` 新增
+  `DataSourceOptions`（可选构造项，默认开启跳过，ABI 只新增）。
+
 ## [1.37.0] - 2026-09-16
 
 N0～N6 深度代码复审（五个领域）修复版：必须修 7 项、建议修 11 项、测试覆盖缺口 19 条；契约只

@@ -168,6 +168,11 @@ namespace Toolchain.Validator
             // 仓库根目录下运行本工具，此时"相对路径"与"相对仓库根"是同一件事，惯例同
             // toolchain/validate_data.py"从仓库根目录运行"。绝对路径原样使用。
             var sources = new List<IDataSource>(dataRootArgs.Count);
+            // 判断记录（数据根非数据表 JSON 误判修复任务）：额外保留一份具体类型的引用列表——
+            // FileSystemDataSource.ListTables() 在 ContentValidationAssembly.Run 内部被调用后会
+            // 填好 SkippedNonTableFiles（见该类型判断记录），本工具据此在 Run 完成后打印
+            // "[skip] ..." 提示行；sources（IDataSource 列表）本身拿不到这个只有具体类型才有的属性。
+            var fileSystemSources = new List<FileSystemDataSource>(dataRootArgs.Count);
             var fs = new DiskFileSystem();
             foreach (var dataRootArg in dataRootArgs)
             {
@@ -182,7 +187,9 @@ namespace Toolchain.Validator
                     return 2;
                 }
 
-                sources.Add(new FileSystemDataSource(fs, dataRoot));
+                var fileSystemSource = new FileSystemDataSource(fs, dataRoot);
+                sources.Add(fileSystemSource);
+                fileSystemSources.Add(fileSystemSource);
             }
 
             // ADR-0018 决策 3（校验装配入口）：本工具不再自行内联"建 EventBus + 建 DataRegistry +
@@ -254,6 +261,23 @@ namespace Toolchain.Validator
             var report = run.Report;
             var tableCount = run.TableCount;
             var recordCount = run.RecordCount;
+
+            // 判断记录（数据根非数据表 JSON 误判修复任务）：ContentValidationAssembly.Run 内部经
+            // DataRegistry.LoadAll 调用了每个 FileSystemDataSource.ListTables()，此时
+            // SkippedNonTableFiles 已经填好（见该类型判断记录"非数据表 JSON 候选判定"）。本提示
+            // 始终打到标准错误（不是 Warning/Error，--strict 下也不阻断），--json 模式下同样只走
+            // 标准错误——与本文件其余人类可读诊断消息的既有约定一致，不污染 --json 的单一 JSON
+            // 标准输出。
+            foreach (var fileSystemSource in fileSystemSources)
+            {
+                foreach (var skipped in fileSystemSource.SkippedNonTableFiles)
+                {
+                    var displayPath = string.IsNullOrEmpty(fileSystemSource.Root)
+                        ? skipped
+                        : $"{fileSystemSource.Root}/{skipped}";
+                    Console.Error.WriteLine($"[skip] {displayPath}: 非数据表文件（不符合 <域>.<表名>.json 命名约定，或未放在对应域子目录/数据根下）");
+                }
+            }
 
             // 判断记录（数据行覆盖语义任务）：覆盖诊断（见 DataRegistry 类型级判断记录"覆盖语义"、
             // OverrideDiagnostic）不是 ValidationIssue（既非 Warning 也非 Error），report.Issues 里

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Core.Foundation.EngineAdapter;
 
 namespace Core.Foundation.DataRegistry
@@ -18,18 +19,80 @@ namespace Core.Foundation.DataRegistry
     /// 用 <c>/</c> 分隔、按序数排序——因此本类把 <c>rootDir</c> 与每个相对路径拼接回完整路径
     /// 后才传给 <see cref="IFileSystem.ReadText"/>。
     /// </para>
+    /// <para>
+    /// 判断记录（数据根非数据表 JSON 误判修复任务，2026-09-16，"非数据表 JSON 候选判定"）：
+    /// <see cref="DataSourceOptions.SkipNonTableJsonFiles"/>（默认开启，见该类型判断记录）开启时，
+    /// <see cref="ListTables"/> 只把"看起来是数据表"的 <c>*.json</c> 文件交给
+    /// <see cref="DataRegistry"/>，其余的计入 <see cref="SkippedNonTableFiles"/>（本类型不做任何
+    /// 控制台/日志输出——是否、如何展示交给调用方，如 <c>toolchain/validator/Program.cs</c>，保持
+    /// core 库不直接做 I/O 的既有分层）。判定规则（读 <c>data/README.md</c>"两类目录"一节 +
+    /// <c>core/foundation/data_registry/contracts/TableSchema.cs</c> <c>Domain</c>/<c>WithDomain</c>
+    /// 判断记录"04 第 2.2 节勘误登记的单段名命名例外"总结出的最小规则，不与两处的既有判断逻辑重复
+    /// 实现——本类型只做"文件名/相对路径形状"层面的粗筛，真正的表名合法性仍由
+    /// <see cref="DataRegistry"/> 加载期的 envelope/schema 校验判定）：
+    /// <list type="number">
+    /// <item>文件名（去掉 <c>.json</c>）含至少一个 <c>.</c> 时，取第一个 <c>.</c> 之前的字符串作为
+    /// "域"；域必须匹配 <c>^[a-z][a-z0-9_]*$</c>（与 <c>toolchain/validate_data.py</c> 的 <c>ID_RE</c>
+    /// domain 段同一字符集）——覆盖绝大多数表名 <c>&lt;域&gt;.&lt;表名&gt;.json</c> 的既有约定。</item>
+    /// <item>文件名（去掉 <c>.json</c>）完全等于 <see cref="SingleSegmentTableDomains"/> 登记的三个
+    /// 单段名例外（<c>camera_profile</c>/<c>ui_layout_definition</c>/<c>shell_menu_definition</c>，
+    /// 与 <c>TableSchema.cs</c> 该判断记录逐字一致）时，域取该字典登记的固定值（<c>camera</c>/
+    /// <c>ui</c>/<c>shell</c>）。</item>
+    /// <item>以上两种方式都得不到域的文件（如 <c>package.json</c>：无 <c>.</c>，也不在例外表里）
+    /// 判定为"非数据表文件"，跳过。</item>
+    /// <item>能得到域的文件还需满足"文件直接在数据根下（相对路径只有一段），或文件所在的直接上级
+    /// 目录名等于该域"——对应 <c>data/README.md</c> 记录的
+    /// <c>data/_framework/&lt;domain&gt;/&lt;table&gt;.json</c> 目录约定；"直接在数据根下"这一分支
+    /// 专为兼容测试夹具里常见的扁平布局（数据根下直接放 <c>test.thing.json</c>，不建 <c>test/</c>
+    /// 子目录）保留，不因此判定为跳过。不满足则判定为"非数据表文件"，跳过——这一条挡住形如
+    /// <c>some_unrelated_dir/arch.config.json</c> 这类"文件名凑巧带合法域前缀、但没放在对应域目录
+    /// 下"的配置文件被误当表处理（`xxx.config.json` 场景，见任务判断记录）。</item>
+    /// </list>
+    /// 与 <c>toolchain/validate_data.py</c> 的 <c>_resolve_table_domain</c>/<c>_is_data_table_candidate</c>
+    /// 是同一条规则的两份独立实现（两个工具链各自的运行时/语言边界不共享代码，见该文件同一判断
+    /// 记录）——修改本规则时两处必须同步更新，回归测试见
+    /// <c>core/foundation/data_registry/tests/FileSystemDataSourceSkipsNonTableJsonTests.cs</c> 与
+    /// <c>toolchain/tests/test_validate_data_skips_nontable_json.py</c>。
+    /// </para>
     /// </summary>
     public sealed class FileSystemDataSource : IDataSource
     {
         private const string JsonExtension = ".json";
 
+        /// <summary>04 第 2.2 节勘误登记的三张单段名命名例外，与
+        /// <c>core/foundation/data_registry/contracts/TableSchema.cs</c> <c>WithDomain</c> 判断记录
+        /// 登记的调用点逐字一致（<c>presentation/camera/schema/CameraSchemas.cs</c>、
+        /// <c>presentation/ui/schema/UiLayoutSchema.cs</c>、
+        /// <c>presentation/shell/schema/ShellMenuSchema.cs</c>）。</summary>
+        private static readonly IReadOnlyDictionary<string, string> SingleSegmentTableDomains =
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["camera_profile"] = "camera",
+                ["ui_layout_definition"] = "ui",
+                ["shell_menu_definition"] = "shell",
+            };
+
+        private static readonly Regex DomainTokenRegex = new Regex("^[a-z][a-z0-9_]*$", RegexOptions.Compiled);
+
         private readonly IFileSystem _fs;
         private readonly string _rootDir;
+        private readonly DataSourceOptions _options;
+        private readonly List<string> _skippedNonTableFiles = new List<string>();
 
         public FileSystemDataSource(IFileSystem fs, string rootDir)
+            : this(fs, rootDir, new DataSourceOptions())
+        {
+        }
+
+        /// <summary>判断记录（ABI 只新增，见 <see cref="DataSourceOptions"/> 类型判断记录）：本构造
+        /// 函数是纯新增重载，原两参数构造函数签名不变、内部委派到本构造函数并使用默认
+        /// <see cref="DataSourceOptions"/>（<see cref="DataSourceOptions.SkipNonTableJsonFiles"/>
+        /// 默认 <c>true</c>）。</summary>
+        public FileSystemDataSource(IFileSystem fs, string rootDir, DataSourceOptions options)
         {
             _fs = fs ?? throw new ArgumentNullException(nameof(fs));
             _rootDir = rootDir ?? throw new ArgumentNullException(nameof(rootDir));
+            _options = options ?? new DataSourceOptions();
         }
 
         /// <summary>消费方反馈第三批第 22 条：显式覆盖 <see cref="IDataSource.Root"/> 默认实现，
@@ -37,8 +100,18 @@ namespace Core.Foundation.DataRegistry
         /// 都以 <c>CombinePath(_rootDir, rel)</c> 拼成，本属性即那个前缀本身。</summary>
         public string? Root => _rootDir;
 
+        /// <summary>上一次 <see cref="ListTables"/> 调用中，因不满足"非数据表 JSON 候选判定"规则
+        /// （见类型判断记录）而被跳过的文件，相对 <see cref="Root"/>、用 <c>/</c> 分隔——与
+        /// <see cref="DataTableSource.Location"/> 的路径风格一致，便于调用方直接拼接展示。
+        /// <see cref="DataSourceOptions.SkipNonTableJsonFiles"/> 为 <c>false</c> 时恒为空列表。
+        /// 本类型不做任何控制台/日志输出，是否、如何展示这份清单交给调用方（如
+        /// <c>toolchain/validator/Program.cs</c>）决定。</summary>
+        public IReadOnlyList<string> SkippedNonTableFiles => _skippedNonTableFiles;
+
         public IReadOnlyList<DataTableSource> ListTables()
         {
+            _skippedNonTableFiles.Clear();
+
             var relatives = _fs.ListFiles(_rootDir);
             var result = new List<DataTableSource>();
 
@@ -53,11 +126,64 @@ namespace Core.Foundation.DataRegistry
                 var fileName = lastSlash < 0 ? rel : rel.Substring(lastSlash + 1);
                 var tableName = fileName.Substring(0, fileName.Length - JsonExtension.Length);
 
+                if (_options.SkipNonTableJsonFiles && !IsDataTableCandidate(tableName, rel))
+                {
+                    _skippedNonTableFiles.Add(rel);
+                    continue;
+                }
+
                 var fullPath = CombinePath(_rootDir, rel);
                 result.Add(new DataTableSource(tableName, fullPath, () => ReadTextOrThrow(fullPath)));
             }
 
             return result;
+        }
+
+        /// <summary>类型判断记录"非数据表 JSON 候选判定"规则的实现：先解析出 <paramref name="tableName"/>
+        /// 对应的"域"，再核对 <paramref name="relativePath"/>（相对数据根、<c>/</c> 分隔）是否放在了
+        /// 该域对应的目录下（或直接在数据根下）。</summary>
+        private static bool IsDataTableCandidate(string tableName, string relativePath)
+        {
+            if (!TryResolveDomain(tableName, out var domain))
+            {
+                return false;
+            }
+
+            var parts = relativePath.Split('/');
+            if (parts.Length <= 1)
+            {
+                // 直接在数据根下：兼容测试夹具常见的扁平布局（如 "test.thing.json" 不建 test/ 子目录）。
+                return true;
+            }
+
+            var parentDir = parts[parts.Length - 2];
+            return string.Equals(parentDir, domain, StringComparison.Ordinal);
+        }
+
+        private static bool TryResolveDomain(string tableName, out string domain)
+        {
+            if (SingleSegmentTableDomains.TryGetValue(tableName, out var mapped))
+            {
+                domain = mapped;
+                return true;
+            }
+
+            var dot = tableName.IndexOf('.');
+            if (dot <= 0)
+            {
+                domain = string.Empty;
+                return false;
+            }
+
+            var firstSegment = tableName.Substring(0, dot);
+            if (!DomainTokenRegex.IsMatch(firstSegment))
+            {
+                domain = string.Empty;
+                return false;
+            }
+
+            domain = firstSegment;
+            return true;
         }
 
         private string ReadTextOrThrow(string fullPath)
