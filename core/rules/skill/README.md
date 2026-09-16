@@ -1196,16 +1196,35 @@ skill/
     3. "施放时间当量规则"未给出独立字段名，"周期效果按总持续时间乘折价"的折价系数登记为
        `periodic_time_discount`。
     <br/><br/>
+    **判断记录（深度复审 C-S3，设计层裁定 2026-09-16）**：`skill.budget_rule.beat_seconds`/
+    `periodic_time_discount` 均为预算记账常数（一个是"记账用的时长尺子"，一个是无量纲折价系数），
+    不是按 tick 推进/衰减、参与离散步引擎整数记账的"持续时间状态"（同 `cast_time`/
+    `channel_time`/`cooldown_duration`/`charges.recharge_time`、`skill.aura_def.duration`/周期
+    字段、`skill.proc_def.internal_cooldown` 那一类真正被离散步计数器写回/推进的时间字段区分
+    对待）——`RulesSchemaCatalog.RegisterTimeFieldConsistencyRule` 的 `declarations` 列表不登记
+    这两个字段是有意为之，不是遗漏；离散模式下允许 `beat_seconds` 取分数值（06 文档给出的示例值
+    即为半秒），`Math.Max(动作时长, beat_seconds)`/`光环总持续时间 × periodic_time_discount`
+    两处消费点均按浮点数直接运算，不受离散整数一致性约束。
+    <br/><br/>
     **`SkillBudgetAnalyzer.Analyze(skillId, view, options?, anchorProvider?)`**（`core/rules/skill/
     core/SkillBudgetAnalyzer.cs`，照 `Core.Carriers.Item.EquipmentScoreAnalyzer`/`ItemBudgetCurve
     .ComputeConsumed`/`Core.Gameplay.Loot.LootTableAnalyzer` 三个先例：静态类、纯函数，不持有状态）
     返回不可变 `SkillBudgetResult`（`SkillId`/`Participates`/`Tier`/`Level`/`EffectiveValue`/
     `TimeEquivalent`/`CooldownPremium`/`RangeDiscount`/`CostPremium`/`AnchorDps`/`BudgetLimit`/
     `Ratio`/`Bandwidth`/`HardCap`/`BudgetNote`/`Verdict`）。`Verdict`（`SkillBudgetVerdict`）四态：
-    `NotApplicable`（不参与预算校验）、`Pass`（比值 ≤ 1+带宽）、`ConfirmedDeviation`（超带宽且
-    `budget_note` 非空——不论是否同时超硬上限，硬性规则"禁止阻断带说明的超模技能"）、
-    `UnconfirmedDeviation`（超带宽、未超硬上限、`budget_note` 为空）、`HardCapExceeded`（超硬上限
-    且 `budget_note` 为空，唯一阻断态）。
+    `NotApplicable`（不参与预算校验）、`Pass`（比值落在 `[1-带宽, 1+带宽]` 闭区间内——对称区间，
+    边界值判 Pass）、`ConfirmedDeviation`（越界（偏高或偏低）且 `budget_note` 非空——不论是否同时
+    超硬上限，硬性规则"禁止阻断带说明的超模技能"）、`UnconfirmedDeviation`（越界、未超硬上限、
+    `budget_note` 为空）、`HardCapExceeded`（超硬上限且 `budget_note` 为空，唯一阻断态，只对偏高
+    一侧生效——04 文档未定义"硬下限"）。
+    <br/><br/>
+    **判断记录（深度复审 C-M1 修复，2026-09-16）**：本节此前误记为"`Pass`（比值 ≤ 1+带宽）"——只
+    描述了带宽的上界，与本节紧邻的 `player_bandwidth`/`monster_bandwidth` 字段文档、
+    `SkillValidationRules.cs` 的 `skill_budget_deviation` 警告文案（把下界 `1-bandwidth` 也打印
+    出来）、`architecture/adr/0031-技能数值契约与预算.md`、`architecture/数值设计/00_数值总纲.md`
+    四处描述的"对称区间"语义均不一致，且 `SkillBudgetAnalyzer.Classify` 此前的实现确实只判了上界
+    （已修复：`ratio` 低于带宽下界、且没有 `budget_note` 时归 `UnconfirmedDeviation`，不再被误判为
+    `Pass`）。上一段"四态"描述已按修复后的对称区间改写。
     <br/><br/>
     **公式（06 第 3.10 节原文）**：`预算上限 = 锚点秒伤(技能等级) × T × 冷却溢价(冷却÷T) ×
     范围折价(max_targets) × 消耗溢价(消耗÷期望回复率)`，`实际价值 = 基础值 + Σ(系数 × 期望缩放
@@ -1274,6 +1293,50 @@ skill/
     `Tests.Rules`（742 例）/`Tests.Carriers`（587 例）/不带 filter 的全量六程序集回归全绿；
     `Replay` 全绿、基线零改动（新增校验规则默认不产生问题，不影响运行时结算路径）。ABI 探针
     （基线 1.32.0）breaks=0，新增 104 行（新公开类型/方法/接口，均为新增，无破坏性改动）。
+
+56. **深度复审 C-S1 修复（2026-09-16）：`SkillHost.GetSkillReadiness` 的 `ActionLocked` 判定补齐
+    `CastSkill` 顶部的排队窗口**。背景：`CastPipeline.CastSkill` 在施法者当前读条/引导剩余时间
+    `<= SkillOptions.QueueWindow`（默认 0.3 秒）时会接受新请求排队（`CastResult.Ok`），不会以
+    `CastFailureReason.ActionLocked` 拒绝；但 `GetSkillReadiness` 的 `actionLocked` 判定此前只用
+    `CastPipeline.IsCasting`（不区分剩余时间），会在这个窄窗口内错误地汇报"会被 ActionLocked
+    拒绝"，与随后一次 `CastSkill` 实际会成功排队的结论不一致，违反了该方法自己 XML 文档承诺的
+    "与随后一次 `CastSkill` 得到一致结论"。
+    <br/><br/>
+    **修法**：`CastPipeline` 新增只读方法 `GetCastingRemaining(unitId)`（暴露当前 `CastState
+    .Remaining`，未在读条/引导时返回 `null`），`GetSkillReadiness` 的 `actionLocked` 改为
+    `castingRemaining.HasValue && castingRemaining.Value > _options.QueueWindow`（原先是
+    `_pipeline.IsCasting(unitId)`）。`CastSkill` 顶部另一条"反应类瞬发插入"（`SafeInstantInsert`）
+    分支只在 `respects_gcd=false` 时可能成立，与 `actionLocked` 判定的 `def.RespectsGcd` 前提天然
+    互斥（见 `CastPipeline.ClassifyReactiveInsert` 判断记录），不需要额外代码改动——`respects_gcd
+    =false` 的技能本判定恒不置位 `ActionLocked`，与反应类插入总是成功这一结论已经一致。
+    <br/><br/>
+    **测试**：`core/rules/skill/tests/T_N3_4_UseConditionAndActionLockTests.cs` 新增 2 例——
+    `GetSkillReadiness_WithinQueueWindow_IsConsistentWithCastSkillQueueingSuccess`（排队窗口内：
+    `IsReady=true`、不置位 `ActionLocked`，随后 `CastSkill` 成功排队）、
+    `GetSkillReadiness_ReactiveInstantSkill_IsConsistentWithCastSkillSafeInstantInsert`（反应类瞬发
+    对照组：施法者远超队列窗口的非瞬发动作时长内，反应类瞬发技能仍然一致地就绪/成功）。
+
+57. **深度复审 C-S2 修复（2026-09-16）：`EffectDispatcher._lastPeriodicEffectValue` 冻结缓存键加入
+    效果下标**。背景：缓存键此前是 `(AuraInstanceId, EffectKind, School)` 三元组——如果同一个
+    `skill.aura_def` 声明两条"同类型同学派"的周期效果（如两段 `periodic_damage` 都标
+    `school.physical` 但 `base_value`/`coefficient` 不同），来源单位注销之后两条效果会共享同一个
+    缓存槛位，后写入的一条覆盖前一条，其中一条的贡献被静默丢弃。
+    <br/><br/>
+    **修法**：`Core.Rules.Common.EffectContext` 新增只读属性 `EffectEntryIndex`（`int?`，效果在其
+    所属 `AuraDef.Effects` 数组里的下标）与配套的第十九参数构造函数重载（ABI 只新增，既有四个构造
+    函数签名/行为不变，`EffectEntryIndex` 恒为 `null`）；`AuraHost.FirePeriodic` 新增
+    `entryIndex` 参数（调用方传入 `Update` 周期效果遍历循环的下标变量 `i`），戳进新构造函数；
+    `EffectDispatcher._lastPeriodicEffectValue` 的键类型扩为 `(AuraInstanceId, EffectKind Kind,
+    School, EntryIndex)`（未提供 `EffectEntryIndex` 时按 `-1` 兜底，理论上不会经生产路径触达）；
+    `ApplyDamageOrHeal` 重建 `outbound` 上下文时原样转发 `EffectEntryIndex`（同该方法对
+    `TriggerChainDepth`/`AttackInstanceId`/`SourceKind`/`TargetCoefficient` 的既有转发惯例，避免
+    被静默丢弃）。
+    <br/><br/>
+    **测试**：`core/rules/skill/tests/T_N3_7_PeriodicFreezeAndPlagueRefreshTests.cs` 新增
+    `PeriodicFreeze_TwoEntriesInSameAura_SameKindAndSchool_DoNotOverwriteEachOthersFrozenCache`——
+    同一光环两条 `entryIndex` 不同的 `periodic_damage`/`school.physical` 效果，来源注销前各自写入
+    互不干扰的缓存槛位（`PeriodicCacheCount == 2`），来源注销后各自冻结在自己的值上，不被另一条
+    覆盖。
 
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
