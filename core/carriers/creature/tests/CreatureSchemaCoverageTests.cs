@@ -126,5 +126,44 @@ namespace Tests.Carriers.Creature
 
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
+
+        // -----------------------------------------------------------------
+        // 2026-09-16 深度复审 B-S2：creature.tier_definition.xp_multiplier/gold_multiplier 补
+        // WithRange(min: 0) 后的反例——负值应被 field_range 规则拦截，不再是"内容作者填错也不报"。
+        // -----------------------------------------------------------------
+
+        private static DataRegistry MakeTierOnlyRegistry(string tierRowsJson)
+        {
+            var source = new InMemoryDataSource()
+                .Add(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name,
+                    Envelope(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name, tierRowsJson));
+            var registry = new DataRegistry(source, NewBus(), new DataRegistryOptions());
+            registry.RegisterSchema(Core.Carriers.Creature.CreatureSchemas.TierDefinition);
+            return registry;
+        }
+
+        [Fact]
+        public void TierDefinition_NegativeXpMultiplier_ReportsFieldRange()
+        {
+            var rows = "[{\"id\":\"creature.tier.cov_negative_xp\"," +
+                "\"name_key\":\"l10n.creature.tier.cov_negative_xp.name\",\"xp_multiplier\":-0.5}]";
+
+            var report = MakeTierOnlyRegistry(rows).LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "xp_multiplier");
+        }
+
+        [Fact]
+        public void TierDefinition_NegativeGoldMultiplier_ReportsFieldRange()
+        {
+            var rows = "[{\"id\":\"creature.tier.cov_negative_gold\"," +
+                "\"name_key\":\"l10n.creature.tier.cov_negative_gold.name\",\"gold_multiplier\":-1.0}]";
+
+            var report = MakeTierOnlyRegistry(rows).LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_range" && i.Field == "gold_multiplier");
+        }
     }
 }

@@ -262,5 +262,58 @@ namespace Tests.Gameplay.Loot
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Message.Contains("成环"));
         }
+
+        /// <summary>
+        /// 2026-09-16 深度复审 B-S3：数据里同时存在两个互不相干的成环组件时，<see
+        /// cref="LootContentValidationRule"/> 报出的 <c>cyclePath</c> 文本必须可重现——DFS 起点改按
+        /// Id 序数排序后的稳定顺序选取（见该规则判断记录），不再依赖
+        /// <c>Dictionary&lt;Id, List&lt;Id&gt;&gt;</c> 的枚举顺序（.NET 默认对字符串哈希加了进程级
+        /// 随机种子，不同进程/不同哈希种子下 Dictionary 枚举顺序可能不同）。两个环各自的成员 id 刻意
+        /// 取跨字母序交错的名字（<c>cycle_a_*</c>/<c>cycle_z_*</c>），验证报出的两条消息各自都从该
+        /// 环内字典序最小的 id 开始，且反复构建/校验（模拟"多次运行"）结果逐字节相同。
+        /// </summary>
+        [Fact]
+        public void TwoDisjointCycles_CyclePathText_IsDeterministic_StartsFromSmallestIdInEachComponent()
+        {
+            var cyclicTables = "[" +
+                "{\"id\": \"loot.cycle_z_b\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"loot.cycle_z_a\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\":1,\"max\":1}}]}]}," +
+                "{\"id\": \"loot.cycle_z_a\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"loot.cycle_z_b\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\":1,\"max\":1}}]}]}," +
+                "{\"id\": \"loot.cycle_a_y\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"loot.cycle_a_x\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\":1,\"max\":1}}]}]}," +
+                "{\"id\": \"loot.cycle_a_x\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"loot.cycle_a_y\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\":1,\"max\":1}}]}]}" +
+                "]";
+
+            string RunOnceAndCollectMessages()
+            {
+                var bus = LootTestSupport.NewEventBus();
+                var source = new Core.Foundation.DataRegistry.InMemoryDataSource()
+                    .Add(LootSchemas.Table.Name, LootTestSupport.Envelope(LootSchemas.Table.Name, cyclicTables));
+                var registry = new Core.Foundation.DataRegistry.DataRegistry(source, bus, new Core.Foundation.DataRegistry.DataRegistryOptions());
+                registry.RegisterSchema(LootSchemas.Table);
+                registry.RegisterValidationRule(new LootContentValidationRule());
+
+                var report = registry.LoadAll();
+                var messages = new List<string>();
+                foreach (var issue in report.Issues)
+                {
+                    if (issue.Check == "loot_content" && issue.Message.Contains("成环"))
+                    {
+                        messages.Add(issue.Message);
+                    }
+                }
+                messages.Sort(System.StringComparer.Ordinal);
+                return string.Join("\n", messages);
+            }
+
+            var first = RunOnceAndCollectMessages();
+            var second = RunOnceAndCollectMessages();
+
+            Assert.Equal(first, second); // 重复构建/校验，报错文本逐字节相同（可重现）。
+            Assert.Contains("loot.cycle_a_x -> loot.cycle_a_y", first); // 该环字典序最小的 id 打头。
+            Assert.Contains("loot.cycle_z_a -> loot.cycle_z_b", first);
+        }
     }
 }

@@ -101,21 +101,28 @@ namespace Core.Gameplay.Loot
                 }
             }
 
+            // 2026-09-16 深度复审 B-S3：DFS 起点改为按 Id 序数排序后的稳定顺序，不再直接按
+            // Dictionary<Id, List<Id>> 的枚举顺序（未定义、在不同进程/哈希种子下可能不同）选取——
+            // 当数据里同时存在多个独立的 loot.* 嵌套引用环时，这保证具体报出的 cyclePath（"A -> B ->
+            // C" 这条链的起点与顺序）文本可重现，是否报错、报错条数不受影响。同 LootHost.RollAffixes
+            // 既有先例"不依赖 IDataRegistryView.GetAll 的既有顺序是否稳定，改按 Id 序数排序"处理口径。
             var state = new Dictionary<Id, int>(); // 0=未访问 1=在栈上 2=已完成
-            foreach (var kv in graph)
+            var sortedNodeIds = new List<Id>(graph.Keys);
+            sortedNodeIds.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            foreach (var nodeId in sortedNodeIds)
             {
-                if (state.TryGetValue(kv.Key, out var s) && s != 0)
+                if (state.TryGetValue(nodeId, out var s) && s != 0)
                 {
                     continue;
                 }
 
                 var cyclePath = new List<Id>();
-                if (DetectCycle(kv.Key, graph, state, cyclePath))
+                if (DetectCycle(nodeId, graph, state, cyclePath))
                 {
                     yield return new ValidationIssue(
                         ValidationSeverity.Error, LootSchemas.Table.Name, Check,
                         $"嵌套 loot 引用成环：{string.Join(" -> ", cyclePath)}",
-                        recordKey: kv.Key.Value, field: "groups");
+                        recordKey: nodeId.Value, field: "groups");
                 }
             }
         }
