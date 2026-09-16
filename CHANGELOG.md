@@ -594,6 +594,57 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （`core/sim` 自己的 `SimpleMoveModel` 不读取该属性，此前汇报的归因不够精确，已在
   `core/numbers/stat_block/README.md` 更正）。`dotnet test Core.sln` 全量回归（4233 例）验证
   两处修复对既有全部用例无副作用。
+- **数值设计落地阶段 N6 · T-N6-5**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 3 后两级：成长仿真、内容覆盖仿真）：新增 `Core.Sim.GrowthSimulation.Run(ScenarioDef,
+  AnchorTable, IReadOnlyList<IDataSource>, bool failOnUnknownTable = false): GrowthReport`——以
+  `FightRunner`（经新增 `FightRunner.RunWithinWorld`/`FightRunner.FightAccumulator` 复用同一世界
+  连打多场，见下）为输入，模拟标准玩家从 `level_from` 到 `level_to` 的整条成长曲线：真实战斗、
+  真实击杀/任务当量经验（`IProgressionHost.GrantXp`，任务当量取 `Q(L)` 本身）、真实掉落（生物死亡
+  自动触发 `CreatureDeathLootListener` 内部的 `LootHost.RollDetailed`，不重复掷骰）、真实经济
+  入账/拾取/换装/出售（`IEconomyHost`/`EquipmentHost`/`EquipmentScoreAnalyzer` 评分决策）。输出
+  每级实际时长/装备等级/命中率/金币累积四条轨迹与对照基准（时长/装备等级对
+  `sim.anchor.level_duration_seconds`/`expected_item_level`；命中率对同等级独立战斗的 5 场均值；
+  金币对 4.8 节公式解析推算——含出售掉落装备的期望收入估计，经 `EconomyPriceFormula
+  .TryComputeBaseValue`）与偏离/带宽内判定。新增 `Core.Sim.CoverageSimulation.Run(ScenarioDef,
+  AnchorTable, IReadOnlyList<IDataSource>, bool failOnUnknownTable = false): CoverageReport`——对
+  数据集每个技能（`SkillBudgetAnalyzer` 预算比值，`Tier=Player` 且含伤害效果的额外做"只用该技能 +
+  填充技能"单技能秒伤占比实测）、每件非武器装备（`EquipmentScoreAnalyzer`/预算消耗比，额外做同种子
+  基准装 vs 换单件的秒伤边际变化实测）、每个生物模板（同级标准玩家 1v1 的 TTK/TTD 与锚点偏离）
+  输出三张按 `|偏离|` 降序排列的离群值表（技能表第一、装备表第一，不做跨类别合并总表，见类型
+  判断记录"探针位次验收口径"）。`FightRunner` 新增公开类型 `FightRunner.FightAccumulator`（把原
+  `Run` 内部的命中/伤害计数闭包上提为可复用状态）与公开方法 `FightRunner.RunWithinWorld`（在已
+  装配好的 `HeadlessWorld` 内针对已生成的生物打一场，供成长/覆盖仿真在同一世界连打多场；`Run` 本身
+  改为"建世界+生成标准玩家+生成生物"后转发调用，行为不变，ABI 纯新增）。`StandardPlayerBuilder
+  .ComputeExpectedContribution` 拆出 `ComputeTemplateStatsLiteral`/`ComputeAffixContribution`
+  两个 `internal` 子步骤（供 `GrowthSimulation`/`CoverageSimulation` 复用词缀反解口径，行为不变，
+  仅可见性从 `private` 放宽到 `internal`，不构成 ABI 变化）。`HeadlessWorldOptions` 新增属性
+  `LootOptions`（转发 `GameplayAssembly` 既有的 `lootOptions` 构造参数，成长仿真借此把
+  `PickupRange` 放宽到覆盖战斗交手距离，ABI 纯新增，默认 `null` 时行为不变）。
+  联动重算（本任务遗留自 T-N6-4b 的已知不一致，见该处 README 判断记录）：`prog.level_curve
+  .sim_warrior.entries[].xp_to_next`（1～19 级）按 T-N6-4b 校准后的 `sim.anchor`
+  （`ttk_seconds`/`level_duration_seconds`/`kill_interval_seconds`/`quest_share`）与数值总纲 4.7
+  节公式重新核算（417/477/540/606/673/752/834/919/1008/1101/1190/1282/1376/1473/1572/1673/
+  1776/1882/1989，20 级仍为满级 0）；`prog.xp_base_curve.sim_default` 本身经复核后确认与公式一致，
+  未改动。数据补齐（供成长仿真使用，均为新增/追加，不改既有条目取值）：`loot.table.*`（5 档普通怪）
+  各追加 `chest`/`legs`/`feet` 三条 common 品质条目（此前只有主手+头两槊位掉落，成长仿真需要全部 5
+  个装备槊位都有机会被替换）；同一批 `loot.table.*` 里全部货币条目的 `count_range` 由
+  `{min,max}≈{金币基数(L)-2, 金币基数(L)+2}` 改为常量 `{1,1}`（判断记录——发现 `LootHost
+  .ResolveCurrencyOutcome` 的真实公式是"当量（count_range 掷骰所得）× 金币基数(L)"，此前的
+  `count_range` 取值把"金币基数(L)"本身当成了当量的取值范围，导致击杀掉钱是设计意图的约 5 倍，
+  联调测试实测到该问题后按 4.8 节字面公式"无当量项"改为常量 1，即掉钱 = 金币基数(L)）。新增
+  两条覆盖仿真探针数据（不进任何掉落表/技能书/优先级表，只作为全表扫描的数据行存在，验收覆盖仿真
+  离群值排序）：`skill.def.sim_probe_overbudget`（`Tier=Unattributed`，预算比值 85.23，已填
+  `budget_note`）、`item.template.sim_probe_underbudget`（L20 common 胸甲，仅 1 点耐力，预算
+  消耗比 0.3%，触发 `item_budget_utilization_low` 警告——该检查项 `NonEscalatable`、无
+  `budget_note` 式确认字段，04 第 5 节原文即以此项为"抓意图不抓手滑"的示例，本条属于刻意的
+  设计意图，如实记录不做抑制）。新增测试 `Tests.Sim.{GrowthSimulationTests,
+  CoverageSimulationTests}`（11 例：完整 `sim_growth_full`/`sim_coverage_all` 场景运行+计时、
+  四条轨迹逐级带宽内、经验/金币双路径（`GrantXp`/`Economy.Add` 返回值求和 vs 事件流求和）互证、
+  同种子 `ToJson` 确定性、不同种子产出不同、探针分类第一位、联动重算与公式独立核对）；
+  `EmbeddedDatasetTests.ItemTemplate_CoversAllLevelTiersQualitiesAndSlots` 排除新增探针后保持
+  既有"档位×品质×槽位"网格断言不变。`dotnet test Core.sln` 全量回归（4244 例，4233 基线 + 11
+  新增）验证无副作用；`toolchain/abi_probe.ps1` 针对基线 1.35.0 确认 `breaks=0`（`Core.Sim` 不在
+  `dist/` 打包清单内，本任务全部改动实际不影响可探测的 ABI 表面）。
 
 ## [1.35.0] - 2026-09-16
 

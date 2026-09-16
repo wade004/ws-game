@@ -117,6 +117,21 @@ namespace Core.Sim
         /// <c>null</c> 时 <c>CombatHost</c> 就地新建的默认实例逐项相同）。
         /// </summary>
         public Core.Rules.Combat.CombatOptions? CombatOptions { get; set; }
+
+        /// <summary>
+        /// T-N6-5 新增（ADR-0035 决策 3 成长仿真）：转发给 <c>GameplayAssembly</c> 构造函数既有的
+        /// <c>lootOptions</c> 参数（同 <see cref="CombatOptions"/> 判断记录一贯做法——该参数早已存在，
+        /// 本装配根此前从未使用它、恒隐式传 <c>null</c>）。默认 <c>null</c> 时行为不变（<c>LootHost</c>
+        /// 就地新建一份默认 <c>LootOptions</c>，<c>PickupRange</c> 默认 3.0）。成长仿真运行器（<see
+        /// cref="GrowthSimulation"/>）借这个口子把 <c>PickupRange</c> 放宽——生物死亡位置由
+        /// <c>CreatureDeathLootListener</c> 按死亡单位当前坐标落地掉落物，而战斗交手距离取决于
+        /// <c>ai.rotation</c> 技能射程（本数据集为 5，见 <see cref="FightRunner.DefaultEngageRange"/>），
+        /// 可能大于默认拾取半径 3.0，成长仿真需要在同一个持续存活的世界里对每次击杀掉落物"确定能捡到"
+        /// （否则装备/金币掉落会在地面白白丢弃，掉落条目虽然真实掷出但从未进入背包/入账），而不是像
+        /// <see cref="FightRunner"/> 那样每场战斗都新建、从不需要处理拾取。本属性同样只是纯粹的传参
+        /// 转发，不改变 <c>Core.Gameplay.Loot</c> 任何既有行为。
+        /// </summary>
+        public Core.Gameplay.Loot.LootOptions? LootOptions { get; set; }
     }
 
     /// <summary>
@@ -262,7 +277,8 @@ namespace Core.Sim
                 playerUnitProvider: () => options.PlayerId,
                 playerFactionId: options.PlayerFactionId,
                 clockHost: options.EnableDiscreteTimeModel ? clock : null,
-                combatOptions: options.CombatOptions);
+                combatOptions: options.CombatOptions,
+                lootOptions: options.LootOptions);
 
             var player = new PlayerUnit(options.PlayerId, options.MapId, options.PlayerFactionId, options.PlayerClassId)
             {

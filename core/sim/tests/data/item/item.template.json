@@ -966,6 +966,23 @@
       "display_ref": "display.map.sim_feet_l20_sim_rare",
       "stack_size": 1,
       "name_key": "l10n.item.sim_feet_l20_sim_rare.name"
+    },
+    {
+      "id": "item.template.sim_probe_underbudget",
+      "slot": "item.slot.sim_chest",
+      "quality": "item.quality.sim_common",
+      "item_level": 20,
+      "stats": [
+        {
+          "stat": "stat.stamina",
+          "op": "flat",
+          "value": 1
+        }
+      ],
+      "affixes": [],
+      "display_ref": "display.map.sim_probe_underbudget",
+      "stack_size": 1,
+      "name_key": "l10n.item.template.sim_probe_underbudget.name"
     }
   ]
 }

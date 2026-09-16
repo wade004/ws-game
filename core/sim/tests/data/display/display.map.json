@@ -521,6 +521,22 @@
       "kind": "sprite",
       "sprite_set_id": "sprite.sim_placeholder",
       "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_probe_overbudget",
+      "category": "skill",
+      "logical_id": "skill.def.sim_probe_overbudget",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_probe_underbudget",
+      "category": "item",
+      "logical_id": "item.template.sim_probe_underbudget",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
     }
   ]
 }

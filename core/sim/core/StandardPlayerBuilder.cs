@@ -341,10 +341,31 @@ namespace Core.Sim
         /// 完全同构的运算（见类型判断记录"装备实例方案"）：模板自身 <c>stats[]</c> 字面值 + 每条词缀
         /// 经 <see cref="IBudgetSolver.Solve"/> 反解值（<c>shareOfBudget = budget_share × Σratio</c>、
         /// <c>statMix</c> 按 <c>ratio/Σratio</c> 归一化，逐条累加），供调用方与
-        /// <c>StatHost.GetModifiers(unitId, stat)</c> 按来源过滤后求和比对。</summary>
-        private static IReadOnlyDictionary<Id, double> ComputeExpectedContribution(
+        /// <c>StatHost.GetModifiers(unitId, stat)</c> 按来源过滤后求和比对。
+        /// <para>T-N6-5 判断记录（改为 <c>internal</c>，不是 <c>private</c>）：成长仿真（<see
+        /// cref="Core.Sim.GrowthSimulation"/>）给掉落装备评分时需要同一份"模板 stats[] 字面值 + 词缀
+        /// 反解值"口径（否则会与 <c>EquipmentHost</c> 实际穿戴时算出的贡献不一致，见 <see
+        /// cref="EquipmentScoreAnalyzer"/> 的 <c>additionalStats</c> 参数判断记录）——两者同属
+        /// <c>Core.Sim</c> 程序集，放宽到 <c>internal</c> 不改变本类型的公开契约面（仍不是 <c>public</c>，
+        /// 不构成 ABI 变化）。</para></summary>
+        internal static IReadOnlyDictionary<Id, double> ComputeExpectedContribution(
             IDataRegistryView registry, IBudgetSolver solver, Id budgetCurveId,
             DataRecord template, int itemLevel, Id qualityId, Id slotId, IReadOnlyList<Id> affixIds)
+        {
+            var result = new Dictionary<Id, double>(ComputeTemplateStatsLiteral(template));
+
+            foreach (var kv in ComputeAffixContribution(registry, solver, budgetCurveId, itemLevel, qualityId, slotId, affixIds))
+            {
+                result.TryGetValue(kv.Key, out var existing);
+                result[kv.Key] = existing + kv.Value;
+            }
+
+            return result;
+        }
+
+        /// <summary>T-N6-5 抽出（原 <see cref="ComputeExpectedContribution"/> 前半段，行为不变）：
+        /// <paramref name="template"/>.<c>stats[]</c> 的字面值逐条累加，不涉及词缀/预算反解。</summary>
+        internal static IReadOnlyDictionary<Id, double> ComputeTemplateStatsLiteral(DataRecord template)
         {
             var result = new Dictionary<Id, double>();
 
@@ -362,6 +383,22 @@ namespace Core.Sim
                     }
                 }
             }
+
+            return result;
+        }
+
+        /// <summary>T-N6-5 抽出（原 <see cref="ComputeExpectedContribution"/> 后半段，行为不变）：仅
+        /// <paramref name="affixIds"/> 逐条经 <see cref="IBudgetSolver.Solve"/> 反解后的贡献之和，不含
+        /// <c>template.stats[]</c> 字面值——供 <see cref="Core.Sim.EquipmentScoreAnalyzer"/>（其
+        /// <c>additionalStats</c> 参数本身就只应传"模板自身之外的额外贡献"，模板 <c>stats[]</c> 由
+        /// <c>EquipmentScoreAnalyzer.Score</c> 自己从 <c>item.template</c> 记录里读，见该方法
+        /// <c>MergeStats</c> 判断记录）——若这里再把模板字面值也塞进 <c>additionalStats</c>，会造成
+        /// 重复计入。</summary>
+        internal static IReadOnlyDictionary<Id, double> ComputeAffixContribution(
+            IDataRegistryView registry, IBudgetSolver solver, Id budgetCurveId,
+            int itemLevel, Id qualityId, Id slotId, IReadOnlyList<Id> affixIds)
+        {
+            var result = new Dictionary<Id, double>();
 
             foreach (var affixId in affixIds)
             {

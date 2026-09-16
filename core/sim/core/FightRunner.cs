@@ -244,43 +244,108 @@ namespace Core.Sim
         /// 兜底而不是 0（0 会导致目标必须与玩家完全重合才能交手，不现实）。</summary>
         public const double DefaultEngageRange = 5.0;
 
+        /// <summary>
+        /// T-N6-5 新增：一次 <see cref="Run"/> 调用内部"单场战斗结算追踪状态 + <see cref="CombatOptions"/>
+        /// 绑定"的可复用载体——从 <see cref="Run"/> 原有的局部闭包（<c>OnResolve</c>/若干局部计数变量）
+        /// 抽出为独立类型，供 <see cref="RunWithinWorld"/>（成长仿真复用同一世界打多场战斗）与
+        /// <see cref="Run"/> 自身共用。<see cref="Run"/> 每次调用仍各自新建一份（其"每场新建世界"隔离
+        /// 方案不变，见类型判断记录"隔离方案"），<see cref="RunWithinWorld"/> 的调用方（<see
+        /// cref="Core.Sim.GrowthSimulation"/>）在整条成长轨迹里新建一份、随世界一起长期存活，每场战斗
+        /// 前调用 <see cref="BeginFight"/> 重置计数并切换追踪目标——<see cref="CombatOptions"/> 只在
+        /// <see cref="Core.Sim.HeadlessWorldBuilder.Build"/> 时绑定一次（<c>ResolveTrace</c> 委托指向
+        /// 本类型的 <see cref="OnResolve"/> 方法，之后只读它的可变字段，不需要为每场战斗重新装配世界）。
+        /// </summary>
+        public sealed class FightAccumulator
+        {
+            private Id _playerId;
+            private Id _creatureId;
+            private bool _active;
+
+            public double PlayerTotalDamage { get; private set; }
+            public double CreatureTotalDamage { get; private set; }
+            public int PlayerAttempts { get; private set; }
+            public int PlayerLanded { get; private set; }
+            public int CreatureAttempts { get; private set; }
+            public int CreatureLanded { get; private set; }
+            public Dictionary<Id, double> PlayerDamageBySkill { get; } = new Dictionary<Id, double>();
+
+            /// <summary>本追踪状态对外暴露的 <see cref="CombatOptions"/>——<see
+            /// cref="HeadlessWorldOptions.CombatOptions"/> 只需要在世界装配时设一次。</summary>
+            public CombatOptions CombatOptions { get; }
+
+            public FightAccumulator()
+            {
+                CombatOptions = new CombatOptions { ResolveTrace = OnResolve };
+            }
+
+            /// <summary>开始追踪一场新战斗：清空全部计数、切换 <paramref name="playerId"/>/<paramref
+            /// name="creatureId"/> 归属判定目标。<see cref="Run"/>/<see cref="RunWithinWorld"/> 均须在
+            /// 进入逐 tick 循环之前调用一次。</summary>
+            public void BeginFight(Id playerId, Id creatureId)
+            {
+                _playerId = playerId;
+                _creatureId = creatureId;
+                _active = true;
+                PlayerTotalDamage = 0.0;
+                CreatureTotalDamage = 0.0;
+                PlayerAttempts = 0;
+                PlayerLanded = 0;
+                CreatureAttempts = 0;
+                CreatureLanded = 0;
+                PlayerDamageBySkill.Clear();
+            }
+
+            private static bool IsLandedHit(HitResult hit) =>
+                hit != HitResult.Miss && hit != HitResult.Dodge && hit != HitResult.Parry;
+
+            private void OnResolve(EffectContext ctx, ResolveResult result)
+            {
+                if (!_active || result.IsHeal) return;
+
+                if (ctx.SourceId.Equals(_playerId) && ctx.TargetId.Equals(_creatureId))
+                {
+                    PlayerAttempts++;
+                    if (IsLandedHit(result.Hit)) PlayerLanded++;
+                    PlayerDamageBySkill.TryGetValue(ctx.SkillId, out var existing);
+                    PlayerDamageBySkill[ctx.SkillId] = existing + result.FinalAmount;
+                }
+                else if (ctx.SourceId.Equals(_creatureId) && ctx.TargetId.Equals(_playerId))
+                {
+                    CreatureAttempts++;
+                    if (IsLandedHit(result.Hit)) CreatureLanded++;
+                }
+            }
+
+            /// <summary><see cref="HeadlessWorld.Events"/>（<paramref name="events"/>）里下标
+            /// <c>[eventsFrom, events.Count)</c> 区间新增的 <see cref="CombatDamageDealtEvent"/> 累加进
+            /// <see cref="PlayerTotalDamage"/>/<see cref="CreatureTotalDamage"/>——与 <see
+            /// cref="OnResolve"/> 各自承担各自唯一能提供的信息，见 <see cref="FightRunner"/> 判断记录
+            /// "采样口径"，本方法只是把原来内联在 <see cref="Run"/> 循环体里的这几行搬到这里，供
+            /// <see cref="RunWithinWorld"/> 复用。</summary>
+            public void AccumulateDamageEvents(IReadOnlyList<Core.Foundation.EventBus.IEvent> events, int eventsFrom)
+            {
+                for (var i = eventsFrom; i < events.Count; i++)
+                {
+                    if (events[i] is CombatDamageDealtEvent dealt)
+                    {
+                        if (dealt.SourceId.Equals(_playerId) && dealt.TargetId.Equals(_creatureId))
+                        {
+                            PlayerTotalDamage += dealt.Amount;
+                        }
+                        else if (dealt.SourceId.Equals(_creatureId) && dealt.TargetId.Equals(_playerId))
+                        {
+                            CreatureTotalDamage += dealt.Amount;
+                        }
+                    }
+                }
+            }
+        }
+
         public static FightResult Run(FightRunnerOptions options)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
 
-            var playerId = options.PlayerId;
-            Id? creatureIdBox = null;
-
-            double playerTotalDamage = 0.0;
-            double creatureTotalDamage = 0.0;
-            var playerAttempts = 0;
-            var playerLanded = 0;
-            var creatureAttempts = 0;
-            var creatureLanded = 0;
-            var playerDamageBySkill = new Dictionary<Id, double>();
-
-            bool IsLandedHit(HitResult hit) => hit != HitResult.Miss && hit != HitResult.Dodge && hit != HitResult.Parry;
-
-            void OnResolve(EffectContext ctx, ResolveResult result)
-            {
-                if (result.IsHeal || !creatureIdBox.HasValue) return;
-                var creatureId = creatureIdBox.Value;
-
-                if (ctx.SourceId.Equals(playerId) && ctx.TargetId.Equals(creatureId))
-                {
-                    playerAttempts++;
-                    if (IsLandedHit(result.Hit)) playerLanded++;
-                    playerDamageBySkill.TryGetValue(ctx.SkillId, out var existing);
-                    playerDamageBySkill[ctx.SkillId] = existing + result.FinalAmount;
-                }
-                else if (ctx.SourceId.Equals(creatureId) && ctx.TargetId.Equals(playerId))
-                {
-                    creatureAttempts++;
-                    if (IsLandedHit(result.Hit)) creatureLanded++;
-                }
-            }
-
-            var combatOptions = new CombatOptions { ResolveTrace = OnResolve };
+            var accumulator = new FightAccumulator();
 
             var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
             {
@@ -295,7 +360,7 @@ namespace Core.Sim
                 GameId = options.GameId,
                 StepSeconds = options.StepSeconds,
                 FailOnUnknownTable = options.FailOnUnknownTable,
-                CombatOptions = combatOptions,
+                CombatOptions = accumulator.CombatOptions,
             });
 
             var standardPlayer = StandardPlayerBuilder.Build(
@@ -304,13 +369,43 @@ namespace Core.Sim
             var creatureSpawnPos = Vec2.Zero + options.CreatureSpawnOffset;
             var creatureId = world.Gameplay.Carriers.Creatures.Spawn(
                 options.CreatureId, options.MapId, creatureSpawnPos, facing: Math.PI, ownerId: null, options.CreatureLevel);
-            creatureIdBox = creatureId;
             world.Spatial.Register(creatureId, creatureSpawnPos, 0.5);
+
+            return RunWithinWorld(
+                world, accumulator, options.PlayerId, creatureId, standardPlayer.RotationId,
+                options.StepSeconds, options.MaxTicks, options.MoveSpeed, options.MaxResourceCurveSamples);
+        }
+
+        /// <summary>
+        /// T-N6-5 新增：在一个已经装配好、玩家已经存在的 <paramref name="world"/> 内打一场战斗——与
+        /// <see cref="Run"/> 唯一的区别是不新建世界、不重新生成标准玩家，只针对已经生成好的
+        /// <paramref name="creatureId"/> 跑逐 tick 循环直至一方死亡或超时。<paramref name="world"/>
+        /// 装配时的 <c>HeadlessWorldOptions.CombatOptions</c> 必须是 <paramref name="accumulator"/>.
+        /// <see cref="FightAccumulator.CombatOptions"/>（否则 <see cref="FightAccumulator.OnResolve"/>
+        /// 永远不会被调用，命中/伤害计数恒为 0）。调用方（<see cref="Core.Sim.GrowthSimulation"/>）
+        /// 负责在调用本方法之前把 <paramref name="creatureId"/> 生成并注册进 <c>world.Spatial</c>，
+        /// 战斗结束后是否销毁尸体/清理生物同样是调用方的职责（本方法不做任何生物生命周期管理）。
+        /// </summary>
+        public static FightResult RunWithinWorld(
+            HeadlessWorld world,
+            FightAccumulator accumulator,
+            Id playerId,
+            Id creatureId,
+            Id rotationId,
+            double stepSeconds,
+            int maxTicks,
+            double moveSpeed,
+            int maxResourceCurveSamples)
+        {
+            if (world == null) throw new ArgumentNullException(nameof(world));
+            if (accumulator == null) throw new ArgumentNullException(nameof(accumulator));
+
+            accumulator.BeginFight(playerId, creatureId);
 
             var rotationEvaluator = new RotationEvaluator(
                 world.Registry, world.Gameplay.Carriers.Rules.Skill,
                 world.Gameplay.Carriers.Rules.ExprHostFactory, world.Gameplay.Carriers.Rules.ExprSchema);
-            var engageRange = ResolveEngageRange(world.Registry, standardPlayer.RotationId);
+            var engageRange = ResolveEngageRange(world.Registry, rotationId);
 
             var powerTypeIds = world.Registry.GetAll("arch.power_type").Select(r => r.GetId("id")).ToList();
             var playerCurves = powerTypeIds.ToDictionary(id => id, _ => new List<ResourceSample>());
@@ -322,7 +417,7 @@ namespace Core.Sim
             var tick = 0;
             var outcome = FightOutcome.Timeout;
 
-            for (; tick < options.MaxTicks; tick++)
+            for (; tick < maxTicks; tick++)
             {
                 var playerAliveBefore = units.Exists(playerId) && units.IsAlive(playerId);
                 var creatureAliveBefore = units.Exists(creatureId) && units.IsAlive(creatureId);
@@ -332,29 +427,16 @@ namespace Core.Sim
 
                 var eventsBefore = world.Events.Count;
 
-                var castRequest = rotationEvaluator.Evaluate(playerId, standardPlayer.RotationId, creatureId);
+                var castRequest = rotationEvaluator.Evaluate(playerId, rotationId, creatureId);
                 if (castRequest == null)
                 {
                     var creaturePos = units.GetPosition(creatureId);
-                    SimpleMoveModel.Step(units, world.Spatial, playerId, creaturePos, engageRange, options.StepSeconds, options.MoveSpeed);
+                    SimpleMoveModel.Step(units, world.Spatial, playerId, creaturePos, engageRange, stepSeconds, moveSpeed);
                 }
 
-                world.Clock.Advance(options.StepSeconds);
+                world.Clock.Advance(stepSeconds);
 
-                for (var i = eventsBefore; i < world.Events.Count; i++)
-                {
-                    if (world.Events[i] is CombatDamageDealtEvent dealt)
-                    {
-                        if (dealt.SourceId.Equals(playerId) && dealt.TargetId.Equals(creatureId))
-                        {
-                            playerTotalDamage += dealt.Amount;
-                        }
-                        else if (dealt.SourceId.Equals(creatureId) && dealt.TargetId.Equals(playerId))
-                        {
-                            creatureTotalDamage += dealt.Amount;
-                        }
-                    }
-                }
+                accumulator.AccumulateDamageEvents(world.Events, eventsBefore);
 
                 var tickNumber = tick + 1;
                 foreach (var powerId in powerTypeIds)
@@ -379,33 +461,34 @@ namespace Core.Sim
                 else if (!playerAliveAfter) outcome = FightOutcome.CreatureWin;
             }
 
-            var durationSeconds = tick * options.StepSeconds;
+            var durationSeconds = tick * stepSeconds;
 
             IReadOnlyDictionary<Id, double> skillShare;
-            if (playerTotalDamage > 0)
+            if (accumulator.PlayerTotalDamage > 0)
             {
-                skillShare = playerDamageBySkill
+                skillShare = accumulator.PlayerDamageBySkill
                     .Where(kv => kv.Value > 0)
-                    .ToDictionary(kv => kv.Key, kv => kv.Value / playerTotalDamage);
+                    .ToDictionary(kv => kv.Key, kv => kv.Value / accumulator.PlayerTotalDamage);
             }
             else
             {
                 skillShare = new Dictionary<Id, double>();
             }
 
-            double playerHitRate = playerAttempts > 0 ? (double)playerLanded / playerAttempts : 0.0;
-            double creatureHitRate = creatureAttempts > 0 ? (double)creatureLanded / creatureAttempts : 0.0;
+            double playerHitRate = accumulator.PlayerAttempts > 0 ? (double)accumulator.PlayerLanded / accumulator.PlayerAttempts : 0.0;
+            double creatureHitRate = accumulator.CreatureAttempts > 0 ? (double)accumulator.CreatureLanded / accumulator.CreatureAttempts : 0.0;
 
             var playerCurvesOut = playerCurves.ToDictionary(
-                kv => kv.Key, kv => (IReadOnlyList<ResourceSample>)Downsample(kv.Value, options.MaxResourceCurveSamples));
+                kv => kv.Key, kv => (IReadOnlyList<ResourceSample>)Downsample(kv.Value, maxResourceCurveSamples));
             var creatureCurvesOut = creatureCurves.ToDictionary(
-                kv => kv.Key, kv => (IReadOnlyList<ResourceSample>)Downsample(kv.Value, options.MaxResourceCurveSamples));
+                kv => kv.Key, kv => (IReadOnlyList<ResourceSample>)Downsample(kv.Value, maxResourceCurveSamples));
 
             var playerMaxHealth = powers.GetPowerMax(playerId, WellKnownPowers.Health);
 
             return new FightResult(
-                outcome, durationSeconds, tick, playerTotalDamage, creatureTotalDamage, playerHitRate, creatureHitRate,
-                skillShare, playerCurvesOut, creatureCurvesOut, playerMaxHealth, playerId, creatureId);
+                outcome, durationSeconds, tick, accumulator.PlayerTotalDamage, accumulator.CreatureTotalDamage,
+                playerHitRate, creatureHitRate, skillShare, playerCurvesOut, creatureCurvesOut,
+                playerMaxHealth, playerId, creatureId);
         }
 
         private static double ResolveEngageRange(IDataRegistryView registry, Id rotationId)

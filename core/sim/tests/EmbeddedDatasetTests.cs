@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Core.Foundation.Common;
 using Xunit;
@@ -81,7 +82,13 @@ namespace Tests.Sim
         {
             var world = SimTestWorldFactory.BuildFromEmbeddedDataset(seed: 20260916104UL);
 
-            var templates = world.Registry.GetAll("item.template");
+            // T-N6-5 判断记录：item.template.sim_probe_underbudget 是覆盖仿真验收 4 要求注入的探针
+            // （不进任何掉落表，只作为 item.template 全表扫描的数据行存在），不属于"档位×品质×槽位"
+            // 这一规则性网格的一部分——从下面的网格断言里显式排除它，网格断言本身保持不变，不因为
+            // 探针的加入而放宽。
+            var templates = world.Registry.GetAll("item.template")
+                .Where(r => !r.Id!.Value.Value.Equals("item.template.sim_probe_underbudget", StringComparison.Ordinal))
+                .ToList();
             var slots = world.Registry.GetAll("item.slot_definition").Count;
             var qualities = world.Registry.GetAll("item.quality_definition").Count;
             var levelTiers = templates

@@ -451,6 +451,11 @@
       "key": "l10n.faction.sim_hostile.name",
       "locale": "l10n.locale.zh_cn",
       "text": "敌对生物"
+    },
+    {
+      "key": "l10n.item.template.sim_probe_underbudget.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "仿真探针·欠模胸甲"
     }
   ]
 }

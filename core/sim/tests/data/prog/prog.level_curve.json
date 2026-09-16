@@ -8,13 +8,13 @@
       "entries": [
         {
           "level": 1,
-          "xp_to_next": 339,
+          "xp_to_next": 417,
           "growth": {},
           "talent_points": 0
         },
         {
           "level": 2,
-          "xp_to_next": 389,
+          "xp_to_next": 477,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -23,7 +23,7 @@
         },
         {
           "level": 3,
-          "xp_to_next": 441,
+          "xp_to_next": 540,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -32,7 +32,7 @@
         },
         {
           "level": 4,
-          "xp_to_next": 496,
+          "xp_to_next": 606,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -41,7 +41,7 @@
         },
         {
           "level": 5,
-          "xp_to_next": 553,
+          "xp_to_next": 673,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -50,7 +50,7 @@
         },
         {
           "level": 6,
-          "xp_to_next": 611,
+          "xp_to_next": 752,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -59,7 +59,7 @@
         },
         {
           "level": 7,
-          "xp_to_next": 672,
+          "xp_to_next": 834,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -68,7 +68,7 @@
         },
         {
           "level": 8,
-          "xp_to_next": 735,
+          "xp_to_next": 919,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -77,7 +77,7 @@
         },
         {
           "level": 9,
-          "xp_to_next": 799,
+          "xp_to_next": 1008,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -86,7 +86,7 @@
         },
         {
           "level": 10,
-          "xp_to_next": 865,
+          "xp_to_next": 1101,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -95,7 +95,7 @@
         },
         {
           "level": 11,
-          "xp_to_next": 934,
+          "xp_to_next": 1190,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -104,7 +104,7 @@
         },
         {
           "level": 12,
-          "xp_to_next": 1003,
+          "xp_to_next": 1282,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -113,7 +113,7 @@
         },
         {
           "level": 13,
-          "xp_to_next": 1075,
+          "xp_to_next": 1376,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -122,7 +122,7 @@
         },
         {
           "level": 14,
-          "xp_to_next": 1148,
+          "xp_to_next": 1473,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -131,7 +131,7 @@
         },
         {
           "level": 15,
-          "xp_to_next": 1223,
+          "xp_to_next": 1572,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -140,7 +140,7 @@
         },
         {
           "level": 16,
-          "xp_to_next": 1299,
+          "xp_to_next": 1673,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -149,7 +149,7 @@
         },
         {
           "level": 17,
-          "xp_to_next": 1377,
+          "xp_to_next": 1776,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -158,7 +158,7 @@
         },
         {
           "level": 18,
-          "xp_to_next": 1457,
+          "xp_to_next": 1882,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50
@@ -167,7 +167,7 @@
         },
         {
           "level": 19,
-          "xp_to_next": 1538,
+          "xp_to_next": 1989,
           "growth": {
             "stat.strength": 3,
             "stat.stamina": 50

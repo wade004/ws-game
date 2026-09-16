@@ -18,11 +18,13 @@ T-N6-3～T-N6-6（标准玩家生成器、战斗/成长/覆盖三级仿真）复
 同名概念表各自登记自己的一套 id，互不引用、互不合并到同一次装配里；本数据集全部内容 id 一律
 `sim_*` 前缀（`arch.class.sim_warrior`、`creature.sim_wolf_l5`……），不出现任何游戏代号。
 
-## 数据集清单（45 个表文件，321 行）
+## 数据集清单（45 个表文件，334 行——T-N6-5 追加见下表 `skill.def`/`item.template`/
+`display.map`/`l10n.text`/`loot.table` 行，`stat.definition`/`sim.anchor` 两行的行数是
+T-N6-4/T-N6-4b 已落地但本表此前未同步更新的既有 drift，本次一并更正）
 
 | 域 | 表 | 行数 | 说明 |
 |---|---|---:|---|
-| stat | `stat.definition` | 9 | 四主属性 + 攻击强度（派生）+ 暴击/闪避/命中等级 + 护甲 |
+| stat | `stat.definition` | 10 | 四主属性 + 攻击强度（派生）+ 暴击/闪避/命中等级 + 护甲 + `stat.move_speed`（T-N6-4 补，见该 README 判断记录 25） |
 | stat | `stat.rating_conversion` | 2 | 暴击/闪避评级换算曲线 |
 | stat | `stat.weight` | 9 | 逐属性预算权重（均 1.0，简化装备预算手算） |
 | arch | `arch.power_type` | 2 | `arch.power.health`（**覆盖**框架默认为 `kind:stat→stat.stamina`）+ `arch.power.sim_fury`（积累型资源） |
@@ -30,7 +32,7 @@ T-N6-3～T-N6-6（标准玩家生成器、战斗/成长/覆盖三级仿真）复
 | arch | `arch.race` | 1 | `arch.race.sim_default`（属性修正留空） |
 | arch | `arch.talent_tree` | 1 | 最小两节点天赋树 |
 | skill | `skill.base_curve` | 3 | Execute 基础值曲线（常数 20）+ 两条生物基础攻击曲线 |
-| skill | `skill.def` | 7 | 5 个玩家技能 + 2 个生物攻击技能 |
+| skill | `skill.def` | 8 | 5 个玩家技能 + 2 个生物攻击技能 + 1 条 T-N6-5 覆盖仿真探针（`skill.def.sim_probe_overbudget`，不进任何 skill.book/ai.rotation） |
 | skill | `skill.aura_def` | 2 | 坚韧被动光环 + 战吼增益光环 |
 | skill | `skill.book` | 1 | `skill.book.sim_warrior`，1/4/8/12/16 级逐级解锁 |
 | skill | `skill.budget_rule` | 1 | `skill.budget_rule.sim_default`（预算比对未接入锚点，天然零告警） |
@@ -47,10 +49,10 @@ T-N6-3～T-N6-6（标准玩家生成器、战斗/成长/覆盖三级仿真）复
 | item | `item.weapon_dps_curve` | 1 | `item.weapon_dps.default`（**id 同上**） |
 | item | `item.req_level_curve` | 1 | 断点 1/5/10/15/20，等级=物品等级 |
 | item | `item.affix` | 5 | 带预算份额的词缀包（2 个 common 池 + 3 个 rare 池） |
-| item | `item.template` | 50 | 5 档物品等级 × 2 品质 × 5 槽位（1 武器 + 4 护甲） |
+| item | `item.template` | 51 | 5 档物品等级 × 2 品质 × 5 槽位（1 武器 + 4 护甲）+ 1 条 T-N6-5 覆盖仿真探针（`item.template.sim_probe_underbudget`，不进任何 loot.table） |
 | creature | `creature.tier_definition` | 2 | `sim_normal`（×1.0）/ `sim_elite`（×1.5） |
 | creature | `creature.template` | 6 | 5 个普通怪档位（L1/5/10/15/20）+ 1 个精英（L10） |
-| loot | `loot.table` | 6 | 每档生物一张（货币 + 普通/稀有装备条目） |
+| loot | `loot.table` | 6 | 每档生物一张（货币 + 普通/稀有装备条目；T-N6-5 起 5 档普通怪各追加 chest/legs/feet 三条 common 条目，货币条目 `count_range` 改为常量 1，见"T-N6-5 调参记录"） |
 | econ | `econ.currency` | 1 | `econ.currency.sim_gold` |
 | econ | `econ.gold_base_curve` | 1 | 断点 1/5/10/15/20 |
 | econ | `econ.value_curve` | 1 | 出售价值曲线 |
@@ -62,17 +64,19 @@ T-N6-3～T-N6-6（标准玩家生成器、战斗/成长/覆盖三级仿真）复
 | prog | `prog.level_curve` | 1 | `prog.level_curve.sim_warrior`，1～20 级连续，`max_level:20` |
 | prog | `prog.xp_base_curve` | 1 | 断点 1/5/10/15/20 |
 | prog | `prog.xp_source` | 2 | kill / quest 两个来源 |
-| sim | `sim.anchor` | 20 | 1～20 级连续（见下"锚点推导"） |
+| sim | `sim.anchor` | 25 | 1～25 级连续（T-N6-4b 扩表，见下"锚点推导"） |
 | sim | `sim.scenario` | 3 | arena / growth / coverage 各一条 |
-| display | `display.map` | 65 | `skill.def`/`skill.aura_def`/`item.template`/`creature.template` 全部逻辑 id 的最小外形映射（`DisplayMapCoverageRule` 阻断要求） |
+| display | `display.map` | 67 | `skill.def`/`skill.aura_def`/`item.template`/`creature.template` 全部逻辑 id 的最小外形映射（`DisplayMapCoverageRule` 阻断要求，T-N6-5 起含两条覆盖仿真探针） |
 | l10n | `l10n.locale` | 1 | `l10n.locale.zh_cn`（**id 必须等于** `DataRegistryOptions.DefaultLocale` 默认值，见判断记录 1） |
-| l10n | `l10n.text` | 89 | 全部 `name_key`/`TextKey` 字段的中文文本（`text_key_exists` 阻断要求） |
+| l10n | `l10n.text` | 91 | 全部 `name_key`/`TextKey` 字段的中文文本（`text_key_exists` 阻断要求） |
 
 校验命令与结果：
 
 ```
 python toolchain/validate_data.py --strict --framework-root data/_framework --data-root core/sim/tests/data
-# tables 49, records 446, errors 0, warnings 0, overrides 1（覆盖=arch.power.health）
+# tables 49, records 459, errors 0, warnings 5, overrides 1（覆盖=arch.power.health）
+# 5 条警告均为 skill_budget_deviation/item_budget_utilization_low 已确认/预期内探针项，见本文件
+# "T-N6-5 调参记录"与 core/sim/README.md 判断记录 35
 ```
 
 ## 锚点推导（`sim.anchor`，数值总纲第 4.1/4.2/4.7 节）
@@ -306,6 +310,59 @@ hp 相比 T-N6-4 首次提交时的中间值（217.6/351.8/552.6/755.4/1022.8）
    把 `winRate`/`creatureDps`/`creatureHitRate`/`playerDps` 按生物等级排成一行，肉眼找"哪两个
    相邻等级之间数字跳变最大"，缩小根因排查范围（本次定位到"生物 18→19 级之间"胜率骤降，进一步
    配合手段 1 的逐 tick 打印，看到是玩家生命基线错误导致同样的伤害绝对值占比骤变）。
+
+## T-N6-5 调参记录
+
+T-N6-5（成长仿真/内容覆盖仿真）第一次真正让"经验/掉落/金币"三条链路在一次持续存活的仿真世界里
+连续跑满整条 1→20 级成长曲线，暴露了两处此前从未被验证过的既有缺口（均已根治）与一处本任务自身
+实现的联调 bug（已修复，见 `core/sim/README.md` 判断记录 32）：
+
+**联动重算：`prog.level_curve.sim_warrior.entries[].xp_to_next`**——T-N6-4/4b 阶段刻意留白（"如实
+记录这一已知的、有意延后的不一致"，见上"未改动的量"一节），本任务按数值总纲 4.7 节公式
+`升级所需(L) = 击杀基数(L) × 每级怪当量(L) × (1+Q(L))`（`每级怪当量(L) = level_duration_seconds(L)
+÷ (ttk_seconds(L) + kill_interval_seconds(L))`，`击杀基数(L) = prog.xp_base_curve.sim_default(L)
+= 20 + 2·(L-1)`，对线性公式在 1/5/10/15/20 断点线性插值在整数等级上精确重现）用 T-N6-4b 校准后的
+`sim.anchor`（1～20 级）重新核算：
+
+```
+L1=417  L2=477  L3=540  L4=606  L5=673  L6=752  L7=834  L8=919  L9=1008  L10=1101
+L11=1190 L12=1282 L13=1376 L14=1473 L15=1572 L16=1673 L17=1776 L18=1882 L19=1989 L20=0
+```
+
+（原值：`339/389/441/496/553/611/672/735/799/865/934/1003/1075/1148/1223/1299/1377/1457/1538/0`——
+均因 T-N6-4b 校准后 `ttk_seconds`/`level_duration_seconds`/`kill_interval_seconds` 相比 T-N6-2b
+阶段的旧手算公式变化很大而系统性上调。）`prog.xp_base_curve.sim_default` 本身复核后确认与数值
+总纲 4.7 节"击杀基数"公式一致，未改动。
+
+**调参 6（既有数据缺口，本任务首次真正验证到）：`loot.table.*` 货币条目 `count_range` 当成"最终
+掉钱数"填写，实际掉钱系统性偏高约 5 倍**：`Core.Gameplay.Loot.LootHost.ResolveCurrencyOutcome`
+的真实公式是"`equivalents`（`count_range` 掷骰所得的当量）× `IEconomyHost.TryGetGoldBaseAmount`
+(怪物等级) × 分档倍率 × 难度倍率"——T-N6-2b/T-N6-4 阶段把 `count_range` 直接填成
+`econ.gold_base_curve` 断点 ±2（如 L1 的 `{min:3,max:7}`，均值 5，恰好等于
+`goldBase(1)=5`），效果是"当量(均值5) × goldBase(5) = 25"，掉钱变成设计意图的约 5 倍。T-N6-4
+阶段的仿真只验证战斗胜率/DPS/HP，从未真正累计过货币，这条既有缺口因此从未暴露。**修复**：全部
+`loot.table.*` 的货币条目 `count_range` 改为常量 `{"min":1,"max":1}`（当量恒为 1），使掉钱恰好
+等于 `goldBase(怪物等级)`，与数值总纲 4.8 节"怪物掉钱 = 金币基数(怪物等级) × 分档倍率 × 难度掉落
+倍率"字面公式（无当量项）对齐。修复前后 `sim_growth_full` 金币轨迹偏离：L1 从 131% 降到 6%，
+L19 从 966% 降到 4%（叠加 `Q(L)` 联调修复后的最终值，见 `core/sim/README.md` 判断记录 32）。
+
+**调参 7：`loot.table.*`（5 档普通怪）各追加 `chest`/`legs`/`feet` 三条 common 品质条目**：
+T-N6-2b/T-N6-4 阶段只登记了主手（0.3 概率）+ 头部（0.05 概率）两个槽位——供最小烟雾测试与越级
+矩阵使用，两者都不关心装备等级轨迹。成长仿真需要"各槽平均装备等级"追上
+`expected_item_level(L)`，若胸/腿/脚三槽永远没有掉落条目，三者会永远停留在 1 级出生时
+`StandardPlayerBuilder` 给的初始装备，均值必然被拖低。按与既有主手条目同一惯例（common 品质，
+0.3 概率）各追加一条，不改变任何已有条目的取值。修复后 `sim_growth_full` 装备等级轨迹全部
+19 个等级偏离 0～11%（远低于 0.25 带宽）。
+
+**新增两条覆盖仿真探针**（验收 4 要求，`CoverageSimulation` 离群值列表前两位分别对应）：
+`skill.def.sim_probe_overbudget`（`school_damage` 效果，`stat.attack_power` 系数刻意设为 60.0
+——正常技能系数量级在 0.5～1.5，制造预算比值 85.23 的极端超模；已填 `budget_note` 说明是仿真
+探针，`SkillBudgetAnalyzer` 判定该技能未出现在任何 `skill.book`/`creature.template
+.ai_rotation_ref`，归为 `Unattributed` 档，等级缺省取 1）、`item.template
+.sim_probe_underbudget`（`item.slot.sim_chest`/`item.quality.sim_common`/`item_level:20`，仅
+1 点 `stat.stamina`，预算消耗比 0.3%——L20 common 胸甲的预算上限本就是全表最大，1 点数值相对
+它的利用率最低，离群效果最明显）。两者均不进入 `skill.book`/`ai.rotation`/`loot.table` 等会被
+真实消费的接线，只作为对应表全表扫描时才会被看到的数据行，不影响任何既有断言/战斗结算。
 
 ## 判断记录
 

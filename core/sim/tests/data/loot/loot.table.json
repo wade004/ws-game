@@ -12,8 +12,8 @@
               "ref": "econ.currency.sim_gold",
               "weight_or_chance": 1.0,
               "count_range": {
-                "min": 3,
-                "max": 7
+                "min": 1,
+                "max": 1
               }
             },
             {
@@ -35,6 +35,30 @@
                 "item.quality.sim_common": 1,
                 "item.quality.sim_rare": 3
               }
+            },
+            {
+              "ref": "item.sim_chest_l1_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_legs_l1_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_feet_l1_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
             }
           ]
         }
@@ -50,8 +74,8 @@
               "ref": "econ.currency.sim_gold",
               "weight_or_chance": 1.0,
               "count_range": {
-                "min": 13,
-                "max": 17
+                "min": 1,
+                "max": 1
               }
             },
             {
@@ -73,6 +97,30 @@
                 "item.quality.sim_common": 1,
                 "item.quality.sim_rare": 3
               }
+            },
+            {
+              "ref": "item.sim_chest_l5_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_legs_l5_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_feet_l5_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
             }
           ]
         }
@@ -88,8 +136,8 @@
               "ref": "econ.currency.sim_gold",
               "weight_or_chance": 1.0,
               "count_range": {
-                "min": 28,
-                "max": 32
+                "min": 1,
+                "max": 1
               }
             },
             {
@@ -111,6 +159,30 @@
                 "item.quality.sim_common": 1,
                 "item.quality.sim_rare": 3
               }
+            },
+            {
+              "ref": "item.sim_chest_l10_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_legs_l10_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_feet_l10_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
             }
           ]
         }
@@ -126,8 +198,8 @@
               "ref": "econ.currency.sim_gold",
               "weight_or_chance": 1.0,
               "count_range": {
-                "min": 43,
-                "max": 47
+                "min": 1,
+                "max": 1
               }
             },
             {
@@ -149,6 +221,30 @@
                 "item.quality.sim_common": 1,
                 "item.quality.sim_rare": 3
               }
+            },
+            {
+              "ref": "item.sim_chest_l15_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_legs_l15_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_feet_l15_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
             }
           ]
         }
@@ -164,8 +260,8 @@
               "ref": "econ.currency.sim_gold",
               "weight_or_chance": 1.0,
               "count_range": {
-                "min": 58,
-                "max": 62
+                "min": 1,
+                "max": 1
               }
             },
             {
@@ -187,6 +283,30 @@
                 "item.quality.sim_common": 1,
                 "item.quality.sim_rare": 3
               }
+            },
+            {
+              "ref": "item.sim_chest_l20_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_legs_l20_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
+            },
+            {
+              "ref": "item.sim_feet_l20_common",
+              "weight_or_chance": 0.3,
+              "count_range": {
+                "min": 1,
+                "max": 1
+              }
             }
           ]
         }
@@ -202,8 +322,8 @@
               "ref": "econ.currency.sim_gold",
               "weight_or_chance": 1.0,
               "count_range": {
-                "min": 28,
-                "max": 32
+                "min": 1,
+                "max": 1
               }
             },
             {

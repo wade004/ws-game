@@ -75,6 +75,33 @@ T-N6-4b（设计层复核后的根治提交）：T-N6-4 首次提交后，设计
 HP 对账 5 个等级全部在带宽内、矩阵形状对全部等级逐偏移点成立，不再有 T-N6-4 首次提交时"至少
 3 个"/"至少一个"的放宽，那条放宽的判断记录 26 已标注撤销）。
 
+T-N6-5（本次任务，ADR-0035 决策 3 后两级）：三级仿真的最后两级——成长仿真
+（`GrowthSimulation`）与内容覆盖仿真（`CoverageSimulation`），三级仿真至此全部落地（战斗见
+T-N6-4）。成长仿真的简化路径模型："打同级怪 → 真实结算战果（经验/掉落/金币）→ 加一段击杀间隔
+歇口气 → 循环直到真实升级"，不预判"打够 monsterEquivalent(L) 只怪就该升级"——升级完全由真实
+`IProgressionHost.GrantXp` 的阈值判定触发；掉落/入账走"生物死亡自动触发的既有监听器
+（`CreatureDeathLootListener`/`CreatureDeathXpListener`）+ 本类型自己拾取评分换装"，不重复调用
+`LootHost.RollDetailed`（那会对同一次死亡多掷一次骰子，见 `GrowthSimulation` 类型判断记录"掉落
+与货币走真实监听器，不重复掷骰"）。内容覆盖仿真对每个技能/装备/生物模板批量跑，输出三张按
+`|偏离|` 降序排列的离群值表，注入两条探针（超模技能、欠模装备）验证排序正确。为让成长仿真可行，
+新增 `FightRunner.RunWithinWorld`/`FightRunner.FightAccumulator`（把 `Run` 内部"每场新建世界"
+的隔离方案之外，补一条"同一世界内连打多场"的路径，供成长/覆盖仿真复用同一世界或同一场次内的
+命中/伤害追踪状态，`Run` 自身行为不变）；`HeadlessWorldOptions` 新增 `LootOptions` 转发属性
+（放宽拾取半径，见该属性判断记录）。联调过程中发现并根治了嵌入数据集两处此前从未被真正验证过的
+既有缺口（详见 `core/sim/tests/data/README.md`"T-N6-5 调参记录"）：① `loot.table.*` 货币条目的
+`count_range` 被误当成"最终掉钱数"填写，但 `LootHost.ResolveCurrencyOutcome` 的真实公式是
+"当量×金币基数(L)"，导致击杀掉钱系统性偏高约 5 倍——改为常量当量 1，与数值总纲 4.8 节"怪物掉钱=
+金币基数(怪物等级)×……"字面公式（无当量项）对齐；② 本类型自己实现的"任务当量顺带发放"最初误写成
+`Q(L)/(1-Q(L))`（与"每级怪当量(L) 就是设计意图的目标击杀数"这一前提不自洽，会让实际所需击杀数
+系统性少于 `monsterEquivalent(L)`），改为 `Q(L)` 本身。两处修复后 `sim_growth_full` 全部 19 个
+等级的四条轨迹逐级在带宽（0.25，低于任务书 ≤0.35 上限）内，见 `GrowthSimulationTests
+.FullScenario_FourTrajectories_WithinBandwidth`。同时按任务需要给 5 档普通怪的 `loot.table.*`
+各追加 `chest`/`legs`/`feet` 三条 common 品质条目（T-N6-2b/T-N6-4 阶段只登记了主手+头两槽位，
+成长仿真需要全部 5 个装备槽位都有机会被替换，否则"各槽平均装备等级"轨迹追不上
+`expected_item_level(L)`）。`prog.level_curve.sim_warrior.entries[].xp_to_next`（1～19 级）按
+T-N6-4b 校准后的锚点重新核算（T-N6-4b 遗留的已知不一致，见该处 README 判断记录），20 级仍为
+满级 0。
+
 ## 目录
 
 ```
@@ -132,6 +159,19 @@ core/sim/
                               (base_seed,level,offset,runIndex) 纯函数派生（DeriveSeed）；
                               ArenaReport.ToJson() 经 Core.Foundation.Common.Json.JsonWriter 确定性
                               序列化（NaN/Infinity 写为 null）
+    GrowthSimulation.cs       T-N6-5：成长仿真——GrowthLevelSample/GrowthReport/GrowthRunResult；
+                              在一个持续存活的 HeadlessWorld 内反复调用 FightRunner
+                              .RunWithinWorld 打同级怪，真实 GrantXp（击杀+任务当量 Q(L)）驱动
+                              升级、真实掉落（生物死亡自动触发的 CreatureDeathLootListener，本
+                              类型只拾取+评分+换装/出售，不重复调用 RollDetailed）、真实经济
+                              入账；四条轨迹（时长/装备等级/命中率/金币）与对照基准/偏离/带宽
+                              判定；runs 个种子取均值；ToJson() 确定性序列化
+    CoverageSimulation.cs     T-N6-5：内容覆盖仿真——CoverageOutlierRow/CoverageReport；技能按
+                              SkillBudgetAnalyzer 预算比值（Player 档伤害技能额外做"只用该技能+
+                              填充技能"单技能秒伤占比实测，直接调用 SkillHost.CastSkill，不经
+                              RotationEvaluator）、装备按 EquipmentScoreAnalyzer/预算消耗比（额外
+                              做同种子基准装 vs 换单件的秒伤边际变化实测）、生物按同级标准玩家
+                              1v1 的 TTK/TTD 与锚点偏离；三张表各自按 |偏离| 降序排列
   schema/
     SimSchemas.cs             T-N6-2a：sim.anchor/sim.scenario 的 TableSchema 声明
     SimValidationRules.cs     T-N6-2a：SimAnchorValidationRule/SimScenarioValidationRule
@@ -180,17 +220,25 @@ core/sim/
                              ±0.05、偏移 ≤-3 胜率 ≥0.95、偏移 ≥+3 至少一格拐点成立）；另用一份
                              内嵌合成小场景验证 ArenaReport.ToJson() 同种子逐字节相同/不同种子
                              不同
+    GrowthSimulationTests.cs T-N6-5：跑一次完整 sim_growth_full（不缩 runs，5 个种子 × 1→20 级，
+                             共享同一份 IClassFixture 结果，打印总耗时）断言四条轨迹逐级在带宽内、
+                             经验/金币双路径（GrantXp/Economy.Add 返回值求和 vs 事件流求和）互证、
+                             prog.level_curve.xp_to_next 与公式独立核对；另用一份缩小的合成小场景
+                             验证 ToJson() 同种子逐字节相同/不同种子不同
+    CoverageSimulationTests.cs
+                             T-N6-5：跑一次完整 sim_coverage_all（共享同一份 IClassFixture 结果，
+                             打印总耗时）断言三张表均非空、按 |偏离| 降序排列、两条注入探针分别
+                             排在技能表/装备表第一位、ToJson() 确定性
     data/                    T-N6-2b：嵌入式最小仿真数据集，见 data/README.md（数据清单、锚点
                              推导公式与手算表、判断记录）——不进 data/_sample（拍板 10）
 ```
 
 ## 不负责什么
 
-- 不实现成长仿真、内容覆盖仿真（ADR-0035 决策 3 后两级）、不实现报告输出与基线对比工具（决策 5）——
-  均为后续任务（T-N6-5 及之后）的范围。T-N6-4 已实现三级仿真的第一级"战斗仿真"（`FightRunner`/
-  `ArenaSimulation`，见上）；`AnchorTable`/`ScenarioCatalog` 仍然只读，成长/覆盖两级场景
-  （`kind=growth`/`kind=coverage`）的运行器本任务未实现，`ScenarioCatalog.ByKind` 已能筛出这两类
-  场景但没有消费方。
+- 不实现报告输出与基线对比工具（ADR-0035 决策 5）——留给后续任务（T-N6-6 及之后）。T-N6-5 已把
+  三级仿真的后两级（成长仿真 `GrowthSimulation`、内容覆盖仿真 `CoverageSimulation`）补齐，三级
+  仿真本身（决策 3）至此全部落地；`GrowthReport`/`CoverageReport` 都已是结构化产物（`ToJson()`
+  确定性序列化），但"与基线比对、输出统计量差异"这一层工具本任务未做。
 - 不把 `Core.Sim.dll` 同步进 Unity 工作台工程——`build.ps1` 的 `$CoreAssemblies` 是显式列出
   Foundation/Numbers/Rules/Carriers/Gameplay 五个程序集名的数组（不是通配符抓取
   `Core.*.dll`），本任务未改动这份清单，`Core.Sim` 因此天然不会被同步；`Core.Sim` 依赖
@@ -539,3 +587,74 @@ core/sim/
     `…TwentyLevelsContinuous`）与本模块 `AnchorCreatureLevelScalerTests
     .Spawn_AboveMaxAnchorLevel_ClampsToMaxLevel`（越界夹取边界从"20 vs 25"改为"25 vs 30"，否则
     测的就不再是真正越界）同步更新。
+
+## T-N6-5 判断记录
+
+30. **成长仿真为何不直接调用 `LootHost.RollDetailed`，而是消费自动监听器的产出**：
+    `Core.Gameplay.Assembly.GameplayAssembly` 无条件装配 `CreatureDeathLootListener`（订阅
+    `unit.died`）——任何 `HeadlessWorld` 都逃不开这一条既有接线，生物死亡时它已经真实调用过一次
+    `RollDetailed` 并按 `CurrencyDepositPolicy.OnKill`（本装配根默认值）把货币入账给击杀者、把
+    物品落地为地面 `DroppedLootEntity`。`GrowthSimulation` 若再自行调用一次 `RollDetailed`，
+    等于对同一次死亡多掷一次骰子（重复消耗 `IRngHost` 序列、双倍入账/掉落），是明确的正确性
+    缺陷。改为消费监听器已经产生的结果：货币经 `IEconomyHost.GetBalance` 前后差值/
+    `economy.currency_changed` 事件确认到账，物品经 `WorldSim.QueryEntities(Kind=
+    EntityKinds.Loot)` 找到掉落实体后调用真实的 `LootHost.PickUp` 拾取进背包——`RollDetailed`
+    本身仍然是真正被调用的那份代码，只是调用方是监听器而不是 `GrowthSimulation`，链路上没有
+    任何一步是"手算"。为保证拾取一定成功（默认 `LootOptions.PickupRange` 3.0 可能小于本数据集
+    技能射程 5.0，生物死亡位置可能超出默认拾取半径），新增 `HeadlessWorldOptions.LootOptions`
+    转发属性，成长仿真把 `PickupRange` 放宽到 50。
+31. **击杀/任务经验为何直接调用 `GrantXp`，不依赖 `CreatureDeathXpListener`**：该监听器同样
+    无条件装配，但它的默认击杀经验来源 id 是 `CreatureDeathXpListener.DefaultKillXpSourceId`
+    （字面 `"prog.xp_source.kill"`），本数据集登记的却是 `prog.xp_source.sim_kill`（`sim_`
+    前缀惯例）——两者不是同一个 id，监听器内部 `HasXpSource` 查不到会静默跳过，不会发放，也
+    不会与 `GrowthSimulation` 的显式调用重复发放。`HeadlessWorldOptions` 本可以新增
+    `ProgressionOptions` 转发属性去配置监听器的 `KillXpSourceId` 让监听器接管，但那样还是要
+    解决"任务/探索当量经验监听器完全不发放（没有对应的击杀事件）"这一半的缺口，直接调用
+    `GrantXp(unitId, sourceId, XpContext)` 两条来源都发（击杀＋任务当量）更简单、路径统一，且
+    `GrantXp` 本身就是任务书原文指名的"真实 API"（只传入来源等级/当量，实际发放额度仍由
+    `ProgressionHost` 内部公式计算，不是手算）。
+32. **任务当量为何是 `Q(L)` 本身，不是 `Q(L)/(1-Q(L))`（联调排错记录）**：数值总纲 4.7 节
+    "升级所需(L)=killBase(L)×monsterEquivalent(L)×(1+Q(L))"——`monsterEquivalent(L)` 本身就是
+    "只看击杀"这一部分对应的目标击杀数：击杀 `monsterEquivalent(L)` 次、每次 `killBase(L)`
+    经验，总击杀经验恰为 `killBase×monsterEquivalent`；要让这 `monsterEquivalent(L)` 次击杀
+    正好把总需求（`killBase×monsterEquivalent×(1+Q)`）填满、不多不少，每次击杀还需额外发
+    `killBase(L)×Q(L)` 的任务当量经验，即 `Equivalent=Q(L)`。初版实现误写成
+    `Q(L)/(1-Q(L))`（把"任务份额相对击杀份额的比例"和"任务份额相对总需求的比例"搞混），会让
+    每次击杀实际发放的经验变成 `killBase/(1-Q)`（比正确值 `killBase×(1+Q)` 更高），达标所需
+    击杀次数因此变成 `monsterEquivalent×(1-Q²)`，比设计意图的 `monsterEquivalent` 次更少——
+    完整场景联调测试第一次跑通后实测 L3/L4/L8 三个等级"实际击杀数明显少于 monsterEquivalent、
+    每级时长系统性偏短"（偏离 26%～46%，超出 0.25 带宽），定位到此处后改用 `Q(L)`，修复后全部
+    19 个等级四条轨迹逐级在带宽内。`ExpectedCumulativeGoldAt` 的金币期望公式同步改为
+    `monsterEquivalent(l)×goldBase(l)×(1+Q(l))`（原为 `÷(1-Q(l))`），与经验联动同一口径。
+33. **嵌入数据集货币掉落 `count_range` 的既有缺口（联调排错记录，与本任务代码逻辑无关的既有
+    数据问题，首次被真正验证）**：`Core.Gameplay.Loot.LootHost.ResolveCurrencyOutcome` 的真实
+    公式是"`equivalents`（从 `loot.table` 条目的 `count_range` 掷骰所得的整数当量）×
+    `IEconomyHost.TryGetGoldBaseAmount(怪物等级)` × 分档倍率 × 难度倍率"——`count_range` 登记的
+    是"当量"，不是"最终掉钱数"。T-N6-2b/T-N6-4 阶段登记 `loot.table.*` 时把 `count_range` 直接
+    填成了 `econ.gold_base_curve` 断点 ±2（如 L1 的 `[3,7]`，均值 5，恰好等于
+    `goldBase(1)=5`）——这是把"最终掉钱数应该是多少"当成了"当量取值范围"来填，实际效果是
+    "当量(均值5) × goldBase(5) = 25"，掉钱系统性偏高约 5 倍。T-N6-4 阶段的仿真只关心战斗
+    胜率/DPS/HP，从未真正验证过货币产出，这一缺口因此从未暴露，直到 T-N6-5 成长仿真第一次真正
+    累计金币。**修复**：全部 `loot.table.*` 的货币条目 `count_range` 改为常量 `{"min":1,
+    "max":1}`（当量恒为 1），使掉钱恰好等于 `goldBase(怪物等级)`，与数值总纲 4.8 节字面公式
+    （无当量项）对齐。修复后 `sim_growth_full` 金币轨迹逐级偏离降到 0～12%（原 100%+）。
+34. **`loot.table.*`（5 档普通怪）为何各追加 `chest`/`legs`/`feet` 三条掉落条目**：
+    T-N6-2b/T-N6-4 阶段只登记了主手（0.3 概率）+ 头部（0.05 概率，quality_weights 常见/稀有）
+    两个槽位——供最小烟雾测试与越级矩阵使用，两者都不关心装备等级轨迹。成长仿真需要"各槽平均
+    装备等级"追上 `expected_item_level(L)`，若胸/腿/脚三槽永远没有掉落条目，三者会永远停留在
+    1 级出生时 `StandardPlayerBuilder` 给的初始装备，均值必然被拖低、远低于期望曲线。按与既有
+    主手条目同一惯例（common 品质，0.3 概率）各追加一条，不改变任何已有条目的取值。
+35. **`skill.def.sim_probe_overbudget`/`item.template.sim_probe_underbudget` 两条覆盖仿真
+    探针的设计取舍**：均不进入任何会被真实消费的接线（`skill.book`/`ai.rotation`/
+    `loot.table`），只作为 `skill.def`/`item.template` 全表扫描时才会被看到的数据行，不影响
+    任何既有测试断言、不参与任何真实战斗结算。探针技能未登记进任何 `skill.book`，
+    `SkillDefCache.TryResolveBudgetAttribution` 因此把它归为 `SkillBudgetTier.Unattributed`
+    （等级缺省取 1，按 Player 档带宽/硬上限判定——"宁可多报警告，不可放过手滑"，`SkillBudgetTier`
+    既有判断记录），不需要为了让探针"有一个技能等级"而去改动 `skill.book`/`ai.rotation` 这类
+    会被 `StandardPlayerBuilder`/`FightRunner` 真实消费的数据（避免影响既有断言"已学技能数"/
+    "优先级表能选出可施放技能"）。探针物品选 `item.slot.sim_chest`/L20/common（预算上限随
+    等级增长最大，1 点耐力相对这个上限的利用率最低，离群效果最明显），不带任何词缀。两条探针
+    均已按各自规则要求的方式"确认"——技能填 `budget_note`（`skill_budget_deviation` 走
+    "已确认"分组、不阻断）；装备触发的 `item_budget_utilization_low` 本身
+    `NonEscalatable`（04 第 5 节原文即以"装备预算利用率过低"为该判定口径的示例——"抓意图不抓
+    手滑"），没有类似 `budget_note` 的字段级确认机制，如实记录为"预期内的警告"，不做抑制。
