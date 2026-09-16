@@ -149,12 +149,28 @@ namespace Tests.Presentation.Assembly
         /// <c>Presentation.Assembly.PresentationSchemaCatalog.RegisterAll</c> 任意一处删掉了某条
         /// <c>RegisterValidationRule(new XxxRule())</c> 调用，该 RuleId 就不会出现在
         /// <c>report.Rules</c> 里，本测试立刻失败。顺带验证验收标准 1"对 data/_sample 零阻断"。
+        /// <para>
+        /// 判断记录（T-N6-2a：<c>ExtraSchemaRegistration</c> 接入 <c>Core.Sim.SimSchemaCatalog</c>）：
+        /// <c>data/_sample</c> 新增 <c>sim/</c> 域（<c>sim.anchor</c>/<c>sim.scenario</c>，仅无头
+        /// 仿真与内容工具读取，不进 <see cref="PresentationSchemaCatalog"/>，见
+        /// <c>Core.Sim.SimSchemaCatalog</c> 类型判断记录"为何不并入 GameplaySchemaCatalog"）之后，
+        /// 本测试若只调用默认 <see cref="ContentValidationAssembly.Run"/>（不接线
+        /// <see cref="ContentValidationOptions.ExtraSchemaRegistration"/>）会因为
+        /// <c>FailOnUnknownTable</c> 默认 <c>true</c> 而报 <c>sim.anchor</c>/<c>sim.scenario</c>
+        /// "未通过 RegisterSchema 登记"的 envelope 错误——本测试的核心断言只关心
+        /// <see cref="NumericValidationRuleCatalog"/> 与实际装配的规则集合是否一致，不关心 sim.* 是否
+        /// 参与，接入该钩子（同 <c>toolchain/validator/Program.cs</c> 的接入方式）只是让"对
+        /// <c>data/_sample</c> 全量零阻断"这条顺带断言继续成立，不改变本测试的核心验收逻辑。
+        /// </para>
         /// </summary>
         [Fact]
         public void Catalog_EveryDistinctRuleId_IsActuallyRegistered_AgainstSampleData()
         {
             var sources = BuildSampleDataSources();
-            var options = new ContentValidationOptions();
+            var options = new ContentValidationOptions
+            {
+                ExtraSchemaRegistration = Core.Sim.SimSchemaCatalog.RegisterAll,
+            };
             var run = ContentValidationAssembly.Run(sources, options);
 
             Assert.False(run.Report.IsBlocking,

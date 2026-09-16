@@ -1,0 +1,31 @@
+{
+  "table": "prog.xp_base_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "prog.xp_base_curve.sim_default",
+      "entries": [
+        {
+          "x": 1,
+          "y": 20
+        },
+        {
+          "x": 5,
+          "y": 28
+        },
+        {
+          "x": 10,
+          "y": 38
+        },
+        {
+          "x": 15,
+          "y": 48
+        },
+        {
+          "x": 20,
+          "y": 58
+        }
+      ]
+    }
+  ]
+}

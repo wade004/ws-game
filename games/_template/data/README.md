@@ -48,6 +48,8 @@
 | `combat.level_diff_table` | 游戏必填（若已配置 `CombatOptions.LevelDiffTableId`）/ 空壳（未接入等级差手感时） | 分阶段落地计划 T-N1-8（ADR-0030 决策 6）补的空壳表：`combat/combat.level_diff_table.json` 只有空 `rows`，三条曲线（`miss_bonus`/`crit_suppression`/`xp_factor`，横轴 Δ = 目标有效等级 − 攻击者有效等级）加一条灰名界线（`grey_line`，横轴攻击者有效等级）由具体游戏填写；`CombatOptions.LevelDiffTableId` 默认 `null`，不接这张表时 `Resolver` 的命中/暴击公式退化为 Δ 加成/压制恒为 0（同 T-N1-8 之前逐位一致）——`xp_factor`/`grey_line` 两列本框架当前只登记数据形状，消费实现（经验系数、目标名字五色）不在框架当前落地范围内（阶段 N4 接入） |
 | `skill.budget_rule` | 游戏必填（登记后） | 数值设计落地计划为该表预留的空壳位：登记随阶段 N3 落地，登记前校验器对未登记表报错（`FailOnUnknownTable`），因此暂不放文件，该阶段登记时随即补空壳 `rows: []` 到本目录并在此表追加行 |
 | `prog.xp_base_curve` | 游戏必填（若已有 `prog.xp_source.base_curve_ref` 引用它的来源）/ 空壳（尚无任何来源引用时） | 分阶段落地计划 T-N4-1（ADR-0033 决策 3、落地改动点清单第 10 节拍板 5）新增的空壳表：`prog/prog.xp_base_curve.json` 只有空 `rows`，怪物/任务/区域等级到"一只同级普通怪的基础经验值"的曲线由具体游戏填写；本模板未提供任何 `prog.xp_source` 数据（当前最小闭环不需要经验发放），消费实现（`ProgressionHost.grantXp` 读取本表折算三种来源当量）随 T-N4-2 落地，本框架当前只登记数据形状 |
+| `sim.anchor` | 游戏必填（若已接入无头数值仿真）/ 空壳（尚未接入时） | 分阶段落地计划 T-N6-2a（ADR-0035 决策 4）新增的空壳表：`sim/sim.anchor.json` 只有空 `rows`，每级期望生命/秒伤/击杀时长/被杀时长/期望装备等级/目标每级时长/期望击杀间隔/任务探索占比（数值总纲第 4.1 节 HP/DPS/TTK/TTD/E/T/G/Q）由具体游戏填写；表结构归框架，数归游戏——仅无头仿真与内容工具（`toolchain/validator`）读取，运行期宿主（`GameplayAssembly`）不读，最小闭环不需要它 |
+| `sim.scenario` | 游戏必填（若已接入无头数值仿真）/ 空壳（尚未接入时） | 同上：`sim/sim.scenario.json` 只有空 `rows`，仿真场景（双方、等级、分档、次数、种子、对照锚点与带宽）由具体游戏填写；同样仅无头仿真与内容工具读取，运行期宿主不读，最小闭环不需要它 |
 
 ## 覆盖 `arch.power.health`（可选）
 

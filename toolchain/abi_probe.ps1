@@ -190,15 +190,39 @@ $summaryLines.Add("基线 zip sha256=" + $baselineZipHash)
 # 六个 Core DLL 名（A5 补充：consumer 新增对 SkillHost 17 参数构造的调用，需要 Core.Numbers 提供
 # IStatHost/IPowerHost 类型元数据，见 toolchain/abi_probe/AbiProbeConsumer.csproj 判断记录；
 # Presentation.Common 只供 abi_surface 表面 dump 使用，consumer 探针自身不引用它）。
+#
+# T-N6-7 新增 Core.Sim.dll（ADR-0035 决策 1/5，仿真骨架为框架交付物）：与 Presentation.Common 同
+# 归入 $surfaceOnlyDllNames——consumer 探针（AbiProbeConsumer.csproj）没有硬编码任何调用
+# Core.Sim 公开 API 的固定签名，只需要它加入通用"公开接口表面差异"比对（toolchain/abi_surface）。
+# 判断记录（$BaselineVersion=1.35.0 基线 zip 的 toolchain/validator/lib/ 下不存在 Core.Sim.dll
+# ——Core.Sim 是本次任务才首次纳入分发清单）：下方 baseline 解压循环按"zip 内是否真的有这个条目"
+# 分流，找不到就跳过基线抽取（不 throw），只把该 DLL 计入 $currentOnlyDllNames，surface dump 时
+# baseline 侧完全不含 Core.Sim 的任何类型行——`SurfaceCompareLogic.Compare` 只把"baseline 存在、
+# current 缺失"的行判定为破坏（规则 1），"仅 current 存在"一律落入 `Additions`（见该方法结尾
+# 循环），因此一个全新加入比对的程序集天然被当作"新增"而不是"破坏"处理，不需要额外实现任何
+# "新增程序集豁免"的特判逻辑，只需要让基线抽取环节能容忍"这个条目在基线里压根不存在"这一情况。
 # -----------------------------------------------------------------------------
 $consumerDllNames = @("Core.Foundation.dll", "Core.Numbers.dll", "Core.Carriers.dll", "Core.Rules.dll", "Core.Gameplay.dll")
-$surfaceOnlyDllNames = @("Presentation.Common.dll")
+$surfaceOnlyDllNames = @("Presentation.Common.dll", "Core.Sim.dll")
 $allDllNames = $consumerDllNames + $surfaceOnlyDllNames
 
 # 判断记录（entry 前缀选取）：dist 发行包 zip 内这些 DLL 在多处重复存在（unity 包/toolchain
 # validator 各一份），内容完全一致，任选一处即可——固定选 toolchain/validator/lib/ 这一份，
 # 该路径在历次发布中都存在（见 build.ps1 -Dist 步骤），比 adapters/unity 包内路径更不容易随
 # 未来目录调整而失效。
+function Test-ZipEntryExists {
+    param([string]$ZipPath, [string]$EntrySuffix)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $normalizedSuffix = $EntrySuffix.Replace('\', '/')
+        $entry = $archive.Entries | Where-Object { $_.FullName.Replace('\', '/').EndsWith($normalizedSuffix) } | Select-Object -First 1
+        return ($null -ne $entry)
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 function Get-ZipEntryTo {
     param([string]$ZipPath, [string]$EntrySuffix, [string]$Destination)
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -220,15 +244,28 @@ function Get-ZipEntryTo {
     }
 }
 
+# T-N6-7 根治：改为先探测条目是否存在再决定要不要抽取——基线 zip 若不含某个 DLL（例如首次把
+# Core.Sim.dll 纳入比对清单时，基线仍是更早的 1.35.0），视为"新增程序集"，只记录一行说明并跳过
+# 该 DLL 的基线抽取，不再让整个探针因 `Get-ZipEntryTo` 抛异常而失败；$baselineAvailableDllNames
+# 记录哪些 DLL 真的从基线里解出来了，供下面 sha256 摘要与 abi_surface 基线 dump 两处只使用这个
+#子集（找不到的 DLL 自然不会出现在基线 dump 里，current dump 仍然照常包含它——这正是让
+# `SurfaceCompareLogic.Compare` 把它的全部类型行判定为 `Additions` 而不是破坏所需要的输入形状，
+# 见上方 `$surfaceOnlyDllNames` 判断记录）。
+$baselineAvailableDllNames = New-Object System.Collections.Generic.List[string]
 foreach ($dll in $allDllNames) {
     $suffix = "toolchain/validator/lib/" + $dll
     $dest = Join-Path $OutDir ("consumer\lib\" + $dll)
-    Get-ZipEntryTo -ZipPath $BaselineZip -EntrySuffix $suffix -Destination $dest
-    Write-ProbeLine "已解出基线 DLL：$dll"
+    if (Test-ZipEntryExists -ZipPath $BaselineZip -EntrySuffix $suffix) {
+        Get-ZipEntryTo -ZipPath $BaselineZip -EntrySuffix $suffix -Destination $dest
+        $baselineAvailableDllNames.Add($dll)
+        Write-ProbeLine "已解出基线 DLL：$dll"
+    } else {
+        Write-ProbeLine "基线 zip 未含 $dll（视为新增程序集：不参与基线抽取/consumer 探针，只在当前工作树表面 dump 中出现，其全部类型按 Additions 处理，不计破坏）"
+    }
 }
 $summaryLines.Add("")
-$summaryLines.Add("基线六个 DLL sha256：")
-foreach ($dll in $allDllNames) {
+$summaryLines.Add("基线 DLL sha256（不含基线里不存在的新增程序集）：")
+foreach ($dll in $baselineAvailableDllNames) {
     $h = (Get-FileHash -LiteralPath (Join-Path $OutDir ("consumer\lib\" + $dll)) -Algorithm SHA256).Hash.ToLowerInvariant()
     $summaryLines.Add("  $dll = $h")
 }
@@ -276,6 +313,8 @@ $projectNames = @{
     "Core.Rules.dll"         = "Core.Rules"
     "Core.Gameplay.dll"      = "Core.Gameplay"
     "Presentation.Common.dll" = "Presentation.Common"
+    "Core.Sim.dll"           = "Core.Sim"
+    "Adapters.Stub.dll"      = "Adapters.Stub"
 }
 
 function Resolve-CurrentDll {
@@ -296,6 +335,8 @@ function Resolve-CurrentDll {
         "Core.Rules.dll"          = "core\rules"
         "Core.Gameplay.dll"       = "core\gameplay"
         "Presentation.Common.dll" = "presentation"
+        "Core.Sim.dll"            = "core\sim"
+        "Adapters.Stub.dll"       = "adapters\stub"
     }
     $classicCandidate = Join-Path $RepoRoot ($classicRoots[$DllName] + "\bin\" + $Configuration + "\netstandard2.1\" + $DllName)
     if (Test-Path -LiteralPath $classicCandidate) {
@@ -329,6 +370,18 @@ foreach ($dll in $allDllNames) {
     }
     Write-ProbeLine "当前工作树 DLL：$dll <- $src"
 }
+
+# T-N6-7 新增：Core.Sim.dll 运行期依赖 Adapters.Stub.dll（core/sim/Core.Sim.csproj
+# ProjectReference），MetadataLoadContext（toolchain/abi_surface/SurfaceDumper.cs）反射加载
+# Core.Sim.dll 里任何暴露了 Adapters.Stub 类型（如 HeadlessWorldOptions.FileSystem 的
+# StubFileSystem/HeadlessWorld.Spatial 的 StubSpatialQuery）的公开成员签名时，解析器必须能在
+# "传入 DLL 的同目录兄弟文件"里找到 Adapters.Stub.dll（见该文件解析器候选集合判断记录），否则
+# 抛 FileNotFoundException。Adapters.Stub.dll 本身不在 $allDllNames 里（不参与比对/dump），只是
+# 作为 Core.Sim.dll 的解析依赖同目录放一份——不影响 $currentDllPaths 的成员集合。
+$currentAdaptersStubSrc = Resolve-CurrentDll -DllName "Adapters.Stub.dll"
+Copy-Item -LiteralPath $currentAdaptersStubSrc -Destination (Join-Path $currentLibDir "Adapters.Stub.dll") -Force
+Write-ProbeLine "当前工作树 DLL（Core.Sim.dll 的表面 dump 解析依赖，不参与比对）：Adapters.Stub.dll <- $currentAdaptersStubSrc"
+
 Write-ProbeLine "已用当前工作树 $Configuration DLL 就地替换 consumer 输出目录（未重新编译 consumer）。"
 $summaryLines.Add("")
 $summaryLines.Add("当前工作树六个 DLL sha256：")
@@ -379,7 +432,10 @@ $baselineSurfaceDump = Join-Path $OutDir "surface-baseline.txt"
 $currentSurfaceDump = Join-Path $OutDir "surface-current.txt"
 $surfaceReport = Join-Path $OutDir "surface-report.txt"
 
-$baselineDllPaths = $allDllNames | ForEach-Object { Join-Path $OutDir ("consumer\lib\" + $_) }
+# T-N6-7 根治：baseline 侧只 dump 真正从基线 zip 里解出来的 DLL（$baselineAvailableDllNames）——
+# 新增程序集（当前基线不存在的 DLL，如首次纳入比对的 Core.Sim.dll）不出现在 baseline dump 里，
+# current 侧仍按 $allDllNames 全量 dump，见 $surfaceOnlyDllNames 判断记录。
+$baselineDllPaths = $baselineAvailableDllNames | ForEach-Object { Join-Path $OutDir ("consumer\lib\" + $_) }
 $currentDllPaths = $allDllNames | ForEach-Object { Join-Path $currentLibDir $_ }
 
 $dumpBaselineLog = Join-Path $OutDir "surface-dump-baseline.log"

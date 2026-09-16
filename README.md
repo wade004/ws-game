@@ -22,7 +22,7 @@ core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .N
   gameplay/              L4 玩法层：loot、quest、dialog、encounter、difficulty、achievement、economy、world_state、area_trigger、spawn、death（死亡复活三策略执行主体）
 presentation/           L5 表现层的引擎无关部分（Presentation.Common：渲染/相机/UI 数据绑定、反馈绑定、VFX/SFX 播放体系、纸娃娃合成与动画状态机/程序动画原语等，均不依赖具体引擎）
 adapters/
-  stub/                  桩适配层（Adapters.Stub，"无头适配层"），纯 .NET 实现；供 xUnit 测试/CI 驱动，同时是框架正式交付物之一（ADR-0018 决策 3）——随构建产物分发（zip 快照 `adapters/headless/`、私服第四个包 `com.gamefoundation.adapter.headless`），供内容编辑器等无头宿主使用
+  stub/                  桩适配层（Adapters.Stub，"无头适配层"），纯 .NET 实现；供 xUnit 测试/CI 驱动，同时是框架正式交付物之一（ADR-0018 决策 3）——随构建产物分发（zip 快照 `adapters/headless/`、私服第四个包 `com.gamefoundation.adapter.headless`），供内容编辑器等无头宿主使用；`core/sim/`（数值仿真骨架，ADR-0035 决策 1）依赖它组装无头世界，`Core.Sim.dll` 同目录一并分发
   unity/                 Unity 6 LTS 工作台工程；真正的框架交付物是内嵌 UPM 包 adapters/unity/Packages/com.gamefoundation.adapter.unity/
 games/_template/        游戏层骨架模板（本地包 com.gamefoundation.game-template），新游戏复制本目录改名接入；真实游戏代码放各自仓库
 data/_sample/           框架自测/校验器自测用的示例数据表，不代表任何真实游戏内容；真实游戏数据放各自仓库的 data/<game>/
@@ -65,7 +65,7 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -SkipTests` | 同上，跳过 `dotnet test` |
 | `powershell -File build.ps1 -SyncOnly` | 跳过 `dotnet build/test`，只做 DLL 同步 + 内容同步（要求此前至少完整 build 过一次） |
 | `powershell -File build.ps1 -SyncContent` | 只做内容同步（跳过 `dotnet build/test` 与 DLL 同步）；只改了 `data/_sample`/`assets/_placeholder`/`assets/_sample`、没改任何 C# 代码时的快速路径 |
-| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`）、`assets/_placeholder`、`data/_framework`、`adapters/headless`（无头适配层 DLL + README，ADR-0018 决策 3）打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的四个包到 `dist/<version>/packages/{四个包名}/` 并 `npm pack` 出四个 `.tgz`（见下方"版本与发布"一节"私服通道"） |
+| `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`，但预编译的 `toolchain/validator/bin`、`toolchain/simrunner/bin` 单独补回）、`assets/_placeholder`、`data/_framework`、`adapters/headless`（无头适配层 `Adapters.Stub.dll` + 数值仿真骨架 `Core.Sim.dll` + README，ADR-0018 决策 3、ADR-0035 决策 1/5）打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的四个包到 `dist/<version>/packages/{四个包名}/` 并 `npm pack` 出四个 `.tgz`（见下方"版本与发布"一节"私服通道"） |
 | `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
 | `powershell -File build.ps1 -Dist <version> -Zip` | 在 `-Dist` 基础上额外打 `dist/ws-game-<version>.zip` + `dist/ws-game-<version>.lock`，不做任何版本号写回/提交/打标签（`.github/workflows/release.yml` 用这条路径） |
 | `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 提交 → 打包 + zip + lock + 四个 npm 包（打包完成自检 `git_commit` 指向发布提交） → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 四个包到私服；见下方"版本与发布"一节 |
@@ -105,7 +105,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\consumer_smoke.ps1
 
 ## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
 
-依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根 + `data/_framework` 框架根单独完整校验）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION`、两个 `package.json` 与 `CHANGELOG.md`）→ `build.ps1 -SkipTests` 同步 DLL → 包清单一致性（私服交付通道四个 npm 包版本号 + `npm pack --dry-run` 排除规则，见"版本与发布"一节"私服通道"；排在"同步 DLL"之后是硬性依赖——它跑的 `build.ps1 -SyncOnly` 要求六个核心 DLL 已经构建在 `bin\` 下，见 check.ps1 该步骤判断记录）→ Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根 + `data/_framework` 框架根单独完整校验）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 数值仿真基线比对（`toolchain/simrunner` 对嵌入式最小仿真数据集跑三类场景，与既有基线比对统计量差异，见 [core/sim/README.md](core/sim/README.md)"命令行入口"一节；ADR-0035 决策 3/5） → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION`、两个 `package.json` 与 `CHANGELOG.md`）→ `build.ps1 -SkipTests` 同步 DLL → 包清单一致性（私服交付通道四个 npm 包版本号 + `npm pack --dry-run` 排除规则，见"版本与发布"一节"私服通道"；排在"同步 DLL"之后是硬性依赖——它跑的 `build.ps1 -SyncOnly` 要求六个核心 DLL 已经构建在 `bin\` 下，见 check.ps1 该步骤判断记录）→ Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 相关步骤与消费方演练）
@@ -132,7 +132,7 @@ CRLF；实测方法见 `.gitattributes` 对应例外条目上方判断记录）�
 
 `check.ps1` 另有一步"版本一致性"（不需要 `-Dist`，`-SkipUnity` 下同样会跑）：只读比较仓库根 `VERSION` 文件与两个 `package.json`（`adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json`、`games/_template/package.json`，含后者对适配层包的依赖版本号）是否一致；并校验根 `CHANGELOG.md` 含 `VERSION` 对应版本号的条目（形如 `## [X.Y.Z]`）或存在 `## [Unreleased]` 段，四处任一处漏改都会让这一步失败。
 
-`check.ps1 -Quick`（工程收尾 K 新增，供 `.githooks/pre-commit` 调用）：只跑 dotnet build/test、两道数据校验、事件常量一致性检查、禁用词扫描、版本一致性这几步"秒级能跑完"的子集，跳过占位资产生成器检查、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、包清单一致性（私服交付通道新增，需要跑一遍 `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与"build.ps1 -SkipTests 同步"同一类耗时构建期动作，且依赖后者先把 DLL 构建到 `bin\` 下，故排在其之后）、全部 Unity 相关步骤与消费方演练；与 `-SkipUnity` 可以同传但没有必要（`-Quick` 本身已经不跑 Unity 相关任何一步）。资产导入工具交叉校验（`import_assets.py check --dataset _sample`，全量交叉校验 sprite/vfx/sfx/world 四域，只比对文件是否存在、不读图片，秒级完成，见 [toolchain/README.md](toolchain/README.md)"`data/_sample` 的资产来源"一节）不属于可跳过的慢步骤，`-Quick` 下同样会跑。目标总用时 30 秒左右（视本机是否需要重新编译而定），供提交前钩子做"能拦住的先拦住，剩下的交给 CI/手工全量 `check.ps1`"这一级快速把关，不能替代完整门禁。
+`check.ps1 -Quick`（工程收尾 K 新增，供 `.githooks/pre-commit` 调用）：只跑 dotnet build/test、两道数据校验、事件常量一致性检查、禁用词扫描、版本一致性这几步"秒级能跑完"的子集，跳过占位资产生成器检查、`toolchain` 自身 pytest、数值仿真基线比对（T-N6-7 新增，见上一节；不是"不重要"，是任务书硬性规则"禁止把数值仿真列为 -Quick 步骤"）、`build.ps1 -SkipTests` 同步、包清单一致性（私服交付通道新增，需要跑一遍 `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与"build.ps1 -SkipTests 同步"同一类耗时构建期动作，且依赖后者先把 DLL 构建到 `bin\` 下，故排在其之后）、全部 Unity 相关步骤与消费方演练；与 `-SkipUnity` 可以同传但没有必要（`-Quick` 本身已经不跑 Unity 相关任何一步）。资产导入工具交叉校验（`import_assets.py check --dataset _sample`，全量交叉校验 sprite/vfx/sfx/world 四域，只比对文件是否存在、不读图片，秒级完成，见 [toolchain/README.md](toolchain/README.md)"`data/_sample` 的资产来源"一节）不属于可跳过的慢步骤，`-Quick` 下同样会跑。目标总用时 30 秒左右（视本机是否需要重新编译而定），供提交前钩子做"能拦住的先拦住，剩下的交给 CI/手工全量 `check.ps1`"这一级快速把关，不能替代完整门禁。
 
 `check.ps1 -Il2cpp`（工程收尾 K 新增，默认不跑，因为耗时数分钟到十几分钟）：额外跑一遍 IL2CPP 脚本后端的独立版构建 + 两种无人值守冒烟（`-gf-smoke`/`-gf-smoke-discrete`），验证核心类库自写的零依赖 JSON 读写器等纯逻辑代码在 AOT 编译（无反射兜底）下的真实可运行性，而不是只靠 Mono 后端的默认独立版构建自证；见 [adapters/unity/README.md](adapters/unity/README.md)"IL2CPP 发布路径验证"一节与 [architecture/选型/01_引擎与语言选型评估.md](architecture/选型/01_引擎与语言选型评估.md) 补充的"发布形态验证"一节（实测数据、与 Mono 的耗时/体积对比）。`-Il2cpp` 与 `-SkipUnity` 互斥（`-SkipUnity` 优先，`-Il2cpp` 不生效）；可与 `-SkipConsumer`/`-SkipSmoke` 同传。
 

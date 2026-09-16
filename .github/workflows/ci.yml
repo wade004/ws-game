@@ -1,5 +1,11 @@
 name: CI
 
+# 判断记录（T-N6-7，数值仿真基线比对自动纳入，不新增任何步骤/下载）：check.ps1 新增的"数值仿真
+# 基线比对"步骤（toolchain/simrunner，直接执行步骤 1 已构建的 SimRunner.dll 对嵌入式最小仿真
+# 数据集与既有基线比对）不需要 Unity、不需要额外下载任何外部产物——本工作流固定调用
+# `check.ps1 -SkipUnity`（见下一条判断记录），该步骤因此随 check.ps1 本身的变化自动被纳入本
+# CI job，本文件不需要新增任何显式调用；-Quick 才会跳过它（本工作流从未传 -Quick）。
+#
 # 判断记录（为什么只跑非 Unity 门禁）：check.ps1 全量还含 Unity 编译检查/EditMode/PlayMode/
 # 独立版构建与两种无人值守冒烟/消费方演练共六步，这些步骤要求本机已安装并激活 Unity 授权
 # （见仓库根 check.ps1 -UnityExe 参数说明、README「Unity 工作台」一节）。GitHub 托管的

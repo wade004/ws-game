@@ -1,0 +1,83 @@
+{
+  "table": "item.affix",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.affix.sim_of_strength",
+      "name_key": "l10n.item.affix.sim_of_strength.name",
+      "budget_share": 0.2,
+      "stat_mix": [
+        {
+          "stat": "stat.strength",
+          "ratio": 1.0
+        }
+      ],
+      "quality_pool": "item.quality.sim_common",
+      "weight": 5
+    },
+    {
+      "id": "item.affix.sim_of_stamina",
+      "name_key": "l10n.item.affix.sim_of_stamina.name",
+      "budget_share": 0.2,
+      "stat_mix": [
+        {
+          "stat": "stat.stamina",
+          "ratio": 1.0
+        }
+      ],
+      "quality_pool": "item.quality.sim_common",
+      "weight": 4
+    },
+    {
+      "id": "item.affix.sim_of_precision",
+      "name_key": "l10n.item.affix.sim_of_precision.name",
+      "budget_share": 0.12,
+      "stat_mix": [
+        {
+          "stat": "stat.agility",
+          "ratio": 0.6
+        },
+        {
+          "stat": "stat.crit_rating",
+          "ratio": 0.4
+        }
+      ],
+      "quality_pool": "item.quality.sim_rare",
+      "weight": 2
+    },
+    {
+      "id": "item.affix.sim_of_fortitude",
+      "name_key": "l10n.item.affix.sim_of_fortitude.name",
+      "budget_share": 0.12,
+      "stat_mix": [
+        {
+          "stat": "stat.stamina",
+          "ratio": 0.7
+        },
+        {
+          "stat": "stat.armor",
+          "ratio": 0.3
+        }
+      ],
+      "quality_pool": "item.quality.sim_rare",
+      "weight": 2
+    },
+    {
+      "id": "item.affix.sim_of_the_berserker",
+      "name_key": "l10n.item.affix.sim_of_the_berserker.name",
+      "budget_share": 0.12,
+      "stat_mix": [
+        {
+          "stat": "stat.strength",
+          "ratio": 0.5
+        },
+        {
+          "stat": "stat.dodge_rating",
+          "ratio": 0.5
+        }
+      ],
+      "quality_pool": "item.quality.sim_rare",
+      "weight": 1
+    }
+  ]
+}

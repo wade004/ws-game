@@ -121,6 +121,16 @@ namespace Core.Carriers.Creature
                 // currentSchemaVersion、不需要迁移函数，旧数据/旧存档不受影响。
                 new FieldSchema("xp_multiplier", FieldKind.Number, required: false,
                     description: "该分档的经验倍率，缺省 1；仅供 kind=kill 经验来源折算使用（T-N4-4，ADR-0033 决策 4）"),
+                // T-N6-3b 新增（N4 遗留第 7 项；ADR-0034 决策 3 延伸；08 第 7.4 节"怪物掉钱 = 当量 ×
+                // econ.gold_base_curve(怪物等级) × 分档倍率 × diff.tier.loot_multiplier"）：该分档的
+                // 金币倍率，缺省 1（无加成）——经 Core.Carriers.Creature.CreatureFactory.
+                // TryGetGoldMultiplier 查询、由 Core.Gameplay.Assembly.GameplayAssembly 接进
+                // Core.Gameplay.Loot.LootGoldMultiplierProvider（Core.Gameplay.Loot.LootHost.
+                // ResolveCurrencyOutcome 消费，见该方法判断记录"分档倍率"——08 原文把它与
+                // diff.tier.loot_multiplier 并列写成两个独立乘数，此前留空恒 1，本任务补上）。纯新增
+                // 可选字段，不升 currentSchemaVersion、不需要迁移函数，旧数据/旧存档不受影响。
+                new FieldSchema("gold_multiplier", FieldKind.Number, required: false,
+                    description: "该分档的金币倍率，缺省 1；供怪物掉钱换算使用（T-N6-3b，08 第 7.4 节）"),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
     }
 }

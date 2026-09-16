@@ -204,12 +204,49 @@ namespace Toolchain.Validator
             // 因此命令行一次性进程这个运行时机同样可以直接用——此前"没有真正的实现可用"的判断记录
             // 已不成立）。本工具不需要改动：validationOptions 仍不显式设置 CreatureTemplateQuery，
             // 走 ContentValidationAssembly 的新默认值即可，SpawnSummonOnlyCreatureRule 现默认启用。
+            // T-N6-3a（ADR-0035 决策 4 锚点表接入）：判断记录（"registry 尚不存在时如何提前决定是否
+            // 装配锚点提供者"）——ContentValidationOptions.SkillBudgetAnchorProvider 必须在
+            // ContentValidationAssembly.Run 内部 PresentationSchemaCatalog.RegisterAll 调用时就确定
+            // （两条预算规则的构造参数），但 registry 实例要到 Run 内部的 CreateRegistryCore 才构造
+            // 出来。本工具用 AnchorTableSkillBudgetAnchorProvider 的 Func<IDataRegistry> 工厂重载 +
+            // 一个延迟赋值的 registryHolder 闭包解决：工厂只在 Validate() 阶段（数据已装载完毕）才会
+            // 被调用一次；registryHolder 的赋值时机借用既有的 ExtraSchemaRegistration 钩子——该钩子
+            // 由 CreateRegistryCore 在 registry 构造完成之后、registry.LoadAll（真正触发 Validate）
+            // 之前同步调用（见 ContentValidationAssembly.CreateRegistryCore 内调用顺序），因此在这里
+            // 先把 registry 存进 registryHolder、再转发给 Core.Sim.SimSchemaCatalog.RegisterAll，
+            // 能保证 registryHolder 严格早于任何一次 Validate() 调用完成赋值——不需要 presentation/
+            // assembly 认识 Core.Sim 任何类型（分层边界不变，见 SimSchemaCatalog 类型判断记录"为何不
+            // 并入 GameplaySchemaCatalog"）。是否装配（anchorProviderWired）按本次全部 --data-root
+            // 是否含 sim.anchor 决定（同 Core.Sim.HeadlessWorldBuilder.Build 判断记录"数据源含
+            // sim.anchor 才自动装配锚点提供者"同一惯例、同一判定口径：只看 IDataSource.ListTables()
+            // 是否列出该表，不解析行）。
+            IDataRegistry? registryHolder = null;
+            // 判断记录：Core.Sim.AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows 按
+            // "sim.anchor 文件实际是否含至少一行"判定，不是"文件/表名是否存在"——games/_template 登记
+            // 了一份零行的 sim.anchor.json（供 validate_data.py/内容工具识别表结构），只看表名存在会
+            // 把它误判成"已接入"，与本方法上方注释"对 games/_template 为 false"验收点矛盾，见该方法
+            // 判断记录。
+            var anchorProviderWired = Core.Sim.AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows(sources);
+
             var validationOptions = new ContentValidationOptions
             {
                 FailOnUnknownTable = true,
                 Strictness = strict ? DataRegistryStrictness.WarningsBlock : DataRegistryStrictness.WarningsAllowed,
                 DisplayMapCoverageSources = displayMapSources,
                 WarnOnMissingTranslation = !noMissingTranslationWarning,
+                // T-N6-2a：sim.scenario/sim.anchor 仅无头仿真与内容工具读取（ADR-0035），不进
+                // PresentationSchemaCatalog——本工具正是"内容工具"之一，经 ExtraSchemaRegistration
+                // 钩子把这两张表接进本次校验（见 ContentValidationOptions.ExtraSchemaRegistration
+                // 判断记录）；T-N6-3a 起本钩子同时承担"捕获 registry 引用给锚点提供者工厂用"这一职责
+                // （见上方判断记录），两件事合并进同一个回调，不新增第二个钩子属性。
+                ExtraSchemaRegistration = registry =>
+                {
+                    registryHolder = registry;
+                    Core.Sim.SimSchemaCatalog.RegisterAll(registry);
+                },
+                SkillBudgetAnchorProvider = anchorProviderWired
+                    ? new Core.Sim.AnchorTableSkillBudgetAnchorProvider(() => registryHolder!)
+                    : null,
             };
             var effectiveDisplayMapCoverageSources = displayMapSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
 
@@ -228,7 +265,7 @@ namespace Toolchain.Validator
             {
                 PrintJson(report, tableCount, recordCount, listTables ? run.Registry : null, overrides,
                     run.DisabledOptionalRules, run.EnabledOptionalRules, effectiveDisplayMapCoverageSources,
-                    validationOptions.WarnOnMissingTranslation);
+                    validationOptions.WarnOnMissingTranslation, anchorProviderWired);
             }
             else
             {
@@ -307,10 +344,13 @@ namespace Toolchain.Validator
                 {
                     var severity = rule.DefaultSeverity == ValidationSeverity.Error ? "error" : "warning";
                     var numericEntries = FindNumericRuleEntries(rule.RuleId);
+                    var requiresAnchorText = numericEntries.Any(e => e.RequiresAnchor);
                     var numericSuffix = numericEntries.Count == 0
                         ? string.Empty
                         : $", numeric group={numericEntries[0].Group}" +
-                          (numericEntries.Any(e => e.RequiresAnchor) ? ", requires_anchor (未接入, 当前 enabled=false)" : string.Empty);
+                          (requiresAnchorText
+                              ? $", requires_anchor ({(anchorProviderWired ? "已接入" : "未接入")}, 当前 enabled={(anchorProviderWired ? "true" : "false")})"
+                              : string.Empty);
                     Console.WriteLine($"  {rule.RuleId}: {severity}{(rule.NonEscalatable ? " (non-escalatable)" : "")}, hits {rule.HitCount}{numericSuffix}");
                 }
             }
@@ -356,10 +396,17 @@ namespace Toolchain.Validator
                 }
             }
 
-            var schemas = SchemaAudit.EnumerateRegisteredSchemas();
+            // T-N6-2a：--schema-audit 同样要覆盖 sim.scenario/sim.anchor（见上面主校验路径同一处
+            // ExtraSchemaRegistration 判断记录）——两个 Enumerate* 入口各自独立构造 registry（见其
+            // 实现），必须各自传入同一份 options，否则 --schema-audit 会漏审这两张新表。
+            var schemaAuditOptions = new ContentValidationOptions
+            {
+                ExtraSchemaRegistration = Core.Sim.SimSchemaCatalog.RegisterAll,
+            };
+            var schemas = SchemaAudit.EnumerateRegisteredSchemas(schemaAuditOptions);
             // 消费方反馈第 37 条：一并读出已登记的 DeclareReference 声明，供 declared_reference_unregistered
             // 检查使用（见 SchemaAudit.CheckDeclaredReferencesRegistered 判断记录）。
-            var referenceDeclarations = SchemaAudit.EnumerateReferenceDeclarations();
+            var referenceDeclarations = SchemaAudit.EnumerateReferenceDeclarations(schemaAuditOptions);
             var report = SchemaAudit.Run(schemas, allowlist, referenceDeclarations);
 
             if (jsonOutput)
@@ -497,7 +544,7 @@ namespace Toolchain.Validator
             IReadOnlyList<OverrideDiagnostic> overrides,
             IReadOnlyList<string> disabledOptionalRules, IReadOnlyList<string> enabledOptionalRules,
             IReadOnlyList<(string table, string idField)> effectiveDisplayMapCoverageSources,
-            bool warnOnMissingTranslation)
+            bool warnOnMissingTranslation, bool anchorProviderWired)
         {
             var sb = new StringBuilder();
             sb.Append('{');
@@ -730,9 +777,11 @@ namespace Toolchain.Validator
             // 对应的全部检查名——StatDefinitionValidationRule/ItemBudgetValidationRule/
             // SkillBudgetValidationRule 三个类各占两条，数组长度为 2；非数值规则为空数组）、
             // requires_anchor（是否依赖阶段 N6 才接入的 ISkillBudgetAnchorProvider，非数值规则恒
-            // false）、enabled（!requires_anchor——三条锚点未接入的规则当前登记了但产不出问题，如实
-            // 标 false，同 1.29.0 optional_rules[].enabled 口径；非数值规则恒 true）。全部追加在既有
-            // 四个字段之后、闭合大括号之前，不改动任何既有字段名与语义（禁止事项）。
+            // false）、enabled（T-N6-3a：不再恒等于 !requires_anchor——本工具现按"本次数据源是否含
+            // sim.anchor"（见本文件 Main 方法接入点判断记录）动态装配真实 ISkillBudgetAnchorProvider，
+            // anchorProviderWired 如实反映这一次运行是否真的接上了；requires_anchor 的三条规则
+            // enabled = anchorProviderWired，非数值规则恒 true）。全部追加在既有四个字段之后、闭合
+            // 大括号之前，不改动既有字段名与语义（禁止事项）。
             sb.Append(',');
             sb.Append("\"rules\":[");
             for (var i = 0; i < report.Rules.Count; i++)
@@ -757,7 +806,7 @@ namespace Toolchain.Validator
                 }
                 sb.Append("],");
                 sb.Append("\"requires_anchor\":").Append(requiresAnchor ? "true" : "false").Append(',');
-                sb.Append("\"enabled\":").Append(requiresAnchor ? "false" : "true");
+                sb.Append("\"enabled\":").Append(!requiresAnchor || anchorProviderWired ? "true" : "false");
                 sb.Append('}');
             }
             sb.Append(']');

@@ -25,6 +25,8 @@ toolchain` 三者均服务"游戏工程需要引用什么"这一需求，`toolch
 ```
 Lib~/
   Adapters.Stub.dll          桩实现程序集（只依赖 Core.Foundation.dll，见"依赖"一节）
+  Core.Sim.dll               数值仿真骨架（T-N6-7，ADR-0035 决策 1/5；无头装配根 + 三级仿真 +
+                              报告/基线对比，见下方"数值仿真骨架"一节）
 package.json
 README.md（本文件）
 ```
@@ -51,3 +53,34 @@ engine.Clock.Advance(1.0 / 60.0);
 ```
 
 具体桩清单与各类型行为见框架仓库根 `adapters/stub/README.md`（本包只随附编译产物，不随附源码）。
+
+## 数值仿真骨架（T-N6-7，ADR-0035 决策 1/5）
+
+`Lib~/Core.Sim.dll`——无头运行器的装配根（`HeadlessWorldBuilder`）+ 三级数值仿真（战斗/成长/内容
+覆盖）+ 报告输出与基线对比工具，随本包同一次扩容一并分发（依赖 `Lib~/Adapters.Stub.dll`，见"包内
+布局"一节）。措辞与框架仓库 `architecture/11_工程规范与测试.md` 第 6 节"数值仿真"行一致：无头、
+固定种子、读 `sim.scenario`/`sim.anchor` 两张数据表，输出结构化报告并与基线比对统计量差异；是否
+列为提交门槛由游戏层决定。
+
+依赖：除 `Lib~/Adapters.Stub.dll` 外，还需要六个核心 DLL 中的 `Core.Foundation.dll`/
+`Core.Numbers.dll`/`Core.Rules.dll`/`Core.Carriers.dll`/`Core.Gameplay.dll` 五个（同上一节
+"依赖"，从 `com.gamefoundation.adapter.unity` 包 `Runtime/Plugins/Core/` 下取得）；不需要
+`Presentation.Common.dll`。
+
+```csharp
+using Core.Sim;
+
+var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions { /* DataSources/Seed/... */ });
+var anchors = world.AnchorTable!;        // HeadlessWorld 没有 Options 属性——三级仿真运行器各自
+                                          // 只吃 scenario/anchors/dataSources 三个参数，不吃 world。
+var scenario = world.ScenarioCatalog!.Get(new Id("sim.scenario.<your_arena_scenario>"));
+var player = StandardPlayerBuilder.Build(world, classId, level: 20, expectedQualityId);
+var arenaReport = ArenaSimulation.Run(scenario, anchors, dataSources);
+var report = SimReport.FromArenaReport(arenaReport, scenario, world.Registry, generatedWithVersion: "1.36.0");
+```
+
+命令行入口 `simrunner`（预编译产物随 `com.gamefoundation.toolchain` 包 `Tools~/simrunner/bin/`
+分发）与完整用法/退出码/基线更新流程见框架仓库 `core/sim/README.md`（本文件只是分发产物内的
+精简指引，与 `adapters/headless/README.md`"数值仿真骨架"一节同一份信息面向 npm 私服通道的
+独立版本；该文件示例代码路径由 `core/sim/tests/HeadlessReadmeExampleTests.cs` 逐字复刻守护，
+本文件是它的精简摘录，改动同步维护，不单独另测）。

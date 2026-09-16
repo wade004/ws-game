@@ -77,6 +77,39 @@ namespace Presentation.Assembly
         /// 两个事件 key 的总线（本入口是一次性装配/校验调用，不关心这两个 key 之外的事件登记）。
         /// 调用方（如编辑器）若已持有一条总线，可显式传入以复用同一份事件流。</summary>
         public IEventBus? Bus { get; set; }
+
+        /// <summary>
+        /// T-N6-2a：额外登记回调（ABI 兼容钩子）——<see cref="PresentationSchemaCatalog.RegisterAll"/>
+        /// 完成 L0～L5 全部表登记之后、<see cref="IDataRegistry.LoadAll(IReadOnlyList{IDataSource})"/>
+        /// 之前调用一次，供不属于运行期宿主装配链、但仍需要参与内容校验/元数据门禁的表登记入口接入
+        /// （首个消费方：<c>Core.Sim.SimSchemaCatalog.RegisterAll</c>——<c>sim.scenario</c>/
+        /// <c>sim.anchor</c> 仅无头仿真与内容工具读取，不进 <see cref="PresentationSchemaCatalog"/>/
+        /// <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog"/> 本身，见
+        /// <c>Core.Sim.SimSchemaCatalog</c> 类型判断记录）。默认 <c>null</c>（不追加任何登记，行为与
+        /// 改动前完全一致）。判断记录（新增可设属性而非新增方法重载）：<see cref="ContentValidationOptions"/>
+        /// 是一个普通可变属性类（不是位置参数的不可变类型），新增一个带默认值 <c>null</c> 的属性不改变
+        /// 任何既有构造函数/方法的物理签名，是本类型一贯的扩展方式（同 <see cref="ItemBudgetCurveId"/>/
+        /// <see cref="CreatureTemplateQuery"/> 等既有可选属性同一惯例），比新增 <c>CreateRegistryCore</c>
+        /// 重载更简单、调用点也不需要改动既有传参方式。</summary>
+        public Action<IDataRegistry>? ExtraSchemaRegistration { get; set; }
+
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入）：透传给 <see
+        /// cref="Presentation.Assembly.PresentationSchemaCatalog.RegisterAll(IDataRegistry, Id?,
+        /// Core.Carriers.Creature.ICreatureTemplateQuery?, Core.Rules.Common.ISkillBudgetAnchorProvider?)"/>
+        /// ——<c>SkillBudgetValidationRule</c>/<c>ItemGrantValueExceedsShareRule</c> 两条预算校验规则
+        /// 的锚点数据来源。默认 <c>null</c>（与本属性新增之前逐位一致：两条规则注册但不产生任何问题）。
+        /// 判断记录（为何是可设属性而不是新增 <c>CreateRegistryCore</c>/<c>Run</c> 重载）：与 <see
+        /// cref="ExtraSchemaRegistration"/> 同一惯例（该属性判断记录"新增可设属性而非新增方法重载"）——
+        /// <see cref="ContentValidationOptions"/> 是普通可变属性类，新增属性不改变任何既有方法的物理
+        /// 签名，调用点（<c>toolchain/validator/Program.cs</c>）不需要改变既有传参方式。<c>toolchain/
+        /// validator</c> 按"数据源是否含 <c>sim.anchor</c>"决定是否构造并设置本属性（见该文件接入点
+        /// 判断记录），惰性持有 registry 引用的 <see cref="Core.Sim.AnchorTableSkillBudgetAnchorProvider"/>
+        /// 可以在 <see cref="CreateRegistryCore"/>（加载之前）就构造好，真正读取推迟到
+        /// <see cref="IDataRegistry.LoadAll(IReadOnlyList{IDataSource})"/> 内部"全部表装载完毕后跑
+        /// <see cref="IValidationRule.Validate"/>"这一步（见该类型判断记录），不需要两遍装配。
+        /// </summary>
+        public Core.Rules.Common.ISkillBudgetAnchorProvider? SkillBudgetAnchorProvider { get; set; }
     }
 
     /// <summary>
@@ -336,7 +369,8 @@ namespace Presentation.Assembly
             // Validate() 调用时（此时数据已加载），构造顺序上不需要 registry 提前加载完成，
             // 这里直接传刚 new 出来的 registry（它本身就是 IDataRegistryView）即可。
             var creatureTemplateQuery = options.CreatureTemplateQuery ?? new RegistryCreatureTemplateQuery(registry);
-            PresentationSchemaCatalog.RegisterAll(registry, options.ItemBudgetCurveId, creatureTemplateQuery);
+            PresentationSchemaCatalog.RegisterAll(
+                registry, options.ItemBudgetCurveId, creatureTemplateQuery, options.SkillBudgetAnchorProvider);
 
             // 消费方反馈第 44 条：CreatureTemplateQuery 未指定时默认使用 RegistryCreatureTemplateQuery
             // （见上），规则因此默认启用——不再有"未接线即禁用"的分支，SpawnSummonOnlyCreatureRuleName
@@ -348,6 +382,12 @@ namespace Presentation.Assembly
             // 不再计入 disabled。
             var displayMapCoverageSources = options.DisplayMapCoverageSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
             registry.RegisterValidationRule(new DisplayMapCoverageRule(displayMapCoverageSources));
+
+            // T-N6-2a：额外登记回调，见 ContentValidationOptions.ExtraSchemaRegistration 判断记录。
+            // 放在 PresentationSchemaCatalog.RegisterAll 与两条可选规则之后——调用方（如
+            // Core.Sim.SimSchemaCatalog.RegisterAll）若需要引用本方法已登记的表（如 arch.class、
+            // creature.template）声明 Reference 字段，此时这些表已经登记完毕。
+            options.ExtraSchemaRegistration?.Invoke(registry);
 
             disabledOptionalRules = disabled;
             return registry;

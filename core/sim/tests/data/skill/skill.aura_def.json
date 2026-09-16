@@ -1,0 +1,35 @@
+{
+  "table": "skill.aura_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.aura_def.sim_toughness",
+      "max_stacks": 1,
+      "effects": [
+        {
+          "kind": "mod_stat",
+          "params": {
+            "stat": "stat.stamina",
+            "op": "flat",
+            "value": 20
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.aura_def.sim_battle_shout",
+      "duration": 20.0,
+      "max_stacks": 1,
+      "effects": [
+        {
+          "kind": "mod_stat",
+          "params": {
+            "stat": "stat.attack_power",
+            "op": "pct",
+            "value": 0.15
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -175,6 +175,51 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
    时的"退化为无分档加成"是调用方（`ExtraXpMultiplierProvider` 钩子）的职责，不是本方法的职责
    ——本方法只负责"查得到就给真实值，查不到就说明查不到"。
 
+10. **T-N6-3b（[ADR-0035](../../../architecture/adr/0035-数值仿真骨架为框架交付物.md) 决策 3
+    "生物模板按指定等级出生"）：`ICreatureFactory`/`CreatureFactory.Spawn` 6 参重载 + 新增契约
+    `ICreatureLevelScaler`**：`ICreatureFactory` 新增默认接口成员
+    `Spawn(templateId, mapId, position, facing, ownerId, int level)`（ABI 硬性规则"新增走默认
+    接口成员/新重载"，不改既有 5 参成员）——默认实现直接委托 5 参重载、忽略 `level`（未显式覆盖
+    本成员的旧实现类/测试假类经接口引用调用时行为不变）；`CreatureFactory` 显式实现本成员，真正
+    按 `level` 覆盖 `CreatureUnit.Level`（不再取 `template.Level`），使 `IUnitAccess.GetLevel`/
+    经验发放/等级差计算等消费方自然读到新等级。
+    <br/><br/>
+    **基础属性换算**：新增窄接口 `ICreatureLevelScaler.ScaleBaseStats(template, templateLevel,
+    targetLevel, baseStats)`（放本模块，因为真正的锚点表数据登记在更上层的 `core/sim`，
+    `core/carriers/creature`（L3）不能反向依赖它，只能按依赖倒置声明这个薄接口、由 `core/sim`
+    装配期实现并反向注入——架构 01 第 8 节"窄接口反向注入"）；`CreatureFactory` 新增 10 参构造
+    重载接受可选 `ICreatureLevelScaler? levelScaler`（未注入或 `spawnLevel == template.Level`
+    时原样返回 `template.BaseStats`，即"等级改、属性不变"）。分档 `stat_multiplier` 仍在换算之后
+    按既有顺序相乘（`ApplyStats` 唯一改动是把 `template.BaseStats` 换成 `ResolveBaseStats` 的
+    结果，倍率相乘顺序不变）。
+    <br/><br/>
+    **判断记录（`ProgressionHost.RegisterUnit` 改传 `spawnLevel` 而不是固定 `template.Level`）**：
+    `spawnLevel` 未被覆盖时恒等于 `template.Level`，对既有调用方零变化；被覆盖时，
+    Progression 内部登记的"当前等级"同步为 `spawnLevel`（否则后续 `AddXp`/`GetXpToNext` 仍按
+    模板等级计算，与 `CreatureUnit.Level` 已经写成 `spawnLevel` 相互矛盾）——曲线"2..当前登记
+    等级"复利是 `ApplyGrowthToCurrentLevel` 的既有既定语义，本任务只是把"当前登记等级"的来源
+    从硬编码的 `template.Level` 改成 `spawnLevel`，曲线计算方式不变；若某模板既配置了
+    `stat_growth_ref`、又用 6 参 `Spawn` 指定了不同等级、且未注入 `ICreatureLevelScaler`，基础
+    属性仍会经曲线"2..spawnLevel"算出与未覆盖时不同的修正值——`ICreatureLevelScaler` 判断记录
+    "未注入时属性不变"特指本任务新增的缩放器这一步不生效，不改写曲线这一既有独立机制的既定行为，
+    两者是否要在同一模板上组合使用留给设计层/装配层口味决策，本任务不禁止也不特殊处理。
+    <br/><br/>
+    测试：`core/carriers/creature/tests/CreatureFactoryTests.cs`（未注入缩放器属性不变、注入线性
+    缩放器按缩放器输出再乘分档、既有 5 参 `Spawn` 行为不变）；
+    `core/gameplay/progression_bridge/tests/T_N6_3b_CreatureLevelOverrideKillXpTests.cs`（按覆盖
+    等级出生的怪被击杀时击杀经验按新等级算，端到端）。
+
+11. **`creature.tier_definition.gold_multiplier`（T-N6-3b，N4 遗留第 7 项；ADR-0034 决策 3 延伸；
+    08 第 7.4 节"怪物掉钱 = 当量 × econ.gold_base_curve(怪物等级) × 分档倍率 ×
+    diff.tier.loot_multiplier"）**：该分档的金币倍率，缺省 1（无加成）——`CreatureFactory.
+    LoadTiers` 解析进 `TierInfo.GoldMultiplier`，新增公开查询方法
+    `TryGetGoldMultiplier(Id tierId, out double multiplier)`，取法与
+    `TryGetXpMultiplier`（判断记录 9）完全一致（已登记返回 `(true, 该值)`，未登记返回
+    `(false, 1.0)`，不抛异常）——`CreatureFactory` 同样不知道、也不引用
+    `Core.Gameplay.Loot.LootGoldMultiplierProvider`，真正把该查询结果接进这个钩子的是
+    `core/gameplay/assembly.GameplayAssembly`，见 `core/gameplay/loot/README.md` 判断记录 17
+    "T-N6-3b 变更记录"。
+
 ## 不负责什么
 
 - 不实现刷新表（`SpawnHost`，L4）——本模块只提供 `ICreatureFactory` 供其调用，`summon_only`
@@ -182,3 +227,6 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
 - 不解析 `ai.rotation`/`ai.behavior_profile`/`loot.table`/`display.map`——这些表结构由各自模块
   负责，本模块只把引用 Id 原样传递（`ai_rotation_ref`/`ai_behavior_ref`/`loot_table_ref` 经
   `AiRegistrar`/`CreatureUnit.LootTableId` 传出）。
+- T-N6-3b：不实现任何具体的等级缩放算法（如按锚点表插值）——本模块只声明窄接口
+  `ICreatureLevelScaler` 并在未注入时退化为"属性不变"，真正的锚点表数据与插值算法归上层模块
+  `core/sim`，装配期反向注入，见判断记录 10。

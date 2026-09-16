@@ -1,0 +1,30 @@
+{
+  "table": "sim.scenario",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "sim.scenario.sample_arena",
+      "kind": "arena",
+      "player": {
+        "class_id": "arch.class.sample_a",
+        "level": 1
+      },
+      "opponent": {
+        "creature_id": "creature.sample_beast",
+        "tier_id": "creature.tier.sample_normal",
+        "level": 1
+      },
+      "levels": [1],
+      "runs": 10,
+      "base_seed": 20260916,
+      "max_ticks": 600,
+      "bandwidths": {
+        "dps": 0.1,
+        "hp": 0.1,
+        "ttk": 0.1,
+        "ttd": 0.1
+      },
+      "note": "T-N6-2a 示例数据：单等级战斗仿真场景，仅供 schema/校验/ScenarioCatalog 测试使用"
+    }
+  ]
+}

@@ -117,7 +117,27 @@ namespace Core.Gameplay.Assembly
             IDataRegistry registry, Id? itemBudgetCurveId, ICreatureTemplateQuery? creatureTemplateQuery,
             Id? economyValueCurveId, double? economyPriceDeviationThreshold)
         {
-            CarriersSchemaCatalog.RegisterAll(registry, itemBudgetCurveId);
+            RegisterAll(registry, itemBudgetCurveId, creatureTemplateQuery,
+                economyValueCurveId, economyPriceDeviationThreshold, anchorProvider: null);
+        }
+
+        /// <summary>
+        /// T-N6-3a（ADR-0035 决策 4 锚点表接入）：新增重载——额外接受真实
+        /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>，透传给 <see
+        /// cref="Core.Carriers.Assembly.CarriersSchemaCatalog.RegisterAll(IDataRegistry, Id?, double?,
+        /// Id?, double?, Core.Rules.Common.ISkillBudgetAnchorProvider?)"/>（此前恒传
+        /// <c>anchorProvider: null</c>）。<paramref name="anchorProvider"/> 为 <c>null</c> 时与
+        /// <see cref="RegisterAll(IDataRegistry, Id?, ICreatureTemplateQuery?, Id?, double?)"/> 逐位
+        /// 一致（回归）。ABI：新增重载，不改动既有三个 <c>RegisterAll</c> 重载的签名/行为。
+        /// </summary>
+        public static void RegisterAll(
+            IDataRegistry registry, Id? itemBudgetCurveId, ICreatureTemplateQuery? creatureTemplateQuery,
+            Id? economyValueCurveId, double? economyPriceDeviationThreshold,
+            Core.Rules.Common.ISkillBudgetAnchorProvider? anchorProvider)
+        {
+            CarriersSchemaCatalog.RegisterAll(registry, itemBudgetCurveId,
+                itemBudgetUtilizationWarningThreshold: null, weaponDpsCurveId: null,
+                weaponDamageDeviationThreshold: null, anchorProvider: anchorProvider);
 
             var exprSchema = FullExprSchema;
 

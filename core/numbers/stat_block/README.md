@@ -301,6 +301,34 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   `stat.healing_done_pct`——`Core.Rules.Combat.CombatOptions` 构造期硬编码的默认属性 id，运行时
   选项引用不在数据里，规则拿不到，只能手抄登记，若 `CombatOptions` 未来改名/新增默认属性 id 需要
   人工同步，本模块不能反射跨层读取 L2 类型）。
+
+  **T-N6-4b 补充第五项：`stat.move_speed`**——真正的消费者是
+  `Core.Carriers.Unit.MovementTickHandler.ResolveSpeed`（`core/carriers/unit`，L3，框架模块，不是
+  任何具体游戏内容）：`ResolveSpeed` 读取 `MovementOptions.MoveSpeedStat`（构造期硬编码默认值
+  `stat.move_speed`，同上面四项 `CombatOptions` 默认值同一性质），只要某单位产生一次 `move`
+  意图（无论是玩家寻路，还是 `core/rules/ai` 的 `AiHost.HandleChase` 状态机为已注册单位生成的
+  追击位移——后者正是 `core/sim` 越级矩阵仿真里生物主动追击玩家时真正触发的路径），
+  `MovementTickHandler.Execute` 就会调用它；`IStatHost.GetStat` 对"属性未在 `stat.definition`
+  登记"直接抛 `ArgumentException`（既有行为，非本次改动引入），因此任何会移动单位的内容集都必须
+  登记这个属性才能通过。**这里需要更正一处此前汇报里不够精确的说法**：`core/sim` 自己新增的
+  `SimpleMoveModel`（T-N6-4，玩家侧简化移动模型）**不**读取 `stat.move_speed`——它的移动速度是
+  调用方显式传入的参数（默认常量 `SimpleMoveModel.DefaultMoveSpeed`），不经过
+  `IStatHost.GetStat`；真正触发这条校验缺口的，是 `AiHost` 驱动生物追击时落到的
+  `MovementTickHandler` 这条既有框架路径，`SimpleMoveModel` 只是同一个仿真场景里恰好并存的
+  另一段代码，不是这个"无消费者"缺口的成因。
+  **命名是否为 06 文档正式收录的框架保留 id**：检索 `architecture/06_规则层_属性技能战斗AI.md`/
+  `05_对象模型与世界.md`/`数值设计/01_人物属性.md` 全文，均只出现中文"移动速度"，未见任何文档
+  把 `stat.move_speed` 这个具体字符串登记为架构层面的保留 id——`Core.Carriers.Unit
+  .MovementOptions.cs` 自身判断记录也明确写"速度属性 id……不属于架构层面的固定语义，可按具体
+  游戏口味调整"。但 `data/_sample/stat/stat.definition.json`（该文件已登记 `stat.move_speed`，
+  经 `stat.weight.move_speed` 作为消费者，走的是另一条不需要本清单的路径）与
+  `MovementOptions.MoveSpeedStat` 的代码默认值已经形成事实上的既成惯例，`core/sim/tests/data`
+  沿用同一个字符串是跟随既有惯例、不是另起炉灶。**设计层裁定（2026-09-16，T-N6-8a）：采纳**——
+  把 `stat.move_speed` 正式写进 06 文档，登记为"移速属性"的框架保留 id（类似
+  `stat.armor`/`stat.hit_rating` 那样有文档背书），避免未来每个新内容集各自"重新发现"这同一个
+  事实惯例；已在 `architecture/06_规则层_属性技能战斗AI.md` 第 1 节"单机推荐属性分类"补一句并
+  在该文档变更记录表追加一行细节勘误（ADR 列"—"），本模块判断记录同步改写为明确结论，不再是
+  待确认状态。
 - **级别与不可提升**：`DefaultSeverity = Warning`，`NonEscalatable = true`——04 第 5 节明文
   "警告级这一组登记为不可提升"（ADR-0030～0034 新增的数值类警告整组，不只本规则），即使
   `DataRegistryStrictness.WarningsBlock` 下也不阻断（`ValidationRuleMetadataTests` 同款语义，见

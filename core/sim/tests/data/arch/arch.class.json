@@ -1,0 +1,31 @@
+{
+  "table": "arch.class",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.class.sim_warrior",
+      "name_key": "l10n.class.sim_warrior.name",
+      "primary_stat": "stat.strength",
+      "base_stats": {
+        "stat.strength": 12,
+        "stat.agility": 6,
+        "stat.intellect": 4,
+        "stat.stamina": 150
+      },
+      "power_types": [
+        "arch.power.health",
+        "arch.power.sim_fury"
+      ],
+      "skill_book_ref": "skill.book.sim_warrior",
+      "talent_tree_ref": "arch.talent_tree.sim_warrior",
+      "level_curve_ref": "prog.level_curve.sim_warrior",
+      "derivation_overrides": [
+        {
+          "stat": "stat.attack_power",
+          "source": "stat.strength",
+          "coefficient": 1.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,542 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.map.sim_warrior_strike",
+      "category": "skill",
+      "logical_id": "skill.sim_warrior_strike",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_warrior_toughness",
+      "category": "skill",
+      "logical_id": "skill.sim_warrior_toughness",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_warrior_battle_shout",
+      "category": "skill",
+      "logical_id": "skill.sim_warrior_battle_shout",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_warrior_rampage",
+      "category": "skill",
+      "logical_id": "skill.sim_warrior_rampage",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_warrior_execute",
+      "category": "skill",
+      "logical_id": "skill.sim_warrior_execute",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_creature_bite",
+      "category": "skill",
+      "logical_id": "skill.sim_creature_bite",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_creature_bite_elite",
+      "category": "skill",
+      "logical_id": "skill.sim_creature_bite_elite",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_toughness_aura",
+      "category": "aura",
+      "logical_id": "skill.aura_def.sim_toughness",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_battle_shout_aura",
+      "category": "aura",
+      "logical_id": "skill.aura_def.sim_battle_shout",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l1_common",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l1_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l1_common",
+      "category": "item",
+      "logical_id": "item.sim_head_l1_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l1_common",
+      "category": "item",
+      "logical_id": "item.sim_chest_l1_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l1_common",
+      "category": "item",
+      "logical_id": "item.sim_legs_l1_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l1_common",
+      "category": "item",
+      "logical_id": "item.sim_feet_l1_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l1_rare",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l1_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l1_rare",
+      "category": "item",
+      "logical_id": "item.sim_head_l1_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l1_rare",
+      "category": "item",
+      "logical_id": "item.sim_chest_l1_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l1_rare",
+      "category": "item",
+      "logical_id": "item.sim_legs_l1_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l1_rare",
+      "category": "item",
+      "logical_id": "item.sim_feet_l1_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l5_common",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l5_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l5_common",
+      "category": "item",
+      "logical_id": "item.sim_head_l5_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l5_common",
+      "category": "item",
+      "logical_id": "item.sim_chest_l5_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l5_common",
+      "category": "item",
+      "logical_id": "item.sim_legs_l5_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l5_common",
+      "category": "item",
+      "logical_id": "item.sim_feet_l5_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l5_rare",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l5_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l5_rare",
+      "category": "item",
+      "logical_id": "item.sim_head_l5_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l5_rare",
+      "category": "item",
+      "logical_id": "item.sim_chest_l5_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l5_rare",
+      "category": "item",
+      "logical_id": "item.sim_legs_l5_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l5_rare",
+      "category": "item",
+      "logical_id": "item.sim_feet_l5_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l10_common",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l10_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l10_common",
+      "category": "item",
+      "logical_id": "item.sim_head_l10_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l10_common",
+      "category": "item",
+      "logical_id": "item.sim_chest_l10_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l10_common",
+      "category": "item",
+      "logical_id": "item.sim_legs_l10_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l10_common",
+      "category": "item",
+      "logical_id": "item.sim_feet_l10_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l10_rare",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l10_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l10_rare",
+      "category": "item",
+      "logical_id": "item.sim_head_l10_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l10_rare",
+      "category": "item",
+      "logical_id": "item.sim_chest_l10_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l10_rare",
+      "category": "item",
+      "logical_id": "item.sim_legs_l10_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l10_rare",
+      "category": "item",
+      "logical_id": "item.sim_feet_l10_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l15_common",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l15_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l15_common",
+      "category": "item",
+      "logical_id": "item.sim_head_l15_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l15_common",
+      "category": "item",
+      "logical_id": "item.sim_chest_l15_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l15_common",
+      "category": "item",
+      "logical_id": "item.sim_legs_l15_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l15_common",
+      "category": "item",
+      "logical_id": "item.sim_feet_l15_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l15_rare",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l15_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l15_rare",
+      "category": "item",
+      "logical_id": "item.sim_head_l15_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l15_rare",
+      "category": "item",
+      "logical_id": "item.sim_chest_l15_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l15_rare",
+      "category": "item",
+      "logical_id": "item.sim_legs_l15_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l15_rare",
+      "category": "item",
+      "logical_id": "item.sim_feet_l15_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l20_common",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l20_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l20_common",
+      "category": "item",
+      "logical_id": "item.sim_head_l20_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l20_common",
+      "category": "item",
+      "logical_id": "item.sim_chest_l20_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l20_common",
+      "category": "item",
+      "logical_id": "item.sim_legs_l20_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l20_common",
+      "category": "item",
+      "logical_id": "item.sim_feet_l20_common",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_main_hand_l20_rare",
+      "category": "item",
+      "logical_id": "item.sim_main_hand_l20_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_head_l20_rare",
+      "category": "item",
+      "logical_id": "item.sim_head_l20_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_chest_l20_rare",
+      "category": "item",
+      "logical_id": "item.sim_chest_l20_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_legs_l20_rare",
+      "category": "item",
+      "logical_id": "item.sim_legs_l20_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_feet_l20_rare",
+      "category": "item",
+      "logical_id": "item.sim_feet_l20_rare",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_wolf_l1",
+      "category": "creature",
+      "logical_id": "creature.sim_wolf_l1",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_wolf_l5",
+      "category": "creature",
+      "logical_id": "creature.sim_wolf_l5",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_wolf_l10",
+      "category": "creature",
+      "logical_id": "creature.sim_wolf_l10",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_wolf_l15",
+      "category": "creature",
+      "logical_id": "creature.sim_wolf_l15",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_wolf_l20",
+      "category": "creature",
+      "logical_id": "creature.sim_wolf_l20",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_wolf_elite_l10",
+      "category": "creature",
+      "logical_id": "creature.sim_wolf_elite_l10",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 8
+    },
+    {
+      "id": "display.map.sim_probe_overbudget",
+      "category": "skill",
+      "logical_id": "skill.def.sim_probe_overbudget",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.sim_probe_underbudget",
+      "category": "item",
+      "logical_id": "item.template.sim_probe_underbudget",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.sim_placeholder",
+      "direction_count": 4
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "table": "stat.weight",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "stat.weight.sim_strength",
+      "stat": "stat.strength",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_agility",
+      "stat": "stat.agility",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_intellect",
+      "stat": "stat.intellect",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_stamina",
+      "stat": "stat.stamina",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_attack_power",
+      "stat": "stat.attack_power",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_crit_rating",
+      "stat": "stat.crit_rating",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_dodge_rating",
+      "stat": "stat.dodge_rating",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_hit_rating",
+      "stat": "stat.hit_rating",
+      "weight": 1.0
+    },
+    {
+      "id": "stat.weight.sim_armor",
+      "stat": "stat.armor",
+      "weight": 1.0
+    }
+  ]
+}

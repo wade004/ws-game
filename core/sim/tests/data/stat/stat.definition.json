@@ -1,0 +1,69 @@
+{
+  "table": "stat.definition",
+  "schema_version": 2,
+  "rows": [
+    {
+      "id": "stat.strength",
+      "name_key": "l10n.stat.strength.name",
+      "category": "primary"
+    },
+    {
+      "id": "stat.agility",
+      "name_key": "l10n.stat.agility.name",
+      "category": "primary"
+    },
+    {
+      "id": "stat.intellect",
+      "name_key": "l10n.stat.intellect.name",
+      "category": "primary"
+    },
+    {
+      "id": "stat.stamina",
+      "name_key": "l10n.stat.stamina.name",
+      "category": "primary"
+    },
+    {
+      "id": "stat.attack_power",
+      "name_key": "l10n.stat.attack_power.name",
+      "category": "derived",
+      "derived_from": [
+        {
+          "stat": "stat.strength",
+          "coefficient": 1.0
+        }
+      ]
+    },
+    {
+      "id": "stat.crit_rating",
+      "name_key": "l10n.stat.crit_rating.name",
+      "category": "percent",
+      "conversion_ref": "stat.rating.sim_crit"
+    },
+    {
+      "id": "stat.dodge_rating",
+      "name_key": "l10n.stat.dodge_rating.name",
+      "category": "percent",
+      "conversion_ref": "stat.rating.sim_dodge"
+    },
+    {
+      "id": "stat.hit_rating",
+      "name_key": "l10n.stat.hit_rating.name",
+      "category": "percent",
+      "default_base": 0
+    },
+    {
+      "id": "stat.armor",
+      "name_key": "l10n.stat.armor.name",
+      "category": "defense",
+      "clamp": {
+        "min": 0
+      }
+    },
+    {
+      "id": "stat.move_speed",
+      "name_key": "l10n.stat.move_speed.name",
+      "category": "misc",
+      "default_base": 4
+    }
+  ]
+}

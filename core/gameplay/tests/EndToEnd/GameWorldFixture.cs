@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Adapters.Stub;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
@@ -12,6 +11,7 @@ using Core.Foundation.Rng;
 using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
+using Core.Sim;
 
 // 判断记录：Core.Foundation.SaveSystem 命名空间与其内的 SaveSystem 类同名，裸写 "SaveSystem" 会被
 // 编译器解析成命名空间本身而报 CS0118（同 core/gameplay/assembly/GameplayAssembly.cs 顶部对
@@ -199,6 +199,14 @@ namespace Tests.Gameplay.EndToEnd
         /// <c>GameplayAssemblyAutosaveGateTests</c> 之类需要覆盖 <c>AutoSave.OnSavePoint</c> 的用例
         /// 构造出"该触发点被关闭"的世界，不需要每个用例重复复制本方法其余几十行装配逻辑。
         /// </para>
+        /// <para>
+        /// T-N6-1（ADR-0035 决策 1）：本方法"组装一整套世界"的逻辑已上提为框架交付物
+        /// <see cref="Core.Sim.HeadlessWorldBuilder"/>（<c>core/sim</c>，无头运行器的装配根，随本任务
+        /// 一并上线）——本方法自身只保留"从磁盘读取 <c>data/_framework</c>/<c>data/_sample</c> 构造
+        /// <see cref="FileSystemDataSource"/>"这一段仓库路径相关逻辑（<see cref="FindRepoRoot"/>），
+        /// 其余装配委托给 <see cref="HeadlessWorldBuilder.Build"/>，本类型与全部公开字段/方法签名不变，
+        /// 调用方（<c>EndToEndTests</c> 等）不需要任何改动。
+        /// </para>
         /// </summary>
         public static Fixture Build(
             ulong seed = 20260905UL,
@@ -206,75 +214,52 @@ namespace Tests.Gameplay.EndToEnd
             bool enableDiscreteTimeModel = false,
             SaveSystemOptions? saveSystemOptions = null)
         {
-            var engine = new StubEngine();
-            var fs = fileSystem ?? engine.FileSystem;
-
-            var definitions = EventKeys.All.Select(k => new EventDefinition(k, k.Domain, Array.Empty<string>())).ToList();
-            var catalog = EventCatalog.FromDefinitions(definitions);
-            var bus = new EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = true });
-            var events = new List<Core.Foundation.EventBus.IEvent>();
-            foreach (var key in EventKeys.All)
-            {
-                bus.Subscribe(key, e => events.Add(e));
-            }
+            var fs = fileSystem ?? new StubFileSystem();
 
             var frameworkSource = BuildRealFrameworkSource(fs);
             var source = BuildRealSampleSource(fs);
-            var options = GameplaySchemaCatalog.CreateOptions();
-            // 判断记录（阶段 4 收敛 B 追加）：data/_sample 现在同时装着 L0～L4（本类关心的）与
-            // presentation/assembly.PresentationSchemaCatalog 新登记的 L5 表现层表
-            // （vfx.def/sfx.def/camera_profile/... 等）；本类是纯 L4 端到端夹具，不应该为了看见
-            // 磁盘上共享的 L5 示例数据文件就反过来依赖 presentation/Presentation.Common.csproj
+
+            // 判断记录（阶段 4 收敛 B 追加，随 T-N6-1 搬迁到调用点）：data/_sample 现在同时装着
+            // L0～L4（本类关心的）与 presentation/assembly.PresentationSchemaCatalog 新登记的 L5
+            // 表现层表（vfx.def/sfx.def/camera_profile/... 等）；本类是纯 L4 端到端夹具，不应该为了
+            // 看见磁盘上共享的 L5 示例数据文件就反过来依赖 presentation/Presentation.Common.csproj
             // （那会是一次向上依赖，违反 01_分层与依赖.md 的层次方向）。FailOnUnknownTable=false
             // 让这些未在 GameplaySchemaCatalog 登记的表按"无 schema 表"只做信封检查后加载，不阻断
             // 本类完全不关心的 L5 数据——这正是 DataRegistryOptions.FailOnUnknownTable 设计出来
             // 要处理的场景。
-            options.FailOnUnknownTable = false;
-            var registry = new DataRegistry(frameworkSource, bus, options);
-            GameplaySchemaCatalog.RegisterAll(registry);
-            var report = registry.LoadAll(new IDataSource[] { frameworkSource, source });
-            if (report.IsBlocking)
+            var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
             {
-                throw new InvalidOperationException(
-                    "GameWorldFixture 夹具数据未通过校验：" + string.Join("; ", report.Issues));
-            }
+                DataSources = new IDataSource[] { frameworkSource, source },
+                Seed = seed,
+                FileSystem = fs,
+                EnableDiscreteTimeModel = enableDiscreteTimeModel,
+                SaveSystemOptions = saveSystemOptions,
+                FailOnUnknownTable = false,
+                MapId = MapId,
+                PlayerId = PlayerId,
+                PlayerFactionId = FactionPlayer,
+                PlayerClassId = ClassSample,
+                GameId = GameId,
+                StepSeconds = StepSeconds,
+            });
 
-            var rng = new RngHost(seed);
-            var world = new WorldSim(bus);
-            var spatial = new StubSpatialQuery();
-            // 判断记录（缺口 16，ISaveSystem 归 GameplayAssembly 持有）：本夹具改在这里就地构造
-            // 唯一一份 RealSaveSystem 并直接传给 GameplayAssembly 构造函数——Fixture.SaveSystem
-            // 字段下方复用同一个实例（不再另建一份），与 GameplayAssembly.SaveSystem 属性等价。
-            var saveSystem = new RealSaveSystem(fs, saveSystemOptions ?? new SaveSystemOptions(GameId), bus);
-
-            var clock = new SimClockHost(world, new SimLoopOptions { StepSeconds = StepSeconds, MaxCatchUpSteps = 4 });
-
-            var gameplay = new GameplayAssembly(
-                bus, registry, rng, world, spatial, saveSystem,
-                playerUnitProvider: () => PlayerId,
-                playerFactionId: FactionPlayer,
-                clockHost: enableDiscreteTimeModel ? clock : null);
-
-            var player = new PlayerUnit(PlayerId, MapId, FactionPlayer, ClassSample) { Position = new Vec2(0, 0) };
-            world.AddEntity(player);
-            gameplay.Carriers.Rules.RegisterUnit(PlayerId, ClassSample, raceId: null, level: 1);
-            spatial.Register(PlayerId, player.Position, 0.5);
-            gameplay.Economy.RegisterUnit(PlayerId);
-
+            // 判断记录：数据校验阻断的抛出已下沉到 HeadlessWorldBuilder.Build 内部（校验不通过时
+            // 该调用本身会抛 InvalidOperationException，不会走到这一行），本方法不再重复判断
+            // world.LoadReport.IsBlocking——避免出现一段调用方永远到不了的死分支。
             return new Fixture
             {
-                Bus = bus,
-                Events = events,
-                Registry = registry,
-                LoadReport = report,
-                Rng = rng,
-                World = world,
-                Spatial = spatial,
-                Clock = clock,
-                Gameplay = gameplay,
-                Player = player,
-                FileSystem = fs,
-                SaveSystem = saveSystem,
+                Bus = world.Bus,
+                Events = world.Events,
+                Registry = world.Registry,
+                LoadReport = world.LoadReport,
+                Rng = world.Rng,
+                World = world.World,
+                Spatial = world.Spatial,
+                Clock = world.Clock,
+                Gameplay = world.Gameplay,
+                Player = world.Player,
+                FileSystem = world.FileSystem,
+                SaveSystem = world.SaveSystem,
             };
         }
     }

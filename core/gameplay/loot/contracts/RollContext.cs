@@ -40,6 +40,15 @@ namespace Core.Gameplay.Loot
         /// 传入，本模块不直接依赖 <c>core/gameplay/difficulty</c>。缺省 0（无难度偏移）。</summary>
         public int ItemLevelOffset { get; }
 
+        /// <summary>T-N6-3b 新增（08 第 1.1/7.4 节"怪物掉钱……× 分档倍率……"）：掉落来源单位的
+        /// <c>creature.tier_definition</c> 分档 id，供 <see cref="LootHost"/> 换算货币掉落条目时查询
+        /// <c>gold_multiplier</c>（经 <see cref="LootGoldMultiplierProvider"/> 钩子，见
+        /// <c>LootHost.ResolveCurrencyOutcome</c> 判断记录）；<c>null</c> 表示未能解析出分档信息
+        /// （如来源未登记模板，见 <c>Core.Gameplay.Loot.CreatureDeathLootListener</c> 判断记录），此时
+        /// 退化为"无分档金币加成"。惯例同 <see cref="SourceLevel"/>：确定性字段，不参与任何随机数
+        /// 消耗。</summary>
+        public Id? TierId { get; }
+
         public RollContext(Id sourceUnitId, Id? killerId = null, double multiplier = 1.0, Id? contextId = null)
         {
             SourceUnitId = sourceUnitId;
@@ -48,6 +57,7 @@ namespace Core.Gameplay.Loot
             ContextId = contextId ?? sourceUnitId;
             SourceLevel = null;
             ItemLevelOffset = 0;
+            TierId = null;
         }
 
         /// <summary>T-N2-8 新增重载（ABI 硬性规则"只允许新增"，不改既有 4 参构造函数签名）：额外接受
@@ -61,6 +71,20 @@ namespace Core.Gameplay.Loot
             ContextId = contextId ?? sourceUnitId;
             SourceLevel = sourceLevel;
             ItemLevelOffset = itemLevelOffset;
+            TierId = null;
+        }
+
+        /// <summary>T-N6-3b 新增重载（ABI 硬性规则"只允许新增"，不改既有 6 参构造函数签名）：额外接受
+        /// 来源单位分档 id，见 <see cref="TierId"/> 判断记录。</summary>
+        public RollContext(Id sourceUnitId, Id? killerId, double multiplier, Id? contextId, int? sourceLevel, int itemLevelOffset, Id? tierId)
+        {
+            SourceUnitId = sourceUnitId;
+            KillerId = killerId;
+            Multiplier = multiplier;
+            ContextId = contextId ?? sourceUnitId;
+            SourceLevel = sourceLevel;
+            ItemLevelOffset = itemLevelOffset;
+            TierId = tierId;
         }
     }
 }

@@ -1,0 +1,65 @@
+{
+  "table": "skill.base_curve",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.base_curve.sim_warrior_execute",
+      "entries": [
+        {
+          "x": 1,
+          "y": 20
+        },
+        {
+          "x": 20,
+          "y": 20
+        }
+      ]
+    },
+    {
+      "id": "skill.base_curve.sim_creature_bite",
+      "entries": [
+        {
+          "x": 1,
+          "y": 117.6
+        },
+        {
+          "x": 5,
+          "y": 262.1
+        },
+        {
+          "x": 10,
+          "y": 555.5
+        },
+        {
+          "x": 15,
+          "y": 799.7
+        },
+        {
+          "x": 20,
+          "y": 1072.2
+        },
+        {
+          "x": 25,
+          "y": 2478.2
+        }
+      ]
+    },
+    {
+      "id": "skill.base_curve.sim_creature_bite_elite",
+      "entries": [
+        {
+          "x": 10,
+          "y": 833.2
+        },
+        {
+          "x": 20,
+          "y": 1608.3
+        },
+        {
+          "x": 25,
+          "y": 3717.3
+        }
+      ]
+    }
+  ]
+}

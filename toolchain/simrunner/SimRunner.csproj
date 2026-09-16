@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>SimRunner</AssemblyName>
+    <RootNamespace>Toolchain.SimRunner</RootNamespace>
+  </PropertyGroup>
+
+  <!-- T-N6-6：工程惯例照抄 toolchain/validator/Validator.csproj 的 lib/ 分发分支（见该文件判断
+       记录）——源码仓库内（本文件与 core/sim 同处一棵 git 工作树）用 ProjectReference，独立发行包内
+       （dist ZIP、UPM 包）改引用 lib/ 下的预编译 DLL。本工具只依赖 Core.Sim（经其既有 ProjectReference
+       链传递可见 Adapters.Stub/Core.Gameplay/Core.Carriers/Core.Rules/Core.Numbers/Core.Foundation），
+       不需要 Presentation.Common（不做 ContentValidationAssembly 那一层内容校验，只调用
+       HeadlessWorldBuilder/ArenaSimulation/GrowthSimulation/CoverageSimulation/BaselineComparer 这些
+       Core.Sim 自己的公开 API）。
+
+       T-N6-7 根治（build.ps1 已补齐 dist/UPM 发行通道的 lib/Core.Sim.dll 等，见该脚本"SimRunner
+       预编译产物打包"判断记录）：下面 lib/ 回退分支此前只列了 Core.Sim/Adapters.Stub/Core.Foundation
+       三个 <Reference>——这三个是 Program.cs 里代码直接触碰到的类型所在的程序集（C# 编译器只要求
+       "直接用到的类型所在程序集"必须在编译期可解析），但 Core.Sim.dll 内部通过其既有
+       ProjectReference 链在运行期还会真正加载 Core.Numbers/Core.Carriers/Core.Rules/Core.Gameplay
+       四个程序集（HeadlessWorldBuilder 组装一整套 L0～L4 世界）——<Reference>（不同于
+       <ProjectReference>）不会让 MSBuild 自动分析并一并拷贝"引用的程序集自身又引用了哪些程序集"
+       这一层传递依赖到输出目录，只补前三个会让独立发行包内 `dotnet build` 编译通过、但
+       `dotnet run`/`dotnet SimRunner.dll` 一执行到任何触达生物/技能/属性系统的路径就抛
+       `FileNotFoundException`（找不到 Core.Numbers.dll 等）——这是本次一并核实、补齐的真实缺口，
+       不是新引入的需求。补全后与 Validator.csproj 同一治理方式：`build.ps1` 打包 dist/UPM 时把
+       全部 7 个 DLL（Core.Foundation/Core.Numbers/Core.Rules/Core.Carriers/Core.Gameplay/Core.Sim/
+       Adapters.Stub）一并拷进 `toolchain/simrunner/lib/`，见该脚本判断记录。 -->
+  <ItemGroup Condition="Exists('..\..\core\sim\Core.Sim.csproj')">
+    <ProjectReference Include="..\..\core\sim\Core.Sim.csproj" />
+    <ProjectReference Include="..\..\adapters\stub\Adapters.Stub.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\core\sim\Core.Sim.csproj')">
+    <Reference Include="Core.Sim">
+      <HintPath>lib\Core.Sim.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Adapters.Stub">
+      <HintPath>lib\Adapters.Stub.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Foundation">
+      <HintPath>lib\Core.Foundation.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <!-- T-N6-7 补齐：Core.Sim.dll 运行期传递依赖，编译器不要求但运行时缺一不可（见上方判断记录）。 -->
+    <Reference Include="Core.Numbers">
+      <HintPath>lib\Core.Numbers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Rules">
+      <HintPath>lib\Core.Rules.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Carriers">
+      <HintPath>lib\Core.Carriers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Gameplay">
+      <HintPath>lib\Core.Gameplay.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

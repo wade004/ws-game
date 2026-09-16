@@ -1,0 +1,30 @@
+{
+  "table": "ai.behavior_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.behavior_profile.sim_creature",
+      "perception_radius": 20,
+      "leash_range": 40,
+      "flee_hp_pct_threshold": 0.0,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.sim_creature",
+      "decision_interval": 0.5,
+      "transitions": {
+        "idle_to_chase": "self.distance_to_target < 20"
+      }
+    },
+    {
+      "id": "ai.behavior_profile.sim_creature_elite",
+      "perception_radius": 25,
+      "leash_range": 45,
+      "flee_hp_pct_threshold": 0.0,
+      "combat_return_policy": "return_to_spawn",
+      "rotation_ref": "ai.rotation.sim_creature_elite",
+      "decision_interval": 0.5,
+      "transitions": {
+        "idle_to_chase": "self.distance_to_target < 25"
+      }
+    }
+  ]
+}

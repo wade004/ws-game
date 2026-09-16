@@ -77,4 +77,46 @@
     </Reference>
   </ItemGroup>
 
+  <!-- T-N6-2a：本工具经 ContentValidationOptions.ExtraSchemaRegistration 钩子调用
+       Core.Sim.SimSchemaCatalog.RegisterAll（见 Program.cs 两处调用点判断记录），因此需要在编译期
+       就能解析 Core.Sim 类型——同上面 Presentation.Common 一样按"源码树是否存在"二选一，条件互补：
+       - 源码仓库内：../../core/sim/Core.Sim.csproj 存在，用 ProjectReference（同时带出它自身的
+         ProjectReference 依赖 Adapters.Stub，MSBuild 自动按依赖图构建，不需要本文件重复声明）。
+       - 独立发行包内（源码树不存在）：改引用 lib\Core.Sim.dll + lib\Adapters.Stub.dll（Core.Sim
+         的公开 API 表面直接用到 Adapters.Stub 的 StubFileSystem/StubSpatialQuery 类型，见
+         HeadlessWorldOptions.FileSystem/HeadlessWorld.Spatial，因此这里也要带一份，同 Core.Sim
+         本身的 ProjectReference 惯例）。
+
+       判断记录（T-N6-2a 落地时：当前两个 dist/UPM 包发行通道尚未真正补齐这两个 DLL，lib/ 分支
+       眼下无法解析）：build.ps1 打包 dist\<ver>\toolchain\validator\lib\ 的清单是 $CoreAssemblies
+       （六个固定名字，见该数组判断记录"六个需要发布给 Unity 端的核心 DLL；不拷贝 Adapters.Stub"），
+       不含 Core.Sim/Adapters.Stub——这是 T-N6-1 README"为何本任务不进 dist/Unity 同步"判断记录 3 的
+       直接后果（Core.Sim 尚未进入任何发布清单）。本任务（T-N6-2a）职责是让 sim.* 两表能被
+       toolchain/validator 校验、且不大改打包脚本（任务书原文）——因此这里只补上与既有六个 DLL
+       完全同构的 Reference 声明，不改动 build.ps1；在 build.ps1 补齐 lib\Core.Sim.dll/
+       lib\Adapters.Stub.dll 之前，独立发行包（dist ZIP、UPM com.gamefoundation.toolchain 包）内
+       `dotnet build`/`dotnet run` toolchain/validator 会因为这两个 HintPath 文件不存在而编译失败；
+       源码仓库内构建（本仓库、CI、check.ps1 全量/-Quick）不受影响，永远走上面的 ProjectReference
+       分支。这份已知缺口留给 T-N6-7（dist/Unity 打包收尾）一并处理，不在本任务范围内提前改
+       build.ps1。
+
+       T-N6-7 根治：build.ps1 现已把 Core.Sim.dll/Adapters.Stub.dll 一并拷进
+       dist\<ver>\toolchain\validator\lib\（见该脚本"补齐 toolchain/validator/lib/ 两个 sim 相关
+       DLL"判断记录），上一段"独立发行包内会编译失败"的缺口已消除；本项目本身不需要任何代码改动
+       ——它此前就已经声明了这两个 <Reference>，只是缺文件，现在文件补齐即可。 -->
+  <ItemGroup Condition="Exists('..\..\core\sim\Core.Sim.csproj')">
+    <ProjectReference Include="..\..\core\sim\Core.Sim.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\core\sim\Core.Sim.csproj')">
+    <Reference Include="Core.Sim">
+      <HintPath>lib\Core.Sim.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Adapters.Stub">
+      <HintPath>lib\Adapters.Stub.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
 </Project>

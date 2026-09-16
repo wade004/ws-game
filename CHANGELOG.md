@@ -419,6 +419,384 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-09-16
+
+MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 12/14 节，T-N6-1～T-N6-8b）——落地 [ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)：新增 `core/sim`（无头运行器装配根从测试程序集上提为可发布模块、`sim.scenario`/`sim.anchor` 两表、标准玩家生成器、三级仿真——战斗仿真/成长仿真/内容覆盖仿真、统计量快照与带带宽比对器的基线比对、命令行入口 `toolchain/simrunner`）；`core/sim/tests/data` 嵌入式最小仿真数据集（拍板 10）跑通对账等式、越级矩阵形状、成长四条轨迹、内容覆盖离群值探针四类验收；接入 `check.ps1`/CI/发布分发清单；文档收尾（本计划末节"落地进度记录"新增 N6 记录、06/05 移动速度属性 id 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档 sim 域口径说明）。
+
+回放/Perf 基线：零改动，原因——`core/gameplay/tests/Replay`/`Perf` 只装配 L2 `RulesAssembly`，本阶段全部改动（新模块 `core/sim`、`toolchain/simrunner`、`check.ps1`/`.github/workflows/ci.yml`/`build.ps1` 分发清单、文档）均落在新模块与工具链/文档层，不触达该装配路径；`dotnet test Core.sln` 全量回归（4249 例）与 `Tests.Gameplay` 的 `ReplayBaselineTests` 全绿，各任务提交时逐一复核，见下方各条目与该计划末节"落地进度记录"N6 一节。
+
+提交链：`d6b4bd0`（T-N6-1）、`1bb18b5`（T-N6-2a）、`209970b`（T-N6-2b）、`aa6d96a`（T-N6-3a）、`7d4ca34`（T-N6-3b，`n6/creature-level` 并行分支）、合并 `9517e9c`（`n6/creature-level`：T-N6-3b `CreatureFactory.Spawn` 等级覆盖与 `creature.tier_definition.gold_multiplier` 接入掉钱公式，`--no-ff` 合入本分支）、`235a120`（T-N6-4）、`c7aee6c`（T-N6-4b，设计层复核根治两处根因）、`27f5260`（T-N6-5）、`db34812`（T-N6-6）、`29315f7`（T-N6-7a，根治示例数据零警告不变量）、`522df64`（T-N6-7）、`96ee4cb`（T-N6-8a：落地进度记录、06/05 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档口径说明、1.36.0 变更记录）、本笔提交（T-N6-8b：复核建议修复——`adapters/headless/README.md`/`toolchain/registry/manifests/adapter-headless/README.md`"数值仿真骨架"示例代码按真实签名重写并配套测试守护、`BaselineComparer` 容差解析改为叶子名精确匹配显式映射表），分支 `n6/sim`，合并提交与发布提交由 `build.ps1 -Release 1.36.0` 产生，见标签 `v1.36.0`。
+
+### 新增
+
+- **数值设计落地阶段 N6 · T-N6-1**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 1）：新增 `core/sim`（`Core.Sim`/`Tests.Sim`，已加入 `Core.sln`）——数值仿真骨架无头运行器的
+  装配根 `Core.Sim.HeadlessWorldBuilder.Build(HeadlessWorldOptions): HeadlessWorld`，把此前分散在
+  `Tests.Gameplay.EndToEnd.GameWorldFixture.Build` 里"组装一整套 L0～L4 世界"的逻辑上提为框架交付物
+  （事件目录/总线、`DataRegistry` 装载、`RngHost`、`WorldSim`、`StubSpatialQuery`、存档系统、
+  `SimClockHost`、`GameplayAssembly`、玩家单位注册）；数据来源经 `HeadlessWorldOptions.DataSources`
+  注入，装配根本身不含任何读仓库磁盘路径的逻辑。`GameWorldFixture.Build` 已改为调用该装配根，
+  `Fixture` 类型与全部公开字段/方法签名不变，`Tests.Gameplay` 既有用例无改动（仅 `Tests.Gameplay.
+  csproj` 新增对 `Core.Sim.csproj` 的引用）。`Core.Sim` 依赖 `Core.Gameplay` 与 `Adapters.Stub`，
+  不依赖任何 `Tests.*` 程序集或 `Presentation.Common`。新增确定性证明测试
+  `Tests.Sim.DeterminismTests`（同一数据源、同种子两次独立 `Build` 各跑一遍固定战斗脚本，逐 tick
+  比对事件流与玩家/目标关键状态完全一致；另有不同种子在命中判定上产生可观测差异的对照用例）。
+  `build.ps1` 同步进引擎工程的核心程序集清单是显式列出的五个层，不含 `Core.Sim`，未受影响；
+  `dist/` 打包与对应 `check.ps1` 门禁步骤留给 T-N6-7。架构文档勘误（均为把 ADR-0035 决策 1 已拍板
+  结论同步进目录约定正文，不新增结论）：`architecture/11_工程规范与测试.md` 第 1 节目录树补
+  `core/sim/` 一行，并为"`core/` 下的模块不得引用 `adapters/`"这条规则补充唯一例外；
+  `architecture/01_分层与依赖.md` 第 4 节"实现级共享目录"同步补 `core/sim` 一行。
+- **数值设计落地阶段 N6 · T-N6-2a**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 4）：`core/sim` 新增 `schema/`（`SimSchemas.cs`/`SimValidationRules.cs`/
+  `SimSchemaCatalog.cs`）——`sim.anchor`（每级期望 HP/DPS/TTK/TTD/期望装备等级 E(L)/目标每级时长
+  T(L)/期望击杀间隔 G(L)/任务探索占比 Q(L)，数值总纲第 4.1 节）与 `sim.scenario`（仿真场景：双方、
+  等级、分档、次数、种子、对照锚点与带宽）两张表的 `TableSchema` 声明、专属表级校验规则
+  `SimAnchorValidationRule`（等级从 1 连续无缺口无重复 [阻断]、`expected_item_level` 沿等级单调
+  不减 [警告，不可提升]）与 `SimScenarioValidationRule`（`kind` 专属等级覆盖字段条件必填、
+  `opponent.level`/`level_offsets` 二选一）、统一注册入口 `SimSchemaCatalog.RegisterAll`；`core/`
+  新增类型化只读读取 `AnchorTable`（`MaxLevel`/`TryGet`/`Get`）与
+  `ScenarioCatalog`（`All`/`TryGet`/`Get`/`ByKind`）。`SchemaLayer` 新增 `Sim` 成员（04 第 1.1 节
+  "层"列原文"框架工具（无头仿真）"，不对应 01 文档任一层，纯新增不删改，非破坏性变更）。
+  `HeadlessWorldBuilder.Build` 在 `GameplaySchemaCatalog.RegisterAll` 之后追加
+  `SimSchemaCatalog.RegisterAll`，`HeadlessWorld` 新增 `AnchorTable?`/`ScenarioCatalog?` 两个可空
+  属性（数据根未提供对应数据时为 `null`，不抛异常）——两表仍"仅无头仿真与内容工具读取，运行期
+  宿主不读"，不进 `GameplaySchemaCatalog`/`PresentationSchemaCatalog`。`Presentation.Assembly.
+  ContentValidationOptions` 新增可选属性 `ExtraSchemaRegistration`（`Action<IDataRegistry>?`，ABI
+  兼容的纯新增属性），供 `toolchain/validator`（`--data-root` 校验与 `--schema-audit` 两条路径）与
+  `Tests.PresentationCommon`（`NumericValidationRuleCatalogTests`，因 `data/_sample` 新增 `sim/`
+  域而需要接入）接入 `SimSchemaCatalog.RegisterAll`；`toolchain/validator/Validator.csproj`、
+  `Tests.PresentationCommon.csproj` 新增对 `Core.Sim.csproj`（含 `Adapters.Stub.csproj`）的引用
+  （源码树/独立发行包二选一分支，同 `Presentation.Common` 既有惯例；独立发行包分支当前缺
+  `lib/Core.Sim.dll`/`lib/Adapters.Stub.dll`，`build.ps1` 未打包，已知缺口留给 T-N6-7）。新增示例
+  数据 `data/_sample/sim/{sim.anchor,sim.scenario}.json`（五级锚点 + 一个 arena 场景）与
+  `games/_template/data/game/sim/{sim.anchor,sim.scenario}.json` 空壳表（`rows: []`）。新增测试
+  `Tests.Sim.{SimSchemaTests,AnchorTableTests,ScenarioCatalogTests,HeadlessWorldBuilderSimTests}`
+  （25 例：schema 正反例、类型化读取、`HeadlessWorldBuilder` 用 `data/_framework`+`data/_sample`
+  构建后 `AnchorTable` 5 行/`ScenarioCatalog` 1 个场景）。架构文档勘误：`architecture/
+  04_数据与内容管线.md` 第 5 节数值类校验项分级表新增三行检查登记
+  （`sim_anchor_level_continuity`/`sim_anchor_expected_item_level_monotonic`/
+  `sim_scenario_level_coverage_required`），不改变既有检查项判定逻辑。
+- **数值设计落地阶段 N6 · T-N6-2b**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 2～6；拍板 10）：新增嵌入式最小仿真数据集 `core/sim/tests/data/`（45 张表、321 行，清单/
+  锚点推导公式与手算表/判断记录见该目录 `README.md`）——一套自洽、可被 `Core.Sim.HeadlessWorldBuilder`
+  装配、可跑通一场最小战斗的内容数据（等级 1～20 连续、四主属性+派生+评级换算、单职业
+  `arch.class.sim_warrior`、5 个技能覆盖主要攻击/高伤终结技/自身增益/消耗资源四类角色、5 档普通怪
+  + 1 档精英、5 档物品等级×2 品质×5 槽位共 50 件装备模板、掉落/经济/世界/阵营/本地化配套表、
+  `sim.anchor` 1～20 级连续、`sim.scenario` 三条场景各覆盖 arena/growth/coverage 一种）——拍板 10：
+  只嵌入 `core/sim/tests/data/`，不放进 `data/_sample`（该处仍只保留两张表的 schema 覆盖样例）。
+  `Tests.Sim.SimTestWorldFactory` 新增 `BuildFromEmbeddedDataset(ulong seed, int playerLevel = 1)`
+  （数据根 = `data/_framework` + `core/sim/tests/data`）与 `RunEmbeddedFightScript`（学技能→生成
+  1 级普通怪→连续施放直至一方死亡的固定脚本，供功能性与确定性双重验证）；新增测试
+  `Tests.Sim.EmbeddedDatasetTests`（7 例：装载零阻断、`AnchorTable` 1～20 级连续、三个场景可取、
+  生物/物品模板档位数量、标准职业 1 级学技能后战胜 1 级普通怪且玩家获胜、同种子两次逐 tick 完全
+  一致）。本任务未改动 `core/` 下任何生产代码（`HeadlessWorldBuilder`/`AnchorTable`/
+  `ScenarioCatalog`/`schema/` 均未触碰，无 C# 公开面变化），只新增内容数据与测试代码。
+- **数值设计落地阶段 N6 · T-N6-3a**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 2；06 第 405 行勘误"锚点表接入后两条预算校验规则按本节公式默认生效"）：`core/sim` 新增
+  `ExpectedStatCalculator`（期望属性求值组件，数值总纲第 4.4 节公式：等级成长 + Σ非武器装备槽
+  `IBudgetSolver` 预算反解，`statMix` 取该职业 `stat.weight` 归一化，对 `stat.definition` 全表求值、
+  构造期缓存）、`AnchorTableSkillBudgetAnchorProvider`（`Core.Rules.Common
+  .ISkillBudgetAnchorProvider` 的 `sim.anchor` 真实实现，惰性持有 `IDataRegistry` 引用/含
+  `Func<IDataRegistry>` 工厂重载，`DataSourcesHaveAnchorRows` 静态预扫描按"行数 > 0"而非"表名存在"
+  判定）、`StandardPlayerBuilder`（标准玩家生成器：`LearnFromBook` 填技能、每个装备位选最接近
+  E(L) 的模板作载体并经 `IBudgetSolver` 对齐词缀反解向量后装备、校验 `RotationEvaluator` 能选出
+  可施放技能，返回已学技能/已装备实例/期望与实际属性快照/偏差/武器秒伤的完整结果）。
+  `Core.Rules.Assembly.RulesSchemaCatalog`/`Core.Carriers.Assembly.CarriersSchemaCatalog`/
+  `Core.Gameplay.Assembly.GameplaySchemaCatalog`/`Presentation.Assembly.PresentationSchemaCatalog`
+  各新增一个接收 `ISkillBudgetAnchorProvider?` 的 `RegisterAll` 重载（ABI：纯新增，既有重载逐位
+  不变、均转发新重载并传 `null`）；`Presentation.Assembly.ContentValidationOptions` 新增可选属性
+  `SkillBudgetAnchorProvider`。`Core.Sim.HeadlessWorldBuilder.Build`/`toolchain/validator/
+  Program.cs` 两处接入点改为按"数据源是否真的含至少一行 `sim.anchor`"自动装配真实提供者（新增
+  `HeadlessWorldOptions.ExpectedQualityId` 可选属性）；`toolchain/validator --json` 的
+  `rules[].enabled` 字段不再对 `requires_anchor` 规则恒为 `false`，改为如实反映本次是否真的装配了
+  提供者。副作用修复（不属于本任务功能范围，但锚点真实接入后触发）：`data/_sample` 自身也含
+  `sim.anchor` 演示数据，接入后 `skill.sample_rest` 技能预算比值超硬上限，按框架既有"禁止阻断带
+  说明的超模技能"规则给该技能补了一句 `budget_note`（唯一一处 `core/sim/` 之外的改动，只新增
+  字符串字段，不改变任何技能数值，`dotnet test Core.sln` 4188 基线用例回归无副作用）。新增测试
+  `Tests.Sim.{ExpectedStatCalculatorTests,StandardPlayerBuilderTests,AnchorProviderIntegrationTests}`
+  （10 例：期望属性 L=1/10/20 与独立手算一致且按等级缓存、标准玩家生成器 L5/L15 全部装备位对齐
+  反解向量/已学技能匹配技能书/按优先级表击杀同级普通怪、锚点接入后 `skill_budget_*` 规则确有真实
+  求值、`data/_sample` 路径锚点接入后仍不阻断）。
+
+- **数值设计落地阶段 N6 · T-N6-3b**（ADR-0035 决策 3；N4 遗留第 7 项，ADR-0034 决策 3 延伸）：
+  `ICreatureFactory` 新增默认接口成员 `Spawn(templateId, mapId, position, facing, ownerId, int level)`
+  （按指定等级出生，未覆盖时委托 5 参重载）；新增窄接口 `ICreatureLevelScaler.ScaleBaseStats`
+  （core/carriers/creature 声明，供上层 core/sim 反向注入，未注入时"等级改、属性不变"）；
+  `CreatureFactory` 新增对应构造重载与实现。`creature.tier_definition` 新增可选字段
+  `gold_multiplier`（缺省 1），`CreatureFactory.TryGetGoldMultiplier` 查询；`RollContext` 新增
+  `TierId`；新增委托 `Core.Gameplay.Loot.LootGoldMultiplierProvider`；`LootHost`/
+  `CreatureDeathLootListener` 新增对应重载，`GameplayAssembly` 默认接线——08 第 7.4 节"怪物掉钱"
+  公式的"分档倍率"自本版本起真正生效，不再恒为 1。
+- **数值设计落地阶段 N6 · T-N6-4（含 T-N6-4b 根治，提交 `235a120`/`c7aee6c`）**
+  （[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 3）：三级仿真的第一级——战斗仿真运行器。`core/sim` 新增 `AnchorCreatureLevelScaler`
+  （`ICreatureLevelScaler` 的锚点表实现，数值总纲第 4.2 节：血量槽位按 `DPS(L)×TTK(L)` 比值缩放、
+  其余属性按 `HP(L)÷TTD(L)` 比值缩放，越界夹到 `AnchorTable.MaxLevel`/最低 1 级）、
+  `SimpleMoveModel`（玩家侧简化移动模型；生物侧复用 `core/rules/ai` 既有 `AiHost` 追击状态机，
+  未改动该模块）、`FightRunner`（单场战斗：标准玩家对生物模板按指定等级出生，逐 tick 智能释放
+  优先级表直至一方死亡或超时；采样口径接 `combat.damage_dealt`（落地伤害/命中计数）与
+  `Core.Rules.Combat.CombatOptions.ResolveTrace`（技能归属、含 Miss/Dodge/Immune 的完整尝试计数，
+  该回调本就是既有诊断通道，本任务是第一次真正使用它，未改变结算逻辑）；输出 `FightResult`：
+  胜负、时长、双方伤害与秒伤、命中率、技能输出占比、资源曲线（下采样 ≤64 点）、TTD 估计）、
+  `ArenaSimulation`（场景运行器：对 `kind=arena` 场景按 `levels×level_offsets` 逐格跑 `runs`
+  场并聚合为 `ArenaReport`——胜率/TTK 分布/对账表；种子按 `(base_seed,level,offset,runIndex)`
+  纯函数确定性派生；`ArenaReport.ToJson()` 经 `Core.Foundation.Common.Json.JsonWriter` 确定性
+  序列化）。隔离方案：每场 `FightRunner.Run` 各自新建一整套 `HeadlessWorld`（实测
+  `HeadlessWorldBuilder.Build` 平均 10～25ms，远低于 50ms 判断线，不做"同一世界内重生重置"，
+  不触碰任何被仿真模块的重置能力）。ABI 新增：`Core.Carriers.Creature.CreatureFactory` 的
+  `_levelScaler` 私有只读字段改为公开可写属性 `LevelScaler`（两个既有构造函数行为不变）；
+  `Core.Sim.HeadlessWorldOptions` 新增 `CombatOptions` 属性（转发给 `GameplayAssembly` 早已存在
+  的同名构造参数，此前恒隐式传 `null`）。副作用修复（唯一触及 `core/sim/` 之外生产代码的改动）：
+  `Core.Numbers.StatBlock.StatDefinitionConsumerValidationRule.FrameworkBuiltinConsumerStatIds`
+  新增 `stat.move_speed`（与既有 `CombatOptions.ArmorStat` 等四项同一性质——C# 代码默认值消费，
+  数据层扫描天然拿不到，只追加一份手抄清单里的一项，不改变规则判定逻辑）。数据集修复
+  （`core/sim/tests/data/`，"生物会主动追击并攻击玩家"此前从未被验证过、实测确实不会，均为数据
+  缺口不是框架缺陷）：`fac.reaction_matrix` 补 `fac.sim_hostile → fac.player = hostile` 反向行
+  （原表只有玩家→生物单向，`Core.Numbers.Faction.FactionMatrix.GetReaction` 是方向性查找非对称
+  矩阵）；`stat.definition` 新增 `stat.move_speed`（`Core.Carriers.Unit.MovementTickHandler
+  .ResolveSpeed` 硬性要求该属性已登记，否则生物一旦产生位移意图就抛异常）+ 对应 `l10n.text`。
+  数值调参（真跑 `sim.scenario.sim_arena_matrix` 后按数值总纲第 5 节对账等式与矩阵形状核算，详见
+  `core/sim/tests/data/README.md`"T-N6-4 调参记录"）：`sim.anchor.dps`/`hp`/`ttk_seconds` 五个
+  仿真等级（1/5/10/15/20）改取真实仿真实测值（此前 T-N6-2b 的简化手算忽略了 `rampage` 等技能，
+  系统性低估约 1.5～2.3 倍），中间等级按相邻真实锚点线性插值；`sim.anchor.ttd_seconds` 改取真实
+  仿真观测值（与驱动怪物伤害的内部设计常数解耦，两者定义不同，见该 README 判断记录）；
+  `creature.template` 血量与 `skill.base_curve.sim_creature_bite{,_elite}` 伤害曲线按新锚点重算；
+  `sim.scenario.sim_arena_matrix.runs` 从 20 提到 60（降低越级矩阵低胜率格子的抽样噪声）；带宽
+  维持 0.25，未触达"≥0.5"上限。新增测试
+  `Tests.Sim.{AnchorCreatureLevelScalerTests,SimpleMoveModelTests,FightRunnerTests,
+  ArenaSimulationTests}`（21 例：等级缩放公式精确性与装配根接线、简化移动模型、单场战斗确定性/
+  命中率/技能占比之和/资源曲线、完整 `sim_arena_matrix`（2100 场，~8～9 秒）的对账等式
+  （dps/hp ≥3 个等级、ttd ≥1 个等级在带宽内）与矩阵形状（单调不增、越级胜率梯度、拐点存在）、
+  `ArenaReport.ToJson()` 确定性）。
+  同一功能验收过程中，设计层复核 T-N6-4 首次提交后要求根治两处根因（提交 `c7aee6c`），而不是
+  放宽验收标准：① `Core.Sim.HeadlessWorldBuilder.Build` 此前给玩家按 `PlayerLevel > 1` 直接
+  出生时，只调用 `Progression.RegisterUnit` 登记等级记账状态，未像
+  `Core.Carriers.Creature.CreatureFactory.SpawnCore` 那样紧接着调用
+  `Progression.ApplyGrowthToCurrentLevel` 补写"2 级到出生等级"的曲线成长——`IProgressionHost
+  .RegisterUnit` 契约注释原文明确这第二步须由调用方自己完成；此前仓库内从未有调用方以非默认值
+  （1）使用过 `HeadlessWorldOptions.PlayerLevel`，缺口因此从未暴露，直到 T-N6-4 的
+  `ArenaSimulation` 第一次让玩家在等级 5/10/15/20 直接出生。现象：L20 标准玩家战斗中的
+  `IPowerHost.GetPowerMax(Health)` 只有 150（1 级基础值），远低于应有的 ~2000，越级矩阵最高
+  一行的胜率因此在错误的低生命基线上剧烈失真（非单调断层）。修复：`HeadlessWorldBuilder.Build`
+  在 `RegisterUnit` 之后补调用 `Progression.ApplyGrowthToCurrentLevel` → `Powers.RecomputeMax`
+  → `Powers.RefillAll`（均为 `core/rules`/`core/numbers` 已公开的既有成员，不新增任何公开
+  成员、不改动"被仿真模块"一行代码），惠及任何以 `PlayerLevel > 1` 使用本装配根的调用方（不限于
+  T-N6-4），`PlayerLevel == 1` 不受影响。② `sim.anchor`/`skill.base_curve.sim_creature_bite*`
+  此前只到 20 级，`sim_arena_matrix` 允许玩家满级（20）时对手偏移 +5，生物出生等级达到 25，
+  越界夹到 `AnchorTable.MaxLevel`（此前 20）导致玩家 20 级这一行的正偏移 +1/+3/+5 全部对上同一
+  强度天花板——扩表到 25 级根治（`sim.anchor` 新增 21～25 五行，`dps`/`hp` 按 15→20 级斜率的
+  5 倍延长；`skill.base_curve.sim_creature_bite{,_elite}` 新增 25 级断点）。两处修复后按数值
+  总纲第 5 节方法论重新核算全部锚点/生物数值（`sim.anchor.dps`/`hp`/`ttk_seconds`/`ttd_seconds`、
+  `creature.template` 血量、`skill.base_curve.sim_creature_bite*` 伤害曲线，详见
+  `core/sim/tests/data/README.md`"T-N6-4 / T-N6-4b 调参记录"），`ArenaSimulationTests` 验收标准
+  收紧为任务书原文的严格版本：DPS/HP 对账改为 5 个等级全部在带宽内（不再是 ≥3）；矩阵形状改为
+  对场景定义的全部等级、每一个 ≥+3 的偏移点都要求胜率 ≤0.5（不再有"至少一个满足"的例外，
+  T-N6-4 首次提交时的判断记录 26 已标注撤销）。`FightResult` 新增 `CreatureHitRate`（生物对
+  玩家的命中率，口径同既有 `PlayerHitRate` 对称，根因排查需要的诊断字段，纯新增属性）。
+  `skill.sim_creature_bite_elite` 新增 `budget_note`（精英分档伤害刻意高于 Monster 档预算带宽，
+  是分档系统 1.5 倍强度的既定意图，不是数值手滑）。`EmbeddedDatasetTests
+  .AnchorTable_HasAllTwentyFiveLevelsContinuous`（原 `…TwentyLevelsContinuous`）、
+  `AnchorCreatureLevelScalerTests.Spawn_AboveMaxAnchorLevel_ClampsToMaxLevel`（越界夹取边界从
+  "20 vs 25"改为"25 vs 30"）随锚点表扩容同步更新，`Core.Numbers.StatBlock
+  .StatDefinitionConsumerValidationRule.FrameworkBuiltinConsumerStatIds` 补充判断记录说明
+  `stat.move_speed` 的真正消费者是 `Core.Carriers.Unit.MovementTickHandler.ResolveSpeed`
+  （`core/sim` 自己的 `SimpleMoveModel` 不读取该属性，此前汇报的归因不够精确，已在
+  `core/numbers/stat_block/README.md` 更正）。`dotnet test Core.sln` 全量回归（4233 例）验证
+  两处修复对既有全部用例无副作用。
+- **数值设计落地阶段 N6 · T-N6-5**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 3 后两级：成长仿真、内容覆盖仿真）：新增 `Core.Sim.GrowthSimulation.Run(ScenarioDef,
+  AnchorTable, IReadOnlyList<IDataSource>, bool failOnUnknownTable = false): GrowthReport`——以
+  `FightRunner`（经新增 `FightRunner.RunWithinWorld`/`FightRunner.FightAccumulator` 复用同一世界
+  连打多场，见下）为输入，模拟标准玩家从 `level_from` 到 `level_to` 的整条成长曲线：真实战斗、
+  真实击杀/任务当量经验（`IProgressionHost.GrantXp`，任务当量取 `Q(L)` 本身）、真实掉落（生物死亡
+  自动触发 `CreatureDeathLootListener` 内部的 `LootHost.RollDetailed`，不重复掷骰）、真实经济
+  入账/拾取/换装/出售（`IEconomyHost`/`EquipmentHost`/`EquipmentScoreAnalyzer` 评分决策）。输出
+  每级实际时长/装备等级/命中率/金币累积四条轨迹与对照基准（时长/装备等级对
+  `sim.anchor.level_duration_seconds`/`expected_item_level`；命中率对同等级独立战斗的 5 场均值；
+  金币对 4.8 节公式解析推算——含出售掉落装备的期望收入估计，经 `EconomyPriceFormula
+  .TryComputeBaseValue`）与偏离/带宽内判定。新增 `Core.Sim.CoverageSimulation.Run(ScenarioDef,
+  AnchorTable, IReadOnlyList<IDataSource>, bool failOnUnknownTable = false): CoverageReport`——对
+  数据集每个技能（`SkillBudgetAnalyzer` 预算比值，`Tier=Player` 且含伤害效果的额外做"只用该技能 +
+  填充技能"单技能秒伤占比实测）、每件非武器装备（`EquipmentScoreAnalyzer`/预算消耗比，额外做同种子
+  基准装 vs 换单件的秒伤边际变化实测）、每个生物模板（同级标准玩家 1v1 的 TTK/TTD 与锚点偏离）
+  输出三张按 `|偏离|` 降序排列的离群值表（技能表第一、装备表第一，不做跨类别合并总表，见类型
+  判断记录"探针位次验收口径"）。`FightRunner` 新增公开类型 `FightRunner.FightAccumulator`（把原
+  `Run` 内部的命中/伤害计数闭包上提为可复用状态）与公开方法 `FightRunner.RunWithinWorld`（在已
+  装配好的 `HeadlessWorld` 内针对已生成的生物打一场，供成长/覆盖仿真在同一世界连打多场；`Run` 本身
+  改为"建世界+生成标准玩家+生成生物"后转发调用，行为不变，ABI 纯新增）。`StandardPlayerBuilder
+  .ComputeExpectedContribution` 拆出 `ComputeTemplateStatsLiteral`/`ComputeAffixContribution`
+  两个 `internal` 子步骤（供 `GrowthSimulation`/`CoverageSimulation` 复用词缀反解口径，行为不变，
+  仅可见性从 `private` 放宽到 `internal`，不构成 ABI 变化）。`HeadlessWorldOptions` 新增属性
+  `LootOptions`（转发 `GameplayAssembly` 既有的 `lootOptions` 构造参数，成长仿真借此把
+  `PickupRange` 放宽到覆盖战斗交手距离，ABI 纯新增，默认 `null` 时行为不变）。
+  联动重算（本任务遗留自 T-N6-4b 的已知不一致，见该处 README 判断记录）：`prog.level_curve
+  .sim_warrior.entries[].xp_to_next`（1～19 级）按 T-N6-4b 校准后的 `sim.anchor`
+  （`ttk_seconds`/`level_duration_seconds`/`kill_interval_seconds`/`quest_share`）与数值总纲 4.7
+  节公式重新核算（417/477/540/606/673/752/834/919/1008/1101/1190/1282/1376/1473/1572/1673/
+  1776/1882/1989，20 级仍为满级 0）；`prog.xp_base_curve.sim_default` 本身经复核后确认与公式一致，
+  未改动。数据补齐（供成长仿真使用，均为新增/追加，不改既有条目取值）：`loot.table.*`（5 档普通怪）
+  各追加 `chest`/`legs`/`feet` 三条 common 品质条目（此前只有主手+头两槊位掉落，成长仿真需要全部 5
+  个装备槊位都有机会被替换）；同一批 `loot.table.*` 里全部货币条目的 `count_range` 由
+  `{min,max}≈{金币基数(L)-2, 金币基数(L)+2}` 改为常量 `{1,1}`（判断记录——发现 `LootHost
+  .ResolveCurrencyOutcome` 的真实公式是"当量（count_range 掷骰所得）× 金币基数(L)"，此前的
+  `count_range` 取值把"金币基数(L)"本身当成了当量的取值范围，导致击杀掉钱是设计意图的约 5 倍，
+  联调测试实测到该问题后按 4.8 节字面公式"无当量项"改为常量 1，即掉钱 = 金币基数(L)）。新增
+  两条覆盖仿真探针数据（不进任何掉落表/技能书/优先级表，只作为全表扫描的数据行存在，验收覆盖仿真
+  离群值排序）：`skill.def.sim_probe_overbudget`（`Tier=Unattributed`，预算比值 85.23，已填
+  `budget_note`）、`item.template.sim_probe_underbudget`（L20 common 胸甲，仅 1 点耐力，预算
+  消耗比 0.3%，触发 `item_budget_utilization_low` 警告——该检查项 `NonEscalatable`、无
+  `budget_note` 式确认字段，04 第 5 节原文即以此项为"抓意图不抓手滑"的示例，本条属于刻意的
+  设计意图，如实记录不做抑制）。新增测试 `Tests.Sim.{GrowthSimulationTests,
+  CoverageSimulationTests}`（11 例：完整 `sim_growth_full`/`sim_coverage_all` 场景运行+计时、
+  四条轨迹逐级带宽内、经验/金币双路径（`GrantXp`/`Economy.Add` 返回值求和 vs 事件流求和）互证、
+  同种子 `ToJson` 确定性、不同种子产出不同、探针分类第一位、联动重算与公式独立核对）；
+  `EmbeddedDatasetTests.ItemTemplate_CoversAllLevelTiersQualitiesAndSlots` 排除新增探针后保持
+  既有"档位×品质×槽位"网格断言不变。`dotnet test Core.sln` 全量回归（4244 例，4233 基线 + 11
+  新增）验证无副作用；`toolchain/abi_probe.ps1` 针对基线 1.35.0 确认 `breaks=0`（`Core.Sim` 不在
+  `dist/` 打包清单内，本任务全部改动实际不影响可探测的 ABI 表面）。
+- **数值设计落地阶段 N6 · T-N6-6**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 5：统计量快照、基线 JSON、带带宽比对器、差异报告、命令行入口）：`core/sim` 新增
+  `SimReport`（统一信封：场景 id/kind/`ComputeDatasetFingerprint`——对全部已加载表/记录排序后
+  FNV-1a 64 位累加，算法选型同 `WorldSnapshot.Capture` 同款、独立实现/框架版本字符串/种子/
+  `runs_override?`/`bandwidths`/`stats: IReadOnlyList<SimStat>`——`path`/`value`/`anchor?`/
+  `deviation?`/`level?`/`raw_report`，`ToJson()` 确定性序列化；三个工厂方法
+  `FromArenaReport`/`FromGrowthReport`/`FromCoverageReport` 把既有三类报告拍平为统一形状）、
+  `SimBaseline`（既往快照最小形状 `{schema_version, scenario_id, kind, dataset_fingerprint,
+  generated_with_version, seed, stats:{path:value}}`，只做 `FromReport`/`ToJson`/`Parse`，不做
+  磁盘路径解析）、`BaselineComparer`（`BaselineDiffStatus`
+  `Same`/`Within`/`Exceeded`/`Added`/`Removed` 五态；容差来源优先级"场景 `bandwidths` 同名统计量
+  （叶子名子串匹配）> 默认相对容差 1%（`BaselineCompareOptions.RelativeTolerance`，基线值接近 0
+  时改用绝对容差）"；全程 `<`/`<=` 阈值比较，不出现浮点精确相等，`ExactMatchEpsilon` 可配置）。
+  `ScenarioDef` 新增公开方法 `WithRuns(int): ScenarioDef`（ABI 纯新增，仅替换 `Runs`，供命令行
+  `--runs` 快速冒烟覆盖使用）。新增命令行入口 `toolchain/simrunner`（`SimRunner.csproj`，已加入
+  `Core.sln`，工程惯例照抄 `toolchain/validator` 的 `lib/` 分发分支）：`run --scenario <id>|all
+  --framework-root <dir> --data-root <dir>... --out <dir> [--baseline-dir <dir>]
+  [--update-baseline] [--json] [--runs <n>] [--version <str>]`，退出码 `0`=无
+  `Exceeded`/`Removed`、`1`=存在、`2`=参数错误/数据装载阻断、`3`=传了 `--baseline-dir` 但基线
+  文件不存在且未传 `--update-baseline`（独立于其余三种退出码，见 `Program.cs` 判断记录）；控制台
+  每场景一行摘要 `scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n>
+  result=PASS|FAIL`，末尾 `RESULT=OK|FAIL`，供 `check.ps1`/CI 直接判读。新增薄封装
+  `toolchain/sim_baseline.ps1`（`-Scenario`/`-UpdateBaseline`/`-Out`/`-BaselineDir`/`-Runs`/
+  `-Version`/`-ArtifactsPath`）。新增并提交三份基线
+  `core/sim/tests/baseline/{sim_arena_matrix,sim_growth_full,sim_coverage_all}.json`（对应嵌入
+  数据集三个场景，`SimBaseline.ToJson()` 格式）。**根治缺陷（T-N6-5 遗留，本任务基线比对首次
+  验证出）**：`CoverageSimulation` 三处（`AnalyzeSkills`/`MeasureItemMarginalImpact`/
+  `AnalyzeCreatures`）此前用 `string.GetHashCode()`（.NET 逐进程随机化哈希）派生仿真种子，导致
+  同一 `base_seed`、同一份数据在不同进程里跑出不同结果，与仓库通篇"同种子确定性"矛盾；改用
+  确定性的 FNV-1a 32 位字符串哈希 `CoverageSimulation.StableIdHash`。新增测试
+  `Tests.Sim.BaselineComparerTests`（5 例：三场景同种子独立重跑两次 `ToJson` 逐字节相同且
+  `BaselineComparer` 全部 `Same`；内存覆盖 `arch.class.sim_warrior.base_stats.stat.strength`
+  重跑 arena 后至少一条 `Exceeded`、`player_max_health` 不受影响；1e-12 量级相对扰动分类为
+  `Within`——浮点比对无精确相等；`SimBaseline` 经 JSON 往返后比较仍全部 `Same`；`SimReport.ToJson()`
+  字段完整性）。`dotnet test Core.sln` 全量回归（4249 例，4244 基线 + 5 新增）验证无副作用；
+  `toolchain/abi_probe.ps1` 针对基线 1.35.0 确认 `breaks=0`。本任务不改
+  `check.ps1`/`ci.yml`/`build.ps1`/`adapters/headless/README.md`，把 `simrunner` 接入门禁/CI/
+  发布清单归 T-N6-7。
+
+### 变更
+
+- **数值设计落地阶段 N6 · T-N6-7（含 T-N6-7a 根治，提交 `29315f7`/`522df64`）**：先根治"示例数据
+  `--strict` 零错误零警告"这条既有不变量与 T-N6-3a 锚点真实接入之间的回归冲突（T-N6-7a）——
+  `data/_sample` 三条早于 N6 就存在的示例技能
+  （`skill.sample_strike`/`sample_rest`/`sample_burst`）在锚点真实接入后产生 3 条
+  `skill_budget_deviation` 警告，与
+  `toolchain/tests/test_validate_data_summon_only_rule_default_wiring.py` 断言的字面
+  `"errors 0, warnings 0"` 冲突。只把 `data/_sample/sim/sim.anchor.json` 的
+  `sim.anchor.l1.dps` 从占位值 10 校准为 45（三者换算后新比值约 0.29/1.13/0.78，均落入
+  `skill.budget_rule.default` 玩家档带宽 [0.80,1.20]），不改任何示例技能、不改测试；
+  `skill.sample_rest`/`sample_burst` 的 `budget_note` 按"保留并说明"选项保留（记录历史设计
+  意图，当前不被任何规则分支实际读取）。`python toolchain/validate_data.py --strict` →
+  `errors 0, warnings 0`；`python -m pytest toolchain/tests -q` 全过；`dotnet test Core.sln`
+  全过（4249 例）无副作用。详见 `core/sim/README.md`"T-N6-7 判断记录"40、`data/README.md` 勘误。
+  随后（T-N6-7）：把 T-N6-6 落地的数值仿真报告与基线比对工具接入提交门禁、CI 与发布分发清单。
+  `check.ps1` 新增"数值仿真基线比对"步骤（排在 `toolchain` 自身 pytest 之后、Unity 四步之前；
+  直接执行步骤 1 已构建的 `SimRunner.dll`，不 `dotnet run` 重复编译；`-Quick` 下 SKIP——任务书
+  硬性规则"禁止把数值仿真列为 `-Quick` 步骤"；`-SkipUnity` 不影响本步骤），全量步骤总数由 24
+  变 25（`-Quick`/`-SkipUnity` 同样由 24 变 25——两者此前恰好都是 24 步，新增步骤对两者都生效，
+  非只影响其中一种模式）；失败时打印全部 `*.diff.txt` 全文。`.github/workflows/ci.yml` 固定调用
+  `check.ps1 -SkipUnity`，新步骤随之自动纳入，本文件本身不需要任何改动（不引入新的外部下载）。
+  `build.ps1` 分发补齐：`Core.Sim.dll` 随 `Adapters.Stub.dll` 一起补进
+  `dist/<ver>/adapters/headless/` 与私服包 `com.gamefoundation.adapter.headless` 的 `Lib~/`；
+  `toolchain/simrunner` 预编译产物（`bin/`+`lib/`）随 `toolchain/` 打进 dist 与私服包
+  `com.gamefoundation.toolchain` 的 `Tools~/simrunner/`；`toolchain/validator/lib/`（含对应
+  UPM 包位置）补齐 `Core.Sim.dll`/`Adapters.Stub.dll`（T-N6-2a 判断记录 10 缺口消除）；
+  `MANIFEST.txt` 新增 `[simrunner]` 段与 `[headless_assemblies]` 段 `Core.Sim.dll` 条目；
+  `ws-game.lock` 的 `headless_dlls` 字段同步含 `Core.Sim.dll`（`New-WsGameLockObjectFromZip`
+  一并更新，避免 release.yml 缺附件修复路径漏收）；"包清单一致性"步骤新增对应断言。
+  `SimRunner.csproj` 的 `lib/` 回退分支根治：此前只列 3 个 `<Reference>`（编译期够用），缺
+  Core.Sim.dll 运行期真正需要的 4 个传递依赖（Core.Numbers/Core.Rules/Core.Carriers/
+  Core.Gameplay），独立发行包内编译能通过但运行会抛 `FileNotFoundException`，补全为完整 7 个。
+  `toolchain/sim_baseline.ps1` 的 `--project` 路径改为相对脚本自身目录解析（原硬编码
+  `"toolchain/simrunner"` 假设脚本恒常驻仓库根 `toolchain/` 下，随本包分发到 `Tools~/` 后会
+  解析到不存在的目录）。`toolchain/abi_probe.ps1`/`toolchain/abi_surface` 新增 `Core.Sim.dll`
+  加入比对程序集清单（归入表面差异比对，consumer 探针不涉及）；基线 1.35.0 无该程序集时按
+  "新增程序集"处理（baseline 抽取环节容忍条目不存在、只记录说明并跳过，不 throw），全部类型
+  行落入 `Additions` 而非 `Breaks`（`SurfaceCompareLogic.Compare` 既有语义，未新增特判分支）；
+  实测 `toolchain\abi_probe.ps1 -BaselineZip dist\ws-game-1.35.0.zip` → `breaks=0 allowed=0
+  additions=390`，`RESULT=OK`。文档同步：`adapters/headless/README.md`、
+  `toolchain/registry/manifests/adapter-headless/README.md`（+`package.json` description）、
+  `toolchain/registry/manifests/toolchain/README.md`（+`package.json` description）各补"数值
+  仿真骨架"一节；根 `README.md` 门禁步骤清单、`toolchain/README.md`"`toolchain/simrunner`"
+  一节、`core/sim/README.md`"T-N6-7 判断记录"、`architecture/11_工程规范与测试.md` 第 8 节
+  提交门槛清单补一条（数值仿真基线比对是否列为强制门槛仍由游戏层决定，不改变第 6 节已有定位）。
+  `dotnet build Core.sln -c Debug` 0 警告 0 错误；`dotnet test Core.sln` 全量回归（4249 例）无
+  副作用（本任务未新增/修改任何生产代码的行为逻辑，只新增/扩容脚本与分发清单）。
+
+### 修复
+
+- **T-N6-4b（设计层复核根治，提交 `c7aee6c`）**：`Core.Sim.HeadlessWorldBuilder.Build` 此前给
+  `PlayerLevel > 1` 的玩家出生时漏调 `Progression.ApplyGrowthToCurrentLevel`（等级成长曲线未
+  补写），L20 标准玩家战斗中的生命上限只有 150（1 级基础值），越级矩阵最高一行胜率因此在错误的
+  低生命基线上剧烈失真（非单调断层）；同批把 `sim.anchor`/`skill.base_curve.sim_creature_bite*`
+  从 20 级扩表到 25 级，消除玩家满级对手偏移 +5 时越界夹取到同一强度天花板的假象。详见上方
+  "新增"小节 T-N6-4 条目与 `core/sim/tests/data/README.md`"T-N6-4 / T-N6-4b 调参记录"。
+- **T-N6-6（提交 `db34812`）**：`CoverageSimulation` 三处求值（技能/装备边际/生物）此前用
+  `string.GetHashCode()`（.NET 逐进程随机化哈希）派生仿真种子，导致同一 `base_seed`、同一份
+  数据在不同进程里跑出不同结果，与仓库通篇"同种子确定性"矛盾；改用确定性 FNV-1a 32 位字符串
+  哈希 `CoverageSimulation.StableIdHash`。
+- **T-N6-7a（提交 `29315f7`）**：`data/_sample/sim/sim.anchor.json` 的 `sim.anchor.l1.dps` 从
+  占位值 10 校准为 45，消除锚点真实接入后三条早于 N6 就存在的示例技能触发的
+  `skill_budget_deviation` 警告与既有"示例数据 `--strict` 零错误零警告"不变量的冲突，详见上方
+  "变更"小节 T-N6-7 条目。
+- **T-N6-8b（复核建议，本笔提交）**：`adapters/headless/README.md`/`toolchain/registry/
+  manifests/adapter-headless/README.md`"数值仿真骨架"一节示例代码此前不可编译——
+  `ArenaSimulation.Run(world.Options, scenarioDef)` 系凭空杜撰（`HeadlessWorld` 没有 `Options`
+  属性，真实签名是 `Run(ScenarioDef, AnchorTable, IReadOnlyList<IDataSource>, bool)`）、
+  `SimReport.FromArenaReport(arenaReport, scenarioDef, frameworkVersion: "1.36.0")` 缺
+  `IDataRegistryView registry` 参数且具名参数拼错（应为 `generatedWithVersion`）；按真实签名
+  重写示例，新增 `core/sim/tests/HeadlessReadmeExampleTests.cs` 逐字复刻该代码路径并接入
+  `dotnet test Core.sln` 守护。`Core.Sim.BaselineComparer.ResolveTolerance` 容差解析此前按
+  "叶子名子串匹配"（`leaf.IndexOf(bandwidthKey)`）关联场景带宽，审计发现该实现会把语义不相关的
+  叶子名误配到带宽键（`growth.summary.cumulative_gold_via_balance`/`via_events` 两行因叶子名含
+  子串 `"gold"` 被误配到 `growth` 场景 25% 带宽，削弱了这两行"两条记账路径应彼此一致"这一代码
+  正确性核对本该有的敏感度）；改为 `BaselineCompareOptions.LeafBandwidthKeys` 显式精确映射表
+  （默认表 `DefaultLeafBandwidthKeys` 覆盖全部现存叶子名，可整份覆盖），新增
+  `BaselineComparerTests` 四条用例验证不再误配（`player_max_health`/含 `"_hp_"` 的技能 id 叶子）、
+  已登记叶子名仍生效、三个场景同种子重跑仍 `exceeded=0`。详见 `core/sim/README.md`"T-N6-8b
+  判断记录"记录 45/46。
+
+### 文档
+
+- **`architecture/落地计划/数值设计分阶段落地计划.md`**：末节"落地进度记录"新增
+  "### 阶段 N6 · 2026-09-16 · 1.36.0"记录——小任务提交链、验收标准 1～7 逐项打勾（对账等式/
+  越级矩阵形状/成长四条轨迹/内容覆盖离群值/基线差异报告/`check.ps1` 步骤/`adapters/headless/
+  README.md` 口径一致）、阶段门禁 P1～P5、偏离首版基准的说明（逐条设计层裁定：采纳）。
+- **`architecture/06_规则层_属性技能战斗AI.md`**：勘误——第 1 节"单机推荐属性分类"补一句，移动
+  速度这一杂项属性的登记 id 为 `stat.move_speed`（框架默认消费者是移动系统，具体数值仍由游戏层
+  决定）。版本号不变，ADR 列"—"。
+- **`core/numbers/stat_block/README.md`**："属性无消费者"判断记录里遗留的一条疑难判断——是否
+  要把 `stat.move_speed` 正式写进 06 文档——设计层裁定（2026-09-16）：采纳，已在本任务把
+  `stat.move_speed` 写入 06 第 1 节，判断记录同步改写为明确结论。
+- **`architecture/04_数据与内容管线.md`**：核对 §1.1 表清单 `sim.scenario`/`sim.anchor` 两行与
+  §5 三条 sim 检查行——均已在 T-N6-2a 完整登记且与 `core/sim/schema/SimValidationRules.cs` 的
+  检查名常量逐字一致，本任务核对后确认不需要改动。
+- **编辑器产品文档**（`editor/docs/编辑器产品文档.md`/`.html`）：第 4.1 节"数值规则集中登记清单
+  与校验报告分组"一行补一句说明——04 第 5 节分级表当前共 23 行（20 行数值域 + 3 行 T-N6-2a 新增
+  的 `sim.anchor`/`sim.scenario` 表结构检查），后者按既定口径（04 表登记、`NumericValidationRule
+  Catalog` 目录不收录）不计入本行所述的 20 行只读登记，编辑器如需展示 sim 域检查项目前需直接读
+  04 或等待后续单独契约面。细节勘误，文档版本号不变（v2.16），变更记录表新增一行标注"v2.16
+  （勘误）"。
+
 ## [1.35.0] - 2026-09-16
 
 MINOR 版本：数值设计落地阶段 N5"校验全集与编辑器契约面"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 11/14 节，T-N5-1～T-N5-5）——落地 04 第 5 节数值类校验项分级表的全集核对与登记：补齐"属性无消费者"规则缺失的 Expr 表达式引用扫描（补缺规则实现）；新增数值规则集中登记清单与 `validator --json` 规则分组/锚点依赖标记；编辑器产品文档第 4.1/5.8 节契约面补齐并把 HTML 版落后 md 版九次更新的历史缺口一并回填，新增 md/HTML 一致性 pytest 门禁；核对表并入计划文档、04 第 5 节细节勘误、阶段 N5 落地进度记录归档。
