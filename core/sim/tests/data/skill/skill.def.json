@@ -38,6 +38,7 @@
       "cast_time": 0,
       "respects_gcd": false,
       "target_shape_ref": "target.chain.sim_self",
+      "budget_note": "深度复审 C-M1（2026-09-16）：永久生存类被动（stamina +20 flat，skill.aura_def.sim_toughness 无 duration），SkillBudgetAnalyzer.ComputeBuffValue 对永久增益按设计不参与增益价值计算（见该方法判断记录），比值恒为 0 属设计意图，不是数值遗漏。",
       "effects": [
         {
           "kind": "apply_aura",
@@ -59,6 +60,7 @@
       "cooldown_duration": 30.0,
       "respects_gcd": true,
       "target_shape_ref": "target.chain.sim_self",
+      "budget_note": "深度复审 C-M1（2026-09-16）：短时小幅团队增益（攻击强度 +15%，持续 20 秒，30 秒冷却），刻意保持低预算占比，不与主输出技能竞争预算，比值偏低属设计意图。",
       "effects": [
         {
           "kind": "apply_aura",
