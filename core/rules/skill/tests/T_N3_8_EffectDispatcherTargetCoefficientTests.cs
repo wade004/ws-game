@@ -95,5 +95,88 @@ namespace Tests.Rules.Skill
             Assert.Equal(10.0, call.BaseValue, precision: 9);
             Assert.Equal(1.0, call.TargetCoefficient, precision: 9);
         }
+
+        // -----------------------------------------------------------------
+        // 深度复审 C（测试覆盖缺口 #3）补测：引导（channel）技能多次 tick 复用同一份系数字典
+        // （CastPipeline.CastState.TargetCoefficients 只在读条/引导开始时经
+        // ITargetHost.ResolveWithCoefficients 解析一次，全程复用，见该字段判断记录）——现有
+        // T_N3_8_TargetOverflowPolicyTests.cs/本文件其余用例均只覆盖单次结算（瞬发 cast_time=0），
+        // 未见验证"引导技能"这条路径。
+        // -----------------------------------------------------------------
+
+        private static Core.Foundation.Common.Json.JsonObject ChannelGroupBolt(
+            string id, double baseValue, string chainId, double channelTime, double tickInterval)
+        {
+            return J.O(
+                ("id", J.S(id)),
+                ("school", J.S("skill.school_sample")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(0)),
+                ("channel_time", J.N(channelTime)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S(chainId)),
+                ("effects", J.A(
+                    J.O(("kind", J.S("school_damage")),
+                        ("params", J.O(
+                            ("tick_interval", J.N(tickInterval)),
+                            ("base_value", J.N(baseValue)),
+                            ("coefficient", J.N(0))))))));
+        }
+
+        [Fact]
+        public void ChannelSkill_SplitPolicyCoefficients_ResolvedOnceAndReusedAcrossEveryTick()
+        {
+            var world = new SkillWorldBuilder()
+                .SkillDef(ChannelGroupBolt(
+                    "skill.channel_group_bolt", baseValue: 10, chainId: "target.chain.channel_group",
+                    channelTime: 3, tickInterval: 1))
+                .Build();
+            var caster = new Id("unit.caster");
+            var near = new Id("unit.near");
+            var far = new Id("unit.far");
+            world.AddUnit(caster);
+            world.AddUnit(near);
+            world.AddUnit(far);
+
+            // 同 GroupCast_SplitPolicyCoefficients_ScalesEachTargetValueByItsCoefficient 的夹具：
+            // near 系数 0.5、far 系数 1.5（overflow_policy=split，命中数超出 max_targets=2 的折算
+            // 结果，本测试只关心"是否每跳都重新解析"，不重复核对 split 公式本身）。
+            world.Targets.SetChainWithCoefficients(
+                new Id("target.chain.channel_group"), TargetOverflowPolicy.Split, cap: 2,
+                (near, 0.5), (far, 1.5));
+
+            var result = world.Host.CastSkill(caster, new Id("skill.channel_group_bolt"), System.Array.Empty<Id>());
+            Assert.True(result.Success);
+            Assert.True(world.Host.IsCasting(caster));
+
+            // channel_time=3、tick_interval=1：Update(3) 应恰好产生 3 跳，每跳各结算 near/far 两个
+            // 目标，共 6 次 ResolveEffect 调用。
+            world.Host.Update(3.0);
+            world.Flush();
+
+            Assert.False(world.Host.IsCasting(caster));
+            Assert.Equal(6, world.Combat.ResolveCalls.Count);
+
+            // 核心断言（C 测试覆盖缺口 #3）：目标链只应该在读条/引导开始时被解析一次，3 跳全部复用
+            // 同一份系数字典，不逐跳重新调用 ITargetHost.ResolveWithCoefficients。
+            Assert.Equal(1, world.Targets.ResolveWithCoefficientsCallCount);
+
+            // 3 跳里 near/far 各自的系数应该逐跳保持一致（同一份缓存字典的取值，不会中途漂移）。
+            var nearCalls = world.Combat.ResolveCalls.Where(c => c.TargetId == near).ToList();
+            var farCalls = world.Combat.ResolveCalls.Where(c => c.TargetId == far).ToList();
+            Assert.Equal(3, nearCalls.Count);
+            Assert.Equal(3, farCalls.Count);
+            Assert.All(nearCalls, c =>
+            {
+                Assert.Equal(0.5, c.TargetCoefficient, precision: 9);
+                Assert.Equal(5.0, c.BaseValue, precision: 9); // 10 × 0.5
+            });
+            Assert.All(farCalls, c =>
+            {
+                Assert.Equal(1.5, c.TargetCoefficient, precision: 9);
+                Assert.Equal(15.0, c.BaseValue, precision: 9); // 10 × 1.5
+            });
+        }
     }
 }
