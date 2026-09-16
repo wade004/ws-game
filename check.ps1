@@ -499,9 +499,45 @@ Invoke-CheckStep "dotnet build Core.sln -c $Configuration" {
 
 # -----------------------------------------------------------------------------
 # 2. dotnet test（六工程；未加任何 --filter，默认含 Category=Perf 的性能基线测试）
+#
+#    性能基线机器归一化诊断行（PJ-PERF-CAL 任务，见 architecture/11_工程规范与测试.md 第 6 节、
+#    core/gameplay/tests/Perf/README.md"机器归一化口径"、PerfMachineCalibration.cs 判断记录）：
+#    Tests.Gameplay.Perf.PerfBaselineTests 四条用例无论成败都会把一行 "perf <用例名> median=...
+#    threshold=... factor=... effective_threshold=... reference=..." 写进 ITestOutputHelper，
+#    供慢/忙机器排查"是否只是机器慢而非真回归"；console logger 默认 verbosity（本步骤此前的写法）
+#    不显示这类每用例输出。
+#
+#    判断记录（为什么不是简单加 --logger "console;verbosity=normal/detailed"）：本机实测过，
+#    "console;verbosity=normal"/"detailed" 都会把本步骤全部用例（六工程共 4256 例）的逐条通过行
+#    刷出来（normal 下 794 例的 Tests.Gameplay 单一工程就已是 794 行），不是"只有 Perf 四条用例
+#    输出"的最小改动，反而让 CI transcript 暴涨、掩盖真正需要关注的信息。改成 trx logger 落盘
+#    完整结果（含每条用例的 StdOut，dotnet test 自身的控制台输出量不变），本步骤跑完后只从落盘的
+#    trx 文件里挑出以 "perf " 开头的行显式 Write-Host——这样这四行必定进入 CI transcript
+#    （Start-Transcript 已把 Write-Host 一并落 -LogFile），且不影响这一步对其余全部用例的输出量。
 # -----------------------------------------------------------------------------
+$PerfTrxDir = Join-Path $ArtifactsPath "perf_trx"
 Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（六工程，含 Perf 类别）" {
-    Test-NativeExitCode "dotnet" @("test", $SolutionPath, "-c", $Configuration, "--no-build", "--artifacts-path", $ArtifactsPath)
+    if (Test-Path $PerfTrxDir) {
+        Remove-Item $PerfTrxDir -Recurse -Force
+    }
+
+    $ok = Test-NativeExitCode "dotnet" @(
+        "test", $SolutionPath, "-c", $Configuration, "--no-build", "--artifacts-path", $ArtifactsPath,
+        "--logger", "trx", "--results-directory", $PerfTrxDir)
+
+    if (Test-Path $PerfTrxDir) {
+        $perfLines = Get-ChildItem $PerfTrxDir -Filter "*.trx" -Recurse -ErrorAction SilentlyContinue |
+            Select-String -Pattern '^\s*<StdOut>perf \S+_WithinBaselineThreshold median=.*factor=.*reference=' |
+            ForEach-Object { ($_.Line.Trim() -replace '^<StdOut>', '') -replace '</StdOut>$', '' }
+        if ($perfLines) {
+            Write-Host "---- 性能基线机器归一化诊断（Perf 类别，见 core/gameplay/tests/Perf/README.md） ----" -ForegroundColor Cyan
+            $perfLines | Sort-Object -Unique | ForEach-Object { Write-Host $_ }
+        } else {
+            Write-Host "警告：未能从 trx 结果中找到性能基线诊断行（PerfBaselineTests 是否被意外排除或未编译进本次运行？）" -ForegroundColor Yellow
+        }
+    }
+
+    $ok
 }
 
 # -----------------------------------------------------------------------------

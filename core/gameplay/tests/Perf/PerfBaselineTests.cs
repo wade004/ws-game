@@ -12,6 +12,7 @@ using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Xunit;
+using Xunit.Abstractions;
 using Tests.Gameplay.EndToEnd;
 
 namespace Tests.Gameplay.Perf
@@ -22,6 +23,14 @@ namespace Tests.Gameplay.Perf
     /// 记录）、(b) 大规模空间查询耗时、(c) 存档序列化耗时，均与 <c>perf_baseline.json</c> 记录的
     /// 阈值（本机首次实测中位数 × 5）比较，超阈值即失败；同时把实测值打印到测试输出，供慢机器
     /// 排查"是否只是机器慢而非真回归"。
+    /// <para>
+    /// 机器归一化口径（收边任务补齐，判断记录见 <see cref="PerfMachineCalibration"/> 与本目录
+    /// README"机器归一化口径"节）：<see cref="AssertWithinCalibratedThreshold"/> 把
+    /// <c>perf_baseline.json</c> 记录的阈值按"本机 <see cref="PerfMachineCalibration.ReferenceMs"/>
+    /// ÷ 基线机 <c>reference_workload_ms</c>"的机器系数（限幅 [1, 8]）放大后再比较，四条用例
+    /// 无论成败都输出一行 <c>perf &lt;用例名&gt; median=... threshold=... factor=...
+    /// effective_threshold=... reference=...</c>，失败消息同样带上系数与参考负载耗时。
+    /// </para>
     /// <para>
     /// 判断记录（合成场景 + 完整管线两条 tick 用例并存，收边任务补齐）：
     /// <see cref="TickCost_MedianOfSampledTicks_WithinBaselineThreshold"/>（合成场景）用最小必要
@@ -44,6 +53,13 @@ namespace Tests.Gameplay.Perf
         private const int SpatialQuerySamples = 1000;
         private const ulong Seed = 20260905UL;
 
+        private readonly ITestOutputHelper _output;
+
+        public PerfBaselineTests(ITestOutputHelper output)
+        {
+            _output = output;
+        }
+
         private static PerfBaseline LoadBaseline()
         {
             var path = FindBaselineFilePath();
@@ -59,6 +75,8 @@ namespace Tests.Gameplay.Perf
                 SpatialQueryThresholdMs = ((JsonNumber)root["spatial_query_threshold_ms"]).Value,
                 SaveMedianMs = ((JsonNumber)root["save_median_ms"]).Value,
                 SaveThresholdMs = ((JsonNumber)root["save_threshold_ms"]).Value,
+                ReferenceWorkloadMs = ((JsonNumber)root["reference_workload_ms"]).Value,
+                CalibrationFactorMax = ((JsonNumber)root["calibration_factor_max"]).Value,
             };
         }
 
@@ -78,6 +96,32 @@ namespace Tests.Gameplay.Perf
             public double SpatialQueryThresholdMs;
             public double SaveMedianMs;
             public double SaveThresholdMs;
+            public double ReferenceWorkloadMs;
+            public double CalibrationFactorMax;
+        }
+
+        /// <summary>
+        /// 机器归一化口径（见 <see cref="PerfMachineCalibration"/> 判断记录）：把基线阈值按
+        /// "本机参考负载耗时 ÷ 基线机参考负载耗时"的机器系数（限幅 [1, <see cref="PerfBaseline.CalibrationFactorMax"/>]）
+        /// 放大后再与实测中位数比较，并无条件（成败与否）输出一行 <c>perf ...</c> 供 CI 日志排查；
+        /// 断言失败时的消息同样带上系数与参考负载耗时，避免只看到"超阈值"却不知道是否是机器本身慢。
+        /// </summary>
+        private void AssertWithinCalibratedThreshold(
+            string caseName, double median, double baselineMedianMs, double thresholdMs, PerfBaseline baseline)
+        {
+            var referenceMs = PerfMachineCalibration.ReferenceMs;
+            var rawFactor = referenceMs / baseline.ReferenceWorkloadMs;
+            var factor = Math.Clamp(rawFactor, 1.0, baseline.CalibrationFactorMax);
+            var effectiveThreshold = thresholdMs * factor;
+
+            _output.WriteLine(
+                $"perf {caseName} median={median:F4} threshold={thresholdMs:F4} factor={factor:F2} " +
+                $"effective_threshold={effectiveThreshold:F4} reference={referenceMs:F4}");
+
+            Assert.True(median <= effectiveThreshold,
+                $"{caseName} 中位耗时 {median:F4}ms 超过机器归一化后的阈值 {effectiveThreshold:F4}ms" +
+                $"（基线阈值 {thresholdMs:F4}ms × 机器系数 {factor:F2}，基线中位数 {baselineMedianMs:F4}ms，" +
+                $"本机参考负载 {referenceMs:F4}ms，基线机参考负载 {baseline.ReferenceWorkloadMs:F4}ms，见 perf_baseline.json）");
         }
 
         // -----------------------------------------------------------------
@@ -107,9 +151,9 @@ namespace Tests.Gameplay.Perf
             var median = Median(samples);
             var baseline = LoadBaseline();
 
-            Assert.True(median <= baseline.TickThresholdMs,
-                $"tick 中位耗时 {median:F4}ms 超过基线阈值 {baseline.TickThresholdMs:F4}ms" +
-                $"（基线中位数 {baseline.TickMedianMs:F4}ms，见 perf_baseline.json）");
+            AssertWithinCalibratedThreshold(
+                nameof(TickCost_MedianOfSampledTicks_WithinBaselineThreshold),
+                median, baseline.TickMedianMs, baseline.TickThresholdMs, baseline);
         }
 
         // -----------------------------------------------------------------
@@ -143,9 +187,9 @@ namespace Tests.Gameplay.Perf
             var median = Median(samples);
             var baseline = LoadBaseline();
 
-            Assert.True(median <= baseline.FullPipelineTickThresholdMs,
-                $"完整管线 tick 中位耗时 {median:F4}ms 超过基线阈值 {baseline.FullPipelineTickThresholdMs:F4}ms" +
-                $"（基线中位数 {baseline.FullPipelineTickMedianMs:F4}ms，见 perf_baseline.json）");
+            AssertWithinCalibratedThreshold(
+                nameof(TickCost_FullPipeline_MedianOfSampledTicks_WithinBaselineThreshold),
+                median, baseline.FullPipelineTickMedianMs, baseline.FullPipelineTickThresholdMs, baseline);
         }
 
         /// <summary>
@@ -246,9 +290,9 @@ namespace Tests.Gameplay.Perf
             var median = Median(samples);
             var baseline = LoadBaseline();
 
-            Assert.True(median <= baseline.SpatialQueryThresholdMs,
-                $"空间查询中位耗时 {median:F4}ms 超过基线阈值 {baseline.SpatialQueryThresholdMs:F4}ms" +
-                $"（基线中位数 {baseline.SpatialQueryMedianMs:F4}ms，见 perf_baseline.json）");
+            AssertWithinCalibratedThreshold(
+                nameof(SpatialQueryCost_MedianOf1000Queries_WithinBaselineThreshold),
+                median, baseline.SpatialQueryMedianMs, baseline.SpatialQueryThresholdMs, baseline);
         }
 
         // -----------------------------------------------------------------
@@ -285,9 +329,9 @@ namespace Tests.Gameplay.Perf
             var median = Median(samples);
             var baseline = LoadBaseline();
 
-            Assert.True(median <= baseline.SaveThresholdMs,
-                $"存档序列化中位耗时 {median:F4}ms 超过基线阈值 {baseline.SaveThresholdMs:F4}ms" +
-                $"（基线中位数 {baseline.SaveMedianMs:F4}ms，见 perf_baseline.json）");
+            AssertWithinCalibratedThreshold(
+                nameof(SaveSerializationCost_MedianOfRepeatedSaves_WithinBaselineThreshold),
+                median, baseline.SaveMedianMs, baseline.SaveThresholdMs, baseline);
         }
 
         // -----------------------------------------------------------------
