@@ -630,6 +630,12 @@ powershell -File toolchain\abi_probe.ps1
 powershell -File toolchain\abi_probe.ps1 -BaselineVersion 1.12.0 -SkipIfBaselineMissing:$false
 ```
 
+复审整合项 1 根治（review_E.md T-N6-7 遗留缺口）：`Core.Sim.dll` 一旦真的存在于基线包里
+（例如基线换成已含它的 1.36.0），`abi_surface` 反射解析其公开成员签名同样需要 `Adapters.Stub.dll`
+在同一目录——此前只在"当前工作树"一侧拷贝了这份依赖，基线侧漏拷贝，探针在应该跑通的正常路径上
+会直接抛 `FileNotFoundException`。现基线侧按同一 entry 后缀（`toolchain/validator/lib/
+Adapters.Stub.dll`）尝试解出，找不到（旧基线本就不含 `Core.Sim.dll`）就跳过，不算错误。
+
 `toolchain/abi_surface` 也可独立调用，覆盖任意 DLL 集合（不限于本仓库的基线/当前场景）：
 
 ```powershell
