@@ -241,7 +241,7 @@ dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] 
 阻断（`errors == 0`）；`1` 阻断；`2` 命令行参数错误（白名单文件不存在/格式非法）。`check.ps1`
 "元数据门禁"步骤即上面这条命令，`-Quick` 下也跑（秒级，不需要 Unity/构建产物）。
 
-## `toolchain/simrunner`（数值仿真报告与基线比对命令行工具，T-N6-6）
+## `toolchain/simrunner`（数值仿真报告与基线比对命令行工具，T-N6-6/T-N6-7）
 
 `toolchain/simrunner/SimRunner.csproj`（`net8.0` 控制台项目，已加入 `Core.sln`，工程惯例照抄
 `toolchain/validator` 的 `lib/` 分发分支）：对给定数据根跑 `sim.scenario` 场景，产出统一信封
@@ -250,9 +250,21 @@ dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] 
 控制台摘要格式详见 `core/sim/README.md`"命令行入口"一节；基线更新的五步流程（同
 `core/gameplay/tests/Replay/README.md`"如何更新基线"一节同一原理）见该文件"基线更新流程"一节，
 薄封装脚本 `toolchain/sim_baseline.ps1` 提供 `-Scenario`/`-UpdateBaseline`/`-Out`/
-`-ArtifactsPath` 等参数。本工具与 `toolchain/validator` 是并列的两个独立控制台工程，各自维护
-一份不含业务逻辑的 `DiskFileSystem`（只读磁盘适配层），互不引用。尚未接入 `check.ps1`/CI/
-`dist/` 打包（留给 T-N6-7），本工具只提供可被它们调用的入口。
+`-ArtifactsPath` 等参数（`--project` 路径按脚本自身目录解析，两种布局——源码仓库
+`toolchain/sim_baseline.ps1` 与 UPM 包 `Tools~/sim_baseline.ps1`——下都能正确找到同级
+`simrunner/`，见该脚本 T-N6-7 判断记录）。本工具与 `toolchain/validator` 是并列的两个独立控制台
+工程，各自维护一份不含业务逻辑的 `DiskFileSystem`（只读磁盘适配层），互不引用；`lib/` 回退分支
+T-N6-7 补全为完整 7 个 DLL（此前只列 3 个，缺 4 个运行期传递依赖，独立发行包内编译能通过但
+运行会抛 `FileNotFoundException`，见该 csproj 判断记录）。
+
+T-N6-7 已接入 `check.ps1`"数值仿真基线比对"步骤（直接执行步骤 1 已构建的 `SimRunner.dll`，不
+`dotnet run` 重复编译，-Quick 跳过）、随 `check.ps1 -SkipUnity` 一并纳入 CI（`.github/
+workflows/ci.yml` 不需要改动）、随 `build.ps1 -Dist`/`-Release` 打包——预编译产物（`bin/`+
+`lib/`）随 `toolchain/` 打进 dist 与 `com.gamefoundation.toolchain` 包 `Tools~/simrunner/`，
+`Core.Sim.dll` 随 `Adapters.Stub.dll` 一起补进 `dist/<ver>/adapters/headless/` 与
+`com.gamefoundation.adapter.headless` 包 `Lib~/`，`toolchain/validator/lib/`（含 UPM 包内
+对应位置）补齐 `Core.Sim.dll`/`Adapters.Stub.dll` 两个此前缺失的 DLL（判断记录 10 缺口消除）。
+详见 `build.ps1` 对应各节判断记录、`core/sim/README.md`"T-N6-7 判断记录"。
 
 ## 生成事件常量（gen_event_constants.py）
 

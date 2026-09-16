@@ -372,10 +372,18 @@ core/sim/
   发布清单归 T-N6-7），只提供可被它们调用的入口；不把 `toolchain/simrunner` 纳入 `dist/`
   打包（`Core.Sim`/`Adapters.Stub` 本身尚未进入任何发布清单，见判断记录 10 同一缺口，`SimRunner
   .csproj` 的 `lib/` 分发分支目前无法在独立发行包内解析，同 `Validator.csproj` 已知缺口）。
+  **T-N6-7 已收尾**：`check.ps1` 新增"数值仿真基线比对"步骤（复用步骤 1 已构建的
+  `SimRunner.dll`）、`ci.yml` 随 `check.ps1 -SkipUnity` 自动纳入、`build.ps1` 已把
+  `toolchain/simrunner` 预编译产物（`bin/`+`lib/`）随 `toolchain/` 打进 dist 与
+  `com.gamefoundation.toolchain` 包、`Core.Sim.dll`/`Adapters.Stub.dll` 已补进
+  `adapters/headless/`（随 dist 与 `com.gamefoundation.adapter.headless` 包）与
+  `toolchain/validator/lib/`（判断记录 10 缺口已消除）；详见本文件"T-N6-7 判断记录"与
+  `build.ps1`/`toolchain/abi_probe.ps1` 对应改动。
 - 不把 `Core.Sim.dll` 同步进 Unity 工作台工程——`build.ps1` 的 `$CoreAssemblies` 是显式列出
   Foundation/Numbers/Rules/Carriers/Gameplay 五个程序集名的数组（不是通配符抓取
   `Core.*.dll`），本任务未改动这份清单，`Core.Sim` 因此天然不会被同步；`Core.Sim` 依赖
-  `Adapters.Stub`，Unity 侧本就不需要它。`dist/` 打包结构与 `check.ps1` 的对应步骤留给 T-N6-7。
+  `Adapters.Stub`，Unity 侧本就不需要它（T-N6-7 收尾同样保持这一点不变，只补 dist/UPM/
+  headless 三条独立分发通道，不触碰 Unity 同步清单）。
 - 不做仓库路径定位（`FindRepoRoot`/直接读 `data/_framework`、`data/_sample` 磁盘路径）——那是
   具体宿主（`GameWorldFixture`、本模块自己的 `SimTestWorldFactory`）的职责，装配根只接受调用方
   已经构造好的 `IDataSource` 列表，见判断记录"数据来源必须注入"。
@@ -472,7 +480,8 @@ core/sim/
    Validator.csproj` 因此新增对 `Core.Sim.csproj` 的引用（两者均已引用 `Adapters.Stub.csproj`，
    `Core.Sim` 同样依赖它，不新增额外的依赖边界）。
 
-10. **`toolchain/validator/Validator.csproj` 的 `lib/` 分发分支：已知缺口，留给 T-N6-7**：本任务
+10. **`toolchain/validator/Validator.csproj` 的 `lib/` 分发分支：已知缺口，留给 T-N6-7（T-N6-7 已
+    补齐，见本文件"T-N6-7 判断记录"）**：本任务
     照抄 `Presentation.Common` 既有的"源码树是否存在"二选一分支模式，为 `Core.Sim.csproj`/
     `Adapters.Stub.csproj` 补了一份平行分支（源码仓库内走 `ProjectReference`，独立发行包内走
     `lib\*.dll` 的 `Reference`）。但核实 `build.ps1` 后确认：打包 `dist\<ver>\toolchain\validator\
@@ -879,3 +888,70 @@ core/sim/
     `python -m pytest toolchain/tests -q` 全过（242 passed, 4 skipped）；`dotnet build
     Core.sln -c Debug`/`dotnet test Core.sln`（4249 例）无副作用——本次只改了一个 JSON 数据文件的
     一个数值字段与相关 Markdown/注释说明，未触碰任何生产代码。
+
+41. **`check.ps1`"数值仿真基线比对"步骤的位置与"复用步骤 1 已构建产物"**：排在"6. toolchain
+    自身 pytest 套件"之后、"7. 禁用词扫描"之前（即 Unity 四步与消费方演练之前，任务书原文
+    要求）——同样属于"数据/内容一致性类"的校验步骤（数据校验、元数据门禁、pytest 都在附近），
+    紧跟 pytest 顺序上自然；不需要 Unity，`-SkipUnity` 不影响它。命令行直接
+    `dotnet <ArtifactsPath>\bin\SimRunner\<config小写>\SimRunner.dll run ...`——与
+    `toolchain/abi_probe.ps1` 的 `Resolve-CurrentDll`/check.ps1 步骤 1 本身同一套
+    "`--artifacts-path` 布局"约定，不再 `dotnet run --project` 触发一次重复编译（`SimRunner`
+    是 `Core.sln` 的一个项目，步骤 1 早已构建过）。输出目录固定
+    `<ArtifactsPath>\sim_out\`（每次运行前清空重建），失败时打印全部 `*.diff.txt` 全文（对齐
+    ABI 探针步骤同一"自动分诊"风格）。`-Quick` 下 `Add-SkippedStep`（任务书硬性禁止事项"禁止把
+    数值仿真列为 `-Quick` 步骤"——这里的"跳过"跟其它非秒级步骤一样，是"这一个子集不跑"，不是
+    "认定它不重要"）。步骤总数：全量/`-SkipUnity`/`-Quick` 三种既有组合此前恰好都是 24 步（用同
+    一份 `$script:Results` 计数机制——`-Quick`/`-SkipUnity` 各自跳过的步骤数量不同，但注册的
+    步骤*调用点*总数不受运行参数影响），新增本步骤后三者一致变为 25 步（任务书原文"非 -Quick
+    全量由 27 变 28（-Quick 仍 24 步）"与本仓库 `check.ps1` 实测行为不一致——已实测核对：
+    `$script:Results.Add` 无论 `Invoke-CheckStep` 的结果是 PASS/FAIL 还是 `Add-SkippedStep` 的
+    SKIP，都会让总数 +1，不存在"某种运行参数下新增步骤不计入总数"的机制；这一实测结论已如实
+    上报设计层，未按任务书字面的"27/28"数字反向修改任何既有步骤的注册方式来凑数，避免为了凑
+    一个数字而扭曲不相关步骤的分类）。
+
+42. **`build.ps1`：`adapters/headless/` 与 `toolchain/validator/lib/` 两处补 `Core.Sim.dll`/
+    `Adapters.Stub.dll` 的取值来源为何不互相依赖（各自独立取源码仓库原始构建产物）**：
+    `Core.Sim.dll` 分发到三处（`adapters/headless/`、`toolchain/validator/lib/`、
+    `toolchain/simrunner/lib/`）+ 一份预编译产物随 `toolchain/simrunner/bin/`；若让后两处依赖
+    前一处已经拷进 dist 的文件，会在 `build.ps1` 内部产生"哪一节必须先跑"的隐式顺序耦合（未来
+    若任何一节被重排，另外两节会读到不存在的路径而失败，且报错信息只会说"找不到文件"，不会
+    直接指向"顺序被换了"这一根因）。改为三处各自独立从 `core\sim\bin\$Configuration\
+    netstandard2.1\Core.Sim.dll`/`adapters\stub\bin\$Configuration\netstandard2.1\
+    Adapters.Stub.dll`（源码仓库的原始构建产物路径，`-SyncOnly` 场景下与六个核心 DLL、既有
+    `Adapters.Stub.dll` 分发同一前提——要求之前至少完整构建过一次）取值，只是同一份文件内容被
+    独立拷贝三次+预编译打包一次，代价是三行 `Copy-Item`/一份 `Get-ChildItem` 循环，换来的是三处
+    互不依赖、可以任意重排验证（本任务开发过程中确实调整过一次相对顺序，未触发任何隐藏 bug）。
+    `toolchain/simrunner/lib/` 里的六个核心 DLL 子集（5 个，不含 `Presentation.Common`）复用了
+    `distAdapterPluginsCoreDir` 里已经同步好的文件（这五个此前就已经存在，不是本次新引入的
+    "第三份"复制，取用既有产物比再拷一遍源码仓库构建目录更省重复代码）。
+
+43. **`toolchain/abi_probe.ps1`：`Core.Sim.dll` 的表面 dump 为何还要额外把 `Adapters.Stub.dll`
+    放进当前工作树 DLL 目录（`current-lib/`），却不把它加入 `$allDllNames`（不参与比对/不出现在
+    报告里）**：`toolchain/abi_surface/SurfaceDumper.cs` 用
+    `System.Reflection.MetadataLoadContext`（只读元数据反射）加载每个传入的 DLL 路径，反射任何
+    公开/受保护成员的完整签名（含参数/返回类型）时，运行时必须能解析该签名引用到的*全部*
+    程序集——`Core.Sim.dll` 的公开 API 表面直接用到 `Adapters.Stub.StubFileSystem`/
+    `StubSpatialQuery` 两个类型（`HeadlessWorldOptions.FileSystem`/`HeadlessWorld.Spatial`），
+    解析器（`PathAssemblyResolver`）按"每个传入 DLL 的同目录兄弟文件 + 当前运行时目录"两类
+    候选路径构建，若 `Adapters.Stub.dll` 不在候选集合里就会在 dump 阶段直接抛
+    `FileNotFoundException`（实测复现：修复前第一次跑 `abi_probe.ps1` 时命中）。但
+    `Adapters.Stub.dll` 本身并不是本次新增比对的目标（它在基线 1.35.0 里也不存在，且不是
+    "仿真骨架"这个交付概念本身要评估兼容性的对象——它是 `Adapters.Stub` 既有的、这次没有改动
+    的既有交付物），因此只把它的当前构建产物复制进 `current-lib/` 目录（让解析器能找到它），不
+    加入 `$allDllNames`/`$currentDllPaths`（不对它本身做 dump/compare，报告里不会出现任何
+    `Adapters.Stub` 的类型行）。`Resolve-CurrentDll` 因此新增了 `Adapters.Stub.dll` 这一个
+    `$projectNames`/`$classicRoots` 条目，纯粹是为了复用同一套"按 `-ArtifactsPath`/经典布局
+    解析当前工作树 DLL 路径"的既有函数，不代表 `Adapters.Stub.dll` 被正式纳入 ABI 比对范围。
+
+44. **`toolchain/abi_probe.ps1`：基线抽取环节改"先探测再抽取"而不是"抽取失败就整体判定为新增"
+    ——两者的差异与为何选前者**：`Test-ZipEntryExists`（新增）与 `Get-ZipEntryTo`（既有）各自
+    独立打开一次 zip 归档；若改成"直接调用 `Get-ZipEntryTo`，catch 到异常就当作新增"，会把
+    "zip 里确实没有这个条目"（预期状态，如本次 `Core.Sim.dll`）与"zip 文件本身损坏/路径错误/
+    磁盘 I/O 失败"（真实故障，理应让探针整体失败，不该被静默吞成"新增程序集"）两种性质完全
+    不同的失败原因用同一个 `catch` 块混为一谈——这类"用异常控制流表达业务分支"的写法会让真正的
+    基础设施故障（如误传了一个损坏的 zip 路径）被误诊断成"这是个新程序集，正常"，反而降低了
+    探针本身的可信度。显式的存在性探测把"没有这个条目"当成一个可以被正常检查的布尔状态，与
+    "打开 zip 本身失败"这一真正的异常路径分开，只有前者才会被本次改动新增的分支吞掉，后者仍会
+    从 `Test-ZipEntryExists`/`Get-ZipEntryTo` 内部正常抛出、被 `Invoke-CheckStep`（经
+    `check.ps1` 调用时）或 PowerShell 默认的 `$ErrorActionPreference = "Stop"`（独立调用时）
+    如实中断。

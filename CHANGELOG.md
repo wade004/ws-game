@@ -683,6 +683,52 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `toolchain/abi_probe.ps1` 针对基线 1.35.0 确认 `breaks=0`。本任务不改
   `check.ps1`/`ci.yml`/`build.ps1`/`adapters/headless/README.md`，把 `simrunner` 接入门禁/CI/
   发布清单归 T-N6-7。
+- **数值设计落地阶段 N6 · T-N6-7a**：根治"示例数据 `--strict` 零错误零警告"这条既有不变量与
+  T-N6-3a 锚点真实接入之间的回归冲突——`data/_sample` 三条早于 N6 就存在的示例技能
+  （`skill.sample_strike`/`sample_rest`/`sample_burst`）在锚点真实接入后产生 3 条
+  `skill_budget_deviation` 警告，与
+  `toolchain/tests/test_validate_data_summon_only_rule_default_wiring.py` 断言的字面
+  `"errors 0, warnings 0"` 冲突。只把 `data/_sample/sim/sim.anchor.json` 的
+  `sim.anchor.l1.dps` 从占位值 10 校准为 45（三者换算后新比值约 0.29/1.13/0.78，均落入
+  `skill.budget_rule.default` 玩家档带宽 [0.80,1.20]），不改任何示例技能、不改测试；
+  `skill.sample_rest`/`sample_burst` 的 `budget_note` 按"保留并说明"选项保留（记录历史设计
+  意图，当前不被任何规则分支实际读取）。`python toolchain/validate_data.py --strict` →
+  `errors 0, warnings 0`；`python -m pytest toolchain/tests -q` 全过；`dotnet test Core.sln`
+  全过（4249 例）无副作用。详见 `core/sim/README.md`"T-N6-7 判断记录"40、`data/README.md` 勘误。
+- **数值设计落地阶段 N6 · T-N6-7**（[ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)
+  决策 3/5 收尾）：把 T-N6-6 落地的数值仿真报告与基线比对工具接入提交门禁、CI 与发布分发清单。
+  `check.ps1` 新增"数值仿真基线比对"步骤（排在 `toolchain` 自身 pytest 之后、Unity 四步之前；
+  直接执行步骤 1 已构建的 `SimRunner.dll`，不 `dotnet run` 重复编译；`-Quick` 下 SKIP——任务书
+  硬性规则"禁止把数值仿真列为 `-Quick` 步骤"；`-SkipUnity` 不影响本步骤），全量步骤总数由 24
+  变 25（`-Quick`/`-SkipUnity` 同样由 24 变 25——两者此前恰好都是 24 步，新增步骤对两者都生效，
+  非只影响其中一种模式）；失败时打印全部 `*.diff.txt` 全文。`.github/workflows/ci.yml` 固定调用
+  `check.ps1 -SkipUnity`，新步骤随之自动纳入，本文件本身不需要任何改动（不引入新的外部下载）。
+  `build.ps1` 分发补齐：`Core.Sim.dll` 随 `Adapters.Stub.dll` 一起补进
+  `dist/<ver>/adapters/headless/` 与私服包 `com.gamefoundation.adapter.headless` 的 `Lib~/`；
+  `toolchain/simrunner` 预编译产物（`bin/`+`lib/`）随 `toolchain/` 打进 dist 与私服包
+  `com.gamefoundation.toolchain` 的 `Tools~/simrunner/`；`toolchain/validator/lib/`（含对应
+  UPM 包位置）补齐 `Core.Sim.dll`/`Adapters.Stub.dll`（T-N6-2a 判断记录 10 缺口消除）；
+  `MANIFEST.txt` 新增 `[simrunner]` 段与 `[headless_assemblies]` 段 `Core.Sim.dll` 条目；
+  `ws-game.lock` 的 `headless_dlls` 字段同步含 `Core.Sim.dll`（`New-WsGameLockObjectFromZip`
+  一并更新，避免 release.yml 缺附件修复路径漏收）；"包清单一致性"步骤新增对应断言。
+  `SimRunner.csproj` 的 `lib/` 回退分支根治：此前只列 3 个 `<Reference>`（编译期够用），缺
+  Core.Sim.dll 运行期真正需要的 4 个传递依赖（Core.Numbers/Core.Rules/Core.Carriers/
+  Core.Gameplay），独立发行包内编译能通过但运行会抛 `FileNotFoundException`，补全为完整 7 个。
+  `toolchain/sim_baseline.ps1` 的 `--project` 路径改为相对脚本自身目录解析（原硬编码
+  `"toolchain/simrunner"` 假设脚本恒常驻仓库根 `toolchain/` 下，随本包分发到 `Tools~/` 后会
+  解析到不存在的目录）。`toolchain/abi_probe.ps1`/`toolchain/abi_surface` 新增 `Core.Sim.dll`
+  加入比对程序集清单（归入表面差异比对，consumer 探针不涉及）；基线 1.35.0 无该程序集时按
+  "新增程序集"处理（baseline 抽取环节容忍条目不存在、只记录说明并跳过，不 throw），全部类型
+  行落入 `Additions` 而非 `Breaks`（`SurfaceCompareLogic.Compare` 既有语义，未新增特判分支）；
+  实测 `toolchain\abi_probe.ps1 -BaselineZip dist\ws-game-1.35.0.zip` → `breaks=0 allowed=0
+  additions=390`，`RESULT=OK`。文档同步：`adapters/headless/README.md`、
+  `toolchain/registry/manifests/adapter-headless/README.md`（+`package.json` description）、
+  `toolchain/registry/manifests/toolchain/README.md`（+`package.json` description）各补"数值
+  仿真骨架"一节；根 `README.md` 门禁步骤清单、`toolchain/README.md`"`toolchain/simrunner`"
+  一节、`core/sim/README.md`"T-N6-7 判断记录"、`architecture/11_工程规范与测试.md` 第 8 节
+  提交门槛清单补一条（数值仿真基线比对是否列为强制门槛仍由游戏层决定，不改变第 6 节已有定位）。
+  `dotnet build Core.sln -c Debug` 0 警告 0 错误；`dotnet test Core.sln` 全量回归（4249 例）无
+  副作用（本任务未新增/修改任何生产代码的行为逻辑，只新增/扩容脚本与分发清单）。
 
 ## [1.35.0] - 2026-09-16
 

@@ -2,7 +2,7 @@
   "name": "com.gamefoundation.toolchain",
   "version": "0.2.0",
   "displayName": "Game Foundation Toolchain",
-  "description": "跨游戏的数据校验/资产导入 Python 工具链，随版本号发布；脚本位于包内 Tools~/（Unity 资产管线不导入，按 python 调用，见包内 README.md）。本框架仓库不出现任何具体游戏代号。",
+  "description": "跨游戏的数据校验/资产导入 Python 工具链 + 数值仿真命令行入口（simrunner，ADR-0035 决策 5），随版本号发布；脚本/预编译产物位于包内 Tools~/（Unity 资产管线不导入，按 python/dotnet 调用，见包内 README.md）。本框架仓库不出现任何具体游戏代号。",
   "unity": "6000.3",
   "keywords": [
     "gamefoundation",

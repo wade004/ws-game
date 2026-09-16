@@ -75,10 +75,22 @@ if (-not $Version) {
     }
 }
 
+# 判断记录（T-N6-7：项目路径改为相对本脚本自身目录解析，而不是硬编码 "toolchain/simrunner"）：
+# 本脚本此前假设自己恒常驻在 "<repo_root>/toolchain/sim_baseline.ps1"（"toolchain/simrunner" 是
+# 相对 $repoRoot=Split-Path -Parent $PSScriptRoot 拼出来的）——这一假设在框架源码仓库内成立，
+# 但本脚本现按任务书要求随 com.gamefoundation.toolchain 包一起分发到 Tools~/sim_baseline.ps1
+# （同目录下是 Tools~/simrunner/，不是 <包根>/toolchain/simrunner/），硬编码路径在包内会解析到
+# 一个不存在的目录。改为 `Join-Path $PSScriptRoot "simrunner"`（本脚本自身目录的兄弟目录
+# "simrunner"，两种布局下都与本脚本直接同级，惯例同 toolchain/validate_data.py"改为相对自身
+# 文件所在目录解析 validator/ 子目录"判断记录），两种场景下都能正确解析，不需要为包内布局单独
+# 分支。SimRunner.csproj 本身在包内因 `Exists('..\..\core\sim\Core.Sim.csproj')` 为假会自动
+# 走 lib/ 回退分支现场编译（见该 csproj 判断记录），不需要本脚本额外处理。
+#
 # 判断记录：一次性拼一个扁平数组按顺序传给 dotnet，不分两段拼接——--artifacts-path 是
 # dotnet run 自身的参数（属于 "run" 与 "--" 之间那一段），"--" 之后全部是转发给 SimRunner
 # 自己的参数，两段顺序固定、不能颠倒，用同一个数组顺序拼接比"数组切片再拼接"更不容易出错。
-$dotnetArgs = @("run", "--project", "toolchain/simrunner")
+$simRunnerProjectPath = Join-Path $PSScriptRoot "simrunner"
+$dotnetArgs = @("run", "--project", $simRunnerProjectPath)
 if ($ArtifactsPath) {
     $dotnetArgs += @("--artifacts-path", $ArtifactsPath)
 }

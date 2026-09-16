@@ -103,6 +103,19 @@ function Get-WsGameZipEntrySha256 {
     }
 }
 
+# T-N6-7 新增：判断一个 zip 条目是否存在，不抽取、不抛异常——供 `New-WsGameLockObjectFromZip`
+# 对"较晚才随分发清单新增的 DLL"（如 Core.Sim.dll）做存在性探测，与该函数下方判断记录同一治理
+# 方向（较旧/较小的 zip 布局里没有这个条目是合法状态，不是错误）。
+function Test-WsGameZipEntryExists {
+    param(
+        [Parameter(Mandatory = $true)]$ZipReader,
+        [Parameter(Mandatory = $true)][string]$EntryPath
+    )
+    $normalizedTarget = $EntryPath.Replace('\', '/')
+    $entry = $ZipReader.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq $normalizedTarget }
+    return ($null -ne $entry)
+}
+
 # 判断记录（TOOL-118-LOCK 根治核心）："从一份已验证 zip 生成完整锁对象"这套逻辑（六个核心 DLL +
 # Adapters.Stub.dll + Validator.dll 的字节哈希、MANIFEST.txt 里的 git_commit）此前只存在于
 # release.yml"缺附件修复"分支的内联 PowerShell 里，且当时只抽取了六个核心 DLL——这是
@@ -127,8 +140,20 @@ function New-WsGameLockObjectFromZip {
             $entryPath = "$zipTopLevelName\adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Core\$asm.dll"
             $coreShaMap[$asm + ".dll"] = Get-WsGameZipEntrySha256 -ZipReader $zr -EntryPath $entryPath
         }
+        # T-N6-7 扩容：dist\<ver>\adapters\headless\ 下新增 Core.Sim.dll（ADR-0035 决策 1/5，随
+        # Adapters.Stub.dll 同目录分发，见 build.ps1"补齐 adapters/headless/"节判断记录）——本函数
+        # 独立重建锁文件时同步抽取，但按存在性探测而非硬性要求：早于本次改动打出的 zip（或
+        # toolchain/tests 里构造的最小 fixture zip，只含 Adapters.Stub.dll，见
+        # test_lock_writeback_repair_parity.py 判断记录）没有这个条目是合法状态，不应该让
+        # "从一份完全有效的旧布局 zip 重建锁文件"这件事本身失败——与 `headless_dlls`/
+        # `validator_dlls` 两个字段自己"较旧锁文件没有就跳过"的既有向后兼容口径一致（见
+        # get_framework.ps1 对应判断记录）。
+        $coreSimEntryPath = "$zipTopLevelName\adapters\headless\Core.Sim.dll"
         $headlessShaMap = [ordered]@{
             "Adapters.Stub.dll" = Get-WsGameZipEntrySha256 -ZipReader $zr -EntryPath "$zipTopLevelName\adapters\headless\Adapters.Stub.dll"
+        }
+        if (Test-WsGameZipEntryExists -ZipReader $zr -EntryPath $coreSimEntryPath) {
+            $headlessShaMap["Core.Sim.dll"] = Get-WsGameZipEntrySha256 -ZipReader $zr -EntryPath $coreSimEntryPath
         }
         $validatorShaMap = [ordered]@{
             "Validator.dll" = Get-WsGameZipEntrySha256 -ZipReader $zr -EntryPath "$zipTopLevelName\toolchain\validator\bin\Validator.dll"

@@ -48,7 +48,9 @@
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
     build/test、两道数据校验（合并根 + data/_framework 框架根）、事件常量一致性检查、两道禁用词
     扫描、版本一致性；跳过占位资产生成器检查（`gen_placeholder_assets.py --check`，需要 Pillow
-    且逐张比较占位图较慢）、`toolchain` 自身 pytest、`build.ps1 -SkipTests` 同步、包清单一致性
+    且逐张比较占位图较慢）、`toolchain` 自身 pytest、数值仿真基线比对（T-N6-7 新增，见该步骤
+    判断记录——任务书硬性规则"禁止把数值仿真列为 -Quick 步骤"，本开关下始终 SKIP，不代表其不重要）、
+    `build.ps1 -SkipTests` 同步、包清单一致性
     （私服交付通道新增，需要跑一遍 `build.ps1 -SyncOnly -Dist auto` + `npm pack`，与
     `build.ps1 -SkipTests` 同步同一类"非 Unity 但耗时的构建期动作"，且依赖它先把六个核心 DLL
     构建到 `bin\` 下——`-SyncOnly` 要求产物已存在，见该步骤判断记录，故排在其之后）、全部
@@ -722,6 +724,100 @@ if ($Quick) {
 }
 
 # -----------------------------------------------------------------------------
+# 6b. 数值仿真基线比对（T-N6-7，ADR-0035 决策 3/5；toolchain/simrunner）：跑一遍嵌入式最小仿真
+#     数据集（core/sim/tests/data）的全部场景（战斗/成长/内容覆盖），与随仓库提交的既有基线
+#     （core/sim/tests/baseline/*.json）比对，任一统计量 Exceeded/Removed 即判定门禁失败——见
+#     core/sim/README.md"命令行入口"/"基线更新流程"两节。位置排在 pytest 之后、Unity 四步之前：
+#     不需要 Unity（不复用/不依赖任何 Unity 相关产物），但比 pytest 更贴近".NET 构建产物"这一类
+#     （直接执行步骤 1 已经 build 好的 SimRunner.dll），紧跟在同样跑数值/内容校验的 5c/6 两步之后
+#     顺序上更自然。
+#
+#     -Quick 跳过（任务书 T-N6-7 明确禁止事项"禁止把数值仿真列为 -Quick 步骤"——这里的"跳过"指
+#     -Quick 子集本身不跑任何秒级之外的步骤，与该禁止事项一致：-Quick 下这一步和 pytest/包清单
+#     一致性等其它非秒级步骤一样显示 SKIP，不代表"数值仿真被认定为可选/不重要"）；-SkipUnity 不
+#     影响本步骤（本步骤全程只需要步骤 1 已经构建好的 SimRunner.dll + 嵌入式数据集，不涉及任何
+#     Unity 批处理调用）。
+#
+#     判断记录（复用步骤 1 已构建产物，不再 `dotnet run --project` 重复编译）：`toolchain/simrunner`
+#     是 Core.sln 的一个项目（同 Validator/SimRunner 均已在 dotnet build/test 的工程列表中，见
+#     步骤 1/2 的构建输出），步骤 1 的 `dotnet build Core.sln -c $Configuration --artifacts-path
+#     $ArtifactsPath` 已经把它构建到 `<ArtifactsPath>\bin\SimRunner\<configuration小写>\
+#     SimRunner.dll`——与 `toolchain/abi_probe.ps1` 的 `Resolve-CurrentDll`/check.ps1 步骤 1 本身
+#     同一套"--artifacts-path 布局"约定（见该脚本对应判断记录），直接 `dotnet <dll路径> run ...`
+#     执行已编译好的程序集，不经过 `dotnet run --project`/MSBuild 解析，与 3c"元数据门禁"/
+#     "消费方反馈 E1 根治"（`toolchain/validate_data.py` 优先执行预编译 `Validator.dll`）同一
+#     治理方向——避免 check.ps1 全量门禁里重复构建一遍已经构建过的项目。
+#
+#     判断记录（输出目录 `<ArtifactsPath>\sim_out\`，每次运行前清空重建）：避免累积历史场景报告/
+#     diff 文件在多次本机调试运行之间互相干扰误判；不用 `.sim_out/`（仓库根，`toolchain/
+#     sim_baseline.ps1` 默认输出目录）是为了不与手工调用 `sim_baseline.ps1` 产生的输出混在一起、
+#     也不需要额外的 `.gitignore` 条目（`$ArtifactsPath` 本身已在门禁默认值下落在 `bin/` 这一层，
+#     已被仓库根 `.gitignore` 的 `bin/` 规则忽略）。
+#
+#     判断记录（失败时打印全部 `*.diff.txt` 全文）：与 ABI 探针步骤失败分支同一"自动分诊"风格
+#     （见该步骤 `Get-Content ... | Write-Host` 判断记录）——`BaselineDiff.ToText()` 逐条列出
+#     `Exceeded`/`Removed` 统计量的路径/当前值/基线值/容差来源，直接决定这是否是一次"有意的数值/
+#     结算行为变化"，比只看退出码更能让 CI 日志自证失败原因，不需要额外登录机器翻
+#     `<ArtifactsPath>\sim_out\`。
+# -----------------------------------------------------------------------------
+if ($Quick) {
+    Add-SkippedStep "数值仿真基线比对（toolchain/simrunner）" "-Quick"
+} else {
+    Invoke-CheckStep "数值仿真基线比对（toolchain/simrunner）" {
+        $simOutDir = Join-Path $ArtifactsPath "sim_out"
+        if (Test-Path -LiteralPath $simOutDir) {
+            Remove-Item -LiteralPath $simOutDir -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $simOutDir | Out-Null
+
+        $simRunnerDll = Join-Path $ArtifactsPath ("bin\SimRunner\" + $Configuration.ToLowerInvariant() + "\SimRunner.dll")
+        if (-not (Test-Path -LiteralPath $simRunnerDll)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "找不到已构建的 $simRunnerDll——请确认步骤 1（dotnet build Core.sln --artifacts-path $ArtifactsPath）已成功" }
+        }
+
+        $simVersion = "unknown"
+        $versionFilePath = Join-Path $RepoRoot "VERSION"
+        if (Test-Path -LiteralPath $versionFilePath) {
+            $simVersion = (Get-Content -LiteralPath $versionFilePath -Raw).Trim()
+        }
+
+        $simArgs = @(
+            $simRunnerDll, "run",
+            "--scenario", "all",
+            "--framework-root", "data/_framework",
+            "--data-root", "core/sim/tests/data",
+            "--out", $simOutDir,
+            "--baseline-dir", "core/sim/tests/baseline",
+            "--version", $simVersion
+        )
+
+        Push-Location $RepoRoot
+        try {
+            # 判断记录同 Test-NativeExitCode 函数头：局部降级 $ErrorActionPreference，避免
+            # SimRunner 任何一行 stderr 输出被脚本级 "Stop" 偏好提升成终止性异常，吞掉后续的
+            # diff 文件打印逻辑；`| Out-Host` 直接写宿主，不进入本 scriptblock 的返回值管道
+            # （同 Test-NativeExitCode 判断记录，避免 F1 一类"泄漏输出污染判定"回归）。
+            $ErrorActionPreference = "Continue"
+            & dotnet @simArgs | Out-Host
+            $simExitCode = $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
+
+        if ($simExitCode -ne 0) {
+            $diffFiles = @(Get-ChildItem -Path $simOutDir -Filter "*.diff.txt" -File -ErrorAction SilentlyContinue)
+            foreach ($diffFile in $diffFiles) {
+                Write-Host "---- $($diffFile.FullName) ----" -ForegroundColor Yellow
+                Get-Content -LiteralPath $diffFile.FullName | Write-Host
+            }
+            return [PSCustomObject]@{ Ok = $false; Detail = "toolchain/simrunner 退出码=$simExitCode（0=全部场景无 Exceeded/Removed，1=存在 Exceeded/Removed，2=参数/数据装载错误，3=基线文件缺失；见上方场景摘要/RESULT 行与 diff 全文）" }
+        }
+
+        return $true
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 7. 禁用词扫描
 #    a) 全仓库不得出现某个具体游戏代号（见 CLAUDE.md 硬性规则；本文件下面用字符串拼接构造该词、
 #       不直接拼出完整拼写，避免本脚本自身的源码触发这一步扫描），排除 .git/bin/obj/Library/
@@ -1045,13 +1141,14 @@ if ($Quick) {
             $hitSegments = New-Object System.Collections.Generic.HashSet[string]
             foreach ($entry in $fileEntries) {
                 $normalizedEntryPath = $entry.path -replace '\\', '/'
-                # 判断记录（消费方反馈 E1 根治，2026-09-10）：`Tools~/validator/bin/` 是本次新增的
-                # 预编译 validator 交付物（Validator.dll + 依赖 DLL，见 build.ps1"5.057"节判断
-                # 记录），是刻意随 com.gamefoundation.toolchain 包分发的内容，不是构建产物泄漏——
-                # 与本条排除规则原本要拦的"忘了排除的 bin/obj 构建中间产物"（例如某个 core/*/bin/
-                # 意外被扫进包）性质不同。只放行这一个精确路径模式（`.../validator/bin/...`），
-                # 其它任何位置出现的 "bin" 段仍然按原规则拦截，不整体放宽这条排除规则。
-                if ($normalizedEntryPath -match '(^|/)validator/bin/') {
+                # 判断记录（消费方反馈 E1 根治，2026-09-10；T-N6-7 追加 simrunner/bin/）：
+                # `Tools~/validator/bin/`、`Tools~/simrunner/bin/` 均是刻意预编译随
+                # com.gamefoundation.toolchain 包分发的交付物（Validator.dll/SimRunner.dll + 各自
+                # 依赖 DLL，见 build.ps1"5.057"/"5.058"两节判断记录），不是构建产物泄漏——与本条
+                # 排除规则原本要拦的"忘了排除的 bin/obj 构建中间产物"（例如某个 core/*/bin/ 意外被
+                # 扫进包）性质不同。只放行这两个精确路径模式，其它任何位置出现的 "bin" 段仍然按原
+                # 规则拦截，不整体放宽这条排除规则。
+                if ($normalizedEntryPath -match '(^|/)(validator|simrunner)/bin/') {
                     continue
                 }
                 $entryPathSegments = $entry.path -split '[\\/]'
@@ -1117,13 +1214,42 @@ if ($Quick) {
                 if ($missingValidatorArtifacts.Count -gt 0) {
                     $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 validator 或隔离用 Directory.Build.props（消费方反馈 E1）：" + ($missingValidatorArtifacts -join ", "))
                 }
+
+                # T-N6-7 新增：同一个包应额外含预编译 simrunner（Tools~/simrunner/bin/SimRunner.dll，
+                # 见 build.ps1"5.058"节）与同款隔离用 Directory.Build.props，惯例同上面 validator
+                # 两项检查——防止打包逻辑被回退/漏改后又悄悄丢失这两个文件却没有任何门禁步骤发现。
+                $requiredSimRunnerArtifacts = @(
+                    "Tools~/simrunner/bin/SimRunner.dll",
+                    "Tools~/simrunner/Directory.Build.props"
+                )
+                $missingSimRunnerArtifacts = @()
+                foreach ($suffix in $requiredSimRunnerArtifacts) {
+                    $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
+                    if ($hit.Count -eq 0) {
+                        $missingSimRunnerArtifacts += $suffix
+                    }
+                }
+                if ($missingSimRunnerArtifacts.Count -gt 0) {
+                    $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 simrunner 或隔离用 Directory.Build.props（T-N6-7）：" + ($missingSimRunnerArtifacts -join ", "))
+                }
+            }
+
+            # T-N6-7 新增：com.gamefoundation.adapter.headless 包现在应该额外含 Core.Sim.dll
+            # （Lib~/Core.Sim.dll，见 build.ps1"打四个 npm 包"包 4 节），与 Adapters.Stub.dll 同一
+            # 目录分发——防止打包逻辑被回退/漏改后又悄悄丢失这个文件却没有任何门禁步骤发现。
+            if ($pkgName -eq "com.gamefoundation.adapter.headless") {
+                $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
+                $hitCoreSim = @($entryPaths | Where-Object { $_ -like "*Lib~/Core.Sim.dll" })
+                if ($hitCoreSim.Count -eq 0) {
+                    $problems += "$pkgName：npm pack --dry-run 文件清单缺失 Lib~/Core.Sim.dll（T-N6-7）"
+                }
             }
         }
 
         if ($problems.Count -gt 0) {
             throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
         }
-        [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator" }
+        [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator+simrunner，adapter.headless 包含 Core.Sim.dll" }
     }
 }
 

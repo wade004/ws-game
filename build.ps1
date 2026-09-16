@@ -1000,6 +1000,24 @@ if ($DistRequested) {
     }
     Write-Host ("  已补齐 {0} 个核心 DLL -> dist\{1}\toolchain\validator\lib\" -f $CoreAssemblies.Count, $DistDirVersion)
 
+    # T-N6-7 根治（Validator.csproj 判断记录 10 缺口，"P02 根治"当时未覆盖）：Validator.csproj 经
+    # Presentation.Assembly.ContentValidationOptions.ExtraSchemaRegistration 钩子调用
+    # Core.Sim.SimSchemaCatalog.RegisterAll（T-N6-2a 新增），独立发行包内的 lib/ 分支因此还需要
+    # Core.Sim.dll + Adapters.Stub.dll（Core.Sim 公开 API 表面直接用到 Adapters.Stub 的
+    # StubFileSystem/StubSpatialQuery 类型）——直接取源码仓库的原始构建产物，不依赖上面 5.056 节
+    # 是否已经跑过（两节独立各自取一份同源文件，不产生跨步骤的隐式顺序依赖）。
+    $srcSimDllForValidatorLib = Join-Path $RepoRoot ("core\sim\bin\$Configuration\netstandard2.1\Core.Sim.dll")
+    $srcStubDllForValidatorLib = Join-Path $RepoRoot ("adapters\stub\bin\$Configuration\netstandard2.1\Adapters.Stub.dll")
+    foreach ($extraDll in @($srcSimDllForValidatorLib, $srcStubDllForValidatorLib)) {
+        if (-not (Test-Path $extraDll)) {
+            Write-Host "打分发包失败：找不到 $extraDll（无法为 toolchain/validator/lib 补齐 Core.Sim/Adapters.Stub）" -ForegroundColor Red
+            exit 1
+        }
+    }
+    Copy-Item -Path $srcSimDllForValidatorLib -Destination (Join-Path $distValidatorLibDir "Core.Sim.dll") -Force
+    Copy-Item -Path $srcStubDllForValidatorLib -Destination (Join-Path $distValidatorLibDir "Adapters.Stub.dll") -Force
+    Write-Host ("  已补齐 Core.Sim.dll + Adapters.Stub.dll -> dist\{0}\toolchain\validator\lib\（T-N6-7 根治判断记录 10 缺口）" -f $DistDirVersion)
+
     # -------------------------------------------------------------------
     # 5.056 ADR-0018 决策 3 新增（无头适配层交付）：Adapters.Stub（对外称"无头适配层"，桩清单/
     #      判断记录见 adapters/stub/README.md）由此前"仅测试用、不对外发布"转正为框架交付物，
@@ -1008,16 +1026,31 @@ if ($DistRequested) {
     #      new StubEngine()）。源 DLL 取自 adapters\stub\bin\$Configuration\netstandard2.1\
     #      （Adapters.Stub 是 Core.sln 的一个直接项目，见该 csproj；-SyncOnly 场景下与六个核心
     #      DLL 同一前提——要求之前至少完整构建过一次，找不到时给出同款报错并退出，不静默跳过）。
+    #
+    #      T-N6-7 扩容（ADR-0035 决策 1"仿真骨架是框架交付物"）：本节额外把 Core.Sim.dll 一并拷进
+    #      同一个 adapters\headless\ 目录——`core/sim/README.md`"为何依赖桩适配层"判断记录已明确
+    #      `Core.Sim` 是"生产代码但只服务无头场景"的双重身份，与 `Adapters.Stub` 同属"无头适配层"
+    #      这一个交付概念的两个组成部分（`Core.Sim` 依赖 `Adapters.Stub`，见 `Core.Sim.csproj`
+    #      `ProjectReference`），放同一目录比另开一个顶层目录更贴合"这两个 DLL 一起构成无头运行
+    #      能力"这一实际依赖关系，也不需要新增 MANIFEST 段（沿用既有 `[headless_assemblies]`）。
+    #      源 DLL 取自 core\sim\bin\$Configuration\netstandard2.1\Core.Sim.dll（Core.Sim 同样是
+    #      Core.sln 的直接项目），与 Adapters.Stub.dll 同一份 -SyncOnly 前提。
     # -------------------------------------------------------------------
-    Write-Step "补齐 dist\$DistDirVersion\adapters\headless\Adapters.Stub.dll（ADR-0018 决策 3：无头适配层交付）"
+    Write-Step "补齐 dist\$DistDirVersion\adapters\headless\{Adapters.Stub,Core.Sim}.dll（ADR-0018 决策 3 + T-N6-7：无头适配层交付扩容）"
     $srcHeadlessDllPath = Join-Path $RepoRoot ("adapters\stub\bin\$Configuration\netstandard2.1\Adapters.Stub.dll")
     if (-not (Test-Path $srcHeadlessDllPath)) {
         Write-Host "打分发包失败：找不到 $srcHeadlessDllPath（-SyncOnly 要求产物已存在，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
         exit 1
     }
+    $srcHeadlessSimDllPath = Join-Path $RepoRoot ("core\sim\bin\$Configuration\netstandard2.1\Core.Sim.dll")
+    if (-not (Test-Path $srcHeadlessSimDllPath)) {
+        Write-Host "打分发包失败：找不到 $srcHeadlessSimDllPath（-SyncOnly 要求产物已存在，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
+        exit 1
+    }
     $distHeadlessDir = Join-Path $DistRoot "adapters\headless"
     New-Item -ItemType Directory -Force -Path $distHeadlessDir | Out-Null
     Copy-Item -Path $srcHeadlessDllPath -Destination (Join-Path $distHeadlessDir "Adapters.Stub.dll") -Force
+    Copy-Item -Path $srcHeadlessSimDllPath -Destination (Join-Path $distHeadlessDir "Core.Sim.dll") -Force
     $srcHeadlessReadmePath = Join-Path $RepoRoot "adapters\headless\README.md"
     if (-not (Test-Path $srcHeadlessReadmePath)) {
         Write-Host "打分发包失败：找不到 $srcHeadlessReadmePath（无头适配层说明文档源文件缺失）" -ForegroundColor Red
@@ -1026,8 +1059,9 @@ if ($DistRequested) {
     Copy-Item -Path $srcHeadlessReadmePath -Destination (Join-Path $distHeadlessDir "README.md") -Force
     $headlessAssemblyShaMap = [ordered]@{
         "Adapters.Stub.dll" = (Get-Sha256FileHash -Path (Join-Path $distHeadlessDir "Adapters.Stub.dll"))
+        "Core.Sim.dll" = (Get-Sha256FileHash -Path (Join-Path $distHeadlessDir "Core.Sim.dll"))
     }
-    Write-Host ("  已补齐 -> dist\{0}\adapters\headless\Adapters.Stub.dll + README.md（sha256={1}）" -f $DistDirVersion, $headlessAssemblyShaMap["Adapters.Stub.dll"])
+    Write-Host ("  已补齐 -> dist\{0}\adapters\headless\{{Adapters.Stub,Core.Sim}}.dll + README.md（sha256: Adapters.Stub={1}, Core.Sim={2}）" -f $DistDirVersion, $headlessAssemblyShaMap["Adapters.Stub.dll"], $headlessAssemblyShaMap["Core.Sim.dll"])
 
     # -------------------------------------------------------------------
     # 5.057 消费方反馈 E1 根治（architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1）：
@@ -1093,6 +1127,75 @@ if ($DistRequested) {
     $dbpContent = "<Project>`n</Project>`n"
     [System.IO.File]::WriteAllText($distValidatorDbpPath, $dbpContent, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host ("  已补齐 {0} 个文件 -> dist\{1}\toolchain\validator\bin\（Validator.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distValidatorBinDir -File).Count, $DistDirVersion, $validatorAssemblyShaMap["Validator.dll"])
+
+    # -------------------------------------------------------------------
+    # 5.058 T-N6-7 新增（ADR-0035 决策 1/5 收尾：仿真骨架随构建产物分发）：`toolchain/simrunner`
+    #      （`SimRunner.csproj`，T-N6-6 新增的数值仿真命令行入口）此前从未随 dist 分发（见
+    #      `core/sim/README.md`"不负责什么"一节旧记录），也同 `toolchain/validator` 一样存在"独立
+    #      发行包内 `dotnet run --project` 会因引用路径不存在而失败"的同一类问题——照抄上面
+    #      5.057/5.05 两节对 `toolchain/validator` 的处理方式，一并补两样：
+    #      a) 预编译产物 `bin/`：`Core.sln` 第 1 步 `dotnet build` 已把 SimRunner 项目连同它引用的
+    #         全部程序集（Core.Sim/Adapters.Stub/Core.Foundation/Core.Numbers/Core.Rules/
+    #         Core.Carriers/Core.Gameplay，均由 MSBuild 沿 ProjectReference 图自动拷贝到输出目录，
+    #         不需要逐个列出）构建到 `toolchain\simrunner\bin\$Configuration\<tfm>\` 下，整份拷进
+    #         dist 的 `toolchain\simrunner\bin\`；check.ps1 新增的"数值仿真基线比对"步骤优先直接
+    #         执行这份预编译产物（同 `validate_data.py` 优先执行预编译 `Validator.dll` 一致的治理
+    #         方向），`toolchain/sim_baseline.ps1`/消费方按需仍可退回 `dotnet run --project` 现场
+    #         编译（源码树存在时）。
+    #      b) `lib/` 分发分支所需的 DLL：`SimRunner.csproj` 的 `lib/` 回退分支（T-N6-7 本次已补全
+    #         为完整 7 个 DLL，见该 csproj 判断记录）需要 Core.Sim/Adapters.Stub/Core.Foundation/
+    #         Core.Numbers/Core.Rules/Core.Carriers/Core.Gameplay 全部到位——前 5 个取自上面"3. 同步
+    #         六个核心 DLL"已经同步进 `$PluginsCoreDir` 的同一份文件（经 dist 内 Runtime\Plugins\
+    #         Core\），后两个取自源码仓库原始构建产物（与上面"T-N6-7 根治 Validator lib/"节同一
+    #         来源，不产生跨步骤隐式顺序依赖）。
+    #      c) 同款空 `Directory.Build.props`（挡住消费方仓库根同名文件被隐式继承，理由同 5.057）。
+    #      本节必须排在下方 5.15"打四个 npm 包"之前——`com.gamefoundation.toolchain` 包内容取自
+    #      这里已经补齐的 `dist\<ver>\toolchain\`（整份拷贝），顺序与 5.05/5.056/5.057 对
+    #      `toolchain/validator`/`adapters/headless` 的既有安排一致。
+    # -------------------------------------------------------------------
+    Write-Step "补齐 dist\$DistDirVersion\toolchain\simrunner\{bin,lib}\ + 空 Directory.Build.props（T-N6-7：数值仿真命令行入口随构建产物分发）"
+    $srcSimRunnerBinParent = Join-Path $RepoRoot "toolchain\simrunner\bin\$Configuration"
+    if (-not (Test-Path $srcSimRunnerBinParent)) {
+        Write-Host "打分发包失败：找不到 $srcSimRunnerBinParent（-SyncOnly 要求 SimRunner 项目已完整构建过一次，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
+        exit 1
+    }
+    $srcSimRunnerTfmDirs = @(Get-ChildItem -Path $srcSimRunnerBinParent -Directory)
+    if ($srcSimRunnerTfmDirs.Count -ne 1) {
+        Write-Host ("打分发包失败：$srcSimRunnerBinParent 下应恰好有 1 个目标框架目录，实际 {0} 个" -f $srcSimRunnerTfmDirs.Count) -ForegroundColor Red
+        exit 1
+    }
+    $srcSimRunnerTfmDir = $srcSimRunnerTfmDirs[0].FullName
+    $srcSimRunnerDllPath = Join-Path $srcSimRunnerTfmDir "SimRunner.dll"
+    if (-not (Test-Path $srcSimRunnerDllPath)) {
+        Write-Host "打分发包失败：找不到 $srcSimRunnerDllPath（SimRunner 项目构建产物缺失）" -ForegroundColor Red
+        exit 1
+    }
+    $distSimRunnerBinDir = Join-Path $DistRoot "toolchain\simrunner\bin"
+    New-Item -ItemType Directory -Force -Path $distSimRunnerBinDir | Out-Null
+    Get-ChildItem -Path $srcSimRunnerTfmDir -File | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $distSimRunnerBinDir $_.Name) -Force
+    }
+    $simRunnerAssemblyShaMap = [ordered]@{
+        "SimRunner.dll" = (Get-Sha256FileHash -Path (Join-Path $distSimRunnerBinDir "SimRunner.dll"))
+    }
+
+    $distSimRunnerLibDir = Join-Path $DistRoot "toolchain\simrunner\lib"
+    New-Item -ItemType Directory -Force -Path $distSimRunnerLibDir | Out-Null
+    $simRunnerLibCoreAssemblyNames = @("Core.Foundation", "Core.Numbers", "Core.Rules", "Core.Carriers", "Core.Gameplay")
+    foreach ($asmName in $simRunnerLibCoreAssemblyNames) {
+        $srcDllForSimRunnerLib = Join-Path $distAdapterPluginsCoreDir ($asmName + ".dll")
+        if (-not (Test-Path $srcDllForSimRunnerLib)) {
+            Write-Host "打分发包失败：找不到 $srcDllForSimRunnerLib（无法为 toolchain/simrunner/lib 补齐核心 DLL）" -ForegroundColor Red
+            exit 1
+        }
+        Copy-Item -Path $srcDllForSimRunnerLib -Destination (Join-Path $distSimRunnerLibDir ($asmName + ".dll")) -Force
+    }
+    Copy-Item -Path $srcSimDllForValidatorLib -Destination (Join-Path $distSimRunnerLibDir "Core.Sim.dll") -Force
+    Copy-Item -Path $srcStubDllForValidatorLib -Destination (Join-Path $distSimRunnerLibDir "Adapters.Stub.dll") -Force
+
+    $distSimRunnerDbpPath = Join-Path $DistRoot "toolchain\simrunner\Directory.Build.props"
+    [System.IO.File]::WriteAllText($distSimRunnerDbpPath, $dbpContent, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host ("  已补齐 {0} 个 bin 文件 + 7 个 lib DLL -> dist\{1}\toolchain\simrunner\（SimRunner.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distSimRunnerBinDir -File).Count, $DistDirVersion, $simRunnerAssemblyShaMap["SimRunner.dll"])
 
     # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
@@ -1184,9 +1287,10 @@ if ($DistRequested) {
     Copy-Item -Path (Join-Path $DistRoot "toolchain") -Destination (Join-Path $pkgToolDir "Tools~") -Recurse -Force
     Write-Host "  已组装 $pkgToolDir"
 
-    # 包 4：com.gamefoundation.adapter.headless（ADR-0018 决策 3 新增，无头适配层交付）——
-    # package.json/README.md 同上取自 toolchain/registry/manifests/adapter-headless/；内容取自
-    # 上面 5.056 节已经拷进 dist 的 adapters\headless\Adapters.Stub.dll，放进包内 Lib~/（Unity 不
+    # 包 4：com.gamefoundation.adapter.headless（ADR-0018 决策 3 新增，无头适配层交付；T-N6-7
+    # 扩容纳入 Core.Sim.dll，ADR-0035 决策 1/5）——package.json/README.md 同上取自
+    # toolchain/registry/manifests/adapter-headless/；内容取自上面"补齐 adapters/headless/"节
+    # 已经拷进 dist 的 adapters\headless\{Adapters.Stub,Core.Sim}.dll，放进包内 Lib~/（Unity 不
     # 导入该目录；本包本身也不是 Unity 依赖，见该包 README.md 判断记录"为什么本包不写入
     # Packages/manifest.json"）。
     $pkgHeadlessDir = Join-Path $PackagesRoot "com.gamefoundation.adapter.headless"
@@ -1198,6 +1302,7 @@ if ($DistRequested) {
     $pkgHeadlessLibTilde = Join-Path $pkgHeadlessDir "Lib~"
     New-Item -ItemType Directory -Force -Path $pkgHeadlessLibTilde | Out-Null
     Copy-Item -Path (Join-Path $DistRoot "adapters\headless\Adapters.Stub.dll") -Destination (Join-Path $pkgHeadlessLibTilde "Adapters.Stub.dll") -Force
+    Copy-Item -Path (Join-Path $DistRoot "adapters\headless\Core.Sim.dll") -Destination (Join-Path $pkgHeadlessLibTilde "Core.Sim.dll") -Force
     Write-Host "  已组装 $pkgHeadlessDir"
 
     foreach ($pkgDirForPack in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir, $pkgHeadlessDir)) {
@@ -1320,9 +1425,13 @@ if ($DistRequested) {
         "",
         "[headless_assemblies]",
         ("  Adapters.Stub.dll: sha256=" + $headlessAssemblyShaMap["Adapters.Stub.dll"]),
+        ("  Core.Sim.dll: sha256=" + $headlessAssemblyShaMap["Core.Sim.dll"]),
         "",
         "[validator]",
-        ("  Validator.dll: sha256=" + $validatorAssemblyShaMap["Validator.dll"])
+        ("  Validator.dll: sha256=" + $validatorAssemblyShaMap["Validator.dll"]),
+        "",
+        "[simrunner]",
+        ("  SimRunner.dll: sha256=" + $simRunnerAssemblyShaMap["SimRunner.dll"])
     )
 
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8
