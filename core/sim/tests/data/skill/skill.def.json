@@ -206,6 +206,27 @@
         }
       ],
       "budget_note": "T-N6-5 覆盖仿真探针（skill_probe）：预算比值刻意远超预算上限，验证覆盖仿真离群值列表排序——不进 skill.book/ai.rotation，不参与任何真实战斗结算，只作为 skill.def 全表扫描的数据行存在。"
+    },
+    {
+      "id": "skill.sim_review_b_weapon_pct_strike",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 5,
+      "tags": [
+        "skill.tag.sim_melee"
+      ],
+      "cast_time": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.sim_nearest_enemy",
+      "effects": [
+        {
+          "kind": "weapon_damage_pct",
+          "params": {
+            "pct": 1.0
+          }
+        }
+      ],
+      "budget_note": "复审整合项 3（B 报告测试覆盖缺口 2，2026-09-16）：仅供 T_ReviewB_Gap2_WeaponQualityDriftBattleDamageTests 使用的专用武器伤害技能（weapon_damage_pct pct=1.0），不进 skill.book、只由 ai.rotation.sim_review_b_weapon_pct 单独引用，不参与任何标准玩家/覆盖仿真/成长仿真的真实战斗结算或预算带宽评估，budget_note 只为满足 SkillBudgetAnalyzer 的既有'有说明的越界一律归已确认偏差'口径，不代表数值设计意图。"
     }
   ]
 }
