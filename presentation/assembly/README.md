@@ -371,13 +371,39 @@ GradingItemName, Group, RequiresAnchor)` 逐字段直接引用各规则类自己
 默认注册时都不注入真实实现，`rules[].requires_anchor=true` 的这三行 `enabled` 固定为 `false`，如实
 反映"已注册但锚点未接入前不产生任何问题"，不是动态探测。
 
+**判断记录（2026-09-16，深度复审 E-M1：并入"仿真"分组三行，总数 20→23）**：04 第 5 节分级表在 N6
+收尾（T-N6-2a）时把 `Core.Sim.SimAnchorValidationRule`（`sim_anchor_level_continuity` 阻断 +
+`sim_anchor_expected_item_level_monotonic` 警告）与 `Core.Sim.SimScenarioValidationRule`
+（`sim_scenario_level_coverage_required` 阻断）正式并入分级表，此前 T-N6-8a 曾记录"目录不收录"
+（理由是这三条属框架工具专用，经 `ContentValidationOptions.ExtraSchemaRegistration` 按需接入，不
+在默认注册链路上）；深度复审领域 E（E-M1）发现该口径与 04 文档"23 行"不一致后，设计层裁定推翻
+"不收录"、采纳并入，本清单当时登记 23 行（阻断 15 + 警告 8），新增分组"仿真"。这些行的 `RuleId`/
+`CheckName` 用字符串字面量而不是 `nameof(...)`/常量引用——`Presentation.Common` 是 `build.ps1`
+`$CoreAssemblies` 六个发布给 Unity 的核心 DLL 之一，不含 `Core.Sim`，编译期引用 `Core.Sim` 类型会
+让 `Presentation.Common.dll` 产生对 `Core.Sim.dll` 的硬依赖，在只拿到六个核心 DLL 的游戏工程里
+加载 `NumericValidationRuleCatalog` 类型即抛异常；`presentation/tests/Tests.PresentationCommon.csproj`
+已引用 `Core.Sim`（`ExtraSchemaRegistration` 接线需要），改用测试反射比对锁死字面量与
+`Core.Sim` 真实常量一致，详见该文件类型级判断记录与 `NumericValidationRuleCatalogTests.
+Catalog_SimGroupLiterals_MatchCoreSimRealConstants`。
+
+**判断记录（2026-09-16，深度复审 E-S2：新增带宽键名拼写检查，总数 23→24）**：`sim.scenario.bandwidths`
+是自由字符串键的 map（schema 不枚举合法键），拼错键名此前全链路（schema、校验规则、
+`BaselineComparer.ResolveTolerance`、两处仿真运行器的 `ResolveBandwidths`）静默回退默认值，无任何
+诊断。`SimScenarioValidationRule` 新增警告级检查 `sim_scenario_bandwidth_key_unknown`（不可提升），
+已知键集合来自新增的 `Core.Sim.SimBandwidthKeys.KnownKeys`（与 `BaselineCompareOptions.
+DefaultLeafBandwidthKeys` 的取值单一来源，改一处两处都跟着变）；本清单登记 24 行（阻断 15 + 警告
+9），"仿真"分组扩到四行。`data/_sample`/`games/_template`/嵌入数据集（`core/sim/tests/data`）已核对
+过全部 `bandwidths` 键均在已知集合内，不会触发本项警告。
+
 ## 验收测试（`tests/NumericValidationRuleCatalogTests.cs`）
 
 | 用例 | 覆盖点 |
 |---|---|
-| `Catalog_HasThirteenBlockingRowsAndSevenWarningRows_TwentyTotal` | 阻断 13 行 + 警告 7 行 = 20 行（见上"数量口径"判断记录） |
+| `Catalog_HasFifteenBlockingRowsAndNineWarningRows_TwentyFourTotal` | 阻断 15 行 + 警告 9 行 = 24 行（见上"数量口径"判断记录，含深度复审 E-M1/E-S2 并入的"仿真"分组四行） |
+| `Catalog_TotalCount_MatchesArchitecture04SectionFiveIntroSentence` | 交叉核对：本清单总数/阻断数/警告数与 04 文档第 5 节引言句解析出的数字一致，04 文档改总数而本清单未跟进（或反过来）会立刻失败 |
 | `Catalog_AllWarningEntries_AreNonEscalatable` | 04 分级表"警告"整组不可提升 |
-| `Catalog_CheckNames_AreAllDistinct` | 20 行检查名互不相同 |
+| `Catalog_CheckNames_AreAllDistinct` | 24 行检查名互不相同 |
 | `Catalog_ExactlyThreeEntries_RequireAnchor` | 仅"技能预算硬上限/偏离""授予价值超特效占比"三行依赖阶段 N6 锚点 |
+| `Catalog_SimGroupLiterals_MatchCoreSimRealConstants` | "仿真"分组四行的字符串字面量（`RuleId`/`CheckName`）与 `Core.Sim` 真实常量/`GetType().Name` 逐一比对一致 |
 | `Catalog_EveryDistinctRuleId_IsActuallyRegistered_AgainstSampleData` | 核心验收——对 `data/_framework`+`data/_sample` 跑真实 `ContentValidationAssembly.Run`，清单里每个不同 `RuleId` 都必须出现在 `ValidationReport.Rules` 里且级别/`NonEscalatable` 一致（"禁止漏注册"的可执行断言），并顺带验证零阻断 |
 | `ContentValidationAssembly_NumericRules_IsSameInstanceAsCatalogEntries` | 单一来源转发，不是两份拷贝 |

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common.Json;
@@ -116,12 +117,35 @@ namespace Core.Sim
     /// "opponent.level 与 opponent.level_offsets 至多指定一个"，三者共用同一个检查名（同一表内多种
     /// 条件必填场景合并登记一个检查名，惯例同 <c>Core.Gameplay.Economy.EconomyContentValidationRule</c>
     /// 里 <c>restock_policy=timer</c> 时 <c>restock_timer</c> 必填一类条件必填检查）。
+    /// <para>
+    /// 判断记录（2026-09-16，深度复审 E-S2：<c>bandwidths</c> 键名拼写错误检查）：<c>bandwidths</c>
+    /// 在 schema 里登记为 <see cref="MapSchema.FreeKeyed"/>（自由字符串键，"本表不枚举合法键"），
+    /// 全链路（schema、本规则、<c>BaselineComparer.ResolveTolerance</c>、
+    /// <c>GrowthSimulation</c>/<c>ArenaSimulation</c> 的 <c>ResolveBandwidths</c>）此前都只用
+    /// <c>TryGetValue</c> 静默回退默认值——任何一处拼错键名（如误把 <c>level_duration</c> 写成
+    /// <c>leve_duration</c>）都不会在任何环节报出诊断，内容作者永远不会知道自己配置的带宽从未生效，
+    /// 与仓库其它数值类警告一贯的"抓意图不抓手滑"哲学（如 <c>stat_definition_no_consumer</c> 专门
+    /// 用来抓"登记了却没接上"这类疏漏）不一致。新增 <see cref="BandwidthKeyUnknownCheck"/>（警告级，
+    /// 不可提升）：<c>bandwidths</c> 的键若不属于 <see cref="SimBandwidthKeys.KnownKeys"/>（与
+    /// <see cref="BaselineCompareOptions.DefaultLeafBandwidthKeys"/> 单一来源，见该类型判断记录），
+    /// 报一条"未识别的带宽键，可能是拼写错误，本次不会生效"的诊断——本条与 <see
+    /// cref="LevelCoverageCheck"/>（阻断）共享同一个规则类实例，本类型 <see cref="NonEscalatable"/>
+    /// 因此改为 <c>true</c>（同 <see cref="SimAnchorValidationRule"/> 判断记录"为何整条规则登记为
+    /// true"同一处理口径：只影响本类产出的 Warning 在 <see cref="DataRegistryStrictness.WarningsBlock"/>
+    /// 下是否阻断，Error 恒阻断不受影响）。
+    /// </para>
     /// </summary>
     public sealed class SimScenarioValidationRule : IValidationRule
     {
         /// <summary>04 第 5 节勘误新增检查名："场景等级覆盖字段按 kind 条件必填，且 opponent 等级
         /// 指定方式二选一"。</summary>
         public const string LevelCoverageCheck = "sim_scenario_level_coverage_required";
+
+        /// <summary>深度复审 E-S2 新增检查名（警告级，不可提升）："bandwidths 键名不在已知带宽键
+        /// 集合内，可能是拼写错误"。</summary>
+        public const string BandwidthKeyUnknownCheck = "sim_scenario_bandwidth_key_unknown";
+
+        public bool NonEscalatable => true;
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
@@ -165,6 +189,23 @@ namespace Core.Sim
                     {
                         yield return new ValidationIssue(ValidationSeverity.Error, "sim.scenario", LevelCoverageCheck,
                             "opponent.level 与 opponent.level_offsets 至多指定一个（同级战斗 vs 越级矩阵二选一）", record.Key, "opponent");
+                    }
+                }
+
+                if (record.TryGetObject("bandwidths", out var bandwidths))
+                {
+                    foreach (var kv in bandwidths)
+                    {
+                        if (!SimBandwidthKeys.KnownKeys.Contains(kv.Key))
+                        {
+                            // 判断记录：已知键集合按 Ordinal 排序后拼进提示文本，避免 HashSet 枚举
+                            // 顺序不确定性泄漏进报告文本（仓库通篇"报告输出确定性"惯例）。
+                            var knownKeysText = string.Join("/", SimBandwidthKeys.KnownKeys.OrderBy(k => k, StringComparer.Ordinal));
+                            yield return new ValidationIssue(ValidationSeverity.Warning, "sim.scenario", BandwidthKeyUnknownCheck,
+                                $"bandwidths 键 \"{kv.Key}\" 不是已知带宽键（{knownKeysText}），" +
+                                "可能是拼写错误，本次不会生效——本表登记为自由字符串键，不会在加载期报错，只能靠本项警告发现",
+                                record.Key, $"bandwidths.{kv.Key}");
+                        }
                     }
                 }
             }

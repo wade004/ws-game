@@ -69,6 +69,43 @@ namespace Presentation.Assembly
     /// 可以让调用方在这条路径上换成真实 <c>ISkillBudgetAnchorProvider</c>（同 04 第 5.1 节
     /// "预算类校验的锚点依赖"段落判断记录），真正的动态锚点接入是 N6 的职责，不在本任务范围内。
     /// </para>
+    /// <para>
+    /// 判断记录（2026-09-16，深度复审 E-M1：并入 <c>sim.anchor</c>/<c>sim.scenario</c> 三行检查，
+    /// 推翻此前 T-N6-8a"目录不收录"的口径）：04 第 5 节分级表已在 N6 收尾（T-N6-2a）时把
+    /// <c>Core.Sim.SimAnchorValidationRule</c>（<c>sim_anchor_level_continuity</c> 阻断 +
+    /// <c>sim_anchor_expected_item_level_monotonic</c> 警告）与
+    /// <c>Core.Sim.SimScenarioValidationRule</c>（<c>sim_scenario_level_coverage_required</c> 阻断）
+    /// 三行正式并入分级表，总数从 20 行改为 23 行（阻断 15 + 警告 8）；本清单此前一直未跟进，
+    /// 深度复审领域 E（E-M1）发现后设计层裁定采纳方案一——并入本清单，新增分组"仿真"，不再采用
+    /// T-N6-8a 当时记录的"故意排除"结论。深度复审同批 E-S2 又给 <c>SimScenarioValidationRule</c>
+    /// 新增一条警告检查（<c>sim_scenario_bandwidth_key_unknown</c>，见该规则类型判断记录），总数
+    /// 随之再改为 <b>24 行（阻断 15 + 警告 9）</b>。"仿真"分组四条 <c>RequiresAnchor</c> 均为
+    /// <c>false</c>——它们校验的是 <c>sim.anchor</c>/<c>sim.scenario</c> 表自身结构（等级连续性/
+    /// 场景条件必填/期望装备等级单调性/带宽键名合法性），不依赖
+    /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>。
+    /// <para>
+    /// 判断记录（为何这四条不像其余 20 条那样用 <c>nameof(...)</c>/规则类常量逐字段引用，改用字符串
+    /// 字面量）：本文件所在 <c>Presentation.Common</c> 是 <c>build.ps1</c> 的 <c>$CoreAssemblies</c>
+    /// 六个"需要发布给 Unity 端的核心 DLL"之一（该数组固定六项：<c>Core.Foundation</c>/
+    /// <c>Core.Numbers</c>/<c>Core.Rules</c>/<c>Core.Carriers</c>/<c>Core.Gameplay</c>/
+    /// <c>Presentation.Common</c>，不含 <c>Core.Sim</c>）；若本文件 <c>using Core.Sim</c> 并对
+    /// <c>SimAnchorValidationRule</c>/<c>SimScenarioValidationRule</c> 取 <c>nameof</c>/常量引用，
+    /// 会让 <c>Presentation.Common.dll</c> 产生对 <c>Core.Sim.dll</c> 的硬程序集依赖——
+    /// <see cref="NumericValidationRuleCatalog.Entries"/> 是静态只读字段、类加载即初始化，任何引用
+    /// 本清单的游戏（哪怕从不触碰 sim 相关代码路径）在只拿到六个核心 DLL、没有 <c>Core.Sim.dll</c>
+    /// 的 Unity 工程里都会在加载 <c>NumericValidationRuleCatalog</c> 类型时抛
+    /// <c>FileNotFoundException</c>/<c>TypeLoadException</c>，是本任务改动范围不能引入的真实回归；
+    /// 本修复批次的允许改动路径不含 <c>build.ps1</c>（把 <c>Core.Sim</c> 补进 <c>$CoreAssemblies</c>
+    /// 或改成"游戏层按需选择"需要设计层另行拍板是否值得让每个游戏都多带一个仿真专用 DLL），因此这四
+    /// 条改用与 <c>Core.Sim.SimAnchorValidationRule.LevelContinuityCheck</c> 等常量取值逐字符相同的
+    /// 字符串字面量，不产生程序集依赖；"改一处、清单自动跟着变"这条既有惯例对这四行退化为"改一处、
+    /// 由测试跟着炸"——<c>presentation/tests/Tests.PresentationCommon.csproj</c> 已经引用
+    /// <c>Core.Sim</c>（此前为 <c>ExtraSchemaRegistration</c> 接线需要），在测试项目里补一条反射/
+    /// 常量比对断言即可锁死这四处字面量与 <c>Core.Sim</c> 真实常量一致，不需要生产代码本身持有引用。
+    /// 设计层如认为"接受 <c>Presentation.Common</c> 依赖 <c>Core.Sim</c>、同步把 <c>Core.Sim</c>
+    /// 纳入 Unity 发行"更好，请另行拍板并改 <c>build.ps1</c>，本清单再改回 <c>nameof</c> 引用。
+    /// </para>
+    /// </para>
     /// </summary>
     public sealed class NumericValidationRuleDescriptor
     {
@@ -127,8 +164,11 @@ namespace Presentation.Assembly
     /// <summary>本清单本体，见 <see cref="NumericValidationRuleDescriptor"/> 类型注释判断记录。</summary>
     public static class NumericValidationRuleCatalog
     {
-        /// <summary>04 分级表全部 20 行（阻断 13 行，对应 11 个概念条目；警告 7 行/条目），顺序同
-        /// 核对表 B1/B1a/B1b/B2～B11、W1～W7；见类型级判断记录"数量口径"。</summary>
+        /// <summary>04 分级表全部 24 行（阻断 15 行，对应 13 个概念条目；警告 9 行/条目），顺序同
+        /// 核对表 B1/B1a/B1b/B2～B11、W1～W7，末尾追加深度复审 E-M1 并入的"仿真"分组三行（04 第 5
+        /// 节 N6 收尾新增的 <c>sim.anchor</c>/<c>sim.scenario</c> 表结构完整性检查）+ E-S2 新增一行
+        /// （<c>sim_scenario_bandwidth_key_unknown</c>）；见类型级判断记录"数量口径"与"2026-09-16，
+        /// 深度复审 E-M1"/"深度复审 E-S2"。</summary>
         public static IReadOnlyList<NumericValidationRuleDescriptor> Entries { get; } = new[]
         {
             // ---------------- 阻断级 11 项（核对表 B1～B11） ----------------
@@ -185,6 +225,18 @@ namespace Presentation.Assembly
                 ValidationSeverity.Error, nonEscalatable: true,
                 "技能预算硬上限", "技能", requiresAnchor: true),
 
+            // ---------------- 仿真分组新增阻断 2 项（深度复审 E-M1，2026-09-16；04 第 5 节 N6 收尾
+            // 新增行；RuleId/CheckName 为字符串字面量而非 nameof/常量引用，见类型级判断记录
+            // "为何这三条不像其余 20 条那样用 nameof(...) ……改用字符串字面量"） ----------------
+            new NumericValidationRuleDescriptor(
+                "SimAnchorValidationRule", "sim_anchor_level_continuity",
+                ValidationSeverity.Error, nonEscalatable: true,
+                "锚点表等级连续无缺口无重复", "仿真", requiresAnchor: false),
+            new NumericValidationRuleDescriptor(
+                "SimScenarioValidationRule", "sim_scenario_level_coverage_required",
+                ValidationSeverity.Error, nonEscalatable: true,
+                "仿真场景等级覆盖字段条件必填", "仿真", requiresAnchor: false),
+
             // ---------------- 警告级 7 项（核对表 W1～W7），全部 NonEscalatable=true ----------------
             new NumericValidationRuleDescriptor(
                 nameof(SkillBudgetValidationRule), SkillBudgetValidationRule.DeviationCheck,
@@ -214,6 +266,16 @@ namespace Presentation.Assembly
                 nameof(StatDefinitionConsumerValidationRule), StatDefinitionConsumerValidationRule.CheckNoConsumer,
                 ValidationSeverity.Warning, nonEscalatable: true,
                 "属性无消费者", "属性", requiresAnchor: false),
+
+            // ---------------- 仿真分组新增警告 2 项（深度复审 E-M1/E-S2，2026-09-16） ----------------
+            new NumericValidationRuleDescriptor(
+                "SimAnchorValidationRule", "sim_anchor_expected_item_level_monotonic",
+                ValidationSeverity.Warning, nonEscalatable: true,
+                "锚点表期望装备等级单调不减", "仿真", requiresAnchor: false),
+            new NumericValidationRuleDescriptor(
+                "SimScenarioValidationRule", "sim_scenario_bandwidth_key_unknown",
+                ValidationSeverity.Warning, nonEscalatable: true,
+                "仿真场景带宽键名未识别", "仿真", requiresAnchor: false),
         };
     }
 }
