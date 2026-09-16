@@ -434,6 +434,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- `core/sim/tests/data` 嵌入仿真数据集补齐 `skill.sim_review_b_weapon_pct_strike` 的
+  `display.map` 映射行（复审整合项 3 `17a6670` 遗留缺口，`DisplayMapCoverageRule` 此前报 1 条
+  阻断 error）；`toolchain/validate_data.py --strict --data-root core/sim/tests/data` 对该根
+  校验回到 `errors 0`。
+- `check.ps1` 新增一步（"6a"，排在 pytest 之后、数值仿真基线比对之前）单独对
+  `core/sim/tests/data` 跑 `validate_data.py --strict`（`-Quick` 下也跑）——此前只有"数值仿真
+  基线比对"用 `SimRunner` 装载该数据集跑仿真场景，不等价于跑一遍声明式规则引擎校验，同类遗漏
+  （如本次的 `display.map` 缺行）会被放过；新步骤堵住这条门禁空档。
+
 ## [1.38.0] - 2026-09-17
 
 编辑器上游反馈第 45/46/47 条 + 数据校验器非数据表 JSON 跳过。

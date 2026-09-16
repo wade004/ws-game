@@ -46,7 +46,8 @@
 
 .PARAMETER Quick
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
-    build/test、两道数据校验（合并根 + data/_framework 框架根）、事件常量一致性检查、两道禁用词
+    build/test、三道数据校验（合并根 + data/_framework 框架根 + core/sim/tests/data 嵌入仿真
+    数据集，反馈 46 后续新增第三道，见步骤 6a 判断记录）、事件常量一致性检查、两道禁用词
     扫描、版本一致性；跳过占位资产生成器检查（`gen_placeholder_assets.py --check`，需要 Pillow
     且逐张比较占位图较慢）、`toolchain` 自身 pytest、数值仿真基线比对（T-N6-7 新增，见该步骤
     判断记录——任务书硬性规则"禁止把数值仿真列为 -Quick 步骤"，本开关下始终 SKIP，不代表其不重要）、
@@ -756,6 +757,53 @@ if ($Quick) {
             Pop-Location
             $env:PYTHONUTF8 = $prevPythonUtf8
         }
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 6a. core/sim/tests/data（嵌入仿真数据集）单独 `validate_data.py --strict` 校验（反馈 46 后续，
+#     2026-09-17，fix/sim-dataset-display-map）：
+#
+#     为什么需要这一步——`core/sim/tests/data` 此前从未被任何门禁步骤单独跑过
+#     `validate_data.py --strict`（对比步骤 3/3b：合并根、`data/_framework` 都有各自的门禁步骤，
+#     唯独这个嵌入仿真数据集没有）。唯一涉及它的既有步骤是下面 6b"数值仿真基线比对"，但那一步
+#     只用 `toolchain/simrunner`（`SimRunner.dll`）装载数据跑三类仿真场景，不等价于跑一遍声明式
+#     规则引擎校验——已实测核对 `toolchain/simrunner/SimRunner.csproj`：其 ProjectReference 只到
+#     `core/sim/Core.Sim.csproj` + `adapters/stub/Adapters.Stub.csproj`（该文件自己的判断记录也
+#     写明"不需要 Presentation.Common（不做 ContentValidationAssembly 那一层内容校验，只调用
+#     HeadlessWorldBuilder/ArenaSimulation/GrowthSimulation/CoverageSimulation/BaselineComparer
+#     这些 Core.Sim 自己的公开 API）"）；而 `DisplayMapCoverageRule` 是在
+#     `presentation/assembly/ContentValidationAssembly.cs`（`Presentation.Common` 工程）里注册的
+#     可选规则，`Core.Sim.csproj` 不引用 `Presentation.Common`，`Core.Sim` 自己的
+#     `SimSchemaCatalog` 也只注册 `SimAnchorValidationRule`/`SimScenarioValidationRule` 两条
+#     sim 专属规则——三层核对下来，`SimRunner` 的装载路径确实不会触达
+#     `DisplayMapCoverageRule` 这类声明式规则引擎校验，`toolchain/validator`（本步骤与步骤 3/3b
+#     调用的对象）才会。这正是本次 bug（`skill.sim_review_b_weapon_pct_strike` 漏配
+#     `display.map` 映射行）能一路混过 6b 而未被拦下的根因，不是巧合。
+#
+#     为什么排在 6b 之前——同属"数据/内容一致性类"校验（与 3/3b/3c/4/5c 相邻的一类步骤），
+#     紧邻 6b（同一数据集的另一种校验方式）顺序上自然，读日志时两步结果能对照着看。
+#
+#     为什么 `-Quick` 下也跑——同 3/3b/3c 一样是秒级的纯数据/元数据校验（`toolchain/validator`
+#     只做骨架检查 + 规则引擎校验，不跑仿真、不编译 Unity），不属于"非秒级步骤"，没有理由排除在
+#     `-Quick` 子集之外——这正是本步骤与 6b（跑三类仿真场景，耗时明显更长，`-Quick` 下
+#     `Add-SkippedStep`）刻意区分开的原因。
+#
+#     步骤总数（本步骤不受 `-Quick`/`-SkipUnity` 门控，两个族群各 +1）：`$script:Results.Add`
+#     计数机制下存在两个不同的"总步骤数"族群，不是单一数字——`-Quick`/`-SkipUnity` 族（Unity 四步
+#     + 消费方演练整体折叠成 6 个 `Add-SkippedStep`）新增本步骤前 25、后 26；全量族（不传
+#     `-SkipUnity`，会跑到 Unity 四步 + 消费方演练 + `-Il2cpp` 门控的 IL2CPP 三步，这三步无论
+#     PASS 还是 SKIP 都会被注册，故比 `-Quick`/`-SkipUnity` 族多 3）新增本步骤前 28、后 29——
+#     `build.ps1 -Release` 默认不传 `-SkipUnity` 也不传 `-Il2cpp`（README.md"发布流程"一节、
+#     build.ps1 全文均无 `-Il2cpp` 调用点），因此命中的正是全量族（29）。详细推导与归档证据见
+#     `core/sim/README.md` 判断记录 41 本次补充的段落。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/sim/tests/data（嵌入仿真数据集单独校验）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict", "--framework-root", "data/_framework", "--data-root", "core/sim/tests/data")
+    } finally {
+        Pop-Location
     }
 }
 

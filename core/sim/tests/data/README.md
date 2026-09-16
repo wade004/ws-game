@@ -18,7 +18,7 @@ T-N6-3～T-N6-6（标准玩家生成器、战斗/成长/覆盖三级仿真）复
 同名概念表各自登记自己的一套 id，互不引用、互不合并到同一次装配里；本数据集全部内容 id 一律
 `sim_*` 前缀（`arch.class.sim_warrior`、`creature.sim_wolf_l5`……），不出现任何游戏代号。
 
-## 数据集清单（45 个表文件，334 行——T-N6-5 追加见下表 `skill.def`/`item.template`/
+## 数据集清单（45 个表文件，335 行——T-N6-5 追加见下表 `skill.def`/`item.template`/
 `display.map`/`l10n.text`/`loot.table` 行，`stat.definition`/`sim.anchor` 两行的行数是
 T-N6-4/T-N6-4b 已落地但本表此前未同步更新的既有 drift，本次一并更正）
 
@@ -66,7 +66,7 @@ T-N6-4/T-N6-4b 已落地但本表此前未同步更新的既有 drift，本次�
 | prog | `prog.xp_source` | 2 | kill / quest 两个来源 |
 | sim | `sim.anchor` | 25 | 1～25 级连续（T-N6-4b 扩表，见下"锚点推导"） |
 | sim | `sim.scenario` | 3 | arena / growth / coverage 各一条 |
-| display | `display.map` | 67 | `skill.def`/`skill.aura_def`/`item.template`/`creature.template` 全部逻辑 id 的最小外形映射（`DisplayMapCoverageRule` 阻断要求，T-N6-5 起含两条覆盖仿真探针） |
+| display | `display.map` | 68 | `skill.def`/`skill.aura_def`/`item.template`/`creature.template` 全部逻辑 id 的最小外形映射（`DisplayMapCoverageRule` 阻断要求，T-N6-5 起含两条覆盖仿真探针） |
 | l10n | `l10n.locale` | 1 | `l10n.locale.zh_cn`（**id 必须等于** `DataRegistryOptions.DefaultLocale` 默认值，见判断记录 1） |
 | l10n | `l10n.text` | 91 | 全部 `name_key`/`TextKey` 字段的中文文本（`text_key_exists` 阻断要求） |
 
@@ -443,3 +443,18 @@ T-N6-2b/T-N6-4 阶段只登记了主手（0.3 概率）+ 头部（0.05 概率）
    的跳跃。按 5 个真实点做分段线性插值虽然不是"每个等级都独立仿真验证过"，但保证了整条曲线连续、
    量级一致，且 `SimAnchorValidationRule` 本就只检查等级连续性与 `expected_item_level` 单调性
    （不检查 `dps`/`hp`/`ttk`/`ttd` 本身的单调性/连续性），插值行不违反任何既有校验规则。
+10. **`display.map` 漏配一行的遗留 bug 与本次修复**（2026-09-17，`fix/sim-dataset-display-map`）：
+    复审整合项 3（commit `17a6670`，2026-09-16）给 `skill/skill.def.json` 新增技能
+    `skill.sim_review_b_weapon_pct_strike` 时，漏给 `display/display.map.json` 补对应的
+    `category:"skill"` 映射行，导致 `DisplayMapCoverageRule`（阻断级，见判断记录 5）报 1 条
+    error；`check.ps1` 此前没有任何门禁步骤单独对本数据集跑 `validate_data.py --strict`（唯一
+    涉及本数据集的门禁步骤"6b 数值仿真基线比对"只用 `SimRunner` 装载数据跑仿真场景，不触达
+    `DisplayMapCoverageRule` 这类规则引擎校验，见 `check.ps1` 新增步骤"6a"上方判断记录的实测
+    核对），因此这条 bug 一直未被拦下。本次补齐 `display.map.sim_review_b_weapon_pct_strike`
+    一行（格式比照其它 `category:"skill"` 行），`validate_data.py --strict` 对本数据集校验回到
+    `errors 0`；`check.ps1` 同时新增"6a"步骤，之后同类遗漏会在提交前（含 `-Quick`）被直接拦下。
+    另外如实记录一处未修正的独立遗留：本清单表头"45 个表文件，N 行"与 `skill.def`/
+    `ai.rotation` 两行的行数，在 17a6670 同批改动（`skill.def` 8→9 行、`ai.rotation` 3→4 行）
+    时就未同步更新进本清单（清单里两行当时仍写 8/3），本次只处理 `display.map` 这一行及其带来
+    的总行数增量（334→335，只反映本次这一步），`skill.def`/`ai.rotation` 的清单行数漂移不在
+    本次范围内，留给后续任务处理。
