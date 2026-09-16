@@ -233,9 +233,9 @@ powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Un
 ## 升级指南
 
 跨版本升级路径（不同于 `CHANGELOG.md` 里逐版本的"迁移说明"，后者只记单版增量）维护在
-[docs/升级指南/README.md](docs/升级指南/README.md)；覆盖数值设计专项 N0～N6 七个版本
-（1.30.0～1.36.0）的一份跨版本升级指南见
-[docs/升级指南/1.29.0到1.36.0-数值设计专项.md](docs/升级指南/1.29.0到1.36.0-数值设计专项.md)。
+[docs/升级指南/README.md](docs/升级指南/README.md)；覆盖数值设计专项 N0～N6 八个版本
+（1.30.0～1.37.0，含深度复审修复版）的一份跨版本升级指南见
+[docs/升级指南/1.29.0到1.37.0-数值设计专项.md](docs/升级指南/1.29.0到1.37.0-数值设计专项.md)。
 
 ## 新游戏如何消费本框架
 
