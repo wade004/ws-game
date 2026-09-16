@@ -304,6 +304,17 @@ namespace Core.Rules.Skill
 
         public bool IsCasting(Id unitId) => _casting.ContainsKey(unitId);
 
+        /// <summary>
+        /// 深度复审 C-S1（2026-09-16）新增的只读查询：<paramref name="unitId"/> 当前正在读条/引导的
+        /// <see cref="CastState.Remaining"/>（未在读条/引导时返回 <c>null</c>，与 <see
+        /// cref="IsCasting"/> 同一口径——本方法返回非空等价于 <see cref="IsCasting"/> 为真）。供
+        /// <c>Core.Rules.Skill.SkillHost.GetSkillReadiness</c> 的 <c>ActionLocked</c> 判定与 <see
+        /// cref="CastSkill"/> 顶部的排队窗口（<see cref="SkillOptions.QueueWindow"/>）分支对齐——见该
+        /// 方法判断记录。只读，不修改任何状态。
+        /// </summary>
+        public double? GetCastingRemaining(Id unitId) =>
+            _casting.TryGetValue(unitId, out var state) ? state.Remaining : (double?)null;
+
         // -----------------------------------------------------------------
         // 施法请求入口
         // -----------------------------------------------------------------

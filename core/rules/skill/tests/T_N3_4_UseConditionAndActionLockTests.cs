@@ -214,6 +214,118 @@ namespace Tests.Rules.Skill
         }
 
         // -----------------------------------------------------------------
+        // 深度复审 C-S1 修复回归测试（2026-09-16）：GetSkillReadiness 的 ActionLocked 判定补齐
+        // CastSkill 顶部的排队窗口（QueueWindow）与反应类瞬发插入分支，使二者结论一致。
+        // -----------------------------------------------------------------
+
+        /// <summary>C-S1：施法者当前读条剩余时间落在 <see cref="SkillOptions.QueueWindow"/> 窗口内
+        /// 时，<see cref="ISkillHost.CastSkill"/> 会接受新请求排队（不以 ActionLocked 拒绝）——修复前
+        /// <see cref="ISkillHost.GetSkillReadiness"/> 只看 <c>IsCasting</c>（不区分剩余时间），会在
+        /// 这个窄窗口内错误地汇报 ActionLocked/IsReady=false，与随后一次 <see cref="CastSkill"/> 实际
+        /// 会成功排队的结论不一致。本用例验证修复后二者结论一致：窗口内 GetSkillReadiness 报
+        /// IsReady=true、不置位 ActionLocked，随后一次 CastSkill 成功排队。</summary>
+        [Fact]
+        public void GetSkillReadiness_WithinQueueWindow_IsConsistentWithCastSkillQueueingSuccess()
+        {
+            var channel = J.O(
+                ("id", J.S("skill.n3_4_readiness_queue_channel")),
+                ("school", J.S("skill.school_n3_4")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(1.0)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.n3_4")),
+                ("effects", J.A()));
+            // respects_gcd=true：与 GetSkillReadiness_ReflectsActionLocked_WhenGcdDisabled_AndCasterBusy
+            // 用的"locked"技能同一形状——只是这次要落在排队窗口内而不是窗口外。
+            var queued = J.O(
+                ("id", J.S("skill.n3_4_readiness_queue_target")),
+                ("school", J.S("skill.school_n3_4")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(0)),
+                ("respects_gcd", J.B(true)),
+                ("target_shape_ref", J.S("target.chain.n3_4")),
+                ("effects", J.A()));
+
+            var builder = new SkillWorldBuilder();
+            builder.Options.QueueWindow = 0.3;
+            var world = builder.SkillDef(channel).SkillDef(queued).Build();
+            var caster = new Id("unit.n3_4_caster_queue_window");
+            world.AddUnit(caster);
+            world.Targets.SetChain(new Id("target.chain.n3_4"), caster);
+
+            Assert.True(world.Host.CastSkill(
+                caster, new Id("skill.n3_4_readiness_queue_channel"), System.Array.Empty<Id>()).Success);
+
+            // 推进到剩余 0.2（<= 0.3 队列窗口），仍处于 IsCasting=true 状态。
+            world.Host.Update(0.8);
+            Assert.True(world.Host.IsCasting(caster));
+
+            var readiness = world.Host.GetSkillReadiness(caster, new Id("skill.n3_4_readiness_queue_target"));
+
+            // 核心断言（C-S1）：修复前这里会被误判为 ActionLocked/IsReady=false。
+            Assert.True(readiness.IsReady);
+            Assert.Equal(SkillReadinessBlockers.None, readiness.BlockingSources);
+
+            // 与随后一次 CastSkill 的裁决一致：窗口内应成功排队（Ok），不是失败。
+            var castResult = world.Host.CastSkill(
+                caster, new Id("skill.n3_4_readiness_queue_target"), System.Array.Empty<Id>());
+            Assert.True(castResult.Success);
+        }
+
+        /// <summary>C-S1 对照组（报告分析：反应类瞬发插入分支与本判定的 <c>def.RespectsGcd</c> 前提
+        /// 互斥，天然一致，不需要额外代码改动）：respects_gcd=false 且瞬发的技能，本判定恒不置位
+        /// ActionLocked（前提 <c>def.RespectsGcd</c> 为假），与 CastSkill 的 SafeInstantInsert 分支
+        /// 总是成功这一结论一致——即便施法者当前正处于他技能的非瞬发动作时长内（远超队列窗口）。</summary>
+        [Fact]
+        public void GetSkillReadiness_ReactiveInstantSkill_IsConsistentWithCastSkillSafeInstantInsert()
+        {
+            var channel = J.O(
+                ("id", J.S("skill.n3_4_readiness_reactive_channel")),
+                ("school", J.S("skill.school_n3_4")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(2.0)),
+                ("respects_gcd", J.B(false)),
+                ("target_shape_ref", J.S("target.chain.n3_4")),
+                ("effects", J.A()));
+            var reactive = J.O(
+                ("id", J.S("skill.n3_4_readiness_reactive_instant")),
+                ("school", J.S("skill.school_n3_4")),
+                ("kind", J.S("active")),
+                ("range", J.N(0)),
+                ("cast_time", J.N(0)),
+                ("respects_gcd", J.B(false)), // 反应类：瞬发 + 不受节拍锁——SafeInstantInsert 前提。
+                ("target_shape_ref", J.S("target.chain.n3_4")),
+                ("effects", J.A()));
+
+            var builder = new SkillWorldBuilder();
+            builder.Options.QueueWindow = 0.3;
+            var world = builder.SkillDef(channel).SkillDef(reactive).Build();
+            var caster = new Id("unit.n3_4_caster_reactive_readiness");
+            world.AddUnit(caster);
+            world.Targets.SetChain(new Id("target.chain.n3_4"), caster);
+
+            Assert.True(world.Host.CastSkill(
+                caster, new Id("skill.n3_4_readiness_reactive_channel"), System.Array.Empty<Id>()).Success);
+
+            // 未推进任何时间：剩余读条时间 = 2.0，远大于队列窗口 0.3——若按窗口逻辑判断本该
+            // ActionLocked，但反应类瞬发插入分支不吃这一套（前提 respects_gcd=false）。
+            Assert.True(world.Host.IsCasting(caster));
+
+            var readiness = world.Host.GetSkillReadiness(caster, new Id("skill.n3_4_readiness_reactive_instant"));
+            Assert.True(readiness.IsReady);
+            Assert.Equal(SkillReadinessBlockers.None, readiness.BlockingSources);
+
+            var castResult = world.Host.CastSkill(
+                caster, new Id("skill.n3_4_readiness_reactive_instant"), System.Array.Empty<Id>());
+            Assert.True(castResult.Success);
+            // 反应类插入不打断/不覆盖原有读条状态。
+            Assert.True(world.Host.IsCasting(caster));
+        }
+
+        // -----------------------------------------------------------------
         // GcdEnabled=true 回归：ConditionNotMet 与既有 GCD 裁决互不干扰（禁止改 GcdEnabled=true 行为）
         // -----------------------------------------------------------------
 

@@ -501,10 +501,22 @@ namespace Core.Rules.Skill
         /// 逐字对齐；不满足时 <see cref="SkillReadiness.GlobalCooldownRemaining"/> 恒为 0（"不适用"
         /// 与"适用但已就绪"对 <see cref="SkillReadiness.IsReady"/> 效果相同）。</item>
         /// <item>
-        /// T-N3-4（ADR-0031 决策 10）新增：<c>!_options.GcdEnabled &amp;&amp; def.RespectsGcd &amp;&amp;
-        /// !isDiscreteStep &amp;&amp; _pipeline.IsCasting(unitId)</c> 同时成立时置位 <see
-        /// cref="SkillReadinessBlockers.ActionLocked"/>——与 <see cref="CastPipeline"/> 步骤 4"节拍锁"
-        /// GcdEnabled=false 分支判定条件逐字对齐。
+        /// T-N3-4（ADR-0031 决策 10）新增，深度复审 C-S1（2026-09-16）补齐排队窗口：
+        /// <c>!_options.GcdEnabled &amp;&amp; def.RespectsGcd &amp;&amp; !isDiscreteStep &amp;&amp;
+        /// _pipeline.GetCastingRemaining(unitId)</c> 非空且严格大于 <see
+        /// cref="SkillOptions.QueueWindow"/> 时置位 <see cref="SkillReadinessBlockers.ActionLocked"/>。
+        /// 判断记录（C-S1）：<see cref="CastPipeline.CastSkill"/> 在施法者当前读条/引导剩余时间
+        /// <c>&lt;= QueueWindow</c> 时会接受新请求排队（<see cref="CastResult.Ok"/>），不会以
+        /// <see cref="CastFailureReason.ActionLocked"/> 拒绝——旧实现只用 <see
+        /// cref="CastPipeline.IsCasting"/>（不区分剩余时间）判定 <c>ActionLocked</c>，会在这个窄
+        /// 窗口（默认 0.3 秒）内错误地汇报"会被拒绝"，与随后一次 <see cref="CastSkill"/> 实际会
+        /// 成功排队的结论不一致；改用 <see cref="CastPipeline.GetCastingRemaining"/> 与
+        /// <see cref="SkillOptions.QueueWindow"/> 比较后，二者结论逐字对齐。<see
+        /// cref="CastPipeline.CastSkill"/> 顶部另一条"反应类瞬发插入"（<c>SafeInstantInsert</c>）
+        /// 分支只在<c>respects_gcd=false</c> 时可能成立，与本判定的 <c>def.RespectsGcd</c> 前提互斥
+        /// （见 <see cref="CastPipeline.ClassifyReactiveInsert"/> 判断记录），不需要额外处理——
+        /// <c>respects_gcd=false</c> 的技能本判定恒不置位 <c>ActionLocked</c>，与反应类插入总是成功
+        /// 这一结论天然一致。
         /// </item>
         /// <item>
         /// T-N3-4（ADR-0031 决策 9）新增：<c>def.UseCondition != null</c> 且求值为假时置位 <see
@@ -601,11 +613,17 @@ namespace Core.Rules.Skill
             }
 
             // T-N3-4（ADR-0031 决策 10，06 第 3.6 节 2026-09-14 修订）：节拍锁泛化——GcdEnabled=false
-            // 时，respects_gcd=true 的技能若施法者正处于他技能动作时长内（IsCasting），与
+            // 时，respects_gcd=true 的技能若施法者正处于他技能动作时长内且不在排队窗口内，与
             // CastPipeline 步骤 4 判定条件逐字对齐（同一份 def.RespectsGcd/isDiscreteStep 前提，见
             // TryStartCast 步骤 4 判断记录）。GcdEnabled=true 时本分支不生效，节拍锁仍只反映在上面的
             // GlobalCooldown 位上（T-N3-4 硬性规则：禁止改 GcdEnabled=true 的行为）。
-            var actionLocked = !_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep && _pipeline.IsCasting(unitId);
+            //
+            // 深度复审 C-S1（2026-09-16）修复：改用 GetCastingRemaining 与 QueueWindow 比较，
+            // 而不是只用 IsCasting——CastSkill 顶部在剩余时间 <= QueueWindow 时会接受新请求排队
+            // （CastResult.Ok），不会以 ActionLocked 拒绝，见本方法 XML 文档判断记录。
+            var castingRemaining = _pipeline.GetCastingRemaining(unitId);
+            var actionLocked = !_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep
+                && castingRemaining.HasValue && castingRemaining.Value > _options.QueueWindow;
             if (actionLocked)
             {
                 blocking |= SkillReadinessBlockers.ActionLocked;
