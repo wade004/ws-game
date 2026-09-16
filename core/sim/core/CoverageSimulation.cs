@@ -443,6 +443,13 @@ namespace Core.Sim
             var rows = new List<CoverageOutlierRow>();
             var budgetCurveId = StandardPlayerBuilder.DefaultBudgetCurveId;
 
+            // 复审整合项 2（B-S1）：本方法逐条 item.template 循环调用 EquipmentScoreAnalyzer.Score，
+            // 全部调用点固定 classId: null（不按职业覆盖），循环外构建一次 StatBudgetInfo、循环内
+            // 复用（见 EquipmentScoreAnalyzer.Score 8 参重载判断记录），避免每个模板都重新扫描
+            // stat.definition/stat.weight/stat.rating_conversion 三张表——三份仿真基线数值不变
+            // （BuildStatBudgetInfo 是纯函数，循环内外调用结果逐条相同）。
+            var statBudgetInfo = ItemBudgetCurve.BuildStatBudgetInfo(registry);
+
             foreach (var record in registry.GetAll("item.template"))
             {
                 var templateId = record.Id!.Value;
@@ -466,7 +473,7 @@ namespace Core.Sim
                     continue;
                 }
 
-                var scoreResult = EquipmentScoreAnalyzer.Score(templateId, classId: null, view: registry);
+                var scoreResult = EquipmentScoreAnalyzer.Score(templateId, classId: null, view: registry, statBudgetInfo: statBudgetInfo);
                 var budgetLimit = ComputeBudgetLimit(registry, budgetCurveId, itemLevel, qualityId, slotId);
                 var ratio = budgetLimit > 0 ? scoreResult.Score / budgetLimit : 0.0;
                 var deviation = RelativeDeviation(1.0, ratio);
