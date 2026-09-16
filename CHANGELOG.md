@@ -419,6 +419,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+性能基线用例机器归一化口径（不改本机门槛）：`core/gameplay/tests/Perf/PerfBaselineTests.cs` 四条
+性能基线用例的阈值比较改为按运行机器的参考负载耗时归一化——新增
+`Tests.Gameplay.Perf.PerfMachineCalibration`（确定性、与被测代码无关的固定工作量，取 5 次运行
+中位数，进程内只测一次并缓存）；机器系数 = 本机参考负载耗时 ÷ `perf_baseline.json` 新增字段
+`reference_workload_ms`（记录基线时基线机的同一参考负载耗时），限幅 [1, `calibration_factor_max`
+（当前 8）]；四条用例的有效阈值 = 原阈值 × 机器系数，基线机上系数 ≈ 1，与改动前等价。四条用例
+无论成败都通过 `ITestOutputHelper` 输出一行诊断（用例名/中位数/阈值/系数/归一化后阈值/参考负载
+耗时）；`check.ps1` 的 `dotnet test Core.sln` 步骤改用 trx logger 落盘结果、跑完后从 trx 中挑出
+这四行显式回显到 CI transcript，不改变该步骤对其余全部用例的输出量。背景：1.36.0 发布工作流的
+`TickCost_FullPipeline_MedianOfSampledTicks_WithinBaselineThreshold` 曾在共享 runner 上因机器
+繁忙连续两次误报"超阈值"（实测中位数约为基线阈值 1.43～1.44 倍，第三次重跑通过，本机对比确认无
+真实回归），本次改动让阈值判定本身吸收这一类机器速度差异，不再单纯依赖重跑。架构文档勘误：
+`architecture/11_工程规范与测试.md` 第 6 节"性能基线"行补充归一化口径说明（版本号不变，见该文档
+变更记录）。详见 `core/gameplay/tests/Perf/README.md`"机器归一化口径"节判断记录。
+
 ## [1.36.0] - 2026-09-16
 
 MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶段落地计划](architecture/落地计划/数值设计分阶段落地计划.md)第 12/14 节，T-N6-1～T-N6-8b）——落地 [ADR-0035](architecture/adr/0035-数值仿真骨架为框架交付物.md)：新增 `core/sim`（无头运行器装配根从测试程序集上提为可发布模块、`sim.scenario`/`sim.anchor` 两表、标准玩家生成器、三级仿真——战斗仿真/成长仿真/内容覆盖仿真、统计量快照与带带宽比对器的基线比对、命令行入口 `toolchain/simrunner`）；`core/sim/tests/data` 嵌入式最小仿真数据集（拍板 10）跑通对账等式、越级矩阵形状、成长四条轨迹、内容覆盖离群值探针四类验收；接入 `check.ps1`/CI/发布分发清单；文档收尾（本计划末节"落地进度记录"新增 N6 记录、06/05 移动速度属性 id 勘误、遗留待确认判断记录改写为明确结论、编辑器产品文档 sim 域口径说明）。

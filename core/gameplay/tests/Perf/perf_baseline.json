@@ -1,7 +1,7 @@
 {
-  "_comment": "性能基线：中位数为本机实测值，阈值 = 中位数 × 5（见 11_工程规范与测试.md 第 6 节、PerfBaselineTests.cs 顶部注释）。更新方法见本目录 README。",
+  "_comment": "性能基线：中位数为本机实测值，阈值 = 中位数 × 5（见 11_工程规范与测试.md 第 6 节、PerfBaselineTests.cs 顶部注释）。机器归一化口径（见本目录 README“机器归一化口径”节、PerfMachineCalibration.cs 判断记录）：reference_workload_ms 是记录本条基线时，本文件描述的这台基线机跑 PerfMachineCalibration 参考负载 5 次的中位数（毫秒）；运行测试的机器系数 = 本机同一参考负载中位数 ÷ 这个值，限幅 [1, calibration_factor_max]，四项阈值实际比较时都乘上这个系数。更新方法见本目录 README——更新任一 *_median_ms 时必须同时重新测一遍 reference_workload_ms（同一台机器、同一次门禁运行内先后测出，口径才自洽）。",
   "machine": "win32, 32 logical processors, .NET 8 Release build",
-  "measured_at": "2026-09-05",
+  "measured_at": "2026-09-16",
   "tick_median_ms": 0.02085,
   "tick_threshold_ms": 0.10425,
   "full_pipeline_tick_median_ms": 6.4444,
@@ -9,5 +9,7 @@
   "spatial_query_median_ms": 0.0222,
   "spatial_query_threshold_ms": 0.111,
   "save_median_ms": 0.84645,
-  "save_threshold_ms": 4.23225
+  "save_threshold_ms": 4.23225,
+  "reference_workload_ms": 43.663,
+  "calibration_factor_max": 8
 }
