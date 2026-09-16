@@ -266,5 +266,75 @@ namespace Tests.Rules.Combat
             var withResult = fxWith.Host.ResolveEffect(DamageContext(SourceKind.Player, baseValue: 100));
             Assert.Equal(1, withResult.Steps!.Count(s => s.Contains("roll=")));
         }
+
+        /// <summary>深度复审 A-S1（2026-09-16）：<see cref="Resolver.Resolve"/> 步骤 6"目标乘区"每次
+        /// 调用一次的 <c>BuildDamageTakenStatIds</c> 是私有方法，本类型没有公开出口暴露其返回的集合
+        /// 实例是否被复用——按报告建议的"白盒断言"取样，经反射直接调用该私有方法验证缓存行为，不
+        /// 借道公开 API 曲线拐弯验证（<c>Steps</c> 里的 <c>stats=[...]</c> 只能证明内容相同，证明不了
+        /// 是否为同一个集合实例）。</summary>
+        private static Core.Rules.Combat.Resolver GetResolver(Core.Rules.Combat.CombatHost host)
+        {
+            var field = typeof(Core.Rules.Combat.CombatHost).GetField(
+                "_resolver", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(field);
+            return (Core.Rules.Combat.Resolver)field!.GetValue(host)!;
+        }
+
+        private static System.Collections.Generic.IReadOnlyList<Id> InvokeBuildDamageTakenStatIds(
+            Core.Rules.Combat.Resolver resolver)
+        {
+            var method = typeof(Core.Rules.Combat.Resolver).GetMethod(
+                "BuildDamageTakenStatIds", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(method);
+            return (System.Collections.Generic.IReadOnlyList<Id>)method!.Invoke(resolver, null)!;
+        }
+
+        [Fact]
+        public void BuildDamageTakenStatIds_RepeatedCallsWithUnchangedOptions_ReturnSameCachedInstance()
+        {
+            var fx = MakeFixture("crit_forced",
+                o => o.DamageTakenPctStats = new[] { new Id("stat.n17_a_s1_extra_taken_pct") });
+
+            var resolver = GetResolver(fx.Host);
+
+            var first = InvokeBuildDamageTakenStatIds(resolver);
+            var second = InvokeBuildDamageTakenStatIds(resolver);
+            var third = InvokeBuildDamageTakenStatIds(resolver);
+
+            // A-S1：CombatOptions.DamageTakenPctStat/DamageTakenPctStats 均未变化时，三次调用
+            // 应该返回同一个集合实例，不重新分配 HashSet/List。
+            Assert.Same(first, second);
+            Assert.Same(second, third);
+            Assert.Equal(new[] { CombatTestSupport.StatDamageTakenPct, new Id("stat.n17_a_s1_extra_taken_pct") }, first);
+        }
+
+        [Fact]
+        public void BuildDamageTakenStatIds_AfterDamageTakenPctStatsReassigned_InvalidatesCacheAndRecomputes()
+        {
+            Core.Rules.Combat.CombatOptions? capturedOptions = null;
+            var fx = MakeFixture("crit_forced", o =>
+            {
+                o.DamageTakenPctStats = new[] { new Id("stat.n17_a_s1_before") };
+                capturedOptions = o;
+            });
+            Assert.NotNull(capturedOptions);
+
+            var resolver = GetResolver(fx.Host);
+            var before = InvokeBuildDamageTakenStatIds(resolver);
+            Assert.Contains(new Id("stat.n17_a_s1_before"), before);
+
+            // 模拟装配阶段之后 CombatOptions.DamageTakenPctStats 被整体重新赋值（引用变化）——
+            // A-S1 缓存必须能感知到，不能永久卡在装配期第一次算出的旧集合上。
+            capturedOptions!.DamageTakenPctStats = new[] { new Id("stat.n17_a_s1_after") };
+            var after = InvokeBuildDamageTakenStatIds(resolver);
+
+            Assert.NotSame(before, after);
+            Assert.Contains(new Id("stat.n17_a_s1_after"), after);
+            Assert.DoesNotContain(new Id("stat.n17_a_s1_before"), after);
+
+            // 重新赋值之后再次调用应该重新开始复用新的缓存实例。
+            var afterAgain = InvokeBuildDamageTakenStatIds(resolver);
+            Assert.Same(after, afterAgain);
+        }
     }
 }
