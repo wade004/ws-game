@@ -276,3 +276,16 @@ ABI（G3）：只新增一个公开重载与一个私有方法的可选参数，
 
 ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` breaks=0（新增重载计入
 "新增"，不计入破坏）。
+
+## 2026-09-16 深度复审 D-M2 判断记录：`LevelUpEvent → Powers.RefillAll` 订阅补 `RecomputeMax`
+
+`LevelUpEvent` 订阅（T-N4-5，ADR-0033 决策 7"升级回满"）在调用 `Powers.RefillAll` 之前新增一行
+`Powers.RecomputeMax(evt.UnitId)`——修复前只调用 `RefillAll`，而该方法读取的是 `PowerState.Max`
+这一缓存字段；`ProgressionHost.AddXpCore` 里本次批量升级最后一步的属性成长写入触发的
+`stat.changed` 是 `Enqueue`（不是 `PublishImmediate`），此刻还没派发，`Max` 缓存仍是"成长生效
+前"的旧值，`RefillAll` 早已跑完，`Current` 永远追不上新上限（`max_source.kind=stat` 且该属性有
+非零 `growth` 的资源池，这是最常见配置组合下必然触发的行为，不是边界场景）。与本模块第 341 行
+`StatChangedEvent → Powers.RecomputeMax` 订阅之间不存在可依赖的顺序关系，必须在本订阅内部显式
+同步调用一次——同构先例见 `core/sim/core/HeadlessWorldBuilder.cs`"出生等级 >1"场景的既有修复
+判断记录。详见复审报告 D-M2 与 `core/numbers/progression/README.md` 同名小节；新增测试见
+`core/rules/tests/Integration/T_N4_5_LevelUpRefillIntegrationTests.cs`。
