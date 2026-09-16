@@ -153,6 +153,57 @@ namespace Core.Foundation.DataRegistry
         }
 
         /// <summary>
+        /// 消费方反馈第 45 条（2026-09-17，见
+        /// architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45条.md）：<see cref="TryGetAll"/>
+        /// 的同族成员，覆盖单记录 <see cref="Get(string, string)"/>——L2 及以上层"只读分析、供内容
+        /// 工具展示用"的入口（<c>ItemBudgetCurve.BuildStatBudgetInfo</c>、
+        /// <c>EquipmentScoreAnalyzer.Score</c>、<c>SkillBudgetAnalyzer.Analyze</c> 等，本条反馈同批
+        /// 一并根治，见各自类型判断记录；本接口是 L0，按分层不引用它们，这里不写 cref，同本文件其它
+        /// 处对跨层类型的既有处理）内部大量按主键单条查找记录（<c>Get</c>，不是 <c>GetAll</c>），
+        /// 此前接口没有对应的容错成员，只能整段跳过或复刻本方法。语义与 <see cref="TryGetAll"/> 完全
+        /// 对称：阻断态（<see cref="System.InvalidOperationException"/>，<c>DataRegistry
+        /// .EnsureReadable</c> 精确抛出的类型）返回 <c>false</c>、<paramref name="record"/> 置
+        /// <c>null</c>；非阻断态与 <see cref="Get(string, string)"/> 结果一致（包括"表/记录本就不
+        /// 存在"时的 <c>null</c>，这种情形仍返回 <c>true</c>——<c>true</c>/<c>false</c> 只区分"是否
+        /// 因阻断读不到"，不区分"读到的是不是 <c>null</c>"）。默认实现按"try <see cref="Get(string,
+        /// string)"/>，只捕获 <see cref="System.InvalidOperationException"/>"给出，不用
+        /// <c>catch (Exception)</c> 掩盖其它意外异常（同 <see cref="TryGetAll"/> 判断记录）。带默认
+        /// 实现的接口成员新增，不构成"公开 API 表面"意义上的破坏性变更。<see
+        /// cref="Core.Foundation.DataRegistry.DataRegistry"/> 显式覆盖为阻断态也能读取的直接实现
+        /// （见该类型同名成员判断记录），不经过这里的 try/catch。
+        /// </summary>
+        bool TryGet(string table, string key, out DataRecord? record)
+        {
+            try
+            {
+                record = Get(table, key);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                record = null;
+                return false;
+            }
+        }
+
+        /// <summary>消费方反馈第 45 条：<see cref="TryGet(string, string, out DataRecord)"/> 的同族
+        /// 成员，覆盖 <see cref="Get(string, CommonId)"/>（<c>CommonId</c> 重载）——语义与判断记录
+        /// 完全相同。</summary>
+        bool TryGet(string table, CommonId id, out DataRecord? record)
+        {
+            try
+            {
+                record = Get(table, id);
+                return true;
+            }
+            catch (System.InvalidOperationException)
+            {
+                record = null;
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 消费方反馈第 37 条（2026-09-12，见
         /// architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md）：只读回吐全部经
         /// <see cref="IDataRegistry.DeclareReference(string, string, string)"/>（含带来源标注的重载）

@@ -913,6 +913,34 @@ item/
    `EquipmentScoreAnalyzerTests
    .Score_ReusingPrebuiltStatBudgetInfoAcrossMultipleCalls_MatchesAutoBuildingOverload`。
 
+## 消费方反馈第 45 条判断记录（2026-09-17）
+
+`ItemBudgetCurve.BuildStatBudgetInfo`（两个重载）与 `EquipmentScoreAnalyzer.Score`（两个重载）此前
+内部一律用严格的 `view.Get`/`view.GetAll`——registry 处于阻断态（任意记录的任意诊断为 Error，
+`DataRegistry.EnsureReadable` 的阻断标记是整个 registry 级别的，不按表/记录粒度）时即便触发阻断
+的记录/字段与 `stat.definition`/`stat.weight`/`stat.rating_conversion` 三张支持表、或被评分的
+`item.template` 本身完全无关，仍会抛 `InvalidOperationException`，炸穿"编辑器用户刚把数值改到
+触发某条 Error 校验的那一刻，仍需要算出并展示预算消耗/装备评分"这一类场景。
+
+**修复**：两处入口内部一律先把 `view` 包一层
+`Core.Foundation.DataRegistry.TolerantRegistryView`（新增，L0 契约类型，语义见该类型判断记录），
+此后全程只用包装后的引用；`BuildStatBudgetInfo` 各新增一个 `out TolerantReadDiagnostics
+diagnostics` 重载（旧重载转调新重载、丢弃诊断），`EquipmentScoreResult` 新增
+`IsDegraded`/`MissingTables` 只读属性（新构造函数重载，旧 6 参构造函数恒 `IsDegraded=false`）。
+`IDataRegistryView` 新增 `TryGet(string, string, out DataRecord)`/`TryGet(string, CommonId, out
+DataRecord)` 两个默认接口成员（`TryGetAll` 的同族单记录版本），`DataRegistry` 显式覆盖为绕开
+`EnsureReadable` 的直接实现（阻断态也能读取，恒返回 `true`）。
+
+**验证**：`ItemBudgetCurveBuildStatBudgetInfoTests`/`EquipmentScoreAnalyzerTests` 新增用例——
+用一条与三张支持表/被评分模板本身无关的坏引用触发 `reference_integrity` 使 registry 整体阻断，
+断言不抛异常且结果与非阻断态逐位一致（具体 `DataRegistry` 场景下这些表本身未受影响，因此不真的
+降级，`IsDegraded` 应为 `false`）；`Core.Foundation.DataRegistry.TolerantRegistryViewTests` 单独
+覆盖包装本身在"真的读不到"（不覆盖 Try* 成员的测试替身）场景下 `IsDegraded=true`/`MissingTables`
+如实反映的行为。`IBudgetSolver`/`BudgetSolver.Solve` 判断记录：本条反馈同批审计过该入口，但它是
+`EquipmentHost.ApplyAffixValues`（运行期宿主）的直接消费者、驱动运行期业务逻辑，按 11 第 4 节
+"运行时不做静默降级"不属于本条反馈治理范围，未改动；`ItemBudgetCurve.ComputeConsumed` 本身不
+接受 `IDataRegistryView` 参数，不读 registry，同样不适用（N/A）。
+
 ## 不负责什么
 
 - 不实现 `core/carriers/creature`/`gobj`/`summon`（并行开发的兄弟模块）。

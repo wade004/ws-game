@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 
 namespace Core.Rules.Skill
@@ -92,11 +94,39 @@ namespace Core.Rules.Skill
 
         public SkillBudgetVerdict Verdict { get; }
 
+        /// <summary>
+        /// 消费方反馈第 45 条（2026-09-17）新增：本次分析是否曾因 registry 阻断态读不到某些支持表/
+        /// 记录（见 <see cref="SkillBudgetAnalyzer"/> 判断记录、
+        /// <c>Core.Foundation.DataRegistry.TolerantRegistryView</c>）——<c>false</c> 时本结果与
+        /// 改动前完全一致（既有测试逐位不变）；<c>true</c> 时供内容工具提示"这份分析基于不完整
+        /// 数据"，具体缺失表见 <see cref="MissingTables"/>。使用旧构造函数（不含这两个参数）时恒为
+        /// <c>false</c>，保持与改动前调用方完全一致的默认行为。</summary>
+        public bool IsDegraded { get; }
+
+        /// <summary>消费方反馈第 45 条：<see cref="IsDegraded"/> 为 <c>true</c> 时具体缺失的表名；
+        /// 否则空列表。</summary>
+        public IReadOnlyList<string> MissingTables { get; }
+
         public SkillBudgetResult(
             Id skillId, bool participates, SkillBudgetTier tier, int level,
             double effectiveValue, double timeEquivalent, double cooldownPremium, double rangeDiscount,
             double costPremium, double anchorDps, double budgetLimit, double ratio,
             double bandwidth, double hardCap, string? budgetNote, SkillBudgetVerdict verdict)
+            : this(skillId, participates, tier, level, effectiveValue, timeEquivalent, cooldownPremium,
+                rangeDiscount, costPremium, anchorDps, budgetLimit, ratio, bandwidth, hardCap, budgetNote,
+                verdict, isDegraded: false, missingTables: Array.Empty<string>())
+        {
+        }
+
+        /// <summary>消费方反馈第 45 条新增重载（纯新增，不改既有 16 参构造函数——ABI 只允许新增）：
+        /// 额外接受 <paramref name="isDegraded"/>/<paramref name="missingTables"/>，供
+        /// <see cref="SkillBudgetAnalyzer.Analyze"/> 内部构造带降级标记的结果。</summary>
+        public SkillBudgetResult(
+            Id skillId, bool participates, SkillBudgetTier tier, int level,
+            double effectiveValue, double timeEquivalent, double cooldownPremium, double rangeDiscount,
+            double costPremium, double anchorDps, double budgetLimit, double ratio,
+            double bandwidth, double hardCap, string? budgetNote, SkillBudgetVerdict verdict,
+            bool isDegraded, IReadOnlyList<string> missingTables)
         {
             SkillId = skillId;
             Participates = participates;
@@ -114,6 +144,8 @@ namespace Core.Rules.Skill
             HardCap = hardCap;
             BudgetNote = budgetNote;
             Verdict = verdict;
+            IsDegraded = isDegraded;
+            MissingTables = missingTables ?? Array.Empty<string>();
         }
     }
 }

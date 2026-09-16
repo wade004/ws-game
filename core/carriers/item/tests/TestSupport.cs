@@ -111,6 +111,65 @@ namespace Tests.Carriers.Item
             return registry;
         }
 
+        /// <summary>
+        /// 消费方反馈第 45 条（2026-09-17）新增：同 <see cref="BuildRegistry"/>（注册同一套九张
+        /// item.* + stat.* + skill.* schema），但不在 <see cref="ValidationReport.IsBlocking"/> 为
+        /// <c>true</c> 时抛异常——供需要故意构造一个"阻断态"registry 的用例使用（验证 <see
+        /// cref="Core.Carriers.Item.ItemBudgetCurve.BuildStatBudgetInfo"/>/<see
+        /// cref="Core.Carriers.Item.EquipmentScoreAnalyzer.Score"/> 等只读分析入口在阻断态下不抛
+        /// 异常），调用方自己决定是否要额外注册一张与本模块无关的表/坏引用来触发阻断（本方法本身
+        /// 不内置任何"必定阻断"的数据，<paramref name="configure"/> 塞进去的数据决定阻断与否）。
+        /// 报告随 <paramref name="report"/> 一并回吐，供调用方自行断言 <c>IsBlocking</c>。</summary>
+        public static DataRegistry BuildRegistryAllowBlocking(
+            Action<InMemoryDataSource> configure,
+            out ValidationReport report,
+            IEnumerable<IValidationRule>? rules = null,
+            DataRegistryStrictness strictness = DataRegistryStrictness.WarningsAllowed)
+        {
+            var source = new InMemoryDataSource();
+            configure(source);
+
+            var registry = new DataRegistry(source, CreateBus(), new DataRegistryOptions { FailOnUnknownTable = false, Strictness = strictness });
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ArmorCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.WeaponDpsCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.ReqLevelCurve);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Set);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Affix);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Weight);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.RatingConversion);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.AuraDef);
+            // 消费方反馈第 45 条：额外注册一张与上面九张表完全无关的最小表对（test.widget 引用
+            // test.owner），供调用方按需注入一条坏引用触发 reference_integrity——不提供对应数据时
+            // 两张表均保持空，不影响既有断言。
+            registry.RegisterSchema(new TableSchema(
+                "test.widget", "id", 1,
+                new[]
+                {
+                    new FieldSchema("id", FieldKind.Id, required: true),
+                    new FieldSchema("owner", FieldKind.Reference, required: false, referenceTable: "test.owner"),
+                }));
+            registry.RegisterSchema(new TableSchema(
+                "test.owner", "id", 1,
+                new[] { new FieldSchema("id", FieldKind.Id, required: true) }));
+
+            if (rules != null)
+            {
+                foreach (var rule in rules)
+                {
+                    registry.RegisterValidationRule(rule);
+                }
+            }
+
+            report = registry.LoadAll();
+            return registry;
+        }
+
         // T-N1-2 判断记录：本方法此前手写一份"够用就行"的 stat.definition 最小 schema
         // （只声明 id/name_key/group/default_base），与 core/numbers/stat_block 的真实
         // StatSchemas.Definition 各自独立维护——StatHost.LoadDefinitions 从 T-N1-2 起无条件读取

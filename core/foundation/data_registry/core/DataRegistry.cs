@@ -504,10 +504,16 @@ namespace Core.Foundation.DataRegistry
         public DataRecord? Get(string table, string key)
         {
             EnsureReadable();
-            return _tables.TryGetValue(table, out var t) && t.ByKey.TryGetValue(key, out var record) ? record : null;
+            return GetUnchecked(table, key);
         }
 
         public DataRecord? Get(string table, CommonId id) => Get(table, id.Value);
+
+        /// <summary>不经过 <see cref="EnsureReadable"/> 的内部读取——<see cref="Get(string, string)"/>
+        /// 与消费方反馈第 45 条新增的显式 <see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/>
+        /// 共用同一份实现，只是前者多一道阻断检查（同 <see cref="GetAllUnchecked"/> 判断记录）。</summary>
+        private DataRecord? GetUnchecked(string table, string key) =>
+            _tables.TryGetValue(table, out var t) && t.ByKey.TryGetValue(key, out var record) ? record : null;
 
         public IReadOnlyList<DataRecord> GetAll(string table)
         {
@@ -712,6 +718,24 @@ namespace Core.Foundation.DataRegistry
             records = QueryUnchecked(table, node);
             return true;
         }
+
+        /// <summary>消费方反馈第 45 条（2026-09-17）：<see cref="IDataRegistryView.TryGetAll"/> 的
+        /// 同族显式实现，覆盖单记录 <see cref="Get(string, string)"/>——同一份判断记录，直接调用
+        /// <see cref="GetUnchecked"/>，不经过 <see cref="EnsureReadable"/>，因此阻断态下也能读取、
+        /// 恒返回 <c>true</c>；记录本就不存在时与 <see cref="Get(string, string)"/> 行为一致，
+        /// <paramref name="record"/> 置 <c>null</c>（而不是 <c>false</c>），"表/记录不存在"与"数据
+        /// 整体阻断"是两件独立的事，这里只处理后者。</summary>
+        bool IDataRegistryView.TryGet(string table, string key, out DataRecord? record)
+        {
+            record = GetUnchecked(table, key);
+            return true;
+        }
+
+        /// <summary>消费方反馈第 45 条：<see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/>
+        /// 的同族显式实现，覆盖 <see cref="Get(string, CommonId)"/>（<c>CommonId</c> 重载）——语义
+        /// 完全相同。</summary>
+        bool IDataRegistryView.TryGet(string table, CommonId id, out DataRecord? record) =>
+            ((IDataRegistryView)this).TryGet(table, id.Value, out record);
 
         private void EnsureReadable()
         {

@@ -59,7 +59,7 @@ namespace Core.Sim
     /// </summary>
     public sealed class ExpectedStatCalculator
     {
-        private readonly IDataRegistryView _view;
+        private readonly TolerantRegistryView _view;
         private readonly AnchorTable _anchors;
         private readonly Id _classId;
         private readonly Id _qualityId;
@@ -106,6 +106,27 @@ namespace Core.Sim
         /// <param name="budgetCurveId"><c>item.budget_curve</c> 曲线 id，缺省
         /// <see cref="Core.Carriers.Assembly.CarriersSchemaCatalog.DefaultItemBudgetCurveId"/>
         /// （<c>item.budget.default</c>，与运行期 <c>ItemOptions.BudgetCurveId</c> 默认值一致）。</param>
+        /// <remarks>
+        /// 消费方反馈第 45 条（2026-09-17）判断记录：<paramref name="view"/> 一律先包一层 <see
+        /// cref="TolerantRegistryView"/>（若已经是该类型则直接复用），本构造函数与 <see
+        /// cref="Compute"/> 此后全程只用包装后的引用（含传给 <see cref="ItemBudgetCurve
+        /// .BuildStatBudgetInfo(IDataRegistryView, Id)"/>、<see cref="IBudgetSolver.Solve"/> 的
+        /// <c>view</c> 参数）——本类型是离线数值仿真工具（<c>toolchain/simrunner</c>），不是运行期
+        /// 宿主，registry 阻断态是整体级别的、不按表/记录粒度，即便触发阻断的记录与本次仿真用到的
+        /// 这些表完全无关，此前也会直接抛 <see cref="InvalidOperationException"/>。<c>arch.class</c>
+        /// 记录本身"因阻断读不到"与"确实未登记"两种情形分开处理：前者不再抛 <see
+        /// cref="ArgumentException"/>，改为把职业相关字段全部按空/缺省处理（<see cref="IsDegraded"/>
+        /// = <c>true</c>，<see cref="Compute"/> 算出的是"能拿到多少就用多少"的降级结果，不是精确值）；
+        /// 后者维持既有行为（调用方传了个不存在的职业 id，是调用方用法错误，继续抛异常）——本仿真
+        /// 工具的正常用法本就要求"数据已通过校验"（见本参数文档"均须已加载"），阻断态原则上不应该
+        /// 走到仿真这一步，这里只是让它在极端场景下也不至于直接崩溃退出，同 <see
+        /// cref="Core.Carriers.Item.ItemBudgetCurve.BuildStatBudgetInfo(IDataRegistryView)"/> 等
+        /// 其它分析入口一致的防御姿态。<see cref="IBudgetSolver"/>/<c>BudgetSolver</c> 本身不改动——
+        /// 它同时服务 <c>EquipmentHost.ApplyAffixValues</c> 等运行期宿主，运行期读取必须继续遵守
+        /// <c>EnsureReadable</c>（见 11 第 4 节"运行时不做静默降级"）；本类型只是给它传入调用时喂
+        /// 一个自己私有持有的容错视图，不影响运行期宿主用真实 <c>view</c> 直接调用 <see
+        /// cref="IBudgetSolver.Solve"/> 的另一条路径。
+        /// </remarks>
         public ExpectedStatCalculator(
             IDataRegistryView view,
             AnchorTable anchors,
@@ -114,20 +135,24 @@ namespace Core.Sim
             IBudgetSolver budgetSolver,
             Id? budgetCurveId = null)
         {
-            _view = view ?? throw new ArgumentNullException(nameof(view));
+            if (view == null) throw new ArgumentNullException(nameof(view));
+            _view = TolerantRegistryView.Wrap(view);
             _anchors = anchors ?? throw new ArgumentNullException(nameof(anchors));
             _classId = classId;
             _qualityId = qualityId;
             _budgetSolver = budgetSolver ?? throw new ArgumentNullException(nameof(budgetSolver));
             _budgetCurveId = budgetCurveId ?? new Id("item.budget.default");
 
-            var classRecord = view.Get("arch.class", classId)
-                ?? throw new ArgumentException($"arch.class 未登记 \"{classId}\"", nameof(classId));
+            var classRecord = _view.Get("arch.class", classId);
+            if (classRecord == null && !_view.WasMissing("arch.class"))
+            {
+                throw new ArgumentException($"arch.class 未登记 \"{classId}\"", nameof(classId));
+            }
 
-            _classBaseStats = ReadNumberObject(classRecord.TryGetObject("base_stats", out var baseStats) ? baseStats : null);
+            _classBaseStats = ReadNumberObject(classRecord != null && classRecord.TryGetObject("base_stats", out var baseStats) ? baseStats : null);
 
             _derivationOverrides = new Dictionary<(string, string), double>();
-            if (classRecord.TryGetArray("derivation_overrides", out var overridesArr))
+            if (classRecord != null && classRecord.TryGetArray("derivation_overrides", out var overridesArr))
             {
                 foreach (var raw in overridesArr)
                 {
@@ -142,9 +167,9 @@ namespace Core.Sim
             }
 
             _growthByLevel = new Dictionary<int, Dictionary<string, double>>();
-            if (classRecord.TryGetId("level_curve_ref", out var curveRef))
+            if (classRecord != null && classRecord.TryGetId("level_curve_ref", out var curveRef))
             {
-                var curveRecord = view.Get("prog.level_curve", curveRef);
+                var curveRecord = _view.Get("prog.level_curve", curveRef);
                 if (curveRecord != null && curveRecord.TryGetArray("entries", out var entries))
                 {
                     foreach (var raw in entries)
@@ -162,7 +187,7 @@ namespace Core.Sim
             }
 
             _statDefs = new Dictionary<string, StatDef>();
-            foreach (var def in view.GetAll("stat.definition"))
+            foreach (var def in _view.GetAll("stat.definition"))
             {
                 var category = def.GetString("category");
                 var derivedFrom = new List<(string, double)>();
@@ -192,7 +217,7 @@ namespace Core.Sim
             }
 
             _equipmentSlotIds = new List<Id>();
-            foreach (var slot in view.GetAll("item.slot_definition"))
+            foreach (var slot in _view.GetAll("item.slot_definition"))
             {
                 var isEquipment = !slot.TryGetBool("is_equipment", out var eqFlag) || eqFlag;
                 var isWeapon = slot.TryGetBool("is_weapon", out var wpFlag) && wpFlag;
@@ -202,12 +227,12 @@ namespace Core.Sim
                 }
             }
 
-            _statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view, classId);
+            _statInfo = ItemBudgetCurve.BuildStatBudgetInfo(_view, classId);
 
             var mix = new List<(Id, double)>();
             double totalWeight = 0;
             var weightRows = new List<(Id Stat, double Weight)>();
-            foreach (var w in view.GetAll("stat.weight"))
+            foreach (var w in _view.GetAll("stat.weight"))
             {
                 var statId = w.GetId("stat");
                 var weight = _statInfo.TryGetValue(statId, out var info) ? info.Weight : 0.0;
@@ -226,6 +251,19 @@ namespace Core.Sim
             }
             _statMix = mix;
         }
+
+        /// <summary>
+        /// 消费方反馈第 45 条（2026-09-17）新增：本次构造（以及此后任意次 <see cref="Compute"/>，
+        /// 后者内部经 <see cref="IBudgetSolver.Solve"/> 继续复用同一个 <see cref="_view"/>）是否曾
+        /// 因 registry 阻断态读不到某些支持表/记录（见构造函数 <c>remarks</c>）——实时读 <see
+        /// cref="TolerantRegistryView.IsDegraded"/>，不是构造期一次性快照，能反映 <see
+        /// cref="Compute"/> 内部读取造成的后续降级。<c>false</c> 时全部结果与改动前完全一致。</summary>
+        public bool IsDegraded => _view.IsDegraded;
+
+        /// <summary>消费方反馈第 45 条：<see cref="IsDegraded"/> 为 <c>true</c> 时具体缺失的表名；
+        /// 否则空列表。实时读 <see cref="TolerantRegistryView.MissingTables"/>，理由同 <see
+        /// cref="IsDegraded"/>。</summary>
+        public IReadOnlyList<string> MissingTables => _view.MissingTables;
 
         /// <summary>该等级"标准玩家"的期望属性表——<c>stat.definition</c> 全表逐条的期望最终值。构造期
         /// 一次性解析、按等级缓存（同 <see cref="AnchorTable"/> 判断记录"构造期一次性解析"一贯做法，
