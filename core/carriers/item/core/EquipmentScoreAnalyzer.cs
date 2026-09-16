@@ -57,6 +57,52 @@ namespace Core.Carriers.Item
         {
             if (view == null) throw new ArgumentNullException(nameof(view));
 
+            // 2026-09-16 深度复审 B-S1：本重载没有调用方预先构建好的 StatBudgetInfo 可复用，只能
+            // 自己现场按 classId 建一次——单次评分场景性能影响可忽略；需要在遍历大量模板/等级点位时
+            // 反复调用 Score 的场景（如 core/sim/core/CoverageSimulation.cs、GrowthSimulation.cs）
+            // 应改用下方接受预构建 statBudgetInfo 的重载，见该重载判断记录。
+            var statInfo = classId.HasValue
+                ? ItemBudgetCurve.BuildStatBudgetInfo(view, classId.Value)
+                : ItemBudgetCurve.BuildStatBudgetInfo(view);
+
+            return ScoreCore(templateId, classId, view, statInfo, additionalStats, exponent);
+        }
+
+        /// <summary>
+        /// 2026-09-16 深度复审 B-S1 新增重载（纯新增，不改既有签名）：同上，额外接受调用方已经预先
+        /// 构建好的 <paramref name="statBudgetInfo"/>（<see
+        /// cref="ItemBudgetCurve.BuildStatBudgetInfo(IDataRegistryView)"/>/<see
+        /// cref="ItemBudgetCurve.BuildStatBudgetInfo(IDataRegistryView, Id)"/> 的返回值，调用方需自行
+        /// 保证与 <paramref name="classId"/> 口径一致——本方法不做二次校验，同本类型顶部判断记录
+        /// "不持有任何字段/可变状态"，缓存与复用的责任归调用方）——复审报告 B-S1 指出
+        /// <c>CoverageSimulation</c>/<c>GrowthSimulation</c> 在遍历大量模板/等级点位时循环调用
+        /// <c>Score()</c>，每次都重新扫描 <c>stat.definition</c>/<c>stat.weight</c>/
+        /// <c>stat.rating_conversion</c> 三张表——本重载让调用方在外层循环外构建一次、循环内复用。
+        /// </summary>
+        public static EquipmentScoreResult Score(
+            Id templateId,
+            Id? classId,
+            IDataRegistryView view,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statBudgetInfo,
+            IReadOnlyList<(Id Stat, double Value)>? additionalStats = null,
+            double exponent = ItemBudgetCurve.DefaultExponent)
+        {
+            if (view == null) throw new ArgumentNullException(nameof(view));
+            if (statBudgetInfo == null) throw new ArgumentNullException(nameof(statBudgetInfo));
+
+            return ScoreCore(templateId, classId, view, statBudgetInfo, additionalStats, exponent);
+        }
+
+        /// <summary>2026-09-16 深度复审 B-S1 抽取：两个公开 <c>Score</c> 重载共用的核心评分逻辑，
+        /// 逐字保留自改动前的公开 <c>Score</c> 方法，不改变任何既有行为/输出。</summary>
+        private static EquipmentScoreResult ScoreCore(
+            Id templateId,
+            Id? classId,
+            IDataRegistryView view,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statInfo,
+            IReadOnlyList<(Id Stat, double Value)>? additionalStats,
+            double exponent)
+        {
             var record = view.Get("item.template", templateId);
             if (record == null)
             {
@@ -70,10 +116,6 @@ namespace Core.Carriers.Item
 
             var itemLevel = (int)itemLevelRaw;
             var mergedStats = MergeStats(record, additionalStats);
-
-            var statInfo = classId.HasValue
-                ? ItemBudgetCurve.BuildStatBudgetInfo(view, classId.Value)
-                : ItemBudgetCurve.BuildStatBudgetInfo(view);
 
             var score = ItemBudgetCurve.ComputeConsumed(mergedStats, statInfo, itemLevel, exponent);
 

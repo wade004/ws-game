@@ -62,5 +62,29 @@ namespace Core.Carriers.Item
             Id budgetCurveId,
             IDataRegistryView view)
             => Solve(itemLevel, qualityId, slotId, statMix, budgetCurveId, 1.0, view);
+
+        /// <summary>
+        /// 2026-09-16 深度复审 B-S1 新增（ABI 硬性规则"只允许新增"）：同 7 参 <c>Solve</c>
+        /// 重载，额外接受调用方已经预先构建好的 <paramref name="statBudgetInfo"/>（<see
+        /// cref="ItemBudgetCurve.BuildStatBudgetInfo(IDataRegistryView)"/> 的返回值）——复审报告
+        /// B-S1 指出 <c>EquipmentHost.ApplyAffixValues</c> 对一件装备的每一条词缀都调用一次
+        /// <c>Solve</c>，而既有实现内部每次都重新调用 <c>BuildStatBudgetInfo</c> 全量扫描
+        /// <c>stat.definition</c>/<c>stat.weight</c>/<c>stat.rating_conversion</c> 三张表并新建
+        /// <c>Dictionary</c>——本重载让调用方在词缀循环外构建一次、循环内复用，避免重复扫描与分配。
+        /// 默认接口实现（不要求既有实现类跟进覆盖，同 <see cref="IDataRegistryView.RecordCount"/>
+        /// 惯例）直接忽略 <paramref name="statBudgetInfo"/>、转发既有 7 参重载（未覆盖本方法的实现
+        /// 得到与此前完全一致的行为，只是拿不到性能收益）；<see cref="Core.Carriers.Item.BudgetSolver"/>
+        /// 显式覆盖本方法，真正跳过内部重建（见该类型判断记录）。
+        /// </summary>
+        BudgetSolverResult Solve(
+            int itemLevel,
+            Id qualityId,
+            Id slotId,
+            IReadOnlyList<(Id Stat, double Ratio)> statMix,
+            Id budgetCurveId,
+            double shareOfBudget,
+            IDataRegistryView view,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statBudgetInfo)
+            => Solve(itemLevel, qualityId, slotId, statMix, budgetCurveId, shareOfBudget, view);
     }
 }

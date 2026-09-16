@@ -889,6 +889,30 @@ item/
   `display_ref` 关联 `display.map` 查询，属于表现层（09，不在本模块范围）的职责，本模块不越权
   实现。
 
+## 2026-09-16 深度复审 B-M1/B-S1 判断记录
+
+1. **B-M1（必须修）**：`EquipmentHost.GetWeaponDps` 的品质预算倍率此前查询
+   `template.GetId("quality")`（武器模板自身登记的静态默认品质），从未读取已装备实例真正的
+   `ItemInstance.Quality`——`ApplyAffixValues` 早在 T-N2-7 落地时就已经改用 `resolvedQuality`，
+   本方法遗漏未跟进，导致"装备品质 ≠ 模板默认品质"（掉落三次掷骰的常规产出）场景下
+   `weapon_damage_pct` 效果原语按错误的品质倍率结算战斗伤害。改为读取 `instance.Quality`（已在
+   方法作用域内，无需额外查询）。新增测试：单元用例
+   `core/carriers/item/tests/T_N2_6_WeaponDpsDeviationTests.cs`
+   `GetWeaponDps_InstanceQualityDeviatesFromTemplateDefault_UsesInstanceQuality`；端到端用例
+   `core/gameplay/loot/tests/T_ReviewB_M1_DropPickupEquipWeaponDpsTests.cs`（真实
+   `LootHost.RollDetailed` 品质骰 → `PickUp` → `Equip` → `GetWeaponDps` 完整链路）。
+2. **B-S1（建议修，已采纳）**：`IBudgetSolver.Solve`/`EquipmentScoreAnalyzer.Score` 各新增一个
+   接受调用方预先构建好的 `IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo>` 的重载（纯
+   新增，默认接口实现转发既有签名）——`EquipmentHost.ApplyAffixValues` 对一件装备的每一条词缀都
+   调用一次 `Solve`，此前内部每次都重新调用 `BuildStatBudgetInfo` 全量扫描
+   `stat.definition`/`stat.weight`/`stat.rating_conversion` 三张表；本模块侧已改用新重载在词缀
+   循环外构建一次、循环内复用。`core/sim/core/CoverageSimulation.cs`/`GrowthSimulation.cs` 的
+   同类调用点改造超出本次修复单允许改动的路径范围（`core/sim/**` 归并行修复单），留待该单位
+   采纳。新增测试：`BudgetSolverTests
+   .Solve_ReusingPrebuiltStatBudgetInfoAcrossMultipleCalls_MatchesAutoBuildingOverload`/
+   `EquipmentScoreAnalyzerTests
+   .Score_ReusingPrebuiltStatBudgetInfoAcrossMultipleCalls_MatchesAutoBuildingOverload`。
+
 ## 不负责什么
 
 - 不实现 `core/carriers/creature`/`gobj`/`summon`（并行开发的兄弟模块）。
