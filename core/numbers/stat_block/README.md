@@ -447,6 +447,34 @@ percent` 属性做"百分比→点数"折算，这是 `StatHost.ConvertRating`�
   合法，同既有 `stat.definition`/`stat.weight`/`stat.rating_conversion` 三表已经被 L3 读取的
   先例）。
 
+## 深度复审 A-M1 修复（2026-09-16）：`RecomputeRatingStats`/`RemoveModifiersBySource` 改为批量传播
+
+- **背景**：深度复审（N0～N6 数值设计专项）发现 `StatHost.RecomputeRatingStats`（T-N1-2 追加"评级属性
+  变化传播失效"那一行）存在真实缺陷——单位等级变化时，如果一个 `derived` 属性同时依赖两个及以上
+  "经评级曲线换算"的来源属性，旧实现"每命中一个评级属性就立即调用一次 `PropagateDerivedInvalidation`"
+  会让该派生属性在同一次调用内被计算并广播多次，其中除最后一次外全部是"部分来源已按新等级刷新、
+  部分仍停留在旧等级"的错误中间值，不是任何稳定状态对应的值；具体广播几次、中间值是多少还取决于
+  `_definitions.Values`（`Dictionary<Id,StatDefinition>`）的枚举顺序，不属于 API 契约保证范围。
+- **同一模式核对**：逐条核对本文件其它调用 `PropagateDerivedInvalidation` 的路径——`SetBase`/
+  `ResetBase`/`AddModifier` 每次调用只直接改变一个属性（单来源），不存在这一缺陷；但
+  `RemoveModifiersBySource` 一次调用可能同时移除多个属性上来自同一来源的修正（多来源），存在同一
+  模式的缺陷，一并修复。
+- **修法**：新增私有批处理入口 `RecomputeAffectedStatsBatch(unitId, unit, directlyAffected,
+  capturedOldValues)`——调用方先把本次逻辑操作"直接受影响"的属性集合的底层输入（评级换算结果/
+  修正列表）全部变更完毕、捕获好变更前的旧值，再统一调用一次；该方法把 `directlyAffected` 与其
+  全部传递依赖者按 `_topoOrder` 统一遍历一次，任意属性（含它自己）只计算一次、只广播 0 或 1 条
+  `StatChangedEvent`，值必为最终稳定值。`RecomputeRatingStats`/`RemoveModifiersBySource` 均已
+  改为该模式，与既有 `RecomputeDerivationOverrideAffectedStats`（`SetDerivationCoefficientOverrides`/
+  `ClearDerivationCoefficientOverrides` 使用）同一批量思路，只是后者不强制"直接受影响属性自身"一定
+  要重算（只重算此前已缓存过的），前者（评级/修正撤销）需要无条件重算直接受影响属性自身，两者以
+  `capturedOldValues` 是否包含对应键区分。
+- **回归测试**（`core/numbers/stat_block/tests/StatHostTests.cs`）：
+  `RecomputeRatingStats_DerivedFromMultipleRatingSources_FiresExactlyOneStatChangedWithFinalValue`（主
+  场景，报告建议测试）、
+  `RemoveModifiersBySource_DerivedFromMultipleDirectlyAffectedSources_FiresExactlyOneStatChangedWithFinalValue`
+  （同一模式扩展场景）、`EventCountInvariant_AnyWritePath_NeverFiresSameStatMoreThanOnceInOneCall`
+  （通用不变式：任意写入路径对任意受影响属性单次调用内只应广播 0 或 1 条事件）。
+
 ## 用法
 
 ```csharp
