@@ -323,10 +323,12 @@ ReloadArchetypeAndRace`（直接持有 `StatHost` 具体类型，同 `Stats.Rese
   游戏口味调整"。但 `data/_sample/stat/stat.definition.json`（该文件已登记 `stat.move_speed`，
   经 `stat.weight.move_speed` 作为消费者，走的是另一条不需要本清单的路径）与
   `MovementOptions.MoveSpeedStat` 的代码默认值已经形成事实上的既成惯例，`core/sim/tests/data`
-  沿用同一个字符串是跟随既有惯例、不是另起炉灶。**待设计层确认**：是否要把 `stat.move_speed`
-  正式写进 06 文档，登记为"移速属性"的框架保留 id（类似 `stat.armor`/`stat.hit_rating` 那样有
-  文档背书），避免未来每个新内容集各自"重新发现"这同一个事实惯例；在设计层拍板之前，本模块继续
-  按现状把它当作代码默认值处理，不主动改文档。
+  沿用同一个字符串是跟随既有惯例、不是另起炉灶。**设计层裁定（2026-09-16，T-N6-8a）：采纳**——
+  把 `stat.move_speed` 正式写进 06 文档，登记为"移速属性"的框架保留 id（类似
+  `stat.armor`/`stat.hit_rating` 那样有文档背书），避免未来每个新内容集各自"重新发现"这同一个
+  事实惯例；已在 `architecture/06_规则层_属性技能战斗AI.md` 第 1 节"单机推荐属性分类"补一句并
+  在该文档变更记录表追加一行细节勘误（ADR 列"—"），本模块判断记录同步改写为明确结论，不再是
+  待确认状态。
 - **级别与不可提升**：`DefaultSeverity = Warning`，`NonEscalatable = true`——04 第 5 节明文
   "警告级这一组登记为不可提升"（ADR-0030～0034 新增的数值类警告整组，不只本规则），即使
   `DataRegistryStrictness.WarningsBlock` 下也不阻断（`ValidationRuleMetadataTests` 同款语义，见
