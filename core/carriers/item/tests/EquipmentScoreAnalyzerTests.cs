@@ -198,5 +198,93 @@ namespace Tests.Carriers.Item
             Assert.Throws<ArgumentException>(() =>
                 EquipmentScoreAnalyzer.Score(new Id("item.tpl.does_not_exist"), classId: null, view: view));
         }
+
+        /// <summary>
+        /// 2026-09-16 深度复审 B-S1：新增的"接受预构建 statBudgetInfo"重载在多次调用间复用同一份
+        /// 信息，结果必须与既有"每次都自建"重载逐位一致——覆盖 <paramref name="classId"/> 有值（职业
+        /// 权重覆盖）与无值两种口径，验证"复用同一份信息"不悄悄改变评分结果。
+        /// </summary>
+        [Fact]
+        public void Score_ReusingPrebuiltStatBudgetInfoAcrossMultipleCalls_MatchesAutoBuildingOverload()
+        {
+            var view = BuildView(
+                "[" + Template("item.tpl.reuse_a", 1,
+                    "[{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 10}," +
+                    "{\"stat\": \"stat.stamina\", \"op\": \"flat\", \"value\": 6}]") + "," +
+                Template("item.tpl.reuse_b", 2,
+                    "[{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 4}]") + "]");
+
+            // 无职业覆盖口径：statBudgetInfo 与 classId=null 的既有重载共用同一份。
+            var noClassInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
+            foreach (var templateId in new[] { new Id("item.tpl.reuse_a"), new Id("item.tpl.reuse_b") })
+            {
+                var viaAutoBuild = EquipmentScoreAnalyzer.Score(templateId, classId: null, view: view);
+                var viaPrebuilt = EquipmentScoreAnalyzer.Score(templateId, classId: null, view: view, statBudgetInfo: noClassInfo);
+
+                Assert.Equal(viaAutoBuild.Score, viaPrebuilt.Score, 9);
+                Assert.Equal(viaAutoBuild.Weights.Count, viaPrebuilt.Weights.Count);
+            }
+
+            // 职业权重覆盖口径：statBudgetInfo 与 classId=WarriorId 的既有重载共用同一份。
+            var warriorInfo = ItemBudgetCurve.BuildStatBudgetInfo(view, WarriorId);
+            foreach (var templateId in new[] { new Id("item.tpl.reuse_a"), new Id("item.tpl.reuse_b") })
+            {
+                var viaAutoBuild = EquipmentScoreAnalyzer.Score(templateId, classId: WarriorId, view: view);
+                var viaPrebuilt = EquipmentScoreAnalyzer.Score(templateId, classId: WarriorId, view: view, statBudgetInfo: warriorInfo);
+
+                Assert.Equal(viaAutoBuild.Score, viaPrebuilt.Score, 9);
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // 2026-09-16 深度复审 B 测试覆盖缺口 3：class_overrides 命中的覆盖权重为显式 0 时，
+        // EquipmentScoreAnalyzer.Score 端到端应返回有限值（不产生 NaN）。ItemBudgetCurve
+        // .ComputeConsumed 内部已有 weight==0.0 短路防御（见该方法），此前只被
+        // ItemBudgetCurveComputeConsumedTests 这一层单测覆盖——本用例经完整的 Score 调用链路
+        // （BuildStatBudgetInfo 按职业覆盖解出 weight=0 → ComputeConsumed）复现同一条防御，
+        // 防止未来重构在中间层悄悄绕开它。
+        // -----------------------------------------------------------------
+
+        /// <summary>词条是 percent 分类、经 Saturation 换算曲线、<c>op=pct</c> 且取值 1.0（100%，
+        /// 曲线永远达不到的百分比）——<c>RatingConversionEvaluator.InverseSaturation</c> 对此返回
+        /// <see cref="double.PositiveInfinity"/>（见该方法判断记录）。该属性同时经
+        /// <c>stat.weight.class_overrides</c> 对 <c>WarriorId</c> 显式登记权重 0——如果
+        /// <c>ComputeConsumed</c> 的 <c>weight==0.0</c> 短路防御被绕开，`Infinity × 0` 会产生
+        /// <c>NaN</c> 并沿 <c>Math.Pow</c> 传播到最终 <see cref="EquipmentScoreResult.Score"/>；
+        /// 短路防御生效时该词条贡献恒为 0，最终评分应为有限值 0（本模板只有这一条 stats）。</summary>
+        [Fact]
+        public void Score_ClassOverrideWeightIsExplicitZero_OnInfinitePointsStat_ReturnsFiniteZero_NotNaN()
+        {
+            const string statDefWithPercent =
+                "[{\"id\": \"stat.strength\", \"name_key\": \"l10n.stat.strength\", \"category\": \"primary\"}," +
+                " {\"id\": \"stat.crit_pct\", \"name_key\": \"l10n.stat.crit_pct\", \"category\": \"percent\"," +
+                " \"conversion_ref\": \"stat.rating.n_b_gap3\"}]";
+
+            const string ratingConversionJson =
+                "[{\"id\": \"stat.rating.n_b_gap3\", \"saturation\": {\"k\": 10, \"cap\": 0.5}}]";
+
+            // 战士对 crit_pct 显式登记覆盖权重 0（class_overrides 命中分支）。
+            const string statWeightWithZeroOverride =
+                "[{\"id\": \"stat.weight.crit_pct\", \"stat\": \"stat.crit_pct\", \"weight\": 0.5," +
+                " \"class_overrides\": [{\"class\": \"arch.class.warrior\", \"weight\": 0}]}]";
+
+            var view = TestSupport.BuildRegistry(source =>
+            {
+                source.Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson));
+                source.Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson));
+                source.Add("item.budget_curve", TestSupport.Table("item.budget_curve", BudgetCurveJson));
+                source.Add("stat.definition", TestSupport.Table("stat.definition", statDefWithPercent));
+                source.Add("stat.rating_conversion", TestSupport.Table("stat.rating_conversion", ratingConversionJson));
+                source.Add("stat.weight", TestSupport.Table("stat.weight", statWeightWithZeroOverride));
+                source.Add("arch.class", TestSupport.Table("arch.class", ArchClassJson));
+                source.Add("item.template", TestSupport.Table("item.template", "[" + Template("item.tpl.n_b_gap3", 1,
+                    "[{\"stat\": \"stat.crit_pct\", \"op\": \"pct\", \"value\": 1.0}]") + "]"));
+            });
+
+            var result = EquipmentScoreAnalyzer.Score(new Id("item.tpl.n_b_gap3"), classId: WarriorId, view: view);
+
+            Assert.False(double.IsNaN(result.Score), "class_overrides 权重为 0 时不应产生 NaN");
+            Assert.Equal(0.0, result.Score, 9);
+        }
     }
 }

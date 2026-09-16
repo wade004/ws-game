@@ -357,6 +357,19 @@ economy/
       手填值 5 改为公式值 25（`econ.value_curve.default(1)`=25 × 品质 1.0 × 槽位 1.0），随
       T-N4-10 摘掉该条目 `price_amount` 之后的真实行为同步更新，不是放宽断言。
 
+16. **2026-09-16 深度复审 D-S2 判断记录（建议修，已采纳）**：`EconomyHost.FindAnyVendorSellPrice`
+    此前每次调用都线性扫描全部已加载商人 × 全部出售条目（O(商人数 × 商品数)）——只在"该物品在
+    任一商人处都没有手填 `price_amount`"时才会被触发、且只发生在玩家主动 `Sell` 时（不在任何
+    tick/热路径），当前数据规模下性能影响可忽略，但商人/商品数量较大时值得预建索引。新增
+    `_vendorSellPriceIndex`（`Dictionary<Id, (long Price, Id? CurrencyId)>`），`ReloadFromRegistry`
+    重建 `_vendors`/`_vendorOrder` 之后同步调用 `RebuildVendorSellPriceIndex` 刷新，失效口径与
+    那两个字段完全一致；`FindAnyVendorSellPrice` 改为 O(1) 索引查询，逐位保留原双重 `foreach`
+    "按 Id 序数遍历全部已加载商人，返回第一条命中的价格"这一命中优先级。新增测试：
+    `P2_05_EconomyHostReloadTests
+    .Reload_ChangedPriceAmount_SellPriceIndexPicksUpNewValueImmediately`（reload 后索引立即反映
+    新定价，不落后于数据）/`.MultipleVendors_OnlySecondVendorHasPriceAmount_SellUsesSecondVendorsPrice`
+    （多商人优先级逐位保留）。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `econ.vendor.sell_items` 元素结构（对照 `EconomyDataParser.ParseSellItem` 运行时解析代码）：

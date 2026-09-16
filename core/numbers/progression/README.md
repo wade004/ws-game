@@ -309,6 +309,33 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
 `core/gameplay/death/tests/T_N4_5_RespawnPolicyDoesNotAffectXpTests.cs`（三种策略各一组，独立
 装配的 `ProgressionHost` 在完整死亡结算流程前后 `GetXp`/`GetLevel` 逐字节不变）。
 
+## 2026-09-16 深度复审 D-M2/D-S1/D-S3 判断记录
+
+1. **D-M2（必须修）**：`ProgressionHost.AddXpCore` 的升级循环此前只在整个 `while` 循环结束之后
+   聚合调用一次 `ApplyGrowth`——但同一批升级里全部 `LevelUpEvent` 早已逐级 `PublishImmediate`
+   发布完毕（N08 既有惯例），订阅方（`RulesAssembly` 的 `Powers.RefillAll`）看到的是"这批升级
+   成长生效前"的旧上限（`max_source.kind=stat` 的资源池尤其明显）。改为：在 `while` 循环内部，
+   判断"这一步是否是本次批量升级的最后一步"（曲线已到有效顶、或按当前剩余 Xp 已不够继续升下
+   一级），只在最后一步先调用 `ApplyGrowth`、再发布该级的 `LevelUpEvent`；中间级不调用——仍然
+   保持"成长只聚合写入一次"（既有测试 `ProgressionHostTests.AddXp_CrossesTwoLevels_
+   FiresTwoLevelUpEvents_AndWritesCumulativeGrowthOnce`）与"逐级发布、处理器看到当时等级"
+   （`AddXp_CrossesTwoLevels_EachHandlerInvocation_SeesLevelAtThatPointInTime`）两条既有契约
+   不变。配套修复：`core/rules/assembly/RulesAssembly.cs` 的 `LevelUpEvent → Powers.RefillAll`
+   订阅在 `RefillAll` 之前先显式调用一次 `Powers.RecomputeMax`（同 `core/sim/core/
+   HeadlessWorldBuilder.cs` 出生等级 >1 场景的既有同构修复判断记录——`stat.changed` 是
+   `Enqueue`，不能指望后续某次 `DispatchPending` 补上）。新增测试见
+   `core/rules/tests/Integration/T_N4_5_LevelUpRefillIntegrationTests.cs`
+   （`LevelUp_MaxSourceIsStatWithGrowth_RefillsToNewMaxAfterGrowthApplied`/
+   `LevelUp_CrossTwoLevelsInOneAddXp_MaxSourceIsStatWithGrowth_RefillsToFinalCumulativeMax`）。
+2. **D-S1（建议修，已采纳）**：`prog.level_curve.talent_points` 字段描述（`ProgSchemas.cs`）补
+   "框架只登记与累计、运行期不消费，天赋点余额/发放/存档由游戏层自行实现"——此前只有本文件的
+   判断记录写明这一点，正文（内容作者直接看到的字段描述）没有同步提示。
+3. **D-S3（建议修，已采纳）**：`ComputeCurveBasedRawAmount` 的 `kind` 缺省兜底分支（未登记
+   `kind` 时按 `kill` 处理）此前无专门测试锁定——补
+   `ProgressionHostTests.GrantXp_NoKind_FallsBackToKillBranch_UsesExtraXpMultiplierProvider`
+   （配置非 1 的 `ExtraXpMultiplierProvider`，只有真正执行 kill 分支代码路径才会读取它，区分
+   "数值恰好相同"与"确实走了这条分支"）。
+
 ## 不负责什么
 
 - 不实现"经验来源的触发条件"求值（`prog.xp_source.condition` 是 Expr 字段，本模块只登记类型）。

@@ -120,3 +120,12 @@ progression_bridge/
   `ProgressionOptions` 实例（同时承载 `ExtraXpMultiplierProvider`/`QuestXpSourceId`），两个监听器
   与 `RewardDispatcher` 共用同一份配置，不再各自独立退到互不相干的默认实例，见
   `core/numbers/progression/README.md`"T-N4-4"一节判断记录 5。
+
+## 2026-09-16 深度复审 D-M1 判断记录：`ResolveCreditUnit` 改为转发共享辅助
+
+`CreatureDeathXpListener.ResolveCreditUnit`（私有方法，ADR-0033 决策 3"召唤物击杀归主人"）内部
+逻辑抽到了 `core/gameplay/common/core/SummonCreditResolver.ResolveCreditUnit`（见
+`core/gameplay/common/README.md` 同名小节）——`Core.Gameplay.Loot.CreatureDeathLootListener`
+的 `OnKill` 货币入账分支复审发现完全没有做这一步归属解析（复审报告 D-M1），修复时让两处共用
+同一份实现，避免各自维护一份容易漂移的同构逻辑。本方法名称/签名不变，只是内部改成一行转发，
+不影响任何既有调用点，`CreatureDeathXpListener` 本身行为逐位不变。

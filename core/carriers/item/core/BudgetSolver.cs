@@ -64,6 +64,25 @@ namespace Core.Carriers.Item
             IDataRegistryView view)
             => Solve(itemLevel, qualityId, slotId, statMix, budgetCurveId, 1.0, view);
 
+        /// <summary>
+        /// 2026-09-16 深度复审 B-S1：显式转发 <see cref="IBudgetSolver"/> 新增的 8 参默认接口成员
+        /// （门禁要求同上方 6 参重载的判断记录），且真正跳过内部重建——直接把调用方传入的
+        /// <paramref name="statBudgetInfo"/> 转给 <see cref="SolveCore"/>，不再调用一次
+        /// <see cref="ItemBudgetCurve.BuildStatBudgetInfo(IDataRegistryView)"/>。</summary>
+        public BudgetSolverResult Solve(
+            int itemLevel,
+            Id qualityId,
+            Id slotId,
+            IReadOnlyList<(Id Stat, double Ratio)> statMix,
+            Id budgetCurveId,
+            double shareOfBudget,
+            IDataRegistryView view,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statBudgetInfo)
+        {
+            if (statBudgetInfo == null) throw new ArgumentNullException(nameof(statBudgetInfo));
+            return SolveCore(itemLevel, qualityId, slotId, statMix, budgetCurveId, shareOfBudget, view, statBudgetInfo);
+        }
+
         public BudgetSolverResult Solve(
             int itemLevel,
             Id qualityId,
@@ -72,6 +91,29 @@ namespace Core.Carriers.Item
             Id budgetCurveId,
             double shareOfBudget,
             IDataRegistryView view)
+        {
+            if (view == null) throw new ArgumentNullException(nameof(view));
+
+            // 同 ItemBudgetValidationRule 惯例：不展开 class_overrides（见类型判断记录）。本重载没有
+            // 调用方预先构建好的 StatBudgetInfo 可复用，只能自己现场建一次——一次性调用场景（未跨
+            // 多条词缀复用）性能影响可忽略；需要跨多条词缀复用的调用方应改用下方 8 参重载，见 B-S1
+            // 判断记录。
+            var statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
+            return SolveCore(itemLevel, qualityId, slotId, statMix, budgetCurveId, shareOfBudget, view, statInfo);
+        }
+
+        /// <summary>2026-09-16 深度复审 B-S1 抽取：两个公开 <c>Solve</c> 重载（自建 <c>statInfo</c>／
+        /// 复用调用方传入的 <c>statInfo</c>）共用的核心反解逻辑，此前完全重复的一份代码现在只有一处。
+        /// 逻辑本身逐字保留自改动前的 7 参 <c>Solve</c>，不改变任何既有行为/输出。</summary>
+        private static BudgetSolverResult SolveCore(
+            int itemLevel,
+            Id qualityId,
+            Id slotId,
+            IReadOnlyList<(Id Stat, double Ratio)> statMix,
+            Id budgetCurveId,
+            double shareOfBudget,
+            IDataRegistryView view,
+            IReadOnlyDictionary<Id, ItemBudgetCurve.StatBudgetInfo> statInfo)
         {
             if (statMix == null) throw new ArgumentNullException(nameof(statMix));
             if (view == null) throw new ArgumentNullException(nameof(view));
@@ -135,9 +177,9 @@ namespace Core.Carriers.Item
             var itemBudgetLimit = ItemBudgetCurve.Interpolate(curve, itemLevel) * qualityMultiplier * slotCoefficient;
             var targetBudget = itemBudgetLimit * shareOfBudget;
 
-            // 同 ItemBudgetValidationRule 惯例：不展开 class_overrides（见类型判断记录）。
-            var statInfo = ItemBudgetCurve.BuildStatBudgetInfo(view);
-
+            // 2026-09-16 深度复审 B-S1：statInfo 改为方法参数（由调用方——上面两个公开 Solve 重载之一
+            // ——提供，不在本方法内部重建），同 ItemBudgetValidationRule 惯例：不展开
+            // class_overrides（见类型判断记录）。
             double sumRatioPow = 0;
             foreach (var entry in statMix)
             {
