@@ -209,26 +209,24 @@ namespace Tests.Numbers.Archetype
         }
 
         /// <summary>
-        /// 深度复审 A（测试覆盖缺口 #4）补测：验证"<c>derivation_overrides[].source</c> 引用一个
-        /// 完全不存在的 <c>stat.definition</c> 记录"这一场景的实际行为。
+        /// 深度复审 A（测试覆盖缺口 #4）补测，复审整合项 4 更新（2026-09-16，设计层裁定：采纳）：
+        /// 验证"<c>derivation_overrides[].source</c> 引用一个完全不存在的 <c>stat.definition</c>
+        /// 记录"这一场景的正确行为。
         /// <para>
-        /// 判断记录（2026-09-16，如实记录探测结果，不属于本单 A-M1/A-S1 修复范围，未改动生产代码）：
-        /// <see cref="Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule"/> 类型顶部的
-        /// 判断记录声称"读不到 stat.definition 对应记录时……直接跳过该条目，留给 reference_integrity
-        /// 单独报，避免同一条数据两条规则各报一次造成报告噪音"，但实测显示该方法的
-        /// <c>Validate</c> 实现里并没有对应的"跳过"分支（<c>validEdges.Contains</c> 判定对"引用不
-        /// 存在"和"引用存在但不是一条真实派生边"两种情形一视同仁，均会报错）——<c>source</c> 引用
-        /// 完全不存在的记录时，<c>reference_integrity</c> 与本规则的 <see
-        /// cref="Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName"/> 会
-        /// <b>同时</b>报错，不是文档描述的"只报一次"。本测试如实记录这一实测行为（而不是断言文档
-        /// 描述的行为），供设计层裁定：是修代码补上"跳过"分支使其与文档一致，还是修文档承认"两条
-        /// 规则本来就会同时报"这一现状；本单只做只读探测，不改动
-        /// <c>ArchClassDerivationOverrideValidationRule.cs</c> 本身（该文件不在本单必须修/建议修
-        /// 清单内）。
+        /// 判断记录（从"如实记录现状"改为"锁定正确行为"）：本用例最初（深度复审 A）如实记录了一个
+        /// 缺口——<see cref="Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule"/>
+        /// 类型顶部判断记录声称"读不到 stat.definition 对应记录时……直接跳过该条目，留给
+        /// reference_integrity 单独报"，但当时的 <c>Validate</c> 实现并没有对应的"跳过"分支，
+        /// <c>source</c> 引用完全不存在的记录时 <c>reference_integrity</c> 与本规则会同时报错，与
+        /// 文档描述不符。复审整合项 4 已在 <c>ArchClassDerivationOverrideValidationRule.Validate</c>
+        /// 补上该跳过分支（<c>stat</c>/<c>source</c> 任一侧对应的 <c>stat.definition</c> 记录不存在
+        /// 就 <c>continue</c>，不再重复报错）——这是把"错误行为的锁定"改成"正确行为的锁定"，不是
+        /// 放宽既有断言：<c>reference_integrity</c> 依旧报错（该检查项本身未改动），只是本规则不再
+        /// 对同一条数据凑一份重复噪音。
         /// </para>
         /// </summary>
         [Fact]
-        public void ClassDerivationOverrides_SourceReferencesNonExistentStat_BothReferenceIntegrityAndOverrideRuleReport()
+        public void ClassDerivationOverrides_SourceReferencesNonExistentStat_OnlyReferenceIntegrityReports()
         {
             var rows = "[{\"id\":\"arch.class.cov_override_unknown\",\"name_key\":\"l10n.arch.class.cov_override_unknown.name\"," +
                 "\"primary_stat\":\"stat.cov_might2\",\"base_stats\":{\"stat.cov_might2\":10},\"power_types\":[]," +
@@ -253,8 +251,8 @@ namespace Tests.Numbers.Archetype
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i => i.Check == "reference_integrity"
                 && i.Field == "derivation_overrides[0].source");
-            // 实测现状：本规则并未如文档所述"跳过"，同一条数据两条规则都报了——见本方法判断记录。
-            Assert.Contains(report.Issues, i =>
+            // 修复后：本规则对"引用本身就不存在"的情形跳过，不再与 reference_integrity 重复报错。
+            Assert.DoesNotContain(report.Issues, i =>
                 i.Check == Core.Numbers.Archetype.ArchClassDerivationOverrideValidationRule.CheckName);
         }
     }

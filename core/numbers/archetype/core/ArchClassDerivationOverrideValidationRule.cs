@@ -93,6 +93,19 @@ namespace Core.Numbers.Archetype
                     var statValue = ((JsonString)statRaw!).Value;
                     var sourceValue = ((JsonString)sourceRaw!).Value;
 
+                    // 复审整合项 4（修复单 1 待确认 1，设计层裁定：补跳过分支，2026-09-16）：类型顶部
+                    // 判断记录"跨表校验、不是引用完整性"早已写明本规则应对"某一侧引用本身就不存在"的
+                    // 情形跳过、留给 reference_integrity 单独报——但实现从未真正落地这一句：
+                    // validEdges 只由确实存在的 category=derived 记录构建，statValue/sourceValue 若
+                    // 指向不存在的 stat.definition 记录，天然不在 validEdges 里，此前会被当成"存在但
+                    // 边不对"重复报错，与 reference_integrity 对同一条数据各报一次、制造噪音。现在
+                    // 显式核对两侧记录是否存在，任一不存在就跳过本条目（不 yield），交给
+                    // reference_integrity 单独处理。
+                    if (view.Get("stat.definition", statValue) == null || view.Get("stat.definition", sourceValue) == null)
+                    {
+                        continue;
+                    }
+
                     if (!validEdges.Contains((statValue, sourceValue)))
                     {
                         yield return new ValidationIssue(
