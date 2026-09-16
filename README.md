@@ -230,6 +230,13 @@ powershell -File toolchain\get_framework.ps1 -Version <version> -FromRegistry
 powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Unity 工程>
 ```
 
+## 升级指南
+
+跨版本升级路径（不同于 `CHANGELOG.md` 里逐版本的"迁移说明"，后者只记单版增量）维护在
+[docs/升级指南/README.md](docs/升级指南/README.md)；覆盖数值设计专项 N0～N6 七个版本
+（1.30.0～1.36.0）的一份跨版本升级指南见
+[docs/升级指南/1.29.0到1.36.0-数值设计专项.md](docs/升级指南/1.29.0到1.36.0-数值设计专项.md)。
+
 ## 新游戏如何消费本框架
 
 原则：框架仓库是被依赖方，任何游戏不进入框架仓库。新游戏 = 自己目录里的一个 Unity 工程 + `data/` + `assets/` + 自己的设计文档与 git 仓库，按版本号引用框架的一份发布产物快照（经 `toolchain/get_framework.ps1` 拉取校验后 `file:` 相对路径引用，见上方"版本与发布"一节"游戏侧引用与升级"）。完整的四条消费通道、五条多游戏共用规则与升级步骤，见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md) 第 3.5 节；从"选引擎"到"跑验收"的完整立项步骤与检查表见 [architecture/13_新游戏接入指南.md](architecture/13_新游戏接入指南.md)。
