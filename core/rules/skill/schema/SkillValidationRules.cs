@@ -680,6 +680,13 @@ namespace Core.Rules.Skill
         public const string DeviationCheck = "skill_budget_deviation";
         public const string HardCapCheck = "skill_budget_hard_cap_exceeded";
 
+        /// <summary>消费方反馈第 47 条：记录结构非法（如必填 <c>Id</c> 字段留空）导致
+        /// <see cref="SkillBudgetAnalyzer.Analyze"/> 间接经 <see cref="SkillDefCache"/> 解析抛出
+        /// <see cref="ArgumentException"/>/<see cref="Core.Foundation.DataRegistry.DataFieldException"/>
+        /// 时，本规则跳过该条记录的预算校验并改产出一条本检查名的 Warning（不再彻底静默）——见
+        /// <see cref="Validate"/> 判断记录。</summary>
+        public const string UnparseableRecordCheck = "skill_budget_record_unparseable";
+
         public const string ConfirmedGroup = "已确认";
         public const string UnconfirmedGroup = "待确认";
 
@@ -709,21 +716,41 @@ namespace Core.Rules.Skill
             foreach (var record in view.GetAll("skill.def"))
             {
                 var skillId = record.GetId("id");
-                SkillBudgetResult result;
+                SkillBudgetResult? result = null;
+                string? parseErrorMessage = null;
                 try
                 {
                     result = SkillBudgetAnalyzer.Analyze(skillId, view, _options, _anchorProvider);
                 }
-                catch (ArgumentException)
+                catch (Exception ex) when (ex is ArgumentException || ex is Core.Foundation.DataRegistry.DataFieldException)
                 {
-                    // 判断记录：SkillBudgetAnalyzer.Analyze 对结构非法的记录（如效果项 kind 未知）
-                    // 可能间接经 SkillDefCache 解析抛异常——加载期结构性校验（required_field/
-                    // field_type/variant_discriminator 等）已经能拦下这类坏形状，本规则遇到解析
-                    // 异常时静默跳过该条记录，不重复报告、也不让一条坏记录中断整批预算校验。
+                    // 判断记录（消费方反馈第 47 条根治）：SkillBudgetAnalyzer.Analyze 对结构非法的记录
+                    // （如必填 Id 字段留空、效果项 kind 未知）可能间接经 SkillDefCache 解析抛异常——加载期
+                    // 结构性校验（required_field/field_type/field_id_format/variant_discriminator 等）
+                    // 已经能拦下这类坏形状，本规则遇到解析异常时跳过该条记录的预算校验，不让一条坏记录
+                    // 中断整批校验；此前只 catch ArgumentException，SkillDefCache.ParseSkillDef →
+                    // DataRecord.GetId 对结构合法字符串但非法 Id 语法的字段（如 "school": ""）抛出的
+                    // 是 DataFieldException（不是 ArgumentException 的子类），未被原 catch 拦下、一路
+                    // 冒出中断整批加载/校验——现同时捕获两种异常类型。且不再彻底静默：产出一条
+                    // Warning 级、NonEscalatable（本规则整体登记）的诊断，说明该记录结构不合法已由
+                    // 字段级校验报告、本规则仅跳过不重复诊断，避免"规则悄悄跳过一条记录"这一事实本身
+                    // 无法被观测到（yield 不能出现在 catch 块内——CS1631，故先记录异常信息，跳出
+                    // try/catch 后再产出诊断）。
+                    parseErrorMessage = ex.Message;
+                }
+
+                if (parseErrorMessage != null)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, "skill.def", UnparseableRecordCheck,
+                        $"记录结构不合法，解析失败：{parseErrorMessage}（该记录结构不合法已由字段级校验" +
+                        "报告，本规则跳过预算校验，不重复诊断）",
+                        recordKey: record.Key, field: null,
+                        group: null, note: null, ruleId: null);
                     continue;
                 }
 
-                if (!result.Participates || result.Verdict == SkillBudgetVerdict.Pass)
+                if (!result!.Participates || result.Verdict == SkillBudgetVerdict.Pass)
                 {
                     continue;
                 }

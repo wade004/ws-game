@@ -1247,6 +1247,25 @@ skill/
     数据/内容管线零告警。真正核算预算比值需要调用方自行 `new SkillBudgetValidationRule(realProvider)`
     另行注册（不经 `RulesSchemaCatalog`）。
     <br/><br/>
+    **判断记录（消费方反馈第 47 条根治，2026-09-17）**：`Validate` 对每条 `skill.def` 记录调用
+    `SkillBudgetAnalyzer.Analyze` 时，原先只 `catch (ArgumentException)` 兜底"结构非法记录跳过、不
+    中断整批预算校验"——但 `SkillDefCache.ParseSkillDef` → `DataRecord.GetId("school"/"target_shape_ref")`
+    对结构合法字符串但非法 Id 语法的字段（如空字符串）抛出的是
+    `Core.Foundation.DataRegistry.DataFieldException`（不是 `ArgumentException` 子类），未被原
+    `catch` 拦下，一路冒出中断 `DataRegistry.LoadAll`。改为 `catch (Exception ex) when (ex is
+    ArgumentException || ex is DataFieldException)`，且不再彻底静默：改产出一条 Warning 级、
+    `NonEscalatable` 的诊断（检查名 `skill_budget_record_unparseable`），说明该记录结构不合法已由
+    字段级校验（新检查名 `field_id_format`，见 `core/foundation/data_registry/README.md`"判断记录
+    （消费方反馈第 47 条）"）报告、本规则仅跳过不重复诊断——同一根治方式也应用到
+    `Core.Carriers.Item.ItemGrantValueExceedsShareRule`（此前对
+    `SkillBudgetAnalyzer.ComputeGrantValue` 的调用完全没有 try/catch 兜底，见
+    `core/carriers/item/README.md`"判断记录（消费方反馈第 47 条）"）。全仓库 `catch (ArgumentException)`
+    逐处核查：`GameplayAssembly.cs`/`CreatureDeathLootListener.cs`/`ProgressionPersistable.cs`/
+    `Resolver.cs`/`CastPipeline.cs` 的既有 `catch (ArgumentException)` 均环绕运行期宿主查询 API
+    （`SceneRouter.LoadScene`/`ICreatureTemplateQuery.Get`/`IStatHost.GetStat` 等"未注册 id 抛
+    `ArgumentException`"契约），不经 `SkillDefCache`/`DataRecord.GetId` 一类数据解析入口，不属于
+    同类缺口，不改动。
+    <br/><br/>
     **T-N6-3a 回填：`sim.anchor` 已落地接入，本段"归阶段 N6"已兑现**——`Core.Sim
     .AnchorTableSkillBudgetAnchorProvider` 是 `ISkillBudgetAnchorProvider` 的真实实现（`GetAnchorDps`
     查 `AnchorTable`，`GetExpectedScalingStatValue` 委托新增的 `Core.Sim.ExpectedStatCalculator`），

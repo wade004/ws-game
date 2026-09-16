@@ -81,6 +81,33 @@ namespace Tests.Foundation.Common
             Assert.False(ok);
         }
 
+        // -----------------------------------------------------------------
+        // 消费方反馈第 47 条：DataRegistry 字段级 field_id_format 检查直接调用
+        // IsValidFormat（与构造函数/TryParse 同一份判定实现），补一组直接针对该方法的
+        // 正反例，覆盖反馈原文的触发形态（空字符串）。
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData("skill.fireball")]
+        [InlineData("a.b.c")]
+        [InlineData("world.map_01")]
+        public void IsValidFormat_ReturnsTrueForLegalMultiSegmentFormat(string value)
+        {
+            Assert.True(Id.IsValidFormat(value));
+        }
+
+        [Theory]
+        [InlineData("")] // 空字符串（消费方反馈第 47 条触发形态：必填 Id 字段留空）
+        [InlineData(" ")] // 含空格
+        [InlineData("Skill.Fireball")] // 大写
+        [InlineData("fireball")] // 缺 domain
+        [InlineData("skill-fireball")] // 非法字符（连字符）
+        [InlineData(null)]
+        public void IsValidFormat_ReturnsFalseForIllegalFormat(string? value)
+        {
+            Assert.False(Id.IsValidFormat(value));
+        }
+
         [Fact]
         public void CompareTo_IsOrdinal()
         {

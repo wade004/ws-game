@@ -124,8 +124,11 @@ namespace Tests.Foundation.Data
                     item: new FieldSchema("<tag>", FieldKind.Id, required: true)),
             });
 
+        /// <summary>消费方反馈第 47 条（04 第 5 节勘误"Id 语法合法"）：元素是字符串但不满足 Id 语法
+        /// 时报专用检查名 <c>field_id_format</c>，不再与"元素根本不是字符串"的 <c>field_type</c> 混用
+        /// 同一检查名。</summary>
         [Fact]
-        public void ArrayItem_ScalarElementBadFormat_ReportsFieldTypeWithIndexedPath()
+        public void ArrayItem_ScalarElementBadFormat_ReportsFieldIdFormatWithIndexedPath()
         {
             var rows = "[{\"id\": \"test.a\", \"tags\": [\"tag.ok\", \"NOT VALID\"]}]";
             var source = new InMemoryDataSource().Add("test.arr_scalar", Envelope("test.arr_scalar", 1, rows));
@@ -135,7 +138,7 @@ namespace Tests.Foundation.Data
             var report = registry.LoadAll();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "tags[1]");
+            Assert.Contains(report.Issues, i => i.Check == "field_id_format" && i.Field == "tags[1]");
         }
 
         [Fact]

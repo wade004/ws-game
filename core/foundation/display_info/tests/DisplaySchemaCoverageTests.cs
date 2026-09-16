@@ -137,8 +137,10 @@ namespace Tests.Foundation.DisplayInfo
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
         }
 
+        /// <summary>消费方反馈第 47 条：Map 值种类为 <c>Id</c> 且取值不满足 Id 语法时报
+        /// <c>field_id_format</c>（此前混用 <c>field_type</c>）。</summary>
         [Fact]
-        public void DefaultSlotMeshes_ValueNotValidId_ReportsFieldType()
+        public void DefaultSlotMeshes_ValueNotValidId_ReportsFieldIdFormat()
         {
             var rows = "[{\"id\":\"display.cov_model_bad\",\"category\":\"creature\",\"logical_id\":\"creature.cov_model_bad\"," +
                 "\"kind\":\"model\",\"model_ref\":\"model.cov_sample\"," +
@@ -154,7 +156,7 @@ namespace Tests.Foundation.DisplayInfo
 
             Assert.True(report.IsBlocking);
             Assert.Contains(report.Issues, i =>
-                i.Check == "field_type" && i.Field == "default_slot_meshes[slot.head]");
+                i.Check == "field_id_format" && i.Field == "default_slot_meshes[slot.head]");
         }
 
         [Fact]
