@@ -163,7 +163,14 @@ namespace Core.Carriers.Item
                     description: "兼容位（分阶段落地计划 T-N2-1；ADR-0032；07 第 1.6 节修订段"
                         + "\"stat_roll_ref 留位由 affixes 正式字段取代，保留兼容位不再规划\"）：随机属性"
                         + "由本版起改经 item.affix（budget_share/stat_mix/quality_pool/weight，见 T-N2-2）"
-                        + "承担，本字段不再是待展开的扩展位，只作历史数据兼容读取位，不登记 SoftReferenceTable"),
+                        + "承担，本字段不再是待展开的扩展位，只作历史数据兼容读取位，不登记 SoftReferenceTable")
+                    // 消费方反馈第 46 条收口：上面 Description 已用自由文本写明"留位由 affixes 正式
+                    // 字段取代"，补登记为结构化元数据——ReplacedBy 指向同表（item.template）真实存在
+                    // 的同级字段 "affixes"（IdList，见本文件上方 affixes 字段登记），版本号与该字段
+                    // 引入版本一致（T-N2-2，CHANGELOG 1.32.0）。
+                    .WithDeprecated("1.32.0", "affixes",
+                        note: "随机属性改经 item.affix（budget_share/stat_mix/quality_pool/weight）承担，"
+                            + "item.template.affixes 字段登记该模板可抽取的词缀候选白名单"),
                 new FieldSchema("value_override", FieldKind.Number, required: false,
                     description: "基准价值覆盖（ADR-0032 决策；07 第 1.1 节修订段；ADR-0034）：未填按 "
                         + "econ.value_curve 公式（08 第 7.4 节，未落地）算出基准价值；填了且偏离公式超带宽"

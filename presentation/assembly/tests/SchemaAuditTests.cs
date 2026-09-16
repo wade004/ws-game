@@ -1297,8 +1297,9 @@ namespace Tests.Presentation.Assembly
             // 判断记录：先断言"确实解析出了预期数量的可核对数据字段行"，防止将来 dottedTokenRegex/
             // backtickTokenRegex 的书写细节变化导致本测试"什么都没解析到、自然全部通过"这种假阳性
             // （消费方反馈第 46 条设计阶段明文列出的行数：stat.definition/item.affix/prog.xp_source/
-            // rewards.xp 共 4 行）。
-            Assert.Equal(4, dataRowCount);
+            // rewards.xp 共 4 行；整合反馈第 45/46/47 条时收口 item.template.stat_roll_ref 一并补登
+            // WithDeprecated、同批加入附录 C，行数改为 5 行）。
+            Assert.Equal(5, dataRowCount);
             Assert.NotEmpty(directChecks);
             Assert.NotEmpty(nestedChecks);
 
