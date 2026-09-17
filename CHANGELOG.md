@@ -434,16 +434,70 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-### 修复
+## [1.39.0] - 2026-09-18
 
+编辑器上游反馈第 48 条：`LootTableAnalyzer.ExpectedProbabilities` 补品质/词缀/货币三段期望分布
+维度；`core/sim/tests/data` 嵌入仿真数据集补 `display.map` 缺行；`check.ps1` 新增嵌入数据集校验步骤；
+验收顺带修复 `InclusionProbabilities` 不放回多抽 `k>=n` 快速路径对零权重条目误报入选概率的既有
+缺陷（反馈 35/1.24.0 遗留）。
+
+### 新增
+
+- `Core.Gameplay.Loot.LootTableAnalyzer` 新增三个只读分析入口（均只新增，`ExpectedProbabilities`
+  既有签名与结果不变，消费方反馈第 48 条）：
+  - `ExpectedQualityDistribution(LootTableDef, LootAnalysisContext, IDataRegistryView):
+    IReadOnlyList<LootQualityOutcome>`——每个叶子 `item.*` 的期望品质分布（条件概率），与
+    `LootHost.RollQuality` 同一套判定；同一叶子经多条不同 `LootEntry`（不同分组/嵌套表分支/
+    `guaranteed_min` 补抽）贡献时按期望产出数量加权混合。
+  - `ExpectedAffixInclusion(Id templateId, Id qualityId, IDataRegistryView, int exactMaxEntries =
+    16): LootAffixInclusionResult`——给定模板与品质骰结果，算出词缀骰候选池逐条入选概率（位掩码
+    动态规划精确解，复用 `weighted_pick_one` 不放回多抽同一份算法）；候选池超过阈值时返回 `null`
+    并显式标记降级（不退化为近似值）。
+  - `ExpectedCurrency(LootTableDef, LootAnalysisContext, IEconomyHost, int? sourceLevel = null,
+    Id? tierId = null, LootGoldMultiplierProvider? goldMultiplierProvider = null):
+    IReadOnlyList<LootExpectedCurrencyOutcome>`——每种货币（`econ.*` 叶子）的期望产出数量，与
+    `LootHost.ResolveCurrencyOutcome` 逐项对齐（当量 × 金币基数 × 分档倍率 × 难度倍率）。
+- `core/gameplay/loot/contracts/LootDistributionAnalysis.cs` 新增三个纯数据结果类型
+  `LootQualityOutcome`/`LootAffixInclusionResult`/`LootExpectedCurrencyOutcome`，均带
+  `IsDegraded`/`Reason` 字段（只读分析入口遇 registry 阻断态或数据缺失时显式标记，不抛异常）。
 - `core/sim/tests/data` 嵌入仿真数据集补齐 `skill.sim_review_b_weapon_pct_strike` 的
   `display.map` 映射行（复审整合项 3 `17a6670` 遗留缺口，`DisplayMapCoverageRule` 此前报 1 条
   阻断 error）；`toolchain/validate_data.py --strict --data-root core/sim/tests/data` 对该根
   校验回到 `errors 0`。
+
+### 变更
+
 - `check.ps1` 新增一步（"6a"，排在 pytest 之后、数值仿真基线比对之前）单独对
   `core/sim/tests/data` 跑 `validate_data.py --strict`（`-Quick` 下也跑）——此前只有"数值仿真
   基线比对"用 `SimRunner` 装载该数据集跑仿真场景，不等价于跑一遍声明式规则引擎校验，同类遗漏
   （如本次的 `display.map` 缺行）会被放过；新步骤堵住这条门禁空档。
+
+### 修复
+
+- `Core.Gameplay.Loot.LootTableAnalyzer.ExpectedProbabilities` 反馈 48 验收发现的既有缺陷
+  （反馈 35/1.24.0 遗留）：`weighted_pick_one` 不放回多抽 `pick_count` 等于候选池条目数
+  （`k>=n` 快速路径）时，权重 <=0 的条目也被无条件报入选概率 1.0——但该条目在
+  `LootHost.PickWeighted` 语义下永远选不中（剩余权重合计归零即整体提前停止），理论值与真实抽取
+  不符。修复为快速路径按各条目权重区分：权重 >0 报 1.0，否则报 0（下游 `ExpectedProbabilities`
+  因不命中条目一律不入账，表现为该条目整条不出现在结果里）；`ExpectedAffixInclusion` 本身在构建
+  候选池阶段就过滤掉零权重词缀，不受影响，一并补一条断言留痕。
+
+### 文档
+
+- 新建
+  [消费方反馈-2026-09-18-编辑器-第48条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第48条.md)。
+- `core/gameplay/loot/README.md` 新增"消费方反馈第 48 条判断记录"一节，并补一条"本次收口顺带修复
+  既有缺陷"说明（`InclusionProbabilities` k>=n 快速路径零权重条目误报）。
+- `editor/docs/编辑器产品文档.md`/`.html`（v2.18）第 4.1 节新增一行契约面——"掉落品质/词缀/货币
+  期望分布分析入口"（消费方反馈第 48 条）；变更记录表追加 v2.18 一行。
+
+### 迁移说明
+
+- 无阻断性变化——三个新增分析入口与新增结果类型均为纯新增（`ExpectedProbabilities` 既有签名/
+  结果、`LootHost`/`RollContext` 等运行期路径逐位不变），消费方不需要跟改既有调用。
+- **理论 vs 观测面板**：编辑器"理论 vs 观测"比对面板此前品质/词缀/货币三段只能展示观测值
+  （蒙特卡洛），现在三段都能取到理论值——词缀候选池 > 16 条时理论列仍只能显示"—（仅模拟）"（见
+  `LootAffixInclusionResult.IsDegraded`/`Reason`）。
 
 ## [1.38.0] - 2026-09-17
 

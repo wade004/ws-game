@@ -476,6 +476,89 @@ loot/
 `loot.*` 展开也只查 `context.Tables`——一个调用方自带的内存字典，不是 registry），因此不会有
 `EnsureReadable` 抛异常的风险，本条反馈不涉及本模块改动。
 
+## 消费方反馈第 48 条判断记录（2026-09-18）
+
+反馈原文：`LootTableAnalyzer.ExpectedProbabilities` 只给按叶子聚合的掉落概率/期望数量，没有品质/
+词缀/货币三项结果的期望分布维度，编辑器"理论 vs 观测"比对面板只能给这三段提供观测值（蒙特卡洛），
+理论列缺一个确定的解析数。已修复（1.39.0）：新增三个只读分析入口，均只新增、不改动
+`ExpectedProbabilities` 既有签名与结果。
+
+1. **`LootTableAnalyzer.ExpectedQualityDistribution(LootTableDef, LootAnalysisContext,
+   IDataRegistryView): IReadOnlyList<LootQualityOutcome>`**——每个叶子 `item.*` 的条件品质分布
+   `P(quality=q | 该叶子至少产出一次)`，与 `LootHost.RollQuality` 逐字节同一套判定：`LootEntry
+   .QualityWeights` 存在且过滤出至少一条正权重时按正权重归一；否则回退模板自身 `item.template
+   .quality`（p=1，不掷骰）。同一叶子经多条不同 `LootEntry`（不同分组、不同嵌套表分支、
+   `guaranteed_min` 补抽命中同一条目）各自贡献时，按各自的期望产出数量加权混合后再归一化——不是
+   "取任意一条路径"也不是"按条目数简单平均"，理由：期望值运算永远可加，与 `ExpectedProbabilities`
+   合并同一叶子 `ExpectedCount` 同一原则（判断记录：`ResolveGuaranteedMin` 补抽命中的仍是同一条
+   `LootEntry`，品质分布只取决于该条目自身 `QualityWeights`，与"是自然命中还是补抽命中"无关，两者
+   按期望数量线性相加即可，不需要像"命中概率"那样做条件互斥合并）。内部实现：给
+   `AnalyzeTableSingleRoll`/`ResolveGuaranteedMin`/`ResolveEntryContribution`/`AddPath` 四个既有
+   私有方法（无 ABI 约束）新增一个可选 `QualityAccum?` 参数，默认 `null`（`ExpectedProbabilities`
+   调用路径不受影响，性能/结果零变化），提供时与既有的 `LeafAccumulator` 遍历"同步"累加品质分桶——
+   不是另起一套遍历逻辑，避免游离出第二份"条件筛选/权重归一/保底"实现。嵌套 `loot.*` 展开：递归调用
+   用一个全新的 `QualityAccum` 收集"嵌套表单次 Roll"的分布，返回后按外层 `fireProbability ×
+   expectedCount`（与 `ExpectedProbabilities` 判断记录"count 次独立重抽"同一缩放系数）合并进外层，
+   外层这条 `loot.*` 条目本身没有品质概念，不参与分布计算。`item.template` 记录读取失败（registry
+   阻断，或该模板确实未登记）时该贡献路径标记降级（`QualityAccum.DegradedLeaves`），不抛异常，最终
+   结果里对应叶子 `IsDegraded=true`、`Reason` 给出说明，`QualityProbabilities` 可能不完整（AGENTS.md
+   第 3 节"只读分析类入口遇阻断态显式标记降级"）。`econ.*` 叶子没有品质概念（`ResolveCurrencyOutcome`
+   不掷品质骰），不出现在结果里。
+2. **`LootTableAnalyzer.ExpectedAffixInclusion(Id templateId, Id qualityId, IDataRegistryView,
+   int exactMaxEntries = 16): LootAffixInclusionResult`**——给定模板与一次品质骰结果，算出词缀骰
+   （`LootHost.RollAffixes`）候选池里每条 `item.affix` 的入选概率：先按 `quality_pool == qualityId`
+   与模板 `affixes` 白名单（非空取交集）、`weight > 0` 过滤候选池并按 `Id` 序数排序（与
+   `LootHost.RollAffixes` 逐字节同一套过滤/排序），再对"不放回抽取 `min(affix_count, 候选池大小)`
+   条"复用 `LootTableAnalyzer` 内部已有的位掩码动态规划 `InclusionProbabilitiesExact`（与
+   `weighted_pick_one` 不放回多抽共用同一份算法，不重新发明）精确求解。判断记录（候选池 >
+   `exactMaxEntries` 时返回 `null`，不像 `ExpectedProbabilities` 那样退化为近似式）：反馈原文明确
+   词缀骰"相对复杂，建议作为后续独立评估项"，本方法只提供精确解，超阈值时如实标记
+   `IsDegraded=true`，`Reason` 建议改用 `LootHost.RollDetailed` 模拟观测，不给一个"看起来精确、实际
+   有偏"的近似值。默认阈值 16（反馈原文"池大小 ≤ 16"，比 `LootAnalysisContext
+   .ExactWithoutReplacementMaxEntries` 默认 12 更宽——状态数 2^16=65536 单次调用仍可接受，且实测词缀
+   池规模通常远小于该阈值）。判断记录（词缀条数不建模为分布）：`qualityId` 是外部给定的已掷骰结果
+   （不是随机变量），给定它之后 `affix_count`（`item.quality_definition.affix_count`）与候选池大小
+   都是确定性数值，实际抽取条数 `min(affix_count, 候选池大小)` 因此也是确定性的——反馈原文"词缀条数
+   分布（若条数本身随品质/随机）"这一附带项在本方法的参数化下不适用，`ActualAffixCount` 直接给出该
+   确定数值，不建模成分布。
+3. **`LootTableAnalyzer.ExpectedCurrency(LootTableDef, LootAnalysisContext, IEconomyHost, int?
+   sourceLevel = null, Id? tierId = null, LootGoldMultiplierProvider? goldMultiplierProvider =
+   null): IReadOnlyList<LootExpectedCurrencyOutcome>`**——每种货币（`econ.*` 叶子）的期望产出数量，
+   与 `LootHost.ResolveCurrencyOutcome` 逐项对齐：概率 × 当量（`ExpectedProbabilities` 同款期望值
+   口径，经嵌套/保底路径线性叠加）× `economy.TryGetGoldBaseAmount(sourceLevel ?? 1)`（回退等级 1，
+   同 `ResolveCurrencyOutcome` 判断记录）× `goldMultiplierProvider` 对 `tierId` 解析出的分档金币
+   倍率（未注入或无法解析时恒 1）× `context.Multiplier`（对应 `RollContext.Multiplier`，本方法只
+   接受 `LootAnalysisContext` 一份倍率输入，不要求调用方在 `RollContext` 与本方法之间填两遍）。
+   已知与真实抽取的偏差（**限制**，判断记录）：`ResolveCurrencyOutcome` 最终把换算结果四舍五入
+   （`MidpointRounding.AwayFromZero`）到整数、且结果 <=0 时整条跳过不产出——这两步都不是线性运算，
+   本方法给出的是不做这两步处理的解析式期望值（线性期望）。当量/金币基数/倍率的乘积明显大于 1（
+   游戏内容通常如此）时该偏差可忽略；调用方需要精确到"是否会被四舍五入到 0"这一位时，应改用
+   `LootHost.RollDetailed` 蒙特卡洛观测，不要把本方法的 `ExpectedAmount` 当作逐次抽取的精确对照。
+   `economy.TryGetGoldBaseAmount` 对给定等级返回 `null`（曲线未登记/读取失败）时该货币标记
+   `IsDegraded=true`、`ExpectedAmount` 恒 0（不是"算出来的 0"），不抛异常。
+4. **测试证据**：`tests/E48_LootDistributionAnalysisTests.cs`——核心对账用真实内容数据集（
+   `data/_sample/loot/loot.sample_beast`、`core/sim/tests/data/loot/loot.table.sim_wolf_l1`，不是
+   本文件现造的最小夹具）分别跑 `LootHost.RollDetailed` 固定种子 N=20000 次，统计品质/货币/词缀
+   命中频次，核对与解析式理论值的偏差在二项分布 3σ 容差内；另补子集动态规划 vs 独立暴力枚举实现
+   逐位相等（池 ≤ 6）、池 = 17 降级为 `null`、`item.template`/`item.affix` 读取失败（阻断态替身）
+   不抛异常且显式标记降级、嵌套 `loot.*` 引用与 `guaranteed_min` 补抽的品质分布合并、同一叶子经
+   两条不同权重条目的加权混合等边界情形。
+5. **限制**（供编辑器"理论 vs 观测"面板使用者知悉）：词缀候选池 > 16 时理论列无解析值（`null`），
+   只能展示观测值；货币期望值不建模最终四舍五入与"结果 <=0 静默跳过"两步非线性，量级较小的货币
+   条目理论值与观测均值可能出现可感知偏差。
+6. **本次收口顺带修复既有缺陷**（验收发现，反馈 35/1.24.0 遗留，1.39.0 修复）：`InclusionProbabilities`
+   （不放回多抽的 `k>=n` 快速路径，`ExpectedProbabilities` 内部辅助方法）此前无条件把候选池全部
+   条目的入选概率报 1.0，权重 <=0 的 `weighted_pick_one` 条目也不例外——但 `LootHost.PickWeighted`
+   （经 `LootRollCore.SelectByThreshold` 按累计权重比较）语义下权重 <=0 的条目永远选不中，`k>=n` 只
+   保证"抽满候选池条目数次"，不保证"每条都真的被抽中"。修复为先算出各条目权重，快速路径里权重 >0
+   报 1.0、否则报 0（`ExpectedProbabilities` 侧因 `ResolveEntryContribution` 对 `fireProbability<=0`
+   直接跳过不入账，修复后表现为该条目整条不出现在结果里，而不是显式给 0 的一条记录）。上面第 2 点
+   `ExpectedAffixInclusion` 不受影响：它在构建候选池阶段就把 `weight<=0` 的词缀过滤掉（不进入
+   `InclusionProbabilitiesExact`），本身没有这个问题，`AffixInclusion_ZeroWeightCandidate_
+   ExcludedFromPoolAndResult` 补一条断言留痕。回归测试：
+   `E35_LootTableAnalyzerTests.WeightedPickOne_MultiPick_PickCountEqualsPoolSize_
+   ZeroWeightEntry_ExcludedFromInclusion`。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `loot.table.groups` 元素结构（对照 `LootTableParser.ParseGroup`/`ParseEntry` 运行时解析代码）：
