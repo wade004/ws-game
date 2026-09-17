@@ -546,6 +546,18 @@ loot/
 5. **限制**（供编辑器"理论 vs 观测"面板使用者知悉）：词缀候选池 > 16 时理论列无解析值（`null`），
    只能展示观测值；货币期望值不建模最终四舍五入与"结果 <=0 静默跳过"两步非线性，量级较小的货币
    条目理论值与观测均值可能出现可感知偏差。
+6. **本次收口顺带修复既有缺陷**（验收发现，反馈 35/1.24.0 遗留，1.39.0 修复）：`InclusionProbabilities`
+   （不放回多抽的 `k>=n` 快速路径，`ExpectedProbabilities` 内部辅助方法）此前无条件把候选池全部
+   条目的入选概率报 1.0，权重 <=0 的 `weighted_pick_one` 条目也不例外——但 `LootHost.PickWeighted`
+   （经 `LootRollCore.SelectByThreshold` 按累计权重比较）语义下权重 <=0 的条目永远选不中，`k>=n` 只
+   保证"抽满候选池条目数次"，不保证"每条都真的被抽中"。修复为先算出各条目权重，快速路径里权重 >0
+   报 1.0、否则报 0（`ExpectedProbabilities` 侧因 `ResolveEntryContribution` 对 `fireProbability<=0`
+   直接跳过不入账，修复后表现为该条目整条不出现在结果里，而不是显式给 0 的一条记录）。上面第 2 点
+   `ExpectedAffixInclusion` 不受影响：它在构建候选池阶段就把 `weight<=0` 的词缀过滤掉（不进入
+   `InclusionProbabilitiesExact`），本身没有这个问题，`AffixInclusion_ZeroWeightCandidate_
+   ExcludedFromPoolAndResult` 补一条断言留痕。回归测试：
+   `E35_LootTableAnalyzerTests.WeightedPickOne_MultiPick_PickCountEqualsPoolSize_
+   ZeroWeightEntry_ExcludedFromInclusion`。
 
 ## 子结构登记表（ADR-0019 / F1b）
 

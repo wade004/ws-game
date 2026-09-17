@@ -437,7 +437,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ## [1.39.0] - 2026-09-18
 
 编辑器上游反馈第 48 条：`LootTableAnalyzer.ExpectedProbabilities` 补品质/词缀/货币三段期望分布
-维度；`core/sim/tests/data` 嵌入仿真数据集补 `display.map` 缺行；`check.ps1` 新增嵌入数据集校验步骤。
+维度；`core/sim/tests/data` 嵌入仿真数据集补 `display.map` 缺行；`check.ps1` 新增嵌入数据集校验步骤；
+验收顺带修复 `InclusionProbabilities` 不放回多抽 `k>=n` 快速路径对零权重条目误报入选概率的既有
+缺陷（反馈 35/1.24.0 遗留）。
 
 ### 新增
 
@@ -470,11 +472,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   基线比对"用 `SimRunner` 装载该数据集跑仿真场景，不等价于跑一遍声明式规则引擎校验，同类遗漏
   （如本次的 `display.map` 缺行）会被放过；新步骤堵住这条门禁空档。
 
+### 修复
+
+- `Core.Gameplay.Loot.LootTableAnalyzer.ExpectedProbabilities` 反馈 48 验收发现的既有缺陷
+  （反馈 35/1.24.0 遗留）：`weighted_pick_one` 不放回多抽 `pick_count` 等于候选池条目数
+  （`k>=n` 快速路径）时，权重 <=0 的条目也被无条件报入选概率 1.0——但该条目在
+  `LootHost.PickWeighted` 语义下永远选不中（剩余权重合计归零即整体提前停止），理论值与真实抽取
+  不符。修复为快速路径按各条目权重区分：权重 >0 报 1.0，否则报 0（下游 `ExpectedProbabilities`
+  因不命中条目一律不入账，表现为该条目整条不出现在结果里）；`ExpectedAffixInclusion` 本身在构建
+  候选池阶段就过滤掉零权重词缀，不受影响，一并补一条断言留痕。
+
 ### 文档
 
 - 新建
   [消费方反馈-2026-09-18-编辑器-第48条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第48条.md)。
-- `core/gameplay/loot/README.md` 新增"消费方反馈第 48 条判断记录"一节。
+- `core/gameplay/loot/README.md` 新增"消费方反馈第 48 条判断记录"一节，并补一条"本次收口顺带修复
+  既有缺陷"说明（`InclusionProbabilities` k>=n 快速路径零权重条目误报）。
 - `editor/docs/编辑器产品文档.md`/`.html`（v2.18）第 4.1 节新增一行契约面——"掉落品质/词缀/货币
   期望分布分析入口"（消费方反馈第 48 条）；变更记录表追加 v2.18 一行。
 

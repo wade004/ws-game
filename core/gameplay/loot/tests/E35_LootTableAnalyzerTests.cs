@@ -238,6 +238,43 @@ namespace Tests.Gameplay.Loot
             }
         }
 
+        /// <summary>反馈 48 验收发现的既有缺陷回归（反馈 35/1.24.0 遗留）：<c>pick_count</c> 等于候选池
+        /// 条目数（k&gt;=n 快速路径）时，权重为 0 的条目在 <see cref="LootHost.PickWeighted"/> 语义下
+        /// 永远选不中（剩余权重合计归零后整体提前停止，见 <see cref="LootHost.RollWeightedGroup"/>），
+        /// 入选概率必须是 0——<see cref="LootTableAnalyzer"/> 内部对 <c>fireProbability&lt;=0</c> 的条目
+        /// 直接跳过不入账（同其它任何数学上永远不命中的条目一致惯例），
+        /// 所以修复后该条目应整条不出现在 <see cref="LootTableAnalyzer.ExpectedProbabilities"/> 结果里；
+        /// 修复前的缺陷会让它连同其它权重条目一起报 1.0、被当成"必然命中"计入结果。</summary>
+        [Fact]
+        public void WeightedPickOne_MultiPick_PickCountEqualsPoolSize_ZeroWeightEntry_ExcludedFromInclusion()
+        {
+            var entriesJson = "{\"ref\": \"item.sample_a\", \"weight_or_chance\": 1, \"count_range\": {\"min\":1,\"max\":1}}," +
+                "{\"ref\": \"item.sample_b\", \"weight_or_chance\": 5, \"count_range\": {\"min\":1,\"max\":1}}," +
+                "{\"ref\": \"item.sample_zero\", \"weight_or_chance\": 0, \"count_range\": {\"min\":1,\"max\":1}}";
+
+            var table = "[{\"id\": \"loot.e48_weighted_zero\", \"groups\": [" +
+                "{\"roll_mode\": \"weighted_pick_one\", \"pick_count\": 3, \"entries\": [" + entriesJson + "]}]}]";
+            var def = ParseTable("{\"id\": \"loot.e48_weighted_zero\", \"groups\": [" +
+                "{\"roll_mode\": \"weighted_pick_one\", \"pick_count\": 3, \"entries\": [" + entriesJson + "]}]}");
+
+            var outcomes = LootTableAnalyzer.ExpectedProbabilities(def, new LootAnalysisContext());
+            Assert.Equal(2, outcomes.Count);
+            var byId = ToDict(outcomes);
+
+            Assert.Equal(1.0, byId[new Id("item.sample_a")].DropProbability, 9);
+            Assert.Equal(1.0, byId[new Id("item.sample_b")].DropProbability, 9);
+            Assert.False(byId.ContainsKey(new Id("item.sample_zero")),
+                "weight_or_chance=0 的条目数学上永远不命中，不应出现在结果里");
+            foreach (var outcome in outcomes)
+            {
+                Assert.False(outcome.IsApproximate);
+            }
+
+            var host = NewHost(table, seed: 202609171, out _);
+            var mc = RunMonteCarlo(host, new Id("loot.e48_weighted_zero"), new RollContext(new Id("unit.sample_source")), MonteCarloTrials);
+            Assert.False(mc.Hits.ContainsKey(new Id("item.sample_zero")), "weight_or_chance=0 的条目在 Monte Carlo 抽取里应当从未被选中");
+        }
+
         // -----------------------------------------------------------------
         // weighted_pick_one：候选池超过精确阈值——近似
         // -----------------------------------------------------------------

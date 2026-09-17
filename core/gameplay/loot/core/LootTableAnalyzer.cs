@@ -960,23 +960,21 @@ namespace Core.Gameplay.Loot
 
         /// <summary>候选池 <paramref name="pool"/> 里每一条被"不放回抽取 <paramref name="k"/> 次"命中
         /// 的概率——语义同 <see cref="LootHost.PickWeighted"/> 被连续调用 <paramref name="k"/> 次、每次
-        /// 命中后把该条目从候选池移出（权重合计 &lt;=0 时提前整体停止）。</summary>
+        /// 命中后把该条目从候选池移出（权重合计 &lt;=0 时提前整体停止）。
+        /// <para>
+        /// 判断记录（反馈 48 验收发现，反馈 35/1.24.0 遗留）——<c>k&gt;=n</c> 快速路径不能无条件把所有
+        /// 条目报 1.0：权重 &lt;=0 的 <c>weighted_pick_one</c> 条目在 <see cref="LootHost.PickWeighted"/>
+        /// 语义下永远选不中（<see cref="LootRollCore.SelectByThreshold"/> 按累计权重比较，权重 0 的条目
+        /// 累计值不增长，绝不会满足 <c>threshold &lt; cumulative</c>），必须先算出权重、按"权重 &gt;0 才
+        /// 给 1.0，否则给 0"来对齐，而不是先判 <c>k&gt;=n</c> 再算权重。
+        /// </para>
+        /// </summary>
         private static InclusionResult InclusionProbabilities(IReadOnlyList<LootEntry> pool, int k, int exactMaxEntries)
         {
             var n = pool.Count;
             var result = new double[n];
             if (n == 0 || k <= 0)
             {
-                return new InclusionResult(result, false);
-            }
-
-            if (k >= n)
-            {
-                for (var i = 0; i < n; i++)
-                {
-                    result[i] = 1.0;
-                }
-
                 return new InclusionResult(result, false);
             }
 
@@ -991,6 +989,18 @@ namespace Core.Gameplay.Loot
             if (total <= 0)
             {
                 // 同 LootHost.PickWeighted：totalWeight<=0 直接返回 null，一条都不会被抽中。
+                return new InclusionResult(result, false);
+            }
+
+            if (k >= n)
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    // 权重 <=0 的条目在 PickWeighted 语义下永远选不中，即使 k>=n 也不能报 1.0（见本方法
+                    // 判断记录）。
+                    result[i] = weights[i] > 0 ? 1.0 : 0.0;
+                }
+
                 return new InclusionResult(result, false);
             }
 

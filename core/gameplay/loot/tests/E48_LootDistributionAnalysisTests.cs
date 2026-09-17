@@ -640,6 +640,36 @@ namespace Tests.Gameplay.Loot
             Assert.Equal(2.0, sum, 6);
         }
 
+        /// <summary>反馈 48 验收顺带核对：<c>weight&lt;=0</c> 的词缀候选在 <see
+        /// cref="LootTableAnalyzer.ExpectedAffixInclusion"/> 里于构建候选池阶段就被过滤掉（本方法
+        /// 176 行左右 <c>if (weight &lt;= 0.0) continue;</c>），永远不会进入子集动态规划
+        /// （<see cref="LootTableAnalyzer"/> 类型内部 <c>InclusionProbabilitiesExact</c>），因此不受
+        /// <c>InclusionProbabilities</c>（不放回多抽 <c>k&gt;=n</c> 快速路径，见反馈 48 收口修复）同一类
+        /// 缺陷影响——这里直接断言零权重候选不出现在结果字典里、且不参与候选池大小/期望值计算。</summary>
+        [Fact]
+        public void AffixInclusion_ZeroWeightCandidate_ExcludedFromPoolAndResult()
+        {
+            var bus = LootTestSupport.NewEventBus();
+            var candidates = new List<(string Id, double Weight)>
+            {
+                ("item.affix.e48_zero_a", 1), ("item.affix.e48_zero_b", 2), ("item.affix.e48_zero_c", 0),
+            };
+            var registry = BuildAffixOnlyRegistry(bus, candidates);
+
+            var result = LootTableAnalyzer.ExpectedAffixInclusion(
+                new Id("item.e48_affix_target"), new Id("item.quality.e48_common"), registry);
+
+            Assert.False(result.IsDegraded);
+            Assert.NotNull(result.InclusionProbabilities);
+            // 候选池大小只数正权重的两条，affix_count=2（BuildAffixOnlyRegistry 固定值）等于池大小，
+            // 走的正是 InclusionProbabilitiesExact 内部 k>=n 分支。
+            Assert.Equal(2, result.CandidatePoolSize);
+            Assert.Equal(2, result.ActualAffixCount);
+            Assert.False(result.InclusionProbabilities!.ContainsKey(new Id("item.affix.e48_zero_c")));
+            Assert.Equal(1.0, result.InclusionProbabilities![new Id("item.affix.e48_zero_a")], 9);
+            Assert.Equal(1.0, result.InclusionProbabilities![new Id("item.affix.e48_zero_b")], 9);
+        }
+
         [Fact]
         public void ExpectedAffixInclusion_AffixCountZero_ReturnsEmptyNotDegraded()
         {
