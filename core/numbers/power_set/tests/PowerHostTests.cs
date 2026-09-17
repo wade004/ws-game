@@ -367,6 +367,60 @@ namespace Tests.Numbers.PowerSet
         }
 
         // -----------------------------------------------------------------
+        // 消费方反馈-2026-09-17（读档触发脱战回满）根治：RestoreInCombat 纯赋值，不触发回满。
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 核心回归：与 <see cref="SetInCombat_LeavingCombat_RefillsWhenConfigured"/> 完全相同的
+        /// true→false 转换、完全相同的 <c>refill_on_leave_combat=true</c> 配置——唯一区别是恢复入口
+        /// 换成 <see cref="PowerHost.RestoreInCombat"/>。修复前 <c>CombatHost.RestoreCombatState</c>
+        /// 复用 <see cref="PowerHost.SetInCombat"/> 会命中这条回满分支（真实探针复现：存档
+        /// health=37 被回满成 100）；<see cref="PowerHost.RestoreInCombat"/> 必须只做纯赋值，不
+        /// 触发回满、不发任何事件。
+        /// </summary>
+        [Fact]
+        public void RestoreInCombat_TrueToFalse_DoesNotRefill_EvenWhenConfigured()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100, startFull: false, refillOnLeaveCombat: true);
+            var host = new PowerHost(new[] { mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+
+            var changed = new List<PowerChangedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+
+            host.SetInCombat(Hero, true); // 真实进战：运行期状态置为 true（同存档恢复前的运行期快照）。
+            host.ModifyPower(Hero, Mana, 37, ModifySource); // 模拟"存档恢复当前值"这一步已经完成。
+            bus.DispatchPending(); // 排空上面 ModifyPower 产生的事件，避免污染下方"不应发事件"的断言。
+            Assert.Equal(37, host.GetPower(Hero, Mana));
+            changed.Clear();
+
+            host.RestoreInCombat(Hero, false); // 存档快照 in_combat=false：不是真实脱战。
+            bus.DispatchPending();
+
+            Assert.Equal(37, host.GetPower(Hero, Mana));
+            Assert.False(host.IsInCombat(Hero));
+            Assert.Empty(changed);
+        }
+
+        [Fact]
+        public void RestoreInCombat_SetsFlag_InBothDirections()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var host = new PowerHost(new[] { mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+
+            Assert.False(host.IsInCombat(Hero));
+
+            host.RestoreInCombat(Hero, true);
+            Assert.True(host.IsInCombat(Hero));
+
+            host.RestoreInCombat(Hero, false);
+            Assert.False(host.IsInCombat(Hero));
+        }
+
+        // -----------------------------------------------------------------
         // T-N4-5：RefillAll（升级回满）
         // -----------------------------------------------------------------
 

@@ -238,6 +238,45 @@ namespace Core.Numbers.PowerSet
             }
         }
 
+        /// <summary>
+        /// 消费方反馈-2026-09-17（读档触发脱战回满）根治新增：存档/回滚恢复专用的"纯赋值"入口——
+        /// 与 <see cref="SetInCombat"/> 彻底分离业务语义。<see cref="SetInCombat"/> 从诞生起就同时
+        /// 承担两件事："设置进出战布尔状态" 与 "true→false 时对 <see
+        /// cref="PowerTypeDefinition.RefillOnLeaveCombat"/> 为真的资源类型立即回满"（06 第 4.5 节
+        /// 玩法语义：这是给"真实战斗结束"这一刻设计的奖励/惩罚副作用）。<see
+        /// cref="Core.Rules.Combat.CombatHost.RestoreCombatState"/>（C11-RELOAD 根治，2026-09-11 引入）
+        /// 为了让 <c>CombatHost.IsInCombat</c> 与本类型 <see cref="IsInCombat"/> 在读档后保持一致，把
+        /// "存档恢复"场景也路由到了 <see cref="SetInCombat"/> 上，但存档恢复不是一次真实的"脱战"——
+        /// 若读档/回滚发生时运行期状态恰好是 <c>true</c>、而存档快照写的是 <c>false</c>，就会被误判为
+        /// 一次真实脱战，对 <c>refill_on_leave_combat=true</c> 的资源类型（框架默认 <c>health</c> 即是,
+        /// ADR-0031）触发回满，覆盖掉刚从存档恢复的当前值（真实探针复现：存档 health=37、读档前运行期
+        /// in_combat=true、存档 in_combat=false，读档后 health 被回满成 100）。本方法只做一行赋值，
+        /// 不遍历资源类型、不调用 <see cref="SetCurrentClamped"/>、不触发任何回满，语义与
+        /// <see cref="Core.Gameplay.Economy.EconomyHost.SetBalance"/>（"读档等以快照为准场景，整体
+        /// 替换，不触发 <c>Add</c> 那条业务事件路径"，见该方法判断记录）同一惯例：本仓库已有先例是
+        /// "恢复"与"业务操作"即便改的是同一份底层状态，也应该是两个不共享副作用逻辑的独立入口。
+        /// <para>
+        /// 不发布事件：本方法不涉及任何资源值变化，<see cref="PowerChangedEvent"/>/<see
+        /// cref="PowerDepletedEvent"/> 均与资源当前值相关，纯粹的进出战标志位赋值没有对应事件可发
+        /// （同 <see cref="SetInCombat"/> 本身"标志位赋值不发事件，只有连带的回满才经
+        /// <see cref="SetCurrentClamped"/> 发事件"这一既有行为一致）。
+        /// </para>
+        /// <para>
+        /// 进 <see cref="IPowerHost"/> 契约（与 <see cref="IsInCombat"/>/<see
+        /// cref="GetRegisteredPowerTypes"/> 不进契约的先例不同）：唯一生产消费方 <see
+        /// cref="Core.Rules.Combat.CombatHost"/> 持有的字段类型是接口 <see cref="IPowerHost"/>（不是
+        /// 具体 <see cref="PowerHost"/>），必须经接口才能调用。以 C#8 默认接口方法新增（ABI 门禁
+        /// G3"公开 API 只能新增"，惯例同 <see cref="IPowerHost.RefillAll"/>/<see
+        /// cref="IPowerHost.TryGetPower"/>），本类型显式覆盖默认体（默认体回落为调用
+        /// <see cref="SetInCombat"/>，见 <see cref="IPowerHost.RestoreInCombat"/> 判断记录），其它
+        /// 实现方（测试假类型）不覆盖时行为与本次改动前一致，不构成编译或行为破坏。
+        /// </para>
+        /// </summary>
+        public void RestoreInCombat(Id unitId, bool inCombat)
+        {
+            RequireUnit(unitId).InCombat = inCombat;
+        }
+
         public void Advance(Id unitId, double timeUnits)
         {
             if (timeUnits < 0)

@@ -45,6 +45,15 @@ namespace Tests.Gameplay.Assembly
             "[{\"id\": \"arch.power.health\", \"name_key\": \"l10n.power.health.name\", " +
             "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"}, \"start_full\": true}]";
 
+        /// <summary>消费方反馈-2026-09-17（读档触发脱战回满）根治回归专用：与 <see cref="PowerTypeRows"/>
+        /// 唯一区别是显式打开 <c>refill_on_leave_combat</c>（框架默认数据自 v1.33.0/ADR-0031 起对
+        /// <c>arch.power.health</c> 就是这个值，本文件其余既有用例沿用未开启该字段的旧行来源不受
+        /// 影响，避免为了复现本次缺陷而扰动既有用例的断言基线）。</summary>
+        private const string PowerTypeRowsRefillOnLeaveCombat =
+            "[{\"id\": \"arch.power.health\", \"name_key\": \"l10n.power.health.name\", " +
+            "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"}, \"start_full\": true, " +
+            "\"refill_on_leave_combat\": true}]";
+
         private const string LevelCurveRows =
             "[{\"id\": \"prog.level_curve.c11_lifecycle_sample\", \"max_level\": 1, " +
             "\"entries\": [{\"level\": 1, \"xp_to_next\": 100, \"growth\": {}}]}]";
@@ -87,13 +96,17 @@ namespace Tests.Gameplay.Assembly
             }
         }
 
-        private static Fixture Build(RespawnPolicy policy = RespawnPolicy.RespawnPoint, int respawnDelayTicks = 1000)
+        private static Fixture Build(
+            RespawnPolicy policy = RespawnPolicy.RespawnPoint,
+            int respawnDelayTicks = 1000,
+            bool refillOnLeaveCombat = false)
         {
             var bus = new EventBus(EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
 
             var source = new InMemoryDataSource()
                 .Add("stat.definition", Envelope("stat.definition", StatDefinitionRows))
-                .Add("arch.power_type", Envelope("arch.power_type", PowerTypeRows))
+                .Add("arch.power_type", Envelope("arch.power_type",
+                    refillOnLeaveCombat ? PowerTypeRowsRefillOnLeaveCombat : PowerTypeRows))
                 .Add("prog.level_curve", Envelope("prog.level_curve", LevelCurveRows))
                 .Add("arch.class", Envelope("arch.class", ArchClassRows))
                 .Add("combat.hit_table_config", Envelope("combat.hit_table_config", "[]"))
@@ -150,9 +163,12 @@ namespace Tests.Gameplay.Assembly
         /// 致死 → 同图 <see cref="GameplayAssembly.RestoreFromSlot"/>（模拟玩家从菜单手工"读取存档"，
         /// 不经 <c>DeathPolicyHost</c> 的 <c>reload_save</c> 策略）——四条断言共用的公共前置状态，
         /// 各 Fact 只关心其中一项，故拆成独立方法而非一个巨大 Fact，便于单独定位失败。</summary>
-        private static Fixture SaveMoveKillAndReload(RespawnPolicy policy = RespawnPolicy.RespawnPoint, int respawnDelayTicks = 1000)
+        private static Fixture SaveMoveKillAndReload(
+            RespawnPolicy policy = RespawnPolicy.RespawnPoint,
+            int respawnDelayTicks = 1000,
+            bool refillOnLeaveCombat = false)
         {
-            var fx = Build(policy, respawnDelayTicks);
+            var fx = Build(policy, respawnDelayTicks, refillOnLeaveCombat);
 
             fx.Gameplay.Carriers.Rules.Powers.ModifyPower(PlayerId, WellKnownPowers.Health, -63, PlayerId); // 100 -> 37
             Assert.Equal(37.0, fx.Gameplay.Carriers.Rules.Powers.GetPower(PlayerId, WellKnownPowers.Health));
@@ -231,6 +247,39 @@ namespace Tests.Gameplay.Assembly
                 fx.Gameplay.Carriers.Rules.Combat.IsInCombat(PlayerId),
                 fx.Gameplay.Carriers.Rules.Powers.IsInCombat(PlayerId));
             Assert.False(fx.Gameplay.Carriers.Rules.Combat.IsInCombat(PlayerId));
+        }
+
+        // -----------------------------------------------------------------
+        // 2b) 消费方反馈-2026-09-17（读档触发脱战回满）根治：refill_on_leave_combat=true 时，读档
+        // 恢复 in_combat=false 不应把刚恢复好的资源当前值回满覆盖。
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 核心回归，对应消费方反馈原始复现场景：存档 health=37、存档 in_combat=false、读档前运行期
+        /// in_combat=true（<see cref="SaveMoveKillAndReload"/> 里 NotifyCombatEvent 造成的真实进战）、
+        /// <c>arch.power.health</c> 的 <c>refill_on_leave_combat=true</c>（框架默认，见
+        /// <see cref="PowerTypeRowsRefillOnLeaveCombat"/> 判断记录）。修复前：
+        /// <c>CombatHost.RestoreCombatState</c> 复用 <c>IPowerHost.SetInCombat</c>，把这次读档恢复
+        /// 误判为一次真实脱战（true→false），将刚恢复好的 37 覆盖为上限 100——读档后与随后若干 tick
+        /// 都应保持 37，不应变成 100（同 <c>SetInCombat_LeavingCombat_RefillsWhenConfigured</c> 那种
+        /// "真实脱战" 用例区分：本用例断言的是"读档恢复不是脱战"，不依赖也不改变自然回复/衰减规则——
+        /// 本测试的 <c>stat.max_health</c> 未配置任何 regen，脱战/在战都不会让健康值自然变化，37 与
+        /// 100 之间的差异只能来自"是否被误判脱战回满"这一件事）。
+        /// </summary>
+        [Fact]
+        public void SameMapLoad_RefillOnLeaveCombatEnabled_DoesNotOverwriteRestoredHealth()
+        {
+            var fx = SaveMoveKillAndReload(refillOnLeaveCombat: true);
+
+            Assert.False(fx.Gameplay.Carriers.Rules.Combat.IsInCombat(PlayerId));
+            Assert.False(fx.Gameplay.Carriers.Rules.Powers.IsInCombat(PlayerId));
+            Assert.Equal(37.0, fx.Gameplay.Carriers.Rules.Powers.GetPower(PlayerId, WellKnownPowers.Health));
+
+            // 随后若干 tick 也不应该被别的路径悄悄改回 100（本测试的资源类型没有配置任何 regen，
+            // 若观察到变化，只能是回满副作用在某处仍然发生）。
+            fx.World.Tick(SimStep.Continuous(0.1));
+            fx.World.Tick(SimStep.Continuous(0.1));
+            Assert.Equal(37.0, fx.Gameplay.Carriers.Rules.Powers.GetPower(PlayerId, WellKnownPowers.Health));
         }
 
         // -----------------------------------------------------------------
