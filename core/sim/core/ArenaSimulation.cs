@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
@@ -243,9 +244,27 @@ namespace Core.Sim
     /// </summary>
     public static class ArenaSimulation
     {
+        /// <summary>消费方反馈第 50 条（2026-09-17）：外层迭代边界（矩阵格子，<c>levels × level_offsets</c>）
+        /// 上报的阶段标识。</summary>
+        public const string ProgressStageCell = "arena.cell";
+
         public static ArenaReport Run(
             ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
-            bool failOnUnknownTable = false)
+            bool failOnUnknownTable = false) =>
+            Run(scenario, anchors, dataSources, failOnUnknownTable, CancellationToken.None, progress: null);
+
+        /// <summary>消费方反馈第 50 条（2026-09-17）新增重载：携带 <see cref="CancellationToken"/>/
+        /// <see cref="IProgress{SimProgress}"/>——ABI 只新增，旧的四参数重载保留、内部转调本重载并传
+        /// <c>default</c>/<c>null</c>，行为完全不变。取消检查点/进度上报点落在矩阵格子边界（<see
+        /// cref="ScenarioDef.Levels"/> × <see cref="ScenarioOpponentSpec.LevelOffsets"/>，<see
+        /// cref="SimProgress.Total"/> = 两者长度之积，事先可知）；同一个 <paramref name="cancellationToken"/>
+        /// 另外原样转发给 <see cref="RunCell"/> 内部每一场 <see cref="FightRunner.Run(FightRunnerOptions,CancellationToken,IProgress{SimProgress})"/>
+        /// 调用——因此本入口额外获得 tick 级取消响应（不只是格子级），比 <see cref="GrowthSimulation"/>
+        /// 更细，属于"不需要下探到 tick 级"这一判断之上的顺手加强（<see cref="FightRunner.Run"/> 本身
+        /// 已经支持，转发一个既有参数不构成额外改动范围）。</summary>
+        public static ArenaReport Run(
+            ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
+            bool failOnUnknownTable, CancellationToken cancellationToken, IProgress<SimProgress>? progress = null)
         {
             if (scenario == null) throw new ArgumentNullException(nameof(scenario));
             if (anchors == null) throw new ArgumentNullException(nameof(anchors));
@@ -259,12 +278,20 @@ namespace Core.Sim
                 throw new ArgumentException("ArenaSimulation.Run：scenario.Player.QualityId 不能为空（标准玩家生成器需要期望装备品质）。", nameof(scenario));
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var totalCells = scenario.Levels.Count * scenario.Opponent.LevelOffsets.Count;
+            var completedCells = 0;
+
             var cells = new List<ArenaCellResult>();
             foreach (var level in scenario.Levels)
             {
                 foreach (var offset in scenario.Opponent.LevelOffsets)
                 {
-                    cells.Add(RunCell(scenario, dataSources, level, offset, failOnUnknownTable));
+                    cancellationToken.ThrowIfCancellationRequested();
+                    cells.Add(RunCell(scenario, dataSources, level, offset, failOnUnknownTable, cancellationToken));
+                    completedCells++;
+                    progress?.Report(new SimProgress(ProgressStageCell, completedCells, totalCells));
                 }
             }
 
@@ -273,7 +300,8 @@ namespace Core.Sim
         }
 
         private static ArenaCellResult RunCell(
-            ScenarioDef scenario, IReadOnlyList<IDataSource> dataSources, int level, int offset, bool failOnUnknownTable)
+            ScenarioDef scenario, IReadOnlyList<IDataSource> dataSources, int level, int offset, bool failOnUnknownTable,
+            CancellationToken cancellationToken)
         {
             var creatureLevel = Math.Max(1, level + offset);
             var results = new List<FightResult>(scenario.Runs);
@@ -293,7 +321,7 @@ namespace Core.Sim
                     MaxTicks = scenario.MaxTicks,
                     FailOnUnknownTable = failOnUnknownTable,
                 };
-                results.Add(FightRunner.Run(options));
+                results.Add(FightRunner.Run(options, cancellationToken));
             }
 
             return Aggregate(level, offset, creatureLevel, results);

@@ -434,6 +434,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+编辑器上游反馈第 49/50/51 条（详见
+[消费方反馈-2026-09-17-编辑器-第49-51条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第49-51条.md)）。
+第 50 条（高优先级）：`FightRunner`/`ArenaSimulation`/`GrowthSimulation`/`CoverageSimulation`
+四个 `Run` 入口新增接受 `CancellationToken`/`IProgress<Core.Sim.SimProgress>` 的重载（新只读
+结构体 `SimProgress`：`Stage`/`Completed`/`Total`/`Detail`），取消抛 `OperationCanceledException`
+且绝不返回半成品报告，检查点覆盖外层迭代边界与（`FightRunner`/`ArenaSimulation`）单场战斗内部
+逐 tick；旧签名转发到新重载，行为不变。`toolchain/simrunner` 新增 `--progress`（进度行写
+`stderr`）与 Ctrl+C 取消、新退出码 `4`="cancelled"（`0`/`1`/`2`/`3` 不变）。第 49 条：新增
+`FightRunnerOptions.CaptureEvents`/`MaxCapturedEvents` 与 `FightResult.CapturedEvents`
+（`IReadOnlyList<FightLogEntry>`，关闭时为空集合非 `null`）/`CapturedEventsTruncated`，新类型
+`FightLogEntry`/`FightLogEventCategory` 覆盖伤害/治疗/施法成功失败/增益施加移除/死亡/资源变化；
+聚合结果不受开关影响（已测试）；`toolchain/simrunner` 无单场战斗 CLI 模式，本条能力暂为
+API-only。第 51 条：`core/sim/README.md` 新增"线程安全与并发"章节，承诺四个 `Run` 入口
+side-effect-free、可在调用方不并发修改共享输入的前提下安全并发调用，新增并发回归测试
+`core/sim/tests/ConcurrencyTests.cs`；落地前复审静态可变状态额外发现并修复一处真实数据竞争
+——`Core.Foundation.DataRegistry.FileSystemDataSource.ListTables()` 此前在共享字段
+`_skippedNonTableFiles` 上做 `Clear()`+逐条 `Add()`，同一实例被多线程并发复用时产生数据竞争，
+已改为局部构建后一次性整体替换只读引用，新增并发回归测试。均为纯新增重载/可选属性/文档章节，
+不改变既有签名与默认行为。
+
 ## [1.39.1] - 2026-09-17
 
 消费方反馈-2026-09-17：存档/回滚恢复战斗态误判为真实脱战导致资源当前值被回满覆盖，纯缺陷修复，

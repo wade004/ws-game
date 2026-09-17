@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Core.Carriers.Item;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -205,6 +206,45 @@ namespace Core.Sim
         private static readonly Id GameId = new Id("game.sim_coverage");
         private static readonly Vec2 CreatureSpawnOffset = new Vec2(3, 0);
 
+        /// <summary>消费方反馈第 50 条（2026-09-17）：技能遍历阶段（<see cref="AnalyzeSkills"/>）上报的
+        /// 阶段标识。</summary>
+        public const string ProgressStageSkill = "coverage.skill";
+
+        /// <summary>装备遍历阶段（<see cref="AnalyzeItems"/>）。</summary>
+        public const string ProgressStageItem = "coverage.item";
+
+        /// <summary>生物遍历阶段（<see cref="AnalyzeCreatures"/>）。</summary>
+        public const string ProgressStageCreature = "coverage.creature";
+
+        /// <summary>消费方反馈第 50 条：三类遍历（技能/装备/生物）共用的取消检查 + 进度上报状态——
+        /// <see cref="Total"/> 是三类遍历项数之和（<c>Run</c> 入口开工前一次性算好，事先可知），
+        /// <see cref="Completed"/> 跨三个阶段单调递增（不各自清零重来，见 <see cref="SimProgress"/>
+        /// 判断记录"跨类别比较排序"同一处理口径的姊妹判断——三类异质，但作为同一个 <c>Total</c> 下的
+        /// 计数没有歧义，只是 <see cref="Stage"/> 会随所处阶段切换）。<see cref="Step"/> 在每个遍历项
+        /// 开始处理之前调用一次，因此取消发生时当前这一项还未开始处理，不会产出"半条离群值行"。</summary>
+        private sealed class CoverageProgressTracker
+        {
+            private readonly IProgress<SimProgress>? _progress;
+            private readonly CancellationToken _cancellationToken;
+            private int _completed;
+
+            public int Total { get; }
+
+            public CoverageProgressTracker(IProgress<SimProgress>? progress, CancellationToken cancellationToken, int total)
+            {
+                _progress = progress;
+                _cancellationToken = cancellationToken;
+                Total = total;
+            }
+
+            public void Step(string stage)
+            {
+                _cancellationToken.ThrowIfCancellationRequested();
+                _completed++;
+                _progress?.Report(new SimProgress(stage, _completed, Total));
+            }
+        }
+
         /// <summary>T-N6-6 根治：<see cref="AnalyzeSkills"/>/<see cref="MeasureItemMarginalImpact"/>/
         /// <see cref="AnalyzeCreatures"/> 三处用技能/装备/生物 id 派生独立仿真种子时，此前用的是
         /// <c>string.GetHashCode()</c>——.NET Core 默认对字符串哈希做逐进程随机化（防哈希 DoS
@@ -236,7 +276,19 @@ namespace Core.Sim
 
         public static CoverageReport Run(
             ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
-            bool failOnUnknownTable = false)
+            bool failOnUnknownTable = false) =>
+            Run(scenario, anchors, dataSources, failOnUnknownTable, CancellationToken.None, progress: null);
+
+        /// <summary>消费方反馈第 50 条（2026-09-17）新增重载：携带 <see cref="CancellationToken"/>/
+        /// <see cref="IProgress{SimProgress}"/>——ABI 只新增，旧的四参数重载保留、内部转调本重载并传
+        /// <c>default</c>/<c>null</c>，行为完全不变。取消检查点/进度上报点落在"技能/装备/生物"三类
+        /// 遍历各自的每一项边界（<see cref="CoverageProgressTracker"/>），<see cref="SimProgress.Total"/>
+        /// 是三张表登记的行数之和，装配一次性 <c>probeWorld</c> 之后、正式开始三段分析之前即可精确
+        /// 算出（<see cref="IDataRegistryView.GetAll"/> 只读枚举，不改变任何状态，调用两次成本可
+        /// 忽略）。</summary>
+        public static CoverageReport Run(
+            ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
+            bool failOnUnknownTable, CancellationToken cancellationToken, IProgress<SimProgress>? progress = null)
         {
             if (scenario == null) throw new ArgumentNullException(nameof(scenario));
             if (anchors == null) throw new ArgumentNullException(nameof(anchors));
@@ -249,6 +301,8 @@ namespace Core.Sim
             {
                 throw new ArgumentException("CoverageSimulation.Run：scenario.Player.QualityId 不能为空。", nameof(scenario));
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             // 判断记录：本类型只需要一份只读 registry 来枚举 skill.def/item.template/creature.template
             // 与解析各类曲线/规则；不需要装配任何 HeadlessWorld（那是每条技能/生物单独实测时才需要，
@@ -269,20 +323,27 @@ namespace Core.Sim
 
             var anchorProvider = new AnchorTableSkillBudgetAnchorProvider(registry, scenario.Player.ClassId, scenario.Player.QualityId);
 
-            var skillRows = AnalyzeSkills(registry, anchorProvider, scenario, anchors, dataSources, failOnUnknownTable);
-            var itemRows = AnalyzeItems(registry, scenario, dataSources, failOnUnknownTable);
-            var creatureRows = AnalyzeCreatures(registry, anchors, scenario, dataSources, failOnUnknownTable);
+            var totalItems = registry.GetAll("skill.def").Count
+                + registry.GetAll("item.template").Count
+                + registry.GetAll("creature.template").Count;
+            var tracker = new CoverageProgressTracker(progress, cancellationToken, totalItems);
+
+            var skillRows = AnalyzeSkills(registry, anchorProvider, scenario, anchors, dataSources, failOnUnknownTable, tracker);
+            var itemRows = AnalyzeItems(registry, scenario, dataSources, failOnUnknownTable, tracker);
+            var creatureRows = AnalyzeCreatures(registry, anchors, scenario, dataSources, failOnUnknownTable, tracker);
 
             return new CoverageReport(scenario.Id, scenario.BaseSeed, skillRows, itemRows, creatureRows);
         }
 
         private static List<CoverageOutlierRow> AnalyzeSkills(
             IDataRegistryView registry, ISkillBudgetAnchorProvider anchorProvider, ScenarioDef scenario,
-            AnchorTable anchors, IReadOnlyList<IDataSource> dataSources, bool failOnUnknownTable)
+            AnchorTable anchors, IReadOnlyList<IDataSource> dataSources, bool failOnUnknownTable,
+            CoverageProgressTracker tracker)
         {
             var rows = new List<CoverageOutlierRow>();
             foreach (var record in registry.GetAll("skill.def"))
             {
+                tracker.Step(ProgressStageSkill);
                 var skillId = record.Id!.Value;
                 SkillBudgetResult result;
                 try
@@ -438,7 +499,8 @@ namespace Core.Sim
         }
 
         private static List<CoverageOutlierRow> AnalyzeItems(
-            IDataRegistryView registry, ScenarioDef scenario, IReadOnlyList<IDataSource> dataSources, bool failOnUnknownTable)
+            IDataRegistryView registry, ScenarioDef scenario, IReadOnlyList<IDataSource> dataSources, bool failOnUnknownTable,
+            CoverageProgressTracker tracker)
         {
             var rows = new List<CoverageOutlierRow>();
             var budgetCurveId = StandardPlayerBuilder.DefaultBudgetCurveId;
@@ -452,6 +514,7 @@ namespace Core.Sim
 
             foreach (var record in registry.GetAll("item.template"))
             {
+                tracker.Step(ProgressStageItem);
                 var templateId = record.Id!.Value;
                 if (!record.TryGetInt("item_level", out var itemLevelRaw) ||
                     !record.TryGetId("slot", out var slotId) ||
@@ -574,7 +637,7 @@ namespace Core.Sim
 
         private static List<CoverageOutlierRow> AnalyzeCreatures(
             IDataRegistryView registry, AnchorTable anchors, ScenarioDef scenario,
-            IReadOnlyList<IDataSource> dataSources, bool failOnUnknownTable)
+            IReadOnlyList<IDataSource> dataSources, bool failOnUnknownTable, CoverageProgressTracker tracker)
         {
             var rows = new List<CoverageOutlierRow>();
             var classId = scenario.Player.ClassId;
@@ -583,6 +646,7 @@ namespace Core.Sim
 
             foreach (var record in registry.GetAll("creature.template"))
             {
+                tracker.Step(ProgressStageCreature);
                 var creatureTemplateId = record.Id!.Value;
                 var level = record.TryGetInt("level", out var lvl) ? (int)lvl : 1;
                 var clampedLevel = Math.Max(1, Math.Min(level, anchors.MaxLevel));

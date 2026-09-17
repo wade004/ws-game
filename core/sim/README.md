@@ -136,7 +136,7 @@ stats: {path: value}}`，只做 `FromReport`/`ToJson`/`Parse` 文本↔类型转
 dotnet run --project toolchain/simrunner -- run \
   --scenario all --framework-root data/_framework --data-root core/sim/tests/data \
   --out <out-dir> [--baseline-dir core/sim/tests/baseline] [--update-baseline] \
-  [--json] [--runs <n>] [--version <str>]
+  [--json] [--runs <n>] [--version <str>] [--progress]
 ```
 
 - `--scenario <id>|all`：场景短 id（如 `sim_arena_matrix`，自动补全 `sim.scenario.` 前缀）或
@@ -155,6 +155,11 @@ dotnet run --project toolchain/simrunner -- run \
 - `--json`：额外把每个场景的 `BaselineDiff.ToJson()` 打印到标准输出（人读摘要行不受影响）。
 - `--version <str>`：写入 `SimReport.GeneratedWithVersion`/`SimBaseline.GeneratedWithVersion`
   的框架版本字符串，本工具不解析、不校验，默认 `"unknown"`。
+- `--progress`（消费方反馈第 50 条）：为每个场景注册一个 `IProgress<SimProgress>`，把
+  `Stage`/`Completed`/`Total` 按 `PROGRESS scenario={id} stage={stage} completed={n} total={n}`
+  格式同步写到 `stderr`（不占用 `stdout`，不影响既有摘要行/`--json` 输出的可解析性）；不传本参数
+  时不注册回调，四个 `Run` 入口零额外开销。运行期间按 Ctrl+C（`Console.CancelKeyPress`）可随时
+  触发取消，取消延迟在单场战斗内部为一个 tick 量级，在批量迭代之间为一次外层迭代量级。
 
 退出码：
 - **0**：全部选中场景均无 `Exceeded`/`Removed`（含"未传 `--baseline-dir`，不做比对"这一情形）。
@@ -164,6 +169,9 @@ dotnet run --project toolchain/simrunner -- run \
 - **3**：传了 `--baseline-dir` 但至少一个场景对应的基线文件不存在，且未传 `--update-baseline`
   ——与 0/1/2 三种情形都不同（不是参数写错，也不是跑出来的结果不通过，是"调用方明确要求比对但
   没有东西可比"这一第三种状态，见 `Program.cs` 类型判断记录"退出码 3 独立于 0/1/2"）。
+- **4**（消费方反馈第 50 条新增）：运行期间收到取消信号（Ctrl+C）——`Execute` 捕获
+  `OperationCanceledException` 后直接返回 4，不写部分报告、不打印场景摘要行；与 0/1/2/3 四种既有
+  情形均不同，专门标识"调用方主动中止，不是结果判定也不是参数/数据错误"。
 
 控制台每个场景一行摘要（供 `check.ps1`/CI 直接判读）：
 `scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n> result=PASS|FAIL`，末尾一行
@@ -404,6 +412,51 @@ core/sim/
   ResolveTrace` 是该模块早已存在的诊断回调（"消费方反馈 2026-09-11 编辑器第 31 条"落地时就已加入），
   本任务只是第一次真正使用它，不新增、不改变任何结算分支。生物追击/进战由 `core/rules/ai` 既有的
   `AiHost` 状态机驱动，本任务未改动该模块一行代码。
+
+## 线程安全与并发（消费方反馈第 51 条，2026-09-17）
+
+**承诺**：`FightRunner.Run`/`ArenaSimulation.Run`/`GrowthSimulation.Run`/`CoverageSimulation.Run`
+四个入口本身是无状态、side-effect-free 的纯函数调用——不持有任何静态可变字段，每次调用都会经
+`HeadlessWorldBuilder.Build` 内部构建一套全新的 `HeadlessWorld`（含全新的规则层宿主、全新的
+`RngHost`），两次独立调用之间不共享任何框架侧对象。只要满足下面"调用方责任"里的前提，可以在同一
+进程内的多个线程上安全地并发调用这四个入口（参数相同或不同均可）——见 `core/sim/tests
+/ConcurrencyTests.cs`：并行跑 N 份相同种子的 `Run` 调用，逐字段（经 `ToJson()`）与串行调用完全
+一致，不是只验证"不抛异常"。
+
+**调用方责任（框架不兜底）**：
+- 传给 `Run` 的 `IReadOnlyList<IDataSource> dataSources`/`AnchorTable`/`ScenarioDef` 等输入对象，
+  调用期间不能被其它线程并发修改；框架只保证自己不修改这些输入，不保证在输入被外部改写时的行为。
+- 调用方若自行实现 `IDataSource`（如内存态未保存草稿数据源），其线程安全由调用方自己负责——框架
+  内置的 `Core.Foundation.DataRegistry.FileSystemDataSource` 经本条落地前的复审确认并修复过一处
+  真实数据竞争（见下）后，可安全被多个并发 `Run` 调用复用同一实例；`InMemoryDataSource` 等其它
+  内置实现未在本次复审范围内逐一复核并发安全性，多线程共享同一实例前建议自行确认或改为每个
+  调用方各自持有独立实例。
+- 调用方若传入 `IProgress<SimProgress>`，`Report` 方法在调用线程上同步执行（本条判断记录见下文
+  "为什么不用 `System.Progress<T>`"）；`progress` 对象自身若被多个并发 `Run` 调用共享，其
+  `Report` 实现内部的线程安全由调用方负责，框架只保证自己按调用线程同步调用、不做跨线程封送。
+
+**不承诺什么**：
+- 不承诺"同一个 `Run` 调用内部"是多线程并行计算——四个入口内部实现仍是单线程顺序执行，"安全
+  并发"指的是"多个独立的 `Run` 调用可以分别跑在不同线程上"，不是单次调用本身被并行加速。
+- 不承诺对调用方自行实现的 `IDataSource`/`IProgress<SimProgress>` 做任何线程安全兜底或加锁保护。
+- 不承诺 `core/sim` 之外的其它 Core 程序集的所有代码路径都无共享可变状态——本次审计范围限定在
+  四个 `Run` 入口的实际调用路径上（见下方复审记录），不是对整个仓库的通用并发安全审计结论。
+
+**复审发现并修复的真实数据竞争**：落地本条前按要求对静态/共享可变状态做了一次专项复审（不止
+`core/sim` 自身，包括 `Run` 调用路径上会经过的其它 Core 程序集），发现 `Core.Foundation
+.DataRegistry.FileSystemDataSource.ListTables()`（`core/foundation/data_registry/core
+/FileSystemDataSource.cs`）此前在共享实例字段 `_skippedNonTableFiles`（`List<string>`）上做
+`Clear()` + 逐条 `Add()`，同一个 `FileSystemDataSource` 实例被多个线程并发调用 `ListTables()`
+时会在同一个 `List<T>` 上产生真实数据竞争（可能抛 `ArgumentException`/`IndexOutOfRangeException`
+或损坏内部状态，不只是"读到过期值"）——这正是本条承诺的"框架内置 `IDataSource` 实现可安全被
+并发复用"所依赖的前提，若不修复，"线程安全"这条承诺对使用 `FileSystemDataSource` 的调用方就是
+一句空话。已修复为"局部构建、一次性整体替换只读引用"（字段改为
+`private volatile IReadOnlyList<string> _skippedNonTableFiles`），`ListTables()` 实际装载用的
+返回值本就是每次调用新建的局部变量、从未受这处竞争影响，此次是纯粹的"消除共享字段上的数据竞争"
+修复，不改变任何一次调用的返回结果。新增回归测试
+`FileSystemDataSourceSkipsNonTableJsonTests.ListTables_CalledConcurrentlyOnSameInstance_
+DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用，断言不抛异常且每次返回表数量恒定）。
+未在四个 `Run` 入口实际调用路径上发现其它同类共享可变状态问题。
 
 ## 判断记录
 
@@ -1123,3 +1176,81 @@ core/sim/
     不存在"仍继续抛 `ArgumentException` 的回归对照。审计范围内 `core/sim/core
     /StandardPlayerBuilder.cs`（同样调用 `IBudgetSolver.Solve`、疑似同类只读分析场景）未纳入本次
     改动——超出反馈原文列出的入口清单，留待设计层确认是否需要一并处理。
+
+## 消费方反馈第 49-51 条判断记录（2026-09-17）
+
+52. **四个 `Run` 入口新增 `CancellationToken`/`IProgress<SimProgress>` 重载（第 50 条，高优先级）**：
+    `FightRunner.Run`/`ArenaSimulation.Run`/`GrowthSimulation.Run`/`CoverageSimulation.Run` 此前
+    一旦开跑就是黑箱——调用方唯一的中止手段是杀掉整个进程/线程，跑一个大场景（如
+    `sim_coverage_all`）期间也拿不到任何进度信息。新增只读结构体 `Core.Sim.SimProgress`
+    （`Stage: string`/`Completed: int`/`Total: int`/`Detail: string?`），四个入口各新增一个尾部
+    追加 `CancellationToken cancellationToken`、`IProgress<SimProgress>? progress = null` 的重载；
+    旧的四个签名保留，内部转发到新重载（默认 `CancellationToken.None`/`progress: null`），行为
+    （含返回值逐字段）不变，属纯新增重载，不破坏 ABI。<br/>**取消语义**：一旦
+    `cancellationToken.IsCancellationRequested` 为真即抛 `OperationCanceledException`（携带该
+    token），绝不返回半成品报告；检查点覆盖外层迭代边界（`GrowthSimulation` 每个种子、
+    `ArenaSimulation` 每个等级×等级偏移矩阵格、`CoverageSimulation` 技能/装备/生物三段遍历的每
+    一条），`FightRunner.Run` 与经它跑内层战斗的 `ArenaSimulation` 额外在单场战斗内部逐 tick
+    检查（`FightRunner.RunWithinWorld` 新增的 10 参重载在循环顶部调用
+    `cancellationToken.ThrowIfCancellationRequested()`），取消延迟因此在单场战斗场景下是一个
+    tick 量级，在纯批量迭代场景下是一次外层迭代量级。<br/>**进度语义**：只在外层迭代边界上报，
+    不做 tick 粒度上报（`Total` 提前已知，`Completed` 单调不减，最后一次上报 `Completed==Total`）；
+    `progress` 传 `null` 时不产生任何额外分配/调用，四个入口在这条路径上零开销。
+    <br/>**`GrowthSimulation.cs` 的改动范围刻意收紧**：本文件同一时间还有另一条消费方反馈
+    （第 52-53 条）在改 `ResolveCreatureFamily`/`ResolveCreatureTemplateForLevel` 与
+    `StandardPlayerBuilder`/装备换算相关代码，为降低两条并行改动的合并冲突面，`GrowthSimulation
+    .cs` 本次改动只触达新增的 `Run` 重载与它的外层种子循环本身（取消检查/进度上报的插入点），
+    刻意不触碰 `RunOnce`/`ResolveCreatureFamily`/`ResolveCreatureTemplateForLevel`——`GrowthSimulation
+    .Run` 因此只在种子边界取消/报告进度，不像 `ArenaSimulation`/`FightRunner` 那样把
+    token 一路下传到单场战斗内部；`ArenaSimulation.RunCell` 无此项约束，改为把 `cancellationToken`
+    继续下传给内层 `FightRunner.Run`，额外获得 tick 级取消响应（超出本条最低要求，属主动加强）。
+    <br/>**`toolchain/simrunner`**：`Program.cs` 的 `Main` 新建 `CancellationTokenSource`，挂
+    `Console.CancelKeyPress`（收到 Ctrl+C 时 `eventArgs.Cancel = true` 并 `cts.Cancel()`，避免
+    进程被直接杀死、改为走取消路径优雅退出）；新增 `--progress` 开关（每个场景用内部
+    `ScenarioProgressWriter : IProgress<SimProgress>` 把 `PROGRESS scenario={id} stage={stage}
+    completed={n} total={n}` 同步写到 `stderr`，不占用 `stdout`）；`Execute` 捕获
+    `OperationCanceledException` 时返回新退出码 `4`（"cancelled"，`0`/`1`/`2`/`3` 不变），不写
+    任何部分报告。<br/>**测试**：四个入口各自新增——预取消令牌立即抛出、执行期间经进度回调触发
+    取消能抛出且不产生结果、不取消时结果与旧签名逐字段/逐字节一致（同种子）、进度序列单调且末项
+    `Completed==Total` 四类用例（`FightRunnerTests`/`GrowthSimulationTests`
+    /`ArenaSimulationTests`/`CoverageSimulationTests`）。
+
+53. **`FightRunnerOptions.CaptureEvents`/`FightResult.CapturedEvents`/`FightLogEntry`（第 49 条）**：
+    此前一场战斗的逐笔事件（命中/伤害/治疗/施法成功失败/增益施加移除/死亡/资源变化）只在事件总线
+    上短暂存在，`FightResult` 只保留聚合统计，编辑器"简易战斗回放"等场景要展示逐条战斗日志只能
+    自行订阅事件总线或复刻结算逻辑。新增 `FightRunnerOptions.CaptureEvents`（`bool`，默认
+    `false`，不改变默认行为）与 `MaxCapturedEvents`（`int`，默认 100000，防止极端长战斗把内存
+    打爆）；`FightResult` 新增只读属性 `CapturedEvents: IReadOnlyList<FightLogEntry>`（关闭时为
+    `Array.Empty<FightLogEntry>()`、不是 `null`，调用方不必先判空）与 `CapturedEventsTruncated:
+    bool`（超过 `MaxCapturedEvents` 后置真并停止继续追加，已捕获的条目不受影响）。新类型
+    `FightLogEntry`（`Tick`/`Category`/`SourceId`/`TargetId`/`SkillOrEffectId`/`Amount`/
+    `ResultTag`，公开构造）与 `FightLogEventCategory`（`Damage`/`Heal`/`SkillCastSuccess`/
+    `SkillCastFailed`/`AuraApplied`/`AuraRemoved`/`UnitDied`/`ResourceChanged` 八种，覆盖反馈
+    原文点名的伤害/治疗/施法成功失败/增益施加移除/死亡/资源变化，未逐一映射事件总线上全部现有
+    事件类型——只映射反馈原文列出的这几类，其余事件种类不在本条范围内），由 `FightRunner
+    .FightAccumulator` 新增的私有 `MapToLogEntry(IEvent, int tick)` 静态映射方法从既有具体事件
+    类型（`Core.Rules.Common`/`Core.Numbers.PowerSet` 两个契约程序集下的事件类型）转换得到，不
+    新增事件总线契约、不改变任何事件类型的既有字段。<br/>**聚合结果不受开关影响**：捕获逻辑挂在
+    既有事件消费循环上做"顺带记一笔"，不改变任何聚合统计量的计算路径，`CaptureEvents` 开/关两次
+    跑同一战斗，`FightResult` 除 `CapturedEvents`/`CapturedEventsTruncated` 外逐字段一致（已测试
+    断言）。<br/>**已知限制（按反馈原文口径处理）**：`toolchain/simrunner` 目前没有单场战斗命令
+    行模式（`run` 子命令只支持"跑一个/全部 `sim.scenario` 场景"，场景内部是否含单场战斗由场景
+    类型决定，命令行层面不存在"直接指定两个模板打一场"的入口），因此 `--fight-log <path>` 未落
+    地为命令行选项——反馈原文明确"若 CLI 没有对应模式可仅提供 API 并如实标注"，本条能力目前
+    仅能通过直接引用 `core/sim` 类库、构造 `FightRunnerOptions { CaptureEvents = true }` 后调用
+    `FightRunner.Run` 使用。<br/>**测试**：关闭时 `CapturedEvents` 为空非 `null`、开启时产生条目
+    且聚合结果不变、超过 `MaxCapturedEvents` 时截断并置位标志三类用例（`FightRunnerTests`）。
+
+54. **`core/sim/README.md`"线程安全与并发"章节与并发回归测试（第 51 条）**：见本文件上方
+    "线程安全与并发"独立章节的完整承诺文本与复审过程；本条只记录落地顺序判断——按反馈要求，
+    "先复审静态可变状态、发现问题先根治，再落笔写承诺"，复审在编写 README 承诺文本之前进行，
+    发现并修复 `FileSystemDataSource.ListTables()` 的真实数据竞争后才落笔（详见该章节），避免
+    "写了承诺但框架自己都做不到"的情况。新增 `core/sim/tests/ConcurrencyTests.cs`（四个 `Fact`，
+    对四个 `Run` 入口分别用 `Parallel.For` 并发跑 8 份相同种子调用，与串行结果逐字段/`ToJson()`
+    比对完全一致，不是只断言"不抛异常"）与
+    `FileSystemDataSourceSkipsNonTableJsonTests.ListTables_CalledConcurrentlyOnSameInstance_
+    DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用同一实例）两组回归测试。
+    <br/>**与并行中的消费方反馈第 52-53 条分支的编号冲突提示**：本文件"判断记录"编号序列是
+    全文件递增、不是按消费方反馈条目号对应，落地本条时另有一个并行分支（feedback/52-53）同样
+    可能在本文件追加以 52/53 起始编号的判断记录条目——两个分支各自独立编号、互不知晓对方进度，
+    合并时若编号撞车，属预期的文本冲突，建议合并方按提交先后重新顺排编号，不代表内容有误。

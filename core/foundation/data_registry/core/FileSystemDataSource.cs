@@ -77,7 +77,23 @@ namespace Core.Foundation.DataRegistry
         private readonly IFileSystem _fs;
         private readonly string _rootDir;
         private readonly DataSourceOptions _options;
-        private readonly List<string> _skippedNonTableFiles = new List<string>();
+
+        /// <summary>消费方反馈第 51 条（2026-09-17，core/sim 线程安全与并发排查）根治：此前是
+        /// <c>readonly List&lt;string&gt;</c>，<see cref="ListTables"/> 每次调用先 <c>Clear()</c> 再
+        /// 逐条 <c>Add</c>——同一个 <see cref="FileSystemDataSource"/> 实例若被多个线程并发调用
+        /// <see cref="ListTables"/>（如调用方在并发跑的多个 <c>Core.Sim.*.Run</c> 之间复用同一份
+        /// <c>IReadOnlyList&lt;IDataSource&gt;</c>，见 <c>core/sim/README.md</c>"线程安全与并发"章节
+        /// "唯一需要留意的例外"），会在同一个 <c>List&lt;T&gt;</c> 上产生真正的数据竞争（并发
+        /// <c>Clear</c>/<c>Add</c> 可能互相踩踏内部数组状态，不只是"读到过期值"这种良性竞态）——
+        /// <see cref="DataRegistry"/> 加载期无条件调用 <see cref="ListTables"/>（见该类型判断记录），
+        /// 是每次 <c>HeadlessWorldBuilder.Build</c>/<c>Core.Sim.*.Run</c> 调用都会走到的路径，因此这
+        /// 不是一个边缘场景。改为每次调用在方法内部新建一份局部 <c>List&lt;string&gt;</c>，最后一次性
+        /// 整体替换 <see cref="_skippedNonTableFiles"/> 引用（引用赋值在 CLR 上是原子操作，不会读到
+        /// "半份"列表）——<see cref="ListTables"/> 返回值本身（供 <see cref="DataRegistry"/> 实际装载
+        /// 用的 <c>result</c>）此前就已经是每次调用新建的局部变量，不受这个修复影响；唯一改变的是
+        /// <see cref="SkippedNonTableFiles"/> 这条诊断信息在并发调用下的语义——从"可能损坏"变为
+        /// "多次并发调用里最后一次写入生效"（诊断用途，不影响任何实际装载结果，可接受）。</summary>
+        private volatile IReadOnlyList<string> _skippedNonTableFiles = Array.Empty<string>();
 
         public FileSystemDataSource(IFileSystem fs, string rootDir)
             : this(fs, rootDir, new DataSourceOptions())
@@ -110,10 +126,9 @@ namespace Core.Foundation.DataRegistry
 
         public IReadOnlyList<DataTableSource> ListTables()
         {
-            _skippedNonTableFiles.Clear();
-
             var relatives = _fs.ListFiles(_rootDir);
             var result = new List<DataTableSource>();
+            var skipped = new List<string>();
 
             foreach (var rel in relatives)
             {
@@ -128,7 +143,7 @@ namespace Core.Foundation.DataRegistry
 
                 if (_options.SkipNonTableJsonFiles && !IsDataTableCandidate(tableName, rel))
                 {
-                    _skippedNonTableFiles.Add(rel);
+                    skipped.Add(rel);
                     continue;
                 }
 
@@ -136,6 +151,9 @@ namespace Core.Foundation.DataRegistry
                 result.Add(new DataTableSource(tableName, fullPath, () => ReadTextOrThrow(fullPath)));
             }
 
+            // 见 _skippedNonTableFiles 字段判断记录：一次性整体替换引用，不在共享的可变容器上做
+            // Clear()+Add() 这类多步骤原地修改。
+            _skippedNonTableFiles = skipped;
             return result;
         }
 
