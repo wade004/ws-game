@@ -131,5 +131,38 @@ namespace Tests.Sim
             Assert.Throws<ArgumentException>(() =>
                 StandardPlayerBuilder.Build(world, SimTestWorldFactory.EmbeddedClassId, 10, QualityCommon));
         }
+
+        /// <summary>消费方反馈第 52 条：<see cref="StandardPlayer.EquippedWeaponSummaries"/>/<see
+        /// cref="StandardPlayer.GetEquippedWeaponSummary"/> 须与消费方此前自建适配层"GetAllEquippedInstances
+        /// 拿到 ItemInstance 再手工搬运 TemplateId/Quality/Affixes 三字段"的结果逐字段一致——本用例按
+        /// 反馈原文描述的手工搬运方式独立算一遍，与新 API 的输出比对。</summary>
+        [Fact]
+        public void Build_EquippedWeaponSummaries_MatchesManualAssemblyFromEquipmentHost()
+        {
+            var world = SimTestWorldFactory.BuildFromEmbeddedDataset(seed: 20260917300UL, playerLevel: 5);
+            var player = StandardPlayerBuilder.Build(world, SimTestWorldFactory.EmbeddedClassId, 5, QualityCommon);
+
+            // 手工搬运基线：反馈原文里消费方自建 StandardPlayerWeaponAdapter 的做法。
+            var manualInstances = world.Gameplay.Carriers.Equipment.GetAllEquippedInstances(player.UnitId);
+            Assert.NotEmpty(manualInstances);
+            Assert.Equal(manualInstances.Count, player.EquippedWeaponSummaries.Count);
+
+            foreach (var (slotId, instance) in manualInstances)
+            {
+                Assert.True(player.EquippedWeaponSummaries.TryGetValue(slotId, out var summary),
+                    $"槽位 {slotId} 应出现在 EquippedWeaponSummaries 中");
+                Assert.Equal(instance.TemplateId, summary.TemplateId);
+                Assert.Equal(instance.Quality, summary.QualityId);
+                Assert.Equal(instance.Affixes, summary.AffixIds);
+
+                // 建议签名 GetEquippedWeaponSummary(weaponSlotId) 的结果须与字典查值完全一致。
+                var viaMethod = player.GetEquippedWeaponSummary(slotId);
+                Assert.NotNull(viaMethod);
+                Assert.Equal(summary, viaMethod!.Value);
+            }
+
+            // 从未出现过的槽位（未登记的 id）走 GetEquippedWeaponSummary 应返回 null，不是抛异常/默认值。
+            Assert.Null(player.GetEquippedWeaponSummary(new Id("item.slot.sim_not_a_real_slot")));
+        }
     }
 }

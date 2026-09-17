@@ -1123,3 +1123,63 @@ core/sim/
     不存在"仍继续抛 `ArgumentException` 的回归对照。审计范围内 `core/sim/core
     /StandardPlayerBuilder.cs`（同样调用 `IBudgetSolver.Solve`、疑似同类只读分析场景）未纳入本次
     改动——超出反馈原文列出的入口清单，留待设计层确认是否需要一并处理。
+
+## 消费方反馈第 52-53 条判断记录（2026-09-17）
+
+52. **消费方反馈第 53 条——`GrowthSimulation.ResolveCreatureFamily` 按阵营过滤同 `tier` 候选，同
+    `tier`+`level` 多候选产出歧义诊断，全部过滤后显式抛异常**：原实现按 `ScenarioOpponentSpec
+    .TierId` 收集全部同档 `creature.template` 记录时不按 `faction_id` 过滤，`ResolveCreatureTemplate
+    ForLevel`（严格 `>` 比较）同级只有 `registry.GetAll` 收集顺序第一条生效，没有任何诊断——消费方
+    自建数据把玩家阵营占位生物与真正的怪物混进同一 `tier`+`level` 时会静默选中错误对手（见反馈原文
+    复现：`ws-game-editor` 样例 `creature.sample_hero`(`fac.player`)/`creature.sample_beast`
+    (`fac.wildlife`) 同 `tier=creature.tier.sample_normal`、`level=1`）。
+    <br/>**修复**：`ResolveCreatureFamily` 新增 `IFactionMatrix factions`/`Id playerFactionId` 两个
+    入参 + `out IReadOnlyList<GrowthOpponentAmbiguity> ambiguities` 出参（内部方法，ABI 允许新增
+    参数）。先按 `tier` 收集候选（`tierId` 为 null 时退回取 `opponent.CreatureId` 自身 `tier`），
+    再用 `factions.IsHostile(playerFactionId, candidate.FactionId)`——方向是"从玩家阵营看候选是否
+    敌对"，不是反过来——按 `data/_sample` 真实的非对称 `fac.reaction_matrix`（只登记
+    `fac.player→fac.wildlife=hostile`，没有反向登记）核对过，用反方向会把合法怪物错误排除掉。
+    过滤后一个候选都不剩时直接抛 `InvalidOperationException`（"运行时路径不静默降级"硬规则，见
+    `AGENTS.md` 第 3 节），不像原来那样在"tier 未命中"与"过滤后为空"这两种不同的"空"之间混淆
+    语义。过滤后同 `level` 仍有多条候选时，用 `.OrderBy`（LINQ 稳定排序，不是 `List.Sort`——
+    后者不保证稳定，见 `AGENTS.md` 确定性条款）保持"数据登记顺序第一条生效"这一既有基线行为不变，
+    同时把被丢弃的候选记入新增只读集合 `GrowthReport.OpponentAmbiguities`（`GrowthOpponentAmbiguity`
+    类型：`TierId`/`Level`/`ChosenTemplateId`/`DiscardedTemplateIds`）。`GrowthReport.ToJson()` 只在
+    该集合非空时才写出 `opponent_ambiguities` 字段——三条官方仿真基线（`sim_growth`/`arena`/…，
+    `simrunner run --scenario all`）的场景都不存在候选歧义，字段不出现，`BaselineComparerTests`
+    因此零改动即可保持零 diff，不需要在基线比较器里另开一条"忽略新字段"的特判分支。
+    <br/>**验证**：新增 `GrowthSimulationOpponentFactionFilterTests`（3 个用例）——① 玩家阵营占位
+    生物排在数据源前面时仍被过滤掉、真实交战正常发生；② 两个敌对候选同档位产出一条
+    `OpponentAmbiguities` 且字段值/`ToJson()` 输出正确；③ 全部候选被过滤后抛
+    `InvalidOperationException` 且异常信息含 tier id。`Tests.Sim` 全量 104/104 通过（含 3 条新增），
+    无回归。
+    <br/>**存疑项（待设计层确认）**：`ResolveCreatureFamily` 的"同级多候选取第一条"只是延续原有
+    隐式行为、不是本次新引入的设计决策——本次落地只补了诊断，没有改成"报错"或"随机选择"，因为
+    反馈原文优先级为"中"、明确"不是阻塞项"；是否需要在更高层（如 `GrowthReport` 消费方/CI）把
+    `OpponentAmbiguities` 非空当成硬性阻断，留待设计层拍板。
+
+53. **消费方反馈第 52 条——`StandardPlayer.EquippedWeaponSummaries`/`GetEquippedWeaponSummary`
+    转换 API**：编辑器侧 `SettlementPreviewRequest.CasterWeapon(TemplateId, QualityId, AffixIds)`
+    与框架 `StandardPlayer.EquippedInstances`（槽位→实例 id）字段形状不同，此前每个消费方都要各自
+    实现一遍"`EquipmentHost.GetAllEquippedInstances` 取 `ItemInstance` 再手工搬运三字段"这层薄转换
+    （反馈原文点名的 `StandardPlayerWeaponAdapter`）。
+    <br/>**修复**：转换 API 落在 `Core.Carriers.Common`/`Core.Carriers.Item`（不是 `Core.Sim`）——
+    新增只读结构体 `Core.Carriers.Common.EquippedWeaponSummary`（`TemplateId`/`QualityId`/
+    `AffixIds` 三字段，`FromInstance(ItemInstance)` 静态工厂，纯搬运不计算数值，同 `ItemInstance`
+    判断记录"物品实例只存身份"的口径），`EquipmentHost` 新增 `GetEquippedWeaponSummary(unitId,
+    slot)`/`GetAllEquippedWeaponSummaries(unitId)` 两个方法（与既有 `GetAllEquippedInstances` 同一
+    模式，见 `core/carriers/item/README.md` 对应判断记录）。`StandardPlayer` 新增只读属性
+    `EquippedWeaponSummaries`（`StandardPlayerBuilder.Build` 内部一次性调用
+    `EquipmentHost.GetAllEquippedWeaponSummaries` 填充，不从 `chosenAffixes`/`qualityId` 等局部变量
+    另行拼一份，避免与 `EquipmentHost` 实际落库的身份字段产生潜在不一致）与建议签名一致的便捷方法
+    `GetEquippedWeaponSummary(weaponSlotId)`（`EquippedWeaponSummaries` 的 `TryGetValue` 包装）。
+    两个新增属性/方法都是纯只读快照的补充读法，`EquippedInstances`/`ExpectedEquipmentContributionBySlot`
+    等既有字段不改动。审计范围内未发现框架内部有另一份手工搬运同样三字段的重复逻辑可供重构复用
+    （`ItemPersistable`/`EquipmentPersistable.Save` 序列化的是完整存档形状，字段集合与用途都不同，
+    不适合改成复用本 API）。
+    <br/>**验证**：`core/carriers/item/tests/EquippedWeaponSummaryTests.cs` 新增 4 个用例（与手工
+    搬运基线逐字段比对、空槽位返回 null、完全未装备返回 null/空字典、双持两个武器槽各自独立）；
+    `core/sim/tests/StandardPlayerBuilderTests.cs` 新增
+    `Build_EquippedWeaponSummaries_MatchesManualAssemblyFromEquipmentHost` 用例，用嵌入数据集在真实
+    `StandardPlayerBuilder.Build` 产出上与手工搬运基线逐字段比对。`Tests.Carriers`
+    615/615、`Tests.Sim` 104/104 全量通过，无回归。
