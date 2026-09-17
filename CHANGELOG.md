@@ -434,6 +434,28 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **存档/回滚恢复战斗态误判为真实脱战、把刚恢复的资源当前值回满为上限**（消费方反馈-2026-09-17，
+  影响版本范围约 v1.33.0～v1.39.0）：`Core.Rules.Combat.CombatHost.RestoreCombatState`（存档读档/
+  回滚恢复战斗态的唯一入口，C11-RELOAD 于 2026-09-11 引入）与
+  `Core.Gameplay.Assembly.PlayerVitalsPersistable` 旧两参构造函数兜底分支此前都直接调用
+  `IPowerHost.SetInCombat` 同步 `PowerHost` 自身的进出战状态——`SetInCombat` 从诞生起就同时承担
+  "设置进出战布尔状态"与"true→false 转换时对 `refill_on_leave_combat=true` 的资源类型立即回满"
+  两件事（真实玩法语义：脱战自动回满）。存档/回滚恢复不是一次真实脱战：若恢复发生时运行期状态
+  恰好是 `true`（如读档前玩家正在战斗）、而存档快照/回滚快照写的是 `false`，就会被误判为一次
+  真实脱战，把 `player.vitals` 段刚用存档值恢复好的资源当前值（如生命值）覆盖为资源上限——真实
+  探针复现：存档 `health=37`，读档前运行期 `in_combat=true`，存档 `in_combat=false`，读档后
+  `health` 被回满成 `100`。框架默认数据 `arch.power.health` 自 v1.33.0（ADR-0031，`arch.power_type`
+  默认打开 `refill_on_leave_combat`）起即可复现，此前（`refill_on_leave_combat` 默认关闭）该缺陷
+  潜伏但不可见。修复：新增 `IPowerHost.RestoreInCombat(unitId, inCombat)`（C#8 默认接口方法，
+  ABI 只新增；`PowerHost` 显式覆盖为纯赋值实现，不遍历资源类型、不触发回满、不发事件），
+  `CombatHost.RestoreCombatState` 与 `PlayerVitalsPersistable` 旧两参构造函数兜底分支均改调用
+  该方法；`SetInCombat` 本体逻辑与既有"真实脱战仍回满"行为不变。
+- **迁移说明**：不影响存档格式、不需要迁移工具处理旧存档——修复完全在运行时恢复逻辑内部，
+  `player.vitals` 段的字段名/结构、`IPersistable` 契约均未改变；升级到修复后的版本即可，旧存档
+  读档后不会再出现"读档瞬间生命值被回满"的现象。
+
 ## [1.39.0] - 2026-09-18
 
 编辑器上游反馈第 48 条：`LootTableAnalyzer.ExpectedProbabilities` 补品质/词缀/货币三段期望分布

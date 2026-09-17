@@ -410,6 +410,18 @@ assembly/
     `ClearAll_*`/`EntityDestroyedEvent_*`/`Dispose_*`/`SavedWhileDead_*` 五组场景 + 既有
     `CORE_180_FollowupAuditTests`/`GameplayAssemblyDeathReloadTests` 全部保持通过。测试：
     `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`。
+    - **判断记录 14 遗留缺陷，消费方反馈-2026-09-17（读档触发脱战回满）根治**：本条判断记录当初
+      认为"`RestoreCombatState` 同时同步 `PowerHost`"已经是安全的纯赋值同步，实际上
+      `CombatHost.RestoreCombatState` 内部当时复用的是 `IPowerHost.SetInCombat`——该方法从诞生起
+      就同时承担"设置进出战布尔状态"与"true→false 时对 `refill_on_leave_combat` 为真的资源类型
+      立即回满"两件事，读档恢复不是一次真实脱战，若恢复前运行期状态恰好是 `true`、存档快照是
+      `false`，会被误判为真实脱战并覆盖掉刚恢复的资源当前值（真实探针复现：存档 `health=37`，
+      读档后被回满成 `100`；框架默认数据 `arch.power.health` 自 v1.33.0 起
+      `refill_on_leave_combat=true`，缺陷因此从潜伏变为默认可见，影响版本范围约
+      v1.33.0～v1.39.0）。根治：新增 `IPowerHost.RestoreInCombat`（纯赋值，不触发回满），
+      `CombatHost.RestoreCombatState` 与 `PlayerVitalsPersistable` 旧两参构造函数兜底分支改调用
+      它，详见 `core/rules/combat/README.md` 判断记录 21、`core/numbers/power_set/README.md`
+      判断记录 9。
 
 15. **T-N4-4（ADR-0033 决策 4）：分档 × 难度经验倍率注入**——`resolvedProgressionOptions.
     ExtraXpMultiplierProvider`（未显式配置时）在 `Difficulty`（第 5 步）构造完成之后就地赋值为
