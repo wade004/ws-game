@@ -434,6 +434,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-09-18
+
 编辑器上游反馈第 54～58 条（见
 [消费方反馈-2026-09-18-编辑器-第54-58条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md)，
 第 55 条原分片文档已并入本文件同一份回复文档的第 55 条小节）。
@@ -502,6 +504,31 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   实现（不再自行手写树遍历），并新增一个接受已解析 `ExprNode` 的内部重载供
   `QuestPrerequisitePreview` 直接复用（避免其重新解析 `prerequisite` 文本），消除重复实现；
   两者原有对外行为/测试断言不变（新增测试覆盖等价性，见下）。
+
+### 迁移说明
+
+- 本版本全部为新增 API（`QuestReferenceExtractor`、`ContentGraphAnalyzer`、`ValidationIssue
+  .AffectedNodeIds`/`WithAffectedNodeIds`、`DialogStoryPreview`、`QuestPrerequisitePreview`），
+  旧签名与默认行为均未变化，**无必做迁移项**，直接升级即可。
+- **唯一实质行为变更：`dialog.story_tree` 新增 Warning 级校验 `story_tree_node_unreachable`**——
+  在 `--strict` 模式下（Warning 也阻断），若接入方数据里存在从运行时实际入口 `nodes[0]` 出发
+  不可达的节点，校验会新增一条该 Warning 并因 `--strict` 而阻断。处理方式：先确认该节点是否为
+  遗留死节点——若确认是数据缺陷，补上缺失的 `next_node_id` 连接使其可达，或删除该孤立节点；若
+  该节点是刻意保留的草稿/未接入内容，需按内容组织规范另行安排（`ContentGraphAnalyzer` 只做
+  只读分析，本规则不提供 suppress 机制）。框架自带三套官方数据根（默认合并根、
+  `data/_framework` 单独、`games/_template/data/game`、`core/sim/tests/data`）均已逐一验证
+  `--strict` 下 0 新增警告，无需改动框架自带示例数据；接入方数据若命中新规则，属于该数据自身的
+  既有孤岛节点被首次发现，不是本版本引入的新缺陷。
+- 图诊断 `Field` 更具体：`story_tree_duplicate_node_id`/`story_tree_dangling_next_node`/
+  `talent_node_id`/`talent_prerequisite_missing` 四项诊断的 `Field` 从静态字符串（如
+  `"nodes"`）改为具体数组下标路径（如 `nodes[3].id`）；若消费方代码对 `Field` 做精确字符串匹配，
+  需要改为前缀匹配，或改读新增的结构化字段 `AffectedNodeIds`——诊断本身是否触发的判定逻辑不变。
+- 诊断文本变化：`talent_prerequisite_cycle` 消息文本从"报告 DFS 起点"改为"报告完整环路链"
+  （成环算法勘误的副产物，见上"勘误"一节），无既有测试断言该文本；若消费方对该消息做过精确
+  字符串匹配，需要更新匹配逻辑，不影响该诊断是否触发。
+- `toolchain/validator --json` 的 `issues[]` 每项新增 `affected_node_ids` 字段（仅非空时输出，
+  不同于 `group`/`note`/`rule_id` 恒为 `null` 的既有约定）：消费方若用禁止未知字段的严格 JSON
+  schema 解析，需要放开允许该新字段。
 
 ## [1.40.0] - 2026-09-17
 
