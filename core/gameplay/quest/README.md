@@ -42,6 +42,7 @@ quest/
     QuestObjectiveType.cs         八种目标类型 + targetRef 域名/count==1 规则
     QuestOptions.cs               AllowFail 等构造期策略配置
     QuestProgress.cs              单位对单条任务的持久化进度快照
+    QuestPrerequisitePreview.cs   消费方反馈第 55 条：只读无状态任务前置链预演入口（不改动 IQuestHost）
   core/
     PlayerExprGroupProvider.cs    player 分组的 IExprGroupProvider 实现（level/has_item/item_count）
     QuestContentValidationRule.cs quest.def 内容校验规则（ADR-0019/F1b 起收窄为登记表达不了的
@@ -242,6 +243,31 @@ quest/
       本身即最小定位单元，不需要再补数组下标）填入该任务自身 id 到新增的
       `ValidationIssue.AffectedNodeIds`（ABI 只新增）；`quest_prerequisite_cycle`（跨节点路径类）
       按环上出现顺序填入环上全部节点 id。两项 `Field` 取值不变。
+16. **消费方反馈第 55 条（2026-09-18）：新增 `QuestPrerequisitePreview` 只读无状态任务前置链预演入口，
+    不改动 `IQuestHost`**——`IQuestHost.GetState` 是"给定单位当前运行期上下文求值 `prerequisite`"的有
+    状态查询，不支持"给定任意任务 id，脱离任何单位，分析前置链结构"（编辑器"任务链试走"面板的诉求）。
+    新增独立静态类 `QuestPrerequisitePreview.Preview(Id questId, IEnumerable<QuestDefinition>
+    definitions, IReadOnlyCollection<Id>? completedQuestIds = null, int maxNodes = 10000)`，不作为
+    `IQuestHost` 新成员——理由同 `core/gameplay/dialog` 判断记录 9"为何不改 `IDialogHost`"（预演与
+    运行期状态机正交）。**语义边界**：只分析 `prerequisite` 表达式里 `quest.*` 分组引用（"这个任务的
+    前置点名了哪些其它任务"）构成的有向图——直接前置/传递闭包/成环/拓扑序，不涉及 `QuestObjective`
+    语义（目标类型/计数/是否达标一律不关心），也不对 `prerequisite` 整条表达式做真正的布尔求值（`and`/
+    `or`/`not` 组合方式不区分，与既有 `quest_prerequisite_cycle`/`quest_prerequisite_unknown` 校验构图
+    同一套"只看引用了谁"口径）——`IsAvailableByReferencedQuests` 因此是"假设 `prerequisite` 只由这些
+    `quest.*` 引用以合取方式组成"这一简化视角下的可接性，不是 `GetState` 的等价物，真正可接性仍须调用
+    `GetState`。**前置引用提取**：本方法原在并行分支上直接调用框架已公开的 `ExprReferenceCollector`
+    自行过滤 `Group == quest` 引用（与第 54 条 `QuestReferenceExtractor.CollectQuestIdLiteralArgs`
+    重复实现了同一段"提取 `prerequisite` 里 `quest.*` 引用"逻辑）——**整合验收时改为直接复用
+    `QuestReferenceExtractor` 新增的 `internal` 重载**（接受已解析的 `ExprNode`，不重新解析文本），
+    不再自行调用 `ExprReferenceCollector`/手写过滤，消除两处重复实现；`QuestReferenceExtractor`
+    自身也改为基于 `ExprReferenceCollector.Collect` 实现（不再手写 and/or/not/比较/引用节点的完整
+    switch 递归），三处（校验规则、公开提取入口、预演入口）最终共用同一份遍历逻辑。图算法（BFS
+    闭包、Kahn 拓扑序、三色标记找环）本身是本类型独立实现的通用逻辑，不依赖字典枚举顺序（全程用
+    列表/队列维护发现顺序，保证确定性）。悬空引用（前置点名了不存在的任务）显式收进
+    `UnknownReferencedQuestIds`，不静默丢弃；子图规模超 `maxNodes`（防御上限，默认 10000，真实内容
+    规模不预期触发）时 `ClosureTruncated` 置真。测试见 `tests/E55_QuestPrerequisitePreviewTests.cs`：
+    与真实 `QuestHost`"接取→交付"流程核对单前置/三级任务链两组对账用例、菱形依赖拓扑序有效性、
+    重复/并发调用结果一致证明无状态、无前置/自环/互环/悬空引用/`maxNodes` 截断等边界用例。
 
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`

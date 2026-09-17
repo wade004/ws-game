@@ -35,6 +35,7 @@ dialog/
     IDialogHost.cs                对话系统对外契约 + GossipView/StoryView 视图模型
     StoryTreeDefinition.cs       dialog.story_tree 一条记录的内存态表示 + FromRecord 解析 +
                                   HasCycle 成环检测（DFS）
+    DialogStoryPreview.cs        消费方反馈第 55 条：只读无状态剧情树预演入口（不改动 IDialogHost）
   core/
     DialogContentValidationRule.cs  story_tree 图结构业务判断（节点 id 重复/最小长度/悬空
                                      next_node_id/成环；gossip_menu 侧纯结构检查 ADR-0019/F1b 起
@@ -124,6 +125,24 @@ dialog/
    - `dialog.story_tree.nodes[].id` 登记为 `FieldKind.Id`（受 `field_id_format` 点分格式约束），
      与 `arch.talent_tree.nodes[].id`（`FieldKind.String`，运行时只按字符串比较）有意不同——第 58
      条判断记录见 `core/numbers/archetype/README.md` 判断记录 9。
+10. **消费方反馈第 55 条（2026-09-18）：新增 `DialogStoryPreview` 只读无状态剧情树预演入口，不改动
+   `IDialogHost`**——`IDialogHost` 现有只读方法（`GetGossipView`/`GetStoryView`）都要求单位"当前已处于
+   一个运行期会话中"，不支持"给定任意剧情树、脱离任何单位/会话，模拟走一遍"（编辑器"试走"面板的典型
+   诉求）。新增独立静态类 `DialogStoryPreview.Preview(StoryTreeDefinition, Func<string, bool?>?
+   evaluateCondition = null, int maxPaths = 200, int maxDepth = 64)`，不作为 `IDialogHost` 的新成员
+   （哪怕是默认接口成员）——预演是与运行期会话正交的无状态查询，混进运行期会话契约会让两种概念纠缠、且
+   未来预演能力演进不应受 `IDialogHost` 兼容性约束牵连，见类型内 XML 判断记录"为何不改
+   `IDialogHost`"。**语义边界**：只做语法树/图结构遍历——节点列表、每节点出边（目标节点、分支文本键、
+   条件的规范化文本，经 `ExprNode.ToString` 还原而非原始逐字符文本）、起点（直接读
+   `StoryTreeDefinition.FirstNode`，与 `DialogHost.StartStory` 共用同一段取值逻辑，不复制一份）、终止
+   节点（该节点全部分支 `next_node_id` 均为空，或零分支）；不执行任何节点动作/不推进任务或世界状态/不发
+   任何事件/不自己求值 `condition`——是否可见完全由调用方通过可选的 `evaluateCondition(conditionText):
+   bool?` 回调决定（`null`=未知按"可能"处理）。提供回调时额外做路径枚举（深度优先，`maxPaths`/
+   `maxDepth` 双上限防御指数级分支与环；遇环、遇悬空 `next_node_id`、命中任一上限时安全终止该路径并把
+   `PathsTruncated` 置真——显式标记降级，不静默呈现"看起来完整实则被截断"的结果，同 AGENTS.md 第 3
+   节）。测试见 `tests/E55_DialogStoryPreviewTests.cs`：与真实 `DialogHost` 走一遍核对起点/可选分支/
+   可达节点集合一致（3 例）、重复/并发调用结果一致证明无状态、单节点/环/悬空引用/`maxPaths`/`maxDepth`
+   截断等边界用例。
 
 ## 不负责什么
 

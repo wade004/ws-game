@@ -434,8 +434,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-编辑器上游反馈第 54/56/57/58 条（第 55 条另行处理，见
-[消费方反馈-2026-09-18-编辑器-第54-58条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md)）。
+编辑器上游反馈第 54～58 条（见
+[消费方反馈-2026-09-18-编辑器-第54-58条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md)，
+第 55 条原分片文档已并入本文件同一份回复文档的第 55 条小节）。
 
 ### 新增
 
@@ -461,6 +462,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   诊断的 `Field` 补上具体下标路径（如 `nodes[3].id`/`nodes[3].branches[1].next_node_id`）。
   `toolchain/validator --json` 的 `issues[]` 每项新增 `affected_node_ids` 字段（空时省略，不同于
   `group`/`note`/`rule_id` 恒为 `null` 的既有约定）。
+- **第 55 条**：`IDialogHost`/`IQuestHost` 均是有状态运行期契约，无法在不持有单位/会话的前提下
+  "模拟走一遍"剧情树/任务前置链（编辑器"试走"面板类诉求）。新增两个独立只读无状态入口，均不改动
+  既有接口成员：`Core.Gameplay.Dialog.DialogStoryPreview.Preview(StoryTreeDefinition tree,
+  Func<string, bool?>? evaluateCondition = null, int maxPaths = 200, int maxDepth = 64)`——给出
+  剧情树节点列表、每节点出边（目标节点/分支文本键/条件规范化文本）、起点（`FirstNode`）、终止节点；
+  提供可选条件判定回调时额外给出可达节点集合与路径枚举（含环/悬空引用/深度或条数上限的安全截断，
+  显式标记 `PathsTruncated`）。`Core.Gameplay.Quest.QuestPrerequisitePreview.Preview(Id questId,
+  IEnumerable<QuestDefinition> definitions, IReadOnlyCollection<Id>? completedQuestIds = null, int
+  maxNodes = 10000)`——给出任务 `prerequisite` 里 `quest.*` 引用构成的直接前置/传递闭包/拓扑序，
+  成环时显式报告 `HasCycle`/`CyclePath`（不给出误导性的"空拓扑序=无前置"）；提供已完成任务集合时
+  额外给出可接性判定与阻塞任务列表。均为纯新增类型，不涉及 `QuestObjective` 语义，不对
+  `prerequisite` 做真正的布尔求值（只看引用了哪些任务，不看 `and`/`or`/`not` 组合方式，口径与既有
+  `quest_prerequisite_cycle` 校验一致）。整合时把前置引用提取统一到
+  `QuestReferenceExtractor`（见下"勘误"）与 `QuestPrerequisitePreview` 共用同一份实现，消除并行
+  分支各自实现的重复。
 
 ### 文档
 
@@ -478,6 +494,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   的出现顺序遍历，不再依赖 `Dictionary.Keys` 枚举顺序（AGENTS.md"保持确定性"）；
   `talent_prerequisite_cycle` 消息文本顺带补上完整环路链（原消息只报告 DFS 起点），无既有测试
   断言该文本，判定为无风险勘误。
+- 整合验收发现 `QuestPrerequisitePreview`（第 55 条）与 `QuestReferenceExtractor`（第 54 条）在
+  并行分支上各自实现了一份"从 `prerequisite` 表达式提取 `quest.*` 引用"的 AST 遍历逻辑：前者手写
+  and/or/not/比较/引用节点的完整 switch 递归，与既有公开的 `Core.Foundation.Expr
+  .ExprReferenceCollector.Collect` 语义等价（T-N5-2 已提供的通用引用遍历入口）。整合时把
+  `QuestReferenceExtractor.CollectQuestIdLiteralArgs` 改为基于 `ExprReferenceCollector.Collect`
+  实现（不再自行手写树遍历），并新增一个接受已解析 `ExprNode` 的内部重载供
+  `QuestPrerequisitePreview` 直接复用（避免其重新解析 `prerequisite` 文本），消除重复实现；
+  两者原有对外行为/测试断言不变（新增测试覆盖等价性，见下）。
 
 ## [1.40.0] - 2026-09-17
 

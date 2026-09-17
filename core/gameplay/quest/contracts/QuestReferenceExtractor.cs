@@ -33,6 +33,20 @@ namespace Core.Gameplay.Quest
     /// prerequisite 依赖哪些任务"这一集合关系，不需要也不应该因为同一引用重复出现而重复展示；顺序
     /// 固定为源顺序而非任意集合顺序，保证同一份数据每次提取结果确定、可用于快照测试。
     /// </para>
+    /// <para>
+    /// 判断记录（整合验收，1.41.0）：<see cref="CollectQuestIdLiteralArgs"/> 原为手写的
+    /// and/or/not/比较/引用节点完整 switch 递归，与并行落地的 <c>QuestPrerequisitePreview</c>
+    /// （消费方反馈第 55 条）各自实现了一份等价的树遍历——两者均需要"找出子树内全部引用节点"，这正是
+    /// 框架已公开的 <see cref="ExprReferenceCollector.Collect"/>（T-N5-2）提供的通用能力。整合时改为
+    /// 基于 <see cref="ExprReferenceCollector.Collect"/> 实现（先拿到全部引用节点，再按
+    /// <c>Group == quest</c> 过滤取 Id 字面量参数），不再手写遍历；`ExtractReferencedQuestIds`
+    /// 新增一个接受已解析 <see cref="ExprNode"/> 的 <c>internal</c> 重载，供
+    /// <c>QuestPrerequisitePreview</c> 直接复用（其已持有 <see cref="Core.Gameplay.Quest
+    /// .QuestDefinition.Prerequisite"/> 解析好的语法树，不需要也不应该重新解析文本）——三处
+    /// （<see cref="QuestContentValidationRule"/>、本类型公开入口、预演入口）最终共用同一份遍历与
+    /// 过滤逻辑，行为逐字段不变（回归测试见 <c>QuestReferenceExtractorTests</c>/
+    /// <c>E38_QuestPrerequisiteCycleTests</c>/<c>E55_QuestPrerequisitePreviewTests</c>）。
+    /// </para>
     /// </summary>
     public static class QuestReferenceExtractor
     {
@@ -64,6 +78,21 @@ namespace Core.Gameplay.Quest
                 return Array.Empty<Id>();
             }
 
+            return ExtractReferencedQuestIds(root);
+        }
+
+        /// <summary>同上，但接受已解析的语法树（<paramref name="root"/> 为 <c>null</c> 时返回空
+        /// 列表）——供已经持有解析好 <see cref="ExprNode"/> 的调用方（如 <c>QuestPrerequisitePreview</c>
+        /// 直接读取 <c>QuestDefinition.Prerequisite</c>）复用，不必先转回文本再重新解析一遍。
+        /// <c>internal</c>：只对 <c>Core.Gameplay</c> 程序集内部可见，公开入口是上面接受文本的重载
+        /// （见类型顶部判断记录）。</summary>
+        internal static IReadOnlyList<Id> ExtractReferencedQuestIds(ExprNode? root)
+        {
+            if (root == null)
+            {
+                return Array.Empty<Id>();
+            }
+
             var literalArgs = new List<ExprLiteralNode>();
             CollectQuestIdLiteralArgs(root, literalArgs);
 
@@ -86,62 +115,31 @@ namespace Core.Gameplay.Quest
             return result;
         }
 
-        /// <summary>递归收集 <paramref name="node"/> 子树内全部 <c>quest.*</c> 引用（见
+        /// <summary>收集 <paramref name="node"/> 子树内全部 <c>quest.*</c> 引用（见
         /// <see cref="ExprGroups.Quest"/>）的 Id 字面量参数——不限定具体 key（现有五个已知 key 的首参数
         /// 全部是 Id，未来新增 <c>quest.*</c> 签名若仍以 Id 参数指向另一个任务，本方法不需要跟着改）。
-        /// 同时递归 <see cref="ExprReferenceNode.Args"/> 本身（虽然现有五个 quest 签名的参数都是原子
-        /// 字面量，不会嵌套引用，但不假设未来签名不会嵌套），以及 and/or/not/比较各分支，保证
-        /// <c>prerequisite</c> 里 <c>quest.*</c> 引用不论出现在表达式哪个位置都不会被漏掉。原样从
-        /// <see cref="QuestContentValidationRule"/> 迁移（消费方反馈第 54 条），逻辑不变，仅移动位置
-        /// 使其可被本类型的公开入口与 <see cref="QuestContentValidationRule"/> 共用；保持
-        /// <c>internal</c>（不返回内部 AST 类型给外部消费方，见类型顶部判断记录），只对
-        /// <c>Core.Gameplay</c> 程序集内部可见。</summary>
+        /// 基于框架已公开的 <see cref="ExprReferenceCollector.Collect"/> 实现（整合验收时勘误，见类型
+        /// 顶部判断记录）——后者已经按深度优先收集了子树内全部引用节点（含嵌套在其它引用参数列表/
+        /// and/or/not/比较子树里的引用），本方法只需按 <c>Group == quest</c> 过滤、取 Id 字面量参数，
+        /// 不必再手写一遍树遍历。保持 <c>internal</c>（不返回内部 AST 类型给外部消费方，见类型顶部
+        /// 判断记录），只对 <c>Core.Gameplay</c> 程序集内部可见——<see cref="QuestContentValidationRule"/>
+        /// 与本类型另一 <c>internal</c> 重载均调用本方法。</summary>
         internal static void CollectQuestIdLiteralArgs(ExprNode node, List<ExprLiteralNode> results)
         {
-            switch (node)
+            foreach (var reference in ExprReferenceCollector.Collect(node))
             {
-                case ExprOrNode orNode:
-                    foreach (var operand in orNode.Operands)
+                if (!string.Equals(reference.Group, ExprGroups.Quest, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (var arg in reference.Args)
+                {
+                    if (arg is ExprLiteralNode literalArg && literalArg.Value.Kind == ExprValueKind.Id)
                     {
-                        CollectQuestIdLiteralArgs(operand, results);
+                        results.Add(literalArg);
                     }
-                    break;
-
-                case ExprAndNode andNode:
-                    foreach (var operand in andNode.Operands)
-                    {
-                        CollectQuestIdLiteralArgs(operand, results);
-                    }
-                    break;
-
-                case ExprNotNode notNode:
-                    CollectQuestIdLiteralArgs(notNode.Operand, results);
-                    break;
-
-                case ExprCompareNode compareNode:
-                    CollectQuestIdLiteralArgs(compareNode.Left, results);
-                    CollectQuestIdLiteralArgs(compareNode.Right, results);
-                    break;
-
-                case ExprReferenceNode referenceNode:
-                    if (string.Equals(referenceNode.Group, ExprGroups.Quest, StringComparison.Ordinal))
-                    {
-                        foreach (var arg in referenceNode.Args)
-                        {
-                            if (arg is ExprLiteralNode literalArg && literalArg.Value.Kind == ExprValueKind.Id)
-                            {
-                                results.Add(literalArg);
-                            }
-                        }
-                    }
-                    foreach (var arg in referenceNode.Args)
-                    {
-                        CollectQuestIdLiteralArgs(arg, results);
-                    }
-                    break;
-
-                case ExprLiteralNode:
-                    break; // 字面量无子节点。
+                }
             }
         }
     }
