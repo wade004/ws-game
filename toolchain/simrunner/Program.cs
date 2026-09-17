@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
@@ -55,15 +56,27 @@ namespace Toolchain.SimRunner
                 return 2;
             }
 
-            return RunCommand(args.Skip(1).ToArray());
+            // 消费方反馈第 50 条（2026-09-17）：Ctrl+C 触发取消——默认行为会直接杀掉进程（不给
+            // 已经发出的 Core.Sim.Run 调用任何机会响应取消、写出的报告/基线文件可能残缺），改为
+            // eventArgs.Cancel=true 拦下默认行为，转发一个 CancellationTokenSource，走完
+            // Core.Sim 四个 Run 入口的正常取消路径（抛 OperationCanceledException、不产出半成品
+            // 报告），由 RunCommand 的 catch 统一收口为退出码 4。
+            using var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, eventArgs) =>
+            {
+                eventArgs.Cancel = true;
+                cts.Cancel();
+            };
+
+            return RunCommand(args.Skip(1).ToArray(), cts.Token);
         }
 
         private static string UsageText() =>
             "用法：dotnet run --project toolchain/simrunner -- run --scenario <id>|all " +
             "--framework-root <dir> --data-root <dir> [--data-root <dir2> ...] --out <dir> " +
-            "[--baseline-dir <dir>] [--update-baseline] [--json] [--runs <n>] [--version <str>]";
+            "[--baseline-dir <dir>] [--update-baseline] [--json] [--runs <n>] [--version <str>] [--progress]";
 
-        private static int RunCommand(string[] args)
+        private static int RunCommand(string[] args, CancellationToken cancellationToken)
         {
             string? scenarioArg = null;
             string? frameworkRoot = null;
@@ -74,6 +87,7 @@ namespace Toolchain.SimRunner
             var jsonOutput = false;
             int? runsOverride = null;
             var version = "unknown";
+            var progressEnabled = false;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -108,6 +122,10 @@ namespace Toolchain.SimRunner
                         jsonOutput = true;
                         break;
 
+                    case "--progress":
+                        progressEnabled = true;
+                        break;
+
                     case "--runs":
                         if (!TryTakeValue(args, ref i, out var runsText) ||
                             !int.TryParse(runsText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var runsValue) ||
@@ -136,7 +154,16 @@ namespace Toolchain.SimRunner
 
             try
             {
-                return Execute(scenarioArg, frameworkRoot!, dataRoots, outDir!, baselineDir, updateBaseline, jsonOutput, runsOverride, version);
+                return Execute(
+                    scenarioArg, frameworkRoot!, dataRoots, outDir!, baselineDir, updateBaseline, jsonOutput, runsOverride, version,
+                    progressEnabled, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // 消费方反馈第 50 条：取消语义——抛 OperationCanceledException、不产出半成品报告，
+                // 当前正在跑的场景不会写出 *.report.json（已经跑完并落盘的前面几个场景保留，不回滚）。
+                Console.Error.WriteLine("已取消：收到 Ctrl+C 取消信号，仿真提前终止；当前场景未写出报告。");
+                return 4;
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or DirectoryNotFoundException)
             {
@@ -166,7 +193,8 @@ namespace Toolchain.SimRunner
 
         private static int Execute(
             string scenarioArg, string frameworkRoot, List<string> dataRoots, string outDir, string? baselineDir,
-            bool updateBaseline, bool jsonOutput, int? runsOverride, string version)
+            bool updateBaseline, bool jsonOutput, int? runsOverride, string version,
+            bool progressEnabled, CancellationToken cancellationToken)
         {
             Directory.CreateDirectory(outDir);
 
@@ -231,14 +259,23 @@ namespace Toolchain.SimRunner
                 var scenario = runsOverride.HasValue ? original.WithRuns(runsOverride.Value) : original;
                 var shortId = ShortScenarioId(scenario.Id);
 
+                // 消费方反馈第 50 条：--progress 时才构造进度回调（同步直写 stderr，见
+                // ScenarioProgressWriter 判断记录），未传时为 null——零开销，与 Core.Sim 侧
+                // "progress 为 null 时零开销"同一惯例。cancellationToken 始终传递，Ctrl+C 才能真正
+                // 中止当前场景的仿真计算，不取决于是否要看进度行。
+                IProgress<SimProgress>? progress = progressEnabled ? new ScenarioProgressWriter(shortId) : null;
+
                 SimReport report = scenario.Kind switch
                 {
                     ScenarioKind.Arena => SimReport.FromArenaReport(
-                        ArenaSimulation.Run(scenario, anchors, dataSources), scenario, registry, version, runsOverride),
+                        ArenaSimulation.Run(scenario, anchors, dataSources, failOnUnknownTable: false, cancellationToken, progress),
+                        scenario, registry, version, runsOverride),
                     ScenarioKind.Growth => SimReport.FromGrowthReport(
-                        GrowthSimulation.Run(scenario, anchors, dataSources), scenario, registry, version, runsOverride),
+                        GrowthSimulation.Run(scenario, anchors, dataSources, failOnUnknownTable: false, cancellationToken, progress),
+                        scenario, registry, version, runsOverride),
                     ScenarioKind.Coverage => SimReport.FromCoverageReport(
-                        CoverageSimulation.Run(scenario, anchors, dataSources), scenario, registry, version, runsOverride),
+                        CoverageSimulation.Run(scenario, anchors, dataSources, failOnUnknownTable: false, cancellationToken, progress),
+                        scenario, registry, version, runsOverride),
                     _ => throw new InvalidOperationException($"未知场景 kind：{scenario.Kind}"),
                 };
 
@@ -339,6 +376,27 @@ namespace Toolchain.SimRunner
             }
 
             return new FileSystemDataSource(fs, full);
+        }
+
+        /// <summary>消费方反馈第 50 条（2026-09-17）：<c>--progress</c> 时向 stderr 同步写一行进度——
+        /// 不用 <see cref="System.Progress{T}"/>（它按构造时捕获的 <c>SynchronizationContext</c> 决定
+        /// 回调是否/何时投递，控制台程序通常没有同步上下文，退化为 <c>ThreadPool.QueueUserWorkItem</c>
+        /// 异步派发，会打乱进度行相对场景执行本身的先后顺序，也可能在进程即将退出时丢掉最后几行），
+        /// 本类型直接在调用线程同步写 <c>Console.Error</c>，与仿真计算逐次交替执行，顺序确定。</summary>
+        private sealed class ScenarioProgressWriter : IProgress<SimProgress>
+        {
+            private readonly string _scenarioShortId;
+
+            public ScenarioProgressWriter(string scenarioShortId)
+            {
+                _scenarioShortId = scenarioShortId;
+            }
+
+            public void Report(SimProgress value)
+            {
+                Console.Error.WriteLine(
+                    $"PROGRESS scenario={_scenarioShortId} stage={value.Stage} completed={value.Completed} total={value.Total}");
+            }
         }
 
         private readonly struct BootstrapPlayerClass

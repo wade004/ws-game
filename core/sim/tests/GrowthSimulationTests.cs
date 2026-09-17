@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Core.Foundation.Common;
 using Core.Sim;
 using Xunit;
@@ -216,6 +218,83 @@ namespace Tests.Sim
 
                 Assert.Equal(Math.Round(expected), xpToNext, precision: 0);
             }
+        }
+
+        // ===== 消费方反馈第 50 条（CancellationToken/IProgress）=====
+
+        private static (Core.Sim.HeadlessWorld World, ScenarioDef Scenario, System.Collections.Generic.IReadOnlyList<Core.Foundation.DataRegistry.IDataSource> DataSources)
+            BuildSmallScenario(int runs)
+        {
+            var world = SimTestWorldFactory.BuildFromEmbeddedDataset(seed: 1);
+            var scenario = world.ScenarioCatalog!.Get(new Id("sim.scenario.sim_growth_full")).WithRuns(runs);
+            var dataSources = SimTestWorldFactory.BuildEmbeddedDataSources();
+            return (world, scenario, dataSources);
+        }
+
+        [Fact]
+        public void Run_PreCancelledToken_ThrowsImmediately()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 2);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(
+                () => GrowthSimulation.Run(scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, cts.Token));
+        }
+
+        [Fact]
+        public void Run_CancelledMidway_ViaProgressCallback_ThrowsAndProducesNoResult()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 3);
+            using var cts = new CancellationTokenSource();
+            var progress = new RecordingProgress(p =>
+            {
+                if (p.Completed >= 1) cts.Cancel();
+            });
+
+            Assert.Throws<OperationCanceledException>(
+                () => GrowthSimulation.Run(scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, cts.Token, progress));
+        }
+
+        [Fact]
+        public void Run_NotCancelled_MatchesOldOverload_SameSeed()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 2);
+
+            var legacy = GrowthSimulation.Run(scenario, world.AnchorTable!, dataSources);
+            var viaNewOverload = GrowthSimulation.Run(
+                scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, CancellationToken.None, progress: null);
+
+            Assert.Equal(legacy.ToJson(), viaNewOverload.ToJson());
+        }
+
+        [Fact]
+        public void Run_Progress_ReportsOncePerSeed_MonotonicAndEndsAtTotal()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 2);
+            var reports = new List<SimProgress>();
+
+            GrowthSimulation.Run(
+                scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, CancellationToken.None,
+                new RecordingProgress(reports.Add));
+
+            Assert.Equal(2, reports.Count);
+            Assert.True(reports[0].Completed <= reports[1].Completed);
+            Assert.Equal(2, reports[^1].Total);
+            Assert.Equal(reports[^1].Total, reports[^1].Completed);
+            Assert.All(reports, r => Assert.Equal(GrowthSimulation.ProgressStageRun, r.Stage));
+        }
+
+        private sealed class RecordingProgress : IProgress<SimProgress>
+        {
+            private readonly Action<SimProgress> _callback;
+
+            public RecordingProgress(Action<SimProgress> callback)
+            {
+                _callback = callback;
+            }
+
+            public void Report(SimProgress value) => _callback(value);
         }
     }
 }

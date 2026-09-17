@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Core.Foundation.Common;
 using Core.Rules.Common;
 using Core.Sim;
@@ -192,6 +194,117 @@ namespace Tests.Sim
 
             Assert.Equal(2, accumulator.PlayerAttempts);
             Assert.Equal(1, accumulator.PlayerLanded);
+        }
+
+        // ===== 消费方反馈第 49 条（CaptureEvents）=====
+
+        [Fact]
+        public void CaptureEvents_Disabled_ReturnsEmptyNotNull()
+        {
+            var result = FightRunner.Run(BuildOptions(seed: 700));
+
+            Assert.NotNull(result.CapturedEvents);
+            Assert.Empty(result.CapturedEvents);
+            Assert.False(result.CapturedEventsTruncated);
+        }
+
+        [Fact]
+        public void CaptureEvents_Enabled_ProducesEntries_AndAggregatedResultUnchanged()
+        {
+            var withoutCapture = FightRunner.Run(BuildOptions(seed: 701));
+
+            var optionsWithCapture = BuildOptions(seed: 701);
+            optionsWithCapture.CaptureEvents = true;
+            var withCapture = FightRunner.Run(optionsWithCapture);
+
+            Assert.NotEmpty(withCapture.CapturedEvents);
+            Assert.False(withCapture.CapturedEventsTruncated);
+            Assert.Contains(withCapture.CapturedEvents, e => e.Category == FightLogEventCategory.Damage);
+
+            // 判断记录（开启与否聚合结果必须完全一致）：CaptureEvents 只新增一份独立的事件日志，
+            // 不触碰任何既有聚合字段的计算路径，见 FightAccumulator.AccumulateCapturedEvents 判断记录。
+            Assert.Equal(withoutCapture.Outcome, withCapture.Outcome);
+            Assert.Equal(withoutCapture.TicksUsed, withCapture.TicksUsed);
+            Assert.Equal(withoutCapture.PlayerTotalDamage, withCapture.PlayerTotalDamage, precision: 9);
+            Assert.Equal(withoutCapture.CreatureTotalDamage, withCapture.CreatureTotalDamage, precision: 9);
+            Assert.Equal(withoutCapture.PlayerHitRate, withCapture.PlayerHitRate, precision: 9);
+            Assert.Equal(withoutCapture.CreatureHitRate, withCapture.CreatureHitRate, precision: 9);
+        }
+
+        [Fact]
+        public void CaptureEvents_MaxCapturedEvents_TruncatesAndSetsFlag()
+        {
+            var options = BuildOptions(seed: 702);
+            options.CaptureEvents = true;
+            options.MaxCapturedEvents = 1;
+            var result = FightRunner.Run(options);
+
+            Assert.True(result.CapturedEventsTruncated);
+            Assert.True(result.CapturedEvents.Count <= 1);
+        }
+
+        // ===== 消费方反馈第 50 条（CancellationToken/IProgress）=====
+
+        [Fact]
+        public void Run_PreCancelledToken_ThrowsImmediately()
+        {
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => FightRunner.Run(BuildOptions(seed: 800), cts.Token));
+        }
+
+        [Fact]
+        public void Run_CancelledDuringProgressCallback_ThrowsAndProducesNoResult()
+        {
+            using var cts = new CancellationTokenSource();
+            var progress = new Progress2(p => cts.Cancel());
+
+            Assert.Throws<OperationCanceledException>(
+                () => FightRunner.Run(BuildOptions(seed: 801), cts.Token, progress));
+        }
+
+        [Fact]
+        public void Run_NotCancelled_MatchesOldOverload_SameSeed()
+        {
+            var legacy = FightRunner.Run(BuildOptions(seed: 802));
+            var viaNewOverload = FightRunner.Run(BuildOptions(seed: 802), CancellationToken.None, progress: null);
+
+            Assert.Equal(legacy.Outcome, viaNewOverload.Outcome);
+            Assert.Equal(legacy.TicksUsed, viaNewOverload.TicksUsed);
+            Assert.Equal(legacy.PlayerTotalDamage, viaNewOverload.PlayerTotalDamage, precision: 9);
+            Assert.Equal(legacy.CreatureTotalDamage, viaNewOverload.CreatureTotalDamage, precision: 9);
+        }
+
+        [Fact]
+        public void Run_Progress_ReportsMonotonicSequence_EndingAtTotal()
+        {
+            var reports = new List<SimProgress>();
+            var progress = new Progress2(reports.Add);
+
+            FightRunner.Run(BuildOptions(seed: 803), CancellationToken.None, progress);
+
+            Assert.NotEmpty(reports);
+            for (var i = 1; i < reports.Count; i++)
+            {
+                Assert.True(reports[i].Completed >= reports[i - 1].Completed, "进度序列应单调不减");
+            }
+            Assert.Equal(reports[^1].Total, reports[^1].Completed);
+        }
+
+        /// <summary>本测试文件不引用 <see cref="System.Progress{T}"/>（其按 <c>SynchronizationContext</c>
+        /// 决定回调投递时机，可能异步，测试里需要同步、确定性的回调），改用这个最小的同步
+        /// <see cref="IProgress{T}"/> 实现——直接在调用线程同步执行回调。</summary>
+        private sealed class Progress2 : IProgress<SimProgress>
+        {
+            private readonly Action<SimProgress> _callback;
+
+            public Progress2(Action<SimProgress> callback)
+            {
+                _callback = callback;
+            }
+
+            public void Report(SimProgress value) => _callback(value);
         }
     }
 }

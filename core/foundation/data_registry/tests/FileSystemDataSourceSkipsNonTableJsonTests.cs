@@ -139,6 +139,40 @@ namespace Tests.Foundation.Data
             Assert.Contains(tables, t => t.TableName == "shell_menu_definition");
         }
 
+        /// <summary>消费方反馈第 51 条（2026-09-17，core/sim 线程安全与并发排查）根治的回归测试：
+        /// 此前 <c>ListTables()</c> 在共享的 <c>_skippedNonTableFiles</c> 字段上做 <c>Clear()</c>+
+        /// 逐条 <c>Add()</c>，同一个 <see cref="FileSystemDataSource"/> 实例被多个线程并发调用
+        /// <c>ListTables()</c> 时会在同一个 <c>List&lt;T&gt;</c> 上产生数据竞争（可能抛异常或损坏内部
+        /// 状态，不只是"读到过期值"）。本用例并发调用同一实例的 <c>ListTables()</c> 数十次，断言
+        /// 不抛异常、且每次返回的 <c>tables</c>（实际装载用的返回值，本就是每次调用新建的局部变量，
+        /// 从未受这个字段影响）逐次结果一致——回归修复前用 <c>List&lt;T&gt;</c> 直接跑本用例在本地
+        /// 多次运行能稳定复现 <c>ArgumentException</c>/<c>IndexOutOfRangeException</c> 或计数不稳定，
+        /// 修复后（改为一次性整体替换 <see cref="IReadOnlyList{T}"/> 引用）恒定通过。</summary>
+        [Fact]
+        public void ListTables_CalledConcurrentlyOnSameInstance_DoesNotThrow_AndTableListIsStable()
+        {
+            var fs = new StubFileSystem();
+            fs.WriteTextAtomic("root/arch/arch.class.json", ValidEnvelope);
+            fs.WriteTextAtomic("root/package.json", "{\"name\": \"com.example.game\", \"version\": \"1.0.0\"}");
+            var source = new FileSystemDataSource(fs, "root");
+
+            const int degree = 16;
+            const int iterationsPerThread = 50;
+            var results = new System.Collections.Concurrent.ConcurrentBag<int>();
+
+            System.Threading.Tasks.Parallel.For(0, degree, _ =>
+            {
+                for (var i = 0; i < iterationsPerThread; i++)
+                {
+                    var tables = source.ListTables();
+                    results.Add(tables.Count);
+                }
+            });
+
+            Assert.All(results, count => Assert.Equal(1, count));
+            Assert.Equal(degree * iterationsPerThread, results.Count);
+        }
+
         private static string FindRepoRoot([System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
         {
             // 本源文件固定位于 <repoRoot>/core/foundation/data_registry/tests/FileSystemDataSourceSkipsNonTableJsonTests.cs，

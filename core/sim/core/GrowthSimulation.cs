@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Core.Carriers.Common;
 using Core.Carriers.Item;
 using Core.Foundation.Common;
@@ -286,9 +287,29 @@ namespace Core.Sim
         private static readonly Vec2 CreatureSpawnOffset = new Vec2(3, 0);
         private static readonly Id KillIntervalRestSourceId = new Id("sim.growth_kill_interval_rest");
 
+        /// <summary>消费方反馈第 50 条（2026-09-17）：唯一外层迭代边界（按种子/<c>runIndex</c>）上报的
+        /// 阶段标识。</summary>
+        public const string ProgressStageRun = "growth.run";
+
         public static GrowthReport Run(
             ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
-            bool failOnUnknownTable = false)
+            bool failOnUnknownTable = false) =>
+            Run(scenario, anchors, dataSources, failOnUnknownTable, CancellationToken.None, progress: null);
+
+        /// <summary>消费方反馈第 50 条（2026-09-17）新增重载：携带 <see cref="CancellationToken"/>/
+        /// <see cref="IProgress{SimProgress}"/>——ABI 只新增，旧的四参数 <see cref="Run(ScenarioDef,AnchorTable,IReadOnlyList{IDataSource},bool)"/>
+        /// 保留、内部转调本重载并传 <c>default</c>/<c>null</c>，行为完全不变。取消检查点/进度上报点均
+        /// 落在唯一的外层迭代边界——种子循环（<c>runIndex</c>，与 <see cref="ArenaSimulation"/> 的
+        /// "矩阵格子"、<see cref="CoverageSimulation"/> 的"技能/装备/生物遍历项"同一颗粒度），不下探到
+        /// <see cref="RunOnce"/> 内部的等级/击杀循环或 <see cref="FightRunner.RunWithinWorld"/> 的 tick
+        /// 循环——本次改动范围明确限定在 <see cref="Run"/> 入口与其种子循环本身（<see cref="RunOnce"/>
+        /// 未改动一行，避免与同期改动 <see cref="ResolveCreatureFamily"/>/<see
+        /// cref="ResolveCreatureTemplateForLevel"/> 的另一条并行任务产生合并冲突），取消延迟因此以
+        /// "一个种子的完整成长轨迹耗时"计——比 <see cref="ArenaSimulation"/>/<see cref="FightRunner"/>
+        /// 粗一个数量级，是本次拍板明确接受的已知限制，非缺陷。</summary>
+        public static GrowthReport Run(
+            ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
+            bool failOnUnknownTable, CancellationToken cancellationToken, IProgress<SimProgress>? progress = null)
         {
             if (scenario == null) throw new ArgumentNullException(nameof(scenario));
             if (anchors == null) throw new ArgumentNullException(nameof(anchors));
@@ -306,6 +327,8 @@ namespace Core.Sim
                 throw new ArgumentException("GrowthSimulation.Run：scenario.LevelFrom/LevelTo 均不能为空。", nameof(scenario));
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             var levelFrom = scenario.LevelFrom.Value;
             var levelTo = scenario.LevelTo.Value;
 
@@ -317,6 +340,8 @@ namespace Core.Sim
 
             for (var runIndex = 0; runIndex < scenario.Runs; runIndex++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, levelFrom, runIndex, 0);
                 var run = RunOnce(scenario, anchors, dataSources, seed, failOnUnknownTable);
                 perRunSamples.Add(run.Levels);
@@ -324,6 +349,8 @@ namespace Core.Sim
                 xpViaEvents.Add(run.CumulativeXpGrantedViaEvents);
                 goldViaBalance.Add(run.CumulativeGoldViaBalance);
                 goldViaEvents.Add(run.CumulativeGoldViaEvents);
+
+                progress?.Report(new SimProgress(ProgressStageRun, runIndex + 1, scenario.Runs));
             }
 
             var mergedLevels = MergeLevelSamples(scenario, perRunSamples, levelFrom, levelTo);
