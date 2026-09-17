@@ -82,6 +82,29 @@ namespace Core.Numbers.PowerSet
         void SetInCombat(Id unitId, bool inCombat);
 
         /// <summary>
+        /// 消费方反馈-2026-09-17（读档触发脱战回满）根治新增：存档/回滚恢复专用的"纯赋值"入口——
+        /// 只设置进出战布尔状态，不触发 <see cref="SetInCombat"/> 那条"true→false 时对
+        /// <c>refill_on_leave_combat</c> 为真的资源类型立即回满"业务副作用，也不发任何事件。
+        /// <see cref="Core.Rules.Combat.CombatHost.RestoreCombatState"/>（存档读档/回滚恢复战斗态的
+        /// 唯一入口）改调用本方法而不是 <see cref="SetInCombat"/>，避免读档/回滚把"运行期状态恰好
+        /// 是 true、存档快照是 false"误判为一次真实脱战，覆盖掉刚从存档恢复的资源当前值（真实探针
+        /// 复现：存档 health=37，读档后被回满成 100，见 <see cref="Core.Numbers.PowerSet.PowerHost"/>
+        /// 同名成员判断记录）。
+        /// <para>
+        /// 判断记录（默认实现，C#8 默认接口方法，ABI 门禁 G3"公开 API 只能新增"，惯例同 <see
+        /// cref="RefillAll"/>/<see cref="TryGetPower"/>）：默认体回落为调用 <see cref="SetInCombat"/>
+        /// ——本接口除 <see cref="Core.Numbers.PowerSet.PowerHost"/>（显式覆盖为真正的纯赋值实现）外
+        /// 目前没有其它生产实现，其它实现方（测试假实现）新增本成员不构成编译破坏；对它们而言调用
+        /// 本方法与调用 <see cref="SetInCombat"/> 效果一致（不比修复前更差），它们本就不是本次缺陷
+        /// 涉及的存档恢复路径的真实消费方。<b>不能</b>把默认体设计成真正的纯赋值——接口层面没有可
+        /// 直接读写的进出战字段，唯一现成手段就是 <see cref="SetInCombat"/> 本身，因此默认体无法在
+        /// 不重新引入本次要修复的副作用的前提下做到"纯赋值"，这正是本方法必须要求
+        /// <see cref="Core.Numbers.PowerSet.PowerHost"/> 显式覆盖的原因。
+        /// </para>
+        /// </summary>
+        void RestoreInCombat(Id unitId, bool inCombat) => SetInCombat(unitId, inCombat);
+
+        /// <summary>
         /// 按 <paramref name="timeUnits"/>（以数据集声明的时间单位计，见 04 第 3.1 节）推进单个
         /// 单位全部已注册资源的回复/衰减：按注册顺序遍历资源类型，每种资源先应用回复（战斗内/
         /// 脱战速率二选一）再应用衰减（只在脱战时生效），保证确定性。<paramref name="timeUnits"/>

@@ -292,8 +292,19 @@ namespace Core.Gameplay.Assembly
         /// C11-RELOAD 根治新增：把 <paramref name="inCombat"/> 写回"进出战斗状态的唯一来源"——已注入
         /// <see cref="CombatHost"/>（生产装配路径）时经 <see cref="CombatHost.RestoreCombatState"/>
         /// 写入（同时同步 <see cref="PowerHost"/>，见该方法判断记录）；未注入（旧两参构造函数，源码
-        /// 兼容路径）时退回直接调用 <see cref="IPowerHost.SetInCombat"/> 的旧行为，见构造函数判断
-        /// 记录。
+        /// 兼容路径）时退回直接调用 <see cref="PowerHost.RestoreInCombat"/>。
+        /// <para>
+        /// 消费方反馈-2026-09-17（读档触发脱战回满）根治：未注入 <see cref="CombatHost"/> 分支此前
+        /// 调用的是 <see cref="IPowerHost.SetInCombat"/>——与 <see cref="CombatHost.RestoreCombatState"/>
+        /// 修复前的同一缺陷：存档恢复不是一次真实脱战，若调用前运行期状态恰好是 <c>true</c>、
+        /// <paramref name="inCombat"/> 是 <c>false</c>，会被误判为真实脱战并对
+        /// <c>refill_on_leave_combat=true</c> 的资源类型回满，覆盖掉刚恢复的当前值（同
+        /// <see cref="PowerHost.RestoreInCombat"/> 判断记录"真实探针复现"一节）。改调用
+        /// <see cref="PowerHost.RestoreInCombat"/> 后与已注入 <see cref="CombatHost"/> 的生产路径
+        /// 行为一致（都是纯赋值，不触发回满），只是不会同步 <see cref="CombatHost"/> 自己的
+        /// <c>_inCombat</c> 登记表（旧两参构造函数本就没有 <see cref="CombatHost"/> 引用可同步，
+        /// 这不是本次修复引入的新分歧，见构造函数判断记录）。
+        /// </para>
         /// </summary>
         private void RestoreInCombat(bool inCombat)
         {
@@ -303,7 +314,7 @@ namespace Core.Gameplay.Assembly
             }
             else
             {
-                _powers.SetInCombat(_player.EntityId, inCombat);
+                _powers.RestoreInCombat(_player.EntityId, inCombat);
             }
         }
     }

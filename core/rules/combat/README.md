@@ -379,6 +379,31 @@ combat/
       开关为假不移除 1 组、开关为真但 `MountAuraDispelType` 未配置不移除 1 组、委托未接线不
       抛异常 1 组、已在战不重复移除 1 组）。
 
+21. **消费方反馈-2026-09-17（读档触发脱战回满）根治：`RestoreCombatState` 改调用
+    `IPowerHost.RestoreInCombat`，不再调用 `IPowerHost.SetInCombat`（判断记录 17 遗留缺陷）。**
+    判断记录 17 当初把"存档恢复战斗态"路由到 `IPowerHost.SetInCombat` 上，并在方法注释里断言
+    "本方法本身不做这一步，只管赋值"——这个假设是**错误**的：`SetInCombat` 从诞生起就同时承担
+    "设置进出战布尔状态"与"true→false 时对 `refill_on_leave_combat` 为真的资源类型立即回满"两件事
+    （见 `core/numbers/power_set/README.md` 判断记录，脱战回满是给"真实战斗结束"设计的玩法语义）。
+    存档/回滚恢复不是一次真实脱战：若调用 `RestoreCombatState` 前运行期状态恰好是 `true`、存档/
+    回滚快照写的是 `false`，会被误判为真实脱战，把 `player.vitals` 段刚用存档值 `ModifyPower`
+    恢复好的当前值覆盖为资源上限（真实探针复现：存档 `health=37`，读档前运行期 `in_combat=true`，
+    存档 `in_combat=false`，读档后 `health` 被回满成 `100`；框架默认数据 `arch.power.health` 自
+    `v1.33.0`（ADR-0031）起 `refill_on_leave_combat=true`，该缺陷因此从潜伏变为默认可见）。新增
+    `IPowerHost.RestoreInCombat(unitId, inCombat)`（C#8 默认接口方法，默认体回落为调用
+    `SetInCombat`，`PowerHost` 显式覆盖为真正的纯赋值——见该类型同名成员判断记录），`RestoreCombatState`
+    改调用它，`CombatHost` 自身 `_inCombat` 的写入逻辑不变。`PlayerVitalsPersistable` 旧两参构造
+    函数兜底分支（`_combat == null`，源码兼容路径，`Load` 内部私有 `RestoreInCombat` 方法 else 分支）
+    同款缺陷一并修，改调用 `PowerHost.RestoreInCombat`。见回归测试：
+    `core/gameplay/assembly/tests/C11_LifecycleReloadTests.cs`
+    （`SameMapLoad_RefillOnLeaveCombatEnabled_DoesNotOverwriteRestoredHealth`）与
+    `core/gameplay/assembly/tests/CORE_170_03_SaveRollbackEventSuppressionTests.cs`
+    （`Rollback_AfterCrossSectionFailure_RestoresHealthAndCombatState_WithoutLeaveCombatRefill`，
+    覆盖旧两参构造函数分支）；`core/numbers/power_set/tests/PowerHostTests.cs` 新增
+    `RestoreInCombat_TrueToFalse_DoesNotRefill_EvenWhenConfigured` 覆盖 `PowerHost.RestoreInCombat`
+    本体；既有"真实脱战仍回满"对照用例（`SetInCombat_LeavingCombat_RefillsWhenConfigured` 等）未改动，
+    仍全部通过——本次修复只新增一条不触发回满的入口，不改 `SetInCombat` 本体逻辑。
+
 ## 深度复审 A-S1 修复（2026-09-16）：`Resolver.BuildDamageTakenStatIds` 去重结果缓存
 
 - **背景**：深度复审（N0～N6 数值设计专项）发现 T-N1-7 新增的 `Resolver.BuildDamageTakenStatIds`

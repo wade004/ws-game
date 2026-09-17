@@ -50,9 +50,15 @@ namespace Tests.Gameplay.Assembly
             "[{\"id\": \"stat.power\", \"name_key\": \"l10n.stat.power.name\", \"group\": \"primary\", \"default_base\": 1}," +
             "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.max_health.name\", \"group\": \"primary\", \"default_base\": 100}]";
 
+        // 消费方反馈-2026-09-17（读档触发脱战回满）根治：显式打开 refill_on_leave_combat（框架默认
+        // 数据自 v1.33.0/ADR-0031 起对 arch.power.health 就是这个值）——本文件既有两条用例均不触碰
+        // 进出战斗状态（无 SetInCombat/RestoreCombatState 调用），打开该字段对它们零影响，只是让新增
+        // 的回滚回归用例（见下方 Rollback_AfterCrossSectionFailure_RestoresHealthAndCombatState_
+        // WithoutLeaveCombatRefill）能在与生产默认一致的数据下复现缺陷。
         private const string PowerTypeRows =
             "[{\"id\": \"arch.power.health\", \"name_key\": \"l10n.power.health.name\", " +
-            "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"}, \"start_full\": true}]";
+            "\"max_source\": {\"kind\": \"stat\", \"stat\": \"stat.max_health\"}, \"start_full\": true, " +
+            "\"refill_on_leave_combat\": true}]";
 
         private const string ArchClassRows =
             "[{\"id\": \"" + "arch.class.core_170_03_sample" + "\", \"name_key\": \"l10n.arch.class.core_170_03_sample.name\", " +
@@ -239,6 +245,72 @@ namespace Tests.Gameplay.Assembly
             var finalUnlocked = fx.Gameplay.Achievement.IsUnlocked(PlayerId, AchievementId);
             Assert.Equal(achievementBefore, finalAchievement);
             Assert.False(finalUnlocked);
+        }
+
+        /// <summary>
+        /// 消费方反馈-2026-09-17（读档触发脱战回满）根治新增：回滚场景同类用例——回滚后战斗态与
+        /// 资源值均应恢复到 Load 前快照，不应该因为回滚重放 <c>player.vitals</c> 段的 <c>Load</c>
+        /// 而产生脱战回满副作用。同时覆盖 <see cref="PlayerVitalsPersistable"/> 旧两参构造函数兜底
+        /// 分支（<c>combat: null</c>，同上面 <see
+        /// cref="Rollback_AfterCrossSectionFailure_RestoresDerivedState_AndDoesNotPolluteAchievementCounter"/>
+        /// 同款用法）——该分支修复前直接调用 <c>IPowerHost.SetInCombat</c>，与
+        /// <c>CombatHost.RestoreCombatState</c> 修复前是同一类缺陷。
+        /// <para>
+        /// 复现时序：①读档前运行期快照 health=37、in_combat=false（<c>SaveSystem.Load</c> 开始前对
+        /// 全部已注册段调用一次 <c>Save()</c> 留的 <c>preLoadSnapshots</c>）。②存档本体
+        /// health=80、in_combat=true——第一遍正向 Load 把运行期 in_combat 从 false 推进战
+        /// （false→true，不触发脱战回满，回满只在 true→false 那一次生效）。③后续段抛异常，
+        /// <c>SaveSystem</c> 用 ①的快照对 <c>player.vitals</c> 重新调用一次 <c>Load</c> 做回滚：
+        /// 这次调用内部顺序是"先把 health 绝对值恢复成 37，再把 in_combat 从②遗留的 true 改回
+        /// false"——根治前，改回 false 这一步复用 <c>IPowerHost.SetInCombat</c>，被误判为一次真实
+        /// 脱战，将刚恢复好的 37 再次回满成上限 100（真实探针复现的正是这条链路，只是本用例把它
+        /// 安排在"回滚"这一步而不是"正向读档"那一步，验证修复覆盖两条路径）。
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void Rollback_AfterCrossSectionFailure_RestoresHealthAndCombatState_WithoutLeaveCombatRefill()
+        {
+            var fx = Build();
+
+            var maxBefore = fx.Gameplay.Carriers.Rules.Powers.GetPowerMax(PlayerId, Health); // 100：本用例未装备任何加成。
+
+            // ①读档前运行期快照：health=37，未在战。
+            fx.Gameplay.Carriers.Rules.Powers.ModifyPower(
+                PlayerId, Health, 37 - fx.Gameplay.Carriers.Rules.Powers.GetPower(PlayerId, Health), new Id("probe.fill"));
+            Assert.Equal(37.0, fx.Gameplay.Carriers.Rules.Powers.GetPower(PlayerId, Health));
+            Assert.False(fx.Gameplay.Carriers.Rules.Powers.IsInCombat(PlayerId));
+
+            var fs = new StubFileSystem();
+            var save = new SaveSystem(fs, new SaveSystemOptions(new Id("game.core_170_03_probe")), fx.Bus);
+            // 旧两参构造函数兜底路径（combat: null）——见类型判断记录。
+            var vitalsPersistable = new PlayerVitalsPersistable(fx.Player, fx.Gameplay.Carriers.Rules.Powers);
+            save.RegisterPersistable(vitalsPersistable);
+            save.RegisterPersistable(new ThrowingPersistable());
+
+            // ②存档本体：health=80，in_combat=true。
+            var malformed = new JsonObjectBuilder()
+                .Add("save_version", new JsonNumber(1))
+                .Add("sections", new JsonObjectBuilder()
+                    .Add("meta", Meta("slot.core_170_03_refill_rollback"))
+                    .Add("player.vitals", new JsonObjectBuilder()
+                        .Add("alive", JsonBool.True)
+                        .Add("health", new JsonNumber(80))
+                        .Add("in_combat", JsonBool.True)
+                        .Build())
+                    .Add("zz.core_170_03_probe_failure", new JsonString("boom"))
+                    .Build())
+                .Build();
+            fs.WriteTextAtomic("user://saves/slot.core_170_03_refill_rollback.json", JsonWriter.Write(malformed));
+
+            var result = save.Load(new Id("slot.core_170_03_refill_rollback"));
+
+            Assert.Equal(LoadStatus.PersistableThrew, result.Status);
+
+            // 核心断言：回滚后应恢复到①的快照（37 / 非战斗），不应被③里"改回 false"这一步误触发的
+            // 脱战回满覆盖为上限。
+            Assert.Equal(37.0, fx.Gameplay.Carriers.Rules.Powers.GetPower(PlayerId, Health));
+            Assert.Equal(maxBefore, fx.Gameplay.Carriers.Rules.Powers.GetPowerMax(PlayerId, Health));
+            Assert.False(fx.Gameplay.Carriers.Rules.Powers.IsInCombat(PlayerId), "回滚应恢复到读档前的非战斗状态");
         }
 
         /// <summary>坏 shape：<c>player.equipment</c> 段本身不是 JSON 对象（真实探针

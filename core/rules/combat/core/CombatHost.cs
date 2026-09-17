@@ -160,24 +160,40 @@ namespace Core.Rules.Combat
         /// C11-RELOAD 根治新增：把该单位的进出战斗状态显式置为 <paramref name="inCombat"/>——<see
         /// cref="CombatHost"/> 自身的 <see cref="_inCombat"/> 是"是否在战"的唯一来源（见本类型注释、
         /// 消费方反馈第 2 项判断记录），本方法同时按既有惯例（<see cref="NotifyCombatEvent"/>/<see
-        /// cref="Update"/> 两处既有写法）把同一份值同步进 <see cref="IPowerHost"/>（脱战/在战回复速率
-        /// 切换依赖 <see cref="IPowerHost.SetInCombat"/>），保证两者读到的值恒一致，不再需要调用方
-        /// （<c>PlayerVitalsPersistable.Load</c>）绕开本类型直接调用 <see cref="IPowerHost.SetInCombat"/>。
+        /// cref="Update"/> 两处既有写法）把同一份值同步进 <see cref="IPowerHost"/>，保证两者读到的值
+        /// 恒一致，不再需要调用方（<c>PlayerVitalsPersistable.Load</c>）绕开本类型直接调用
+        /// <see cref="IPowerHost"/>。
+        /// <para>
+        /// 消费方反馈-2026-09-17（读档触发脱战回满）根治：同步 <see cref="IPowerHost"/> 这一步改调用
+        /// <see cref="IPowerHost.RestoreInCombat"/>，不再调用 <see cref="IPowerHost.SetInCombat"/>——
+        /// 此前这里写的"本方法本身不做这一步，只管赋值"是一个错误假设：<see
+        /// cref="IPowerHost.SetInCombat"/> 从来不是纯赋值方法，它在 true→false 转换时会对
+        /// <c>refill_on_leave_combat=true</c> 的资源类型立即回满（脱战奖励/惩罚这一真实玩法语义），
+        /// 而本方法服务的"存档恢复/回滚恢复"场景不是一次真实脱战——若调用本方法前运行期状态恰好是
+        /// <c>true</c>、而 <paramref name="inCombat"/>（存档/回滚快照值）是 <c>false</c>，复用
+        /// <see cref="IPowerHost.SetInCombat"/> 就会被误判为真实脱战，把刚恢复好的资源当前值（本方法
+        /// 调用前，<c>PlayerVitalsPersistable.Load</c> 已经用存档值 <see
+        /// cref="IPowerHost.ModifyPower"/> 覆盖过一次）再次覆盖为 <see cref="PowerTypeDefinition.MaxFixedValue"/>
+        /// 一类的资源上限（真实探针复现：存档 health=37，读档前运行期 in_combat=true，存档
+        /// in_combat=false，读档后 health 被回满成 100）。<see cref="IPowerHost.RestoreInCombat"/> 是
+        /// 专为这条恢复路径新增的纯赋值入口（见该方法判断记录），现在这句注释才真正成立。
+        /// </para>
         /// 不发布 <see cref="CombatEnteredEvent"/>/<see cref="CombatLeftEvent"/>——读档不是一次业务
         /// 事件（同本仓库既有"读档不重发业务事件"惯例，调用方本就处于 <c>IEventBus.SuppressDispatch</c>
         /// 作用域内）。调用前应先调用 <see cref="ClearCombatState"/>（见调用方恢复顺序契约：先清空、
-        /// 再恢复），本方法本身不做这一步，只管赋值。<paramref name="unitId"/> 当前不存在于世界模拟中
+        /// 再恢复），本方法本身不做这一步。<paramref name="unitId"/> 当前不存在于世界模拟中
         /// （<see cref="IUnitAccess.Exists"/> 为 false）时仍会写入 <see cref="_inCombat"/>（字典本身
         /// 不要求单位存在），但跳过 <see cref="IPowerHost"/> 同步这一步——避免重现 <see
         /// cref="NotifyCombatEvent"/> 判断记录"直接调用 IPowerHost.SetInCombat 对已注销单位会抛
-        /// InvalidOperationException"那个崩溃路径。
+        /// InvalidOperationException"那个崩溃路径（<see cref="IPowerHost.RestoreInCombat"/> 同样要求
+        /// 单位已注册，同一防御逻辑继续适用）。
         /// </summary>
         public void RestoreCombatState(Id unitId, bool inCombat)
         {
             _inCombat[unitId] = inCombat;
             if (_units.Exists(unitId))
             {
-                _powers.SetInCombat(unitId, inCombat);
+                _powers.RestoreInCombat(unitId, inCombat);
             }
         }
 

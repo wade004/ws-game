@@ -43,6 +43,9 @@ power_set/
   `power.depleted`（只在从大于 min 变为等于 min 的那一次）。
 - `SetInCombat(unitId, inCombat)`：脱战瞬间对 `refill_on_leave_combat` 的资源回满（见 06 第
   4.5 节"资源回复规则切换（如脱战自动回满）"）。
+- `RestoreInCombat(unitId, inCombat)`（消费方反馈-2026-09-17 新增默认接口成员，见下方判断记录
+  9）：存档/回滚恢复专用的纯赋值入口，只设置进出战布尔状态，不触发 `SetInCombat` 的脱战回满
+  副作用、不发事件。
 - `RefillAll(unitId, sourceId)`（T-N4-5 新增默认接口成员）：升级回满——把该单位全部
   `start_full=true` 的回复型资源回满到上限，积累型资源（`start_full=false`）不动，见下方判断
   记录"升级回满"。
@@ -79,6 +82,30 @@ power_set/
 6. **`SetCurrentClamped` 是 `ModifyPower`/脱战回满/`RecomputeMax` 上限夹取三处共用的唯一"落值
    +发事件"入口**——保证"值变化才发 `power.changed`""触底只发一次 `power.depleted`"这两条
    规则在三个调用点上行为完全一致，不出现只有部分路径遵守规则的情形。
+9. **消费方反馈-2026-09-17（读档触发脱战回满）根治：新增 `RestoreInCombat`，与 `SetInCombat`
+   彻底分离业务语义**——`SetInCombat` 从诞生起就同时承担"设置进出战布尔状态"与"true→false 时
+   对 `refill_on_leave_combat` 为真的资源类型立即回满"两件事；`core/rules/combat.CombatHost.
+   RestoreCombatState`（C11-RELOAD，判断记录见该模块 README 判断记录 17）为了让读档后
+   `CombatHost.IsInCombat` 与 `PowerHost.IsInCombat` 保持一致，此前复用了 `SetInCombat` 同步
+   `IPowerHost`，但存档/回滚恢复不是一次真实脱战：若恢复前运行期状态恰好是 `true`、存档快照是
+   `false`，会被误判为真实脱战，把 `player.vitals` 段刚用存档值恢复好的当前值覆盖为资源上限
+   （真实探针复现：存档 `health=37`，读档前运行期 `in_combat=true`，存档 `in_combat=false`，
+   读档后 `health` 被回满成 `100`；框架默认数据 `arch.power.health` 自 v1.33.0（ADR-0031）起
+   `refill_on_leave_combat=true`，该缺陷因此从潜伏变为默认可见，影响版本范围约 v1.33.0～v1.39.0）。
+   `RestoreInCombat(unitId, inCombat)` 只做 `RequireUnit(unitId).InCombat = inCombat;` 一行赋值，
+   不遍历资源类型、不调用 `SetCurrentClamped`、不触发回满、不发事件——语义类比
+   `core/gameplay/economy.EconomyHost.SetBalance`（"读档等以快照为准场景，整体替换，不触发 `Add`
+   那条业务事件路径"，见该方法判断记录），本仓库已有先例是"恢复"与"业务操作"即便改的是同一份
+   底层状态，也应该是两个不共享副作用逻辑的独立入口。以 C#8 默认接口方法新增到 `IPowerHost`
+   （默认体回落为调用 `SetInCombat`，`PowerHost` 显式覆盖为真正的纯赋值），因为唯一生产消费方
+   `CombatHost` 持有的字段类型是接口 `IPowerHost` 而非具体 `PowerHost`，必须经接口才能调用；
+   其它 `IPowerHost` 实现方（测试假类型）不覆盖时行为与本次改动前一致，不构成编译或行为破坏。
+   `core/gameplay/assembly.PlayerVitalsPersistable` 旧两参构造函数兜底分支（`_combat == null`）
+   同款缺陷一并修，改调用本方法。既有"真实脱战仍回满"对照测试
+   （`SetInCombat_LeavingCombat_RefillsWhenConfigured`/`SetInCombat_LeavingCombat_
+   DoesNotRefillWhenNotConfigured`）未改动、仍全部通过——本次修复只新增一条不触发回满的入口，
+   不改 `SetInCombat` 本体逻辑。新增回归测试
+   `RestoreInCombat_TrueToFalse_DoesNotRefill_EvenWhenConfigured`。
 
 ## T-N4-5：升级回满（`RefillAll`）
 
