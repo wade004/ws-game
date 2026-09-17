@@ -54,6 +54,17 @@ namespace Core.Foundation.DataRegistry
         /// 为 null。</summary>
         public string? RuleId { get; }
 
+        private static readonly string[] NoAffectedNodeIds = Array.Empty<string>();
+
+        /// <summary>消费方反馈第 57 条（2026-09-18）新增：本条问题涉及的图节点 id 列表，默认空集合
+        /// （不是 null，调用方不需要额外 null 检查）。跨节点路径类诊断（如
+        /// <c>story_tree_cycle</c>/<c>quest_prerequisite_cycle</c>/<c>talent_prerequisite_cycle</c>
+        /// 成环诊断）按环上出现顺序填入环上全部节点 id；单节点类诊断（如
+        /// <c>story_tree_duplicate_node_id</c>/<c>story_tree_dangling_next_node</c>/
+        /// <c>quest_prerequisite_unknown</c>/<c>talent_prerequisite_missing</c>）填入该节点自身 id。
+        /// 只新增只读属性 + 新构造重载，不改既有构造函数签名与相等性语义（ABI 只新增）。</summary>
+        public IReadOnlyList<string> AffectedNodeIds { get; }
+
         public ValidationIssue(
             ValidationSeverity severity,
             string table,
@@ -78,6 +89,25 @@ namespace Core.Foundation.DataRegistry
             string? group,
             string? note,
             string? ruleId)
+            : this(severity, table, check, message, recordKey, field, group, note, ruleId, affectedNodeIds: null)
+        {
+        }
+
+        /// <summary>消费方反馈第 57 条新增的十参数构造：<paramref name="affectedNodeIds"/> 为 null 时
+        /// 落到共享的空数组单例（同一实例，保证未显式传入该字段的既有调用点两两之间的值相等语义不受
+        /// 影响——两侧都引用同一个 <see cref="NoAffectedNodeIds"/>）。同上一处判断记录，不写成可选
+        /// 参数，避免与九参数构造函数产生重载二义性。</summary>
+        public ValidationIssue(
+            ValidationSeverity severity,
+            string table,
+            string check,
+            string message,
+            string? recordKey,
+            string? field,
+            string? group,
+            string? note,
+            string? ruleId,
+            IReadOnlyList<string>? affectedNodeIds)
         {
             Severity = severity;
             Table = table ?? throw new ArgumentNullException(nameof(table));
@@ -88,14 +118,25 @@ namespace Core.Foundation.DataRegistry
             Group = group;
             Note = note;
             RuleId = ruleId;
+            AffectedNodeIds = affectedNodeIds ?? NoAffectedNodeIds;
         }
 
-        /// <summary>返回一份 <see cref="RuleId"/> 换成 <paramref name="ruleId"/>、其余字段不变的副本
-        /// （值类型，原实例不受影响）。<see cref="DataRegistry"/> 用它给规则产出的问题补规则 id。</summary>
+        /// <summary>返回一份 <see cref="RuleId"/> 换成 <paramref name="ruleId"/>、其余字段（含
+        /// <see cref="AffectedNodeIds"/>）不变的副本（值类型，原实例不受影响）。<see cref="DataRegistry"/>
+        /// 用它给规则产出的问题补规则 id。</summary>
         public ValidationIssue WithRuleId(string ruleId)
         {
             if (string.IsNullOrEmpty(ruleId)) throw new ArgumentException("ruleId 不能为空", nameof(ruleId));
-            return new ValidationIssue(Severity, Table, Check, Message, RecordKey, Field, Group, Note, ruleId);
+            return new ValidationIssue(Severity, Table, Check, Message, RecordKey, Field, Group, Note, ruleId, AffectedNodeIds);
+        }
+
+        /// <summary>消费方反馈第 57 条新增：返回一份 <see cref="AffectedNodeIds"/> 换成
+        /// <paramref name="affectedNodeIds"/>、其余字段不变的副本（值类型，原实例不受影响）。产出图
+        /// 结构诊断的校验规则用它标注本条问题涉及的节点 id。</summary>
+        public ValidationIssue WithAffectedNodeIds(IReadOnlyList<string> affectedNodeIds)
+        {
+            if (affectedNodeIds == null) throw new ArgumentNullException(nameof(affectedNodeIds));
+            return new ValidationIssue(Severity, Table, Check, Message, RecordKey, Field, Group, Note, RuleId, affectedNodeIds);
         }
 
         public override string ToString()

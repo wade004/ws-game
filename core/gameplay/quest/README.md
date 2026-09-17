@@ -217,6 +217,32 @@ quest/
     `ExprNode.Start`/`Length`，`ExprIssue` 同款"位置 X，长度 Y"格式）。公开 API 无新增（构造函数
     签名不变，仅内部开始真正使用既有参数）。
 
+15. **消费方反馈第 54/56/57 条（2026-09-18）**（详见
+    `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+    - **第 54 条**：新增公开静态入口 `QuestReferenceExtractor.ExtractReferencedQuestIds(string
+      prerequisiteExprText, IExprSchema? schema = null) : IReadOnlyList<Id>`（
+      `core/gameplay/quest/contracts/QuestReferenceExtractor.cs`），提取 `prerequisite` 里引用的
+      任务 id，已去重、按首次出现顺序排列；语法解析失败返回空列表，不抛新的未处理异常（与
+      `ValidatePrerequisiteGraph` 内部"语法错误已由 `expr_parsable` 报告，这里跳过"的既有语义一致，
+      见该类型判断记录）。不直接暴露内部 `ExprNode`/`ExprLiteralNode` 语法树类型。
+      `QuestContentValidationRule` 原私有的 AST 遍历方法 `CollectQuestIdLiteralArgs` 迁移为
+      `QuestReferenceExtractor` 的 `internal` 方法，两者同属 `Core.Gameplay` 程序集，
+      `ValidatePrerequisiteGraph` 改为调用它，不再各自维护一份遍历逻辑；`ValidatePrerequisiteGraph`
+      本身继续使用未去重的原始遍历结果（需要逐次出现的位置信息报 `quest_prerequisite_unknown`），
+      不直接复用去重后的公开入口，两者互不影响。
+    - **第 56 条：`quest_prerequisite` 图不新增孤立节点校验警告**——多数任务合法地没有前置、也不
+      被任何其它任务引用（一条独立支线任务本身就是正常内容形态，不是遗漏），照搬"无前置且未被
+      引用"报警告会在示例数据上产生大量误报，破坏 `validate_data.py --strict` 零警告基线；且
+      `quest.def` 当前没有"任务链分组"一类字段，没有不会大规模误报的判定口径。需要图结构信息的
+      内容工具改用 `Core.Foundation.DataRegistry.ContentGraphAnalyzer`（新增的公开只读图分析入口，
+      `story_tree`/`quest_prerequisite`/`talent_tree` 三类图统一提供不可达/孤立/入度出度/环结果，
+      见 `core/gameplay/dialog/README.md`/`core/numbers/archetype/README.md` 对应判断记录），本模块
+      不产出等价 `story_tree_node_unreachable` 的警告级检查。
+    - **第 57 条**：`quest_prerequisite_unknown`（单节点类，`Field` 已是 `"prerequisite"`，任务记录
+      本身即最小定位单元，不需要再补数组下标）填入该任务自身 id 到新增的
+      `ValidationIssue.AffectedNodeIds`（ABI 只新增）；`quest_prerequisite_cycle`（跨节点路径类）
+      按环上出现顺序填入环上全部节点 id。两项 `Field` 取值不变。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层

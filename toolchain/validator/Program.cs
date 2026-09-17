@@ -1077,6 +1077,23 @@ namespace Toolchain.Validator
             sb.Append("\"group\":").Append(issue.Group == null ? "null" : "\"" + JsonEscape(issue.Group) + "\"").Append(',');
             sb.Append("\"note\":").Append(issue.Note == null ? "null" : "\"" + JsonEscape(issue.Note) + "\"").Append(',');
             sb.Append("\"rule_id\":").Append(issue.RuleId == null ? "null" : "\"" + JsonEscape(issue.RuleId) + "\"");
+            // 消费方反馈第 57 条（2026-09-18）：图诊断（成环/不可达一类）涉及的节点 id 列表，
+            // ValidationIssue.AffectedNodeIds 默认空集合——本字段空时整体省略（不是"null"），与既有
+            // group/note/rule_id"未填也始终输出 null"的既有约定不同：这是设计层拍板的新字段专属口径
+            // （见回复文档 消费方反馈-2026-09-18-编辑器-第54-58条.md），既有三个字段的既有约定不变。
+            if (issue.AffectedNodeIds.Count > 0)
+            {
+                sb.Append(",\"affected_node_ids\":[");
+                for (var i = 0; i < issue.AffectedNodeIds.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(',');
+                    }
+                    sb.Append('"').Append(JsonEscape(issue.AffectedNodeIds[i])).Append('"');
+                }
+                sb.Append(']');
+            }
             sb.Append('}');
         }
 

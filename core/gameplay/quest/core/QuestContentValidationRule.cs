@@ -303,7 +303,7 @@ namespace Core.Gameplay.Quest
                 }
 
                 var idArgs = new List<ExprLiteralNode>();
-                CollectQuestIdLiteralArgs(root, idArgs);
+                QuestReferenceExtractor.CollectQuestIdLiteralArgs(root, idArgs);
 
                 if (idArgs.Count == 0)
                 {
@@ -320,10 +320,13 @@ namespace Core.Gameplay.Quest
 
                     if (!knownIds.Contains(targetId))
                     {
+                        // 消费方反馈第 57 条：单节点类诊断填入该节点（本任务）自身 id，见
+                        // ValidationIssue.AffectedNodeIds 判断记录。
                         yield return new ValidationIssue(
                             ValidationSeverity.Error, QuestSchemas.Def.Name, "quest_prerequisite_unknown",
                             $"prerequisite 引用了不存在的任务 \"{targetId}\"" + PositionSuffix(idArg),
-                            recordKey: record.Key, field: "prerequisite");
+                            recordKey: record.Key, field: "prerequisite", group: null, note: null, ruleId: null,
+                            affectedNodeIds: new[] { record.Key });
                         continue; // 目标节点不存在，不参与下面的成环检测。
                     }
 
@@ -333,10 +336,13 @@ namespace Core.Gameplay.Quest
 
             if (TryFindCycle(nodeOrder, edges, knownIds, out var cyclePath))
             {
+                // 消费方反馈第 57 条：跨节点路径类诊断按环上出现顺序填入环上全部节点 id，见
+                // ValidationIssue.AffectedNodeIds 判断记录。
                 yield return new ValidationIssue(
                     ValidationSeverity.Error, QuestSchemas.Def.Name, "quest_prerequisite_cycle",
                     $"任务前置链成环：{string.Join(" -> ", cyclePath)}",
-                    recordKey: cyclePath[0], field: "prerequisite");
+                    recordKey: cyclePath[0], field: "prerequisite", group: null, note: null, ruleId: null,
+                    affectedNodeIds: cyclePath);
             }
         }
 
@@ -346,61 +352,6 @@ namespace Core.Gameplay.Quest
         /// 时不附加任何后缀）。</summary>
         private static string PositionSuffix(ExprNode node) =>
             node.Start >= 0 ? $"（位置 {node.Start}，长度 {node.Length}）" : string.Empty;
-
-        /// <summary>递归收集 <paramref name="node"/> 子树内全部 <c>quest.*</c> 引用（见
-        /// <see cref="ExprGroups.Quest"/>）的 Id 字面量参数——不限定具体 key（<c>is_active</c> 等五个
-        /// 已知 key 的首参数全部是 Id，未来新增 <c>quest.*</c> 签名若仍以 Id 参数指向另一个任务，本方法
-        /// 不需要跟着改）。同时递归 <see cref="ExprReferenceNode.Args"/> 本身（虽然现有五个 quest 签名
-        /// 的参数都是原子字面量，不会嵌套引用，但不假设未来签名不会嵌套），以及 and/or/not/比较各分支，
-        /// 保证 <c>prerequisite</c> 里 <c>quest.*</c> 引用不论出现在表达式哪个位置都不会被漏掉。</summary>
-        private static void CollectQuestIdLiteralArgs(ExprNode node, List<ExprLiteralNode> results)
-        {
-            switch (node)
-            {
-                case ExprOrNode orNode:
-                    foreach (var operand in orNode.Operands)
-                    {
-                        CollectQuestIdLiteralArgs(operand, results);
-                    }
-                    break;
-
-                case ExprAndNode andNode:
-                    foreach (var operand in andNode.Operands)
-                    {
-                        CollectQuestIdLiteralArgs(operand, results);
-                    }
-                    break;
-
-                case ExprNotNode notNode:
-                    CollectQuestIdLiteralArgs(notNode.Operand, results);
-                    break;
-
-                case ExprCompareNode compareNode:
-                    CollectQuestIdLiteralArgs(compareNode.Left, results);
-                    CollectQuestIdLiteralArgs(compareNode.Right, results);
-                    break;
-
-                case ExprReferenceNode referenceNode:
-                    if (string.Equals(referenceNode.Group, ExprGroups.Quest, StringComparison.Ordinal))
-                    {
-                        foreach (var arg in referenceNode.Args)
-                        {
-                            if (arg is ExprLiteralNode literalArg && literalArg.Value.Kind == ExprValueKind.Id)
-                            {
-                                results.Add(literalArg);
-                            }
-                        }
-                    }
-                    foreach (var arg in referenceNode.Args)
-                    {
-                        CollectQuestIdLiteralArgs(arg, results);
-                    }
-                    break;
-
-                case ExprLiteralNode:
-                    break; // 字面量无子节点。
-            }
-        }
 
         /// <summary>三色标记的迭代式 DFS 成环检测，算法与
         /// <see cref="Core.Gameplay.Dialog.DialogContentValidationRule"/> 的

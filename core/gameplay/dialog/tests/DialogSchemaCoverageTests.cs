@@ -309,6 +309,92 @@ namespace Tests.Gameplay.Dialog
             Assert.Contains(report.Issues, i => i.Check == "story_tree_cycle");
         }
 
+        // -----------------------------------------------------------------
+        // 消费方反馈第 56/57 条：从起点不可达节点（Warning）+ 图诊断的节点定位（Field 下标路径 +
+        // AffectedNodeIds）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void StoryTree_UnreachableNode_ReportsStoryTreeNodeUnreachable()
+        {
+            // n1 是起点（nodes[0]），n2 从 n1 不可达（没有任何分支指向它），n3 通过 n1 可达。
+            var rows = "[{\"id\": \"dialog.cov_story\", \"nodes\": [" +
+                "{\"id\": \"dialog.cov_story.n1\", \"text_key\": \"l10n.cov.n1\", \"branches\": [" +
+                "{\"text_key\": \"l10n.cov.b1\", \"next_node_id\": \"dialog.cov_story.n3\"}]}," +
+                "{\"id\": \"dialog.cov_story.n2\", \"text_key\": \"l10n.cov.n2\"}," +
+                "{\"id\": \"dialog.cov_story.n3\", \"text_key\": \"l10n.cov.n3\"}" +
+                "]}]";
+
+            var report = Load(storyRowsJson: rows);
+
+            var issue = Assert.Single(report.Issues, i => i.Check == "story_tree_node_unreachable");
+            Assert.Equal(ValidationSeverity.Warning, issue.Severity);
+            Assert.Equal("nodes[1].id", issue.Field);
+            Assert.Equal(new[] { "dialog.cov_story.n2" }, issue.AffectedNodeIds);
+            // n3 通过 n1 可达，不应被报告为不可达。
+            Assert.DoesNotContain(report.Issues, i => i.Check == "story_tree_node_unreachable" && i.RecordKey == "dialog.cov_story" && i.AffectedNodeIds.Contains("dialog.cov_story.n3"));
+        }
+
+        [Fact]
+        public void StoryTree_AllNodesReachable_DoesNotReportUnreachable()
+        {
+            var rows = "[{\"id\": \"dialog.cov_story\", \"nodes\": [" +
+                "{\"id\": \"dialog.cov_story.n1\", \"text_key\": \"l10n.cov.n1\", \"branches\": [" +
+                "{\"text_key\": \"l10n.cov.b1\", \"next_node_id\": \"dialog.cov_story.n2\"}]}," +
+                "{\"id\": \"dialog.cov_story.n2\", \"text_key\": \"l10n.cov.n2\"}" +
+                "]}]";
+
+            var report = Load(storyRowsJson: rows);
+
+            Assert.DoesNotContain(report.Issues, i => i.Check == "story_tree_node_unreachable");
+        }
+
+        [Fact]
+        public void StoryTree_DuplicateNodeId_ReportsIndexedFieldAndAffectedNodeIds()
+        {
+            var rows = "[{\"id\": \"dialog.cov_story\", \"nodes\": [" +
+                "{\"id\": \"dialog.cov_story.n1\", \"text_key\": \"l10n.cov.n1\"}," +
+                "{\"id\": \"dialog.cov_story.n1\", \"text_key\": \"l10n.cov.n1b\"}" +
+                "]}]";
+
+            var report = Load(storyRowsJson: rows);
+
+            var issue = Assert.Single(report.Issues, i => i.Check == "story_tree_duplicate_node_id");
+            Assert.Equal("nodes[0].id", issue.Field);
+            Assert.Equal(new[] { "dialog.cov_story.n1" }, issue.AffectedNodeIds);
+        }
+
+        [Fact]
+        public void StoryTree_DanglingNextNodeId_ReportsIndexedFieldAndAffectedNodeIds()
+        {
+            var rows = "[{\"id\": \"dialog.cov_story\", \"nodes\": [" +
+                "{\"id\": \"dialog.cov_story.n1\", \"text_key\": \"l10n.cov.n1\", \"branches\": [" +
+                "{\"text_key\": \"l10n.cov.b1\", \"next_node_id\": \"dialog.cov_story.missing\"}]}" +
+                "]}]";
+
+            var report = Load(storyRowsJson: rows);
+
+            var issue = Assert.Single(report.Issues, i => i.Check == "story_tree_dangling_next_node");
+            Assert.Equal("nodes[0].branches[0].next_node_id", issue.Field);
+            Assert.Equal(new[] { "dialog.cov_story.n1" }, issue.AffectedNodeIds);
+        }
+
+        [Fact]
+        public void StoryTree_Cycle_AffectedNodeIdsListsFullCyclePath()
+        {
+            var rows = "[{\"id\": \"dialog.cov_story\", \"nodes\": [" +
+                "{\"id\": \"dialog.cov_story.n1\", \"text_key\": \"l10n.cov.n1\", \"branches\": [" +
+                "{\"text_key\": \"l10n.cov.b1\", \"next_node_id\": \"dialog.cov_story.n2\"}]}," +
+                "{\"id\": \"dialog.cov_story.n2\", \"text_key\": \"l10n.cov.n2\", \"branches\": [" +
+                "{\"text_key\": \"l10n.cov.b2\", \"next_node_id\": \"dialog.cov_story.n1\"}]}" +
+                "]}]";
+
+            var report = Load(storyRowsJson: rows);
+
+            var issue = Assert.Single(report.Issues, i => i.Check == "story_tree_cycle");
+            Assert.Equal(new[] { "dialog.cov_story.n1", "dialog.cov_story.n2", "dialog.cov_story.n1" }, issue.AffectedNodeIds);
+        }
+
         [Fact]
         public void StoryTree_TerminalBranchWithoutNextNodeId_Passes()
         {

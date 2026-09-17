@@ -434,6 +434,51 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+编辑器上游反馈第 54/56/57/58 条（第 55 条另行处理，见
+[消费方反馈-2026-09-18-编辑器-第54-58条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md)）。
+
+### 新增
+
+- **第 54 条**：`Core.Gameplay.Quest.QuestReferenceExtractor.ExtractReferencedQuestIds(string
+  prerequisiteExprText, IExprSchema? schema = null) : IReadOnlyList<Id>`——提取
+  `quest.def.prerequisite` 里引用的其它任务 id，已去重、按首次出现顺序排列；语法解析失败返回空
+  列表，不抛新的未处理异常。`QuestContentValidationRule` 原私有的 AST 遍历方法迁移为本类型的
+  `internal` 方法并被前者复用，不再各自维护一份遍历逻辑。
+- **第 56 条**：新增 `Core.Foundation.DataRegistry.ContentGraphAnalyzer`（+
+  `ContentGraphAnalysis`）——对调用方给定的"节点 id 全集 + 有向邻接表"统一给出不可达/孤立/入度
+  出度/环四类只读分析结果，供 `story_tree`/`quest_prerequisite`/`talent_tree` 三类图共用。
+  `dialog.story_tree` 内部复用它新增校验项 `story_tree_node_unreachable`（Warning，
+  `NonEscalatable`）：从运行时实际入口 `nodes[0]` 出发不可达的节点。`quest_prerequisite`/
+  `talent_tree` 两类图的孤立节点是合法内容形态（一条独立支线任务、天赋树并列根节点），按判断记录
+  不新增等价校验警告，只把 `ContentGraphAnalyzer` 作为公开分析能力暴露给内容工具。
+- **第 57 条**：`ValidationIssue` 新增只读属性 `AffectedNodeIds`（`IReadOnlyList<string>`，默认空
+  集合非 `null`）与 `WithAffectedNodeIds` 方法（经新增的十参数构造传入，ABI 只新增，不改既有构造
+  签名）——跨节点路径类图诊断（`story_tree_cycle`/`quest_prerequisite_cycle`/
+  `talent_prerequisite_cycle`）按环上出现顺序填入环上全部节点 id；单节点类图诊断
+  （`story_tree_duplicate_node_id`/`story_tree_dangling_next_node`/`quest_prerequisite_unknown`/
+  `talent_prerequisite_missing`）填入该节点自身 id。`story_tree_duplicate_node_id`/
+  `story_tree_dangling_next_node`/`talent_node_id`/`talent_prerequisite_missing` 四项单节点类
+  诊断的 `Field` 补上具体下标路径（如 `nodes[3].id`/`nodes[3].branches[1].next_node_id`）。
+  `toolchain/validator --json` 的 `issues[]` 每项新增 `affected_node_ids` 字段（空时省略，不同于
+  `group`/`note`/`rule_id` 恒为 `null` 的既有约定）。
+
+### 文档
+
+- **第 58 条**：`arch.talent_tree.nodes[].id` 有意登记为 `FieldKind.String` 而非
+  `FieldKind.Id`（不受 `field_id_format` 点分格式约束），与 `dialog.story_tree.nodes[].id`
+  （`FieldKind.Id`）不同——原因（天赋树节点 id 只在同一棵树内以字符串比较，运行时
+  `ArchetypeRegistry.ParseTalentTree` 也只检查非空字符串）此前只写在代码注释，本次补进
+  `core/numbers/archetype/README.md`/两处 `FieldSchema.Description`/
+  `editor/docs/编辑器产品文档.md`（`.html` 同步）。纯文档新增，不改 `FieldKind`、不改数据。
+
+### 勘误
+
+- `ArchTalentTreeCycleValidationRule` 的成环检测算法改为与 `story_tree_cycle`/
+  `quest_prerequisite_cycle` 同款的单次共享状态三色标记 DFS，候选起点改按节点在原始 JSON 数组里
+  的出现顺序遍历，不再依赖 `Dictionary.Keys` 枚举顺序（AGENTS.md"保持确定性"）；
+  `talent_prerequisite_cycle` 消息文本顺带补上完整环路链（原消息只报告 DFS 起点），无既有测试
+  断言该文本，判定为无风险勘误。
+
 ## [1.40.0] - 2026-09-17
 
 编辑器上游反馈第 49～53 条（
