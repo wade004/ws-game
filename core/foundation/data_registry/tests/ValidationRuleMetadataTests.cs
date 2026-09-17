@@ -251,5 +251,58 @@ namespace Tests.Foundation.Data
             Assert.True(block.IsBlocking);
             Assert.Equal(0, block.NonEscalatableWarningCount);
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 57 条（2026-09-18）：ValidationIssue.AffectedNodeIds（ABI 只新增）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ValidationIssue_DefaultAffectedNodeIds_IsEmptyNotNull()
+        {
+            var legacy = new ValidationIssue(ValidationSeverity.Error, "t", "c", "m");
+            var nineArg = new ValidationIssue(ValidationSeverity.Error, "t", "c", "m", "k", "f", "g", "n", "r");
+
+            Assert.NotNull(legacy.AffectedNodeIds);
+            Assert.Empty(legacy.AffectedNodeIds);
+            Assert.NotNull(nineArg.AffectedNodeIds);
+            Assert.Empty(nineArg.AffectedNodeIds);
+        }
+
+        [Fact]
+        public void ValidationIssue_TenArgConstructor_SetsAffectedNodeIds()
+        {
+            var issue = new ValidationIssue(
+                ValidationSeverity.Error, "t", "c", "m", "k", "f", group: null, note: null, ruleId: null,
+                affectedNodeIds: new[] { "n1", "n2" });
+
+            Assert.Equal(new[] { "n1", "n2" }, issue.AffectedNodeIds);
+        }
+
+        [Fact]
+        public void ValidationIssue_WithAffectedNodeIds_ReturnsCopyWithOtherFieldsUnchanged()
+        {
+            var issue = new ValidationIssue(ValidationSeverity.Error, "t", "c", "m", "k", "f");
+
+            var stamped = issue.WithAffectedNodeIds(new[] { "n1" });
+
+            Assert.Equal(new[] { "n1" }, stamped.AffectedNodeIds);
+            Assert.Empty(issue.AffectedNodeIds); // 原实例不受影响（值类型，返回新副本）。
+            Assert.Equal("t", stamped.Table);
+            Assert.Equal("k", stamped.RecordKey);
+            Assert.Equal("f", stamped.Field);
+        }
+
+        [Fact]
+        public void ValidationIssue_WithRuleId_PreservesAffectedNodeIds()
+        {
+            var issue = new ValidationIssue(
+                ValidationSeverity.Error, "t", "c", "m", "k", "f", group: null, note: null, ruleId: null,
+                affectedNodeIds: new[] { "n1", "n2" });
+
+            var stamped = issue.WithRuleId("r1");
+
+            Assert.Equal("r1", stamped.RuleId);
+            Assert.Equal(new[] { "n1", "n2" }, stamped.AffectedNodeIds);
+        }
     }
 }
