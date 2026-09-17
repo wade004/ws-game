@@ -108,6 +108,23 @@ dialog/
    `story_tree_cycle` 四个更具体的名字。详见 `schema/dialog.gossip_menu.md`/
    `schema/dialog.story_tree.md` 各自"子结构登记表（ADR-0019 / F1b）"一节。
 
+9. **消费方反馈第 56～58 条（2026-09-18）**（详见
+   `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+   - 新增 `story_tree_node_unreachable`（Warning，`NonEscalatable`）：从运行时实际入口
+     `nodes[0]`（`StoryTreeDefinition.FirstNode`/`DialogHost.StartStory`，起点定义以运行时为准）
+     出发不可达的节点。内部复用新增的公开图分析入口
+     `Core.Foundation.DataRegistry.ContentGraphAnalyzer`（同一入口也服务 `quest_prerequisite`/
+     `talent_tree` 两类图，见 `core/gameplay/quest/README.md`/`core/numbers/archetype/README.md`
+     对应判断记录），不重复实现可达性算法。`story_tree` 有单一入口，"不可达"语义明确，属三类图
+     里唯一新增等价警告的一类。
+   - `story_tree_duplicate_node_id`/`story_tree_dangling_next_node` 两项单节点类诊断的 `Field`
+     补上具体下标路径（`nodes[i].id`/`nodes[i].branches[j].next_node_id`），并把该诊断涉及的节点
+     自身 id 填进新增的 `ValidationIssue.AffectedNodeIds`（ABI 只新增）；`story_tree_cycle`
+     （跨节点路径类诊断）按环上出现顺序填入环上全部节点 id。
+   - `dialog.story_tree.nodes[].id` 登记为 `FieldKind.Id`（受 `field_id_format` 点分格式约束），
+     与 `arch.talent_tree.nodes[].id`（`FieldKind.String`，运行时只按字符串比较）有意不同——第 58
+     条判断记录见 `core/numbers/archetype/README.md` 判断记录 9。
+
 ## 不负责什么
 
 - 不实现具体商店界面、传送执行、存档流程、遭遇启动的业务逻辑——四者全部经委托转发给调用方

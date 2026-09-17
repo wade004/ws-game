@@ -32,6 +32,16 @@ namespace Core.Gameplay.Dialog
     /// 不携带"是否命中已知节点"的信息）——<c>story_tree_dangling_next_node</c>。</item>
     /// <item>树不得成环（<c>StoryTreeDefinition.HasCycle</c> 三色标记 DFS 同款算法，改在原始 JSON
     /// 上直接跑，不依赖 <c>FromRecord</c> 成功解析）——<c>story_tree_cycle</c>。</item>
+    /// <item>
+    /// 消费方反馈第 56 条（2026-09-18）：从运行时实际入口 <c>nodes[0]</c>（见
+    /// <see cref="StoryTreeDefinition.FirstNode"/>/<c>DialogHost.StartStory</c>，起点定义以运行时为准，
+    /// 不是假设）出发不可达的节点——<c>story_tree_node_unreachable</c>（Warning，
+    /// <see cref="NonEscalatable"/>）。<c>quest_prerequisite</c>/<c>talent_tree</c> 两类图不落地等价
+    /// 检查（孤立节点在那两类图里是合法内容形态，见
+    /// <c>QuestContentValidationRule</c>/<c>ArchTalentTreeCycleValidationRule</c> 判断记录），只
+    /// <c>story_tree</c> 有单一入口、"不可达"语义明确才落地为警告；三类图统一的只读图分析能力见
+    /// <see cref="ContentGraphAnalyzer"/>，本项内部复用它，不重复实现可达性算法。
+    /// </item>
     /// </list>
     /// <para>
     /// P2-06 关联根治（同一份联合类型缺口，见 <c>QuestContentValidationRule</c>
@@ -71,6 +81,12 @@ namespace Core.Gameplay.Dialog
             // 见类型顶部判断记录：参数只保留用于构造签名兼容，本规则收窄后不再使用它。
             _ = exprSchema;
         }
+
+        /// <summary>消费方反馈第 56 条新增 <c>story_tree_node_unreachable</c>（唯一的 Warning 级检查项，
+        /// 本规则其余检查项均为 Error，不受本开关影响）：抓的是"这条支线断在半路，作者大概率没打算
+        /// 让它不可达"这一意图信号，同 04 第 5 节数值类校验项分级表"抓意图不抓手滑"的既有口径，整体
+        /// 把警告升为阻断（<see cref="DataRegistryStrictness.WarningsBlock"/>）时不应把它一并升上去。</summary>
+        public bool NonEscalatable => true;
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
@@ -228,9 +244,12 @@ namespace Core.Gameplay.Dialog
 
             foreach (var dup in duplicateIds)
             {
+                // 消费方反馈第 57 条：field 补上具体下标路径（首次出现的位置），单节点类诊断填该节点
+                // 自身 id 到 AffectedNodeIds。
                 yield return new ValidationIssue(
                     ValidationSeverity.Error, DialogSchemas.StoryTree.Name, "story_tree_duplicate_node_id",
-                    $"节点 id \"{dup}\" 重复", recordKey: record.Key, field: "nodes");
+                    $"节点 id \"{dup}\" 重复", recordKey: record.Key, field: $"nodes[{firstIndexOf[dup]}].id",
+                    group: null, note: null, ruleId: null, affectedNodeIds: new[] { dup });
             }
 
             if (duplicateIds.Count > 0)
@@ -241,23 +260,61 @@ namespace Core.Gameplay.Dialog
             var nodeIdSet = new HashSet<string>(firstIndexOf.Keys, System.StringComparer.Ordinal);
             foreach (var nodeId in nodeOrder)
             {
-                foreach (var next in branchesByNode[nodeId])
+                var nexts = branchesByNode[nodeId];
+                for (var branchIndex = 0; branchIndex < nexts.Count; branchIndex++)
                 {
+                    var next = nexts[branchIndex];
                     if (next != null && !nodeIdSet.Contains(next))
                     {
+                        // 消费方反馈第 57 条：field 补上具体下标路径（含分支下标），单节点类诊断填
+                        // "持有该悬空分支的节点"自身 id 到 AffectedNodeIds（悬空的目标不存在，无法填）。
                         yield return new ValidationIssue(
                             ValidationSeverity.Error, DialogSchemas.StoryTree.Name, "story_tree_dangling_next_node",
                             $"节点 \"{nodeId}\" 的分支 next_node_id \"{next}\" 在树内不存在",
-                            recordKey: record.Key, field: "nodes");
+                            recordKey: record.Key, field: $"nodes[{firstIndexOf[nodeId]}].branches[{branchIndex}].next_node_id",
+                            group: null, note: null, ruleId: null, affectedNodeIds: new[] { nodeId });
                     }
                 }
             }
 
             if (TryFindCycle(nodeOrder, branchesByNode, nodeIdSet, out var cyclePath))
             {
+                // 消费方反馈第 57 条：跨节点路径类诊断按环上出现顺序填入环上全部节点 id。
                 yield return new ValidationIssue(
                     ValidationSeverity.Error, DialogSchemas.StoryTree.Name, "story_tree_cycle",
-                    $"剧情树成环：{string.Join(" -> ", cyclePath)}", recordKey: record.Key);
+                    $"剧情树成环：{string.Join(" -> ", cyclePath)}", recordKey: record.Key, field: null,
+                    group: null, note: null, ruleId: null, affectedNodeIds: cyclePath);
+            }
+
+            // 消费方反馈第 56 条：从运行时实际入口 nodes[0]（见 StoryTreeDefinition.FirstNode/
+            // DialogHost.StartStory）出发不可达的节点，内部复用 ContentGraphAnalyzer，不重复实现
+            // 可达性算法（见类型顶部判断记录）。悬空引用已在上面单独报告，这里统一按"目标在图内才算
+            // 一条边"处理（ContentGraphAnalyzer 自身的判断记录），不会因为悬空引用而重复报告。
+            if (nodeOrder.Count > 0)
+            {
+                var edgesForReachability = new Dictionary<string, IReadOnlyList<string>>(System.StringComparer.Ordinal);
+                foreach (var nodeId in nodeOrder)
+                {
+                    var targets = new List<string>();
+                    foreach (var next in branchesByNode[nodeId])
+                    {
+                        if (next != null)
+                        {
+                            targets.Add(next);
+                        }
+                    }
+                    edgesForReachability[nodeId] = targets;
+                }
+
+                var analysis = ContentGraphAnalyzer.Analyze(nodeOrder, edgesForReachability, roots: new[] { nodeOrder[0] });
+                foreach (var unreachableId in analysis.UnreachableNodeIds)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, DialogSchemas.StoryTree.Name, "story_tree_node_unreachable",
+                        $"节点 \"{unreachableId}\" 从起点 \"{nodeOrder[0]}\"（nodes[0]）不可达",
+                        recordKey: record.Key, field: $"nodes[{firstIndexOf[unreachableId]}].id",
+                        group: null, note: null, ruleId: null, affectedNodeIds: new[] { unreachableId });
+                }
             }
         }
 

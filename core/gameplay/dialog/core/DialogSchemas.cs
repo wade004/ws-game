@@ -167,7 +167,9 @@ namespace Core.Gameplay.Dialog
             "<node>", FieldKind.Object, required: true, fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true,
-                    description: "节点 id；同一棵树内必须唯一——唯一性是跨元素一致性检查，FieldSchema 不表达，见 DialogContentValidationRule"),
+                    description: "节点 id；同一棵树内必须唯一——唯一性是跨元素一致性检查，FieldSchema 不表达，见 DialogContentValidationRule。" +
+                        "登记为 FieldKind.Id（受 field_id_format 点分格式约束），与 arch.talent_tree.nodes[].id（FieldKind.String，" +
+                        "运行时只按字符串比较）有意不同，见消费方反馈第 58 条与 ArchSchemas.TalentTree 节点 id 判断记录"),
                 new FieldSchema("text_key", FieldKind.TextKey, required: true, description: "该节点的对话文本键"),
                 new FieldSchema("speaker_ref", FieldKind.Id, required: false,
                     description: "指向 creature.template 或占位角色 id；判断记录：本模块（dialog）不依赖 Core.Carriers.Creature 程序集（README 依赖清单未列出），无法 Reference，退回 Id（消费方反馈第 30 条：主用途是 creature.template，登记为软引用，占位角色 id 不解析属预期降级）")
