@@ -87,6 +87,19 @@ L3 程序集本身对 L4 零编译期引用。
    `unit.state_changed` 二者在 found.event_catalog 中的字段描述本就是"字段为建议值"，留给具体调用
    方按需承载。
 
+6. **消费方反馈第 52 条（2026-09-17）：`EquippedWeaponSummary` 是 `ItemInstance` 身份字段的一份
+   只读重排，不是新的数值来源**：编辑器结算预览字段 `CasterWeapon(TemplateId, QualityId,
+   AffixIds)` 与 `Core.Sim.StandardPlayer.EquippedInstances`（槽位→实例 id）字段形状不同，消费方
+   此前各自实现一遍"`EquipmentHost.GetAllEquippedInstances` 取 `ItemInstance` 再手工搬运三字段"
+   这层薄转换。本类型只把 `ItemInstance.TemplateId`/`Quality`/`Affixes` 三个既有身份字段原样
+   重排成一个三元组（`FromInstance(ItemInstance)` 静态工厂），不计算、不读取任何属性数值——同本
+   节判断记录 2"`ItemInstance` 均为不可变值类型"一贯口径，用 `readonly struct` 而不是 `class`。
+   放在本目录（`Core.Carriers.Common`）而不是 `Core.Sim`：`ItemInstance` 本身就在本目录，本类型
+   只是它的一个视图，`Core.Carriers.Item`（`EquipmentHost` 新增
+   `GetEquippedWeaponSummary`/`GetAllEquippedWeaponSummaries`，见该模块 README 判断记录）与
+   `Core.Sim`（`StandardPlayer.EquippedWeaponSummaries`，见 `core/sim/README.md` 判断记录）均已
+   依赖本目录，不需要为此新增依赖边。
+
 ## 不负责什么
 
 - 不实现背包/装备/交互/召唤的任何具体算法——那些是 item/gobj/summon/creature 各自模块在

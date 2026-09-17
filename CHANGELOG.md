@@ -454,6 +454,40 @@ side-effect-free、可在调用方不并发修改共享输入的前提下安全�
 已改为局部构建后一次性整体替换只读引用，新增并发回归测试。均为纯新增重载/可选属性/文档章节，
 不改变既有签名与默认行为。
 
+编辑器上游反馈第 52/53 条（
+[消费方反馈-2026-09-17-编辑器-第52-53条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第52-53条.md)）。
+
+### 新增
+
+- `Core.Carriers.Common.EquippedWeaponSummary`（新只读结构体，反馈第 52 条）：把一个已装备
+  `ItemInstance` 的身份字段（模板/品质/词缀）原样重排为"武器摘要三元组"，纯搬运、不计算数值；
+  `EquipmentHost` 新增 `GetEquippedWeaponSummary(Id unitId, Id slot)`/
+  `GetAllEquippedWeaponSummaries(Id unitId)` 两个方法；`Core.Sim.StandardPlayer` 新增只读属性
+  `EquippedWeaponSummaries` 与建议签名一致的便捷方法 `GetEquippedWeaponSummary(weaponSlotId)`
+  （`StandardPlayerBuilder.Build` 内部一次性调用新方法填充），消费方不必再各自实现一遍"取
+  `ItemInstance` 再手工搬运三字段"的薄转换层。
+- `Core.Sim.GrowthReport` 新增只读集合 `OpponentAmbiguities`（`GrowthOpponentAmbiguity` 类型：
+  `TierId`/`Level`/`ChosenTemplateId`/`DiscardedTemplateIds`，反馈第 53 条）：同 `tier`+`level`
+  存在多条对玩家阵营敌对的 `creature.template` 候选时如实记录被丢弃的候选，集合非空时
+  `GrowthReport.ToJson()` 才输出 `opponent_ambiguities` 字段（默认不出现，不影响既有基线比较）。
+- 新增校验规则 `Core.Sim.SimGrowthOpponentAmbiguityValidationRule`（检查名
+  `sim_growth_opponent_ambiguous`，Warning 级、不可提升，反馈第 53 条）：离线静态检查同
+  `tier`+`level` 下是否存在多条对玩家阵营敌对的 `creature.template` 记录；`NumericValidationRuleCatalog`
+  同步登记为第 25 行（阻断 15 + 警告 10，"仿真"分组扩到五行）。
+
+### 修复
+
+- `Core.Sim.GrowthSimulation.ResolveCreatureFamily` 按 `tier`+`level` 定位对手候选时不按
+  `faction_id` 过滤的既有缺陷（反馈第 53 条）：新增按玩家阵营敌对关系过滤候选（`IFactionMatrix
+  .IsHostile(playerFactionId, candidateFactionId)`），过滤后一个候选都不剩时显式抛
+  `InvalidOperationException`（不静默回退到未过滤集合）；过滤后同档位仍有多条候选时维持"数据
+  登记顺序第一条生效"的既有基线行为不变（改用 `OrderBy` 稳定排序，不再依赖 `List.Sort`），但
+  会记入上面新增的 `OpponentAmbiguities` 诊断集合。
+- `data/_sample`：`creature.sample_summon_totem`（`summon_only` 占位生物）与 `creature.sample_beast`
+  此前恰好同 `tier=creature.tier.sample_normal`、`level=1`，会被新增校验规则判定为歧义——挪到
+  新增的独立 tier `creature.tier.sample_summon`（`xp_multiplier`/`gold_multiplier` 均为 0，符合它
+  从未打算作战斗对手的定位），`validate_data.py --strict` 恢复 0 error 0 warning 基线。
+
 ## [1.39.1] - 2026-09-17
 
 消费方反馈-2026-09-17：存档/回滚恢复战斗态误判为真实脱战导致资源当前值被回满覆盖，纯缺陷修复，

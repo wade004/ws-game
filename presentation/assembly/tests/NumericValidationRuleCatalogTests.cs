@@ -94,14 +94,16 @@ namespace Tests.Presentation.Assembly
         /// 深度复审 E-M1（2026-09-16）后并入 <c>sim.anchor</c>/<c>sim.scenario</c> 三行（阻断 2 +
         /// 警告 1），总数改为 23 行（阻断 15 + 警告 8）；深度复审同批 E-S2 又给
         /// <c>sim_scenario_bandwidth_key_unknown</c> 新增一条警告，总数再改为 24 行（阻断 15 + 警告
-        /// 9），见类型级判断记录"2026-09-16，深度复审 E-M1"/"深度复审 E-S2"。
+        /// 9）；消费方反馈第 53 条（2026-09-17）再新增一条警告
+        /// <c>sim_growth_opponent_ambiguous</c>，总数改为 25 行（阻断 15 + 警告 10），见类型级判断
+        /// 记录"2026-09-16，深度复审 E-M1"/"深度复审 E-S2"/"消费方反馈第 53 条"。
         /// </summary>
         [Fact]
-        public void Catalog_HasFifteenBlockingRowsAndNineWarningRows_TwentyFourTotal()
+        public void Catalog_HasFifteenBlockingRowsAndTenWarningRows_TwentyFiveTotal()
         {
-            Assert.Equal(24, NumericValidationRuleCatalog.Entries.Count);
+            Assert.Equal(25, NumericValidationRuleCatalog.Entries.Count);
             Assert.Equal(15, NumericValidationRuleCatalog.Entries.Count(e => e.Severity == ValidationSeverity.Error));
-            Assert.Equal(9, NumericValidationRuleCatalog.Entries.Count(e => e.Severity == ValidationSeverity.Warning));
+            Assert.Equal(10, NumericValidationRuleCatalog.Entries.Count(e => e.Severity == ValidationSeverity.Warning));
         }
 
         /// <summary>
@@ -231,12 +233,23 @@ namespace Tests.Presentation.Assembly
             Assert.Equal("仿真", bandwidthKeyUnknown.Group);
             Assert.False(bandwidthKeyUnknown.RequiresAnchor);
 
+            // 消费方反馈第 53 条新增（独立的 SimGrowthOpponentAmbiguityValidationRule 类实例）。
+            var opponentAmbiguousRuleId = nameof(Core.Sim.SimGrowthOpponentAmbiguityValidationRule);
+            var opponentAmbiguous = NumericValidationRuleCatalog.Entries.Single(
+                e => e.CheckName == Core.Sim.SimGrowthOpponentAmbiguityValidationRule.OpponentAmbiguousCheck);
+            Assert.Equal(opponentAmbiguousRuleId, opponentAmbiguous.RuleId);
+            Assert.Equal(ValidationSeverity.Warning, opponentAmbiguous.Severity);
+            Assert.True(opponentAmbiguous.NonEscalatable);
+            Assert.Equal("仿真", opponentAmbiguous.Group);
+            Assert.False(opponentAmbiguous.RequiresAnchor);
+
             // 与真实规则实例的 NonEscalatable 比对（同 Catalog_EveryDistinctRuleId_IsActuallyRegistered_
             // AgainstSampleData 的比对口径，但直接构造实例而不必跑一遍完整装配）。
             Assert.Equal(new Core.Sim.SimAnchorValidationRule().NonEscalatable, levelContinuity.NonEscalatable);
             Assert.Equal(new Core.Sim.SimAnchorValidationRule().NonEscalatable, expectedItemLevelMonotonic.NonEscalatable);
             Assert.Equal(new Core.Sim.SimScenarioValidationRule().NonEscalatable, scenarioLevelCoverage.NonEscalatable);
             Assert.Equal(new Core.Sim.SimScenarioValidationRule().NonEscalatable, bandwidthKeyUnknown.NonEscalatable);
+            Assert.Equal(new Core.Sim.SimGrowthOpponentAmbiguityValidationRule().NonEscalatable, opponentAmbiguous.NonEscalatable);
         }
 
         /// <summary>仅 04 第 5 节"技能预算硬上限""技能预算偏离""授予价值超特效占比"三条依赖阶段 N6

@@ -237,6 +237,27 @@ validator/Program.cs` 不需要任何改动——它从未显式设置过 `Creat
 升级到本版本后 `validate_data.py --strict`（乃至默认的 `WarningsAllowed` 严格级别，因为
 `spawn_summon_only_creature` 是 Error 级，不受严格级别影响）会报错，需要先清理这类引用再升级。
 
+**判断记录（2026-09-17，消费方反馈第 53 条：`creature.sample_summon_totem` 改用独立 tier）**：
+`Core.Sim.GrowthSimulation` 选同 `tier`+`level` 生物模板时新增校验规则
+`sim_growth_opponent_ambiguous`（警告级，见 `presentation/assembly/NumericValidationRuleCatalog`），
+排查发现本表 `creature.sample_hero`/`creature.sample_beast`/`creature.sample_summon_totem` 三条恰好
+都登记在同一 `tier=creature.tier.sample_normal`、`level=1`：`creature.sample_hero`（`faction_id=
+fac.player`）会被 `GrowthSimulation`/本条新校验的阵营过滤直接排除（同阵营不算敌对候选），不触发
+警告；但 `creature.sample_beast`（`fac.wildlife`）与 `creature.sample_summon_totem`（同为
+`fac.wildlife`，经 `fac.reaction_matrix` 的 `(fac.player→fac.wildlife)=hostile` 均判定为对玩家敌对）
+两条会被判定为同档位重复候选，触发这条新警告、破坏本数据集"`validate_data.py --strict` 0 error 0
+warning"的既有基线。`creature.sample_summon_totem` 本身是 `npc_flag.summon_only` 正例演示（见上一节），
+从未打算作为通用战斗对手使用，登记进 `creature.tier.sample_normal` 纯属沿用示例数据集三条生物同一
+档位的既有惯例、并非有意的"通用怪物家族"设计，因此改法是给它新增一个专属 tier
+`creature.tier.sample_summon`（`creature.tier_definition.json` 新增一行，`xp_multiplier`/
+`gold_multiplier` 均为 0——本 tier 下的生物不作为常规击杀/掉落对象，`name_key` 复用
+`l10n.creature.tier.sample_normal.name`，不新增翻译文本），只改这一条记录的 `tier` 字段，不改
+`creature.sample_hero`/`creature.sample_beast`（两者本就是`游戏无关`的框架自测数据，无任何
+`sim.scenario.kind=growth` 场景引用这个 tier，`creature.sample_hero` 与其余两条同档不影响任何门禁，
+按"最小改动"原则不动）。改动后 `python toolchain/validate_data.py --strict` 对 `data/_sample` 重新
+验证应恢复 0 error 0 warning，`core/gameplay/spawn/tests/SpawnSummonOnlyCreatureRealSampleDataTests.cs`
+等既有测试未断言该生物的 `tier` 字段值，不受影响。
+
 ## item N2 示例数据（多等级多品质模板、三条曲线、份额词缀、槽位与品质新列）
 
 T-N2-10（分阶段落地计划第 14 节；ADR-0032）：在 T-N2-1～T-N2-9 已落地的运行时改动基础上，把

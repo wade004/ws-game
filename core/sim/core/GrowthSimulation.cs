@@ -9,6 +9,7 @@ using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Economy;
+using Core.Numbers.Faction;
 using Core.Numbers.Progression;
 
 namespace Core.Sim
@@ -128,10 +129,22 @@ namespace Core.Sim
         /// <see cref="CumulativeGoldViaBalance"/> 理应逐值相等。</summary>
         public double CumulativeGoldViaEvents { get; }
 
+        /// <summary>反馈第 53 条根治：同 <c>tier</c>+<c>level</c> 存在多条对玩家阵营敌对的
+        /// <c>creature.template</c> 候选时的歧义诊断——为空集合（不是 <c>null</c>）表示本次运行未
+        /// 遇到任何歧义，见 <see cref="GrowthSimulation.ResolveCreatureFamily"/> 判断记录"歧义诊断"。
+        /// <para>
+        /// 判断记录（序列化不破坏基线）：<see cref="ToJson"/> 只在本集合非空时才输出
+        /// <c>opponent_ambiguities</c> 键——官方数据集（<c>core/sim/tests/data</c>）不存在这类歧义，
+        /// 本集合恒为空，JSON 输出因此逐字节维持改动前的既有形状，三份仿真基线零差异；只有消费方数据
+        /// 自身存在歧义时，输出才会多这一个键（这也是消费方最需要看到这条诊断的场景）。
+        /// </para></summary>
+        public IReadOnlyList<GrowthOpponentAmbiguity> OpponentAmbiguities { get; }
+
         internal GrowthReport(
             Id scenarioId, ulong baseSeed, int runs, IReadOnlyList<GrowthLevelSample> levels,
             double cumulativeXpGrantedViaApi, double cumulativeXpGrantedViaEvents,
-            double cumulativeGoldViaBalance, double cumulativeGoldViaEvents)
+            double cumulativeGoldViaBalance, double cumulativeGoldViaEvents,
+            IReadOnlyList<GrowthOpponentAmbiguity> opponentAmbiguities)
         {
             ScenarioId = scenarioId;
             BaseSeed = baseSeed;
@@ -141,13 +154,14 @@ namespace Core.Sim
             CumulativeXpGrantedViaEvents = cumulativeXpGrantedViaEvents;
             CumulativeGoldViaBalance = cumulativeGoldViaBalance;
             CumulativeGoldViaEvents = cumulativeGoldViaEvents;
+            OpponentAmbiguities = opponentAmbiguities;
         }
 
         /// <summary>把本报告写成确定性 JSON 文本，惯例同 <see cref="ArenaReport.ToJson"/>。</summary>
         public string ToJson()
         {
             var levelsArray = Levels.Select(l => (JsonValue)l.ToJson()).ToList();
-            var root = new JsonObjectBuilder()
+            var builder = new JsonObjectBuilder()
                 .Add("scenario_id", new JsonString(ScenarioId.Value))
                 .Add("base_seed", new JsonNumber(BaseSeed))
                 .Add("runs", new JsonNumber(Runs))
@@ -155,10 +169,53 @@ namespace Core.Sim
                 .Add("cumulative_xp_granted_via_api", ArenaReport.NumberOrNull(CumulativeXpGrantedViaApi))
                 .Add("cumulative_xp_granted_via_events", ArenaReport.NumberOrNull(CumulativeXpGrantedViaEvents))
                 .Add("cumulative_gold_via_balance", ArenaReport.NumberOrNull(CumulativeGoldViaBalance))
-                .Add("cumulative_gold_via_events", ArenaReport.NumberOrNull(CumulativeGoldViaEvents))
-                .Build();
-            return JsonWriter.Write(root);
+                .Add("cumulative_gold_via_events", ArenaReport.NumberOrNull(CumulativeGoldViaEvents));
+            if (OpponentAmbiguities.Count > 0)
+            {
+                // 判断记录见类型级 OpponentAmbiguities 属性注释："序列化不破坏基线"——只在非空时才
+                // 追加这个键，官方数据集恒不触发，三份仿真基线逐字节零差异。
+                var ambiguitiesArray = OpponentAmbiguities.Select(a => (JsonValue)a.ToJson()).ToList();
+                builder = builder.Add("opponent_ambiguities", new JsonArray(ambiguitiesArray));
+            }
+            return JsonWriter.Write(builder.Build());
         }
+    }
+
+    /// <summary>一条"同 <c>tier</c>+<c>level</c> 存在多条对玩家阵营敌对的 <c>creature.template</c>
+    /// 候选"歧义记录——反馈第 53 条根治的一部分（见 <see cref="GrowthSimulation.ResolveCreatureFamily"/>
+    /// 判断记录）：<see cref="GrowthSimulation"/> 对此按"保持现有登记顺序首条"确定性选择（不报错，也
+    /// 不是随机挑一个），本记录只是把"还有哪些候选被静默丢弃"如实上报，供内容作者判断是否为数据配平
+    /// 疏漏（如误把非战斗用途的占位生物与真正的怪物登记在同一档位）。</summary>
+    public sealed class GrowthOpponentAmbiguity
+    {
+        /// <summary>命中的 <c>creature.template.tier</c>。</summary>
+        public Id TierId { get; }
+
+        /// <summary>命中的 <c>creature.template.level</c>。</summary>
+        public int Level { get; }
+
+        /// <summary>按"保持现有登记顺序首条"规则最终入选、供 <see
+        /// cref="GrowthSimulation.ResolveCreatureTemplateForLevel"/> 使用的模板 id。</summary>
+        public Id ChosenTemplateId { get; }
+
+        /// <summary>同一 <see cref="TierId"/>+<see cref="Level"/> 下被静默丢弃的其余候选模板 id，
+        /// 按登记顺序排列。</summary>
+        public IReadOnlyList<Id> DiscardedTemplateIds { get; }
+
+        internal GrowthOpponentAmbiguity(Id tierId, int level, Id chosenTemplateId, IReadOnlyList<Id> discardedTemplateIds)
+        {
+            TierId = tierId;
+            Level = level;
+            ChosenTemplateId = chosenTemplateId;
+            DiscardedTemplateIds = discardedTemplateIds;
+        }
+
+        internal JsonObject ToJson() => new JsonObjectBuilder()
+            .Add("tier", new JsonString(TierId.Value))
+            .Add("level", new JsonNumber(Level))
+            .Add("chosen", new JsonString(ChosenTemplateId.Value))
+            .Add("discarded", new JsonArray(DiscardedTemplateIds.Select(id => (JsonValue)new JsonString(id.Value)).ToList()))
+            .Build();
     }
 
     /// <summary>
@@ -337,6 +394,7 @@ namespace Core.Sim
             var xpViaEvents = new List<double>();
             var goldViaBalance = new List<double>();
             var goldViaEvents = new List<double>();
+            IReadOnlyList<GrowthOpponentAmbiguity> opponentAmbiguities = Array.Empty<GrowthOpponentAmbiguity>();
 
             for (var runIndex = 0; runIndex < scenario.Runs; runIndex++)
             {
@@ -349,6 +407,12 @@ namespace Core.Sim
                 xpViaEvents.Add(run.CumulativeXpGrantedViaEvents);
                 goldViaBalance.Add(run.CumulativeGoldViaBalance);
                 goldViaEvents.Add(run.CumulativeGoldViaEvents);
+                if (runIndex == 0)
+                {
+                    // 判断记录：歧义只取决于 dataSources/scenario.Opponent（同一 tier 下 creature.template
+                    // 的静态登记），跨种子不变——只需第一个种子的结果，不必每个种子重复算一遍再去重合并。
+                    opponentAmbiguities = run.OpponentAmbiguities;
+                }
 
                 progress?.Report(new SimProgress(ProgressStageRun, runIndex + 1, scenario.Runs));
             }
@@ -360,7 +424,8 @@ namespace Core.Sim
                 xpViaApi.Count > 0 ? xpViaApi.Average() : 0.0,
                 xpViaEvents.Count > 0 ? xpViaEvents.Average() : 0.0,
                 goldViaBalance.Count > 0 ? goldViaBalance.Average() : 0.0,
-                goldViaEvents.Count > 0 ? goldViaEvents.Average() : 0.0);
+                goldViaEvents.Count > 0 ? goldViaEvents.Average() : 0.0,
+                opponentAmbiguities);
         }
 
         /// <summary>单个种子的完整运行结果，供 <see cref="Run"/> 跨种子取均值，也供测试直接调用单个
@@ -409,7 +474,13 @@ namespace Core.Sim
                 .Where(r => !r.TryGetBool("is_equipment", out var eq) || eq)
                 .Select(r => r.GetId("id"))
                 .ToList();
-            var creatureFamily = ResolveCreatureFamily(registry, scenario.Opponent);
+            // 反馈第 53 条根治：候选先按阵营过滤，排除与标准玩家同阵营/非敌对的生物——阵营查询复用
+            // 世界已经装配好的 IFactionMatrix（world.Gameplay.Carriers.Rules.Factions，同一份
+            // fac.faction/fac.reaction_matrix 数据），玩家阵营取 world.Player.FactionId 实际值，不
+            // 硬编码 "fac.player"（见 ResolveCreatureFamily 判断记录"歧义诊断"）。
+            var creatureFamily = ResolveCreatureFamily(
+                registry, scenario.Opponent, world.Gameplay.Carriers.Rules.Factions, world.Player.FactionId,
+                out var opponentAmbiguities);
             var budgetSolver = new BudgetSolver();
 
             // 复审整合项 2（B-S1）：本次仿真运行内 classId 全程固定，ProcessAcquiredItems 每次拾取都会
@@ -560,7 +631,7 @@ namespace Core.Sim
                 : 0.0;
             var goldFinalBalance = goldCurrencyId.HasValue ? (double)economy.GetBalance(PlayerId, goldCurrencyId.Value) : 0.0;
 
-            return new GrowthRunResult(levels, cumulativeXpViaApi, xpViaEvents, goldFinalBalance, goldEventsSum);
+            return new GrowthRunResult(levels, cumulativeXpViaApi, xpViaEvents, goldFinalBalance, goldEventsSum, opponentAmbiguities);
         }
 
         private static void PickUpAllGroundLoot(HeadlessWorld world, Id playerId, Id mapId)
@@ -851,9 +922,54 @@ namespace Core.Sim
 
         /// <summary>生物模板家族：按 <see cref="ScenarioOpponentSpec.TierId"/>（未提供时取
         /// <c>scenario.Opponent.CreatureId</c> 自身登记的 <c>tier</c>）筛出全部同分档的
-        /// <c>creature.template</c>，按 <c>level</c> 升序排列——见类型判断记录"生物模板按等级换挡"。</summary>
-        internal static List<(int Level, Id TemplateId)> ResolveCreatureFamily(IDataRegistryView registry, ScenarioOpponentSpec opponent)
+        /// <c>creature.template</c>，按 <c>level</c> 升序排列——见类型判断记录"生物模板按等级换挡"。
+        /// <para>
+        /// 反馈第 53 条根治（阵营过滤）：同 tier 下的候选先按"是否<b>从标准玩家阵营视角看</b>对该候选
+        /// 敌对"过滤，排除与标准玩家同阵营/非敌对的生物（如误登记进同一档位的玩家阵营占位生物）——
+        /// 判断方向是 <c>factions.IsHostile(playerFactionId, candidateFactionId)</c>（即
+        /// <c>GetReaction(playerFactionId, candidateFactionId)</c>），不是反过来。<see
+        /// cref="IFactionMatrix.GetReaction"/> 的反应矩阵不要求对称（其文档原文），本模块勘察确认的
+        /// <c>data/_sample</c> 真实数据即是反例：<c>fac.reaction_matrix</c> 只登记了
+        /// <c>(fac.player→fac.wildlife)=hostile</c> 这一个方向，反方向
+        /// <c>(fac.wildlife→fac.player)</c> 未登记、按 <c>fac.wildlife.default_reaction=neutral</c>
+        /// 回退——若按"候选对玩家敌对"（反方向）判定，<c>creature.sample_beast</c>（合法的战斗对手）
+        /// 会被误判非敌对而排除；只有"玩家对候选敌对"（本方法采用的方向）才能正确识别出玩家可以主动
+        /// 交战的目标，这也是玩家侧 <c>RotationEvaluator</c> 挑选攻击目标时依据的方向——同阵营
+        /// （<c>from==to</c>）恒返回 <see cref="Reaction.Friendly"/>（<c>GetReaction</c> 文档"同阵营恒
+        /// Friendly"），因此"同阵营占位生物"的情形天然被这一条件覆盖，不需要单独判断。<paramref
+        /// name="factions"/> 复用调用方已装配好的 <see cref="Core.Numbers.Faction.IFactionMatrix"/>
+        /// 实例（<c>world.Gameplay.Carriers.Rules.Factions</c>，与本次运行同一份
+        /// <c>fac.faction</c>/<c>fac.reaction_matrix</c> 数据），不新增查询入口——本模块勘察已确认框架
+        /// 已有该查询能力（<c>core/gameplay/difficulty</c> 同款用法：
+        /// <c>IFactionMatrix.IsHostile(unit, DifficultyOptions.PlayerFactionId)</c>，该处方向是"新生物
+        /// 对玩家阵营"，与本方法"玩家对候选"方向不同——两处的语义各自匹配各自的判定目的，不是同一处
+        /// 调用点，见上文关于 <c>data/_sample</c> 反例的说明）。
+        /// </para>
+        /// <para>
+        /// 判断记录（tier 未命中任何记录 vs. 阵营过滤后为空，两种"空"行为不同）：若按 tier 过滤后
+        /// <c>rawCandidates</c> 本身就是空的（tier 配置有误/未登记该档位），维持改动前既有的兜底行为——
+        /// 退回 <c>[(1, opponent.CreatureId)]</c>（这是"tier 解析失败"的既有降级路径，不属于本次反馈
+        /// 范围）。若 <c>rawCandidates</c> 非空、但阵营过滤把全部候选都排除掉了（同 tier 下真的一个
+        /// 敌对生物都没有），按硬性规则"运行时路径不静默降级"抛出 <see cref="InvalidOperationException"/>
+        /// 明确报错——不回退到未过滤集合（那样又会重新选中被过滤掉的同阵营/非敌对生物，等于没修）。
+        /// </para>
+        /// <para>
+        /// 判断记录（歧义诊断：同 tier+level 仍有多条候选时的确定性选择与上报）：过滤后按 level 做
+        /// <b>稳定</b>排序（<c>OrderBy</c>，不是原先的 <c>List.Sort</c>——后者是不保证稳定的内省排序，
+        /// 同级候选的相对顺序在理论上可能被打乱；官方数据集不存在同级重复，改动前从未暴露这一点，但
+        /// "保持现有登记顺序首条"这条设计裁定要求同级候选的相对顺序必须可预测，因此换成稳定排序，纯
+        /// 内部实现改动，不改变任何无重复数据下的既有输出）。分组后每组 &gt;1 条即产出一条
+        /// <see cref="GrowthOpponentAmbiguity"/>（入选=登记顺序第一条，落选=其余全部），经
+        /// <paramref name="ambiguities"/> 原样上报给调用方——本方法自身仍按"取第一条"确定性选择，不
+        /// 因为存在歧义就报错或改变行为（那超出反馈原文"新增诊断"的最小修法范围）。
+        /// </para></summary>
+        internal static List<(int Level, Id TemplateId)> ResolveCreatureFamily(
+            IDataRegistryView registry, ScenarioOpponentSpec opponent,
+            IFactionMatrix factions, Id playerFactionId,
+            out IReadOnlyList<GrowthOpponentAmbiguity> ambiguities)
         {
+            if (factions == null) throw new ArgumentNullException(nameof(factions));
+
             Id? tierId = opponent.TierId;
             if (tierId == null)
             {
@@ -864,7 +980,7 @@ namespace Core.Sim
                 }
             }
 
-            var family = new List<(int Level, Id TemplateId)>();
+            var rawCandidates = new List<(int Level, Id TemplateId, Id FactionId)>();
             foreach (var record in registry.GetAll("creature.template"))
             {
                 if (tierId.HasValue && (!record.TryGetId("tier", out var recordTier) || !recordTier.Equals(tierId.Value)))
@@ -872,15 +988,44 @@ namespace Core.Sim
                     continue;
                 }
                 var level = record.TryGetInt("level", out var lvl) ? (int)lvl : 1;
-                family.Add((level, record.Id!.Value));
+                var factionId = record.GetId("faction_id"); // creature.template.faction_id 为 required 字段。
+                rawCandidates.Add((level, record.Id!.Value, factionId));
             }
 
-            family.Sort((a, b) => a.Level.CompareTo(b.Level));
-            if (family.Count == 0)
+            if (rawCandidates.Count == 0)
             {
-                family.Add((1, opponent.CreatureId));
+                // tier 本身未命中任何记录：维持改动前既有的兜底行为，见类型判断记录。
+                ambiguities = Array.Empty<GrowthOpponentAmbiguity>();
+                return new List<(int Level, Id TemplateId)> { (1, opponent.CreatureId) };
             }
-            return family;
+
+            var hostileCandidates = rawCandidates.Where(c => factions.IsHostile(playerFactionId, c.FactionId)).ToList();
+            if (hostileCandidates.Count == 0)
+            {
+                var tierText = tierId?.Value ?? $"(未指定，取自 {opponent.CreatureId.Value} 自身 tier)";
+                throw new InvalidOperationException(
+                    $"GrowthSimulation.ResolveCreatureFamily：tier={tierText} 下共 {rawCandidates.Count} 条 creature.template 候选，" +
+                    $"按阵营过滤（排除与玩家阵营 \"{playerFactionId.Value}\" 同阵营/非敌对的候选）后一条都不剩——" +
+                    "请检查该 tier 下是否登记了至少一条对玩家阵营敌对的生物模板，不会静默回退到未过滤集合。");
+            }
+
+            // 稳定排序：保留同级候选的注册顺序，供上面"入选/落选"判断记录成立（见该判断记录）。
+            var ordered = hostileCandidates.OrderBy(c => c.Level).ToList();
+
+            var ambiguityList = new List<GrowthOpponentAmbiguity>();
+            foreach (var group in ordered.GroupBy(c => c.Level))
+            {
+                var groupList = group.ToList();
+                if (groupList.Count > 1)
+                {
+                    ambiguityList.Add(new GrowthOpponentAmbiguity(
+                        tierId ?? opponent.CreatureId, group.Key, groupList[0].TemplateId,
+                        groupList.Skip(1).Select(c => c.TemplateId).ToList()));
+                }
+            }
+            ambiguities = ambiguityList;
+
+            return ordered.Select(c => (c.Level, c.TemplateId)).ToList();
         }
 
         /// <summary>家族内"不超过当前等级的最大档位"，全部档位都高于当前等级时退回最低档位（不会
@@ -963,15 +1108,22 @@ namespace Core.Sim
         public double CumulativeGoldViaBalance { get; }
         public double CumulativeGoldViaEvents { get; }
 
+        /// <summary>反馈第 53 条根治：本次运行遇到的同 tier+level 敌对候选歧义，见
+        /// <see cref="GrowthReport.OpponentAmbiguities"/> 判断记录（本类型内部字段直接转发，
+        /// <see cref="GrowthSimulation.Run"/> 取第一个种子的值即可，不必跨种子合并）。</summary>
+        public IReadOnlyList<GrowthOpponentAmbiguity> OpponentAmbiguities { get; }
+
         public GrowthRunResult(
             List<GrowthLevelSample> levels, double cumulativeXpGrantedViaApi, double cumulativeXpGrantedViaEvents,
-            double cumulativeGoldViaBalance, double cumulativeGoldViaEvents)
+            double cumulativeGoldViaBalance, double cumulativeGoldViaEvents,
+            IReadOnlyList<GrowthOpponentAmbiguity> opponentAmbiguities)
         {
             Levels = levels;
             CumulativeXpGrantedViaApi = cumulativeXpGrantedViaApi;
             CumulativeXpGrantedViaEvents = cumulativeXpGrantedViaEvents;
             CumulativeGoldViaBalance = cumulativeGoldViaBalance;
             CumulativeGoldViaEvents = cumulativeGoldViaEvents;
+            OpponentAmbiguities = opponentAmbiguities;
         }
     }
 }
