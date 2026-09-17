@@ -51,6 +51,9 @@
 - 半途恢复流程（`git restore --staged --worktree` 四个版本文件 + 删 `dist/X`、`dist/release-notes-X.txt`）只能由主会话决定是否执行，执行 agent 不擅自做。
 - 半途状态若"发布提交已产生但无标签"，恢复用 `git reset --soft <发布前提交>` 再按路径 `git restore --staged --worktree` 四个版本文件并删 `dist/X` 产物，不是只还原文件。
 - Unity PlayMode 测试失败先用 `python toolchain/unity_test_triage.py` 分诊，不要直接改测试或改断言。
+- PowerShell 工具前台跑 `-Release` 超过 600s 会被"转入后台继续运行"而非杀死，退出通知后再核对结果即可，不必视为失败。
+- 后台任务的 output 文件含 stderr 全量（如 npm notice 上千行），不要 `Read` 整个文件，交子 agent `Grep`；管道过滤用 `Select-String '门禁通过|门禁失败| FAIL '`。
+- 同一 minor 出补丁版时 `release/X.Y.x` 已存在，用非强制快进：先本地 `git push . <hash>:refs/heads/release/X.Y.x` 再 `git push origin <hash>:refs/heads/release/X.Y.x`，不用 `-f`。
 
 ## 6. 汇报格式
 
