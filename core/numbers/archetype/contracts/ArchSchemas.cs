@@ -144,7 +144,9 @@ namespace Core.Numbers.Archetype
                         // ArchetypeRegistry.ParseTalentTree：id 缺失/非字符串直接抛异常，必填；
                         // 只检查 JsonString，不做 Id 格式校验，登记为 String 而非 Id（以运行时为准）。
                         new FieldSchema("id", FieldKind.String, required: true,
-                            description: "节点 id，同一棵树内以字符串比较，非全局 Id"),
+                            description: "节点 id，同一棵树内以字符串比较，非全局 Id；有意登记为 FieldKind.String 而非 " +
+                                "FieldKind.Id（不受 field_id_format 点分格式约束），与 dialog.story_tree.nodes[].id" +
+                                "（FieldKind.Id）不同，见消费方反馈第 58 条与本模块 README 判断记录"),
                         new FieldSchema("prerequisites", FieldKind.Array, required: false,
                             item: new FieldSchema("<prereq_id>", FieldKind.String, required: true,
                                 description: "前置节点 id"),
