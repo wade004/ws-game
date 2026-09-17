@@ -56,6 +56,9 @@ namespace Tests.Gameplay.Quest
             Assert.Contains("quest.e38_a", issue.Message);
             Assert.Contains("quest.e38_b", issue.Message);
             Assert.Contains("->", issue.Message);
+            // 消费方反馈第 57 条：跨节点路径类诊断按环上出现顺序填入环上全部节点 id。
+            Assert.NotEmpty(issue.AffectedNodeIds);
+            Assert.All(issue.AffectedNodeIds, id => Assert.Contains(id, new[] { "quest.e38_a", "quest.e38_b" }));
         }
 
         [Fact]
@@ -87,6 +90,7 @@ namespace Tests.Gameplay.Quest
             var issue = Assert.Single(run.Report.Issues.Where(i => i.Check == "quest_prerequisite_cycle"));
             Assert.Equal("quest.e38_a", issue.RecordKey);
             Assert.Equal("prerequisite", issue.Field);
+            Assert.Equal(new[] { "quest.e38_a", "quest.e38_a" }, issue.AffectedNodeIds);
         }
 
         // -----------------------------------------------------------------
@@ -126,6 +130,8 @@ namespace Tests.Gameplay.Quest
             Assert.Equal("quest.e38_a", issue.RecordKey);
             Assert.Equal("prerequisite", issue.Field);
             Assert.Contains("quest.e38_missing", issue.Message);
+            // 消费方反馈第 57 条：单节点类诊断填该节点（本任务）自身 id。
+            Assert.Equal(new[] { "quest.e38_a" }, issue.AffectedNodeIds);
         }
 
         // -----------------------------------------------------------------
