@@ -108,6 +108,32 @@ archetype/
    `arch.class.n1_4_warrior_like`/`arch.class.n1_4_mage_like` 一类中性 id（同判断记录顶部
    "sample_a" 惯例，`warrior_like`/`mage_like` 只是让测试断言的意图更直观，不是真实游戏职业名）。
 
+9. **消费方反馈第 54～58 条（2026-09-18）回复要点**（详见
+   `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+   - **第 58 条：`arch.talent_tree.nodes[].id` 有意登记为 `FieldKind.String` 而非
+     `FieldKind.Id`**，与 `dialog.story_tree.nodes[].id`（`FieldKind.Id`，受 `field_id_format`
+     点分格式约束）不同——天赋树节点 id 只在同一棵树内以字符串比较，不要求全局 `Id` 格式，运行时
+     `ArchetypeRegistry.ParseTalentTree` 也只检查非空字符串，不做 `CommonId.TryParse` 校验；把
+     `FieldKind` 改成 `Id` 是一次真正的行为收紧（对既有数据新增格式约束），`core/sim/tests/data`
+     现有节点 id（如 `"node_a"`）不含点分格式，会直接击穿 `validate_data.py --strict` 零警告
+     基线，本次不做，只在 `contracts/ArchSchemas.cs` 该字段 `description` 与本条判断记录里补齐
+     取舍说明（纯文档，不改 `FieldKind`/不改数据）。
+   - **第 56 条：`arch.talent_tree` 孤立节点（无前置也未被任何其它节点引用）不新增校验警告**——
+     天赋树允许多个并列根节点（`prerequisites=[]` 可以有多个，是合法的并列分支设计），孤立节点是
+     正常内容形态，不是遗漏；需要"孤立/入度出度"一类图结构信息的内容工具改用
+     `Core.Foundation.DataRegistry.ContentGraphAnalyzer`（新增的公开只读图分析入口，`story_tree`/
+     `quest_prerequisite`/`talent_tree` 三类图统一提供不可达/孤立/入度出度/环结果），本模块不
+     重复实现、也不产出等价 `story_tree_node_unreachable` 的警告级检查。
+   - **第 57 条：`talent_node_id`/`talent_prerequisite_missing`/`talent_prerequisite_cycle` 三项
+     图诊断补齐结构化定位**——前两项 `Field` 补上具体下标路径（`nodes[i].id`/
+     `nodes[i].prerequisites[j]`），后者按环上出现顺序把节点 id 填进新增的
+     `ValidationIssue.AffectedNodeIds`（ABI 只新增，见该属性判断记录）；成环检测算法一并勘误为
+     与 `story_tree_cycle`/`quest_prerequisite_cycle` 同款的单次共享状态三色标记 DFS + 显式路径
+     记录（原实现每个候选起点各自新开一套 `visiting`/`visited` 集合、且按 `Dictionary.Keys`
+     顺序选取候选起点，不满足 AGENTS.md"不依赖字典枚举顺序"），详见
+     `ArchTalentTreeCycleValidationRule` 类型判断记录；`talent_prerequisite_cycle` 消息文本顺带
+     补上完整链路（原消息只报告 DFS 起点），无既有测试断言该文本，判定为无风险勘误。
+
 ## 不负责什么
 
 - 不实现属性聚合/资源池/派生系数覆盖的具体运算，只通过 `StatBaseWriter`/`StatModifierWriter`/

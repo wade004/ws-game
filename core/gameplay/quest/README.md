@@ -42,6 +42,7 @@ quest/
     QuestObjectiveType.cs         八种目标类型 + targetRef 域名/count==1 规则
     QuestOptions.cs               AllowFail 等构造期策略配置
     QuestProgress.cs              单位对单条任务的持久化进度快照
+    QuestPrerequisitePreview.cs   消费方反馈第 55 条：只读无状态任务前置链预演入口（不改动 IQuestHost）
   core/
     PlayerExprGroupProvider.cs    player 分组的 IExprGroupProvider 实现（level/has_item/item_count）
     QuestContentValidationRule.cs quest.def 内容校验规则（ADR-0019/F1b 起收窄为登记表达不了的
@@ -216,6 +217,57 @@ quest/
     均为 `"prerequisite"`；`quest_prerequisite_unknown` 的消息额外附带引用位置（复用
     `ExprNode.Start`/`Length`，`ExprIssue` 同款"位置 X，长度 Y"格式）。公开 API 无新增（构造函数
     签名不变，仅内部开始真正使用既有参数）。
+
+15. **消费方反馈第 54/56/57 条（2026-09-18）**（详见
+    `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+    - **第 54 条**：新增公开静态入口 `QuestReferenceExtractor.ExtractReferencedQuestIds(string
+      prerequisiteExprText, IExprSchema? schema = null) : IReadOnlyList<Id>`（
+      `core/gameplay/quest/contracts/QuestReferenceExtractor.cs`），提取 `prerequisite` 里引用的
+      任务 id，已去重、按首次出现顺序排列；语法解析失败返回空列表，不抛新的未处理异常（与
+      `ValidatePrerequisiteGraph` 内部"语法错误已由 `expr_parsable` 报告，这里跳过"的既有语义一致，
+      见该类型判断记录）。不直接暴露内部 `ExprNode`/`ExprLiteralNode` 语法树类型。
+      `QuestContentValidationRule` 原私有的 AST 遍历方法 `CollectQuestIdLiteralArgs` 迁移为
+      `QuestReferenceExtractor` 的 `internal` 方法，两者同属 `Core.Gameplay` 程序集，
+      `ValidatePrerequisiteGraph` 改为调用它，不再各自维护一份遍历逻辑；`ValidatePrerequisiteGraph`
+      本身继续使用未去重的原始遍历结果（需要逐次出现的位置信息报 `quest_prerequisite_unknown`），
+      不直接复用去重后的公开入口，两者互不影响。
+    - **第 56 条：`quest_prerequisite` 图不新增孤立节点校验警告**——多数任务合法地没有前置、也不
+      被任何其它任务引用（一条独立支线任务本身就是正常内容形态，不是遗漏），照搬"无前置且未被
+      引用"报警告会在示例数据上产生大量误报，破坏 `validate_data.py --strict` 零警告基线；且
+      `quest.def` 当前没有"任务链分组"一类字段，没有不会大规模误报的判定口径。需要图结构信息的
+      内容工具改用 `Core.Foundation.DataRegistry.ContentGraphAnalyzer`（新增的公开只读图分析入口，
+      `story_tree`/`quest_prerequisite`/`talent_tree` 三类图统一提供不可达/孤立/入度出度/环结果，
+      见 `core/gameplay/dialog/README.md`/`core/numbers/archetype/README.md` 对应判断记录），本模块
+      不产出等价 `story_tree_node_unreachable` 的警告级检查。
+    - **第 57 条**：`quest_prerequisite_unknown`（单节点类，`Field` 已是 `"prerequisite"`，任务记录
+      本身即最小定位单元，不需要再补数组下标）填入该任务自身 id 到新增的
+      `ValidationIssue.AffectedNodeIds`（ABI 只新增）；`quest_prerequisite_cycle`（跨节点路径类）
+      按环上出现顺序填入环上全部节点 id。两项 `Field` 取值不变。
+16. **消费方反馈第 55 条（2026-09-18）：新增 `QuestPrerequisitePreview` 只读无状态任务前置链预演入口，
+    不改动 `IQuestHost`**——`IQuestHost.GetState` 是"给定单位当前运行期上下文求值 `prerequisite`"的有
+    状态查询，不支持"给定任意任务 id，脱离任何单位，分析前置链结构"（编辑器"任务链试走"面板的诉求）。
+    新增独立静态类 `QuestPrerequisitePreview.Preview(Id questId, IEnumerable<QuestDefinition>
+    definitions, IReadOnlyCollection<Id>? completedQuestIds = null, int maxNodes = 10000)`，不作为
+    `IQuestHost` 新成员——理由同 `core/gameplay/dialog` 判断记录 9"为何不改 `IDialogHost`"（预演与
+    运行期状态机正交）。**语义边界**：只分析 `prerequisite` 表达式里 `quest.*` 分组引用（"这个任务的
+    前置点名了哪些其它任务"）构成的有向图——直接前置/传递闭包/成环/拓扑序，不涉及 `QuestObjective`
+    语义（目标类型/计数/是否达标一律不关心），也不对 `prerequisite` 整条表达式做真正的布尔求值（`and`/
+    `or`/`not` 组合方式不区分，与既有 `quest_prerequisite_cycle`/`quest_prerequisite_unknown` 校验构图
+    同一套"只看引用了谁"口径）——`IsAvailableByReferencedQuests` 因此是"假设 `prerequisite` 只由这些
+    `quest.*` 引用以合取方式组成"这一简化视角下的可接性，不是 `GetState` 的等价物，真正可接性仍须调用
+    `GetState`。**前置引用提取**：本方法原在并行分支上直接调用框架已公开的 `ExprReferenceCollector`
+    自行过滤 `Group == quest` 引用（与第 54 条 `QuestReferenceExtractor.CollectQuestIdLiteralArgs`
+    重复实现了同一段"提取 `prerequisite` 里 `quest.*` 引用"逻辑）——**整合验收时改为直接复用
+    `QuestReferenceExtractor` 新增的 `internal` 重载**（接受已解析的 `ExprNode`，不重新解析文本），
+    不再自行调用 `ExprReferenceCollector`/手写过滤，消除两处重复实现；`QuestReferenceExtractor`
+    自身也改为基于 `ExprReferenceCollector.Collect` 实现（不再手写 and/or/not/比较/引用节点的完整
+    switch 递归），三处（校验规则、公开提取入口、预演入口）最终共用同一份遍历逻辑。图算法（BFS
+    闭包、Kahn 拓扑序、三色标记找环）本身是本类型独立实现的通用逻辑，不依赖字典枚举顺序（全程用
+    列表/队列维护发现顺序，保证确定性）。悬空引用（前置点名了不存在的任务）显式收进
+    `UnknownReferencedQuestIds`，不静默丢弃；子图规模超 `maxNodes`（防御上限，默认 10000，真实内容
+    规模不预期触发）时 `ClosureTruncated` 置真。测试见 `tests/E55_QuestPrerequisitePreviewTests.cs`：
+    与真实 `QuestHost`"接取→交付"流程核对单前置/三级任务链两组对账用例、菱形依赖拓扑序有效性、
+    重复/并发调用结果一致证明无状态、无前置/自环/互环/悬空引用/`maxNodes` 截断等边界用例。
 
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`

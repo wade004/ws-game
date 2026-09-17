@@ -201,6 +201,39 @@ data_registry/
 
 `toolchain/validator` 的文本/JSON 报告输出 `rules[]` 与 `issues[].group/note` 是 T-N0-6 的内容。
 
+## 图诊断的节点定位与统一图分析（消费方反馈第 56/57 条，2026-09-18）
+
+背景：`story_tree`/`quest_prerequisite`/`talent_tree` 三类"节点 + 有向边"图形数据的既有图结构
+诊断（成环、悬空引用、id 重复等）只给出表/记录/静态字段名一类粗粒度定位，编辑器一类内容工具拿到
+`ValidationIssue` 后无法直接高亮"具体是哪个节点/哪条边"，只能自己重新解析一遍数据反查——第 57 条
+指出这一缺口；第 56 条另外指出三类图都缺"从起点不可达/孤立节点"一类展示性图结构信息，但孤立节点
+在 `quest_prerequisite`/`talent_tree` 两类图里是合法内容形态（见
+`core/gameplay/quest/README.md`/`core/numbers/archetype/README.md` 对应判断记录），不适合做成校验
+警告。
+
+- **`ValidationIssue` 新增只读属性 `AffectedNodeIds`**（`IReadOnlyList<string>`，默认空集合而非
+  `null`）：跨节点路径类诊断（如各模块的 `*_cycle` 成环检查）按环上出现顺序填入环上全部节点 id；
+  单节点类诊断（如 `*_duplicate_node_id`/`*_dangling_next_node`/`*_prerequisite_missing`/
+  `quest_prerequisite_unknown`）填入该节点自身 id。经新增的十参数构造函数传入（ABI 只新增，同
+  `Group`/`Note`/`RuleId` 三者当年新增九参数构造的既有惯例，不改既有构造物理签名）；新增
+  `WithAffectedNodeIds` 返回补齐该字段的副本，同 `WithRuleId` 既有惯例。
+- **单节点类诊断的 `Field` 补具体下标路径**（如 `nodes[3].id`/`nodes[3].branches[1].next_node_id`），
+  与仓库内既有带下标诊断（如 `objectives[0].count`）的路径格式一致；具体改动见
+  `DialogContentValidationRule`/`ArchTalentTreeCycleValidationRule` 类型判断记录。
+  `quest_prerequisite_unknown` 的 `Field` 维持既有的 `"prerequisite"`（任务记录本身即最小定位单元，
+  `prerequisite` 是标量字符串字段，没有数组下标可补）。
+- **新增公开只读图分析入口 `ContentGraphAnalyzer`**（`contracts/ContentGraphAnalyzer.cs`）：对调用方
+  给定的"节点 id 全集 + 有向邻接表"统一给出不可达（相对给定起点）/孤立（入度出度均为 0）/入度出度/
+  环四类只读结果（`ContentGraphAnalysis`），本身不产出任何 `ValidationIssue`——是否、如何把分析结果
+  转成校验问题由调用方决定。放在本模块（而不是 `Core.Gameplay`/`Core.Numbers` 任一具体模块）的理由：
+  `story_tree`/`quest_prerequisite` 在 `Core.Gameplay`、`talent_tree` 在 `Core.Numbers`，两者互不
+  依赖，唯一的共同祖先是 `Core.Foundation`（`ProjectReference` 链：`Core.Foundation` ←
+  `Core.Numbers` ← `Core.Rules` ← `Core.Carriers` ← `Core.Gameplay`），本模块又已经是
+  `ValidationIssue`/`IValidationRule` 的所在地，图诊断能力放在这里最贴近既有校验契约面。
+  `story_tree` 新增的 `story_tree_node_unreachable` 警告级检查内部复用它（见
+  `DialogContentValidationRule` 判断记录）；`quest_prerequisite`/`talent_tree` 按上面的判断记录不
+  产出新校验问题，只把它作为公开分析能力暴露给内容工具直接调用。
+
 ## 主键规则
 
 - 内容表：主键字段 `id`，值须符合 04 第 2.1 节 id 格式，且 domain 前缀（`Id.Domain`，即第一段）
