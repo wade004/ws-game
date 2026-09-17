@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
+using Core.Gameplay.Economy;
 
 namespace Core.Gameplay.Loot
 {
@@ -119,11 +121,423 @@ namespace Core.Gameplay.Loot
         }
 
         // -----------------------------------------------------------------
+        // 反馈 48：品质/词缀/货币三段期望分布——只新增，不改动 ExpectedProbabilities 的签名与结果。
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 消费方内容编辑器第 48 条：<paramref name="def"/> 一次 <see cref="LootHost.Roll"/> 调用里，
+        /// 每个叶子 <c>item.*</c> 物品的期望品质分布——条件概率 <c>P(quality=q | 该叶子至少产出一次)</c>，
+        /// 与 <see cref="LootHost.RollQuality"/>（<paramref name="itemRegistry"/> 提供 <c>item.template</c>/
+        /// <c>quality</c> 字段的默认品质回退）的真实抽样口径一致：条目配置了 <see
+        /// cref="LootEntry.QualityWeights"/> 时按正权重归一（≤0 的权重视同未配置该品质候选，同 <see
+        /// cref="LootHost.RollQuality"/> 判断记录）；未配置/全部权重≤0 时退回模板自身 <c>quality</c>
+        /// （p=1，不掷骰）。<c>econ.*</c> 叶子没有品质概念（<see cref="LootHost.ResolveCurrencyOutcome"/>
+        /// 不掷品质骰），不出现在结果里。
+        /// <para>
+        /// 判断记录（品质分布加权混合）：同一叶子可能经多条不同 <see cref="LootEntry"/>（不同分组直接
+        /// 条目、不同嵌套表分支、<c>guaranteed_min</c> 补抽命中同一条目）各自贡献期望产出数量——本方法
+        /// 按"每条贡献路径的期望产出数量"为权重，把各自的品质概率分布线性加权混合后再归一化（与 <see
+        /// cref="ExpectedProbabilities"/> 对同一叶子合并 <see cref="LootExpectedOutcome.ExpectedCount"/>
+        /// 用的"期望值永远可加"同一原则；不是"取任意一条路径的分布"，也不是"按条目数简单平均"）。
+        /// </para>
+        /// <para>
+        /// 判断记录（只读分析入口容错）：<paramref name="itemRegistry"/> 一律先包一层 <see
+        /// cref="TolerantRegistryView"/>（同消费方反馈第 45 条既有惯例）——registry 处于阻断态、或某个
+        /// 叶子模板确实未登记 <c>item.template</c> 记录时，该叶子对应贡献路径不计入品质分布，并在返回
+        /// 结果里显式标记 <see cref="LootQualityOutcome.IsDegraded"/>，不抛异常、不悄悄吞掉问题。
+        /// </para>
+        /// </summary>
+        public static IReadOnlyList<LootQualityOutcome> ExpectedQualityDistribution(
+            LootTableDef def, LootAnalysisContext context, IDataRegistryView itemRegistry)
+        {
+            if (def == null) throw new ArgumentNullException(nameof(def));
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            if (itemRegistry == null) throw new ArgumentNullException(nameof(itemRegistry));
+            if (context.ConditionMode == LootConditionEvaluationMode.Evaluate && context.ExprHost == null)
+            {
+                throw new InvalidOperationException(
+                    "LootAnalysisContext.ConditionMode=Evaluate 时必须提供 ExprHost");
+            }
+
+            var diagnostics = context.Diagnostics ?? new ExprDiagnosticsRecorder();
+            var tolerant = TolerantRegistryView.Wrap(itemRegistry);
+            var qualityAccum = new QualityAccum(tolerant);
+            var accumulator = AnalyzeTableSingleRoll(def, context, context.ExprHost, diagnostics, depth: 0, qualityAccum);
+
+            var result = new List<LootQualityOutcome>();
+            foreach (var kv in accumulator)
+            {
+                var leaf = kv.Key;
+                if (leaf.Domain != "item")
+                {
+                    // econ.* 叶子没有品质概念，见 LootHost.ResolveCurrencyOutcome 判断记录——不掷品质骰。
+                    continue;
+                }
+
+                var leafAcc = kv.Value;
+                var isDegraded = qualityAccum.DegradedLeaves.Contains(leaf);
+                var probabilities = new Dictionary<Id, double>();
+                if (qualityAccum.ByLeaf.TryGetValue(leaf, out var byQuality))
+                {
+                    var total = 0.0;
+                    foreach (var v in byQuality.Values)
+                    {
+                        total += v;
+                    }
+
+                    if (total > 0)
+                    {
+                        foreach (var qkv in byQuality)
+                        {
+                            probabilities[qkv.Key] = qkv.Value / total;
+                        }
+                    }
+                }
+
+                result.Add(new LootQualityOutcome(
+                    leaf, probabilities, leafAcc.IsApproximate, isDegraded,
+                    isDegraded
+                        ? "该叶子至少一条贡献路径的 item.template 记录读取失败（registry 阻断或该模板未登记），" +
+                          "对应路径未计入品质分布，QualityProbabilities 可能不完整"
+                        : null));
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 消费方内容编辑器第 48 条：给定模板与一次品质骰结果 <paramref name="qualityId"/>（通常来自
+        /// <see cref="ExpectedQualityDistribution"/> 的某个分桶，或调用方已知的具体品质），算出词缀骰
+        /// （<see cref="LootHost.RollAffixes"/>）候选池里每条 <c>item.affix</c> 的入选概率——先按
+        /// <c>quality_pool == qualityId</c> 与模板 <c>affixes</c> 白名单（非空时取交集）、<c>weight &gt; 0</c>
+        /// 过滤出候选池并按 <c>Id</c> 序数排序（与 <see cref="LootHost.RollAffixes"/> 逐字节同一套过滤/
+        /// 排序逻辑，保证候选顺序一致——不放回加权抽取的入选概率依赖候选池的确定但抽取顺序本身不影响
+        /// 最终概率，排序只是为了与运行期候选构建口径对齐），再对"不放回抽取 <c>min(affix_count,
+        /// 候选池大小)</c> 条"这一步复用与 <c>weighted_pick_one</c> 多抽完全同构的子集位掩码动态规划
+        /// （<see cref="InclusionProbabilitiesExact"/>，与 <see cref="ExpectedProbabilities"/> 内部
+        /// <c>weighted_pick_one</c> 不放回多抽共用同一份算法，不重新发明）精确求解。
+        /// <para>
+        /// 判断记录（候选池 &gt; <paramref name="exactMaxEntries"/> 时返回 <c>null</c>，不退化为近似）：
+        /// 与 <see cref="ExpectedProbabilities"/> 对候选池超过 <see
+        /// cref="LootAnalysisContext.ExactWithoutReplacementMaxEntries"/> 时退化为"视作放回抽样"近似式
+        /// 不同——反馈第 48 条候选文本明确词缀骰"相对复杂，建议作为后续独立评估项"，本方法只提供精确解，
+        /// 超阈值时如实标记 <see cref="LootAffixInclusionResult.IsDegraded"/> 并在 <see
+        /// cref="LootAffixInclusionResult.Reason"/> 里建议改用 <see cref="LootHost.RollDetailed"/>
+        /// 模拟观测，不提供一个"看起来精确、实际有偏"的近似值。默认阈值 16（与反馈原文"池大小 ≤ 16"
+        /// 一致，比 <see cref="LootAnalysisContext.ExactWithoutReplacementMaxEntries"/> 默认 12 更宽，
+        /// 因为词缀池通常比掉落表分组条目数更大、且不放回多抽的“抽取次数”<c>affix_count</c> 一般较小，
+        /// 状态数 2^16=65536 单次调用仍可接受）。
+        /// </para>
+        /// </summary>
+        public static LootAffixInclusionResult ExpectedAffixInclusion(
+            Id templateId, Id qualityId, IDataRegistryView registry, int exactMaxEntries = 16)
+        {
+            if (registry == null) throw new ArgumentNullException(nameof(registry));
+
+            var tolerant = TolerantRegistryView.Wrap(registry);
+            var templateRecord = tolerant.Get(ItemTemplateTableName, templateId);
+            var qualityDef = tolerant.Get(ItemQualityDefinitionTableName, qualityId);
+            var affixCount = qualityDef != null && qualityDef.TryGetInt("affix_count", out var ac) ? (int)ac : 0;
+
+            string? registryDegradedReason = tolerant.IsDegraded
+                ? "registry 处于阻断态，以下表读取失败：" + string.Join(", ", tolerant.MissingTables)
+                : null;
+
+            if (affixCount <= 0)
+            {
+                return new LootAffixInclusionResult(
+                    templateId, qualityId, candidatePoolSize: 0, actualAffixCount: 0,
+                    inclusionProbabilities: EmptyAffixProbabilities, tolerant.IsDegraded, registryDegradedReason);
+            }
+
+            IReadOnlyList<Id>? whitelist = null;
+            if (templateRecord != null && templateRecord.TryGetIdList("affixes", out var wl) && wl.Count > 0)
+            {
+                whitelist = wl;
+            }
+
+            var candidates = new List<(Id Id, double Weight)>();
+            foreach (var record in tolerant.GetAll(ItemAffixTableName))
+            {
+                if (record.Id == null)
+                {
+                    continue;
+                }
+
+                if (!record.TryGetId("quality_pool", out var pool) || !pool.Equals(qualityId))
+                {
+                    continue;
+                }
+
+                if (whitelist != null && !ContainsId(whitelist, record.Id.Value))
+                {
+                    continue;
+                }
+
+                var weight = record.TryGetNumber("weight", out var w) ? w : 0.0;
+                if (weight <= 0.0)
+                {
+                    continue;
+                }
+
+                candidates.Add((record.Id.Value, weight));
+            }
+
+            candidates.Sort((a, b) => string.CompareOrdinal(a.Id.Value, b.Id.Value));
+
+            var poolSize = candidates.Count;
+            var actualAffixCount = Math.Min(affixCount, poolSize);
+
+            if (poolSize == 0 || actualAffixCount <= 0)
+            {
+                return new LootAffixInclusionResult(
+                    templateId, qualityId, poolSize, actualAffixCount,
+                    EmptyAffixProbabilities, tolerant.IsDegraded, registryDegradedReason);
+            }
+
+            if (poolSize > exactMaxEntries)
+            {
+                var reason = $"候选词缀池 {poolSize} 条超过精确阈值 {exactMaxEntries}" +
+                    "（子集动态规划状态数按候选池条目数指数增长），请改用 LootHost.RollDetailed 做蒙特卡洛模拟" +
+                    "观测该品质下的词缀分布" + (registryDegradedReason != null ? "；另外，" + registryDegradedReason : "。");
+                return new LootAffixInclusionResult(
+                    templateId, qualityId, poolSize, actualAffixCount, null, isDegraded: true, reason);
+            }
+
+            var weights = new double[poolSize];
+            for (var i = 0; i < poolSize; i++)
+            {
+                weights[i] = candidates[i].Weight;
+            }
+
+            var inclusion = InclusionProbabilitiesExact(weights, actualAffixCount);
+            var probabilities = new Dictionary<Id, double>(poolSize);
+            for (var i = 0; i < poolSize; i++)
+            {
+                probabilities[candidates[i].Id] = inclusion[i];
+            }
+
+            return new LootAffixInclusionResult(
+                templateId, qualityId, poolSize, actualAffixCount, probabilities, tolerant.IsDegraded, registryDegradedReason);
+        }
+
+        /// <summary>
+        /// 消费方内容编辑器第 48 条：<paramref name="def"/> 一次 <see cref="LootHost.Roll"/> 调用里，
+        /// 每种货币（<c>econ.*</c> 叶子引用）的期望产出数量——与 <see
+        /// cref="LootHost.ResolveCurrencyOutcome"/> 逐项对齐：概率 × 当量（<see cref="LootRollCore.
+        /// ExpectedCount"/> 同款期望值口径，经嵌套/保底路径线性叠加）× <paramref name="economy"/>.<see
+        /// cref="IEconomyHost.TryGetGoldBaseAmount"/>（<paramref name="sourceLevel"/> 为空时回退等级 1，
+        /// 与 <see cref="LootHost.ResolveCurrencyOutcome"/> 判断记录同一惯例）× <paramref
+        /// name="goldMultiplierProvider"/> 对 <paramref name="tierId"/> 解析出的分档金币倍率（未注入
+        /// 委托或委托对该 <c>tierId</c> 无法解析时恒 1，同 <see cref="LootGoldMultiplierProvider"/> 判断
+        /// 记录）× <paramref name="context"/>.<see cref="LootAnalysisContext.Multiplier"/>（对应 <see
+        /// cref="RollContext.Multiplier"/> 难度倍率，两者是同一个数值——本方法只接受
+        /// <see cref="LootAnalysisContext"/> 一份倍率输入，不重复要求调用方在 <see cref="RollContext"/>
+        /// 与本方法之间填两遍，避免两个来源不一致）。已知与真实抽取的偏差见 <see
+        /// cref="LootExpectedCurrencyOutcome"/> 类型注释"不建模最终四舍五入"判断记录。
+        /// </summary>
+        public static IReadOnlyList<LootExpectedCurrencyOutcome> ExpectedCurrency(
+            LootTableDef def, LootAnalysisContext context, IEconomyHost economy,
+            int? sourceLevel = null, Id? tierId = null, LootGoldMultiplierProvider? goldMultiplierProvider = null)
+        {
+            if (def == null) throw new ArgumentNullException(nameof(def));
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            if (economy == null) throw new ArgumentNullException(nameof(economy));
+            if (context.ConditionMode == LootConditionEvaluationMode.Evaluate && context.ExprHost == null)
+            {
+                throw new InvalidOperationException(
+                    "LootAnalysisContext.ConditionMode=Evaluate 时必须提供 ExprHost");
+            }
+
+            var diagnostics = context.Diagnostics ?? new ExprDiagnosticsRecorder();
+            var accumulator = AnalyzeTableSingleRoll(def, context, context.ExprHost, diagnostics, depth: 0);
+
+            var level = sourceLevel ?? 1;
+            var goldBase = economy.TryGetGoldBaseAmount(level);
+            var tierMultiplier = goldMultiplierProvider?.Invoke(tierId) ?? 1.0;
+
+            var result = new List<LootExpectedCurrencyOutcome>();
+            foreach (var kv in accumulator)
+            {
+                var leaf = kv.Key;
+                if (leaf.Domain != "econ")
+                {
+                    continue;
+                }
+
+                var acc = kv.Value;
+                var dropProbability = LootRollCore.Clamp01(1 - acc.ProbabilityNone);
+
+                if (!goldBase.HasValue)
+                {
+                    result.Add(new LootExpectedCurrencyOutcome(
+                        leaf, dropProbability, 0.0, acc.Paths, acc.IsApproximate, isDegraded: true,
+                        reason: $"IEconomyHost.TryGetGoldBaseAmount({level}) 返回 null" +
+                            "（金币基数曲线未登记或读取失败），无法换算该货币的期望数量"));
+                    continue;
+                }
+
+                var expectedAmount = acc.ExpectedCount * goldBase.Value * tierMultiplier * context.Multiplier;
+                result.Add(new LootExpectedCurrencyOutcome(
+                    leaf, dropProbability, expectedAmount, acc.Paths, acc.IsApproximate, isDegraded: false, reason: null));
+            }
+
+            return result;
+        }
+
+        private const string ItemTemplateTableName = "item.template";
+
+        private const string ItemQualityDefinitionTableName = "item.quality_definition";
+
+        private const string ItemAffixTableName = "item.affix";
+
+        private static readonly IReadOnlyDictionary<Id, double> EmptyAffixProbabilities = new Dictionary<Id, double>();
+
+        private static bool ContainsId(IReadOnlyList<Id> list, Id value)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Equals(value))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>反馈 48：<see cref="ExpectedQualityDistribution"/> 递归遍历过程中的品质分布累加器——
+        /// 每次 <see cref="AnalyzeTableSingleRoll"/> 调用（含递归）都会创建一个新实例，与该次调用自己的
+        /// <c>Dictionary&lt;Id, LeafAccumulator&gt;</c> 是"同一遍遍历的两份平行累加结果"，不是互相派生
+        /// 关系——两者共用同一套条件筛选/权重归一/保底逻辑，只是分别累加"是否命中"与"命中后品质分布"。
+        /// </summary>
+        private sealed class QualityAccum
+        {
+            public QualityAccum(IDataRegistryView registry)
+            {
+                Registry = registry;
+            }
+
+            public IDataRegistryView Registry { get; }
+
+            /// <summary>叶子 → 品质 → 期望产出数量（未归一化，见 <see cref="ExpectedQualityDistribution"/>
+            /// 归一化步骤）。</summary>
+            public Dictionary<Id, Dictionary<Id, double>> ByLeaf { get; } = new Dictionary<Id, Dictionary<Id, double>>();
+
+            /// <summary>因 <c>item.template</c> 读取失败而至少丢失一条贡献路径的叶子集合，见 <see
+            /// cref="ExpectedQualityDistribution"/> 判断记录"只读分析入口容错"。</summary>
+            public HashSet<Id> DegradedLeaves { get; } = new HashSet<Id>();
+        }
+
+        /// <summary>取模板 <paramref name="templateId"/> 自身登记的品质（<c>item.template.quality</c>），
+        /// 供未配置 <see cref="LootEntry.QualityWeights"/> 的条目回退——语义同 <see
+        /// cref="LootHost.ResolveItemOutcome"/> 第一步 <c>templateRecord.GetId("quality")</c>；读不到该
+        /// 模板记录（registry 阻断，或该模板确实未登记）时返回 <c>null</c>（不抛异常，同 <see
+        /// cref="TolerantRegistryView"/> 惯例）。</summary>
+        private static Id? ResolveTemplateQuality(Id templateId, IDataRegistryView registry)
+        {
+            var record = registry.Get(ItemTemplateTableName, templateId);
+            if (record == null)
+            {
+                return null;
+            }
+
+            return record.TryGetId("quality", out var quality) ? quality : (Id?)null;
+        }
+
+        /// <summary>一条候选（已知命中/被抽中，见调用方 <paramref name="entry"/> 的语境）在其命中的那一
+        /// 刻会解析成的品质分布——与 <see cref="LootHost.RollQuality"/> 逐字节同一套判定：<see
+        /// cref="LootEntry.QualityWeights"/> 存在且过滤出至少一条正权重时按正权重归一；否则（未配置/
+        /// 全部权重 &lt;=0）回退 <paramref name="templateQuality"/>（p=1，不掷骰）；<paramref
+        /// name="templateQuality"/> 本身为 <c>null</c>（<see cref="ResolveTemplateQuality"/> 读取失败）
+        /// 且没有可用的 <see cref="LootEntry.QualityWeights"/> 时返回空列表——调用方据此标记该贡献路径
+        /// 降级（见 <see cref="ExpectedQualityDistribution"/> 判断记录）。</summary>
+        private static List<(Id Quality, double Probability)> QualityWeightDistribution(LootEntry entry, Id? templateQuality)
+        {
+            if (entry.QualityWeights != null && entry.QualityWeights.Count > 0)
+            {
+                var ids = new List<Id>(entry.QualityWeights.Count);
+                var weights = new List<double>(entry.QualityWeights.Count);
+                var total = 0.0;
+                foreach (var kv in entry.QualityWeights)
+                {
+                    if (kv.Value <= 0)
+                    {
+                        continue;
+                    }
+
+                    ids.Add(kv.Key);
+                    weights.Add(kv.Value);
+                    total += kv.Value;
+                }
+
+                if (ids.Count > 0)
+                {
+                    var list = new List<(Id, double)>(ids.Count);
+                    for (var i = 0; i < ids.Count; i++)
+                    {
+                        list.Add((ids[i], weights[i] / total));
+                    }
+
+                    return list;
+                }
+            }
+
+            if (templateQuality.HasValue)
+            {
+                return new List<(Id, double)> { (templateQuality.Value, 1.0) };
+            }
+
+            return new List<(Id, double)>();
+        }
+
+        private static Dictionary<Id, double> GetOrCreateQualityBucket(Dictionary<Id, Dictionary<Id, double>> byLeaf, Id leaf)
+        {
+            if (!byLeaf.TryGetValue(leaf, out var bucket))
+            {
+                bucket = new Dictionary<Id, double>();
+                byLeaf[leaf] = bucket;
+            }
+
+            return bucket;
+        }
+
+        /// <summary>把 <paramref name="entry"/>（已知贡献了 <paramref name="pathExpectedQty"/> 的期望
+        /// 产出数量）按 <see cref="QualityWeightDistribution"/> 解析出的品质分布累加进 <paramref
+        /// name="qualityAccum"/>；<paramref name="entry"/> 引用 <c>econ.*</c> 时不做任何事（货币没有
+        /// 品质概念）。</summary>
+        private static void AccumulateEntryQuality(
+            LootEntry entry, double pathExpectedQty, QualityAccum? qualityAccum)
+        {
+            if (qualityAccum == null || entry.Ref.Domain != "item")
+            {
+                return;
+            }
+
+            var templateQuality = ResolveTemplateQuality(entry.Ref, qualityAccum.Registry);
+            var distribution = QualityWeightDistribution(entry, templateQuality);
+            if (distribution.Count == 0)
+            {
+                qualityAccum.DegradedLeaves.Add(entry.Ref);
+                return;
+            }
+
+            var bucket = GetOrCreateQualityBucket(qualityAccum.ByLeaf, entry.Ref);
+            foreach (var (quality, probability) in distribution)
+            {
+                bucket[quality] = bucket.TryGetValue(quality, out var existing)
+                    ? existing + pathExpectedQty * probability
+                    : pathExpectedQty * probability;
+            }
+        }
+
+        // -----------------------------------------------------------------
         // 单次 Roll 的解析式期望分布（可递归用于嵌套表）
         // -----------------------------------------------------------------
 
         private static Dictionary<Id, LeafAccumulator> AnalyzeTableSingleRoll(
-            LootTableDef def, LootAnalysisContext context, IExprHost? exprHost, IExprDiagnostics diagnostics, int depth)
+            LootTableDef def, LootAnalysisContext context, IExprHost? exprHost, IExprDiagnostics diagnostics, int depth,
+            QualityAccum? qualityAccum = null)
         {
             var accumulator = new Dictionary<Id, LeafAccumulator>();
 
@@ -165,7 +579,7 @@ namespace Core.Gameplay.Loot
                         naturalProbabilityByKey[(gi, ei)] = effectiveChance;
                         chanceEachFireProbabilities.Add(effectiveChance);
                         ResolveEntryContribution(entry, effectiveChance, isApproximate: false,
-                            $"groups[{gi}].entries[{ei}]", context, exprHost, diagnostics, depth, accumulator);
+                            $"groups[{gi}].entries[{ei}]", context, exprHost, diagnostics, depth, accumulator, qualityAccum);
                     }
                 }
                 else
@@ -185,7 +599,7 @@ namespace Core.Gameplay.Loot
                     {
                         naturalProbabilityByKey[(gi, poolIndexed[pi].Index)] = inclusion.Probabilities[pi];
                         ResolveEntryContribution(poolIndexed[pi].Entry, inclusion.Probabilities[pi], inclusion.Approximate,
-                            $"groups[{gi}].entries[{poolIndexed[pi].Index}]", context, exprHost, diagnostics, depth, accumulator);
+                            $"groups[{gi}].entries[{poolIndexed[pi].Index}]", context, exprHost, diagnostics, depth, accumulator, qualityAccum);
                     }
                 }
 
@@ -206,7 +620,7 @@ namespace Core.Gameplay.Loot
             if (def.GuaranteedMin.HasValue)
             {
                 ResolveGuaranteedMin(def, context, exprHost, diagnostics, depth, chanceEachFireProbabilities,
-                    chanceEachIndexByKey, deterministicWeightedTotal, candidatePool, accumulator);
+                    chanceEachIndexByKey, deterministicWeightedTotal, candidatePool, accumulator, qualityAccum);
             }
 
             return accumulator;
@@ -234,7 +648,7 @@ namespace Core.Gameplay.Loot
             List<double> chanceEachFireProbabilities, Dictionary<(int GroupIndex, int EntryIndex), int> chanceEachIndexByKey,
             int deterministicWeightedTotal,
             List<(LootEntry Entry, int GroupIndex, int EntryIndex, double NaturalProbability)> candidatePool,
-            Dictionary<Id, LeafAccumulator> accumulator)
+            Dictionary<Id, LeafAccumulator> accumulator, QualityAccum? qualityAccum = null)
         {
             var guaranteedMin = def.GuaranteedMin!.Value;
             var poolSize = candidatePool.Count;
@@ -323,6 +737,12 @@ namespace Core.Gameplay.Loot
                         var expectedQty = marginalTopUpProbability[i] * LootRollCore.ExpectedCount(entry);
                         AddPath(accumulator, entry.Ref, topUpGivenNotFired, expectedQty, approximate,
                             $"groups[{gi}].entries[{ei}](guaranteed_min top-up, exact)");
+
+                        // 反馈 48：保底补抽命中的仍是同一条 LootEntry，品质分布取决于该条目自身的
+                        // QualityWeights，与"是自然命中还是补抽命中"无关（见 AccumulateEntryQuality 判断
+                        // 记录）——按边际期望数量（不区分条件）累加，与本分支下 AddPath 的期望数量口径
+                        // 一致（期望值可加，不需要走 topUpGivenNotFired 那套条件合并）。
+                        AccumulateEntryQuality(entry, marginalTopUpProbability[i] * LootRollCore.ExpectedCount(entry), qualityAccum);
                     }
                 }
                 else if (marginalTopUpProbability[i] > 0)
@@ -335,7 +755,7 @@ namespace Core.Gameplay.Loot
                     // 精确阈值——才真正近似；对 loot.* 条目恒标注近似，见方法注释）。
                     var isNestedOrApproximate = entry.Ref.Domain == "loot" || marginalApproximate;
                     ResolveEntryContribution(entry, marginalTopUpProbability[i], isNestedOrApproximate,
-                        $"groups[{gi}].entries[{ei}](guaranteed_min top-up)", context, exprHost, diagnostics, depth, accumulator);
+                        $"groups[{gi}].entries[{ei}](guaranteed_min top-up)", context, exprHost, diagnostics, depth, accumulator, qualityAccum);
                 }
             }
         }
@@ -349,7 +769,7 @@ namespace Core.Gameplay.Loot
         private static void ResolveEntryContribution(
             LootEntry entry, double fireProbability, bool isApproximate, string pathLabel,
             LootAnalysisContext context, IExprHost? exprHost, IExprDiagnostics diagnostics,
-            int depth, Dictionary<Id, LeafAccumulator> accumulator)
+            int depth, Dictionary<Id, LeafAccumulator> accumulator, QualityAccum? qualityAccum = null)
         {
             if (fireProbability <= 0)
             {
@@ -372,7 +792,12 @@ namespace Core.Gameplay.Loot
                     return;
                 }
 
-                var nestedAccumulator = AnalyzeTableSingleRoll(nestedDef, context, exprHost, diagnostics, depth + 1);
+                // 反馈 48：嵌套表自己的叶子各自按自己的 LootEntry.QualityWeights 掷品质骰（外层这条
+                // loot.* 条目本身没有品质概念），需要一个"只属于本次递归调用"的品质累加器——不能直接
+                // 复用外层 qualityAccum，否则嵌套表内部的期望数量（尚未乘上"count 次独立重抽"这个外层
+                // 系数）会被误当成最终贡献直接并入外层，见下方合并步骤。
+                var nestedQualityAccum = qualityAccum != null ? new QualityAccum(qualityAccum.Registry) : null;
+                var nestedAccumulator = AnalyzeTableSingleRoll(nestedDef, context, exprHost, diagnostics, depth + 1, nestedQualityAccum);
                 if (nestedAccumulator.Count == 0)
                 {
                     return;
@@ -398,10 +823,34 @@ namespace Core.Gameplay.Loot
                     AddPath(accumulator, leaf, pathProbability, pathExpectedQty, approximate,
                         pathPrefix + JoinPaths(nestedAcc.Paths));
                 }
+
+                if (qualityAccum != null && nestedQualityAccum != null)
+                {
+                    // 合并：嵌套表单次 Roll 里"叶子 L 在品质 q 上的期望数量"乘上外层这条 loot.* 条目
+                    // 自己的 fireProbability × expectedCount（"命中后独立重抽 count 次"的期望值线性
+                    // 缩放，与上面 pathExpectedQty 的推导同一套系数，只是分母换成品质分桶）后累加进外层。
+                    foreach (var leafKv in nestedQualityAccum.ByLeaf)
+                    {
+                        var bucket = GetOrCreateQualityBucket(qualityAccum.ByLeaf, leafKv.Key);
+                        foreach (var qualityKv in leafKv.Value)
+                        {
+                            var scaled = fireProbability * expectedCount * qualityKv.Value;
+                            bucket[qualityKv.Key] = bucket.TryGetValue(qualityKv.Key, out var existing)
+                                ? existing + scaled
+                                : scaled;
+                        }
+                    }
+
+                    foreach (var degradedLeaf in nestedQualityAccum.DegradedLeaves)
+                    {
+                        qualityAccum.DegradedLeaves.Add(degradedLeaf);
+                    }
+                }
             }
             else
             {
                 AddPath(accumulator, entry.Ref, fireProbability, fireProbability * expectedCount, isApproximate, pathLabel);
+                AccumulateEntryQuality(entry, fireProbability * expectedCount, qualityAccum);
             }
         }
 
