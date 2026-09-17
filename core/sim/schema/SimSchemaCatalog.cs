@@ -21,15 +21,19 @@ namespace Core.Sim
     {
         /// <summary>注册 <see cref="SimSchemas.Anchor"/>/<see cref="SimSchemas.Scenario"/> 两张
         /// <see cref="TableSchema"/> 与各自的 <see cref="IValidationRule"/>（<see cref="SimAnchorValidationRule"/>/
-        /// <see cref="SimScenarioValidationRule"/>）。不调用 <see cref="IDataRegistry.LoadAll()"/>——
-        /// 加载时机由调用方决定，同 <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll"/>
-        /// 既有惯例。</summary>
+        /// <see cref="SimScenarioValidationRule"/>/<see cref="SimGrowthOpponentAmbiguityValidationRule"/>——
+        /// 反馈第 53 条新增，见该类型判断记录；本条不注册新表，只对已加载的 <c>creature.template</c>/
+        /// <c>fac.*</c> 做只读交叉校验，放在本入口一起注册纯粹是"仿真相关的内容校验规则集中一处登记"
+        /// 的既有惯例，不代表它依赖 <c>sim.anchor</c>/<c>sim.scenario</c> 两张表本身）。不调用
+        /// <see cref="IDataRegistry.LoadAll()"/>——加载时机由调用方决定，同
+        /// <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.RegisterAll"/> 既有惯例。</summary>
         public static void RegisterAll(IDataRegistry registry)
         {
             registry.RegisterSchema(SimSchemas.Anchor);
             registry.RegisterSchema(SimSchemas.Scenario);
             registry.RegisterValidationRule(new SimAnchorValidationRule());
             registry.RegisterValidationRule(new SimScenarioValidationRule());
+            registry.RegisterValidationRule(new SimGrowthOpponentAmbiguityValidationRule());
         }
     }
 }

@@ -395,6 +395,22 @@ DefaultLeafBandwidthKeys` 的取值单一来源，改一处两处都跟着变）
 9），"仿真"分组扩到四行。`data/_sample`/`games/_template`/嵌入数据集（`core/sim/tests/data`）已核对
 过全部 `bandwidths` 键均在已知集合内，不会触发本项警告。
 
+**判断记录（2026-09-17，消费方反馈第 53 条：新增成长仿真同档位歧义检查，总数 24→25）**：
+`Core.Sim.GrowthSimulation.ResolveCreatureFamily` 按 `tier`+`level` 定位候选 `creature.template`
+时，若同档位存在多条对玩家阵营敌对的候选，运行时按登记顺序第一条生效（详见
+`core/sim/README.md` 消费方反馈第 52-53 条判断记录），但此前内容校验层没有任何离线检查能提前
+发现这类数据配平疏漏。新增 `Core.Sim.SimGrowthOpponentAmbiguityValidationRule`，检查名
+`sim_growth_opponent_ambiguous`，Warning 级、不可提升——静态按 `fac.faction.default_reaction`/
+`fac.reaction_matrix` 复算"对玩家阵营（假定 `fac.player`）是否敌对"（不能像运行时那样构造真实
+`StandardPlayer` 实例，只能假定这一固定 id，`fac.player`/`fac.faction` 未登记时优雅跳过、不误报），
+按 `tier`+`level` 分组，组内敌对候选 ≥2 条即对组内每条记录各产出一条问题。同批本清单登记 25 行
+（阻断 15 + 警告 10），"仿真"分组扩到五行、`sim.anchor`/`sim.scenario`/`creature.template` 三表
+专属五项。字符串字面量而非 `nameof(...)`/常量引用的理由与上面三条"仿真"分组条目相同（见
+`NumericValidationRuleCatalog.cs` 类型级判断记录）。`data/_sample` 一度因 `creature.sample_summon_
+totem`（`summon_only` 占位生物）与 `creature.sample_beast` 同 `tier=creature.tier.sample_normal`、
+`level=1` 触发过本项警告——修数据（把 `sample_summon_totem` 挪到独立 tier `creature.tier.
+sample_summon`）后恢复 0 警告，见 `data/README.md` 对应判断记录，不是放宽本规则。
+
 ## 验收测试（`tests/NumericValidationRuleCatalogTests.cs`）
 
 | 用例 | 覆盖点 |

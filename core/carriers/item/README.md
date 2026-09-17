@@ -956,6 +956,31 @@ DataRecord)` 两个默认接口成员（`TryGetAll` 的同族单记录版本）�
 "运行时不做静默降级"不属于本条反馈治理范围，未改动；`ItemBudgetCurve.ComputeConsumed` 本身不
 接受 `IDataRegistryView` 参数，不读 registry，同样不适用（N/A）。
 
+## 消费方反馈第 52 条判断记录（2026-09-17）
+
+`EquipmentHost` 新增 `GetEquippedWeaponSummary(Id unitId, Id slot)`/`GetAllEquippedWeaponSummaries
+(Id unitId)` 两个方法——消费方反馈第 52 条：编辑器结算预览字段 `CasterWeapon(TemplateId,
+QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→实例 id）字段形状不同，
+消费方此前各自实现一遍"`GetAllEquippedInstances` 取 `ItemInstance` 再手工搬运三字段"这层薄转换。
+
+**做法**：与既有 `GetAllEquippedInstances`（供 `EquipmentPersistable.Save` 序列化用）同一模式——
+新增方法只是在 `_equipped` 查表之后，多一步把 `ItemInstance` 的 `TemplateId`/`Quality`/`Affixes`
+三个身份字段映射成新增的 `Core.Carriers.Common.EquippedWeaponSummary`（只读结构体，
+`FromInstance(ItemInstance)` 静态工厂），不重新查询/计算任何数值。`GetEquippedWeaponSummary` 该
+槽位当前无装备时返回 `null`；`GetAllEquippedWeaponSummaries` 未装备任何物品时返回空字典（不是
+`null`），两者均不要求 `slot` 一定是 `item.slot_definition.is_weapon` 的武器槽——`ItemInstance`
+本身不携带"是不是武器"这个判断，槽位是否为武器槽由调用方自行对照 `item.slot_definition` 判断。
+
+`Core.Sim.StandardPlayerBuilder.Build` 是本次新增方法的第一个消费方：新增只读属性
+`StandardPlayer.EquippedWeaponSummaries` 在 `Build` 内部一次性调用
+`GetAllEquippedWeaponSummaries` 填充，不从 `chosenAffixes`/`qualityId` 等局部变量另行拼一份，
+避免与本类内部实际落库的身份字段产生潜在不一致（详见 `core/sim/README.md` 消费方反馈第 52-53
+条判断记录）。
+
+**验证**：`EquippedWeaponSummaryTests.cs`（新文件）4 个用例——与手工搬运基线逐字段比对、空槽位
+返回 null、完全未装备返回 null/空字典、双持（两个武器槽同时装备、词缀各自独立不串号）。
+`Tests.Carriers` 全量 615/615 通过，无回归。
+
 ## 不负责什么
 
 - 不实现 `core/carriers/creature`/`gobj`/`summon`（并行开发的兄弟模块）。

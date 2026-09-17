@@ -211,4 +211,142 @@ namespace Core.Sim
             }
         }
     }
+
+    /// <summary>
+    /// 消费方反馈第 53 条：<c>Core.Sim.GrowthSimulation</c> 选同 <c>tier</c>+<c>level</c> 的
+    /// <c>creature.template</c> 时，运行时已根治为"按阵营过滤 + 歧义诊断"（见
+    /// <see cref="GrowthSimulation.ResolveCreatureFamily"/> 判断记录）；本规则是同一问题在内容校验层
+    /// 的对应检查——数据配平阶段就能发现"同档位登记了多条对玩家阵营敌对的生物"这一容易被忽略的疏漏，
+    /// 不必等到跑一次成长仿真才能看到 <c>Kills=0</c>/等级卡死的症状。
+    /// <para>
+    /// 判断记录（静态校验与运行时口径的差异：玩家阵营取字面量 <c>"fac.player"</c>，不是某个具体标准
+    /// 玩家实例的实际阵营）：本规则在数据加载期运行，此时没有任何已装配的
+    /// <see cref="Core.Sim.HeadlessWorld"/>/<c>PlayerUnit</c> 实例可读——
+    /// <see cref="GrowthSimulation.ResolveCreatureFamily"/> 的运行时修法（读
+    /// <c>world.Player.FactionId</c>）在此不可行。仓库全部无头仿真入口
+    /// （<see cref="HeadlessWorldOptions.PlayerFactionId"/>/<see cref="FightRunnerOptions.PlayerFactionId"/>）
+    /// 都把 <c>"fac.player"</c> 作为玩家阵营的默认值且从未被 <c>sim.scenario</c> 覆盖（该表 schema
+    /// 未登记任何"玩家阵营"字段），本规则据此按同一约定俗成的默认值判定，与运行时实际生效的阵营一致；
+    /// 若未来 <c>sim.scenario</c> 新增可覆盖玩家阵营的字段，本规则需要跟着改，届时属于新增字段/ADR
+    /// 讨论范围，不在本次改动内。
+    /// </para>
+    /// <para>
+    /// 判断记录（不复用 <see cref="Core.Numbers.Faction.FactionMatrix"/> 类型）：该类型构造函数要求一个
+    /// 真实 <c>IEventBus</c> 实例（供 <c>SetReaction</c> 运行期覆盖时发布事件），而
+    /// <see cref="IValidationRule.Validate(IDataRegistryView)"/> 只拿到只读视图、没有事件总线——本规则
+    /// 只需要"只读查询"这一半能力（数据校验期不存在任何运行期覆盖），因此内联一份与
+    /// <see cref="Core.Numbers.Faction.FactionMatrix.GetReaction"/> 逐条同构的最小只读解析（同阵营恒
+    /// Friendly → <c>fac.reaction_matrix</c> 显式行 → <c>fac.faction.default_reaction</c> 回退），不
+    /// 新增任何跨程序集依赖或事件总线桩对象。
+    /// </para>
+    /// <para>
+    /// 判断记录（<c>fac.faction</c>/<c>fac.player</c> 未登记时的降级）：<c>fac.faction</c>/
+    /// <c>fac.reaction_matrix</c> 均由 <c>Core.Numbers.Faction</c> 模块登记，<see
+    /// cref="IDataRegistryView.GetAll"/> 对未注册/未加载的表返回空集合、不抛异常（见
+    /// <c>Core.Foundation.DataRegistry.DataRegistry.GetAllUnchecked</c>）；若某数据根未装配阵营系统或
+    /// 未按约定使用 <c>fac.player</c> 这个 id，本规则直接 <c>yield break</c>——不臆造"全部生物默认
+    /// 敌对"的假设，避免在不适用的数据根上产生无意义告警。
+    /// </para></summary>
+    public sealed class SimGrowthOpponentAmbiguityValidationRule : IValidationRule
+    {
+        /// <summary>反馈第 53 条新增检查名（警告级，不可提升）："同 tier+level 存在多条对玩家阵营
+        /// 敌对的 creature.template 记录"。</summary>
+        public const string OpponentAmbiguousCheck = "sim_growth_opponent_ambiguous";
+
+        private static readonly string AssumedPlayerFactionId = "fac.player"; // 见类型判断记录。
+
+        public bool NonEscalatable => true;
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            var factionRows = view.GetAll("fac.faction");
+            if (factionRows.Count == 0)
+            {
+                yield break; // 数据根未启用阵营系统，见类型判断记录。
+            }
+
+            var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var row in factionRows)
+            {
+                if (row.TryGetId("id", out var id) && row.TryGetString("default_reaction", out var reaction))
+                {
+                    defaults[id.Value] = reaction;
+                }
+            }
+            if (!defaults.ContainsKey(AssumedPlayerFactionId))
+            {
+                yield break; // 本数据根未按约定使用 fac.player，静态规则无法判定，见类型判断记录。
+            }
+
+            var explicitReactions = new Dictionary<(string From, string To), string>();
+            foreach (var row in view.GetAll("fac.reaction_matrix"))
+            {
+                if (row.TryGetId("from", out var from) && row.TryGetId("to", out var to) && row.TryGetString("reaction", out var reaction))
+                {
+                    explicitReactions[(from.Value, to.Value)] = reaction;
+                }
+            }
+
+            // 判断方向须与 GrowthSimulation.ResolveCreatureFamily 一致：GetReaction(玩家, 候选)——
+            // "从玩家视角看这个候选是否敌对"，不是反过来（见该方法判断记录"阵营过滤"关于
+            // data/_sample 非对称反应矩阵的反例说明：GetReaction(from,to) 回退到 defaults[from]，
+            // from 固定是玩家阵营，因此没有显式行时的回退值取玩家阵营自己的 default_reaction，不是
+            // 候选阵营的）。
+            bool IsHostileToPlayer(string factionId)
+            {
+                if (string.Equals(factionId, AssumedPlayerFactionId, StringComparison.Ordinal))
+                {
+                    return false; // 同阵营恒 Friendly（同 FactionMatrix.GetReaction 优先级①）。
+                }
+                if (explicitReactions.TryGetValue((AssumedPlayerFactionId, factionId), out var explicitReaction))
+                {
+                    return explicitReaction == "hostile";
+                }
+                return defaults.TryGetValue(AssumedPlayerFactionId, out var def) && def == "hostile";
+            }
+
+            // 按 tier 分组，组内再按 level 分组：找出敌对候选 >= 2 条的 (tier, level) 组合。
+            var byTier = new Dictionary<string, List<(int Level, string TemplateId)>>(StringComparer.Ordinal);
+            foreach (var record in view.GetAll("creature.template"))
+            {
+                if (!record.TryGetId("tier", out var tier) || !record.TryGetId("faction_id", out var factionId))
+                {
+                    continue; // 缺字段已由内置 required_field 检查报过，这里不重复报。
+                }
+                if (!IsHostileToPlayer(factionId.Value))
+                {
+                    continue;
+                }
+                var level = record.TryGetInt("level", out var lvl) ? (int)lvl : 1;
+                if (!byTier.TryGetValue(tier.Value, out var bucket))
+                {
+                    bucket = new List<(int, string)>();
+                    byTier[tier.Value] = bucket;
+                }
+                bucket.Add((level, record.Key));
+            }
+
+            foreach (var tierKv in byTier.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                foreach (var group in tierKv.Value.GroupBy(e => e.Level).OrderBy(g => g.Key))
+                {
+                    var groupList = group.ToList();
+                    if (groupList.Count <= 1)
+                    {
+                        continue;
+                    }
+
+                    var ids = string.Join(", ", groupList.Select(e => e.TemplateId));
+                    foreach (var entry in groupList)
+                    {
+                        yield return new ValidationIssue(ValidationSeverity.Warning, "creature.template", OpponentAmbiguousCheck,
+                            $"tier={tierKv.Key}、level={group.Key} 下存在多条对玩家阵营（{AssumedPlayerFactionId}）敌对的 " +
+                            $"creature.template 候选（{ids}）：GrowthSimulation.ResolveCreatureFamily 同档位多条候选时只取" +
+                            "登记顺序第一条、其余静默丢弃，请确认是否为数据配平疏漏",
+                            entry.TemplateId, "tier");
+                    }
+                }
+            }
+        }
+    }
 }

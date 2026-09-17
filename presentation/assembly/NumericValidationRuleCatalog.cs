@@ -79,10 +79,12 @@ namespace Presentation.Assembly
     /// 深度复审领域 E（E-M1）发现后设计层裁定采纳方案一——并入本清单，新增分组"仿真"，不再采用
     /// T-N6-8a 当时记录的"故意排除"结论。深度复审同批 E-S2 又给 <c>SimScenarioValidationRule</c>
     /// 新增一条警告检查（<c>sim_scenario_bandwidth_key_unknown</c>，见该规则类型判断记录），总数
-    /// 随之再改为 <b>24 行（阻断 15 + 警告 9）</b>。"仿真"分组四条 <c>RequiresAnchor</c> 均为
-    /// <c>false</c>——它们校验的是 <c>sim.anchor</c>/<c>sim.scenario</c> 表自身结构（等级连续性/
-    /// 场景条件必填/期望装备等级单调性/带宽键名合法性），不依赖
-    /// <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>。
+    /// 随之再改为 24 行（阻断 15 + 警告 9）。消费方反馈第 53 条（2026-09-17）再新增一条警告检查
+    /// （<c>Core.Sim.SimGrowthOpponentAmbiguityValidationRule</c> 的 <c>sim_growth_opponent_ambiguous</c>，
+    /// 见该规则类型判断记录），总数改为 <b>25 行（阻断 15 + 警告 10）</b>。"仿真"分组五条
+    /// <c>RequiresAnchor</c> 均为 <c>false</c>——它们校验的是 <c>sim.anchor</c>/<c>sim.scenario</c>/
+    /// <c>creature.template</c> 表自身结构（等级连续性/场景条件必填/期望装备等级单调性/带宽键名合法性/
+    /// 同档位敌对候选去重歧义），不依赖 <see cref="Core.Rules.Common.ISkillBudgetAnchorProvider"/>。
     /// <para>
     /// 判断记录（为何这四条不像其余 20 条那样用 <c>nameof(...)</c>/规则类常量逐字段引用，改用字符串
     /// 字面量）：本文件所在 <c>Presentation.Common</c> 是 <c>build.ps1</c> 的 <c>$CoreAssemblies</c>
@@ -164,11 +166,12 @@ namespace Presentation.Assembly
     /// <summary>本清单本体，见 <see cref="NumericValidationRuleDescriptor"/> 类型注释判断记录。</summary>
     public static class NumericValidationRuleCatalog
     {
-        /// <summary>04 分级表全部 24 行（阻断 15 行，对应 13 个概念条目；警告 9 行/条目），顺序同
+        /// <summary>04 分级表全部 25 行（阻断 15 行，对应 13 个概念条目；警告 10 行/条目），顺序同
         /// 核对表 B1/B1a/B1b/B2～B11、W1～W7，末尾追加深度复审 E-M1 并入的"仿真"分组三行（04 第 5
         /// 节 N6 收尾新增的 <c>sim.anchor</c>/<c>sim.scenario</c> 表结构完整性检查）+ E-S2 新增一行
-        /// （<c>sim_scenario_bandwidth_key_unknown</c>）；见类型级判断记录"数量口径"与"2026-09-16，
-        /// 深度复审 E-M1"/"深度复审 E-S2"。</summary>
+        /// （<c>sim_scenario_bandwidth_key_unknown</c>）+ 消费方反馈第 53 条新增一行
+        /// （<c>sim_growth_opponent_ambiguous</c>）；见类型级判断记录"数量口径"与"2026-09-16，
+        /// 深度复审 E-M1"/"深度复审 E-S2"/"消费方反馈第 53 条"。</summary>
         public static IReadOnlyList<NumericValidationRuleDescriptor> Entries { get; } = new[]
         {
             // ---------------- 阻断级 11 项（核对表 B1～B11） ----------------
@@ -276,6 +279,14 @@ namespace Presentation.Assembly
                 "SimScenarioValidationRule", "sim_scenario_bandwidth_key_unknown",
                 ValidationSeverity.Warning, nonEscalatable: true,
                 "仿真场景带宽键名未识别", "仿真", requiresAnchor: false),
+
+            // ---------------- 仿真分组新增警告 1 项（消费方反馈第 53 条，2026-09-17；
+            // Core.Sim.SimGrowthOpponentAmbiguityValidationRule，字符串字面量而非 nameof/常量引用，
+            // 理由与上面几行"仿真"分组条目相同，见类型级判断记录） ----------------
+            new NumericValidationRuleDescriptor(
+                "SimGrowthOpponentAmbiguityValidationRule", "sim_growth_opponent_ambiguous",
+                ValidationSeverity.Warning, nonEscalatable: true,
+                "成长仿真同档位多个敌对候选", "仿真", requiresAnchor: false),
         };
     }
 }

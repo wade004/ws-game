@@ -509,6 +509,36 @@ namespace Core.Carriers.Item
             return result;
         }
 
+        /// <summary>消费方反馈第 52 条：把 <paramref name="slot"/> 当前已装备的 <see cref="ItemInstance"/>
+        /// 身份字段（模板/品质/词缀）原样映射为 <see cref="EquippedWeaponSummary"/>，供消费方一次调用
+        /// 取得与自建适配层手工搬运完全一致的三元组（见 <see cref="EquippedWeaponSummary"/> 类型顶部
+        /// 判断记录）；该槽位当前无装备时返回 null。不要求 <paramref name="slot"/> 一定是
+        /// <c>item.slot_definition.is_weapon</c> 的武器槽——见 <see cref="EquippedWeaponSummary"/>
+        /// 判断记录"不限定只用于武器槽"。</summary>
+        public EquippedWeaponSummary? GetEquippedWeaponSummary(Id unitId, Id slot) =>
+            _equipped.TryGetValue(unitId, out var slots) && slots.TryGetValue(slot, out var instance)
+                ? EquippedWeaponSummary.FromInstance(instance)
+                : (EquippedWeaponSummary?)null;
+
+        /// <summary>补充：该单位当前全部已装备槽位到 <see cref="EquippedWeaponSummary"/> 的映射，供
+        /// <see cref="Core.Sim.StandardPlayerBuilder"/> 一次性取全部槽位的武器摘要（而不必按已知槽位
+        /// 逐一调用 <see cref="GetEquippedWeaponSummary(Id, Id)"/>）——同 <see
+        /// cref="GetAllEquippedInstances"/> 判断记录，槽位是否"是武器"由调用方按
+        /// <c>item.slot_definition.is_weapon</c> 自行判断，本方法不做过滤（含非武器槽）。</summary>
+        public IReadOnlyDictionary<Id, EquippedWeaponSummary> GetAllEquippedWeaponSummaries(Id unitId)
+        {
+            var result = new Dictionary<Id, EquippedWeaponSummary>();
+            if (_equipped.TryGetValue(unitId, out var slots))
+            {
+                foreach (var kv in slots)
+                {
+                    result[kv.Key] = EquippedWeaponSummary.FromInstance(kv.Value);
+                }
+            }
+
+            return result;
+        }
+
         /// <summary>补充：当前装备在 <paramref name="slot"/> 的武器伤害/攻速定义（见 07 第 1.4 节第
         /// 3 点"普通攻击的数值输入……随之更新"、第 6 节"武器决定普通攻击动作……属于表现层职责"——
         /// 本方法只提供数值输入，不决定具体表现）。该槽位无装备，或物品没有 <c>weapon_profile</c>

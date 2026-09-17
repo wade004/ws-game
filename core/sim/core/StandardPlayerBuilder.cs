@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Core.Carriers.Common;
 using Core.Carriers.Item;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
@@ -28,6 +29,16 @@ namespace Core.Sim
         /// <summary>槽位 id → 已装备物品实例 id；未能找到该槽位+品质对应模板时该槽位缺席（见
         /// <see cref="StandardPlayerBuilder"/> 判断记录"槽位缺模板时的行为"）。</summary>
         public IReadOnlyDictionary<Id, Id> EquippedInstances { get; }
+
+        /// <summary>消费方反馈第 52 条：<see cref="EquippedInstances"/> 各槽位对应实例的身份字段
+        /// （模板/品质/词缀）原样映射出的"武器摘要三元组"——纯搬运、不计算数值，与
+        /// <see cref="Core.Carriers.Item.EquipmentHost.GetAllEquippedWeaponSummaries"/> 在
+        /// <see cref="StandardPlayerBuilder.Build"/> 内部调用结果完全一致（见 <see
+        /// cref="Core.Carriers.Common.EquippedWeaponSummary"/> 类型顶部判断记录），供消费方（如编辑器
+        /// 结算预览）一次调用取得与自建适配层手工搬运完全一致的结果，不必各自重复实现同一份薄转换层。
+        /// 含全部已装备槽位（不限武器槽，同 <see cref="EquippedWeaponSummary"/> 判断记录"不限定只用于
+        /// 武器槽"）；未装备任何物品的槽位不在本字典中。</summary>
+        public IReadOnlyDictionary<Id, EquippedWeaponSummary> EquippedWeaponSummaries { get; }
 
         /// <summary>各非武器装备槽的"反解向量"——按 <see cref="StandardPlayerBuilder"/> 判断记录
         /// "装备实例方案"的口径，等于该槽位承载模板的 <c>stats[]</c> 字面值加上所选词缀的预算反解值之和
@@ -58,6 +69,7 @@ namespace Core.Sim
         internal StandardPlayer(
             Id unitId, Id classId, int level, Id qualityId, IReadOnlyList<Id> knownSkills,
             IReadOnlyDictionary<Id, Id> equippedInstances,
+            IReadOnlyDictionary<Id, EquippedWeaponSummary> equippedWeaponSummaries,
             IReadOnlyDictionary<Id, IReadOnlyDictionary<Id, double>> expectedEquipmentContributionBySlot,
             IReadOnlyDictionary<Id, double> expectedStatSnapshot,
             IReadOnlyDictionary<Id, double> actualStatSnapshot,
@@ -71,6 +83,7 @@ namespace Core.Sim
             QualityId = qualityId;
             KnownSkills = knownSkills;
             EquippedInstances = equippedInstances;
+            EquippedWeaponSummaries = equippedWeaponSummaries;
             ExpectedEquipmentContributionBySlot = expectedEquipmentContributionBySlot;
             ExpectedStatSnapshot = expectedStatSnapshot;
             ActualStatSnapshot = actualStatSnapshot;
@@ -78,6 +91,16 @@ namespace Core.Sim
             WeaponDps = weaponDps;
             RotationId = rotationId;
         }
+
+        /// <summary>消费方反馈第 52 条建议的入口方法名——<paramref name="weaponSlotId"/> 当前无装备（或
+        /// 该槽位未在 <see cref="EquippedInstances"/>/<see cref="EquippedWeaponSummaries"/> 中出现）时
+        /// 返回 null。等价于对 <see cref="EquippedWeaponSummaries"/> 做一次 <c>TryGetValue</c>，命名与
+        /// 反馈原文建议签名 <c>StandardPlayer.GetEquippedWeaponSummary(weaponSlotId)</c> 一致，方便消费
+        /// 方按建议直接调用而不必自己再包一层。</summary>
+        public EquippedWeaponSummary? GetEquippedWeaponSummary(Id weaponSlotId) =>
+            EquippedWeaponSummaries.TryGetValue(weaponSlotId, out var summary)
+                ? summary
+                : (EquippedWeaponSummary?)null;
     }
 
     /// <summary>
@@ -243,6 +266,13 @@ namespace Core.Sim
 
             weaponDps = world.Gameplay.Carriers.Equipment.GetWeaponDps(playerId);
 
+            // 消费方反馈第 52 条：equippedInstances 只是槽位→实例 id，消费方（如编辑器结算预览）真正
+            // 要的是实例的模板/品质/词缀三元组——这里一次性调用 EquipmentHost.GetAllEquippedWeaponSummaries
+            // 取得与 EquipmentHost 内部状态完全一致的结果（不在本类型另行从 chosenAffixes/qualityId 等
+            // 局部变量重新拼一份，避免与 AddItem/Equip 实际落库的身份字段产生潜在不一致，见
+            // EquippedWeaponSummary 类型判断记录"纯搬运"）。
+            var equippedWeaponSummaries = world.Gameplay.Carriers.Equipment.GetAllEquippedWeaponSummaries(playerId);
+
             // ④ 校验：RotationEvaluator 能用指定优先级表选出可施放技能。
             var resolvedRotationId = rotationId ?? InferRotationId(classId);
             var rotationEvaluator = new RotationEvaluator(
@@ -269,7 +299,7 @@ namespace Core.Sim
             }
 
             return new StandardPlayer(
-                playerId, classId, level, qualityId, knownSkills, equippedInstances,
+                playerId, classId, level, qualityId, knownSkills, equippedInstances, equippedWeaponSummaries,
                 expectedContributionBySlot, expectedStats, actualStats, deviation, weaponDps, resolvedRotationId);
         }
 

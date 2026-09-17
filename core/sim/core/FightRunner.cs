@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Numbers.PowerSet;
 using Core.Rules.Ai;
 using Core.Rules.Combat;
 using Core.Rules.Common;
@@ -64,6 +66,17 @@ namespace Core.Sim
 
         public Id CreatureUnitId { get; }
 
+        /// <summary>消费方反馈第 49 条（2026-09-17）：<see cref="FightRunnerOptions.CaptureEvents"/>
+        /// 开启时的逐条战斗日志，见 <see cref="FightLogEntry"/> 判断记录；未开启时为空集合（不是
+        /// <c>null</c>——本字段恒可安全枚举，"没有采集"与"采集了但恰好没有可映射的事件"两种情形都
+        /// 表现为空集合，调用方不需要先判空，这是任务书明确拍板的口径，与 <see cref="FightRunner"/>
+        /// 判断记录"技能占比之和恒为 1 的前提"里"退化场景返回空字典而非 null"同一惯例）。</summary>
+        public IReadOnlyList<FightLogEntry> CapturedEvents { get; }
+
+        /// <summary>是否因达到 <see cref="FightRunnerOptions.MaxCapturedEvents"/> 上限而截断
+        /// （<see cref="CapturedEvents"/> 未开启采集时恒为 <c>false</c>）。</summary>
+        public bool CapturedEventsTruncated { get; }
+
         internal FightResult(
             FightOutcome outcome, double durationSeconds, int ticksUsed,
             double playerTotalDamage, double creatureTotalDamage, double playerHitRate, double creatureHitRate,
@@ -71,6 +84,24 @@ namespace Core.Sim
             IReadOnlyDictionary<Id, IReadOnlyList<ResourceSample>> playerResourceCurves,
             IReadOnlyDictionary<Id, IReadOnlyList<ResourceSample>> creatureResourceCurves,
             double playerMaxHealth, Id playerUnitId, Id creatureUnitId)
+            : this(
+                outcome, durationSeconds, ticksUsed, playerTotalDamage, creatureTotalDamage, playerHitRate, creatureHitRate,
+                playerSkillDamageShare, playerResourceCurves, creatureResourceCurves, playerMaxHealth, playerUnitId, creatureUnitId,
+                Array.Empty<FightLogEntry>(), capturedEventsTruncated: false)
+        {
+        }
+
+        /// <summary>消费方反馈第 49 条新增：携带 <see cref="CapturedEvents"/>/<see cref="CapturedEventsTruncated"/>
+        /// 的构造重载——纯 ABI 新增（两个构造均为 <c>internal</c>，不影响任何外部调用方；旧构造转调本
+        /// 构造并传入空集合/<c>false</c>，两者行为对不采集事件的调用方完全等价）。</summary>
+        internal FightResult(
+            FightOutcome outcome, double durationSeconds, int ticksUsed,
+            double playerTotalDamage, double creatureTotalDamage, double playerHitRate, double creatureHitRate,
+            IReadOnlyDictionary<Id, double> playerSkillDamageShare,
+            IReadOnlyDictionary<Id, IReadOnlyList<ResourceSample>> playerResourceCurves,
+            IReadOnlyDictionary<Id, IReadOnlyList<ResourceSample>> creatureResourceCurves,
+            double playerMaxHealth, Id playerUnitId, Id creatureUnitId,
+            IReadOnlyList<FightLogEntry> capturedEvents, bool capturedEventsTruncated)
         {
             Outcome = outcome;
             DurationSeconds = durationSeconds;
@@ -88,6 +119,8 @@ namespace Core.Sim
             PlayerMaxHealth = playerMaxHealth;
             PlayerUnitId = playerUnitId;
             CreatureUnitId = creatureUnitId;
+            CapturedEvents = capturedEvents;
+            CapturedEventsTruncated = capturedEventsTruncated;
         }
     }
 
@@ -165,6 +198,17 @@ namespace Core.Sim
         public double MoveSpeed { get; set; } = SimpleMoveModel.DefaultMoveSpeed;
 
         public int MaxResourceCurveSamples { get; set; } = 64;
+
+        /// <summary>消费方反馈第 49 条（2026-09-17）：是否额外采集逐条战斗日志（<see
+        /// cref="FightResult.CapturedEvents"/>），默认关闭——关闭时零开销（<see
+        /// cref="FightRunner.FightAccumulator"/> 不分配任何采集用的列表，逐 tick 扫描事件时只多一次
+        /// 判空分支，见该类型判断记录）。</summary>
+        public bool CaptureEvents { get; set; }
+
+        /// <summary>见 <see cref="FightResult.CapturedEventsTruncated"/>：开启 <see cref="CaptureEvents"/>
+        /// 时逐条战斗日志的条数上限，超限截断（避免长战斗/极端数据集下无界增长）。仅在
+        /// <see cref="CaptureEvents"/> 为 <c>true</c> 时生效。</summary>
+        public int MaxCapturedEvents { get; set; } = FightRunner.FightAccumulator.DefaultMaxCapturedEvents;
     }
 
     /// <summary>
@@ -244,6 +288,12 @@ namespace Core.Sim
         /// 兜底而不是 0（0 会导致目标必须与玩家完全重合才能交手，不现实）。</summary>
         public const double DefaultEngageRange = 5.0;
 
+        /// <summary>消费方反馈第 50 条（2026-09-17）：<see cref="Run(FightRunnerOptions,CancellationToken,IProgress{SimProgress})"/>
+        /// 上报的唯一阶段——单场战斗只有"整场战斗"这一个外层迭代（tick 级不上报，见 <see
+        /// cref="SimProgress"/> 判断记录），因此只在开始（<c>Completed=0</c>）与结束
+        /// （<c>Completed=1</c>）各上报一次。</summary>
+        public const string ProgressStageFight = "fight.run";
+
         /// <summary>
         /// T-N6-5 新增：一次 <see cref="Run"/> 调用内部"单场战斗结算追踪状态 + <see cref="CombatOptions"/>
         /// 绑定"的可复用载体——从 <see cref="Run"/> 原有的局部闭包（<c>OnResolve</c>/若干局部计数变量）
@@ -257,9 +307,16 @@ namespace Core.Sim
         /// </summary>
         public sealed class FightAccumulator
         {
+            /// <summary>见 <see cref="FightRunnerOptions.MaxCapturedEvents"/> 默认值。</summary>
+            public const int DefaultMaxCapturedEvents = 100_000;
+
             private Id _playerId;
             private Id _creatureId;
             private bool _active;
+            private bool _captureEvents;
+            private int _maxCapturedEvents = DefaultMaxCapturedEvents;
+            private List<FightLogEntry>? _capturedEntries;
+            private bool _capturedEventsTruncated;
 
             public double PlayerTotalDamage { get; private set; }
             public double CreatureTotalDamage { get; private set; }
@@ -269,6 +326,15 @@ namespace Core.Sim
             public int CreatureLanded { get; private set; }
             public Dictionary<Id, double> PlayerDamageBySkill { get; } = new Dictionary<Id, double>();
 
+            /// <summary>消费方反馈第 49 条：本次（若干场）战斗累计的逐条日志——<see cref="BeginFight"/>
+            /// 重置计数时一并清空，惯例同 <see cref="PlayerDamageBySkill"/> 等既有计数器；未经
+            /// <see cref="ConfigureCapture"/> 打开采集时恒为空集合（不是 <c>null</c>，见
+            /// <see cref="FightResult.CapturedEvents"/> 判断记录）。</summary>
+            public IReadOnlyList<FightLogEntry> CapturedEntries =>
+                (IReadOnlyList<FightLogEntry>?)_capturedEntries ?? Array.Empty<FightLogEntry>();
+
+            public bool CapturedEventsTruncated => _capturedEventsTruncated;
+
             /// <summary>本追踪状态对外暴露的 <see cref="CombatOptions"/>——<see
             /// cref="HeadlessWorldOptions.CombatOptions"/> 只需要在世界装配时设一次。</summary>
             public CombatOptions CombatOptions { get; }
@@ -276,6 +342,18 @@ namespace Core.Sim
             public FightAccumulator()
             {
                 CombatOptions = new CombatOptions { ResolveTrace = OnResolve };
+            }
+
+            /// <summary>消费方反馈第 49 条：配置本追踪状态是否采集逐条战斗日志——独立于 <see
+            /// cref="BeginFight"/>（不随每场战斗重置，一次配置贯穿本 <see cref="FightAccumulator"/>
+            /// 实例的整个生命周期，同 <c>CombatOptions</c> 只在装配世界时绑定一次同一惯例），只有
+            /// <see cref="Run"/> 会调用它（<see cref="RunWithinWorld"/> 的其它调用方——<see
+            /// cref="GrowthSimulation"/>/<see cref="CoverageSimulation"/>——不需要单场战斗日志，不
+            /// 调用本方法即保持默认关闭，零开销）。</summary>
+            public void ConfigureCapture(bool captureEvents, int maxCapturedEvents)
+            {
+                _captureEvents = captureEvents;
+                _maxCapturedEvents = maxCapturedEvents;
             }
 
             /// <summary>开始追踪一场新战斗：清空全部计数、切换 <paramref name="playerId"/>/<paramref
@@ -293,6 +371,8 @@ namespace Core.Sim
                 CreatureAttempts = 0;
                 CreatureLanded = 0;
                 PlayerDamageBySkill.Clear();
+                _capturedEntries = _captureEvents ? new List<FightLogEntry>() : null;
+                _capturedEventsTruncated = false;
             }
 
             /// <summary>
@@ -353,13 +433,109 @@ namespace Core.Sim
                     }
                 }
             }
+
+            /// <summary>消费方反馈第 49 条：<see cref="ConfigureCapture"/> 打开采集时，把
+            /// <paramref name="events"/> 里 <c>[eventsFrom, events.Count)</c> 区间新增事件里"现有能拿到
+            /// 的"几类（见 <see cref="FightLogEventCategory"/> 判断记录"覆盖范围"）逐条映射进 <see
+            /// cref="CapturedEntries"/>；未打开采集时直接返回（不做任何扫描，零开销）。达到 <see
+            /// cref="_maxCapturedEvents"/> 上限后置 <see cref="CapturedEventsTruncated"/> 并停止继续
+            /// 添加（本 tick 剩余的新增事件同样丢弃，不是"这一条不加、下一条继续试"——一旦截断即认定
+            /// 本场战斗后续日志不再可信为"完整"，调用方只应该把 <see cref="CapturedEventsTruncated"/>
+            /// 当作"这份日志不全，仅供参考"的信号）。与 <see cref="AccumulateDamageEvents"/> 各自独立、
+            /// 互不影响对方——本方法只读事件、只写 <see cref="_capturedEntries"/>，不触碰
+            /// <see cref="PlayerTotalDamage"/> 等既有聚合字段，因此"开启与否聚合结果完全一致"这条
+            /// 验收断言天然成立（见 <c>FightRunnerTests.CaptureEvents_DoesNotChangeAggregatedResult</c>）。</summary>
+            public void AccumulateCapturedEvents(IReadOnlyList<Core.Foundation.EventBus.IEvent> events, int eventsFrom, int tick)
+            {
+                if (_capturedEntries == null) return;
+
+                for (var i = eventsFrom; i < events.Count; i++)
+                {
+                    if (_capturedEntries.Count >= _maxCapturedEvents)
+                    {
+                        _capturedEventsTruncated = true;
+                        return;
+                    }
+
+                    var entry = MapToLogEntry(events[i], tick);
+                    if (entry != null)
+                    {
+                        _capturedEntries.Add(entry);
+                    }
+                }
+            }
+
+            /// <summary>见 <see cref="FightLogEventCategory"/> 判断记录"覆盖范围"：只映射任务书点名的
+            /// 七类，其余事件类型返回 <c>null</c>（不计入日志，不是错误）。</summary>
+            private static FightLogEntry? MapToLogEntry(Core.Foundation.EventBus.IEvent evt, int tick)
+            {
+                switch (evt)
+                {
+                    case CombatDamageDealtEvent damage:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.Damage, damage.SourceId, damage.TargetId, null, damage.Amount,
+                            damage.IsCrit ? "crit" : damage.HitResult.ToString().ToLowerInvariant());
+
+                    case CombatHealDoneEvent heal:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.Heal, heal.SourceId, heal.TargetId, null, heal.Amount,
+                            heal.IsCrit ? "crit" : null);
+
+                    case SkillCastSuccessEvent success:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.SkillCastSuccess, success.CasterId,
+                            success.Targets.Count > 0 ? success.Targets[0] : (Id?)null, success.SkillId, null,
+                            success.IsInstant ? "instant" : "cast");
+
+                    case SkillCastFailedEvent failed:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.SkillCastFailed, failed.CasterId, null, failed.SkillId, null,
+                            failed.ReasonCode.ToString());
+
+                    case AuraAppliedEvent auraApplied:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.AuraApplied, auraApplied.SourceId, auraApplied.TargetId,
+                            auraApplied.AuraDefId, auraApplied.Stacks, null);
+
+                    case AuraRemovedEvent auraRemoved:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.AuraRemoved, null, auraRemoved.TargetId, auraRemoved.AuraDefId,
+                            null, auraRemoved.Reason);
+
+                    case UnitDiedEvent died:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.UnitDied, died.KillerId, died.UnitId, null, null, null);
+
+                    case PowerChangedEvent powerChanged:
+                        return new FightLogEntry(
+                            tick, FightLogEventCategory.ResourceChanged, powerChanged.UnitId, null, powerChanged.PowerType,
+                            powerChanged.NewValue - powerChanged.OldValue, null);
+
+                    default:
+                        return null;
+                }
+            }
         }
 
-        public static FightResult Run(FightRunnerOptions options)
+        public static FightResult Run(FightRunnerOptions options) =>
+            Run(options, CancellationToken.None, progress: null);
+
+        /// <summary>消费方反馈第 50 条（2026-09-17）新增重载：携带 <see cref="CancellationToken"/>/
+        /// <see cref="IProgress{SimProgress}"/> 的取消与进度支持——ABI 只新增（旧的单参数 <see
+        /// cref="Run(FightRunnerOptions)"/> 保留、内部转调本重载并传 <c>default</c>/<c>null</c>，
+        /// 行为完全不变）。<paramref name="cancellationToken"/> 在方法入口与 <see
+        /// cref="RunWithinWorld(HeadlessWorld,FightAccumulator,Id,Id,Id,double,int,double,int,CancellationToken)"/>
+        /// 的每个 tick 边界检查（见该重载判断记录），取消时抛 <see cref="OperationCanceledException"/>、
+        /// 不返回半成品 <see cref="FightResult"/>。<paramref name="progress"/> 只在开始/结束各上报一次
+        /// （见 <see cref="ProgressStageFight"/> 判断记录），<c>null</c> 时零开销。</summary>
+        public static FightResult Run(
+            FightRunnerOptions options, CancellationToken cancellationToken, IProgress<SimProgress>? progress = null)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
+            cancellationToken.ThrowIfCancellationRequested();
 
             var accumulator = new FightAccumulator();
+            accumulator.ConfigureCapture(options.CaptureEvents, options.MaxCapturedEvents);
 
             var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
             {
@@ -385,9 +561,12 @@ namespace Core.Sim
                 options.CreatureId, options.MapId, creatureSpawnPos, facing: Math.PI, ownerId: null, options.CreatureLevel);
             world.Spatial.Register(creatureId, creatureSpawnPos, 0.5);
 
-            return RunWithinWorld(
+            progress?.Report(new SimProgress(ProgressStageFight, 0, 1));
+            var result = RunWithinWorld(
                 world, accumulator, options.PlayerId, creatureId, standardPlayer.RotationId,
-                options.StepSeconds, options.MaxTicks, options.MoveSpeed, options.MaxResourceCurveSamples);
+                options.StepSeconds, options.MaxTicks, options.MoveSpeed, options.MaxResourceCurveSamples, cancellationToken);
+            progress?.Report(new SimProgress(ProgressStageFight, 1, 1));
+            return result;
         }
 
         /// <summary>
@@ -409,7 +588,33 @@ namespace Core.Sim
             double stepSeconds,
             int maxTicks,
             double moveSpeed,
-            int maxResourceCurveSamples)
+            int maxResourceCurveSamples) =>
+            RunWithinWorld(
+                world, accumulator, playerId, creatureId, rotationId, stepSeconds, maxTicks, moveSpeed,
+                maxResourceCurveSamples, CancellationToken.None);
+
+        /// <summary>消费方反馈第 50 条（2026-09-17）新增重载：携带 <paramref name="cancellationToken"/>——
+        /// 在逐 tick 循环的每次迭代边界检查（<c>ThrowIfCancellationRequested</c>），取消延迟因此以
+        /// 单 tick 计（本数据集单 tick 步长 0.5 模拟秒，实测耗时远小于此，见 <see cref="FightRunner"/>
+        /// 判断记录"隔离方案"的 <c>HeadlessWorldBuilder.Build</c> 耗时量级同一数量级对照），不是要等
+        /// 整场战斗（可能上千 tick）跑完才响应。旧的九参数重载保留、内部转调本重载并传
+        /// <see cref="CancellationToken.None"/>，行为完全不变——<see cref="GrowthSimulation"/>/
+        /// <see cref="CoverageSimulation"/> 复用同一世界连续打多场战斗的调用点均未改动调用方式（不在
+        /// 本次改动范围，见任务书"对 GrowthSimulation.cs 的改动限于 Run 入口与迭代循环"的范围约束），
+        /// 因此它们内部各场战斗仍不响应取消，只有 <see cref="Run(FightRunnerOptions,CancellationToken,IProgress{SimProgress})"/>
+        /// 与 <see cref="ArenaSimulation"/>（经其 <c>RunCell</c> 转发同一个 token）真正获得 tick 级
+        /// 取消响应。</summary>
+        public static FightResult RunWithinWorld(
+            HeadlessWorld world,
+            FightAccumulator accumulator,
+            Id playerId,
+            Id creatureId,
+            Id rotationId,
+            double stepSeconds,
+            int maxTicks,
+            double moveSpeed,
+            int maxResourceCurveSamples,
+            CancellationToken cancellationToken)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (accumulator == null) throw new ArgumentNullException(nameof(accumulator));
@@ -433,6 +638,8 @@ namespace Core.Sim
 
             for (; tick < maxTicks; tick++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var playerAliveBefore = units.Exists(playerId) && units.IsAlive(playerId);
                 var creatureAliveBefore = units.Exists(creatureId) && units.IsAlive(creatureId);
                 if (!playerAliveBefore && !creatureAliveBefore) { outcome = FightOutcome.Draw; break; }
@@ -453,6 +660,7 @@ namespace Core.Sim
                 accumulator.AccumulateDamageEvents(world.Events, eventsBefore);
 
                 var tickNumber = tick + 1;
+                accumulator.AccumulateCapturedEvents(world.Events, eventsBefore, tickNumber);
                 foreach (var powerId in powerTypeIds)
                 {
                     if (units.Exists(playerId) && units.IsAlive(playerId) && powers.HasPower(playerId, powerId))
@@ -502,7 +710,7 @@ namespace Core.Sim
             return new FightResult(
                 outcome, durationSeconds, tick, accumulator.PlayerTotalDamage, accumulator.CreatureTotalDamage,
                 playerHitRate, creatureHitRate, skillShare, playerCurvesOut, creatureCurvesOut,
-                playerMaxHealth, playerId, creatureId);
+                playerMaxHealth, playerId, creatureId, accumulator.CapturedEntries, accumulator.CapturedEventsTruncated);
         }
 
         private static double ResolveEngageRange(IDataRegistryView registry, Id rotationId)

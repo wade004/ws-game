@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Core.Foundation.Common;
 using Core.Sim;
 using Xunit;
@@ -148,6 +150,90 @@ namespace Tests.Sim
             Assert.Equal("item.template.aaa_tied", sorted[1].Id.Value);
             Assert.Equal("item.template.mmm_tied", sorted[2].Id.Value);
             Assert.Equal("item.template.zzz_tied", sorted[3].Id.Value);
+        }
+
+        // ===== 消费方反馈第 50 条（CancellationToken/IProgress）=====
+
+        private static (Core.Sim.HeadlessWorld World, ScenarioDef Scenario, IReadOnlyList<Core.Foundation.DataRegistry.IDataSource> DataSources)
+            BuildSmallScenario(int runs)
+        {
+            var world = SimTestWorldFactory.BuildFromEmbeddedDataset(seed: 1);
+            var scenario = world.ScenarioCatalog!.Get(new Id("sim.scenario.sim_coverage_all")).WithRuns(runs);
+            var dataSources = SimTestWorldFactory.BuildEmbeddedDataSources();
+            return (world, scenario, dataSources);
+        }
+
+        [Fact]
+        public void Run_PreCancelledToken_ThrowsImmediately()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 1);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(
+                () => CoverageSimulation.Run(scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, cts.Token));
+        }
+
+        [Fact]
+        public void Run_CancelledMidway_ViaProgressCallback_ThrowsAndProducesNoResult()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 1);
+            using var cts = new CancellationTokenSource();
+            var progress = new RecordingProgress(p =>
+            {
+                if (p.Completed >= 1) cts.Cancel();
+            });
+
+            Assert.Throws<OperationCanceledException>(
+                () => CoverageSimulation.Run(scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, cts.Token, progress));
+        }
+
+        [Fact]
+        public void Run_NotCancelled_MatchesOldOverload_SameSeed()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 1);
+
+            var legacy = CoverageSimulation.Run(scenario, world.AnchorTable!, dataSources);
+            var viaNewOverload = CoverageSimulation.Run(
+                scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, CancellationToken.None, progress: null);
+
+            Assert.Equal(legacy.ToJson(), viaNewOverload.ToJson());
+        }
+
+        [Fact]
+        public void Run_Progress_ReportsMonotonicSequence_EndingAtTotal()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 1);
+            var reports = new List<SimProgress>();
+
+            CoverageSimulation.Run(
+                scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, CancellationToken.None,
+                new RecordingProgress(reports.Add));
+
+            Assert.NotEmpty(reports);
+            for (var i = 1; i < reports.Count; i++)
+            {
+                Assert.True(reports[i].Completed >= reports[i - 1].Completed);
+            }
+            Assert.Equal(reports[^1].Total, reports[^1].Completed);
+
+            // 判断记录：三段遍历各自的阶段标识都应该出现过（技能/装备/生物三张表在嵌入数据集里均非空）。
+            var stages = reports.Select(r => r.Stage).Distinct().ToList();
+            Assert.Contains(CoverageSimulation.ProgressStageSkill, stages);
+            Assert.Contains(CoverageSimulation.ProgressStageItem, stages);
+            Assert.Contains(CoverageSimulation.ProgressStageCreature, stages);
+        }
+
+        private sealed class RecordingProgress : IProgress<SimProgress>
+        {
+            private readonly Action<SimProgress> _callback;
+
+            public RecordingProgress(Action<SimProgress> callback)
+            {
+                _callback = callback;
+            }
+
+            public void Report(SimProgress value) => _callback(value);
         }
     }
 }
