@@ -434,8 +434,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-编辑器上游反馈第 49/50/51 条（详见
-[消费方反馈-2026-09-17-编辑器-第49-51条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第49-51条.md)）。
+## [1.40.0] - 2026-09-17
+
+编辑器上游反馈第 49～53 条（
+[消费方反馈-2026-09-17-编辑器-第49-51条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第49-51条.md)、
+[消费方反馈-2026-09-17-编辑器-第52-53条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第52-53条.md)）。
 第 50 条（高优先级）：`FightRunner`/`ArenaSimulation`/`GrowthSimulation`/`CoverageSimulation`
 四个 `Run` 入口新增接受 `CancellationToken`/`IProgress<Core.Sim.SimProgress>` 的重载（新只读
 结构体 `SimProgress`：`Stage`/`Completed`/`Total`/`Detail`），取消抛 `OperationCanceledException`
@@ -453,9 +456,6 @@ side-effect-free、可在调用方不并发修改共享输入的前提下安全�
 `_skippedNonTableFiles` 上做 `Clear()`+逐条 `Add()`，同一实例被多线程并发复用时产生数据竞争，
 已改为局部构建后一次性整体替换只读引用，新增并发回归测试。均为纯新增重载/可选属性/文档章节，
 不改变既有签名与默认行为。
-
-编辑器上游反馈第 52/53 条（
-[消费方反馈-2026-09-17-编辑器-第52-53条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第52-53条.md)）。
 
 ### 新增
 
@@ -487,6 +487,21 @@ side-effect-free、可在调用方不并发修改共享输入的前提下安全�
   此前恰好同 `tier=creature.tier.sample_normal`、`level=1`，会被新增校验规则判定为歧义——挪到
   新增的独立 tier `creature.tier.sample_summon`（`xp_multiplier`/`gold_multiplier` 均为 0，符合它
   从未打算作战斗对手的定位），`validate_data.py --strict` 恢复 0 error 0 warning 基线。
+
+### 迁移说明
+
+- 本版本全部为新增 API（`CancellationToken`/`IProgress<SimProgress>` 重载、`CaptureEvents` 相关
+  类型、`EquippedWeaponSummary` 及其读取方法、`GrowthReport.OpponentAmbiguities`、
+  `sim_growth_opponent_ambiguous` 校验规则），旧签名与默认行为均未变化，**无必做迁移项**，直接
+  升级即可。
+- 唯一行为变更：`GrowthSimulation` 的对手选择现在会按玩家阵营排除非敌对阵营的 `creature.template`
+  候选；若某 `tier`+`level` 下过滤后一个候选都不剩，会抛 `InvalidOperationException`
+  （此前会静默选中非敌对候选）——如自有数据在同档位只登记了非敌对阵营生物，需要补登记至少一个
+  敌对阵营候选，否则升级后跑成长期仿真会在该档位报错。
+- `data/_sample` 中 `creature.sample_summon_totem` 的 `tier` 由 `creature.tier.sample_normal`
+  改为新 `creature.tier.sample_summon`：仅示例数据调整，自有数据不受影响。
+- `toolchain/simrunner` 新增退出码 `4`="cancelled"：如有脚本按退出码分支处理，需要补上对 `4`
+  的识别（不影响既有 `0`/`1`/`2`/`3` 语义）。
 
 ## [1.39.1] - 2026-09-17
 
