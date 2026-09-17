@@ -431,8 +431,34 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `skill_budget_record_unparseable`/`item_grant_value_unparseable`。编辑器产品文档 v2.17 同批
   补齐第 4.1 节两行契约面，`Editor.Core.Validation.TolerantRegistryView`/
   `DeprecatedFieldHints` 两个自建包装/清单均可退役。
+- **消费方反馈第 55 条（Unreleased，消费方反馈处理，
+  [消费方反馈-2026-09-18-编辑器-第55条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第55条.md)）**：
+  新增只读无状态预演入口——`Core.Gameplay.Dialog.DialogStoryPreview.Preview(StoryTreeDefinition,
+  Func<string, bool?>? evaluateCondition = null, int maxPaths = 200, int maxDepth = 64)`（剧情树
+  结构 + 可选条件回调下的可达节点/路径枚举）与 `Core.Gameplay.Quest.QuestPrerequisitePreview.Preview
+  (Id, IEnumerable<QuestDefinition>, IReadOnlyCollection<Id>? completedQuestIds = null, int
+  maxNodes = 10000)`（任务前置引用图的直接前置/传递闭包/成环/拓扑序/可接性），均不改动
+  `IDialogHost`/`IQuestHost` 既有成员。
 
 ## [Unreleased]
+
+### 新增
+
+- 消费方反馈第 55 条落地对齐（详见
+  [回复文档](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第55条.md)）：`IDialogHost`/
+  `IQuestHost` 均是有状态运行期契约，无法在不持有单位/会话的前提下"模拟走一遍"剧情树/任务前置链
+  （编辑器"试走"面板类诉求）。新增两个独立只读无状态入口，均不改动既有接口成员：
+  `Core.Gameplay.Dialog.DialogStoryPreview.Preview(StoryTreeDefinition tree, Func<string, bool?>?
+  evaluateCondition = null, int maxPaths = 200, int maxDepth = 64)`——给出剧情树节点列表、每节点出边
+  （目标节点/分支文本键/条件规范化文本）、起点（`FirstNode`）、终止节点；提供可选条件判定回调时额外
+  给出可达节点集合与路径枚举（含环/悬空引用/深度或条数上限的安全截断，显式标记
+  `PathsTruncated`）。`Core.Gameplay.Quest.QuestPrerequisitePreview.Preview(Id questId,
+  IEnumerable<QuestDefinition> definitions, IReadOnlyCollection<Id>? completedQuestIds = null, int
+  maxNodes = 10000)`——给出任务 `prerequisite` 里 `quest.*` 引用构成的直接前置/传递闭包/拓扑序，
+  成环时显式报告 `HasCycle`/`CyclePath`（不给出误导性的"空拓扑序=无前置"）；提供已完成任务集合时
+  额外给出可接性判定与阻塞任务列表。均为纯新增类型，不涉及 `QuestObjective` 语义，不对 `prerequisite`
+  做真正的布尔求值（只看引用了哪些任务，不看 `and`/`or`/`not` 组合方式，口径与既有
+  `quest_prerequisite_cycle` 校验一致）。
 
 ## [1.40.0] - 2026-09-17
 

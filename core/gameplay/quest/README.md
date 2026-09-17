@@ -42,6 +42,7 @@ quest/
     QuestObjectiveType.cs         八种目标类型 + targetRef 域名/count==1 规则
     QuestOptions.cs               AllowFail 等构造期策略配置
     QuestProgress.cs              单位对单条任务的持久化进度快照
+    QuestPrerequisitePreview.cs   消费方反馈第 55 条：只读无状态任务前置链预演入口（不改动 IQuestHost）
   core/
     PlayerExprGroupProvider.cs    player 分组的 IExprGroupProvider 实现（level/has_item/item_count）
     QuestContentValidationRule.cs quest.def 内容校验规则（ADR-0019/F1b 起收窄为登记表达不了的
@@ -216,6 +217,29 @@ quest/
     均为 `"prerequisite"`；`quest_prerequisite_unknown` 的消息额外附带引用位置（复用
     `ExprNode.Start`/`Length`，`ExprIssue` 同款"位置 X，长度 Y"格式）。公开 API 无新增（构造函数
     签名不变，仅内部开始真正使用既有参数）。
+
+15. **消费方反馈第 55 条（2026-09-18）：新增 `QuestPrerequisitePreview` 只读无状态任务前置链预演入口，
+    不改动 `IQuestHost`**——`IQuestHost.GetState` 是"给定单位当前运行期上下文求值 `prerequisite`"的有
+    状态查询，不支持"给定任意任务 id，脱离任何单位，分析前置链结构"（编辑器"任务链试走"面板的诉求）。
+    新增独立静态类 `QuestPrerequisitePreview.Preview(Id questId, IEnumerable<QuestDefinition>
+    definitions, IReadOnlyCollection<Id>? completedQuestIds = null, int maxNodes = 10000)`，不作为
+    `IQuestHost` 新成员——理由同 `core/gameplay/dialog` 判断记录 9"为何不改 `IDialogHost`"（预演与
+    运行期状态机正交）。**语义边界**：只分析 `prerequisite` 表达式里 `quest.*` 分组引用（"这个任务的
+    前置点名了哪些其它任务"）构成的有向图——直接前置/传递闭包/成环/拓扑序，不涉及 `QuestObjective`
+    语义（目标类型/计数/是否达标一律不关心），也不对 `prerequisite` 整条表达式做真正的布尔求值（`and`/
+    `or`/`not` 组合方式不区分，与既有 `quest_prerequisite_cycle`/`quest_prerequisite_unknown` 校验构图
+    同一套"只看引用了谁"口径）——`IsAvailableByReferencedQuests` 因此是"假设 `prerequisite` 只由这些
+    `quest.*` 引用以合取方式组成"这一简化视角下的可接性，不是 `GetState` 的等价物，真正可接性仍须调用
+    `GetState`。**前置引用提取复用框架已公开的 `ExprReferenceCollector`**（不复制/不改动
+    `QuestContentValidationRule.CollectQuestIdLiteralArgs`——该文件由另一批任务并行改动校验规则本身，
+    本次改动与其无文件重叠）：直接读取 `QuestDefinition.Prerequisite` 已解析好的 `ExprNode`，收集
+    `Group == quest` 的引用节点的 Id 字面量参数，图算法（BFS 闭包、Kahn 拓扑序、三色标记找环）本身是
+    通用逻辑，独立实现，不依赖字典枚举顺序（全程用列表/队列维护发现顺序，保证确定性）。悬空引用（前置
+    点名了不存在的任务）显式收进 `UnknownReferencedQuestIds`，不静默丢弃；子图规模超 `maxNodes`（防御
+    上限，默认 10000，真实内容规模不预期触发）时 `ClosureTruncated` 置真。测试见
+    `tests/E55_QuestPrerequisitePreviewTests.cs`：与真实 `QuestHost`"接取→交付"流程核对单前置/三级
+    任务链两组对账用例、菱形依赖拓扑序有效性、重复/并发调用结果一致证明无状态、无前置/自环/互环/悬空
+    引用/`maxNodes` 截断等边界用例。
 
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
