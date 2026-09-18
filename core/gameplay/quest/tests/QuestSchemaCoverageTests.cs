@@ -205,15 +205,18 @@ namespace Tests.Gameplay.Quest
             Assert.Contains(report.Issues, i => i.Check == "objective_target_domain_mismatch" && i.Field == "objectives[0].target_ref");
         }
 
+        // 消费方反馈第 60 条：空 objectives 此前由 QuestContentValidationRule 报 "objectives_min_count"，
+        // 现已改在 QuestSchemas.Def.objectives 登记 FieldSchema.WithItemCount(min: 1)，由 DataRegistry
+        // 通用字段校验的 field_item_count 检查项报告（见 CHANGELOG.md 对照表）。
         [Fact]
-        public void Objectives_EmptyArray_ReportsObjectivesMinCount()
+        public void Objectives_EmptyArray_ReportsFieldItemCount()
         {
             var rows = "[{" + MinimalQuestHeader + ", \"objectives\": []}]";
 
             var report = Load(rows);
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "objectives_min_count" && i.Field == "objectives");
+            Assert.Contains(report.Issues, i => i.Check == "field_item_count" && i.Field == "objectives");
         }
 
         [Fact]

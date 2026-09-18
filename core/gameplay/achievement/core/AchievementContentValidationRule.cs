@@ -22,8 +22,11 @@ namespace Core.Gameplay.Achievement
     /// 校验覆盖、只在 <see cref="AchievementHost"/> 构造期才会暴露为异常的业务判断（见下）：
     /// </para>
     /// <list type="bullet">
-    /// <item><c>criteria</c> 数组至少一条（<see cref="AchievementDefinition.FromRecord"/> 构造期硬
-    /// 约束，<see cref="FieldKind.Array"/> 不表达最小长度）——<c>achv_criteria_min_count</c>。</item>
+    /// <item>消费方反馈第 60 条根治：<c>criteria</c> 数组至少一条（<see cref="AchievementDefinition.FromRecord"/>
+    /// 构造期硬约束）此前由本规则报 <c>achv_criteria_min_count</c>，现已改在
+    /// <c>AchievementSchemas.Def</c> 的 <c>criteria</c> 字段登记 <see cref="FieldSchema.WithItemCount"/>
+    /// （<c>min: 1</c>），由 <c>DataRegistry</c> 通用字段校验的 <c>field_item_count</c> 检查项报告，
+    /// 本规则不再重复报告。</item>
     /// <item><c>criteria[].observe_event</c> 必须是 <c>found.event_catalog</c> 已登记的事件 key
     /// （对 <see cref="EventKeys.All"/> 编译期常量集合做成员测试）——<c>achv_observe_event_unregistered</c>。</item>
     /// <item><c>criteria[].count</c> 必须 &gt;= 1（<see cref="AchievementCriterion"/> 构造期硬约束）——
@@ -78,12 +81,8 @@ namespace Core.Gameplay.Achievement
                 yield break;
             }
 
-            if (criteria.Count == 0)
-            {
-                yield return new ValidationIssue(
-                    ValidationSeverity.Error, AchievementSchemas.Def.Name, "achv_criteria_min_count",
-                    "criteria 至少需要一条达成条件", recordKey: record.Key, field: "criteria");
-            }
+            // 消费方反馈第 60 条：元素数不足已由 field_item_count（WithItemCount(min: 1)）报告，
+            // 这里不再重复报错；下面循环对空数组天然是空操作，不需要额外提前返回。
 
             for (var i = 0; i < criteria.Count; i++)
             {

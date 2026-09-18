@@ -254,15 +254,18 @@ namespace Tests.Gameplay.Dialog
             Assert.Contains(report.Issues, i => i.Check == "expr_parsable" && i.Field == "nodes[0].branches[0].condition");
         }
 
+        // 消费方反馈第 60 条：空 nodes 此前由 DialogContentValidationRule 报 "story_tree_min_nodes"，
+        // 现已改在 DialogSchemas.StoryTree.nodes 登记 FieldSchema.WithItemCount(min: 1)，由
+        // DataRegistry 通用字段校验的 field_item_count 检查项报告（见 CHANGELOG.md 对照表）。
         [Fact]
-        public void StoryTree_EmptyNodes_ReportsStoryTreeMinNodes()
+        public void StoryTree_EmptyNodes_ReportsFieldItemCount()
         {
             var rows = "[{\"id\": \"dialog.cov_story\", \"nodes\": []}]";
 
             var report = Load(storyRowsJson: rows);
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "story_tree_min_nodes" && i.Field == "nodes");
+            Assert.Contains(report.Issues, i => i.Check == "field_item_count" && i.Field == "nodes");
         }
 
         [Fact]

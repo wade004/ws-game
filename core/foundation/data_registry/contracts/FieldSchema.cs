@@ -294,6 +294,62 @@ namespace Core.Foundation.DataRegistry
             return this;
         }
 
+        private int? _minItems;
+
+        /// <summary>消费方反馈第 60 条（04 第 4 节勘误"元素数量约束"）：仅对 <see cref="FieldKind.IdList"/>/
+        /// <see cref="FieldKind.Array"/> 字段有意义的元素数量下限，由 <see cref="WithItemCount"/> 事后登记
+        /// （不进构造函数，同 <see cref="Range"/> 判断记录"构造函数已冻结"）；<c>DataRegistry.LoadAll</c>
+        /// 在字段级校验阶段（<c>field_item_count</c> 检查项）据此拒绝元素数不足的实际数据。嵌套字段
+        /// （<see cref="Fields"/>/<see cref="Item"/> 内部的 IdList/Array 子字段）同样适用——校验按完整
+        /// 字段路径递归展开，与顶层字段共用同一份实现（同 ADR-0019 惯例）。
+        /// <para>
+        /// 判断记录（挂载时立即校验种类，不同于 <see cref="WithRange"/> 的"软失败"风格）：<see cref="WithRange"/>
+        /// 刻意不在挂载时检查"仅数值种类可设"，是因为该约束依赖 <see cref="Kind"/>，且该类型顶部判断记录
+        /// 选择让这类登记错误停留在"可被 SchemaAudit 批量枚举"的软失败形态。<see cref="WithItemCount"/>
+        /// 这里选用相反的立即失败风格——"仅 IdList/Array 可设"同样依赖 <see cref="Kind"/>，但挂载现场
+        /// 已经拿到完整信息可以一次性判定，不存在"必须等装进兄弟清单才能判断"这类时序依赖（同
+        /// <see cref="FieldSchema"/> 构造函数里"Enum 必须有 EnumValues"一类立即失败的既有风格），提前
+        /// 拒绝比留给事后审计更直接。</para>
+        /// </summary>
+        public int? MinItems => _minItems;
+
+        private int? _maxItems;
+
+        /// <summary>见 <see cref="MinItems"/>。元素数量上限，未登记表示无上界。</summary>
+        public int? MaxItems => _maxItems;
+
+        /// <summary>登记 <see cref="MinItems"/>/<see cref="MaxItems"/>（消费方反馈第 60 条）；只能设置
+        /// 一次（重复设置抛异常，同 <see cref="WithRange"/> 惯例）。仅 <see cref="FieldKind.IdList"/>/
+        /// <see cref="FieldKind.Array"/> 字段可调用，其它种类直接抛 <see cref="ArgumentException"/>（见
+        /// <see cref="MinItems"/> 判断记录）。<paramref name="min"/> 须 &gt;= 0；<paramref name="max"/>
+        /// 若提供须 &gt;= <paramref name="min"/>。返回 <c>this</c> 便于链式调用，如
+        /// <c>new FieldSchema("objectives", FieldKind.Array, required: true, item: ...)
+        /// .WithItemCount(min: 1)</c>。</summary>
+        public FieldSchema WithItemCount(int min, int? max = null)
+        {
+            if (Kind != FieldKind.IdList && Kind != FieldKind.Array)
+            {
+                throw new ArgumentException(
+                    $"字段 \"{Name}\"：WithItemCount 仅 IdList/Array 字段可用（当前种类 {Kind}）", nameof(min));
+            }
+            if (min < 0)
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：MinItems 不能为负数", nameof(min));
+            }
+            if (max.HasValue && max.Value < min)
+            {
+                throw new ArgumentException(
+                    $"字段 \"{Name}\"：MaxItems({max.Value}) 不能小于 MinItems({min})", nameof(max));
+            }
+            if (_minItems != null || _maxItems != null)
+            {
+                throw new InvalidOperationException($"字段 \"{Name}\"：ItemCount 已设置，不可重复设置");
+            }
+            _minItems = min;
+            _maxItems = max;
+            return this;
+        }
+
         private CurveSchema? _curve;
 
         /// <summary>分阶段落地计划 T-N0-1（落地清单 2.1 C1、数值总纲第 3 节原则 1）：该字段是一条曲线的

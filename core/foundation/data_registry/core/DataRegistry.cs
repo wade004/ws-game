@@ -1538,6 +1538,8 @@ namespace Core.Foundation.DataRegistry
                 return;
             }
 
+            ValidateFieldItemCount(table, recordKey, fieldPath, field, arr.Count, issues);
+
             var item = field.Item;
             if (item == null)
             {
@@ -1554,6 +1556,38 @@ namespace Core.Foundation.DataRegistry
             {
                 ValidateFieldValue(table, recordKey, $"{fieldPath}[{i}]", item, arr[i], issues, depth + 1);
             }
+        }
+
+        /// <summary>消费方反馈第 60 条（04 第 4 节勘误"元素数量约束"）：<see cref="FieldSchema.MinItems"/>/
+        /// <see cref="FieldSchema.MaxItems"/> 已登记时，<see cref="FieldKind.Array"/>（<see cref="ValidateArrayField"/>）
+        /// /<see cref="FieldKind.IdList"/>（<see cref="ValidateIdList"/>）字段的元素数不落在区间内即报
+        /// <c>field_item_count</c>——与元素结构（<see cref="FieldSchema.Item"/>）是否登记正交，独立检查，
+        /// 未登记时是纯粹的空操作（向后兼容，同 <see cref="ValidateFieldRange"/> 惯例）。消息里同时给出
+        /// 实际元素数与允许区间（不区分越下界/越上界，两种情形共用同一条消息模板，同 <see cref="FieldRange.Describe"/>
+        /// 区间记法风格）。</summary>
+        private static void ValidateFieldItemCount(string table, string recordKey, string fieldPath, FieldSchema field, int count, List<ValidationIssue> issues)
+        {
+            var min = field.MinItems;
+            var max = field.MaxItems;
+            if (min == null && max == null) return;
+
+            var tooFew = min.HasValue && count < min.Value;
+            var tooMany = max.HasValue && count > max.Value;
+            if (!tooFew && !tooMany) return;
+
+            issues.Add(new ValidationIssue(ValidationSeverity.Error, table, "field_item_count",
+                $"字段 \"{fieldPath}\" 元素数 {count} 不在允许区间 {DescribeItemCount(min, max)} 内",
+                recordKey: recordKey, field: fieldPath));
+        }
+
+        /// <summary>人类可读元素数量区间描述，如 <c>"[1, +∞)"</c>、<c>"[0, 2]"</c>，与
+        /// <see cref="FieldRange.Describe"/> 风格一致，供 <see cref="ValidateFieldItemCount"/> 消息与
+        /// <c>toolchain/validator --list-tables --json</c> 导出使用。</summary>
+        private static string DescribeItemCount(int? min, int? max)
+        {
+            var left = min.HasValue ? min.Value.ToString(CultureInfo.InvariantCulture) : "0";
+            var right = max.HasValue ? max.Value.ToString(CultureInfo.InvariantCulture) : "+∞";
+            return "[" + left + ", " + right + (max.HasValue ? "]" : ")");
         }
 
         private static void AddSubstructureDepthError(List<ValidationIssue> issues, string table, string recordKey, string fieldPath)
@@ -1641,6 +1675,8 @@ namespace Core.Foundation.DataRegistry
                 AddFieldTypeError(issues, table, recordKey, fieldPath, raw, "IdList");
                 return;
             }
+
+            ValidateFieldItemCount(table, recordKey, fieldPath, field, arr.Count, issues);
 
             for (int i = 0; i < arr.Count; i++)
             {

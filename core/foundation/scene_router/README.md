@@ -170,6 +170,16 @@ scene_router/
    坐标左上角为原点/行向下为正两条约定集中声明在 05 第 3.1.1 节，本模块只负责换算实现，不
    重复声明约定本身。
 
+10. **消费方反馈第 60 条（2026-09-18）：`spawn_points` 最小长度改由 schema 登记，退役
+   `world_map_spawn_points_first_position` 的空数组分支**——上一条判断记录里"`FieldSchema` 登记层
+   表达不了……"这一前提已被消费方反馈第 60 条推翻：`WorldMapSchema.Table` 的 `spawn_points` 字段
+   新增 `FieldSchema.WithItemCount(min: 1)` 登记，`DataRegistry` 通用字段校验的 `field_item_count`
+   检查项据此报告"元素数不足"；`WorldMapSpawnPointsValidationRule` 里原有的"spawn_points 至少需要
+   一个出生点"判断分支同步删除（避免同一缺陷双报），空数组时改为直接 `continue`（不再假设"数量
+   已由自己校验过"而访问 `spawnPoints[0]`）。检查名 `world_map_spawn_points_first_position` 本身
+   保留——"第 0 个元素必须携带合法 `position`"这半条约束仍是登记层表达不了的跨下标业务判断，不受
+   本次改动影响。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |

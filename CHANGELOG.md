@@ -434,8 +434,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-消费方反馈第 59 条、ADR-0036：`world.map`/地图背景图片像素坐标与世界坐标换算关系、世界坐标 Y
-轴方向此前均无声明。
+消费方反馈第 59/60/61 条与第 56 条追问。
 
 ### 新增
 
@@ -449,6 +448,61 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `spawn_points`/`teleport_points` 世界坐标落在换算包围盒之外即告警。`toolchain/asset_import/
   map_cmd.py` 新增 `--pixels-per-unit`（默认 32）、`--origin-px`（默认世界原点位于 `ground.png`
   左下角）两个参数，`image_size_px` 从 `ground.png` 的 PNG `IHDR` 块直接读出（不新增第三方依赖）。
+- **第 60 条**：`FieldSchema` 新增可选 `MinItems`/`MaxItems`（仅 `IdList`/`Array` 字段可登记，其它
+  种类调用 `WithItemCount` 直接抛 `ArgumentException`）与修饰方法
+  `WithItemCount(int min, int? max = null)`（`min` 须 ≥ 0，`max` 若提供须 ≥ `min`；只能设置一次）。
+  `DataRegistry` 字段级校验新增检查名 `field_item_count`（Error）：`IdList`/`Array` 字段元素数不
+  落在登记区间内即报出，消息含实际元素数与允许区间，独立于元素结构（`Item`）是否登记，覆盖顶层
+  与任意深度嵌套字段。`presentation/assembly/SchemaFieldItemCountExport`
+  （`FieldItemCountInfo`/`Collect`）——与 `SchemaFieldRangeExport`/`SchemaFieldDeprecationExport`
+  同一套递归记法，收集全表已登记的元素数量约束；`toolchain/validator --list-tables --json`
+  每张表新增 `field_item_counts` 导出（`[{field_path, kind, min_items, max_items}]`），编辑器可
+  据此在内容作者增删数组/IdList 元素时就地提示。
+- **第 61 条**：`FieldUnit` 新增 `Radian`（弧度制）取值，`core/foundation/data_registry/
+  contracts/FieldUnit.cs`；`area_trigger`/`encounter`/`spawn`/`targeting` 四模块共 10 个角度字段
+  统一补登 `Unit: FieldUnit.Radian`（此前无统一单位声明，各模块各自约定）。
+- **第 56 条追问**：新增两条默认关闭的可选诊断规则——`QuestPrerequisiteIsolationRule`
+  （`core/gameplay/quest/core/QuestPrerequisiteIsolationRule.cs`）检测 quest 前置图中的孤岛节点，
+  `TalentTreeIsolationRule`（`core/numbers/archetype/core/TalentTreeIsolationRule.cs`）检测天赋树
+  孤岛节点；`ContentValidationOptions` 新增开关 `EnableGraphIsolationDiagnostics`，
+  `toolchain/validator` 新增命令行开关 `--enable-graph-isolation`，默认均不启用（不改变默认门禁
+  行为）。
+
+### 变更
+
+- **第 60 条**：`world.map.spawn_points`（≥1）、`dialog.story_tree.nodes`（≥1）、
+  `quest.def.objectives`（≥1）、`ai.patrol_path.points`（≥2）四处字段改为在 schema 上声明
+  `WithItemCount`，对应业务校验规则里原有的"元素数不足"判断分支同步删除，避免同一缺陷经通用字段
+  校验与业务规则双报；四处业务规则对空数组/元素数不足的情形改为显式提前 `continue`/`yield break`
+  （而不是继续按"已通过数量校验"的假设往下访问首个元素），因为通用字段校验与 `IValidationRule`
+  在同一次 `LoadAll`/`Validate` 遍历同一份已加载数据，业务规则不能假设"数量不足"已经阻止了自己
+  被调用。
+- **第 60 条**：全仓库审计（grep 描述含"至少/至多 N 项/个"但未声明 `WithItemCount` 的
+  `Array`/`IdList` 字段）额外发现两处同类缺口，一并补齐：
+  - `achv.def.criteria`（≥1）：`AchievementContentValidationRule` 原有的 `achv_criteria_min_count`
+    判断分支同步删除（同上四处的迁移方式）。
+  - `found.input_action.default_bindings`（≥1）：此前完全没有 `IValidationRule` 覆盖，只在
+    `ActionDefinition.FromRecord` 构造期抛异常（不经过加载期批量诊断）；该构造函数检查予以保留，
+    作为绕过 `DataRegistry` 加载路径时的最后一道防线，不算重复诊断。
+  两处补登后逐一验证三份示例数据 `validate_data.py --strict`：默认数据根（`data/_framework` +
+  `data/_sample`）与 `games/_template/data/game` 均 0 error 0 warning；`core/sim/tests/data` 报
+  8 条既有已确认的探针/预算偏离 warning（`skill_budget_deviation`×6、
+  `item_budget_utilization_low`×1、`override` 忽略提示×1，均带 `budget_note`/T-N6 系列判断记录
+  确认，与本次改动无关），未新增任何 `field_item_count` warning——三处均未发现现存示例数据违反
+  新登记的数量约束。
+
+### 移除
+
+- **第 60 条**：退役检查名（原有的"元素数不足"诊断分支改由通用 `field_item_count` 覆盖，检查名/
+  规则本身若还承担其它职责则保留）：
+
+  | 旧检查名（退役的诊断分支） | 归属 | 现检查名 |
+  |---|---|---|
+  | `world_map_spawn_points_first_position` 的"spawn_points 至少需要一个出生点"分支 | `WorldMapSpawnPointsValidationRule`（该检查名"首条须含合法 position"分支保留） | `field_item_count` |
+  | `story_tree_min_nodes` | `DialogContentValidationRule`（检查名整体退役） | `field_item_count` |
+  | `objectives_min_count` | `QuestContentValidationRule`（检查名整体退役） | `field_item_count` |
+  | `ai_content` 的"points 至少需要 2 个点"分支 | `AiContentValidationRule`（该检查名其余职责保留） | `field_item_count` |
+  | `achv_criteria_min_count` | `AchievementContentValidationRule`（检查名整体退役） | `field_item_count` |
 
 ### 文档
 
@@ -457,6 +511,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   字段表补 `image_transform`。`architecture/14_资产规格书模板.md` 第 2.2 节 `pixels_per_unit`
   行由 `<待填>` 改为"框架默认 32；每张地图可在 `world.map.image_transform` 覆盖"。新增
   [ADR-0036](architecture/adr/0036-地图图片像素与世界坐标换算约定.md)。
+- **第 61 条**：`architecture/05_对象模型与世界.md` 新增第 9 节"单位约定"（弧度制角度字段清单），
+  第 2 节改为引用该节，不再各处分散重复声明；`toolchain/README.md`、
+  `core/foundation/data_registry/README.md`、`core/gameplay/quest/README.md`、
+  `core/numbers/archetype/README.md`、`presentation/assembly/README.md` 补判断记录。
 
 ## [1.41.0] - 2026-09-18
 

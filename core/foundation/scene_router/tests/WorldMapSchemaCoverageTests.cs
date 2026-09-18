@@ -69,8 +69,13 @@ namespace Tests.Foundation.SceneRouter
             return registry;
         }
 
+        // 消费方反馈第 60 条：空 spawn_points 此前由 WorldMapSpawnPointsValidationRule 报
+        // "world_map_spawn_points_first_position"，现已改在 WorldMapSchema.Table.spawn_points
+        // 登记 FieldSchema.WithItemCount(min: 1)，由 DataRegistry 通用字段校验的
+        // field_item_count 检查项报告（见 CHANGELOG.md 对照表）；业务规则的"第 0 个元素须有
+        // position"分支保留，见下一条用例。
         [Fact]
-        public void P3_07_SpawnPoints_Empty_ReportsWorldMapSpawnPointsFirstPosition()
+        public void P3_07_SpawnPoints_Empty_ReportsFieldItemCount()
         {
             var rows = "[{\"id\":\"world.p3_07_empty\",\"scene_ref\":\"scene.p3_07\",\"nav_ref\":\"nav.p3_07\"," +
                 "\"spawn_points\":[]}]";
@@ -78,7 +83,7 @@ namespace Tests.Foundation.SceneRouter
             var report = BuildRegistryWithSpawnPointsRule(rows).LoadAll();
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "world_map_spawn_points_first_position" && i.Field == "spawn_points");
+            Assert.Contains(report.Issues, i => i.Check == "field_item_count" && i.Field == "spawn_points");
         }
 
         [Fact]

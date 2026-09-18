@@ -125,8 +125,16 @@ input_map/
     一次事件"是两个独立问题，不能用同一个布尔值回答）。
 
 11. **ADR-0019 F1c 子结构登记**：`default_bindings` 按 `ActionDefinition.FromRecord` 权威解析
-    登记为 `Item`（`FieldKind.String`，元素非字符串抛异常）；"数组至少一项"这条业务判断登记层
-    表达不了，继续留在 `ActionDefinition` 构造函数（构造期直接抛异常，不经 `IValidationRule`）。
+    登记为 `Item`（`FieldKind.String`，元素非字符串抛异常）；"数组至少一项"这条业务判断当时登记层
+    表达不了，留在 `ActionDefinition` 构造函数（构造期直接抛异常，不经 `IValidationRule`）。
+
+12. **消费方反馈第 60 条（2026-09-18）：`default_bindings` 最小长度改用 `WithItemCount` 登记**——上
+    一条判断记录的前提已被推翻：`InputActionSchema.Table` 的 `default_bindings` 字段新增
+    `FieldSchema.WithItemCount(min: 1)` 登记，`DataRegistry` 通用字段校验的 `field_item_count`
+    检查项据此在加载期报告"元素数不足"，编辑器/内容工具不必再等到 `ActionDefinition.FromRecord`
+    真正构造才发现空数组。`ActionDefinition` 构造函数里的防御性检查予以保留（覆盖绕过
+    `DataRegistry` 加载校验、直接调用 `FromRecord` 构造的调用路径，AGENTS.md"运行时路径不静默
+    降级"），不是重复诊断——两者分属"加载期批量校验"与"运行时最后一道防线"两个不同阶段。
 
 ## 诊断
 

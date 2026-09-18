@@ -269,6 +269,13 @@ quest/
     与真实 `QuestHost`"接取→交付"流程核对单前置/三级任务链两组对账用例、菱形依赖拓扑序有效性、
     重复/并发调用结果一致证明无状态、无前置/自环/互环/悬空引用/`maxNodes` 截断等边界用例。
 
+17. **消费方反馈第 60 条（2026-09-18）：`objectives` 最小长度改由 schema 登记，退役
+    `objectives_min_count`**——`QuestSchemas.Def` 的 `objectives` 字段新增
+    `FieldSchema.WithItemCount(min: 1)` 登记，`DataRegistry` 通用字段校验的 `field_item_count`
+    检查项据此报告"元素数不足"，`QuestContentValidationRule.ValidateObjectives` 里原有的
+    `objectives_min_count` 判断分支同步删除（避免同一缺陷双报）；空数组时下方逐元素循环天然是空
+    操作，无需额外提前返回。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层
