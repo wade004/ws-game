@@ -49,7 +49,7 @@ namespace Core.Foundation.EngineAdapter
     /// （<c>toolchain/asset_import</c> 的 <c>--assets-root</c>，默认仓库 <c>assets/</c>）的相对路径"，
     /// 与 <see cref="SpriteSetDirectory"/>/<see cref="IconFile"/> 同一路径空间，可直接与
     /// <c>assets/&lt;dataset&gt;/</c> 拼接后做文件系统存在性检查（见 <c>check_cmd.py</c>）。
-    /// <see cref="AnimClipResourceFile"/>/<see cref="ModelFile"/> 返回的则是 Unity
+    /// <see cref="AnimClipLogicalPath"/>/<see cref="ModelLogicalPath"/> 返回的则是 Unity
     /// <c>UnityEngine.Resources.Load</c> 可消费的"逻辑资源路径"（不含扩展名、不以任何"资产根目录"
     /// 为基准，实际对应 <c>adapters/unity/Assets/Resources/GameFoundation/&lt;子目录&gt;/&lt;name&gt;</c>
     /// 下已被 Unity 资产管线预先导入好的资源，见 <c>UnityResourceLoader.ResolveModelResourcesPath</c>/
@@ -58,7 +58,7 @@ namespace Core.Foundation.EngineAdapter
     /// 单独说明，见该文档"待设计层确认"一节）。
     /// </para>
     /// <para>
-    /// 判断记录（<see cref="AnimClipResourceFile"/>/<see cref="ModelFile"/> 已知覆盖边界，非本次
+    /// 判断记录（<see cref="AnimClipLogicalPath"/>/<see cref="ModelLogicalPath"/> 已知覆盖边界，非本次
     /// 引入的新问题——如实记录，不代为修正）：<c>display.anim_set.clips.resource_ref</c> 与
     /// <c>display.equip_visual.mesh_ref</c> 两个字段在运行期实际存在"按消费实体 kind 决定走哪条
     /// 资源规则"的多态——<c>Adapter.Unity.Presentation.UnityViewFactory.RegisterDefaultClips</c>
@@ -251,8 +251,10 @@ namespace Core.Foundation.EngineAdapter
         /// ——与 <c>UnityResourceLoader.ResolveAnimClipResourcesPath</c> 逐字对应（该方法与
         /// <see cref="ResolveModelResourcesPath"/> 同一套 <see cref="StripCategoryPrefix"/> 规则）。
         /// 仅覆盖 model 型消费该字段时的规则；sprite 型的并存规则见本类型顶部判断记录，不在本方法
-        /// 覆盖范围。</summary>
-        public static string AnimClipResourceFile(Id resourceRefId) =>
+        /// 覆盖范围。命名上以 <c>LogicalPath</c> 与 <c>Dir</c>/<c>File</c> 区分两种路径空间——本方法
+        /// 与 <see cref="ModelLogicalPath"/> 返回引擎侧已导入的逻辑资源路径，<see cref="VfxResourceDir"/>/
+        /// <see cref="SfxResourceFile"/> 返回资产根目录相对路径。</summary>
+        public static string AnimClipLogicalPath(Id resourceRefId) =>
             "GameFoundation/anim_clips/" + StripCategoryPrefix(resourceRefId.Value);
 
         /// <summary>把 <c>display.map.model_ref</c>、model 型 <c>display.equip_visual.mesh_ref</c>/
@@ -262,8 +264,10 @@ namespace Core.Foundation.EngineAdapter
         /// <c>UnityResourceLoader.ResolveModelResourcesPath</c> 逐字对应。仅覆盖 model 型消费
         /// <c>mesh_ref</c>/<c>model_ref</c> 时的规则（<c>model_ref</c> 本身只有 model 型一种消费
         /// 路径，见本类型顶部判断记录第二段；<c>mesh_ref</c> 另有 sprite 型并存规则，不在本方法覆盖
-        /// 范围）。</summary>
-        public static string ModelFile(Id resourceRefId) =>
+        /// 范围）。命名上以 <c>LogicalPath</c> 与 <c>Dir</c>/<c>File</c> 区分两种路径空间——本方法
+        /// 与 <see cref="AnimClipLogicalPath"/> 返回引擎侧已导入的逻辑资源路径，<see cref="VfxResourceDir"/>/
+        /// <see cref="SfxResourceFile"/> 返回资产根目录相对路径。</summary>
+        public static string ModelLogicalPath(Id resourceRefId) =>
             "GameFoundation/models/" + StripCategoryPrefix(resourceRefId.Value);
     }
 }

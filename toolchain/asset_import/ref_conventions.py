@@ -22,8 +22,8 @@ __all__ = [
     "try_parse_icon_id",
     "vfx_resource_dir",
     "sfx_resource_file",
-    "anim_clip_resource_path",
-    "model_resource_path",
+    "anim_clip_logical_path",
+    "model_logical_path",
 ]
 
 
@@ -106,24 +106,29 @@ def sfx_resource_file(resource_ref_id: str) -> str:
     return "sfx/" + strip_category_prefix(resource_ref_id) + ".wav"
 
 
-def anim_clip_resource_path(resource_ref_id: str) -> str:
+def anim_clip_logical_path(resource_ref_id: str) -> str:
     """把 model 型 ``display.anim_set.clips[*].resource_ref`` 解析为 Unity
     ``Resources.Load<AnimationClip>`` 可消费的相对路径（不含扩展名，不以任何"资产根目录"为基准，
     与 :func:`vfx_resource_dir`/:func:`sfx_resource_file` 不是同一路径空间，不能拼进
     ``assets/<dataset>/`` 做文件存在性检查——见消费方反馈第 65/66 条回复文档"待设计层确认"一节）：
     ``"GameFoundation/anim_clips/<资源引用id去掉类别前缀，点号换下划线>"``——与 C# 侧
-    ``AssetRefConventions.AnimClipResourceFile``/``UnityResourceLoader.ResolveAnimClipResourcesPath``
-    逐字对应。仅覆盖 model 型消费该字段时的规则，sprite 型的并存规则见 C# 侧类型判断记录。
+    ``AssetRefConventions.AnimClipLogicalPath``/``UnityResourceLoader.ResolveAnimClipResourcesPath``
+    逐字对应。仅覆盖 model 型消费该字段时的规则，sprite 型的并存规则见 C# 侧类型判断记录。命名上以
+    ``logical_path`` 与 ``_dir``/``_file`` 区分两种路径空间——本函数与 :func:`model_logical_path`
+    返回引擎侧已导入的逻辑资源路径，:func:`vfx_resource_dir`/:func:`sfx_resource_file` 返回资产
+    根目录相对路径。
     """
     return "GameFoundation/anim_clips/" + strip_category_prefix(resource_ref_id)
 
 
-def model_resource_path(resource_ref_id: str) -> str:
+def model_logical_path(resource_ref_id: str) -> str:
     """把 ``display.map.model_ref``、model 型 ``display.equip_visual.mesh_ref``/``model_ref`` 解析为
-    Unity ``Resources.Load<GameObject>`` 可消费的相对路径（不含扩展名，同 :func:`anim_clip_resource_path`
+    Unity ``Resources.Load<GameObject>`` 可消费的相对路径（不含扩展名，同 :func:`anim_clip_logical_path`
     不以任何"资产根目录"为基准）：``"GameFoundation/models/<资源引用id去掉类别前缀，点号换下划线>"``
-    ——与 C# 侧 ``AssetRefConventions.ModelFile``/``UnityResourceLoader.ResolveModelResourcesPath``
-    逐字对应。
+    ——与 C# 侧 ``AssetRefConventions.ModelLogicalPath``/``UnityResourceLoader.ResolveModelResourcesPath``
+    逐字对应。命名上以 ``logical_path`` 与 ``_dir``/``_file`` 区分两种路径空间——本函数与
+    :func:`anim_clip_logical_path` 返回引擎侧已导入的逻辑资源路径，
+    :func:`vfx_resource_dir`/:func:`sfx_resource_file` 返回资产根目录相对路径。
     """
     return "GameFoundation/models/" + strip_category_prefix(resource_ref_id)
 

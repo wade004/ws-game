@@ -52,20 +52,22 @@ anim_set_ref` 显式字段消费同一张 `display.anim_set` 表时，`resource_
      `vfx.def.resource_ref`）。
    - `SfxResourceFile(Id resourceRefId)` → `"sfx/<name>.wav"`（相对资产根目录的文件，收口
      `sfx.def.resource_ref`/`variants`）。
-   - `AnimClipResourceFile(Id resourceRefId)` → 引擎侧已导入逻辑资源路径模板（收口 model 型
+   - `AnimClipLogicalPath(Id resourceRefId)` → 引擎侧已导入逻辑资源路径模板（收口 model 型
      `display.anim_set.clips.resource_ref`）。
-   - `ModelFile(Id resourceRefId)` → 引擎侧已导入逻辑资源路径模板（收口 `display.map.
+   - `ModelLogicalPath(Id resourceRefId)` → 引擎侧已导入逻辑资源路径模板（收口 `display.map.
      model_ref`、model 型 `display.equip_visual.mesh_ref`/`model_ref`）。
    四者均复用既有"去掉类别前缀"规则求 `<name>`，与背景第 1/2/3 点核实的现行实现逐字节对应，不
-   发明新规则。
-2. **只收口 model 型规则，sprite 型并存规则本次不纳入**：`AnimClipResourceFile` 只承诺 model 型
-   消费 `display.anim_set.clips.resource_ref` 时的路径；`ModelFile` 对 `mesh_ref` 只承诺 model
-   型消费时的路径。sprite 型的两条并存规则（背景一节末段所述）是表现层既有的、各自实现类型注释
+   发明新规则。命名上以 `LogicalPath` 与 `Dir`/`File` 区分两种路径空间——返回"引擎侧已导入逻辑
+   资源路径"的两个方法用 `LogicalPath` 后缀，返回"资产根目录相对路径"的两个方法沿用 `Dir`/`File`
+   后缀，避免调用方仅凭方法名混淆两种不能互换使用的路径语义。
+2. **只收口 model 型规则，sprite 型并存规则本次不纳入**：`AnimClipLogicalPath` 只承诺 model 型
+   消费 `display.anim_set.clips.resource_ref` 时的路径；`ModelLogicalPath` 对 `mesh_ref` 只承诺
+   model 型消费时的路径。sprite 型的两条并存规则（背景一节末段所述）是表现层既有的、各自实现类型注释
    已标注为"已知简化"的局部实现细节，是否要把它们也提升为同等地位的公开契约、以及如何在数据层面
    区分"这一行该按哪条规则消费"，留给消费方反馈第 66 条回复文档"待设计层确认"一节，本 ADR 不代为
    裁决。
 3. **内容导入工具链的资产存在性校验不据此扩展到这四个字段**：`VfxResourceDir`/`SfxResourceFile`
-   返回的相对路径与校验入口现有的资产根目录语义兼容，但 `AnimClipResourceFile`/`ModelFile`
+   返回的相对路径与校验入口现有的资产根目录语义兼容，但 `AnimClipLogicalPath`/`ModelLogicalPath`
    返回的是引擎侧已导入逻辑资源路径，指向的资源实际落在引擎适配层内部一个单一、非按数据集分区
    的资源目录树里，不在校验入口的资产根目录检查域内；且 `display.equip_visual.mesh_ref`/
    `display.anim_set.clips.resource_ref`/`display.weapon_style.auto_attack_anim`/
@@ -90,11 +92,12 @@ anim_set_ref` 显式字段消费同一张 `display.anim_set` 表时，`resource_
 
 ### 负面
 
-- `AnimClipResourceFile`/`ModelFile` 与 `VfxResourceDir`/`SfxResourceFile` 返回值不是同一路径
-  空间（前者是引擎侧已导入逻辑资源路径，后者是资产根目录相对路径），调用方需要仔细区分，误用
-  会产生看似合理但实际找不到文件的路径字符串——已在两侧方法的文档注释与本 ADR 决策 3 明确标注。
-- sprite 型并存规则本次未收口，消费方若误以为 `AnimClipResourceFile`/`ModelFile` 覆盖全部消费
-  场景，对 sprite 型实体套用会得到错误路径；已在文档注释与本 ADR 决策 2 显式标注边界。
+- `AnimClipLogicalPath`/`ModelLogicalPath` 与 `VfxResourceDir`/`SfxResourceFile` 返回值不是同一
+  路径空间（前者是引擎侧已导入逻辑资源路径，后者是资产根目录相对路径），调用方需要仔细区分，误用
+  会产生看似合理但实际找不到文件的路径字符串——已在两侧方法的文档注释与本 ADR 决策 3 明确标注，
+  并在决策 1 用 `LogicalPath`/`Dir`/`File` 命名后缀从名字上加以区分。
+- sprite 型并存规则本次未收口，消费方若误以为 `AnimClipLogicalPath`/`ModelLogicalPath` 覆盖全部
+  消费场景，对 sprite 型实体套用会得到错误路径；已在文档注释与本 ADR 决策 2 显式标注边界。
 
 ## 备选方案与为什么不选
 

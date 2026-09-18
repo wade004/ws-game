@@ -25,9 +25,9 @@ if str(TOOLCHAIN_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLCHAIN_DIR))
 
 from asset_import.ref_conventions import (  # noqa: E402
-    anim_clip_resource_path,
+    anim_clip_logical_path,
     icon_file,
-    model_resource_path,
+    model_logical_path,
     sfx_resource_file,
     sprite_set_directory,
     strip_category_prefix,
@@ -177,8 +177,8 @@ def test_sfx_resource_file_matches_sfx_cmd_output_path(resource_ref: str, expect
         ("anim.attack", "GameFoundation/anim_clips/attack"),
     ],
 )
-def test_anim_clip_resource_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
-    assert anim_clip_resource_path(resource_ref) == expected
+def test_anim_clip_logical_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
+    assert anim_clip_logical_path(resource_ref) == expected
 
 
 @pytest.mark.parametrize(
@@ -187,5 +187,5 @@ def test_anim_clip_resource_path_matches_unity_resource_loader(resource_ref: str
         ("model.placeholder_biped", "GameFoundation/models/placeholder_biped"),
     ],
 )
-def test_model_resource_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
-    assert model_resource_path(resource_ref) == expected
+def test_model_logical_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
+    assert model_logical_path(resource_ref) == expected

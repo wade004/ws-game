@@ -145,16 +145,16 @@ namespace Tests.Foundation.EngineAdapter
         [Theory]
         [InlineData("anim.idle", "GameFoundation/anim_clips/idle")]
         [InlineData("anim.attack", "GameFoundation/anim_clips/attack")]
-        public void AnimClipResourceFile_MatchesUnityResourceLoaderResolveAnimClipResourcesPath(string resourceRef, string expected)
+        public void AnimClipLogicalPath_MatchesUnityResourceLoaderResolveAnimClipResourcesPath(string resourceRef, string expected)
         {
-            Assert.Equal(expected, AssetRefConventions.AnimClipResourceFile(new Id(resourceRef)));
+            Assert.Equal(expected, AssetRefConventions.AnimClipLogicalPath(new Id(resourceRef)));
         }
 
         [Theory]
         [InlineData("model.placeholder_biped", "GameFoundation/models/placeholder_biped")]
-        public void ModelFile_MatchesUnityResourceLoaderResolveModelResourcesPath(string resourceRef, string expected)
+        public void ModelLogicalPath_MatchesUnityResourceLoaderResolveModelResourcesPath(string resourceRef, string expected)
         {
-            Assert.Equal(expected, AssetRefConventions.ModelFile(new Id(resourceRef)));
+            Assert.Equal(expected, AssetRefConventions.ModelLogicalPath(new Id(resourceRef)));
         }
     }
 }
