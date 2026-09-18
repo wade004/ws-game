@@ -437,10 +437,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
 [ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——契约面/校验/工具链、
 样例数据迁移、**引擎适配层接线**均已完成；sprite 型隐式接线改显式仍是后续任务（见下方
-"未完成/后续任务"）。**样例数据迁移与引擎适配层接线两部分本机均没有 Unity 批处理环境，无法
-本机验证**——数据迁移批改了 `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处测试
-断言里硬编码的资源引用常量，适配层接线批改了 `UnityResourceLoader.cs` 与配套测试，两批涉及引擎/
-PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎适配层接线"小节与验证清单文档。**
+"未完成/后续任务"）。**样例数据迁移与引擎适配层接线两部分已于 2026-09-19 在真实引擎环境完成
+验证**：`check.ps1`（不带 `-SkipUnity`）前台全量跑通，全部 29 步 PASS/SKIP，总用时 425s，含
+Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity PlayMode PASS（288/288，
+含数据迁移批改动断言的 `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处测试与适配层
+接线批改动的 `UnityResourceLoader.cs` 配套测试）；过程中发现并根治了 3 处 PlayMode 用例失败
+（均为测试侧问题，非产品缺陷，详见下方"修复"小节）。逐条验证结果见验证清单文档；其中"武器风格
+动画剪辑真实加载"/"纸娃娃层装备覆盖真实加载"两项手工验证仍未覆盖（自动化用例只断言"发起了
+加载请求"，不断言"确实加载成功"，二者不等价），如实标注，详见下方"引擎适配层接线"小节与
+验证清单文档。**
 
 ### 破坏性变更
 
@@ -482,13 +487,15 @@ PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎�
   data/display` 只有不含这四个字段的 `display.map.json`——均核对确认不持有受影响字段，不需要
   同步改动，如实记录该核对结论而非假设。
 
-  **配套测试同步（本机无法在引擎环境下重新验证，见下方"引擎适配层接线"小节"验证边界"与验证
-  清单文档）**：`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+  **配套测试同步（2026-09-19 已在真实引擎环境重新验证，见下方"引擎适配层接线"小节"验证结果"与
+  验证清单文档）**：`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
   EquipmentVisualReplayTests.cs`（`HatMeshRef` 常量）/`VerticalSliceTests.cs`（两处
   `resourceRef` 局部变量）直接硬编码了 `display.equip_visual.sample_hero_hat.mesh_ref`/
   `display.anim_set.sample_hero.clips.*.resource_ref` 的取值用于断言，随上表迁移同步改为新前缀；
   `AnimReplayAndFinishEndToEndTests.cs`/`UnityViewFactoryDefaultAnimationTests.cs` 也提到了这两个
-  字段但只是判断记录注释文字更新，不涉及断言取值。
+  字段但只是判断记录注释文字更新，不涉及断言取值。真实引擎环境跑通后，`VerticalSliceTests.cs`
+  两处用例的断言写法有调整（原 `LogAssert.Expect` 写法过期，改为正面断言，见下方"修复"小节），
+  `EquipmentVisualReplayTests.cs` 断言本身未变、随 PlayMode 288/288 通过。
 - 新增无条件校验规则视同破坏性变更（ADR-0039 决策 2 第 3 类）：`RefCategoryFieldRule`
   （检查名 `field_ref_category`）已从此前默认关闭的可选规则**转正为无条件注册**（与
   `DisplayKindFieldGroupRule`/`EquipVisualModeFieldGroupRule` 同等地位）——上一条数据迁移完成后，
@@ -566,24 +573,30 @@ PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎�
   `WeaponClipRegistrationTests.cs` 的过期取值/注释按已迁移数据勘误（`sprite.item.
   sample_hero_hat_test` -> `paperdoll.item.sample_hero_hat_test` 等，不改断言逻辑）。
 
-**验证边界（如实标注，未跳过验证）**：本机没有 Unity 批处理编译/测试环境，以上全部改动点
-**均无法在本机重新验证**——`dotnet build`/`dotnet test Core.sln` 不覆盖 Unity 包（不在
-`Core.sln` 内），`check.ps1 -SkipUnity` 跳过引擎相关步骤。同一原因下，上方"破坏性变更"小节
-"配套测试同步"提到的 `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处**真正改了
-断言硬编码常量**（而非仅注释）的测试同样没有在本机重新验证过。已在仓库内留存可执行的验证清单
-（已合并覆盖两批改动）：
-[待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md](architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md)，
-拿到引擎批处理环境后按该清单逐条补验。
+**验证结果（2026-09-19，真实引擎环境，如实标注）**：Unity 许可恢复后，以上全部改动点已在
+真实引擎环境重新验证——`check.ps1`（不带 `-SkipUnity`）前台全量跑通，全部 29 步 PASS/SKIP，
+总用时 425s，Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity PlayMode PASS
+（288/288）。同一批门禁下，上方"破坏性变更"小节"配套测试同步"提到的
+`EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处**真正改了断言硬编码常量**（而非仅
+注释）的测试同样已重新验证通过。验证过程中发现并根治了 3 处 PlayMode 用例失败（均为测试侧问题，
+非产品缺陷，详见下方"修复"小节），二次全量门禁 288/288 全绿。逐条验证结果见：
+[待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md](architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md)
+（已按实测结果更新，标题现为"验证记录"）。**如实说明未覆盖项**：清单中"手工验证：sprite 型
+武器风格动画剪辑真实加载"/"手工验证：sprite 型纸娃娃层装备覆盖真实加载"两项是灰盒场景/专门脚本
+的人工验证，本次全量门禁（自动化用例 + 冒烟测试）未覆盖这两项——既有自动化用例只断言"发起了
+加载请求"，不断言"资源确实加载成功"，二者不等价，仍待专人补验，不视为已验证。
 
 ### 未完成/后续任务
 
 - sprite 型"按消费实体行 id 末段命名"隐式接线约定改为显式引用字段（ADR-0038 决策 8 第一项，不在
   本次范围）。
-- 上一条"引擎适配层接线"小节列出的全部改动点，以及"破坏性变更"小节"配套测试同步"提到的
-  `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 断言取值改动：均待引擎批处理环境验证
-  （见"引擎适配层接线"小节"验证边界"与验证清单文档，已合并覆盖）。
+- "引擎适配层接线"小节列出的全部改动点，以及"破坏性变更"小节"配套测试同步"提到的
+  `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 断言取值改动：均已于 2026-09-19 在
+  真实引擎环境验证通过（见"引擎适配层接线"小节"验证结果"与验证清单文档）。**仍未覆盖**：验证
+  清单中两项手工验证（sprite 型武器风格动画剪辑真实加载/sprite 型纸娃娃层装备覆盖真实加载）
+  尚待专人用灰盒场景或脚本补验，见清单文档"如实处理原则"。
 
-### 修复（PlayMode 全量门禁分诊后补修，2026-09-19，本机仍无引擎批处理环境验证）
+### 修复（PlayMode 全量门禁分诊后补修，2026-09-19，真实引擎环境实测）
 
 按分诊报告（`toolchain/unity_test_triage.py` 实测产物、`bin/_check_artifacts/unity/`）逐条根治
 三处 PlayMode 用例失败，均为上一条目"引擎适配层接线"落地后首次真实在 Unity 批处理环境跑通两批

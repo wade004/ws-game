@@ -128,9 +128,10 @@
 //     AssetRefConventions.PaperdollLayerFile；非 layer/paperdoll 类别的通用回退分支此后只覆盖
 //     sprite 类别本身（sprite_set_id 的 Image 种类加载，04/09 已知的既有简化，不在 ADR-0038 四
 //     字段范围内，本次不改动）。
-// 本机没有引擎批处理编译/测试环境，以下四处改动均无法在本机重新验证，按任务边界如实标注"待引擎
-// 批处理环境验证"，不代为跳过或伪造验证结果——详见本次任务分支提交信息与 scratchpad 报告
-// "验证边界"一节、architecture/落地计划/ 下新增的验证清单文档。
+// 落地时本机没有引擎批处理编译/测试环境，以下四处改动当时无法在本机重新验证；已于 2026-09-19 在
+// 真实引擎环境（Unity 许可恢复后）跑通完整 check.ps1 验证通过（全部 29 步，PlayMode 288/288），
+// 详见 architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md（已更新
+// 为验证记录）与 CHANGELOG.md [Unreleased]"引擎适配层接线"小节"验证结果"。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
