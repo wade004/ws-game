@@ -414,6 +414,51 @@ namespace Adapter.Unity.EngineAdapter
             RemoveExtractedSlotMeshesFor(resourceId);
         }
 
+        /// <summary>测试专用（PlayMode 用例间隔离，见 PlayModeIsolation.TearDownAfterTest 判断
+        /// 记录）：清空 <see cref="ResourceKind.Image"/> 类别的"已加载"缓存（等价于对
+        /// <see cref="_sprites"/> 里的每个 id 各调用一次 <see cref="Unload"/>——只有
+        /// <see cref="TryDecodeImage"/> 会写 <see cref="_sprites"/>，二者一一对应，可以据此筛出"仅
+        /// Image 类别"这个子集，不需要额外记一份按 kind 分类的索引）。
+        /// <para>
+        /// 根治的问题：<see cref="Adapter.Unity.EngineAdapter.UnityEngineHost"/> 与本加载器都是
+        /// DontDestroyOnLoad 单例，跨整个 -runTests 批处理进程存活，<see cref="_loaded"/> 一旦加进去
+        /// 此前从不清空——两个测试类恰好用同一个资源引用字面量时（如 SpriteEquipVisualWiringTests 与
+        /// EquipmentVisualReplayTests 共享的 paperdoll.item.sample_hero_hat_test，均经
+        /// <c>Presentation.Common.ResourceReferenceTracker</c>、以 <see cref="ResourceKind.Image"/>
+        /// 触发加载），先跑的那一个会让"装备前不应加载过 mesh_ref"这类断言在后跑的用例里必然落空
+        /// （分诊报告 scratchpad/triage-playmode-1.44.0.md 失败 1/3）。
+        /// </para>
+        /// <para>
+        /// 判断记录（为什么只清 Image、不做成清空全部 <see cref="_loaded"/> 的 <c>UnloadAll</c>）：
+        /// 本方法最初实现是不分类别清空整个 <see cref="_loaded"/>，自查后发现会破坏另一类跨用例状态
+        /// ——<c>UnityViewFactory</c> 的默认动画升级机制（<c>_pendingAnimResourceLoads</c>）、武器剪辑
+        /// 升级机制（<c>_pendingWeaponClipResourceLoads</c>）与 <c>VfxPlayer</c>/<c>SfxPlayer</c> 各自
+        /// 的 <c>_pendingResourceLoads</c> 均是"跨整个 -runTests 进程只发起一次 LoadAsync、此后永远
+        /// 不重试"的 <see cref="ResourceKind.Effect"/>/<see cref="ResourceKind.Audio"/> 消费方，它们
+        /// 自己的去重集合与本加载器的缓存状态是两套独立记账，隐含"资源一旦加载成功就永远留在缓存里"
+        /// 这一假设——若本方法清空了这些资源的缓存，这些消费方仍然认为"已经发起过加载"而不会重新
+        /// LoadAsync，导致该资源在后续用例里永久卡在"缓存已清空但无人会再次加载"的状态（例如
+        /// VerticalSliceTests 两个用例共享的 sprite_anim.sample_hero_* 六个动画状态，会在第一条用例
+        /// 成功加载后，被本方法清空缓存，第二条用例的新 View 却因 <c>_pendingAnimResourceLoads</c>
+        /// 已经登记过而永远拿不到真正的多帧剪辑、静默退化——这与失败 1/3 本身要修的问题无关，是本方法
+        /// 若不加限定会新引入的回归）。<see cref="ResourceKind.Image"/> 类别不属于这一情形：其消费方
+        /// （<c>SpriteViewBase</c>/<c>SpriteCharacterRig</c>）用的 <c>ResourceReferenceTracker</c> 是
+        /// 随每个 View 实例一起构造的对象（见其构造函数），View 随用例结束/新用例重建 View 一起自然
+        /// 重置，不存在"跨整个 -runTests 进程只发起一次"的假设，因此只清 Image 类别既能根治失败 1/3、
+        /// 又不影响这一批"跨用例永久去重"的其它消费方。只移除 C# 侧缓存索引，不主动 Destroy 底层
+        /// UnityEngine.Object（沿用 <see cref="Unload"/> 既有约定），不影响仍在场景中显示的资源实例，
+        /// 代价仅为下一条用例首次引用同一 Image 资源时需要重新发起一次 LoadAsync。
+        /// </para>
+        /// </summary>
+        public void UnloadAllImages()
+        {
+            var ids = new List<Id>(_sprites.Keys);
+            foreach (var id in ids)
+            {
+                Unload(id);
+            }
+        }
+
         /// <summary>见 <see cref="Unload"/>：<see cref="_extractedSlotMeshes"/> 用组合键
         /// (ResourceId, SlotKey)，无法直接 <c>Dictionary.Remove(resourceId)</c>，逐一筛出属于
         /// <paramref name="resourceId"/> 的条目再移除。</summary>

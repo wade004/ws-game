@@ -110,6 +110,78 @@ namespace Adapter.Unity.Tests.Runtime
             }
         }
 
+        private static readonly string[] AnimStates = { "idle", "move", "attack", "cast", "hit", "death" };
+
+        // 判断记录（PlayMode 全量门禁失败 2/3、3/3 根治，分诊报告
+        // scratchpad/triage-playmode-1.44.0.md；本条判断记录只放这一处，两条用例（下方
+        // FullVerticalSlice_.../PRES180_...）EnterInWorld 之后各自调用一次本方法，均引用这里，不
+        // 重复贴）：
+        //
+        // 根因：本批"接线：适配层转发前缀路由入口"（3b87482）让 UnityResourceLoader.ResolveEffectDir
+        // 把 sprite_anim.* 前缀正确解到 AssetRefConventions.SpriteAnimDir 目录；同一批"迁移：
+        // ADR-0038 前缀契约数据迁移"（08e069a）新增了 assets/_sample/sprite_anim/
+        // sample_hero_{idle,move,attack,cast,hit,death}/ 六个真实占位帧集目录（各含
+        // atlas.png+frames.json，见 toolchain/import_sample_assets.py 的 SPRITE_ANIM_CLIPS/
+        // _gen_sprite_anim_clip）。两者叠加后，UnityViewFactory.RequestAnimClipUpgrade 发起的
+        // LoadAsync 第一次真正加载成功（此前该目录不存在，必然加载失败）——这是 sprite 型角色动画
+        // 的一次真实功能修复，不是缺陷（详见 UnityResourceLoader.cs/UnityViewFactory.cs 判断记录与
+        // 分诊报告失败 2/3、3/3 一节的完整根因链，此处不重复贴）。旧版本用 LogAssert.Expect 预期
+        // "加载失败"警告的写法，断言前提已被同批改动证伪。
+        //
+        // 改法（治根因，不是删 Expect 了事）：改为轮询 + 正面断言"该状态确实从真实资源文件加载
+        // 成功"——用 UnityResourceLoader.TryGetEffect 是否命中作为判据：只有
+        // RequestAnimClipUpgrade 加载成功回调（RegisterClipFromEffect）才会把资源写进
+        // UnityResourceLoader._effects 缓存；内部软件级单帧退化（RegisterSingleFrameClip + 静态
+        // FallbackFrame）完全不经过 ResourceLoader，TryGetEffect 必然落空。不能靠帧数区分两者——
+        // toolchain/import_sample_assets.py 当前只生成 1 帧占位（frames.json 的 frames 数组只有
+        // 一个元素），与软件级单帧退化的帧数恰好相同；TryGetEffect 命中才是本次要验证的下游正确
+        // 行为，能防住"资源又加载不到"（ResolveEffectDir 路由改错/占位帧集目录被误删）这一类未来
+        // 回归。轮询而非立即断言：LoadAsync 把文件读取丢进后台线程，真正写入 _effects 缓存要等到
+        // 下一次主线程 Tick（同 PlayModeIsolation.cs PendingLoadCount 判断记录），不能假设
+        // EnterInWorld 返回时加载已经落地。
+        //
+        // 与 PRES180 历史回归（architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md）的
+        // 关系：该复盘的真因是"新游戏"入口不回满玩家资源池，导致 PRES180 末尾的 Assert.IsTrue(died)
+        // 真实失败、又被 Unity Test Framework 的日志检查机制覆盖成一句无关警告——与本方法验证的
+        // "动画资源是否加载成功"是两个完全独立的维度。本方法不触碰 PlayModeIsolation 的资源池回满
+        // 逻辑（已在该文件"判断记录（新增：跨用例回满玩家资源池…"一节根治），也不改变 died 断言
+        // 本身、不放宽 400 次攻击预算，PRES180 原本要防住的"死亡断言被日志检查覆盖"回归仍由 died
+        // 断言 + 资源池回满两处共同兜底，未被本次改动削弱。
+        private static IEnumerator AssertAnimResourcesLoadedSuccessfully()
+        {
+            var unityLoader = Adapter.Unity.EngineAdapter.UnityEngineHost.Ensure().ResourceLoader;
+
+            var guard = 300;
+            while (guard-- > 0)
+            {
+                var allLoaded = true;
+                foreach (var state in AnimStates)
+                {
+                    if (!unityLoader.TryGetEffect(new Id($"sprite_anim.sample_hero_{state}"), out _))
+                    {
+                        allLoaded = false;
+                        break;
+                    }
+                }
+                if (allLoaded)
+                {
+                    break;
+                }
+                yield return null;
+            }
+
+            foreach (var state in AnimStates)
+            {
+                var resourceRef = new Id($"sprite_anim.sample_hero_{state}");
+                Assert.IsTrue(unityLoader.TryGetEffect(resourceRef, out var effect),
+                    $"状态 \"{state}\" 引用的动画资源 \"{resourceRef}\" 应当已经从真实占位帧集" +
+                    "（assets/_sample/sprite_anim/）加载成功，不再是此前\"必然加载失败\"的旧行为" +
+                    "（300 帧内仍未加载完成，判定为真正的回归）");
+                Assert.Greater(effect.Frames.Length, 0,
+                    $"状态 \"{state}\" 加载成功的动画资源至少应有一帧");
+            }
+        }
+
         // 判断记录（收边任务 3：本套件此前独有的 TearDown 已收敛到
         // Tests/Runtime/PlayModeIsolation.cs，由基类 PlayModeTestBase 统一调用——世界清空 +
         // AppState 复位 MainMenu（原"根治残留光环命中已清空世界"判断记录）、ResourceLoader
@@ -123,44 +195,13 @@ namespace Adapter.Unity.Tests.Runtime
             yield return LoadShellScene();
             var shell = RequireShellRoot();
 
-            // GP-06 根治后的新增判断记录：EnterInWorld 会为玩家（creature.sample_hero）挂接默认
-            // 动画，data/_sample/display/display.anim_set.sample_hero 声明了 idle/move/attack/
-            // cast/hit/death 六个状态的 resource_ref（sprite_anim.sample_hero_*，ADR-0038 数据迁移
-            // 后前缀），但落盘的只是最小单帧占位资源（见 toolchain/import_sample_assets.py
-            // SPRITE_ANIM_CLIPS），没有真实序列帧资源（见 UnityViewFactory.cs 类型顶部判断记录）——
-            // GP-06 修复前 TryGetEffect 未命中就静默登记单帧 fallback，不发起任何加载、也不记日志；
-            // 修复后会老老实实发起一次 LoadAsync，加载失败时记一条 Debug.LogWarning（"继续使用单帧
-            // 占位剪辑（不重试）"）。这是新暴露出的、真实且预期内的诊断（当前占位资源集尚未提供角色
-            // 序列帧动画这一已知限制的自然结果），不是本用例要覆盖的契约违反。
-            // 判断记录（为什么不能像 missingGlyphWarning 那样固定注册 N 次 Expect）：
-            // UnityViewFactory 是 DontDestroyOnLoad 单例，跨 PlayMode 测试装配整个 -runTests 进程
-            // 存活（见 PlayModeIsolation.cs 判断记录"单例继续常驻，供下一条用例复用"）；
-            // _pendingAnimResourceLoads 一旦发起过某个 resourceRef 的加载就永远不再移除（同
-            // VfxPlayer/SfxPlayer 既有惯例"失败不重试"），因此这六条警告在整个测试装配的生命周期里
-            // 至多各出现一次——但"第一次触发"具体落在哪一条用例，取决于本装配内全部用例的执行顺序
-            // （NUnit 不保证、也不该依赖测试类之间的相对顺序），不能硬编码"本用例一定会看到 6 条"。
-            // 改法：用 HasAttemptedAnimResourceLoad 查询本用例执行到这里之前是否已经有别的用例替
-            // 这些资源发起过加载——只有"确实还没发起过"的那些资源，才需要为它注册一条 Expect（否则
-            // Unity Test Framework 会在用例结束时报"Expected log did not appear"，见该判断记录的
-            // 复现）。
-            var animStates = new[] { "idle", "move", "attack", "cast", "hit", "death" };
-            var animLoadFailedWarning = new System.Text.RegularExpressions.Regex(
-                @"\[UnityViewFactory\] 状态 "".*?"" 引用的动画资源 "".*?"" 加载失败");
-            var expectedAnimLoadWarnings = 0;
-            foreach (var state in animStates)
-            {
-                var resourceRef = new Id($"sprite_anim.sample_hero_{state}");
-                if (!shell.Framework.ViewFactory.HasAttemptedAnimResourceLoad(resourceRef))
-                {
-                    expectedAnimLoadWarnings++;
-                }
-            }
-            for (var i = 0; i < expectedAnimLoadWarnings; i++)
-            {
-                LogAssert.Expect(UnityEngine.LogType.Warning, animLoadFailedWarning);
-            }
-
+            // EnterInWorld 会为玩家（creature.sample_hero）挂接默认动画，data/_sample/display/
+            // display.anim_set.sample_hero 声明了 idle/move/attack/cast/hit/death 六个状态的
+            // resource_ref（sprite_anim.sample_hero_*，ADR-0038 数据迁移后前缀）——本批改动后这些
+            // 资源已经真实可加载成功，验证方式见 AssertAnimResourcesLoadedSuccessfully 判断记录
+            // （不再是此前"预期加载失败"的写法，那份旧判断记录已随断言前提一起过期）。
             yield return EnterInWorld(shell, "vslice");
+            yield return AssertAnimResourcesLoadedSuccessfully();
 
             var playerId = shell.Framework.PlayerId;
             var startX = shell.Framework.World.GetEntity(playerId)!.Position.X;
@@ -340,28 +381,11 @@ namespace Adapter.Unity.Tests.Runtime
             yield return LoadShellScene();
             var shell = RequireShellRoot();
 
-            // 同 FullVerticalSlice_..._Save_Load_... 判断记录：状态动画加载失败警告在整个测试装配
-            // 生命周期内针对每个 resource_ref 只会首次触发一次，按 HasAttemptedAnimResourceLoad
-            // 探测本用例执行到这里之前是否已经有别的用例替它们发起过加载，只为"确实还没发起过"的
-            // 那些注册 Expect。
-            var animStates = new[] { "idle", "move", "attack", "cast", "hit", "death" };
-            var animLoadFailedWarning = new System.Text.RegularExpressions.Regex(
-                @"\[UnityViewFactory\] 状态 "".*?"" 引用的动画资源 "".*?"" 加载失败");
-            var expectedAnimLoadWarnings = 0;
-            foreach (var state in animStates)
-            {
-                var resourceRef = new Id($"sprite_anim.sample_hero_{state}");
-                if (!shell.Framework.ViewFactory.HasAttemptedAnimResourceLoad(resourceRef))
-                {
-                    expectedAnimLoadWarnings++;
-                }
-            }
-            for (var i = 0; i < expectedAnimLoadWarnings; i++)
-            {
-                LogAssert.Expect(UnityEngine.LogType.Warning, animLoadFailedWarning);
-            }
-
+            // 同 FullVerticalSlice_..._Save_Load_... 判断记录（AssertAnimResourcesLoadedSuccessfully
+            // 顶部）：sprite_anim.sample_hero_* 六个状态本批改动后应当真实加载成功，不再预期"加载
+            // 失败"警告。
             yield return EnterInWorld(shell, "pres180");
+            yield return AssertAnimResourcesLoadedSuccessfully();
 
             Assert.IsTrue(shell.Framework.BeastEntityId.HasValue, "应当已经生成示例生物");
             var beastId = shell.Framework.BeastEntityId!.Value;

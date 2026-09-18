@@ -581,6 +581,24 @@ PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎�
   `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 断言取值改动：均待引擎批处理环境验证
   （见"引擎适配层接线"小节"验证边界"与验证清单文档，已合并覆盖）。
 
+### 修复（PlayMode 全量门禁分诊后补修，2026-09-19，本机仍无引擎批处理环境验证）
+
+按分诊报告（`toolchain/unity_test_triage.py` 实测产物、`bin/_check_artifacts/unity/`）逐条根治
+三处 PlayMode 用例失败，均为上一条目"引擎适配层接线"落地后首次真实在 Unity 批处理环境跑通两批
+改动叠加效果暴露出的测试侧问题，非产品缺陷：
+
+- `SpriteEquipVisualWiringTests`/`EquipmentVisualReplayTests` 共享同一资源引用字面量
+  （`paperdoll.item.sample_hero_hat_test`）时的跨用例顺序依赖失败：新增
+  `UnityResourceLoader.UnloadAllImages`，由 `Tests/Runtime/PlayModeIsolation.cs`
+  `TearDownAfterTest` 每条 PlayMode 用例结束后调用，清空 `ResourceKind.Image` 类别的"已加载"
+  缓存（只清这一类别，不影响 `ResourceKind.Effect`/`Audio` 消费方跨用例永久去重的既有前提，
+  见该方法判断记录）。
+- `VerticalSliceTests` 两处 `FullVerticalSlice_...`/`PRES180_...` 用例：`sprite_anim.
+  sample_hero_*` 六个状态的动画资源经本批适配层路由修复 + 占位帧集数据迁移叠加后已能真实
+  加载成功，原先预期"加载失败"的 `LogAssert.Expect` 写法过期，改为新增
+  `AssertAnimResourcesLoadedSuccessfully`：轮询 `UnityResourceLoader.TryGetEffect` 确认六个
+  状态均已从真实占位资源文件加载成功，正面验证新的正确行为（不是删除断言）。
+
 ## [1.43.0] - 2026-09-18
 
 消费方反馈第 62/63/64/65/66 条（见

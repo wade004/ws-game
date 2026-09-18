@@ -383,6 +383,18 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 - `Runtime/Shell/FrameworkResidentHost.cs`：框架常驻部分为什么不直接改造
   `GameFoundationBootstrap`、世界/装配根只构造一次、`AiHost`/`SpawnHost` 级联清理缺口（核心一半
   已由 ADR-0016 解决，`GameplayAssembly.LeaveMap` 承担出图退场，见 `HandlePreUnload` 判断记录）。
+- `UnityResourceLoader.cs` `UnloadAllImages`（PlayMode 全量门禁 288 项失败 1/3 根治，2026-09-19）：
+  为什么只清 `ResourceKind.Image` 类别的"已加载"缓存、不做成清空全部 `_loaded` 的 `UnloadAll`——
+  会破坏 `UnityViewFactory` 默认动画/武器剪辑升级与 `VfxPlayer`/`SfxPlayer` 各自
+  `_pendingResourceLoads` 这批"跨整个 -runTests 进程只加载一次、此后永远不重试"的
+  `ResourceKind.Effect`/`Audio` 消费方；`Tests/Runtime/PlayModeIsolation.cs`
+  `TearDownAfterTest` 第 6 步调用本方法，根治 `SpriteEquipVisualWiringTests`/
+  `EquipmentVisualReplayTests` 共享同一资源引用字面量时的跨用例顺序依赖失败。
+- `Tests/Runtime/VerticalSliceTests.cs` `AssertAnimResourcesLoadedSuccessfully`（同批失败 2/3、
+  3/3 根治）：`sprite_anim.sample_hero_*` 六个状态动画资源经 ADR-0038 适配层路由修复 +
+  占位帧集数据迁移叠加后已能真实加载成功，原先预期"加载失败"警告的 `LogAssert.Expect` 写法
+  断言前提已过期，改为轮询 `UnityResourceLoader.TryGetEffect` 命中即视为验证下游真实加载成功
+  （不是删除断言了事）。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
