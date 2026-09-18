@@ -437,8 +437,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
 [ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——契约面/校验/工具链、
 样例数据迁移、**引擎适配层接线**均已完成；sprite 型隐式接线改显式仍是后续任务（见下方
-"未完成/后续任务"）。**引擎适配层接线部分本机没有 Unity 批处理环境，无法本机验证，详见下方
-"引擎适配层接线"小节与验证清单文档。**
+"未完成/后续任务"）。**样例数据迁移与引擎适配层接线两部分本机均没有 Unity 批处理环境，无法
+本机验证**——数据迁移批改了 `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处测试
+断言里硬编码的资源引用常量，适配层接线批改了 `UnityResourceLoader.cs` 与配套测试，两批涉及引擎/
+PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎适配层接线"小节与验证清单文档。**
 
 ### 破坏性变更
 
@@ -479,6 +481,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   当前 `display/` 目录为空、`games/_template/data/game` 无 `display/` 目录、`core/sim/tests/
   data/display` 只有不含这四个字段的 `display.map.json`——均核对确认不持有受影响字段，不需要
   同步改动，如实记录该核对结论而非假设。
+
+  **配套测试同步（本机无法在引擎环境下重新验证，见下方"引擎适配层接线"小节"验证边界"与验证
+  清单文档）**：`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+  EquipmentVisualReplayTests.cs`（`HatMeshRef` 常量）/`VerticalSliceTests.cs`（两处
+  `resourceRef` 局部变量）直接硬编码了 `display.equip_visual.sample_hero_hat.mesh_ref`/
+  `display.anim_set.sample_hero.clips.*.resource_ref` 的取值用于断言，随上表迁移同步改为新前缀；
+  `AnimReplayAndFinishEndToEndTests.cs`/`UnityViewFactoryDefaultAnimationTests.cs` 也提到了这两个
+  字段但只是判断记录注释文字更新，不涉及断言取值。
 - 新增无条件校验规则视同破坏性变更（ADR-0039 决策 2 第 3 类）：`RefCategoryFieldRule`
   （检查名 `field_ref_category`）已从此前默认关闭的可选规则**转正为无条件注册**（与
   `DisplayKindFieldGroupRule`/`EquipVisualModeFieldGroupRule` 同等地位）——上一条数据迁移完成后，
@@ -556,7 +566,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 **验证边界（如实标注，未跳过验证）**：本机没有 Unity 批处理编译/测试环境，以上全部改动点
 **均无法在本机重新验证**——`dotnet build`/`dotnet test Core.sln` 不覆盖 Unity 包（不在
-`Core.sln` 内），`check.ps1 -SkipUnity` 跳过引擎相关步骤。已在仓库内留存可执行的验证清单：
+`Core.sln` 内），`check.ps1 -SkipUnity` 跳过引擎相关步骤。同一原因下，上方"破坏性变更"小节
+"配套测试同步"提到的 `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处**真正改了
+断言硬编码常量**（而非仅注释）的测试同样没有在本机重新验证过。已在仓库内留存可执行的验证清单
+（已合并覆盖两批改动）：
 [待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md](architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md)，
 拿到引擎批处理环境后按该清单逐条补验。
 
@@ -564,7 +577,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - sprite 型"按消费实体行 id 末段命名"隐式接线约定改为显式引用字段（ADR-0038 决策 8 第一项，不在
   本次范围）。
-- 上一条"引擎适配层接线"小节列出的全部改动点：待引擎批处理环境验证（见该小节"验证边界"）。
+- 上一条"引擎适配层接线"小节列出的全部改动点，以及"破坏性变更"小节"配套测试同步"提到的
+  `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 断言取值改动：均待引擎批处理环境验证
+  （见"引擎适配层接线"小节"验证边界"与验证清单文档，已合并覆盖）。
 
 ## [1.43.0] - 2026-09-18
 
