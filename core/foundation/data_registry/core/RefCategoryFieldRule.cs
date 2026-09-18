@@ -34,17 +34,18 @@ namespace Core.Foundation.DataRegistry
     /// "元数据门禁"检查项。
     /// </para>
     /// <para>
-    /// 判断记录（本规则当前不默认注册，见 <c>Presentation.Assembly.ContentValidationOptions
-    /// .EnableRefCategoryCheck</c> 判断记录——该类型属更高层 <c>presentation/assembly</c>，本模块
-    /// 按分层不引用它，这里不写 cref，同仓库其它 L0 类型判断记录对跨层类型的既有处理）：
+    /// 判断记录（转正为无条件注册）：落地初期（1.44.0 之前）本规则曾经默认不注册——
     /// <c>display.equip_visual.mesh_ref</c> 登记的允许集合是 <c>model</c>/<c>paperdoll</c>
-    /// （ADR-0038 决策 4 落地后的结论），但 <c>data/_sample/display/display.equip_visual.json</c>
-    /// 现有一行 <c>mesh_ref: "sprite.item.sample_hero_hat_test"</c> 仍用旧的 <c>sprite</c> 前缀
-    /// （尚未迁移，任务范围明确本任务不动数据），若本规则无条件注册会让该行报错，进而让
-    /// <c>validate_data.py --strict</c>（合并根）门禁失败。本规则因此先实现、先测试（见
-    /// <c>RefCategoryFieldRuleTests</c>，绕开该选项直接构造 registry 验证规则本身行为正确），默认
-    /// 关闭，待数据迁移任务完成后再改为默认启用（比照本条目在 <c>ContentValidationOptions</c> 的
-    /// 判断记录）。
+    /// （ADR-0038 决策 4 落地后的结论），当时 <c>data/_sample/display/display.equip_visual.json</c>
+    /// 仍有一行 <c>mesh_ref: "sprite.item.sample_hero_hat_test"</c> 用旧的 <c>sprite</c> 前缀，若
+    /// 无条件注册会让该行报错、拖垮 <c>validate_data.py --strict</c>（合并根）门禁。数据迁移任务
+    /// （见 CHANGELOG 对应条目）已把该行改为 <c>paperdoll.item.sample_hero_hat_test</c>，且全仓库
+    /// 逐一核对过全部资源引用类别前缀字段的实际消费型，本规则唯一的默认关闭理由已消除——按 ADR-0038
+    /// 决策 6 本意（"新增一条规则"，与仓库其它 <c>*FieldGroupRule</c> 同等地位），改为与
+    /// <c>PresentationSchemaCatalog.RegisterAll</c> 内 <c>DisplayKindFieldGroupRule</c>/
+    /// <c>EquipVisualModeFieldGroupRule</c> 一致的无条件注册，不再经由
+    /// <c>Presentation.Assembly.ContentValidationOptions</c> 任何开关控制（该开关与
+    /// <c>toolchain/validator --enable-ref-category-check</c> 命令行参数均已随本次转正一并删除）。
     /// </para>
     /// </summary>
     public sealed class RefCategoryFieldRule : IValidationRule

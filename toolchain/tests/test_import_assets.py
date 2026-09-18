@@ -1527,7 +1527,7 @@ class CheckJsonOutputTest(ImportAssetsTestBase):
         doc = json.loads(lines[0])
         self.assertEqual("import_assets.check", doc["tool"])
         self.assertEqual("_test", doc["dataset"])
-        self.assertEqual(["sfx", "sprite", "vfx", "world"], doc["domains"])
+        self.assertEqual(["display_anim", "sfx", "sprite", "vfx", "world"], doc["domains"])
         self.assertTrue(doc["ok"])
         self.assertEqual({"error": 0, "warning": 0}, doc["counts"])
         self.assertEqual([], doc["issues"])
@@ -1734,9 +1734,10 @@ class CheckDisplayAnimRowUnitTest(unittest.TestCase):
         self.assertEqual([], problems)
 
     def test_equip_visual_mesh_ref_legacy_sprite_prefix_reports_asset_missing(self) -> None:
-        # 呼应 data/_sample 现有 sample_hero_hat 行的真实场景（消费方反馈/ADR-0038 决策 4 落地期
-        # 核实结论：该行尚未迁移到 paperdoll 前缀，见 check_cmd 模块 docstring"判断记录"）。
-        row = {"id": "display.equip_visual.sample_hero_hat", "mesh_ref": "sprite.item.sample_hero_hat_test"}
+        # 遗留前缀兜底分支覆盖（ADR-0038 决策 4 落地期曾有 data/_sample 真实场景命中本分支；数据
+        # 迁移任务已把该行改为 paperdoll 前缀，见 check_cmd 模块 docstring"判断记录"——本用例改用
+        # 合成数据继续覆盖该兜底分支本身的行为，不再对应任何现存真实数据行）。
+        row = {"id": "display.equip_visual.sample_hero_hat_legacy", "mesh_ref": "sprite.item.sample_hero_hat_test"}
         problems: list[check_cmd.CheckIssue] = []
         check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
         self.assertEqual(1, len(problems))
@@ -1751,20 +1752,23 @@ class CheckDisplayAnimRowUnitTest(unittest.TestCase):
 
 
 class DisplayAnimDomainDefaultsTest(unittest.TestCase):
-    """display_anim 域暂不进默认覆盖集合（ADR-0038 决策 6 后半"判断记录"），但已登记进
-    ALL_DOMAINS 供 --only 手动选中。"""
+    """display_anim 域数据迁移任务转正（ADR-0038 决策 6 后半"判断记录"）：此前暂不进默认覆盖集合的
+    唯一理由（data/_sample 遗留 sprite 前缀 mesh_ref 行）已随数据迁移消除，现与 ALL_DOMAINS 等同，
+    省略 --only 时随其余四项一并跑。"""
 
-    def test_display_anim_in_all_domains_but_not_default(self) -> None:
+    def test_display_anim_in_all_domains_and_default(self) -> None:
         self.assertIn("display_anim", check_cmd.ALL_DOMAINS)
-        self.assertNotIn("display_anim", check_cmd.DEFAULT_DOMAINS)
+        self.assertIn("display_anim", check_cmd.DEFAULT_DOMAINS)
+        self.assertEqual(set(check_cmd.ALL_DOMAINS), set(check_cmd.DEFAULT_DOMAINS))
 
-    def test_parse_only_none_returns_default_domains_only(self) -> None:
+    def test_parse_only_none_returns_default_domains_including_display_anim(self) -> None:
         self.assertEqual(set(check_cmd.DEFAULT_DOMAINS), check_cmd._parse_only(None))
+        self.assertIn("display_anim", check_cmd._parse_only(None))
 
     def test_parse_only_explicit_display_anim_accepted(self) -> None:
         self.assertEqual({"display_anim"}, check_cmd._parse_only("display_anim"))
 
-    def test_cli_default_run_unaffected_by_new_domain(self) -> None:
+    def test_cli_default_run_now_covers_display_anim(self) -> None:
         case_dir = Path(tempfile.mkdtemp(prefix="check_display_anim_cli_test_"))
         self.addCleanup(shutil.rmtree, case_dir, ignore_errors=True)
         assets_root = case_dir / "assets"
@@ -1774,11 +1778,12 @@ class DisplayAnimDomainDefaultsTest(unittest.TestCase):
             "rows": [{"id": "display.equip_visual.sample", "mesh_ref": "bogus.thing"}],
         })
 
+        # display_anim 已纳入 DEFAULT_DOMAINS：省略 --only 的默认调用现在也会跑到这条非法类别前缀。
         code, output = run_cli([
             "check", "--dataset", "_test",
             "--assets-root", str(assets_root), "--data-root", str(data_root),
         ])
-        self.assertEqual(0, code, msg=output)
+        self.assertEqual(1, code, msg=output)
 
         code, stdout, _stderr = run_cli_split([
             "check", "--dataset", "_test",

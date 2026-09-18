@@ -435,37 +435,55 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ## [Unreleased]
 
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
-[ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——本次只收口契约面/校验/
-工具链，样例数据迁移与引擎适配层改为调用新路由入口均是后续任务（见下方"未完成/后续任务"）。
+[ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——契约面/校验/工具链与
+样例数据迁移已完成；引擎适配层改为调用新路由入口、sprite 型隐式接线改显式仍是后续任务（见下方
+"未完成/后续任务"）。
 
 ### 破坏性变更
 
 **本条目按 ADR-0039 决策 2 第 3 类"新增无条件 Error 级校验规则视同破坏性变更"、以及决策 2 第 2 类
-"改资源引用取值约定"，均属破坏性变更；按决策 3 当前期政策，材料尚不齐备（逐字段迁移说明为占位、
-数据根尚未同步迁移），下方逐条标注缺口，本轮先合入契约面，后续任务补齐材料与数据迁移后再视为
-完整落地。**
+"改资源引用取值约定"，均属破坏性变更；按决策 3 当前期政策，材料现已齐备——ADR、本节标注、下方
+逐字段迁移说明、全部数据根同步迁移、消费方通知文档均已完成，见文末对照清单。**
 
 - 资源引用类别前缀集合变化（ADR-0038 决策 2/3/4）：`anim` 前缀此后只表示 model 型引擎侧逻辑路径，
   不再承载 sprite 型语义；sprite 型动画帧资源改用新前缀 `sprite_anim`；`display.equip_visual.
   mesh_ref` 的 sprite 型取值改用新前缀 `paperdoll`（落地期核实确认与 `sprite_set_id` 语义不等价，
   见 ADR-0038 决策 4 附带条款、`architecture/14_资产规格书模板.md` 第 1.2 节新增表格）。
-  **逐字段 before/after 迁移说明（占位，待下一任务数据迁移时补齐具体行清单）**：
-  - `display.anim_set.clips.<clip>.resource_ref`：sprite 型消费时旧值 `anim.<name>` → 新值
-    `sprite_anim.<name>`；model 型消费不受影响（仍是 `anim.<name>`，解释为引擎侧逻辑路径不变）。
-  - `display.weapon_style.auto_attack_anim`/`cast_anim_override.<skill_id>`：同上，随其挂接的
-    `display.map` 行 `kind` 取值决定是否需要迁移。
-  - `display.equip_visual.mesh_ref`：sprite 型消费时旧值 `sprite.<...>` → 新值
-    `paperdoll.<...>`；model 型消费（`mesh_ref`/`model_ref` 共用同一资源合同）不受影响。
-  - 受影响的已知样例数据行（勘察未穷尽，下一任务需重新逐行核对）：`data/_sample` 下
-    `display.equip_visual.sample_hero_hat`（`mesh_ref` 遗留 `sprite.*` 前缀）；`display.
-    weapon_style.sample_model_sword` 等挂在 `kind=sprite` 行下的 `anim.*` 剪辑引用。
-  - **数据根同步情况（ADR-0039 决策 3 尚未满足）**：本次未改动任何数据文件；`data/_sample` 仍是
-    迁移前取值，`data/_framework`/`games/_template/data/game`/`core/sim/tests/data` 未逐一核对
-    是否持有受影响字段，留给下一任务处理。
+
+  **逐字段 before/after 迁移说明**（每一行的消费型均按实际消费路径逐行核实——`display.map` 对应
+  行的 `kind`/`anim_set_ref` 显式引用/`weapon_style_ref` 挂接行的 `kind`，而不是望文生义；`sample_
+  model_sword` 一行的判定与最初按"挂在 kind=sprite 行下"这一浅层线索得出的猜测**相反**，见下方
+  说明）：
+
+  | 表.字段（行 id） | 消费型判定依据 | 旧取值 | 新取值 |
+  |---|---|---|---|
+  | `display.anim_set.sample_hero.clips.{idle,move,attack,cast,hit,death}.resource_ref` | sprite 型：无 `anim_set_ref` 显式引用，按 `display.map.sample_hero`（`kind=sprite`）id 末段隐式接线（`UnityViewFactory.TryResolveAnimSet`） | `anim.sample_hero_{idle,move,attack,cast,hit,death}` | `sprite_anim.sample_hero_{idle,move,attack,cast,hit,death}`（共 6 个字段） |
+  | `display.anim_set.placeholder_biped.clips.{idle,attack,cast,hit}.resource_ref` | model 型：被 `display.map.sample_model_hero`（`kind=model`）的 `anim_set_ref` 显式引用 | `anim.{idle,attack,cast,hit}` | 不变（保持 `anim.*`） |
+  | `display.weapon_style.sample_sword.auto_attack_anim` | sprite 型：挂接行 `display.map.sample_blade`（`weapon_style_ref` 指向本行）`kind=sprite`；`adapters/unity/.../Tests/Runtime/WeaponClipRegistrationTests.cs` 用 `creature.sample_hero`（sprite 型）实测经 `UnityFrameAnimPlayer.Play` 落地 | `anim.sample_sword_swing` | `sprite_anim.sample_sword_swing` |
+  | `display.weapon_style.sample_staff.auto_attack_anim` | sprite 型：同上机制实测（`WeaponClipRegistrationTests.Cast_WeaponStyleCastOverrideClip_NotPreRegistered_DoesNotThrow` 用 `creature.sample_hero` 实测） | `anim.sample_staff_jab` | `sprite_anim.sample_staff_jab` |
+  | `display.weapon_style.sample_staff.cast_anim_override.skill.sample_fireball` | sprite 型：同上 | `anim.sample_staff_cast` | `sprite_anim.sample_staff_cast` |
+  | `display.weapon_style.sample_model_sword.auto_attack_anim` | **model 型**（与初步线索"挂在 kind=sprite 行下"相反）：`adapters/unity/.../Tests/Runtime/ModelIntegrationTests.cs EquippedWeapon_AttackState_PlaysAutoAttackAnimOnRealAnimator` 用 `creature.sample_model_hero`（model 型）实测经 `IRenderer3D.PlayAnim` 驱动真实 Animator 进入 `attack` 状态；`display.equip_visual.sample_model_sword` 的 `mode: socket_attach`+`model_ref` 也只有 `ModelCharacterRig.ApplyEquipVisual` 消费（`SpriteCharacterRig` 无此方法） | `anim.attack` | **不变**（保持 `anim.attack`） |
+  | `display.weapon_style.sample_model_sword.cast_anim_override.skill.sample_burn` | model 型：同上（未单独实测 cast 分支，但与 `auto_attack_anim` 同属一行、同一挂接关系，判定一致） | `anim.cast` | **不变**（保持 `anim.cast`） |
+  | `display.equip_visual.sample_hero_hat.mesh_ref` | sprite 型：`presentation/render/core/SpriteViewBase.cs HandleItemEquipped`（195～207 行）对 `mode: slot_mesh` 行直接把 `mesh_ref` 当纸娃娃层资源 id 使用，不经 `SpriteSetDirectory`；语义与 `sprite_set_id`（目录）不等价（单文件 vs 目录），按 ADR-0038 决策 4 附带条款新增独立前缀 | `sprite.item.sample_hero_hat_test` | `paperdoll.item.sample_hero_hat_test` |
+  | `display.equip_visual.sample_model_helmet.mesh_ref` | model 型：`mode: slot_mesh`，取值已是 `model.*`（`ModelLogicalPath` 路径空间），`ModelCharacterRig.ApplyEquipVisual` 消费 | `model.placeholder_biped` | 不变 |
+
+  **受影响样例行数**：4 行发生了取值迁移（`display.anim_set.sample_hero`/`display.weapon_style.
+  sample_sword`/`display.weapon_style.sample_staff`/`display.equip_visual.sample_hero_hat`），
+  共 10 个字段值（6 + 1 + 2 + 1）；另有 4 行经核实确认消费型不受影响、无需迁移（`display.anim_set.
+  placeholder_biped`、`display.weapon_style.sample_model_sword`、`display.equip_visual.
+  sample_model_sword`、`display.equip_visual.sample_model_helmet`）。全仓排查确认没有"无法判定
+  消费型"的行。
+
+  **数据根同步情况（ADR-0039 决策 3 已满足）**：`data/_sample` 已完成上表迁移；`data/_framework`
+  当前 `display/` 目录为空、`games/_template/data/game` 无 `display/` 目录、`core/sim/tests/
+  data/display` 只有不含这四个字段的 `display.map.json`——均核对确认不持有受影响字段，不需要
+  同步改动，如实记录该核对结论而非假设。
 - 新增无条件校验规则视同破坏性变更（ADR-0039 决策 2 第 3 类）：`RefCategoryFieldRule`
-  （检查名 `field_ref_category`）虽已实现且已测试，但因上一条尚未完成数据迁移，**本次刻意不做
-  无条件注册**——接线为 `ContentValidationOptions.EnableRefCategoryCheck`（默认 `false`）的
-  可选规则，待数据迁移完成后转为默认注册（同批去掉该开关或保留供手动关闭，视届时情况决定）。
+  （检查名 `field_ref_category`）已从此前默认关闭的可选规则**转正为无条件注册**（与
+  `DisplayKindFieldGroupRule`/`EquipVisualModeFieldGroupRule` 同等地位）——上一条数据迁移完成后，
+  该规则唯一的默认关闭理由（`display.equip_visual.sample_hero_hat` 遗留 `sprite.*` 前缀会立刻
+  报错）已消除；`ContentValidationOptions.EnableRefCategoryCheck`/`toolchain/validator
+  --enable-ref-category-check` 一并删除。
 
 ### 新增
 
@@ -489,23 +507,30 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `sfx.def.resource_ref`/`variants`（仅 `sfx`）六处登记。
 - 新增校验规则 `Core.Foundation.DataRegistry.RefCategoryFieldRule`（检查名
   `field_ref_category`）：递归校验已登记 `WithAllowedRefCategories` 的字段，取值类别前缀必须
-  合法且落在该字段允许子集内；只检查前缀合法性，不检查资源文件是否存在。默认不注册，见上方
-  "破坏性变更"小节；开关 `ContentValidationOptions.EnableRefCategoryCheck` /
-  `toolchain/validator --enable-ref-category-check`。
-- `toolchain/asset_import/check_cmd.py` 新增检查域 `display_anim`（不在默认 `DEFAULT_DOMAINS`
-  内，需显式 `--only display_anim`，原因见上方"破坏性变更"小节数据迁移缺口）：核对
-  `display.anim_set.clips.resource_ref`/`display.weapon_style.auto_attack_anim`/
-  `cast_anim_override`/`display.equip_visual.mesh_ref` 四个字段的资源存在性。新增 5 个检查名：
-  `display_anim_ref_category_invalid`、`display_anim_sprite_anim_atlas_missing`、
-  `display_anim_sprite_anim_frames_json_missing`、`display_anim_paperdoll_file_missing`、
-  `display_anim_asset_missing`（遗留前缀兜底）。
+  合法且落在该字段允许子集内；只检查前缀合法性，不检查资源文件是否存在。**无条件注册**（见上方
+  "破坏性变更"小节），与仓库其它 `*FieldGroupRule` 同等地位。
+- `toolchain/asset_import/check_cmd.py` 新增检查域 `display_anim`（**已纳入默认 `DEFAULT_DOMAINS`**，
+  省略 `--only` 时随其余四项一并跑）：核对 `display.anim_set.clips.resource_ref`/`display.
+  weapon_style.auto_attack_anim`/`cast_anim_override`/`display.equip_visual.mesh_ref` 四个
+  字段的资源存在性。新增 5 个检查名：`display_anim_ref_category_invalid`、
+  `display_anim_sprite_anim_atlas_missing`、`display_anim_sprite_anim_frames_json_missing`、
+  `display_anim_paperdoll_file_missing`、`display_anim_asset_missing`（遗留前缀兜底）。
+- `assets/_sample/sprite_anim/`/`assets/_sample/paperdoll/` 新增占位资产：9 个 `sprite_anim/
+  <name>/{atlas.png,frames.json}` 目录（`sample_hero_{idle,move,attack,cast,hit,death}`/
+  `sample_sword_swing`/`sample_staff_{jab,cast}`）+ 1 个 `paperdoll/
+  item_sample_hero_hat_test.png` 扁平文件；结构与既有 `assets/_sample/vfx/*` 样例资产同构，尺寸
+  取最小（2x2 像素单帧），总计约 23KB。
+
+### 迁移说明
+
+见上方"破坏性变更"小节的逐字段 before/after 表格；消费方通知文档：
+[消费方通知-2026-09-19-资源引用类别前缀契约变更.md](architecture/落地计划/消费方通知-2026-09-19-资源引用类别前缀契约变更.md)。
 
 ### 未完成/后续任务
 
-- 样例数据迁移（`data/_sample` 等全部数据根，见上方逐字段迁移说明占位）与消费方通知（ADR-0039
-  决策 3 材料清单剩余项）。
-- 迁移完成后：`field_ref_category` 转为默认注册；`display_anim` 域纳入 `DEFAULT_DOMAINS`。
-- 已落地引擎适配层改为调用 `ResolvePathSpace`（ADR-0038 决策 8，不在本次范围）。
+- 已落地引擎适配层改为调用 `ResolvePathSpace`（ADR-0038 决策 8 第二项，不在本次范围）。
+- sprite 型"按消费实体行 id 末段命名"隐式接线约定改为显式引用字段（ADR-0038 决策 8 第一项，不在
+  本次范围）。
 
 ## [1.43.0] - 2026-09-18
 

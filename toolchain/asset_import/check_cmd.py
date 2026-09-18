@@ -18,9 +18,9 @@
   ``assets/<dataset>/maps/<name>/`` 下必须存在必需分层文件（``ground.png``/``overlay.png``）。
 
 ``--only``（逗号分隔，取值 ``sprite``/``vfx``/``sfx``/``world``/``display_anim`` 的子集，省略则
-默认四项 ``DEFAULT_DOMAINS`` 全跑，``display_anim`` 需显式选中——见下方"判断记录"）：只跑选定的
-检查域，供门禁在某个数据集的部分域尚未接入真实资产时先只校验已接入的那部分（不放宽已选中域的
-判断逻辑本身，只是缩小本次运行覆盖的表范围）。
+默认五项 ``DEFAULT_DOMAINS`` 全跑——见下方"判断记录"）：只跑选定的检查域，供门禁在某个数据集的
+部分域尚未接入真实资产时先只校验已接入的那部分（不放宽已选中域的判断逻辑本身，只是缩小本次运行
+覆盖的表范围）。
 
 ``--json``（消费方反馈第 62 条）：stdout 只输出一个 JSON 文档（UTF-8、中文不转义），结构见
 :class:`CheckIssue`/:func:`run` 判断记录；不加 ``--json`` 时文本输出与改造前逐字节一致。加或不加
@@ -46,13 +46,14 @@ mesh_ref`` 四个字段——经 :func:`ref_conventions.resolve_path_space` 判�
 相对"（``sprite_anim``/``paperdoll`` 前缀）的值做存在性检查，"引擎侧逻辑路径"（``anim``/``model``
 前缀）的值按 ADR-0037 决策 3 同一理由跳过（不在本工具 ``--assets-root`` 检查域内）。
 
-判断记录（``display_anim`` 暂不进入默认检查集合）：``data/_sample/display/display.equip_visual.
-json`` 现有一行 ``mesh_ref: "sprite.item.sample_hero_hat_test"`` 仍用 ADR-0038 之前的旧
-``sprite`` 前缀（该前缀本身路由到"资产根相对"路径空间——``sprites/item_sample_hero_hat_test``
-目录——但目录结构与 ``paperdoll`` 前缀期望的单文件不同，该目录若不存在会被本域误判为"缺失"；
-数据迁移到新 ``paperdoll`` 前缀是下一个任务的职责，本任务范围明确"不动数据"）。因此本域只登记进
-``ALL_DOMAINS``（供 ``--only display_anim`` 手动调用/单测使用），不登记进 ``DEFAULT_DOMAINS``
-（省略 ``--only`` 时的默认覆盖集合），待数据迁移任务完成后再纳入默认集合。
+判断记录（``display_anim`` 纳入默认检查集合）：``display_anim`` 域此前暂不进默认集合的唯一理由是
+``data/_sample/display/display.equip_visual.json`` 现有一行 ``mesh_ref:
+"sprite.item.sample_hero_hat_test"`` 仍用 ADR-0038 之前的旧 ``sprite`` 前缀（该前缀本身路由到
+"资产根相对"路径空间——``sprites/item_sample_hero_hat_test`` 目录——但目录结构与 ``paperdoll``
+前缀期望的单文件不同，该目录若不存在会被本域误判为"缺失"）。数据迁移任务已把该行改为
+``paperdoll.item.sample_hero_hat_test``，并对全部四个受影响字段的样例数据逐行核实迁移到正确的
+类别前缀、补齐对应占位资产（``sprite_anim``/``paperdoll`` 两类目录结构），该理由已消除——
+``display_anim`` 现登记进 ``DEFAULT_DOMAINS``，省略 ``--only`` 时随其余四项一并跑。
 """
 
 from __future__ import annotations
@@ -80,12 +81,11 @@ from .ref_conventions import (
     vfx_resource_dir,
 )
 
-DEFAULT_DOMAINS = ("sprite", "vfx", "sfx", "world")
+DEFAULT_DOMAINS = ("sprite", "vfx", "sfx", "world", "display_anim")
 
-# ADR-0038 决策 6 后半：display_anim 域已实现、已测试，但暂不进 DEFAULT_DOMAINS（省略 --only 时的
-# 默认覆盖集合）——见模块 docstring"判断记录（display_anim 暂不进入默认检查集合）"。仍登记进
-# ALL_DOMAINS（--only 的合法取值集合），供手动调用/单测显式选中。
-ALL_DOMAINS = DEFAULT_DOMAINS + ("display_anim",)
+# ADR-0038 决策 6 后半：display_anim 域已实现、已测试，数据迁移任务完成后随即纳入 DEFAULT_DOMAINS
+# （省略 --only 时的默认覆盖集合）——见模块 docstring"判断记录（display_anim 纳入默认检查集合）"。
+ALL_DOMAINS = DEFAULT_DOMAINS
 
 # 地图必需分层文件（14 第 9.1 节"框架固定项"三层中的地面图/前景遮挡层；装饰层
 # decal.png、导航标注 nav_hint.png 属于可选辅助分层，见 map 子命令与 14 第 9 节勘误）。
@@ -226,9 +226,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="sprite,vfx,sfx,world,display_anim",
         help=(
-            "只跑逗号分隔的检查域子集（取值见上）；省略则跑 DEFAULT_DOMAINS 四项（sprite/vfx/sfx/"
-            "world），display_anim 域需显式经本参数选中（ADR-0038 决策 6 后半：待数据迁移任务完成"
-            "后再纳入默认集合，见模块 docstring 判断记录）"
+            "只跑逗号分隔的检查域子集（取值见上）；省略则跑 DEFAULT_DOMAINS 全部五项（sprite/vfx/"
+            "sfx/world/display_anim，ADR-0038 决策 6 后半：数据迁移任务完成后 display_anim 已纳入"
+            "默认集合，见模块 docstring 判断记录）"
         ),
     )
     parser.add_argument(
@@ -245,8 +245,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _parse_only(value: str | None) -> set[str]:
     if value is None:
-        # ADR-0038 决策 6 后半：省略 --only 时的默认覆盖集合是 DEFAULT_DOMAINS，不是 ALL_DOMAINS——
-        # display_anim 暂不进默认集合，见模块 docstring 判断记录。
+        # ADR-0038 决策 6 后半：省略 --only 时的默认覆盖集合是 DEFAULT_DOMAINS——数据迁移任务完成
+        # 后 display_anim 已纳入默认集合，与 ALL_DOMAINS 等同，见模块 docstring 判断记录。
         return set(DEFAULT_DOMAINS)
     domains = {v.strip() for v in value.split(",") if v.strip()}
     unknown = domains - set(ALL_DOMAINS)
