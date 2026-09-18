@@ -435,9 +435,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ## [Unreleased]
 
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
-[ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——契约面/校验/工具链与
-样例数据迁移已完成；引擎适配层改为调用新路由入口、sprite 型隐式接线改显式仍是后续任务（见下方
-"未完成/后续任务"）。
+[ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——契约面/校验/工具链、
+样例数据迁移、**引擎适配层接线**均已完成；sprite 型隐式接线改显式仍是后续任务（见下方
+"未完成/后续任务"）。**引擎适配层接线部分本机没有 Unity 批处理环境，无法本机验证，详见下方
+"引擎适配层接线"小节与验证清单文档。**
 
 ### 破坏性变更
 
@@ -526,11 +527,44 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 见上方"破坏性变更"小节的逐字段 before/after 表格；消费方通知文档：
 [消费方通知-2026-09-19-资源引用类别前缀契约变更.md](architecture/落地计划/消费方通知-2026-09-19-资源引用类别前缀契约变更.md)。
 
+### 引擎适配层接线（ADR-0038 决策 8 第二项，本批提前落地）
+
+**判断记录（为何提前）**：ADR-0038 决策 8 原把这一项列为不在该决策范围的后续项——当时样例数据
+尚未迁移，`UnityResourceLoader` 既有实现（`ResolveEffectDir` 固定拼 `vfx` 子目录、`ResolvePath`
+对非 `layer` 类别的 `Image` 种类固定退化为 `sprites/<name>.png`）与彼时数据取值仍然吻合，不转发
+只是"多一份未来需要同步维护的拷贝"的低等级风险。上一版本样例数据迁移完成后（sprite 型动画剪辑
+`anim.*` -> `sprite_anim.*`，纸娃娃层 `mesh_ref` 的 `sprite.*` -> `paperdoll.*`），不转发就会
+变成"运行期解析规则与已迁移数据不匹配"的正确性缺陷，因此本批把决策 8 第二项提前到本次落地；决策
+8 第一项（sprite 型隐式接线改显式）与本次数据迁移无因果关系，仍按 ADR 原意留给后续任务。
+
+- `UnityResourceLoader.ResolveModelResourcesPath`/`ResolveAnimClipResourcesPath` 改为直接转发
+  `AssetRefConventions.ModelLogicalPath`/`AnimClipLogicalPath`，不再各自维护一份拼接算法。
+- `UnityResourceLoader.ResolveEffectDir` 改为经 `AssetRefConventions.ResolvePathSpace` 按类别
+  前缀分派到 `vfx`/`sprite_anim` 两个子目录（此前固定拼 `vfx/`，会让 `sprite_anim.*` 找不到
+  文件）。
+- `UnityResourceLoader.ResolvePath` 对 `ResourceKind.Image` 新增 `paperdoll` 类别分支，转发
+  `AssetRefConventions.PaperdollLayerFile`（此前落进通用回退分支被误当 `sprites/<name>.png`
+  扁平文件解析）。
+- `toolchain/resource_layout_map.json` 新增 `sprite_anim`/`paperdoll` 两条目标子目录映射（否则
+  `build.ps1`/`toolchain/sync_package_content.ps1` 都不会把这两棵新目录同步进
+  `StreamingAssets/GameFoundation/`，代码改对了也找不到文件）。
+- 更新 `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+  UnityResourceLoaderTests.cs` 新增 4 个用例（`sprite_anim` 分派、`paperdoll` 分派、与
+  `AssetRefConventions` 的转发一致性对照）；`SpriteEquipVisualWiringTests.cs`/
+  `WeaponClipRegistrationTests.cs` 的过期取值/注释按已迁移数据勘误（`sprite.item.
+  sample_hero_hat_test` -> `paperdoll.item.sample_hero_hat_test` 等，不改断言逻辑）。
+
+**验证边界（如实标注，未跳过验证）**：本机没有 Unity 批处理编译/测试环境，以上全部改动点
+**均无法在本机重新验证**——`dotnet build`/`dotnet test Core.sln` 不覆盖 Unity 包（不在
+`Core.sln` 内），`check.ps1 -SkipUnity` 跳过引擎相关步骤。已在仓库内留存可执行的验证清单：
+[待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md](architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md)，
+拿到引擎批处理环境后按该清单逐条补验。
+
 ### 未完成/后续任务
 
-- 已落地引擎适配层改为调用 `ResolvePathSpace`（ADR-0038 决策 8 第二项，不在本次范围）。
 - sprite 型"按消费实体行 id 末段命名"隐式接线约定改为显式引用字段（ADR-0038 决策 8 第一项，不在
   本次范围）。
+- 上一条"引擎适配层接线"小节列出的全部改动点：待引擎批处理环境验证（见该小节"验证边界"）。
 
 ## [1.43.0] - 2026-09-18
 
