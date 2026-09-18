@@ -6,9 +6,10 @@
 [04_数据与内容管线.md](../../../architecture/04_数据与内容管线.md) 第 7.1、7.1.1、7.1.2 节）。
 本模块拥有三张表的字段说明与 schema 登记：`display.map`（外形映射，sprite/model 两种
 `kind`）、`display.anim_set`（动画集，供 model 型驱动骨骼动画）、`display.equip_visual`
-（装备外观，供 model 型换装）；提供两条校验规则（`DisplayKindFieldGroupRule`"外形类型字段组
-完整"、`DisplayMapCoverageRule`"外形映射存在"，均对应 04 第 5 节校验器检查项清单）；提供
-`IDisplayInfoRegistry` 默认实现 `DisplayInfoRegistry`，按 `logical_id` 建索引，供
+（装备外观，供 model 型换装）；提供四条校验规则（`DisplayKindFieldGroupRule`"外形类型字段组
+完整"、`DisplayMapCoverageRule`"外形映射存在"、`AnimSetEventsShapeRule`"动画剪辑关键帧事件形状
+合法"、`EquipVisualModeFieldGroupRule`"装备呈现字段组条件必填"，均对应 04 第 5 节校验器检查项
+清单）；提供 `IDisplayInfoRegistry` 默认实现 `DisplayInfoRegistry`，按 `logical_id` 建索引，供
 `ViewBinder`（L5）等按逻辑 id 或类别查询外形信息。
 
 依赖：`core/foundation/common`（`Id`、`Vec2`、`Common.Json` 用于解析
@@ -25,10 +26,11 @@
 - 不知道"哪些内容表的哪些字段属于 display 域引用集合"——`DisplayMapCoverageRule` 的
   "要检查覆盖哪些表"由调用方经构造函数注入，本模块不预设 `skill.def`/`creature.template`
   一类具体内容表。
-- 不做 `display.equip_visual` 的 `mode` 条件必填校验（`mode: slot_mesh` 时 `slot_id`/
-  `mesh_ref` 必填、`mode: socket_attach` 时 `socket_id`/`model_ref` 必填）——任务书只点名
-  `DisplayKindFieldGroupRule`/`DisplayMapCoverageRule` 两条规则，`equip_visual` 的条件必填
-  留给后续任务按同一模式（独立 `IValidationRule`）扩展。
+- 不做 `display.equip_visual` 的 `mode` 条件必填"另一组字段必须留空"校验——`mode: slot_mesh`
+  时 `slot_id`/`mesh_ref` 必填、`mode: socket_attach` 时 `socket_id`/`model_ref` 必填由
+  `EquipVisualModeFieldGroupRule` 校验（消费方反馈第 63 条），但该规则只检查"必填"，不检查
+  "另一模式的字段组是否同时出现"——04 第 7.1.2 节与本模块 `schema/README.md` 均未写"另一模式下
+  必须留空"，按取舍原则不发明未明确写出的语义，见该规则类型注释判断记录。
 - 不做 `direction_count` 取值必须是 4/8/16 的范围校验——04 第 7.1 节把它列在 sprite 型
   字段表里但未列入第 5 节校验器检查项清单，本模块只做"字段组完整性"（必填/留空），不做
   具体取值范围校验。
@@ -51,6 +53,8 @@ display_info/
     DisplaySchemas.cs            Map/AnimSet/EquipVisual 三张 TableSchema
     DisplayKindFieldGroupRule.cs  "外形类型字段组完整"校验规则
     DisplayMapCoverageRule.cs     "外形映射存在"校验规则
+    AnimSetEventsShapeRule.cs     "动画剪辑关键帧事件形状合法"校验规则
+    EquipVisualModeFieldGroupRule.cs  "装备呈现字段组条件必填"校验规则
     DisplayInfoRegistry.cs        IDisplayInfoRegistry 默认实现
   schema/
     README.md                    三张表字段说明（摘自 04 第 7.1、7.1.1、7.1.2 节）
@@ -59,6 +63,8 @@ display_info/
     DisplayInfoRegistryTests.cs
     DisplayKindFieldGroupRuleTests.cs
     DisplayMapCoverageRuleTests.cs
+    AnimSetEventsShapeRuleTests.cs
+    EquipVisualModeFieldGroupRuleTests.cs
 ```
 
 ## 设计要点与判断记录
@@ -102,6 +108,19 @@ display_info/
    ParseAnchorDef` 逐字段核对一致）；`default_slot_meshes` 值登记为 `FieldKind.Id`；
    `material_params` 值登记为 `FieldKind.Number`。
 
+6. **`EquipVisualModeFieldGroupRule`（消费方反馈第 63 条）只检查"必填"，不检查"互斥留空"**：
+   `display.equip_visual.mode` 决定 `slot_id`/`mesh_ref`（`slot_mesh`）或 `socket_id`/
+   `model_ref`（`socket_attach`）两组字段中哪一组必填，写法、诊断字段（`Severity`/`Table`/
+   `Check`/消息/`RecordKey`/`Field`）与严重级别（`Error`）均沿用 `DisplayKindFieldGroupRule`
+   同一模式。取舍与 `DisplayKindFieldGroupRule` 不同的地方：04 第 7.1.2 节与本模块
+   `schema/README.md` 对这四个字段只写了"某 `mode` 下必填"，未写"另一 `mode` 下必须留空"
+   （不同于 `display.map` 的 sprite/model 字段组，04 第 7.1 节原文明确写了"另一组字段必须
+   留空"）；消费方反馈第 63 条本身也只要求补"条件必填"。按"文档未明确写的语义不自行发明"的
+   取舍原则，本规则不检查两组字段是否同时出现，`EquipVisualModeFieldGroupRuleTests` 有专项
+   用例锁定这一行为（`SlotMeshRecord_WithSocketAttachFieldsAlsoPresent_NoFieldGroupIssues`）。
+   若后续要收紧为"互斥留空"，需先在 04/`schema/README.md` 补明确措辞，再扩展本规则或另开
+   检查项，不在本次改动范围内。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |
@@ -109,5 +128,6 @@ display_info/
 | `display.map`/`display.anim_set`/`display.equip_visual` 字段结构与解析 | 是 | 具体外形数据行 |
 | "外形类型字段组完整"校验机制 | 是 | 无（规则本身不可配置） |
 | "外形映射存在"校验机制 | 是 | 要检查覆盖哪些内容表（构造 `DisplayMapCoverageRule` 时注入） |
+| "装备呈现字段组条件必填"校验机制 | 是 | 无（规则本身不可配置） |
 | 按 `logical_id`/`category` 查询外形信息 | 是 | 具体使用查询结果的表现层实现（`ViewBinder` 等，L5） |
 | `display_info.reloaded` 热重载事件 | 是 | 是否开发期调用 `Reload`、订阅该事件做什么 |
