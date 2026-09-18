@@ -161,7 +161,7 @@ DLL——`lib/` 由 `build.ps1` 打分发包步骤显式补齐（源头是同一
 直接运行（不经 `validate_data.py`）：
 
 ```
-dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>]
+dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>] [--enable-graph-isolation]
 ```
 
 参数：
@@ -207,8 +207,15 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
   `ContentValidationOptions.CreatureTemplateQuery`（一次性命令行进程没有真正的
   `ICreatureTemplateQuery` 实现可用，这一点没变），但 `ContentValidationAssembly` 未提供时改用
   `Core.Carriers.Creature.RegistryCreatureTemplateQuery`（基于已构造的 registry 现读现解析，见该
-  类型判断记录），规则因此默认启用，不再是"仍不接线"——`disabled_optional_rules` 在当前入口下默认
-  恒为空。
+  类型判断记录），规则因此默认启用，不再是"仍不接线"。
+- `--enable-graph-isolation`（消费方反馈第 56 条追问，可选，本工具首个"命令行式可选规则开关"——与
+  上面 `--display-map-sources` 那种"接线参数是否提供决定是否启用"不同，本参数是独立的纯布尔开关）：
+  接线 `ContentValidationOptions.EnableGraphIsolationDiagnostics`，开启 `quest_prerequisite_node_isolated`
+  （`QuestPrerequisiteIsolationRule`）/`talent_node_isolated`（`TalentTreeIsolationRule`）两条默认
+  **不**注册的展示性提示规则——分别提示 `quest.def`/`arch.talent_tree` 图里既无前置也未被引用的
+  孤立节点（两类图里孤立节点均属合法内容形态，见两条规则类型判断记录，默认关闭、Warning 级、不可
+  提升为阻断）。未传本参数时 `disabled_optional_rules` 含这两条规则名（不再"当前入口下默认恒为空"，
+  与另外两条"提供依赖即启用"的可选规则不同）。
 
 问题逐条打印为 `[severity] table/key/field: check: message`（`key`/`field` 缺失时对应段落省略），
 `severity` 取 `error`/`warning`，`check` 是 04 第 5 节固定的检查项名或各模块 `IValidationRule`

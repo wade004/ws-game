@@ -73,19 +73,32 @@ public static class ContentValidationAssembly {
 持有 registry、再自行决定何时/用哪些数据源加载的宿主使用（如编辑器需要在用户操作间隙重复
 `IDataRegistry.Reload` 单表）。
 
-判断记录（两个可选规则的"未启用"语义，消费方反馈第 43/44 条修正）：`OptionalRuleNames` 是固定的
-两项——`"SpawnSummonOnlyCreatureRule"`、`"DisplayMapCoverageRule"`——两条现均在本入口默认启用
-（`DisplayMapCoverageRule` 自消费方反馈第 34 条起、`SpawnSummonOnlyCreatureRule` 自消费方反馈第 44
-条根治起）：`options.CreatureTemplateQuery`/`options.DisplayMapCoverageSources` 未提供时，本入口
-分别改用内置默认接线——`Core.Carriers.Creature.RegistryCreatureTemplateQuery`（基于刚构造出的
-`DataRegistry` 现读现解析，见该类型判断记录）、`PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`
-——而不是把接线参数原样透传为 `null`/`Empty`。`DisabledOptionalRules` 在当前入口下因此恒为空列表，
-`EnabledOptionalRules` 恒等于 `OptionalRuleNames` 全量；这套"未提供接线参数即禁用"的机制本身没有
-删除，只是当前两条规则都已升级为"未提供则用默认接线"，机制预留给未来新增的、确实需要默认禁用的
-可选规则。本类型不改变底层 `GameplaySchemaCatalog.RegisterAll`/`RegisterValidationRule` 各自的注册
-行为（`creatureTemplateQuery`/`displayMapCoverageSources` 仍是决定是否注册的入参，只是本入口不再
-把它们原样传 `null`），只是把"这次到底注册没注册"这件事从"调用方自己看代码才知道"变成"结构化
-返回值"。
+判断记录（四个可选规则的"未启用"语义，消费方反馈第 43/44/56 条修正与追问）：`OptionalRuleNames`
+现是固定的四项——`"SpawnSummonOnlyCreatureRule"`、`"DisplayMapCoverageRule"`、
+`"QuestPrerequisiteIsolationRule"`、`"TalentTreeIsolationRule"`——分两类不同的"默认是否启用"机制：
+
+- 前两条现均在本入口默认启用（`DisplayMapCoverageRule` 自消费方反馈第 34 条起、
+  `SpawnSummonOnlyCreatureRule` 自消费方反馈第 44 条根治起）：`options.CreatureTemplateQuery`/
+  `options.DisplayMapCoverageSources` 未提供时，本入口分别改用内置默认接线——
+  `Core.Carriers.Creature.RegistryCreatureTemplateQuery`（基于刚构造出的 `DataRegistry` 现读现解析，
+  见该类型判断记录）、`PresentationSchemaCatalog.DefaultDisplayMapCoverageSources`——而不是把接线
+  参数原样透传为 `null`/`Empty`。这套"未提供接线参数即禁用"的机制本身没有删除，只是这两条规则都已
+  升级为"未提供则用默认接线"。
+- 后两条（消费方反馈第 56 条追问，2026-09-18，`core/gameplay/quest/core/QuestPrerequisiteIsolationRule.cs`/
+  `core/numbers/archetype/core/TalentTreeIsolationRule.cs`）用的是不同机制——**显式布尔开关**
+  `ContentValidationOptions.EnableGraphIsolationDiagnostics`（默认 `false`，同时控制两条规则，没有
+  "提供某个依赖对象即启用"这一档），默认路径下两条恒不注册。这是本入口第一次出现"命令行式可选规则
+  开关"（`toolchain/validator` 对应新增 `--enable-graph-isolation`，见 `toolchain/README.md`），与前两条
+  "未提供依赖则退化为默认接线"的机制刻意不同——这两条规则是纯展示性提示（孤立节点本身是合法内容
+  形态，判断记录见 `core/gameplay/quest/README.md`/`core/numbers/archetype/README.md` 对应小节），没有
+  "默认接线"这个概念可退化，只能是"开"或"关"。
+
+`DisabledOptionalRules`/`EnabledOptionalRules` 因此不再有"前者恒为空"的结论：默认选项下
+`DisabledOptionalRules` 固定含后两条规则名，`EnabledOptionalRules` 固定含前两条；`EnableGraphIsolationDiagnostics=true`
+时四条全部出现在 `EnabledOptionalRules`。本类型不改变底层 `GameplaySchemaCatalog.RegisterAll`/
+`RegisterValidationRule` 各自的注册行为（`creatureTemplateQuery`/`displayMapCoverageSources` 仍是决定
+是否注册的入参，只是本入口不再把它们原样传 `null`），只是把"这次到底注册没注册"这件事从"调用方自己
+看代码才知道"变成"结构化返回值"。
 
 消费方反馈第 43 条：`OptionalRules`（`IReadOnlyList<OptionalRuleDescriptor>`）是"规则名 ↔ 检查名"
 关联的单一来源——每项 `CheckName` 直接引用规则类型自己公开的 `CheckName` 常量
@@ -341,9 +354,10 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
 
 | 用例 | 覆盖点 |
 |---|---|
-| `OptionalRuleNames_IsFixedTwoEntryList` | 固定清单恰好两项，顺序稳定 |
-| `Run_DefaultOptions_BothOptionalRulesEnabledByDefault` | 消费方反馈第 44 条根治后：默认选项（不传接线参数）下 `DisabledOptionalRules` 为空，两条可选规则均出现在 `EnabledOptionalRules` |
-| `Run_WithBothOptionalRuleDependencies_BothEnabled_AndDisplayMapCoverageRuleActuallyFires` | 提供两个接线参数后均出现在 `EnabledOptionalRules`；`DisplayMapCoverageRule` 真实生效（构造一条未被 `display.map` 覆盖的 `creature.template` 行，断言产出 `display_map_coverage` 错误） |
+| `OptionalRuleNames_IsFixedFourEntryList` | 固定清单恰好四项（消费方反馈第 56 条追问新增两项后），顺序稳定 |
+| `Run_DefaultOptions_BothOptionalRulesEnabledByDefault` | 消费方反馈第 44 条根治后：默认选项（不传接线参数）下前两条可选规则出现在 `EnabledOptionalRules`；后两条新增可选规则（`EnableGraphIsolationDiagnostics` 默认 `false`）出现在 `DisabledOptionalRules` |
+| `Run_WithBothOptionalRuleDependencies_BothEnabled_AndDisplayMapCoverageRuleActuallyFires` | 提供两个接线参数后前两条均出现在 `EnabledOptionalRules`；`DisplayMapCoverageRule` 真实生效（构造一条未被 `display.map` 覆盖的 `creature.template` 行，断言产出 `display_map_coverage` 错误）；后两条新增规则不受这两个接线参数影响，仍在 `DisabledOptionalRules` |
+| `Run_EnableGraphIsolationDiagnostics_TwoIsolationRulesBecomeEnabled` | 消费方反馈第 56 条追问：`EnableGraphIsolationDiagnostics=true` 时 `QuestPrerequisiteIsolationRule`/`TalentTreeIsolationRule` 从 `DisabledOptionalRules` 移入 `EnabledOptionalRules` |
 | `Run_WarningsBlockStrictness_WarningOnlyReport_IsBlocking` | 同一份只含 Warning（`text_key_exists`，`l10n.text` 未加载）的数据集：`WarningsAllowed` 不阻断，`WarningsBlock` 阻断 |
 | `Run_ProducesSameIssueSet_AsDirectPresentationSchemaCatalogRegisterAll` | 同一份数据分别经 `ContentValidationAssembly.Run` 与手工 `PresentationSchemaCatalog.RegisterAll` + `LoadAll` 两条路径，问题集合（格式化字符串排序后逐条比较）与 `IsBlocking` 完全一致 |
 
