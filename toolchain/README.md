@@ -216,6 +216,14 @@ dotnet run --project toolchain/validator -- --data-root <dir> [--strict] [--json
   孤立节点（两类图里孤立节点均属合法内容形态，见两条规则类型判断记录，默认关闭、Warning 级、不可
   提升为阻断）。未传本参数时 `disabled_optional_rules` 含这两条规则名（不再"当前入口下默认恒为空"，
   与另外两条"提供依赖即启用"的可选规则不同）。
+- `field_ref_category`（`RefCategoryFieldRule`，`Core.Foundation.DataRegistry`）——校验资源引用
+  字段的类别前缀合法且落在该字段 schema 声明的允许集合内（`FieldSchema.WithAllowedRefCategories`）。
+  ADR-0038 落地初期曾以 `--enable-ref-category-check` 命令行开关默认关闭（当时样例数据集
+  `display.equip_visual.sample_hero_hat` 一行的 `mesh_ref` 还是遗留的 `sprite.*` 前缀，开启会让该
+  行报错、拖垮 `validate_data.py --strict` 门禁）；数据迁移任务完成后该行已迁移到 ADR-0038 决策 4
+  新增的 `paperdoll.*` 前缀，本规则随即转正为无条件注册（与 `DisplayKindFieldGroupRule`/
+  `EquipVisualModeFieldGroupRule` 同等地位），命令行开关与对应选项已一并删除，不再出现在
+  `disabled_optional_rules`/`enabled_optional_rules` 里。
 
 问题逐条打印为 `[severity] table/key/field: check: message`（`key`/`field` 缺失时对应段落省略），
 `severity` 取 `error`/`warning`，`check` 是 04 第 5 节固定的检查项名或各模块 `IValidationRule`
@@ -423,9 +431,23 @@ python toolchain/import_assets.py <子命令> ...
   档位必须有对应的镜像来源声明，声明的来源必须已落地）、**声明锚点缺失**（`display.map.
   anchor_points` 声明的每个锚点必须能在精灵集自己的 `anchors.json` 默认档位标注中找到，对应
   14 第 11 节"缺锚点"校验项）、`world.map` 引用的地图分层图（`map` 子命令产出）是否存在。
-  `--only sprite,vfx,sfx,world`（逗号分隔，省略则四项全跑）只跑选定的检查域，供门禁在某个数据集
-  只有部分域已接入真实资产时缩小本次运行覆盖范围（不放宽已选中域自身的判断逻辑）。只打印问题
-  清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题），加不加 `--json` 语义相同。
+  `--only sprite,vfx,sfx,world,display_anim`（逗号分隔，省略则跑 `DEFAULT_DOMAINS`
+  = `sprite,vfx,sfx,world,display_anim` 全部五项，见下方"新增 `display_anim` 域"）只跑选定的
+  检查域，供门禁在某个数据集只有部分域已接入真实资产时缩小本次运行覆盖范围（不放宽已选中域自身的
+  判断逻辑）。只打印问题清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题），加不加 `--json`
+  语义相同。
+
+  **`display_anim` 域（ADR-0038 落地，已纳入默认集合）**：核对 `display.anim_set.clips.
+  resource_ref`、`display.weapon_style.auto_attack_anim`/`cast_anim_override`、`display.
+  equip_visual.mesh_ref` 四个字段——经 `ref_conventions.resolve_path_space` 先判断路径空间，
+  类别前缀不合法报 `display_anim_ref_category_invalid`；`anim`/`model` 前缀（引擎侧逻辑路径）
+  跳过存在性检查（同 ADR-0037 决策 3 理由）；`sprite_anim` 前缀检查 `atlas.png`/`frames.json`
+  是否存在；`paperdoll` 前缀检查对应扁平文件是否存在；其余遗留前缀按目录/文件最小核对，报
+  `display_anim_asset_missing`。**纳入默认集合的时间点**：ADR-0038 落地初期本域曾因样例数据集
+  `display.equip_visual.sample_hero_hat` 一行的 `mesh_ref` 仍是迁移前的 `sprite.item.
+  sample_hero_hat` 遗留取值而暂不进默认集合（纳入会让该行报错、拖垮门禁默认跑法）；数据迁移任务
+  已把该行与另外三个受影响字段的全部样例数据行迁移到正确的类别前缀并补齐占位资产，本域随即纳入
+  `DEFAULT_DOMAINS`，不再需要显式 `--only display_anim` 才能核对。
 
   **`--json`（消费方反馈第 62 条）**：stdout 只输出一个 JSON 文档（UTF-8、中文不转义），其余日志
   （逐条问题的人类可读文本、末尾汇总行）改走 stderr；不加 `--json` 时文本输出（含走 stdout 而非
@@ -451,7 +473,10 @@ python toolchain/import_assets.py <子命令> ...
   `icon_file_missing`、`vfx_resource_ref_missing`、`vfx_atlas_missing`、
   `vfx_frames_json_missing`、`sfx_resource_ref_missing`、`sfx_resource_file_missing`、
   `sfx_variants_missing_resource_ref`、`sfx_variant_file_missing`、`world_map_dir_missing`、
-  `world_map_layer_missing`、`world_map_scene_ref_mismatch`、`world_map_nav_ref_mismatch`。
+  `world_map_layer_missing`、`world_map_scene_ref_mismatch`、`world_map_nav_ref_mismatch`、
+  `display_anim_ref_category_invalid`、`display_anim_sprite_anim_atlas_missing`、
+  `display_anim_sprite_anim_frames_json_missing`、`display_anim_paperdoll_file_missing`、
+  `display_anim_asset_missing`（ADR-0038 落地新增，属 `display_anim` 域，见上方该域说明）。
 
 全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
 （默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`

@@ -7,8 +7,10 @@
 // 不覆盖"该 clipId 是否已注册"这一层（见该文件顶部判断记录），ModelIntegrationTests.cs 只覆盖 model
 // 一侧的引擎落地（Animator 状态现查现用，不需要预注册，天然不受这个问题影响）——本文件补上 sprite
 // 一侧真正经 UnityFrameAnimPlayer.Play 落地这一层，用真实 data/_sample 数据集（
-// display.weapon_style.sample_sword 的 auto_attack_anim: anim.sample_sword_swing 是一个真实不存在
-// 对应 vfx/ 占位资源的 clipId，见该表与 assets/_placeholder/vfx 目录）复现并验收。
+// display.weapon_style.sample_sword 的 auto_attack_anim: sprite_anim.sample_sword_swing 是一个从未
+// 随默认剪辑表预登记的 clipId，见该表与 assets/_sample/sprite_anim/sample_sword_swing 目录——
+// ADR-0038 数据迁移任务已把该字段由遗留 anim.* 前缀改为 sprite_anim.*，本用例复现的"未预登记即抛
+// 异常"问题与前缀取值本身无关，占位资源是否存在也不影响该问题）复现并验收。
 using System;
 using System.Collections.Generic;
 using System.IO;

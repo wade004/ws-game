@@ -26,7 +26,9 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("category", FieldKind.String, required: true, description: "分类（施法/命中/环境/UI 等），供对象池分组与音画分层参考"),
                 new FieldSchema("attach_mode", FieldKind.Enum, required: true, enumValues: AttachModes, description: "挂载方式（world/anchor/socket/screen），决定特效跟随谁播放"),
                 new FieldSchema("lifetime", FieldKind.Number, required: false, description: "预期存活时长，用于对象池回收兜底"),
-                new FieldSchema("resource_ref", FieldKind.Id, required: true, description: "具体引擎资源的不透明标识，由适配层解释，不对应任何内容表"),
+                new FieldSchema("resource_ref", FieldKind.Id, required: true,
+                    description: "具体引擎资源的不透明标识，由适配层解释，不对应任何内容表；类别前缀限定 vfx，见 ADR-0038 决策 1")
+                    .WithAllowedRefCategories("vfx"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "vfx");
 
@@ -40,9 +42,12 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("id", FieldKind.Id, required: true, description: "sfx.<name>"),
                 new FieldSchema("layer", FieldKind.String, required: true, description: "分层音效轨道（如 战斗/环境/UI/语音），供混音分组"),
                 new FieldSchema("priority", FieldKind.Int, required: false, description: "同轨道抢占优先级"),
-                new FieldSchema("variants", FieldKind.IdList, required: false, description: "多个随机变体资源引用，播放时随机挑一个")
-                    .WithFreeIds("指向具体引擎资源的间接引用，不是任何已登记内容表的记录 id"),
-                new FieldSchema("resource_ref", FieldKind.Id, required: true, description: "具体引擎资源的不透明标识，不对应任何内容表"),
+                new FieldSchema("variants", FieldKind.IdList, required: false, description: "多个随机变体资源引用，播放时随机挑一个；类别前缀限定 sfx，见 ADR-0038 决策 1")
+                    .WithFreeIds("指向具体引擎资源的间接引用，不是任何已登记内容表的记录 id")
+                    .WithAllowedRefCategories("sfx"),
+                new FieldSchema("resource_ref", FieldKind.Id, required: true,
+                    description: "具体引擎资源的不透明标识，不对应任何内容表；类别前缀限定 sfx，见 ADR-0038 决策 1")
+                    .WithAllowedRefCategories("sfx"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "sfx");
 
@@ -63,11 +68,16 @@ namespace Presentation.VfxSfx.Schema
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "display.weapon_style.<name>"),
-                new FieldSchema("auto_attack_anim", FieldKind.Id, required: true, description: "普攻动作剪辑的不透明标识，由引擎适配层解析，不对应任何内容表"),
+                new FieldSchema("auto_attack_anim", FieldKind.Id, required: true,
+                    description: "普攻动作剪辑的不透明标识，由引擎适配层解析，不对应任何内容表；类别前缀限定 " +
+                        "anim（model 型消费，引擎侧逻辑路径）/sprite_anim（sprite 型消费，资产根相对路径），见 ADR-0038 决策 2/3")
+                    .WithAllowedRefCategories("anim", "sprite_anim"),
                 new FieldSchema("cast_anim_override", FieldKind.Object, required: false, description: "按技能 id 覆盖施法动作剪辑：{skillId: animClipId}")
                     .WithMap(MapSchema.FreeKeyed(
                         "键为技能 id，本模块不静态耦合 skill.def 表结构（同类型注释判断记录）；值为动作剪辑的不透明标识，由引擎适配层解析，均只做格式校验",
-                        new FieldSchema("<anim_clip_id>", FieldKind.Id, required: true, description: "覆盖的施法动作剪辑不透明标识，不对应任何内容表"))),
+                        new FieldSchema("<anim_clip_id>", FieldKind.Id, required: true,
+                            description: "覆盖的施法动作剪辑不透明标识，不对应任何内容表；类别前缀限定 anim/sprite_anim，见 ADR-0038 决策 2/3")
+                            .WithAllowedRefCategories("anim", "sprite_anim"))),
                 new FieldSchema("swing_vfx", FieldKind.Id, required: false, description: "挥舞轨迹特效，指向 vfx.def（消费方反馈第 30 条：登记为软引用）")
                     .WithSoftReference(table: "vfx.def"),
                 new FieldSchema("impact_vfx_override", FieldKind.Object, required: false, description: "按技能 id 覆盖命中特效：{skillId: vfxId}")

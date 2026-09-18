@@ -170,7 +170,7 @@ namespace Toolchain.Validator
             {
                 Console.Error.WriteLine(
                     "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>] [--no-missing-translation-warning] [--enable-graph-isolation]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template；--no-missing-translation-warning 关闭非默认语言缺翻译的 text_key_exists Warning，见消费方反馈第 42 条；--enable-graph-isolation 开启 quest_prerequisite_node_isolated/talent_node_isolated 两条默认关闭的孤立节点展示性提示规则，见消费方反馈第 56 条追问）\n" +
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>] [--no-missing-translation-warning] [--enable-graph-isolation]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template；--no-missing-translation-warning 关闭非默认语言缺翻译的 text_key_exists Warning，见消费方反馈第 42 条；--enable-graph-isolation 开启 quest_prerequisite_node_isolated/talent_node_isolated 两条默认关闭的孤立节点展示性提示规则，见消费方反馈第 56 条追问；field_ref_category 规则自 1.44.0 起无条件注册，不再有对应命令行开关）\n" +
                     "或元数据门禁：dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] [--json]");
                 return 2;
             }

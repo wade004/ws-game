@@ -31,7 +31,7 @@ namespace Adapter.Unity.Tests.Runtime
     {
         private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");
         private static readonly Id HatTemplateId = new Id("item.sample_hero_hat");
-        private static readonly Id HatMeshRef = new Id("sprite.item.sample_hero_hat_test");
+        private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_test"); // ADR-0038 数据迁移后前缀（此前 sprite.item.*）
 
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {

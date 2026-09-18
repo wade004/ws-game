@@ -138,7 +138,10 @@ namespace Core.Foundation.DisplayInfo
                         new FieldSchema("<clip>", FieldKind.Object, required: true, fields: new[]
                         {
                             new FieldSchema("resource_ref", FieldKind.Id, required: true,
-                                description: "具体动画剪辑资产的不透明资源标识，由引擎适配层解析，不对应任何内容表"),
+                                description: "具体动画剪辑资产的不透明资源标识，由引擎适配层解析，不对应任何内容表；" +
+                                    "类别前缀限定 anim（model 型消费，引擎侧逻辑路径）/sprite_anim（sprite 型消费，" +
+                                    "资产根相对路径），见 ADR-0038 决策 2/3")
+                                .WithAllowedRefCategories("anim", "sprite_anim"),
                             new FieldSchema("events", FieldKind.Array, required: false,
                                 item: new FieldSchema("<event>", FieldKind.Object, required: true, fields: new[]
                                 {
@@ -170,7 +173,10 @@ namespace Core.Foundation.DisplayInfo
                     .WithSoftReference(table: "item.template"),
                 new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: EquipVisualModes, description: "呈现模式（slot_mesh/socket_attach），决定 slot_id+mesh_ref 与 socket_id+model_ref 哪组必填"),
                 new FieldSchema("slot_id", FieldKind.Id, required: false, description: "mode: slot_mesh 时必填，对应 display.map 的 slots"),
-                new FieldSchema("mesh_ref", FieldKind.Id, required: false, description: "mode: slot_mesh 时必填"),
+                new FieldSchema("mesh_ref", FieldKind.Id, required: false,
+                    description: "mode: slot_mesh 时必填；类别前缀限定 model（model 型消费，引擎侧逻辑路径）/" +
+                        "paperdoll（sprite 型消费，纸娃娃层覆盖资源，资产根相对路径），见 ADR-0038 决策 4")
+                    .WithAllowedRefCategories("model", "paperdoll"),
                 new FieldSchema("socket_id", FieldKind.Id, required: false, description: "mode: socket_attach 时必填，对应 display.map 的 sockets"),
                 new FieldSchema("model_ref", FieldKind.Id, required: false, description: "mode: socket_attach 时必填"),
             },

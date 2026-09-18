@@ -21,7 +21,7 @@
       "item_id": "item.sample_hero_hat",
       "mode": "slot_mesh",
       "slot_id": "slot.head",
-      "mesh_ref": "sprite.item.sample_hero_hat_test"
+      "mesh_ref": "paperdoll.item.sample_hero_hat_test"
     }
   ]
 }

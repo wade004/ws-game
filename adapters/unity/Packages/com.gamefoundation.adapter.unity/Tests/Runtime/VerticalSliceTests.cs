@@ -125,11 +125,12 @@ namespace Adapter.Unity.Tests.Runtime
 
             // GP-06 根治后的新增判断记录：EnterInWorld 会为玩家（creature.sample_hero）挂接默认
             // 动画，data/_sample/display/display.anim_set.sample_hero 声明了 idle/move/attack/
-            // cast/hit/death 六个状态的 resource_ref，但当前占位资产集里这些 anim.sample_hero_*
-            // 序列帧资源确实不存在（见 UnityViewFactory.cs 类型顶部判断记录）——GP-06 修复前
-            // TryGetEffect 未命中就静默登记单帧 fallback，不发起任何加载、也不记日志；修复后会
-            // 老老实实发起一次 LoadAsync，加载失败时记一条 Debug.LogWarning（"继续使用单帧占位
-            // 剪辑（不重试）"）。这是新暴露出的、真实且预期内的诊断（当前占位资源集尚未提供角色
+            // cast/hit/death 六个状态的 resource_ref（sprite_anim.sample_hero_*，ADR-0038 数据迁移
+            // 后前缀），但落盘的只是最小单帧占位资源（见 toolchain/import_sample_assets.py
+            // SPRITE_ANIM_CLIPS），没有真实序列帧资源（见 UnityViewFactory.cs 类型顶部判断记录）——
+            // GP-06 修复前 TryGetEffect 未命中就静默登记单帧 fallback，不发起任何加载、也不记日志；
+            // 修复后会老老实实发起一次 LoadAsync，加载失败时记一条 Debug.LogWarning（"继续使用单帧
+            // 占位剪辑（不重试）"）。这是新暴露出的、真实且预期内的诊断（当前占位资源集尚未提供角色
             // 序列帧动画这一已知限制的自然结果），不是本用例要覆盖的契约违反。
             // 判断记录（为什么不能像 missingGlyphWarning 那样固定注册 N 次 Expect）：
             // UnityViewFactory 是 DontDestroyOnLoad 单例，跨 PlayMode 测试装配整个 -runTests 进程
@@ -148,7 +149,7 @@ namespace Adapter.Unity.Tests.Runtime
             var expectedAnimLoadWarnings = 0;
             foreach (var state in animStates)
             {
-                var resourceRef = new Id($"anim.sample_hero_{state}");
+                var resourceRef = new Id($"sprite_anim.sample_hero_{state}");
                 if (!shell.Framework.ViewFactory.HasAttemptedAnimResourceLoad(resourceRef))
                 {
                     expectedAnimLoadWarnings++;
@@ -349,7 +350,7 @@ namespace Adapter.Unity.Tests.Runtime
             var expectedAnimLoadWarnings = 0;
             foreach (var state in animStates)
             {
-                var resourceRef = new Id($"anim.sample_hero_{state}");
+                var resourceRef = new Id($"sprite_anim.sample_hero_{state}");
                 if (!shell.Framework.ViewFactory.HasAttemptedAnimResourceLoad(resourceRef))
                 {
                     expectedAnimLoadWarnings++;
