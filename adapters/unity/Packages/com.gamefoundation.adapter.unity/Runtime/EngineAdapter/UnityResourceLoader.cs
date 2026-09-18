@@ -107,6 +107,30 @@
 // 一个 Mesh，理论上的"资源不是预制体"分支，见 <see cref="TryGetOrLoadSlotMesh"/> 判断记录），直接
 // 使用该网格。提取结果缓存进 <see cref="_extractedSlotMeshes"/>，避免同一 (resourceId, slotId) 组合
 // 反复遍历层级。
+//
+// ADR-0038 适配层接线（判断记录，决策 8 第二项提前落地的理由）：ADR-0038 决策 8 原把"已落地引擎
+// 适配层实现改为转发决策 5 新增的公开路由入口"列为不在本次决策范围的后续项，理由是当时（契约/API/
+// 校验/工具链落地批）尚未迁移样例数据，本类型既有实现（ResolveEffectDir 固定按 vfx 子目录、
+// ResolvePath 对非 layer 类别的 Image 种类固定退化为 sprites/<name>.png）与彼时数据取值仍然吻合，
+// 不转发不产生行为分歧，只是"多一份未来需要同步维护的拷贝"这一较低等级的风险。但下一批任务已把
+// 样例数据迁移到 ADR-0038 新前缀（sprite 型动画剪辑 anim.* -> sprite_anim.*，纸娃娃层 mesh_ref 的
+// sprite.* -> paperdoll.*），本类型若不同步改动，ResolveEffectDir 会继续把 sprite_anim.* 误当 vfx
+// 目录解析（找不到对应特效目录）、ResolvePath 会继续把 paperdoll.* 误当扁平 sprites/*.png 解析
+// （找不到对应纸娃娃层文件）——"不转发"从"多一份拷贝的维护风险"升级为"运行期解析规则与已迁移数据
+// 不匹配的正确性缺陷"，因此本批把决策 8 第二项提前到本次落地；决策 8 第一项（sprite 型"按行 id 末段
+// 命名"隐式接线改显式）与本次数据迁移无因果关系，仍按 ADR 原意留给后续任务，不在本次范围。以下四处
+// 改为直接转发 AssetRefConventions 的对应公开方法，不再各自维护一份算法拷贝：
+//   - ResolveModelResourcesPath 转发 AssetRefConventions.ModelLogicalPath。
+//   - ResolveAnimClipResourcesPath 转发 AssetRefConventions.AnimClipLogicalPath。
+//   - ResolveEffectDir 改为按类别前缀分派（vfx -> VfxResourceDir，sprite_anim -> SpriteAnimDir），
+//     经 AssetRefConventions.ResolvePathSpace 取相对路径，不再硬编码 vfx 子目录。
+//   - ResolvePath 对 ResourceKind.Image 新增 paperdoll 类别分支，转发
+//     AssetRefConventions.PaperdollLayerFile；非 layer/paperdoll 类别的通用回退分支此后只覆盖
+//     sprite 类别本身（sprite_set_id 的 Image 种类加载，04/09 已知的既有简化，不在 ADR-0038 四
+//     字段范围内，本次不改动）。
+// 本机没有引擎批处理编译/测试环境，以下四处改动均无法在本机重新验证，按任务边界如实标注"待引擎
+// 批处理环境验证"，不代为跳过或伪造验证结果——详见本次任务分支提交信息与 scratchpad 报告
+// "验证边界"一节、architecture/落地计划/ 下新增的验证清单文档。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -876,16 +900,22 @@ namespace Adapter.Unity.EngineAdapter
         }
 
         /// <summary>W6-B 新增：把 <see cref="ResourceKind.Model"/> 种类资源引用 id 解析为
-        /// <c>Resources.Load</c> 可消费的相对路径（不含扩展名，见类型顶部"W6-B 新增"判断记录）。</summary>
+        /// <c>Resources.Load</c> 可消费的相对路径（不含扩展名，见类型顶部"W6-B 新增"判断记录）。
+        /// ADR-0038 适配层接线（判断记录，见类型顶部"ADR-0038 适配层接线"一节）：现直接转发
+        /// <see cref="AssetRefConventions.ModelLogicalPath"/>，不再独立维护一份
+        /// "GameFoundation/models/&lt;name&gt;" 拼接算法——两者此前逐字节一致（ADR-0037 背景第 3
+        /// 点已核实），转发后不产生任何字符串差异，只是消除重复实现本身。</summary>
         public static string ResolveModelResourcesPath(Id resourceId) =>
-            "GameFoundation/models/" + StripCategoryPrefix(resourceId.Value);
+            AssetRefConventions.ModelLogicalPath(resourceId);
 
         /// <summary>W6-B 新增：把 model 型 <c>display.anim_set.clips[*].resource_ref</c> 解析为
         /// <c>Resources.Load&lt;AnimationClip&gt;</c> 可消费的相对路径，与 <see cref="ResolveModelResourcesPath"/>
         /// 同一套 <see cref="StripCategoryPrefix"/> 规则、不同子目录（见类型顶部"与 Model 同一套
-        /// Resources.Load 约定的姊妹路径"判断记录）。</summary>
+        /// Resources.Load 约定的姊妹路径"判断记录）。ADR-0038 适配层接线：现直接转发
+        /// <see cref="AssetRefConventions.AnimClipLogicalPath"/>，同 <see cref="ResolveModelResourcesPath"/>
+        /// 判断记录同一理由。</summary>
         public static string ResolveAnimClipResourcesPath(Id resourceId) =>
-            "GameFoundation/anim_clips/" + StripCategoryPrefix(resourceId.Value);
+            AssetRefConventions.AnimClipLogicalPath(resourceId);
 
         /// <summary>把资源引用 id 解析为磁盘路径，规则见类型顶部注释。</summary>
         /// <remarks>
@@ -905,6 +935,18 @@ namespace Adapter.Unity.EngineAdapter
         /// 扁平解析规则不变（既有测试 <c>ResolvePath_StripsCategoryPrefixAndUsesKindSubfolder</c>
         /// 之类的用例仍然覆盖非 layer 类别）。
         /// </remarks>
+        /// <remarks>
+        /// ADR-0038 适配层接线判断记录（"paperdoll" 类别新分支）：<c>display.equip_visual.mesh_ref</c>
+        /// 的 sprite 型取值此前（数据迁移前仍是 <c>sprite.*</c> 前缀）没有专门分支，落进下方通用规则
+        /// 被当作扁平文件 <c>sprites/&lt;name&gt;.png</c> 解析——与 <see cref="AssetRefConventions.
+        /// SpriteSetDirectory"/> 承载的"精灵集目录"语义混淆（该方法产出的是目录，不是扁平文件），
+        /// 且从未被任何真实占位资源覆盖过（见 ADR-0038 决策 4"落地期核实结论"，两者语义不等价）。
+        /// 数据迁移后该字段改用独立的 <c>paperdoll</c> 前缀，本方法新增专门分支，转发
+        /// <see cref="AssetRefConventions.PaperdollLayerFile"/>（<c>paperdoll/&lt;name&gt;.png</c>
+        /// 单个扁平文件，与 <c>assets/_sample/paperdoll/&lt;name&gt;.png</c> 同一套命名，见
+        /// <c>toolchain/resource_layout_map.json</c> 新增的 <c>paperdoll</c> 映射项），不再落进
+        /// 通用规则误当 <c>sprites/</c> 子目录下的文件。
+        /// </remarks>
         public static string ResolvePath(Id resourceId, ResourceKind kind)
         {
             if (kind == ResourceKind.Image && IsLayerCategory(resourceId.Value))
@@ -917,6 +959,13 @@ namespace Adapter.Unity.EngineAdapter
                 }
                 // 段数不是恰好 3 段：不是本判断记录假定的纸娃娃层资源 id 形状，退化为通用规则
                 // （下方按扁平文件名解析，大概率找不到文件、按"资源缺失"处理，不抛异常）。
+            }
+
+            if (kind == ResourceKind.Image && IsPaperdollCategory(resourceId.Value))
+            {
+                var relativePath = AssetRefConventions.PaperdollLayerFile(resourceId)
+                    .Replace('/', Path.DirectorySeparatorChar);
+                return Path.Combine(RootDir, relativePath);
             }
 
             var name = StripCategoryPrefix(resourceId.Value);
@@ -933,17 +982,44 @@ namespace Adapter.Unity.EngineAdapter
         }
 
         /// <summary>解析 <c>ResourceKind.Effect</c> 资源 id 到目录（不是单一文件，见类型顶部
-        /// 注释）：<c>GameFoundation/vfx/&lt;资源引用id去掉类别前缀、点号换下划线&gt;/</c>，
-        /// 与 <c>assets/_placeholder/vfx/&lt;name&gt;/</c> 同一套命名（build.ps1 把前者整棵目录
-        /// 同步到 StreamingAssets 时保持该相对路径不变）。</summary>
-        public static string ResolveEffectDir(Id resourceId) =>
-            Path.Combine(RootDir, "vfx", StripCategoryPrefix(resourceId.Value));
+        /// 注释）：<c>GameFoundation/vfx/&lt;资源引用id去掉类别前缀、点号换下划线&gt;/</c>
+        /// （<c>vfx.def.resource_ref</c>）或 <c>GameFoundation/sprite_anim/&lt;同上&gt;/</c>
+        /// （sprite 型 <c>display.anim_set.clips[*].resource_ref</c>/<c>display.weapon_style.
+        /// auto_attack_anim</c>/<c>cast_anim_override</c>，ADR-0038 决策 2 新增前缀），与
+        /// <c>assets/_placeholder/vfx/&lt;name&gt;/</c>/<c>assets/_sample/sprite_anim/&lt;name&gt;/</c>
+        /// 同一套命名（build.ps1 把两棵目录整体同步到 StreamingAssets 时保持该相对路径不变，见
+        /// <c>toolchain/resource_layout_map.json</c> 新增的 <c>sprite_anim</c> 映射项）。
+        /// <para>
+        /// ADR-0038 适配层接线（判断记录，见类型顶部"ADR-0038 适配层接线"一节）：此前本方法固定按
+        /// <c>vfx</c> 子目录拼接，不区分资源引用 id 的类别前缀——数据迁移前 <c>ResourceKind.Effect</c>
+        /// 唯一的消费方（<c>vfx.def.resource_ref</c>、sprite 型动画剪辑，后者当时仍用 <c>anim.*</c>
+        /// 前缀）实际都落在同一个 <c>vfx/</c> 目录下，固定拼接不产生错误；数据迁移后 sprite 型动画剪辑
+        /// 改用 <c>sprite_anim.*</c> 前缀、落在独立的 <c>sprite_anim/</c> 目录，固定拼接会让这一支
+        /// 找不到文件。现改为经 <see cref="AssetRefConventions.ResolvePathSpace"/> 按类别前缀分派
+        /// 到 <see cref="AssetRefConventions.VfxResourceDir"/>/<see cref="AssetRefConventions.SpriteAnimDir"/>
+        /// 取相对路径，不再硬编码单一子目录——遇到既非 <c>vfx</c> 也非 <c>sprite_anim</c> 的类别前缀
+        /// （数据/调用方错误，理论不应发生，见 <c>RefCategoryFieldRule</c> 对这两个字段的合法类别集合
+        /// 约束）时会经该方法抛出 <see cref="ArgumentException"/>，不再像此前那样静默按 vfx 目录尝试
+        /// 一个必然找不到的路径——符合 AGENTS.md"运行时路径不静默降级"的既有规则。
+        /// </para></summary>
+        public static string ResolveEffectDir(Id resourceId)
+        {
+            var (_, relativePath) = AssetRefConventions.ResolvePathSpace(resourceId);
+            return Path.Combine(RootDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        }
 
-        private static bool IsLayerCategory(string resourceRefId)
+        private static bool IsLayerCategory(string resourceRefId) => CategoryPrefixOf(resourceRefId) == "layer";
+
+        /// <summary>ADR-0038 适配层接线新增：判断 <c>ResourceKind.Image</c> 资源引用 id 是否为
+        /// <c>paperdoll</c> 类别（<c>display.equip_visual.mesh_ref</c> 的 sprite 型取值，ADR-0038
+        /// 决策 4 附带条款新增前缀），同 <see cref="IsLayerCategory"/> 同一套"取第一个点分段"判定，
+        /// 见 <see cref="ResolvePath"/> 判断记录。</summary>
+        private static bool IsPaperdollCategory(string resourceRefId) => CategoryPrefixOf(resourceRefId) == "paperdoll";
+
+        private static string CategoryPrefixOf(string resourceRefId)
         {
             var dotIndex = resourceRefId.IndexOf('.');
-            var category = dotIndex < 0 ? resourceRefId : resourceRefId.Substring(0, dotIndex);
-            return category == "layer";
+            return dotIndex < 0 ? resourceRefId : resourceRefId.Substring(0, dotIndex);
         }
 
         /// <summary>消费方反馈第 32 条（ADR-0025）：此前本方法独立实现"去掉类别前缀、点号换下划线"

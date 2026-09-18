@@ -8,6 +8,13 @@
 // 完整生产装配路径验证纸娃娃层同样能生效——断言不满足于"不抛异常"，而是直接查
 // UnityResourceLoader.GetLoadProgress 确认装备覆盖的具体资源 id 确实被请求加载过（证明
 // SetLayers 用的是 EquipVisualDef.MeshRef，不是基线朝向解析出的资源 id）。
+//
+// ADR-0038 适配层接线判断记录（2026-09-19，HatMeshRef 前缀勘误）：本文件原字面常量
+// "sprite.item.sample_hero_hat_test" 对应 display.equip_visual.sample_hero_hat.mesh_ref 迁移前
+// 的取值；上一批数据迁移任务（feat/prefix-data-migration @ 08e069a）已把该字段实际取值改为
+// "paperdoll.item.sample_hero_hat_test"（ADR-0038 决策 4 附带条款新增前缀），本文件常量随之更新
+// 为同一取值，否则会与 data/_sample 真实数据不一致，GetLoadProgress 断言会落空——本机没有引擎
+// 批处理环境，本处改动无法本机重新跑 PlayMode 验证，待引擎批处理环境验证。
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -31,7 +38,7 @@ namespace Adapter.Unity.Tests.Runtime
     {
         private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");
         private static readonly Id HatTemplateId = new Id("item.sample_hero_hat");
-        private static readonly Id HatMeshRef = new Id("sprite.item.sample_hero_hat_test");
+        private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_test");
 
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {

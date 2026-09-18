@@ -6,9 +6,15 @@
 // UnityViewFactory.EnsureSpriteClipRegistered 判断记录）。AnimClipResolverTests.cs 明确声明它自己
 // 不覆盖"该 clipId 是否已注册"这一层（见该文件顶部判断记录），ModelIntegrationTests.cs 只覆盖 model
 // 一侧的引擎落地（Animator 状态现查现用，不需要预注册，天然不受这个问题影响）——本文件补上 sprite
-// 一侧真正经 UnityFrameAnimPlayer.Play 落地这一层，用真实 data/_sample 数据集（
-// display.weapon_style.sample_sword 的 auto_attack_anim: anim.sample_sword_swing 是一个真实不存在
-// 对应 vfx/ 占位资源的 clipId，见该表与 assets/_placeholder/vfx 目录）复现并验收。
+// 一侧真正经 UnityFrameAnimPlayer.Play 落地这一层，用真实 data/_sample 数据集复现并验收。
+//
+// ADR-0038 适配层接线判断记录（2026-09-19，取值前缀勘误）：本文件原注释引用
+// display.weapon_style.sample_sword.auto_attack_anim 的取值为 "anim.sample_sword_swing"——那是
+// 数据迁移前的取值；上一批数据迁移任务（feat/prefix-data-migration @ 08e069a）已把该字段改为
+// "sprite_anim.sample_sword_swing"（ADR-0038 决策 2 新增前缀），且已在 assets/_sample/sprite_anim/
+// 下生成对应占位资源（见该批任务报告"占位资产清单"）。本文件测试逻辑只读取真实数据集当前取值、
+// 断言"不预先登记不抛异常"，不硬编码具体前缀字符串，行为不受这次取值变化影响；以下注释按当前
+// 真实取值更新，避免"该 clipId 无对应占位资源"这一过时描述继续误导阅读者。
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -57,7 +63,8 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         /// <summary>PR130-03 核心复现/回归：sprite 型实体的武器风格指向一个从未随默认剪辑表登记过的
-        /// clipId（<c>anim.sample_sword_swing</c>，真实数据集里没有对应的 vfx/ 占位资源）——根治前
+        /// clipId（<c>sprite_anim.sample_sword_swing</c>，ADR-0038 数据迁移前是 <c>anim.sample_sword_swing</c>）
+        /// ——根治前
         /// <see cref="AnimStateMachine.StateChangedWithSkill"/> 触发 Attack 时会经
         /// <c>FrameAnimPlayer.Play</c> 抛 <see cref="ArgumentException"/>；根治后应当不抛，退化为单帧
         /// 占位剪辑呈现并记一次诊断，随后异步升级（若资源确实存在）或保持占位（不重试）。</summary>
@@ -76,7 +83,8 @@ namespace Adapter.Unity.Tests.Runtime
             view.Bind(entityId);
 
             // 瞬发进入 Attack（同 AnimClipResolverTests.cs 一贯做法）：武器风格解析优先于默认剪辑表，
-            // 命中 display.weapon_style.sample_sword.auto_attack_anim = "anim.sample_sword_swing"。
+            // 命中 display.weapon_style.sample_sword.auto_attack_anim = "sprite_anim.sample_sword_swing"
+            // （ADR-0038 数据迁移前是 "anim.sample_sword_swing"）。
             Assert.DoesNotThrow(() =>
                 fx.Bus.PublishImmediate(new SkillCastStartEvent(entityId, new Id("skill.weapon_clip_registration_test_strike"), castTime: 0.0)));
 
@@ -86,8 +94,8 @@ namespace Adapter.Unity.Tests.Runtime
         /// <summary>见 <see cref="AnimClipResolverTests.Cast_WithMatchingSkillOverride_UsesCastAnimOverride"/>
         /// 同款场景，本文件验证的是引擎落地层（真正经 UnityFrameAnimPlayer.Play）：
         /// <c>display.weapon_style.sample_staff</c> 的 <c>cast_anim_override</c> 命中
-        /// <c>skill.sample_fireball</c> 时解析出 <c>anim.sample_staff_cast</c>（同样未预先登记），Cast
-        /// 状态触发不应抛异常。</summary>
+        /// <c>skill.sample_fireball</c> 时解析出 <c>sprite_anim.sample_staff_cast</c>（ADR-0038 数据
+        /// 迁移前是 <c>anim.sample_staff_cast</c>，同样未预先登记），Cast 状态触发不应抛异常。</summary>
         [Test]
         public void Cast_WeaponStyleCastOverrideClip_NotPreRegistered_DoesNotThrow()
         {
