@@ -156,5 +156,58 @@ namespace Tests.Foundation.EngineAdapter
         {
             Assert.Equal(expected, AssetRefConventions.ModelLogicalPath(new Id(resourceRef)));
         }
+
+        // ADR-0038 决策 2/4：以下用例与 toolchain/tests/test_ref_conventions.py 对应用例使用同一组
+        // 输入/期望字符串，两侧各自独立实现、互相不调用（同第 65 条判断记录"跨语言对照"）。
+
+        [Theory]
+        [InlineData("sprite_anim.sample_hero_idle", "sprite_anim/sample_hero_idle")]
+        [InlineData("sprite_anim.sample_hero_attack", "sprite_anim/sample_hero_attack")]
+        public void SpriteAnimDir_MatchesVfxResourceDirStyle(string resourceRef, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.SpriteAnimDir(new Id(resourceRef)));
+        }
+
+        [Theory]
+        [InlineData("paperdoll.item.sample_hero_hat_test", "paperdoll/item_sample_hero_hat_test.png")]
+        [InlineData("paperdoll.item.sample_cloak", "paperdoll/item_sample_cloak.png")]
+        public void PaperdollLayerFile_ReturnsFlatPngUnderOwnRoot(string resourceRef, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.PaperdollLayerFile(new Id(resourceRef)));
+        }
+
+        [Theory]
+        [InlineData("sprite.creature.wolf_grey", AssetRefConventions.AssetRefPathSpace.AssetRootRelative, "sprites/creature_wolf_grey")]
+        [InlineData("icon.item.sample_blade", AssetRefConventions.AssetRefPathSpace.AssetRootRelative, "icons/item/sample_blade.png")]
+        [InlineData("vfx.sample_cast_circle", AssetRefConventions.AssetRefPathSpace.AssetRootRelative, "vfx/sample_cast_circle")]
+        [InlineData("sfx.sword_hit_v0", AssetRefConventions.AssetRefPathSpace.AssetRootRelative, "sfx/sword_hit_v0.wav")]
+        [InlineData("sprite_anim.sample_hero_idle", AssetRefConventions.AssetRefPathSpace.AssetRootRelative, "sprite_anim/sample_hero_idle")]
+        [InlineData("paperdoll.item.sample_hero_hat_test", AssetRefConventions.AssetRefPathSpace.AssetRootRelative, "paperdoll/item_sample_hero_hat_test.png")]
+        [InlineData("anim.idle", AssetRefConventions.AssetRefPathSpace.EngineLogicalPath, "GameFoundation/anim_clips/idle")]
+        [InlineData("model.placeholder_biped", AssetRefConventions.AssetRefPathSpace.EngineLogicalPath, "GameFoundation/models/placeholder_biped")]
+        public void ResolvePathSpace_DispatchesByCategoryPrefix(
+            string resourceRef, AssetRefConventions.AssetRefPathSpace expectedSpace, string expectedPath)
+        {
+            var (space, path) = AssetRefConventions.ResolvePathSpace(new Id(resourceRef));
+            Assert.Equal(expectedSpace, space);
+            Assert.Equal(expectedPath, path);
+        }
+
+        [Fact]
+        public void ResolvePathSpace_UnknownCategory_ThrowsWithLegalSetInMessage()
+        {
+            var ex = Assert.Throws<ArgumentException>(
+                () => AssetRefConventions.ResolvePathSpace(new Id("bogus.sample_thing")));
+            Assert.Contains("bogus", ex.Message);
+            foreach (var known in AssetRefConventions.KnownCategories)
+            {
+                Assert.Contains(known, ex.Message);
+            }
+        }
+
+        // 判断记录：resourceRefId 不含点号（无法取出类别前缀）这一分支在 ResolvePathSpace 内部保留
+        // 作为防御性代码，但无法通过一个合法构造出来的 Id 触发单测——Id 的构造函数本身要求至少一个
+        // 点号（见 Id.FormatRegex），不满足格式的字符串在到达本方法之前已经在 new Id(...) 处抛出
+        // ArgumentException（同 AssetRefConventions.StripCategoryPrefix 类型注释"理论不应发生"）。
     }
 }

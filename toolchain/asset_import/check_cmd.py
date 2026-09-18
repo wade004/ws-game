@@ -17,25 +17,42 @@
 - **地图引用存在性**：``world.map`` 每一行引用的地图分层图（见 ``map`` 子命令、14 第 9 节）在
   ``assets/<dataset>/maps/<name>/`` 下必须存在必需分层文件（``ground.png``/``overlay.png``）。
 
-``--only``（逗号分隔，取值 ``sprite``/``vfx``/``sfx``/``world`` 的子集，省略则四项全跑）：只跑
-选定的检查域，供门禁在某个数据集的部分域尚未接入真实资产时先只校验已接入的那部分（不放宽已选中
-域的判断逻辑本身，只是缩小本次运行覆盖的表范围）。
+``--only``（逗号分隔，取值 ``sprite``/``vfx``/``sfx``/``world``/``display_anim`` 的子集，省略则
+默认四项 ``DEFAULT_DOMAINS`` 全跑，``display_anim`` 需显式选中——见下方"判断记录"）：只跑选定的
+检查域，供门禁在某个数据集的部分域尚未接入真实资产时先只校验已接入的那部分（不放宽已选中域的
+判断逻辑本身，只是缩小本次运行覆盖的表范围）。
 
 ``--json``（消费方反馈第 62 条）：stdout 只输出一个 JSON 文档（UTF-8、中文不转义），结构见
 :class:`CheckIssue`/:func:`run` 判断记录；不加 ``--json`` 时文本输出与改造前逐字节一致。加或不加
 ``--json``，返回码语义相同（无问题为 0，有问题为 1）。
 
 消费方反馈第 66 条核实结论（见 ``architecture/adr/0037-资源引用路径推导契约扩展到vfx-sfx-model-anim_set.md``
-"决策 3"）：本工具本次不扩展到 ``display.anim_set.clips.resource_ref``/``display.equip_visual.
-mesh_ref``/``model_ref``/``display.weapon_style.auto_attack_anim``/``cast_anim_override`` 五个
-字段的资源存在性检查——这五个字段在运行期按消费实体的显示类型（sprite/model）存在两条并存的路径
-解析规则，且 model 型解析出的资源不落在本工具 ``--assets-root`` 检查域内（另见引擎侧 Resources
-逻辑路径，不是磁盘文件路径），本工具单看数据表本身无法判定某一行该按哪条规则核对，勉强实现会
-产生假阳性/假阴性；``display.weapon_style.swing_vfx``/``impact_vfx_override`` 是指向 ``vfx.def``
-的表引用（非直接资源文件引用），引用完整性属 ``toolchain/validator`` 的软引用校验域（该校验器
-当前未对软引用做存在性检查，是已知、超出本次任务范围的缺口，非本工具需要补的检查）。
-``camera_profile``/``ui_layout_definition``/``shell_menu_definition`` 三张表 schema 均不含任何
-资源引用字段（已独立核对，见回复文档），本工具无需为它们新增域。
+"决策 3"）：本工具此前（1.43.0）未扩展到 ``display.anim_set.clips.resource_ref``/``display.
+equip_visual.mesh_ref``/``model_ref``/``display.weapon_style.auto_attack_anim``/
+``cast_anim_override`` 五个字段的资源存在性检查——这五个字段在运行期按消费实体的显示类型
+（sprite/model）存在两条并存的路径解析规则，且 model 型解析出的资源不落在本工具 ``--assets-root``
+检查域内（另见引擎侧 Resources 逻辑路径，不是磁盘文件路径），本工具单看数据表本身无法判定某一行
+该按哪条规则核对，勉强实现会产生假阳性/假阴性；``display.weapon_style.swing_vfx``/
+``impact_vfx_override`` 是指向 ``vfx.def`` 的表引用（非直接资源文件引用），引用完整性属
+``toolchain/validator`` 的软引用校验域（该校验器当前未对软引用做存在性检查，是已知、超出本次
+任务范围的缺口，非本工具需要补的检查）。``camera_profile``/``ui_layout_definition``/
+``shell_menu_definition`` 三张表 schema 均不含任何资源引用字段（已独立核对，见回复文档），本工具
+无需为它们新增域。
+
+ADR-0038 决策 6 后半消除了上述阻塞的根因——类别前缀此后唯一决定路径空间，不再需要先弄清楚"这一行
+被哪种类型的实体消费"：新增 ``display_anim`` 检查域，覆盖 ``display.anim_set.clips.resource_ref``/
+``display.weapon_style.auto_attack_anim``/``cast_anim_override``/``display.equip_visual.
+mesh_ref`` 四个字段——经 :func:`ref_conventions.resolve_path_space` 判断路径空间，只对"资产根
+相对"（``sprite_anim``/``paperdoll`` 前缀）的值做存在性检查，"引擎侧逻辑路径"（``anim``/``model``
+前缀）的值按 ADR-0037 决策 3 同一理由跳过（不在本工具 ``--assets-root`` 检查域内）。
+
+判断记录（``display_anim`` 暂不进入默认检查集合）：``data/_sample/display/display.equip_visual.
+json`` 现有一行 ``mesh_ref: "sprite.item.sample_hero_hat_test"`` 仍用 ADR-0038 之前的旧
+``sprite`` 前缀（该前缀本身路由到"资产根相对"路径空间——``sprites/item_sample_hero_hat_test``
+目录——但目录结构与 ``paperdoll`` 前缀期望的单文件不同，该目录若不存在会被本域误判为"缺失"；
+数据迁移到新 ``paperdoll`` 前缀是下一个任务的职责，本任务范围明确"不动数据"）。因此本域只登记进
+``ALL_DOMAINS``（供 ``--only display_anim`` 手动调用/单测使用），不登记进 ``DEFAULT_DOMAINS``
+（省略 ``--only`` 时的默认覆盖集合），待数据迁移任务完成后再纳入默认集合。
 """
 
 from __future__ import annotations
@@ -56,9 +73,19 @@ from .common import (
     resolve_root,
     strip_domain,
 )
-from .ref_conventions import sfx_resource_file, vfx_resource_dir
+from .ref_conventions import (
+    AssetRefPathSpace,
+    resolve_path_space,
+    sfx_resource_file,
+    vfx_resource_dir,
+)
 
-ALL_DOMAINS = ("sprite", "vfx", "sfx", "world")
+DEFAULT_DOMAINS = ("sprite", "vfx", "sfx", "world")
+
+# ADR-0038 决策 6 后半：display_anim 域已实现、已测试，但暂不进 DEFAULT_DOMAINS（省略 --only 时的
+# 默认覆盖集合）——见模块 docstring"判断记录（display_anim 暂不进入默认检查集合）"。仍登记进
+# ALL_DOMAINS（--only 的合法取值集合），供手动调用/单测显式选中。
+ALL_DOMAINS = DEFAULT_DOMAINS + ("display_anim",)
 
 # 地图必需分层文件（14 第 9.1 节"框架固定项"三层中的地面图/前景遮挡层；装饰层
 # decal.png、导航标注 nav_hint.png 属于可选辅助分层，见 map 子命令与 14 第 9 节勘误）。
@@ -101,6 +128,19 @@ CHECK_WORLD_MAP_LAYER_MISSING = "world_map_layer_missing"
 CHECK_WORLD_MAP_SCENE_REF_MISMATCH = "world_map_scene_ref_mismatch"
 CHECK_WORLD_MAP_NAV_REF_MISMATCH = "world_map_nav_ref_mismatch"
 
+# ADR-0038 决策 6 后半：display_anim 域——覆盖 display.anim_set.clips.resource_ref/
+# display.weapon_style.auto_attack_anim/cast_anim_override/display.equip_visual.mesh_ref 四个
+# 字段中路由到"资产根相对"路径空间（sprite_anim/paperdoll 前缀）的取值；"引擎侧逻辑路径"
+# （anim/model 前缀）的取值不检查存在性，见模块 docstring。
+CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID = "display_anim_ref_category_invalid"
+CHECK_DISPLAY_ANIM_SPRITE_ANIM_ATLAS_MISSING = "display_anim_sprite_anim_atlas_missing"
+CHECK_DISPLAY_ANIM_SPRITE_ANIM_FRAMES_JSON_MISSING = "display_anim_sprite_anim_frames_json_missing"
+CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING = "display_anim_paperdoll_file_missing"
+# 兜底：某取值路由到"资产根相对"路径空间，但类别前缀不是本域已知的 sprite_anim/paperdoll 两种
+# （典型例子：数据迁移前的旧 mesh_ref，前缀仍是 sprite——见模块 docstring"判断记录"）；本域尚未
+# 针对这类遗留前缀的具体磁盘布局实现专门检查，只做"路径是否存在"的最小核对，如实报告不掩盖。
+CHECK_DISPLAY_ANIM_ASSET_MISSING = "display_anim_asset_missing"
+
 CHECK_NAMES: tuple[str, ...] = (
     CHECK_SPRITE_SET_ID_MISSING,
     CHECK_SPRITE_SET_ID_FORMAT_INVALID,
@@ -128,6 +168,11 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_WORLD_MAP_LAYER_MISSING,
     CHECK_WORLD_MAP_SCENE_REF_MISMATCH,
     CHECK_WORLD_MAP_NAV_REF_MISMATCH,
+    CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID,
+    CHECK_DISPLAY_ANIM_SPRITE_ANIM_ATLAS_MISSING,
+    CHECK_DISPLAY_ANIM_SPRITE_ANIM_FRAMES_JSON_MISSING,
+    CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING,
+    CHECK_DISPLAY_ANIM_ASSET_MISSING,
 )
 
 
@@ -179,8 +224,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--only",
         default=None,
-        metavar="sprite,vfx,sfx,world",
-        help="只跑逗号分隔的检查域子集（取值见上），省略则四项全跑",
+        metavar="sprite,vfx,sfx,world,display_anim",
+        help=(
+            "只跑逗号分隔的检查域子集（取值见上）；省略则跑 DEFAULT_DOMAINS 四项（sprite/vfx/sfx/"
+            "world），display_anim 域需显式经本参数选中（ADR-0038 决策 6 后半：待数据迁移任务完成"
+            "后再纳入默认集合，见模块 docstring 判断记录）"
+        ),
     )
     parser.add_argument(
         "--json",
@@ -196,7 +245,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _parse_only(value: str | None) -> set[str]:
     if value is None:
-        return set(ALL_DOMAINS)
+        # ADR-0038 决策 6 后半：省略 --only 时的默认覆盖集合是 DEFAULT_DOMAINS，不是 ALL_DOMAINS——
+        # display_anim 暂不进默认集合，见模块 docstring 判断记录。
+        return set(DEFAULT_DOMAINS)
     domains = {v.strip() for v in value.split(",") if v.strip()}
     unknown = domains - set(ALL_DOMAINS)
     if unknown:
@@ -554,6 +605,109 @@ def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[
         ))
 
 
+def _check_display_anim_ref(
+    table: str, row_id: str, field_path: str, resource_ref: str,
+    assets_root: Path, dataset: str, problems: list[CheckIssue],
+) -> None:
+    """ADR-0038 决策 6 后半：核对单个资源引用值——先经 :func:`resolve_path_space` 判断路径空间，
+    类别前缀不合法（含不含点号）时报 :data:`CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID`；"引擎侧逻辑
+    路径"（``anim``/``model`` 前缀）跳过存在性检查（ADR-0037 决策 3 同一理由）；"资产根相对"
+    （``sprite_anim``/``paperdoll`` 及遗留前缀）按各自磁盘布局做存在性检查，见模块 docstring。
+    """
+    try:
+        space, relative_path = resolve_path_space(resource_ref)
+    except ValueError as exc:
+        problems.append(CheckIssue(
+            severity=SEVERITY_ERROR, table=table, record_key=row_id,
+            check=CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID, field_path=field_path,
+            message=str(exc),
+        ))
+        return
+
+    if space is AssetRefPathSpace.ENGINE_LOGICAL_PATH:
+        # model 型消费实体的引擎侧逻辑路径：不在本工具 --assets-root 检查域内（ADR-0037 决策 3）。
+        return
+
+    dataset_root = assets_root / dataset
+    category, _, _ = resource_ref.partition(".")
+
+    if category == "sprite_anim":
+        out_dir = dataset_root / relative_path
+        atlas_path = out_dir / "atlas.png"
+        frames_path = out_dir / "frames.json"
+        if not atlas_path.is_file():
+            problems.append(CheckIssue(
+                severity=SEVERITY_ERROR, table=table, record_key=row_id,
+                check=CHECK_DISPLAY_ANIM_SPRITE_ANIM_ATLAS_MISSING, field_path=field_path, path=str(atlas_path),
+                message=f"资源引用 '{resource_ref}' 对应图集缺失: {atlas_path}",
+            ))
+        if not frames_path.is_file():
+            problems.append(CheckIssue(
+                severity=SEVERITY_ERROR, table=table, record_key=row_id,
+                check=CHECK_DISPLAY_ANIM_SPRITE_ANIM_FRAMES_JSON_MISSING, field_path=field_path, path=str(frames_path),
+                message=f"资源引用 '{resource_ref}' 对应帧数据缺失: {frames_path}",
+            ))
+    elif category == "paperdoll":
+        file_path = dataset_root / relative_path
+        if not file_path.is_file():
+            problems.append(CheckIssue(
+                severity=SEVERITY_ERROR, table=table, record_key=row_id,
+                check=CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING, field_path=field_path, path=str(file_path),
+                message=f"资源引用 '{resource_ref}' 对应纸娃娃层文件缺失: {file_path}",
+            ))
+    else:
+        # 遗留前缀（如未迁移的旧 mesh_ref: "sprite.*"）：最小核对，见 CHECK_DISPLAY_ANIM_ASSET_MISSING
+        # 判断记录。含扩展名按文件核对，否则按目录核对。
+        target = dataset_root / relative_path
+        exists = target.is_file() if target.suffix else target.is_dir()
+        if not exists:
+            problems.append(CheckIssue(
+                severity=SEVERITY_ERROR, table=table, record_key=row_id,
+                check=CHECK_DISPLAY_ANIM_ASSET_MISSING, field_path=field_path, path=str(target),
+                message=f"资源引用 '{resource_ref}'（遗留类别前缀 '{category}'）对应路径不存在: {target}",
+            ))
+
+
+def _check_anim_set_row(row: dict, assets_root: Path, dataset: str, problems: list[CheckIssue]) -> None:
+    row_id = row.get("id", "?")
+    clips = row.get("clips", {})
+    for clip_name, clip in clips.items():
+        resource_ref = clip.get("resource_ref") if isinstance(clip, dict) else None
+        if resource_ref:
+            _check_display_anim_ref(
+                "display.anim_set", row_id, f"clips[{clip_name}].resource_ref", resource_ref,
+                assets_root, dataset, problems,
+            )
+
+
+def _check_weapon_style_row(row: dict, assets_root: Path, dataset: str, problems: list[CheckIssue]) -> None:
+    row_id = row.get("id", "?")
+    auto_attack_anim = row.get("auto_attack_anim")
+    if auto_attack_anim:
+        _check_display_anim_ref(
+            "display.weapon_style", row_id, "auto_attack_anim", auto_attack_anim,
+            assets_root, dataset, problems,
+        )
+
+    cast_anim_override = row.get("cast_anim_override", {})
+    for skill_id, anim_clip_id in cast_anim_override.items():
+        if anim_clip_id:
+            _check_display_anim_ref(
+                "display.weapon_style", row_id, f"cast_anim_override[{skill_id}]", anim_clip_id,
+                assets_root, dataset, problems,
+            )
+
+
+def _check_equip_visual_row(row: dict, assets_root: Path, dataset: str, problems: list[CheckIssue]) -> None:
+    row_id = row.get("id", "?")
+    mesh_ref = row.get("mesh_ref")
+    if mesh_ref:
+        _check_display_anim_ref(
+            "display.equip_visual", row_id, "mesh_ref", mesh_ref,
+            assets_root, dataset, problems,
+        )
+
+
 def run(args: argparse.Namespace) -> int:
     repo_root = find_repo_root()
     assets_root = resolve_root(args.assets_root, repo_root, "assets")
@@ -570,6 +724,9 @@ def run(args: argparse.Namespace) -> int:
     vfx_rows: list[dict] = []
     sfx_rows: list[dict] = []
     world_rows: list[dict] = []
+    anim_set_rows: list[dict] = []
+    weapon_style_rows: list[dict] = []
+    equip_visual_rows: list[dict] = []
 
     if "sprite" in only:
         display_rows = _load_rows(data_root / args.dataset / "display" / "display.map.json")
@@ -592,13 +749,28 @@ def run(args: argparse.Namespace) -> int:
         for row in world_rows:
             _check_world_row(row, assets_root, args.dataset, problems)
 
+    if "display_anim" in only:
+        anim_set_rows = _load_rows(data_root / args.dataset / "display" / "display.anim_set.json")
+        for row in anim_set_rows:
+            _check_anim_set_row(row, assets_root, args.dataset, problems)
+
+        weapon_style_rows = _load_rows(data_root / args.dataset / "display" / "display.weapon_style.json")
+        for row in weapon_style_rows:
+            _check_weapon_style_row(row, assets_root, args.dataset, problems)
+
+        equip_visual_rows = _load_rows(data_root / args.dataset / "display" / "display.equip_visual.json")
+        for row in equip_visual_rows:
+            _check_equip_visual_row(row, assets_root, args.dataset, problems)
+
     for issue in problems:
         print(issue.render_text(), file=log_stream)
 
     print(
         f"[check] dataset={args.dataset} only={','.join(sorted(only))}: 检查 {len(display_rows)} 条 "
         f"display.map / {len(vfx_rows)} 条 vfx.def / {len(sfx_rows)} 条 sfx.def / {len(world_rows)} "
-        f"条 world.map，发现 {len(problems)} 个问题",
+        f"条 world.map / {len(anim_set_rows)} 条 display.anim_set / {len(weapon_style_rows)} 条 "
+        f"display.weapon_style / {len(equip_visual_rows)} 条 display.equip_visual，发现 "
+        f"{len(problems)} 个问题",
         file=log_stream,
     )
 

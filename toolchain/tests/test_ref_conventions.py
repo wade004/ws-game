@@ -25,10 +25,15 @@ if str(TOOLCHAIN_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLCHAIN_DIR))
 
 from asset_import.ref_conventions import (  # noqa: E402
+    KNOWN_CATEGORIES,
+    AssetRefPathSpace,
     anim_clip_logical_path,
     icon_file,
     model_logical_path,
+    paperdoll_layer_file,
+    resolve_path_space,
     sfx_resource_file,
+    sprite_anim_dir,
     sprite_set_directory,
     strip_category_prefix,
     try_parse_icon_id,
@@ -189,3 +194,69 @@ def test_anim_clip_logical_path_matches_unity_resource_loader(resource_ref: str,
 )
 def test_model_logical_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
     assert model_logical_path(resource_ref) == expected
+
+
+# ADR-0038 决策 2/4：以下用例与 core/foundation/engine_adapter/tests/AssetRefConventionsTests.cs
+# 对应用例使用同一组输入/期望字符串，两侧各自独立实现、互相不调用（同本文件顶部"跨语言对照"判断记录）。
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected",
+    [
+        ("sprite_anim.sample_hero_idle", "sprite_anim/sample_hero_idle"),
+        ("sprite_anim.sample_hero_attack", "sprite_anim/sample_hero_attack"),
+    ],
+)
+def test_sprite_anim_dir_matches_vfx_resource_dir_style(resource_ref: str, expected: str) -> None:
+    assert sprite_anim_dir(resource_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected",
+    [
+        ("paperdoll.item.sample_hero_hat_test", "paperdoll/item_sample_hero_hat_test.png"),
+        ("paperdoll.item.sample_cloak", "paperdoll/item_sample_cloak.png"),
+    ],
+)
+def test_paperdoll_layer_file_returns_flat_png_under_own_root(resource_ref: str, expected: str) -> None:
+    assert paperdoll_layer_file(resource_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected_space, expected_path",
+    [
+        ("sprite.creature.wolf_grey", AssetRefPathSpace.ASSET_ROOT_RELATIVE, "sprites/creature_wolf_grey"),
+        ("icon.item.sample_blade", AssetRefPathSpace.ASSET_ROOT_RELATIVE, "icons/item/sample_blade.png"),
+        ("vfx.sample_cast_circle", AssetRefPathSpace.ASSET_ROOT_RELATIVE, "vfx/sample_cast_circle"),
+        ("sfx.sword_hit_v0", AssetRefPathSpace.ASSET_ROOT_RELATIVE, "sfx/sword_hit_v0.wav"),
+        ("sprite_anim.sample_hero_idle", AssetRefPathSpace.ASSET_ROOT_RELATIVE, "sprite_anim/sample_hero_idle"),
+        (
+            "paperdoll.item.sample_hero_hat_test",
+            AssetRefPathSpace.ASSET_ROOT_RELATIVE,
+            "paperdoll/item_sample_hero_hat_test.png",
+        ),
+        ("anim.idle", AssetRefPathSpace.ENGINE_LOGICAL_PATH, "GameFoundation/anim_clips/idle"),
+        ("model.placeholder_biped", AssetRefPathSpace.ENGINE_LOGICAL_PATH, "GameFoundation/models/placeholder_biped"),
+    ],
+)
+def test_resolve_path_space_dispatches_by_category_prefix(
+    resource_ref: str, expected_space: AssetRefPathSpace, expected_path: str
+) -> None:
+    space, path = resolve_path_space(resource_ref)
+    assert space == expected_space
+    assert path == expected_path
+
+
+def test_resolve_path_space_unknown_category_raises_with_legal_set() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        resolve_path_space("bogus.sample_thing")
+    message = str(excinfo.value)
+    assert "bogus" in message
+    for known in KNOWN_CATEGORIES:
+        assert known in message
+
+
+def test_resolve_path_space_no_dot_raises_with_legal_set() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        resolve_path_space("nodothere")
+    assert "nodothere" in str(excinfo.value)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 
 namespace Core.Foundation.EngineAdapter
@@ -269,5 +270,130 @@ namespace Core.Foundation.EngineAdapter
         /// <see cref="SfxResourceFile"/> 返回资产根目录相对路径。</summary>
         public static string ModelLogicalPath(Id resourceRefId) =>
             "GameFoundation/models/" + StripCategoryPrefix(resourceRefId.Value);
+
+        /// <summary>
+        /// [ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md) 决策 2：
+        /// 新增类别前缀 <c>sprite_anim</c>，把 sprite 型消费实体的动画帧资源从 <c>anim</c> 前缀
+        /// （决策 3：该前缀此后专属 model 型的 <see cref="AnimClipLogicalPath"/>）中拆出，避免同一
+        /// 前缀按消费方不同落在两种路径空间。把 <c>sprite_anim.&lt;name&gt;</c> 解析为该动画帧资源
+        /// 在资产根目录下的相对目录路径（正斜杠分隔，不以 <c>/</c> 结尾）：
+        /// <c>"sprite_anim/&lt;资源引用id去掉类别前缀，点号换下划线&gt;"</c>——目录结构与
+        /// <see cref="VfxResourceDir"/> 同构（内含图集与帧数据两个文件，同一套帧动画资产表达方式，
+        /// 见该 ADR 决策 2 理由段）。与 <see cref="VfxResourceDir"/>/<see cref="SfxResourceFile"/>
+        /// 同一路径空间（资产根相对），可直接拼进 <c>assets/&lt;dataset&gt;/</c> 做文件存在性检查。
+        /// </summary>
+        public static string SpriteAnimDir(Id resourceRefId) =>
+            "sprite_anim/" + StripCategoryPrefix(resourceRefId.Value);
+
+        /// <summary>
+        /// [ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md) 决策 4
+        /// 附带条款落地：<c>display.equip_visual.mesh_ref</c> 的 sprite 型取值此前直接把原始值当
+        /// "纸娃娃层资源 id"使用（<see cref="Presentation.Render.SpriteViewBase.HandleItemEquipped"/>，
+        /// 见该类型判断记录"缺口 10"），未经任何路径推导函数中转。落地期核实结论（见任务报告"第 0 步
+        /// 核实"）：该语义与 <see cref="SpriteSetDirectory"/> 承载的"精灵集目录标识"**不等价**——
+        /// <see cref="SpriteSetDirectory"/> 产出一个目录（内部按方向档位/层名进一步展开为多个文件），
+        /// 而 sprite 型 <c>mesh_ref</c> 运行期经通用 <c>ResourceKind.Image</c> 非 <c>"layer."</c>
+        /// 特例分支解析为单个扁平文件（不按方向拆分，见 <c>SpriteViewBase</c> 判断记录"<c>mesh_ref</c>
+        /// 不经方向档位换算"），二者路径空间形状不同（目录 vs 单文件）。按决策 4 附带条款、决策 1
+        /// 总原则，新增独立类别前缀 <c>paperdoll</c>（对应架构已有术语"纸娃娃层"，同
+        /// <c>display.map.paperdoll_layers</c> 字段命名），不再让 <c>sprite</c> 前缀被迫承担两种
+        /// 不同语义。把 <c>paperdoll.&lt;category&gt;.&lt;name&gt;</c> 解析为该纸娃娃层覆盖资源在
+        /// 资产根目录下的相对文件路径（正斜杠分隔，含 <c>.png</c> 扩展名）：
+        /// <c>"paperdoll/&lt;资源引用id去掉类别前缀，点号换下划线&gt;.png"</c>——单独一个子目录（不与
+        /// <see cref="SpriteSetDirectory"/> 共享 <c>sprites/</c> 根，理由同该 ADR 决策 2"长期共享同一
+        /// 目录会让两边各自的产出与消费约定互相绑架"），与 <see cref="SfxResourceFile"/> 同一惯例
+        /// （资产根相对、扁平单文件、带扩展名）。
+        /// <para>
+        /// 判断记录（本方法只新增契约，不迁移数据/不改引擎适配层）：任务范围明确"本任务只做契约、
+        /// API、校验、工具链，不动数据、不动引擎适配层"——<c>data/_sample/display/display.equip_visual.json</c>
+        /// 现有 <c>mesh_ref: "sprite.item.sample_hero_hat_test"</c> 一行仍用旧 <c>sprite</c> 前缀，
+        /// 尚未迁移到本方法对应的 <c>paperdoll</c> 前缀，也未改动 <c>SpriteViewBase</c>/
+        /// <c>UnityResourceLoader</c> 使其实际调用本方法——均留给下一个任务（数据迁移 + 引擎适配层
+        /// 改为转发本方法），见任务报告。
+        /// </para>
+        /// </summary>
+        public static string PaperdollLayerFile(Id resourceRefId) =>
+            "paperdoll/" + StripCategoryPrefix(resourceRefId.Value) + ".png";
+
+        /// <summary>
+        /// [ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md) 决策 5：
+        /// 资源引用标识最终落在哪一类磁盘/引擎资源命名空间——供调用方（如内容工具的资源存在性检查、
+        /// 资源预览）判断"能不能拼进资产根目录做文件系统检查"，不能与相对路径字符串本身混淆（两个
+        /// 空间下都可能产出形状相似的相对路径字符串，但只有 <see cref="AssetRootRelative"/> 能与
+        /// 资产导入工具的 <c>--assets-root</c> 拼接后做真实文件存在性检查；<see cref="EngineLogicalPath"/>
+        /// 是引擎适配层内部一个单一、非按数据集分区的资源目录树，见 ADR-0037 决策 3）。
+        /// </summary>
+        public enum AssetRefPathSpace
+        {
+            /// <summary>相对内容工具 <c>--assets-root</c> 的资产根目录，可与具体数据集目录拼接后做
+            /// 文件系统存在性检查（<see cref="SpriteSetDirectory"/>/<see cref="IconFile"/>/
+            /// <see cref="VfxResourceDir"/>/<see cref="SfxResourceFile"/>/<see cref="SpriteAnimDir"/>/
+            /// <see cref="PaperdollLayerFile"/> 六个方法均属本空间）。</summary>
+            AssetRootRelative,
+
+            /// <summary>引擎适配层内部已导入好的逻辑资源路径（<see cref="AnimClipLogicalPath"/>/
+            /// <see cref="ModelLogicalPath"/> 两个方法属本空间），不落在资产导入工具的资产根目录下，
+            /// 不能做文件系统存在性检查（见 ADR-0037 决策 3）。</summary>
+            EngineLogicalPath,
+        }
+
+        /// <summary>
+        /// [ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md) 决策 5：
+        /// 公开路由总入口——输入资源引用标识，按其类别前缀（第一个点分段）唯一确定应使用的推导方法，
+        /// 输出（路径空间, 相对路径）二元组。分派表见 <see cref="KnownCategories"/>；遇到未登记的
+        /// 类别前缀，或标识不含任何点号（无法取出类别前缀），均视为错误，不做静默兜底——错误信息
+        /// 同时给出收到的前缀与合法前缀集合，便于调用方定位内容笔误。
+        /// <para>
+        /// 判断记录（Python 侧独立实现，不共享源码）：
+        /// <c>toolchain/asset_import/ref_conventions.py</c> 的 <c>resolve_path_space</c> 是本方法的
+        /// Python 对应实现，两侧各自独立维护，靠同一组输入/期望值对照测试互相校核（沿用 ADR-0037
+        /// 决策 1 确立的跨语言对照惯例，见 <c>toolchain/tests/test_ref_conventions.py</c>/
+        /// <c>AssetRefConventionsTests.cs</c>）。
+        /// </para>
+        /// </summary>
+        public static (AssetRefPathSpace Space, string RelativePath) ResolvePathSpace(Id resourceRefId)
+        {
+            var value = resourceRefId.Value;
+            var dotIndex = value.IndexOf('.');
+            if (dotIndex < 0)
+            {
+                throw new ArgumentException(
+                    $"资源引用 \"{value}\" 不含类别前缀（无点号），合法类别前缀集合：{string.Join("/", KnownCategories)}",
+                    nameof(resourceRefId));
+            }
+
+            var category = value.Substring(0, dotIndex);
+            switch (category)
+            {
+                case "sprite":
+                    return (AssetRefPathSpace.AssetRootRelative, SpriteSetDirectory(resourceRefId));
+                case "icon":
+                    return (AssetRefPathSpace.AssetRootRelative, IconFile(resourceRefId));
+                case "vfx":
+                    return (AssetRefPathSpace.AssetRootRelative, VfxResourceDir(resourceRefId));
+                case "sfx":
+                    return (AssetRefPathSpace.AssetRootRelative, SfxResourceFile(resourceRefId));
+                case "sprite_anim":
+                    return (AssetRefPathSpace.AssetRootRelative, SpriteAnimDir(resourceRefId));
+                case "paperdoll":
+                    return (AssetRefPathSpace.AssetRootRelative, PaperdollLayerFile(resourceRefId));
+                case "anim":
+                    return (AssetRefPathSpace.EngineLogicalPath, AnimClipLogicalPath(resourceRefId));
+                case "model":
+                    return (AssetRefPathSpace.EngineLogicalPath, ModelLogicalPath(resourceRefId));
+                default:
+                    throw new ArgumentException(
+                        $"资源引用 \"{value}\" 的类别前缀 \"{category}\" 不合法，合法类别前缀集合：{string.Join("/", KnownCategories)}",
+                        nameof(resourceRefId));
+            }
+        }
+
+        /// <summary>见 <see cref="ResolvePathSpace"/>：全部已登记的合法类别前缀，供该方法与校验规则
+        /// 的错误信息使用（单一来源，不在多处复制同一份字面量清单）。顺序与 <see cref="ResolvePathSpace"/>
+        /// 的 <c>switch</c> 分支一致，供人类阅读；不保证其它场景下的顺序稳定性。</summary>
+        public static readonly IReadOnlyList<string> KnownCategories = new[]
+        {
+            "sprite", "icon", "vfx", "sfx", "sprite_anim", "paperdoll", "anim", "model",
+        };
     }
 }

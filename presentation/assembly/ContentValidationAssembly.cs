@@ -125,6 +125,29 @@ namespace Presentation.Assembly
         /// <c>toolchain/validator</c> 对应新增命令行开关 <c>--enable-graph-isolation</c>。
         /// </summary>
         public bool EnableGraphIsolationDiagnostics { get; set; }
+
+        /// <summary>
+        /// [ADR-0038](../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md) 决策 6 前半：
+        /// <c>RefCategoryFieldRule</c>（检查名 <c>field_ref_category</c>）的显式开关，默认
+        /// <c>false</c>（规则不注册，不产出任何问题）——同 <see cref="EnableGraphIsolationDiagnostics"/>
+        /// 惯例（独立布尔开关，不是"提供依赖即启用"）。
+        /// <para>
+        /// 判断记录（为何默认关闭，而不是像 <c>EquipVisualModeFieldGroupRule</c> 那样无条件注册）：
+        /// 该规则要求 <c>display.equip_visual.mesh_ref</c> 的取值类别前缀落在 <c>model</c>/
+        /// <c>paperdoll</c> 集合内（ADR-0038 决策 4 落地结论），但
+        /// <c>data/_sample/display/display.equip_visual.json</c> 现有一行
+        /// <c>mesh_ref: "sprite.item.sample_hero_hat_test"</c> 仍是本 ADR 之前的旧 <c>sprite</c>
+        /// 前缀——把该字段迁移到新前缀是下一个任务（数据迁移 + 引擎适配层改为转发 ADR-0038 新增的
+        /// 路径推导方法）的职责，本任务范围明确"不动数据"。若本规则默认注册，会让上述既有样例数据
+        /// 报错，进而让 <c>validate_data.py --strict</c>（合并根）门禁失败——比照 ADR-0038 决策 6/
+        /// 决策 4 附带条款给"存在性检查新域暂不进默认集合"同一处理思路，本规则同样先实现、先补齐
+        /// 单元测试（直接构造 <c>DataRegistry</c> 注册验证，绕开本开关，见 <c>RefCategoryFieldRuleTests</c>），
+        /// 默认关闭，待数据迁移任务完成后再改为默认启用（或无条件注册，比照
+        /// <c>EquipVisualModeFieldGroupRule</c> 先例）。<c>toolchain/validator</c> 对应新增命令行
+        /// 开关 <c>--enable-ref-category-check</c>，可手动验证规则行为，不影响门禁默认调用方式。
+        /// </para>
+        /// </summary>
+        public bool EnableRefCategoryCheck { get; set; }
     }
 
     /// <summary>
@@ -238,6 +261,7 @@ namespace Presentation.Assembly
         private const string DisplayMapCoverageRuleName = "DisplayMapCoverageRule";
         private const string QuestPrerequisiteIsolationRuleName = "QuestPrerequisiteIsolationRule";
         private const string TalentTreeIsolationRuleName = "TalentTreeIsolationRule";
+        private const string RefCategoryFieldRuleName = "RefCategoryFieldRule";
 
         /// <summary>
         /// 消费方反馈第 43 条：本入口承认的全部可选规则的"规则名 ↔ 检查名"关联描述符，单一来源——
@@ -269,6 +293,12 @@ namespace Presentation.Assembly
                 TalentTreeIsolationRule.CheckName,
                 "消费方反馈第 56 条追问：展示性提示 arch.talent_tree 里既无前置、也未被任何其它节点引用为" +
                     "前置的孤立节点（合法内容形态，默认关闭，经 ContentValidationOptions.EnableGraphIsolationDiagnostics 开启）"),
+            new OptionalRuleDescriptor(
+                RefCategoryFieldRuleName,
+                RefCategoryFieldRule.CheckName,
+                "ADR-0038 决策 6 前半：资源引用字段的类别前缀必须合法且落在该字段允许集合内（默认关闭，" +
+                    "待 display.equip_visual.mesh_ref 现有样例数据迁移到新前缀后再启用，经 " +
+                    "ContentValidationOptions.EnableRefCategoryCheck 开启，见该属性判断记录）"),
         };
 
         /// <summary>本入口承认的全部可选规则名（固定清单，见 <see cref="ContentValidationOptions"/>
@@ -421,6 +451,17 @@ namespace Presentation.Assembly
             {
                 disabled.Add(QuestPrerequisiteIsolationRuleName);
                 disabled.Add(TalentTreeIsolationRuleName);
+            }
+
+            // ADR-0038 决策 6 前半：同上一组开关同一惯例，默认关闭（见
+            // ContentValidationOptions.EnableRefCategoryCheck 判断记录"为何默认关闭"）。
+            if (options.EnableRefCategoryCheck)
+            {
+                registry.RegisterValidationRule(new RefCategoryFieldRule());
+            }
+            else
+            {
+                disabled.Add(RefCategoryFieldRuleName);
             }
 
             // T-N6-2a：额外登记回调，见 ContentValidationOptions.ExtraSchemaRegistration 判断记录。

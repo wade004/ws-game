@@ -434,6 +434,79 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+[ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
+[ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——本次只收口契约面/校验/
+工具链，样例数据迁移与引擎适配层改为调用新路由入口均是后续任务（见下方"未完成/后续任务"）。
+
+### 破坏性变更
+
+**本条目按 ADR-0039 决策 2 第 3 类"新增无条件 Error 级校验规则视同破坏性变更"、以及决策 2 第 2 类
+"改资源引用取值约定"，均属破坏性变更；按决策 3 当前期政策，材料尚不齐备（逐字段迁移说明为占位、
+数据根尚未同步迁移），下方逐条标注缺口，本轮先合入契约面，后续任务补齐材料与数据迁移后再视为
+完整落地。**
+
+- 资源引用类别前缀集合变化（ADR-0038 决策 2/3/4）：`anim` 前缀此后只表示 model 型引擎侧逻辑路径，
+  不再承载 sprite 型语义；sprite 型动画帧资源改用新前缀 `sprite_anim`；`display.equip_visual.
+  mesh_ref` 的 sprite 型取值改用新前缀 `paperdoll`（落地期核实确认与 `sprite_set_id` 语义不等价，
+  见 ADR-0038 决策 4 附带条款、`architecture/14_资产规格书模板.md` 第 1.2 节新增表格）。
+  **逐字段 before/after 迁移说明（占位，待下一任务数据迁移时补齐具体行清单）**：
+  - `display.anim_set.clips.<clip>.resource_ref`：sprite 型消费时旧值 `anim.<name>` → 新值
+    `sprite_anim.<name>`；model 型消费不受影响（仍是 `anim.<name>`，解释为引擎侧逻辑路径不变）。
+  - `display.weapon_style.auto_attack_anim`/`cast_anim_override.<skill_id>`：同上，随其挂接的
+    `display.map` 行 `kind` 取值决定是否需要迁移。
+  - `display.equip_visual.mesh_ref`：sprite 型消费时旧值 `sprite.<...>` → 新值
+    `paperdoll.<...>`；model 型消费（`mesh_ref`/`model_ref` 共用同一资源合同）不受影响。
+  - 受影响的已知样例数据行（勘察未穷尽，下一任务需重新逐行核对）：`data/_sample` 下
+    `display.equip_visual.sample_hero_hat`（`mesh_ref` 遗留 `sprite.*` 前缀）；`display.
+    weapon_style.sample_model_sword` 等挂在 `kind=sprite` 行下的 `anim.*` 剪辑引用。
+  - **数据根同步情况（ADR-0039 决策 3 尚未满足）**：本次未改动任何数据文件；`data/_sample` 仍是
+    迁移前取值，`data/_framework`/`games/_template/data/game`/`core/sim/tests/data` 未逐一核对
+    是否持有受影响字段，留给下一任务处理。
+- 新增无条件校验规则视同破坏性变更（ADR-0039 决策 2 第 3 类）：`RefCategoryFieldRule`
+  （检查名 `field_ref_category`）虽已实现且已测试，但因上一条尚未完成数据迁移，**本次刻意不做
+  无条件注册**——接线为 `ContentValidationOptions.EnableRefCategoryCheck`（默认 `false`）的
+  可选规则，待数据迁移完成后转为默认注册（同批去掉该开关或保留供手动关闭，视届时情况决定）。
+
+### 新增
+
+- `Core.Foundation.EngineAdapter.AssetRefConventions`/`toolchain/asset_import/ref_conventions.py`
+  新增方法/函数：`SpriteAnimDir`/`sprite_anim_dir`（`sprite_anim.<name>` →
+  `sprite_anim/<name>`，结构同 `vfx`）、`PaperdollLayerFile`/`paperdoll_layer_file`
+  （`paperdoll.<...>` → `paperdoll/<...>.png`，单个扁平文件）。
+- 新增框架契约面公开路由入口 `AssetRefConventions.ResolvePathSpace`/
+  `ref_conventions.resolve_path_space`：输入资源引用标识，输出 `(路径空间, 相对路径)`；路径空间为
+  显式枚举 `AssetRefPathSpace { AssetRootRelative, EngineLogicalPath }`（C#）/
+  `AssetRefPathSpace(AssetRootRelative, EngineLogicalPath)`（Python `enum`）。按类别前缀分派到
+  `KnownCategories`/`KNOWN_CATEGORIES` 登记的方法表（`sprite`/`icon`/`vfx`/`sfx`/`sprite_anim`/
+  `paperdoll` → 资产根相对；`anim`/`model` → 引擎侧逻辑路径）；类别前缀缺失或不在集合内均报错
+  （消息含收到的前缀与合法集合），不做静默兜底。两侧各自独立实现、互相不调用，靠同一组输入/
+  期望字符串的对照测试捕获漂移（同 ADR-0037 决策 1）。
+- `FieldSchema` 新增 `WithAllowedRefCategories(params string[] categories)`（`Id`/`IdList`
+  种类专用，设置一次、`Kind` 不匹配或重复设置均抛异常，同既有 `With...` 系列惯例）；已在
+  `display.anim_set.clips.<clip>.resource_ref`（`anim`/`sprite_anim`）、
+  `display.weapon_style.auto_attack_anim`/`cast_anim_override.<value>`（同上）、
+  `display.equip_visual.mesh_ref`（`model`/`paperdoll`）、`vfx.def.resource_ref`（仅 `vfx`）、
+  `sfx.def.resource_ref`/`variants`（仅 `sfx`）六处登记。
+- 新增校验规则 `Core.Foundation.DataRegistry.RefCategoryFieldRule`（检查名
+  `field_ref_category`）：递归校验已登记 `WithAllowedRefCategories` 的字段，取值类别前缀必须
+  合法且落在该字段允许子集内；只检查前缀合法性，不检查资源文件是否存在。默认不注册，见上方
+  "破坏性变更"小节；开关 `ContentValidationOptions.EnableRefCategoryCheck` /
+  `toolchain/validator --enable-ref-category-check`。
+- `toolchain/asset_import/check_cmd.py` 新增检查域 `display_anim`（不在默认 `DEFAULT_DOMAINS`
+  内，需显式 `--only display_anim`，原因见上方"破坏性变更"小节数据迁移缺口）：核对
+  `display.anim_set.clips.resource_ref`/`display.weapon_style.auto_attack_anim`/
+  `cast_anim_override`/`display.equip_visual.mesh_ref` 四个字段的资源存在性。新增 5 个检查名：
+  `display_anim_ref_category_invalid`、`display_anim_sprite_anim_atlas_missing`、
+  `display_anim_sprite_anim_frames_json_missing`、`display_anim_paperdoll_file_missing`、
+  `display_anim_asset_missing`（遗留前缀兜底）。
+
+### 未完成/后续任务
+
+- 样例数据迁移（`data/_sample` 等全部数据根，见上方逐字段迁移说明占位）与消费方通知（ADR-0039
+  决策 3 材料清单剩余项）。
+- 迁移完成后：`field_ref_category` 转为默认注册；`display_anim` 域纳入 `DEFAULT_DOMAINS`。
+- 已落地引擎适配层改为调用 `ResolvePathSpace`（ADR-0038 决策 8，不在本次范围）。
+
 ## [1.43.0] - 2026-09-18
 
 消费方反馈第 62/63/64/65/66 条（见
