@@ -97,9 +97,103 @@ namespace Core.Foundation.SceneRouter
                 new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, referenceTable: "diff.tier",
                     description: "该地图允许应用的难度档位（见 08），引用 diff.tier（ADR-0022 补齐：diff.tier 现已登记进 IDataRegistry，此前类型判断记录"
                         + "\"08 难度档位未登记进 IDataRegistry\"的前提已不成立）"),
+                new FieldSchema("image_transform", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("pixels_per_unit", FieldKind.Number, required: true,
+                        description: "每个世界单位对应的图片像素数，框架默认 32；提供 image_transform 时本子字段必填")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                    new FieldSchema("origin_px", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("x", FieldKind.Number, required: true,
+                            description: "世界原点在地图图片中的像素列坐标，图片左上角为 (0,0)，列向右为正"),
+                        new FieldSchema("y", FieldKind.Number, required: true,
+                            description: "世界原点在地图图片中的像素行坐标，图片左上角为 (0,0)，行向下为正"),
+                    }, description: "世界坐标原点 (0,0) 在地图图片中的像素坐标（左上角为 (0,0)）；提供 image_transform 时本子字段必填"),
+                    new FieldSchema("image_size_px", FieldKind.Object, required: false, fields: new[]
+                    {
+                        new FieldSchema("x", FieldKind.Number, required: true, description: "地图背景图片（ground 分层图）宽度，像素"),
+                        new FieldSchema("y", FieldKind.Number, required: true, description: "地图背景图片（ground 分层图）高度，像素"),
+                    }, description: "地图背景图片的宽高像素，可选；提供时供 world_map_point_outside_image 规则计算世界坐标包围盒"),
+                }, description: "像素↔世界单位换算参数（消费方反馈第 59 条，ADR-0036）；世界坐标 Y 轴正方向向上，"
+                    + "图片像素坐标左上角为原点、行向下为正，换算公式见 05_对象模型与世界.md 第 3.1.1 节。"
+                    + "本字段缺省时不得隐含套用任何默认换算（见 MapImageTransform.FromRecord 判断记录），"
+                    + "框架仅在契约层提供一个显式命名的默认值（MapImageTransform.Default：ppu=32、原点在图片左上角）供调用方主动选用"),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Gameplay, "world");
+    }
+
+    /// <summary>
+    /// 消费方反馈第 59 条（ADR-0036）：地图声明了 <c>image_transform.image_size_px</c> 时，
+    /// <c>spawn_points</c>/<c>teleport_points</c> 的世界坐标若落在按 <see cref="MapImageTransform"/>
+    /// 换算出的图片包围盒之外，报一条不可提升的警告（内容仍可以摆在图片外，如确有画布外的逻辑区域
+    /// 需求，本规则只提示"这个点画不到背景图上，检查是不是摆错了"，不是硬性拒绝——同
+    /// <see cref="WorldMapSpawnPointsValidationRule"/> 判断记录风格：登记层表达不了跨字段的业务
+    /// 约束，在 report 阶段补齐）。未声明 <c>image_transform</c> 或未提供 <c>image_size_px</c> 的
+    /// 地图直接跳过（无法界定图片范围，不是缺陷）。
+    /// </summary>
+    public sealed class WorldMapPointOutsideImageValidationRule : IValidationRule
+    {
+        private const string CheckName = "world_map_point_outside_image";
+
+        public ValidationSeverity DefaultSeverity => ValidationSeverity.Warning;
+
+        public bool NonEscalatable => true;
+
+        public System.Collections.Generic.IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            foreach (var record in view.GetAll(WorldMapSchema.Table.Name))
+            {
+                var transform = MapImageTransform.FromRecord(record);
+                if (transform == null || transform.WorldBounds == null)
+                {
+                    continue;
+                }
+
+                var bounds = transform.WorldBounds.Value;
+
+                foreach (var issue in CheckPoints(record, "spawn_points", bounds))
+                {
+                    yield return issue;
+                }
+
+                foreach (var issue in CheckPoints(record, "teleport_points", bounds))
+                {
+                    yield return issue;
+                }
+            }
+        }
+
+        private static System.Collections.Generic.IEnumerable<ValidationIssue> CheckPoints(
+            DataRecord record, string field, (Core.Foundation.Common.Vec2 Min, Core.Foundation.Common.Vec2 Max) bounds)
+        {
+            if (!record.TryGetArray(field, out var points))
+            {
+                yield break;
+            }
+
+            for (var i = 0; i < points.Count; i++)
+            {
+                if (!(points[i] is Core.Foundation.Common.Json.JsonObject point)
+                    || !point.TryGetValue("position", out var posVal)
+                    || !(posVal is Core.Foundation.Common.Json.JsonObject posObj)
+                    || !posObj.TryGetValue("x", out var xv) || !(xv is Core.Foundation.Common.Json.JsonNumber xn)
+                    || !posObj.TryGetValue("y", out var yv) || !(yv is Core.Foundation.Common.Json.JsonNumber yn))
+                {
+                    continue;
+                }
+
+                var x = xn.Value;
+                var y = yn.Value;
+                if (x < bounds.Min.X || x > bounds.Max.X || y < bounds.Min.Y || y > bounds.Max.Y)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, WorldMapSchema.Table.Name, CheckName,
+                        $"{field}[{i}].position 落在 image_transform 声明的图片范围之外（检查坐标是否摆错或 image_transform 参数是否有误）",
+                        recordKey: record.Key, field: $"{field}[{i}].position");
+                }
+            }
+        }
     }
 
     /// <summary>
