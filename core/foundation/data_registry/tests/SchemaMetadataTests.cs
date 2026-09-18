@@ -472,5 +472,82 @@ namespace Tests.Foundation.Data
                 }),
             }));
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 60 条（04 第 4 节勘误"元素数量约束"）：FieldSchema.WithItemCount 行为、种类限制、
+        // 参数校验、重复设置防护。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void WithItemCount_OnArray_SetsMinAndMax()
+        {
+            var field = new FieldSchema("objectives", FieldKind.Array, required: true)
+                .WithItemCount(1, 5);
+
+            Assert.Equal(1, field.MinItems);
+            Assert.Equal(5, field.MaxItems);
+        }
+
+        [Fact]
+        public void WithItemCount_OnIdList_SetsMinOnly_MaxNull()
+        {
+            var field = new FieldSchema("refs", FieldKind.IdList, required: false)
+                .WithItemCount(2);
+
+            Assert.Equal(2, field.MinItems);
+            Assert.Null(field.MaxItems);
+        }
+
+        [Fact]
+        public void WithItemCount_Undeclared_DefaultsToNullNull()
+        {
+            var field = new FieldSchema("plain_array", FieldKind.Array, required: false);
+
+            Assert.Null(field.MinItems);
+            Assert.Null(field.MaxItems);
+        }
+
+        [Theory]
+        [InlineData(FieldKind.Number)]
+        [InlineData(FieldKind.String)]
+        [InlineData(FieldKind.Object)]
+        [InlineData(FieldKind.Id)]
+        [InlineData(FieldKind.Reference)]
+        public void WithItemCount_OnNonCollectionKind_Throws(FieldKind kind)
+        {
+            var field = new FieldSchema("scalar", kind, required: false,
+                referenceTable: kind == FieldKind.Reference ? "test.target" : null);
+
+            Assert.Throws<System.ArgumentException>(() => field.WithItemCount(1));
+        }
+
+        [Fact]
+        public void WithItemCount_NegativeMin_Throws()
+        {
+            var field = new FieldSchema("items", FieldKind.Array, required: false);
+            Assert.Throws<System.ArgumentException>(() => field.WithItemCount(-1));
+        }
+
+        [Fact]
+        public void WithItemCount_MaxLessThanMin_Throws()
+        {
+            var field = new FieldSchema("items", FieldKind.Array, required: false);
+            Assert.Throws<System.ArgumentException>(() => field.WithItemCount(5, 3));
+        }
+
+        [Fact]
+        public void WithItemCount_MaxEqualsMin_DoesNotThrow()
+        {
+            var field = new FieldSchema("items", FieldKind.Array, required: false).WithItemCount(3, 3);
+            Assert.Equal(3, field.MinItems);
+            Assert.Equal(3, field.MaxItems);
+        }
+
+        [Fact]
+        public void WithItemCount_CalledTwice_Throws()
+        {
+            var field = new FieldSchema("items", FieldKind.Array, required: false).WithItemCount(1);
+            Assert.Throws<System.InvalidOperationException>(() => field.WithItemCount(2));
+        }
     }
 }

@@ -13,7 +13,7 @@
 | `id` | Id | 是 | `quest.<name>`。 |
 | `title_key` | TextKey（Id） | 是 | 任务标题文本键。**代码注释称"08 原文未列出，任务书拍板补录"——见下方"与 08 原文的差异"，实际当前版本 08 第 2.1 节字段表已收录该字段。** |
 | `description_key` | TextKey（Id） | 否 | 任务描述文本键。代码注释同 `title_key` 的说法（"08 原文未列出"），实际当前版本 08 已收录，见下方说明。 |
-| `objectives` | Array\<QuestObjective\> | 是 | 目标数组，至少一条（`QuestDefinition` 构造期强制非空，`FieldSchema` 无法表达最小长度，业务判断保留见下"子结构登记表"）。元素结构 ADR-0019/F1b 起登记为 `QuestSchemas.ObjectiveItemSchema`（按 `type` 分派的 `Variants`），见下"QuestObjective 结构"与"子结构登记表"。 |
+| `objectives` | Array\<QuestObjective\> | 是 | 目标数组，至少一条——消费方反馈第 60 条根治：已改用 `FieldSchema.WithItemCount(min: 1)` 登记，由 `DataRegistry` 通用字段校验的 `field_item_count` 检查项报告（不再是 `QuestContentValidationRule` 职责，退役检查名 `objectives_min_count`）。元素结构 ADR-0019/F1b 起登记为 `QuestSchemas.ObjectiveItemSchema`（按 `type` 分派的 `Variants`），见下"QuestObjective 结构"与"子结构登记表"。 |
 | `prerequisite` | Expr | 否 | 前置条件（等级、已完成任务、世界标志等）；未声明时视为恒真（无前置）。 |
 | `exclusive_group` | Id | 否 | 互斥组：同组任务同时只能激活/完成一个（`QuestHost.Accept` 校验）。 |
 | `start_method` | Enum | 是 | `npc_gossip｜item_use｜area_trigger｜auto`，起始方式。 |

@@ -24,8 +24,11 @@ namespace Core.Gameplay.Dialog
     /// 侧保留全部四项登记表达不了的图结构判断）：
     /// </para>
     /// <list type="bullet">
-    /// <item><c>nodes</c> 数组至少一个元素（<c>StoryTreeDefinition</c> 构造期硬约束，
-    /// <see cref="FieldKind.Array"/> 不表达最小长度）——<c>story_tree_min_nodes</c>。</item>
+    /// <item>消费方反馈第 60 条根治：<c>nodes</c> 数组至少一个元素（<c>StoryTreeDefinition</c> 构造期
+    /// 硬约束）此前由本规则报 <c>story_tree_min_nodes</c>，现已改在 <c>DialogSchemas.StoryTree</c> 的
+    /// <c>nodes</c> 字段登记 <see cref="FieldSchema.WithItemCount"/>（<c>min: 1</c>），由
+    /// <c>DataRegistry</c> 通用字段校验的 <c>field_item_count</c> 检查项报告，本规则不再重复报告
+    /// （避免同一缺陷双报）；<c>ValidateStoryTree</c> 空数组时直接返回，不再访问首个节点。</item>
     /// <item><c>nodes[].id</c> 同一棵树内必须唯一（<c>StoryTreeDefinition</c> 构造期硬约束，跨元素
     /// 一致性检查，<see cref="FieldSchema"/> 不表达）——<c>story_tree_duplicate_node_id</c>。</item>
     /// <item><c>nodes[].branches[].next_node_id</c> 必须命中同一棵树内某个已知节点（<c>Id</c> 本身
@@ -184,10 +187,9 @@ namespace Core.Gameplay.Dialog
 
             if (nodesRaw.Count == 0)
             {
-                yield return new ValidationIssue(
-                    ValidationSeverity.Error, DialogSchemas.StoryTree.Name, "story_tree_min_nodes",
-                    "dialog.story_tree.nodes 至少需要一个节点", recordKey: record.Key, field: "nodes");
-                yield break; // 没有节点，后续悬空引用/成环检查无意义。
+                // 消费方反馈第 60 条：元素数不足已由 field_item_count（WithItemCount(min: 1)）报告，
+                // 这里只提前返回、不再重复报错——没有节点，后续悬空引用/成环检查也无意义。
+                yield break;
             }
 
             // nodeId -> 该节点各分支的 next_node_id 列表（null 表示该分支是终止分支）。

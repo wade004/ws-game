@@ -90,7 +90,8 @@ namespace Core.Foundation.SceneRouter
                     .WithFreeIds("子区域 id 由本条记录自行声明的局部划分名字，不指向任何已登记表的既有记录"),
                 new FieldSchema("nav_ref", FieldKind.String, required: true, description: "导航资源引用（可行走区域、遮挡层数据），由引擎适配层加载后经 INavigation2D 暴露"),
                 new FieldSchema("spawn_points", FieldKind.Array, required: true, item: PointItemSchema,
-                    description: "玩家出生点/复活点清单，List<{id?, position?}>；本模块只读取第 0 个元素的 position 作为默认出生点"),
+                    description: "玩家出生点/复活点清单，List<{id?, position?}>；本模块只读取第 0 个元素的 position 作为默认出生点；至少 1 项，见 WithItemCount")
+                    .WithItemCount(1),
                 new FieldSchema("teleport_points", FieldKind.Array, required: false, item: PointItemSchema,
                     description: "供传送类效果/AreaTrigger 引用的命名传送目标，List<{id?, position?}>"),
                 new FieldSchema("music_ref", FieldKind.String, required: false, description: "背景音乐资源引用"),
@@ -112,6 +113,15 @@ namespace Core.Foundation.SceneRouter
     /// <see cref="Core.Foundation.DataRegistry.DataFieldException"/>。本规则在 report 阶段补齐同一
     /// 条判定（与 <see cref="SceneDescriptor.FromRecord"/> 的两个异常分支一一对应），使用真实
     /// <c>world.map</c> 数据的消费方在加载期而不是切场景那一刻发现内容缺陷。
+    /// <para>
+    /// 消费方反馈第 60 条根治："<c>spawn_points</c> 至少一条"这半条约束已改在
+    /// <see cref="WorldMapSchema.Table"/> 的 <c>spawn_points</c> 字段登记
+    /// <see cref="FieldSchema.WithItemCount"/>（<c>min: 1</c>），由 <c>DataRegistry</c> 通用字段校验
+    /// 的 <c>field_item_count</c> 检查项报告，本规则不再重复报告空数组这一件事（避免同一缺陷双报）；
+    /// 本规则只保留"第 0 条必须携带合法 <c>position</c>"这半条登记层仍表达不了的约束——空数组时
+    /// 直接跳过（不再访问 <c>spawnPoints[0]</c>），因为通用字段校验与本规则在同一次
+    /// <c>LoadAll</c>/<c>Validate</c> 遍历同一份已加载数据，元素数不足并不会阻止本规则被调用。
+    /// </para>
     /// </summary>
     public sealed class WorldMapSpawnPointsValidationRule : IValidationRule
     {
@@ -129,9 +139,8 @@ namespace Core.Foundation.SceneRouter
 
                 if (spawnPoints.Count == 0)
                 {
-                    yield return new ValidationIssue(
-                        ValidationSeverity.Error, WorldMapSchema.Table.Name, CheckName,
-                        "spawn_points 至少需要一个出生点才能确定默认出生点", recordKey: record.Key, field: "spawn_points");
+                    // 消费方反馈第 60 条：元素数不足已由 field_item_count（WithItemCount(min: 1)）
+                    // 报告，这里只跳过、不再重复报错——同时避免下面 spawnPoints[0] 索引越界。
                     continue;
                 }
 

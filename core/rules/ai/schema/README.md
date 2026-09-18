@@ -36,7 +36,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `ai.path.<name>` |
-| `points` | Array of `{x: Number, y: Number}` | 是 | 有序路径点列表，至少 2 个点（`AiContentValidationRule` 校验） |
+| `points` | Array of `{x: Number, y: Number}` | 是 | 有序路径点列表，至少 2 个点（`FieldSchema.WithItemCount(min: 2)` 登记，`DataRegistry` 通用字段校验 `field_item_count` 检查项，消费方反馈第 60 条） |
 | `mode` | Enum（`loop`\|`pingpong`） | 是 | `loop`：到终点跳回起点；`pingpong`：到端点折返方向 |
 
 ## 校验
@@ -50,7 +50,11 @@ DataRegistry 通用校验只检查"存在且是数组/对象"，不深入检查�
   （且可被 `ExprParser` 解析、`ExprValidator` 静态校验通过）、字符串型 `skill_id`。
 - `ai.behavior_profile.flee_hp_pct_threshold`：若提供，必须落在 `[0,1]` 区间。
 - `ai.behavior_profile.transitions`：各值必须是字符串且可被解析、静态校验通过。
-- `ai.patrol_path.points`：至少 2 个点。
+
+消费方反馈第 60 条根治：`ai.patrol_path.points` 至少 2 个点此前也是 `AiContentValidationRule` 的
+职责，现已改在 `AiSchemas.PatrolPath.points` 登记 `FieldSchema.WithItemCount(min: 2)`，由
+`DataRegistry` 通用字段校验的 `field_item_count` 检查项报告（见上表），`AiContentValidationRule`
+不再重复检查。
 
 ## Expr 词汇表覆盖面
 

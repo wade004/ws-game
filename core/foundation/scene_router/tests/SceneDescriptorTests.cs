@@ -41,6 +41,15 @@ namespace Tests.Foundation.SceneRouter
             Assert.Equal(new Vec2(5, 6), descriptor.DefaultSpawnPosition);
         }
 
+        // 消费方反馈第 60 条：spawn_points 空数组现在会被新增的 field_item_count 检查挡在
+        // SceneRouterTestSupport.BuildWorldMapRegistry 的阻断守卫之前（该助手在 report.IsBlocking
+        // 时直接抛 InvalidOperationException），无法再借道它取到一条"已加载"的坏记录来单独验证
+        // SceneDescriptor.FromRecord 自身的防御性检查。这里改为手搭一个不经过该守卫的 registry，
+        // LoadAll 后即便处于阻断态，仍借 IDataRegistryView.TryGet 的阻断态直读通道（绕开
+        // EnsureReadable，具体 DataRegistry 实现下 TryGet 显式覆盖为直读快照，见
+        // TolerantRegistryView/DataRegistry.TryGet 判断记录）取出这条记录，从而继续验证
+        // SceneDescriptor.FromRecord 的运行时最后一道防线对"绕过加载期批量校验拿到"的坏记录依然
+        // 生效——不是放宽断言，只是改变了取到这条坏记录的路径。
         [Fact]
         public void FromRecord_EmptySpawnPoints_ThrowsDataFieldException()
         {
@@ -52,10 +61,15 @@ namespace Tests.Foundation.SceneRouter
               ""spawn_points"": []
             }";
 
-            var registry = SceneRouterTestSupport.BuildWorldMapRegistry("[" + row + "]");
-            var record = registry.Get("world.map", "world.no_spawn")!;
+            var source = new InMemoryDataSource().Add("world.map",
+                "{\"table\": \"world.map\", \"schema_version\": 1, \"rows\": [" + row + "]}");
+            var registry = new Core.Foundation.DataRegistry.DataRegistry(source, SceneRouterTestSupport.CreateBus());
+            registry.RegisterSchema(Core.Foundation.SceneRouter.WorldMapSchema.Table);
+            registry.LoadAll(); // 预期阻断（field_item_count），本用例只关心 FromRecord 自身的防御性检查
 
-            Assert.Throws<DataFieldException>(() => SceneDescriptor.FromRecord(record));
+            Assert.True(((IDataRegistryView)registry).TryGet("world.map", "world.no_spawn", out var record));
+
+            Assert.Throws<DataFieldException>(() => SceneDescriptor.FromRecord(record!));
         }
 
         [Fact]

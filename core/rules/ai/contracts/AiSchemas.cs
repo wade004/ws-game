@@ -92,7 +92,8 @@ namespace Core.Rules.Ai
                 new FieldSchema("points", FieldKind.Array, required: true,
                     item: new FieldSchema("<point>", FieldKind.Vec2, required: true,
                         description: "路径点坐标 {x, y}"),
-                    description: "有序路径点列表：[{x: Number, y: Number}, ...]，至少 2 个点，见 AiContentValidationRule"),
+                    description: "有序路径点列表：[{x: Number, y: Number}, ...]，至少 2 个点，见 WithItemCount")
+                    .WithItemCount(2),
                 new FieldSchema("mode", FieldKind.Enum, required: true, enumValues: PatrolModeValues,
                     description: "loop：到终点跳回起点；pingpong：到端点折返方向"),
             }).WithOwnership(SchemaLayer.Rules, "ai");

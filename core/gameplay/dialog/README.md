@@ -144,6 +144,16 @@ dialog/
    可达节点集合一致（3 例）、重复/并发调用结果一致证明无状态、单节点/环/悬空引用/`maxPaths`/`maxDepth`
    截断等边界用例。
 
+11. **消费方反馈第 60 条（2026-09-18）：`nodes` 最小长度改由 schema 登记，退役
+   `story_tree_min_nodes`**——`DialogSchemas.StoryTree` 的 `nodes` 字段新增
+   `FieldSchema.WithItemCount(min: 1)` 登记，`DataRegistry` 通用字段校验的 `field_item_count`
+   检查项据此报告"元素数不足"，`DialogContentValidationRule.ValidateStoryTree` 里原有的
+   `story_tree_min_nodes` 判断分支同步删除（避免同一缺陷双报），空数组时改为直接 `yield break`（不
+   再假设"数量已由自己校验过"而访问后续逻辑，通用字段校验与业务规则本就在同一次 `LoadAll`/
+   `Validate` 遍历同一份已加载数据）。第 8 条描述的"story_tree 侧四个检查名"现收窄为
+   `story_tree_duplicate_node_id`/`story_tree_dangling_next_node`/`story_tree_cycle` 三个（另有第
+   9 条新增的 `story_tree_node_unreachable`），`story_tree_min_nodes` 不再产出任何诊断。
+
 ## 不负责什么
 
 - 不实现具体商店界面、传送执行、存档流程、遭遇启动的业务逻辑——四者全部经委托转发给调用方

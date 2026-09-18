@@ -657,6 +657,23 @@ namespace Toolchain.Validator
                     sb.Append(']');
                     sb.Append(',');
 
+                    // 消费方反馈第 60 条："导出给内容工具"：随每张表一并输出已登记的字段元素数量约束
+                    // （SchemaFieldItemCountExport 判断记录），编辑器可据此在内容作者增删数组/IdList
+                    // 元素时就地提示，不必等到一次完整的 DataRegistry.LoadAll。追加在既有 "field_ranges"
+                    // 字段之后、闭合大括号之前，不改动任何既有字段。
+                    sb.Append("\"field_item_counts\":[");
+                    if (fieldSchema != null)
+                    {
+                        var itemCounts = SchemaFieldItemCountExport.Collect(fieldSchema);
+                        for (var r = 0; r < itemCounts.Count; r++)
+                        {
+                            if (r > 0) sb.Append(',');
+                            AppendFieldItemCountJson(sb, itemCounts[r]);
+                        }
+                    }
+                    sb.Append(']');
+                    sb.Append(',');
+
                     // 消费方反馈第 40 条："--list-tables --json 组合" 新增字段——每张表当前登记的
                     // schema_version（TableSchema.CurrentSchemaVersion）与迁移链形状（Migrations 的
                     // (from, to) 环节清单，按登记顺序，不代表已从 fromVersion 到 CurrentSchemaVersion
@@ -1051,6 +1068,17 @@ namespace Toolchain.Validator
             sb.Append("\"max\":").Append(range.Max.HasValue ? range.Max.Value.ToString(CultureInfo.InvariantCulture) : "null").Append(',');
             sb.Append("\"max_exclusive\":").Append(range.MaxExclusive ? "true" : "false").Append(',');
             sb.Append("\"describe\":\"").Append(JsonEscape(range.Describe())).Append('"');
+            sb.Append('}');
+        }
+
+        /// <summary>见 <see cref="PrintJson"/> 里 <c>field_item_counts</c> 字段的判断记录。</summary>
+        private static void AppendFieldItemCountJson(StringBuilder sb, FieldItemCountInfo info)
+        {
+            sb.Append('{');
+            sb.Append("\"field_path\":\"").Append(JsonEscape(info.FieldPath)).Append("\",");
+            sb.Append("\"kind\":\"").Append(JsonEscape(info.Kind)).Append("\",");
+            sb.Append("\"min_items\":").Append(info.MinItems.HasValue ? info.MinItems.Value.ToString(CultureInfo.InvariantCulture) : "null").Append(',');
+            sb.Append("\"max_items\":").Append(info.MaxItems.HasValue ? info.MaxItems.Value.ToString(CultureInfo.InvariantCulture) : "null");
             sb.Append('}');
         }
 

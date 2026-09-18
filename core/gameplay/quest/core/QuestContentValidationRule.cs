@@ -25,8 +25,10 @@ namespace Core.Gameplay.Quest
     /// 约束一类），全部直接读取原始 JSON，不再调用 <c>FromRecord</c>/<c>ExprParser</c>：
     /// </para>
     /// <list type="bullet">
-    /// <item><c>objectives</c> 数组至少一条（<c>QuestDefinition</c> 构造期硬约束，
-    /// <see cref="FieldKind.Array"/> 不表达最小长度）——<c>objectives_min_count</c>。</item>
+    /// <item>消费方反馈第 60 条根治：<c>objectives</c> 数组至少一条（<c>QuestDefinition</c> 构造期
+    /// 硬约束）此前由本规则报 <c>objectives_min_count</c>，现已改在 <c>QuestSchemas.Def</c> 的
+    /// <c>objectives</c> 字段登记 <see cref="FieldSchema.WithItemCount"/>（<c>min: 1</c>），由
+    /// <c>DataRegistry</c> 通用字段校验的 <c>field_item_count</c> 检查项报告，本规则不再重复报告。</item>
     /// <item><c>objectives[].count</c> 必须为正整数（<c>QuestObjective</c> 构造期硬约束，
     /// <see cref="FieldKind.Int"/> 不区分正负）——<c>objective_count_positive</c>。</item>
     /// <item><c>objectives[].type</c> 为 <c>explore</c>/<c>escort</c>/<c>talk</c> 时 <c>count</c> 必须
@@ -130,12 +132,8 @@ namespace Core.Gameplay.Quest
                 yield break;
             }
 
-            if (objectives.Count == 0)
-            {
-                yield return new ValidationIssue(
-                    ValidationSeverity.Error, QuestSchemas.Def.Name, "objectives_min_count",
-                    "objectives 至少需要一条目标", recordKey: record.Key, field: "objectives");
-            }
+            // 消费方反馈第 60 条：元素数不足已由 field_item_count（WithItemCount(min: 1)）报告，
+            // 这里不再重复报错；下面循环对空数组天然是空操作，不需要额外提前返回。
 
             for (var i = 0; i < objectives.Count; i++)
             {

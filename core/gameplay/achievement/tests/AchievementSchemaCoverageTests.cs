@@ -183,15 +183,19 @@ namespace Tests.Gameplay.Achievement
             Assert.Contains(report.Issues, i => i.Check == "achv_criterion_count_positive" && i.Field == "criteria[0].count");
         }
 
+        // 消费方反馈第 60 条：空 criteria 此前由 AchievementContentValidationRule 报
+        // "achv_criteria_min_count"，现已改在 AchievementSchemas.Def.criteria 登记
+        // FieldSchema.WithItemCount(min: 1)，由 DataRegistry 通用字段校验的 field_item_count
+        // 检查项报告（见 CHANGELOG.md 对照表）。
         [Fact]
-        public void Criteria_EmptyArray_ReportsAchvCriteriaMinCount()
+        public void Criteria_EmptyArray_ReportsFieldItemCount()
         {
             var rows = "[{" + MinimalHeader + ", \"criteria\": []}]";
 
             var report = Load(rows);
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "achv_criteria_min_count" && i.Field == "criteria");
+            Assert.Contains(report.Issues, i => i.Check == "field_item_count" && i.Field == "criteria");
         }
 
         [Fact]
