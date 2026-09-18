@@ -28,6 +28,7 @@ from .common import (
     validate_id,
     write_json_pretty,
 )
+from .ref_conventions import vfx_resource_dir
 
 ATTACH_MODE_CHOICES = ["world", "anchor", "socket", "screen"]
 
@@ -90,7 +91,10 @@ def run(args: argparse.Namespace) -> int:
         lifetime = args.lifetime if args.lifetime is not None else round(len(frame_paths) / args.fps, 4)
     resource_ref = f"vfx.{name}"
 
-    out_dir = assets_root / args.dataset / "vfx" / name
+    # 消费方反馈第 65 条：目录路径改由 ref_conventions.vfx_resource_dir 统一推导（与
+    # check_cmd.py/AssetRefConventions.VfxResourceDir/UnityResourceLoader.ResolveEffectDir 同一规则），
+    # 不再自行拼接；对本函数刚算出的 resource_ref（类别前缀之后已不含点号）结果与旧写法逐字节一致。
+    out_dir = assets_root / args.dataset / vfx_resource_dir(resource_ref)
     atlas_png_path = out_dir / "atlas.png"
     frames_json_path = out_dir / "frames.json"
 
