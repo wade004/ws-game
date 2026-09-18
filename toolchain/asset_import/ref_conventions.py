@@ -20,6 +20,10 @@ __all__ = [
     "icon_file",
     "try_parse_sprite_set_id",
     "try_parse_icon_id",
+    "vfx_resource_dir",
+    "sfx_resource_file",
+    "anim_clip_resource_path",
+    "model_resource_path",
 ]
 
 
@@ -80,6 +84,48 @@ def try_parse_sprite_set_id(relative_directory: str) -> str | None:
     if not category or not name:
         return None
     return f"sprite.{category}.{name}"
+
+
+def vfx_resource_dir(resource_ref_id: str) -> str:
+    """把 ``vfx.def.resource_ref`` 解析为该特效资源在资产根目录下的相对目录路径（正斜杠分隔，
+    不以 ``/`` 结尾）：``"vfx/<资源引用id去掉类别前缀，点号换下划线>"``——目录下固定含
+    ``atlas.png``/``frames.json`` 两个文件。与 C# 侧 ``AssetRefConventions.VfxResourceDir``、
+    ``vfx_cmd.py`` 落地产物、Unity 侧 ``UnityResourceLoader.ResolveEffectDir`` 三处逐一核对一致
+    （消费方反馈第 65 条，见该类型判断记录）。
+    """
+    return "vfx/" + strip_category_prefix(resource_ref_id)
+
+
+def sfx_resource_file(resource_ref_id: str) -> str:
+    """把 ``sfx.def.resource_ref``（或 ``variants`` 列表内的单个 Id）解析为该音频变体在资产根目录下
+    的相对文件路径（正斜杠分隔，含 ``.wav`` 扩展名）：
+    ``"sfx/<资源引用id去掉类别前缀，点号换下划线>.wav"``——扁平文件，非子目录。与 C# 侧
+    ``AssetRefConventions.SfxResourceFile`` 同一套规则（消费方反馈第 65 条：详见该方法判断记录
+    "与 check_cmd.py 既有内联实现的差异，不影响任何当前可产出数据"）。
+    """
+    return "sfx/" + strip_category_prefix(resource_ref_id) + ".wav"
+
+
+def anim_clip_resource_path(resource_ref_id: str) -> str:
+    """把 model 型 ``display.anim_set.clips[*].resource_ref`` 解析为 Unity
+    ``Resources.Load<AnimationClip>`` 可消费的相对路径（不含扩展名，不以任何"资产根目录"为基准，
+    与 :func:`vfx_resource_dir`/:func:`sfx_resource_file` 不是同一路径空间，不能拼进
+    ``assets/<dataset>/`` 做文件存在性检查——见消费方反馈第 65/66 条回复文档"待设计层确认"一节）：
+    ``"GameFoundation/anim_clips/<资源引用id去掉类别前缀，点号换下划线>"``——与 C# 侧
+    ``AssetRefConventions.AnimClipResourceFile``/``UnityResourceLoader.ResolveAnimClipResourcesPath``
+    逐字对应。仅覆盖 model 型消费该字段时的规则，sprite 型的并存规则见 C# 侧类型判断记录。
+    """
+    return "GameFoundation/anim_clips/" + strip_category_prefix(resource_ref_id)
+
+
+def model_resource_path(resource_ref_id: str) -> str:
+    """把 ``display.map.model_ref``、model 型 ``display.equip_visual.mesh_ref``/``model_ref`` 解析为
+    Unity ``Resources.Load<GameObject>`` 可消费的相对路径（不含扩展名，同 :func:`anim_clip_resource_path`
+    不以任何"资产根目录"为基准）：``"GameFoundation/models/<资源引用id去掉类别前缀，点号换下划线>"``
+    ——与 C# 侧 ``AssetRefConventions.ModelFile``/``UnityResourceLoader.ResolveModelResourcesPath``
+    逐字对应。
+    """
+    return "GameFoundation/models/" + strip_category_prefix(resource_ref_id)
 
 
 def try_parse_icon_id(relative_file_path: str) -> str | None:
