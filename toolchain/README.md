@@ -425,7 +425,33 @@ python toolchain/import_assets.py <子命令> ...
   14 第 11 节"缺锚点"校验项）、`world.map` 引用的地图分层图（`map` 子命令产出）是否存在。
   `--only sprite,vfx,sfx,world`（逗号分隔，省略则四项全跑）只跑选定的检查域，供门禁在某个数据集
   只有部分域已接入真实资产时缩小本次运行覆盖范围（不放宽已选中域自身的判断逻辑）。只打印问题
-  清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题）。
+  清单，不写任何文件；返回码 `0`（无问题）/`1`（有问题），加不加 `--json` 语义相同。
+
+  **`--json`（消费方反馈第 62 条）**：stdout 只输出一个 JSON 文档（UTF-8、中文不转义），其余日志
+  （逐条问题的人类可读文本、末尾汇总行）改走 stderr；不加 `--json` 时文本输出（含走 stdout 而非
+  stderr）与不加本参数前逐字节一致。顶层结构：`{tool, dataset, domains: [...], ok: bool,
+  counts: {error, warning}, issues: [...]}`；每条 `issues[]` 元素：`severity`（`error`/
+  `warning`）、`table`（登记表名，如 `display.map`/`vfx.def`/`sfx.def`/`world.map`）、
+  `record_key`（问题所在行的 `id`）、`field_path`（问题定位到的字段路径，支持数组下标如
+  `"variants[0]"`，无法定位到具体字段时为 `null`——语义同 `toolchain/validator` 的
+  `ValidationIssue.Field`，但键名不同：本工具是独立新契约，直接用更明确的 `field_path`，不强求
+  与 validator 的历史键名 `field` 一致）、`check`（稳定 snake_case 检查名，见下）、`message`
+  （与文本模式同一条消息，逐字相同）、`path`（本工具专属：期望存在但实际缺失的资源相对路径，
+  格式/一致性类问题无具体路径时为 `null`，validator 不检查资源文件存在性，没有对应字段）。
+
+  稳定检查名清单（`toolchain/asset_import/check_cmd.py` 的 `CHECK_NAMES` 常量，供 `--json`
+  消费方按 `check` 字段过滤/分类；命名风格参照 `toolchain/validator` 既有检查名，如
+  `world_map_point_outside_image`；本工具当前诊断与 validator 既有规则均无语义重合，未见可复用
+  同名的既有检查）：`sprite_set_id_missing`、`sprite_set_id_format_invalid`、
+  `sprite_set_dir_missing`、`sprite_atlas_json_missing`、`sprite_anchors_json_missing`、
+  `sprite_atlas_png_missing`、`sprite_direction_count_mismatch`、
+  `sprite_layer_size_inconsistent`、`sprite_frame_file_missing`、
+  `sprite_mirror_pair_source_not_landed`、`sprite_mirror_pair_missing`、
+  `sprite_anchor_out_of_canvas`、`sprite_declared_anchor_missing`、`icon_id_format_invalid`、
+  `icon_file_missing`、`vfx_resource_ref_missing`、`vfx_atlas_missing`、
+  `vfx_frames_json_missing`、`sfx_resource_ref_missing`、`sfx_resource_file_missing`、
+  `sfx_variants_missing_resource_ref`、`sfx_variant_file_missing`、`world_map_dir_missing`、
+  `world_map_layer_missing`、`world_map_scene_ref_mismatch`、`world_map_nav_ref_mismatch`。
 
 全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
 （默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`
