@@ -83,6 +83,7 @@ data_registry/
 | `field_finite` | 第十八方深度审核 F-01：`Number` 字段的值是 NaN/±Infinity（不是有限浮点数）时报出；独立于该字段是否登记 `Range`——未登记上界的 `Range`（如 `Range(min: 0)`）本就放行 +Infinity，不能只靠 `field_range` 兜底。判断在类型检查之后、`field_range` 之前 |
 | `curve_monotonic_finite` | 分阶段落地计划 T-N0-3（04 第 5 节数值类校验项分级表"曲线单调有限"）：`CurveMonotonicFiniteRule`——本模块唯一自带的 `IValidationRule`（框架级、不认具体表名，由装配根 `PresentationSchemaCatalog.RegisterAll` 注册）；对全部登记为断点表形态（`CurveSchema`）的字段逐条记录检查：断点非空、逐值有限、`x` 严格递增无重复、`y` 不递减（允许平台段），任一不满足报 Error，问题定位到曲线字段完整路径（含对象子字段/数组元素/映射值/变体分支）；元素形态不符（已由 `required_field`/`field_type` 报过）跳过不重复报；与 `field_finite` 层次不同不合并 |
 | `expr_validation_error` | 第十八方深度审核 F-03：`Expr` 字段解析（`ExprParser.Parse`/`ExprLexer.Tokenize`）或静态校验（`ExprValidator.Validate`）内部抛出除 `ExprParseException` 之外的未预期异常时报出，Error 级、阻断；`ExprParseException` 仍归入既有 `expr_parsable`，不受影响 |
+| `field_item_count` | 消费方反馈第 60 条：字段登记了 `FieldSchema.MinItems`/`MaxItems`（`FieldSchema.WithItemCount`，仅 `IdList`/`Array` 可登记）时，元素数不落在区间内报出（`ValidateFieldItemCount`，与元素结构 `Item` 是否登记正交，独立检查；未登记不检查，同 `field_range` 惯例）；消息含实际元素数与允许区间 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
 检测、孤儿记录检测、时间字段与时间模型一致）由各内容模块以 `IValidationRule` 注册，本模块
@@ -173,6 +174,24 @@ data_registry/
   `QuestSchemas.RewardsFields` 子结构，登记一次即三表同步生效）、`skill.def`/`skill.aura_def` 效果参数
   `scaling_stat`/`coefficient`（1.33.0→`scaling` 列表，非周期 `school_damage`/`heal` 与周期
   `periodic_damage`/`periodic_heal` 四个变体分支各自登记）。
+
+## 角度字段弧度制单一声明（消费方反馈第 61 条，2026-09-18）
+
+`FieldUnit` 新增 `Radian` 成员（框架内角度量一律弧度制，逆时针为正、0 指向 +X，集中声明单一来源见
+`architecture/05_对象模型与世界.md`"单位约定"一节，本枚举成员只是配合登记/导出用的结构化标记）。全仓库
+角度语义字段（`area.trigger_def.shape.{rotation,angle}`、`encounter.def.arena_rules.bounds_shape.
+{direction,angle,rotation}`、`spawn.table.facing`、`target.chain_def.shape.angle`）均已补
+`FieldSchema.WithUnit(FieldUnit.Radian)` 登记。
+
+- `toolchain/validator --list-tables --json` 的 `field_meta.unit` 此前已经是 `field.Unit.ToString()`
+  的通用导出（不是按枚举值逐一分支的白名单），新增 `Radian` 成员后无需改动导出代码，`unit` 字段自动
+  吐出 `"Radian"`——同 `"Time"`/`"Percent"`/`"None"` 既有取值一样，内容工具据此判断字段单位，不必解析
+  `description` 自由文本猜测。
+- 反射式回归测试 `presentation/assembly/tests/AngleFieldRadianUnitTests.cs`：遍历
+  `SchemaAudit.EnumerateRegisteredSchemas()` 给出的全部已登记 `TableSchema`（含 `Fields`/`Item`/
+  `Variants`/`Map` 递归子结构），断言字段名匹配 `angle|rotation|facing|heading`（大小写不敏感）的
+  `FieldKind.Number` 字段均已登记 `Unit == FieldUnit.Radian`，未登记时报具体字段路径；允许一份显式例外
+  清单（初始为空，任何新增例外须在测试文件内写明理由），防止后续新增角度字段遗漏该登记。
 
 ## 校验规则元数据与不可提升警告（分阶段落地计划 T-N0-2，04 第 5 节数值类校验项分级表）
 

@@ -52,20 +52,24 @@ namespace Core.Gameplay.AreaTrigger
                 ["cone"] = new[]
                 {
                     new FieldSchema("rotation", FieldKind.Number, required: false,
-                        description: "Shape.Cone 的 Direction；缺失/非 Number 兜底为 0"),
-                    new FieldSchema("angle", FieldKind.Number, required: false, description: "缺失/非 Number 兜底为 0"),
+                        description: "Shape.Cone 的 Direction，弧度制；缺失/非 Number 兜底为 0")
+                        .WithUnit(FieldUnit.Radian),
+                    new FieldSchema("angle", FieldKind.Number, required: false, description: "弧度制；缺失/非 Number 兜底为 0")
+                        .WithUnit(FieldUnit.Radian),
                     new FieldSchema("radius", FieldKind.Number, required: false, description: "缺失/非 Number 兜底为 0"),
                 },
                 ["line"] = new[]
                 {
                     new FieldSchema("rotation", FieldKind.Number, required: false,
-                        description: "Shape.Line 的 Direction；缺失/非 Number 兜底为 0"),
+                        description: "Shape.Line 的 Direction，弧度制；缺失/非 Number 兜底为 0")
+                        .WithUnit(FieldUnit.Radian),
                     new FieldSchema("length", FieldKind.Number, required: false, description: "缺失/非 Number 兜底为 0"),
                     new FieldSchema("width", FieldKind.Number, required: false, description: "缺失/非 Number 兜底为 0"),
                 },
                 ["rect"] = new[]
                 {
-                    new FieldSchema("rotation", FieldKind.Number, required: false, description: "缺失/非 Number 兜底为 0"),
+                    new FieldSchema("rotation", FieldKind.Number, required: false, description: "弧度制；缺失/非 Number 兜底为 0")
+                        .WithUnit(FieldUnit.Radian),
                     new FieldSchema("length", FieldKind.Number, required: false,
                         description: "换算为 Shape.HalfExtents.X 时除 2；缺失/非 Number 兜底为 0"),
                     new FieldSchema("width", FieldKind.Number, required: false,

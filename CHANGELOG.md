@@ -434,6 +434,112 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+消费方反馈第 59/60/61 条与第 56 条追问。
+
+### 新增
+
+- **第 59 条**：`world.map` 新增可选字段 `image_transform`（`pixels_per_unit`/`origin_px`/可选
+  `image_size_px`），`core/foundation/scene_router/core/WorldMapSchema.cs`。新增只读纯函数类型
+  `Core.Foundation.SceneRouter.MapImageTransform`（`core/foundation/scene_router/contracts/
+  MapImageTransform.cs`）：`PixelToWorld`/`WorldToPixel`/`WorldBounds`/静态 `Default`
+  （ppu=32、原点图片左上角）/`FromRecord`（字段缺失返回 `null`，不隐含套用默认值）。新增校验规则
+  `WorldMapPointOutsideImageValidationRule`（检查名 `world_map_point_outside_image`，Warning、
+  不可提升，`core/rules/assembly/RulesSchemaCatalog.cs` 默认注册）：地图声明 `image_size_px` 时，
+  `spawn_points`/`teleport_points` 世界坐标落在换算包围盒之外即告警。`toolchain/asset_import/
+  map_cmd.py` 新增 `--pixels-per-unit`（默认 32）、`--origin-px`（默认世界原点位于 `ground.png`
+  左下角）两个参数，`image_size_px` 从 `ground.png` 的 PNG `IHDR` 块直接读出（不新增第三方依赖）。
+- **第 60 条**：`FieldSchema` 新增可选 `MinItems`/`MaxItems`（仅 `IdList`/`Array` 字段可登记，其它
+  种类调用 `WithItemCount` 直接抛 `ArgumentException`）与修饰方法
+  `WithItemCount(int min, int? max = null)`（`min` 须 ≥ 0，`max` 若提供须 ≥ `min`；只能设置一次）。
+  `DataRegistry` 字段级校验新增检查名 `field_item_count`（Error）：`IdList`/`Array` 字段元素数不
+  落在登记区间内即报出，消息含实际元素数与允许区间，独立于元素结构（`Item`）是否登记，覆盖顶层
+  与任意深度嵌套字段。`presentation/assembly/SchemaFieldItemCountExport`
+  （`FieldItemCountInfo`/`Collect`）——与 `SchemaFieldRangeExport`/`SchemaFieldDeprecationExport`
+  同一套递归记法，收集全表已登记的元素数量约束；`toolchain/validator --list-tables --json`
+  每张表新增 `field_item_counts` 导出（`[{field_path, kind, min_items, max_items}]`），编辑器可
+  据此在内容作者增删数组/IdList 元素时就地提示。
+- **第 61 条**：`Core.Foundation.DataRegistry.FieldUnit` 新增 `Radian` 成员——框架内角度量一律弧度制，
+  逆时针为正、0 指向 +X，集中声明单一来源见 `architecture/05_对象模型与世界.md`"单位约定"新增
+  第 9 节（02 文档接口清单前言段角度约定同步改为引用该节）。全仓库全部角度语义字段（10 个字段，4 张
+  表）均补 `FieldSchema.WithUnit(FieldUnit.Radian)` 登记并在 `Description` 补"弧度"字样：
+  `area.trigger_def.shape{kind=cone}.rotation/angle`、`area.trigger_def.shape{kind=line}.rotation`、
+  `area.trigger_def.shape{kind=rect}.rotation`、
+  `encounter.def.arena_rules.bounds_shape{kind=cone}.direction/angle`、
+  `encounter.def.arena_rules.bounds_shape{kind=line}.direction`、
+  `encounter.def.arena_rules.bounds_shape{kind=rect}.rotation`、`spawn.table.facing`、
+  `target.chain_def.shape{kind=cone}.angle`。`toolchain/validator --list-tables --json` 的
+  `field_meta.unit` 此前已是 `FieldUnit.ToString()` 的通用导出，新增成员后自动吐出 `"Radian"`，
+  无需改动导出代码。新增反射式回归测试 `presentation/assembly/tests/AngleFieldRadianUnitTests.cs`：
+  遍历全部已登记 `TableSchema`（含嵌套子结构），断言字段名匹配 `angle|rotation|facing|heading` 的
+  `Number` 字段均已登记 `Unit == Radian`（允许一份显式例外清单，当前为空）。
+- **第 56 条追问**：新增两条默认关闭的可选诊断规则，回应"是否为 `quest_prerequisite`/`talent_tree`
+  孤立节点提供可选诊断"的追问——`ContentValidationOptions` 新增显式布尔开关
+  `EnableGraphIsolationDiagnostics`（默认 `false`），`toolchain/validator` 新增对应命令行开关
+  `--enable-graph-isolation`（首个"命令行式可选规则开关"，与既有两条"提供依赖即启用"的可选规则
+  不同）。开启后注册：`Core.Gameplay.Quest.QuestPrerequisiteIsolationRule`（检查名
+  `quest_prerequisite_node_isolated`，Warning，`NonEscalatable`）——提示 `quest.def` 里既无前置、
+  也未被任何其它任务引用为前置的孤立任务，仅当表内任务总数 ≥2 时报；
+  `Core.Numbers.Archetype.TalentTreeIsolationRule`（检查名 `talent_node_isolated`，Warning，
+  `NonEscalatable`）——提示每棵 `arch.talent_tree` 里既无前置也未被引用的孤立节点，仅当树内节点数
+  ≥2 时报。两条规则均登记进 `ContentValidationAssembly.OptionalRules`（`OptionalRuleNames` 由两项
+  扩为四项）。孤立节点在这两类图里仍是合法内容形态（见 1.41.0 `ContentGraphAnalyzer`/
+  `story_tree_node_unreachable` 判断记录），本次不改变这一判定，只是把该判断结果按需暴露为一条
+  可选的展示性提示，默认关闭、不影响任何既有校验行为。三套官方数据根默认（未开启开关）零行为变化；
+  实测三套官方数据根在开关**开启**时均为 0 条新增 Warning：`data/_sample`/
+  `games/_template/data/game` 均含 `quest.def`/`arch.talent_tree`，两条规则均已注册运行但命中数为
+  0（示例内容前置/引用关系已全连通，无孤立节点，不是规则未生效）；`core/sim/tests/data` 只含
+  `arch.talent_tree`（无 `quest.def`），`TalentTreeIsolationRule` 同样运行且命中数为 0，
+  `QuestPrerequisiteIsolationRule` 因表不存在而跳过。
+
+### 变更
+
+- **第 60 条**：`world.map.spawn_points`（≥1）、`dialog.story_tree.nodes`（≥1）、
+  `quest.def.objectives`（≥1）、`ai.patrol_path.points`（≥2）四处字段改为在 schema 上声明
+  `WithItemCount`，对应业务校验规则里原有的"元素数不足"判断分支同步删除，避免同一缺陷经通用字段
+  校验与业务规则双报；四处业务规则对空数组/元素数不足的情形改为显式提前 `continue`/`yield break`
+  （而不是继续按"已通过数量校验"的假设往下访问首个元素），因为通用字段校验与 `IValidationRule`
+  在同一次 `LoadAll`/`Validate` 遍历同一份已加载数据，业务规则不能假设"数量不足"已经阻止了自己
+  被调用。
+- **第 60 条**：全仓库审计（grep 描述含"至少/至多 N 项/个"但未声明 `WithItemCount` 的
+  `Array`/`IdList` 字段）额外发现两处同类缺口，一并补齐：
+  - `achv.def.criteria`（≥1）：`AchievementContentValidationRule` 原有的 `achv_criteria_min_count`
+    判断分支同步删除（同上四处的迁移方式）。
+  - `found.input_action.default_bindings`（≥1）：此前完全没有 `IValidationRule` 覆盖，只在
+    `ActionDefinition.FromRecord` 构造期抛异常（不经过加载期批量诊断）；该构造函数检查予以保留，
+    作为绕过 `DataRegistry` 加载路径时的最后一道防线，不算重复诊断。
+  两处补登后逐一验证三份示例数据 `validate_data.py --strict`：默认数据根（`data/_framework` +
+  `data/_sample`）与 `games/_template/data/game` 均 0 error 0 warning；`core/sim/tests/data` 报
+  8 条既有已确认的探针/预算偏离 warning（`skill_budget_deviation`×6、
+  `item_budget_utilization_low`×1、`override` 忽略提示×1，均带 `budget_note`/T-N6 系列判断记录
+  确认，与本次改动无关），未新增任何 `field_item_count` warning——三处均未发现现存示例数据违反
+  新登记的数量约束。
+
+### 移除
+
+- **第 60 条**：退役检查名（原有的"元素数不足"诊断分支改由通用 `field_item_count` 覆盖，检查名/
+  规则本身若还承担其它职责则保留）：
+
+  | 旧检查名（退役的诊断分支） | 归属 | 现检查名 |
+  |---|---|---|
+  | `world_map_spawn_points_first_position` 的"spawn_points 至少需要一个出生点"分支 | `WorldMapSpawnPointsValidationRule`（该检查名"首条须含合法 position"分支保留） | `field_item_count` |
+  | `story_tree_min_nodes` | `DialogContentValidationRule`（检查名整体退役） | `field_item_count` |
+  | `objectives_min_count` | `QuestContentValidationRule`（检查名整体退役） | `field_item_count` |
+  | `ai_content` 的"points 至少需要 2 个点"分支 | `AiContentValidationRule`（该检查名其余职责保留） | `field_item_count` |
+  | `achv_criteria_min_count` | `AchievementContentValidationRule`（检查名整体退役） | `field_item_count` |
+
+### 文档
+
+- **第 59 条**：`architecture/05_对象模型与世界.md` 新增第 3.1.1 节"坐标约定"——世界坐标 Y 轴
+  正方向向上、地图背景图片像素坐标左上角为原点/行向下为正、换算公式；第 4.1 节 `world.map`
+  字段表补 `image_transform`。`architecture/14_资产规格书模板.md` 第 2.2 节 `pixels_per_unit`
+  行由 `<待填>` 改为"框架默认 32；每张地图可在 `world.map.image_transform` 覆盖"。新增
+  [ADR-0036](architecture/adr/0036-地图图片像素与世界坐标换算约定.md)。
+- **第 61 条**：`architecture/05_对象模型与世界.md` 新增第 9 节"单位约定"（弧度制角度字段清单），
+  第 2 节改为引用该节，不再各处分散重复声明；第 3.5 节 `Shape` 字段表 `direction`/`angle`/
+  `rotation` 参数补"（弧度）"标注；`toolchain/README.md`、
+  `core/foundation/data_registry/README.md`、`core/gameplay/quest/README.md`、
+  `core/numbers/archetype/README.md`、`presentation/assembly/README.md` 补判断记录。
+
 ## [1.41.0] - 2026-09-18
 
 编辑器上游反馈第 54～58 条（见

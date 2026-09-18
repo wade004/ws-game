@@ -99,6 +99,15 @@ achievement/
    抛异常崩溃，不是"退役旧检查"而是新增覆盖，见 `schema/README.md` 判断记录 1/3）。详见
    `schema/README.md`"子结构登记表（ADR-0019 / F1b）"一节。
 
+8. **消费方反馈第 60 条（2026-09-18）：`criteria` 最小长度改由 schema 登记，退役
+   `achv_criteria_min_count`**——全仓库审计发现 `criteria` 与已知的 4 处迁移字段（`world.map.
+   spawn_points`/`dialog.story_tree.nodes`/`quest.def.objectives`/`ai.patrol_path.points`）属于
+   同一类此前"登记层表达不了、只能业务规则兜底"的情形，一并迁移：`AchievementSchemas.Def` 的
+   `criteria` 字段新增 `FieldSchema.WithItemCount(min: 1)` 登记，`DataRegistry` 通用字段校验的
+   `field_item_count` 检查项据此报告"元素数不足"，`AchievementContentValidationRule.ValidateCriteria`
+   里原有的 `achv_criteria_min_count` 判断分支同步删除（避免同一缺陷双报）；空数组时下方逐元素循环
+   天然是空操作，无需额外提前返回。
+
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 
 `AchievementHost.Load` 修复前开头无条件清空该玩家全部进度/解锁/待领奖记录，随后才校验 `data`

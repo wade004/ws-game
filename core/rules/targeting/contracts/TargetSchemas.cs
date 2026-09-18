@@ -31,7 +31,8 @@ namespace Core.Rules.Targeting
         private static VariantSchema BuildShapeVariants()
         {
             var radius = new FieldSchema("radius", FieldKind.Number, required: false, description: "缺省 0");
-            var angle = new FieldSchema("angle", FieldKind.Number, required: false, description: "缺省 0");
+            var angle = new FieldSchema("angle", FieldKind.Number, required: false, description: "弧度制，缺省 0")
+                .WithUnit(FieldUnit.Radian);
             var length = new FieldSchema("length", FieldKind.Number, required: false, description: "缺省 0");
             var width = new FieldSchema("width", FieldKind.Number, required: false, description: "缺省 0");
 

@@ -8,7 +8,8 @@
       "nav_ref": "nav.template_field",
       "spawn_points": [
         { "id": "world.template_field.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
-      ]
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } }
     }
   ]
 }

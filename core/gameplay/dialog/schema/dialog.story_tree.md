@@ -53,9 +53,11 @@
 - 树不得成环——三色标记的迭代式 DFS 检测（算法与曾经的 `StoryTreeDefinition.HasCycle` 一致，
   ADR-0019 起改在原始 JSON 派生的邻接表上直接跑，不要求先成功解析出强类型的
   `StoryTreeDefinition`），成环时给出环上的节点 id 序列（`story_tree_cycle`）。
-- 节点 id 在同一棵树内必须唯一（`story_tree_duplicate_node_id`）、`nodes` 数组至少一个元素
-  （`story_tree_min_nodes`）——两项均为跨元素/最小长度的业务判断，`FieldSchema` 不表达，见下方
-  "子结构登记表"判断记录。
+- 节点 id 在同一棵树内必须唯一（`story_tree_duplicate_node_id`）——跨元素一致性判断，`FieldSchema`
+  不表达，见下方"子结构登记表"判断记录。
+- `nodes` 数组至少一个元素——消费方反馈第 60 条根治：已改在 `nodes` 字段登记
+  `FieldSchema.WithItemCount(min: 1)`，由 `DataRegistry` 通用字段校验的 `field_item_count` 检查项
+  报告（不再是 `DialogContentValidationRule` 职责，退役检查名 `story_tree_min_nodes`）。
 - "起始节点 = `nodes[0]`"不需要额外校验——这是 `StoryTreeDefinition.FirstNode` 的既定语义（数组
   第一个元素恒是起始节点），不存在"取错"的可能。
 
@@ -100,10 +102,11 @@
    `nodes` 数组的其它元素"，不是另一张表的主键——`FieldKind.Reference` 表达的是跨表引用完整性，
    VariantSchema/Fields 递归也没有"引用同一数组其它元素"的记法，因此这项检查天然只能是业务判断
    （见上方"校验规则"），不属于 ADR-0019 首批"复合字段子结构登记"能表达的范围。
-4. **节点 id 重复/`nodes` 最小长度/成环三项保留在 `DialogContentValidationRule`**：均为跨元素一致
-   性或数组最小长度判断，`FieldSchema`/`VariantSchema` 只表达单个字段/单个数组元素内部的结构，
-   不表达"同一数组内多个元素之间的关系"，理由同 `QuestContentValidationRule` 的
-   `objectives_min_count`。
+4. **节点 id 重复/成环两项保留在 `DialogContentValidationRule`**：均为跨元素一致性判断，
+   `FieldSchema`/`VariantSchema` 只表达单个字段/单个数组元素内部的结构，不表达"同一数组内多个元素
+   之间的关系"。`nodes` 最小长度已改用 `FieldSchema.WithItemCount` 登记（见上方"校验规则"），不再
+   属于这一类"登记层表达不了"的判断——消费方反馈第 60 条根治后，元素数量约束本身已可登记，只有
+   "元素之间的关系"仍需业务规则承担。
 5. **Map 型对象**：本表无 Map 型字段，不适用。
 
 ## 本模块不做什么

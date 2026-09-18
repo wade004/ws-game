@@ -58,11 +58,13 @@
 
 ## 判断记录
 
-1. **`criteria` 数组最小长度（`achv_criteria_min_count`）**：`AchievementDefinition.FromRecord` 构造
-   期硬约束（"至少需要一条达成条件"），`FieldKind.Array` 不表达最小长度，此前**完全未被任何校验
-   覆盖**（`AchievementContentValidationRule` 旧实现从不检查这一点，只有 `AchievementHost` 真正构造
-   时才会抛异常崩溃）——ADR-0019 起补为新的手写业务检查，属于本次任务发现的既有覆盖缺口，不是"退役
-   旧检查"，而是新增覆盖。
+1. **`criteria` 数组最小长度**：`AchievementDefinition.FromRecord` 构造期硬约束（"至少需要一条达成
+   条件"），此前**完全未被任何校验覆盖**（`AchievementContentValidationRule` 旧实现从不检查这一点，
+   只有 `AchievementHost` 真正构造时才会抛异常崩溃）——ADR-0019 起补为新的手写业务检查
+   `achv_criteria_min_count`，属于当时任务发现的既有覆盖缺口，不是"退役旧检查"，而是新增覆盖。
+   消费方反馈第 60 条根治（2026-09-18）：`FieldKind.Array` 已可表达最小长度，`achv_criteria_min_count`
+   随之退役，改在 `AchievementSchemas.Def.criteria` 登记 `FieldSchema.WithItemCount(min: 1)`，由
+   `DataRegistry` 通用字段校验的 `field_item_count` 检查项报告。
 2. **`observe_event` 未登记为 `Reference(found.event_catalog)`**：语义上指向
    `Core.Foundation.DataRegistry.BuiltinSchemas.FoundEventCatalog`（主键 `key`），但该表不由
    `GameplaySchemaCatalog.RegisterAll` 注册；既有测试 `AchievementHostTests` 用只注册 `achv.def`

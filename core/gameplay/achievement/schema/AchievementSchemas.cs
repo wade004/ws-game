@@ -149,7 +149,8 @@ namespace Core.Gameplay.Achievement
                 new FieldSchema("name_key", FieldKind.TextKey, required: true,
                     description: "显示名文本键（08 第 6.1 节未列出，任务书拍板补录）"),
                 new FieldSchema("criteria", FieldKind.Array, required: true, item: CriterionItemSchema,
-                    description: "List<{type, observe_event, target_ref?, count, filter?}>，见本类型判断记录；元素结构 ADR-0019/F1b 起登记为 CriterionItemSchema（按 type 分派的 Variants）"),
+                    description: "List<{type, observe_event, target_ref?, count, filter?}>，见本类型判断记录；元素结构 ADR-0019/F1b 起登记为 CriterionItemSchema（按 type 分派的 Variants）；至少 1 项，见 WithItemCount")
+                    .WithItemCount(1),
                 new FieldSchema("rewards", FieldKind.Object, required: false, fields: QuestSchemas.RewardsFields,
                     description: "{items, xp, currency, skills, world_flags, talent_points}，见 Core.Gameplay.Common.RewardBundle；ADR-0019/F1b 起直接复用 QuestSchemas.RewardsFields（见本类型判断记录）"),
             }).WithOwnership(SchemaLayer.Gameplay, "achievement");

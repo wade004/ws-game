@@ -8,7 +8,10 @@ namespace Core.Rules.Ai
 {
     /// <summary>
     /// 本模块专属校验规则（见 <see cref="IValidationRule"/>"模块专属校验规则的扩展点"、任务书
-    /// T2-10 验收标准"校验：priority 不重复（同表内）、flee_hp_pct_threshold ∈ [0,1]、points ≥ 2"）。
+    /// T2-10 验收标准"校验：priority 不重复（同表内）、flee_hp_pct_threshold ∈ [0,1]、points ≥ 2"——
+    /// 消费方反馈第 60 条根治后，"points ≥ 2"这一条已改在 <see cref="AiSchemas.PatrolPath"/> 的
+    /// <c>points</c> 字段登记 <see cref="FieldSchema.WithItemCount"/>（<c>min: 2</c>），由
+    /// <c>DataRegistry</c> 通用字段校验的 <c>field_item_count</c> 检查项报告，不再是本类职责）。
     /// <see cref="AiSchemas"/> 里 <c>entries</c>/<c>points</c>/<c>transitions</c> 均声明为
     /// <see cref="FieldKind.Array"/>/<see cref="FieldKind.Object"/>，DataRegistry 通用校验只检查
     /// "存在且是数组/对象"（见 <see cref="FieldKind"/> 注释），不深入检查数组元素/对象取值的结构——
@@ -48,10 +51,12 @@ namespace Core.Rules.Ai
                 yield return issue;
             }
 
-            foreach (var issue in ValidatePatrolPaths(view))
-            {
-                yield return issue;
-            }
+            // 消费方反馈第 60 条根治：此前本处还有一个 ValidatePatrolPaths(view)，专职报告
+            // "ai.patrol_path.points 至少需要 2 个点"（与 points 缺失/类型不符共用同一个 Check
+            // "ai_content"）。该约束已改在 AiSchemas.PatrolPath 的 points 字段登记
+            // FieldSchema.WithItemCount(min: 2)，由 DataRegistry 通用字段校验的 field_item_count
+            // 检查项报告；points 缺失/类型不符本就是 required_field/field_type 职责。移除该约束后
+            // ValidatePatrolPaths 方法体清空、整个调用点一并删除，不留一个恒不产出任何问题的空方法。
         }
 
         /// <summary>
@@ -126,17 +131,6 @@ namespace Core.Rules.Ai
             }
         }
 
-        private IEnumerable<ValidationIssue> ValidatePatrolPaths(IDataRegistryView view)
-        {
-            foreach (var record in view.GetAll(AiSchemas.PatrolPath.Name))
-            {
-                if (!record.TryGetArray("points", out var points) || points.Count < 2)
-                {
-                    yield return new ValidationIssue(ValidationSeverity.Error, AiSchemas.PatrolPath.Name, Check,
-                        "points 至少需要 2 个点", recordKey: record.Key, field: "points");
-                }
-            }
-        }
 
         /// <summary>解析 + 静态校验一段 Expr 文本，返回可读的问题描述列表；空列表表示通过。</summary>
         private IEnumerable<string> TryParseExpr(string text)

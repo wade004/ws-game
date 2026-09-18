@@ -90,16 +90,111 @@ namespace Core.Foundation.SceneRouter
                     .WithFreeIds("子区域 id 由本条记录自行声明的局部划分名字，不指向任何已登记表的既有记录"),
                 new FieldSchema("nav_ref", FieldKind.String, required: true, description: "导航资源引用（可行走区域、遮挡层数据），由引擎适配层加载后经 INavigation2D 暴露"),
                 new FieldSchema("spawn_points", FieldKind.Array, required: true, item: PointItemSchema,
-                    description: "玩家出生点/复活点清单，List<{id?, position?}>；本模块只读取第 0 个元素的 position 作为默认出生点"),
+                    description: "玩家出生点/复活点清单，List<{id?, position?}>；本模块只读取第 0 个元素的 position 作为默认出生点；至少 1 项，见 WithItemCount")
+                    .WithItemCount(1),
                 new FieldSchema("teleport_points", FieldKind.Array, required: false, item: PointItemSchema,
                     description: "供传送类效果/AreaTrigger 引用的命名传送目标，List<{id?, position?}>"),
                 new FieldSchema("music_ref", FieldKind.String, required: false, description: "背景音乐资源引用"),
                 new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, referenceTable: "diff.tier",
                     description: "该地图允许应用的难度档位（见 08），引用 diff.tier（ADR-0022 补齐：diff.tier 现已登记进 IDataRegistry，此前类型判断记录"
                         + "\"08 难度档位未登记进 IDataRegistry\"的前提已不成立）"),
+                new FieldSchema("image_transform", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("pixels_per_unit", FieldKind.Number, required: true,
+                        description: "每个世界单位对应的图片像素数，框架默认 32；提供 image_transform 时本子字段必填")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                    new FieldSchema("origin_px", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("x", FieldKind.Number, required: true,
+                            description: "世界原点在地图图片中的像素列坐标，图片左上角为 (0,0)，列向右为正"),
+                        new FieldSchema("y", FieldKind.Number, required: true,
+                            description: "世界原点在地图图片中的像素行坐标，图片左上角为 (0,0)，行向下为正"),
+                    }, description: "世界坐标原点 (0,0) 在地图图片中的像素坐标（左上角为 (0,0)）；提供 image_transform 时本子字段必填"),
+                    new FieldSchema("image_size_px", FieldKind.Object, required: false, fields: new[]
+                    {
+                        new FieldSchema("x", FieldKind.Number, required: true, description: "地图背景图片（ground 分层图）宽度，像素"),
+                        new FieldSchema("y", FieldKind.Number, required: true, description: "地图背景图片（ground 分层图）高度，像素"),
+                    }, description: "地图背景图片的宽高像素，可选；提供时供 world_map_point_outside_image 规则计算世界坐标包围盒"),
+                }, description: "像素↔世界单位换算参数（消费方反馈第 59 条，ADR-0036）；世界坐标 Y 轴正方向向上，"
+                    + "图片像素坐标左上角为原点、行向下为正，换算公式见 05_对象模型与世界.md 第 3.1.1 节。"
+                    + "本字段缺省时不得隐含套用任何默认换算（见 MapImageTransform.FromRecord 判断记录），"
+                    + "框架仅在契约层提供一个显式命名的默认值（MapImageTransform.Default：ppu=32、原点在图片左上角）供调用方主动选用"),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Gameplay, "world");
+    }
+
+    /// <summary>
+    /// 消费方反馈第 59 条（ADR-0036）：地图声明了 <c>image_transform.image_size_px</c> 时，
+    /// <c>spawn_points</c>/<c>teleport_points</c> 的世界坐标若落在按 <see cref="MapImageTransform"/>
+    /// 换算出的图片包围盒之外，报一条不可提升的警告（内容仍可以摆在图片外，如确有画布外的逻辑区域
+    /// 需求，本规则只提示"这个点画不到背景图上，检查是不是摆错了"，不是硬性拒绝——同
+    /// <see cref="WorldMapSpawnPointsValidationRule"/> 判断记录风格：登记层表达不了跨字段的业务
+    /// 约束，在 report 阶段补齐）。未声明 <c>image_transform</c> 或未提供 <c>image_size_px</c> 的
+    /// 地图直接跳过（无法界定图片范围，不是缺陷）。
+    /// </summary>
+    public sealed class WorldMapPointOutsideImageValidationRule : IValidationRule
+    {
+        private const string CheckName = "world_map_point_outside_image";
+
+        public ValidationSeverity DefaultSeverity => ValidationSeverity.Warning;
+
+        public bool NonEscalatable => true;
+
+        public System.Collections.Generic.IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            foreach (var record in view.GetAll(WorldMapSchema.Table.Name))
+            {
+                var transform = MapImageTransform.FromRecord(record);
+                if (transform == null || transform.WorldBounds == null)
+                {
+                    continue;
+                }
+
+                var bounds = transform.WorldBounds.Value;
+
+                foreach (var issue in CheckPoints(record, "spawn_points", bounds))
+                {
+                    yield return issue;
+                }
+
+                foreach (var issue in CheckPoints(record, "teleport_points", bounds))
+                {
+                    yield return issue;
+                }
+            }
+        }
+
+        private static System.Collections.Generic.IEnumerable<ValidationIssue> CheckPoints(
+            DataRecord record, string field, (Core.Foundation.Common.Vec2 Min, Core.Foundation.Common.Vec2 Max) bounds)
+        {
+            if (!record.TryGetArray(field, out var points))
+            {
+                yield break;
+            }
+
+            for (var i = 0; i < points.Count; i++)
+            {
+                if (!(points[i] is Core.Foundation.Common.Json.JsonObject point)
+                    || !point.TryGetValue("position", out var posVal)
+                    || !(posVal is Core.Foundation.Common.Json.JsonObject posObj)
+                    || !posObj.TryGetValue("x", out var xv) || !(xv is Core.Foundation.Common.Json.JsonNumber xn)
+                    || !posObj.TryGetValue("y", out var yv) || !(yv is Core.Foundation.Common.Json.JsonNumber yn))
+                {
+                    continue;
+                }
+
+                var x = xn.Value;
+                var y = yn.Value;
+                if (x < bounds.Min.X || x > bounds.Max.X || y < bounds.Min.Y || y > bounds.Max.Y)
+                {
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Warning, WorldMapSchema.Table.Name, CheckName,
+                        $"{field}[{i}].position 落在 image_transform 声明的图片范围之外（检查坐标是否摆错或 image_transform 参数是否有误）",
+                        recordKey: record.Key, field: $"{field}[{i}].position");
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -112,6 +207,15 @@ namespace Core.Foundation.SceneRouter
     /// <see cref="Core.Foundation.DataRegistry.DataFieldException"/>。本规则在 report 阶段补齐同一
     /// 条判定（与 <see cref="SceneDescriptor.FromRecord"/> 的两个异常分支一一对应），使用真实
     /// <c>world.map</c> 数据的消费方在加载期而不是切场景那一刻发现内容缺陷。
+    /// <para>
+    /// 消费方反馈第 60 条根治："<c>spawn_points</c> 至少一条"这半条约束已改在
+    /// <see cref="WorldMapSchema.Table"/> 的 <c>spawn_points</c> 字段登记
+    /// <see cref="FieldSchema.WithItemCount"/>（<c>min: 1</c>），由 <c>DataRegistry</c> 通用字段校验
+    /// 的 <c>field_item_count</c> 检查项报告，本规则不再重复报告空数组这一件事（避免同一缺陷双报）；
+    /// 本规则只保留"第 0 条必须携带合法 <c>position</c>"这半条登记层仍表达不了的约束——空数组时
+    /// 直接跳过（不再访问 <c>spawnPoints[0]</c>），因为通用字段校验与本规则在同一次
+    /// <c>LoadAll</c>/<c>Validate</c> 遍历同一份已加载数据，元素数不足并不会阻止本规则被调用。
+    /// </para>
     /// </summary>
     public sealed class WorldMapSpawnPointsValidationRule : IValidationRule
     {
@@ -129,9 +233,8 @@ namespace Core.Foundation.SceneRouter
 
                 if (spawnPoints.Count == 0)
                 {
-                    yield return new ValidationIssue(
-                        ValidationSeverity.Error, WorldMapSchema.Table.Name, CheckName,
-                        "spawn_points 至少需要一个出生点才能确定默认出生点", recordKey: record.Key, field: "spawn_points");
+                    // 消费方反馈第 60 条：元素数不足已由 field_item_count（WithItemCount(min: 1)）
+                    // 报告，这里只跳过、不再重复报错——同时避免下面 spawnPoints[0] 索引越界。
                     continue;
                 }
 

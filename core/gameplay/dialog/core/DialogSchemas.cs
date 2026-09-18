@@ -205,7 +205,8 @@ namespace Core.Gameplay.Dialog
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "dialog.<name> 或内容作者自定义命名"),
                 new FieldSchema("nodes", FieldKind.Array, required: true, item: StoryNodeItemSchema,
-                    description: "List<StoryNode>，见 08 第 3.2 节；元素结构 ADR-0019/F1b 起登记为 StoryNodeItemSchema"),
+                    description: "List<StoryNode>，见 08 第 3.2 节；元素结构 ADR-0019/F1b 起登记为 StoryNodeItemSchema；至少 1 项，见 WithItemCount")
+                    .WithItemCount(1),
             }).WithOwnership(SchemaLayer.Gameplay, "dialog");
     }
 }

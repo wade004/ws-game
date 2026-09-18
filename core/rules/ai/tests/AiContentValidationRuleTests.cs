@@ -113,6 +113,9 @@ namespace Tests.Rules.Ai
             Assert.False(report.IsBlocking);
         }
 
+        // 消费方反馈第 60 条：points < 2 此前由 AiContentValidationRule 报 "ai_content"，现已改在
+        // AiSchemas.PatrolPath.points 登记 FieldSchema.WithItemCount(min: 2)，由 DataRegistry 通用
+        // 字段校验的 field_item_count 检查项报告，断言随之改为该检查名（见 CHANGELOG.md 对照表）。
         [Fact]
         public void PatrolPathWithFewerThanTwoPoints_IsReportedAsError()
         {
@@ -123,7 +126,7 @@ namespace Tests.Rules.Ai
             var report = Validate("[]", "[]", patrolsJson);
 
             Assert.True(report.IsBlocking);
-            Assert.Contains(report.Issues, i => i.Check == "ai_content" && i.Table == AiSchemas.PatrolPath.Name);
+            Assert.Contains(report.Issues, i => i.Check == "field_item_count" && i.Table == AiSchemas.PatrolPath.Name && i.Field == "points");
         }
 
         [Fact]

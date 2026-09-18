@@ -4,7 +4,9 @@ using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
+using Core.Gameplay.Quest;
 using Core.Gameplay.Spawn;
+using Core.Numbers.Archetype;
 using Presentation.Assembly;
 using Xunit;
 
@@ -79,11 +81,19 @@ namespace Tests.Presentation.Assembly
             public bool HasFlag(Id templateId, NpcFlag flag) => true;
         }
 
+        /// <summary>消费方反馈第 56 条追问：<see cref="ContentValidationAssembly.OptionalRuleNames"/>
+        /// 由两项扩为四项——新增 <c>QuestPrerequisiteIsolationRule</c>/<c>TalentTreeIsolationRule</c>
+        /// 两条默认关闭的孤立节点展示性提示规则（见 <see cref="ContentValidationOptions.EnableGraphIsolationDiagnostics"/>
+        /// 判断记录），方法名同步改掉已不再成立的"两项"描述。</summary>
         [Fact]
-        public void OptionalRuleNames_IsFixedTwoEntryList()
+        public void OptionalRuleNames_IsFixedFourEntryList()
         {
             Assert.Equal(
-                new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" },
+                new[]
+                {
+                    "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule",
+                    "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule",
+                },
                 ContentValidationAssembly.OptionalRuleNames);
         }
 
@@ -159,8 +169,11 @@ namespace Tests.Presentation.Assembly
         /// 只有 <c>DisplayMapCoverageRule</c> 启用、<c>SpawnSummonOnlyCreatureRule</c> 因未接线
         /// <c>CreatureTemplateQuery</c> 而禁用；现在 <see cref="ContentValidationOptions.CreatureTemplateQuery"/>
         /// 未提供时默认改用 <see cref="Core.Carriers.Creature.RegistryCreatureTemplateQuery"/>（见该
-        /// 属性判断记录），两条可选规则默认均启用，<see cref="ContentValidationRun.DisabledOptionalRules"/>
-        /// 恒为空——不是放宽断言，是真实的默认行为变更。</summary>
+        /// 属性判断记录），这两条"提供依赖即启用"的可选规则默认均启用。**再次行为变更（消费方反馈第
+        /// 56 条追问，2026-09-18）**：<see cref="ContentValidationOptions.EnableGraphIsolationDiagnostics"/>
+        /// 新增默认 <c>false</c> 的独立布尔开关，未显式打开时 <c>QuestPrerequisiteIsolationRule</c>/
+        /// <c>TalentTreeIsolationRule</c> 两条规则计入 <see cref="ContentValidationRun.DisabledOptionalRules"/>
+        /// ——不再"恒为空"，仍不是放宽断言，是真实的默认行为变更（新增两条默认关闭的可选规则）。</summary>
         [Fact]
         public void Run_EnabledDisabledOptionalRuleChecks_CorrespondToRuleNameLists()
         {
@@ -169,12 +182,41 @@ namespace Tests.Presentation.Assembly
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Empty(run.DisabledOptionalRules);
-            Assert.Empty(run.DisabledOptionalRuleChecks);
+            Assert.Equal(new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" }, run.DisabledOptionalRules);
+            Assert.Equal(
+                new[] { QuestPrerequisiteIsolationRule.CheckName, TalentTreeIsolationRule.CheckName },
+                run.DisabledOptionalRuleChecks);
             Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
             Assert.Equal(
                 new[] { SpawnSummonOnlyCreatureRule.CheckName, DisplayMapCoverageRule.CheckName },
                 run.EnabledOptionalRuleChecks);
+        }
+
+        /// <summary>消费方反馈第 56 条追问：<see cref="ContentValidationOptions.EnableGraphIsolationDiagnostics"/>
+        /// 打开后，两条图孤立节点展示性提示规则改计入 <see cref="ContentValidationRun.EnabledOptionalRules"/>，
+        /// 不再计入 <see cref="ContentValidationRun.DisabledOptionalRules"/>——覆盖"开关生效"这一支路径，
+        /// 与上一条用例的"开关默认关闭"互补。</summary>
+        [Fact]
+        public void Run_EnableGraphIsolationDiagnostics_TwoIsolationRulesBecomeEnabled()
+        {
+            var source = new InMemoryDataSource();
+            var options = new ContentValidationOptions
+            {
+                FailOnUnknownTable = false,
+                EnableGraphIsolationDiagnostics = true,
+            };
+
+            var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
+
+            Assert.DoesNotContain("QuestPrerequisiteIsolationRule", run.DisabledOptionalRules);
+            Assert.DoesNotContain("TalentTreeIsolationRule", run.DisabledOptionalRules);
+            Assert.Equal(
+                new[]
+                {
+                    "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule",
+                    "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule",
+                },
+                run.EnabledOptionalRules);
         }
 
         /// <summary>消费方反馈第 34 条：<see cref="ContentValidationOptions.DisplayMapCoverageSources"/>
@@ -187,7 +229,9 @@ namespace Tests.Presentation.Assembly
         /// 启用——不是放宽断言，是真实的默认行为变更，方法名同步改掉"OnlySpawnSummonRuleDisabled"这
         /// 半句已不再成立的描述。测试数据集里 5 张默认覆盖表均未注册任何数据（<c>InMemoryDataSource</c>
         /// 未 <c>Add</c> 过它们），两条规则对空表/空 <c>spawn.table</c> 均不产出任何问题，因此本用例
-        /// 仍应保持不阻断。</summary>
+        /// 仍应保持不阻断。**消费方反馈第 56 条追问补充**：新增的两条图孤立节点规则默认关闭，计入
+        /// <see cref="ContentValidationRun.DisabledOptionalRules"/>，不影响本用例断言的"提供依赖即启用"
+        /// 那两条可选规则的默认启用行为。</summary>
         [Fact]
         public void Run_DefaultOptions_BothOptionalRulesEnabledByDefault()
         {
@@ -196,7 +240,7 @@ namespace Tests.Presentation.Assembly
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Empty(run.DisabledOptionalRules);
+            Assert.Equal(new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" }, run.DisabledOptionalRules);
             Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
             Assert.False(run.Report.IsBlocking, string.Join("; ", run.Report.Issues));
         }
@@ -237,7 +281,11 @@ namespace Tests.Presentation.Assembly
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Empty(run.DisabledOptionalRules);
+            // 消费方反馈第 56 条追问：本用例未设置 EnableGraphIsolationDiagnostics，两条图孤立节点
+            // 规则按默认值关闭，计入 DisabledOptionalRules——不是"仍恒为空"。
+            Assert.Equal(
+                new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" },
+                run.DisabledOptionalRules);
             Assert.Equal(
                 new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" },
                 run.EnabledOptionalRules);

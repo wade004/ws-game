@@ -123,6 +123,10 @@ namespace Core.Rules.Assembly
             // 合法 position——登记层表达不了的业务约束，见 WorldMapSpawnPointsValidationRule 判断
             // 记录。
             registry.RegisterValidationRule(new WorldMapSpawnPointsValidationRule());
+            // 消费方反馈第 59 条（ADR-0036）：image_transform 声明了 image_size_px 时，
+            // spawn_points/teleport_points 的世界坐标落在图片范围外即告警，见
+            // WorldMapPointOutsideImageValidationRule 判断记录。
+            registry.RegisterValidationRule(new WorldMapPointOutsideImageValidationRule());
 
             // ADR-0013 落地：found.time_model（见 core/foundation/sim_loop/schema/TimeModelSchema.cs）。
             registry.RegisterSchema(TimeModelSchema.Table);

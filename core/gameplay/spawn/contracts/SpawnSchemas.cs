@@ -31,7 +31,8 @@ namespace Core.Gameplay.Spawn
                 new FieldSchema("content_ref", FieldKind.Id, required: true,
                     description: "creature.template 或 gobj.template 之一的 id（见 SpawnContentRefRule；二者非单一目标，不登记 SoftReferenceTable）"),
                 new FieldSchema("position", FieldKind.Vec2, required: true, description: "刷新点坐标"),
-                new FieldSchema("facing", FieldKind.Number, required: false, description: "初始朝向，缺省 0"),
+                new FieldSchema("facing", FieldKind.Number, required: false, description: "初始朝向，弧度制，缺省 0")
+                    .WithUnit(FieldUnit.Radian),
                 new FieldSchema("condition", FieldKind.Expr, required: false, description: "刷新条件（可空）"),
                 new FieldSchema("respawn_policy", FieldKind.Enum, required: true, enumValues: RespawnPolicyValues,
                     description: "on_map_enter：进图时补齐；once：只刷一次；never：不重生；timer：按 respawn_timer 定时重生"),

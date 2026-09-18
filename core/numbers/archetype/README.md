@@ -133,6 +133,24 @@ archetype/
      顺序选取候选起点，不满足 AGENTS.md"不依赖字典枚举顺序"），详见
      `ArchTalentTreeCycleValidationRule` 类型判断记录；`talent_prerequisite_cycle` 消息文本顺带
      补上完整链路（原消息只报告 DFS 起点），无既有测试断言该文本，判定为无风险勘误。
+10. **消费方反馈第 56 条追问（2026-09-18）：新增默认关闭的可选诊断 `TalentTreeIsolationRule`**
+    （`core/numbers/archetype/core/TalentTreeIsolationRule.cs`，检查名 `talent_node_isolated`，
+    Warning，`NonEscalatable`）——判断记录 9 第 56 条已定性"孤立节点（含并列根节点）是合法内容形态、
+    不产出等价 `story_tree_node_unreachable` 的警告级检查"，本条不推翻该结论，只是回应"既然合法，
+    能否仍提供一个可选的展示性提示"的追问：以
+    `Presentation.Assembly.ContentValidationOptions.EnableGraphIsolationDiagnostics`（默认 `false`）
+    为唯一开关，显式打开时才注册，默认路径（三套官方数据根、`toolchain/validator` 未传
+    `--enable-graph-isolation`）零行为变化。对每棵 `arch.talent_tree` 独立取 `nodes[].id`/
+    `nodes[].prerequisites[]` 构图（同 `ArchTalentTreeCycleValidationRule` 的手工 JSON 解析手法，不
+    依赖 `FieldKind.Id`），复用 `ContentGraphAnalyzer.Analyze` 求孤立节点，仅当单棵树节点数 ≥2 时才报
+    （单节点树没有"孤立"这一概念）；`Field` 填 `nodes[i]` 下标路径，`AffectedNodeIds` 填孤立节点自身
+    id。**测试放置的架构分层考量**：`core/numbers` 的测试工程（`Tests.Numbers.csproj`）不引用
+    `presentation/Presentation.Common.csproj`（与 `core/gameplay` 的测试工程不同，后者经 CORE114-04
+    先例已建立该引用），本规则自身触发/不触发逻辑测试
+    （`tests/TalentTreeIsolationRuleTests.cs`）改用手工构造裁剪版 `DataRegistry`（同
+    `ArchTalentTreeCycleValidationRuleTests.cs` 既有手法，只登记 `ArchSchemas.TalentTree` 一张表），
+    不新增跨层引用；"开关关闭时不注册"这一装配层行为覆盖在
+    `presentation/assembly/tests/ContentValidationAssemblyTests.cs`。
 
 ## 不负责什么
 
