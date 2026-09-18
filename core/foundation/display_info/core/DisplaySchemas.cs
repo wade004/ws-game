@@ -155,10 +155,10 @@ namespace Core.Foundation.DisplayInfo
 
         /// <summary><c>display.equip_visual</c>（04 第 7.1.2 节）。<c>slot_id</c>/<c>mesh_ref</c>
         /// 在 <c>mode: slot_mesh</c> 时必填、<c>socket_id</c>/<c>model_ref</c> 在
-        /// <c>mode: socket_attach</c> 时必填的条件必填规则，本任务未要求实现对应
-        /// <see cref="IValidationRule"/>（任务书只点名 <see cref="DisplayKindFieldGroupRule"/>、
-        /// <see cref="DisplayMapCoverageRule"/> 两条规则），这里只登记字段类型，条件必填留给
-        /// 后续任务按同一模式扩展（见本模块 README"不负责什么"）。</summary>
+        /// <c>mode: socket_attach</c> 时必填的条件必填规则由 <see cref="EquipVisualModeFieldGroupRule"/>
+        /// 实现（消费方反馈第 63 条；同 <see cref="DisplayKindFieldGroupRule"/> 判断记录：
+        /// <see cref="FieldSchema.Required"/> 只能表达无条件必填/可选，条件必填必须作为独立
+        /// <see cref="IValidationRule"/> 扩展点，这里只登记字段类型）。</summary>
         public static readonly TableSchema EquipVisual = new TableSchema(
             name: "display.equip_visual",
             primaryKey: "id",
