@@ -121,5 +121,40 @@ namespace Tests.Foundation.EngineAdapter
             Assert.True(AssetRefConventions.TryParseIconId(file, out var parsed));
             Assert.Equal(iconId, parsed);
         }
+
+        // 消费方反馈第 65 条：以下四组用例与 toolchain/tests/test_ref_conventions.py 对应函数使用同一组
+        // 输入/期望字符串，两侧各自独立实现、互相不调用，任一侧改动规则而另一侧未同步会被各自语言的
+        // 测试独立捕获（同本文件类型顶部"跨语言对照"判断记录）。
+
+        [Theory]
+        [InlineData("vfx.sample_cast_circle", "vfx/sample_cast_circle")]
+        [InlineData("vfx.fire_impact", "vfx/fire_impact")]
+        public void VfxResourceDir_MatchesVfxCmdPyOutputPath(string resourceRef, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.VfxResourceDir(new Id(resourceRef)));
+        }
+
+        [Theory]
+        [InlineData("sfx.sword_hit_v0", "sfx/sword_hit_v0.wav")]
+        [InlineData("sfx.sword_hit_v1", "sfx/sword_hit_v1.wav")]
+        public void SfxResourceFile_MatchesSfxCmdPyOutputPath(string resourceRef, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.SfxResourceFile(new Id(resourceRef)));
+        }
+
+        [Theory]
+        [InlineData("anim.idle", "GameFoundation/anim_clips/idle")]
+        [InlineData("anim.attack", "GameFoundation/anim_clips/attack")]
+        public void AnimClipLogicalPath_MatchesUnityResourceLoaderResolveAnimClipResourcesPath(string resourceRef, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.AnimClipLogicalPath(new Id(resourceRef)));
+        }
+
+        [Theory]
+        [InlineData("model.placeholder_biped", "GameFoundation/models/placeholder_biped")]
+        public void ModelLogicalPath_MatchesUnityResourceLoaderResolveModelResourcesPath(string resourceRef, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.ModelLogicalPath(new Id(resourceRef)));
+        }
     }
 }

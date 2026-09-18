@@ -38,8 +38,9 @@ namespace Presentation.Assembly
     /// 是"L5 数据装配根"，<c>display.map</c> 是表现层解析 DisplayInfo 的唯一入口表（09 第 5.6、7
     /// 节），<c>data/_sample/</c> 也确实需要一份 <c>display.map</c> 示例数据（见任务书步骤三），
     /// 因此在本类型补registrer，不新造 schema、只补登记，符合"复用现有 schema、不发明新原语"的
-    /// 取舍原则。<see cref="DisplayKindFieldGroupRule"/>（无构造依赖）一并注册；
-    /// <see cref="DisplayMapCoverageRule"/> 需要调用方显式声明"哪些内容表参与外形域覆盖检查"
+    /// 取舍原则。<see cref="DisplayKindFieldGroupRule"/>/<see cref="AnimSetEventsShapeRule"/>/
+    /// <see cref="EquipVisualModeFieldGroupRule"/>（均无构造依赖，消费方反馈第 63 条新增最后一条）
+    /// 一并注册；<see cref="DisplayMapCoverageRule"/> 需要调用方显式声明"哪些内容表参与外形域覆盖检查"
     /// （构造函数要求 <c>sources</c> 列表），本类型不知道调用方是否已经给全部内容表配齐
     /// <c>display.map</c> 行（不同调用方的接入进度不同），因此仍不在本方法内代为注册——留给
     /// <see cref="ContentValidationAssembly"/> 决定何时接线（见该类型消费方反馈第 34 条判断记录）。
@@ -167,6 +168,9 @@ namespace Presentation.Assembly
             // ADR-0017 决策 c：display.anim_set.clips[*].events 形状校验（无构造依赖，同
             // DisplayKindFieldGroupRule 一并注册）。
             registry.RegisterValidationRule(new AnimSetEventsShapeRule());
+            // 消费方反馈第 63 条：display.equip_visual.mode 条件必填字段组校验（无构造依赖，同
+            // DisplayKindFieldGroupRule/AnimSetEventsShapeRule 一并注册）。
+            registry.RegisterValidationRule(new EquipVisualModeFieldGroupRule());
             // DisplayMapCoverageRule 不在此注册，见类型注释判断记录。
         }
 

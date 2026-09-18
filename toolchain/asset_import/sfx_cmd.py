@@ -31,6 +31,7 @@ from .common import (
     strip_domain,
     validate_id,
 )
+from .ref_conventions import sfx_resource_file
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -79,14 +80,18 @@ def run(args: argparse.Namespace) -> int:
 
     # 扁平输出：assets/<dataset>/sfx/<name>_v<N>.wav（不再是 sfx/<name>/v<N>.wav 子目录），
     # 与运行时 ResourceKind.Audio "audio/<资源引用 id 去掉 'sfx.'>.wav" 的扁平解析规则对齐。
-    out_dir = assets_root / args.dataset / "sfx"
+    dataset_assets_root = assets_root / args.dataset
+    out_dir = dataset_assets_root / "sfx"
 
     resource_refs: list[str] = []
     plan_lines: list[tuple[Path, Path]] = []
     for idx, p in enumerate(src_paths):
         framerate, duration = _read_wav_info(p)
         resource_ref = f"sfx.{name}_v{idx}"
-        out_path = out_dir / f"{name}_v{idx}.wav"
+        # 消费方反馈第 65 条：文件路径改由 ref_conventions.sfx_resource_file 统一推导（与
+        # check_cmd.py/AssetRefConventions.SfxResourceFile/UnityResourceLoader 同一规则），不再自行
+        # 拼接；对本函数刚算出的 resource_ref（类别前缀之后已不含点号）结果与旧写法逐字节一致。
+        out_path = dataset_assets_root / sfx_resource_file(resource_ref)
         resource_refs.append(resource_ref)
         plan_lines.append((p, out_path))
         # 采样率/时长只做基本校验，不进数据表字段（sfx.def schema 未登记这两个字段），打印供人工核对。

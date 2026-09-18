@@ -64,10 +64,14 @@
 | `id` | Id | 是 | `display.equip_visual.<名字>` |
 | `item_id` | Id | 是 | 指向 `item.template`（本任务未定义该表）；登记为 `FieldKind.Id`（见模块 README 判断记录 1） |
 | `mode` | `slot_mesh\|socket_attach` | 是 | 呈现方式 |
-| `slot_id` | Optional\<Id\> | `mode: slot_mesh` 时必填 | 目标槽位 id，对应 `display.map` 的 `slots`；本模块不做该条件必填的校验（见模块 README"不负责什么"） |
+| `slot_id` | Optional\<Id\> | `mode: slot_mesh` 时必填 | 目标槽位 id，对应 `display.map` 的 `slots` |
 | `mesh_ref` | Optional\<Id\> | `mode: slot_mesh` 时必填 | 替换用网格资源引用 |
 | `socket_id` | Optional\<Id\> | `mode: socket_attach` 时必填 | 目标挂点 id，对应 `display.map` 的 `sockets` |
 | `model_ref` | Optional\<Id\> | `mode: socket_attach` 时必填 | 挂接的独立模型资源引用 |
+
+校验规则：`mode` 决定哪组字段必填（"装备呈现字段组条件必填"检查项，本模块实现为
+`EquipVisualModeFieldGroupRule`，消费方反馈第 63 条）——该规则只检查"必填"，不检查"另一
+`mode` 的字段组是否必须留空"，见模块 README 判断记录 6。
 
 ## 本模块不做什么
 

@@ -29,6 +29,7 @@ TOOLCHAIN_DIR = Path(__file__).resolve().parents[1]
 if str(TOOLCHAIN_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLCHAIN_DIR))
 
+from asset_import import check_cmd  # noqa: E402
 from asset_import.cli import main as cli_main  # noqa: E402
 from asset_import.common import AssetImportError  # noqa: E402
 from asset_import.vfx_cmd import ATTACH_MODE_CHOICES  # noqa: E402
@@ -42,6 +43,16 @@ def run_cli(argv: list[str]) -> tuple[int, str]:
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         code = cli_main(argv)
     return code, out.getvalue()
+
+
+def run_cli_split(argv: list[str]) -> tuple[int, str, str]:
+    """调用 CLI，分别返回 (returncode, 标准输出文本, 标准错误文本)（消费方反馈第 62 条：
+    --json 模式下 stdout 应只有一个 JSON 文档，其余日志改走 stderr，需要分开断言）。"""
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli_main(argv)
+    return code, out.getvalue(), err.getvalue()
 
 
 def make_layer_image(size: tuple[int, int], color=(200, 60, 60, 255)) -> Image.Image:
@@ -1456,6 +1467,192 @@ class CheckSfxReferenceTest(ImportAssetsTestBase):
         )
         self.assertEqual(1, code)
         self.assertIn(str(victim), output)
+
+
+class CheckJsonOutputTest(ImportAssetsTestBase):
+    """消费方反馈第 62 条：check --json 的输出契约测试。"""
+
+    def _build_valid_sprite(self, case_name: str) -> tuple[Path, Path]:
+        case_dir = self.new_case_dir(case_name)
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "critter"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+        anchors_path = case_dir / "anchors.json"
+        write_json(
+            anchors_path,
+            {slot: {"root": [20, 60], "hand_main": [35, 20]} for slot in CANONICAL_8},
+        )
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.critter_test",
+                "--direction-count",
+                "8",
+                "--anchors",
+                str(anchors_path),
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        return assets_root, data_root
+
+    def test_json_output_is_single_document_with_no_issues_on_valid_dataset(self) -> None:
+        assets_root, data_root = self._build_valid_sprite("json_ok")
+
+        code, stdout, stderr = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--json",
+            ]
+        )
+        self.assertEqual(0, code)
+        # stdout 只能有一个 JSON 文档：整体按行 strip 后必须恰好一行非空。
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        self.assertEqual(1, len(lines), msg=stdout)
+        doc = json.loads(lines[0])
+        self.assertEqual("import_assets.check", doc["tool"])
+        self.assertEqual("_test", doc["dataset"])
+        self.assertEqual(["sfx", "sprite", "vfx", "world"], doc["domains"])
+        self.assertTrue(doc["ok"])
+        self.assertEqual({"error": 0, "warning": 0}, doc["counts"])
+        self.assertEqual([], doc["issues"])
+        # 人类可读的汇总行改走 stderr，不出现在 stdout。
+        self.assertIn("[check]", stderr)
+
+    def test_json_output_issue_fields_complete_on_broken_dataset(self) -> None:
+        assets_root, data_root = self._build_valid_sprite("json_broken")
+        victim = assets_root / "_test" / "sprites" / "creature_critter" / "front" / "body.png"
+        self.assertTrue(victim.is_file())
+        victim.unlink()
+
+        code, stdout, stderr = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--json",
+            ]
+        )
+        self.assertEqual(1, code)
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        self.assertEqual(1, len(lines), msg=stdout)
+        doc = json.loads(lines[0])
+        self.assertFalse(doc["ok"])
+        self.assertEqual(1, doc["counts"]["error"])
+        self.assertEqual(1, len(doc["issues"]))
+        issue = doc["issues"][0]
+        for key in ("severity", "table", "record_key", "field_path", "check", "message", "path"):
+            self.assertIn(key, issue)
+        self.assertEqual("error", issue["severity"])
+        self.assertEqual("display.map", issue["table"])
+        self.assertEqual(check_cmd.CHECK_SPRITE_FRAME_FILE_MISSING, issue["check"])
+        self.assertEqual(str(victim), issue["path"])
+        self.assertIn(str(victim), issue["message"])
+        # 文本模式下同一条问题的 message 逐字必须相同，只是渲染方式不同（拼成 "id: message"）。
+        self.assertIn(str(victim), stderr)
+
+    def test_text_mode_output_unchanged_when_json_flag_absent(self) -> None:
+        """回归：不加 --json 时，文本输出（含格式、走 stdout 而非 stderr）与改造前逐字节一致。"""
+        assets_root, data_root = self._build_valid_sprite("text_unchanged")
+        victim = assets_root / "_test" / "sprites" / "creature_critter" / "front" / "body.png"
+        victim.unlink()
+
+        code, stdout, stderr = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(1, code)
+        self.assertEqual("", stderr)
+        self.assertIn(f"display.critter_test: 帧文件缺失: {victim}", stdout)
+        self.assertIn("[check] dataset=_test", stdout)
+        self.assertNotIn("{", stdout.split("[check]")[0])
+
+
+class CheckWorldRowUnitTest(unittest.TestCase):
+    """直接单元测试 _check_world_row（不经 CLI），消费方反馈第 62/64 条要求覆盖。"""
+
+    def setUp(self) -> None:
+        self.tmp_root = Path(tempfile.mkdtemp(prefix="check_world_row_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp_root, ignore_errors=True)
+        self.assets_root = self.tmp_root / "assets"
+        self.dataset = "_test"
+
+    def _map_dir(self, name: str) -> Path:
+        d = self.assets_root / self.dataset / "maps" / name
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_reports_missing_map_dir(self) -> None:
+        row = {"id": "world.forest_glade"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_world_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        issue = problems[0]
+        self.assertEqual(check_cmd.CHECK_WORLD_MAP_DIR_MISSING, issue.check)
+        self.assertEqual("world.map", issue.table)
+        self.assertEqual("world.forest_glade", issue.record_key)
+        self.assertEqual("error", issue.severity)
+
+    def test_reports_missing_required_layer(self) -> None:
+        map_dir = self._map_dir("forest_glade")
+        (map_dir / "ground.png").write_bytes(b"\x89PNG")
+        # 缺 overlay.png。
+        row = {"id": "world.forest_glade"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_world_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        self.assertEqual(check_cmd.CHECK_WORLD_MAP_LAYER_MISSING, problems[0].check)
+        self.assertTrue(problems[0].path.endswith("overlay.png"))
+
+    def test_passes_when_layers_present_and_refs_consistent(self) -> None:
+        map_dir = self._map_dir("forest_glade")
+        (map_dir / "ground.png").write_bytes(b"\x89PNG")
+        (map_dir / "overlay.png").write_bytes(b"\x89PNG")
+        row = {
+            "id": "world.forest_glade",
+            "scene_ref": "scene.forest_glade",
+            "nav_ref": "nav.forest_glade",
+        }
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_world_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual([], problems)
+
+    def test_reports_scene_ref_mismatch(self) -> None:
+        map_dir = self._map_dir("forest_glade")
+        (map_dir / "ground.png").write_bytes(b"\x89PNG")
+        (map_dir / "overlay.png").write_bytes(b"\x89PNG")
+        row = {"id": "world.forest_glade", "scene_ref": "scene.somewhere_else"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_world_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        self.assertEqual(check_cmd.CHECK_WORLD_MAP_SCENE_REF_MISMATCH, problems[0].check)
+        self.assertEqual("scene_ref", problems[0].field_path)
 
 
 class AssetImportErrorDirectTest(unittest.TestCase):

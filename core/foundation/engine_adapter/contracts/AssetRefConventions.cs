@@ -34,6 +34,47 @@ namespace Core.Foundation.EngineAdapter
     /// 样例互相对照，任一侧改动规则而另一侧未同步会被测试捕获，见该测试文件判断记录）。
     /// </para>
     /// </summary>
+    /// <summary>
+    /// 消费方反馈第 65 条第二批收口：把 <c>vfx.def.resource_ref</c>/<c>sfx.def.resource_ref</c>（含
+    /// <c>variants</c>）/<c>display.anim_set.clips.resource_ref</c>（model 型）/
+    /// <c>display.equip_visual.mesh_ref</c>/<c>model_ref</c>（model 型）四类字段各自此前分散在
+    /// <c>toolchain/asset_import/vfx_cmd.py</c>、<c>toolchain/asset_import/check_cmd.py</c>（sfx 规则）、
+    /// <c>Adapter.Unity.EngineAdapter.UnityResourceLoader</c>（<c>ResolveEffectDir</c>/
+    /// <c>ResolvePath(Audio)</c>/<c>ResolveModelResourcesPath</c>/<c>ResolveAnimClipResourcesPath</c>）
+    /// 的内联路径推导规则，逐一收口进本类型的公开静态方法，与 <see cref="SpriteSetDirectory"/>/
+    /// <see cref="IconFile"/> 同一惯例。
+    /// <para>
+    /// 判断记录（VFX/SFX 与 model/anim_set 两组方法返回值语义不同，均据实收口，不发明新规则）：
+    /// <see cref="VfxResourceDir"/>/<see cref="SfxResourceFile"/> 返回的是"相对资产根目录
+    /// （<c>toolchain/asset_import</c> 的 <c>--assets-root</c>，默认仓库 <c>assets/</c>）的相对路径"，
+    /// 与 <see cref="SpriteSetDirectory"/>/<see cref="IconFile"/> 同一路径空间，可直接与
+    /// <c>assets/&lt;dataset&gt;/</c> 拼接后做文件系统存在性检查（见 <c>check_cmd.py</c>）。
+    /// <see cref="AnimClipLogicalPath"/>/<see cref="ModelLogicalPath"/> 返回的则是 Unity
+    /// <c>UnityEngine.Resources.Load</c> 可消费的"逻辑资源路径"（不含扩展名、不以任何"资产根目录"
+    /// 为基准，实际对应 <c>adapters/unity/Assets/Resources/GameFoundation/&lt;子目录&gt;/&lt;name&gt;</c>
+    /// 下已被 Unity 资产管线预先导入好的资源，见 <c>UnityResourceLoader.ResolveModelResourcesPath</c>/
+    /// <c>ResolveAnimClipResourcesPath</c> 类型顶部"W6-B 新增"判断记录）——与前两者不是同一路径空间，
+    /// 不能拼进 <c>assets/&lt;dataset&gt;/</c> 做文件存在性检查（消费方反馈第 66 条回复文档已就此
+    /// 单独说明，见该文档"待设计层确认"一节）。
+    /// </para>
+    /// <para>
+    /// 判断记录（<see cref="AnimClipLogicalPath"/>/<see cref="ModelLogicalPath"/> 已知覆盖边界，非本次
+    /// 引入的新问题——如实记录，不代为修正）：<c>display.anim_set.clips.resource_ref</c> 与
+    /// <c>display.equip_visual.mesh_ref</c> 两个字段在运行期实际存在"按消费实体 kind 决定走哪条
+    /// 资源规则"的多态——<c>Adapter.Unity.Presentation.UnityViewFactory.RegisterDefaultClips</c>
+    /// 对 sprite 型实体按"<c>display.map</c> 行 id 末段"命名约定默认接线同一张 <c>display.anim_set</c>
+    /// 表，把 <c>resource_ref</c> 当 <see cref="ResourceKind.Effect"/>（即 <see cref="VfxResourceDir"/>
+    /// 同一路径空间）加载，与 model 型经 <c>anim_set_ref</c> 显式字段消费同一张表时把 <c>resource_ref</c>
+    /// 当 <c>ResourceKind.AnimationClip</c>（本方法路径空间）加载是两条并存的规则；
+    /// <c>Presentation.Render.SpriteViewBase.HandleItemEquipped</c>（该类型判断记录"缺口 10"）同样把
+    /// <c>mesh_ref</c> 直接当 <see cref="ResourceKind.Image"/> 资源 id 使用，与 model 型经
+    /// <c>UnityResourceLoader.TryGetOrLoadSlotMesh</c> 消费同一字段是另一组并存规则。本类型只收口
+    /// 04/09 文档与 <c>EquipVisualDef</c>/<c>AnimSetDef</c> 类型注释描述的 model 型规则（与
+    /// <c>ResolveModelResourcesPath</c>/<c>ResolveAnimClipResourcesPath</c> 逐字对应）；sprite 型的
+    /// 两条并存规则是表现层既有的"已知简化"（各自类型注释已如此标注），不在本次收口范围，见消费方
+    /// 反馈第 65/66 条回复文档"待设计层确认"一节。
+    /// </para>
+    /// </summary>
     public static class AssetRefConventions
     {
         /// <summary>去掉资源引用 id 的"类别前缀"（第一个点分段，如 <c>sprite.creature.wolf_grey</c>
@@ -172,5 +213,61 @@ namespace Core.Foundation.EngineAdapter
 
             return Id.TryParse($"icon.{category}.{name}", out iconId);
         }
+
+        /// <summary>把 <c>vfx.def.resource_ref</c> 解析为该特效资源在资产根目录下的相对目录路径
+        /// （正斜杠分隔，不以 <c>/</c> 结尾）：<c>"vfx/&lt;资源引用id去掉类别前缀，点号换下划线&gt;"</c>
+        /// ——目录下固定含 <c>atlas.png</c>/<c>frames.json</c> 两个文件（见
+        /// <c>toolchain/asset_import/vfx_cmd.py</c> 落地产物、
+        /// <c>UnityResourceLoader.ResolveEffectDir</c> 类型顶部"Scene/NavMesh/Effect 三个种类"判断
+        /// 记录）。与 <c>vfx_cmd.py</c> 的 <c>out_dir</c>（该脚本按 <c>flatten_id_segment(strip_domain(id))</c>
+        /// 算出目录名、再拼进 <c>resource_ref</c>）、<c>UnityResourceLoader.ResolveEffectDir</c>（对
+        /// 已落地的 <c>resource_ref</c> 值做 <see cref="StripCategoryPrefix"/>）三处逐一核对一致——
+        /// <c>resource_ref</c> 由工具产出时保证去掉类别前缀后不再含点号（<c>flatten_id_segment</c>
+        /// 已把原 id 内的点号换成双下划线），此时 <see cref="StripCategoryPrefix"/> 的"点号换单
+        /// 下划线"这一步不会被触发，三处对同一个合法 <c>resource_ref</c> 结果逐字节相同。</summary>
+        public static string VfxResourceDir(Id resourceRefId) =>
+            "vfx/" + StripCategoryPrefix(resourceRefId.Value);
+
+        /// <summary>把 <c>sfx.def.resource_ref</c>（或 <c>variants</c> 列表内的单个 Id）解析为该音频
+        /// 变体在资产根目录下的相对文件路径（正斜杠分隔，含 <c>.wav</c> 扩展名）：
+        /// <c>"sfx/&lt;资源引用id去掉类别前缀，点号换下划线&gt;.wav"</c>——扁平文件，非子目录（见
+        /// <c>toolchain/asset_import/sfx_cmd.py</c> 落地产物、
+        /// <c>UnityResourceLoader.ResolvePath(ResourceKind.Audio)</c>）。判断记录（与
+        /// <c>check_cmd.py</c> 既有内联实现 <c>strip_domain(resource_ref) + ".wav"</c> 的差异，
+        /// 不影响任何当前可产出数据）：<c>check_cmd.py</c> 此前只去掉域前缀、不替换剩余点号，本方法
+        /// 与 <see cref="VfxResourceDir"/> 同一惯例改用 <see cref="StripCategoryPrefix"/>（去掉类别
+        /// 前缀后把剩余点号也换成下划线）；<c>sfx_cmd.py</c> 产出的 <c>resource_ref</c> 恒为
+        /// <c>"sfx.&lt;flatten_id_segment 结果&gt;_v&lt;N&gt;"</c>，类别前缀之后不再含点号，两种算法
+        /// 对其结果逐字节相同——只有手工编写、未经 <c>sfx_cmd.py</c> 产出、且类别前缀之后仍带点号的
+        /// <c>resource_ref</c>（不满足工具产出契约的越界输入）才会让两种算法给出不同结果，属已核实的
+        /// 边界情形，不影响 <c>_sample</c> 等任何现有数据集，见消费方反馈第 65 条回复文档。</summary>
+        public static string SfxResourceFile(Id resourceRefId) =>
+            "sfx/" + StripCategoryPrefix(resourceRefId.Value) + ".wav";
+
+        /// <summary>把 model 型 <c>display.anim_set.clips[*].resource_ref</c> 解析为
+        /// <c>UnityEngine.Resources.Load&lt;AnimationClip&gt;</c> 可消费的相对路径（不含扩展名，不以
+        /// 任何"资产根目录"为基准，见本类型顶部"VFX/SFX 与 model/anim_set 两组方法返回值语义不同"
+        /// 判断记录）：<c>"GameFoundation/anim_clips/&lt;资源引用id去掉类别前缀，点号换下划线&gt;"</c>
+        /// ——与 <c>UnityResourceLoader.ResolveAnimClipResourcesPath</c> 逐字对应（该方法与
+        /// <see cref="ResolveModelResourcesPath"/> 同一套 <see cref="StripCategoryPrefix"/> 规则）。
+        /// 仅覆盖 model 型消费该字段时的规则；sprite 型的并存规则见本类型顶部判断记录，不在本方法
+        /// 覆盖范围。命名上以 <c>LogicalPath</c> 与 <c>Dir</c>/<c>File</c> 区分两种路径空间——本方法
+        /// 与 <see cref="ModelLogicalPath"/> 返回引擎侧已导入的逻辑资源路径，<see cref="VfxResourceDir"/>/
+        /// <see cref="SfxResourceFile"/> 返回资产根目录相对路径。</summary>
+        public static string AnimClipLogicalPath(Id resourceRefId) =>
+            "GameFoundation/anim_clips/" + StripCategoryPrefix(resourceRefId.Value);
+
+        /// <summary>把 <c>display.map.model_ref</c>、model 型 <c>display.equip_visual.mesh_ref</c>/
+        /// <c>model_ref</c> 解析为 <c>UnityEngine.Resources.Load&lt;GameObject&gt;</c> 可消费的相对
+        /// 路径（不含扩展名，不以任何"资产根目录"为基准，见本类型顶部判断记录）：
+        /// <c>"GameFoundation/models/&lt;资源引用id去掉类别前缀，点号换下划线&gt;"</c>——与
+        /// <c>UnityResourceLoader.ResolveModelResourcesPath</c> 逐字对应。仅覆盖 model 型消费
+        /// <c>mesh_ref</c>/<c>model_ref</c> 时的规则（<c>model_ref</c> 本身只有 model 型一种消费
+        /// 路径，见本类型顶部判断记录第二段；<c>mesh_ref</c> 另有 sprite 型并存规则，不在本方法覆盖
+        /// 范围）。命名上以 <c>LogicalPath</c> 与 <c>Dir</c>/<c>File</c> 区分两种路径空间——本方法
+        /// 与 <see cref="AnimClipLogicalPath"/> 返回引擎侧已导入的逻辑资源路径，<see cref="VfxResourceDir"/>/
+        /// <see cref="SfxResourceFile"/> 返回资产根目录相对路径。</summary>
+        public static string ModelLogicalPath(Id resourceRefId) =>
+            "GameFoundation/models/" + StripCategoryPrefix(resourceRefId.Value);
     }
 }

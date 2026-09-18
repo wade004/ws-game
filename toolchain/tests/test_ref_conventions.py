@@ -25,11 +25,15 @@ if str(TOOLCHAIN_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLCHAIN_DIR))
 
 from asset_import.ref_conventions import (  # noqa: E402
+    anim_clip_logical_path,
     icon_file,
+    model_logical_path,
+    sfx_resource_file,
     sprite_set_directory,
     strip_category_prefix,
     try_parse_icon_id,
     try_parse_sprite_set_id,
+    vfx_resource_dir,
 )
 
 
@@ -136,3 +140,52 @@ def test_sprite_set_directory_round_trips_through_try_parse(sprite_set_id_text: 
 def test_icon_file_round_trips_through_try_parse(icon_id_text: str) -> None:
     file_path = icon_file(icon_id_text)
     assert try_parse_icon_id(file_path) == icon_id_text
+
+
+# 消费方反馈第 65 条：以下四组用例与
+# core/foundation/engine_adapter/tests/AssetRefConventionsTests.cs 对应用例使用同一组输入/期望
+# 字符串，两侧各自独立实现、互相不调用，任一侧改动规则而另一侧未同步会被各自语言的测试独立捕获
+# （同本文件顶部"跨语言对照"判断记录）。
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected",
+    [
+        ("vfx.sample_cast_circle", "vfx/sample_cast_circle"),
+        ("vfx.fire_impact", "vfx/fire_impact"),
+    ],
+)
+def test_vfx_resource_dir_matches_vfx_cmd_output_path(resource_ref: str, expected: str) -> None:
+    assert vfx_resource_dir(resource_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected",
+    [
+        ("sfx.sword_hit_v0", "sfx/sword_hit_v0.wav"),
+        ("sfx.sword_hit_v1", "sfx/sword_hit_v1.wav"),
+    ],
+)
+def test_sfx_resource_file_matches_sfx_cmd_output_path(resource_ref: str, expected: str) -> None:
+    assert sfx_resource_file(resource_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected",
+    [
+        ("anim.idle", "GameFoundation/anim_clips/idle"),
+        ("anim.attack", "GameFoundation/anim_clips/attack"),
+    ],
+)
+def test_anim_clip_logical_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
+    assert anim_clip_logical_path(resource_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_ref, expected",
+    [
+        ("model.placeholder_biped", "GameFoundation/models/placeholder_biped"),
+    ],
+)
+def test_model_logical_path_matches_unity_resource_loader(resource_ref: str, expected: str) -> None:
+    assert model_logical_path(resource_ref) == expected
