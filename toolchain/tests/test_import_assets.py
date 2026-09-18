@@ -585,6 +585,12 @@ class MapCommandTest(ImportAssetsTestBase):
         self.assertEqual("world.grass_field.spawn.default", row["spawn_points"][0]["id"])
         self.assertEqual({"x": 0, "y": 0}, row["spawn_points"][0]["position"])
 
+        # 消费方反馈第 59 条（ADR-0036）：默认 image_transform——ppu 32，origin_px 默认位于图片
+        # 左下角（0, ground.png 高度），image_size_px 从 ground.png 实际读出。
+        self.assertEqual(32, row["image_transform"]["pixels_per_unit"])
+        self.assertEqual({"x": 0, "y": 16}, row["image_transform"]["origin_px"])
+        self.assertEqual({"x": 16, "y": 16}, row["image_transform"]["image_size_px"])
+
         # 用 check --only world 交叉验证真正落地（不校验 sprite/vfx/sfx，本用例没有那些数据）。
         code, output = run_cli(
             [
@@ -683,6 +689,78 @@ class MapCommandTest(ImportAssetsTestBase):
         self.assertEqual("world.spawn_field.spawn.1", row["spawn_points"][1]["id"])
         self.assertEqual({"x": 3.0, "y": 4.0}, row["spawn_points"][1]["position"])
         self.assertEqual(0.0, row["spawn_points"][1]["facing"])
+
+    def test_map_custom_pixels_per_unit_and_origin_px(self) -> None:
+        case_dir = self.new_case_dir("map_cmd_image_transform")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (64, 48), "overlay": (64, 48)})
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "transform_field",
+                "--dataset",
+                "_test",
+                "--pixels-per-unit",
+                "16",
+                "--origin-px",
+                "10,5",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+        row = json.loads(world_map_path.read_text(encoding="utf-8"))["rows"][0]
+        self.assertEqual(16.0, row["image_transform"]["pixels_per_unit"])
+        self.assertEqual({"x": 10.0, "y": 5.0}, row["image_transform"]["origin_px"])
+        self.assertEqual({"x": 64, "y": 48}, row["image_transform"]["image_size_px"])
+
+        # 用 check --only world 交叉验证真正落地（image_transform 是可选字段，不应导致 check 失败）。
+        code, output = run_cli(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--only",
+                "world",
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+    def test_map_dry_run_still_computes_image_size_without_writing(self) -> None:
+        case_dir = self.new_case_dir("map_cmd_dry_run_image_size")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (32, 32), "overlay": (32, 32)})
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "dry_transform_field",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--dry-run",
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        self.assertFalse((data_root / "_test" / "world" / "world.map.json").exists())
 
 
 class CheckWorldMapTest(ImportAssetsTestBase):

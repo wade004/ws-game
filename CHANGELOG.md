@@ -434,6 +434,30 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+消费方反馈第 59 条、ADR-0036：`world.map`/地图背景图片像素坐标与世界坐标换算关系、世界坐标 Y
+轴方向此前均无声明。
+
+### 新增
+
+- **第 59 条**：`world.map` 新增可选字段 `image_transform`（`pixels_per_unit`/`origin_px`/可选
+  `image_size_px`），`core/foundation/scene_router/core/WorldMapSchema.cs`。新增只读纯函数类型
+  `Core.Foundation.SceneRouter.MapImageTransform`（`core/foundation/scene_router/contracts/
+  MapImageTransform.cs`）：`PixelToWorld`/`WorldToPixel`/`WorldBounds`/静态 `Default`
+  （ppu=32、原点图片左上角）/`FromRecord`（字段缺失返回 `null`，不隐含套用默认值）。新增校验规则
+  `WorldMapPointOutsideImageValidationRule`（检查名 `world_map_point_outside_image`，Warning、
+  不可提升，`core/rules/assembly/RulesSchemaCatalog.cs` 默认注册）：地图声明 `image_size_px` 时，
+  `spawn_points`/`teleport_points` 世界坐标落在换算包围盒之外即告警。`toolchain/asset_import/
+  map_cmd.py` 新增 `--pixels-per-unit`（默认 32）、`--origin-px`（默认世界原点位于 `ground.png`
+  左下角）两个参数，`image_size_px` 从 `ground.png` 的 PNG `IHDR` 块直接读出（不新增第三方依赖）。
+
+### 文档
+
+- **第 59 条**：`architecture/05_对象模型与世界.md` 新增第 3.1.1 节"坐标约定"——世界坐标 Y 轴
+  正方向向上、地图背景图片像素坐标左上角为原点/行向下为正、换算公式；第 4.1 节 `world.map`
+  字段表补 `image_transform`。`architecture/14_资产规格书模板.md` 第 2.2 节 `pixels_per_unit`
+  行由 `<待填>` 改为"框架默认 32；每张地图可在 `world.map.image_transform` 覆盖"。新增
+  [ADR-0036](architecture/adr/0036-地图图片像素与世界坐标换算约定.md)。
+
 ## [1.41.0] - 2026-09-18
 
 编辑器上游反馈第 54～58 条（见

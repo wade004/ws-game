@@ -15,7 +15,11 @@
           },
           "facing": 0
         }
-      ]
+      ],
+      "image_transform": {
+        "pixels_per_unit": 32,
+        "origin_px": { "x": 0, "y": 0 }
+      }
     }
   ]
 }

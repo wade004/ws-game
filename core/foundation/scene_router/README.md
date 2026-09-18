@@ -49,8 +49,10 @@ scene_router/
     ISceneDiagnostics.cs ISceneDiagnostics
     ISceneRouter.cs      ISceneRouter
     Events.cs            SceneRouterEventKeys、Scene{LoadStarted,LoadFinished,Unloaded}Event
+    MapImageTransform.cs 像素↔世界坐标换算（消费方反馈第 59 条，ADR-0036）
   core/
-    WorldMapSchema.cs        world.map 的部分字段 TableSchema 登记
+    WorldMapSchema.cs        world.map 的部分字段 TableSchema 登记，含 WorldMapSpawnPointsValidationRule/
+                              WorldMapPointOutsideImageValidationRule 两个校验规则
     InMemorySceneDiagnostics.cs ISceneDiagnostics 默认实现
     SceneRouter.cs            ISceneRouter 默认实现
   schema/
@@ -58,6 +60,7 @@ scene_router/
   tests/
     SceneRouterTestSupport.cs
     SceneDescriptorTests.cs
+    MapImageTransformTests.cs
     SceneRouterLoadFlowTests.cs
     SceneRouterFailureAndGuardTests.cs
 ```
@@ -148,6 +151,24 @@ scene_router/
    默认注册）在 report 阶段拒绝同一缺陷，不必等到切场景才失败；`spawn_points`/`teleport_points`
    除第 0 个出生点外的其余点位仍然可以是只带 `id` 的命名点或只带 `position` 的匿名点，本规则
    不强制它们都填，见该规则判断记录与 05 第 4.1 节勘误（2026-09-10）。
+
+9. **消费方反馈第 59 条 / ADR-0036：`image_transform` 缺省不隐含套用任何默认换算**：
+   `world.map` 新增可选字段 `image_transform`（`pixels_per_unit`/`origin_px`/可选
+   `image_size_px`），子字段"提供 `image_transform` 时必填"这条约束复用 ADR-0019 既有能力
+   （`FieldSchema.Fields` 里子字段自身标 `required: true`，父 `image_transform` 字段仍是
+   `required: false`——与本文件既有 `position.x`/`position.y` 在可选 `position` 内必填是同一种
+   登记方式，已被 `SpawnPoints_PositionMissingY_ReportsRequiredField` 一类既有测试验证过，本次
+   不需要另外新增业务规则表达"Object 子字段必填"）。新增只读纯函数类型
+   `Contracts/MapImageTransform.cs`：`PixelToWorld`/`WorldToPixel`/`WorldBounds`/静态
+   `Default`（ppu=32、原点图片左上角）/`FromRecord`（字段缺失返回 `null`，刻意不静默退回
+   `Default`——运行时路径不静默降级，见 AGENTS.md 第 3 节；调用方须自行决定缺省时是否套用
+   `Default`）。新增校验规则 `WorldMapPointOutsideImageValidationRule`（检查名
+   `world_map_point_outside_image`，Warning 且不可提升，`core/rules/assembly/
+   RulesSchemaCatalog.cs` 默认注册）：地图声明了 `image_size_px` 时，`spawn_points`/
+   `teleport_points` 世界坐标落在换算出的包围盒之外即告警；未声明 `image_transform` 或未提供
+   `image_size_px` 时跳过（无法界定图片范围，不是缺陷）。世界坐标 Y 轴正方向向上、图片像素
+   坐标左上角为原点/行向下为正两条约定集中声明在 05 第 3.1.1 节，本模块只负责换算实现，不
+   重复声明约定本身。
 
 ## 基础架构提供 / 游戏层提供
 
