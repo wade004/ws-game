@@ -452,6 +452,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `slot_id`/`mesh_ref` 必填，为 `socket_attach` 时要求 `socket_id`/`model_ref` 必填。判断记录：
   本规则只检查"按自己 mode 取值对应的字段组是否填齐"，不检查"是否同时携带另一模式的字段"（04 与
   schema README 均未写"另一模式必须留空"，任务口径取保守解释，是否收紧留待设计层确认）。
+  **兼容性**：本规则无条件注册（Error 级，不可提升），既有 `display.equip_visual` 数据若
+  `mode=slot_mesh` 但缺 `slot_id`/`mesh_ref`，或 `mode=socket_attach` 但缺 `socket_id`/
+  `model_ref`，升级后加载/`validate_data.py --strict`/`toolchain/validator` 会首次报出该检查名
+  的阻断错误；处理方式是给对应记录补齐所缺字段，没有开关可以豁免。
 - **第 65 条**：`Core.Foundation.EngineAdapter.AssetRefConventions`/
   `toolchain/asset_import/ref_conventions.py` 新增四个字段的路径推导方法/函数：
   `VfxResourceDir`/`vfx_resource_dir`（`vfx.def.resource_ref` → 相对资产根目录的目录）、
