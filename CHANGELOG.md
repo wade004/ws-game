@@ -528,9 +528,11 @@ PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎�
   `display_anim_paperdoll_file_missing`、`display_anim_asset_missing`（遗留前缀兜底）。
 - `assets/_sample/sprite_anim/`/`assets/_sample/paperdoll/` 新增占位资产：9 个 `sprite_anim/
   <name>/{atlas.png,frames.json}` 目录（`sample_hero_{idle,move,attack,cast,hit,death}`/
-  `sample_sword_swing`/`sample_staff_{jab,cast}`）+ 1 个 `paperdoll/
-  item_sample_hero_hat_test.png` 扁平文件；结构与既有 `assets/_sample/vfx/*` 样例资产同构，尺寸
-  取最小（2x2 像素单帧），总计约 2.7KB（实测 2767 字节）。
+  `sample_sword_swing`/`sample_staff_{jab,cast}`）+ 2 个 `paperdoll/
+  item_sample_hero_hat_test.png`/`item_sample_hero_hat_wiring_test.png` 扁平文件（后者为下方
+  "修复"小节 `SpriteEquipVisualWiringTests` 专属夹具新增，2026-09-19 补）；结构与既有
+  `assets/_sample/vfx/*` 样例资产同构，尺寸取最小（2x2 像素单帧），总计约 2.8KB（实测 2845
+  字节）。
 
 ### 迁移说明
 
@@ -588,16 +590,27 @@ PlayMode 的改动点已合并列入同一份验证清单，详见下方"引擎�
 改动叠加效果暴露出的测试侧问题，非产品缺陷：
 
 - `SpriteEquipVisualWiringTests`/`EquipmentVisualReplayTests` 共享同一资源引用字面量
-  （`paperdoll.item.sample_hero_hat_test`）时的跨用例顺序依赖失败：新增
-  `UnityResourceLoader.UnloadAllImages`，由 `Tests/Runtime/PlayModeIsolation.cs`
-  `TearDownAfterTest` 每条 PlayMode 用例结束后调用，清空 `ResourceKind.Image` 类别的"已加载"
-  缓存（只清这一类别，不影响 `ResourceKind.Effect`/`Audio` 消费方跨用例永久去重的既有前提，
-  见该方法判断记录）。
+  （`paperdoll.item.sample_hero_hat_test`）时的跨用例顺序依赖失败：**第一版方案（提交
+  0a07c0c）新增 `UnityResourceLoader.UnloadAllImages`，由 `Tests/Runtime/
+  PlayModeIsolation.cs` `TearDownAfterTest` 每条 PlayMode 用例结束后清空
+  `ResourceKind.Image` 类别的"已加载"缓存——真实引擎门禁实测（288 条，285 通过，3 失败）证伪
+  了该方案：`GreyBoxTests.Move_Right_IncreasesPlayerX_AndTurnsSideways`/`GreyBoxTests.
+  PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder`/`VerticalSliceTests.
+  Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder` 三处新失败，均为"精灵/纸娃娃层资源
+  加载不到"，已撤销该方案（方法与调用点均已删除，不改为按 id/按用例限定清理的变体，跨用例
+  清空共享资源缓存这条路整体放弃，见 `PlayModeIsolation.TearDownAfterTest` 判断记录）。
+  改为局部修复：给 `SpriteEquipVisualWiringTests` 专属测试用一个它独有的资源引用字面量
+  `paperdoll.item.sample_hero_hat_wiring_test`（新增 `display.equip_visual.
+  sample_hero_hat_wiring_test` 一行 + 配套占位资产，并入 `toolchain/import_sample_assets.py`
+  既有生成流水线的 `PAPERDOLL_FILES` 列表），"未被加载过"这一前提由夹具本身独占保证，
+  不再依赖执行顺序或跨用例缓存清理，`EquipmentVisualReplayTests` 未改动。**
 - `VerticalSliceTests` 两处 `FullVerticalSlice_...`/`PRES180_...` 用例：`sprite_anim.
   sample_hero_*` 六个状态的动画资源经本批适配层路由修复 + 占位帧集数据迁移叠加后已能真实
   加载成功，原先预期"加载失败"的 `LogAssert.Expect` 写法过期，改为新增
   `AssertAnimResourcesLoadedSuccessfully`：轮询 `UnityResourceLoader.TryGetEffect` 确认六个
-  状态均已从真实占位资源文件加载成功，正面验证新的正确行为（不是删除断言）。
+  状态均已从真实占位资源文件加载成功，正面验证新的正确行为（不是删除断言）。经复核，这两处
+  断言检查的是 `ResourceKind.Effect` 类别（`sprite_anim.*`），与上一条被撤销的
+  `UnloadAllImages`（只清 `ResourceKind.Image` 类别）无关，不受本次撤销影响。
 
 ## [1.43.0] - 2026-09-18
 

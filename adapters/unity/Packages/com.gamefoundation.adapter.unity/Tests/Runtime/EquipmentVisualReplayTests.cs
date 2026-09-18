@@ -31,9 +31,15 @@ namespace Adapter.Unity.Tests.Runtime
         private static readonly Id ModelHeroLogicalId = new Id("creature.sample_model_hero");
         private static readonly Id SwordTemplateId = new Id("item.sample_model_sword");
 
-        // PR150-01 用例专用（sprite 路线，同 SpriteEquipVisualWiringTests.cs 复用的同一份
-        // data/_sample/display 固定测试数据：creature.sample_hero / item.sample_hero_hat /
-        // display.equip_visual.sample_hero_hat）。
+        // PR150-01 用例专用（sprite 路线，固定测试数据：creature.sample_hero / item.
+        // sample_hero_hat / display.equip_visual.sample_hero_hat）。
+        //
+        // 判断记录（2026-09-19 勘误）：SpriteEquipVisualWiringTests.cs 此前复用同一份
+        // item.sample_hero_hat/HatMeshRef 字面量，PlayMode 全量门禁失败 1/3 局部修复后该文件已
+        // 改用自己专属的 item.sample_hero_hat_wiring_test/paperdoll.item.
+        // sample_hero_hat_wiring_test（见该文件判断记录），不再与本文件共享——本文件下方常量
+        // 现在是仓库内唯一还在消费 item.sample_hero_hat/paperdoll.item.sample_hero_hat_test 这组
+        // 字面量的 PlayMode 用例，不存在跨用例顺序依赖。
         private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");
         private static readonly Id HatTemplateId = new Id("item.sample_hero_hat");
         private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_test"); // ADR-0038 数据迁移后前缀（此前 sprite.item.*）

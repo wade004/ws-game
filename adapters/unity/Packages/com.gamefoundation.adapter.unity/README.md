@@ -383,13 +383,22 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 - `Runtime/Shell/FrameworkResidentHost.cs`：框架常驻部分为什么不直接改造
   `GameFoundationBootstrap`、世界/装配根只构造一次、`AiHost`/`SpawnHost` 级联清理缺口（核心一半
   已由 ADR-0016 解决，`GameplayAssembly.LeaveMap` 承担出图退场，见 `HandlePreUnload` 判断记录）。
-- `UnityResourceLoader.cs` `UnloadAllImages`（PlayMode 全量门禁 288 项失败 1/3 根治，2026-09-19）：
-  为什么只清 `ResourceKind.Image` 类别的"已加载"缓存、不做成清空全部 `_loaded` 的 `UnloadAll`——
-  会破坏 `UnityViewFactory` 默认动画/武器剪辑升级与 `VfxPlayer`/`SfxPlayer` 各自
-  `_pendingResourceLoads` 这批"跨整个 -runTests 进程只加载一次、此后永远不重试"的
-  `ResourceKind.Effect`/`Audio` 消费方；`Tests/Runtime/PlayModeIsolation.cs`
-  `TearDownAfterTest` 第 6 步调用本方法，根治 `SpriteEquipVisualWiringTests`/
-  `EquipmentVisualReplayTests` 共享同一资源引用字面量时的跨用例顺序依赖失败。
+- `UnityResourceLoader.cs` `UnloadAllImages`（曾在 2026-09-19 提交 0a07c0c 新增，供
+  `Tests/Runtime/PlayModeIsolation.cs` `TearDownAfterTest` 每条用例后清空
+  `ResourceKind.Image` 类别"已加载"缓存，意图根治 PlayMode 全量门禁失败 1/3；已在同日撤销，
+  见下一条判断记录）：真实引擎实测证伪了"Image 类消费方随 View 实例自然重置、不受影响"这一
+  判断——清空全局缓存后引入了 3 处新失败（`GreyBoxTests`/`VerticalSliceTests` 若干用例的
+  精灵/纸娃娃层资源加载不到）。方法与调用点均已删除，不改为"只清某几个 id"或"只在某些用例后清"
+  的变体，跨用例清空共享资源缓存这条路整体放弃。
+- `Tests/Runtime/SpriteEquipVisualWiringTests.cs`
+  `UnityViewFactory_SpriteKind_EquipVisualWired_EquippingRequestsOverrideLayerResource`
+  （PlayMode 全量门禁失败 1/3 改为局部修复，2026-09-19）：该用例与 `EquipmentVisualReplayTests`
+  此前共享同一资源引用字面量 `paperdoll.item.sample_hero_hat_test`，只要其中一个先于另一个在
+  同一批 `-runTests` 进程里跑过，后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空。改为给
+  本用例专属的资源引用字面量 `paperdoll.item.sample_hero_hat_wiring_test`
+  （`display.equip_visual.sample_hero_hat_wiring_test` 一行，配套占位资产并入
+  `toolchain/import_sample_assets.py` 既有生成流水线），"未被加载过"这一前提由夹具本身独占
+  保证，不再依赖执行顺序或跨用例缓存清理。
 - `Tests/Runtime/VerticalSliceTests.cs` `AssertAnimResourcesLoadedSuccessfully`（同批失败 2/3、
   3/3 根治）：`sprite_anim.sample_hero_*` 六个状态动画资源经 ADR-0038 适配层路由修复 +
   占位帧集数据迁移叠加后已能真实加载成功，原先预期"加载失败"警告的 `LogAssert.Expect` 写法

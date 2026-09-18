@@ -120,8 +120,16 @@ SPRITE_ANIM_CLIPS: list[tuple[str, bool]] = [
 
 # display.equip_visual.json 迁移后引用的 paperdoll.* 层文件占位资产（扁平单文件，同 icon/sfx
 # 惯例），名字与 sample_hero_hat 的 mesh_ref 逐字节对应。
+#
+# item_sample_hero_hat_wiring_test（PlayMode 全量门禁失败 1/3 局部修复，2026-09-19）：
+# SpriteEquipVisualWiringTests 专属资源引用字面量，供 display.equip_visual.
+# sample_hero_hat_wiring_test 一行的 mesh_ref 使用，与 sample_hero_hat 一行（
+# EquipmentVisualReplayTests 也在用）彻底隔离——两个测试类此前共享同一字面量，只要其中一个先于
+# 另一个在同一批 -runTests 进程里跑过，后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空；
+# 给专属字面量后该断言不再依赖任何跨用例资源缓存状态或执行顺序。
 PAPERDOLL_FILES: list[str] = [
     "item_sample_hero_hat_test",
+    "item_sample_hero_hat_wiring_test",
 ]
 
 SPRITE_ANIM_FRAME_SIZE = 2  # 2x2 像素、单帧，最小占位尺寸——本域校验只看文件是否存在。

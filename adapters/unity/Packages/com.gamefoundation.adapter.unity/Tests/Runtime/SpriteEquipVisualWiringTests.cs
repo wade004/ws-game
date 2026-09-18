@@ -3,18 +3,24 @@
 // 第七方审核）——UnitySpriteView 此前没有 equipVisual 构造入口，即便 Presentation.Render.SpriteViewBase
 // 早已完整实现"缺口 10"（display.equip_visual 驱动的纸娃娃层装备外观合成），UnityViewFactory 的
 // equipVisualByItemInstanceId 表也接不到纸娃娃层路线（只有 model 路线的 UnityModelView 有对应入口，
-// 见 EquipVisualSocketClearTests.cs）。本文件用真实 data/_sample/display 数据（新增
-// display.equip_visual.sample_hero_hat 一行，见该文件）+ 真实 EquipmentVisualSource + UnityViewFactory
-// 完整生产装配路径验证纸娃娃层同样能生效——断言不满足于"不抛异常"，而是直接查
+// 见 EquipVisualSocketClearTests.cs）。本文件用真实 data/_sample/display 数据（display.
+// equip_visual.sample_hero_hat_wiring_test 一行，本文件专属，见下方判断记录）+ 真实
+// EquipmentVisualSource + UnityViewFactory 完整生产装配路径验证纸娃娃层同样能生效——断言不满足于
+// "不抛异常"，而是直接查
 // UnityResourceLoader.GetLoadProgress 确认装备覆盖的具体资源 id 确实被请求加载过（证明
 // SetLayers 用的是 EquipVisualDef.MeshRef，不是基线朝向解析出的资源 id）。
 //
-// ADR-0038 适配层接线判断记录（2026-09-19，HatMeshRef 前缀勘误）：本文件原字面常量
-// "sprite.item.sample_hero_hat_test" 对应 display.equip_visual.sample_hero_hat.mesh_ref 迁移前
-// 的取值；上一批数据迁移任务（feat/prefix-data-migration @ 08e069a）已把该字段实际取值改为
-// "paperdoll.item.sample_hero_hat_test"（ADR-0038 决策 4 附带条款新增前缀），本文件常量随之更新
-// 为同一取值，否则会与 data/_sample 真实数据不一致，GetLoadProgress 断言会落空——本机没有引擎
-// 批处理环境，本处改动无法本机重新跑 PlayMode 验证，待引擎批处理环境验证。
+// 判断记录（PlayMode 全量门禁失败 1/3 局部修复，2026-09-19，取代此前提交 0a07c0c 的全局方案）：
+// 本文件与 EquipmentVisualReplayTests.cs 此前共享同一资源引用字面量常量
+// "paperdoll.item.sample_hero_hat_test"，只要其中一个先于另一个在同一批 -runTests 进程里跑过，
+// 后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空（UnityEngineHost/UnityResourceLoader 是
+// DontDestroyOnLoad 单例，_loaded 缓存跨整个批处理进程存活，从不自动清空）。真实引擎实测证伪了
+// 一版"每条用例结束后清空 ResourceLoader 的 ResourceKind.Image 缓存"的全局方案（引入了另外 3 处
+// 新失败，见 PlayModeIsolation.TearDownAfterTest 判断记录），已撤销。改为局部修复：本文件专用一个
+// 它独有的资源引用字面量 "paperdoll.item.sample_hero_hat_wiring_test"（display.equip_visual.
+// sample_hero_hat_wiring_test 一行，配套占位资产已并入 toolchain/import_sample_assets.py 的
+// PAPERDOLL_FILES 生成流水线），不再与 EquipmentVisualReplayTests 共享任何字面量——"未被加载过"
+// 这一前提由夹具本身独占保证，与执行顺序、跨用例缓存清理均无关。
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -37,8 +43,10 @@ namespace Adapter.Unity.Tests.Runtime
     public sealed class SpriteEquipVisualWiringTests : PlayModeTestBase
     {
         private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");
-        private static readonly Id HatTemplateId = new Id("item.sample_hero_hat");
-        private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_test"); // ADR-0038 数据迁移后前缀（此前 sprite.item.*）
+        // 本文件专属（不与 EquipmentVisualReplayTests 共享，见类型顶部判断记录），
+        // 对应 display.equip_visual.sample_hero_hat_wiring_test 一行。
+        private static readonly Id HatTemplateId = new Id("item.sample_hero_hat_wiring_test");
+        private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_wiring_test");
 
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {
@@ -80,7 +88,7 @@ namespace Adapter.Unity.Tests.Runtime
             var fx = BuildFixture();
             var catalog = BuildCatalogByTemplateId(fx.Registry);
             Assert.IsTrue(catalog.ContainsKey(HatTemplateId),
-                "测试前置条件：display.equip_visual 应当有一行 item_id=item.sample_hero_hat 的 slot_mesh 记录");
+                "测试前置条件：display.equip_visual 应当有一行 item_id=item.sample_hero_hat_wiring_test 的 slot_mesh 记录");
             var equipSource = new EquipmentVisualSource(fx.Bus, catalog);
             var factory = new UnityViewFactory(
                 fx.Host.Renderer2D, new RenderConventionHost(), fx.DisplayInfo, fx.Host.ResourceLoader,
@@ -96,9 +104,10 @@ namespace Adapter.Unity.Tests.Runtime
             // AnimationLayerTests.cs 同一惯例）。
             view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0);
 
-            // 装备前：覆盖用的资源 id 不应该被请求过（排除"资源恰好因为别的原因也被加载"这种假阳性）。
+            // 装备前：覆盖用的资源 id 不应该被请求过（排除"资源恰好因为别的原因也被加载"这种假阳性；
+            // 本文件专属字面量，见类型顶部判断记录，不依赖跨用例执行顺序或资源缓存清理）。
             Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef),
-                "装备前不应该有任何请求加载 display.equip_visual.sample_hero_hat 声明的 mesh_ref");
+                "装备前不应该有任何请求加载 display.equip_visual.sample_hero_hat_wiring_test 声明的 mesh_ref");
 
             var itemInstanceId = new Id("item_instance.hat_1");
             var equipEvt = new ItemEquippedEvent(entityId, itemInstanceId, new Id("slot.head"));

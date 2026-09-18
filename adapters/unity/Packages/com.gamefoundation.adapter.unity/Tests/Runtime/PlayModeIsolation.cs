@@ -151,41 +151,21 @@ namespace Adapter.Unity.Tests.Runtime
             //    单例的测试相邻执行）。
             DeduplicateStrayEventSystems();
 
-            // 6) 清空 ResourceLoader 的 ResourceKind.Image 类别"已加载"缓存（PlayMode 全量门禁
-            //    SpriteEquipVisualWiringTests 跨用例失败根治，分诊报告
-            //    scratchpad/triage-playmode-1.44.0.md 失败 1/3）：UnityResourceLoader 同样挂在
-            //    DontDestroyOnLoad 的 UnityEngineHost 上、跨整个 -runTests 批处理进程存活，其
-            //    _loaded 缓存此前从不清空（本文件顶部"背景"一节同一类问题的又一处）。
-            //    SpriteEquipVisualWiringTests 与 EquipmentVisualReplayTests 两个测试类共享同一个
-            //    资源引用字面量常量（HatMeshRef = paperdoll.item.sample_hero_hat_test，与前缀迁移
-            //    无关，迁移前后字面量本身相同），只要其中一个先于另一个在同一批 -runTests 进程里跑
-            //    过，后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空——与具体执行顺序、具体
-            //    字面量取值无关，根治手段是让每条用例开始前资源加载器本身回到干净状态，不是给两个
-            //    测试换不同字面量或断言 delta。
-            //
-            //    判断记录（为什么调用 UnloadAllImages 而不是清空全部资源缓存）：
-            //    UnityResourceLoader.UnloadAllImages 判断记录里已详细记录过"最初实现是清空全部
-            //    _loaded、自查后发现会破坏 UnityViewFactory 默认动画升级/武器剪辑升级与
-            //    VfxPlayer/SfxPlayer 各自的_pendingResourceLoads 这批'跨整个 -runTests 进程只加载
-            //    一次、此后永远不重试'的 ResourceKind.Effect/Audio 消费方"这条排查结论，本文件不
-            //    重复贴一遍，只记结论：只清 ResourceKind.Image 类别，因为该类别的消费方
-            //    （SpriteViewBase/SpriteCharacterRig 用的 ResourceReferenceTracker）是随每个 View
-            //    实例一起构造、随用例结束自然重置的，不存在"跨用例永久去重"假设，清空这一类别的
-            //    缓存不会产生上述回归。
-            //
-            //    影响面评估（本包内其它依赖 ResourceLoader 缓存的用例均不受影响）：
-            //    - AuditBlockersPlayModeTests 等用例在同一条用例内部自行 Unload 指定 id 后再断言，
-            //      不依赖"缓存跨用例保留"这一前提；
-            //    - UnityResourceLoaderTests 每条用例在 [SetUp] 里 `new UnityResourceLoader()`
-            //      自建独立实例，不经 UnityEngineHost 共享单例，不受影响；
-            //    - VerticalSliceTests 等依赖 sprite_anim/vfx/sfx（ResourceKind.Effect/Audio）跨用例
-            //      缓存永久生效这一前提的用例不受影响（本步骤不清这两个类别）；
-            //    - UnloadAllImages 只移除 C# 侧缓存索引，不主动 Destroy 底层 UnityEngine.Object
-            //      （沿用 Unload(Id) 既有约定），不会破坏本条用例已经渲染到场景里的资源引用
-            //      （TearDown 执行顺序上，World.ClearAll/销毁残留 Bootstrap 已经先发生，见本方法
-            //      1)/2)）；代价仅为下一条用例首次引用同一 Image 资源时需要重新发起一次真正的
-            //      LoadAsync（性能代价，不改变功能正确性，且发生频率有限）。
-            host.ResourceLoader.UnloadAllImages();
+            // 判断记录（撤销：曾在此处新增过第 6 步"清空 ResourceLoader 的 ResourceKind.Image
+            // 类别已加载缓存"，见提交 0a07c0c；真实引擎门禁实测证伪——该改动虽然根治了
+            // SpriteEquipVisualWiringTests 跨用例失败，但引入了 3 处新失败
+            // （GreyBoxTests.Move_Right_IncreasesPlayerX_AndTurnsSideways、GreyBoxTests.
+            // PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder、VerticalSliceTests.
+            // Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder），均表现为"精灵/纸娃娃层资源
+            // 加载不到"——当时"Image 类消费方随 View 实例自然重置、不受影响"这一判断本身不成立：
+            // 清空 _loaded 缓存后，后续用例首次引用同一 Image 资源确实会重新触发 LoadAsync，但
+            // 上述三条用例在同一 PlayMode 用例窗口内断言精灵/纸娃娃层已加载完成，跨用例清空缓存
+            // 与该窗口内的同步/近同步断言时序冲突，产生了与本方法顶部"背景"一节描述的同一类问题
+            // （不同表现）。已撤销整条全局清理路径，不改为"只清某几个 id"或"只在某些用例后清"的
+            // 变体——跨用例清空共享资源缓存这条路已被证明危险。SpriteEquipVisualWiringTests 与
+            // EquipmentVisualReplayTests 共享同一资源引用字面量导致的跨用例顺序依赖失败，改为
+            // 局部修复：给 SpriteEquipVisualWiringTests 专属测试用一个它独有的资源引用字面量与
+            // 配套占位资产，见该测试文件判断记录，不再需要跨用例的全局资源缓存清理。
         }
 
         /// <summary>每条用例开始前统一执行（由 <see cref="PlayModeTestBase.BaseSetUp"/> 调用）：
