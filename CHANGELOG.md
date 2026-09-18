@@ -458,15 +458,38 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   同一套递归记法，收集全表已登记的元素数量约束；`toolchain/validator --list-tables --json`
   每张表新增 `field_item_counts` 导出（`[{field_path, kind, min_items, max_items}]`），编辑器可
   据此在内容作者增删数组/IdList 元素时就地提示。
-- **第 61 条**：`FieldUnit` 新增 `Radian`（弧度制）取值，`core/foundation/data_registry/
-  contracts/FieldUnit.cs`；`area_trigger`/`encounter`/`spawn`/`targeting` 四模块共 10 个角度字段
-  统一补登 `Unit: FieldUnit.Radian`（此前无统一单位声明，各模块各自约定）。
-- **第 56 条追问**：新增两条默认关闭的可选诊断规则——`QuestPrerequisiteIsolationRule`
-  （`core/gameplay/quest/core/QuestPrerequisiteIsolationRule.cs`）检测 quest 前置图中的孤岛节点，
-  `TalentTreeIsolationRule`（`core/numbers/archetype/core/TalentTreeIsolationRule.cs`）检测天赋树
-  孤岛节点；`ContentValidationOptions` 新增开关 `EnableGraphIsolationDiagnostics`，
-  `toolchain/validator` 新增命令行开关 `--enable-graph-isolation`，默认均不启用（不改变默认门禁
-  行为）。
+- **第 61 条**：`Core.Foundation.DataRegistry.FieldUnit` 新增 `Radian` 成员——框架内角度量一律弧度制，
+  逆时针为正、0 指向 +X，集中声明单一来源见 `architecture/05_对象模型与世界.md`"单位约定"新增
+  第 9 节（02 文档接口清单前言段角度约定同步改为引用该节）。全仓库全部角度语义字段（10 个字段，4 张
+  表）均补 `FieldSchema.WithUnit(FieldUnit.Radian)` 登记并在 `Description` 补"弧度"字样：
+  `area.trigger_def.shape{kind=cone}.rotation/angle`、`area.trigger_def.shape{kind=line}.rotation`、
+  `area.trigger_def.shape{kind=rect}.rotation`、
+  `encounter.def.arena_rules.bounds_shape{kind=cone}.direction/angle`、
+  `encounter.def.arena_rules.bounds_shape{kind=line}.direction`、
+  `encounter.def.arena_rules.bounds_shape{kind=rect}.rotation`、`spawn.table.facing`、
+  `target.chain_def.shape{kind=cone}.angle`。`toolchain/validator --list-tables --json` 的
+  `field_meta.unit` 此前已是 `FieldUnit.ToString()` 的通用导出，新增成员后自动吐出 `"Radian"`，
+  无需改动导出代码。新增反射式回归测试 `presentation/assembly/tests/AngleFieldRadianUnitTests.cs`：
+  遍历全部已登记 `TableSchema`（含嵌套子结构），断言字段名匹配 `angle|rotation|facing|heading` 的
+  `Number` 字段均已登记 `Unit == Radian`（允许一份显式例外清单，当前为空）。
+- **第 56 条追问**：新增两条默认关闭的可选诊断规则，回应"是否为 `quest_prerequisite`/`talent_tree`
+  孤立节点提供可选诊断"的追问——`ContentValidationOptions` 新增显式布尔开关
+  `EnableGraphIsolationDiagnostics`（默认 `false`），`toolchain/validator` 新增对应命令行开关
+  `--enable-graph-isolation`（首个"命令行式可选规则开关"，与既有两条"提供依赖即启用"的可选规则
+  不同）。开启后注册：`Core.Gameplay.Quest.QuestPrerequisiteIsolationRule`（检查名
+  `quest_prerequisite_node_isolated`，Warning，`NonEscalatable`）——提示 `quest.def` 里既无前置、
+  也未被任何其它任务引用为前置的孤立任务，仅当表内任务总数 ≥2 时报；
+  `Core.Numbers.Archetype.TalentTreeIsolationRule`（检查名 `talent_node_isolated`，Warning，
+  `NonEscalatable`）——提示每棵 `arch.talent_tree` 里既无前置也未被引用的孤立节点，仅当树内节点数
+  ≥2 时报。两条规则均登记进 `ContentValidationAssembly.OptionalRules`（`OptionalRuleNames` 由两项
+  扩为四项）。孤立节点在这两类图里仍是合法内容形态（见 1.41.0 `ContentGraphAnalyzer`/
+  `story_tree_node_unreachable` 判断记录），本次不改变这一判定，只是把该判断结果按需暴露为一条
+  可选的展示性提示，默认关闭、不影响任何既有校验行为。三套官方数据根默认（未开启开关）零行为变化；
+  实测三套官方数据根在开关**开启**时均为 0 条新增 Warning：`data/_sample`/
+  `games/_template/data/game` 均含 `quest.def`/`arch.talent_tree`，两条规则均已注册运行但命中数为
+  0（示例内容前置/引用关系已全连通，无孤立节点，不是规则未生效）；`core/sim/tests/data` 只含
+  `arch.talent_tree`（无 `quest.def`），`TalentTreeIsolationRule` 同样运行且命中数为 0，
+  `QuestPrerequisiteIsolationRule` 因表不存在而跳过。
 
 ### 变更
 
@@ -512,7 +535,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   行由 `<待填>` 改为"框架默认 32；每张地图可在 `world.map.image_transform` 覆盖"。新增
   [ADR-0036](architecture/adr/0036-地图图片像素与世界坐标换算约定.md)。
 - **第 61 条**：`architecture/05_对象模型与世界.md` 新增第 9 节"单位约定"（弧度制角度字段清单），
-  第 2 节改为引用该节，不再各处分散重复声明；`toolchain/README.md`、
+  第 2 节改为引用该节，不再各处分散重复声明；第 3.5 节 `Shape` 字段表 `direction`/`angle`/
+  `rotation` 参数补"（弧度）"标注；`toolchain/README.md`、
   `core/foundation/data_registry/README.md`、`core/gameplay/quest/README.md`、
   `core/numbers/archetype/README.md`、`presentation/assembly/README.md` 补判断记录。
 

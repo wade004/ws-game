@@ -6,7 +6,9 @@ using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Gameplay.Quest;
 using Core.Gameplay.Spawn;
+using Core.Numbers.Archetype;
 
 namespace Presentation.Assembly
 {
@@ -110,6 +112,19 @@ namespace Presentation.Assembly
         /// <see cref="IValidationRule.Validate"/>"这一步（见该类型判断记录），不需要两遍装配。
         /// </summary>
         public Core.Rules.Common.ISkillBudgetAnchorProvider? SkillBudgetAnchorProvider { get; set; }
+
+        /// <summary>
+        /// 消费方反馈第 56 条追问（2026-09-18）：<c>QuestPrerequisiteIsolationRule</c>/
+        /// <c>TalentTreeIsolationRule</c> 两条可选规则的显式开关，默认 <c>false</c>（两条规则均不
+        /// 注册，不产出任何问题）。判断记录（为何是布尔开关而不是"提供依赖即启用"）：既有两条可选规则
+        /// （<see cref="CreatureTemplateQuery"/>/<see cref="DisplayMapCoverageSources"/>）"未提供接线
+        /// 依赖即禁用"的模式，前提是规则本身需要一份外部依赖才能跑；孤立节点诊断不需要任何外部依赖
+        /// （只读 <c>quest.def</c>/<c>arch.talent_tree</c> 自身），没有天然的"依赖是否提供"可以借用，
+        /// 需要一个独立的显式开关表达"宿主是否想要这类展示性提示"（孤立节点在两类图里都是合法内容
+        /// 形态，见两条规则类型顶部判断记录，不是缺陷，默认关闭符合"抓意图不抓手滑"的既有口径）。
+        /// <c>toolchain/validator</c> 对应新增命令行开关 <c>--enable-graph-isolation</c>。
+        /// </summary>
+        public bool EnableGraphIsolationDiagnostics { get; set; }
     }
 
     /// <summary>
@@ -221,6 +236,8 @@ namespace Presentation.Assembly
     {
         private const string SpawnSummonOnlyCreatureRuleName = "SpawnSummonOnlyCreatureRule";
         private const string DisplayMapCoverageRuleName = "DisplayMapCoverageRule";
+        private const string QuestPrerequisiteIsolationRuleName = "QuestPrerequisiteIsolationRule";
+        private const string TalentTreeIsolationRuleName = "TalentTreeIsolationRule";
 
         /// <summary>
         /// 消费方反馈第 43 条：本入口承认的全部可选规则的"规则名 ↔ 检查名"关联描述符，单一来源——
@@ -242,6 +259,16 @@ namespace Presentation.Assembly
                 DisplayMapCoverageRuleName,
                 DisplayMapCoverageRule.CheckName,
                 "校验内容表（技能/光环/物品/生物/物件）的逻辑 id 是否都在 display.map 中有对应的外形映射行"),
+            new OptionalRuleDescriptor(
+                QuestPrerequisiteIsolationRuleName,
+                QuestPrerequisiteIsolationRule.CheckName,
+                "消费方反馈第 56 条追问：展示性提示 quest.def 里既无前置、也未被任何其它任务引用为前置的" +
+                    "孤立任务（合法内容形态，默认关闭，经 ContentValidationOptions.EnableGraphIsolationDiagnostics 开启）"),
+            new OptionalRuleDescriptor(
+                TalentTreeIsolationRuleName,
+                TalentTreeIsolationRule.CheckName,
+                "消费方反馈第 56 条追问：展示性提示 arch.talent_tree 里既无前置、也未被任何其它节点引用为" +
+                    "前置的孤立节点（合法内容形态，默认关闭，经 ContentValidationOptions.EnableGraphIsolationDiagnostics 开启）"),
         };
 
         /// <summary>本入口承认的全部可选规则名（固定清单，见 <see cref="ContentValidationOptions"/>
@@ -382,6 +409,19 @@ namespace Presentation.Assembly
             // 不再计入 disabled。
             var displayMapCoverageSources = options.DisplayMapCoverageSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
             registry.RegisterValidationRule(new DisplayMapCoverageRule(displayMapCoverageSources));
+
+            // 消费方反馈第 56 条追问：两条图孤立节点展示性提示规则，默认不注册（EnableGraphIsolationDiagnostics
+            // 默认 false，见该属性判断记录——与上面两条"提供依赖即启用"的可选规则不同，本次是显式布尔开关）。
+            if (options.EnableGraphIsolationDiagnostics)
+            {
+                registry.RegisterValidationRule(new QuestPrerequisiteIsolationRule());
+                registry.RegisterValidationRule(new TalentTreeIsolationRule());
+            }
+            else
+            {
+                disabled.Add(QuestPrerequisiteIsolationRuleName);
+                disabled.Add(TalentTreeIsolationRuleName);
+            }
 
             // T-N6-2a：额外登记回调，见 ContentValidationOptions.ExtraSchemaRegistration 判断记录。
             // 放在 PresentationSchemaCatalog.RegisterAll 与两条可选规则之后——调用方（如

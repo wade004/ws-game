@@ -146,9 +146,11 @@ namespace Core.Gameplay.Encounter
                 {
                     origin,
                     new FieldSchema("direction", FieldKind.Number, required: true,
-                        description: "扇形朝向角，弧度制（EncounterShapeMath 角度统一按弧度制处理）"),
+                        description: "扇形朝向角，弧度制（EncounterShapeMath 角度统一按弧度制处理）")
+                        .WithUnit(FieldUnit.Radian),
                     new FieldSchema("angle", FieldKind.Number, required: true,
-                        description: "扇形张角，弧度制"),
+                        description: "扇形张角，弧度制")
+                        .WithUnit(FieldUnit.Radian),
                     new FieldSchema("radius", FieldKind.Number, required: true,
                         description: "扇形半径"),
                 },
@@ -156,7 +158,8 @@ namespace Core.Gameplay.Encounter
                 {
                     origin,
                     new FieldSchema("direction", FieldKind.Number, required: true,
-                        description: "条形朝向角，弧度制（EncounterShapeMath 角度统一按弧度制处理）"),
+                        description: "条形朝向角，弧度制（EncounterShapeMath 角度统一按弧度制处理）")
+                        .WithUnit(FieldUnit.Radian),
                     new FieldSchema("length", FieldKind.Number, required: true,
                         description: "条形沿朝向方向的长度"),
                     new FieldSchema("width", FieldKind.Number, required: true,
@@ -168,7 +171,8 @@ namespace Core.Gameplay.Encounter
                     new FieldSchema("half_extents", FieldKind.Vec2, required: true,
                         description: "矩形场地半宽半高（各轴方向从中心到边界的距离）"),
                     new FieldSchema("rotation", FieldKind.Number, required: true,
-                        description: "矩形绕 origin 的旋转角，弧度制"),
+                        description: "矩形绕 origin 的旋转角，弧度制")
+                        .WithUnit(FieldUnit.Radian),
                 },
             };
 

@@ -75,15 +75,29 @@ def _run_validate_data(sample_root: Path) -> subprocess.CompletedProcess[str]:
 def test_unmodified_sample_data_still_zero_errors_zero_warnings(tmp_path):
     """规则现在真的在跑（不再是 disabled），但示例数据集本身仍然干净——
     ``creature.sample_summon_totem`` 未被任何 ``spawn.table`` 行引用（见消费方反馈第 44 条处理，
-    data/README.md "creature 示例数据" 一节判断记录）。"""
+    data/README.md "creature 示例数据" 一节判断记录）。
+
+    行为变更（消费方反馈第 56 条追问，2026-09-18）：``ContentValidationOptions`` 新增
+    ``EnableGraphIsolationDiagnostics`` 开关（默认 ``false``），默认关闭
+    ``QuestPrerequisiteIsolationRule``/``TalentTreeIsolationRule`` 两条新可选规则；
+    ``toolchain/validator`` 未新增对应命令行开关时不透传，故这条端到端回归测的
+    ``SpawnSummonOnlyCreatureRule`` 默认接线依旧生效（"optional rules disabled" 不再恒为
+    ``none``，改为断言这两条规则名恰好在列，与 ``SpawnSummonOnlyCreatureRule`` 不在列一并确认——
+    该规则的"默认已接线"结论未被本次改动波及）。"""
     sample_root = _copy_sample_data(tmp_path)
 
     result = _run_validate_data(sample_root)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "errors 0, warnings 0" in result.stdout
-    # 如实确认规则确实已接线（不是恰好因为其它原因侥幸 0 错误）。
-    assert "optional rules disabled: none" in result.stdout
+    # 如实确认 SpawnSummonOnlyCreatureRule 确实已接线（不是恰好因为其它原因侥幸 0 错误）：
+    # 默认输出现含两条新增的默认关闭可选规则，但不含 SpawnSummonOnlyCreatureRule。
+    disabled_line = next(
+        line for line in result.stdout.splitlines() if line.startswith("optional rules disabled:")
+    )
+    assert "QuestPrerequisiteIsolationRule" in disabled_line
+    assert "TalentTreeIsolationRule" in disabled_line
+    assert "SpawnSummonOnlyCreatureRule" not in disabled_line
 
 
 def test_spawn_table_referencing_summon_only_creature_fails_gate(tmp_path):

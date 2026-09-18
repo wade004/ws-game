@@ -79,6 +79,10 @@ namespace Toolchain.Validator
             // 消费方反馈第 42 条：默认 WarnOnMissingTranslation=true（见
             // DataRegistryOptions.WarnOnMissingTranslation 判断记录），本开关显式传入时关闭。
             var noMissingTranslationWarning = false;
+            // 消费方反馈第 56 条追问：ContentValidationOptions.EnableGraphIsolationDiagnostics 的命令行
+            // 开关——首个"命令行式可选规则开关"（既有两条可选规则靠 --display-map-sources 一类接线参数
+            // 是否提供间接决定是否启用，本次是独立的纯布尔命令行开关，见该属性判断记录），默认不传即关闭。
+            var enableGraphIsolation = false;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -109,6 +113,13 @@ namespace Toolchain.Validator
                     // 这条校验，恢复只查默认语言的旧行为（见 DataRegistryOptions.WarnOnMissingTranslation）。
                     case "--no-missing-translation-warning":
                         noMissingTranslationWarning = true;
+                        break;
+
+                    // 消费方反馈第 56 条追问：开启 QuestPrerequisiteIsolationRule/TalentTreeIsolationRule
+                    // 两条默认关闭的孤立节点展示性提示规则（见 ContentValidationOptions.
+                    // EnableGraphIsolationDiagnostics 判断记录）。
+                    case "--enable-graph-isolation":
+                        enableGraphIsolation = true;
                         break;
 
                     // 判断记录（F3 元数据门禁）：--schema-audit 是一种完全不同的运行模式——不需要
@@ -159,7 +170,7 @@ namespace Toolchain.Validator
             {
                 Console.Error.WriteLine(
                     "参数错误：缺少必填参数 --data-root <dir>（可重复传入以合并多个数据根）\n" +
-                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>] [--no-missing-translation-warning]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template；--no-missing-translation-warning 关闭非默认语言缺翻译的 text_key_exists Warning，见消费方反馈第 42 条）\n" +
+                    "用法：dotnet run --project toolchain/validator -- --data-root <dir> [--data-root <dir2> ...] [--strict] [--json] [--list-tables] [--display-map-sources <table:idField,...>] [--no-missing-translation-warning] [--enable-graph-isolation]（省略 --display-map-sources 时默认覆盖 skill.def/skill.aura_def/item.template/creature.template/gobj.template；--no-missing-translation-warning 关闭非默认语言缺翻译的 text_key_exists Warning，见消费方反馈第 42 条；--enable-graph-isolation 开启 quest_prerequisite_node_isolated/talent_node_isolated 两条默认关闭的孤立节点展示性提示规则，见消费方反馈第 56 条追问）\n" +
                     "或元数据门禁：dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] [--json]");
                 return 2;
             }
@@ -254,6 +265,7 @@ namespace Toolchain.Validator
                 SkillBudgetAnchorProvider = anchorProviderWired
                     ? new Core.Sim.AnchorTableSkillBudgetAnchorProvider(() => registryHolder!)
                     : null,
+                EnableGraphIsolationDiagnostics = enableGraphIsolation,
             };
             var effectiveDisplayMapCoverageSources = displayMapSources ?? PresentationSchemaCatalog.DefaultDisplayMapCoverageSources;
 

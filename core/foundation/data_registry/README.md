@@ -175,6 +175,24 @@ data_registry/
   `scaling_stat`/`coefficient`（1.33.0→`scaling` 列表，非周期 `school_damage`/`heal` 与周期
   `periodic_damage`/`periodic_heal` 四个变体分支各自登记）。
 
+## 角度字段弧度制单一声明（消费方反馈第 61 条，2026-09-18）
+
+`FieldUnit` 新增 `Radian` 成员（框架内角度量一律弧度制，逆时针为正、0 指向 +X，集中声明单一来源见
+`architecture/05_对象模型与世界.md`"单位约定"一节，本枚举成员只是配合登记/导出用的结构化标记）。全仓库
+角度语义字段（`area.trigger_def.shape.{rotation,angle}`、`encounter.def.arena_rules.bounds_shape.
+{direction,angle,rotation}`、`spawn.table.facing`、`target.chain_def.shape.angle`）均已补
+`FieldSchema.WithUnit(FieldUnit.Radian)` 登记。
+
+- `toolchain/validator --list-tables --json` 的 `field_meta.unit` 此前已经是 `field.Unit.ToString()`
+  的通用导出（不是按枚举值逐一分支的白名单），新增 `Radian` 成员后无需改动导出代码，`unit` 字段自动
+  吐出 `"Radian"`——同 `"Time"`/`"Percent"`/`"None"` 既有取值一样，内容工具据此判断字段单位，不必解析
+  `description` 自由文本猜测。
+- 反射式回归测试 `presentation/assembly/tests/AngleFieldRadianUnitTests.cs`：遍历
+  `SchemaAudit.EnumerateRegisteredSchemas()` 给出的全部已登记 `TableSchema`（含 `Fields`/`Item`/
+  `Variants`/`Map` 递归子结构），断言字段名匹配 `angle|rotation|facing|heading`（大小写不敏感）的
+  `FieldKind.Number` 字段均已登记 `Unit == FieldUnit.Radian`，未登记时报具体字段路径；允许一份显式例外
+  清单（初始为空，任何新增例外须在测试文件内写明理由），防止后续新增角度字段遗漏该登记。
+
 ## 校验规则元数据与不可提升警告（分阶段落地计划 T-N0-2，04 第 5 节数值类校验项分级表）
 
 `IValidationRule` 新增三个带默认实现的成员（11 第 7 节"默认实现"路线，既有规则一行不改）：

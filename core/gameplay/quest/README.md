@@ -275,6 +275,21 @@ quest/
     检查项据此报告"元素数不足"，`QuestContentValidationRule.ValidateObjectives` 里原有的
     `objectives_min_count` 判断分支同步删除（避免同一缺陷双报）；空数组时下方逐元素循环天然是空
     操作，无需额外提前返回。
+18. **消费方反馈第 56 条追问（2026-09-18）：新增默认关闭的可选诊断 `QuestPrerequisiteIsolationRule`**
+    （`core/gameplay/quest/core/QuestPrerequisiteIsolationRule.cs`，检查名
+    `quest_prerequisite_node_isolated`，Warning，`NonEscalatable`）——判断记录 15 第 56 条已定性
+    "孤立节点是合法内容形态、不产出等价 `story_tree_node_unreachable` 的警告级检查"，本条不推翻该
+    结论，只是回应"既然合法，能否仍提供一个可选的展示性提示供内容工具主动查询"的追问：以
+    `Presentation.Assembly.ContentValidationOptions.EnableGraphIsolationDiagnostics`（默认 `false`）
+    为唯一开关，显式打开时才注册，默认路径（三套官方数据根、`toolchain/validator` 未传
+    `--enable-graph-isolation`）零行为变化。复用第 54 条 `QuestReferenceExtractor
+    .ExtractReferencedQuestIds` 提取 `quest.def.prerequisite` 引用作为图的边、复用
+    `ContentGraphAnalyzer.Analyze` 求孤立节点（`IsolatedNodeIds`：入度出度均 0），仅当 `quest.def`
+    表内任务总数 ≥2 时才报（同 `TalentTreeIsolationRule` 判断记录"树内节点数 ≥2"口径，单任务/空表
+    没有"孤立"这一概念）。`AffectedNodeIds` 填入孤立任务自身 id。测试见
+    `tests/QuestPrerequisiteIsolationRuleTests.cs`（触发/全连通不触发/单任务不触发三组用例，均经
+    `ContentValidationAssembly.Run` 装配）；"开关关闭时不注册"这一装配层行为覆盖在
+    `presentation/assembly/tests/ContentValidationAssemblyTests.cs`，不在本文件重复测。
 
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
