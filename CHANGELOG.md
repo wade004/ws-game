@@ -519,7 +519,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   <name>/{atlas.png,frames.json}` 目录（`sample_hero_{idle,move,attack,cast,hit,death}`/
   `sample_sword_swing`/`sample_staff_{jab,cast}`）+ 1 个 `paperdoll/
   item_sample_hero_hat_test.png` 扁平文件；结构与既有 `assets/_sample/vfx/*` 样例资产同构，尺寸
-  取最小（2x2 像素单帧），总计约 23KB。
+  取最小（2x2 像素单帧），总计约 2.7KB（实测 2767 字节）。
 
 ### 迁移说明
 

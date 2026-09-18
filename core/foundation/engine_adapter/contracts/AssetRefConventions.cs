@@ -304,12 +304,13 @@ namespace Core.Foundation.EngineAdapter
         /// 目录会让两边各自的产出与消费约定互相绑架"），与 <see cref="SfxResourceFile"/> 同一惯例
         /// （资产根相对、扁平单文件、带扩展名）。
         /// <para>
-        /// 判断记录（本方法只新增契约，不迁移数据/不改引擎适配层）：任务范围明确"本任务只做契约、
-        /// API、校验、工具链，不动数据、不动引擎适配层"——<c>data/_sample/display/display.equip_visual.json</c>
-        /// 现有 <c>mesh_ref: "sprite.item.sample_hero_hat_test"</c> 一行仍用旧 <c>sprite</c> 前缀，
-        /// 尚未迁移到本方法对应的 <c>paperdoll</c> 前缀，也未改动 <c>SpriteViewBase</c>/
-        /// <c>UnityResourceLoader</c> 使其实际调用本方法——均留给下一个任务（数据迁移 + 引擎适配层
-        /// 改为转发本方法），见任务报告。
+        /// 判断记录（本方法落地时只新增契约，不迁移数据/不改引擎适配层；数据迁移任务已完成后半段）：
+        /// 本方法新增时任务范围明确"本任务只做契约、API、校验、工具链，不动数据、不动引擎适配层"，
+        /// 当时 <c>data/_sample/display/display.equip_visual.json</c> 现有 <c>mesh_ref:
+        /// "sprite.item.sample_hero_hat_test"</c> 一行仍用旧 <c>sprite</c> 前缀。后续数据迁移任务
+        /// （见 CHANGELOG 对应条目）已把该行改为 <c>paperdoll.item.sample_hero_hat_test</c>；
+        /// <c>SpriteViewBase</c>/<c>UnityResourceLoader</c> 改为实际调用本方法（引擎适配层改为转发）
+        /// 仍是后续任务，未随数据迁移一并完成，见 CHANGELOG"未完成/后续任务"小节。
         /// </para>
         /// </summary>
         public static string PaperdollLayerFile(Id resourceRefId) =>

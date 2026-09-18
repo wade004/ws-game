@@ -16,8 +16,9 @@
 // 需要打开命中帧同步开关，model 组另需切玩家外形为 creature.sample_model_hero。
 //
 // 判断记录（sprite 组的"命中帧各触发一次"子项额外补一份真实多帧剪辑，其余子项复用生产默认剪辑表）：
-// data/_sample 目前只给 sprite 型攻击/受击剪辑声明了 resource_ref（anim.sample_hero_attack/
-// anim.sample_hero_hit），但没有对应的真实多帧占位资源落盘（不同于 model 路线——占位模型资产由
+// data/_sample 目前只给 sprite 型攻击/受击剪辑声明了 resource_ref（sprite_anim.sample_hero_attack/
+// sprite_anim.sample_hero_hit，ADR-0038 数据迁移后前缀），但落盘的只是最小单帧占位资源（见
+// toolchain/import_sample_assets.py SPRITE_ANIM_CLIPS），没有真实多帧占位资源（不同于 model 路线——占位模型资产由
 // GeneratePlaceholderModelAssets.cs 实际生成，见该脚本）；UnityViewFactory.RegisterDefaultClips 在
 // 资源缺失时按"缺表现资源不阻断游戏"策略退化为不带关键帧的单帧剪辑（仍然会真实播放并触发
 // OnComplete，只是没有命中帧标记可触发）。"命中帧各触发一次"子项因此额外经反射拿到生产装配根

@@ -7,8 +7,10 @@
 // 不覆盖"该 clipId 是否已注册"这一层（见该文件顶部判断记录），ModelIntegrationTests.cs 只覆盖 model
 // 一侧的引擎落地（Animator 状态现查现用，不需要预注册，天然不受这个问题影响）——本文件补上 sprite
 // 一侧真正经 UnityFrameAnimPlayer.Play 落地这一层，用真实 data/_sample 数据集（
-// display.weapon_style.sample_sword 的 auto_attack_anim: anim.sample_sword_swing 是一个真实不存在
-// 对应 vfx/ 占位资源的 clipId，见该表与 assets/_placeholder/vfx 目录）复现并验收。
+// display.weapon_style.sample_sword 的 auto_attack_anim: sprite_anim.sample_sword_swing 是一个从未
+// 随默认剪辑表预登记的 clipId，见该表与 assets/_sample/sprite_anim/sample_sword_swing 目录——
+// ADR-0038 数据迁移任务已把该字段由遗留 anim.* 前缀改为 sprite_anim.*，本用例复现的"未预登记即抛
+// 异常"问题与前缀取值本身无关，占位资源是否存在也不影响该问题）复现并验收。
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -76,7 +78,8 @@ namespace Adapter.Unity.Tests.Runtime
             view.Bind(entityId);
 
             // 瞬发进入 Attack（同 AnimClipResolverTests.cs 一贯做法）：武器风格解析优先于默认剪辑表，
-            // 命中 display.weapon_style.sample_sword.auto_attack_anim = "anim.sample_sword_swing"。
+            // 命中 display.weapon_style.sample_sword.auto_attack_anim = "sprite_anim.sample_sword_swing"
+            // （ADR-0038 数据迁移后前缀）。
             Assert.DoesNotThrow(() =>
                 fx.Bus.PublishImmediate(new SkillCastStartEvent(entityId, new Id("skill.weapon_clip_registration_test_strike"), castTime: 0.0)));
 
@@ -86,8 +89,8 @@ namespace Adapter.Unity.Tests.Runtime
         /// <summary>见 <see cref="AnimClipResolverTests.Cast_WithMatchingSkillOverride_UsesCastAnimOverride"/>
         /// 同款场景，本文件验证的是引擎落地层（真正经 UnityFrameAnimPlayer.Play）：
         /// <c>display.weapon_style.sample_staff</c> 的 <c>cast_anim_override</c> 命中
-        /// <c>skill.sample_fireball</c> 时解析出 <c>anim.sample_staff_cast</c>（同样未预先登记），Cast
-        /// 状态触发不应抛异常。</summary>
+        /// <c>skill.sample_fireball</c> 时解析出 <c>sprite_anim.sample_staff_cast</c>（ADR-0038 数据
+        /// 迁移后前缀，同样未预先登记），Cast 状态触发不应抛异常。</summary>
         [Test]
         public void Cast_WeaponStyleCastOverrideClip_NotPreRegistered_DoesNotThrow()
         {
