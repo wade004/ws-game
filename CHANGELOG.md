@@ -434,6 +434,60 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+消费方反馈第 62/63/64/65/66 条（见
+[消费方反馈-2026-09-18-编辑器-第62-66条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第62-66条.md)）。
+
+### 新增
+
+- **第 62 条**：`toolchain/asset_import/check_cmd.py` 新增 `--json`（stdout 只输出一份 JSON 文档，
+  其余人类可读输出改走 stderr；不加本参数时文本输出与改造前逐字节一致，两种模式退出码语义相同）。
+  顶层结构 `{tool, dataset, domains, ok, counts:{error, warning}, issues:[...]}`，每条 `issue`
+  为 `{severity, table, record_key, field_path, check, message, path}`——与
+  `toolchain/validator --json` 的 `issues[]` 字段同名同语义对齐（`field_path` 为本工具新增字段名，
+  与 validator 的 `field` 语义相同、键名有意不同，因本工具是独立新契约，不强求同名）。新增 26 个
+  稳定 snake_case 检查名常量（`check_cmd.CHECK_NAMES`，清单见 `toolchain/README.md`）。
+- **第 63 条**：新增 `Core.Foundation.DisplayInfo.EquipVisualModeFieldGroupRule`（检查名
+  `equip_visual_mode_field_group`，同 `DisplayKindFieldGroupRule` 惯例），登记进
+  `PresentationSchemaCatalog.RegisterAll`：`display.equip_visual.mode` 为 `slot_mesh` 时要求
+  `slot_id`/`mesh_ref` 必填，为 `socket_attach` 时要求 `socket_id`/`model_ref` 必填。判断记录：
+  本规则只检查"按自己 mode 取值对应的字段组是否填齐"，不检查"是否同时携带另一模式的字段"（04 与
+  schema README 均未写"另一模式必须留空"，任务口径取保守解释，是否收紧留待设计层确认）。
+- **第 65 条**：`Core.Foundation.EngineAdapter.AssetRefConventions`/
+  `toolchain/asset_import/ref_conventions.py` 新增四个字段的路径推导方法/函数：
+  `VfxResourceDir`/`vfx_resource_dir`（`vfx.def.resource_ref` → 相对资产根目录的目录）、
+  `SfxResourceFile`/`sfx_resource_file`（`sfx.def.resource_ref`/`variants` → 相对资产根目录的
+  `.wav` 文件）、`AnimClipLogicalPath`/`anim_clip_logical_path`（model 型
+  `display.anim_set.clips.resource_ref` → 引擎侧已导入逻辑资源路径）、
+  `ModelLogicalPath`/`model_logical_path`（`display.map.model_ref`、model 型
+  `display.equip_visual.mesh_ref`/`model_ref` → 引擎侧已导入逻辑资源路径）。后两者命名刻意用
+  `LogicalPath` 后缀，与前两者的 `Dir`/`File` 后缀区分"引擎侧已导入逻辑资源路径"与"资产根目录相对
+  路径"两种不能互换使用的路径空间（设计层裁决，见 ADR-0037 决策 1）。仅收口 model 型消费规则，
+  sprite 型的并存加载规则本次不纳入，见 ADR-0037 与本轮回复文档"待设计层确认"。新增
+  [ADR-0037](architecture/adr/0037-资源引用路径推导契约扩展到vfx-sfx-model-anim_set.md)。
+
+### 变更
+
+- **第 62 条**：`check_cmd.py` 全部 `_check_*` 函数改为先产出结构化 `CheckIssue` 对象，文本模式与
+  `--json` 模式共享同一份诊断来源；`sfx`/`vfx` 两个检查域改用 `ref_conventions.py` 共享函数推导
+  资源路径，不再各自内联拼接（同第 65 条改动共用同一批共享函数）。
+
+### 移除
+
+- **第 64 条**：删除 `check_cmd.py` 内 `_check_world_row` 的第二份重复定义（第 300～322 行，与第
+  275～297 行逐字节相同，此前按 Python 语义实际执行的是第二份；删除后行为不变，仅消除阅读/维护
+  困惑）。
+
+### 文档
+
+- **第 66 条**（如实说明，非"待办"）：核实 `display.anim_set.clips.resource_ref`/
+  `display.equip_visual.mesh_ref`/`display.weapon_style.auto_attack_anim`/`cast_anim_override`
+  四个字段因 sprite/model 并存加载规则与"model 型解析路径不在资产根目录检查域内"两个已知架构性
+  阻塞，本轮不新增 `check` 检查域；`display.weapon_style.swing_vfx`/`impact_vfx_override` 是指向
+  `vfx.def` 的表引用（软引用），非直接资源文件引用，引用完整性属 `toolchain/validator` 软引用校验
+  域（该校验器当前未对软引用做存在性检查，是已知、超出本次任务范围的缺口）；`camera_profile`/
+  `ui_layout_definition`/`shell_menu_definition` 三张表 schema 经核实均不含任何资源引用字段，不
+  构成同类缺口。`architecture/14_资产规格书模板.md` 第 1.2 节命名规则补充段落。
+
 ## [1.42.0] - 2026-09-18
 
 消费方反馈第 59/60/61 条与第 56 条追问（见
