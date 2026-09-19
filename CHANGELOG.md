@@ -439,6 +439,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.47.0] - 2026-09-20
+
 ### 新增
 
 - [ADR-0043](architecture/adr/0043-gossip菜单新增可选开场白正文字段.md)（消费方反馈第 3a/3b 条，
@@ -484,6 +486,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   ViewModelTests.cs` 新增 1 例、`adapters/unity/.../Tests/Runtime/UiSuiteTests.cs` 新增 1 例
   PlayMode 测试。详见 `core/gameplay/quest/README.md` 判断记录 19、`presentation/ui/README.md`
   同名判断记录、`adapters/unity/.../README.md`"判断记录索引"对应条目。
+
+### 文档
+
+- **消费方反馈处理记录（wow，交互/gossip/任务日志/NpcFlag/持久化/掉落RNG 七项核实，
+  2026-09-20）**：新增
+  [消费方反馈-2026-09-20-wow-交互gossip任务日志掉落RNG.md](architecture/落地计划/消费方反馈-2026-09-20-wow-交互gossip任务日志掉落RNG.md)，
+  逐条核实消费方（`ws-game-wow`）2026-09-20 提交的反馈文档《交互/gossip/任务日志/NpcFlag/
+  持久化注册策略/掉落RNG 共七项核实》：7 条候选反馈中 7 条成立或部分成立、1 条（候选 5（原稿）：
+  持久化注册策略"两种并存"）经框架侧复核确认确实不成立，与消费方自查结论一致；已成立的 7 条中
+  4 条本轮已落地（即上文 ADR-0043、ADR-0044、ADR-0045 与任务日志目标进度条目）、2 条方向已定但
+  本轮未落地（反馈 1、反馈 7，需单独一份 ADR 才能推进）、1 条（反馈 5）本轮不改代码，仅在文档中
+  澄清口径差异。
 
 ## [1.46.0] - 2026-09-20
 
