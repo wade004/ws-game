@@ -896,3 +896,94 @@ python toolchain/unity_test_triage.py --xml ... --log ... --max-lines 60
 回归测试：`toolchain/tests/test_unity_test_triage.py`（内嵌最小 XML+log 夹具，核心用例还原
 "最后异常覆盖首个断言"场景，断言分诊脚本把更早出现的 `AssertionException` 排在
 `UnexpectedLogMessageException`/`Expected log did not appear` 之前）。
+
+## Unity `.meta` 完整性检查（`check_unity_meta.py`）
+
+背景：Unity 会为它自己导入范围内的每个文件/目录生成一个同名 `.meta`，仓库约定把 `.meta` 与
+源文件一并提交；漏提交会让消费方克隆后 Unity 重新生成 GUID，破坏既有场景/预制体对这些资源的
+引用。执行 agent 一律被要求不跑 Unity（`check.ps1`/`build.ps1` 的 Unity 步骤耗时且会触发全量
+reimport），而 `.meta` 恰恰是 Unity 首次导入新文件时才在本机生成的产物——纯 .NET/Python 门禁
+此前完全没有覆盖这一类问题，已经在 1.45.0 发版前（`games/_template/` 下 6 个新 `.cs`）与之后
+（`Runtime/Diagnostics/` 下 2 个新 `.cs`）各漏提交一次，口头提醒不管用。
+
+**判定范围（用当前仓库实测核对过，不是想当然）**：
+
+1. `<Unity 工程>/Assets/` 整棵树。
+2. `<Unity 工程>/Packages/<pkg>/`——直接摆在 `Packages/` 下、自带 `package.json` 的本地包
+   （本仓库目前是 `adapters/unity/Packages/com.gamefoundation.adapter.unity/`）。
+3. `<Unity 工程>/Packages/manifest.json` 里值以 `"file:"` 开头的依赖——UPM 内嵌本地包，物理
+   路径可能落在仓库其它位置（本仓库目前是 `games/_template/`、`adapters/conformance/`）。
+
+`Packages/manifest.json`、`packages-lock.json` 本身是 Package Manager 的清单文件，不是被导入
+的资源，天然不在任何一个"导入根"目录*里面*，不需要额外硬编码例外——已用当前仓库实测核对：这两
+个文件确实没有 `.meta`。范围之外的例子：`adapters/unity/DiagnosticsForwarding/`（普通 dotnet
+测试工程，有 `.csproj`，不在 `Assets/`/`Packages/` 下）不需要 `.meta`。
+
+两类问题：**缺失**（已跟踪文件落在导入范围内、没有对应 `.meta`）与**孤儿**（`.meta` 存在，但
+对应文件/目录已不再被跟踪）。孤儿判定额外排除一种情况：目标路径整体被 `.gitignore` 排除（如
+`adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/`，见该
+`.gitignore` 条目上方判断记录——同步进来的构建期 DLL 不提交），但目录**自身**的 `Core.meta`
+为保留稳定 GUID 仍按约定提交——这种"目录级 meta 但目录内容被忽略"不算孤儿。
+
+**判断记录（`git check-ignore` 对不存在的目录判空，2026-09-20）**：`_is_ignored` 最初只查一次
+`git check-ignore -q -- <目标路径>`（不带尾部 `/`），对 `Runtime/Plugins/Core.meta` 这个已知
+应豁免的样本却判定"未被忽略"，把它误报成孤儿——原因是 `.gitignore` 里这条规则写成"仅目录"形式
+（以 `/` 结尾），而 `git check-ignore` 判断一个不带尾部 `/` 的路径是否命中"仅目录"规则时要靠
+stat 该路径确认它确实是目录；孤儿检查的目标路径本身多半已不在本地磁盘存在（构建产物目录、或
+确已被删除的资源），stat 不到就不会命中仅目录规则。改法：`rel_path` 与 `rel_path + "/"` 两种
+形式各查一次，任一命中即算被忽略，不依赖目标是否真的在磁盘上。
+
+**判断记录（实现放在 Python 而不是内联 PowerShell）**：`check.ps1` 里紧邻的"禁用词扫描"/"工作树
+文本文件无 CR"两步是纯 PowerShell 实现，但本检查需要解析 `manifest.json`（JSON）、维护"已跟踪
+文件集合"与"目录前缀"这类集合运算、还要支持独立于真实仓库状态的单元测试覆盖每条判定分支——这些
+在 PowerShell 5.1（不能用 `&&`/三元运算符）下明显更啰嗦，而 `toolchain/` 下已有大量同类"跨平台
+静态规则检查"用 Python 实现 + `toolchain/tests` 覆盖的先例（`validate_data.py`、
+`format_data.py`、`ref_conventions.py` 等）。因此实现为 `toolchain/check_unity_meta.py`，
+`check.ps1` 只新增一步 `Test-NativeExitCode "python" @("toolchain/check_unity_meta.py")`
+（与相邻的 `validate_data.py` 等步骤同一调用模式），放在"7.6"（紧接"工作树文本文件无 CR"之后、
+"8. 版本一致性"之前）——这一段既有步骤都是纯静态检查、不依赖 `dotnet build`/Unity，`-SkipUnity`/
+`-Quick` 下同样跑，符合"必须在 -SkipUnity 下也能跑"的要求。
+
+**判断记录（目录本身也要有 .meta，二次踩坑后补齐，2026-09-20）**：第一版实现只检查文件级
+缺失——`git ls-files` 从不返回目录本身的路径，只有文件路径，漏了"某个目录自己也要有 `.meta`"
+这一条。真实踩坑：`Runtime/Diagnostics/` 下两个 `.cs` 补齐文件级 `.meta` 后，Unity 真实导入
+还额外生成了目录级的 `Runtime/Diagnostics.meta`（本仓库同类既有样本：`.../Runtime/
+Plugins.meta` 是 `Plugins` 目录自身的 meta，与 `Plugins/Core.meta` 是两层不同的东西）。补齐
+方式：`_ancestor_dirs` 从每个被跟踪文件反推它在导入根内的全部祖先目录（不含导入根自身——
+`Assets`、每个包/内嵌包根目录都不需要 `.meta`，已用当前仓库实测核对），汇总成
+`required_dirs` 集合；缺失检查、孤儿检查（孤儿判定里"目录下还有其它被跟踪文件"这一分支原本
+就是用等价的前缀匹配实现的，改用 `required_dirs` 只是复用同一份集合，逻辑不变）都基于这个
+集合统一处理，不再区分文件/目录两套逻辑。隐藏目录/以 `~` 结尾的目录同文件一样整体跳过（含
+其内容，见 `_is_in_import_scope`）。回归测试新增 `test_directory_level_meta_missing_is_
+detected`（原样复现 Diagnostics 这次的形状：两个文件各自都有 meta、目录没有）与
+`test_nested_directories_each_require_their_own_meta`（多层嵌套，每层各自要求）。
+
+回归测试：`toolchain/tests/test_check_unity_meta.py`——在**独立的临时 git 仓库**里构造最小
+Unity 工程布局，覆盖缺失（文件级/目录级/多层嵌套）/孤儿/"目录被忽略不算孤儿"/`Packages/` 根
+清单文件不在范围内/范围外目录不检查/`manifest.json` `file:` 内嵌本地包被发现（含其目录级
+meta）/隐藏文件与 `~` 结尾文件不要求 `.meta`/CLI 退出码共 11 个场景，外加一条对**真实仓库
+当前状态**的回归（共 12 个用例，见该测试注释）。
+
+**判断记录（落地当次实测检出的三处真实缺口，2026-09-20，最终状态）**：本检查从设计到落地的
+过程中，在 `main` 上先后实测检出三处真实存在、且此前完全没有任何门禁能发现的不一致，均已修复，
+落地时（`main` `29d7e5bd`）对当前仓库实跑为**零缺失、零孤儿**：
+
+1. **文件级缺失**：`Runtime/Diagnostics/` 下 `DiagnosticsHub.cs`、
+   `DiagnosticsHubComposition.cs` 两个新文件漏提交 `.meta`（本检查最初立项的直接起因）。由
+   真实 Unity 导入补齐（提交 `90691cc3`）。
+2. **目录级缺失**：修复上一条时 Unity 额外生成了目录级的 `Runtime/Diagnostics.meta`——第一版
+   实现看不到这类问题（见上方判断记录），促成本检查补齐目录级判定能力。
+3. **规则与现状脱节导致的"该跟踪却被忽略"**：`adapters/unity/Assets/Resources/
+   GameFoundation/...` 下有 17 个永久提交的占位模型/动画资产（含子目录自身的
+   `GameFoundation.meta` 都已跟踪），但 `.gitignore` 把父目录的 `Resources.meta` 整体忽略——
+   该条忽略规则写于"`Assets/Resources/` 目录此前不存在、由 PlayMode 性能测试自动创建"之时，
+   前提早已过时（目录下现有大量永久性内容），规则本身与仓库现状自相矛盾：不跟踪会让消费方
+   克隆后该目录 GUID 重新生成。修复方式是**撤销那条过期的忽略规则**（`PerformanceTestRun*`
+   一条运行时文件忽略保留），磁盘上早已存在的 `Resources.meta`（2026-09-06 由 Unity 生成）
+   随之正常纳入跟踪（提交 `29d7e5bd`）——不是手写 meta，也不是放宽本检查。
+
+三处缺口的共同点：**都是"纯 .NET/Python 门禁完全看不见、只有对照 Unity 实际导入范围才能发现"
+的一类问题**，且第三处（规则注释与仓库现状脱节）尤其难靠人眼审查发现——`.gitignore` 里那条
+规则本身读起来完全合理，只有把它跟"该目录下实际有哪些文件被跟踪"逐条对照才能看出矛盾。本检查
+落地当次即照单验出全部三处，是它存在价值的直接证明，也是本次任务"给 `check.ps1` 补一个不依赖
+Unity 的 meta 完整性检查"的完整验收闭环。
