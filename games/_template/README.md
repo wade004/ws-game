@@ -322,6 +322,20 @@ GameDatasetRootOverride` 字段名本就用"Dataset"，不受影响。改名前�
 改成了真正有区分力的用例（覆盖到与默认根不同、带可区分探针数据的根），见
 `Tests/Runtime/GameTemplateResidentTests.cs`。
 
+判断记录（2026-09-19，诊断转发到引擎控制台补齐模板侧接线，feat/diagnostics-console-forward 后续
+收口）：`Runtime/GameBootstrap.cs` 的 `AdvanceCharacterRigs` 与
+`Adapter.Unity.Bootstrap.GameFoundationBootstrap`/`Adapter.Unity.Shell.FrameworkResidentHost` 的
+同名方法是三处近似重复代码——上一批把 `SpriteCharacterRig.Diagnostics` 新增的警告转发到引擎控制台
+（`UnityViewFactory.PumpDiagnostics()`）时只接了后两处（限定改动范围在 `adapters/unity/` 内），
+本模板作为按七步立项流程起真实游戏的生产入口，反而是这份转发最该生效的地方，却因不在
+`adapters/unity/` 目录下而被漏接。本次按既有写法补上同一行 `ViewFactory.PumpDiagnostics()`，
+开关语义不变（`UnityViewFactory.DiagnosticsConsoleForwardingEnabled` 默认开启）。这段接线是 Unity
+胶水，无法用 `dotnet test` 验证其运行期行为是否真的写入控制台（待主会话跑 Unity 引擎门禁确认）；
+但"三处近似重复方法是否保持同步"这件事本身已用
+`toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py`（按花括号配对提取
+三处方法体、断言均含 `ViewFactory.PumpDiagnostics()` 调用）做成脱离 Unity 也能跑的回归用例，已用
+临时删掉本文件这一行做过反向确认（仅本文件对应用例按预期失败，另两处仍通过）后还原。
+
 ## 已知限制（本模板"最小闭环"故意不覆盖的部分）
 
 - 不含任何战斗/技能/物品/任务内容——`GameOptions` 声明了对应口味配置项字段（见该文件注释），但

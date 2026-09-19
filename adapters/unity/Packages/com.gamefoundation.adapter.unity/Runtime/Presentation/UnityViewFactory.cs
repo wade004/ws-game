@@ -126,6 +126,17 @@ namespace Adapter.Unity.Presentation
         private readonly HashSet<string> _warnedMissingDisplay = new HashSet<string>();
         private readonly HashSet<string> _warnedAnimDegraded = new HashSet<string>();
 
+        /// <summary>诊断转发到引擎控制台（feat/diagnostics-console-forward）：见
+        /// PresentationDiagnosticsConsoleForwarding.cs 顶部判断记录——本工厂是唯一持有
+        /// <see cref="SpriteCharacterRig"/>（经 <see cref="IHasCharacterRig.Rig"/>）引用的
+        /// adapters/unity 代码，因此转发的轮询驱动收口在这里：<see cref="PumpDiagnostics"/> 供
+        /// <c>GameFoundationBootstrap</c>/<c>FrameworkResidentHost</c> 的 <c>AdvanceCharacterRigs</c>
+        /// 每帧调用一次（与既有的 <c>hasRig.Rig.Update(dt)</c> 同一遍历，紧跟在后面，避免新增一次
+        /// 独立遍历 <see cref="_created"/> 的开销）。</summary>
+        private readonly PresentationDiagnosticsConsoleGate _diagnosticsGate;
+        private readonly IPresentationDiagnosticsConsoleSink _diagnosticsSink;
+        private readonly SpriteRigDiagnosticsPump _diagnosticsPump = new SpriteRigDiagnosticsPump();
+
         /// <summary>
         /// 12 §5 二次勘误（取代上一轮"合并写回共享 <c>AnimationClip.events</c>，仅对'第二个及后续
         /// 不同签名的 anim_set'做运行期克隆隔离"的立场——architecture/落地计划/
@@ -252,7 +263,9 @@ namespace Adapter.Unity.Presentation
             IWeaponStyleSource? weaponStyleSource = null,
             RenderOptions? renderOptions = null,
             IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId = null,
-            EquipmentVisualSource? equipmentVisualSource = null)
+            EquipmentVisualSource? equipmentVisualSource = null,
+            bool diagnosticsConsoleForwardingEnabled = true,
+            IPresentationDiagnosticsConsoleSink? diagnosticsConsoleSink = null)
         {
             _renderer2D = renderer2D ?? throw new ArgumentNullException(nameof(renderer2D));
             _conventions = conventions ?? throw new ArgumentNullException(nameof(conventions));
@@ -266,6 +279,8 @@ namespace Adapter.Unity.Presentation
             _renderOptions = renderOptions;
             _equipVisuals = equipVisualByItemInstanceId;
             _equipmentVisualSource = equipmentVisualSource;
+            _diagnosticsGate = new PresentationDiagnosticsConsoleGate(diagnosticsConsoleForwardingEnabled);
+            _diagnosticsSink = diagnosticsConsoleSink ?? UnityPresentationDiagnosticsConsoleSink.Instance;
 
             if (_bus != null)
             {
@@ -872,6 +887,39 @@ namespace Adapter.Unity.Presentation
                     _fallbackFrame = Sprite.Create(texture, new UnityEngine.Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 100f);
                 }
                 return _fallbackFrame;
+            }
+        }
+
+        /// <summary>诊断转发到引擎控制台的开关：可关闭（默认开启，见 <see cref="UnityViewFactory"/>
+        /// 构造参数 <c>diagnosticsConsoleForwardingEnabled</c>），游戏方可在运行期随时翻转。关闭期间
+        /// 路过的消息不计入去重表（见 <see cref="PresentationDiagnosticsConsoleGate.Enabled"/> 判断
+        /// 记录），不影响 <c>SpriteCharacterRig.Diagnostics</c> 本身的内存记录（不受本开关影响，
+        /// 一直照常累积）。</summary>
+        public bool DiagnosticsConsoleForwardingEnabled
+        {
+            get => _diagnosticsGate.Enabled;
+            set => _diagnosticsGate.Enabled = value;
+        }
+
+        /// <summary>诊断转发到引擎控制台（feat/diagnostics-console-forward）：遍历本工厂创建过的、
+        /// 仍存活的 sprite 型 View，把各自 <see cref="SpriteCharacterRig.Diagnostics"/> 累积的新增
+        /// 警告经 <see cref="_diagnosticsGate"/> 去重后转发到 <see cref="_diagnosticsSink"/>（默认
+        /// <see cref="UnityPresentationDiagnosticsConsoleSink"/>，写 <c>Debug.LogWarning</c>）。供
+        /// <c>GameFoundationBootstrap</c>/<c>FrameworkResidentHost</c> 各自的 <c>AdvanceCharacterRigs</c>
+        /// 每帧调用一次（同一次遍历顺带完成，见字段判断记录）。<c>model</c> 型 View（<c>ModelCharacterRig</c>）
+        /// 未走 <see cref="IPresentationDiagnostics"/>/无公开 <c>Diagnostics</c> 属性，本方法只处理
+        /// <c>is SpriteCharacterRig</c> 的情形，其余类型静默跳过（同 <see cref="AttachDefaultAnimation"/>
+        /// 一类"未装配的能力静默跳过"惯例）。</summary>
+        public void PumpDiagnostics()
+        {
+            for (var i = 0; i < _created.Count; i++)
+            {
+                if (_created[i].IsAlive && _created[i] is IHasCharacterRig hasRig &&
+                    hasRig.Rig is SpriteCharacterRig spriteRig &&
+                    spriteRig.Diagnostics is PresentationDiagnosticsRecorder recorder)
+                {
+                    _diagnosticsPump.Pump(recorder, _diagnosticsGate, _diagnosticsSink);
+                }
             }
         }
 

@@ -485,6 +485,42 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   公开签名与构建行为不变），新增 `games/_template/Tests/Editor/WindowsPlayerBuilderArgsTests.cs`
   （8 个 EditMode 单测，覆盖 Development 标志存在性判定、输出路径命令行/环境变量优先级、两者都未
   指定时的显式报错），`Game.Template.EditorTests.asmdef` 新增对 `Game.Template.Editor` 的引用。
+- **表现层诊断转发到引擎控制台**：`Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 此前
+  只记进内存，从不外发（真实游戏缺资源时控制台一行输出都没有，是本次 PlayMode 排查的观测盲区）。
+  改动只落在 `adapters/unity/`：新增
+  `Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs`
+  （纯逻辑，不引用 UnityEngine——`PresentationDiagnosticsConsoleGate` 去重 + LRU 上限淘汰（默认
+  500 条）+ 开关，`PresentationDiagnosticsConsoleForwarder`/`SpriteRigDiagnosticsPump` 两种接入
+  方式）与薄胶水 `UnityPresentationDiagnosticsConsoleSink.cs`（`Debug.LogWarning`，恒为控制台
+  Warning 级，不使用 Error 级——`IPresentationDiagnostics` 契约目前只有 Warn 一个级别，也是硬约束
+  要求"避免 Unity Test Framework 因未预期 LogError 误判 PlayMode 用例失败"的落实）。
+  `UnityViewFactory` 新增 `PumpDiagnostics()`/`DiagnosticsConsoleForwardingEnabled`
+  （默认开启，可运行期关闭），接入现有 `GameFoundationBootstrap`/`FrameworkResidentHost` 的
+  `AdvanceCharacterRigs` 每帧维护步骤，转发 `SpriteCharacterRig.Diagnostics` 新增的警告（对应
+  09 表现层"资源加载失败保留占位方块"场景）。新增 `adapters/unity/DiagnosticsForwarding/`
+  独立 dotnet 项目（跨目录引用同一份源文件，不复制）+ 13 例 xUnit 单测，均已用临时破坏转发/去重/
+  开关逻辑做过反向确认（确认对应测试必然失败）后还原。**待设计层确认**：`VfxPlayer`/`SfxPlayer`/
+  `CompositeFeedbackSink`/`FeedbackBinder`/`ViewBinder`/`HitFrameSyncPolicy` 各自的
+  `IPresentationDiagnostics` 由 `presentation/assembly/PresentationAssembly` 内部各自默认构造、
+  未对外暴露注入点，adapters/unity 暂无法转发，需要 presentation/assembly 新增可选注入点才能覆盖，
+  超出本次"只落在引擎适配层"的范围；**待主会话跑 Unity 引擎门禁确认**：`UnityPresentationDiagnosticsConsoleSink`
+  与三处生产接线点引用 UnityEngine，无法用 `dotnet test` 验证，只能在真实 Unity 批处理测试里确认。
+- **表现层诊断转发到引擎控制台——补齐游戏模板侧接线（上一批遗留缺口收口）**：上一批只接了
+  `adapters/unity/` 里 `GameFoundationBootstrap`/`FrameworkResidentHost` 两处
+  `AdvanceCharacterRigs`，漏了 `games/_template/Runtime/GameBootstrap.cs` 的同款方法——按模板起的
+  真实游戏（该类型正是模板的生产入口）此前从未获得这份转发，是三处近似重复代码"改了两处、漏了
+  第三处"的具体案例，比两个工作台宿主类型本身更该覆盖。已按既有写法补上同一行
+  `ViewFactory.PumpDiagnostics()`，开关语义（`DiagnosticsConsoleForwardingEnabled` 默认开启）不变。
+  新增 `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py`（3 例，按
+  文件参数化）：花括号配对提取三处 `AdvanceCharacterRigs()` 方法体全文，断言均含
+  `ViewFactory.PumpDiagnostics()` 调用——这段接线本身是 Unity 胶水，无法在不起 Unity 的前提下用
+  `dotnet test` 验证运行期行为，但"三处近似重复方法是否保持同步"这件事本身可以脱离 Unity 用纯文本
+  解析验证，把这类回归当场拦下。已做反向确认：临时删掉模板侧那一行，仅
+  `games/_template/Runtime/GameBootstrap.cs` 对应用例按预期失败（另两处仍通过），报出的失败信息
+  准确指向缺失调用的文件路径；确认后已还原。**仍待主会话跑 Unity 引擎门禁确认**：
+  `UnityViewFactory.PumpDiagnostics` 是否真的经 `Debug.LogWarning` 写入控制台，本次新增测试只保证
+  三处调用点存在且一致，不替代真实 Unity 批处理验证。`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`/
+  `ViewBinder`/`HitFrameSyncPolicy` 的注入点缺口仍待设计层决定，本批未处理。
 
 ### 文档
 
@@ -553,6 +589,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   容差即直接报错终止，错误信息包含程序集名、陈旧秒数、最新的源文件路径与正确做法。AGENTS.md
   §4 同步补充了例外条款：涉及会编译进这六个 DLL 的改动、且要验证 Unity 侧行为时，必须用
   默认路径构建再 `-SyncOnly`，不带 `--artifacts-path`。
+- **`core/foundation/data_registry/README.md` 一处失效相对链接**（`python -m pytest
+  toolchain/tests -q` 既有失败用例，与本批诊断转发功能无关，主检出同样复现）：第 71 条反问的
+  链接指向 `消费方反馈-2026-09-19-第67-72条回复草稿-71号反问.md`，该草稿文件已在提交 `d406af3`
+  并入统一回复文档 `消费方反馈-2026-09-19-编辑器-第67-72条.md` 并删除，链接本身此后未同步更新。
+  改指向合并后的统一回复文档（"待消费方答复"节"第 71 条反问（原文，供直接转发）"），并在正文
+  注明原草稿文件已被删除与并入的提交，不是简单删链接掩盖问题。`python -m pytest
+  toolchain/tests -q` 现全过。
 
 ## [1.44.0] - 2026-09-19
 

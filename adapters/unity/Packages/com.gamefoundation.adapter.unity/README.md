@@ -404,6 +404,48 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   占位帧集数据迁移叠加后已能真实加载成功，原先预期"加载失败"警告的 `LogAssert.Expect` 写法
   断言前提已过期，改为轮询 `UnityResourceLoader.TryGetEffect` 命中即视为验证下游真实加载成功
   （不是删除断言了事）。
+- **诊断转发到引擎控制台（feat/diagnostics-console-forward，2026-09-19）**：
+  `Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 此前只记进内存
+  （`PresentationDiagnosticsRecorder`），从不外发到引擎控制台——真实游戏里缺资源只会静默显示占位
+  方块，控制台一行输出都没有（本次 PlayMode 排查的观测盲区）。勘察结论：该接口现有全部消费方
+  （`VfxPlayer`/`SfxPlayer`/`CompositeFeedbackSink`/`FeedbackBinder`/`ViewBinder`/
+  `HitFrameSyncPolicy`）都接受可选构造参数 `diagnostics`，但 `presentation/assembly/
+  PresentationAssembly` 装配时从未对外暴露或注入同一个共享实例，adapters/unity 拿不到这些实例的
+  引用；唯一真正公开暴露的诊断源是 `Presentation.Render.SpriteCharacterRig.Diagnostics`（该类型
+  未走构造期注入，固定内部 `new PresentationDiagnosticsRecorder()` 并公开只读属性）。因此本次改动
+  只覆盖这一个可达诊断源（对应"资源加载失败保留占位方块"的原始场景，
+  `SpriteCharacterRig.HandleResourceLoadCompleted`），其余诊断源需要 presentation/assembly 新增
+  可选注入点才能覆盖——那已超出"只落在引擎适配层"的声明范围，标注待设计层确认，本次未动
+  presentation/ 任何文件。
+  <br/>落地：新增 `Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs`（纯逻辑，不
+  引用 UnityEngine——`PresentationDiagnosticsConsoleGate` 去重 + LRU 上限淘汰 + 开关，
+  `PresentationDiagnosticsConsoleForwarder`：`IPresentationDiagnostics` 装饰器，供未来
+  presentation/assembly 补上注入点时复用；`SpriteRigDiagnosticsPump`：轮询式转发，弥补
+  `SpriteCharacterRig.Diagnostics` 没有注入点这一缺口）与薄胶水
+  `Runtime/Presentation/UnityPresentationDiagnosticsConsoleSink.cs`（`Debug.LogWarning`）。级别
+  映射：`IPresentationDiagnostics` 只有 `Warn` 一级（对照同仓库 `IExprDiagnostics` 等契约会有
+  `Warn`/`Error` 两级——`IPresentationDiagnostics` 刻意只留一级，见该类型注释），因此恒映射为控制台
+  Warning，不产生 `Debug.LogError`（硬约束：Unity Test Framework 会让未预期的 `LogError` 直接判
+  PlayMode 用例失败，288 条用例里多条命中资源缺失路径，用 Error 级会大面积误伤）。去重键就是消息
+  文本本身；上限（默认 500）用 LRU 淘汰，不是"停止去重"——长会话下内存有界，代价是极少数情况下
+  一条早被淘汰的旧消息重新出现会被当作"新消息"再提醒一次，可接受。开关：
+  `UnityViewFactory` 构造参数 `diagnosticsConsoleForwardingEnabled`（默认 `true`）+ 可运行期读写的
+  `DiagnosticsConsoleForwardingEnabled` 属性；关闭期间路过的消息不计入去重表。接入点：
+  `UnityViewFactory.PumpDiagnostics()` 遍历本工厂创建过的仍存活 sprite 型 View，转发各自
+  `SpriteCharacterRig.Diagnostics` 新增的警告，由 `GameFoundationBootstrap`/
+  `FrameworkResidentHost` 各自既有的 `AdvanceCharacterRigs`（同一次遍历顺带调用，未新增独立遍历）
+  每帧驱动；`games/_template/Runtime/GameBootstrap.cs` 有同款 `AdvanceCharacterRigs`，但该文件不在
+  `adapters/unity/` 范围内，本次未接入，待主会话决定是否需要在游戏模板侧同步补齐。纯逻辑部分由
+  `adapters/unity/DiagnosticsForwarding/`（新增 dotnet 项目，跨目录引用同一份源文件，不复制）13 例
+  xUnit 单测在 `dotnet test` 侧覆盖，均已用临时破坏转发生效/去重生效/开关判断三处逻辑做过反向确认
+  （确认对应测试必然失败）后还原；引用 `UnityEngine.Debug` 的胶水与三处生产接线点无法用
+  `dotnet test` 验证，待主会话跑 Unity 引擎门禁确认。
+  <br/>**后续收口（2026-09-19）**：`games/_template/Runtime/GameBootstrap.cs` 一处已按同一套写法
+  补上 `ViewFactory.PumpDiagnostics()`（游戏模板作为真实游戏的生产入口，是这份转发最该生效的地方，
+  见该文件 README"长驻可交互运行"节后判断记录），三处 `AdvanceCharacterRigs` 现均已接线；新增
+  `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py` 脱离 Unity 校验
+  三处保持同步，已做反向确认。`VfxPlayer`/`SfxPlayer`/`CompositeFeedbackSink`/`FeedbackBinder`/
+  `ViewBinder`/`HitFrameSyncPolicy` 缺注入点这一条仍未处理，待设计层确认。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 

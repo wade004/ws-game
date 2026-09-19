@@ -970,6 +970,13 @@ namespace Adapter.Unity.Shell
                     hasRig.Rig.Update(Time.deltaTime);
                 }
             }
+
+            // 诊断转发到引擎控制台（feat/diagnostics-console-forward）：同一次"推进仍存活 rig"的
+            // 维护步骤里顺带把 SpriteCharacterRig.Diagnostics 新增的警告转发到控制台，见
+            // UnityViewFactory.PumpDiagnostics 判断记录。待主会话跑 Unity 引擎门禁确认：本调用只能
+            // 在真实 Unity 批处理测试里验证确实写入了控制台/日志文件，dotnet test 只覆盖了
+            // PumpDiagnostics 依赖的纯逻辑部分（PresentationDiagnosticsConsoleForwarding.cs）。
+            ViewFactory.PumpDiagnostics();
         }
 
         /// <summary>见 <see cref="OnFrameTick"/> 判断记录：单个表现步骤的异常隔离落地——记诊断、

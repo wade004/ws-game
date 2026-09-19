@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Adapters.Unity.DiagnosticsForwarding</AssemblyName>
+    <RootNamespace>Adapter.Unity.Presentation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 判断记录（feat/diagnostics-console-forward）：本项目本身不放任何源文件——唯一的源码物理
+         落在 Unity 包的 Runtime/Presentation/ 下（Unity asmdef 只编译其目录树内的 .cs，见该文件顶部
+         判断记录），这里按引用而非拷贝纳入编译，保证 dotnet test 验证的就是 Unity 实际编译的同一份
+         代码，不需要手工维护两份保持同步的副本（惯例同
+         presentation/tests/Tests.PresentationCommon.csproj 用
+         `<Compile Include="../*/tests/**/*.cs" />` 跨目录纳入源码的既有做法）。 -->
+    <Compile Remove="**/*.cs" />
+    <Compile Include="../Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 只依赖 Presentation.Common（IPresentationDiagnostics/PresentationDiagnosticsRecorder 所在
+         程序集），不引用 UnityEngine——被引用的源文件本身也不含任何 UnityEngine using（见其顶部
+         判断记录"不引用任何 UnityEngine API"），这是它能在 dotnet test 下编译通过的前提。 -->
+    <ProjectReference Include="../../../presentation/Presentation.Common.csproj" />
+  </ItemGroup>
+
+</Project>
