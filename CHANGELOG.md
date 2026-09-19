@@ -485,6 +485,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   公开签名与构建行为不变），新增 `games/_template/Tests/Editor/WindowsPlayerBuilderArgsTests.cs`
   （8 个 EditMode 单测，覆盖 Development 标志存在性判定、输出路径命令行/环境变量优先级、两者都未
   指定时的显式报错），`Game.Template.EditorTests.asmdef` 新增对 `Game.Template.Editor` 的引用。
+- **表现层诊断转发到引擎控制台**：`Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 此前
+  只记进内存，从不外发（真实游戏缺资源时控制台一行输出都没有，是本次 PlayMode 排查的观测盲区）。
+  改动只落在 `adapters/unity/`：新增
+  `Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs`
+  （纯逻辑，不引用 UnityEngine——`PresentationDiagnosticsConsoleGate` 去重 + LRU 上限淘汰（默认
+  500 条）+ 开关，`PresentationDiagnosticsConsoleForwarder`/`SpriteRigDiagnosticsPump` 两种接入
+  方式）与薄胶水 `UnityPresentationDiagnosticsConsoleSink.cs`（`Debug.LogWarning`，恒为控制台
+  Warning 级，不使用 Error 级——`IPresentationDiagnostics` 契约目前只有 Warn 一个级别，也是硬约束
+  要求"避免 Unity Test Framework 因未预期 LogError 误判 PlayMode 用例失败"的落实）。
+  `UnityViewFactory` 新增 `PumpDiagnostics()`/`DiagnosticsConsoleForwardingEnabled`
+  （默认开启，可运行期关闭），接入现有 `GameFoundationBootstrap`/`FrameworkResidentHost` 的
+  `AdvanceCharacterRigs` 每帧维护步骤，转发 `SpriteCharacterRig.Diagnostics` 新增的警告（对应
+  09 表现层"资源加载失败保留占位方块"场景）。新增 `adapters/unity/DiagnosticsForwarding/`
+  独立 dotnet 项目（跨目录引用同一份源文件，不复制）+ 13 例 xUnit 单测，均已用临时破坏转发/去重/
+  开关逻辑做过反向确认（确认对应测试必然失败）后还原。**待设计层确认**：`VfxPlayer`/`SfxPlayer`/
+  `CompositeFeedbackSink`/`FeedbackBinder`/`ViewBinder`/`HitFrameSyncPolicy` 各自的
+  `IPresentationDiagnostics` 由 `presentation/assembly/PresentationAssembly` 内部各自默认构造、
+  未对外暴露注入点，adapters/unity 暂无法转发，需要 presentation/assembly 新增可选注入点才能覆盖，
+  超出本次"只落在引擎适配层"的范围；**待主会话跑 Unity 引擎门禁确认**：`UnityPresentationDiagnosticsConsoleSink`
+  与三处生产接线点引用 UnityEngine，无法用 `dotnet test` 验证，只能在真实 Unity 批处理测试里确认。
 
 ### 文档
 

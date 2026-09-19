@@ -792,6 +792,11 @@ namespace Adapter.Unity.Bootstrap
                     hasRig.Rig.Update(Time.deltaTime);
                 }
             }
+
+            // 诊断转发到引擎控制台（feat/diagnostics-console-forward）：同
+            // Adapter.Unity.Shell.FrameworkResidentHost.AdvanceCharacterRigs 同款，见
+            // UnityViewFactory.PumpDiagnostics 判断记录。
+            ViewFactory.PumpDiagnostics();
         }
 
         /// <summary>见 <see cref="OnFrameTick"/> 判断记录：单个表现步骤的异常隔离落地——记诊断、
