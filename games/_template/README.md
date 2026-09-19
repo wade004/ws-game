@@ -171,6 +171,13 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
   副本（见 `build.ps1 -SyncContent`），**直接编辑框架仓库根目录下的 `data/_framework/*.json` 源
   文件不会触发热重载**——那份改动要先经 `-SyncContent` 同步到上述 StreamingAssets 副本，才会被
   watcher 看到。
+- **改为直接监视内容源目录（消费方反馈第 70 条根治，可选）**：命令行参数 `-gfContentRoot <路径>`
+  或环境变量 `GF_CONTENT_ROOT` 可以把 `GameBootstrap` 的内容根整体指向任意外部目录（见
+  `Runtime/ContentSourceRootOverride.cs`），数据加载与热重载监视都会改用该目录（两者用的是同一套
+  解析规则，见上一条 watchRoots 判断记录），不再局限于 StreamingAssets 部署副本——例如可以直接指向
+  某个游戏仓库自己的数据源目录，编辑后立刻生效，不需要每次先跑 `-SyncContent`。命令行参数优先于
+  环境变量；都未指定时行为与本条之前完全一致。**指定了不存在的目录会让装配显式失败**
+  （`GameBootstrap.BootstrapFailed = true`，Console 打印明确原因），不会静默回退到默认部署副本根。
 - **覆盖的文件事件**：改（`Changed`）、增（`Created`）、删（`Deleted`）、改名（`Renamed`，改名前后
   两个表名各自登记一次去抖）均会触发对应表的自动重载；某个数据根下的表文件被删除后，`Reload` 会
   按当前仍存在的全部数据根重新定位并合并该表——若该表在另一个仍存在的数据根（通常是框架根）也有

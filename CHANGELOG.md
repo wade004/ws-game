@@ -434,6 +434,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+- **消费方反馈第 70 条根治**：`games/_template/Runtime/ContentSourceRootOverride.cs` 新增——命令行
+  参数 `-gfContentRoot <路径>` 或环境变量 `GF_CONTENT_ROOT` 可以把 `GameBootstrap` 的内容根整体指向
+  外部内容源目录，数据加载与 `Runtime/DataHotReload.cs` 监视都会改用该目录，不再局限于
+  StreamingAssets 部署副本。未指定时行为与之前完全一致；指定了不存在的目录会让装配显式失败
+  （不静默回退）。`games/_template/README.md`"开发期数据热重载"一节同步补充说明。
+
 ## [1.44.0] - 2026-09-19
 
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
