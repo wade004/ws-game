@@ -609,6 +609,13 @@ DLL/预编译 validator 的 DLL，见 ADR-0018 决策 3、消费方反馈 E1）�
 同一次打包新增产出），合并落地到与主 zip 相同的 `<Target>/ws-game-<Version>/` 目录下。锁文件
 缺 `samples` 字段（早于本次功能落地的旧版本）时传 `-WithSamples` 会明确报错退出，不静默忽略。
 
+判断记录（消费方反馈第 67 条，2026-09-19，补充说明）：`-WithSamples` **只对上面这条 zip 快照
+通道有意义**——只用下一节"私服"（`-FromRegistry`）通道消费框架的游戏，传 `-WithSamples` 会被
+直接忽略（见本文件与脚本自身 `.PARAMETER WithSamples` 说明"仅对 zip 通道有意义，`-FromRegistry`
+时忽略"），没有等价的私服侧样例数据获取方式。私服通道下想要验收样例数据集，需要额外单独跑一次
+zip 通道的 `-WithSamples`（哪怕平时按包依赖方式消费框架的其余内容）；消费方入口说明见
+`games/_template/README.md`"获取验收样例数据集"一节。
+
 **锁文件 `source` 字段与本机路径（消费方反馈 E3 根治，2026-09-10）**：`ws-game.lock` 约定提交进
 游戏仓库；`-FromLocalDist` 场景的 `source` 字段不再写调用方本机的绝对路径（只写 `channel` 与
 相对的 `zip_file_name`），换机器重新运行不会因为本机路径不同产生一次与框架引用内容无关的锁文件

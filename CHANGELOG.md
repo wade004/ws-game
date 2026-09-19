@@ -456,6 +456,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （8 个 EditMode 单测，覆盖 Development 标志存在性判定、输出路径命令行/环境变量优先级、两者都未
   指定时的显式报错），`Game.Template.EditorTests.asmdef` 新增对 `Game.Template.Editor` 的引用。
 
+- 消费方反馈第 67 条（部分失实，补文档指引）：主 zip 不含 `data/_sample`/`assets/_sample` 属既有
+  设计（自测数据不随分发产物），但样例数据获取通道（`ws-game-<ver>-samples.zip` +
+  `get_framework.ps1 -WithSamples`，1.15.0 起已具备）此前只在根 `README.md`/`toolchain/README.md`
+  写明，`games/_template/README.md` 未提及；补齐"获取验收样例数据集"小节，并补一条此前未文档化的
+  限制——`-WithSamples` 只对 zip 通道有效，纯私服（`-FromRegistry`）通道消费框架的游戏没有等价的
+  样例数据获取路径。
+- 消费方反馈第 71 条（部分失实/需澄清，补稳定性声明）：`ValidationIssue.ToString()` 确无稳定性
+  承诺，但结构化属性与两条命令行 `--json` 入口（`toolchain/validator`、
+  `toolchain/asset_import/check_cmd.py check`）早已存在；`ToString()` 新增 XML 文档注释明确"人类
+  可读、不承诺格式稳定、程序消费请改读结构化属性/CLI --json"的立场，`core/foundation/data_registry/
+  README.md` 新增对应说明章节。核实确认运行期（Unity 进程内）唯二输出校验问题的两处
+  （`GameBootstrap.cs:230`、`DataHotReload.cs:386-388`）仍只写 `ToString()` 文本、事件总线
+  `DataValidationFailedEvent` 不携带结构化问题列表——评估两种补结构化出口的方案后认为均需要新的
+  对外契约承诺，未实现，反问草稿已并入下方统一回复文档。
+- 新增消费方反馈第 67～72 条统一回复文档
+  `architecture/落地计划/消费方反馈-2026-09-19-编辑器-第67-72条.md`：合并
+  `design/0040-tooling-contract`（ADR-0040）、`feat/68-69-tooling-entries`（第 68、69 条）、
+  `feat/70-72-tooling`/`feat/72-build-tests`（第 70、72 条及补测试）、本分支（第 67、71 条）
+  四条未合并分支的处理记录；如实核实并更正了两处与既有认知不符之处——第 68 条数据集根覆盖开关
+  实际仍为 `-gf-content-root`（未改名为 `-gf-dataset-root`，独立验收的改名建议尚未落地）、
+  第 68 条"数据集根覆盖生效"测试缺口尚未修复（只有第 72 条零测试缺口已在 `feat/72-build-tests`
+  补齐）。71 号反问草稿文件随本次提交删除（内容已并入统一回复文档）。
+
 ### 修复
 
 - 根治两处 PlayMode 用例隐性执行顺序依赖（`GreyBoxTests.

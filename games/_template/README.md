@@ -154,6 +154,37 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
 框架仓库/分发包的位置，找不到时提示显式传 `-FrameworkRoot`/`-ValidateDataScript`），见
 `data/README.md`"校验"一节。
 
+### 获取验收样例数据集（消费方反馈第 67 条，2026-09-19）
+
+框架的**主分发产物**（`ws-game-<ver>.zip`，即 `get_framework.ps1` 不带 `-WithSamples` 时拉到的
+那份）只带 `data/_framework`，不带 `data/_sample`/`assets/_sample`——那两棵目录是框架仓库自测/
+冒烟用的示例数据，不代表任何真实游戏内容，不随主 zip 分发（见框架仓库根 `data/README.md`"目录
+结构"一节）。想要一份现成的、已知合法的样例数据/资源来跑一遍验收演练（例如按
+[13_新游戏接入指南.md](../../architecture/13_新游戏接入指南.md) 第 7 节"跑验收"核对数据加载/校验
+链路，或本模板"开发期数据热重载"一节联调用），有一条独立的样例数据获取通道：
+
+```powershell
+# 在游戏仓库根（或任意能写 packages/ 的目录）执行，<ver> 换成实际引用的框架版本号
+powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target packages -WithSamples
+```
+
+该命令会额外下载并按锁文件 `samples.sha256` 字段校验 `ws-game-<ver>-samples.zip`
+（`build.ps1 -Dist`/`-Release` 与主 zip 同一次打包产出），校验通过后合并落地到与主 zip 相同的
+`packages/ws-game-<ver>/` 目录下（`data/_sample`、`assets/_sample` 两棵目录，与主 zip 内容不
+重叠）。完整参数与校验方式见框架仓库
+`toolchain/README.md`"`get_framework.ps1`（游戏侧按版本号引用本框架）"一节
+"`-WithSamples`"小节。
+
+**已知前提/限制**：
+
+- 在线拉取依赖 `gh`（GitHub CLI）已登录、对框架仓库有读权限；离线校验用 `-FromLocalDist` 时需要
+  同目录下已有同版本号的 `ws-game-<ver>-samples.zip` 兄弟文件。早于 1.15.0 的框架版本没有这份
+  样例 zip，`-WithSamples` 会明确报错退出（不会静默忽略）。
+- **只用私服（UPM 注册表，`get_framework.ps1 -FromRegistry`）通道消费框架的游戏，这条路完全走不
+  通**——`-WithSamples` 只对 zip 快照通道有意义，传给 `-FromRegistry` 时会被忽略。私服通道下想要
+  验收样例数据集，需要额外单独跑一次 zip 通道的 `-WithSamples`（哪怕平时按包依赖方式消费框架的
+  其余内容），框架目前没有让私服通道本身携带样例数据的计划。
+
 ## 开发期数据热重载
 
 `GameOptions.EnableDataHotReload`（默认 `true`）打开时，`GameBootstrap` 在数据加载成功后会挂载
