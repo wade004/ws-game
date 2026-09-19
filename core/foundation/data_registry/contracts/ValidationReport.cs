@@ -139,6 +139,21 @@ namespace Core.Foundation.DataRegistry
             return new ValidationIssue(Severity, Table, Check, Message, RecordKey, Field, Group, Note, RuleId, affectedNodeIds);
         }
 
+        /// <summary>
+        /// 人类可读的一行诊断文本（供控制台/日志展示），<b>不是稳定契约、不承诺格式跨版本不变</b>
+        /// （消费方反馈第 71 条，2026-09-19）：拼接顺序、分隔符、`Table[RecordKey].Field` 这种定位
+        /// 片段的具体写法都可能在不打大版本号的情况下调整。需要按字段程序化消费校验结果的调用方，
+        /// 一律改读本类型的结构化只读属性（<see cref="Severity"/>/<see cref="Table"/>/
+        /// <see cref="RecordKey"/>/<see cref="Field"/>/<see cref="Check"/>/<see cref="Message"/> 等，
+        /// 已是公开属性，无需解析本方法输出），或走命令行入口的结构化输出——
+        /// `toolchain/validator --json`（<c>Program.cs</c> 常规校验/`--schema-audit` 两条路径均支持，
+        /// 见该文件判断记录）与 `toolchain/asset_import/check_cmd.py check --json`
+        /// （消费方反馈第 62 条，1.43.0 落地）。截至本条判断记录写下时，运行期宿主
+        /// （<c>games/_template/Runtime/GameBootstrap.cs</c>、<c>DataHotReload.cs</c>）仍只把本方法
+        /// 的输出写入日志，没有把 <see cref="ValidationIssue"/> 结构化投影到事件总线或落盘文件；
+        /// 只能拿到运行期日志的消费方目前只能解析本方法的文本输出，这是已知缺口，见
+        /// `architecture/落地计划/` 对应的消费方反馈回复草稿。
+        /// </summary>
         public override string ToString()
         {
             var loc = RecordKey == null ? Table : (Field == null ? $"{Table}[{RecordKey}]" : $"{Table}[{RecordKey}].{Field}");

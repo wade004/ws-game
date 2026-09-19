@@ -440,6 +440,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   写明，`games/_template/README.md` 未提及；补齐"获取验收样例数据集"小节，并补一条此前未文档化的
   限制——`-WithSamples` 只对 zip 通道有效，纯私服（`-FromRegistry`）通道消费框架的游戏没有等价的
   样例数据获取路径。
+- 消费方反馈第 71 条（部分失实/需澄清，补稳定性声明）：`ValidationIssue.ToString()` 确无稳定性
+  承诺，但结构化属性与两条命令行 `--json` 入口（`toolchain/validator`、
+  `toolchain/asset_import/check_cmd.py check`）早已存在；`ToString()` 新增 XML 文档注释明确"人类
+  可读、不承诺格式稳定、程序消费请改读结构化属性/CLI --json"的立场，`core/foundation/data_registry/
+  README.md` 新增对应说明章节。核实确认运行期（Unity 进程内）唯二输出校验问题的两处
+  （`GameBootstrap.cs:230`、`DataHotReload.cs:386-388`）仍只写 `ToString()` 文本、事件总线
+  `DataValidationFailedEvent` 不携带结构化问题列表——评估两种补结构化出口的方案后认为均需要新的
+  对外契约承诺，未实现，反问草稿见
+  `architecture/落地计划/消费方反馈-2026-09-19-第67-72条回复草稿-71号反问.md`。
 
 ## [1.44.0] - 2026-09-19
 

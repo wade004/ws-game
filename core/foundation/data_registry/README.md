@@ -326,6 +326,48 @@ ABI 只新增，见 `contracts/DataSourceOptions.cs` 判断记录）。
 必须同步更新；回归测试见 `core/foundation/data_registry/tests/FileSystemDataSourceSkipsNonTableJsonTests.cs`
 与 `toolchain/tests/test_validate_data_skips_nontable_json.py`。
 
+## `ValidationIssue.ToString()` 格式稳定性声明与运行期结构化出口现状（消费方反馈第 71 条，2026-09-19）
+
+判断记录：反馈原文指出 `ValidationIssue.ToString()`（`contracts/ValidationReport.cs:142-166`）产出
+形如 `[Error] required_field display.map[display.sample_map].sprite_set_id: ...` 的文本，全篇无
+`[Stable]`/"稳定契约"一类标注，依赖该文本格式做日志反查跳转的消费方功能（如编辑器侧
+`LogRecordLookup`）存在框架格式变化即静默失效的脆弱点。核实结论——**立场明确、范围收窄**：
+
+1. **立场**：`ToString()` 是人类可读的一行诊断文本，供控制台/日志展示，**不承诺格式跨版本稳定**，
+   不应被程序解析；已在该方法的 XML 文档注释里写明（见上方 `contracts/ValidationReport.cs`
+   本次改动）。这与框架内其它明确标注"稳定契约"的公开 API 待遇一致——没有标注即视为不稳定。
+2. **`ValidationIssue` 本身早已是结构化数据**：`Table`/`RecordKey`/`Field`/`Check`/`Message`/
+   `Severity`/`Group`/`Note`/`RuleId`/`AffectedNodeIds` 全部是公开只读属性（本文件
+   `contracts/ValidationReport.cs:27-66`），C# API 消费方不需要解析 `ToString()`，直接读属性即可。
+3. **命令行层已有两条结构化出口**：`toolchain/validator`（`Program.cs:104-105` 定义 `--json` 开关，
+   `:300` 常规校验路径、`:448` `--schema-audit` 路径分别输出）与
+   `toolchain/asset_import/check_cmd.py check --json`（消费方反馈第 62 条，1.43.0 落地，开关定义见
+   `check_cmd.py:235`）。两者 stdout 均只输出一份 JSON 文档，字段与 `ValidationIssue` 的公开属性
+   对应。**真正需要程序化消费校验结果的消费方，应该走这两条命令行入口之一，或直接读 C# API 属性，
+   不应该解析任一层的人类可读文本输出。**
+4. **运行期（Unity Player/Editor 进程内）现状：确无结构化出口，是本条真正收窄后的缺口**——
+   `games/_template/Runtime/GameBootstrap.cs:230`（`Debug.LogError("[GameBootstrap] 数据集校验
+   未通过，已停止：" + string.Join("; ", report.Issues))`）与
+   `games/_template/Runtime/DataHotReload.cs:386-388`（显式 `i.ToString()` 拼接后 `Debug.LogError`）
+   是运行期唯二把校验问题往外传的路径，两处都只把 `ToString()` 文本写进 Unity 日志；随后经事件总线
+   补发的 `DataValidationFailedEvent`（`core/foundation/data_registry/contracts/Events.cs:58-71`）
+   只带 `ErrorCount`/`WarningCount` 两个汇总计数，**不携带任何单条 `ValidationIssue`**——运行期内
+   没有任何路径能拿到结构化的问题清单，只能解析日志文本。
+5. **是否补一个运行期结构化出口：评估后暂不动手，留给设计层**——已考虑过的方案与各自代价：
+   - 方案 A：给 `DataValidationFailedEvent`/`DataLoadCompletedEvent` 新增一个携带
+     `IReadOnlyList<ValidationIssue>` 的构造重载（ABI 只新增，代价小）。但这只服务"与 Unity 进程
+     同进程内订阅事件总线"的 C# 消费方；本条反馈的场景（编辑器一类独立进程外部工具）拿不到进程内
+     事件，这个方案不解决真实诉求。
+   - 方案 B：运行期额外落一份结构化诊断（如日志旁再写一份 JSON 文件，或额外打一行专用前缀的结构化
+     日志供外部按行解析）。这能真正解决"外部进程读运行期校验结果"的诉求，但等于**新开一个对外
+     承诺格式稳定的运行期契约**（文件路径/日志前缀/字段形状一旦发布就要维持兼容），影响面和"要不要
+     承诺、承诺成什么形状"都需要设计层先拍板，不是纯脚本/文档改动，本次不擅自实现。
+   - 判断依据：在没有确认消费方实际怎么消费运行期校验结果（见下方"反问"草稿）之前，任何结构化
+     方案都可能选错形状（比如消费方其实根本不需要运行期路径，只是没发现命令行 `--json` 出口）；
+     先问清楚再定型，避免先建一个契约再发现选错了、造成二次破坏性变更。
+6. 给消费方的反问草稿见
+   [`architecture/落地计划/消费方反馈-2026-09-19-第67-72条回复草稿-71号反问.md`](../../../architecture/落地计划/消费方反馈-2026-09-19-第67-72条回复草稿-71号反问.md)。
+
 ## 不负责什么
 
 - 不实现任何具体业务校验规则（效果数上限、预算、叠加冲突等），只提供 `IValidationRule` 扩展点。
