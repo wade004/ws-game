@@ -208,9 +208,22 @@ namespace Presentation.Assembly
 
         public IInputMapHost InputMap { get; }
 
+        /// <summary>诊断转发跟进（架构结论见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// <see cref="InputMap"/> 只暴露 <see cref="IInputMapHost"/> 接口，转发新增只读属性，
+        /// 惯例同本类型既有 VfxDiagnostics/SfxDiagnostics。</summary>
+        public Core.Foundation.InputMap.IInputMapDiagnostics InputMapDiagnostics { get; }
+
         public IL10nHost L10n { get; }
 
+        /// <summary>诊断转发跟进（同上，<see cref="L10n"/> 只暴露 <see cref="IL10nHost"/> 接口）。</summary>
+        public Core.Foundation.Localization.IL10nDiagnostics L10nDiagnostics { get; }
+
         public IUiDataSource UiData { get; }
+
+        /// <summary>诊断转发跟进（同上，<see cref="UiData"/> 只暴露 <see cref="IUiDataSource"/> 接口）：
+        /// presentation/ui.IUiDiagnostics 是独立于 IPresentationDiagnostics 的另一套契约（同
+        /// ISkillDiagnostics 惯例），此前未被任何转发链路覆盖，本单补上，见类型注释判断记录。</summary>
+        public Presentation.Ui.IUiDiagnostics UiDiagnostics { get; }
 
         public UiIntents UiIntents { get; }
 
@@ -425,7 +438,9 @@ namespace Presentation.Assembly
             // textResolver 需要用到同一个 IL10nHost 实例解析 text_source: literal 飘字文本键
             // （09 第 7.3 节"文案一律经本地化表用 key 间接引用"）；InputMapHost 与本步无关，仍留在
             // 第 4 步原位构造。
-            L10n = new L10nHost(registry, bus);
+            var l10nHost = new L10nHost(registry, bus);
+            L10n = l10nHost;
+            L10nDiagnostics = l10nHost.Diagnostics;
 
             var flashProfileResolver = opts.FlashProfileResolver ?? (_ => FlashParams.Default);
             var feedbackSink = new CompositeFeedbackSink(
@@ -509,7 +524,9 @@ namespace Presentation.Assembly
             //    L4 宿主，见 README 判断记录；L10nHost 已提前到上一步构造，见缺口 7 判断记录）；
             //    UiDataSource 接三个路径 provider；十个视图模型逐一构造。
             // ---------------------------------------------------------
-            InputMap = new Core.Foundation.InputMap.InputMapHost(bus);
+            var inputMapHost = new Core.Foundation.InputMap.InputMapHost(bus);
+            InputMap = inputMapHost;
+            InputMapDiagnostics = inputMapHost.Diagnostics;
 
             var skillBookQuery = new SkillHostSkillBookQuery(gameplay.Carriers.Rules.Skill);
             var providers = new IUiPathProvider[]
@@ -521,7 +538,9 @@ namespace Presentation.Assembly
                 new TargetPathProvider(opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
                 new UnitPathProvider(gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
             };
-            UiData = new UiDataSource(bus, providers);
+            var uiDataSource = new UiDataSource(bus, providers);
+            UiData = uiDataSource;
+            UiDiagnostics = uiDataSource.Diagnostics;
 
             // 缺口 4：动作条槽位绑定改接 gameplay.Carriers.SkillBindings（G1 新增
             // ISkillBindingHost，见 ActionBarViewModel/UiIntents 类型注释判断记录），删除此前的

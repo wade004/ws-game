@@ -491,3 +491,19 @@ sample_summon`）后恢复 0 警告，见 `data/README.md` 对应判断记录，
 | `Catalog_SimGroupLiterals_MatchCoreSimRealConstants` | "仿真"分组四行的字符串字面量（`RuleId`/`CheckName`）与 `Core.Sim` 真实常量/`GetType().Name` 逐一比对一致 |
 | `Catalog_EveryDistinctRuleId_IsActuallyRegistered_AgainstSampleData` | 核心验收——对 `data/_framework`+`data/_sample` 跑真实 `ContentValidationAssembly.Run`，清单里每个不同 `RuleId` 都必须出现在 `ValidationReport.Rules` 里且级别/`NonEscalatable` 一致（"禁止漏注册"的可执行断言），并顺带验证零阻断 |
 | `ContentValidationAssembly_NumericRules_IsSameInstanceAsCatalogEntries` | 单一来源转发，不是两份拷贝 |
+
+## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
+
+新增 `InputMapDiagnostics`（`Core.Foundation.InputMap.IInputMapDiagnostics`）/`L10nDiagnostics`
+（`Core.Foundation.Localization.IL10nDiagnostics`）/`UiDiagnostics`（`Presentation.Ui.IUiDiagnostics`）
+三个只读转发属性，惯例同本类型既有 `VfxDiagnostics`/`SfxDiagnostics`/`FeedbackSinkDiagnostics`——
+`InputMap`/`L10n`/`UiData` 对外只暴露 `IInputMapHost`/`IL10nHost`/`IUiDataSource` 接口（不含
+Diagnostics 出口），本类型装配期已经持有构造出的具体实例，转发一份只读引用。
+
+`presentation/ui.IUiDiagnostics` 是上一轮任务收尾时点名的遗留缺口——它是独立于
+`Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 的另一套契约（同 `ISkillDiagnostics`
+惯例，不实现该接口），此前没有被 `PresentationAssemblyDiagnosticsForwarder` 覆盖的五条链路捎带上，
+同样的静默失败毛病一直没修。本单一并接上，登记进
+`Adapter.Unity.Diagnostics.DiagnosticsHubComposition`（新的统一诊断转发集线器，不再是
+`PresentationAssemblyDiagnosticsForwarder` 那种一次性写死构造函数参数个数的做法，见其类型注释）。
+ABI 只新增只读属性，不改动任何既有公开签名。

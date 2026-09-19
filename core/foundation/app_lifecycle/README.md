@@ -145,3 +145,15 @@ app_lifecycle/
 | `found.game_state` 表字段定义、内存构造入口与 `FromRegistry` 数据注册表接入 | 是 | 具体转移数据行（框架级默认表见 `data/_framework/found/`，游戏层可补充/覆盖） |
 | `app.state_changed` 事件与 `OnStateChanged`/`OnSubStateChanged` 回调通道 | 是 | 具体订阅者与响应逻辑 |
 | "请求退出应用"标志位机制 | 是 | 退出应用的具体行为（游戏外壳 Shell） |
+
+## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
+
+`AppStateHost` 新增只读属性 `Diagnostics`（返回 `IAppLifecycleDiagnostics`，ABI 只新增只读属性，不改动任何既有公开签名）：
+全仓普查发现本模块的诊断契约同仓库另外 20 余个 `I*Diagnostics` 契约一样，此前只记内存
+（`AppStateHost` 构造函数未注入自定义实现时默认 `new InMemoryAppLifecycleDiagnostics()`），从不外发到引擎控制台——真实
+游戏里出现对应告警时控制台一行输出都没有。本轮由 `adapters/unity` 侧新增的
+`Adapter.Unity.Diagnostics.DiagnosticsHub`（注册制轮询集线器，见其类型注释）通过本属性拿到默认
+实例引用，登记进 `DiagnosticsHubComposition.RegisterCoreSources`，三个生产装配入口
+（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
+一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
+对外只读出口。

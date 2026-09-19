@@ -26,6 +26,10 @@ namespace Core.Foundation.Localization
         private readonly L10nOptions _options;
         private readonly IL10nDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IL10nDiagnostics Diagnostics => _diagnostics;
+
         private readonly Dictionary<string, LocaleInfo> _locales = new Dictionary<string, LocaleInfo>(StringComparer.Ordinal);
         private readonly List<Id> _localeOrder = new List<Id>();
         private readonly Dictionary<string, string> _textIndex = new Dictionary<string, string>(StringComparer.Ordinal);

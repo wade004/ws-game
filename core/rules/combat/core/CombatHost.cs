@@ -28,6 +28,13 @@ namespace Core.Rules.Combat
         private readonly CombatOptions _options;
         private readonly ThreatTable _threatTable;
         private readonly Resolver _resolver;
+        private readonly ICombatDiagnostics _diagnostics;
+
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。
+        /// 判断记录：此前本类型把 diagnostics 参数解析出的 <c>diag</c> 局部变量只转发给内部 <see cref="Resolver"/>，
+        /// 自身不持有引用，外部拿不到实例；本单新增字段接住同一个实例，构造逻辑本身不变。</summary>
+        public ICombatDiagnostics Diagnostics => _diagnostics;
 
         // 判断记录：06 第 4.5 节的"进出战斗"状态与脱战计时器是 CombatHost 自身的运行期状态
         // （不属于 IUnitAccess——那是"存在性/位置/阵营/等级/朝向/存活/模板/标签"门面，不含战斗
@@ -83,6 +90,7 @@ namespace Core.Rules.Combat
 
             _options = options ?? new CombatOptions();
             var diag = diagnostics ?? new InMemoryCombatDiagnostics();
+            _diagnostics = diag;
 
             var hitTables = CombatDataLoader.LoadHitTables(registry);
             var resistCurves = CombatDataLoader.LoadResistCurvesBySchool(registry);

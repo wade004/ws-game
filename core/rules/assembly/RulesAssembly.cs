@@ -54,6 +54,13 @@ namespace Core.Rules.Assembly
 
         public StatHost Stats { get; }
         public PowerHost Powers { get; }
+
+        /// <summary>诊断转发跟进（架构结论见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// <c>PowerTickHandler</c> 只在 <see cref="RegisterTickHandlers"/> 内部构造并直接注册为
+        /// phase handler，此前不持有引用、外部拿不到诊断实例；本单起该方法把构造出的实例回填本属性
+        /// （只在调用过 <see cref="RegisterTickHandlers"/> 之后才非 null，调用方按 null 静默跳过，
+        /// 惯例同 <c>PresentationAssemblyDiagnosticsForwarder</c> 对可选来源的处理）。</summary>
+        public Core.Numbers.PowerSet.IPowerDiagnostics? PowerDiagnostics { get; private set; }
         public ProgressionHost Progression { get; }
         public ArchetypeRegistry Archetypes { get; }
         public FactionMatrix Factions { get; }
@@ -560,7 +567,9 @@ namespace Core.Rules.Assembly
             World.RegisterPhaseHandler(TickPhase.AiDecision, new AiTickHandler(Ai));
             World.RegisterPhaseHandler(TickPhase.SkillPipeline, new SkillTickHandler(Skill, bus: Bus));
             World.RegisterPhaseHandler(TickPhase.CombatResolution, new CombatTickHandler(Combat, bus: Bus));
-            World.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new PowerTickHandler(Powers));
+            var powerTickHandler = new PowerTickHandler(Powers);
+            PowerDiagnostics = powerTickHandler.Diagnostics;
+            World.RegisterPhaseHandler(TickPhase.TriggerEvaluation, powerTickHandler);
         }
 
         /// <summary>

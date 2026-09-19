@@ -77,6 +77,10 @@ namespace Core.Gameplay.AreaTrigger
         private readonly AreaTriggerOptions _options;
         private readonly IAreaTriggerDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IAreaTriggerDiagnostics Diagnostics => _diagnostics;
+
         // SortedDictionary 保证 Evaluate 按 TriggerId 序数遍历，跨调用/跨单位确定性一致
         // （惯例同 IUnitAccess.AllUnits"按 Id 序数排序"）。
         private readonly SortedDictionary<Id, RuntimeEntry> _entries = new SortedDictionary<Id, RuntimeEntry>();

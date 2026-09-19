@@ -30,6 +30,10 @@ namespace Core.Foundation.SaveSystem
         private readonly IEventBus? _bus;
         private readonly ISaveDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public ISaveDiagnostics Diagnostics => _diagnostics;
+
         private readonly Dictionary<string, IPersistable> _persistables = new Dictionary<string, IPersistable>(StringComparer.Ordinal);
         private readonly Dictionary<int, ISaveMigration> _migrations = new Dictionary<int, ISaveMigration>();
 

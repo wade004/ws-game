@@ -588,6 +588,37 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   `Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 持有者后确认没有第六条未覆盖链路，见
   `presentation/assembly/README.md` 判断记录 10b"扫描结论"。
 
+- **诊断契约统一转发到引擎控制台（[ADR-0042](architecture/adr/0042-诊断契约统一转发到宿主控制台.md)，
+  全仓收口第四批）**：此前三批只覆盖了表现层 `IPresentationDiagnostics` 一套契约（六条链路）；
+  本批对全仓做了一次完整普查，另发现 20+ 个同惯例的 `I*Diagnostics` 契约（`event_bus`/
+  `hook_registry`/`save_system`/`scene_router`/`app_lifecycle`/`input_map`/`localization` 等
+  L0 基础模块，`area_trigger`/`dialog`/`spawn`/`death`/`common`（奖励）/`world_state` 等 L4
+  玩法宿主，`power_set`/`progression` 等数值模块，`combat`/`skill` 等规则模块，`presentation/ui`
+  独立契约）同样只记内存、从未转发到引擎控制台。确立架构结论：框架内所有诊断契约产生的信息都
+  必须有到达宿主控制台的通路，并新增一套与具体诊断契约解耦的统一转发机制——
+  `Adapter.Unity.Diagnostics.DiagnosticsHub`（注册制轮询集线器，登记"来源名 + 只增不减的消息
+  列表引用"，每帧轮询新增消息，复用既有 `PresentationDiagnosticsConsoleGate`/
+  `IPresentationDiagnosticsConsoleSink` 的去重/容量上限/开关语义，恒映射为控制台 Warning、
+  Error 级另加 `[error]` 文本标记不改变实际级别，消息统一带来源名前缀避免跨模块去重误撞）与
+  `ProjectedReadOnlyList<TSource>`（把非字符串消息列表惰性投影为 `IReadOnlyList<string>`，供
+  消息记录类型不统一的契约复用同一登记入口）。上述全部 21 个可达契约的宿主类型新增
+  `public I<X>Diagnostics Diagnostics { get; }` 只读属性（ABI 只新增属性，不改构造签名），
+  `GameplayAssembly`/`RulesAssembly`/`PresentationAssembly` 新增对应转发属性；三处生产装配入口
+  （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` `GameBootstrap`）新增
+  `DiagnosticsHubComposition.RegisterCoreSources(...)` 统一登记调用，`AdvanceCharacterRigs`
+  内紧跟既有转发调用之后新增 `_coreDiagnosticsHub?.Pump()`。结构性排除：`IExprDiagnostics`
+  未接入——其绝大多数使用点是单次调用内临时构造、调用结束即丢弃的实例，没有可跨帧持续读取的
+  稳定消息列表，不适用本轮的轮询式机制，需要另一种"异常分支处直接同步转发"的机制，留待后续
+  单独立项（详细清单与逐项理由见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/
+  Runtime/Diagnostics/DiagnosticsHubComposition.cs` 判断记录）。新增测试：
+  `adapters/unity/DiagnosticsForwarding/tests/DiagnosticsHubTests.cs`
+  （`DiagnosticsHubTests` 8 例 + `ProjectedReadOnlyListTests` 3 例），
+  `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py` 新增两组
+  参数化断言守住三处生产入口的登记调用与 `Pump()` 调用。已对"转发逻辑本身失效"
+  "某一生产入口漏调用 `Pump()`"两类改动分别做过反向确认（临时破坏、确认对应测试必然失败、
+  已还原）。24 个模块 README 补充判断记录，详见各自"判断记录（诊断契约统一转发机制，
+  2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）"一节。
+
 ## [1.45.0] - 2026-09-19
 
 本版落地消费方反馈第 67～72 条（ADR-0040 运行期宿主命令行能力契约；常驻运行入口、参数化内容

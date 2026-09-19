@@ -35,6 +35,10 @@ namespace Core.Carriers.Gobj
         private readonly GobjOptions _options;
         private readonly IGobjDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IGobjDiagnostics Diagnostics => _diagnostics;
+
         /// <summary>CR140-01 根治：<c>chest</c> 在 <see cref="GobjLootDeliveryPolicy.Partial"/> 策略下
         /// 未能全部交付的剩余物品堆叠，供下次交互补发（见 <see cref="OpenChestPartial"/>/<see
         /// cref="DeliverPendingLoot"/>）；CR150-04 根治后 <c>gather_node</c> 复用同一份台账与同一套

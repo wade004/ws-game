@@ -18,6 +18,11 @@ namespace Presentation.Ui
     {
         private readonly IEventBus _eventBus;
         private readonly IUiDiagnostics _diagnostics;
+
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名——presentation/ui
+        /// 这一独立契约（同 ISkillDiagnostics 惯例，不实现 IPresentationDiagnostics）此前未被任何转发链路覆盖，本单补上。</summary>
+        public IUiDiagnostics Diagnostics => _diagnostics;
         private readonly Dictionary<string, IUiPathProvider> _providers = new Dictionary<string, IUiPathProvider>(StringComparer.Ordinal);
 
         public UiDataSource(IEventBus eventBus, IEnumerable<IUiPathProvider> providers, IUiDiagnostics? diagnostics = null)

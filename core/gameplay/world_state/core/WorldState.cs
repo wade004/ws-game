@@ -31,6 +31,10 @@ namespace Core.Gameplay.WorldState
         private readonly WorldStateOptions _options;
         private readonly IWorldStateDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IWorldStateDiagnostics Diagnostics => _diagnostics;
+
         public WorldState(IEventBus eventBus, WorldStateOptions? options = null, IWorldStateDiagnostics? diagnostics = null)
         {
             _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));

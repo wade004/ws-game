@@ -16,6 +16,10 @@ namespace Core.Foundation.AppLifecycle
         private readonly AppStateMachineConfig _config;
         private readonly IAppLifecycleDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IAppLifecycleDiagnostics Diagnostics => _diagnostics;
+
         private readonly List<SubStateId> _subStateStack = new List<SubStateId>();
         private readonly List<StateChangedSubscription> _stateChangedSubscribers = new List<StateChangedSubscription>();
         private readonly List<SubStateChangedSubscription> _subStateChangedSubscribers = new List<SubStateChangedSubscription>();

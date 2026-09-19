@@ -176,6 +176,14 @@ namespace Adapter.Unity.Bootstrap
         /// 惯例：转发本身不是本类型对外契约的一部分，只是每帧驱动一次的内部维护步骤）。</summary>
         private PresentationAssemblyDiagnosticsForwarder? _presentationDiagnosticsForwarder;
 
+        /// <summary>诊断契约统一转发机制跟进（architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 覆盖本轮普查发现的 20+ 个 I*Diagnostics 契约（event_bus/hook_registry/save_system/
+        /// scene_router/app_lifecycle/input_map/localization/carriers/rules/gameplay/presentation-ui），
+        /// 与上面的 <see cref="_presentationDiagnosticsForwarder"/>（presentation/vfx_sfx 那五条既有
+        /// 链路）是两个独立的 Hub/gate 实例，互不挤占彼此去重表，见
+        /// Adapter.Unity.Diagnostics.DiagnosticsHub 类型注释判断记录。</summary>
+        private Adapter.Unity.Diagnostics.DiagnosticsHub? _coreDiagnosticsHub;
+
         public FloatingTextReceiver? FloatingText { get; private set; }
         public FreezeFrameReceiver? Freeze { get; private set; }
         public FlashReceiver? Flash { get; private set; }
@@ -535,6 +543,13 @@ namespace Adapter.Unity.Bootstrap
                 presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics,
                 presentation.FeedbackSinkDiagnostics);
 
+            // 诊断契约统一转发机制（architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：本轮
+            // 普查覆盖到的其余 20+ 个诊断来源，登记清单集中写在 DiagnosticsHubComposition，见其
+            // 判断记录。
+            _coreDiagnosticsHub = new Adapter.Unity.Diagnostics.DiagnosticsHub(UnityPresentationDiagnosticsConsoleSink.Instance);
+            Adapter.Unity.Diagnostics.DiagnosticsHubComposition.RegisterCoreSources(
+                _coreDiagnosticsHub, gameplay, presentation, (Core.Foundation.EventBus.EventBus)_bus, saveSystem, sceneRouter);
+
             // 三个反馈接收器都需要 PresentationAssembly 构造完成后才能建出（FloatingText 需要
             // presentation.FloatingTextStyles，Flash 需要 presentation.ViewBinder）；上面
             // presentationOptions 里的三个回调只在真正的反馈事件触发时才会读取这三个属性
@@ -819,6 +834,7 @@ namespace Adapter.Unity.Bootstrap
             // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：同一步骤内
             // 顺带转发 Vfx/Sfx/Feedback/ViewBinder 四条新增诊断源，不新增独立遍历。
             _presentationDiagnosticsForwarder?.Pump();
+            _coreDiagnosticsHub?.Pump();
         }
 
         /// <summary>见 <see cref="OnFrameTick"/> 判断记录：单个表现步骤的异常隔离落地——记诊断、
