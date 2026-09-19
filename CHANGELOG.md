@@ -431,13 +431,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `skill_budget_record_unparseable`/`item_grant_value_unparseable`。编辑器产品文档 v2.17 同批
   补齐第 4.1 节两行契约面，`Editor.Core.Validation.TolerantRegistryView`/
   `DeprecatedFieldHints` 两个自建包装/清单均可退役。
-- **ADR-0041（Unreleased，破坏性变更）**：第 45 条新增的 `IDataRegistryView.TryGet`（含
+- **ADR-0041（1.46.0，破坏性变更）**：第 45 条新增的 `IDataRegistryView.TryGet`（含
   `Core.Foundation.DataRegistry.DataRegistry` 的显式覆盖）实测证明恒返回 `true`（哪怕记录本就
   不存在），返回值语义修正为"是否找到记录"；`TolerantRegistryView.Get`/`TryGet` 同步调整内部
   判定算法。方法名/签名不变，编辑器若直接使用这两个入口的返回值判断"是否找到"，需按下方
-  "[Unreleased]"正文"破坏性变更"小节自查。
+  "[1.46.0]"正文"破坏性变更"小节自查。
 
 ## [Unreleased]
+
+## [1.46.0] - 2026-09-20
 
 ### 破坏性变更
 
@@ -739,6 +741,12 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   `DiagnosticsHubComposition.cs` 本身是 Unity-only 胶水、不进 `dotnet test` 编译范围，本次未起
   Unity，编译正确性靠静态命名空间分析 + asmdef 引用关系核对自证，待主会话跑真实 Unity 批处理
   门禁复核。详见 `presentation/assembly/README.md` 判断记录（诊断契约统一转发机制）跟进段。
+
+- **规范化 `Runtime/Diagnostics.meta` 为 Unity 完整形式**：上一条 Unity meta 完整性检查修复
+  （`90691cc3`）落盘的目录级 `Runtime/Diagnostics.meta` 是当时磁盘上的两行精简版，随后一次
+  Unity 导入将其展开为仓库惯例的完整形式（`folderAsset: yes` + `DefaultImporter` 块，GUID
+  不变）；不收进来的话每跑一次 Unity 工作树就会因此变脏，干扰发版时的 `-dirty` 核对，提交
+  `c744cf61`。
 
 ## [1.45.0] - 2026-09-19
 
