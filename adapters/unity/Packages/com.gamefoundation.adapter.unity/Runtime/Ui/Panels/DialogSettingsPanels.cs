@@ -5,6 +5,12 @@
 // "设置""（按键绑定）""保存设置"等属于 UI 框架级 chrome 文案，不经 l10n.text；对话选项本身的
 // 文案（<see cref="DialogPanel.RefreshUi"/> 里的 <c>_l10n.Text(...)</c> 调用）已经是真正经
 // l10n.text 查询的游戏内容文本。
+//
+// 判断记录（ADR-0043，gossip 正文区）：此前 gossip 分支的 Body 硬编码"（NPC 对话选项）"占位文案，
+// 不查询任何数据/本地化——`dialog.gossip_menu` 表当时没有开场白字段可查。ADR-0043 新增可选字段
+// `greeting_key` 后，本文件改为经 `GossipView.GreetingKey` 查询：有值时同 Story 分支走
+// `_l10n.Text(...)`；缺省时不渲染正文区（隐藏 Body 标签），不回落任何占位文案——占位文案会被当成
+// 真实内容展示给玩家，隐藏更准确地传达"这条 gossip 菜单没有配置开场白"，取舍记录见该 ADR。
 using System;
 using System.Text;
 using Core.Foundation.InputMap;
@@ -44,16 +50,28 @@ namespace Adapter.Unity.Ui.Panels
         {
             if (_vm.Story != null)
             {
+                _bodyLabel.gameObject.SetActive(true);
                 _bodyLabel.text = _l10n.Text(_vm.Story.TextKey);
                 RebuildOptions(_vm.Story.VisibleBranches.Count, i => _l10n.Text(_vm.Story.VisibleBranches[i].TextKey), i => _intents.ChooseDialogOption(_vm.Story.VisibleBranches[i].Index));
             }
             else if (_vm.Gossip != null)
             {
-                _bodyLabel.text = "（NPC 对话选项）";
+                // ADR-0043：greeting_key 缺省时不渲染正文区（隐藏 Body 标签），不回落占位文案，
+                // 见本文件顶部判断记录。
+                if (_vm.Gossip.GreetingKey.HasValue)
+                {
+                    _bodyLabel.gameObject.SetActive(true);
+                    _bodyLabel.text = _l10n.Text(_vm.Gossip.GreetingKey.Value);
+                }
+                else
+                {
+                    _bodyLabel.gameObject.SetActive(false);
+                }
                 RebuildOptions(_vm.Gossip.Options.Count, i => _l10n.Text(_vm.Gossip.Options[i].TextKey), i => _intents.ChooseDialogOption(_vm.Gossip.Options[i].Index));
             }
             else
             {
+                _bodyLabel.gameObject.SetActive(true);
                 _bodyLabel.text = "（当前无对话）";
                 RebuildOptions(0, null, null);
             }

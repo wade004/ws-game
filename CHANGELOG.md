@@ -439,6 +439,23 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- [ADR-0043](architecture/adr/0043-gossip菜单新增可选开场白正文字段.md)（消费方反馈第 3a/3b 条，
+  `ws-game-wow` 2026-09-20 反馈文档）：`dialog.gossip_menu` 新增可选字段 `greeting_key`
+  （`FieldKind.TextKey`，兼容变更，旧数据零改动即合法）；`GossipMenuDefinition`/`GossipView`
+  各新增一个构造函数重载承载该字段（ABI 只新增，原有构造函数不变）；`DialogHost.OpenGossip`/
+  `GetGossipView` 透传 `menu.GreetingKey` 到 `GossipView.GreetingKey`。
+- `adapters/unity` 的 `DialogPanel.RefreshUi`：gossip 分支不再硬编码占位文案"（NPC 对话选项）"，
+  改为有 `GreetingKey` 时经 `_l10n.Text(...)` 渲染，缺省时隐藏正文标签、不渲染正文区（不回落任何
+  占位文案，取舍见 ADR-0043）。
+- 测试：`core/gameplay/dialog/tests/ADR0043_GossipGreetingKeyTests.cs`（3 例：字段登记为可选
+  `TextKey`、`GossipMenuDefinition.FromRecord` 有/无 `greeting_key` 两种解析情形）；
+  `DialogHostTests.cs` 新增 2 例（`GreetingKey` 经 `OpenGossip`/`GetGossipView` 正确透传、缺省时
+  为 `null` 且不抛异常）。
+- `data/_sample/dialog/dialog.gossip_menu.json` 的 `dialog.sample_hunter` 补 `greeting_key`
+  样例；`data/_sample/l10n/l10n.text.json` 补对应的中/英两条文本。
+
 ## [1.46.0] - 2026-09-20
 
 ### 破坏性变更

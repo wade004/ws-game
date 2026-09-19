@@ -13,11 +13,23 @@ namespace Core.Gameplay.Dialog
     {
         public Id MenuId { get; }
 
+        /// <summary>菜单开场白/正文文本键（ADR-0043），透传自 <see cref="GossipMenuDefinition.GreetingKey"/>；
+        /// 为 null 表示该菜单未配置开场白，UI 消费方（<c>DialogPanel</c>）据此不渲染正文区。</summary>
+        public Id? GreetingKey { get; }
+
         public IReadOnlyList<(int Index, Id TextKey)> Options { get; }
 
         public GossipView(Id menuId, IReadOnlyList<(int Index, Id TextKey)> options)
+            : this(menuId, null, options)
+        {
+        }
+
+        /// <summary>ABI 只新增（AGENTS.md §3）：新增重载承载 ADR-0043 新增的 <see cref="GreetingKey"/>，
+        /// 不改动上面的既有构造函数。</summary>
+        public GossipView(Id menuId, Id? greetingKey, IReadOnlyList<(int Index, Id TextKey)> options)
         {
             MenuId = menuId;
+            GreetingKey = greetingKey;
             Options = options;
         }
     }

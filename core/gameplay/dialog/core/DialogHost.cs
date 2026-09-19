@@ -136,7 +136,7 @@ namespace Core.Gameplay.Dialog
             }
 
             Publish(new GossipOpenedEvent(unitId, npcId, menuId));
-            return new GossipView(menuId, options);
+            return new GossipView(menuId, menu.GreetingKey, options);
         }
 
         public GossipView? GetGossipView(Id unitId)
@@ -161,7 +161,7 @@ namespace Core.Gameplay.Dialog
                 }
             }
 
-            return new GossipView(menuId, options);
+            return new GossipView(menuId, menu.GreetingKey, options);
         }
 
         public bool ChooseOption(Id unitId, int index)

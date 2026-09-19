@@ -533,6 +533,49 @@ namespace Tests.Gameplay.Dialog
             Assert.Null(h.Host.GetGossipView(Player));
         }
 
+        // ---------------------------------------------------------------
+        // ADR-0043：GossipView.GreetingKey 从 GossipMenuDefinition.GreetingKey 透传
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void OpenGossip_And_GetGossipView_CarryGreetingKey_WhenMenuHasOne()
+        {
+            var greetingKey = new Id("l10n.dialog.sample_menu.greeting");
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), greetingKey, new[]
+            {
+                new GossipOption(new Id("l10n.opt_a"), null, new[] { Action(DialogActionKind.Save) }),
+            });
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>());
+
+            var opened = h.Host.OpenGossip(Player, Npc, menu.Id);
+            Assert.Equal(greetingKey, opened.GreetingKey);
+
+            var view = h.Host.GetGossipView(Player);
+            Assert.NotNull(view);
+            Assert.Equal(greetingKey, view!.GreetingKey);
+        }
+
+        [Fact]
+        public void OpenGossip_And_GetGossipView_GreetingKeyIsNull_WhenMenuOmitsIt_AndOptionsStillRender()
+        {
+            // 用既有 2 参构造函数（未指定 greetingKey），验证"无该字段"这一缺省路径不需要调用方
+            // 额外传参、也不抛异常——ADR-0043"缺省不渲染正文区，不报错"取舍的数据层前提。
+            var menu = new GossipMenuDefinition(new Id("dialog.sample_menu"), new[]
+            {
+                new GossipOption(new Id("l10n.opt_a"), null, new[] { Action(DialogActionKind.Save) }),
+            });
+            var h = new Harness(new[] { menu }, Array.Empty<StoryTreeDefinition>());
+
+            var opened = h.Host.OpenGossip(Player, Npc, menu.Id);
+            Assert.Null(opened.GreetingKey);
+            Assert.Single(opened.Options);
+
+            var view = h.Host.GetGossipView(Player);
+            Assert.NotNull(view);
+            Assert.Null(view!.GreetingKey);
+            Assert.Single(view.Options);
+        }
+
         [Fact]
         public void AdvanceStory_ToNextNode_FiresStoryNodeEnteredEvent()
         {

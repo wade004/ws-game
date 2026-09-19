@@ -53,11 +53,23 @@ namespace Core.Gameplay.Dialog
     {
         public Id Id { get; }
 
+        /// <summary>菜单开场白/正文文本键（ADR-0043）；缺省为 null，表示该菜单不配置开场白——
+        /// 消费方（<c>DialogPanel</c>）据此不渲染正文区，不回落占位文案，见 ADR-0043 决策。</summary>
+        public Id? GreetingKey { get; }
+
         public IReadOnlyList<GossipOption> Options { get; }
 
         public GossipMenuDefinition(Id id, IReadOnlyList<GossipOption> options)
+            : this(id, null, options)
+        {
+        }
+
+        /// <summary>ABI 只新增（AGENTS.md §3）：不能给上面的既有构造函数加参数，改为新增本重载
+        /// 承载 ADR-0043 新增的 <see cref="GreetingKey"/>。</summary>
+        public GossipMenuDefinition(Id id, Id? greetingKey, IReadOnlyList<GossipOption> options)
         {
             Id = id;
+            GreetingKey = greetingKey;
             Options = options ?? throw new ArgumentNullException(nameof(options));
         }
 
@@ -67,6 +79,13 @@ namespace Core.Gameplay.Dialog
             if (exprSchema == null) throw new ArgumentNullException(nameof(exprSchema));
 
             var id = record.GetId("id");
+
+            Id? greetingKey = null;
+            if (record.Raw.TryGetValue("greeting_key", out var gk) && gk is JsonString gkStr && Id.TryParse(gkStr.Value, out var gkId))
+            {
+                greetingKey = gkId;
+            }
+
             var optionsArray = record.GetArray("options");
             var options = new List<GossipOption>(optionsArray.Count);
             foreach (var item in optionsArray)
@@ -77,7 +96,7 @@ namespace Core.Gameplay.Dialog
                 }
                 options.Add(ParseOption(id, o, exprSchema));
             }
-            return new GossipMenuDefinition(id, options);
+            return new GossipMenuDefinition(id, greetingKey, options);
         }
 
         private static GossipOption ParseOption(Id menuId, JsonObject o, IExprSchema exprSchema)
