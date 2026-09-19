@@ -530,7 +530,14 @@ namespace Game.Template
         /// <summary>供 <see cref="SampleNewGameStarter"/> 重置玩家到新游戏起始状态时使用。</summary>
         internal PlayerUnit PlayerUnit => _player;
 
-        internal GameOptions RuntimeOptions => _options;
+        /// <summary>暴露当前生效的口味配置，供测试/编辑器在无头装配后核对配置是否按预期生效
+        /// （例如 <c>Tests/Runtime/ContentSourceRootOverridePlayModeTests.cs</c> 校验
+        /// <see cref="GameOptions.EnableDataHotReload"/>）。公开而非 internal + <c>InternalsVisibleTo</c>：
+        /// 本模板改名后程序集名会变化（见 <c>games/_template/README.md</c>"复制为新游戏：改哪几处"），
+        /// 硬编码旧程序集名的 <c>InternalsVisibleTo</c> 声明届时会失效；与
+        /// <see cref="DataHotReload.ProcessPendingChanges"/>、<see cref="TemplateSmokeRunner.IsFinished"/>
+        /// 公开而非 internal 的既有判断一致。</summary>
+        public GameOptions RuntimeOptions => _options;
 
         private void HandlePreUnload(Id mapId)
         {
