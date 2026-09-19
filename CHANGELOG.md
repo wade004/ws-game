@@ -490,6 +490,24 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   产出完整报告、退出码回到正常的"校验失败"语义（1），不再是 CLR 崩溃码。详见
   [消费方反馈-2026-09-19-编辑器-第73条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第73条.md)。
 
+- **`SchemaMigrator.MigrateRow` 单行迁移执行期异常隔离（同源同构缺口根治，紧接上一条）**：
+  第 73 条根治时扫出的同类未隔离点——`DataRegistry.LoadOneTablePartial` 逐行调用
+  `SchemaMigrator.MigrateRow` 同样没有 try/catch，某个内容模块的迁移函数本身有缺陷时会同样击穿
+  整个 `LoadAll`，当时判定"需要单独设计拍板"未修、只留档。现已处理：与"规则跑挂只是报告缺一部分
+  结论"不同，迁移跑挂意味着这一行数据根本没能迁到目标 `schema_version`，处理方式是**整行剔除**
+  （不是像 `rule_execution_failed` 那样记一条 issue 后仍照常收录）——新增检查名
+  `row_migration_failed`（Error 级、阻断，消息含表名/记录定位/源目标 `schema_version`/异常类型名/
+  异常消息，并点明"该行已剔除，下游 `reference_integrity` 等错误可能系连带产生"），该行不会以
+  任何半迁移状态进入注册表，其余行/其余表照常处理。回归测试：`DataRegistryTests.
+  LoadAll_RowMigrationThrowsUnexpectedException_DoesNotThrow_ReportsRowMigrationFailedAndExcludesRow`
+  （已反向确认：去掉隔离后必然改为断言异常冒出，验证后已还原）；另用真实数据根
+  （`data/_framework` + `data/_sample`）对 `found.migration_sample` 演示表临时注入迁移异常，
+  实测 `toolchain/validator` 隔离生效前 `Unhandled exception` 崩溃、生效后正常退出码 `1`，验证后
+  已还原全部临时注入。顺带排查同类未隔离点：`LoadAllCore`/`Reload` 内 `IDataSource.ListTables()`/
+  `.Root` 调用同样没有 try/catch，但影响面更大（一次失败牵连全部数据根），且修法涉及多根合并语义
+  拍板，本次不修、已留档（见 `core/foundation/data_registry/README.md`"单行迁移执行期异常隔离"
+  一节）。
+
 - **表现层诊断转发到引擎控制台——补上 Vfx/Sfx/Feedback/ViewBinder 四条链路（1.45.0 遗留缺口收口）**：
   1.45.0 只接了 `SpriteCharacterRig.Diagnostics` 一条链路，`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`
   （含 `HitFrameSyncPolicy`，两者共享同一诊断实例）/`ViewBinder` 虽然都已接受可选构造参数

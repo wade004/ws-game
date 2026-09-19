@@ -572,6 +572,43 @@ namespace Core.Foundation.DataRegistry
                 ruleId: ruleId);
         }
 
+        /// <summary>同源同构缺口根治（2026-09-19）：把单行迁移执行期抛出的任意异常转成一条
+        /// <c>row_migration_failed</c> 检查项（Error 级——该行没能迁到目标 <c>schema_version</c>，
+        /// 是"这一行数据不可用"而不是"这份报告缺一部分结论"，见本文件 README.md"单行迁移执行期
+        /// 异常隔离"一节判断记录）。<see cref="ValidationIssue.Message"/> 固定包含表名、记录定位、
+        /// 源/目标 schema_version、异常类型名与消息五项，满足"能定位"的最低要求；额外在消息末尾
+        /// 点明"该行已被剔除、下游若报出引用该记录的错误可能系连带产生"——迁移失败的行不会出现在
+        /// 加载结果里，后续 <c>reference_integrity</c> 等规则如果恰好有其它记录引用了这个被剔除的
+        /// 主键，会独立报出"引用目标不存在"，读者只看那一条孤立的下游错误容易误判为另一个不相关的
+        /// 数据问题，这句话把两者显式关联起来，不需要新增机制去真正抑制或标记下游 issue（见判断记录
+        /// "连带误报"一节：本条问题本身已是 Error 且报告已阻断，抑制下游 issue 不会改变阻断结果，
+        /// 只会让读者少看到一条真实存在的引用缺口，弊大于利）。</summary>
+        private static ValidationIssue BuildRowMigrationFailedIssue(string tableName, string recordIdentifier, int fromVersion, int toVersion, Exception ex)
+        {
+            return new ValidationIssue(
+                ValidationSeverity.Error,
+                tableName,
+                "row_migration_failed",
+                $"记录 \"{recordIdentifier}\" 从 schema_version {fromVersion} 迁移到 {toVersion} 失败" +
+                $"（{ex.GetType().Name}）：{ex.Message}；该行已从加载结果中剔除，不会以半迁移状态进入" +
+                "注册表——若下游校验（如 reference_integrity）报出引用此记录主键的错误，可能是本条问题连带产生",
+                recordKey: recordIdentifier);
+        }
+
+        /// <summary>供 <see cref="BuildRowMigrationFailedIssue"/> 定位用：迁移前的原始行尚未经过下方
+        /// 主键建 <see cref="DataRecord"/> 循环的校验（该循环在本行之后才跑，且本行迁移失败时这一行
+        /// 根本不会进入那个循环），因此这里只做"尽量给出可读定位"的尽力而为读取——<paramref name="keyField"/>
+        /// 存在且是非空字符串时直接用它（不做 <see cref="CommonId.IsValidFormat"/> 之类的格式校验，
+        /// 那是另一套关注点，这里只是诊断文案），否则退化为 <c>rows[i]</c> 下标定位。</summary>
+        private static string DescribeRowForMigrationDiagnostics(JsonObject rowObj, string keyField, int index)
+        {
+            if (rowObj.TryGetValue(keyField, out var keyVal) && keyVal is JsonString keyStr && keyStr.Value.Length > 0)
+            {
+                return keyStr.Value;
+            }
+            return $"rows[{index}]";
+        }
+
         // ---------------------------------------------------------------
         // 只读查询（IDataRegistryView）
         // ---------------------------------------------------------------
@@ -1148,6 +1185,21 @@ namespace Core.Foundation.DataRegistry
                         return null;
                     }
 
+                    // 同源同构缺口根治（2026-09-19，见 SchemaMigrator.cs 与本文件 README.md
+                    // "单行迁移执行期异常隔离"一节判断记录）：消费方反馈第 73 条根治单条
+                    // IValidationRule.Validate 的异常隔离时，扫出本处逐行调用
+                    // SchemaMigrator.MigrateRow（框架遍历、调用各内容模块随 TableSchema 自行注册的
+                    // 迁移函数）同样没有 try/catch，当时判定"需要单独设计拍板"未修、只留档。设计层
+                    // 拍板（本次落地）：迁移跑挂与校验规则跑挂性质不同——规则跑挂只是"这份报告缺一部分
+                    // 校验结论"，数据本身照常可用，转成 issue 即可；迁移跑挂意味着这一行数据根本没能
+                    // 迁到目标 schema_version，产出的是一个不完整/不可信的半迁移状态，绝不能把这样的
+                    // 行当正常数据放行（AGENTS.md 第 3 节"不静默降级"），因此隔离粒度虽然同样是"单行"，
+                    // 处理方式必须是"整行剔除"而不是"记一条 issue 后仍照常收录"——本 try 块只包住
+                    // SchemaMigrator.MigrateRow 这一次调用（不是惰性迭代器，方法体本身就是立即执行的
+                    // 循环，调用即执行全部迁移步骤，异常必定在这次调用期间抛出，无需像 73 条那样额外
+                    // 包住外层枚举），catch 到异常后不 continue 已迁移的 migrated 列表里追加任何东西——
+                    // 该行永远不会进入 effectiveRows，也就永远不会进入下面的主键建 DataRecord 循环，
+                    // 不存在"半迁移状态的行流入注册表"这一分支。
                     var migrated = new List<JsonValue>(rowsArr.Count);
                     for (int i = 0; i < rowsArr.Count; i++)
                     {
@@ -1157,7 +1209,16 @@ namespace Core.Foundation.DataRegistry
                             continue;
                         }
 
-                        migrated.Add(SchemaMigrator.MigrateRow(chain, rowObj));
+                        var rowIdentifier = DescribeRowForMigrationDiagnostics(rowObj, keyField: schema.PrimaryKey, index: i);
+                        try
+                        {
+                            migrated.Add(SchemaMigrator.MigrateRow(chain, rowObj));
+                        }
+                        catch (Exception ex)
+                        {
+                            issues.Add(BuildRowMigrationFailedIssue(tableName, rowIdentifier, schemaVersion, schema.CurrentSchemaVersion, ex));
+                            // 不追加进 migrated：该行整行剔除，不以半迁移状态进入 effectiveRows。
+                        }
                     }
                     effectiveRows = migrated;
                 }
