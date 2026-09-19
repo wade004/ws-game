@@ -33,6 +33,22 @@
 ## 4. 构建与门禁
 
 - `dotnet` 命令一律带 `--artifacts-path "<scratchpad>\build_<task>"`，不用仓库根默认路径，避免污染主树/工作树。
+  **例外**：改动会编译进 `Runtime/Plugins/Core/` 六个核心 DLL 的代码（`core/`、`presentation/`、
+  `adapters/stub/` 等，具体六个程序集见 `build.ps1` 的 `$CoreAssemblies`）、且接下来要跑 Unity
+  侧行为（PlayMode/EditMode 测试、`build.ps1 -SyncOnly`/`check.ps1` 的 Unity 步骤）时，必须
+  **不带 `--artifacts-path`、用默认路径**跑 `dotnet build`，再执行 `build.ps1 -SyncOnly` 完成
+  DLL 同步——`build.ps1` 的同步步骤固定读取默认输出路径（`<程序集目录>\bin\$Configuration\
+  netstandard2.1\`），带 `--artifacts-path` 构建产物落在别处，同步会读到默认路径下更早一次构建
+  留下的陈旧 DLL，Unity 实际加载的是这份陈旧二进制而不是本次改动。只跑 `dotnet build`/`test`
+  做门禁自检、不涉及 Unity 侧验证时，仍按前一条规则带 `--artifacts-path`。
+  （build.ps1 现已对此加了陈旧检测：源 DLL 比对应源码目录下最新的 `.cs` 更旧时会直接报错终止，
+  见判断记录 `build.ps1` 内 `Test-CoreAssemblyDllStale` 函数注释；但检测只能拦住"用错路径导致
+  同步了旧产物"，不能替代这条规则本身。）
+- **验证任何 Unity 侧行为前，必须先确认 DLL 与源码同步**：只切分支、只 `git checkout` 不会更新
+  `Runtime/Plugins/Core/*.dll`（这是 gitignore 的构建产物，Unity 实际加载的是这份二进制副本，
+  git 操作从不触碰它）；确认方式是按上一条重新构建+`-SyncOnly` 同步，而不是假设"代码已经是最新
+  就代表 Unity 看到的也是最新"。详见
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md` 追加节。
 - Unity 只允许通过 `build.ps1`/`check.ps1` 以 `-batchmode` 方式调用，不直接手工开 Unity 编辑器操作工作树。
 - **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。
 - **G2**：`check.ps1 -Quick` 全 PASS。

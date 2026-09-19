@@ -463,6 +463,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   跳过迟到的回调，不触碰失效句柄。新增 12 例测试（`presentation/common/tests/
   ResourceReferenceTrackerTests.cs` 全新文件 6 例；`SpriteCharacterRigTests.cs`/
   `SpriteViewBaseTests.cs` 各新增覆盖成功回填/失败诊断/多层共享资源去重/销毁后不触发的用例）。
+- **`build.ps1` 静默同步陈旧核心 DLL 到 Unity 适配层包**（诊断记录见
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训五"）：DLL
+  同步步骤固定读取默认构建输出路径（`<程序集目录>\bin\$Configuration\netstandard2.1\`），若按
+  AGENTS.md §4 旧规则用 `--artifacts-path` 构建后再 `-SyncOnly`，同步的是默认路径下更早一次
+  构建遗留的陈旧产物，此前只在源文件缺失时报错、陈旧但存在时无任何提示，曾造成连续三轮
+  "修复看似无效"的假失败。新增 `Test-CoreAssemblyDllStale` 陈旧检测：比较每个核心 DLL 的
+  修改时间与其对应源码目录下最新 `.cs` 文件（排除 `tests/`/`bin`/`obj`，与各 `Core.*.csproj`/
+  `Presentation.Common.csproj` 的 `<Compile Remove>` 规则一致）的修改时间，DLL 落后超过 2 秒
+  容差即直接报错终止，错误信息包含程序集名、陈旧秒数、最新的源文件路径与正确做法。AGENTS.md
+  §4 同步补充了例外条款：涉及会编译进这六个 DLL 的改动、且要验证 Unity 侧行为时，必须用
+  默认路径构建再 `-SyncOnly`，不带 `--artifacts-path`。
 
 ## [1.44.0] - 2026-09-19
 
