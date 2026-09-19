@@ -444,6 +444,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `BuildOptions.Development`（内置 `-buildWindows64Player` 开关本身不支持）；
   `toolchain/consumer_smoke.ps1` 新增 `-DevelopmentBuild` 开关贯通到该入口，默认不传时构建行为与
   之前完全一致。`games/_template/README.md` 新增"构建独立版"一节说明两种命令行用法。
+  独立验收发现该条落地后全分支零自动化测试，补测试单据此把参数解析纯逻辑抽到新增
+  `games/_template/Editor/WindowsPlayerBuilderArgs.cs`（`WindowsPlayerBuilder.BuildWindows64Player`
+  公开签名与构建行为不变），新增 `games/_template/Tests/Editor/WindowsPlayerBuilderArgsTests.cs`
+  （8 个 EditMode 单测，覆盖 Development 标志存在性判定、输出路径命令行/环境变量优先级、两者都未
+  指定时的显式报错），`Game.Template.EditorTests.asmdef` 新增对 `Game.Template.Editor` 的引用。
 
 ## [1.44.0] - 2026-09-19
 

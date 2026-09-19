@@ -20,6 +20,16 @@
 // -gfOutputPath 输出路径解析惯例（同一命令行形状），避免在两个几乎并列的构建入口之间引入不一致的
 // 参数命名风格。
 //
+// 判断记录（2026-09-19 补测试单重构：参数解析拆到 WindowsPlayerBuilderArgs.cs）：
+// ResolveDevelopmentBuildFlag/ResolveOutputPath 原先直接调用 Environment.GetCommandLineArgs()/
+// Environment.GetEnvironmentVariable() 且是 private，无法在不真的跑一次 Unity 批处理构建的前提下
+// 验证"传参→取值优先级/失败行为"这段逻辑。现在两个方法体已整体搬到同目录
+// WindowsPlayerBuilderArgs.ResolveDevelopmentBuildFlag/ResolveOutputPath（纯函数，按依赖注入接收
+// 参数列表与环境变量取值函数），本类型只在 BuildWindows64Player 里传入真实的
+// Environment.GetCommandLineArgs()/Environment.GetEnvironmentVariable，构建行为、命令行调用形状、
+// 唯一 public 入口 BuildWindows64Player 的签名完全不变（AGENTS.md 第 3 节 ABI 只新增）；单测覆盖见
+// games/_template/Tests/Editor/WindowsPlayerBuilderArgsTests.cs。
+//
 // 命令行调用（见 toolchain/consumer_smoke.ps1 `-DevelopmentBuild` 参数、games/_template/README.md
 // "构建独立版"一节）：
 //   Unity.exe -batchmode -nographics -quit -projectPath <消费方工程>
@@ -39,12 +49,12 @@ namespace Game.Template.EditorTools
 {
     public static class WindowsPlayerBuilder
     {
-        private const string DevelopmentBuildFlag = "-gfDevelopmentBuild";
-
         public static void BuildWindows64Player()
         {
-            var outputPath = ResolveOutputPath();
-            var development = ResolveDevelopmentBuildFlag();
+            var commandLineArgs = Environment.GetCommandLineArgs();
+            var outputPath = WindowsPlayerBuilderArgs.ResolveOutputPath(
+                commandLineArgs, Environment.GetEnvironmentVariable);
+            var development = WindowsPlayerBuilderArgs.ResolveDevelopmentBuildFlag(commandLineArgs);
 
             var scenes = EditorBuildSettings.scenes
                 .Where(s => s.enabled)
@@ -70,41 +80,6 @@ namespace Game.Template.EditorTools
                 $"totalTime={report.summary.totalTime}");
 
             EditorApplication.Exit(success ? 0 : 1);
-        }
-
-        /// <summary>纯存在性检查：命令行 token 里出现 <see cref="DevelopmentBuildFlag"/> 即视为
-        /// 请求 Development Build，不需要跟一个值——与 <c>-gf-smoke</c>/<c>-gf-smoke-template</c>
-        /// 等运行期布尔标志同款判定手法（<c>Environment.GetCommandLineArgs().Contains(...)</c>，见
-        /// <c>Runtime/TemplateSmokeRunner.cs</c>/<c>Adapter.Unity.Shell.SmokeRunner</c>）。不传时
-        /// 返回 false，<see cref="BuildWindows64Player"/> 按 <c>BuildOptions.None</c> 构建，与本类型
-        /// 新增之前的默认行为完全一致。</summary>
-        private static bool ResolveDevelopmentBuildFlag() =>
-            Environment.GetCommandLineArgs().Contains(DevelopmentBuildFlag, StringComparer.Ordinal);
-
-        /// <summary>见类型头判断记录：命令行参数 `-gfOutputPath <path>` 优先于环境变量
-        /// GF_OUTPUT_PATH；两者都没有时报错退出，不猜测默认路径。结构同
-        /// <c>Adapter.Unity.EditorTools.Il2CppPlayerBuilder.ResolveOutputPath</c>（仅环境变量名不同
-        /// ——本类型不是 IL2CPP 专属，env var 名不带 IL2CPP 前缀）。</summary>
-        private static string ResolveOutputPath()
-        {
-            var args = Environment.GetCommandLineArgs();
-            for (var i = 0; i < args.Length - 1; i++)
-            {
-                if (args[i] == "-gfOutputPath")
-                {
-                    return args[i + 1];
-                }
-            }
-
-            var envPath = Environment.GetEnvironmentVariable("GF_OUTPUT_PATH");
-            if (!string.IsNullOrEmpty(envPath))
-            {
-                return envPath;
-            }
-
-            throw new InvalidOperationException(
-                "WindowsPlayerBuilder.BuildWindows64Player 需要通过 -gfOutputPath <path> " +
-                "命令行参数或 GF_OUTPUT_PATH 环境变量指定构建产物输出路径。");
         }
     }
 }

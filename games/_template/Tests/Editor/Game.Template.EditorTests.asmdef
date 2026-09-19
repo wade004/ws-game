@@ -4,6 +4,7 @@
     "references": [
         "Adapter.Unity",
         "Game.Template",
+        "Game.Template.Editor",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
