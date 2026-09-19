@@ -322,6 +322,26 @@ GameDatasetRootOverride` 字段名本就用"Dataset"，不受影响。改名前�
 改成了真正有区分力的用例（覆盖到与默认根不同、带可区分探针数据的根），见
 `Tests/Runtime/GameTemplateResidentTests.cs`。
 
+判断记录（2026-09-19 二次修复，`ResidentRunner_DatasetRootOverride_LoadsProbeTable_
+FromOverrideRootOnly`/`..._Absent_DefaultRootNeverSeesOverrideProbeTable` 真正跑通引擎门禁后
+发现并根治两处独立问题，见 `Tests/Runtime/GameTemplateResidentTests.cs` 类型头判断记录逐字对应
+版本）：上一版把覆盖根设成一个只放探针表的空目录，实机一跑就把 `GameBootstrap.Bootstrap()` 装配
+拖垮——`GameplayAssembly` 需要的 `stat.definition` 等表也在被覆盖的 `data/game` 树下，只塞一张
+探针表会让装配在 `StatHost` 处直接抛异常，被 `Awake()` 的 try/catch 接住标记 `BootstrapFailed`，
+根本走不到断言。改为把覆盖根做成"默认数据集 `data/game` 的完整副本（运行期拷到 StreamingAssets
+下一个新的临时子目录，跳过 `.meta` 避免 GUID 冲突）+ 额外叠加一张只存在于该副本的探针表"后再跑，
+又暴露第二个问题：对照用例稳定失败，"Expected: False But was: True"——根因是两条用例都误用了
+`IDataRegistryView.TryGet(string, string, out DataRecord)` 的默认实现语义（该实现"只要 registry
+未阻断就恒返回 true，表/记录本不存在时 out 参数为 null 但仍返回 true"，`true`/`false` 区分的是
+"是否因阻断态读不到"，不是"是否真的找到记录"），只要 `GameBootstrap` 装配成功（不阻断），
+`TryGet` 恒为 true，与覆盖是否生效无关——两条用例此前从未在此工作树里真正跑过引擎，这处误用一直
+没暴露。改用 `IDataRegistryView.Get(string, string)`（不阻断时表/记录不存在直接返回 `null`）配合
+`Assert.IsNotNull`/`Assert.IsNull` 断言，语义才与"有没有找到"真正对应。已实跑验证：`-testFilter`
+单独跑这两条通过、全量 PlayMode（293 例）零回归；并做过反向确认——临时把
+`GameBootstrap.Bootstrap()` 里判断 `GameDatasetRootOverride` 是否生效那一行短路成恒假，重跑后
+`LoadsProbeTable_FromOverrideRootOnly` 按预期失败（`Absent_...` 仍通过，符合其"对照组，不是反向
+确认本身"的既有定位），验证完成后已还原（`git diff` 确认与改动前逐字节一致）。
+
 判断记录（2026-09-19，诊断转发到引擎控制台补齐模板侧接线，feat/diagnostics-console-forward 后续
 收口）：`Runtime/GameBootstrap.cs` 的 `AdvanceCharacterRigs` 与
 `Adapter.Unity.Bootstrap.GameFoundationBootstrap`/`Adapter.Unity.Shell.FrameworkResidentHost` 的

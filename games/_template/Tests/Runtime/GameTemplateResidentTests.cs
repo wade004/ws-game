@@ -18,13 +18,31 @@
 // 进程退出码本身（那需要构建独立版，见 games/_template/README.md"长驻可交互运行"一节，由
 // consumer_smoke.ps1 或主会话手工验证，本用例不覆盖）。
 //
-// 待办（本文件本次改动，2026-09-19）：`ResidentRunner_DatasetRootOverride_LoadsProbeTable_
-// FromOverrideRootOnly` 是本次任务对此前一条假测试（覆盖值=默认值，通过与失败无法区分）的替换，
-// 属于 Unity PlayMode 用例，本任务未在此工作树内跑 Unity（见派单说明，PlayMode 门禁由主会话统一
-// 跑），未能实机验证；反向确认（去掉覆盖应让断言失败）的具体做法与预期结果见该用例内注释，
-// 待主会话在整合时跑引擎门禁一并验证。同等的"覆盖不同根确实加载到不同数据"这条底层机制已在纯
-// .NET 侧补了等价回归（`core/foundation/data_registry/tests/GameDatasetRootOverrideEquivalenceTests.cs`），
-// 已本地跑通并做过真正的反向确认（临时改断代码再还原，见该文件判断记录）。
+// 判断记录（2026-09-19 二次修复，`ResidentRunner_DatasetRootOverride_LoadsProbeTable_
+// FromOverrideRootOnly` 与其对照用例，共发现并根治两处独立问题）：
+// 问题一（装配被拖垮）：上一版把覆盖根设成一个只放探针表的空目录，看似有区分力，实际把
+// GameBootstrap.Bootstrap() 装配拖垮——GameplayAssembly 需要的 "stat.definition" 等表也在被覆盖的
+// "data/game" 树下，只塞一张探针表会让装配在 StatHost 处直接抛异常（GameBootstrap.cs
+// Bootstrap()/Awake() 那层 try/catch 接住，BootstrapFailed=true），而不是走到断言那一步。根治做法：
+// 覆盖根改为"默认数据集 data/game 的完整副本（运行期拷到 StreamingAssets 下一个新的临时子目录，
+// 不含 .meta，见 <see cref="CopyDatasetDirectoryExcludingMeta"/>）+ 额外叠加一张只存在于该副本的
+// 探针表"——装配所需的全部表仍然齐全，因此能正常跑到断言。
+// 问题二（断言方式本身不成立，本次任务实跑门禁才暴露）：改完问题一后实跑，对照用例
+// （Absent_DefaultRootNeverSeesOverrideProbeTable）稳定失败，"Expected: False But was: True"。
+// 排查发现两条用例都用错了 <see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/>
+// 的语义——其默认实现（<c>core/foundation/data_registry/contracts/IDataRegistry.cs</c> 该成员判断
+// 记录）是"只要不是阻断态就返回 true，表/记录本不存在时 out 参数为 null 但仍返回 true"，
+// <c>true</c>/<c>false</c> 区分的是"是否因阻断态读不到"，根本不区分"是否真的找到记录"——只要
+// GameBootstrap 装配成功（不阻断），TryGet 恒为 true，与覆盖是否生效无关，两条用例的 "found" 断言
+// 因此都是摆设（此前从未被本文件反向确认真正跑穿：该判断记录本身已说明只在别的工作树里做过反向
+// 确认，从未在此列过 Absent 用例本身失败的证据）。根治做法：改用 <see
+// cref="IDataRegistryView.Get(string, string)"/>（不阻断时表/记录不存在直接返回 <c>null</c>，
+// 语义与业务代码期望的"找到与否"一致），断言 <c>record != null</c>/<c>record == null</c>，不再看
+// TryGet 的布尔返回值。同等的"覆盖不同根确实加载到不同数据"这条底层机制已在纯 .NET 侧补了等价回归
+// （`core/foundation/data_registry/tests/GameDatasetRootOverrideEquivalenceTests.cs`，该文件用的是
+// <c>((IDataRegistryView)registry).TryGet(...)</c> 但那里的用法配合 <c>Assert.Single(all)</c>/直接
+// 断言 <c>record.GetString(...)</c> 字段值，没有依赖 TryGet 返回值本身表达"找到与否"，因此不受本问题
+// 影响，本次改动未改动该文件）。
 using System;
 using System.Collections;
 using System.IO;
@@ -80,6 +98,35 @@ namespace Game.Template.Tests
             if (string.IsNullOrEmpty(dir)) return;
             try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* 尽力而为 */ }
             try { if (File.Exists(dir + ".meta")) File.Delete(dir + ".meta"); } catch { /* 尽力而为 */ }
+        }
+
+        /// <summary>默认游戏数据根相对路径，与 <c>GameBootstrap._gameDatasetRoot</c> 的默认值
+        /// （见该字段声明处 <c>[SerializeField] private string _gameDatasetRoot = "data/game"</c>）
+        /// 逐字一致；该字段是私有的，测试侧无法直接引用，只能按其公开文档
+        /// （<see cref="GameBootstrap.GameDatasetRootOverride"/> 判断记录写明"覆盖 _gameDatasetRoot
+        /// 的默认值 data/game"）镜像一份常量。</summary>
+        private const string DefaultGameDatasetRelativeRoot = "data/game";
+
+        /// <summary>把 <paramref name="sourceDir"/> 整棵目录树（不含 <c>.meta</c>）复制到
+        /// <paramref name="destDir"/>——用于把默认游戏数据集完整复制一份作为覆盖根的基底（见类型头
+        /// 2026-09-19 判断记录：覆盖根必须装得下 GameBootstrap 装配所需的全部表，不能只放探针表）。
+        /// 跳过 <c>.meta</c> 是因为源文件的 <c>.meta</c> 记录着源资产的 GUID，原样复制到新路径会在
+        /// Unity AssetDatabase 里产生"同一个 GUID 对应两个资产路径"的冲突；跳过后 Unity 会在下次
+        /// 扫到这些新文件时按需自动生成新 GUID 的 <c>.meta</c>，这些新生成的 <c>.meta</c> 与目标目录
+        /// 下的其它内容一样，都在 <see cref="TryDeleteProbeDir"/> 对 <paramref name="destDir"/> 的
+        /// 递归删除范围内，不需要额外清理。</summary>
+        private static void CopyDatasetDirectoryExcludingMeta(string sourceDir, string destDir)
+        {
+            Directory.CreateDirectory(destDir);
+            foreach (var filePath in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                if (filePath.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+                var relative = filePath.Substring(sourceDir.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var destPath = Path.Combine(destDir, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+                File.Copy(filePath, destPath, overwrite: true);
+            }
         }
 
         /// <summary>惯例同 PRES118_TemplateContractTests.CleanupStaleGameBootstraps：构建独立实例
@@ -184,26 +231,32 @@ namespace Game.Template.Tests
         [UnityTest]
         public IEnumerator ResidentRunner_DatasetRootOverride_LoadsProbeTable_FromOverrideRootOnly()
         {
-            // 有区分力的替换用例（修复前版本见上方类型头一段判断记录引用）：准备一份只存在于覆盖
-            // 根、不存在于默认根 "data/game" 的最小探针数据表，断言覆盖生效后 GameBootstrap.Registry
-            // 能读到探针记录——如果覆盖没有生效（被忽略、字段写错、装配阶段某处吞掉了覆盖值等），
-            // ResidentRunner/GameBootstrap 实际读的仍是默认根，探针表根本不存在，TryGet 必然返回
-            // false，断言必然失败，因此本用例具备区分力。
+            // 有区分力且成立的替换用例（修复前几版的问题见类型头判断记录）：覆盖根是默认数据集
+            // "data/game" 的完整副本（GameBootstrap 装配所需的 stat.definition 等表齐全，装配能正常
+            // 走完），再叠加一张只存在于该副本、默认根没有的最小探针表，断言覆盖生效后
+            // GameBootstrap.Registry 能读到探针记录——如果覆盖没有生效（被忽略、字段写错、装配阶段
+            // 某处吞掉了覆盖值等），ResidentRunner/GameBootstrap 实际读的仍是默认根，探针表根本不
+            // 存在，<see cref="IDataRegistryView.Get(string, string)"/>（不阻断态下表/记录不存在时
+            // 直接返回 null，语义同判断记录）必然返回 null，下方 Assert.IsNotNull 必然失败，因此本
+            // 用例具备区分力（注意：不能用 TryGet 的布尔返回值判断"是否找到"，见类型头判断记录"问题
+            // 二"——TryGet 只要不阻断就恒返回 true，与是否真的读到记录无关）。
             //
             // 反向确认（AGENTS.md §7 与本任务硬性要求：真正跑一次"去掉覆盖，测试必须失败"）：把下面
             // "GameBootstrap.GameDatasetRootOverride = _overrideRelativeRoot;" 这一行临时改成
             // "GameBootstrap.GameDatasetRootOverride = null;"（或注释掉，等价于"覆盖功能被去
             // 掉/传空"），保持其余代码不变重新跑本用例——预期：探针表在默认根 "data/game" 下不存在，
-            // "found" 断言（下方 Assert.IsTrue(found, ...)）会失败、用例报红，证明当前断言确实依赖
-            // 覆盖生效才能通过，不是摆设；验证完成后必须改回来，否则本用例会假失败。本任务在此
-            // worktree 内不跑 Unity（见派单说明），未能执行这一步，标注为"待主会话在整合时跑引擎
-            // 门禁验证"一并核对。
+            // "record" 断言（下方 Assert.IsNotNull(record, ...)）会失败、用例报红，证明当前断言确实
+            // 依赖覆盖生效才能通过，不是摆设；验证完成后必须改回来，否则本用例会假失败。本次任务已在
+            // 此 worktree 内实际执行过这一步并还原，证据见提交说明/汇报。
             CleanupStaleGameBootstraps();
 
-            _overrideRelativeRoot = "gf_test_dataset_root_probe_" + Guid.NewGuid().ToString("N");
             var contentRoot = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
-            _overrideProbeDir = Path.Combine(contentRoot, _overrideRelativeRoot);
-            Directory.CreateDirectory(_overrideProbeDir);
+            var defaultGameDatasetDir = Path.Combine(contentRoot, "data", "game");
+            var overrideDirName = "gf_test_dataset_root_override_" + Guid.NewGuid().ToString("N");
+            _overrideRelativeRoot = "data/" + overrideDirName;
+            _overrideProbeDir = Path.Combine(contentRoot, "data", overrideDirName);
+
+            CopyDatasetDirectoryExcludingMeta(defaultGameDatasetDir, _overrideProbeDir);
             File.WriteAllText(Path.Combine(_overrideProbeDir, ProbeTableName + ".json"), ProbeTableJson("override_root"));
 
             GameBootstrap.GameDatasetRootOverride = _overrideRelativeRoot;
@@ -214,14 +267,17 @@ namespace Game.Template.Tests
             _bootstrapGo = go;
             go.SetActive(true);
 
-            Assert.IsFalse(bootstrap.BootstrapFailed, "覆盖到一个真实存在的数据根，装配不应失败");
+            Assert.IsFalse(bootstrap.BootstrapFailed, "覆盖到一个真实存在（默认数据集完整副本）的数据根，装配不应失败");
             Assert.IsNotNull(bootstrap.LoadReport);
             Assert.AreEqual(0, bootstrap.LoadReport!.ErrorCount,
                 "覆盖生效后仍应 0 阻断错误：" + string.Join("; ", bootstrap.LoadReport.Issues));
 
-            var found = bootstrap.Registry.TryGet(ProbeTableName, ProbeRecordKey, out var record);
-            Assert.IsTrue(found,
-                "覆盖生效时应能读到只存在于覆盖根下的探针表——若为 false，说明覆盖被忽略，实际仍在读默认根 data/game");
+            // 用 Get 而不是 TryGet 的布尔返回值判断"是否找到"，见类型头判断记录"问题二"：
+            // TryGet 只要 registry 未阻断就恒返回 true，不代表记录真的存在；Get 在不阻断时
+            // 表/记录不存在会直接返回 null，能真实表达"有没有找到"。
+            var record = bootstrap.Registry.Get(ProbeTableName, ProbeRecordKey);
+            Assert.IsNotNull(record,
+                "覆盖生效时应能读到只存在于覆盖根副本下的探针表——若为 null，说明覆盖被忽略，实际仍在读默认根 data/game");
             Assert.AreEqual("override_root", record!.GetString("origin"), "探针记录字段应来自覆盖根写入的内容");
 
             yield return null;
@@ -233,9 +289,16 @@ namespace Game.Template.Tests
             // 对照组（不是反向确认本身，反向确认见上一条用例注释）：不设置覆盖（默认根
             // "data/game"）时，探针表本就不存在于默认根下，TryGet 应返回 false——与上一条用例合起
             // 来构成"覆盖生效 vs 不生效"两种可观察状态的对照，捕获"探针表意外泄漏进默认根/静态字段
-            // 跨用例残留导致假阳性"这一类问题。
+            // 跨用例残留导致假阳性"这一类问题。上一条用例把探针表写在运行期临时拷贝出的覆盖根副本
+            // 里（与本用例读取的 <see cref="DefaultGameDatasetRelativeRoot"/> 是仓库里两个不同的
+            // 磁盘目录），且在 UnityTearDown 里连同该临时目录一并删除，因此不会污染本用例读到的
+            // 默认根，两条用例互不依赖执行顺序。
             CleanupStaleGameBootstraps();
             GameBootstrap.GameDatasetRootOverride = null;
+            Assert.IsFalse(File.Exists(Path.Combine(
+                Application.streamingAssetsPath, "GameFoundation",
+                DefaultGameDatasetRelativeRoot, ProbeTableName + ".json")),
+                "对照组前置条件：默认数据集本身不应含探针表文件（若失败说明探针误写进了默认根，需先查清写入点）");
 
             var go = new GameObject("ResidentTestBootstrapDefault");
             go.SetActive(false);
@@ -244,8 +307,10 @@ namespace Game.Template.Tests
             go.SetActive(true);
 
             Assert.IsFalse(bootstrap.BootstrapFailed, "默认数据根装配不应失败");
-            var found = bootstrap.Registry.TryGet(ProbeTableName, ProbeRecordKey, out _);
-            Assert.IsFalse(found, "默认根 data/game 下不应存在覆盖探针表");
+            // 用 Get（见上一条用例判断记录）而不是 TryGet 的布尔返回值：TryGet 在这里恒为 true
+            // （registry 未阻断），不能用来断言"探针表不存在"。
+            var record = bootstrap.Registry.Get(ProbeTableName, ProbeRecordKey);
+            Assert.IsNull(record, "默认根 data/game 下不应存在覆盖探针表");
 
             yield return null;
         }
