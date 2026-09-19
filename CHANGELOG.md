@@ -434,6 +434,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.45.0] - 2026-09-19
+
+本版落地消费方反馈第 67～72 条（ADR-0040 运行期宿主命令行能力契约；常驻运行入口、参数化内容
+同步入口、内容根覆盖、Development Build 开关；第 67/71 条为文档澄清与反问），并随本分支一并
+落地表现层诊断转发到引擎控制台、资源加载完成回填缺陷根治、`build.ps1` 构建产物陈旧检测、资产
+导入数值字面量形式漂移修复。完整门禁结论与本版暴露的质量问题披露见下方"验证结论"/"本版暴露的
+质量问题"两段。
+
 [ADR-0040](architecture/adr/0040-运行期宿主命令行能力契约.md)（2026-09-19，已拍板并落地）：
 运行期宿主的命令行能力契约——新增一个"进入并保持可交互运行状态"的长驻运行入口（第 68 条）与一个
 "任意源内容目录 → 任意目标运行期工程"的参数化内容同步入口（第 69 条），均为面向任意外部工具的
@@ -443,6 +451,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 全小写族，批处理构建工具解析的开关走驼峰族，禁止跨类别近似名）。消费方反馈第 67～72 条统一处理
 记录见
 [消费方反馈-2026-09-19-编辑器-第67-72条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第67-72条.md)。
+
+本版还随本分支一并落地三项非反馈单驱动的修复/增强：表现层诊断（`IPresentationDiagnostics`）
+转发到引擎控制台（含模板侧补线，详见下方"新增"小节）；纸娃娃层/方向档位资源加载完成后未回填
+已渲染画面的结构性缺陷根治，以及 `build.ps1` 新增构建产物陈旧检测 `Test-CoreAssemblyDllStale`
+（详见下方"修复"小节）；资产导入写盘层数值字面量形式漂移修复，根治 `world.map` 等表重复导入
+产生无意义 diff、破坏幂等性的问题（详见下方"修复"小节）。
+
+**验证结论**：完整 `check.ps1` 全部 30 步通过（总用时 442.1s）——Unity 编译 PASS、EditMode
+86/86、PlayMode 293/293、独立版连续/离散两种冒烟 PASS、消费方演练 PASS。
+
+**本版暴露的质量问题（如实披露）**：本轮所有执行 agent 均被要求不跑 Unity 以省 reimport 时间，
+导致三个同源问题直到发版前完整门禁才暴露——① `GameBootstrap.RuntimeOptions` 跨程序集不可见致
+Unity 编译失败；② 第 68 条两条新增 PlayMode 用例覆盖根只放探针表、拖垮世界装配，原设计不成立；
+③ 第 70/72 条新增的 6 个 `.cs` 漏提交对应 `.meta`（本仓库惯例随源文件一起提交 `.meta`，模板下
+已跟踪 62 个，漏提交会让消费方克隆后 GUID 重新生成）。三项均已在本版内修复，详见下方"修复"小节，
+完整门禁复核通过。
 
 ### 新增
 
@@ -622,6 +646,38 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `GameDatasetRootOverride` 不生效）证实 `LoadsProbeTable_FromOverrideRootOnly` 按预期失败、
   `Absent_...` 仍通过（符合其"对照组"定位），已还原。详见
   `games/_template/README.md`/`Tests/Runtime/GameTemplateResidentTests.cs` 对应判断记录。
+- **资产导入写盘层数值字面量形式漂移，破坏 `world.map` 等表的幂等性**：重跑
+  `toolchain/import_assets.py map`（`import_sample_assets.py` 第 5 步）会给
+  `data/_sample/world/world.map.json` 产生无意义 diff——`image_transform.pixels_per_unit` 从
+  `32` 变成 `32.0`、`origin_px.x`/`y` 从 `0`/`1024` 变成 `0.0`/`1024.0`。根因：`map_cmd.py` 的
+  `--pixels-per-unit`/`--origin-px` 声明为 `type=float`，经 `merge_write_row -> write_envelope
+  -> _row_json` 按 Python 运行时类型直接 `json.dumps`，未做任何 int/float 字面量归一化；schema
+  侧 `WorldMapSchema.cs` 这几个字段均为 `FieldKind.Number`（不区分 Int/Float），`32.0` 不违反
+  校验，问题性质是字面量形式漂移而非校验问题，因此不改任何 C# 文件、不改 schema 声明、不出
+  ADR。修法：新增 `toolchain/asset_import/common.py` 的 `_normalize_json_literals`，在
+  `_row_json`（`merge_write_row`/`write_envelope` 唯一的 `json.dumps` 落点）序列化前把数值上是
+  整数的 float 归一化为整数字面量，非整数 float 原样保留；map/sprite/vfx/sfx 四个子命令统一
+  受益。`sprite_cmd.py`/`vfx_cmd.py` 的旁路写 JSON 路径（`atlas.json`/`anchors.json`/
+  `frames.json`）因已提交数据里存在大量既有整数值 float 字面量（如 `"fps": 20.0`），规范化会
+  改动这批已提交样例数据，按任务口径未纳入本次改动，留待设计层另行拍板。首批新增的 4 个"字节级
+  幂等性"用例经验收反证实验证实无效（同一版本代码连跑两次天然字节一致，防不住"新写出的字面量
+  形式与历史提交不一致"这个真实症状）；补一层通用文本扫描工具
+  `find_int_valued_float_literals`/`assert_no_int_valued_float_literal_drift`（正则直接在原始
+  文本上找漂移字面量，先掩蔽 JSON 字符串内容避免误判子串），配 map/sprite/vfx 三个子命令各自的
+  显式整数值参数回归用例（已用反证实验确认修复前失败、修复后通过），原 4 个幂等性用例改名并
+  订正 docstring（不删测试）。新增 `check.ps1`"样例导入幂等性门禁"步骤：重跑
+  `import_sample_assets.py` 后断言 `data/_sample`/`assets/_sample` 零 git diff。`python -m
+  pytest toolchain/tests -q` 全过（334 例，5 skipped）。
+- **第 70/72 条新增源文件漏提交 Unity `.meta`**：`games/_template/Editor/
+  WindowsPlayerBuilder.cs`/`WindowsPlayerBuilderArgs.cs`、`games/_template/Runtime/
+  ContentSourceRootOverride.cs`、`games/_template/Tests/Editor/
+  ContentSourceRootOverrideTests.cs`/`WindowsPlayerBuilderArgsTests.cs`、`games/_template/
+  Tests/Runtime/ContentSourceRootOverridePlayModeTests.cs` 共 6 个 `.cs` 在
+  `feat/70-72-tooling`/`feat/72-build-tests` 提交时未带对应 `.meta`——这些文件此前从未在真实
+  引擎里导入过（执行 agent 一律被要求不跑 Unity），`.meta` 是本次完整门禁首次导入时才在本地
+  生成的。本仓库惯例是 `.meta` 随源文件一起提交（模板下已跟踪 62 个），漏提交会让消费方克隆后
+  由 Unity 重新生成 GUID，破坏跨仓库的资源引用稳定性。已补齐全部 6 个 `.meta` 并随本版一并
+  提交。
 
 ## [1.44.0] - 2026-09-19
 
