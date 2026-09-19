@@ -439,6 +439,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   外部内容源目录，数据加载与 `Runtime/DataHotReload.cs` 监视都会改用该目录，不再局限于
   StreamingAssets 部署副本。未指定时行为与之前完全一致；指定了不存在的目录会让装配显式失败
   （不静默回退）。`games/_template/README.md`"开发期数据热重载"一节同步补充说明。
+- **消费方反馈第 72 条根治**：`games/_template/Editor/WindowsPlayerBuilder.cs` 新增自定义
+  `-executeMethod` 构建入口，暴露 `-gfDevelopmentBuild` 命令行标志，批处理构建独立版时可选勾选
+  `BuildOptions.Development`（内置 `-buildWindows64Player` 开关本身不支持）；
+  `toolchain/consumer_smoke.ps1` 新增 `-DevelopmentBuild` 开关贯通到该入口，默认不传时构建行为与
+  之前完全一致。`games/_template/README.md` 新增"构建独立版"一节说明两种命令行用法。
 
 ## [1.44.0] - 2026-09-19
 

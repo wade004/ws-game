@@ -196,6 +196,32 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
   `Get`/`GetAll`/`Query`，不是"只冻结出问题的那一张表，其它表照常"。开发时改坏一张表会导致
   全局报错，这是预期行为（与生产环境"不做静默降级"的既有原则一致），改对后保存即可自动恢复。
 
+## 构建独立版
+
+默认走 Unity 内置命令行开关：
+
+```
+Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
+  -buildWindows64Player <输出路径>\ConsumerShell.exe
+```
+
+按 `ProjectSettings.asset` 当前保存的设置构建（不勾选 Development Build），与手工在编辑器里
+File > Build Settings > Build 效果一致；`toolchain/consumer_smoke.ps1` 第 9 步默认也是这条命令。
+
+**需要 Development Build**（开发者控制台、profiler 联机、脚本调试符号；消费方反馈第 72 条根治，
+内置开关本身不接受这个参数）时，改走 `Editor/WindowsPlayerBuilder.cs` 提供的自定义入口：
+
+```
+Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
+  -executeMethod Game.<Game>.EditorTools.WindowsPlayerBuilder.BuildWindows64Player
+  -gfOutputPath <输出路径>\ConsumerShell.exe
+  -gfDevelopmentBuild
+```
+
+不传 `-gfDevelopmentBuild` 时行为与内置开关一致（`BuildOptions.None`）；输出路径也可以用环境变量
+`GF_OUTPUT_PATH` 指定，命令行参数优先。`toolchain/consumer_smoke.ps1 -DevelopmentBuild` 会自动切到
+这条命令，不需要手工拼命令行。
+
 ## 无人值守冒烟
 
 构建独立版后，用命令行标志 `-gf-smoke-template` 驱动 `Runtime/TemplateSmokeRunner.cs` 跑一遍
