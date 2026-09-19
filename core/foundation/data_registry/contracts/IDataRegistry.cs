@@ -160,24 +160,39 @@ namespace Core.Foundation.DataRegistry
         /// <c>EquipmentScoreAnalyzer.Score</c>、<c>SkillBudgetAnalyzer.Analyze</c> 等，本条反馈同批
         /// 一并根治，见各自类型判断记录；本接口是 L0，按分层不引用它们，这里不写 cref，同本文件其它
         /// 处对跨层类型的既有处理）内部大量按主键单条查找记录（<c>Get</c>，不是 <c>GetAll</c>），
-        /// 此前接口没有对应的容错成员，只能整段跳过或复刻本方法。语义与 <see cref="TryGetAll"/> 完全
-        /// 对称：阻断态（<see cref="System.InvalidOperationException"/>，<c>DataRegistry
-        /// .EnsureReadable</c> 精确抛出的类型）返回 <c>false</c>、<paramref name="record"/> 置
-        /// <c>null</c>；非阻断态与 <see cref="Get(string, string)"/> 结果一致（包括"表/记录本就不
-        /// 存在"时的 <c>null</c>，这种情形仍返回 <c>true</c>——<c>true</c>/<c>false</c> 只区分"是否
-        /// 因阻断读不到"，不区分"读到的是不是 <c>null</c>"）。默认实现按"try <see cref="Get(string,
-        /// string)"/>，只捕获 <see cref="System.InvalidOperationException"/>"给出，不用
-        /// <c>catch (Exception)</c> 掩盖其它意外异常（同 <see cref="TryGetAll"/> 判断记录）。带默认
-        /// 实现的接口成员新增，不构成"公开 API 表面"意义上的破坏性变更。<see
+        /// 此前接口没有对应的容错成员，只能整段跳过或复刻本方法。
+        /// <para>
+        /// 判断记录（2026-09-19 契约行为修正，ADR-0041，破坏性变更）：本成员发布后（1.38.0）实测
+        /// 暴露一处与命名惯例相悖的缺陷——上一版判断记录曾写"表/记录本就不存在时仍返回
+        /// <c>true</c>，<c>true</c>/<c>false</c> 只区分是否因阻断读不到，不区分是否读到
+        /// <c>null</c>"，这与 <c>TryXxx</c> 方法惯例（返回值即"是否找到"）相悖，实际造成消费方
+        /// （<c>games/_template/Tests/Runtime/GameTemplateResidentTests.cs</c> 两条 PlayMode 用例，
+        /// 见该文件判断记录"2026-09-19 二次修复"段）把恒真的返回值当"找到与否"断言，写出永远通过的
+        /// 断言。现改为：返回值即"是否找到记录"——<paramref name="record"/> 非 <c>null</c>（真正
+        /// 找到）才返回 <c>true</c>；阻断（捕获 <see cref="System.InvalidOperationException"/>）与
+        /// "表/记录本就不存在"（<see cref="Get(string, string)"/> 正常返回 <c>null</c>，不抛异常）
+        /// 这两种情形现在都返回 <c>false</c>、<paramref name="record"/> 置 <c>null</c>——按
+        /// <c>TryXxx</c> 惯例，调用方不应该、也不需要从返回值反推"读不到的原因"，只需要知道"有没有
+        /// 拿到记录"；需要区分"因阻断降级"与"记录确实不存在"这一更细的诊断信息的调用方，改用
+        /// <see cref="TolerantRegistryView"/>（<see cref="TolerantRegistryView.IsDegraded"/>/
+        /// <see cref="TolerantRegistryView.WasMissing(string)"/>，该类型本次同步改为不再依赖本成员
+        /// 的返回值做阻断判定，见其类型判断记录）。方法名/签名不变（不破坏调用点编译），只改行为，
+        /// 属于对已发布公开契约的破坏性变更，详见 ADR-0041 与 CHANGELOG "[Unreleased]"对应条目。
+        /// </para>
+        /// <para>
+        /// 默认实现按"try <see cref="Get(string, string)"/>，只捕获
+        /// <see cref="System.InvalidOperationException"/>"给出，不用 <c>catch (Exception)</c>
+        /// 掩盖其它意外异常（同 <see cref="TryGetAll"/> 判断记录）；未抛异常时以
+        /// <c>record != null</c> 作为返回值。<see
         /// cref="Core.Foundation.DataRegistry.DataRegistry"/> 显式覆盖为阻断态也能读取的直接实现
-        /// （见该类型同名成员判断记录），不经过这里的 try/catch。
+        /// （见该类型同名成员判断记录，同样已按本次契约修正调整），不经过这里的 try/catch。
         /// </summary>
         bool TryGet(string table, string key, out DataRecord? record)
         {
             try
             {
                 record = Get(table, key);
-                return true;
+                return record != null;
             }
             catch (System.InvalidOperationException)
             {
@@ -188,13 +203,13 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>消费方反馈第 45 条：<see cref="TryGet(string, string, out DataRecord)"/> 的同族
         /// 成员，覆盖 <see cref="Get(string, CommonId)"/>（<c>CommonId</c> 重载）——语义与判断记录
-        /// 完全相同。</summary>
+        /// 完全相同（含 2026-09-19 ADR-0041 契约行为修正：返回值即"是否找到记录"）。</summary>
         bool TryGet(string table, CommonId id, out DataRecord? record)
         {
             try
             {
                 record = Get(table, id);
-                return true;
+                return record != null;
             }
             catch (System.InvalidOperationException)
             {

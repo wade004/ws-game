@@ -144,5 +144,121 @@ namespace Tests.Foundation.Data
             Assert.NotSame(inner, wrapped);
             Assert.False(wrapped.IsDegraded);
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0041（2026-09-19）连带验收：IDataRegistryView.TryGet 契约行为修正后，
+        // TolerantRegistryView.Get 不能再靠 _inner.TryGet 的布尔返回值反推"是否阻断"（修正后该
+        // 布尔值只表达"是否找到记录"），必须能继续区分"记录本就不存在（未阻断，不应标记
+        // IsDegraded）"与"因阻断读不到（应标记）"——见 TolerantRegistryView.Get 判断记录
+        // 2026-09-19 补充段"两步探测"。
+        // -----------------------------------------------------------------
+
+        /// <summary>未覆盖 Try* 成员的最小 <see cref="IDataRegistryView"/> 替身：<paramref name="blocked"/>
+        /// 为 <c>false</c> 时，<see cref="Get"/> 对不存在的键正常返回 <c>null</c>（不抛异常，模拟
+        /// "表可正常访问，只是这条记录本就不存在"）；为 <c>true</c> 时一律抛出（模拟阻断）。用于
+        /// 验证 <see cref="TolerantRegistryView"/> 不再把前一种情形误标记为退化。</summary>
+        private sealed class PartiallyPopulatedView : IDataRegistryView
+        {
+            private readonly bool _blocked;
+            private readonly DataRecord _existing;
+
+            public PartiallyPopulatedView(bool blocked, DataRecord existing)
+            {
+                _blocked = blocked;
+                _existing = existing;
+            }
+
+            private static InvalidOperationException Blocked() =>
+                new InvalidOperationException("数据校验未通过，禁止读取（测试替身模拟阻断态）");
+
+            public DataRecord? Get(string table, string key)
+            {
+                if (_blocked) throw Blocked();
+                return key == _existing.Key ? _existing : null;
+            }
+
+            public DataRecord? Get(string table, Id id) => Get(table, id.Value);
+
+            public IReadOnlyList<DataRecord> GetAll(string table)
+            {
+                if (_blocked) throw Blocked();
+                return new[] { _existing };
+            }
+
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate) => throw new NotSupportedException();
+
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => throw new NotSupportedException();
+
+            public IReadOnlyList<string> Tables => new[] { "test.widget" };
+
+            public TableSchema? GetSchema(string table) => null;
+        }
+
+        private static DataRecord BuildExistingWidgetRecord()
+        {
+            var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", "[{\"id\": \"test.widget.a\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll();
+            return registry.Get("test.widget", "test.widget.a")!;
+        }
+
+        /// <summary>反向确认关键用例（ADR-0041 连带修正）：本用例验证的是 <see
+        /// cref="TolerantRegistryView.Get(string, string)"/> 新增的"两步探测"（先 <c>_inner.TryGet</c>
+        /// 取记录，找不到时再探 <c>_inner.TryGetAll</c> 确认是否阻断）。若把该方法改回只按
+        /// <c>_inner.TryGet</c> 单一布尔值判定（ADR-0041 修正 <c>TryGet</c> 契约前的旧写法），本
+        /// 用例必然从通过变为失败——<c>IsDegraded</c>/<c>WasMissing</c> 断言会从 <c>False</c>
+        /// 误判为 <c>True</c>（把"记录本就不存在"错误标记成"因阻断读不到"）。</summary>
+        [Fact]
+        public void Get_PartiallyPopulatedInnerView_RecordDoesNotExist_NotBlocking_ReturnsNullNotDegraded()
+        {
+            var inner = new PartiallyPopulatedView(blocked: false, BuildExistingWidgetRecord());
+            var tolerant = new TolerantRegistryView(inner);
+
+            var record = tolerant.Get("test.widget", "test.widget.does_not_exist");
+
+            Assert.Null(record);
+            Assert.False(tolerant.IsDegraded);
+            Assert.False(tolerant.WasMissing("test.widget"));
+        }
+
+        [Fact]
+        public void Get_PartiallyPopulatedInnerView_RecordExists_NotBlocking_ReturnsRecordNotDegraded()
+        {
+            var existing = BuildExistingWidgetRecord();
+            var inner = new PartiallyPopulatedView(blocked: false, existing);
+            var tolerant = new TolerantRegistryView(inner);
+
+            var record = tolerant.Get("test.widget", "test.widget.a");
+
+            Assert.Same(existing, record);
+            Assert.False(tolerant.IsDegraded);
+        }
+
+        [Fact]
+        public void Get_PartiallyPopulatedInnerView_Blocked_ReturnsNullAndMarksDegraded()
+        {
+            var inner = new PartiallyPopulatedView(blocked: true, BuildExistingWidgetRecord());
+            var tolerant = new TolerantRegistryView(inner);
+
+            var record = tolerant.Get("test.widget", "test.widget.a");
+
+            Assert.Null(record);
+            Assert.True(tolerant.IsDegraded);
+            Assert.True(tolerant.WasMissing("test.widget"));
+        }
+
+        [Fact]
+        public void TryGet_PartiallyPopulatedInnerView_RecordDoesNotExist_NotBlocking_ReturnsFalseNotDegraded()
+        {
+            var inner = new PartiallyPopulatedView(blocked: false, BuildExistingWidgetRecord());
+            var tolerant = new TolerantRegistryView(inner);
+
+            var ok = tolerant.TryGet("test.widget", "test.widget.does_not_exist", out var record);
+
+            Assert.False(ok);
+            Assert.Null(record);
+            Assert.False(tolerant.IsDegraded);
+        }
     }
 }

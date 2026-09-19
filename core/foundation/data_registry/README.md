@@ -371,6 +371,51 @@ ABI 只新增，见 `contracts/DataSourceOptions.cs` 判断记录）。
    `消费方反馈-2026-09-19-第67-72条回复草稿-71号反问.md` 已于提交 `d406af3` 并入本文档并删除，
    本节链接此前未同步更新，指向了一个已不存在的文件）。
 
+## 判断记录（ADR-0041，TryGet 单记录容错查询返回值语义修正，2026-09-19）
+
+`IDataRegistryView.TryGet(string, string, out DataRecord)`/`TryGet(string, CommonId, out
+DataRecord)`（消费方反馈第 45 条、1.38.0 引入，见 `contracts/IDataRegistry.cs` 该成员判断记录）
+发布后实测暴露一处与同类查询方法通用调用惯例相悖的缺陷：只要注册表未处于阻断态，方法恒返回
+`true`，哪怕按主键根本查不到记录（`out` 参数为 `null` 时也返回 `true`）——`true`/`false` 实际
+表达的是"这次查询有没有因为阻断态被拒绝"，不是"有没有查到记录"，与方法名本身给调用方的预期
+（返回值即"是否找到"）不一致。已确认真实后果：消费方两条回归用例（`games/_template/Tests/
+Runtime/GameTemplateResidentTests.cs` 数据集根覆盖生效验收）把这个方法的返回值当"确实读到了
+预期记录"的断言依据，因为返回值恒真，两条断言此前永远通过，等同于没有验证任何东西，直到本次
+任务实跑门禁才暴露（该文件已于 1.45.0 二次修复中改用 `Get(...)` 返回值判空自证，不再依赖
+`TryGet` 布尔值）。
+
+**修法**：不改名、不改参数签名，只改"记录不存在但未阻断"这一分支的返回值——两处物理实现
+（接口默认实现 `contracts/IDataRegistry.cs`、`core/DataRegistry.cs` 的显式覆盖）均改为
+`record != null` 作为返回值。理由——改名等于承认现在的行为是"另一种正当语义、只是名字取错了"，
+但实际是这个具体实现选择本身违反了调用惯例，调用方按惯例理解方法名产生的预期是对的，错的是
+实现；详细决策与备选方案见 [ADR-0041](../../../architecture/adr/0041-数据注册表单记录容错查询语义修正.md)。
+
+**连带修正（`contracts/TolerantRegistryView.cs`）**：`TolerantRegistryView.Get`/自身的显式
+`TryGet` 此前直接把 `_inner.TryGet` 的布尔返回值当"是否因阻断读不到"使用——这依赖的是修正前
+`TryGet` 的旧语义（阻断→`false`，记录不存在但不阻断→仍是 `true`）。修正后该布尔值只表达
+"是否找到记录"，阻断与"记录本就不存在"两种情形都会让 `TryGet` 返回 `false`，不能再从这一个
+布尔值反推是不是阻断。改为两步探测：先用 `_inner.TryGet` 取记录，找到就直接返回；找不到时，
+改探 `_inner.TryGetAll(table, out _)`（该成员语义未受本次修正影响，只在阻断异常时返回
+`false`）——探测也失败才说明这张表因阻断读不到，记为 `IsDegraded`；探测成功则说明表可正常
+访问，只是这条记录本就不存在，不标记退化。`IsDegraded`/`MissingTables`/`WasMissing` 对外语义
+与诊断准确度不受影响（与修正前的既有测试 `TolerantRegistryViewTests.
+Get_RealDataRegistry_BlockedByUnrelatedTable_UnaffectedTableStillFullyReadable_NotDegraded`
+断言口径完全一致，未放宽）。
+
+**全仓调用点扫描结论**：`tests/GameDatasetRootOverrideEquivalenceTests.cs` 两处、
+`core/foundation/scene_router/tests/SceneDescriptorTests.cs` 一处——均配合直接断言记录字段值
+或利用阻断态直读通道，不单独依赖 `TryGet` 返回值表达"找到与否"，修正后行为不变，未发现需要
+连带修改的调用点。反向确认：分别把两处物理实现改回旧版 `return true`、把
+`TolerantRegistryView.Get` 的两步探测改回单一 `_inner.TryGet` 判定，对应的新增回归测试均如实
+从通过变为失败（`Assert.False` 处 `Expected:False But was:True`），随后已还原。
+
+新增测试：`tests/DataRegistryTests.cs`（`TryGet_DefaultInterfaceImplementation_*`/
+`TryGet_OnDataRegistry_*`，覆盖存在/不存在/阻断三种情形，共 7 例）、
+`tests/TolerantRegistryViewTests.cs`（`Get_PartiallyPopulatedInnerView_*`/
+`TryGet_PartiallyPopulatedInnerView_*`，覆盖"记录不存在但不阻断不应标记退化"这一此前未被
+覆盖的分支，共 4 例）。消费方通知：
+[消费方通知-2026-09-19-TryGet契约行为修正.md](../../../architecture/落地计划/消费方通知-2026-09-19-TryGet契约行为修正.md)。
+
 ## 不负责什么
 
 - 不实现任何具体业务校验规则（效果数上限、预算、叠加冲突等），只提供 `IValidationRule` 扩展点。
