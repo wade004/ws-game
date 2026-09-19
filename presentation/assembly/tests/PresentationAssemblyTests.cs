@@ -260,6 +260,56 @@ namespace Tests.Presentation.Assembly
         }
 
         [Fact]
+        public void FeedbackSinkDiagnostics_IsExposed_SameInstanceAsCompositeFeedbackSink_AndIndependentOfOtherFour()
+        {
+            // 诊断转发到引擎控制台第三批（presentation/assembly/README.md 判断记录 10b）：本装配根第
+            // 3 步构造的局部变量 CompositeFeedbackSink 是第二批扫漏的第五条可达诊断源——
+            // FeedbackSinkDiagnostics 必须转发的是这个内部 sink 自己持有的实例（不是 Feedback.Diagnostics
+            // 那一份，两者是两个不同子系统各自独立的 recorder，见判断记录 10"各自独立"取舍延续）。
+            var presentation = Build(out _, out _, out _, out _);
+
+            Assert.NotNull(presentation.FeedbackSinkDiagnostics);
+
+            // 反面验证：play_vfx 找不到可用世界坐标时会经 CompositeFeedbackSink 记一条警告，该警告必须
+            // 出现在 FeedbackSinkDiagnostics 里，而不是 Feedback.Diagnostics（FeedbackBinder 自己的
+            // recorder，只记它自身产生的诊断，见该类型判断记录）。
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(presentation.FeedbackSinkDiagnostics);
+            var feedbackRecorder = Assert.IsType<PresentationDiagnosticsRecorder>(presentation.Feedback.Diagnostics);
+            Assert.NotSame(recorder, feedbackRecorder);
+
+            var beforeCount = recorder.Warnings.Count;
+            var feedbackBeforeCount = feedbackRecorder.Warnings.Count;
+            ((global::Presentation.FeedbackBinder.Contracts.IFeedbackSink)GetFeedbackSink(presentation))
+                .PlayVfx(new Id("vfx.does_not_exist_for_diagnostics_test"), new global::Presentation.FeedbackBinder.Contracts.FeedbackAttachSpec(
+                    global::Presentation.FeedbackBinder.Contracts.FeedbackAttachTarget.World, null, null, null));
+            Assert.True(recorder.Warnings.Count > beforeCount);
+            Assert.Equal(feedbackBeforeCount, feedbackRecorder.Warnings.Count);
+
+            // 五个来源（Vfx/Sfx/Feedback/ViewBinder/FeedbackSink）互不相同——同前一条用例的判断记录，
+            // 若未来有人误改成共享一个实例，本断言会失败。
+            var recorders = new object[]
+            {
+                presentation.VfxDiagnostics, presentation.SfxDiagnostics,
+                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics,
+                presentation.FeedbackSinkDiagnostics,
+            };
+            Assert.Equal(recorders.Length, new HashSet<object>(recorders, ReferenceEqualityComparer.Instance).Count);
+        }
+
+        /// <summary>反射读取本装配根第 3 步构造的私有局部 <c>feedbackSink</c>
+        /// 不可行（局部变量无法反射），改为反射 <c>FeedbackBinderCore</c> 内部 <c>_sink</c> 字段——
+        /// 与 <see cref="PresentationAssembly.FeedbackSinkDiagnostics"/> 转发的是同一个
+        /// <c>CompositeFeedbackSink</c> 实例（本装配根构造 <c>Feedback</c> 时把同一个 <c>feedbackSink</c>
+        /// 变量传给了它的 <c>sink</c> 构造参数）。</summary>
+        private static object GetFeedbackSink(PresentationAssembly presentation)
+        {
+            var field = typeof(global::Presentation.FeedbackBinder.Core.FeedbackBinder).GetField(
+                "_sink", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(field);
+            return field!.GetValue(presentation.Feedback)!;
+        }
+
+        [Fact]
         public void DamageEvent_DispatchesFloatingText_ViaFeedbackBinder()
         {
             var floatingTexts = new List<(Id EntityId, Id StyleId, string Text)>();

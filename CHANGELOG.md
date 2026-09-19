@@ -518,6 +518,28 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   返回错误实例""`PresentationAssembly` 转发属性接错实例""轮询循环漏掉一个来源""三处生产入口漏接
   `Pump()` 调用"四类改动分别做过反向确认（临时破坏、确认对应测试必然失败、已还原）。
 
+- **表现层诊断转发到引擎控制台——补上第五条链路 `CompositeFeedbackSink`（上一批扫漏，第三批
+  收口）**：上一批只覆盖了 `VfxPlayer`/`SfxPlayer`/`FeedbackBinder`（含 `HitFrameSyncPolicy`）/
+  `ViewBinder` 四条链路，`presentation/assembly` 第 3 步构造的
+  `Presentation.FeedbackBinder.Core.CompositeFeedbackSink`（`play_vfx`/`play_sfx` 找不到可用
+  坐标/锚点时记警告）同样持有一份独立诊断、此前既无公开出口也未被装配根转发——是与上一批完全
+  同类的遗漏。`CompositeFeedbackSink` 新增 `public IPresentationDiagnostics Diagnostics { get; }`
+  （ABI 只新增只读属性），`PresentationAssembly` 新增 `FeedbackSinkDiagnostics` 转发属性（同
+  `VfxDiagnostics`/`SfxDiagnostics` 惯例，不改变构造期不传 `diagnostics` 参数的既有行为）。
+  `PresentationAssemblyDiagnosticsForwarder` 新增一个五源构造函数重载接住第五个来源（不改动既有
+  四源构造函数签名，ABI 只新增重载，旧签名内部委托给新重载并传 `null`），三处生产装配入口
+  （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` `GameBootstrap`）的构造
+  调用同步补上 `presentation.FeedbackSinkDiagnostics` 实参，
+  `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py` 新增一组参数化
+  断言同步守住三处构造调用都传入了这个实参。新增测试：`CompositeFeedbackSinkTests.Diagnostics_*`
+  （2 例）、`PresentationAssemblyTests.FeedbackSinkDiagnostics_IsExposed_SameInstanceAsCompositeFeedbackSink_AndIndependentOfOtherFour`、
+  `adapters/unity/DiagnosticsForwarding/tests/PresentationDiagnosticsConsoleForwardingTests.cs`
+  新增 5 例 `FiveSourceOverload_*`/`FourSourceConstructor_StillWorks_*`。均已对"轮询循环漏掉第五
+  个来源""`PresentationAssembly` 转发属性接错实例""三处生产入口漏传第五个实参"三类改动分别做过
+  反向确认（临时破坏、确认对应测试必然失败、已还原）。逐一复核仓库内全部
+  `Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 持有者后确认没有第六条未覆盖链路，见
+  `presentation/assembly/README.md` 判断记录 10b"扫描结论"。
+
 ## [1.45.0] - 2026-09-19
 
 本版落地消费方反馈第 67～72 条（ADR-0040 运行期宿主命令行能力契约；常驻运行入口、参数化内容

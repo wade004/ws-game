@@ -524,14 +524,16 @@ namespace Adapter.Unity.Bootstrap
                 renderer3D: _host.Renderer3D);
             Presentation = presentation;
 
-            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：
-            // VfxPlayer/SfxPlayer/FeedbackBinder（含 HitFrameSyncPolicy）/ViewBinder 四条新增诊断源，
-            // 见 PresentationAssemblyDiagnosticsForwarder 类型注释——与 ViewFactory 内部的
-            // rig 诊断转发是两条独立的 gate/开关，本类型只负责本装配根这四个装配级单例来源。
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10/10b）：
+            // VfxPlayer/SfxPlayer/FeedbackBinder（含 HitFrameSyncPolicy）/ViewBinder/
+            // CompositeFeedbackSink（第三批新增）五条新增诊断源，见
+            // PresentationAssemblyDiagnosticsForwarder 类型注释——与 ViewFactory 内部的
+            // rig 诊断转发是两条独立的 gate/开关，本类型只负责本装配根这五个装配级单例来源。
             _presentationDiagnosticsForwarder = new PresentationAssemblyDiagnosticsForwarder(
                 UnityPresentationDiagnosticsConsoleSink.Instance,
                 presentation.VfxDiagnostics, presentation.SfxDiagnostics,
-                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics);
+                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics,
+                presentation.FeedbackSinkDiagnostics);
 
             // 三个反馈接收器都需要 PresentationAssembly 构造完成后才能建出（FloatingText 需要
             // presentation.FloatingTextStyles，Flash 需要 presentation.ViewBinder）；上面

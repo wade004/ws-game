@@ -184,6 +184,17 @@ namespace Presentation.Assembly
         /// <see cref="Presentation.VfxSfx.Core.SfxPlayer.Diagnostics"/>。</summary>
         public IPresentationDiagnostics SfxDiagnostics { get; }
 
+        /// <summary>诊断转发到引擎控制台跟进第三批（判断记录 10 追加）：<see cref="Feedback"/> 内部
+        /// 实际下达表现指令的 <see cref="Presentation.FeedbackBinder.Core.CompositeFeedbackSink"/> 是
+        /// 本装配根第 3 步构造的局部变量，从未被 <see cref="Feedback"/>（<c>FeedbackBinderCore</c>）
+        /// 自身对外转发（<c>FeedbackBinder</c> 只暴露自己的 <c>_diagnostics</c>，不知道也不应该知道
+        /// 调用方注入的 <c>IFeedbackSink</c> 具体实现是否还有另一份诊断），本属性直接转发该局部变量
+        /// 构造期已经默认自建（或未来若注入则转发）的
+        /// <see cref="Presentation.FeedbackBinder.Core.CompositeFeedbackSink.Diagnostics"/>——同
+        /// <see cref="VfxDiagnostics"/>/<see cref="SfxDiagnostics"/> 一样是"接口类型的容器持有具体类型
+        /// 实例，装配根代为转发"这一惯例的第三个落点，不是新的取舍。</summary>
+        public IPresentationDiagnostics FeedbackSinkDiagnostics { get; }
+
         public IWeaponStyleResolver WeaponStyle { get; }
 
         /// <summary>缺口 12：分层音量宿主，见 <see cref="Presentation.VfxSfx.Contracts.IAudioLayerVolumeHost"/>。</summary>
@@ -432,6 +443,11 @@ namespace Presentation.Assembly
                     }
                 }),
                 entityPositionResolver: entityPositionResolver);
+            // 诊断转发到引擎控制台跟进第三批（判断记录 10 追加）：见 FeedbackSinkDiagnostics 属性
+            // 注释——本装配根不传 diagnostics 构造参数给 CompositeFeedbackSink（保持"未注入时默认自建
+            // 一份 PresentationDiagnosticsRecorder"这一改动前行为不变），这里只是把已经默认构造好的
+            // 实例转发出去。
+            FeedbackSinkDiagnostics = feedbackSink.Diagnostics;
 
             Feedback = new FeedbackBinderCore(
                 bus, gameplay.ExprHostFactory, feedbackRules, feedbackSink,
