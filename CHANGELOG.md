@@ -607,6 +607,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   故不采用 `Adapter.Unity`（程序集名固定）那条 `InternalsVisibleTo` 路线）。已静态核查
   `games/_template/Tests/`、`adapters/unity` 测试程序集，未发现其它同类跨程序集引用 internal 成员
   却尚未编译暴露的隐患。详见 `games/_template/README.md` 对应判断记录。
+- **`GameTemplateResidentTests.cs` 两条"数据根覆盖生效"用例二次修复（第 68 条测试真正跑通引擎门禁
+  后暴露的两处独立问题）**：上一版把覆盖根设成只放探针表的空目录，实机一跑就把
+  `GameBootstrap.Bootstrap()` 装配拖垮（`GameplayAssembly` 需要的 `stat.definition` 等表也在被
+  覆盖的 `data/game` 树下，装配在 `StatHost` 处直接抛异常，被 `BootstrapFailed` 接住，走不到
+  断言）；改为覆盖根 = 默认数据集 `data/game` 的完整运行期副本（跳过 `.meta` 避免 GUID 冲突）+
+  叠加一张只存在于该副本的探针表。修完又暴露第二处问题：对照用例
+  `ResidentRunner_DatasetRootOverride_Absent_DefaultRootNeverSeesOverrideProbeTable` 稳定失败
+  （"Expected: False But was: True"）——根因是两条用例都误用了
+  `IDataRegistryView.TryGet(string, string, out DataRecord)` 默认实现的语义（只要 registry 未
+  阻断就恒返回 `true`，不代表记录真的存在），改用 `IDataRegistryView.Get(string, string)`
+  （不阻断时表/记录不存在直接返回 `null`）配合 `Assert.IsNotNull`/`Assert.IsNull`。已实跑验证：
+  `-testFilter` 单独跑这两条通过、全量 PlayMode（293 例）零回归；反向确认（临时让
+  `GameDatasetRootOverride` 不生效）证实 `LoadsProbeTable_FromOverrideRootOnly` 按预期失败、
+  `Absent_...` 仍通过（符合其"对照组"定位），已还原。详见
+  `games/_template/README.md`/`Tests/Runtime/GameTemplateResidentTests.cs` 对应判断记录。
 
 ## [1.44.0] - 2026-09-19
 
