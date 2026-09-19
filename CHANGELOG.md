@@ -478,6 +478,18 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   共 7 例）、`core/foundation/data_registry/tests/TolerantRegistryViewTests.cs`
   （`Get_PartiallyPopulatedInnerView_*`/`TryGet_PartiallyPopulatedInnerView_*` 共 4 例）。
 
+### 修复
+
+- 消费方反馈第 73 条：`DataRegistry.RunValidationAndBuildReport` 单条 `IValidationRule.Validate`
+  执行期抛出的异常此前未做任何隔离，一路冒出 `LoadAll` 使调用方进程以 `0xE0434352`（未捕获托管
+  异常标准终止码）崩溃退出、不产出任何报告（消费方两条独立复现路径——`item.budget_curve` 记录
+  `item.budget.default` 的 `entries` 字段元素类型错配/整字段类型错配——经本仓库 `toolchain
+  /validator` 实测复现，退出码均为 `-532462766`）。现改为逐条规则捕获枚举期异常，转成新检查名
+  `rule_execution_failed`（Error 级，携带规则名/异常类型名/异常消息，`DataFieldException` 类型的
+  异常额外带上其自带的表/记录/字段定位），异常前该规则已产出的问题保留、其余规则照常跑完，最终
+  产出完整报告、退出码回到正常的"校验失败"语义（1），不再是 CLR 崩溃码。详见
+  [消费方反馈-2026-09-19-编辑器-第73条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第73条.md)。
+
 ## [1.45.0] - 2026-09-19
 
 本版落地消费方反馈第 67～72 条（ADR-0040 运行期宿主命令行能力契约；常驻运行入口、参数化内容

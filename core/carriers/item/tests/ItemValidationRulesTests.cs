@@ -758,5 +758,138 @@ namespace Tests.Carriers.Item
             var issue = Assert.Single(issues);
             Assert.Equal(ItemTemplateAffixShareExceedsBudgetRule.Check, issue.Check);
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第 73 条（2026-09-19）：DataRegistry.RunValidationAndBuildReport 单条规则异常隔离
+        // 回归——消费方给的两条独立复现路径，均对 item.budget_curve 记录 item.budget.default 的
+        // entries 字段注入，均实测（改动前）以 0xE0434352 崩溃退出；本类两个用例复刻这两条路径，
+        // 断言修复后：不崩溃、产出报告、报告含 rule_execution_failed、同批注册的另一条规则
+        // （AlwaysReportsSentinelRule）照常跑完并产出它自己的问题。
+        // -----------------------------------------------------------------
+
+        /// <summary>陪跑规则：与 <see cref="ItemBudgetValidationRule"/> 同批注册，恒定产出一条固定
+        /// 检查名的问题，不依赖 <c>item.budget_curve</c>——用它验证"某条规则抛异常只影响它自己，
+        /// 其余规则照常跑完"（消费方反馈第 73 条设计层拍板"隔离粒度=单条规则"），而不是仅仅断言
+        /// "没崩溃"。</summary>
+        private sealed class AlwaysReportsSentinelRule : IValidationRule
+        {
+            public const string Check = "n73_sentinel_rule_ran";
+
+            public System.Collections.Generic.IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+            {
+                yield return new ValidationIssue(ValidationSeverity.Warning, "item.template", Check,
+                    "陪跑规则：证明本规则未被同批注册的抛异常规则连累");
+            }
+        }
+
+        /// <summary>两条复现路径共用的注册表构造：真实 <see cref="Core.Carriers.Item.ItemSchemas.BudgetCurve"/>
+        /// schema（<c>entries</c> 登记为 <see cref="CurveSchema.BreakpointsField"/>，元素 <c>{x, y}</c>
+        /// 均必填）。判断记录（<c>RunFieldValidation</c> 与规则执行是两道独立的通道，互不知会）：
+        /// <paramref name="budgetCurveJson"/> 里注入的畸形 <c>entries</c> 元素/字段**确实**会被
+        /// <c>RunFieldValidation</c> 拦下并报出 <c>field_type</c>（本类下面两个用例各自断言了这一点，
+        /// 与真实数据根实测一致，见消费方回复文档"事实核查"一节）——但 <c>field_type</c> 只是往
+        /// <c>issues</c> 里追加一条诊断，不会把这条记录从后续"逐条注册规则跑一遍"的候选池里剔除；
+        /// <see cref="Core.Carriers.Item.ItemBudgetCurve.ParseCurve"/> 之类的规则级解析代码不查
+        /// 字段级校验是否已经报过问题，照样对同一份原始 JSON 值再解析一次，仍会抛出。这正是两条
+        /// 路径即使字段级已经正确报错、规则执行期仍会崩溃的根本原因，也是消费方反馈第 73 条真正
+        /// 需要修的地方——字段级诊断齐全不等于规则执行安全。</summary>
+        private static IDataRegistry BuildRuleExecutionFailedRegistry(string budgetCurveJson)
+        {
+            const string template =
+                "[{\"id\": \"item.n73_sample\", \"slot\": \"item.slot.consumable\", \"quality\": \"item.quality.common\"," +
+                " \"item_level\": 1, \"display_ref\": \"display.item.n73_sample\", \"stack_size\": 1," +
+                " \"name_key\": \"l10n.item.n73_sample\"," +
+                " \"stats\": [{\"stat\": \"stat.strength\", \"op\": \"flat\", \"value\": 1}]}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", TestSupport.Table("item.slot_definition", SlotJson))
+                .Add("item.quality_definition", TestSupport.Table("item.quality_definition", QualityJson))
+                .Add("item.budget_curve", budgetCurveJson)
+                .Add("item.template", TestSupport.Table("item.template", template))
+                .Add("stat.definition", TestSupport.Table("stat.definition", StatDefJson))
+                .Add("skill.aura_def", TestSupport.Table("skill.aura_def", AuraDefJson));
+
+            var registry = new DataRegistry(source, TestSupport.CreateBus(),
+                new DataRegistryOptions { FailOnUnknownTable = false, Strictness = DataRegistryStrictness.WarningsAllowed });
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.Template);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.SlotDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.QualityDefinition);
+            registry.RegisterSchema(Core.Carriers.Item.ItemSchemas.BudgetCurve);
+            registry.RegisterSchema(Core.Numbers.StatBlock.StatSchemas.Definition);
+            registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.AuraDef);
+            registry.RegisterValidationRule(new ItemBudgetValidationRule(new Id("item.budget.default")));
+            registry.RegisterValidationRule(new AlwaysReportsSentinelRule());
+
+            return registry;
+        }
+
+        /// <summary>路径一（消费方原文异常）：<c>entries[0].x</c> 由数值改成字符串——元素仍是合法的
+        /// <c>{x, y}</c> 对象，只是值类型不对，异常来自规则自身业务代码
+        /// <see cref="Core.Carriers.Item.ItemBudgetCurve.ParseCurve"/>（<see cref="System.ArgumentException"/>，
+        /// 不经过 <see cref="DataFieldException"/>）。</summary>
+        [Fact]
+        public void RuleExecutionFailedIsolation_EntriesElementXIsString_LoadAllDoesNotThrow_ReportsRuleExecutionFailed_OtherRuleStillRuns()
+        {
+            const string budgetCurveJson =
+                "{\"table\": \"item.budget_curve\", \"schema_version\": 2, \"rows\": " +
+                "[{\"id\": \"item.budget.default\", \"entries\": [" +
+                "{\"x\": \"not-a-number\", \"y\": 20}, {\"x\": 10, \"y\": 200}]}]}";
+
+            var registry = BuildRuleExecutionFailedRegistry(budgetCurveJson);
+
+            ValidationReport? report = null;
+            var ex = Record.Exception(() => report = registry.LoadAll());
+
+            Assert.Null(ex);
+            Assert.NotNull(report);
+            Assert.True(report!.IsBlocking);
+
+            var failure = Assert.Single(report.Issues, i => i.Check == "rule_execution_failed");
+            Assert.Equal(ValidationSeverity.Error, failure.Severity);
+            Assert.Contains(nameof(ItemBudgetValidationRule), failure.Message);
+            Assert.Contains(nameof(ArgumentException), failure.Message);
+            Assert.Equal(nameof(ItemBudgetValidationRule), failure.RuleId);
+
+            // 字段级校验独立照常报出（本方法上方判断记录"字段级诊断齐全不等于规则执行安全"）——
+            // 有这条诊断不代表规则执行期就安全了，两者互不知会，是两个独立的问题。
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Table == "item.budget_curve");
+
+            // 陪跑规则未被连累，照常产出它自己的问题。
+            Assert.Contains(report.Issues, i => i.Check == AlwaysReportsSentinelRule.Check);
+        }
+
+        /// <summary>路径二（消费方原文异常）：<c>entries</c> 整个字段由数组替换成 JSON 对象——结构不
+        /// 合法，异常来自框架严格访问器 <see cref="DataRecord.GetArray"/>
+        /// （<see cref="DataFieldException"/>，经 <see cref="Core.Carriers.Item.ItemBudgetCurve.ParseCurve"/>
+        /// 转发）。</summary>
+        [Fact]
+        public void RuleExecutionFailedIsolation_EntriesFieldIsObjectNotArray_LoadAllDoesNotThrow_ReportsRuleExecutionFailed_OtherRuleStillRuns()
+        {
+            const string budgetCurveJson =
+                "{\"table\": \"item.budget_curve\", \"schema_version\": 2, \"rows\": " +
+                "[{\"id\": \"item.budget.default\", \"entries\": {\"x\": 1, \"y\": 20}}]}";
+
+            var registry = BuildRuleExecutionFailedRegistry(budgetCurveJson);
+
+            ValidationReport? report = null;
+            var ex = Record.Exception(() => report = registry.LoadAll());
+
+            Assert.Null(ex);
+            Assert.NotNull(report);
+            Assert.True(report!.IsBlocking);
+
+            var failure = Assert.Single(report.Issues, i => i.Check == "rule_execution_failed");
+            Assert.Equal(ValidationSeverity.Error, failure.Severity);
+            Assert.Contains(nameof(ItemBudgetValidationRule), failure.Message);
+            Assert.Contains(nameof(DataFieldException), failure.Message);
+            Assert.Equal("item.budget_curve", failure.Table);
+            Assert.Equal("item.budget.default", failure.RecordKey);
+            Assert.Equal("entries", failure.Field);
+
+            // 同上一用例：字段级诊断齐全（这里报的是整字段类型错配）不代表规则执行期就安全了。
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Table == "item.budget_curve");
+
+            Assert.Contains(report.Issues, i => i.Check == AlwaysReportsSentinelRule.Check);
+        }
     }
 }
