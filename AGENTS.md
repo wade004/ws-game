@@ -8,6 +8,13 @@
 - 每个任务开独立工作树：`git -C D:\workespace\ws-game worktree add "<scratchpad>\<name>" -b <branch> main`。
 - 所有 git 命令用 `git -C "<工作树绝对路径>"`；其它命令须在同一个工具调用内 `Push-Location … Pop-Location`（PowerShell/Bash 工具调用之间，当前目录会重置回主树）。
 - 提交前先打印 `git -C "<工作树>" rev-parse --show-toplevel` 核对确实在工作树内。
+- **文件编辑工具（Edit/Write 等）一律传工作树的绝对路径**，禁止相对路径、禁止主检出路径。上一条讲的是
+  命令与 `cd`，这一条讲的是编辑：本会话有两个 agent 命令侧守规矩、却把编辑落到了主检出，早期门禁因此
+  测的是未改动的代码，属于假验证。
+- **跑测试/门禁前先自证改动在工作树里**：`git -C "<工作树>" status --short` 应有改动，
+  `git -C "D:\workespace\ws-game" status --short` 应为空。两者不符立刻停下搬运改动，不要继续跑。
+- 误写主检出时，用反向补丁（`git diff` + `git apply -R`）把改动搬回工作树，**不要用 `checkout`/`reset --hard`**
+  等破坏性命令还原主检出（主检出可能有主会话正在进行的工作）。
 - 只 `git add` 明确列出的路径；绝不用 `-A`/`.`/`--force`/`reset --hard`/`stash`。
 - 不 merge、不 push（这两步由主会话执行）。
 - 不改 `VERSION`/`package.json`/`packages-lock.json`/`games/_template/package.json`（这些文件由 `build.ps1 -Release` 统一写回）。
