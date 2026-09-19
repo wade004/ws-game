@@ -267,6 +267,26 @@ JsonObject（同 `core/gameplay/area_trigger` 的 `ParamsSchema`/`trigger_type` 
     作者按 07 原文填写——同 `core/rules/skill` `SkillSchemas` 里 `set_world_flag.value` 的判断
     记录同一惯例。
 
+12. **ADR-0044：新增 `DialogOpenerWithSourceDelegate`/`GobjOptions.DialogOpenerWithSource`，根治
+    `DialogOpenerDelegate` 不携带触发交互的 gobj 实例身份这一契约缺口**（消费方反馈-2026-09-20，
+    `ws-game-wow` 复审报告"反馈 6"）：旧委托 `DialogOpenerDelegate(unitId, dialogRef)` 只有两个
+    参数，装配根拿不到一个真实、稳定的"交互对象"身份转发给下游（`DialogHost.OpenGossip` 需要三元
+    组 `(unitId, npcId, menuId)`），历史实现只能权宜地拿 `dialogRef`（菜单 id，可能被多个 gobj
+    共用）顶替 `npcId`。ABI 只新增：新增委托类型 `DialogOpenerWithSourceDelegate(unitId,
+    gobjInstanceId, dialogRef)` + `GobjOptions` 新增可选属性 `DialogOpenerWithSource`，不改
+    `DialogOpenerDelegate` 既有签名。`GameObjectHost.DispatchOnUse` 优先调用
+    `DialogOpenerWithSource`（若已注入），否则退回旧的 `DialogOpener`，两者都未注入时行为不变
+    （记诊断，`InteractOutcome.NoAction`）。**旧委托语义边界**（明确写入判断记录，不只是代码
+    注释）：`DialogOpenerDelegate` 自本条起收窄为"调用方不需要/无法提供触发者身份时使用"（如
+    极简测试桩），不再是唯一路径；需要真实身份透传（如 vendor 动作按 NPC 自身推断商店）的调用方
+    必须迁移到 `DialogOpenerWithSource`。**备选方案与否决理由**：①直接给
+    `DialogOpenerDelegate` 加第三个参数——否决，破坏既有公开委托签名，违反 ABI 只增不减；
+    ②改用携带默认接口成员的上下文对象替换两个委托参数——否决，改动面更大（需要同时改调用点与
+    所有既有测试桩的类型），且本场景只多一个 `Id` 字段，新增委托类型足够表达，不需要引入新的
+    上下文类型；③只在装配根内部把 `gobjInstanceId` 存到一个旁路查找表、不改契约——否决，
+    `GameObjectHost` 与装配根之间没有稳定的"当前正在分发哪个 gobj"跨调用状态，硬造一个查找表
+    是更脆弱的隐式耦合，不如让契约显式携带。详见 [ADR-0044](../../../architecture/adr/0044-gobj对话打开回调新增交互者身份透传路径.md)。
+
 ## 契约缺口 / 未覆盖内容
 
 - **`type_data.trigger_shape`（`trap`）不做结构校验**：05 第 3.5 节 `Shape` 的具体 JSON 形状由

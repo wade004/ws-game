@@ -4,8 +4,27 @@ using Core.Foundation.Common;
 namespace Core.Carriers.Gobj
 {
     /// <summary>对 <paramref name="dialogRef"/>（<c>dialog.gossip_menu</c> 动作项 id，见 07 第 3.3
-    /// 节）打开对话的 L4 回调（见 <see cref="GobjOptions.DialogOpener"/>）。</summary>
+    /// 节）打开对话的 L4 回调（见 <see cref="GobjOptions.DialogOpener"/>）。判断记录（语义边界，
+    /// ADR-0044）：本委托不携带触发交互的 gobj 实例身份，装配根收到回调时无法把一个真实、稳定的
+    /// "交互对象"身份转发给下游（如 <c>DialogHost.OpenGossip</c> 的 <c>npcId</c>）——历史实现曾
+    /// 权宜地拿 <paramref name="dialogRef"/>（对话菜单 id，多个 gobj 可能共用同一份菜单）顶替，
+    /// 导致下游按身份做的推断（如 vendor 动作 <c>ref</c> 为空时"按当前 NPC 自身推断"）拿到的其实
+    /// 是菜单 id 而非真实交互对象。ADR-0044 之后，本委托的语义边界收窄为：仅供不需要/无法提供
+    /// 触发者身份的调用方使用（如极简测试桩、身份对下游确实无意义的场景）；需要把真实交互者身份
+    /// 透传给下游时，改用 <see cref="DialogOpenerWithSourceDelegate"/>/
+    /// <see cref="GobjOptions.DialogOpenerWithSource"/>。本委托签名保留不变（ABI 兼容），
+    /// <see cref="GameObjectHost"/> 在两者都未设置时的降级行为也不变。</summary>
     public delegate void DialogOpenerDelegate(Id unitId, Id dialogRef);
+
+    /// <summary>
+    /// ADR-0044：<see cref="DialogOpenerDelegate"/> 的契约缺口根治——在 <paramref name="dialogRef"/>
+    /// 之外，额外携带触发本次交互的 gobj 实例自身 id（<paramref name="gobjInstanceId"/>，即
+    /// <c>GameObjectEntity.EntityId</c>），供调用方把它当作一个稳定、真实的"交互对象"身份转发给
+    /// 下游（如装配根接线 <c>DialogHost.OpenGossip(unitId, gobjInstanceId, dialogRef)</c>，让
+    /// <c>npcId</c> 不再被迫拿 <paramref name="dialogRef"/> 顶替）。见
+    /// <see cref="GobjOptions.DialogOpenerWithSource"/>。
+    /// </summary>
+    public delegate void DialogOpenerWithSourceDelegate(Id unitId, Id gobjInstanceId, Id dialogRef);
 
     /// <summary>把 <paramref name="teleportTargetRef"/> 解析成具体地图 + 坐标的 L4 回调（见
     /// <see cref="GobjOptions.TeleportResolver"/>）；无法解析返回 null。</summary>
@@ -68,8 +87,15 @@ namespace Core.Carriers.Gobj
         public Id? TrapCasterId { get; set; }
 
         /// <summary>见 <see cref="DialogOpenerDelegate"/>；未注入时 <c>on_use: dialog</c> 分发失败
-        /// （记诊断，返回 <see cref="Core.Carriers.Common.InteractOutcome.NoAction"/>，<c>Success=false</c>）。</summary>
+        /// （记诊断，返回 <see cref="Core.Carriers.Common.InteractOutcome.NoAction"/>，<c>Success=false</c>）。
+        /// 语义边界见该委托类型判断记录（ADR-0044）。</summary>
         public DialogOpenerDelegate? DialogOpener { get; set; }
+
+        /// <summary>见 <see cref="DialogOpenerWithSourceDelegate"/>（ADR-0044）：携带触发交互的 gobj
+        /// 实例 id 的对话打开回调。<see cref="GameObjectHost"/> 优先调用本回调；未设置时退回
+        /// <see cref="DialogOpener"/>；两者都未设置时行为与此前一致（记诊断，返回
+        /// <see cref="Core.Carriers.Common.InteractOutcome.NoAction"/>，<c>Success=false</c>）。</summary>
+        public DialogOpenerWithSourceDelegate? DialogOpenerWithSource { get; set; }
 
         /// <summary>见 <see cref="TeleportResolverDelegate"/>；未注入或解析失败时 <c>teleporter</c>
         /// 交互不产生位移，只记诊断。</summary>

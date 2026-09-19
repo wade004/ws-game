@@ -49,7 +49,7 @@ assembly/
 | 13 | `AchievementHost` | `ExprHostFactory`、`Reward` |
 | 14 | `DialogHost`（`teleportRequested`/`encounterStartRequested` 回调接线） | `AppState`、`Quest`、`Hooks`、`WorldState`、`Carriers.Rules.Skill` |
 | 15 | `AreaTriggerHost`（`TrapTrigger`/`EncounterStartRequested`/`MapTransitionRequested`/`SceneRouter` 回调接线） | `WorldState`、`ExprHostFactory`、`Hooks` |
-| 16 | 回填 `GobjOptions` 四个 L4 回调（`DialogOpener`/`TeleportResolver`/`SaveRequester`/`QuestActionDispatcher`，见判断记录 3） | `Dialog`、`Quest` |
+| 16 | 回填 `GobjOptions` 四个 L4 回调（`DialogOpenerWithSource`/`TeleportResolver`/`SaveRequester`/`QuestActionDispatcher`，见判断记录 3） | `Dialog`、`Quest` |
 | 17 | tick 处理器挂载（见下表） | `IWorldSim` |
 | 18 | `DeathPolicyHost`（W2 收边补齐，DECISIONS 拍板 3）：`ReviveUnit`/`ResolveDefaultSpawn` 两个委托 `??=` 接线（`Carriers.Units is WorldUnitAccess` 时接 `.Revive`；`teleportTargetResolver.Resolve`），同时作为 tick 处理器挂上 `TriggerEvaluation` | `AppState`、`SaveSystem`、`Carriers.Rules.CombatOptions.DeathPolicy`、第 16 步的 `teleportTargetResolver` |
 
@@ -63,7 +63,7 @@ assembly/
 | `CurrencyGranter` | `EconomyHost.Add` | `RewardDispatcher` | 局部变量延迟闭包（步骤 7/8） |
 | `GobjSpawnerDelegate` | `Carriers.GameObjects.Spawn` | `SpawnHost`（`content_ref` 域名 `gobj` 时） | |
 | `SpawnRequester` | `Spawn.SpawnNow`（G1 已接线，见判断记录 2） | `EncounterHost` | 已解决 |
-| `DialogOpenerDelegate` | `Dialog.OpenGossip`（`dialogRef` 权宜当 `npcId` 使用，见判断记录 3） | `GobjOptions` → `GameObjectHost` | |
+| `DialogOpenerWithSourceDelegate` | `Dialog.OpenGossip`（`gobjInstanceId` 传给 `npcId`，ADR-0044 根治"`dialogRef` 权宜当 `npcId`"，见判断记录 3） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `TeleportResolverDelegate` | `TeleportTargetResolver.Resolve`（G1 已接线，按 `teleport_target_ref` 解析 `world.map`/`spawn_points`/`teleport_points`，见判断记录 4） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `SaveRequesterDelegate` | `RequestAutosave`（构造函数最前面的本地函数，先判 `saveSystem.ShouldAutoSave(AutoSaveTrigger.SavePoint)` 再 `saveSystem.Save(autosaveSlotId)`——加固任务补齐门控，`OnSavePoint=false` 时不再写盘；`DialogHost.saveRequested` 共用同一份，见 G1 遗留恢复判断记录） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `QuestActionDispatcherDelegate` | `Quest.Accept` | `GobjOptions` → `GameObjectHost` | 语义存疑，见判断记录 3 |
@@ -159,13 +159,18 @@ assembly/
    构造时就传入一个非空实例（不能让 `CarriersAssembly` 自己 new 一份默认值）——`GameObjectHost`
    内部持有的是构造期传入实例的引用（不拷贝字段），本类先 `resolvedGobjOptions = gobjOptions ??
    new GobjOptions()` 传给 `CarriersAssembly`，等 `Dialog`/`Quest` 都构造完成后（步骤 16）再回填
-   同一个实例上的四个委托属性才能生效。`DialogOpenerDelegate` 签名只有 `(unitId, dialogRef)`，
-   不携带触发交互的 gobj 实例 id——`DialogHost.OpenGossip` 需要三元组
-   `(unitId, npcId, menuId)`，本类权宜地把 `dialogRef` 同时当 `npcId` 使用（会话的 `NpcId` 只用作
-   Expr `target` 分组与后续 vendor/quest 回调的定位标识，不要求是真正的生物单位 id）；
-   `QuestActionDispatcherDelegate` 的语义 07/08 文档均未给出精确定义，本类按"最常见用例——一个
-   `quest_object` 交互触发接取任务"权宜接到 `Quest.Accept`。两处都是记录在案的简化，不是最终
-   方案，见 `GameplayAssembly.cs` 对应代码注释。
+   同一个实例上的四个委托属性才能生效。**`DialogOpenerDelegate` 的"用 `dialogRef` 顶替 `npcId`"
+   已根治（ADR-0044）**：旧委托签名只有 `(unitId, dialogRef)`，不携带触发交互的 gobj 实例
+   id——`DialogHost.OpenGossip` 需要三元组 `(unitId, npcId, menuId)`，此前本类只能权宜地把
+   `dialogRef` 同时当 `npcId` 使用。现改接新增的 `GobjOptions.DialogOpenerWithSource`
+   （`DialogOpenerWithSourceDelegate(unitId, gobjInstanceId, dialogRef)`，ABI 纯新增，旧
+   `DialogOpenerDelegate`/`DialogOpener` 属性保留不变），`npcId` 改传 `gobjInstanceId`——一个
+   真实、稳定的交互对象身份（不再是可能被多个 gobj 共用的菜单 id），vendor 等下游按身份做的
+   推断从此能拿到正确的交互对象。详见 [ADR-0044](../../../architecture/adr/0044-gobj对话打开回调新增交互者身份透传路径.md)、
+   `core/carriers/gobj/README.md` 判断记录 12。`QuestActionDispatcherDelegate` 的语义 07/08
+   文档均未给出精确定义，本类按"最常见用例——一个 `quest_object` 交互触发接取任务"权宜接到
+   `Quest.Accept`，这一处仍是记录在案的简化，不是最终方案，见 `GameplayAssembly.cs` 对应代码
+   注释。
 
 4. **`TeleportResolverDelegate` 已解决（G1）；N14 收口（外部审核 68c9bed）后 `TeleportUnit` 走
    统一导航**：`TeleportTargetResolver`（本目录新文件）按 `teleport_target_ref` 的 `'.'` 分段规则
