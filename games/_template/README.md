@@ -336,6 +336,23 @@ GameDatasetRootOverride` 字段名本就用"Dataset"，不受影响。改名前�
 三处方法体、断言均含 `ViewFactory.PumpDiagnostics()` 调用）做成脱离 Unity 也能跑的回归用例，已用
 临时删掉本文件这一行做过反向确认（仅本文件对应用例按预期失败，另两处仍通过）后还原。
 
+判断记录（2026-09-19，`GameBootstrap.RuntimeOptions` 由 internal 改为 public，消费方反馈第 70
+条测试漏网编译错误修复）：`Tests/Runtime/ContentSourceRootOverridePlayModeTests.cs`（消费方反馈
+第 70 条新增，此前所有执行 agent 均被要求不跑 Unity，从未在真实引擎里编译过）读取
+`GameBootstrap.RuntimeOptions`（原声明为 `internal`），但该测试所在的 `Game.Template.Tests`
+是独立于 `Game.Template` 的程序集，`internal` 跨程序集不可见，Unity 编译检查报
+`CS1061: 'GameBootstrap' does not contain a definition for 'RuntimeOptions'`——本模板此前一直
+"看似能编译"只是因为没人真正跑过 Unity 编译。修法有两种：(a) 给 `Game.Template` 加
+`[assembly: InternalsVisibleTo("Game.Template.Tests")]`；(b) 把该属性改为 `public`。选了 (b)，
+照搬本文件同一段"诊断转发"判断记录之前、`Runtime/DataHotReload.cs`
+`ProcessPendingChanges()`、`Runtime/TemplateSmokeRunner.cs` `IsFinished`/`Succeeded` 已有的既有
+惯例——本模板会被复制改名为具体游戏（见"复制为新游戏：改哪几处"），改名后程序集名跟着变化，
+硬编码旧程序集名的 `InternalsVisibleTo` 声明会失效，而 `Adapter.Unity`（程序集名固定、不随游戏
+改名）用的正是 (a) 这条路，两者判断标准一致、按各自程序集是否会改名分别选型，不是随意二选一。
+`PlayerUnit` 属性未发现同类跨程序集引用，维持 `internal` 不变，未一并放宽。已用静态检索核查
+`Tests/`（`games/_template/` 与 `adapters/unity/`）下再无其它跨程序集引用 internal 成员却尚未
+暴露的同类隐患。
+
 ## 已知限制（本模板"最小闭环"故意不覆盖的部分）
 
 - 不含任何战斗/技能/物品/任务内容——`GameOptions` 声明了对应口味配置项字段（见该文件注释），但

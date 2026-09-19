@@ -596,6 +596,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   改指向合并后的统一回复文档（"待消费方答复"节"第 71 条反问（原文，供直接转发）"），并在正文
   注明原草稿文件已被删除与并入的提交，不是简单删链接掩盖问题。`python -m pytest
   toolchain/tests -q` 现全过。
+- **`GameBootstrap.RuntimeOptions` 跨程序集不可见导致 Unity 编译检查失败**：第 70 条新增的
+  `games/_template/Tests/Runtime/ContentSourceRootOverridePlayModeTests.cs` 读取
+  `GameBootstrap.RuntimeOptions`（原声明为 `internal`），但该文件所在的 `Game.Template.Tests` 是
+  独立于 `Game.Template` 的程序集，`internal` 跨程序集不可见，报
+  `CS1061: 'GameBootstrap' does not contain a definition for 'RuntimeOptions'`——此前所有执行
+  agent 均被要求不跑 Unity，这个漏网编译错误从未在真实引擎里编译过，一直未暴露。改为 `public`
+  （照搬本模板 `Runtime/DataHotReload.cs`/`Runtime/TemplateSmokeRunner.cs` 已有的既有惯例：本模板
+  会被复制改名为具体游戏，改名后程序集名跟着变化，硬编码旧程序集名的 `InternalsVisibleTo` 会失效，
+  故不采用 `Adapter.Unity`（程序集名固定）那条 `InternalsVisibleTo` 路线）。已静态核查
+  `games/_template/Tests/`、`adapters/unity` 测试程序集，未发现其它同类跨程序集引用 internal 成员
+  却尚未编译暴露的隐患。详见 `games/_template/README.md` 对应判断记录。
 
 ## [1.44.0] - 2026-09-19
 
