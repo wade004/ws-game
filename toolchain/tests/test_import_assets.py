@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -90,6 +91,73 @@ def build_flat_sprite_src(
 def write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# 字面量形式漂移回归通用工具（任务记录"补测试洞"）：077bf765 新增的 4 个"字节级幂等性"
+# 用例（见本文件靠后 MapCommandTest.test_map_import_is_idempotent_byte_for_byte 等，已
+# 改名并更新 docstring）经反证实验证实对本 bug 本身无防护力——它们只是把同一版本代码连跑
+# 两次比较字节，天然自洽（同一套（哪怕有漂移的）序列化逻辑跑两次结果必然一致），测不出
+# "新写出的字面量形式与手写惯例/历史提交不一致"这个真实症状。这里补一层通用扫描工具，
+# 直接在原始文本上找漂移形式，不先 json.load 再判断——json.load 会把 "32.0" 和 "32" 都解析
+# 成同一个 Python 值（32 == 32.0 为真），丢失字面量形式本身，同样测不出这类 bug。
+
+# 匹配"数值上是整数"但写成非整数字面量形式的 JSON 数字：小数点+全零小数部分（如
+# "32.0"/"1024.00"），或指数记法（如 "1e3"/"2E+5"/"3.0e2"，无论底数本身是否整数——指数记法
+# 本身就是要避免的漂移形式）。``(?<![\w.])``/``(?![\w.])`` 做词边界，避免匹配到更长数字串的
+# 子串（如 "160.0" 里误判出 "60.0"）。
+_INT_VALUED_FLOAT_LITERAL_RE = re.compile(
+    r"(?<![\w.])-?\d+(?:\.0+(?:[eE][+-]?\d+)?|[eE][+-]?\d+)(?![\w.])"
+)
+
+
+def _mask_json_string_contents(text: str) -> str:
+    """把 JSON 文本里字符串字面量*内部*的字符替换为占位符 ``x``（定界引号本身与结构字符原样
+    保留），正确处理转义引号（``\\"``）不会提前把字符串判定为结束。返回值与输入等长，位置
+    一一对应。
+
+    目的：让数字字面量正则只在"值位置"生效，不被字符串内容里碰巧出现的数字形式误判（如
+    ``"ref": "sprite/hero_2.0"``、``"note": "v1.0 released"``）。
+    """
+    out: list[str] = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if in_string:
+            if escape:
+                out.append("x")
+                escape = False
+            elif ch == "\\":
+                out.append("x")
+                escape = True
+            elif ch == '"':
+                out.append('"')
+                in_string = False
+            else:
+                out.append("x")
+        else:
+            if ch == '"':
+                out.append('"')
+                in_string = True
+            else:
+                out.append(ch)
+    return "".join(out)
+
+
+def find_int_valued_float_literals(text: str) -> list[str]:
+    """扫描 JSON 原始文本（跳过字符串内容），返回所有"数值上是整数却写成非整数字面量形式"的
+    匹配子串（如 ``["32.0", "1024.00", "1e3"]``）；无问题时返回空列表。"""
+    return _INT_VALUED_FLOAT_LITERAL_RE.findall(_mask_json_string_contents(text))
+
+
+def assert_no_int_valued_float_literal_drift(testcase: unittest.TestCase, path: Path) -> None:
+    """断言 ``path`` 指向的文件里不存在字面量形式漂移（数值上是整数的 float 却写成
+    "32.0"/"1e3" 等非整数形式），用于驱动各写表子命令的回归测试。"""
+    text = path.read_text(encoding="utf-8")
+    matches = find_int_valued_float_literals(text)
+    testcase.assertEqual(
+        [], matches, msg=f"{path} 存在字面量形式漂移（数值上是整数却写成非整数 float 形式）: {matches}"
+    )
 
 
 class ImportAssetsTestBase(unittest.TestCase):
@@ -239,6 +307,42 @@ class SpriteBasicFlowTest(ImportAssetsTestBase):
             ]
         )
         self.assertEqual(0, code, msg=output)
+
+    def test_display_map_import_same_version_rerun_produces_identical_bytes(self) -> None:
+        """同版本重跑稳定性（不是字面量形式回归闸门——已用反证实验证实）：同一份输入用同一
+        版本代码连续导入两次，display.map.json 第二次写出的字节内容必须与第一次（setUp 里
+        已跑过一次）完全一致。注意：本用例只能防"重跑本身不稳定"（如依赖字典枚举顺序/浮点
+        运算不确定性），不能防"新写出的字面量形式与手写惯例/历史提交不一致"——同一版本的
+        （哪怕带漂移的）序列化逻辑连跑两次结果天然一致，测不出这类问题。把 common.py 回退到
+        引入 _normalize_json_literals 之前的版本后本用例仍然通过，证明了这一点。字面量形式
+        本身的回归闸门见 SpriteLiteralDriftRegressionTest（原始文本扫描 + 显式整数值 float
+        参数驱动）。"""
+        first_bytes = self.display_map_path.read_bytes()
+
+        code, output = run_cli(
+            [
+                "sprite",
+                str(self.src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.grey_wolf_test",
+                "--direction-count",
+                "8",
+                "--anchors",
+                str(self.anchors_path),
+                "--assets-root",
+                str(self.assets_root),
+                "--data-root",
+                str(self.data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        second_bytes = self.display_map_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
 
 
 class SpriteTrimTest(ImportAssetsTestBase):
@@ -728,10 +832,23 @@ class MapCommandTest(ImportAssetsTestBase):
         self.assertEqual(0, code, msg=output)
 
         world_map_path = data_root / "_test" / "world" / "world.map.json"
-        row = json.loads(world_map_path.read_text(encoding="utf-8"))["rows"][0]
+        raw_text = world_map_path.read_text(encoding="utf-8")
+        row = json.loads(raw_text)["rows"][0]
         self.assertEqual(16.0, row["image_transform"]["pixels_per_unit"])
         self.assertEqual({"x": 10.0, "y": 5.0}, row["image_transform"]["origin_px"])
         self.assertEqual({"x": 64, "y": 48}, row["image_transform"]["image_size_px"])
+
+        # 字面量形式回归（本 bug 的盲区）：assertEqual(16.0, row[...]) 测不出字面量形式，因为
+        # Python 里 16 == 16.0 为真；此处直接断言写出的原始文本，覆盖 --pixels-per-unit/
+        # --origin-px 这两个 type=float 的命令行参数，数值上是整数时必须写成整数字面量
+        # （"16"/"10"/"5"），不能写成 "16.0"/"10.0"/"5.0"（见 common.py 的
+        # _normalize_json_literals 判断记录）。用带引号的字段名前缀 + 数字 + 非数字字符的写法，
+        # 避免误匹配 "16" 是 "160" 前缀之类的子串问题。
+        self.assertIn('"pixels_per_unit": 16,', raw_text)
+        self.assertNotIn('"pixels_per_unit": 16.0', raw_text)
+        self.assertIn('"origin_px": {"x": 10, "y": 5}', raw_text)
+        self.assertNotIn("10.0", raw_text)
+        self.assertNotIn("5.0", raw_text)
 
         # 用 check --only world 交叉验证真正落地（image_transform 是可选字段，不应导致 check 失败）。
         code, output = run_cli(
@@ -748,6 +865,47 @@ class MapCommandTest(ImportAssetsTestBase):
             ]
         )
         self.assertEqual(0, code, msg=output)
+
+    def test_map_import_same_version_rerun_produces_identical_bytes(self) -> None:
+        """同版本重跑稳定性（不是字面量形式回归闸门——已用反证实验证实）：同一份输入用同一
+        版本代码连续导入两次，world.map.json 第二次写出的字节内容必须与第一次完全一致。
+        注意：本用例只能防"重跑本身不稳定"，不能防"新写出的字面量形式与手写惯例/历史提交
+        不一致"这个本 bug 的真实症状——同一版本的（哪怕带漂移的）序列化逻辑连跑两次结果天然
+        一致；把 common.py 回退到引入 _normalize_json_literals 之前的版本后本用例仍然通过，
+        证明了这一点。字面量形式本身的回归闸门见 MapLiteralDriftRegressionTest（原始文本扫描
+        + 显式整数值 float 参数驱动）。"""
+        case_dir = self.new_case_dir("map_cmd_idempotent")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (64, 48), "overlay": (64, 48)})
+
+        argv = [
+            "map",
+            str(src_dir),
+            "--map",
+            "idempotent_field",
+            "--dataset",
+            "_test",
+            "--pixels-per-unit",
+            "16",
+            "--origin-px",
+            "10,5",
+            "--assets-root",
+            str(assets_root),
+            "--data-root",
+            str(data_root),
+        ]
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        first_bytes = world_map_path.read_bytes()
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        second_bytes = world_map_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
 
     def test_map_dry_run_still_computes_image_size_without_writing(self) -> None:
         case_dir = self.new_case_dir("map_cmd_dry_run_image_size")
@@ -1179,6 +1337,49 @@ class VfxCommandTest(ImportAssetsTestBase):
         )
         self.assertEqual(0, code_check, msg=output_check)
 
+    def test_vfx_import_same_version_rerun_produces_identical_bytes(self) -> None:
+        """同版本重跑稳定性（不是字面量形式回归闸门——已用反证实验证实）：同一份输入用同一
+        版本代码连续导入两次，vfx.def.json 第二次写出的字节内容必须与第一次完全一致。注意：
+        本用例只能防"重跑本身不稳定"，不能防"新写出的字面量形式与手写惯例/历史提交不一致"
+        这个本 bug 的真实症状——同一版本的（哪怕带漂移的）序列化逻辑连跑两次结果天然一致；
+        把 common.py 回退到引入 _normalize_json_literals 之前的版本后本用例仍然通过，证明了
+        这一点。字面量形式本身的回归闸门见 VfxLiteralDriftRegressionTest（原始文本扫描 +
+        显式整数值 float 参数驱动）。"""
+        case_dir = self.new_case_dir("vfx_idempotent")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "spark_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(4):
+            make_layer_image((8, 8), color=(255, 200, 0, 255)).save(frames_dir / f"frame_{i:04d}.png")
+
+        argv = [
+            "vfx",
+            str(frames_dir),
+            "--dataset",
+            "_test",
+            "--id",
+            "vfx.idempotent_test",
+            "--fps",
+            "20",
+            "--lifetime",
+            "2",
+            "--assets-root",
+            str(assets_root),
+            "--data-root",
+            str(data_root),
+        ]
+        vfx_def_path = data_root / "_test" / "vfx" / "vfx.def.json"
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        first_bytes = vfx_def_path.read_bytes()
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        second_bytes = vfx_def_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
+
 
 class SfxCommandTest(ImportAssetsTestBase):
     def _write_silent_wav(self, path: Path, seconds: float = 0.1, framerate: int = 8000) -> None:
@@ -1267,6 +1468,47 @@ class SfxCommandTest(ImportAssetsTestBase):
             ["sfx.sword_hit_multi_test_v0", "sfx.sword_hit_multi_test_v1"], row["variants"]
         )
         self.assertIn(row["resource_ref"], row["variants"])
+
+    def test_sfx_import_same_version_rerun_produces_identical_bytes(self) -> None:
+        """同版本重跑稳定性（不是字面量形式回归闸门）：同一份输入用同一版本代码连续导入两次，
+        sfx.def.json 第二次写出的字节内容必须与第一次完全一致。注意：sfx 子命令的表字段目前
+        没有任何 float 类型的命令行参数流入（priority 是 type=int），本身就不存在本 bug 描述
+        的那类字面量漂移攻击面，因此本用例本来就不承担"字面量形式回归闸门"的职责，只保留其
+        "重跑本身稳定"这一独立价值；其余三个同名用例（map/display.map/vfx）在改名前确实曾被
+        误认为能防字面量漂移，已一并订正 docstring，见 assert_no_int_valued_float_literal_drift
+        判断记录。"""
+        case_dir = self.new_case_dir("sfx_idempotent")
+        assets_root, data_root = self.roots(case_dir)
+        wav_path = case_dir / "hit.wav"
+        self._write_silent_wav(wav_path)
+
+        argv = [
+            "sfx",
+            str(wav_path),
+            "--dataset",
+            "_test",
+            "--id",
+            "sfx.idempotent_test",
+            "--layer",
+            "combat",
+            "--priority",
+            "5",
+            "--assets-root",
+            str(assets_root),
+            "--data-root",
+            str(data_root),
+        ]
+        sfx_def_path = data_root / "_test" / "sfx" / "sfx.def.json"
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        first_bytes = sfx_def_path.read_bytes()
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        second_bytes = sfx_def_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
 
     def test_sfx_rejects_non_wav_file(self) -> None:
         case_dir = self.new_case_dir("sfx_cmd_reject")
@@ -1813,6 +2055,293 @@ class AssetImportErrorDirectTest(unittest.TestCase):
         self.assertEqual(4, len(all_slot_names(4)))
         self.assertEqual(8, len(all_slot_names(8)))
         self.assertEqual(16, len(all_slot_names(16)))
+
+
+class LiteralDriftScanHelperTest(unittest.TestCase):
+    """直接测试字面量漂移扫描工具本身（find_int_valued_float_literals），覆盖其正确性边界
+    ——这是后面所有"驱动子命令 + 扫原始文本"用例的地基，必须先证明扫描器本身可靠，尤其是
+    "不误判字符串内容里的数字子串"这一条（否则扫描器本身就会产生假阳性/假阴性）。"""
+
+    def test_detects_integer_valued_float_in_value_position(self) -> None:
+        text = '{"a": 32.0, "b": {"x": 0.0, "y": 1024.0}, "c": -16.0}'
+        self.assertEqual(["32.0", "0.0", "1024.0", "-16.0"], find_int_valued_float_literals(text))
+
+    def test_ignores_digits_inside_string_values(self) -> None:
+        # 字符串内容里碰巧出现的数字形式不应被误判（如资源引用/备注里恰好含 "2.0" 子串）。
+        text = '{"ref": "sprite/hero_2.0", "note": "v1.0 released", "x": 5}'
+        self.assertEqual([], find_int_valued_float_literals(text))
+
+    def test_escaped_quote_inside_string_does_not_break_masking(self) -> None:
+        text = r'{"note": "quote \" then 2.0 stays inside string", "x": 5}'
+        self.assertEqual([], find_int_valued_float_literals(text))
+
+    def test_detects_exponential_forms(self) -> None:
+        text = '{"a": 1e3, "b": 2E+5, "c": 3.0e2}'
+        self.assertEqual(["1e3", "2E+5", "3.0e2"], find_int_valued_float_literals(text))
+
+    def test_non_integer_float_is_not_flagged(self) -> None:
+        text = '{"a": 1.5, "b": 0.25, "c": -3.75, "d": 12.125}'
+        self.assertEqual([], find_int_valued_float_literals(text))
+
+    def test_plain_integers_are_not_flagged(self) -> None:
+        text = '{"a": 32, "b": -16, "c": 0, "d": 1024}'
+        self.assertEqual([], find_int_valued_float_literals(text))
+
+    def test_does_not_match_substring_of_longer_number(self) -> None:
+        # "160.0" 不应被误判出内部子串 "60.0"。
+        text = '{"a": 160.0}'
+        self.assertEqual(["160.0"], find_int_valued_float_literals(text))
+
+
+class MapLiteralDriftRegressionTest(ImportAssetsTestBase):
+    """字面量漂移回归闸门（补 077bf765 幂等性用例测不出的洞）：map 子命令用显式整数值 float
+    参数驱动（--pixels-per-unit/--origin-px/--spawn 三个 type=float 命令行路径），断言写出的
+    world.map.json 原始文本里不出现 "32.0" 这类漂移形式，同时断言真正的非整数 float 原样保留
+    （防止将来有人把规范化写成截断）。已用反证实验确认：把 common.py 回退到 077bf765^
+    （_normalize_json_literals 引入前的版本）后，本类两个用例均会失败（结论见任务报告）。"""
+
+    def _build_layer_src(self, src_dir: Path, layers: dict[str, tuple[int, int]]) -> None:
+        src_dir.mkdir(parents=True, exist_ok=True)
+        for name, size in layers.items():
+            make_layer_image(size, color=(30, 60, 30, 255)).save(src_dir / f"{name}.png")
+
+    def test_integer_valued_float_args_produce_integer_literals(self) -> None:
+        case_dir = self.new_case_dir("map_literal_drift_int")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (64, 48), "overlay": (64, 48)})
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "literal_int_field",
+                "--dataset",
+                "_test",
+                "--pixels-per-unit",
+                "32.0",
+                "--origin-px",
+                "0.0,1024.0",
+                "--spawn",
+                "3.0,4.0,90.0",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+        assert_no_int_valued_float_literal_drift(self, world_map_path)
+
+        raw_text = world_map_path.read_text(encoding="utf-8")
+        self.assertIn('"pixels_per_unit": 32,', raw_text)
+        self.assertIn('"origin_px": {"x": 0, "y": 1024}', raw_text)
+        self.assertIn('"position": {"x": 3, "y": 4}, "facing": 90', raw_text)
+
+    def test_non_integer_float_args_are_preserved_as_float(self) -> None:
+        case_dir = self.new_case_dir("map_literal_drift_frac")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (64, 48), "overlay": (64, 48)})
+
+        code, output = run_cli(
+            [
+                "map",
+                str(src_dir),
+                "--map",
+                "literal_frac_field",
+                "--dataset",
+                "_test",
+                "--pixels-per-unit",
+                "16.5",
+                "--origin-px",
+                "1.25,2.75",
+                "--spawn",
+                "3.5,4.25,12.5",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+        # 先确认这些非整数值本身没有被上面的整数化规则误伤（回归防线：别把规范化写成截断）。
+        assert_no_int_valued_float_literal_drift(self, world_map_path)
+
+        raw_text = world_map_path.read_text(encoding="utf-8")
+        self.assertIn('"pixels_per_unit": 16.5,', raw_text)
+        self.assertIn('"origin_px": {"x": 1.25, "y": 2.75}', raw_text)
+        self.assertIn('"position": {"x": 3.5, "y": 4.25}, "facing": 12.5', raw_text)
+
+
+class SpriteLiteralDriftRegressionTest(ImportAssetsTestBase):
+    """字面量漂移回归闸门（补 077bf765 幂等性用例测不出的洞）：sprite 子命令用显式整数值
+    float 参数驱动（--scale/--pixels-per-unit 两个 type=float 命令行路径，落到 display.map
+    表），断言写出的 display.map.json 原始文本里不出现漂移形式，同时断言真正的非整数 float
+    原样保留。已用反证实验确认：把 common.py 回退到 077bf765^ 后，本类两个用例均会失败
+    （结论见任务报告）。"""
+
+    def test_integer_valued_float_args_produce_integer_literals(self) -> None:
+        case_dir = self.new_case_dir("sprite_literal_drift_int")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "wolf_literal_int"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+
+        anchors_path = case_dir / "anchors.json"
+        # root=[32,64] / --pixels-per-unit 16.0 -> anchor_points.root = {x:2.0, y:4.0}，
+        # 数值上是整数，规范化后应写成 {"x": 2, "y": 4}。
+        write_json(anchors_path, {slot: {"root": [32, 64]} for slot in CANONICAL_8})
+
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.wolf_literal_int_test",
+                "--anchors",
+                str(anchors_path),
+                "--scale",
+                "2.0",
+                "--pixels-per-unit",
+                "16.0",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        display_map_path = data_root / "_test" / "display" / "display.map.json"
+        assert_no_int_valued_float_literal_drift(self, display_map_path)
+
+        raw_text = display_map_path.read_text(encoding="utf-8")
+        self.assertIn('"scale": 2,', raw_text)
+        self.assertIn('"root": {"x": 2, "y": 4}', raw_text)
+
+    def test_non_integer_float_args_are_preserved_as_float(self) -> None:
+        case_dir = self.new_case_dir("sprite_literal_drift_frac")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "wolf_literal_frac"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+
+        anchors_path = case_dir / "anchors.json"
+        # root=[10,20] / --pixels-per-unit 默认 32.0 -> anchor_points.root = {x:0.3125, y:0.625}
+        # （10/32、20/32 均精确不循环，round 不影响结果），真正的非整数值，必须原样保留。
+        write_json(anchors_path, {slot: {"root": [10, 20]} for slot in CANONICAL_8})
+
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.wolf_literal_frac_test",
+                "--anchors",
+                str(anchors_path),
+                "--scale",
+                "1.5",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        display_map_path = data_root / "_test" / "display" / "display.map.json"
+        assert_no_int_valued_float_literal_drift(self, display_map_path)
+
+        raw_text = display_map_path.read_text(encoding="utf-8")
+        self.assertIn('"scale": 1.5,', raw_text)
+        self.assertIn('"root": {"x": 0.3125, "y": 0.625}', raw_text)
+
+
+class VfxLiteralDriftRegressionTest(ImportAssetsTestBase):
+    """字面量漂移回归闸门（补 077bf765 幂等性用例测不出的洞）：vfx 子命令用显式整数值 float
+    参数驱动（--lifetime，type=float 命令行路径，写入 vfx.def.json 的 lifetime 字段）。只扫描
+    vfx.def.json（merge_write_row/_row_json 唯一落点）；frames.json 走 write_json_pretty 旁路，
+    077bf765 提交说明已明确排除在本次修复范围外（该旁路已提交数据里存在大量 "fps": 20.0 等
+    整数值 float，规范化会改动已提交样例数据字面量，留给设计层另行拍板），不在本用例断言
+    范围内。已用反证实验确认：把 common.py 回退到 077bf765^ 后，本类两个用例均会失败
+    （结论见任务报告）。"""
+
+    def _build_frames(self, frames_dir: Path) -> None:
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(2):
+            make_layer_image((8, 8), color=(255, 120, 0, 255)).save(frames_dir / f"frame_{i:04d}.png")
+
+    def test_integer_valued_lifetime_produces_integer_literal(self) -> None:
+        case_dir = self.new_case_dir("vfx_literal_drift_int")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "frames"
+        self._build_frames(frames_dir)
+
+        code, output = run_cli(
+            [
+                "vfx",
+                str(frames_dir),
+                "--dataset",
+                "_test",
+                "--id",
+                "vfx.literal_int_test",
+                "--lifetime",
+                "2.0",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        vfx_def_path = data_root / "_test" / "vfx" / "vfx.def.json"
+        assert_no_int_valued_float_literal_drift(self, vfx_def_path)
+
+        raw_text = vfx_def_path.read_text(encoding="utf-8")
+        self.assertIn('"lifetime": 2,', raw_text)
+
+    def test_non_integer_lifetime_is_preserved_as_float(self) -> None:
+        case_dir = self.new_case_dir("vfx_literal_drift_frac")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "frames"
+        self._build_frames(frames_dir)
+
+        code, output = run_cli(
+            [
+                "vfx",
+                str(frames_dir),
+                "--dataset",
+                "_test",
+                "--id",
+                "vfx.literal_frac_test",
+                "--lifetime",
+                "3.5",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+
+        vfx_def_path = data_root / "_test" / "vfx" / "vfx.def.json"
+        assert_no_int_valued_float_literal_drift(self, vfx_def_path)
+
+        raw_text = vfx_def_path.read_text(encoding="utf-8")
+        self.assertIn('"lifetime": 3.5,', raw_text)
 
 
 if __name__ == "__main__":
