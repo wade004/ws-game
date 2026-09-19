@@ -94,6 +94,11 @@ namespace Presentation.VfxSfx.Core
             _resourceLoader = resourceLoader;
         }
 
+        /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：见
+        /// <see cref="Presentation.VfxSfx.Core.VfxPlayer.Diagnostics"/> 同款判断记录——ABI 只新增只读
+        /// 属性，暴露构造期注入（或默认自建）的诊断实例供 adapters/unity 轮询转发。</summary>
+        public IPresentationDiagnostics Diagnostics => _diagnostics;
+
         public SfxHandle? Play(Id sfxId, Vec2? at)
         {
             SweepTimedOutPendingPlays();

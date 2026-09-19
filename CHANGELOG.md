@@ -490,6 +490,34 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   产出完整报告、退出码回到正常的"校验失败"语义（1），不再是 CLR 崩溃码。详见
   [消费方反馈-2026-09-19-编辑器-第73条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第73条.md)。
 
+- **表现层诊断转发到引擎控制台——补上 Vfx/Sfx/Feedback/ViewBinder 四条链路（1.45.0 遗留缺口收口）**：
+  1.45.0 只接了 `SpriteCharacterRig.Diagnostics` 一条链路，`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`
+  （含 `HitFrameSyncPolicy`，两者共享同一诊断实例）/`ViewBinder` 虽然都已接受可选构造参数
+  `diagnostics`，却都没有公开出口能读到它，`presentation/assembly/PresentationAssembly` 装配时也
+  从未对外暴露，adapters/unity 拿不到引用、无法转发。四个类型各自补上
+  `public IPresentationDiagnostics Diagnostics { get; }`（ABI 只新增只读属性），
+  `PresentationAssembly` 新增 `VfxDiagnostics`/`SfxDiagnostics` 转发属性（`Feedback`/`ViewBinder`
+  本身是具体类型，直接读其 `.Diagnostics`）。设计取舍（判断记录见
+  `presentation/assembly/README.md` 判断记录 10）：四条链路**各自独立** `PresentationDiagnosticsRecorder`
+  （不共享实例，保留"某子系统的 `Warnings` 只含自己产生的消息"这一属性），本装配根不改变对这四个
+  类型的构造调用。适配层新增 `PresentationAssemblyDiagnosticsForwarder`
+  （`Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs`）接住这四个来源，复用既有
+  `PresentationDiagnosticsConsoleGate`/`SpriteRigDiagnosticsPump`，持有一个独立于
+  `UnityViewFactory._diagnosticsGate` 的另一个 gate 实例（与 rig 消息量互不挤占）；级别映射/去重/
+  开关语义与既有 `SpriteCharacterRig` 链路一致（恒 Warning，不用 Error）。三处生产装配入口
+  （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` `GameBootstrap`）的
+  `AdvanceCharacterRigs` 均已接入（紧跟 `ViewFactory.PumpDiagnostics()` 之后调用
+  `_presentationDiagnosticsForwarder?.Pump()`），
+  `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py` 新增第二组
+  参数化断言同步守住这一行。新增测试：`VfxPlayerTests`/`SfxPlayerTests`/`FeedbackBinderTests`/
+  `ViewBinderTests` 各自的 `Diagnostics_*` 用例（`dotnet test` 侧覆盖新属性）、
+  `PresentationAssemblyTests.VfxSfxFeedbackViewBinderDiagnostics_AreExposed_AndEachIndependent`
+  （覆盖转发属性接线与"四份互不相同"设计取舍）、
+  `adapters/unity/DiagnosticsForwarding/tests/PresentationDiagnosticsConsoleForwardingTests.cs`
+  新增 `PresentationAssemblyDiagnosticsForwarderTests`（7 例）。均已对"四类型 `Diagnostics` 属性
+  返回错误实例""`PresentationAssembly` 转发属性接错实例""轮询循环漏掉一个来源""三处生产入口漏接
+  `Pump()` 调用"四类改动分别做过反向确认（临时破坏、确认对应测试必然失败、已还原）。
+
 ## [1.45.0] - 2026-09-19
 
 本版落地消费方反馈第 67～72 条（ADR-0040 运行期宿主命令行能力契约；常驻运行入口、参数化内容

@@ -173,6 +173,17 @@ namespace Presentation.Assembly
 
         public ISfxPlayer Sfx { get; }
 
+        /// <summary>诊断转发到引擎控制台跟进（判断记录 10）：<see cref="Vfx"/> 是接口类型
+        /// （<see cref="IVfxPlayer"/> 未声明 <c>Diagnostics</c>），本属性直接转发内部
+        /// <see cref="Presentation.VfxSfx.Core.VfxPlayer"/> 实例新增的
+        /// <see cref="Presentation.VfxSfx.Core.VfxPlayer.Diagnostics"/>，供 adapters/unity 不需要
+        /// 向下转型即可拿到轮询转发所需的诊断源。</summary>
+        public IPresentationDiagnostics VfxDiagnostics { get; }
+
+        /// <summary>诊断转发到引擎控制台跟进（判断记录 10）：同 <see cref="VfxDiagnostics"/>，转发
+        /// <see cref="Presentation.VfxSfx.Core.SfxPlayer.Diagnostics"/>。</summary>
+        public IPresentationDiagnostics SfxDiagnostics { get; }
+
         public IWeaponStyleResolver WeaponStyle { get; }
 
         /// <summary>缺口 12：分层音量宿主，见 <see cref="Presentation.VfxSfx.Contracts.IAudioLayerVolumeHost"/>。</summary>
@@ -373,6 +384,12 @@ namespace Presentation.Assembly
             var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, resourceLoader: resourceLoader);
             Vfx = vfxPlayer;
             Sfx = sfxPlayer;
+            // 诊断转发到引擎控制台跟进（判断记录 10）：见 VfxDiagnostics/SfxDiagnostics 属性注释——
+            // 本装配根不传 diagnostics 构造参数给 VfxPlayer/SfxPlayer（保持"各自独立默认自建一份
+            // PresentationDiagnosticsRecorder"，不引入共享实例，见判断记录 10 取舍理由），这里只是
+            // 把各自已经默认构造好的实例转发出去，本身不改变任何既有构造行为。
+            VfxDiagnostics = vfxPlayer.Diagnostics;
+            SfxDiagnostics = sfxPlayer.Diagnostics;
             WeaponStyle = new WeaponStyleResolver(weaponStyleCatalog);
             VfxSfxDisplayInfoResolver = new DisplayInfoResolver(DisplayInfo);
 

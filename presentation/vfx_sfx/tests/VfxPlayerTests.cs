@@ -211,6 +211,35 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void Diagnostics_ExposesInjectedInstance_ForExternalPolling()
+        {
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：新增公开
+            // 属性 Diagnostics 必须是构造期注入的同一个实例，adapters/unity 侧才能拿到正确的引用
+            // 轮询转发，而不是转发一份"看起来一样但其实是另一份"的诊断记录。
+            var renderer = new StubRenderer2D();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), diagnostics: diagnostics);
+
+            Assert.Same(diagnostics, player.Diagnostics);
+        }
+
+        [Fact]
+        public void Diagnostics_NotInjected_DefaultsToRecorder_AndReflectsWarnings()
+        {
+            // 未显式注入 diagnostics 时（PresentationAssembly 当前对 VfxPlayer/SfxPlayer 就是这种
+            // 用法，见判断记录 10"各自独立"取舍），Diagnostics 属性仍必须可用且能反映真实产生的
+            // 警告——adapters/unity 侧的 PresentationAssemblyDiagnosticsForwarder 依赖把它转型为
+            // PresentationDiagnosticsRecorder 才能轮询，这里直接断言该转型成立。
+            var renderer = new StubRenderer2D();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog());
+
+            player.Spawn(new Id("vfx.does_not_exist"), VfxAttach.World(Vec2.Zero), null);
+
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(player.Diagnostics);
+            Assert.Single(recorder.Warnings);
+        }
+
+        [Fact]
         public void Pool_EvictsSoonestToExpire_WhenCategoryCapacityExceeded()
         {
             var renderer = new StubRenderer2D();

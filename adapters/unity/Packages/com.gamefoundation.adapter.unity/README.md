@@ -444,8 +444,27 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   补上 `ViewFactory.PumpDiagnostics()`（游戏模板作为真实游戏的生产入口，是这份转发最该生效的地方，
   见该文件 README"长驻可交互运行"节后判断记录），三处 `AdvanceCharacterRigs` 现均已接线；新增
   `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py` 脱离 Unity 校验
-  三处保持同步，已做反向确认。`VfxPlayer`/`SfxPlayer`/`CompositeFeedbackSink`/`FeedbackBinder`/
-  `ViewBinder`/`HitFrameSyncPolicy` 缺注入点这一条仍未处理，待设计层确认。
+  三处保持同步，已做反向确认。
+  <br/>**再次跟进（2026-09-19，presentation/assembly/README.md 判断记录 10）**：`VfxPlayer`/
+  `SfxPlayer`/`FeedbackBinder`（含 `HitFrameSyncPolicy`，两者共享同一诊断实例）/`ViewBinder` 缺注入点
+  这一条已收口——四个类型各自补上 `public IPresentationDiagnostics Diagnostics { get; }`，
+  `PresentationAssembly` 新增 `VfxDiagnostics`/`SfxDiagnostics` 转发属性（`Feedback`/`ViewBinder`
+  本身是具体类型，直接读其 `.Diagnostics`）。适配层新增
+  `PresentationAssemblyDiagnosticsForwarder`（同文件 `PresentationDiagnosticsConsoleForwarding.cs`）
+  接住这四个来源，复用既有 `PresentationDiagnosticsConsoleGate`/`SpriteRigDiagnosticsPump`；持有
+  一个独立于 `UnityViewFactory._diagnosticsGate` 的另一个 gate 实例（四个装配级单例来源共享同一个
+  gate，与 rig 消息量可能远高于它们这一条互不挤占，见判断记录 10"隔离性"取舍），四个来源本身各自
+  独立的 `PresentationDiagnosticsRecorder`（不共享实例，理由同判断记录 10）。三个生产装配入口
+  （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` `GameBootstrap`）在
+  `PresentationAssembly` 构造完成后各自持有一个 `PresentationAssemblyDiagnosticsForwarder` 实例
+  （sink 固定传 `UnityPresentationDiagnosticsConsoleSink.Instance`，与 `UnityViewFactory` 默认兜底到
+  的同一个单例），`AdvanceCharacterRigs` 里紧跟 `ViewFactory.PumpDiagnostics()` 之后调用
+  `_presentationDiagnosticsForwarder?.Pump()`；`test_diagnostics_forwarding_advance_character_rigs_wiring.py`
+  新增第二组参数化断言同步守住这一行，同 `ViewFactory.PumpDiagnostics()` 那一行一样三处不能漏。
+  纯逻辑部分（`PresentationAssemblyDiagnosticsForwarder`）与四个类型的 `Diagnostics` 属性均已在
+  `dotnet test` 侧新增测试覆盖，并对"轮询循环漏掉一个来源""`PresentationAssembly` 转发属性接错
+  实例""三处生产入口漏接 `Pump()` 调用"三类改动分别做过反向确认（临时破坏、确认对应测试必然失败、
+  已还原）。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 

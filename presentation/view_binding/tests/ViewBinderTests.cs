@@ -581,6 +581,26 @@ namespace Tests.PresentationViewBinding
 
             Assert.Null(result);
             Assert.NotEmpty(diagnostics.Warnings);
+
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：新增公开
+            // 属性 Diagnostics 必须是构造期注入的同一个实例，adapters/unity 侧才能拿到正确的引用
+            // 轮询转发。
+            Assert.Same(diagnostics, binder.Diagnostics);
+        }
+
+        [Fact]
+        public void Diagnostics_NotInjected_DefaultsToRecorder_AndReflectsWarnings()
+        {
+            var (world, bus) = BuildWorld();
+            var factory = new FakeViewFactory();
+            var displayInfo = new FakeDisplayInfoRegistry();
+            var snapshot = new WorldSimSnapshot(world);
+            var binder = new ViewBinder(bus, factory, snapshot, displayInfo);
+
+            binder.GetAnchorWorldPosition(new Id("unit.missing"), new Id("anchor.hand_main"));
+
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(binder.Diagnostics);
+            Assert.NotEmpty(recorder.Warnings);
         }
 
         [Fact]

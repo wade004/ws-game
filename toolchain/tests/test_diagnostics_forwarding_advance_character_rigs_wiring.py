@@ -44,6 +44,12 @@ REPO_ROOT = TOOLCHAIN_DIR.parent
 
 _PUMP_CALL_RE = re.compile(r"ViewFactory!?\.PumpDiagnostics\(\)\s*;")
 
+# presentation/assembly/README.md 判断记录 10 跟进：VfxPlayer/SfxPlayer/FeedbackBinder（含
+# HitFrameSyncPolicy）/ViewBinder 四条新增诊断源经 PresentationAssemblyDiagnosticsForwarder 轮询
+# 转发，接线点同样是三处 AdvanceCharacterRigs（紧跟 ViewFactory.PumpDiagnostics() 之后）——同一类
+# "三处近似重复代码，改了两处漏第三处"的缺陷模式，一并做成回归断言，不能只靠新增当轮人工核对。
+_PRESENTATION_DIAGNOSTICS_PUMP_CALL_RE = re.compile(r"_presentationDiagnosticsForwarder\?\.Pump\(\)\s*;")
+
 # 三处生产入口的 AdvanceCharacterRigs 同名方法，均按"推进仍存活 rig -> 顺带转发诊断"同一套惯例
 # 接线（见 UnityViewFactory.PumpDiagnostics 判断记录"本工厂是唯一持有 SpriteCharacterRig 引用的
 # adapters/unity 代码"）。三项路径均为仓库相对路径，跨平台统一用正斜杠。
@@ -97,6 +103,18 @@ def test_advance_character_rigs_calls_pump_diagnostics(rel_path: str) -> None:
         "三处近似重复的生产入口必须保持一致接线（见 UnityViewFactory.PumpDiagnostics 判断记录），"
         "遗漏这一行会让该入口下真实游戏的诊断转发静默失效，控制台不会输出任何 "
         "SpriteCharacterRig.Diagnostics 警告。"
+    )
+
+
+@pytest.mark.parametrize("rel_path", _SOURCE_FILES)
+def test_advance_character_rigs_calls_presentation_diagnostics_forwarder_pump(rel_path: str) -> None:
+    text = _read_source(rel_path)
+    body = _extract_method_body(text, rel_path)
+    assert _PRESENTATION_DIAGNOSTICS_PUMP_CALL_RE.search(body), (
+        f"{rel_path}: `AdvanceCharacterRigs()` 方法体未调用 `_presentationDiagnosticsForwarder?.Pump()`"
+        "——presentation/assembly/README.md 判断记录 10 新增的 Vfx/Sfx/Feedback/ViewBinder 四条诊断"
+        "链路转发同样要求三处生产入口保持一致接线，遗漏这一行会让该入口下这四条链路的诊断转发静默"
+        "失效。"
     )
 
 

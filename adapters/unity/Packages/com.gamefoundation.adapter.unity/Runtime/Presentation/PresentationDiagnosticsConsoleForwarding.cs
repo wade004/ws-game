@@ -6,17 +6,20 @@
 // API，供 dotnet test 侧直接验证；真正调用 UnityEngine.Debug 的胶水见同目录
 // UnityPresentationDiagnosticsConsoleSink.cs。
 //
-// 判断记录（改动为什么只落在这里，不动 presentation/）：IPresentationDiagnostics 的全部现有消费方
-// （VfxPlayer/SfxPlayer/CompositeFeedbackSink/FeedbackBinder/ViewBinder/HitFrameSyncPolicy）都在各自
-// 构造函数里接受可选 `diagnostics` 参数，但 presentation/assembly/PresentationAssembly.cs 装配这些
-// 类型时从未把这个参数对外暴露或注入同一个共享实例——各自默认各自 `new PresentationDiagnosticsRecorder()`，
-// adapters/unity 拿不到这些实例的引用，无法转发。真正对外公开的诊断源只有
-// Presentation.Render.SpriteCharacterRig.Diagnostics 这一个只读属性（该类型未走构造期注入模式，固定
-// 用一个内存 recorder 并公开暴露，见该类型顶部"复用 IPresentationDiagnostics"判断记录）。本次改动
-// 只覆盖这一个可达诊断源（对应背景里"资源加载失败保留占位方块"的原始场景，
-// SpriteCharacterRig.HandleResourceLoadCompleted 判断记录），VfxPlayer/SfxPlayer 等其余诊断源需要
-// presentation/assembly 新增一个可选注入点（ABI 只新增字段，但改动面在 presentation/，超出本任务
-// "只落在引擎适配层"的声明范围）——标注待设计层确认，不擅自改 presentation/。
+// 判断记录（1.45.0 遗留缺口，本轮已收口——见下方 PresentationAssemblyDiagnosticsForwarder）：
+// IPresentationDiagnostics 的全部现有消费方（VfxPlayer/SfxPlayer/CompositeFeedbackSink/
+// FeedbackBinder/ViewBinder/HitFrameSyncPolicy）都在各自构造函数里接受可选 `diagnostics` 参数，但
+// 1.45.0 发布时 presentation/assembly/PresentationAssembly.cs 装配这些类型时从未把这个参数对外
+// 暴露——各自默认各自 `new PresentationDiagnosticsRecorder()`，adapters/unity 当时拿不到这些实例的
+// 引用，无法转发，只覆盖了 Presentation.Render.SpriteCharacterRig.Diagnostics 这一个可达诊断源
+// （该类型未走构造期注入模式，固定用一个内存 recorder 并公开暴露，见该类型顶部"复用
+// IPresentationDiagnostics"判断记录）。本轮（presentation/assembly/README.md 判断记录 10）给
+// VfxPlayer/SfxPlayer/FeedbackBinder/ViewBinder 各自补上了 `public IPresentationDiagnostics
+// Diagnostics { get; }` 公开出口（ABI 只新增只读属性），`PresentationAssembly` 新增
+// `VfxDiagnostics`/`SfxDiagnostics` 转发属性（`Feedback`/`ViewBinder` 本身是具体类型，直接读其
+// `.Diagnostics`），adapters/unity 现在能拿到全部四个来源的引用——本文件新增
+// `PresentationAssemblyDiagnosticsForwarder` 接住它们，复用 `PresentationDiagnosticsConsoleGate`/
+// `SpriteRigDiagnosticsPump` 不新造去重/淘汰逻辑。
 //
 // 判断记录（级别映射）：IPresentationDiagnostics 契约当前只有 Warn(string) 一个方法，没有 Error 级
 // （对照同仓库其它诊断契约，如 Core.Foundation.Expr.IExprDiagnostics 同时有 Warn/Error 两级——
@@ -185,6 +188,100 @@ namespace Adapter.Unity.Presentation
             }
 
             _lastForwardedCount[recorder] = warnings.Count;
+        }
+    }
+
+    /// <summary>
+    /// 诊断转发到引擎控制台跟进（<c>presentation/assembly/README.md</c> 判断记录 10）：把
+    /// <c>VfxPlayer</c>/<c>SfxPlayer</c>/<c>FeedbackBinder</c>（含 <c>HitFrameSyncPolicy</c>，两者
+    /// 共享同一诊断实例，见 <c>FeedbackBinder.Diagnostics</c> 判断记录）/<c>ViewBinder</c> 四条新增
+    /// 可达诊断源接入既有转发基础设施——复用本文件的 <see cref="PresentationDiagnosticsConsoleGate"/>/
+    /// <see cref="SpriteRigDiagnosticsPump"/>，不新造去重/淘汰逻辑。
+    /// <para>
+    /// 判断记录（四个来源各自独立 recorder，但共享同一个 gate/sink）：见
+    /// <c>presentation/assembly/README.md</c> 判断记录 10 的取舍理由——四个来源在
+    /// <see cref="Presentation.Assembly.PresentationAssembly"/> 构造期各自默认自建一份
+    /// <c>PresentationDiagnosticsRecorder</c>（不共享实例，保留"某子系统的 <c>Warnings</c> 只含
+    /// 自己产生的消息"这一属性），但同一进程只有一个引擎控制台，去重/上限淘汰天然应当是全局的
+    /// （与 <see cref="Presentation.Render.SpriteCharacterRig"/> 那条既有链路共用同一套"消息文本即
+    /// 去重键"语义一致）；
+    /// 本类型因此持有独立于 <c>UnityViewFactory._diagnosticsGate</c> 的另一个 <see cref="PresentationDiagnosticsConsoleGate"/>
+    /// 实例（rig 消息量可能远高于这四个装配级单例来源，见判断记录 10"隔离性"取舍——两条转发路径
+    /// 各自 500 容量，互不挤占彼此的去重表），四个来源之间则共享同一个 gate 实例（本类型内部）。
+    /// </para>
+    /// <para>
+    /// 判断记录（<paramref name="sink"/> 为什么是必填参数，没有像 <c>UnityViewFactory</c> 那样默认
+    /// 兜底到 <c>UnityPresentationDiagnosticsConsoleSink.Instance</c>）：本类型物理落在本文件——供
+    /// <c>dotnet test</c> 侧 <c>Adapters.Unity.DiagnosticsForwarding</c> 项目编译验证的纯逻辑文件
+    /// （不引用 UnityEngine，见文件顶部判断记录），该 csproj 的编译范围只包含这一个源文件；
+    /// <c>UnityPresentationDiagnosticsConsoleSink</c> 定义在同目录但引用 UnityEngine 的另一个文件，
+    /// 在这里默认引用它会让 dotnet test 编译失败。三个生产装配入口（<c>GameFoundationBootstrap</c>/
+    /// <c>FrameworkResidentHost</c>/<c>games/_template</c> <c>GameBootstrap</c>）构造本类型时一律显式
+    /// 传 <c>UnityPresentationDiagnosticsConsoleSink.Instance</c>——与 <c>UnityViewFactory</c> 默认
+    /// 兜底到的同一个单例，最终写入同一个引擎控制台，两条转发路径不会有一条能转发一条不能转发的
+    /// 割裂体验。
+    /// </para>
+    /// </summary>
+    public sealed class PresentationAssemblyDiagnosticsForwarder
+    {
+        private readonly PresentationDiagnosticsConsoleGate _gate;
+        private readonly IPresentationDiagnosticsConsoleSink _sink;
+        private readonly SpriteRigDiagnosticsPump _pump = new SpriteRigDiagnosticsPump();
+        private readonly PresentationDiagnosticsRecorder?[] _recorders;
+
+        /// <summary>四个诊断源均可选（<c>null</c> 表示该链路本次装配未启用/调用方自定义了非
+        /// <see cref="PresentationDiagnosticsRecorder"/> 的 <see cref="IPresentationDiagnostics"/>
+        /// 实现，见 <see cref="Pump"/> 判断记录"静默跳过"），供三个生产装配入口按各自持有的
+        /// <c>PresentationAssembly</c> 实例传入
+        /// <c>presentation.VfxDiagnostics</c>/<c>presentation.SfxDiagnostics</c>/
+        /// <c>presentation.Feedback.Diagnostics</c>/<c>presentation.ViewBinder.Diagnostics</c>。</summary>
+        public PresentationAssemblyDiagnosticsForwarder(
+            IPresentationDiagnosticsConsoleSink sink,
+            IPresentationDiagnostics? vfxDiagnostics,
+            IPresentationDiagnostics? sfxDiagnostics,
+            IPresentationDiagnostics? feedbackDiagnostics,
+            IPresentationDiagnostics? viewBinderDiagnostics,
+            bool enabled = true,
+            int capacity = PresentationDiagnosticsConsoleGate.DefaultCapacity)
+        {
+            _sink = sink ?? throw new ArgumentNullException(nameof(sink));
+            _gate = new PresentationDiagnosticsConsoleGate(enabled, capacity);
+            _recorders = new[]
+            {
+                vfxDiagnostics as PresentationDiagnosticsRecorder,
+                sfxDiagnostics as PresentationDiagnosticsRecorder,
+                feedbackDiagnostics as PresentationDiagnosticsRecorder,
+                viewBinderDiagnostics as PresentationDiagnosticsRecorder,
+            };
+        }
+
+        /// <summary>开关：同 <c>UnityViewFactory.DiagnosticsConsoleForwardingEnabled</c> 同一惯例——
+        /// 默认开启，可运行期读写；关闭期间路过的消息不计入去重表（见
+        /// <see cref="PresentationDiagnosticsConsoleGate.Enabled"/> 判断记录），是独立于
+        /// <c>UnityViewFactory</c> 那一个开关的另一个开关（两条转发路径各自的 gate 本就相互独立，
+        /// 见类型注释）。</summary>
+        public bool Enabled
+        {
+            get => _gate.Enabled;
+            set => _gate.Enabled = value;
+        }
+
+        /// <summary>逐一轮询四个诊断源自上次调用以来新增的警告，经共享 <see cref="_gate"/> 去重后
+        /// 转发到 <see cref="_sink"/>；某个来源为 <c>null</c>（未提供）或不是
+        /// <see cref="PresentationDiagnosticsRecorder"/>（调用方自定义了 <see cref="IPresentationDiagnostics"/>
+        /// 实现）时静默跳过，不阻断其余来源——同 <c>UnityViewFactory.PumpDiagnostics</c> 对 <c>model</c>
+        /// 型 View 静默跳过的既有惯例。供三个生产装配入口各自的 <c>AdvanceCharacterRigs</c> 每帧调用
+        /// 一次（紧跟 <c>ViewFactory.PumpDiagnostics()</c> 之后，同一步骤内完成，不新增独立遍历）。</summary>
+        public void Pump()
+        {
+            for (var i = 0; i < _recorders.Length; i++)
+            {
+                var recorder = _recorders[i];
+                if (recorder != null)
+                {
+                    _pump.Pump(recorder, _gate, _sink);
+                }
+            }
         }
     }
 }

@@ -162,6 +162,13 @@ namespace Presentation.VfxSfx.Core
             _particleRepositioner = renderer2D as IParticleRepositioner;
         }
 
+        /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：对外
+        /// 暴露构造期注入（或默认自建）的 <see cref="IPresentationDiagnostics"/> 实例，供
+        /// <c>adapters/unity</c> 侧轮询转发到引擎控制台——此前本类型虽然已接受可选 <c>diagnostics</c>
+        /// 构造参数，却没有任何公开出口能读到它，装配方无法转发。ABI 只新增只读属性，不影响既有
+        /// 构造签名/字段。</summary>
+        public IPresentationDiagnostics Diagnostics => _diagnostics;
+
         public ParticleHandle? Spawn(Id vfxId, VfxAttach at, IReadOnlyDictionary<string, double>? parameters)
         {
             if (!_catalog.TryGetValue(vfxId, out var def))

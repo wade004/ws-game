@@ -232,6 +232,34 @@ namespace Tests.Presentation.Assembly
         }
 
         [Fact]
+        public void VfxSfxFeedbackViewBinderDiagnostics_AreExposed_AndEachIndependent()
+        {
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：
+            // VfxDiagnostics/SfxDiagnostics 必须与内部 VfxPlayer/SfxPlayer 各自持有的 Diagnostics
+            // 是同一个实例（adapters/unity 侧靠这份引用轮询转发，见 PresentationAssemblyDiagnosticsForwarder）；
+            // Feedback/ViewBinder 本身是具体类型，直接读 .Diagnostics 即可，不需要额外转发属性。
+            var presentation = Build(out _, out _, out _, out _);
+
+            Assert.NotNull(presentation.VfxDiagnostics);
+            Assert.NotNull(presentation.SfxDiagnostics);
+            Assert.NotNull(presentation.Feedback.Diagnostics);
+            Assert.NotNull(presentation.ViewBinder.Diagnostics);
+
+            Assert.Same(presentation.VfxDiagnostics, Assert.IsType<global::Presentation.VfxSfx.Core.VfxPlayer>(presentation.Vfx).Diagnostics);
+            Assert.Same(presentation.SfxDiagnostics, Assert.IsType<global::Presentation.VfxSfx.Core.SfxPlayer>(presentation.Sfx).Diagnostics);
+
+            // 判断记录 10 的取舍（各自独立，不共享一个 PresentationDiagnosticsRecorder）：本装配根
+            // 不传 diagnostics 构造参数给这四个类型，四份实例互不相同——若未来有人误改成共享一个
+            // 实例，本断言会失败，提醒改动者这是一次需要更新判断记录的有意设计变更，不是顺手重构。
+            var recorders = new object[]
+            {
+                presentation.VfxDiagnostics, presentation.SfxDiagnostics,
+                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics,
+            };
+            Assert.Equal(recorders.Length, new HashSet<object>(recorders, ReferenceEqualityComparer.Instance).Count);
+        }
+
+        [Fact]
         public void DamageEvent_DispatchesFloatingText_ViaFeedbackBinder()
         {
             var floatingTexts = new List<(Id EntityId, Id StyleId, string Text)>();

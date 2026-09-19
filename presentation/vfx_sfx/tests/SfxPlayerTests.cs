@@ -64,6 +64,28 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void Diagnostics_ExposesInjectedInstance_ForExternalPolling()
+        {
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：同
+            // VfxPlayerTests 同名用例判断记录。
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var player = new SfxPlayer(new StubAudio(), new RngHost(1), BuildCatalog(), diagnostics: diagnostics);
+
+            Assert.Same(diagnostics, player.Diagnostics);
+        }
+
+        [Fact]
+        public void Diagnostics_NotInjected_DefaultsToRecorder_AndReflectsWarnings()
+        {
+            var player = new SfxPlayer(new StubAudio(), new RngHost(1), BuildCatalog());
+
+            player.Play(new Id("sfx.does_not_exist"), null);
+
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(player.Diagnostics);
+            Assert.Single(recorder.Warnings);
+        }
+
+        [Fact]
         public void Priority_PreemptsLowestPriority_WhenLayerFull()
         {
             var audio = new StubAudio();

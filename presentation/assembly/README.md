@@ -324,6 +324,35 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
    这一统一查询（`Queue.PendingCount > 0 || 合并窗口仍有待派发飘字`）后不再漏看这部分表现，见
    `feedback_binder/README.md` 判断记录。
 
+10. **诊断转发到引擎控制台跟进（2026-09-19）：`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`（含
+    `HitFrameSyncPolicy`，两者共享同一诊断实例）/`ViewBinder` 补上 `Diagnostics` 公开出口**：
+    1.45.0 落地的诊断转发到引擎控制台只覆盖了 `SpriteCharacterRig.Diagnostics` 一条链路——上述四个
+    类型此前虽然都已接受可选构造参数 `diagnostics`，却都没有公开属性能读到自己内部持有的那份
+    `IPresentationDiagnostics` 实例，本装配根构造它们时也从未传入外部实例，`adapters/unity` 因此
+    完全拿不到引用、无法转发，真实游戏里这四条链路出问题（如 `vfx.def`/`sfx.def` 未登记、锚点查询
+    失败、命中帧同步超时等）仍然静默。本次给四个类型各加 `public IPresentationDiagnostics
+    Diagnostics { get; }`（ABI 只新增只读属性，`ViewBinder` 保留的 1.12.0/1.13.0 七参数兼容重载
+    不受影响）。
+    <br/>**设计取舍（共享 vs. 各自独立 `PresentationDiagnosticsRecorder`，本条拍板）**：选择
+    **各自独立**——本装配根构造这四个类型时依旧不传 `diagnostics` 构造参数，保持"未注入时各自默认
+    `new PresentationDiagnosticsRecorder()`"这一改动前行为不变，`Vfx`/`Sfx`（接口类型，
+    `IVfxPlayer`/`ISfxPlayer` 未声明 `Diagnostics`）新增 `VfxDiagnostics`/`SfxDiagnostics` 两个
+    转发属性省去 adapters/unity 侧的向下转型，`Feedback`/`ViewBinder` 本身是具体类型，直接读
+    `Feedback.Diagnostics`/`ViewBinder.Diagnostics` 即可。理由：①共享一个实例带来的"一次轮询取
+    全部诊断"这一好处并不成立——`SpriteRigDiagnosticsPump.Pump` 本就按 recorder 实例身份（对象
+    相等性）分别记账已转发到第几条（见 `PresentationDiagnosticsConsoleForwarding.cs`
+    `_lastForwardedCount` 判断记录），转发调用点始终是"每个不同的 recorder 各调用一次 `Pump`"，
+    与 recorder 是否共享无关，四个独立 recorder 只是多四行 `Pump` 调用，成本可忽略；②控制台侧的
+    去重/LRU 上限（500）本就落在 `PresentationDiagnosticsConsoleGate` 这一层、由 adapters/unity
+    在单一进程内共用同一个 gate 实例（"一个控制台"这件事本身决定了 gate 必然共享，与 recorder
+    结构无关），因此"共享 recorder 混进同一张去重表、被高频子系统占满"这个顾虑对本条取舍其实是
+    中立的——真正决定 gate 是否隔离的是 adapters/unity 侧给这四条新链路配几个 gate，不是这里的
+    recorder 数量；③各自独立的 recorder 保留了"某一子系统的 `Warnings` 内存列表只含该子系统自己
+    产生的消息"这一属性，对未来任何按子系统查诊断的调试工具/测试更友好，不会被其它子系统的消息
+    污染。因此本条选择的真正价值是"隔离性"，不是"轮询开销"——后者在两种方案下都一样小。
+    <br/>接线落地在 `adapters/unity`（不改本文件已构造好的对象关系）：见
+    `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` 对应判断记录。
+
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 
 | 用例 | 覆盖点 |
