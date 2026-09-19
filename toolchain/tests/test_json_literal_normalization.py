@@ -35,6 +35,16 @@ class NormalizeJsonLiteralsTest(unittest.TestCase):
         self.assertEqual(0, _normalize_json_literals(0.0))
         self.assertEqual(-16, _normalize_json_literals(-16.0))
 
+    def test_negative_zero_float_is_normalized_to_unsigned_int_zero(self) -> None:
+        """行为固定（任务记录"盲区核实"）：``-0.0`` 数值上等于 0，``(-0.0).is_integer()``
+        为 True、``int(-0.0) == 0``，因此会被规范化为不带符号的整数字面量 0，丢弃负零的
+        符号信息。这是有意行为：本工具链数值字段不存在"负零语义不同于正零"的诉求，见
+        ``_normalize_json_literals`` docstring 判断记录同一条目。"""
+        result = _normalize_json_literals(-0.0)
+        self.assertEqual(0, result)
+        self.assertIsInstance(result, int)
+        self.assertEqual("0", str(result))  # 确认不是 "-0"：Python int 没有负零。
+
     def test_non_integer_float_is_kept_as_float(self) -> None:
         value = _normalize_json_literals(1.2)
         self.assertEqual(1.2, value)

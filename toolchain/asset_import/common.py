@@ -185,6 +185,13 @@ def _normalize_json_literals(value: Any) -> Any:
       ``list``，与 ``json.dumps`` 本身的序列化行为一致）；本 bug 的 ``origin_px.x`` 正是嵌套
       在 object 里的字段，顶层遍历覆盖不到。
     - 已经是 ``int``、字符串、``None`` 等的值原样返回。
+    - ``-0.0``：``(-0.0).is_integer()`` 为 ``True`` 且 ``int(-0.0) == 0``（Python 整数不区分
+      正负零），因此会被规范化为不带符号的整数字面量 ``0``，丢弃负零的符号信息。这是有意行为：
+      本工具链的数值字段（schema 侧 ``FieldKind.Number``）不存在"负零与正零语义不同"的诉求，
+      JSON 本身与所有下游消费者也都把 ``-0.0``/``0.0``/``0`` 视为同一数值，没有理由为保留一个
+      无意义的符号位而破坏"数值上是整数就写成整数字面量"这条统一规则。见
+      ``test_json_literal_normalization.py`` 的
+      ``test_negative_zero_float_is_normalized_to_unsigned_int_zero`` 用例固定本行为。
     """
     if isinstance(value, bool):
         return value
