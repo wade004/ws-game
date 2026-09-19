@@ -1527,7 +1527,7 @@ class CheckJsonOutputTest(ImportAssetsTestBase):
         doc = json.loads(lines[0])
         self.assertEqual("import_assets.check", doc["tool"])
         self.assertEqual("_test", doc["dataset"])
-        self.assertEqual(["sfx", "sprite", "vfx", "world"], doc["domains"])
+        self.assertEqual(["display_anim", "sfx", "sprite", "vfx", "world"], doc["domains"])
         self.assertTrue(doc["ok"])
         self.assertEqual({"error": 0, "warning": 0}, doc["counts"])
         self.assertEqual([], doc["issues"])
@@ -1653,6 +1653,149 @@ class CheckWorldRowUnitTest(unittest.TestCase):
         self.assertEqual(1, len(problems))
         self.assertEqual(check_cmd.CHECK_WORLD_MAP_SCENE_REF_MISMATCH, problems[0].check)
         self.assertEqual("scene_ref", problems[0].field_path)
+
+
+class CheckDisplayAnimRowUnitTest(unittest.TestCase):
+    """ADR-0038 决策 6 后半验收：直接单元测试 _check_anim_set_row/_check_weapon_style_row/
+    _check_equip_visual_row（不经 CLI），覆盖资产根相对（sprite_anim/paperdoll）存在/缺失、引擎侧
+    逻辑路径（anim/model）跳过存在性检查、遗留前缀兜底、未知类别前缀四类场景。"""
+
+    def setUp(self) -> None:
+        self.tmp_root = Path(tempfile.mkdtemp(prefix="check_display_anim_row_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp_root, ignore_errors=True)
+        self.assets_root = self.tmp_root / "assets"
+        self.dataset = "_test"
+
+    def _write_sprite_anim(self, name: str) -> None:
+        out_dir = self.assets_root / self.dataset / "sprite_anim" / name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "atlas.png").write_bytes(b"\x89PNG")
+        (out_dir / "frames.json").write_text("{}", encoding="utf-8")
+
+    def _write_paperdoll(self, name: str) -> None:
+        out_dir = self.assets_root / self.dataset / "paperdoll"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{name}.png").write_bytes(b"\x89PNG")
+
+    def test_anim_set_engine_logical_path_skips_existence_check(self) -> None:
+        row = {"id": "display.anim_set.placeholder_biped", "clips": {"idle": {"resource_ref": "anim.idle"}}}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_anim_set_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual([], problems)
+
+    def test_anim_set_sprite_anim_missing_reports_atlas_and_frames(self) -> None:
+        row = {"id": "display.anim_set.sample_hero", "clips": {"idle": {"resource_ref": "sprite_anim.sample_hero_idle"}}}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_anim_set_row(row, self.assets_root, self.dataset, problems)
+        checks = {p.check for p in problems}
+        self.assertEqual(
+            {check_cmd.CHECK_DISPLAY_ANIM_SPRITE_ANIM_ATLAS_MISSING, check_cmd.CHECK_DISPLAY_ANIM_SPRITE_ANIM_FRAMES_JSON_MISSING},
+            checks,
+        )
+        for p in problems:
+            self.assertEqual("display.anim_set", p.table)
+            self.assertEqual("clips[idle].resource_ref", p.field_path)
+
+    def test_anim_set_sprite_anim_present_no_issue(self) -> None:
+        self._write_sprite_anim("sample_hero_idle")
+        row = {"id": "display.anim_set.sample_hero", "clips": {"idle": {"resource_ref": "sprite_anim.sample_hero_idle"}}}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_anim_set_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual([], problems)
+
+    def test_weapon_style_auto_attack_anim_and_cast_override(self) -> None:
+        row = {
+            "id": "display.weapon_style.sample_sword",
+            "auto_attack_anim": "sprite_anim.missing_swing",
+            "cast_anim_override": {"skill.sample_burn": "sprite_anim.missing_cast"},
+        }
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_weapon_style_row(row, self.assets_root, self.dataset, problems)
+        field_paths = {p.field_path for p in problems}
+        self.assertIn("auto_attack_anim", field_paths)
+        self.assertIn("cast_anim_override[skill.sample_burn]", field_paths)
+
+    def test_equip_visual_mesh_ref_paperdoll_missing_then_present(self) -> None:
+        row = {"id": "display.equip_visual.sample_hero_hat", "mesh_ref": "paperdoll.item.sample_hero_hat_test"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING, problems[0].check)
+
+        self._write_paperdoll("item_sample_hero_hat_test")
+        problems2: list[check_cmd.CheckIssue] = []
+        check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems2)
+        self.assertEqual([], problems2)
+
+    def test_equip_visual_mesh_ref_model_logical_path_skips(self) -> None:
+        row = {"id": "display.equip_visual.sample_model_helmet", "mesh_ref": "model.placeholder_biped"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual([], problems)
+
+    def test_equip_visual_mesh_ref_legacy_sprite_prefix_reports_asset_missing(self) -> None:
+        # 遗留前缀兜底分支覆盖（ADR-0038 决策 4 落地期曾有 data/_sample 真实场景命中本分支；数据
+        # 迁移任务已把该行改为 paperdoll 前缀，见 check_cmd 模块 docstring"判断记录"——本用例改用
+        # 合成数据继续覆盖该兜底分支本身的行为，不再对应任何现存真实数据行）。
+        row = {"id": "display.equip_visual.sample_hero_hat_legacy", "mesh_ref": "sprite.item.sample_hero_hat_test"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_ASSET_MISSING, problems[0].check)
+
+    def test_unknown_category_reports_ref_category_invalid(self) -> None:
+        row = {"id": "display.equip_visual.sample_bogus", "mesh_ref": "bogus.thing"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID, problems[0].check)
+
+
+class DisplayAnimDomainDefaultsTest(unittest.TestCase):
+    """display_anim 域数据迁移任务转正（ADR-0038 决策 6 后半"判断记录"）：此前暂不进默认覆盖集合的
+    唯一理由（data/_sample 遗留 sprite 前缀 mesh_ref 行）已随数据迁移消除，现与 ALL_DOMAINS 等同，
+    省略 --only 时随其余四项一并跑。"""
+
+    def test_display_anim_in_all_domains_and_default(self) -> None:
+        self.assertIn("display_anim", check_cmd.ALL_DOMAINS)
+        self.assertIn("display_anim", check_cmd.DEFAULT_DOMAINS)
+        self.assertEqual(set(check_cmd.ALL_DOMAINS), set(check_cmd.DEFAULT_DOMAINS))
+
+    def test_parse_only_none_returns_default_domains_including_display_anim(self) -> None:
+        self.assertEqual(set(check_cmd.DEFAULT_DOMAINS), check_cmd._parse_only(None))
+        self.assertIn("display_anim", check_cmd._parse_only(None))
+
+    def test_parse_only_explicit_display_anim_accepted(self) -> None:
+        self.assertEqual({"display_anim"}, check_cmd._parse_only("display_anim"))
+
+    def test_cli_default_run_now_covers_display_anim(self) -> None:
+        case_dir = Path(tempfile.mkdtemp(prefix="check_display_anim_cli_test_"))
+        self.addCleanup(shutil.rmtree, case_dir, ignore_errors=True)
+        assets_root = case_dir / "assets"
+        data_root = case_dir / "data"
+        write_json(data_root / "_test" / "display" / "display.equip_visual.json", {
+            "table": "display.equip_visual", "schema_version": 1,
+            "rows": [{"id": "display.equip_visual.sample", "mesh_ref": "bogus.thing"}],
+        })
+
+        # display_anim 已纳入 DEFAULT_DOMAINS：省略 --only 的默认调用现在也会跑到这条非法类别前缀。
+        code, output = run_cli([
+            "check", "--dataset", "_test",
+            "--assets-root", str(assets_root), "--data-root", str(data_root),
+        ])
+        self.assertEqual(1, code, msg=output)
+
+        code, stdout, _stderr = run_cli_split([
+            "check", "--dataset", "_test",
+            "--assets-root", str(assets_root), "--data-root", str(data_root),
+            "--only", "display_anim", "--json",
+        ])
+        self.assertEqual(1, code, msg=stdout)
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        self.assertEqual(1, len(lines), msg=stdout)
+        doc = json.loads(lines[0])
+        self.assertEqual(1, len(doc["issues"]))
+        self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID, doc["issues"][0]["check"])
 
 
 class AssetImportErrorDirectTest(unittest.TestCase):

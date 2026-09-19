@@ -125,6 +125,7 @@ namespace Presentation.Assembly
         /// <c>toolchain/validator</c> 对应新增命令行开关 <c>--enable-graph-isolation</c>。
         /// </summary>
         public bool EnableGraphIsolationDiagnostics { get; set; }
+
     }
 
     /// <summary>
@@ -422,6 +423,12 @@ namespace Presentation.Assembly
                 disabled.Add(QuestPrerequisiteIsolationRuleName);
                 disabled.Add(TalentTreeIsolationRuleName);
             }
+
+            // ADR-0038 决策 6 前半 + 本次数据迁移任务转正：RefCategoryFieldRule 不再是可选规则——
+            // 迁移前"默认关闭"的唯一理由（会让 display.equip_visual.sample_hero_hat 的遗留
+            // sprite.* mesh_ref 立刻报错、拖垮 --strict 门禁）已随本次数据迁移消除，改为与仓库其它
+            // *FieldGroupRule 同等地位的无条件注册，不再登记进 OptionalRules/disabled 清单。
+            registry.RegisterValidationRule(new RefCategoryFieldRule());
 
             // T-N6-2a：额外登记回调，见 ContentValidationOptions.ExtraSchemaRegistration 判断记录。
             // 放在 PresentationSchemaCatalog.RegisterAll 与两条可选规则之后——调用方（如

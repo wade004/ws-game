@@ -159,6 +159,46 @@ namespace Core.Foundation.DataRegistry
         /// <summary>见 <see cref="WithFreeIds"/>。</summary>
         public string? FreeIdsReason { get; private set; }
 
+        private IReadOnlyList<string>? _allowedRefCategories;
+
+        /// <summary>
+        /// [ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md) 决策 6
+        /// 前半："资源引用字段允许的类别前缀集合"——本字段（须为 <see cref="FieldKind.Id"/> 或
+        /// <see cref="FieldKind.IdList"/>）取值的类别前缀（第一个点分段）必须落在此集合内。与
+        /// <see cref="AllowedValues"/>（固定的具体取值清单）不同，本登记只约束"类别前缀"这一段，
+        /// 不约束前缀之后的具体名字——供 <c>Core.Foundation.DataRegistry.RefCategoryFieldRule</c>
+        /// （检查名 <c>field_ref_category</c>）按声明而非硬编码 if 链逐字段核对，也供该规则报告
+        /// "该字段允许哪些类别"。未登记（<c>null</c>）时该字段不受本项检查。</summary>
+        public IReadOnlyList<string>? AllowedRefCategories => _allowedRefCategories;
+
+        /// <summary>登记 <see cref="AllowedRefCategories"/>；只能设置一次（重复设置抛异常，同
+        /// <see cref="WithRange"/>/<see cref="WithSoftReference"/> 惯例）。仅 <see cref="FieldKind.Id"/>/
+        /// <see cref="FieldKind.IdList"/> 字段可调用（同 <see cref="WithItemCount"/>"挂载时立即校验
+        /// 种类"风格——这里同样能一次性判定，不存在时序依赖）。<paramref name="categories"/> 不能为空
+        /// 集合，元素须是 <see cref="Core.Foundation.EngineAdapter.AssetRefConventions.KnownCategories"/>
+        /// 已登记的合法类别前缀之一（此处不做该项校验——由 <c>RefCategoryFieldRule</c> 加载期核对，
+        /// 见该规则判断记录"为何不在挂载时校验合法前缀集合"）。返回 <c>this</c> 便于链式调用，如
+        /// <c>new FieldSchema("resource_ref", FieldKind.Id, required: true, description: "...")
+        /// .WithAllowedRefCategories("vfx")</c>。</summary>
+        public FieldSchema WithAllowedRefCategories(params string[] categories)
+        {
+            if (Kind != FieldKind.Id && Kind != FieldKind.IdList)
+            {
+                throw new ArgumentException(
+                    $"字段 \"{Name}\"：WithAllowedRefCategories 仅 Id/IdList 字段可用（当前种类 {Kind}）", nameof(categories));
+            }
+            if (categories == null || categories.Length == 0)
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：AllowedRefCategories 不能是空集合", nameof(categories));
+            }
+            if (_allowedRefCategories != null)
+            {
+                throw new InvalidOperationException($"字段 \"{Name}\"：AllowedRefCategories 已设置，不可重复设置");
+            }
+            _allowedRefCategories = categories;
+            return this;
+        }
+
         private IReadOnlyList<Id>? _allowedValues;
 
         /// <summary>消费方反馈第 28 条（04 第 3.4 节勘误"IdList/Id 固定取值登记"）：<see cref="FieldKind.IdList"/>

@@ -150,6 +150,22 @@ namespace Adapter.Unity.Tests.Runtime
             //    覆盖"两条用例之间没有发生任何场景加载"的情况（例如两条都不加载场景、只操作共享
             //    单例的测试相邻执行）。
             DeduplicateStrayEventSystems();
+
+            // 判断记录（撤销：曾在此处新增过第 6 步"清空 ResourceLoader 的 ResourceKind.Image
+            // 类别已加载缓存"，见提交 0a07c0c；真实引擎门禁实测证伪——该改动虽然根治了
+            // SpriteEquipVisualWiringTests 跨用例失败，但引入了 3 处新失败
+            // （GreyBoxTests.Move_Right_IncreasesPlayerX_AndTurnsSideways、GreyBoxTests.
+            // PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder、VerticalSliceTests.
+            // Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder），均表现为"精灵/纸娃娃层资源
+            // 加载不到"——当时"Image 类消费方随 View 实例自然重置、不受影响"这一判断本身不成立：
+            // 清空 _loaded 缓存后，后续用例首次引用同一 Image 资源确实会重新触发 LoadAsync，但
+            // 上述三条用例在同一 PlayMode 用例窗口内断言精灵/纸娃娃层已加载完成，跨用例清空缓存
+            // 与该窗口内的同步/近同步断言时序冲突，产生了与本方法顶部"背景"一节描述的同一类问题
+            // （不同表现）。已撤销整条全局清理路径，不改为"只清某几个 id"或"只在某些用例后清"的
+            // 变体——跨用例清空共享资源缓存这条路已被证明危险。SpriteEquipVisualWiringTests 与
+            // EquipmentVisualReplayTests 共享同一资源引用字面量导致的跨用例顺序依赖失败，改为
+            // 局部修复：给 SpriteEquipVisualWiringTests 专属测试用一个它独有的资源引用字面量与
+            // 配套占位资产，见该测试文件判断记录，不再需要跨用例的全局资源缓存清理。
         }
 
         /// <summary>每条用例开始前统一执行（由 <see cref="PlayModeTestBase.BaseSetUp"/> 调用）：

@@ -363,8 +363,10 @@ namespace Adapter.Unity.Tests.Runtime
         // GP-06 复现与回归（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
         // display.anim_set 声明了 resource_ref、但 UnityResourceLoader 尚未加载进缓存（冷启动）时，
         // 修复前直接登记单帧 fallback、从不 LoadAsync，纸娃娃永久退化成白点。用真实
-        // data/_sample/display/display.anim_set.sample_hero（引用的 anim.sample_hero_* 资源文件
-        // 当前占位资产集里确实不存在，见该表判断记录）验证：冷启动仍然立即可用（不抛异常、
+        // data/_sample/display/display.anim_set.sample_hero（引用的 sprite_anim.sample_hero_*，
+        // ADR-0038 数据迁移后前缀；迁移任务同时补齐了最小单帧占位资源，见 toolchain/
+        // import_sample_assets.py SPRITE_ANIM_CLIPS——本用例断言的是"冷启动缓存未命中即发起
+        // LoadAsync"，与资源文件是否存在无关）验证：冷启动仍然立即可用（不抛异常、
         // CurrentClipId 有值），且确实发起了一次真正的加载请求（不是"什么都不做的永久 fallback"）。
         // -----------------------------------------------------------------
 

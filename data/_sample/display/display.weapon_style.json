@@ -4,14 +4,14 @@
   "rows": [
     {
       "id": "display.weapon_style.sample_sword",
-      "auto_attack_anim": "anim.sample_sword_swing",
+      "auto_attack_anim": "sprite_anim.sample_sword_swing",
       "swing_vfx": "vfx.sample_hit_spark",
       "impact_vfx_override": { "skill.sample_cleave": "vfx.sample_hit_spark" }
     },
     {
       "id": "display.weapon_style.sample_staff",
-      "auto_attack_anim": "anim.sample_staff_jab",
-      "cast_anim_override": { "skill.sample_fireball": "anim.sample_staff_cast" },
+      "auto_attack_anim": "sprite_anim.sample_staff_jab",
+      "cast_anim_override": { "skill.sample_fireball": "sprite_anim.sample_staff_cast" },
       "swing_vfx": "vfx.sample_cast_circle"
     },
     {

@@ -434,6 +434,197 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+[ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
+[ADR-0039](architecture/adr/0039-内容数据schema破坏性变更政策.md) 落地——契约面/校验/工具链、
+样例数据迁移、**引擎适配层接线**均已完成；sprite 型隐式接线改显式仍是后续任务（见下方
+"未完成/后续任务"）。**样例数据迁移与引擎适配层接线两部分已于 2026-09-19 在真实引擎环境完成
+验证**：`check.ps1`（不带 `-SkipUnity`）前台全量跑通，全部 29 步 PASS/SKIP，总用时 425s，含
+Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity PlayMode PASS（288/288，
+含数据迁移批改动断言的 `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处测试与适配层
+接线批改动的 `UnityResourceLoader.cs` 配套测试）；过程中发现并根治了 3 处 PlayMode 用例失败
+（均为测试侧问题，非产品缺陷，详见下方"修复"小节）。逐条验证结果见验证清单文档；其中"武器风格
+动画剪辑真实加载"/"纸娃娃层装备覆盖真实加载"两项手工验证仍未覆盖（自动化用例只断言"发起了
+加载请求"，不断言"确实加载成功"，二者不等价），如实标注，详见下方"引擎适配层接线"小节与
+验证清单文档。**
+
+### 破坏性变更
+
+**本条目按 ADR-0039 决策 2 第 3 类"新增无条件 Error 级校验规则视同破坏性变更"、以及决策 2 第 2 类
+"改资源引用取值约定"，均属破坏性变更；按决策 3 当前期政策，材料现已齐备——ADR、本节标注、下方
+逐字段迁移说明、全部数据根同步迁移、消费方通知文档均已完成，见文末对照清单。**
+
+- 资源引用类别前缀集合变化（ADR-0038 决策 2/3/4）：`anim` 前缀此后只表示 model 型引擎侧逻辑路径，
+  不再承载 sprite 型语义；sprite 型动画帧资源改用新前缀 `sprite_anim`；`display.equip_visual.
+  mesh_ref` 的 sprite 型取值改用新前缀 `paperdoll`（落地期核实确认与 `sprite_set_id` 语义不等价，
+  见 ADR-0038 决策 4 附带条款、`architecture/14_资产规格书模板.md` 第 1.2 节新增表格）。
+
+  **逐字段 before/after 迁移说明**（每一行的消费型均按实际消费路径逐行核实——`display.map` 对应
+  行的 `kind`/`anim_set_ref` 显式引用/`weapon_style_ref` 挂接行的 `kind`，而不是望文生义；`sample_
+  model_sword` 一行的判定与最初按"挂在 kind=sprite 行下"这一浅层线索得出的猜测**相反**，见下方
+  说明）：
+
+  | 表.字段（行 id） | 消费型判定依据 | 旧取值 | 新取值 |
+  |---|---|---|---|
+  | `display.anim_set.sample_hero.clips.{idle,move,attack,cast,hit,death}.resource_ref` | sprite 型：无 `anim_set_ref` 显式引用，按 `display.map.sample_hero`（`kind=sprite`）id 末段隐式接线（`UnityViewFactory.TryResolveAnimSet`） | `anim.sample_hero_{idle,move,attack,cast,hit,death}` | `sprite_anim.sample_hero_{idle,move,attack,cast,hit,death}`（共 6 个字段） |
+  | `display.anim_set.placeholder_biped.clips.{idle,attack,cast,hit}.resource_ref` | model 型：被 `display.map.sample_model_hero`（`kind=model`）的 `anim_set_ref` 显式引用 | `anim.{idle,attack,cast,hit}` | 不变（保持 `anim.*`） |
+  | `display.weapon_style.sample_sword.auto_attack_anim` | sprite 型：挂接行 `display.map.sample_blade`（`weapon_style_ref` 指向本行）`kind=sprite`；`adapters/unity/.../Tests/Runtime/WeaponClipRegistrationTests.cs` 用 `creature.sample_hero`（sprite 型）实测经 `UnityFrameAnimPlayer.Play` 落地 | `anim.sample_sword_swing` | `sprite_anim.sample_sword_swing` |
+  | `display.weapon_style.sample_staff.auto_attack_anim` | sprite 型：同上机制实测（`WeaponClipRegistrationTests.Cast_WeaponStyleCastOverrideClip_NotPreRegistered_DoesNotThrow` 用 `creature.sample_hero` 实测） | `anim.sample_staff_jab` | `sprite_anim.sample_staff_jab` |
+  | `display.weapon_style.sample_staff.cast_anim_override.skill.sample_fireball` | sprite 型：同上 | `anim.sample_staff_cast` | `sprite_anim.sample_staff_cast` |
+  | `display.weapon_style.sample_model_sword.auto_attack_anim` | **model 型**（与初步线索"挂在 kind=sprite 行下"相反）：`adapters/unity/.../Tests/Runtime/ModelIntegrationTests.cs EquippedWeapon_AttackState_PlaysAutoAttackAnimOnRealAnimator` 用 `creature.sample_model_hero`（model 型）实测经 `IRenderer3D.PlayAnim` 驱动真实 Animator 进入 `attack` 状态；`display.equip_visual.sample_model_sword` 的 `mode: socket_attach`+`model_ref` 也只有 `ModelCharacterRig.ApplyEquipVisual` 消费（`SpriteCharacterRig` 无此方法） | `anim.attack` | **不变**（保持 `anim.attack`） |
+  | `display.weapon_style.sample_model_sword.cast_anim_override.skill.sample_burn` | model 型：同上（未单独实测 cast 分支，但与 `auto_attack_anim` 同属一行、同一挂接关系，判定一致） | `anim.cast` | **不变**（保持 `anim.cast`） |
+  | `display.equip_visual.sample_hero_hat.mesh_ref` | sprite 型：`presentation/render/core/SpriteViewBase.cs HandleItemEquipped`（195～207 行）对 `mode: slot_mesh` 行直接把 `mesh_ref` 当纸娃娃层资源 id 使用，不经 `SpriteSetDirectory`；语义与 `sprite_set_id`（目录）不等价（单文件 vs 目录），按 ADR-0038 决策 4 附带条款新增独立前缀 | `sprite.item.sample_hero_hat_test` | `paperdoll.item.sample_hero_hat_test` |
+  | `display.equip_visual.sample_model_helmet.mesh_ref` | model 型：`mode: slot_mesh`，取值已是 `model.*`（`ModelLogicalPath` 路径空间），`ModelCharacterRig.ApplyEquipVisual` 消费 | `model.placeholder_biped` | 不变 |
+
+  **受影响样例行数**：4 行发生了取值迁移（`display.anim_set.sample_hero`/`display.weapon_style.
+  sample_sword`/`display.weapon_style.sample_staff`/`display.equip_visual.sample_hero_hat`），
+  共 10 个字段值（6 + 1 + 2 + 1）；另有 4 行经核实确认消费型不受影响、无需迁移（`display.anim_set.
+  placeholder_biped`、`display.weapon_style.sample_model_sword`、`display.equip_visual.
+  sample_model_sword`、`display.equip_visual.sample_model_helmet`）。全仓排查确认没有"无法判定
+  消费型"的行。
+
+  **数据根同步情况（ADR-0039 决策 3 已满足）**：`data/_sample` 已完成上表迁移；`data/_framework`
+  当前 `display/` 目录为空、`games/_template/data/game` 无 `display/` 目录、`core/sim/tests/
+  data/display` 只有不含这四个字段的 `display.map.json`——均核对确认不持有受影响字段，不需要
+  同步改动，如实记录该核对结论而非假设。
+
+  **配套测试同步（2026-09-19 已在真实引擎环境重新验证，见下方"引擎适配层接线"小节"验证结果"与
+  验证清单文档）**：`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+  EquipmentVisualReplayTests.cs`（`HatMeshRef` 常量）/`VerticalSliceTests.cs`（两处
+  `resourceRef` 局部变量）直接硬编码了 `display.equip_visual.sample_hero_hat.mesh_ref`/
+  `display.anim_set.sample_hero.clips.*.resource_ref` 的取值用于断言，随上表迁移同步改为新前缀；
+  `AnimReplayAndFinishEndToEndTests.cs`/`UnityViewFactoryDefaultAnimationTests.cs` 也提到了这两个
+  字段但只是判断记录注释文字更新，不涉及断言取值。真实引擎环境跑通后，`VerticalSliceTests.cs`
+  两处用例的断言写法有调整（原 `LogAssert.Expect` 写法过期，改为正面断言，见下方"修复"小节），
+  `EquipmentVisualReplayTests.cs` 断言本身未变、随 PlayMode 288/288 通过。
+- 新增无条件校验规则视同破坏性变更（ADR-0039 决策 2 第 3 类）：`RefCategoryFieldRule`
+  （检查名 `field_ref_category`）已从此前默认关闭的可选规则**转正为无条件注册**（与
+  `DisplayKindFieldGroupRule`/`EquipVisualModeFieldGroupRule` 同等地位）——上一条数据迁移完成后，
+  该规则唯一的默认关闭理由（`display.equip_visual.sample_hero_hat` 遗留 `sprite.*` 前缀会立刻
+  报错）已消除；`ContentValidationOptions.EnableRefCategoryCheck`/`toolchain/validator
+  --enable-ref-category-check` 一并删除。
+
+### 新增
+
+- `Core.Foundation.EngineAdapter.AssetRefConventions`/`toolchain/asset_import/ref_conventions.py`
+  新增方法/函数：`SpriteAnimDir`/`sprite_anim_dir`（`sprite_anim.<name>` →
+  `sprite_anim/<name>`，结构同 `vfx`）、`PaperdollLayerFile`/`paperdoll_layer_file`
+  （`paperdoll.<...>` → `paperdoll/<...>.png`，单个扁平文件）。
+- 新增框架契约面公开路由入口 `AssetRefConventions.ResolvePathSpace`/
+  `ref_conventions.resolve_path_space`：输入资源引用标识，输出 `(路径空间, 相对路径)`；路径空间为
+  显式枚举 `AssetRefPathSpace { AssetRootRelative, EngineLogicalPath }`（C#）/
+  `AssetRefPathSpace(AssetRootRelative, EngineLogicalPath)`（Python `enum`）。按类别前缀分派到
+  `KnownCategories`/`KNOWN_CATEGORIES` 登记的方法表（`sprite`/`icon`/`vfx`/`sfx`/`sprite_anim`/
+  `paperdoll` → 资产根相对；`anim`/`model` → 引擎侧逻辑路径）；类别前缀缺失或不在集合内均报错
+  （消息含收到的前缀与合法集合），不做静默兜底。两侧各自独立实现、互相不调用，靠同一组输入/
+  期望字符串的对照测试捕获漂移（同 ADR-0037 决策 1）。
+- `FieldSchema` 新增 `WithAllowedRefCategories(params string[] categories)`（`Id`/`IdList`
+  种类专用，设置一次、`Kind` 不匹配或重复设置均抛异常，同既有 `With...` 系列惯例）；已在
+  `display.anim_set.clips.<clip>.resource_ref`（`anim`/`sprite_anim`）、
+  `display.weapon_style.auto_attack_anim`/`cast_anim_override.<value>`（同上）、
+  `display.equip_visual.mesh_ref`（`model`/`paperdoll`）、`vfx.def.resource_ref`（仅 `vfx`）、
+  `sfx.def.resource_ref`/`variants`（仅 `sfx`）六处登记。
+- 新增校验规则 `Core.Foundation.DataRegistry.RefCategoryFieldRule`（检查名
+  `field_ref_category`）：递归校验已登记 `WithAllowedRefCategories` 的字段，取值类别前缀必须
+  合法且落在该字段允许子集内；只检查前缀合法性，不检查资源文件是否存在。**无条件注册**（见上方
+  "破坏性变更"小节），与仓库其它 `*FieldGroupRule` 同等地位。
+- `toolchain/asset_import/check_cmd.py` 新增检查域 `display_anim`（**已纳入默认 `DEFAULT_DOMAINS`**，
+  省略 `--only` 时随其余四项一并跑）：核对 `display.anim_set.clips.resource_ref`/`display.
+  weapon_style.auto_attack_anim`/`cast_anim_override`/`display.equip_visual.mesh_ref` 四个
+  字段的资源存在性。新增 5 个检查名：`display_anim_ref_category_invalid`、
+  `display_anim_sprite_anim_atlas_missing`、`display_anim_sprite_anim_frames_json_missing`、
+  `display_anim_paperdoll_file_missing`、`display_anim_asset_missing`（遗留前缀兜底）。
+- `assets/_sample/sprite_anim/`/`assets/_sample/paperdoll/` 新增占位资产：9 个 `sprite_anim/
+  <name>/{atlas.png,frames.json}` 目录（`sample_hero_{idle,move,attack,cast,hit,death}`/
+  `sample_sword_swing`/`sample_staff_{jab,cast}`）+ 2 个 `paperdoll/
+  item_sample_hero_hat_test.png`/`item_sample_hero_hat_wiring_test.png` 扁平文件（后者为下方
+  "修复"小节 `SpriteEquipVisualWiringTests` 专属夹具新增，2026-09-19 补）；结构与既有
+  `assets/_sample/vfx/*` 样例资产同构，尺寸取最小（2x2 像素单帧），总计约 2.8KB（实测 2845
+  字节）。
+
+### 迁移说明
+
+见上方"破坏性变更"小节的逐字段 before/after 表格；消费方通知文档：
+[消费方通知-2026-09-19-资源引用类别前缀契约变更.md](architecture/落地计划/消费方通知-2026-09-19-资源引用类别前缀契约变更.md)。
+
+### 引擎适配层接线（ADR-0038 决策 8 第二项，本批提前落地）
+
+**判断记录（为何提前）**：ADR-0038 决策 8 原把这一项列为不在该决策范围的后续项——当时样例数据
+尚未迁移，`UnityResourceLoader` 既有实现（`ResolveEffectDir` 固定拼 `vfx` 子目录、`ResolvePath`
+对非 `layer` 类别的 `Image` 种类固定退化为 `sprites/<name>.png`）与彼时数据取值仍然吻合，不转发
+只是"多一份未来需要同步维护的拷贝"的低等级风险。上一版本样例数据迁移完成后（sprite 型动画剪辑
+`anim.*` -> `sprite_anim.*`，纸娃娃层 `mesh_ref` 的 `sprite.*` -> `paperdoll.*`），不转发就会
+变成"运行期解析规则与已迁移数据不匹配"的正确性缺陷，因此本批把决策 8 第二项提前到本次落地；决策
+8 第一项（sprite 型隐式接线改显式）与本次数据迁移无因果关系，仍按 ADR 原意留给后续任务。
+
+- `UnityResourceLoader.ResolveModelResourcesPath`/`ResolveAnimClipResourcesPath` 改为直接转发
+  `AssetRefConventions.ModelLogicalPath`/`AnimClipLogicalPath`，不再各自维护一份拼接算法。
+- `UnityResourceLoader.ResolveEffectDir` 改为经 `AssetRefConventions.ResolvePathSpace` 按类别
+  前缀分派到 `vfx`/`sprite_anim` 两个子目录（此前固定拼 `vfx/`，会让 `sprite_anim.*` 找不到
+  文件）。
+- `UnityResourceLoader.ResolvePath` 对 `ResourceKind.Image` 新增 `paperdoll` 类别分支，转发
+  `AssetRefConventions.PaperdollLayerFile`（此前落进通用回退分支被误当 `sprites/<name>.png`
+  扁平文件解析）。
+- `toolchain/resource_layout_map.json` 新增 `sprite_anim`/`paperdoll` 两条目标子目录映射（否则
+  `build.ps1`/`toolchain/sync_package_content.ps1` 都不会把这两棵新目录同步进
+  `StreamingAssets/GameFoundation/`，代码改对了也找不到文件）。
+- 更新 `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+  UnityResourceLoaderTests.cs` 新增 4 个用例（`sprite_anim` 分派、`paperdoll` 分派、与
+  `AssetRefConventions` 的转发一致性对照）；`SpriteEquipVisualWiringTests.cs`/
+  `WeaponClipRegistrationTests.cs` 的过期取值/注释按已迁移数据勘误（`sprite.item.
+  sample_hero_hat_test` -> `paperdoll.item.sample_hero_hat_test` 等，不改断言逻辑）。
+
+**验证结果（2026-09-19，真实引擎环境，如实标注）**：Unity 许可恢复后，以上全部改动点已在
+真实引擎环境重新验证——`check.ps1`（不带 `-SkipUnity`）前台全量跑通，全部 29 步 PASS/SKIP，
+总用时 425s，Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity PlayMode PASS
+（288/288）。同一批门禁下，上方"破坏性变更"小节"配套测试同步"提到的
+`EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 两处**真正改了断言硬编码常量**（而非仅
+注释）的测试同样已重新验证通过。验证过程中发现并根治了 3 处 PlayMode 用例失败（均为测试侧问题，
+非产品缺陷，详见下方"修复"小节），二次全量门禁 288/288 全绿。逐条验证结果见：
+[待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md](architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md)
+（已按实测结果更新，标题现为"验证记录"）。**如实说明未覆盖项**：清单中"手工验证：sprite 型
+武器风格动画剪辑真实加载"/"手工验证：sprite 型纸娃娃层装备覆盖真实加载"两项是灰盒场景/专门脚本
+的人工验证，本次全量门禁（自动化用例 + 冒烟测试）未覆盖这两项——既有自动化用例只断言"发起了
+加载请求"，不断言"资源确实加载成功"，二者不等价，仍待专人补验，不视为已验证。
+
+### 未完成/后续任务
+
+- sprite 型"按消费实体行 id 末段命名"隐式接线约定改为显式引用字段（ADR-0038 决策 8 第一项，不在
+  本次范围）。
+- "引擎适配层接线"小节列出的全部改动点，以及"破坏性变更"小节"配套测试同步"提到的
+  `EquipmentVisualReplayTests.cs`/`VerticalSliceTests.cs` 断言取值改动：均已于 2026-09-19 在
+  真实引擎环境验证通过（见"引擎适配层接线"小节"验证结果"与验证清单文档）。**仍未覆盖**：验证
+  清单中两项手工验证（sprite 型武器风格动画剪辑真实加载/sprite 型纸娃娃层装备覆盖真实加载）
+  尚待专人用灰盒场景或脚本补验，见清单文档"如实处理原则"。
+
+### 修复（PlayMode 全量门禁分诊后补修，2026-09-19，真实引擎环境实测）
+
+按分诊报告（`toolchain/unity_test_triage.py` 实测产物、`bin/_check_artifacts/unity/`）逐条根治
+三处 PlayMode 用例失败，均为上一条目"引擎适配层接线"落地后首次真实在 Unity 批处理环境跑通两批
+改动叠加效果暴露出的测试侧问题，非产品缺陷：
+
+- `SpriteEquipVisualWiringTests`/`EquipmentVisualReplayTests` 共享同一资源引用字面量
+  （`paperdoll.item.sample_hero_hat_test`）时的跨用例顺序依赖失败：**第一版方案（提交
+  0a07c0c）新增 `UnityResourceLoader.UnloadAllImages`，由 `Tests/Runtime/
+  PlayModeIsolation.cs` `TearDownAfterTest` 每条 PlayMode 用例结束后清空
+  `ResourceKind.Image` 类别的"已加载"缓存——真实引擎门禁实测（288 条，285 通过，3 失败）证伪
+  了该方案：`GreyBoxTests.Move_Right_IncreasesPlayerX_AndTurnsSideways`/`GreyBoxTests.
+  PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder`/`VerticalSliceTests.
+  Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder` 三处新失败，均为"精灵/纸娃娃层资源
+  加载不到"，已撤销该方案（方法与调用点均已删除，不改为按 id/按用例限定清理的变体，跨用例
+  清空共享资源缓存这条路整体放弃，见 `PlayModeIsolation.TearDownAfterTest` 判断记录）。
+  改为局部修复：给 `SpriteEquipVisualWiringTests` 专属测试用一个它独有的资源引用字面量
+  `paperdoll.item.sample_hero_hat_wiring_test`（新增 `display.equip_visual.
+  sample_hero_hat_wiring_test` 一行 + 配套占位资产，并入 `toolchain/import_sample_assets.py`
+  既有生成流水线的 `PAPERDOLL_FILES` 列表），"未被加载过"这一前提由夹具本身独占保证，
+  不再依赖执行顺序或跨用例缓存清理，`EquipmentVisualReplayTests` 未改动。**
+- `VerticalSliceTests` 两处 `FullVerticalSlice_...`/`PRES180_...` 用例：`sprite_anim.
+  sample_hero_*` 六个状态的动画资源经本批适配层路由修复 + 占位帧集数据迁移叠加后已能真实
+  加载成功，原先预期"加载失败"的 `LogAssert.Expect` 写法过期，改为新增
+  `AssertAnimResourcesLoadedSuccessfully`：轮询 `UnityResourceLoader.TryGetEffect` 确认六个
+  状态均已从真实占位资源文件加载成功，正面验证新的正确行为（不是删除断言）。经复核，这两处
+  断言检查的是 `ResourceKind.Effect` 类别（`sprite_anim.*`），与上一条被撤销的
+  `UnloadAllImages`（只清 `ResourceKind.Image` 类别）无关，不受本次撤销影响。
+
 ## [1.43.0] - 2026-09-18
 
 消费方反馈第 62/63/64/65/66 条（见

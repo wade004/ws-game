@@ -107,6 +107,73 @@ namespace Adapter.Unity.Tests.Runtime
             StringAssert.EndsWith(System.IO.Path.Combine("vfx", "hit_spark"), dir);
         }
 
+        /// <summary>ADR-0038 适配层接线（2026-09-19）：sprite 型动画剪辑改用 sprite_anim 前缀后，
+        /// ResolveEffectDir 必须按类别前缀分派到独立的 sprite_anim 子目录，不能像此前那样固定落进
+        /// vfx 子目录（见该方法判断记录）。</summary>
+        [Test]
+        public void ResolveEffectDir_SpriteAnimCategory_UsesSpriteAnimSubfolder()
+        {
+            var dir = UnityResourceLoader.ResolveEffectDir(new Id("sprite_anim.sample_hero_idle"));
+
+            StringAssert.Contains("sprite_anim", dir);
+            StringAssert.DoesNotContain(
+                System.IO.Path.Combine("vfx", "sample_hero_idle"), dir,
+                "sprite_anim 类别不应落进 vfx 子目录（此前固定拼接的遗留错误行为）");
+            StringAssert.EndsWith(System.IO.Path.Combine("sprite_anim", "sample_hero_idle"), dir);
+        }
+
+        /// <summary>一致性对照测试（ADR-0038 适配层接线，见 AGENTS.md"一致性守护"惯例）：
+        /// UnityResourceLoader.ResolveEffectDir 现直接转发 AssetRefConventions.ResolvePathSpace，
+        /// 本用例锚定"适配层产出的目录 = RootDir + 契约面产出的相对路径"这一关系本身，防止未来有人
+        /// 在其中一侧改动分派规则却忘了另一侧（虽然当前是同一次调用，结构上不会漂移，但作为回归锚点
+        /// 保留，同 core/foundation/engine_adapter/tests/AssetRefConventionsTests.cs 的对照测试
+        /// 惯例）。</summary>
+        [Test]
+        public void ResolveEffectDir_MatchesAssetRefConventionsResolvePathSpace_ForVfxAndSpriteAnim()
+        {
+            foreach (var resourceRef in new[] { "vfx.hit_spark", "sprite_anim.sample_hero_idle" })
+            {
+                var id = new Id(resourceRef);
+                var (_, expectedRelative) = Core.Foundation.EngineAdapter.AssetRefConventions.ResolvePathSpace(id);
+                var dir = UnityResourceLoader.ResolveEffectDir(id);
+
+                StringAssert.EndsWith(
+                    expectedRelative.Replace('/', System.IO.Path.DirectorySeparatorChar), dir,
+                    $"ResolveEffectDir(\"{resourceRef}\") 应以 AssetRefConventions.ResolvePathSpace 给出的相对路径结尾");
+            }
+        }
+
+        /// <summary>ADR-0038 适配层接线（2026-09-19）：display.equip_visual.mesh_ref 的 sprite 型取值
+        /// 改用 paperdoll 前缀后，ResolvePath 必须转发 AssetRefConventions.PaperdollLayerFile 解析为
+        /// 单个扁平文件，不能像此前那样落进"sprites/&lt;name&gt;.png"的通用回退分支（该分支此后只
+        /// 覆盖 sprite 类别本身，见该方法判断记录）。</summary>
+        [Test]
+        public void ResolvePath_PaperdollCategory_ResolvesFlatPngUnderPaperdollSubfolder()
+        {
+            var path = UnityResourceLoader.ResolvePath(new Id("paperdoll.item.sample_hero_hat_test"), ResourceKind.Image);
+
+            StringAssert.Contains("paperdoll", path);
+            StringAssert.EndsWith(
+                System.IO.Path.Combine("paperdoll", "item_sample_hero_hat_test.png"), path);
+        }
+
+        /// <summary>ADR-0038 适配层接线：ResolveModelResourcesPath/ResolveAnimClipResourcesPath 现直接
+        /// 转发 AssetRefConventions 的对应公开方法（见类型顶部"ADR-0038 适配层接线"判断记录），本用例
+        /// 锚定二者字符串结果始终一致，防止未来重新分叉出第二份拼接实现。</summary>
+        [Test]
+        public void ResolveModelResourcesPathAndResolveAnimClipResourcesPath_MatchAssetRefConventions()
+        {
+            var modelId = new Id("model.placeholder_biped");
+            Assert.AreEqual(
+                Core.Foundation.EngineAdapter.AssetRefConventions.ModelLogicalPath(modelId),
+                UnityResourceLoader.ResolveModelResourcesPath(modelId));
+
+            var animId = new Id("anim.attack");
+            Assert.AreEqual(
+                Core.Foundation.EngineAdapter.AssetRefConventions.AnimClipLogicalPath(animId),
+                UnityResourceLoader.ResolveAnimClipResourcesPath(animId));
+        }
+
         [UnityTest]
         public IEnumerator LoadAsync_MissingSceneResource_InvokesCallbackWithFalse()
         {

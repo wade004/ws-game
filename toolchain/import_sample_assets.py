@@ -48,6 +48,11 @@ sfx/hit_01.wav + sfx/hit_02.wav          sfx       sfx/sample_hit_v0.wav + _v1.w
 sfx/cast_01.wav                          sfx       sfx/sample_cast_v0.wav                         sfx.def.sample_cast（同上）
 sfx/ui_click_01.wav                      sfx       sfx/sample_ui_click_v0.wav                     sfx.def.sample_ui_click（同上）
 maps/placeholder_field/*.png             map       maps/sample_field/*.png                        world.map.sample_field（--map 直写实表，整行覆盖，幂等）
+Pillow 现生成 2x2 单帧占位图（无占位素材源图，  （无，直接    sprite_anim/<name>/{atlas.png,frames.json}      不回写——data/_sample/display/display.anim_set.json
+见 SPRITE_ANIM_CLIPS）                   生成，        （9 个 clip 名）                                 与 display.weapon_style.json 的 sprite_anim.* 引用值
+                                        不经子命令）                                                  本身已是既有数据，本步骤只补齐引用要求的资产文件
+Pillow 现生成 2x2 占位图（无占位素材源图，   同上         paperdoll/<name>.png（1 个文件）                  同上——display.equip_visual.json 的 paperdoll.*
+见 PAPERDOLL_FILES）                                                                                引用值已是既有数据，本步骤只补齐资产文件
 ======================================= ========= ========================================= =========================================================
 
 ``sprite`` 子命令按 ``--logical-id`` 派生的 display.map 行 id（``display.<去掉 domain 前缀>``，
@@ -94,6 +99,75 @@ DATASET = "_sample"
 # 这里只是取用，不重新定义规则）。
 CANONICAL_8 = ["front", "front_side_r", "side_r", "back_side_r", "back"]
 CANONICAL_4 = ["front", "side_r", "back"]
+
+# ADR-0038 数据迁移任务新增：display.anim_set/display.weapon_style 迁移后引用的 sprite_anim.*
+# 动画帧集占位资产（name, loop）——名字与 data/_sample/display/display.anim_set.json
+# sample_hero 六个 clip、display.weapon_style.json sample_sword/sample_staff 三个字段的
+# resource_ref 逐字节对应，不需要落地素材源图（不存在 assets/_placeholder/sprite_anim/），
+# 直接用 Pillow 生成最小 2x2 单帧占位图，结构沿用仓库既有 vfx 样例资产惯例
+# （atlas.png + frames.json，见 assets/_sample/vfx/sample_burn/）。
+SPRITE_ANIM_CLIPS: list[tuple[str, bool]] = [
+    ("sample_hero_idle", True),
+    ("sample_hero_move", True),
+    ("sample_hero_attack", False),
+    ("sample_hero_cast", False),
+    ("sample_hero_hit", False),
+    ("sample_hero_death", False),
+    ("sample_sword_swing", False),
+    ("sample_staff_jab", False),
+    ("sample_staff_cast", False),
+]
+
+# display.equip_visual.json 迁移后引用的 paperdoll.* 层文件占位资产（扁平单文件，同 icon/sfx
+# 惯例），名字与 sample_hero_hat 的 mesh_ref 逐字节对应。
+#
+# item_sample_hero_hat_wiring_test（PlayMode 全量门禁失败 1/3 局部修复，2026-09-19）：
+# SpriteEquipVisualWiringTests 专属资源引用字面量，供 display.equip_visual.
+# sample_hero_hat_wiring_test 一行的 mesh_ref 使用，与 sample_hero_hat 一行（
+# EquipmentVisualReplayTests 也在用）彻底隔离——两个测试类此前共享同一字面量，只要其中一个先于
+# 另一个在同一批 -runTests 进程里跑过，后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空；
+# 给专属字面量后该断言不再依赖任何跨用例资源缓存状态或执行顺序。
+PAPERDOLL_FILES: list[str] = [
+    "item_sample_hero_hat_test",
+    "item_sample_hero_hat_wiring_test",
+]
+
+SPRITE_ANIM_FRAME_SIZE = 2  # 2x2 像素、单帧，最小占位尺寸——本域校验只看文件是否存在。
+
+
+def _gen_sprite_anim_clip(out_dir: Path, loop: bool) -> None:
+    """生成一个最小的 sprite_anim 占位帧集：atlas.png（单帧纯色）+ frames.json。"""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    atlas = Image.new("RGBA", (SPRITE_ANIM_FRAME_SIZE, SPRITE_ANIM_FRAME_SIZE), (255, 255, 255, 255))
+    atlas.save(out_dir / "atlas.png")
+    fps = 20.0
+    frame_duration = round(1.0 / fps, 6)
+    frames_data = {
+        "frame_w": SPRITE_ANIM_FRAME_SIZE,
+        "frame_h": SPRITE_ANIM_FRAME_SIZE,
+        "fps": fps,
+        "frame_duration": frame_duration,
+        "loop": loop,
+        "frames": [
+            {
+                "index": 0,
+                "x": 0,
+                "y": 0,
+                "w": SPRITE_ANIM_FRAME_SIZE,
+                "h": SPRITE_ANIM_FRAME_SIZE,
+                "duration": frame_duration,
+            }
+        ],
+    }
+    write_json_pretty(out_dir / "frames.json", frames_data)
+
+
+def _gen_paperdoll_file(out_path: Path) -> None:
+    """生成一个最小的 paperdoll 占位层文件（扁平单张 png）。"""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGBA", (SPRITE_ANIM_FRAME_SIZE, SPRITE_ANIM_FRAME_SIZE), (255, 255, 255, 255))
+    img.save(out_path)
+
 
 # display.map 既有行 id -> (临时表里工具产出行的 id, icon_id 或 None)。
 DISPLAY_MAP_PATCHES: dict[str, tuple[str, str | None]] = {
@@ -559,11 +633,26 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
             ]
         )
 
-        # --- 6. 回写 display.map ---------------------------------------------------------
+        # --- 6. 精灵动画帧集 / 纸娃娃占位（sprite_anim / paperdoll，ADR-0038 数据迁移新增） ------
+        # data/_sample/display 三张表（anim_set/weapon_style/equip_visual）本身不经由本脚本的
+        # 子命令流程回写（第 7 步"回写 display.map"只处理 display.map 一张表），迁移后的
+        # sprite_anim.*/paperdoll.* 引用值是仓库既有数据里已经写好的——本步骤只负责在
+        # assets-root 下补齐这些引用要求存在的占位资产文件，与第 1～5 步生成 sprite/icon/vfx/
+        # sfx/map 占位资产同一目的：让 check 子命令能在全新 assets-root 上通过。
+
+        for name, loop in SPRITE_ANIM_CLIPS:
+            _gen_sprite_anim_clip(assets_root / DATASET / "sprite_anim" / name, loop)
+        print(f"[import_sample_assets] 已生成 {len(SPRITE_ANIM_CLIPS)} 个 sprite_anim 占位帧集")
+
+        for name in PAPERDOLL_FILES:
+            _gen_paperdoll_file(assets_root / DATASET / "paperdoll" / f"{name}.png")
+        print(f"[import_sample_assets] 已生成 {len(PAPERDOLL_FILES)} 个 paperdoll 占位层文件")
+
+        # --- 7. 回写 display.map ---------------------------------------------------------
 
         _patch_display_map(data_root, tmp_data_root)
 
-    # --- 7. 收尾自检：跑一次 check，非 0 直接失败 -----------------------------------------
+    # --- 8. 收尾自检：跑一次 check，非 0 直接失败 -----------------------------------------
 
     print("[import_sample_assets] 运行收尾 check ...")
     check_code = import_main(

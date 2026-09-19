@@ -14,6 +14,8 @@ ADR-0025：资源引用标识到资产相对路径的约定纳入公开契约）
 
 from __future__ import annotations
 
+import enum
+
 __all__ = [
     "strip_category_prefix",
     "sprite_set_directory",
@@ -24,6 +26,11 @@ __all__ = [
     "sfx_resource_file",
     "anim_clip_logical_path",
     "model_logical_path",
+    "sprite_anim_dir",
+    "paperdoll_layer_file",
+    "AssetRefPathSpace",
+    "KNOWN_CATEGORIES",
+    "resolve_path_space",
 ]
 
 
@@ -131,6 +138,87 @@ def model_logical_path(resource_ref_id: str) -> str:
     :func:`vfx_resource_dir`/:func:`sfx_resource_file` 返回资产根目录相对路径。
     """
     return "GameFoundation/models/" + strip_category_prefix(resource_ref_id)
+
+
+def sprite_anim_dir(resource_ref_id: str) -> str:
+    """ADR-0038 决策 2：新增类别前缀 ``sprite_anim``，把 sprite 型消费实体的动画帧资源从 ``anim``
+    前缀（决策 3：该前缀此后专属 model 型的 :func:`anim_clip_logical_path`）中拆出。把
+    ``sprite_anim.<name>`` 解析为该动画帧资源在资产根目录下的相对目录路径（正斜杠分隔，不以 ``/``
+    结尾）：``"sprite_anim/<资源引用id去掉类别前缀，点号换下划线>"``——目录结构与 :func:`vfx_resource_dir`
+    同构（内含图集与帧数据两个文件）。与 C# 侧 ``AssetRefConventions.SpriteAnimDir`` 逐字对应。
+    """
+    return "sprite_anim/" + strip_category_prefix(resource_ref_id)
+
+
+def paperdoll_layer_file(resource_ref_id: str) -> str:
+    """ADR-0038 决策 4 附带条款：``display.equip_visual.mesh_ref`` 的 sprite 型取值（"纸娃娃层
+    资源 id"）核实为与 :func:`sprite_set_directory` 承载的"精灵集目录标识"不等价（后者产出一个目录，
+    前者运行期解析为单个扁平文件，不按方向拆分），按决策 1 总原则新增独立类别前缀 ``paperdoll``。把
+    ``paperdoll.<category>.<name>`` 解析为该纸娃娃层覆盖资源在资产根目录下的相对文件路径（正斜杠
+    分隔，含 ``.png`` 扩展名）：``"paperdoll/<资源引用id去掉类别前缀，点号换下划线>.png"``——单独一个
+    子目录（不与 :func:`sprite_set_directory` 共享 ``sprites/`` 根），与 :func:`sfx_resource_file`
+    同一惯例（资产根相对、扁平单文件、带扩展名）。与 C# 侧 ``AssetRefConventions.PaperdollLayerFile``
+    逐字对应。
+    """
+    return "paperdoll/" + strip_category_prefix(resource_ref_id) + ".png"
+
+
+class AssetRefPathSpace(enum.Enum):
+    """见 :func:`resolve_path_space`：资源引用标识最终落在哪一类磁盘/引擎资源命名空间，与 C# 侧
+    ``AssetRefConventions.AssetRefPathSpace`` 逐字对应（ADR-0038 决策 5）。"""
+
+    ASSET_ROOT_RELATIVE = "asset_root_relative"
+    """相对内容工具 ``--assets-root`` 的资产根目录，可与具体数据集目录拼接后做文件系统存在性检查。"""
+
+    ENGINE_LOGICAL_PATH = "engine_logical_path"
+    """引擎适配层内部已导入好的逻辑资源路径，不落在资产导入工具的资产根目录下，不能做文件系统
+    存在性检查（见 ADR-0037 决策 3）。"""
+
+
+KNOWN_CATEGORIES: tuple[str, ...] = (
+    "sprite", "icon", "vfx", "sfx", "sprite_anim", "paperdoll", "anim", "model",
+)
+"""见 :func:`resolve_path_space`：全部已登记的合法类别前缀，与 C# 侧
+``AssetRefConventions.KnownCategories`` 逐字对应。"""
+
+
+def resolve_path_space(resource_ref_id: str) -> tuple[AssetRefPathSpace, str]:
+    """ADR-0038 决策 5：公开路由总入口——输入资源引用标识，按其类别前缀（第一个点分段）唯一确定
+    应使用的推导方法，返回 ``(路径空间, 相对路径)`` 二元组。遇到未登记的类别前缀，或标识不含任何
+    点号（无法取出类别前缀），均抛出 :class:`ValueError`，不做静默兜底——错误信息同时给出收到的
+    前缀与合法前缀集合。与 C# 侧 ``AssetRefConventions.ResolvePathSpace`` 各自独立实现、不互相
+    调用，靠同一组输入/期望值对照测试互相校核（见 toolchain/tests/test_ref_conventions.py 与
+    core/foundation/engine_adapter/tests/AssetRefConventionsTests.cs 对应用例）。
+    """
+    if "." not in resource_ref_id:
+        raise ValueError(
+            f"资源引用 '{resource_ref_id}' 不含类别前缀（无点号），"
+            f"合法类别前缀集合：{'/'.join(KNOWN_CATEGORIES)}"
+        )
+
+    category, _, _ = resource_ref_id.partition(".")
+
+    if category == "sprite":
+        return AssetRefPathSpace.ASSET_ROOT_RELATIVE, sprite_set_directory(resource_ref_id)
+    if category == "icon":
+        return AssetRefPathSpace.ASSET_ROOT_RELATIVE, icon_file(resource_ref_id)
+    if category == "vfx":
+        return AssetRefPathSpace.ASSET_ROOT_RELATIVE, vfx_resource_dir(resource_ref_id)
+    if category == "sfx":
+        return AssetRefPathSpace.ASSET_ROOT_RELATIVE, sfx_resource_file(resource_ref_id)
+    if category == "sprite_anim":
+        return AssetRefPathSpace.ASSET_ROOT_RELATIVE, sprite_anim_dir(resource_ref_id)
+    if category == "paperdoll":
+        return AssetRefPathSpace.ASSET_ROOT_RELATIVE, paperdoll_layer_file(resource_ref_id)
+    if category == "anim":
+        return AssetRefPathSpace.ENGINE_LOGICAL_PATH, anim_clip_logical_path(resource_ref_id)
+    if category == "model":
+        return AssetRefPathSpace.ENGINE_LOGICAL_PATH, model_logical_path(resource_ref_id)
+
+    raise ValueError(
+        f"资源引用 '{resource_ref_id}' 的类别前缀 '{category}' 不合法，"
+        f"合法类别前缀集合：{'/'.join(KNOWN_CATEGORIES)}"
+    )
 
 
 def try_parse_icon_id(relative_file_path: str) -> str | None:

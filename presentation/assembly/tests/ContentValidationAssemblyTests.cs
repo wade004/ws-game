@@ -84,7 +84,12 @@ namespace Tests.Presentation.Assembly
         /// <summary>消费方反馈第 56 条追问：<see cref="ContentValidationAssembly.OptionalRuleNames"/>
         /// 由两项扩为四项——新增 <c>QuestPrerequisiteIsolationRule</c>/<c>TalentTreeIsolationRule</c>
         /// 两条默认关闭的孤立节点展示性提示规则（见 <see cref="ContentValidationOptions.EnableGraphIsolationDiagnostics"/>
-        /// 判断记录），方法名同步改掉已不再成立的"两项"描述。</summary>
+        /// 判断记录），方法名同步改掉已不再成立的"两项"描述。**曾短暂扩为五项（ADR-0038 落地初期）**：
+        /// 新增过 <c>RefCategoryFieldRule</c> 作为默认关闭的第五项可选规则；**数据迁移任务转正后回落
+        /// 为四项**——该规则的默认关闭理由（样例数据遗留前缀）已随数据迁移消除，改为与
+        /// <c>DisplayKindFieldGroupRule</c>/<c>EquipVisualModeFieldGroupRule</c> 同等地位的无条件
+        /// 注册，不再登记进 <c>OptionalRuleNames</c>（方法名仍不改，"四项"本就是历史命名，同本方法
+        /// 命名惯例不随条目数变化）。</summary>
         [Fact]
         public void OptionalRuleNames_IsFixedFourEntryList()
         {
@@ -173,7 +178,10 @@ namespace Tests.Presentation.Assembly
         /// 56 条追问，2026-09-18）**：<see cref="ContentValidationOptions.EnableGraphIsolationDiagnostics"/>
         /// 新增默认 <c>false</c> 的独立布尔开关，未显式打开时 <c>QuestPrerequisiteIsolationRule</c>/
         /// <c>TalentTreeIsolationRule</c> 两条规则计入 <see cref="ContentValidationRun.DisabledOptionalRules"/>
-        /// ——不再"恒为空"，仍不是放宽断言，是真实的默认行为变更（新增两条默认关闭的可选规则）。</summary>
+        /// ——不再"恒为空"，仍不是放宽断言，是真实的默认行为变更（新增两条默认关闭的可选规则）。**三次
+        /// 行为变更（ADR-0038 落地初期，后随数据迁移任务转正回落）**：<c>RefCategoryFieldRule</c> 曾
+        /// 短暂计入 <c>DisabledOptionalRules</c> 末尾，现已无条件注册、不再属于可选规则，不出现在本
+        /// 断言的清单里。</summary>
         [Fact]
         public void Run_EnabledDisabledOptionalRuleChecks_CorrespondToRuleNameLists()
         {
@@ -182,7 +190,9 @@ namespace Tests.Presentation.Assembly
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Equal(new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" }, run.DisabledOptionalRules);
+            Assert.Equal(
+                new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" },
+                run.DisabledOptionalRules);
             Assert.Equal(
                 new[] { QuestPrerequisiteIsolationRule.CheckName, TalentTreeIsolationRule.CheckName },
                 run.DisabledOptionalRuleChecks);
@@ -231,7 +241,9 @@ namespace Tests.Presentation.Assembly
         /// 未 <c>Add</c> 过它们），两条规则对空表/空 <c>spawn.table</c> 均不产出任何问题，因此本用例
         /// 仍应保持不阻断。**消费方反馈第 56 条追问补充**：新增的两条图孤立节点规则默认关闭，计入
         /// <see cref="ContentValidationRun.DisabledOptionalRules"/>，不影响本用例断言的"提供依赖即启用"
-        /// 那两条可选规则的默认启用行为。</summary>
+        /// 那两条可选规则的默认启用行为。**ADR-0038 落地初期补充，后随数据迁移任务转正回落**：曾新增的
+        /// <c>RefCategoryFieldRule</c> 一度默认关闭、计入 <c>DisabledOptionalRules</c>；现已无条件
+        /// 注册，不再属于可选规则，不出现在下方任一清单里。</summary>
         [Fact]
         public void Run_DefaultOptions_BothOptionalRulesEnabledByDefault()
         {
@@ -240,7 +252,9 @@ namespace Tests.Presentation.Assembly
 
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
-            Assert.Equal(new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" }, run.DisabledOptionalRules);
+            Assert.Equal(
+                new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" },
+                run.DisabledOptionalRules);
             Assert.Equal(new[] { "SpawnSummonOnlyCreatureRule", "DisplayMapCoverageRule" }, run.EnabledOptionalRules);
             Assert.False(run.Report.IsBlocking, string.Join("; ", run.Report.Issues));
         }
@@ -282,7 +296,8 @@ namespace Tests.Presentation.Assembly
             var run = ContentValidationAssembly.Run(new IDataSource[] { source }, options);
 
             // 消费方反馈第 56 条追问：本用例未设置 EnableGraphIsolationDiagnostics，两条图孤立节点
-            // 规则按默认值关闭，计入 DisabledOptionalRules——不是"仍恒为空"。
+            // 规则按默认值关闭，计入 DisabledOptionalRules——不是"仍恒为空"。ADR-0038 落地初期曾有
+            // RefCategoryFieldRule 一并计入，数据迁移任务转正后该规则已无条件注册，不再出现在这里。
             Assert.Equal(
                 new[] { "QuestPrerequisiteIsolationRule", "TalentTreeIsolationRule" },
                 run.DisabledOptionalRules);

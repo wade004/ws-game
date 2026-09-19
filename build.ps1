@@ -572,7 +572,14 @@ if (-not $ContentOnlyMode) {
 #        （UnityResourceLoader 期望的 Audio 路径规则；源目录名 "sfx" 与目标目录名 "audio" 不同，
 #        是加载器一侧的固定子目录约定，见该类型判断记录）
 #      assets/_placeholder/vfx + assets/_sample/vfx -> Assets/StreamingAssets/GameFoundation/vfx
-#    以上 sprites/audio/vfx 三处传两个源目录（Sync-ContentTree 的 $SourceDirs 数组，见其函数
+#      assets/_placeholder/sprite_anim + assets/_sample/sprite_anim -> .../GameFoundation/sprite_anim
+#        （ADR-0038 适配层接线新增，2026-09-19：sprite 型动画剪辑 sprite_anim.* 前缀落地，见
+#        UnityResourceLoader.ResolveEffectDir 判断记录）
+#      assets/_placeholder/paperdoll + assets/_sample/paperdoll -> .../GameFoundation/paperdoll
+#        （同上批新增：display.equip_visual.mesh_ref 的 sprite 型 paperdoll.* 前缀落地，见
+#        UnityResourceLoader.ResolvePath 判断记录）
+#    以上五处（sprites/audio/vfx/sprite_anim/paperdoll）均由下方 toolchain/resource_layout_map.json
+#    驱动的循环统一同步、传两个源目录（Sync-ContentTree 的 $SourceDirs 数组，见其函数
 #    注释），任一源目录不存在仍照旧跳过，不影响另一个正常同步。
 #    无条件执行（默认构建流程、-SyncOnly、-SyncContent 三种模式下都会执行，见参数说明）。
 # ---------------------------------------------------------------------------

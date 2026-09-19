@@ -33,13 +33,27 @@ URP 2D Renderer + Input System 1.20"这一件事，不包含任何具体游戏�
 
 ```
 Application.streamingAssetsPath/GameFoundation/<kind 子目录>/<资源引用id去掉类别前缀，点号换下划线>.<扩展名>
-  Image     -> sprites/<name>.png
+  Image     -> sprites/<name>.png（sprite 类别；"layer."/"paperdoll." 两个类别各有专门分支，见下）
   Audio     -> audio/<name>.wav（仅支持标准 PCM16 WAV）
   DataTable -> data/<name>.json
   Scene     -> scene/<name>.json（ADR-0016 决策 5 新增，内容不被解析，见 build.ps1 判断记录）
   NavMesh   -> nav_mesh/<name>.json（同上）
-  Effect    -> vfx/<name>/atlas.png + vfx/<name>/frames.json（ADR-0016 决策 5 新增；不是单一文件，
-              走 UnityResourceLoader.ResolveEffectDir，不经上面的通用扩展名规则）
+  Effect    -> vfx/<name>/atlas.png + vfx/<name>/frames.json（vfx.def.resource_ref）或
+              sprite_anim/<name>/atlas.png + sprite_anim/<name>/frames.json（sprite 型
+              display.anim_set.clips[*].resource_ref/weapon_style.auto_attack_anim/
+              cast_anim_override，ADR-0038 决策 2 新增前缀）——均不是单一文件，走
+              UnityResourceLoader.ResolveEffectDir 按类别前缀分派，不经上面的通用扩展名规则
+```
+
+`ResourceKind.Image` 另有两个不落进上表通用规则的专门分支（均在 `UnityResourceLoader.ResolvePath`
+里判断类别前缀后特例处理，不经"去掉类别前缀、点号换下划线、拼进 sprites/"的通用算法）：
+
+```
+layer.<spriteSetName>__<directionSlotName>__<layerName> -> sprites/<spriteSetName>/<directionSlotName>/<layerName>.png
+  （SpriteViewBase.ResolveLayerResourceId 产出的纸娃娃层"当前档位"资源 id，双下划线还原成三级目录）
+paperdoll.<category>.<name> -> paperdoll/<category>_<name>.png（单个扁平文件，ADR-0038 决策 4
+  附带条款新增前缀，display.equip_visual.mesh_ref 的 sprite 型取值，走
+  AssetRefConventions.PaperdollLayerFile，不再落进 sprites/ 通用规则）
 ```
 
 Font 种类不走上表这条 StreamingAssets 规则（缺口 1 已解决，约定）：
@@ -223,18 +237,28 @@ U2-1 明确要求范围内，记为下一步可选加强项。
 ### 内容同步（`build.ps1 -SyncContent`）
 
 见 `adapters/unity/README.md`"build.ps1 各开关"一节；产物目录 `Assets/StreamingAssets/
-GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`audio`/`vfx` 三个目标目录
-同时同步 `assets/_placeholder/` 与 `assets/_sample/`（后者由 `toolchain/import_sample_assets.py`
-导入，见该脚本与 `toolchain/README.md`），二者汇入同一棵目标目录树。
+GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。目标子目录名 -> 源子目录名的映射唯一权威
+来源是 `toolchain/resource_layout_map.json`（`sprites`/`audio`（源 `sfx`）/`vfx`/`sprite_anim`/
+`paperdoll` 五项，后两项为 ADR-0038 适配层接线新增，2026-09-19），每个目标目录同时同步
+`assets/_placeholder/` 与 `assets/_sample/`（后者由 `toolchain/import_sample_assets.py` 导入，见
+该脚本与 `toolchain/README.md`），二者汇入同一棵目标目录树。
 
-`UnityResourceLoader.ResolvePath` 新增"`layer.` 类别"特例（三级目录路径，见该方法判断记录）：
-`presentation/render/core/SpriteViewBase.ResolveLayerResourceId` 产出的纸娃娃层资源 id 形如
-`"layer.<spriteSetName>__<direction>__<layerName>"`，但 `toolchain/gen_placeholder_assets.py`
-生成的占位精灵集（以及 `toolchain/import_sample_assets.py` 经 `import_assets.py` `sprite` 子命令
-导入的 `assets/_sample/sprites/` 精灵集，两者磁盘布局一致）实际磁盘布局是"目录按方向/层分层"
-（`sprites/<spriteSet>/<direction>/<layer>.png`），不是单一扁平文件名；本方法只对 `"layer."` 这一
-个类别把双下划线分隔的三段还原成三级目录，其余类别（`sprite.`/`icon.` 等）的既有扁平解析规则
-不变。
+`UnityResourceLoader.ResolvePath` 对 `ResourceKind.Image` 另有两个不走通用扁平规则的类别特例（均
+见该方法判断记录）：
+- `"layer."` 类别（三级目录路径）：`presentation/render/core/SpriteViewBase.ResolveLayerResourceId`
+  产出的纸娃娃层资源 id 形如 `"layer.<spriteSetName>__<direction>__<layerName>"`，但
+  `toolchain/gen_placeholder_assets.py` 生成的占位精灵集（以及 `toolchain/import_sample_assets.py`
+  经 `import_assets.py` `sprite` 子命令导入的 `assets/_sample/sprites/` 精灵集，两者磁盘布局一致）
+  实际磁盘布局是"目录按方向/层分层"（`sprites/<spriteSet>/<direction>/<layer>.png`），不是单一
+  扁平文件名；本方法把双下划线分隔的三段还原成三级目录。
+- `"paperdoll."` 类别（ADR-0038 决策 4 附带条款新增前缀，2026-09-19）：`display.equip_visual.
+  mesh_ref` 的 sprite 型取值，转发 `AssetRefConventions.PaperdollLayerFile` 解析为单个扁平文件
+  `paperdoll/<name>.png`（与 `sprite_set_id`/`SpriteSetDirectory` 承载的"精灵集目录"语义不等价，
+  见 ADR-0038 决策 4 落地期核实结论）。
+
+其余类别（`sprite.`/`icon.` 等）的既有扁平解析规则不变。`ResourceKind.Effect`（`UnityResourceLoader.
+ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sprite_anim.*`（ADR-0038 决策 2
+新增前缀，sprite 型动画剪辑）-> `sprite_anim/<name>/`。
 
 ### 灰盒场景与测试/构建
 
@@ -359,6 +383,27 @@ GameFoundation/` 整体 `.gitignore`，只提交同步脚本本身。`sprites`/`
 - `Runtime/Shell/FrameworkResidentHost.cs`：框架常驻部分为什么不直接改造
   `GameFoundationBootstrap`、世界/装配根只构造一次、`AiHost`/`SpawnHost` 级联清理缺口（核心一半
   已由 ADR-0016 解决，`GameplayAssembly.LeaveMap` 承担出图退场，见 `HandlePreUnload` 判断记录）。
+- `UnityResourceLoader.cs` `UnloadAllImages`（曾在 2026-09-19 提交 0a07c0c 新增，供
+  `Tests/Runtime/PlayModeIsolation.cs` `TearDownAfterTest` 每条用例后清空
+  `ResourceKind.Image` 类别"已加载"缓存，意图根治 PlayMode 全量门禁失败 1/3；已在同日撤销，
+  见下一条判断记录）：真实引擎实测证伪了"Image 类消费方随 View 实例自然重置、不受影响"这一
+  判断——清空全局缓存后引入了 3 处新失败（`GreyBoxTests`/`VerticalSliceTests` 若干用例的
+  精灵/纸娃娃层资源加载不到）。方法与调用点均已删除，不改为"只清某几个 id"或"只在某些用例后清"
+  的变体，跨用例清空共享资源缓存这条路整体放弃。
+- `Tests/Runtime/SpriteEquipVisualWiringTests.cs`
+  `UnityViewFactory_SpriteKind_EquipVisualWired_EquippingRequestsOverrideLayerResource`
+  （PlayMode 全量门禁失败 1/3 改为局部修复，2026-09-19）：该用例与 `EquipmentVisualReplayTests`
+  此前共享同一资源引用字面量 `paperdoll.item.sample_hero_hat_test`，只要其中一个先于另一个在
+  同一批 `-runTests` 进程里跑过，后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空。改为给
+  本用例专属的资源引用字面量 `paperdoll.item.sample_hero_hat_wiring_test`
+  （`display.equip_visual.sample_hero_hat_wiring_test` 一行，配套占位资产并入
+  `toolchain/import_sample_assets.py` 既有生成流水线），"未被加载过"这一前提由夹具本身独占
+  保证，不再依赖执行顺序或跨用例缓存清理。
+- `Tests/Runtime/VerticalSliceTests.cs` `AssertAnimResourcesLoadedSuccessfully`（同批失败 2/3、
+  3/3 根治）：`sprite_anim.sample_hero_*` 六个状态动画资源经 ADR-0038 适配层路由修复 +
+  占位帧集数据迁移叠加后已能真实加载成功，原先预期"加载失败"警告的 `LogAssert.Expect` 写法
+  断言前提已过期，改为轮询 `UnityResourceLoader.TryGetEffect` 命中即视为验证下游真实加载成功
+  （不是删除断言了事）。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
