@@ -278,7 +278,11 @@ namespace Presentation.Render
                     resourceId = ResolveLayerResourceId(placements[i]);
                 }
 
-                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
+                // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：把
+                // HandleResourceLoadCompleted 作为 onComplete 传入，与 SpriteCharacterRig.
+                // ComposeAndApplyLayers 内部同一份回调绑定到同一个 rig 实例，装备驱动的层重建路径
+                // 与朴素层合成路径共用同一套"加载完成后重新应用当前完整层列表"机制。
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, _rig.HandleResourceLoadCompleted);
                 resourceIds.Add(resourceId);
             }
 
@@ -295,7 +299,7 @@ namespace Presentation.Render
             for (var i = 0; i < extraLayerNames.Count; i++)
             {
                 var resourceId = overridesByLayerName[extraLayerNames[i]];
-                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, _rig.HandleResourceLoadCompleted);
                 resourceIds.Add(resourceId);
             }
 
@@ -370,6 +374,10 @@ namespace Presentation.Render
                 return;
             }
 
+            // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：先标记 rig
+            // 已销毁，再销毁渲染实例——之后到达的迟到 HandleResourceLoadCompleted 回调会直接跳过，
+            // 不会在 Handle 已失效之后再调用 IRenderer2D.SetLayers 触碰它。
+            _rig.MarkDestroyed();
             Renderer.DestroySpriteInstance(Handle);
             _destroyed = true;
             IsAlive = false;

@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EngineAdapter;
 using Presentation.Common;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.Render
 {
@@ -32,6 +33,40 @@ namespace Presentation.Render
     /// 叠加到哪个变换分量、缩放是否要跟纸娃娃整体缩放叠乘等）依赖具体游戏的呈现取舍，留给调用方
     /// （通常是 W3b 引擎适配层）在 <c>onSample</c> 参数里自行决定，本类型不代为拍板。
     /// </para>
+    /// <para>
+    /// 判断记录（资源加载完成后回填已渲染层，排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md
+    /// "教训三"根治）：此前 <see cref="ComposeAndApplyLayers"/> 只在调用当下同步把
+    /// <c>resolveResourceId</c> 解出的资源 id 交给 <see cref="ApplyLayers"/>（→
+    /// <see cref="IRenderer2D.SetLayers"/>），首次引用的资源尚未加载完成时引擎侧只能落地占位方块
+    /// （<c>IRenderer2D</c> 实现的既有约定），但从此再没有任何机制在加载真正完成之后回头刷新画面——
+    /// 除非"层集合变化"或"朝向变化"再次触发一次 <see cref="SetLayers"/>调用；隔离跑 PlayMode 用例
+    /// 实测（<c>诊断记录 diag-isolation.md</c>）证实这不是偶发竞态，是结构性缺口："资源确实异步
+    /// 加载成功了，但没有人通知渲染层"。现给 <see cref="Presentation.Common.ResourceReferenceTracker.EnsureLoading(Core.Foundation.Common.Id,ResourceKind,LoadCallback?)"/>
+    /// 新增的 <c>onComplete</c> 回调统一接到 <see cref="HandleResourceLoadCompleted"/>：加载成功时用
+    /// <see cref="_lastLayerResourceIds"/>（<see cref="ApplyLayers"/> 记住的"当前完整层列表"）重新调
+    /// 一次 <see cref="ApplyLayers"/>，让占位方块有机会被迟到的真实资源替换；加载失败时不重新应用
+    /// （占位方块保持不变），改记一条 <see cref="Diagnostics"/> 诊断，不静默。幂等与防重复刷新风暴：
+    /// ① <see cref="Presentation.Common.ResourceReferenceTracker"/> 本身保证同一资源 id 只调用一次
+    /// <c>LoadAsync</c>，因此本方法对给定 id 至多被调用一次，不会重复回填；② 多个层引用同一资源 id
+    /// 只会有这一次回调，但它触发的是"整份当前层列表"重新应用一次，天然覆盖全部引用该资源的层，
+    /// 不需要按层分别处理，也不需要额外去重表；③ <see cref="MarkDestroyed"/> 之后到达的回调直接
+    /// 跳过，不触碰已销毁的 <see cref="SpriteHandle"/>（<c>IRenderer2D</c> 实现对已销毁句柄一律抛
+    /// <see cref="InvalidOperationException"/>，见 <c>UnityRenderer2D.EnsureAlive</c>/
+    /// <c>StubRenderer2D.EnsureSpriteAlive</c> 同一约定）；重新应用本身开销可忽略——
+    /// <see cref="IRenderer2D.SetLayers"/> 按索引复用既有 <c>SpriteRenderer</c>，只重新解析/赋值
+    /// <c>sprite</c> 字段，不销毁重建任何引擎对象（见 <c>UnityRenderer2D.SetLayers</c> 判断记录）。
+    /// </para>
+    /// <para>
+    /// 判断记录（复用 <see cref="IPresentationDiagnostics"/>，不新造 render 专属诊断契约）：本类型
+    /// 与 <c>presentation/render</c> 同属 <c>Presentation.Common</c> 单一程序集（见 presentation/
+    /// README.md），<c>vfx_sfx</c>/<c>feedback_binder</c> 已用同一接口记降级/异步加载相关诊断
+    /// （<c>VfxPlayer</c>/<c>SfxPlayer</c>），本类型的"资源加载失败"是同一类"表现层运行期降级"场景，
+    /// 复用同一契约不新增无谓抽象（同 common/README.md 判断记录 1"不新造 IRenderSurface"一贯做法）；
+    /// 该接口类型注释的适用范围已一并扩展到本模块。未走 <c>VfxPlayer</c>/<c>SfxPlayer</c> 的构造期
+    /// 注入模式——本类型/<see cref="SpriteViewBase"/> 现有构造函数均不允许加参数（AGENTS.md"ABI 只
+    /// 新增"），内部固定 <c>new PresentationDiagnosticsRecorder()</c>，经 <see cref="Diagnostics"/>
+    /// 只读属性暴露供调用方/测试读取，是比新增构造重载更小的改动面。
+    /// </para>
     /// </summary>
     public sealed class SpriteCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim
     {
@@ -43,6 +78,20 @@ namespace Presentation.Render
         private readonly HitFrameSyncStrategy _hitFrameSyncStrategy;
         private IFrameAnimPlayer? _frameAnimPlayer;
         private readonly ProceduralAnimSequencer _sequencer = new ProceduralAnimSequencer();
+
+        /// <summary>见类型注释"资源加载完成后回填已渲染层"判断记录：<see cref="ApplyLayers"/> 每次
+        /// 调用都会记住当次的完整层 resourceId 列表，供 <see cref="HandleResourceLoadCompleted"/>
+        /// 在迟到的加载完成回调到达时重新应用同一份列表——始终反映"最近一次已知的期望层集合"，即使
+        /// 期间因装备变化等原因已经变了也会自动跟上最新值（不是"请求发起时刻"的旧快照）。</summary>
+        private IReadOnlyList<Id>? _lastLayerResourceIds;
+
+        /// <summary>见类型注释同一判断记录：<see cref="MarkDestroyed"/> 之后 <see cref="HandleResourceLoadCompleted"/>
+        /// 直接跳过，不触碰已销毁的渲染实例。</summary>
+        private bool _destroyed;
+
+        /// <summary>见类型注释"复用 IPresentationDiagnostics"判断记录：加载失败时记一条警告，供调用方
+        /// /测试读取（未走构造期注入，固定用内存实现）。</summary>
+        public IPresentationDiagnostics Diagnostics { get; } = new PresentationDiagnosticsRecorder();
 
         /// <summary>命中帧同步（09 第 4.3 节）在 <see cref="HitFrameSyncStrategy.AnimKeyframeDriven"/>
         /// 策略下才触发：<see cref="FrameAnimClip.HitFrameMarker"/> 对应的 <see cref="IFrameAnimPlayer.OnAnimEvent"/>
@@ -158,14 +207,48 @@ namespace Presentation.Render
             for (var i = 0; i < placements.Count; i++)
             {
                 var resourceId = resolveResourceId(placements[i]);
-                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image);
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, HandleResourceLoadCompleted);
                 resourceIds.Add(resourceId);
             }
 
             ApplyLayers(resourceIds);
         }
 
-        public void ApplyLayers(IReadOnlyList<Id> resourceIds) => _renderer.SetLayers(_handle, resourceIds);
+        public void ApplyLayers(IReadOnlyList<Id> resourceIds)
+        {
+            _lastLayerResourceIds = resourceIds;
+            _renderer.SetLayers(_handle, resourceIds);
+        }
+
+        /// <summary>见类型注释"资源加载完成后回填已渲染层"判断记录：作为
+        /// <see cref="Presentation.Common.ResourceReferenceTracker.EnsureLoading(Id,ResourceKind,LoadCallback?)"/>
+        /// 的 <c>onComplete</c> 回调，绑定到本 rig 实例（不是绑定到某一次具体调用），因此同一资源 id
+        /// 无论由 <see cref="ComposeAndApplyLayers"/> 还是 <see cref="SpriteViewBase.RebuildEquippedLayers"/>
+        /// 首次发起加载，回调到达时都会走到同一份逻辑。公开（而非 <c>private</c>）供
+        /// <see cref="SpriteViewBase"/> 把它作为 <c>LoadCallback</c> 传给自己发起的
+        /// <c>EnsureLoading</c> 调用（见该类型 <c>RebuildEquippedLayers</c>）。</summary>
+        public void HandleResourceLoadCompleted(Id resourceId, bool success)
+        {
+            if (_destroyed)
+            {
+                return;
+            }
+
+            if (!success)
+            {
+                Diagnostics.Warn($"SpriteCharacterRig（entity={EntityId}）：资源 \"{resourceId}\" 加载失败，保留占位方块");
+                return;
+            }
+
+            if (_lastLayerResourceIds != null)
+            {
+                ApplyLayers(_lastLayerResourceIds);
+            }
+        }
+
+        /// <summary>见类型注释同一判断记录：由 <see cref="SpriteViewBase.Destroy"/> 在销毁渲染实例前
+        /// 调用，标记本 rig 此后不再响应迟到的 <see cref="HandleResourceLoadCompleted"/> 回调。</summary>
+        public void MarkDestroyed() => _destroyed = true;
 
         public void Update(double dt) => _sequencer.Update(dt);
 

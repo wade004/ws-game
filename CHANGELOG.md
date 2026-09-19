@@ -447,6 +447,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `UnityResourceLoader` 实例、专属资源引用字面量或已有轮询等待，详见
   `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训三/正面做法"
   两节与包 README"PlayMode 用例写法约定"一节）。
+- **纸娃娃层/方向档位资源异步加载完成后未回填已渲染画面**（诊断记录
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"）：上面那条
+  "改轮询等待"本身没有错，但等多久都通不过——真因是
+  `Presentation.Common.ResourceReferenceTracker.EnsureLoading` 此前固定给
+  `IResourceLoader.LoadAsync` 传空操作完成回调，`UnityRenderer2D.SetLayers` 只在调用当下同步
+  解析一次精灵（未加载完成时落地占位方块），此后除非层集合/朝向再次变化，没有任何机制在资源
+  真正加载完成后回头刷新已渲染的占位方块——隔离跑 PlayMode 用例证实这不是竞态，是结构性缺口：
+  全量门禁能通过纯属"更早用例碰巧把同一资源预热进跨用例共享缓存"的假通过。新增
+  `EnsureLoading(Id, ResourceKind, LoadCallback?)` 重载（ABI 只新增，原双参数重载保留不变）；
+  `SpriteCharacterRig`/`SpriteViewBase` 把该回调统一接到 `SpriteCharacterRig.
+  HandleResourceLoadCompleted`：加载成功时重新应用最近一次已知的完整层列表，让占位方块有机会被
+  真实资源替换（幂等，多个层引用同一资源只触发一次重新应用）；加载失败时不重新应用，改记一条
+  `IPresentationDiagnostics` 警告；已销毁的渲染实例（`SpriteCharacterRig.MarkDestroyed`）直接
+  跳过迟到的回调，不触碰失效句柄。新增 12 例测试（`presentation/common/tests/
+  ResourceReferenceTrackerTests.cs` 全新文件 6 例；`SpriteCharacterRigTests.cs`/
+  `SpriteViewBaseTests.cs` 各新增覆盖成功回填/失败诊断/多层共享资源去重/销毁后不触发的用例）。
 
 ## [1.44.0] - 2026-09-19
 

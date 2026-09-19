@@ -5,6 +5,7 @@ using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Presentation.Common;
 using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 using Xunit;
 
 namespace Tests.PresentationRender
@@ -143,6 +144,108 @@ namespace Tests.PresentationRender
             rig.ApplyLayers(new[] { new Id("layer.custom") });
 
             Assert.Equal(new[] { new Id("layer.custom") }, renderer.Layers[handle.Value]);
+        }
+
+        // -----------------------------------------------------------------
+        // 诊断记录 diag-isolation.md 根治配套用例："资源加载完成后回填已渲染层"
+        // （SpriteCharacterRig 类型注释同名判断记录）。
+        // -----------------------------------------------------------------
+
+        private static SpriteCharacterRig MakeRigWithTracker(
+            StubRenderer2D renderer, Core.Foundation.EngineAdapter.SpriteHandle handle, StubResourceLoader loader) =>
+            new SpriteCharacterRig(
+                new Id("unit.hero_1"), renderer, handle, new RenderConventionHost(), MakeDisplayInfo(),
+                resourceTracker: new ResourceReferenceTracker(loader));
+
+        [Fact]
+        public void ComposeAndApplyLayers_ResourceLoadCompletesLater_ReappliesFullLayerList()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var rig = MakeRigWithTracker(renderer, handle, loader);
+            var resourceId = new Id("layer.body");
+            loader.Register(resourceId);
+
+            rig.ComposeAndApplyLayers(new[] { "body" }, Direction.FromQuantized(Math.PI / 2, 8), _ => resourceId);
+
+            // 首次同步调用：此时资源尚未加载完成（引擎侧会落地占位方块，本桩不模拟像素，只记调用）。
+            Assert.Single(renderer.SetLayersCalls);
+
+            loader.CompletePending(resourceId);
+
+            // 加载完成后应自动补一次 SetLayers，用同一份已知层列表重新应用——不是"从未再调用"。
+            Assert.Equal(2, renderer.SetLayersCalls.Count);
+            Assert.Equal(new[] { resourceId }, renderer.SetLayersCalls[1].Layers);
+            Assert.Equal(new[] { resourceId }, renderer.Layers[handle.Value]);
+        }
+
+        [Fact]
+        public void ComposeAndApplyLayers_ResourceLoadFails_DoesNotReapply_RecordsDiagnosticWarning()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var rig = MakeRigWithTracker(renderer, handle, loader);
+            var resourceId = new Id("layer.missing");
+            // DeferCallbacks 模式下 Register/Unregister 不影响结果（见 StubResourceLoader 类型注释）：
+            // 成功/失败完全由测试显式调用 CompletePending/FailPending 决定，这里用 FailPending 模拟
+            // 一次真实的加载失败（而不是"尚未加载完成"）。
+
+            rig.ComposeAndApplyLayers(new[] { "body" }, Direction.FromQuantized(Math.PI / 2, 8), _ => resourceId);
+            Assert.Single(renderer.SetLayersCalls);
+
+            loader.FailPending(resourceId);
+
+            // 加载失败：不重新应用（占位保持不变），但必须留下一条可诊断的警告，不能静默。
+            Assert.Single(renderer.SetLayersCalls);
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(rig.Diagnostics);
+            Assert.Contains(recorder.Warnings, w => w.Contains(resourceId.Value) && w.Contains("加载失败"));
+        }
+
+        /// <summary>多个层引用同一资源 id 时只应有一次回调驱动的重新应用（同一资源 id 只会
+        /// LoadAsync 一次），且那一次会覆盖全部引用它的层——不需要按层分别处理，见类型注释
+        /// "幂等与防重复刷新风暴"判断记录第②条。</summary>
+        [Fact]
+        public void ComposeAndApplyLayers_MultipleLayersShareSameResource_OnlyOneReapply()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var rig = MakeRigWithTracker(renderer, handle, loader);
+            var sharedId = new Id("layer.shared");
+            loader.Register(sharedId);
+
+            rig.ComposeAndApplyLayers(new[] { "body", "hand_main" }, Direction.FromQuantized(Math.PI / 2, 8), _ => sharedId);
+            Assert.Single(renderer.SetLayersCalls);
+
+            loader.CompletePending(sharedId);
+
+            Assert.Equal(2, renderer.SetLayersCalls.Count);
+            Assert.Equal(new[] { sharedId, sharedId }, renderer.SetLayersCalls[1].Layers);
+        }
+
+        [Fact]
+        public void HandleResourceLoadCompleted_AfterMarkDestroyed_DoesNotThrow_AndDoesNotReapply()
+        {
+            var renderer = new StubRenderer2D();
+            var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var rig = MakeRigWithTracker(renderer, handle, loader);
+            var resourceId = new Id("layer.body");
+            loader.Register(resourceId);
+
+            rig.ComposeAndApplyLayers(new[] { "body" }, Direction.FromQuantized(Math.PI / 2, 8), _ => resourceId);
+            Assert.Single(renderer.SetLayersCalls);
+
+            rig.MarkDestroyed();
+            renderer.DestroySpriteInstance(handle);
+
+            var ex = Record.Exception(() => loader.CompletePending(resourceId));
+
+            Assert.Null(ex);
+            // 仍然只有销毁前那一次调用：已销毁后到达的回调不应再触碰渲染实例。
+            Assert.Single(renderer.SetLayersCalls);
         }
 
         [Fact]

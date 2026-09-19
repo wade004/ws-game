@@ -292,6 +292,25 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     `presentation/view_binding/README.md` 判断记录 6——本模块（`render`）只提供"如何清空/重建自己
     的外观状态"这一具体能力，不知道、也不需要知道自己何时被谁调用。
 
+20. **资源加载完成后回填已渲染层**（诊断记录
+    `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"根治，取代
+    此前"首次引用未加载完成的资源→落地占位方块→此后再没有机制刷新"的结构性缺口）：
+    `SpriteCharacterRig.ComposeAndApplyLayers`/`SpriteViewBase.RebuildEquippedLayers` 调用
+    `ResourceReferenceTracker.EnsureLoading` 时统一传入 `SpriteCharacterRig.
+    HandleResourceLoadCompleted` 作为 `onComplete`（`common/README.md` 判断记录 7 新增的重载）：
+    加载成功时用 `SpriteCharacterRig` 记住的"最近一次已知完整层列表"（`ApplyLayers` 每次调用都
+    会更新这份记录，天然反映最新期望状态而不是请求发起时刻的旧快照）重新调用一次
+    `ApplyLayers`，让占位方块有机会被迟到的真实资源替换；加载失败时不重新应用，改用新增的
+    `SpriteCharacterRig.Diagnostics`（复用 `Presentation.VfxSfx.Contracts.IPresentationDiagnostics`，
+    不新造 render 专属诊断契约，同判断记录 1"不新造 IRenderSurface"一贯做法）记一条警告，不静默；
+    `SpriteViewBase.Destroy` 调用新增的 `SpriteCharacterRig.MarkDestroyed` 使此后迟到的回调直接
+    跳过，不触碰已销毁的 `SpriteHandle`。幂等设计：同一资源 id 因 `ResourceReferenceTracker` 自身
+    去重只会回调一次；多个层引用同一资源 id 时那一次回调会把"整份当前层列表"重新应用一次，天然
+    覆盖全部引用它的层，不需要按层分别处理；重新应用本身开销可忽略——`IRenderer2D.SetLayers`
+    按索引复用既有 `SpriteRenderer`，不销毁重建任何引擎对象。未走 `VfxPlayer`/`SfxPlayer` 的
+    构造期诊断注入模式：`SpriteCharacterRig`/`SpriteViewBase` 现有构造函数不允许加参数（AGENTS.md
+    "ABI 只新增"），改为固定内部实例、经只读属性暴露，是比新增构造重载更小的改动面。
+
 ## 契约缺口
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
