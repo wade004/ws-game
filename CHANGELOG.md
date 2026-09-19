@@ -538,6 +538,41 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   预扫描 `sim.anchor` 时同样直接调用 `IDataSource.ListTables()`），超出本次改动范围，留档建议另行
   派单。
 
+- **锚点预扫描异常隔离（框架调用外部实现不做隔离系列第四条，紧接上一条留档条目）**：
+  `AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows`（`toolchain/validator
+  /Program.cs`/`HeadlessWorldBuilder.Build` 两处接入点在 `DataRegistry.LoadAll` **之前**预扫描
+  `sim.anchor` 是否含数据行）内部对 `IDataSource.ListTables()` 的调用同样没有 try/catch，某个数据源
+  枚举失败会先于第三条已隔离的 `DataRegistry.LoadAllCore` 自身崩溃。本方法固定发生在有任何
+  `ValidationReport`/issue 收集器之前，不能像 `TryEnumerateSource` 那样产出问题项——设计层拍板：
+  捕获异常后**保守立即返回 `true`**（假定"可能含锚点行"，照常装配提供者），而不是当作"没有锚点行"
+  返回 `false`（那会让 `SkillBudgetValidationRule`/`ItemGrantValueExceedsShareRule` 因
+  `anchorProvider==null` 整条跳过、预算求解在未经确认的"锚点缺失"前提下悄悄运行且毫无提示，属于
+  AGENTS.md 第 3 节禁止的静默降级）。安全性论证：两处调用方随后都会用同一份数据源列表调用
+  `DataRegistry.LoadAll`，其内部既有的 `TryEnumerateSource`（第三条）会独立重新枚举同一个失败源并
+  再次失败，产出 `data_source_unavailable`、令报告阻断，两处调用方均已对阻断报告做拒绝继续处理
+  （`HeadlessWorldBuilder.Build` 抛 `InvalidOperationException`；`toolchain/validator` 按
+  `IsBlocking` 返回退出码 1）——失败信息经既有隔离通道到达调用方/报告；即使误判为"过度保守"，
+  `AnchorTable.MaxLevel<=0` 时 `GetAnchorDps`/`GetExpectedScalingStatValue` 首次调用即抛异常的既有
+  防线也不会让错误数值悄悄产出。回归测试（`core/sim/tests/AnchorTableSkillBudgetAnchorProviderTests.cs`
+  新增 3 例）：`DataSourcesHaveAnchorRows_SourceListTablesThrowsUnexpectedException_DoesNotThrow_
+  ReturnsTrueNotFalse`/`DataSourcesHaveAnchorRows_GoodSourceWithoutAnchorThenThrowingSource_
+  DoesNotThrow_ReturnsTrue`/`HeadlessWorldBuilderBuild_OneExtraSourceListTablesThrows_DoesNotCrash_
+  ThrowsWithDataSourceUnavailableDetail`（已反向确认：去掉 try/catch 后三例全部改为失败，还原后
+  7/7 通过）；真实数据根（`data/_framework` + `data/_sample`）临时注入 `_sample` 根首次枚举抛出，
+  实测 `toolchain/validator` 隔离生效前 `Unhandled exception` 崩溃（退出码 `0xE0434352`）、生效后
+  正常退出码 `0`（`errors 0, warnings 0`，`requires_anchor` 显示已接入），验证后已还原全部临时注入。
+  **顺带同类修复**：`toolchain/simrunner/Program.cs` 内 `DiscoverBootstrapPlayerClass`（`Headless
+  WorldBuilder.Build` 之前另一处探测 `sim.scenario` 的预扫描）同样直接调用 `IDataSource.ListTables()`
+  /`DataTableSource.ReadText()`，均无 try/catch，一并根治——本工具可直接把失败打到标准错误，捕获后
+  打印 `[警告]` 并跳过该候选继续扫描，不让它击穿整个探测流程；真正装载仍由随后的 `HeadlessWorldBuilder
+  .Build` 完成，同上一条推理不会静默降级。**系统性收尾扫描扩到全仓**（`core/sim/README.md`"框架调用
+  外部实现不做隔离系列第四条判断记录"一节"全仓外部调用点清单"）：确认 `IEventBus`/`IHookRegistry`
+  的批处理回调分发、`ISaveMigration`（`SaveSystem`/`SettingsStore`）迁移链调用均早于本系列即已隔离；
+  引擎适配层契约、约 20 个诊断旁路契约、约 40 个业务域默认实现契约按问题形状分类排除（诊断旁路类
+  未逐个源码核实，已如实标注扫描深度），本系列四条覆盖的"数据/内容驱动型可插拔实现"范围内未发现
+  其它未隔离点。判断记录详见 `core/sim/README.md`、`core/foundation/data_registry/README.md`
+  "顺带发现"一节更新。
+
 - **表现层诊断转发到引擎控制台——补上 Vfx/Sfx/Feedback/ViewBinder 四条链路（1.45.0 遗留缺口收口）**：
   1.45.0 只接了 `SpriteCharacterRig.Diagnostics` 一条链路，`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`
   （含 `HitFrameSyncPolicy`，两者共享同一诊断实例）/`ViewBinder` 虽然都已接受可选构造参数

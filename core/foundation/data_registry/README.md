@@ -287,15 +287,18 @@ rowObj)` 这一次调用（不像第 73 条那样需要额外包住外层枚举�
 | `SchemaMigrator.MigrateEnvelope` 内 `MigrateRow` | 同上 `TableMigration.Migrate` | **不需要隔离**（既有判断记录：本方法是内容工具"单次写回"入口，没有"部分成功"的中间态，异常即终止是有意的设计——与 `DataRegistry` 加载期"尽量报全部问题、跳过坏行继续"的宽容策略刻意不同，见该方法类型级判断记录） |
 | `FieldSchema.Item`/`Variants` 属性 getter 内 `itemFactory`/`variantsFactory` | 各模块注册 `TableSchema` 时提供的工厂委托 | **不需要隔离**（这是 schema 注册期的元数据构造代码，由框架/内容作者本人编写并随任意一次加载/测试确定性复现，属于开发期就会暴露的编程错误，不是"运行时对不可控的可变数据/第三方实现容错"这一类问题——与本系列三条针对的"数据驱动、运行时才会因具体输入触发"的失败模式不同类，故不纳入本系列隔离范围） |
 
-**顺带发现、超出本模块范围、未修（留档，建议另行派单）**：`core/sim/core/AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows`
-（供 `toolchain/validator/Program.cs`/`Core.Sim.HeadlessWorldBuilder.Build` 两处接入点在
-`DataRegistry.LoadAll` **之前**预扫描 `sim.anchor` 表是否含数据行）内部同样直接调用
+**顺带发现、超出本模块范围、上一单未修——本次（框架调用外部实现不做隔离系列第四条，2026-09-19）
+已根治**：`core/sim/core/AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows`（供
+`toolchain/validator/Program.cs`/`Core.Sim.HeadlessWorldBuilder.Build` 两处接入点在
+`DataRegistry.LoadAll` **之前**预扫描 `sim.anchor` 表是否含数据行）内部此前同样直接调用
 `source.ListTables()`（`foreach (var source in sources) { foreach (var table in source.ListTables())`），
-没有任何 try/catch——本次进程级验证证明：只要某个 `IDataSource.ListTables()` 抛出未预期异常，这个
-更早的预扫描调用点会先于 `DataRegistry.LoadAllCore` 自身崩溃，`0xE0434352` 崩溃码原样复现，且本次
+没有任何 try/catch——上一单进程级验证证明：只要某个 `IDataSource.ListTables()` 抛出未预期异常，这个
+更早的预扫描调用点会先于 `DataRegistry.LoadAllCore` 自身崩溃，`0xE0434352` 崩溃码原样复现，且上一单
 `data_source_unavailable` 隔离对它完全不生效（不同类、不共享实现）。这是与本系列同构的第四个未隔离
-点，但物理位置在 `core/sim/`，超出本次任务书划定的 `core/foundation/data_registry/` 改动范围，本次
-不修，留档建议另行派单——同 AGENTS.md 第 6 节"不擅自拍板设计冲突"惯例，不在本单顺手扩大改动面。
+点，物理位置在 `core/sim/`，超出上一单任务书划定的 `core/foundation/data_registry/` 改动范围，当时
+留档建议另行派单——本次即为该派单，修复方案、回归测试、反向确认、进程级验证与全仓收尾扫描详见
+`core/sim/README.md`"框架调用外部实现不做隔离系列第四条判断记录（2026-09-19）"一节；该节末尾的
+"全仓外部调用点清单"与本节合并互相引用，构成本系列迄今为止的完整收尾扫描记录。
 
 ## 复合字段子结构递归校验（ADR-0019）
 

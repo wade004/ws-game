@@ -1319,3 +1319,160 @@ DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用，断言不
     `Build_EquippedWeaponSummaries_MatchesManualAssemblyFromEquipmentHost` 用例，用嵌入数据集在真实
     `StandardPlayerBuilder.Build` 产出上与手工搬运基线逐字段比对。`Tests.Carriers`
     615/615、`Tests.Sim` 104/104 全量通过，无回归。
+
+## 框架调用外部实现不做隔离系列第四条判断记录（2026-09-19）
+
+背景：`core/foundation/data_registry/README.md`"数据源枚举执行期异常隔离"一节（该系列第三条，
+`DataRegistry.LoadAllCore`/`Reload` 内 `IDataSource.Root`/`ListTables` 隔离）收尾扫描时发现第四个
+未隔离点——本模块 `AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows`
+（`toolchain/validator/Program.cs`/`HeadlessWorldBuilder.Build` 两处接入点在 `DataRegistry.LoadAll`
+**之前**的预扫描）内部直接调用 `source.ListTables()`，没有 try/catch；进程级验证证明它会先于
+`DataRegistry.LoadAllCore` 自身（已隔离）崩溃，同系列第三条的隔离对它完全不生效（不同调用点、不
+共享实现）。物理位置在 `core/sim/`，超出上一单任务书范围，留档另行派单——本节即该派单的落地记录。
+
+**难点与拍板**：本方法固定发生在有任何 `ValidationReport`/issue 收集器之前，不能像
+`DataRegistry.TryEnumerateSource` 那样产出一条问题项再继续。设计层拍板：捕获到某数据源
+`ListTables()` 抛出的任意异常时，**不外抛、也不当作"这个源没有锚点行"**，而是保守立即返回
+`true`（假定"可能含 `sim.anchor` 行"，照常装配 `AnchorTableSkillBudgetAnchorProvider`）。选择
+"返回 `true`"而不是仿照本方法内既有 `ReadText()` 失败分支"这个候选不算数、继续看下一个"（那个
+分支处理的是"已确认存在的一份文件读不出内容"，不确定性范围窄；本处是"连这个源会不会提供
+`sim.anchor` 都不知道"，不确定性范围是整个数据源）：如果返回 `false`，两处调用方都会据此把
+`anchorProvider` 装配为 `null`，令 `SkillBudgetValidationRule`/`ItemGrantValueExceedsShareRule`
+"为 null 时整条跳过"——预算求解在"锚点数据缺失"这一未经确认的前提下悄悄运行、且没有任何报告提示，
+这正是 AGENTS.md 第 3 节禁止的静默降级。返回 `true` 之所以安全（不会导致"悄悄算出错误结果"）：
+
+1. 两处调用方在本方法返回之后都会立即用**同一份** `sources`/`DataSources` 调用
+   `DataRegistry.LoadAll`——其内部 `TryEnumerateSource`（同系列第三条）会对同一个失败的数据源
+   重新枚举一次并再次失败（真实 `FileSystemDataSource` 的枚举失败通常是持续性的权限/路径问题；
+   测试替身按构造更是每次调用必抛），产出 Error 级 `data_source_unavailable`、令
+   `ValidationReport.IsBlocking` 为真。两处调用方都已经在 `LoadAll` 返回后检查 `IsBlocking` 并
+   拒绝继续——`HeadlessWorldBuilder.Build` 抛 `InvalidOperationException`（消息含 `report.Issues`
+   全文）；`toolchain/validator` 把 `report.Issues` 逐条打印后按 `IsBlocking` 返回退出码 1。失败
+   信息经由 `DataRegistry` 既有隔离通道到达调用方/报告，本方法不需要另开一条报告通道——这正是
+   "没有报告可写"这一难点的解法：把判断推迟给紧随其后、确实有报告通道的 `LoadAll`。
+2. 即使那个失败源其实不含 `sim.anchor`（"过度保守"而非误判），装配出的
+   `AnchorTableSkillBudgetAnchorProvider` 若数据源整体确实没有任何 `sim.anchor` 行，
+   `GetAnchorTable`/`ClampLevel` 既有判断记录已保证 `AnchorTable.MaxLevel <= 0` 时
+   `GetAnchorDps`/`GetExpectedScalingStatValue` 首次被调用即抛 `InvalidOperationException`——
+   不会静默产出错误数值。
+
+完整推理见 `AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows` 方法判断记录（源码
+`core/sim/core/AnchorTableSkillBudgetAnchorProvider.cs`）。
+
+**回归测试**（`core/sim/tests/AnchorTableSkillBudgetAnchorProviderTests.cs`"框架调用外部实现不做
+隔离系列第四条"一节，3 个新增用例）：
+
+- `DataSourcesHaveAnchorRows_SourceListTablesThrowsUnexpectedException_DoesNotThrow_ReturnsTrueNotFalse`——
+  唯一数据源枚举抛出，断言不抛出、返回 `true`（不是误判为 `false`）。
+- `DataSourcesHaveAnchorRows_GoodSourceWithoutAnchorThenThrowingSource_DoesNotThrow_ReturnsTrue`——
+  一个正常但不含锚点的源排在抛出的源之前，确认结果不依赖顺序、仍收敛为 `true`。
+- `HeadlessWorldBuilderBuild_OneExtraSourceListTablesThrows_DoesNotCrash_ThrowsWithDataSourceUnavailableDetail`——
+  闭合"失败信息可达调用方"这条链路：抛出的数据源**排在真正含锚点数据的数据源之前**（若排在后面，
+  预扫描会在扫到含锚点行的源时提前 `return true` 而永远不会走到抛出的源，验证不到本次改动本身，
+  见测试文件内该处判断记录），`HeadlessWorldBuilder.Build` 整体不崩溃，抛出的
+  `InvalidOperationException` 消息同时含 `data_source_unavailable` 与注入的异常消息原文。
+
+**反向确认**：临时去掉 `DataSourcesHaveAnchorRows` 内的 try/catch，`dotnet test` 复核：
+`Tests.Sim` 7/7（本文件全部用例）→ 3 failed（上述三条新增用例，前两条以
+`InvalidOperationException` 原样冒出失败，第三条因 `Assert.Contains("data_source_unavailable", …)`
+断言失败——异常来自预扫描自身、消息里没有这段文本）→ 还原后 7/7 全部通过。
+
+**进程级验证**：临时在 `FileSystemDataSource.ListTables()` 注入"含 `_sample` 的根首次调用抛出"
+（第二次调用起正常——对应真实枚举失败通常是持续性的，但本次验证刻意验证"哪怕只是这一次调用失败"
+也不应崩溃），用真实数据根（`data/_framework` + `data/_sample`，`data/_sample/sim/sim.anchor.json`
+确有 5 行）跑 `toolchain/validator --data-root data/_framework --data-root data/_sample --strict`：
+
+- 隔离生效前（临时去掉 try/catch）：`Unhandled exception`，退出码 `0xE0434352`，栈顶经
+  `FileSystemDataSource.ListTables → AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows
+  → Toolchain.Validator.Program.Main`。
+- 隔离生效后：正常退出，退出码 `0`，`tables 76, records 521, errors 0, warnings 0`，
+  `SkillBudgetValidationRule`/`ItemGrantValueExceedsShareRule` 均报
+  `requires_anchor (已接入, 当前 enabled=true)`——证明预扫描把这次瞬时失败保守判定为"可能有锚点行"
+  后，`DataRegistry.LoadAll` 第二次真正枚举 `data/_sample` 时已经正常返回，标准玩家/预算求解拿到的
+  是真实、完整的锚点数据，不是被误判"无锚点行"后跳过或败在半途。
+
+  验证后已还原全部临时注入（`FileSystemDataSource.cs` 与本文件 diff 均已核对为空）。
+
+**顺带同类修复（同一批收尾扫描发现，一并修完）**：`toolchain/simrunner/Program.cs` 内
+`DiscoverBootstrapPlayerClass`（`HeadlessWorldBuilder.Build` 之前的另一处探测性预扫描，扫
+`sim.scenario` 表找一个真实存在的职业 id 做无头世界引导参数）同样直接调用
+`source.ListTables()`/`table.ReadText()`，均无 try/catch，与本条同一类缺口。本方法是命令行工具的
+私有实现，可以直接把失败信息打到标准错误（`Console.Error`，本文件既有诊断惯例），故处理方式与上面
+"返回 `true`"不同：捕获异常后打印一行 `[警告]`（含数据源/文件标识、异常类型、异常消息），跳过这一
+个候选继续扫描其余候选，不让它击穿整个探测流程；若因此扫描不到任何 `sim.scenario` 行、最终返回
+`null`，紧随其后既有分支打印的"数据装载阻断：给定的数据根内未找到任何 sim.scenario 行"会与上面的
+`[警告]` 一起出现在标准错误里，不会把"枚举/读取失败"误报成一条看不出原因的"数据本来就没有这张表"。
+真正的装载仍由随后同一份 `dataSources` 调用的 `HeadlessWorldBuilder.Build` 完成，同上一条推理，
+若某数据源确实无法枚举/读取会被 `DataRegistry` 既有隔离通道再次捕获、产出阻断的
+`data_source_unavailable`/`envelope` 问题，`Build` 抛出的 `InvalidOperationException` 被
+`toolchain/simrunner/Program.cs` `Main` 顶层既有 `catch (Exception ex) when (ex is
+InvalidOperationException or ArgumentException or DirectoryNotFoundException)` 分支接住转成
+"数据装载阻断：..."，同样不会以 `Unhandled exception` 崩溃退出。**验证方式的局限（如实说明）**：
+`toolchain/simrunner` 是纯控制台可执行工程，无既有测试工程、`DiscoverBootstrapPlayerClass` 是
+`private static` 方法，本次未新增测试工程去覆盖它（避免为一处"顺带"的小修复扩大工程/门禁面）——
+验证仅为 `dotnet build` 0 警告 0 错误（已过）与代码审查（改法与上面已有回归测试/反向确认/进程级
+验证三重验证过的主修复逐段同构），未做独立的回归测试/进程级验证；若后续该工具新增测试工程，建议
+补一条等价断言。
+
+### 全仓外部调用点清单（本条要求的系统性收尾扫描，范围扩到全仓）
+
+**扫描方法**（如实列出，供判断这张清单是否可信）：
+
+1. `grep -rn "\.ListTables()\|\.ReadText()\|\.Root\b"`（排除 `dist/`/`bin/`/`obj/`/`tests/`）
+   全仓定位 `IDataSource`/`DataTableSource` 契约的全部调用点——这是本系列四条一直在处理的核心
+   契约，理应最先做到"找全"。命中：本文件列出的两处（`AnchorTableSkillBudgetAnchorProvider`/
+   `toolchain/simrunner`）+ `DataRegistry.cs` 内四处（均已隔离，见 `data_registry/README.md`
+   "收尾扫描"表）；另有 `architecture/落地计划/audit-.../evidence/gameplay-repros/Program.cs`
+   一处一次性审计证据脚本（非维护中的框架代码，不纳入）。
+2. `grep -rn "\.Migrate("` 定位 `ISaveMigration`/`TableMigration.Migrate` 委托调用点：
+   `core/foundation/save_system/core/SaveSystem.cs`（`try/catch` 已隔离，失败即整体拒绝迁移、
+   返回 `error` 描述，见该方法既有判断记录 FND-09）、`SettingsStore.cs`
+   `RunMigrationChainBestEffort`（`try/catch` 已隔离，失败即中断迁移链、返回迁移到此为止的结果，
+   见该方法既有摘要注释"设置文件迁移失败不应阻断游戏启动"）、`SchemaMigrator.MigrateRow`/
+   `MigrateEnvelope`（见 `data_registry/README.md`，前者已隔离、后者判定不需要）。均属既有隔离，
+   非本次改动。
+3. `grep -rln "public interface I" core/ presentation/ toolchain/`（约 100 个契约）逐一按"框架是否
+   遍历一组由多个调用方/内容模块各自提供的实现、需要单条失败不拖累整体"这一本系列关注的风险形状
+   分类：
+   - **批处理式回调注册表**（框架维护一个列表，逐条调用调用方注册的委托/实现，一条坏的不该影响
+     其余）：`IEventBus`（`EventBus.Publish` 内 `entry.Invoke(evt)`）、`IHookRegistry`
+     （`HookRegistry.Invoke` 内 `entry.Callback(callbackArgs)`）——**均已隔离**（既有，逐条
+     `try/catch`，异常转 `_diagnostics.Error(...)` 记录后继续派发/调用下一个，见两处源码判断
+     记录），与本系列三条的隔离粒度/理由完全同构，属于本系列范围但早于本系列即已完成，本次核实
+     确认无遗漏。
+   - **数据/内容驱动、运行时按具体输入触发失败**（本系列真正关注的形状，即 `IDataSource`/
+     `IValidationRule`/`TableMigration`/`ISaveMigration`/`IExprSchema` 这一类）：已在上两条列全。
+   - **引擎适配层契约**（`IAudio`/`ICamera`/`IClock`/`IFileSystem`/`IInput`/`INavigation2D`/
+     `IPlatform`/`IRenderer2D`/`IRenderer3D`/`IResourceLoader`/`ISpatialQuery`/`IUISurface`/
+     `IWindow` 等 `core/foundation/engine_adapter/contracts/` 下全部契约）：**不需要隔离**——
+     每个契约在一次装配中只有唯一一个宿主实现（构造期注入，非"框架遍历一组这样的实现"），调用点
+     是常规业务逻辑的一部分而非批处理循环，其失败语义与本系列"一个数据源/一条规则/一行数据坏了
+     不该拖累其余"的问题形状不同类（同 `data_registry/README.md`"`FieldSchema.Item`/`Variants`
+     不需要隔离"一条同一口径：不是"运行时对不可控的可变数据/第三方实现容错"这一类问题）。
+   - **诊断/反馈类接口**（`I*Diagnostics`，约 20 个，如 `IHookDiagnostics`/`IEventDiagnostics`/
+     `ISaveDiagnostics`/`IPresentationDiagnostics` 等；`presentation/feedback_binder` 的
+     `CompositeFeedbackSink`/诊断转发系列同属此类，但那是另一条独立进行中的收尾工作——见本仓库
+     近期提交"诊断转发到引擎控制台"系列，**不是**本"框架调用外部实现不做隔离"系列，两者关注点不同
+     ——前者关注"诊断信息能否到达宿主控制台"，后者关注"调用可插拔实现失败会不会击穿批处理"）：
+     每个契约在一次装配中通常只有一个数据槽（可选，默认退化为内存/空实现），是"最佳努力的旁路
+     记录通道"而不是"框架能否继续往下走"的决定因素；本次抽样核了 `HookRegistry`/`EventBus`
+     两处对诊断接口的调用点，均已在其自身的 `try/catch` 内部（框架先接住业务回调异常，再调用
+     诊断接口记录，不是反过来），未发现"诊断接口本身抛出会击穿框架"的路径。**未逐个契约验证**
+     （如实说明扫描深度：约 20 个诊断接口未逐一读源码核实调用处是否有保护），按"契约形状类别"
+     分类排除，不在本次改动/验证范围内——若后续有具体消费方反馈指出某个诊断接口调用点确实会因
+     自定义实现抛异常而击穿框架，应作为独立缺口处理，不属于本次完备性论证的疏漏（本次论证的
+     完备性针对"数据/内容驱动的可插拔实现"这一本系列明确关注的问题形状，不涵盖"诊断旁路是否
+     100% 无副作用"这一更广的正交问题）。
+   - **业务域接口**（`ICreatureFactory`/`ILootRoller`/`IRewardDispatcher`/`IProjectileSpawner`/
+     `ITargetSourceStrategy`/`IRotationEvaluator` 等 `core/rules`/`core/carriers`/`core/gameplay`/
+     `core/numbers` 下约 40 个契约）：每个装配根同一时刻只持有一份具体实现（多为框架自带的默认
+     实现，如 `CreatureFactory`/`LootRoller`），不是"框架遍历一组这样的实现"，与本系列问题形状
+     不同类，判定不需要隔离；未发现任何一处框架代码对这类接口做"遍历调用方注册的多个实现"式使用。
+4. `core/sim`/`core/rules`/`core/carriers`/`toolchain` 四个目录（任务书点名的重点范围）内额外
+   搜索 `foreach.*Validate\(\|foreach.*Invoke\(\|foreach.*\.Migrate\(` 等批处理调用模式，未发现
+   第 1～3 步清单之外的新命中。
+
+**结论**：本系列四条 + 早于本系列即完成的 `EventBus`/`HookRegistry`/`SaveSystem`/`SettingsStore`
+四处，构成"框架遍历/调用调用方提供的数据驱动型可插拔实现"这一问题形状在当前代码库内的完整清单，
+均已隔离；引擎适配层、诊断旁路、业务域默认实现三类按类别排除并说明理由，诊断旁路类未逐个源码核实
+（已如实标注），其余两类经抽样/结构性核实排除。

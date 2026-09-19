@@ -423,16 +423,62 @@ namespace Toolchain.SimRunner
         /// <c>player.class_id</c>/<c>player.level</c> 作探测用的职业/等级——这只是为"装配一次探测世界"
         /// 这一引导步骤找一个真实存在的职业，不含任何校验/解析业务逻辑，不与 core 内任何判断重复；
         /// 真正的场景解析仍然全部经由 <see cref="ScenarioCatalog"/>（本方法产出的探测世界的
-        /// <see cref="HeadlessWorld.ScenarioCatalog"/>）完成。</summary>
+        /// <see cref="HeadlessWorld.ScenarioCatalog"/>）完成。
+        /// <para>
+        /// 判断记录（框架调用外部实现不做隔离系列第四条顺带发现、2026-09-19 收尾扫描新增）：本方法内
+        /// <see cref="IDataSource.ListTables"/>/<see cref="DataTableSource.ReadText"/> 两次调用此前均无
+        /// try/catch——与 <c>Core.Sim.AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows</c>
+        /// 同一类缺口（同样发生在 <see cref="HeadlessWorldBuilder.Build"/>/<c>DataRegistry.LoadAll</c>
+        /// 之前，此时同样没有报告通道可写），本次一并根治。与该方法的"整体返回 true"处理方式不同——
+        /// 本方法是命令行工具的内部实现，可以直接把失败信息打到标准错误（<c>Console.Error</c>，本文件
+        /// 既有诊断惯例），因此改为：捕获到异常后打印一行 <c>[警告]</c> 提示（含数据源/文件标识、
+        /// 异常类型、异常消息），跳过这一个候选（数据源或文件）继续扫描其余候选，不让它击穿整个探测
+        /// 流程，也不让它在调用方毫无提示的情况下悄悄消失。若因此扫描不到任何 <c>sim.scenario</c> 行、
+        /// 最终返回 <c>null</c>，紧随其后既有分支打印的"数据装载阻断：给定的数据根内未找到任何
+        /// sim.scenario 行"会与上面的 <c>[警告]</c> 一起出现在标准错误里，不会把"枚举/读取失败"误报
+        /// 成一条孤立、看不出原因的"数据本来就没有这张表"消息。即使本方法误判为"未找到"而真正数据其实
+        /// 存在于别处，或误判通过（当前候选恰好读取失败但其它候选正常）不影响正确性——真正的装载仍由
+        /// 随后的 <see cref="HeadlessWorldBuilder.Build"/> 完成，同一份 <paramref name="dataSources"/>
+        /// 若其中某个数据源确实无法枚举/读取，会被 <c>DataRegistry</c> 的既有隔离通道
+        /// （<c>TryEnumerateSource</c>/<c>LoadOneTablePartial</c> 内 <c>TextProvider</c> 保护）再次
+        /// 捕获，产出阻断的 <c>data_source_unavailable</c>/<c>envelope</c> 问题，<c>Build</c> 据此抛出
+        /// <see cref="InvalidOperationException"/>，被本文件 <c>Main</c> 顶层 <c>catch</c>
+        /// （<c>InvalidOperationException</c> 分支）接住转成"数据装载阻断：..."，同样不会以
+        /// <c>Unhandled exception</c> 崩溃退出——与 <c>AnchorTableSkillBudgetAnchorProvider</c> 判断
+        /// 记录"1）两处调用方紧随其后都会……"一节完全同一套论证。
+        /// </para>
+        /// </summary>
         private static BootstrapPlayerClass? DiscoverBootstrapPlayerClass(IReadOnlyList<IDataSource> dataSources)
         {
             foreach (var source in dataSources)
             {
-                foreach (var table in source.ListTables())
+                IReadOnlyList<DataTableSource> tableSources;
+                try
+                {
+                    tableSources = source.ListTables();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[警告] 探测标准玩家职业时数据源枚举失败，跳过该数据源继续探测（{ex.GetType().Name}）：{ex.Message}");
+                    continue;
+                }
+
+                foreach (var table in tableSources)
                 {
                     if (!string.Equals(table.TableName, "sim.scenario", StringComparison.Ordinal)) continue;
 
-                    if (JsonReader.Parse(table.ReadText()) is not JsonObject root) continue;
+                    string text;
+                    try
+                    {
+                        text = table.ReadText();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[警告] 探测标准玩家职业时读取 \"{table.Location}\" 失败，跳过该候选继续探测（{ex.GetType().Name}）：{ex.Message}");
+                        continue;
+                    }
+
+                    if (JsonReader.Parse(text) is not JsonObject root) continue;
                     if (!root.TryGetValue("rows", out var rowsVal) || rowsVal is not JsonArray rows || rows.Count == 0) continue;
                     if (rows[0] is not JsonObject firstRow) continue;
                     if (!firstRow.TryGetValue("player", out var playerVal) || playerVal is not JsonObject player) continue;

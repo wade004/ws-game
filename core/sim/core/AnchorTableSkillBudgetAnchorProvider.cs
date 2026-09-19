@@ -176,6 +176,64 @@ namespace Core.Sim
         /// 属性时"该表本次加载到的行数是否 &gt; 0"的既有判断口径完全一致，只是提前到装载之前、按原始
         /// 文本自行解析（此时还没有 <see cref="IDataRegistry"/> 实例可用）。
         /// </para>
+        /// <para>
+        /// 判断记录（框架调用外部实现不做隔离系列第四条，2026-09-19，见
+        /// <c>core/foundation/data_registry/README.md</c>"数据源枚举执行期异常隔离"一节"顺带发现、
+        /// 超出本模块范围、未修"条目、<c>core/sim/README.md</c> 同名一节）：本方法内
+        /// <c>source.ListTables()</c> 调用此前没有 try/catch——同属"框架遍历、调用调用方自行提供的
+        /// <see cref="IDataSource"/> 实现"，某个数据源枚举抛出未预期异常会击穿本方法，早于
+        /// <see cref="Core.Foundation.DataRegistry.DataRegistry.LoadAllCore"/> 自身（已在同系列第三条
+        /// 隔离）先行崩溃——本次根治。
+        /// <list type="bullet">
+        /// <item><b>难点</b>：本方法固定发生在 <c>DataRegistry.LoadAll</c>（进而任何
+        /// <see cref="Core.Foundation.DataRegistry.ValidationReport"/>）之前，此时不存在任何
+        /// issue 收集器/报告可写——不能像 <c>DataRegistry.TryEnumerateSource</c> 那样产出一条
+        /// <c>data_source_unavailable</c> 问题项。</item>
+        /// <item><b>拍板（设计层已授权本次实现自行决定）</b>：捕获到异常后<b>不</b>把该数据源当作
+        /// "不算数、继续看下一个"（那是下面 <c>ReadText</c> 失败分支的既有处理方式——两者刻意不同，
+        /// 见下一条判断记录），而是<b>立即返回 <c>true</c></b>（保守方向：假定"可能含 sim.anchor 行"，
+        /// 照常装配 <see cref="AnchorTableSkillBudgetAnchorProvider"/>）。理由——不能返回 <c>false</c>
+        /// 悄悄当作"没有锚点行"：枚举失败意味着框架根本不知道这个源本会不会列出 <c>sim.anchor</c>，
+        /// 若因此返回 <c>false</c>、两条真实调用方（<see cref="Core.Sim.HeadlessWorldBuilder.Build"/>/
+        /// <c>toolchain/validator/Program.cs</c>）都会据此把 <c>anchorProvider</c> 装配为 <c>null</c>，
+        /// 令 <c>SkillBudgetValidationRule</c>/<c>ItemGrantValueExceedsShareRule</c>"为 null 时整条
+        /// 跳过"（两条规则既有判断记录）——这才是真正的静默降级：预算求解在"锚点数据缺失"这一未经确认
+        /// 的前提下运行，且没有任何报告提示。返回 <c>true</c> 从不会导致这种组合：
+        /// <list type="number">
+        /// <item>两处调用方在本方法返回之后都会立即用<b>同一份</b> <paramref name="sources"/> 调用
+        /// <c>DataRegistry.LoadAll</c>——该方法内部 <c>TryEnumerateSource</c>（本系列第三条）会对
+        /// 同一个失败的数据源重新枚举一次；真实 <see cref="FileSystemDataSource"/> 的枚举失败通常
+        /// 是持续性的（权限/路径问题，不是一次性瞬时故障），测试替身按构造更是每次调用必抛——因此
+        /// 第二次枚举同样失败，产出 Error 级 <c>data_source_unavailable</c> 问题并使
+        /// <c>ValidationReport.IsBlocking</c> 为真。两处调用方都已经在 <c>LoadAll</c> 返回后检查
+        /// <c>IsBlocking</c> 并拒绝继续（<c>HeadlessWorldBuilder.Build</c> 抛
+        /// <see cref="InvalidOperationException"/>，异常消息含 <c>report.Issues</c> 全文，因此
+        /// <c>data_source_unavailable</c> 的完整定位信息随之可见；<c>toolchain/validator</c> 把
+        /// <c>report.Issues</c> 逐条打印到标准输出后按 <c>IsBlocking</c> 返回退出码 1）——失败信息
+        /// 经由 <c>DataRegistry</c> 的既有隔离通道到达调用方/报告，本方法不需要另开一条报告通道，
+        /// 这正是本方法"没有报告可写"这一难点的解法：把判断推迟给紧随其后、确实有报告通道的
+        /// <c>LoadAll</c>，本方法自己只保证"不要在这一步抢先给出一个可能错误的确定性结论"。</item>
+        /// <item>即使那个失败源真的不含 <c>sim.anchor</c>（返回 <c>true</c> 属于"过度保守"而非误判），
+        /// 装配出的 <see cref="AnchorTableSkillBudgetAnchorProvider"/> 若数据源整体确实没有任何
+        /// <c>sim.anchor</c> 行，<see cref="GetAnchorTable"/>/<see cref="ClampLevel"/>既有判断记录
+        /// 已经保证 <see cref="AnchorTable.MaxLevel"/><c>&lt;= 0</c> 时 <see cref="GetAnchorDps"/>/
+        /// <see cref="GetExpectedScalingStatValue"/> 首次被调用即抛 <see cref="InvalidOperationException"/>
+        /// ——不会静默产出错误数值，"过度保守"的唯一代价是两条预算规则被构造出来后可能确实执行、
+        /// 但不会算出偷偷错误的结果。</item>
+        /// </list>
+        /// </item>
+        /// <item><b>为何与下面 <c>ReadText</c> 失败分支处理方式不同（不是风格不统一）</b>：<c>ReadText</c>
+        /// 失败时已经确认该候选<b>就是</b>一份 <c>sim.anchor</c> 表文件（<c>ListTables</c> 已成功列出、
+        /// 表名比对已通过），只是读不到内容——不确定性范围窄（"这一份文件读不出内容"），且
+        /// <c>LoadOneTablePartial</c> 对同一份 <c>TextProvider</c> 的既有 try/catch 同样会在真正装载时
+        /// 重新触发、转成阻断的 <c>envelope</c> 问题，两种方向（此处"这份不算数继续看下一份"与本处
+        /// "整体从这里放弃、返回 true"）在"下游必然重新验证"这一前提下都同样安全，选择保持
+        /// <c>ReadText</c> 分支原有写法不变（只改动本次任务书点名的 <c>ListTables</c> 调用点，不顺手
+        /// 改动不在本次问题范围内的既有代码，参见 AGENTS.md 第 6 节"不擅自扩大改动面"）。而
+        /// <c>ListTables</c> 失败时不确定性范围是"整个数据源"（连它会不会提供 <c>sim.anchor</c> 都
+        /// 不知道），"过度保守地返回 true"是本方法唯一能不产出确定性错误结论的选择。</item>
+        /// </list>
+        /// </para>
         /// </summary>
         public static bool DataSourcesHaveAnchorRows(IReadOnlyList<IDataSource> sources)
         {
@@ -183,7 +241,17 @@ namespace Core.Sim
 
             foreach (var source in sources)
             {
-                foreach (var table in source.ListTables())
+                IReadOnlyList<DataTableSource> tableSources;
+                try
+                {
+                    tableSources = source.ListTables();
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+
+                foreach (var table in tableSources)
                 {
                     if (table.TableName != "sim.anchor")
                     {
