@@ -1871,6 +1871,83 @@ namespace Tests.Foundation.Data
         }
 
         // -----------------------------------------------------------------
+        // 20b. 单行迁移执行期异常隔离（同源同构缺口根治，2026-09-19，见
+        //      SchemaMigrator.cs/DataRegistry.cs"单行迁移执行期异常隔离"判断记录、
+        //      core/foundation/data_registry/README.md 同名一节）：迁移函数对某一行抛出未预期
+        //      异常时，不击穿整个 LoadAll，该行整行剔除、产出 row_migration_failed（Error 级），
+        //      其余行/其余表照常处理，被剔除的行不以半迁移状态进入注册表。
+        // -----------------------------------------------------------------
+
+        private static TableSchema MigratableSchema() => new TableSchema(
+            "test.migratable", "id", currentSchemaVersion: 2,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true),
+                new FieldSchema("name", FieldKind.String, required: true),
+            },
+            migrations: new[]
+            {
+                new TableMigration(1, 2, row =>
+                {
+                    if (row.TryGetValue("id", out var idVal) && idVal is JsonString idStr
+                        && idStr.Value == "test.migratable.bad")
+                    {
+                        throw new InvalidOperationException("模拟迁移函数内部未预期异常，不做任何转换，直接外抛");
+                    }
+                    return row;
+                }),
+            });
+
+        [Fact]
+        public void LoadAll_RowMigrationThrowsUnexpectedException_DoesNotThrow_ReportsRowMigrationFailedAndExcludesRow()
+        {
+            var rows = "[" +
+                "{\"id\": \"test.migratable.good1\", \"name\": \"Good1\"}," +
+                "{\"id\": \"test.migratable.bad\", \"name\": \"Bad\"}," +
+                "{\"id\": \"test.migratable.good2\", \"name\": \"Good2\"}" +
+                "]";
+            // 同一次加载再放一张完全无关的好表，验证"其余表不受影响"。
+            var source = new MutableMultiTableSource()
+                .Set("test.migratable", Envelope("test.migratable", 1, rows))
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(MigratableSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll(); // 根治前会抛 InvalidOperationException 击穿整个 LoadAll
+
+            Assert.True(report.IsBlocking);
+            var failure = Assert.Single(report.Issues, i => i.Check == "row_migration_failed");
+            Assert.Equal(ValidationSeverity.Error, failure.Severity);
+            Assert.Equal("test.migratable", failure.Table);
+            Assert.Equal("test.migratable.bad", failure.RecordKey);
+            Assert.Contains("test.migratable.bad", failure.Message);
+            Assert.Contains("schema_version 1", failure.Message);
+            Assert.Contains(" 2 ", failure.Message + " "); // 目标版本 2 出现在消息中
+            Assert.Contains(nameof(InvalidOperationException), failure.Message);
+            Assert.Contains("模拟迁移函数内部未预期异常", failure.Message);
+            Assert.Contains("剔除", failure.Message);
+
+            // 整体阻断，GetAll 拒绝读取；用不经过阻断检查的 IDataRegistryView.TryGetAll 通道核对
+            // 实际合入结果——good1/good2 都在、bad 完全不存在（不是以半迁移的 {id,name} 之外形态
+            // 存在，是压根不存在这一条记录）。
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.migratable"));
+            IDataRegistryView view = registry;
+            var ok = view.TryGetAll("test.migratable", out var records);
+            Assert.True(ok);
+            Assert.Equal(2, records.Count);
+            Assert.Contains(records, r => r.Key == "test.migratable.good1");
+            Assert.Contains(records, r => r.Key == "test.migratable.good2");
+            Assert.DoesNotContain(records, r => r.Key == "test.migratable.bad");
+
+            // 其余表（test.owner）完全不受影响，照常合入结果。
+            var ownerOk = view.TryGetAll("test.owner", out var ownerRecords);
+            Assert.True(ownerOk);
+            var ownerRecord = Assert.Single(ownerRecords);
+            Assert.Equal("Ann", ownerRecord.GetString("name"));
+        }
+
+        // -----------------------------------------------------------------
         // 21. 阻断态下的工具只读通道（消费方反馈第三批第 20 条，2026-09-10，见
         //     architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：
         //     IDataRegistryView.TryGetAll/TryQuery。

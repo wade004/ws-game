@@ -85,6 +85,7 @@ data_registry/
 | `expr_validation_error` | 第十八方深度审核 F-03：`Expr` 字段解析（`ExprParser.Parse`/`ExprLexer.Tokenize`）或静态校验（`ExprValidator.Validate`）内部抛出除 `ExprParseException` 之外的未预期异常时报出，Error 级、阻断；`ExprParseException` 仍归入既有 `expr_parsable`，不受影响 |
 | `field_item_count` | 消费方反馈第 60 条：字段登记了 `FieldSchema.MinItems`/`MaxItems`（`FieldSchema.WithItemCount`，仅 `IdList`/`Array` 可登记）时，元素数不落在区间内报出（`ValidateFieldItemCount`，与元素结构 `Item` 是否登记正交，独立检查；未登记不检查，同 `field_range` 惯例）；消息含实际元素数与允许区间 |
 | `rule_execution_failed` | 消费方反馈第 73 条（2026-09-19）：`RunValidationAndBuildReport` 在枚举某条 `IValidationRule.Validate` 期间捕获到异常时报出，Error 级、阻断；由框架本体（不是扩展点规则自己）产出，见下方"单条规则执行期异常隔离"小节 |
+| `row_migration_failed` | 同源同构缺口根治（2026-09-19）：`LoadOneTablePartial` 逐行调用 `SchemaMigrator.MigrateRow` 期间捕获到异常时报出，Error 级、阻断；该行整行剔除、不进入加载结果，由框架本体产出，见下方"单行迁移执行期异常隔离"小节 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
 检测、孤儿记录检测、时间字段与时间模型一致）由各内容模块以 `IValidationRule` 注册，本模块
@@ -124,12 +125,74 @@ data_registry/
 攒批提交，异常发生时已 `Add` 过的不会被撤销）；catch 后继续处理下一条规则（不 return/rethrow），
 其余规则照常跑完、各自产出自己的问题——隔离粒度=单条规则。
 
-**已知同类未隔离的执行点（本次未修，报告留档）**：`DataRegistry` 内部对 `SchemaMigrator.MigrateRow`
-（表结构版本迁移，各内容模块随 `TableSchema` 自行注册迁移函数，语义上与 `IValidationRule` 同属"框架
-遍历、调用各模块自行提供的实现"）的调用（`LoadAllCore` 内部信封解析阶段的迁移循环）同样没有
-try/catch——若某个模块的迁移函数本身有缺陷、对不满足预期形状的输入抛出未预期异常，会同样击穿整个
-`LoadAll`。这与本条修的问题同源同构，但复现路径、该转成什么检查名/严重级、异常发生时这一行/这张表
-该整行跳过还是整表跳过，都需要设计层单独拍板，不在本次改动范围内，留给后续单独处理。
+## 单行迁移执行期异常隔离（同源同构缺口根治，2026-09-19）
+
+**背景**：上一节"单条规则执行期异常隔离"（消费方反馈第 73 条）落地时扫出一处同源同构的缺口：
+`LoadOneTablePartial` 内 `schemaVersion < schema.CurrentSchemaVersion` 分支逐行调用
+`SchemaMigrator.MigrateRow`（表结构版本迁移，各内容模块随 `TableSchema` 自行注册迁移函数，语义上
+与 `IValidationRule` 同属"框架遍历、调用各模块自行提供的实现"）同样没有 try/catch——若某个模块的
+迁移函数本身有缺陷、对不满足预期形状的输入抛出未预期异常，会同样击穿整个 `LoadAll`。当时判定
+"需要单独设计拍板"未修、只留档（见 `architecture/落地计划/消费方反馈-2026-09-19-编辑器-第73条.md`
+"已知同类未隔离的执行点"一节）。本节记录后续单独处理的设计拍板与实现。
+
+**与第 73 条的关键区别（设计层拍板，决定隔离粒度相同但处理方式不同）**：规则跑挂是"这份报告缺一
+部分校验结论"，数据本身照常可用，转成 issue 即可、行/表照常放行；迁移跑挂意味着这一行数据根本
+没能迁到目标 `schema_version`，产出的是一个不完整/不可信的半迁移状态——绝不能把这样的行当正常
+数据放行（AGENTS.md 第 3 节"不静默降级"）。因此本条的隔离粒度虽然同样是"单行"，处理方式必须是
+**整行剔除**而不是"记一条 issue 后仍照常收录"。
+
+**根治**：`LoadOneTablePartial` 逐行迁移循环里，`try` 块只包住 `SchemaMigrator.MigrateRow(chain,
+rowObj)` 这一次调用（不像第 73 条那样需要额外包住外层枚举——`MigrateRow` 不是惰性迭代器，方法体
+本身是立即执行的循环，调用即执行全部迁移步骤，异常必定在这次调用期间抛出）。`catch` 到异常后：
+
+1. 产出一条 `row_migration_failed` 检查项（Error 级——理由同上"与第 73 条的关键区别"），消息固定
+   含表名、记录定位（迁移前原始行的主键字段值，取不到时退化为 `rows[i]` 下标，见
+   `DescribeRowForMigrationDiagnostics`）、源/目标 `schema_version`、异常类型名与消息五项，满足
+   "能定位"的最低要求。
+2. **不**把该行加入 `migrated` 列表——该行永远不会进入 `effectiveRows`，也就永远不会进入下面的
+   主键建 `DataRecord` 循环，不存在"半迁移状态的行流入注册表"这一分支（不是"以部分字段/原始 v1
+   形态混进去"，是压根不存在这条记录）。整体报告因这条 Error issue 而阻断（`IsBlocking` 为真），
+   `RecordCount`/`IDataRegistryView.TryGetAll` 等阻断态诊断通道能看到"这张表少了一行"，不是悄悄
+   变成一个记录数正常但内容不对的数据集。
+3. 继续处理下一行（不 return/不跳过整表）——其余行、其余表照常处理，隔离粒度=单行，同第 73 条
+   "某条规则抛异常只影响它自己"的既有风格对齐。
+
+**连带误报问题（要求 4，必须回答）**：该行被剔除后，若数据里有其它记录引用了这个被剔除的主键，
+下游 `reference_integrity` 等规则会独立报出"引用目标不存在"，读者若只看到那一条孤立的下游错误，
+容易误判为另一个不相关的数据问题。处理方式：`row_migration_failed` 的 `Message` 末尾固定附一句
+"若下游校验（如 `reference_integrity`）报出引用此记录主键的错误，可能是本条问题连带产生"，把
+两者显式关联起来，读者据此能顺着找到根因，而不是分别排查两条看似无关的问题。**判断记录（为什么
+不新增机制去真正抑制/标记下游 issue）**：本条问题本身已是 Error 且报告已阻断，抑制下游 issue 不会
+改变阻断结果，只会让读者少看到一条真实存在的引用缺口（如果那个引用本来就该修——被剔除的行只是
+恰好也是本次异常的受害者，引用坏了这件事本身不因迁移异常而消失）；只加一句关联说明，不改变
+`reference_integrity` 的既有产出逻辑，成本最低且不引入新的"看起来没报错但其实被吞掉了"的风险。
+
+**回归测试**：`DataRegistryTests.LoadAll_RowMigrationThrowsUnexpectedException_DoesNotThrow_ReportsRowMigrationFailedAndExcludesRow`
+——构造一张 v1→v2 表，其中一行的迁移函数命中特定主键时抛出，其余两行正常；断言 `LoadAll` 不抛出、
+产出恰好一条 `row_migration_failed`（Error 级，消息含表名/记录定位/源目标版本/异常类型/异常消息/
+"剔除"字样）、报告阻断、经 `IDataRegistryView.TryGetAll` 核对该表最终只有两条好记录（坏记录彻底
+不存在，不是以任何半迁移形态出现）、同批加载的另一张无关表完全不受影响。**反向确认**：临时去掉
+上面第 2 步的 try/catch（`migrated.Add(SchemaMigrator.MigrateRow(chain, rowObj));` 不做任何
+包裹），本用例必然改为断言失败（`InvalidOperationException` 原样冒出 `LoadAll`，栈顶经
+`SchemaMigrator.MigrateRow → LoadOneTablePartial → LoadOneTable → LoadAllCore → LoadAll`），
+验证后已还原。**进程级验证**：临时在 `BuiltinSchemas.MigrationSample` 的 1→2 迁移函数里对
+`found.migration_sample.alpha` 行注入抛出，用真实数据根（`data/_framework` + `data/_sample`）跑
+`toolchain/validator`——隔离生效前：`Unhandled exception` 崩溃（栈顶同上，与消费方第 73 条复现
+的机制一致）；隔离生效后：正常退出，退出码 `1`（正常"校验失败"语义，不是崩溃码），报告含预期的
+`row_migration_failed` 诊断，另一行 `found.migration_sample.beta` 不受影响、正常加载，验证后已
+还原全部临时注入。
+
+**再扫一遍同类未隔离点（本次顺带排查，结论：找到一处更大范围的缺口，本次不修，留档）**：
+`LoadAllCore`/`Reload` 内 `sources[s].ListTables()`（及紧邻的 `sources[s].Root`）——同属"框架
+遍历、调用调用方自行提供的 `IDataSource` 实现"，同样没有 try/catch。若某个自定义 `IDataSource`
+实现的 `ListTables()` 抛出未预期异常，会击穿整个 `LoadAllCore`（比本条/第 73 条影响面更大：不是
+"一行"或"一条规则"，而是这次调用涉及的**全部数据根、全部表**）。未在本次一并修的理由：
+（1）内置的 `FileSystemDataSource`/`InMemoryDataSource` 两个实现均不会在正常使用下抛出，实际
+触发条件依赖调用方自定义 `IDataSource`，风险面比"内容作者写的迁移函数/校验规则"更小、更偏理论；
+（2）修法不是简单加一层 try/catch 就能类比套用——需要先拍板"某个根列表失败时，是整个 `LoadAll`
+失败，还是跳过该根、其余根照常合并"，这直接影响多根合并语义（`schema_version` 一致性检查、
+`override`/`final` 覆盖语义都假设参与合并的根集合是完整的），改动面比本条大，需要设计层单独拍板，
+不在本次改动范围内。
 
 ## 复合字段子结构递归校验（ADR-0019）
 
