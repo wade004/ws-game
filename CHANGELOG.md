@@ -508,6 +508,36 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   拍板，本次不修、已留档（见 `core/foundation/data_registry/README.md`"单行迁移执行期异常隔离"
   一节）。
 
+- **数据源枚举执行期异常隔离（框架调用外部实现不做隔离系列第三条，紧接上两条）**：上一条留档的
+  同类缺口——`DataRegistry.LoadAllCore`/`Reload` 内对 `IDataSource.Root`/`IDataSource.ListTables`
+  的调用没有 try/catch，某个自定义 `IDataSource` 实现枚举失败会击穿整个 `LoadAll`/`Reload`（影响
+  面比"单行"/"单条规则"更大：一次失败牵连该数据源本应提供的**全部表**）。现已处理：新增
+  `TryEnumerateSource` 把两次调用各自单独隔离，某个数据源失败即跳过（隔离粒度=单个数据源），其余
+  数据源照常加载；新增检查名 `data_source_unavailable`（Error 级、阻断，`Table` 字段为该数据源标识
+  ——能取到 `Root` 时用它，否则退化为类型名，不冒充任何具体表名，消息含数据源标识/异常类型名/异常
+  消息，并点明"其余数据源照常加载"与"下游 `reference_integrity` 等错误可能系连带产生"）。**多根
+  合并语义拍板**（上一条标注待设计层决定的事项）：失败的数据源如同从未出现在本次 `sources` 列表里
+  一样，其贡献的表若也来自其它数据源则照常合并，若唯一来源就是它则该表本次不出现在 `Tables` 里（与
+  "没有数据源提供该表"是同一种可观察状态，不伪造"表存在但缺内容"的记录，也不与"表本来就不存在"混为
+  一谈——报告固定在数据源粒度而不是表粒度）；诚实说明"无法确定具体缺了哪些表"（枚举本身失败，框架
+  没有独立途径倒推该数据源原本会提供哪些表名）。新增只读诊断 `IDataRegistry.IsDegraded`/
+  `GetUnavailableSources()`（`DataSourceDiagnostic` 结构化快照，命名风格同既有
+  `TolerantRegistryView.IsDegraded`/`MissingTables`，但落在 `DataRegistry` 本体、反映加载/重载期间
+  的数据源级退化）——供 `IDataRegistryView.TryGetAll` 等绕开阻断直读的内容工具通道显式核对"当前是否
+  有数据源被跳过"，不能仅凭"读到空/表不存在"就断定内容本身如此。回归测试：`DataRegistryTests.
+  LoadAll_OneSourceListTablesThrowsUnexpectedException_DoesNotThrow_ReportsDataSourceUnavailableAndIsolatesOtherSources`/
+  `LoadAll_OneSourceRootThrowsUnexpectedException_DoesNotThrow_ReportsDataSourceUnavailableWithTypeNameIdentifier`/
+  `Reload_SourceStartsThrowingAfterInitialLoad_DoesNotThrow_ReportsDataSourceUnavailableAndOtherTableReloads`
+  （已反向确认：去掉隔离后三例全部改为断言异常冒出，验证后已还原）；另用真实数据根（`data/_framework`
+  + `data/_sample`）临时注入 `_sample` 根枚举异常，实测 `toolchain/validator` 隔离生效前
+  `Unhandled exception` 崩溃（退出码 `-532462766`/`0xE0434352`）、生效后正常退出码 `1`（报告含预期的
+  `data_source_unavailable`，`data/_framework` 的表照常加载、`data/_sample` 整批表缺席），验证后已
+  还原全部临时注入。系列收尾扫描（`core/foundation/data_registry/README.md`"数据源枚举执行期异常
+  隔离"一节列出全部调用点及隔离状态）额外发现一处物理位置在 `core/sim/` 的同类未隔离点
+  （`AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows` 在 `DataRegistry.LoadAll` 之前
+  预扫描 `sim.anchor` 时同样直接调用 `IDataSource.ListTables()`），超出本次改动范围，留档建议另行
+  派单。
+
 - **表现层诊断转发到引擎控制台——补上 Vfx/Sfx/Feedback/ViewBinder 四条链路（1.45.0 遗留缺口收口）**：
   1.45.0 只接了 `SpriteCharacterRig.Diagnostics` 一条链路，`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`
   （含 `HitFrameSyncPolicy`，两者共享同一诊断实例）/`ViewBinder` 虽然都已接受可选构造参数

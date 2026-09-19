@@ -86,6 +86,7 @@ data_registry/
 | `field_item_count` | 消费方反馈第 60 条：字段登记了 `FieldSchema.MinItems`/`MaxItems`（`FieldSchema.WithItemCount`，仅 `IdList`/`Array` 可登记）时，元素数不落在区间内报出（`ValidateFieldItemCount`，与元素结构 `Item` 是否登记正交，独立检查；未登记不检查，同 `field_range` 惯例）；消息含实际元素数与允许区间 |
 | `rule_execution_failed` | 消费方反馈第 73 条（2026-09-19）：`RunValidationAndBuildReport` 在枚举某条 `IValidationRule.Validate` 期间捕获到异常时报出，Error 级、阻断；由框架本体（不是扩展点规则自己）产出，见下方"单条规则执行期异常隔离"小节 |
 | `row_migration_failed` | 同源同构缺口根治（2026-09-19）：`LoadOneTablePartial` 逐行调用 `SchemaMigrator.MigrateRow` 期间捕获到异常时报出，Error 级、阻断；该行整行剔除、不进入加载结果，由框架本体产出，见下方"单行迁移执行期异常隔离"小节 |
+| `data_source_unavailable` | 框架调用外部实现不做隔离系列第三条（2026-09-19）：`LoadAllCore`/`Reload` 逐根访问 `IDataSource.Root`/调用 `IDataSource.ListTables` 期间捕获到异常时报出，Error 级、阻断；该数据源本应提供的全部表本次未加载、其余数据源照常加载，由框架本体产出，见下方"数据源枚举执行期异常隔离"小节 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
 检测、孤儿记录检测、时间字段与时间模型一致）由各内容模块以 `IValidationRule` 注册，本模块
@@ -193,6 +194,108 @@ rowObj)` 这一次调用（不像第 73 条那样需要额外包住外层枚举�
 失败，还是跳过该根、其余根照常合并"，这直接影响多根合并语义（`schema_version` 一致性检查、
 `override`/`final` 覆盖语义都假设参与合并的根集合是完整的），改动面比本条大，需要设计层单独拍板，
 不在本次改动范围内。
+
+## 数据源枚举执行期异常隔离（框架调用外部实现不做隔离系列第三条，2026-09-19）
+
+**背景**：上一节留档的缺口——`LoadAllCore`/`Reload` 内对 `IDataSource.Root`/`IDataSource.ListTables`
+的调用没有 try/catch——本次单独设计拍板并根治。
+
+**设计层拍板（口径：任何数据源失败都不许让进程崩溃，一律产出报告）**：
+
+1. 单个 `IDataSource` 在 `Root`/`ListTables` 抛出异常时，隔离到该数据源，其余数据源照常加载
+   （隔离粒度=单个数据源，与本系列前两条"单条规则"/"单行迁移"一致的风格）。
+2. 产出一条 Error 级 `data_source_unavailable` 问题（见上方检查项总表），阻断整份报告——理由同
+   `rule_execution_failed`/`row_migration_failed`：该数据源本应提供的内容这次完全没能进入加载
+   结果，属于"报告缺一部分"而不是可忽略的次要问题（AGENTS.md 第 3 节"不静默降级"）。
+3. **多根合并语义拍板**（上一节标注"需要设计层单独拍板"，本次落地）：跳过的数据源如同它从未出现在
+   本次 `sources` 列表里一样参与后续按表名分组——它贡献的表若同时也来自其它未失败的数据源，那些根
+   的内容照常合并；若某张表本次唯一来源就是这个失败的数据源，该表本次干脆不出现在 `Tables` 里（与
+   "没有任何数据源提供这张表"是同一种可观察状态），不伪造"表存在但内容缺失"的记录，也不为它单独再
+   报一条表级错误。之所以做不到"报告里列出具体缺了哪些表"：枚举本身失败意味着框架从未拿到这个数据
+   源的候选表清单，没有任何独立途径倒推它原本会提供哪些表名——诚实报告"哪个根失败、失败原因"，比
+   伪造一份猜测的表名清单更符合"不静默降级"的精神（降级状态必须显式，但不能用虚构的确定性掩盖真实
+   的不确定性）。这正是"不把根不可用和表本来就不存在混为一谈"的落地方式：本条问题固定在数据源粒度
+   报告（`ValidationIssue.Table` 是数据源标识——能取到 `Root` 时用它，取不到时退化为该数据源实例的
+   运行时类型名，见 `DataSourceDiagnostic.Identifier`/`BuildDataSourceUnavailableIssue`——而不是某张
+   具体表名），从不冒充某张表的诊断。
+4. **显式退化标记（不许静默降级，AGENTS.md 第 3 节）**：新增 `DataSourceDiagnostic`（结构化诊断，
+   `contracts/DataSourceDiagnostic.cs`）与 `IDataRegistry.IsDegraded`/`GetUnavailableSources()`
+   （同 `TolerantRegistryView.IsDegraded`/`MissingTables` 的命名与语义风格，但落在 `DataRegistry`
+   本体、反映"加载/重载期间数据源层面的退化"，与 `TolerantRegistryView` 反映"只读分析入口按表/记录
+   读取时因阻断而退化"是两个不同层次、互不替代的机制）。理由：本条问题本身是 Error、会让
+   `ValidationReport.IsBlocking` 为真，运行期宿主的 `Get`/`GetAll` 因此已经拒绝读取（同
+   `rule_execution_failed`/`row_migration_failed` 一致的既有阻断机制）；但内容工具惯用的
+   `IDataRegistryView.TryGetAll` 等通道刻意绕开这层阻断直读内部表快照，对一张恰好完全来自失败数据源
+   的表，绕开阻断后看到的是"表不存在、返回空列表"——与"内容里确实没有这张表"在返回值层面完全不可
+   区分，因此新增 `IsDegraded`/`GetUnavailableSources` 专供这类通道显式核对"当前是否有数据源被跳
+   过"，不能仅凭"读到空"就断定内容本身如此。
+5. **连带误报**：`data_source_unavailable` 的 `Message` 末尾固定附一句"若下游校验（如
+   `reference_integrity`）报出引用该数据源本应提供的记录的错误，可能是本条问题连带产生"，处理方式
+   与思路同 `row_migration_failed` 判断记录"连带误报"一节（只加一句关联说明，不新增机制去抑制下游
+   issue）。
+
+**实现**：新增私有 `TryEnumerateSource`（`DataRegistry.cs`），把 `Root` 访问与 `ListTables` 调用
+各自单独包一层 try/catch（两者是两次独立调用，异常可能只发生在其中一个；`ListTables` 失败时若
+`Root` 已成功取到则用它做标识，更有辨识度）；`LoadAllCore`/`Reload` 原来直接调用
+`sources[s].Root`/`sources[s].ListTables()` 的两处循环体，改为调用本方法、失败即 `continue` 跳过该
+数据源。数据源枚举诊断（`_sourceDiagnostics`/`_unavailableSources`）按"数据源"而非"表"记账，
+`LoadAllCore`/`Reload` 每次都整体清空重建（不是像按表持久化的 `_loadDiagnostics` 那样增量替换——按
+表增量替换会导致这条问题的 `Table` 字段永远匹配不上任何 `table` 参数，旧问题项永远不会被按表过滤的
+`RemoveAll` 清理，每次 `Reload` 都会重复累加）。
+
+**回归测试**（`DataRegistryTests.cs`"20c. 数据源枚举执行期异常隔离"一节）：
+
+- `LoadAll_OneSourceListTablesThrowsUnexpectedException_DoesNotThrow_ReportsDataSourceUnavailableAndIsolatesOtherSources`——
+  两个数据源，一个正常一个 `ListTables` 抛出；断言 `LoadAll` 不抛出、产出恰好一条
+  `data_source_unavailable`（Error 级，`Table` 字段为该数据源的 `Root`，消息含数据源标识/异常类型/
+  异常消息/"其余数据源照常加载"字样）、`IsDegraded` 为真、`GetUnavailableSources()` 恰好一条且
+  `SourceIndex`/`Identifier`/`ExceptionType`/`ExceptionMessage` 均正确、好的数据源贡献的表经
+  `IDataRegistryView.TryGetAll` 核对完全不受影响。
+- `LoadAll_OneSourceRootThrowsUnexpectedException_DoesNotThrow_ReportsDataSourceUnavailableWithTypeNameIdentifier`——
+  互补场景：`Root` 属性访问本身抛出，标识退化为数据源运行时类型名。
+- `Reload_SourceStartsThrowingAfterInitialLoad_DoesNotThrow_ReportsDataSourceUnavailableAndOtherTableReloads`——
+  验证 `Reload` 同样被隔离：初次 `LoadAll` 两个数据源均正常（`IsDegraded` 为假），之后一个数据源开始
+  抛出，`Reload` 一张无关表；断言不抛出、产出 `data_source_unavailable`、`IsDegraded` 变为真、该表
+  确实按新内容重载成功（未被数据源异常掩盖）。
+
+**反向确认**：临时去掉 `TryEnumerateSource` 内的两段 try/catch（直接调用 `source.Root`/
+`source.ListTables()`），上述三条用例全部改为断言失败（异常原样冒出 `LoadAll`/`Reload`，栈顶经
+`FileSystemDataSource.ListTables`/属性访问 → `DataRegistry.TryEnumerateSource` → `LoadAllCore`/
+`Reload`），验证后已还原（`dotnet test` 复核：105 passed → 3 failed → 还原后 105 passed）。
+
+**进程级验证**：临时在 `FileSystemDataSource.ListTables` 里对 `_rootDir` 含 `_sample` 的根注入
+"第二次调用起抛出"（第一次调用是 `toolchain/validator` 里
+`Core.Sim.AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows` 的预扫描，与本条无关，
+跳过它、只在 `DataRegistry.LoadAllCore` 真正调用 `ListTables` 的第二次触发，避免与下方"收尾扫描"
+发现的另一个未隔离点混在一起），用真实数据根（`data/_framework` + `data/_sample`）跑
+`toolchain/validator`——隔离生效前：`Unhandled exception` 崩溃，退出码 `-532462766`
+（`0xE0434352`）；隔离生效后：正常退出，退出码 `1`（正常"校验失败"语义），报告含预期的
+`data_source_unavailable` 诊断（`tables 5`——只有 `data/_framework` 的表，`data/_sample` 整体缺席，
+不是"少几行"而是"整批表不在"），`data/_framework` 自身的表照常加载、不受影响；验证后已还原全部
+临时注入。
+
+**收尾扫描（框架代码里调用可插拔实现/外部回调的执行点清单，本模块 `core/foundation/data_registry/`
+范围内）**：
+
+| 调用点 | 外部实现 | 隔离状态 |
+| --- | --- | --- |
+| `LoadAllCore`/`Reload` 内 `IDataSource.Root`/`ListTables` | 调用方自定义 `IDataSource` | **已隔离**（本次） |
+| `LoadOneTablePartial` 内 `DataTableSource.ReadText()` | `TextProvider` 委托（通常闭包捕获文件/内存读取） | 已隔离（早于本系列，见该处 try/catch，异常转 `envelope` 检查项） |
+| `LoadOneTablePartial` 内 `SchemaMigrator.MigrateRow` | 各模块注册的 `TableMigration.Migrate` 委托 | 已隔离（同源同构缺口根治，见上一节） |
+| `RunValidationAndBuildReport` 内 `IValidationRule.Validate` 枚举 | 各模块注册的 `IValidationRule` | 已隔离（消费方反馈第 73 条，见上上节） |
+| `ValidateExprField` 内 `ExprParser.Parse`/`ExprValidator.Validate`（间接回调 `IExprSchema.TryGetSignature`） | 调用方提供的 `IExprSchema` | 已隔离（第十八方深度审核 F-03，见该方法判断记录） |
+| `SchemaMigrator.MigrateEnvelope` 内 `MigrateRow` | 同上 `TableMigration.Migrate` | **不需要隔离**（既有判断记录：本方法是内容工具"单次写回"入口，没有"部分成功"的中间态，异常即终止是有意的设计——与 `DataRegistry` 加载期"尽量报全部问题、跳过坏行继续"的宽容策略刻意不同，见该方法类型级判断记录） |
+| `FieldSchema.Item`/`Variants` 属性 getter 内 `itemFactory`/`variantsFactory` | 各模块注册 `TableSchema` 时提供的工厂委托 | **不需要隔离**（这是 schema 注册期的元数据构造代码，由框架/内容作者本人编写并随任意一次加载/测试确定性复现，属于开发期就会暴露的编程错误，不是"运行时对不可控的可变数据/第三方实现容错"这一类问题——与本系列三条针对的"数据驱动、运行时才会因具体输入触发"的失败模式不同类，故不纳入本系列隔离范围） |
+
+**顺带发现、超出本模块范围、未修（留档，建议另行派单）**：`core/sim/core/AnchorTableSkillBudgetAnchorProvider.DataSourcesHaveAnchorRows`
+（供 `toolchain/validator/Program.cs`/`Core.Sim.HeadlessWorldBuilder.Build` 两处接入点在
+`DataRegistry.LoadAll` **之前**预扫描 `sim.anchor` 表是否含数据行）内部同样直接调用
+`source.ListTables()`（`foreach (var source in sources) { foreach (var table in source.ListTables())`），
+没有任何 try/catch——本次进程级验证证明：只要某个 `IDataSource.ListTables()` 抛出未预期异常，这个
+更早的预扫描调用点会先于 `DataRegistry.LoadAllCore` 自身崩溃，`0xE0434352` 崩溃码原样复现，且本次
+`data_source_unavailable` 隔离对它完全不生效（不同类、不共享实现）。这是与本系列同构的第四个未隔离
+点，但物理位置在 `core/sim/`，超出本次任务书划定的 `core/foundation/data_registry/` 改动范围，本次
+不修，留档建议另行派单——同 AGENTS.md 第 6 节"不擅自拍板设计冲突"惯例，不在本单顺手扩大改动面。
 
 ## 复合字段子结构递归校验（ADR-0019）
 

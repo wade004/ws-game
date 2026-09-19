@@ -68,6 +68,33 @@ namespace Core.Foundation.DataRegistry
     /// <c>schema_version</c> 跨根不一致仍无条件阻断，不受覆盖语义影响（覆盖只发生在"两个根各自都
     /// 已成功解析出内容"之后，见上"合并规则"）。
     /// </para>
+    /// <para>
+    /// 判断记录（数据源枚举执行期异常隔离，框架调用外部实现不做隔离系列第三条，2026-09-19，见
+    /// <c>core/foundation/data_registry/README.md</c> 同名一节）：<see cref="LoadAllCore"/>/
+    /// <see cref="Reload(string)"/> 逐根调用调用方自行提供的 <see cref="IDataSource.Root"/>/
+    /// <see cref="IDataSource.ListTables"/>（见 <see cref="TryEnumerateSource"/>）时，某个数据源
+    /// 抛出未预期异常不再击穿整个加载/重载——该数据源被整体跳过（隔离粒度=单个数据源），产出一条
+    /// Error 级 <c>data_source_unavailable</c> 问题，其余数据源照常枚举、合并。多根合并语义的拍板
+    /// （设计层已授权本次实现自行决定）：跳过的数据源如同它从未出现在本次 <c>sources</c> 列表里一样
+    /// 参与后续"按表名分组"（见上方按表分组循环）——它贡献的表若同时也来自其它未失败的数据源，那些
+    /// 根的内容照常合并、不受影响；若某张表本次唯一的来源就是这个失败的数据源，该表本次干脆不出现在
+    /// <see cref="Tables"/> 里（与"没有任何数据源提供这张表"是同一种可观察状态），不会伪造一条"表存在
+    /// 但内容缺失"的记录，也不会为了这张表单独再报一条表级错误——这正是"不把根不可用和表本来就不存在
+    /// 混为一谈"的落地方式：本条问题固定在数据源粒度报告（<c>Table</c> 字段是数据源标识而非表名，见
+    /// <see cref="BuildDataSourceUnavailableIssue"/>），从不冒充某张具体表的诊断。之所以不能在报告里
+    /// 进一步列出"因此具体缺了哪些表"：枚举本身失败意味着框架从未拿到这个数据源的候选表清单，没有任何
+    /// 独立途径倒推它原本会提供哪些表名——诚实地只报告"哪个根失败、失败原因"，比伪造一份猜测的表名
+    /// 清单更符合 AGENTS.md 第 3 节"不静默降级"的精神（降级状态必须显式，但不能用虚构的确定性掩盖
+    /// 真实的不确定性）。显式退化标记见 <see cref="IsDegraded"/>/<see cref="GetUnavailableSources"/>：
+    /// 该问题本身是 Error、会让 <see cref="ValidationReport.IsBlocking"/> 为真，运行期宿主的
+    /// <see cref="Get(string, string)"/>/<see cref="GetAll"/> 因此已经拒绝读取（同
+    /// <c>rule_execution_failed</c>/<c>row_migration_failed</c> 一致的既有阻断机制）；但内容工具惯用
+    /// 的 <see cref="IDataRegistryView.TryGetAll"/> 等通道刻意绕开这层阻断直读 <see cref="_tables"/>
+    /// 快照，对一张恰好完全来自失败数据源的表，绕开阻断后看到的是"表不存在、返回空列表"——与"内容里
+    /// 确实没有这张表"在返回值层面完全不可区分，这正是新增 <see cref="IsDegraded"/>/
+    /// <see cref="GetUnavailableSources"/> 的理由：不依赖阻断机制、专供这类通道显式核对"当前是否有
+    /// 数据源被跳过"，不能仅凭"读到空"就断定内容本身如此。
+    /// </para>
     /// </summary>
     public sealed class DataRegistry : IDataRegistry
     {
@@ -121,6 +148,24 @@ namespace Core.Foundation.DataRegistry
         /// 影响，只有显式重载了的那张表才可能被清空（重载成功、不再报错时）或替换（重载后错误变了）。
         /// <see cref="Validate()"/> 以这份列表的快照作为起点，而不是从空列表开始。</summary>
         private readonly List<ValidationIssue> _loadDiagnostics = new List<ValidationIssue>();
+
+        /// <summary>框架调用外部实现不做隔离系列第三条（2026-09-19）：<c>data_source_unavailable</c>
+        /// 问题项的持久化列表——与 <see cref="_loadDiagnostics"/>（按表增量持久，只在对应表被
+        /// <see cref="Reload(string)"/> 时才替换）不同，本列表按"数据源"而非"表"记账，而
+        /// <see cref="LoadAllCore"/>/<see cref="Reload(string)"/> 每次都会重新扫描
+        /// <em>全部</em>数据源（不是像 <see cref="Reload(string)"/> 对表那样只关心一张表），因此每次
+        /// 都整体清空重建（见两处调用点），不需要、也不能按表增量替换——按表增量替换会导致
+        /// <c>Table</c> 字段（本条问题用数据源标识而不是表名占位，见
+        /// <see cref="BuildDataSourceUnavailableIssue"/> 判断记录）与 <c>table</c> 参数永不匹配，
+        /// 旧问题项永远不会被 <c>_loadDiagnostics.RemoveAll(d => d.Table == table)</c> 之类的按表过滤
+        /// 逻辑清理，每次 <see cref="Reload(string)"/> 都会重复累加，见判断记录"数据源枚举执行期异常
+        /// 隔离"。</summary>
+        private readonly List<ValidationIssue> _sourceDiagnostics = new List<ValidationIssue>();
+
+        /// <summary>与 <see cref="_sourceDiagnostics"/> 同批维护的结构化快照，供
+        /// <see cref="GetUnavailableSources"/> 回吐；两者内容一一对应，只是前者是给报告用的
+        /// <see cref="ValidationIssue"/> 形态，后者是给代码消费的结构化形态。</summary>
+        private readonly List<DataSourceDiagnostic> _unavailableSources = new List<DataSourceDiagnostic>();
 
         /// <summary>最近一次 <see cref="LoadAll()"/>/<see cref="LoadAll(IReadOnlyList{IDataSource})"/>
         /// 使用的完整根集合；<see cref="Reload(string)"/> 据此在全部根里重新定位待重载的表（多根注册表
@@ -312,15 +357,27 @@ namespace Core.Foundation.DataRegistry
             int recordCount = 0;
             _overrideDiagnostics.Clear();
 
+            // 框架调用外部实现不做隔离系列第三条（2026-09-19）：本轮全新扫描全部数据源，
+            // 数据源枚举诊断整体清空重建（见 _sourceDiagnostics/_unavailableSources 判断记录）。
+            var sourceIssues = new List<ValidationIssue>();
+            _unavailableSources.Clear();
+
             // 按表名分组：同一表名出现在多个根时才走合并路径，出现在单个根时走原有单根路径
             // （保持与改动前逐字节相同的行为，见类型级判断记录）。
             // 消费方反馈第三批第 22 条：额外携带每个 DataTableSource 来自 sources 中的下标（"根序号"）
             // 与该根自身的 IDataSource.Root，供后续构造 OverrideDiagnostic 计算根序号/相对路径。
+            //
+            // 数据源枚举执行期异常隔离：TryEnumerateSource 把对 sources[s].Root/ListTables() 的两次
+            // 外部实现调用都包在各自的 try/catch 里（见该方法判断记录）——某个数据源枚举失败时跳过
+            // 它（continue，其本应贡献的表本次不出现在 byTable 里），其余数据源照常处理，不击穿
+            // 整个 LoadAllCore。
             var byTable = new Dictionary<string, List<SourcedTable>>(StringComparer.Ordinal);
             for (int s = 0; s < sources.Count; s++)
             {
-                var root = sources[s].Root;
-                var tableSources = sources[s].ListTables();
+                if (!TryEnumerateSource(sources[s], s, sourceIssues, _unavailableSources, out var root, out var tableSources))
+                {
+                    continue;
+                }
                 for (int i = 0; i < tableSources.Count; i++)
                 {
                     var ts = tableSources[i];
@@ -332,6 +389,9 @@ namespace Core.Foundation.DataRegistry
                     list.Add(new SourcedTable(ts, s, root));
                 }
             }
+            _sourceDiagnostics.Clear();
+            _sourceDiagnostics.AddRange(sourceIssues);
+            issues.AddRange(sourceIssues);
 
             // 确定性：按表名排序后再处理，保证多次运行、issues 顺序一致（呼应 Directory.Build.props
             // "确定性"、本类既有"无 LINQ 热路径"风格——用手写排序代替 LINQ OrderBy）。
@@ -382,16 +442,27 @@ namespace Core.Foundation.DataRegistry
         {
             if (string.IsNullOrEmpty(table)) throw new ArgumentException("table 不能为空", nameof(table));
 
+            // 数据源枚举执行期异常隔离：Reload 每次都重新扫描 _sources 的全部根（与 LoadAllCore
+            // 同样的范围），因此按同一套规则整体清空重建 _sourceDiagnostics/_unavailableSources
+            // （见两字段判断记录），不是像下面 localIssues/_loadDiagnostics 那样只关心 table 这一张表。
+            var sourceIssues = new List<ValidationIssue>();
+            var freshUnavailableSources = new List<DataSourceDiagnostic>();
             var matches = new List<SourcedTable>();
             for (int s = 0; s < _sources.Count; s++)
             {
-                var root = _sources[s].Root;
-                var tableSources = _sources[s].ListTables();
+                if (!TryEnumerateSource(_sources[s], s, sourceIssues, freshUnavailableSources, out var root, out var tableSources))
+                {
+                    continue;
+                }
                 for (int i = 0; i < tableSources.Count; i++)
                 {
                     if (tableSources[i].TableName == table) matches.Add(new SourcedTable(tableSources[i], s, root));
                 }
             }
+            _sourceDiagnostics.Clear();
+            _sourceDiagnostics.AddRange(sourceIssues);
+            _unavailableSources.Clear();
+            _unavailableSources.AddRange(freshUnavailableSources);
 
             var localIssues = new List<ValidationIssue>();
             if (matches.Count == 0)
@@ -440,8 +511,12 @@ namespace Core.Foundation.DataRegistry
             // 的报告、以及它据此更新的 _blocked 状态，必须看到全部表的持久化加载诊断，不能只看
             // "这次重载的这一张表"——否则 Reload 一张完全无关的好表也会把 _blocked
             // 重新算成"不阻断"（用的是只含这张表信息的局部报告），等价于绕过了上面
-            // Validate()/_loadDiagnostics 好不容易做到的"按表持久保留，直到该表成功重载"。
+            // Validate()/_loadDiagnostics 好不容易做到的"按表持久保留，直到该表成功重载"。同理再叠加
+            // 上本次刚重新扫描出的 _sourceDiagnostics（数据源枚举执行期异常隔离，见其字段判断记录）——
+            // 它不按表持久化，但同样必须参与本次报告与 _blocked 计算，否则某个数据源枚举失败会被
+            // Reload 悄悄漏报。
             var issuesForReport = new List<ValidationIssue>(_loadDiagnostics);
+            issuesForReport.AddRange(_sourceDiagnostics);
             return RunValidationAndBuildReport(issuesForReport);
         }
 
@@ -609,6 +684,88 @@ namespace Core.Foundation.DataRegistry
             return $"rows[{index}]";
         }
 
+        /// <summary>框架调用外部实现不做隔离系列第三条（2026-09-19，见
+        /// <c>core/foundation/data_registry/README.md</c>"数据源枚举执行期异常隔离"一节）：把对
+        /// <paramref name="source"/>（调用方自行提供的 <see cref="IDataSource"/> 实现）的
+        /// <see cref="IDataSource.Root"/> 访问与 <see cref="IDataSource.ListTables"/> 调用各自单独包
+        /// 一层 try/catch——两者是两个独立的属性/方法调用，异常可能单独发生在其中任何一个（<c>Root</c>
+        /// 是简单属性访问，多数实现不会抛，但接口契约本身不禁止；<c>ListTables</c> 才是真正做 IO/枚举
+        /// 工作、最可能抛出的一步），分别处理而不是一个大 try 包住两行的理由：<c>Root</c> 访问失败时
+        /// 仍应尽量把"这次失败到底是哪个源"报清楚——用 <c>source.GetType().Name</c> 兜底标识；
+        /// <c>ListTables</c> 失败时若 <c>Root</c> 已经成功取到，标识用真实的 <c>Root</c> 值（更有辨识度，
+        /// 通常是数据根路径），没取到时才退化为类型名。两种失败都返回 <c>false</c>、
+        /// <paramref name="root"/>/<paramref name="tableSources"/> 置空/默认值，调用方据此
+        /// <c>continue</c> 跳过该数据源，不中断其余数据源的处理（隔离粒度=单个数据源，与本系列前两条
+        /// "单条规则"/"单行迁移"一致的风格：某个可插拔实现挂了只影响它自己）。
+        /// <para>
+        /// 判断记录（为什么在这里而不是调用方各自 try/catch）：<see cref="LoadAllCore"/> 与
+        /// <see cref="Reload(string)"/> 都需要对 <c>_sources</c>/<c>sources</c> 做同样的"逐根枚举"，
+        /// 抽成一份共用实现避免两处逻辑漂移（同 <see cref="SchemaMigrator.MigrateRow"/> 被
+        /// <see cref="LoadOneTablePartial"/> 单一调用点复用的既有风格）。
+        /// </para>
+        /// </summary>
+        private bool TryEnumerateSource(
+            IDataSource source,
+            int sourceIndex,
+            List<ValidationIssue> issues,
+            List<DataSourceDiagnostic> diagnostics,
+            out string? root,
+            out IReadOnlyList<DataTableSource> tableSources)
+        {
+            root = null;
+            tableSources = Array.Empty<DataTableSource>();
+
+            try
+            {
+                root = source.Root;
+            }
+            catch (Exception ex)
+            {
+                var identifier = source.GetType().Name;
+                issues.Add(BuildDataSourceUnavailableIssue(identifier, ex));
+                diagnostics.Add(new DataSourceDiagnostic(sourceIndex, identifier, ex.GetType().Name, ex.Message));
+                return false;
+            }
+
+            try
+            {
+                tableSources = source.ListTables();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                var identifier = root ?? source.GetType().Name;
+                issues.Add(BuildDataSourceUnavailableIssue(identifier, ex));
+                diagnostics.Add(new DataSourceDiagnostic(sourceIndex, identifier, ex.GetType().Name, ex.Message));
+                return false;
+            }
+        }
+
+        /// <summary>框架调用外部实现不做隔离系列第三条：把单个数据源枚举期抛出的任意异常转成一条
+        /// <c>data_source_unavailable</c> 检查项（Error 级——理由同 <c>rule_execution_failed</c>/
+        /// <c>row_migration_failed</c>：该数据源本应提供的表这次完全没能进入加载结果，属于"报告缺一
+        /// 部分内容"而不是可以忽略的次要问题，AGENTS.md 第 3 节"不静默降级"）。<see
+        /// cref="ValidationIssue.Table"/>（构造函数要求非空）没有单一表可用，退化为
+        /// <paramref name="identifier"/>（该数据源的 <see cref="IDataSource.Root"/> 或类型名）——不代表
+        /// 真的存在这样一张表，读者据 <see cref="ValidationIssue.Check"/> 即可识别这是数据源级、非表级
+        /// 问题，与 <c>rule_execution_failed</c> 用 <c>ruleId</c> 占位 <c>Table</c> 字段是同一手法。
+        /// <see cref="ValidationIssue.Message"/> 固定包含数据源标识、异常类型名、异常消息三项定位信息，
+        /// 并显式说明"本应提供的全部表未加载、具体表名无法确定"（枚举本身失败，框架没有任何独立途径
+        /// 得知该数据源原本会列出哪些表——诚实报告这一限制，而不是猜测或假装知道）与"下游 reference_
+        /// integrity 等错误可能系连带产生"（该根缺失的表若被其它记录引用，会独立报出一条看似无关的
+        /// 引用缺口，同 <see cref="BuildRowMigrationFailedIssue"/> 判断记录"连带误报"的处理方式：只加
+        /// 一句关联说明，不新增机制去抑制下游 issue）。</summary>
+        private static ValidationIssue BuildDataSourceUnavailableIssue(string identifier, Exception ex)
+        {
+            return new ValidationIssue(
+                ValidationSeverity.Error,
+                identifier,
+                "data_source_unavailable",
+                $"数据源 \"{identifier}\" 枚举失败（{ex.GetType().Name}）：{ex.Message}；该数据源本应提供的全部表" +
+                "本次未加载（枚举本身失败，无法确定具体表名），其余数据源照常加载——若下游校验（如" +
+                " reference_integrity）报出引用该数据源本应提供的记录的错误，可能是本条问题连带产生");
+        }
+
         // ---------------------------------------------------------------
         // 只读查询（IDataRegistryView）
         // ---------------------------------------------------------------
@@ -729,6 +886,15 @@ namespace Core.Foundation.DataRegistry
         /// <summary>只读诊断：见 <see cref="IDataRegistry.GetOverrideDiagnostics"/>、类型级判断记录
         /// "覆盖语义"。返回一份快照（调用方后续 <see cref="Reload(string)"/> 不会影响已返回的列表）。</summary>
         public IReadOnlyList<OverrideDiagnostic> GetOverrideDiagnostics() => _overrideDiagnostics.ToArray();
+
+        /// <summary>只读诊断：见 <see cref="IDataRegistry.IsDegraded"/>。直接读 <see cref="_unavailableSources"/>
+        /// 的数量，与该字段同一时机整体清空重建（<see cref="LoadAllCore"/>/<see cref="Reload(string)"/>，
+        /// 见其判断记录），不经过 <see cref="EnsureReadable"/>，阻断态下也能读取。</summary>
+        public bool IsDegraded => _unavailableSources.Count > 0;
+
+        /// <summary>只读诊断：见 <see cref="IDataRegistry.GetUnavailableSources"/>。返回一份快照（调用方
+        /// 后续 <see cref="Reload(string)"/> 不会影响已返回的列表）。</summary>
+        public IReadOnlyList<DataSourceDiagnostic> GetUnavailableSources() => _unavailableSources.ToArray();
 
         /// <summary>
         /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见

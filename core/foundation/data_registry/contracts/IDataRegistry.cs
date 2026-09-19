@@ -302,5 +302,31 @@ namespace Core.Foundation.DataRegistry
         /// creature/tests</c> 下的 <see cref="IDataRegistryView"/> 测试替身不可改动，见任务书硬性
         /// 规则 1）。</summary>
         IReadOnlyList<OverrideDiagnostic> GetOverrideDiagnostics();
+
+        /// <summary>
+        /// 只读诊断（框架调用外部实现不做隔离系列第三条，2026-09-19，见 <c>DataRegistry</c> 类型级
+        /// 判断记录"数据源枚举执行期异常隔离"）：最近一次 <see cref="LoadAll()"/>/
+        /// <see cref="LoadAll(IReadOnlyList{IDataSource})"/>/<see cref="Reload(string)"/> 期间，是否
+        /// 有至少一个 <see cref="IDataSource"/> 在访问 <see cref="IDataSource.Root"/> 或调用
+        /// <see cref="IDataSource.ListTables"/> 时抛出未预期异常而被整体跳过。不参与
+        /// <see cref="ValidationReport.IsBlocking"/> 的计算（该问题已作为独立的 <c>data_source_unavailable</c>
+        /// Error 级 <see cref="ValidationIssue"/> 参与阻断判定，见其判断记录）——本成员是给"绕开阻断
+        /// 直读快照"的内容工具通道（<see cref="IDataRegistryView.TryGetAll"/> 等）补的一道明确信号：
+        /// 那些通道即便在阻断态下也能正常读到"表不存在"（因为该表本就不在 <c>_tables</c> 快照里），
+        /// 但读者无法仅凭"表不存在"分辨这是"内容本就没有这张表"还是"提供这张表的数据源枚举失败"，
+        /// 必须显式检查本成员/<see cref="GetUnavailableSources"/>，不能把"读到空/不存在"当作确定性的
+        /// "这张表本来就没有"（AGENTS.md 第 3 节"不静默降级"）。声明位置理由与
+        /// <see cref="GetTableSourceLocations(string)"/>/<see cref="GetOverrideDiagnostics"/> 相同
+        /// （<c>core/carriers/creature/tests</c> 下只实现 <see cref="IDataRegistryView"/> 的测试替身
+        /// 不可改动，加在这里没有同样的兼容性风险；全仓库唯一实现完整 <see cref="IDataRegistry"/>
+        /// 接口的类型是 <c>DataRegistry</c> 本身，新增本成员不破坏任何第三方实现）。
+        /// </summary>
+        bool IsDegraded { get; }
+
+        /// <summary>
+        /// 只读诊断：见 <see cref="IsDegraded"/>。最近一次加载/重载期间因枚举失败而被跳过的全部数据源
+        /// （按遇到顺序排列，不重复；无失败时返回空列表）。
+        /// </summary>
+        IReadOnlyList<DataSourceDiagnostic> GetUnavailableSources();
     }
 }

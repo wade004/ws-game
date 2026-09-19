@@ -1948,6 +1948,151 @@ namespace Tests.Foundation.Data
         }
 
         // -----------------------------------------------------------------
+        // 20c. 数据源枚举执行期异常隔离（框架调用外部实现不做隔离系列第三条，2026-09-19，见
+        //      DataRegistry.cs 类型级判断记录"数据源枚举执行期异常隔离"、
+        //      core/foundation/data_registry/README.md 同名一节）：某个 IDataSource 在
+        //      ListTables()/Root 抛出未预期异常时，不击穿整个 LoadAll/Reload，该数据源被整体跳过、
+        //      产出 data_source_unavailable（Error 级），其余数据源照常加载。
+        // -----------------------------------------------------------------
+
+        /// <summary>可配置在 <see cref="Root"/> 访问期、或 <see cref="ListTables"/> 调用期抛出的
+        /// <see cref="IDataSource"/> 测试替身——两个失败点分别对应 <see cref="DataRegistry.TryEnumerateSource"/>
+        /// 的两段独立 try/catch，需要各自单独验证。</summary>
+        private sealed class ThrowingEnumerationSource : IDataSource
+        {
+            private readonly string? _root;
+            private readonly bool _throwOnRoot;
+            private readonly Exception _exception;
+
+            public ThrowingEnumerationSource(string? root, bool throwOnRoot, Exception exception)
+            {
+                _root = root;
+                _throwOnRoot = throwOnRoot;
+                _exception = exception;
+            }
+
+            public string? Root => _throwOnRoot ? throw _exception : _root;
+
+            public IReadOnlyList<DataTableSource> ListTables() => _throwOnRoot ? Array.Empty<DataTableSource>() : throw _exception;
+        }
+
+        [Fact]
+        public void LoadAll_OneSourceListTablesThrowsUnexpectedException_DoesNotThrow_ReportsDataSourceUnavailableAndIsolatesOtherSources()
+        {
+            var good = new InMemoryDataSource().Add("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var bad = new ThrowingEnumerationSource("data/_broken_root", throwOnRoot: false,
+                new InvalidOperationException("模拟数据源枚举内部未预期异常，不做任何转换，直接外抛"));
+
+            var registry = new DataRegistry(good, MakeBus());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll(new IDataSource[] { good, bad }); // 根治前会抛异常击穿整个 LoadAll
+
+            Assert.True(report.IsBlocking);
+            var failure = Assert.Single(report.Issues, i => i.Check == "data_source_unavailable");
+            Assert.Equal(ValidationSeverity.Error, failure.Severity);
+            Assert.Equal("data/_broken_root", failure.Table); // Root 取到时用它占位 Table 字段
+            Assert.Contains("data/_broken_root", failure.Message);
+            Assert.Contains(nameof(InvalidOperationException), failure.Message);
+            Assert.Contains("模拟数据源枚举内部未预期异常", failure.Message);
+            Assert.Contains("其余数据源照常加载", failure.Message);
+
+            // 显式退化标记：IsDegraded/GetUnavailableSources——不依赖阻断机制，供绕开阻断的
+            // TryGetAll 等通道核对。
+            Assert.True(registry.IsDegraded);
+            var diag = Assert.Single(registry.GetUnavailableSources());
+            Assert.Equal(1, diag.SourceIndex); // bad 是 sources 列表里的第二个（下标 1）。
+            Assert.Equal("data/_broken_root", diag.Identifier);
+            Assert.Equal(nameof(InvalidOperationException), diag.ExceptionType);
+            Assert.Contains("模拟数据源枚举内部未预期异常", diag.ExceptionMessage);
+
+            // 整体阻断，GetAll 拒绝读取；其余（好的）数据源贡献的表用不经过阻断检查的
+            // IDataRegistryView.TryGetAll 通道核对，完全不受影响，照常合入结果。
+            Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.owner"));
+            IDataRegistryView view = registry;
+            var ok = view.TryGetAll("test.owner", out var records);
+            Assert.True(ok);
+            var record = Assert.Single(records);
+            Assert.Equal("Ann", record.GetString("name"));
+        }
+
+        /// <summary>与上一条互补：验证 <see cref="IDataSource.Root"/> 访问本身抛出时也能被隔离——
+        /// 此时数据源标识没有 <c>Root</c> 值可用，退化为该数据源实例的运行时类型名
+        /// （<see cref="ThrowingEnumerationSource"/>），见 <see cref="DataRegistry.TryEnumerateSource"/>
+        /// 判断记录。</summary>
+        [Fact]
+        public void LoadAll_OneSourceRootThrowsUnexpectedException_DoesNotThrow_ReportsDataSourceUnavailableWithTypeNameIdentifier()
+        {
+            var good = new InMemoryDataSource().Add("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var bad = new ThrowingEnumerationSource(root: null, throwOnRoot: true,
+                new InvalidOperationException("模拟 Root 属性访问内部未预期异常"));
+
+            var registry = new DataRegistry(good, MakeBus());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll(new IDataSource[] { good, bad });
+
+            Assert.True(report.IsBlocking);
+            var failure = Assert.Single(report.Issues, i => i.Check == "data_source_unavailable");
+            Assert.Equal(nameof(ThrowingEnumerationSource), failure.Table);
+            Assert.Contains(nameof(ThrowingEnumerationSource), failure.Message);
+
+            var diag = Assert.Single(registry.GetUnavailableSources());
+            Assert.Equal(nameof(ThrowingEnumerationSource), diag.Identifier);
+
+            IDataRegistryView view = registry;
+            Assert.True(view.TryGetAll("test.owner", out var records));
+            Assert.Single(records);
+        }
+
+        /// <summary>验证 <see cref="IDataRegistry.Reload(string)"/> 同样被隔离——重载会重新扫描全部
+        /// <c>_sources</c>，若其中一个此后开始抛异常，不应击穿 Reload；<see cref="IsDegraded"/> 随之
+        /// 反映最新一次扫描结果（题述"每次重载都重新计算，不是按表持久累加"，见 _sourceDiagnostics
+        /// 字段判断记录）。</summary>
+        [Fact]
+        public void Reload_SourceStartsThrowingAfterInitialLoad_DoesNotThrow_ReportsDataSourceUnavailableAndOtherTableReloads()
+        {
+            var owner = new MutableSingleTableSource("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var flaky = new FlakyListTablesSource();
+
+            var registry = new DataRegistry(owner, MakeBus());
+            registry.RegisterSchema(OwnerSchema());
+            var initialReport = registry.LoadAll(new IDataSource[] { owner, flaky });
+            Assert.False(initialReport.IsBlocking);
+            Assert.False(registry.IsDegraded);
+
+            owner.Json = Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann2\"}]");
+            flaky.ThrowNextTime = true;
+
+            var report = registry.Reload("test.owner"); // 根治前会抛异常击穿整个 Reload
+
+            Assert.True(report.IsBlocking);
+            Assert.True(registry.IsDegraded);
+            Assert.Single(report.Issues, i => i.Check == "data_source_unavailable");
+            IDataRegistryView view = registry;
+            Assert.True(view.TryGetAll("test.owner", out var records));
+            var record = Assert.Single(records);
+            Assert.Equal("Ann2", record.GetString("name")); // 重载确实生效，未被数据源异常掩盖
+        }
+
+        /// <summary>配合 <see cref="Reload_SourceStartsThrowingAfterInitialLoad_DoesNotThrow_ReportsDataSourceUnavailableAndOtherTableReloads"/>：
+        /// 首次调用 <see cref="ListTables"/> 正常返回空表列表，<see cref="ThrowNextTime"/> 置位后再调用
+        /// 才抛出——模拟"数据源此前工作正常、之后才开始故障"的场景。</summary>
+        private sealed class FlakyListTablesSource : IDataSource
+        {
+            public bool ThrowNextTime;
+
+            public IReadOnlyList<DataTableSource> ListTables()
+            {
+                if (ThrowNextTime)
+                {
+                    throw new InvalidOperationException("模拟数据源此前正常、本次开始抛出未预期异常");
+                }
+                return Array.Empty<DataTableSource>();
+            }
+        }
+
+        // -----------------------------------------------------------------
         // 21. 阻断态下的工具只读通道（消费方反馈第三批第 20 条，2026-09-10，见
         //     architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：
         //     IDataRegistryView.TryGetAll/TryQuery。
