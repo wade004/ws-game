@@ -555,6 +555,44 @@ Boot ──Start()──> MainMenu ──ShowSlots()──> SaveSlots ──(选
 | 4. 命中/暴击/死亡反馈组合 | `VerticalSliceTests.Feedback_NormalDamage_.../Feedback_CritDamage_.../FullVerticalSlice`（死亡→Flash） | 独立版观察普攻飘字颜色（暴击应更明显）、死亡瞬间的震屏/闪白。 |
 | 5. Y 排序/纸娃娃 | `VerticalSliceTests.YSorting_.../Paperdoll_LayerOrder_...` | 编辑器里选中玩家 `LayersRoot` 下三个 `SpriteRenderer`（`body`/`hand_main`/`head`），核对 Inspector `Sorting Order` 依次递增；移动玩家使其与生物 Y 坐标交替，肉眼确认前后遮挡关系随之切换。 |
 
+### PlayMode 用例写法约定：资源加载类断言必须自行等待（2026-09-19 隐性顺序依赖根治）
+
+`UnityResourceLoader` 是 `DontDestroyOnLoad` 单例、跨整个 `-runTests` 进程只有一份实例、已加载
+资源的缓存不随用例结束清空（详见
+`architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`）。任何断言依赖"某个
+精灵/纸娃娃层/动画剪辑资源已经加载成功"的 `[UnityTest]`，如果自己既不触发加载也不等待加载完成
+就直接快照断言，全量门禁里大概率会因为"更早跑过的用例已经把同一份资源预热进缓存"而侥幸通过——
+但同一条用例单独用 `-testFilter` 跑会失败，因为资源确实还没加载完成。这类用例不是在验证"被测
+代码触发的加载最终会成功"，而是在无意中验证"执行顺序恰好合适"，属于隐性顺序依赖，实测复现于
+`GreyBoxTests.Move_Right_IncreasesPlayerX_AndTurnsSideways`（侧向方向档位的层资源是移动后才
+第一次被引用，`layer.{spriteSetName}__{directionSlotName}__{layerName}` 命名规则决定 front/
+side_r 是两个完全不同的资源 id，见 `presentation/render/core/SpriteViewBase.
+ResolveLayerResourceId` 判断记录）与
+`VerticalSliceTests.Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder`（三层纸娃娃资源同理）。
+
+**约定**：断言资源已加载成功之前，必须自己轮询等待，不能假设已经被同一批处理进程里更早的用例
+预热。轮询要有明确的超时上限，超时后的失败信息要说明"在等哪个资源引用、等了多久"，不能无限等、
+不能静默通过。范例见 `GreyBoxTests.PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder`
+（等 `layer.creature_sample_hero__*__body` 精灵出现）、`VerticalSliceTests.
+AssertAnimResourcesLoadedSuccessfully`（轮询 `UnityResourceLoader.TryGetEffect` 命中）、上面
+两处新修复（`Move_Right_IncreasesPlayerX_AndTurnsSideways`/`Paperdoll_LayerOrder_
+MatchesDisplayMapDeclaredOrder` 顶部判断记录）。新增任何断言"某资源已加载/某贴图已切换成真实
+资源（非占位方块）"的用例，落笔前先确认是否需要同款轮询。
+
+**关于"额外加一次隔离 `-testFilter` 门禁步骤防回归"的评估结论（未采纳）**：曾评估在
+`check.ps1` 的"Unity PlayMode 测试"步骤之后，为这类资源加载敏感用例再单独起一次
+`-testFilter` 调用的 Unity 批处理，专门捕获"依赖了组外用例预热"的回归。结论是不采纳，理由：
+① 收益窄且要求人工持续维护——只能保护显式列进白名单的用例，未来新增的同类用例如果作者没有
+主动把它加进这份白名单，同样的回归照样漏检，防护力本质上还是依赖"写测试的人记得"，与本节想要
+根治的问题（人没有意识到要等待）是同一类风险，机制本身不能自动发现新增的资源加载类断言；
+② 成本是永久性的——每次 `check.ps1`/`build.ps1 -Release` 都要多启动一次 Unity 批处理进程，
+Unity 冷启动开销（编译脚本、域重载、许可校验）明显大于两条用例本身的运行时间，且这份成本会
+无限期存在于每一次门禁运行里；③ 检测面本身有盲区——组内用例互相预热的情况（例如白名单里两条
+用例本身就会互相暖缓存）这种调用方式同样测不出来，不是万能网。综合下来"写清楚约定 + 在两个
+既有范例方法的判断记录里指路"这种更轻的手段，成本更低、且不依赖白名单是否覆盖全，因此本轮
+选择只落地文档约定，不新增门禁步骤；如果今后同类回归又出现第三次，再重新评估是否值得为它
+付出这份常驻成本。
+
 ### 如何跑竖切测试与冒烟
 
 ```

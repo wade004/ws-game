@@ -434,6 +434,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- 根治两处 PlayMode 用例隐性执行顺序依赖（`GreyBoxTests.
+  Move_Right_IncreasesPlayerX_AndTurnsSideways`/`VerticalSliceTests.
+  Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder`）：两者断言依赖纸娃娃层/方向档位精灵
+  资源已经异步加载完成，但用例自身既不触发加载也不等待，全量门禁里靠同批处理进程里更早跑过的
+  其它用例把资源预热进跨用例共享的 `UnityResourceLoader` 缓存才侥幸通过，单独用 `-testFilter`
+  跑二者均失败（各 total=1 passed=0 failed=1）。改为轮询等待资源真正加载完成再断言，超时给出
+  说明等待对象与时长的失败信息，不放宽/不删除原有断言。已扫查全部 37 个 PlayMode/EditMode 测试
+  文件中涉及资源加载状态查询的用例，未发现其它同类隐性顺序依赖（其余用例均已用私有
+  `UnityResourceLoader` 实例、专属资源引用字面量或已有轮询等待，详见
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训三/正面做法"
+  两节与包 README"PlayMode 用例写法约定"一节）。
+
 ## [1.44.0] - 2026-09-19
 
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
