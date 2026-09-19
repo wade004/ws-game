@@ -587,6 +587,27 @@ namespace Core.Gameplay.Quest
             return result;
         }
 
+        /// <summary>见 <see cref="IQuestHost.GetObjectiveRequiredCounts"/> 判断记录。直接读
+        /// <see cref="_definitions"/>（内容加载期登记的当前任务定义），未登记时返回空列表——同
+        /// <see cref="TryGetDefinition"/> 服务的既有枚举路径一致地"定义缺失就降级，不抛异常"（见
+        /// <see cref="TryGetDefinition"/> 判断记录 CORE-118-QUEST），不复用 <see cref="RequireDef"/>
+        /// （那条路径是"调用方主动传入一个可能不存在的 questId 时抛异常"的既有合同，服务于
+        /// Accept/UpdateProgress 等状态转移方法，语义不同，本方法是给 UI 的纯展示查询）。</summary>
+        public IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId)
+        {
+            if (!TryGetDefinition(questId, out var def))
+            {
+                return Array.Empty<int>();
+            }
+
+            var result = new int[def.Objectives.Count];
+            for (var i = 0; i < def.Objectives.Count; i++)
+            {
+                result[i] = def.Objectives[i].Count;
+            }
+            return result;
+        }
+
         public void Update(Id unitId)
         {
             foreach (var def in _definitions.Values)

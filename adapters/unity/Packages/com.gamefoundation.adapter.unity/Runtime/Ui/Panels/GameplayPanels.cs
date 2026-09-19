@@ -13,11 +13,13 @@
 // data/_sample 允许改动范围的合理边界，如实标注为占位调试文本，留给具体游戏接入时按自己的本地化
 // 需要替换。
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Core.Foundation.Common;
 using Core.Foundation.InputMap;
 using Core.Gameplay.Assembly;
+using Core.Gameplay.Quest;
 using Presentation.Assembly;
 using Presentation.Ui;
 using TMPro;
@@ -340,7 +342,31 @@ namespace Adapter.Unity.Ui.Panels
         }
     }
 
-    /// <summary>任务日志（09 §7.1、<see cref="QuestLogViewModel"/>）。</summary>
+    /// <summary>
+    /// 任务日志（09 §7.1、<see cref="QuestLogViewModel"/>）。
+    /// <para>
+    /// 判断记录（消费方反馈第 2 条根治：补全目标进度展示）：本面板此前只展示任务 id 与状态
+    /// （<c>"{questId} [{state}]"</c>），不展示 <see cref="Core.Gameplay.Quest.QuestProgress.ObjectiveCounts"/>
+    /// ——核实结论是数据链路本身是通的（<c>ObjectiveCounts</c> 早已可读），缺口纯粹是本参考 UI 没有
+    /// 读取，不是数据契约缺口，因此不改 schema、不需要 ADR。每条目标额外追加一行缩进文本
+    /// <c>"  - <序号>: 当前[/需求]"</c>，需求数经新增的 <see cref="QuestLogViewModel.GetObjectiveRequiredCounts"/>
+    /// 转发自 <see cref="Core.Gameplay.Quest.IQuestHost.GetObjectiveRequiredCounts"/>（ABI 新增默认
+    /// 接口成员，见该方法判断记录）。呈现风格沿用本面板既有的纯文本 <see cref="TextMeshProUGUI"/>
+    /// 一次性拼接，不引入新控件/新视觉体系。
+    /// </para>
+    /// <para>
+    /// 边界处理（任务书验收要求，均不抛异常）：① 任务日志为空——沿用既有"（无任务）"占位分支，
+    /// 不进入目标拼接逻辑。② 某条目标在 <see cref="QuestLogViewModel.GetObjectiveRequiredCounts"/>
+    /// 返回的列表里找不到对应下标（任务定义已被 <c>Reload</c> 删除，见 <c>QuestHost.TryGetDefinition</c>
+    /// 判断记录"删除定义保留进度"，或返回列表长度与 <c>ObjectiveCounts</c> 不一致）——只展示当前
+    /// 计数，省略"/需求"后缀，不因缺一个数就整行不显示。③ 当前计数意外超过需求（正常路径下
+    /// <c>QuestHost.ApplyObjectiveCount</c> 会把计数夹在 <c>[0, objective.Count]</c> 之间，理论上
+    /// 不会发生，但本面板防御式按原样展示两个数字，不做截断/隐藏真实状态，也不因此拒绝渲染）。
+    /// ④ 任务已完成（<c>ObjectivesComplete</c>/<c>TurnedIn</c>）——沿用同一条渲染路径，正常显示
+    /// 末态计数（通常等于需求数），不做特殊分支。数字格式化固定 <see cref="CultureInfo.InvariantCulture"/>
+    /// （AGENTS.md §3 确定性要求）。
+    /// </para>
+    /// </summary>
     public sealed class QuestLogPanel : UiPanelBehaviour
     {
         private QuestLogViewModel _vm = null!;
@@ -354,6 +380,10 @@ namespace Adapter.Unity.Ui.Panels
             UiWidgets.SetRect(_body.rectTransform, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
         }
 
+        /// <summary>供 PlayMode 测试直接读取当前渲染文本，同其它面板暴露 <c>*Text</c> 只读属性的
+        /// 一贯惯例（见 <see cref="HudPanel.TurnInfoText"/>）。</summary>
+        public string BodyText => _body.text;
+
         public override void RefreshUi()
         {
             if (_vm.Log.Count == 0)
@@ -365,8 +395,24 @@ namespace Adapter.Unity.Ui.Panels
             foreach (var progress in _vm.Log)
             {
                 sb.Append(progress.QuestId.Value).Append(" [").Append(progress.State).Append("]\n");
+                AppendObjectiveProgress(sb, progress, _vm.GetObjectiveRequiredCounts(progress.QuestId));
             }
             _body.text = sb.ToString();
+        }
+
+        private static void AppendObjectiveProgress(StringBuilder sb, QuestProgress progress, IReadOnlyList<int> required)
+        {
+            for (var i = 0; i < progress.ObjectiveCounts.Count; i++)
+            {
+                var current = progress.ObjectiveCounts[i];
+                sb.Append("  - ").Append((i + 1).ToString(CultureInfo.InvariantCulture)).Append(": ")
+                    .Append(current.ToString(CultureInfo.InvariantCulture));
+                if (i < required.Count)
+                {
+                    sb.Append('/').Append(required[i].ToString(CultureInfo.InvariantCulture));
+                }
+                sb.Append('\n');
+            }
         }
     }
 

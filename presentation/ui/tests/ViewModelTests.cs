@@ -338,6 +338,24 @@ namespace Tests.PresentationUi
             Assert.Contains(vm.Log, p => p.QuestId.Equals(questId) && p.State == QuestState.Active);
         }
 
+        /// <summary>消费方反馈第 2 条根治：<see cref="QuestLogViewModel.GetObjectiveRequiredCounts"/>
+        /// 应原样转发 <see cref="Core.Gameplay.Quest.IQuestHost.GetObjectiveRequiredCounts"/>——
+        /// 已登记需求数量的任务返回该数据，未登记（含从未 seed 过）的任务返回空列表而不是抛异常，
+        /// 覆盖 <c>QuestLogPanel</c> 依赖的"缺口降级"路径。</summary>
+        [Fact]
+        public void QuestLogViewModel_GetObjectiveRequiredCounts_ForwardsQuestHostAndDegradesWhenMissing()
+        {
+            var world = new UiWorldFixture();
+            var questId = new Id("quest.gp_questlog_progress");
+            world.Quest.SeedQuestForTest(questId, QuestState.Active, new[] { 2, 0 });
+            world.Quest.SeedRequiredCountsForTest(questId, new[] { 5, 1 });
+
+            using var vm = new QuestLogViewModel(world.DataSource, world.Quest, world.PlayerId);
+
+            Assert.Equal(new[] { 5, 1 }, vm.GetObjectiveRequiredCounts(questId));
+            Assert.Empty(vm.GetObjectiveRequiredCounts(new Id("quest.never_seeded")));
+        }
+
         /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
         /// 调用 Refresh 的情况下让任务日志跟上宿主最新状态。</summary>
         [Fact]

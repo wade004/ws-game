@@ -439,6 +439,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **消费方反馈第 2 条根治：`QuestLogPanel` 补全目标进度展示**——参考 UI 任务日志面板此前只展示
+  任务 id 与状态，不展示每条目标的进度（数据链路本身是通的，`QuestProgress.ObjectiveCounts` 早已
+  可读，缺口纯粹是参考 UI 未读取，不涉及契约变更、不需要 ADR）。`IQuestHost` 新增只读查询方法
+  `GetObjectiveRequiredCounts(Id questId)`（默认接口成员，ABI 只新增，不改动任何既有公开签名，
+  未登记/已删除的任务定义降级返回空列表、不抛异常）；`QuestLogViewModel` 新增同名转发方法；
+  `QuestLogPanel.RefreshUi` 据此拼"当前/需求"文案，边界处理覆盖空任务日志、需求数量缺失、
+  计数超过需求、任务已完成四种情形，均不抛异常，数字格式化固定 `InvariantCulture`。测试：
+  `core/gameplay/quest/tests/QuestHostTests.cs` 新增 2 例、`presentation/ui/tests/
+  ViewModelTests.cs` 新增 1 例、`adapters/unity/.../Tests/Runtime/UiSuiteTests.cs` 新增 1 例
+  PlayMode 测试。详见 `core/gameplay/quest/README.md` 判断记录 19、`presentation/ui/README.md`
+  同名判断记录、`adapters/unity/.../README.md`"判断记录索引"对应条目。
+
 ## [1.46.0] - 2026-09-20
 
 ### 破坏性变更

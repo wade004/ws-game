@@ -404,6 +404,13 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   占位帧集数据迁移叠加后已能真实加载成功，原先预期"加载失败"警告的 `LogAssert.Expect` 写法
   断言前提已过期，改为轮询 `UnityResourceLoader.TryGetEffect` 命中即视为验证下游真实加载成功
   （不是删除断言了事）。
+- `Runtime/Ui/Panels/GameplayPanels.cs` `QuestLogPanel`（消费方反馈第 2 条根治，2026-09-20）：补全
+  目标进度展示（原来只展示任务 id 与状态，不读 `QuestProgress.ObjectiveCounts`）、需求数量来源
+  （`Presentation.Ui.QuestLogViewModel.GetObjectiveRequiredCounts` 转发自 `IQuestHost` 同名新增
+  默认接口成员）、四类边界处理（空日志/需求数缺失/计数超需求/任务已完成）与数字格式化固定
+  `InvariantCulture` 的取舍理由，详见该类型顶部判断记录；对应 PlayMode 测试
+  `Tests/Runtime/UiSuiteTests.cs`
+  `QuestLogPanel_ShowsObjectiveProgress_AcrossEmptyAcceptedAndCompletedBoundaries`。
 - **诊断转发到引擎控制台（feat/diagnostics-console-forward，2026-09-19）**：
   `Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 此前只记进内存
   （`PresentationDiagnosticsRecorder`），从不外发到引擎控制台——真实游戏里缺资源只会静默显示占位

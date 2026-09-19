@@ -68,6 +68,23 @@ namespace Core.Gameplay.Quest
         /// 供存档/UI 展示（见 <see cref="QuestPersistable"/>）。</summary>
         IReadOnlyList<QuestProgress> GetLog(Id unitId);
 
+        /// <summary>
+        /// 消费方反馈第 2 条根治：<paramref name="questId"/> 对应任务定义各条目标的需求数量，下标与
+        /// <see cref="GetLog"/> 返回的 <see cref="QuestProgress.ObjectiveCounts"/> 对齐——供参考 UI
+        /// 任务日志面板（<c>QuestLogPanel</c>）拼"当前/需求"文案用，纯只读查询，不修改任何状态。
+        /// 任务定义未登记（含从未存在、或 <see cref="Reload"/> 后已被删除，见 CORE-118 判断记录
+        /// "删除定义保留进度"）时返回空列表，不抛异常——调用方（UI 展示层）按"这条目标暂时不知道
+        /// 需求数，只展示当前计数"降级，不能因为这类内容态查询失败而让整个面板抛异常。
+        /// <para>
+        /// 判断记录（ABI 新增默认接口成员，不需要 ADR）：本方法是纯新增的只读查询能力，默认实现
+        /// 恒返回空列表——现有 <see cref="IQuestHost"/> 实现（含测试替身）无需改动即可继续编译通过，
+        /// 只有 <see cref="QuestHost"/> 覆写为真正从已登记定义读取。参照本仓库对同类"新增只读查询"
+        /// 的既有判断（消费方反馈第 4 条"任务指示器"分析：新增只读接口方法向后兼容，不改 schema，
+        /// 不属于架构结论变更）。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId) => System.Array.Empty<int>();
+
         /// <summary>该单位当前全部 Active 任务里尚未达标的目标（questId, objectiveIndex, targetRef）
         /// 三元组列表（见 08 第 2.3 节"每个激活任务的每个未完成目标，可关联一个地图标记……逻辑层只
         /// 暴露当前激活目标的位置查询接口"——本方法只给出 targetRef，具体位置由调用方按 targetRef

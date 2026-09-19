@@ -34,6 +34,12 @@ namespace Presentation.Ui
 
         public IReadOnlyList<(Id QuestId, int ObjectiveIndex, Id TargetRef)> ActiveObjectives => _activeObjectives;
 
+        /// <summary>消费方反馈第 2 条根治：转发 <see cref="IQuestHost.GetObjectiveRequiredCounts"/>，
+        /// 供 <c>QuestLogPanel</c> 拼"当前/需求"文案——本视图模型已经直接持有 <see cref="IQuestHost"/>
+        /// 引用（见类型注释判断记录），这条转发同样是纯只读查询，不新增订阅、不缓存快照（需求数量
+        /// 来自内容定义，不随事件变化，不需要像 <see cref="Log"/> 那样经 <see cref="Refresh"/> 缓存）。</summary>
+        public IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId) => _quest.GetObjectiveRequiredCounts(questId);
+
         public QuestLogViewModel(IUiDataSource dataSource, IQuestHost quest, Id playerId)
         {
             _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));

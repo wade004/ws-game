@@ -951,6 +951,46 @@ namespace Tests.Gameplay.Quest
             Assert.Empty(h.Host.GetActiveObjectives(Player));
         }
 
+        /// <summary>消费方反馈第 2 条根治：<see cref="IQuestHost.GetObjectiveRequiredCounts"/> 应
+        /// 按下标对齐返回已登记任务定义的各条目标需求数量，供 <c>QuestLogPanel</c> 拼"当前/需求"
+        /// 文案——本用例用两条目标核实下标对齐关系，不止验证单目标场景。</summary>
+        [Fact]
+        public void GetObjectiveRequiredCounts_KnownQuest_ReturnsCountsAlignedWithObjectiveCounts()
+        {
+            var questId = new Id("quest.gp_questlog_progress_two_objectives");
+            var quest = new QuestDefinition(
+                questId,
+                new[]
+                {
+                    new QuestObjective(QuestObjectiveType.Kill, new Id("creature.wolf"), 5),
+                    new QuestObjective(QuestObjectiveType.Kill, new Id("creature.bear"), 3),
+                },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+            h.Host.Accept(Player, questId);
+            h.Host.UpdateProgress(Player, questId, 0, 2);
+
+            var required = h.Host.GetObjectiveRequiredCounts(questId);
+
+            Assert.Equal(new[] { 5, 3 }, required);
+            var progress = h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questId));
+            Assert.Equal(required.Count, progress.ObjectiveCounts.Count);
+        }
+
+        /// <summary>同上判断记录：未登记（含从未存在、或已被 <see cref="IQuestHost.Update"/> 之外的
+        /// <c>Reload</c> 删除，见 <c>QuestHost.TryGetDefinition</c> 判断记录"删除定义保留进度"）的
+        /// 任务 id 应降级返回空列表，不抛异常——本用例覆盖"从未存在过的 questId"这一支。</summary>
+        [Fact]
+        public void GetObjectiveRequiredCounts_UnknownQuest_ReturnsEmptyWithoutException()
+        {
+            var quest = SimpleKillQuest(new Id("quest.gp_questlog_progress_known"), new Id("creature.wolf"), 3);
+            var h = new Harness(new[] { quest });
+
+            var required = h.Host.GetObjectiveRequiredCounts(new Id("quest.gp_questlog_progress_never_registered"));
+
+            Assert.Empty(required);
+        }
+
         [Fact]
         public void Persistable_SaveThenLoad_RestoresActiveStateAndObjectiveCounts()
         {
