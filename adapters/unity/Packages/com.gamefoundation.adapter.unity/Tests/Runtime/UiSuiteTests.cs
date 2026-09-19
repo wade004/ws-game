@@ -4,12 +4,15 @@
 // ShellRoot，经其 Framework.Presentation.Shell 直接调用 NewGame 进入游戏内（同 GreyBoxTests.cs
 // 顶部"注入意图"判断记录：不模拟按钮物理点击，测试与真实点击走同一段代码）。
 using System.Collections;
+using System.Globalization;
 using System.Linq;
 using Adapter.Unity.Shell;
 using Adapter.Unity.Ui;
+using Adapter.Unity.Ui.Panels;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.EngineAdapter;
+using Core.Gameplay.Quest;
 using NUnit.Framework;
 using Presentation.Shell;
 using Presentation.Ui;
@@ -416,6 +419,93 @@ namespace Adapter.Unity.Tests.Runtime
             shell.UiPanelHost.QuestLog.Show();
             shell.UiPanelHost.QuestLog.RefreshUi();
             Assert.IsTrue(shell.Framework.Presentation.QuestLog.Log.Any(q => q.QuestId.Value == "quest.sample_hunt"), "接受任务后，QuestLogViewModel 应当出现该任务");
+        }
+
+        /// <summary>
+        /// 消费方反馈第 2 条根治验收：<c>QuestLogPanel</c> 应展示每条目标的"当前/需求"进度文案，且
+        /// 三种边界（无任务/接受后有进度/全部推满转为已完成）都不抛异常。
+        /// <para>
+        /// 判断记录（用探针专属玩家 id，不复用共享 <c>shell.Framework.PlayerId</c>）：本测试集
+        /// 其它用例（如 <see cref="QuestLog_ShowsAcceptedQuest_AfterDialogAccept"/>）可能已经在
+        /// 共享玩家身上接过 <c>quest.sample_hunt</c>（见该用例判断记录"presentation/ui 是常驻单例的
+        /// 一部分"），若本用例也用共享玩家 id，"无任务"这一分支会因执行顺序不同而时灵时不灵。
+        /// <c>QuestHost</c> 按 <c>(unitId, questId)</c> 元组隔离进度（见 <c>QuestHost._progress</c>
+        /// 判断记录），且 <c>quest.sample_hunt</c> 无 <c>prerequisite</c>/<c>exclusive_group</c>
+        /// （见 <c>data/_sample/quest/quest.def.json</c>），换一个从未用过的探针 id 即可在不依赖执行
+        /// 顺序的前提下拿到一个真正干净的任务日志，本用例的三个断言段落因此完全与其它用例隔离。
+        /// </para>
+        /// <para>
+        /// 判断记录（断言不硬编码样例数据的目标数量）：<c>quest.sample_hunt</c> 的目标数量/类型是
+        /// 内容数据，理论上可能被后续内容改动调整；本用例统一从 <see cref="IQuestHost.GetLog"/>/
+        /// <see cref="IQuestHost.GetObjectiveRequiredCounts"/> 这两个真实数据源现算期望文案
+        /// （见 <see cref="AssertBodyReflectsCurrentProgress"/>），不写死"两条目标各需 1 次"这类
+        /// 具体数字，样例数据将来调整目标数量/count 时本用例不需要跟着改。
+        /// </para>
+        /// </summary>
+        [UnityTest]
+        public IEnumerator QuestLogPanel_ShowsObjectiveProgress_AcrossEmptyAcceptedAndCompletedBoundaries()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+            yield return EnterInWorld(shell);
+
+            var probePlayerId = new Id("player.gp_questlog_progress_probe");
+            var questId = new Id("quest.sample_hunt");
+            var quest = shell.Framework.Gameplay.Quest;
+
+            var vm = new QuestLogViewModel(shell.Framework.Presentation.UiData, quest, probePlayerId);
+            var panelGo = new GameObject("QuestLogPanel_Probe", typeof(RectTransform));
+            var panel = panelGo.AddComponent<QuestLogPanel>();
+            try
+            {
+                panel.Construct(shell.UiPanelHost.GameplayGroup, vm);
+
+                // 边界：目标列表为空（探针玩家从未接过任何任务）——沿用既有占位分支，不抛异常。
+                panel.RefreshUi();
+                Assert.AreEqual("（无任务）", panel.BodyText, "从未接过任务的探针玩家，任务日志应展示空占位且不抛异常");
+
+                // 边界：接受任务后展示"当前/需求"进度。
+                var accepted = quest.Accept(probePlayerId, questId);
+                Assert.IsTrue(accepted, "探针玩家此前从未接过该任务，Accept 应当成功");
+                vm.Refresh();
+                panel.RefreshUi();
+                AssertBodyReflectsCurrentProgress(panel, vm, quest, questId);
+
+                // 边界：全部目标手动推满至需求数量——任务应转为 ObjectivesComplete，展示仍然正确、不抛异常。
+                var required = quest.GetObjectiveRequiredCounts(questId);
+                Assert.IsNotEmpty(required, "quest.sample_hunt 是已登记的内容定义，需求数量不应为空");
+                for (var i = 0; i < required.Count; i++)
+                {
+                    quest.UpdateProgress(probePlayerId, questId, i, required[i]);
+                }
+                vm.Refresh();
+                panel.RefreshUi();
+                Assert.AreEqual(QuestState.ObjectivesComplete, quest.GetState(probePlayerId, questId), "全部目标推满后任务应转为 ObjectivesComplete");
+                AssertBodyReflectsCurrentProgress(panel, vm, quest, questId);
+            }
+            finally
+            {
+                vm.Dispose();
+                Object.Destroy(panelGo);
+            }
+        }
+
+        /// <summary>断言 <paramref name="panel"/> 当前渲染文本里包含 <paramref name="questId"/> 每条
+        /// 目标的"当前/需求"文案，期望值现算自 <paramref name="vm"/>.Log 与
+        /// <see cref="IQuestHost.GetObjectiveRequiredCounts"/>（见调用方判断记录：不写死样例数据的
+        /// 具体数字）。数字格式化同产品代码一致固定 <see cref="CultureInfo.InvariantCulture"/>。</summary>
+        private static void AssertBodyReflectsCurrentProgress(QuestLogPanel panel, QuestLogViewModel vm, IQuestHost quest, Id questId)
+        {
+            var progress = vm.Log.Single(p => p.QuestId.Equals(questId));
+            var required = quest.GetObjectiveRequiredCounts(questId);
+            var body = panel.BodyText;
+            StringAssert.Contains(questId.Value, body, "面板文本应包含任务 id");
+            for (var i = 0; i < progress.ObjectiveCounts.Count; i++)
+            {
+                var current = progress.ObjectiveCounts[i].ToString(CultureInfo.InvariantCulture);
+                var expected = i < required.Count ? $"{current}/{required[i].ToString(CultureInfo.InvariantCulture)}" : current;
+                StringAssert.Contains(expected, body, $"第 {i + 1} 条目标的进度文案应包含 \"{expected}\"");
+            }
         }
     }
 }

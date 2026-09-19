@@ -140,3 +140,17 @@ PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_No
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（QuestLogViewModel 新增 GetObjectiveRequiredCounts 转发，2026-09-20，消费方反馈第 2 条）
+
+`QuestLogPanel`（`adapters/unity`）此前只展示任务 id 与状态，不展示 `QuestProgress.ObjectiveCounts`
+——核实结论是数据链路本身是通的，缺口纯粹是参考 UI 没有读取，不是本模块的契约缺口。但 UI 要拼
+"当前/需求"文案还差一个"需求数量"，`QuestLogViewModel` 此前只转发 `IQuestHost.GetLog`/
+`GetActiveObjectives`，没有转发口子能拿到任务定义的目标需求数。新增只读方法
+`GetObjectiveRequiredCounts(Id questId) => _quest.GetObjectiveRequiredCounts(questId)`——纯转发，
+不新增订阅、不缓存快照（需求数量来自内容定义，不随事件变化，不需要像 `Log` 那样经 `Refresh` 缓存，
+因此不影响本文件"UI-111-01 根治"那一节梳理的"经事件订阅增量更新的派生展示状态需要订阅
+`save.loaded`"结论——本方法每次都直接查询，不是缓存字段）。ABI 判断：`IQuestHost` 侧新增的是默认
+接口成员（见 `core/gameplay/quest/README.md` 判断记录 19），本模块这条纯转发是新增方法，同样不改
+动任何既有公开签名，不需要 ADR。测试见 `presentation/ui/tests/ViewModelTests.cs`
+`QuestLogViewModel_GetObjectiveRequiredCounts_ForwardsQuestHostAndDegradesWhenMissing`。

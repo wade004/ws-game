@@ -259,6 +259,12 @@ namespace Tests.PresentationUi
         private readonly Dictionary<Id, QuestState> _states = new Dictionary<Id, QuestState>();
         private readonly Dictionary<Id, List<int>> _objectiveCounts = new Dictionary<Id, List<int>>();
 
+        /// <summary>消费方反馈第 2 条根治：供 <c>QuestLogViewModel.GetObjectiveRequiredCounts</c>
+        /// 转发测试用——单独一份字典而不是复用 <see cref="_objectiveCounts"/>，因为真实
+        /// <c>QuestHost</c> 里"需求数"来自任务定义、"当前计数"来自运行期进度，两者是不同数据源，
+        /// 本 Fake 按同一形状拆开更贴近真实契约（也便于测试"需求数缺失但当前计数存在"这一边界）。</summary>
+        private readonly Dictionary<Id, List<int>> _requiredCounts = new Dictionary<Id, List<int>>();
+
         public readonly HashSet<Id> AcceptedQuests = new HashSet<Id>();
         public readonly HashSet<Id> TurnedInQuests = new HashSet<Id>();
 
@@ -321,6 +327,17 @@ namespace Tests.PresentationUi
             _states[questId] = state;
             _objectiveCounts[questId] = new List<int>(counts);
         }
+
+        /// <summary>见 <see cref="_requiredCounts"/> 判断记录：单独按需为某条任务设置需求数量，
+        /// 不调用则 <see cref="GetObjectiveRequiredCounts"/> 走默认接口成员返回空列表（同真实
+        /// <c>QuestHost</c> 对未登记定义的降级行为一致）。</summary>
+        public void SeedRequiredCountsForTest(Id questId, IReadOnlyList<int> counts)
+        {
+            _requiredCounts[questId] = new List<int>(counts);
+        }
+
+        public IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId) =>
+            _requiredCounts.TryGetValue(questId, out var l) ? (IReadOnlyList<int>)l : Array.Empty<int>();
     }
 
     internal sealed class FakeDialogHost : IDialogHost

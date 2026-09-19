@@ -290,8 +290,26 @@ quest/
     `tests/QuestPrerequisiteIsolationRuleTests.cs`（触发/全连通不触发/单任务不触发三组用例，均经
     `ContentValidationAssembly.Run` 装配）；"开关关闭时不注册"这一装配层行为覆盖在
     `presentation/assembly/tests/ContentValidationAssemblyTests.cs`，不在本文件重复测。
+19. **消费方反馈第 2 条根治（2026-09-20）：新增 `IQuestHost.GetObjectiveRequiredCounts`，供参考 UI
+    任务日志面板拼"当前/需求"文案**——核实结论是数据链路本身是通的（`QuestProgress.ObjectiveCounts`
+    早已可读），缺口在 Unity 参考 UI（`adapters/unity/.../GameplayPanels.cs` 的 `QuestLogPanel`）
+    没有读取，不是本模块的数据契约缺口；但 UI 侧要拼"当前/需求"还差一个"需求数量"，本模块此前只把
+    它锁在私有的 `_definitions`（内容加载期登记的当前任务定义）里，没有任何公开只读查询能提供给
+    表现层。新增方法签名 `IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId)`，下标与
+    `GetLog` 返回的 `QuestProgress.ObjectiveCounts` 对齐；任务定义未登记（含从未存在、或 `Reload`
+    后已被删除，见判断记录"CORE-118-QUEST"`TryGetDefinition` 降级惯例）时返回空列表，不抛异常。
+    **ABI 判断**：本方法在 `IQuestHost` 接口上声明为**默认接口成员**（恒返回空列表），不是破坏性
+    签名变更——现有实现（含两处测试替身 `core/gameplay/dialog/tests/TestSupport.cs`、
+    `presentation/ui/tests/TestSupport.cs` 的 `FakeQuestHost`）无需改动即可继续编译通过，只有
+    `QuestHost` 覆写为真正从 `_definitions` 读取；`abi_probe.ps1` 核实 `additions=3, breaks=0`
+    （另外两处新增分别是 `QuestHost` 上的具体实现方法与 `Presentation.Ui.QuestLogViewModel` 的
+    转发方法）。不改 schema、不改变现有任何方法的行为，因此不需要 ADR（与本文件既有"新增只读查询
+    能力不算架构结论变更"的判断口径一致，见候选反馈"任务指示器"`IQuestHost.GetGiverStatus` 类比
+    分析）。测试见 `tests/QuestHostTests.cs`
+    `GetObjectiveRequiredCounts_KnownQuest_ReturnsCountsAlignedWithObjectiveCounts`/
+    `GetObjectiveRequiredCounts_UnknownQuest_ReturnsEmptyWithoutException`。
 
-19. **消费方反馈第 4 条（2026-09-20）：新增只读聚合查询 `QuestGiverIndicatorQuery.Evaluate`/枚举
+20. **消费方反馈第 4 条（2026-09-20）：新增只读聚合查询 `QuestGiverIndicatorQuery.Evaluate`/枚举
     `QuestGiverIndicatorState`，见 [ADR-0045](../../../architecture/adr/0045-任务给予者指示器只读查询.md)**
     ——框架此前未规划"某个任务给予者身上是否有可接/进行中/可交付任务"这一聚合能力（能力空白，不是
     数据缺口，独立核实：全仓库对 `GiverStatus`/`QuestBanner`/`questPOI`/`quest_available`/
