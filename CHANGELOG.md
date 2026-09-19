@@ -434,6 +434,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+- 消费方反馈第 67 条（部分失实，补文档指引）：主 zip 不含 `data/_sample`/`assets/_sample` 属既有
+  设计（自测数据不随分发产物），但样例数据获取通道（`ws-game-<ver>-samples.zip` +
+  `get_framework.ps1 -WithSamples`，1.15.0 起已具备）此前只在根 `README.md`/`toolchain/README.md`
+  写明，`games/_template/README.md` 未提及；补齐"获取验收样例数据集"小节，并补一条此前未文档化的
+  限制——`-WithSamples` 只对 zip 通道有效，纯私服（`-FromRegistry`）通道消费框架的游戏没有等价的
+  样例数据获取路径。
+
 ## [1.44.0] - 2026-09-19
 
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
