@@ -439,6 +439,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   "任意源内容目录 → 任意目标运行期工程"的参数化内容同步入口，均为面向任意外部工具的通用命令行
   能力，不是面向某个具体消费方的专属联调协议；参数化同步入口与既有两个同步入口（私服包内容
   落地、框架自身工作台同步）并列新增，不取代、不包装。本次只出 ADR，两项能力尚未实现。
+- ADR-0040 决策 3 落地：`toolchain/sync_content.ps1`——通用参数化内容同步入口，接受任意
+  `-SourceDir`/`-TargetDir`、`-OverridePolicy`（`Additive`/`Mirror`）、`-DryRun`，与既有
+  `sync_package_content.ps1`/`build.ps1 -SyncContent` 并列，不取代、不包装（`toolchain/README.md`
+  新增三入口对照表说明各自适用场景）。新增 `toolchain/tests/test_sync_content.py`（9 例：参数
+  校验、Additive/Mirror 两态、干跑、幂等性）。
 
 ## [1.44.0] - 2026-09-19
 

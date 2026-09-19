@@ -668,6 +668,39 @@ powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <你的 Un
 powershell -File toolchain\sync_package_content.ps1 -UnityProjectPath <工程根> -PackageName com.gamefoundation.toolchain -ResolveOnly
 ```
 
+## 参数化内容同步入口（`sync_content.ps1`，ADR-0040 决策 3）
+
+`toolchain/sync_content.ps1` 是 [ADR-0040](../architecture/adr/0040-运行期宿主命令行能力契约.md)
+决策 3 新增的**通用、参数化**内容同步入口（对应消费方反馈第 69 条：无官方工具把"消费方自己
+游戏的数据"同步到任意 Unity 工程）——面向任意外部工具（CI 脚本、内容作者自己的工具链、任何第
+三方联调工具），不为某个具体消费方或某个内容编辑器定制专属协议。参数只认字面的
+`-SourceDir`/`-TargetDir` 两个路径，不对目标目录做任何 Unity 工程/StreamingAssets 子路径拼接
+假设，调用方自己决定要同步到哪一层目录：
+
+```powershell
+powershell -File toolchain\sync_content.ps1 -SourceDir <任意源内容目录> -TargetDir <任意目标目录>
+powershell -File toolchain\sync_content.ps1 -SourceDir <源目录> -TargetDir <目标目录> -OverridePolicy Mirror
+powershell -File toolchain\sync_content.ps1 -SourceDir <源目录> -TargetDir <目标目录> -DryRun
+```
+
+参数面：`-SourceDir`/`-TargetDir`（均必填，任意路径）、`-OverridePolicy`（`Additive` 默认，只
+新增/更新、保留目标独有文件；`Mirror`，以源为准，删除目标中源里没有的文件）、`-DryRun`（只报告
+将要发生的改动，不写入任何文件）。幂等：源内容不变时重复运行不产生有意义差异（按内容哈希而非
+修改时间判定变化）。详见脚本头部 `.SYNOPSIS`/`.PARAMETER`/`.NOTES` 与
+`toolchain/tests/test_sync_content.py`。
+
+### 三个同步入口如何选（认知成本对照表）
+
+仓库现在有三个"同步内容到某处"的入口，各自服务不同场景，互不取代、互不包装——`sync_content.ps1`
+是通用原语，另外两个是各自场景下的专属预设（固定好了源/目标路径拼接规则与专属治理规则，换来
+"不用自己填路径、还顺带做了专属自检"的便利）：
+
+| 入口 | 运行在哪一侧 | 源 | 目标 | 专属规则 | 适用场景 |
+| --- | --- | --- | --- | --- | --- |
+| `sync_content.ps1` | 任意（通用原语） | 任意路径（`-SourceDir`） | 任意路径（`-TargetDir`），字面同步，不拼接子路径 | 无——只有 Additive/Mirror 两种通用覆盖策略、干跑 | 框架自身发布流程与私服通道之外的任意场景，例如某个游戏想把自己独有的内容数据同步进自己独立维护的运行期工程 |
+| `sync_package_content.ps1` | 消费方游戏工程侧 | 该工程通过 UPM 私服解析到的 `com.gamefoundation.framework-data` 包内容（`Data~/`），不是任意目录 | 固定拼接到该工程的 `Assets/StreamingAssets/GameFoundation/`（另有 TMP 运行期资源、占位字体两个例外目标） | 按 `resource_layout_map.json` 做 sprites/audio/vfx 等目录改名/扁平化；维护跨次调用的同步清单，避免整树镜像误删同目录下消费者自己的文件（如 `Assets/TextMesh Pro`） | 走私服（UPM 作用域注册表）通道接入框架的游戏工程，需要把包解析结果落地成引擎运行时能读到的 StreamingAssets 内容 |
+| `build.ps1 -SyncContent` | 仅框架仓库自己的工作树 | 框架仓库自己的几类内容（`data/_framework`、`data/_sample`、`games/_template/data/game`、`assets/_placeholder` 等），源路径硬编码 | 框架自己的开发自测工作台 `adapters/unity/Assets/StreamingAssets/GameFoundation/`，目标路径硬编码 | 一次调用同步好几组固定源/目标路径对；`games/_template/data/game` 同步排除 `.meta`；同步后自检"目标目录不允许残留 `.meta`"，命中直接 `exit 1` | 框架仓库自己开发/自测时把仓库内几类内容刷新进工作台 Unity 工程，不面向框架仓库之外的任何消费方 |
+
 ## ABI 探针（`abi_probe.ps1`，第十六/十七方深度审核跟进）
 
 `toolchain/abi_probe.ps1`：发布前二进制/API 兼容性门禁（见根 `architecture/11_工程规范与测试.md`
