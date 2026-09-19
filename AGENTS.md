@@ -20,6 +20,11 @@
 - 不改 `VERSION`/`package.json`/`packages-lock.json`/`games/_template/package.json`（这些文件由 `build.ps1 -Release` 统一写回）。
 - 提交署名尾行固定 `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`，不按执行 agent 自己的模型改名。
 - 同一工作树同一时间只允许一个 agent 提交，避免并发写冲突。
+- **并行派单时，向有编号的列表追加条目要先声明编号可能撞车**：模块 README 的“判断记录”、
+  `architecture/adr/` 编号、ADR 索引计数这类**同层级顺序追加**，git 自动合并**不会报冲突**，
+  会把两条同号条目并排放进来。派单侧的做法：ADR 编号由主会话预先分配写进提示词；“判断记录”
+  编号由执行 agent 照常写，主会话在合并后统一核对重号并重排。执行 agent 不必为此互相等待，
+  但要在汇报里写明自己追加到了哪个编号。
 
 ## 2. 仓库硬性规则
 
