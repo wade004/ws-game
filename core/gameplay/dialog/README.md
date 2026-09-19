@@ -169,6 +169,20 @@ dialog/
   `TableSchema`——调用方（组装层或本模块测试）需要显式注册（惯例同
   `core/gameplay/quest.QuestContentValidationRule`）。
 
+## 判断记录（ADR-0043，`greeting_key` 字段，2026-09-20）
+
+消费方反馈第 3a/3b 条（`ws-game-wow` 2026-09-20 反馈文档）：`dialog.gossip_menu` 缺"开场白/正文"
+字段，参考 UI `DialogPanel` 因此硬编码占位文案顶着对话框正文区（3b 是 3a 的下游症状，两条合并为
+一个改动单）。`DialogSchemas.GossipMenu` 新增可选字段 `greeting_key`（`FieldKind.TextKey`，命名
+理由、缺省语义见 `schema/dialog.gossip_menu.md`"ADR-0043"一节），`GossipMenuDefinition`/
+`GossipView` 均新增构造函数重载承载（ABI 只新增，原 2 参构造函数不变）；`DialogHost.OpenGossip`/
+`GetGossipView` 透传 `menu.GreetingKey` 到 `GossipView.GreetingKey`；`adapters/unity` 的
+`DialogPanel.RefreshUi` 相应改为有值时经 `_l10n.Text(...)` 渲染、缺省时隐藏正文标签（不回落占位
+文案）。测试：`tests/ADR0043_GossipGreetingKeyTests.cs`（schema 登记 + `FromRecord` 解析有/无该
+字段两种情形）、`DialogHostTests.cs` 新增两例（`GreetingKey` 经 `OpenGossip`/`GetGossipView` 透传、
+缺省时为 null 且不抛异常）。完整决策见
+[architecture/adr/0043-gossip菜单新增可选开场白正文字段.md](../../../architecture/adr/0043-gossip菜单新增可选开场白正文字段.md)。
+
 ## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
 
 `DialogHost` 新增只读属性 `Diagnostics`（返回 `IDialogDiagnostics`，ABI 只新增只读属性，不改动任何既有公开签名）：

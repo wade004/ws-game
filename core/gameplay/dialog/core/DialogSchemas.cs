@@ -193,6 +193,12 @@ namespace Core.Gameplay.Dialog
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "dialog.<name> 或内容作者自定义命名"),
+                // ADR-0043：菜单开场白/正文，可选字段，兼容变更（ADR-0039 决策 2）。命名跟随
+                // QuestSchemas.title_key/description_key 的"<语义>_key"惯例（同一 TableSchema 内的
+                // "自身即文本"元素才用裸 text_key，如下方 GossipOption/StoryNode，见 ADR-0043 判断记录），
+                // 不用消费方反馈原文建议的 greeting_text_key（"_key"已隐含 TextKey 类型，不再重复 text）。
+                new FieldSchema("greeting_key", FieldKind.TextKey, required: false,
+                    description: "gossip 菜单开场白/正文文本键；缺省表示该菜单不配置开场白（ADR-0043，DialogPanel 相应不渲染正文区，不回落占位文案）"),
                 new FieldSchema("options", FieldKind.Array, required: true, item: GossipOptionItemSchema,
                     description: "List<GossipOption>，见 08 第 3.1 节；元素结构 ADR-0019/F1b 起登记为 GossipOptionItemSchema"),
             }).WithOwnership(SchemaLayer.Gameplay, "dialog");

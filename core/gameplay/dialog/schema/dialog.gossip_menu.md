@@ -12,6 +12,7 @@
 | 字段 | 类型 | 必需 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `dialog.<name>` 或内容作者自定义命名。 |
+| `greeting_key` | TextKey | 否 | 菜单开场白/正文文本键；缺省表示该菜单不配置开场白（ADR-0043）。命名跟随 `QuestSchemas.title_key`/`description_key` 的"`<语义>_key`"惯例，见下方"ADR-0043：`greeting_key` 字段"一节。 |
 | `options` | Array\<GossipOption\> | 是 | 菜单选项数组，结构见下。 |
 
 ## `GossipOption` 结构
@@ -124,6 +125,28 @@
    `QuestSchemas.RewardsFields.world_flags[].value`）。
 5. **Map 型对象**：本表无 Map 型字段，不适用（ADR-0019 首批范围外的记录留给 `AchievementSchemas`/
    `WorldStateSchemas` 等有 Map 型字段的模块）。
+
+## ADR-0043：`greeting_key` 字段
+
+消费方反馈第 3a/3b 条（2026-09-20）核实成立：`dialog.gossip_menu` 此前只有 `id`/`options` 两个字段，
+没有"开场白/正文"概念（对照 `dialog.story_tree` 的 `StoryNode` 一直有 `text_key`），导致参考 UI
+`DialogPanel` 的对话框正文区无字段可查，只能硬编码占位文案顶着。
+
+- **兼容性**：新增可选字段，按 ADR-0039 决策 2 属于兼容变更，不涉及破坏性变更流程，`GossipMenu`
+  的 `currentSchemaVersion` 不变，旧数据零改动即合法。
+- **命名**：`greeting_key`，跟随 `QuestSchemas.title_key`/`description_key`（"`<语义>_key`"）惯例，
+  不用 `greeting_text_key`（`_key` 后缀已隐含 `FieldKind.TextKey`，重复"text"无信息量），也不用裸
+  `text_key`（本表 `text_key` 已被 `GossipOption`/`StoryNode`/`StoryBranch` 占用，表示"该元素自身即
+  一段文本"；`dialog.gossip_menu` 顶层记录不是"一段文本"，是"一份菜单"，menu 本身的开场白需要一个
+  更具体的语义名区分于选项自己的 `text_key`）。
+- **缺省行为**：`GossipMenuDefinition.GreetingKey`/`GossipView.GreetingKey` 均为 `Id?`，缺省 `null`；
+  `DialogPanel` 据此**不渲染正文区**（隐藏 Body 标签），而不是回落到任何占位文案——占位文案会被
+  当成真实内容展示给玩家，"没有配置开场白"与"配置了一句占位文案"是两种不同的内容状态，不应该
+  显示成一样的东西。
+- **ABI**：`GossipMenuDefinition`/`GossipView` 均为新增构造函数重载承载新字段，原有 2 参构造函数
+  保留不变（AGENTS.md §3"ABI 只新增"）。
+
+完整决策记录见 [architecture/adr/0043-gossip菜单新增可选开场白正文字段.md](../../../../architecture/adr/0043-gossip菜单新增可选开场白正文字段.md)。
 
 ## 本模块不做什么
 

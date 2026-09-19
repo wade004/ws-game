@@ -4,6 +4,7 @@
   "rows": [
     {
       "id": "dialog.sample_hunter",
+      "greeting_key": "l10n.dialog.sample_hunter.greeting",
       "options": [
         {
           "text_key": "l10n.dialog.sample_hunter.option_accept",
