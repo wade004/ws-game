@@ -84,10 +84,52 @@ data_registry/
 | `curve_monotonic_finite` | 分阶段落地计划 T-N0-3（04 第 5 节数值类校验项分级表"曲线单调有限"）：`CurveMonotonicFiniteRule`——本模块唯一自带的 `IValidationRule`（框架级、不认具体表名，由装配根 `PresentationSchemaCatalog.RegisterAll` 注册）；对全部登记为断点表形态（`CurveSchema`）的字段逐条记录检查：断点非空、逐值有限、`x` 严格递增无重复、`y` 不递减（允许平台段），任一不满足报 Error，问题定位到曲线字段完整路径（含对象子字段/数组元素/映射值/变体分支）；元素形态不符（已由 `required_field`/`field_type` 报过）跳过不重复报；与 `field_finite` 层次不同不合并 |
 | `expr_validation_error` | 第十八方深度审核 F-03：`Expr` 字段解析（`ExprParser.Parse`/`ExprLexer.Tokenize`）或静态校验（`ExprValidator.Validate`）内部抛出除 `ExprParseException` 之外的未预期异常时报出，Error 级、阻断；`ExprParseException` 仍归入既有 `expr_parsable`，不受影响 |
 | `field_item_count` | 消费方反馈第 60 条：字段登记了 `FieldSchema.MinItems`/`MaxItems`（`FieldSchema.WithItemCount`，仅 `IdList`/`Array` 可登记）时，元素数不落在区间内报出（`ValidateFieldItemCount`，与元素结构 `Item` 是否登记正交，独立检查；未登记不检查，同 `field_range` 惯例）；消息含实际元素数与允许区间 |
+| `rule_execution_failed` | 消费方反馈第 73 条（2026-09-19）：`RunValidationAndBuildReport` 在枚举某条 `IValidationRule.Validate` 期间捕获到异常时报出，Error 级、阻断；由框架本体（不是扩展点规则自己）产出，见下方"单条规则执行期异常隔离"小节 |
 
 其余检查项（效果数上限、预算超标、叠加类别冲突、外形映射存在、外形类型字段组完整、循环引用
 检测、孤儿记录检测、时间字段与时间模型一致）由各内容模块以 `IValidationRule` 注册，本模块
 不实现任何具体业务规则。
+
+## 单条规则执行期异常隔离（消费方反馈第 73 条，2026-09-19）
+
+**现象（根治前）**：`RunValidationAndBuildReport` 对 `foreach (var rule in _rules)` 内
+`rule.Validate(this)` 的调用不做任何 try/catch——某条规则 `Validate` 枚举期抛出任意异常（无论
+来自框架严格访问器如 `DataRecord.GetArray` 的 `DataFieldException`，还是规则自身业务代码的其它
+异常类型）都会一路冒出 `LoadAllCore`/`LoadAll`，独立进程（如 `toolchain/validator`）表现为
+`Unhandled exception` 后以 `0xE0434352`（.NET"未捕获托管异常"标准终止码）退出，不产出任何报告；
+消费方两条独立复现路径（`item.budget_curve` 记录 `item.budget.default` 的 `entries` 字段——
+元素 `x` 值类型错配 / 整字段类型错配）经本仓库 `toolchain/validator` 实测复现，退出码均为
+`-532462766`（`0xE0434352` 的有符号 32 位表示）。**判断记录（字段级诊断齐全不代表规则执行安全）**：
+两条路径的畸形 `entries` 其实都会被 `RunFieldValidation` 正确拦下并报出 `field_type`（本仓库
+真实 schema 下实测均有此诊断）——但 `field_type` 只是往报告里追加一条问题，不会把这条记录从
+"逐条已注册规则再跑一遍"的候选池里剔除；`RunFieldValidation` 与规则 foreach 是互不知会的两道
+独立通道，`ItemBudgetCurve.ParseCurve` 等规则级解析代码不查字段级是否已经报过问题，照样对同一份
+原始 JSON 值再解析一次，仍会抛出。这才是"字段级已有诊断、规则执行期仍会崩溃"的真正原因，也是本条
+必须在规则执行这一级单独隔离、不能指望"字段级挡住了就够了"的理由。
+
+**根治**：`RunValidationAndBuildReport` 的规则 foreach 循环体改为逐条规则包一层 try/catch，且
+**包住整个 `foreach (var issue in rule.Validate(this))` 语句**（不是只包 `rule.Validate(this)`
+这一次调用）——`IValidationRule.Validate` 的公开签名是 `IEnumerable<ValidationIssue>`，几乎所有
+实现（含本条两条复现路径涉及的 `ItemBudgetValidationRule`）是编译器生成的惰性迭代器，调用
+`Validate(this)` 本身不执行任何规则代码，真正的规则逻辑与异常都发生在**枚举期**（`GetEnumerator`
+之后每次 `MoveNext`）；只包一次调用接不住任何异常（已用两条回归测试反向验证：去掉这层 try/catch
+或错放位置，两条测试必然改为断言异常/崩溃）。catch 到的异常统一转成一条 `rule_execution_failed`
+检查项（Error 级——规则没跑完意味着报告本该由它产出的结论缺失，不能静默当作"没问题"，AGENTS.md
+第 3 节"不静默降级"）：异常是 `DataFieldException` 时顺手带上它自带的 `Table`/`RecordKey`/`Field`
+定位到具体表/记录/字段；其它异常类型没有通用途径拿到这些定位信息（不为此改动
+`IValidationRule.Validate` 接口签名），`ValidationIssue.Table`（构造函数要求非空）退化为规则自身
+的 `ruleId`——不代表真的存在这样一张表，读者据 `Check == "rule_execution_failed"` 即可识别。
+`Message` 固定包含规则名、异常类型名（`ex.GetType().Name`）、异常消息三项，满足反馈原文"能定位"
+的最低要求。异常发生前该规则已经 `yield` 过的问题保留在报告里（try 块内逐条 `issues.Add`，不是
+攒批提交，异常发生时已 `Add` 过的不会被撤销）；catch 后继续处理下一条规则（不 return/rethrow），
+其余规则照常跑完、各自产出自己的问题——隔离粒度=单条规则。
+
+**已知同类未隔离的执行点（本次未修，报告留档）**：`DataRegistry` 内部对 `SchemaMigrator.MigrateRow`
+（表结构版本迁移，各内容模块随 `TableSchema` 自行注册迁移函数，语义上与 `IValidationRule` 同属"框架
+遍历、调用各模块自行提供的实现"）的调用（`LoadAllCore` 内部信封解析阶段的迁移循环）同样没有
+try/catch——若某个模块的迁移函数本身有缺陷、对不满足预期形状的输入抛出未预期异常，会同样击穿整个
+`LoadAll`。这与本条修的问题同源同构，但复现路径、该转成什么检查名/严重级、异常发生时这一行/这张表
+该整行跳过还是整表跳过，都需要设计层单独拍板，不在本次改动范围内，留给后续单独处理。
 
 ## 复合字段子结构递归校验（ADR-0019）
 

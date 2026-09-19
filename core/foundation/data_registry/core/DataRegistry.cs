@@ -452,15 +452,20 @@ namespace Core.Foundation.DataRegistry
             _blocked = false;
 
             // F-03 根治（c，未预期异常兜底）：ValidateExprField 已经把"校验器自身不该抛出的"异常
-            // 转成问题项而不外抛（见该方法判断记录），但这是"尽量不发生"，不是"绝无可能发生"——
-            // 自定义 IValidationRule.Validate（本方法下面的 foreach）之类的其它校验入口没有同等的
-            // 兜底，理论上仍可能抛出。这里的 try/finally 是最后一道防线：LoadAllCore 在调用本方法
-            // 之前已经把 _tables 整体替换成本轮加载结果（见 LoadAllCore 判断记录"先赋值 _tables 再
-            // 校验"），如果校验期间真的有异常逃出本方法、异常会继续向上传给 LoadAll 的调用方，但绝不
-            // 能让 _blocked 停留在上面刚设的 false——那样 GetAll 会在校验根本没跑完的情况下读到
-            // 一份从未真正通过校验的 _tables（"可读的部分加载状态"）。finally 里只有"尚未走到方法
-            // 正常结尾"（completed 仍为 false）时才强制回填 true，正常路径不受影响（仍按下面
-            // report.IsBlocking 的计算结果为准）。
+            // 转成问题项而不外抛（见该方法判断记录），但这是"尽量不发生"，不是"绝无可能发生"。
+            // 消费方反馈第 73 条（2026-09-19）之前，下面 foreach 里的 `IValidationRule.Validate`
+            // 是本方法唯一没有同等兜底的校验入口，本 try/finally 当时是它唯一的防线；第 73 条根治后
+            // （见下方 foreach 判断记录"单条规则异常隔离"），该 foreach 自己已经在每条规则的粒度
+            // 把异常接住转成 issue、不再外抛，本 try/finally 的实际兜底面收窄为
+            // `RunFieldValidation`——它内部仍有理论上不属于"数据本身合法与否"的未预期异常路径
+            // （详见其调用的 `ValidateExprField` 判断记录"尽量不发生，不是绝无可能发生"）。这里的
+            // try/finally 仍按原样保留为最后一道防线：LoadAllCore 在调用本方法之前已经把 _tables
+            // 整体替换成本轮加载结果（见 LoadAllCore 判断记录"先赋值 _tables 再校验"），如果校验期间
+            // 真的有异常逃出本方法、异常会继续向上传给 LoadAll 的调用方，但绝不能让 _blocked 停留在
+            // 上面刚设的 false——那样 GetAll 会在校验根本没跑完的情况下读到一份从未真正通过校验的
+            // _tables（"可读的部分加载状态"）。finally 里只有"尚未走到方法正常结尾"（completed 仍为
+            // false）时才强制回填 true，正常路径不受影响（仍按下面 report.IsBlocking 的计算结果
+            // 为准）。
             var ruleSummaries = new List<ValidationRuleSummary>(_rules.Count);
             var completed = false;
             try
@@ -470,13 +475,52 @@ namespace Core.Foundation.DataRegistry
                 // T-N0-2：逐规则收集——给规则产出的每条问题补上规则 id（规则自己已填时不覆盖）、
                 // 统计命中条数，按注册顺序生成规则摘要（含命中 0 条的规则），供报告 rules[] 段与
                 // "不可提升警告不计入阻断"的判定（见 ValidationReport 三参数构造）。
+                //
+                // 消费方反馈第 73 条（2026-09-19）单条规则异常隔离：本 foreach 每一轮都单独包一层
+                // try/catch，不是外层再包一次——`IValidationRule.Validate` 的公开签名是
+                // `IEnumerable<ValidationIssue>`，几乎所有实现（含 ItemBudgetValidationRule 等，见
+                // 该类型 `yield return`/`yield break`）是编译器生成的惰性迭代器：调用 `Validate(this)`
+                // 本身不执行任何规则代码，真正的规则逻辑在***枚举期***（每次 `MoveNext`）才跑，异常
+                // 也在枚举期才抛出。若像最初误判的写法那样只包一层 `try { var e = rule.Validate(this); }
+                // catch`，`e` 只是尚未开始枚举的迭代器对象，try 块里什么规则代码都没真正执行，catch
+                // 永远接不住任何异常（`--exit-after-load` 复现的两条真实路径都能验证这一点：加这种
+                // "外层 try" 之后进程仍然以 0xE0434352 崩溃，见回归测试与判断记录"反向确认"）。这里改为
+                // 把整个 `foreach (var issue in rule.Validate(this))`——它会展开成
+                // `GetEnumerator()` + 循环 `MoveNext()`/`Current`——完整地放进 try 块：无论异常发生在
+                // 第一次 `MoveNext()`（规则一上来就抛，如路径二 `DataRecord.GetArray` 类型不符）还是
+                // 枚举到中途（规则先 yield 过几条正常问题、之后才在业务逻辑里抛，如路径一
+                // `ItemBudgetCurve.ParseCurve`"缺少 x/y"），try 块都能接住；且异常发生前已经
+                // `issues.Add` 过的问题不会被这次 catch 撤销（要求 4"保留已产出的 issue"天然满足，
+                // 不需要额外的"缓冲区提交"逻辑）。
+                //
+                // 隔离粒度=单条规则（设计层拍板）：catch 到的任意异常类型（`DataFieldException` 这类
+                // 框架严格访问器异常、也含 `ArgumentException` 这类规则自身业务代码异常，两条真实路径
+                // 各对应一种）一律转成一条新检查名 `rule_execution_failed` 的 Error 级 issue，不再向上
+                // 冒泡——Error 而不是 Warning：规则没跑完意味着这份报告本来该由它产出的那部分校验结论
+                // 缺失，不能让消费方误以为"没报错=通过"（AGENTS.md 第 3 节"不静默降级"）。异常本身若是
+                // `DataFieldException`（框架严格访问器抛出，天然带 Table/RecordKey/Field），顺手带进
+                // issue 定位到具体表/记录/字段；其它异常类型没有通用途径拿到这些定位信息（不为此改动
+                // `IValidationRule.Validate` 接口签名新增出参之类的大改），退化为把 `Table` 填成规则
+                // 自身的 `ruleId`——不代表真的存在这样一张表，读者据 `Check == "rule_execution_failed"`
+                // 即可识别这是一条规则级、非表级问题，`Message` 里仍然完整给出规则名/异常类型名/异常
+                // 消息三项定位信息（消费方反馈第 73 条"建议"一节要求的最低集合）。catch 到异常后 continue
+                // 到下一条规则（不是 return/rethrow），这正是"某条规则抛异常只影响它自己，其余规则照常
+                // 跑完"的隔离粒度落地方式。
                 foreach (var rule in _rules)
                 {
                     var ruleId = ResolveRuleId(rule);
                     var hits = 0;
-                    foreach (var issue in rule.Validate(this))
+                    try
                     {
-                        issues.Add(issue.RuleId == null ? issue.WithRuleId(ruleId) : issue);
+                        foreach (var issue in rule.Validate(this))
+                        {
+                            issues.Add(issue.RuleId == null ? issue.WithRuleId(ruleId) : issue);
+                            hits++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        issues.Add(BuildRuleExecutionFailedIssue(ruleId, ex));
                         hits++;
                     }
                     ruleSummaries.Add(new ValidationRuleSummary(ruleId, rule.DefaultSeverity, rule.NonEscalatable, hits));
@@ -495,6 +539,37 @@ namespace Core.Foundation.DataRegistry
             var report = new ValidationReport(issues, _options.Strictness, ruleSummaries);
             _blocked = report.IsBlocking;
             return report;
+        }
+
+        /// <summary>消费方反馈第 73 条：把单条 <see cref="IValidationRule.Validate"/> 枚举期抛出的
+        /// 任意异常转成一条 <c>rule_execution_failed</c> 检查项（Error 级，见
+        /// <see cref="RunValidationAndBuildReport"/> 判断记录"隔离粒度=单条规则"）。<see
+        /// cref="DataFieldException"/> 自带 Table/RecordKey/Field，顺手带上；其它异常类型没有通用
+        /// 途径拿到这些定位信息，<see cref="ValidationIssue.Table"/> 退化为 <paramref name="ruleId"/>
+        /// 本身（构造函数要求非空，且这样填不会与任何真实表名撞车——真实表名不含本方法产出的这种
+        /// "规则类型名"形状，读者据 Check 即可识别这不是一张真表）。</summary>
+        private static ValidationIssue BuildRuleExecutionFailedIssue(string ruleId, Exception ex)
+        {
+            string table = ruleId;
+            string? recordKey = null;
+            string? field = null;
+            if (ex is DataFieldException dfe)
+            {
+                table = dfe.Table;
+                recordKey = dfe.RecordKey;
+                field = dfe.Field;
+            }
+
+            return new ValidationIssue(
+                ValidationSeverity.Error,
+                table,
+                "rule_execution_failed",
+                $"规则 \"{ruleId}\" 执行失败（{ex.GetType().Name}）：{ex.Message}",
+                recordKey: recordKey,
+                field: field,
+                group: null,
+                note: null,
+                ruleId: ruleId);
         }
 
         // ---------------------------------------------------------------

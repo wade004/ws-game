@@ -1836,15 +1836,21 @@ namespace Tests.Foundation.Data
             }
         }
 
-        /// <summary>F-03 根治（c，未预期异常下的加载状态语义）：即便某个校验入口（这里用自定义
-        /// <see cref="IValidationRule"/> 模拟——<c>DataRegistry</c> 本身不对 <c>IValidationRule.Validate</c>
-        /// 的异常做任何转换/兜底，那不是它的契约职责，与 <c>ValidateExprField</c> 主动兜底 Expr 校验器
-        /// 是两回事）真的抛出了未预期异常、逃出 <c>LoadAll</c>，注册中心也不能停留在"看起来能读，
-        /// 其实校验根本没跑完"的状态：<c>_blocked</c> 必须先于异常传播被强制置为阻断（见
-        /// <c>RunValidationAndBuildReport</c> 判断记录"未预期异常兜底"），后续 <c>GetAll</c> 必须抛
-        /// "数据校验未通过"，不能读到一份从未真正通过校验的 <c>_tables</c>（"可读的部分加载状态"）。</summary>
+        /// <summary>消费方反馈第 73 条（2026-09-19）根治前，本用例的名字与断言是
+        /// <c>LoadAll_ValidationRuleThrowsUnexpectedException_PropagatesButLeavesRegistryBlocked</c>：
+        /// 断言 <c>ThrowingRule</c> 的异常会原样冒出 <c>LoadAll</c>（<c>DataRegistry</c> 那时确实
+        /// 不对 <c>IValidationRule.Validate</c> 的异常做任何转换/兜底），只兜底"逃出去之后 <c>_blocked</c>
+        /// 状态不能停留在错误的 false"这一件事——这正是消费方反馈第 73 条描述的缺陷本身（单条规则
+        /// 抛异常击穿整个 <c>LoadAll</c>，调用方看到的是未捕获异常，不是一份完整报告）。根治后
+        /// （见 <see cref="RunValidationAndBuildReport"/> 判断记录"单条规则异常隔离"）：<c>Validate</c>
+        /// 枚举期抛出的任意异常在规则粒度被捕获、转成一条 <c>rule_execution_failed</c> 的 Error 级
+        /// issue，不再向上冒泡；本用例数据里除 <c>ThrowingRule</c> 外没有其它错误来源，这条新增的
+        /// Error 级 issue 本身就让 <c>report.IsBlocking</c> 为真、<c>_blocked</c> 随之为真——"注册中心
+        /// 不能停留在校验根本没跑完却可读的状态"这条原有结论不变，只是不再需要"异常先逃出去、
+        /// finally 里强制回填 _blocked=true"这条兜底路径来达成，而是走 <c>report.IsBlocking</c> 的
+        /// 正常计算路径。</summary>
         [Fact]
-        public void LoadAll_ValidationRuleThrowsUnexpectedException_PropagatesButLeavesRegistryBlocked()
+        public void LoadAll_ValidationRuleThrowsUnexpectedException_DoesNotThrow_ReportsRuleExecutionFailedAndBlocks()
         {
             var rows = "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]";
             var source = new InMemoryDataSource().Add("test.widget", Envelope("test.widget", 1, rows));
@@ -1852,8 +1858,13 @@ namespace Tests.Foundation.Data
             registry.RegisterSchema(WidgetSchema());
             registry.RegisterValidationRule(new ThrowingRule());
 
-            var thrown = Assert.Throws<InvalidOperationException>(() => registry.LoadAll());
-            Assert.Contains("模拟规则内部未预期异常", thrown.Message);
+            var report = registry.LoadAll(); // 根治前会抛 InvalidOperationException，见本方法判断记录
+
+            Assert.True(report.IsBlocking);
+            var failure = Assert.Single(report.Issues, i => i.Check == "rule_execution_failed");
+            Assert.Equal(ValidationSeverity.Error, failure.Severity);
+            Assert.Contains(nameof(ThrowingRule), failure.Message);
+            Assert.Contains("模拟规则内部未预期异常", failure.Message);
 
             var blockedEx = Assert.Throws<InvalidOperationException>(() => registry.GetAll("test.widget"));
             Assert.Contains("数据校验未通过", blockedEx.Message);
