@@ -446,3 +446,16 @@ assembly/
 `new` 出来并原样转发给它（`CarriersAssembly` 进而转给 `RulesAssembly`/`ProgressionHost`
 持有同一份引用），本方法随后（`Difficulty` 构造完成之后）才能回填
 `ExtraXpMultiplierProvider`——见"判断记录"一节"分档 × 难度经验倍率注入"小节。
+
+## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
+
+新增 `AppStateDiagnostics`（`Core.Foundation.AppLifecycle.IAppLifecycleDiagnostics`）/
+`HooksDiagnostics`（`Core.Foundation.HookRegistry.IHookDiagnostics`）两个只读转发属性：`AppState`/
+`Hooks` 对外只暴露 `IAppStateHost`/`IHookRegistry` 接口（不含 Diagnostics 出口），本类型装配期已经
+持有构造出的具体 `AppStateHost`/`HookRegistry` 实例，因此比照既有
+`presentation/assembly/PresentationAssembly.cs` 的 `VfxDiagnostics`/`SfxDiagnostics` 惯例——接口
+不带诊断出口时，由装配根转发一份只读引用。供 `Adapter.Unity.Diagnostics.DiagnosticsHubComposition`
+登记进统一诊断转发集线器，ABI 只新增只读属性，不改动任何既有公开签名。
+
+`RulesAssembly`（经 `Carriers.Rules` 可达）新增 `PowerDiagnostics` 只读属性同一批一并补上，见
+`core/rules/assembly/README.md` 判断记录。

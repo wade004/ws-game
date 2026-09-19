@@ -60,6 +60,10 @@ namespace Core.Gameplay.Spawn
         private readonly SpawnOptions _options;
         private readonly ISpawnDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public ISpawnDiagnostics Diagnostics => _diagnostics;
+
         private readonly Dictionary<Id, RuntimeState> _records = new Dictionary<Id, RuntimeState>();
         private readonly Dictionary<Id, Id> _entityToSpawn = new Dictionary<Id, Id>();
         private readonly HashSet<Id> _loadedMaps = new HashSet<Id>();

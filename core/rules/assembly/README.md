@@ -289,3 +289,16 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 同步调用一次——同构先例见 `core/sim/core/HeadlessWorldBuilder.cs`"出生等级 >1"场景的既有修复
 判断记录。详见复审报告 D-M2 与 `core/numbers/progression/README.md` 同名小节；新增测试见
 `core/rules/tests/Integration/T_N4_5_LevelUpRefillIntegrationTests.cs`。
+
+## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
+
+新增 `PowerDiagnostics`（`Core.Numbers.PowerSet.IPowerDiagnostics?`）只读属性：`PowerTickHandler`
+此前只在 `RegisterTickHandlers()` 内部构造并直接注册为 phase handler，构造出的实例从未被任何变量
+持有，外部拿不到其默认诊断实例的引用。`RegisterTickHandlers()` 现在把构造出的 handler 先赋给局部
+变量、回填本属性、再注册为 phase handler，构造顺序与注册结果不变。属性在 `autoRegisterTickHandlers`
+默认值（`true`）下于构造函数返回前即已赋值；显式传 `false` 且从不手动调用
+`RegisterTickHandlers()` 时保持 `null`（调用方按"该来源未提供"静默跳过，惯例同
+`PresentationAssemblyDiagnosticsForwarder` 对可选来源的既有处理）。`Combat`/`Skill`/`Progression`
+三个既有公开属性本身是具体类型（`CombatHost`/`SkillHost`/`ProgressionHost`），直接在各自类型上新增
+`Diagnostics` 只读属性即可，不需要 `RulesAssembly` 转发（`CombatHost` 额外新增了 `_diagnostics`
+字段接住此前只转发给内部 `Resolver`、自身不持有的诊断实例引用，见该类型判断记录）。

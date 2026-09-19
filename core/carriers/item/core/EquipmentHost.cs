@@ -62,6 +62,10 @@ namespace Core.Carriers.Item
         private readonly ItemOptions _options;
         private readonly IItemDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IItemDiagnostics Diagnostics => _diagnostics;
+
         /// <summary>CR140-02 根治（architecture/落地计划/audit-c86bfa9-20260908，P2）：C08 收口时
         /// 已经把这个可选依赖注入进来（此前只用于订阅 <see cref="IAuraQuery.InstanceReplaced"/>），
         /// 现在额外保留一份引用供 <see cref="ReapplyGrants"/> 用 <see cref="IAuraQuery.HasAura"/>

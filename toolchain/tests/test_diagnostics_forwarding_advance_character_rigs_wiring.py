@@ -33,6 +33,16 @@ Unity 侧胶水（``UnityViewFactory.PumpDiagnostics`` 是否真的经 ``Debug.L
 ``test_presentation_assembly_diagnostics_forwarder_ctor_includes_feedback_sink_diagnostics`` 同样按
 "三处必须保持同步"的模式检查三处构造调用都传入了这个新增实参。
 
+第四批跟进（诊断契约统一转发机制，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：全仓
+普查发现另有 20+ 个同惯例 I*Diagnostics 契约此前完全没有任何转发链路（event_bus/hook_registry/
+save_system/scene_router/app_lifecycle/input_map/localization/carriers/rules/gameplay/
+presentation-ui），新增 ``Adapter.Unity.Diagnostics.DiagnosticsHub`` + ``DiagnosticsHubComposition``
+统一接入。同"三处近似重复代码必须保持同步"的既有教训，本文件新增两个检查：
+``test_advance_character_rigs_calls_core_diagnostics_hub_pump``（三处 ``AdvanceCharacterRigs()``
+均调用 ``_coreDiagnosticsHub?.Pump()``）与
+``test_bootstrap_registers_diagnostics_hub_composition_sources``（三处构造期均调用
+``DiagnosticsHubComposition.RegisterCoreSources(``）。
+
 运行：``python -m pytest toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py -q``
 或作为 ``toolchain`` 套件的一部分：``python -m pytest toolchain/tests -q``。
 """
@@ -76,6 +86,15 @@ _FORWARDER_CTOR_CALL_RE = re.compile(
     r"_presentationDiagnosticsForwarder\s*=\s*new\s+PresentationAssemblyDiagnosticsForwarder\s*\("
 )
 _FEEDBACK_SINK_DIAGNOSTICS_RE = re.compile(r"presentation\.FeedbackSinkDiagnostics")
+
+# 诊断契约统一转发机制（architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+# DiagnosticsHub 每帧轮询调用，同 _presentationDiagnosticsForwarder?.Pump() 一样接在
+# AdvanceCharacterRigs() 方法体内；登记调用在构造期完成一次，检查整份源码文件（不限定在
+# AdvanceCharacterRigs 方法体内，构造调用物理上在另一个方法里）。
+_CORE_DIAGNOSTICS_HUB_PUMP_CALL_RE = re.compile(r"_coreDiagnosticsHub\?\.Pump\(\)\s*;")
+_DIAGNOSTICS_HUB_COMPOSITION_REGISTER_RE = re.compile(
+    r"DiagnosticsHubComposition\.RegisterCoreSources\s*\("
+)
 
 
 def _extract_forwarder_ctor_call(text: str, rel_path: str) -> str:
@@ -170,6 +189,29 @@ def test_presentation_assembly_diagnostics_forwarder_ctor_includes_feedback_sink
         "`presentation.FeedbackSinkDiagnostics`——诊断转发到引擎控制台第三批（presentation/assembly/"
         "README.md 判断记录 10b）新增的第五个来源（CompositeFeedbackSink.Diagnostics）要求三处生产入口"
         "保持一致接线，遗漏这一实参会让该入口下这条链路的诊断转发静默失效。"
+    )
+
+
+@pytest.mark.parametrize("rel_path", _SOURCE_FILES)
+def test_advance_character_rigs_calls_core_diagnostics_hub_pump(rel_path: str) -> None:
+    text = _read_source(rel_path)
+    body = _extract_method_body(text, rel_path)
+    assert _CORE_DIAGNOSTICS_HUB_PUMP_CALL_RE.search(body), (
+        f"{rel_path}: `AdvanceCharacterRigs()` 方法体未调用 `_coreDiagnosticsHub?.Pump()`——"
+        "诊断契约统一转发机制（architecture/adr/0042-诊断契约统一转发到宿主控制台.md）覆盖的 20+ "
+        "个诊断来源同样要求三处生产入口保持一致接线，遗漏这一行会让该入口下这些来源的诊断转发"
+        "静默失效。"
+    )
+
+
+@pytest.mark.parametrize("rel_path", _SOURCE_FILES)
+def test_bootstrap_registers_diagnostics_hub_composition_sources(rel_path: str) -> None:
+    text = _read_source(rel_path)
+    assert _DIAGNOSTICS_HUB_COMPOSITION_REGISTER_RE.search(text), (
+        f"{rel_path}: 未找到 `DiagnosticsHubComposition.RegisterCoreSources(` 调用——三处生产装配"
+        "入口都应当在 PresentationAssemblyDiagnosticsForwarder 构造完成后紧接着调用本方法登记本轮"
+        "普查覆盖的诊断来源，遗漏会让该入口下 DiagnosticsHub 永远是空的（Pump 每帧都无事可做，"
+        "但不会报错，属于典型的静默失效）。"
     )
 
 

@@ -29,6 +29,10 @@ namespace Core.Rules.Skill
         private readonly SkillDefCache _defs;
         private readonly ISkillDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public ISkillDiagnostics Diagnostics => _diagnostics;
+
         /// <summary>见 <see cref="FindUnits"/> 判断记录：本模块构造未强制要求注入
         /// <see cref="ISpatialQuery"/>，为 null 时 <see cref="FindUnits"/> 记一条诊断并返回空列表。</summary>
         private readonly ISpatialQuery? _spatialQuery;

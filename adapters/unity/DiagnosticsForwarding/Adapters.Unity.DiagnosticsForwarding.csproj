@@ -14,6 +14,13 @@
          `<Compile Include="../*/tests/**/*.cs" />` 跨目录纳入源码的既有做法）。 -->
     <Compile Remove="**/*.cs" />
     <Compile Include="../Packages/com.gamefoundation.adapter.unity/Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs" />
+    <!-- 判断记录（feat/diagnostics-contracts-unification，architecture/adr/0042-诊断契约统一转发到
+         宿主控制台.md）：诊断契约统一转发集线器（DiagnosticsHub），同上一行惯例——源码物理落在
+         Unity 包 Runtime/Diagnostics/ 下，这里按引用纳入编译，不拷贝。本文件不引用任何具体诊断
+         契约类型（见其顶部判断记录"完全泛型、不认识任何具体诊断契约类型"），只依赖同项目内上一行
+         的 PresentationDiagnosticsConsoleGate/IPresentationDiagnosticsConsoleSink，不需要额外
+         ProjectReference。 -->
+    <Compile Include="../Packages/com.gamefoundation.adapter.unity/Runtime/Diagnostics/DiagnosticsHub.cs" />
   </ItemGroup>
 
   <ItemGroup>

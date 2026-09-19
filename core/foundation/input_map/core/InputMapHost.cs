@@ -24,6 +24,10 @@ namespace Core.Foundation.InputMap
         private readonly InputMapOptions _options;
         private readonly IInputMapDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IInputMapDiagnostics Diagnostics => _diagnostics;
+
         private readonly HashSet<Id> _declaredActionSets = new HashSet<Id>();
         private readonly Dictionary<string, ActionState> _actions = new Dictionary<string, ActionState>(StringComparer.Ordinal);
         private readonly List<string> _actionOrder = new List<string>();

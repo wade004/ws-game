@@ -141,3 +141,15 @@ power_set/
 | `arch.power_type` 表字段定义 | 是 | 具体资源类型数据行 |
 | `power.changed`/`power.depleted` 事件的产生时机与字段 | 是 | 订阅这两个事件做表现（如资源条动画） |
 | `StatLookup` 委托签名 | 是 | 把具体 `IStatHost` 一类实现适配成该签名并注入 |
+
+## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
+
+`PowerTickHandler` 新增只读属性 `Diagnostics`（返回 `IPowerDiagnostics`，ABI 只新增只读属性，不改动任何既有公开签名）：
+全仓普查发现本模块的诊断契约同仓库另外 20 余个 `I*Diagnostics` 契约一样，此前只记内存
+（`PowerTickHandler` 构造函数未注入自定义实现时默认 `new InMemoryPowerDiagnostics()`），从不外发到引擎控制台——真实
+游戏里出现对应告警时控制台一行输出都没有。本轮由 `adapters/unity` 侧新增的
+`Adapter.Unity.Diagnostics.DiagnosticsHub`（注册制轮询集线器，见其类型注释）通过本属性拿到默认
+实例引用，登记进 `DiagnosticsHubComposition.RegisterCoreSources`，三个生产装配入口
+（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
+一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
+对外只读出口。

@@ -90,7 +90,16 @@ namespace Core.Gameplay.Assembly
 
         public IAppStateHost AppState { get; }
 
+        /// <summary>诊断转发跟进（架构结论见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// <see cref="AppState"/> 只暴露 <see cref="IAppStateHost"/> 接口（不含 Diagnostics 出口），
+        /// 转发新增只读属性，惯例同 presentation/assembly/PresentationAssembly.cs 的
+        /// VfxDiagnostics/SfxDiagnostics（接口暴露的具体类型不含诊断出口时，改由装配根转发）。</summary>
+        public Core.Foundation.AppLifecycle.IAppLifecycleDiagnostics AppStateDiagnostics { get; }
+
         public IHookRegistry Hooks { get; }
+
+        /// <summary>诊断转发跟进（同上，<see cref="Hooks"/> 只暴露 <see cref="IHookRegistry"/> 接口）。</summary>
+        public Core.Foundation.HookRegistry.IHookDiagnostics HooksDiagnostics { get; }
 
         public WorldStateHost WorldState { get; }
 
@@ -712,8 +721,12 @@ namespace Core.Gameplay.Assembly
             appStateConfig.AllowSubTransition(SubStateId.Combat, PlayingBackSubState);
             appStateConfig.AllowSubTransition(PlayingBackSubState, SubStateId.Combat);
 
-            AppState = new AppStateHost(bus, appStateConfig);
-            Hooks = new HookRegistry(bus);
+            var appStateHost = new AppStateHost(bus, appStateConfig);
+            AppState = appStateHost;
+            AppStateDiagnostics = appStateHost.Diagnostics;
+            var hookRegistry = new HookRegistry(bus);
+            Hooks = hookRegistry;
+            HooksDiagnostics = hookRegistry.Diagnostics;
             Hooks.DeclareFromDefinitions(FoundHookSchema.LoadDefinitions(registry));
 
             // ---------------------------------------------------------

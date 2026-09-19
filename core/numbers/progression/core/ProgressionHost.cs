@@ -90,6 +90,10 @@ namespace Core.Numbers.Progression
         private readonly StatModifierRemover _statModifierRemover;
         private readonly IProgressionDiagnostics _diagnostics;
 
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
+        /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
+        public IProgressionDiagnostics Diagnostics => _diagnostics;
+
         /// <summary>CORE-170-02 根治：见 <see cref="LevelSync"/> 判断记录——可选（未注入时 <c>null</c>，
         /// 行为与本次改动之前完全一致，多数测试用的最小假实现不需要提供），非 null 时在
         /// <see cref="RegisterUnit"/>/<see cref="AddXp"/>/<see cref="RestoreState"/> 三个等级会变化/

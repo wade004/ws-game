@@ -541,3 +541,15 @@ JSON 字符串验证——本条约定同样适用于 `ISettingsStore` 的设置
 | 自动存档触发点判断机制 | 是 | 具体启用哪些触发点、把触发点接到游戏时机 |
 | 确定性回放 | 是（契约、数据类型与默认实现：`ReplayRecorder`/`ReplayPlayer`，T1-9） | 是否把回放暴露为玩家可见功能；世界装配逻辑（经 `WorldFactory` 提供） |
 | 设置文件存储与迁移 | 是 | 具体设置字段结构与含义 |
+
+## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
+
+`SaveSystem` 新增只读属性 `Diagnostics`（返回 `ISaveDiagnostics`，ABI 只新增只读属性，不改动任何既有公开签名）：
+全仓普查发现本模块的诊断契约同仓库另外 20 余个 `I*Diagnostics` 契约一样，此前只记内存
+（`SaveSystem` 构造函数未注入自定义实现时默认 `new InMemorySaveDiagnostics()`），从不外发到引擎控制台——真实
+游戏里出现对应告警时控制台一行输出都没有。本轮由 `adapters/unity` 侧新增的
+`Adapter.Unity.Diagnostics.DiagnosticsHub`（注册制轮询集线器，见其类型注释）通过本属性拿到默认
+实例引用，登记进 `DiagnosticsHubComposition.RegisterCoreSources`，三个生产装配入口
+（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
+一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
+对外只读出口。
