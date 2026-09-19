@@ -1079,6 +1079,27 @@ Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的
 }
 
 # -----------------------------------------------------------------------------
+# 7.6 Unity .meta 完整性检查（不依赖 Unity 本体，见 toolchain/check_unity_meta.py 模块 docstring
+#     判断记录）：本会话内先后两次出现新增 .cs 漏提交 .meta（1.45.0 发版前 games/_template/ 下 6 个
+#     文件、随后 Runtime/Diagnostics/ 下 2 个文件）——.meta 是 Unity 首次导入新文件时才在本机生成的
+#     产物，执行 agent 又一律被要求不跑 Unity（避免工作树全量 reimport），纯 .NET/Python 门禁此前
+#     完全查不出这类问题，口头提醒已证明不管用。本步骤只读 git 索引 + .gitignore 规则判断 Unity
+#     实际导入范围（<工程>/Assets/、Packages/ 下直接摆放的本地包、manifest.json 里 "file:" 开头
+#     声明的内嵌本地包，如本仓库的 games/_template、adapters/conformance）内每个已跟踪文件是否都有
+#     对应 .meta、每个 .meta 是否都还对应一个被跟踪的文件/目录（含"目录被 .gitignore 整体排除、但
+#     目录级 meta 为保留稳定 GUID 仍提交"的既有例外，如 Runtime/Plugins/Core.meta），不需要启动
+#     Unity，-SkipUnity/-Quick 下同样跑。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/check_unity_meta.py）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/check_unity_meta.py")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 8. 版本一致性（版本可追溯任务新增，见 11_工程规范与测试.md 第 7 节"版本号必须可追溯到
 #    对应的架构文档版本与数据 schema 版本组合"）：单一版本源仓库根 VERSION 文件必须与
 #    adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json、

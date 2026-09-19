@@ -478,6 +478,30 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   共 7 例）、`core/foundation/data_registry/tests/TolerantRegistryViewTests.cs`
   （`Get_PartiallyPopulatedInnerView_*`/`TryGet_PartiallyPopulatedInnerView_*` 共 4 例）。
 
+- **`check.ps1` 新增"Unity `.meta` 完整性检查"步骤（不依赖 Unity 本体）**：本会话内先后多次
+  出现新增 `.cs` 漏提交对应 `.meta`（1.45.0 发版前 `games/_template/` 下 6 个文件、随后
+  `Runtime/Diagnostics/` 下 2 个文件），根因是执行 agent 一律不跑 Unity、而 `.meta` 恰恰是
+  Unity 首次导入新文件时才在本机生成的产物，纯 .NET/Python 门禁此前完全查不出这类问题。新增
+  `toolchain/check_unity_meta.py`：只读 git 索引 + `.gitignore` 规则判断 Unity 实际导入范围
+  （`<工程>/Assets/`、`Packages/` 下本地包、`manifest.json` 里 `"file:"` 声明的内嵌本地包）内
+  每个已跟踪文件/目录是否都有对应 `.meta`（含目录本身，见下方判断记录）、每个 `.meta` 是否都还
+  对应一个被跟踪的文件/目录（含"目录被 `.gitignore` 整体排除、但目录级 meta 为保留稳定 GUID
+  仍提交"的既有例外），不需要启动 Unity，`check.ps1` 新增步骤放在"工作树文本文件无 CR"之后、
+  "版本一致性"之前，`-SkipUnity`/`-Quick` 下同样跑。回归测试：`toolchain/tests/
+  test_check_unity_meta.py`（独立临时 git 仓库，11 个场景 + 1 条真实仓库现状回归，共 12 例）。
+
+  落地当次实测在 `main` 上先后照单验出三处此前无人发现的真实缺口，均已修复，最终状态零缺失、
+  零孤儿：① `Runtime/Diagnostics/` 下两个新文件漏提交 `.meta`（本检查立项起因，由真实 Unity
+  导入补齐，提交 `90691cc3`）；② 修复①时 Unity 额外生成了目录级的 `Runtime/Diagnostics.meta`
+  ——促成本检查补齐"目录本身也要有 `.meta`"的判定能力（`git ls-files` 只返回文件路径，第一版
+  实现漏了这一层）；③ `adapters/unity/Assets/Resources/GameFoundation/...` 下已有 17 个永久
+  提交的占位资产，但 `.gitignore` 仍把父目录 `Resources.meta` 整体忽略（该条规则写于"目录此前
+  不存在、由测试框架自动创建"之时，前提早已过时，与仓库现状自相矛盾）——修复方式是撤销这条过期
+  忽略规则（`PerformanceTestRun*` 一条运行时文件忽略保留），磁盘上已有的 `Resources.meta`
+  正常纳入跟踪，不是手写、也不是放宽检查（提交 `29d7e5bd`）。三处均属于"纯 .NET/Python 门禁
+  完全看不见、只有对照 Unity 实际导入范围才能发现"的一类问题，详见 `toolchain/README.md`
+  "Unity `.meta` 完整性检查"一节判断记录。
+
 ### 修复
 
 - 消费方反馈第 73 条：`DataRegistry.RunValidationAndBuildReport` 单条 `IValidationRule.Validate`
