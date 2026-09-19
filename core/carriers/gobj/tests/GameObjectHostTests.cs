@@ -456,6 +456,63 @@ namespace Tests.Carriers.Gobj
             Assert.Equal(Unit, received!.Value.UnitId);
         }
 
+        /// <summary>ADR-0044 新路径：<see cref="GobjOptions.DialogOpenerWithSource"/> 设置时应被
+        /// 调用，且携带的第二参数是触发本次交互的 gobj 实例自身 id（不是 <c>dialogRef</c>）——这是
+        /// 契约缺口根治的核心断言：调用方从此能拿到一个真实、稳定的"交互对象"身份，不必再用可能被
+        /// 多个 gobj 共用的 <c>dialogRef</c> 顶替。</summary>
+        [Fact]
+        public void Interact_OnUseDialog_InvokesDialogOpenerWithSource_PassesGobjInstanceId()
+        {
+            var dialogRef = new Id("dialog.sample_menu_with_source");
+            var world = new GobjWorldBuilder()
+                .Template(Template("gobj.sample_sign_d", "sign", J.O(("text_key", J.S("l10n.sample_sign4.text"))),
+                    onUse: J.O(("kind", J.S("dialog")), ("ref", J.S(dialogRef.Value)))))
+                .Build();
+
+            (Id UnitId, Id GobjInstanceId, Id Ref)? received = null;
+            world.Options.DialogOpenerWithSource = (uid, gobjInstanceId, r) => received = (uid, gobjInstanceId, r);
+
+            world.AddUnit(Unit, new Vec2(0, 0));
+            var gobjId = world.SpawnFromTemplate(new Id("gobj.sample_sign_d"), MapId, new Vec2(0, 0));
+
+            var result = world.Host.Interact(Unit, gobjId);
+            Assert.True(result.Success);
+            Assert.Equal(InteractOutcome.Dialog, result.Outcome);
+            Assert.Equal((Id?)dialogRef, result.DispatchedRef);
+            Assert.NotNull(received);
+            Assert.Equal(Unit, received!.Value.UnitId);
+            Assert.Equal(gobjId, received!.Value.GobjInstanceId);
+            Assert.Equal(dialogRef, received!.Value.Ref);
+            Assert.NotEqual(dialogRef, received!.Value.GobjInstanceId); // 身份不是 dialogRef 顶替出来的。
+        }
+
+        /// <summary>优先级 + 旧路径语义边界：两个回调都设置时，只应调用
+        /// <see cref="GobjOptions.DialogOpenerWithSource"/>，<see cref="GobjOptions.DialogOpener"/>
+        /// 不应被同时触发——判断记录（GobjOptions.cs）明确旧委托的语义边界是"不需要/无法提供触发者
+        /// 身份时使用"，新旧路径是二选一，不是都执行一遍。</summary>
+        [Fact]
+        public void Interact_OnUseDialog_BothCallbacksSet_OnlyDialogOpenerWithSourceInvoked()
+        {
+            var dialogRef = new Id("dialog.sample_menu_priority");
+            var world = new GobjWorldBuilder()
+                .Template(Template("gobj.sample_sign_e", "sign", J.O(("text_key", J.S("l10n.sample_sign5.text"))),
+                    onUse: J.O(("kind", J.S("dialog")), ("ref", J.S(dialogRef.Value)))))
+                .Build();
+
+            var legacyInvoked = false;
+            var withSourceInvoked = false;
+            world.Options.DialogOpener = (uid, r) => legacyInvoked = true;
+            world.Options.DialogOpenerWithSource = (uid, gobjInstanceId, r) => withSourceInvoked = true;
+
+            world.AddUnit(Unit, new Vec2(0, 0));
+            var gobjId = world.SpawnFromTemplate(new Id("gobj.sample_sign_e"), MapId, new Vec2(0, 0));
+
+            var result = world.Host.Interact(Unit, gobjId);
+            Assert.True(result.Success);
+            Assert.True(withSourceInvoked);
+            Assert.False(legacyInvoked);
+        }
+
         // -----------------------------------------------------------------
         // Locked / 距离过远 / gobj.interacted 事件
         // -----------------------------------------------------------------

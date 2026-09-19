@@ -964,11 +964,13 @@ namespace Core.Gameplay.Assembly
             // 16) 补上 gobj 侧四个 L4 回调（GobjOptions 是 CarriersAssembly 构造时已经用过的同一个
             //     实例——CarriersAssembly 不拷贝，直接持有引用，见该类型第 7 步；此刻回填仍然生效，
             //     因为 GameObjectHost 内部按需读取 _options 字段，不是构造期一次性拷出委托值）。
-            //     判断记录（DialogOpenerDelegate 契约缺口）：签名只有 (unitId, dialogRef)，不携带
-            //     触发交互的 gobj 实例 id——DialogHost.OpenGossip 需要三元组 (unitId, npcId, menuId)。
-            //     本装配根权宜地把 dialogRef 同时当 npcId 使用（会话的 NpcId 只用作 Expr target 与
-            //     vendor/quest 回调定位，不要求是真正的生物单位）；需要更精确身份时应扩展
-            //     core/carriers/gobj 的委托签名（不在本任务允许改动范围）。
+            //     判断记录（DialogOpenerDelegate 契约缺口，ADR-0044 已根治）：旧委托签名只有
+            //     (unitId, dialogRef)，不携带触发交互的 gobj 实例 id——DialogHost.OpenGossip 需要
+            //     三元组 (unitId, npcId, menuId)，此前本装配根只能权宜地把 dialogRef 同时当 npcId
+            //     使用。现改接新增的 DialogOpenerWithSource（见 core/carriers/gobj/contracts/
+            //     GobjOptions.cs），npcId 改传 gobjInstanceId——一个真实、稳定的交互对象身份（不再
+            //     是可能被多个 gobj 共用的菜单 id），下游按身份做的推断（如 vendor 动作 ref 为空时
+            //     "按当前 NPC 自身推断"）从此能拿到正确的交互对象。详见 ADR-0044。
             // ---------------------------------------------------------
             // 判断记录（缺口 15，TeleportTargetResolver 未接 onFailure 诊断回调）：解析失败时
             // GameObjectHost.DoTeleport 本已记一条诊断（"teleport_target_ref ... 无法解析"），本
@@ -1019,7 +1021,7 @@ namespace Core.Gameplay.Assembly
                     }
                 });
 
-            resolvedGobjOptions.DialogOpener ??= (unitId, dialogRef) => Dialog.OpenGossip(unitId, dialogRef, dialogRef);
+            resolvedGobjOptions.DialogOpenerWithSource ??= (unitId, gobjInstanceId, dialogRef) => Dialog.OpenGossip(unitId, gobjInstanceId, dialogRef);
             resolvedGobjOptions.TeleportResolver ??= _teleportTargetResolver.Resolve;
             // 自动存档槽 id/时间戳来源已在构造函数最前面解析为 RequestAutosave（缺口 16），
             // DialogHost.saveRequested 与本处共用同一份，见该处判断记录。

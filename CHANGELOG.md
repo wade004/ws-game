@@ -455,6 +455,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   为 `null` 且不抛异常）。
 - `data/_sample/dialog/dialog.gossip_menu.json` 的 `dialog.sample_hunter` 补 `greeting_key`
   样例；`data/_sample/l10n/l10n.text.json` 补对应的中/英两条文本。
+- **ADR-0044：gobj 对话打开回调新增交互者身份透传路径**（消费方反馈-2026-09-20，`ws-game-wow`
+  复审报告"反馈 6"）：`Core.Carriers.Gobj.GobjOptions` 新增可选属性
+  `DialogOpenerWithSource`（新增委托类型 `DialogOpenerWithSourceDelegate(Id unitId, Id
+  gobjInstanceId, Id dialogRef)`），`GameObjectHost.Interact` 分发 `on_use: dialog` 时优先调用
+  该回调，携带触发交互的 gobj 实例自身 id；未设置时退回既有 `DialogOpenerDelegate`
+  （`DialogOpener` 属性），两者都未设置时行为不变。生产装配根（`GameplayAssembly`）改接新回调，
+  `DialogHost.OpenGossip` 的 `npcId` 参数改传 gobj 实例 id，不再用对话菜单引用 id 顶替——
+  vendor 等动作按"当前交互对象自身"推断的下游能力从此能拿到正确的交互对象身份。ABI 只新增，
+  不改动任何既有公开签名。详见 [ADR-0044](architecture/adr/0044-gobj对话打开回调新增交互者身份透传路径.md)、
+  `core/carriers/gobj/README.md` 判断记录 12、`core/gameplay/assembly/README.md` 判断记录 3。
 
 ## [1.46.0] - 2026-09-20
 

@@ -847,9 +847,19 @@ namespace Core.Carriers.Gobj
                 return new InteractResult(true, InteractOutcome.Skill, onUse.Ref);
             }
 
+            // ADR-0044：优先用携带 gobjInstanceId 的新回调，让调用方能把触发交互的 gobj 实例身份
+            // 转发给下游（如装配根接线 DialogHost.OpenGossip 的 npcId），不再被迫用 dialogRef 顶替。
+            // 未注入新回调时退回旧的 DialogOpener（语义边界见 GobjOptions.DialogOpener 判断记录），
+            // 两者都未注入时行为与此前完全一致。
+            if (_options.DialogOpenerWithSource != null)
+            {
+                _options.DialogOpenerWithSource(unitId, gobjInstanceId, onUse.Ref);
+                return new InteractResult(true, InteractOutcome.Dialog, onUse.Ref);
+            }
+
             if (_options.DialogOpener == null)
             {
-                _diagnostics.Warn($"gobj \"{gobjInstanceId}\" 的 on_use 指向对话但未注入 GobjOptions.DialogOpener");
+                _diagnostics.Warn($"gobj \"{gobjInstanceId}\" 的 on_use 指向对话但未注入 GobjOptions.DialogOpener/DialogOpenerWithSource");
                 return new InteractResult(false, InteractOutcome.NoAction);
             }
 
