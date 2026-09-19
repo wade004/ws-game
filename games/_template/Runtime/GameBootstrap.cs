@@ -133,6 +133,27 @@ namespace Game.Template
         /// 第一次被调用之前设置；默认 false，对模板既有场景/冒烟流程零行为影响。</summary>
         public static bool ForceSfxMissingResourceOverlayForTest;
 
+        /// <summary>ADR-0040 决策 2 落地（消费方反馈第 68 条，长驻可交互运行入口）：外部命令行
+        /// 覆盖本次要加载的游戏数据根，覆盖 <see cref="_gameDatasetRoot"/> 的默认值 "data/game"。
+        /// 该参数与 ADR-0040 决策 3 新增的通用同步入口（<c>toolchain/sync_content.ps1</c>）的目标
+        /// 参数面对齐，便于外部工具组合使用（先用 <c>sync_content.ps1</c> 把内容同步进
+        /// StreamingAssets 下的某个子目录，再以该子目录相对路径作为本覆盖值启动
+        /// <c>Runtime/ResidentRunner.cs</c>，见该类型头注释）。
+        /// <para>
+        /// 判断记录（为什么只覆盖 <see cref="_gameDatasetRoot"/>，不覆盖
+        /// <see cref="_frameworkDatasetRoot"/>，也不改动 <see cref="UnityFileSystem"/> 的物理内容根）：
+        /// 消费方反馈第 70 条（"DataHotReload 只监视部署副本，无开发期直连源码数据目录入口"）诉求的
+        /// 是把 <c>UnityFileSystem(contentRoot: ...)</c> 这个文件系统级物理根改成指向 StreamingAssets
+        /// 之外的任意磁盘路径，ADR-0040 明确把该诉求列为"不在本 ADR 范围"（此前已有 ADR 定过方向，
+        /// 按普通接线改动单独处理，不在本次一并做）。本覆盖字段解决的是一个更窄的问题——"在同一个
+        /// StreamingAssets 内容根之下，加载哪一个相对子目录作为游戏自己的数据"，与决策 3 新增同步
+        /// 入口天然对齐（同步入口的目标就是 StreamingAssets 下的某个相对目录），不需要触碰内容根
+        /// 本身，两件事互不冲突，也不提前实现第 70 条的范围。
+        /// </para>
+        /// 默认 <c>null</c>（不覆盖，行为与改动前完全一致）；必须在 <see cref="Ensure"/> 第一次被
+        /// 调用之前设置，惯例同 <see cref="ForceSfxMissingResourceOverlayForTest"/>。</summary>
+        public static string? GameDatasetRootOverride;
+
         private static Core.Foundation.DataRegistry.IDataSource BuildSfxMissingResourceOverlaySource()
         {
             const string json = @"
@@ -201,6 +222,14 @@ namespace Game.Template
             _bus = new Core.Foundation.EventBus.EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
 
             // 2) 数据集：框架级数据根 + 本游戏数据根，两根合并加载（见类型顶部判断记录）。
+            // ADR-0040 决策 2（消费方反馈第 68 条）：外部命令行覆盖游戏数据根时生效，写回
+            // _gameDatasetRoot 字段本身（而不是只用一个局部变量），下面"F3 数据热重载"一节的
+            // watchRoots 直接读取该字段，自动与本次实际加载的数据根保持一致，不需要重复判断
+            // 覆盖逻辑，见 GameDatasetRootOverride 判断记录。
+            if (!string.IsNullOrEmpty(GameDatasetRootOverride))
+            {
+                _gameDatasetRoot = GameDatasetRootOverride!;
+            }
             var contentFs = new UnityFileSystem(readOnlyContentMode: true);
             var frameworkSource = new FileSystemDataSource(contentFs, _frameworkDatasetRoot);
             var gameSource = new FileSystemDataSource(contentFs, _gameDatasetRoot);

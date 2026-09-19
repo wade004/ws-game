@@ -444,6 +444,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `sync_package_content.ps1`/`build.ps1 -SyncContent` 并列，不取代、不包装（`toolchain/README.md`
   新增三入口对照表说明各自适用场景）。新增 `toolchain/tests/test_sync_content.py`（9 例：参数
   校验、Additive/Mirror 两态、干跑、幂等性）。
+- ADR-0040 决策 2 落地：`games/_template/Runtime/ResidentRunner.cs`（`-gf-resident`）——长驻可
+  交互运行入口，与既有 `-gf-smoke-template`（跑完即退）并列，不取代。进入可交互状态（主菜单
+  可见）后写就绪文件（`-gf-ready-file`，默认 `<persistentDataPath>/gf_resident_ready.txt`）并
+  保持运行，轮询停止文件（`-gf-stop-file`，默认同目录 `gf_resident_stop.txt`）实现非强杀受控
+  退出；退出码复用 `-gf-smoke-template` 既有分级（`0` 成功/`2` 失败，不新造语义）。新增
+  `-gf-content-root` 覆盖游戏数据根（`GameBootstrap.GameDatasetRootOverride`，与
+  `sync_content.ps1` 的目标参数面对齐）。新增 `games/_template/Tests/Runtime/
+  GameTemplateResidentTests.cs`（编辑器内验证就绪信号/受控退出链路与数据根覆盖生效）；真实
+  独立版下的进程退出码/长驻行为需在真实引擎环境验证，见 `games/_template/README.md`"长驻可交互
+  运行"一节。
 
 ## [1.44.0] - 2026-09-19
 
