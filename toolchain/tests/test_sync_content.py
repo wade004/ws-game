@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "toolchain" / "sync_content.ps1"
 
@@ -68,6 +70,7 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         errors="replace",
         timeout=60,
+        env=clean_powershell_env(POWERSHELL),
     )
 
 

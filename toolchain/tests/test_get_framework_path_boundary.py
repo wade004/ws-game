@@ -54,6 +54,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "toolchain" / "get_framework.ps1"
 
@@ -215,6 +217,7 @@ def _run_script(args: list[str], cwd: Path, powershell: str | None = None) -> su
         encoding="utf-8",
         errors="replace",
         timeout=120,
+        env=clean_powershell_env(powershell),
     )
 
 

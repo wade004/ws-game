@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "toolchain" / "abi_probe.ps1"
 
@@ -47,7 +49,8 @@ def _run_probe(args: list[str]) -> subprocess.CompletedProcess:
         pytest.skip("找不到 powershell.exe 或 pwsh，跳过 abi_probe.ps1 OutDir 安全测试")
     cmd = [AVAILABLE_POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPT_PATH)] + args
     return subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        env=clean_powershell_env(AVAILABLE_POWERSHELL),
     )
 
 

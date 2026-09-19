@@ -58,6 +58,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "toolchain" / "registry" / "start_registry.ps1"
 REGISTRY_DIR = SCRIPT_PATH.parent
@@ -216,6 +218,7 @@ def _run(args: list[str], powershell: str, timeout: int, tmp_path: Path, tag: st
             stderr=stderr_f,
             timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            env=clean_powershell_env(powershell),
         )
     stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace")
     stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace")
@@ -236,6 +239,7 @@ def _process_alive(pid: str, powershell: str) -> bool:
         encoding="utf-8",
         errors="replace",
         timeout=30,
+        env=clean_powershell_env(powershell),
     )
     return "ALIVE" in result.stdout
 
@@ -252,6 +256,7 @@ def _kill_pid_best_effort(pid: str, powershell: str) -> None:
             capture_output=True,
             text=True,
             timeout=30,
+            env=clean_powershell_env(powershell),
         )
     except Exception:
         pass

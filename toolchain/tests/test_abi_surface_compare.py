@@ -34,6 +34,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ABI_SURFACE_PROJ = REPO_ROOT / "toolchain" / "abi_surface" / "AbiSurface.csproj"
 ABI_PROBE_SCRIPT = REPO_ROOT / "toolchain" / "abi_probe.ps1"
@@ -1214,6 +1216,7 @@ def test_real_baseline_end_to_end_via_abi_probe(tmp_path: Path) -> None:
         encoding="utf-8",
         errors="replace",
         timeout=300,
+        env=clean_powershell_env(AVAILABLE_POWERSHELL),
     )
     assert result.returncode == 0, (
         f"abi_probe.ps1 针对真实基线 {baseline_version} 应 exit 0：\n" + result.stdout + result.stderr
