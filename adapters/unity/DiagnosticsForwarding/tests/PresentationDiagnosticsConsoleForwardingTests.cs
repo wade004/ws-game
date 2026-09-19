@@ -354,5 +354,110 @@ namespace Adapter.Unity.Presentation.Tests
             forwarder.Pump();
             Assert.Equal(new[] { "n" }, sink.Messages);
         }
+
+        // ------------------------------------------------------------------------------------
+        // 诊断转发到引擎控制台第三批（presentation/assembly/README.md 判断记录 10b）：新增第五个
+        // 来源 CompositeFeedbackSink.Diagnostics，接的是新增五源构造函数重载（旧四源签名保持不变，
+        // ABI 只新增重载）。以下用例专门覆盖五源重载，四源重载的既有用例（上面）保持不变、不需要
+        // 因为新增来源而修改。
+        // ------------------------------------------------------------------------------------
+
+        [Fact]
+        public void FiveSourceOverload_ForwardsNewWarningsFromAllFiveSources()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sfx = new PresentationDiagnosticsRecorder();
+            var feedback = new PresentationDiagnosticsRecorder();
+            var viewBinder = new PresentationDiagnosticsRecorder();
+            var feedbackSink = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, sfx, feedback, viewBinder, feedbackSink);
+
+            vfx.Warn("vfx.def 未登记 id=\"vfx.missing\"");
+            sfx.Warn("sfx.def 未登记 id=\"sfx.missing\"");
+            feedback.Warn("feedback 规则使用了 from_display，但未注入 DisplayInfoResolver，跳过该动作");
+            viewBinder.Warn("锚点查询：实体 \"unit.a\" 未绑定 View");
+            feedbackSink.Warn("vfx \"vfx.spark\" 的反馈动作 attach=world 但没有可用世界坐标，跳过播放");
+
+            forwarder.Pump();
+
+            Assert.Equal(5, sink.Messages.Count);
+            Assert.Contains("vfx.def 未登记 id=\"vfx.missing\"", sink.Messages);
+            Assert.Contains("sfx.def 未登记 id=\"sfx.missing\"", sink.Messages);
+            Assert.Contains("feedback 规则使用了 from_display，但未注入 DisplayInfoResolver，跳过该动作", sink.Messages);
+            Assert.Contains("锚点查询：实体 \"unit.a\" 未绑定 View", sink.Messages);
+            Assert.Contains("vfx \"vfx.spark\" 的反馈动作 attach=world 但没有可用世界坐标，跳过播放", sink.Messages);
+        }
+
+        [Fact]
+        public void FiveSourceOverload_FifthSourceNull_OtherFourSourcesStillForwarded()
+        {
+            // 反向确认场景之一：第五个来源为 null（如某次装配未启用该链路）不应阻断其余四个来源，
+            // 同四源重载"某来源为 null 静默跳过"的既有惯例一致。
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, null, null, null, feedbackSinkDiagnostics: null);
+
+            vfx.Warn("vfx warning");
+            forwarder.Pump();
+
+            Assert.Single(sink.Messages);
+            Assert.Equal("vfx warning", sink.Messages[0]);
+        }
+
+        [Fact]
+        public void FiveSourceOverload_OnlyFifthSourceProvided_StillForwarded()
+        {
+            var feedbackSink = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, null, null, null, null, feedbackSink);
+
+            feedbackSink.Warn("first");
+            forwarder.Pump();
+            Assert.Single(sink.Messages);
+
+            // 无新增：再次 Pump 不应重复转发（同 SpriteRigDiagnosticsPump 逐条推进游标的既有惯例）。
+            forwarder.Pump();
+            Assert.Single(sink.Messages);
+
+            feedbackSink.Warn("second");
+            forwarder.Pump();
+            Assert.Equal(new[] { "first", "second" }, sink.Messages);
+        }
+
+        [Fact]
+        public void FiveSourceOverload_SameMessageTextFromFifthAndFirstSource_DedupedBySharedGate()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var feedbackSink = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, null, null, null, feedbackSink);
+
+            vfx.Warn("identical message");
+            feedbackSink.Warn("identical message");
+
+            forwarder.Pump();
+
+            Assert.Single(sink.Messages);
+        }
+
+        [Fact]
+        public void FourSourceConstructor_StillWorks_AndIsEquivalentToFiveSourceWithNullFifth()
+        {
+            // 判断记录（旧四源构造函数内部委托给五源构造函数、第五参数传 null）：本用例锁定这一
+            // 委托关系确实等价，防止未来重构时两个构造函数各自维护一份 _recorders 数组、行为悄悄
+            // 分叉。
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sinkA = new RecordingConsoleSink();
+            var sinkB = new RecordingConsoleSink();
+            var forwarderFourSource = new PresentationAssemblyDiagnosticsForwarder(sinkA, vfx, null, null, null);
+            var forwarderFiveSourceNullFifth = new PresentationAssemblyDiagnosticsForwarder(sinkB, vfx, null, null, null, null);
+
+            vfx.Warn("shared warning");
+            forwarderFourSource.Pump();
+            forwarderFiveSourceNullFifth.Pump();
+
+            Assert.Equal(sinkA.Messages, sinkB.Messages);
+        }
     }
 }

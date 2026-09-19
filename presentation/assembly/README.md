@@ -353,6 +353,31 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
     <br/>接线落地在 `adapters/unity`（不改本文件已构造好的对象关系）：见
     `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` 对应判断记录。
 
+10b. **诊断转发到引擎控制台第三批（2026-09-19）：补上第二批扫漏的第五条可达诊断源
+    `CompositeFeedbackSink.Diagnostics`**：第二批只覆盖了 `VfxPlayer`/`SfxPlayer`/`FeedbackBinder`
+    （含 `HitFrameSyncPolicy`）/`ViewBinder` 四条，但本装配根第 3 步构造的 `feedbackSink`
+    （`Presentation.FeedbackBinder.Core.CompositeFeedbackSink` 局部变量，`play_vfx`/`play_sfx` 找
+    不到可用坐标/锚点时记警告）同样持有一份独立的 `IPresentationDiagnostics`，此前既没有公开出口也
+    没有被本装配根转发——是与第二批完全同类的遗漏（都是"局部构造、未转发"），因此按同一套模式补齐，
+    不另起一套：`CompositeFeedbackSink` 新增 `public IPresentationDiagnostics Diagnostics { get; }`
+    （ABI 只新增只读属性，取舍同判断记录 10 的四个类型），本装配根新增
+    `FeedbackSinkDiagnostics` 转发属性（同 `VfxDiagnostics`/`SfxDiagnostics` 惯例，构造期不传
+    `diagnostics` 参数、保持"未注入时默认自建一份 `PresentationDiagnosticsRecorder`"不变，只转发已经
+    构造好的实例）。`adapters/unity` 侧 `PresentationAssemblyDiagnosticsForwarder` 新增一个可选参数
+    重载（不改既有 4 源构造函数签名，ABI 只新增重载）接住第五个来源，三处生产装配入口的构造调用同步
+    补上 `presentation.FeedbackSinkDiagnostics`，见
+    `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` 对应判断记录。
+    <br/>**扫描结论（本轮对 `IPresentationDiagnostics` 全部持有者逐一复核，不留第六条）**：
+    `ViewBinder`/`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`（`HitFrameSyncPolicy` 与其共享同一诊断
+    实例，非独立来源）/`CompositeFeedbackSink`/`SpriteCharacterRig` 是仓库内实现或持有
+    `Presentation.VfxSfx.Contracts.IPresentationDiagnostics` 的全部六个类型，前五个经本文件/
+    `PresentationAssemblyDiagnosticsForwarder` 覆盖，`SpriteCharacterRig` 走独立的
+    `SpriteRigDiagnosticsPump` 路径覆盖（判断记录 10 已述，未走构造期注入模式）——不存在第七个
+    未覆盖来源。`presentation/ui` 的 `IUiDiagnostics`（`UiDataSource` 持有）是另一套独立契约（自己的
+    接口/默认实现，未实现 `IPresentationDiagnostics`，仿 `Core.Rules.Skill.ISkillDiagnostics`
+    惯例），不在本条转发基础设施的接线范围内，接入需要先决定是否要合并两套诊断契约，这是设计取舍、
+    不是同类小改动，留待设计层另行拍板，不在本次任务范围内顺手接上。
+
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 
 | 用例 | 覆盖点 |

@@ -452,12 +452,13 @@ namespace Game.Template
                 renderer3D: _host.Renderer3D);
             Presentation = presentation;
 
-            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：同
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10/10b）：同
             // GameFoundationBootstrap/FrameworkResidentHost 同款判断记录。
             _presentationDiagnosticsForwarder = new PresentationAssemblyDiagnosticsForwarder(
                 UnityPresentationDiagnosticsConsoleSink.Instance,
                 presentation.VfxDiagnostics, presentation.SfxDiagnostics,
-                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics);
+                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics,
+                presentation.FeedbackSinkDiagnostics);
 
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();

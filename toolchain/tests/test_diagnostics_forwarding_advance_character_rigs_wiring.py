@@ -27,6 +27,12 @@ Unity 侧胶水（``UnityViewFactory.PumpDiagnostics`` 是否真的经 ``Debug.L
 仍待主会话跑引擎门禁确认——本文件只保证"三处调用点存在且一致"这一件事，不替代真实 Unity 批处理
 验证。
 
+第三批跟进（presentation/assembly/README.md 判断记录 10b）：``PresentationAssemblyDiagnosticsForwarder``
+新增第五个来源 ``CompositeFeedbackSink.Diagnostics``（``presentation.FeedbackSinkDiagnostics`` 转发
+属性），本文件新增
+``test_presentation_assembly_diagnostics_forwarder_ctor_includes_feedback_sink_diagnostics`` 同样按
+"三处必须保持同步"的模式检查三处构造调用都传入了这个新增实参。
+
 运行：``python -m pytest toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py -q``
 或作为 ``toolchain`` 套件的一部分：``python -m pytest toolchain/tests -q``。
 """
@@ -60,6 +66,43 @@ _SOURCE_FILES = (
 )
 
 _METHOD_SIGNATURE_RE = re.compile(r"private\s+void\s+AdvanceCharacterRigs\s*\(\s*\)")
+
+# 诊断转发到引擎控制台第三批（presentation/assembly/README.md 判断记录 10b）：新增第五个来源
+# CompositeFeedbackSink.Diagnostics（PresentationAssembly.FeedbackSinkDiagnostics 转发属性），接的是
+# PresentationAssemblyDiagnosticsForwarder 新增的五源构造函数重载。三处生产入口构造该类型实例时都
+# 必须把这个实参传进去，否则这条链路在该入口下静默失效——同上面两个 Pump 调用检查同一类"三处必须
+# 保持同步"回归。
+_FORWARDER_CTOR_CALL_RE = re.compile(
+    r"_presentationDiagnosticsForwarder\s*=\s*new\s+PresentationAssemblyDiagnosticsForwarder\s*\("
+)
+_FEEDBACK_SINK_DIAGNOSTICS_RE = re.compile(r"presentation\.FeedbackSinkDiagnostics")
+
+
+def _extract_forwarder_ctor_call(text: str, rel_path: str) -> str:
+    """按圆括号配对提取 `_presentationDiagnosticsForwarder = new PresentationAssemblyDiagnosticsForwarder(...)`
+    整条构造语句（含最外层圆括号），不依赖编译——找到构造调用起点后从捕获到的 `(` 开始配对计数
+    直到归零。"""
+    match = _FORWARDER_CTOR_CALL_RE.search(text)
+    assert match is not None, (
+        f"{rel_path}: 未找到 `_presentationDiagnosticsForwarder = new PresentationAssemblyDiagnosticsForwarder(` "
+        "构造调用——三处生产装配入口应当各自持有一份该类型实例，见 PresentationAssemblyDiagnosticsForwarder "
+        "类型注释；本检查可能已过期，需要先确认该接线是否被重命名/删除。"
+    )
+
+    paren_start = match.end() - 1  # 正则末尾捕获的就是这个左括号本身。
+    depth = 0
+    i = paren_start
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[match.start() : i + 1]
+        i += 1
+
+    raise AssertionError(f"{rel_path}: 构造调用圆括号未配对（文件可能被截断）")
 
 
 def _extract_method_body(text: str, rel_path: str) -> str:
@@ -115,6 +158,18 @@ def test_advance_character_rigs_calls_presentation_diagnostics_forwarder_pump(re
         "——presentation/assembly/README.md 判断记录 10 新增的 Vfx/Sfx/Feedback/ViewBinder 四条诊断"
         "链路转发同样要求三处生产入口保持一致接线，遗漏这一行会让该入口下这四条链路的诊断转发静默"
         "失效。"
+    )
+
+
+@pytest.mark.parametrize("rel_path", _SOURCE_FILES)
+def test_presentation_assembly_diagnostics_forwarder_ctor_includes_feedback_sink_diagnostics(rel_path: str) -> None:
+    text = _read_source(rel_path)
+    call = _extract_forwarder_ctor_call(text, rel_path)
+    assert _FEEDBACK_SINK_DIAGNOSTICS_RE.search(call), (
+        f"{rel_path}: `PresentationAssemblyDiagnosticsForwarder` 构造调用未传入 "
+        "`presentation.FeedbackSinkDiagnostics`——诊断转发到引擎控制台第三批（presentation/assembly/"
+        "README.md 判断记录 10b）新增的第五个来源（CompositeFeedbackSink.Diagnostics）要求三处生产入口"
+        "保持一致接线，遗漏这一实参会让该入口下这条链路的诊断转发静默失效。"
     )
 
 

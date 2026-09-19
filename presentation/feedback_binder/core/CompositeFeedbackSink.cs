@@ -79,6 +79,14 @@ namespace Presentation.FeedbackBinder.Core
         /// <summary>N17 根治：见类型构造函数判断记录，直接转发 vfx/sfx 两路信号。</summary>
         public event Action? PendingPlaybackChanged;
 
+        /// <summary>诊断转发到引擎控制台跟进第三批（presentation/assembly/README.md 判断记录 10
+        /// 追加）：对外暴露构造期注入（或默认自建）的 <see cref="Presentation.VfxSfx.Contracts.IPresentationDiagnostics"/>
+        /// 实例，供 <c>adapters/unity</c> 侧轮询转发到引擎控制台——本类型此前虽然已经接受可选构造参数
+        /// <c>diagnostics</c>（用于 <see cref="ResolveVfxAttach"/> 找不到可用坐标时记警告），却一直没有
+        /// 公开出口，是第二批（<c>VfxPlayer</c>/<c>SfxPlayer</c>/<c>FeedbackBinder</c>/<c>ViewBinder</c>）
+        /// 落地时扫漏的第五条可达诊断源。ABI 只新增只读属性。</summary>
+        public Presentation.VfxSfx.Contracts.IPresentationDiagnostics Diagnostics => _diagnostics;
+
         private VfxAttach? ResolveVfxAttach(Id vfxId, FeedbackAttachSpec attach)
         {
             if (attach.Target == FeedbackAttachTarget.World)

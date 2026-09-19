@@ -192,22 +192,23 @@ namespace Adapter.Unity.Presentation
     }
 
     /// <summary>
-    /// 诊断转发到引擎控制台跟进（<c>presentation/assembly/README.md</c> 判断记录 10）：把
+    /// 诊断转发到引擎控制台跟进（<c>presentation/assembly/README.md</c> 判断记录 10/10b）：把
     /// <c>VfxPlayer</c>/<c>SfxPlayer</c>/<c>FeedbackBinder</c>（含 <c>HitFrameSyncPolicy</c>，两者
-    /// 共享同一诊断实例，见 <c>FeedbackBinder.Diagnostics</c> 判断记录）/<c>ViewBinder</c> 四条新增
-    /// 可达诊断源接入既有转发基础设施——复用本文件的 <see cref="PresentationDiagnosticsConsoleGate"/>/
+    /// 共享同一诊断实例，见 <c>FeedbackBinder.Diagnostics</c> 判断记录）/<c>ViewBinder</c>/
+    /// <c>CompositeFeedbackSink</c>（第三批新增，判断记录 10b）五条新增可达诊断源接入既有转发基础
+    /// 设施——复用本文件的 <see cref="PresentationDiagnosticsConsoleGate"/>/
     /// <see cref="SpriteRigDiagnosticsPump"/>，不新造去重/淘汰逻辑。
     /// <para>
-    /// 判断记录（四个来源各自独立 recorder，但共享同一个 gate/sink）：见
-    /// <c>presentation/assembly/README.md</c> 判断记录 10 的取舍理由——四个来源在
+    /// 判断记录（五个来源各自独立 recorder，但共享同一个 gate/sink）：见
+    /// <c>presentation/assembly/README.md</c> 判断记录 10/10b 的取舍理由——五个来源在
     /// <see cref="Presentation.Assembly.PresentationAssembly"/> 构造期各自默认自建一份
     /// <c>PresentationDiagnosticsRecorder</c>（不共享实例，保留"某子系统的 <c>Warnings</c> 只含
     /// 自己产生的消息"这一属性），但同一进程只有一个引擎控制台，去重/上限淘汰天然应当是全局的
     /// （与 <see cref="Presentation.Render.SpriteCharacterRig"/> 那条既有链路共用同一套"消息文本即
     /// 去重键"语义一致）；
     /// 本类型因此持有独立于 <c>UnityViewFactory._diagnosticsGate</c> 的另一个 <see cref="PresentationDiagnosticsConsoleGate"/>
-    /// 实例（rig 消息量可能远高于这四个装配级单例来源，见判断记录 10"隔离性"取舍——两条转发路径
-    /// 各自 500 容量，互不挤占彼此的去重表），四个来源之间则共享同一个 gate 实例（本类型内部）。
+    /// 实例（rig 消息量可能远高于这五个装配级单例来源，见判断记录 10"隔离性"取舍——两条转发路径
+    /// 各自 500 容量，互不挤占彼此的去重表），五个来源之间则共享同一个 gate 实例（本类型内部）。
     /// </para>
     /// <para>
     /// 判断记录（<paramref name="sink"/> 为什么是必填参数，没有像 <c>UnityViewFactory</c> 那样默认
@@ -234,13 +235,39 @@ namespace Adapter.Unity.Presentation
         /// 实现，见 <see cref="Pump"/> 判断记录"静默跳过"），供三个生产装配入口按各自持有的
         /// <c>PresentationAssembly</c> 实例传入
         /// <c>presentation.VfxDiagnostics</c>/<c>presentation.SfxDiagnostics</c>/
-        /// <c>presentation.Feedback.Diagnostics</c>/<c>presentation.ViewBinder.Diagnostics</c>。</summary>
+        /// <c>presentation.Feedback.Diagnostics</c>/<c>presentation.ViewBinder.Diagnostics</c>。
+        /// <para>
+        /// 判断记录（第三批新增第五个来源改走新增重载，不给本构造函数加参数）：AGENTS.md"ABI 只
+        /// 新增"硬性规则禁止给既有公开构造函数加参数——本构造函数保留四源签名不变，第五个来源
+        /// （<c>CompositeFeedbackSink.Diagnostics</c>，见 <c>presentation/assembly/README.md</c>
+        /// 判断记录 10b）改经下面的五源重载注入，本构造函数内部委托给该重载（<paramref
+        /// name="feedbackSinkDiagnostics"/> 位置传 <c>null</c>），两者共享同一份实现，不重复维护
+        /// <c>_recorders</c> 数组的构造逻辑。</para></summary>
         public PresentationAssemblyDiagnosticsForwarder(
             IPresentationDiagnosticsConsoleSink sink,
             IPresentationDiagnostics? vfxDiagnostics,
             IPresentationDiagnostics? sfxDiagnostics,
             IPresentationDiagnostics? feedbackDiagnostics,
             IPresentationDiagnostics? viewBinderDiagnostics,
+            bool enabled = true,
+            int capacity = PresentationDiagnosticsConsoleGate.DefaultCapacity)
+            : this(sink, vfxDiagnostics, sfxDiagnostics, feedbackDiagnostics, viewBinderDiagnostics, null, enabled, capacity)
+        {
+        }
+
+        /// <summary>诊断转发到引擎控制台第三批（<c>presentation/assembly/README.md</c> 判断记录
+        /// 10b）新增重载：在四源基础上追加第五个来源 <paramref name="feedbackSinkDiagnostics"/>
+        /// （<c>presentation.FeedbackSinkDiagnostics</c>，转发自
+        /// <see cref="Presentation.FeedbackBinder.Core.CompositeFeedbackSink.Diagnostics"/>）——ABI 只
+        /// 新增重载，不改动上面四源构造函数的既有签名。三个生产装配入口现改调用本重载，传入完整的
+        /// 五个来源。</summary>
+        public PresentationAssemblyDiagnosticsForwarder(
+            IPresentationDiagnosticsConsoleSink sink,
+            IPresentationDiagnostics? vfxDiagnostics,
+            IPresentationDiagnostics? sfxDiagnostics,
+            IPresentationDiagnostics? feedbackDiagnostics,
+            IPresentationDiagnostics? viewBinderDiagnostics,
+            IPresentationDiagnostics? feedbackSinkDiagnostics,
             bool enabled = true,
             int capacity = PresentationDiagnosticsConsoleGate.DefaultCapacity)
         {
@@ -252,6 +279,7 @@ namespace Adapter.Unity.Presentation
                 sfxDiagnostics as PresentationDiagnosticsRecorder,
                 feedbackDiagnostics as PresentationDiagnosticsRecorder,
                 viewBinderDiagnostics as PresentationDiagnosticsRecorder,
+                feedbackSinkDiagnostics as PresentationDiagnosticsRecorder,
             };
         }
 
@@ -266,7 +294,7 @@ namespace Adapter.Unity.Presentation
             set => _gate.Enabled = value;
         }
 
-        /// <summary>逐一轮询四个诊断源自上次调用以来新增的警告，经共享 <see cref="_gate"/> 去重后
+        /// <summary>逐一轮询五个诊断源自上次调用以来新增的警告，经共享 <see cref="_gate"/> 去重后
         /// 转发到 <see cref="_sink"/>；某个来源为 <c>null</c>（未提供）或不是
         /// <see cref="PresentationDiagnosticsRecorder"/>（调用方自定义了 <see cref="IPresentationDiagnostics"/>
         /// 实现）时静默跳过，不阻断其余来源——同 <c>UnityViewFactory.PumpDiagnostics</c> 对 <c>model</c>

@@ -78,5 +78,42 @@ namespace Tests.Presentation.FeedbackBinder
             sfxLoader.CompletePending(new Id("res.footstep"));
             Assert.False(sink.HasPendingPlayback);
         }
+
+        [Fact]
+        public void Diagnostics_ExposesInjectedInstance_ForExternalPolling()
+        {
+            // 诊断转发到引擎控制台第三批（presentation/assembly/README.md 判断记录 10b）：新增公开
+            // 属性 Diagnostics 必须是构造期注入的同一个实例，adapters/unity 侧才能拿到正确的引用
+            // 轮询转发，而不是转发一份"看起来一样但其实是另一份"的诊断记录——同 VfxPlayer/SfxPlayer/
+            // FeedbackBinder/ViewBinder 四个既有类型的同名用例惯例。
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var sink = new CompositeFeedbackSink(
+                vfx, sfx,
+                onFloatingText: (_, __, ___) => { },
+                onFreeze: _ => { },
+                onShakeCamera: _ => { },
+                onFlash: (_, __) => { },
+                diagnostics: diagnostics);
+
+            Assert.Same(diagnostics, sink.Diagnostics);
+        }
+
+        [Fact]
+        public void Diagnostics_NotInjected_DefaultsToRecorder_AndReflectsWarnings()
+        {
+            // 未显式注入 diagnostics 时（PresentationAssembly 当前的用法，见判断记录 10b"不改变既有
+            // 构造行为，只转发已默认自建的实例"），Diagnostics 属性仍必须可用且能反映真实产生的
+            // 警告——PlayVfx(attach=world) 缺世界坐标时会记一条警告（见 ResolveVfxAttach）。
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+
+            sink.PlayVfx(WorldVfx, new FeedbackAttachSpec(FeedbackAttachTarget.World, null, null, null));
+
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(sink.Diagnostics);
+            Assert.Single(recorder.Warnings);
+        }
     }
 }

@@ -465,6 +465,20 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `dotnet test` 侧新增测试覆盖，并对"轮询循环漏掉一个来源""`PresentationAssembly` 转发属性接错
   实例""三处生产入口漏接 `Pump()` 调用"三类改动分别做过反向确认（临时破坏、确认对应测试必然失败、
   已还原）。
+  <br/>**第三批跟进（2026-09-19，presentation/assembly/README.md 判断记录 10b）**：上一批扫描仍
+  漏了第五条可达诊断源——`Presentation.FeedbackBinder.Core.CompositeFeedbackSink.Diagnostics`（本
+  装配根第 3 步构造的局部变量 `feedbackSink` 持有，`play_vfx`/`play_sfx` 找不到可用坐标/锚点时记
+  警告，此前虽已接受可选构造参数 `diagnostics` 却一直没有公开出口）。本批补上
+  `CompositeFeedbackSink.Diagnostics` 只读属性、`PresentationAssembly.FeedbackSinkDiagnostics`
+  转发属性（同 `VfxDiagnostics`/`SfxDiagnostics` 惯例）；`PresentationAssemblyDiagnosticsForwarder`
+  新增一个五源重载（不改既有四源构造函数签名，ABI 只新增重载，旧签名内部委托给新重载并传
+  `null`），三处生产装配入口同步补上 `presentation.FeedbackSinkDiagnostics` 实参。已对本次扫出的
+  五源全部转发、`feedbackSinkDiagnostics` 传 `null`/接错实例两类改动做过反向确认（临时破坏、确认
+  `dotnet test` 侧对应用例必然失败、已还原）。逐一复核仓库内全部 `IPresentationDiagnostics`
+  持有者后确认没有第六条：`ViewBinder`/`VfxPlayer`/`SfxPlayer`/`FeedbackBinder`（`HitFrameSyncPolicy`
+  共享同一实例）/`CompositeFeedbackSink` 五个经本机制覆盖，`SpriteCharacterRig` 走独立的
+  `SpriteRigDiagnosticsPump` 路径覆盖；`presentation/ui.IUiDiagnostics` 是另一套独立契约（未实现
+  `IPresentationDiagnostics`），不在本机制范围内，接入需要设计层另行拍板，本批未顺手处理。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
