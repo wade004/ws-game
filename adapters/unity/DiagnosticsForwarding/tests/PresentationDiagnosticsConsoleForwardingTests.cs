@@ -213,4 +213,146 @@ namespace Adapter.Unity.Presentation.Tests
             Assert.Single(sink.Messages);
         }
     }
+
+    /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：覆盖
+    /// <see cref="PresentationAssemblyDiagnosticsForwarder"/>——VfxPlayer/SfxPlayer/FeedbackBinder/
+    /// ViewBinder 四条新增诊断源的轮询转发。</summary>
+    public class PresentationAssemblyDiagnosticsForwarderTests
+    {
+        /// <summary><see cref="PresentationDiagnosticsRecorder"/> 之外的 <see cref="IPresentationDiagnostics"/>
+        /// 实现，供"来源不是 recorder 时静默跳过"用例使用。</summary>
+        private sealed class CustomDiagnostics : IPresentationDiagnostics
+        {
+            public void Warn(string message) { }
+        }
+
+        [Fact]
+        public void Pump_ForwardsNewWarningsFromAllFourSources()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sfx = new PresentationDiagnosticsRecorder();
+            var feedback = new PresentationDiagnosticsRecorder();
+            var viewBinder = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, sfx, feedback, viewBinder);
+
+            vfx.Warn("vfx.def 未登记 id=\"vfx.missing\"");
+            sfx.Warn("sfx.def 未登记 id=\"sfx.missing\"");
+            feedback.Warn("feedback 规则使用了 from_display，但未注入 DisplayInfoResolver，跳过该动作");
+            viewBinder.Warn("锚点查询：实体 \"unit.a\" 未绑定 View");
+
+            forwarder.Pump();
+
+            Assert.Equal(4, sink.Messages.Count);
+            Assert.Contains("vfx.def 未登记 id=\"vfx.missing\"", sink.Messages);
+            Assert.Contains("sfx.def 未登记 id=\"sfx.missing\"", sink.Messages);
+            Assert.Contains("feedback 规则使用了 from_display，但未注入 DisplayInfoResolver，跳过该动作", sink.Messages);
+            Assert.Contains("锚点查询：实体 \"unit.a\" 未绑定 View", sink.Messages);
+        }
+
+        [Fact]
+        public void Pump_OnlyForwardsEntriesAddedSinceLastPump_PerSource()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, null, null, null);
+
+            vfx.Warn("first");
+            forwarder.Pump();
+            Assert.Single(sink.Messages);
+
+            // 无新增：再次 Pump 不应重复转发。
+            forwarder.Pump();
+            Assert.Single(sink.Messages);
+
+            vfx.Warn("second");
+            forwarder.Pump();
+            Assert.Equal(new[] { "first", "second" }, sink.Messages);
+        }
+
+        [Fact]
+        public void Pump_NullSources_SilentlySkipped_DoesNotThrow()
+        {
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, null, null, null, null);
+
+            forwarder.Pump();
+
+            Assert.Empty(sink.Messages);
+        }
+
+        [Fact]
+        public void Pump_NonRecorderSource_SilentlySkipped_OtherSourcesStillForwarded()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var custom = new CustomDiagnostics();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, custom, null, null);
+
+            vfx.Warn("vfx warning");
+            custom.Warn("this can never be observed by the forwarder");
+
+            forwarder.Pump();
+
+            Assert.Single(sink.Messages);
+            Assert.Equal("vfx warning", sink.Messages[0]);
+        }
+
+        [Fact]
+        public void Pump_SameMessageTextFromDifferentSources_DedupedBySharedGate()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sfx = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, sfx, null, null);
+
+            vfx.Warn("identical message");
+            sfx.Warn("identical message");
+
+            forwarder.Pump();
+
+            Assert.Single(sink.Messages);
+        }
+
+        [Fact]
+        public void Disabled_NeverForwards_EvenForBrandNewMessages()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, null, null, null, enabled: false);
+
+            vfx.Warn("should stay silent");
+            forwarder.Pump();
+
+            Assert.Empty(sink.Messages);
+        }
+
+        [Fact]
+        public void Enabled_CanBeToggledAtRuntime()
+        {
+            var vfx = new PresentationDiagnosticsRecorder();
+            var sink = new RecordingConsoleSink();
+            var forwarder = new PresentationAssemblyDiagnosticsForwarder(sink, vfx, null, null, null, enabled: false);
+
+            vfx.Warn("m");
+            forwarder.Pump();
+            Assert.Empty(sink.Messages);
+
+            // 判断记录（关闭期间 Pump 仍然推进 SpriteRigDiagnosticsPump 的"已转发到第几条"游标，
+            // 不是"跳过整次 Pump 调用"）：SpriteRigDiagnosticsPump.Pump 对 gate.ShouldForward 返回
+            // false 的条目照样把游标推进到 warnings.Count（游标记的是"看过"而不是"转发过"，见该
+            // 方法实现），所以关闭期间已经被 Pump 看到过一次的 "m" 不会在重新开启后被当成新消息
+            // 再次转发——这与 PresentationDiagnosticsConsoleGate.Enabled 自身"关闭期间的消息不计入
+            // 去重表、重新开启后仍视为新消息"是两层不同的记账（gate 记的是消息文本去重，pump 记的是
+            // 每个 recorder 已经看到第几条），本测试只覆盖后者、不代表 gate 那层判断记录有变化。
+            forwarder.Enabled = true;
+            forwarder.Pump();
+            Assert.Empty(sink.Messages);
+
+            // 重新开启后新产生的消息应当照常转发。
+            vfx.Warn("n");
+            forwarder.Pump();
+            Assert.Equal(new[] { "n" }, sink.Messages);
+        }
+    }
 }

@@ -199,6 +199,14 @@ namespace Presentation.FeedbackBinder.Core
         /// <c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）。</summary>
         public HitFrameSyncReleaseReason? LastHitFrameSyncReleaseReason => _hitFrameSyncPolicy?.LastReleaseReason;
 
+        /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：对外
+        /// 暴露构造期注入（或默认自建）的 <see cref="IPresentationDiagnostics"/> 实例，供
+        /// <c>adapters/unity</c> 侧轮询转发到引擎控制台。<see cref="_hitFrameSyncPolicy"/> 构造时接的
+        /// 就是同一个 <c>_diagnostics</c> 实例（见构造函数），因此本属性同时覆盖
+        /// <see cref="HitFrameSyncPolicy"/> 产生的诊断（如命中帧同步等待超时），不需要
+        /// <see cref="HitFrameSyncPolicy"/> 再单独暴露一份。ABI 只新增只读属性。</summary>
+        public IPresentationDiagnostics Diagnostics => _diagnostics;
+
         /// <summary>
         /// N17 根治：三个"这一步是否已经真正播完"的条件同时满足才发出
         /// <see cref="PlaybackFinishedEvent"/>——队列已空、没有待合并飘字、sink 侧没有仍在首次

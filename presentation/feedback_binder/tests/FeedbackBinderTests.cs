@@ -171,6 +171,31 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.NotEmpty(diagnostics.Warnings);
             // 其余动作（play_sfx/flash/freeze）不受 play_vfx 失败影响，照常派发。
             Assert.Single(sink.PlaySfxCalls);
+
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：新增公开
+            // 属性 Diagnostics 必须是构造期注入的同一个实例（HitFrameSyncPolicy 未启用时该实例就是
+            // 本类型唯一的诊断来源），adapters/unity 侧才能拿到正确的引用轮询转发。
+            Assert.Same(diagnostics, binder.Diagnostics);
+        }
+
+        [Fact]
+        public void Diagnostics_NotInjected_DefaultsToRecorder_AndReflectsWarnings()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.AuraAppliedRuleRow);
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>());
+            var resolver = new DisplayInfoResolver(displayRegistry);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink,
+                displayInfoResolver: resolver);
+
+            var evt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), 1);
+            bus.PublishImmediate(evt);
+
+            var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(binder.Diagnostics);
+            Assert.NotEmpty(recorder.Warnings);
         }
 
         [Fact]

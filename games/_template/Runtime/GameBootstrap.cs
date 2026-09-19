@@ -70,6 +70,13 @@ namespace Game.Template
         public IWorldSim World { get; private set; } = null!;
         public Id PlayerId { get; private set; }
         public UnityViewFactory ViewFactory { get; private set; } = null!;
+
+        /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：见
+        /// <c>Adapter.Unity.Presentation.PresentationAssemblyDiagnosticsForwarder</c> 类型注释，同
+        /// <c>Adapter.Unity.Bootstrap.GameFoundationBootstrap</c>/<c>Adapter.Unity.Shell.
+        /// FrameworkResidentHost</c> 同名字段判断记录。</summary>
+        private PresentationAssemblyDiagnosticsForwarder? _presentationDiagnosticsForwarder;
+
         public FloatingTextReceiver FloatingText { get; private set; } = null!;
         public FreezeFrameReceiver Freeze { get; private set; } = null!;
         public FlashReceiver Flash { get; private set; } = null!;
@@ -445,6 +452,13 @@ namespace Game.Template
                 renderer3D: _host.Renderer3D);
             Presentation = presentation;
 
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：同
+            // GameFoundationBootstrap/FrameworkResidentHost 同款判断记录。
+            _presentationDiagnosticsForwarder = new PresentationAssemblyDiagnosticsForwarder(
+                UnityPresentationDiagnosticsConsoleSink.Instance,
+                presentation.VfxDiagnostics, presentation.SfxDiagnostics,
+                presentation.Feedback.Diagnostics, presentation.ViewBinder.Diagnostics);
+
             FloatingText = new FloatingTextReceiver(_host.transform, id => world.GetEntity(id)?.Position, presentation.FloatingTextStyles);
             Freeze = new FreezeFrameReceiver();
             Flash = new FlashReceiver(presentation.ViewBinder);
@@ -685,6 +699,10 @@ namespace Game.Template
             // Unity 批处理测试里验证确实写入了控制台/日志文件，dotnet test 只覆盖了 PumpDiagnostics
             // 依赖的纯逻辑部分（PresentationDiagnosticsConsoleForwarding.cs）。
             ViewFactory.PumpDiagnostics();
+
+            // 诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：同一步骤内
+            // 顺带转发 Vfx/Sfx/Feedback/ViewBinder 四条新增诊断源，不新增独立遍历。
+            _presentationDiagnosticsForwarder?.Pump();
         }
 
         private void OnDestroy()
