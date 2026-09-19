@@ -19,6 +19,7 @@ games/_template/
     TemplateShellUi.cs                最小主菜单（数据驱动，读 shell_menu_definition 表）
     TemplateAutoStart.cs              跳过主菜单直接开局，供"首张地图"场景快速验证
     TemplateSmokeRunner.cs            无人值守冒烟入口（"-gf-smoke-template"，见下"无人值守冒烟"一节）
+    ResidentRunner.cs                 长驻可交互运行入口（"-gf-resident"，见下"长驻可交互运行"一节）
     DataHotReload.cs                  开发期数据热重载标准实现（F3 新增，见下"开发期数据热重载"一节）
   Editor/
     Game.Template.Editor.asmdef       编辑器程序集（改名见下）
@@ -27,6 +28,7 @@ games/_template/
     Game.Template.Tests.asmdef        PlayMode 测试程序集（改名见下）
     GameTemplateSmokeTests.cs         最小验收：默认 GameOptions 启动 → 数据零阻断错误 → 主菜单可见；
                                       编辑器内验证 "-gf-smoke-template" 冒烟序列可跑通（不退出进程）
+    GameTemplateResidentTests.cs      编辑器内验证 ResidentRunner 就绪信号/受控退出链路可跑通
   Tests/Editor/
     Game.Template.EditorTests.asmdef  EditMode 测试程序集（改名见下）
     DataHotReloadEditModeTests.cs     验证 DataHotReload.cs"文件变更 -> 去抖 -> Reload"全链路
@@ -274,6 +276,51 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
 `Adapter.Unity.Shell.SmokeRunner` 一并打进去，沿用同一个标志字符串会导致两个互不相干的
 `SmokeRunner` 同时响应同一条命令行参数、互相撞车（工作台那个找不到 `ShellRoot` 会提前把整个进程
 终止掉）。复制本模板为新游戏时这条限制依然成立，不建议把标志改回 `-gf-smoke`。
+
+## 长驻可交互运行（ADR-0040 决策 2，反馈第 68 条）
+
+与上面"无人值守冒烟"并列、不取代：`-gf-smoke-template` 跑完固定序列即退出（门禁/CI 需要确定性
+退出码）；`-gf-resident`（`Runtime/ResidentRunner.cs`）进入可交互状态（主菜单可见）后保持运行，
+直到外部主动结束它——供任意外部工具（CI 脚本、内容作者自己的工具链、任何第三方联调工具）以长驻
+子进程方式驱动/观察，不专为某一类工具定制协议。
+
+```
+<独立版可执行文件> -batchmode -gf-resident -logFile <日志路径>
+<独立版可执行文件> -batchmode -gf-resident -gf-dataset-root=data/game -gf-ready-file=<路径> -gf-stop-file=<路径> -logFile <日志路径>
+```
+
+命令行参数（均可省略，省略时用默认值）：
+
+- `-gf-dataset-root=<相对路径>`：覆盖本次加载的游戏数据根（`GameBootstrap.GameDatasetRootOverride`，
+  默认不覆盖，即 `data/game`）；与下面"参数化内容同步入口"配合使用——先用
+  `toolchain/sync_content.ps1` 把内容同步进 StreamingAssets 下的某个子目录，再以该子目录相对路径
+  启动本入口。
+- `-gf-ready-file=<绝对路径>`：就绪文件路径，默认 `<persistentDataPath>/gf_resident_ready.txt`。
+- `-gf-stop-file=<绝对路径>`：停止文件路径，默认 `<persistentDataPath>/gf_resident_stop.txt`。
+
+**就绪信号**：进入可交互状态（主菜单可见）后，本入口用 `File.WriteAllText` 写出就绪文件（内容为
+UTC 时间戳，不需要解析），同时打印一行 `[GF-RESIDENT] status=ready ready_file=<路径>
+stop_file=<路径>`（把两个实际生效的路径打进日志，外部工具不需要预先读文档也能发现约定路径）。
+外部工具应轮询就绪文件是否存在，不应假定"进程已启动"等价于"已进入可交互状态"。
+
+**受控退出**：外部工具在自己选定的时机创建停止文件，本入口每 0.25 秒轮询一次，检测到后打印
+`[GF-RESIDENT] RESULT=OK reason=stop_file_detected`、删除停止文件、以退出码 `0` 结束——不依赖
+Ctrl+C/SIGINT 等操作系统信号（见 `Runtime/ResidentRunner.cs` 类型头判断记录：批处理独立版下这类
+信号能否可靠送达托管代码本身不确定，效果可能等同于强杀，不满足"非强杀"要求）。
+
+**退出码**：复用 `-gf-smoke-template` 已有的分级（不新造一套），只用到其中两档——`0` 成功（受控
+退出）；`2` 失败（装配失败，或迟迟未能进入可交互状态）。本入口没有总运行时长上限（核心承诺就是
+"保持运行直到外部主动结束"），因此不使用 `-gf-smoke-template` 的看门狗超时码 `3`。
+
+判断记录（2026-09-19，本开关改名为 `-gf-dataset-root`）：本开关落地时的初名字面上写的是"内容
+根"，与另一条并行开发线上语义完全不同的"物理内容根覆盖"开关（供开发期热重载监视用）拼写只差
+一个词，属两条并行开发线各自命名都合理、放在一起看却明显撞名的偶然撞车；发现后改为更贴切
+"覆盖的是游戏数据集下的哪个子目录"这一实际语义的 `-gf-dataset-root`，`GameBootstrap.
+GameDatasetRootOverride` 字段名本就用"Dataset"，不受影响。改名前后对照与命名约定详见
+[ADR-0040](../../architecture/adr/0040-运行期宿主命令行能力契约.md)"命令行开关命名约定"一节；
+本次同时把验证"数据根覆盖生效"的 PlayMode 用例从"覆盖值=默认值，通过与失败无法区分"的假测试
+改成了真正有区分力的用例（覆盖到与默认根不同、带可区分探针数据的根），见
+`Tests/Runtime/GameTemplateResidentTests.cs`。
 
 ## 已知限制（本模板"最小闭环"故意不覆盖的部分）
 

@@ -439,6 +439,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   "任意源内容目录 → 任意目标运行期工程"的参数化内容同步入口，均为面向任意外部工具的通用命令行
   能力，不是面向某个具体消费方的专属联调协议；参数化同步入口与既有两个同步入口（私服包内容
   落地、框架自身工作台同步）并列新增，不取代、不包装。本次只出 ADR，两项能力尚未实现。
+- ADR-0040 决策 3 落地：`toolchain/sync_content.ps1`——通用参数化内容同步入口，接受任意
+  `-SourceDir`/`-TargetDir`、`-OverridePolicy`（`Additive`/`Mirror`）、`-DryRun`，与既有
+  `sync_package_content.ps1`/`build.ps1 -SyncContent` 并列，不取代、不包装（`toolchain/README.md`
+  新增三入口对照表说明各自适用场景）。新增 `toolchain/tests/test_sync_content.py`（9 例：参数
+  校验、Additive/Mirror 两态、干跑、幂等性）。
+- ADR-0040 决策 2 落地：`games/_template/Runtime/ResidentRunner.cs`（`-gf-resident`）——长驻可
+  交互运行入口，与既有 `-gf-smoke-template`（跑完即退）并列，不取代。进入可交互状态（主菜单
+  可见）后写就绪文件（`-gf-ready-file`，默认 `<persistentDataPath>/gf_resident_ready.txt`）并
+  保持运行，轮询停止文件（`-gf-stop-file`，默认同目录 `gf_resident_stop.txt`）实现非强杀受控
+  退出；退出码复用 `-gf-smoke-template` 既有分级（`0` 成功/`2` 失败，不新造语义）。新增
+  `-gf-dataset-root` 覆盖游戏数据根（`GameBootstrap.GameDatasetRootOverride`，与
+  `sync_content.ps1` 的目标参数面对齐）。新增 `games/_template/Tests/Runtime/
+  GameTemplateResidentTests.cs`（编辑器内验证就绪信号/受控退出链路与数据根覆盖生效）；真实
+  独立版下的进程退出码/长驻行为需在真实引擎环境验证，见 `games/_template/README.md`"长驻可交互
+  运行"一节。
+- 勘误（改名，本次未发布内容内部调整，不是对已发布 API 的破坏性变更）：上一条第 68 条长驻运行
+  入口的数据根覆盖开关改名为 `-gf-dataset-root`（旧名把"数据集"错写成了"内容"，与第 70 条另一个
+  尚在并行开发、语义完全不同的开关 `-gfContentRoot`（物理内容根，用于热重载监视）拼写几乎相同，
+  是两分支并行开发的偶然撞车，改名消除歧义，`-gfContentRoot` 不受影响）。同时把
+  `GameTemplateResidentTests.cs` 里
+  验证"数据根覆盖生效"的用例从"覆盖值=默认值，通过与失败无法区分"的假测试改为真正有区分力的
+  用例（覆盖到一个与默认根不同、带可区分探针数据的根，断言实际读到覆盖根内容）；命名约定详见
+  [ADR-0040](architecture/adr/0040-运行期宿主命令行能力契约.md)新增"命令行开关命名约定"一节。
 
 - **消费方反馈第 70 条根治**：`games/_template/Runtime/ContentSourceRootOverride.cs` 新增——命令行
   参数 `-gfContentRoot <路径>` 或环境变量 `GF_CONTENT_ROOT` 可以把 `GameBootstrap` 的内容根整体指向
