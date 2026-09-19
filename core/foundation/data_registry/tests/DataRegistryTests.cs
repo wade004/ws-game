@@ -2262,5 +2262,183 @@ namespace Tests.Foundation.Data
             Assert.Contains("l10n.locale.b", warning.Message);
             Assert.DoesNotContain("l10n.locale.zh_cn", warning.Message);
         }
+
+        // -----------------------------------------------------------------
+        // 23. TryGet(string, string, out DataRecord) 单记录契约行为修正（2026-09-19，ADR-0041，
+        //     破坏性变更）：三种情形——存在 / 不存在（不阻断） / 阻断——的 before/after 语义验收。
+        //     修正前 record 不存在但不阻断时仍返回 true，这里的 *_RecordDoesNotExist_* 两条用例是
+        //     反向确认关键用例：把 IDataRegistry.cs/DataRegistry.cs 的 "record != null" 改回
+        //     "true"，这两条必然从 True 变 False 断言失败（证据见任务汇报，不在此重复注释）。
+        // -----------------------------------------------------------------
+
+        /// <summary>只转发 <see cref="Get"/>/<see cref="GetAll"/>/<see cref="Query(string, ExprNode)"/>/
+        /// <see cref="Query(string, string)"/> 给内层真实 <see cref="DataRegistry"/>、不覆盖任何
+        /// Try* 成员的最小包装——模拟"没有 DataRegistry 那种绕开 EnsureReadable 的显式 TryGet 实现，
+        /// 只能落回接口默认 try/catch"的第三方 <see cref="IDataRegistryView"/> 实现方，用于验收
+        /// <see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/> 默认实现本身
+        /// （不是 <see cref="DataRegistry"/> 的显式覆盖）在三种情形下的返回值。</summary>
+        private sealed class DefaultTryGetForwardingView : IDataRegistryView
+        {
+            private readonly IDataRegistryView _inner;
+
+            public DefaultTryGetForwardingView(IDataRegistryView inner) => _inner = inner;
+
+            public DataRecord? Get(string table, string key) => _inner.Get(table, key);
+
+            public DataRecord? Get(string table, Id id) => _inner.Get(table, id);
+
+            public IReadOnlyList<DataRecord> GetAll(string table) => _inner.GetAll(table);
+
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate) => _inner.Query(table, predicate);
+
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => _inner.Query(table, predicateText);
+
+            public IReadOnlyList<string> Tables => _inner.Tables;
+
+            public TableSchema? GetSchema(string table) => _inner.GetSchema(table);
+        }
+
+        [Fact]
+        public void TryGet_DefaultInterfaceImplementation_RecordExists_ReturnsTrueWithRecord()
+        {
+            var source = new InMemoryDataSource().Add("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll();
+
+            IDataRegistryView view = new DefaultTryGetForwardingView(registry);
+            var ok = view.TryGet("test.widget", "test.widget.a", out var record);
+
+            Assert.True(ok);
+            Assert.NotNull(record);
+            Assert.Equal("A", record!.GetString("name"));
+        }
+
+        /// <summary>反向确认关键用例（见本节头注释）：ADR-0041 修正前，接口默认 <c>TryGet</c> 对
+        /// "未阻断但记录本就不存在"恒返回 <c>true</c>——把修正后的 "record != null" 改回旧版
+        /// "return true"，本用例必然从通过变为失败（<c>Assert.False(ok)</c> 处 Expected:False
+        /// But was:True）。</summary>
+        [Fact]
+        public void TryGet_DefaultInterfaceImplementation_RecordDoesNotExist_NotBlocking_ReturnsFalseWithNull()
+        {
+            var source = new InMemoryDataSource().Add("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll();
+
+            IDataRegistryView view = new DefaultTryGetForwardingView(registry);
+            var ok = view.TryGet("test.widget", "test.widget.does_not_exist", out var record);
+
+            Assert.False(ok);
+            Assert.Null(record);
+        }
+
+        /// <summary>只实现接口、未显式覆盖 Try* 成员，<see cref="Get"/> 恒抛出的最小测试替身——
+        /// 同 <see cref="AlwaysBlockedView"/>（<c>TolerantRegistryViewTests.cs</c>）定位，本文件
+        /// 单独建一份是因为该类型是另一测试文件的 <c>private</c> 嵌套类型，不能跨文件复用。</summary>
+        private sealed class BlockedGetView : IDataRegistryView
+        {
+            public DataRecord? Get(string table, string key) => throw new InvalidOperationException("数据校验未通过，禁止读取");
+            public DataRecord? Get(string table, Id id) => Get(table, id.Value);
+            public IReadOnlyList<DataRecord> GetAll(string table) => throw new InvalidOperationException("数据校验未通过，禁止读取");
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate) => throw new InvalidOperationException("数据校验未通过，禁止读取");
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => throw new InvalidOperationException("数据校验未通过，禁止读取");
+            public IReadOnlyList<string> Tables => new[] { "test.widget" };
+            public TableSchema? GetSchema(string table) => null;
+        }
+
+        [Fact]
+        public void TryGet_DefaultInterfaceImplementation_BlockingLikeException_ReturnsFalseWithNull()
+        {
+            IDataRegistryView view = new BlockedGetView();
+
+            var ok = view.TryGet("test.widget", "test.widget.a", out var record);
+
+            Assert.False(ok);
+            Assert.Null(record);
+        }
+
+        [Fact]
+        public void TryGet_OnDataRegistry_RecordExists_NotBlocking_ReturnsTrueWithRecord()
+        {
+            var source = new InMemoryDataSource().Add("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll();
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGet("test.widget", "test.widget.a", out var record);
+
+            Assert.True(ok);
+            Assert.Equal("A", record!.GetString("name"));
+        }
+
+        /// <summary>反向确认关键用例（见本节头注释）：ADR-0041 修正前，<see cref="DataRegistry"/> 的
+        /// 显式 <c>TryGet</c> 恒返回 <c>true</c>（哪怕 <c>record</c> 为 <c>null</c>）——把
+        /// <c>DataRegistry.cs</c> 对应实现的 "record != null" 改回旧版 "return true"，本用例必然从
+        /// 通过变为失败。</summary>
+        [Fact]
+        public void TryGet_OnDataRegistry_RecordDoesNotExist_NotBlocking_ReturnsFalseWithNull()
+        {
+            var source = new InMemoryDataSource().Add("test.widget",
+                Envelope("test.widget", 1, "[{\"id\": \"test.widget.a\", \"name\": \"A\", \"count\": 1}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.LoadAll();
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGet("test.widget", "test.widget.does_not_exist", out var record);
+
+            Assert.False(ok);
+            Assert.Null(record);
+        }
+
+        [Fact]
+        public void TryGet_OnDataRegistry_BlockingState_UnrelatedRecordExists_StillReturnsTrueWithRecord()
+        {
+            // 与既有 TryGetAll_OnDataRegistry_BlockingState_* 同一副坏表/好表夹具：消费方反馈第 45
+            // 条要保留的能力——阻断态下与阻断原因无关的已加载记录仍应正常读到，本次契约修正不应
+            // 破坏这一点（这里只是把"读不到"的表达方式从 true+null 改为 false，不是重新引入
+            // EnsureReadable 检查）。
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+            Assert.True(report.IsBlocking);
+            Assert.Throws<InvalidOperationException>(() => registry.Get("test.owner", "test.owner.a"));
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGet("test.owner", "test.owner.a", out var record);
+
+            Assert.True(ok);
+            Assert.Equal("Ann", record!.GetString("name"));
+        }
+
+        [Fact]
+        public void TryGet_OnDataRegistry_BlockingState_RecordDoesNotExistInLoadedTable_ReturnsFalseWithNull()
+        {
+            var source = new MutableMultiTableSource()
+                .Set("test.widget", "{ not valid json")
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var registry = new DataRegistry(source, MakeBus());
+            registry.RegisterSchema(WidgetSchema());
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+            Assert.True(report.IsBlocking);
+
+            IDataRegistryView view = registry;
+            var ok = view.TryGet("test.owner", "test.owner.does_not_exist", out var record);
+
+            Assert.False(ok);
+            Assert.Null(record);
+        }
     }
 }

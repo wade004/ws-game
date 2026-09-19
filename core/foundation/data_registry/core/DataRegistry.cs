@@ -721,19 +721,31 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>消费方反馈第 45 条（2026-09-17）：<see cref="IDataRegistryView.TryGetAll"/> 的
         /// 同族显式实现，覆盖单记录 <see cref="Get(string, string)"/>——同一份判断记录，直接调用
-        /// <see cref="GetUnchecked"/>，不经过 <see cref="EnsureReadable"/>，因此阻断态下也能读取、
-        /// 恒返回 <c>true</c>；记录本就不存在时与 <see cref="Get(string, string)"/> 行为一致，
-        /// <paramref name="record"/> 置 <c>null</c>（而不是 <c>false</c>），"表/记录不存在"与"数据
-        /// 整体阻断"是两件独立的事，这里只处理后者。</summary>
+        /// <see cref="GetUnchecked"/>，不经过 <see cref="EnsureReadable"/>，因此阻断态下也能读取，
+        /// 不因阻断而抛异常或返回 <c>false</c>（"表/记录不存在"与"数据整体阻断"是两件独立的事，本
+        /// 通道只豁免后者，绕开 <see cref="EnsureReadable"/> 的能力本身不变）。
+        /// <para>
+        /// 判断记录（2026-09-19 契约行为修正，ADR-0041，破坏性变更，同
+        /// <see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/> 判断记录）：此前
+        /// 本方法恒返回 <c>true</c>（哪怕 <paramref name="record"/> 为 <c>null</c>），实测证明与
+        /// <c>TryXxx</c> 惯例相悖、误导调用方（见接口默认成员判断记录引用的消费方案例）。改为按
+        /// <c>record != null</c> 返回——<paramref name="record"/> 真正解析到值时返回 <c>true</c>，
+        /// 表未加载/键不存在时返回 <c>false</c>、<paramref name="record"/> 为 <c>null</c>。这一改动
+        /// **不**重新引入 <see cref="EnsureReadable"/> 阻断检查：本方法依旧直读 <see cref="_tables"/>
+        /// 快照，阻断态下只要该表已成功解析过，仍能正常读到记录并返回 <c>true</c>（消费方反馈第 45
+        /// 条要解决的场景——"阻断态下仍需读取与阻断原因无关的表"——不受影响，只是"确实没有这条
+        /// 记录"这一结果的表达方式从"返回 <c>true</c>+<c>null</c>"改成了"返回 <c>false</c>"，更
+        /// 贴近调用方对 <c>TryGet</c> 的直觉预期。</para>
+        /// </summary>
         bool IDataRegistryView.TryGet(string table, string key, out DataRecord? record)
         {
             record = GetUnchecked(table, key);
-            return true;
+            return record != null;
         }
 
         /// <summary>消费方反馈第 45 条：<see cref="IDataRegistryView.TryGet(string, string, out DataRecord)"/>
         /// 的同族显式实现，覆盖 <see cref="Get(string, CommonId)"/>（<c>CommonId</c> 重载）——语义
-        /// 完全相同。</summary>
+        /// 完全相同（含 2026-09-19 ADR-0041 契约行为修正）。</summary>
         bool IDataRegistryView.TryGet(string table, CommonId id, out DataRecord? record) =>
             ((IDataRegistryView)this).TryGet(table, id.Value, out record);
 

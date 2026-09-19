@@ -431,8 +431,52 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `skill_budget_record_unparseable`/`item_grant_value_unparseable`。编辑器产品文档 v2.17 同批
   补齐第 4.1 节两行契约面，`Editor.Core.Validation.TolerantRegistryView`/
   `DeprecatedFieldHints` 两个自建包装/清单均可退役。
+- **ADR-0041（Unreleased，破坏性变更）**：第 45 条新增的 `IDataRegistryView.TryGet`（含
+  `Core.Foundation.DataRegistry.DataRegistry` 的显式覆盖）实测证明恒返回 `true`（哪怕记录本就
+  不存在），返回值语义修正为"是否找到记录"；`TolerantRegistryView.Get`/`TryGet` 同步调整内部
+  判定算法。方法名/签名不变，编辑器若直接使用这两个入口的返回值判断"是否找到"，需按下方
+  "[Unreleased]"正文"破坏性变更"小节自查。
 
 ## [Unreleased]
+
+### 破坏性变更
+
+[ADR-0041](architecture/adr/0041-数据注册表单记录容错查询语义修正.md)（2026-09-19，已拍板并
+落地）：`IDataRegistryView.TryGet(string, string, out DataRecord)`/`TryGet(string, CommonId,
+out DataRecord)`（消费方反馈第 45 条，1.38.0 引入）返回值语义修正——发布后实测证明其恒返回
+`true`（哪怕 `record` 为 `null`），只要注册表未处于阻断态，与同类查询方法"返回值即是否找到"的
+通用调用惯例相悖；已确认消费方两条回归用例（长驻可交互运行入口的数据集根覆盖生效验收）因此写出
+永远通过的断言，直到本次任务实跑门禁才暴露。方法名与参数签名不变，只改变"记录不存在但未阻断"
+这一分支的返回值。
+
+**before/after**（三种情形逐一对照，两处物理实现——接口默认实现、`DataRegistry` 显式覆盖——
+口径一致）：
+
+| 情形 | 修正前 | 修正后 |
+|---|---|---|
+| 记录存在 | 返回 `true`，`record` 为该记录 | 不变 |
+| 记录不存在（表可正常访问，未阻断） | 返回 `true`，`record` 为 `null` | 返回 `false`，`record` 为 `null` |
+| 整体阻断态（数据校验未通过） | 返回 `false`，`record` 为 `null` | 不变 |
+
+`TolerantRegistryView.Get`/`TryGet`（同批消费方反馈第 45 条引入的包装类型）同步调整内部判定：
+此前直接用 `_inner.TryGet` 的布尔返回值反推"是否阻断"，该返回值修正后不能再用于此目的（阻断与
+"记录不存在"现在都会让 `TryGet` 返回 `false`），改为"找不到时另外探测 `_inner.TryGetAll` 确认
+是否阻断"的两步判定，`IsDegraded`/`MissingTables`/`WasMissing` 对外语义与诊断准确度不变。
+
+全仓扫描确认的调用点：`core/foundation/data_registry/tests/GameDatasetRootOverrideEquivalenceTests.cs`
+两处、`core/foundation/scene_router/tests/SceneDescriptorTests.cs` 一处——均配合断言记录字段值
+或阻断态直读通道，不单独依赖返回值表达"找到与否"，修正后行为不变（前者的 `Assert.True(found)`
+断言反而从此前的"恒真摆设"变为真正有效）；`games/_template/Tests/Runtime/
+GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修复改用 `Get(...)` 返回值
+判空，不再依赖 `TryGet` 布尔值，不受本次修正影响。消费方通知文档：
+[消费方通知-2026-09-19-TryGet契约行为修正.md](architecture/落地计划/消费方通知-2026-09-19-TryGet契约行为修正.md)。
+
+### 新增
+
+- 三种情形（记录存在/不存在/整体阻断）的回归测试：`core/foundation/data_registry/tests/
+  DataRegistryTests.cs`（`TryGet_DefaultInterfaceImplementation_*`/`TryGet_OnDataRegistry_*`
+  共 7 例）、`core/foundation/data_registry/tests/TolerantRegistryViewTests.cs`
+  （`Get_PartiallyPopulatedInnerView_*`/`TryGet_PartiallyPopulatedInnerView_*` 共 4 例）。
 
 ## [1.45.0] - 2026-09-19
 
