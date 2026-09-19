@@ -215,5 +215,55 @@ def test_bootstrap_registers_diagnostics_hub_composition_sources(rel_path: str) 
     )
 
 
+# 第五批跟进（ABI/CS0234 联合修正单，2026-09-20）：DiagnosticsHubComposition.cs 本体新增的
+# presentation/ui 独立契约接线（见其"--- presentation/ui 独立契约 ---"注释块）编译时报
+# CS0234（本文件所在命名空间 Adapter.Unity.Diagnostics 与同程序集兄弟命名空间
+# Adapter.Unity.Presentation 同前缀冲突，未限定作用域的 `Presentation.Ui.Xxx` 被错误解析到后者
+# 下再找 `Ui` 子命名空间失败）。修法是给类型引用加 `global::` 前缀强制从全局命名空间解析（同文件
+# GameFoundationBootstrap.cs/FrameworkResidentHost.cs 已有的 `global::Presentation.Xxx` 惯例）。
+# 用与上面几批同样的"静态解析源码文本，不依赖编译"手法固化两点回归：① 接线本身仍然存在（登记调用
+# 未被悄悄删掉）；② 引用点确实带 `global::` 前缀（防止未来有人为了"简化"又把前缀去掉，重新引入
+# 同一个 CS0234）。
+_DIAGNOSTICS_HUB_COMPOSITION_FILE = (
+    "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Diagnostics/"
+    "DiagnosticsHubComposition.cs"
+)
+_UI_DIAGNOSTICS_REGISTER_RE = re.compile(
+    r'hub\.Register\(\s*"Presentation\.Ui"\s*,\s*uiDiag\.Warnings\s*\)\s*;'
+)
+_UI_DIAGNOSTICS_TYPE_PATTERN_RE = re.compile(
+    r"presentation\.UiDiagnostics\s+is\s+(global::)?Presentation\.Ui\.InMemoryUiDiagnostics\s+uiDiag"
+)
+
+
+def test_diagnostics_hub_composition_registers_presentation_ui_source() -> None:
+    text = _read_source(_DIAGNOSTICS_HUB_COMPOSITION_FILE)
+    assert _UI_DIAGNOSTICS_REGISTER_RE.search(text), (
+        f"{_DIAGNOSTICS_HUB_COMPOSITION_FILE}: 未找到 "
+        '`hub.Register("Presentation.Ui", uiDiag.Warnings)` 调用——presentation/ui 独立契约'
+        "（IUiDiagnostics，不实现 IPresentationDiagnostics）的接线可能被悄悄删掉，"
+        "这会让 DiagnosticsHub 里少一条本该普查覆盖的来源。"
+    )
+
+
+def test_diagnostics_hub_composition_ui_diagnostics_type_pattern_uses_global_qualifier() -> None:
+    text = _read_source(_DIAGNOSTICS_HUB_COMPOSITION_FILE)
+    match = _UI_DIAGNOSTICS_TYPE_PATTERN_RE.search(text)
+    assert match is not None, (
+        f"{_DIAGNOSTICS_HUB_COMPOSITION_FILE}: 未找到 "
+        "`presentation.UiDiagnostics is Presentation.Ui.InMemoryUiDiagnostics uiDiag` 模式匹配——"
+        "接线可能已被改写为其它形态，需要先确认。"
+    )
+    assert match.group(1) == "global::", (
+        f"{_DIAGNOSTICS_HUB_COMPOSITION_FILE}: `Presentation.Ui.InMemoryUiDiagnostics` 类型引用缺少 "
+        "`global::` 前缀——本文件命名空间 Adapter.Unity.Diagnostics 与同程序集兄弟命名空间 "
+        "Adapter.Unity.Presentation（Runtime/Presentation/ 下 AnimClipResolver 等）同前缀冲突，"
+        "编译器会把未限定的 `Presentation` 标识符先解析到 Adapter.Unity.Presentation、再在其下找 "
+        "`Ui` 子命名空间失败，报 CS0234（'The type or namespace name \\'Ui\\' does not exist in the "
+        "namespace \\'Adapter.Unity.Presentation\\''）——这正是本轮任务修的那个 Unity 编译错误，"
+        "去掉 `global::` 前缀会原样复现。"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

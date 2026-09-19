@@ -1269,5 +1269,46 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(3, callCount); // Feedback/Vfx/Sfx 三步都经过了 runner。
             Assert.Equal(0, caughtCount); // 正常路径下三步都不抛异常。
         }
+
+        // ------------------------------------------------------------------
+        // ABI/CS0234 联合修正单（2026-09-20）反向确认：presentation.UiDiagnostics 生产装配下真实
+        // 是 Presentation.Ui.InMemoryUiDiagnostics，且累积的 Warnings 反映真实诊断消息——
+        // adapters/unity/.../DiagnosticsHubComposition.RegisterCoreSources 第 169 行
+        // `presentation.UiDiagnostics is global::Presentation.Ui.InMemoryUiDiagnostics uiDiag` 这一
+        // 模式匹配 + `hub.Register("Presentation.Ui", uiDiag.Warnings)` 转发正是依赖这两点。该文件
+        // 本身是 Unity-only 胶水、不进本项目编译范围（见其类型级判断记录"本文件不进入 dotnet test
+        // 编译范围"），本测试只覆盖它依赖的纯 C# 契约行为——不能验证 CS0234 本身是否已修好（那部分
+        // 靠静态命名空间分析 + toolchain/tests 的正则回归确认），但能保证一旦编译通过、这行代码接到
+        // 的确实是会随 UI 查询产生真实警告的诊断出口，不是一个恒空的占位对象。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void UiDiagnostics_ProductionWiring_IsInMemoryUiDiagnostics()
+        {
+            var presentation = Build(out _, out _, out _, out _);
+
+            // 判断记录：本文件命名空间 Tests.Presentation.Assembly 与全局 Presentation.Ui 同前缀
+            // 冲突，写不带 global:: 前缀的 `Presentation.Ui.InMemoryUiDiagnostics` 在这里同样会编译
+            // 报 CS0234（"命名空间 'Tests.Presentation' 中不存在类型或命名空间名 'Ui'"）——本测试文件
+            // 首次编译时确实先撞上了这个错误，才改成 global:: 限定，这正是本单在
+            // DiagnosticsHubComposition.cs 里修的同一类命名空间冲突的独立复现，加固了"为什么必须加
+            // global::"这条判断记录的可信度。
+            Assert.IsType<global::Presentation.Ui.InMemoryUiDiagnostics>(presentation.UiDiagnostics);
+        }
+
+        [Fact]
+        public void UiDiagnostics_AfterUnknownPathQuery_RecordsWarning_ObservableThroughDiagnosticsProperty()
+        {
+            var presentation = Build(out _, out _, out _, out _);
+
+            // UiDataSource.Query 对未注册的路径首段调用 _diagnostics.Warn(...)（见该方法判断记录），
+            // 用一个必然未被任何 IUiPathProvider 注册的首段触发一次真实警告。
+            var result = presentation.UiData.Query("no_such_root.foo");
+
+            Assert.Null(result);
+            var uiDiag = Assert.IsType<global::Presentation.Ui.InMemoryUiDiagnostics>(presentation.UiDiagnostics);
+            var warning = Assert.Single(uiDiag.Warnings);
+            Assert.Contains("no_such_root", warning);
+        }
     }
 }

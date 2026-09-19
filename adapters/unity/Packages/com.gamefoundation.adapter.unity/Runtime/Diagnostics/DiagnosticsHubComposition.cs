@@ -166,7 +166,20 @@ namespace Adapter.Unity.Diagnostics
             }
 
             // --- presentation/ui 独立契约（不实现 IPresentationDiagnostics，同 ISkillDiagnostics 惯例） ---
-            if (presentation.UiDiagnostics is Presentation.Ui.InMemoryUiDiagnostics uiDiag)
+            // 判断记录（CS0234 修正，2026-09-20）：此前写作 `Presentation.Ui.InMemoryUiDiagnostics`
+            // 编译报 "The type or namespace name 'Ui' does not exist in the namespace
+            // 'Adapter.Unity.Presentation'"——本文件所在命名空间 Adapter.Unity.Diagnostics 与本程序集
+            // 内已存在的兄弟命名空间 Adapter.Unity.Presentation（见 Runtime/Presentation/ 下
+            // AnimClipResolver 等文件）同名前缀冲突：编译器按"由内向外逐级匹配外层命名空间"解析未限定
+            // 的 `Presentation` 标识符，会先命中同程序集内的 Adapter.Unity.Presentation（存在这个命名
+            // 空间），再在其下找 `Ui` 子命名空间失败即报错终止，不会继续回退到全局的 Presentation.Ui
+            // （核心层 presentation/ui 模块的命名空间）。这不是"UiDiagnostics 出口未接线"（该出口已由
+            // presentation/assembly.PresentationAssembly.UiDiagnostics 属性提供，属性类型正是
+            // Presentation.Ui.IUiDiagnostics，只是引用点未限定作用域），修法是加 `global::` 前缀强制从
+            // 全局命名空间解析，不是补属性/补装配——本程序集内 GameFoundationBootstrap.cs/
+            // FrameworkResidentHost.cs 已有同名冲突场景下用 `global::Presentation.Xxx`（VfxSfx/Render/
+            // FeedbackBinder/Shell 等多处）的既有先例，此处沿用同一惯例。
+            if (presentation.UiDiagnostics is global::Presentation.Ui.InMemoryUiDiagnostics uiDiag)
             {
                 hub.Register("Presentation.Ui", uiDiag.Warnings);
             }

@@ -654,6 +654,53 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   已还原）。24 个模块 README 补充判断记录，详见各自"判断记录（诊断契约统一转发机制，
   2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）"一节。
 
+- **ABI 破坏修正：`IDataRegistry.IsDegraded`/`GetUnavailableSources` 补默认接口实现（数据源枚举
+  执行期异常隔离单遗留问题）**：这两个成员发布时是不带默认实现的抽象接口成员，`toolchain/
+  abi_probe.ps1` 正确报出 `interface_new_abstract_member` 破坏（`breaks=2`）——AGENTS.md 第 3 节
+  "ABI 只新增：……默认接口成员……"这条规则本身不区分"仓库内是否已知有第三方实现"，当时的判断记录
+  "全仓库唯一实现完整 `IDataRegistry` 的类型是 `DataRegistry` 本身，新增本成员不破坏任何第三方
+  实现"不成立。现补默认实现：`IsDegraded => false`、`GetUnavailableSources()` 默认返回空集合
+  （语义"未退化/无不可用数据源"，与本接口既有的 `GetOverrideDiagnostics`/
+  `GetReferenceDeclarations` 默认值风格一致）；`DataRegistry` 本体保留自己的真实覆盖，不受影响。
+  全仓调用点扫描确认现有读取方均经具体 `DataRegistry` 实例访问，未发现依赖裸接口引用读取这两个
+  成员的调用点，补默认值不影响任何既有行为。新增测试：`core/foundation/data_registry/tests/
+  DataRegistryTests.cs` 的 `MinimalDataRegistry`（故意不覆盖这两个成员的测试替身）+
+  `IsDegraded_DefaultInterfaceImplementation_ReturnsFalse`/
+  `GetUnavailableSources_DefaultInterfaceImplementation_ReturnsEmpty`/
+  `MinimalDataRegistry_CompilesWithoutOverridingDegradedMembers_ProvingDefaultInterfaceImplementationExists`。
+  反向确认：改回不带默认实现的纯抽象成员，`Tests.Foundation.csproj` 编译报 `CS0535`，已验证并
+  还原。重跑 ABI 探针：`breaks=0 allowed=0 additions=46 RESULT=OK`（基线
+  `dist/ws-game-1.45.0.zip`）。详见 `core/foundation/data_registry/README.md` 判断记录。
+
+- **Unity 编译错误修正：`DiagnosticsHubComposition.cs` 的 `presentation/ui` 契约接线 CS0234
+  （ADR-0042 诊断契约统一转发单未跑 Unity 暴露的遗留问题）**：`presentation.UiDiagnostics is
+  Presentation.Ui.InMemoryUiDiagnostics uiDiag` 这一模式匹配在 Unity 批处理编译时报
+  `error CS0234: The type or namespace name 'Ui' does not exist in the namespace
+  'Adapter.Unity.Presentation'`——`DiagnosticsHubComposition.cs` 所在命名空间
+  `Adapter.Unity.Diagnostics` 与同一 asmdef 内已存在的兄弟命名空间 `Adapter.Unity.Presentation`
+  （`Runtime/Presentation/` 下 `AnimClipResolver` 等）同前缀冲突，编译器把未限定的 `Presentation`
+  标识符解析到了后者、再在其下找 `Ui` 子命名空间失败报错，不会回退到全局的 `Presentation.Ui`
+  （`presentation/ui` 模块真正所在的命名空间，已编译进 `Presentation.Common.dll`，
+  `Adapter.Unity.asmdef` 的 `precompiledReferences` 已含此程序集，不是缺引用）。不是"接线漏了"，
+  是引用点未限定命名空间作用域。**修法**：类型引用加 `global::` 前缀
+  （`global::Presentation.Ui.InMemoryUiDiagnostics`）——本程序集内 `GameFoundationBootstrap.cs`/
+  `FrameworkResidentHost.cs` 已有同名冲突场景下用 `global::Presentation.Xxx` 的既有先例，沿用
+  同一惯例。本次任务新增的 xUnit 测试文件 `PresentationAssemblyTests.cs`（命名空间
+  `Tests.Presentation.Assembly`）首次编译时独立复现了同一个 CS0234，证实这是命名空间冲突的通性
+  问题。新增/新增测试：`toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_
+  wiring.py` 新增
+  `test_diagnostics_hub_composition_registers_presentation_ui_source`/
+  `test_diagnostics_hub_composition_ui_diagnostics_type_pattern_uses_global_qualifier`（静态
+  解析源码文本确认接线仍存在、且确实带 `global::` 前缀）；
+  `presentation/assembly/tests/PresentationAssemblyTests.cs` 新增
+  `UiDiagnostics_ProductionWiring_IsInMemoryUiDiagnostics`/
+  `UiDiagnostics_AfterUnknownPathQuery_RecordsWarning_ObservableThroughDiagnosticsProperty`
+  （纯 C# 侧确认生产装配下 `presentation.UiDiagnostics` 确实是 `InMemoryUiDiagnostics`、且真实
+  查询会产生可观察警告）。反向确认：去掉 `global::` 前缀，新增的 python 测试失败，已验证并还原。
+  `DiagnosticsHubComposition.cs` 本身是 Unity-only 胶水、不进 `dotnet test` 编译范围，本次未起
+  Unity，编译正确性靠静态命名空间分析 + asmdef 引用关系核对自证，待主会话跑真实 Unity 批处理
+  门禁复核。详见 `presentation/assembly/README.md` 判断记录（诊断契约统一转发机制）跟进段。
+
 ## [1.45.0] - 2026-09-19
 
 本版落地消费方反馈第 67～72 条（ADR-0040 运行期宿主命令行能力契约；常驻运行入口、参数化内容
