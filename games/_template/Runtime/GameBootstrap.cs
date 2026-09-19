@@ -669,6 +669,15 @@ namespace Game.Template
                     hasRig.Rig.Update(Time.deltaTime);
                 }
             }
+
+            // 诊断转发到引擎控制台（feat/diagnostics-console-forward 后续收口）：同
+            // Adapter.Unity.Bootstrap.GameFoundationBootstrap/Adapter.Unity.Shell.FrameworkResidentHost
+            // 的 AdvanceCharacterRigs 同款，见 UnityViewFactory.PumpDiagnostics 判断记录——此前只接了
+            // adapters/unity 那两处，按模板起的真实游戏（本类型正是模板的生产入口）从未获得这份转发，
+            // 是比两个宿主类型本身更该覆盖的接线缺口。待主会话跑 Unity 引擎门禁确认：本调用只能在真实
+            // Unity 批处理测试里验证确实写入了控制台/日志文件，dotnet test 只覆盖了 PumpDiagnostics
+            // 依赖的纯逻辑部分（PresentationDiagnosticsConsoleForwarding.cs）。
+            ViewFactory.PumpDiagnostics();
         }
 
         private void OnDestroy()

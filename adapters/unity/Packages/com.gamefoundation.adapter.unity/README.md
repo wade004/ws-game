@@ -440,6 +440,12 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   xUnit 单测在 `dotnet test` 侧覆盖，均已用临时破坏转发生效/去重生效/开关判断三处逻辑做过反向确认
   （确认对应测试必然失败）后还原；引用 `UnityEngine.Debug` 的胶水与三处生产接线点无法用
   `dotnet test` 验证，待主会话跑 Unity 引擎门禁确认。
+  <br/>**后续收口（2026-09-19）**：`games/_template/Runtime/GameBootstrap.cs` 一处已按同一套写法
+  补上 `ViewFactory.PumpDiagnostics()`（游戏模板作为真实游戏的生产入口，是这份转发最该生效的地方，
+  见该文件 README"长驻可交互运行"节后判断记录），三处 `AdvanceCharacterRigs` 现均已接线；新增
+  `toolchain/tests/test_diagnostics_forwarding_advance_character_rigs_wiring.py` 脱离 Unity 校验
+  三处保持同步，已做反向确认。`VfxPlayer`/`SfxPlayer`/`CompositeFeedbackSink`/`FeedbackBinder`/
+  `ViewBinder`/`HitFrameSyncPolicy` 缺注入点这一条仍未处理，待设计层确认。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
