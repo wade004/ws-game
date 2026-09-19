@@ -36,6 +36,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WRITEBACK_SCRIPT = REPO_ROOT / "toolchain" / "_version_writeback.ps1"
 
@@ -60,6 +62,7 @@ def _run_ps(exe: str, script: str) -> None:
         [exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
+        env=clean_powershell_env(exe),
     )
     assert result.returncode == 0, (
         f"PowerShell 脚本执行失败 (exit={result.returncode})\nstdout={result.stdout}\nstderr={result.stderr}"

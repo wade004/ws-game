@@ -504,6 +504,21 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
 
 ### 修复
 
+- **`toolchain/tests` 下 PowerShell 子进程用例不再受"pytest 从哪个 shell 启动"影响**：
+  `test_real_baseline_end_to_end_via_abi_probe`（`test_abi_surface_compare.py`）在部分开发机
+  上稳定复现失败（`abi_probe.ps1` 报 `The term 'Get-FileHash' is not recognized ...`）——根因
+  是从 PowerShell 7（pwsh，MSIX 打包安装）里拉起 Windows PowerShell 5.1 子进程时，Python
+  `subprocess.run` 会把 pwsh 7 自己的 `PSModulePath`（含一条 PowerShell 7 专属的 MSIX 模块
+  目录）原样继承给 5.1 子进程，5.1 在该外来模块目录下做命令自动发现时内部命中非终止性异常，
+  被调用脚本设置的 `$ErrorActionPreference = "Stop"` 把它提升为终止性异常，整个自动发现流程
+  中止，连内置 `Get-FileHash` 都解析不到；`check.ps1` 的 ABI 探针步骤用 pwsh 的 `&` 调用运算符
+  起子进程不受影响，是"同一份 `abi_probe.ps1`，`check.ps1` 跑得过、pytest 跑不过"的原因，已用
+  最小复现锁定并反向确认（详见 `toolchain/README.md`"`toolchain/tests` 里 PowerShell 子进程
+  用例的确定性环境"一节）。新增 `toolchain/tests/_ps_subprocess_env.py` 的
+  `clean_powershell_env()`，给 Windows PowerShell 5.1 目标显式设置一份干净的原生
+  `PSModulePath`（不覆盖 pwsh 目标），并接入 10 个测试文件的全部 13 处启动 PowerShell 子进程
+  的 `subprocess.run` 调用点，不只修最先暴露的那一个。
+
 - 消费方反馈第 73 条：`DataRegistry.RunValidationAndBuildReport` 单条 `IValidationRule.Validate`
   执行期抛出的异常此前未做任何隔离，一路冒出 `LoadAll` 使调用方进程以 `0xE0434352`（未捕获托管
   异常标准终止码）崩溃退出、不产出任何报告（消费方两条独立复现路径——`item.budget_curve` 记录

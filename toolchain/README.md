@@ -987,3 +987,59 @@ meta）/隐藏文件与 `~` 结尾文件不要求 `.meta`/CLI 退出码共 11 �
 规则本身读起来完全合理，只有把它跟"该目录下实际有哪些文件被跟踪"逐条对照才能看出矛盾。本检查
 落地当次即照单验出全部三处，是它存在价值的直接证明，也是本次任务"给 `check.ps1` 补一个不依赖
 Unity 的 meta 完整性检查"的完整验收闭环。
+
+## `toolchain/tests` 里 PowerShell 子进程用例的确定性环境（`_ps_subprocess_env.py`，2026-09-20）
+
+背景：`test_real_baseline_end_to_end_via_abi_probe`（`test_abi_surface_compare.py`）在部分
+开发机上稳定复现失败：`abi_probe.ps1` 报 `The term 'Get-FileHash' is not recognized ...`
+（`CommandNotFoundException`）。
+
+**根因（已用最小复现锁定，非猜测）**：本仓库的开发/门禁环境普遍是从 PowerShell 7（`pwsh`，
+本机为 MSIX/WindowsApps 打包安装）里拉起 Windows PowerShell 5.1（`powershell.exe`）子进程去
+跑各类 `.ps1` 门禁测试。Python `subprocess.run` 对子进程做的是原始 CreateProcess，会把父进程
+（pwsh 7）自己的 `PSModulePath`（其中含一条 PowerShell 7 专属的 MSIX/WindowsApps 模块目录）
+原样继承给子进程；Windows PowerShell 5.1 在这个外来模块目录下做命令自动发现（`Get-FileHash`
+这类内置 cmdlet 靠自动加载解析）时会内部命中一个非终止性异常，`abi_probe.ps1` 等门禁脚本按
+AGENTS.md §3"保持确定性"的惯例设置了 `$ErrorActionPreference = "Stop"`，这个非终止性异常被
+提升为终止性异常，导致整个命令自动发现流程中止。用四组对照的最小复现锁定了触发条件（详见提交
+`toolchain/tests/_ps_subprocess_env.py` 头注释与本次改动判断记录）：只在"父进程是 pwsh 7 +
+raw `subprocess.run` 继承其 `PSModulePath`（含该 MSIX 模块目录）+ 目标脚本设了
+`$ErrorActionPreference = 'Stop'`"三个条件同时满足时复现；缺任一条件（如 pwsh 自己的 `&`
+调用运算符起子进程、或不设 `Stop`）均不复现。
+
+**为什么 `check.ps1` 的 ABI 探针步骤这次没有暴露这个问题**：该步骤用 `& powershell -NoProfile
+... -Command ...`（pwsh 的调用运算符）起子进程，实测这条路径下子进程拿到的 `PSModulePath` 是
+Windows PowerShell 5.1 的原生默认值（不含 PowerShell 7 的模块目录），因此不受影响——这正是
+"同一份 `abi_probe.ps1`，`check.ps1` 跑得过、pytest 跑不过"的原因，不是脚本本身的缺陷。
+
+**根治方向选择**（不是"哪个都能修，随便选一个"，三个候选逐一评估）：
+1. **采用**：测试侧显式给 5.1 子进程一个确定、干净的 `PSModulePath`（新增
+   `toolchain/tests/_ps_subprocess_env.py` 的 `clean_powershell_env()`），效果上与
+   `check.ps1` 已经在用的调用方式对齐，使两者不再因为"父进程是哪个 shell"而分道扬镳。
+2. 不采用"统一测试侧也改用 pwsh 起子进程"：本仓库 `toolchain/*.ps1` 的兼容目标本来就包含
+   Windows PowerShell 5.1（下游游戏仓库消费方的典型环境），相关测试（ANSI 代码页解析、`-File`
+   场景下的 `[bool]` 参数绑定行为等，见 `check.ps1` ABI 探针步骤判断记录）必须能在真实的 5.1
+   宿主下验证，不能用 pwsh 替代验证对象。
+3. 不采用"在 `abi_probe.ps1`/`get_framework.ps1` 等生产脚本内部加防御"：这些脚本的实际调用方
+   （`check.ps1`/`build.ps1`）已经用 `& powershell ...` 规避了这个问题，不需要再改；
+   `get_framework.ps1` 早先为兼容"下游消费方自己的运行环境不可控"这个更宽的问题已经内联了不
+   依赖 `Get-FileHash` 的兜底哈希函数（`Get-Sha256FileHash`，见该脚本判断记录），但那是为
+   下游消费方兜底、职责边界不同——本仓库内部的 pytest 用例完全知道自己要调用哪个宿主，不存在
+   "调用方环境不可控"的理由，把测试环境问题也塞进生产脚本只会徒增生产代码分支。
+
+**同类问题一并修**：扫描 `toolchain/tests` 下全部会启动 PowerShell 子进程的用例，在
+`test_abi_probe_outdir_safety.py`、`test_abi_surface_compare.py`、
+`test_build_version_writeback_lf.py`、`test_get_framework_lock_source_no_local_path.py`、
+`test_get_framework_path_boundary.py`、`test_get_framework_with_samples.py`、
+`test_lock_writeback_repair_parity.py`、`test_powershell_scripts_ansi_safe.py`、
+`test_registry_stop_pidfile_rewrite_timestamp.py`、`test_sync_content.py` 共 10 个文件的
+13 处 `subprocess.run` 调用点统一接入 `clean_powershell_env()`，不是只修最先暴露的那一个。
+`clean_powershell_env()` 只对 Windows PowerShell 5.1 目标生效（按可执行文件名判定），pwsh
+目标原样返回 `None`（不覆盖 `env`）——目前没有复现证据表明 pwsh 目标存在同类问题，不做未经
+验证的改动。
+
+**反向确认**：临时删掉 `test_abi_surface_compare.py` 里的 `env=clean_powershell_env(...)`
+参数，并把启动 pytest 的那个 pwsh 会话的 `PSModulePath` 显式设成含 PowerShell 7 MSIX 模块
+目录的污染值，`test_real_baseline_end_to_end_via_abi_probe` 稳定复现失败
+（`CommandNotFoundException`）；加回该参数后，同一个污染的 `PSModulePath` 下测试稳定通过——
+确认修复对症，不是巧合。

@@ -46,6 +46,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPER_SCRIPT = Path(__file__).resolve().parent / "_ansi_parse_check.ps1"
 
@@ -143,6 +145,7 @@ def _run_parse_check(relpath: str, mode: str, powershell: str) -> tuple[int, str
         encoding="utf-8",
         errors="replace",
         timeout=60,
+        env=clean_powershell_env(powershell),
     )
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     if not lines:

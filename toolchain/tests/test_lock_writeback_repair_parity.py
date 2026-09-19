@@ -43,6 +43,8 @@ from pathlib import Path
 
 import pytest
 
+from _ps_subprocess_env import clean_powershell_env
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GET_FRAMEWORK_SCRIPT = REPO_ROOT / "toolchain" / "get_framework.ps1"
 HASH_SCRIPT = REPO_ROOT / "toolchain" / "_hash.ps1"
@@ -88,6 +90,7 @@ def _run_powershell(script_body: str, timeout: int = 120) -> subprocess.Complete
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        env=clean_powershell_env(POWERSHELL),
     )
 
 
@@ -101,6 +104,7 @@ def _run_get_framework(args: list[str], cwd: Path) -> subprocess.CompletedProces
     return subprocess.run(
         cmd, cwd=str(cwd), capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=120,
+        env=clean_powershell_env(POWERSHELL),
     )
 
 
