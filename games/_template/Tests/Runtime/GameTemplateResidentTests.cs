@@ -17,6 +17,14 @@
 // 完整验证"就绪文件被写出 -> 创建停止文件 -> Succeeded 转为 true"这一整条链路，只是不能验证真实
 // 进程退出码本身（那需要构建独立版，见 games/_template/README.md"长驻可交互运行"一节，由
 // consumer_smoke.ps1 或主会话手工验证，本用例不覆盖）。
+//
+// 待办（本文件本次改动，2026-09-19）：`ResidentRunner_DatasetRootOverride_LoadsProbeTable_
+// FromOverrideRootOnly` 是本次任务对此前一条假测试（覆盖值=默认值，通过与失败无法区分）的替换，
+// 属于 Unity PlayMode 用例，本任务未在此工作树内跑 Unity（见派单说明，PlayMode 门禁由主会话统一
+// 跑），未能实机验证；反向确认（去掉覆盖应让断言失败）的具体做法与预期结果见该用例内注释，
+// 待主会话在整合时跑引擎门禁一并验证。同等的"覆盖不同根确实加载到不同数据"这条底层机制已在纯
+// .NET 侧补了等价回归（`core/foundation/data_registry/tests/GameDatasetRootOverrideEquivalenceTests.cs`），
+// 已本地跑通并做过真正的反向确认（临时改断代码再还原，见该文件判断记录）。
 using System;
 using System.Collections;
 using System.IO;
@@ -33,6 +41,8 @@ namespace Game.Template.Tests
         private GameObject? _runnerGo;
         private string? _readyFilePath;
         private string? _stopFilePath;
+        private string? _overrideProbeDir;
+        private string? _overrideRelativeRoot;
 
         [UnityTearDown]
         public IEnumerator TearDown()
@@ -50,6 +60,8 @@ namespace Game.Template.Tests
             GameBootstrap.GameDatasetRootOverride = null;
             TryDeleteFile(_readyFilePath);
             TryDeleteFile(_stopFilePath);
+            TryDeleteProbeDir(_overrideProbeDir);
+            _overrideProbeDir = null;
             yield return null;
         }
 
@@ -57,6 +69,17 @@ namespace Game.Template.Tests
         {
             if (string.IsNullOrEmpty(path)) return;
             try { if (File.Exists(path)) File.Delete(path); } catch { /* 尽力而为 */ }
+        }
+
+        /// <summary>清理 <see cref="ResidentRunner_DatasetRootOverride_LoadsProbeTable_FromOverrideRootOnly"/>
+        /// 在真实 StreamingAssets 内容根下临时写出的探针数据目录（含 Unity 可能顺带生成的
+        /// 同名 .meta），避免残留污染工作副本；用随机子目录名（见该用例），不会与仓库既有内容
+        /// 冲突。</summary>
+        private static void TryDeleteProbeDir(string? dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return;
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* 尽力而为 */ }
+            try { if (File.Exists(dir + ".meta")) File.Delete(dir + ".meta"); } catch { /* 尽力而为 */ }
         }
 
         /// <summary>惯例同 PRES118_TemplateContractTests.CleanupStaleGameBootstraps：构建独立实例
@@ -146,16 +169,44 @@ namespace Game.Template.Tests
             Assert.IsFalse(File.Exists(_stopFilePath), "受控退出应清理掉停止文件，避免下次启动误触发");
         }
 
+        /// <summary>探针数据表名，只在 <see cref="ResidentRunner_DatasetRootOverride_LoadsProbeTable_FromOverrideRootOnly"/>
+        /// 临时写出的覆盖根下存在，仓库任何既有数据根（含默认 "data/game"）下都不存在——用于让
+        /// "覆盖是否真的生效"变得可观察、可区分（修复前的用例把覆盖值设成与默认值相同，通过与
+        /// 失败无法区分，等于没测，见本文件改动前版本与 CHANGELOG "[Unreleased]" 对应条目）。</summary>
+        private const string ProbeTableName = "probe.dataset_root_marker";
+
+        private const string ProbeRecordKey = "probe.dataset_root_marker.value";
+
+        private static string ProbeTableJson(string origin) =>
+            "{\"table\": \"" + ProbeTableName + "\", \"schema_version\": 1, \"rows\": " +
+            "[{\"id\": \"" + ProbeRecordKey + "\", \"origin\": \"" + origin + "\"}]}";
+
         [UnityTest]
-        public IEnumerator ResidentRunner_ContentRootOverride_SameAsDefault_StillBootstrapsCleanly()
+        public IEnumerator ResidentRunner_DatasetRootOverride_LoadsProbeTable_FromOverrideRootOnly()
         {
-            // ADR-0040 决策 2：验证 GameBootstrap.GameDatasetRootOverride 覆盖生效（不是被忽略的死
-            // 配置项）。用与默认值相同的路径覆盖，只验证"覆盖被读取并使用后装配依然成功、0 阻断
-            // 错误"，不引入新的模板数据集夹具——真正加载"另一份不同内容"的端到端验证属于需要真实
-            // Unity 独立版构建 + 一份替代数据集的场景，留给主会话按 README"长驻可交互运行"一节列出
-            // 的清单手工验证。
+            // 有区分力的替换用例（修复前版本见上方类型头一段判断记录引用）：准备一份只存在于覆盖
+            // 根、不存在于默认根 "data/game" 的最小探针数据表，断言覆盖生效后 GameBootstrap.Registry
+            // 能读到探针记录——如果覆盖没有生效（被忽略、字段写错、装配阶段某处吞掉了覆盖值等），
+            // ResidentRunner/GameBootstrap 实际读的仍是默认根，探针表根本不存在，TryGet 必然返回
+            // false，断言必然失败，因此本用例具备区分力。
+            //
+            // 反向确认（AGENTS.md §7 与本任务硬性要求：真正跑一次"去掉覆盖，测试必须失败"）：把下面
+            // "GameBootstrap.GameDatasetRootOverride = _overrideRelativeRoot;" 这一行临时改成
+            // "GameBootstrap.GameDatasetRootOverride = null;"（或注释掉，等价于"覆盖功能被去
+            // 掉/传空"），保持其余代码不变重新跑本用例——预期：探针表在默认根 "data/game" 下不存在，
+            // "found" 断言（下方 Assert.IsTrue(found, ...)）会失败、用例报红，证明当前断言确实依赖
+            // 覆盖生效才能通过，不是摆设；验证完成后必须改回来，否则本用例会假失败。本任务在此
+            // worktree 内不跑 Unity（见派单说明），未能执行这一步，标注为"待主会话在整合时跑引擎
+            // 门禁验证"一并核对。
             CleanupStaleGameBootstraps();
-            GameBootstrap.GameDatasetRootOverride = "data/game";
+
+            _overrideRelativeRoot = "gf_test_dataset_root_probe_" + Guid.NewGuid().ToString("N");
+            var contentRoot = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
+            _overrideProbeDir = Path.Combine(contentRoot, _overrideRelativeRoot);
+            Directory.CreateDirectory(_overrideProbeDir);
+            File.WriteAllText(Path.Combine(_overrideProbeDir, ProbeTableName + ".json"), ProbeTableJson("override_root"));
+
+            GameBootstrap.GameDatasetRootOverride = _overrideRelativeRoot;
 
             var go = new GameObject("ResidentTestBootstrapOverride");
             go.SetActive(false);
@@ -163,10 +214,38 @@ namespace Game.Template.Tests
             _bootstrapGo = go;
             go.SetActive(true);
 
-            Assert.IsFalse(bootstrap.BootstrapFailed, "覆盖为与默认值相同的数据根，装配不应失败");
+            Assert.IsFalse(bootstrap.BootstrapFailed, "覆盖到一个真实存在的数据根，装配不应失败");
             Assert.IsNotNull(bootstrap.LoadReport);
             Assert.AreEqual(0, bootstrap.LoadReport!.ErrorCount,
                 "覆盖生效后仍应 0 阻断错误：" + string.Join("; ", bootstrap.LoadReport.Issues));
+
+            var found = bootstrap.Registry.TryGet(ProbeTableName, ProbeRecordKey, out var record);
+            Assert.IsTrue(found,
+                "覆盖生效时应能读到只存在于覆盖根下的探针表——若为 false，说明覆盖被忽略，实际仍在读默认根 data/game");
+            Assert.AreEqual("override_root", record!.GetString("origin"), "探针记录字段应来自覆盖根写入的内容");
+
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ResidentRunner_DatasetRootOverride_Absent_DefaultRootNeverSeesOverrideProbeTable()
+        {
+            // 对照组（不是反向确认本身，反向确认见上一条用例注释）：不设置覆盖（默认根
+            // "data/game"）时，探针表本就不存在于默认根下，TryGet 应返回 false——与上一条用例合起
+            // 来构成"覆盖生效 vs 不生效"两种可观察状态的对照，捕获"探针表意外泄漏进默认根/静态字段
+            // 跨用例残留导致假阳性"这一类问题。
+            CleanupStaleGameBootstraps();
+            GameBootstrap.GameDatasetRootOverride = null;
+
+            var go = new GameObject("ResidentTestBootstrapDefault");
+            go.SetActive(false);
+            var bootstrap = go.AddComponent<GameBootstrap>();
+            _bootstrapGo = go;
+            go.SetActive(true);
+
+            Assert.IsFalse(bootstrap.BootstrapFailed, "默认数据根装配不应失败");
+            var found = bootstrap.Registry.TryGet(ProbeTableName, ProbeRecordKey, out _);
+            Assert.IsFalse(found, "默认根 data/game 下不应存在覆盖探针表");
 
             yield return null;
         }

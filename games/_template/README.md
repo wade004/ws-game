@@ -222,12 +222,12 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
 
 ```
 <独立版可执行文件> -batchmode -gf-resident -logFile <日志路径>
-<独立版可执行文件> -batchmode -gf-resident -gf-content-root=data/game -gf-ready-file=<路径> -gf-stop-file=<路径> -logFile <日志路径>
+<独立版可执行文件> -batchmode -gf-resident -gf-dataset-root=data/game -gf-ready-file=<路径> -gf-stop-file=<路径> -logFile <日志路径>
 ```
 
 命令行参数（均可省略，省略时用默认值）：
 
-- `-gf-content-root=<相对路径>`：覆盖本次加载的游戏数据根（`GameBootstrap.GameDatasetRootOverride`，
+- `-gf-dataset-root=<相对路径>`：覆盖本次加载的游戏数据根（`GameBootstrap.GameDatasetRootOverride`，
   默认不覆盖，即 `data/game`）；与下面"参数化内容同步入口"配合使用——先用
   `toolchain/sync_content.ps1` 把内容同步进 StreamingAssets 下的某个子目录，再以该子目录相对路径
   启动本入口。
@@ -247,6 +247,16 @@ Ctrl+C/SIGINT 等操作系统信号（见 `Runtime/ResidentRunner.cs` 类型头�
 **退出码**：复用 `-gf-smoke-template` 已有的分级（不新造一套），只用到其中两档——`0` 成功（受控
 退出）；`2` 失败（装配失败，或迟迟未能进入可交互状态）。本入口没有总运行时长上限（核心承诺就是
 "保持运行直到外部主动结束"），因此不使用 `-gf-smoke-template` 的看门狗超时码 `3`。
+
+判断记录（2026-09-19，本开关改名为 `-gf-dataset-root`）：本开关落地时的初名字面上写的是"内容
+根"，与另一条并行开发线上语义完全不同的"物理内容根覆盖"开关（供开发期热重载监视用）拼写只差
+一个词，属两条并行开发线各自命名都合理、放在一起看却明显撞名的偶然撞车；发现后改为更贴切
+"覆盖的是游戏数据集下的哪个子目录"这一实际语义的 `-gf-dataset-root`，`GameBootstrap.
+GameDatasetRootOverride` 字段名本就用"Dataset"，不受影响。改名前后对照与命名约定详见
+[ADR-0040](../../architecture/adr/0040-运行期宿主命令行能力契约.md)"命令行开关命名约定"一节；
+本次同时把验证"数据根覆盖生效"的 PlayMode 用例从"覆盖值=默认值，通过与失败无法区分"的假测试
+改成了真正有区分力的用例（覆盖到与默认根不同、带可区分探针数据的根），见
+`Tests/Runtime/GameTemplateResidentTests.cs`。
 
 ## 已知限制（本模板"最小闭环"故意不覆盖的部分）
 

@@ -45,7 +45,7 @@
 // 命令行标志：
 //   -gf-resident                          启用本类型（同 TemplateSmokeRunner 不传任何参数时完全
 //                                          不介入，不新建任何 GameObject/组件）。
-//   -gf-content-root=<相对路径>            可选，覆盖 GameBootstrap.GameDatasetRootOverride
+//   -gf-dataset-root=<相对路径>            可选，覆盖 GameBootstrap.GameDatasetRootOverride
 //                                          （默认不覆盖，即 "data/game"）。
 //   -gf-ready-file=<绝对路径>              可选，默认 <persistentDataPath>/gf_resident_ready.txt。
 //   -gf-stop-file=<绝对路径>               可选，默认 <persistentDataPath>/gf_resident_stop.txt。
@@ -61,7 +61,7 @@ namespace Game.Template
     public sealed class ResidentRunner : MonoBehaviour
     {
         private const string CommandLineFlag = "-gf-resident";
-        private const string ContentRootArgPrefix = "-gf-content-root=";
+        private const string DatasetRootArgPrefix = "-gf-dataset-root=";
         private const string ReadyFileArgPrefix = "-gf-ready-file=";
         private const string StopFileArgPrefix = "-gf-stop-file=";
         private const string LogPrefix = "[GF-RESIDENT]";
@@ -102,11 +102,11 @@ namespace Game.Template
         /// <summary>命令行不带 <see cref="CommandLineFlag"/> 时本类型完全不介入，正常游戏/编辑器/
         /// 既有 PlayMode 测试运行路径不受影响，惯例同 <see cref="TemplateSmokeRunner.TryStart"/>。
         /// 本钩子额外做一件 <see cref="TemplateSmokeRunner"/> 不需要做的事：在任何场景 Awake 之前
-        /// （<c>BeforeSceneLoad</c>，早于 <c>AfterSceneLoad</c>）把 <c>-gf-content-root</c> 覆盖值
+        /// （<c>BeforeSceneLoad</c>，早于 <c>AfterSceneLoad</c>）把 <c>-gf-dataset-root</c> 覆盖值
         /// 写进 <see cref="GameBootstrap.GameDatasetRootOverride"/>——必须在 GameBootstrap.Bootstrap()
         /// 读取该字段之前完成，见该字段判断记录。</summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        private static void ApplyContentRootOverrideBeforeSceneLoad()
+        private static void ApplyDatasetRootOverrideBeforeSceneLoad()
         {
             var args = Environment.GetCommandLineArgs();
             if (!args.Contains(CommandLineFlag, StringComparer.Ordinal))
@@ -114,10 +114,10 @@ namespace Game.Template
                 return;
             }
 
-            var contentRootArg = args.FirstOrDefault(a => a.StartsWith(ContentRootArgPrefix, StringComparison.Ordinal));
-            if (contentRootArg != null)
+            var datasetRootArg = args.FirstOrDefault(a => a.StartsWith(DatasetRootArgPrefix, StringComparison.Ordinal));
+            if (datasetRootArg != null)
             {
-                GameBootstrap.GameDatasetRootOverride = contentRootArg.Substring(ContentRootArgPrefix.Length);
+                GameBootstrap.GameDatasetRootOverride = datasetRootArg.Substring(DatasetRootArgPrefix.Length);
             }
         }
 

@@ -449,11 +449,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   可见）后写就绪文件（`-gf-ready-file`，默认 `<persistentDataPath>/gf_resident_ready.txt`）并
   保持运行，轮询停止文件（`-gf-stop-file`，默认同目录 `gf_resident_stop.txt`）实现非强杀受控
   退出；退出码复用 `-gf-smoke-template` 既有分级（`0` 成功/`2` 失败，不新造语义）。新增
-  `-gf-content-root` 覆盖游戏数据根（`GameBootstrap.GameDatasetRootOverride`，与
+  `-gf-dataset-root` 覆盖游戏数据根（`GameBootstrap.GameDatasetRootOverride`，与
   `sync_content.ps1` 的目标参数面对齐）。新增 `games/_template/Tests/Runtime/
   GameTemplateResidentTests.cs`（编辑器内验证就绪信号/受控退出链路与数据根覆盖生效）；真实
   独立版下的进程退出码/长驻行为需在真实引擎环境验证，见 `games/_template/README.md`"长驻可交互
   运行"一节。
+- 勘误（改名，本次未发布内容内部调整，不是对已发布 API 的破坏性变更）：上一条第 68 条长驻运行
+  入口的数据根覆盖开关改名为 `-gf-dataset-root`（旧名把"数据集"错写成了"内容"，与第 70 条另一个
+  尚在并行开发、语义完全不同的开关 `-gfContentRoot`（物理内容根，用于热重载监视）拼写几乎相同，
+  是两分支并行开发的偶然撞车，改名消除歧义，`-gfContentRoot` 不受影响）。同时把
+  `GameTemplateResidentTests.cs` 里
+  验证"数据根覆盖生效"的用例从"覆盖值=默认值，通过与失败无法区分"的假测试改为真正有区分力的
+  用例（覆盖到一个与默认根不同、带可区分探针数据的根，断言实际读到覆盖根内容）；命名约定详见
+  [ADR-0040](architecture/adr/0040-运行期宿主命令行能力契约.md)新增"命令行开关命名约定"一节。
 
 ## [1.44.0] - 2026-09-19
 
