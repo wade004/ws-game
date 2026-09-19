@@ -434,42 +434,49 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-- [ADR-0040](architecture/adr/0040-运行期宿主命令行能力契约.md)（2026-09-19，已拍板，未落地）：
-  运行期宿主的命令行能力契约——拍板新增一个"进入并保持可交互运行状态"的长驻运行入口，与一个
-  "任意源内容目录 → 任意目标运行期工程"的参数化内容同步入口，均为面向任意外部工具的通用命令行
-  能力，不是面向某个具体消费方的专属联调协议；参数化同步入口与既有两个同步入口（私服包内容
-  落地、框架自身工作台同步）并列新增，不取代、不包装。本次只出 ADR，两项能力尚未实现。
-- ADR-0040 决策 3 落地：`toolchain/sync_content.ps1`——通用参数化内容同步入口，接受任意
+[ADR-0040](architecture/adr/0040-运行期宿主命令行能力契约.md)（2026-09-19，已拍板并落地）：
+运行期宿主的命令行能力契约——新增一个"进入并保持可交互运行状态"的长驻运行入口（第 68 条）与一个
+"任意源内容目录 → 任意目标运行期工程"的参数化内容同步入口（第 69 条），均为面向任意外部工具的
+通用命令行能力，不是面向某个具体消费方的专属联调协议；参数化同步入口与既有两个同步入口（私服包
+内容落地、框架自身工作台同步）并列新增，不取代、不包装。**两项能力本次随本分支一并落地**（决策
+2/3，详见下方"新增"小节）；决策 5 另补了命令行开关命名约定（运行期宿主自身解析的开关走短横线
+全小写族，批处理构建工具解析的开关走驼峰族，禁止跨类别近似名）。消费方反馈第 67～72 条统一处理
+记录见
+[消费方反馈-2026-09-19-编辑器-第67-72条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第67-72条.md)。
+
+### 新增
+
+- **第 68 条**：`games/_template/Runtime/ResidentRunner.cs`（`-gf-resident`）——长驻可交互运行
+  入口，与既有 `-gf-smoke-template`（跑完即退）并列，不取代。进入可交互状态（主菜单可见）后写
+  就绪文件（`-gf-ready-file`，默认 `<persistentDataPath>/gf_resident_ready.txt`）并保持运行，
+  轮询停止文件（`-gf-stop-file`，默认同目录 `gf_resident_stop.txt`）实现非强杀受控退出；退出码
+  复用 `-gf-smoke-template` 既有分级（`0` 成功/`2` 失败，不新造语义）。新增 `-gf-dataset-root`
+  覆盖游戏数据根（`GameBootstrap.GameDatasetRootOverride`，与 `sync_content.ps1` 的目标参数面
+  对齐）。**判断记录（命名）**：落地时初名把"数据集根"错写成了"内容根"（字面上与"内容根"更接近
+  的原先旧名），与第 70 条另一个并行开发、语义完全不同的开关 `-gfContentRoot`（物理内容根，用于
+  热重载监视）拼写几乎相同，是两条分支并行开发的偶然撞车；已在本分支改名为语义更贴切的
+  `-gf-dataset-root` 消除歧义，`-gfContentRoot` 不受影响，命名约定详见 ADR-0040 决策 5。新增
+  `games/_template/Tests/Runtime/GameTemplateResidentTests.cs`（编辑器内验证就绪信号/受控退出
+  链路，以及 `ResidentRunner_DatasetRootOverride_LoadsProbeTable_FromOverrideRootOnly`/
+  `..._Absent_DefaultRootNeverSeesOverrideProbeTable` 一对用例——把此前"覆盖值=默认值，通过与
+  失败无法区分"的假测试替换为写入只存在于覆盖根的探针表、断言只有传了覆盖参数才能读到的有区分
+  力用例）；另在纯 .NET 侧新增 `core/foundation/data_registry/tests/
+  GameDatasetRootOverrideEquivalenceTests.cs`（3 例，镜像同一段选根逻辑，已做反向确认：临时让
+  解析恒返回默认值，1 例按预期失败）。真实独立版下的进程退出码/长驻行为，以及上述 Unity
+  PlayMode 用例的反向确认（去掉覆盖应让断言失败），仍**待整合时统一跑引擎门禁确认**，不预先
+  宣称通过；见 `games/_template/README.md`"长驻可交互运行"一节。
+- **第 69 条**：`toolchain/sync_content.ps1`——通用参数化内容同步入口，接受任意
   `-SourceDir`/`-TargetDir`、`-OverridePolicy`（`Additive`/`Mirror`）、`-DryRun`，与既有
   `sync_package_content.ps1`/`build.ps1 -SyncContent` 并列，不取代、不包装（`toolchain/README.md`
   新增三入口对照表说明各自适用场景）。新增 `toolchain/tests/test_sync_content.py`（9 例：参数
   校验、Additive/Mirror 两态、干跑、幂等性）。
-- ADR-0040 决策 2 落地：`games/_template/Runtime/ResidentRunner.cs`（`-gf-resident`）——长驻可
-  交互运行入口，与既有 `-gf-smoke-template`（跑完即退）并列，不取代。进入可交互状态（主菜单
-  可见）后写就绪文件（`-gf-ready-file`，默认 `<persistentDataPath>/gf_resident_ready.txt`）并
-  保持运行，轮询停止文件（`-gf-stop-file`，默认同目录 `gf_resident_stop.txt`）实现非强杀受控
-  退出；退出码复用 `-gf-smoke-template` 既有分级（`0` 成功/`2` 失败，不新造语义）。新增
-  `-gf-dataset-root` 覆盖游戏数据根（`GameBootstrap.GameDatasetRootOverride`，与
-  `sync_content.ps1` 的目标参数面对齐）。新增 `games/_template/Tests/Runtime/
-  GameTemplateResidentTests.cs`（编辑器内验证就绪信号/受控退出链路与数据根覆盖生效）；真实
-  独立版下的进程退出码/长驻行为需在真实引擎环境验证，见 `games/_template/README.md`"长驻可交互
-  运行"一节。
-- 勘误（改名，本次未发布内容内部调整，不是对已发布 API 的破坏性变更）：上一条第 68 条长驻运行
-  入口的数据根覆盖开关改名为 `-gf-dataset-root`（旧名把"数据集"错写成了"内容"，与第 70 条另一个
-  尚在并行开发、语义完全不同的开关 `-gfContentRoot`（物理内容根，用于热重载监视）拼写几乎相同，
-  是两分支并行开发的偶然撞车，改名消除歧义，`-gfContentRoot` 不受影响）。同时把
-  `GameTemplateResidentTests.cs` 里
-  验证"数据根覆盖生效"的用例从"覆盖值=默认值，通过与失败无法区分"的假测试改为真正有区分力的
-  用例（覆盖到一个与默认根不同、带可区分探针数据的根，断言实际读到覆盖根内容）；命名约定详见
-  [ADR-0040](architecture/adr/0040-运行期宿主命令行能力契约.md)新增"命令行开关命名约定"一节。
-
-- **消费方反馈第 70 条根治**：`games/_template/Runtime/ContentSourceRootOverride.cs` 新增——命令行
-  参数 `-gfContentRoot <路径>` 或环境变量 `GF_CONTENT_ROOT` 可以把 `GameBootstrap` 的内容根整体指向
+- **第 70 条**：`games/_template/Runtime/ContentSourceRootOverride.cs` 新增——命令行参数
+  `-gfContentRoot <路径>` 或环境变量 `GF_CONTENT_ROOT` 可以把 `GameBootstrap` 的内容根整体指向
   外部内容源目录，数据加载与 `Runtime/DataHotReload.cs` 监视都会改用该目录，不再局限于
   StreamingAssets 部署副本。未指定时行为与之前完全一致；指定了不存在的目录会让装配显式失败
   （不静默回退）。`games/_template/README.md`"开发期数据热重载"一节同步补充说明。
-- **消费方反馈第 72 条根治**：`games/_template/Editor/WindowsPlayerBuilder.cs` 新增自定义
-  `-executeMethod` 构建入口，暴露 `-gfDevelopmentBuild` 命令行标志，批处理构建独立版时可选勾选
+- **第 72 条**：`games/_template/Editor/WindowsPlayerBuilder.cs` 新增自定义 `-executeMethod`
+  构建入口，暴露 `-gfDevelopmentBuild` 命令行标志，批处理构建独立版时可选勾选
   `BuildOptions.Development`（内置 `-buildWindows64Player` 开关本身不支持）；
   `toolchain/consumer_smoke.ps1` 新增 `-DevelopmentBuild` 开关贯通到该入口，默认不传时构建行为与
   之前完全一致。`games/_template/README.md` 新增"构建独立版"一节说明两种命令行用法。
@@ -478,6 +485,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   公开签名与构建行为不变），新增 `games/_template/Tests/Editor/WindowsPlayerBuilderArgsTests.cs`
   （8 个 EditMode 单测，覆盖 Development 标志存在性判定、输出路径命令行/环境变量优先级、两者都未
   指定时的显式报错），`Game.Template.EditorTests.asmdef` 新增对 `Game.Template.Editor` 的引用。
+
+### 文档
 
 - 消费方反馈第 67 条（部分失实，补文档指引）：主 zip 不含 `data/_sample`/`assets/_sample` 属既有
   设计（自测数据不随分发产物），但样例数据获取通道（`ws-game-<ver>-samples.zip` +
@@ -496,11 +505,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - 新增消费方反馈第 67～72 条统一回复文档
   `architecture/落地计划/消费方反馈-2026-09-19-编辑器-第67-72条.md`：合并
   `design/0040-tooling-contract`（ADR-0040）、`feat/68-69-tooling-entries`（第 68、69 条）、
-  `feat/70-72-tooling`/`feat/72-build-tests`（第 70、72 条及补测试）、本分支（第 67、71 条）
-  四条未合并分支的处理记录；如实核实并更正了两处与既有认知不符之处——第 68 条数据集根覆盖开关
-  实际仍为 `-gf-content-root`（未改名为 `-gf-dataset-root`，独立验收的改名建议尚未落地）、
-  第 68 条"数据集根覆盖生效"测试缺口尚未修复（只有第 72 条零测试缺口已在 `feat/72-build-tests`
-  补齐）。71 号反问草稿文件随本次提交删除（内容已并入统一回复文档）。
+  `feat/70-72-tooling`/`feat/72-build-tests`（第 70、72 条及补测试）、`feat/67-71-contract-docs`
+  （第 67、71 条）四条源分支的处理记录，并如实记录了独立验收发现的问题及后续处理结果——四条
+  源分支各自独立开发时互不可见，其中两条源分支合并时确认存在真实缺口：第 68 条数据集根覆盖开关
+  当时仍用着原先的旧名（改名建议尚未落地）、"数据集根覆盖生效"测试当时仍是无区分力的假测试；
+  **两项缺口均已在整合阶段修复**（改名为 `-gf-dataset-root`，测试重做为有区分力的用例，见上方
+  "第 68 条"改动说明），文档正文与"待设计层确认"清单已同步更新为已处理状态。71 号
+  反问草稿文件随本次提交删除（内容已并入统一回复文档）。
 
 ### 修复
 
