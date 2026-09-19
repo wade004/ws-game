@@ -291,6 +291,32 @@ quest/
     `ContentValidationAssembly.Run` 装配）；"开关关闭时不注册"这一装配层行为覆盖在
     `presentation/assembly/tests/ContentValidationAssemblyTests.cs`，不在本文件重复测。
 
+19. **消费方反馈第 4 条（2026-09-20）：新增只读聚合查询 `QuestGiverIndicatorQuery.Evaluate`/枚举
+    `QuestGiverIndicatorState`，见 [ADR-0045](../../../architecture/adr/0045-任务给予者指示器只读查询.md)**
+    ——框架此前未规划"某个任务给予者身上是否有可接/进行中/可交付任务"这一聚合能力（能力空白，不是
+    数据缺口，独立核实：全仓库对 `GiverStatus`/`QuestBanner`/`questPOI`/`quest_available`/
+    `available_quest`/`GetGiverStatus` 等关键词大小写不敏感搜索零命中）。新增独立静态类
+    `Core.Gameplay.Quest.QuestGiverIndicatorQuery.Evaluate(IQuestHost questHost, Id unitId,
+    IReadOnlyCollection<Id> giverQuestIds)`，**不作为 `IQuestHost` 新成员**——理由同判断记录 16
+    "为何不改 `IQuestHost`"：`IQuestHost` 在 `core/gameplay/dialog/tests`/`presentation/ui/tests`
+    各有独立假实现，直接加接口成员会破坏这些假实现的编译（ABI 不兼容），改为纯新增静态类型完全
+    规避这一风险，也与既有"预演/聚合查询不进宿主接口"先例（`QuestPrerequisitePreview`、
+    `DialogStoryPreview`）一致。**给予者身份表示**：`quest.def` schema 从未登记"这个任务由哪个
+    NPC 给出"，NPC → 任务集合的映射完全是内容/游戏侧编排产物，框架没有可反查的登记表——本查询因此
+    把"给予者关联哪些任务"（`giverQuestIds`）作为调用方输入，不新增"给予者 id"参数，完全复用现有
+    单位/NPC 身份表示这一信息。**四态**：无可交互任务（`None`）／有可接任务（`Available`）／有
+    进行中但未完成的任务（`InProgress`）／有可交付的已完成任务（`Completable`），全部基于既有
+    `IQuestHost.GetState` 逐条求值聚合，不读取/新增任何持久化状态，不改 `quest.def` schema。
+    **优先级固定写死**：`Completable` > `Available` > `InProgress` > `None`（同一给予者关联的多条
+    任务同时命中多态时只返回优先级最高者），理由见 ADR-0045"优先级"一节。**明确边界，不硬造**：
+    `quest.def.prerequisite` 可能混合任务链引用与玩家/世界条件，框架现有的只读预演能力
+    （`QuestPrerequisitePreview`）只解析任务链结构、不做整条前置表达式的布尔求值，因此本次不新增
+    "等级不足预览"等中间态判定——需要一套新的表达式子集求值语义，超出"复用既有状态查询"的任务
+    边界，见 ADR-0045"边界"一节。测试见 `tests/QuestGiverIndicatorQueryTests.cs`：四态各自覆盖、
+    参数校验（`questHost`/`giverQuestIds` 为 `null` 抛异常）、前置未满足场景、`TurnedIn`（不可
+    重复）场景、多态并存时的优先级裁决（含顺序打乱不影响结果）、重复 id 不改变结果共 12 例，全部
+    用真实 `QuestHost`（经既有测试 `Harness`）驱动状态转移，不 mock `IQuestHost`。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层

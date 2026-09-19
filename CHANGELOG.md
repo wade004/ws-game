@@ -465,6 +465,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   vendor 等动作按"当前交互对象自身"推断的下游能力从此能拿到正确的交互对象身份。ABI 只新增，
   不改动任何既有公开签名。详见 [ADR-0044](architecture/adr/0044-gobj对话打开回调新增交互者身份透传路径.md)、
   `core/carriers/gobj/README.md` 判断记录 12、`core/gameplay/assembly/README.md` 判断记录 3。
+- [ADR-0045](architecture/adr/0045-任务给予者指示器只读查询.md)（消费方反馈第 4 条）：新增只读
+  聚合查询 `Core.Gameplay.Quest.QuestGiverIndicatorQuery.Evaluate(IQuestHost, Id, IReadOnlyCollection<Id>)`
+  与枚举 `QuestGiverIndicatorState`（`None`/`Available`/`InProgress`/`Completable`），聚合"某个任务
+  给予者对当前玩家处于何种任务指示器状态"，完全基于既有 `IQuestHost.GetState` 求值，不新增持久化
+  状态、不改 `quest.def` schema、不修改 `IQuestHost` 既有成员（纯新增静态类型）。给予者身份沿用现有
+  单位/NPC 身份表示，给予者关联的任务集合由调用方给出；多态并存时按 `Completable` > `Available` >
+  `InProgress` > `None` 固定优先级裁决。不覆盖"等级不足预览"等中间态（见 ADR-0045"边界"一节）。
+  具体呈现（图标/颜色/动画）不属于框架职责，一律归游戏侧决定。
 
 ## [1.46.0] - 2026-09-20
 
