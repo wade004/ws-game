@@ -315,6 +315,81 @@ namespace Tests.PresentationRender
             Assert.Equal(new Id("layer.creature_hero__front__hand_main"), layers[1]);
         }
 
+        // -----------------------------------------------------------------
+        // 诊断记录 diag-isolation.md 根治配套用例："资源加载完成后回填已渲染层"经装备驱动的
+        // RebuildEquippedLayers 路径同样生效（不只是 SetPaperdollLayers/ComposeAndApplyLayers 那条
+        // 朴素路径），见 SpriteCharacterRig 类型注释同名判断记录。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void OnEvent_ItemEquipped_ResourceLoadCompletesLater_ReappliesLayers()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
+            var swordResourceId = new Id("layer.sword_hand_main");
+            loader.Register(swordResourceId);
+            // 构造期会先以 sprite_set_id 发起一次加载（与本用例无关），DeferCallbacks 模式下不会
+            // 自动完成，不影响下面对 swordResourceId 的断言。
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>
+            {
+                [new Id("item.instance_1")] = new EquipVisualDef(
+                    new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
+                    slotId: new Id("slot.hand_main"), meshRef: swordResourceId, socketId: null, modelRef: null),
+            };
+            var view = new TestSpriteView(
+                renderer, new RenderConventionHost(), displayInfo, resourceLoader: loader,
+                equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 0.0);
+
+            view.OnEvent(new ItemEquippedEvent(new Id("unit.hero_1"), new Id("item.instance_1"), new Id("slot.hand_main")));
+
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            var callsBeforeCompletion = renderer.SetLayersCalls.Count;
+            Assert.True(callsBeforeCompletion >= 1);
+            Assert.Equal(new Id("layer.sword_hand_main"), renderer.Layers[handleValue][1]);
+
+            loader.CompletePending(swordResourceId);
+
+            // 加载完成后应再补一次 SetLayers（同一份最新层列表），不是"从此再无动静"。
+            Assert.True(renderer.SetLayersCalls.Count > callsBeforeCompletion);
+            var lastCall = renderer.SetLayersCalls[renderer.SetLayersCalls.Count - 1];
+            Assert.Equal(new Id("layer.creature_hero__front__body"), lastCall.Layers[0]);
+            Assert.Equal(new Id("layer.sword_hand_main"), lastCall.Layers[1]);
+        }
+
+        [Fact]
+        public void Destroy_ThenResourceLoadCompletes_DoesNotThrow_AndDoesNotTouchDestroyedInstance()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
+            var swordResourceId = new Id("layer.sword_hand_main");
+            loader.Register(swordResourceId);
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>
+            {
+                [new Id("item.instance_1")] = new EquipVisualDef(
+                    new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
+                    slotId: new Id("slot.hand_main"), meshRef: swordResourceId, socketId: null, modelRef: null),
+            };
+            var view = new TestSpriteView(
+                renderer, new RenderConventionHost(), displayInfo, resourceLoader: loader,
+                equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 0.0);
+            view.OnEvent(new ItemEquippedEvent(new Id("unit.hero_1"), new Id("item.instance_1"), new Id("slot.hand_main")));
+            var callsBeforeDestroy = renderer.SetLayersCalls.Count;
+
+            view.Destroy();
+
+            var ex = Record.Exception(() => loader.CompletePending(swordResourceId));
+
+            Assert.Null(ex);
+            // Destroy 之后到达的迟到回调不应再触发任何一次 SetLayers（rig 已被标记销毁，直接跳过）。
+            Assert.Equal(callsBeforeDestroy, renderer.SetLayersCalls.Count);
+        }
+
         /// <summary>W3b 判断记录 2 收口配套用例：构造期注入的 <see cref="IFrameAnimPlayer"/> 经
         /// <see cref="SpriteViewBase"/> 转交内部 <c>Rig</c>，<c>Rig.PlayClip</c> 不再是结构性 no-op
         /// （见该类型构造函数 <c>frameAnimPlayer</c> 参数判断记录）。</summary>

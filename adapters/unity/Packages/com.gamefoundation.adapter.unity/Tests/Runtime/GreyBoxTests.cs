@@ -142,10 +142,40 @@ namespace Adapter.Unity.Tests.Runtime
             var endX = bootstrap.World!.GetEntity(bootstrap.PlayerId)!.Position.X;
             Assert.Greater(endX, startX, "向 +X 方向持续提交移动意图后，玩家世界坐标 x 应当增大");
 
-            var sidewaysSprite = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
-                .FirstOrDefault(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__") &&
-                                      SidewaysDirectionSlots.Any(slot => r.sprite.name.Contains("__" + slot.Substring("dir.".Length) + "__")));
-            Assert.IsNotNull(sidewaysSprite, "移动后玩家视图的方向档位应当已从 front 转为侧向档位之一（side_r/side_l/front_side_r/front_side_l）");
+            // 判断记录（2026-09-19 隐性顺序依赖根治，见 architecture/落地计划/
+            // 排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md"正面做法"一节）：侧向方向档位的层
+            // 资源 Id 按 SpriteViewBase.ResolveLayerResourceId 的命名规则把方向档位编码进资源 Id 本身
+            // （"layer.{spriteSetName}__{directionSlotName}__{layerName}"），front 与 side_r 是两个
+            // 完全不同的资源引用，各自独立经 UnityResourceLoader 异步加载（后台线程读取 + 每帧 Tick
+            // 在主线程完成）。本用例进入世界时只有 front 档位的资源已经在 EnterInWorld/LoadGreyBoxScene
+            // 阶段被引用过，移动到侧向档位是本用例第一次引用该资源——此前用一次性快照断言，单独跑本
+            // 用例时资源大概率还没加载完成，只有全量门禁里恰好有更早的用例（如
+            // PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder 或本身重复执行）先把该方向档位
+            // 的资源"预热"进 UnityResourceLoader 的跨用例共享缓存（DontDestroyOnLoad 单例，见该类型
+            // 判断记录）才侥幸通过——这是一处隐性执行顺序依赖，不是真的验证了"移动后档位切换"这一行为。
+            // 改为轮询等待（同 PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder 既有惯例），
+            // 超时给出"等了多久、找的是哪个资源前缀"的明确失败信息，不静默通过、不无限等待。
+            SpriteRenderer? sidewaysSprite = null;
+            var directionLoadTimeout = 5f;
+            var directionLoadWaited = 0f;
+            while (directionLoadTimeout > 0f)
+            {
+                sidewaysSprite = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
+                    .FirstOrDefault(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__") &&
+                                          SidewaysDirectionSlots.Any(slot => r.sprite.name.Contains("__" + slot.Substring("dir.".Length) + "__")));
+                if (sidewaysSprite != null)
+                {
+                    break;
+                }
+                yield return null;
+                var delta = Time.unscaledDeltaTime > 0f ? Time.unscaledDeltaTime : 0.02f;
+                directionLoadTimeout -= delta;
+                directionLoadWaited += delta;
+            }
+            Assert.IsNotNull(sidewaysSprite,
+                "移动后玩家视图的方向档位应当已从 front 转为侧向档位之一（side_r/side_l/front_side_r/" +
+                $"front_side_l）：等待 layer.creature_sample_hero__ 侧向档位精灵资源异步加载完成 " +
+                $"{directionLoadWaited:F2}s 后仍未找到");
         }
 
         [UnityTest]

@@ -472,6 +472,55 @@ function Copy-IfChanged {
     return $true
 }
 
+# DLL-SYNC-GUARD 判断记录（2026-09-19，见排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md
+# 追加节"三轮假失败"）：本函数检测"待同步的核心 DLL 是否比它自己的源码目录更旧"——
+# 目的是拦截 AGENTS.md §4 与本步骤的一个真实冲突：§4 要求 dotnet 命令一律带
+# --artifacts-path，但本步骤固定读取默认输出路径（$asm.Dir + "\bin\$Configuration\
+# netstandard2.1\"）；按 §4 用 --artifacts-path 构建后，默认路径下的 DLL 停留在更早的一次
+# 构建，此前会被静默同步（Copy-IfChanged 只按哈希去重，不知道"内容没变"和"压根没重新
+# 编译"的区别），Unity 侧因此加载旧二进制却没有任何报错或提示。
+# 比较对象：源 DLL（$SourcePath，即 bin/ 下的构建产物，同步前还是源）的 LastWriteTimeUtc，
+# 对比该程序集目录下所有 .cs 文件（排除 tests/、bin/、obj/ —— 与各 Core.*.csproj /
+# Presentation.Common.csproj 的 <Compile Remove> 规则一致：tests/ 不编译进本 DLL，
+# bin/obj 是构建产物自身，两者变化都不代表"源码变了但没重新编译"）里最新的 LastWriteTimeUtc。
+# 容差 2 秒（$ToleranceSeconds）：正常"build 紧接着 sync"流程里，dotnet build 读完全部源码
+# 才落盘 DLL，DLL 理应比任何源码新；2 秒只用来吸收不同文件系统/网络盘时间戳精度或缓存写入
+# 的边界抖动，不会掩盖"陈旧几分钟/几天"这种真实场景（1.44.0 事故里陈旧的是上一次功能提交
+# 之前的构建，差着以小时计）。
+# 只在文件时间戳可信时生效：若 $SourcePath 或源码目录不存在，交回上层既有的"找不到构建
+# 产物"分支处理，本函数不重复报错。
+function Test-CoreAssemblyDllStale {
+    param(
+        [string]$RepoRoot,
+        [hashtable]$Asm,
+        [string]$SourcePath,
+        [int]$ToleranceSeconds = 2
+    )
+
+    $srcDirAbs = Join-Path $RepoRoot $Asm.Dir
+    if (-not (Test-Path $srcDirAbs)) {
+        return $null
+    }
+
+    $csFiles = Get-ChildItem -Path $srcDirAbs -Filter "*.cs" -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '[\\/](tests|bin|obj)[\\/]' }
+    if (-not $csFiles) {
+        return $null
+    }
+
+    $newestCs = $csFiles | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $dllTimeUtc = (Get-Item $SourcePath).LastWriteTimeUtc
+    $diffSeconds = ($newestCs.LastWriteTimeUtc - $dllTimeUtc).TotalSeconds
+
+    if ($diffSeconds -gt $ToleranceSeconds) {
+        return [PSCustomObject]@{
+            NewestCsFile = $newestCs.FullName
+            DiffSeconds  = $diffSeconds
+        }
+    }
+    return $null
+}
+
 # U2-1 判断记录："只做内容同步"的快速路径是 -SyncContent 单独传（不带 -SyncOnly）；
 # 若两者同传，-SyncOnly 的语义（跳过 build/test、仍同步 DLL）优先，内容同步照常无条件执行。
 $ContentOnlyMode = $SyncContent -and (-not $SyncOnly)
@@ -528,6 +577,16 @@ if (-not $ContentOnlyMode) {
             if ($SyncOnly) {
                 Write-Host "（-SyncOnly 要求产物已存在，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
             }
+            exit 1
+        }
+
+        $staleInfo = Test-CoreAssemblyDllStale -RepoRoot $RepoRoot -Asm $asm -SourcePath $srcPath
+        if ($staleInfo) {
+            $ageStr = "{0:N1}" -f $staleInfo.DiffSeconds
+            Write-Host "构建产物陈旧：$($asm.Name).dll 落后于它自己的源码 $ageStr 秒" -ForegroundColor Red
+            Write-Host "  产物路径：$srcPath" -ForegroundColor Red
+            Write-Host "  最新的源文件：$($staleInfo.NewestCsFile)" -ForegroundColor Red
+            Write-Host "  正确做法：先不带 --artifacts-path 跑一次 'dotnet build $SolutionPath -c $Configuration'，让构建产物落在默认输出路径，再执行 'build.ps1 -SyncOnly' 完成同步（见 AGENTS.md §4 例外条款）。" -ForegroundColor Red
             exit 1
         }
 

@@ -41,6 +41,12 @@ namespace Adapters.Stub
 
         public readonly Dictionary<int, Id> CreatedSpriteSets = new Dictionary<int, Id>();
         public readonly Dictionary<int, IReadOnlyList<Id>> Layers = new Dictionary<int, IReadOnlyList<Id>>();
+
+        /// <summary>诊断记录 diag-isolation.md 配套新增：<see cref="SetLayers"/> 每次调用的
+        /// (句柄, 层 resourceId 列表) 按调用顺序追加（含对同一句柄的重复调用）——<see cref="Layers"/>
+        /// 只保留"最新一次"的值，测试如果要断言"资源加载完成后是否真的补触发了第二次 SetLayers"
+        /// （而不仅仅是最终结果是否正确），需要看调用次数本身，本字段专供这类断言使用。</summary>
+        public readonly List<(int Handle, IReadOnlyList<Id> Layers)> SetLayersCalls = new List<(int, IReadOnlyList<Id>)>();
         public readonly Dictionary<int, TransformRecord> Transforms = new Dictionary<int, TransformRecord>();
         public readonly Dictionary<int, Dictionary<string, double>> ShaderParams = new Dictionary<int, Dictionary<string, double>>();
         public readonly Dictionary<int, (Id EffectId, Vec2 Position)> EmittedParticles = new Dictionary<int, (Id, Vec2)>();
@@ -61,6 +67,7 @@ namespace Adapters.Stub
         {
             EnsureSpriteAlive(handle);
             Layers[handle.Value] = layers;
+            SetLayersCalls.Add((handle.Value, layers));
         }
 
         public void SetTransform(SpriteHandle handle, Vec2 position, double height, double sortY, int layer, double rotation, double scale, bool flipX)

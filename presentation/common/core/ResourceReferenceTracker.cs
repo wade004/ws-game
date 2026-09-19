@@ -30,15 +30,41 @@ namespace Presentation.Common
 
         /// <summary>首次引用 <paramref name="resourceId"/> 时以 <paramref name="kind"/> 触发一次
         /// <see cref="IResourceLoader.LoadAsync"/>；此前已经引用过（无论加载是否已完成）则不重复
-        /// 调用。</summary>
-        public void EnsureLoading(Id resourceId, ResourceKind kind)
+        /// 调用。等价于 <see cref="EnsureLoading(Id, ResourceKind, LoadCallback?)"/> 传
+        /// <c>onComplete: null</c>（见该重载判断记录）。</summary>
+        public void EnsureLoading(Id resourceId, ResourceKind kind) => EnsureLoading(resourceId, kind, onComplete: null);
+
+        /// <summary>
+        /// 排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md"教训三"新增重载：取代此前固定传给
+        /// <see cref="IResourceLoader.LoadAsync"/> 的空操作回调——首次引用时若调用方传入
+        /// <paramref name="onComplete"/>，会在 <see cref="IResourceLoader.LoadAsync"/> 的完成回调
+        /// 到达时原样转发（<c>resourceId</c>/<c>success</c> 均透传，不做任何解释）。本类型的定位不变
+        /// （类型注释"不关心加载成功/失败"）：<paramref name="onComplete"/> 只是把 <c>LoadAsync</c>
+        /// 本就会触发的完成通知转发给调用方，是否要据此做什么（如重新应用图层、记诊断）完全是调用方
+        /// （<see cref="Presentation.Render.SpriteCharacterRig"/> 等）的职责，本类型只是一个透传通道，
+        /// 不持有、不解释回调结果。
+        /// <para>
+        /// ABI 只新增（AGENTS.md"代码规则"）：两参数重载签名不变、内部转发本方法且
+        /// <c>onComplete</c> 传 <c>null</c>，语义与此前固定空回调完全一致，不影响任何既有调用方。
+        /// </para>
+        /// <para>
+        /// 判断记录（同一 id 至多回调一次、去重不受 <paramref name="onComplete"/> 是否为 null 影响）：
+        /// <c>_requested.Add(resourceId)</c> 已经过的 id 直接返回，不会重复调用
+        /// <see cref="IResourceLoader.LoadAsync"/>，因此本次传入的 <paramref name="onComplete"/> 会被
+        /// 丢弃、永远不会被调用——这是既有"同一 id 只触发一次加载"承诺的自然延伸：调用方若需要在
+        /// "已经被别处请求过加载"的 id 上也挂一个完成通知，应改为自己持有并复用同一个回调委托（如
+        /// <see cref="Presentation.Render.SpriteCharacterRig.HandleResourceLoadCompleted"/> 那样绑定
+        /// 到实例而不是绑定到某一次具体调用），不能假设每次调用都会各自拿到一次通知。
+        /// </para>
+        /// </summary>
+        public void EnsureLoading(Id resourceId, ResourceKind kind, LoadCallback? onComplete)
         {
             if (!_requested.Add(resourceId))
             {
                 return;
             }
 
-            _loader.LoadAsync(resourceId, kind, (_, _) => { });
+            _loader.LoadAsync(resourceId, kind, (id, success) => onComplete?.Invoke(id, success));
         }
     }
 }

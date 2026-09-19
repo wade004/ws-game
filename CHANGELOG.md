@@ -434,6 +434,47 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- 根治两处 PlayMode 用例隐性执行顺序依赖（`GreyBoxTests.
+  Move_Right_IncreasesPlayerX_AndTurnsSideways`/`VerticalSliceTests.
+  Paperdoll_LayerOrder_MatchesDisplayMapDeclaredOrder`）：两者断言依赖纸娃娃层/方向档位精灵
+  资源已经异步加载完成，但用例自身既不触发加载也不等待，全量门禁里靠同批处理进程里更早跑过的
+  其它用例把资源预热进跨用例共享的 `UnityResourceLoader` 缓存才侥幸通过，单独用 `-testFilter`
+  跑二者均失败（各 total=1 passed=0 failed=1）。改为轮询等待资源真正加载完成再断言，超时给出
+  说明等待对象与时长的失败信息，不放宽/不删除原有断言。已扫查全部 37 个 PlayMode/EditMode 测试
+  文件中涉及资源加载状态查询的用例，未发现其它同类隐性顺序依赖（其余用例均已用私有
+  `UnityResourceLoader` 实例、专属资源引用字面量或已有轮询等待，详见
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训三/正面做法"
+  两节与包 README"PlayMode 用例写法约定"一节）。
+- **纸娃娃层/方向档位资源异步加载完成后未回填已渲染画面**（诊断记录
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"）：上面那条
+  "改轮询等待"本身没有错，但等多久都通不过——真因是
+  `Presentation.Common.ResourceReferenceTracker.EnsureLoading` 此前固定给
+  `IResourceLoader.LoadAsync` 传空操作完成回调，`UnityRenderer2D.SetLayers` 只在调用当下同步
+  解析一次精灵（未加载完成时落地占位方块），此后除非层集合/朝向再次变化，没有任何机制在资源
+  真正加载完成后回头刷新已渲染的占位方块——隔离跑 PlayMode 用例证实这不是竞态，是结构性缺口：
+  全量门禁能通过纯属"更早用例碰巧把同一资源预热进跨用例共享缓存"的假通过。新增
+  `EnsureLoading(Id, ResourceKind, LoadCallback?)` 重载（ABI 只新增，原双参数重载保留不变）；
+  `SpriteCharacterRig`/`SpriteViewBase` 把该回调统一接到 `SpriteCharacterRig.
+  HandleResourceLoadCompleted`：加载成功时重新应用最近一次已知的完整层列表，让占位方块有机会被
+  真实资源替换（幂等，多个层引用同一资源只触发一次重新应用）；加载失败时不重新应用，改记一条
+  `IPresentationDiagnostics` 警告；已销毁的渲染实例（`SpriteCharacterRig.MarkDestroyed`）直接
+  跳过迟到的回调，不触碰失效句柄。新增 12 例测试（`presentation/common/tests/
+  ResourceReferenceTrackerTests.cs` 全新文件 6 例；`SpriteCharacterRigTests.cs`/
+  `SpriteViewBaseTests.cs` 各新增覆盖成功回填/失败诊断/多层共享资源去重/销毁后不触发的用例）。
+- **`build.ps1` 静默同步陈旧核心 DLL 到 Unity 适配层包**（诊断记录见
+  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训五"）：DLL
+  同步步骤固定读取默认构建输出路径（`<程序集目录>\bin\$Configuration\netstandard2.1\`），若按
+  AGENTS.md §4 旧规则用 `--artifacts-path` 构建后再 `-SyncOnly`，同步的是默认路径下更早一次
+  构建遗留的陈旧产物，此前只在源文件缺失时报错、陈旧但存在时无任何提示，曾造成连续三轮
+  "修复看似无效"的假失败。新增 `Test-CoreAssemblyDllStale` 陈旧检测：比较每个核心 DLL 的
+  修改时间与其对应源码目录下最新 `.cs` 文件（排除 `tests/`/`bin`/`obj`，与各 `Core.*.csproj`/
+  `Presentation.Common.csproj` 的 `<Compile Remove>` 规则一致）的修改时间，DLL 落后超过 2 秒
+  容差即直接报错终止，错误信息包含程序集名、陈旧秒数、最新的源文件路径与正确做法。AGENTS.md
+  §4 同步补充了例外条款：涉及会编译进这六个 DLL 的改动、且要验证 Unity 侧行为时，必须用
+  默认路径构建再 `-SyncOnly`，不带 `--artifacts-path`。
+
 ## [1.44.0] - 2026-09-19
 
 [ADR-0038](architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/

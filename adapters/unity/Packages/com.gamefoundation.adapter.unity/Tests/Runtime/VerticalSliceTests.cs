@@ -1,6 +1,7 @@
 #nullable enable
 // VerticalSliceTests：U3-3 灰盒竖切全流程测试（阶段 4 验收标准 1、4、5）。
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Adapter.Unity.Shell;
 using Core.Foundation.Common;
@@ -642,10 +643,39 @@ namespace Adapter.Unity.Tests.Runtime
             // SpriteRenderer，确认 Inspector 里的 Sorting Order 数值满足 body < hand_main < head）。
             // 前缀 "layer.creature_sample_hero__" 来自该行 sprite_set_id="sprite.creature.sample_hero"
             // （去掉 "sprite." 前缀、点号换下划线，见 SpriteViewBase.ResolveLayerResourceId）。
-            var renderers = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
-                .Where(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__"))
-                .ToList();
-            Assert.GreaterOrEqual(renderers.Count, 2, "玩家纸娃娃层应当至少渲染出两层精灵");
+            //
+            // 判断记录（2026-09-19 隐性顺序依赖根治，见 architecture/落地计划/
+            // 排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md"正面做法"一节）：三层纸娃娃资源各自是
+            // 独立的资源引用（layer.creature_sample_hero__front__body/hand_main/head），经
+            // UnityResourceLoader 异步加载（后台线程读取 + 每帧 Tick 在主线程完成）。EnterInWorld
+            // 返回时不保证这些 LoadAsync 请求已经回调完成——此前本用例进入世界后立即快照
+            // FindObjectsByType<SpriteRenderer>，单独跑（-testFilter）时资源大概率还没加载完成、
+            // renderers.Count 为 0，只有全量门禁里更早的用例（如本套件的
+            // FullVerticalSlice_.../PRES180_...，二者都会先 EnterInWorld 挂接同一个玩家外形）已经把
+            // 这三份资源"预热"进跨用例共享的 UnityResourceLoader 缓存（DontDestroyOnLoad 单例）才
+            // 侥幸通过——这是一处隐性执行顺序依赖，不是真的验证了纸娃娃层的渲染结果。改为轮询等待
+            // （同 GreyBoxTests.PlayerView_ExistsAndLayerResourcesLoaded_NotPlaceholder 既有惯例），
+            // 超时给出"等了多久、还差几层"的明确失败信息，不静默通过、不无限等待。
+            List<SpriteRenderer> renderers = new List<SpriteRenderer>();
+            var paperdollLoadTimeout = 5f;
+            var paperdollLoadWaited = 0f;
+            while (paperdollLoadTimeout > 0f)
+            {
+                renderers = Object.FindObjectsByType<SpriteRenderer>(FindObjectsSortMode.None)
+                    .Where(r => r.sprite != null && r.sprite.name.StartsWith("layer.creature_sample_hero__"))
+                    .ToList();
+                if (renderers.Count >= 2)
+                {
+                    break;
+                }
+                yield return null;
+                var delta = Time.unscaledDeltaTime > 0f ? Time.unscaledDeltaTime : 0.02f;
+                paperdollLoadTimeout -= delta;
+                paperdollLoadWaited += delta;
+            }
+            Assert.GreaterOrEqual(renderers.Count, 2,
+                "玩家纸娃娃层应当至少渲染出两层精灵：等待 layer.creature_sample_hero__ 系列纸娃娃层" +
+                $"精灵资源异步加载完成 {paperdollLoadWaited:F2}s 后仍只找到 {renderers.Count} 层");
 
             var bodyLayer = renderers.FirstOrDefault(r => r.sprite.name.EndsWith("__body"));
             var handLayer = renderers.FirstOrDefault(r => r.sprite.name.EndsWith("__hand_main"));
