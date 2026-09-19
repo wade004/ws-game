@@ -38,10 +38,11 @@ adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Plugins/Core/
 # 生成的 .meta，父目录 Assets/StreamingAssets/ 本身除了这个子目录不再有任何其它内容）。
 adapters/unity/Assets/StreamingAssets/
 adapters/unity/Assets/StreamingAssets.meta
-# Unity 测试框架（PlayMode 性能测试）每次跑测试在 Assets/Resources/ 下自动生成的运行时文件，不提交；
-# Assets/Resources/ 目录此前不存在于仓库中，此次由测试框架自动创建，其 .meta 一并忽略。
+# Unity 测试框架（PlayMode 性能测试）每次跑测试在 Assets/Resources/ 下自动生成的运行时文件，不提交。
+# 注：原先连 Assets/Resources.meta 一并忽略，理由是"该目录此前不存在、由测试框架自动创建"——该前提
+# 已不成立（目录下现有 17 个永久提交的占位模型/动画资产，连子目录 GameFoundation.meta 都已跟踪），
+# 父目录 meta 不跟踪会让消费方克隆后该目录 GUID 重新生成。忽略规则已撤，仅保留运行时文件一条。
 adapters/unity/Assets/Resources/PerformanceTestRun*
-adapters/unity/Assets/Resources.meta
 # 私服交付通道（toolchain/registry/，见该目录 README.md）：node_modules 是 npm ci 安装产物，
 # storage/ 是 Verdaccio 本地包存储（本机运行状态），htpasswd/.npmrc 含账号/令牌凭据，
 # verdaccio.pid/*.log 是 -Detach 后台运行状态，均不提交。
