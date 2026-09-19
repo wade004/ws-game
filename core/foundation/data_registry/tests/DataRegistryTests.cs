@@ -764,6 +764,74 @@ namespace Tests.Foundation.Data
             public TableSchema? GetSchema(string table) => null;
         }
 
+        /// <summary>
+        /// 判断记录（ABI 破坏修正，2026-09-20，见 <see cref="IDataRegistry.IsDegraded"/>/
+        /// <see cref="IDataRegistry.GetUnavailableSources"/> 同批判断记录）：<c>IsDegraded</c>/
+        /// <c>GetUnavailableSources</c> 发布时曾是不带默认实现的抽象成员，
+        /// <c>toolchain/abi_probe.ps1</c> 正确报出 <c>interface_new_abstract_member</c> 破坏
+        /// （<c>breaks=2</c>）——任何"未持有 <see cref="DataRegistry"/> 内部状态、只实现
+        /// <see cref="IDataRegistry"/> 接口本身"的第三方/测试替身重新编译都会报未实现接口成员。本类型
+        /// 故意不覆盖这两个成员（同 <see cref="MinimalRegistryView"/> 不覆盖
+        /// <see cref="IDataRegistryView.GetReferenceDeclarations"/> 的既有惯例），验证补上默认实现后
+        /// 这类实现方仍能正常编译、且默认值语义符合判断记录约定的"未退化/无不可用数据源"。
+        /// </summary>
+        private sealed class MinimalDataRegistry : IDataRegistry
+        {
+            public DataRecord? Get(string table, string key) => null;
+            public DataRecord? Get(string table, Id id) => null;
+            public IReadOnlyList<DataRecord> GetAll(string table) => Array.Empty<DataRecord>();
+            public IReadOnlyList<DataRecord> Query(string table, ExprNode predicate) => Array.Empty<DataRecord>();
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => Array.Empty<DataRecord>();
+            public IReadOnlyList<string> Tables => Array.Empty<string>();
+            public TableSchema? GetSchema(string table) => null;
+
+            public void RegisterSchema(TableSchema schema) { }
+            public void DeclareReference(string fromTable, string field, string toTable) { }
+            public void RegisterValidationRule(IValidationRule rule) { }
+            public ValidationReport LoadAll() => new ValidationReport(Array.Empty<ValidationIssue>(), DataRegistryStrictness.WarningsAllowed);
+            public ValidationReport LoadAll(IReadOnlyList<IDataSource> sources) => new ValidationReport(Array.Empty<ValidationIssue>(), DataRegistryStrictness.WarningsAllowed);
+            public ValidationReport Validate() => new ValidationReport(Array.Empty<ValidationIssue>(), DataRegistryStrictness.WarningsAllowed);
+            public ValidationReport Reload(string table) => new ValidationReport(Array.Empty<ValidationIssue>(), DataRegistryStrictness.WarningsAllowed);
+            public IReadOnlyList<string> GetTableSourceLocations(string table) => Array.Empty<string>();
+            public IReadOnlyList<OverrideDiagnostic> GetOverrideDiagnostics() => Array.Empty<OverrideDiagnostic>();
+        }
+
+        /// <summary>见 <see cref="MinimalDataRegistry"/> 判断记录：不覆盖 <see cref="IDataRegistry.IsDegraded"/>
+        /// 的实现方应当拿到默认值 <c>false</c>（"未退化"），不应该编译失败，也不应该默认判定为已退化。</summary>
+        [Fact]
+        public void IsDegraded_DefaultInterfaceImplementation_ReturnsFalse()
+        {
+            IDataRegistry registry = new MinimalDataRegistry();
+
+            Assert.False(registry.IsDegraded);
+        }
+
+        /// <summary>见 <see cref="MinimalDataRegistry"/> 判断记录：不覆盖
+        /// <see cref="IDataRegistry.GetUnavailableSources"/> 的实现方应当拿到空集合默认值，不应该编译
+        /// 失败，也不应该凭空报出不存在的不可用数据源。</summary>
+        [Fact]
+        public void GetUnavailableSources_DefaultInterfaceImplementation_ReturnsEmpty()
+        {
+            IDataRegistry registry = new MinimalDataRegistry();
+
+            Assert.Empty(registry.GetUnavailableSources());
+        }
+
+        /// <summary>反向确认（本次任务修复时已执行，证据见任务汇报）：把
+        /// <see cref="IDataRegistry.IsDegraded"/>/<see cref="IDataRegistry.GetUnavailableSources"/>
+        /// 改回不带默认实现的纯抽象成员，<see cref="MinimalDataRegistry"/> 会因未实现接口成员编译失败
+        /// （CS0535），本测试文件与本单新增的两条断言必然报错而不是"变绿"——确认这两条测试确实覆盖了
+        /// 默认实现这件事本身，不是恒真断言。</summary>
+        [Fact]
+        public void MinimalDataRegistry_CompilesWithoutOverridingDegradedMembers_ProvingDefaultInterfaceImplementationExists()
+        {
+            // 本测试的断言意义在于它能通过编译：MinimalDataRegistry 没有实现 IsDegraded/
+            // GetUnavailableSources，若接口成员退化回不带默认实现的抽象成员，本文件整体编译失败
+            // （CS0535 未实现接口成员），dotnet test 会在编译阶段而不是运行阶段报错。
+            IDataRegistry registry = new MinimalDataRegistry();
+            Assert.NotNull(registry);
+        }
+
         // -----------------------------------------------------------------
         // 12. Expr 字段
         // -----------------------------------------------------------------

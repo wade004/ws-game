@@ -318,15 +318,38 @@ namespace Core.Foundation.DataRegistry
         /// "这张表本来就没有"（AGENTS.md 第 3 节"不静默降级"）。声明位置理由与
         /// <see cref="GetTableSourceLocations(string)"/>/<see cref="GetOverrideDiagnostics"/> 相同
         /// （<c>core/carriers/creature/tests</c> 下只实现 <see cref="IDataRegistryView"/> 的测试替身
-        /// 不可改动，加在这里没有同样的兼容性风险；全仓库唯一实现完整 <see cref="IDataRegistry"/>
-        /// 接口的类型是 <c>DataRegistry</c> 本身，新增本成员不破坏任何第三方实现）。
+        /// 不可改动，加在这里没有同样的兼容性风险）。
+        /// <para>
+        /// 判断记录（ABI 破坏修正，2026-09-20，见 CHANGELOG "[Unreleased]"对应条目）：本成员与
+        /// <see cref="GetUnavailableSources"/> 发布时曾声明为不带默认实现的抽象成员（无
+        /// <c>=&gt;</c> 表达式体），上一段判断记录"新增本成员不破坏任何第三方实现"只考虑了"仓库内
+        /// 已知实现方只有 <c>DataRegistry</c>"，遗漏了 AGENTS.md 第 3 节"ABI 只新增：……默认接口
+        /// 成员……"这条硬性规则本身不区分"仓库内是否已知有第三方实现"——任何已发布接口新增不带默认
+        /// 实现的抽象成员，都会让"当前不可见、但确实存在"的外部实现方（含仅在此接口基础上生成的
+        /// mock/代理）重新编译时报"未实现接口成员"，<c>toolchain/abi_probe.ps1</c> 因此正确地把它
+        /// 判定为 <c>interface_new_abstract_member</c> 破坏（<c>breaks=2</c>）。现补默认实现修正：
+        /// 默认值语义选择"未退化/无不可用数据源"（<c>IsDegraded =&gt; false</c>、
+        /// <see cref="GetUnavailableSources"/> 默认返回空集合）——与本接口既有的
+        /// <see cref="GetOverrideDiagnostics"/>/<see cref="GetReferenceDeclarations"/> 等"仅具体实现
+        /// 持有对应内部状态才有数据可回吐"的默认值风格一致（见 <see cref="GetReferenceDeclarations"/>
+        /// 判断记录）：只实现本接口做适配/测试替身的类型沿用默认值是正确语义（它们本就没有"数据源
+        /// 枚举失败"这类内部状态可言，不存在"默认值让调用方误判"的风险——误判只会发生在"确实发生了
+        /// 枚举失败、却因未覆盖默认值而报告未退化"，但这种情形只可能出现在自己实现了 <c>LoadAll</c>
+        /// 却不维护这两个成员的第三方实现方身上，属于该实现方自身未接入诊断的问题，不是本默认值的
+        /// 责任范围）；<c>DataRegistry</c> 本体保留自己的真实覆盖（见其同名成员判断记录），不受影响。
+        /// 已核对全仓库调用点（<c>Grep IsDegraded|GetUnavailableSources</c>）：现有读取方
+        /// （<c>DataRegistryTests</c> 等）全部经由具体 <c>DataRegistry</c> 实例访问，没有任何调用点
+        /// 持有裸的 <see cref="IDataRegistry"/> 引用读取这两个成员且期望阻断态下必然为
+        /// <c>true</c>/非空，因此本次改动不影响任何既有断言。
+        /// </para>
         /// </summary>
-        bool IsDegraded { get; }
+        bool IsDegraded => false;
 
         /// <summary>
         /// 只读诊断：见 <see cref="IsDegraded"/>。最近一次加载/重载期间因枚举失败而被跳过的全部数据源
-        /// （按遇到顺序排列，不重复；无失败时返回空列表）。
+        /// （按遇到顺序排列，不重复；无失败时返回空列表）。默认实现返回空集合（判断记录见
+        /// <see cref="IsDegraded"/>）。
         /// </summary>
-        IReadOnlyList<DataSourceDiagnostic> GetUnavailableSources();
+        IReadOnlyList<DataSourceDiagnostic> GetUnavailableSources() => System.Array.Empty<DataSourceDiagnostic>();
     }
 }

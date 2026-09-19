@@ -507,3 +507,33 @@ Diagnostics 出口），本类型装配期已经持有构造出的具体实例�
 `Adapter.Unity.Diagnostics.DiagnosticsHubComposition`（新的统一诊断转发集线器，不再是
 `PresentationAssemblyDiagnosticsForwarder` 那种一次性写死构造函数参数个数的做法，见其类型注释）。
 ABI 只新增只读属性，不改动任何既有公开签名。
+
+**跟进（CS0234 编译错误修正，2026-09-20）**：上述接线在 `DiagnosticsHubComposition.cs` 里写作
+`presentation.UiDiagnostics is Presentation.Ui.InMemoryUiDiagnostics uiDiag`，Unity 批处理编译
+报 `error CS0234: The type or namespace name 'Ui' does not exist in the namespace
+'Adapter.Unity.Presentation'`——`DiagnosticsHubComposition.cs` 所在命名空间
+`Adapter.Unity.Diagnostics` 与同一 asmdef（`Adapter.Unity`）内已存在的兄弟命名空间
+`Adapter.Unity.Presentation`（`Runtime/Presentation/` 下 `AnimClipResolver` 等文件）同前缀冲突：
+C# 按"由内向外逐级匹配外层命名空间成员"解析未限定的 `Presentation` 标识符，会先命中同程序集内
+的 `Adapter.Unity.Presentation`，再在其下找 `Ui` 子命名空间失败即报错终止，不会回退到全局的
+`Presentation.Ui`（`presentation/ui` 模块真正所在的命名空间，编译进 `Presentation.Common.dll`，
+`Adapter.Unity.asmdef` 的 `precompiledReferences` 已经包含，不是缺引用）。这不是"接线漏了"，是
+"接线引用点未限定命名空间作用域"——本次任务修正单独复现验证：把同样不带 `global::` 前缀的写法
+放进本文档同批新增的 xUnit 测试文件 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+（命名空间 `Tests.Presentation.Assembly`，与 `Presentation.Ui` 同样存在前缀冲突）会触发一模一样
+的 CS0234，证实这是命名空间冲突的通性问题，不是 Unity 特有的怪癖。**修法**：类型引用加
+`global::` 前缀强制从全局命名空间解析（`global::Presentation.Ui.InMemoryUiDiagnostics`）——
+本程序集内 `GameFoundationBootstrap.cs`/`FrameworkResidentHost.cs` 已有同名冲突场景下用
+`global::Presentation.Xxx`（`VfxSfx`/`Render`/`FeedbackBinder`/`Shell` 等多处）的既有先例，沿用
+同一惯例，不改变任何运行期行为。新增回归：`toolchain/tests/test_diagnostics_forwarding_advance_
+character_rigs_wiring.py` 的
+`test_diagnostics_hub_composition_ui_diagnostics_type_pattern_uses_global_qualifier`（静态解析
+源码文本确认 `global::` 前缀存在，反向确认——去掉前缀会让该测试失败，已验证并还原）+
+`PresentationAssemblyTests.UiDiagnostics_ProductionWiring_IsInMemoryUiDiagnostics`/
+`UiDiagnostics_AfterUnknownPathQuery_RecordsWarning_ObservableThroughDiagnosticsProperty`（纯
+C# 侧确认生产装配下 `presentation.UiDiagnostics` 确实是 `InMemoryUiDiagnostics`、且真实查询会
+产生可观察的警告，`DiagnosticsHubComposition.cs` 一旦编译通过就能正确转发，不是接了个恒空的
+占位对象）。`DiagnosticsHubComposition.cs` 本身是 Unity-only 胶水、不进 `dotnet test` 编译范围
+（见该文件类型级判断记录），本次未起 Unity，编译正确性靠上述静态命名空间分析 + asmdef 引用关系
+核对（`Adapter.Unity.asmdef` 的 `precompiledReferences` 含 `Presentation.Common.dll`，无需调整）
+自证，待主会话跑真实 Unity 批处理门禁复核。

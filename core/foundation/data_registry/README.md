@@ -627,6 +627,42 @@ Get_RealDataRegistry_BlockedByUnrelatedTable_UnaffectedTableStillFullyReadable_N
 覆盖的分支，共 4 例）。消费方通知：
 [消费方通知-2026-09-19-TryGet契约行为修正.md](../../../architecture/落地计划/消费方通知-2026-09-19-TryGet契约行为修正.md)。
 
+## 判断记录（ABI 破坏修正：IsDegraded/GetUnavailableSources 补默认实现，2026-09-20）
+
+数据源枚举执行期异常隔离单（框架调用外部实现不做隔离系列第三条）新增的
+`IDataRegistry.IsDegraded`/`IDataRegistry.GetUnavailableSources()` 发布时是不带默认实现的抽象
+接口成员（当时判断记录理由是"全仓库唯一实现完整 `IDataRegistry` 接口的类型是 `DataRegistry`
+本身，新增本成员不破坏任何第三方实现"）。全量门禁跑 `toolchain/abi_probe.ps1` 时正确报出
+`interface_new_abstract_member` 破坏（`breaks=2`）——AGENTS.md 第 3 节"ABI 只新增：……默认接口
+成员……"这条硬性规则本身不区分"仓库内是否已知有第三方实现"，任何已发布接口新增不带默认实现的
+抽象成员，都会让当前不可见、但确实存在的外部实现方（含仅在此接口基础上生成的 mock/代理）重新
+编译时报"未实现接口成员"，上一版判断记录的理由不成立。
+
+**修法**：给两个成员补默认实现（`contracts/IDataRegistry.cs`）——`IsDegraded => false`、
+`GetUnavailableSources()` 默认返回空集合，语义为"未退化/无不可用数据源"，与本接口既有的
+`GetOverrideDiagnostics`/`GetReferenceDeclarations` 等"仅具体实现持有对应内部状态才有数据可
+回吐"的默认值风格一致。`DataRegistry` 本体保留自己的真实覆盖（`public bool IsDegraded => …`/
+`public IReadOnlyList<DataSourceDiagnostic> GetUnavailableSources() => …`，均为显式 `public`
+成员，自动覆盖接口默认实现，无需改动）。
+
+**全仓库调用点扫描结论**：现有全部读取点（`DataRegistryTests`/`ExpectedStatCalculator`/
+`SkillBudgetAnalyzer`/`EquipmentScoreAnalyzer`/`LootTableAnalyzer` 等）均经由具体 `DataRegistry`
+实例（或转发自 `TolerantRegistryView`，与本次改动的默认值无关）访问这两个成员，没有任何调用点
+持有裸的 `IDataRegistry` 引用读取它们、且期望阻断态下必然为 `true`/非空，因此补默认值不影响任何
+既有断言、既有行为逐位一致。
+
+**新增测试**（`tests/DataRegistryTests.cs`）：`MinimalDataRegistry`（故意不覆盖这两个成员的最小
+测试替身）+ `IsDegraded_DefaultInterfaceImplementation_ReturnsFalse`/
+`GetUnavailableSources_DefaultInterfaceImplementation_ReturnsEmpty`/
+`MinimalDataRegistry_CompilesWithoutOverridingDegradedMembers_ProvingDefaultInterfaceImplementationExists`。
+反向确认（已执行，随后已还原）：把两个成员改回不带默认实现的纯抽象成员，`Tests.Foundation.csproj`
+编译报 `CS0535`（`DataRegistryTests.MinimalDataRegistry`未实现接口成员），确认这两条测试确实覆盖
+了默认实现存在这件事，不是恒真断言。
+
+修复后重跑 `dotnet build -c Release --artifacts-path <scratchpad>` +
+`toolchain/abi_probe.ps1 -BaselineZip dist/ws-game-1.45.0.zip`：`breaks=0 allowed=0 additions=46
+RESULT=OK`。
+
 ## 不负责什么
 
 - 不实现任何具体业务校验规则（效果数上限、预算、叠加冲突等），只提供 `IValidationRule` 扩展点。
