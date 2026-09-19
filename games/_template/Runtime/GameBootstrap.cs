@@ -201,7 +201,14 @@ namespace Game.Template
             _bus = new Core.Foundation.EventBus.EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
 
             // 2) 数据集：框架级数据根 + 本游戏数据根，两根合并加载（见类型顶部判断记录）。
-            var contentFs = new UnityFileSystem(readOnlyContentMode: true);
+            // 消费方反馈第 70 条根治：内容根默认仍是部署副本根（不传 contentRoot），可选经
+            // ContentSourceRootOverride 由命令行参数/环境变量指定外部内容源目录覆盖——未指定时
+            // ResolveAndValidate 返回 null，UnityFileSystem 走原有默认值，本次改动前后行为完全一致；
+            // 指定了不存在的目录会在这里抛出异常，被下面 Awake() 的 try/catch 捕获并标记
+            // BootstrapFailed（见该方法判断记录"不存在的目录必须显式报错"），不会静默回退。
+            var contentRootOverride = ContentSourceRootOverride.ResolveAndValidate(
+                Environment.GetCommandLineArgs(), Environment.GetEnvironmentVariable, System.IO.Directory.Exists);
+            var contentFs = new UnityFileSystem(readOnlyContentMode: true, contentRoot: contentRootOverride);
             var frameworkSource = new FileSystemDataSource(contentFs, _frameworkDatasetRoot);
             var gameSource = new FileSystemDataSource(contentFs, _gameDatasetRoot);
             var options = PresentationSchemaCatalog.CreateOptions();
@@ -236,11 +243,13 @@ namespace Game.Template
             // UNITY_EDITOR || DEVELOPMENT_BUILD 之外是空壳（不占用任何运行时资源），这里无条件调用
             // AddComponent+Initialize（不用 #if 包一层），两种编译形态的公开方法签名完全一致。
             // 判断记录（watchRoots 的绝对路径怎么算）：_frameworkDatasetRoot/_gameDatasetRoot 是相对
-            // UnityFileSystem(readOnlyContentMode: true) 内容根（Application.streamingAssetsPath/
-            // GameFoundation，见该类型 GetContentRootDir/ResolveFullPath）解析的相对路径——与
-            // frameworkSource/gameSource 两个 FileSystemDataSource 实际读取数据用的是同一套解析
-            // 规则，保证"热重载监视的目录"与"数据实际来自的目录"完全一致，不需要在这里重新发明一套
-            // 路径拼接逻辑。
+            // UnityFileSystem(readOnlyContentMode: true) 内容根（默认 Application.streamingAssetsPath/
+            // GameFoundation，经 ContentSourceRootOverride 指定时改为外部内容源目录，见该类型/
+            // GetContentRootDir/ResolveFullPath）解析的相对路径——与 frameworkSource/gameSource 两个
+            // FileSystemDataSource 实际读取数据用的是同一套解析规则，保证"热重载监视的目录"与"数据
+            // 实际来自的目录"完全一致，不需要在这里重新发明一套路径拼接逻辑；消费方反馈第 70 条根治
+            // 之后，这条不变式对"内容源目录已被覆盖"的场景同样成立——watchRoots 与 frameworkSource/
+            // gameSource 都改用同一个覆盖后的内容根，不会出现两者各自解析出不同目录的情况。
             if (_options.EnableDataHotReload)
             {
                 var contentRoot = contentFs.GetContentRootDir();

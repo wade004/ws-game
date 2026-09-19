@@ -440,6 +440,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   能力，不是面向某个具体消费方的专属联调协议；参数化同步入口与既有两个同步入口（私服包内容
   落地、框架自身工作台同步）并列新增，不取代、不包装。本次只出 ADR，两项能力尚未实现。
 
+- **消费方反馈第 70 条根治**：`games/_template/Runtime/ContentSourceRootOverride.cs` 新增——命令行
+  参数 `-gfContentRoot <路径>` 或环境变量 `GF_CONTENT_ROOT` 可以把 `GameBootstrap` 的内容根整体指向
+  外部内容源目录，数据加载与 `Runtime/DataHotReload.cs` 监视都会改用该目录，不再局限于
+  StreamingAssets 部署副本。未指定时行为与之前完全一致；指定了不存在的目录会让装配显式失败
+  （不静默回退）。`games/_template/README.md`"开发期数据热重载"一节同步补充说明。
+- **消费方反馈第 72 条根治**：`games/_template/Editor/WindowsPlayerBuilder.cs` 新增自定义
+  `-executeMethod` 构建入口，暴露 `-gfDevelopmentBuild` 命令行标志，批处理构建独立版时可选勾选
+  `BuildOptions.Development`（内置 `-buildWindows64Player` 开关本身不支持）；
+  `toolchain/consumer_smoke.ps1` 新增 `-DevelopmentBuild` 开关贯通到该入口，默认不传时构建行为与
+  之前完全一致。`games/_template/README.md` 新增"构建独立版"一节说明两种命令行用法。
+  独立验收发现该条落地后全分支零自动化测试，补测试单据此把参数解析纯逻辑抽到新增
+  `games/_template/Editor/WindowsPlayerBuilderArgs.cs`（`WindowsPlayerBuilder.BuildWindows64Player`
+  公开签名与构建行为不变），新增 `games/_template/Tests/Editor/WindowsPlayerBuilderArgsTests.cs`
+  （8 个 EditMode 单测，覆盖 Development 标志存在性判定、输出路径命令行/环境变量优先级、两者都未
+  指定时的显式报错），`Game.Template.EditorTests.asmdef` 新增对 `Game.Template.Editor` 的引用。
+
 ### 修复
 
 - 根治两处 PlayMode 用例隐性执行顺序依赖（`GreyBoxTests.

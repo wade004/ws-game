@@ -33,6 +33,14 @@
     上一次运行）。见下方判断记录（P07 根治之二）——check.ps1 全量门禁调用本脚本时会用
     `| Out-Null` 吞掉本脚本子进程的全部控制台输出，这份落盘记录是失败后唯一能追溯到的完整现场。
 
+.PARAMETER DevelopmentBuild
+    消费方反馈第 72 条根治：第 9 步"构建独立版"改勾选 BuildOptions.Development（开发者控制台/
+    profiler 联机/脚本调试符号），供需要联调独立版而非验收发布包的场景使用。默认不传——第 9 步
+    仍是内置 `-buildWindows64Player <path>` 开关，构建结果与本参数新增之前逐字节一致；传了本开关后
+    改走自定义 `-executeMethod Game.Template.EditorTools.WindowsPlayerBuilder.BuildWindows64Player`
+    （见该类型），带上 `-gfDevelopmentBuild` 标志。第 10 步的 `-gf-smoke-template` 无人值守冒烟不
+    区分独立版是否为 Development Build，两种产物都可以直接拿去跑。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。UTF-8 with BOM（PS 5.1 默认按系统代码页读取
     不带 BOM 的脚本文件，中文字符/字符串字面量在无 BOM 时会被读错）。
@@ -70,7 +78,8 @@ param(
     [string]$WorkDir = "",
     [string]$UnityExe = "",
     [switch]$SkipCleanWorkDir,
-    [string]$ArtifactsPath = ""
+    [string]$ArtifactsPath = "",
+    [switch]$DevelopmentBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -582,18 +591,34 @@ $exePath = Join-Path $UnityLogDir "ConsumerShell.exe"
 $buildOk = Invoke-Step "构建独立版" {
     Wait-NoResidualUnityProcess
     $log = Join-Path $UnityLogDir "04_build.log"
-    $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList @(
-        "-batchmode", "-nographics", "-quit",
-        "-projectPath", $ConsumerProjectDir,
-        "-buildWindows64Player", $exePath,
-        "-logFile", $log
-    ) -TimeoutSeconds 600
+    # 消费方反馈第 72 条根治：默认（不传 -DevelopmentBuild）仍是内置 -buildWindows64Player 开关，
+    # 与本参数新增之前完全一致；传了才改走 WindowsPlayerBuilder 自定义 -executeMethod，带
+    # -gfDevelopmentBuild 让其按 BuildOptions.Development 构建（见该类型头判断记录、
+    # .PARAMETER DevelopmentBuild 说明）。
+    if ($DevelopmentBuild) {
+        $buildArgList = @(
+            "-batchmode", "-nographics", "-quit",
+            "-projectPath", $ConsumerProjectDir,
+            "-executeMethod", "Game.Template.EditorTools.WindowsPlayerBuilder.BuildWindows64Player",
+            "-gfOutputPath", $exePath,
+            "-gfDevelopmentBuild",
+            "-logFile", $log
+        )
+    } else {
+        $buildArgList = @(
+            "-batchmode", "-nographics", "-quit",
+            "-projectPath", $ConsumerProjectDir,
+            "-buildWindows64Player", $exePath,
+            "-logFile", $log
+        )
+    }
+    $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList $buildArgList -TimeoutSeconds 600
     if ($proc.TimedOut) {
         return [PSCustomObject]@{ Ok = $false; Detail = "独立版构建超过 600s 未完成，见 $log" }
     }
     [PSCustomObject]@{
         Ok = ($proc.ExitCode -eq 0) -and (Test-Path $exePath)
-        Detail = "Unity 构建退出码 $($proc.ExitCode)，产物存在=$(Test-Path $exePath)，见 $log"
+        Detail = "Unity 构建退出码 $($proc.ExitCode)，DevelopmentBuild=$($DevelopmentBuild.IsPresent)，产物存在=$(Test-Path $exePath)，见 $log"
     }
 }
 
