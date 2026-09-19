@@ -240,6 +240,36 @@ class SpriteBasicFlowTest(ImportAssetsTestBase):
         )
         self.assertEqual(0, code, msg=output)
 
+    def test_display_map_import_is_idempotent_byte_for_byte(self) -> None:
+        """幂等性回归：同一份输入连续导入两次，display.map.json 第二次写出的字节内容必须与
+        第一次（setUp 里已跑过一次）完全一致（--scale 是 type=float 命令行参数，覆盖同类路径）。"""
+        first_bytes = self.display_map_path.read_bytes()
+
+        code, output = run_cli(
+            [
+                "sprite",
+                str(self.src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.grey_wolf_test",
+                "--direction-count",
+                "8",
+                "--anchors",
+                str(self.anchors_path),
+                "--assets-root",
+                str(self.assets_root),
+                "--data-root",
+                str(self.data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        second_bytes = self.display_map_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
+
 
 class SpriteTrimTest(ImportAssetsTestBase):
     def test_trim_crops_and_shifts_anchor(self) -> None:
@@ -728,10 +758,23 @@ class MapCommandTest(ImportAssetsTestBase):
         self.assertEqual(0, code, msg=output)
 
         world_map_path = data_root / "_test" / "world" / "world.map.json"
-        row = json.loads(world_map_path.read_text(encoding="utf-8"))["rows"][0]
+        raw_text = world_map_path.read_text(encoding="utf-8")
+        row = json.loads(raw_text)["rows"][0]
         self.assertEqual(16.0, row["image_transform"]["pixels_per_unit"])
         self.assertEqual({"x": 10.0, "y": 5.0}, row["image_transform"]["origin_px"])
         self.assertEqual({"x": 64, "y": 48}, row["image_transform"]["image_size_px"])
+
+        # 字面量形式回归（本 bug 的盲区）：assertEqual(16.0, row[...]) 测不出字面量形式，因为
+        # Python 里 16 == 16.0 为真；此处直接断言写出的原始文本，覆盖 --pixels-per-unit/
+        # --origin-px 这两个 type=float 的命令行参数，数值上是整数时必须写成整数字面量
+        # （"16"/"10"/"5"），不能写成 "16.0"/"10.0"/"5.0"（见 common.py 的
+        # _normalize_json_literals 判断记录）。用带引号的字段名前缀 + 数字 + 非数字字符的写法，
+        # 避免误匹配 "16" 是 "160" 前缀之类的子串问题。
+        self.assertIn('"pixels_per_unit": 16,', raw_text)
+        self.assertNotIn('"pixels_per_unit": 16.0', raw_text)
+        self.assertIn('"origin_px": {"x": 10, "y": 5}', raw_text)
+        self.assertNotIn("10.0", raw_text)
+        self.assertNotIn("5.0", raw_text)
 
         # 用 check --only world 交叉验证真正落地（image_transform 是可选字段，不应导致 check 失败）。
         code, output = run_cli(
@@ -748,6 +791,43 @@ class MapCommandTest(ImportAssetsTestBase):
             ]
         )
         self.assertEqual(0, code, msg=output)
+
+    def test_map_import_is_idempotent_byte_for_byte(self) -> None:
+        """幂等性回归：同一份输入连续导入两次，world.map.json 第二次写出的字节内容必须与
+        第一次完全一致（不止值相等）。这是防"写盘层再次引入字面量形式漂移"的通用闸门——
+        --pixels-per-unit/--origin-px 用非整数默认值以外的取值触发本 bug 曾经的漂移路径。"""
+        case_dir = self.new_case_dir("map_cmd_idempotent")
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src"
+        self._build_layer_src(src_dir, {"ground": (64, 48), "overlay": (64, 48)})
+
+        argv = [
+            "map",
+            str(src_dir),
+            "--map",
+            "idempotent_field",
+            "--dataset",
+            "_test",
+            "--pixels-per-unit",
+            "16",
+            "--origin-px",
+            "10,5",
+            "--assets-root",
+            str(assets_root),
+            "--data-root",
+            str(data_root),
+        ]
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        first_bytes = world_map_path.read_bytes()
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        second_bytes = world_map_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
 
     def test_map_dry_run_still_computes_image_size_without_writing(self) -> None:
         case_dir = self.new_case_dir("map_cmd_dry_run_image_size")
@@ -1179,6 +1259,44 @@ class VfxCommandTest(ImportAssetsTestBase):
         )
         self.assertEqual(0, code_check, msg=output_check)
 
+    def test_vfx_import_is_idempotent_byte_for_byte(self) -> None:
+        """幂等性回归：同一份输入连续导入两次，vfx.def.json 第二次写出的字节内容必须与
+        第一次完全一致（--lifetime/--fps 均为 type=float 命令行参数，是本 bug 的潜在同类路径）。"""
+        case_dir = self.new_case_dir("vfx_idempotent")
+        assets_root, data_root = self.roots(case_dir)
+        frames_dir = case_dir / "spark_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(4):
+            make_layer_image((8, 8), color=(255, 200, 0, 255)).save(frames_dir / f"frame_{i:04d}.png")
+
+        argv = [
+            "vfx",
+            str(frames_dir),
+            "--dataset",
+            "_test",
+            "--id",
+            "vfx.idempotent_test",
+            "--fps",
+            "20",
+            "--lifetime",
+            "2",
+            "--assets-root",
+            str(assets_root),
+            "--data-root",
+            str(data_root),
+        ]
+        vfx_def_path = data_root / "_test" / "vfx" / "vfx.def.json"
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        first_bytes = vfx_def_path.read_bytes()
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        second_bytes = vfx_def_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
+
 
 class SfxCommandTest(ImportAssetsTestBase):
     def _write_silent_wav(self, path: Path, seconds: float = 0.1, framerate: int = 8000) -> None:
@@ -1267,6 +1385,42 @@ class SfxCommandTest(ImportAssetsTestBase):
             ["sfx.sword_hit_multi_test_v0", "sfx.sword_hit_multi_test_v1"], row["variants"]
         )
         self.assertIn(row["resource_ref"], row["variants"])
+
+    def test_sfx_import_is_idempotent_byte_for_byte(self) -> None:
+        """幂等性回归：同一份输入连续导入两次，sfx.def.json 第二次写出的字节内容必须与
+        第一次完全一致。"""
+        case_dir = self.new_case_dir("sfx_idempotent")
+        assets_root, data_root = self.roots(case_dir)
+        wav_path = case_dir / "hit.wav"
+        self._write_silent_wav(wav_path)
+
+        argv = [
+            "sfx",
+            str(wav_path),
+            "--dataset",
+            "_test",
+            "--id",
+            "sfx.idempotent_test",
+            "--layer",
+            "combat",
+            "--priority",
+            "5",
+            "--assets-root",
+            str(assets_root),
+            "--data-root",
+            str(data_root),
+        ]
+        sfx_def_path = data_root / "_test" / "sfx" / "sfx.def.json"
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        first_bytes = sfx_def_path.read_bytes()
+
+        code, output = run_cli(argv)
+        self.assertEqual(0, code, msg=output)
+        second_bytes = sfx_def_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
 
     def test_sfx_rejects_non_wav_file(self) -> None:
         case_dir = self.new_case_dir("sfx_cmd_reject")

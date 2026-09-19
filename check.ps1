@@ -734,6 +734,75 @@ Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消�
 }
 
 # -----------------------------------------------------------------------------
+# 5d. 样例导入幂等性门禁（防"asset_import 写盘层字面量形式漂移"类回归——曾复现的具体案例：
+#     map 子命令的 --pixels-per-unit/--origin-px 是 type=float 命令行参数，json.dumps 未做
+#     int/float 字面量归一化，直接按 Python 运行时类型写出，导致 data/_sample/world/
+#     world.map.json 每次重跑 import_sample_assets.py 都会把 "32" 写成 "32.0" 这类无意义 diff，
+#     破坏"同一输入重复导入产出字节相同文件"的幂等性；已在 toolchain/asset_import/common.py 的
+#     _normalize_json_literals 写盘层根治，这里补一道流水线级回归闸：重新跑一次样例导入，断言
+#     它的写入路径相对已提交内容零 diff）。
+#     只对 data/_sample、assets/_sample 两个写入路径把关（import_sample_assets.py 默认写入
+#     的唯一两个根，不是全仓库 git status）。
+# -----------------------------------------------------------------------------
+if ($Quick) {
+    Add-SkippedStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" "-Quick"
+} else {
+    Invoke-CheckStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" {
+        Push-Location $RepoRoot
+        try {
+            $watchPaths = @("data/_sample", "assets/_sample")
+
+            # 保护"工作树本来就脏"：先看这两个路径是否已有未提交改动（含未跟踪文件），有就跳过
+            # 本步骤并打印明确提示，而不是把开发者本地正当改动误判为门禁失败。
+            $preStatus = & git status --porcelain -- $watchPaths
+            if ($LASTEXITCODE -ne 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "git status 执行失败（退出码 $LASTEXITCODE），无法判断工作树是否干净" }
+            }
+            if ($preStatus) {
+                Write-Host "检测到 $($watchPaths -join ', ') 下已有未提交改动，跳过本步骤（避免把本地正当改动误判为门禁失败）：" -ForegroundColor Yellow
+                $preStatus | Out-Host
+                return [PSCustomObject]@{ Skip = $true; Reason = "data/_sample 或 assets/_sample 已有未提交改动，先提交/还原后再跑本步骤" }
+            }
+
+            $rerunOk = Test-NativeExitCode "python" @("toolchain/import_sample_assets.py")
+            if (-not $rerunOk) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "python toolchain/import_sample_assets.py 重跑本身失败（非 diff 问题，见上方输出）" }
+            }
+
+            $postStatus = & git status --porcelain -- $watchPaths
+            if ($LASTEXITCODE -ne 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "git status 执行失败（退出码 $LASTEXITCODE），无法判断重跑后是否产生 diff" }
+            }
+
+            if (-not $postStatus) {
+                # 天然干净：重跑没有改动任何文件，不需要任何恢复动作。
+                return $true
+            }
+
+            # 出现 diff：先打印摘要方便定位，再把这两个路径恢复到重跑前的状态（已跟踪文件用
+            # checkout 还原，重跑意外新增的未跟踪文件用 clean 清掉——上面的"本来就脏"检查已确认
+            # 这两个路径此前没有任何未跟踪文件，这里清理范围严格限定在 $watchPaths，不影响仓库
+            # 其它任何路径），保证本步骤跑完不管成败都不在工作树留下改动。
+            Write-Host "样例导入重跑后 $($watchPaths -join ', ') 出现 diff（幂等性被破坏）：" -ForegroundColor Red
+            $postStatus | Out-Host
+            $diffSummary = (& git diff --stat -- $watchPaths | Out-String).Trim()
+            if ($diffSummary) {
+                Write-Host $diffSummary -ForegroundColor Red
+            }
+
+            & git checkout -- $watchPaths 2>$null | Out-Null
+            & git clean -fd -- $watchPaths 2>$null | Out-Null
+
+            $detailLines = @($postStatus | Select-Object -First 20)
+            $detail = "重跑 import_sample_assets.py 后 data/_sample 或 assets/_sample 出现非预期 diff：" + ($detailLines -join "; ")
+            return [PSCustomObject]@{ Ok = $false; Detail = $detail }
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 6. toolchain 自身的 pytest 套件（-Quick 跳过：见 .PARAMETER Quick 说明）
 # -----------------------------------------------------------------------------
 if ($Quick) {

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -155,9 +156,61 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# 绝对值达到或超过该阈值的浮点数，其整数部分已经无法保证逐位精确（float64 尾数只有 53 位），
+# 此时按原样保留，不要把它当成"数值上是整数"改写成整数字面量，避免写出以假乱真的长整数。
+_MAX_SAFE_INT_FLOAT = 2**53
+
+
+def _normalize_json_literals(value: Any) -> Any:
+    """递归规范化即将写盘的数值字面量形式：数值上是整数的 ``float`` 一律改写为 ``int``，
+    其余值原样保留；不就地修改传入对象，返回新对象。
+
+    判断记录：``map_cmd.py`` 等子命令的 ``--pixels-per-unit``/``--origin-px``/``--spawn`` 等
+    命令行参数声明为 ``type=float``，经 ``json.dumps`` 直接按 Python 运行时类型序列化后会写出
+    ``32.0`` 这样的字面量，与既有数据/人工填写的 ``32`` 形式不一致——两者在 JSON 语义上等价
+    （schema 侧字段声明为 ``FieldKind.Number``，不区分 Int/Float，见
+    ``core/foundation/scene_router/core/WorldMapSchema.cs``），但字面量形式漂移会制造无意义 diff、
+    破坏"同一输入重复导入产出字节相同文件"的幂等性。这里在写盘前统一收敛："数值上是整数" 的
+    float 一律写成整数字面量；本函数不改 schema、不做任何类型意义上的转换，只规范字面量形式。
+
+    边界（均已由单测覆盖，见 ``toolchain/tests/test_json_literal_normalization.py``）：
+    - ``bool`` 是 ``int`` 的子类，必须先于 ``int``/``float`` 分支判断，原样保留——绝不能把
+      ``True``/``False`` 当成整数分支处理而误写成 ``1``/``0``。
+    - ``nan``/``inf``/``-inf``：``math.isfinite`` 为 ``False`` 时原样保留（不依赖
+      ``float.is_integer()`` 对非有限值的返回值，显式判断更清楚，也不给 json.dumps 的
+      ``allow_nan`` 行为添加隐藏依赖）。
+    - 绝对值 ``>= 2**53`` 的整数值 float：float64 精度已不可靠，原样保留，不写出可能失真的
+      长整数字面量（见 ``_MAX_SAFE_INT_FLOAT``）。
+    - 递归处理 ``dict`` 的每个 value 与 ``list``/``tuple`` 的每个元素（``tuple`` 归一为
+      ``list``，与 ``json.dumps`` 本身的序列化行为一致）；本 bug 的 ``origin_px.x`` 正是嵌套
+      在 object 里的字段，顶层遍历覆盖不到。
+    - 已经是 ``int``、字符串、``None`` 等的值原样返回。
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return value
+        if abs(value) >= _MAX_SAFE_INT_FLOAT:
+            return value
+        if value.is_integer():
+            return int(value)
+        return value
+    if isinstance(value, dict):
+        return {k: _normalize_json_literals(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_json_literals(v) for v in value]
+    return value
+
+
 def _row_json(row: dict) -> str:
-    """把单条记录序列化为紧凑的单行 JSON（与 data/_sample 现有样例的紧凑风格接近）。"""
-    return json.dumps(row, ensure_ascii=False, separators=(", ", ": "))
+    """把单条记录序列化为紧凑的单行 JSON（与 data/_sample 现有样例的紧凑风格接近）。
+
+    序列化前先经 ``_normalize_json_literals`` 规范数值字面量形式（见该函数判断记录），是
+    ``merge_write_row``/``write_envelope`` 这条写盘层唯一的 json.dumps 落点，改这里即可让所有
+    经由该写盘层的子命令（``map``/``sprite``/``vfx``/``sfx``）统一受益，不必逐个子命令改。
+    """
+    return json.dumps(_normalize_json_literals(row), ensure_ascii=False, separators=(", ", ": "))
 
 
 def write_envelope(path: Path, table: str, schema_version: int, rows: list[dict]) -> None:
