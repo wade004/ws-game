@@ -384,9 +384,12 @@ namespace Game.Template
             if (report.IsBlocking)
             {
                 var issueText = string.Join("; ", System.Linq.Enumerable.Select(report.Issues, i => i.ToString()));
-                Debug.LogError($"[DataHotReload] 热重载 \"{table}\" 失败（{report.ErrorCount} 个错误、{report.WarningCount} 个警告），已保留错误列表；" +
+                // ADR-0046：改用 Debug.LogWarning（不再用 Debug.LogError），理由同 GameBootstrap.cs
+                // 同一处判断记录（ADR-0042 决策 4 硬约束）；DataValidationFailedEvent 改用三参数
+                // 构造随事件一并携带 report.Issues，供结构化消费。
+                Debug.LogWarning($"[DataHotReload] 热重载 \"{table}\" 失败（{report.ErrorCount} 个错误、{report.WarningCount} 个警告），已保留错误列表；" +
                     "注意：DataRegistry 的只读查询是全局阻断的，整个数据集（不止这一张表）在下一次成功的重载/加载之前都无法读取，见类型头判断记录\"Reload 失败语义\"。问题清单：" + issueText);
-                _bus!.PublishImmediate(new DataValidationFailedEvent(report.ErrorCount, report.WarningCount));
+                _bus!.PublishImmediate(new DataValidationFailedEvent(report.ErrorCount, report.WarningCount, report.Issues));
                 return;
             }
 

@@ -582,6 +582,39 @@ ABI 只新增，见 `contracts/DataSourceOptions.cs` 判断记录）。
    `消费方反馈-2026-09-19-第67-72条回复草稿-71号反问.md` 已于提交 `d406af3` 并入本文档并删除，
    本节链接此前未同步更新，指向了一个已不存在的文件）。
 
+**本节状态更新（2026-09-20，ADR-0046，根治第 71 条）**：上面第 5 点"评估后暂不动手，留给设计层"
+已过期——[`消费方问询-2026-09-20-第71条反问答复要求.md`](../../../architecture/落地计划/消费方问询-2026-09-20-第71条反问答复要求.md)
+发出后，设计层拍板不再等消费方答复、直接定契约（不撤销先前的反问，只是不再等待）。落地结论与
+过程见 [ADR-0046](../../../architecture/adr/0046-运行期校验报告结构化转发出口.md)，本节只记与
+本模块直接相关的部分：
+
+- **原方案"接入 ADR-0042 DiagnosticsHub"经核实在结构上不成立，未采用**——`DiagnosticsHub`
+  （`adapters/unity/.../Runtime/Diagnostics/DiagnosticsHub.cs`）只承诺"一个来源名 + 一份只增不减的
+  `IReadOnlyList<string>` 引用，每帧轮询新增段按文本去重转发到宿主控制台"，且从未把
+  `data_registry` 的 `ValidationReport`/`ValidationIssue` 纳入普查（见上方第 71 条问询文档"本问询
+  之前框架侧已经做了什么"一节的核实结论）。三点结构性不匹配：① 只能装载字符串，不能装载
+  `ValidationIssue` 对象本身；② 按精确文本去重——校验报告是离散的、每次触发都有独立意义的事件
+  （如同一张表连续两次热重载仍然失败），去重会让消费方看不到第二次失败，等同静默丢失信号
+  （AGENTS.md 第 3 节"不静默降级"）；③ 面向"持续增长的常驻列表 + 每帧轮询"，而校验报告是一次性
+  产出的完整对象，套用会显得牵强。详见 ADR-0046"备选方案与为什么不选"一节。
+- **改为对本模块真正已有的结构化转发出口做加性扩展**：`DataValidationFailedEvent`
+  （`contracts/Events.cs`）新增三参数构造函数，携带 `IReadOnlyList<ValidationIssue> Issues`（ABI
+  只新增，既有两参数构造函数保留、内部委派，`Issues` 默认空集合）；`DataRegistry.LoadAllCore` 与
+  `games/_template/Runtime/DataHotReload.cs` 的两处既有发布点均已改用新构造函数传入
+  `report.Issues`。`ValidationIssue` 的公开只读属性本就与 `toolchain/validator --json` 的
+  `issues[]` 元素字段一一对应（后者正是前者的 JSON 序列化），两条通道因此天然同形状，不需要额外
+  映射代码，也不会漂移。
+- **两处 `Debug.LogError(...ToString()...)` 已改为 `Debug.LogWarning`**（`GameBootstrap.cs`、
+  `DataHotReload.cs`，人类可读文本内容不变）——这是本条反问过程中发现的框架侧缺陷：ADR-0042
+  决策 4 的硬约束（宿主自动化测试框架把未预期的 Error 级输出判定为测试失败，诊断消息一律不产生
+  `Debug.LogError`）此前对这两处不生效，与它们未被纳入 ADR-0042 普查是同一个根因的两个表现。
+- **局限（如实标注，未解决）**：本次落地只服务与 Unity 进程同进程内、订阅事件总线的 C# 消费方。
+  若 `LogRecordLookup` 是完全独立的外部进程（`editor/README.md` 记录的"编辑器随游戏走"独立工程，
+  按 ADR-0018 不进本仓库、独立版本管理，从本仓库现有资料看不到它与运行中的 Unity 进程有任何进程内
+  通道），本次改动不解决它读取运行期校验结果的诉求——这需要一种能跨进程送达的结构化出口（如约定
+  格式的落盘文件、或带固定前缀的结构化日志行，供外部按行解析），那是一个新的对外契约，需要设计层
+  另行拍板格式稳定承诺，ADR-0046 明确留白、未擅自实现，见该 ADR"后果"一节。
+
 ## 判断记录（ADR-0041，TryGet 单记录容错查询返回值语义修正，2026-09-19）
 
 `IDataRegistryView.TryGet(string, string, out DataRecord)`/`TryGet(string, CommonId, out

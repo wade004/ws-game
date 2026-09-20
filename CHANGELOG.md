@@ -439,6 +439,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **[ADR-0046](architecture/adr/0046-运行期校验报告结构化转发出口.md)：运行期校验报告结构化
+  转发出口，根治消费方第 71 条反馈**——核实"接入 ADR-0042 统一诊断转发机制"在结构上不成立（该
+  机制只承诺文本消息列表、按精确文本去重、面向持续增长列表轮询，与校验报告离散触发、逐条结构化
+  字段、每次触发都独立成立三点结构性冲突，见 ADR-0046 决策 2）后，改为对 `data_registry` 自身
+  已有的结构化广播事件做加性扩展：`DataValidationFailedEvent`（`core/foundation/data_registry/
+  contracts/Events.cs`）新增三参数构造函数，携带 `IReadOnlyList<ValidationIssue> Issues`（ABI
+  只新增，既有两参数构造函数保留、内部委派，`Issues` 默认空集合、不是 `null`）；`DataRegistry.
+  LoadAllCore` 与 `games/_template/Runtime/DataHotReload.cs` 两处既有发布点均已改用新构造函数
+  传入 `report.Issues`。`ValidationIssue` 公开只读字段与 `toolchain/validator --json` 的
+  `issues[]` 元素字段一一对应，两条通道天然同形状。同时修正 `games/_template/Runtime/
+  GameBootstrap.cs`/`DataHotReload.cs` 两处校验失败日志此前用 `Debug.LogError`（与 ADR-0042
+  决策 4"诊断消息一律不产生 Error 级、避免触发宿主自动化测试框架失败判定"的既有硬约束冲突，是
+  框架侧遗漏，不是消费方问题）改为 `Debug.LogWarning`，人类可读文本内容不变。**局限（如实
+  标注，未解决）**：本次只服务与运行期宿主同进程内的结构化消费方；若消费方是完全独立的外部进程
+  （如"编辑器随游戏走"独立工程），本次改动不解决其读取运行期校验结果的诉求，需要另一种跨进程
+  送达的结构化出口，属于需要设计层单独拍板的新对外契约，ADR-0046 明确留白、未擅自实现。
+  `core/foundation/data_registry/README.md`"`ValidationIssue.ToString()` 格式稳定性声明与运行期
+  结构化出口现状"一节已同步更新第 71 条状态。测试：`core/foundation/data_registry/tests/
+  DataRegistryTests.cs` 新增 4 例（阻断态事件携带的 `Issues` 与报告逐字段一致、非阻断态不发出该
+  事件、两参数/三参数构造函数的 `Issues` 默认空集合语义）。
+
 ## [1.47.0] - 2026-09-20
 
 ### 新增
