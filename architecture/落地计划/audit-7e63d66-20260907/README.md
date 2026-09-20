@@ -12,7 +12,8 @@
 - [previous-findings.md](previous-findings.md)：68c9bed 的 N01–N19 逐条去重，避免把已修案例重报。
 - [validation.md](validation.md)：非 Unity 门禁、复现命令、发行材料和历史 Unity 记录边界。
 - [repro/](repro/)：保留 CORE-A/CORE-B 的真实类 console 复现工程。
-- [evidence/](evidence/)：复制后的原始命令日志、只读发行记录、GitHub JSON 输出和历史 Unity XML。
+- `evidence/`：复制后的原始命令日志、只读发行记录、GitHub JSON 输出和历史 Unity XML（已按"生成物
+  不进 git"规则出库，提交 `24302836`，内容可用 `git show 24302836^:<路径>` 取回）。
 
 ## 验证基线
 

@@ -40,11 +40,11 @@ PowerShell 默认 UTF-16LE 编码的日志文件已重新编码为 UTF-8，全�
   architecture 00–14/ADR 0001–0023/模块 README 的文档—代码矩阵与当前文档漂移逐条证据。
 - [validation/validation.md](validation/validation.md)：V-01（`schema_version` 32 位回绕）、
   V-02（`CurrencyPersistable` long 精度）、V-03（`JsonNumber.TryGetInt64` 上界）及旧
-  F-01/F-02/F-03 复测的定向验证记录，配 [validation/raw/](validation/raw/) 原始日志与
+  F-01/F-02/F-03 复测的定向验证记录，配 `validation/raw/` 原始日志与
   [validation/repro/](validation/repro/) 探针源码。
 - [delivery/delivery.md](delivery/delivery.md)：整库 `check.ps1`、正式包、旧 consumer、indexer
-  oracle 与 Unity 证据的入口说明；配 [delivery/output/raw/](delivery/output/raw/)（`check.log`、
-  ABI 探针日志、哈希清单等）、[delivery/output/unity-evidence2/](delivery/output/unity-evidence2/)
+  oracle 与 Unity 证据的入口说明；配 `delivery/output/raw/`（`check.log`、
+  ABI 探针日志、哈希清单等）、`delivery/output/unity-evidence2/`
   （Unity EditMode/PlayMode 结果 XML）与各 `delivery/run{2..9}-console.log`／
   `delivery/run{2..9}/output/raw/`（indexer oracle 逐轮复现日志与 hash 清单）。
 - [followup-2026-09-10d.md](followup-2026-09-10d.md)：本轮修复跟进核实表（本次归档新增，
@@ -94,3 +94,10 @@ Standalone、IL2CPP、独立版 smoke、独立 Unity 消费方仍按 `AUDIT_REPO
 "`abi_surface` dump/compare 覆盖范围补齐"一节）。
 
 旧 1.11～1.16.1 审计 ZIP/candidate 只作历史输入；旧 raw 与结论不覆盖当前 1.16.2。
+
+## 原始证据文件已出库
+
+本文档中提到的 `validation/raw/`、`delivery/output/raw/`、`delivery/output/unity-evidence2/`
+等原始证据文件（日志、命令转储、测试结果 XML、哈希清单等）已按"生成物不进 git"规则从仓库中删除
+（提交 `24302836`），内容可用 `git show 24302836^:<路径>` 取回，故上文改为不带链接的行内代码
+路径，不再是可点击链接。
