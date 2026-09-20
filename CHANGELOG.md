@@ -470,12 +470,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
     转发原始 `Id`，不解析显示文本，无目标时为 `null`）。`ActionBarViewModel`/
     `ActionBarSlotSnapshot` 新增 `NameKey`（经新增的携带 `ISkillBookQuery` 的构造函数重载解析，
     `ISkillBookQuery` 新增默认接口成员 `GetNameKey`）。消费端（`adapters/unity` 参考界面）
-    同步更新：`HudPanel` 目标框补身份短串展示，`ActionBarPanel.Construct` 新增必填 `IL10nHost`
-    参数（蓄意的破坏性签名变更，唯一调用方 `UiPanelHost.Initialize` 已同步更新，`adapters/unity`
-    不在 ABI 锁定范围）、槽位标签改为优先展示技能真名，取不到 `name_key` 时才回退既有的技能
-    引用短串展示（不是编造占位文案）。样例数据 `skill.sample_strike` 新增 `name_key` 演示。
+    同步更新：`HudPanel` 目标框补身份短串展示，`ActionBarPanel.Construct` **新增**携带
+    `IL10nHost` 的构造函数重载（既有三参数签名原样保留、行为不变，生产调用方
+    `UiPanelHost.Initialize` 改走新重载），槽位标签在新重载下改为优先展示技能真名，取不到
+    `name_key` 或走旧签名时才回退既有的技能引用短串展示（不是编造占位文案）。样例数据
+    `skill.sample_strike` 新增 `name_key` 演示。
   两条反馈均为纯加法：全部既有 `quest.def`/`skill.def`/`gobj.template` 数据行零改动仍合法，
-  全部既有公开签名（除上述已如实标注的 `ActionBarPanel.Construct` 单一非核心装配调用方）不变。
+  全部既有公开签名（含 `ActionBarPanel.Construct`）保持不变，新增能力一律走新重载/新增
+  成员落地。
 
 ## [1.48.0] - 2026-09-20
 

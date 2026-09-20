@@ -477,5 +477,50 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(0, fixture.Presentation.Feedback.Queue.PendingCount, "回放应当在预算步数内耗尽队列");
             Assert.IsTrue(pacing.IsPlaybackFinished, "队列耗尽后节奏门应当经 PlaybackQueue.Finished -> presentation.playback_finished -> NotifyPlaybackFinished 自动放行");
         }
+
+        /// <summary>
+        /// 消费方反馈第 3 条回归（2026-09-20，ADR-0048）：<c>ActionBarPanel.Construct</c> 既有
+        /// 三参数签名（不携带 <c>IL10nHost</c>）改动前后行为必须逐字节保持不变——本用例验证走旧
+        /// 签名不抛异常，且技能名恒回退 <c>ShortId</c>（不解析 <c>skill.def.name_key</c>，即便
+        /// <c>ActionBarViewModel</c> 本身已经能解析出该字段），见 <c>ActionBarPanel</c> 类型
+        /// 判断记录"旧签名保留的语义边界"。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ActionBarPanel_LegacyThreeArgConstruct_DoesNotThrow_AndFallsBackToShortId()
+        {
+            var fixture = BuildFixture();
+            _fixture = fixture;
+
+            var strikeId = new Id("skill.sample_strike");
+            // SkillBindingHost.Bind 经 KnownSkillQuery 接线到 Rules.Skill.Knows——只反映显式
+            // LearnSkill 过的技能，不会因为角色注册时的职业/等级/技能书归属而自动"已知"（同
+            // CarriersAssemblyTests.cs 的既有前置写法）。故先显式授予，再绑定。
+            fixture.Gameplay.Carriers.Rules.Skill.LearnSkill(fixture.PlayerId, strikeId);
+            Assert.IsTrue(
+                fixture.Gameplay.Carriers.SkillBindings.Bind(fixture.PlayerId, "slot_0", strikeId),
+                "绑定示例技能到槽位 0 应当成功");
+            fixture.Presentation.ActionBar.Refresh();
+            Assert.AreEqual(strikeId, fixture.Presentation.ActionBar.Slots[0].SkillId, "前置条件：槽位 0 应绑定 skill.sample_strike");
+            Assert.IsTrue(
+                fixture.Presentation.ActionBar.Slots[0].NameKey.HasValue,
+                "前置条件：ActionBarViewModel 本身应已能解析出 skill.sample_strike.name_key（样例数据已声明该字段）");
+
+            _uiParent = new GameObject("ActionBarLegacyConstructTestUi", typeof(RectTransform));
+            var uiParentRect = (RectTransform)_uiParent.transform;
+            var actionBar = new GameObject("ActionBar", typeof(RectTransform)).AddComponent<ActionBarPanel>();
+            actionBar.transform.SetParent(uiParentRect, false);
+
+            // 走既有三参数签名，不传 IL10nHost——不应抛异常。
+            Assert.DoesNotThrow(
+                () => actionBar.Construct(uiParentRect, fixture.Presentation.ActionBar, fixture.Presentation.UiIntents),
+                "旧三参数 Construct 签名不应抛异常");
+            Assert.DoesNotThrow(() => actionBar.RefreshUi(), "旧签名下 RefreshUi 不应抛异常");
+
+            StringAssert.StartsWith(
+                "sample_strike", actionBar.SlotText(0),
+                "未提供 IL10nHost 时应回退展示技能引用短串（ShortId），不解析 name_key");
+
+            yield return null;
+        }
     }
 }

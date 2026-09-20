@@ -220,26 +220,51 @@ namespace Adapter.Unity.Ui.Panels
     /// <summary>
     /// 动作条：槽位→技能，点击/冷却展示（09 §7.1、<see cref="ActionBarViewModel"/>）。
     /// <para>
-    /// 判断记录（消费方反馈第 3 条，2026-09-20，ADR-0048，新增 <see cref="IL10nHost"/> 必填参数
-    /// ——蓄意的破坏性签名变更）：<c>Construct</c> 此前只能用 <c>ShortId</c> 展示技能短串，槍位标签
-    /// 看不出技能真名。<c>skill.def.name_key</c> 落地后本面板改为优先 <c>_l10n.Text(slot.NameKey.Value)</c>
-    /// 渲染真名，仅在未声明该字段时回退既有 <c>ShortId</c>（不是"缺省占位文案"——ShortId 展示的是
-    /// 该技能真实的 id 短串，本身就是有信息量的兜底，不违反"TextKey 缺省不回退占位文案"的规则，
-    /// 那条规则约束的是"编造一个假文案"，不禁止在没有名称文本时展示 id）。经全仓库检索确认本类型
-    /// <c>Construct</c> 唯一调用方是 <c>UiPanelHost.Initialize</c>（无 PlayMode 测试直接调用），且
-    /// <c>adapters/unity</c> 不在 ABI 锁定的六个核心装配之列（见 AGENTS.md §3/build.ps1
-    /// CoreAssemblies），本次签名变更范围可控，同 <see cref="HudPanel.Construct"/> 既往破坏性
-    /// 变更判断记录同一套准则。
+    /// 判断记录（消费方反馈第 3 条，2026-09-20，ADR-0048，新增携带 <see cref="IL10nHost"/> 的
+    /// <c>Construct</c> 重载——加性，不改既有签名）：<c>Construct</c> 此前只能用 <c>ShortId</c>
+    /// 展示技能短串，槽位标签看不出技能真名。最初一版曾直接给既有 <c>Construct</c> 加一个必填
+    /// <c>IL10nHost</c> 参数（认为唯一已知调用方 <c>UiPanelHost.Initialize</c> 已同步、
+    /// <c>adapters/unity</c> 又不在 ABI 探针锁定的六个核心装配之列，风险可控）——设计层复核后
+    /// 否决：AGENTS.md §3"ABI 只新增……不给既有构造/方法加参数"没有把范围限定在探针扫描的六个
+    /// 程序集，探针 <c>breaks=0</c> 只说明它没扫这个程序集，不代表这次改动本身不是破坏；更关键的
+    /// 是消费方反馈第 3 条原文就是"HUD 技能栏和目标框只能在游戏侧硬编码"——消费方手里已经在用
+    /// <c>ActionBarPanel</c>，给 <c>Construct</c> 加必填参数会导致他们下一次升级直接编译不过，
+    /// 恰好发生在我们承诺帮他们去掉硬编码的这个版本里，属于不可接受的破坏。改为加性重载：既有
+    /// 三参数 <c>Construct</c> 签名与行为原样保留（不传 <see cref="IL10nHost"/> 时 <c>RefreshUi</c>
+    /// 恒走 <c>ShortId</c> 展示技能短串，等价于本字段落地前的行为，不是"缺省占位文案"——ShortId
+    /// 展示的是该技能真实的 id 短串，本身就是有信息量的兜底，不违反"TextKey 缺省不回退占位文案"
+    /// 的规则，那条规则约束的是"编造一个假文案"）；新增四参数重载携带 <see cref="IL10nHost"/>，
+    /// 提供了才会优先 <c>_l10n.Text(slot.NameKey.Value)</c> 渲染真名。生产调用方
+    /// <c>UiPanelHost.Initialize</c> 改走新重载；仓库本轮已多次用同一手法解决同类问题（默认接口
+    /// 成员 <c>IQuestHost.GetObjectiveRequiredCounts</c>/<c>IDataRegistry.IsDegraded</c>，新增
+    /// 重载 <c>DialogOpenerWithSourceDelegate</c>/<c>DataHotReload.Initialize</c> 四参数版），
+    /// 这里没有理由破例。
     /// </para>
     /// </summary>
     public sealed class ActionBarPanel : UiPanelBehaviour
     {
         private ActionBarViewModel _vm = null!;
         private UiIntents _intents = null!;
-        private Core.Foundation.Localization.IL10nHost _l10n = null!;
+
+        /// <summary>可选——未提供时（既有三参数 <c>Construct</c>）<see cref="RefreshUi"/> 恒走
+        /// <c>ShortId</c> 展示技能短串，见类型判断记录"旧签名保留的语义边界"。</summary>
+        private Core.Foundation.Localization.IL10nHost? _l10n;
+
         private readonly List<(UnityEngine.UI.Button Button, TextMeshProUGUI Label)> _slots = new List<(UnityEngine.UI.Button, TextMeshProUGUI)>();
 
-        public void Construct(RectTransform parent, ActionBarViewModel vm, UiIntents intents, Core.Foundation.Localization.IL10nHost l10n)
+        /// <summary>既有签名，逐字节保留：不提供 <see cref="IL10nHost"/> 时技能名恒回退
+        /// <c>ShortId</c>（技能引用 id 短串），不解析 <c>skill.def.name_key</c>——同本字段落地前的
+        /// 行为完全一致，供尚未升级到新重载的既有调用方使用。</summary>
+        public void Construct(RectTransform parent, ActionBarViewModel vm, UiIntents intents) =>
+            ConstructCore(parent, vm, intents, l10n: null);
+
+        /// <summary>消费方反馈第 3 条新增重载（2026-09-20，ADR-0048）：携带 <see cref="IL10nHost"/>，
+        /// 提供后 <see cref="RefreshUi"/> 优先经 <c>l10n.Text(slot.NameKey.Value)</c> 渲染技能真名，
+        /// 未声明 <c>name_key</c> 的槽位仍回退 <c>ShortId</c>。</summary>
+        public void Construct(RectTransform parent, ActionBarViewModel vm, UiIntents intents, Core.Foundation.Localization.IL10nHost l10n) =>
+            ConstructCore(parent, vm, intents, l10n);
+
+        private void ConstructCore(RectTransform parent, ActionBarViewModel vm, UiIntents intents, Core.Foundation.Localization.IL10nHost? l10n)
         {
             _vm = vm;
             _intents = intents;
@@ -268,6 +293,12 @@ namespace Adapter.Unity.Ui.Panels
         /// 走的是完全相同的代码路径）。</summary>
         public void ClickSlot(int index) => OnSlotClicked(index);
 
+        /// <summary>供 PlayMode 测试读取第 <paramref name="index"/> 个槽位当前展示的标签文本，
+        /// 同 <see cref="ClickSlot"/> 惯例——公开测试专用只读入口，不复用 <c>Transform.Find</c>。
+        /// 消费方反馈第 3 条新增（2026-09-20，ADR-0048）：用于验证旧三参数 <c>Construct</c>
+        /// 签名下技能名回退 <c>ShortId</c> 的行为。</summary>
+        public string SlotText(int index) => _slots[index].Label.text;
+
         private void OnSlotClicked(int index)
         {
             if (index < 0 || index >= _vm.Slots.Count) return;
@@ -285,7 +316,7 @@ namespace Adapter.Unity.Ui.Panels
                 var slot = _vm.Slots[i];
                 var (button, label) = _slots[i];
                 var skillLabel = slot.SkillId.HasValue
-                    ? (slot.NameKey.HasValue ? _l10n.Text(slot.NameKey.Value) : ShortId(slot.SkillId.Value))
+                    ? (_l10n != null && slot.NameKey.HasValue ? _l10n.Text(slot.NameKey.Value) : ShortId(slot.SkillId.Value))
                     : null;
                 label.text = skillLabel != null ? skillLabel + (slot.Cooldown > 0 ? $"\n{slot.Cooldown:0.0}s" : string.Empty) : "-";
                 button.interactable = slot.Available;

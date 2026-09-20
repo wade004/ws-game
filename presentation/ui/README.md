@@ -176,12 +176,22 @@ PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_No
 `name_key` 字段本身命名/类型见 `core/rules/skill/README.md` 同名判断记录（TextKey 惯例）。
 
 **消费端**：`adapters/unity` 的 `HudPanel.RefreshUi` 目标标签补身份短串（`ShortId`，同文件既有
-`CurrentActorId`/`TurnOrder` 展示手法）；`ActionBarPanel.Construct` 新增必填 `IL10nHost` 参数
-（蓄意的破坏性签名变更，唯一调用方 `UiPanelHost.Initialize` 已同步更新，无 PlayMode 测试直接
-调用，`adapters/unity` 不在 ABI 锁定范围，同 `HudPanel.Construct` 既往破坏性变更判断记录同一
-准则），`RefreshUi` 优先渲染 `_l10n.Text(slot.NameKey.Value)`，未声明时回退既有 `ShortId`。
+`CurrentActorId`/`TurnOrder` 展示手法）；`ActionBarPanel.Construct` **新增**携带 `IL10nHost` 的
+构造函数重载（既有三参数签名原样保留，行为不变——取不到 `IL10nHost` 时回退既有 `ShortId`），
+生产调用方 `UiPanelHost.Initialize` 改走新重载。判断记录：设计层复审否决了"直接给既有签名加
+必填参数"的初版方案——AGENTS.md §3 的 ABI 纯新增纪律不因 `adapters/unity` 不在 ABI 探针锁定的
+六个核心程序集范围内而失效（探针 `breaks=0` 只说明未扫描该程序集，不等于无破坏），且消费方
+第 3 条反馈原话表明其已持有 `ActionBarPanel`，必填参数会在这次修复硬编码的发布里反而破坏其
+构建；改为加性重载后与 `IQuestHost.GetObjectiveRequiredCounts`（默认接口成员）、
+`DataHotReload.Initialize` 四参数版（新增重载）同一手法。`RefreshUi` 在新重载下优先渲染
+`_l10n.Text(slot.NameKey.Value)`，未声明该字段或走旧签名（`_l10n` 为 `null`）时回退既有
+`ShortId`。
 
 测试见 `presentation/ui/tests/UiDataSourceTests.cs`（`Query_target_id_*` 两条，新增 `target.id`
 叶子路径有/无目标两态）与 `presentation/ui/tests/ViewModelTests.cs`（`HudViewModel_TargetId_*`；
 `ActionBarViewModel_WithSkillCatalog_ResolvesNameKey_*`/`ActionBarViewModel_WithoutSkillCatalog_NameKeyIsAlwaysNull`，
-覆盖 `NameKey` 经 `ISkillBookQuery` 解析、未提供该依赖或技能未声明字段时为 `null`）。
+覆盖 `NameKey` 经 `ISkillBookQuery` 解析、未提供该依赖或技能未声明字段时为 `null`）；
+`adapters/unity` 侧新增 PlayMode 测试
+`ActionBarPanel_LegacyThreeArgConstruct_DoesNotThrow_AndFallsBackToShortId`
+（`DiscreteCombatTests.cs`），覆盖走旧三参数 `Construct` 签名不抛异常、且回退展示技能引用短串
+（不解析 `name_key`）。
