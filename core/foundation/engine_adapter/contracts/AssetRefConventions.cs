@@ -396,5 +396,55 @@ namespace Core.Foundation.EngineAdapter
         {
             "sprite", "icon", "vfx", "sfx", "sprite_anim", "paperdoll", "anim", "model",
         };
+
+        /// <summary>
+        /// 消费方反馈第 75 条（[ADR-0053](../../../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)）：
+        /// 把 <c>world.map</c> 行的 <c>id</c>（形如 <c>world.&lt;map&gt;</c>，见
+        /// <c>toolchain/asset_import/map_cmd.py</c> 的 <c>map_id = f"world.{args.map}"</c>）解析为
+        /// 该地图分层图在资产根目录下的相对目录路径（正斜杠分隔，不以 <c>/</c> 结尾，不含扩展名——
+        /// 目录下按层名进一步展开为最多四个文件，见 <see cref="MapGroundFile"/> 等四个方法）：
+        /// <c>"maps/&lt;map&gt;"</c>——与 <see cref="SpriteSetDirectory"/>/<see cref="VfxResourceDir"/>
+        /// 等六个既有方法同一路径空间（<see cref="AssetRefPathSpace.AssetRootRelative"/>，可直接与
+        /// <c>assets/&lt;dataset&gt;/</c> 拼接后做文件系统存在性检查），同一"去掉类别前缀、点号换
+        /// 下划线"推导规则。与 <c>map_cmd.py</c> 的 <c>out_dir</c> 计算（去掉 <c>assets_root</c>/
+        /// <c>dataset</c> 两段前缀后剩余部分）逐字节一致。
+        /// <para>
+        /// 判断记录（已知边界，不影响任何现有数据，同 <see cref="SfxResourceFile"/> 类型注释同类
+        /// 判断记录的记法）：<c>map_cmd.py</c> 的 <c>out_dir</c> 直接拼接 <c>args.map</c> 原始字符串
+        /// 作为单一目录段，不做任何转义；本方法则先经 <see cref="StripCategoryPrefix"/> 把
+        /// <c>world.</c> 之后剩余部分的点号也换成下划线。二者仅在 <c>args.map</c> 本身含点号时
+        /// （即地图名写成多段 id 形状，如 <c>zone.dungeon</c>）才会给出不同结果；仓库内目前全部
+        /// 地图名（`--map` 取值、<c>data/_sample</c>/<c>data/_framework</c> 两套 <c>world.map</c>
+        /// 数据行的 id）均为不含点号的单段名称，两种算法结果逐字节相同。
+        /// </para>
+        /// </summary>
+        public static string MapDirectory(Id mapId) =>
+            "maps/" + StripCategoryPrefix(mapId.Value);
+
+        /// <summary>
+        /// [ADR-0053](../../../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)：地面层
+        /// （框架固定项，必需，见 14 第 9 节"场景与地图"）在资产根目录下的相对文件路径（正斜杠分隔，
+        /// 含 <c>.png</c> 扩展名）：<c>"maps/&lt;map&gt;/ground.png"</c>，与
+        /// <c>map_cmd.py</c> 落地产物逐字节一致。</summary>
+        public static string MapGroundFile(Id mapId) => MapDirectory(mapId) + "/ground.png";
+
+        /// <summary>
+        /// [ADR-0053](../../../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)：前景
+        /// 遮挡层（框架固定项，必需，遮挡单位的近景建筑/树冠等）在资产根目录下的相对文件路径：
+        /// <c>"maps/&lt;map&gt;/overlay.png"</c>，与 <c>map_cmd.py</c> 落地产物逐字节一致。</summary>
+        public static string MapOverlayFile(Id mapId) => MapDirectory(mapId) + "/overlay.png";
+
+        /// <summary>
+        /// [ADR-0053](../../../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)：装饰层
+        /// （可选，不遮挡单位的贴花/痕迹，14 第 9.1 节"装饰层"）在资产根目录下的相对文件路径：
+        /// <c>"maps/&lt;map&gt;/decal.png"</c>，与 <c>map_cmd.py</c> 落地产物逐字节一致。</summary>
+        public static string MapDecalFile(Id mapId) => MapDirectory(mapId) + "/decal.png";
+
+        /// <summary>
+        /// [ADR-0053](../../../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)：导航
+        /// 标注参考图（可选，供引擎适配层侧手工绘制导航数据时参考，不是 14 第 9.1 节列出的可视资产
+        /// 层本身）在资产根目录下的相对文件路径：<c>"maps/&lt;map&gt;/nav_hint.png"</c>，与
+        /// <c>map_cmd.py</c> 落地产物逐字节一致。</summary>
+        public static string MapNavHintFile(Id mapId) => MapDirectory(mapId) + "/nav_hint.png";
     }
 }

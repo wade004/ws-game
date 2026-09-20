@@ -14,8 +14,12 @@
 其余文件名一律忽略并打印警告（防止误把无关文件当分层图带入交付目录）。
 
 输出：
-- 规范化落到 ``assets/<dataset>/maps/<map>/<layer>.png``（与 ``assets/_placeholder/maps/`` 同一套
-  目录口径，见 11 第 1 节占位资产包）。
+- 规范化落到资产根目录下（与 ``assets/_placeholder/maps/`` 同一套目录口径，见 11 第 1 节占位资产
+  包）——具体相对路径格式由 ``ref_conventions.map_directory``/``map_ground_file``/
+  ``map_overlay_file``/``map_decal_file``/``map_nav_hint_file`` 五个函数给出（消费方反馈第 75 条，
+  [ADR-0053](../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)：路径约定的权威出处
+  是这组函数与 C# 侧 ``AssetRefConventions`` 对应方法，不是本文档字符串——本文件不再重复给出格式
+  字符串，避免与权威出处漂移）。
 - 生成/合并一行 ``world.map`` 数据（04 第 7.1 节总索引 + 05 第 4.1 节字段定义）：``scene_ref``/
   ``nav_ref`` 按"资源引用 id = 类别前缀 + 地图名"的既有约定固定为 ``scene.<map>``/``nav.<map>``
   （与 ``adapters/unity`` 侧 ``UnityResourceLoader`` 的 ``Scene``/``NavMesh`` 种类解析规则同一套
@@ -40,6 +44,22 @@ import struct
 from pathlib import Path
 
 from .common import AssetImportError, find_repo_root, log, merge_write_row, resolve_root, validate_id
+from .ref_conventions import (
+    map_decal_file,
+    map_directory,
+    map_ground_file,
+    map_nav_hint_file,
+    map_overlay_file,
+)
+
+# 分层名 -> ref_conventions 对应相对路径函数（消费方反馈第 75 条，ADR-0053：路径格式的权威出处
+# 收口到这组共享函数，本文件不再自行拼接 f"{layer}.png"）。
+_LAYER_FILE_FUNCS = {
+    "ground": map_ground_file,
+    "overlay": map_overlay_file,
+    "decal": map_decal_file,
+    "nav_hint": map_nav_hint_file,
+}
 
 # PNG 文件签名（见 https://www.w3.org/TR/png/ 第 5.2 节；本工具只需要 IHDR 里的宽高两个整数，
 # 不需要解码像素数据，不引入 Pillow 之外的依赖）。
@@ -159,8 +179,10 @@ def run(args: argparse.Namespace) -> int:
             + ", ".join(f"{name}.png" for name in missing_required)
         )
 
-    out_dir = assets_root / args.dataset / "maps" / args.map
-    plan = [(path, out_dir / f"{name}.png") for name, path in layers.items()]
+    # 消费方反馈第 75 条（ADR-0053）：目录/各层文件路径改由 ref_conventions 共享函数给出，不再自行
+    # 拼接 "maps" / args.map / f"{name}.png" 字面量。
+    out_dir = assets_root / args.dataset / map_directory(map_id)
+    plan = [(path, assets_root / args.dataset / _LAYER_FILE_FUNCS[name](map_id)) for name, path in layers.items()]
 
     if args.spawn:
         spawn_points = []

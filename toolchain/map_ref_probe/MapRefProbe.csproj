@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    消费方反馈第 75 条（ADR-0053）跨语言一致性测试专用探针。本工程不对外发行（不进 dist/UPM
+    打包清单、不加入 Core.sln），只在 toolchain/tests/test_ref_conventions.py 的一次性
+    session 级 fixture 里用 `dotnet build` 构建、经子进程调用，把
+    Core.Foundation.EngineAdapter.AssetRefConventions 新增的 5 个地图分层路径方法的真实运行期
+    计算结果打印出来，供 Python 侧 ref_conventions.py 对应函数的计算结果逐字节比对——断言的是
+    两侧实际算出来的字符串相等，不是各自跟一个硬编码常量比。
+
+    判断记录（沿用 toolchain/abi_surface 已确立的"构建一个最小消费方工程、经子进程拿真实运行期
+    结果"惯例，不是本仓库首创模式，见 toolchain/tests/test_abi_surface_compare.py 的
+    abi_surface_dll session 级 fixture）：本工程用 <ProjectReference> 直接引用源码树里的
+    Core.Foundation.csproj——与 toolchain/abi_surface（reflection 读取任意 DLL，不需要引用具体
+    工程）、toolchain/validator（要兼顾独立发行包场景，按"源码树是否存在"二选一）都不同，本工程
+    只在源码仓库内、测试期间构建，不存在脱离源码树运行的场景，不需要那两者的额外分支处理。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>MapRefProbe</AssemblyName>
+    <RootNamespace>Toolchain.MapRefProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\foundation\Core.Foundation.csproj" />
+  </ItemGroup>
+</Project>

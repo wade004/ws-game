@@ -31,6 +31,11 @@ __all__ = [
     "AssetRefPathSpace",
     "KNOWN_CATEGORIES",
     "resolve_path_space",
+    "map_directory",
+    "map_ground_file",
+    "map_overlay_file",
+    "map_decal_file",
+    "map_nav_hint_file",
 ]
 
 
@@ -219,6 +224,47 @@ def resolve_path_space(resource_ref_id: str) -> tuple[AssetRefPathSpace, str]:
         f"资源引用 '{resource_ref_id}' 的类别前缀 '{category}' 不合法，"
         f"合法类别前缀集合：{'/'.join(KNOWN_CATEGORIES)}"
     )
+
+
+def map_directory(map_id: str) -> str:
+    """消费方反馈第 75 条（ADR-0053）：把 ``world.map`` 行的 ``id``（形如 ``world.<map>``）解析为
+    该地图分层图在资产根目录下的相对目录路径（正斜杠分隔，不以 ``/`` 结尾，不含扩展名）：
+    ``"maps/<map>"``——与 C# 侧 ``AssetRefConventions.MapDirectory`` 逐字对应，与
+    :func:`sprite_set_directory`/:func:`vfx_resource_dir` 等同一路径空间（资产根相对，可直接与
+    ``assets/<dataset>/`` 拼接后做文件系统存在性检查）。此前本格式唯一的出处是
+    ``map_cmd.py`` 模块文档字符串里的一段说明性文字，从未以可调用函数的形式暴露；``map_cmd.py``
+    此后改为调用本函数，不再自行拼接。
+
+    判断记录（已知边界，同 C# 侧对应方法判断记录）：``map_cmd.py`` 改动前的 ``out_dir`` 直接拼接
+    ``args.map`` 原始字符串，不做任何转义；本函数经 :func:`strip_category_prefix` 把 ``world.``
+    之后剩余部分的点号也换成下划线。两者仅在地图名本身含点号时才会给出不同结果——仓库内目前全部
+    地图名均为不含点号的单段名称，两种算法结果逐字节相同。
+    """
+    return "maps/" + strip_category_prefix(map_id)
+
+
+def map_ground_file(map_id: str) -> str:
+    """ADR-0053：地面层（框架固定项，必需）相对文件路径：``"maps/<map>/ground.png"``，与
+    ``map_cmd.py`` 落地产物逐字节一致。"""
+    return map_directory(map_id) + "/ground.png"
+
+
+def map_overlay_file(map_id: str) -> str:
+    """ADR-0053：前景遮挡层（框架固定项，必需）相对文件路径：``"maps/<map>/overlay.png"``，与
+    ``map_cmd.py`` 落地产物逐字节一致。"""
+    return map_directory(map_id) + "/overlay.png"
+
+
+def map_decal_file(map_id: str) -> str:
+    """ADR-0053：装饰层（可选）相对文件路径：``"maps/<map>/decal.png"``，与 ``map_cmd.py``
+    落地产物逐字节一致。"""
+    return map_directory(map_id) + "/decal.png"
+
+
+def map_nav_hint_file(map_id: str) -> str:
+    """ADR-0053：导航标注参考图（可选，供引擎适配层侧手工绘制导航数据时参考）相对文件路径：
+    ``"maps/<map>/nav_hint.png"``，与 ``map_cmd.py`` 落地产物逐字节一致。"""
+    return map_directory(map_id) + "/nav_hint.png"
 
 
 def try_parse_icon_id(relative_file_path: str) -> str | None:

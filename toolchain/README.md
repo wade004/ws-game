@@ -422,6 +422,17 @@ python toolchain/import_assets.py <子命令> ...
   不生成场景/导航资源本身（05 第 4.1 节"导航与碰撞...由引擎适配层侧在场景中手工绘制"）。
   `--spawn x,y[,facing]` 可重复传入覆盖默认出生点（省略时写一条 `<map>.spawn.default`，原点、
   朝向 0）；未识别的分层文件名（非 `ground`/`overlay`/`decal`/`nav_hint`）原样跳过并打印警告。
+
+  **判断记录（消费方反馈第 75 条，ADR-0053）**：地图目录/各层文件的相对路径格式此前只以本节这段
+  说明性文字的形式存在，`ref_conventions.py`/框架契约面 `AssetRefConventions` 均未收口——与
+  sprite/icon/vfx/sfx 等类别早已收口（ADR-0025/0037/0038）不一致，编辑器等消费方只能照抄这段文字
+  自行拼接。现已补齐 `ref_conventions.map_directory`/`map_ground_file`/`map_overlay_file`/
+  `map_decal_file`/`map_nav_hint_file` 五个函数与框架契约面对应的五个方法（同一套输入/输出，
+  两侧各自独立实现），本子命令改为调用这组函数；本节不再重复给出具体路径格式字符串，格式变化
+  以后会体现为这组函数签名/行为的变化，不会再与本节文字各自漂移。跨语言一致性另有
+  `toolchain/map_ref_probe`（不对外发行、不进 Core.sln 的最小消费方工程，仅供
+  `toolchain/tests/test_ref_conventions.py` 经子进程调用取得真实运行期结果做比对，沿用
+  `toolchain/abi_surface` 已确立的同类惯例）。
 - `check`：交叉校验 `assets/<dataset>/` 与 `data/<dataset>/display|vfx|sfx|world`——
   `sprite_set_id`/`icon_id` 对应目录/文件、`vfx.def` 的 `resource_ref` 对应 `atlas.png`/
   `frames.json`、`sfx.def` 的 `resource_ref`（必查）与 `variants`（若存在，逐项查且必须包含
