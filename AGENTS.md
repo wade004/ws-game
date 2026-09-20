@@ -81,8 +81,18 @@
   时间的做法是根本不在深层工作树里跑这几步——Unity 侧验证交主会话在主检出（`D:\workespace\
   ws-game`）跑，或临时用路径足够短的工作树；工作树内跑 `check.ps1 -Quick`（隐含 `-SkipUnity`）
   等非 Unity 步骤不受影响。
-- **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。
-- **G2**：`check.ps1 -Quick` 全 PASS。
+- **回归分级（唯一口径，替换此前"每次改动跑全量"的旧条款——旧条款与本条不并存）**：
+  - **日常切片**：只跑该切片自己的运行时冒烟（针对本次改动直接验证行为是否符合预期的最小测试/
+    命令）+ 被它直接波及模块的定向重跑（如 `dotnet test --filter` 只挑改动所在及直接依赖它的程序集、
+    `validate_data.py` 只跑改动涉及的那一套数据根），不要求跑 G1/G2 的全量部分。
+  - **全量回归**（G1 的 `dotnet test Core.sln` 全量、`pytest toolchain/tests -q` 全量、三套数据根
+    全量校验；G2 的 `check.ps1 -Quick` 全量）只在以下三种时刻跑：① 里程碑收口；② 升级框架/依赖
+    版本之后；③ 改了生产装配入口（`*Assembly` 装配类等游戏启动实际加载的组装点）或多模块共享
+    数据（登记表 schema、跨模块契约）之后。
+  - **执行 agent 不得为"再确认一次"一类理由自行追加全量回归**：如切片跑完后仍觉得有必要跑全量，
+    在汇报里写明理由，是否补跑由派单方（设计层或验收 agent）决定，不擅自执行。
+- **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向子集。
+- **G2**：`check.ps1 -Quick` 全 PASS。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向重跑，不必跑 `check.ps1 -Quick` 全量。
 - **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -BaselineZip "dist\ws-game-<上一版>.zip" -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。
 - **G4**：模块 README 的"判断记录" + `CHANGELOG.md` `[Unreleased]` 段新增条目——除非派单说明本次改动由后续整合单统一写变更记录。
 - 涉及仿真相关改动，三份基线要零差异（`simrunner run --scenario all …`）。**`Added`（基线里从未
@@ -134,6 +144,10 @@
 
 ## 7. 复审/验收单专用
 
+- **独立验收 agent 只在里程碑收口时派一次**（对应第 4 节"回归分级"里全量回归的三种时刻之一）；
+  升级依赖、改生产装配入口/跨模块共享数据触发的全量回归由执行/复核方自行核对，不必单独派验收
+  agent。**文档类、登记类提交不派验收**（如只改 `architecture/` 正文、README"判断记录"、
+  CHANGELOG、登记表勘误，未触碰代码/构建产物）。
 - 只读：不改任何文件、不跑任何 git 写命令。
 - 需要实证某处缺陷时，可以建一个临时工作树写一次性验证测试，验证结束后删除该工作树，不留痕在主树/正式分支。
 - 报告落盘到 `<scratchpad>\review_<x>.md`，不直接改动被复审的文档/代码。
