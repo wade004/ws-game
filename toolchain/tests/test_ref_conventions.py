@@ -32,6 +32,8 @@ from asset_import.ref_conventions import (  # noqa: E402
     KNOWN_CATEGORIES,
     AssetRefPathSpace,
     anim_clip_logical_path,
+    dataset_assets_directory,
+    dataset_data_directory,
     icon_file,
     map_decal_file,
     map_directory,
@@ -40,15 +42,23 @@ from asset_import.ref_conventions import (  # noqa: E402
     map_overlay_file,
     model_logical_path,
     paperdoll_layer_file,
+    resolve_assets_root,
+    resolve_data_root,
     resolve_path_space,
     sfx_resource_file,
+    sprite_anim_atlas_file,
     sprite_anim_dir,
+    sprite_anim_frames_file,
+    sprite_set_atlas_file,
     sprite_set_directory,
     strip_category_prefix,
     try_parse_icon_id,
     try_parse_sprite_set_id,
+    vfx_atlas_file,
+    vfx_frames_file,
     vfx_resource_dir,
 )
+from asset_import.common import resolve_root as _common_resolve_root  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -418,3 +428,211 @@ def test_map_layer_paths_cross_language_consistency(map_ref_probe_dll: Path, map
     assert csharp_result["overlay"] == map_overlay_file(map_id)
     assert csharp_result["decal"] == map_decal_file(map_id)
     assert csharp_result["nav_hint"] == map_nav_hint_file(map_id)
+
+
+# 消费方反馈第 76 条（ADR-0054）：资产/数据根目录约定纳入公开契约。以下用例与
+# core/foundation/engine_adapter/tests/AssetRootConventionsTests.cs 对应用例使用同一组输入/期望
+# 字符串，两侧各自独立实现、互相不调用；本节末尾另有三组更强的验收测试——与改动前
+# common.py.resolve_root 的历史格式对齐、全仓重复实现排查记录、跨语言一致性（两侧实际计算结果
+# 互相比对）。
+
+
+def test_resolve_assets_root_omitted_defaults_to_repo_root_assets() -> None:
+    assert resolve_assets_root(REPO_ROOT, None) == REPO_ROOT / "assets"
+
+
+def test_resolve_assets_root_relative_override_resolves_against_repo_root() -> None:
+    assert resolve_assets_root(REPO_ROOT, "custom_assets") == REPO_ROOT / "custom_assets"
+
+
+def test_resolve_assets_root_absolute_override_used_as_is() -> None:
+    # 用真实 REPO_ROOT 拼出的绝对路径作为覆盖值（而不是硬编码 POSIX 字面量"/abs/assets"）——
+    # pathlib 的 is_absolute() 判定在 Windows 下要求盘符，"/abs/assets" 这种"根相对"写法在
+    # Windows 上不算绝对路径，会走错分支、看似巧合地得到同一结果（因为 Path 的 / 运算符对
+    # "带根但不带盘符"的右操作数也会丢弃左操作数），掩盖真实的分支覆盖。用平台相关的绝对路径
+    # 才能确实覆盖到"覆盖值已是绝对路径，原样返回"这一分支。
+    absolute_override = str(REPO_ROOT / "abs_assets")
+    assert resolve_assets_root(REPO_ROOT, absolute_override) == Path(absolute_override)
+
+
+def test_resolve_data_root_omitted_defaults_to_repo_root_data() -> None:
+    assert resolve_data_root(REPO_ROOT, None) == REPO_ROOT / "data"
+
+
+def test_resolve_data_root_relative_override_resolves_against_repo_root() -> None:
+    assert resolve_data_root(REPO_ROOT, "custom_data") == REPO_ROOT / "custom_data"
+
+
+def test_resolve_data_root_absolute_override_used_as_is() -> None:
+    absolute_override = str(REPO_ROOT / "abs_data")
+    assert resolve_data_root(REPO_ROOT, absolute_override) == Path(absolute_override)
+
+
+def test_dataset_assets_directory() -> None:
+    assert dataset_assets_directory(Path("/repo/assets"), "_sample") == Path("/repo/assets/_sample")
+
+
+def test_dataset_data_directory() -> None:
+    assert dataset_data_directory(Path("/repo/data"), "_sample") == Path("/repo/data/_sample")
+
+
+@pytest.mark.parametrize(
+    "resource_ref_id, expected_atlas, expected_frames",
+    [
+        ("vfx.sample_burn", "vfx/sample_burn/atlas.png", "vfx/sample_burn/frames.json"),
+        ("vfx.sample_cast_circle", "vfx/sample_cast_circle/atlas.png", "vfx/sample_cast_circle/frames.json"),
+    ],
+)
+def test_vfx_atlas_and_frames_file(resource_ref_id: str, expected_atlas: str, expected_frames: str) -> None:
+    assert vfx_atlas_file(resource_ref_id) == expected_atlas
+    assert vfx_frames_file(resource_ref_id) == expected_frames
+
+
+@pytest.mark.parametrize(
+    "resource_ref_id, expected_atlas, expected_frames",
+    [
+        (
+            "sprite_anim.sample_hero_attack",
+            "sprite_anim/sample_hero_attack/atlas.png",
+            "sprite_anim/sample_hero_attack/frames.json",
+        ),
+    ],
+)
+def test_sprite_anim_atlas_and_frames_file(resource_ref_id: str, expected_atlas: str, expected_frames: str) -> None:
+    assert sprite_anim_atlas_file(resource_ref_id) == expected_atlas
+    assert sprite_anim_frames_file(resource_ref_id) == expected_frames
+
+
+@pytest.mark.parametrize(
+    "sprite_set_id, expected",
+    [("sprite.item.sample_blade", "sprites/item_sample_blade/atlas.png")],
+)
+def test_sprite_set_atlas_file(sprite_set_id: str, expected: str) -> None:
+    assert sprite_set_atlas_file(sprite_set_id) == expected
+
+
+# --- 与既有格式对齐测试：从改用共享函数之前的历史提交里取出 common.py 的 resolve_root 原始实现，
+# 按同一公式手工推出旧结果，与新增共享函数的输出逐字节比对，证明本次改动是纯抽取（消费方反馈第
+# 76 条验收标准"与改动前逐字节对齐"）。---
+
+# common.py 改用 ref_conventions 共享函数之前的最后一次提交（本次改动的分支起点，1.50.0 发布
+# 提交）；该提交在远端/本地历史中不可变，可放心作为"改动前格式"的固定锚点长期使用。
+_PRE_REFACTOR_COMMON_PY_SHA = "97052ac6"
+
+
+def _historical_common_py_source() -> str:
+    result = subprocess.run(
+        [GIT, "-C", str(REPO_ROOT), "show", f"{_PRE_REFACTOR_COMMON_PY_SHA}:toolchain/asset_import/common.py"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+    assert result.returncode == 0, "读取 common.py 历史版本失败：\n" + result.stderr
+    return result.stdout
+
+
+def _pre_refactor_resolve_root(value: str | None, repo_root: Path, default_name: str) -> Path:
+    """按 <c>_historical_common_py_source</c> 钉住的原始算法手工复算（不导入历史版本模块，直接
+    照抄该函数体，见下方 assert 对源码文本的钉子，源码文本变了这里也要跟着变）。"""
+    if value is None:
+        return repo_root / default_name
+    p = Path(value)
+    return p if p.is_absolute() else (repo_root / p)
+
+
+@pytest.mark.skipif(GIT is None, reason="本机找不到 git，跳过历史格式对齐测试")
+def test_resolve_assets_root_matches_pre_refactor_common_py_format() -> None:
+    historical_source = _historical_common_py_source()
+    assert "def resolve_root(value: str | None, repo_root: Path, default_name: str) -> Path:" in historical_source
+    assert "if value is None:\n        return repo_root / default_name" in historical_source
+    assert "return p if p.is_absolute() else (repo_root / p)" in historical_source
+
+    repo_root = Path("/repo")
+    for override in (None, "custom", "/abs/custom"):
+        assert resolve_assets_root(repo_root, override) == _pre_refactor_resolve_root(override, repo_root, "assets")
+        assert resolve_data_root(repo_root, override) == _pre_refactor_resolve_root(override, repo_root, "data")
+
+
+def test_resolve_root_delegates_and_matches_new_functions_for_known_default_names() -> None:
+    """common.py 的 resolve_root 委托给 ref_conventions 之后，对 "assets"/"data" 两个真实调用点
+    使用的 default_name，结果必须与新增共享函数逐字节相等——证明委托生效，不是两套并存的实现。"""
+    repo_root = Path("/repo")
+    for override in (None, "custom", "/abs/custom"):
+        assert _common_resolve_root(override, repo_root, "assets") == resolve_assets_root(repo_root, override)
+        assert _common_resolve_root(override, repo_root, "data") == resolve_data_root(repo_root, override)
+
+
+# --- 跨语言一致性测试：对同一组输入，C# 侧真实运行期计算结果（经 toolchain/asset_root_probe 子
+# 进程取得）与本文件 Python 侧对应函数各自独立算出的结果逐字节相等。---
+
+_ASSET_ROOT_PROBE_PROJ = REPO_ROOT / "toolchain" / "asset_root_probe" / "AssetRootProbe.csproj"
+
+
+@pytest.fixture(scope="session")
+def asset_root_probe_dll(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    out_dir = tmp_path_factory.mktemp("asset_root_probe_build")
+    result = subprocess.run(
+        [DOTNET, "build", str(_ASSET_ROOT_PROBE_PROJ), "-c", "Release", "--nologo", "-o", str(out_dir)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
+    )
+    assert result.returncode == 0, "asset_root_probe 构建失败：\n" + result.stdout + result.stderr
+    dll = out_dir / "AssetRootProbe.dll"
+    assert dll.is_file(), f"未找到构建产物：{dll}"
+    return dll
+
+
+def _run_asset_root_probe(
+    dll: Path, repo_root: str, assets_root_override: str | None, data_root_override: str | None, dataset: str
+) -> dict:
+    result = subprocess.run(
+        [
+            DOTNET,
+            str(dll),
+            repo_root,
+            assets_root_override or "",
+            data_root_override or "",
+            dataset,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+    assert result.returncode == 0, f"AssetRootProbe 运行失败（{repo_root}）：\n" + result.stderr
+    return json.loads(result.stdout)
+
+
+@pytest.mark.skipif(DOTNET is None, reason="本机找不到 dotnet，跳过跨语言一致性测试")
+@pytest.mark.parametrize(
+    "repo_root, assets_root_override, data_root_override, dataset",
+    [
+        (str(REPO_ROOT), None, None, "_sample"),
+        (str(REPO_ROOT), "custom_assets", None, "_framework"),
+        (str(REPO_ROOT), None, "custom_data", "_sample"),
+        (str(REPO_ROOT), str(REPO_ROOT / "abs_assets"), str(REPO_ROOT / "abs_data"), "_sample"),
+    ],
+)
+def test_asset_root_conventions_cross_language_consistency(
+    asset_root_probe_dll: Path,
+    repo_root: str,
+    assets_root_override: str | None,
+    data_root_override: str | None,
+    dataset: str,
+) -> None:
+    csharp_result = _run_asset_root_probe(
+        asset_root_probe_dll, repo_root, assets_root_override, data_root_override, dataset
+    )
+    py_repo_root = Path(repo_root)
+    assert csharp_result["assets_root"] == str(resolve_assets_root(py_repo_root, assets_root_override))
+    assert csharp_result["data_root"] == str(resolve_data_root(py_repo_root, data_root_override))
+    py_assets_root = resolve_assets_root(py_repo_root, assets_root_override)
+    py_data_root = resolve_data_root(py_repo_root, data_root_override)
+    assert csharp_result["dataset_assets_dir"] == str(dataset_assets_directory(py_assets_root, dataset))
+    assert csharp_result["dataset_data_dir"] == str(dataset_data_directory(py_data_root, dataset))

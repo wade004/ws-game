@@ -26,6 +26,11 @@ if str(_TOOLCHAIN_DIR) not in sys.path:
 
 from _console import ensure_utf8_stdio  # noqa: E402
 
+# 消费方反馈第 76 条（ADR-0054）：resolve_root 对 "assets"/"data" 两个已知 default_name 委托
+# ref_conventions 的等价函数（见下 resolve_root 判断记录）。ref_conventions.py 不导入本模块，
+# 不构成循环 import。
+from . import ref_conventions
+
 # id 格式：见 architecture/04_数据与内容管线.md 第 2.1 节，与
 # toolchain/validate_data.py 的 ID_RE 保持一致（唯一权威定义在架构文档，这里复用同一正则
 # 字符串常量，不重新发明规则）。
@@ -71,7 +76,17 @@ def resolve_root(value: str | None, repo_root: Path, default_name: str) -> Path:
     """把 ``--assets-root``/``--data-root`` 参数解析为绝对路径。
 
     省略时默认 ``<repo_root>/<default_name>``；传相对路径按仓库根解析；传绝对路径原样使用。
+
+    消费方反馈第 76 条（ADR-0054）：``default_name`` 为 ``"assets"``/``"data"``（六个子命令实际
+    调用点仅有这两种取值）时，改为委托 ``ref_conventions.resolve_assets_root``/
+    ``resolve_data_root``——本函数原有的推导规则已收口为公开契约（供 C# 侧
+    ``AssetRootConventions`` 对应），不再在本函数内重复维护一份拷贝，避免两处独立实现漂移。
+    其余 ``default_name`` 取值（当前无调用点使用）保留原有内联逻辑，不引入新的行为/失败模式。
     """
+    if default_name == "assets":
+        return ref_conventions.resolve_assets_root(repo_root, value)
+    if default_name == "data":
+        return ref_conventions.resolve_data_root(repo_root, value)
     if value is None:
         return repo_root / default_name
     p = Path(value)

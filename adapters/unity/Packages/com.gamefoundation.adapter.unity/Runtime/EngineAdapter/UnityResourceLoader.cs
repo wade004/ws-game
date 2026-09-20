@@ -138,7 +138,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Core.Foundation.Common;
-using Core.Foundation.Common.Json;
 using Core.Foundation.EngineAdapter;
 using UnityEngine;
 
@@ -572,19 +571,23 @@ namespace Adapter.Unity.EngineAdapter
             return true;
         }
 
-        /// <summary>解析 <c>frames.json</c>（结构见 <c>assets/_placeholder/vfx/&lt;name&gt;/frames.json</c>：
-        /// <c>{frame_w,frame_h,fps,frame_duration,loop,frames:[{index,x,y,w,h,duration}]}</c>）+
-        /// <c>atlas.png</c> 字节，按每帧矩形从图集切出 Sprite，装配成 <see cref="EffectAsset"/>。
-        /// <c>frames.json</c> 顶层 <c>loop</c> 缺省为 <c>false</c>；每帧 <c>duration</c> 缺省时退回顶层
-        /// <c>frame_duration</c>，仍缺省时退回 <c>1/fps</c>（<c>fps</c> 缺省 12）。</summary>
+        /// <summary>解析 <c>frames.json</c>（结构见 <see cref="EffectFramesDocument"/>：消费方反馈
+        /// 第 77 条（[ADR-0054](../../../../../../../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)）
+        /// 收口，JSON 结构本身的解析（含 <c>loop</c>/<c>fps</c>/<c>frame_duration</c>/单帧
+        /// <c>duration</c> 四组缺省值推算）已提到 <c>Core.Foundation.EngineAdapter</c>，
+        /// 不再是本方法私有实现）+ <c>atlas.png</c> 字节，按每帧矩形从图集切出 Sprite，装配成
+        /// <see cref="EffectAsset"/>。
+        /// <para>
+        /// 判断记录（单帧 <c>w</c>/<c>h</c> 缺省时的兜底值为何仍留在本方法、不随其余字段一起迁移，
+        /// 见 <see cref="EffectFrameData.Width"/> 类型注释）：兜底值是"已解码图集纹理的整宽/整高"，
+        /// 只有加载完 <paramref name="atlasBytes"/> 之后才能拿到，不是纯 JSON 解析阶段能确定的信息，
+        /// 因此 <see cref="EffectFramesDocument"/> 把缺省的 <c>w</c>/<c>h</c> 留成 <c>null</c>，本方法
+        /// 拿到纹理尺寸后在这里补上——与改动前逐字节相同的兜底值，只是计算发生的位置不同。
+        /// </para>
+        /// </summary>
         private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson)
         {
-            JsonObject root;
-            try
-            {
-                root = (JsonObject)JsonReader.Parse(framesJson);
-            }
-            catch
+            if (!EffectFramesDocument.TryParse(framesJson, out var document))
             {
                 return false;
             }
@@ -596,51 +599,26 @@ namespace Adapter.Unity.EngineAdapter
                 return false;
             }
 
-            var loop = root.TryGetValue("loop", out var loopVal) && loopVal is JsonBool loopBool && loopBool.Value;
-            var fps = root.TryGetValue("fps", out var fpsVal) && fpsVal is JsonNumber fpsNum ? fpsNum.Value : 12.0;
-            var defaultDuration = root.TryGetValue("frame_duration", out var fdVal) && fdVal is JsonNumber fdNum
-                ? fdNum.Value
-                : (fps > 0 ? 1.0 / fps : 0.05);
-
-            if (!root.TryGetValue("frames", out var framesVal) || !(framesVal is JsonArray framesArr))
+            var frames = new EffectFrame[document.Frames.Count];
+            for (var i = 0; i < document.Frames.Count; i++)
             {
-                UnityEngine.Object.Destroy(texture);
-                return false;
-            }
-
-            var frames = new EffectFrame[framesArr.Count];
-            for (var i = 0; i < framesArr.Count; i++)
-            {
-                if (!(framesArr[i] is JsonObject frameObj))
-                {
-                    UnityEngine.Object.Destroy(texture);
-                    return false;
-                }
-
-                var x = ReadNumber(frameObj, "x", 0);
-                var y = ReadNumber(frameObj, "y", 0);
-                var w = ReadNumber(frameObj, "w", texture.width);
-                var h = ReadNumber(frameObj, "h", texture.height);
-                var duration = frameObj.TryGetValue("duration", out var durVal) && durVal is JsonNumber durNum
-                    ? durNum.Value
-                    : defaultDuration;
+                var frameData = document.Frames[i];
+                var w = frameData.Width ?? texture.width;
+                var h = frameData.Height ?? texture.height;
 
                 var sprite = Sprite.Create(
                     texture,
-                    new UnityEngine.Rect((float)x, (float)y, (float)w, (float)h),
+                    new UnityEngine.Rect((float)frameData.X, (float)frameData.Y, (float)w, (float)h),
                     new Vector2(0.5f, 0.5f),
                     PixelsPerUnit);
                 sprite.name = $"{resourceId.Value}_frame{i}";
 
-                frames[i] = new EffectFrame(sprite, duration);
+                frames[i] = new EffectFrame(sprite, frameData.Duration);
             }
 
-            _effects[resourceId] = new EffectAsset(frames, loop);
+            _effects[resourceId] = new EffectAsset(frames, document.Loop);
             return true;
         }
-
-        private static double ReadNumber(JsonObject obj, string key, double fallback) =>
-            obj.TryGetValue(key, out var val) && val is JsonNumber num ? num.Value : fallback;
 
         private bool TryDecodeWav(Id resourceId, byte[] bytes)
         {

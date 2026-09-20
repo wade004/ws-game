@@ -491,7 +491,38 @@ python toolchain/import_assets.py <子命令> ...
 
 全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
 （默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`
-（`check` 本身不写文件，无需此参数）；图像处理只用 Pillow：`--matting none|rembg|colorkey:#RRGGBB`
+（`check` 本身不写文件，无需此参数）。
+
+**判断记录（消费方反馈第 76 条，[ADR-0054](../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)，
+续 ADR-0053 同一病灶）**：`--assets-root`/`--data-root` 省略时的默认值（`<仓库根>/assets`/
+`<仓库根>/data`）此前只是 `common.py` `resolve_root` 一个内部函数的实现细节，框架契约面
+`AssetRefConventions` 只给出资源引用 id 之下的相对路径，从未表达"资产根目录本身在哪"这一段；
+`assets/<dataset>/` 前缀由调用方自行拼接（消费方反馈第 75 条答复文档"dataset 段由谁拼接"一节）
+同样从未收口。现已补齐 `ref_conventions.resolve_assets_root`/`resolve_data_root`/
+`dataset_assets_directory`/`dataset_data_directory` 四个函数与框架契约面
+`AssetRootConventions` 对应的四个方法（同一套输入/输出，两侧各自独立实现），`common.py` 的
+`resolve_root` 改为对 `"assets"`/`"data"` 两个真实取值委托它们；跨语言一致性另有
+`toolchain/asset_root_probe`（不对外发行、不进 Core.sln 的最小消费方工程，与
+`toolchain/map_ref_probe` 同一惯例，仅供 `toolchain/tests/test_ref_conventions.py` 经子进程
+调用取得真实运行期结果做比对）。全仓排查另发现 `toolchain/import_sample_assets.py` 独立维护
+的第二处重复实现（且相对路径覆盖值的解析基准与六个子命令有细微差异：按当前工作目录而非仓库根
+解析），已改为调用共享函数收敛为统一行为。
+
+`vfx`/`sprite_anim` 目录下固定含的 `atlas.png`/`frames.json`、`sprite_set` 目录下固定含的
+`atlas.png`，此前只写在各子命令模块文档字符串与 `AssetRefConventions` 方法 XML 注释的说明性
+文字里，从未提升为可编译期引用的方法；`frames.json` 的结构（`frame_w`/`frame_h`/`fps`/
+`frame_duration`/`loop`/`frames:[{index,x,y,w,h,duration}]`）也只有唯一一处解码实现——
+`UnityResourceLoader.TryDecodeEffect`（引擎适配层内部私有方法，不对外公开）。现已补齐
+`AssetRefConventions.VfxAtlasFile`/`VfxFramesFile`/`SpriteAnimAtlasFile`/
+`SpriteAnimFramesFile`/`SpriteSetAtlasFile` 五个方法与 `ref_conventions.py` 对应的五个函数；
+新增 `Core.Foundation.EngineAdapter.EffectFramesDocument` 收口 `frames.json` 结构化解析，
+`TryDecodeEffect` 改为调用它、只做本地环境特有的收尾（按裁剪矩形从已解码图集切出 Sprite），
+不再自行解析。判断记录（不新增 `sprite_set` 类的 `frames.json` 对应方法）：`sprite_set` 目录内
+与 `atlas.png` 配套的索引文件是 `atlas.json`（按方向档位/层名分帧，结构与 `frames.json` 不同，
+见上方 `sprite` 子命令产出说明），且只被本文件 `check` 子命令自身的存在性校验消费，不在运行时
+资源加载路径上，本次不借机扩大收口范围。
+
+图像处理只用 Pillow：`--matting none|rembg|colorkey:#RRGGBB`
 ——`colorkey` 抠图是本工具自写的容差比色（`--colorkey-tolerance`，默认 32），`rembg` 仅在本机
 `~/.u2net/` 下已有权重文件时可用（本工具不会自动联网下载模型权重，未准备好权重直接报错并提示
 改用 `none`/`colorkey`）。合并写入 `display.map.json`/`vfx.def.json`/`sfx.def.json`/
