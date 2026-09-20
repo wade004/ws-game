@@ -92,6 +92,9 @@ from .common import (
 )
 from .ref_conventions import (
     AssetRefPathSpace,
+    map_directory,
+    map_ground_file,
+    map_overlay_file,
     resolve_path_space,
     sfx_resource_file,
     vfx_resource_dir,
@@ -103,9 +106,11 @@ DEFAULT_DOMAINS = ("sprite", "vfx", "sfx", "world", "display_anim")
 # （省略 --only 时的默认覆盖集合）——见模块 docstring"判断记录（display_anim 纳入默认检查集合）"。
 ALL_DOMAINS = DEFAULT_DOMAINS
 
-# 地图必需分层文件（14 第 9.1 节"框架固定项"三层中的地面图/前景遮挡层；装饰层
-# decal.png、导航标注 nav_hint.png 属于可选辅助分层，见 map 子命令与 14 第 9 节勘误）。
-REQUIRED_MAP_LAYERS = ("ground.png", "overlay.png")
+# 地图必需分层文件对应的 ref_conventions 路径函数（14 第 9.1 节"框架固定项"三层中的地面图/
+# 前景遮挡层；装饰层 decal.png、导航标注 nav_hint.png 属于可选辅助分层，见 map 子命令与 14 第 9
+# 节勘误）。消费方反馈第 75 条（ADR-0053）：改为调用 map_cmd.py 同一组共享函数，不再自行拼接
+# 文件名字面量，见 _check_world_row 判断记录。
+REQUIRED_MAP_LAYER_FUNCS = (map_ground_file, map_overlay_file)
 
 SEVERITY_ERROR = "error"
 SEVERITY_WARNING = "warning"
@@ -586,10 +591,21 @@ def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[
 
     消费方反馈第 64 条：此前本函数在本文件内重复定义两次（逐字节相同，第二份覆盖第一份，
     不影响运行结果），本次删除后一份重复定义，只保留本份。
+
+    判断记录（消费方反馈第 75 条，ADR-0053：收口第二处独立的地图路径拼接实现）：本函数改动前
+    自行拼接 ``"maps" / name``（``name`` 由 ``common.strip_domain`` 得到），是仓库内独立于
+    ``map_cmd.py`` 的第二处地图路径拼接实现，与 ADR-0053"路径约定权威出处唯一"的目标相悖。
+    核对确认：``strip_domain``（只按第一个点号切一次，不折叠剩余点号）与
+    ``ref_conventions.map_directory`` 内部使用的 ``strip_category_prefix``（额外把剩余部分的
+    点号也换成下划线）仅在地图名本身含多个点号时才给出不同结果——与 ADR-0053"负面"一节已记录
+    的已知边界同一类；仓库内全部 world.map 行 id 均为 ``world.<单段名称>`` 形状（架构文档 05
+    第 4.1 节 ``teleport_target_ref`` 解析规则也以此为前提），两种算法对当前及约定形状下的合法
+    数据逐字节相同（id 缺失/不含点号时"原样使用 row_id"的兜底分支在两侧也一致）。本次改为调用
+    ``map_directory``/``map_ground_file``/``map_overlay_file``，消除这第二处独立实现；地图名
+    含多个点号属 ADR-0053 已接受的已知边界，不在本次处理范围内。
     """
     row_id = row.get("id", "?")
-    name = strip_domain(row_id) if "." in row_id else row_id
-    map_dir = assets_root / dataset / "maps" / name
+    map_dir = assets_root / dataset / map_directory(row_id)
     if not map_dir.is_dir():
         problems.append(CheckIssue(
             severity=SEVERITY_ERROR, table="world.map", record_key=row_id,
@@ -597,8 +613,8 @@ def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[
             message=f"地图分层图目录不存在: {map_dir}（见 import_assets.py map 子命令）",
         ))
         return
-    for layer_file in REQUIRED_MAP_LAYERS:
-        layer_path = map_dir / layer_file
+    for layer_file_func in REQUIRED_MAP_LAYER_FUNCS:
+        layer_path = assets_root / dataset / layer_file_func(row_id)
         if not layer_path.is_file():
             problems.append(CheckIssue(
                 severity=SEVERITY_ERROR, table="world.map", record_key=row_id,
@@ -606,6 +622,7 @@ def _check_world_row(row: dict, assets_root: Path, dataset: str, problems: list[
                 message=f"地图分层图缺失: {layer_path}",
             ))
 
+    name = strip_domain(row_id) if "." in row_id else row_id
     scene_ref = row.get("scene_ref")
     if scene_ref is not None and scene_ref != f"scene.{name}":
         problems.append(CheckIssue(
