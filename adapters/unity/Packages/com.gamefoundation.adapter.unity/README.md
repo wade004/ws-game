@@ -372,7 +372,21 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   引擎侧收口任务把此前保留的 `FixedUpdate`/`Update` 直驱写法收口为显式注册 + `OnDestroy` 退订，
   见上"引导流程"一节）、交互为什么改为提交意图（原判断记录 2，已由 ADR-0016 联动解决）、普攻/
   技能 1 为什么不读 `found.input_action` 表、空间索引登记为什么改由 L3 同步（判断记录见文件
-  顶部与各处内联注释）。
+  顶部与各处内联注释）。**ADR-0047 跟进（2026-09-20）**：数据集校验未通过的日志行改用
+  `Debug.LogWarning`（不再用 `Debug.LogError`，ADR-0042 决策 4 硬约束此前对本处不生效，是遗漏，
+  另两处 `GameBootstrap.cs`/`DataHotReload.cs` 已在 ADR-0046 修正）；`LoadAll` 得到报告后接入
+  `ValidationReportFileOutlet`（见下方新增条目），不论通过/阻断都落盘一次。**本处不需要另外改
+  `DataValidationFailedEvent` 构造参数个数**：本文件不自行发布该事件，阻断时事件由
+  `registry.LoadAll(...)` 内部的 `DataRegistry.LoadAllCore` 统一发布，那一处已随 ADR-0046 改成
+  三参数传 `report.Issues` 并合并进 main——本文件与 `Runtime/Shell/FrameworkResidentHost.cs`
+  自动随之受益，不需要在这两个宿主入口各自重复发布或改造。
+- `Runtime/Diagnostics/ValidationReportFileOutlet.cs`（ADR-0047 运行期校验报告落盘出口）：为什么
+  是落盘文件不是固定前缀日志行、为什么路径由选项显式指定不设默认路径、为什么校验通过时也要写、
+  原子写的落地方式（判断记录见文件头与各方法顶部注释）。四个已知触发点（本文件、
+  `Runtime/Shell/FrameworkResidentHost.cs`、`games/_template/Runtime/GameBootstrap.cs`、
+  `games/_template/Runtime/DataHotReload.cs`）的接线一致性由
+  `toolchain/tests/test_validation_report_file_outlet_wiring.py` 守护；dotnet test 侧覆盖见
+  `adapters/unity/DiagnosticsForwarding/tests/ValidationReportFileOutletTests.cs`。
 - `Runtime/Presentation/UnitySpriteView.cs`：资源加载已下沉到 `SpriteViewBase`
   （ADR-0016 决策 6），本类型的重复实现已删除。
 - `Runtime/Presentation/UnityViewFactory.cs`：`DestroyAllCreatedViews` 弥补
@@ -383,6 +397,10 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 - `Runtime/Shell/FrameworkResidentHost.cs`：框架常驻部分为什么不直接改造
   `GameFoundationBootstrap`、世界/装配根只构造一次、`AiHost`/`SpawnHost` 级联清理缺口（核心一半
   已由 ADR-0016 解决，`GameplayAssembly.LeaveMap` 承担出图退场，见 `HandlePreUnload` 判断记录）。
+  **ADR-0047 跟进（2026-09-20）**：同上一条 `GameFoundationBootstrap.cs` 判断记录——日志改用
+  `Debug.LogWarning`、接入 `ValidationReportFileOutlet`，同样不需要另外改
+  `DataValidationFailedEvent` 构造参数个数（理由同上一条：事件由 `LoadAllCore` 统一发布，
+  本文件不自行发布）。
 - `UnityResourceLoader.cs` `UnloadAllImages`（曾在 2026-09-19 提交 0a07c0c 新增，供
   `Tests/Runtime/PlayModeIsolation.cs` `TearDownAfterTest` 每条用例后清空
   `ResourceKind.Image` 类别"已加载"缓存，意图根治 PlayMode 全量门禁失败 1/3；已在同日撤销，

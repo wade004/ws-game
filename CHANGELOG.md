@@ -436,6 +436,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   不存在），返回值语义修正为"是否找到记录"；`TolerantRegistryView.Get`/`TryGet` 同步调整内部
   判定算法。方法名/签名不变，编辑器若直接使用这两个入口的返回值判断"是否找到"，需按下方
   "[1.46.0]"正文"破坏性变更"小节自查。
+- **ADR-0047（[Unreleased]，新增跨进程能力，续第 71 条反问）**：第 71 条反问原本想问清楚编辑器
+  是否需要跨进程读取运行期校验结果——设计层本次不再等答复直接落地一个新的可选出口：运行期宿主
+  支持通过命令行参数 `-gfValidationReportPath <文件路径>` 或环境变量
+  `GF_VALIDATION_REPORT_PATH` 让编辑器指定一个落盘文件路径，宿主每次校验（启动/热重载，不论
+  通过/阻断）都会原子写一份结构化文档到该路径，字段形状（逐条问题）与 `toolchain/validator
+  --json` 的 `issues[]` 完全一致，外层另带单调递增序号与触发来源（`startup`/`hot_reload`）。
+  编辑器若确实需要跨进程读取运行期校验结果，可以启动游戏进程时传入该参数/环境变量，之后监视/
+  轮询该文件；若编辑器其实不需要（第 71 条反问的答案是"走的是命令行出口"），本条不产生任何影响
+  ——不设置选项时宿主行为与本条之前完全一致，不产生任何文件。详见下方"[Unreleased]"正文与
+  [ADR-0047](architecture/adr/0047-运行期校验报告落盘出口.md)。
 
 ## [Unreleased]
 
@@ -482,6 +492,30 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   记录）。测试：`toolchain/tests/test_unity_path_length_guard.py`（7 例：短根路径放行 ×3
   场景【只有源目录/只有生成目录/两者都在】、深根路径终止 ×3 同样场景【含此前会被漏判的"只有
   源目录存在"场景】、两个候选根都缺失时打印警告但不阻断）。
+- **[ADR-0047](architecture/adr/0047-运行期校验报告落盘出口.md)：运行期校验报告落盘出口，补齐
+  ADR-0046 决策 6 留白的跨进程消费诉求**——运行期宿主把每次校验结果（不论通过/阻断）原子落盘为
+  结构化文档，供与宿主完全独立的外部进程（如编辑器）监视/轮询读取，不需要解析任何日志文本。落盘
+  路径由新增的运行期选项显式指定（命令行参数 `-gfValidationReportPath` 或环境变量
+  `GF_VALIDATION_REPORT_PATH`，命令行优先），未设置时不产生任何文件（不设默认路径，见 ADR-0047
+  决策 3）；文档带单调递增序号与触发来源标识（`startup`/`hot_reload`）。新增
+  `Core.Foundation.DataRegistry.ValidationIssueJsonWriter`（`core/foundation/data_registry/
+  contracts/ValidationIssueJsonWriter.cs`，ABI 只新增：新增公开静态类 + 两个公开静态方法）——
+  把此前只在 `toolchain/validator/Program.cs` 内部私有的 `ValidationIssue` JSON 序列化逻辑
+  （`AppendIssueJson`/`JsonEscape`）搬到本模块公开，`Program.cs` 改为委托调用，落盘出口与命令行
+  `--json` 出口从此共用同一份序列化实现，不会漂移。新增
+  `Adapter.Unity.Diagnostics.ValidationReportFileOutlet`
+  （`adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Diagnostics/
+  ValidationReportFileOutlet.cs`）承载选项解析、信封字段组装与原子写（临时文件 + 改名），已接入
+  四个已知校验点：`games/_template/Runtime/GameBootstrap.cs`（启动校验）、`games/_template/
+  Runtime/DataHotReload.cs`（热重载校验，`Initialize` 新增四参数重载携带落盘路径，ABI 只新增，
+  既有三参数重载保留）、`Adapter.Unity.Bootstrap.GameFoundationBootstrap`/`Adapter.Unity.Shell.
+  FrameworkResidentHost`（启动校验）。**顺带修复**：后两处校验失败日志此前仍用 `Debug.LogError`
+  （违反 ADR-0042 决策 4，`GameBootstrap.cs`/`DataHotReload.cs` 两处同类问题已在 ADR-0046 修正，
+  这两处当时不在其范围内），本次一并改为 `Debug.LogWarning`，人类可读文本内容不变。四处校验点的
+  接线一致性由新增的 `toolchain/tests/test_validation_report_file_outlet_wiring.py` 守护（11
+  例）。测试：`adapters/unity/DiagnosticsForwarding/tests/ValidationReportFileOutletTests.cs`
+  新增 11 例（选项解析、落盘 JSON 形状与命令行 `--json` 逐字段一致、校验通过时写出空 `issues`、
+  序号按路径分别单调递增、原子写失败时清理临时文件且不产生半成品文件）。
 
 ## [1.47.0] - 2026-09-20
 

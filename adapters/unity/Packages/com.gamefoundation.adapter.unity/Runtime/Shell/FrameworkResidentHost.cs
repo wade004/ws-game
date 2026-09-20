@@ -55,6 +55,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Adapter.Unity.Diagnostics;
 using Adapter.Unity.EngineAdapter;
 using Adapter.Unity.Presentation;
 using Core.Carriers.Unit;
@@ -329,10 +330,21 @@ namespace Adapter.Unity.Shell
                 sourceList.Add(BuildSfxMissingResourceOverlaySource());
             }
             var report = registry.LoadAll(sourceList);
+
+            // ADR-0047 运行期校验报告落盘出口：接线惯例同 GameFoundationBootstrap.cs 同名判断记录
+            // ——选项未设置时 WriteIfConfigured 直接跳过；通过/阻断两种结果都写。
+            var validationReportFilePath = ValidationReportFileOutlet.ResolvePath(
+                Environment.GetCommandLineArgs(), Environment.GetEnvironmentVariable);
+            ValidationReportFileOutlet.WriteIfConfigured(
+                validationReportFilePath, ValidationReportTriggerSource.Startup, report.Issues);
+
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
-                Debug.LogError("[FrameworkResidentHost] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
+                // ADR-0047 顺带修复（同 GameFoundationBootstrap.cs 同名判断记录）：改用
+                // Debug.LogWarning（不再用 Debug.LogError），ADR-0042 决策 4 硬约束此前对本处不生效，
+                // 是遗漏。人类可读文本内容不变。
+                Debug.LogWarning("[FrameworkResidentHost] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
                 return;
             }
 

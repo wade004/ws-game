@@ -21,6 +21,8 @@ data_registry/
                TableSchema.cs（含 TableMigration/MigrateDelegate）
                IDataSource.cs（DataTableSource/TextProvider）DataRecord.cs DataFieldException.cs
                ValidationReport.cs（ValidationSeverity/ValidationIssue）IValidationRule.cs
+               ValidationIssueJsonWriter.cs（ADR-0047：ValidationIssue 的 JSON 序列化单一实现，供
+               toolchain/validator --json 与运行期落盘出口共用）
                IDataRegistry.cs（IDataRegistryView/IDataRegistry）DataRegistryOptions.cs Events.cs
   core/        DataRegistry.cs BuiltinSchemas.cs InMemoryDataSource.cs FileSystemDataSource.cs
                RecordExprHost.cs RecordExprSchema.cs CurveMonotonicFiniteRule.cs（T-N0-3）
@@ -614,6 +616,26 @@ ABI 只新增，见 `contracts/DataSourceOptions.cs` 判断记录）。
   通道），本次改动不解决它读取运行期校验结果的诉求——这需要一种能跨进程送达的结构化出口（如约定
   格式的落盘文件、或带固定前缀的结构化日志行，供外部按行解析），那是一个新的对外契约，需要设计层
   另行拍板格式稳定承诺，ADR-0046 明确留白、未擅自实现，见该 ADR"后果"一节。
+
+**本节再次更新（2026-09-20，ADR-0047，接续上面标注的"局限"）**：上面第 71 条最后标注的局限
+（跨进程消费方拿不到运行期校验结果）已经落地解决，结论与过程见
+[ADR-0047](../../../architecture/adr/0047-运行期校验报告落盘出口.md)，本节只记与本模块直接相关
+的部分：
+
+- **本模块新增 `contracts/ValidationIssueJsonWriter.cs`**：把此前只在 `toolchain/validator/
+  Program.cs` 内部私有的 `ValidationIssue` -> JSON 序列化逻辑（`AppendIssueJson`/`JsonEscape`）
+  原样搬到本模块、改为公开静态方法。`toolchain/validator/Program.cs` 原有的同名私有方法已改为
+  委托调用本模块的实现（不再各自维护一份），命令行 `--json` 出口与运行期落盘出口（见下一条）因此
+  共用同一份序列化代码，不会漂移。本模块 README 顶部"依赖：只依赖 core/foundation/common ... 与
+  .NET 标准库；不引用 adapters/ 下任何具体实现"这条既有约束不受影响——本类型不引用 adapters/，
+  只是被 adapters/unity 引用，依赖方向不变。
+- **落盘出口本身不在本模块**：`Adapter.Unity.Diagnostics.ValidationReportFileOutlet`（选项解析、
+  信封字段组装、原子写）物理落在 `adapters/unity/Packages/com.gamefoundation.adapter.unity/
+  Runtime/Diagnostics/ValidationReportFileOutlet.cs`，是运行期宿主（`games/_template/Runtime/
+  GameBootstrap.cs`/`DataHotReload.cs`、`Adapter.Unity.Bootstrap.GameFoundationBootstrap`、
+  `Adapter.Unity.Shell.FrameworkResidentHost`）的接线，不属于本模块职责范围（本模块不引用
+  adapters/ 的既有约束禁止反过来在本模块里放一个引用 Unity 包命名空间的类型）。四个已知触发点的
+  接线一致性由 `toolchain/tests/test_validation_report_file_outlet_wiring.py` 守护。
 
 ## 判断记录（ADR-0041，TryGet 单记录容错查询返回值语义修正，2026-09-19）
 

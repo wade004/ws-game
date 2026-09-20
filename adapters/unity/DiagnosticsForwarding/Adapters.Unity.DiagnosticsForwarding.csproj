@@ -21,6 +21,11 @@
          的 PresentationDiagnosticsConsoleGate/IPresentationDiagnosticsConsoleSink，不需要额外
          ProjectReference。 -->
     <Compile Include="../Packages/com.gamefoundation.adapter.unity/Runtime/Diagnostics/DiagnosticsHub.cs" />
+    <!-- 判断记录（ADR-0047 运行期校验报告落盘出口）：同上两行惯例——源码物理落在 Unity 包
+         Runtime/Diagnostics/ 下，这里按引用纳入编译。ValidationReportFileOutlet.cs 依赖
+         Core.Foundation.DataRegistry（ValidationIssue/ValidationIssueJsonWriter），已经由下方
+         Presentation.Common ProjectReference 传递引入，不需要额外 ProjectReference。 -->
+    <Compile Include="../Packages/com.gamefoundation.adapter.unity/Runtime/Diagnostics/ValidationReportFileOutlet.cs" />
   </ItemGroup>
 
   <ItemGroup>

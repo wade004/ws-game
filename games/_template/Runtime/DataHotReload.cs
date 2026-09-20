@@ -58,6 +58,7 @@
 // 次多余的 Reload。
 using System;
 using System.Collections.Generic;
+using Adapter.Unity.Diagnostics;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using UnityEngine;
@@ -81,6 +82,11 @@ namespace Game.Template
 
         private DataRegistry? _registry;
         private IEventBus? _bus;
+
+        /// <summary>ADR-0047：与 <see cref="GameBootstrap"/> 共用的落盘路径（<c>null</c> 表示未配置
+        /// 选项，见 <see cref="Initialize(DataRegistry, IEventBus, IReadOnlyList{string}, string?)"/>
+        /// 判断记录）。</summary>
+        private string? _validationReportFilePath;
         private readonly List<FileSystemWatcher> _watchers = new List<FileSystemWatcher>();
         private readonly List<string> _watchRoots = new List<string>();
         private readonly object _lock = new object();
@@ -98,6 +104,8 @@ namespace Game.Template
         private DateTime _lastPollUtc = DateTime.MinValue;
 #endif
 
+        /// <summary>既有三参数重载：不落盘校验报告（<c>validationReportFilePath</c> 视为
+        /// <c>null</c>），保持既有调用点行为不变（ABI 只新增，见下方 ADR-0047 新增的四参数重载）。</summary>
         /// <param name="registry">与 <see cref="GameBootstrap"/> 已完成首次 <c>LoadAll</c> 的同一个
         /// <see cref="DataRegistry"/> 实例（需要具体类而不只是 <see cref="IDataRegistryView"/>——
         /// <see cref="DataRegistry.Reload(string)"/> 不在 <see cref="IDataRegistryView"/> 接口上，
@@ -107,7 +115,14 @@ namespace Game.Template
         /// <param name="watchRoots">要监视的绝对文件系统目录列表（通常是框架数据根与游戏数据根各一
         /// 个，见 <see cref="GameBootstrap"/> 调用点如何从 <c>UnityFileSystem.GetContentRootDir()</c>
         /// 拼出绝对路径）；不存在的目录会被跳过，不报错（游戏层可能暂时只有其中一个根）。</param>
-        public void Initialize(DataRegistry registry, IEventBus bus, IReadOnlyList<string> watchRoots)
+        public void Initialize(DataRegistry registry, IEventBus bus, IReadOnlyList<string> watchRoots) =>
+            Initialize(registry, bus, watchRoots, validationReportFilePath: null);
+
+        /// <summary>ADR-0047 新增的四参数重载：<paramref name="validationReportFilePath"/> 是
+        /// <see cref="GameBootstrap"/> 已解析好的落盘路径（<c>null</c> 表示未配置选项，本组件与
+        /// <see cref="GameBootstrap"/> 共用同一份解析结果，不重复解析命令行/环境变量，见
+        /// <see cref="GameBootstrap"/> 调用点判断记录）。其余参数含义同三参数重载。</summary>
+        public void Initialize(DataRegistry registry, IEventBus bus, IReadOnlyList<string> watchRoots, string? validationReportFilePath)
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -116,6 +131,7 @@ namespace Game.Template
 
             _registry = registry;
             _bus = bus;
+            _validationReportFilePath = validationReportFilePath;
 
             for (var i = 0; i < watchRoots.Count; i++)
             {
@@ -380,6 +396,11 @@ namespace Game.Template
                 Debug.LogError($"[DataHotReload] 重载表 \"{table}\" 时抛出异常，已忽略本次变更：{ex}");
                 return;
             }
+
+            // ADR-0047：热重载得到的报告（不论通过/阻断）都落盘一次，惯例同 GameBootstrap.cs 启动
+            // 校验点——上面的异常分支提前 return，抛异常时连一份新报告都没有，不落盘（与"校验通过时
+            // 也要写"针对的是"跑完一次校验"这件事，不针对"校验根本没跑完"这件事）。
+            ValidationReportFileOutlet.WriteIfConfigured(_validationReportFilePath, ValidationReportTriggerSource.HotReload, report.Issues);
 
             if (report.IsBlocking)
             {

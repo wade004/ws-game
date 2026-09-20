@@ -1103,65 +1103,19 @@ namespace Toolchain.Validator
         private static List<NumericValidationRuleDescriptor> FindNumericRuleEntries(string ruleId) =>
             ContentValidationAssembly.NumericRules.Where(e => e.RuleId == ruleId).ToList();
 
-        private static void AppendIssueJson(StringBuilder sb, ValidationIssue issue)
-        {
-            sb.Append('{');
-            sb.Append("\"severity\":\"").Append(issue.Severity == ValidationSeverity.Error ? "error" : "warning").Append("\",");
-            sb.Append("\"table\":\"").Append(JsonEscape(issue.Table)).Append("\",");
-            sb.Append("\"record_key\":").Append(issue.RecordKey == null ? "null" : "\"" + JsonEscape(issue.RecordKey) + "\"").Append(',');
-            sb.Append("\"field\":").Append(issue.Field == null ? "null" : "\"" + JsonEscape(issue.Field) + "\"").Append(',');
-            sb.Append("\"check\":\"").Append(JsonEscape(issue.Check)).Append("\",");
-            sb.Append("\"message\":\"").Append(JsonEscape(issue.Message)).Append("\",");
-            // T-N0-6（落地清单 2.2 V2）：追加在既有 "message" 之后，未填时为 null；既有字段名与
-            // 语义一律不变（禁止事项）。
-            sb.Append("\"group\":").Append(issue.Group == null ? "null" : "\"" + JsonEscape(issue.Group) + "\"").Append(',');
-            sb.Append("\"note\":").Append(issue.Note == null ? "null" : "\"" + JsonEscape(issue.Note) + "\"").Append(',');
-            sb.Append("\"rule_id\":").Append(issue.RuleId == null ? "null" : "\"" + JsonEscape(issue.RuleId) + "\"");
-            // 消费方反馈第 57 条（2026-09-18）：图诊断（成环/不可达一类）涉及的节点 id 列表，
-            // ValidationIssue.AffectedNodeIds 默认空集合——本字段空时整体省略（不是"null"），与既有
-            // group/note/rule_id"未填也始终输出 null"的既有约定不同：这是设计层拍板的新字段专属口径
-            // （见回复文档 消费方反馈-2026-09-18-编辑器-第54-58条.md），既有三个字段的既有约定不变。
-            if (issue.AffectedNodeIds.Count > 0)
-            {
-                sb.Append(",\"affected_node_ids\":[");
-                for (var i = 0; i < issue.AffectedNodeIds.Count; i++)
-                {
-                    if (i > 0)
-                    {
-                        sb.Append(',');
-                    }
-                    sb.Append('"').Append(JsonEscape(issue.AffectedNodeIds[i])).Append('"');
-                }
-                sb.Append(']');
-            }
-            sb.Append('}');
-        }
+        /// <summary>判断记录（ADR-0047 运行期校验报告落盘出口）：本方法原来的实现（逐字段拼接
+        /// severity/table/record_key/field/check/message/group/note/rule_id/affected_node_ids）
+        /// 已原样搬到 <see cref="Core.Foundation.DataRegistry.ValidationIssueJsonWriter.AppendIssueJson"/>
+        /// ——运行期宿主新增的落盘出口（<c>ValidationReportFileOutlet</c>）需要产出与本命令行
+        /// <c>--json</c> 完全同形状的 <c>issues[]</c> 元素，两处各写一份必然随时间漂移，因此改为
+        /// 两处共用同一份实现，本方法降级为委托调用，不再是逻辑归属地（详见该类型文件头判断记录）。</summary>
+        private static void AppendIssueJson(StringBuilder sb, ValidationIssue issue) =>
+            Core.Foundation.DataRegistry.ValidationIssueJsonWriter.AppendIssueJson(sb, issue);
 
-        private static string JsonEscape(string value)
-        {
-            var sb = new StringBuilder(value.Length);
-            foreach (var c in value)
-            {
-                switch (c)
-                {
-                    case '"': sb.Append("\\\""); break;
-                    case '\\': sb.Append("\\\\"); break;
-                    case '\n': sb.Append("\\n"); break;
-                    case '\r': sb.Append("\\r"); break;
-                    case '\t': sb.Append("\\t"); break;
-                    default:
-                        if (c < 0x20)
-                        {
-                            sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
-                        }
-                        else
-                        {
-                            sb.Append(c);
-                        }
-                        break;
-                }
-            }
-            return sb.ToString();
-        }
+        /// <summary>同上一个方法判断记录：转义逻辑本身也已搬到
+        /// <see cref="Core.Foundation.DataRegistry.ValidationIssueJsonWriter.JsonEscape"/>，本方法
+        /// 仅委托，本文件其余 65 处既有调用点无需改动。</summary>
+        private static string JsonEscape(string value) =>
+            Core.Foundation.DataRegistry.ValidationIssueJsonWriter.JsonEscape(value);
     }
 }

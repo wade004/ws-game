@@ -27,6 +27,7 @@
 // 两个工作台场景那样的规避）。
 using System;
 using System.Linq;
+using Adapter.Unity.Diagnostics;
 using Adapter.Unity.EngineAdapter;
 using Adapter.Unity.Presentation;
 using Core.Carriers.Unit;
@@ -114,6 +115,12 @@ namespace Game.Template
         private Id _classId;
         private bool _worldEverEntered;
         private double _interpAccumulator;
+
+        /// <summary>ADR-0047 运行期校验报告落盘出口：本次进程解析出的落盘路径（未配置选项时为
+        /// <c>null</c>），在 <see cref="Bootstrap"/> 内解析一次，随后原样传给
+        /// <see cref="DataHotReload.Initialize(DataRegistry, IEventBus, System.Collections.Generic.IReadOnlyList{string}, string?)"/>
+        /// ——同一进程内启动校验与热重载校验共用同一个落盘目标，不需要各自重新解析命令行/环境变量。</summary>
+        private string? _validationReportFilePath;
 
         /// <summary>W6-B 新增：见 <see cref="Bootstrap"/>（或对应装配方法）构造点判断记录，
         /// <see cref="OnDestroy"/> 里显式 Dispose（退订 item.equipped/item.unequipped）。</summary>
@@ -276,6 +283,16 @@ namespace Game.Template
             }
             var report = registry.LoadAll(sourceList);
             LoadReport = report;
+
+            // ADR-0047 运行期校验报告落盘出口：选项未设置（ResolvePath 返回 null）时
+            // WriteIfConfigured 直接跳过，不产生任何磁盘 I/O，行为与本次改动前完全一致；
+            // 通过/阻断两种结果都要写（见 ValidationReportFileOutlet 类型头判断记录"为什么校验
+            // 通过时也要写"），因此这一行放在下面 IsBlocking 分支之前、对两种结果都生效。
+            _validationReportFilePath = ValidationReportFileOutlet.ResolvePath(
+                Environment.GetCommandLineArgs(), Environment.GetEnvironmentVariable);
+            ValidationReportFileOutlet.WriteIfConfigured(
+                _validationReportFilePath, ValidationReportTriggerSource.Startup, report.Issues);
+
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
@@ -310,7 +327,10 @@ namespace Game.Template
                     System.IO.Path.Combine(contentRoot, _gameDatasetRoot),
                 };
                 var hotReload = gameObject.AddComponent<DataHotReload>();
-                hotReload.Initialize(registry, _bus, watchRoots);
+                // ADR-0047：把本次已解析的落盘路径原样传给热重载组件，两者共用同一个目标文件/序号
+                // 计数（见 ValidationReportFileOutlet 按路径分别计数的判断记录），不需要热重载组件
+                // 重新解析一遍命令行/环境变量。
+                hotReload.Initialize(registry, _bus, watchRoots, _validationReportFilePath);
             }
 
             var rng = new RngHost(_options.Seed);

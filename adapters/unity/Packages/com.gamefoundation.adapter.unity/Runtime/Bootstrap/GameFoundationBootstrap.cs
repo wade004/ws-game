@@ -70,6 +70,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Adapter.Unity.Diagnostics;
 using Adapter.Unity.EngineAdapter;
 using Adapter.Unity.Presentation;
 using Core.Carriers.Unit;
@@ -302,10 +303,27 @@ namespace Adapter.Unity.Bootstrap
                 ? new IDataSource[] { frameworkSource, source }
                 : new IDataSource[] { frameworkSource, source, new FileSystemDataSource(contentFs, _extraDatasetRoot) };
             var report = registry.LoadAll(sources);
+
+            // ADR-0047 运行期校验报告落盘出口：与 games/_template/Runtime/GameBootstrap.cs 同款接线
+            // ——选项未设置时 WriteIfConfigured 直接跳过；通过/阻断两种结果都写，放在下面 IsBlocking
+            // 分支之前对两者都生效（见 ValidationReportFileOutlet 类型头判断记录"为什么校验通过时也
+            // 要写"）。
+            var validationReportFilePath = ValidationReportFileOutlet.ResolvePath(
+                Environment.GetCommandLineArgs(), Environment.GetEnvironmentVariable);
+            ValidationReportFileOutlet.WriteIfConfigured(
+                validationReportFilePath, ValidationReportTriggerSource.Startup, report.Issues);
+
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
-                Debug.LogError("[GameFoundationBootstrap] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
+                // ADR-0047 顺带修复（上一单 ADR-0046 遗留、超出其范围）：改用 Debug.LogWarning（不再
+                // 用 Debug.LogError）——ADR-0042 决策 4 的既有硬约束（宿主自动化测试框架把未预期的
+                // Error 级输出判定为测试失败，Unity 侧诊断消息一律不产生 LogError）此前对本处不生效，
+                // 是遗漏（games/_template/Runtime/GameBootstrap.cs/DataHotReload.cs 两处同类问题已在
+                // ADR-0046 修正，本类型与 FrameworkResidentHost.cs 当时不在该单改动范围内）。人类可读
+                // 文本内容不变，只降级严重级别；结构化消费见上面新增的落盘出口与
+                // DataValidationFailedEvent.Issues（ADR-0046）。
+                Debug.LogWarning("[GameFoundationBootstrap] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
                 return;
             }
 

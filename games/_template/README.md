@@ -228,6 +228,15 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   语义**——一张表改坏了会让**整个数据集**（不只是这一张表）在下一次成功的重载/加载之前都无法
   `Get`/`GetAll`/`Query`，不是"只冻结出问题的那一张表，其它表照常"。开发时改坏一张表会导致
   全局报错，这是预期行为（与生产环境"不做静默降级"的既有原则一致），改对后保存即可自动恢复。
+- **落盘给外部工具消费（ADR-0047，可选）**：命令行参数 `-gfValidationReportPath <文件路径>` 或
+  环境变量 `GF_VALIDATION_REPORT_PATH` 可以让 `GameBootstrap`/`DataHotReload` 把每次校验结果
+  （启动首次加载、之后每次热重载，不论通过/阻断）原子落盘为一份结构化文档（见
+  `Adapter.Unity.Diagnostics.ValidationReportFileOutlet`），供与本进程完全独立的外部工具（如
+  编辑器）监视/轮询读取，不需要解析本进程的控制台输出。文档带单调递增序号与触发来源标识
+  （`startup`/`hot_reload`），供消费方判断"这是不是最新一次结果"；命令行参数优先于环境变量；
+  都未指定时不产生任何文件，行为与本条之前完全一致（不设默认路径）。逐条问题字段形状与
+  `toolchain/validator --json` 的 `issues[]` 完全一致。同进程内订阅事件总线的消费方应改走
+  ADR-0046 的 `DataValidationFailedEvent.Issues`（延迟更低，不需要落盘），本条只服务跨进程场景。
 
 ## 构建独立版
 
