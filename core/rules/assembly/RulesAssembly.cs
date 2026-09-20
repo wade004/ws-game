@@ -1052,6 +1052,17 @@ namespace Core.Rules.Assembly
             // Real（真正的 SkillHost）已经能提供的精确结果，见 InterfaceDefaultMemberForwardingTests
             // 门禁与该接口成员判断记录。
             public SkillReadiness GetSkillReadiness(Id unitId, Id skillId) => Real.GetSkillReadiness(unitId, skillId);
+
+            // ADR-0050《技能宿主契约纳入技能簿查询与学习成员》：同上方 CastSkillAtGround/
+            // GetSkillReadiness 判断记录，四个新增成员必须显式转发，不能依赖 ISkillHost 默认接口
+            // 实现隐式兜底——否则本代理绑定完成后经它调用 Knows/GetKnownSkills 会恒得到
+            // false/空列表，LearnSkill/LearnFromBook 会恒抛 NotSupportedException，绕开 Real
+            // （真正的 SkillHost）已经能提供的真实账本，见 InterfaceDefaultMemberForwardingTests
+            // 门禁与该接口四个成员各自的判断记录。
+            public bool Knows(Id unitId, Id skillId) => Real.Knows(unitId, skillId);
+            public IReadOnlyList<Id> GetKnownSkills(Id unitId) => Real.GetKnownSkills(unitId);
+            public void LearnSkill(Id unitId, Id skillId) => Real.LearnSkill(unitId, skillId);
+            public void LearnFromBook(Id unitId, Id bookId, int level) => Real.LearnFromBook(unitId, bookId, level);
         }
     }
 }

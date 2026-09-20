@@ -161,6 +161,34 @@ common/
     光环含结算效果）由 `SkillBudgetAnalyzer` 等消费方消费时另行解析落实，不在
     `SettlementEffectKinds` 内新开重载。
 
+11. **ADR-0050《技能宿主契约纳入技能簿查询与学习成员》：`ISkillHost` 新增四个 C#8 默认接口成员，
+    默认语义按"只读查询可显式降级、写路径不能静默降级"两分**（消费方反馈：`GetKnownSkills`/
+    `LearnSkill`/`LearnFromBook`/`Knows` 此前只在具体类 `Core.Rules.Skill.SkillHost` 上，面向接口
+    编程做不到）：
+    - `Knows(Id,Id)`/`GetKnownSkills(Id)`（只读查询）默认分别返回 `false`/空列表——与
+      `GetSkillReadiness`/`FindUnits` 既有的"查询类默认实现允许显式降级"惯例一致，语义是"该宿主
+      不支持技能簿"。
+    - `LearnSkill(Id,Id)`/`LearnFromBook(Id,Id,int)`（写路径）默认改为抛
+      `System.NotSupportedException`，不悄悄什么也不学——AGENTS.md §3"运行时路径不静默降级"
+      明确区分"只读分析类入口"与写路径，只允许前者显式标记降级；若写路径也默认 no-op，调用方会
+      得到"已经学会"的错觉，但随后 `Knows`/`GetKnownSkills` 查不到，是"看似接入了、实际上悄悄
+      失效"的陷阱（同 C03/C08 收口判断记录对同类陷阱的定性）。
+    - 生产实现 `Core.Rules.Skill.SkillHost` 既有的同名公开方法签名/行为逐字不变，新增四个**显式
+      接口实现**（`IReadOnlyList<Id> ISkillHost.GetKnownSkills(Id) => GetKnownSkills(id)` 等）转发
+      到既有公开方法，不落到默认实现——判断记录（为什么不用隐式实现）：若让既有公开方法直接隐式
+      满足新增接口成员，编译器会把它们的物理 IL 属性从普通实例方法改写成 `virtual sealed`（隐式
+      接口实现的必然结果），`toolchain/abi_surface` 按物理签名/方法属性逐字节比对，会把这个属性
+      变化误判成四处 breaking change（即便已用 `toolchain/abi_probe.ps1` 的旧编译 consumer 换新
+      DLL 不重编译实测验证运行完全正常）；改用显式接口实现后，既有公开方法的物理签名逐字节不变，
+      显式接口实现方法本身是 IL private 方法，不计入 `abi_surface` 的表面成员，`breaks=0`。
+      `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理必须显式转发这四个
+      新成员，不能依赖默认接口成员的隐式转发，见 `core/rules/assembly/README.md` 同一判断记录。
+      本接口已有的多个 combat/targeting/ai 测试假实现（改动范围不允许连带修改它们）继承默认实现
+      即是安全的等价降级——它们本就不模拟技能簿账本。
+    - 装备/光环一类"带来源、区分永久/临时"的学习重载（`LearnSkill(Id,Id,Id,bool)`/
+      `ForgetSkill(Id,Id,Id)`）未被消费方点名，不在本次收口范围，`core/carriers/item.SkillGranter`
+      委托继续作为这部分残余缺口的绕行手段（见该类型判断记录）。
+
 ## 不负责什么
 
 - 不实现施法管线、结算管线、仇恨表、行为外壳状态机等任何具体算法——那些是 skill/combat/ai 各自

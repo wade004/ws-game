@@ -799,6 +799,36 @@ namespace Core.Rules.Skill
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) =>
             _knownSkills.TryGetValue(unitId, out var set) ? set.OrderBy(id => id.Value, StringComparer.Ordinal).ToList() : Array.Empty<Id>();
 
+        // -----------------------------------------------------------------
+        // ADR-0050《技能宿主契约纳入技能簿查询与学习成员》：ISkillHost 显式接口实现
+        // -----------------------------------------------------------------
+        //
+        // 判断记录（显式接口实现，而不是让上面四个既有公开方法隐式满足接口）：ABI 探针
+        // （toolchain/abi_surface）复现过一次真实教训——若让 Knows/GetKnownSkills/
+        // LearnSkill(Id,Id)/LearnFromBook 这几个 1.48.0 就已存在的公开方法直接隐式实现新增的
+        // ISkillHost 同名成员，编译器会把它们的物理 IL 属性从普通实例方法改写成
+        // "virtual sealed"（隐式接口实现的必然结果，与"新增接口成员是否带默认实现"无关）；
+        // 虽然任何调用点（`skillHost.Knows(...)`）编译产物本就是 callvirt，运行期不受影响
+        // （已用 toolchain/abi_probe.ps1 的旧编译 consumer 换新 DLL 不重编译实测验证正常），
+        // 但 toolchain/abi_surface 按物理签名/方法属性逐字节比对，会把这个"IL 属性变化"误判成
+        // 四个 breaking change（旧签名"消失"、新签名"出现"）——这正是 AGENTS.md §3"ABI 只新增"
+        // 要防的那类"看起来只是加了个新成员，其实动了旧成员物理签名"的隐蔽破坏，即便实际运行完全
+        // 兼容也不例外，门禁按静态签名判定、不按运行时行为判定。
+        //
+        // 改用显式接口实现（下面四行）后：上面四个公开方法的物理签名/IL 属性与本次改动之前逐字节
+        // 不变（继续走既有调用方一直在用的普通实例方法调用点，`abi_surface` dump 逐字节相同）；
+        // 显式接口实现方法在 IL 里是 private 方法，`abi_surface`（`SurfaceDumper.IsMemberVisible`
+        // 只收 public/protected/protected internal）不会把它们计入 SkillHost 的表面成员——不多算
+        // "新增"也不会误判"破坏"，新增的表面只在 ISkillHost 接口本身（默认接口成员），这才是
+        // 这次改动应该呈现的唯一 ABI 差异。`InterfaceDefaultMemberForwardingTests` 门禁经
+        // `Type.GetInterfaceMap` 判定，显式接口实现的目标方法 `DeclaringType` 是 SkillHost 本身，
+        // 同样能正确识别为"已转发/覆盖"，不会被当成遗漏。
+        IReadOnlyList<Id> ISkillHost.GetKnownSkills(Id unitId) => GetKnownSkills(unitId);
+
+        bool ISkillHost.Knows(Id unitId, Id skillId) => Knows(unitId, skillId);
+
+        void ISkillHost.LearnSkill(Id unitId, Id skillId) => LearnSkill(unitId, skillId);
+
         /// <summary>
         /// N07 收边补齐（外部审计 68c9bed，P2）：只返回当前由 <see cref="PermanentGrantSource"/>
         /// 哨兵来源授予的已知技能——供 <see cref="KnownSkillsPersistable.Save"/> 使用，取代此前的
@@ -852,6 +882,10 @@ namespace Core.Rules.Skill
                 }
             }
         }
+
+        /// <summary>ADR-0050 显式接口实现，见上方"ISkillHost 显式接口实现"一节判断记录（保留
+        /// <see cref="LearnFromBook(Id,Id,int)"/> 公开方法物理签名不变，不直接让它隐式实现接口）。</summary>
+        void ISkillHost.LearnFromBook(Id unitId, Id bookId, int level) => LearnFromBook(unitId, bookId, level);
 
         // -----------------------------------------------------------------
         // Tick

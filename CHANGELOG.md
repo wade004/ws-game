@@ -505,6 +505,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   转发，`adapters/unity` 侧登记为诊断来源 "Core.Gameplay.Loot"。顺带核实 `catch (ArgumentException)`
   的覆盖面：区分"未登记"与"字段非法"（含 `DataFieldException` 内层异常）两种成因给出不同诊断
   消息，不改变"跳过、不外抛"的控制流。详见 `core/gameplay/loot/README.md` 判断记录 19。
+- **`ISkillHost` 契约新增已知技能查询/学习成员，根治消费方反馈"契约缺口"（
+  [ADR-0050](architecture/adr/0050-技能宿主契约纳入技能簿查询与学习成员.md)）**：`Knows`/
+  `GetKnownSkills`/`LearnSkill(Id,Id)`/`LearnFromBook` 四个成员此前只在具体实现类
+  `Core.Rules.Skill.SkillHost` 上，面向接口编程做不到（`core/carriers/item/contracts/
+  SkillGranter.cs` 注释此前也自认这是契约缺口）；现以带默认实现的接口成员新增到 `ISkillHost`
+  （只读查询默认降级为 `false`/空列表，写路径 `LearnSkill`/`LearnFromBook` 默认抛
+  `NotSupportedException`，不静默降级），`SkillHost` 既有同名公开方法签名/行为不变，新增四个
+  **显式接口实现**转发到既有方法（不用隐式实现——隐式实现会把既有方法物理 IL 属性改写成
+  `virtual sealed`，被 ABI 探针静态签名比对误判为破坏，即便运行期实测完全兼容）；
+  `core/rules/assembly.RulesAssembly` 内部代理 `DeferredSkillCastQuery` 新增四个成员的
+  显式转发；表现层 `Presentation.Ui.SkillHostSkillBookQuery` 新增一个接受 `ISkillHost` 的构造
+  函数重载（原具体类型重载保留）。ABI 只新增，`breaks=0`。新增测试
+  `core/rules/skill/tests/ISkillHostSkillBookContractTests.cs` 钉住"仅持有 `ISkillHost` 接口
+  引用即可完成学技能→查询已知→从技能书学"这条运行时链路。详见 `core/rules/common/README.md`
+  判断记录 11、`core/rules/skill/README.md` 判断记录 58、`core/rules/assembly/README.md`
+  同判断记录。
 
 ## [1.48.0] - 2026-09-20
 

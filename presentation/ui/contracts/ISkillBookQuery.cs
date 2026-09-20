@@ -18,6 +18,13 @@ namespace Presentation.Ui
     /// <c>SkillHost</c> 的完整构造依赖链（<c>IDataRegistryView</c>/<c>IRngHost</c>/<c>ICombatHost</c>
     /// 等一整套 rules 模块内部协作对象）。
     /// </para>
+    /// <para>
+    /// ADR-0050 补充：上一段"缺 <c>GetKnownSkills</c>"的前提已由 ADR-0050《技能宿主契约纳入技能簿
+    /// 查询与学习成员》改变——<c>Core.Rules.Common.ISkillHost</c> 现在确有 <c>GetKnownSkills</c>
+    /// 默认接口成员，<c>SkillHostSkillBookQuery</c> 因此新增了一个接受 <see cref="Core.Rules.Common.ISkillHost"/>
+    /// 的构造函数重载（见其判断记录）。本窄接口本身仍然保留：即便宿主类型已可用接口引用装配，
+    /// UI 侧仍不需要 <c>ISkillHost</c> 的施法/冷却等其余大部分成员，窄接口收敛依赖的价值不变。
+    /// </para>
     /// </summary>
     public interface ISkillBookQuery
     {
