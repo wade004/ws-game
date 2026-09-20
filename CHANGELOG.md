@@ -449,6 +449,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.50.0] - 2026-09-21
+
 ### 新增
 
 - **`import_assets.py check --json` 顶层新增 `domain_counts` 字段（消费方反馈第 74 条）**：
@@ -476,6 +478,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `presentation/assembly/tests/PresentationAssemblyTests.cs`
   （`HudViewModel_TargetNameAndFaction_ReflectRegisteredTemplate_NullWhenNoTarget`/
   `HudViewModel_TargetName_TemplateNotRegistered_ReturnsNull_AndRecordsDiagnostic`）。
+- **`Core.Foundation.EngineAdapter.AssetRefConventions` 补齐地图分层图路径约定**（消费方反馈第 75
+  条，[ADR-0053](architecture/adr/0053-地图分层图路径约定纳入公开契约.md)）：既有 14 个公开方法
+  覆盖 sprite/icon/vfx/sfx/anim/model/sprite_anim/paperdoll 各类资源引用路径约定，唯独 `world.map`
+  分层图（ground/overlay/decal/nav_hint）此前唯一的权威出处是
+  `toolchain/asset_import/map_cmd.py` 的模块文档字符串，从未以方法形式暴露。新增
+  `MapDirectory(Id mapId)`（地图目录）与 `MapGroundFile`/`MapOverlayFile`/`MapDecalFile`/
+  `MapNavHintFile`（四个固定层各自的文件路径）共五个静态方法，与既有方法同一形态（签名风格、
+  参数类型、返回值语义、非法输入处理口径一致），输出与 `map_cmd.py` 改动前的格式逐字节对齐
+  （已用改动前历史版本核对，不是"看起来一样"）。`toolchain/asset_import/ref_conventions.py`
+  同步新增 `map_directory`/`map_ground_file`/`map_overlay_file`/`map_decal_file`/
+  `map_nav_hint_file` 五个等价函数（独立实现，不互相调用），`map_cmd.py` 改为调用这组函数，
+  不再自行拼接路径、模块文档字符串不再重复给出格式字符串。新增
+  `toolchain/map_ref_probe`（不对外发行、不进 Core.sln）供跨语言一致性测试经子进程调用取得
+  真实运行期计算结果。ABI 只新增，`breaks=0`，`additions=5`。内容编辑器项目待本条交付后，可以
+  拆掉自建的地图分层图路径拼接绕行代码，改为依赖这组公开契约。落地跟进：`toolchain/asset_import/
+  check_cmd.py` 的 `_check_world_row` 此前也自行拼接了一份地图路径（第三处独立实现），现已改为
+  调用同一组共享函数，行为对现有数据逐字节不变。
+
 ### 行为变更
 
 - **掉落条目随机子流隔离（消费方反馈第 4 条根治，[ADR-0052](architecture/adr/0052-掉落条目随机子流隔离.md)）**：
@@ -495,23 +515,6 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
     （`sim_arena_matrix`/`sim_coverage_all`）使用的掉落表此前就只有单一有效条目，不受本缺陷
     影响，基线里的具体数值未变，只是重新盖了版本戳。三份基线均无 `added`/`removed`（未出现新增
     或消失的统计量，只有既有统计量的数值变化）。
-- **`Core.Foundation.EngineAdapter.AssetRefConventions` 补齐地图分层图路径约定**（消费方反馈第 75
-  条，[ADR-0053](architecture/adr/0053-地图分层图路径约定纳入公开契约.md)）：既有 14 个公开方法
-  覆盖 sprite/icon/vfx/sfx/anim/model/sprite_anim/paperdoll 各类资源引用路径约定，唯独 `world.map`
-  分层图（ground/overlay/decal/nav_hint）此前唯一的权威出处是
-  `toolchain/asset_import/map_cmd.py` 的模块文档字符串，从未以方法形式暴露。新增
-  `MapDirectory(Id mapId)`（地图目录）与 `MapGroundFile`/`MapOverlayFile`/`MapDecalFile`/
-  `MapNavHintFile`（四个固定层各自的文件路径）共五个静态方法，与既有方法同一形态（签名风格、
-  参数类型、返回值语义、非法输入处理口径一致），输出与 `map_cmd.py` 改动前的格式逐字节对齐
-  （已用改动前历史版本核对，不是"看起来一样"）。`toolchain/asset_import/ref_conventions.py`
-  同步新增 `map_directory`/`map_ground_file`/`map_overlay_file`/`map_decal_file`/
-  `map_nav_hint_file` 五个等价函数（独立实现，不互相调用），`map_cmd.py` 改为调用这组函数，
-  不再自行拼接路径、模块文档字符串不再重复给出格式字符串。新增
-  `toolchain/map_ref_probe`（不对外发行、不进 Core.sln）供跨语言一致性测试经子进程调用取得
-  真实运行期计算结果。ABI 只新增，`breaks=0`，`additions=5`。内容编辑器项目待本条交付后，可以
-  拆掉自建的地图分层图路径拼接绕行代码，改为依赖这组公开契约。落地跟进：`toolchain/asset_import/
-  check_cmd.py` 的 `_check_world_row` 此前也自行拼接了一份地图路径（第三处独立实现），现已改为
-  调用同一组共享函数，行为对现有数据逐字节不变。
 
 ## [1.49.0] - 2026-09-20
 
