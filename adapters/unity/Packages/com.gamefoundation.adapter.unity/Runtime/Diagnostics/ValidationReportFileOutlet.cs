@@ -43,6 +43,16 @@
 // 改名后已经完整写入的新文件，不存在"读到写了一半的半截 JSON"这种中间态。若目标路径已存在旧文件，
 // 先删除再改名（两步之间有极短的"文件不存在"窗口，但绝不会出现"文件存在但内容不完整"这种更危险的
 // 中间态——消费方按"文件不存在就跳过/重试一次"处理即可，比解析半截 JSON 简单得多）。
+//
+// ADR-0055 跟进（2026-09-21，消费方反馈第 78 条）：信封顶层新增可选字段 table——此前顶层只有
+// sequence/source/timestamp_utc/issues 四个字段，"这次校验确切针对哪张表"完全没有结构化通道，独立
+// 进程消费方（如随游戏走的编辑器）唯一能拿到这个信息的办法是解析 Debug.Log 文本，与本文件判断记录
+// "日志文本永远不是契约"自相矛盾。DataHotReload.ReloadTable(string table) 早就持有确切的表名，只是
+// 从未传给 WriteIfConfigured；本次改为新增一组带 table 形参的重载（ABI 只新增，既有重载保留并委托，
+// table 缺省值 null，行为与改动前逐位一致），HotReload 来源传入被重载的表名，三处 Startup 来源
+// 调用点原样不动（继续走不带 table 的既有重载，等价于显式传 null）——启动全量校验本就没有单一确定
+// 的表，不编造空字符串/"all" 之类会被误读成真实表名的占位值，详见 BuildJson 判断记录与
+// architecture/adr/0055-运行期校验报告落盘出口补表名字段.md。
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -109,13 +119,25 @@ namespace Adapter.Unity.Diagnostics
             return string.IsNullOrEmpty(env) ? null : env;
         }
 
-        /// <summary>各校验点的实际调用入口：<paramref name="filePath"/> 为 <c>null</c>/空字符串时
-        /// （即 <see cref="ResolvePath"/> 未解析出选项）直接返回，不产生任何磁盘 I/O（见类型头判断
-        /// 记录"为什么路径由选项显式指定、不设默认路径"）；否则委托 <see cref="Write"/>。</summary>
+        /// <summary>既有三参数重载：不携带表名（<c>table</c> 视为 <c>null</c>），保持既有调用点
+        /// 行为不变（ABI 只新增，见下方 ADR-0055 新增的带 <c>table</c> 重载）。</summary>
         public static void WriteIfConfigured(
             string? filePath,
             string source,
             IReadOnlyList<ValidationIssue> issues,
+            Func<DateTime>? utcNowProvider = null) =>
+            WriteIfConfigured(filePath, source, issues, table: null, utcNowProvider);
+
+        /// <summary>ADR-0055 新增的带 <paramref name="table"/> 重载：各校验点的实际调用入口。
+        /// <paramref name="filePath"/> 为 <c>null</c>/空字符串时（即 <see cref="ResolvePath"/> 未
+        /// 解析出选项）直接返回，不产生任何磁盘 I/O（见类型头判断记录"为什么路径由选项显式指定、
+        /// 不设默认路径"）；否则委托 <see cref="Write(string, string, IReadOnlyList{ValidationIssue}, string?, Func{DateTime}?)"/>。
+        /// <paramref name="table"/> 语义见该重载判断记录。</summary>
+        public static void WriteIfConfigured(
+            string? filePath,
+            string source,
+            IReadOnlyList<ValidationIssue> issues,
+            string? table,
             Func<DateTime>? utcNowProvider = null)
         {
             if (string.IsNullOrEmpty(filePath))
@@ -123,16 +145,32 @@ namespace Adapter.Unity.Diagnostics
                 return;
             }
 
-            Write(filePath!, source, issues, utcNowProvider);
+            Write(filePath!, source, issues, table, utcNowProvider);
         }
 
-        /// <summary>无条件写一次（不检查 <paramref name="filePath"/> 是否为空——调用方明确要写时用
-        /// 这个重载，如测试；正常宿主调用点一律走 <see cref="WriteIfConfigured"/>）。返回本次写入
-        /// 使用的单调递增序号，供测试断言。</summary>
+        /// <summary>既有四参数重载：不携带表名（<c>table</c> 视为 <c>null</c>），保持既有调用点
+        /// 行为不变（ABI 只新增，见下方 ADR-0055 新增的带 <c>table</c> 重载）。</summary>
         public static long Write(
             string filePath,
             string source,
             IReadOnlyList<ValidationIssue> issues,
+            Func<DateTime>? utcNowProvider = null) =>
+            Write(filePath, source, issues, table: null, utcNowProvider);
+
+        /// <summary>ADR-0055 新增的带 <paramref name="table"/> 重载：无条件写一次（不检查
+        /// <paramref name="filePath"/> 是否为空——调用方明确要写时用这个重载，如测试；正常宿主调用点
+        /// 一律走 <see cref="WriteIfConfigured(string?, string, IReadOnlyList{ValidationIssue}, string?, Func{DateTime}?)"/>）。
+        /// <paramref name="table"/>：这次校验确切针对哪一张表——热重载场景（<see
+        /// cref="ValidationReportTriggerSource.HotReload"/>）传入被重载的表名；启动全量校验场景
+        /// （<see cref="ValidationReportTriggerSource.Startup"/>）本就没有单一确定的表，传
+        /// <c>null</c>（不传空字符串或 <c>"all"</c> 之类会被误读成真实表名的占位值，见
+        /// <see cref="BuildJson(long, string, DateTime, IReadOnlyList{ValidationIssue}, string?)"/>
+        /// 判断记录与 ADR-0055 决策）。返回本次写入使用的单调递增序号，供测试断言。</summary>
+        public static long Write(
+            string filePath,
+            string source,
+            IReadOnlyList<ValidationIssue> issues,
+            string? table,
             Func<DateTime>? utcNowProvider = null)
         {
             if (string.IsNullOrEmpty(filePath)) throw new ArgumentException("filePath 不能为空", nameof(filePath));
@@ -149,21 +187,37 @@ namespace Adapter.Unity.Diagnostics
             }
 
             var timestampUtc = utcNowProvider != null ? utcNowProvider() : DateTime.UtcNow;
-            var json = BuildJson(sequence, source, timestampUtc, issues);
+            var json = BuildJson(sequence, source, timestampUtc, issues, table);
             AtomicWriteAllText(fullPath, json);
             return sequence;
         }
 
-        /// <summary>组装落盘 JSON 文档：<c>sequence</c>（单调递增序号，<see cref="long"/> 精确写出，
-        /// 不经 double 中转）、<c>source</c>（<see cref="ValidationReportTriggerSource"/> 取值之一）、
-        /// <c>timestamp_utc</c>（见 <see cref="FormatTimestampUtc"/>）、<c>issues</c>（元素形状与
-        /// <c>toolchain/validator --json</c> 的 <c>issues[]</c> 完全一致，见
-        /// <see cref="ValidationIssueJsonWriter.AppendIssueJson"/>，二者共用同一份实现，不会漂移）。
+        /// <summary>既有四参数重载：不携带表名（<c>table</c> 视为 <c>null</c>），保持既有调用点
+        /// 行为不变（ABI 只新增，见下方 ADR-0055 新增的带 <c>table</c> 重载）。</summary>
+        public static string BuildJson(long sequence, string source, DateTime timestampUtc, IReadOnlyList<ValidationIssue> issues) =>
+            BuildJson(sequence, source, timestampUtc, issues, table: null);
+
+        /// <summary>ADR-0055 新增的带 <paramref name="table"/> 重载：组装落盘 JSON 文档：
+        /// <c>sequence</c>（单调递增序号，<see cref="long"/> 精确写出，不经 double 中转）、
+        /// <c>source</c>（<see cref="ValidationReportTriggerSource"/> 取值之一）、<c>table</c>
+        /// （ADR-0055：这次校验确切针对哪一张表；<see cref="ValidationReportTriggerSource.HotReload"/>
+        /// 下是被重载的表名，<see cref="ValidationReportTriggerSource.Startup"/> 下固定写出 JSON
+        /// <c>null</c>——启动全量校验本就没有单一确定的表，不编造空字符串或 <c>"all"</c> 这类会被
+        /// 误读成真实表名的占位值；与本文件 <c>record_key</c>/<c>field</c>/<c>group</c>/<c>note</c>/
+        /// <c>rule_id</c> 等既有"未填也输出 <c>null</c>、不整体省略字段"的惯例一致，消费方按可选字段
+        /// 处理即可，不需要区分"字段缺失"与"字段为 <c>null</c>"两种形态）、<c>timestamp_utc</c>
+        /// （见 <see cref="FormatTimestampUtc"/>）、<c>issues</c>（元素形状与 <c>toolchain/validator
+        /// --json</c> 的 <c>issues[]</c> 完全一致，见 <see cref="ValidationIssueJsonWriter.AppendIssueJson"/>，
+        /// 二者共用同一份实现，不会漂移；逐条问题自己已经带有 <c>table</c> 字段——那是"这一条问题
+        /// 出在哪张表"，本信封新增的 <c>table</c> 字段是"这一次校验触发时确切针对哪张表"，两者语义
+        /// 不同、不能互相替代：启动全量校验下每条问题的 <c>table</c> 字段仍然各自有值，但信封级
+        /// <c>table</c> 依然是 <c>null</c>；热重载下若本次校验干净（<c>issues</c> 为空数组），
+        /// 消费方只能从信封级 <c>table</c> 知道"刚才重载的是哪张表"，逐条问题里完全没有这个信息）。
         /// 公开（而非 internal）：本类型所在的 Unity 包未对任何测试程序集声明
         /// <c>InternalsVisibleTo</c>（勘察确认，同 <c>core/sim</c> 若干类型的既有判断记录），公开
         /// 让 <c>adapters/unity/DiagnosticsForwarding/tests/</c> 能直接断言 JSON 形状，不必迂回读回
         /// 磁盘文件再解析。</summary>
-        public static string BuildJson(long sequence, string source, DateTime timestampUtc, IReadOnlyList<ValidationIssue> issues)
+        public static string BuildJson(long sequence, string source, DateTime timestampUtc, IReadOnlyList<ValidationIssue> issues, string? table)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (issues == null) throw new ArgumentNullException(nameof(issues));
@@ -172,6 +226,7 @@ namespace Adapter.Unity.Diagnostics
             sb.Append('{');
             sb.Append("\"sequence\":").Append(sequence.ToString(CultureInfo.InvariantCulture)).Append(',');
             sb.Append("\"source\":\"").Append(ValidationIssueJsonWriter.JsonEscape(source)).Append("\",");
+            sb.Append("\"table\":").Append(table == null ? "null" : "\"" + ValidationIssueJsonWriter.JsonEscape(table) + "\"").Append(',');
             sb.Append("\"timestamp_utc\":\"").Append(FormatTimestampUtc(timestampUtc)).Append("\",");
             sb.Append("\"issues\":[");
             for (var i = 0; i < issues.Count; i++)

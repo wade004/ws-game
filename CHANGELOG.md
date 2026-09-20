@@ -446,8 +446,36 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   轮询该文件；若编辑器其实不需要（第 71 条反问的答案是"走的是命令行出口"），本条不产生任何影响
   ——不设置选项时宿主行为与本条之前完全一致，不产生任何文件。详见下方"[Unreleased]"正文与
   [ADR-0047](architecture/adr/0047-运行期校验报告落盘出口.md)。
+- **ADR-0055（[Unreleased]，消费方反馈第 78 条根治）**：第 78 条指出 ADR-0047 的落盘信封缺"这次
+  校验确切针对哪一张表"——热重载入口本就持有确切的表名，却只用于日志文本插值，编辑器只能退回去
+  解析 `[DataHotReload] 热重载 "<表名>" ...` 这行日志文本才能知道确认提示对应哪张表，与该出口
+  自身"日志文本永远不是契约"的既有立场矛盾。本次落盘信封顶层新增可选字段 `table`：`hot_reload`
+  来源固定是被重载的确切表名，`startup`来源固定为 JSON `null`（不是空字符串/`"all"`）。**纯
+  加法**：既有四个字段一个不改，`WriteIfConfigured`/`Write`/`BuildJson` 均以新增重载方式提供，
+  未设置落盘路径时依然不产生任何文件。编辑器交付后可以删除原有解析该行日志文本判定表名的路径，
+  改读落盘 JSON 的 `table` 字段。详见下方"[Unreleased]"正文与
+  [ADR-0055](architecture/adr/0055-运行期校验报告落盘出口补表名字段.md)。
 
 ## [Unreleased]
+
+### 新增
+
+- **`ValidationReportFileOutlet` 落盘信封新增可选字段 `table`（消费方反馈第 78 条，
+  [ADR-0055](architecture/adr/0055-运行期校验报告落盘出口补表名字段.md)）**：`DataHotReload.
+  ReloadTable` 此前只把持有的 `table` 局部变量用于 `Debug.Log`/`Debug.LogWarning` 文本插值，
+  从未传给 `ValidationReportFileOutlet.WriteIfConfigured`，导致落盘 JSON（ADR-0047）顶层
+  `sequence`/`source`/`timestamp_utc`/`issues` 四个字段里没有"哪张表"，独立进程消费方（如随
+  游戏走的编辑器）只能解析日志文本判定表名。`WriteIfConfigured`/`Write`/`BuildJson` 各新增一组
+  带 `string? table` 形参的重载（既有重载保留并委托，`table` 缺省 `null`，ABI 只新增）；落盘信封
+  顶层新增可选字段 `table`：`hot_reload` 来源是被重载的确切表名，`startup` 来源固定输出 JSON
+  `null`（启动全量校验没有单一确定的表，不编造空字符串/`"all"` 等占位值）。唯一改动的调用点是
+  `games/_template/Runtime/DataHotReload.cs` 的 `ReloadTable`；三处启动全量校验调用点
+  （`GameBootstrap.cs`/`GameFoundationBootstrap.cs`/`FrameworkResidentHost.cs`）原样不动。
+  `ValidationIssueJsonWriter`（逐条问题层，`toolchain/validator --json` 与本出口共用）不改动
+  ——新字段属于信封层，与逐条问题自带的 `table` 字段（"这一条问题出在哪张表"）语义不同，也不
+  互相替代；`toolchain/validator --json` 的信封天生覆盖"一批表"，没有对应的单一值，故不新增。
+  编辑器交付后可以删除原有解析 `[DataHotReload] 热重载 "<表名>" ...` 日志行判定表名的路径，
+  改读落盘 JSON 的 `table` 字段。
 
 ## [1.50.0] - 2026-09-21
 

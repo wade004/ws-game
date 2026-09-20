@@ -237,6 +237,10 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   都未指定时不产生任何文件，行为与本条之前完全一致（不设默认路径）。逐条问题字段形状与
   `toolchain/validator --json` 的 `issues[]` 完全一致。同进程内订阅事件总线的消费方应改走
   ADR-0046 的 `DataValidationFailedEvent.Issues`（延迟更低，不需要落盘），本条只服务跨进程场景。
+  **ADR-0055 跟进（2026-09-21，消费方反馈第 78 条）**：落盘信封顶层新增可选字段 `table`——热重载
+  触发的这一次落盘，`table` 就是被重载的那张表的确切名字（`ReloadTable` 已持有该值，直接传入）；
+  启动首次加载没有单一确定的表，`table` 固定为 JSON `null`，不是空字符串或 `"all"`。消费方不再
+  需要解析 `[DataHotReload] 热重载 "<表名>" ...` 这行日志文本即可知道本次热重载对应哪一张表。
 
 ## 构建独立版
 

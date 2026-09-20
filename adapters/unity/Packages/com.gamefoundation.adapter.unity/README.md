@@ -386,7 +386,16 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `Runtime/Shell/FrameworkResidentHost.cs`、`games/_template/Runtime/GameBootstrap.cs`、
   `games/_template/Runtime/DataHotReload.cs`）的接线一致性由
   `toolchain/tests/test_validation_report_file_outlet_wiring.py` 守护；dotnet test 侧覆盖见
-  `adapters/unity/DiagnosticsForwarding/tests/ValidationReportFileOutletTests.cs`。
+  `adapters/unity/DiagnosticsForwarding/tests/ValidationReportFileOutletTests.cs`。**ADR-0055
+  跟进（2026-09-21，消费方反馈第 78 条）**：`WriteIfConfigured`/`Write`/`BuildJson` 各新增一组带
+  `string? table` 形参的重载（既有重载保留并委托，`table` 缺省 `null`，ABI 只新增），落盘信封
+  顶层新增可选字段 `table`——热重载来源是被重载的确切表名，启动全量校验来源固定为 JSON `null`
+  （不是空字符串/`"all"`，理由见 ADR-0055 决策 2）。唯一改动的调用点是
+  `games/_template/Runtime/DataHotReload.cs` 的 `ReloadTable`（把已持有的 `table` 局部变量一并
+  传入）；三处启动全量校验调用点原样不动，继续走不带 `table` 的既有重载。`table` 只加在信封组装
+  代码里，不改 `ValidationIssueJsonWriter`（逐条问题层的 `table` 字段语义不同，见 ADR-0055
+  决策 1/3），`toolchain/validator --json` 侧不需要新增对应字段（该出口的信封天生覆盖"一批表"，
+  没有与运行期"单次触发确切针对哪一张表"对应的单一值，理由同上）。
 - `Runtime/Presentation/UnitySpriteView.cs`：资源加载已下沉到 `SpriteViewBase`
   （ADR-0016 决策 6），本类型的重复实现已删除。
 - `Runtime/Presentation/UnityViewFactory.cs`：`DestroyAllCreatedViews` 弥补
