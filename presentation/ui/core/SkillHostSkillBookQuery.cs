@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Rules.Common;
+using Core.Rules.Skill;
 
 namespace Presentation.Ui
 {
@@ -43,5 +44,11 @@ namespace Presentation.Ui
         /// <c>core/rules/common/README.md</c> 判断记录 12），本类型据此可以只持有接口引用调用，
         /// 不要求调用方传入具体类 <c>Core.Rules.Skill.SkillHost</c>。</summary>
         public Id? GetNameKey(Id skillId) => _skillHost.GetSkillNameKey(skillId);
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：转发
+        /// <see cref="ISkillHost.GetSkillReadiness"/> 的完整结果——该成员已是 <see cref="ISkillHost"/>
+        /// 既有契约成员（默认接口成员，生产宿主 <c>Core.Rules.Skill.SkillHost</c> 显式覆盖），本类型
+        /// 只是原样转发，不重新计算、不裁剪任何字段。</summary>
+        public SkillReadiness GetSkillReadiness(Id unitId, Id skillId) => _skillHost.GetSkillReadiness(unitId, skillId);
     }
 }

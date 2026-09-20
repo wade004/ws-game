@@ -458,6 +458,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **动作条槽位快照补冷却总时长、充能与结构化不可用原因（消费方反馈第三批第 2 条，
+  [ADR-0057](architecture/adr/0057-动作条槽位补冷却总时长充能与结构化不可用原因.md)）**：
+  `presentation/ui` 的技能簿窄查询接口（`ISkillBookQuery`）新增默认接口成员
+  `GetSkillReadiness(Id unitId, Id skillId)`，转发规则层技能宿主契约既有的只读就绪查询
+  （`ISkillHost.GetSkillReadiness`/`SkillReadiness`，2026-09-11 已有能力，本次未改规则层
+  任何文件）；生产适配器 `SkillHostSkillBookQuery` 显式覆盖直接转发完整结果，未覆盖时按与
+  规则层同名成员一致的降级算法（只看冷却剩余）就地计算。`ActionBarSlotSnapshot` 新增四个
+  只读字段：`EffectiveCooldownDuration`（`double?`，与既有 `Cooldown` 同类型，`null` 表示
+  取不到，不用 `0` 冒充）、`MaxCharges`/`CurrentCharges`（`int?`，直接转发规则层充能计数，
+  技能未配置充能或数据不可用时为 `null`）、`BlockReason`（新枚举 `ActionBarSlotBlockReason`，
+  取值集合与优先级见 ADR-0057 决策 3）；既有两个构造函数字节级不变，新增一个七参数构造函数。
+  `ActionBarViewModel` 新增一个携带 `IUiDiagnostics` 的六参数构造函数重载：取不到完整就绪
+  数据时经既有诊断出口告警一次，槽位标记为 `BlockReason.Unknown`，不当作"无阻塞"处理；
+  `PresentationAssembly` 的生产装配同步改用该重载。全部改动均为纯加法，ABI 探针
+  `breaks=0`。
+
 ## [1.51.0] - 2026-09-21
 
 ### 新增

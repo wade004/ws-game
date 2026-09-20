@@ -7,6 +7,8 @@ using Core.Foundation.Expr;
 using Core.Gameplay.Dialog;
 using Core.Gameplay.Quest;
 using Core.Gameplay.WorldState;
+using Core.Rules.Common;
+using Core.Rules.Skill;
 using Presentation.Ui;
 using Xunit;
 using FoundationSaveSystem = Core.Foundation.SaveSystem;
@@ -303,6 +305,219 @@ namespace Tests.PresentationUi
 
             Assert.Equal(0.0, vm.Slots[0].Cooldown);
             Assert.True(vm.Slots[0].Available);
+        }
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：构造一份最小 <see cref="SkillDef"/>
+        /// 供"真实触发"用例使用——不解析 <c>skill.def</c> 数据表（超出本模块测试边界），直接调用公开
+        /// 构造函数，字段只填被 <see cref="RealCooldownSkillBookQuery"/> 用到的那些。</summary>
+        private static SkillDef BuildSkillDef(Id id, double cooldownDuration = 0, int? chargesMax = null, double chargesRechargeTime = 0) =>
+            new SkillDef(
+                id, school: new Id("school.sample_none"), isPassive: false, range: 0,
+                tags: System.Array.Empty<Id>(), castTime: 0, channelTime: 0,
+                cost: System.Array.Empty<(Id, double)>(), cooldownCategory: null,
+                cooldownDuration: cooldownDuration, chargesMax: chargesMax, chargesRechargeTime: chargesRechargeTime,
+                respectsGcd: false, targetShapeRef: new Id("shape.sample_none"),
+                effects: System.Array.Empty<EffectRef>(), interruptFlags: InterruptFlags.None);
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）验收：真实触发一次技能进入冷却
+        /// （<see cref="RealCooldownSkillBookQuery.StartCooldownForTest"/> 调用的是生产用真实
+        /// <c>Core.Rules.Skill.CooldownTracker.StartCooldown</c>，与 <c>CastPipeline</c> 步骤 9
+        /// 成功施法后调用的方法完全相同）。断言：冷却总时长等于该技能声明的 <c>CooldownDuration</c>
+        /// （直接比较 <see cref="SkillDef"/> 实例自身的值，不写死裸数）；冷却剩余随
+        /// <see cref="RealCooldownSkillBookQuery.UpdateForTest"/> 推进而减少；冷却结束后
+        /// <see cref="ActionBarSlotBlockReason"/> 回到 <see cref="ActionBarSlotBlockReason.None"/>
+        /// 且 <see cref="ActionBarSlotSnapshot.Available"/> 恢复为 <c>true</c>。</summary>
+        [Fact]
+        public void ActionBarViewModel_RealCooldownTrigger_DurationAndRemainingReflectRealTracker()
+        {
+            var skillId = new Id("skill.sample_fireball");
+            var def = BuildSkillDef(skillId, cooldownDuration: 8.0);
+            var readinessQuery = new RealCooldownSkillBookQuery(def);
+            var world = new UiWorldFixture(readinessQuery);
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", skillId);
+
+            using var vm = new ActionBarViewModel(
+                world.DataSource, world.PlayerId, 1, world.SkillBindings, readinessQuery, world.Diagnostics);
+
+            // 施法前：未进入冷却。
+            Assert.Equal(0, vm.Slots[0].Cooldown);
+            Assert.Equal(def.CooldownDuration, vm.Slots[0].EffectiveCooldownDuration);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+            Assert.True(vm.Slots[0].Available);
+
+            // 真实触发：进入冷却。
+            readinessQuery.StartCooldownForTest(world.PlayerId);
+            vm.Refresh();
+            Assert.Equal(def.CooldownDuration, vm.Slots[0].Cooldown);
+            Assert.Equal(def.CooldownDuration, vm.Slots[0].EffectiveCooldownDuration);
+            Assert.Equal(ActionBarSlotBlockReason.SkillCooldown, vm.Slots[0].BlockReason);
+            Assert.False(vm.Slots[0].Available);
+
+            // 剩余随时间推进减少。
+            readinessQuery.UpdateForTest(world.PlayerId, 3.0);
+            vm.Refresh();
+            Assert.Equal(def.CooldownDuration - 3.0, vm.Slots[0].Cooldown);
+
+            // 冷却结束后回到"不在冷却"。
+            readinessQuery.UpdateForTest(world.PlayerId, 5.0);
+            vm.Refresh();
+            Assert.Equal(0, vm.Slots[0].Cooldown);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+            Assert.True(vm.Slots[0].Available);
+        }
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）验收：充能层数断言从满层变成消耗后
+        /// 的层数，恢复后回到满层——同样用真实 <c>CooldownTracker</c> 驱动（见
+        /// <see cref="RealCooldownSkillBookQuery"/> 判断记录）。</summary>
+        [Fact]
+        public void ActionBarViewModel_RealChargesTrigger_CurrentChargesConsumedThenRestored()
+        {
+            var skillId = new Id("skill.sample_charge_shot");
+            var def = BuildSkillDef(skillId, chargesMax: 2, chargesRechargeTime: 4.0);
+            var readinessQuery = new RealCooldownSkillBookQuery(def);
+            var world = new UiWorldFixture(readinessQuery);
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", skillId);
+
+            using var vm = new ActionBarViewModel(
+                world.DataSource, world.PlayerId, 1, world.SkillBindings, readinessQuery, world.Diagnostics);
+
+            // 满层。
+            Assert.Equal(def.ChargesMax, vm.Slots[0].MaxCharges);
+            Assert.Equal(def.ChargesMax, vm.Slots[0].CurrentCharges);
+            Assert.Equal(def.ChargesRechargeTime, vm.Slots[0].EffectiveCooldownDuration);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+
+            // 真实触发：消耗一层，还剩 1 层，不阻塞。
+            readinessQuery.StartCooldownForTest(world.PlayerId);
+            vm.Refresh();
+            Assert.Equal(1, vm.Slots[0].CurrentCharges);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+
+            // 再消耗一层，耗尽，阻塞原因变为 NoCharges。
+            readinessQuery.StartCooldownForTest(world.PlayerId);
+            vm.Refresh();
+            Assert.Equal(0, vm.Slots[0].CurrentCharges);
+            Assert.Equal(ActionBarSlotBlockReason.NoCharges, vm.Slots[0].BlockReason);
+
+            // 恢复一层。
+            readinessQuery.UpdateForTest(world.PlayerId, def.ChargesRechargeTime);
+            vm.Refresh();
+            Assert.Equal(1, vm.Slots[0].CurrentCharges);
+
+            // 恢复后回到满层。
+            readinessQuery.UpdateForTest(world.PlayerId, def.ChargesRechargeTime);
+            vm.Refresh();
+            Assert.Equal(def.ChargesMax, vm.Slots[0].CurrentCharges);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+        }
+
+        /// <summary>ADR-0057 回归：不使用携带 <see cref="IUiDiagnostics"/> 的新构造函数重载（仍用既有
+        /// 五参数重载）时，四个新字段应保持缺省值，既有字段（<c>Cooldown</c>/<c>Available</c>）行为与
+        /// 改动前逐位一致——覆盖验收标准"不声明该字段的既有技能行为与改动前逐位一致"。</summary>
+        [Fact]
+        public void ActionBarViewModel_WithoutDiagnosticsCtor_NewFieldsDefaultAndExistingFieldsUnchanged()
+        {
+            var world = new UiWorldFixture();
+            var fireball = new Id("skill.fireball");
+            world.SkillBook.SetCooldownForTest(world.PlayerId, fireball, 2.0);
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", fireball);
+
+            using var vm = new ActionBarViewModel(world.DataSource, world.PlayerId, 1, world.SkillBindings, world.SkillBook);
+
+            Assert.Equal(2.0, vm.Slots[0].Cooldown);
+            Assert.False(vm.Slots[0].Available);
+            Assert.Null(vm.Slots[0].EffectiveCooldownDuration);
+            Assert.Null(vm.Slots[0].MaxCharges);
+            Assert.Null(vm.Slots[0].CurrentCharges);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
+        private static SkillReadiness ReadyReadinessForTest(Id skillId) => new SkillReadiness(
+            skillId, isReady: true, blockingSources: SkillReadinessBlockers.None,
+            skillCooldownRemaining: 0, categoryCooldownRemaining: null, globalCooldownRemaining: 0,
+            maxCharges: null, currentCharges: null, nextChargeRemaining: null, effectiveCooldownDuration: 5.0);
+
+        private static SkillReadiness BlockedReadinessForTest(Id skillId, SkillReadinessBlockers blocking) => new SkillReadiness(
+            skillId, isReady: false, blockingSources: blocking,
+            skillCooldownRemaining: null, categoryCooldownRemaining: null, globalCooldownRemaining: null,
+            maxCharges: null, currentCharges: null, nextChargeRemaining: null, effectiveCooldownDuration: 5.0);
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）验收：<see cref="ActionBarSlotBlockReason"/>
+        /// 每个枚举取值各一条用例，断言槽位的原因从"无阻塞"（<see cref="ActionBarSlotBlockReason.None"/>）
+        /// 变成对应取值。<see cref="ActionBarSlotBlockReason.Unknown"/> 不在本组覆盖——它对应"取不到
+        /// 数据"，由 <see cref="ActionBarViewModel_UnresolvableReadiness_WarnsOnceAndMarksUnknown"/>
+        /// 单独覆盖，语义与其余六个"确认存在某种阻塞"不同。</summary>
+        [Theory]
+        [InlineData(SkillReadinessBlockers.ConditionNotMet, ActionBarSlotBlockReason.ConditionNotMet)]
+        [InlineData(SkillReadinessBlockers.SkillCooldown, ActionBarSlotBlockReason.SkillCooldown)]
+        [InlineData(SkillReadinessBlockers.CategoryCooldown, ActionBarSlotBlockReason.CategoryCooldown)]
+        [InlineData(SkillReadinessBlockers.NoCharges, ActionBarSlotBlockReason.NoCharges)]
+        [InlineData(SkillReadinessBlockers.GlobalCooldown, ActionBarSlotBlockReason.GlobalCooldown)]
+        [InlineData(SkillReadinessBlockers.ActionLocked, ActionBarSlotBlockReason.ActionLocked)]
+        public void ActionBarViewModel_BlockReason_EachEnumValue_TransitionsFromNoneToExpected(
+            SkillReadinessBlockers blocking, ActionBarSlotBlockReason expected)
+        {
+            var world = new UiWorldFixture();
+            var skillId = new Id("skill.sample_blocked");
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", skillId);
+            world.SkillBook.SetReadinessForTest(world.PlayerId, skillId, ReadyReadinessForTest(skillId));
+
+            using var vm = new ActionBarViewModel(
+                world.DataSource, world.PlayerId, 1, world.SkillBindings, world.SkillBook, world.Diagnostics);
+            Assert.Equal(ActionBarSlotBlockReason.None, vm.Slots[0].BlockReason);
+
+            world.SkillBook.SetReadinessForTest(world.PlayerId, skillId, BlockedReadinessForTest(skillId, blocking));
+            vm.Refresh();
+
+            Assert.Equal(expected, vm.Slots[0].BlockReason);
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）验收：同时触发两种阻塞原因时，
+        /// 断言取到的是优先级更高的那个——<see cref="ActionBarSlotBlockReason.SkillCooldown"/>（施法
+        /// 管线步骤 3）优先于 <see cref="ActionBarSlotBlockReason.GlobalCooldown"/>（步骤 4）。</summary>
+        [Fact]
+        public void ActionBarViewModel_BlockReason_MultipleBlockersSimultaneously_PicksHigherPriority()
+        {
+            var world = new UiWorldFixture();
+            var skillId = new Id("skill.sample_multi_blocked");
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", skillId);
+            world.SkillBook.SetReadinessForTest(world.PlayerId, skillId, new SkillReadiness(
+                skillId, isReady: false,
+                blockingSources: SkillReadinessBlockers.SkillCooldown | SkillReadinessBlockers.GlobalCooldown,
+                skillCooldownRemaining: 3.0, categoryCooldownRemaining: null, globalCooldownRemaining: 1.0,
+                maxCharges: null, currentCharges: null, nextChargeRemaining: null, effectiveCooldownDuration: 5.0));
+
+            using var vm = new ActionBarViewModel(
+                world.DataSource, world.PlayerId, 1, world.SkillBindings, world.SkillBook, world.Diagnostics);
+
+            Assert.Equal(ActionBarSlotBlockReason.SkillCooldown, vm.Slots[0].BlockReason);
+        }
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）验收：制造一次取不到完整就绪数据的
+        /// 情况（不显式 <see cref="FakeSkillBookQuery.SetReadinessForTest"/>，落到
+        /// <see cref="ISkillBookQuery.GetSkillReadiness"/> 默认接口成员的降级分支——
+        /// <c>EffectiveCooldownDuration</c> 恒 <c>null</c>），断言诊断计数从 0 变成 1，且槽位标记为
+        /// <see cref="ActionBarSlotBlockReason.Unknown"/> 而不是被误当作"无阻塞"。</summary>
+        [Fact]
+        public void ActionBarViewModel_UnresolvableReadiness_WarnsOnceAndMarksUnknown()
+        {
+            var world = new UiWorldFixture();
+            var skillId = new Id("skill.sample_unknown");
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", skillId);
+            // 不调用 SetReadinessForTest：GetSkillReadiness 落到降级默认算法，EffectiveCooldownDuration 恒 null。
+
+            Assert.Empty(world.Diagnostics.Warnings);
+
+            using var vm = new ActionBarViewModel(
+                world.DataSource, world.PlayerId, 1, world.SkillBindings, world.SkillBook, world.Diagnostics);
+
+            Assert.Single(world.Diagnostics.Warnings);
+            Assert.Equal(ActionBarSlotBlockReason.Unknown, vm.Slots[0].BlockReason);
+            Assert.Null(vm.Slots[0].EffectiveCooldownDuration);
+            Assert.Null(vm.Slots[0].MaxCharges);
+            Assert.Null(vm.Slots[0].CurrentCharges);
         }
 
         [Fact]

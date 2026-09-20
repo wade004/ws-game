@@ -239,3 +239,32 @@ ABI：纯加法——`TargetPathProvider` 新增一个构造函数重载与两�
 测试而不是 `presentation/ui/tests` 惯用的 Fake 夹具，因为本条需要一条真实登记的 `creature.template`
 记录（`name_key`/`faction_id` 具体取值）与真实 `CreatureFactory.Spawn` 产生的单位，才能验证
 "取到的值就是模板声明的那两个值"这一装配级行为，而不只是 Provider 内部转发逻辑本身。
+
+## 判断记录（ActionBarViewModel 冷却总时长/充能/结构化不可用原因，2026-09-21，消费方反馈
+第三批第 2 条，[ADR-0057](../../architecture/adr/0057-动作条槽位补冷却总时长充能与结构化不可用原因.md)）
+
+`ISkillBookQuery` 新增默认接口成员 `GetSkillReadiness(Id unitId, Id skillId)`，转发规则层
+`ISkillHost.GetSkillReadiness`/`SkillReadiness` 既有的完整就绪数据（技能自身/分类/公共冷却、
+充能、修饰后总时长、六种阻塞位）——未显式覆盖时按"只看冷却剩余"的降级算法就地计算（与规则层
+同名成员的默认降级算法逐字一致，不是另起一套）；生产适配器 `SkillHostSkillBookQuery` 显式覆盖，
+直接转发。不新增第三个成员之外的窄接口改动，也不改 `GetKnownSkills`/`GetCooldown` 既有两个成员。
+
+`ActionBarSlotSnapshot` 新增四个只读字段（`EffectiveCooldownDuration: double?`、
+`MaxCharges: int?`、`CurrentCharges: int?`、`BlockReason: ActionBarSlotBlockReason`），既有
+两个构造函数（两参数、三参数）字节级不变、缺省填 `null`/`null`/`null`/`None`；新增一个七参数
+构造函数。新枚举 `ActionBarSlotBlockReason`（`None`/`ConditionNotMet`/`SkillCooldown`/
+`CategoryCooldown`/`NoCharges`/`GlobalCooldown`/`ActionLocked`/`Unknown`）取值一一对应规则层
+`SkillReadinessBlockers` 的六个阻塞位加"无阻塞"，外加一个"未知"（数据不可用，见下）；多个阻塞
+位同时成立时的裁决顺序是写死的显式 if 链（`ResolveBlockReason`），不依赖位值大小或枚举/字典
+迭代顺序，顺序依据见 ADR-0057 决策 3。
+
+既有 `Available` 布尔字段的窄口径原样保留（"有绑定技能且自身冷却已就绪"），不回头用新的
+`BlockReason` 重新定义它——需要完整判定的接入方改用"`BlockReason == None`"，`Available` 留作
+向后兼容的窄口径入口，理由见 ADR-0057 决策 5。
+
+`ActionBarViewModel` 新增一个携带 `IUiDiagnostics` 的六参数构造函数重载：只有传入诊断出口时
+才启用新字段的完整解析路径；`GetSkillReadiness` 判定为"数据不可用"（`EffectiveCooldownDuration`
+为 `null`，即窄接口落到降级算法）时，经该诊断出口告警一次，槽位标记 `BlockReason.Unknown`，
+不当作 `None` 处理（AGENTS.md §3"运行时路径不静默降级"）；未使用新构造函数重载的既有调用方
+（含既有测试）不触发这条诊断路径，新四个字段恒为缺省值，行为逐位不变。`PresentationAssembly`
+的生产装配改用该重载，复用既有的 `UiDiagnostics` 实例，不新增第二套诊断出口。

@@ -14,6 +14,7 @@ using Core.Gameplay.Quest;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
 using Core.Numbers.StatBlock;
+using Core.Rules.Skill;
 using Presentation.Ui;
 using Presentation.VfxSfx.Contracts;
 
@@ -546,12 +547,41 @@ namespace Tests.PresentationUi
         /// 不需要本 Fake 覆盖。</summary>
         private readonly Dictionary<Id, Id> _nameKeys = new Dictionary<Id, Id>();
 
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：按 (unitId, skillId) 登记一个
+        /// 显式 <see cref="SkillReadiness"/>，供 <see cref="GetSkillReadiness"/> 原样返回——测试据此
+        /// 精确控制 <c>EffectiveCooldownDuration</c>/充能/<c>BlockingSources</c> 组合。未登记的组合
+        /// 落到 <see cref="GetSkillReadiness"/> 自己的降级分支（见该方法判断记录），供诊断类用例
+        /// 不需要额外开关即可模拟"取不到完整就绪数据"。</summary>
+        private readonly Dictionary<(Id UnitId, Id SkillId), SkillReadiness> _readiness =
+            new Dictionary<(Id, Id), SkillReadiness>();
+
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) =>
             _known.TryGetValue(unitId, out var l) ? l : (IReadOnlyList<Id>)Array.Empty<Id>();
 
         public double GetCooldown(Id unitId, Id skillId) => _cooldowns.TryGetValue((unitId, skillId), out var v) ? v : 0;
 
         public Id? GetNameKey(Id skillId) => _nameKeys.TryGetValue(skillId, out var v) ? v : (Id?)null;
+
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：登记过就原样返回；未登记时按
+        /// <see cref="ISkillBookQuery.GetSkillReadiness"/> 默认接口成员同一套降级算法就地计算（只看
+        /// <see cref="GetCooldown"/>，其余明细字段与 <c>EffectiveCooldownDuration</c> 均为
+        /// <c>null</c>）——不是重新发明一套算法，是刻意与接口默认成员保持逐字一致，供
+        /// <c>ActionBarViewModel</c> 诊断用例（未显式 <see cref="SetReadinessForTest"/>）直接命中
+        /// "取不到完整就绪数据"这一分支。</summary>
+        public SkillReadiness GetSkillReadiness(Id unitId, Id skillId)
+        {
+            if (_readiness.TryGetValue((unitId, skillId), out var explicitReadiness))
+            {
+                return explicitReadiness;
+            }
+
+            var remaining = GetCooldown(unitId, skillId);
+            var blocking = remaining > 0 ? SkillReadinessBlockers.SkillCooldown : SkillReadinessBlockers.None;
+            return new SkillReadiness(
+                skillId, remaining <= 0, blocking,
+                skillCooldownRemaining: null, categoryCooldownRemaining: null, globalCooldownRemaining: null,
+                maxCharges: null, currentCharges: null, nextChargeRemaining: null, effectiveCooldownDuration: null);
+        }
 
         public void LearnForTest(Id unitId, Id skillId)
         {
@@ -566,6 +596,75 @@ namespace Tests.PresentationUi
         public void SetCooldownForTest(Id unitId, Id skillId, double value) => _cooldowns[(unitId, skillId)] = value;
 
         public void SetNameKeyForTest(Id skillId, Id nameKey) => _nameKeys[skillId] = nameKey;
+
+        public void SetReadinessForTest(Id unitId, Id skillId, SkillReadiness readiness) =>
+            _readiness[(unitId, skillId)] = readiness;
+    }
+
+    /// <summary>
+    /// 消费方反馈第三批第 2 条（2026-09-21，ADR-0057）："真实触发一次技能进入冷却"验收用例的载体：
+    /// 不使用假造的 <see cref="SkillReadiness"/> 快照，而是持有生产用的真实
+    /// <see cref="Core.Rules.Skill.CooldownTracker"/>（<c>core/rules/skill</c> 模块导出的公开类型，
+    /// <c>Core.Rules.Skill.SkillHost</c> 内部用的同一个协作对象）+ 一个真实 <see
+    /// cref="Core.Rules.Skill.SkillDef"/>，<see cref="StartCooldownForTest"/>/<see
+    /// cref="UpdateForTest"/> 直接调用该真实类型的 <c>StartCooldown</c>/<c>Update</c>/
+    /// <c>AdvanceCharges</c>（与 <c>CastPipeline</c> 步骤 9 成功施法后调用的方法完全相同），
+    /// <see cref="GetSkillReadiness"/> 按 <c>Core.Rules.Skill.SkillHost.GetSkillReadiness</c>
+    /// 非充能/充能两个分支同一套公式重新计算（略去 SpellMod/公共冷却——本类不需要它们，构造
+    /// <c>SkillHost</c> 完整依赖链超出本模块测试边界，见 <c>ISkillBookQuery</c> 类型判断记录"本模块
+    /// 不修改 core/rules，不必搭建 SkillHost 完整构造依赖链"）。
+    /// </summary>
+    internal sealed class RealCooldownSkillBookQuery : ISkillBookQuery
+    {
+        private readonly Core.Rules.Skill.CooldownTracker _cooldowns = new Core.Rules.Skill.CooldownTracker();
+        private readonly Core.Rules.Skill.SkillDef _def;
+
+        public RealCooldownSkillBookQuery(Core.Rules.Skill.SkillDef def)
+        {
+            _def = def;
+        }
+
+        public IReadOnlyList<Id> GetKnownSkills(Id unitId) => Array.Empty<Id>();
+
+        public Id? GetNameKey(Id skillId) => null;
+
+        public double GetCooldown(Id unitId, Id skillId) => _cooldowns.GetCooldown(unitId, _def);
+
+        /// <summary>真实触发：与生产 <c>CastPipeline</c> 步骤 9 成功施法后调用的方法完全相同。</summary>
+        public void StartCooldownForTest(Id unitId) => _cooldowns.StartCooldown(unitId, _def);
+
+        /// <summary>推进冷却/充能恢复计时——与生产 <c>SkillHost.Update</c> 每帧调用的方法完全相同。</summary>
+        public void UpdateForTest(Id unitId, double dt)
+        {
+            _cooldowns.Update(dt);
+            _cooldowns.AdvanceCharges(unitId, _def, dt);
+        }
+
+        public SkillReadiness GetSkillReadiness(Id unitId, Id skillId)
+        {
+            if (_def.HasCharges)
+            {
+                var current = _cooldowns.GetCharges(unitId, _def);
+                var max = _cooldowns.GetEffectiveChargesMax(unitId, _def);
+                var nextChargeRemaining = _cooldowns.GetChargeRechargeRemaining(unitId, _def);
+                var effective = _cooldowns.GetEffectiveRechargeTimeScaled(unitId, _def);
+                var blocking = current > 0 ? SkillReadinessBlockers.None : SkillReadinessBlockers.NoCharges;
+                return new SkillReadiness(
+                    skillId, isReady: current > 0, blockingSources: blocking,
+                    skillCooldownRemaining: null, categoryCooldownRemaining: null, globalCooldownRemaining: 0,
+                    maxCharges: max, currentCharges: current, nextChargeRemaining: nextChargeRemaining,
+                    effectiveCooldownDuration: effective);
+            }
+
+            var skillRemaining = _cooldowns.GetSkillCooldownRemaining(unitId, _def.Id);
+            var blocking2 = skillRemaining > 0 ? SkillReadinessBlockers.SkillCooldown : SkillReadinessBlockers.None;
+            var effectiveDuration = _def.CooldownDuration * _cooldowns.CurrentTimeFactor;
+            return new SkillReadiness(
+                skillId, isReady: skillRemaining <= 0, blockingSources: blocking2,
+                skillCooldownRemaining: skillRemaining, categoryCooldownRemaining: null, globalCooldownRemaining: 0,
+                maxCharges: null, currentCharges: null, nextChargeRemaining: null,
+                effectiveCooldownDuration: effectiveDuration);
+        }
     }
 
     /// <summary>
@@ -597,7 +696,15 @@ namespace Tests.PresentationUi
 
         public readonly UiDataSource DataSource;
 
-        public UiWorldFixture()
+        /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：<paramref name="skillBookForPathProvider"/>
+        /// 可选覆盖 <see cref="PlayerPathProvider"/> 背后实际使用的 <see cref="ISkillBookQuery"/>——
+        /// 默认（<c>null</c>）与改动前逐字节一致，用 <see cref="SkillBook"/>（<see
+        /// cref="FakeSkillBookQuery"/>）；"真实触发一次技能进入冷却"一类用例需要 <c>player.skill.
+        /// &lt;id&gt;.cooldown</c> 路径与 <c>ActionBarViewModel</c> 的 <c>skillCatalog</c> 参数读到
+        /// 同一个真实 <see cref="Core.Rules.Skill.CooldownTracker"/> 实例（见
+        /// <see cref="RealCooldownSkillBookQuery"/>），因此需要覆盖这里，<see cref="SkillBook"/>
+        /// 字段本身不受影响，仍可用于其它既有测试。</summary>
+        public UiWorldFixture(ISkillBookQuery? skillBookForPathProvider = null)
         {
             SkillBindings = new Core.Carriers.Unit.SkillBindingHost(EventBus, (_, __) => true);
 
@@ -605,7 +712,8 @@ namespace Tests.PresentationUi
             StatHost.RegisterUnit(TargetId);
 
             var playerProvider = new PlayerPathProvider(
-                PlayerId, StatHost, PowerHost, Progression, Inventory, Equipment, Quest, Economy, SkillBook);
+                PlayerId, StatHost, PowerHost, Progression, Inventory, Equipment, Quest, Economy,
+                skillBookForPathProvider ?? SkillBook);
             var targetProvider = new TargetPathProvider(() => CurrentTarget, StatHost, PowerHost);
             var unitProvider = new UnitPathProvider(StatHost, PowerHost);
 
