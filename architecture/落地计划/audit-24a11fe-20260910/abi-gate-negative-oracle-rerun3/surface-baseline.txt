@@ -1,3 +1,0 @@
-MEMBER	ApiContract.Api	ctor	.ctor()	-
-MEMBER	ApiContract.Api	method	Read():System.String	-
-TYPE	ApiContract.Api	class	-
