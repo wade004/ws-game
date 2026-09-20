@@ -449,6 +449,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **`import_assets.py check --json` 顶层新增 `domain_counts` 字段（消费方反馈第 74 条）**：
+  文本汇总行此前已给出各域实际加载的记录条数（`_load_rows` 读到的行数，与该行是否命中检查
+  条件、是否报出问题无关），但 `--json` 文档不携带这份信息，消费方无法据此拆除自建的文本正则
+  解析。纯加法新增 `domain_counts`（`dict[str, int]`，键为 `CheckIssue.table` 已用的表名风格，
+  如 `"display.map"`/`"vfx.def"`），既有六个顶层键（`tool`/`dataset`/`domains`/`ok`/`counts`/
+  `issues`）名字/类型/含义均未改动。域未被 `--only` 选中时，该域对应的表键整体不出现（区分
+  "未跑该域"与"跑了但 0 条"）；跨表键按表名字符串排序输出，保持确定性。详见
+  `toolchain/asset_import/check_cmd.py` 模块 docstring"判断记录（--json 顶层新增
+  domain_counts 字段）"。
+
 ## [1.49.0] - 2026-09-20
 
 ### 修复
