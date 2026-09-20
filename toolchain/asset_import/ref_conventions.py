@@ -15,6 +15,7 @@ ADR-0025：资源引用标识到资产相对路径的约定纳入公开契约）
 from __future__ import annotations
 
 import enum
+from pathlib import Path
 
 __all__ = [
     "strip_category_prefix",
@@ -36,6 +37,15 @@ __all__ = [
     "map_overlay_file",
     "map_decal_file",
     "map_nav_hint_file",
+    "resolve_assets_root",
+    "resolve_data_root",
+    "dataset_assets_directory",
+    "dataset_data_directory",
+    "vfx_atlas_file",
+    "vfx_frames_file",
+    "sprite_anim_atlas_file",
+    "sprite_anim_frames_file",
+    "sprite_set_atlas_file",
 ]
 
 
@@ -284,3 +294,93 @@ def try_parse_icon_id(relative_file_path: str) -> str | None:
     if not name:
         return None
     return f"icon.{category}.{name}"
+
+
+# --- 消费方反馈第 76 条（ADR-0054）：资产/数据根目录推导，与 C# 侧
+# core/foundation/engine_adapter/contracts/AssetRootConventions.cs 逐一对应。此前这条规则只存在于
+# toolchain/asset_import/common.py 的 resolve_root 函数与各子命令文档字符串里；本模块新增等价函数
+# 后，common.py 的 resolve_root 对 "assets"/"data" 两个已知取值改为委托本模块（不引入循环 import：
+# common.py 依赖本模块，本模块不反向依赖 common.py）。---
+
+
+def resolve_assets_root(repo_root: Path, assets_root_override: str | None) -> Path:
+    """把 ``--assets-root`` 命令行参数解析为资产根目录：省略（``None``）时默认
+    ``<repo_root>/assets``；传相对路径按 ``repo_root`` 解析；传绝对路径原样使用。与 C# 侧
+    ``AssetRootConventions.ResolveAssetsRoot`` 逐字对应，与 ``toolchain/asset_import/common.py``
+    改动前的 ``resolve_root(value, repo_root, "assets")`` 逐字节一致。
+    """
+    if assets_root_override is None:
+        return repo_root / "assets"
+    p = Path(assets_root_override)
+    return p if p.is_absolute() else (repo_root / p)
+
+
+def resolve_data_root(repo_root: Path, data_root_override: str | None) -> Path:
+    """把 ``--data-root`` 命令行参数解析为数据根目录，规则与 :func:`resolve_assets_root` 完全一致，
+    仅默认段名不同：``<repo_root>/data``。与 C# 侧 ``AssetRootConventions.ResolveDataRoot`` 逐字
+    对应，与 ``resolve_root(value, repo_root, "data")`` 逐字节一致。
+    """
+    if data_root_override is None:
+        return repo_root / "data"
+    p = Path(data_root_override)
+    return p if p.is_absolute() else (repo_root / p)
+
+
+def dataset_assets_directory(assets_root: Path, dataset: str) -> Path:
+    """给定 :func:`resolve_assets_root` 算出的资产根目录与数据集名，返回该数据集的资产目录
+    （``<assets_root>/<dataset>``）——本模块 ``sprite_set_directory``/``vfx_resource_dir`` 等方法
+    返回的相对路径均以此目录为基准拼接。与 C# 侧 ``AssetRootConventions.DatasetAssetsDirectory``
+    逐字对应。
+    """
+    return assets_root / dataset
+
+
+def dataset_data_directory(data_root: Path, dataset: str) -> Path:
+    """给定 :func:`resolve_data_root` 算出的数据根目录与数据集名，返回该数据集的数据目录
+    （``<data_root>/<dataset>``），与 :func:`dataset_assets_directory` 同一惯例。与 C# 侧
+    ``AssetRootConventions.DatasetDataDirectory`` 逐字对应。
+    """
+    return data_root / dataset
+
+
+# --- 消费方反馈第 77 条（ADR-0054）：vfx/sprite_anim/sprite_set 三类目录型资源固定产出的
+# atlas.png/frames.json 文件名，与 C# 侧 AssetRefConventions 新增的 5 个同名方法逐一对应。---
+
+
+def vfx_atlas_file(resource_ref_id: str) -> str:
+    """:func:`vfx_resource_dir` 目录下固定含的图集文件：``"<目录>/atlas.png"``。与 C# 侧
+    ``AssetRefConventions.VfxAtlasFile`` 逐字对应。
+    """
+    return vfx_resource_dir(resource_ref_id) + "/atlas.png"
+
+
+def vfx_frames_file(resource_ref_id: str) -> str:
+    """:func:`vfx_resource_dir` 目录下固定含的序列帧数据文件：``"<目录>/frames.json"``（结构见
+    ``core/foundation/engine_adapter/contracts/EffectFramesDocument.cs``）。与 C# 侧
+    ``AssetRefConventions.VfxFramesFile`` 逐字对应。
+    """
+    return vfx_resource_dir(resource_ref_id) + "/frames.json"
+
+
+def sprite_anim_atlas_file(resource_ref_id: str) -> str:
+    """:func:`sprite_anim_dir` 目录下固定含的图集文件，与 :func:`vfx_atlas_file` 同一磁盘布局。
+    与 C# 侧 ``AssetRefConventions.SpriteAnimAtlasFile`` 逐字对应。
+    """
+    return sprite_anim_dir(resource_ref_id) + "/atlas.png"
+
+
+def sprite_anim_frames_file(resource_ref_id: str) -> str:
+    """:func:`sprite_anim_dir` 目录下固定含的序列帧数据文件，结构与 :func:`vfx_frames_file` 完全
+    相同。与 C# 侧 ``AssetRefConventions.SpriteAnimFramesFile`` 逐字对应。
+    """
+    return sprite_anim_dir(resource_ref_id) + "/frames.json"
+
+
+def sprite_set_atlas_file(sprite_set_id: str) -> str:
+    """:func:`sprite_set_directory` 目录下固定含的图集文件：``"<目录>/atlas.png"``。判断记录
+    （不新增精灵集的 frames.json 对应函数，理由同 C# 侧 ``AssetRefConventions.SpriteSetAtlasFile``
+    类型注释）：精灵集目录内与 ``atlas.png`` 配套的索引文件是 ``atlas.json``（按方向档位/层名分帧，
+    结构与 ``frames.json`` 不同），且只被内容工具自身消费，不在本次收口范围。与 C# 侧
+    ``AssetRefConventions.SpriteSetAtlasFile`` 逐字对应。
+    """
+    return sprite_set_directory(sprite_set_id) + "/atlas.png"

@@ -92,6 +92,7 @@ from asset_import.common import (  # noqa: E402
     write_envelope,
     write_json_pretty,
 )
+from asset_import.ref_conventions import resolve_assets_root, resolve_data_root  # noqa: E402
 
 DATASET = "_sample"
 
@@ -698,8 +699,16 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
 
-    assets_root = Path(args.assets_root).resolve() if args.assets_root else repo_root / "assets"
-    data_root = Path(args.data_root).resolve() if args.data_root else repo_root / "data"
+    # 消费方反馈第 76 条（ADR-0054）全仓排查发现的第二处重复实现：本脚本此前独立内联
+    # "省略则 repo_root/<default>，否则 Path(...).resolve()"这条规则，与
+    # toolchain/asset_import/common.py 的 resolve_root 各自维护一份，且行为有细微差异——
+    # resolve_root 对相对路径覆盖值按 repo_root 解析，本脚本原实现按当前工作目录
+    # （Path.resolve() 语义）解析。改用共享的 resolve_assets_root/resolve_data_root 后统一为
+    # "相对路径按 repo_root 解析"（与六个子命令一致），是一次有意的行为收敛，不是意外改动
+    # （若调用方此前依赖"相对 --assets-root/--data-root 按当前工作目录解析"这一未文档化细节，
+    # 需要改用绝对路径调用，见 CHANGELOG）。
+    assets_root = resolve_assets_root(repo_root, args.assets_root)
+    data_root = resolve_data_root(repo_root, args.data_root)
     placeholder_root = (
         Path(args.placeholder_root).resolve() if args.placeholder_root else repo_root / "assets" / "_placeholder"
     )

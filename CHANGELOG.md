@@ -449,7 +449,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-## [1.50.0] - 2026-09-21
+### 新增
+
+- **资产/数据根目录与目录内固定文件名纳入公开契约（消费方反馈第 76、77 条，
+  [ADR-0054](architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)，续
+  ADR-0053 同一病灶）**：
+  - 第 76 条：新增 `Core.Foundation.EngineAdapter.AssetRootConventions`（`ResolveAssetsRoot`/
+    `ResolveDataRoot`/`DatasetAssetsDirectory`/`DatasetDataDirectory` 四个方法），收口"从仓库根 +
+    数据集名推导资产根/数据根目录"这条此前只写在 `toolchain/asset_import/common.py`
+    `resolve_root` 与各子命令文档字符串里的约定。`toolchain/asset_import/ref_conventions.py`
+    新增等价函数（`resolve_assets_root`/`resolve_data_root`/`dataset_assets_directory`/
+    `dataset_data_directory`），`common.py` 的 `resolve_root` 对 `"assets"`/`"data"` 两个已知
+    取值改为委托它们；全仓排查另发现 `toolchain/import_sample_assets.py` 独立维护的第二处
+    重复实现，已一并改为调用共享函数（附带修正了一处行为分歧：相对路径覆盖值此前按当前工作
+    目录解析，现按仓库根解析，与六个子命令一致）。
+  - 第 77 条：`Core.Foundation.EngineAdapter.AssetRefConventions` 新增
+    `VfxAtlasFile`/`VfxFramesFile`/`SpriteAnimAtlasFile`/`SpriteAnimFramesFile`/
+    `SpriteSetAtlasFile` 五个方法，补齐 `vfx`/`sprite_anim`/`sprite_set` 三类目录型资源目录下
+    固定产出文件名的公开契约；`ref_conventions.py` 同步新增等价函数。新增
+    `Core.Foundation.EngineAdapter.EffectFramesDocument`（含 `EffectFrameData`），把
+    `frames.json` 的结构化只读解析从引擎适配层内部私有实现（`Adapter.Unity.EngineAdapter.
+    UnityResourceLoader.TryDecodeEffect`）提到核心侧，该方法改为调用它，不再自行解析。
+  - **消费方交付后可拆除的自建绕行**：`AssetsRootResolver`、`ImportDatasetRootsConvention`
+    等消费方为绕开本条缺口自建的机制，待本条交付后可改为直接调用上述公开方法并删除。
 
 ### 新增
 

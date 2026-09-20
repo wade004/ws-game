@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    消费方反馈第 76 条（ADR-0054）跨语言一致性测试专用探针，与 toolchain/map_ref_probe（消费方
+    反馈第 75 条/ADR-0053）同一套惯例：本工程不对外发行（不进 dist/UPM 打包清单、不加入
+    Core.sln），只在 toolchain/tests/test_ref_conventions.py 的一次性 session 级 fixture 里用
+    `dotnet build` 构建、经子进程调用，把 Core.Foundation.EngineAdapter.AssetRootConventions
+    四个方法的真实运行期计算结果打印出来，供 Python 侧 ref_conventions.py 对应函数的计算结果
+    逐字节比对——断言的是两侧实际算出来的字符串相等，不是各自跟一个硬编码常量比。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AssetRootProbe</AssemblyName>
+    <RootNamespace>Toolchain.AssetRootProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\foundation\Core.Foundation.csproj" />
+  </ItemGroup>
+</Project>

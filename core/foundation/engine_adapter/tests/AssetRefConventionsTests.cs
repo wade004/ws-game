@@ -263,5 +263,65 @@ namespace Tests.Foundation.EngineAdapter
             Assert.Equal(directory + "/decal.png", AssetRefConventions.MapDecalFile(mapId));
             Assert.Equal(directory + "/nav_hint.png", AssetRefConventions.MapNavHintFile(mapId));
         }
+
+        // 消费方反馈第 77 条（ADR-0054）：以下用例与 toolchain/tests/test_ref_conventions.py 对应
+        // 函数使用同一组输入/期望字符串，两侧各自独立实现、互相不调用，同本文件顶部"跨语言对照"
+        // 判断记录（Python 侧没有针对 frames.json 结构本身的读取契约，本次不需要为此另开一组跨语言
+        // 一致性测试——见 EffectFramesDocumentTests.cs）。
+
+        [Theory]
+        [InlineData("vfx.sample_burn", "vfx/sample_burn/atlas.png")]
+        [InlineData("vfx.sample_cast_circle", "vfx/sample_cast_circle/atlas.png")]
+        public void VfxAtlasFile_MatchesVfxCmdPyOutputPath(string resourceRefId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.VfxAtlasFile(new Id(resourceRefId)));
+        }
+
+        [Theory]
+        [InlineData("vfx.sample_burn", "vfx/sample_burn/frames.json")]
+        [InlineData("vfx.sample_cast_circle", "vfx/sample_cast_circle/frames.json")]
+        public void VfxFramesFile_MatchesVfxCmdPyOutputPath(string resourceRefId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.VfxFramesFile(new Id(resourceRefId)));
+        }
+
+        [Theory]
+        [InlineData("sprite_anim.sample_hero_attack", "sprite_anim/sample_hero_attack/atlas.png")]
+        public void SpriteAnimAtlasFile_MatchesPackAtlasOutputPath(string resourceRefId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.SpriteAnimAtlasFile(new Id(resourceRefId)));
+        }
+
+        [Theory]
+        [InlineData("sprite_anim.sample_hero_attack", "sprite_anim/sample_hero_attack/frames.json")]
+        public void SpriteAnimFramesFile_MatchesPackAtlasOutputPath(string resourceRefId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.SpriteAnimFramesFile(new Id(resourceRefId)));
+        }
+
+        [Theory]
+        [InlineData("sprite.item.sample_blade", "sprites/item_sample_blade/atlas.png")]
+        public void SpriteSetAtlasFile_MatchesSpriteCmdPyOutputPath(string spriteSetId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.SpriteSetAtlasFile(new Id(spriteSetId)));
+        }
+
+        [Fact]
+        public void VfxAndSpriteAnimFixedFiles_ShareTheirDirectoryAsCommonPrefix()
+        {
+            var vfxId = new Id("vfx.sample_burn");
+            var vfxDir = AssetRefConventions.VfxResourceDir(vfxId);
+            Assert.Equal(vfxDir + "/atlas.png", AssetRefConventions.VfxAtlasFile(vfxId));
+            Assert.Equal(vfxDir + "/frames.json", AssetRefConventions.VfxFramesFile(vfxId));
+
+            var spriteAnimId = new Id("sprite_anim.sample_hero_attack");
+            var spriteAnimDir = AssetRefConventions.SpriteAnimDir(spriteAnimId);
+            Assert.Equal(spriteAnimDir + "/atlas.png", AssetRefConventions.SpriteAnimAtlasFile(spriteAnimId));
+            Assert.Equal(spriteAnimDir + "/frames.json", AssetRefConventions.SpriteAnimFramesFile(spriteAnimId));
+
+            var spriteSetId = new Id("sprite.item.sample_blade");
+            var spriteSetDir = AssetRefConventions.SpriteSetDirectory(spriteSetId);
+            Assert.Equal(spriteSetDir + "/atlas.png", AssetRefConventions.SpriteSetAtlasFile(spriteSetId));
+        }
     }
 }

@@ -398,6 +398,59 @@ namespace Core.Foundation.EngineAdapter
         };
 
         /// <summary>
+        /// 消费方反馈第 77 条（[ADR-0054](../../../../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)）：
+        /// <see cref="VfxResourceDir"/> 目录下固定含 <c>atlas.png</c>（图集，正斜杠分隔文件路径）——
+        /// 该文件名此前只写在 <c>toolchain/asset_import/vfx_cmd.py</c> 模块文档字符串与
+        /// <c>UnityResourceLoader.ResolveEffectDir</c> 类型注释里，从未提升为可编译期引用的方法。
+        /// 与 <see cref="SpriteAnimAtlasFile"/> 同一惯例（两个类别前缀共用同一套"目录+atlas.png+
+        /// frames.json"磁盘布局，见 <see cref="SpriteAnimDir"/> 类型注释"目录结构与
+        /// <see cref="VfxResourceDir"/> 同构"）。</summary>
+        public static string VfxAtlasFile(Id resourceRefId) => VfxResourceDir(resourceRefId) + "/atlas.png";
+
+        /// <summary>
+        /// [ADR-0054](../../../../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)：
+        /// <see cref="VfxResourceDir"/> 目录下固定含 <c>frames.json</c>（序列帧数据，正斜杠分隔文件
+        /// 路径）——结构见 <see cref="EffectFramesDocument"/>，与运行时
+        /// <c>Adapter.Unity.EngineAdapter.UnityResourceLoader.TryDecodeEffect</c> 消费的文件同一份。</summary>
+        public static string VfxFramesFile(Id resourceRefId) => VfxResourceDir(resourceRefId) + "/frames.json";
+
+        /// <summary>
+        /// [ADR-0054](../../../../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)：
+        /// <see cref="SpriteAnimDir"/> 目录下固定含 <c>atlas.png</c>，与 <see cref="VfxAtlasFile"/>
+        /// 同一磁盘布局（两个类别前缀共用同一套打包实现，见 <c>toolchain/asset_import/atlas.py</c>
+        /// <c>pack_atlas</c>）。</summary>
+        public static string SpriteAnimAtlasFile(Id resourceRefId) => SpriteAnimDir(resourceRefId) + "/atlas.png";
+
+        /// <summary>
+        /// [ADR-0054](../../../../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)：
+        /// <see cref="SpriteAnimDir"/> 目录下固定含 <c>frames.json</c>，结构与 <see cref="VfxFramesFile"/>
+        /// 完全相同（见 <see cref="EffectFramesDocument"/>），两个类别前缀在运行时经同一个
+        /// <c>ResourceKind.Effect</c> 加载路径消费（<c>UnityResourceLoader.ResolveEffectDir</c>
+        /// 按类别前缀分派目录，之后走同一套 <c>TryDecodeEffect</c> 解码逻辑）。</summary>
+        public static string SpriteAnimFramesFile(Id resourceRefId) => SpriteAnimDir(resourceRefId) + "/frames.json";
+
+        /// <summary>
+        /// [ADR-0054](../../../../architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)：
+        /// <see cref="SpriteSetDirectory"/> 目录下固定含 <c>atlas.png</c>（正斜杠分隔文件路径，见
+        /// <c>toolchain/asset_import/sprite_cmd.py</c> 落地产物）。
+        /// <para>
+        /// 判断记录（不新增精灵集的 <c>frames.json</c> 对应方法——两类资源目录内文件名形似但结构不同，
+        /// 不应被误当同一契约）：精灵集目录内与 <c>atlas.png</c> 配套的索引文件是 <c>atlas.json</c>
+        /// （<c>{"frames": {"&lt;帧名&gt;": {x,y,w,h}}}</c>，按方向档位/层名分帧、不含
+        /// <c>fps</c>/<c>loop</c>/<c>duration</c>），不是 <see cref="VfxFramesFile"/>/
+        /// <see cref="SpriteAnimFramesFile"/> 的 <c>frames.json</c> 结构（按序列帧顺序排列、含播放
+        /// 时序字段，见 <see cref="EffectFramesDocument"/>）；且 <c>atlas.json</c>/<c>atlas.png</c>
+        /// 目前只被内容工具自身（<c>check_cmd.py</c> 存在性校验）消费，运行时精灵渲染走的是同目录下
+        /// 按方向档位/层名展开的独立扁平文件（见 <see cref="SpriteSetDirectory"/> 类型注释"该方法
+        /// 产出的是目录，内部按方向档位/层名进一步展开为多个文件"），不经 <c>atlas.png</c>/
+        /// <c>atlas.json</c>。消费方反馈第 77 条原文与既有代码均未要求为精灵集新增序列帧读取契约，
+        /// 本次只补 <c>atlas.png</c> 文件名这一项，不臆造 <c>atlas.json</c> 对应方法或复用
+        /// <see cref="EffectFramesDocument"/>。
+        /// </para>
+        /// </summary>
+        public static string SpriteSetAtlasFile(Id spriteSetId) => SpriteSetDirectory(spriteSetId) + "/atlas.png";
+
+        /// <summary>
         /// 消费方反馈第 75 条（[ADR-0053](../../../../architecture/adr/0053-地图分层图路径约定纳入公开契约.md)）：
         /// 把 <c>world.map</c> 行的 <c>id</c>（形如 <c>world.&lt;map&gt;</c>，见
         /// <c>toolchain/asset_import/map_cmd.py</c> 的 <c>map_id = f"world.{args.map}"</c>）解析为
