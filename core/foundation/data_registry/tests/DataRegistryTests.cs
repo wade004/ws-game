@@ -2741,5 +2741,81 @@ namespace Tests.Foundation.Data
             Assert.False(ok);
             Assert.Null(record);
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0046：DataValidationFailedEvent 携带逐条 ValidationIssue（消费方反馈第 71 条根治）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void LoadAll_Blocking_PublishesDataValidationFailedEventWithIssuesMatchingReportIssues()
+        {
+            // 覆盖"运行期校验失败时结构化出口能拿到与 --json 同形状的数据"：report.Issues 与事件
+            // 携带的 Issues 必须是同一份内容（同一批 ValidationIssue，逐字段一致），不是空占位。
+            var source = new MutableMultiTableSource()
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\"}]")); // 缺 name 必填字段
+            var bus = MakeBus();
+            DataValidationFailedEvent? received = null;
+            bus.Subscribe<DataValidationFailedEvent>(DataRegistryEventKeys.ValidationFailed, e => received = e);
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.NotNull(received);
+            Assert.NotEmpty(received!.Issues);
+            Assert.Equal(report.Issues.Count, received.Issues.Count);
+            for (var i = 0; i < report.Issues.Count; i++)
+            {
+                var expected = report.Issues[i];
+                var actual = received.Issues[i];
+                Assert.Equal(expected.Severity, actual.Severity);
+                Assert.Equal(expected.Table, actual.Table);
+                Assert.Equal(expected.RecordKey, actual.RecordKey);
+                Assert.Equal(expected.Field, actual.Field);
+                Assert.Equal(expected.Check, actual.Check);
+                Assert.Equal(expected.Message, actual.Message);
+            }
+        }
+
+        [Fact]
+        public void LoadAll_NotBlocking_DoesNotPublishDataValidationFailedEvent()
+        {
+            // 覆盖"无校验问题时不产生噪音"：正常加载不应该发出 DataValidationFailedEvent（不止
+            // Issues 非空，事件本身都不应该发生），既有既有行为不变，本条只是显式锁定。
+            var source = new MutableMultiTableSource()
+                .Set("test.owner", Envelope("test.owner", 1, "[{\"id\": \"test.owner.a\", \"name\": \"Ann\"}]"));
+            var bus = MakeBus();
+            var receivedCount = 0;
+            bus.Subscribe<DataValidationFailedEvent>(DataRegistryEventKeys.ValidationFailed, e => receivedCount++);
+            var registry = new DataRegistry(source, bus);
+            registry.RegisterSchema(OwnerSchema());
+
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking);
+            Assert.Equal(0, receivedCount);
+        }
+
+        [Fact]
+        public void DataValidationFailedEvent_TwoArgConstructor_IssuesDefaultsToEmptyNotNull()
+        {
+            // ABI 只新增：既有两参数构造函数保持原物理签名与行为，Issues 退化为空集合（不是
+            // null，调用方不需要额外 null 检查，惯例同 ValidationIssue.AffectedNodeIds）。
+            var ev = new DataValidationFailedEvent(errorCount: 1, warningCount: 0);
+
+            Assert.NotNull(ev.Issues);
+            Assert.Empty(ev.Issues);
+            Assert.Equal(1, ev.ErrorCount);
+        }
+
+        [Fact]
+        public void DataValidationFailedEvent_ThreeArgConstructor_NullIssues_DefaultsToEmptyNotNull()
+        {
+            var ev = new DataValidationFailedEvent(errorCount: 1, warningCount: 0, issues: null!);
+
+            Assert.NotNull(ev.Issues);
+            Assert.Empty(ev.Issues);
+        }
     }
 }

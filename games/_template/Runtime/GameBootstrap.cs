@@ -279,7 +279,13 @@ namespace Game.Template
             if (report.IsBlocking)
             {
                 BootstrapFailed = true;
-                Debug.LogError("[GameBootstrap] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
+                // ADR-0046：改用 Debug.LogWarning（不再用 Debug.LogError）——ADR-0042 决策 4 的既有
+                // 硬约束（宿主自动化测试框架把未预期的 Error 级输出直接判定为测试失败，Unity 侧诊断
+                // 消息一律不产生 LogError）此前对本处不生效，是遗漏（本模块判断记录"运行期结构化出口
+                // 现状"已记录）；这里补齐同一约束，人类可读文本内容不变，只降级严重级别。结构化消费
+                // 见 DataValidationFailedEvent.Issues（ADR-0046 新增，由 DataRegistry.LoadAllCore 随
+                // 校验阻断一并发出，见该类型判断记录）。
+                Debug.LogWarning("[GameBootstrap] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
                 return;
             }
 

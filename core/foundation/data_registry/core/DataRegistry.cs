@@ -426,7 +426,10 @@ namespace Core.Foundation.DataRegistry
             _bus.PublishImmediate(new DataLoadCompletedEvent(_tables.Count, recordCount, report.ErrorCount, report.WarningCount));
             if (report.IsBlocking)
             {
-                _bus.PublishImmediate(new DataValidationFailedEvent(report.ErrorCount, report.WarningCount));
+                // ADR-0046：改用三参数构造，随事件一并携带逐条 ValidationIssue（report.Issues），
+                // 供同进程内订阅事件总线的消费方按结构化字段消费，不必回退去解析
+                // ValidationIssue.ToString() 的人类可读文本。
+                _bus.PublishImmediate(new DataValidationFailedEvent(report.ErrorCount, report.WarningCount, report.Issues));
             }
 
             return report;
