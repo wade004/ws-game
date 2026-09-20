@@ -449,6 +449,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.48.0] - 2026-09-20
+
 ### 新增
 
 - **[ADR-0046](architecture/adr/0046-运行期校验报告结构化转发出口.md)：运行期校验报告结构化
@@ -516,6 +518,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   例）。测试：`adapters/unity/DiagnosticsForwarding/tests/ValidationReportFileOutletTests.cs`
   新增 11 例（选项解析、落盘 JSON 形状与命令行 `--json` 逐字段一致、校验通过时写出空 `issues`、
   序号按路径分别单调递增、原子写失败时清理临时文件且不产生半成品文件）。
+
+### 文档
+
+- **消费方问询文档改写为通知文档**：原 `消费方问询-2026-09-20-第71条反问答复要求.md`
+  发出后消费方一直未答复，设计层已通过 ADR-0046/ADR-0047 直接把契约定下来并落地，原问询的三个
+  问题因此不再需要作答，继续留着会让消费方误以为还欠一份回复。已 `git mv` 改名为
+  [消费方通知-2026-09-20-校验报告消费契约.md](architecture/落地计划/消费方通知-2026-09-20-校验报告消费契约.md)
+  并整篇改写为通知：一句话复述原诉求、逐条列出已定契约（日志文本不是契约的硬边界、同进程走
+  `DataValidationFailedEvent.Issues`、跨进程走落盘出口、两条通道的 `issues[]` 字段形状与命令行
+  `--json` 共用同一份序列化实现）、给消费方按"是否与宿主同进程"给出迁移选择建议，并明确原三个
+  问题不需要回答。`core/foundation/data_registry/README.md` 两处引用旧文件名/旧节标题的链接与
+  正文同步更新，不留死链或过期的节名引用。
+- **AGENTS.md §1 补一条 Unity 导入范围新文件的提交时机规则**：派单若会在 `adapters/unity/Assets`、
+  `adapters/unity/Packages/com.gamefoundation.adapter.unity`、`adapters/conformance`、
+  `games/_template` 四个根内新建文件，执行 agent 不得自己提交——新文件的 `.meta` 须由真实 Unity
+  导入生成，执行 agent 不开 Unity，自行提交会被 meta 门禁拦下（1.46.0、1.48.0 各踩过一次同类
+  问题）。规则明确正确做法（`git add` 暂存后停下汇报，由主会话搬到主检出跑一次含 Unity 的门禁
+  补齐 `.meta` 再提交）与禁止项（不得 `--no-verify` 绕过）。
 
 ## [1.47.0] - 2026-09-20
 

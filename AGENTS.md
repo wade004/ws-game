@@ -20,6 +20,13 @@
 - 不改 `VERSION`/`package.json`/`packages-lock.json`/`games/_template/package.json`（这些文件由 `build.ps1 -Release` 统一写回）。
 - 提交署名尾行固定 `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`，不按执行 agent 自己的模型改名。
 - 同一工作树同一时间只允许一个 agent 提交，避免并发写冲突。
+- **派单若会在 Unity 导入范围内新建文件**（`adapters/unity/Assets`、
+  `adapters/unity/Packages/com.gamefoundation.adapter.unity`、`adapters/conformance`、
+  `games/_template` 四个根）**，执行 agent 做完改动后不要自己提交**：新文件的 `.meta` 必须由
+  真实 Unity 导入生成，而执行 agent 不得开 Unity，于是 meta 门禁会让分支提交不了自己（已连续
+  两轮踩到：1.46.0 一次、1.48.0 一次）。正确做法：执行 agent 把改动 `git add` 暂存后停下汇报，
+  由主会话搬到主检出、跑一次含 Unity 的门禁生成 `.meta`、连同改动一并正常提交。**不要用
+  `--no-verify` 绕过**。
 - **并行派单时，向有编号的列表追加条目要先声明编号可能撞车**：模块 README 的“判断记录”、
   `architecture/adr/` 编号、ADR 索引计数这类**同层级顺序追加**，git 自动合并**不会报冲突**，
   会把两条同号条目并排放进来。派单侧的做法：ADR 编号由主会话预先分配写进提示词；“判断记录”
