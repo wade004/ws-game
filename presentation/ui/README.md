@@ -199,3 +199,43 @@ PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_No
 `ActionBarPanel_LegacyThreeArgConstruct_DoesNotThrow_AndFallsBackToShortId`
 （`DiscreteCombatTests.cs`），覆盖走旧三参数 `Construct` 签名不抛异常、且回退展示技能引用短串
 （不解析 `name_key`）。
+
+## 判断记录（HudViewModel.TargetName / TargetFaction，2026-09-21，消费方反馈第 3 条续，沿用 [ADR-0048](../../architecture/adr/0048-任务起始方式补与场景物件交互取值.md) 口径）
+
+背景：上一条判断记录落地的 `HudViewModel.TargetId` 只转发目标原始 `Id`，接入方要做目标框（展示
+被选中目标的名字与阵营）仍拿不到数据，只能自行查表硬编码。本条补这个缺口，只加两条叶子路径，
+不引入新机制。
+
+**`TargetPathProvider.target.faction`**：新增构造函数重载，携带 `Core.Rules.Common.IUnitAccess`
+（既有三参数构造函数原样保留）；`target.faction` 经 `IUnitAccess.GetFaction` 转发目标阵营原始
+`Id`，同 `target.id` 口径不解析显示文本。判断记录（无诊断分支）：`Unit.factionId`（05 第 1.2 节）
+是必填运行期字段，单位一旦存在就恒有合法值，唯一"查不到"的情形是目标当前不在世界模拟中
+（`IUnitAccess.Exists` 为 `false`），按 `power`/`stat` 子路径对未注册单位的既有处理同一惯例静默
+返回 `null`，不是内容配置问题，不需要诊断。
+
+**`TargetPathProvider.target.name`**：同一构造函数重载再携带
+`Core.Carriers.Creature.ICreatureTemplateQuery`；`target.name` 先经 `IUnitAccess.GetTemplateId`
+取目标的内容模板 id，再经 `ICreatureTemplateQuery.Get(...).NameKey` 取显示名文本键——口径与
+`skill.def.name_key`/`ActionBarSlotSnapshot.NameKey` 一致：文本键，不是已本地化文本，本模块不做
+本地化。判断记录（诊断分支）：目标存在但取不到内容模板（`GetTemplateId` 为空——手工放置对象没有
+模板引用）或模板 id 未在 `ICreatureTemplateQuery` 登记，属于内容配置问题，记一条诊断后返回
+`null`（AGENTS.md §3"运行时路径不静默降级"），不回退成占位文案。
+
+**`HudViewModel`**：新增只读属性 `Id? TargetName`/`Id? TargetFaction`，`Refresh()` 分别经
+`target.name`/`target.faction` 查询转发，无目标时为 `null`（与 `TargetId` 既有口径逐字一致）。
+不新增构造参数，不改动既有公开签名。
+
+**生产装配**：`PresentationAssembly` 构造 `TargetPathProvider` 改走新的五参数构造函数重载，传入
+`gameplay.Carriers.Units`（`IUnitAccess`）与 `gameplay.Carriers.Creatures`
+（`CreatureFactory` 兼实现 `ICreatureTemplateQuery`，同 `CreatureInteractionHost` 既有取用方式）。
+
+ABI：纯加法——`TargetPathProvider` 新增一个构造函数重载与两个 `private` 解析方法、`Resolve`
+的 `switch` 新增两个分支；`HudViewModel` 新增两个只读属性；全部既有公开签名与全部
+`creature.template` 数据行零改动仍合法。
+
+测试见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+（`HudViewModel_TargetNameAndFaction_ReflectRegisteredTemplate_NullWhenNoTarget`/
+`HudViewModel_TargetName_TemplateNotRegistered_ReturnsNull_AndRecordsDiagnostic`）——选择装配级
+测试而不是 `presentation/ui/tests` 惯用的 Fake 夹具，因为本条需要一条真实登记的 `creature.template`
+记录（`name_key`/`faction_id` 具体取值）与真实 `CreatureFactory.Spawn` 产生的单位，才能验证
+"取到的值就是模板声明的那两个值"这一装配级行为，而不只是 Provider 内部转发逻辑本身。

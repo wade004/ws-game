@@ -449,6 +449,23 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+- **目标框补显示名/阵营（沿用 [ADR-0048](architecture/adr/0048-任务起始方式补与场景物件交互取值.md)
+  口径，接续消费方反馈第 3 条）**：`HudViewModel.TargetId` 只转发目标原始 `Id`，接入方要做目标框
+  （展示被选中目标的名字与阵营）仍取不到数据，只能自行查表硬编码。`TargetPathProvider` 新增两条
+  叶子路径：`target.name`（经 `IUnitAccess.GetTemplateId` 取内容模板 id，再经
+  `ICreatureTemplateQuery.Get(...).NameKey` 取显示名文本键，口径同 `skill.def.name_key`——文本键，
+  不是已本地化文本，不回退占位文案）、`target.faction`（经 `IUnitAccess.GetFaction` 转发阵营原始
+  `Id`，同 `target.id` 口径）；无目标时两者均为 `null`（与 `TargetId` 既有口径逐字一致）。目标存在
+  但模板未登记（`GetTemplateId` 为空，或模板 id 未在 `ICreatureTemplateQuery` 登记）时，
+  `target.name` 记一条诊断后返回 `null`，不静默降级（AGENTS.md §3）。`HudViewModel` 新增只读属性
+  `TargetName`/`TargetFaction`，`TargetPathProvider` 新增携带 `IUnitAccess`/`ICreatureTemplateQuery`
+  的构造函数重载（既有三参数构造函数原样保留），生产装配 `PresentationAssembly` 改走新重载
+  （传入 `gameplay.Carriers.Units`/`gameplay.Carriers.Creatures`）。纯加法：既有公开签名与全部
+  `creature.template` 数据行零改动仍合法。新增装配级测试
+  `presentation/assembly/tests/PresentationAssemblyTests.cs`
+  （`HudViewModel_TargetNameAndFaction_ReflectRegisteredTemplate_NullWhenNoTarget`/
+  `HudViewModel_TargetName_TemplateNotRegistered_ReturnsNull_AndRecordsDiagnostic`）。
+
 ## [1.49.0] - 2026-09-20
 
 ### 修复

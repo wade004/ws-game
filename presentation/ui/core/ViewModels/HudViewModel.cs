@@ -103,6 +103,24 @@ namespace Presentation.Ui
         /// </summary>
         public Id? TargetId { get; private set; }
 
+        /// <summary>
+        /// 消费方反馈第 3 条续（2026-09-21，沿用 ADR-0048 口径）：当前目标的显示名文本键（经
+        /// <c>target.name</c> 路径，见 <see cref="TargetPathProvider"/>）。当前无目标、目标没有内容
+        /// 模板引用、或模板未登记时为 <c>null</c>（后两种情况 <see cref="TargetPathProvider"/> 已记
+        /// 一条诊断，本视图模型只转发结果，不重复诊断）。
+        /// 判断记录（转发文本键，不做本地化）：同 <see cref="TargetId"/> 判断记录、同
+        /// <c>ActionBarSlotSnapshot.NameKey</c> 惯例——本地化文本由接入方的文本宿主按这个键去查，
+        /// 本视图模型不持有任何 <c>IL10nHost</c> 依赖。
+        /// </summary>
+        public Id? TargetName { get; private set; }
+
+        /// <summary>
+        /// 消费方反馈第 3 条续（2026-09-21）：当前目标的阵营原始 Id（经 <c>target.faction</c> 路径）。
+        /// 当前无目标时为 <c>null</c>。判断记录同 <see cref="TargetId"/>：转发原始 Id，不解析显示
+        /// 文本（阵营名称/颜色由具体游戏的表现层按这个 Id 自行映射）。
+        /// </summary>
+        public Id? TargetFaction { get; private set; }
+
         /// <summary>技术债 17：是否装配了离散（回合制）时间模型——构造期传入了非空
         /// <c>turnScheduler</c> 时为 <c>true</c>。为 <c>false</c> 时 <see cref="CurrentActorId"/>
         /// 恒为 <c>null</c>、<see cref="RoundIndex"/> 恒为 0、<see cref="CanEndTurn"/> 恒为
@@ -199,6 +217,12 @@ namespace Presentation.Ui
 
             var targetIdQuery = _dataSource.Query("target.id");
             TargetId = targetIdQuery.HasValue ? targetIdQuery.Value.AsId : (Id?)null;
+
+            var targetNameQuery = _dataSource.Query("target.name");
+            TargetName = targetNameQuery.HasValue ? targetNameQuery.Value.AsId : (Id?)null;
+
+            var targetFactionQuery = _dataSource.Query("target.faction");
+            TargetFaction = targetFactionQuery.HasValue ? targetFactionQuery.Value.AsId : (Id?)null;
 
             foreach (var powerType in _powerTypes)
             {
