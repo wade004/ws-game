@@ -458,6 +458,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **`ISkillHost` 新增 `AuraQuery`/`EffectSink` 只读入口（消费方反馈第三批第 3 条，
+  [ADR-0058](architecture/adr/0058-技能宿主契约纳入光环查询与效果落地出口.md)）**：生产实现
+  `Core.Rules.Skill.SkillHost` 已经以公开属性形式暴露这两个已接口化的出口（`IAuraQuery`/
+  `IEffectSink`），但契约接口此前未声明，只持有 `ISkillHost` 引用的调用方拿不到，须向下转型或
+  直接持有具体类。新增两个 C#8 默认接口成员 `IAuraQuery? AuraQuery`/`IEffectSink? EffectSink`
+  （均默认降级为 `null`，只读查询口径，与写路径"禁止静默降级"口径无关，详见该 ADR）；
+  `SkillHost` 既有同名公开属性物理签名/行为不变，新增显式接口实现转发；
+  `RulesAssembly.DeferredSkillCastQuery` 代理同步补上显式转发。ABI 只新增，`breaks=0`。
+
 ## [1.51.0] - 2026-09-21
 
 ### 新增

@@ -1069,6 +1069,14 @@ namespace Core.Rules.Assembly
             // 默认接口成员隐式兜底——否则本代理绑定完成前后经它调用 GetSkillNameKey 会恒返回
             // null，绕开 Real（真正的 SkillHost）已经能提供的真实 name_key。
             public Id? GetSkillNameKey(Id skillId) => Real.GetSkillNameKey(skillId);
+
+            // 消费方反馈第三批第 3 条（2026-09-21，见
+            // architecture/adr/0058-技能宿主契约纳入光环查询与效果落地出口.md）：同上方全部成员一样
+            // 必须显式转发，不能依赖 ISkillHost 默认接口实现隐式兜底——否则本代理绑定完成后经它
+            // 读取 AuraQuery/EffectSink 会恒得到 null，绕开 Real（真正的 SkillHost）已经能提供的
+            // 真实光环查询/效果落地出口。
+            public IAuraQuery? AuraQuery => Real.AuraQuery;
+            public IEffectSink? EffectSink => Real.EffectSink;
         }
     }
 }
