@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Rules.Skill;
 
 namespace Presentation.Ui
 {
@@ -45,5 +46,37 @@ namespace Presentation.Ui
         /// （测试用的内存态 Fake）的二进制兼容性，未覆盖时默认返回 <c>null</c>，等价于"未声明"。
         /// </summary>
         Id? GetNameKey(Id skillId) => null;
+
+        /// <summary>
+        /// 消费方反馈第三批第 2 条（2026-09-21，[ADR-0057](../../architecture/adr/0057-动作条槽位补冷却总时长充能与结构化不可用原因.md)）：
+        /// 技能冷却/充能/公共冷却/使用条件/节拍锁的统一只读就绪快照，转发
+        /// <c>Core.Rules.Common.ISkillHost.GetSkillReadiness</c>（该成员已是 <c>ISkillHost</c> 契约
+        /// 既有默认接口成员，本次不改 <c>core/rules</c> 任何文件，只是把已有能力经本窄接口透传给
+        /// <c>ActionBarViewModel</c>——同类型注释"本模块不修改 core/rules"的既有边界）。
+        /// <para>
+        /// C# 8 默认接口成员：未显式覆盖时，按 <see cref="GetCooldown"/> 拼一个降级快照——算法与
+        /// <c>ISkillHost.GetSkillReadiness</c> 默认实现逐字一致（只看冷却剩余，无法进一步区分
+        /// 技能自身/分类冷却/充能，公共冷却/使用条件/节拍锁均不参与判定，其余明细字段一律
+        /// <c>null</c>），供未覆盖本成员的 <see cref="ISkillBookQuery"/> 实现（测试用内存态 Fake、
+        /// 旧版本编译产物）源码/二进制兼容。生产实现 <c>SkillHostSkillBookQuery</c> 显式覆盖，
+        /// 直接转发 <c>ISkillHost.GetSkillReadiness</c> 的完整结果。
+        /// </para>
+        /// </summary>
+        SkillReadiness GetSkillReadiness(Id unitId, Id skillId)
+        {
+            var remaining = GetCooldown(unitId, skillId);
+            var blocking = remaining > 0 ? SkillReadinessBlockers.SkillCooldown : SkillReadinessBlockers.None;
+            return new SkillReadiness(
+                skillId: skillId,
+                isReady: remaining <= 0,
+                blockingSources: blocking,
+                skillCooldownRemaining: null,
+                categoryCooldownRemaining: null,
+                globalCooldownRemaining: null,
+                maxCharges: null,
+                currentCharges: null,
+                nextChargeRemaining: null,
+                effectiveCooldownDuration: null);
+        }
     }
 }

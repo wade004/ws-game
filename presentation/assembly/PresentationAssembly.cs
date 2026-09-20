@@ -566,10 +566,11 @@ namespace Presentation.Assembly
                 UiData, _playerId, opts.HudPowerTypes,
                 turnScheduler: gameplay.TurnScheduler, appState: gameplay.AppState,
                 awaitingInputSubState: gameplay.AwaitingInputSubState);
-            // 消费方反馈第 3 条（2026-09-20，ADR-0048）：改用携带 ISkillBookQuery 的新构造函数
-            // 重载，令动作条槽位快照能解析 skill.def.name_key（见 ActionBarViewModel 判断记录）；
-            // skillBookQuery 已在上方为 SkillBook/QuestLog 构造好，复用同一实例。
-            ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings, skillBookQuery);
+            // 消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：改用携带 IUiDiagnostics 的六参数
+            // 构造函数重载，令动作条槽位快照额外解析冷却总时长/充能层数/结构化不可用原因（见
+            // ActionBarViewModel 判断记录）；UiDiagnostics 已在上方从 uiDataSource.Diagnostics 取得，
+            // 复用同一实例——本模块唯一的诊断出口，取不到完整就绪数据时经它告警，不新增第二套诊断。
+            ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings, skillBookQuery, UiDiagnostics);
             Inventory = new InventoryViewModel(UiData, opts.EquipmentSlotIds);
             QuestLog = new QuestLogViewModel(UiData, gameplay.Quest, _playerId);
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);
