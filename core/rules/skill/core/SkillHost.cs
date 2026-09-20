@@ -485,6 +485,13 @@ namespace Core.Rules.Skill
         public double GetCooldown(Id unitId, Id skillId) =>
             _defs.TryGetSkillDef(skillId, out var def) ? _cooldowns.GetCooldown(unitId, def) : 0;
 
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：按 <paramref name="skillId"/> 取
+        /// <c>skill.def.name_key</c>（<see cref="SkillDef.NameKey"/>），供表现层解析技能名称——技能
+        /// 不存在或未声明 <c>name_key</c> 时返回 <c>null</c>，调用方（presentation/ui 的
+        /// <c>SkillHostSkillBookQuery</c>）据此决定不渲染名称，不回退占位文案。</summary>
+        public Id? GetSkillNameKey(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) ? def.NameKey : null;
+
         /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
         /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="ISkillHost"/>
@@ -828,6 +835,14 @@ namespace Core.Rules.Skill
         bool ISkillHost.Knows(Id unitId, Id skillId) => Knows(unitId, skillId);
 
         void ISkillHost.LearnSkill(Id unitId, Id skillId) => LearnSkill(unitId, skillId);
+
+        // ADR-0048/ADR-0050 合流判断记录：GetSkillNameKey 原是 SkillHost 的普通公开方法（ADR-0048），
+        // 后随 ADR-0050 那一批"技能簿"成员一并提升进 ISkillHost（见该接口成员判断记录：两条并行
+        // 分支合并时暴露，presentation/ui 已面向接口装配却仍需具体类才能取显示名键）。同上面四行
+        // 一样改用显式接口实现转发，不让既有公开方法 GetSkillNameKey 隐式满足新接口成员——原因
+        // 同上：隐式实现会把它的物理 IL 属性从普通实例方法改写成 virtual sealed，被
+        // toolchain/abi_surface 逐字节比对误判为一处 breaking change。
+        Id? ISkillHost.GetSkillNameKey(Id skillId) => GetSkillNameKey(skillId);
 
         /// <summary>
         /// N07 收边补齐（外部审计 68c9bed，P2）：只返回当前由 <see cref="PermanentGrantSource"/>

@@ -1,12 +1,19 @@
 namespace Core.Gameplay.Quest
 {
-    /// <summary>起始方式（见 08 第 2.1 节 <c>quest.def.start_method</c> 四值）。</summary>
+    /// <summary>起始方式（见 08 第 2.1 节 <c>quest.def.start_method</c> 五值）。<see
+    /// cref="GobjInteract"/>（ADR-0048）：与场景物件交互触发接取——对应 <c>gobj.template.kind
+    /// = quest_object</c> 的交互链路（<c>GameObjectHost.Interact</c> 分发 <c>quest_action_ref</c>
+    /// 给 <see cref="Core.Carriers.Gobj.GobjOptions.QuestActionDispatcher"/>，生产装配根接到
+    /// <see cref="IQuestHost.Accept"/>），是 ADR-0048 之前就已存在的既有链路（此前只有
+    /// <c>quest_object</c> 交互能力，没有对应的 <c>start_method</c> 枚举值描述它）；本值只是给这条
+    /// 既有链路补上内容作者可声明的起始方式取值，不改变链路本身的行为。</summary>
     public enum QuestStartMethod
     {
         NpcGossip,
         ItemUse,
         AreaTrigger,
         Auto,
+        GobjInteract,
     }
 
     /// <summary>交付方式（见 08 第 2.1 节 <c>quest.def.turn_in_method</c> 两值）。</summary>
@@ -61,7 +68,7 @@ namespace Core.Gameplay.Quest
 
     public static class QuestEnumWireNames
     {
-        public static readonly string[] StartMethodValues = { "npc_gossip", "item_use", "area_trigger", "auto" };
+        public static readonly string[] StartMethodValues = { "npc_gossip", "item_use", "area_trigger", "auto", "gobj_interact" };
         public static readonly string[] TurnInMethodValues = { "npc_gossip", "auto" };
         public static readonly string[] RepeatableValues = { "none", "daily", "unlimited" };
 
@@ -73,6 +80,7 @@ namespace Core.Gameplay.Quest
                 case "item_use": value = QuestStartMethod.ItemUse; return true;
                 case "area_trigger": value = QuestStartMethod.AreaTrigger; return true;
                 case "auto": value = QuestStartMethod.Auto; return true;
+                case "gobj_interact": value = QuestStartMethod.GobjInteract; return true;
                 default: value = default; return false;
             }
         }

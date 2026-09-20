@@ -537,3 +537,14 @@ C# 侧确认生产装配下 `presentation.UiDiagnostics` 确实是 `InMemoryUiDi
 （见该文件类型级判断记录），本次未起 Unity，编译正确性靠上述静态命名空间分析 + asmdef 引用关系
 核对（`Adapter.Unity.asmdef` 的 `precompiledReferences` 含 `Presentation.Common.dll`，无需调整）
 自证，待主会话跑真实 Unity 批处理门禁复核。
+
+## 判断记录（ActionBar 接线改用携带 ISkillBookQuery 的构造函数重载，2026-09-20，消费方反馈第 3 条，[ADR-0048](../../architecture/adr/0048-任务起始方式补与场景物件交互取值.md)）
+
+`ActionBar = new ActionBarViewModel(...)` 这一行改为调用新增的五参数构造函数重载，末尾追加已在
+本文件同一方法体内更早处为 `SkillBook`/`QuestLog` 构造好的 `skillBookQuery` 变量（同一个实例，
+不重复构造）——`ActionBarViewModel` 借此在 `Refresh()` 里解析槽位技能的 `skill.def.name_key`
+写入 `ActionBarSlotSnapshot.NameKey`（见 `presentation/ui/README.md` 同名判断记录）。纯装配体
+内的调用点变更，`PresentationAssembly` 自身的公开签名不变，不需要新增测试（`ActionBarViewModel`
+自身的行为已由 `presentation/ui/tests/ViewModelTests.cs` 覆盖；本类型现有的
+`Construct_WithMinimalPresentationDataset_DoesNotThrow_AndExposesAllHosts` 等既有装配级测试
+继续覆盖"装配根不抛异常、暴露的宿主非空"这一层，足以捕获接线本身的编译期/运行期错误）。

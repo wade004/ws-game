@@ -202,5 +202,30 @@ namespace Core.Rules.Common
             throw new NotSupportedException(
                 "ISkillHost.LearnFromBook 默认实现不支持技能簿——本宿主未提供真正的已知技能账本，" +
                 "需要一个显式实现了该成员的 ISkillHost（如 Core.Rules.Skill.SkillHost）。");
+
+        // -----------------------------------------------------------------
+        // 技能名称显示键（ADR-0048《任务起始方式补与场景物件交互取值》消费方反馈第 3 条，
+        // 合并两条并行分支时暴露：表现层已面向接口装配 SkillHostSkillBookQuery（ADR-0050），
+        // 却还需要具体类 Core.Rules.Skill.SkillHost 才能取 GetSkillNameKey）
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 补充（ADR-0048 消费方反馈第 3 条）：按 <paramref name="skillId"/> 取 <c>skill.def.name_key</c>
+        /// （见 <c>SkillDef.NameKey</c>），供表现层解析技能名称——技能不存在或未声明 <c>name_key</c>
+        /// 时返回 <c>null</c>，调用方（<c>presentation/ui</c> 的 <c>SkillHostSkillBookQuery</c>）据此
+        /// 决定不渲染名称，不回退占位文案（沿用 ADR-0048"缺省不渲染不回退占位文案"语义）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回 <c>null</c>——这是只读查询，返回一个明确的保守
+        /// 默认值（同 <see cref="Knows"/>/<see cref="GetKnownSkills"/> 既有的"查询类默认实现允许
+        /// 显式降级"惯例），供未实现本能力的 <see cref="ISkillHost"/>（旧版本编译产物、未升级的
+        /// 自定义实现）源码/二进制兼容。生产实现 <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现
+        /// 转发到既有公开方法 <c>GetSkillNameKey</c>（行为不变；不用隐式实现是刻意的——见该类型
+        /// "ISkillHost 显式接口实现"一节判断记录：隐式实现会改写既有公开方法的物理签名，被 ABI
+        /// 探针判定为破坏）。任何组合/包装 <see cref="ISkillHost"/>（若存在）都应显式转发到内层
+        /// 实现，不应悄悄吃掉这个降级默认值——同 <see cref="GetSkillReadiness"/> 判断记录"框架内
+        /// InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        Id? GetSkillNameKey(Id skillId) => null;
     }
 }

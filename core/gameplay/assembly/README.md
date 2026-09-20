@@ -66,7 +66,7 @@ assembly/
 | `DialogOpenerWithSourceDelegate` | `Dialog.OpenGossip`（`gobjInstanceId` 传给 `npcId`，ADR-0044 根治"`dialogRef` 权宜当 `npcId`"，见判断记录 3） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `TeleportResolverDelegate` | `TeleportTargetResolver.Resolve`（G1 已接线，按 `teleport_target_ref` 解析 `world.map`/`spawn_points`/`teleport_points`，见判断记录 4） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `SaveRequesterDelegate` | `RequestAutosave`（构造函数最前面的本地函数，先判 `saveSystem.ShouldAutoSave(AutoSaveTrigger.SavePoint)` 再 `saveSystem.Save(autosaveSlotId)`——加固任务补齐门控，`OnSavePoint=false` 时不再写盘；`DialogHost.saveRequested` 共用同一份，见 G1 遗留恢复判断记录） | `GobjOptions` → `GameObjectHost` | 已解决 |
-| `QuestActionDispatcherDelegate` | `Quest.Accept` | `GobjOptions` → `GameObjectHost` | 语义存疑，见判断记录 3 |
+| `QuestActionDispatcherDelegate` | `Quest.Accept` | `GobjOptions` → `GameObjectHost` | 语义已由 ADR-0048 定为 `quest.def.start_method = gobj_interact` 的权威触发路径，见判断记录 3/[ADR-0048](../../../architecture/adr/0048-任务起始方式补与场景物件交互取值.md) |
 | `TeleportRequestedCallback` | `GameplayAssembly.TeleportUnit`（经 `TeleportTargetResolver` 解析出目标 `MapId`+坐标并两者都落地——`entity.MapId` 与 `Carriers.Units.SetPosition` 一并写入；同图只挪点位不重载场景，跨图才调用 `ISceneRouter.LoadScene`；2026-09-07 勘误：此前"只切 MapId，不落具体坐标"的描述已过时，不是当前实现） | `DialogHost`（gossip `teleport` 动作）；`gobj.interacted` 事件订阅（`HandleGobjTeleporterInteracted`，外部审计 5e779c6 R04 收口，直接交互 `kind=teleporter` 的 gobj 不经 gossip 时补上同一条路径，见判断记录） | |
 | `EncounterStartRequestedCallback` | `Encounter.Start(ref, 当前玩家所在地图, 玩家单位)` | `DialogHost`/`AreaTriggerOptions` | |
 | `TrapTriggerDelegate` | `Carriers.GameObjectInteractions.TriggerTrap` | `AreaTriggerOptions` → `AreaTriggerHost` | |
@@ -167,10 +167,14 @@ assembly/
    `DialogOpenerDelegate`/`DialogOpener` 属性保留不变），`npcId` 改传 `gobjInstanceId`——一个
    真实、稳定的交互对象身份（不再是可能被多个 gobj 共用的菜单 id），vendor 等下游按身份做的
    推断从此能拿到正确的交互对象。详见 [ADR-0044](../../../architecture/adr/0044-gobj对话打开回调新增交互者身份透传路径.md)、
-   `core/carriers/gobj/README.md` 判断记录 12。`QuestActionDispatcherDelegate` 的语义 07/08
-   文档均未给出精确定义，本类按"最常见用例——一个 `quest_object` 交互触发接取任务"权宜接到
-   `Quest.Accept`，这一处仍是记录在案的简化，不是最终方案，见 `GameplayAssembly.cs` 对应代码
-   注释。
+   `core/carriers/gobj/README.md` 判断记录 12。`QuestActionDispatcherDelegate` 此前
+   07/08 文档均未给出精确定义，本类按"最常见用例——一个 `quest_object` 交互触发接取任务"权宜接到
+   `Quest.Accept`，当时记录为简化、非最终方案。**2026-09-20 ADR-0048 收口**：`quest.def.
+   start_method` 补 `gobj_interact` 取值后，本接线正式成为该取值的权威触发路径，不再是"简化"——
+   接线代码本身未改一字（`Quest.Accept(unitId, questActionRef)` 对任意 `questActionRef` 一视同仁，
+   不校验目标任务的 `start_method` 是否真的等于 `gobj_interact`，理由见 `GameplayAssembly.cs`
+   对应代码注释：这是此前一直合法的既有行为，加校验属于破坏性收紧，本次不做），只是语义地位从
+   "暂定简化"变为"正式契约"。
 
 4. **`TeleportResolverDelegate` 已解决（G1）；N14 收口（外部审核 68c9bed）后 `TeleportUnit` 走
    统一导航**：`TeleportTargetResolver`（本目录新文件）按 `teleport_target_ref` 的 `'.'` 分段规则

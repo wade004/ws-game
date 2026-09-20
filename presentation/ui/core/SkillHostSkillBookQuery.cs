@@ -37,5 +37,11 @@ namespace Presentation.Ui
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) => _skillHost.GetKnownSkills(unitId);
 
         public double GetCooldown(Id unitId, Id skillId) => _skillHost.GetCooldown(unitId, skillId);
+
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：转发 <see cref="ISkillHost.GetSkillNameKey"/>——
+        /// 该成员随 ADR-0050 合流口径一并提升进 <see cref="ISkillHost"/> 契约（见
+        /// <c>core/rules/common/README.md</c> 判断记录 12），本类型据此可以只持有接口引用调用，
+        /// 不要求调用方传入具体类 <c>Core.Rules.Skill.SkillHost</c>。</summary>
+        public Id? GetNameKey(Id skillId) => _skillHost.GetSkillNameKey(skillId);
     }
 }

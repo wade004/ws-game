@@ -126,6 +126,28 @@ namespace Tests.PresentationUi
             Assert.Equal(60, world.DataSource.Query($"target.power.{Health}.max")!.Value.AsNumber);
         }
 
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：<c>target.id</c> 新叶子路径——
+        /// 有目标时原样返回其身份 Id，无目标时同既有 <c>target.*</c> 惯例返回 <c>null</c> 且不记
+        /// 诊断（不是路径错误）。</summary>
+        [Fact]
+        public void Query_target_id_returns_current_target_identity()
+        {
+            var world = new UiWorldFixture();
+            world.CurrentTarget = world.TargetId;
+
+            Assert.Equal(world.TargetId, world.DataSource.Query("target.id")!.Value.AsId);
+        }
+
+        [Fact]
+        public void Query_target_id_returns_null_without_diagnostics_when_no_target_selected()
+        {
+            var world = new UiWorldFixture();
+            world.CurrentTarget = null;
+
+            Assert.Null(world.DataSource.Query("target.id"));
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
         [Fact]
         public void Query_unit_by_id_resolves_power_and_stat()
         {

@@ -46,6 +46,28 @@ namespace Tests.PresentationUi
             Assert.Equal(20, vm.TargetPowerBars[Health].Current);
         }
 
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：<see cref="HudViewModel.TargetId"/>
+        /// 无目标时为 <c>null</c>，选中目标后经 <c>Refresh</c> 反映其身份 Id；切回无目标后应重新
+        /// 变回 <c>null</c>（不是"曾经有过目标就恒不为空"的一次性快照）。</summary>
+        [Fact]
+        public void HudViewModel_TargetId_ReflectsCurrentTarget_NullWhenNoTarget()
+        {
+            var world = new UiWorldFixture();
+            world.PowerHost.RegisterUnit(world.PlayerId, new[] { Health });
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 1000);
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health });
+            Assert.Null(vm.TargetId);
+
+            world.CurrentTarget = world.TargetId;
+            vm.Refresh();
+            Assert.Equal(world.TargetId, vm.TargetId);
+
+            world.CurrentTarget = null;
+            vm.Refresh();
+            Assert.Null(vm.TargetId);
+        }
+
         /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
         /// 调用 Refresh 的情况下让等级/资源条快照跟上宿主最新值。</summary>
         [Fact]
@@ -224,6 +246,43 @@ namespace Tests.PresentationUi
             Assert.False(vm.Slots[0].Available);
             Assert.Null(vm.Slots[1].SkillId);
             Assert.False(vm.Slots[1].Available);
+        }
+
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：携带 <see cref="ISkillBookQuery"/> 的
+        /// 新构造函数重载应把 <c>skill.def.name_key</c> 解析进 <see cref="ActionBarSlotSnapshot.NameKey"/>；
+        /// 未声明该字段的技能与空槽位均应为 <c>null</c>。</summary>
+        [Fact]
+        public void ActionBarViewModel_WithSkillCatalog_ResolvesNameKey_NullWhenUndeclaredOrEmptySlot()
+        {
+            var world = new UiWorldFixture();
+            var fireball = new Id("skill.fireball");
+            var unnamed = new Id("skill.unnamed");
+            var nameKey = new Id("l10n.skill.fireball.name");
+            world.SkillBook.SetNameKeyForTest(fireball, nameKey);
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", fireball);
+            world.SkillBindings.Bind(world.PlayerId, "slot_1", unnamed);
+
+            using var vm = new ActionBarViewModel(world.DataSource, world.PlayerId, 3, world.SkillBindings, world.SkillBook);
+
+            Assert.Equal(nameKey, vm.Slots[0].NameKey);
+            Assert.Null(vm.Slots[1].NameKey);
+            Assert.Null(vm.Slots[2].NameKey);
+        }
+
+        /// <summary>不提供 <see cref="ISkillBookQuery"/>（既有四参数构造函数）时，
+        /// <see cref="ActionBarSlotSnapshot.NameKey"/> 恒为 <c>null</c>——ABI 新增不影响既有调用方
+        /// 行为。</summary>
+        [Fact]
+        public void ActionBarViewModel_WithoutSkillCatalog_NameKeyIsAlwaysNull()
+        {
+            var world = new UiWorldFixture();
+            var fireball = new Id("skill.fireball");
+            world.SkillBook.SetNameKeyForTest(fireball, new Id("l10n.skill.fireball.name"));
+            world.SkillBindings.Bind(world.PlayerId, "slot_0", fireball);
+
+            using var vm = new ActionBarViewModel(world.DataSource, world.PlayerId, 1, world.SkillBindings);
+
+            Assert.Null(vm.Slots[0].NameKey);
         }
 
         /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动

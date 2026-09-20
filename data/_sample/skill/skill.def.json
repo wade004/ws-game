@@ -4,6 +4,7 @@
   "rows": [
     {
       "id": "skill.sample_strike",
+      "name_key": "l10n.skill.sample_strike.name",
       "school": "school.physical",
       "kind": "active",
       "range": 30,

@@ -11,7 +11,7 @@
 
 | 表 | 文件 | 行数 | 说明 |
 |---|---|---|---|
-| `display.map` | `display/display.map.json` | 8 | `sample_hero`/`sample_beast`/`sample_blade`/`sample_chest`/`sample_door`/`sample_save_point`/`sample_bolt`/`sample_loot_pile`（见下"与占位资产的对应关系"） |
+| `display.map` | `display/display.map.json` | 9 | `sample_hero`/`sample_beast`/`sample_blade`/`sample_chest`/`sample_door`/`sample_save_point`/`sample_bolt`/`sample_loot_pile`/`sample_quest_marker`（见下"与占位资产的对应关系"） |
 | `vfx.def` | `vfx/vfx.def.json` | 3 | `sample_cast_circle`/`sample_hit_spark`/`sample_burn`，`resource_ref` 对应 `assets/_placeholder/vfx/{cast_circle,hit_spark,burn}/` |
 | `sfx.def` | `sfx/sfx.def.json` | 3 | `sample_hit`（含 `hit_01`/`hit_02` 变体）/`sample_cast`/`sample_ui_click` |
 | `display.weapon_style` | `display/display.weapon_style.json` | 2 | `sample_sword`/`sample_staff`，`swing_vfx`/`impact_vfx_override` 引用本目录 `vfx.def` 样例行 |
@@ -41,6 +41,7 @@
 | `display.map.sample_bolt` | `projectile.sample_bolt` | `sprite.item.sample_blade`（与 `sample_blade` 共用精灵集） | 无 | 同上 |
 | `display.map.sample_chest` | `gobj.sample_chest` | `sprite.gobj.sample_chest` | `icon.gobj.sample_chest` | `assets/_sample/sprites/gobj_sample_chest/`（4 方向，单层，源图 `placeholder_chest/closed.png`） |
 | `display.map.sample_loot_pile` | `loot.generic_pile` | `sprite.gobj.sample_chest`（与 `sample_chest` 共用精灵集） | `icon.gobj.sample_chest` | 同上 |
+| `display.map.sample_quest_marker` | `gobj.sample_quest_marker` | `sprite.gobj.sample_chest`（与 `sample_chest` 共用精灵集） | `icon.gobj.sample_chest` | 同上（消费方反馈第 9 条示例物件，见 `core/gameplay/quest/README.md` 判断记录 21——本行只为满足 `display_map_coverage` 校验项而补，不是一个视觉上独立的新物件，不新增占位素材） |
 | `display.map.sample_door` | `gobj.sample_door` | `sprite.gobj.sample_door` | `icon.gobj.sample_door` | `assets/_sample/sprites/gobj_sample_door/`（4 方向，单层，源图 `placeholder_door/closed.png`） |
 | `display.map.sample_save_point` | `gobj.sample_save_point` | `sprite.gobj.sample_save_point` | `icon.gobj.sample_save_point` | `assets/_sample/sprites/gobj_sample_save_point/`（4 方向，单层，脚本 Pillow 生成的占位立柱图，无占位源） |
 

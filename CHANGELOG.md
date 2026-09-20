@@ -516,11 +516,42 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `virtual sealed`，被 ABI 探针静态签名比对误判为破坏，即便运行期实测完全兼容）；
   `core/rules/assembly.RulesAssembly` 内部代理 `DeferredSkillCastQuery` 新增四个成员的
   显式转发；表现层 `Presentation.Ui.SkillHostSkillBookQuery` 新增一个接受 `ISkillHost` 的构造
-  函数重载（原具体类型重载保留）。ABI 只新增，`breaks=0`。新增测试
+  函数重载（原具体类型重载保留）。与 ADR-0048 分支合并时另暴露一处同类缺口，一并按同一口径
+  收口：`GetSkillNameKey`（ADR-0048 消费方反馈第 3 条新增的 `SkillHost` 公开方法）同样只在
+  具体类上、表现层已面向接口装配却调用不到，因此一并提升为 `ISkillHost` 默认接口成员（默认
+  返回 `null`），`SkillHost`/`DeferredSkillCastQuery` 同步补显式接口实现转发。ABI 只新增，
+  `breaks=0`。新增测试
   `core/rules/skill/tests/ISkillHostSkillBookContractTests.cs` 钉住"仅持有 `ISkillHost` 接口
   引用即可完成学技能→查询已知→从技能书学"这条运行时链路。详见 `core/rules/common/README.md`
-  判断记录 11、`core/rules/skill/README.md` 判断记录 58、`core/rules/assembly/README.md`
+  判断记录 11、12，`core/rules/skill/README.md` 判断记录 58、59，`core/rules/assembly/README.md`
   同判断记录。
+- **[ADR-0048](architecture/adr/0048-任务起始方式补与场景物件交互取值.md)：任务起始方式补
+  `gobj_interact` 取值，技能/目标身份补显示字段，合并根治消费方第 9/3 条反馈**——
+  - **第 9 条**：`quest.def.start_method` 枚举追加第五个取值 `gobj_interact`（`QuestStartMethod
+    .GobjInteract`，追加在既有四值之后，序数/线上文本均不改动），描述框架早已存在的"交互一个
+    `gobj.template.kind: quest_object` 场景物件触发任务接取"链路（`GameObjectHost.Interact` →
+    `GobjOptions.QuestActionDispatcher` → `IQuestHost.Accept`，链路本身零改动，`IQuestHost.Accept`
+    不因此新增任何门禁分支）。新增装配级集成测试
+    `core/gameplay/assembly/tests/GameplayAssemblyGobjQuestStartTests.cs`：构造一条声明该取值的
+    真实 `quest.def` 与一个指向它的 `gobj.template`，走真实"交互"接口验证任务状态从
+    `Available` 转移到 `Active`；`core/gameplay/quest/tests/QuestStartMethodGobjInteractTests.cs`
+    新增 `TryParseStartMethod` 往返测试覆盖新取值与全部既有取值不受影响。样例数据新增
+    `quest.sample_gobj_start`/`gobj.sample_quest_marker` 一对互相引用的记录演示新取值。
+  - **第 3 条**：`skill.def` 新增可选字段 `name_key`（`FieldKind.TextKey`，缺省不渲染不回退
+    占位文案，命名/类型沿用 ADR-0043 `greeting_key` 惯例）；`SkillDef`/`SkillDefCache`/
+    `SkillHost.GetSkillNameKey` 均以 ABI 纯新增方式（新构造函数重载/新只读方法）解析并转发。
+    `HudViewModel` 新增只读属性 `TargetId`（经 `TargetPathProvider` 新增的 `target.id` 叶子路径，
+    转发原始 `Id`，不解析显示文本，无目标时为 `null`）。`ActionBarViewModel`/
+    `ActionBarSlotSnapshot` 新增 `NameKey`（经新增的携带 `ISkillBookQuery` 的构造函数重载解析，
+    `ISkillBookQuery` 新增默认接口成员 `GetNameKey`）。消费端（`adapters/unity` 参考界面）
+    同步更新：`HudPanel` 目标框补身份短串展示，`ActionBarPanel.Construct` **新增**携带
+    `IL10nHost` 的构造函数重载（既有三参数签名原样保留、行为不变，生产调用方
+    `UiPanelHost.Initialize` 改走新重载），槽位标签在新重载下改为优先展示技能真名，取不到
+    `name_key` 或走旧签名时才回退既有的技能引用短串展示（不是编造占位文案）。样例数据
+    `skill.sample_strike` 新增 `name_key` 演示。
+  两条反馈均为纯加法：全部既有 `quest.def`/`skill.def`/`gobj.template` 数据行零改动仍合法，
+  全部既有公开签名（含 `ActionBarPanel.Construct`）保持不变，新增能力一律走新重载/新增
+  成员落地。
 
 ## [1.48.0] - 2026-09-20
 

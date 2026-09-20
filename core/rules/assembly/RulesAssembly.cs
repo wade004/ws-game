@@ -1063,6 +1063,12 @@ namespace Core.Rules.Assembly
             public IReadOnlyList<Id> GetKnownSkills(Id unitId) => Real.GetKnownSkills(unitId);
             public void LearnSkill(Id unitId, Id skillId) => Real.LearnSkill(unitId, skillId);
             public void LearnFromBook(Id unitId, Id bookId, int level) => Real.LearnFromBook(unitId, bookId, level);
+
+            // ADR-0048/ADR-0050 合流判断记录（见 Core.Rules.Common.ISkillHost.GetSkillNameKey 与
+            // Core.Rules.Skill.SkillHost 同名判断记录）：同上方四个成员一样必须显式转发，不能依赖
+            // 默认接口成员隐式兜底——否则本代理绑定完成前后经它调用 GetSkillNameKey 会恒返回
+            // null，绕开 Real（真正的 SkillHost）已经能提供的真实 name_key。
+            public Id? GetSkillNameKey(Id skillId) => Real.GetSkillNameKey(skillId);
         }
     }
 }

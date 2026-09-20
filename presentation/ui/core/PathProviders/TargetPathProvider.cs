@@ -55,10 +55,26 @@ namespace Presentation.Ui
                     return UnitSubQueries.Power(targetId.Value, _powerHost, remaining, fullPath, diagnostics);
                 case "stat":
                     return UnitSubQueries.Stat(targetId.Value, _statHost, remaining, fullPath, diagnostics);
+                case "id":
+                    // 消费方反馈第 3 条（2026-09-20，ADR-0048）：目标身份原始 Id，供 HudViewModel.
+                    // TargetId 转发给表现层自行决定如何展示（本仓库惯例是转发原始 Id，不在 presentation/ui
+                    // 内新增名称解析服务，见 HudViewModel.TargetId 判断记录）。
+                    return Exact(remaining, 1, fullPath, diagnostics) ? ExprValue.OfId(targetId.Value) : (ExprValue?)null;
                 default:
-                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 target 子路径关键字 \"{remaining[0].Name}\" 未知（只支持 power/stat）");
+                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 target 子路径关键字 \"{remaining[0].Name}\" 未知（只支持 power/stat/id）");
                     return null;
             }
+        }
+
+        private static bool Exact(IReadOnlyList<UiPathSegment> remaining, int count, string fullPath, IUiDiagnostics diagnostics)
+        {
+            if (remaining.Count == count && !remaining[0].Index.HasValue)
+            {
+                return true;
+            }
+
+            diagnostics.Warn($"UI 路径 \"{fullPath}\" 段数或下标形状不符合预期");
+            return false;
         }
     }
 }

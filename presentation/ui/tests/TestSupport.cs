@@ -540,10 +540,18 @@ namespace Tests.PresentationUi
         private readonly Dictionary<Id, List<Id>> _known = new Dictionary<Id, List<Id>>();
         private readonly Dictionary<(Id UnitId, Id SkillId), double> _cooldowns = new Dictionary<(Id, Id), double>();
 
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：按技能 id（不分单位）登记
+        /// <c>skill.def.name_key</c>，供 <c>GetNameKey</c> 转发——同真实 <c>SkillHost.GetSkillNameKey</c>
+        /// 语义（技能名称不分单位，是技能定义本身的属性）。未登记的技能走接口默认成员返回 <c>null</c>，
+        /// 不需要本 Fake 覆盖。</summary>
+        private readonly Dictionary<Id, Id> _nameKeys = new Dictionary<Id, Id>();
+
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) =>
             _known.TryGetValue(unitId, out var l) ? l : (IReadOnlyList<Id>)Array.Empty<Id>();
 
         public double GetCooldown(Id unitId, Id skillId) => _cooldowns.TryGetValue((unitId, skillId), out var v) ? v : 0;
+
+        public Id? GetNameKey(Id skillId) => _nameKeys.TryGetValue(skillId, out var v) ? v : (Id?)null;
 
         public void LearnForTest(Id unitId, Id skillId)
         {
@@ -556,6 +564,8 @@ namespace Tests.PresentationUi
         }
 
         public void SetCooldownForTest(Id unitId, Id skillId, double value) => _cooldowns[(unitId, skillId)] = value;
+
+        public void SetNameKeyForTest(Id skillId, Id nameKey) => _nameKeys[skillId] = nameKey;
     }
 
     /// <summary>

@@ -35,5 +35,15 @@ namespace Presentation.Ui
         /// <summary>该技能距下次可用的剩余时间；就绪返回 0（见
         /// <c>Core.Rules.Common.ISkillHost.GetCooldown</c>）。</summary>
         double GetCooldown(Id unitId, Id skillId);
+
+        /// <summary>
+        /// 消费方反馈第 3 条（2026-09-20，ADR-0048）：该技能的名称文本键（<c>skill.def.name_key</c>，
+        /// 见 <c>Core.Rules.Skill.SkillHost.GetSkillNameKey</c>）；未声明或技能不存在时为 <c>null</c>，
+        /// 消费方（<c>ActionBarViewModel</c>/<c>ActionBarPanel</c>）据此不渲染名称，不回退占位文案。
+        /// 判断记录：以默认接口成员新增（同 <c>Core.Gameplay.Quest.IQuestHost.
+        /// GetObjectiveRequiredCounts</c> 既有 ABI 兼容惯例）——本接口新增方法不破坏既有实现者
+        /// （测试用的内存态 Fake）的二进制兼容性，未覆盖时默认返回 <c>null</c>，等价于"未声明"。
+        /// </summary>
+        Id? GetNameKey(Id skillId) => null;
     }
 }

@@ -17,6 +17,11 @@ namespace Presentation.Ui
 
         public double Cooldown { get; }
 
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：绑定技能的 <c>skill.def.name_key</c>
+        /// （见 <see cref="ISkillBookQuery.GetNameKey"/>）；槽位为空或技能未声明该字段时为 <c>null</c>，
+        /// 表现层据此不渲染名称，不回退占位文案（同 <c>greeting_key</c> 判断记录）。</summary>
+        public Id? NameKey { get; }
+
         /// <summary>是否可用（有绑定技能且冷却已就绪；不含资源是否足够——资源检查属于施法结算，
         /// 见 06 第 3.6 节，本视图模型只做只读展示不重复该判定）。</summary>
         public bool Available => SkillId.HasValue && Cooldown <= 0;
@@ -25,6 +30,16 @@ namespace Presentation.Ui
         {
             SkillId = skillId;
             Cooldown = cooldown;
+            NameKey = null;
+        }
+
+        /// <summary>消费方反馈第 3 条新增重载（2026-09-20，ADR-0048）：携带 <see cref="NameKey"/>。
+        /// 判断记录：既有两参数构造函数保持字节级不变（ABI 兼容），本重载三个参数不与其重叠。</summary>
+        public ActionBarSlotSnapshot(Id? skillId, double cooldown, Id? nameKey)
+        {
+            SkillId = skillId;
+            Cooldown = cooldown;
+            NameKey = nameKey;
         }
     }
 
@@ -45,6 +60,7 @@ namespace Presentation.Ui
     {
         private readonly IUiDataSource _dataSource;
         private readonly ISkillBindingHost _skillBindings;
+        private readonly ISkillBookQuery? _skillCatalog;
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
         private ActionBarSlotSnapshot[] _slots;
 
@@ -81,6 +97,17 @@ namespace Presentation.Ui
             Refresh();
         }
 
+        /// <summary>消费方反馈第 3 条新增重载（2026-09-20，ADR-0048）：携带 <see cref="ISkillBookQuery"/>
+        /// 以解析 <see cref="ActionBarSlotSnapshot.NameKey"/>。判断记录（不改既有四参数构造函数）：
+        /// 同类型注释"缺口 4 恢复"既有惯例——新增能力走新增构造函数重载，不给既有调用方强加新依赖；
+        /// 接受本重载末尾多一次 <see cref="Refresh"/>（构造期同步刷新一次）的轻微效率损耗。</summary>
+        public ActionBarViewModel(IUiDataSource dataSource, Id playerId, int slotCount, ISkillBindingHost skillBindings, ISkillBookQuery skillCatalog)
+            : this(dataSource, playerId, slotCount, skillBindings)
+        {
+            _skillCatalog = skillCatalog ?? throw new ArgumentNullException(nameof(skillCatalog));
+            Refresh();
+        }
+
         private void OnRelevantEvent(IEvent evt) => Refresh();
 
         public void Refresh()
@@ -96,7 +123,8 @@ namespace Presentation.Ui
                 }
 
                 var cooldown = _dataSource.Query($"player.skill.{skillId}.cooldown");
-                next[i] = new ActionBarSlotSnapshot(skillId, cooldown.HasValue ? cooldown.Value.AsNumber : 0);
+                var nameKey = _skillCatalog?.GetNameKey(skillId);
+                next[i] = new ActionBarSlotSnapshot(skillId, cooldown.HasValue ? cooldown.Value.AsNumber : 0, nameKey);
             }
 
             _slots = next;

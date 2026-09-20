@@ -1063,6 +1063,15 @@ namespace Core.Gameplay.Assembly
             // 自动存档槽 id/时间戳来源已在构造函数最前面解析为 RequestAutosave（缺口 16），
             // DialogHost.saveRequested 与本处共用同一份，见该处判断记录。
             resolvedGobjOptions.SaveRequester ??= RequestAutosave;
+            // ADR-0048 收口：本接线此前的判断记录称"QuestActionDispatcherDelegate 的语义 07/08
+            // 文档均未给出精确定义……仍是记录在案的简化，不是最终方案"——ADR-0048 已经把这条链路
+            // 的语义正式定为 quest.def.start_method = gobj_interact 的权威触发路径（见该 ADR"决策"
+            // 一节），本接线因此不再是临时简化，是这条既有链路现在有了正式归属的枚举值。接线代码
+            // 本身未改一字：quest_object 交互触发 Accept 是 ADR-0044 之前就有的既有行为，ADR-0048
+            // 只是补齐描述它的 start_method 取值，不改变本行为为任何内容作者的既有 quest.def 记录
+            // （不声明 gobj_interact 的既有记录不受影响，quest_object 交互对任意 questActionRef 一视
+            // 同仁，不校验目标任务的 start_method 是否等于 gobj_interact——校验会让"用 quest_object
+            // 顶替其它 start_method 语义"这种此前一直合法的用法突然报错，属于破坏性收紧，本次不做）。
             resolvedGobjOptions.QuestActionDispatcher ??= (unitId, questActionRef) => Quest.Accept(unitId, questActionRef);
 
             // ---------------------------------------------------------

@@ -189,6 +189,21 @@ common/
       `ForgetSkill(Id,Id,Id)`）未被消费方点名，不在本次收口范围，`core/carriers/item.SkillGranter`
       委托继续作为这部分残余缺口的绕行手段（见该类型判断记录）。
 
+12. **`GetSkillNameKey` 一并纳入 `ISkillHost` 契约**（ADR-0048/ADR-0050 合并两条并行分支时暴露）：
+    `GetSkillNameKey` 原是 ADR-0048 消费方反馈第 3 条给 `Core.Rules.Skill.SkillHost` 新增的普通
+    公开方法；同一时间 ADR-0050 让 `presentation/ui.SkillHostSkillBookQuery` 改为面向
+    `ISkillHost` 接口装配（见判断记录 11）。两条分支各自单独编译都成立，合并后
+    `SkillHostSkillBookQuery` 持有的字段类型已经是接口，却仍要调用只在具体类上的
+    `GetSkillNameKey`，编译不过。裁决：不回退接口化，也不让消费方改回持有具体类，而是把
+    `GetSkillNameKey` 一并提升为 `ISkillHost` 的 C# 8 默认接口成员，默认返回 `null`——与
+    `Knows`/`GetKnownSkills` 同一套"只读查询允许显式降级"惯例（本方法不产生副作用，语义是
+    "该宿主取不到/不支持这个技能的显示名键"，与 ADR-0048 原有的"缺省不渲染不回退占位文案"
+    口径一致，不需要判断记录 11 里写路径那套"禁止静默降级"的更严格口径）。生产实现
+    `Core.Rules.Skill.SkillHost` 既有同名公开方法签名/行为不变，新增一个显式接口实现转发
+    （理由同判断记录 11：隐式实现会改写既有方法物理签名，被 ABI 探针误判为破坏）。
+    `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理同样补上这一个
+    成员的显式转发。详见 `core/rules/skill/README.md` 判断记录 59。
+
 ## 不负责什么
 
 - 不实现施法管线、结算管线、仇恨表、行为外壳状态机等任何具体算法——那些是 skill/combat/ai 各自

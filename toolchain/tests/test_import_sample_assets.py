@@ -86,6 +86,11 @@ EXPECTED_DISPLAY_ROWS = {
     # skill/aura 补齐行同一惯例。
     "display.map.sample_mount": ("skill.sample_mount", "skill"),
     "display.map.sample_mount_aura": ("skill.aura_def.sample_mount_speed", "aura"),
+    # 消费方反馈第 9 条（ADR-0048）：gobj.template 新增的示例任务标记物
+    # （gobj.sample_quest_marker，演示 quest.def.start_method: gobj_interact）需要一条
+    # display.map 覆盖行才能满足 DisplayMapCoverageRule；复用 sprite.gobj.sample_chest 精灵集，
+    # 不新增素材，同上面各批次补齐行同一惯例。
+    "display.map.sample_quest_marker": ("gobj.sample_quest_marker", "gobj"),
 }
 
 

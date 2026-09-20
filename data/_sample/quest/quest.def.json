@@ -34,6 +34,21 @@
         ]
       },
       "repeatable": "none"
+    },
+    {
+      "id": "quest.sample_gobj_start",
+      "title_key": "l10n.quest.sample_gobj_start.title",
+      "description_key": "l10n.quest.sample_gobj_start.description",
+      "objectives": [
+        {
+          "type": "kill",
+          "target_ref": "creature.sample_beast",
+          "count": 1
+        }
+      ],
+      "start_method": "gobj_interact",
+      "turn_in_method": "npc_gossip",
+      "repeatable": "none"
     }
   ]
 }
