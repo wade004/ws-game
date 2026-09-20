@@ -535,7 +535,9 @@ namespace Presentation.Assembly
                     _playerId, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
                     gameplay.Carriers.Rules.Progression, gameplay.Carriers.Inventory, gameplay.Carriers.Equipment,
                     gameplay.Quest, gameplay.Economy, skillBookQuery),
-                new TargetPathProvider(opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
+                new TargetPathProvider(
+                    opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
+                    gameplay.Carriers.Units, gameplay.Carriers.Creatures),
                 new UnitPathProvider(gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
             };
             var uiDataSource = new UiDataSource(bus, providers);

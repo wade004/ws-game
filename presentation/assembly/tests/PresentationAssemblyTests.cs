@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Adapters.Stub;
+using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
@@ -31,6 +32,7 @@ namespace Tests.Presentation.Assembly
     public class PresentationAssemblyTests
     {
         private static readonly Id SamplePlayerTemplateId = new Id("creature.sample_player");
+        private static readonly Id SampleTargetTemplateId = new Id("creature.sample_target");
         private static readonly Id SampleMapId = new Id("world.sample_map");
 
         /// <summary>判断记录：<c>Presentation.Ui.HudViewModel</c>/<c>PlayerPathProvider</c> 构造期
@@ -75,7 +77,14 @@ namespace Tests.Presentation.Assembly
                 "{\"id\": \"creature.sample_player\", \"name_key\": \"l10n.creature.sample_player.name\", " +
                 "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
                 "\"base_stats\": {\"stat.max_health\": 100}, \"stat_growth_ref\": \"prog.sample_curve\", " +
-                "\"faction_id\": \"fac.sample_player\", \"display_ref\": \"display.sample_player\"}" +
+                "\"faction_id\": \"fac.sample_player\", \"display_ref\": \"display.sample_player\"}," +
+                // 本切片新增（目标框 target.name/target.faction，沿用 ADR-0048 口径）：一条独立的
+                // 目标用模板，name_key/faction_id 与玩家模板不同，便于测试断言精确对上"这两个值就是
+                // 这条模板声明的值"而不是恰好与玩家模板重合。
+                "{\"id\": \"creature.sample_target\", \"name_key\": \"l10n.creature.sample_target.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
+                "\"base_stats\": {\"stat.max_health\": 50}, \"stat_growth_ref\": \"prog.sample_curve\", " +
+                "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\"}" +
                 "]}");
         }
 
@@ -1309,6 +1318,76 @@ namespace Tests.Presentation.Assembly
             var uiDiag = Assert.IsType<global::Presentation.Ui.InMemoryUiDiagnostics>(presentation.UiDiagnostics);
             var warning = Assert.Single(uiDiag.Warnings);
             Assert.Contains("no_such_root", warning);
+        }
+
+        // ------------------------------------------------------------------
+        // 本切片新增（消费方反馈第 3 条续，2026-09-21，沿用 ADR-0048 口径）：目标框补齐
+        // target.name/target.faction 两条叶子路径——见 TargetPathProvider/HudViewModel 判断记录。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void HudViewModel_TargetNameAndFaction_ReflectRegisteredTemplate_NullWhenNoTarget()
+        {
+            Id? currentTarget = null;
+            var options = new PresentationAssemblyOptions { TargetResolver = () => currentTarget };
+            var presentation = Build(out var gameplay, out _, out _, out _, options: options);
+
+            // 无目标：与既有 target.id 恒 null 的口径逐字一致。
+            Assert.Null(presentation.Hud.TargetId);
+            Assert.Null(presentation.Hud.TargetName);
+            Assert.Null(presentation.Hud.TargetFaction);
+
+            // creature.sample_target 这条模板声明的 name_key/faction_id 就是期望值的规则来源，不写死
+            // 裸字符串——这两行常量与 AddMinimalGameplayTables 里那条记录的字面量必须逐字相同，任一方
+            // 改了都会让断言失败，天然防止两处漂移。
+            var expectedNameKey = new Id("l10n.creature.sample_target.name");
+            var expectedFaction = new Id("fac.sample_hostile");
+
+            var targetId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, Vec2.Zero, 0.0);
+            currentTarget = targetId;
+            presentation.Hud.Refresh();
+
+            Assert.Equal(targetId, presentation.Hud.TargetId);
+            Assert.Equal(expectedNameKey, presentation.Hud.TargetName);
+            Assert.Equal(expectedFaction, presentation.Hud.TargetFaction);
+
+            // 取消目标后回到"无"（同 target.id 既有行为，见 HudViewModel_TargetId_ReflectsCurrentTarget_NullWhenNoTarget）。
+            currentTarget = null;
+            presentation.Hud.Refresh();
+
+            Assert.Null(presentation.Hud.TargetId);
+            Assert.Null(presentation.Hud.TargetName);
+            Assert.Null(presentation.Hud.TargetFaction);
+        }
+
+        [Fact]
+        public void HudViewModel_TargetName_TemplateNotRegistered_ReturnsNull_AndRecordsDiagnostic()
+        {
+            Id? currentTarget = null;
+            var options = new PresentationAssemblyOptions { TargetResolver = () => currentTarget };
+            var presentation = Build(out _, out var world, out _, out _, options: options);
+
+            var uiDiag = Assert.IsType<global::Presentation.Ui.InMemoryUiDiagnostics>(presentation.UiDiagnostics);
+            var warningsBefore = uiDiag.Warnings.Count;
+
+            // 手工放置一个模板 id 未在 creature.template 登记的单位（不经 CreatureFactory.Spawn——
+            // Spawn 要求模板必须先登记才能读取属性/资源配置构造出单位，见该类型判断记录），模拟"目标
+            // 存在但模板未登记"这一内容配置问题（AGENTS.md §3"运行时路径不静默降级"要求的诊断场景）。
+            var ghostId = new Id("unit.sample_ghost_target");
+            var ghostFaction = new Id("fac.sample_hostile");
+            var unregisteredTemplateId = new Id("creature.sample_unregistered_ghost");
+            var ghost = new CreatureUnit(ghostId, SampleMapId, ghostFaction, unregisteredTemplateId);
+            world.AddEntity(ghost);
+
+            currentTarget = ghostId;
+            presentation.Hud.Refresh();
+
+            // target.id/target.faction 不经模板查询，正常返回；只有 target.name 因模板未登记查不到，
+            // 返回"无"而不是占位文案，且诊断计数从 warningsBefore 变成 warningsBefore + 1。
+            Assert.Equal(ghostId, presentation.Hud.TargetId);
+            Assert.Equal(ghostFaction, presentation.Hud.TargetFaction);
+            Assert.Null(presentation.Hud.TargetName);
+            Assert.Equal(warningsBefore + 1, uiDiag.Warnings.Count);
         }
     }
 }
