@@ -83,6 +83,15 @@ namespace Core.Carriers.Creature
                     description: "预留：受击时触发的反应配置标识。消费方反馈第 29/30 条核实全仓无任何消费方读取该字段，也没有可挂载的目标表——当前填写不生效，暂不登记 SoftReferenceTable；待反应系统落地并确定目标表后再补登记"),
                 new FieldSchema("on_death_reaction_ref", FieldKind.Id, required: false,
                     description: "预留：死亡时触发的反应配置标识。消费方反馈第 29/30 条核实全仓无任何消费方读取该字段，也没有可挂载的目标表——当前填写不生效，暂不登记 SoftReferenceTable；待反应系统落地并确定目标表后再补登记"),
+                // ADR-0051 新增：生物原生交互路径（消费方反馈第 2 条根治）——指向 dialog.gossip_menu
+                // 的对话菜单引用，供 CreatureInteractionHost.Interact 分发使用，缺省 null（该生物暂无
+                // 原生可交互内容）。dialog.gossip_menu 属 L4，本模块（L3）不可 Reference（依赖方向，
+                // 惯例同 GobjSchemas.cs 的 on_use.ref 判断记录），退回 Id + WithSoftReference。纯新增
+                // 可选字段，不升 currentSchemaVersion、不需要迁移函数，旧数据行零改动仍合法。
+                new FieldSchema("gossip_menu_ref", FieldKind.Id, required: false,
+                    description: "指向 dialog.gossip_menu 的对话菜单，供原生 interact 生物路径分发（ADR-0051）；" +
+                        "可为空——为空表示该生物当前没有原生可交互内容。L4 高于本模块 L3，退回 Id（仅供内容工具补全/跳转）")
+                    .WithSoftReference(table: "dialog.gossip_menu"),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(

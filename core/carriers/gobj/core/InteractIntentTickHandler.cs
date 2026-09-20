@@ -25,6 +25,16 @@ namespace Core.Carriers.Gobj
     /// 持有 <see cref="GameObjectHost"/> 引用窄契约调用 <c>Interact</c>。本类型补齐这条链路后，
     /// 引擎侧改为统一提交 <c>interact</c> 意图（见 adapters/unity 对应改动），不再需要那个窄契约。
     /// </para>
+    /// <para>
+    /// 判断记录（ADR-0051，与 <c>Core.Carriers.Creature.CreatureInteractIntentTickHandler</c> 共用
+    /// 同一个 <c>"interact"</c> Kind）：消费方反馈第 2 条根治后，生物也能被直接 <c>interact</c>，
+    /// Args 形状为 <c>{creature_instance_id: Id}</c>（不含 <c>gobj_instance_id</c>）——本处理器缺少
+    /// <c>gobj_instance_id</c> 时，先看 Args 是否携带 <c>creature_instance_id</c>：携带则说明这条
+    /// 意图是发给生物侧处理器的，静默跳过、不记诊断（该意图会被
+    /// <c>CreatureInteractIntentTickHandler</c> 处理，由它自己的诊断出口负责）；两个键都不含时才是
+    /// 真正"格式非法"的 <c>interact</c> 意图，维持原有告警。既有调用方（从不携带
+    /// <c>creature_instance_id</c>）的行为逐位不变。
+    /// </para>
     /// </summary>
     public sealed class InteractIntentTickHandler : ITickPhaseHandler
     {
@@ -52,6 +62,13 @@ namespace Core.Carriers.Gobj
 
                 if (gobjInstanceId == null)
                 {
+                    if (intent.Args.ContainsKey("creature_instance_id"))
+                    {
+                        // ADR-0051：这条 interact 意图是发给生物侧的，交
+                        // CreatureInteractIntentTickHandler 处理，不在此处重复警告。
+                        continue;
+                    }
+
                     _diagnostics.Warn($"interact 意图缺少 gobj_instance_id 参数（actorId=\"{intent.ActorId}\"），已忽略");
                     continue;
                 }

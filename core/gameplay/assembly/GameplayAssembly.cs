@@ -320,9 +320,12 @@ namespace Core.Gameplay.Assembly
         /// T-N4-4 新增构造重载：接受 <see cref="ProgressionOptions"/>（ADR-0033 决策 4），供
         /// <c>ExtraXpMultiplierProvider</c>（分档倍率 × 难度倍率）/<c>KillXpSourceId</c>/
         /// <c>DiscoveryXpSourceId</c>/<c>QuestXpSourceId</c> 等策略配置项接线（ABI 门禁 G3：见上方
-        /// 旧签名构造函数判断记录，本重载全部参数均不带默认值——原因同
-        /// <see cref="Core.Rules.Assembly.RulesAssembly"/> 对应构造函数判断记录"本重载全部参数均
-        /// 不带默认值"，唯一调用点为本类型自身的旧签名构造函数，已同步显式列出全部参数）。
+        /// 旧签名构造函数判断记录）。
+        /// <para>
+        /// ADR-0051 判断记录：本重载物理签名已随 1.4x 系列基线发布，不得再改——真正的构造逻辑现移到
+        /// 下方新增的、末尾多一个 <see cref="Core.Carriers.Creature.CreatureInteractOptions"/> 参数的
+        /// 重载，本重载改为纯转发（<c>creatureInteractOptions: null</c>），行为逐位不变。
+        /// </para>
         /// </summary>
         public GameplayAssembly(
             IEventBus bus,
@@ -366,6 +369,65 @@ namespace Core.Gameplay.Assembly
             Func<long>? questDayProvider,
             VendorOpenRequestedCallback? vendorOpenRequested,
             ProgressionOptions? progressionOptions)
+            : this(bus, registry, rng, world, spatial, saveSystem, playerUnitProvider, playerFactionId,
+                navigation, spatialSyncKinds, sceneRouter, statOptions, combatOptions, skillOptions,
+                targetingOptions, aiOptions, inventoryOptions, itemOptions, creatureOptions, summonOptions,
+                gobjOptions, movementOptions, worldStateOptions, lootOptions, economyOptions, questOptions,
+                difficultyOptions, achievementOptions, areaTriggerOptions, spawnOptions, autosaveSlotId,
+                autosaveTimestampProvider, clockHost, pacingPolicy, timeModelSwitchOptions,
+                combatParticipantsResolver, deathPolicyOptions, questOwnerResolver, questDayProvider,
+                vendorOpenRequested, progressionOptions, creatureInteractOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0051 新增构造重载：接受 <see cref="Core.Carriers.Creature.CreatureInteractOptions"/>，
+        /// 携带生物原生交互路径（消费方反馈第 2 条根治）的真正构造逻辑（ABI 门禁 G3：见上方旧签名
+        /// 构造函数判断记录，本重载是唯一新增的物理签名）。
+        /// </summary>
+        public GameplayAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            ISaveSystem saveSystem,
+            Func<Id> playerUnitProvider,
+            Id playerFactionId,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            ISceneRouter? sceneRouter,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            WorldStateOptions? worldStateOptions,
+            LootOptions? lootOptions,
+            EconomyOptions? economyOptions,
+            QuestOptions? questOptions,
+            DifficultyOptions? difficultyOptions,
+            AchievementOptions? achievementOptions,
+            AreaTriggerOptions? areaTriggerOptions,
+            SpawnOptions? spawnOptions,
+            Id? autosaveSlotId,
+            Func<string>? autosaveTimestampProvider,
+            ISimClockHost? clockHost,
+            IPacingPolicy? pacingPolicy,
+            TimeModelSwitchOptions? timeModelSwitchOptions,
+            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver,
+            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions,
+            Func<Id, Id?>? questOwnerResolver,
+            Func<long>? questDayProvider,
+            VendorOpenRequestedCallback? vendorOpenRequested,
+            ProgressionOptions? progressionOptions,
+            Core.Carriers.Creature.CreatureInteractOptions? creatureInteractOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -502,6 +564,12 @@ namespace Core.Gameplay.Assembly
             // 各自默认落到全字段缺省的 ProgressionOptions() 实例（本任务起接上）。
             var resolvedProgressionOptions = progressionOptions ?? new ProgressionOptions();
 
+            // ADR-0051 判断记录：resolvedCreatureInteractOptions 必须在这里就地 new 出来（同
+            // resolvedGobjOptions 判断记录）——下方第 16 步要在 CreatureInteractionHost 构造完成
+            // 之后回填 GossipOpener 这个 L4 回调，CreatureInteractionHost 内部持有的是构造期传入的
+            // 这个实例的引用（同一份，不拷贝字段），必须是同一个对象才能"回填"生效。
+            var resolvedCreatureInteractOptions = creatureInteractOptions ?? new Core.Carriers.Creature.CreatureInteractOptions();
+
             Carriers = new CarriersAssembly(
                 bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
@@ -513,7 +581,8 @@ namespace Core.Gameplay.Assembly
                 discreteTurnIndexProvider: () => scheduler?.CurrentTurnIndex ?? 0,
                 discreteRoundIndexProvider: () => scheduler?.RoundIndex ?? 0,
                 discreteCurrentActorProvider: () => scheduler?.GetCurrentActor(),
-                progressionOptions: resolvedProgressionOptions);
+                progressionOptions: resolvedProgressionOptions,
+                creatureInteractOptions: resolvedCreatureInteractOptions);
 
             // ---------------------------------------------------------
             // 3.5) ADR-0013 离散时间模型：TurnScheduler 提前在这里构造（而不是等到第 10 步
@@ -1059,6 +1128,11 @@ namespace Core.Gameplay.Assembly
                 });
 
             resolvedGobjOptions.DialogOpenerWithSource ??= (unitId, gobjInstanceId, dialogRef) => Dialog.OpenGossip(unitId, gobjInstanceId, dialogRef);
+            // ADR-0051：生物侧同一份 Dialog.OpenGossip 接线，npcId 改传 creatureInstanceId——与
+            // gobj 侧完全对称（惟一区别是被交互者实例的类型），见 CreatureInteractOptions.GossipOpener
+            // 判断记录"参数命名对齐 ADR-0044 但如实反映生物实例身份"。
+            resolvedCreatureInteractOptions.GossipOpener ??=
+                (unitId, creatureInstanceId, dialogRef) => Dialog.OpenGossip(unitId, creatureInstanceId, dialogRef);
             resolvedGobjOptions.TeleportResolver ??= _teleportTargetResolver.Resolve;
             // 自动存档槽 id/时间戳来源已在构造函数最前面解析为 RequestAutosave（缺口 16），
             // DialogHost.saveRequested 与本处共用同一份，见该处判断记录。

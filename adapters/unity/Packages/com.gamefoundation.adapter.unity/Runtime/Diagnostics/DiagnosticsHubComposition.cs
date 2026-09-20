@@ -103,6 +103,13 @@ namespace Adapter.Unity.Diagnostics
                 hub.Register("Core.Carriers.Gobj", gobjDiag.Warnings, gobjDiag.Errors);
             }
 
+            // ADR-0051：生物原生交互宿主，与上一条 Core.Carriers.Gobj 并列（同一层面两个 interact
+            // 意图消费者，见 CarriersAssembly.CreatureInteractions 判断记录）。
+            if (gameplay.Carriers.CreatureInteractions.Diagnostics is Core.Carriers.Creature.InMemoryCreatureDiagnostics creatureInteractDiag)
+            {
+                hub.Register("Core.Carriers.Creature", creatureInteractDiag.Warnings, creatureInteractDiag.Errors);
+            }
+
             if (gameplay.Carriers.Equipment.Diagnostics is Core.Carriers.Item.InMemoryItemDiagnostics itemDiag)
             {
                 hub.Register("Core.Carriers.Item", itemDiag.Warnings);

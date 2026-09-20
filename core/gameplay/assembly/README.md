@@ -468,3 +468,17 @@ assembly/
 
 `RulesAssembly`（经 `Carriers.Rules` 可达）新增 `PowerDiagnostics` 只读属性同一批一并补上，见
 `core/rules/assembly/README.md` 判断记录。
+
+## T-N4-4：`GameplayAssembly` 新增带 `CreatureInteractOptions` 的构造重载（ADR-0051）
+
+同上一节惯例——本类型当前"旧"签名构造函数（40 个参数，上一节新增的那个）原样保留、转发新增
+重载（41 个参数，全部不带默认值）并传 `creatureInteractOptions: null`。新增重载内部构造
+`resolvedCreatureInteractOptions = creatureInteractOptions ?? new CreatureInteractOptions()`，
+与既有 `resolvedGobjOptions` 同一惯例——必须在 `Carriers = new CarriersAssembly(...)` 之前就地
+`new` 出来并原样转发给它；随后紧邻既有
+`resolvedGobjOptions.DialogOpenerWithSource ??= (unitId, gobjInstanceId, dialogRef) => ...`
+一行，回填
+`resolvedCreatureInteractOptions.GossipOpener ??= (unitId, creatureInstanceId, dialogRef) =>
+Dialog.OpenGossip(unitId, creatureInstanceId, dialogRef)`——生物侧与场景物件侧共用同一个
+`DialogHost.OpenGossip` 入口，区别只是传入的是生物实例 id 而非场景物件实例 id，对 `DialogHost`
+而言两者都只是"发起打开该菜单的那个 npcId"，不需要 `DialogHost` 感知调用方是哪一类载体。

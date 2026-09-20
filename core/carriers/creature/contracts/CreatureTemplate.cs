@@ -54,6 +54,18 @@ namespace Core.Carriers.Creature
 
         public Id? OnDeathReactionRef { get; }
 
+        /// <summary>ADR-0051：生物原生交互路径——指向 <c>dialog.gossip_menu</c> 的对话菜单引用，
+        /// 供 <c>Core.Carriers.Creature.CreatureInteractionHost.Interact</c> 在 <c>interact</c> 意图
+        /// 直接命中一个生物实例（不必先包装成 <c>gobj.template</c>）时分发使用；<c>null</c>（缺省，
+        /// 既有数据行零改动仍合法）表示该生物当前未配置任何原生可交互内容，交互会记一条诊断，见
+        /// <see cref="Core.Carriers.Creature.CreatureInteractionHost"/> 判断记录。语义与命名对齐
+        /// <c>Core.Carriers.Gobj.GameObjectTemplate</c> 的 <c>on_use: dialog</c> 分支（同一份
+        /// <c>dialog.gossip_menu</c> 表，L3 不引用 L4，登记为软引用，见
+        /// <see cref="Core.Carriers.Creature.CreatureSchemas"/> 判断记录），但不复用 <c>on_use</c>
+        /// 判别联合结构——生物当前只有"对话"一种原生交互结果（不像 gobj 还有 <c>on_use: skill</c>
+        /// 分支），沿用判别联合会引入一个恒定单分支的多余抽象层。</summary>
+        public Id? GossipMenuRef { get; }
+
         private CreatureTemplate(
             Id id,
             Id nameKey,
@@ -69,7 +81,8 @@ namespace Core.Carriers.Creature
             Id displayRef,
             IReadOnlyList<Id> immunities,
             Id? onHitReactionRef,
-            Id? onDeathReactionRef)
+            Id? onDeathReactionRef,
+            Id? gossipMenuRef)
         {
             Id = id;
             NameKey = nameKey;
@@ -86,6 +99,7 @@ namespace Core.Carriers.Creature
             Immunities = immunities;
             OnHitReactionRef = onHitReactionRef;
             OnDeathReactionRef = onDeathReactionRef;
+            GossipMenuRef = gossipMenuRef;
         }
 
         public static CreatureTemplate FromRecord(DataRecord record)
@@ -143,11 +157,12 @@ namespace Core.Carriers.Creature
 
             var onHitReactionRef = record.TryGetId("on_hit_reaction_ref", out var ohr) ? (Id?)ohr : null;
             var onDeathReactionRef = record.TryGetId("on_death_reaction_ref", out var odr) ? (Id?)odr : null;
+            var gossipMenuRef = record.TryGetId("gossip_menu_ref", out var gmr) ? (Id?)gmr : null;
 
             return new CreatureTemplate(
                 id, nameKey, level, tierId, baseStats, statGrowthRef, factionId, npcFlags,
                 aiRotationRef, aiBehaviorRef, lootTableRef, displayRef, immunities,
-                onHitReactionRef, onDeathReactionRef);
+                onHitReactionRef, onDeathReactionRef, gossipMenuRef);
         }
     }
 }
