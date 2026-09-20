@@ -449,6 +449,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.49.0] - 2026-09-20
+
 ### 修复
 
 - **发布产物不可变强制校验（消费方反馈第 8 条根治）**：`build.ps1` 打分发包 `dist/<版本>/`
@@ -472,6 +474,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `adapters/unity` 侧登记为诊断来源 "Core.Gameplay.ProgressionBridge"），两个监听器各自新增
   一个带 `diagnostics` 参数、不带默认值的构造重载（ABI 只新增）。详见
   `core/rules/combat/README.md`/`core/gameplay/progression_bridge/README.md` 判断记录。
+- **消费方反馈同构问题第三处根治：`core/gameplay/loot.CreatureDeathLootListener` 补诊断（不改变
+  任何既有行为）**——`OnUnitDied` 用 `catch (ArgumentException)` 静默跳过死亡单位模板查询失败的
+  分支（未登记的模板 id/记录存在但字段非法），与上一条 `progression_bridge` 那两处监听器同一病灶
+  （用户侧表现"杀怪不掉东西且无任何线索"）。新增最小诊断契约 `ILootDiagnostics`/
+  `InMemoryLootDiagnostics`；`CreatureDeathLootListener` 新增一个带 `diagnostics` 参数、不带
+  默认值的构造重载（ABI 只新增，9 对 10 参）；`GameplayAssembly` 新增只读属性 `LootDiagnostics`
+  转发，`adapters/unity` 侧登记为诊断来源 "Core.Gameplay.Loot"。顺带核实 `catch (ArgumentException)`
+  的覆盖面：区分"未登记"与"字段非法"（含 `DataFieldException` 内层异常）两种成因给出不同诊断
+  消息，不改变"跳过、不外抛"的控制流。详见 `core/gameplay/loot/README.md` 判断记录 19。
 - **复审发现并根治 `sim_coverage_all` 基线漏烘焙 + `check.ps1` 补上 `Added` 阻断**：2026-09-16
   新增测试技能 `skill.sim_review_b_weapon_pct_strike`（提交 `17a66703`）扩大了 coverage 场景的
   统计面，产生了一条从未记录进基线的新增统计量（`coverage.skill.skill
@@ -496,15 +507,6 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （`core/sim/tests/baseline/*.json`）比对零增量差异。`data/_sample/combat/combat.resist_curve.json`
   新增探针样例 `combat.resist.physical_with_floor`（`k0=200`）演示新能力：修正饱和曲线在低等级
   内容里"任意正护甲值都换算出接近封顶减免"的退化区间。ABI 只新增，`breaks=0`。
-- **消费方反馈同构问题第三处根治：`core/gameplay/loot.CreatureDeathLootListener` 补诊断（不改变
-  任何既有行为）**——`OnUnitDied` 用 `catch (ArgumentException)` 静默跳过死亡单位模板查询失败的
-  分支（未登记的模板 id/记录存在但字段非法），与上一条 `progression_bridge` 那两处监听器同一病灶
-  （用户侧表现"杀怪不掉东西且无任何线索"）。新增最小诊断契约 `ILootDiagnostics`/
-  `InMemoryLootDiagnostics`；`CreatureDeathLootListener` 新增一个带 `diagnostics` 参数、不带
-  默认值的构造重载（ABI 只新增，9 对 10 参）；`GameplayAssembly` 新增只读属性 `LootDiagnostics`
-  转发，`adapters/unity` 侧登记为诊断来源 "Core.Gameplay.Loot"。顺带核实 `catch (ArgumentException)`
-  的覆盖面：区分"未登记"与"字段非法"（含 `DataFieldException` 内层异常）两种成因给出不同诊断
-  消息，不改变"跳过、不外抛"的控制流。详见 `core/gameplay/loot/README.md` 判断记录 19。
 - **`ISkillHost` 契约新增已知技能查询/学习成员，根治消费方反馈"契约缺口"（
   [ADR-0050](architecture/adr/0050-技能宿主契约纳入技能簿查询与学习成员.md)）**：`Knows`/
   `GetKnownSkills`/`LearnSkill(Id,Id)`/`LearnFromBook` 四个成员此前只在具体实现类
@@ -552,6 +554,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   两条反馈均为纯加法：全部既有 `quest.def`/`skill.def`/`gobj.template` 数据行零改动仍合法，
   全部既有公开签名（含 `ActionBarPanel.Construct`）保持不变，新增能力一律走新重载/新增
   成员落地。
+
+### 文档
+
+- **审计证据生成物出库**：`architecture/落地计划/audit-*/` 下历次审计留存的一次性构建/测试
+  日志、命令原始输出、测试结果 xml、哈希/lock 快照、exit 码、diff patch 等生成物 `git rm`
+  720 个文件（约 20.74MB），配套 `.gitignore` 新增规则拦截同类文件今后再次入库；结论性 `.md`
+  文档与复现工程输入（`.cs`/`.csproj`/`.ps1`/`.py`/`.asmdef`/`.props`/`.meta`）不受影响。
+- **`AGENTS.md` §4/§7 补回归分级唯一口径**：§4 用"回归分级"替换此前"每次改动都全量"的旧
+  条款——日常切片只跑自身运行时冒烟 + 直接波及模块的定向重跑，全量回归（G1 的 `dotnet test`/
+  `pytest`/三套数据根全量、G2 的 `check.ps1 -Quick` 全量）只在里程碑收口、升级框架/依赖版本、
+  改生产装配入口或多模块共享数据三种时刻跑，执行 agent 不得为"再确认一次"自行追加；§7 明确
+  独立验收 agent 只在里程碑收口时派一次，文档类、登记类提交不派验收。
+- **新增 `REGRESSION_LOG.md` 记录全量回归结果**：只记录全量回归（对应 §4 三种时刻）的
+  `run_id`/通过或失败/对应提交 sha/日期，每轮只追加一行不改历史行；日常切片的定向重跑不记录
+  在此，落在各自提交信息与模块 README"判断记录"里。
 
 ## [1.48.0] - 2026-09-20
 
