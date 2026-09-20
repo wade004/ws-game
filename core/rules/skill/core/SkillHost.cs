@@ -844,6 +844,24 @@ namespace Core.Rules.Skill
         // toolchain/abi_surface 逐字节比对误判为一处 breaking change。
         Id? ISkillHost.GetSkillNameKey(Id skillId) => GetSkillNameKey(skillId);
 
+        // -----------------------------------------------------------------
+        // 消费方反馈第三批第 3 条（2026-09-21，见
+        // architecture/adr/0058-技能宿主契约纳入光环查询与效果落地出口.md）：ISkillHost 显式接口
+        // 实现，AuraQuery/EffectSink 两个公开属性
+        // -----------------------------------------------------------------
+        //
+        // 判断记录：这两个公开属性面临与上面 GetKnownSkills/Knows/LearnSkill/LearnFromBook/
+        // GetSkillNameKey 完全相同的处境——若让它们直接隐式满足新增的 ISkillHost 同名成员，编译器
+        // 会把它们的物理 IL 属性从普通实例属性访问器改写成 virtual sealed，被 toolchain/abi_surface
+        // 按物理签名比对误判为两处 breaking change。因此同样改用显式接口实现（下面两行），既有公开
+        // 属性 AuraQuery/EffectSink 的物理签名/行为逐字节不变，新增的显式接口实现属性本身是 IL
+        // private 成员，不计入 abi_surface 的表面成员——新增的表面只在 ISkillHost 接口本身（默认
+        // 接口成员），breaks=0。InterfaceDefaultMemberForwardingTests 门禁经 Type.GetInterfaceMap
+        // 判定，显式接口实现的目标访问器 DeclaringType 是 SkillHost 本身，同样能正确识别为"已转发"。
+        IAuraQuery? ISkillHost.AuraQuery => AuraQuery;
+
+        IEffectSink? ISkillHost.EffectSink => EffectSink;
+
         /// <summary>
         /// N07 收边补齐（外部审计 68c9bed，P2）：只返回当前由 <see cref="PermanentGrantSource"/>
         /// 哨兵来源授予的已知技能——供 <see cref="KnownSkillsPersistable.Save"/> 使用，取代此前的

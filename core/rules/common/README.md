@@ -204,6 +204,23 @@ common/
     `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理同样补上这一个
     成员的显式转发。详见 `core/rules/skill/README.md` 判断记录 59。
 
+13. **ADR-0058《技能宿主契约纳入光环查询与效果落地出口》：`ISkillHost` 新增 `AuraQuery`/
+    `EffectSink` 两个 C#8 默认接口成员，均按"只读查询"口径默认降级为 `null`**（消费方反馈第三批
+    第 3 条：这两个已经接口化的出口此前只在具体类 `Core.Rules.Skill.SkillHost` 上以公开属性形式
+    存在，面向接口编程做不到）：
+    - 两者都是属性 getter，只回答"能不能拿到这个出口"，getter 自身不产生副作用、不推进任何
+      状态；即便 `IEffectSink` 自身持有写方法，那是 `IEffectSink` 接口自身的职责边界，不是本
+      getter 的职责——因此两者统一按"只读查询允许显式降级"惯例处理，不套用判断记录 11 里写
+      路径那一档"默认实现禁止静默降级、必须抛异常"的口径（详见 ADR-0058"与 ADR-0050 的关系"
+      一节）。
+    - 生产实现 `Core.Rules.Skill.SkillHost` 既有的同名公开属性 `AuraQuery`/`EffectSink` 签名/
+      行为逐字不变，新增两个**显式接口实现**（`IAuraQuery? ISkillHost.AuraQuery => AuraQuery;`
+      等）转发，不用隐式实现——理由与判断记录 11/12 相同：隐式实现会把既有公开属性的物理 IL
+      属性从普通实例访问器改写成 `virtual sealed`，被 `toolchain/abi_surface` 误判为破坏。
+    - `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理同样补上这两个
+      成员的显式转发，见 `core/rules/assembly/README.md` 同一判断记录。详见
+      `core/rules/skill/README.md` 判断记录 60。
+
 ## 不负责什么
 
 - 不实现施法管线、结算管线、仇恨表、行为外壳状态机等任何具体算法——那些是 skill/combat/ai 各自

@@ -227,5 +227,49 @@ namespace Core.Rules.Common
         /// </para>
         /// </summary>
         Id? GetSkillNameKey(Id skillId) => null;
+
+        // -----------------------------------------------------------------
+        // 光环查询与效果落地出口（消费方反馈第三批第 3 条，2026-09-21，见
+        // architecture/adr/0058-技能宿主契约纳入光环查询与效果落地出口.md）：生产实现
+        // Core.Rules.Skill.SkillHost 已经以公开只读属性形式暴露同类型的 AuraQuery/EffectSink
+        // （分别返回内部 AuraHost/EffectDispatcher），但两者此前均未提升到本契约——只持有
+        // ISkillHost 引用的调用方拿不到，必须向下转型或直接持有具体类 SkillHost。
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 光环状态的只读查询出口（见 <see cref="IAuraQuery"/>）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回 <c>null</c>——属性 getter 本身只转发一个既有引用，
+        /// 不产生任何副作用、不推进任何状态，是只读查询，返回一个明确的保守默认值，语义是"该宿主
+        /// 实现不提供独立的光环查询出口"，与 <see cref="Knows"/>/<see cref="GetKnownSkills"/>/
+        /// <see cref="GetSkillNameKey"/> 既有的"查询类默认实现允许显式降级"惯例一致，供未实现本
+        /// 能力的 <see cref="ISkillHost"/>（旧版本编译产物、未升级的自定义实现）源码/二进制兼容。
+        /// 生产实现 <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到既有公开属性
+        /// <c>AuraQuery</c>（行为不变；不用隐式实现是刻意的——隐式实现会把既有公开属性的物理 IL
+        /// 属性从普通实例访问器改写成 <c>virtual sealed</c>，被 <c>toolchain/abi_surface</c> 静态
+        /// 签名比对误判为破坏，同 <see cref="Knows"/>/<see cref="GetSkillNameKey"/> 判断记录"ISkillHost
+        /// 显式接口实现"一节）。任何组合/包装 <see cref="ISkillHost"/>（若存在）都应显式转发到内层
+        /// 实现，不应悄悄吃掉这个降级默认值——同 <see cref="GetSkillReadiness"/> 判断记录"框架内
+        /// InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        IAuraQuery? AuraQuery => null;
+
+        /// <summary>
+        /// 效果落地出口（见 <see cref="IEffectSink"/>），供施加/移除光环等写操作使用。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现同样恒返回 <c>null</c>——注意本成员回答的是"能不能拿到这个
+        /// 出口"这一只读问题（属性 getter 本身不写任何状态），与 <see cref="LearnSkill"/>/
+        /// <see cref="LearnFromBook"/> 那种"接口成员本身就是写路径、默认实现必须避免制造假成功"的
+        /// 情形不同：<see cref="IEffectSink"/> 自身的写方法（<c>ApplyAura</c>/<c>RemoveAura</c>/
+        /// <c>ApplyEffect</c>）不受本决策影响——调用方判空后若拿到非 <c>null</c> 引用，后续经该
+        /// 引用发起的写操作走的是 <see cref="IEffectSink"/> 实现自身的语义；本成员仍按查询类成员的
+        /// 显式降级惯例处理，不套用"写路径默认实现禁止静默降级、必须抛异常"的口径。生产实现
+        /// <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到既有公开属性 <c>EffectSink</c>
+        /// （理由同 <see cref="AuraQuery"/>）。任何组合/包装 <see cref="ISkillHost"/> 都应显式转发，
+        /// 不应悄悄吃掉这个降级默认值。
+        /// </para>
+        /// </summary>
+        IEffectSink? EffectSink => null;
     }
 }

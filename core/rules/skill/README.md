@@ -1386,6 +1386,35 @@ skill/
     是纯只读展示查询，默认恒返回 `null` 即可（不需要区分"查询/写路径"两套口径），不产生
     `Knows`/`GetKnownSkills` 那种"默认值会被后续写路径检测出不一致"的问题。
 
+60. **ADR-0058《技能宿主契约纳入光环查询与效果落地出口》：`AuraQuery`/`EffectSink` 提升为
+    `Core.Rules.Common.ISkillHost` 契约成员**（消费方反馈第三批第 3 条，2026-09-21）：本类型
+    既有的两个同名公开属性——
+
+    ```
+    public IEffectSink EffectSink => _effectDispatcher;
+    public IAuraQuery AuraQuery => _auraHost;
+    ```
+
+    此前只在本类型上，面向接口编程拿不到。同判断记录 58/59 一样的处理口径：`ISkillHost` 新增
+    `IAuraQuery? AuraQuery`/`IEffectSink? EffectSink` 两个带默认实现的接口成员（均默认降级为
+    `null`——两者都是属性 getter，不产生副作用，统一按"只读查询允许显式降级"惯例，不套用
+    判断记录 58 里 `LearnSkill`/`LearnFromBook` 那种写路径口径，详见该 ADR"决策 2"），本类型
+    既有两个公开属性物理签名/行为逐字不变，新增两个**显式接口实现**：
+
+    ```
+    IAuraQuery? ISkillHost.AuraQuery => AuraQuery;
+    IEffectSink? ISkillHost.EffectSink => EffectSink;
+    ```
+
+    不用隐式实现——理由同判断记录 58/59：隐式实现会把既有公开属性的物理 IL 属性从普通实例
+    访问器改写成 `virtual sealed`，触发 `toolchain/abi_surface` 误报。详见
+    `core/rules/common/README.md` 判断记录 13、`core/rules/assembly/README.md`
+    `DeferredSkillCastQuery` 显式转发说明。测试：
+    `core/rules/skill/tests/ISkillHostAuraQueryEffectSinkContractTests.cs`（新增）——主验收用例
+    全程只经 `ISkillHost` 接口引用取 `EffectSink` 施加光环、再经 `AuraQuery` 观测
+    `HasAura`/`GetStacks` 从 `false`/`0` 变为 `true`/`1`；另两例钉住默认实现降级为 `null`
+    且不抛异常。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

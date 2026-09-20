@@ -98,6 +98,14 @@ Real.InstanceReplaced += value; remove => Real.InstanceReplaced -= value;` 同�
 技能"/"学习恒失败"，不会真正转发到 `Real`（真实 `SkillHost`）。本类已为四者都写了显式转发，见其
 源码判断记录。
 
+**ADR-0058（技能宿主契约纳入光环查询与效果落地出口）收口：`DeferredSkillCastQuery` 新增
+`AuraQuery`/`EffectSink` 两个成员同样必须显式转发**——同上一条判断记录同一种陷阱：`ISkillHost`
+新增的 `AuraQuery`/`EffectSink` 两个 C#8 默认接口成员均默认降级为 `null`（消费方反馈第三批第 3
+条"这两个已经接口化的出口只在具体类 `SkillHost` 上，面向接口编程做不到"，见该 ADR），
+`DeferredSkillCastQuery` 本身也是 `ISkillHost` 的具体实现——不显式覆盖就会被自己的默认接口实现
+接住，绑定完成后经代理读取这两个属性仍会恒得到 `null`，不会真正转发到 `Real`（真实
+`SkillHost`）已经能提供的光环查询/效果落地出口。本类已为两者都写了显式转发，见其源码判断记录。
+
 ## tick 阶段挂载表
 
 | `TickPhase` | 处理器 | 驱动 |
