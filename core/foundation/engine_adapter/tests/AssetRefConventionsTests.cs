@@ -209,5 +209,59 @@ namespace Tests.Foundation.EngineAdapter
         // 作为防御性代码，但无法通过一个合法构造出来的 Id 触发单测——Id 的构造函数本身要求至少一个
         // 点号（见 Id.FormatRegex），不满足格式的字符串在到达本方法之前已经在 new Id(...) 处抛出
         // ArgumentException（同 AssetRefConventions.StripCategoryPrefix 类型注释"理论不应发生"）。
+
+        // 消费方反馈第 75 条（ADR-0053）：以下用例与 toolchain/tests/test_ref_conventions.py 对应
+        // 函数使用同一组输入/期望字符串，两侧各自独立实现、互相不调用（同本文件类型顶部"跨语言对照"
+        // 判断记录）；两侧是否实际算出同一个值另有一组更强的跨语言一致性测试，见
+        // toolchain/tests/test_ref_conventions.py 里经 toolchain/map_ref_probe 子进程对照的用例
+        // （本文件所在语言运行时无法直接调用 Python，不在本文件内重复该项）。
+
+        [Theory]
+        [InlineData("world.sample_field", "maps/sample_field")]
+        [InlineData("world.another_map", "maps/another_map")]
+        public void MapDirectory_MatchesMapCmdPyOutDir(string mapId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.MapDirectory(new Id(mapId)));
+        }
+
+        [Theory]
+        [InlineData("world.sample_field", "maps/sample_field/ground.png")]
+        [InlineData("world.another_map", "maps/another_map/ground.png")]
+        public void MapGroundFile_MatchesMapCmdPyOutputPath(string mapId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.MapGroundFile(new Id(mapId)));
+        }
+
+        [Theory]
+        [InlineData("world.sample_field", "maps/sample_field/overlay.png")]
+        public void MapOverlayFile_MatchesMapCmdPyOutputPath(string mapId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.MapOverlayFile(new Id(mapId)));
+        }
+
+        [Theory]
+        [InlineData("world.sample_field", "maps/sample_field/decal.png")]
+        public void MapDecalFile_MatchesMapCmdPyOutputPath(string mapId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.MapDecalFile(new Id(mapId)));
+        }
+
+        [Theory]
+        [InlineData("world.sample_field", "maps/sample_field/nav_hint.png")]
+        public void MapNavHintFile_MatchesMapCmdPyOutputPath(string mapId, string expected)
+        {
+            Assert.Equal(expected, AssetRefConventions.MapNavHintFile(new Id(mapId)));
+        }
+
+        [Fact]
+        public void MapLayerFiles_AllShareMapDirectoryAsCommonPrefix()
+        {
+            var mapId = new Id("world.sample_field");
+            var directory = AssetRefConventions.MapDirectory(mapId);
+            Assert.Equal(directory + "/ground.png", AssetRefConventions.MapGroundFile(mapId));
+            Assert.Equal(directory + "/overlay.png", AssetRefConventions.MapOverlayFile(mapId));
+            Assert.Equal(directory + "/decal.png", AssetRefConventions.MapDecalFile(mapId));
+            Assert.Equal(directory + "/nav_hint.png", AssetRefConventions.MapNavHintFile(mapId));
+        }
     }
 }
