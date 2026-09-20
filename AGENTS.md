@@ -62,6 +62,18 @@
   就代表 Unity 看到的也是最新"。详见
   `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md` 追加节。
 - Unity 只允许通过 `build.ps1`/`check.ps1` 以 `-batchmode` 方式调用，不直接手工开 Unity 编辑器操作工作树。
+- **不要在深层 scratchpad 工作树里跑 Unity 测试步骤**（EditMode/PlayMode/独立版构建/消费方演练）：
+  `git worktree add` 到系统临时目录下的工作树，根路径比主检出深很多，`GameTemplateResidentTests.
+  ResidentRunner_DatasetRootOverride_LoadsProbeTable_FromOverrideRootOnly` 用例运行期会把
+  `data/game` 整棵目录树复制到 StreamingAssets 下一个带 32 位十六进制 GUID 的新目录，工作树根
+  一深，复制出来的文件绝对路径就可能超过 Windows 260 字符 MAX_PATH——而 Mono/.NET 旧式路径 API
+  在这种情况下抛的是 `DirectoryNotFoundException` 而不是 `PathTooLongException`，症状会伪装成
+  "目录没建出来"，极易被误判为产品缺陷。`check.ps1` 已在 Unity 相关四步入口加了
+  `Test-UnityWorkingTreePathLength` 快速失败守卫（`toolchain/_unity_path_length_guard.ps1`），
+  超阈值会在跑任何 Unity 批处理之前直接报错终止并给出根路径长度/预估最长路径/怎么办；但更省
+  时间的做法是根本不在深层工作树里跑这几步——Unity 侧验证交主会话在主检出（`D:\workespace\
+  ws-game`）跑，或临时用路径足够短的工作树；工作树内跑 `check.ps1 -Quick`（隐含 `-SkipUnity`）
+  等非 Unity 步骤不受影响。
 - **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。
 - **G2**：`check.ps1 -Quick` 全 PASS。
 - **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -BaselineZip "dist\ws-game-<上一版>.zip" -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。
