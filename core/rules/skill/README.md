@@ -1357,6 +1357,24 @@ skill/
     互不干扰的缓存槛位（`PeriodicCacheCount == 2`），来源注销后各自冻结在自己的值上，不被另一条
     覆盖。
 
+58. **ADR-0050《技能宿主契约纳入技能簿查询与学习成员》：`Knows`/`GetKnownSkills`/
+    `LearnSkill(Id,Id)`/`LearnFromBook` 提升为 `Core.Rules.Common.ISkillHost` 契约成员**——
+    消费方反馈这四个能力此前只在本类型（技能宿主组合根）上，面向接口编程做不到（`core/carriers/
+    item/contracts/SkillGranter.cs` 注释此前也自认这是"契约缺口"）。四个成员在 `ISkillHost` 上
+    以带默认实现的接口成员形式新增（只读查询默认降级为 `false`/空列表，写路径默认抛
+    `NotSupportedException`，不静默降级，见该接口成员判断记录），本类型既有的四个同名公开方法
+    签名/行为逐字不变；新增四个**显式接口实现**（如
+    `IReadOnlyList<Id> ISkillHost.GetKnownSkills(Id unitId) => GetKnownSkills(unitId);`）转发到
+    这四个既有公开方法，**不用隐式实现**——判断记录：隐式实现会把既有公开方法的物理 IL 属性从
+    普通实例方法改写成 `virtual sealed`，被 `toolchain/abi_surface` 判定为四处签名破坏（即便
+    `toolchain/abi_probe.ps1` 的旧编译 consumer 换新 DLL 不重编译实测运行正常，静态签名比对仍会
+    误报），改用显式接口实现后既有公开方法物理签名逐字节不变、显式接口实现方法本身不计入表面
+    成员，`breaks=0`。`LearnSkill` 另外三个重载（带来源/带永久标记）与 `ForgetSkill`/
+    `ForgetAllPermanentGrants`/
+    `GetPermanentlyKnownSkills` 均未被消费方点名，不在本次收口范围，继续只是本类型的补充公开
+    方法。详见 `core/rules/common/README.md` 判断记录 11、`core/rules/assembly/README.md`
+    `DeferredSkillCastQuery` 显式转发说明。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

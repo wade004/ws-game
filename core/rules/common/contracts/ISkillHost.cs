@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
@@ -122,5 +123,84 @@ namespace Core.Rules.Common
                 nextChargeRemaining: null,
                 effectiveCooldownDuration: null);
         }
+
+        // -----------------------------------------------------------------
+        // 技能簿：已知技能查询与学习（ADR-0050《技能宿主契约纳入技能簿查询与学习成员》）
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 补充（消费方反馈"<c>ISkillHost</c> 缺 <c>GetKnownSkills</c>/<c>LearnSkill</c>/
+        /// <c>LearnFromBook</c>/<c>Knows</c>，这些能力只在具体类 <c>SkillHost</c> 上，面向接口编程
+        /// 做不到"，见 ADR-0050）：某单位是否已知某技能（任一授予来源即算已知，不区分永久学习/装备
+        /// 临时授予——与 <c>Core.Rules.Skill.SkillHost.Knows</c> 现有语义一致）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回 <c>false</c>——语义是"该宿主不维护已知技能账本/不支持
+        /// 技能簿"，供未实现本能力的 <see cref="ISkillHost"/>（旧版本编译产物、未升级的自定义实现）
+        /// 源码/二进制兼容，新增接口成员不破坏既有实现类的编译。这是只读查询，返回一个明确的保守
+        /// 默认值（同 <see cref="GetSkillReadiness"/>/<see cref="FindUnits"/> 既有的"查询类默认实现允许
+        /// 显式降级"惯例），不违反"运行时路径不静默降级"（该硬性规则约束的是会产生副作用/被误当作
+        /// 成功的写路径，见本节 <see cref="LearnSkill"/>/<see cref="LearnFromBook"/> 判断记录的对照）。
+        /// 生产实现 <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到既有公开方法 <c>Knows</c>
+        /// （行为不变；不用隐式实现是刻意的——见该类型"ISkillHost 显式接口实现"一节判断记录：隐式
+        /// 实现会改写既有公开方法的物理签名，被 ABI 探针判定为破坏）。任何组合/包装
+        /// <see cref="ISkillHost"/>（若存在）都应显式转发到内层实现，不应悄悄吃掉
+        /// 这个降级默认值——同 <see cref="GetSkillReadiness"/> 判断记录"框架内
+        /// InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        bool Knows(Id unitId, Id skillId) => false;
+
+        /// <summary>
+        /// 补充（见 <see cref="Knows"/> 判断记录同一条消费方反馈）：某单位当前全部已知技能（任一来源，
+        /// 按 id 升序排列——与 <c>Core.Rules.Skill.SkillHost.GetKnownSkills</c> 现有语义与排序一致）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回空列表——与 <see cref="Knows"/> 同一套"该宿主不支持
+        /// 技能簿"降级语义，只读查询允许显式降级，不违反"运行时路径不静默降级"。生产实现
+        /// <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到既有公开方法（同 <see cref="Knows"/>
+        /// 判断记录）。组合/包装实现同 <see cref="Knows"/> 判断记录，必须显式转发。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<Id> GetKnownSkills(Id unitId) => Array.Empty<Id>();
+
+        /// <summary>
+        /// 补充（见 <see cref="Knows"/> 判断记录同一条消费方反馈）：不带来源的学习——归属宿主自己的
+        /// 永久授予哨兵来源（与 <c>Core.Rules.Skill.SkillHost.LearnSkill(Id,Id)</c> 现有语义一致，
+        /// 该方法多次调用幂等）。
+        /// <para>
+        /// C# 8 默认接口成员：与 <see cref="Knows"/>/<see cref="GetKnownSkills"/> 不同——本方法是
+        /// <b>写</b>路径（要求宿主真正记住"这个单位学会了这个技能"这一状态变化），"该宿主不支持技能簿"
+        /// 时默认实现<b>不能</b>悄悄退化成"什么也不做但看起来成功"的 no-op（AGENTS.md §3"运行时路径
+        /// 不静默降级"——该规则明确区分"只读分析类入口"与写路径，只允许前者显式标记降级，本方法属于
+        /// 后者）：调用方据此得到的错觉是"已经学会"，但后续 <see cref="Knows"/>/<see cref="GetKnownSkills"/>
+        /// 查询不到——这正是"看似接入了、实际上悄悄失效"的陷阱（同 <c>core/rules/assembly/README.md</c>
+        /// C03/C08 收口判断记录对同类陷阱的定性）。因此默认实现改为抛出
+        /// <see cref="NotSupportedException"/>，明确告知调用方"这个宿主实现没有技能簿能力"，而不是
+        /// 制造一个静默失败的假成功。生产实现 <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到
+        /// 既有公开方法（行为不变，从不落到本默认实现；同 <see cref="Knows"/> 判断记录，不用隐式实现
+        /// 是为了不改写既有公开方法的物理签名）。任何组合/包装 <see cref="ISkillHost"/>（若存在）
+        /// 都必须显式转发到内层实现，不能依赖本默认实现的隐式兜底。
+        /// </para>
+        /// </summary>
+        void LearnSkill(Id unitId, Id skillId) =>
+            throw new NotSupportedException(
+                "ISkillHost.LearnSkill 默认实现不支持技能簿——本宿主未提供真正的已知技能账本，" +
+                "需要一个显式实现了该成员的 ISkillHost（如 Core.Rules.Skill.SkillHost）。");
+
+        /// <summary>
+        /// 补充（见 <see cref="Knows"/> 判断记录同一条消费方反馈）：按 <c>skill.book</c> 的等级映射
+        /// 学习技能——学习全部 <c>entries[].level &lt;= level</c> 的技能（与
+        /// <c>Core.Rules.Skill.SkillHost.LearnFromBook</c> 现有语义一致）。
+        /// <para>
+        /// C# 8 默认接口成员：与 <see cref="LearnSkill"/> 同一套"写路径不静默降级"判断记录——默认实现
+        /// 抛出 <see cref="NotSupportedException"/>，不悄悄什么也不学、让调用方误以为技能书已经生效。
+        /// 生产实现 <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到既有公开方法（行为不变，
+        /// 同 <see cref="Knows"/> 判断记录）。任何组合/包装 <see cref="ISkillHost"/>（若存在）都必须
+        /// 显式转发到内层实现。
+        /// </para>
+        /// </summary>
+        void LearnFromBook(Id unitId, Id bookId, int level) =>
+            throw new NotSupportedException(
+                "ISkillHost.LearnFromBook 默认实现不支持技能簿——本宿主未提供真正的已知技能账本，" +
+                "需要一个显式实现了该成员的 ISkillHost（如 Core.Rules.Skill.SkillHost）。");
     }
 }

@@ -4,10 +4,15 @@ namespace Core.Carriers.Item
 {
     /// <summary>
     /// 装备联动"授予/撤销主动技能"的具名委托（见 07 第 1.4 节"按 grants.skills 加入可用技能
-    /// 集合"）。<see cref="Core.Rules.Common.ISkillHost"/> 契约缺口：没有 <c>LearnSkill</c>/
-    /// <c>ForgetSkill</c> 一类方法（见 <c>core/rules/skill</c> README 的 <c>SkillBook</c> 相关内容，
-    /// 该能力目前只在具体 <c>SkillHost</c> 实现里，未提升到共享契约——本模块用委托绕过，见任务书
-    /// "契约缺口用模块内委托绕过并汇报"）。<see cref="EquipmentHost"/> 构造时注入一个把真实
+    /// 集合"）。<see cref="Core.Rules.Common.ISkillHost"/> 此前的契约缺口（没有
+    /// <c>LearnSkill</c>/<c>ForgetSkill</c> 一类方法，该能力当时只在具体 <c>SkillHost</c> 实现里、
+    /// 未提升到共享契约）已由 ADR-0050《技能宿主契约纳入技能簿查询与学习成员》补齐——但 ADR-0050
+    /// 只收口了 <c>Knows</c>/<c>GetKnownSkills</c>/<c>LearnSkill(Id,Id)</c>/<c>LearnFromBook</c>
+    /// 这四个消费方点名缺失的成员，不含本委托实际依赖的带来源版本
+    /// <c>LearnSkill(Id,Id,Id,bool)</c>/<c>ForgetSkill(Id,Id,Id)</c>（装备按来源做引用计数，见下方
+    /// <paramref name="sourceId"/> 判断记录，这两个重载未被消费方点名、暂不在本轮收口范围）——本
+    /// 委托继续作为这部分残余缺口的绕行手段，未来若这两个带来源重载也提升到共享契约，本委托可以
+    /// 直接改用接口调用替代。<see cref="EquipmentHost"/> 构造时注入一个把真实
     /// <c>SkillHost.LearnSkill</c>/<c>ForgetSkill</c>（阶段 3 整理补齐，见 <c>CarriersAssembly</c>）
     /// 适配成本委托签名的闭包；<paramref name="learn"/> 为 true 时学习，false 时遗忘。
     /// <para>

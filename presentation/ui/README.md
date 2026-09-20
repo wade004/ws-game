@@ -70,9 +70,13 @@ unit.<id>.stat.<statId>
 
 ## 已知契约缺口
 
-- `SkillHost.GetKnownSkills` 不在 `ISkillHost` 契约上（是具体类 `Core.Rules.Skill.SkillHost` 的
-  公开方法），本模块定义窄接口 `ISkillBookQuery` + 适配器 `SkillHostSkillBookQuery` 收敛依赖，
-  测试用内存 Fake 替代，不必搭建 `SkillHost` 的完整构造依赖链。
+（已解决，ADR-0050，2026-09-20）此前"`SkillHost.GetKnownSkills` 不在 `ISkillHost` 契约上（是具体类
+`Core.Rules.Skill.SkillHost` 的公开方法）"——`ISkillHost` 现已补 `GetKnownSkills`/`Knows`/
+`LearnSkill`/`LearnFromBook` 四个默认接口成员（见 `core/rules/common/README.md` 判断记录 11）；
+`SkillHostSkillBookQuery` 已新增接受 `ISkillHost` 的构造函数重载。本模块仍保留窄接口
+`ISkillBookQuery` + 适配器 `SkillHostSkillBookQuery`（UI 侧仍不需要 `ISkillHost` 其余大部分成员，
+窄接口收敛依赖的价值不因宿主契约补齐而消失），测试仍可用内存 Fake 替代。
+
 （已解决，缺口 4）此前"没有宿主契约暴露'动作条槽位 → 技能 id'绑定查询"——G1 补了
 `Core.Carriers.Unit.ISkillBindingHost`（`player.skill_bindings` 运行期查询/写入），
 `ActionBarViewModel` 已改用它替代 `Func<int, Id?>` 注入委托；`UiIntents` 新增

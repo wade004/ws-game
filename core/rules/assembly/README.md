@@ -89,6 +89,15 @@ rules.RegisterUnit(playerId, classId: new Id("arch.class.sample_a"), raceId: nul
 Real.InstanceReplaced += value; remove => Real.InstanceReplaced -= value;` 同理），与既有全部
 成员"逐一转发，不使用反射/动态代理"的惯例一致。
 
+**ADR-0050（技能宿主契约纳入技能簿查询与学习成员）收口：`DeferredSkillCastQuery` 新增成员同样
+必须显式转发**——同上一条 `DeferredAuraQuery` 的判断记录同一种陷阱：`ISkillHost` 新增的
+`Knows`/`GetKnownSkills`/`LearnSkill(Id,Id)`/`LearnFromBook` 四个 C#8 默认接口成员分别默认降级
+为 `false`/空列表/抛 `NotSupportedException`（消费方反馈"这些能力只在具体类 `SkillHost` 上，面向
+接口编程做不到"，见该 ADR），`DeferredSkillCastQuery` 本身也是 `ISkillHost` 的具体实现——不显式
+覆盖就会被自己的默认接口实现接住，绑定完成后经代理调用这四个成员仍会分别得到"查不到任何已知
+技能"/"学习恒失败"，不会真正转发到 `Real`（真实 `SkillHost`）。本类已为四者都写了显式转发，见其
+源码判断记录。
+
 ## tick 阶段挂载表
 
 | `TickPhase` | 处理器 | 驱动 |
