@@ -67,6 +67,12 @@ namespace Core.Rules.Combat
     /// 曲线 entries 单调"）：<c>max_reduction</c> 落在 [0,1]；<c>kind=table</c> 时 <c>entries</c>
     /// 非空且按 <c>value</c> 严格递增、<c>reduction</c> 不递减；<c>kind=saturation</c> 时 <c>k</c>
     /// 必须提供且为正数。
+    /// <para>
+    /// 判断记录（ADR-0049 新增 <c>k0</c> 截距字段）：<c>k0</c> 不在本规则新增强制校验——它是分母的
+    /// 截距项，可正可负（负值收窄曲线、正值抬高门槛），本身没有"必须为正"这类业务约束；<c>K</c>×
+    /// <c>attackerLevel</c>＋<c>K0</c> 分母非正时 <see cref="ResistCurve.ComputeReduction"/>
+    /// 已有的"denom &lt;= 0 → 0"兜底沿用不变，不需要在数据校验阶段额外拦截。
+    /// </para>
     /// </summary>
     public sealed class CombatResistCurveValidationRule : IValidationRule
     {

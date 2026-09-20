@@ -19,6 +19,14 @@
         { "value": 300, "reduction": 0.6 }
       ],
       "max_reduction": 0.75
+    },
+    {
+      "id": "combat.resist.physical_with_floor",
+      "school": "school.physical",
+      "kind": "saturation",
+      "k": 20,
+      "k0": 200,
+      "max_reduction": 0.75
     }
   ]
 }
