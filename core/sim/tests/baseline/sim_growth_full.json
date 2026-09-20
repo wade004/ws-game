@@ -2,8 +2,8 @@
   "schema_version": 1,
   "scenario_id": "sim.scenario.sim_growth_full",
   "kind": "growth",
-  "dataset_fingerprint": "c9f7732cc6ec4604",
-  "generated_with_version": "1.35.0",
+  "dataset_fingerprint": "ec6efd5998767e7a",
+  "generated_with_version": "1.48.0",
   "seed": 20260916,
   "stats": {
     "growth.L1.gold": 226.4,

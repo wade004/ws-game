@@ -85,7 +85,15 @@
 - **G2**：`check.ps1 -Quick` 全 PASS。
 - **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -BaselineZip "dist\ws-game-<上一版>.zip" -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。
 - **G4**：模块 README 的"判断记录" + `CHANGELOG.md` `[Unreleased]` 段新增条目——除非派单说明本次改动由后续整合单统一写变更记录。
-- 涉及仿真相关改动，三份基线要零差异（`simrunner run --scenario all …`）。
+- 涉及仿真相关改动，三份基线要零差异（`simrunner run --scenario all …`）。**`Added`（基线里从未
+  记录过的统计量）也算差异**，不是只看 `Exceeded`/`Removed`：`simrunner` 自身退出码 0 只承诺
+  "无 Exceeded/Removed"（契约见 `core/sim/README.md`"命令行入口"一节），不把 `Added` 算作阻断，
+  `check.ps1`"6b. 数值仿真基线比对"步骤此前只看这个退出码，2026-09-16 一次新增测试技能漏烘焙
+  coverage 基线的 `Added` 差异因此在 31/31 全 PASS 下潜伏了 4 天、跨两次发布才被复审发现——
+  **"31 步全 PASS"不等于"三份基线零差异"**，这是此前的认知错误，成因是门禁判据比这条规则字面
+  更松。现已在 `check.ps1` 该步骤里额外解析场景摘要行的 `added=<n>` 字段强制拦截（不改
+  `simrunner` 退出码语义，理由见 `core/sim/README.md`"T-N6-7 判断记录"57），今后确有新增探针/
+  技能导致的合法 `Added`，必须同一提交按"基线更新流程"重新烘焙，不能留待下次顺手处理。
 
 ## 5. 发布单专用
 

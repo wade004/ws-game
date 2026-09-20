@@ -948,11 +948,17 @@ if ($Quick) {
         try {
             # 判断记录同 Test-NativeExitCode 函数头：局部降级 $ErrorActionPreference，避免
             # SimRunner 任何一行 stderr 输出被脚本级 "Stop" 偏好提升成终止性异常，吞掉后续的
-            # diff 文件打印逻辑；`| Out-Host` 直接写宿主，不进入本 scriptblock 的返回值管道
-            # （同 Test-NativeExitCode 判断记录，避免 F1 一类"泄漏输出污染判定"回归）。
+            # diff 文件打印逻辑。
+            # 判断记录（改为先捕获 stdout 到变量、再统一 Write-Host，不再直接 `| Out-Host`）：
+            # 需要在退出码为 0 时仍解析每行的 `added=<n>` 字段（见下方"Added 也算差异"判断记录），
+            # `Out-Host` 不产生可读的返回值，捕获成数组后既能原样回显（顺序退化为"进程退出后一次性
+            # 打印"，本步骤不传 `--progress`、不依赖 stderr 实时交织，无实质影响），又能逐行正则
+            # 匹配摘要行。native 进程的 stderr 不重定向、不并入这个数组，仍直接透传到宿主控制台，
+            # 与 `$ErrorActionPreference = "Continue"` 的既有考虑一致。
             $ErrorActionPreference = "Continue"
-            & dotnet @simArgs | Out-Host
+            $simOutputLines = @(& dotnet @simArgs)
             $simExitCode = $LASTEXITCODE
+            $simOutputLines | ForEach-Object { Write-Host $_ }
         } finally {
             Pop-Location
         }
@@ -964,6 +970,53 @@ if ($Quick) {
                 Get-Content -LiteralPath $diffFile.FullName | Write-Host
             }
             return [PSCustomObject]@{ Ok = $false; Detail = "toolchain/simrunner 退出码=$simExitCode（0=全部场景无 Exceeded/Removed，1=存在 Exceeded/Removed，2=参数/数据装载错误，3=基线文件缺失；见上方场景摘要/RESULT 行与 diff 全文）" }
+        }
+
+        # 判断记录（Added 也算差异，门禁侧强制，不改 simrunner 退出码语义）：
+        # `core/sim/README.md`"命令行入口"一节明文承诺退出码 0 = "全部选中场景均无
+        # Exceeded/Removed"——这是对外发布的工具契约（`toolchain/sim_baseline.ps1`、任何直接调用
+        # `SimRunner.dll` 的外部脚本都依赖这条语义判定成败），本次不改它、也不因此改文档，避免打破
+        # 契约影响未知调用方。但 AGENTS.md §4"三份基线要零差异"字面上比这条契约更严格——`Added`
+        # （基线里从未出现过的统计量）设计上不算 simrunner 自身的阻断条件，专门放行"新增内容扩大
+        # 覆盖面"这种场景，代价是"漏烘焙"这类问题只能靠人读 diff.txt 发现（`sim_coverage_all`
+        # 一处漏烘焙曾在 2026-09-16 引入、31/31 PASS 下带病存活至 2026-09-20 复审才发现，
+        # 详见 `core/sim/README.md`"T-N6-7 判断记录"57）。因此在门禁侧（check.ps1，而不是
+        # simrunner 本体）额外解析
+        # 每个场景摘要行的 `added=<n>` 字段，
+        # 任一场景 `added>0` 即判本步骤 Fail——不依赖也不需要改 simrunner 的退出码。
+        # 摘要行格式见 `core/sim/README.md`"命令行入口"一节最后一段，是明确"供 check.ps1/CI 直接
+        # 判读"的稳定格式：
+        # `scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n> result=PASS|FAIL`。
+        $addedScenarios = @()
+        foreach ($line in $simOutputLines) {
+            if ($line -match '^scenario=(\S+)\s+kind=\S+\s+stats=\d+\s+exceeded=\d+\s+added=(\d+)\s+removed=\d+\s+result=') {
+                $addedCount = [int]$Matches[2]
+                if ($addedCount -gt 0) {
+                    $addedScenarios += [PSCustomObject]@{ Id = $Matches[1]; Count = $addedCount }
+                }
+            }
+        }
+
+        if ($addedScenarios.Count -gt 0) {
+            $diffFiles = @(Get-ChildItem -Path $simOutDir -Filter "*.diff.txt" -File -ErrorAction SilentlyContinue)
+            foreach ($diffFile in $diffFiles) {
+                $addedLines = @(Get-Content -LiteralPath $diffFile.FullName | Where-Object { $_ -match '^Added\s' })
+                if ($addedLines.Count -gt 0) {
+                    Write-Host "---- $($diffFile.FullName)（含基线里从未记录过的 Added 统计量） ----" -ForegroundColor Yellow
+                    $addedLines | Write-Host
+                }
+            }
+            $scenarioSummary = ($addedScenarios | ForEach-Object { "$($_.Id)(+$($_.Count))" }) -join "、"
+            $detail = "数值仿真基线比对：simrunner 退出码=0（其契约 0=无 Exceeded/Removed 不含 Added，" +
+                "见 core/sim/README.md 命令行入口一节），但门禁额外要求 Added 也算差异（AGENTS.md §4）——" +
+                "以下场景出现基线里从未记录过的统计量：$scenarioSummary，具体键见上方各 *.diff.txt 打印的 " +
+                "Added 行。这通常是新增探针/技能/内容扩大了 coverage 一类场景的统计面，属于合法新增，" +
+                "正确做法是同一提交里重新烘焙基线，不能带着未烘焙的 Added 差异合并：先跑 " +
+                "'./toolchain/sim_baseline.ps1 -Scenario all' 确认这条 Added 确实是本次改动预期引入的" +
+                "新统计维度，再跑 './toolchain/sim_baseline.ps1 -Scenario all -UpdateBaseline' 重新生成" +
+                "三份基线并把改动并入同一提交（提交信息按 core/sim/README.md 基线更新流程一节第 5 步注明）。" +
+                "若这条 Added 出乎意料、不是本次改动引入的新内容，说明基线或数据另有问题，不要用烘焙掩盖，先定位再处理。"
+            return [PSCustomObject]@{ Ok = $false; Detail = $detail }
         }
 
         return $true

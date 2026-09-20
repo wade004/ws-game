@@ -2,8 +2,8 @@
   "schema_version": 1,
   "scenario_id": "sim.scenario.sim_coverage_all",
   "kind": "coverage",
-  "dataset_fingerprint": "c9f7732cc6ec4604",
-  "generated_with_version": "1.35.0",
+  "dataset_fingerprint": "ec6efd5998767e7a",
+  "generated_with_version": "1.48.0",
   "seed": 20260916,
   "stats": {
     "coverage.creature.creature.sim_wolf_elite_l10.secondary_measurement": 0.46362984034892396,
@@ -103,6 +103,7 @@
     "coverage.skill.skill.def.sim_probe_overbudget.budget_ratio": 85.2276647791164,
     "coverage.skill.skill.sim_creature_bite.budget_ratio": 3.645155291054491,
     "coverage.skill.skill.sim_creature_bite_elite.budget_ratio": 9.04060241748226,
+    "coverage.skill.skill.sim_review_b_weapon_pct_strike.budget_ratio": 1,
     "coverage.skill.skill.sim_warrior_battle_shout.budget_ratio": 0.0012971851083149566,
     "coverage.skill.skill.sim_warrior_execute.budget_ratio": 4.303662521178302,
     "coverage.skill.skill.sim_warrior_execute.secondary_measurement": 0.30673076923076925,

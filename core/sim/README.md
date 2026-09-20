@@ -1035,6 +1035,33 @@ DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用，断言不
     `check.ps1` 调用时）或 PowerShell 默认的 `$ErrorActionPreference = "Stop"`（独立调用时）
     如实中断。
 
+57. **复审发现 `sim_coverage_all` 一处漏烘焙（`skill.sim_review_b_weapon_pct_strike.budget_ratio`，
+    2026-09-16 引入、2026-09-20 复审才发现）后，`check.ps1`"数值仿真基线比对"步骤追加 `Added`
+    判定——为何改门禁侧而不是改 `simrunner` 退出码语义**：本文件"命令行入口"一节明文承诺退出码
+    `0` = "全部选中场景均无 `Exceeded`/`Removed`"——这是对外发布的工具契约（`toolchain/
+    sim_baseline.ps1`、任何直接调用 `SimRunner.dll` 的外部调用方都按这条语义判定成败），`Added`
+    从设计上就不计入阻断，专门给"新增内容扩大覆盖面"这类场景放行。但 AGENTS.md §4"三份基线要
+    零差异"字面上比这条契约更严格，中间这段差此前只能靠人工提交前读 `diff.txt` 补上——本次
+    `sim_coverage_all` 漏烘焙正是在这道只靠人读的缝隙里溜过去的，且 31/31 PASS 全过，说明"门禁
+    全绿"不等于"三份基线零差异"这条认知本身有误。修复选择**不改 `simrunner` 退出码语义**（不
+    动 `Program.cs`、不改本文件"命令行入口"一节的退出码文档），只在 `check.ps1`"6b. 数值仿真
+    基线比对"步骤里追加解析：该步骤已把子进程 stdout 捕获成数组（判断记录见 `check.ps1` 该步骤
+    内联注释），逐行正则匹配既有的、明确"供 check.ps1/CI 直接判读"的稳定摘要行格式
+    `scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n> result=PASS|FAIL`，
+    任一场景 `added>0` 即让本步骤 `Ok=$false`，不依赖也不需要改 `simrunner` 本体。选这条路径而
+    不是反过来把 `Added` 计入 `simrunner` 退出码 1 的理由：`simrunner` 是独立分发的命令行工具
+    （随 `toolchain` UPM 包/dist 一起发布，见"基线文件"一节与本文件"T-N6-7 判断记录"打包部分），
+    退出码语义一旦被外部脚本依赖就是一份公开契约，本仓库内部无法穷举所有下游调用方是否依赖"有
+    `Added` 但退出码仍为 0"这一行为（例如"数据集扩容但暂不烘焙、只想看 Exceeded/Removed 是否
+    通过"这一合法用法）；把"更严格"这一要求放在门禁侧（`check.ps1`，本仓库自己的 CI 关卡），
+    既不破坏 `simrunner` 对外承诺的既有语义，又能让本仓库的机器门禁真正做到 AGENTS.md §4 字面
+    要求的"零差异"。拦截信息（`Detail`）自解释四要素：哪个场景（逐场景 `<id>(+<n>)` 列出）、
+    多了哪些键（打印每个场景 `*.diff.txt` 里全部 `Added` 行原文）、为什么拦（引用 AGENTS.md §4
+    与 `simrunner` 契约本身不含 `Added` 这一事实）、怎么办（先 `./toolchain/sim_baseline.ps1
+    -Scenario all` 确认这条 `Added` 确系本次改动预期引入的新统计维度，再 `-UpdateBaseline`
+    同一提交重新烘焙、按"基线更新流程"第 5 步在提交信息里注明）。AGENTS.md §4 同步补充"`Added`
+    也算差异"一句，见该文件对应段落。
+
 ## T-N6-8b 判断记录
 
 45. **容差解析从"叶子名子串匹配"（记录 38）改为"叶子名精确匹配显式映射表"——复核建议根治**：

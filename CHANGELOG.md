@@ -472,6 +472,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `adapters/unity` 侧登记为诊断来源 "Core.Gameplay.ProgressionBridge"），两个监听器各自新增
   一个带 `diagnostics` 参数、不带默认值的构造重载（ABI 只新增）。详见
   `core/rules/combat/README.md`/`core/gameplay/progression_bridge/README.md` 判断记录。
+- **复审发现并根治 `sim_coverage_all` 基线漏烘焙 + `check.ps1` 补上 `Added` 阻断**：2026-09-16
+  新增测试技能 `skill.sim_review_b_weapon_pct_strike`（提交 `17a66703`）扩大了 coverage 场景的
+  统计面，产生了一条从未记录进基线的新增统计量（`coverage.skill.skill
+  .sim_review_b_weapon_pct_strike.budget_ratio`），但当次未同提交重新烘焙基线；`check.ps1`
+  "6b. 数值仿真基线比对"步骤此前只看 `simrunner` 退出码，而该工具契约"0=无 Exceeded/Removed"
+  不含 `Added`，导致这条漂移在 31/31 全 PASS 下潜伏 4 天、跨两次发布未被发现。修复两处：①
+  `check.ps1` 6b 步骤额外解析场景摘要行的 `added=<n>` 字段，任一场景非零即判本步骤失败（不改
+  `simrunner` 退出码语义，理由见 `core/sim/README.md`"T-N6-7 判断记录"57）；② 用
+  `toolchain/sim_baseline.ps1 -Scenario all -UpdateBaseline` 重新烘焙三份基线，补齐这一条统计量
+  （已核对：仅此一个键新增，其余统计量/浮点值逐条比对无变化）。`AGENTS.md` §4 同步补充
+  "`Added` 也算差异"。
 ### 新增
 
 - **`combat.resist_curve` 饱和公式新增可选截距字段 `k0`**（消费方反馈第 7 条，
