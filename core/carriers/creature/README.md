@@ -231,6 +231,23 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
     .TierDefinition_NegativeXpMultiplier_ReportsFieldRange`/
     `.TierDefinition_NegativeGoldMultiplier_ReportsFieldRange`。
 
+13. **ADR-0051：生物原生交互路径（消费方反馈第 2 条根治）**：新增 `CreatureTemplate.GossipMenuRef`
+    （可选，指向 `dialog.gossip_menu`，`CreatureSchemas` 登记为 `WithSoftReference`——`dialog`
+    属 L4，本模块 L3 不可 `Reference`，惯例同既有 `ai_rotation_ref` 等四个软引用字段）+
+    `CreatureInteractionHost`（`ICreatureInteractionHost` 默认实现，构造期只依赖 `IWorldSim`/
+    `IUnitAccess`/`ICreatureTemplateQuery`）+ `CreatureInteractIntentTickHandler`（挂
+    `TickPhase.TriggerEvaluation`，与 `Core.Carriers.Gobj.InteractIntentTickHandler` 共用同一个
+    `"interact"` 意图 Kind，按 `Args` 是否含 `creature_instance_id`/`gobj_instance_id` 分流，互不
+    重复警告，见两者判断记录）。回调类型 `CreatureGossipOpenerDelegate(unitId, creatureInstanceId,
+    dialogRef)` 命名对齐 ADR-0044 的 `DialogOpenerWithSourceDelegate` 形状，但如实反映携带的是
+    生物实例身份。运行时不静默降级：目标生物未登记/生物没有配置 `GossipMenuRef`/已配置但未注入
+    `GossipOpener` 三种情形均经 `ICreatureDiagnostics.Warn` 留痕（新增诊断出口，惯例同
+    `Core.Carriers.Gobj.IGobjDiagnostics`）；交互距离不足不记诊断（惯例同 `GameObjectHost`）。
+    新增测试：`Tests.Gameplay.Assembly.GameplayAssemblyCreatureDialogInteractionTests`（装配级，
+    走 `"interact"` 意图 → tick → `CreatureInteractionHost` → `DialogHost.OpenGossip` 全链路，
+    断言 `VendorOpenRequestedCallback` 收到的 `npcId` 等于生物实例 id 且不等于菜单 id；另一例断言
+    未配置 `GossipMenuRef` 时诊断 Warnings 计数 +1）。
+
 ## 不负责什么
 
 - 不实现刷新表（`SpawnHost`，L4）——本模块只提供 `ICreatureFactory` 供其调用，`summon_only`

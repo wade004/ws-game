@@ -55,6 +55,13 @@ namespace Core.Carriers.Assembly
         public InventoryHost Inventory { get; }
         public EquipmentHost Equipment { get; }
         public CreatureFactory Creatures { get; }
+
+        /// <summary>ADR-0051：生物原生交互宿主（消费方反馈第 2 条根治）——见
+        /// <see cref="Core.Carriers.Creature.CreatureInteractionHost"/> 判断记录，与
+        /// <see cref="GameObjectInteractions"/> 是同一层面并列的两个 <c>interact</c> 意图消费者，
+        /// 只是分发目标类型不同（生物 vs. gobj）。</summary>
+        public Core.Carriers.Creature.CreatureInteractionHost CreatureInteractions { get; }
+
         public SummonHost Summons { get; }
         public GameObjectFactory GameObjects { get; }
         public GameObjectHost GameObjectInteractions { get; }
@@ -180,7 +187,13 @@ namespace Core.Carriers.Assembly
         /// <summary>
         /// T-N4-4 新增构造重载：接受 <see cref="Core.Numbers.Progression.ProgressionOptions"/>，
         /// 原样转发给 <see cref="Core.Rules.Assembly.RulesAssembly"/> 同名重载（ABI 门禁 G3：见上方
-        /// 旧签名构造函数判断记录，本重载是唯一新增的物理签名）。
+        /// 旧签名构造函数判断记录）。
+        /// <para>
+        /// ADR-0051 判断记录：本重载物理签名已随 1.4x 系列基线发布，不得再改——真正的构造逻辑现移到
+        /// 下方新增的、末尾多一个 <see cref="Core.Carriers.Creature.CreatureInteractOptions"/> 参数的
+        /// 重载，本重载改为纯转发（<c>creatureInteractOptions: null</c>），行为逐位不变，惯例同上方
+        /// 旧签名构造函数转发给本重载的既有做法。
+        /// </para>
         /// </summary>
         public CarriersAssembly(
             IEventBus bus,
@@ -209,6 +222,47 @@ namespace Core.Carriers.Assembly
             Func<int>? discreteRoundIndexProvider,
             Func<Id?>? discreteCurrentActorProvider,
             Core.Numbers.Progression.ProgressionOptions? progressionOptions)
+            : this(bus, registry, rng, world, spatial, navigation, spatialSyncKinds, worldFlags, lootRoller,
+                statOptions, combatOptions, skillOptions, targetingOptions, aiOptions, inventoryOptions,
+                itemOptions, creatureOptions, summonOptions, gobjOptions, movementOptions, projectileOptions,
+                extraSchemas, discreteTurnIndexProvider, discreteRoundIndexProvider, discreteCurrentActorProvider,
+                progressionOptions, creatureInteractOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0051 新增构造重载：接受 <see cref="Core.Carriers.Creature.CreatureInteractOptions"/>，
+        /// 携带生物原生交互路径（消费方反馈第 2 条根治）的真正构造逻辑（ABI 门禁 G3：见上方旧签名
+        /// 构造函数判断记录，本重载是唯一新增的物理签名）。
+        /// </summary>
+        public CarriersAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            IWorldFlags? worldFlags,
+            ILootRoller? lootRoller,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            ProjectileOptions? projectileOptions,
+            IReadOnlyList<IExprSchema>? extraSchemas,
+            Func<int>? discreteTurnIndexProvider,
+            Func<int>? discreteRoundIndexProvider,
+            Func<Id?>? discreteCurrentActorProvider,
+            Core.Numbers.Progression.ProgressionOptions? progressionOptions,
+            Core.Carriers.Creature.CreatureInteractOptions? creatureInteractOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -375,6 +429,12 @@ namespace Core.Carriers.Assembly
                 registry, world, bus, Rules.Stats, Rules.Powers, Rules.Progression, Units, aiRegistrar,
                 creatureOptions);
 
+            // ADR-0051：生物原生交互宿主（消费方反馈第 2 条根治）——只依赖本步已构造完成的
+            // world/Units/Creatures（ICreatureTemplateQuery 由 CreatureFactory 兼实现，见该类型
+            // 判断记录），不依赖任何尚未构造的后续步骤。
+            CreatureInteractions = new Core.Carriers.Creature.CreatureInteractionHost(
+                world, Units, Creatures, creatureInteractOptions);
+
             // ---------------------------------------------------------
             // 6) SummonHost（依赖 4 的 Creatures）+ SummonEffectExtension。
             // ---------------------------------------------------------
@@ -433,6 +493,13 @@ namespace Core.Carriers.Assembly
             // 交互意图消费（03 第 4.2 节步骤 6"触发评估"，见 InteractIntentTickHandler 判断记录：
             // 该步骤此前只有文档约定、没有实现——本次补上）。
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new InteractIntentTickHandler(GameObjectInteractions));
+
+            // ADR-0051：生物侧 interact 意图消费者，与上一行的 gobj 侧处理器共用同一个
+            // TickPhase.TriggerEvaluation 阶段、同一个 "interact" Kind，按 Args 形状分流（见
+            // CreatureInteractIntentTickHandler/InteractIntentTickHandler 两者判断记录）。
+            world.RegisterPhaseHandler(
+                TickPhase.TriggerEvaluation,
+                new Core.Carriers.Creature.CreatureInteractIntentTickHandler(CreatureInteractions));
         }
     }
 }

@@ -154,3 +154,16 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 （`core/gameplay/assembly.GameplayAssembly` 第 3 步）已同步显式列出全部 26 个参数（含此前从未
 在该调用点出现过的 `projectileOptions`，此前该处省略即回退旧签名的默认值 `null`，新签名要求
 显式传入）。
+
+## T-N4-4：`CarriersAssembly` 新增带 `CreatureInteractOptions` 的构造重载（ADR-0051）
+
+同上一节惯例——本类型当前"旧"签名构造函数（26 个参数，上一节新增的那个）原样保留、转发新增
+重载（27 个参数，全部不带默认值）并传 `creatureInteractOptions: null`；新增重载内部把
+`creatureInteractOptions` 转发给新增的 `Core.Carriers.Creature.CreatureInteractionHost`
+构造函数。新增只读属性 `CreatureInteractions`（`CreatureInteractionHost`，ABI 只新增成员），
+与既有 `GameObjectInteractions` 并列；装配体内新增
+`world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new CreatureInteractIntentTickHandler(CreatureInteractions))`，
+与既有 `InteractIntentTickHandler`（gobj）同一 tick 阶段并列注册，两者按 `"interact"` 意图
+`Args` 是否携带 `creature_instance_id`/`gobj_instance_id` 分流，见
+`core/carriers/creature/README.md` 判断记录 13、`core/carriers/gobj/README.md` 对应判断记录。
+唯一调用点（`core/gameplay/assembly.GameplayAssembly`）已同步显式传入该参数。

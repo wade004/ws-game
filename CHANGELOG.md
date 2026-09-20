@@ -449,6 +449,27 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **生物原生交互路径（消费方反馈第 2 条根治，
+  [ADR-0051](architecture/adr/0051-生物原生交互路径.md)）**：此前"交互"意图唯一的消费者只认
+  场景物件（gobj），接入方要让 NPC 可被直接交互（打开对话），只能把生物伪装成场景物件模板。
+  新增 `Core.Carriers.Common.ICreatureInteractionHost`（`Interact(Id unitId, Id
+  creatureInstanceId)`，复用既有 `InteractResult`/`InteractOutcome`）与默认实现
+  `Core.Carriers.Creature.CreatureInteractionHost`；`CreatureTemplate` 新增可选字段
+  `GossipMenuRef`（指向 `dialog.gossip_menu`，缺省表示该生物当前没有原生可交互内容，纯新增
+  可选字段，既有数据行行为不变）；新增 `Core.Carriers.Creature.CreatureInteractIntentTickHandler`
+  挂载 `TickPhase.TriggerEvaluation`，与既有 `Core.Carriers.Gobj.InteractIntentTickHandler`
+  共用同一个 `"interact"` 意图种类，按 `Args` 是否携带 `creature_instance_id`/
+  `gobj_instance_id` 分流，互不影响。新增回调类型
+  `CreatureGossipOpenerDelegate(Id unitId, Id creatureInstanceId, Id dialogRef)`（命名对齐
+  ADR-0044 的 `DialogOpenerWithSourceDelegate` 形状，如实反映携带的是生物实例身份），经新增
+  `CreatureInteractOptions.GossipOpener` 注入；`CarriersAssembly`/`GameplayAssembly` 各新增
+  一个构造重载（ABI 只新增，既有签名原样保留转发），新增只读属性
+  `CarriersAssembly.CreatureInteractions`。目标生物未登记/未配置 `GossipMenuRef`/已配置但
+  未注入 `GossipOpener` 三种情形均经新增的 `ICreatureDiagnostics` 留痕（交互距离不足维持
+  既有静默惯例）。详见 `core/carriers/creature/README.md` 判断记录 13。
+
 ## [1.49.0] - 2026-09-20
 
 ### 修复

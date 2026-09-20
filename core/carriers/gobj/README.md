@@ -330,3 +330,12 @@ JsonObject（同 `core/gameplay/area_trigger` 的 `ParamsSchema`/`trigger_type` 
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（ADR-0051：生物原生交互路径，2026-09-20，architecture/adr/0051-生物原生交互路径.md）
+
+`InteractIntentTickHandler` 的"缺少 `gobj_instance_id`"分支新增一次判断：先检查 `Args` 是否携带
+`creature_instance_id`——若有，说明这条 `"interact"` 意图是发给生物侧
+`Core.Carriers.Creature.CreatureInteractIntentTickHandler` 的，静默放行（`continue`，不记诊断，
+交给另一个处理器）；两个字段都不携带时才是真正的格式错误，维持原有诊断。两个处理器挂在同一个
+`TickPhase.TriggerEvaluation`，处理顺序不影响正确性（各自只认自己的字段）。既有调用方（从未携带
+`creature_instance_id`）的行为、既有诊断文案与测试断言均不受影响，`Tests.Carriers` 全量复跑确认。
