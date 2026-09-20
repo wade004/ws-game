@@ -1,5 +1,5 @@
 """``toolchain/_unity_path_length_guard.ps1`` 的回归测试（2026-09-20，Windows MAX_PATH 快速
-失败守卫）。
+失败守卫；同日复审发现并修复"生成目录缺失时静默放行"缺口）。
 
 背景（见该脚本头注释与 check.ps1 调用点判断记录）：深层 scratchpad 工作树里跑 Unity PlayMode
 测试——具体是 games/_template/Tests/Runtime/GameTemplateResidentTests.cs 的
@@ -10,13 +10,23 @@ adapters/unity/Assets/StreamingAssets/GameFoundation/data/game 整棵目录树�
 PathTooLongException，容易被误判为产品缺陷。`Test-UnityWorkingTreePathLength` 在真正调用任何
 Unity 批处理之前先算一次预估最长路径，超阈值直接终止并给出自解释的错误信息。
 
-本文件用一棵内容极简的合成"仓库"目录树（只含
-adapters/unity/Assets/StreamingAssets/GameFoundation/data/game/ 下两三个小文件）验证该函数：
-  1. 根路径够短时放行（不抛异常）。
-  2. 根路径足够深时终止，且错误信息包含关键定位信息：当前根路径长度、预估最长路径长度、
-     260 上限、"怎么办"指引。
+**复审发现的缺口（本次一并修复）**：最初实现只扫 adapters/unity/Assets/StreamingAssets/
+GameFoundation/data/game——这是 .gitignore 忽略的生成目录（由 build.ps1 -SyncOnly 从
+games/_template/data/game 同步生成），新建的工作树在跑过一次同步之前这个目录根本不存在，而
+"agent 在深层 scratchpad 里新建工作树后立刻跑 Unity 步骤"恰恰是本守卫要防的头号场景——旧实现
+在生成目录缺失时静默 return，在最该拦截的时候完全失效。修复后同时看两个候选根（源目录
+games/_template/data/game 与生成目录 adapters/unity/.../data/game），存在的根里取最长相对
+路径的 max；两个都不存在时不再静默放行，改为显式警告后继续（不阻断门禁），理由见该脚本
+`Test-UnityWorkingTreePathLength` 函数体判断记录。
+
+本文件用一棵内容极简的合成"仓库"目录树验证该函数：
+  1. 根路径够短时放行（不抛异常）——分别覆盖"只有源目录存在""只有生成目录存在""两者都在"
+     三种场景。
+  2. 根路径足够深时终止，且错误信息包含关键定位信息（当前根路径长度、预估最长路径长度、260
+     上限、"怎么办"指引）——同样覆盖上述三种场景；其中"只有源目录存在"正是此前会被漏判的
+     那一种，是本次复审新增的关键用例。
   3. 扫描逻辑正确挑出 data/game 下最长的相对路径（含子目录），且正确排除 .meta 文件。
-  4. data/game 数据根缺失时不误报（返回而不抛异常，这是数据校验步骤该管的事）。
+  4. 两个候选根都不存在时不静默放行：不抛异常（不阻断门禁），但会打印醒目警告。
 
 判断记录（为什么测试夹具的物理路径始终控制在 260 字符以内，不靠开启 Windows 长路径支持来让
 夹具本身能安全落到 260+ 字符）：本次任务范围明确排除"修复"路径过深本身（改注册表、开长路径
@@ -45,7 +55,11 @@ from _ps_subprocess_env import clean_powershell_env
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GUARD_SCRIPT = REPO_ROOT / "toolchain" / "_unity_path_length_guard.ps1"
 
-DATASET_RELATIVE_DIR = Path("adapters/unity/Assets/StreamingAssets/GameFoundation/data/game")
+# 两个候选根，镜像 toolchain/_unity_path_length_guard.ps1 里 $candidateDataGameRoots 的顺序与
+# 字面量。GENERATED 是 .gitignore 忽略的生成目录（可能不存在），SOURCE 是随仓库提交的源目录
+# （任何检出/工作树里都在）。
+GENERATED_RELATIVE_DIR = Path("adapters/unity/Assets/StreamingAssets/GameFoundation/data/game")
+SOURCE_RELATIVE_DIR = Path("games/_template/data/game")
 
 # 以下几个常量镜像 toolchain/_unity_path_length_guard.ps1 里的同名字面量——两边必须保持一致，
 # 该文件改了对应字面量时这里也要跟着改（不是真正共享同一份定义：PowerShell 侧是生产代码，这里
@@ -56,9 +70,9 @@ _WINDOWS_MAX_PATH = 260
 _SAFETY_MARGIN = 10
 _THRESHOLD = _WINDOWS_MAX_PATH - _SAFETY_MARGIN
 
-# 用例 2（深层根路径）里真正会在磁盘上创建的最长相对路径，以及函数内部会模拟出来（从不落盘）
-# 的对应覆盖目录相对路径。
-_PHYSICAL_LONGEST_RELATIVE = str(DATASET_RELATIVE_DIR / "combat" / "deep_file_in_subdir.json")
+# 用例 2（深层根路径）里真正会在磁盘上创建的最长相对路径（两个候选根下的相对路径形态相同，
+# 只是根不同），以及函数内部会模拟出来（从不落盘）的对应覆盖目录相对路径。
+_PHYSICAL_LONGEST_RELATIVE = str(Path("combat") / "deep_file_in_subdir.json")
 _SIMULATED_LONGEST_RELATIVE = "\\".join(
     [
         "adapters", "unity", "Assets", "StreamingAssets", "GameFoundation", "data",
@@ -68,14 +82,26 @@ _SIMULATED_LONGEST_RELATIVE = "\\".join(
 
 # 安全窗口：根路径长度必须大于此值，预估的模拟路径长度才会超过阈值。
 _MIN_DEEP_REPO_ROOT_LEN = _THRESHOLD - 1 - len(_SIMULATED_LONGEST_RELATIVE) + 1
-# 根路径长度必须不超过此值，物理真实创建的路径长度才能留有余量地保持在 260 字符以内
-# （259 - 1 - 物理相对路径长度，再减一点余量给分隔符/取整误差）。
-_MAX_SAFE_PHYSICAL_REPO_ROOT_LEN = _WINDOWS_MAX_PATH - 1 - 1 - len(_PHYSICAL_LONGEST_RELATIVE) - _SAFETY_MARGIN
+# 根路径长度必须不超过此值，物理真实创建的路径长度才能留有余量地保持在 260 字符以内。取两个
+# 候选根中相对路径较长的那个（GENERATED 比 SOURCE 多一段 adapters/unity/... 前缀）算最坏情况，
+# 保证不管测试往哪个根写夹具，物理路径都留有余量。
+_PHYSICAL_LONGEST_UNDER_GENERATED = str(GENERATED_RELATIVE_DIR / "combat" / "deep_file_in_subdir.json")
+_MAX_SAFE_PHYSICAL_REPO_ROOT_LEN = (
+    _WINDOWS_MAX_PATH - 1 - 1 - len(_PHYSICAL_LONGEST_UNDER_GENERATED) - _SAFETY_MARGIN
+)
 _TARGET_DEEP_REPO_ROOT_LEN = (_MIN_DEEP_REPO_ROOT_LEN + _MAX_SAFE_PHYSICAL_REPO_ROOT_LEN) // 2
 
 assert _MIN_DEEP_REPO_ROOT_LEN < _MAX_SAFE_PHYSICAL_REPO_ROOT_LEN, (
     "安全窗口计算有误：不存在一个根路径长度，能同时满足'模拟路径超阈值'与'物理路径远低于 260'"
 )
+
+# 三种场景的参数化 id：只填生成目录（此前唯一支持的场景）、只填源目录（本次复审新增修复的关键
+# 场景——生成目录缺失但源目录在）、两者都填（跑过 build.ps1 -SyncOnly 之后的真实常见状态）。
+_POPULATED_DIR_SCENARIOS = [
+    pytest.param([GENERATED_RELATIVE_DIR], id="generated_only"),
+    pytest.param([SOURCE_RELATIVE_DIR], id="source_only"),
+    pytest.param([GENERATED_RELATIVE_DIR, SOURCE_RELATIVE_DIR], id="both"),
+]
 
 
 def _find_powershell() -> str | None:
@@ -94,15 +120,20 @@ def ps_exe() -> str:
     return exe
 
 
-def _build_dataset_fixture(repo_root: Path) -> None:
-    """在 repo_root 下搭一棵极简的 data/game 树：根目录一个短文件（a.json），combat/ 子目录一个
-    明显更长的文件名 + 对应 .meta——用于验证扫描时会挑中子目录里更长的那条相对路径，且会跳过
-    .meta 文件（否则 .meta 常常比对应正文文件名更长，会污染"最长相对路径"的判定）。"""
-    game_dir = repo_root / DATASET_RELATIVE_DIR
+def _build_dataset_fixture(game_dir: Path) -> None:
+    """在 game_dir（某个候选根下的 data/game 目录）下搭一棵极简的树：根目录一个短文件
+    （a.json），combat/ 子目录一个明显更长的文件名 + 对应 .meta——用于验证扫描时会挑中子目录
+    里更长的那条相对路径，且会跳过 .meta 文件（否则 .meta 常常比对应正文文件名更长，会污染
+    "最长相对路径"的判定）。"""
     (game_dir / "combat").mkdir(parents=True, exist_ok=True)
     (game_dir / "a.json").write_text("{}", encoding="utf-8")
     (game_dir / "combat" / "deep_file_in_subdir.json").write_text("{}", encoding="utf-8")
     (game_dir / "combat" / "deep_file_in_subdir.json.meta").write_text("fileFormatVersion: 2", encoding="utf-8")
+
+
+def _populate_roots(repo_root: Path, populated_dirs: list[Path]) -> None:
+    for relative_dir in populated_dirs:
+        _build_dataset_fixture(repo_root / relative_dir)
 
 
 def _run_guard(ps_exe: str, repo_root: Path) -> subprocess.CompletedProcess[str]:
@@ -113,6 +144,8 @@ def _run_guard(ps_exe: str, repo_root: Path) -> subprocess.CompletedProcess[str]
     # `Test-UnityWorkingTreePathLength` 包一层 try/catch，异常信息改走 `Write-Output`（stdout）
     # 而不是让它以未捕获异常的形式落到原生 stderr——这样无论宿主机系统区域设置是什么代码页，
     # Python 侧固定用 `encoding="utf-8"` 解码都能拿到正确文本，不依赖也不硬编码某个特定代码页。
+    # 注意：函数内部的 Write-Host 警告（两个候选根都缺失场景）同样走 stdout，会被同一套编码
+    # 处理正确捕获。
     script = (
         '$ErrorActionPreference = "Stop"; '
         '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
@@ -135,9 +168,10 @@ def _run_guard(ps_exe: str, repo_root: Path) -> subprocess.CompletedProcess[str]
     )
 
 
-def test_short_repo_root_passes(tmp_path: Path, ps_exe: str) -> None:
+@pytest.mark.parametrize("populated_dirs", _POPULATED_DIR_SCENARIOS)
+def test_short_repo_root_passes(tmp_path: Path, ps_exe: str, populated_dirs: list[Path]) -> None:
     repo_root = tmp_path / "short"
-    _build_dataset_fixture(repo_root)
+    _populate_roots(repo_root, populated_dirs)
     assert len(str(repo_root)) < _MIN_DEEP_REPO_ROOT_LEN, "本用例前提是根路径本身足够短，不应该已经触发守卫"
 
     result = _run_guard(ps_exe, repo_root)
@@ -146,7 +180,15 @@ def test_short_repo_root_passes(tmp_path: Path, ps_exe: str) -> None:
     assert "GUARD_PASSED" in result.stdout
 
 
-def test_deep_repo_root_blocked_with_actionable_message(tmp_path: Path, ps_exe: str) -> None:
+@pytest.mark.parametrize("populated_dirs", _POPULATED_DIR_SCENARIOS)
+def test_deep_repo_root_blocked_with_actionable_message(
+    tmp_path: Path, ps_exe: str, populated_dirs: list[Path]
+) -> None:
+    # "source_only" 这一参数化用例是本次复审新增的关键回归：修复前的实现只扫生成目录
+    # （adapters/unity/.../data/game），生成目录缺失、只有源目录（games/_template/data/game）
+    # 存在时会静默放行——这正是"agent 在深层 scratchpad 新建工作树后立刻跑 Unity 步骤"（生成
+    # 目录还没同步出来）这个本该被拦截的头号场景。
+
     # 用一段占位目录名把根路径人为撑到安全窗口内（见模块头判断记录与上方几个 _MIN/_MAX 常量的
     # 推导）：物理创建的真实路径（根路径 + data/game 下最深那条相对路径）留有余量地保持在 260
     # 字符以内，不依赖宿主机的长路径支持；只有函数内部"模拟"出来的覆盖目录路径会超过阈值。
@@ -160,9 +202,9 @@ def test_deep_repo_root_blocked_with_actionable_message(tmp_path: Path, ps_exe: 
     target_len = min(target_len, _MAX_SAFE_PHYSICAL_REPO_ROOT_LEN)
     padding_len = max(target_len - len(str(tmp_path)) - 1, 1)
     repo_root = tmp_path / ("d" * padding_len)
-    _build_dataset_fixture(repo_root)
+    _populate_roots(repo_root, populated_dirs)
 
-    physical_longest = repo_root / _PHYSICAL_LONGEST_RELATIVE
+    physical_longest = repo_root / GENERATED_RELATIVE_DIR / "combat" / "deep_file_in_subdir.json"
     assert len(str(physical_longest)) < _WINDOWS_MAX_PATH - _SAFETY_MARGIN, (
         "测试夹具本身必须留有余量地保持在 260 字符以内——本用例只应该让函数内部的模拟计算超阈值，"
         "不应该依赖宿主机真的能在磁盘上创建接近上限的路径"
@@ -184,17 +226,24 @@ def test_deep_repo_root_blocked_with_actionable_message(tmp_path: Path, ps_exe: 
     assert "主检出" in combined, "指引应提到换到主检出或路径足够短的工作树"
 
 
-def test_missing_data_game_root_does_not_throw(tmp_path: Path, ps_exe: str) -> None:
-    repo_root = tmp_path / "no_dataset"
+def test_neither_root_present_warns_but_does_not_throw(tmp_path: Path, ps_exe: str) -> None:
+    """两个候选根（源目录、生成目录）都不存在：不应该像修复前那样静默放行——AGENTS.md §3
+    "只读分析类入口在遇到阻断态时降级要显式标记"，本函数选择显式警告后继续（不阻断门禁，理由见
+    生产代码判断记录），但警告必须在输出里清晰可见，不能被误判为"一切正常"的静默 PASS。"""
+    repo_root = tmp_path / "no_dataset_at_all"
     repo_root.mkdir(parents=True, exist_ok=True)
 
     result = _run_guard(ps_exe, repo_root)
 
     assert result.returncode == 0, (
-        "data/game 数据根缺失时不应该误报——那是数据校验步骤该管的事\n"
+        "两个候选根都缺失时本函数选择不阻断门禁（启发式保护，不是不可或缺的产品行为）\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
-    assert "GUARD_PASSED" in result.stdout
+    assert "GUARD_PASSED" in result.stdout, "不阻断门禁意味着调用方仍应看到正常的后续流程"
+    assert "警告" in result.stdout, "必须显式警告，不能悄悄吞掉'扫不到基准数据'这个问题"
+    assert "games/_template/data/game" in result.stdout and "StreamingAssets" in result.stdout, (
+        "警告应指出具体是哪两个候选根都没找到，方便定位是仓库结构变化还是路径写错"
+    )
 
 
 if __name__ == "__main__":

@@ -28,6 +28,18 @@
     模式）：只定义函数、无顶层副作用，供 `toolchain/tests/test_unity_path_length_guard.py`
     dot-source 后单独测试，不需要跑完整 `check.ps1`（后者会顺带跑一大批耗时的构建/测试步骤）。
 
+    判断记录（2026-09-20 二次修复，复审发现的缺口）：最初版本只扫
+    `adapters/unity/Assets/StreamingAssets/GameFoundation/data/game`——这是 `.gitignore` 显式
+    忽略的生成目录（由 `build.ps1 -SyncOnly` 从 `games/_template/data/game` 同步生成），新建的
+    工作树在跑过一次同步之前这个目录根本不存在。而"agent 在深层 scratchpad 里新建工作树、
+    立刻跑 Unity 步骤"恰恰是本守卫要防的头号场景——旧实现在这种场景下会因为生成目录不存在直接
+    静默 `return`，在最该拦截的时候完全失效，等于白写。根治：改为同时看两个根——
+    `games/_template/data/game`（随仓库提交的源目录，任何检出/工作树里都在，是生成目录的
+    来源）与 `adapters/unity/.../data/game`（生成目录，可能不存在）；两者都存在时内容应当一致
+    （生成目录就是从源目录同步出来的，不含 `.meta` 差异），逐个存在的根分别求最长相对路径后
+    取 max——天然覆盖"只有源目录存在""只有生成目录存在""两者都在"三种场景，不用猜此刻到底
+    该信哪一个。
+
 .EXAMPLE
     . (Join-Path $PSScriptRoot "_unity_path_length_guard.ps1")
     Test-UnityWorkingTreePathLength -RepoRoot $RepoRoot
@@ -36,22 +48,48 @@
 function Test-UnityWorkingTreePathLength {
     param([string]$RepoRoot)
 
-    $dataGameRoot = Join-Path $RepoRoot "adapters\unity\Assets\StreamingAssets\GameFoundation\data\game"
-    if (-not (Test-Path $dataGameRoot)) {
-        # 数据根缺失是别的门禁步骤（数据校验）该管的事，这里不重复报错——按"无法评估、当作未超限"
-        # 处理，避免本函数自己成为新的误报源。
-        return
-    }
+    # 两个候选根：源目录在前（随仓库提交、必然存在，是估算依据的主力），生成目录在后（可能不
+    # 存在，只在已经跑过 build.ps1 -SyncOnly 的工作树里才有）。
+    $candidateDataGameRoots = @(
+        (Join-Path $RepoRoot "games\_template\data\game"),
+        (Join-Path $RepoRoot "adapters\unity\Assets\StreamingAssets\GameFoundation\data\game")
+    )
 
     $longestRelative = ""
-    foreach ($file in Get-ChildItem -Path $dataGameRoot -Recurse -File) {
-        if ($file.Extension -eq ".meta") { continue }
-        $relative = $file.FullName.Substring($dataGameRoot.Length).TrimStart("\", "/")
-        if ($relative.Length -gt $longestRelative.Length) {
-            $longestRelative = $relative
+    $anyRootFound = $false
+    foreach ($dataGameRoot in $candidateDataGameRoots) {
+        if (-not (Test-Path $dataGameRoot)) { continue }
+        $anyRootFound = $true
+        foreach ($file in Get-ChildItem -Path $dataGameRoot -Recurse -File) {
+            if ($file.Extension -eq ".meta") { continue }
+            $relative = $file.FullName.Substring($dataGameRoot.Length).TrimStart("\", "/")
+            if ($relative.Length -gt $longestRelative.Length) {
+                $longestRelative = $relative
+            }
         }
     }
+
+    if (-not $anyRootFound) {
+        # 判断记录：两个候选根都不存在——不是"生成目录还没同步"这种正常态（那种情况源目录
+        # games/_template/data/game 仍然在），而是仓库数据目录结构已经变化、本守卫的扫描路径
+        # 已经过期，找不到任何基准数据可估算。按 AGENTS.md §3"只读分析类入口在遇到阻断态时
+        # 降级要显式标记（不能悄悄吞掉问题当作正常返回）"处理：本函数是只读分析（不写任何
+        # 文件），选择显式警告后继续（不阻断门禁）而不是 throw 硬失败——理由是本守卫本身是
+        # "尽力估算"的启发式保护，不是不可或缺的产品行为；两个基准根同时缺失通常意味着仓库
+        # 结构调整没有同步更新这里，用一条硬失败去挡住与本次改动完全无关的正常 Unity 工作，
+        # 代价（挡住整条门禁）比让这一次估算"缺力但可见"更大。但必须让这条降级足够醒目——不能
+        # 复刻本次要根治的"静默放行"缺口——因此用显式 Write-Host 警告，而不是普通 return。
+        Write-Host ("[Unity 路径长度守卫] 警告：games/_template/data/game 与 adapters/unity/" +
+            "Assets/StreamingAssets/GameFoundation/data/game 均不存在，无法扫描基准数据估算 " +
+            "Unity 测试可能生成的最长路径——本次未执行路径长度检查。深层工作树若确实过深，仍可能" +
+            "在 Unity 测试阶段以 DirectoryNotFoundException 的伪装症状失败（见本文件头判断" +
+            "记录）。请确认仓库数据目录结构是否已变化，必要时同步更新本守卫的扫描路径。") `
+            -ForegroundColor Yellow
+        return
+    }
     if ($longestRelative -eq "") {
+        # 至少一个根存在，但两个存在的根下都没有非 .meta 文件（空目录）——没有可估算的文件，
+        # 与"目录整体缺失"是不同的情况，不算仓库结构损坏，按"无法评估、当作未超限"处理即可。
         return
     }
 
