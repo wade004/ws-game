@@ -2,8 +2,8 @@
   "schema_version": 1,
   "scenario_id": "sim.scenario.sim_arena_matrix",
   "kind": "arena",
-  "dataset_fingerprint": "c9f7732cc6ec4604",
-  "generated_with_version": "1.35.0",
+  "dataset_fingerprint": "ec6efd5998767e7a",
+  "generated_with_version": "1.48.0",
   "seed": 20260916,
   "stats": {
     "arena.L1.off+0.player_dps_mean": 30.898821548821555,
