@@ -506,6 +506,47 @@ loot/
       默认实例；readonly 字段允许在"本类型的构造函数体"内重新赋值，10 参重载在自己的构造函数体内
       用 `diagnostics ?? new InMemoryLootDiagnostics()` 覆盖它，合法不冲突）。
 
+20. **ADR-0052（消费方反馈第 4 条根治）：掉落判定从"全表共用一条顺序推进的 `IRngHost` 流"改为
+    "按 `(loot_table_id, entry_ref)` 派生独立子流"**：此前 `chance_each` 每条一次 `Next` 判定
+    （无论 `weight_or_chance` 是否 `>=1.0` 都无条件消耗）+ 命中一次 `NextInt` 数量骰（`CountMin==
+    CountMax` 时不消耗）全部顺序消耗同一条 `LootOptions.RngStream`；`weighted_pick_one`/
+    `guaranteed_min` 命中后的品质骰/词缀骰同理——这意味着往表里插入/删除一条、或某条目的判定分支
+    走向不同（如数量区间是否单点、是否配置品质权重），会挪动同一张表里排在它之后的全部条目此后
+    算出的结果，长时间运行的模拟/对局还会因为偶发的额外掷骰（如稀有品质骰命中）永久移动之后全部
+    回合的随机序列。
+    - **派生算法**：`LootHost.DeriveEntryStream(tableId, entryRef)` 把两个 `Id.Value`（本就只含
+      `[a-z0-9_]` 与 `'.'`）各自的 `'.'` 替换成 `'_'`（换后必为单个合法 `Id` 段，不与手写分隔段
+      歧义），依 `"{LootOptions.RngStream}.by_entry.{扁平化表id}.{扁平化条目ref}"` 拼接成一个新
+      `Id`，交给 `IRngHost` 既有的、按流标识确定性派生初始状态的机制（`RngHost`：FNV-1a 64 位哈希
+      该字符串再和主种子异或、经 SplitMix64 展开为 256 位状态）——不重新发明一套哈希/播种算法，
+      全框架仍只有一份权威的"主种子 + 流标识 → 子流初始状态"派生逻辑，只是喂给它更细粒度的标识。
+      不使用 `GetHashCode()`/字典枚举顺序/系统时间（同 AGENTS.md §3）。
+    - **仲裁抽取仍走共享流，仲裁之后该条目自己的消耗才下放**：`weighted_pick_one` 的"选哪条"、
+      `guaranteed_min` 候选池的"选哪条补"，本质上依赖当前候选池里还剩哪些条目、各自权重多少，
+      不存在能对这一步负责的"单一条目"，因此这一步仍消耗 `PickWeighted` 里的共享 `RngStream`；
+      选中之后该条目自己的数量骰/品质骰/词缀骰改走它自己的子流。`chance_each` 组内每条本就独立
+      判定"判不判"，因此判定骰本身也随其余消耗一并下放，不算仲裁的一部分。同一条目一次判定内
+      仍按既有固定先后顺序（数量→品质→词缀）在自己的子流里顺序取数，不打乱相对次序。
+    - **子流身份用条目的 `Ref`（语义引用值），不用组内下标**：下标会因为在它前面插入/删除同组
+      其它条目而移动，用下标做身份会重新引入本决策要根治的耦合；`Ref` 是条目在数据里本就唯一、
+      与位置无关的标识。嵌套 `loot.*` 引用展开时，嵌套表自己的条目按嵌套表自己的 id 派生子流，
+      与外层表 id 无关（外层"展开几次"这个决定已经在外层条目自己的子流上定型）。
+    - **接受随之而来的数值变化，不做兼容**：同一种子下的具体掉落结果与本条落地前不同，是有意、
+      必然的行为变化，见 CHANGELOG 对应版本"行为变更"小节；数值仿真基线已按"改动是否让条目自己
+      的命中率更贴近其声明概率"审阅后同批重新烘焙（仅内置成长曲线场景——其怪物掉落表含固定必掉
+      货币条目 + 多件同权重装备条目 + 一件带品质骰的稀有装备条目，正是本条修复的目标配置——的
+      统计量发生实质变化；竞技场/覆盖度场景使用的掉落表此前就只有单一有效条目，不受影响，基线里
+      的具体数值未变，只是重新盖了版本戳）。
+    - **新增测试**：`ADR_0052_LootEntrySubstreamTests`——隔离性
+      （`InsertingEntryInMiddleOfTable_DoesNotChangeOtherEntriesOutcome`：固定父种子，表中间插入
+      一条新条目，其余条目的产出逐条不变；改动前用同一断言先跑一遍确认必不通过，见该测试类型
+      注释）、与登记顺序无关
+      （`ReorderingSiblingEntries_DoesNotChangeEitherEntrysOutcome`：交换两条兄弟条目在数组里的
+      位置，各自产出不变）、确定性
+      （`DeriveEntryStream_ForFixedParentSeedAndIdPair_ProducesFixedSubSeed_AcrossIndependentInstances`：
+      给定父种子与 `(表id, 条目ref)`，派生子流的初始状态是一个钉死的十六进制常量，两个互不共享
+      内存状态的 `RngHost` 实例——模拟跨进程——各自算出同一个值）。
+
 ## 消费方反馈第 45 条判断记录（2026-09-17）
 
 审计结论：`LootTableAnalyzer.ExpectedProbabilities` 不适用（N/A）——反馈原文点名的问题是"只读

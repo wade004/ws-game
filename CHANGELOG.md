@@ -476,6 +476,25 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `presentation/assembly/tests/PresentationAssemblyTests.cs`
   （`HudViewModel_TargetNameAndFaction_ReflectRegisteredTemplate_NullWhenNoTarget`/
   `HudViewModel_TargetName_TemplateNotRegistered_ReturnsNull_AndRecordsDiagnostic`）。
+### 行为变更
+
+- **掉落条目随机子流隔离（消费方反馈第 4 条根治，[ADR-0052](architecture/adr/0052-掉落条目随机子流隔离.md)）**：
+  `core/gameplay/loot/core/LootHost.cs` 的掉落判定不再共用一条按登记顺序顺序推进的
+  `LootOptions.RngStream`，改为按 `(loot_table_id, entry_ref)` 派生独立随机子流——一个条目自己
+  消耗几次随机数（判定骰/数量骰/品质骰/词缀骰）只影响它自己这条子流的推进位置，不再挪动同一张表
+  里其它条目、或其它表的结果。`weighted_pick_one`/`guaranteed_min` 的"选哪条"仲裁抽取仍留在共享
+  流上（这一步依赖当前候选池整体，不存在能对它负责的单一条目），仲裁选中之后该条目自己的消耗才
+  下放到子流。
+  - **这是一次有意的行为变更，不是缺陷修复的"结果不变、只是实现变了"**：同一个种子下，掉落判定
+    的具体产出序列与本版本之前不同。接入方若把某个固定种子下的具体掉落结果（物品、数量、品质、
+    词缀）写进了自己的测试用例，升级后需要重新生成这些期望值——这是本次改动的直接、必然后果，
+    不提供兼容开关。往掉落表插入/删除/调整条目不再牵动其它条目的结果，这一属性从本版本起成立。
+  - **数值仿真基线同批重新烘焙**（`core/sim/tests/baseline/*.json`）：仅内置成长曲线场景
+    （`sim_growth_full`，其怪物掉落表含固定必掉货币条目 + 多件同权重装备条目 + 一件带品质骰的
+    稀有装备条目——正是本次修复的目标配置）的统计量发生实质变化；竞技场/覆盖度场景
+    （`sim_arena_matrix`/`sim_coverage_all`）使用的掉落表此前就只有单一有效条目，不受本缺陷
+    影响，基线里的具体数值未变，只是重新盖了版本戳。三份基线均无 `added`/`removed`（未出现新增
+    或消失的统计量，只有既有统计量的数值变化）。
 
 ## [1.49.0] - 2026-09-20
 
