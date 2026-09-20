@@ -449,6 +449,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **发布产物不可变强制校验（消费方反馈第 8 条根治）**：`build.ps1` 打分发包 `dist/<版本>/`
+  目录、打 `dist/ws-game-<版本>.zip`/`.lock` 两处此前均无版本存在性校验，会无条件覆盖已发布
+  版本的产物；唯一的防线（`-Release` 第 7 步 `git tag -a`）在产物已被覆盖之后才执行，且
+  `-Dist`/`-Zip` 两条独立于 `-Release` 的打包路径完全不经过这道防线（复现：发布过 vX 后单独
+  执行 `build.ps1 -Dist X -Zip`，三个产物被静默覆盖，同一 zip 两次打包出的哈希不同）。新增
+  `toolchain/_dist_immutability_guard.ps1`（`Assert-DistVersionNotAlreadyReleased`），在三个
+  产物真正写出之前校验目标版本号是否已存在对应 `v<版本>` 标签，已发布则直接报错终止并给出
+  正确做法（发布新版本号）；新增 `-AllowOverwriteDist` 开关作为显式例外通道（默认关闭，用于
+  重跑一次失败/半途的发布），启用时打印醒目警告。覆盖 `-Release`/`-Dist`/`-Zip` 三条入口的
+  任意组合。
+
 ## [1.48.0] - 2026-09-20
 
 ### 新增
