@@ -1,0 +1,17 @@
+using System.Collections.Generic;
+
+namespace Core.Gameplay.Loot
+{
+    /// <summary>默认 <see cref="ILootDiagnostics"/> 实现：把警告收进内存列表，不依赖任何引擎适配层
+    /// 接口（惯例同 <c>InMemoryProgressionBridgeDiagnostics</c>/<c>InMemoryRewardDiagnostics</c>/
+    /// <c>InMemoryWorldStateDiagnostics</c>），供 <c>adapters/unity</c> 侧统一诊断转发机制
+    /// （ADR-0042）轮询、也供测试直接断言。</summary>
+    public sealed class InMemoryLootDiagnostics : ILootDiagnostics
+    {
+        private readonly List<string> _warnings = new List<string>();
+
+        public IReadOnlyList<string> Warnings => _warnings;
+
+        public void Warn(string message) => _warnings.Add(message);
+    }
+}

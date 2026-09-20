@@ -106,6 +106,13 @@ namespace Core.Gameplay.Assembly
 
         public LootHost Loot { get; }
 
+        /// <summary>消费方反馈同构问题第三处根治（诊断转发跟进，同 <see cref="ProgressionBridgeDiagnostics"/>
+        /// 惯例——本装配根不对外暴露 <see cref="Core.Gameplay.Loot.CreatureDeathLootListener"/> 实例
+        /// 本身，构造后即弃元，此前也从未对外暴露过，没有其它模块需要引用监听器对象）：本属性转发
+        /// <see cref="Core.Gameplay.Loot.CreatureDeathLootListener.Diagnostics"/>，供 adapters/unity
+        /// 侧统一诊断转发机制登记为 "Core.Gameplay.Loot" 一个来源（ADR-0042）。</summary>
+        public ILootDiagnostics LootDiagnostics { get; }
+
         public EconomyHost Economy { get; }
 
         public QuestHost Quest { get; }
@@ -629,12 +636,20 @@ namespace Core.Gameplay.Assembly
             // 2026-09-16 深度复审 D-M1：追加 summons: Carriers.Summons，供 OnUnitDied 货币入账前把
             // 击杀者解析为记账单位（召唤物→主人），与下面 CreatureDeathXpListener 的既有装配点保持
             // 一致（该处一直就传了 summons，见其判断记录）。
+            //
+            // 消费方反馈同构问题第三处根治（判断记录 19）：本装配根此前从未持有过这个监听器实例
+            // （构造后即 `_ = new ...` 弃元），诊断契约因此完全没有到达宿主控制台的通路（ADR-0042
+            // 决策 1）。提前构造这份诊断实例，供 LootDiagnostics 属性转发给 adapters/unity 侧统一
+            // 诊断转发机制登记（惯例同下方 progressionBridgeDiagnostics）。
+            var lootDiagnostics = new InMemoryLootDiagnostics();
+            LootDiagnostics = lootDiagnostics;
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
                 lootMultiplierProvider: () => Difficulty.LootMultiplier,
                 difficultyHost: Difficulty,
                 economyHost: deferredEconomyHost,
-                summons: Carriers.Summons);
+                summons: Carriers.Summons,
+                diagnostics: lootDiagnostics);
 
             // 消费方反馈第 6 条根治：progression_bridge 模块两个监听器（本类下方 AreaTriggerHost
             // 步骤另一处）共用同一份诊断实例——本装配根此前从未持有过这两个监听器实例（构造后即
