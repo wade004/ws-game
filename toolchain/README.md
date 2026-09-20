@@ -1147,3 +1147,66 @@ return -> 直接放行"这条分支，等于完全没有防护效果，只在"�
 参数化，`source_only` 正是修复前会被漏判的那一例；另新增 `test_neither_root_present_warns_
 but_does_not_throw` 验证两个候选根都缺失时返回码仍是 0（不阻断）但 stdout 里能看到醒目的
 "警告"字样与两个候选根路径。
+
+## 发布产物不可变强制校验（`_dist_immutability_guard.ps1`，2026-09-20，消费方反馈第 8 条根治）
+
+背景：仓库对外承诺"标签 + dist zip + lock 不可变发布"（见 architecture/11_工程规范与测试.md 第 7 节"构建产物与版本号约定"
+一节），但此前没有任何强制手段落地这个承诺——`build.ps1`"打分发包 dist/<版本>/"一节、
+"打 zip + lock"一节、`toolchain/_lock_writeback.ps1` 的 `Write-WsGameLockFile` 三处均无版本
+存在性校验，会无条件覆盖同名产物。唯一的防线是 `-Release` 第 7 步的 `git tag -a`（标签已存在
+会失败），但这道防线在三个产物已经被覆盖之后才执行；更严重的是 `-Dist`/`-Zip` 这两条独立于
+`-Release` 的打包路径完全不经过这道防线——不校验 git 状态、不改版本号、不提交、不打标签，只要
+传入一个已经发布过的版本号就会静默覆盖。复现：发布过 vX 后单独执行 `build.ps1 -Dist X -Zip`
+（不用 `-Release`、不改版本号、不碰 git），三个产物被静默覆盖，同一 zip 两次打包出的哈希不同。
+消费方按 `ws-game.lock` 锁定的哈希会对不上，排查时只会怀疑自己环境，而不是框架自己破坏了对外
+承诺。
+
+**判定"已发布"的依据：`git tag -l v<版本>` 是否存在，不是"dist/ 下文件/目录是否存在"**：
+dist/ 整体 `.gitignore`（不进源码库），本机 dist/ 下有没有文件，只反映"最近一次在这台机器上
+跑没跑过打包"，不反映"这个版本号是否已经对外发布过"——可能是上次构建失败、进程被中途杀掉
+留下的半成品，也可能是一份从没打过包的干净 checkout；两种情况都不能反推"版本是否已发布"，用
+文件存在性判断反而会在"半成品残留"时误判成已发布而拒绝合法的首次打包，或者在"dist/ 被手动
+清空但版本确实发布过"时误判成未发布而放行覆盖，两个方向都会判错。`v<版本>` 标签由 `-Release`
+第 7 步在"打包完成自检"通过之后才创建（见 `build.ps1` 该步骤判断记录：自检失败根本不会走到
+打标签这一步），标签一旦存在就代表这个版本号确实产出过一份自检通过、已经对外发布的产物快照
+——这是仓库里唯一一处"发布"这件事真正落定的信号，比文件系统状态更可靠。
+
+**校验插入点覆盖三条入口，而不是只在 `-Release` 里加**：`build.ps1` 在两处共享代码块各调用
+一次 `Assert-DistVersionNotAlreadyReleased`——"打分发包 dist/<版本>/"一节（`Remove-Item
+-Path $DistRoot` 之前）与"打 zip + lock"一节（`Compress-Archive`/`Write-WsGameLockFile`
+之前）。之所以两处就能覆盖 `-Release`/`-Dist`/`-Zip` 三条入口的任意组合：`-Release` 在自己
+的前置校验一节里无条件把 `$DistRequested` 置为 `$true`，把自己转译成一次等价的 `-Dist` 请求，
+落到与 `-Dist` 完全相同的共享代码块；`-Zip` 在参数校验阶段已经要求必须同传 `-Dist`/
+`-Dist auto` 或 `-Release`，因此也一定会先经过"打分发包"这一步的校验。校验对象统一用调用方
+传入的 `$DistDirVersion`（打包路径实际使用的版本字符串，`-DryRun` 场景下带 `-dryrun` 后缀），
+不是记录进 MANIFEST/lock 内容字段的"干净"版本号 `$ResolvedDistVersion`：真实发布从不会给一个
+带 `-dryrun` 后缀的字符串打标签，所以 `-Release -DryRun`、`-Dist X.Y.Z-dryrun` 两条 dry-run
+路径下 `git tag -l "v<带后缀的字符串>"` 天然查不到匹配，不需要在每个调用点分别记住"这里要放行
+dry-run"这条例外。
+
+**例外通道 `-AllowOverwriteDist`，默认关闭**：重跑一次失败的发布（标签还没打成功、产物只是
+半成品）是合法需求（见 AGENTS.md §5"半途状态若发布提交已产生但无标签"一节），不能把覆盖完全
+锁死。开一个显式开关，传入时跳过本次校验直接放行，但必须打印醒目警告点出正在覆盖哪些文件——
+不能悄悄放行，否则例外通道本身又变成一个新的"覆盖不留痕"的口子。默认关闭：这是发布不可变
+承诺的强制落地，不应该在日常调用里习惯性带上这个开关绕过校验。
+
+**独立成 `toolchain/_dist_immutability_guard.ps1` 而不是内联写在 `build.ps1` 里**：与同目录
+`_hash.ps1`/`_version_writeback.ps1`/`_lock_writeback.ps1`/`_unity_path_length_guard.ps1`
+同一模式——只定义函数、无顶层副作用，`toolchain/tests/test_dist_immutability_guard.py` 可以
+直接 dot-source 后单独测试，不需要跑完整 `build.ps1`（后者会顺带跑一大批耗时的 dotnet
+build/test 步骤）。
+
+**测试覆盖**（`toolchain/tests/test_dist_immutability_guard.py`）：
+1. 独立函数逻辑（合成的空 git 仓库，不涉及本仓库真实标签）：版本未发布放行、版本已发布拒绝
+   （异常信息含版本号/已发布证据/拒绝原因/正确做法/例外开关名五类关键指引）、
+   `-AllowOverwrite` 放行但打印警告、`-dryrun` 后缀版本不会被已发布的干净版本号误伤。
+2. `build.ps1` 真实入口接线（真实调用脚本，用 `-SyncContent` 跳过耗时的 `dotnet build`/
+   `test`/DLL 同步，让测试在几秒内跑到校验点）：`-Dist <已发布版本>`、
+   `-Dist <已发布版本> -Zip` 均被拦截且不产生任何 dist 产物；已发布版本号动态从仓库真实标签
+   （`git tag -l "v*"`）里取，不硬编码、不新建标签，本机没有符合格式的标签时跳过。
+3. 静态结构校验（纯文本断言，不依赖 PowerShell 解释器）：三处真正写产物的语句
+   （`Remove-Item -Path $DistRoot`、两次 `Compress-Archive`、`Write-WsGameLockFile`）在
+   `build.ps1` 全文件里各只出现一次且都排在对应校验调用之后，`-Release` 前置校验一节里
+   `$DistRequested = $true` 排在这些写入语句之前——用来证明 `-Release` 没有另一条绕开校验
+   的独立写入路径，而不是仅凭"信任代码结构"下结论；`-Release` 本身不在本次任务允许的调用
+   范围内（不能真的发版验证），只能用这种方式覆盖。

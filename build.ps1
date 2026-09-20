@@ -125,6 +125,17 @@
     配合 `-PublishRegistry` 使用，显式指定私服地址；省略时读取 `toolchain/registry/registry.json`
     的 `url` 字段（默认 `http://127.0.0.1:4873`）。
 
+.PARAMETER AllowOverwriteDist
+    消费方反馈第 8 条根治新增（2026-09-20，发布不可变强制校验，见
+    `toolchain/_dist_immutability_guard.ps1` 头判断记录）：默认（不传本开关）情况下，
+    `-Release`/`-Dist`/`-Zip` 三条入口在真正写出 `dist/<版本>/` 目录、
+    `dist/ws-game-<版本>.zip`、`dist/ws-game-<版本>.lock` 之前，都会先校验目标版本号是否
+    已经发布过（依据：`git tag -l v<版本>` 是否存在）——已发布则直接报错终止，不覆盖任何文件。
+    传本开关会跳过这道校验，允许覆盖（同时打印醒目警告点出即将覆盖哪些文件）。仅用于重跑一次
+    失败/半途的发布（标签还没打成功、产物只是半成品）这一种合法场景；若目标版本号确实已经完整
+    发布过，这个开关会破坏本仓库"标签 + dist zip + lock 不可变发布"的对外承诺，不应该在日常
+    调用里习惯性带上。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
 #>
@@ -140,7 +151,8 @@ param(
     [switch]$ReleaseSkipUnity,
     [switch]$Zip,
     [switch]$PublishRegistry,
-    [string]$RegistryUrl = ""
+    [string]$RegistryUrl = "",
+    [switch]$AllowOverwriteDist
 )
 
 $ErrorActionPreference = "Stop"
@@ -160,6 +172,14 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # 逻辑抽成共享函数，与 .github/workflows/release.yml 的"缺附件修复"分支调用同一份，杜绝两处各自
 # 手写再次漂移（该分支此前漏写 headless_dlls/validator_dlls 两个字段）。
 . (Join-Path $RepoRoot "toolchain\_lock_writeback.ps1")
+# 判断记录（发布不可变强制校验，2026-09-20，消费方反馈第 8 条根治，完整判断记录见
+# toolchain/_dist_immutability_guard.ps1 文件头）：dist/<版本>/、dist/ws-game-<版本>.zip、
+# dist/ws-game-<版本>.lock 三个产物在真正写出之前，都要先校验目标版本号是否已经发布过，已发布
+# 则拒绝覆盖——此前只有 -Release 第 7 步的 `git tag -a` 这一道防线，且在产物已被覆盖之后才
+# 执行，-Dist/-Zip 两条独立路径完全不经过这道防线。独立成文件（同目录 _hash.ps1/
+# _version_writeback.ps1/_lock_writeback.ps1/_unity_path_length_guard.ps1 同一模式），供
+# toolchain/tests/test_dist_immutability_guard.py 单独 dot-source 测试。
+. (Join-Path $RepoRoot "toolchain\_dist_immutability_guard.ps1")
 
 function Write-Step {
     param([string]$Message)
@@ -890,6 +910,15 @@ Write-Host "  已生成占位导航资源：$templateNavResourcePath（nav.templ
 if ($DistRequested) {
     Write-Step "打分发包 dist/$DistDirVersion/"
 
+    # 发布不可变强制校验（消费方反馈第 8 条根治，见 toolchain/_dist_immutability_guard.ps1
+    # 头判断记录）：-Release/-Dist/-Zip 三条入口都会走到这个共享代码块（-Release 内部转译为一次
+    # -Dist 请求，见上方"版本管理方案新增"一节，无论是否 -DryRun 都会设置 $DistRequested=$true；
+    # -Zip 前面已经校验过必须同传 -Dist/-Dist auto 或 -Release，见文件靠前的参数校验），因此只
+    # 需要在这一个入口挡一次，不需要在每个开关分支各写一份。放在 `Remove-Item $DistRoot` 之前，
+    # 已发布版本会在这里直接终止，不会先删再报错。
+    Assert-DistVersionNotAlreadyReleased -RepoRoot $RepoRoot -VersionForPath $DistDirVersion `
+        -ArtifactDescriptions @("dist\$DistDirVersion\ 目录（打包内容）") -AllowOverwrite:$AllowOverwriteDist
+
     $DistRoot = Join-Path $RepoRoot ("dist\" + $DistDirVersion)
     if (Test-Path $DistRoot) {
         Remove-Item -Path $DistRoot -Recurse -Force -Confirm:$false
@@ -1512,6 +1541,18 @@ if ($DistRequested) {
     # -------------------------------------------------------------------
     if ($ReleaseRequested -or $Zip) {
         Write-Step "打 zip + lock（dist/ws-game-$DistDirVersion.zip / .lock）"
+
+        # 发布不可变强制校验（同上一处"打分发包"的调用，见 toolchain/_dist_immutability_guard.ps1
+        # 头判断记录）：单独在这里再挡一次，不只依赖上面 dist 目录那一处校验——即便将来有改动让
+        # zip/lock 这一段脱离 dist 目录重建这条路径单独可达，产物覆盖前也一定会先过这道闸，不
+        # 依赖调用顺序上的偶然性；这也是消费方反馈复现的具体缺陷点之一
+        # （`-Dist X -Zip` 覆盖 zip/lock 时完全没有提示）。
+        Assert-DistVersionNotAlreadyReleased -RepoRoot $RepoRoot -VersionForPath $DistDirVersion `
+            -ArtifactDescriptions @(
+                "dist\ws-game-$DistDirVersion.zip",
+                "dist\ws-game-$DistDirVersion.lock",
+                "dist\ws-game-$DistDirVersion-samples.zip"
+            ) -AllowOverwrite:$AllowOverwriteDist
 
         $zipPath = Join-Path $RepoRoot ("dist\ws-game-" + $DistDirVersion + ".zip")
         $zipTopLevelName = "ws-game-" + $DistDirVersion
