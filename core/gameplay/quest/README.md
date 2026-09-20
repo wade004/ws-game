@@ -335,6 +335,30 @@ quest/
     重复）场景、多态并存时的优先级裁决（含顺序打乱不影响结果）、重复 id 不改变结果共 12 例，全部
     用真实 `QuestHost`（经既有测试 `Harness`）驱动状态转移，不 mock `IQuestHost`。
 
+21. **消费方反馈第 9 条（2026-09-20）：`start_method` 补 `gobj_interact` 取值，见
+    [ADR-0048](../../../architecture/adr/0048-任务起始方式补与场景物件交互取值.md)**——纯枚举遗漏：
+    `core/carriers/gobj` 早在 `GobjKind.QuestObject` 落地时就已经具备"交互一个 gobj 触发任务系统"
+    的完整链路（`GameObjectHost.Interact` 分发 `quest_action_ref` 给
+    `GobjOptions.QuestActionDispatcher`，生产装配根 `GameplayAssembly` 接到
+    `resolvedGobjOptions.QuestActionDispatcher ??= (unitId, questActionRef) =>
+    Quest.Accept(unitId, questActionRef)`），但 `quest.def.start_method` 枚举从未有一个取值用来
+    描述"这条任务是设计给这条链路用的"——内容作者只能挑一个语义不符的既有取值（如 `npc_gossip`）
+    顶替，登记表本身留不下真实设计意图。新增 `QuestStartMethod.GobjInteract`/线上文本
+    `"gobj_interact"`，**不改变任何既有触发链路的运行期行为**：`IQuestHost.Accept` 本就不按
+    `start_method` 做门禁（四值除 `auto` 外均只是"设计意图"标注，真正的接取动作由各自的触发源
+    —— gossip 菜单 `accept_quest` 动作/道具使用/区域触发/gobj 交互——各自调用 `Accept`，`Accept`
+    本身对调用来源一视同仁），本次新增同理，只补齐"这条既有链路现在有名字了"，不新增任何门禁
+    分支。**验收链路真的能触发任务**（不是只加个没人消费的枚举值）：新增装配级集成测试
+    `GameplayAssemblyGobjQuestStartTests`，构造一条 `start_method: gobj_interact` 的 `quest.def`
+    与一个 `kind: quest_object`、`quest_action_ref` 指向该任务的 `gobj.template`，生成实例后调用
+    `Carriers.GameObjectInteractions.Interact`，断言 `Quest.GetState` 从 `Available` 变为
+    `Active`；`core/gameplay/quest/tests` 新增 `TryParseStartMethod` 往返测试覆盖新取值与全部既有
+    取值不受影响。样例数据 `data/_sample/quest/quest.def.json` 新增 `quest.sample_gobj_start`、
+    `data/_sample/gobj/gobj.template.json` 新增 `gobj.sample_quest_marker`（`kind: quest_object`、
+    `quest_action_ref` 指回前者），互相引用演示 `start_method: gobj_interact` 的真实用法；JSON 数据
+    文件本身不支持内联判断记录，本条即为这两处样例新增的判断记录（另见
+    `data/_sample/l10n/l10n.text.json` 同步补的两条示例文本键）。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层

@@ -462,10 +462,17 @@ namespace Core.Rules.Skill
                 useCondition = ExprParser.Parse(useConditionText, _exprSchema);
             }
 
+            // 消费方反馈第 3 条（2026-09-20，ADR-0048）：name_key 是可选 TextKey 字段，同
+            // title_key/greeting_key 既有解析惯例（TryGetId 失败即 null，不是"字段存在但类型错误"
+            // 与"字段缺失"两种情况的区分——两者都已由 DataRegistry 加载期 FieldKind.TextKey 校验
+            // 挡在前面，这里只关心"有没有"）。
+            Id? nameKey = record.TryGetId("name_key", out var nk) ? nk : (Id?)null;
+
             return new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
-                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget, useCondition);
+                respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget, useCondition,
+                nameKey);
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)

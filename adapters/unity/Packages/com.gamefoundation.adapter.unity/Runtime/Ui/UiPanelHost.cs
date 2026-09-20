@@ -88,7 +88,9 @@ namespace Adapter.Unity.Ui
             _panels[UiPanel.Hud] = Hud;
 
             ActionBar = CreatePanel<ActionBarPanel>("ActionBar", GameplayGroup);
-            ActionBar.Construct(GameplayGroup, presentation.ActionBar, presentation.UiIntents);
+            // 消费方反馈第 3 条（2026-09-20，ADR-0048）：ActionBarPanel.Construct 新增必填
+            // IL10nHost 参数（渲染 skill.def.name_key），见该类型判断记录。
+            ActionBar.Construct(GameplayGroup, presentation.ActionBar, presentation.UiIntents, presentation.L10n);
             _panels[UiPanel.ActionBar] = ActionBar;
 
             Inventory = CreatePanel<InventoryPanel>("Inventory", GameplayGroup);

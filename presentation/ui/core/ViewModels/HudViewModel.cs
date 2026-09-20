@@ -93,6 +93,16 @@ namespace Presentation.Ui
 
         public IReadOnlyDictionary<Id, PowerBarSnapshot> TargetPowerBars => _targetPowerBars;
 
+        /// <summary>
+        /// 消费方反馈第 3 条（2026-09-20，ADR-0048）：当前目标的原始身份 Id（经
+        /// <c>target.id</c> 路径，见 <see cref="TargetPathProvider"/>）。当前无目标时为 <c>null</c>。
+        /// 判断记录（转发原始 Id，不解析显示名称）：本仓库 <c>presentation/ui</c> 视图模型一贯只转发
+        /// 原始 <see cref="Id"/>，由表现层（Unity 侧面板）决定如何呈现——即便玩家自己的身份/名称
+        /// 今天也未在 HUD 任何地方被解析成文本，只展示数值化的属性/资源；本字段延续同一惯例，不为此
+        /// 新增一套"显示名称解析服务"，避免范围蔓延。
+        /// </summary>
+        public Id? TargetId { get; private set; }
+
         /// <summary>技术债 17：是否装配了离散（回合制）时间模型——构造期传入了非空
         /// <c>turnScheduler</c> 时为 <c>true</c>。为 <c>false</c> 时 <see cref="CurrentActorId"/>
         /// 恒为 <c>null</c>、<see cref="RoundIndex"/> 恒为 0、<see cref="CanEndTurn"/> 恒为
@@ -186,6 +196,9 @@ namespace Presentation.Ui
             _powerBars.Clear();
             _targetPowerBars.Clear();
             HasTarget = false;
+
+            var targetIdQuery = _dataSource.Query("target.id");
+            TargetId = targetIdQuery.HasValue ? targetIdQuery.Value.AsId : (Id?)null;
 
             foreach (var powerType in _powerTypes)
             {

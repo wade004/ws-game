@@ -22,5 +22,8 @@ namespace Presentation.Ui
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) => _skillHost.GetKnownSkills(unitId);
 
         public double GetCooldown(Id unitId, Id skillId) => _skillHost.GetCooldown(unitId, skillId);
+
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：转发 <c>SkillHost.GetSkillNameKey</c>。</summary>
+        public Id? GetNameKey(Id skillId) => _skillHost.GetSkillNameKey(skillId);
     }
 }

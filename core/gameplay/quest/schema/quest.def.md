@@ -16,7 +16,7 @@
 | `objectives` | Array\<QuestObjective\> | 是 | 目标数组，至少一条——消费方反馈第 60 条根治：已改用 `FieldSchema.WithItemCount(min: 1)` 登记，由 `DataRegistry` 通用字段校验的 `field_item_count` 检查项报告（不再是 `QuestContentValidationRule` 职责，退役检查名 `objectives_min_count`）。元素结构 ADR-0019/F1b 起登记为 `QuestSchemas.ObjectiveItemSchema`（按 `type` 分派的 `Variants`），见下"QuestObjective 结构"与"子结构登记表"。 |
 | `prerequisite` | Expr | 否 | 前置条件（等级、已完成任务、世界标志等）；未声明时视为恒真（无前置）。 |
 | `exclusive_group` | Id | 否 | 互斥组：同组任务同时只能激活/完成一个（`QuestHost.Accept` 校验）。 |
-| `start_method` | Enum | 是 | `npc_gossip｜item_use｜area_trigger｜auto`，起始方式。 |
+| `start_method` | Enum | 是 | `npc_gossip｜item_use｜area_trigger｜auto｜gobj_interact`，起始方式；`gobj_interact`（ADR-0048）对应与场景物件（`gobj.template.kind = quest_object`）交互触发接取，见 `core/carriers/gobj` 的 `GameObjectHost.Interact` → `GobjOptions.QuestActionDispatcher` → `IQuestHost.Accept` 链路（本值只是给这条既有链路补登记名，不改变链路行为）。 |
 | `turn_in_method` | Enum | 是 | `npc_gossip｜auto`，交付方式。 |
 | `rewards` | Object | 否 | `{items, xp, currency, skills, world_flags, talent_points}`；结构见 `core/gameplay/common/README.md` 与该模块 `RewardBundle` 类型。ADR-0019/F1b 起本表字段改为 `QuestSchemas.RewardsFields` 直接构造（带 `Fields`），不再调用裸的 `Core.Gameplay.Common.RewardSchemaFields.Rewards(required: false)`——后者目前仍只登记裸 `Object`，见下"子结构登记表"判断记录。 |
 | `repeatable` | Enum | 是 | `none｜daily｜unlimited`，可重复性。 |

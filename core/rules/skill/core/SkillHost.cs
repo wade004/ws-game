@@ -485,6 +485,13 @@ namespace Core.Rules.Skill
         public double GetCooldown(Id unitId, Id skillId) =>
             _defs.TryGetSkillDef(skillId, out var def) ? _cooldowns.GetCooldown(unitId, def) : 0;
 
+        /// <summary>消费方反馈第 3 条（2026-09-20，ADR-0048）：按 <paramref name="skillId"/> 取
+        /// <c>skill.def.name_key</c>（<see cref="SkillDef.NameKey"/>），供表现层解析技能名称——技能
+        /// 不存在或未声明 <c>name_key</c> 时返回 <c>null</c>，调用方（presentation/ui 的
+        /// <c>SkillHostSkillBookQuery</c>）据此决定不渲染名称，不回退占位文案。</summary>
+        public Id? GetSkillNameKey(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) ? def.NameKey : null;
+
         /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
         /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="ISkillHost"/>

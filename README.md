@@ -13,7 +13,7 @@
 ```
 .github/workflows/      GitHub Actions 持续集成工作流（ci.yml + release.yml，见"持续集成"一节）
 .githooks/              版本化 git 钩子（pre-commit，见"提交前钩子"一节）
-architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（47 条 ADR）+ 落地计划/ + 选型/
+architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（48 条 ADR）+ 落地计划/ + 选型/
 core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .NET Standard 2.1
   foundation/            L0 基础层：event_bus、rng、expr、data_registry、sim_loop、save_system、input_map、l10n、display_info、scene_router、hook_registry、app_lifecycle
   numbers/               L1 数值层：stat_block、power_set、progression、archetype、faction

@@ -767,6 +767,12 @@ namespace Core.Rules.Skill
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.<name>"),
+                // 消费方反馈第 3 条（2026-09-20，ADR-0048）：技能名称此前无字段可登记，表现层只能
+                // 硬编码/直接显示 id 短串。命名与字段类型沿用 ADR-0043 dialog.gossip_menu.greeting_key
+                // 确立的 TextKey 惯例（"语义名 + _key" 后缀、FieldKind.TextKey、required: false，
+                // 缺省时表现层隐藏不渲染、不回退占位文案），不新造一套命名——见 SkillDef.NameKey 判断
+                // 记录。纯新增可选字段，不提 schema_version，既有全部 skill.def 行零改动仍合法。
+                new FieldSchema("name_key", FieldKind.TextKey, required: false, description: "技能名称文本键，缺省时表现层不渲染名称（不回退占位文案），见 ADR-0048"),
                 new FieldSchema("school", FieldKind.Id, required: true, description: "学派"),
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: SkillKindValues,
                     description: "active|passive"),

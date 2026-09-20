@@ -1475,3 +1475,22 @@ Error，全局级别、不按表/记录粒度）下即便触发阻断的记录�
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（消费方反馈第 3 条：`skill.def.name_key`，2026-09-20，[ADR-0048](../../../architecture/adr/0048-任务起始方式补与场景物件交互取值.md)）
+
+背景：`skill.def` 此前没有任何字段登记技能名称，表现层动作条只能展示 `ShortId(skillId)`（技能 id
+去掉命名空间前缀的短串），玩家看到的是"strike"这类内部标识符而不是设计好的技能真名。
+
+**字段**：新增 `name_key`（`FieldKind.TextKey`，`required: false`）。命名/类型沿用 ADR-0043
+`dialog.gossip_menu.greeting_key` 确立的 TextKey 惯例（"语义名 + `_key`" 后缀），不新造一套命名——
+见任务书原话"大概率也该走 TextKey 那一套，不要自创"。纯新增可选字段，不提 `schema_version`，全部
+既有 `skill.def` 行零改动仍合法；缺省时 `SkillDef.NameKey` 为 `null`，消费方（`ActionBarViewModel`/
+`ActionBarPanel`）不渲染名称，不回退占位文案（同 `greeting_key` 判断记录，ADR-0043"后果"一节）。
+
+**ABI**：`SkillDef` 新增第四个构造函数重载（二十参数，末尾追加 `Id? nameKey`，与既有三个重载
+参数个数不重叠，同该类型既有三处重载判断记录同一套惯例）；`SkillHost` 新增公开只读方法
+`GetSkillNameKey(Id skillId)`，均为纯新增，不改动任何既有公开签名。
+
+**测试**：`core/rules/skill/tests/SkillDefNameKeyTests.cs`（新增）覆盖：`name_key` 存在时
+`SkillDefCache.ParseSkillDef`/`SkillHost.GetSkillNameKey` 正确解析、缺省字段时两者均返回
+`null`、既有（无 `name_key`）`skill.def` 记录解析结果的其余全部字段不受影响。

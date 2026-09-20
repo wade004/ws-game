@@ -154,3 +154,34 @@ PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_No
 接口成员（见 `core/gameplay/quest/README.md` 判断记录 19），本模块这条纯转发是新增方法，同样不改
 动任何既有公开签名，不需要 ADR。测试见 `presentation/ui/tests/ViewModelTests.cs`
 `QuestLogViewModel_GetObjectiveRequiredCounts_ForwardsQuestHostAndDegradesWhenMissing`。
+
+## 判断记录（HudViewModel.TargetId / ActionBarViewModel 技能名称，2026-09-20，消费方反馈第 3 条，[ADR-0048](../../architecture/adr/0048-任务起始方式补与场景物件交互取值.md)）
+
+背景：`HudViewModel` 此前没有任何字段能表达"当前目标是谁"，目标框只能展示资源条数字；
+`ActionBarViewModel` 的槽位快照也没有技能名称，动作条只能展示技能引用的短串。两者迫使
+`adapters/unity` 参考界面只能硬编码/展示内部引用短串。
+
+**`HudViewModel.TargetId`**：新增只读属性 `Id? TargetId`，经新增的 `TargetPathProvider` 叶子
+路径 `target.id` 解析（`ExprValue.OfId`），无目标时为 `null`。判断记录（转发原始引用，不是解析
+好的显示文本）：见 ADR-0048 决策 4——本模块视图模型一贯只转发原始 `Id`，把"展示成什么"交给
+消费端；本字段延续这一惯例，不新增名称解析服务。ABI：`TargetPathProvider.Resolve` 新增一个
+`switch` 分支，`HudViewModel` 不新增构造参数，均不改动既有公开签名。
+
+**`ActionBarViewModel`/`ActionBarSlotSnapshot.NameKey`**：`ActionBarSlotSnapshot` 新增只读属性
+`Id? NameKey` + 配套三参数构造函数重载（既有两参数构造函数不变）；`ActionBarViewModel` 新增携带
+`ISkillBookQuery` 的五参数构造函数重载（既有四参数构造函数不变），`Refresh()` 在提供了
+`ISkillBookQuery` 时经 `GetNameKey(skillId)` 解析技能名称写入快照。`ISkillBookQuery` 新增默认
+接口成员 `Id? GetNameKey(Id skillId) => null`（同 `IQuestHost.GetObjectiveRequiredCounts` 既有
+默认接口成员惯例），`SkillHostSkillBookQuery` 覆盖转发到新增的 `SkillHost.GetSkillNameKey`。
+`name_key` 字段本身命名/类型见 `core/rules/skill/README.md` 同名判断记录（TextKey 惯例）。
+
+**消费端**：`adapters/unity` 的 `HudPanel.RefreshUi` 目标标签补身份短串（`ShortId`，同文件既有
+`CurrentActorId`/`TurnOrder` 展示手法）；`ActionBarPanel.Construct` 新增必填 `IL10nHost` 参数
+（蓄意的破坏性签名变更，唯一调用方 `UiPanelHost.Initialize` 已同步更新，无 PlayMode 测试直接
+调用，`adapters/unity` 不在 ABI 锁定范围，同 `HudPanel.Construct` 既往破坏性变更判断记录同一
+准则），`RefreshUi` 优先渲染 `_l10n.Text(slot.NameKey.Value)`，未声明时回退既有 `ShortId`。
+
+测试见 `presentation/ui/tests/UiDataSourceTests.cs`（`Query_target_id_*` 两条，新增 `target.id`
+叶子路径有/无目标两态）与 `presentation/ui/tests/ViewModelTests.cs`（`HudViewModel_TargetId_*`；
+`ActionBarViewModel_WithSkillCatalog_ResolvesNameKey_*`/`ActionBarViewModel_WithoutSkillCatalog_NameKeyIsAlwaysNull`，
+覆盖 `NameKey` 经 `ISkillBookQuery` 解析、未提供该依赖或技能未声明字段时为 `null`）。

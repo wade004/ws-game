@@ -564,7 +564,10 @@ namespace Presentation.Assembly
                 UiData, _playerId, opts.HudPowerTypes,
                 turnScheduler: gameplay.TurnScheduler, appState: gameplay.AppState,
                 awaitingInputSubState: gameplay.AwaitingInputSubState);
-            ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings);
+            // 消费方反馈第 3 条（2026-09-20，ADR-0048）：改用携带 ISkillBookQuery 的新构造函数
+            // 重载，令动作条槽位快照能解析 skill.def.name_key（见 ActionBarViewModel 判断记录）；
+            // skillBookQuery 已在上方为 SkillBook/QuestLog 构造好，复用同一实例。
+            ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings, skillBookQuery);
             Inventory = new InventoryViewModel(UiData, opts.EquipmentSlotIds);
             QuestLog = new QuestLogViewModel(UiData, gameplay.Quest, _playerId);
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);

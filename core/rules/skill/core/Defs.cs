@@ -64,6 +64,16 @@ namespace Core.Rules.Skill
         /// </summary>
         public ExprNode? UseCondition { get; }
 
+        /// <summary>
+        /// 消费方反馈第 3 条（2026-09-20，ADR-0048）：技能名称文本键（<c>skill.def.name_key</c>），
+        /// 命名/字段类型沿用 ADR-0043 <c>dialog.gossip_menu.GreetingKey</c> 的 TextKey 惯例。
+        /// <c>null</c> 表示未声明——本字段落地前登记的全部既有 <c>skill.def</c> 行均无此字段，解析为
+        /// <c>null</c>，与"未声明"语义一致，不产生任何行为变化；消费方（<c>ActionBarViewModel</c>/
+        /// <c>ActionBarPanel</c>）在 <c>null</c> 时不渲染名称，不回退占位文案（同 <c>greeting_key</c>
+        /// 判断记录，ADR-0043"后果"一节）。
+        /// </summary>
+        public Id? NameKey { get; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(
@@ -92,6 +102,7 @@ namespace Core.Rules.Skill
             ActionCost = actionCost;
             AllowGroundTarget = false;
             UseCondition = null;
+            NameKey = null;
         }
 
         /// <summary>
@@ -127,6 +138,7 @@ namespace Core.Rules.Skill
             ActionCost = actionCost;
             AllowGroundTarget = allowGroundTarget;
             UseCondition = null;
+            NameKey = null;
         }
 
         /// <summary>
@@ -161,6 +173,43 @@ namespace Core.Rules.Skill
             ActionCost = actionCost;
             AllowGroundTarget = allowGroundTarget;
             UseCondition = useCondition;
+            NameKey = null;
+        }
+
+        /// <summary>
+        /// 消费方反馈第 3 条新增重载（2026-09-20，ADR-0048）：携带 <see cref="NameKey"/>。判断记录
+        /// （不是给上一个构造函数的 <c>useCondition</c> 之后再加一个可选参数）：同上方两处重载判断
+        /// 记录同一套 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载二十个参数
+        /// 全部不带默认值，与既有三个构造函数（分别最多 17、恰好 18、恰好 19 个参数）参数个数不
+        /// 重叠，互不冲突。
+        /// </summary>
+        public SkillDef(
+            Id id, Id school, bool isPassive, double range, IReadOnlyList<Id> tags,
+            double castTime, double channelTime, IReadOnlyList<(Id, double)> cost,
+            Id? cooldownCategory, double cooldownDuration, int? chargesMax, double chargesRechargeTime,
+            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags,
+            double actionCost, bool allowGroundTarget, ExprNode? useCondition, Id? nameKey)
+        {
+            Id = id;
+            School = school;
+            IsPassive = isPassive;
+            Range = range;
+            Tags = tags;
+            CastTime = castTime;
+            ChannelTime = channelTime;
+            Cost = cost;
+            CooldownCategory = cooldownCategory;
+            CooldownDuration = cooldownDuration;
+            ChargesMax = chargesMax;
+            ChargesRechargeTime = chargesRechargeTime;
+            RespectsGcd = respectsGcd;
+            TargetShapeRef = targetShapeRef;
+            Effects = effects;
+            InterruptFlags = interruptFlags;
+            ActionCost = actionCost;
+            AllowGroundTarget = allowGroundTarget;
+            UseCondition = useCondition;
+            NameKey = nameKey;
         }
     }
 

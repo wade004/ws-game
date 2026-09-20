@@ -26,6 +26,14 @@
       "type_data": {},
       "display_ref": "display.map.sample_save_point",
       "tags": ["gobj.tag.sample_save_point"]
+    },
+    {
+      "id": "gobj.sample_quest_marker",
+      "name_key": "l10n.gobj.sample_quest_marker.name",
+      "kind": "quest_object",
+      "type_data": { "quest_action_ref": "quest.sample_gobj_start" },
+      "display_ref": "display.map.sample_quest_marker",
+      "tags": ["gobj.tag.sample_quest_marker"]
     }
   ]
 }
