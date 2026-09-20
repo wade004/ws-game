@@ -61,7 +61,8 @@
   [presentation/playmode-selected.xml](presentation/playmode-selected.xml)：表现与适配审核、
   Unity 选测结果（本轮 10 项，9 通过、1 失败——PRES-118-CAMERA 新增镜头行为 oracle）。
 - [validation/validation.md](validation/validation.md)：门禁、正式包身份、ABI 基线、Python 环境、
-  交付实验；配 [validation/raw/](validation/raw/)（原始日志）、
+  交付实验；配 `validation/raw/`（原始日志，已按"生成物不进 git"规则出库，提交 `24302836`，
+  内容可用 `git show 24302836^:<路径>` 取回）、
   [validation/release-repair/](validation/release-repair/)（TOOL-118-LOCK 复现：篡改
   `Adapters.Stub.dll` 后正常 lock 阻断、修复分支风格 lock 根治前跳过校验的对照）、
   [validation/repro/](validation/repro/)（Presentation 消费程序探针源码）。

@@ -4,7 +4,7 @@
 `6a42e02` 位于本地分支 `codex/project-review-7e63d66-20260907`，本目录（[README.md](README.md)、
 [code-review.md](code-review.md)、[project-review.md](project-review.md)、
 [doc-code-matrix.md](doc-code-matrix.md)、[previous-findings.md](previous-findings.md)、
-[validation.md](validation.md)、[repro/](repro/)、[evidence/](evidence/)）经
+[validation.md](validation.md)、[repro/](repro/)、`evidence/`）经
 `git cherry-pick 6a42e02`（提交 `2aeecc3`）原样归档进本分支。核实与修复提交为三个：
 
 - `c66b557`（核心侧：`core/foundation`、`core/rules`、`core/carriers`）——对应 C01/C02/C03/C08/C09/C10。
@@ -106,3 +106,8 @@ README 为准。19 条全部**成立**，无"部分成立/不成立"。
 
 第 5 步全量门禁（`check.ps1`，本次三次修复提交 + 核实跟进提交之后重新执行）的实跑结果：见本次会话报告
 （PASS/FAIL/SKIP 汇总、耗时、dotnet test 六项目计数、EditMode/PlayMode 计数），不在本文档重复贴全表。
+
+## 原始证据文件已出库
+
+上文 `evidence/` 目录下的原始证据文件已按"生成物不进 git"规则从仓库中删除（提交 `24302836`），
+内容可用 `git show 24302836^:<路径>` 取回，故改为不带链接的行内代码路径。
