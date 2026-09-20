@@ -667,6 +667,21 @@ namespace Core.Rules.Skill
 
         public bool IsCasting(Id unitId) => _pipeline.IsCasting(unitId);
 
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see
+        /// cref="CastPipeline.GetCastingSkillId"/>——不在 <see cref="Core.Rules.Common.ISkillHost"/>
+        /// 契约上（本次改动范围明确不改该契约文件，避免与同批并行任务撞车，见 README 判断记录），
+        /// 是本模块对外的补充公开方法，供 <c>presentation/ui</c> 侧适配器（<c>SkillHostSkillBookQuery</c>）
+        /// 以具体类型持有本类型时调用。</summary>
+        public Id? GetCastingSkillId(Id unitId) => _pipeline.GetCastingSkillId(unitId);
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see
+        /// cref="CastPipeline.GetCastingRemaining"/>，判断记录同 <see cref="GetCastingSkillId"/>。</summary>
+        public double? GetCastingRemaining(Id unitId) => _pipeline.GetCastingRemaining(unitId);
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see
+        /// cref="CastPipeline.GetCastingTotal"/>，判断记录同 <see cref="GetCastingSkillId"/>。</summary>
+        public double? GetCastingTotal(Id unitId) => _pipeline.GetCastingTotal(unitId);
+
         public void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration) =>
             _pipeline.Interrupt(unitId, interrupterId, lockSchool, lockDuration);
 

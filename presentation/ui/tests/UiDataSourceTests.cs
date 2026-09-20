@@ -1,6 +1,7 @@
 using Core.Foundation.Common;
 using Core.Foundation.Expr;
 using Core.Gameplay.Quest;
+using Core.Rules.Common;
 using Xunit;
 
 namespace Tests.PresentationUi
@@ -176,6 +177,126 @@ namespace Tests.PresentationUi
 
             Assert.Null(world.DataSource.Query("player..level"));
             Assert.Single(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：无人读条时 <c>player.casting.*</c>
+        /// 三条叶子路径均返回 <c>null</c>，且不记诊断——同既有 <c>target.id</c> 无目标时的"合法查询、
+        /// 无值"惯例，不是路径错误。</summary>
+        [Fact]
+        public void Query_player_casting_returns_null_without_diagnostics_when_not_casting()
+        {
+            var world = new UiWorldFixture();
+
+            Assert.Null(world.DataSource.Query("player.casting.skill"));
+            Assert.Null(world.DataSource.Query("player.casting.remaining"));
+            Assert.Null(world.DataSource.Query("player.casting.total"));
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 1 条：读条中，三条叶子路径原样转发 <c>ISkillBookQuery</c> 的取值。</summary>
+        [Fact]
+        public void Query_player_casting_reports_skill_remaining_and_total_while_casting()
+        {
+            var world = new UiWorldFixture();
+            var fireball = new Id("skill.fireball");
+            world.SkillBook.SetCastingForTest(world.PlayerId, fireball, remaining: 1.5, total: 2.0);
+
+            Assert.Equal(fireball, world.DataSource.Query("player.casting.skill")!.Value.AsId);
+            Assert.Equal(1.5, world.DataSource.Query("player.casting.remaining")!.Value.AsNumber);
+            Assert.Equal(2.0, world.DataSource.Query("player.casting.total")!.Value.AsNumber);
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 1 条（AGENTS.md §3"运行时路径不静默降级"）：技能宿主适配层确认
+        /// "正在读条"（<c>GetCastingSkillId</c> 非空）却取不到剩余时长，这是数据不一致，不是"当前
+        /// 没有人在读条"——断言诊断计数从 0 变成 1，且返回值仍是 <c>null</c>（不把这种情况悄悄
+        /// 包装成一个看起来正常的空值）。</summary>
+        [Fact]
+        public void Query_player_casting_remaining_warnsOnce_whenSkillPresentButRemainingMissing()
+        {
+            var world = new UiWorldFixture();
+            var fireball = new Id("skill.fireball");
+            world.SkillBook.SetCastingForTest(world.PlayerId, fireball, remaining: null, total: null);
+
+            Assert.Empty(world.Diagnostics.Warnings);
+
+            var value = world.DataSource.Query("player.casting.remaining");
+
+            Assert.Null(value);
+            Assert.Single(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 1 条：<c>target.casting.*</c> 与 <c>player.casting.*</c> 复用同一段
+        /// 解析逻辑，唯一差异是 unitId 来源（当前目标而非玩家自身）。</summary>
+        [Fact]
+        public void Query_target_casting_reports_skill_remaining_and_total_while_casting()
+        {
+            var world = new UiWorldFixture();
+            world.CurrentTarget = world.TargetId;
+            var frostbolt = new Id("skill.frostbolt");
+            world.SkillBook.SetCastingForTest(world.TargetId, frostbolt, remaining: 0.6, total: 3.0);
+
+            Assert.Equal(frostbolt, world.DataSource.Query("target.casting.skill")!.Value.AsId);
+            Assert.Equal(0.6, world.DataSource.Query("target.casting.remaining")!.Value.AsNumber);
+            Assert.Equal(3.0, world.DataSource.Query("target.casting.total")!.Value.AsNumber);
+        }
+
+        /// <summary>消费方反馈第 4 条（2026-09-21，ADR-0056）：<c>player.auras.count</c>/
+        /// <c>player.auras[i].&lt;field&gt;</c> 原样转发 <c>IAuraQuery.GetActiveAuraSnapshots</c>
+        /// 的每一项字段，顺序即该查询返回的顺序（不在表现层重新排序）。</summary>
+        [Fact]
+        public void Query_player_auras_reports_identity_stacks_remaining_total_and_name_key()
+        {
+            var world = new UiWorldFixture();
+            var poison = new Id("skill.aura_def.poison");
+            var weakness = new Id("skill.aura_def.weakness");
+            world.AuraQuery.SetSnapshotsForTest(world.PlayerId, new[]
+            {
+                new AuraSnapshot(poison, stacks: 3, remaining: 4.2, total: 10.0, nameKey: new Id("l10n.aura.poison.name")),
+                new AuraSnapshot(weakness, stacks: 1, remaining: 8.0, total: 8.0, nameKey: null),
+            });
+
+            Assert.Equal(2, world.DataSource.Query("player.auras.count")!.Value.AsInt);
+
+            Assert.Equal(poison, world.DataSource.Query("player.auras[0].def")!.Value.AsId);
+            Assert.Equal(3, world.DataSource.Query("player.auras[0].stacks")!.Value.AsInt);
+            Assert.Equal(4.2, world.DataSource.Query("player.auras[0].remaining")!.Value.AsNumber);
+            Assert.Equal(10.0, world.DataSource.Query("player.auras[0].total")!.Value.AsNumber);
+            Assert.Equal(new Id("l10n.aura.poison.name"), world.DataSource.Query("player.auras[0].name_key")!.Value.AsId);
+
+            Assert.Equal(weakness, world.DataSource.Query("player.auras[1].def")!.Value.AsId);
+            Assert.Null(world.DataSource.Query("player.auras[1].name_key"));
+
+            Assert.Null(world.DataSource.Query("player.auras[2].def"));
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 4 条：无光环时 <c>auras.count</c> 为 0，不记诊断。</summary>
+        [Fact]
+        public void Query_player_auras_count_isZero_withNoDiagnostics_whenNoActiveAuras()
+        {
+            var world = new UiWorldFixture();
+
+            Assert.Equal(0, world.DataSource.Query("player.auras.count")!.Value.AsInt);
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 4 条：<c>target.auras.*</c> 与 <c>player.auras.*</c> 复用同一段解析
+        /// 逻辑。</summary>
+        [Fact]
+        public void Query_target_auras_reports_snapshots()
+        {
+            var world = new UiWorldFixture();
+            world.CurrentTarget = world.TargetId;
+            var silence = new Id("skill.aura_def.silence");
+            world.AuraQuery.SetSnapshotsForTest(world.TargetId, new[]
+            {
+                new AuraSnapshot(silence, stacks: 1, remaining: 2.0, total: 4.0, nameKey: new Id("l10n.aura.silence.name")),
+            });
+
+            Assert.Equal(1, world.DataSource.Query("target.auras.count")!.Value.AsInt);
+            Assert.Equal(silence, world.DataSource.Query("target.auras[0].def")!.Value.AsId);
+            Assert.Equal(2.0, world.DataSource.Query("target.auras[0].remaining")!.Value.AsNumber);
         }
 
         [Fact]

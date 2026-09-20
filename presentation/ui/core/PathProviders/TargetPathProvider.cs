@@ -37,6 +37,15 @@ namespace Presentation.Ui
     /// 不静默降级"）。</item>
     /// </list>
     /// </para>
+    /// <para>
+    /// 消费方反馈第 1/4 条（2026-09-21，ADR-0056）：新增 <c>target.casting.skill|remaining|total</c>
+    /// （目标读条预警：谁在读条、还剩多久、总共多久）、<c>target.auras.count</c>/
+    /// <c>target.auras[i].def|stacks|remaining|total|name_key</c>（目标控制/增益/减益列表）两组子
+    /// 路径，均委托 <see cref="UnitSubQueries.Casting"/>/<see cref="UnitSubQueries.Auras"/> 共享逻辑
+    /// （与 <see cref="PlayerPathProvider"/> 复用同一份解析代码）。两者均需要新增重载注入的
+    /// <see cref="_skillBook"/>/<see cref="_auraQuery"/>，未装配旧重载的调用方两条路径恒返回"无"
+    /// （不记诊断，同 <see cref="_unitAccess"/> 既有惯例）。
+    /// </para>
     /// </summary>
     public sealed class TargetPathProvider : IUiPathProvider
     {
@@ -45,6 +54,8 @@ namespace Presentation.Ui
         private readonly IPowerHost _powerHost;
         private readonly IUnitAccess? _unitAccess;
         private readonly ICreatureTemplateQuery? _creatureTemplates;
+        private readonly ISkillBookQuery? _skillBook;
+        private readonly IAuraQuery? _auraQuery;
 
         public TargetPathProvider(Func<Id?> targetResolver, IStatHost statHost, IPowerHost powerHost)
         {
@@ -68,6 +79,27 @@ namespace Presentation.Ui
         {
             _unitAccess = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
             _creatureTemplates = creatureTemplates ?? throw new ArgumentNullException(nameof(creatureTemplates));
+        }
+
+        /// <summary>
+        /// 消费方反馈第 1/4 条新增重载（2026-09-21，ADR-0056）：携带 <paramref name="skillBook"/>/
+        /// <paramref name="auraQuery"/> 才能解答 <c>target.casting.*</c>/<c>target.auras.*</c>（目标
+        /// 读条预警、目标控制/增益/减益状态，见类型注释）。判断记录（新增重载而不是给上一个五参数
+        /// 构造函数追加可选参数）：同类型内既有重载判断记录同一套 ABI 兼容惯例——本重载七个参数全部
+        /// 不带默认值，与既有两个构造函数（分别恰好三个、恰好五个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public TargetPathProvider(
+            Func<Id?> targetResolver,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IUnitAccess unitAccess,
+            ICreatureTemplateQuery creatureTemplates,
+            ISkillBookQuery skillBook,
+            IAuraQuery auraQuery)
+            : this(targetResolver, statHost, powerHost, unitAccess, creatureTemplates)
+        {
+            _skillBook = skillBook ?? throw new ArgumentNullException(nameof(skillBook));
+            _auraQuery = auraQuery ?? throw new ArgumentNullException(nameof(auraQuery));
         }
 
         public string Root => "target";
@@ -102,8 +134,12 @@ namespace Presentation.Ui
                     return Exact(remaining, 1, fullPath, diagnostics) ? ResolveFaction(targetId.Value) : (ExprValue?)null;
                 case "name":
                     return Exact(remaining, 1, fullPath, diagnostics) ? ResolveName(targetId.Value, fullPath, diagnostics) : (ExprValue?)null;
+                case "casting":
+                    return UnitSubQueries.Casting(targetId.Value, _skillBook, remaining, fullPath, diagnostics);
+                case "auras":
+                    return UnitSubQueries.Auras(targetId.Value, _auraQuery, remaining, fullPath, diagnostics);
                 default:
-                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 target 子路径关键字 \"{remaining[0].Name}\" 未知（只支持 power/stat/id/name/faction）");
+                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 target 子路径关键字 \"{remaining[0].Name}\" 未知（只支持 power/stat/id/name/faction/casting/auras）");
                     return null;
             }
         }

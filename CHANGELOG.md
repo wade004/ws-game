@@ -458,6 +458,25 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **消费方反馈第三批第 1/4 条**（[ADR-0056](architecture/adr/0056-施法条与光环列表数据补全.md)）：
+  施法条与光环列表数据补全。
+  - `Core.Rules.Skill.CastPipeline`/`SkillHost` 新增只读方法 `GetCastingSkillId(Id unitId)`/
+    `GetCastingTotal(Id unitId)`（`GetCastingRemaining` 已存在）：当前正在读条/引导的技能 id 与
+    总时长，未在读条/引导时为 `null`。
+  - `Core.Rules.Common.IAuraQuery` 新增只读默认接口成员 `GetActiveAuraSnapshots(Id unitId)`，
+    返回新增类型 `Core.Rules.Common.AuraSnapshot`（光环定义 id/层数/剩余时长/总时长/名称键），
+    按光环创建顺序排列（确定性）；生产实现 `Core.Rules.Skill.AuraHost` 显式覆盖。
+  - `skill.aura_def` 新增可选字段 `name_key`（`FieldKind.TextKey`），命名/类型沿用
+    `skill.def.name_key`（ADR-0048）同一惯例；`AuraDef` 新增对应构造函数重载。
+  - `presentation/ui.ISkillBookQuery` 新增只读默认接口成员 `GetCastingSkillId`/
+    `GetCastingRemaining`/`GetCastingTotal`；`PlayerPathProvider`/`TargetPathProvider` 新增
+    `casting.skill|remaining|total`、`auras.count`/`auras[i].def|stacks|remaining|total|
+    name_key` 路径；`HudViewModel` 新增只读属性 `CastingSkillId`/`CastingRemaining`/
+    `CastingTotal`/`TargetCastingSkillId`/`TargetCastingRemaining`/`TargetCastingTotal`/
+    `Auras`/`TargetAuras`。均为纯加法，不改动任何既有公开签名。
+
 ## [1.51.0] - 2026-09-21
 
 ### 新增

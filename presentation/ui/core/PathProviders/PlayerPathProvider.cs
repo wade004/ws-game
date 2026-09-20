@@ -9,6 +9,7 @@ using Core.Gameplay.Quest;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
 using Core.Numbers.StatBlock;
+using Core.Rules.Common;
 
 namespace Presentation.Ui
 {
@@ -17,9 +18,15 @@ namespace Presentation.Ui
     /// player.stat.&lt;statId&gt;、player.level、player.xp、player.xp_to_next、
     /// player.inventory.count、player.inventory[i].template|count|instance、
     /// player.equipment.&lt;slot&gt;、player.quest.&lt;questId&gt;.state|objective[i]、
-    /// player.currency.&lt;id&gt;、player.skills[i]、player.skill.&lt;id&gt;.cooldown"）。全部查询都
-    /// 绕着构造期注入的 <see cref="_playerId"/>（当前玩家单位 id）展开，本 Provider 自身不做任何
-    /// 写操作（铁律 P1）。
+    /// player.currency.&lt;id&gt;、player.skills[i]、player.skill.&lt;id&gt;.cooldown、
+    /// player.casting.skill|remaining|total、player.auras.count、
+    /// player.auras[i].def|stacks|remaining|total|name_key"）。全部查询都绕着构造期注入的
+    /// <see cref="_playerId"/>（当前玩家单位 id）展开，本 Provider 自身不做任何写操作（铁律 P1）。
+    /// <para>
+    /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：<c>casting.*</c>/<c>auras.*</c> 两条子路径分别
+    /// 委托 <see cref="UnitSubQueries.Casting"/>/<see cref="UnitSubQueries.Auras"/> 共享逻辑（与
+    /// <see cref="TargetPathProvider"/> 复用同一份解析代码，唯一差异是 unitId 来源）。
+    /// </para>
     /// </summary>
     public sealed class PlayerPathProvider : IUiPathProvider
     {
@@ -32,6 +39,7 @@ namespace Presentation.Ui
         private readonly IQuestHost _quest;
         private readonly IEconomyHost _economy;
         private readonly ISkillBookQuery _skillBook;
+        private readonly IAuraQuery? _auraQuery;
 
         public PlayerPathProvider(
             Id playerId,
@@ -53,6 +61,30 @@ namespace Presentation.Ui
             _quest = quest ?? throw new ArgumentNullException(nameof(quest));
             _economy = economy ?? throw new ArgumentNullException(nameof(economy));
             _skillBook = skillBook ?? throw new ArgumentNullException(nameof(skillBook));
+        }
+
+        /// <summary>
+        /// 消费方反馈第 4 条新增重载（2026-09-21，ADR-0056）：携带 <see cref="_auraQuery"/>，供
+        /// <c>player.auras.*</c> 解答。判断记录（新增重载而不是给既有构造函数追加可选参数）：同
+        /// <c>TargetPathProvider</c>/<c>SkillDef</c> 多处既有重载判断记录同一套 ABI 兼容惯例——既有
+        /// 构造函数追加参数会改变其物理 IL 签名；本重载十个参数全部不带默认值，与既有构造函数（恰好
+        /// 九个参数）参数个数不重叠，互不冲突。<c>casting.*</c> 复用既有必填的 <see cref="_skillBook"/>
+        /// 字段，不需要新增依赖——沿用既有九参数构造函数即可解答，只有 <c>auras.*</c> 需要本重载。
+        /// </summary>
+        public PlayerPathProvider(
+            Id playerId,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IProgressionHost progression,
+            IInventoryHost inventory,
+            IEquipmentHost equipment,
+            IQuestHost quest,
+            IEconomyHost economy,
+            ISkillBookQuery skillBook,
+            IAuraQuery auraQuery)
+            : this(playerId, statHost, powerHost, progression, inventory, equipment, quest, economy, skillBook)
+        {
+            _auraQuery = auraQuery ?? throw new ArgumentNullException(nameof(auraQuery));
         }
 
         public string Root => "player";
@@ -90,6 +122,10 @@ namespace Presentation.Ui
                     return ResolveSkillsIndex(remaining, fullPath, diagnostics);
                 case "skill":
                     return ResolveSkillCooldown(remaining, fullPath, diagnostics);
+                case "casting":
+                    return UnitSubQueries.Casting(_playerId, _skillBook, remaining, fullPath, diagnostics);
+                case "auras":
+                    return UnitSubQueries.Auras(_playerId, _auraQuery, remaining, fullPath, diagnostics);
                 default:
                     diagnostics.Warn($"UI 路径 \"{fullPath}\" 的子路径关键字 \"{head.Name}\" 未知");
                     return null;

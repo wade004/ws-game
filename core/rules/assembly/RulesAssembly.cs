@@ -991,6 +991,11 @@ namespace Core.Rules.Assembly
             // CORE-170-01 根治：同一惯例——必须显式转发，不能依赖 IAuraQuery 默认接口方法的隐式
             // 空实现，否则一旦 Bind 完成，经本代理调用仍会读到默认值 null，绕开 Real 的真实结果。
             public AuraInstanceRef? TryGetInstanceRef(Id unitId, Id auraDefId) => Real.TryGetInstanceRef(unitId, auraDefId);
+
+            // 消费方反馈第 4 条（2026-09-21，ADR-0056）：同一惯例——必须显式转发，不能依赖
+            // IAuraQuery.GetActiveAuraSnapshots 默认接口方法的降级实现，否则一旦 Bind 完成，经本
+            // 代理调用仍只能拼出身份/层数，读不到 Real（AuraHost）能提供的剩余/总时长/名称键。
+            public IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId) => Real.GetActiveAuraSnapshots(unitId);
         }
 
         /// <summary>

@@ -204,6 +204,21 @@ common/
     `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理同样补上这一个
     成员的显式转发。详见 `core/rules/skill/README.md` 判断记录 59。
 
+13. **`IAuraQuery` 新增 `GetActiveAuraSnapshots`，`ISkillHost` 本次不动**（消费方反馈第 1/4 条，
+    2026-09-21，[ADR-0056](../../../architecture/adr/0056-施法条与光环列表数据补全.md)）：光环
+    列表（增益/减益展示）需要的"身份/层数/剩余/总时长/名称键"合并快照新增在 `IAuraQuery` 上（新增
+    类型 `AuraSnapshot`，默认接口成员只能拼出身份/层数，其余降级为 `null`，生产实现
+    `Core.Rules.Skill.AuraHost` 显式覆盖）。施法条（谁在读条/剩余/总时长）本应同批一并纳入
+    `ISkillHost` 契约，但本次并行派单把 `ISkillHost.cs` 划给另一条并行分支（同批新增
+    `AuraQuery`/`EffectSink` 只读默认成员，消费方反馈第 3 条），为避免两个分支同时改同一份契约
+    文件在合并时撞车，施法查询本次只停在 `Core.Rules.Skill.SkillHost` 具体类与
+    `presentation/ui.ISkillBookQuery` 窄接口——与本文件判断记录 11 描述的 `GetKnownSkills` 在
+    ADR-0050 之前的处境完全一致，是已知的临时窄化，留给后续 ADR 把这三个成员一并提升进
+    `ISkillHost`（届时可比照判断记录 12 的 `GetSkillNameKey` 收口方式）。`RulesAssembly.
+    DeferredAuraQuery` 按既有惯例（判断记录 9/10 同一套"代理必须显式转发，不能依赖默认接口成员
+    隐式转发"）补上 `GetActiveAuraSnapshots` 的显式转发。详见 `core/rules/skill/README.md` 对应
+    判断记录。
+
 ## 不负责什么
 
 - 不实现施法管线、结算管线、仇恨表、行为外壳状态机等任何具体算法——那些是 skill/combat/ai 各自

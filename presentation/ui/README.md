@@ -239,3 +239,52 @@ ABI：纯加法——`TargetPathProvider` 新增一个构造函数重载与两�
 测试而不是 `presentation/ui/tests` 惯用的 Fake 夹具，因为本条需要一条真实登记的 `creature.template`
 记录（`name_key`/`faction_id` 具体取值）与真实 `CreatureFactory.Spawn` 产生的单位，才能验证
 "取到的值就是模板声明的那两个值"这一装配级行为，而不只是 Provider 内部转发逻辑本身。
+
+## 判断记录（施法条 `casting.*` / 增益减益列表 `auras.*`，2026-09-21，消费方反馈第 1/4 条，[ADR-0056](../../architecture/adr/0056-施法条与光环列表数据补全.md)）
+
+背景：本项目 HUD 只能展示生命/资源条与目标身份，缺"谁在读条、还剩多久、总共多久"（施法条）与
+"目标身上有哪些增益/减益、层数、剩余时长"（增益减益列表），消费方只能自建平行机制直接读
+`ISkillHost`/`IAuraQuery` 拼装。沿用本模块一贯机制（既有路径小语法 + `HudViewModel` 便利属性），
+不另起一套。
+
+**共享解析逻辑**：`UnitSubQueries` 新增 `Casting`/`Auras` 两个静态方法，供 `PlayerPathProvider`/
+`TargetPathProvider` 复用（`UnitPathProvider` 面向路径显式携带的任意单位 id，不装配这两项依赖，
+不复用）——`casting.skill|remaining|total`（施法条）、`auras.count`/`auras[i].def|stacks|
+remaining|total|name_key`（增益减益列表，形状同既有 `inventory[i].<field>`）。
+
+**诊断分支（AGENTS.md §3"运行时路径不静默降级"）**：`casting.remaining`/`casting.total` 区分两种
+`null`——"当前无人读条"（`GetCastingSkillId` 为空，合法查询无值，同 `target.id` 无目标口径，不
+记诊断）与"确认在读条但取不到剩余/总时长"（`GetCastingSkillId` 非空但对应查询仍为空，数据不一致，
+记一条诊断）。`auras.*` 的诊断分支下沉在规则层 `AuraHost.GetActiveAuraSnapshots` 内部（光环定义
+理论上必然已登记，防御性诊断，见 `core/rules/skill/README.md` 对应判断记录），本模块不重复诊断。
+
+**依赖装配**：`casting.*` 复用两个 Provider 既有必填的 `ISkillBookQuery`（新增
+`GetCastingSkillId`/`GetCastingRemaining`/`GetCastingTotal` 三个默认接口成员，默认降级为 `null`，
+`SkillHostSkillBookQuery` 向下转型到具体类 `Core.Rules.Skill.SkillHost` 转发——判断记录同
+`core/rules/common/README.md` 判断记录 13："施法条本应纳入 `ISkillHost` 契约，但本次并行派单把
+该契约文件划给另一条并行分支，避免撞车暂缓"），`PlayerPathProvider` 不需要新增构造函数即可解答。
+`auras.*` 需要新增的 `IAuraQuery` 依赖：`PlayerPathProvider` 新增十参数构造函数重载（追加
+`IAuraQuery auraQuery`），`TargetPathProvider` 新增七参数构造函数重载（在既有五参数重载后追加
+`ISkillBookQuery skillBook, IAuraQuery auraQuery`，两项一并新增而不是拆成两次重载——本次改动
+同批交付，同 `target.name`/`target.faction` 当初合并进同一个五参数重载的既有先例）。均纯加法，
+未装配新重载的既有调用方两条新路径恒返回"无"（不记诊断，同 `_unitAccess` 既有惯例）。
+
+**`HudViewModel`**：新增只读标量属性 `CastingSkillId`/`CastingRemaining`/`CastingTotal`（玩家自身）
+与 `TargetCastingSkillId`/`TargetCastingRemaining`/`TargetCastingTotal`（目标），及只读列表属性
+`Auras`/`TargetAuras`（`IReadOnlyList<Core.Rules.Common.AuraSnapshot>`）。列表属性经 `count` +
+`[i].<field>` 路径逐条查询重建（惯例同既有 `PowerBars` 按 `_powerTypes` 逐个查询重建），顺序原样
+转发查询结果——权威排序（按光环创建顺序）已在规则层完成，本视图模型不重新排序。不改动任何既有
+公开签名。
+
+**生产装配**：`PresentationAssembly` 新增局部变量 `auraQuery = gameplay.Carriers.Rules.Skill.
+AuraQuery`（`SkillHost` 早已暴露的公开属性，不新增依赖边界），`PlayerPathProvider`/
+`TargetPathProvider` 改走新增的重载传入 `skillBookQuery`/`auraQuery`。
+
+ABI：纯加法——两个 Provider 各新增一个构造函数重载，`ISkillBookQuery` 新增三个默认接口成员，
+`HudViewModel` 新增八个只读属性；全部既有公开签名与全部既有 `skill.aura_def`/`skill.def` 数据行
+零改动仍合法。
+
+测试见 `presentation/ui/tests/UiDataSourceTests.cs`/`ViewModelTests.cs`（Fake `ISkillBookQuery`/
+`IAuraQuery` 夹具，覆盖路径解析、诊断计数、`HudViewModel` 属性刷新）与
+`core/rules/skill/tests/CastingSnapshotTests.cs`/`AuraSnapshotTests.cs`（规则层真实读条/施加光环，
+详见该模块 README）。

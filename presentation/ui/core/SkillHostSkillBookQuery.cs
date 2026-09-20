@@ -43,5 +43,25 @@ namespace Presentation.Ui
         /// <c>core/rules/common/README.md</c> 判断记录 12），本类型据此可以只持有接口引用调用，
         /// 不要求调用方传入具体类 <c>Core.Rules.Skill.SkillHost</c>。</summary>
         public Id? GetNameKey(Id skillId) => _skillHost.GetSkillNameKey(skillId);
+
+        /// <summary>
+        /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：<c>GetCastingSkillId</c>/<c>GetCastingRemaining</c>/
+        /// <c>GetCastingTotal</c> 目前只是 <c>Core.Rules.Skill.SkillHost</c> 的公开方法，不在
+        /// <c>Core.Rules.Common.ISkillHost</c> 契约上（见 <see cref="ISkillBookQuery.GetCastingSkillId"/>
+        /// 判断记录——本次改动范围明确排除 <c>ISkillHost.cs</c>，避免与同批并行任务撞车）；本字段
+        /// 因此持有具体类型的向下转型，只有 <see cref="_skillHost"/> 底层确实是
+        /// <c>Core.Rules.Skill.SkillHost</c>（生产环境唯一实现，见 <c>PresentationAssembly</c> 装配
+        /// 代码）时才能取到非降级结果，其它 <see cref="ISkillHost"/> 实现（测试假实现等）走接口默认
+        /// 成员降级为 <c>null</c>——同 ADR-0050 之前 <c>GetKnownSkills</c> 的同一处境，是已知的临时
+        /// 窄化，留给后续把这三个成员提升进 <see cref="ISkillHost"/> 时一并根治（届时可删除本向下
+        /// 转型，直接转发接口成员）。
+        /// </summary>
+        private Core.Rules.Skill.SkillHost? CastingHost => _skillHost as Core.Rules.Skill.SkillHost;
+
+        public Id? GetCastingSkillId(Id unitId) => CastingHost?.GetCastingSkillId(unitId);
+
+        public double? GetCastingRemaining(Id unitId) => CastingHost?.GetCastingRemaining(unitId);
+
+        public double? GetCastingTotal(Id unitId) => CastingHost?.GetCastingTotal(unitId);
     }
 }

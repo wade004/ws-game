@@ -33,6 +33,20 @@ namespace Core.Rules.Skill
         /// <summary>剩余持续时间；null 表示永久（见 06 第 3.3 节 <c>duration</c> 可空语义）。</summary>
         public double? Remaining;
 
+        /// <summary>
+        /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：本次（重新）计算 <see cref="Remaining"/> 时
+        /// 使用的"一次完整持续时间"（<c>durationOverride ?? AuraDef.Duration</c>，经 <see
+        /// cref="AuraHost.ScaleDuration"/> 折算为当前时间模式单位），与 <see cref="Remaining"/> 在
+        /// <see cref="AuraHost.CreateInstance"/>/<see cref="AuraHost.ReapplyExisting"/> 同一处赋值——
+        /// 供表现层光环列表计算"已经过去多久"（已耗时 = 总时长 - 剩余）而不重新实现一遍刷新公式。
+        /// null 表示永久（同 <see cref="Remaining"/> 语义）。判断记录（叠加刷新后 <see
+        /// cref="Remaining"/> 可能短暂大于本字段——06 第 3.8 节"新持续时间 = 定义持续时间 +
+        /// min(剩余时长, 定义持续时间 × 比例)"公式在 <c>PlagueRefreshRatio &gt; 0</c> 时会保留一部分
+        /// 刷新前的剩余时长，使得刷新后的 <see cref="Remaining"/> 略超出"一次完整持续时间"）：这是
+        /// 瘟疫刷新规则的既有语义（T-N3-7），不是本字段的缺陷——本字段如实呈现"这次（重新）施加声明
+        /// 的满时长是多少"，不是"经刷新调整后不会被超过的上限"。</summary>
+        public double? DurationTotal;
+
         /// <summary>创建顺序号，供确定性遍历（见 06 第 3.8 节"周期 tick 顺序：按实例创建顺序"）。</summary>
         public int SeqNo;
 
@@ -285,6 +299,7 @@ namespace Core.Rules.Skill
             if (newStacks <= def.MaxStacks)
             {
                 existing.Remaining = ComputeRefreshedRemaining(existing, def, durationOverride);
+                existing.DurationTotal = ScaleDuration(durationOverride ?? def.Duration);
                 existing.SourceId = sourceId;
                 existing.Tags = tags;
                 var old = existing.Stacks;
@@ -302,6 +317,7 @@ namespace Core.Rules.Skill
 
                 case StackOverflowPolicy.RefreshOnly:
                     existing.Remaining = ComputeRefreshedRemaining(existing, def, durationOverride);
+                    existing.DurationTotal = ScaleDuration(durationOverride ?? def.Duration);
                     return new AuraInstanceRef(existing.InstanceId);
 
                 case StackOverflowPolicy.Replace:
@@ -340,6 +356,7 @@ namespace Core.Rules.Skill
                 SourceId = sourceId,
                 Stacks = 1,
                 Remaining = ScaleDuration(durationOverride ?? def.Duration),
+                DurationTotal = ScaleDuration(durationOverride ?? def.Duration),
                 SeqNo = _seq,
                 Tags = tags ?? Array.Empty<Id>(),
             };
@@ -827,6 +844,11 @@ namespace Core.Rules.Skill
                     instance.Remaining = instance.Remaining.Value * factor;
                 }
 
+                if (instance.DurationTotal.HasValue)
+                {
+                    instance.DurationTotal = instance.DurationTotal.Value * factor;
+                }
+
                 if (instance.PeriodicAccumulators.Count > 0)
                 {
                     var keys = new List<int>(instance.PeriodicAccumulators.Keys);
@@ -840,6 +862,39 @@ namespace Core.Rules.Skill
 
         public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId) =>
             _instances.Values.Where(i => i.TargetId.Equals(unitId)).OrderBy(i => i.SeqNo).Select(i => i.DefId).ToList();
+
+        /// <summary>
+        /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：<see cref="IAuraQuery.GetActiveAuraSnapshots"/>
+        /// 的生产实现——把 <see cref="GetActiveAuraDefs"/> 现有"只列出带了哪些"的粗粒度查询，换成
+        /// 表现层增益/减益列表实际需要的完整快照（身份/层数/剩余/总时长/名称键，见 <see
+        /// cref="AuraSnapshot"/>）。排序同 <see cref="GetActiveAuraDefs"/>：按 <see
+        /// cref="AuraInstanceState.SeqNo"/>（创建顺序）升序，不依赖字典枚举顺序（AGENTS.md §3），
+        /// 保证同一批光环在不同调用间返回顺序一致。
+        /// <para>
+        /// 名称键判断记录：<see cref="_defs"/>（<see cref="SkillDefCache"/>）在 <c>ApplyAura</c>
+        /// 施加实例时早已经解析过同一个 <c>defId</c>（否则不会有 <see cref="AuraInstanceState"/>
+        /// 存在），<see cref="SkillDefCache.TryGetAuraDef"/> 理论上恒能命中；仍按 AGENTS.md §3"运行时
+        /// 路径不静默降级"防御性判断——万一命中失败（数据被热重载移除等边缘情形），记一条诊断并让该
+        /// 项的 <see cref="AuraSnapshot.NameKey"/> 退化为 <c>null</c>，不让整条查询失败拖垮其它正常
+        /// 项。<c>name_key</c> 字段本身可选（同 <c>skill.def.name_key</c> 惯例），已登记但未声明该
+        /// 字段時不算异常，不额外记诊断。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId) =>
+            _instances.Values.Where(i => i.TargetId.Equals(unitId)).OrderBy(i => i.SeqNo)
+                .Select(i => new AuraSnapshot(i.DefId, i.Stacks, i.Remaining, i.DurationTotal, ResolveAuraNameKey(i.DefId)))
+                .ToList();
+
+        private Id? ResolveAuraNameKey(Id auraDefId)
+        {
+            if (_defs.TryGetAuraDef(auraDefId, out var def))
+            {
+                return def.NameKey;
+            }
+
+            _diagnostics.Warn($"光环定义 \"{auraDefId}\" 已有生效实例，但未在 skill.aura_def 登记，无法解析显示名（理论上不应发生）");
+            return null;
+        }
 
         /// <summary>该单位当前生效的全部 <c>spell_mod</c> 引用（供 <see cref="SpellModResolver"/>
         /// 收集，见 06 第 3.5 节"通过 apply_aura 附带 spell_mod 类型的 AuraEffect 生效"）。</summary>

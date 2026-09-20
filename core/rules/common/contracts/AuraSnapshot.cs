@@ -1,0 +1,55 @@
+using Core.Foundation.Common;
+
+namespace Core.Rules.Common
+{
+    /// <summary>
+    /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：<see cref="IAuraQuery.GetActiveAuraSnapshots"/>
+    /// 返回的单条光环快照——把此前 <see cref="IAuraQuery.GetActiveAuraDefs"/>/<see
+    /// cref="IAuraQuery.GetStacks"/> 只能分别、粗粒度回答的"带了哪些/第几层"，与此前完全没有查询
+    /// 出口的"剩余/总时长"合并成表现层增益/减益列表一次查询就够用的完整视图。
+    /// <para>
+    /// 判断记录（转发原始值/文本键，不解析显示文本、不做本地化）：同 <c>HudViewModel.TargetName</c>/
+    /// <c>ActionBarSlotSnapshot.NameKey</c> 一贯"转发文本键不本地化"的既有惯例（ADR-0048）——
+    /// <see cref="NameKey"/> 是 <c>skill.aura_def.name_key</c> 文本键原样转发，不是已解析好的显示
+    /// 文本；本类型不持有任何 <c>IL10nHost</c> 依赖。
+    /// </para>
+    /// <para>
+    /// 判断记录（本类型只登记"至少：身份/剩余时间/层数"+名称键，未登记图标引用/buff-debuff 极性
+    /// 字段）：消费方原始反馈第 4 条"期望行为"一并提出了图标引用与极性字段，但派单方拍板本次收口
+    /// 范围只覆盖运行时可观测的验收标准（身份/层数/剩余/总时长的确定性列表 + 名称键），图标引用与
+    /// 极性字段留待后续独立评审（需要先确定 <c>display</c> 模块的图标引用惯例、极性枚举的取值与
+    /// legacy 数据迁移策略，均超出本次改动范围）——不是遗漏，是范围裁剪，见 ADR-0056 判断记录。
+    /// </para>
+    /// </summary>
+    public sealed class AuraSnapshot
+    {
+        /// <summary>光环定义 id（<c>skill.aura_def.id</c>）——原始身份引用，不解析显示文本（同
+        /// <c>HudViewModel.TargetId</c> 一贯惯例）。</summary>
+        public Id AuraDefId { get; }
+
+        /// <summary>当前层数（见 <see cref="IAuraQuery.GetStacks"/>）。</summary>
+        public int Stacks { get; }
+
+        /// <summary>剩余持续时间；永久光环（<c>duration</c> 未声明）或该查询无法得知剩余时间时为
+        /// <c>null</c>——两种语义与 <see cref="IAuraQuery.GetActiveAuraDefs"/> 既有的"只列出带了
+        /// 哪些"惯例一致：本字段是尽力而为的补充信息，不是本快照存在与否的判据。</summary>
+        public double? Remaining { get; }
+
+        /// <summary>本次（重新）施加声明的一次完整持续时间（供接入方计算"已经过去多久"）；永久光环
+        /// 或无法得知时为 <c>null</c>，语义同 <see cref="Remaining"/>。</summary>
+        public double? Total { get; }
+
+        /// <summary>显示名文本键（<c>skill.aura_def.name_key</c>）；未声明该字段或无法解析时为
+        /// <c>null</c>，接入方据此决定不渲染名称，不回退占位文案（同 ADR-0048 惯例）。</summary>
+        public Id? NameKey { get; }
+
+        public AuraSnapshot(Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey)
+        {
+            AuraDefId = auraDefId;
+            Stacks = stacks;
+            Remaining = remaining;
+            Total = total;
+            NameKey = nameKey;
+        }
+    }
+}

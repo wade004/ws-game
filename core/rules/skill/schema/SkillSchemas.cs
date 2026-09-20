@@ -872,6 +872,12 @@ namespace Core.Rules.Skill
             fields: new[]
             {
                 new FieldSchema("id", FieldKind.Id, required: true, description: "skill.aura_def.<name>"),
+                // 消费方反馈第 4 条（2026-09-21，ADR-0056）：光环显示名此前无字段可登记，表现层增益/
+                // 减益列表只能展示内部引用短串。命名与字段类型沿用 ADR-0048/ADR-0043 确立的 TextKey
+                // 惯例（"语义名 + _key" 后缀、FieldKind.TextKey、required: false，缺省时表现层不
+                // 渲染名称、不回退占位文案），不新造一套命名——见 skill.def.name_key 同名字段判断
+                // 记录。纯新增可选字段，不提 schema_version，既有全部 skill.aura_def 行零改动仍合法。
+                new FieldSchema("name_key", FieldKind.TextKey, required: false, description: "光环名称文本键，缺省时表现层不渲染名称（不回退占位文案），见 ADR-0056"),
                 new FieldSchema("duration", FieldKind.Number, required: false, description: "空表示永久直到被移除").WithUnit(FieldUnit.Time),
                 new FieldSchema("max_stacks", FieldKind.Int, required: false, description: "缺省 1"),
                 new FieldSchema("stack_category", FieldKind.Id, required: false, description: "叠加冲突检测用类别"),
