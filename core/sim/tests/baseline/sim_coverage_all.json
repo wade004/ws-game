@@ -3,7 +3,7 @@
   "scenario_id": "sim.scenario.sim_coverage_all",
   "kind": "coverage",
   "dataset_fingerprint": "ec6efd5998767e7a",
-  "generated_with_version": "1.48.0",
+  "generated_with_version": "1.49.0",
   "seed": 20260916,
   "stats": {
     "coverage.creature.creature.sim_wolf_elite_l10.secondary_measurement": 0.46362984034892396,

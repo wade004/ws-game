@@ -17,11 +17,16 @@ namespace Core.Gameplay.Loot
     /// （L3 依赖倒置接口，见其类型注释：由 L4 实现、组装期注入给 <c>core/carriers/gobj</c>/
     /// <c>core/carriers/creature</c> 一类需要产出掉落的 L3 宿主）。
     /// <para>
-    /// 判断记录 1——掉落判定的确定性：唯一随机源是 <see cref="LootOptions.RngStream"/> 指定的
-    /// <c>IRngHost</c> 流（默认 <c>"loot.roll"</c>），按分组/条目的登记顺序依次消耗（<c>chance_each</c>
-    /// 每条一次 <c>Next</c> + 命中时一次 <c>NextInt</c>；<c>weighted_pick_one</c> 每次抽取一次
-    /// <c>Next</c> + 命中后一次 <c>NextInt</c>），保证同一 <c>IRngHost</c> 内部状态下两次独立调用产生
-    /// 完全相同的结果序列（落地方案与分阶段计划.md 第 13 节验收标准 2）。
+    /// 判断记录 1——掉落判定的确定性：唯一随机源族是 <see cref="LootOptions.RngStream"/> 派生出的一组
+    /// <c>IRngHost</c> 流，保证同一 <c>IRngHost</c> 内部状态下两次独立调用产生完全相同的结果序列
+    /// （落地方案与分阶段计划.md 第 13 节验收标准 2）。ADR-0052 起，"选哪条"（<c>weighted_pick_one</c>
+    /// 抽取、<c>guaranteed_min</c> 补抽的候选仲裁）仍消耗 <see cref="LootOptions.RngStream"/> 本身
+    /// （这是跨条目的单一仲裁决策，不可能归属某一具体条目）；一旦某个条目被判定产出（<c>chance_each</c>
+    /// 命中，或被 <c>weighted_pick_one</c>/<c>guaranteed_min</c> 选中），该条目自身后续全部随机消耗
+    /// （数量骰 <c>NextInt</c>、品质骰/词缀骰 <c>Next</c>）改在 <see cref="DeriveEntryStream"/> 按
+    /// <c>(loot_table_id, entry_ref)</c> 派生出的专属子流上顺序进行，不回退共享流——因此往表中间插入
+    /// /删除一个条目，只会影响它自己（及仲裁阶段"选中谁"的概率分布），不会挪动其它条目已经算出的
+    /// 结果，详见该方法判断记录、README 判断记录 20。
     /// </para>
     /// <para>
     /// 判断记录 2——嵌套 <c>loot.*</c> 引用的 <c>count</c> 语义：08 第 1.1 节 <c>LootEntry</c> 的
@@ -255,7 +260,7 @@ namespace Core.Gameplay.Loot
                 }
                 else
                 {
-                    resultCount += RollWeightedGroup(group.Entries, group.PickCount ?? 1, context, exprHost, depth, output);
+                    resultCount += RollWeightedGroup(def.Id, group.Entries, group.PickCount ?? 1, context, exprHost, depth, output);
                 }
             }
 
@@ -269,6 +274,9 @@ namespace Core.Gameplay.Loot
 
                 while (resultCount < def.GuaranteedMin.Value && candidatePool.Count > 0)
                 {
+                    // 判断记录（ADR-0052）：候选池"选哪条补"仍是跨条目仲裁，走共享 RngStream；
+                    // 选中之后该条目自身的数量骰/品质骰/词缀骰改走它自己的子流（见 RollCount/
+                    // ResolveEntryAtDepth）。
                     var picked = PickWeighted(candidatePool);
                     if (picked == null)
                     {
@@ -276,8 +284,8 @@ namespace Core.Gameplay.Loot
                     }
 
                     candidatePool.Remove(picked);
-                    var count = RollCount(picked);
-                    ResolveEntryAtDepth(picked, count, context, exprHost, depth, output);
+                    var count = RollCount(def.Id, picked);
+                    ResolveEntryAtDepth(def.Id, picked, count, context, exprHost, depth, output);
                     resultCount++;
                 }
             }
@@ -305,7 +313,11 @@ namespace Core.Gameplay.Loot
                     effectiveChance = LootRollCore.ApplyPseudoRandomStep(baseChance, streak, _options.PseudoRandomStep);
                 }
 
-                var roll = _rng.Next(_options.RngStream);
+                // 判断记录（ADR-0052）：chance_each 组内每条本就独立判定，"判不判"这个决定天然
+                // 归属这一条自己，因此判定骰本身也改走该条目的专属子流（不再是共享 RngStream 上
+                // 按登记顺序排队消耗）——这样往组里插入/删除其它条目，不会挪动这一条的判定结果。
+                var entryStream = DeriveEntryStream(def.Id, entry.Ref);
+                var roll = _rng.Next(entryStream);
                 if (roll < effectiveChance)
                 {
                     if (pseudoKey != null)
@@ -313,8 +325,8 @@ namespace Core.Gameplay.Loot
                         _missStreaks[pseudoKey] = 0;
                     }
 
-                    var count = RollCount(entry);
-                    ResolveEntryAtDepth(entry, count, context, exprHost, depth, output);
+                    var count = RollCount(def.Id, entry);
+                    ResolveEntryAtDepth(def.Id, entry, count, context, exprHost, depth, output);
                     produced++;
                 }
                 else if (pseudoKey != null)
@@ -326,13 +338,15 @@ namespace Core.Gameplay.Loot
             return produced;
         }
 
-        private int RollWeightedGroup(IReadOnlyList<LootEntry> entries, int pickCount, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
+        private int RollWeightedGroup(Id tableId, IReadOnlyList<LootEntry> entries, int pickCount, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
         {
             var pool = LootRollCore.FilterEligible(entries, exprHost, _diagnostics);
 
             var produced = 0;
             for (var i = 0; i < pickCount && pool.Count > 0; i++)
             {
+                // 判断记录（ADR-0052）：同 guaranteed_min 补抽——"选哪条"是跨条目仲裁，走共享
+                // RngStream；选中之后该条目自身的消耗改走它自己的子流。
                 var picked = PickWeighted(pool);
                 if (picked == null)
                 {
@@ -340,8 +354,8 @@ namespace Core.Gameplay.Loot
                 }
 
                 pool.Remove(picked);
-                var count = RollCount(picked);
-                ResolveEntryAtDepth(picked, count, context, exprHost, depth, output);
+                var count = RollCount(tableId, picked);
+                ResolveEntryAtDepth(tableId, picked, count, context, exprHost, depth, output);
                 produced++;
             }
 
@@ -360,8 +374,41 @@ namespace Core.Gameplay.Loot
             return LootRollCore.SelectByThreshold(pool, totalWeight, thresholdFraction);
         }
 
-        private int RollCount(LootEntry entry) =>
-            entry.CountMin == entry.CountMax ? entry.CountMin : _rng.NextInt(_options.RngStream, entry.CountMin, entry.CountMax);
+        /// <summary>数量骰（ADR-0052 起）：走 <paramref name="entry"/> 在 <paramref name="tableId"/>
+        /// 下的专属子流（见 <see cref="DeriveEntryStream"/>），不再退回共享 <see
+        /// cref="LootOptions.RngStream"/>——本条目是否掷这一骰子（<c>CountMin==CountMax</c> 时不消耗）
+        /// 只影响它自己子流的推进位置，不影响其它条目。</summary>
+        private int RollCount(Id tableId, LootEntry entry) =>
+            entry.CountMin == entry.CountMax
+                ? entry.CountMin
+                : _rng.NextInt(DeriveEntryStream(tableId, entry.Ref), entry.CountMin, entry.CountMax);
+
+        /// <summary>
+        /// ADR-0052：按 <c>(loot_table_id, entry_ref)</c> 派生该条目专属的 <c>IRngHost</c> 子流
+        /// 标识——条目在数据里以 <see cref="LootEntry.Ref"/>（<c>item.*</c>/<c>loot.*</c>/<c>econ.*</c>，
+        /// 已由 <see cref="LootTableParser"/> 校验为合法 <see cref="Id"/>）作为语义身份，不用组内下标
+        /// （下标会因为插入/删除同组其它条目而挪动，违背"隔离性"这条验收要求，见判断记录 20）。
+        /// <para>
+        /// 派生算法：把 <paramref name="tableId"/>、<paramref name="entryRef"/> 的 <c>Id.Value</c>
+        /// 各自的 <c>'.'</c> 替换成 <c>'_'</c>（原值本就只含 <c>[a-z0-9_]</c> 与 <c>'.'</c>，替换后必为
+        /// 单个合法 <see cref="Id"/> 段，不会与下面手写的分隔段产生歧义），再与
+        /// <see cref="LootOptions.RngStream"/>、固定分隔段 <c>"by_entry"</c> 依 <c>"{基础流}.by_entry.
+        /// {扁平化表 id}.{扁平化条目 ref}"</c> 拼接为新的 <see cref="Id"/>；不使用
+        /// <c>string.GetHashCode()</c>/字典枚举顺序/系统时间等不确定性来源（同 AGENTS.md §3）。真正
+        /// 把这个字符串标识"混合"成 256 位子流初始状态的是 <see cref="IRngHost"/> 实现（<c>RngHost</c>）
+        /// 已有的、逐流独立的确定性派生算法（<c>SeedDerivation.DeriveInitialState</c>：FNV-1a 64 位哈希
+        /// 该 <see cref="Id.Value"/> 字符串再和主种子异或、经 SplitMix64 展开为四个 64 位字）——本方法
+        /// 只负责"给这个条目造一个独一无二、确定性可重算的流名字"，不重新发明一套哈希/播种算法，全框架
+        /// 只有一份权威的"主种子 + 流标识 → 子流初始状态"派生逻辑（同 <see cref="IRngHost"/> 类型注释
+        /// "不同用途……各自持有独立流，互不干扰"一贯设计，只是把粒度从"用途"细化到"表内某个条目"）。
+        /// </para>
+        /// </summary>
+        private Id DeriveEntryStream(Id tableId, Id entryRef)
+        {
+            var tableToken = tableId.Value.Replace('.', '_');
+            var entryToken = entryRef.Value.Replace('.', '_');
+            return Id.Parse($"{_options.RngStream.Value}.by_entry.{tableToken}.{entryToken}");
+        }
 
         private bool ConditionPasses(LootEntry entry, IExprHost exprHost) =>
             LootRollCore.ConditionPasses(entry, exprHost, _diagnostics);
@@ -375,7 +422,7 @@ namespace Core.Gameplay.Loot
         /// 或曲线不可解析）或换算结果 &lt;=0 时静默跳过、不追加任何产出（不是"命中但数量为 0"，这条
         /// 候选在 <see cref="RollTableInto"/> 的保底计数口径下等同于"未产出"，同嵌套表引用未加载的
         /// 兜底惯例）。</summary>
-        private void ResolveEntryAtDepth(LootEntry entry, int count, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
+        private void ResolveEntryAtDepth(Id tableId, LootEntry entry, int count, RollContext context, IExprHost exprHost, int depth, List<LootRollOutcome> output)
         {
             if (entry.Ref.Domain == "loot")
             {
@@ -388,6 +435,9 @@ namespace Core.Gameplay.Loot
 
                 for (var i = 0; i < count; i++)
                 {
+                    // 判断记录（ADR-0052）：嵌套表自己的条目按它自己的表 id（nestedDef.Id）派生
+                    // 子流，与外层 tableId 无关——外层这一条"展开几次"的决定已经在它自己的子流上
+                    // 定型（RollCount(tableId, entry)），不需要把 tableId 继续往下传。
                     RollTableInto(nestedDef, context, exprHost, output, depth + 1);
                 }
             }
@@ -401,7 +451,7 @@ namespace Core.Gameplay.Loot
             }
             else
             {
-                output.Add(ResolveItemOutcome(entry, count, context));
+                output.Add(ResolveItemOutcome(tableId, entry, count, context));
             }
         }
 
@@ -486,7 +536,7 @@ namespace Core.Gameplay.Loot
         /// 词缀骰新增的随机数消耗会让"这一条之后"的序列发生变化（见 README"掷骰顺序"判断记录、拍板
         /// 12"回放基线更新"）。
         /// </summary>
-        private LootRollOutcome ResolveItemOutcome(LootEntry entry, int count, RollContext context)
+        private LootRollOutcome ResolveItemOutcome(Id tableId, LootEntry entry, int count, RollContext context)
         {
             var templateRecord = _registry.Get(ItemTemplateTable, entry.Ref);
             if (templateRecord == null)
@@ -497,14 +547,19 @@ namespace Core.Gameplay.Loot
                 return new LootRollOutcome(entry.Ref, count, null, null, null);
             }
 
+            // 判断记录（ADR-0052）：品质骰、词缀骰都是这一条目自己的产出细节，与数量骰共用同一条
+            // 专属子流（同一条目内部仍按固定顺序——先数量骰、再品质骰、再词缀骰——顺序取数，不打乱
+            // 相对次序，只是不再共享其它条目的流）。
+            var entryStream = DeriveEntryStream(tableId, entry.Ref);
+
             var templateQuality = templateRecord.GetId("quality");
-            var qualityId = RollQuality(entry, templateQuality);
+            var qualityId = RollQuality(entryStream, entry, templateQuality);
 
             var itemLevel = context.SourceLevel.HasValue
                 ? context.SourceLevel.Value + context.ItemLevelOffset
                 : (int?)null;
 
-            var affixes = RollAffixes(qualityId, templateRecord);
+            var affixes = RollAffixes(entryStream, qualityId, templateRecord);
 
             return new LootRollOutcome(entry.Ref, count, qualityId, affixes, itemLevel);
         }
@@ -515,8 +570,9 @@ namespace Core.Gameplay.Loot
 
         private const string ItemAffixTable = "item.affix";
 
-        /// <summary>品质骰：见 <see cref="ResolveItemOutcome"/> 判断记录第 1 步。</summary>
-        private Id RollQuality(LootEntry entry, Id templateQuality)
+        /// <summary>品质骰：见 <see cref="ResolveItemOutcome"/> 判断记录第 1 步；<paramref
+        /// name="stream"/> 是 ADR-0052 起该条目自己的专属子流（见 <see cref="DeriveEntryStream"/>）。</summary>
+        private Id RollQuality(Id stream, LootEntry entry, Id templateQuality)
         {
             if (entry.QualityWeights == null || entry.QualityWeights.Count == 0)
             {
@@ -547,7 +603,7 @@ namespace Core.Gameplay.Loot
                 totalWeight += w;
             }
 
-            var thresholdFraction = _rng.Next(_options.RngStream);
+            var thresholdFraction = _rng.Next(stream);
             var idx = LootRollCore.SelectIndexByThreshold(weights, totalWeight, thresholdFraction);
             return ids[idx];
         }
@@ -555,8 +611,9 @@ namespace Core.Gameplay.Loot
         /// <summary>词缀骰：见 <see cref="ResolveItemOutcome"/> 判断记录第 2 步。候选池按
         /// <c>item.affix.Id</c>（序数字符串）排序后再抽取——不依赖 <see
         /// cref="IDataRegistryView.GetAll"/> 的既有顺序是否稳定（同 T-N1-2 判断记录"禁止把拓扑序依赖
-        /// 字典枚举顺序，须稳定排序"），保证同种子重跑逐字段一致不受注册表内部实现细节影响。</summary>
-        private IReadOnlyList<Id> RollAffixes(Id qualityId, DataRecord templateRecord)
+        /// 字典枚举顺序，须稳定排序"），保证同种子重跑逐字段一致不受注册表内部实现细节影响。<paramref
+        /// name="stream"/> 是 ADR-0052 起该条目自己的专属子流（见 <see cref="DeriveEntryStream"/>）。</summary>
+        private IReadOnlyList<Id> RollAffixes(Id stream, Id qualityId, DataRecord templateRecord)
         {
             var qualityDef = _registry.Get(ItemQualityDefinitionTable, qualityId);
             var affixCount = qualityDef != null && qualityDef.TryGetInt("affix_count", out var ac) ? (int)ac : 0;
@@ -621,7 +678,7 @@ namespace Core.Gameplay.Loot
                     break;
                 }
 
-                var thresholdFraction = _rng.Next(_options.RngStream);
+                var thresholdFraction = _rng.Next(stream);
                 var idx = LootRollCore.SelectIndexByThreshold(weights, totalWeight, thresholdFraction);
                 picked.Add(candidates[idx].Id);
                 candidates.RemoveAt(idx);
