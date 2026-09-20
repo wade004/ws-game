@@ -26,6 +26,22 @@
 :class:`CheckIssue`/:func:`run` 判断记录；不加 ``--json`` 时文本输出与改造前逐字节一致。加或不加
 ``--json``，返回码语义相同（无问题为 0，有问题为 1）。
 
+判断记录（``--json`` 顶层新增 ``domain_counts`` 字段，消费方反馈第 74 条）：文本汇总行
+（``run()`` 末尾 ``[check] dataset=... : 检查 N 条 <表>...``）里的各域记录条数此前只写进这行给人读
+的自然语言句子，``--json`` 文档不携带同一份信息，消费方（内容编辑器项目）因此无法拆除自建的文本
+正则解析、改用结构化 ``--json`` 输出（详见其反馈原文）。修法是纯加法：在既有六个顶层键
+（``tool``/``dataset``/``domains``/``ok``/``counts``/``issues``）之外新增 ``domain_counts``
+（``dict[str, int]``，键为 :class:`CheckIssue` 已用的 ``table`` 名风格，如 ``"display.map"``），
+不改任何既有字段的名字/类型/含义。数值口径：与文本汇总行完全同源、同一批 ``_load_rows()`` 返回值
+的 ``len()``——即"该表 JSON 文件里 ``rows`` 数组的行数"，与该行是否命中检查条件（如
+``display.map`` 只对 ``kind == "sprite"`` 的行跑校验）、是否报出问题都无关；不存在的表文件按
+``_load_rows`` 既有行为算 0 行。域未被 ``--only`` 选中时，该域对应的表键整体不出现在
+``domain_counts`` 字典里（区分"未跑该域"与"跑了但 0 条"，与消费方 ``AssetCheckSummary`` 三个
+可空字段"不臆造零值"的既有设计一致）；``display_anim`` 一个域对应 ``display.anim_set``/
+``display.weapon_style``/``display.equip_visual`` 三张表，三个键同进同出。输出顺序按表名字符串
+排序（与既有 ``domains`` 字段 ``sorted(only)`` 同一手法），不依赖 dict 插入顺序或字典枚举顺序，
+保持跨进程/跨 Python 版本确定性（AGENTS.md 第 3 节）。
+
 消费方反馈第 66 条核实结论（见 ``architecture/adr/0037-资源引用路径推导契约扩展到vfx-sfx-model-anim_set.md``
 "决策 3"）：本工具此前（1.43.0）未扩展到 ``display.anim_set.clips.resource_ref``/``display.
 equip_visual.mesh_ref``/``model_ref``/``display.weapon_style.auto_attack_anim``/
@@ -237,7 +253,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "消费方反馈第 62 条：stdout 只输出一个 JSON 文档（不转义中文），其余日志改走 stderr；"
             "不加本参数时文本输出逐字节不变。JSON 顶层结构：{tool, dataset, domains, ok, "
-            "counts:{error,warning}, issues:[{severity, table, record_key, field_path, check, "
+            "counts:{error,warning}, domain_counts:{<table>: <行数>, ...}（消费方反馈第 74 条，"
+            "未跑的域对应表键不出现）, issues:[{severity, table, record_key, field_path, check, "
             "message, path}]}。稳定 check 名清单见 check_cmd.CHECK_NAMES / 模块 docstring。"
         ),
     )
@@ -777,12 +794,29 @@ def run(args: argparse.Namespace) -> int:
     if use_json:
         error_count = sum(1 for p in problems if p.severity == SEVERITY_ERROR)
         warning_count = sum(1 for p in problems if p.severity == SEVERITY_WARNING)
+        # 消费方反馈第 74 条：各域实际加载的记录条数，纯加法新增字段，口径/键名风格/排序规则见
+        # 模块 docstring"判断记录（--json 顶层新增 domain_counts 字段）"。
+        domain_counts: dict[str, int] = {}
+        if "sprite" in only:
+            domain_counts["display.map"] = len(display_rows)
+        if "vfx" in only:
+            domain_counts["vfx.def"] = len(vfx_rows)
+        if "sfx" in only:
+            domain_counts["sfx.def"] = len(sfx_rows)
+        if "world" in only:
+            domain_counts["world.map"] = len(world_rows)
+        if "display_anim" in only:
+            domain_counts["display.anim_set"] = len(anim_set_rows)
+            domain_counts["display.weapon_style"] = len(weapon_style_rows)
+            domain_counts["display.equip_visual"] = len(equip_visual_rows)
+
         document = {
             "tool": "import_assets.check",
             "dataset": args.dataset,
             "domains": sorted(only),
             "ok": not problems,
             "counts": {"error": error_count, "warning": warning_count},
+            "domain_counts": {k: domain_counts[k] for k in sorted(domain_counts)},
             "issues": [p.as_dict() for p in problems],
         }
         # ensure_ascii=False：中文不转义（消费方反馈第 62 条原文要求）；stdout 只这一行 JSON。

@@ -1835,6 +1835,144 @@ class CheckJsonOutputTest(ImportAssetsTestBase):
         self.assertIn("[check] dataset=_test", stdout)
         self.assertNotIn("{", stdout.split("[check]")[0])
 
+    def _seed_other_domain_rows(self, data_root: Path) -> dict[str, list[dict]]:
+        """在 _build_valid_sprite 已产出的 display.map 之外，给其余六张表各写入若干行
+
+        （行内容只保证不触发异常，不保证通过检查——本组用例只关心 ``_load_rows`` 读到的
+        行数，与该行是否有问题无关，见 check_cmd 模块 docstring"判断记录（--json 顶层新增
+        domain_counts 字段）"）。返回按表名分组的行列表，供用例按"数据集里实际的记录数"
+        算期望值，不写死裸数。
+        """
+        rows_by_table: dict[str, list[dict]] = {
+            "vfx.def": [{"id": f"vfx.item_{i}"} for i in range(2)],
+            "sfx.def": [{"id": f"sfx.item_{i}"} for i in range(3)],
+            "world.map": [{"id": "world.demo"}],
+            "display.anim_set": [
+                {"id": f"display.anim_set.item_{i}", "clips": {}} for i in range(2)
+            ],
+            "display.weapon_style": [{"id": "display.weapon_style.item_0"}],
+            "display.equip_visual": [{"id": "display.equip_visual.item_0"}],
+        }
+        write_json(data_root / "_test" / "vfx" / "vfx.def.json", {"rows": rows_by_table["vfx.def"]})
+        write_json(data_root / "_test" / "sfx" / "sfx.def.json", {"rows": rows_by_table["sfx.def"]})
+        write_json(data_root / "_test" / "world" / "world.map.json", {"rows": rows_by_table["world.map"]})
+        write_json(
+            data_root / "_test" / "display" / "display.anim_set.json",
+            {"rows": rows_by_table["display.anim_set"]},
+        )
+        write_json(
+            data_root / "_test" / "display" / "display.weapon_style.json",
+            {"rows": rows_by_table["display.weapon_style"]},
+        )
+        write_json(
+            data_root / "_test" / "display" / "display.equip_visual.json",
+            {"rows": rows_by_table["display.equip_visual"]},
+        )
+        return rows_by_table
+
+    def test_json_output_domain_counts_match_loaded_row_counts_and_fields_backward_compatible(
+        self,
+    ) -> None:
+        """消费方反馈第 74 条：--json 顶层新增 domain_counts，数值口径是各表 rows 数组长度
+
+        （与文本汇总行同源），期望值由数据集里实际写入的行数算出，不写死裸数；同时验证
+        既有六个顶层字段（tool/dataset/domains/ok/counts/issues）纯加法未受影响——用它们
+        彼此间的既有约束（ok 与 issues 是否为空一致、counts 与 issues 里各 severity 计数
+        一致）重新核验，而不是抄一份旧的期望值。
+        """
+        assets_root, data_root = self._build_valid_sprite("domain_counts_full")
+        rows_by_table = self._seed_other_domain_rows(data_root)
+
+        display_map_path = data_root / "_test" / "display" / "display.map.json"
+        expected_display_map_count = len(
+            json.loads(display_map_path.read_text(encoding="utf-8"))["rows"]
+        )
+        expected_domain_counts = {"display.map": expected_display_map_count}
+        expected_domain_counts.update(
+            {table: len(rows) for table, rows in rows_by_table.items()}
+        )
+
+        code, stdout, stderr = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--json",
+            ]
+        )
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        self.assertEqual(1, len(lines), msg=stdout)
+        doc = json.loads(lines[0])
+
+        # 新字段：值等于按数据集实际行数算出的期望值（不是写死的裸数）。
+        self.assertEqual(expected_domain_counts, doc["domain_counts"])
+
+        # 向后兼容：既有字段仍在，且相互间的既有约束仍成立（规则校验，不是抄一份旧期望值）。
+        self.assertEqual("import_assets.check", doc["tool"])
+        self.assertEqual("_test", doc["dataset"])
+        self.assertEqual(sorted(check_cmd.DEFAULT_DOMAINS), doc["domains"])
+        self.assertIn("issues", doc)
+        recomputed_error = sum(1 for i in doc["issues"] if i["severity"] == "error")
+        recomputed_warning = sum(1 for i in doc["issues"] if i["severity"] == "warning")
+        self.assertEqual({"error": recomputed_error, "warning": recomputed_warning}, doc["counts"])
+        self.assertEqual(len(doc["issues"]) == 0, doc["ok"])
+        self.assertEqual(0 if doc["ok"] else 1, code)
+
+    def test_json_output_domain_counts_omits_keys_for_domains_excluded_by_only(self) -> None:
+        """--only 排除的域，domain_counts 对应表键必须整体不出现——即使磁盘上该表确有数据
+
+        （本用例复用 test_..._backward_compatible 同一份种子数据证明这一点：vfx/sfx/
+        display_anim 三个域被 --only 排除后，即便 vfx.def.json 等文件里明明有行，
+        domain_counts 里也不能出现 "vfx.def" 等键，区分"未跑该域"与"跑了但 0 条"）。
+        """
+        assets_root, data_root = self._build_valid_sprite("domain_counts_only_subset")
+        self._seed_other_domain_rows(data_root)
+
+        display_map_path = data_root / "_test" / "display" / "display.map.json"
+        expected_display_map_count = len(
+            json.loads(display_map_path.read_text(encoding="utf-8"))["rows"]
+        )
+        world_map_path = data_root / "_test" / "world" / "world.map.json"
+        expected_world_map_count = len(
+            json.loads(world_map_path.read_text(encoding="utf-8"))["rows"]
+        )
+
+        code, stdout, stderr = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--only",
+                "sprite,world",
+                "--json",
+            ]
+        )
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        self.assertEqual(1, len(lines), msg=stdout)
+        doc = json.loads(lines[0])
+
+        self.assertEqual(["sprite", "world"], doc["domains"])
+        self.assertEqual(
+            {"display.map": expected_display_map_count, "world.map": expected_world_map_count},
+            doc["domain_counts"],
+        )
+        for excluded_table in (
+            "vfx.def",
+            "sfx.def",
+            "display.anim_set",
+            "display.weapon_style",
+            "display.equip_visual",
+        ):
+            self.assertNotIn(excluded_table, doc["domain_counts"])
+
 
 class CheckWorldRowUnitTest(unittest.TestCase):
     """直接单元测试 _check_world_row（不经 CLI），消费方反馈第 62/64 条要求覆盖。"""
