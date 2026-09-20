@@ -56,6 +56,21 @@ toolchain/registry/*.log
 # 审计归档目录里由 dotnet build 产生的 obj-*/ 中间目录（如 audit-8160178 的 api-compat 复现工程曾误提交
 # obj-current17zip/ 等），编译器自动生成的 AssemblyInfo.cs / AssemblyAttributes.cs 不是证据，不提交。
 architecture/落地计划/audit-*/**/obj-*/
+# 整改单（2026-09-20）：audit-*/ 下的一次性审计证据生成物（原始构建/测试日志、命令原始输出、
+# 测试结果 xml、哈希/lock 快照、exit 码、diff patch）不再入库——脚本本地照常写，仅拦截 git 提交；
+# 结论性 .md 文档、复现工程输入（.cs/.csproj/.ps1/.py/.asmdef/.props/.meta）不受影响，按常规规则走。
+architecture/落地计划/audit-*/**/*.log
+architecture/落地计划/audit-*/**/*.txt
+architecture/落地计划/audit-*/**/*.xml
+architecture/落地计划/audit-*/**/*.json
+architecture/落地计划/audit-*/**/*.sha256
+architecture/落地计划/audit-*/**/*.lock
+architecture/落地计划/audit-*/**/*.patch
+architecture/落地计划/audit-*/**/*.exit
+architecture/落地计划/audit-*/**/*.stdout
+architecture/落地计划/audit-*/**/*.stderr
+architecture/落地计划/audit-*/**/*.out
+architecture/落地计划/audit-*/**/*.err
 # T-N6-6：toolchain/sim_baseline.ps1 默认输出目录（报告/差异，非基线本身——基线文件在
 # core/sim/tests/baseline/，随代码提交，不受本条目影响）。
 .sim_out/
