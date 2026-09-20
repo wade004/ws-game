@@ -461,6 +461,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   结构化出口现状"一节已同步更新第 71 条状态。测试：`core/foundation/data_registry/tests/
   DataRegistryTests.cs` 新增 4 例（阻断态事件携带的 `Issues` 与报告逐字段一致、非阻断态不发出该
   事件、两参数/三参数构造函数的 `Issues` 默认空集合语义）。
+- **Unity 相关门禁步骤新增 Windows MAX_PATH 快速失败守卫**（`toolchain/_unity_path_length_guard.
+  ps1` 的 `Test-UnityWorkingTreePathLength`，`check.ps1` 在 Unity 相关四步 + 消费方演练入口调用，
+  不经 `Invoke-CheckStep` 包裹）：深层 scratchpad 工作树里跑 Unity PlayMode 测试会踩 Windows 260
+  字符 MAX_PATH（`GameTemplateResidentTests.ResidentRunner_DatasetRootOverride_
+  LoadsProbeTable_FromOverrideRootOnly` 用例运行期把 `data/game` 整棵目录树复制到一个带 32 位
+  十六进制 GUID 的新目录，工作树根路径一深，复制出来的文件绝对路径就可能超限），且 Mono/.NET
+  旧式路径 API 此时抛的是 `DirectoryNotFoundException` 而不是 `PathTooLongException`，症状会
+  伪装成"目录没建出来"、容易被误判为产品缺陷。新增校验在真正调用任何 Unity 批处理之前，实际
+  扫一遍 `data/game` 下最长的相对路径（不硬编码具体字符数），代入覆盖目录名模板估算最长生成
+  路径，超阈值（260 - 10 字符余量）直接报错终止，错误信息含当前根路径长度、预估最长路径长度、
+  260 上限与"怎么办"指引（换到主检出或路径足够短的工作树）。`AGENTS.md` §4 同步补充"不要在
+  深层 scratchpad 工作树里跑 Unity 测试步骤"条目。测试：
+  `toolchain/tests/test_unity_path_length_guard.py`（3 例：短根路径放行、深根路径终止且错误
+  信息包含关键指引与正确挑出的最长相对路径、`data/game` 数据根缺失时不误报）。
 
 ## [1.47.0] - 2026-09-20
 

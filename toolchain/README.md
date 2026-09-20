@@ -1043,3 +1043,59 @@ Windows PowerShell 5.1 的原生默认值（不含 PowerShell 7 的模块目录�
 目录的污染值，`test_real_baseline_end_to_end_via_abi_probe` 稳定复现失败
 （`CommandNotFoundException`）；加回该参数后，同一个污染的 `PSModulePath` 下测试稳定通过——
 确认修复对症，不是巧合。
+
+## Unity 相关门禁步骤的 Windows MAX_PATH 快速失败守卫（`_unity_path_length_guard.ps1`，2026-09-20）
+
+背景：深层 scratchpad 工作树（`git worktree add` 到系统临时目录下，路径本身比主检出深很多）里
+跑 Unity 测试会踩 Windows 260 字符 MAX_PATH——具体触发点是 `games/_template/Tests/Runtime/
+GameTemplateResidentTests.cs` 的 `ResidentRunner_DatasetRootOverride_LoadsProbeTable_
+FromOverrideRootOnly` 用例（见该文件类型头 2026-09-19 判断记录）：运行期把
+`adapters/unity/Assets/StreamingAssets/GameFoundation/data/game` 整棵目录树（不含 `.meta`）
+复制到同级一个新目录 `gf_test_dataset_root_override_<32 位十六进制 GUID>`——这个目录名比原来的
+"game" 长 59 个字符，工作树根路径一旦较深，复制出来的文件绝对路径就可能超过 260。更麻烦的是
+Mono/.NET 旧式路径 API 在这种情况下抛的是 `DirectoryNotFoundException` 而不是
+`PathTooLongException`，症状会伪装成"目录没建出来"/数据装配失败，本仓库已经把这种伪装症状
+误判成产品缺陷一次。
+
+**根治方向（快速失败 + 自解释，不是"修复"路径过深本身）**：任务范围明确排除启用 Windows 长
+路径支持、改注册表、加长路径前缀——那是改用户机器配置/引入平台特定路径形式，超出门禁脚本的
+职责边界。落地为 `Test-UnityWorkingTreePathLength`（`toolchain/_unity_path_length_guard.ps1`），
+`check.ps1` 在 Unity 相关四步 + 消费方演练的入口（`-SkipUnity`/`-Quick` 均不生效的那个分支）
+调用，且**不经 `Invoke-CheckStep` 包裹**——`Invoke-CheckStep` 的约定是"任一步骤失败都不会中断
+后续步骤"，但路径过深是环境性前提问题，一旦成立，后面几步 Unity 批处理必然全部朝着同一个根因
+失败，继续跑只是白白耗掉几分钟到十几分钟，所以用会终止整个脚本的 `throw`。
+
+**为什么独立成 `toolchain/_unity_path_length_guard.ps1` 而不是内联写在 `check.ps1` 里**：与同
+目录 `_hash.ps1`/`_version_writeback.ps1` 同一模式——只定义函数、无顶层副作用，`check.ps1`
+在真正调用 Unity 批处理之前 dot-source 后调用；独立成文件后
+`toolchain/tests/test_unity_path_length_guard.py` 才能单独 dot-source 这一个函数测试，不需要
+跑完整 `check.ps1`（后者会顺带跑一大批耗时的构建/测试步骤）。
+
+**为什么不硬编码"最长路径是多少字符"**：函数实际扫一遍 `data/game` 下最长的相对路径，代入
+覆盖目录名模板（`"gf_test_dataset_root_override_" + 32 位十六进制占位`）重新算一次——
+`data/game` 下的文件将来增删（加表、改文件名）时这道校验能跟着更新，不会因为写死的数字过期
+而失去保护力。落地当次实测：仓库当前 `data/game` 下最长相对路径是
+`combat\combat.hit_table_config.json`/`combat\combat.level_diff_table.json`（并列，29 字符），
+代入覆盖目录名模板后的模拟相对路径 156 字符；阈值取 Windows MAX_PATH 260 减 10 字符余量（覆盖
+"覆盖目录名模板/GUID 格式今后如果略有变化"这类小幅度漂移，不是卡着上限走）= 250。主检出
+（`D:\workespace\ws-game`，17 字符）预估最长路径 174 字符，远低于阈值；本次任务给出的深层
+scratchpad 工作树根路径示例（119 字符）预估最长路径 276 字符，超阈值，正确触发。
+
+**测试侧的编码陷阱（差点做出一个偶发失败的测试，记录下来避免下次重踩）**：`toolchain/tests/
+test_unity_path_length_guard.py` 最初用 `subprocess.run(..., text=True)` 捕获守卫抛出的错误
+信息、断言其中包含的中文指引文本，单独跑通过，但混进 `toolchain/tests` 全量跑时偶发
+`UnicodeDecodeError: 'gbk' codec can't decode byte ... in position 9`。根因：Windows
+PowerShell 5.1 下非终端/被管道重定向的 stdout/stderr 默认走系统 ANSI 代码页（本机实测是
+GBK/936，与源 `.ps1` 文件的 UTF-8 编码无关），`text=True`（或显式 `encoding="utf-8"`）在多字节
+序列跨读缓冲区边界处偶发解码失败或整体乱码——且这个代码页因机器区域设置而异，硬编码
+`encoding="gbk"` 只在中文 Windows 上凑巧对。根治：让 PowerShell 脚本自己在真正调用守卫函数之前
+显式把 `[Console]::OutputEncoding` 设成 `[System.Text.Encoding]::UTF8`，并把函数调用包一层
+`try/catch`，异常信息改走 `Write-Output`（stdout，会被强制编码影响）而不是让它以未捕获异常的
+形式落到原生 stderr（该流不受 `[Console]::OutputEncoding` 影响）；Python 侧固定
+`encoding="utf-8"`——两端都不依赖宿主机的系统区域设置，跨代码页环境下都应确定性通过。
+
+**测试夹具不依赖长路径支持**：用例故意构造一个较深的根路径来触发阈值，但只让函数内部"模拟"
+出来的覆盖目录路径超过 260（该路径从不落盘），真正在磁盘上创建的目录/文件路径全程留有安全
+余量地保持在 260 字符以内——与本次任务"不修复路径过深本身"的范围保持一致，测试也不应该依赖
+宿主机是否开启了长路径支持，具体窗口推导见测试文件头注释与 `_MIN_DEEP_REPO_ROOT_LEN`/
+`_MAX_SAFE_PHYSICAL_REPO_ROOT_LEN` 两个常量。

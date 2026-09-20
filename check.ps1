@@ -1431,6 +1431,13 @@ if ($Quick) {
 # Unity 相关四步（-SkipUnity 时整体跳过；见 adapters/unity/README.md"命令行跑测试"一节，
 # 命令写法与该节保持一致：-runTests 不与 -quit 同传，PlayMode 不加 -nographics）。
 # -----------------------------------------------------------------------------
+
+# Windows MAX_PATH 快速失败守卫（Test-UnityWorkingTreePathLength）：函数定义与判断记录见
+# toolchain/_unity_path_length_guard.ps1 头注释（与同目录 _hash.ps1/_version_writeback.ps1
+# 同一模式，独立成文件以便 toolchain/tests/test_unity_path_length_guard.py 单独 dot-source
+# 测试，不用跑完整 check.ps1）。
+. (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
+
 function Resolve-UnityExe {
     param([string]$Explicit)
     if ($Explicit -ne "") {
@@ -1486,6 +1493,11 @@ if ($SkipUnity) {
     Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity"
     Add-SkippedStep "消费方演练" "-SkipUnity"
 } else {
+    # 快速失败：在真正调用任何 Unity 批处理之前先跑一次路径长度守卫（见该函数上方判断记录）。
+    # 不经 Invoke-CheckStep 包裹，超阈值会直接 throw 终止整个脚本，不会先耗时跑完编译检查/
+    # EditMode 再到 PlayMode 才暴露问题。
+    Test-UnityWorkingTreePathLength -RepoRoot $RepoRoot
+
     $resolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
     $unityProjectPath = Join-Path $RepoRoot "adapters\unity"
 
