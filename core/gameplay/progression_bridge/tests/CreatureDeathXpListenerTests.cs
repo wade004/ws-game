@@ -162,6 +162,77 @@ namespace Tests.Gameplay.ProgressionBridge
             Assert.Equal(0, host.GetXp(playerId));
         }
 
+        /// <summary>消费方反馈第 6 条根治：<c>prog.xp_source.kill</c> 已登记时不产生诊断噪音——
+        /// 数据齐全的正常路径不应该刷出任何警告。</summary>
+        [Fact]
+        public void OnUnitDied_KillXpSourceRegistered_NoDiagnosticNoise()
+        {
+            var bus = NewEventBus();
+            var registry = MakeProgressionRegistry(bus, KillSourceRows);
+            var host = MakeProgressionHost(registry, bus);
+
+            var playerId = new Id("unit.pb_player_diag_1");
+            host.RegisterUnit(playerId, new Id("prog.curve.pb"), startLevel: 1);
+
+            var world = NewWorld(bus);
+            var units = new Core.Carriers.Unit.WorldUnitAccess(world);
+            AddPlayer(world, playerId, new Id("map.pb"), new Vec2(0, 0));
+
+            var templates = new FakeCreatureTemplateQuery();
+            var templateId = new Id("creature.pb_diag_wolf");
+            templates.Add(templateId, new Id("creature.tier.pb_normal"));
+            var creatureId = new Id("unit.pb_diag_wolf_1");
+            var creature = AddCreature(world, creatureId, new Id("map.pb"), templateId, new Vec2(1, 0));
+            creature.Level = 6;
+
+            var diagnostics = new InMemoryProgressionBridgeDiagnostics();
+            _ = new CreatureDeathXpListener(bus, host, units, templates, summons: null, options: null, diagnostics: diagnostics);
+
+            bus.Enqueue(new UnitDiedEvent(creatureId, killerId: playerId));
+            bus.DispatchPending();
+
+            Assert.NotEqual(0, host.GetXp(playerId));
+            Assert.Empty(diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 6 条根治：<c>prog.xp_source.kill</c> 未登记时（同
+        /// <see cref="OnUnitDied_KillXpSourceNotRegistered_DoesNotThrow_SkipsSilently"/> 同一场景），
+        /// 此前完全没有任何可观察信号（消费方反馈现象"杀怪一直 0 经验且无任何线索"）——本用例验证
+        /// 诊断消息含可定位信息（具体缺失的来源 id），行为本身不变（仍不发放、不阻断事件派发，见
+        /// 既有用例 <see cref="OnUnitDied_KillXpSourceNotRegistered_DoesNotThrow_SkipsSilently"/>）。</summary>
+        [Fact]
+        public void OnUnitDied_KillXpSourceNotRegistered_LogsDiagnosticWithSourceId()
+        {
+            var bus = NewEventBus();
+            var registry = MakeProgressionRegistry(bus, DiscoveryOnlySourceRows);
+            var host = MakeProgressionHost(registry, bus);
+
+            var playerId = new Id("unit.pb_player_diag_2");
+            host.RegisterUnit(playerId, new Id("prog.curve.pb"), startLevel: 1);
+
+            var world = NewWorld(bus);
+            var units = new Core.Carriers.Unit.WorldUnitAccess(world);
+            AddPlayer(world, playerId, new Id("map.pb"), new Vec2(0, 0));
+
+            var templates = new FakeCreatureTemplateQuery();
+            var templateId = new Id("creature.pb_diag_goat");
+            templates.Add(templateId, new Id("creature.tier.pb_normal"));
+            var creatureId = new Id("unit.pb_diag_goat_1");
+            var creature = AddCreature(world, creatureId, new Id("map.pb"), templateId, new Vec2(1, 0));
+            creature.Level = 4;
+
+            var diagnostics = new InMemoryProgressionBridgeDiagnostics();
+            _ = new CreatureDeathXpListener(bus, host, units, templates, summons: null, options: null, diagnostics: diagnostics);
+
+            bus.Enqueue(new UnitDiedEvent(creatureId, killerId: playerId));
+            bus.DispatchPending();
+
+            Assert.Equal(0, host.GetXp(playerId));
+            var warning = Assert.Single(diagnostics.Warnings);
+            Assert.Contains(CreatureDeathXpListener.DefaultKillXpSourceId.Value, warning);
+            Assert.Contains("prog.xp_source", warning);
+        }
+
         /// <summary>死亡单位模板的分档 id（<c>TierId</c>）经 <see cref="XpContext.TierId"/> 传给
         /// <see cref="IProgressionHost.GrantXp"/>——本模块只登记、不消费（T-N4-4 才读取，见
         /// <c>XpContext</c> 类型注释"契约疑点上报"），用间谍宿主核对确实传对了值。</summary>

@@ -404,6 +404,22 @@ combat/
     本体；既有"真实脱战仍回满"对照用例（`SetInCombat_LeavingCombat_RefillsWhenConfigured` 等）未改动，
     仍全部通过——本次修复只新增一条不触发回满的入口，不改 `SetInCombat` 本体逻辑。
 
+22. **消费方反馈第 5 条根治（2026-09-20，fix/silent-degradation-diagnostics）：
+    `Resolver.ComputeMitigation` 未登记学派分支补报诊断。** 该分支未在 `combat.resist_curve` 找到
+    对应学派时此前只写 `steps` 追踪日志（只有传入 `CombatOptions.ResolveTrace` 回调的调用方才
+    看得到）、从未经 `ICombatDiagnostics` 报出——数据漏配时结算仍得到一个合法的"零减免"结果，
+    接入方完全看不出这是配置缺失还是设计如此，违反 AGENTS.md §3"运行时路径不静默降级"。复核
+    结论：本类已经接了 [ADR-0042](../../../architecture/adr/0042-诊断契约统一转发到宿主控制台.md)
+    的诊断出口（`ICombatDiagnostics`/`InMemoryCombatDiagnostics`，`DiagnosticsHubComposition`
+    登记为 "Core.Rules.Combat"），只是这一个分支忘了调用——属于"接入统一机制、补一处遗漏调用"，
+    不需要另出 ADR。修法：新增 `_warnedMissingResistCurve`（`HashSet<Id>`，键为学派 id），
+    分支内新增 `WarnMissingResistCurveOnce(school)`，惯例同既有 `_warnedMissingStats`/
+    `WarnMissingStatOnce`（按学派 id 只警告一次，不随每次结算重复入账，避免战斗热路径刷爆诊断
+    消息列表）；诊断文本含具体表名（`combat.resist_curve`）与具体缺失的学派 id，供内容作者直接
+    定位。行为不变（减免仍按 0 处理，不阻断结算，不改变任何既有数值断言），只是不再静默。见
+    `core/rules/combat/tests/ResolverMitigationDiagnosticsTests.cs`（数据齐全时无诊断噪音；数据
+    缺失时诊断含学派 id 且只报一次）。
+
 ## 深度复审 A-S1 修复（2026-09-16）：`Resolver.BuildDamageTakenStatIds` 去重结果缓存
 
 - **背景**：深度复审（N0～N6 数值设计专项）发现 T-N1-7 新增的 `Resolver.BuildDamageTakenStatIds`

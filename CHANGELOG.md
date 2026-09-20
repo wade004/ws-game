@@ -461,6 +461,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   正确做法（发布新版本号）；新增 `-AllowOverwriteDist` 开关作为显式例外通道（默认关闭，用于
   重跑一次失败/半途的发布），启用时打印醒目警告。覆盖 `-Release`/`-Dist`/`-Zip` 三条入口的
   任意组合。
+- **消费方反馈第 5/6 条根治：运行时静默降级补诊断（不改变任何既有数值/行为）**——
+  `core/rules/combat.Resolver.ComputeMitigation` 对未登记 `combat.resist_curve` 的学派、
+  `core/gameplay/progression_bridge.CreatureDeathXpListener`/`AreaTriggerDiscoveryXpListener`
+  对未登记的 `prog.xp_source` 来源，此前均静默返回一个合法值（减免=0 / 不发放经验），接入方
+  无法区分"数据漏配"与"设计如此"。`Resolver` 补一处遗漏的 `ICombatDiagnostics.Warn` 调用
+  （按学派 id 去重，惯例同既有 `WarnMissingStatOnce`）；`progression_bridge` 新增
+  `IProgressionBridgeDiagnostics`/`InMemoryProgressionBridgeDiagnostics` 契约（两个监听器
+  共用同一份实例，`GameplayAssembly` 新增只读属性 `ProgressionBridgeDiagnostics` 转发，
+  `adapters/unity` 侧登记为诊断来源 "Core.Gameplay.ProgressionBridge"），两个监听器各自新增
+  一个带 `diagnostics` 参数、不带默认值的构造重载（ABI 只新增）。详见
+  `core/rules/combat/README.md`/`core/gameplay/progression_bridge/README.md` 判断记录。
 
 ## [1.48.0] - 2026-09-20
 

@@ -233,5 +233,69 @@ namespace Tests.Gameplay.ProgressionBridge
             Assert.Equal(0, host.GetXp(playerId));
             Assert.True(worldState.Has(DefaultOnceFlagKey));
         }
+
+        /// <summary>消费方反馈第 6 条根治：<c>prog.xp_source.discovery</c> 已登记时不产生诊断噪音——
+        /// 数据齐全的正常路径（同 <see cref="OnTriggerEntered_FirstEntry_GrantsBaseAmountForRegionLevel_AndSetsOnceFlag"/>）
+        /// 不应该刷出任何警告。</summary>
+        [Fact]
+        public void OnTriggerEntered_DiscoveryXpSourceRegistered_NoDiagnosticNoise()
+        {
+            var bus = NewEventBus();
+            var registry = MakeProgressionRegistry(bus, DiscoverySourceRows);
+            var host = MakeProgressionHost(registry, bus);
+            var worldState = new WorldStateHost(bus);
+
+            var playerId = new Id("unit.pb_explorer_diag_1");
+            host.RegisterUnit(playerId, new Id("prog.curve.pb"), startLevel: 1);
+
+            var world = NewWorld(bus);
+            var units = new Core.Carriers.Unit.WorldUnitAccess(world);
+            AddPlayer(world, playerId, new Id("map.pb"), new Vec2(0, 0));
+
+            AreaDiscoveryLevelResolver resolver = triggerId => triggerId.Equals(TriggerId) ? 9 : (int?)null;
+            var diagnostics = new InMemoryProgressionBridgeDiagnostics();
+            _ = new AreaTriggerDiscoveryXpListener(
+                bus, host, units, worldState, registry, resolver, options: null, diagnostics: diagnostics);
+
+            bus.Enqueue(new AreaTriggerEnteredEvent(TriggerId, playerId));
+            bus.DispatchPending();
+
+            Assert.NotEqual(0, host.GetXp(playerId));
+            Assert.Empty(diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈第 6 条根治：<c>prog.xp_source.discovery</c> 未登记时（同
+        /// <see cref="OnTriggerEntered_DiscoveryXpSourceNotRegistered_DoesNotThrow_StillSetsFlag"/>
+        /// 同一场景），此前完全没有任何可观察信号——本用例验证诊断消息含可定位信息（具体缺失的来源
+        /// id），行为本身不变（仍不发放经验、一次性标志仍照常写入）。</summary>
+        [Fact]
+        public void OnTriggerEntered_DiscoveryXpSourceNotRegistered_LogsDiagnosticWithSourceId()
+        {
+            var bus = NewEventBus();
+            var registry = MakeProgressionRegistry(bus, KillOnlySourceRows);
+            var host = MakeProgressionHost(registry, bus);
+            var worldState = new WorldStateHost(bus);
+
+            var playerId = new Id("unit.pb_explorer_diag_2");
+            host.RegisterUnit(playerId, new Id("prog.curve.pb"), startLevel: 1);
+
+            var world = NewWorld(bus);
+            var units = new Core.Carriers.Unit.WorldUnitAccess(world);
+            AddPlayer(world, playerId, new Id("map.pb"), new Vec2(0, 0));
+
+            AreaDiscoveryLevelResolver resolver = _ => 9;
+            var diagnostics = new InMemoryProgressionBridgeDiagnostics();
+            _ = new AreaTriggerDiscoveryXpListener(
+                bus, host, units, worldState, registry, resolver, options: null, diagnostics: diagnostics);
+
+            bus.Enqueue(new AreaTriggerEnteredEvent(TriggerId, playerId));
+            bus.DispatchPending();
+
+            Assert.Equal(0, host.GetXp(playerId));
+            Assert.True(worldState.Has(DefaultOnceFlagKey));
+            var warning = Assert.Single(diagnostics.Warnings);
+            Assert.Contains(AreaTriggerDiscoveryXpListener.DefaultDiscoveryXpSourceId.Value, warning);
+            Assert.Contains("prog.xp_source", warning);
+        }
     }
 }

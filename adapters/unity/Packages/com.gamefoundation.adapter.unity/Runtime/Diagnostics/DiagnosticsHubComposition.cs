@@ -165,6 +165,15 @@ namespace Adapter.Unity.Diagnostics
                 hub.Register("Core.Gameplay.WorldState", worldStateDiag.Warnings);
             }
 
+            // 消费方反馈第 5/6 条根治（feat/silent-degradation-diagnostics，2026-09-20）：progression_bridge
+            // 两个监听器（CreatureDeathXpListener/AreaTriggerDiscoveryXpListener）此前从未持有任何诊断
+            // 契约实例，本轮补上——GameplayAssembly 不对外暴露这两个监听器实例本身（构造后即弃元），
+            // 改为直接转发两者共用的诊断实例，见 GameplayAssembly.ProgressionBridgeDiagnostics 判断记录。
+            if (gameplay.ProgressionBridgeDiagnostics is Core.Gameplay.ProgressionBridge.InMemoryProgressionBridgeDiagnostics progressionBridgeDiag)
+            {
+                hub.Register("Core.Gameplay.ProgressionBridge", progressionBridgeDiag.Warnings);
+            }
+
             // --- presentation/ui 独立契约（不实现 IPresentationDiagnostics，同 ISkillDiagnostics 惯例） ---
             // 判断记录（CS0234 修正，2026-09-20）：此前写作 `Presentation.Ui.InMemoryUiDiagnostics`
             // 编译报 "The type or namespace name 'Ui' does not exist in the namespace

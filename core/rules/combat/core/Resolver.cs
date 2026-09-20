@@ -65,6 +65,12 @@ namespace Core.Rules.Combat
 
         private readonly HashSet<Id> _warnedMissingStats = new HashSet<Id>();
 
+        /// <summary>消费方反馈第 5 条根治：<see cref="ComputeMitigation"/> 对未登记 <c>combat.resist_curve</c>
+        /// 学派只记一次警告（同 <see cref="_warnedMissingStats"/>/<see cref="WarnMissingStatOnce"/> 一贯
+        /// 惯例，键为学派 id，与具体目标/结算次数无关）——避免战斗热路径上同一学派反复缺表时把诊断
+        /// 消息列表刷爆。</summary>
+        private readonly HashSet<Id> _warnedMissingResistCurve = new HashSet<Id>();
+
         private static readonly IReadOnlyDictionary<Id, LevelDiffTable> EmptyLevelDiffTables =
             new Dictionary<Id, LevelDiffTable>();
 
@@ -718,6 +724,14 @@ namespace Core.Rules.Combat
             if (!_resistCurvesBySchool.TryGetValue(school, out var curve))
             {
                 steps.Add($"mitigation: 学派 {school} 无对应 combat.resist_curve，减免=0");
+                // 消费方反馈第 5 条根治（运行时路径不静默降级，见 AGENTS.md §3）：此前只写 steps
+                // 追踪日志（只有传入 CombatOptions.ResolveTrace 回调的调用方才看得到），未经
+                // ICombatDiagnostics 报出——数据漏配（combat.resist_curve 缺该学派一行）时，结算
+                // 仍会得到一个合法的"零减免"结果，接入方完全看不出这是配置缺失还是设计如此。本类
+                // 已经接了 ADR-0042 的诊断出口（见 CombatHost 装配、DiagnosticsHubComposition 登记
+                // "Core.Rules.Combat"），只是这一个分支忘了调用；同 WarnMissingStatOnce 一贯惯例，
+                // 按学派 id 只警告一次，不随每次结算重复入账。
+                WarnMissingResistCurveOnce(school);
                 return 0.0;
             }
 
@@ -881,6 +895,19 @@ namespace Core.Rules.Combat
             if (_warnedMissingStats.Add(stat))
             {
                 _diagnostics.Warn($"Resolver: 属性 \"{stat}\" 缺失或单位未在 StatHost 注册，按 0 处理");
+            }
+        }
+
+        /// <summary>消费方反馈第 5 条根治：见 <see cref="ComputeMitigation"/> 调用处判断记录——
+        /// 定位信息给到具体表名 + 具体缺失的学派 id，供内容作者直接去 <c>combat.resist_curve</c>
+        /// 补一行 <c>school={school}</c> 的记录。</summary>
+        private void WarnMissingResistCurveOnce(Id school)
+        {
+            if (_warnedMissingResistCurve.Add(school))
+            {
+                _diagnostics.Warn(
+                    $"Resolver.ComputeMitigation: combat.resist_curve 未登记学派 \"{school}\" 对应的减免曲线，" +
+                    "本次及后续同学派结算按 0 减免处理（不阻断结算，可能是数据漏配，请检查 combat.resist_curve 表）");
             }
         }
     }
