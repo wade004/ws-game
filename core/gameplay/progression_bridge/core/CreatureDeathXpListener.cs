@@ -52,6 +52,12 @@ namespace Core.Gameplay.ProgressionBridge
         private readonly ICreatureTemplateQuery _templates;
         private readonly ISummonHost? _summons;
         private readonly Id _killXpSourceId;
+        private readonly IProgressionBridgeDiagnostics _diagnostics;
+
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见
+        /// architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：供 adapters/unity 侧统一诊断
+        /// 转发机制轮询本实例累积的 Warnings，不改变本类型任何既有公开签名。</summary>
+        public IProgressionBridgeDiagnostics Diagnostics => _diagnostics;
 
         public CreatureDeathXpListener(
             IEventBus bus,
@@ -60,6 +66,26 @@ namespace Core.Gameplay.ProgressionBridge
             ICreatureTemplateQuery templates,
             ISummonHost? summons = null,
             ProgressionOptions? options = null)
+            : this(bus, progression, units, templates, summons, options, diagnostics: null)
+        {
+        }
+
+        /// <summary>
+        /// 消费方反馈第 6 条根治新增构造重载：追加 <paramref name="diagnostics"/>（ABI 门禁"公开
+        /// API 只能新增"——既有六参构造函数已发布，直接追加参数会改变其物理 IL 签名，对已编译好的
+        /// 外部消费方二进制是破坏性变更；本重载七个参数全部不带默认值，与既有构造函数在参数个数上
+        /// 不重叠（6 对 7，惯例同 <see cref="Core.Rules.Combat.Resolver"/> 十四→十六参重载），互不
+        /// 冲突，也不产生调用点重载二义性）。未提供时缺省 <see cref="InMemoryProgressionBridgeDiagnostics"/>
+        /// （惯例同本仓库其余全部 Host 的 diagnostics 可选参数）。
+        /// </summary>
+        public CreatureDeathXpListener(
+            IEventBus bus,
+            IProgressionHost progression,
+            IUnitAccess units,
+            ICreatureTemplateQuery templates,
+            ISummonHost? summons,
+            ProgressionOptions? options,
+            IProgressionBridgeDiagnostics? diagnostics)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             _progression = progression ?? throw new ArgumentNullException(nameof(progression));
@@ -67,6 +93,7 @@ namespace Core.Gameplay.ProgressionBridge
             _templates = templates ?? throw new ArgumentNullException(nameof(templates));
             _summons = summons;
             _killXpSourceId = (options ?? new ProgressionOptions()).KillXpSourceId ?? DefaultKillXpSourceId;
+            _diagnostics = diagnostics ?? new InMemoryProgressionBridgeDiagnostics();
 
             bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, OnUnitDied);
         }
@@ -99,6 +126,16 @@ namespace Core.Gameplay.ProgressionBridge
             if (_progression.HasXpSource(_killXpSourceId))
             {
                 _progression.GrantXp(creditUnitId, _killXpSourceId, new XpContext(diedLevel, tierId: tierId));
+            }
+            else
+            {
+                // 消费方反馈第 6 条根治（运行时路径不静默降级，见 AGENTS.md §3）：此前"来源未登记
+                // 则跳过"这一分支完全没有任何可观察信号，表现为"杀怪一直 0 经验且无任何线索"。
+                // 行为不变（仍然跳过、不阻断死亡结算），只是显式标记——消息给到具体表名 + 具体
+                // 缺失的来源 id，供内容作者直接去 prog.xp_source 表核对。
+                _diagnostics.Warn(
+                    $"CreatureDeathXpListener: prog.xp_source 未登记来源 \"{_killXpSourceId}\"，" +
+                    $"跳过本次击杀经验发放（creditUnitId={creditUnitId}, diedUnitId={evt.UnitId}）");
             }
         }
 

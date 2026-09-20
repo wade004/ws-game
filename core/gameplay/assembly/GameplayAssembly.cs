@@ -27,6 +27,7 @@ using Core.Gameplay.Difficulty;
 using Core.Gameplay.Economy;
 using Core.Gameplay.Encounter;
 using Core.Gameplay.Loot;
+using Core.Gameplay.ProgressionBridge;
 using Core.Gameplay.Quest;
 using Core.Gameplay.Spawn;
 using Core.Gameplay.WorldState;
@@ -130,6 +131,15 @@ namespace Core.Gameplay.Assembly
         public Core.Gameplay.Death.DeathPolicyHost Death { get; }
 
         public RewardDispatcher Reward { get; }
+
+        /// <summary>消费方反馈第 6 条根治（诊断转发跟进，同 <see cref="AppStateDiagnostics"/>/
+        /// <see cref="HooksDiagnostics"/> 惯例——本装配根不对外暴露
+        /// <see cref="CreatureDeathXpListener"/>/<see cref="AreaTriggerDiscoveryXpListener"/> 两个
+        /// 监听器实例本身，构造后即弃元，此前也从未对外暴露过，没有其它模块需要引用监听器对象）：
+        /// 两个监听器共用同一份 <see cref="IProgressionBridgeDiagnostics"/> 实例（见构造函数内两处
+        /// 装配点），本属性转发这份共享实例，供 adapters/unity 侧统一诊断转发机制登记为
+        /// "Core.Gameplay.ProgressionBridge" 一个来源（ADR-0042）。</summary>
+        public IProgressionBridgeDiagnostics ProgressionBridgeDiagnostics { get; }
 
         /// <summary>
         /// 缺口 16（ISaveSystem 归属调整）：本装配根持有并公开唯一一份 <see cref="ISaveSystem"/>
@@ -626,12 +636,20 @@ namespace Core.Gameplay.Assembly
                 economyHost: deferredEconomyHost,
                 summons: Carriers.Summons);
 
+            // 消费方反馈第 6 条根治：progression_bridge 模块两个监听器（本类下方 AreaTriggerHost
+            // 步骤另一处）共用同一份诊断实例——本装配根此前从未持有过这两个监听器实例（构造后即
+            // `_ = new ...` 弃元），诊断契约因此完全没有到达宿主控制台的通路（ADR-0042 决策 1）。
+            // 提前构造这份共享实例，两处装配点各自传入，供 ProgressionBridgeDiagnostics 属性
+            // 转发给 adapters/unity 侧统一诊断转发机制登记。
+            var progressionBridgeDiagnostics = new InMemoryProgressionBridgeDiagnostics();
+            ProgressionBridgeDiagnostics = progressionBridgeDiagnostics;
+
             // T-N4-3（ADR-0033 决策 3；core/gameplay/progression_bridge/README.md 判断记录 2"接线
             // 顺序先掉落后经验"）：接在 CreatureDeathLootListener 构造之后，订阅同一个 unit.died；
             // 两者互不持有对方引用、本类不读取任何掉落结果（任务书硬性规则）。
             _ = new Core.Gameplay.ProgressionBridge.CreatureDeathXpListener(
                 bus, Carriers.Rules.Progression, Carriers.Units, Carriers.Creatures,
-                summons: Carriers.Summons, options: resolvedProgressionOptions);
+                Carriers.Summons, resolvedProgressionOptions, progressionBridgeDiagnostics);
 
             // ---------------------------------------------------------
             // 7) RewardDispatcher：currencyGranter 用局部变量延迟闭包接到第 8 步才构造出来的
@@ -956,9 +974,13 @@ namespace Core.Gameplay.Assembly
             // 框架本身不预设任何具体区域列表，本装配根不注入具体委托（等价于"没有任何区域配置为
             // 探索奖励"，零成本退化，不发放、不写任何一次性标志）；某个具体游戏要启用探索经验时，
             // 在自己的组合根里提供一个真正的委托即可。
+            // 消费方反馈第 6 条根治：与上方 CreatureDeathXpListener 共用同一份
+            // progressionBridgeDiagnostics 实例（见该处判断记录），不是各自独立一份——两个监听器
+            // 逻辑上同属一个模块，合并成一个诊断来源，不需要在 DiagnosticsHubComposition 里注册
+            // 两条几乎同名的来源。
             _ = new Core.Gameplay.ProgressionBridge.AreaTriggerDiscoveryXpListener(
                 bus, Carriers.Rules.Progression, Carriers.Units, WorldState, registry,
-                options: resolvedProgressionOptions);
+                levelResolver: null, options: resolvedProgressionOptions, diagnostics: progressionBridgeDiagnostics);
 
             // ---------------------------------------------------------
             // 16) 补上 gobj 侧四个 L4 回调（GobjOptions 是 CarriersAssembly 构造时已经用过的同一个

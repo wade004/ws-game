@@ -105,6 +105,25 @@ progression_bridge/
     未来第三方实现）透明，只有显式覆盖本方法的 `ProgressionHost` 才获得"真正按注册表判断"的精确
     能力，详见该接口成员判断记录。
 
+11. **消费方反馈第 6 条根治（2026-09-20，fix/silent-degradation-diagnostics）：新增
+    `IProgressionBridgeDiagnostics` 契约，两个监听器共用**：本模块此前（T-N4-3/T-N4-4）从未持有
+    任何诊断契约实例——判断记录 4/9 描述的"来源未登记 → 静默跳过"这一退化路径因此完全不可观察，
+    消费方反馈现象是"杀怪一直 0 经验且无任何线索"。复核结论：本模块的"数据漏配（`prog.xp_source`
+    缺该来源）→ 持续性配置缺失告警"完全符合 [ADR-0042](../../../architecture/adr/0042-诊断契约统一转发到宿主控制台.md)
+    的适用场景（区别于 ADR-0046 那次"离散事件被 hub 文本去重吞掉"的不适用场景），照该 ADR 的接入
+    方式办理，不需要另出 ADR。落地：新增 `IProgressionBridgeDiagnostics`/默认实现
+    `InMemoryProgressionBridgeDiagnostics`（惯例同 `core/gameplay/common` 的
+    `IRewardDiagnostics`），两个监听器各自新增一个只带 `diagnostics` 追加参数、不带默认值的构造
+    重载（ABI 门禁"只新增"——既有构造函数已发布，直接加参数是破坏性变更，惯例同
+    `core/rules/combat.Resolver` 十四→十六参重载），未提供来源 id 已登记时不产生任何诊断消息
+    （行为不变，只是"跳过"这件事从此可观察）。`CreatureDeathXpListener`/`AreaTriggerDiscoveryXpListener`
+    两者共用同一份诊断实例（由 `GameplayAssembly` 构造并转发，见下方"接入"一节），不是各自独立
+    一份——两个监听器逻辑上同属一个模块，合并成一个诊断来源更贴近"这是 progression_bridge 模块
+    的问题"这一定位粒度，也不需要在 `DiagnosticsHubComposition` 里注册两条几乎同名的来源。
+    **`AreaTriggerDiscoveryXpListener` 同构确认**：判断记录 9 描述的分支（来源未登记时跳过
+    `GrantXp` 但仍写一次性标志）与 `CreatureDeathXpListener` 判断记录 4 是同一模式（数据漏配、
+    静默返回"不发放"这个合法结果），一并修复，未发现语义差异需要区别对待。
+
 ## 接入 `core/gameplay/assembly.GameplayAssembly`
 
 - `CreatureDeathXpListener` 接在 `CreatureDeathLootListener` 构造之后（同一个"6) LootHost（+
@@ -120,6 +139,12 @@ progression_bridge/
   `ProgressionOptions` 实例（同时承载 `ExtraXpMultiplierProvider`/`QuestXpSourceId`），两个监听器
   与 `RewardDispatcher` 共用同一份配置，不再各自独立退到互不相干的默认实例，见
   `core/numbers/progression/README.md`"T-N4-4"一节判断记录 5。
+- **消费方反馈第 6 条根治（见判断记录 11）**：`GameplayAssembly` 在构造第一个监听器
+  （`CreatureDeathXpListener`）之前新建一份共享的 `InMemoryProgressionBridgeDiagnostics`，赋给
+  新增只读属性 `ProgressionBridgeDiagnostics`；两处接线均改传这份共享实例（`diagnostics:` 具名
+  参数），`adapters/unity` 侧 `DiagnosticsHubComposition.RegisterCoreSources` 登记为
+  "Core.Gameplay.ProgressionBridge" 一个来源。此前两处均 `_ = new ...(...)` 弃元、从未对外暴露
+  监听器实例本身——本次不改这一点（其余任何模块都不需要引用监听器对象），只转发共享的诊断出口。
 
 ## 2026-09-16 深度复审 D-M1 判断记录：`ResolveCreditUnit` 改为转发共享辅助
 

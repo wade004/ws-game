@@ -73,6 +73,12 @@ namespace Core.Gameplay.ProgressionBridge
         private readonly AreaDiscoveryLevelResolver _levelResolver;
         private readonly Id _discoveryXpSourceId;
         private readonly string _defaultOnceKeyPrefix;
+        private readonly IProgressionBridgeDiagnostics _diagnostics;
+
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见
+        /// architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：供 adapters/unity 侧统一诊断
+        /// 转发机制轮询本实例累积的 Warnings，不改变本类型任何既有公开签名。</summary>
+        public IProgressionBridgeDiagnostics Diagnostics => _diagnostics;
 
         public AreaTriggerDiscoveryXpListener(
             IEventBus bus,
@@ -82,6 +88,26 @@ namespace Core.Gameplay.ProgressionBridge
             IDataRegistryView registry,
             AreaDiscoveryLevelResolver? levelResolver = null,
             ProgressionOptions? options = null)
+            : this(bus, progression, units, worldState, registry, levelResolver, options, diagnostics: null)
+        {
+        }
+
+        /// <summary>
+        /// 消费方反馈第 6 条根治新增构造重载（同构问题，见 <see cref="CreatureDeathXpListener"/>
+        /// 对应重载判断记录）：追加 <paramref name="diagnostics"/>（ABI 门禁"公开 API 只能新增"——
+        /// 既有七参构造函数已发布，本重载八个参数全部不带默认值，与既有构造函数在参数个数上不重叠
+        /// （7 对 8），互不冲突，也不产生调用点重载二义性）。未提供时缺省
+        /// <see cref="InMemoryProgressionBridgeDiagnostics"/>。
+        /// </summary>
+        public AreaTriggerDiscoveryXpListener(
+            IEventBus bus,
+            IProgressionHost progression,
+            IUnitAccess units,
+            IWorldState worldState,
+            IDataRegistryView registry,
+            AreaDiscoveryLevelResolver? levelResolver,
+            ProgressionOptions? options,
+            IProgressionBridgeDiagnostics? diagnostics)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             _progression = progression ?? throw new ArgumentNullException(nameof(progression));
@@ -93,6 +119,7 @@ namespace Core.Gameplay.ProgressionBridge
             var opts = options ?? new ProgressionOptions();
             _discoveryXpSourceId = opts.DiscoveryXpSourceId ?? DefaultDiscoveryXpSourceId;
             _defaultOnceKeyPrefix = opts.DefaultOnceKeyPrefix;
+            _diagnostics = diagnostics ?? new InMemoryProgressionBridgeDiagnostics();
 
             bus.Subscribe<AreaTriggerEnteredEvent>(AreaTriggerEventKeys.TriggerEntered, OnTriggerEntered);
         }
@@ -129,6 +156,15 @@ namespace Core.Gameplay.ProgressionBridge
             if (_progression.HasXpSource(_discoveryXpSourceId))
             {
                 _progression.GrantXp(evt.UnitId, _discoveryXpSourceId, new XpContext(regionLevel.Value));
+            }
+            else
+            {
+                // 消费方反馈第 6 条根治（运行时路径不静默降级，见 AGENTS.md §3）：同构问题，见
+                // CreatureDeathXpListener.OnUnitDied 对应分支判断记录。行为不变（一次性标志仍照常
+                // 写入，见下方，跳过的只是经验发放本身），只是显式标记。
+                _diagnostics.Warn(
+                    $"AreaTriggerDiscoveryXpListener: prog.xp_source 未登记来源 \"{_discoveryXpSourceId}\"，" +
+                    $"跳过本次探索经验发放（unitId={evt.UnitId}, triggerId={evt.TriggerId}）");
             }
 
             _worldState.Set(onceKey, ExprValue.OfBool(true), WriterId);
