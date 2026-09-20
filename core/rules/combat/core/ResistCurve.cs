@@ -11,7 +11,9 @@ namespace Core.Rules.Combat
     /// 减免百分比。</summary>
     public enum ResistCurveKind
     {
-        /// <summary>饱和曲线：<c>reduction = value / (value + k × attackerLevel)</c>。</summary>
+        /// <summary>饱和曲线：<c>reduction = value / (value + k × attackerLevel + k0)</c>。
+        /// <c>k0</c>（<see cref="ResistCurve.K0"/>，ADR-0049）是新增的截距项，缺省 0——缺省时
+        /// 恒等于此前的 <c>value / (value + k × attackerLevel)</c>，逐位不变。</summary>
         Saturation,
 
         /// <summary>分段线性插值：按 <see cref="ResistCurve.Entries"/>（已按 value 升序）插值。</summary>
@@ -47,6 +49,15 @@ namespace Core.Rules.Combat
 
         public double K { get; }
 
+        /// <summary>ADR-0049 新增：饱和曲线分母上的截距项，<c>denom = value + K × attackerLevel + K0</c>。
+        /// 缺省 0（未登记 <c>k0</c> 字段时）——此时恒等于此前 <c>denom = value + K × attackerLevel</c>，
+        /// 保证既有数据逐位兼容（见 <c>ResistCurveInterceptBackCompatTests</c>）。加这一项是因为原公式
+        /// 分母只能是 <c>attackerLevel</c> 的纯比例项（过原点的直线），减免只能表达成"护甲/抗性与等级
+        /// 比值"的函数；有了 <c>k0</c>，分母变成 <c>attackerLevel</c> 的一般仿射函数（斜率 K、截距 K0），
+        /// 才能表达"存在一个不随等级缩放的基础门槛"这类形态（见 ADR-0049）。<c>Table</c> 分支不使用
+        /// 本字段。</summary>
+        public double K0 { get; }
+
         public IReadOnlyList<ResistCurveEntry> Entries { get; }
 
         public double MaxReduction { get; }
@@ -74,6 +85,7 @@ namespace Core.Rules.Combat
             };
 
             K = record.TryGetNumber("k", out var k) ? k : 0.0;
+            K0 = record.TryGetNumber("k0", out var k0) ? k0 : 0.0;
             MaxReduction = record.TryGetNumber("max_reduction", out var maxReduction) ? maxReduction : 0.75;
 
             var entries = new List<ResistCurveEntry>();
@@ -111,7 +123,10 @@ namespace Core.Rules.Combat
             switch (Kind)
             {
                 case ResistCurveKind.Saturation:
-                    var denom = value + K * attackerLevel;
+                    // ADR-0049：K0 缺省 0，此时 `value + K * attackerLevel + 0.0` 与此前的
+                    // `value + K * attackerLevel` 逐位相同（IEEE 754 加 0.0 对非负有限值是恒等运算），
+                    // 见 ResistCurveInterceptBackCompatTests。
+                    var denom = value + K * attackerLevel + K0;
                     raw = denom <= 0.0 ? 0.0 : value / denom;
                     break;
 

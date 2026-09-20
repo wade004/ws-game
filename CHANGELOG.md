@@ -449,6 +449,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **`combat.resist_curve` 饱和公式新增可选截距字段 `k0`**（消费方反馈第 7 条，
+  [ADR-0049](architecture/adr/0049-抗性曲线饱和公式新增截距项.md)）：`ResistCurve.ComputeReduction`
+  饱和分支公式由 `reduction = value / (value + k × attackerLevel)` 改为
+  `reduction = value / (value + k × attackerLevel + k0)`；新增只读属性 `ResistCurve.K0`。
+  `k0` 缺省 0，未登记时与改动前的公式逐位相同——已用
+  `core/rules/combat/tests/ResistCurveInterceptBackCompatTests.cs` 对仓库随附的三处
+  `combat.resist_curve` 数据集（默认示例数据根、`<game>` 模板数据根、内置数值仿真测试数据根）
+  里全部既有 `kind=saturation` 记录逐位对比验证，不需要任何数据迁移；三份仿真基线
+  （`core/sim/tests/baseline/*.json`）比对零增量差异。`data/_sample/combat/combat.resist_curve.json`
+  新增探针样例 `combat.resist.physical_with_floor`（`k0=200`）演示新能力：修正饱和曲线在低等级
+  内容里"任意正护甲值都换算出接近封顶减免"的退化区间。ABI 只新增，`breaks=0`。
+
 ## [1.48.0] - 2026-09-20
 
 ### 新增

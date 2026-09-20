@@ -118,7 +118,14 @@ namespace Core.Rules.Combat
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: ResistCurveKindValues,
                     description: "saturation：饱和曲线；table：分段线性插值"),
                 new FieldSchema("k", FieldKind.Number, required: false,
-                    description: "kind=saturation 时的饱和系数：reduction = value / (value + k × attackerLevel)"),
+                    description: "kind=saturation 时的饱和系数：reduction = value / (value + k × attackerLevel + k0)"),
+                // 依据（ADR-0049，消费方反馈第 7 条）：k 是分母里 attackerLevel 项的斜率，公式此前
+                // 只能表达"分母是 attackerLevel 的纯比例项"，减免因此只能写成护甲/抗性与等级比值的
+                // 函数；k0 是分母的截距，缺省 0，未登记时公式逐位等于此前的
+                // value / (value + k × attackerLevel)（见 ResistCurve.K0 判断记录、
+                // ResistCurveInterceptBackCompatTests）。加性可选字段，ABI 只新增。
+                new FieldSchema("k0", FieldKind.Number, required: false,
+                    description: "kind=saturation 时分母的截距项：reduction = value / (value + k × attackerLevel + k0)，缺省 0"),
                 new FieldSchema("entries", FieldKind.Array, required: false,
                     item: new FieldSchema("<resist_entry>", FieldKind.Object, required: true, fields: new[]
                     {

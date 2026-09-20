@@ -404,6 +404,29 @@ combat/
     本体；既有"真实脱战仍回满"对照用例（`SetInCombat_LeavingCombat_RefillsWhenConfigured` 等）未改动，
     仍全部通过——本次修复只新增一条不触发回满的入口，不改 `SetInCombat` 本体逻辑。
 
+22. **[ADR-0049](../../../architecture/adr/0049-抗性曲线饱和公式新增截距项.md)：`combat.resist_curve`
+    饱和公式新增截距字段 `k0`（消费方反馈第 7 条）。** 问题：`ComputeReduction` 饱和分支原公式
+    `denom = value + k × attackerLevel`——分母只是 `attackerLevel` 的纯比例项（过原点的直线），减免
+    因此只能表达成"护甲/抗性与等级比值"的函数，且在 `attackerLevel` 很小（如等级 0/1 内容）时会
+    退化：只要 `value > 0` 就有 `denom ≈ value`，`reduction ≈ 1` 在夹到 `max_reduction` 前已经饱和，
+    低等级内容里任意正护甲值都撞满减免上限，曲线形状在低等级段没有实际调参空间。取名 `k0`（而非
+    `k_offset` 一类下划线后缀）：本表已有先例 `k` 是单字母系数命名，`k0` 与其保持同一记法距离最短、
+    直接对应求值代码/文档里"系数 k、截距 k0"的数学记法，检索/阅读时天然配对；仓库里 `_offset` 后缀
+    （如 `item_level_offset`）用于"整体平移一个语义独立的量"，而 `k0` 是同一个饱和公式内部与 `k`
+    成对出现的另一项，语境更贴近该表自身既有的 `k`，故不套用 `_offset` 记法。缺省 0——`ResistCurve`
+    构造函数用 `TryGetNumber("k0", ...) ?? 0.0` 同款既有模式读取，未登记 `k0` 字段时
+    `denom = value + k × attackerLevel + 0.0`，IEEE 754 加 0.0 对非负有限值是恒等运算，逐位等于
+    此前公式；`Table` 分支不受影响（`k`/`k0`只用于 `Saturation` 分支）。ABI 只新增（新增只读属性
+    `ResistCurve.K0`、schema 新增可选字段 `k0`，不改任何既有公开签名，`currentSchemaVersion` 不变——
+    同 ADR-0021"数值范围约束"先例，纯新增可选字段不算结构性变更，不走迁移链）。逐位兼容性由
+    `core/rules/combat/tests/ResistCurveInterceptBackCompatTests.cs` 直接对仓库随附的三处
+    `combat.resist_curve` 数据集（`data/_sample`、`games/_template/data/game`、
+    `core/sim/tests/data`）里全部 `kind=saturation` 记录跑新旧公式对比证明，不只靠推理；新增能力的
+    可用样例见 `data/_sample/combat/combat.resist_curve.json` 的 `combat.resist.physical_with_floor`
+    （`k0=200`，演示"给饱和曲线加一个不随等级缩放的分母门槛，避免低等级退化"这一此前表达不了的
+    形态）。三份仿真基线（`core/sim/tests/baseline/*.json`）未受影响——`core/sim/tests/data` 里的
+    `combat.resist_curve` 记录未登记 `k0`，缺省 0 与改动前逐位相同。
+
 ## 深度复审 A-S1 修复（2026-09-16）：`Resolver.BuildDamageTakenStatIds` 去重结果缓存
 
 - **背景**：深度复审（N0～N6 数值设计专项）发现 T-N1-7 新增的 `Resolver.BuildDamageTakenStatIds`
