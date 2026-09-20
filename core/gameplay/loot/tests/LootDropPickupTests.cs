@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Core.Carriers.Common;
+using Core.Carriers.Creature;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Rng;
 using Core.Foundation.SimLoop;
@@ -254,6 +256,117 @@ namespace Tests.Gameplay.Loot
             Assert.Equal(deathPos, entity.Position);
             Assert.Equal(new Id("map.sample_1"), entity.MapId);
             Assert.Equal(killerId, entity.OwnerHint);
+        }
+
+        /// <summary>消费方反馈同构问题第三处根治（判断记录 19）：数据齐全（模板已登记）时不产生
+        /// 诊断噪音——正常路径不应该刷出任何警告（惯例同 progression_bridge 对应用例）。</summary>
+        [Fact]
+        public void CreatureDeathLootListener_RegisteredTemplate_NoDiagnosticNoise()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var templates = new FakeCreatureTemplateQuery();
+            var lootTableId = new Id("loot.sample_single");
+            templates.Add(new Id("creature.sample_wolf"), lootTableId);
+            var diagnostics = new InMemoryLootDiagnostics();
+
+            _ = new CreatureDeathLootListener(
+                f.Bus, f.Host, templates, f.Units, f.World,
+                lootMultiplierProvider: null, difficultyHost: null, economyHost: null, summons: null,
+                diagnostics: diagnostics);
+
+            var creatureId = new Id("creature.inst_diag_1");
+            LootTestSupport.AddCreature(f.World, creatureId, new Id("map.sample_1"), new Id("creature.sample_wolf"), new Vec2(0, 0));
+
+            f.Bus.Enqueue(new UnitDiedEvent(creatureId, new Id("player.sample_killer")));
+            f.Bus.DispatchPending();
+
+            Assert.Single(f.Host.ActiveLootIds);
+            Assert.Empty(diagnostics.Warnings);
+        }
+
+        /// <summary>消费方反馈同构问题第三处根治（判断记录 19）：死亡单位的模板 id 未登记到
+        /// <see cref="ICreatureTemplateQuery"/> 时，此前完全没有任何可观察信号（用户侧表现"杀怪
+        /// 不掉东西且无任何线索"）——本用例验证诊断消息含可定位信息（具体缺失的模板 id），行为
+        /// 本身不变（仍不产出掉落、不阻断事件派发）。</summary>
+        [Fact]
+        public void CreatureDeathLootListener_UnregisteredTemplate_LogsDiagnosticWithTemplateId()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var templates = new FakeCreatureTemplateQuery(); // 故意不 Add 任何模板
+            var diagnostics = new InMemoryLootDiagnostics();
+
+            _ = new CreatureDeathLootListener(
+                f.Bus, f.Host, templates, f.Units, f.World,
+                lootMultiplierProvider: null, difficultyHost: null, economyHost: null, summons: null,
+                diagnostics: diagnostics);
+
+            var templateId = new Id("creature.sample_unregistered");
+            var creatureId = new Id("creature.inst_diag_2");
+            LootTestSupport.AddCreature(f.World, creatureId, new Id("map.sample_1"), templateId, new Vec2(0, 0));
+
+            f.Bus.Enqueue(new UnitDiedEvent(creatureId, new Id("player.sample_killer")));
+            f.Bus.DispatchPending();
+
+            Assert.Empty(f.Host.ActiveLootIds);
+            var warning = Assert.Single(diagnostics.Warnings);
+            Assert.Contains(templateId.Value, warning);
+            Assert.Contains("未登记", warning);
+        }
+
+        /// <summary>消费方反馈同构问题第三处根治（判断记录 19，<c>catch (ArgumentException)</c>
+        /// 覆盖面核实）：<see cref="ICreatureTemplateQuery.Get"/> 除"未登记的模板 id"外，另一实现
+        /// （<c>RegistryCreatureTemplateQuery</c>）还会把字段级 <see cref="DataFieldException"/> 包成
+        /// <see cref="ArgumentException"/> 抛出（惯例：inner 保留原始异常）。本用例用
+        /// <see cref="FieldInvalidCreatureTemplateQuery"/> 模拟这一种成因，验证诊断消息与"未登记"
+        /// 场景不同（不会把两种完全不同的成因混进同一条含糊消息，误导内容作者去核对错误的问题）；
+        /// 控制流本身不变（仍然跳过、不外抛、不产出掉落——见 CreatureDeathLootListener.OnUnitDied
+        /// catch 分支判断记录"只收窄诊断消息的精确性，不收窄是否吞掉本身"）。</summary>
+        [Fact]
+        public void CreatureDeathLootListener_TemplateFieldInvalid_LogsDistinctDiagnosticMessage()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var templateId = new Id("creature.sample_field_invalid");
+            var templates = new FieldInvalidCreatureTemplateQuery(templateId);
+            var diagnostics = new InMemoryLootDiagnostics();
+
+            _ = new CreatureDeathLootListener(
+                f.Bus, f.Host, templates, f.Units, f.World,
+                lootMultiplierProvider: null, difficultyHost: null, economyHost: null, summons: null,
+                diagnostics: diagnostics);
+
+            var creatureId = new Id("creature.inst_diag_3");
+            LootTestSupport.AddCreature(f.World, creatureId, new Id("map.sample_1"), templateId, new Vec2(0, 0));
+
+            f.Bus.Enqueue(new UnitDiedEvent(creatureId, new Id("player.sample_killer")));
+            f.Bus.DispatchPending();
+
+            Assert.Empty(f.Host.ActiveLootIds);
+            var warning = Assert.Single(diagnostics.Warnings);
+            Assert.Contains(templateId.Value, warning);
+            Assert.Contains("字段非法", warning);
+            Assert.DoesNotContain("未登记", warning);
+        }
+
+        /// <summary>最小 <see cref="ICreatureTemplateQuery"/> 假实现：<see cref="Get"/> 恒抛
+        /// <see cref="ArgumentException"/>（<c>InnerException</c> 是 <see cref="DataFieldException"/>），
+        /// 模拟 <c>RegistryCreatureTemplateQuery.Get</c>"记录存在但字段非法"这一种成因（同该类型
+        /// 判断记录"异常收敛"，与"未登记"是完全不同的两种成因——见本文件用到本类的用例判断记录）。</summary>
+        private sealed class FieldInvalidCreatureTemplateQuery : ICreatureTemplateQuery
+        {
+            private readonly Id _templateId;
+
+            public FieldInvalidCreatureTemplateQuery(Id templateId) => _templateId = templateId;
+
+            public CreatureTemplate Get(Id templateId)
+            {
+                var inner = new DataFieldException(
+                    CreatureSchemas.Template.Name, _templateId.Value, "level", "字段非法（测试构造）");
+                throw new ArgumentException(
+                    $"生物模板 \"{templateId}\" 字段非法，无法解析为强类型模板（该问题已由字段级校验单独报出）",
+                    nameof(templateId), inner);
+            }
+
+            public bool HasFlag(Id templateId, NpcFlag flag) => false;
         }
 
         [Fact]

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Carriers.Creature;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
@@ -35,6 +36,25 @@ namespace Core.Gameplay.Loot
         private readonly Core.Gameplay.Difficulty.IDifficultyHost? _difficultyHost;
         private readonly Core.Gameplay.Economy.IEconomyHost? _economyHost;
         private readonly ISummonHost? _summons;
+
+        /// <summary>消费方反馈同构问题第三处根治（判断记录 19）：默认给一份 <see
+        /// cref="InMemoryLootDiagnostics"/>（field 初始化器，不是在某一个构造函数体内赋值）——本类
+        /// 既有四个构造重载彼此按"窄→宽"单向链式 <c>: this(...)</c>（6→7→8→9 参），新增的带
+        /// <c>diagnostics</c> 参数的最宽重载（见下方）只会被显式传入 <paramref name="diagnostics"/>
+        /// 的调用点触达，其余四个既有重载完全不经过它——若诊断字段只在最宽重载里赋值（同
+        /// <c>IProgressionBridgeDiagnostics</c> 判断记录"惯例"，该模块此前只有一个构造函数，不存在
+        /// 这条链），窄重载构造出来的实例 <c>_diagnostics</c> 会是 <c>null</c>，<see cref="OnUnitDied"/>
+        /// 里的 <c>_diagnostics.Warn(...)</c> 调用会抛 <see cref="NullReferenceException"/>。字段初始
+        /// 化器先于全部构造函数体执行（C# 规范：字段初始化器在到达"不带 <c>this(...)</c> 的构造函数"
+        /// 时，先于该构造函数体运行），故窄重载天然拿到这份默认实例；新增的宽重载在自己的构造函数体
+        /// 内用 <c>diagnostics ?? new InMemoryLootDiagnostics()</c> 覆盖它（合法：readonly 字段允许在
+        /// "本类型的构造函数体"内重新赋值，不限定只能赋值一次）。</summary>
+        private readonly ILootDiagnostics _diagnostics = new InMemoryLootDiagnostics();
+
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见
+        /// architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：供 adapters/unity 侧统一诊断
+        /// 转发机制轮询本实例累积的 Warnings，不改变本类型任何既有公开签名。</summary>
+        public ILootDiagnostics Diagnostics => _diagnostics;
 
         public CreatureDeathLootListener(
             IEventBus bus,
@@ -123,6 +143,34 @@ namespace Core.Gameplay.Loot
             _summons = summons;
         }
 
+        /// <summary>
+        /// 消费方反馈同构问题第三处根治新增构造重载（判断记录 19；ABI 门禁"公开 API 只能新增"——既有
+        /// 九参构造函数已发布，本重载十个参数全部不带默认值，与既有构造函数在参数个数上不重叠
+        /// （9 对 10，惯例同 <see cref="Core.Gameplay.ProgressionBridge.CreatureDeathXpListener"/>
+        /// 对应重载判断记录），互不冲突，也不产生调用点重载二义性）：额外接受 <paramref
+        /// name="diagnostics"/>，供 <see cref="OnUnitDied"/> 未能取得死亡单位强类型模板时（模板未
+        /// 登记、或字段非法）记一条警告（判断记录 19"运行时路径不静默降级"）。未提供时缺省 <see
+        /// cref="InMemoryLootDiagnostics"/>（惯例同本仓库其余全部 Host 的 diagnostics 可选参数；本类
+        /// 因既有构造重载链的方向问题改用字段初始化器提供默认值，见 <see cref="_diagnostics"/> 字段
+        /// 判断记录）。本重载直接链到既有九参构造函数完成全部既有初始化，构造函数体内只追加
+        /// <c>_diagnostics</c> 赋值，不重复既有任何字段赋值逻辑。
+        /// </summary>
+        public CreatureDeathLootListener(
+            IEventBus bus,
+            LootHost lootHost,
+            ICreatureTemplateQuery templates,
+            IUnitAccess units,
+            IWorldSim world,
+            Func<double>? lootMultiplierProvider,
+            Core.Gameplay.Difficulty.IDifficultyHost? difficultyHost,
+            Core.Gameplay.Economy.IEconomyHost? economyHost,
+            ISummonHost? summons,
+            ILootDiagnostics? diagnostics)
+            : this(bus, lootHost, templates, units, world, lootMultiplierProvider, difficultyHost, economyHost, summons)
+        {
+            _diagnostics = diagnostics ?? new InMemoryLootDiagnostics();
+        }
+
         private void OnUnitDied(UnitDiedEvent evt)
         {
             var templateId = _units.GetTemplateId(evt.UnitId);
@@ -144,10 +192,36 @@ namespace Core.Gameplay.Loot
                 // 判断记录，只是本类已经在这里持有 creatureTemplate，不需要单独再查一次。
                 tierId = creatureTemplate.TierId;
             }
-            catch (ArgumentException)
+            catch (ArgumentException ex)
             {
-                // 未登记的模板 id（见 ICreatureTemplateQuery.Get 注释"未登记的模板 id 抛
-                // ArgumentException"）：不是本监听器的职责范围，静默跳过，不阻断死亡结算流程。
+                // 判断记录 19（消费方反馈同构问题第三处根治，运行时路径不静默降级，见 AGENTS.md §3）：
+                // 此前"模板查询失败 → 跳过"完全没有任何可观察信号，与 progression_bridge 的
+                // CreatureDeathXpListener/AreaTriggerDiscoveryXpListener 同一病灶（用户侧表现"杀怪
+                // 不掉东西且无任何线索"）。行为不变（仍然跳过、仍然不产出掉落、不阻断死亡结算），
+                // 只是显式标记——消息给到具体表名 + 具体的模板 id，供内容作者直接去 creature.template
+                // 表核对。
+                //
+                // 判断记录 19（catch (ArgumentException) 覆盖面核实）：ICreatureTemplateQuery.Get
+                // 的契约文档只承诺一种 ArgumentException 成因（"未登记的模板 id"），生产装配实际接的
+                // CreatureFactory.Get（RequireTemplate）也确实只在这一种情况下抛出；但同接口另一个
+                // 实现 RegistryCreatureTemplateQuery.Get（该类型判断记录"异常收敛，不重复报告字段级
+                // 问题"）还会把字段级 DataFieldException 包成 ArgumentException 抛出——若本类某天
+                // 改接这个实现（目前没有任何生产/测试调用点这么做），单纯按类型 catch 会把"表里根本
+                // 没这条记录"和"记录存在但字段非法、已由字段级校验单独报出"两种完全不同的成因混进
+                // 同一条含糊消息，误导内容作者去核对错误的问题。收窄方式：借用
+                // RegistryCreatureTemplateQuery.Get 自己的既有约定（"inner 保留原始异常供排查"），用
+                // ex.InnerException is DataFieldException 区分两种成因，给出准确的诊断消息；不收窄
+                // 异常类型本身、不改变"跳过、不外抛"这一控制流——本方法处在 IEventBus 派发链路上，
+                // 同一次 unit.died 还有 progression_bridge/economy 等其它订阅者要处理，改成向外抛出
+                // 会连带阻断它们，这个代价超出本次"只读诊断，不改变阻断语义"的范围，故只收窄"诊断
+                // 消息的精确性"，不收窄"是否吞掉"本身。
+                var message = ex.InnerException is DataFieldException
+                    ? $"CreatureDeathLootListener: creature.template 模板 \"{templateId.Value}\" 字段非法，" +
+                      "无法解析为强类型模板（该问题已由字段级校验单独报出），跳过本次死亡掉落生成" +
+                      $"（unitId={evt.UnitId}）"
+                    : $"CreatureDeathLootListener: creature.template 未登记模板 \"{templateId.Value}\"，" +
+                      $"跳过本次死亡掉落生成（unitId={evt.UnitId}）";
+                _diagnostics.Warn(message);
                 return;
             }
 

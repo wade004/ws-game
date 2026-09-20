@@ -174,6 +174,14 @@ namespace Adapter.Unity.Diagnostics
                 hub.Register("Core.Gameplay.ProgressionBridge", progressionBridgeDiag.Warnings);
             }
 
+            // 消费方反馈同构问题第三处根治（2026-09-20）：core/gameplay/loot 的 CreatureDeathLootListener
+            // 此前从未持有任何诊断契约实例，本轮补上——GameplayAssembly 不对外暴露这个监听器实例本身
+            // （构造后即弃元），改为直接转发它的诊断实例，见 GameplayAssembly.LootDiagnostics 判断记录。
+            if (gameplay.LootDiagnostics is Core.Gameplay.Loot.InMemoryLootDiagnostics lootDiag)
+            {
+                hub.Register("Core.Gameplay.Loot", lootDiag.Warnings);
+            }
+
             // --- presentation/ui 独立契约（不实现 IPresentationDiagnostics，同 ISkillDiagnostics 惯例） ---
             // 判断记录（CS0234 修正，2026-09-20）：此前写作 `Presentation.Ui.InMemoryUiDiagnostics`
             // 编译报 "The type or namespace name 'Ui' does not exist in the namespace

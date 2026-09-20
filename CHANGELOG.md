@@ -485,6 +485,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   （`core/sim/tests/baseline/*.json`）比对零增量差异。`data/_sample/combat/combat.resist_curve.json`
   新增探针样例 `combat.resist.physical_with_floor`（`k0=200`）演示新能力：修正饱和曲线在低等级
   内容里"任意正护甲值都换算出接近封顶减免"的退化区间。ABI 只新增，`breaks=0`。
+- **消费方反馈同构问题第三处根治：`core/gameplay/loot.CreatureDeathLootListener` 补诊断（不改变
+  任何既有行为）**——`OnUnitDied` 用 `catch (ArgumentException)` 静默跳过死亡单位模板查询失败的
+  分支（未登记的模板 id/记录存在但字段非法），与上一条 `progression_bridge` 那两处监听器同一病灶
+  （用户侧表现"杀怪不掉东西且无任何线索"）。新增最小诊断契约 `ILootDiagnostics`/
+  `InMemoryLootDiagnostics`；`CreatureDeathLootListener` 新增一个带 `diagnostics` 参数、不带
+  默认值的构造重载（ABI 只新增，9 对 10 参）；`GameplayAssembly` 新增只读属性 `LootDiagnostics`
+  转发，`adapters/unity` 侧登记为诊断来源 "Core.Gameplay.Loot"。顺带核实 `catch (ArgumentException)`
+  的覆盖面：区分"未登记"与"字段非法"（含 `DataFieldException` 内层异常）两种成因给出不同诊断
+  消息，不改变"跳过、不外抛"的控制流。详见 `core/gameplay/loot/README.md` 判断记录 19。
 
 ## [1.48.0] - 2026-09-20
 

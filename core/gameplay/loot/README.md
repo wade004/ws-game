@@ -467,6 +467,45 @@ loot/
       新增测试：`LootHostRollTests
       .TwoDisjointCycles_CyclePathText_IsDeterministic_StartsFromSmallestIdInEachComponent`。
 
+19. **消费方反馈同构问题第三处根治（2026-09-20；同批 `core/gameplay/progression_bridge` 的
+    `CreatureDeathXpListener`/`AreaTriggerDiscoveryXpListener` 补诊断）**：`CreatureDeathLootListener
+    .OnUnitDied` 用 `catch (ArgumentException)` 静默跳过死亡单位模板查询失败的分支（未登记的模板 id
+    /记录存在但字段非法），此前本类从未持有任何诊断契约实例，"模板查询失败 → 掉落静默不产出"这一
+    退化路径完全不可观察（用户侧表现"杀怪不掉东西且无任何线索"，与 progression_bridge 那两处"杀怪
+    0 经验且无线索"是同一个病）。按 ADR-0042 机制补上诊断出口：新增最小诊断契约
+    `ILootDiagnostics`/`InMemoryLootDiagnostics`（本模块此前没有同类接口，新建，不复用
+    `LootHost` 内部已有的 `IExprDiagnostics`——后者是表达式求值诊断，与本次"模板查询失败"是两个不
+    同层面的问题）；`CreatureDeathLootListener` 新增第十个构造重载（ABI 只增不改，9 对 10 参，不产生
+    调用点重载二义性，惯例同 `CreatureDeathXpListener` 对应重载）；`GameplayAssembly` 新增
+    `LootDiagnostics` 属性转发（本装配根不对外暴露监听器实例本身，构造后即弃元，惯例同
+    `ProgressionBridgeDiagnostics`）；`DiagnosticsHubComposition` 登记为 `"Core.Gameplay.Loot"`
+    一个来源。行为不变：仍然跳过、仍然不产出掉落、不阻断死亡结算，只是不再静默。
+    - **`catch (ArgumentException)` 覆盖面核实**：`ICreatureTemplateQuery.Get` 的契约文档只承诺一种
+      `ArgumentException` 成因（"未登记的模板 id"），生产装配实际接的 `CreatureFactory.Get`
+      （`RequireTemplate`）也确实只在这一种情况下抛出；但同接口另一个实现
+      `RegistryCreatureTemplateQuery.Get`（该类型判断记录"异常收敛，不重复报告字段级问题"）还会把
+      字段级 `DataFieldException` 包成 `ArgumentException` 抛出——若本类某天改接这个实现（目前没有
+      任何生产/测试调用点这么做），单纯按类型 `catch` 会把"表里根本没这条记录"和"记录存在但字段
+      非法、已由字段级校验单独报出"两种完全不同的成因混进同一条含糊消息，误导内容作者去核对错误的
+      问题。结论：**收窄了诊断消息的精确性，没有收窄异常类型本身**——借用
+      `RegistryCreatureTemplateQuery.Get` 自己的既有约定（"inner 保留原始异常供排查"），用
+      `ex.InnerException is DataFieldException` 区分两种成因，分别给出准确的诊断消息；不改变
+      "跳过、不外抛"这一控制流，理由：本方法处在 `IEventBus` 派发链路上，同一次 `unit.died` 还有
+      `progression_bridge`/`economy` 等其它订阅者要处理，改成向外抛出会连带阻断它们，这个代价超出
+      本次"只读诊断，不改变阻断语义"的范围。新增测试验证两种成因的诊断消息确实不同（`LootDropPickupTests
+      .CreatureDeathLootListener_TemplateFieldInvalid_LogsDistinctDiagnosticMessage`，用
+      `FieldInvalidCreatureTemplateQuery` 假实现模拟 `RegistryCreatureTemplateQuery` 的字段非法成因）；
+      另两例覆盖数据齐全无噪音（`.CreatureDeathLootListener_RegisteredTemplate_NoDiagnosticNoise`）与
+      未登记模板消息含具体模板 id（`.CreatureDeathLootListener_UnregisteredTemplate_LogsDiagnosticWithTemplateId`）。
+    - **默认诊断实例改用字段初始化器，不是在某个构造函数体内赋值**：本类既有四个构造重载按
+      "窄→宽"单向链式 `: this(...)`（6→7→8→9 参），新增的带 `diagnostics` 参数的最宽重载（10 参）
+      只会被显式传入的调用点触达，其余四个既有重载完全不经过它——与 `IProgressionBridgeDiagnostics`
+      判断记录里"只在最宽重载里赋值"的惯例不同（该模块当时只有一个构造函数，不存在这条链），本类
+      改用 `private readonly ILootDiagnostics _diagnostics = new InMemoryLootDiagnostics();` 字段
+      初始化器提供默认值（C# 规范：字段初始化器先于全部构造函数体执行，四个窄重载天然拿到这份
+      默认实例；readonly 字段允许在"本类型的构造函数体"内重新赋值，10 参重载在自己的构造函数体内
+      用 `diagnostics ?? new InMemoryLootDiagnostics()` 覆盖它，合法不冲突）。
+
 ## 消费方反馈第 45 条判断记录（2026-09-17）
 
 审计结论：`LootTableAnalyzer.ExpectedProbabilities` 不适用（N/A）——反馈原文点名的问题是"只读
