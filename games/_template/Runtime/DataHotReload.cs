@@ -400,7 +400,10 @@ namespace Game.Template
             // ADR-0047：热重载得到的报告（不论通过/阻断）都落盘一次，惯例同 GameBootstrap.cs 启动
             // 校验点——上面的异常分支提前 return，抛异常时连一份新报告都没有，不落盘（与"校验通过时
             // 也要写"针对的是"跑完一次校验"这件事，不针对"校验根本没跑完"这件事）。
-            ValidationReportFileOutlet.WriteIfConfigured(_validationReportFilePath, ValidationReportTriggerSource.HotReload, report.Issues);
+            // ADR-0055（消费方反馈第 78 条）：本方法本就持有确切的 table 局部变量，一并传给
+            // WriteIfConfigured 的信封级 table 形参——热重载天然针对单一确定的表，与三处 Startup
+            // 调用点（信封级 table 留 null，见 ValidationReportFileOutlet 判断记录）形成对照。
+            ValidationReportFileOutlet.WriteIfConfigured(_validationReportFilePath, ValidationReportTriggerSource.HotReload, report.Issues, table);
 
             if (report.IsBlocking)
             {

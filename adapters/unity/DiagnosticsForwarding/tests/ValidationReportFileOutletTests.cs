@@ -199,6 +199,90 @@ namespace Adapter.Unity.Diagnostics.Tests
         }
 
         [Fact]
+        public void Write_WithoutTableArgument_WritesJsonNullTable_BackwardCompatible()
+        {
+            // ADR-0055 前的既有三/四参数重载（不带 table）必须继续可用，且行为与新增重载显式传
+            // table: null 完全一致——覆盖"既有调用点原样不动"这条向后兼容承诺。
+            var dir = NewScratchDir();
+            var path = Path.Combine(dir, "report.json");
+
+            ValidationReportFileOutlet.Write(path, ValidationReportTriggerSource.Startup, new[] { MakeIssue() });
+
+            var root = Assert.IsType<JsonObject>(JsonReader.Parse(File.ReadAllText(path)));
+            Assert.True(root.TryGetValue("table", out var tableValue));
+            Assert.IsType<JsonNull>(tableValue);
+
+            // 既有四个字段必须原样都在，一个不少：本次改动是纯加法，不删改既有字段。
+            Assert.True(root.TryGetValue("sequence", out _));
+            Assert.True(root.TryGetValue("source", out _));
+            Assert.True(root.TryGetValue("timestamp_utc", out _));
+            Assert.True(root.TryGetValue("issues", out _));
+        }
+
+        [Fact]
+        public void Write_HotReloadWithTable_WritesTableFieldEqualToReloadedTableName()
+        {
+            // ADR-0055（消费方反馈第 78 条）核心验收：hot_reload 来源落盘的 table 字段等于本次
+            // 实际重载的那张表的名字——期望值由用例自己算出来（这里就是传入 Write 的那个字符串本身），
+            // 不写死裸数。
+            var dir = NewScratchDir();
+            var path = Path.Combine(dir, "report.json");
+            var reloadedTable = "skill.definition";
+
+            ValidationReportFileOutlet.Write(path, ValidationReportTriggerSource.HotReload, Array.Empty<ValidationIssue>(), reloadedTable);
+
+            var root = Assert.IsType<JsonObject>(JsonReader.Parse(File.ReadAllText(path)));
+            Assert.True(root.TryGetValue("table", out var tableValue));
+            Assert.Equal(reloadedTable, Assert.IsType<JsonString>(tableValue).Value);
+            Assert.Equal(ValidationReportTriggerSource.HotReload, Assert.IsType<JsonString>(root["source"]).Value);
+        }
+
+        [Fact]
+        public void Write_StartupSource_TableFieldIsJsonNull_NotEmptyStringOrSentinel()
+        {
+            // 启动全量校验没有单一确定的表：口径是 JSON null，不是空字符串，也不是 "all" 这类会被
+            // 误读成真实表名的占位值（ADR-0055 决策）。
+            var dir = NewScratchDir();
+            var path = Path.Combine(dir, "report.json");
+
+            ValidationReportFileOutlet.Write(path, ValidationReportTriggerSource.Startup, Array.Empty<ValidationIssue>(), table: null);
+
+            var root = Assert.IsType<JsonObject>(JsonReader.Parse(File.ReadAllText(path)));
+            Assert.True(root.TryGetValue("table", out var tableValue));
+            Assert.IsType<JsonNull>(tableValue);
+        }
+
+        [Fact]
+        public void WriteIfConfigured_WithTableArgument_PropagatesToFile()
+        {
+            var dir = NewScratchDir();
+            var path = Path.Combine(dir, "report.json");
+
+            ValidationReportFileOutlet.WriteIfConfigured(path, ValidationReportTriggerSource.HotReload, Array.Empty<ValidationIssue>(), "found.sample_table");
+
+            var root = Assert.IsType<JsonObject>(JsonReader.Parse(File.ReadAllText(path)));
+            Assert.Equal("found.sample_table", Assert.IsType<JsonString>(root["table"]).Value);
+        }
+
+        [Fact]
+        public void BuildJson_WithoutTableOverload_DelegatesToNewOverloadWithNullTable_ByteForByteEqual()
+        {
+            // 既有不带 table 的 BuildJson 重载委托给新增重载并显式传 table: null（见该重载源码），
+            // 两者必须逐字节相等——不是两份各自维护的实现巧合相等，且新字段 table 必须以 JSON null
+            // 出现，不是被整体省略。
+            var issue = MakeIssue();
+            var timestamp = new DateTime(2026, 9, 21, 1, 2, 3, 4, DateTimeKind.Utc);
+
+            var withoutTableOverload = ValidationReportFileOutlet.BuildJson(1, ValidationReportTriggerSource.Startup, timestamp, new[] { issue });
+            var withNullTable = ValidationReportFileOutlet.BuildJson(1, ValidationReportTriggerSource.Startup, timestamp, new[] { issue }, table: null);
+
+            Assert.Equal(withNullTable, withoutTableOverload);
+            var root = Assert.IsType<JsonObject>(JsonReader.Parse(withoutTableOverload));
+            Assert.True(root.TryGetValue("table", out var tableValue));
+            Assert.IsType<JsonNull>(tableValue);
+        }
+
+        [Fact]
         public void Write_WhenTargetPathIsAnExistingDirectory_ThrowsAndCleansUpTempFile_FileEitherAbsentOrIntact()
         {
             // 原子写断言方式（AGENTS.md 要求"文件要么不存在要么完整"）：把落盘路径本身占用成一个目录，
