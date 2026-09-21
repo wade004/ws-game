@@ -1,29 +1,43 @@
 #!/bin/sh
-# 提交前钩子（工程收尾 K 新增，见仓库根 README.md「提交前钩子」一节）。
+# 提交前钩子（工程收尾 K 新增，2026-09-22 加入按暂存改动分级，见仓库根 README.md「提交前钩子」
+# 一节）。
 #
 # 判断记录（为什么是版本化目录 .githooks/ 而不是 .git/hooks/）：.git/hooks/ 不受版本控制，换一台
 # 机器或换一个协作者克隆本仓库都不会自带钩子；.githooks/ 提交进仓库本身，配合
 # toolchain/install_hooks.ps1 把 git 的 core.hooksPath 指向这里，做到"钩子内容跟着仓库走"。
 #
 # 判断记录（为什么是 POSIX sh 而不是 PowerShell 脚本本身）：git 在 Windows 上（Git for Windows）
-# 调用钩子固定经由随附的 Git Bash（sh.exe）执行，钩子文件本身必须是一个 POSIX shell 脚本（这里
-# 只做一件事——转调 check.ps1 -SkipUnity -Quick），不能直接把 .ps1 当钩子文件放。
-#
-# 判断记录（为什么调用 -SkipUnity -Quick 两个开关一起传，而不是只传 -Quick）：check.ps1 的
-# -Quick 本身已经隐含跳过全部 Unity 步骤（见 check.ps1 .PARAMETER Quick 说明），单传 -Quick
-# 效果等价；这里两个都传是为了钩子文件本身的语义在不读 check.ps1 源码的情况下也一目了然
-# （"跳过 Unity 步骤 + 只跑快速子集"），双写不冲突。
+# 调用钩子固定经由随附的 Git Bash（sh.exe）执行，钩子文件本身必须是一个 POSIX shell 脚本，不能
+# 直接把 .ps1 当钩子文件放。
 #
 # 找仓库根：钩子被 git 调用时的当前工作目录就是仓库根（不是 .git/ 或 .githooks/），直接用相对
 # 路径 check.ps1 即可；显式 cd 到 git 报告的顶层目录只是防御性写法，防止未来钩子被从子目录触发
 # 的某些 git 版本/前端在调用约定上有出入。
 #
-# 判断记录（第九轮审计工具链条目，2026-09-08）：-Quick 本身跳过 toolchain 自身 pytest 套件（见
-# check.ps1 .PARAMETER Quick 说明），本钩子当前不会触发那一步；这里仍导出 PYTHONUTF8=1，与
+# 判断记录（第九轮审计工具链条目，2026-09-08）：非全量档情况下会跳过 toolchain 自身 pytest 套件
+# （见 check.ps1 .PARAMETER Quick 说明）；这里仍统一导出 PYTHONUTF8=1，与
 # .github/workflows/ci.yml 的作业级 PYTHONUTF8/PYTHONIOENCODING、check.ps1 非 -Quick 分支下
 # pytest 步骤自己设置的同名环境变量保持一致——本钩子调用的 check.ps1 内部还会拉起
-# validate_data.py/gen_event_constants.py 等多个 Python 子进程，统一导出可避免未来 -Quick 覆盖
-# 范围调整、或这些脚本任何一处打印非 ASCII 文本时，在本机默认非 UTF-8 控制台代码页下出问题。
+# validate_data.py/gen_event_constants.py 等多个 Python 子进程，统一导出可避免这些脚本任何一处
+# 打印非 ASCII 文本时，在本机默认非 UTF-8 控制台代码页下出问题。
+#
+# 判断记录（按暂存改动分级，2026-09-22 提交前钩子分级任务）：一轮发布里主会话有 4～5 次提交，
+# 其中 CHANGELOG 定版/答复稿/回归记录只改 .md，build.ps1 -Release 全量门禁通过后做的"发布
+# X.Y.Z"提交只改版本文件——这两类每次都再跑一遍 28 步 check.ps1 -SkipUnity -Quick（约 100 秒）
+# 是重复验证。分级判断本身是纯函数 Get-PreCommitCheckTier（见
+# toolchain/_precommit_tiering_guard.ps1，toolchain/tests/test_precommit_tiering_guard.py 用
+# pytest 驱动覆盖），本钩子只做"取暂存清单 -> 调用该函数 -> 按返回档位分派"这几行胶水：
+#   - DocsOnly：暂存改动全部是 .md，跑 check.ps1 -DocsOnly（只跑文档相关几步，含禁用词扫描——
+#     该扫描是 CLAUDE.md 硬性规则的唯一守门，任何档位都不能跳过，具体步骤集合见 check.ps1
+#     .PARAMETER DocsOnly 说明）。
+#   - ReleaseSkip：build.ps1 -Release 在"-Release 第 6 步"设置 WS_GAME_RELEASE_COMMIT=1 后
+#     再 git commit，且暂存清单确实只含该脚本 git add 的那几个版本文件——全量门禁已经在这次
+#     提交之前跑过（build.ps1 -Release 第 5 步），不重复跑，不用 --no-verify（那样会绕过钩子
+#     本身，事后不可追溯；这里是钩子内部按判定结果主动放行，仍会打印说明）。
+#   - Full（其余一切情况，含合并提交——MERGE_HEAD 存在时同样只按暂存清单判定，不特殊放行）：
+#     照旧跑 check.ps1 -SkipUnity -Quick 28 步。
+# 分级判断/调用失败（如 powershell 不可用、precommit_tier.ps1 输出格式不符预期）一律退回 Full，
+# 不静默放行——"档位识别失败"不等于"可以跳过验证"。
 set -e
 
 export PYTHONUTF8=1
@@ -31,12 +45,46 @@ export PYTHONUTF8=1
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick（快速子集，不能替代完整门禁）..."
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
-status=$?
+staged_files=$(git diff --cached --name-only)
+
+release_commit_env=""
+if [ -n "$WS_GAME_RELEASE_COMMIT" ]; then
+    release_commit_env="$WS_GAME_RELEASE_COMMIT"
+fi
+
+decision=""
+if command -v powershell.exe >/dev/null 2>&1; then
+    decision=$(printf '%s\n' "$staged_files" | WS_GAME_RELEASE_COMMIT="$release_commit_env" powershell.exe -NoProfile -ExecutionPolicy Bypass -File toolchain/precommit_tier.ps1 2>/dev/null | tr -d '\r' || true)
+fi
+
+tier=$(printf '%s' "$decision" | cut -d'|' -f1)
+reason=$(printf '%s' "$decision" | cut -d'|' -f2-)
+
+case "$tier" in
+    DocsOnly)
+        echo "[pre-commit] 档位：DocsOnly（$reason）——跑 check.ps1 -DocsOnly（文档相关子集，含禁用词扫描）..."
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -DocsOnly
+        status=$?
+        ;;
+    ReleaseSkip)
+        echo "[pre-commit] 档位：ReleaseSkip（$reason）——不重复跑 check.ps1。"
+        status=0
+        ;;
+    Full)
+        echo "[pre-commit] 档位：Full（$reason）——跑 check.ps1 -SkipUnity -Quick（28 步）..."
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
+        status=$?
+        ;;
+    *)
+        echo "[pre-commit] 分级判断未取到可识别档位（原始输出：$decision），按最保守的 Full 处理。"
+        echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick（28 步）..."
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
+        status=$?
+        ;;
+esac
 
 if [ "$status" -ne 0 ]; then
-    echo "[pre-commit] check.ps1 -SkipUnity -Quick 未通过（退出码 $status），提交已拦截。"
+    echo "[pre-commit] 门禁未通过（退出码 $status），提交已拦截。"
     echo "[pre-commit] 紧急情况可用 'git commit --no-verify' 跳过（不建议常态化使用）。"
     exit 1
 fi

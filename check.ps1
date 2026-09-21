@@ -76,6 +76,24 @@
     两种无人值守冒烟（-gf-smoke / -gf-smoke-discrete），验证核心类库在 AOT 编译（无反射兜底）下
     的真实可运行性。`-SkipUnity` 时本开关不生效（-SkipUnity 已整体跳过 Unity）。
 
+.PARAMETER DocsOnly
+    提交前钩子分级任务新增（2026-09-22），供 `.githooks/pre-commit` 在判定本次提交暂存改动
+    全部是 `.md` 文档时调用：只跑"与文档相关"的几步——门禁自检（下方判定逻辑本身依赖的
+    `Test-NativeExitCode` 正确性探针，近乎零成本，但没有它其余步骤的 PASS/FAIL 判定都不可信）、
+    两道禁用词扫描（游戏代号 + architecture 正文技术名——CLAUDE.md 的硬性规则唯一靠它们守住，
+    任何档位都不能跳过）、版本一致性（含 CHANGELOG.md 条目校验，CHANGELOG 定版类提交正需要它）、
+    以及 `toolchain/tests` 里两个文档相关 pytest 用例（`test_markdown_relative_links.py` 校验
+    md 相对链接、`test_editor_doc_consistency.py` 校验编辑器文档两版一致——这两个用例本来就是
+    "toolchain 自身 pytest 套件"的一部分，本开关下单独摘出来跑，不需要等 `-Quick`/全量把整个
+    `toolchain/tests` 都跑一遍）；其余全部步骤（`dotnet build`/`test`、三道数据校验、schema
+    审计、事件常量/占位资产/资产导入/字段顺序等生成器一致性、Unity .meta 完整性、ABI 探针、
+    Unity 相关步骤、消费方演练等）跳过，标注原因"-DocsOnly"。隐含 `-SkipUnity`（本开关的判断
+    前提就是"这次改动不可能触碰 Unity 相关文件"，不需要在 Unity 四步/消费方演练各自的判断分支
+    里重复排除，直接复用同一个 `$SkipUnity` 开关最省心）。与 `-Quick` 相互独立、可以同传但没有
+    必要：本开关的步骤集合是 `-Quick` 步骤集合的真子集。不能替代完整门禁，只用于纯文档改动的
+    提交前快速把关；判定逻辑（"暂存改动是否全部是 .md"）在 `.githooks/pre-commit` 侧完成，本
+    脚本只管"给了 `-DocsOnly` 就跑这一小撮步骤"，不重新读取 git 暂存区。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
     本脚本只读跑校验/测试/构建，不修改仓库内容（`toolchain/gen_event_constants.py`/
@@ -100,6 +118,7 @@ param(
     [switch]$SkipSmoke,
     [switch]$SkipConsumer,
     [switch]$Quick,
+    [switch]$DocsOnly,
     [switch]$AbiStrict,
     [switch]$Il2cpp,
     [string]$ArtifactsPath = "",
@@ -109,8 +128,9 @@ param(
 )
 
 # -Quick 隐含不跑任何 Unity 步骤（见 .PARAMETER Quick 说明），与显式 -SkipUnity 合并为同一个
-# 内部开关，下面 Unity 四步 + 消费方演练的 if ($SkipUnity) 分支判断处两者等价处理。
-if ($Quick) {
+# 内部开关，下面 Unity 四步 + 消费方演练的 if ($SkipUnity) 分支判断处两者等价处理。-DocsOnly
+# 同理隐含 -SkipUnity（见 .PARAMETER DocsOnly 说明）。
+if ($Quick -or $DocsOnly) {
     $SkipUnity = $true
 }
 
@@ -182,11 +202,23 @@ function Write-StepHeader {
 #      Invoke-CheckStep 调用之前就用 if/else 决定要不要整体换成 Add-SkippedStep）。
 # 抛异常同样记为失败（异常消息进明细列）。任一步骤失败都不会中断后续步骤（"顺序执行并汇总"，
 # 见任务书）。
+#
+# -DocRelevant（提交前钩子分级任务新增）：调用点显式标注"这一步跟文档相关，-DocsOnly 下也要
+# 跑"。$DocsOnly 为真且调用点没有传 -DocRelevant 时，整个 $Action 都不会被求值——直接改判
+# Add-SkippedStep，原因固定标"-DocsOnly"，与 -Quick 下各步骤各自判断是否跳过的写法（调用点自己
+# 用 if ($Quick) {...} else { Invoke-CheckStep ... }）不同：这里把判断收拢到函数内部一处，新增
+# 步骤时只需要"要不要标 -DocRelevant"这一个决定，不用在每个调用点都补一份 if/else。
 function Invoke-CheckStep {
     param(
         [string]$Name,
-        [scriptblock]$Action
+        [scriptblock]$Action,
+        [switch]$DocRelevant
     )
+
+    if ($DocsOnly -and -not $DocRelevant) {
+        Add-SkippedStep $Name "-DocsOnly（非文档相关步骤，仅纯文档改动的提交跳过）"
+        return
+    }
 
     Write-StepHeader $Name
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -461,7 +493,7 @@ function Test-NoResidualUnityProcess {
 #    本身是可信的——如果这一步本身失败，说明门禁基础设施有问题，后续全部步骤的 PASS/FAIL 都
 #    不可信，理应第一个报告。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定" {
+Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定" -DocRelevant {
     # 探针 1：F1 复现的确切形状——打印一行 stdout，随后以非零退出码结束。修复前会被误判为成功。
     $failProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 7")
     if ($failProbeOk) {
@@ -830,6 +862,35 @@ if ($Quick) {
 }
 
 # -----------------------------------------------------------------------------
+# 5e. -DocsOnly 专用：toolchain 自身 pytest 套件里两个文档相关用例（提交前钩子分级任务新增，
+#     2026-09-22）——test_markdown_relative_links.py（md 相对链接是否解析到真实存在的文件）、
+#     test_editor_doc_consistency.py（编辑器产品文档 md/html 两版是否漂移）。这两个用例本来就是
+#     上一步"6. toolchain 自身的 pytest 套件"的一部分，正常/`-Quick` 档不需要单独摘出来跑；只有
+#     `-DocsOnly` 下（上一步因为 `Invoke-CheckStep` 内部的 `-DocsOnly` 短路而被跳过，见该函数
+#     判断记录）才需要单独跑这一小撮，否则纯文档改动的提交连基本的链接校验都没有。只在
+#     `-DocsOnly` 时才加进结果表（不传 -DocRelevant 就够——本步骤整体只在 `if ($DocsOnly)` 分支里
+#     才会被调用，非 `-DocsOnly` 的正常/全量/`-Quick` 运行完全不会执行到这里，避免与"6."步骤重复
+#     跑同一批用例）。
+# -----------------------------------------------------------------------------
+if ($DocsOnly) {
+    Invoke-CheckStep "python -m pytest toolchain/tests -q（文档相关子集：markdown 链接 + 编辑器文档一致性，-DocsOnly）" -DocRelevant {
+        $prevPythonUtf8 = $env:PYTHONUTF8
+        $env:PYTHONUTF8 = "1"
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @(
+                "-m", "pytest",
+                "toolchain/tests/test_markdown_relative_links.py",
+                "toolchain/tests/test_editor_doc_consistency.py",
+                "-q")
+        } finally {
+            Pop-Location
+            $env:PYTHONUTF8 = $prevPythonUtf8
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 6a. core/sim/tests/data（嵌入仿真数据集）单独 `validate_data.py --strict` 校验（反馈 46 后续，
 #     2026-09-17，fix/sim-dataset-display-map）：
 #
@@ -1048,7 +1109,7 @@ function Get-ScannableFiles {
     }
 }
 
-Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号" {
+Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号" -DocRelevant {
     # 见上方注释：字符串拼接构造被扫描词，避免脚本自身源码里出现完整拼写。
     $bannedCodename = "note" + "moss"
     $files = Get-ScannableFiles -Root $RepoRoot -ExtraExcludeFullNames @($PSCommandPath)
@@ -1068,7 +1129,7 @@ Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号" {
     $true
 }
 
-Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）" {
+Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）" -DocRelevant {
     $targets = @()
     $targets += Get-ChildItem -Path (Join-Path $RepoRoot "architecture") -Filter "0*.md" -File -ErrorAction SilentlyContinue
     $targets += Get-ChildItem -Path (Join-Path $RepoRoot "architecture") -Filter "1*.md" -File -ErrorAction SilentlyContinue
@@ -1169,7 +1230,7 @@ Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/chec
 #    发布实测复现，见 CHANGELOG.md [1.0.0] 修复记录）；build.ps1 -Release 写回已同步覆盖，这里
 #    补一道只读校验兜底。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md" {
+Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md" -DocRelevant {
     $versionPath = Join-Path $RepoRoot "VERSION"
     if (-not (Test-Path $versionPath)) {
         throw "找不到版本文件：$versionPath"
