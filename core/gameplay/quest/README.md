@@ -359,6 +359,30 @@ quest/
     文件本身不支持内联判断记录，本条即为这两处样例新增的判断记录（另见
     `data/_sample/l10n/l10n.text.json` 同步补的两条示例文本键）。
 
+22. **消费方反馈——游戏接入方第六批（阻塞，2026-09-22）：新增 `IQuestHost.GetQuestTitleKey`/
+    `GetObjectiveDescriptionKey`，见
+    [ADR-0064](../../../architecture/adr/0064-任务宿主契约补标题与目标描述文本键查询.md)**——
+    任务追踪 HUD 要显示"任务名 + 目标描述"，但 `QuestDefinition.TitleKey`/`QuestObjective.
+    DescriptionKey` 两个数据字段此前只锁在私有的 `_definitions` 里，没有任何公开只读查询能转发
+    给表现层，逼表现层自己反查数据表，违反"视图不得自己拼宿主数据"。新增方法签名
+    `Id? GetQuestTitleKey(Id questId)`（转发 `_definitions[questId].TitleKey`）、
+    `Id? GetObjectiveDescriptionKey(Id questId, int objectiveIndex)`（转发
+    `_definitions[questId].Objectives[objectiveIndex].DescriptionKey`）；任务未登记（同判断记录
+    "CORE-118-QUEST" `TryGetDefinition` 降级惯例）、目标下标越界、或该任务/该条目标未声明对应
+    文本键，三种情形均返回 `null`，不抛异常——对调用方而言都是"这条暂时没有文案可显示"，不需要
+    相互区分。**ABI 判断**：两个方法在 `IQuestHost` 接口上声明为**默认接口成员**（恒返回
+    `null`），不是破坏性签名变更，理由与判断记录 19 一致；`QuestHost` 用**显式接口实现**转发到
+    两个同名公开方法（不用隐式实现——隐式实现会把这两个公开方法的物理 IL 属性从普通实例方法改写
+    为 `virtual sealed`，被 `toolchain/abi_surface` 静态签名比对误判为破坏，同
+    `core/rules/common/README.md` 判断记录 12"`ISkillHost` 显式接口实现"一节同一惯例）。测试见
+    `tests/QuestHostTests.cs` 四例：`GetQuestTitleKey_KnownQuest_ReturnsDefinitionTitleKey`/
+    `GetQuestTitleKey_UnknownQuest_ReturnsNull`/
+    `GetObjectiveDescriptionKey_KnownObjective_ReturnsDescriptionKey_AndNullWhenUnset`/
+    `GetObjectiveDescriptionKey_UnknownQuestOrOutOfRangeIndex_ReturnsNull`。表现层落地要点
+    （`QuestLogViewModel` 转发方法、`player.quest.<questId>.title_key`/
+    `.objective_description_key[i]` 两条新路径、`QuestLogPanel` 参考面板改动）见
+    `presentation/ui/README.md` 对应判断记录，本条不重复登记。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层

@@ -100,7 +100,9 @@ namespace Adapter.Unity.Ui
             _panels[UiPanel.Inventory] = Inventory;
 
             QuestLog = CreatePanel<QuestLogPanel>("QuestLog", GameplayGroup);
-            QuestLog.Construct(GameplayGroup, presentation.QuestLog);
+            // 消费方反馈第六批（阻塞）：改走 QuestLogPanel.Construct 新增的携带 IL10nHost 的加性重载
+            // （渲染 quest.def.title_key），既有两参数签名保留未动，见该类型判断记录。
+            QuestLog.Construct(GameplayGroup, presentation.QuestLog, presentation.L10n);
             QuestLog.Hide();
             _panels[UiPanel.QuestLog] = QuestLog;
 

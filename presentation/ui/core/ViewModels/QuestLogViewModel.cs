@@ -40,6 +40,20 @@ namespace Presentation.Ui
         /// 来自内容定义，不随事件变化，不需要像 <see cref="Log"/> 那样经 <see cref="Refresh"/> 缓存）。</summary>
         public IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId) => _quest.GetObjectiveRequiredCounts(questId);
 
+        /// <summary>消费方反馈第六批（阻塞）根治：转发 <see cref="IQuestHost.GetQuestTitleKey"/>，
+        /// 供任务追踪 HUD 显示任务名——比照 <see cref="GetObjectiveRequiredCounts"/> 同一惯例（纯只读
+        /// 转发方法，不新增订阅、不缓存快照；标题键来自内容定义，不随事件变化）。不改
+        /// <see cref="Log"/>/<see cref="ActiveObjectives"/> 两个既有公开类型的元素形状——两者分别是
+        /// 已发布的 <see cref="QuestProgress"/> 类型与值元组，往里塞标题/描述键会破坏 ABI 或需要一次
+        /// 不兼容的类型替换，新增一个并行的按 id 查询方法与既有 <c>GetObjectiveRequiredCounts</c> 同一
+        /// 处理口径，不是遗漏。</summary>
+        public Id? GetQuestTitleKey(Id questId) => _quest.GetQuestTitleKey(questId);
+
+        /// <summary>消费方反馈第六批（阻塞）根治：转发 <see cref="IQuestHost.GetObjectiveDescriptionKey"/>，
+        /// 供任务追踪 HUD 显示每条目标的描述文案；未知任务/越界下标/数据未填均由宿主层降级为
+        /// <c>null</c>，本方法不额外处理，同上一方法判断记录。</summary>
+        public Id? GetObjectiveDescriptionKey(Id questId, int objectiveIndex) => _quest.GetObjectiveDescriptionKey(questId, objectiveIndex);
+
         public QuestLogViewModel(IUiDataSource dataSource, IQuestHost quest, Id playerId)
         {
             _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));

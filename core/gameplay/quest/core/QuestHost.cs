@@ -608,6 +608,44 @@ namespace Core.Gameplay.Quest
             return result;
         }
 
+        /// <summary>见 <see cref="IQuestHost.GetQuestTitleKey"/> 判断记录。直接读 <see cref="_definitions"/>，
+        /// 未登记时返回 <c>null</c>——同 <see cref="GetObjectiveRequiredCounts"/> 同一降级口径。不用
+        /// 隐式实现满足 <see cref="IQuestHost"/> 同名成员（见下方"IQuestHost 显式接口实现"一节），
+        /// 本方法是普通公开方法，供调用方（<see cref="Presentation.Ui.QuestLogViewModel"/>）直接调用，
+        /// 也供显式接口实现转发。</summary>
+        public Id? GetQuestTitleKey(Id questId) =>
+            TryGetDefinition(questId, out var def) ? def.TitleKey : null;
+
+        /// <summary>见 <see cref="IQuestHost.GetObjectiveDescriptionKey"/> 判断记录。任务未登记或
+        /// <paramref name="objectiveIndex"/> 越界均返回 <c>null</c>，理由与调用惯例同
+        /// <see cref="GetQuestTitleKey"/>。</summary>
+        public Id? GetObjectiveDescriptionKey(Id questId, int objectiveIndex)
+        {
+            if (!TryGetDefinition(questId, out var def))
+            {
+                return null;
+            }
+            if (objectiveIndex < 0 || objectiveIndex >= def.Objectives.Count)
+            {
+                return null;
+            }
+            return def.Objectives[objectiveIndex].DescriptionKey;
+        }
+
+        // -----------------------------------------------------------------
+        // IQuestHost 显式接口实现（消费方反馈第六批）：GetQuestTitleKey/GetObjectiveDescriptionKey
+        // 两个新契约成员改用显式接口实现转发到上面两个同名公开方法，不让隐式实现直接满足——隐式
+        // 实现会把这两个公开方法的物理 IL 属性从普通实例方法改写成 virtual sealed，被
+        // toolchain/abi_surface 静态签名比对误判为破坏（同 Core.Rules.Common.ISkillHost.
+        // GetSkillNameKey 判断记录"ISkillHost 显式接口实现"一节，本类型比照同一惯例）。两个公开方法
+        // 本身的物理签名/行为不受影响。InterfaceDefaultMemberForwardingTests 门禁经
+        // Type.GetInterfaceMap 判定，显式接口实现的目标方法 DeclaringType 是 QuestHost 本身，同样
+        // 能正确识别为"已转发"。
+        // -----------------------------------------------------------------
+        Id? IQuestHost.GetQuestTitleKey(Id questId) => GetQuestTitleKey(questId);
+
+        Id? IQuestHost.GetObjectiveDescriptionKey(Id questId, int objectiveIndex) => GetObjectiveDescriptionKey(questId, objectiveIndex);
+
         public void Update(Id unitId)
         {
             foreach (var def in _definitions.Values)

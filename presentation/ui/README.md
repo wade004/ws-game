@@ -478,3 +478,50 @@ ABI：纯加法——`PlayerPathProvider` 无新增公开签名（`ResolveEquipm
 `presentation/ui/tests/ViewModelTests.cs`（`InventoryViewModel_reads_slots_and_equipped_items`
 补充断言）——经 `FakeEquipmentHost`（新增 `TemplatesByInstance` 登记表，见该类型判断记录）驱动，
 覆盖已装备/空槽/卸下三种状态。
+
+## 判断记录（`player.quest.<questId>.title_key`/`.objective_description_key[i]`、
+`QuestLogViewModel.GetQuestTitleKey`/`GetObjectiveDescriptionKey`，2026-09-22，消费方反馈——
+游戏接入方第六批（阻塞），[ADR-0064](../../architecture/adr/0064-任务宿主契约补标题与目标描述文本键查询.md)）
+
+背景：任务追踪 HUD 要显示"任务名 + 目标描述 + 进度 + 可交付状态"，`QuestLogViewModel` 此前只转发
+`IQuestHost.GetLog`/`GetActiveObjectives`，拿不到标题/目标描述两项。本条只记表现层落地要点，
+契约层新增成员（`IQuestHost.GetQuestTitleKey`/`GetObjectiveDescriptionKey`）见
+`core/gameplay/quest/README.md` 对应判断记录。
+
+**`QuestLogViewModel`**：新增两个纯只读转发方法 `GetQuestTitleKey(Id questId)`/
+`GetObjectiveDescriptionKey(Id questId, int objectiveIndex)`，比照既有
+`GetObjectiveRequiredCounts` 同一处理口径——不新增订阅、不缓存快照（文本键来自内容定义，不随
+运行期事件变化）。不改写 `Log`（`IReadOnlyList<QuestProgress>`）/`ActiveObjectives`
+（`(Id QuestId, int ObjectiveIndex, Id TargetRef)` 值元组）两个既有公开成员的元素形状——前者是
+已发布公开类型，后者是值元组，两者都无法在 ABI 只加不改的约束下塞入新字段。
+
+**`PlayerPathProvider.ResolveQuest`**：新增 `title_key`（不带下标）/`objective_description_key[i]`
+（带下标，下标与既有 `objective[i]` 对齐同一份 `QuestObjective` 数组）两个子路径，沿用
+`ResolveQuest`/`ResolveEquipment`/`ResolveSkillCooldown` 已有的"末段保留关键字"惯例
+（`remaining.Count >= 3`，末段字面量匹配则按子路径解析，其余落到既有 `state`/`objective[i]`
+分支，行为逐字节不变）。两条新路径均转发到新增的 `IQuestHost` 成员，未知任务/越界下标/数据未填
+统一返回"无"（`ExprValue?` 为 `null`），与既有 `objective[9]` 越界口径一致，宿主层已降级，本层
+不重复判断。
+
+ABI：纯加法——`PlayerPathProvider` 无新增公开签名（`ResolveQuest` 是私有方法，扩展的是它能识别的
+路径形状）；`QuestLogViewModel` 新增两个公开方法；契约层新增内容见
+`core/gameplay/quest/README.md` 对应判断记录。全部既有公开签名不改动。
+
+**参考面板 `Adapter.Unity.Ui.Panels.QuestLogPanel`**（`adapters/unity/Packages/
+com.gamefoundation.adapter.unity/Runtime/Ui/Panels/GameplayPanels.cs`）：`RefreshUi` 此前只显示
+`QuestProgress.QuestId` 裸 id，顺手改为有标题键时优先显示标题。比照 `ActionBarPanel` 同一手法
+（见该类型判断记录）：不给已发布的两参数 `Construct(parent, vm)` 加必填参数（消费方已在用这个
+签名，加参数会导致下一次升级直接编译不过），新增携带 `IL10nHost` 的三参数加性重载——提供了才会
+优先 `_l10n.Text(titleKey.Value)` 渲染真名；未提供时（既有两参数签名）有标题键则退化显示键本身
+（键串本身有信息量，不是编造的占位文案，同 `ActionBarPanel` 的 `ShortId` 兜底判断记录）；完全
+没有标题键时回退显示 `QuestId`，保持本字段落地前的行为。`Adapter.Unity.Ui.UiPanelHost.Initialize`
+改走新重载（传 `presentation.L10n`，与 `ActionBar`/`Dialog` 两处既有接线同一份 `IL10nHost` 实例）。
+
+测试见 `presentation/ui/tests/UiDataSourceTests.cs`
+（`Query_quest_title_key_and_objective_description_key`）与
+`core/gameplay/quest/tests/QuestHostTests.cs`（宿主层四例，见该文件判断记录）——经
+`FakeQuestHost`（新增 `SeedTitleKeyForTest`/`SeedObjectiveDescriptionKeyForTest` 登记表，见该类型
+判断记录）与真实 `QuestHost` 两条路径分别驱动。经 `PresentationAssembly` 构建出的 `QuestLog`
+视图模型最外层验收（接一个真实数据定义的任务，标题键/目标描述键与数据定义一致，未填描述的目标
+返回"无"）见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+（`QuestLog_ThroughPresentationAssembly_ExposesTitleAndObjectiveDescriptionKeys`）。

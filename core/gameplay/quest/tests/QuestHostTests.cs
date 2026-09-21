@@ -991,6 +991,70 @@ namespace Tests.Gameplay.Quest
             Assert.Empty(required);
         }
 
+        /// <summary>消费方反馈第六批（阻塞）：<see cref="IQuestHost.GetQuestTitleKey"/> 应返回已登记
+        /// 任务定义的 <see cref="QuestDefinition.TitleKey"/>，供任务追踪 UI 展示任务名。</summary>
+        [Fact]
+        public void GetQuestTitleKey_KnownQuest_ReturnsDefinitionTitleKey()
+        {
+            var questId = new Id("quest.gp_questlog_title_key_known");
+            var titleKey = new Id("l10n.quest.gp_questlog_title_key_known.title");
+            var quest = new QuestDefinition(
+                questId,
+                new[] { new QuestObjective(QuestObjectiveType.Kill, new Id("creature.wolf"), 1) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None,
+                titleKey: titleKey);
+            var h = new Harness(new[] { quest });
+
+            Assert.Equal(titleKey, h.Host.GetQuestTitleKey(questId));
+        }
+
+        /// <summary>同上：未登记的任务 id（从未存在）应降级返回 <c>null</c>，不抛异常——理由同
+        /// <see cref="GetObjectiveRequiredCounts_UnknownQuest_ReturnsEmptyWithoutException"/>。</summary>
+        [Fact]
+        public void GetQuestTitleKey_UnknownQuest_ReturnsNull()
+        {
+            var quest = SimpleKillQuest(new Id("quest.gp_questlog_title_key_registered"), new Id("creature.wolf"), 1);
+            var h = new Harness(new[] { quest });
+
+            Assert.Null(h.Host.GetQuestTitleKey(new Id("quest.gp_questlog_title_key_never_registered")));
+        }
+
+        /// <summary>消费方反馈第六批（阻塞）：<see cref="IQuestHost.GetObjectiveDescriptionKey"/>
+        /// 应按下标返回该条目标的 <see cref="QuestObjective.DescriptionKey"/>；未声明该字段的目标
+        /// （第二条）返回 <c>null</c>——数据未填描述与"没有这条目标"对调用方（任务追踪 UI）而言都是
+        /// "这条没有描述文案可显示"，不需要相互区分（见接口成员判断记录）。</summary>
+        [Fact]
+        public void GetObjectiveDescriptionKey_KnownObjective_ReturnsDescriptionKey_AndNullWhenUnset()
+        {
+            var questId = new Id("quest.gp_questlog_objective_desc_key");
+            var descKey0 = new Id("l10n.quest.gp_questlog_objective_desc_key.objective_0");
+            var quest = new QuestDefinition(
+                questId,
+                new[]
+                {
+                    new QuestObjective(QuestObjectiveType.Kill, new Id("creature.wolf"), 5, descriptionKey: descKey0),
+                    new QuestObjective(QuestObjectiveType.Kill, new Id("creature.bear"), 3),
+                },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var h = new Harness(new[] { quest });
+
+            Assert.Equal(descKey0, h.Host.GetObjectiveDescriptionKey(questId, 0));
+            Assert.Null(h.Host.GetObjectiveDescriptionKey(questId, 1));
+        }
+
+        /// <summary>同上：未登记的任务 id、负下标、越界下标均应降级返回 <c>null</c>，不抛异常。</summary>
+        [Fact]
+        public void GetObjectiveDescriptionKey_UnknownQuestOrOutOfRangeIndex_ReturnsNull()
+        {
+            var questId = new Id("quest.gp_questlog_objective_desc_key_bounds");
+            var quest = SimpleKillQuest(questId, new Id("creature.wolf"), 1);
+            var h = new Harness(new[] { quest });
+
+            Assert.Null(h.Host.GetObjectiveDescriptionKey(new Id("quest.gp_questlog_objective_desc_key_never_registered"), 0));
+            Assert.Null(h.Host.GetObjectiveDescriptionKey(questId, -1));
+            Assert.Null(h.Host.GetObjectiveDescriptionKey(questId, 1));
+        }
+
         [Fact]
         public void Persistable_SaveThenLoad_RestoresActiveStateAndObjectiveCounts()
         {

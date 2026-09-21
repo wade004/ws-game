@@ -19,8 +19,9 @@ namespace Presentation.Ui
     /// player.stat.&lt;statId&gt;、player.level、player.xp、player.xp_to_next、
     /// player.inventory.count、player.inventory[i].template|count|instance、
     /// player.equipment.&lt;slot&gt;、player.equipment.&lt;slot&gt;.template|instance（ADR-0063 补充，
-    /// 见 <see cref="ResolveEquipment"/> 判断记录）、player.quest.&lt;questId&gt;.state|objective[i]、
-    /// player.currency.&lt;id&gt;、player.skills[i]、player.skill.&lt;id&gt;.cooldown、
+    /// 见 <see cref="ResolveEquipment"/> 判断记录）、player.quest.&lt;questId&gt;.state|objective[i]|
+    /// title_key|objective_description_key[i]（消费方反馈第六批，见 <see cref="ResolveQuest"/>
+    /// 判断记录）、player.currency.&lt;id&gt;、player.skills[i]、player.skill.&lt;id&gt;.cooldown、
     /// player.casting.skill|remaining|total、player.auras.count、
     /// player.auras[i].def|stacks|remaining|total|name_key"）。全部查询都绕着构造期注入的
     /// <see cref="_playerId"/>（当前玩家单位 id）展开，本 Provider 自身不做任何写操作（铁律 P1）。
@@ -278,11 +279,21 @@ namespace Presentation.Ui
             return equipped.HasValue ? ExprValue.OfId(equipped.Value.InstanceId) : (ExprValue?)null;
         }
 
+        /// <summary>
+        /// <c>player.quest.&lt;questId&gt;.*</c>（见类型注释路径清单）。消费方反馈第六批（阻塞）
+        /// 新增 <c>title_key</c>/<c>objective_description_key[i]</c> 两条子路径：比照既有
+        /// <c>state</c>/<c>objective[i]</c> 同一"末段保留关键字"惯例（同 <see cref="ResolveEquipment"/>
+        /// 判断记录引用的 ADR-0063 决策 4）——<c>title_key</c> 不带下标，转发
+        /// <see cref="IQuestHost.GetQuestTitleKey"/>；<c>objective_description_key[i]</c> 带下标，
+        /// 转发 <see cref="IQuestHost.GetObjectiveDescriptionKey"/>，下标与既有 <c>objective[i]</c>
+        /// 对齐同一份 <c>QuestObjective</c> 数组。两者未知任务/越界下标/数据未填均返回 <c>null</c>
+        /// （宿主层已降级，本方法不重复判断），与既有 <c>objective[i]</c> 越界即 <c>null</c> 同一口径。
+        /// </summary>
         private ExprValue? ResolveQuest(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)
         {
             if (remaining.Count < 3)
             {
-                diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 quest 子路径段数不足（需要 quest.<id...>.state|objective[i]）");
+                diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 quest 子路径段数不足（需要 quest.<id...>.state|objective[i]|title_key|objective_description_key[i]）");
                 return null;
             }
 
@@ -316,7 +327,19 @@ namespace Presentation.Ui
                 return ExprValue.OfInt(entry.ObjectiveCounts[idx]);
             }
 
-            diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 quest 子路径末段必须是 state 或 objective[i]，实际 \"{suffix}\"");
+            if (suffix.Name == "title_key" && !suffix.Index.HasValue)
+            {
+                var titleKey = _quest.GetQuestTitleKey(questId);
+                return titleKey.HasValue ? ExprValue.OfId(titleKey.Value) : (ExprValue?)null;
+            }
+
+            if (suffix.Name == "objective_description_key" && suffix.Index.HasValue)
+            {
+                var descKey = _quest.GetObjectiveDescriptionKey(questId, suffix.Index.Value);
+                return descKey.HasValue ? ExprValue.OfId(descKey.Value) : (ExprValue?)null;
+            }
+
+            diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 quest 子路径末段必须是 state、objective[i]、title_key 或 objective_description_key[i]，实际 \"{suffix}\"");
             return null;
         }
 
