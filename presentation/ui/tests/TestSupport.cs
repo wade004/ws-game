@@ -224,6 +224,16 @@ namespace Tests.PresentationUi
         public readonly List<(Id UnitId, Id InstanceId, Id Slot)> EquipCalls = new List<(Id, Id, Id)>();
         public readonly List<(Id UnitId, Id Slot)> UnequipCalls = new List<(Id, Id)>();
 
+        /// <summary>
+        /// ADR-0063 测试支持：真实 <c>EquipmentHost.Equip</c> 的模板 id 来自装备时查一次背包实例
+        /// （见该类型判断记录），本 Fake 没有背包概念，<see cref="IEquipmentHost.Equip"/> 签名本身
+        /// 也只有 <c>instanceId</c>——由调用方（测试）经本字典显式登记"这个实例 id 对应哪个模板 id"，
+        /// <see cref="GetEquippedTemplateId"/>/<see cref="GetAllEquippedIdentities"/> 据此查询；未登记
+        /// 的实例视为"模板未知"，同真实实现"查不到就返回 null"的降级口径（这里对应"测试没有配置，
+        /// 不代表生产实现会查不到"）。
+        /// </summary>
+        public readonly Dictionary<Id, Id> TemplatesByInstance = new Dictionary<Id, Id>();
+
         public EquipResult Equip(Id unitId, Id instanceId, Id slot)
         {
             EquipCalls.Add((unitId, instanceId, slot));
@@ -252,6 +262,25 @@ namespace Tests.PresentationUi
             foreach (var kv in _equipped)
             {
                 if (kv.Key.UnitId.Equals(unitId)) result[kv.Key.Slot] = kv.Value;
+            }
+            return result;
+        }
+
+        public Id? GetEquippedTemplateId(Id unitId, Id slot) =>
+            _equipped.TryGetValue((unitId, slot), out var v) && TemplatesByInstance.TryGetValue(v.InstanceId, out var templateId)
+                ? templateId
+                : (Id?)null;
+
+        public IReadOnlyDictionary<Id, EquippedItemIdentity> GetAllEquippedIdentities(Id unitId)
+        {
+            var result = new Dictionary<Id, EquippedItemIdentity>();
+            foreach (var kv in _equipped)
+            {
+                if (!kv.Key.UnitId.Equals(unitId)) continue;
+                if (TemplatesByInstance.TryGetValue(kv.Value.InstanceId, out var templateId))
+                {
+                    result[kv.Key.Slot] = new EquippedItemIdentity(kv.Value.InstanceId, templateId);
+                }
             }
             return result;
         }

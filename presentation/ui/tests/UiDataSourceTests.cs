@@ -70,6 +70,54 @@ namespace Tests.PresentationUi
             Assert.Null(world.DataSource.Query("player.equipment.equip.off_hand"));
         }
 
+        /// <summary>
+        /// ADR-0063（消费方反馈——游戏接入方第五批第 2 条）：<c>player.equipment.&lt;slot&gt;.template</c>/
+        /// <c>.instance</c> 子路径——装备面板要显示"槽位名 + 已装备物品名"，需要已装备物品的模板 id。
+        /// 期望值取自测试自己经 <see cref="FakeEquipmentHost.TemplatesByInstance"/> 登记的模板 id（不
+        /// 写死裸数）；裸路径 <c>player.equipment.&lt;slot&gt;</c>（既有行为）与新增 <c>.instance</c>
+        /// 子路径应当返回同一个实例 id。
+        /// </summary>
+        [Fact]
+        public void Query_equipment_slot_template_and_instance_subpaths()
+        {
+            var world = new UiWorldFixture();
+            var slot = new Id("equip.main_hand");
+            var instanceId = new Id("item.instance_0");
+            var templateId = new Id("item.iron_sword");
+            world.Equipment.TemplatesByInstance[instanceId] = templateId;
+            world.Equipment.Equip(world.PlayerId, instanceId, slot);
+
+            Assert.Equal(instanceId, world.DataSource.Query($"player.equipment.{slot}")!.Value.AsId);
+            Assert.Equal(instanceId, world.DataSource.Query($"player.equipment.{slot}.instance")!.Value.AsId);
+            Assert.Equal(templateId, world.DataSource.Query($"player.equipment.{slot}.template")!.Value.AsId);
+        }
+
+        /// <summary>空槽（从未装备）与卸下后的 <c>.template</c>/<c>.instance</c> 子路径均返回"无"，
+        /// 与背包空格既有口径（<c>inventory[5].template</c> 为 null）一致。</summary>
+        [Fact]
+        public void Query_equipment_slot_template_and_instance_subpaths_AreNull_WhenEmptyOrUnequipped()
+        {
+            var world = new UiWorldFixture();
+            var slot = new Id("equip.main_hand");
+            var instanceId = new Id("item.instance_0");
+            var templateId = new Id("item.iron_sword");
+
+            // 空槽：从未装备过。
+            Assert.Null(world.DataSource.Query($"player.equipment.{slot}.template"));
+            Assert.Null(world.DataSource.Query($"player.equipment.{slot}.instance"));
+
+            // 装备后卸下：子路径回到"无"。
+            world.Equipment.TemplatesByInstance[instanceId] = templateId;
+            world.Equipment.Equip(world.PlayerId, instanceId, slot);
+            Assert.NotNull(world.DataSource.Query($"player.equipment.{slot}.template"));
+
+            world.Equipment.Unequip(world.PlayerId, slot);
+
+            Assert.Null(world.DataSource.Query($"player.equipment.{slot}"));
+            Assert.Null(world.DataSource.Query($"player.equipment.{slot}.template"));
+            Assert.Null(world.DataSource.Query($"player.equipment.{slot}.instance"));
+        }
+
         [Fact]
         public void Query_quest_state_and_objective()
         {

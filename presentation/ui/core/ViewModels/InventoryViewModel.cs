@@ -51,11 +51,24 @@ namespace Presentation.Ui
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
         private readonly List<InventorySlotSnapshot> _slots = new List<InventorySlotSnapshot>();
         private readonly Dictionary<Id, Id> _equippedSlots = new Dictionary<Id, Id>();
+        private readonly Dictionary<Id, EquippedItemIdentity> _equippedIdentities = new Dictionary<Id, EquippedItemIdentity>();
 
         public IReadOnlyList<InventorySlotSnapshot> Slots => _slots;
 
         /// <summary>槽位 id → 已装备物品实例 id；未装备的槽位不出现在字典里。</summary>
         public IReadOnlyDictionary<Id, Id> EquippedSlots => _equippedSlots;
+
+        /// <summary>
+        /// ADR-0063 补充（消费方反馈——游戏接入方第五批第 2 条）：槽位 id → 已装备物品的（实例 id、
+        /// 模板 id），经 <c>player.equipment.&lt;slot&gt;.template</c>（<see
+        /// cref="PlayerPathProvider"/>）逐槽拉取；未装备的槽位不出现在字典里，与 <see
+        /// cref="EquippedSlots"/> 同一惯例。判断记录（新增属性而不是改写 <see cref="EquippedSlots"/>
+        /// 的元素类型）：<see cref="EquippedSlots"/> 是已发布的公开只读属性，改写其元素类型
+        /// （<c>Id</c> → 携带更多字段的类型）会破坏既有调用方的编译，ABI 只允许新增，故新增一个并行
+        /// 属性，不动前者。装备面板等需要模板 id（进而查表取名称）的消费方改读本属性，仍需要裸实例
+        /// id（如比对/去重）的既有消费方继续读 <see cref="EquippedSlots"/>，互不影响。
+        /// </summary>
+        public IReadOnlyDictionary<Id, EquippedItemIdentity> EquippedSlotIdentities => _equippedIdentities;
 
         public InventoryViewModel(IUiDataSource dataSource, IReadOnlyList<Id> equipmentSlotIds)
         {
@@ -91,12 +104,22 @@ namespace Presentation.Ui
             }
 
             _equippedSlots.Clear();
+            _equippedIdentities.Clear();
             foreach (var slotId in _equipmentSlotIds)
             {
                 var equipped = _dataSource.Query($"player.equipment.{slotId}");
                 if (equipped.HasValue)
                 {
                     _equippedSlots[slotId] = equipped.Value.AsId;
+
+                    // ADR-0063：与裸查询同一次 Refresh 内一并拉取模板 id，槽位确有装备时才查（未装备
+                    // 时 .template 子路径本就返回 null，见 PlayerPathProvider.ResolveEquipment 判断
+                    // 记录"空槽子路径结果为无"），省一次必然落空的查询。
+                    var template = _dataSource.Query($"player.equipment.{slotId}.template");
+                    if (template.HasValue)
+                    {
+                        _equippedIdentities[slotId] = new EquippedItemIdentity(equipped.Value.AsId, template.Value.AsId);
+                    }
                 }
             }
         }

@@ -550,6 +550,96 @@ namespace Tests.Carriers.Item
         }
 
         // -----------------------------------------------------------------
+        // IEquipmentHost 新增只读成员（ADR-0063《装备宿主契约补模板 id 查询》，消费方反馈——游戏
+        // 接入方第五批第 2 条）：GetEquippedTemplateId/GetAllEquippedIdentities 是显式接口实现，本节
+        // 全部经 IEquipmentHost 接口引用调用（不向下转型到 EquipmentHost），验证真正落地的是显式实现
+        // 而不是接口默认降级值。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IEquipmentHost_GetEquippedTemplateId_ReturnsTemplateIdOfEquippedInstance()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var instanceId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var slot = new Id("item.slot.main_hand");
+            f.Equipment.Equip(Player, instanceId, slot);
+
+            IEquipmentHost host = f.Equipment;
+
+            // 期望值从这件已装备实例本身取（GetAllEquippedInstances 是既有、未改动的公开方法），
+            // 不写死裸数——只断言"新成员返回的模板 id 与这件实例真实携带的模板 id 相等"。
+            var expectedTemplateId = f.Equipment.GetAllEquippedInstances(Player)[slot].TemplateId;
+
+            Assert.Equal(expectedTemplateId, host.GetEquippedTemplateId(Player, slot));
+            // 裸 GetEquipped 仍返回实例 id，两者语义不同、互不影响（见 ADR-0063"既有 player.equipment.
+            // <slot> 保持原行为不变"）。
+            Assert.Equal(instanceId, host.GetEquipped(Player, slot)!.Value.InstanceId);
+        }
+
+        [Fact]
+        public void IEquipmentHost_GetEquippedTemplateId_ReturnsNull_ForEmptySlot()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            IEquipmentHost host = f.Equipment;
+
+            Assert.Null(host.GetEquippedTemplateId(Player, new Id("item.slot.main_hand")));
+        }
+
+        [Fact]
+        public void IEquipmentHost_GetEquippedTemplateId_ReturnsNull_AfterUnequip()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var instanceId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var slot = new Id("item.slot.main_hand");
+            f.Equipment.Equip(Player, instanceId, slot);
+
+            IEquipmentHost host = f.Equipment;
+            Assert.NotNull(host.GetEquippedTemplateId(Player, slot));
+
+            f.Equipment.Unequip(Player, slot);
+
+            Assert.Null(host.GetEquippedTemplateId(Player, slot));
+            Assert.Null(host.GetEquipped(Player, slot));
+        }
+
+        [Fact]
+        public void IEquipmentHost_GetAllEquippedIdentities_ReturnsInstanceAndTemplateId_ForAllSlots()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var weaponId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            var chestId = GiveAndReturnInstance(f, "item.sample_chest_armor");
+            var mainHand = new Id("item.slot.main_hand");
+            var chest = new Id("item.slot.chest");
+            f.Equipment.Equip(Player, weaponId, mainHand);
+            f.Equipment.Equip(Player, chestId, chest);
+
+            IEquipmentHost host = f.Equipment;
+            var identities = host.GetAllEquippedIdentities(Player);
+
+            // 期望的模板 id 取自既有、未改动的 GetAllEquippedInstances，不写死裸数。
+            var instances = f.Equipment.GetAllEquippedInstances(Player);
+            Assert.Equal(2, identities.Count);
+            Assert.Equal(weaponId, identities[mainHand].InstanceId);
+            Assert.Equal(instances[mainHand].TemplateId, identities[mainHand].TemplateId);
+            Assert.Equal(chestId, identities[chest].InstanceId);
+            Assert.Equal(instances[chest].TemplateId, identities[chest].TemplateId);
+        }
+
+        [Fact]
+        public void IEquipmentHost_GetAllEquippedIdentities_ReturnsEmpty_WhenNothingEquipped()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            IEquipmentHost host = f.Equipment;
+
+            Assert.Empty(host.GetAllEquippedIdentities(Player));
+        }
+
+        // -----------------------------------------------------------------
         // RC-11（见外部审计 architecture/落地计划/audit-b3b91ee-20260907/code-review.md RC-11）：
         // EquipmentHost.GetWeaponBaseDamage（IWeaponDamageQuery 实现）——weapon_damage_pct 效果
         // 原语（core/rules/skill.EffectDispatcher）经它取"当前武器基础伤害"。

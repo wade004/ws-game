@@ -591,6 +591,7 @@ namespace Tests.PresentationUi
             var templateId = new Id("item.iron_sword");
             var instanceId = world.Inventory.AddItemForTest(world.PlayerId, templateId, 1);
             var slot = new Id("equip.main_hand");
+            world.Equipment.TemplatesByInstance[instanceId] = templateId;
             world.Equipment.Equip(world.PlayerId, instanceId, slot);
 
             using var vm = new InventoryViewModel(world.DataSource, new[] { slot });
@@ -598,6 +599,10 @@ namespace Tests.PresentationUi
             Assert.Single(vm.Slots);
             Assert.Equal(templateId, vm.Slots[0].TemplateId);
             Assert.Equal(instanceId, vm.EquippedSlots[slot]);
+
+            // ADR-0063 补充：EquippedSlotIdentities 比照 EquippedSlots，额外带出模板 id。
+            Assert.Equal(instanceId, vm.EquippedSlotIdentities[slot].InstanceId);
+            Assert.Equal(templateId, vm.EquippedSlotIdentities[slot].TemplateId);
         }
 
         /// <summary>UI-111-01 复现与根治回归
