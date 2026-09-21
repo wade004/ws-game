@@ -190,3 +190,8 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 `Tests.PresentationCommon` 用真实 `CreatureFactory.Spawn` 出的玩家单位命中自身的用例发现（玩家单位
 `Kind == EntityKinds.Creature`，未排除自身时会把查询发起者本身算作候选），修正为一处正确性修复，不
 只是测试夹具绕行。不新增/不改动任何既有公开构造签名。
+
+生物类候选仅存活时成立（`IUnitAccess.Exists` × `IUnitAccess.IsAlive`，与表现层
+`player.alive`/`target.alive` 同一权威口径，见 architecture/adr/0065-死亡生物不是最近可交互目标的
+候选.md）——场景物件、地面掉落物不是"单位"概念的实例，不接入这条判定。`IsInteractionCandidate`
+从 `static` 改为实例方法（读构造期已持有的 `_units` 字段判存活），不新增构造参数、不新增依赖。

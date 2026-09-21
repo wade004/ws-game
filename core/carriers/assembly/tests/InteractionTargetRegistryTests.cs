@@ -126,5 +126,76 @@ namespace Tests.Carriers.Assembly
 
             Assert.False(registry.TryFindNearest(player.EntityId, null, out _));
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0065（消费方反馈第七批第 1 条根治）：死亡生物不是"最近可交互目标"的候选——存活判定用
+        // IUnitAccess.Exists×IsAlive（与 ADR-0061 player.alive/target.alive 同一权威口径），因此这三
+        // 例必须用真正的 CreatureUnit（经 WorldUnitAccess 才能读到 Alive 字段），不能像上面几例那样
+        // 用只携带 Kind 字符串的 FakeInteractableEntity——那个假实现不是 Unit 子类，IUnitAccess.Exists
+        // 对它恒返回 false，测不出"死亡"与"存活但不是 Unit"两种情况的区别。
+        // -----------------------------------------------------------------
+
+        private static CreatureUnit NewCreature(string id, Vec2 position, bool alive = true) =>
+            new CreatureUnit(new Id(id), MapId, new Id("fac.hostile"), new Id("creature.template.test"))
+            {
+                Position = position,
+                Alive = alive,
+            };
+
+        [Fact]
+        public void TryFindNearest_DeadCreature_IsNotACandidate()
+        {
+            var (world, _, registry, player) = NewFixture();
+            world.AddEntity(NewCreature("creature.inst_dead", new Vec2(1, 0), alive: false));
+
+            Assert.False(registry.TryFindNearest(player.EntityId, null, out _));
+        }
+
+        [Fact]
+        public void TryFindNearest_DeadCreatureCloserThanLivingCreature_ReturnsLivingCreature()
+        {
+            var (world, _, registry, player) = NewFixture();
+            var dead = NewCreature("creature.inst_dead", new Vec2(1, 0), alive: false);
+            var living = NewCreature("creature.inst_alive", new Vec2(5, 0));
+            world.AddEntity(dead);
+            world.AddEntity(living);
+
+            var found = registry.TryFindNearest(player.EntityId, null, out var target);
+
+            Assert.True(found);
+            Assert.Equal(living.EntityId, target.EntityId);
+            Assert.Equal(InteractionTargetKind.Creature, target.Kind);
+        }
+
+        [Fact]
+        public void TryFindNearest_AliveCreature_IsStillACandidate()
+        {
+            var (world, _, registry, player) = NewFixture();
+            var creature = NewCreature("creature.inst_alive", new Vec2(2, 0));
+            world.AddEntity(creature);
+
+            var found = registry.TryFindNearest(player.EntityId, null, out var target);
+
+            Assert.True(found);
+            Assert.Equal(creature.EntityId, target.EntityId);
+            Assert.Equal(InteractionTargetKind.Creature, target.Kind);
+            Assert.Equal(2.0, target.Distance);
+        }
+
+        [Fact]
+        public void TryFindNearest_DeadCreatureSameCoordinateAsItsOwnLoot_ReturnsLoot()
+        {
+            // 复现消费方反馈第七批第 1 条：尸体与它自己的战利品同坐标、等距时按 EntityId 序数取小，
+            // creature.* 恒小于 loot.*，修复前恒返回尸体。
+            var (world, _, registry, player) = NewFixture();
+            world.AddEntity(NewCreature("creature.inst_dead", new Vec2(1, 0), alive: false));
+            world.AddEntity(new FakeInteractableEntity(new Id("loot.inst_1"), MapId, EntityKinds.Loot) { Position = new Vec2(1, 0) });
+
+            var found = registry.TryFindNearest(player.EntityId, null, out var target);
+
+            Assert.True(found);
+            Assert.Equal(new Id("loot.inst_1"), target.EntityId);
+            Assert.Equal(InteractionTargetKind.Loot, target.Kind);
+        }
     }
 }

@@ -17,6 +17,12 @@ namespace Core.Carriers.Assembly
     /// <see cref="Units"/>（<see cref="IUnitAccess"/>）就绪后立即构造（不需要等 gobj/creature 具体
     /// 宿主构造完成——本类型不持有它们的引用，只经 <see cref="EntityKinds"/> 字符串常量识别目标类型）。
     /// </para>
+    /// <para>
+    /// ADR-0065：候选判定额外持有 <see cref="IUnitAccess"/> 存活口径（见 <see
+    /// cref="IsInteractionCandidate"/> 判断记录）——生物类实体死亡后仍继续以 <c>alive = false</c> 的
+    /// 形态留在世界模拟中（不会被自动 <c>Despawn</c>），本类型据此把它们排除出候选，避免尸体与它
+    /// 自己死亡结算生成的地面掉落物同坐标时按 <see cref="Entity.EntityId"/> 序数抢先命中。
+    /// </para>
     /// </summary>
     public sealed class InteractionTargetRegistry : IInteractionTargetRegistry
     {
@@ -81,8 +87,22 @@ namespace Core.Carriers.Assembly
             return true;
         }
 
-        private static bool IsInteractionCandidate(Entity entity) =>
-            entity.Kind == EntityKinds.Gobj || entity.Kind == EntityKinds.Creature || entity.Kind == EntityKinds.Loot;
+        /// <summary>
+        /// ADR-0065：生物类实体只有在存活时才是候选——存活判定用规则层权威口径
+        /// <see cref="IUnitAccess.Exists"/>×<see cref="IUnitAccess.IsAlive"/>（与 ADR-0061
+        /// <c>player.alive</c>/<c>target.alive</c> 同一口径，不看生命值资源池是否 <c>&lt;= 0</c>）。
+        /// 场景物件、地面掉落物不接入这条判定——它们不是 <see cref="Core.Carriers.Unit.Unit"/> 子类，
+        /// <see cref="IUnitAccess"/> 天然不适用，也没有"存活"这个概念。
+        /// </summary>
+        private bool IsInteractionCandidate(Entity entity)
+        {
+            if (entity.Kind == EntityKinds.Creature)
+            {
+                return _units.Exists(entity.EntityId) && _units.IsAlive(entity.EntityId);
+            }
+
+            return entity.Kind == EntityKinds.Gobj || entity.Kind == EntityKinds.Loot;
+        }
 
         private static InteractionTargetKind ToKind(string kind)
         {

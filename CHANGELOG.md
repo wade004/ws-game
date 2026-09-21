@@ -472,6 +472,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Construct` 加性重载，有标题键时优先经本地化解析显示任务名（既有两参数签名保留未动）。
   纯加法，ABI `breaks=0`。
 
+### 修复
+
+- **死亡生物不是"最近可交互目标"的候选**（消费方反馈——游戏接入方第七批第 1 条，
+  [ADR-0065](architecture/adr/0065-死亡生物不是最近可交互目标的候选.md)；缺陷由 1.56.0 引入的
+  `IInteractionTargetRegistry` 统一最近可交互目标查询带入，本版本修复）：`Core.Carriers.Assembly.
+  InteractionTargetRegistry` 的候选判定此前只按 `Entity.Kind` 分类、不看生物是否存活——框架在
+  单位死亡时不会自动 `Despawn`，死亡生物的运行期实体与它死亡结算生成的地面掉落物同坐标、等距时
+  按 `EntityId` 序数取小（`creature.*` 恒小于 `loot.*`），导致每次击杀后 `TryFindNearest`/表现层
+  `interact.nearest.*` 恒返回尸体，捡不到战利品，尸体较近时还会挡住其它存活单位。现改为生物类
+  候选仅存活时成立（`IUnitAccess.Exists` × `IUnitAccess.IsAlive`，与 `player.alive`/`target.alive`
+  同一权威口径）。改动完全落在候选判定内部（`InteractionTargetRegistry` 已持有的 `IUnitAccess`
+  依赖），不新增公开签名、不新增可选参数，ABI `breaks=0`。
+
 ## [1.56.0] - 2026-09-21
 
 ### 新增

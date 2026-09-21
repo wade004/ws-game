@@ -108,7 +108,8 @@ L3 程序集本身对 L4 零编译期引用。
    与其默认实现（`Core.Carriers.Assembly.InteractionTargetRegistry`，见该模块 README）因此可以
    完全留在 L3，不违反本目录"只定义类型与接口，禁止任何业务逻辑"的边界（接口体本身不含逻辑，
    实现放在装配层）。默认实现不另开登记表，直接对 `IWorldSim.QueryEntities` 现场求值，与
-   `IWorldSim` 现有的确定性排序保持一致（等距离候选取 `EntityId` 序数最小者）。
+   `IWorldSim` 现有的确定性排序保持一致（等距离候选取 `EntityId` 序数最小者）。生物类候选仅存活
+   时成立，见 architecture/adr/0065-死亡生物不是最近可交互目标的候选.md。
 
 8. **消费方反馈——游戏接入方第五批第 2 条（2026-09-21，[ADR-0063](../../../architecture/adr/0063-装备宿主契约补模板id查询.md)）：
    `IEquipmentHost` 新增 `GetEquippedTemplateId`/`GetAllEquippedIdentities` 两个只读默认接口成员，
