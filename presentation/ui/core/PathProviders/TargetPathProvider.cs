@@ -5,6 +5,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Expr;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 
 namespace Presentation.Ui
@@ -56,6 +57,7 @@ namespace Presentation.Ui
         private readonly ICreatureTemplateQuery? _creatureTemplates;
         private readonly ISkillBookQuery? _skillBook;
         private readonly IAuraQuery? _auraQuery;
+        private readonly AutoAttackHost? _autoAttackHost;
 
         public TargetPathProvider(Func<Id?> targetResolver, IStatHost statHost, IPowerHost powerHost)
         {
@@ -102,6 +104,29 @@ namespace Presentation.Ui
             _auraQuery = auraQuery ?? throw new ArgumentNullException(nameof(auraQuery));
         }
 
+        /// <summary>
+        /// 消费方反馈第四批第 1 条新增重载（2026-09-21，ADR-0061）：携带 <paramref
+        /// name="autoAttackHost"/>，才能解答 <c>target.auto_attack.state</c>（目标自身是否正在普通
+        /// 攻击，见类型注释）。判断记录（<c>target.alive</c> 不需要新重载）：存活查询复用本类型五
+        /// 参重载已经引入的 <see cref="_unitAccess"/>（见 <see cref="ResolveFaction"/>/<see
+        /// cref="ResolveName"/> 既有惯例"未装配 unitAccess 时静默返回无"），本重载只为
+        /// <c>auto_attack.*</c> 新增 <see cref="_autoAttackHost"/> 这一个依赖；八个参数全部不带默认
+        /// 值，与既有三个构造函数（分别恰好三个/五个/七个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public TargetPathProvider(
+            Func<Id?> targetResolver,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IUnitAccess unitAccess,
+            ICreatureTemplateQuery creatureTemplates,
+            ISkillBookQuery skillBook,
+            IAuraQuery auraQuery,
+            AutoAttackHost autoAttackHost)
+            : this(targetResolver, statHost, powerHost, unitAccess, creatureTemplates, skillBook, auraQuery)
+        {
+            _autoAttackHost = autoAttackHost ?? throw new ArgumentNullException(nameof(autoAttackHost));
+        }
+
         public string Root => "target";
 
         public ExprValue? Resolve(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)
@@ -138,8 +163,12 @@ namespace Presentation.Ui
                     return UnitSubQueries.Casting(targetId.Value, _skillBook, remaining, fullPath, diagnostics);
                 case "auras":
                     return UnitSubQueries.Auras(targetId.Value, _auraQuery, remaining, fullPath, diagnostics);
+                case "alive":
+                    return UnitSubQueries.Alive(targetId.Value, _unitAccess, remaining, fullPath, diagnostics);
+                case "auto_attack":
+                    return UnitSubQueries.AutoAttack(targetId.Value, _autoAttackHost, remaining, fullPath, diagnostics);
                 default:
-                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 target 子路径关键字 \"{remaining[0].Name}\" 未知（只支持 power/stat/id/name/faction/casting/auras）");
+                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 target 子路径关键字 \"{remaining[0].Name}\" 未知（只支持 power/stat/id/name/faction/casting/auras/alive/auto_attack）");
                     return null;
             }
         }

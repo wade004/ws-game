@@ -458,6 +458,30 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **表现层新增普通攻击状态与单位存活状态转发**（消费方反馈第四批第 1/2 条，
+  [ADR-0061](architecture/adr/0061-表现层补普通攻击状态与存活状态转发.md)）：新增路径
+  `player.auto_attack.state`/`target.auto_attack.state`（经 `Core.Rules.Combat.AutoAttackHost.
+  GetState` 转发，新增 `AutoAttackStateNames` 静态类做枚举与固定小写文本互转）与
+  `player.alive`/`target.alive`（经 `IUnitAccess.Exists`×`IsAlive` 转发，无目标时为"无"，同
+  `target.id` 既有口径）。`HudViewModel` 新增只读属性 `AutoAttackState`/`TargetAutoAttackState`
+  （`Core.Rules.Combat.AutoAttackState` 枚举）、`PlayerAlive`（`bool`）、`TargetAlive`
+  （`bool?`）。`PlayerPathProvider`/`TargetPathProvider` 各新增一个构造函数重载，
+  `PresentationAssembly` 改走新重载装配 `AutoAttackHost`。纯加法，ABI `breaks=0`。
+
+### 修复
+
+- **`HudViewModel.Auras`/`TargetAuras` 的 `Polarity`/`IconRef` 恒为默认值**（1.53.0
+  [ADR-0060](architecture/adr/0060-光环极性与图标引用字段补全.md) 引入的缺陷，消费方反馈第四批
+  第 3 条）：`presentation/ui/core/ViewModels/HudViewModel.cs` 的 `RefreshAuras` 从路径查询结果
+  逐字段重新组装 `AuraSnapshot` 时漏读新增的 `polarity`/`icon_ref` 两条路径、仍调用旧的五参数
+  构造函数，规则层与路径查询两端均已正确转发，唯独这一环重新组装逻辑没有同步补上——导致每条
+  快照的 `Polarity` 恒为 `Undeclared`、`IconRef` 恒为 `null`，即使对应光环定义已声明这两个字段。
+  已改为读取 `{root}[i].polarity`/`{root}[i].icon_ref` 并改走七参数构造函数。全仓复查确认这是
+  唯一的生产代码缺陷点，详见 `presentation/ui/README.md` 对应判断记录（含 1.53.0 验收测试为何
+  没有拦住本缺陷、及后续同类"字段穿线"改动的验收深度要求）。
+
 ## [1.54.0] - 2026-09-21
 
 ### 新增

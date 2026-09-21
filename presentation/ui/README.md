@@ -320,3 +320,98 @@ ABI：纯加法——两个 Provider 各新增一个构造函数重载，`ISkill
 `IAuraQuery` 夹具，覆盖路径解析、诊断计数、`HudViewModel` 属性刷新）与
 `core/rules/skill/tests/CastingSnapshotTests.cs`/`AuraSnapshotTests.cs`（规则层真实读条/施加光环，
 详见该模块 README）。
+
+## 判断记录（缺陷修复：`HudViewModel.Auras`/`TargetAuras` 的 `Polarity`/`IconRef` 恒为默认值，2026-09-21，消费方反馈第四批第 3 条）
+
+背景：[ADR-0060](../../architecture/adr/0060-光环极性与图标引用字段补全.md) 给 `skill.aura_def`
+新增 `polarity`/`icon_ref` 两个可选字段，并给 `AuraSnapshot` 新增携带这两个字段的七参数构造函数
+重载，`core/rules/skill/core/AuraHost.GetActiveAuraSnapshots` 正确转发。但消费方反馈
+`HudViewModel.Auras`/`TargetAuras` 里每一条快照的 `Polarity` 恒为 `Undeclared`、`IconRef` 恒为
+`null`，即使对应光环定义确实声明了这两个字段。
+
+**根因（`presentation/ui/core/ViewModels/HudViewModel.cs`，`RefreshAuras` 方法）**：本视图模型的
+`Auras`/`TargetAuras` 不是直接持有规则层返回的 `AuraSnapshot`，而是逐字段经路径查询
+（`{root}[i].<field>`）重新组装一份新的 `AuraSnapshot`（见上一条判断记录"列表属性经 `count` +
+`[i].<field>` 路径逐条查询重建"）。ADR-0060 落地时只新增了路径层的
+`auras[i].polarity`/`auras[i].icon_ref` 两个叶子（`UnitSubQueries.Auras` 正确输出），但
+`RefreshAuras` 重新组装快照的那几行查询语句本身没有同步补上这两个字段的查询，仍在调用五参数的
+旧 `AuraSnapshot` 构造函数——即"转发链路上游（规则层→路径层）正确，最后一环（路径层→视图模型）
+逐字段重新拼装时漏了新加的两个字段"，不是任何转发环节把值搞错，是这一环根本没读。
+
+**全仓 `new AuraSnapshot(` 调用点复查**（confirm 本次缺陷是唯一的生产代码问题点）：
+- `core/rules/skill/core/AuraHost.cs`（`GetActiveAuraSnapshots` 内部）：已使用七参数构造函数，
+  正确转发 `polarity`/`iconRef`，非缺陷点。
+- `core/rules/assembly/RulesAssembly.cs`（`DeferredAuraQuery.GetActiveAuraSnapshots`）：显式转发
+  到 `Real.GetActiveAuraSnapshots(unitId)`，代码注释明确说明这是为了避免落到 `IAuraQuery` 接口
+  默认方法的降级实现，非缺陷点。
+- `core/rules/common/contracts/IAuraQuery.cs`（接口默认方法内的降级实现）：按设计返回一份没有
+  `polarity`/`iconRef` 的退化快照——该抽象层级本就拿不到 `skill.aura_def` 登记表，是有文档说明
+  的故意降级，不是缺陷。
+- `presentation/ui/core/ViewModels/HudViewModel.cs`（`RefreshAuras`）：**本次缺陷点**，五参数
+  构造调用漏读 `polarity`/`icon_ref` 两条路径。已修复为读取
+  `{root}[i].polarity`/`{root}[i].icon_ref` 并改走七参数构造函数，未声明字段的查询结果为"无"时
+  分别回落到 `AuraPolarity.Undeclared`/`null`（与路径层未声明时的"无"语义一致，不是新造一个默认
+  值）。
+- `presentation/ui/tests/UiDataSourceTests.cs`/`ViewModelTests.cs` 内的五参数 `AuraSnapshot(` 调用：
+  均为测试夹具，构造与本缺陷无关的其它测试场景数据，非缺陷点。
+
+**为什么 ADR-0060 落地时的验收测试没有拦住这个缺陷**：ADR-0060 落地时新增的测试
+（`core/rules/skill/tests/AuraPolarityIconRefTests.cs`）只验证到规则层 `AuraHost` 这一级——断言
+`AuraHost.GetActiveAuraSnapshots` 返回的快照带有正确的 `Polarity`/`IconRef`；表现层路径查询
+（`presentation/ui/tests/UiDataSourceTests.cs`）也只验证到 `IUiDataSource.Query("auras[0].polarity")`
+这一级路径求值本身正确。两组测试都没有再往下验证"`HudViewModel.Auras` 这个字段列表属性读出来
+的值"——而 `RefreshAuras` 恰恰是在路径查询结果之上又重新组装了一次快照，这一步组装逻辑本身没有
+被任何测试覆盖到。判断记录（对未来同类"字段穿线"改动的验收深度要求）：任何一次给某个数据结构
+新增字段、且该结构在链路上存在"规则层产出 → 路径查询转发 → 视图模型重新组装成同类型对象"这种
+三段式转发时，验收测试必须贯穿全部三段、以生产装配入口（`PresentationAssembly`）为准，断言到
+最终暴露给消费端的那个属性（本例即 `HudViewModel.Auras[i].Polarity`），不能止步于中间任何一段
+转发正确就视为验收通过——中间某一段正确不代表最后一段的"重新组装"逻辑同步跟上了新字段。
+
+测试见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+（`HudViewModel_Auras_ReflectPolarityAndIconRef_DeclaredValues_UndeclaredWhenNotDeclared`）——
+选择装配级测试而不是 `presentation/ui/tests` 惯用的 Fake 夹具，理由同 `TargetName`/`TargetFaction`
+判断记录：需要贯穿真实的 `skill.aura_def` 登记、真实的 `EffectSink.ApplyAura` 施加与真实的
+`PresentationAssembly` 装配，才能验证到"最终读出来的属性值就是登记表声明的那两个值"这一装配级
+行为，而不只是某一段转发逻辑本身。
+
+## 判断记录（`player.auto_attack.*`/`target.auto_attack.*`、`player.alive`/`target.alive`，2026-09-21，消费方反馈第四批第 1/2 条，[ADR-0061](../../architecture/adr/0061-表现层补普通攻击状态与存活状态转发.md)）
+
+背景：[ADR-0059](../../architecture/adr/0059-普通攻击的框架原生执行机制.md) 把普通攻击落地为
+`Core.Rules.Combat.AutoAttackHost`，但表现层没有任何路径能读到它的状态；表现层同样没有任何路径
+能回答"这个单位是否存活"。两者均是"接入方拿不到就只能自己猜或自己判断血量阈值"的纯加法缺口，
+详细决策见 ADR-0061，本条只记落地要点。
+
+**`PlayerPathProvider.player.auto_attack.state`/`TargetPathProvider.target.auto_attack.state`**：
+新增子路径，形如 `auto_attack.state`（不接受下标/其它子字段，非法形状记一条诊断，见
+`UnitSubQueries.AutoAttack`），经 `AutoAttackHost.GetState(unitId)` 取值后由新增的
+`Core.Rules.Combat.AutoAttackStateNames.ToText` 转成固定小写文本（`off`/`no_target`/`attacking`）
+装入 `ExprValue.OfString`。`PlayerPathProvider` 新增十二参数构造函数重载（追加
+`IUnitAccess unitAccess, AutoAttackHost autoAttackHost`），`TargetPathProvider` 新增八参数构造
+函数重载（追加 `AutoAttackHost autoAttackHost`）。
+
+**`PlayerPathProvider.player.alive`/`TargetPathProvider.target.alive`**：新增子路径（不接受
+下标/子字段），经 `IUnitAccess.Exists(unitId)`×`IsAlive(unitId)` 得出（见 `UnitSubQueries.Alive`）；
+`target.alive` 无当前目标时求值结果为"无"，与 `target.id` 既有"无目标即为空"口径逐字一致，不
+新造判定。
+
+**`HudViewModel`**：新增只读属性 `PlayerAlive`（`bool`）、`TargetAlive`（`bool?`）、
+`AutoAttackState`（`Core.Rules.Combat.AutoAttackState`，玩家自身）、`TargetAutoAttackState`
+（同类型，目标）。四者均经 `IUiDataSource.Query` 转发对应新增路径，`AutoAttackState`/
+`TargetAutoAttackState` 读到路径输出的文本后经 `AutoAttackStateNames.Parse` 转回枚举——协议层
+文本化只发生在路径查询这一层边界，属性本身仍是类型安全的枚举，不对消费端暴露裸字符串（同
+`AuraPolarity` 既有做法）。不改动任何既有公开签名。
+
+**生产装配**：`PresentationAssembly` 新增局部变量 `autoAttackHost = gameplay.Carriers.Rules.
+AutoAttack`（`RulesAssembly` 已有的公开只读属性，不新增依赖边界），两个 Provider 均改走新增的
+重载传入。
+
+ABI：纯加法——两个 Provider 各新增一个构造函数重载，`HudViewModel` 新增四个只读属性，
+`Core.Rules.Combat` 新增 `AutoAttackStateNames` 一个新类型；全部既有公开签名不改动。
+
+测试见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+（`HudViewModel_AutoAttackStateAndTargetAlive_ReflectRealCombatAndDeathPath`）——经真实武器装备、
+真实 `AutoAttackHost.SetTarget`/`SetEnabled` 与真实 `WorldSim.Tick` 驱动结算致死目标，断言
+`AutoAttackState` 从 `Off`→`Attacking`、`TargetAlive` 从 `true`→`false`、目标死亡到
+`AutoAttackState` 回落 `NoTarget` 之间存在的一拍延迟（`AutoAttackHost.Update` 既有惯例，见
+`core/sim/tests/AutoAttackHostIntegrationTests.cs` 对应判断记录），而不只是验证某一段转发逻辑
+本身正确。

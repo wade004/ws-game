@@ -527,3 +527,12 @@ combat/
 （不结算、不诊断，计时器清零重新计时）；挥击间隔两处数据源（已装备武器/生物模板回退）均取不到值
 时不产生任何攻击，经 `ICombatDiagnostics` 告警一次（同一原因持续存在期间不刷屏）——AGENTS.md
 §3"运行时不静默降级"。`RulesAssembly` 新增只读属性 `AutoAttack`（ABI 只新增成员）。
+
+## 判断记录（`AutoAttackStateNames`，2026-09-21，[ADR-0061](../../../architecture/adr/0061-表现层补普通攻击状态与存活状态转发.md)）
+
+`presentation/ui` 需要把 `AutoAttackState` 转发给消费端时，路径查询协议只承载字符串（不为具体
+枚举类型单独开判别分支，见 `AuraPolarityNames`/`EffectKindNames` 既有先例）。新增
+`AutoAttackStateNames`静态类（`ToText`/`Parse`/`TryParse`），三个取值（`Off`/`NoTarget`/
+`Attacking`）全部参与文本化映射为 `off`/`no_target`/`attacking`——与 `AuraPolarity` 不同，本类型
+没有"未声明"这一维度（这是运行时查询得出的状态本身，不是登记表里的可选字段），因此不需要预留
+第四个哨兵分支。ABI：纯新增类型，不改动 `AutoAttackState` 枚举本身与任何既有公开签名。

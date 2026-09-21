@@ -9,6 +9,7 @@ using Core.Foundation.SaveSystem;
 using Core.Foundation.SceneRouter;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 using Core.Foundation.EngineAdapter;
 using Presentation.Assembly;
@@ -53,8 +54,23 @@ namespace Tests.Presentation.Assembly
                 "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
                 "{\"id\": \"stat.max_health\", \"name_key\": \"l10n.stat.sample_max_health.name\", \"group\": \"primary\", \"default_base\": 0}" +
                 "]}");
+            // 本切片新增（消费方反馈第四批第 1/2 条，2026-09-21）：此前恒为空数组——没有任何既有用例
+            // 走完整结算管线（Combat.ResolveEffect/AutoAttackHost 挥击伤害），所以一直不需要一条真实
+            // 的 combat.hit_table.default 行。新增两条用例需要用框架真实的伤害/死亡路径打死一个目标
+            // （不是直接改 IUnitAccess 字段，见 HudViewModel_AutoAttackStateAndTargetAlive 用例判断
+            // 记录），Resolver.RequireHitTable 找不到 CombatOptions.HitTableConfigId（缺省
+            // "combat.hit_table.default"）对应的行会直接抛异常（不静默降级），因此必须补一条。全部
+            // 分支关闭（miss/dodge/parry/glancing_blow/block/crit 恒不触发）保证伤害结算确定性，写法
+            // 照抄 core/sim/tests/AutoAttackHostIntegrationTests.cs 的 ZeroVarianceHitTableJson——这条
+            // 行只是让"能结算伤害"这件事从无到有，不影响任何既有用例（此前没有用例依赖过命中表数据）。
             source.Add("combat.hit_table_config",
-                "{\"table\": \"combat.hit_table_config\", \"schema_version\": 1, \"rows\": []}");
+                "{\"table\": \"combat.hit_table_config\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"combat.hit_table.default\", " +
+                "\"miss\": {\"enabled\": false, \"base\": 0}, \"dodge\": {\"enabled\": false, \"base\": 0}, " +
+                "\"parry\": {\"enabled\": false, \"base\": 0}, \"glancing_blow\": {\"enabled\": false, \"base\": 0}, " +
+                "\"block\": {\"enabled\": false, \"base\": 0}, \"crit\": {\"enabled\": false, \"base\": 0}, " +
+                "\"crit_multiplier_base\": 2.0}" +
+                "]}");
             source.Add("combat.resist_curve",
                 "{\"table\": \"combat.resist_curve\", \"schema_version\": 1, \"rows\": []}");
             source.Add("arch.power_type",
@@ -85,6 +101,50 @@ namespace Tests.Presentation.Assembly
                 "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
                 "\"base_stats\": {\"stat.max_health\": 50}, \"stat_growth_ref\": \"prog.sample_curve\", " +
                 "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\"}" +
+                "]}");
+
+            // 本切片新增（消费方反馈第四批第 1/2 条，2026-09-21）：一件主手武器最小数据集，供
+            // HudViewModel_AutoAttackStateAndTargetAlive 用例把玩家装备起来、经真实
+            // AutoAttackHost/Resolver 结算管线打死目标（不是直接改 IUnitAccess 字段）。武器秒伤故意
+            // 定得远大于 creature.sample_target 的 50 点生命上限，保证恰好一次挥击必定致死，测试不
+            // 依赖多次挥击的循环上限。
+            source.Add("item.slot_definition",
+                "{\"table\": \"item.slot_definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.slot.sample_main_hand\", \"name_key\": \"l10n.slot.sample_main_hand.name\", " +
+                "\"is_weapon\": true}" +
+                "]}");
+            source.Add("item.quality_definition",
+                "{\"table\": \"item.quality_definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.quality.sample_common\", \"name_key\": \"l10n.quality.sample_common.name\"}" +
+                "]}");
+            source.Add("item.weapon_dps_curve",
+                "{\"table\": \"item.weapon_dps_curve\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.weapon_dps.default\", \"entries\": [{\"x\": 1, \"y\": 1000}]}" +
+                "]}");
+            source.Add("item.template",
+                "{\"table\": \"item.template\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.sample_sword\", \"slot\": \"item.slot.sample_main_hand\", " +
+                "\"quality\": \"item.quality.sample_common\", \"item_level\": 1, " +
+                "\"weapon_profile\": {\"damage_min\": 50, \"damage_max\": 50, \"speed\": 1.5, " +
+                "\"weapon_school\": \"school.physical\"}, " +
+                "\"display_ref\": \"display.item.sample_sword\", \"stack_size\": 1, " +
+                "\"name_key\": \"l10n.item.sample_sword.name\"}" +
+                "]}");
+
+            // 本切片新增（消费方反馈第四批第 3 条，2026-09-21）：两条光环定义——一条同时声明极性与
+            // 图标引用，一条两者都不声明，供 HudViewModel_Auras 用例分别断言"取到声明值"与"退化为
+            // Undeclared/null，不是编造默认值"两个分支（写法照抄
+            // core/rules/skill/tests/AuraPolarityIconRefTests.cs 的数据形状）。mod_stat 效果引用
+            // 已经注册的 stat.max_health，不需要为此另外登记一条属性。
+            source.Add("skill.aura_def",
+                "{\"table\": \"skill.aura_def\", \"schema_version\": 2, \"rows\": [" +
+                "{\"id\": \"skill.aura_def.sample_fortify\", \"max_stacks\": 1, \"duration\": 30, " +
+                "\"polarity\": \"beneficial\", \"icon_ref\": \"icon.aura.sample_fortify\", " +
+                "\"effects\": [{\"kind\": \"mod_stat\", \"params\": " +
+                "{\"stat\": \"stat.max_health\", \"op\": \"flat\", \"value\": 1}}]}," +
+                "{\"id\": \"skill.aura_def.sample_unmarked\", \"max_stacks\": 1, \"duration\": 30, " +
+                "\"effects\": [{\"kind\": \"mod_stat\", \"params\": " +
+                "{\"stat\": \"stat.max_health\", \"op\": \"flat\", \"value\": 1}}]}" +
                 "]}");
         }
 
@@ -1388,6 +1448,141 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(ghostFaction, presentation.Hud.TargetFaction);
             Assert.Null(presentation.Hud.TargetName);
             Assert.Equal(warningsBefore + 1, uiDiag.Warnings.Count);
+        }
+
+        // ------------------------------------------------------------------
+        // 本切片新增（消费方反馈第四批，2026-09-21，ADR-0061 + 缺陷修复）：三条反馈的运行时验收，
+        // 全部走生产装配入口测到 HudViewModel 这一层——1.53.0 验收当时只测了规则层 AuraHost（见
+        // core/rules/skill/tests/AuraPolarityIconRefTests.cs）与表现层路径查询（UiDataSourceTests），
+        // 没有测到本文件这一层，这正是 HudViewModel.RefreshAuras 缺陷潜伏下来的验收缺口，见
+        // presentation/ui/README.md 判断记录。
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// 消费方反馈第四批第 3 条（缺陷修复）：<see cref="global::Presentation.Ui.HudViewModel.RefreshAuras"/>
+        /// 修复前恒用 <c>AuraSnapshot</c> 五参数构造函数重建快照，<c>Polarity</c>/<c>IconRef</c> 无论
+        /// 生产数据是否声明都读到 <c>Undeclared</c>/<c>null</c>——本用例修复前会在第一个 Assert.Equal
+        /// (AuraPolarity.Beneficial, ...) 处失败（实际值 Undeclared），修复后验证：①声明了极性/图标
+        /// 的光环取到声明值；②未声明的光环仍退化为 Undeclared/null（不是把"修好"做成"一律编一个
+        /// 值"）。
+        /// </summary>
+        [Fact]
+        public void HudViewModel_Auras_ReflectPolarityAndIconRef_DeclaredValues_UndeclaredWhenNotDeclared()
+        {
+            var presentation = Build(out var gameplay, out _, out _, out _);
+            var playerId = presentation.Hud.PlayerId;
+
+            var fortifyId = new Id("skill.aura_def.sample_fortify");
+            var unmarkedId = new Id("skill.aura_def.sample_unmarked");
+            var sourceId = new Id("unit.sample_aura_source");
+
+            // 施加顺序即创建顺序（AuraHost.GetActiveAuraSnapshots 按 SeqNo 排序，见该方法判断记录），
+            // 下方按下标断言不需要额外排序/查找。
+            gameplay.Carriers.Rules.Skill.EffectSink.ApplyAura(playerId, fortifyId, sourceId);
+            gameplay.Carriers.Rules.Skill.EffectSink.ApplyAura(playerId, unmarkedId, sourceId);
+
+            presentation.Hud.Refresh();
+
+            Assert.Equal(2, presentation.Hud.Auras.Count);
+
+            var fortify = presentation.Hud.Auras[0];
+            Assert.Equal(fortifyId, fortify.AuraDefId);
+            Assert.Equal(AuraPolarity.Beneficial, fortify.Polarity);
+            Assert.Equal(new Id("icon.aura.sample_fortify"), fortify.IconRef);
+
+            var unmarked = presentation.Hud.Auras[1];
+            Assert.Equal(unmarkedId, unmarked.AuraDefId);
+            Assert.Equal(AuraPolarity.Undeclared, unmarked.Polarity);
+            Assert.Null(unmarked.IconRef);
+
+            // TargetAuras 同一条转发路径，用同一批数据施加到目标身上核实同一处修复同时覆盖两个属性
+            // （HudViewModel.RefreshAuras 是 Auras/TargetAuras 共用的同一份私有方法）。
+            Id? currentTarget = null;
+            var options = new PresentationAssemblyOptions { TargetResolver = () => currentTarget };
+            var targetPresentation = Build(out var targetGameplay, out _, out _, out _, options: options);
+            var targetId = targetGameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, Vec2.Zero, 0.0);
+            currentTarget = targetId;
+            targetGameplay.Carriers.Rules.Skill.EffectSink.ApplyAura(targetId, fortifyId, sourceId);
+            targetPresentation.Hud.Refresh();
+
+            Assert.Single(targetPresentation.Hud.TargetAuras);
+            Assert.Equal(AuraPolarity.Beneficial, targetPresentation.Hud.TargetAuras[0].Polarity);
+            Assert.Equal(new Id("icon.aura.sample_fortify"), targetPresentation.Hud.TargetAuras[0].IconRef);
+        }
+
+        /// <summary>
+        /// 消费方反馈第四批第 1/2 条（ADR-0061）：<see cref="global::Presentation.Ui.HudViewModel.AutoAttackState"/>/
+        /// <see cref="global::Presentation.Ui.HudViewModel.TargetAutoAttackState"/>（普通攻击状态）与
+        /// <see cref="global::Presentation.Ui.HudViewModel.PlayerAlive"/>/<see
+        /// cref="global::Presentation.Ui.HudViewModel.TargetAlive"/>（存活状态）。目标死亡走框架真实
+        /// 的普通攻击挥击伤害路径（<c>AutoAttackHost.Update</c> → <c>Resolver.Resolve</c> →
+        /// <c>IUnitAccess.SetAlive(false)</c>），不是直接改字段——武器秒伤（1000/秒）远大于目标生命
+        /// 上限（50 点，见 <see cref="AddMinimalGameplayTables"/>），保证恰好一次挥击必定致死。
+        /// </summary>
+        [Fact]
+        public void HudViewModel_AutoAttackStateAndTargetAlive_ReflectRealCombatAndDeathPath()
+        {
+            Id? currentTarget = null;
+            var options = new PresentationAssemblyOptions { TargetResolver = () => currentTarget };
+            var presentation = Build(out var gameplay, out var world, out _, out _, options: options);
+            var playerId = presentation.Hud.PlayerId;
+
+            // 无目标：TargetAlive 口径与既有 TargetId 无目标时逐字一致（null，不是 false）。
+            Assert.Null(presentation.Hud.TargetAlive);
+
+            // 玩家自身存活、普通攻击尚未开启：PlayerAlive=true、AutoAttackState=Off。
+            Assert.True(presentation.Hud.PlayerAlive);
+            Assert.Equal(AutoAttackState.Off, presentation.Hud.AutoAttackState);
+
+            // 给玩家装备主手武器（真实穿戴路径，供 AutoAttackHost 结算时查到武器秒伤/攻速）。
+            gameplay.Carriers.Inventory.RegisterUnit(playerId);
+            var weaponTemplateId = new Id("item.sample_sword");
+            var qualityId = new Id("item.quality.sample_common");
+            Assert.True(gameplay.Carriers.Inventory.AddItem(playerId, weaponTemplateId, 1, qualityId, null));
+            var instanceId = gameplay.Carriers.Inventory.ListItems(playerId)[0].InstanceId;
+            var equipResult = gameplay.Carriers.Equipment.Equip(playerId, instanceId, new Id("item.slot.sample_main_hand"));
+            Assert.True(equipResult.Success, equipResult.Reason.ToString());
+
+            var targetId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, Vec2.Zero, 0.0);
+            currentTarget = targetId;
+            presentation.Hud.Refresh();
+
+            // 有目标且存活：TargetAlive=true；尚未开启普通攻击，状态仍是 Off。
+            Assert.True(presentation.Hud.TargetAlive);
+            Assert.Equal(AutoAttackState.Off, presentation.Hud.AutoAttackState);
+
+            // 开启普通攻击并指定目标：状态变 Attacking（路径查询与视图模型属性同步核对）。
+            var autoAttack = gameplay.Carriers.Rules.AutoAttack;
+            autoAttack.SetTarget(playerId, targetId);
+            autoAttack.SetEnabled(playerId, true);
+            presentation.Hud.Refresh();
+            Assert.Equal(AutoAttackState.Attacking, presentation.Hud.AutoAttackState);
+            Assert.Equal("attacking", presentation.UiData.Query("player.auto_attack.state")!.Value.AsString);
+
+            // 推进恰好一个挥击周期：武器秒伤 1000 远超目标 50 点生命上限，本次挥击必定致死。
+            var interval = gameplay.Carriers.Equipment.GetWeaponAttackIntervalSeconds(playerId)!.Value;
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(interval));
+            Assert.False(gameplay.Carriers.Units.IsAlive(targetId), "本用例要求武器秒伤足以一次挥击致死（1000 dps vs 50 hp）");
+
+            presentation.Hud.Refresh();
+            // 死亡已经由 Resolver 落地（IUnitAccess.SetAlive(false)）：TargetAlive 立即反映为 false。
+            Assert.False(presentation.Hud.TargetAlive);
+            // AutoAttackHost.Update 的"目标死亡"判定在下一次 Update 顶部才会观察到并清空 TargetId
+            // （tick 驱动、非全知同步，同 core/sim/tests/AutoAttackHostIntegrationTests.cs
+            // DisablingAutoAttack_StopsFurtherDamage_AndStateReturnsToNoTargetAfterTargetDies 判断
+            // 记录），致死那一 tick 内 AutoAttackHost 自身仍报 Attacking，不是本次改动引入的时序缺口。
+            Assert.Equal(AutoAttackState.Attacking, presentation.Hud.AutoAttackState);
+
+            // 再推进一小步收敛到 NoTarget。
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(0.01));
+            presentation.Hud.Refresh();
+            Assert.Equal(AutoAttackState.NoTarget, presentation.Hud.AutoAttackState);
+            Assert.Equal("no_target", presentation.UiData.Query("player.auto_attack.state")!.Value.AsString);
+
+            // 目标死亡后取消目标选中：口径回到"无目标"（null），与既有 TargetId 一致。
+            currentTarget = null;
+            presentation.Hud.Refresh();
+            Assert.Null(presentation.Hud.TargetAlive);
         }
     }
 }

@@ -533,15 +533,22 @@ namespace Presentation.Assembly
             // （光环状态本就是 skill 模块管理的数据，见 SkillHost.AuraQuery），供 Player/Target
             // PathProvider 的 auras.* 路径转发，不新增任何依赖边界。
             var auraQuery = gameplay.Carriers.Rules.Skill.AuraQuery;
+            // 消费方反馈第四批第 1/2 条（2026-09-21，ADR-0061）：AutoAttackHost 是 RulesAssembly 早已
+            // 暴露的公开属性（ADR-0059 交付时已接入装配，只是表现层此前没有路径转发），Units（
+            // IUnitAccess）本就是本装配根其它路径已经在用的既有依赖（见下方 TargetPathProvider 既有
+            // 传参）——两者都不新增任何依赖边界，只是补上 PlayerPathProvider/TargetPathProvider 这两
+            // 处此前没有转发的构造参数。
+            var autoAttackHost = gameplay.Carriers.Rules.AutoAttack;
             var providers = new IUiPathProvider[]
             {
                 new PlayerPathProvider(
                     _playerId, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
                     gameplay.Carriers.Rules.Progression, gameplay.Carriers.Inventory, gameplay.Carriers.Equipment,
-                    gameplay.Quest, gameplay.Economy, skillBookQuery, auraQuery),
+                    gameplay.Quest, gameplay.Economy, skillBookQuery, auraQuery,
+                    gameplay.Carriers.Units, autoAttackHost),
                 new TargetPathProvider(
                     opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
-                    gameplay.Carriers.Units, gameplay.Carriers.Creatures, skillBookQuery, auraQuery),
+                    gameplay.Carriers.Units, gameplay.Carriers.Creatures, skillBookQuery, auraQuery, autoAttackHost),
                 new UnitPathProvider(gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
             };
             var uiDataSource = new UiDataSource(bus, providers);
