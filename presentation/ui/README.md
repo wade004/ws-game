@@ -443,8 +443,8 @@ InteractionTargets)`（`CarriersAssembly` 新增的只读属性，见该模块 R
 从"命中较近的掉落物"正确回退到"命中较远的场景物件"，覆盖到最外层（视图模型/路径层），不停在
 装配代码中间层。
 
-消费方反馈第七批第 1 条（2026-09-22，[ADR-0065](../../architecture/adr/0065-死亡生物不是最近可
-交互目标的候选.md)）：`IInteractionTargetRegistry` 默认实现新增"生物类候选仅存活时成立"的判定
+消费方反馈第七批第 1 条（2026-09-22，[ADR-0065](../../architecture/adr/0065-死亡生物不是最近可交互目标的候选.md)）：
+`IInteractionTargetRegistry` 默认实现新增"生物类候选仅存活时成立"的判定
 （见 `core/carriers/assembly/README.md` 对应判断记录）后，本路径自动生效，不需要单独改动——新增
 `InteractPathProvider_DeadCreature_NotCandidate_NearestReturnsItsOwnLoot_AndPickupSucceeds`/
 `InteractPathProvider_DeadCreatureCloserThanLivingCreature_ReturnsLivingCreature` 两例覆盖到
