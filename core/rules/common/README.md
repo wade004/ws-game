@@ -261,3 +261,16 @@ common/
   各模块自己完成，本目录只提供解析结果落地时使用的目标类型（如 `EffectRef`/`SkillFilter`）。
 - 不提供 `IExprHostFactory` 的默认实现——本任务只声明接口，具体把 self/target/combat/enemies
   分组接到 `IUnitAccess`/`IStatHost`/`IPowerHost` 等契约上的工作留给集成任务。
+
+## 判断记录（普通攻击挥击周期查询，2026-09-21，architecture/adr/0059-普通攻击的框架原生执行机制.md）
+
+`IWeaponDamageQuery` 新增两个默认接口成员：`GetWeaponAttackIntervalSeconds(Id unitId)`（取已装备
+武器 `weapon_profile.speed`，未装备/无该数据时返回 `null`，惯例同既有 `GetWeaponDps`"缺失即
+`null`/`0`"处理）与 `GetWeaponSchool(Id unitId)`（取 `weapon_profile.weapon_school`，缺失返回
+`null`，调用方按 `CombatOptions.PhysicalSchool` 兜底）——两者均为纯新增默认成员，不改变该接口任何
+既有方法签名，`InterfaceDefaultMemberForwardingTests` 门禁要求全部实现者
+（`EquipmentHost`/`DeferredWeaponDamageQuery`）显式转发。新增 `IAttackIntervalFallbackProvider`
+（`GetAttackIntervalSeconds(Id unitId)`，惯例同既有 `IStaticImmunityProvider`）供未装备武器的
+生物按 `creature.template.attack_interval`（纯新增可选字段）回退，`NullAttackIntervalFallbackProvider`
+提供恒 `null` 的缺省实现。详见 `core/rules/combat/README.md`/`core/carriers/creature/README.md`
+对应判断记录。

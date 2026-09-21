@@ -1000,3 +1000,14 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（EquipmentHost 显式转发挥击周期/学派查询，2026-09-21，architecture/adr/0059-普通攻击的框架原生执行机制.md）
+
+`Core.Rules.Common.IWeaponDamageQuery` 新增两个默认接口成员
+`GetWeaponAttackIntervalSeconds`/`GetWeaponSchool`（详见 `core/rules/common/README.md` 对应判断
+记录）：`EquipmentHost` 按 `InterfaceDefaultMemberForwardingTests` 门禁要求显式实现——取法同既有
+`GetWeaponDps`（`TryGetFirstWeaponSlot` 找到的武器槽位对应 `WeaponProfile`），分别返回其
+`Speed`/`WeaponSchool`；未装备任何武器槽（或该槽没有 `WeaponProfile`）时两者均返回 `null`，与既有
+"无武器则无武器伤害贡献"同一"缺失即 `null`"口径，不抛异常、不返回 `0`（`0` 秒挥击间隔没有安全的
+计时器语义）。供 `Core.Rules.Combat.AutoAttackHost` 消费，见 `core/rules/combat/README.md` 对应
+判断记录。

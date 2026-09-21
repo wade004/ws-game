@@ -133,6 +133,23 @@ namespace Core.Rules.Assembly
         /// <c>weapon_damage_pct</c> 效果按"无武器"处理（返回 0，见该接口方法注释）。</summary>
         public DeferredWeaponDamageQuery WeaponDamageQuery { get; }
 
+        /// <summary>ADR-0059：<see cref="AutoAttack"/> 内部持有的
+        /// <see cref="Core.Rules.Common.IAttackIntervalFallbackProvider"/> 延迟绑定代理（见
+        /// <see cref="DeferredAttackIntervalProvider"/> 判断记录——真实实现
+        /// <c>core/carriers/creature.CreatureAttackIntervalProvider</c> 要等 <c>CarriersAssembly</c>
+        /// 构造出 <c>Creatures</c>（<c>ICreatureTemplateQuery</c> 的实现方）之后才能装配出来，本
+        /// 属性供调用方（<c>CarriersAssembly</c>）在那之后调
+        /// <see cref="DeferredAttackIntervalProvider.Bind"/> 换上真实实现）。未绑定期间无武器的
+        /// 普通攻击攻击者一律按"没有回退攻击间隔"处理（同该接口默认实现语义，见
+        /// <see cref="Core.Rules.Common.NullAttackIntervalFallbackProvider"/>）。</summary>
+        public DeferredAttackIntervalProvider AttackIntervalFallback { get; }
+
+        /// <summary>ADR-0059（消费方反馈第三批第 5 条"普通攻击缺少框架原生执行机制"）：普通攻击的
+        /// 框架原生一等执行路径，见 <see cref="AutoAttackHost"/> 类型注释。随
+        /// <see cref="RegisterTickHandlers"/> 一并挂载到 <see cref="TickPhase.CombatResolution"/>
+        /// （见 <see cref="AutoAttackTickHandler"/>）。</summary>
+        public AutoAttackHost AutoAttack { get; }
+
         // -----------------------------------------------------------------
         // time：simTimeProvider/combatStartTimeProvider（见 README"时间来源"一节）
         // -----------------------------------------------------------------
@@ -260,6 +277,7 @@ namespace Core.Rules.Assembly
             }
 
             WeaponDamageQuery = new DeferredWeaponDamageQuery();
+            AttackIntervalFallback = new DeferredAttackIntervalProvider();
 
             TrackSimTime();
 
@@ -515,6 +533,20 @@ namespace Core.Rules.Assembly
             deferredAuras.Bind(Skill.AuraQuery);
             deferredSkillHost.Bind(Skill);
 
+            // -------------------------------------------------------------
+            // ADR-0059（消费方反馈第三批第 5 条"普通攻击缺少框架原生执行机制"）：AutoAttackHost 需要
+            // 一份真实绑定后的 IAuraQuery（deferredAuras 此刻已经 Bind 到 Skill.AuraQuery，见上一行）
+            // 与 Skill.EffectSink（真正的 EffectDispatcher），因此放在这两步之后构造——与
+            // AuraHandles/movement 中断订阅同样"必须等 Skill 构造完成"的既有惯例一致。
+            // WeaponDamageQuery/AttackIntervalFallback 两个延迟绑定代理此刻可能仍未绑定真实实现
+            // （CarriersAssembly 后续步骤才会 Bind），这是安全的——AutoAttackHost.Update 只在真正
+            // 调用时才读取它们（同 EffectDispatcher 对 WeaponDamageQuery 的既有用法），不在构造期
+            // 缓存查询结果。
+            // -------------------------------------------------------------
+            AutoAttack = new AutoAttackHost(
+                Units, deferredAuras, Skill.EffectSink, WeaponDamageQuery, resolvedCombatOptions.PhysicalSchool,
+                attackIntervalFallback: AttackIntervalFallback, diagnostics: Combat.Diagnostics);
+
             // T-N4-9（ADR-0034 决策 7；拍板 9）：CombatOptions.DismountMountAuras 窄委托——
             // Skill.AuraQuery 运行期确实是 AuraHost（真实装配的唯一实现，测试替身可能不是）时才
             // 接线到 AuraHost.Dispel（真正的"按 dispel_type 批量移除光环"能力），防御性 is 模式
@@ -567,6 +599,10 @@ namespace Core.Rules.Assembly
             World.RegisterPhaseHandler(TickPhase.AiDecision, new AiTickHandler(Ai));
             World.RegisterPhaseHandler(TickPhase.SkillPipeline, new SkillTickHandler(Skill, bus: Bus));
             World.RegisterPhaseHandler(TickPhase.CombatResolution, new CombatTickHandler(Combat, bus: Bus));
+            // ADR-0059：普通攻击挥击计时随 CombatResolution 阶段一起推进，排在既有 CombatTickHandler
+            // 之后（脱战判定先算，普通攻击的伤害结算后发生在同一 tick 内，先后顺序不影响正确性——
+            // 两者读写的状态互不重叠，见 AutoAttackTickHandler 类型判断记录）。
+            World.RegisterPhaseHandler(TickPhase.CombatResolution, new AutoAttackTickHandler(AutoAttack));
             var powerTickHandler = new PowerTickHandler(Powers);
             PowerDiagnostics = powerTickHandler.Diagnostics;
             World.RegisterPhaseHandler(TickPhase.TriggerEvaluation, powerTickHandler);

@@ -258,3 +258,18 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
 - T-N6-3b：不实现任何具体的等级缩放算法（如按锚点表插值）——本模块只声明窄接口
   `ICreatureLevelScaler` 并在未注入时退化为"属性不变"，真正的锚点表数据与插值算法归上层模块
   `core/sim`，装配期反向注入，见判断记录 10。
+
+## 判断记录（生物模板新增 attack_interval 挥击间隔回退字段，2026-09-21，architecture/adr/0059-普通攻击的框架原生执行机制.md）
+
+`creature.template` 新增可选字段 `attack_interval`（`FieldKind.Number`，非必填，`min` 严格大于
+0，纯新增字段，不提升该表 `currentSchemaVersion`，不需要迁移函数）——供未装备武器的生物（本模块
+不给生物提供武器槽装备机制）声明一个固定的普通攻击挥击间隔（秒）。新增
+`CreatureAttackIntervalProvider`（`Core.Rules.Common.IAttackIntervalFallbackProvider` 的 L3
+实现）：按 `IWorldSim.GetEntity` 取 `CreatureUnit`、按其 `TemplateId` 查
+`ICreatureTemplateQuery.Get(...).AttackInterval`，取不到（非生物单位、模板未声明该字段、模板 id
+未登记）时返回 `null`，不抛异常。经 `Core.Rules.Assembly.DeferredAttackIntervalProvider`（延迟
+绑定代理，惯例同既有 `DeferredWeaponDamageQuery`）在 `CarriersAssembly` 构造完成后换上真实实现——
+`RulesAssembly` 构造期需要一份 `IAttackIntervalFallbackProvider` 才能装配 `AutoAttackHost`，但
+`CreatureFactory`/`ICreatureTemplateQuery` 的真实实现要等 `CarriersAssembly` 组装完成之后才存在，
+同类循环见 `IStaticImmunityProvider`/`CreatureImmunityProvider` 判断记录。详见
+`core/rules/combat/README.md` 对应判断记录。

@@ -40,5 +40,15 @@ namespace Core.Rules.Assembly
         /// 不是"悄悄吃掉默认值"（<c>Tests.Presentation.Assembly.
         /// InterfaceDefaultMemberForwardingTests</c> 门禁要求组合/代理实现必须显式转发）。</summary>
         public double GetWeaponDps(Id unitId) => _real?.GetWeaponDps(unitId) ?? 0.0;
+
+        /// <summary>ADR-0059：显式转发 <see cref="IWeaponDamageQuery.GetWeaponAttackIntervalSeconds"/>
+        /// （新增的带默认实现接口成员）——同 <see cref="GetWeaponDps"/> 惯例，<see cref="Bind"/> 之前
+        /// 调用返回 <c>null</c>（与接口默认值/"未装备"语义一致），不是"悄悄吃掉默认值"（<c>Tests
+        /// .Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c> 门禁要求）。</summary>
+        public double? GetWeaponAttackIntervalSeconds(Id unitId) => _real?.GetWeaponAttackIntervalSeconds(unitId);
+
+        /// <summary>ADR-0059：显式转发 <see cref="IWeaponDamageQuery.GetWeaponSchool"/>，惯例同
+        /// <see cref="GetWeaponAttackIntervalSeconds"/>。</summary>
+        public Id? GetWeaponSchool(Id unitId) => _real?.GetWeaponSchool(unitId);
     }
 }
