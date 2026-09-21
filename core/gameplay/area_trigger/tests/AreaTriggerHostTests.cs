@@ -307,6 +307,139 @@ namespace Tests.Gameplay.AreaTrigger
         }
 
         // -----------------------------------------------------------------
+        // ADR-0066（消费方反馈第九批，阻塞）：GetActiveTriggerIds 权威状态查询。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GetActiveTriggerIds_NotInAnyTrigger_ReturnsEmpty()
+        {
+            var (host, _, _, _) = NewHost();
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"))));
+
+            Assert.Empty(host.GetActiveTriggerIds(new Id("unit.sample_player")));
+        }
+
+        [Fact]
+        public void GetActiveTriggerIds_OrderedByEntryOrder_NotByIdSortOrder()
+        {
+            var (host, _, _, _) = NewHost();
+            // 刻意让 id 字母序（a_inner < z_outer）与真实进入先后相反：z_outer 半径 10 先被进入，
+            // a_inner 半径 3 后被进入——若实现误按 SortedDictionary 遍历序（即 Id 字典序）而不是
+            // 真正的进入序号排序，这条用例会得到 [a_inner, z_outer]，与预期 [z_outer, a_inner] 不同。
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.z_outer", "world.sample_map", radius: 10))));
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.a_inner", "world.sample_map", radius: 3))));
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(8, 0)); // 只在 z_outer 范围内（半径 10，不在半径 3 内）
+            host.Evaluate(unit, new Vec2(0, 0)); // 同时落入 a_inner，z_outer 仍在范围内不重新进入
+
+            Assert.Equal(
+                new[] { new Id("area.z_outer"), new Id("area.a_inner") },
+                host.GetActiveTriggerIds(unit));
+        }
+
+        [Fact]
+        public void GetActiveTriggerIds_LeavingInnerTrigger_FallsBackToOuterOnly()
+        {
+            var (host, _, _, _) = NewHost();
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.z_outer", "world.sample_map", radius: 10))));
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.a_inner", "world.sample_map", radius: 3))));
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(8, 0)); // 进入 z_outer
+            host.Evaluate(unit, new Vec2(0, 0)); // 进入 a_inner（仍在 z_outer 内）
+            host.Evaluate(unit, new Vec2(8, 0)); // 离开 a_inner，仍在 z_outer 内
+
+            Assert.Equal(new[] { new Id("area.z_outer") }, host.GetActiveTriggerIds(unit));
+        }
+
+        [Fact]
+        public void GetActiveTriggerIds_IncludesTraps()
+        {
+            var (host, _, _, options) = NewHost();
+            options.TrapTrigger = (_, _) => { };
+            var shape = Core.Foundation.EngineAdapter.Shape.Circle(Vec2.Zero, 3);
+            var trapId = host.RegisterTrap(new Id("gobj.sample_trap"), shape, Map);
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(0, 0));
+
+            Assert.Equal(new[] { trapId }, host.GetActiveTriggerIds(unit));
+        }
+
+        [Fact]
+        public void GetActiveTriggerIds_MultipleUnits_IndependentOrder()
+        {
+            var (host, _, _, _) = NewHost();
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"))));
+
+            var unitA = new Id("unit.sample_a");
+            var unitB = new Id("unit.sample_b");
+            host.Evaluate(unitA, new Vec2(0, 0));
+
+            Assert.Equal(new[] { new Id("area.sample_grove") }, host.GetActiveTriggerIds(unitA));
+            Assert.Empty(host.GetActiveTriggerIds(unitB));
+        }
+
+        [Fact]
+        public void GetActiveTriggerIds_Unregister_RemovesStaleEntry()
+        {
+            var (host, _, _, _) = NewHost();
+            var triggerId = host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"))));
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(0, 0));
+            Assert.Equal(new[] { triggerId }, host.GetActiveTriggerIds(unit));
+
+            host.Unregister(triggerId);
+
+            Assert.Empty(host.GetActiveTriggerIds(unit));
+        }
+
+        [Fact]
+        public void GetActiveTriggerIds_UnloadMap_RemovesStaleEntry()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var registry = AreaTriggerTestSupport.BuildRegistry(bus,
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"));
+            registry.LoadAll();
+
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+            host.LoadForMap(new Id("world.sample_map"), registry);
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(0, 0));
+            Assert.Equal(new[] { new Id("area.sample_grove") }, host.GetActiveTriggerIds(unit));
+
+            host.UnloadMap(new Id("world.sample_map"));
+
+            Assert.Empty(host.GetActiveTriggerIds(unit));
+        }
+
+        [Fact]
+        public void IAreaTriggerHost_GetActiveTriggerIds_ForwardsToHost()
+        {
+            var (host, _, _, _) = NewHost();
+            host.Register(AreaTriggerDef.FromRecord(RecordOf(
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"))));
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(0, 0));
+
+            IAreaTriggerHost iface = host;
+            Assert.Equal(new[] { new Id("area.sample_grove") }, iface.GetActiveTriggerIds(unit));
+        }
+
+        // -----------------------------------------------------------------
         // 加固任务：AreaTrigger 从"纯数据记录 + 宿主字典"改为真正的 Entity 子类
         // （见 core/gameplay/area_trigger/contracts/AreaTriggerEntity.cs）。
         // -----------------------------------------------------------------

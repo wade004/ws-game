@@ -1,17 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Carriers.Common;
 using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
 using Core.Foundation.InputMap;
 using Core.Foundation.Localization;
 using Core.Foundation.SimLoop;
+using Core.Gameplay.AreaTrigger;
 using Core.Gameplay.Dialog;
 using Core.Gameplay.Economy;
 using Core.Gameplay.Quest;
+using Core.Gameplay.WorldState;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
 using Core.Numbers.StatBlock;
@@ -836,6 +841,47 @@ namespace Tests.PresentationUi
     }
 
     /// <summary>
+    /// 消费方反馈第九批（阻塞，2026-09-22，ADR-0066）测试用最小 <see cref="IExprHostFactory"/> 假实现：
+    /// 本模块 <c>player.area.*</c> 用例的 <c>area.trigger_def</c> 测试数据均不带 <c>condition</c>
+    /// 字段，<c>AreaTriggerHost.ConditionPasses</c> 在 <c>ConditionNode == null</c> 时直接短路返回
+    /// <c>true</c>、从不调用 <see cref="CreateFor"/>（见该方法源码）——这里给一个不会被真正调用的最小
+    /// 占位实现，仅用于满足 <see cref="AreaTriggerHost"/> 构造函数的非空参数要求。</summary>
+    internal sealed class NullExprHostFactory : IExprHostFactory
+    {
+        private sealed class Host : IExprHost
+        {
+            public ExprValue Query(string group, string key, IReadOnlyList<ExprValue> args) =>
+                throw new NotSupportedException("测试数据不带 condition，不应调用到这里。");
+        }
+
+        public IExprHost CreateFor(Id selfId, Id? targetId, IEvent? triggeringEvent) => new Host();
+    }
+
+    /// <summary>消费方反馈第九批（阻塞，ADR-0066）测试用最小 <see cref="IEffectSink"/> 假实现：本模块
+    /// <c>player.area.*</c> 用例只驱动 <c>AreaTriggerHost.Evaluate</c>，从不触发普通攻击真正挥击，
+    /// 全部方法不应被调用到——<see cref="Core.Rules.Combat.AutoAttackHost"/> 构造要求非空实例，仅此
+    /// 而已。</summary>
+    internal sealed class NullEffectSink : IEffectSink
+    {
+        public ResolveResult ApplyEffect(EffectContext context) =>
+            throw new NotSupportedException("测试不驱动普通攻击挥击，不应调用到这里。");
+
+        public AuraInstanceRef ApplyAura(Id targetId, Id auraDefId, Id sourceId, double? durationOverride = null) =>
+            throw new NotSupportedException("测试不驱动普通攻击挥击，不应调用到这里。");
+
+        public void RemoveAura(Id targetId, AuraInstanceRef auraInstanceRef) =>
+            throw new NotSupportedException("测试不驱动普通攻击挥击，不应调用到这里。");
+    }
+
+    /// <summary>同 <see cref="NullEffectSink"/> 判断记录：<see cref="Core.Rules.Combat.AutoAttackHost"/>
+    /// 构造要求的最小 <see cref="IWeaponDamageQuery"/> 占位实现，恒返回"无武器"（0 伤害），
+    /// <c>player.area.*</c> 用例不关心普通攻击伤害数值。</summary>
+    internal sealed class NullWeaponDamageQuery : IWeaponDamageQuery
+    {
+        public double GetWeaponBaseDamage(Id unitId) => 0.0;
+    }
+
+    /// <summary>
     /// 组装一份完整的 <see cref="UiDataSource"/>（含三个 <see cref="IUiPathProvider"/>）与它背后
     /// 全部 Fake 宿主，供 <c>UiDataSourceTests</c>/<c>ViewModelTests</c> 共用，避免每条测试各自
     /// 重复一遍构造样板。
@@ -865,6 +911,16 @@ namespace Tests.PresentationUi
 
         public Id? CurrentTarget;
 
+        /// <summary>消费方反馈第九批（阻塞，ADR-0066）：<paramref name="withAreaTrigger"/> 为
+        /// <c>true</c> 时非空——真实 <see cref="AreaTriggerHost"/>（经 <see cref="PlayerId"/> 的
+        /// <c>Evaluate</c> 驱动进入/离开），供 <c>player.area.*</c> 用例调用。</summary>
+        public readonly AreaTriggerHost? AreaTrigger;
+
+        /// <summary>同上：<paramref name="withAreaTrigger"/> 为 <c>true</c> 时非空——承载
+        /// <c>area.trigger_def</c> 测试数据的真实 <see cref="IDataRegistry"/>，经
+        /// <see cref="AddAreaTrigger"/> 添加行后需要调用方自行 <see cref="IDataRegistry.LoadAll"/>。</summary>
+        public readonly IDataRegistry? AreaTriggerData;
+
         public readonly UiDataSource DataSource;
 
         /// <summary>消费方反馈第三批第 2 条（2026-09-21，ADR-0057）：<paramref name="skillBookForPathProvider"/>
@@ -874,23 +930,99 @@ namespace Tests.PresentationUi
         /// &lt;id&gt;.cooldown</c> 路径与 <c>ActionBarViewModel</c> 的 <c>skillCatalog</c> 参数读到
         /// 同一个真实 <see cref="Core.Rules.Skill.CooldownTracker"/> 实例（见
         /// <see cref="RealCooldownSkillBookQuery"/>），因此需要覆盖这里，<see cref="SkillBook"/>
-        /// 字段本身不受影响，仍可用于其它既有测试。</summary>
-        public UiWorldFixture(ISkillBookQuery? skillBookForPathProvider = null)
+        /// 字段本身不受影响，仍可用于其它既有测试。
+        /// <para>
+        /// 消费方反馈第九批（阻塞，ADR-0066）：<paramref name="areaTriggerRows"/> 非空（含空数组）时
+        /// 额外构造一份真实 <see cref="AreaTriggerHost"/> + <see cref="IDataRegistry"/>（见
+        /// <see cref="AreaTrigger"/>/<see cref="AreaTriggerData"/>），把全部行一次性加载进注册表并按
+        /// <see cref="DefaultMapId"/> 登记进宿主，再把宿主/注册表传给 <see cref="PlayerPathProvider"/>
+        /// 十四参数重载——用真实宿主/真实数据而不是 Fake，是因为"当前区域"定义本身就是
+        /// <c>GetActiveTriggerIds</c> 的进入序号排序 + <c>area.trigger_def</c> 的 <c>name_key</c>
+        /// 过滤这两处真实实现的组合，Fake 化会测不到这套组合逻辑本身；一次性加载（而不是像
+        /// <c>core/gameplay/area_trigger/tests</c> 那样逐条 <c>Register</c>）是因为这里额外需要一份
+        /// 可供 <see cref="PlayerPathProvider"/> 按 id 反查 <c>name_key</c> 的注册表，让 <c>host.
+        /// LoadForMap</c> 与该注册表读到同一份数据，与生产装配（<c>PresentationAssembly</c> 用同一个
+        /// <c>registry</c> 实例喂 <c>GameplayAssembly.AreaTrigger.LoadForMap</c> 与
+        /// <c>PlayerPathProvider</c>）同一处理口径。默认 <c>null</c> 时与改动前逐字节一致（不装配
+        /// <c>area.*</c> 路径，查询恒为"无"）。
+        /// </para>
+        /// </summary>
+        public UiWorldFixture(ISkillBookQuery? skillBookForPathProvider = null, IReadOnlyList<JsonObject>? areaTriggerRows = null)
         {
             SkillBindings = new Core.Carriers.Unit.SkillBindingHost(EventBus, (_, __) => true);
 
             StatHost.RegisterUnit(PlayerId);
             StatHost.RegisterUnit(TargetId);
 
-            var playerProvider = new PlayerPathProvider(
-                PlayerId, StatHost, PowerHost, Progression, Inventory, Equipment, Quest, Economy,
-                skillBookForPathProvider ?? SkillBook, AuraQuery);
+            IUiPathProvider playerProvider;
+            if (areaTriggerRows != null)
+            {
+                var source = new InMemoryDataSource();
+                var root = new JsonObjectBuilder()
+                    .Add("table", new JsonString(AreaTriggerSchemas.TriggerDef.Name))
+                    .Add("schema_version", new JsonNumber(1))
+                    .Add("rows", new JsonArray(areaTriggerRows.Cast<JsonValue>()))
+                    .Build();
+                source.Add(AreaTriggerSchemas.TriggerDef.Name, JsonWriter.Write(root));
+
+                var registry = new DataRegistry(source, EventBus, new DataRegistryOptions { FailOnUnknownTable = false });
+                registry.RegisterSchema(AreaTriggerSchemas.TriggerDef);
+                var report = registry.LoadAll();
+                if (report.IsBlocking)
+                {
+                    throw new InvalidOperationException(
+                        "UiWorldFixture 的 area.trigger_def 测试数据未通过校验：\n" +
+                        string.Join("\n", report.Issues.Select(i => i.ToString())));
+                }
+
+                AreaTriggerData = registry;
+
+                var worldSim = new WorldSim(EventBus);
+                var worldState = new WorldState(EventBus);
+                AreaTrigger = new AreaTriggerHost(worldSim, worldState, EventBus, new NullExprHostFactory());
+                AreaTrigger.LoadForMap(DefaultMapId, registry);
+
+                var autoAttackHost = new Core.Rules.Combat.AutoAttackHost(
+                    UnitAccess, AuraQuery, new NullEffectSink(), new NullWeaponDamageQuery(), new Id("school.physical"));
+                playerProvider = new PlayerPathProvider(
+                    PlayerId, StatHost, PowerHost, Progression, Inventory, Equipment, Quest, Economy,
+                    skillBookForPathProvider ?? SkillBook, AuraQuery, UnitAccess,
+                    autoAttackHost, AreaTrigger, AreaTriggerData);
+            }
+            else
+            {
+                playerProvider = new PlayerPathProvider(
+                    PlayerId, StatHost, PowerHost, Progression, Inventory, Equipment, Quest, Economy,
+                    skillBookForPathProvider ?? SkillBook, AuraQuery);
+            }
+
             var targetProvider = new TargetPathProvider(
                 () => CurrentTarget, StatHost, PowerHost, UnitAccess, CreatureTemplates, SkillBook, AuraQuery);
             var unitProvider = new UnitPathProvider(StatHost, PowerHost);
 
             DataSource = new UiDataSource(EventBus, new IUiPathProvider[] { playerProvider, targetProvider, unitProvider }, Diagnostics);
         }
+
+        /// <summary>见 <see cref="AreaTrigger"/> 判断记录：本夹具全部 <c>area.trigger_def</c> 测试行
+        /// 固定挂在同一张地图下，<see cref="AreaTriggerRow"/> 不需要每条用例重复传 map_id。</summary>
+        public static readonly Id DefaultMapId = new Id("world.sample_map");
+
+        /// <summary>见 <see cref="AreaTriggerData"/> 判断记录：<c>area.trigger_def</c> 测试行——圆形
+        /// 范围，圆心固定 (0,0)，半径/是否有显示名可调，惯例同
+        /// <c>core/gameplay/area_trigger/tests/TestSupport.AreaTriggerTestSupport.QuestExploreRow</c>。</summary>
+        public static JsonObject AreaTriggerRow(string id, double radius, string? nameKey) =>
+            new JsonObjectBuilder()
+                .Add("id", new JsonString(id))
+                .Add("map_id", new JsonString(DefaultMapId.Value))
+                .Add("shape", new JsonObjectBuilder()
+                    .Add("kind", new JsonString("circle"))
+                    .Add("radius", new JsonNumber(radius))
+                    .Add("center", new JsonObjectBuilder().Add("x", new JsonNumber(0)).Add("y", new JsonNumber(0)).Build())
+                    .Build())
+                .Add("trigger_type", new JsonString("quest_explore"))
+                .Add("params", new JsonObjectBuilder().Build())
+                .Add("name_key", nameKey == null ? (JsonValue)JsonNull.Instance : new JsonString(nameKey))
+                .Build();
     }
 
     /// <summary>记录型 <see cref="IWorldSim"/>：只实现 <see cref="UiIntents"/> 实际用到的

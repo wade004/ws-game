@@ -401,6 +401,84 @@ namespace Tests.PresentationUi
             Assert.Equal(2.0, world.DataSource.Query("target.auras[0].remaining")!.Value.AsNumber);
         }
 
+        // -----------------------------------------------------------------
+        // 消费方反馈第九批（阻塞，2026-09-22，ADR-0066）：player.area.id / player.area.name_key。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Query_player_area_without_area_trigger_wiring_returns_null()
+        {
+            // UiWorldFixture 默认（不传 areaTriggerRows）不装配 area.* 路径依赖，与改动前逐字节一致。
+            var world = new UiWorldFixture();
+
+            Assert.Null(world.DataSource.Query("player.area.id"));
+            Assert.Null(world.DataSource.Query("player.area.name_key"));
+        }
+
+        [Fact]
+        public void Query_player_area_not_in_any_trigger_returns_null()
+        {
+            var world = new UiWorldFixture(areaTriggerRows: new[]
+            {
+                UiWorldFixture.AreaTriggerRow("area.sample_grove", radius: 5, nameKey: "l10n.area.sample_grove.name"),
+            });
+
+            Assert.Null(world.DataSource.Query("player.area.id"));
+            Assert.Null(world.DataSource.Query("player.area.name_key"));
+        }
+
+        [Fact]
+        public void Query_player_area_reports_named_area_when_inside()
+        {
+            var world = new UiWorldFixture(areaTriggerRows: new[]
+            {
+                UiWorldFixture.AreaTriggerRow("area.sample_grove", radius: 5, nameKey: "l10n.area.sample_grove.name"),
+            });
+
+            world.AreaTrigger!.Evaluate(world.PlayerId, new Vec2(0, 0));
+
+            Assert.Equal(new Id("area.sample_grove"), world.DataSource.Query("player.area.id")!.Value.AsId);
+            Assert.Equal(new Id("l10n.area.sample_grove.name"), world.DataSource.Query("player.area.name_key")!.Value.AsId);
+        }
+
+        /// <summary>ADR-0066 决策 2："当前区域"跳过没有配置显示名的触发——内层触发没有
+        /// <c>name_key</c> 时，即便它是最近进入的，也不改变"当前区域"仍是外层那个有名区域的结论。</summary>
+        [Fact]
+        public void Query_player_area_skips_unnamed_inner_trigger()
+        {
+            var world = new UiWorldFixture(areaTriggerRows: new[]
+            {
+                UiWorldFixture.AreaTriggerRow("area.z_outer", radius: 10, nameKey: "l10n.area.z_outer.name"),
+                UiWorldFixture.AreaTriggerRow("area.a_unnamed_inner", radius: 3, nameKey: null),
+            });
+
+            world.AreaTrigger!.Evaluate(world.PlayerId, new Vec2(8, 0)); // 只进入 z_outer
+            world.AreaTrigger.Evaluate(world.PlayerId, new Vec2(0, 0)); // 同时进入无名的 a_unnamed_inner
+
+            Assert.Equal(new Id("area.z_outer"), world.DataSource.Query("player.area.id")!.Value.AsId);
+            Assert.Equal(new Id("l10n.area.z_outer.name"), world.DataSource.Query("player.area.name_key")!.Value.AsId);
+        }
+
+        /// <summary>ADR-0066 决策 2："重叠区域时离开内层区域 → 当前区域回落到外层"。</summary>
+        [Fact]
+        public void Query_player_area_leaving_inner_named_trigger_falls_back_to_outer()
+        {
+            var world = new UiWorldFixture(areaTriggerRows: new[]
+            {
+                UiWorldFixture.AreaTriggerRow("area.z_outer", radius: 10, nameKey: "l10n.area.z_outer.name"),
+                UiWorldFixture.AreaTriggerRow("area.a_inner", radius: 3, nameKey: "l10n.area.a_inner.name"),
+            });
+
+            world.AreaTrigger!.Evaluate(world.PlayerId, new Vec2(8, 0)); // 进入 z_outer
+            world.AreaTrigger.Evaluate(world.PlayerId, new Vec2(0, 0)); // 进入 a_inner，当前区域应为 a_inner
+            Assert.Equal(new Id("area.a_inner"), world.DataSource.Query("player.area.id")!.Value.AsId);
+
+            world.AreaTrigger.Evaluate(world.PlayerId, new Vec2(8, 0)); // 离开 a_inner，仍在 z_outer 内
+
+            Assert.Equal(new Id("area.z_outer"), world.DataSource.Query("player.area.id")!.Value.AsId);
+            Assert.Equal(new Id("l10n.area.z_outer.name"), world.DataSource.Query("player.area.name_key")!.Value.AsId);
+        }
+
         [Fact]
         public void Subscribe_forwards_to_event_bus_and_fires_on_publish()
         {

@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
 using Core.Carriers.Common;
+using Core.Gameplay.AreaTrigger;
 using Core.Gameplay.Economy;
 using Core.Gameplay.Quest;
 using Core.Numbers.PowerSet;
@@ -45,6 +47,8 @@ namespace Presentation.Ui
         private readonly IAuraQuery? _auraQuery;
         private readonly IUnitAccess? _unitAccess;
         private readonly AutoAttackHost? _autoAttackHost;
+        private readonly IAreaTriggerHost? _areaTriggerHost;
+        private readonly IDataRegistryView? _areaTriggerData;
 
         public PlayerPathProvider(
             Id playerId,
@@ -121,6 +125,35 @@ namespace Presentation.Ui
             _autoAttackHost = autoAttackHost ?? throw new ArgumentNullException(nameof(autoAttackHost));
         }
 
+        /// <summary>
+        /// 消费方反馈（游戏接入方第九批，阻塞，2026-09-22，ADR-0066）新增重载：携带
+        /// <see cref="_areaTriggerHost"/>/<see cref="_areaTriggerData"/>，才能解答
+        /// <c>player.area.id</c>/<c>player.area.name_key</c>（见 <see cref="ResolveArea"/> 判断记录）。
+        /// 判断记录（新增重载而不是给既有构造函数追加可选参数，惯例同上面两个既有重载）：本重载十四个
+        /// 参数全部不带默认值，与既有三个构造函数（分别恰好九、十、十二个参数）参数个数不重叠，互不
+        /// 冲突，不改变任何既有构造函数的物理签名。
+        /// </summary>
+        public PlayerPathProvider(
+            Id playerId,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IProgressionHost progression,
+            IInventoryHost inventory,
+            IEquipmentHost equipment,
+            IQuestHost quest,
+            IEconomyHost economy,
+            ISkillBookQuery skillBook,
+            IAuraQuery auraQuery,
+            IUnitAccess unitAccess,
+            AutoAttackHost autoAttackHost,
+            IAreaTriggerHost areaTriggerHost,
+            IDataRegistryView areaTriggerData)
+            : this(playerId, statHost, powerHost, progression, inventory, equipment, quest, economy, skillBook, auraQuery, unitAccess, autoAttackHost)
+        {
+            _areaTriggerHost = areaTriggerHost ?? throw new ArgumentNullException(nameof(areaTriggerHost));
+            _areaTriggerData = areaTriggerData ?? throw new ArgumentNullException(nameof(areaTriggerData));
+        }
+
         public string Root => "player";
 
         public ExprValue? Resolve(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)
@@ -164,6 +197,8 @@ namespace Presentation.Ui
                     return UnitSubQueries.Alive(_playerId, _unitAccess, remaining, fullPath, diagnostics);
                 case "auto_attack":
                     return UnitSubQueries.AutoAttack(_playerId, _autoAttackHost, remaining, fullPath, diagnostics);
+                case "area":
+                    return ResolveArea(remaining, fullPath, diagnostics);
                 default:
                     diagnostics.Warn($"UI 路径 \"{fullPath}\" 的子路径关键字 \"{head.Name}\" 未知");
                     return null;
@@ -352,6 +387,84 @@ namespace Presentation.Ui
             }
 
             return ExprValue.OfInt(_economy.GetBalance(_playerId, currencyId));
+        }
+
+        /// <summary>
+        /// <c>player.area.id</c>/<c>player.area.name_key</c>（消费方反馈第九批，ADR-0066）："当前
+        /// 区域"定义见 <see cref="ResolveCurrentArea"/> 判断记录——两条子路径共用同一次解析结果，
+        /// 只是取其中一个分量。惯例同 <see cref="ResolveEquipment"/>/<see cref="ResolveQuest"/>"末段
+        /// 保留关键字"，但 <c>area</c> 之下只有 <c>id</c>/<c>name_key</c> 两个固定叶子，不像
+        /// <c>equipment</c>/<c>quest</c> 那样中间还夹着一段可变长度的 Id 片段，因此不复用
+        /// <c>UnitSubQueries.TryBuildId</c> 那套拼接逻辑，直接按固定两段解析。
+        /// </summary>
+        private ExprValue? ResolveArea(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)
+        {
+            if (remaining.Count != 2 || remaining[1].Index.HasValue)
+            {
+                diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 area 子路径必须是 \"area.id\" 或 \"area.name_key\"");
+                return null;
+            }
+
+            var (areaId, nameKey) = ResolveCurrentArea();
+            switch (remaining[1].Name)
+            {
+                case "id":
+                    return areaId.HasValue ? ExprValue.OfId(areaId.Value) : (ExprValue?)null;
+                case "name_key":
+                    return nameKey.HasValue ? ExprValue.OfId(nameKey.Value) : (ExprValue?)null;
+                default:
+                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 area 子路径末段必须是 \"id\" 或 \"name_key\"，实际 \"{remaining[1].Name}\"");
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// "当前区域"定义（ADR-0066 决策 2）：<see cref="_areaTriggerHost"/>.<c>GetActiveTriggerIds</c>
+        /// 按进入先后返回玩家当前所在的全部触发区域 id（见该方法判断记录，列表末尾是最近进入的）；
+        /// 从末尾向前找第一个在 <c>area.trigger_def</c>（<see cref="_areaTriggerData"/>）里有对应记录、
+        /// 且 <c>name_key</c> 字段非空的 id——只有它算"当前区域"。
+        /// <para>
+        /// 判断记录（用 <c>name_key</c> 是否非空作"是不是一个地名区域"的判别字段，不新增字段）：
+        /// <see cref="AreaTriggerDef.NameKey"/>（<c>Id?</c>）已经是"该触发体是否配置了显示名"的天然
+        /// 信号——陷阱（<c>RegisterTrap</c> 动态登记，不产生 <c>area.trigger_def</c> 记录）、以及数据
+        /// 里未填 <c>name_key</c> 的任务探索点/纯逻辑触发，天然在这一步被跳过，不需要另外新增
+        /// <c>TriggerType</c> 判别或专门的"是否地名"布尔字段——四种 <c>trigger_type</c>
+        /// （<c>map_transition</c>/<c>quest_explore</c>/<c>encounter_start</c>/<c>script</c>）都不
+        /// 天然对应"这是不是一块给玩家看的地名区域"，唯独 <c>name_key</c> 是内容作者显式为"要不要显示
+        /// 这块区域的名字"做出的选择，语义上最贴切，见 ADR-0066"决策"一节。
+        /// </para>
+        /// <para>
+        /// 判断记录（不缓存 <c>AreaTriggerDef.FromRecord</c> 的完整解析结果，只读 <c>name_key</c> 一个
+        /// 字段）：本方法只需要判断"是否配置了显示名"与取出该文本键，不需要 <c>AreaTriggerDef</c> 其余
+        /// 字段（形状、触发类型、params 等）；<c>AreaTriggerDef.FromRecord</c> 是校验期/运行期登记共用
+        /// 的强类型视图，构造期对 <c>shape</c>/<c>trigger_type</c>/<c>params</c> 做合法性检查并可能
+        /// 抛 <see cref="Core.Foundation.DataRegistry.DataFieldException"/>——这里只读一个可选字段，
+        /// 直接用 <c>DataRecord.TryGetId</c>（同 <c>AreaTriggerDef.FromRecord</c> 内部读取
+        /// <c>name_key</c> 的同一 API），不构造整份 <see cref="AreaTriggerDef"/>、不承担与本次查询
+        /// 无关的校验失败风险（例如某条记录的 <c>shape</c> 数据一时非法，不应该连累"当前区域名"查询
+        /// 本身直接抛异常）。装配未接入 <see cref="_areaTriggerHost"/>/<see cref="_areaTriggerData"/>
+        /// （旧构造重载）时恒返回 <c>(null, null)</c>，与其它未装配能力时的既有查询同一降级口径。
+        /// </para>
+        /// </summary>
+        private (Id? AreaId, Id? NameKey) ResolveCurrentArea()
+        {
+            if (_areaTriggerHost == null || _areaTriggerData == null)
+            {
+                return (null, null);
+            }
+
+            var active = _areaTriggerHost.GetActiveTriggerIds(_playerId);
+            for (var i = active.Count - 1; i >= 0; i--)
+            {
+                var triggerId = active[i];
+                var record = _areaTriggerData.Get(AreaTriggerSchemas.TriggerDef.Name, triggerId);
+                if (record != null && record.TryGetId("name_key", out var nameKey))
+                {
+                    return (triggerId, nameKey);
+                }
+            }
+
+            return (null, null);
         }
 
         private ExprValue? ResolveSkillsIndex(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)

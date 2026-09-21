@@ -85,10 +85,17 @@ namespace Core.Gameplay.AreaTrigger
         // （惯例同 IUnitAccess.AllUnits"按 Id 序数排序"）。
         private readonly SortedDictionary<Id, RuntimeEntry> _entries = new SortedDictionary<Id, RuntimeEntry>();
 
-        // (triggerId, unitId) 当前是否处于"已成功进入"状态（见 Evaluate 判断记录：只有真正触发过
-        // AreaTriggerEnteredEvent 的组合才会被记入，条件不满足/one_shot 已触发时不记入，避免离开时
-        // 产生没有对应"进入"的孤立 AreaTriggerLeftEvent）。
-        private readonly HashSet<(Id TriggerId, Id UnitId)> _inside = new HashSet<(Id, Id)>();
+        // (triggerId, unitId) 当前是否处于"已成功进入"状态 -> 进入序号（见 Evaluate 判断记录：只有
+        // 真正触发过 AreaTriggerEnteredEvent 的组合才会被记入，条件不满足/one_shot 已触发时不记入，
+        // 避免离开时产生没有对应"进入"的孤立 AreaTriggerLeftEvent）。
+        // 判断记录（ADR-0066，进入序号用确定性单调计数而不是墙钟时间）：GetActiveTriggerIds 契约要求
+        // "按进入先后排序"，取墙钟时间戳会破坏本仓库"运行时路径不依赖系统时间"的确定性铁律（见
+        // AGENTS.md §3、本仓库其它模块同类判断记录），改用 _nextEnterSeq 单调递增计数——同一进程内
+        // 全部单位、全部触发体共用一个计数器，任意两次成功进入的相对先后关系严格保序，足以满足"某单位
+        // 自己名下多个触发体的进入先后"这一查询需求（不要求跨单位可比）。
+        private readonly Dictionary<(Id TriggerId, Id UnitId), long> _inside = new Dictionary<(Id, Id), long>();
+
+        private long _nextEnterSeq = 1;
 
         private long _nextTrapSeq = 1;
 
@@ -166,7 +173,33 @@ namespace Core.Gameplay.AreaTrigger
             }
 
             _entries.Remove(triggerId);
-            _inside.RemoveWhere(pair => pair.TriggerId.Equals(triggerId));
+            RemoveInsideForTrigger(triggerId);
+        }
+
+        /// <summary>见 <see cref="_inside"/> 判断记录：<see cref="Unregister"/>/<see cref="UnloadMap"/>
+        /// （后者逐个转调 <see cref="Unregister"/>，见该方法）都要清掉对应触发体在 <see cref="_inside"/>
+        /// 里的记录，否则会残留一个再也不会被 <see cref="HandleLeave"/> 清除的"孤儿"进入记录，
+        /// <see cref="GetActiveTriggerIds"/> 会持续报告一个已经被移除登记的触发体。</summary>
+        private void RemoveInsideForTrigger(Id triggerId)
+        {
+            List<(Id TriggerId, Id UnitId)>? toRemove = null;
+            foreach (var key in _inside.Keys)
+            {
+                if (key.TriggerId.Equals(triggerId))
+                {
+                    (toRemove ??= new List<(Id, Id)>()).Add(key);
+                }
+            }
+
+            if (toRemove == null)
+            {
+                return;
+            }
+
+            foreach (var key in toRemove)
+            {
+                _inside.Remove(key);
+            }
         }
 
         public void LoadForMap(Id mapId, IDataRegistryView data)
@@ -238,7 +271,7 @@ namespace Core.Gameplay.AreaTrigger
             foreach (var entry in _entries.Values)
             {
                 var key = (entry.TriggerId, unitId);
-                var wasInside = _inside.Contains(key);
+                var wasInside = _inside.ContainsKey(key);
                 var isInside = AreaTriggerShapeGeometry.Contains(entry.Shape, position);
 
                 if (isInside && !wasInside)
@@ -251,6 +284,47 @@ namespace Core.Gameplay.AreaTrigger
                 }
             }
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0066：IAreaTriggerHost 显式接口实现（判断记录同 Core.Rules.Common.ISkillHost 同类新增
+        // 成员——不让 GetActiveTriggerIds 隐式满足接口成员，避免其物理 IL 属性被编译器改写成
+        // virtual sealed，被 toolchain/abi_surface 逐字节比对误判为破坏；公开方法本身供本类型内部/
+        // 测试直接调用，物理签名是普通实例方法）。
+        // -----------------------------------------------------------------
+
+        /// <summary>见 <see cref="IAreaTriggerHost.GetActiveTriggerIds"/> 判断记录：<paramref
+        /// name="unitId"/> 当前所在的全部触发区域 id，按 <see cref="_inside"/> 记录的进入序号升序
+        /// 排列（最早进入的在最前，最近进入的在最后）。</summary>
+        public IReadOnlyList<Id> GetActiveTriggerIds(Id unitId)
+        {
+            List<(Id TriggerId, long Seq)>? matches = null;
+            foreach (var pair in _inside)
+            {
+                if (pair.Key.UnitId.Equals(unitId))
+                {
+                    (matches ??= new List<(Id, long)>()).Add((pair.Key.TriggerId, pair.Value));
+                }
+            }
+
+            if (matches == null)
+            {
+                return Array.Empty<Id>();
+            }
+
+            // 进入序号（_nextEnterSeq 单调递增分配，见 _inside 字段判断记录）两两不同，Sort 不存在
+            // 需要稳定性的并列项，结果确定性不依赖 List<T>.Sort 是否稳定。
+            matches.Sort((a, b) => a.Seq.CompareTo(b.Seq));
+
+            var result = new Id[matches.Count];
+            for (var i = 0; i < matches.Count; i++)
+            {
+                result[i] = matches[i].TriggerId;
+            }
+
+            return result;
+        }
+
+        IReadOnlyList<Id> IAreaTriggerHost.GetActiveTriggerIds(Id unitId) => GetActiveTriggerIds(unitId);
 
         // -----------------------------------------------------------------
         // 内部实现
@@ -273,7 +347,7 @@ namespace Core.Gameplay.AreaTrigger
                 return;
             }
 
-            _inside.Add(key);
+            _inside.Add(key, _nextEnterSeq++);
             _bus.Enqueue(new AreaTriggerEnteredEvent(entry.TriggerId, unitId));
             Dispatch(entry, unitId);
 

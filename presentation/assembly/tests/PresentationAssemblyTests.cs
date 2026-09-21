@@ -1809,5 +1809,102 @@ namespace Tests.Presentation.Assembly
             Assert.Equal(livingId, nearest.EntityId);
             Assert.Equal(Core.Carriers.Common.InteractionTargetKind.Creature, nearest.Kind);
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第九批（阻塞，2026-09-22，ADR-0066）：经真实 GameplayAssembly/PresentationAssembly
+        // 装配、真实数据定义的区域触发、真实 tick 驱动 AreaTriggerTickHandler.Execute→Evaluate 的
+        // 端到端验收——比 core/gameplay/area_trigger/tests 与 presentation/ui/tests 两处单元测试更进
+        // 一层，覆盖"宿主查询 + 路径层 + HudViewModel"整条链路真的接上了、经生产装配入口走到最外层。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AreaTrigger_EndToEnd_PlayerMovement_UpdatesHostQueryAndHud()
+        {
+            // 三个圆形触发体，圆心固定在 (100,100)（远离默认出生点 Vec2.Zero，移动前玩家不在任何
+            // 触发范围内，能真实观察到"移入"而不是"出生即在范围内"）：
+            // - e2e_a_outer：半径 30，有显示名（外层，"当前区域"候选）。
+            // - e2e_c_widest_unnamed：半径 40（比 outer 更大），无显示名——验证"同时处于一个无显示名
+            //   的触发内 → 不影响当前区域结果，但宿主查询里仍包含它"。
+            // - e2e_b_inner：半径 10，有显示名（内层，重叠区域场景）。
+            var outerId = new Id("area.e2e_a_outer");
+            var outerNameKey = new Id("l10n.area.e2e_a_outer.name");
+            var widestUnnamedId = new Id("area.e2e_c_widest_unnamed");
+            var innerId = new Id("area.e2e_b_inner");
+            var innerNameKey = new Id("l10n.area.e2e_b_inner.name");
+            var center = new Vec2(100, 100);
+
+            var presentation = Build(out var gameplay, out var world, out _, out _, extraTables: source =>
+            {
+                source.Add("area.trigger_def",
+                    "{\"table\": \"area.trigger_def\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"" + outerId.Value + "\", \"map_id\": \"" + SampleMapId.Value + "\", " +
+                    "\"shape\": {\"kind\": \"circle\", \"radius\": 30, \"center\": {\"x\": 100, \"y\": 100}}, " +
+                    "\"trigger_type\": \"quest_explore\", \"params\": {}, \"name_key\": \"" + outerNameKey.Value + "\"}," +
+                    "{\"id\": \"" + widestUnnamedId.Value + "\", \"map_id\": \"" + SampleMapId.Value + "\", " +
+                    "\"shape\": {\"kind\": \"circle\", \"radius\": 40, \"center\": {\"x\": 100, \"y\": 100}}, " +
+                    "\"trigger_type\": \"quest_explore\", \"params\": {}}," +
+                    "{\"id\": \"" + innerId.Value + "\", \"map_id\": \"" + SampleMapId.Value + "\", " +
+                    "\"shape\": {\"kind\": \"circle\", \"radius\": 10, \"center\": {\"x\": 100, \"y\": 100}}, " +
+                    "\"trigger_type\": \"quest_explore\", \"params\": {}, \"name_key\": \"" + innerNameKey.Value + "\"}" +
+                    "]}");
+            });
+            var playerId = gameplay.PlayerUnitProvider();
+
+            // EnterMap 是"进入地图"这一步真正把 area.trigger_def 数据登记进 AreaTrigger 宿主的地方
+            // （见 GameplayAssembly.EnterMap 判断记录），Build() 本身只 Spawn、不代为调用。
+            gameplay.EnterMap(SampleMapId, playerId);
+
+            // 先推进一次 tick，让 AreaTriggerTickHandler 记住出生位置（Vec2.Zero，在三个触发体之外），
+            // 后续每次 SetPosition 才会被判定为"位置变化"从而真正调用 Evaluate（见该处理器判断记录）。
+            world.Tick(SimStep.Continuous(0.016));
+            Assert.Empty(gameplay.AreaTrigger.GetActiveTriggerIds(playerId));
+
+            // 移入 outer + widestUnnamed（距圆心 20，在半径 30/40 内，不在半径 10 内）。
+            gameplay.Carriers.Units.SetPosition(playerId, new Vec2(center.X + 20, center.Y));
+            world.Tick(SimStep.Continuous(0.016));
+            presentation.Hud.Refresh();
+
+            Assert.Equal(
+                new[] { outerId, widestUnnamedId },
+                gameplay.AreaTrigger.GetActiveTriggerIds(playerId));
+            Assert.Equal(outerId, presentation.Hud.CurrentAreaId);
+            Assert.Equal(outerNameKey, presentation.Hud.CurrentAreaNameKey);
+            Assert.Equal(outerId, presentation.UiData.Query("player.area.id")!.Value.AsId);
+            Assert.Equal(outerNameKey, presentation.UiData.Query("player.area.name_key")!.Value.AsId);
+
+            // 移入圆心（额外进入有名的 inner，仍在 outer/widestUnnamed 范围内）：当前区域切到最近进入
+            // 且有显示名的 inner；宿主查询顺序反映真实进入先后（inner 最后进入，排在末尾）。
+            gameplay.Carriers.Units.SetPosition(playerId, center);
+            world.Tick(SimStep.Continuous(0.016));
+            presentation.Hud.Refresh();
+
+            Assert.Equal(
+                new[] { outerId, widestUnnamedId, innerId },
+                gameplay.AreaTrigger.GetActiveTriggerIds(playerId));
+            Assert.Equal(innerId, presentation.Hud.CurrentAreaId);
+            Assert.Equal(innerNameKey, presentation.Hud.CurrentAreaNameKey);
+
+            // 退回半径 10～30 之间：离开 inner（仍在 outer/widestUnnamed 内）→ 当前区域回落到 outer。
+            gameplay.Carriers.Units.SetPosition(playerId, new Vec2(center.X + 20, center.Y));
+            world.Tick(SimStep.Continuous(0.016));
+            presentation.Hud.Refresh();
+
+            Assert.Equal(
+                new[] { outerId, widestUnnamedId },
+                gameplay.AreaTrigger.GetActiveTriggerIds(playerId));
+            Assert.Equal(outerId, presentation.Hud.CurrentAreaId);
+            Assert.Equal(outerNameKey, presentation.Hud.CurrentAreaNameKey);
+
+            // 彻底离开全部三个触发体 → 当前区域回到"无"。
+            gameplay.Carriers.Units.SetPosition(playerId, new Vec2(center.X + 1000, center.Y));
+            world.Tick(SimStep.Continuous(0.016));
+            presentation.Hud.Refresh();
+
+            Assert.Empty(gameplay.AreaTrigger.GetActiveTriggerIds(playerId));
+            Assert.Null(presentation.Hud.CurrentAreaId);
+            Assert.Null(presentation.Hud.CurrentAreaNameKey);
+            Assert.Null(presentation.UiData.Query("player.area.id"));
+            Assert.Null(presentation.UiData.Query("player.area.name_key"));
+        }
     }
 }

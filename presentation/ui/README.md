@@ -534,3 +534,46 @@ com.gamefoundation.adapter.unity/Runtime/Ui/Panels/GameplayPanels.cs`）：`Refr
 视图模型最外层验收（接一个真实数据定义的任务，标题键/目标描述键与数据定义一致，未填描述的目标
 返回"无"）见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
 （`QuestLog_ThroughPresentationAssembly_ExposesTitleAndObjectiveDescriptionKeys`）。
+
+## 判断记录（`player.area.id`/`player.area.name_key`、`HudViewModel.CurrentAreaId`/
+`CurrentAreaNameKey`，2026-09-22，消费方反馈——游戏接入方第九批（阻塞），
+[ADR-0066](../../architecture/adr/0066-区域触发宿主契约纳入当前所在区域查询.md)）
+
+背景：HUD 要常驻显示玩家当前所在区域的名字，此前区域触发宿主契约不暴露任何"谁在哪个区域内"的
+只读查询出口，表现层无从谈起。契约层新增成员
+（`IAreaTriggerHost.GetActiveTriggerIds`）见 `core/gameplay/area_trigger/README.md` 对应判断记录。
+本条只记表现层"当前区域"派生与落地要点。
+
+**"当前区域"的判定（`PlayerPathProvider.ResolveCurrentArea`）**：不是简单转发宿主层查询，而是
+在其结果之上做一次表现层过滤——从"该单位当前所在的全部触发区域 id（按进入先后排序）"里，从最近
+进入的一端往回找，取第一个 `area.trigger_def.name_key` 非空的那个；找不到（不在任何有名区域内）
+则整体返回"无"。判别字段选择 `AreaTriggerDef.NameKey`（可空文本键）而不是新增专用字段或按
+`TriggerType` 分类判断：`name_key` 是否非空本身就是内容作者"要不要给这块区域一个显示名"的显式
+选择，语义上直接就是"是不是地名区域"，四种数据驱动触发类型都不天然对应这个语义，理由与备选方案
+详见 ADR-0066 决策 2/备选方案一节。查表用 `IDataRegistryView.Get` + `DataRecord.TryGetId` 直接取
+`name_key` 字段，不经 `AreaTriggerDef.FromRecord` 完整解析——只需要这一个字段，完整解析会引入
+无关字段的校验风险且更贵。
+
+**`PlayerPathProvider`**：新增依赖 `IAreaTriggerHost`/`IDataRegistryView`（后者用于按 `TriggerId`
+反查 `name_key`，宿主层查询本身不携带这个字段），走新增的十四参数构造函数重载（在既有十二参数
+重载基础上追加两个参数，`: this(...)` 链式调用，既有重载签名不变）。新增路径 `player.area.id`/
+`player.area.name_key`，沿用既有"末段保留关键字"解析惯例，未装配两个新依赖（构造函数走旧重载）
+或当前不在任何有名区域内时统一返回"无"（`ExprValue?` 为 `null`）。
+
+**`HudViewModel`**：新增两个只读属性 `CurrentAreaId`（`Id?`）/`CurrentAreaNameKey`（`Id?`），
+`Refresh()` 内经 `player.area.id`/`player.area.name_key` 两条路径查询转发，未查到时为 `null`，
+比照既有 `TargetId` 一类只读属性同一处理口径。
+
+ABI：纯加法——`PlayerPathProvider` 新增一个构造函数重载（既有全部重载签名不变，`ResolveArea`/
+`ResolveCurrentArea` 均为私有方法）；`HudViewModel` 新增两个公开只读属性；契约层新增内容见
+`core/gameplay/area_trigger/README.md` 对应判断记录。`abi_probe.ps1` 核实 `breaks=0`。
+
+测试见 `presentation/ui/tests/UiDataSourceTests.cs`（`Query_player_area_*` 五例，经
+`UiWorldFixture` 新增的 `areaTriggerRows` 参数驱动真实 `AreaTriggerHost`/`DataRegistry`/
+`PlayerPathProvider` 组合，不用 Fake——"当前区域"逻辑本身是两个真实实现的组合，Fake 化任一方都会
+使验收失去意义）与 `presentation/ui/tests/ViewModelTests.cs`
+（`HudViewModel_refreshes_current_area_from_area_trigger_host`）。经 `GameplayAssembly`/
+`PresentationAssembly` 真实装配、tick 驱动 `Evaluate` 的端到端验收（进入有名外层区域→进入重叠的
+有名内层区域→离开内层回落到外层→离开外层归"无"，全程含一个不影响判定但应出现在宿主层查询里的
+无名触发体）见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+（`AreaTrigger_EndToEnd_PlayerMovement_UpdatesHostQueryAndHud`）。
