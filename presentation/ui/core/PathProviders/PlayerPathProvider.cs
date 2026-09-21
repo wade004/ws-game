@@ -9,6 +9,7 @@ using Core.Gameplay.Quest;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
 using Core.Numbers.StatBlock;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 
 namespace Presentation.Ui
@@ -40,6 +41,8 @@ namespace Presentation.Ui
         private readonly IEconomyHost _economy;
         private readonly ISkillBookQuery _skillBook;
         private readonly IAuraQuery? _auraQuery;
+        private readonly IUnitAccess? _unitAccess;
+        private readonly AutoAttackHost? _autoAttackHost;
 
         public PlayerPathProvider(
             Id playerId,
@@ -87,6 +90,35 @@ namespace Presentation.Ui
             _auraQuery = auraQuery ?? throw new ArgumentNullException(nameof(auraQuery));
         }
 
+        /// <summary>
+        /// 消费方反馈第四批第 1/2 条新增重载（2026-09-21，ADR-0061）：携带 <see cref="_unitAccess"/>/
+        /// <see cref="_autoAttackHost"/>，才能解答 <c>player.alive</c>/<c>player.auto_attack.state</c>
+        /// （见类型注释路径清单）。判断记录（一个重载一次性带上两个新能力，不拆成两个重载）：本批
+        /// 两条反馈（存活状态、普通攻击状态）同一任务一并交付，没有"只要其中一个能力"的既有调用方
+        /// 需要兼容——同 <c>TargetPathProvider</c> 五参重载一次性带上 <c>unitAccess</c>+
+        /// <c>creatureTemplates</c> 两个新依赖的既有先例同一惯例，避免为不会出现的"单独启用一半"
+        /// 组合平白多出一个从未被使用的重载。本重载十二个参数全部不带默认值，与既有两个构造函数
+        /// （分别恰好九个、十个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public PlayerPathProvider(
+            Id playerId,
+            IStatHost statHost,
+            IPowerHost powerHost,
+            IProgressionHost progression,
+            IInventoryHost inventory,
+            IEquipmentHost equipment,
+            IQuestHost quest,
+            IEconomyHost economy,
+            ISkillBookQuery skillBook,
+            IAuraQuery auraQuery,
+            IUnitAccess unitAccess,
+            AutoAttackHost autoAttackHost)
+            : this(playerId, statHost, powerHost, progression, inventory, equipment, quest, economy, skillBook, auraQuery)
+        {
+            _unitAccess = unitAccess ?? throw new ArgumentNullException(nameof(unitAccess));
+            _autoAttackHost = autoAttackHost ?? throw new ArgumentNullException(nameof(autoAttackHost));
+        }
+
         public string Root => "player";
 
         public ExprValue? Resolve(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)
@@ -126,6 +158,10 @@ namespace Presentation.Ui
                     return UnitSubQueries.Casting(_playerId, _skillBook, remaining, fullPath, diagnostics);
                 case "auras":
                     return UnitSubQueries.Auras(_playerId, _auraQuery, remaining, fullPath, diagnostics);
+                case "alive":
+                    return UnitSubQueries.Alive(_playerId, _unitAccess, remaining, fullPath, diagnostics);
+                case "auto_attack":
+                    return UnitSubQueries.AutoAttack(_playerId, _autoAttackHost, remaining, fullPath, diagnostics);
                 default:
                     diagnostics.Warn($"UI 路径 \"{fullPath}\" 的子路径关键字 \"{head.Name}\" 未知");
                     return null;

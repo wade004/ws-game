@@ -7,6 +7,7 @@ using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 
 namespace Presentation.Ui
@@ -123,6 +124,27 @@ namespace Presentation.Ui
         public Id? TargetFaction { get; private set; }
 
         /// <summary>
+        /// 消费方反馈第四批第 2 条（2026-09-21，ADR-0061）：玩家自身当前是否存活（经 <c>player.alive</c>
+        /// 路径，转发 <see cref="Core.Rules.Common.IUnitAccess.Exists"/>+<see
+        /// cref="Core.Rules.Common.IUnitAccess.IsAlive"/> 组合结果——权威来源见
+        /// <see cref="Presentation.Ui.UnitSubQueries.Alive"/> 判断记录，不是本视图模型自行按生命值
+        /// 推算）。装配未接入 <see cref="Core.Rules.Common.IUnitAccess"/>（旧构造重载）时查询恒为
+        /// "无"，本属性退化为 <c>false</c>——与"确认死亡"取值相同（历史遗留直读
+        /// <c>WowGameBootstrap.PlayerAlive</c> 收口前的既有口径同样把"查不到"与"死亡"收敛成同一个
+        /// 布尔假值，本属性收口后延续同一退化方向，不引入第三态），不记诊断（部署选择，同
+        /// <see cref="TargetCastingSkillId"/> 未装配 <c>skillBook</c> 时的既有惯例）。
+        /// </summary>
+        public bool PlayerAlive { get; private set; }
+
+        /// <summary>
+        /// 消费方反馈第四批第 2 条（2026-09-21，ADR-0061）：当前目标是否存活（经 <c>target.alive</c>
+        /// 路径），判断记录同 <see cref="PlayerAlive"/>。无目标时取值与既有 <see cref="TargetId"/>
+        /// 无目标时的口径一致——<c>null</c>，不是 <c>false</c>（"没有目标"与"目标已死亡"是两件不同
+        /// 的事，收敛成同一个布尔值会让接入方无法区分"不该画目标框"与"目标框该画成灰色死亡态"）。
+        /// </summary>
+        public bool? TargetAlive { get; private set; }
+
+        /// <summary>
         /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：玩家自身当前正在读条/引导的技能 id（经
         /// <c>player.casting.skill</c> 路径），未在读条/引导时为 <c>null</c>——与"当前无目标"同一
         /// 既有口径（合法查询、无值，不是异常状态）。
@@ -148,6 +170,28 @@ namespace Presentation.Ui
         /// <summary>消费方反馈第 1 条：当前目标读条/引导的总时长（经 <c>target.casting.total</c>
         /// 路径）。</summary>
         public double? TargetCastingTotal { get; private set; }
+
+        /// <summary>
+        /// 消费方反馈第四批第 1 条（2026-09-21，ADR-0061）：玩家自身当前的普通攻击可观测状态（经
+        /// <c>player.auto_attack.state</c> 路径，原样转发 <see
+        /// cref="Core.Rules.Combat.AutoAttackHost.GetState"/>——照抄施法条 <see cref="CastingSkillId"/>
+        /// 那套既有惯例：数据取自权威宿主，视图模型不自行推算）。视图模型上用枚举本身，不用字符串
+        /// （路径层跨越 <c>ExprValue</c> 边界时退化为文本，这里读回来再转成强类型，见
+        /// <see cref="Presentation.Ui.UnitSubQueries.AutoAttack"/> 判断记录）。装配未接入
+        /// <see cref="Core.Rules.Combat.AutoAttackHost"/>（旧构造重载）时查询恒为"无"，本属性退化为
+        /// <see cref="Core.Rules.Combat.AutoAttackState.Off"/>——与"从未开启过"同一取值，
+        /// <c>AutoAttackHost.GetState</c> 本身对未知施法者也是恒返回 <see
+        /// cref="Core.Rules.Combat.AutoAttackState.Off"/>（见该方法源码），本属性的退化方向与规则层
+        /// 自身的"无数据"语义一致，不引入额外的第四态。
+        /// </summary>
+        public AutoAttackState AutoAttackState { get; private set; }
+
+        /// <summary>消费方反馈第四批第 1 条：当前目标自身的普通攻击可观测状态（经
+        /// <c>target.auto_attack.state</c> 路径），判断记录同 <see cref="AutoAttackState"/>；当前无
+        /// 目标时同样退化为 <see cref="Core.Rules.Combat.AutoAttackState.Off"/>（普通攻击状态本身没有
+        /// "无目标"这一额外语义维度可以借用，不同于 <see cref="TargetAlive"/> 需要三态区分"没有目标"
+        /// 与"目标已死亡"）。</summary>
+        public AutoAttackState TargetAutoAttackState { get; private set; }
 
         private readonly List<AuraSnapshot> _auras = new List<AuraSnapshot>();
         private readonly List<AuraSnapshot> _targetAuras = new List<AuraSnapshot>();
@@ -268,6 +312,12 @@ namespace Presentation.Ui
             var targetFactionQuery = _dataSource.Query("target.faction");
             TargetFaction = targetFactionQuery.HasValue ? targetFactionQuery.Value.AsId : (Id?)null;
 
+            var playerAliveQuery = _dataSource.Query("player.alive");
+            PlayerAlive = playerAliveQuery.HasValue && playerAliveQuery.Value.AsBool;
+
+            var targetAliveQuery = _dataSource.Query("target.alive");
+            TargetAlive = targetAliveQuery.HasValue ? (bool?)targetAliveQuery.Value.AsBool : null;
+
             var castingSkillQuery = _dataSource.Query("player.casting.skill");
             CastingSkillId = castingSkillQuery.HasValue ? castingSkillQuery.Value.AsId : (Id?)null;
             var castingRemainingQuery = _dataSource.Query("player.casting.remaining");
@@ -281,6 +331,16 @@ namespace Presentation.Ui
             TargetCastingRemaining = targetCastingRemainingQuery.HasValue ? (double?)targetCastingRemainingQuery.Value.AsNumber : null;
             var targetCastingTotalQuery = _dataSource.Query("target.casting.total");
             TargetCastingTotal = targetCastingTotalQuery.HasValue ? (double?)targetCastingTotalQuery.Value.AsNumber : null;
+
+            var autoAttackStateQuery = _dataSource.Query("player.auto_attack.state");
+            AutoAttackState = autoAttackStateQuery.HasValue
+                ? AutoAttackStateNames.Parse(autoAttackStateQuery.Value.AsString)
+                : AutoAttackState.Off;
+
+            var targetAutoAttackStateQuery = _dataSource.Query("target.auto_attack.state");
+            TargetAutoAttackState = targetAutoAttackStateQuery.HasValue
+                ? AutoAttackStateNames.Parse(targetAutoAttackStateQuery.Value.AsString)
+                : AutoAttackState.Off;
 
             RefreshAuras("player.auras", _auras);
             RefreshAuras("target.auras", _targetAuras);
@@ -321,6 +381,22 @@ namespace Presentation.Ui
         /// 分配列表实例）。顺序沿用查询结果原样顺序——权威排序（按光环创建顺序）已经在规则层
         /// <c>AuraHost.GetActiveAuraSnapshots</c> 完成（确定性，不依赖字典枚举顺序），本方法只是
         /// 逐下标转发，不重新排序。
+        /// <para>
+        /// 缺陷修复（消费方反馈第四批第 3 条，2026-09-21）：本方法此前只查询 <c>def</c>/<c>stacks</c>/
+        /// <c>remaining</c>/<c>total</c>/<c>name_key</c> 五个子路径、用 <see
+        /// cref="AuraSnapshot"/> 五参数构造函数重建快照——该构造函数体内把 <c>Polarity</c>/<c>IconRef</c>
+        /// 硬编码为 <see cref="AuraPolarity.Undeclared"/>/<c>null</c>（见其判断记录），导致
+        /// <see cref="Auras"/>/<see cref="TargetAuras"/> 的这两个字段无论生产数据是否声明都恒为缺省
+        /// 值，与同一份数据经 <c>{root}[i].polarity</c>/<c>icon_ref</c> 路径查询（<see
+        /// cref="Presentation.Ui.UnitSubQueries.Auras"/>，直接读 <c>AuraHost.GetActiveAuraSnapshots</c>
+        /// 用七参数构造函数建出的快照）读到的真实值不一致——ADR-0060 交付 <c>Polarity</c>/<c>IconRef</c>
+        /// 时遗漏同步更新本方法，是实现缺陷，不是能力未交付。现补齐这两个子路径查询，改用七参数构造
+        /// 函数重建快照。<c>polarity</c> 子路径对外是字符串（<c>AuraPolarityNames.ToText</c> 转换结果，
+        /// 见 <c>UnitSubQueries.Auras</c> 判断记录"这一层仍输出字符串"），这里查到非空字符串后用
+        /// <see cref="AuraPolarityNames.Parse"/> 转回同一枚举值再重建快照，不再转一次文本；未声明
+        /// （查询返回"无"）时退化为 <see cref="AuraPolarity.Undeclared"/>，惯例同 <c>name_key</c> 等
+        /// 既有可选字段。
+        /// </para>
         /// </summary>
         private void RefreshAuras(string root, List<AuraSnapshot> target)
         {
@@ -340,13 +416,17 @@ namespace Presentation.Ui
                 var remainingQuery = _dataSource.Query($"{root}[{i}].remaining");
                 var totalQuery = _dataSource.Query($"{root}[{i}].total");
                 var nameKeyQuery = _dataSource.Query($"{root}[{i}].name_key");
+                var polarityQuery = _dataSource.Query($"{root}[{i}].polarity");
+                var iconRefQuery = _dataSource.Query($"{root}[{i}].icon_ref");
 
                 target.Add(new AuraSnapshot(
                     defQuery.Value.AsId,
                     stacksQuery.HasValue ? (int)stacksQuery.Value.AsInt : 0,
                     remainingQuery.HasValue ? (double?)remainingQuery.Value.AsNumber : null,
                     totalQuery.HasValue ? (double?)totalQuery.Value.AsNumber : null,
-                    nameKeyQuery.HasValue ? (Id?)nameKeyQuery.Value.AsId : null));
+                    nameKeyQuery.HasValue ? (Id?)nameKeyQuery.Value.AsId : null,
+                    polarityQuery.HasValue ? AuraPolarityNames.Parse(polarityQuery.Value.AsString) : AuraPolarity.Undeclared,
+                    iconRefQuery.HasValue ? (Id?)iconRefQuery.Value.AsId : null));
             }
         }
 

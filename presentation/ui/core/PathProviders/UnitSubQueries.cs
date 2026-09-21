@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Expr;
 using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
+using Core.Rules.Combat;
 using Core.Rules.Common;
 
 namespace Presentation.Ui
@@ -263,6 +264,91 @@ namespace Presentation.Ui
                     diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 auras[i] 字段名 \"{remaining[1].Name}\" 未知（只支持 def/stacks/remaining/total/name_key/polarity/icon_ref）");
                     return null;
             }
+        }
+
+        /// <summary>
+        /// 消费方反馈第四批第 2 条（2026-09-21）：<paramref name="remaining"/>[0] 必须是字面量
+        /// <c>"alive"</c>（不带下标、不接受子字段——是否存活是单位自身的一个标量查询，不像
+        /// <c>casting</c>/<c>auras</c> 那样还需要展开多个子字段）。<paramref name="unitAccess"/> 为
+        /// <c>null</c> 表示调用方未装配单位存在性/存活查询能力，惯例同 <see cref="Casting"/> 判断
+        /// 记录"可选能力未装配时静默返回'无'，不记诊断——这是部署选择，不是数据缺口"。
+        /// <para>
+        /// 判断记录（权威来源：<see cref="IUnitAccess.Exists"/> + <see cref="IUnitAccess.IsAlive"/>
+        /// 组合，不是"生命值 &lt;= 0"）：消费方反馈原文核实到 <c>Core.Rules.Combat.AutoAttackHost.
+        /// Update</c> 判定目标死亡时用的正是这一组合（"目标消失/死亡"分支：
+        /// <c>!_units.Exists(targetId) || !_units.IsAlive(targetId)</c>），这是规则层/载体层本来就
+        /// 用来判定死亡的权威查询——<see cref="IUnitAccess.IsAlive"/> 由 <c>Core.Rules.Combat.Resolver</c>
+        /// 在结算致死那一刻显式写入（见 <c>IUnitAccess.SetAlive</c> 判断记录），与生命值是否归零
+        /// 是两个独立的状态位（先落地伤害、生命值先降到 0，死亡结算的其余步骤——脱离战斗、通知
+        /// 死亡监听者等——之后才真正调用 <c>SetAlive(false)</c>）。表现层若改用"查询
+        /// <c>player.power.health.current</c> 是否 &lt;= 0"自行推一遍存活语义，会在这一小段时序
+        /// 窗口内与框架的权威判定口径分叉（表现层看到"已死"但规则层仍判"存活"，或反之），因此本
+        /// 方法只转发 <see cref="IUnitAccess.IsAlive"/> 本身，不重新推导。<see
+        /// cref="IUnitAccess.Exists"/> 前置校验同 <see cref="Core.Rules.Common.IUnitAccess"/> 既有
+        /// 惯例（<c>TargetPathProvider.ResolveFaction</c>/<c>ResolveName</c> 同一防御性判断）——单位
+        /// 已不在世界模拟中时谈不上"存活与否"，返回"无"而不是编造一个 <c>false</c>。
+        /// </para>
+        /// </summary>
+        public static ExprValue? Alive(
+            Id unitId,
+            IUnitAccess? unitAccess,
+            IReadOnlyList<UiPathSegment> remaining,
+            string fullPath,
+            IUiDiagnostics diagnostics)
+        {
+            if (unitAccess == null)
+            {
+                return null;
+            }
+
+            if (remaining.Count != 1 || remaining[0].Index.HasValue)
+            {
+                diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 alive 子路径不接受下标或子字段");
+                return null;
+            }
+
+            if (!unitAccess.Exists(unitId))
+            {
+                return null;
+            }
+
+            return ExprValue.OfBool(unitAccess.IsAlive(unitId));
+        }
+
+        /// <summary>
+        /// 消费方反馈第四批第 1 条（2026-09-21，ADR-0061）：<paramref name="remaining"/>[0] 必须是
+        /// 字面量 <c>"auto_attack"</c>；形状为 <c>auto_attack.state</c>（照抄 <see cref="Casting"/>
+        /// 施法条的既有惯例——"开关/命中"这条普通攻击可观测状态与"读条中"同属"单位当前正在做什么"
+        /// 这一类查询，子字段命名风格保持一致）。<paramref name="autoAttackHost"/> 为 <c>null</c> 表示
+        /// 调用方未装配普通攻击能力，惯例同 <see cref="Casting"/> 判断记录。
+        /// <para>
+        /// 判断记录（为什么直接调用 <c>autoAttackHost.GetState(unitId)</c>，不在表现层自行拼装）：
+        /// <c>AutoAttackState</c> 已经是 <c>AutoAttackHost</c> 对"开关"×"目标"两个正交状态合并算好
+        /// 的权威快照（见该类型判断记录），本方法只转发，不重新判断——同 <see cref="Alive"/> 判断
+        /// 记录"不自行推算，只转发权威查询结果"同一立场。返回值经
+        /// <see cref="AutoAttackStateNames.ToText"/> 降级为文本，惯例同 <c>polarity</c> 子路径
+        /// （见 <see cref="Auras"/> 判断记录"跨越这条边界只能退化为字符串"）。
+        /// </para>
+        /// </summary>
+        public static ExprValue? AutoAttack(
+            Id unitId,
+            AutoAttackHost? autoAttackHost,
+            IReadOnlyList<UiPathSegment> remaining,
+            string fullPath,
+            IUiDiagnostics diagnostics)
+        {
+            if (autoAttackHost == null)
+            {
+                return null;
+            }
+
+            if (remaining.Count != 2 || remaining[1].Index.HasValue || remaining[1].Name != "state")
+            {
+                diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 auto_attack 子路径必须形如 \"auto_attack.state\"");
+                return null;
+            }
+
+            return ExprValue.OfString(AutoAttackStateNames.ToText(autoAttackHost.GetState(unitId)));
         }
     }
 }
