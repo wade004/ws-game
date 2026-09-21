@@ -245,6 +245,29 @@ namespace Core.Rules.Skill
         /// </summary>
         public Id? NameKey { get; }
 
+        /// <summary>
+        /// 一个发现的交付缺口（2026-09-21，[ADR-0060](../../../../architecture/adr/0060-光环极性与图标引用字段补全.md)）：
+        /// 光环极性（<c>skill.aura_def.polarity</c>），供表现层区分增益/减益边框与分区，取值集合见
+        /// <see cref="SkillSchemas.AuraPolarityValues"/>（<c>beneficial</c>/<c>harmful</c>）。
+        /// <c>null</c> 表示未声明——不编造默认极性（同 <see cref="NameKey"/> 判断记录"未声明即
+        /// null，不回退占位值"一贯口径），本字段落地前登记的全部既有 <c>skill.aura_def</c> 行均无
+        /// 此字段，解析为 <c>null</c>，不产生任何行为变化。之所以是接内容作者显式声明的字段，而不是
+        /// 从 <see cref="Effects"/> 反推：同一效果原语（如 <c>modify_stat</c>）既能配出增益也能配出
+        /// 减益，反推不可靠，见 ADR-0060"决策"一节。
+        /// </summary>
+        public string? Polarity { get; }
+
+        /// <summary>
+        /// 一个发现的交付缺口（2026-09-21，ADR-0060）：光环图标资源引用（<c>skill.aura_def.icon_ref</c>），
+        /// 供表现层增益/减益列表渲染图标。字段类型与命名沿用本仓库资源引用前缀契约
+        /// （[ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/
+        /// [ADR-0039](../../../../architecture/adr/0039-内容数据schema破坏性变更政策.md)）——类别前缀
+        /// 限定 <c>icon</c>，见 <see cref="SkillSchemas.AuraDef"/> 字段登记
+        /// <c>WithAllowedRefCategories("icon")</c>。<c>null</c> 表示未声明，惯例同 <see cref="Polarity"/>/
+        /// <see cref="NameKey"/>。
+        /// </summary>
+        public Id? IconRef { get; }
+
         public AuraDef(Id id, double? duration, int maxStacks, Id? stackCategory, Id? dispelType, IReadOnlyList<AuraEffectEntry> effects)
         {
             Id = id;
@@ -254,6 +277,8 @@ namespace Core.Rules.Skill
             DispelType = dispelType;
             Effects = effects;
             NameKey = null;
+            Polarity = null;
+            IconRef = null;
         }
 
         /// <summary>
@@ -271,6 +296,27 @@ namespace Core.Rules.Skill
             DispelType = dispelType;
             Effects = effects;
             NameKey = nameKey;
+            Polarity = null;
+            IconRef = null;
+        }
+
+        /// <summary>
+        /// 一个发现的交付缺口新增重载（2026-09-21，ADR-0060）：携带 <see cref="Polarity"/>/
+        /// <see cref="IconRef"/>。判断记录（不是给上一个构造函数追加两个可选参数）：同上方两处重载
+        /// 判断记录同一套 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载九个参数
+        /// 全部不带默认值，与既有两个构造函数（分别恰好六、七个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public AuraDef(Id id, double? duration, int maxStacks, Id? stackCategory, Id? dispelType, IReadOnlyList<AuraEffectEntry> effects, Id? nameKey, string? polarity, Id? iconRef)
+        {
+            Id = id;
+            Duration = duration;
+            MaxStacks = maxStacks <= 0 ? 1 : maxStacks;
+            StackCategory = stackCategory;
+            DispelType = dispelType;
+            Effects = effects;
+            NameKey = nameKey;
+            Polarity = polarity;
+            IconRef = iconRef;
         }
     }
 

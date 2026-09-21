@@ -8,6 +8,8 @@
       "max_stacks": 3,
       "stack_category": "skill.stack.sample_dot",
       "dispel_type": "skill.dispel.magic",
+      "polarity": "harmful",
+      "icon_ref": "icon.aura.sample_burn",
       "effects": [
         {
           "kind": "periodic_damage",
@@ -31,6 +33,8 @@
       "id": "skill.aura_def.sample_fortify",
       "duration": 12.0,
       "max_stacks": 1,
+      "polarity": "beneficial",
+      "icon_ref": "icon.aura.sample_fortify",
       "effects": [
         {
           "kind": "mod_stat",

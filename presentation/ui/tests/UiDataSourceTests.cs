@@ -271,6 +271,34 @@ namespace Tests.PresentationUi
             Assert.Empty(world.Diagnostics.Warnings);
         }
 
+        /// <summary>
+        /// 一个发现的交付缺口（2026-09-21，ADR-0060）：<c>player.auras[i].polarity</c>/
+        /// <c>player.auras[i].icon_ref</c> 原样转发 <see cref="AuraSnapshot.Polarity"/>/
+        /// <see cref="AuraSnapshot.IconRef"/>；未声明（<c>null</c>）时路径查询结果为"无"，同既有
+        /// <c>name_key</c> 一贯口径，不记诊断。
+        /// </summary>
+        [Fact]
+        public void Query_player_auras_reports_polarity_and_icon_ref()
+        {
+            var world = new UiWorldFixture();
+            var buff = new Id("skill.aura_def.sample_buff");
+            var debuff = new Id("skill.aura_def.sample_debuff");
+            var buffIcon = new Id("icon.aura.sample_fortify");
+            world.AuraQuery.SetSnapshotsForTest(world.PlayerId, new[]
+            {
+                new AuraSnapshot(buff, stacks: 1, remaining: 8.0, total: 8.0, nameKey: null, polarity: "beneficial", iconRef: buffIcon),
+                new AuraSnapshot(debuff, stacks: 1, remaining: 6.0, total: 6.0, nameKey: null, polarity: "harmful", iconRef: null),
+            });
+
+            Assert.Equal("beneficial", world.DataSource.Query("player.auras[0].polarity")!.Value.AsString);
+            Assert.Equal(buffIcon, world.DataSource.Query("player.auras[0].icon_ref")!.Value.AsId);
+
+            Assert.Equal("harmful", world.DataSource.Query("player.auras[1].polarity")!.Value.AsString);
+            Assert.Null(world.DataSource.Query("player.auras[1].icon_ref"));
+
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
         /// <summary>消费方反馈第 4 条：无光环时 <c>auras.count</c> 为 0，不记诊断。</summary>
         [Fact]
         public void Query_player_auras_count_isZero_withNoDiagnostics_whenNoActiveAuras()

@@ -511,7 +511,14 @@ namespace Core.Rules.Skill
             // SkillDefCache.ParseSkillDef 对 skill.def.name_key 的既有惯例（TryGetId 失败即 null）。
             Id? nameKey = record.TryGetId("name_key", out var nk) ? nk : (Id?)null;
 
-            return new AuraDef(id, duration, maxStacks, stackCategory, dispelType, effects, nameKey);
+            // 一个发现的交付缺口（2026-09-21，ADR-0060）：polarity 是可选 Enum 字段，解析惯例同
+            // EncounterDefinition.CombatModeOverride 对 combat_mode_override 的既有惯例
+            // （TryGetString 失败即 null，不编造默认极性）；icon_ref 是可选 Id 字段（类别前缀限定
+            // icon），解析惯例同上方 stack_category/dispel_type/name_key（TryGetId 失败即 null）。
+            string? polarity = record.TryGetString("polarity", out var pol) ? pol : null;
+            Id? iconRef = record.TryGetId("icon_ref", out var ir) ? ir : (Id?)null;
+
+            return new AuraDef(id, duration, maxStacks, stackCategory, dispelType, effects, nameKey, polarity, iconRef);
         }
 
         private ProcDef ParseProcDef(DataRecord record)

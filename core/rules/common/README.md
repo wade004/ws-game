@@ -253,6 +253,15 @@ common/
     （`SkillHostSkillBookQuery` 的字段类型是 `ISkillHost`），不应该再依赖具体类才能拿到完整
     结果，这是"表现层已面向接口装配、不应再依赖具体类"的收口，不是新增能力。
 
+16. **`AuraSnapshot` 新增 `Polarity`/`IconRef` 两个只读属性**（一个发现的交付缺口，2026-09-21，
+    [ADR-0060](../../../architecture/adr/0060-光环极性与图标引用字段补全.md)）：判断记录 13 落地
+    `AuraSnapshot` 时，消费方原始反馈第 4 条一并提出的图标引用与极性字段被 ADR-0056 明确留给后续
+    独立评审（需要先确定 `display` 模块图标引用惯例、极性取值集合），本次评审完成后补齐——新增
+    七参数构造函数重载（既有五参数构造函数不变），转发 `skill.aura_def` 新增的同名可选字段
+    `polarity`/`icon_ref`，未声明时为 `null`，不编造默认极性/图标，惯例同 `NameKey`。生产实现
+    `Core.Rules.Skill.AuraHost` 显式覆盖；`IAuraQuery.GetActiveAuraSnapshots` 默认接口成员保持
+    降级为 `null` 不变。详见 `core/rules/skill/README.md` 判断记录 61。
+
 ## 不负责什么
 
 - 不实现施法管线、结算管线、仇恨表、行为外壳状态机等任何具体算法——那些是 skill/combat/ai 各自

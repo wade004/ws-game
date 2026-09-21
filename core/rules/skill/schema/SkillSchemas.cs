@@ -59,6 +59,11 @@ namespace Core.Rules.Skill
         public static readonly string[] ModStatOpValues = { "flat", "pct", "mult" };
         public static readonly string[] ControlFlagValues = { "no_move", "no_cast", "no_attack", "no_interact" };
 
+        /// <summary>一个发现的交付缺口（2026-09-21，ADR-0060）：<c>skill.aura_def.polarity</c>
+        /// 合法取值——该光环对承受者是有利（<c>beneficial</c>）还是有害（<c>harmful</c>）。固定
+        /// 两值，不含"中性"：光环未声明本字段即代表"未声明"，不需要再用一个取值表达同一件事。</summary>
+        public static readonly string[] AuraPolarityValues = { "beneficial", "harmful" };
+
         /// <summary>全部 19 种 <see cref="EffectKind"/> 的 snake_case 文本（供
         /// <c>immunity.params.effect_kinds[]</c> 登记为枚举数组元素；见 <c>AuraHost.ApplyStaticEffects</c>
         /// 对 <c>immunity</c> 效果 <c>effect_kinds</c> 参数逐个 <see cref="EffectKindNames.TryParse"/>
@@ -878,6 +883,20 @@ namespace Core.Rules.Skill
                 // 渲染名称、不回退占位文案），不新造一套命名——见 skill.def.name_key 同名字段判断
                 // 记录。纯新增可选字段，不提 schema_version，既有全部 skill.aura_def 行零改动仍合法。
                 new FieldSchema("name_key", FieldKind.TextKey, required: false, description: "光环名称文本键，缺省时表现层不渲染名称（不回退占位文案），见 ADR-0056"),
+                // 一个发现的交付缺口（2026-09-21，ADR-0060）：极性/图标引用此前均未登记（ADR-0056
+                // 决策 4 当时明确留给后续独立评审），接入方画增益/减益边框、图标只能自行维护一张 id
+                // 清单硬编码。两个字段均可选、缺省缺失，既有全部 skill.aura_def 行零改动仍合法，不
+                // 提升 schema_version（同 name_key 落地时的做法）。
+                new FieldSchema("polarity", FieldKind.Enum, required: false, enumValues: AuraPolarityValues,
+                    description: "光环极性（对承受者有利/有害），缺省未声明——不代表任一极性，见 ADR-0060"),
+                // 判断记录（Description 刻意不含"引用"/"指向"字样）：同 display.anim_set.clips.resource_ref/
+                // display.equip_visual.mesh_ref 既有惯例——本字段是不透明资源标识，由引擎适配层解析，
+                // 不对应任何内容表（不登记 ReferenceTable/SoftReferenceTable），若描述里出现这两个字样
+                // 会触发 SchemaAudit id_description_reference_hint 告警（消费方反馈第 30 条自洽检查），
+                // 见 RealRegisteredSchemas_WithRepoAllowlist_ZeroErrors 门禁。
+                new FieldSchema("icon_ref", FieldKind.Id, required: false,
+                    description: "光环图标资源标识；类别前缀限定 icon（资产根相对路径），见 ADR-0038/0039、ADR-0060")
+                    .WithAllowedRefCategories("icon"),
                 new FieldSchema("duration", FieldKind.Number, required: false, description: "空表示永久直到被移除").WithUnit(FieldUnit.Time),
                 new FieldSchema("max_stacks", FieldKind.Int, required: false, description: "缺省 1"),
                 new FieldSchema("stack_category", FieldKind.Id, required: false, description: "叠加冲突检测用类别"),

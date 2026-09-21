@@ -279,7 +279,9 @@ ABI：纯加法——`TargetPathProvider` 新增一个构造函数重载与两�
 **共享解析逻辑**：`UnitSubQueries` 新增 `Casting`/`Auras` 两个静态方法，供 `PlayerPathProvider`/
 `TargetPathProvider` 复用（`UnitPathProvider` 面向路径显式携带的任意单位 id，不装配这两项依赖，
 不复用）——`casting.skill|remaining|total`（施法条）、`auras.count`/`auras[i].def|stacks|
-remaining|total|name_key`（增益减益列表，形状同既有 `inventory[i].<field>`）。
+remaining|total|name_key|polarity|icon_ref`（增益减益列表，形状同既有 `inventory[i].<field>`；
+`polarity`/`icon_ref` 为 [ADR-0060](../../architecture/adr/0060-光环极性与图标引用字段补全.md)
+一个发现的交付缺口新增，惯例同 `name_key`——字段未声明时静默返回"无"，不记诊断）。
 
 **诊断分支（AGENTS.md §3"运行时路径不静默降级"）**：`casting.remaining`/`casting.total` 区分两种
 `null`——"当前无人读条"（`GetCastingSkillId` 为空，合法查询无值，同 `target.id` 无目标口径，不

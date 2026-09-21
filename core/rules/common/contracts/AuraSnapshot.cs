@@ -14,11 +14,11 @@ namespace Core.Rules.Common
     /// 文本；本类型不持有任何 <c>IL10nHost</c> 依赖。
     /// </para>
     /// <para>
-    /// 判断记录（本类型只登记"至少：身份/剩余时间/层数"+名称键，未登记图标引用/buff-debuff 极性
-    /// 字段）：消费方原始反馈第 4 条"期望行为"一并提出了图标引用与极性字段，但派单方拍板本次收口
-    /// 范围只覆盖运行时可观测的验收标准（身份/层数/剩余/总时长的确定性列表 + 名称键），图标引用与
-    /// 极性字段留待后续独立评审（需要先确定 <c>display</c> 模块的图标引用惯例、极性枚举的取值与
-    /// legacy 数据迁移策略，均超出本次改动范围）——不是遗漏，是范围裁剪，见 ADR-0056 判断记录。
+    /// 一个发现的交付缺口，随后补齐（2026-09-21，<see cref="Polarity"/>/<see cref="IconRef"/>，
+    /// ADR-0060）：消费方原始反馈第 4 条"期望行为"一并提出的图标引用与极性字段，ADR-0056 当时
+    /// 拍板收口范围只覆盖身份/层数/剩余/总时长/名称键、把图标引用与极性字段留给后续独立评审
+    /// （需要先确定 <c>display</c> 模块的图标引用惯例、极性取值集合，见 ADR-0056 判断记录）；
+    /// ADR-0060 完成该项评审后补齐这两个字段，均为纯加法。
     /// </para>
     /// </summary>
     public sealed class AuraSnapshot
@@ -43,6 +43,21 @@ namespace Core.Rules.Common
         /// <c>null</c>，接入方据此决定不渲染名称，不回退占位文案（同 ADR-0048 惯例）。</summary>
         public Id? NameKey { get; }
 
+        /// <summary>
+        /// 一个发现的交付缺口（2026-09-21，[ADR-0060](../../../../architecture/adr/0060-光环极性与图标引用字段补全.md)）：
+        /// 光环极性（<c>skill.aura_def.polarity</c> 原样转发，取值 <c>beneficial</c>/<c>harmful</c>），
+        /// 供接入方画出正负边框/分区。<c>null</c> 表示未声明——不编造默认极性，惯例同
+        /// <see cref="NameKey"/>。
+        /// </summary>
+        public string? Polarity { get; }
+
+        /// <summary>
+        /// 一个发现的交付缺口（2026-09-21，ADR-0060）：光环图标资源引用（<c>skill.aura_def.icon_ref</c>
+        /// 原样转发，类别前缀 <c>icon</c>，见 ADR-0038/0039）。<c>null</c> 表示未声明，惯例同
+        /// <see cref="Polarity"/>/<see cref="NameKey"/>。
+        /// </summary>
+        public Id? IconRef { get; }
+
         public AuraSnapshot(Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey)
         {
             AuraDefId = auraDefId;
@@ -50,6 +65,25 @@ namespace Core.Rules.Common
             Remaining = remaining;
             Total = total;
             NameKey = nameKey;
+            Polarity = null;
+            IconRef = null;
+        }
+
+        /// <summary>
+        /// 一个发现的交付缺口新增重载（2026-09-21，ADR-0060）：携带 <see cref="Polarity"/>/
+        /// <see cref="IconRef"/>。判断记录（不是给既有构造函数追加两个可选参数）：同 <c>AuraDef</c>
+        /// 新增重载判断记录同一套 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载
+        /// 七个参数全部不带默认值，与既有构造函数（恰好五个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public AuraSnapshot(Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey, string? polarity, Id? iconRef)
+        {
+            AuraDefId = auraDefId;
+            Stacks = stacks;
+            Remaining = remaining;
+            Total = total;
+            NameKey = nameKey;
+            Polarity = polarity;
+            IconRef = iconRef;
         }
     }
 }

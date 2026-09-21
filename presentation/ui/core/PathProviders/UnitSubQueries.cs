@@ -185,7 +185,8 @@ namespace Presentation.Ui
         /// <summary>
         /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：<paramref name="remaining"/>[0] 必须是字面量
         /// <c>"auras"</c>；形状为 <c>auras.count</c> 或 <c>auras[i].(def|stacks|remaining|total|
-        /// name_key)</c>（惯例同既有 <c>player.inventory[i].&lt;field&gt;</c>）。<paramref
+        /// name_key|polarity|icon_ref)</c>（惯例同既有 <c>player.inventory[i].&lt;field&gt;</c>；
+        /// <c>polarity</c>/<c>icon_ref</c> 为 ADR-0060 一个发现的交付缺口新增）。<paramref
         /// name="auraQuery"/> 为 <c>null</c> 表示调用方未装配光环查询能力，惯例同 <see
         /// cref="Casting"/> 判断记录。
         /// </summary>
@@ -239,8 +240,14 @@ namespace Presentation.Ui
                     return snap.Total.HasValue ? ExprValue.OfNumber(snap.Total.Value) : (ExprValue?)null;
                 case "name_key":
                     return snap.NameKey.HasValue ? ExprValue.OfId(snap.NameKey.Value) : (ExprValue?)null;
+                // 一个发现的交付缺口（2026-09-21，ADR-0060）：polarity/icon_ref 两条子路径，惯例同
+                // 上方 name_key——未声明时静默返回"无"，不记诊断（字段本身可选，惯例同 ADR-0056）。
+                case "polarity":
+                    return snap.Polarity != null ? ExprValue.OfString(snap.Polarity) : (ExprValue?)null;
+                case "icon_ref":
+                    return snap.IconRef.HasValue ? ExprValue.OfId(snap.IconRef.Value) : (ExprValue?)null;
                 default:
-                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 auras[i] 字段名 \"{remaining[1].Name}\" 未知（只支持 def/stacks/remaining/total/name_key）");
+                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 auras[i] 字段名 \"{remaining[1].Name}\" 未知（只支持 def/stacks/remaining/total/name_key/polarity/icon_ref）");
                     return null;
             }
         }

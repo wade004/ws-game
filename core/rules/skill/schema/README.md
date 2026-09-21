@@ -39,6 +39,9 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `skill.aura_def.<name>` |
+| `name_key` | TextKey | 否 | 光环名称文本键，缺省时表现层不渲染名称（不回退占位文案），见 [ADR-0056](../../../../architecture/adr/0056-施法条与光环列表数据补全.md) |
+| `polarity` | Enum(`beneficial`\|`harmful`) | 否 | 光环极性（对承受者有利/有害），缺省未声明——不代表任一极性，见 [ADR-0060](../../../../architecture/adr/0060-光环极性与图标引用字段补全.md) |
+| `icon_ref` | Id | 否 | 光环图标资源引用；类别前缀限定 `icon`（资产根相对路径），见 [ADR-0038](../../../../architecture/adr/0038-资源引用类别前缀唯一决定路径空间.md)/[ADR-0039](../../../../architecture/adr/0039-内容数据schema破坏性变更政策.md)/ADR-0060 |
 | `duration` | Number | 否 | 空表示永久直到被移除 |
 | `max_stacks` | Int | 否 | 缺省 1 |
 | `stack_category` | Id | 否 | 跨定义的静态叠加校验分组，仅供加载期内容校验使用（见校验规则"叠加类别冲突"）；不是运行时叠加槽位维度，运行时按 `(target, aura_def, sourceKey)` 分槽，与本字段无关（见 [ADR-0023](../../../../architecture/adr/0023-光环叠加类别为静态校验分组.md)） |

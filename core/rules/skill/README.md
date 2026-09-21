@@ -1415,6 +1415,26 @@ skill/
     `HasAura`/`GetStacks` 从 `false`/`0` 变为 `true`/`1`；另两例钉住默认实现降级为 `null`
     且不抛异常。
 
+61. **ADR-0060《光环极性与图标引用字段补全》：`skill.aura_def` 新增可选字段 `polarity`/
+    `icon_ref`**（一个发现的交付缺口，2026-09-21）：ADR-0056 收口时把这两个字段明确留给后续独立
+    评审（判断记录见 `core/rules/common/contracts/AuraSnapshot.cs` 类型注释），本次补齐。`polarity`
+    （`FieldKind.Enum`，取值 `beneficial`/`harmful`，见 `SkillSchemas.AuraPolarityValues`）是内容
+    作者显式声明的字段，不是从 `effects` 反推——同一效果原语（如 `modify_stat`）既能配出增益也能
+    配出减益，反推不可靠；`icon_ref`（`FieldKind.Id`）类别前缀限定 `icon`，沿用
+    `WithAllowedRefCategories("icon")` 惯例（同 `display.anim_set.clips.resource_ref`/
+    `display.equip_visual.mesh_ref`，见 ADR-0038 决策 6）。两字段均可选，缺省缺失时为 `null`——
+    不编造默认极性/图标，惯例同 `name_key`（ADR-0056）；`AuraDef` 新增九参数构造函数重载（既有
+    六/七参数构造函数不变），`SkillDefCache.ParseAuraDef` 解析惯例分别同
+    `EncounterDefinition.CombatModeOverride`（`TryGetString`）与既有 `stack_category`/
+    `dispel_type`/`name_key`（`TryGetId`）。`Core.Rules.Common.AuraSnapshot` 同步新增七参数构造
+    函数重载携带这两个字段，`AuraHost.GetActiveAuraSnapshots` 的定义查找从"只解析 NameKey"扩展为
+    "整份 `AuraDef` 引用一次性取三个可选字段"（原 `ResolveAuraNameKey` 改名 `ResolveAuraDef`，
+    返回类型从 `Id?` 改为 `AuraDef?`，调用点从 LINQ `Select` 改为 `foreach`，理由是原写法对每个
+    实例调三次同一个解析方法效率低且不必要，改动前后行为逐位一致）。均为纯加法，`skill.aura_def`
+    落地前登记的既有全部行零改动仍合法，不提升 schema 版本。测试见
+    `core/rules/skill/tests/AuraPolarityIconRefTests.cs`（新增）。表现层路径 `auras[i].polarity`/
+    `auras[i].icon_ref` 见 `presentation/ui/README.md` 对应判断记录。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：

@@ -458,6 +458,29 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 勘误
+
+- `[1.52.0]` "消费方反馈第三批第 1/4 条"一节对施法条三个只读方法的描述停在并行切片期间的中间
+  状态（只提了 `Core.Rules.Skill.CastPipeline`/`SkillHost` 具体类与
+  `presentation/ui.ISkillBookQuery` 窄接口）：`GetCastingSkillId`/`GetCastingRemaining`/
+  `GetCastingTotal` 三个成员合并收口时已进一步提升为 `Core.Rules.Common.ISkillHost` 的 C#8
+  默认接口成员（只读查询，默认降级为 `null`），生产实现显式接口转发，`RulesAssembly.
+  DeferredSkillCastQuery` 同步补上显式转发；`presentation/ui.SkillHostSkillBookQuery` 已删除
+  期间的临时向下转型，改为直接经 `ISkillHost` 接口引用调用。详见
+  [ADR-0056](architecture/adr/0056-施法条与光环列表数据补全.md) 决策 1（已订正为最终形态）、
+  `core/rules/common/README.md` 判断记录 15。不改动 `[1.52.0]` 已发布条目正文。
+
+### 新增
+
+- **`skill.aura_def` 新增极性与图标引用两个可选字段**（一个发现的交付缺口，见
+  [ADR-0060](architecture/adr/0060-光环极性与图标引用字段补全.md)）：`polarity`
+  （`FieldKind.Enum`，取值 `beneficial`/`harmful`，缺省未声明）、`icon_ref`（`FieldKind.Id`，
+  类别前缀限定 `icon`，见 ADR-0038/0039）。`AuraDef`/`AuraSnapshot` 各新增一个构造函数重载
+  携带这两个字段；`Core.Rules.Common.IAuraQuery.GetActiveAuraSnapshots` 生产实现
+  `Core.Rules.Skill.AuraHost` 同步透传。表现层 `auras[i].polarity`/`auras[i].icon_ref` 路径
+  与既有 `auras[i].name_key` 同一套惯例。均为纯加法，未声明字段的既有 `skill.aura_def` 行零
+  改动仍合法，不提升 schema 版本。ABI 只新增，`breaks=0`。
+
 ## [1.52.0] - 2026-09-21
 
 ### 新增
