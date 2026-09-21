@@ -458,6 +458,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **`AssetRootConventions` 新增 `DatasetDataDirectory` 的逆运算 `TryGetDatasetName`**（消费方
+  反馈第 79 条，[ADR-0054](architecture/adr/0054-资产数据根目录与目录内固定文件名纳入公开契约.md)
+  "决策 1"纳入同一契约范围）：给定数据根目录与磁盘上已探测到的一个目录路径，尝试还原出该目录
+  对应的数据集名——消费方（内容编辑器项目）从"游戏仓库根 + 已探测数据目录"定位资产文件时，中间
+  "数据目录 → 数据集名"这一步此前只能自行切路径末段。`toolchain/asset_import/ref_conventions.py`
+  同步新增等价函数 `try_get_dataset_name`，两侧各自独立实现、跨语言一致性测试对照。签名：
+  `public static bool TryGetDatasetName(string dataRoot, string datasetDataDirectory, out string dataset)`
+  / `def try_get_dataset_name(data_root: Path, dataset_data_directory: Path) -> str | None`。
+  边界口径（不在数据根之下/是数据根本身/更深层子目录一律返回"不成功"而非编造数据集名；分隔符与
+  结尾分隔符归一化；`.`/`..` 段不做语义解析；大小写不敏感匹配父目录、但还原出的数据集名保留输入
+  原样大小写）见 `AssetRootConventions.cs` 该方法 XML 注释与 `toolchain/README.md` 对应判断记录。
+  纯加法，ABI `breaks=0`。消费方交付后可以拆掉自己拆路径末段的那段绕行代码。
+
 ## [1.53.0] - 2026-09-21
 
 ### 勘误

@@ -15,6 +15,7 @@ ADR-0025：资源引用标识到资产相对路径的约定纳入公开契约）
 from __future__ import annotations
 
 import enum
+import os
 from pathlib import Path
 
 __all__ = [
@@ -41,6 +42,7 @@ __all__ = [
     "resolve_data_root",
     "dataset_assets_directory",
     "dataset_data_directory",
+    "try_get_dataset_name",
     "vfx_atlas_file",
     "vfx_frames_file",
     "sprite_anim_atlas_file",
@@ -341,6 +343,76 @@ def dataset_data_directory(data_root: Path, dataset: str) -> Path:
     ``AssetRootConventions.DatasetDataDirectory`` 逐字对应。
     """
     return data_root / dataset
+
+
+def _normalize_separators(value: str) -> str:
+    """把 ``/`` 归一化为 ``os.sep``（Windows 下即 ``\\``；非 Windows 平台 ``os.sep`` 本身就是
+    ``/``，该替换是无操作，``\\`` 按字面字符处理，不当作分隔符——与该平台的路径语义一致），与 C# 侧
+    ``AssetRootConventions`` 私有方法 ``NormalizeSeparators`` 同一规则。
+    """
+    return value.replace("/", os.sep)
+
+
+def _trim_trailing_separator(value: str) -> str:
+    """去掉末尾多余的目录分隔符（可能不止一个）；保留长度为 1 的字符串不再继续裁剪，避免把
+    ``"C:\\"`` 之类的根路径裁成语义不同的 ``"C:"``——这一极端情形不在本框架真实数据根的取值范围内
+    （数据根恒为 ``<repo_root>/data`` 或调用方显式覆盖值，从不是裸盘符根）。与 C# 侧同名私有方法
+    ``TrimTrailingSeparator`` 逐字对应。
+    """
+    while len(value) > 1 and value[-1] == os.sep:
+        value = value[:-1]
+    return value
+
+
+def try_get_dataset_name(data_root: Path, dataset_data_directory: Path) -> str | None:
+    """:func:`dataset_data_directory` 的逆运算（消费方反馈第 79 条，ADR-0054"决策 1"纳入同一契约
+    范围）：给定 :func:`resolve_data_root` 算出的数据根目录，与磁盘上已经探测到的一个目录路径，
+    尝试还原出该目录对应的数据集名；解析失败返回 ``None``（不抛异常，与本模块既有
+    :func:`try_parse_sprite_set_id`/:func:`try_parse_icon_id` 同一惯例）。与 C# 侧
+    ``AssetRootConventions.TryGetDatasetName`` 逐条对应，两侧各自独立实现、不互相调用。满足往返
+    恒等式：对任意不含路径分隔符的合法数据集名 ``x``，
+    ``try_get_dataset_name(data_root, dataset_data_directory(data_root, x)) == x``。
+
+    判断记录（边界口径，与 C# 侧 ``TryGetDatasetName`` XML 注释逐条对应，理由不重复摘抄，仅记录
+    Python 侧特有的实现取舍）：
+
+    - **不是 ``data_root`` 的直接子目录**（更深层级、不在其下、或就是它本身）：返回 ``None``。
+    - **路径分隔符 ``/``/``\\``、结尾多余分隔符**：比较前用 :func:`_normalize_separators`/
+      :func:`_trim_trailing_separator` 归一化；不用 ``Path.resolve()``——该方法会按当前工作目录
+      把相对路径绝对化，与"运行时路径不依赖运行环境状态"的确定性要求冲突（同 C# 侧不用
+      ``Path.GetFullPath`` 的理由）。也不经过 ``PurePath`` 做父目录/末段拆分——``PurePath`` 在
+      解析时会静默丢弃单独的 ``.`` 段（如 ``PurePath("a/./b").parts == ("a", "b")``），而 C# 侧
+      ``Path.GetDirectoryName``/``Path.GetFileName`` 不会做这一步折叠；为保证两侧对同一输入算出
+      逐字节相同的结果（本条反馈验收标准要求的跨语言一致性），本函数改为对
+      ``str(data_root)``/``str(dataset_data_directory)`` 做与 C# 侧逐字对应的纯字符串前缀/后缀
+      处理，不经过 ``PurePath`` 的路径语义层。
+    - **``.``/``..`` 路径段**：不做任何语义解析，按字面字符比较（与上一条理由相同：绕开
+      ``PurePath`` 即绕开了它对 ``.`` 段的自动折叠，与 C# 侧字符串处理行为一致）。
+    - **相对路径 vs 绝对路径**：不做绝对化处理，只按字面字符串比较，调用方须保证两个参数处于同一
+      相对/绝对表示下。
+    - **大小写**：父目录段按 ``str.lower()`` 做大小写不敏感比较（Windows 文件系统语义，与 C# 侧
+      ``StringComparison.OrdinalIgnoreCase`` 同一效果，均不受当前文化影响）；还原出的数据集名取自
+      ``dataset_data_directory`` 最后一段的原样字符，不做任何大小写变换。
+    - **合法数据集名的假定**：假定数据集名本身不含路径分隔符，含分隔符的输入不在本函数契约范围内。
+    """
+    dir_str = _trim_trailing_separator(_normalize_separators(str(dataset_data_directory)))
+    root_str = _trim_trailing_separator(_normalize_separators(str(data_root)))
+
+    last_separator = dir_str.rfind(os.sep)
+    if last_separator < 0:
+        parent, name = "", dir_str
+    elif last_separator == 0:
+        # POSIX 风格根分隔符本身作为父目录（如 "/sample" 的父目录是 "/"），罕见场景（本框架数据根
+        # 从不是文件系统根本身），仅为不崩溃、行为可预期，不特别测试覆盖。
+        parent, name = dir_str[0], dir_str[1:]
+    else:
+        parent, name = dir_str[:last_separator], dir_str[last_separator + 1:]
+
+    if not name:
+        return None
+    if parent.lower() != root_str.lower():
+        return None
+    return name
 
 
 # --- 消费方反馈第 77 条（ADR-0054）：vfx/sprite_anim/sprite_set 三类目录型资源固定产出的

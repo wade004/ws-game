@@ -52,6 +52,7 @@ from asset_import.ref_conventions import (  # noqa: E402
     sprite_set_atlas_file,
     sprite_set_directory,
     strip_category_prefix,
+    try_get_dataset_name,
     try_parse_icon_id,
     try_parse_sprite_set_id,
     vfx_atlas_file,
@@ -476,6 +477,88 @@ def test_dataset_data_directory() -> None:
     assert dataset_data_directory(Path("/repo/data"), "_sample") == Path("/repo/data/_sample")
 
 
+# --- 消费方反馈第 79 条（ADR-0054）：try_get_dataset_name 是 dataset_data_directory 的逆运算。
+# 与 core/foundation/engine_adapter/tests/AssetRootConventionsTests.cs 对应用例使用同一组输入/
+# 期望值，两侧各自独立实现；跨语言一致性另见本文件下方经 toolchain/asset_root_probe 对照的用例。---
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    ["_sample", "_framework", "dataset_with_underscores", "dataset123"],
+)
+def test_try_get_dataset_name_round_trip_default_data_root(dataset: str) -> None:
+    data_root = resolve_data_root(REPO_ROOT, None)
+    directory = dataset_data_directory(data_root, dataset)
+    assert try_get_dataset_name(data_root, directory) == dataset
+
+
+@pytest.mark.parametrize("dataset", ["_sample", "dataset_with_underscores"])
+def test_try_get_dataset_name_round_trip_override_data_root(dataset: str) -> None:
+    data_root = resolve_data_root(REPO_ROOT, "custom_data")
+    directory = dataset_data_directory(data_root, dataset)
+    assert try_get_dataset_name(data_root, directory) == dataset
+
+
+def test_try_get_dataset_name_round_trip_absolute_override_data_root() -> None:
+    absolute_override = str(REPO_ROOT / "abs_data")
+    data_root = resolve_data_root(REPO_ROOT, absolute_override)
+    directory = dataset_data_directory(data_root, "_sample")
+    assert try_get_dataset_name(data_root, directory) == "_sample"
+
+
+def test_try_get_dataset_name_directory_deeper_than_direct_child_returns_none() -> None:
+    data_root = Path("/repo/data")
+    deeper = data_root / "_sample" / "inner"
+    assert try_get_dataset_name(data_root, deeper) is None
+
+
+def test_try_get_dataset_name_directory_is_data_root_itself_returns_none() -> None:
+    data_root = Path("/repo/data")
+    assert try_get_dataset_name(data_root, data_root) is None
+
+
+def test_try_get_dataset_name_directory_outside_data_root_returns_none() -> None:
+    data_root = Path("/repo/data")
+    outside = Path("/other/thing")
+    assert try_get_dataset_name(data_root, outside) is None
+
+
+def test_try_get_dataset_name_mixed_separators_still_matches() -> None:
+    data_root = "D:\\repo\\data"
+    directory_with_forward_slashes = "D:/repo/data/_sample"
+    assert try_get_dataset_name(data_root, directory_with_forward_slashes) == "_sample"
+
+
+def test_try_get_dataset_name_trailing_separator_still_matches() -> None:
+    data_root = Path("/repo/data")
+    directory = str(data_root / "_sample") + "/"
+    assert try_get_dataset_name(data_root, directory) == "_sample"
+
+
+def test_try_get_dataset_name_data_root_case_differs_from_observed_directory() -> None:
+    # Windows 文件系统大小写不敏感：data_root 与 dataset_data_directory 父目录段大小写不同时
+    # 仍应判定为同一目录。
+    data_root = "D:\\Repo\\Data"
+    directory = "d:\\repo\\data\\_Sample"
+    assert try_get_dataset_name(data_root, directory) == "_Sample"
+
+
+def test_try_get_dataset_name_observed_directory_casing_is_preserved_verbatim() -> None:
+    # 还原出的数据集名取自 dataset_data_directory 最后一段的原样字符，不做任何大小写变换、
+    # 也不取自正向方法本来传入的原始大小写。
+    data_root = Path("/repo/data")
+    forward_directory = dataset_data_directory(data_root, "_Sample")
+    observed_with_different_case = data_root / "_sAmple"
+
+    assert try_get_dataset_name(data_root, forward_directory) == "_Sample"
+    assert try_get_dataset_name(data_root, observed_with_different_case) == "_sAmple"
+
+
+def test_try_get_dataset_name_empty_directory_returns_none() -> None:
+    data_root = Path("/repo/data")
+    assert try_get_dataset_name(data_root, "") is None
+
+
 @pytest.mark.parametrize(
     "resource_ref_id, expected_atlas, expected_frames",
     [
@@ -588,7 +671,12 @@ def asset_root_probe_dll(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _run_asset_root_probe(
-    dll: Path, repo_root: str, assets_root_override: str | None, data_root_override: str | None, dataset: str
+    dll: Path,
+    repo_root: str,
+    assets_root_override: str | None,
+    data_root_override: str | None,
+    dataset: str,
+    inverse_probe_directory: str | None = None,
 ) -> dict:
     result = subprocess.run(
         [
@@ -598,6 +686,7 @@ def _run_asset_root_probe(
             assets_root_override or "",
             data_root_override or "",
             dataset,
+            inverse_probe_directory or "",
         ],
         capture_output=True,
         text=True,
@@ -636,3 +725,49 @@ def test_asset_root_conventions_cross_language_consistency(
     py_data_root = resolve_data_root(py_repo_root, data_root_override)
     assert csharp_result["dataset_assets_dir"] == str(dataset_assets_directory(py_assets_root, dataset))
     assert csharp_result["dataset_data_dir"] == str(dataset_data_directory(py_data_root, dataset))
+
+    # 消费方反馈第 79 条：往返路径上的逆运算——用本用例刚算出的 dataset_data_dir 做输入，两侧
+    # TryGetDatasetName/try_get_dataset_name 的还原结果必须逐字节相等（且都等于原 dataset）。
+    assert csharp_result["inverse_ok"] is True
+    assert csharp_result["inverse_dataset"] == dataset
+    py_dataset_data_dir = dataset_data_directory(py_data_root, dataset)
+    assert try_get_dataset_name(py_data_root, py_dataset_data_dir) == csharp_result["inverse_dataset"]
+
+
+@pytest.mark.skipif(DOTNET is None, reason="本机找不到 dotnet，跳过跨语言一致性测试")
+@pytest.mark.parametrize(
+    "repo_root, data_root_override, dataset, inverse_probe_directory",
+    [
+        # 更深子目录：两侧均判定为失败。
+        (str(REPO_ROOT), None, "_sample", str(REPO_ROOT / "data" / "_sample" / "inner")),
+        # 数据根之外的路径：两侧均判定为失败。
+        (str(REPO_ROOT), None, "_sample", str(REPO_ROOT / "other" / "thing")),
+        # 就是数据根本身：两侧均判定为失败。
+        (str(REPO_ROOT), None, "_sample", str(REPO_ROOT / "data")),
+        # 分隔符混用（正斜杠）：两侧均判定为成功，且还原出同一个数据集名。
+        (str(REPO_ROOT), None, "_sample", str(REPO_ROOT / "data").replace("\\", "/") + "/_sample"),
+        # 结尾多余分隔符：两侧均判定为成功。
+        (str(REPO_ROOT), None, "_sample", str(REPO_ROOT / "data" / "_sample") + "\\"),
+    ],
+)
+def test_try_get_dataset_name_cross_language_consistency_boundary_cases(
+    asset_root_probe_dll: Path,
+    repo_root: str,
+    data_root_override: str | None,
+    dataset: str,
+    inverse_probe_directory: str,
+) -> None:
+    csharp_result = _run_asset_root_probe(
+        asset_root_probe_dll,
+        repo_root,
+        None,
+        data_root_override,
+        dataset,
+        inverse_probe_directory,
+    )
+    py_data_root = resolve_data_root(Path(repo_root), data_root_override)
+    py_dataset = try_get_dataset_name(py_data_root, inverse_probe_directory)
+
+    assert csharp_result["inverse_ok"] == (py_dataset is not None)
+    if py_dataset is not None:
+        assert csharp_result["inverse_dataset"] == py_dataset

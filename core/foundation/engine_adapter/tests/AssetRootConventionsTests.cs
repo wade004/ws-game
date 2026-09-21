@@ -118,5 +118,145 @@ namespace Tests.Foundation.EngineAdapter
             var datasetDir = AssetRootConventions.DatasetAssetsDirectory(assetsRoot, "_sample");
             Assert.Equal(Path.Combine(repoRoot, "assets", "_sample"), datasetDir);
         }
+
+        // --- 消费方反馈第 79 条（ADR-0054）：TryGetDatasetName 是 DatasetDataDirectory 的逆运算。
+        // 三类测试：往返（round-trip）、边界口径、（跨语言一致性另见
+        // toolchain/tests/test_ref_conventions.py 经 toolchain/asset_root_probe 子进程对照）。---
+
+        [Theory]
+        [InlineData("_sample")]
+        [InlineData("_framework")]
+        [InlineData("dataset_with_underscores")]
+        [InlineData("dataset123")]
+        public void TryGetDatasetName_RoundTrip_DefaultDataRoot_RecoversOriginalDatasetName(string dataset)
+        {
+            var dataRoot = AssetRootConventions.ResolveDataRoot(Path.Combine("D:", "repo"), null);
+            var dir = AssetRootConventions.DatasetDataDirectory(dataRoot, dataset);
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, dir, out var recovered));
+            Assert.Equal(dataset, recovered);
+        }
+
+        [Theory]
+        [InlineData("_sample")]
+        [InlineData("dataset_with_underscores")]
+        public void TryGetDatasetName_RoundTrip_OverrideDataRoot_RecoversOriginalDatasetName(string dataset)
+        {
+            var repoRoot = Path.Combine("D:", "repo");
+            var dataRoot = AssetRootConventions.ResolveDataRoot(repoRoot, "custom_data");
+            var dir = AssetRootConventions.DatasetDataDirectory(dataRoot, dataset);
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, dir, out var recovered));
+            Assert.Equal(dataset, recovered);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_RoundTrip_AbsoluteOverrideDataRoot_RecoversOriginalDatasetName()
+        {
+            var repoRoot = Path.Combine("D:", "repo");
+            var dataRoot = AssetRootConventions.ResolveDataRoot(repoRoot, Path.Combine("C:", "abs", "data"));
+            var dir = AssetRootConventions.DatasetDataDirectory(dataRoot, "_sample");
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, dir, out var recovered));
+            Assert.Equal("_sample", recovered);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_DirectoryDeeperThanDirectChild_ReturnsFalse()
+        {
+            var dataRoot = Path.Combine("D:", "repo", "data");
+            var deeper = Path.Combine(dataRoot, "_sample", "inner");
+
+            Assert.False(AssetRootConventions.TryGetDatasetName(dataRoot, deeper, out var dataset));
+            Assert.Equal(string.Empty, dataset);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_DirectoryIsDataRootItself_ReturnsFalse()
+        {
+            var dataRoot = Path.Combine("D:", "repo", "data");
+
+            Assert.False(AssetRootConventions.TryGetDatasetName(dataRoot, dataRoot, out var dataset));
+            Assert.Equal(string.Empty, dataset);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_DirectoryOutsideDataRoot_ReturnsFalse()
+        {
+            var dataRoot = Path.Combine("D:", "repo", "data");
+            var outside = Path.Combine("D:", "other", "thing");
+
+            Assert.False(AssetRootConventions.TryGetDatasetName(dataRoot, outside, out var dataset));
+            Assert.Equal(string.Empty, dataset);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_MixedSeparators_StillMatches()
+        {
+            var dataRoot = Path.Combine("D:", "repo", "data");
+            // 数据根用反斜杠、待判定目录用正斜杠——分隔符风格不一致不影响判定。
+            var dirWithForwardSlashes = dataRoot.Replace('\\', '/') + "/_sample";
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, dirWithForwardSlashes, out var dataset));
+            Assert.Equal("_sample", dataset);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_TrailingSeparator_StillMatches()
+        {
+            var dataRoot = Path.Combine("D:", "repo", "data");
+            var dir = Path.Combine(dataRoot, "_sample") + Path.DirectorySeparatorChar;
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, dir, out var dataset));
+            Assert.Equal("_sample", dataset);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_DataRootCaseDiffersFromObservedDirectory_MatchesCaseInsensitively()
+        {
+            // Windows 文件系统大小写不敏感：dataRoot 与 datasetDataDirectory 父目录段大小写不同
+            // 时仍应判定为同一目录。
+            var dataRoot = Path.Combine("D:", "Repo", "Data");
+            var dir = Path.Combine("d:", "repo", "data", "_Sample");
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, dir, out var dataset));
+            Assert.Equal("_Sample", dataset);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_ObservedDirectoryCasingIsPreservedVerbatim()
+        {
+            // 还原出的数据集名取自 datasetDataDirectory 最后一段的原样字符，不做任何大小写变换、
+            // 也不取自正向方法本来传入的原始大小写。
+            var dataRoot = Path.Combine("D:", "repo", "data");
+            var forwardDir = AssetRootConventions.DatasetDataDirectory(dataRoot, "_Sample");
+            var observedWithDifferentCase = Path.Combine(dataRoot, "_sAmple");
+
+            Assert.True(AssetRootConventions.TryGetDatasetName(dataRoot, forwardDir, out var recoveredOriginalCase));
+            Assert.Equal("_Sample", recoveredOriginalCase);
+
+            Assert.True(
+                AssetRootConventions.TryGetDatasetName(dataRoot, observedWithDifferentCase, out var recoveredObservedCase));
+            Assert.Equal("_sAmple", recoveredObservedCase);
+        }
+
+        [Fact]
+        public void TryGetDatasetName_NullDataRoot_Throws()
+        {
+            Assert.Throws<ArgumentNullException>(
+                () => AssetRootConventions.TryGetDatasetName(null!, Path.Combine("D:", "repo", "data", "_sample"), out _));
+        }
+
+        [Fact]
+        public void TryGetDatasetName_NullOrEmptyDatasetDataDirectory_ReturnsFalse()
+        {
+            var dataRoot = Path.Combine("D:", "repo", "data");
+
+            Assert.False(AssetRootConventions.TryGetDatasetName(dataRoot, null!, out var dataset1));
+            Assert.Equal(string.Empty, dataset1);
+
+            Assert.False(AssetRootConventions.TryGetDatasetName(dataRoot, string.Empty, out var dataset2));
+            Assert.Equal(string.Empty, dataset2);
+        }
     }
 }
