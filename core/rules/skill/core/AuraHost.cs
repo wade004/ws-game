@@ -889,7 +889,7 @@ namespace Core.Rules.Skill
                 var def = ResolveAuraDef(instance.DefId);
                 result.Add(new AuraSnapshot(
                     instance.DefId, instance.Stacks, instance.Remaining, instance.DurationTotal,
-                    def?.NameKey, def?.Polarity, def?.IconRef));
+                    def?.NameKey, def?.Polarity ?? AuraPolarity.Undeclared, def?.IconRef));
             }
 
             return result;

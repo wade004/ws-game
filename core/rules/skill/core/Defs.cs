@@ -247,15 +247,17 @@ namespace Core.Rules.Skill
 
         /// <summary>
         /// 一个发现的交付缺口（2026-09-21，[ADR-0060](../../../../architecture/adr/0060-光环极性与图标引用字段补全.md)）：
-        /// 光环极性（<c>skill.aura_def.polarity</c>），供表现层区分增益/减益边框与分区，取值集合见
-        /// <see cref="SkillSchemas.AuraPolarityValues"/>（<c>beneficial</c>/<c>harmful</c>）。
-        /// <c>null</c> 表示未声明——不编造默认极性（同 <see cref="NameKey"/> 判断记录"未声明即
-        /// null，不回退占位值"一贯口径），本字段落地前登记的全部既有 <c>skill.aura_def</c> 行均无
-        /// 此字段，解析为 <c>null</c>，不产生任何行为变化。之所以是接内容作者显式声明的字段，而不是
-        /// 从 <see cref="Effects"/> 反推：同一效果原语（如 <c>modify_stat</c>）既能配出增益也能配出
-        /// 减益，反推不可靠，见 ADR-0060"决策"一节。
+        /// 光环极性（<c>skill.aura_def.polarity</c>），供表现层区分增益/减益边框与分区。结构化枚举
+        /// <see cref="AuraPolarity"/>（不是字符串也不是布尔，同批交付另一条不可用原因
+        /// <c>ActionBarSlotBlockReason</c> 同一惯例，见该类型判断记录）。<see cref="AuraPolarity.Undeclared"/>
+        /// 表示未声明——不编造默认极性（同 <see cref="NameKey"/> 判断记录"未声明即不回退占位值"一贯
+        /// 口径，只是这里用枚举的显式取值表达"未声明"，不是可空类型 + <c>null</c>，见
+        /// <see cref="AuraPolarity"/> 判断记录），本字段落地前登记的全部既有 <c>skill.aura_def</c>
+        /// 行均无此字段，解析为 <see cref="AuraPolarity.Undeclared"/>，不产生任何行为变化。之所以是
+        /// 内容作者显式声明的字段，而不是从 <see cref="Effects"/> 反推：同一效果原语（如
+        /// <c>modify_stat</c>）既能配出增益也能配出减益，反推不可靠，见 ADR-0060"决策"一节。
         /// </summary>
-        public string? Polarity { get; }
+        public AuraPolarity Polarity { get; }
 
         /// <summary>
         /// 一个发现的交付缺口（2026-09-21，ADR-0060）：光环图标资源引用（<c>skill.aura_def.icon_ref</c>），
@@ -277,7 +279,7 @@ namespace Core.Rules.Skill
             DispelType = dispelType;
             Effects = effects;
             NameKey = null;
-            Polarity = null;
+            Polarity = AuraPolarity.Undeclared;
             IconRef = null;
         }
 
@@ -296,7 +298,7 @@ namespace Core.Rules.Skill
             DispelType = dispelType;
             Effects = effects;
             NameKey = nameKey;
-            Polarity = null;
+            Polarity = AuraPolarity.Undeclared;
             IconRef = null;
         }
 
@@ -306,7 +308,7 @@ namespace Core.Rules.Skill
         /// 判断记录同一套 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载九个参数
         /// 全部不带默认值，与既有两个构造函数（分别恰好六、七个参数）参数个数不重叠，互不冲突。
         /// </summary>
-        public AuraDef(Id id, double? duration, int maxStacks, Id? stackCategory, Id? dispelType, IReadOnlyList<AuraEffectEntry> effects, Id? nameKey, string? polarity, Id? iconRef)
+        public AuraDef(Id id, double? duration, int maxStacks, Id? stackCategory, Id? dispelType, IReadOnlyList<AuraEffectEntry> effects, Id? nameKey, AuraPolarity polarity, Id? iconRef)
         {
             Id = id;
             Duration = duration;

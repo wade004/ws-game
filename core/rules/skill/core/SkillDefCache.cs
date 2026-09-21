@@ -511,11 +511,17 @@ namespace Core.Rules.Skill
             // SkillDefCache.ParseSkillDef 对 skill.def.name_key 的既有惯例（TryGetId 失败即 null）。
             Id? nameKey = record.TryGetId("name_key", out var nk) ? nk : (Id?)null;
 
-            // 一个发现的交付缺口（2026-09-21，ADR-0060）：polarity 是可选 Enum 字段，解析惯例同
-            // EncounterDefinition.CombatModeOverride 对 combat_mode_override 的既有惯例
-            // （TryGetString 失败即 null，不编造默认极性）；icon_ref 是可选 Id 字段（类别前缀限定
-            // icon），解析惯例同上方 stack_category/dispel_type/name_key（TryGetId 失败即 null）。
-            string? polarity = record.TryGetString("polarity", out var pol) ? pol : null;
+            // 一个发现的交付缺口（2026-09-21，ADR-0060）：polarity 是可选 Enum 字段，结构化解析成
+            // AuraPolarity（不是裸字符串，见该类型判断记录）。判断记录（字段缺失 → Undeclared；
+            // 字段存在但取值未知 → 抛异常，不静默降级为 Undeclared）：skill.aura_def.polarity 的
+            // 合法取值集合已由 SkillSchemas.AuraPolarityValues 登记为 FieldKind.Enum，加载期校验
+            // 理论上已经挡住非法取值；本方法是 static 方法，不持有诊断出口，按 AGENTS.md §3"运行时
+            // 路径不静默降级"，与同一方法内 AuraEffectKindNames.Parse（上方 effects[].kind）遇到
+            // 未知取值时的既有做法一致，直接抛异常（AuraPolarityNames.Parse 判断记录）——"字段存在
+            // 但取值非法（数据损坏/校验被绕过）"与"字段缺失（未声明）"是完全不同的两类情况，不能把
+            // 前者悄悄当成后者处理。icon_ref 是可选 Id 字段（类别前缀限定 icon），解析惯例同上方
+            // stack_category/dispel_type/name_key（TryGetId 失败即 null）。
+            var polarity = record.TryGetString("polarity", out var pol) ? AuraPolarityNames.Parse(pol) : AuraPolarity.Undeclared;
             Id? iconRef = record.TryGetId("icon_ref", out var ir) ? ir : (Id?)null;
 
             return new AuraDef(id, duration, maxStacks, stackCategory, dispelType, effects, nameKey, polarity, iconRef);

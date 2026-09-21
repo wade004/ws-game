@@ -45,11 +45,14 @@ namespace Core.Rules.Common
 
         /// <summary>
         /// 一个发现的交付缺口（2026-09-21，[ADR-0060](../../../../architecture/adr/0060-光环极性与图标引用字段补全.md)）：
-        /// 光环极性（<c>skill.aura_def.polarity</c> 原样转发，取值 <c>beneficial</c>/<c>harmful</c>），
-        /// 供接入方画出正负边框/分区。<c>null</c> 表示未声明——不编造默认极性，惯例同
-        /// <see cref="NameKey"/>。
+        /// 光环极性，供接入方画出正负边框/分区。结构化枚举 <see cref="AuraPolarity"/>（不是字符串
+        /// 也不是布尔，同批交付另一条不可用原因 <c>ActionBarSlotBlockReason</c> 同一惯例，字符串
+        /// 让接入方只能自己拼字面量比较、拼错编译期不报错，布尔表达不出"未声明"）。
+        /// <see cref="AuraPolarity.Undeclared"/> 表示未声明——不编造默认极性，也不用可空类型
+        /// 表达"未声明"（惯例同 <see cref="NameKey"/> 判断记录，但这里用枚举自身的显式取值，见
+        /// <see cref="AuraPolarity"/> 判断记录）。
         /// </summary>
-        public string? Polarity { get; }
+        public AuraPolarity Polarity { get; }
 
         /// <summary>
         /// 一个发现的交付缺口（2026-09-21，ADR-0060）：光环图标资源引用（<c>skill.aura_def.icon_ref</c>
@@ -65,7 +68,7 @@ namespace Core.Rules.Common
             Remaining = remaining;
             Total = total;
             NameKey = nameKey;
-            Polarity = null;
+            Polarity = AuraPolarity.Undeclared;
             IconRef = null;
         }
 
@@ -73,9 +76,12 @@ namespace Core.Rules.Common
         /// 一个发现的交付缺口新增重载（2026-09-21，ADR-0060）：携带 <see cref="Polarity"/>/
         /// <see cref="IconRef"/>。判断记录（不是给既有构造函数追加两个可选参数）：同 <c>AuraDef</c>
         /// 新增重载判断记录同一套 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载
-        /// 七个参数全部不带默认值，与既有构造函数（恰好五个参数）参数个数不重叠，互不冲突。
+        /// 七个参数全部不带默认值，与既有构造函数（恰好五个参数）参数个数不重叠，互不冲突。本重载
+        /// 尚未随任何版本发布（随本次改动一并落地），协调方拍板"极性改用结构化枚举"时直接改了本
+        /// 重载的参数类型（<c>string? polarity</c> → <c>AuraPolarity polarity</c>），不再叠加第三个
+        /// 重载——同一未发布签名允许直接改，不必背 ABI 包袱。
         /// </summary>
-        public AuraSnapshot(Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey, string? polarity, Id? iconRef)
+        public AuraSnapshot(Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey, AuraPolarity polarity, Id? iconRef)
         {
             AuraDefId = auraDefId;
             Stacks = stacks;

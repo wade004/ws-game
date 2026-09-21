@@ -273,8 +273,12 @@ namespace Tests.PresentationUi
 
         /// <summary>
         /// 一个发现的交付缺口（2026-09-21，ADR-0060）：<c>player.auras[i].polarity</c>/
-        /// <c>player.auras[i].icon_ref</c> 原样转发 <see cref="AuraSnapshot.Polarity"/>/
-        /// <see cref="AuraSnapshot.IconRef"/>；未声明（<c>null</c>）时路径查询结果为"无"，同既有
+        /// <c>player.auras[i].icon_ref</c> 转发 <see cref="AuraSnapshot.Polarity"/>/
+        /// <see cref="AuraSnapshot.IconRef"/>；<see cref="AuraSnapshot.Polarity"/> 是结构化枚举
+        /// <see cref="AuraPolarity"/>，路径查询这一层没有枚举值类型（<c>ExprValue</c> 判别联合只有
+        /// Bool/Int/Number/String/Id 五种），按既有惯例降级为该枚举在数据表上对应的文本（由
+        /// <c>AuraPolarityNames.ToText</c> 转出，不是原样透传数据文件字面量）；未声明
+        /// （<see cref="AuraPolarity.Undeclared"/>/<c>null</c>）时路径查询结果为"无"，同既有
         /// <c>name_key</c> 一贯口径，不记诊断。
         /// </summary>
         [Fact]
@@ -286,8 +290,8 @@ namespace Tests.PresentationUi
             var buffIcon = new Id("icon.aura.sample_fortify");
             world.AuraQuery.SetSnapshotsForTest(world.PlayerId, new[]
             {
-                new AuraSnapshot(buff, stacks: 1, remaining: 8.0, total: 8.0, nameKey: null, polarity: "beneficial", iconRef: buffIcon),
-                new AuraSnapshot(debuff, stacks: 1, remaining: 6.0, total: 6.0, nameKey: null, polarity: "harmful", iconRef: null),
+                new AuraSnapshot(buff, stacks: 1, remaining: 8.0, total: 8.0, nameKey: null, polarity: AuraPolarity.Beneficial, iconRef: buffIcon),
+                new AuraSnapshot(debuff, stacks: 1, remaining: 6.0, total: 6.0, nameKey: null, polarity: AuraPolarity.Harmful, iconRef: null),
             });
 
             Assert.Equal("beneficial", world.DataSource.Query("player.auras[0].polarity")!.Value.AsString);

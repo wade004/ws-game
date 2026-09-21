@@ -256,11 +256,31 @@ common/
 16. **`AuraSnapshot` 新增 `Polarity`/`IconRef` 两个只读属性**（一个发现的交付缺口，2026-09-21，
     [ADR-0060](../../../architecture/adr/0060-光环极性与图标引用字段补全.md)）：判断记录 13 落地
     `AuraSnapshot` 时，消费方原始反馈第 4 条一并提出的图标引用与极性字段被 ADR-0056 明确留给后续
-    独立评审（需要先确定 `display` 模块图标引用惯例、极性取值集合），本次评审完成后补齐——新增
-    七参数构造函数重载（既有五参数构造函数不变），转发 `skill.aura_def` 新增的同名可选字段
-    `polarity`/`icon_ref`，未声明时为 `null`，不编造默认极性/图标，惯例同 `NameKey`。生产实现
-    `Core.Rules.Skill.AuraHost` 显式覆盖；`IAuraQuery.GetActiveAuraSnapshots` 默认接口成员保持
-    降级为 `null` 不变。详见 `core/rules/skill/README.md` 判断记录 61。
+    独立评审（需要先确定 `display` 模块图标引用惯例、极性取值集合），本次评审完成后补齐——七参数
+    构造函数（既有五参数构造函数不变，仍构造出极性为"未声明"的快照）的 `polarity` 参数类型是新增
+    可枚举类型 `AuraPolarity`（`Core.Rules.Common`，取值 `Undeclared`/`Beneficial`/`Harmful`，
+    命名与判定原因见判断记录 17），不是 `string?`——这个重载尚未发布，直接在原地把参数类型改成
+    枚举，不叠加第三个重载。`IconRef` 保持 `Id?`，未声明时为 `null`，不编造默认图标，惯例同
+    `NameKey`。生产实现 `Core.Rules.Skill.AuraHost` 显式覆盖；`IAuraQuery.GetActiveAuraSnapshots`
+    默认接口成员保持降级为 `null` 不变。详见 `core/rules/skill/README.md` 判断记录 61。
+
+17. **`AuraPolarity`/`AuraPolarityNames`（`Core.Rules.Common`，2026-09-21，ADR-0060 订正）**：
+    判断记录 16 落地时极性一度用 `string?` 承载，随后订正为结构化枚举——理由与
+    `ActionBarSlotBlockReason`（消费方第三批第 2 条）一致：极性是"接入方需要按取值分支处理"的
+    结构化信息，用裸字符串会让接入方自行拼字面量比较，拼错不报编译错误，只在运行时查不到值；用
+    可枚举类型能让编译期直接约束合法取值集合。`AuraPolarity` 取值 `Undeclared = 0`/
+    `Beneficial = 1`/`Harmful = 2`——"未声明"是枚举里的一个显式取值，不是"可空枚举 + `null`"，
+    因为后者会让"未声明"这一件事分散成类型系统层的"值不存在"与业务层的"存在但未声明"两处状态，
+    接入方每次都要多判一次空；把"未声明"收进取值域本身，类型系统就能保证该属性永远有确定取值，
+    其中一个取值恰好代表未声明，`Undeclared = 0` 还顺带保证默认值（`default(AuraPolarity)`）天然
+    等于"未声明"而不是某个具体极性。配套 `AuraPolarityNames` 静态类提供 `ToText`/`Parse`/
+    `TryParse`，模板照抄同文件既有的 `AuraEffectKind`/`AuraEffectKindNames`：`ToText` 只接受
+    `Beneficial`/`Harmful`，传入 `Undeclared` 或任何未映射值抛 `ArgumentException`（"未声明"不是
+    一个可以被转成文本对外呈现的合法极性，不应该被误用在需要具体极性文本的场景）；`Parse` 对
+    未知文本抛 `ArgumentException`，`TryParse` 对未知文本返回 `false`（out 值为 `Undeclared`）
+    ——两者并存的理由同既有惯例：调用方明确知道文本应该合法时用 `Parse`（如
+    `SkillDefCache.ParseAuraDef` 解析登记表数据，非法文本代表数据损坏或校验被绕过，必须暴露，
+    见判断记录 61），调用方本就允许文本缺失/未知时用 `TryParse`。
 
 ## 不负责什么
 
