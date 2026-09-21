@@ -92,13 +92,21 @@ def test_build_ps1_assembles_all_four_packages() -> None:
 
 
 def test_check_ps1_package_names_match_expected_four() -> None:
-    text = _read_text("check.ps1")
+    # 判断记录（gate-speed 任务，2026-09-22）：check.ps1"包清单一致性"步骤的实现（含
+    # $packageNames = @(...) 数组字面量）已经搬到 toolchain/_gate_line_unity.ps1（门禁提速重排
+    # 把 DLL 同步/包清单一致性/Unity 相关步骤收拢进这个新的"Unity 串行线"子脚本，由 check.ps1 用
+    # Start-Job 并行调度，见该脚本头部判断记录）——check.ps1 本体不再直接包含这段代码，本断言的
+    # 真正意图（"门禁认识的四个包名与预期一致"）不变，只是改读实际承载这段逻辑的文件。
+    text = _read_text("toolchain/_gate_line_unity.ps1")
     # "包清单一致性"步骤里的 $packageNames = @(...) 数组字面量。
     match = re.search(r"\$packageNames\s*=\s*@\(([^)]*)\)", text, re.DOTALL)
-    assert match is not None, "check.ps1 找不到 $packageNames 数组（\"包清单一致性\"步骤）"
+    assert match is not None, (
+        "toolchain/_gate_line_unity.ps1 找不到 $packageNames 数组（\"包清单一致性\"步骤，"
+        "该步骤由 check.ps1 搬到本文件，见 check.ps1 头部 gate-speed 判断记录）"
+    )
     found = set(_extract_package_literals(match.group(1)))
     assert found == EXPECTED_PACKAGE_NAMES, (
-        f"check.ps1 的 $packageNames 与预期四个包名不一致："
+        f"toolchain/_gate_line_unity.ps1 的 $packageNames 与预期四个包名不一致："
         f"多余={found - EXPECTED_PACKAGE_NAMES}，缺失={EXPECTED_PACKAGE_NAMES - found}"
     )
 

@@ -105,13 +105,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\consumer_smoke.ps1
 
 ## `check.ps1`（一键门禁，仓库根，见 11_工程规范与测试.md 第 8 节）
 
-依次跑：`.NET` 构建 + 测试（六工程，含性能基线）→ 数据校验（合并根 + `data/_framework` 框架根单独完整校验）→ 事件常量/占位资产生成器一致性检查（`--check`，只读）→ `toolchain` 自身的 Python 测试 → 嵌入仿真数据集单独 `--strict` 校验（`core/sim/tests/data`，见 [core/sim/README.md](core/sim/README.md) 判断记录 41 补充段落） → 数值仿真基线比对（`toolchain/simrunner` 对嵌入式最小仿真数据集跑三类场景，与既有基线比对统计量差异，见 [core/sim/README.md](core/sim/README.md)"命令行入口"一节；ADR-0035 决策 3/5） → 两道禁用词扫描（全仓库不出现具体游戏代号；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性（`VERSION`、两个 `package.json` 与 `CHANGELOG.md`）→ `build.ps1 -SkipTests` 同步 DLL → 包清单一致性（私服交付通道四个 npm 包版本号 + `npm pack --dry-run` 排除规则，见"版本与发布"一节"私服通道"；排在"同步 DLL"之后是硬性依赖——它跑的 `build.ps1 -SyncOnly` 要求六个核心 DLL 已经构建在 `bin\` 下，见 check.ps1 该步骤判断记录）→ Unity 编译检查 → Unity EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。每步单独计时与判定，最后打印一张汇总表；任一步失败，整体以非 0 退出码结束。
+门禁提速重排（gate-speed 任务，2026-09-22，判断记录见 check.ps1 头部注释）：先串行跑一批秒级、不
+依赖 Unity/重构建的快速检查——门禁自检 → 两道禁用词扫描（全仓库不出现具体游戏代号，改用 `git
+grep` 只扫受版本管理的文件；`architecture` 正文不出现具体引擎/语言/框架/工具名）→ 版本一致性
+（`VERSION`、两个 `package.json`、`packages-lock.json` 与 `CHANGELOG.md`）→ 数据校验（合并根 +
+`data/_framework` 框架根单独完整校验）→ 元数据门禁 `validator --schema-audit` → 事件常量一致性
+检查 → 数据表字段顺序检查 → 资产导入交叉校验 → 嵌入仿真数据集单独 `--strict` 校验 → 工作树文本
+文件无 CR → Unity `.meta` 完整性检查；再把两条互不依赖的重步骤线并行跑（`Start-Job`，两个独立
+`powershell.exe` 子进程）：一条"非 Unity 重步骤线"（`toolchain/_gate_line_heavy.ps1`）依次跑
+`.NET` 构建 + 测试（六工程，含性能基线）→ ABI 探针 → 占位资产生成器一致性检查（`--check`，只读）
+→ 样例导入幂等性门禁 → `toolchain` 自身的 Python 测试 → 数值仿真基线比对（`toolchain/simrunner`
+对嵌入式最小仿真数据集跑三类场景，与既有基线比对统计量差异，见
+[core/sim/README.md](core/sim/README.md)"命令行入口"一节；ADR-0035 决策 3/5）；另一条"Unity 串行
+线"（`toolchain/_gate_line_unity.ps1`，内部必须串行——Unity 不允许同一工程有两个批处理实例同时
+跑）依次跑 `build.ps1 -SkipTests` 同步 DLL → 包清单一致性（私服交付通道四个 npm 包版本号 +
+`npm pack --dry-run` 排除规则，见"版本与发布"一节"私服通道"）→ Unity 编译检查 → Unity
+EditMode/PlayMode 测试 → 独立版构建 + 两种无人值守冒烟（`-gf-smoke` 连续模式默认流程、
+`-gf-smoke-discrete` 离散模式链路）→ 消费方演练（`toolchain/consumer_smoke.ps1`，见下一节）。
+两条线都结束后把各自的结果合并进同一张汇总表（步骤逐行列出 PASS/FAIL/耗时，另加一行"并行阶段
+墙钟"，不计入步骤总数）；每步单独计时与判定；任一步失败，整体以非 0 退出码结束——默认行为是跑完
+全部步骤（不管前面是否已经失败），传 `-FailFast` 后任一步失败会让"该步骤所在的那条执行序列"
+（前置快速检查阶段，或并行两条线之一）后续步骤全部立即改判可见 SKIP，不再白跑（跨两条并行线用
+共享标记文件通信，见 check.ps1 `.PARAMETER FailFast` 判断记录）。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 相关步骤与消费方演练）
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1              # 全量（含 Unity 相关步骤与消费方演练；不传 -FailFast，跑完全部步骤）
 powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity   # 跳过 Unity 相关步骤与消费方演练（Unity 编辑器被占用/未装时用）
 powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipSmoke   # Unity 独立版仍构建，只跳过两种无人值守冒烟子步骤
 powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipConsumer # 跳过消费方演练这一步（其余 Unity 步骤仍跑）
+powershell -NoProfile -ExecutionPolicy Bypass -File check.ps1 -FailFast    # 任一步失败立即停止后续步骤（build.ps1 -Release 调用门禁时默认传本开关）
 ```
 
 `-ArtifactsPath <dir>` 可覆盖 `dotnet`/Unity 产物落地目录（默认 `bin\_check_artifacts`，已被 `.gitignore` 的 `bin/` 规则忽略）；`-UnityExe <path>` 可显式指定 Unity 可执行文件路径（默认按 Unity Hub 常见安装位置猜测，找不到则要求显式传参）。

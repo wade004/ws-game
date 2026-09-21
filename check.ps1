@@ -1,12 +1,86 @@
 ﻿<#
 .SYNOPSIS
-    仓库根一键门禁脚本（见 11_工程规范与测试.md 第 8 节"提交门槛清单"）：依次跑 .NET 构建与
-    测试、Python 数据/工具链校验、禁用词扫描、构建产物同步、Unity 编译检查与测试、独立版构建
-    与无人值守冒烟，逐步打印耗时与结果，结束时汇总一张表；任一步失败，整体以非 0 退出码结束。
+    仓库根一键门禁脚本（见 11_工程规范与测试.md 第 8 节"提交门槛清单"）：跑 .NET 构建与测试、
+    Python 数据/工具链校验、禁用词扫描、构建产物同步、Unity 编译检查与测试、独立版构建与无人
+    值守冒烟，逐步打印耗时与结果，结束时汇总一张表；任一步失败，整体以非 0 退出码结束。
+
+    判断记录（gate-speed 任务，2026-09-22，门禁提速重排 + 分线并行）：31 步全量门禁改造前是
+    严格串行、总耗时约 486 秒，且任一步失败仍会白跑完剩余全部步骤才报错（实测过一次 pytest 在
+    约 3 分钟处失败，仍跑到 566 秒才收尾）。本次改造三件事，判断记录写在这里（唯一出处，不在
+    别处重复登记）：
+
+    1) **失败即停（`-FailFast`，新增开关）**：`-FailFast` 打开后，任一步骤 FAIL 会让"该步骤所在
+       的那条执行序列"（主进程的快速前置阶段，或下面两条并行子线中的一条）后续步骤全部立即改判
+       SKIP（原因写清楚"上游步骤已失败"/"并行的另一条线已失败"），不再白跑。`build.ps1 -Release`
+       调用门禁时固定传本开关（见 build.ps1"第 5 步"调用点）；日常直接跑 `check.ps1`（不传
+       `-FailFast`）保持原行为——跑完全部步骤，一次看全，不因为一步失败就看不到别的问题。
+
+    2) **重排步骤顺序，便宜的先跑**：把秒级、不依赖 Unity/重构建的检查（门禁自检、两道禁用词
+       扫描、版本一致性、几道数据/schema 校验、工作树 CR 检查、Unity .meta 完整性）挪到最前面，
+       串行跑完；这批步骤互相之间、与后面的重步骤之间都没有真实依赖，纯粹是"先看便宜的，尽快
+       给出第一个可能的 FAIL"。真正有依赖的地方保持依赖顺序不变，没有重新发明：`dotnet build`
+       仍在 `dotnet test`/ABI 探针/数值仿真基线比对之前（后三者都要读它的构建产物）；"同步 DLL"
+       （`build.ps1 -SkipTests`）仍在全部 Unity 相关步骤之前（Unity 加载的是这份同步过去的 DLL
+       副本，不同步就是在验证陈旧代码，见 AGENTS.md 第 4 节）。
+
+    3) **两条线并行**：`dotnet build`/`dotnet test`/ABI 探针/占位资产生成器检查/样例导入幂等性
+       门禁/`toolchain` 自身 pytest/数值仿真基线比对这几步不需要 Unity，收拢进
+       `toolchain/_gate_line_heavy.ps1`；DLL 同步/包清单一致性/Unity 编译检查/EditMode/
+       PlayMode/独立版构建+两种冒烟/IL2CPP 三步/消费方演练需要 Unity（且互相之间必须串行——
+       Unity 不允许同一工程有两个批处理实例同时跑），收拢进 `toolchain/_gate_line_unity.ps1`。
+       `check.ps1` 本体用 `Start-Job -ScriptBlock { & $ScriptPath @Params }`（两个独立
+       `powershell.exe` 子进程，PowerShell 5.1 内建能力，不依赖 `Start-ThreadJob`/`ForEach-Object
+       -Parallel` 等 PS 7+ 专属机制）并行启动这两个脚本，`Wait-Job` 等两者都结束后，把各自落盘的
+       JSON 结果文件（`$ArtifactsPath\gate_line_heavy_results.json`/
+       `gate_line_unity_results.json`）读回合并进主进程自己的汇总表——选"落盘 JSON 再读回"而不是
+       直接吃 `Receive-Job` 的返回对象，是为了避开 PowerShell 后台作业跨进程反序列化对象类型的
+       不确定性（`Receive-Job` 拿到的复杂对象经过 CliXml 反序列化后不一定还是同一个 .NET 类型），
+       JSON 是更可控、也方便人工事后翻看的选择。两条线各自的输出目录/临时文件天然不相交（见
+       `toolchain/_gate_line_heavy.ps1`/`_gate_line_unity.ps1` 头部判断记录），不需要额外加锁。
+
+       **FailFast 在并行下的语义**（按任务书"按实现难度选，写进判断记录"授权自行选定）：两条线
+       各自是独立子进程，内存状态不共享，只能靠共享文件系统上的一个标记文件
+       （`$ArtifactsPath\gate_failfast.flag`）跨进程通信——一条线的某一步失败时，除了让本进程
+       内的判定短路，还会创建这个标记文件；另一条线在它自己"下一步"真正开始执行之前会先检查这个
+       文件是否存在，存在就同样短路成 SKIP。选的是"不抢占正在执行中的那一步"（不强行 Kill 另一
+       进程正在跑的 dotnet/Unity 子进程）——已经启动的步骤会跑完，只是不再启动新的步骤；抢占式
+       终止另一进程里可能正在写盘的原生命令（尤其 Unity 批处理）实现复杂度更高、还可能留下半吊子
+       产物，不在本次任务范围内。
+
+       汇总表仍按步骤逐行列出各自 PASS/FAIL/耗时（两条线的结果合并后一起打印，不分组），另加一行
+       仅用于展示的"并行阶段墙钟"（两条线各自 Seconds 之和通常大于这一行——因为是并行执行的实际
+       耗时，不是求和；这一行不计入 `$script:Results`，不影响步骤计数与"门禁通过：全部 N 步"里
+       的 N，只是额外打印，避免打乱 `-Quick`/`-SkipUnity`/全量三种模式下沿用已久的步骤计数——
+       `README.md`/`.githooks/pre-commit` 里"28 步"/"31 步"这类描述引用的正是 `$script:Results`
+       的实际条目数）。
+
+    4) **禁用词扫描改用 `git grep`（只扫受版本管理的文件）**：原实现用 `Get-ChildItem -Recurse`
+       走全仓库物理目录树、只在文件名/目录名层面按黑名单（`.git`/`bin`/`obj`/`Library`/
+       `StreamingAssets`/`dist`）过滤——问题是 `Get-ChildItem -Recurse` 会先把这些目录（尤其
+       Unity 的 `Library\`，本机实测可以有数万个文件）完整枚举一遍才轮到按名字排除，这正是该步骤
+       原本要跑 36 秒的根因，不是"匹配"本身慢。改用 `git grep -n -i -I -F <词> -- . ":(exclude)
+       check.ps1"`（`-I` 跳过二进制、`-F` 按固定字符串而不是正则、`-i` 大小写不敏感），
+       Git 内部直接对象数据库层面搜索被跟踪的内容，根本不触碰 `.gitignore` 排除的目录，语义上
+       也更贴合"这是版本管理里的仓库内容"这条硬性规则本身（既有的手工排除名单本质是在近似"已跟踪
+       文件"这个概念，`git grep` 直接就是它）。退出码约定：0=有命中（判失败）、1=无命中（判
+       通过）、>1=`git grep` 自身执行出错（判失败并报错）。实测（本仓库当前状态）：改前/改后各跑
+       一次，命中数一致（均为 0 处）；另外造过一个临时受跟踪文件写入禁用词，`git grep`
+       能正确命中，随后已撤掉该临时文件，不留痕。`architecture` 正文技术名扫描（第二道）本身只
+       遍历 `architecture/0*.md`/`1*.md`/`architecture/adr/*.md` 这一小撮文件，不是耗时来源，
+       维持原 `Get-ChildItem` 实现不变。
+
+    5) **pytest 并行（`pytest-xdist`）——本次未启用**：任务书要求"先查 anaconda 环境是否已装
+       `pytest-xdist`，已装才用 `-n auto`，没装就跳过不装"。实测核对本机两个 conda 环境
+       （`base`、`python13`，`pip show pytest-xdist` 均报 `Package(s) not found`）均未安装，
+       按规则不新增安装，`toolchain/_gate_line_heavy.ps1` 里 `pytest toolchain/tests -q` 命令行
+       与改造前完全一致，不追加 `-n auto`。
 
 .PARAMETER SkipUnity
-    跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）；只跑 .NET/Python/
-    禁用词/DLL 同步几步。同一仓库内并行有人独占 Unity 编辑器时用这个开关。
+    跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）与消费方演练；只跑
+    .NET/Python/禁用词/DLL 同步/包清单一致性几步。同一仓库内并行有人独占 Unity 编辑器时用这个
+    开关。判断记录：本开关不影响"9. build.ps1 -SkipTests（同步 DLL）"与"9.5 包清单一致性"两步
+    是否跑——这是迁移前 check.ps1 的既有语义（这两步只受 `-Quick` 门控），本次改造只搬了代码
+    位置（挪进 `toolchain/_gate_line_unity.ps1`），不改判定条件。
 
 .PARAMETER SkipSmoke
     仍跑 Unity 独立版构建，但跳过"-gf-smoke 无人值守冒烟"这一子步骤（-SkipUnity 已整体跳过
@@ -21,7 +95,9 @@
 .PARAMETER ArtifactsPath
     dotnet build/test 的 --artifacts-path。默认 <仓库根>\bin\_check_artifacts（"bin"
     这一层已被 .gitignore 的 `bin/` 规则忽略，不会误入库）；Unity 编译日志/测试结果 XML/
-    独立版构建产物也落在这个目录的 `unity\` 子目录下。
+    独立版构建产物也落在这个目录的 `unity\` 子目录下；两条并行线各自的日志/JSON 结果文件
+    （`gate_line_heavy.log`/`gate_line_heavy_results.json` 等）与 FailFast 跨进程标记文件
+    （`gate_failfast.flag`）同样落在这个目录下（均不入库）。
 
 .PARAMETER UnityExe
     Unity 可执行文件完整路径。默认按 Unity Hub 常见安装位置尝试
@@ -35,14 +111,14 @@
 .PARAMETER LogFile
     持续集成修复新增：给出路径时，用 Start-Transcript 把本次运行的完整控制台输出（含每步
     PASS/FAIL 明细与最后的汇总表）额外落一份文本文件到该路径，同时仍然正常打印到控制台；
-    省略（默认空字符串）时不额外落日志，行为与之前完全一致。用于替代调用方在外层再包一层
-    `... 2>&1 | Tee-Object` 的做法——见 .github/workflows/ci.yml 判断记录：外层包一层
-    `2>&1` 会把子进程（本脚本）的原生 stderr 输出合并进管道，在 PowerShell 5.1 +
-    `$ErrorActionPreference = "Stop"`（GitHub Actions 的 `shell: powershell` 步骤默认注入
-    该偏好）组合下，第一行 stderr 就会被提升成终止性的 NativeCommandError 异常，把本该完整
-    打印的汇总表和失败明细整个吞掉；改为本脚本自己控制日志落盘，调用方只需直接跑
-    `check.ps1 ... -LogFile <path>`、不再包外层管道，退出码仍然是本脚本最后 `exit 0`/
-    `exit 1` 的真实值，原样透传给调用方的 `$LASTEXITCODE`。
+    省略（默认空字符串）时不额外落日志，行为与之前完全一致。判断记录（gate-speed 任务追加）：
+    两条并行线各自跑在独立子进程里，各自的 Write-Host 只会进各自的子日志文件
+    （`$ArtifactsPath\gate_line_heavy.log`/`gate_line_unity.log`，`Start-Transcript` 同理各自
+    独立），不会自动汇入主进程的 `-LogFile`；主进程在两条线都结束、合并结果之后，会把这两份子
+    日志的内容依次 `Get-Content | Write-Host` 回主进程的输出流，因此仍然能在同一份 `-LogFile`
+    里看到完整的三段输出（主进程快速前置阶段 + 非 Unity 重步骤线 + Unity 串行线），只是子线的
+    这部分内容在时间顺序上是"两条线都跑完之后一次性追加"，不是实时交织——这是"落盘再合并"这个
+    选择本身带来的、可接受的副作用，不影响任何人事后读日志排查问题。
 
 .PARAMETER Quick
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
@@ -81,21 +157,27 @@
     全部是 `.md` 文档时调用：只跑"与文档相关"的几步——门禁自检（下方判定逻辑本身依赖的
     `Test-NativeExitCode` 正确性探针，近乎零成本，但没有它其余步骤的 PASS/FAIL 判定都不可信）、
     两道禁用词扫描（游戏代号 + architecture 正文技术名——CLAUDE.md 的硬性规则唯一靠它们守住，
-    任何档位都不能跳过）、版本一致性（含 CHANGELOG.md 条目校验，CHANGELOG 定版类提交正需要它）、
-    以及 `toolchain/tests` 里两个文档相关 pytest 用例（`test_markdown_relative_links.py` 校验
-    md 相对链接、`test_editor_doc_consistency.py` 校验编辑器文档两版一致——这两个用例本来就是
-    "toolchain 自身 pytest 套件"的一部分，本开关下单独摘出来跑，不需要等 `-Quick`/全量把整个
-    `toolchain/tests` 都跑一遍）；其余全部步骤（`dotnet build`/`test`、三道数据校验、schema
-    审计、事件常量/占位资产/资产导入/字段顺序等生成器一致性、Unity .meta 完整性、ABI 探针、
-    Unity 相关步骤、消费方演练等）跳过，标注原因"-DocsOnly"。隐含 `-SkipUnity`（本开关的判断
-    前提就是"这次改动不可能触碰 Unity 相关文件"，不需要在 Unity 四步/消费方演练各自的判断分支
-    里重复排除，直接复用同一个 `$SkipUnity` 开关最省心）。与 `-Quick` 相互独立、可以同传但没有
-    必要：本开关的步骤集合是 `-Quick` 步骤集合的真子集。不能替代完整门禁，只用于纯文档改动的
-    提交前快速把关；判定逻辑（"暂存改动是否全部是 .md"）在 `.githooks/pre-commit` 侧完成，本
-    脚本只管"给了 `-DocsOnly` 就跑这一小撮步骤"，不重新读取 git 暂存区。
+    任何档位都不能跳过）、版本一致性（含 CHANGELOG.md 条目校验）、以及 `toolchain/tests` 里两个
+    文档相关 pytest 用例（`test_markdown_relative_links.py` 校验 md 相对链接、
+    `test_editor_doc_consistency.py` 校验编辑器文档两版一致）；其余全部步骤跳过，标注原因
+    "-DocsOnly"。隐含 `-SkipUnity`。判断记录（gate-speed 任务确认未变）：`-DocsOnly` 下两条并行
+    线（`toolchain/_gate_line_heavy.ps1`/`_gate_line_unity.ps1`）里没有一步带 `-DocRelevant`
+    标记，`Invoke-CheckStep` 会把它们各自的每一步都短路成 SKIP（原因 "-DocsOnly"）——两条线仍然
+    会被正常 `Start-Job` 启动（不特殊跳过 fork 本身），但因为内部全是近乎零成本的短路判断，实际
+    运行时间可忽略，不需要为 `-DocsOnly` 单独写一条"不 fork"的分支，保持主流程代码单一路径、
+    不增加特例。
+
+.PARAMETER FailFast
+    gate-speed 任务新增（见本文件顶部 `.SYNOPSIS` 判断记录 1)）：任一步骤 FAIL 后，该步骤所在的
+    执行序列（主进程快速前置阶段，或并行的两条线之一）后续步骤全部立即改判可见 SKIP，不再白跑，
+    汇总表用 Detail 列写清楚原因。`build.ps1 -Release` 调用门禁时默认传本开关（见 build.ps1
+    "第 5 步"调用点判断记录）；日常直接跑 `check.ps1` 不传本开关，保持"跑完全部、一次看全"的
+    原行为。
 
 .NOTES
-    PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
+    PowerShell 5.1 兼容：不使用 &&、??、三元运算符；两条并行线用 `Start-Job -ScriptBlock`（PS
+    5.1 内建的后台作业机制，不依赖 `Start-ThreadJob`/`ForEach-Object -Parallel` 等 PS 7+ 专属
+    能力）。
     本脚本只读跑校验/测试/构建，不修改仓库内容（`toolchain/gen_event_constants.py`/
     `gen_placeholder_assets.py` 都用 `--check` 只读校验模式，不落地写文件；`-Il2cpp` 步骤对
     ProjectSettings 的脚本后端改动只发生在 Unity 子进程内存里，见 Il2CppPlayerBuilder.cs 判断
@@ -121,10 +203,15 @@ param(
     [switch]$DocsOnly,
     [switch]$AbiStrict,
     [switch]$Il2cpp,
+    [switch]$FailFast,
     [string]$ArtifactsPath = "",
     [string]$UnityExe = "",
     [string]$Configuration = "Release",
-    [string]$LogFile = ""
+    [string]$LogFile = "",
+    # 仅供并行编排自证测试使用（见 check.ps1 验收记录/toolchain/tests 对应用例）：插入到两条并行
+    # 线各自第一步之前的模拟耗时（秒）。默认 0（都不注入）表示正常门禁行为，不受本参数影响。
+    [int]$InjectMockSleepHeavySeconds = 0,
+    [int]$InjectMockSleepUnitySeconds = 0
 )
 
 # -Quick 隐含不跑任何 Unity 步骤（见 .PARAMETER Quick 说明），与显式 -SkipUnity 合并为同一个
@@ -137,7 +224,6 @@ if ($Quick -or $DocsOnly) {
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = $PSScriptRoot
-$SolutionPath = Join-Path $RepoRoot "Core.sln"
 
 if ($ArtifactsPath -eq "") {
     $ArtifactsPath = Join-Path $RepoRoot "bin\_check_artifacts"
@@ -152,11 +238,8 @@ if (-not (Test-Path $UnityOutDir)) {
 
 # -----------------------------------------------------------------------------
 # -LogFile：见 .PARAMETER LogFile 判断记录。Start-Transcript 会原样录下本脚本之后所有
-# Write-Host/输出到宿主的内容（不需要逐处 Write-Host 调用另外写文件），脚本正常从两个 exit
-# 出口结束时会显式 Stop-Transcript；trap 兜底覆盖"某处抛出未被 Invoke-CheckStep 接住的
-# 异常、脚本非正常终止"这一少见路径——先关闭 transcript（保证已产生的内容落盘、不因为文件
-# 句柄未释放而在 CI 的 upload-artifact 步骤里读到空文件或半截文件），再把异常继续往外抛
-# （trap 结尾不写 continue/break 时默认行为就是重新抛出，退出码/错误信息不受影响）。
+# Write-Host/输出到宿主的内容；脚本正常从两个 exit 出口结束时会显式 Stop-Transcript；trap 兜底
+# 覆盖"某处抛出未被 Invoke-CheckStep 接住的异常、脚本非正常终止"这一少见路径。
 # -----------------------------------------------------------------------------
 $script:TranscriptStarted = $false
 if ($LogFile -ne "") {
@@ -178,339 +261,43 @@ trap {
     }
 }
 
-# -----------------------------------------------------------------------------
-# 步骤汇总基础设施
-# -----------------------------------------------------------------------------
+$OverallStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
+# -----------------------------------------------------------------------------
+# 步骤汇总基础设施：见 toolchain/_gate_step_runner.ps1（Invoke-CheckStep/Add-SkippedStep/
+# Test-NativeExitCode 等，原 check.ps1 内联实现原样搬入该文件，供本脚本与两条并行子线共用）。
+# -----------------------------------------------------------------------------
 $script:Results = New-Object System.Collections.Generic.List[Object]
+$script:GateFailed = $false
+# 主进程自己的"快速前置阶段"跑在单一进程里，不涉及跨进程通信，不需要 FailFast 标记文件——
+# 置 $null 时 Invoke-CheckStep 只看本进程内的 $script:GateFailed，等价于旧行为。
+$script:FailFastFlagPath = $null
 
-function Write-StepHeader {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "==== $Message ====" -ForegroundColor Cyan
-}
+. (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
 
-# $Action 是一个不带参数的 scriptblock：约定返回值有三种形状——
-#   1) $null：通过，明细列留空（既有大多数步骤的写法）；
-#   2) $true/$false：直接就是通过/失败，明细列留空；
-#   3) [PSCustomObject]@{ Ok = <bool>; Detail = <string> }：通过/失败取 Ok，明细列取 Detail
-#      （H5 新增，供 Unity EditMode/PlayMode 步骤把 total/passed/failed 计数写进汇总表）；
-#   4) [PSCustomObject]@{ Skip = $true; Reason = <string> }：判定为可见 SKIP（不是 PASS，也不是
-#      FAIL），明细列取 Reason（外部审计 audit-76d16a5-20260910 PJ114-02 根治新增，等价于
-#      Add-SkippedStep，但用在"是否跳过要等脚本内部跑了一步才知道"的场景——例如 ABI 探针要先跑
-#      一次 toolchain/abi_probe.ps1 拿到其退出码是不是"基线缺失"的 3，不能像别的步骤那样在
-#      Invoke-CheckStep 调用之前就用 if/else 决定要不要整体换成 Add-SkippedStep）。
-# 抛异常同样记为失败（异常消息进明细列）。任一步骤失败都不会中断后续步骤（"顺序执行并汇总"，
-# 见任务书）。
-#
-# -DocRelevant（提交前钩子分级任务新增）：调用点显式标注"这一步跟文档相关，-DocsOnly 下也要
-# 跑"。$DocsOnly 为真且调用点没有传 -DocRelevant 时，整个 $Action 都不会被求值——直接改判
-# Add-SkippedStep，原因固定标"-DocsOnly"，与 -Quick 下各步骤各自判断是否跳过的写法（调用点自己
-# 用 if ($Quick) {...} else { Invoke-CheckStep ... }）不同：这里把判断收拢到函数内部一处，新增
-# 步骤时只需要"要不要标 -DocRelevant"这一个决定，不用在每个调用点都补一份 if/else。
-function Invoke-CheckStep {
-    param(
-        [string]$Name,
-        [scriptblock]$Action,
-        [switch]$DocRelevant
-    )
-
-    if ($DocsOnly -and -not $DocRelevant) {
-        Add-SkippedStep $Name "-DocsOnly（非文档相关步骤，仅纯文档改动的提交跳过）"
-        return
-    }
-
-    Write-StepHeader $Name
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $ok = $false
-    $detail = ""
-    try {
-        $result = & $Action
-
-        # F1 根治第二层防护（Test-NativeExitCode 本身已经不再泄漏原生命令的 stdout 到管道，见该
-        # 函数判断记录；这里额外加一道防线，防止今后有人写出新的 helper 同样把中间输出漏进
-        # scriptblock 的返回值）：$result 若是"多元素集合"，说明 $Action 在真正的结果之前还
-        # 产生过别的管道输出——按 PowerShell"scriptblock 最后一条表达式的值即返回值"的惯例，
-        # 只取最后一个元素参与判定，同时显式告警，让这种"本不该发生"的情况在日志里可见，而不是
-        # 被 [bool] 数组转换悄悄吞成恒真（这正是 F1 复现的根因：非空 System.Object[] 经 [bool]
-        # 转换恒为 $true，与内容/元素数量无关）。单元素集合（PowerShell 常见的"标量结果被包成
-        # 一元数组"情形）直接拆包，不告警。
-        if ($result -is [array]) {
-            if ($result.Count -gt 1) {
-                Write-Host "[$Name] 警告：检查步骤脚本块返回了 $($result.Count) 个对象（应恰好一个），只取最后一个参与判定——前面的对象可能是原生命令泄漏的输出，请检查该步骤实现" -ForegroundColor Yellow
-            }
-            $result = if ($result.Count -gt 0) { $result[-1] } else { $null }
-        }
-
-        if ($result -is [pscustomobject] -and ($result.PSObject.Properties.Name -contains "Skip") -and [bool]$result.Skip) {
-            $skipReason = ""
-            if (($result.PSObject.Properties.Name -contains "Reason") -and $result.Reason) {
-                $skipReason = [string]$result.Reason
-            }
-            $sw.Stop()
-            $seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
-            $script:Results.Add([PSCustomObject]@{
-                Step    = $Name
-                Result  = "SKIP"
-                Seconds = $seconds
-                Detail  = $skipReason
-            })
-            Write-Host "[$Name] 已跳过：$skipReason" -ForegroundColor Yellow
-            return
-        }
-
-        if ($null -eq $result) {
-            $ok = $true
-        } elseif ($result -is [bool]) {
-            $ok = $result
-        } elseif ($result -is [pscustomobject] -and ($result.PSObject.Properties.Name -contains "Ok")) {
-            $ok = [bool]$result.Ok
-            if (($result.PSObject.Properties.Name -contains "Detail") -and $result.Detail) {
-                $detail = [string]$result.Detail
-            }
-        } else {
-            $ok = [bool]$result
-        }
-    } catch {
-        $ok = $false
-        $detail = $_.Exception.Message
-        Write-Host $detail -ForegroundColor Red
-    }
-    $sw.Stop()
-    $seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
-
-    $script:Results.Add([PSCustomObject]@{
-        Step    = $Name
-        Result  = if ($ok) { "PASS" } else { "FAIL" }
-        Seconds = $seconds
-        Detail  = $detail
-    })
-
-    if ($ok) {
-        Write-Host "[$Name] 通过，用时 ${seconds}s" -ForegroundColor Green
-    } else {
-        Write-Host "[$Name] 失败，用时 ${seconds}s" -ForegroundColor Red
-    }
-}
-
-function Add-SkippedStep {
-    param([string]$Name, [string]$Reason)
-    Write-StepHeader $Name
-    Write-Host "已跳过：$Reason" -ForegroundColor Yellow
-    $script:Results.Add([PSCustomObject]@{
-        Step    = $Name
-        Result  = "SKIP"
-        Seconds = 0
-        Detail  = $Reason
-    })
-}
-
-# 跑一个原生可执行文件并按退出码判定通过/失败（PowerShell 5.1 对原生命令非零退出码不会抛出
-# 终止性异常，需要手动读 $LASTEXITCODE；命令本身找不到会抛异常，由 Invoke-CheckStep 的 catch
-# 接住）。
-#
-# 判断记录（持续集成修复：本函数内部临时把 $ErrorActionPreference 降级为 Continue）：
-# 本脚本顶部把 $ErrorActionPreference 设成了 "Stop"（脚本作用域）。PowerShell 对"原生命令
-# 写到 stderr 的每一行"有一条广为人知但违反直觉的行为——在 $ErrorActionPreference = "Stop"
-# 下，只要原生命令往 stderr 写了任何一行东西（不管进程退出码是不是 0，例如某些工具的
-# warning、或本例的 Python 未捕获异常 traceback），PowerShell 会把这一行提升成终止性的
-# NativeCommandError 异常，当场中断 `& $Exe @ArgList` 这一句，只把"第一行" stderr 文本当成
-# 异常消息抛出——后续 stderr 行（往往才是真正有诊断价值的部分，例如 Python traceback 的
-# 具体报错类型与代码行）永远读不到。此前 `python toolchain/gen_event_constants.py --check`
-# 在 CI 运行器上因控制台编码问题崩溃时，Invoke-CheckStep 汇总表 Detail 列里只剩一句
-# "Traceback (most recent call last):" 的根因正在这里。
-#
-# 把 $ErrorActionPreference 赋值为函数局部变量（不加 $script:/$global: 前缀，PowerShell
-# 变量赋值默认只在当前作用域生效，函数返回后自动失效，不影响脚本其余部分与调用方），让本函数
-# 内的原生命令调用把 stderr 只当成普通输出流，不提升为异常；退出码判定逻辑完全不变，仍然只认
-# $LASTEXITCODE。
-#
-# TOOL-01 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：本节上一版注释
-# 曾声称"找不到可执行文件这类'启动失败'仍然会正常抛异常，由 Invoke-CheckStep 的 catch 接住"——
-# 这句话是错的，且已被审计以有界复现证伪（见该报告 repro/tool-01-repro.ps1/.txt）：`& $Exe` 在
-# 本函数已经把 $ErrorActionPreference 设为 "Continue" 的作用域内执行，PowerShell 找不到命令时
-# 产生的是 non-terminating 错误——在 Continue 策略下只会打一条错误记录然后继续往下执行，不会
-# 抛出终止性异常，因此根本不会被 Invoke-CheckStep 的 try/catch 接住；同时 `& $Exe` 从未真正
-# 启动进程，$LASTEXITCODE 会原样保留上一条命令遗留的值（很可能恰好是 0），导致
-# `return ($LASTEXITCODE -eq 0)` 把"根本没跑起来的检查"误判为 PASS。改法见下方函数体：调用前
-# 先用 Get-Command 显式校验可执行文件存在，找不到就直接判 FAIL 并说明原因，不再依赖
-# $LASTEXITCODE 的偶然残留值。
-# F1 根治（architecture/落地计划/audit-20260907/delivery-validation.md）：此前 `& $Exe @ArgList`
-# 直接执行，原生命令写到标准输出的每一行都会作为本函数自己的管道输出（PowerShell 函数没有显式
-# `return` 拦截之前的语句同样会被收集进调用方拿到的结果）；调用方 Invoke-CheckStep 用
-# `$result = & $Action` 捕获整个 scriptblock 的输出，一旦 scriptblock 是 `{ Test-NativeExitCode ... }`
-# 这种形状，`$result` 就会变成"原生 stdout 的每一行字符串 + 末尾一个 [bool]"拼成的
-# `System.Object[]`；`[bool]$result` 对非空数组恒为 `$true`（PowerShell 只看数组是否非空，不看
-# 元素内容），导致"有任何一行 stdout 输出、同时退出码非 0"的失败命令被判为 PASS——已实测复现
-# （见 delivery-validation.md F1、repro-check-native-exit.ps1）。
-#
-# 改法：把原生命令的输出通过管道显式送进 `Out-Host`——`Out-Host` 直接写到宿主（用户仍能在控制台/
-# transcript 里看到完整的 dotnet/python/pytest 输出，`-LogFile` 的 transcript 同样会录到），
-# 不进入 PowerShell 的成功输出流，因此不会被 `& $Action`/`$result = ...` 捕获到。本函数自身此后
-# 只有末尾一条 `return` 语句产生输出，`Invoke-CheckStep` 拿到的 `$result` 保证是一个干净的
-# `[bool]`，不需要调用方做任何特殊处理。
-function Test-NativeExitCode {
-    param(
-        [string]$Exe,
-        [string[]]$ArgList
-    )
-    # TOOL-01 根治：调用前先显式确认 $Exe 能被解析为一个真实的可执行文件/外部脚本；找不到就
-    # 直接判 FAIL，不再尝试 `& $Exe`（那样会因 non-terminating 错误 + 陈旧 $LASTEXITCODE
-    # 被误判为 PASS，见上方判断记录）。
-    $resolved = Get-Command -Name $Exe -CommandType Application, ExternalScript -ErrorAction SilentlyContinue
-    if (-not $resolved) {
-        Write-Host "[Test-NativeExitCode] 可执行文件 '$Exe' 未找到（不在 PATH 中，或路径不存在），判定为 FAIL" -ForegroundColor Red
-        return $false
-    }
-    $ErrorActionPreference = "Continue"
-    & $Exe @ArgList | Out-Host
-    return ($LASTEXITCODE -eq 0)
-}
-
-# H5 新增：跑一个"GUI 子系统"原生可执行文件（Unity.exe / 独立版 Shell.exe）并真正等待其退出、
-# 拿到真实退出码。
-#
-# 判断记录（根因 + 为什么不能继续用 `& $Exe @ArgList` + $LASTEXITCODE）：Unity.exe 与独立版
-# Shell.exe 都是 Windows GUI 子系统程序（不是控制台子系统程序）。PowerShell 的调用运算符 `&`
-# 对 GUI 子系统程序只负责"启动"，不会阻塞等待其退出（这是 Windows 进程创建层面的行为，不是
-# PowerShell 的 bug）——`& $Exe @ArgList` 这一行执行完就立即往下走，此时 Unity 可能才刚开始加载
-# 许可证/域重载，$LASTEXITCODE 读到的是上一条别的原生命令留下的陈旧值。H4 版 check.ps1 的 Unity
-# 四步之所以"0 秒内结束、编译步误判 PASS、其余步骤 FAIL"，根因正在这里：Unity 编译检查那一步
-# 的 `& Unity.exe -quit` 一启动就立即返回（判定用的 $LASTEXITCODE 是陈旧值，凑巧还是 0），脚本
-# 立即往下跑 EditMode/PlayMode/独立版构建，而这些新启动的 Unity 实例发现同一个工程已经被上一个
-# （其实还在后台跑）Unity 实例打开，直接失败退出（EditMode/PlayMode 各自的 xml/log 里只有许可证
-# 握手几行）。
-#
-# 改法：不用 `&`，改用 Start-Process -FilePath/-ArgumentList/-Wait/-PassThru/-NoNewWindow——
-# -Wait 是 Start-Process 自己实现的"轮询进程句柄直到退出"，不依赖 GUI/控制台子系统的差异；
-# -PassThru 拿到 Process 对象读真实 ExitCode（不再依赖 $LASTEXITCODE）。-ArgumentList 传数组
-# （不是拼接成一整根字符串）：Start-Process 内部按数组元素分别加引号，含空格/中文的路径参数
-# （如仓库路径、-logFile 输出路径）不需要调用方自己转义。
-#
-# $TimeoutSeconds > 0 时（独立版无人值守冒烟两步用到，见下方判断记录：无人值守冒烟一旦挂死，
-# 没有人会去按任何键，必须有兜底）：不能再用 -Wait（-Wait 本身不接受超时参数），改成不传 -Wait
-# 只传 -PassThru 拿到 Process 对象后，手工调用 Process.WaitForExit(毫秒) 限时等待；超时后
-# WaitForExit 返回 $false，尝试 Kill 掉这个挂死的子进程（仅 Kill 本函数自己刚刚 Start-Process
-# 启动的这一个句柄，不误杀任何其它进程），$TimedOut 置 $true、ExitCode 记为 -1（明确的失败标记，
-# 不会与任何真实退出码混淆——真实 Windows 退出码不会是负数）。
-#
-# 判断记录（限时分支不传 -NoNewWindow，与"不限时"分支不同——已实测复现的 Windows PowerShell 5.1
-# Start-Process 已知限制）：本函数最初两个分支都传 -NoNewWindow，实测（独立版冒烟两步）发现限时
-# 分支下 `$proc.ExitCode` 读回空字符串——进程确实已退出（HasExited 为真、日志也证实 Shell.exe
-# 内部 Application.Quit(0) 正常收尾），但 Start-Process 在"-PassThru 且不传 -Wait 却传了
-# -NoNewWindow"这一种组合下返回的 Process 对象丢失了退出码句柄（去掉 -NoNewWindow 后同样的
-# 手工 WaitForExit 流程能正确读到 ExitCode，实测反复复现两次，确认是这一个参数组合触发，不是
-# 偶发）。"不限时"分支（-Wait -PassThru -NoNewWindow 三个一起传）当时不受影响——Start-Process
-# 自己实现的 -Wait 走的是另一条内部代码路径，能正确保留退出码，这也曾是任务书要求的默认写法，
-# 彼时原样保留。限时分支因此改为只传 -PassThru：本来就是 GUI 子系统程序（Unity/独立版 Shell.exe
-# 本身不分配控制台窗口），-batchmode 命令行参数已经保证不出现可见窗口，去掉 -NoNewWindow 不影响
-# 实际的"无人值守"效果，只是绕开这一条 Start-Process 自身的退出码丢失路径。
-#
-# 判断记录（2026-09-06 实测：不限时分支不再用 -Wait——Unity 退出后仍空等约 10 分钟的根因）：
-# 上面"不限时分支保留 -Wait"的写法后来被证明还有第二个坑，与 ExitCode 丢失无关，而是"等太久"。
-# Unity 6000.3.23f1 在批处理模式编译脚本时，会另外启动一个 Roslyn 编译器服务进程作为 Unity.exe
-# 的子进程（命令行形如 `...\NetCoreRuntime\dotnet.exe exec ...\DotNetSdkRoslyn\VBCSCompiler.dll
-# -pipename:...`），用于跨次编译复用、加速后续启动；这个子进程在 Unity.exe 本体退出、日志已经
-# 写下"Exiting batchmode successfully now!"之后仍然存活，默认空闲保活时间约 600 秒才会自行退出。
-# 而 Windows PowerShell 5.1 的 `Start-Process -Wait` 等待的不只是目标进程本身，而是"进程树"——
-# 只要还有它派生出的子进程（含孙进程）活着就不返回。结果是 Unity 四步（编译检查/EditMode/
-# PlayMode/独立版构建）以及 toolchain/consumer_smoke.ps1 里另外 4 处调用 Unity 的地方，每一步
-# 都可能在 Unity 本体早已退出之后，被这个残留的 VBCSCompiler 子进程额外拖住最多约 10 分钟。
-# 改法：不限时分支与限时分支统一改成只传 -PassThru（不传 -Wait、不传 -NoNewWindow），退出等待
-# 改由手工调用 .NET 的 `Process.WaitForExit()`（无超时参数的重载）——它只轮询 Unity.exe 自己的
-# 进程句柄，不关心其子孙进程是否还活着，VBCSCompiler 继续在后台跑不影响本函数返回；返回前统一
-# `$proc.Refresh()` 后再读 `$proc.ExitCode`，与限时分支保持一致的读取方式。-NoNewWindow 两个
-# 分支都不再传：一是上面已实测的 PS 5.1 限制（-PassThru 不配 -Wait 时若再传 -NoNewWindow，
-# ExitCode 读回空字符串）；二是 Unity.exe / 独立版 Shell.exe 本身是 GUI 子系统程序且总带
-# -batchmode 参数，不会弹出可见窗口，去掉 -NoNewWindow 不影响"无人值守"效果。
-# 验证证据（2026-09-06）：新代码门禁实跑（check.ps1 -SkipConsumer -SkipSmoke）四步，脚本记录的
-# Seconds 与对应 Unity 日志 CreationTime→LastWriteTime 之差逐步比对：编译检查 30.8s/30.3s、
-# EditMode 9.4s/9.1s、PlayMode 27.8s/27.4s、独立版构建 29.2s/28.9s——每步相差不到 1 秒；且在
-# 函数返回的瞬间确认编译服务进程（VBCSCompiler/dotnet.exe）仍然存活，证明它不再阻塞函数返回。
-# 旧代码同日在另一份仍跑 -Wait 版本的检出上实测：compile.log 由 Unity 写在 18:29:35→18:29:53
-# （Unity 本体 18 秒完事），但下一步 editmode.log 直到 18:48:08 才出现——脚本在两步之间空等约
-# 18 分钟，恰好是 18:29:37 随该 Unity.exe 派生、父进程已退出的孤儿 VBCSCompiler 的存活时长
-# （只要还有其他 Unity 运行复用它就不退出，最后一次被用后约 600 秒自行退出）。同一次运行里，
-# 独立版构建这一步 Unity 于 18:49:03 退出前又在 18:48:50 新起一个 VBCSCompiler，脚本再次被拖住。
-# 补充说明：旧代码约 600 秒的空等只在 Unity 需要自己新起 VBCSCompiler 子进程时出现（启动时没有
-# 存活的服务可连，例如闲置超过 10 分钟后的第一次 Unity 运行，是 check.ps1 全新一轮的常见情形）；
-# 若已有更早 Unity 实例留下的服务还活着，Unity 只是通过命名管道连接它、并非 Start-Process 的子
-# 进程，旧代码 -Wait 同样能及时返回（实测过一次，只多等 1.4 秒）。新代码两种情况下都不受影响，
-# 因为它只等待 Unity 自己的进程句柄。
-function Invoke-NativeAndWait {
-    param(
-        [string]$Exe,
-        [string[]]$ArgList,
-        [int]$TimeoutSeconds = 0
-    )
-
-    if ($TimeoutSeconds -le 0) {
-        $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru
-        $proc.WaitForExit()
-        $proc.Refresh()
-        return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false }
-    }
-
-    $proc = Start-Process -FilePath $Exe -ArgumentList $ArgList -PassThru
-    $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
-    if (-not $exited) {
-        try { $proc.Kill() } catch { }
-        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $true }
-    }
-    $proc.Refresh()
-    return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false }
-}
-
-# H5 新增：Unity 四步开跑前检查"同一工程"是否已经有一个残留的 Unity.exe 进程在跑（例如上一次
-# check.ps1 被中断、或另一个终端窗口手工开着 Unity Editor 独占了同一个工程的 .lock）——按命令行
-# 里是否含本工程路径判断，不是"任意 Unity.exe 都算残留"（开发机上完全可能同时开着别的工程的
-# Unity Editor）。发现残留只报告明确的失败信息（含 PID，方便手工定位/结束），不代为 Kill——
-# 任务书硬性规则"不 kill 非本脚本启动的进程"，残留进程可能是人正在交互使用的 Editor 窗口。
-function Test-NoResidualUnityProcess {
-    param([string]$ProjectPath)
-
-    try {
-        $procs = Get-CimInstance -ClassName Win32_Process -Filter "Name = 'Unity.exe'" -ErrorAction Stop
-    } catch {
-        # 查询进程列表本身失败（权限/WMI 服务异常等）：不能确认"没有残留"，但也不应该让整个门禁
-        # 因为一次诊断性查询失败而跳过 Unity 步骤——按"未发现残留"处理，继续往下跑。
-        return
-    }
-
-    $needle = $ProjectPath.TrimEnd("\", "/")
-    $hit = $procs | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) }
-    if ($hit) {
-        $pids = ($hit | ForEach-Object { $_.ProcessId }) -join ", "
-        throw "检测到同一工程已有残留 Unity.exe 进程在运行（PID: $pids，工程路径 $ProjectPath），本脚本不会代为结束——请先手工关闭该 Unity Editor 窗口/进程，确认 $ProjectPath\Temp\UnityLockfile 已释放后重跑。"
-    }
-}
+# =============================================================================
+# 阶段一：快速前置步骤（串行，见本文件顶部判断记录 2)——秒级、不依赖 Unity/重构建，排在最前面）
+# =============================================================================
 
 # -----------------------------------------------------------------------------
 # 0. 门禁自检（F1 根治回归，architecture/落地计划/audit-20260907/delivery-validation.md）：
 #    Test-NativeExitCode 此前会把原生命令的 stdout 泄漏进 Invoke-CheckStep 的结果判定，导致
-#    "有输出且退出码非零"的失败命令被误判为 PASS（复现细节见两函数上方判断记录）。本步骤在
-#    全部真正的检查步骤之前，用两个独立探针（失败/成功各一次，均带 stdout 输出）验证判定逻辑
-#    本身是可信的——如果这一步本身失败，说明门禁基础设施有问题，后续全部步骤的 PASS/FAIL 都
-#    不可信，理应第一个报告。
+#    "有输出且退出码非零"的失败命令被误判为 PASS（复现细节见 toolchain/_gate_step_runner.ps1
+#    两函数上方判断记录）。本步骤在全部真正的检查步骤之前，用两个独立探针（失败/成功各一次，均带
+#    stdout 输出）验证判定逻辑本身是可信的——如果这一步本身失败，说明门禁基础设施有问题，后续
+#    全部步骤的 PASS/FAIL 都不可信，理应第一个报告。
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定" -DocRelevant {
-    # 探针 1：F1 复现的确切形状——打印一行 stdout，随后以非零退出码结束。修复前会被误判为成功。
     $failProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 7")
     if ($failProbeOk) {
         return [PSCustomObject]@{ Ok = $false; Detail = "失败探针（stdout 非空 + exit 7）被误判为成功——Test-NativeExitCode 回归，见该函数判断记录" }
     }
 
-    # 探针 2：同样有 stdout 输出，但正常以 0 退出——必须仍判定为成功，证明探针 1 的修复没有
-    # 反过来误伤真正成功、只是恰好有输出的命令（dotnet/python 几乎每次都会打印一些内容）。
     $passProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 0")
     if (-not $passProbeOk) {
         return [PSCustomObject]@{ Ok = $false; Detail = "成功探针（stdout 非空 + exit 0）被误判为失败" }
     }
 
-    # 探针 3（TOOL-01 复现的确切形状）：先跑一次真实成功命令把 $LASTEXITCODE 钉在 0，
-    # 再调用一个必定不存在的可执行文件名。修复前 `& $Exe` 对不存在的命令只产生
-    # non-terminating 错误、不抛异常，$LASTEXITCODE 原样保留上一条命令留下的 0，
-    # 会被误判为 PASS；修复后必须在调用前就用 Get-Command 判定失败。
     cmd.exe /c exit 0 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         return [PSCustomObject]@{ Ok = $false; Detail = "探针 3 前置条件失败：未能把 `$LASTEXITCODE 钉在 0" }
@@ -524,573 +311,34 @@ Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命�
 }
 
 # -----------------------------------------------------------------------------
-# 1. dotnet build
+# 1. 禁用词扫描：全仓库不出现具体游戏代号（见 CLAUDE.md 硬性规则）。
+#    gate-speed 任务改造：改用 `git grep`，只扫受版本管理的文件，不再靠目录名黑名单排除
+#    Get-ChildItem -Recurse 遍历出来的构建产物/缓存目录（判断记录见本文件顶部 4)）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "dotnet build Core.sln -c $Configuration" {
-    Test-NativeExitCode "dotnet" @("build", $SolutionPath, "-c", $Configuration, "--artifacts-path", $ArtifactsPath)
-}
-
-# -----------------------------------------------------------------------------
-# 2. dotnet test（六工程；未加任何 --filter，默认含 Category=Perf 的性能基线测试）
-#
-#    性能基线机器归一化诊断行（PJ-PERF-CAL 任务，见 architecture/11_工程规范与测试.md 第 6 节、
-#    core/gameplay/tests/Perf/README.md"机器归一化口径"、PerfMachineCalibration.cs 判断记录）：
-#    Tests.Gameplay.Perf.PerfBaselineTests 四条用例无论成败都会把一行 "perf <用例名> median=...
-#    threshold=... factor=... effective_threshold=... reference=..." 写进 ITestOutputHelper，
-#    供慢/忙机器排查"是否只是机器慢而非真回归"；console logger 默认 verbosity（本步骤此前的写法）
-#    不显示这类每用例输出。
-#
-#    判断记录（为什么不是简单加 --logger "console;verbosity=normal/detailed"）：本机实测过，
-#    "console;verbosity=normal"/"detailed" 都会把本步骤全部用例（六工程共 4256 例）的逐条通过行
-#    刷出来（normal 下 794 例的 Tests.Gameplay 单一工程就已是 794 行），不是"只有 Perf 四条用例
-#    输出"的最小改动，反而让 CI transcript 暴涨、掩盖真正需要关注的信息。改成 trx logger 落盘
-#    完整结果（含每条用例的 StdOut，dotnet test 自身的控制台输出量不变），本步骤跑完后只从落盘的
-#    trx 文件里挑出以 "perf " 开头的行显式 Write-Host——这样这四行必定进入 CI transcript
-#    （Start-Transcript 已把 Write-Host 一并落 -LogFile），且不影响这一步对其余全部用例的输出量。
-# -----------------------------------------------------------------------------
-$PerfTrxDir = Join-Path $ArtifactsPath "perf_trx"
-Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（六工程，含 Perf 类别）" {
-    if (Test-Path $PerfTrxDir) {
-        Remove-Item $PerfTrxDir -Recurse -Force
-    }
-
-    $ok = Test-NativeExitCode "dotnet" @(
-        "test", $SolutionPath, "-c", $Configuration, "--no-build", "--artifacts-path", $ArtifactsPath,
-        "--logger", "trx", "--results-directory", $PerfTrxDir)
-
-    if (Test-Path $PerfTrxDir) {
-        $perfLines = Get-ChildItem $PerfTrxDir -Filter "*.trx" -Recurse -ErrorAction SilentlyContinue |
-            Select-String -Pattern '^\s*<StdOut>perf \S+_WithinBaselineThreshold median=.*factor=.*reference=' |
-            ForEach-Object { ($_.Line.Trim() -replace '^<StdOut>', '') -replace '</StdOut>$', '' }
-        if ($perfLines) {
-            Write-Host "---- 性能基线机器归一化诊断（Perf 类别，见 core/gameplay/tests/Perf/README.md） ----" -ForegroundColor Cyan
-            $perfLines | Sort-Object -Unique | ForEach-Object { Write-Host $_ }
-        } else {
-            Write-Host "警告：未能从 trx 结果中找到性能基线诊断行（PerfBaselineTests 是否被意外排除或未编译进本次运行？）" -ForegroundColor Yellow
-        }
-    }
-
-    $ok
-}
-
-# -----------------------------------------------------------------------------
-# 2b. ABI 探针（toolchain/abi_probe.ps1，第十六方深度审核跟进，见 architecture/11_工程规范与测试.md
-#     第 7 节"发布说明不得宣称未经验证的二进制兼容"）：旧编译 consumer（针对
-#     toolchain/abi_probe_baseline.txt 记录的基线版本）换上本次步骤 1 刚构建出的正式 DLL、不重新
-#     编译，验证是否仍能正常运行；再加一道通用公开 API 表面差异比对（toolchain/abi_surface）——
-#     两者任一不满足都说明存在未声明的破坏性变更（1.13.0 的真实教训，见 CHANGELOG.md"已知问题：
-#     ABI/API 兼容性"）。-Quick 跳过：需要额外解压/编译独立 consumer 与 abi_surface 两个工程，
-#     不是秒级步骤。另起一个 powershell 子进程跑（脚本内部用 exit 语句表达结果，惯例同下方"消费方
-#     演练"步骤，避免子脚本的 exit 连带终止本脚本）。
-#
-#     PJ114-02 根治（外部审计 audit-76d16a5-20260910）：此前本机没有基线版本 dist zip
-#     （.gitignore 排除的本机构建缓存）时子脚本打印警告并以退出码 0（PASS）收尾，这里又把子进程
-#     stdout `| Out-Null` 丢弃——完整 transcript 里这一行永远显示 PASS，却从没有真的跑过一次
-#     consumer，不是 ABI 验收证据。新语义：子脚本退出码 3 = 基线缺失，本步骤记为可见 SKIP（通过
-#     Invoke-CheckStep 的 Skip 结果形状，见该函数头判断记录）；0 = PASS；其余非零 = FAIL。子进程
-#     stdout/stderr 不再吃掉，改用 `*>` 落盘到 `$ArtifactsPath\abi_probe.log`，失败时回显完整内容
-#     方便定位（PASS/SKIP 时只保留日志文件，不刷屏）——`*>` 重定向发生在这条命令自己的语句里，不
-#     进入 `& $Action` 的返回值管道，同样不会污染 Invoke-CheckStep 的返回值判定。`-AbiStrict` 透传
-#     给子脚本的 `-SkipIfBaselineMissing`（取反），发布模式下基线缺失直接判 FAIL（子脚本退出码 1）。
-#
-#     判断记录（改用 `-Command "& ... -SkipIfBaselineMissing:$literal"`，不用 `-File` + 参数数组）：
-#     实测本机 Windows PowerShell 5.1 下，`-File` 调用子进程时给一个非 `[switch]` 的 `[bool]`
-#     类型形参传值（不论是单独一个数组元素 `$true`/`$false`，还是 `"-Name:$true"`/`"-Name True"`
-#     这类字符串形式），参数绑定器一律报
-#     `Cannot process argument transformation ... Cannot convert value "System.String" to type
-#     "System.Boolean"`——`-File` 把随后每个 token 都当成原始字符串塞进子进程的 argv，其自动类型转换
-#     在这条路径上不生效（哪怕错误消息本身声称"接受 1/0"）；`[switch]` 类型的显式 `:$false` 语法同样
-#     复现这个问题（本仓库其余 `& powershell @xxxArgs -File ...` 调用点都没有传过需要显式取值的
-#     布尔/开关参数，此前未暴露）。改成 `-Command "& '<script>' ... -SkipIfBaselineMissing:$true"`
-#     这种形式后，`$true`/`$false` 是被子进程自己的 PowerShell 解析器当场解析成的原生布尔字面量
-#     （同一路径下人工在交互式提示符里直接敲 `.\abi_probe.ps1 -SkipIfBaselineMissing:$false` 一样
-#     正常工作，问题只出在"数组化参数 + -File"这一种调用形状），实测两种取值都能正确送达子脚本。
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "ABI 探针（toolchain/abi_probe.ps1）" "-Quick"
-} else {
-    Invoke-CheckStep "ABI 探针（toolchain/abi_probe.ps1）" {
-        $abiProbeScript = Join-Path $RepoRoot "toolchain\abi_probe.ps1"
-        if (-not (Test-Path -LiteralPath $ArtifactsPath)) {
-            New-Item -ItemType Directory -Force -Path $ArtifactsPath | Out-Null
-        }
-        $abiProbeLog = Join-Path $ArtifactsPath "abi_probe.log"
-        $skipMissingLiteral = if ($AbiStrict) { '$false' } else { '$true' }
-        $quotedScript = "'" + $abiProbeScript.Replace("'", "''") + "'"
-        $quotedArtifacts = "'" + $ArtifactsPath.Replace("'", "''") + "'"
-        $quotedConfiguration = "'" + $Configuration.Replace("'", "''") + "'"
-        # 判断记录（命令末尾追加 `; exit $LASTEXITCODE`）：实测 `-Command "& '<script>' ..."` 这条
-        # 调用形状下，被调用脚本内部的 `exit N` 不会原样成为宿主 powershell.exe 进程自身的退出码
-        # （`-File` 才会）——`-Command` 下子脚本 `exit 3` 之后，宿主进程自己却报 `$LASTEXITCODE=1`。
-        # 显式在同一条 `-Command` 文本末尾追加 `exit $LASTEXITCODE`，让宿主进程的退出码等于调用
-        # 子脚本后 `$LASTEXITCODE` 的当前值（子脚本 `exit N` 会先设置这个变量），实测能正确得到
-        # 0/1/3 三种预期退出码。
-        $abiProbeCommand = "& $quotedScript -ArtifactsPath $quotedArtifacts -Configuration $quotedConfiguration -SkipIfBaselineMissing:$skipMissingLiteral; exit `$LASTEXITCODE"
-        & powershell -NoProfile -ExecutionPolicy Bypass -Command $abiProbeCommand *> $abiProbeLog
-        $abiExit = $LASTEXITCODE
-
-        if ($abiExit -eq 3) {
-            return [PSCustomObject]@{ Skip = $true; Reason = "基线发行包不存在（详见 $abiProbeLog）" }
-        }
-        if ($abiExit -ne 0) {
-            Get-Content -LiteralPath $abiProbeLog | Write-Host
-            return [PSCustomObject]@{ Ok = $false; Detail = "abi_probe.ps1 退出码=$abiExit，详见 $abiProbeLog" }
-        }
-        return $true
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 3. 数据校验（合并根：data/_framework + data/_sample）
-#    判断记录（消费方反馈 E6 根治，2026-09-10，见
-#    architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E6）：新增 --strict（Warning 也阻断）。
-#    根治前 dialog.gossip_menu.json 两处 quest.is_available(quest.sample_hunt)/
-#    quest.is_active(quest.sample_hunt) 会触发 3 条"疑似引用拼写错误"警告——排查后是
-#    ExprValidator 的规则误报（该规则只认"把 Id 本身也登记进签名表"这一种消除警告的方式，对
-#    "参数位置期望类型本来就是 Id"这一同样合法的场景没有对应豁免），已在
-#    core/foundation/expr/core/ExprValidator.cs 根治规则本身（不是改数据迁就误报，数据
-#    quest.sample_hunt 本身合法存在，见 data/_sample/quest/quest.def.json）。这一步现在要求
-#    框架自带示例数据（_framework + _sample 合并）0 warning，加 --strict 防止同类误报或真实
-#    拼写错误再次悄悄滑入而不被发现。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --strict（合并根）" {
+Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号（git grep，只扫受版本管理的文件）" -DocRelevant {
+    # 见原实现同一处注释：字符串拼接构造被扫描词，避免脚本自身源码里出现完整拼写。
+    $bannedCodename = "note" + "moss"
     Push-Location $RepoRoot
     try {
-        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict")
+        $grepOutput = & git grep -n -i -I -F -- $bannedCodename . ":(exclude)check.ps1" 2>&1
+        $grepExit = $LASTEXITCODE
     } finally {
         Pop-Location
     }
-}
-
-# -----------------------------------------------------------------------------
-# 3b. 框架根单独完整校验（加固J3：core/carriers/item 的预算超标规则改为"item.template 一行
-#     都没有时跳过"后，data/_framework 单独跑完整两道校验不再需要 --skip-dotnet 规避，见
-#     data/README.md"与校验器的关系"一节判断记录）。
-#     判断记录（消费方反馈 E6 根治，2026-09-10）：本步骤故意不加 --strict——data/_framework
-#     单独校验时 l10n.text 表（只随 data/_sample 提供，_framework 不含真实本地化文本，见
-#     data/README.md"两类目录"一节）必然缺失，arch.power_type.name_key 等字段的
-#     text_key_exists 检查会因此恒定产出"l10n.text 表未加载，跳过文本键存在性检查"这一条
-#     Warning——这是"只看框架子集"这一场景本身的结构性、不可避免的警告，与 E6 排查的"疑似引用
-#     拼写错误"误报是两回事（后者已在规则层根治，见上一步判断记录），不能也不该通过增加数据
-#     或调整规则消除，加 --strict 只会让本步骤在任何情况下都必然失败。0 warning 的验收目标只
-#     适用于 _framework + _sample 合并后的完整数据集（上一步），不适用于单独校验框架子集这一
-#     天然不完整的场景。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--data-root", "data/_framework")
-    } finally {
-        Pop-Location
+    if ($grepExit -gt 1) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "git grep 执行失败（退出码 $grepExit）：$($grepOutput -join '; ')" }
     }
-}
-
-# -----------------------------------------------------------------------------
-# 3c. 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4，F3 新增）——审计全部
-#     已登记 TableSchema/FieldSchema 的结构声明本身（不加载任何数据，秒级），-Quick 下也跑（见
-#     Presentation.Assembly.SchemaAudit 类型注释）。白名单固定读仓库根
-#     toolchain/schema_audit_allowlist.json。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）" {
-    Push-Location $RepoRoot
-    try {
-        # 惯例同 toolchain/validate_data.py 调用 toolchain/validator 的写法（dotnet run --project
-        # <path> -- <args>，不显式传 -c/--artifacts-path——首次运行自动编译，用 dotnet 默认输出
-        # 目录，不与本脚本步骤 1/2 的 --artifacts-path 构建产物混淆）。
-        Test-NativeExitCode "dotnet" @("run", "--project", "toolchain/validator", "--", "--schema-audit", "--allowlist", "toolchain/schema_audit_allowlist.json")
-    } finally {
-        Pop-Location
+    if ($grepExit -eq 0) {
+        $lines = @($grepOutput)
+        throw "发现 $($lines.Count) 处具体游戏代号命中：`n$($lines -join "`n")"
     }
+    $true
 }
 
 # -----------------------------------------------------------------------------
-# 4. 事件常量生成器一致性检查
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/gen_event_constants.py", "--check")
-    } finally {
-        Pop-Location
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 5. 占位资产生成器一致性检查（-Quick 跳过：需要 Pillow 且逐张比较占位图，不是秒级步骤）
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "python toolchain/gen_placeholder_assets.py --check" "-Quick"
-} else {
-    Invoke-CheckStep "python toolchain/gen_placeholder_assets.py --check" {
-        Push-Location $RepoRoot
-        try {
-            Test-NativeExitCode "python" @("toolchain/gen_placeholder_assets.py", "--check")
-        } finally {
-            Pop-Location
-        }
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 5b. 资产导入工具交叉校验（import_assets.py check，见 11 第 8 节"新增资产已经过导入工具并
-#     通过资产校验"）：全量交叉校验（sprite/vfx/sfx/world 四域）——data/_sample 的
-#     display/vfx/sfx/world 四张表引用的资产均已经由 toolchain/import_sample_assets.py 驱动
-#     import_assets.py 的 sprite/icon/vfx/sfx/map 子命令导入到 assets/_sample/（见
-#     toolchain/README.md"data/_sample 的资产来源（import_sample_assets.py）"一节），四域在
-#     当前数据集下应始终通过，不属于 -Quick 可跳过的慢步骤（不读图片，只比对文件是否存在）。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample")
-    } finally {
-        Pop-Location
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 5c. 数据表字段顺序与 schema 登记顺序一致性检查（消费方反馈 E11 根治，2026-09-10，见
-#     architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E11）：只检查、不写文件
-#     （--check），只对框架自带的 data/_framework、data/_sample 两根跑（与上面数据校验步骤同一对
-#     默认根，不含具体游戏的 data/<game>——那是游戏仓库自己的门禁职责，本仓库门禁不越权检查游戏
-#     侧内容）；发现字段顺序与 schema 登记不一致时以非 0 退出码阻断，提示本机跑
-#     `python toolchain/format_data.py --schema-order` 就地重排后重新提交。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消费方反馈 E11）" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/format_data.py", "--schema-order", "--check", "--data-root", "data/_framework", "--data-root", "data/_sample")
-    } finally {
-        Pop-Location
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 5d. 样例导入幂等性门禁（防"asset_import 写盘层字面量形式漂移"类回归——曾复现的具体案例：
-#     map 子命令的 --pixels-per-unit/--origin-px 是 type=float 命令行参数，json.dumps 未做
-#     int/float 字面量归一化，直接按 Python 运行时类型写出，导致 data/_sample/world/
-#     world.map.json 每次重跑 import_sample_assets.py 都会把 "32" 写成 "32.0" 这类无意义 diff，
-#     破坏"同一输入重复导入产出字节相同文件"的幂等性；已在 toolchain/asset_import/common.py 的
-#     _normalize_json_literals 写盘层根治，这里补一道流水线级回归闸：重新跑一次样例导入，断言
-#     它的写入路径相对已提交内容零 diff）。
-#     只对 data/_sample、assets/_sample 两个写入路径把关（import_sample_assets.py 默认写入
-#     的唯一两个根，不是全仓库 git status）。
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" "-Quick"
-} else {
-    Invoke-CheckStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" {
-        Push-Location $RepoRoot
-        try {
-            $watchPaths = @("data/_sample", "assets/_sample")
-
-            # 保护"工作树本来就脏"：先看这两个路径是否已有未提交改动（含未跟踪文件），有就跳过
-            # 本步骤并打印明确提示，而不是把开发者本地正当改动误判为门禁失败。
-            $preStatus = & git status --porcelain -- $watchPaths
-            if ($LASTEXITCODE -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "git status 执行失败（退出码 $LASTEXITCODE），无法判断工作树是否干净" }
-            }
-            if ($preStatus) {
-                Write-Host "检测到 $($watchPaths -join ', ') 下已有未提交改动，跳过本步骤（避免把本地正当改动误判为门禁失败）：" -ForegroundColor Yellow
-                $preStatus | Out-Host
-                return [PSCustomObject]@{ Skip = $true; Reason = "data/_sample 或 assets/_sample 已有未提交改动，先提交/还原后再跑本步骤" }
-            }
-
-            $rerunOk = Test-NativeExitCode "python" @("toolchain/import_sample_assets.py")
-            if (-not $rerunOk) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "python toolchain/import_sample_assets.py 重跑本身失败（非 diff 问题，见上方输出）" }
-            }
-
-            $postStatus = & git status --porcelain -- $watchPaths
-            if ($LASTEXITCODE -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "git status 执行失败（退出码 $LASTEXITCODE），无法判断重跑后是否产生 diff" }
-            }
-
-            if (-not $postStatus) {
-                # 天然干净：重跑没有改动任何文件，不需要任何恢复动作。
-                return $true
-            }
-
-            # 出现 diff：先打印摘要方便定位，再把这两个路径恢复到重跑前的状态（已跟踪文件用
-            # checkout 还原，重跑意外新增的未跟踪文件用 clean 清掉——上面的"本来就脏"检查已确认
-            # 这两个路径此前没有任何未跟踪文件，这里清理范围严格限定在 $watchPaths，不影响仓库
-            # 其它任何路径），保证本步骤跑完不管成败都不在工作树留下改动。
-            Write-Host "样例导入重跑后 $($watchPaths -join ', ') 出现 diff（幂等性被破坏）：" -ForegroundColor Red
-            $postStatus | Out-Host
-            $diffSummary = (& git diff --stat -- $watchPaths | Out-String).Trim()
-            if ($diffSummary) {
-                Write-Host $diffSummary -ForegroundColor Red
-            }
-
-            & git checkout -- $watchPaths 2>$null | Out-Null
-            & git clean -fd -- $watchPaths 2>$null | Out-Null
-
-            $detailLines = @($postStatus | Select-Object -First 20)
-            $detail = "重跑 import_sample_assets.py 后 data/_sample 或 assets/_sample 出现非预期 diff：" + ($detailLines -join "; ")
-            return [PSCustomObject]@{ Ok = $false; Detail = $detail }
-        } finally {
-            Pop-Location
-        }
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 6. toolchain 自身的 pytest 套件（-Quick 跳过：见 .PARAMETER Quick 说明）
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick"
-} else {
-    Invoke-CheckStep "python -m pytest toolchain/tests -q" {
-        # 判断记录（第九轮审计工具链条目，本机 GBK 控制台下 toolchain/tests 里跑
-        # subprocess.run(...).stdout/.stderr 解码用的 locale.getpreferredencoding() 是 cp936，
-        # 已在 toolchain/tests/test_get_framework_path_boundary.py 改为显式
-        # encoding="utf-8", errors="replace" 根治那一处不再依赖控制台代码页；这里额外给 pytest
-        # 本身的子进程环境同步设置 PYTHONUTF8=1，与 .github/workflows/ci.yml 的作业级 PYTHONUTF8/
-        # PYTHONIOENCODING 兜底、.githooks/pre-commit 的同名设置保持一致（双保险：即便未来哪个
-        # toolchain 测试新增了不带 encoding 的子进程调用，也不至于在本机默认编码下直接报错）。
-        # 用完恢复原值，不污染 check.ps1 调用方后续步骤的环境。
-        $prevPythonUtf8 = $env:PYTHONUTF8
-        $env:PYTHONUTF8 = "1"
-        Push-Location $RepoRoot
-        try {
-            Test-NativeExitCode "python" @("-m", "pytest", "toolchain/tests", "-q")
-        } finally {
-            Pop-Location
-            $env:PYTHONUTF8 = $prevPythonUtf8
-        }
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 5e. -DocsOnly 专用：toolchain 自身 pytest 套件里两个文档相关用例（提交前钩子分级任务新增，
-#     2026-09-22）——test_markdown_relative_links.py（md 相对链接是否解析到真实存在的文件）、
-#     test_editor_doc_consistency.py（编辑器产品文档 md/html 两版是否漂移）。这两个用例本来就是
-#     上一步"6. toolchain 自身的 pytest 套件"的一部分，正常/`-Quick` 档不需要单独摘出来跑；只有
-#     `-DocsOnly` 下（上一步因为 `Invoke-CheckStep` 内部的 `-DocsOnly` 短路而被跳过，见该函数
-#     判断记录）才需要单独跑这一小撮，否则纯文档改动的提交连基本的链接校验都没有。只在
-#     `-DocsOnly` 时才加进结果表（不传 -DocRelevant 就够——本步骤整体只在 `if ($DocsOnly)` 分支里
-#     才会被调用，非 `-DocsOnly` 的正常/全量/`-Quick` 运行完全不会执行到这里，避免与"6."步骤重复
-#     跑同一批用例）。
-# -----------------------------------------------------------------------------
-if ($DocsOnly) {
-    Invoke-CheckStep "python -m pytest toolchain/tests -q（文档相关子集：markdown 链接 + 编辑器文档一致性，-DocsOnly）" -DocRelevant {
-        $prevPythonUtf8 = $env:PYTHONUTF8
-        $env:PYTHONUTF8 = "1"
-        Push-Location $RepoRoot
-        try {
-            Test-NativeExitCode "python" @(
-                "-m", "pytest",
-                "toolchain/tests/test_markdown_relative_links.py",
-                "toolchain/tests/test_editor_doc_consistency.py",
-                "-q")
-        } finally {
-            Pop-Location
-            $env:PYTHONUTF8 = $prevPythonUtf8
-        }
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 6a. core/sim/tests/data（嵌入仿真数据集）单独 `validate_data.py --strict` 校验（反馈 46 后续，
-#     2026-09-17，fix/sim-dataset-display-map）：
-#
-#     为什么需要这一步——`core/sim/tests/data` 此前从未被任何门禁步骤单独跑过
-#     `validate_data.py --strict`（对比步骤 3/3b：合并根、`data/_framework` 都有各自的门禁步骤，
-#     唯独这个嵌入仿真数据集没有）。唯一涉及它的既有步骤是下面 6b"数值仿真基线比对"，但那一步
-#     只用 `toolchain/simrunner`（`SimRunner.dll`）装载数据跑三类仿真场景，不等价于跑一遍声明式
-#     规则引擎校验——已实测核对 `toolchain/simrunner/SimRunner.csproj`：其 ProjectReference 只到
-#     `core/sim/Core.Sim.csproj` + `adapters/stub/Adapters.Stub.csproj`（该文件自己的判断记录也
-#     写明"不需要 Presentation.Common（不做 ContentValidationAssembly 那一层内容校验，只调用
-#     HeadlessWorldBuilder/ArenaSimulation/GrowthSimulation/CoverageSimulation/BaselineComparer
-#     这些 Core.Sim 自己的公开 API）"）；而 `DisplayMapCoverageRule` 是在
-#     `presentation/assembly/ContentValidationAssembly.cs`（`Presentation.Common` 工程）里注册的
-#     可选规则，`Core.Sim.csproj` 不引用 `Presentation.Common`，`Core.Sim` 自己的
-#     `SimSchemaCatalog` 也只注册 `SimAnchorValidationRule`/`SimScenarioValidationRule` 两条
-#     sim 专属规则——三层核对下来，`SimRunner` 的装载路径确实不会触达
-#     `DisplayMapCoverageRule` 这类声明式规则引擎校验，`toolchain/validator`（本步骤与步骤 3/3b
-#     调用的对象）才会。这正是本次 bug（`skill.sim_review_b_weapon_pct_strike` 漏配
-#     `display.map` 映射行）能一路混过 6b 而未被拦下的根因，不是巧合。
-#
-#     为什么排在 6b 之前——同属"数据/内容一致性类"校验（与 3/3b/3c/4/5c 相邻的一类步骤），
-#     紧邻 6b（同一数据集的另一种校验方式）顺序上自然，读日志时两步结果能对照着看。
-#
-#     为什么 `-Quick` 下也跑——同 3/3b/3c 一样是秒级的纯数据/元数据校验（`toolchain/validator`
-#     只做骨架检查 + 规则引擎校验，不跑仿真、不编译 Unity），不属于"非秒级步骤"，没有理由排除在
-#     `-Quick` 子集之外——这正是本步骤与 6b（跑三类仿真场景，耗时明显更长，`-Quick` 下
-#     `Add-SkippedStep`）刻意区分开的原因。
-#
-#     步骤总数（本步骤不受 `-Quick`/`-SkipUnity` 门控，两个族群各 +1）：`$script:Results.Add`
-#     计数机制下存在两个不同的"总步骤数"族群，不是单一数字——`-Quick`/`-SkipUnity` 族（Unity 四步
-#     + 消费方演练整体折叠成 6 个 `Add-SkippedStep`）新增本步骤前 25、后 26；全量族（不传
-#     `-SkipUnity`，会跑到 Unity 四步 + 消费方演练 + `-Il2cpp` 门控的 IL2CPP 三步，这三步无论
-#     PASS 还是 SKIP 都会被注册，故比 `-Quick`/`-SkipUnity` 族多 3）新增本步骤前 28、后 29——
-#     `build.ps1 -Release` 默认不传 `-SkipUnity` 也不传 `-Il2cpp`（README.md"发布流程"一节、
-#     build.ps1 全文均无 `-Il2cpp` 调用点），因此命中的正是全量族（29）。详细推导与归档证据见
-#     `core/sim/README.md` 判断记录 41 本次补充的段落。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/sim/tests/data（嵌入仿真数据集单独校验）" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict", "--framework-root", "data/_framework", "--data-root", "core/sim/tests/data")
-    } finally {
-        Pop-Location
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 6b. 数值仿真基线比对（T-N6-7，ADR-0035 决策 3/5；toolchain/simrunner）：跑一遍嵌入式最小仿真
-#     数据集（core/sim/tests/data）的全部场景（战斗/成长/内容覆盖），与随仓库提交的既有基线
-#     （core/sim/tests/baseline/*.json）比对，任一统计量 Exceeded/Removed 即判定门禁失败——见
-#     core/sim/README.md"命令行入口"/"基线更新流程"两节。位置排在 pytest 之后、Unity 四步之前：
-#     不需要 Unity（不复用/不依赖任何 Unity 相关产物），但比 pytest 更贴近".NET 构建产物"这一类
-#     （直接执行步骤 1 已经 build 好的 SimRunner.dll），紧跟在同样跑数值/内容校验的 5c/6 两步之后
-#     顺序上更自然。
-#
-#     -Quick 跳过（任务书 T-N6-7 明确禁止事项"禁止把数值仿真列为 -Quick 步骤"——这里的"跳过"指
-#     -Quick 子集本身不跑任何秒级之外的步骤，与该禁止事项一致：-Quick 下这一步和 pytest/包清单
-#     一致性等其它非秒级步骤一样显示 SKIP，不代表"数值仿真被认定为可选/不重要"）；-SkipUnity 不
-#     影响本步骤（本步骤全程只需要步骤 1 已经构建好的 SimRunner.dll + 嵌入式数据集，不涉及任何
-#     Unity 批处理调用）。
-#
-#     判断记录（复用步骤 1 已构建产物，不再 `dotnet run --project` 重复编译）：`toolchain/simrunner`
-#     是 Core.sln 的一个项目（同 Validator/SimRunner 均已在 dotnet build/test 的工程列表中，见
-#     步骤 1/2 的构建输出），步骤 1 的 `dotnet build Core.sln -c $Configuration --artifacts-path
-#     $ArtifactsPath` 已经把它构建到 `<ArtifactsPath>\bin\SimRunner\<configuration小写>\
-#     SimRunner.dll`——与 `toolchain/abi_probe.ps1` 的 `Resolve-CurrentDll`/check.ps1 步骤 1 本身
-#     同一套"--artifacts-path 布局"约定（见该脚本对应判断记录），直接 `dotnet <dll路径> run ...`
-#     执行已编译好的程序集，不经过 `dotnet run --project`/MSBuild 解析，与 3c"元数据门禁"/
-#     "消费方反馈 E1 根治"（`toolchain/validate_data.py` 优先执行预编译 `Validator.dll`）同一
-#     治理方向——避免 check.ps1 全量门禁里重复构建一遍已经构建过的项目。
-#
-#     判断记录（输出目录 `<ArtifactsPath>\sim_out\`，每次运行前清空重建）：避免累积历史场景报告/
-#     diff 文件在多次本机调试运行之间互相干扰误判；不用 `.sim_out/`（仓库根，`toolchain/
-#     sim_baseline.ps1` 默认输出目录）是为了不与手工调用 `sim_baseline.ps1` 产生的输出混在一起、
-#     也不需要额外的 `.gitignore` 条目（`$ArtifactsPath` 本身已在门禁默认值下落在 `bin/` 这一层，
-#     已被仓库根 `.gitignore` 的 `bin/` 规则忽略）。
-#
-#     判断记录（失败时打印全部 `*.diff.txt` 全文）：与 ABI 探针步骤失败分支同一"自动分诊"风格
-#     （见该步骤 `Get-Content ... | Write-Host` 判断记录）——`BaselineDiff.ToText()` 逐条列出
-#     `Exceeded`/`Removed` 统计量的路径/当前值/基线值/容差来源，直接决定这是否是一次"有意的数值/
-#     结算行为变化"，比只看退出码更能让 CI 日志自证失败原因，不需要额外登录机器翻
-#     `<ArtifactsPath>\sim_out\`。
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "数值仿真基线比对（toolchain/simrunner）" "-Quick"
-} else {
-    Invoke-CheckStep "数值仿真基线比对（toolchain/simrunner）" {
-        $simOutDir = Join-Path $ArtifactsPath "sim_out"
-        if (Test-Path -LiteralPath $simOutDir) {
-            Remove-Item -LiteralPath $simOutDir -Recurse -Force
-        }
-        New-Item -ItemType Directory -Force -Path $simOutDir | Out-Null
-
-        $simRunnerDll = Join-Path $ArtifactsPath ("bin\SimRunner\" + $Configuration.ToLowerInvariant() + "\SimRunner.dll")
-        if (-not (Test-Path -LiteralPath $simRunnerDll)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "找不到已构建的 $simRunnerDll——请确认步骤 1（dotnet build Core.sln --artifacts-path $ArtifactsPath）已成功" }
-        }
-
-        $simVersion = "unknown"
-        $versionFilePath = Join-Path $RepoRoot "VERSION"
-        if (Test-Path -LiteralPath $versionFilePath) {
-            $simVersion = (Get-Content -LiteralPath $versionFilePath -Raw).Trim()
-        }
-
-        $simArgs = @(
-            $simRunnerDll, "run",
-            "--scenario", "all",
-            "--framework-root", "data/_framework",
-            "--data-root", "core/sim/tests/data",
-            "--out", $simOutDir,
-            "--baseline-dir", "core/sim/tests/baseline",
-            "--version", $simVersion
-        )
-
-        Push-Location $RepoRoot
-        try {
-            # 判断记录同 Test-NativeExitCode 函数头：局部降级 $ErrorActionPreference，避免
-            # SimRunner 任何一行 stderr 输出被脚本级 "Stop" 偏好提升成终止性异常，吞掉后续的
-            # diff 文件打印逻辑。
-            # 判断记录（改为先捕获 stdout 到变量、再统一 Write-Host，不再直接 `| Out-Host`）：
-            # 需要在退出码为 0 时仍解析每行的 `added=<n>` 字段（见下方"Added 也算差异"判断记录），
-            # `Out-Host` 不产生可读的返回值，捕获成数组后既能原样回显（顺序退化为"进程退出后一次性
-            # 打印"，本步骤不传 `--progress`、不依赖 stderr 实时交织，无实质影响），又能逐行正则
-            # 匹配摘要行。native 进程的 stderr 不重定向、不并入这个数组，仍直接透传到宿主控制台，
-            # 与 `$ErrorActionPreference = "Continue"` 的既有考虑一致。
-            $ErrorActionPreference = "Continue"
-            $simOutputLines = @(& dotnet @simArgs)
-            $simExitCode = $LASTEXITCODE
-            $simOutputLines | ForEach-Object { Write-Host $_ }
-        } finally {
-            Pop-Location
-        }
-
-        if ($simExitCode -ne 0) {
-            $diffFiles = @(Get-ChildItem -Path $simOutDir -Filter "*.diff.txt" -File -ErrorAction SilentlyContinue)
-            foreach ($diffFile in $diffFiles) {
-                Write-Host "---- $($diffFile.FullName) ----" -ForegroundColor Yellow
-                Get-Content -LiteralPath $diffFile.FullName | Write-Host
-            }
-            return [PSCustomObject]@{ Ok = $false; Detail = "toolchain/simrunner 退出码=$simExitCode（0=全部场景无 Exceeded/Removed，1=存在 Exceeded/Removed，2=参数/数据装载错误，3=基线文件缺失；见上方场景摘要/RESULT 行与 diff 全文）" }
-        }
-
-        # 判断记录（Added 也算差异，门禁侧强制，不改 simrunner 退出码语义）：
-        # `core/sim/README.md`"命令行入口"一节明文承诺退出码 0 = "全部选中场景均无
-        # Exceeded/Removed"——这是对外发布的工具契约（`toolchain/sim_baseline.ps1`、任何直接调用
-        # `SimRunner.dll` 的外部脚本都依赖这条语义判定成败），本次不改它、也不因此改文档，避免打破
-        # 契约影响未知调用方。但 AGENTS.md §4"三份基线要零差异"字面上比这条契约更严格——`Added`
-        # （基线里从未出现过的统计量）设计上不算 simrunner 自身的阻断条件，专门放行"新增内容扩大
-        # 覆盖面"这种场景，代价是"漏烘焙"这类问题只能靠人读 diff.txt 发现（`sim_coverage_all`
-        # 一处漏烘焙曾在 2026-09-16 引入、31/31 PASS 下带病存活至 2026-09-20 复审才发现，
-        # 详见 `core/sim/README.md`"T-N6-7 判断记录"57）。因此在门禁侧（check.ps1，而不是
-        # simrunner 本体）额外解析
-        # 每个场景摘要行的 `added=<n>` 字段，
-        # 任一场景 `added>0` 即判本步骤 Fail——不依赖也不需要改 simrunner 的退出码。
-        # 摘要行格式见 `core/sim/README.md`"命令行入口"一节最后一段，是明确"供 check.ps1/CI 直接
-        # 判读"的稳定格式：
-        # `scenario=<id> kind=<k> stats=<n> exceeded=<n> added=<n> removed=<n> result=PASS|FAIL`。
-        $addedScenarios = @()
-        foreach ($line in $simOutputLines) {
-            if ($line -match '^scenario=(\S+)\s+kind=\S+\s+stats=\d+\s+exceeded=\d+\s+added=(\d+)\s+removed=\d+\s+result=') {
-                $addedCount = [int]$Matches[2]
-                if ($addedCount -gt 0) {
-                    $addedScenarios += [PSCustomObject]@{ Id = $Matches[1]; Count = $addedCount }
-                }
-            }
-        }
-
-        if ($addedScenarios.Count -gt 0) {
-            $diffFiles = @(Get-ChildItem -Path $simOutDir -Filter "*.diff.txt" -File -ErrorAction SilentlyContinue)
-            foreach ($diffFile in $diffFiles) {
-                $addedLines = @(Get-Content -LiteralPath $diffFile.FullName | Where-Object { $_ -match '^Added\s' })
-                if ($addedLines.Count -gt 0) {
-                    Write-Host "---- $($diffFile.FullName)（含基线里从未记录过的 Added 统计量） ----" -ForegroundColor Yellow
-                    $addedLines | Write-Host
-                }
-            }
-            $scenarioSummary = ($addedScenarios | ForEach-Object { "$($_.Id)(+$($_.Count))" }) -join "、"
-            $detail = "数值仿真基线比对：simrunner 退出码=0（其契约 0=无 Exceeded/Removed 不含 Added，" +
-                "见 core/sim/README.md 命令行入口一节），但门禁额外要求 Added 也算差异（AGENTS.md §4）——" +
-                "以下场景出现基线里从未记录过的统计量：$scenarioSummary，具体键见上方各 *.diff.txt 打印的 " +
-                "Added 行。这通常是新增探针/技能/内容扩大了 coverage 一类场景的统计面，属于合法新增，" +
-                "正确做法是同一提交里重新烘焙基线，不能带着未烘焙的 Added 差异合并：先跑 " +
-                "'./toolchain/sim_baseline.ps1 -Scenario all' 确认这条 Added 确实是本次改动预期引入的" +
-                "新统计维度，再跑 './toolchain/sim_baseline.ps1 -Scenario all -UpdateBaseline' 重新生成" +
-                "三份基线并把改动并入同一提交（提交信息按 core/sim/README.md 基线更新流程一节第 5 步注明）。" +
-                "若这条 Added 出乎意料、不是本次改动引入的新内容，说明基线或数据另有问题，不要用烘焙掩盖，先定位再处理。"
-            return [PSCustomObject]@{ Ok = $false; Detail = $detail }
-        }
-
-        return $true
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 7. 禁用词扫描
-#    a) 全仓库不得出现某个具体游戏代号（见 CLAUDE.md 硬性规则；本文件下面用字符串拼接构造该词、
-#       不直接拼出完整拼写，避免本脚本自身的源码触发这一步扫描），排除 .git/bin/obj/Library/
-#       StreamingAssets/dist 几个构建期/缓存目录，并排除本脚本自身（同一原因）。
-#    b) architecture 正文（00~14 号文档 + adr/）不得出现具体引擎/语言/框架/工具名，
-#       immunity 例外（含 unity 子串但不是该词本身）。
+# 2. 禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）。只遍历
+#    architecture/0*.md、1*.md、architecture/adr/*.md 这一小撮文件，本身不是耗时来源，维持
+#    Get-ChildItem 实现不变。
 # -----------------------------------------------------------------------------
 function Get-ScannableFiles {
     param([string]$Root, [string[]]$ExtraExcludeFullNames)
@@ -1109,26 +357,6 @@ function Get-ScannableFiles {
     }
 }
 
-Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号" -DocRelevant {
-    # 见上方注释：字符串拼接构造被扫描词，避免脚本自身源码里出现完整拼写。
-    $bannedCodename = "note" + "moss"
-    $files = Get-ScannableFiles -Root $RepoRoot -ExtraExcludeFullNames @($PSCommandPath)
-    $hits = @()
-    foreach ($f in $files) {
-        try {
-            $m = Select-String -Path $f.FullName -Pattern $bannedCodename -SimpleMatch -CaseSensitive:$false -ErrorAction SilentlyContinue
-            if ($m) { $hits += $m }
-        } catch {
-            # 二进制文件等读取失败直接跳过，不计入命中
-        }
-    }
-    if ($hits.Count -gt 0) {
-        $lines = $hits | ForEach-Object { "$($_.Path):$($_.LineNumber)" }
-        throw "发现 $($hits.Count) 处具体游戏代号命中：`n$($lines -join "`n")"
-    }
-    $true
-}
-
 Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）" -DocRelevant {
     $targets = @()
     $targets += Get-ChildItem -Path (Join-Path $RepoRoot "architecture") -Filter "0*.md" -File -ErrorAction SilentlyContinue
@@ -1138,8 +366,6 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
         $targets += Get-ChildItem -Path $adrDir -Filter "*.md" -File -ErrorAction SilentlyContinue
     }
 
-    # unity 单独用左右非字母边界匹配，避免命中 immunity；其余几个词本身不太会作为其它中文/英文
-    # 词的子串出现，按普通子串匹配即可（与任务验收命令 grep -niwE 的整词语义等价）。
     $unityPattern = "(?<![A-Za-z])unity(?![A-Za-z])"
     $plainWords = @("c#", "csharp", "\.net", "xunit", "python", "powershell")
     $combinedPattern = $unityPattern + "|" + ($plainWords -join "|")
@@ -1157,78 +383,7 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
 }
 
 # -----------------------------------------------------------------------------
-# 7.5 工作树文本文件无 CR（消费方反馈 E7 根治，2026-09-10，见
-#     architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E7）：`.gitattributes` 对
-#     `*.cs`/`*.py`/`*.ps1`/`*.md`/`*.json`/... 等常见文本类型显式声明 `text eol=lf`——按
-#     "生成的文本文件一律 LF"这条工程规范，凡是 `.gitattributes` 已经显式要求 `eol=lf` 的路径，
-#     工作树里就不应该出现 CRLF 字节（出现说明有工具/编辑器在本机写出了 CRLF，`git add` 时虽会被
-#     `eol=lf` 规范化，但规范化前的原始字节仍可能被其它不经过 git 的下游工具直接读取，见
-#     toolchain/gen_placeholder_assets.py 6 处 write_text 遗漏 newline="\n" 的复现记录，
-#     toolchain/tests/test_generators_write_lf.py 从生成器源码层面做了静态回归；本步骤是运行时
-#     兜底，扫描工作树实际字节）。
-#
-#     用 `git ls-files --eol` 找出"索引里 attr 显式为 eol=lf、但工作树实际是 crlf"的文件——只对
-#     `.gitattributes` 已经明确表态"这里应该是 LF"的路径报错，不动那些完全没有声明 eol 策略、
-#     由本机 core.autocrlf 决定行尾的历史遗留路径（如 Unity `.anim`/`.controller`/`.prefab`、
-#     历史审计存档的 `.log`/`.xml`/`.html`——那些不在本次 E7 根治范围内，强行统一会牵扯到与本任务
-#     无关的既有文件，见任务书"对 .gitattributes 显式 eol=crlf 的文件豁免"这句反过来同样适用于
-#     "根本没有声明"的文件：本步骤的判定粒度是"声明了 eol=lf 却不是 LF"才算违规，未声明的路径
-#     不在断言范围内，天然不需要额外维护一份豁免名单）。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）" {
-    Push-Location $RepoRoot
-    try {
-        $eolOutput = & git ls-files --eol
-        if ($LASTEXITCODE -ne 0) {
-            throw "git ls-files --eol 失败，退出码 $LASTEXITCODE"
-        }
-        $violations = @($eolOutput | Where-Object { $_ -match 'w/crlf' -and $_ -match 'eol=lf' })
-        if ($violations.Count -gt 0) {
-            throw ("发现 " + $violations.Count + " 个文件已在 .gitattributes 声明 eol=lf，但工作树实际是 CRLF：`n  " + ($violations -join "`n  "))
-        }
-        $true
-    } finally {
-        Pop-Location
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 7.6 Unity .meta 完整性检查（不依赖 Unity 本体，见 toolchain/check_unity_meta.py 模块 docstring
-#     判断记录）：本会话内先后两次出现新增 .cs 漏提交 .meta（1.45.0 发版前 games/_template/ 下 6 个
-#     文件、随后 Runtime/Diagnostics/ 下 2 个文件）——.meta 是 Unity 首次导入新文件时才在本机生成的
-#     产物，执行 agent 又一律被要求不跑 Unity（避免工作树全量 reimport），纯 .NET/Python 门禁此前
-#     完全查不出这类问题，口头提醒已证明不管用。本步骤只读 git 索引 + .gitignore 规则判断 Unity
-#     实际导入范围（<工程>/Assets/、Packages/ 下直接摆放的本地包、manifest.json 里 "file:" 开头
-#     声明的内嵌本地包，如本仓库的 games/_template、adapters/conformance）内每个已跟踪文件是否都有
-#     对应 .meta、每个 .meta 是否都还对应一个被跟踪的文件/目录（含"目录被 .gitignore 整体排除、但
-#     目录级 meta 为保留稳定 GUID 仍提交"的既有例外，如 Runtime/Plugins/Core.meta），不需要启动
-#     Unity，-SkipUnity/-Quick 下同样跑。
-# -----------------------------------------------------------------------------
-Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/check_unity_meta.py）" {
-    Push-Location $RepoRoot
-    try {
-        Test-NativeExitCode "python" @("toolchain/check_unity_meta.py")
-    } finally {
-        Pop-Location
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 8. 版本一致性（版本可追溯任务新增，见 11_工程规范与测试.md 第 7 节"版本号必须可追溯到
-#    对应的架构文档版本与数据 schema 版本组合"）：单一版本源仓库根 VERSION 文件必须与
-#    adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json、
-#    games/_template/package.json 两处 version 字段一致（含 games/_template 对适配层包的
-#    依赖版本号），避免三处手改漏掉其中一处导致 dist 快照与源码割裂。只读比较，不改写任何文件。
-#    版本管理方案新增：额外校验仓库根 CHANGELOG.md 含 VERSION 对应版本号的条目（形如
-#    "## [X.Y.Z]"），或存在 "## [Unreleased]" 段——覆盖两种合法状态：已发布版本（VERSION 与
-#    CHANGELOG 条目一一对应）与开发中版本（VERSION 尚指向上一个已发布版本，变更累积在
-#    [Unreleased] 段，等下一次 build.ps1 -Release 时归档），避免改了代码却忘了写变更记录。
-#    写回遗漏根治（2026-09-07）新增：额外校验 adapters/unity/Packages/packages-lock.json 里
-#    "com.gamefoundation.game-template" 条目下 dependencies."com.gamefoundation.adapter.unity"
-#    这一镜像字段同样等于 VERSION——这个字段是 UPM 自动维护的，此前 build.ps1 -Release 写回没有
-#    覆盖它，门禁跑 Unity 相关步骤时 UPM 会自己改写，导致发布提交完成后工作树仍不干净（1.0.0 首次
-#    发布实测复现，见 CHANGELOG.md [1.0.0] 修复记录）；build.ps1 -Release 写回已同步覆盖，这里
-#    补一道只读校验兜底。
+# 3. 版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md" -DocRelevant {
     $versionPath = Join-Path $RepoRoot "VERSION"
@@ -1243,9 +398,6 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-loc
     $adapterPkgPath = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\package.json"
     $templatePkgPath = Join-Path $RepoRoot "games\_template\package.json"
 
-    # 判断记录：两个 package.json 是不带 BOM 的 UTF-8；Windows PowerShell 5.1 的 Get-Content
-    # 在没有 BOM 时按系统 ANSI 代码页猜编码，读中文会乱码甚至让 ConvertFrom-Json 报错，
-    # 必须显式 -Encoding UTF8（与 build.ps1 打包步骤同一判断记录）。
     $adapterPkg = (Get-Content -Path $adapterPkgPath -Raw -Encoding UTF8) | ConvertFrom-Json
     $templatePkg = (Get-Content -Path $templatePkgPath -Raw -Encoding UTF8) | ConvertFrom-Json
 
@@ -1261,15 +413,6 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-loc
         $mismatches += "games/_template/package.json dependencies.com.gamefoundation.adapter.unity=$templateDepVersion != VERSION=$version"
     }
 
-    # 写回遗漏根治（2026-09-07）新增：adapters/unity/Packages/packages-lock.json 里
-    # "com.gamefoundation.game-template" 条目下 dependencies."com.gamefoundation.adapter.unity"
-    # 是 games/_template/package.json 同名依赖版本号的镜像（UPM 读本地文件依赖时自动写入的锁定
-    # 值）。此前 build.ps1 -Release 写回没有覆盖这个字段，门禁跑 Unity 相关步骤时 UPM 会自己把它
-    # 改成当前版本号，导致发布提交完成后工作树仍不干净（1.0.0 首次发布实测复现，见 CHANGELOG.md
-    # [1.0.0] 修复记录）；build.ps1 -Release 写回已同步覆盖这个字段（见该脚本 Set-
-    # PackagesLockGameTemplateDependency 判断记录），这里补一道只读校验，不一致就 FAIL，与上面
-    # 两个 package.json 的校验同一治理方式。只读比较，不改写文件——用正则文本读取（与 build.ps1
-    # 写回同一保守做法，避免整体 JSON 解析/序列化打乱这份 UPM 生成文件的原始格式）。
     $packagesLockPath = Join-Path $RepoRoot "adapters\unity\Packages\packages-lock.json"
     if (-not (Test-Path $packagesLockPath)) {
         $mismatches += "找不到 $packagesLockPath，无法核对 com.gamefoundation.game-template 依赖版本号"
@@ -1310,656 +453,317 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-loc
 }
 
 # -----------------------------------------------------------------------------
-# 9. build.ps1 -SkipTests（同步六个核心 DLL 到 Unity 适配层包 + 同步内容数据集）
-#    另起一个 powershell 子进程跑，避免 build.ps1 内部的 exit 语句连带终止本脚本。
-#    -Quick 跳过：这一步只有 Unity 相关步骤需要（同步 DLL/内容数据集给 Unity 工程用），
-#    -Quick 本身不跑任何 Unity 步骤，跳过它不影响 -Quick 覆盖的 dotnet/python 校验结论。
+# 4. 数据校验（合并根：data/_framework + data/_sample）
 # -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick"
-} else {
-    Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
-        $buildScript = Join-Path $RepoRoot "build.ps1"
-        # 同源假阳性同一修法，判断记录见下方"消费方演练"步骤：原生调用未消费的 stdout 会混进
-        # scriptblock 返回值把失败判成 PASS，用 `| Out-Null` 吃掉即可，$LASTEXITCODE 不受影响。
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests | Out-Null
-        return ($LASTEXITCODE -eq 0)
-    }
-}
-
-# -----------------------------------------------------------------------------
-# 9.5 包清单一致性（私服交付通道新增，见 toolchain/registry/README.md、build.ps1 -Dist"私服交付
-#     通道新增"说明）：跑一遍 `build.ps1 -SyncOnly -Dist auto`（不需要 Unity，只是文件同步 +
-#     npm pack，复用同一份 -Quick 判断——见下方 if ($Quick) 分支，-Quick 下同样跳过），核对：
-#       1) 组装出的四个包（ADR-0018 决策 3 新增 com.gamefoundation.adapter.headless）package.json
-#          的 version 字段都等于 VERSION（跟"8. 版本一致性"校验的是两份提交进源码库的 package.json
-#          不同，这里校验的是 build.ps1 打包逻辑本身有没有正确把解析出的版本号写进新组装的四个包，
-#          属于"打包逻辑自检"而不是"源码一致性"）；
-#       2) 对每个包目录跑 `npm pack --dry-run --json`，核对文件清单里不包含
-#          __pycache__/bin/obj/storage（含 registry/ 相关的排除规则真的生效，见 build.ps1
-#          Copy-DistDir 调用列表的 -ExcludeDirNames）。
-#
-#     判断记录（2026-09-07，CI f0389f8 失败，根治：本步骤挪到"9. build.ps1 -SkipTests"之后，
-#     不再挪到之前）：本步骤依赖的 `build.ps1 -SyncOnly -Dist auto` 有一条硬性前置条件——
-#     `-SyncOnly` 要求六个核心 DLL（见 build.ps1 `$CoreAssemblies` 列表的六个 `Dir`）已经存在于
-#     各自工程的 `bin\$Configuration\netstandard2.1\` 下（build.ps1 里 `-SyncOnly` 分支不跑
-#     `dotnet build`，只做同步；找不到源 DLL 时判断记录写得很直白："-SyncOnly 要求产物已存在，
-#     请先不带 -SyncOnly 跑一次完整构建"，随即 `exit 1`）。而在本仓库现有的步骤顺序里，真正会把
-#     这六个 DLL 构建到 `bin\` 下的是本脚本"1. dotnet build"（用 `--artifacts-path`，产物落在
-#     `$ArtifactsPath` 而不是 `bin\` 下）与"9. build.ps1 -SkipTests"（内部跑不带
-#     `--artifacts-path` 的 `dotnet build`，产物才会落在 `bin\Release\netstandard2.1\`，见
-#     build.ps1"1. dotnet build"一节）。此前本步骤排在"8. 版本一致性"之后、"9. build.ps1
-#     -SkipTests"之前（旧编号"8.5"），在本机能通过纯属侥幸——本机仓库历史上跑过多次不带
-#     `-SyncOnly` 的 `build.ps1`，`bin\` 下留有陈旧但存在的 DLL；GitHub Actions 的
-#     `windows-latest` 运行器每次都是全新 checkout，`bin\` 目录不存在，本步骤在 CI 上必然在
-#     `-SyncOnly` 内部的 DLL 存在性检查处以退出码 1 失败（见 CI 运行 f0389f8，Detail 只有一句
-#     "build.ps1 -SyncOnly -Dist auto 失败，退出码 1"，因为当时调用处用 `| Out-Null` 把
-#     build.ps1 自己打印的"找不到构建产物：...""-SyncOnly 要求产物已存在..."两行诊断信息吞掉了，
-#     见本步骤下方"不再吞输出"的判断记录）。根治方案二选一：a) 把本步骤挪到"9. build.ps1
-#     -SkipTests"之后（依赖关系上"先有构建产物，再打包"，本步骤现在采用的方案）；b) 让本步骤自身
-#     在检测到 DLL 缺失时自动改调 `build.ps1 -SkipTests -Dist auto`（不用 -SyncOnly）。选 a）
-#     不选 b）：b) 会让本步骤内部再悄悄多做一遍"9. build.ps1 -SkipTests"同样的构建+同步工作，
-#     `-Quick` 之外的正常全量门禁跑两次实质等价的构建同步、更慢且更难追踪是哪一次真正产生的
-#     `bin\Plugins\Core\` 内容；a) 只是单纯调整步骤顺序（依赖方在依赖项之后跑，符合直觉），两个
-#     步骤各自职责不变（9 管"构建产物落地"，9.5 管"打包清单是否正确"），不引入任何隐式的重复构建。
-# -----------------------------------------------------------------------------
-if ($Quick) {
-    Add-SkippedStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
-} else {
-    Invoke-CheckStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" {
-        $versionPath = Join-Path $RepoRoot "VERSION"
-        $version = (Get-Content -Path $versionPath -Raw).Trim()
-
-        $buildScript = Join-Path $RepoRoot "build.ps1"
-        # 判断记录（不再用 `| Out-Null` 吞掉 build.ps1 的输出）：此前失败时 Detail 列只有一句
-        # "build.ps1 -SyncOnly -Dist auto 失败，退出码 N"，看不到 build.ps1 自己打印的具体原因
-        # （例如"找不到构建产物：..."这一行）——CI 上 f0389f8 那次失败就是因为这一行被吞掉，
-        # 排查时只能凭猜测。改法：局部把 $ErrorActionPreference 降级为 Continue（原因同
-        # Test-NativeExitCode 函数判断记录：`&` 调用外部 powershell.exe 时，Stop 偏好会把它写到
-        # stderr 的任意一行提升成终止性异常，只保留第一行），把 stdout/stderr 逐行同时
-        # Write-Host（控制台/-LogFile transcript 仍能实时看到完整输出，行为与之前一致）和收集进
-        # 列表；失败时把收集到的最后 30 行并入 throw 的消息，让汇总表 Detail 列也能看到根因，不需要
-        # 额外翻 -LogFile。这里对该 scriptblock 的局部赋值不影响脚本其余部分（`&` 调用操作符本身
-        # 创建新作用域）。
-        $ErrorActionPreference = "Continue"
-        $buildOutputLines = New-Object System.Collections.Generic.List[string]
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SyncOnly -Dist auto 2>&1 | ForEach-Object {
-            $line = $_.ToString()
-            Write-Host $line
-            $buildOutputLines.Add($line)
-        }
-        if ($LASTEXITCODE -ne 0) {
-            $tailLines = $buildOutputLines | Select-Object -Last 30
-            throw ("build.ps1 -SyncOnly -Dist auto 失败，退出码 $LASTEXITCODE。最后 " + $tailLines.Count + " 行输出：`n" + ($tailLines -join "`n"))
-        }
-
-        $packagesRoot = Join-Path $RepoRoot ("dist\" + $version + "\packages")
-        # ADR-0018 决策 3 新增第四个包 com.gamefoundation.adapter.headless（无头适配层交付）；
-        # 见 build.ps1 5.15 节、toolchain/registry/registry.json、toolchain/get_framework.ps1
-        # $ThreePackageNames（zip/私服两条通道各自维护一份包名清单，四处一致性由
-        # toolchain/tests/test_package_name_consistency.py 断言，见该测试文件判断记录）。
-        $packageNames = @(
-            "com.gamefoundation.adapter.unity",
-            "com.gamefoundation.framework-data",
-            "com.gamefoundation.toolchain",
-            "com.gamefoundation.adapter.headless"
-        )
-        $forbiddenSegments = @("__pycache__", "bin", "obj", "storage")
-
-        $problems = @()
-        foreach ($pkgName in $packageNames) {
-            $pkgDir = Join-Path $packagesRoot $pkgName
-            $pkgJsonPath = Join-Path $pkgDir "package.json"
-            if (-not (Test-Path $pkgJsonPath)) {
-                $problems += "$pkgName：找不到 $pkgJsonPath"
-                continue
-            }
-            $pkgObj = (Get-Content -Path $pkgJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
-            if ($pkgObj.version -ne $version) {
-                $problems += "$pkgName：package.json version=$($pkgObj.version) != VERSION=$version"
-            }
-
-            $dryRunJson = & npm pack $pkgDir --dry-run --json 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                $problems += "$pkgName：npm pack --dry-run 失败（退出码 $LASTEXITCODE）"
-                continue
-            }
-            $dryRunObj = ($dryRunJson -join "`n") | ConvertFrom-Json
-            $fileEntries = $dryRunObj[0].files
-            $hitSegments = New-Object System.Collections.Generic.HashSet[string]
-            foreach ($entry in $fileEntries) {
-                $normalizedEntryPath = $entry.path -replace '\\', '/'
-                # 判断记录（消费方反馈 E1 根治，2026-09-10；T-N6-7 追加 simrunner/bin/）：
-                # `Tools~/validator/bin/`、`Tools~/simrunner/bin/` 均是刻意预编译随
-                # com.gamefoundation.toolchain 包分发的交付物（Validator.dll/SimRunner.dll + 各自
-                # 依赖 DLL，见 build.ps1"5.057"/"5.058"两节判断记录），不是构建产物泄漏——与本条
-                # 排除规则原本要拦的"忘了排除的 bin/obj 构建中间产物"（例如某个 core/*/bin/ 意外被
-                # 扫进包）性质不同。只放行这两个精确路径模式，其它任何位置出现的 "bin" 段仍然按原
-                # 规则拦截，不整体放宽这条排除规则。
-                if ($normalizedEntryPath -match '(^|/)(validator|simrunner)/bin/') {
-                    continue
-                }
-                $entryPathSegments = $entry.path -split '[\\/]'
-                foreach ($seg in $forbiddenSegments) {
-                    if ($entryPathSegments -contains $seg) {
-                        [void]$hitSegments.Add($seg)
-                    }
-                }
-            }
-            if ($hitSegments.Count -gt 0) {
-                $problems += ("$pkgName：npm pack --dry-run 文件清单命中排除名单：" + (($hitSegments) -join ", "))
-            }
-
-            # PJ130-02 根治新增（审计 architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md
-            # PJ130-02，见 build.ps1 "5.055" 节判断记录）：com.gamefoundation.adapter.unity 包现在
-            # 应该额外含 model/anim 占位资产（放进 Runtime/Resources/GameFoundation/，Unity 会自动
-            # 导入的非 ~ 目录）与其生成器脚本（放进 Editor/）；这里核对 npm pack --dry-run 的文件
-            # 清单里确实含这些路径，防止将来 Copy-DistDir 调用列表或本节新增的补齐逻辑被回退/漏改后
-            # 又悄悄丢失这批资源却没有任何门禁步骤发现。
-            if ($pkgName -eq "com.gamefoundation.adapter.unity") {
-                $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
-                $requiredModelAssetSuffixes = @(
-                    "Runtime/Resources/GameFoundation/models/placeholder_biped.prefab",
-                    "Runtime/Resources/GameFoundation/models/placeholder_biped.controller",
-                    "Runtime/Resources/GameFoundation/anim_clips/idle.anim",
-                    "Runtime/Resources/GameFoundation/anim_clips/attack.anim",
-                    "Runtime/Resources/GameFoundation/anim_clips/cast.anim",
-                    "Runtime/Resources/GameFoundation/anim_clips/hit.anim",
-                    "Editor/GeneratePlaceholderModelAssets.cs"
-                )
-                $missingModelAssets = @()
-                foreach ($suffix in $requiredModelAssetSuffixes) {
-                    $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
-                    if ($hit.Count -eq 0) {
-                        $missingModelAssets += $suffix
-                    }
-                }
-                if ($missingModelAssets.Count -gt 0) {
-                    $problems += ("$pkgName：npm pack --dry-run 文件清单缺失 model/anim 占位资产或生成器（PJ130-02）：" + ($missingModelAssets -join ", "))
-                }
-            }
-
-            # 判断记录（消费方反馈 E1 根治，2026-09-10）：com.gamefoundation.toolchain 包现在应该
-            # 额外含预编译 validator（Tools~/validator/bin/Validator.dll，见 build.ps1"5.057"节）与
-            # 挡住消费方 Directory.Build.props 继承的空文件（Tools~/validator/Directory.Build.props，
-            # 内容固定为 `<Project></Project>`）——这里核对 npm pack --dry-run 的文件清单里确实含
-            # 这两项，防止将来打包逻辑被回退/漏改后又悄悄丢失这两个文件却没有任何门禁步骤发现（上面
-            # 9.5 节"bin"排除规则的放行口子若被误删，这里也会先一步以更具体的缺失信息报错，而不是
-            # 等到消费方在自己的 Directory.Build.props 下现场编译才发现）。
-            if ($pkgName -eq "com.gamefoundation.toolchain") {
-                $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
-                $requiredValidatorArtifacts = @(
-                    "Tools~/validator/bin/Validator.dll",
-                    "Tools~/validator/Directory.Build.props"
-                )
-                $missingValidatorArtifacts = @()
-                foreach ($suffix in $requiredValidatorArtifacts) {
-                    $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
-                    if ($hit.Count -eq 0) {
-                        $missingValidatorArtifacts += $suffix
-                    }
-                }
-                if ($missingValidatorArtifacts.Count -gt 0) {
-                    $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 validator 或隔离用 Directory.Build.props（消费方反馈 E1）：" + ($missingValidatorArtifacts -join ", "))
-                }
-
-                # T-N6-7 新增：同一个包应额外含预编译 simrunner（Tools~/simrunner/bin/SimRunner.dll，
-                # 见 build.ps1"5.058"节）与同款隔离用 Directory.Build.props，惯例同上面 validator
-                # 两项检查——防止打包逻辑被回退/漏改后又悄悄丢失这两个文件却没有任何门禁步骤发现。
-                $requiredSimRunnerArtifacts = @(
-                    "Tools~/simrunner/bin/SimRunner.dll",
-                    "Tools~/simrunner/Directory.Build.props"
-                )
-                $missingSimRunnerArtifacts = @()
-                foreach ($suffix in $requiredSimRunnerArtifacts) {
-                    $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
-                    if ($hit.Count -eq 0) {
-                        $missingSimRunnerArtifacts += $suffix
-                    }
-                }
-                if ($missingSimRunnerArtifacts.Count -gt 0) {
-                    $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 simrunner 或隔离用 Directory.Build.props（T-N6-7）：" + ($missingSimRunnerArtifacts -join ", "))
-                }
-            }
-
-            # T-N6-7 新增：com.gamefoundation.adapter.headless 包现在应该额外含 Core.Sim.dll
-            # （Lib~/Core.Sim.dll，见 build.ps1"打四个 npm 包"包 4 节），与 Adapters.Stub.dll 同一
-            # 目录分发——防止打包逻辑被回退/漏改后又悄悄丢失这个文件却没有任何门禁步骤发现。
-            if ($pkgName -eq "com.gamefoundation.adapter.headless") {
-                $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
-                $hitCoreSim = @($entryPaths | Where-Object { $_ -like "*Lib~/Core.Sim.dll" })
-                if ($hitCoreSim.Count -eq 0) {
-                    $problems += "$pkgName：npm pack --dry-run 文件清单缺失 Lib~/Core.Sim.dll（T-N6-7）"
-                }
-            }
-        }
-
-        if ($problems.Count -gt 0) {
-            throw ("包清单一致性校验失败：`n  " + ($problems -join "`n  "))
-        }
-        [PSCustomObject]@{ Ok = $true; Detail = "四个包 version=$version 一致，npm pack --dry-run 清单均不含排除项，adapter.unity 包含 model/anim 占位资产与生成器，toolchain 包含预编译 validator+simrunner，adapter.headless 包含 Core.Sim.dll" }
-    }
-}
-
-# -----------------------------------------------------------------------------
-# Unity 相关四步（-SkipUnity 时整体跳过；见 adapters/unity/README.md"命令行跑测试"一节，
-# 命令写法与该节保持一致：-runTests 不与 -quit 同传，PlayMode 不加 -nographics）。
-# -----------------------------------------------------------------------------
-
-# Windows MAX_PATH 快速失败守卫（Test-UnityWorkingTreePathLength）：函数定义与判断记录见
-# toolchain/_unity_path_length_guard.ps1 头注释（与同目录 _hash.ps1/_version_writeback.ps1
-# 同一模式，独立成文件以便 toolchain/tests/test_unity_path_length_guard.py 单独 dot-source
-# 测试，不用跑完整 check.ps1）。
-. (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
-
-function Resolve-UnityExe {
-    param([string]$Explicit)
-    if ($Explicit -ne "") {
-        return $Explicit
-    }
-    $candidate = Join-Path $env:ProgramFiles "Unity\Hub\Editor\6000.3.23f1\Editor\Unity.exe"
-    if (Test-Path $candidate) {
-        return $candidate
-    }
-    # 找不到固定安装路径时退化为裸文件名，指望 PATH 上能解析到；解析不到会在调用处抛异常。
-    return "Unity.exe"
-}
-
-# 排查复盘 2026-09-15 落地（architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md）：
-# Unity EditMode/PlayMode 测试步骤判定为失败时，自动跑一遍 toolchain/unity_test_triage.py，
-# 把失败用例对应的日志窗口片段、窗口内首个异常/断言、Warning/Error 摘要打进本脚本的日志
-# （Write-Host 输出会被 Start-Transcript 的 -LogFile 转写、以及控制台原样录下，不需要额外
-# 落盘）。只在失败分支调用（调用点见下方 EditMode/PlayMode 两步），成功时不多打印一行。
-#
-# 判断记录：本工具是诊断辅助，不是新的把关点——找不到 python、分诊脚本自身报错，都只告警，
-# 不改变 Unity 步骤本身已经由 NUnit 结果 XML 算出的 Ok/Detail。调用前把 $ErrorActionPreference
-# 局部降级为 Continue，理由与 Test-NativeExitCode 判断记录一致（脚本作用域是 "Stop"，
-# python 写 stderr 会被提升成终止性异常，见该函数上方判断记录）。
-function Invoke-UnityTestTriageOnFailure {
-    param(
-        [string]$ResultsXml,
-        [string]$LogPath
-    )
-    $pythonCmd = Get-Command -Name "python" -CommandType Application -ErrorAction SilentlyContinue
-    if (-not $pythonCmd) {
-        Write-Host "[Unity 测试分诊] 未找到 python，跳过自动分诊（可手工运行：python toolchain/unity_test_triage.py --xml `"$ResultsXml`" --log `"$LogPath`"）" -ForegroundColor Yellow
-        return
-    }
-    Write-Host ""
-    Write-Host "--- Unity 测试分诊（toolchain/unity_test_triage.py，失败分支自动触发） ---" -ForegroundColor Yellow
-    $ErrorActionPreference = "Continue"
+Invoke-CheckStep "python toolchain/validate_data.py --strict（合并根）" {
     Push-Location $RepoRoot
     try {
-        & python "toolchain/unity_test_triage.py" "--xml" $ResultsXml "--log" $LogPath | Out-Host
-    } catch {
-        Write-Host "[Unity 测试分诊] 运行分诊脚本本身出错（不影响门禁判定）：$($_.Exception.Message)" -ForegroundColor Yellow
+        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict")
     } finally {
         Pop-Location
     }
-    Write-Host "--- Unity 测试分诊结束 ---" -ForegroundColor Yellow
 }
 
-if ($SkipUnity) {
-    Add-SkippedStep "Unity 编译检查" "-SkipUnity"
-    Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
-    Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
-    Add-SkippedStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" "-SkipUnity"
-    Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity"
-    Add-SkippedStep "消费方演练" "-SkipUnity"
+# -----------------------------------------------------------------------------
+# 5. 框架根单独完整校验（不加 --strict，见 data/README.md"与校验器的关系"一节判断记录）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--data-root", "data/_framework")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 6. 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）——秒级，不加载
+#    任何数据。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "dotnet" @("run", "--project", "toolchain/validator", "--", "--schema-audit", "--allowlist", "toolchain/schema_audit_allowlist.json")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 7. 事件常量生成器一致性检查
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/gen_event_constants.py", "--check")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 8. 数据表字段顺序与 schema 登记顺序一致性检查（消费方反馈 E11）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消费方反馈 E11）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/format_data.py", "--schema-order", "--check", "--data-root", "data/_framework", "--data-root", "data/_sample")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 9. 资产导入工具交叉校验（import_assets.py check，全量交叉校验 sprite/vfx/sfx/world 四域，只
+#    比对文件是否存在、不读图片，秒级完成）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 10. core/sim/tests/data（嵌入仿真数据集）单独 validate_data.py --strict 校验（反馈 46 后续，
+#     见 core/sim/README.md 判断记录 41——秒级的纯数据/元数据校验，不跑仿真、不编译 Unity）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/sim/tests/data（嵌入仿真数据集单独校验）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict", "--framework-root", "data/_framework", "--data-root", "core/sim/tests/data")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 11. 工作树文本文件无 CR（消费方反馈 E7 根治）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）" {
+    Push-Location $RepoRoot
+    try {
+        $eolOutput = & git ls-files --eol
+        if ($LASTEXITCODE -ne 0) {
+            throw "git ls-files --eol 失败，退出码 $LASTEXITCODE"
+        }
+        $violations = @($eolOutput | Where-Object { $_ -match 'w/crlf' -and $_ -match 'eol=lf' })
+        if ($violations.Count -gt 0) {
+            throw ("发现 " + $violations.Count + " 个文件已在 .gitattributes 声明 eol=lf，但工作树实际是 CRLF：`n  " + ($violations -join "`n  "))
+        }
+        $true
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 12. Unity .meta 完整性检查（不依赖 Unity 本体，toolchain/check_unity_meta.py）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/check_unity_meta.py）" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/check_unity_meta.py")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 12.5 -DocsOnly 专用：toolchain 自身 pytest 套件里两个文档相关用例。
+# -----------------------------------------------------------------------------
+if ($DocsOnly) {
+    Invoke-CheckStep "python -m pytest toolchain/tests -q（文档相关子集：markdown 链接 + 编辑器文档一致性，-DocsOnly）" -DocRelevant {
+        $prevPythonUtf8 = $env:PYTHONUTF8
+        $env:PYTHONUTF8 = "1"
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @(
+                "-m", "pytest",
+                "toolchain/tests/test_markdown_relative_links.py",
+                "toolchain/tests/test_editor_doc_consistency.py",
+                "-q")
+        } finally {
+            Pop-Location
+            $env:PYTHONUTF8 = $prevPythonUtf8
+        }
+    }
+}
+
+# =============================================================================
+# 阶段二：两条线并行（见本文件顶部判断记录 3)）
+# =============================================================================
+
+$parallelSeconds = 0.0
+$heavyResultsJson = Join-Path $ArtifactsPath "gate_line_heavy_results.json"
+$unityResultsJson = Join-Path $ArtifactsPath "gate_line_unity_results.json"
+$heavyLog = Join-Path $ArtifactsPath "gate_line_heavy.log"
+$unityLog = Join-Path $ArtifactsPath "gate_line_unity.log"
+$failFastFlagPath = Join-Path $ArtifactsPath "gate_failfast.flag"
+foreach ($staleFile in @($heavyResultsJson, $unityResultsJson, $heavyLog, $unityLog, $failFastFlagPath)) {
+    if (Test-Path -LiteralPath $staleFile) {
+        Remove-Item -LiteralPath $staleFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($FailFast -and $script:GateFailed) {
+    Write-Host ""
+    Write-Host "==== 非 Unity 重步骤线 / Unity 串行线 ====" -ForegroundColor Cyan
+    Write-Host "已跳过：前置的快速检查步骤已失败（-FailFast），两条并行线均不再启动。" -ForegroundColor Yellow
+    $script:Results.Add([PSCustomObject]@{ Step = "非 Unity 重步骤线（整体）"; Result = "SKIP"; Seconds = 0; Detail = "前置快速检查失败（-FailFast），本线未启动" })
+    $script:Results.Add([PSCustomObject]@{ Step = "Unity 串行线（整体）"; Result = "SKIP"; Seconds = 0; Detail = "前置快速检查失败（-FailFast），本线未启动" })
 } else {
-    # 快速失败：在真正调用任何 Unity 批处理之前先跑一次路径长度守卫（见该函数上方判断记录）。
-    # 不经 Invoke-CheckStep 包裹，超阈值会直接 throw 终止整个脚本，不会先耗时跑完编译检查/
-    # EditMode 再到 PlayMode 才暴露问题。
-    Test-UnityWorkingTreePathLength -RepoRoot $RepoRoot
+    $heavyScript = Join-Path $RepoRoot "toolchain\_gate_line_heavy.ps1"
+    $unityScript = Join-Path $RepoRoot "toolchain\_gate_line_unity.ps1"
 
-    $resolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
-    $unityProjectPath = Join-Path $RepoRoot "adapters\unity"
+    $heavyParams = @{
+        RepoRoot                  = $RepoRoot
+        ArtifactsPath              = $ArtifactsPath
+        Configuration              = $Configuration
+        Quick                      = [bool]$Quick
+        DocsOnly                   = [bool]$DocsOnly
+        FailFast                   = [bool]$FailFast
+        AbiStrict                  = [bool]$AbiStrict
+        FailFastFlagPath           = $failFastFlagPath
+        ResultsJsonPath            = $heavyResultsJson
+        TranscriptPath             = $heavyLog
+        InjectMockSleepSeconds     = $InjectMockSleepHeavySeconds
+    }
+    $unityParams = @{
+        RepoRoot                  = $RepoRoot
+        ArtifactsPath              = $ArtifactsPath
+        UnityOutDir                = $UnityOutDir
+        Configuration              = $Configuration
+        Quick                      = [bool]$Quick
+        DocsOnly                   = [bool]$DocsOnly
+        FailFast                   = [bool]$FailFast
+        SkipUnity                  = [bool]$SkipUnity
+        SkipSmoke                  = [bool]$SkipSmoke
+        SkipConsumer                = [bool]$SkipConsumer
+        Il2cpp                     = [bool]$Il2cpp
+        UnityExe                   = $UnityExe
+        FailFastFlagPath           = $failFastFlagPath
+        ResultsJsonPath            = $unityResultsJson
+        TranscriptPath             = $unityLog
+        InjectMockSleepSeconds     = $InjectMockSleepUnitySeconds
+    }
 
-    # H5 起：Unity 四步一律用 Invoke-NativeAndWait（不再用 Test-NativeExitCode 那套
-    # `& $Exe @ArgList` + $LASTEXITCODE——见该函数判断记录，对 GUI 子系统程序不阻塞，会导致本步骤
-    # 在 Unity 真正跑完之前就误判结束）；每步开跑前先查一次同工程有没有残留 Unity.exe（见
-    # Test-NoResidualUnityProcess）。
+    $parallelSw = [System.Diagnostics.Stopwatch]::StartNew()
 
-    Invoke-CheckStep "Unity 编译检查" {
-        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
-        $log = Join-Path $UnityOutDir "compile.log"
-        $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
-            "-batchmode", "-nographics", "-quit",
-            "-projectPath", $unityProjectPath,
-            "-logFile", $log
-        )
-        [PSCustomObject]@{
-            Ok     = ($proc.ExitCode -eq 0)
-            Detail = "Unity 退出码 $($proc.ExitCode)"
+    $jobHeavy = Start-Job -Name "gate_line_heavy" -ScriptBlock {
+        param($ScriptPath, $Params)
+        & $ScriptPath @Params
+    } -ArgumentList $heavyScript, $heavyParams
+
+    $jobUnity = Start-Job -Name "gate_line_unity" -ScriptBlock {
+        param($ScriptPath, $Params)
+        & $ScriptPath @Params
+    } -ArgumentList $unityScript, $unityParams
+
+    Wait-Job -Job $jobHeavy, $jobUnity | Out-Null
+    $parallelSw.Stop()
+    $parallelSeconds = [Math]::Round($parallelSw.Elapsed.TotalSeconds, 1)
+
+    foreach ($j in @($jobHeavy, $jobUnity)) {
+        if ($j.State -eq "Failed") {
+            $jobErr = (Receive-Job -Job $j -ErrorAction SilentlyContinue 2>&1 | Out-String)
+            $script:Results.Add([PSCustomObject]@{
+                Step    = "$($j.Name)：后台作业本身异常终止"
+                Result  = "FAIL"
+                Seconds = 0
+                Detail  = "Job State=$($j.State)；$jobErr"
+            })
+        } else {
+            Receive-Job -Job $j -ErrorAction SilentlyContinue | Out-Null
+        }
+        Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host ""
+    Write-Host "==== 非 Unity 重步骤线（子进程控制台输出） ====" -ForegroundColor Cyan
+    if (Test-Path -LiteralPath $heavyLog) {
+        Get-Content -LiteralPath $heavyLog | Write-Host
+    }
+    Write-Host ""
+    Write-Host "==== Unity 串行线（子进程控制台输出） ====" -ForegroundColor Cyan
+    if (Test-Path -LiteralPath $unityLog) {
+        Get-Content -LiteralPath $unityLog | Write-Host
+    }
+
+    function Import-GateLineResults {
+        param([string]$JsonPath, [string]$LineLabel)
+        if (-not (Test-Path -LiteralPath $JsonPath)) {
+            $script:Results.Add([PSCustomObject]@{
+                Step    = "$LineLabel：结果文件缺失"
+                Result  = "FAIL"
+                Seconds = 0
+                Detail  = "子进程未生成 $JsonPath，可能异常退出，请查看对应 .log"
+            })
+            return
+        }
+        $raw = Get-Content -LiteralPath $JsonPath -Raw
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            $script:Results.Add([PSCustomObject]@{
+                Step    = "$LineLabel：结果文件为空"
+                Result  = "FAIL"
+                Seconds = 0
+                Detail  = "$JsonPath 内容为空"
+            })
+            return
+        }
+        $items = $raw | ConvertFrom-Json
+        if ($items -isnot [array]) { $items = @($items) }
+        foreach ($item in $items) {
+            $script:Results.Add([PSCustomObject]@{
+                Step    = [string]$item.Step
+                Result  = [string]$item.Result
+                Seconds = [double]$item.Seconds
+                Detail  = [string]$item.Detail
+            })
         }
     }
 
-    Invoke-CheckStep "Unity EditMode 测试" {
-        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
-        $resultsXml = Join-Path $UnityOutDir "editmode.xml"
-        $log = Join-Path $UnityOutDir "editmode.log"
-        $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
-            "-batchmode", "-nographics",
-            "-projectPath", $unityProjectPath,
-            "-runTests", "-testPlatform", "EditMode",
-            "-testResults", $resultsXml,
-            "-logFile", $log
-        )
-        if ($proc.ExitCode -ne 0) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
-        }
-        if (-not (Test-Path $resultsXml)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml" }
-        }
-        # NUnit 结果 XML：根节点 result 属性非 Passed 视为失败（覆盖 Unity 某些版本"有失败用例
-        # 但进程退出码仍为 0"的已知情况，不能只信退出码）。
-        [xml]$xml = Get-Content -Path $resultsXml -Raw
-        $root = $xml.DocumentElement
-        $editModeOk = ($root.result -eq "Passed")
-        if (-not $editModeOk) {
-            Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
-        }
-        [PSCustomObject]@{
-            Ok     = $editModeOk
-            Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
-        }
-    }
-
-    Invoke-CheckStep "Unity PlayMode 测试" {
-        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
-        $resultsXml = Join-Path $UnityOutDir "playmode.xml"
-        $log = Join-Path $UnityOutDir "playmode.log"
-        # PlayMode 不加 -nographics（见 adapters/unity/README.md 判断记录：需要真实渲染/输入子系统）。
-        $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
-            "-batchmode",
-            "-projectPath", $unityProjectPath,
-            "-runTests", "-testPlatform", "PlayMode",
-            "-testResults", $resultsXml,
-            "-logFile", $log
-        )
-        if ($proc.ExitCode -ne 0) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
-        }
-        if (-not (Test-Path $resultsXml)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml" }
-        }
-        [xml]$xml = Get-Content -Path $resultsXml -Raw
-        $root = $xml.DocumentElement
-        # H5 新增：除根节点 result 外，把 total/passed/failed 计数写进汇总表 Detail 列。
-        $playModeOk = ($root.result -eq "Passed")
-        if (-not $playModeOk) {
-            Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
-        }
-        [PSCustomObject]@{
-            Ok     = $playModeOk
-            Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
-        }
-    }
-
-    Invoke-CheckStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" {
-        Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
-        $buildLog = Join-Path $UnityOutDir "build.log"
-        $exePath = Join-Path $UnityOutDir "Shell.exe"
-        $buildProc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
-            "-batchmode", "-nographics", "-quit",
-            "-projectPath", $unityProjectPath,
-            "-buildWindows64Player", $exePath,
-            "-logFile", $buildLog
-        )
-        if ($buildProc.ExitCode -ne 0) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)" }
-        }
-        if (-not (Test-Path $exePath)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成独立版产物：$exePath" }
-        }
-
-        if ($SkipSmoke) {
-            Write-Host "已跳过 -gf-smoke 冒烟子步骤（-SkipSmoke），只验证了构建产物存在。" -ForegroundColor Yellow
-            return [PSCustomObject]@{ Ok = $true; Detail = "已跳过 -gf-smoke（-SkipSmoke），只验证构建产物存在" }
-        }
-
-        # 注意不加 -nographics（见包 README"独立版无头冒烟"判断记录）。H5 新增：加 180s 超时保护
-        # ——无人值守冒烟一旦挂死（例如场景资源加载死锁），没有人会去按任何键，Invoke-NativeAndWait
-        # 的 -Wait 会无限期挂住整个门禁脚本，必须有兜底。
-        $smokeLog = Join-Path $UnityOutDir "smoke_player.log"
-        $smokeProc = Invoke-NativeAndWait -Exe $exePath -TimeoutSeconds 180 -ArgList @(
-            "-batchmode", "-gf-smoke",
-            "-logFile", $smokeLog,
-            "-screen-width", "800", "-screen-height", "600"
-        )
-        if ($smokeProc.TimedOut) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
-        }
-        if ($smokeProc.ExitCode -ne 0) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
-        }
-        if (-not (Test-Path $smokeLog)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
-        }
-        $logText = Get-Content -Path $smokeLog -Raw
-        [PSCustomObject]@{
-            Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK")
-            Detail = "见 $smokeLog"
-        }
-    }
-
-    # H4 新增：离散链路冒烟（-gf-smoke-discrete，见 Adapter.Unity.Shell.SmokeRunner.RunDiscreteSequence
-    # 判断记录）——同一份独立版构建产物（上一步已生成），另起一次进程跑离散分支，验证"进入战斗→
-    # awaiting_input→结束回合→AI 行动→战斗结束"这条链路本身（-SkipSmoke 时同样跳过，只验证过
-    # 构建产物存在这一步已经在上一步做过，本步不重复）。
-    Invoke-CheckStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" {
-        $exePath = Join-Path $UnityOutDir "Shell.exe"
-        if (-not (Test-Path $exePath)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成独立版产物：$exePath" }
-        }
-
-        if ($SkipSmoke) {
-            Write-Host "已跳过 -gf-smoke-discrete 冒烟子步骤（-SkipSmoke）。" -ForegroundColor Yellow
-            return [PSCustomObject]@{ Ok = $true; Detail = "已跳过 -gf-smoke-discrete（-SkipSmoke）" }
-        }
-
-        # H5 新增：同上一步，180s 超时保护。
-        $smokeLog = Join-Path $UnityOutDir "smoke_player_discrete.log"
-        $smokeProc = Invoke-NativeAndWait -Exe $exePath -TimeoutSeconds 180 -ArgList @(
-            "-batchmode", "-gf-smoke-discrete",
-            "-logFile", $smokeLog,
-            "-screen-width", "800", "-screen-height", "600"
-        )
-        if ($smokeProc.TimedOut) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke-discrete 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
-        }
-        if ($smokeProc.ExitCode -ne 0) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
-        }
-        if (-not (Test-Path $smokeLog)) {
-            return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
-        }
-        $logText = Get-Content -Path $smokeLog -Raw
-        [PSCustomObject]@{
-            Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
-            Detail = "见 $smokeLog"
-        }
-    }
-
-    # -------------------------------------------------------------------
-    # IL2CPP 发布路径验证（工程收尾 K 新增，-Il2cpp 显式开启才跑，默认跳过——耗时数分钟到十几
-    # 分钟，见 adapters/unity/README.md"IL2CPP 发布路径验证"一节）：额外用 IL2CPP 脚本后端构建
-    # 一份独立的独立版产物（与上面两步默认 Mono 后端的产物分开落地，互不覆盖），再跑一遍同样的
-    # 两种无人值守冒烟，验证核心类库（含自写零依赖 JSON 读写器等原本就是为 AOT 场景设计、但此前
-    # 从未在 IL2CPP 下实测过的代码）在真正的 AOT 编译（无反射兜底）下可运行，而不是只靠默认 Mono
-    # 后端的构建自证。
-    # -------------------------------------------------------------------
-    if (-not $Il2cpp) {
-        Add-SkippedStep "IL2CPP 独立版构建" "未传 -Il2cpp"
-        Add-SkippedStep "IL2CPP 独立版 -gf-smoke 冒烟" "未传 -Il2cpp"
-        Add-SkippedStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" "未传 -Il2cpp"
-    } else {
-        # 判断记录（2026-09-06 实跑暴露）：IL2CPP 独立版产物不能和上一步 Mono 独立版产物共用同一个
-        # 输出目录——即使 .exe 文件名不同（Shell.exe vs Shell_il2cpp.exe，各自的 "<name>_Data"
-        # 子目录名也因此不同），Unity 的 BuildPipeline 仍会报
-        # "Build path contains a project previously built with the Mono2x scripting backend,
-        # the current setting is for IL2CPP"——它按输出目录（而不是按 <name>_Data 子目录名）记录
-        # 上一次构建这个目录用的脚本后端，同目录换后端会被直接拒绝。改法：IL2CPP 产物落在
-        # $UnityOutDir 下一个独立子目录 il2cpp\，与 Mono 产物所在目录完全分开，不复用同一个输出
-        # 目录。
-        $il2cppOutDir = Join-Path $UnityOutDir "il2cpp"
-        if (-not (Test-Path $il2cppOutDir)) {
-            New-Item -ItemType Directory -Force -Path $il2cppOutDir | Out-Null
-        }
-        $il2cppExePath = Join-Path $il2cppOutDir "Shell_il2cpp.exe"
-
-        Invoke-CheckStep "IL2CPP 独立版构建" {
-            Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
-            $buildLog = Join-Path $UnityOutDir "build_il2cpp.log"
-            # 判断记录：输出路径经 GF_IL2CPP_OUTPUT_PATH 环境变量传给 Editor 方法（见
-            # Il2CppPlayerBuilder.cs 头注释——命令行参数与环境变量二选一，这里选环境变量，避免
-            # Start-Process -ArgumentList 数组里额外插入一对自定义参数与 Unity 自身参数混在一起
-            # 不易辨认）；只在本次子进程调用的范围内设置，不污染 check.ps1 之外的环境。
-            $prevEnv = $env:GF_IL2CPP_OUTPUT_PATH
-            $env:GF_IL2CPP_OUTPUT_PATH = $il2cppExePath
-            try {
-                $buildProc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
-                    "-batchmode", "-nographics", "-quit",
-                    "-projectPath", $unityProjectPath,
-                    "-executeMethod", "Adapter.Unity.EditorTools.Il2CppPlayerBuilder.BuildWindows64PlayerIl2cpp",
-                    "-logFile", $buildLog
-                )
-            } finally {
-                $env:GF_IL2CPP_OUTPUT_PATH = $prevEnv
-            }
-            if ($buildProc.ExitCode -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)，见 $buildLog" }
-            }
-            if (-not (Test-Path $il2cppExePath)) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
-            }
-            [PSCustomObject]@{ Ok = $true; Detail = "见 $buildLog" }
-        }
-
-        Invoke-CheckStep "IL2CPP 独立版 -gf-smoke 冒烟" {
-            if (-not (Test-Path $il2cppExePath)) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
-            }
-            if ($SkipSmoke) {
-                return [PSCustomObject]@{ Ok = $true; Detail = "已跳过（-SkipSmoke），只验证构建产物存在" }
-            }
-            $smokeLog = Join-Path $UnityOutDir "smoke_player_il2cpp.log"
-            $smokeProc = Invoke-NativeAndWait -Exe $il2cppExePath -TimeoutSeconds 180 -ArgList @(
-                "-batchmode", "-gf-smoke",
-                "-logFile", $smokeLog,
-                "-screen-width", "800", "-screen-height", "600"
-            )
-            if ($smokeProc.TimedOut) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
-            }
-            if ($smokeProc.ExitCode -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
-            }
-            if (-not (Test-Path $smokeLog)) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
-            }
-            $logText = Get-Content -Path $smokeLog -Raw
-            [PSCustomObject]@{
-                Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK")
-                Detail = "见 $smokeLog"
-            }
-        }
-
-        Invoke-CheckStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" {
-            if (-not (Test-Path $il2cppExePath)) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
-            }
-            if ($SkipSmoke) {
-                return [PSCustomObject]@{ Ok = $true; Detail = "已跳过（-SkipSmoke）" }
-            }
-            $smokeLog = Join-Path $UnityOutDir "smoke_player_il2cpp_discrete.log"
-            $smokeProc = Invoke-NativeAndWait -Exe $il2cppExePath -TimeoutSeconds 180 -ArgList @(
-                "-batchmode", "-gf-smoke-discrete",
-                "-logFile", $smokeLog,
-                "-screen-width", "800", "-screen-height", "600"
-            )
-            if ($smokeProc.TimedOut) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "-gf-smoke-discrete 冒烟超过 180s 未退出，已强制结束（可能挂死）" }
-            }
-            if ($smokeProc.ExitCode -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "独立版退出码 $($smokeProc.ExitCode)" }
-            }
-            if (-not (Test-Path $smokeLog)) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "未生成冒烟日志：$smokeLog" }
-            }
-            $logText = Get-Content -Path $smokeLog -Raw
-            [PSCustomObject]@{
-                Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
-                Detail = "见 $smokeLog"
-            }
-        }
-    }
-
-    # -------------------------------------------------------------------
-    # 消费方演练（第七项验收关卡的自动化形式，见 13_新游戏接入指南.md 第 7 节 /
-    # toolchain/consumer_smoke.ps1 头注释）：默认跑，-SkipConsumer 跳过；另起一个 powershell 子
-    # 进程跑，避免其内部的 exit 语句连带终止本脚本（惯例同 build.ps1 步骤）。耗时较长（内部至少
-    # 四次 Unity 批处理调用），不计入本脚本自身的 Unity 编译检查/EditMode/PlayMode/独立版构建
-    # 四步。
-    # -------------------------------------------------------------------
-    if ($SkipConsumer) {
-        Add-SkippedStep "消费方演练" "-SkipConsumer"
-    } else {
-        Invoke-CheckStep "消费方演练（toolchain/consumer_smoke.ps1）" {
-            $consumerScript = Join-Path $RepoRoot "toolchain\consumer_smoke.ps1"
-            $consumerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $consumerScript)
-            if ($UnityExe -ne "") {
-                $consumerArgs += @("-UnityExe", $resolvedUnityExe)
-            }
-            # 判断记录（门禁误判修复：子脚本真失败仍被记 PASS）：`Invoke-CheckStep` 用
-            # `$result = & $Action` 取整个 scriptblock 的输出流当返回值——不止最后一句 `return`，
-            # scriptblock 内每一句"没被消费"的输出都会被收进去。`& powershell @consumerArgs` 这个
-            # 原生调用一旦不赋值/不重定向，它自己的整段控制台输出（consumer_smoke.ps1 内部每一步
-            # 的 Write-Host，含步骤头、PASS/FAIL、汇总表——不区分它用的是 Write-Host 还是
-            # Write-Output，从外层进程看都是同一股 stdout）就会被 PowerShell 当成管道对象，跟下一句
-            # `return ($LASTEXITCODE -eq 0)` 的布尔值一起，被 `& $Action` 收成一个非空数组
-            # （形如 @("...若干行文本...", $false)）。`Invoke-CheckStep` 的分类逻辑对数组
-            # 落到 `else { $ok = [bool]$result } ` 分支——PowerShell 把"非空数组"直接转 `$true`，
-            # 不看数组元素内容，于是不管子脚本真实退出码是什么，这一步恒定判 PASS（该子脚本控制台
-            # 输出因此也从没打进 check.ps1 自己的 -LogFile transcript，是这个误判的旁证）。
-            # 复现与验证见 toolchain/consumer_smoke.ps1 头注释旁的验证记录（本次改动未留仓库内）。
-            # 修法：先用 `| Out-Null` 把子进程那股 stdout 在管道里吃掉，不让它混进 scriptblock 的
-            # 返回值；$LASTEXITCODE 由子进程退出码设置，不受管道重定向影响，随后单独读取不受影响。
-            & powershell @consumerArgs | Out-Null
-            return ($LASTEXITCODE -eq 0)
-        }
-    }
+    Import-GateLineResults -JsonPath $heavyResultsJson -LineLabel "非 Unity 重步骤线"
+    Import-GateLineResults -JsonPath $unityResultsJson -LineLabel "Unity 串行线"
 }
 
 # -----------------------------------------------------------------------------
 # 汇总
 # -----------------------------------------------------------------------------
+$OverallStopwatch.Stop()
+$overallSeconds = [Math]::Round($OverallStopwatch.Elapsed.TotalSeconds, 1)
+
 Write-Host ""
 Write-Host "==== 汇总 ====" -ForegroundColor Cyan
-$script:Results | Format-Table -AutoSize Step, Result, Seconds, Detail | Out-String -Width 4096 | Write-Host
+# 并行阶段墙钟只是额外打印的展示行，不写进 $script:Results——不计入步骤总数与失败判定，
+# 见本文件顶部判断记录 3) 末段。
+$displayRows = New-Object System.Collections.Generic.List[Object]
+$displayRows.AddRange($script:Results)
+$displayRows.Add([PSCustomObject]@{
+    Step    = "（并行阶段墙钟：非 Unity 重步骤线 + Unity 串行线）"
+    Result  = "INFO"
+    Seconds = $parallelSeconds
+    Detail  = "两条线并行执行的实际耗时（不是各步骤 Seconds 求和）；脚本总墙钟 ${overallSeconds}s"
+})
+$displayRows | Format-Table -AutoSize Step, Result, Seconds, Detail | Out-String -Width 4096 | Write-Host
 
 # 收边任务修正（严重的单步失败漏判 bug）：不加 @() 强制数组上下文时，Where-Object 恰好只匹配到
 # 一个对象会返回裸的 PSCustomObject 标量而不是集合——标量没有 Count 属性，$failed.Count 取到
 # $null，下面 `$null -gt 0` 在 PowerShell 里是 $false，导致"恰好只有一步失败"这一种情况被误判为
-# "门禁通过"（0 步失败、2+ 步失败都不受影响：前者 Where-Object 本就返回 $null 恰好也是"假"，
-# 后者返回真正的数组 .Count 正常工作，只有"恰好 1 步失败"这个边界会静默漏判）。实测复现：本次
-# 收边 I3 门禁第一次跑 Unity PlayMode 测试步骤失败（本步骤本身汇总多个 NUnit 用例结果为一个
-# FAIL），全部其余 14 步通过，$failed 因此恰好命中这个漏洞，脚本打印"门禁通过：全部 15 步"、
-# exit 0——与该步骤自己汇总表里明确打印的 FAIL 行直接矛盾。加 @() 强制数组上下文后 .Count 在
-# 0/1/多个匹配下都正确。
+# "门禁通过"。加 @() 强制数组上下文后 .Count 在 0/1/多个匹配下都正确。
 $failed = @($script:Results | Where-Object { $_.Result -eq "FAIL" })
 $totalSeconds = ($script:Results | Measure-Object -Property Seconds -Sum).Sum
 
 if ($failed.Count -gt 0) {
-    Write-Host "门禁失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步，总用时 ${totalSeconds}s）。" -ForegroundColor Red
+    Write-Host "门禁失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步，步骤耗时求和 ${totalSeconds}s，脚本总墙钟 ${overallSeconds}s）。" -ForegroundColor Red
     $exitCode = 1
 } else {
-    Write-Host "门禁通过：全部 $($script:Results.Count) 步（总用时 ${totalSeconds}s）。" -ForegroundColor Green
+    Write-Host "门禁通过：全部 $($script:Results.Count) 步（步骤耗时求和 ${totalSeconds}s，脚本总墙钟 ${overallSeconds}s）。" -ForegroundColor Green
     $exitCode = 0
 }
 
-# 两个出口统一在这里落地：先关 transcript（保证汇总表本身也写进 -LogFile，不止步骤明细），
-# 再退出，退出码原样透传给调用方的 $LASTEXITCODE（见 .PARAMETER LogFile 判断记录）。
 if ($script:TranscriptStarted) {
     try { Stop-Transcript | Out-Null } catch {}
     $script:TranscriptStarted = $false

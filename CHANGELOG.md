@@ -487,6 +487,31 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   此前对一个已知的死亡生物 id 直接发起交互会被受理（无对话配置判定为"无可交互内容"、有配置则
   打开对话），本版本起统一拒绝。
 
+### 变更
+
+- **`check.ps1` 门禁提速重排 + 分线并行**（工程收尾 gate-speed 任务，2026-09-22；判断记录见
+  `check.ps1` 头部注释，唯一出处）：全量门禁此前 31 步严格串行、约 486 秒，且任一步失败仍会白跑
+  完剩余全部步骤才报错。本次三件事：① 新增 `-FailFast` 开关——打开后任一步 FAIL 会让所在执行
+  序列（前置快速检查阶段，或下面的两条并行线之一）后续步骤立即改判可见 SKIP，不再白跑；
+  `build.ps1 -Release` 调用门禁时默认传本开关，日常直接跑 `check.ps1`（不传）仍保持"跑完全部、
+  一次看全"的原行为。② 重排步骤顺序：秒级、不依赖 Unity/重构建的检查（门禁自检、两道禁用词
+  扫描、版本一致性、几道数据/schema 校验、工作树 CR 检查、Unity `.meta` 完整性）挪到最前面串行
+  跑完；真实依赖关系保持不变（`dotnet build` 仍在 `dotnet test`/ABI 探针/数值仿真基线比对之前；
+  DLL 同步仍在全部 Unity 相关步骤之前）。③ 把不需要 Unity 但耗时的几步（`dotnet build`/
+  `dotnet test`、ABI 探针、占位资产生成器检查、样例导入幂等性门禁、`toolchain` 自身 pytest、
+  数值仿真基线比对）收拢进新增子脚本 `toolchain/_gate_line_heavy.ps1`，与收拢了 DLL 同步/包清单
+  一致性/Unity 四步/IL2CPP 三步/消费方演练的 `toolchain/_gate_line_unity.ps1`（内部保持串行，
+  Unity 不允许同一工程有两个批处理实例同时跑）用 `Start-Job`（PowerShell 5.1 内建后台作业机制）
+  并行跑，两条线跑完后把各自 PASS/FAIL/耗时合并进同一张汇总表，另加一行"并行阶段墙钟"（不计入
+  步骤总数）。另外，禁用词扫描（全仓库游戏代号一项）改用 `git grep`，只扫受版本管理的文件，不再
+  靠 `Get-ChildItem -Recurse` 遍历全仓库物理目录树后按目录名黑名单过滤（原实现慢的根因是遍历
+  `Library\` 等 Unity 缓存目录本身，不是匹配）。共享的步骤运行基础设施（`Invoke-CheckStep`/
+  `Test-NativeExitCode`/`Invoke-NativeAndWait` 等）抽到新增文件
+  `toolchain/_gate_step_runner.ps1`，供 `check.ps1` 与两条并行子线 dot-source 复用。`-Quick`/
+  `-SkipUnity`/`-DocsOnly`/全量四种模式下的步骤总数不变（28/28/29/31，实测核对），既有
+  `.githooks/pre-commit`/CI 调用点无需改动。纯工程内部重排 + 新增可选开关，不改变任何一步检查
+  本身的判据。
+
 ## [1.57.0] - 2026-09-22
 
 ### 新增
