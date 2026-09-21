@@ -50,5 +50,23 @@ namespace Presentation.Ui
         /// 既有契约成员（默认接口成员，生产宿主 <c>Core.Rules.Skill.SkillHost</c> 显式覆盖），本类型
         /// 只是原样转发，不重新计算、不裁剪任何字段。</summary>
         public SkillReadiness GetSkillReadiness(Id unitId, Id skillId) => _skillHost.GetSkillReadiness(unitId, skillId);
+
+        /// <summary>
+        /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see cref="ISkillHost.GetCastingSkillId"/>
+        /// 的完整结果。判断记录（收口，2026-09-21）：落地当时 <c>GetCastingSkillId</c>/
+        /// <c>GetCastingRemaining</c>/<c>GetCastingTotal</c> 只是 <c>Core.Rules.Skill.SkillHost</c>
+        /// 的公开方法，不在 <c>Core.Rules.Common.ISkillHost</c> 契约上（本次改动范围当时明确排除
+        /// <c>ISkillHost.cs</c>，避免与同批并行任务撞车），本类型因此持有一段向下转型
+        /// （<c>_skillHost as Core.Rules.Skill.SkillHost</c>）才能取到非降级结果。现在占用该契约
+        /// 文件的并行分支（ADR-0057/ADR-0058）均已合入 main，这三个成员已一并提升进
+        /// <see cref="ISkillHost"/>（见 <c>core/rules/common/README.md</c> 判断记录 15），向下转型
+        /// 已无必要，删除，改为直接经 <see cref="_skillHost"/>（<see cref="ISkillHost"/> 接口引用）
+        /// 调用——表现层本就已经面向接口装配，不应再依赖具体类。
+        /// </summary>
+        public Id? GetCastingSkillId(Id unitId) => _skillHost.GetCastingSkillId(unitId);
+
+        public double? GetCastingRemaining(Id unitId) => _skillHost.GetCastingRemaining(unitId);
+
+        public double? GetCastingTotal(Id unitId) => _skillHost.GetCastingTotal(unitId);
     }
 }

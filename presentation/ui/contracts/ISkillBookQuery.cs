@@ -78,5 +78,33 @@ namespace Presentation.Ui
                 nextChargeRemaining: null,
                 effectiveCooldownDuration: null);
         }
+
+        /// <summary>
+        /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：该单位当前正在读条/引导的技能 id（未在读条/
+        /// 引导时为 <c>null</c>），供施法条展示"谁在读条"。判断记录（收口，2026-09-21）：落地当时
+        /// 本次改动范围明确排除 <c>ISkillHost.cs</c>（同批另一并行任务同时改动该契约文件的
+        /// <c>AuraQuery</c>/<c>EffectSink</c> 成员，避免两个分支在同一份契约文件上撞车），因此曾
+        /// 暂时只在本窄接口上追加；两条并行分支合入 main 后已收口——<c>GetCastingSkillId</c>/
+        /// <c>GetCastingRemaining</c>/<c>GetCastingTotal</c> 现已一并提升进
+        /// <c>Core.Rules.Common.ISkillHost</c> 契约本身（同 <c>GetKnownSkills</c> 在 ADR-0050 的
+        /// 先例，见 <c>core/rules/common/README.md</c> 判断记录 15），本窄接口继续保留这三个方法
+        /// 只是延续既有"UI 侧不需要 <c>ISkillHost</c> 其余大部分成员"的窄接口收敛惯例，不代表底层
+        /// 还需要向下转型。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回 <c>null</c>（等价于"未在读条"），供未实现本能力的
+        /// <see cref="ISkillBookQuery"/>（测试用的内存态 Fake）二进制兼容。生产适配器
+        /// <c>SkillHostSkillBookQuery</c> 经 <c>ISkillHost.GetCastingSkillId</c> 接口成员转发
+        /// （不再向下转型到具体类，见该类型判断记录）。
+        /// </para>
+        /// </summary>
+        Id? GetCastingSkillId(Id unitId) => null;
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：该单位当前读条/引导的剩余时间；未在
+        /// 读条/引导时为 <c>null</c>，判断记录同 <see cref="GetCastingSkillId"/>。</summary>
+        double? GetCastingRemaining(Id unitId) => null;
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：该单位当前读条/引导的总时长；未在
+        /// 读条/引导时为 <c>null</c>，判断记录同 <see cref="GetCastingSkillId"/>。</summary>
+        double? GetCastingTotal(Id unitId) => null;
     }
 }

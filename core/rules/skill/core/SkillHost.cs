@@ -667,6 +667,20 @@ namespace Core.Rules.Skill
 
         public bool IsCasting(Id unitId) => _pipeline.IsCasting(unitId);
 
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see
+        /// cref="CastPipeline.GetCastingSkillId"/>。已提升进 <see cref="Core.Rules.Common.ISkillHost"/>
+        /// 契约（收口，2026-09-21，见"ISkillHost 显式接口实现"一节判断记录）；本方法物理签名不变，
+        /// 显式接口实现转发到本方法。</summary>
+        public Id? GetCastingSkillId(Id unitId) => _pipeline.GetCastingSkillId(unitId);
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see
+        /// cref="CastPipeline.GetCastingRemaining"/>，判断记录同 <see cref="GetCastingSkillId"/>。</summary>
+        public double? GetCastingRemaining(Id unitId) => _pipeline.GetCastingRemaining(unitId);
+
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：转发 <see
+        /// cref="CastPipeline.GetCastingTotal"/>，判断记录同 <see cref="GetCastingSkillId"/>。</summary>
+        public double? GetCastingTotal(Id unitId) => _pipeline.GetCastingTotal(unitId);
+
         public void Interrupt(Id unitId, Id interrupterId, Id? lockSchool, double lockDuration) =>
             _pipeline.Interrupt(unitId, interrupterId, lockSchool, lockDuration);
 
@@ -861,6 +875,27 @@ namespace Core.Rules.Skill
         IAuraQuery? ISkillHost.AuraQuery => AuraQuery;
 
         IEffectSink? ISkillHost.EffectSink => EffectSink;
+
+        // -----------------------------------------------------------------
+        // 收口（2026-09-21，合并 ADR-0057/ADR-0058 两条并行分支后）：施法条三个成员提升进
+        // ISkillHost 契约，ISkillHost 显式接口实现
+        // -----------------------------------------------------------------
+        //
+        // 判断记录：GetCastingSkillId/GetCastingRemaining/GetCastingTotal 落地当时（ADR-0056）
+        // 只是下面的三个普通公开方法，不在 ISkillHost 契约上——本次改动范围当时明确排除
+        // ISkillHost.cs（同批另一条并行分支 ADR-0058 同时改动该契约文件），presentation/ui 的
+        // SkillHostSkillBookQuery 因此持有一段向下转型（_skillHost as SkillHost）才能取到非降级
+        // 结果。现在两条并行分支都已合入 main，占用该契约文件的顾虑不再成立，比照
+        // GetKnownSkills/Knows/GetSkillNameKey/AuraQuery/EffectSink 同一套手法收口：同样改用
+        // 显式接口实现（下面三行），不让既有公开方法隐式满足新增的 ISkillHost 成员——理由同上：
+        // 隐式实现会把它们的物理 IL 属性从普通实例方法改写成 virtual sealed，被
+        // toolchain/abi_surface 逐字节比对误判为破坏。既有公开方法 GetCastingSkillId/
+        // GetCastingRemaining/GetCastingTotal 的物理签名/行为逐字节不变。
+        Id? ISkillHost.GetCastingSkillId(Id unitId) => GetCastingSkillId(unitId);
+
+        double? ISkillHost.GetCastingRemaining(Id unitId) => GetCastingRemaining(unitId);
+
+        double? ISkillHost.GetCastingTotal(Id unitId) => GetCastingTotal(unitId);
 
         /// <summary>
         /// N07 收边补齐（外部审计 68c9bed，P2）：只返回当前由 <see cref="PermanentGrantSource"/>

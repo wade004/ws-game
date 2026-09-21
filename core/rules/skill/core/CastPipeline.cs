@@ -315,6 +315,26 @@ namespace Core.Rules.Skill
         public double? GetCastingRemaining(Id unitId) =>
             _casting.TryGetValue(unitId, out var state) ? state.Remaining : (double?)null;
 
+        /// <summary>
+        /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：<paramref name="unitId"/> 当前正在读条/引导的
+        /// 技能 id（未在读条/引导时返回 <c>null</c>，与 <see cref="IsCasting"/>/<see
+        /// cref="GetCastingRemaining"/> 同一口径——三者恒同时非空或同时为空）。供表现层施法条展示
+        /// "谁在读条"，只读，不修改任何状态。
+        /// </summary>
+        public Id? GetCastingSkillId(Id unitId) =>
+            _casting.TryGetValue(unitId, out var state) ? state.SkillId : (Id?)null;
+
+        /// <summary>
+        /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：<paramref name="unitId"/> 当前读条/引导的总时长
+        /// （即 <see cref="CastState.CastTimeSeconds"/>——本次读条/引导开始时的原始时长，引导为
+        /// <c>channel_time</c>、读条为 <c>cast_time</c>，均已按当时 SpellMod/急速修正，见该字段判断
+        /// 记录），未在读条/引导时返回 <c>null</c>，与 <see cref="IsCasting"/> 同一口径。供表现层
+        /// 施法条计算"读条进度"（已耗时 = 总时长 - <see cref="GetCastingRemaining"/>），不新增第二套
+        /// 计时器。只读，不修改任何状态。
+        /// </summary>
+        public double? GetCastingTotal(Id unitId) =>
+            _casting.TryGetValue(unitId, out var state) ? state.CastTimeSeconds : (double?)null;
+
         // -----------------------------------------------------------------
         // 施法请求入口
         // -----------------------------------------------------------------

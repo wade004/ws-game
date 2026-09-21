@@ -529,15 +529,19 @@ namespace Presentation.Assembly
             InputMapDiagnostics = inputMapHost.Diagnostics;
 
             var skillBookQuery = new SkillHostSkillBookQuery(gameplay.Carriers.Rules.Skill);
+            // 消费方反馈第 4 条（2026-09-21，ADR-0056）：AuraQuery 是 SkillHost 早已暴露的公开属性
+            // （光环状态本就是 skill 模块管理的数据，见 SkillHost.AuraQuery），供 Player/Target
+            // PathProvider 的 auras.* 路径转发，不新增任何依赖边界。
+            var auraQuery = gameplay.Carriers.Rules.Skill.AuraQuery;
             var providers = new IUiPathProvider[]
             {
                 new PlayerPathProvider(
                     _playerId, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
                     gameplay.Carriers.Rules.Progression, gameplay.Carriers.Inventory, gameplay.Carriers.Equipment,
-                    gameplay.Quest, gameplay.Economy, skillBookQuery),
+                    gameplay.Quest, gameplay.Economy, skillBookQuery, auraQuery),
                 new TargetPathProvider(
                     opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
-                    gameplay.Carriers.Units, gameplay.Carriers.Creatures),
+                    gameplay.Carriers.Units, gameplay.Carriers.Creatures, skillBookQuery, auraQuery),
                 new UnitPathProvider(gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
             };
             var uiDataSource = new UiDataSource(bus, providers);

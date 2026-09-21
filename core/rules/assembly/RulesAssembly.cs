@@ -991,6 +991,11 @@ namespace Core.Rules.Assembly
             // CORE-170-01 根治：同一惯例——必须显式转发，不能依赖 IAuraQuery 默认接口方法的隐式
             // 空实现，否则一旦 Bind 完成，经本代理调用仍会读到默认值 null，绕开 Real 的真实结果。
             public AuraInstanceRef? TryGetInstanceRef(Id unitId, Id auraDefId) => Real.TryGetInstanceRef(unitId, auraDefId);
+
+            // 消费方反馈第 4 条（2026-09-21，ADR-0056）：同一惯例——必须显式转发，不能依赖
+            // IAuraQuery.GetActiveAuraSnapshots 默认接口方法的降级实现，否则一旦 Bind 完成，经本
+            // 代理调用仍只能拼出身份/层数，读不到 Real（AuraHost）能提供的剩余/总时长/名称键。
+            public IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId) => Real.GetActiveAuraSnapshots(unitId);
         }
 
         /// <summary>
@@ -1077,6 +1082,16 @@ namespace Core.Rules.Assembly
             // 真实光环查询/效果落地出口。
             public IAuraQuery? AuraQuery => Real.AuraQuery;
             public IEffectSink? EffectSink => Real.EffectSink;
+
+            // 收口（2026-09-21，合并 ADR-0057/ADR-0058 两条并行分支后，见
+            // Core.Rules.Common.ISkillHost.GetCastingSkillId 与 Core.Rules.Skill.SkillHost 同名
+            // 判断记录）：同上方全部成员一样必须显式转发，不能依赖 ISkillHost 默认接口实现隐式
+            // 兜底——否则本代理绑定完成后经它调用 GetCastingSkillId/GetCastingRemaining/
+            // GetCastingTotal 会恒得到 null，绕开 Real（真正的 SkillHost）已经能提供的真实读条
+            // 状态。
+            public Id? GetCastingSkillId(Id unitId) => Real.GetCastingSkillId(unitId);
+            public double? GetCastingRemaining(Id unitId) => Real.GetCastingRemaining(unitId);
+            public double? GetCastingTotal(Id unitId) => Real.GetCastingTotal(unitId);
         }
     }
 }

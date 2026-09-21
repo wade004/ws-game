@@ -1552,3 +1552,46 @@ Error，全局级别、不按表/记录粒度）下即便触发阻断的记录�
 **测试**：`core/rules/skill/tests/SkillDefNameKeyTests.cs`（新增）覆盖：`name_key` 存在时
 `SkillDefCache.ParseSkillDef`/`SkillHost.GetSkillNameKey` 正确解析、缺省字段时两者均返回
 `null`、既有（无 `name_key`）`skill.def` 记录解析结果的其余全部字段不受影响。
+
+## 判断记录（消费方反馈第 1/4 条：施法条与增益/减益列表数据，2026-09-21，[ADR-0056](../../../architecture/adr/0056-施法条与光环列表数据补全.md)）
+
+背景：`presentation/ui` 表现层缺"谁在读条、还剩多久、总共多久"（施法条）与"增益/减益列表带层数/
+剩余时长"两块数据，消费方只能自建平行机制直接读 `ISkillHost`/`IAuraQuery` 拼装（见 ADR 背景）。
+
+**施法条（`CastPipeline`/`SkillHost`）**：`CastPipeline` 新增两个只读查询
+`GetCastingSkillId(Id unitId)`/`GetCastingTotal(Id unitId)`（`GetCastingRemaining` 已存在，C-S1
+收口）；三者恒同时非空或同时为空（与 `IsCasting` 同一口径）。`SkillHost` 新增三个同名公开转发
+方法。**判断记录（落地当时未提升进 `Core.Rules.Common.ISkillHost` 契约，2026-09-21 已收口）**：
+落地当时本次并行派单明确把 `ISkillHost.cs` 划给另一条并行分支（同批新增 `AuraQuery`/
+`EffectSink` 只读默认成员），为避免两个分支同时改同一份契约文件撞车，施法查询曾只停在
+`SkillHost` 具体类与 `presentation/ui` 自己的 `ISkillBookQuery` 窄接口（新增
+`GetCastingSkillId`/`GetCastingRemaining`/`GetCastingTotal` 三个默认接口成员，
+`SkillHostSkillBookQuery` 用向下转型到具体类 `SkillHost` 转发）——同 ADR-0050 之前
+`GetKnownSkills` 的同一处境。占用 `ISkillHost.cs` 的并行分支（ADR-0057/ADR-0058）合入 main 后，
+这三个成员已一并提升进 `ISkillHost`（显式接口实现转发，`SkillHost` 既有公开方法签名不变；
+`RulesAssembly.DeferredSkillCastQuery` 同步补显式转发；`SkillHostSkillBookQuery` 删除向下转型，
+改为直接经 `ISkillHost` 接口引用调用），详见 `core/rules/common/README.md` 判断记录 15。
+
+**光环列表（`AuraHost`/`IAuraQuery`）**：`IAuraQuery` 新增只读默认接口成员
+`GetActiveAuraSnapshots(Id unitId)`，返回新增类型 `AuraSnapshot`（光环定义 id/层数/剩余时长/总
+时长/名称键）。`AuraInstanceState` 新增 `DurationTotal` 字段（本次（重新）施加声明的一次完整持续
+时间，随 `Remaining` 在 `CreateInstance`/`ReapplyExisting` 两处同步赋值、随 `RescaleAll` 同步换算
+时间模式系数）。排序按 `SeqNo`（创建顺序）升序，与既有 `GetActiveAuraDefs` 同一确定性来源。
+`RulesAssembly.DeferredAuraQuery`（`CombatHost`↔`SkillHost` 循环依赖的延迟绑定代理）按既有惯例
+显式转发本成员，不依赖默认接口方法的隐式降级。
+
+**数据表**：`skill.aura_def` 新增 `name_key`（`FieldKind.TextKey`，`required: false`），命名/类型
+沿用 `skill.def.name_key`（ADR-0048）同一惯例；`AuraDef` 新增第二个构造函数重载（七参数，末尾追加
+`Id? nameKey`，与既有构造函数（恰好六参数）参数个数不重叠）。**判断记录（范围裁剪：不含图标引用/
+buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一并提出图标引用与极性字段，本次收口
+范围只覆盖运行时可观测验收标准（身份/层数/剩余/总时长的确定性列表 + 名称键），两者留待后续独立
+评审——需要先确定 `display` 模块图标引用惯例、极性枚举取值与 legacy 数据迁移策略，见
+`AuraSnapshot` 类型判断记录。
+
+**ABI**：本节全部改动均为纯加法（新增只读方法/新增默认接口成员/新增类型/新增构造函数重载/新增
+可选字段），不改动任何既有公开签名。
+
+**测试**：`core/rules/skill/tests/CastingSnapshotTests.cs`（新增）覆盖施法条三个查询随读条推进/
+完成的取值变化；`core/rules/skill/tests/AuraSnapshotTests.cs`（新增）覆盖光环列表长度变化、层数/
+身份、移除后收缩、两次查询顺序一致（确定性）；`core/rules/skill/tests/AuraDefNameKeyTests.cs`
+（新增）覆盖 `name_key` 存在/缺省两种既有+新增数据行的解析行为。

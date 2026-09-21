@@ -106,6 +106,15 @@ Real.InstanceReplaced += value; remove => Real.InstanceReplaced -= value;` 同�
 接住，绑定完成后经代理读取这两个属性仍会恒得到 `null`，不会真正转发到 `Real`（真实
 `SkillHost`）已经能提供的光环查询/效果落地出口。本类已为两者都写了显式转发，见其源码判断记录。
 
+**收口（2026-09-21，合并 ADR-0057/ADR-0058 两条并行分支后）：`DeferredSkillCastQuery` 新增
+`GetCastingSkillId`/`GetCastingRemaining`/`GetCastingTotal` 三个成员同样必须显式转发**——同上两条
+判断记录同一种陷阱：这三个成员落地当时（ADR-0056）只在 `Core.Rules.Skill.SkillHost` 具体类上，
+未提升进 `ISkillHost` 契约；占用该契约文件的并行分支（ADR-0057/ADR-0058）合入后已一并提升为
+C#8 默认接口成员（均默认降级为 `null`），`DeferredSkillCastQuery` 本身也是 `ISkillHost` 的具体
+实现——不显式覆盖就会被自己的默认接口实现接住，绑定完成后经代理调用这三个成员仍会恒得到
+`null`，不会真正转发到 `Real`（真实 `SkillHost`）已经能提供的读条状态。本类已为三者都写了显式
+转发，见其源码判断记录。
+
 ## tick 阶段挂载表
 
 | `TickPhase` | 处理器 | 驱动 |

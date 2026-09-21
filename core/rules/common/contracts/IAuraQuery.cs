@@ -130,5 +130,44 @@ namespace Core.Rules.Common
         /// 隐式转发，见 <see cref="ConsumeAbsorb(Id, Id, double, int)"/> 同一惯例）。
         /// </summary>
         AuraInstanceRef? TryGetInstanceRef(Id unitId, Id auraDefId) => null;
+
+        /// <summary>
+        /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：该单位当前全部生效光环的完整快照列表（身份/
+        /// 层数/剩余时长/总时长/名称键，见 <see cref="AuraSnapshot"/>），供 <c>presentation/ui</c>
+        /// 表现层增益/减益列表一次查询取得展示所需的全部数据——此前 <see cref="GetActiveAuraDefs"/>
+        /// 只能回答"带了哪些"，<see cref="GetStacks"/> 只能逐个补层数，均没有剩余/总时长/名称键的
+        /// 查询出口（<see cref="AuraInstanceRef"/> 类型注释"不暴露光环内部状态"与本接口实际没有
+        /// 剩余时长查询成员的矛盾，见消费方反馈原文）。按创建顺序排列（同 <see
+        /// cref="GetActiveAuraDefs"/> 既有确定性惯例，不依赖字典枚举顺序，见 AGENTS.md §3）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现只能从 <see cref="GetActiveAuraDefs"/>/<see
+        /// cref="GetStacks"/> 拼出身份与层数，<see cref="AuraSnapshot.Remaining"/>/<see
+        /// cref="AuraSnapshot.Total"/>/<see cref="AuraSnapshot.NameKey"/> 一律为 <c>null</c>，表示
+        /// "未知"（同 <see cref="ISkillHost.GetSkillReadiness"/> 默认接口实现既有的"降级快照"惯例）
+        /// ——供未实现本能力的 <see cref="IAuraQuery"/>（本接口已有的多个 combat/expr_host/carriers
+        /// 测试假实现、旧版本编译产物）源码/二进制兼容，默认降级对它们是安全的等价空实现（本来就
+        /// 不产生剩余/总时长/名称键这类细节）。生产实现 <see cref="Core.Rules.Skill.AuraHost"/>
+        /// 显式覆盖，直接从内部实例状态与 <c>skill.aura_def</c> 登记表读取精确字段；任何组合/包装
+        /// <see cref="IAuraQuery"/>（如 <c>RulesAssembly.DeferredAuraQuery</c>）都应显式转发到内层
+        /// 实现，不应悄悄吃掉这个降级默认值——同 <see cref="ConsumeAbsorb(Id, Id, double, int)"/>/
+        /// <see cref="TryGetInstanceRef"/> 判断记录"框架内 InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId)
+        {
+            var defs = GetActiveAuraDefs(unitId);
+            if (defs.Count == 0)
+            {
+                return Array.Empty<AuraSnapshot>();
+            }
+
+            var list = new List<AuraSnapshot>(defs.Count);
+            foreach (var defId in defs)
+            {
+                list.Add(new AuraSnapshot(defId, GetStacks(unitId, defId), remaining: null, total: null, nameKey: null));
+            }
+
+            return list;
+        }
     }
 }

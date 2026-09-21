@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Carriers.Common;
+using Core.Carriers.Creature;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.EngineAdapter;
@@ -14,6 +15,7 @@ using Core.Gameplay.Quest;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
 using Core.Numbers.StatBlock;
+using Core.Rules.Common;
 using Core.Rules.Skill;
 using Presentation.Ui;
 using Presentation.VfxSfx.Contracts;
@@ -555,6 +557,16 @@ namespace Tests.PresentationUi
         private readonly Dictionary<(Id UnitId, Id SkillId), SkillReadiness> _readiness =
             new Dictionary<(Id, Id), SkillReadiness>();
 
+        /// <summary>消费方反馈第 1 条（2026-09-21，ADR-0056）：按单位登记"当前读条的技能 id"，供
+        /// <see cref="GetCastingSkillId"/> 转发；<see cref="_castingRemaining"/>/<see
+        /// cref="_castingTotal"/> 三者分开存、分开缺省（而不是打包成一个元组一起有无），是为了能在
+        /// <see cref="SetCastingForTest"/> 里单独制造"技能 id 已登记但剩余/总时长未登记"这一组合——
+        /// 供 <c>UnitSubQueries.ResolveCastingTiming</c>"确认在读条但取不到数据"诊断分支的测试用例
+        /// 复现该分支（真实 <c>SkillHost</c> 三者同源，不会出现这种组合，但适配层实现可能不完整）。</summary>
+        private readonly Dictionary<Id, Id> _castingSkill = new Dictionary<Id, Id>();
+        private readonly Dictionary<Id, double> _castingRemaining = new Dictionary<Id, double>();
+        private readonly Dictionary<Id, double> _castingTotal = new Dictionary<Id, double>();
+
         public IReadOnlyList<Id> GetKnownSkills(Id unitId) =>
             _known.TryGetValue(unitId, out var l) ? l : (IReadOnlyList<Id>)Array.Empty<Id>();
 
@@ -583,6 +595,12 @@ namespace Tests.PresentationUi
                 maxCharges: null, currentCharges: null, nextChargeRemaining: null, effectiveCooldownDuration: null);
         }
 
+        public Id? GetCastingSkillId(Id unitId) => _castingSkill.TryGetValue(unitId, out var v) ? v : (Id?)null;
+
+        public double? GetCastingRemaining(Id unitId) => _castingRemaining.TryGetValue(unitId, out var v) ? v : (double?)null;
+
+        public double? GetCastingTotal(Id unitId) => _castingTotal.TryGetValue(unitId, out var v) ? v : (double?)null;
+
         public void LearnForTest(Id unitId, Id skillId)
         {
             if (!_known.TryGetValue(unitId, out var list))
@@ -599,6 +617,16 @@ namespace Tests.PresentationUi
 
         public void SetReadinessForTest(Id unitId, Id skillId, SkillReadiness readiness) =>
             _readiness[(unitId, skillId)] = readiness;
+
+        /// <summary>消费方反馈第 1 条测试用：分别设置/清空三项读条数据，<c>null</c> 表示"清空"
+        /// （不是"设为 0"）——三个参数各自独立缺省，供 <see cref="_castingSkill"/> 判断记录描述的
+        /// 诊断分支复现用例传入"技能 id 有值、remaining/total 缺省"的组合。</summary>
+        public void SetCastingForTest(Id unitId, Id? skillId, double? remaining, double? total)
+        {
+            if (skillId.HasValue) _castingSkill[unitId] = skillId.Value; else _castingSkill.Remove(unitId);
+            if (remaining.HasValue) _castingRemaining[unitId] = remaining.Value; else _castingRemaining.Remove(unitId);
+            if (total.HasValue) _castingTotal[unitId] = total.Value; else _castingTotal.Remove(unitId);
+        }
     }
 
     /// <summary>
@@ -667,6 +695,96 @@ namespace Tests.PresentationUi
         }
     }
 
+    /// <summary>消费方反馈第 4 条（2026-09-21，ADR-0056）测试用假实现：按单位登记一份完整的
+    /// <see cref="AuraSnapshot"/> 列表（不经 <see cref="IAuraQuery.GetActiveAuraDefs"/>/<see
+    /// cref="IAuraQuery.GetStacks"/> 拼装默认接口成员那条降级路径——本 Fake 显式覆盖
+    /// <see cref="GetActiveAuraSnapshots"/>，直接测试 <c>presentation/ui</c> 路径解析这一段的
+    /// 插拔，光环快照本身的字段计算由 <c>core/rules/skill</c> 层的 <c>AuraSnapshotTests</c> 覆盖，
+    /// 两层各自负责一段，不重复验证同一件事）。除 <see cref="GetActiveAuraSnapshots"/>/<see
+    /// cref="GetActiveAuraDefs"/>/<see cref="GetStacks"/> 外的其余接口成员本模块测试未用到，均给
+    /// 最小无副作用实现。</summary>
+    internal sealed class FakeAuraQuery : IAuraQuery
+    {
+        private readonly Dictionary<Id, List<AuraSnapshot>> _snapshots = new Dictionary<Id, List<AuraSnapshot>>();
+
+        private List<AuraSnapshot> SnapshotsOf(Id unitId) =>
+            _snapshots.TryGetValue(unitId, out var list) ? list : new List<AuraSnapshot>();
+
+        public bool HasAura(Id unitId, Id auraDefId) => GetStacks(unitId, auraDefId) > 0;
+
+        public int GetStacks(Id unitId, Id auraDefId)
+        {
+            foreach (var snap in SnapshotsOf(unitId))
+            {
+                if (snap.AuraDefId.Equals(auraDefId)) return snap.Stacks;
+            }
+            return 0;
+        }
+
+        public ControlFlags GetControlFlags(Id unitId) => ControlFlags.None;
+
+        public bool IsImmune(Id unitId, Id school, EffectKind kind) => false;
+
+        public double ConsumeAbsorb(Id unitId, Id school, double amount) => 0;
+
+        public IReadOnlyList<Id> GetActiveAuraDefs(Id unitId)
+        {
+            var result = new List<Id>();
+            foreach (var snap in SnapshotsOf(unitId)) result.Add(snap.AuraDefId);
+            return result;
+        }
+
+        public IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId) =>
+            _snapshots.TryGetValue(unitId, out var list) ? list : (IReadOnlyList<AuraSnapshot>)Array.Empty<AuraSnapshot>();
+
+        public void SetSnapshotsForTest(Id unitId, IReadOnlyList<AuraSnapshot> snapshots) =>
+            _snapshots[unitId] = new List<AuraSnapshot>(snapshots);
+    }
+
+    /// <summary>消费方反馈第 1/4 条（2026-09-21，ADR-0056）测试用最小假 <see cref="IUnitAccess"/>：
+    /// 只为了满足 <see cref="TargetPathProvider"/> 七参数构造函数的非空前提（该重载同时携带
+    /// <see cref="IUnitAccess"/>/<see cref="ICreatureTemplateQuery"/> 两个此前已有的可选能力），
+    /// <c>target.casting</c>/<c>target.auras</c> 两条新子路径本身不读取这两个依赖（见
+    /// <see cref="TargetPathProvider.Resolve"/>），因此本 Fake 不需要真正模拟单位存在性——全部
+    /// 成员给最小无副作用实现即可，不影响任何测试断言。</summary>
+    internal sealed class FakeUnitAccess : IUnitAccess
+    {
+        public IReadOnlyList<Id> AllUnits => Array.Empty<Id>();
+
+        public bool Exists(Id unitId) => false;
+
+        public Vec2 GetPosition(Id unitId) => Vec2.Zero;
+
+        public void SetPosition(Id unitId, Vec2 position)
+        {
+        }
+
+        public Id GetFaction(Id unitId) => new Id("unit.faction_unset");
+
+        public int GetLevel(Id unitId) => 1;
+
+        public double GetFacing(Id unitId) => 0;
+
+        public bool IsAlive(Id unitId) => true;
+
+        public void SetAlive(Id unitId, bool alive)
+        {
+        }
+
+        public Id? GetTemplateId(Id unitId) => null;
+
+        public IReadOnlyList<Id> GetTags(Id unitId) => Array.Empty<Id>();
+    }
+
+    /// <summary>同 <see cref="FakeUnitAccess"/> 判断记录：只为满足 <see cref="TargetPathProvider"/>
+    /// 七参数构造函数的非空前提，<c>target.casting</c>/<c>target.auras</c> 不读取本依赖。</summary>
+    internal sealed class FakeCreatureTemplateQuery : ICreatureTemplateQuery
+    {
+        public CreatureTemplate Get(Id templateId) => throw new ArgumentException($"未登记的生物模板：{templateId}");
+
+        public bool HasFlag(Id templateId, NpcFlag flag) => false;
+    }
+
     /// <summary>
     /// 组装一份完整的 <see cref="UiDataSource"/>（含三个 <see cref="IUiPathProvider"/>）与它背后
     /// 全部 Fake 宿主，供 <c>UiDataSourceTests</c>/<c>ViewModelTests</c> 共用，避免每条测试各自
@@ -686,6 +804,9 @@ namespace Tests.PresentationUi
         public readonly FakeQuestHost Quest = new FakeQuestHost();
         public readonly FakeEconomyHost Economy = new FakeEconomyHost();
         public readonly FakeSkillBookQuery SkillBook = new FakeSkillBookQuery();
+        public readonly FakeAuraQuery AuraQuery = new FakeAuraQuery();
+        public readonly FakeUnitAccess UnitAccess = new FakeUnitAccess();
+        public readonly FakeCreatureTemplateQuery CreatureTemplates = new FakeCreatureTemplateQuery();
         public readonly InMemoryUiDiagnostics Diagnostics = new InMemoryUiDiagnostics();
 
         /// <summary>缺口 4：真实 <see cref="Core.Carriers.Unit.SkillBindingHost"/>，knownSkillQuery
@@ -713,8 +834,9 @@ namespace Tests.PresentationUi
 
             var playerProvider = new PlayerPathProvider(
                 PlayerId, StatHost, PowerHost, Progression, Inventory, Equipment, Quest, Economy,
-                skillBookForPathProvider ?? SkillBook);
-            var targetProvider = new TargetPathProvider(() => CurrentTarget, StatHost, PowerHost);
+                skillBookForPathProvider ?? SkillBook, AuraQuery);
+            var targetProvider = new TargetPathProvider(
+                () => CurrentTarget, StatHost, PowerHost, UnitAccess, CreatureTemplates, SkillBook, AuraQuery);
             var unitProvider = new UnitPathProvider(StatHost, PowerHost);
 
             DataSource = new UiDataSource(EventBus, new IUiPathProvider[] { playerProvider, targetProvider, unitProvider }, Diagnostics);

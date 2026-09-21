@@ -271,5 +271,43 @@ namespace Core.Rules.Common
         /// </para>
         /// </summary>
         IEffectSink? EffectSink => null;
+
+        // -----------------------------------------------------------------
+        // 施法条：读条/引导查询（消费方反馈第 1 条，2026-09-21，见
+        // architecture/adr/0056-施法条与光环列表数据补全.md；收口，2026-09-21）：落地当时
+        // ISkillHost.cs 被同批另一条并行分支（ADR-0058）占用，这三个成员只能先窄化在具体类
+        // Core.Rules.Skill.SkillHost 与 presentation/ui.ISkillBookQuery 窄接口上（见该接口
+        // GetCastingSkillId 判断记录），presentation/ui.SkillHostSkillBookQuery 因此持有一段
+        // 向下转型才能取到非降级结果。现在 ADR-0057/ADR-0058 均已合入 main，占用该契约文件的
+        // 顾虑不再成立，按 Knows/GetKnownSkills/GetSkillNameKey 同一套"只读查询默认降级"惯例
+        // 提升进本契约，见 core/rules/common/README.md 判断记录 15。
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 该单位当前正在读条/引导的技能 id；未在读条/引导时为 <c>null</c>（见 06 第 3.6 节步骤 8
+        /// <c>IsCasting</c> 同一时序）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回 <c>null</c>——这是只读查询，返回一个明确的保守
+        /// 默认值，语义是"该宿主实现不提供读条/引导身份查询"，与 <see cref="Knows"/>/
+        /// <see cref="GetSkillNameKey"/> 既有的"查询类默认实现允许显式降级"惯例一致，供未实现本
+        /// 能力的 <see cref="ISkillHost"/>（旧版本编译产物、未升级的自定义实现）源码/二进制兼容。
+        /// 生产实现 <c>Core.Rules.Skill.SkillHost</c> 用显式接口实现转发到既有公开方法
+        /// <c>GetCastingSkillId</c>（行为不变；不用隐式实现是刻意的——隐式实现会把既有公开方法的
+        /// 物理 IL 属性改写成 <c>virtual sealed</c>，被 <c>toolchain/abi_surface</c> 静态签名比对
+        /// 误判为破坏，同 <see cref="Knows"/>/<see cref="GetSkillNameKey"/> 判断记录"ISkillHost
+        /// 显式接口实现"一节）。任何组合/包装 <see cref="ISkillHost"/>（若存在）都应显式转发到内层
+        /// 实现，不应悄悄吃掉这个降级默认值——同 <see cref="GetSkillReadiness"/> 判断记录"框架内
+        /// InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        Id? GetCastingSkillId(Id unitId) => null;
+
+        /// <summary>该单位当前读条/引导的剩余时间；未在读条/引导时为 <c>null</c>，判断记录同
+        /// <see cref="GetCastingSkillId"/>。</summary>
+        double? GetCastingRemaining(Id unitId) => null;
+
+        /// <summary>该单位当前读条/引导的总时长；未在读条/引导时为 <c>null</c>，判断记录同
+        /// <see cref="GetCastingSkillId"/>。</summary>
+        double? GetCastingTotal(Id unitId) => null;
     }
 }

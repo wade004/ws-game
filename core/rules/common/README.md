@@ -204,7 +204,21 @@ common/
     `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理同样补上这一个
     成员的显式转发。详见 `core/rules/skill/README.md` 判断记录 59。
 
-13. **ADR-0058《技能宿主契约纳入光环查询与效果落地出口》：`ISkillHost` 新增 `AuraQuery`/
+13. **`IAuraQuery` 新增 `GetActiveAuraSnapshots`**（消费方反馈第 1/4 条，
+    2026-09-21，[ADR-0056](../../../architecture/adr/0056-施法条与光环列表数据补全.md)）：光环
+    列表（增益/减益展示）需要的"身份/层数/剩余/总时长/名称键"合并快照新增在 `IAuraQuery` 上（新增
+    类型 `AuraSnapshot`，默认接口成员只能拼出身份/层数，其余降级为 `null`，生产实现
+    `Core.Rules.Skill.AuraHost` 显式覆盖）。施法条（谁在读条/剩余/总时长）本应同批一并纳入
+    `ISkillHost` 契约，但本次并行派单把 `ISkillHost.cs` 划给另一条并行分支（同批新增
+    `AuraQuery`/`EffectSink` 只读默认成员，消费方反馈第 3 条），为避免两个分支同时改同一份契约
+    文件在合并时撞车，施法查询本次先落在 `Core.Rules.Skill.SkillHost` 具体类与
+    `presentation/ui.ISkillBookQuery` 窄接口——与本文件判断记录 11 描述的 `GetKnownSkills` 在
+    ADR-0050 之前的处境完全一致，是已知的临时窄化（见判断记录 15 收口）。`RulesAssembly.
+    DeferredAuraQuery` 按既有惯例（判断记录 9/10 同一套"代理必须显式转发，不能依赖默认接口成员
+    隐式转发"）补上 `GetActiveAuraSnapshots` 的显式转发。详见 `core/rules/skill/README.md` 对应
+    判断记录。
+
+14. **ADR-0058《技能宿主契约纳入光环查询与效果落地出口》：`ISkillHost` 新增 `AuraQuery`/
     `EffectSink` 两个 C#8 默认接口成员，均按"只读查询"口径默认降级为 `null`**（消费方反馈第三批
     第 3 条：这两个已经接口化的出口此前只在具体类 `Core.Rules.Skill.SkillHost` 上以公开属性形式
     存在，面向接口编程做不到）：
@@ -220,6 +234,24 @@ common/
     - `core/rules/assembly.RulesAssembly` 内部的 `DeferredSkillCastQuery` 代理同样补上这两个
       成员的显式转发，见 `core/rules/assembly/README.md` 同一判断记录。详见
       `core/rules/skill/README.md` 判断记录 60。
+
+15. **收口（2026-09-21，合并 ADR-0057/ADR-0058 两条并行分支后）：施法条三个成员
+    `GetCastingSkillId`/`GetCastingRemaining`/`GetCastingTotal` 提升进 `ISkillHost` 契约，
+    拆除 `presentation/ui.SkillHostSkillBookQuery` 期间的临时向下转型**：判断记录 13 落地时
+    `ISkillHost.cs` 被同批另一条并行分支（ADR-0058）占用，施法查询只能先窄化在
+    `Core.Rules.Skill.SkillHost` 具体类上，`SkillHostSkillBookQuery` 因此持有一段向下转型
+    （`_skillHost as Core.Rules.Skill.SkillHost`）才能取到非降级结果。现在 ADR-0057/ADR-0058
+    均已合入 main，占用該契约文件的顾虑不再成立，按判断记录 11/12/14 同一套手法收口：`ISkillHost`
+    新增三个 C#8 默认接口成员（只读查询，默认降级为 `null`，与 `GetCastingSkillId`/
+    `GetCastingRemaining`/`GetCastingTotal` 在 `ISkillBookQuery` 上的既有默认值口径一致）；
+    `Core.Rules.Skill.SkillHost` 既有同名公开方法物理签名/行为不变，新增三个显式接口实现转发
+    （不用隐式实现，理由同判断记录 11：隐式实现会把既有公开方法的物理 IL 属性改写成
+    `virtual sealed`，被 `toolchain/abi_surface` 误判为破坏）；`RulesAssembly.
+    DeferredSkillCastQuery` 代理同步补上这三个成员的显式转发（同判断记录 11"代理必须显式转发,
+    不能依赖默认接口成员隐式转发"）。`SkillHostSkillBookQuery` 删除向下转型与 `CastingHost`
+    属性，改为直接经 `ISkillHost` 接口引用调用——表现层此前已经面向接口装配
+    （`SkillHostSkillBookQuery` 的字段类型是 `ISkillHost`），不应该再依赖具体类才能拿到完整
+    结果，这是"表现层已面向接口装配、不应再依赖具体类"的收口，不是新增能力。
 
 ## 不负责什么
 

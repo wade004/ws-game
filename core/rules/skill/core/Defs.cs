@@ -236,6 +236,15 @@ namespace Core.Rules.Skill
         public Id? DispelType { get; }
         public IReadOnlyList<AuraEffectEntry> Effects { get; }
 
+        /// <summary>
+        /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：光环显示名文本键（<c>skill.aura_def.name_key</c>），
+        /// 命名/字段类型沿用 ADR-0048 <c>SkillDef.NameKey</c> 同一惯例。<c>null</c> 表示未声明——
+        /// 本字段落地前登记的全部既有 <c>skill.aura_def</c> 行均无此字段，解析为 <c>null</c>，与
+        /// "未声明"语义一致，不产生任何行为变化；消费方（表现层增益/减益列表）在 <c>null</c> 时不
+        /// 渲染名称，不回退占位文案（同 <c>SkillDef.NameKey</c> 判断记录）。
+        /// </summary>
+        public Id? NameKey { get; }
+
         public AuraDef(Id id, double? duration, int maxStacks, Id? stackCategory, Id? dispelType, IReadOnlyList<AuraEffectEntry> effects)
         {
             Id = id;
@@ -244,6 +253,24 @@ namespace Core.Rules.Skill
             StackCategory = stackCategory;
             DispelType = dispelType;
             Effects = effects;
+            NameKey = null;
+        }
+
+        /// <summary>
+        /// 消费方反馈第 4 条新增重载（2026-09-21，ADR-0056）：携带 <see cref="NameKey"/>。判断记录
+        /// （不是给既有构造函数追加一个可选参数）：同 <c>SkillDef</c> 多个新增重载判断记录同一套 ABI
+        /// 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载七个参数全部不带默认值，与
+        /// 既有构造函数（恰好六个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public AuraDef(Id id, double? duration, int maxStacks, Id? stackCategory, Id? dispelType, IReadOnlyList<AuraEffectEntry> effects, Id? nameKey)
+        {
+            Id = id;
+            Duration = duration;
+            MaxStacks = maxStacks <= 0 ? 1 : maxStacks;
+            StackCategory = stackCategory;
+            DispelType = dispelType;
+            Effects = effects;
+            NameKey = nameKey;
         }
     }
 

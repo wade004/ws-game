@@ -507,7 +507,11 @@ namespace Core.Rules.Skill
                 effects.Add(new AuraEffectEntry(kind, @params));
             }
 
-            return new AuraDef(id, duration, maxStacks, stackCategory, dispelType, effects);
+            // 消费方反馈第 4 条（2026-09-21，ADR-0056）：name_key 是可选 TextKey 字段，解析惯例同
+            // SkillDefCache.ParseSkillDef 对 skill.def.name_key 的既有惯例（TryGetId 失败即 null）。
+            Id? nameKey = record.TryGetId("name_key", out var nk) ? nk : (Id?)null;
+
+            return new AuraDef(id, duration, maxStacks, stackCategory, dispelType, effects, nameKey);
         }
 
         private ProcDef ParseProcDef(DataRecord record)

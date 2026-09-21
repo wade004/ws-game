@@ -70,6 +70,70 @@ namespace Tests.PresentationUi
             Assert.Null(vm.TargetId);
         }
 
+        /// <summary>消费方反馈第 1/4 条（2026-09-21，ADR-0056）：施法条与光环列表两组新增属性随
+        /// <c>Refresh</c> 反映底层宿主当前状态——无人读条/无光环时的缺省态，以及施法/施加光环后的
+        /// 真实值，均覆盖玩家侧与目标侧。</summary>
+        [Fact]
+        public void HudViewModel_refreshes_casting_and_aura_properties()
+        {
+            var world = new UiWorldFixture();
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 100);
+            world.CurrentTarget = world.TargetId;
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health });
+
+            // 缺省态：无人读条、无光环。
+            Assert.Null(vm.CastingSkillId);
+            Assert.Null(vm.CastingRemaining);
+            Assert.Null(vm.CastingTotal);
+            Assert.Null(vm.TargetCastingSkillId);
+            Assert.Empty(vm.Auras);
+            Assert.Empty(vm.TargetAuras);
+
+            var fireball = new Id("skill.fireball");
+            world.SkillBook.SetCastingForTest(world.PlayerId, fireball, remaining: 1.2, total: 2.0);
+            var frostbolt = new Id("skill.frostbolt");
+            world.SkillBook.SetCastingForTest(world.TargetId, frostbolt, remaining: 0.4, total: 1.5);
+
+            var poison = new Id("skill.aura_def.poison");
+            world.AuraQuery.SetSnapshotsForTest(world.PlayerId, new[]
+            {
+                new AuraSnapshot(poison, stacks: 2, remaining: 6.0, total: 10.0, nameKey: new Id("l10n.aura.poison.name")),
+            });
+            var silence = new Id("skill.aura_def.silence");
+            world.AuraQuery.SetSnapshotsForTest(world.TargetId, new[]
+            {
+                new AuraSnapshot(silence, stacks: 1, remaining: 3.0, total: 3.0, nameKey: null),
+            });
+
+            vm.Refresh();
+
+            Assert.Equal(fireball, vm.CastingSkillId);
+            Assert.Equal(1.2, vm.CastingRemaining);
+            Assert.Equal(2.0, vm.CastingTotal);
+            Assert.Equal(frostbolt, vm.TargetCastingSkillId);
+            Assert.Equal(0.4, vm.TargetCastingRemaining);
+            Assert.Equal(1.5, vm.TargetCastingTotal);
+
+            Assert.Single(vm.Auras);
+            Assert.Equal(poison, vm.Auras[0].AuraDefId);
+            Assert.Equal(2, vm.Auras[0].Stacks);
+            Assert.Equal(6.0, vm.Auras[0].Remaining);
+            Assert.Equal(10.0, vm.Auras[0].Total);
+            Assert.Equal(new Id("l10n.aura.poison.name"), vm.Auras[0].NameKey);
+
+            Assert.Single(vm.TargetAuras);
+            Assert.Equal(silence, vm.TargetAuras[0].AuraDefId);
+
+            // 读条结束、光环清空后应重新回到缺省态（不是一次性快照）。
+            world.SkillBook.SetCastingForTest(world.PlayerId, null, null, null);
+            world.AuraQuery.SetSnapshotsForTest(world.PlayerId, System.Array.Empty<AuraSnapshot>());
+            vm.Refresh();
+
+            Assert.Null(vm.CastingSkillId);
+            Assert.Empty(vm.Auras);
+        }
+
         /// <summary>UI-111-01 回归（见 InventoryViewModel 同名用例判断记录）：save.loaded 应在不手动
         /// 调用 Refresh 的情况下让等级/资源条快照跟上宿主最新值。</summary>
         [Fact]

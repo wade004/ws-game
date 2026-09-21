@@ -7,6 +7,7 @@ using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Numbers.PowerSet;
 using Core.Numbers.Progression;
+using Core.Rules.Common;
 
 namespace Presentation.Ui
 {
@@ -121,6 +122,49 @@ namespace Presentation.Ui
         /// </summary>
         public Id? TargetFaction { get; private set; }
 
+        /// <summary>
+        /// 消费方反馈第 1 条（2026-09-21，ADR-0056）：玩家自身当前正在读条/引导的技能 id（经
+        /// <c>player.casting.skill</c> 路径），未在读条/引导时为 <c>null</c>——与"当前无目标"同一
+        /// 既有口径（合法查询、无值，不是异常状态）。
+        /// </summary>
+        public Id? CastingSkillId { get; private set; }
+
+        /// <summary>消费方反馈第 1 条：玩家自身当前读条/引导的剩余时间（经
+        /// <c>player.casting.remaining</c> 路径），未在读条/引导时为 <c>null</c>。</summary>
+        public double? CastingRemaining { get; private set; }
+
+        /// <summary>消费方反馈第 1 条：玩家自身当前读条/引导的总时长（经 <c>player.casting.total</c>
+        /// 路径），未在读条/引导时为 <c>null</c>。</summary>
+        public double? CastingTotal { get; private set; }
+
+        /// <summary>消费方反馈第 1 条：当前目标正在读条/引导的技能 id（经 <c>target.casting.skill</c>
+        /// 路径，供表现层展示敌方读条预警），当前无目标或目标未在读条/引导时为 <c>null</c>。</summary>
+        public Id? TargetCastingSkillId { get; private set; }
+
+        /// <summary>消费方反馈第 1 条：当前目标读条/引导的剩余时间（经
+        /// <c>target.casting.remaining</c> 路径）。</summary>
+        public double? TargetCastingRemaining { get; private set; }
+
+        /// <summary>消费方反馈第 1 条：当前目标读条/引导的总时长（经 <c>target.casting.total</c>
+        /// 路径）。</summary>
+        public double? TargetCastingTotal { get; private set; }
+
+        private readonly List<AuraSnapshot> _auras = new List<AuraSnapshot>();
+        private readonly List<AuraSnapshot> _targetAuras = new List<AuraSnapshot>();
+
+        /// <summary>
+        /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：玩家自身当前生效的增益/减益列表（经
+        /// <c>player.auras.count</c>/<c>player.auras[i].*</c> 路径），按光环创建顺序排列（确定性，
+        /// 不依赖字典枚举顺序，见 <c>Core.Rules.Skill.AuraHost.GetActiveAuraSnapshots</c> 判断记录）。
+        /// 未装配光环查询能力（构造装配未接入 <c>IAuraQuery</c>）时恒为空列表。
+        /// </summary>
+        public IReadOnlyList<AuraSnapshot> Auras => _auras;
+
+        /// <summary>消费方反馈第 4 条：当前目标身上的增益/减益列表（经 <c>target.auras.count</c>/
+        /// <c>target.auras[i].*</c> 路径），排序惯例同 <see cref="Auras"/>；当前无目标时恒为空
+        /// 列表。</summary>
+        public IReadOnlyList<AuraSnapshot> TargetAuras => _targetAuras;
+
         /// <summary>技术债 17：是否装配了离散（回合制）时间模型——构造期传入了非空
         /// <c>turnScheduler</c> 时为 <c>true</c>。为 <c>false</c> 时 <see cref="CurrentActorId"/>
         /// 恒为 <c>null</c>、<see cref="RoundIndex"/> 恒为 0、<see cref="CanEndTurn"/> 恒为
@@ -224,6 +268,23 @@ namespace Presentation.Ui
             var targetFactionQuery = _dataSource.Query("target.faction");
             TargetFaction = targetFactionQuery.HasValue ? targetFactionQuery.Value.AsId : (Id?)null;
 
+            var castingSkillQuery = _dataSource.Query("player.casting.skill");
+            CastingSkillId = castingSkillQuery.HasValue ? castingSkillQuery.Value.AsId : (Id?)null;
+            var castingRemainingQuery = _dataSource.Query("player.casting.remaining");
+            CastingRemaining = castingRemainingQuery.HasValue ? (double?)castingRemainingQuery.Value.AsNumber : null;
+            var castingTotalQuery = _dataSource.Query("player.casting.total");
+            CastingTotal = castingTotalQuery.HasValue ? (double?)castingTotalQuery.Value.AsNumber : null;
+
+            var targetCastingSkillQuery = _dataSource.Query("target.casting.skill");
+            TargetCastingSkillId = targetCastingSkillQuery.HasValue ? targetCastingSkillQuery.Value.AsId : (Id?)null;
+            var targetCastingRemainingQuery = _dataSource.Query("target.casting.remaining");
+            TargetCastingRemaining = targetCastingRemainingQuery.HasValue ? (double?)targetCastingRemainingQuery.Value.AsNumber : null;
+            var targetCastingTotalQuery = _dataSource.Query("target.casting.total");
+            TargetCastingTotal = targetCastingTotalQuery.HasValue ? (double?)targetCastingTotalQuery.Value.AsNumber : null;
+
+            RefreshAuras("player.auras", _auras);
+            RefreshAuras("target.auras", _targetAuras);
+
             foreach (var powerType in _powerTypes)
             {
                 var current = _dataSource.Query($"player.power.{powerType}.current");
@@ -251,6 +312,42 @@ namespace Presentation.Ui
             CanEndTurn = _appState != null && _awaitingInputSubState.HasValue &&
                 _appState.CurrentSubState.HasValue &&
                 _appState.CurrentSubState.Value.Equals(_awaitingInputSubState.Value);
+        }
+
+        /// <summary>
+        /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：把 <paramref name="root"/>（<c>player.auras</c>
+        /// 或 <c>target.auras</c>）经既有 <c>count</c> + <c>[i].&lt;field&gt;</c> 路径小语法逐条重建
+        /// 成 <see cref="AuraSnapshot"/> 列表，写入 <paramref name="target"/>（就地清空重填，不重新
+        /// 分配列表实例）。顺序沿用查询结果原样顺序——权威排序（按光环创建顺序）已经在规则层
+        /// <c>AuraHost.GetActiveAuraSnapshots</c> 完成（确定性，不依赖字典枚举顺序），本方法只是
+        /// 逐下标转发，不重新排序。
+        /// </summary>
+        private void RefreshAuras(string root, List<AuraSnapshot> target)
+        {
+            target.Clear();
+
+            var countQuery = _dataSource.Query($"{root}.count");
+            var count = countQuery.HasValue ? (int)countQuery.Value.AsInt : 0;
+            for (var i = 0; i < count; i++)
+            {
+                var defQuery = _dataSource.Query($"{root}[{i}].def");
+                if (!defQuery.HasValue)
+                {
+                    continue;
+                }
+
+                var stacksQuery = _dataSource.Query($"{root}[{i}].stacks");
+                var remainingQuery = _dataSource.Query($"{root}[{i}].remaining");
+                var totalQuery = _dataSource.Query($"{root}[{i}].total");
+                var nameKeyQuery = _dataSource.Query($"{root}[{i}].name_key");
+
+                target.Add(new AuraSnapshot(
+                    defQuery.Value.AsId,
+                    stacksQuery.HasValue ? (int)stacksQuery.Value.AsInt : 0,
+                    remainingQuery.HasValue ? (double?)remainingQuery.Value.AsNumber : null,
+                    totalQuery.HasValue ? (double?)totalQuery.Value.AsNumber : null,
+                    nameKeyQuery.HasValue ? (Id?)nameKeyQuery.Value.AsId : null));
+            }
         }
 
         public void Dispose()
