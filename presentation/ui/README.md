@@ -443,6 +443,15 @@ InteractionTargets)`（`CarriersAssembly` 新增的只读属性，见该模块 R
 从"命中较近的掉落物"正确回退到"命中较远的场景物件"，覆盖到最外层（视图模型/路径层），不停在
 装配代码中间层。
 
+消费方反馈第七批第 1 条（2026-09-22，[ADR-0065](../../architecture/adr/0065-死亡生物不是最近可
+交互目标的候选.md)）：`IInteractionTargetRegistry` 默认实现新增"生物类候选仅存活时成立"的判定
+（见 `core/carriers/assembly/README.md` 对应判断记录）后，本路径自动生效，不需要单独改动——新增
+`InteractPathProvider_DeadCreature_NotCandidate_NearestReturnsItsOwnLoot_AndPickupSucceeds`/
+`InteractPathProvider_DeadCreatureCloserThanLivingCreature_ReturnsLivingCreature` 两例覆盖到
+`interact.nearest.kind` 这一最外层：前者经真实普通攻击致死路径产出尸体与它自己的地面掉落物
+（同坐标），断言 `interact.nearest.kind == "loot"` 且对该 id 发 `interact` 意图能真正拾取入包，
+全程不调用 `Despawn`；后者验证尸体比活着的生物更近时查询返回活着的生物，不被尸体挡住。
+
 ## 判断记录（`player.equipment.<slot>.template`/`.instance`、`InventoryViewModel.EquippedSlotIdentities`，2026-09-21，消费方反馈——游戏接入方第五批第 2 条，[ADR-0063](../../architecture/adr/0063-装备宿主契约补模板id查询.md)）
 
 背景：装备面板要显示"槽位名 + 已装备物品名"，需要已装备物品的模板 id；既有

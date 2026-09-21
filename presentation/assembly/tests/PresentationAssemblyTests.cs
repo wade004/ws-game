@@ -100,7 +100,27 @@ namespace Tests.Presentation.Assembly
                 "{\"id\": \"creature.sample_target\", \"name_key\": \"l10n.creature.sample_target.name\", " +
                 "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
                 "\"base_stats\": {\"stat.max_health\": 50}, \"stat_growth_ref\": \"prog.sample_curve\", " +
-                "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\"}" +
+                "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\"}," +
+                // 消费方反馈第七批第 1 条（ADR-0065）：独立于 creature.sample_target 另开一条带
+                // loot_table_ref 的模板，专供 InteractPathProvider_DeadCreature_* 用例走真实死亡
+                // 结算掉落——不复用 creature.sample_target 本身，避免给它附带掉落表后连带影响既有
+                // 不关心掉落的用例（HudViewModel_AutoAttackStateAndTargetAlive 等）。
+                "{\"id\": \"creature.sample_lootable_target\", \"name_key\": \"l10n.creature.sample_target.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
+                "\"base_stats\": {\"stat.max_health\": 50}, \"stat_growth_ref\": \"prog.sample_curve\", " +
+                "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\", " +
+                "\"loot_table_ref\": \"loot.sample_target_reward\"}" +
+                "]}");
+
+            // 消费方反馈第七批第 1 条（ADR-0065）：creature.sample_lootable_target 死亡时掉落的
+            // 战利品表——复用已注册的 item.sample_sword（不新增一条 item.template，减少数据面）,
+            // 100% 掉落（chance_each + weight_or_chance:1.0）保证用例确定性，不依赖随机数种子。
+            source.Add("loot.table",
+                "{\"table\": \"loot.table\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"loot.sample_target_reward\", \"groups\": [" +
+                "{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"item.sample_sword\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\": 1, \"max\": 1}}" +
+                "]}]}" +
                 "]}");
 
             // 本切片新增（消费方反馈第四批第 1/2 条，2026-09-21）：一件主手武器最小数据集，供
@@ -1642,6 +1662,112 @@ namespace Tests.Presentation.Assembly
             Assert.Null(presentation.UiData.Query("interact.nearest.kind"));
             var uiDiag = Assert.IsType<global::Presentation.Ui.InMemoryUiDiagnostics>(presentation.UiDiagnostics);
             Assert.Empty(uiDiag.Warnings);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0065（消费方反馈第七批第 1 条根治）：死亡生物不是"最近可交互目标"的候选。框架在单位
+        // 死亡时不会自动 Despawn，尸体与 CreatureDeathLootListener 在死亡位置生成的战利品同坐标、
+        // 等距时按 EntityId 序数取小（creature.* 恒小于 loot.*）——修复前每次击杀后按交互键都会
+        // 打在尸体上、捡不到战利品。两例经生产装配入口（GameplayAssembly/PresentationAssembly）+
+        // 真实结算致死路径（AutoAttackHost 挥击 → Resolver → IUnitAccess.SetAlive(false) →
+        // CreatureDeathLootListener 真实掉落），全程不调用 Despawn。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void InteractPathProvider_DeadCreature_NotCandidate_NearestReturnsItsOwnLoot_AndPickupSucceeds()
+        {
+            var presentation = Build(out var gameplay, out var world, out _, out _);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            // 给玩家装备主手武器，走真实普通攻击挥击伤害路径致死目标（同
+            // HudViewModel_AutoAttackStateAndTargetAlive 判断记录：武器秒伤 1000 远超目标 50 点生命
+            // 上限，保证恰好一次挥击必定致死，不依赖多次挥击的循环上限）。
+            gameplay.Carriers.Inventory.RegisterUnit(playerId);
+            var weaponTemplateId = new Id("item.sample_sword");
+            var qualityId = new Id("item.quality.sample_common");
+            Assert.True(gameplay.Carriers.Inventory.AddItem(playerId, weaponTemplateId, 1, qualityId, null));
+            var instanceId = gameplay.Carriers.Inventory.ListItems(playerId)[0].InstanceId;
+            var equipResult = gameplay.Carriers.Equipment.Equip(playerId, instanceId, new Id("item.slot.sample_main_hand"));
+            Assert.True(equipResult.Success, equipResult.Reason.ToString());
+            var swordCountBeforePickup = gameplay.Carriers.Inventory.CountOf(playerId, weaponTemplateId);
+
+            // 目标与玩家同位置（Vec2.Zero，即"玩家旁生成一个生物"）——死亡后尸体与它死亡结算生成的
+            // 战利品同坐标，正是消费方反馈复现的场景。
+            var targetId = gameplay.Carriers.Creatures.Spawn(
+                new Id("creature.sample_lootable_target"), SampleMapId, Vec2.Zero, 0.0);
+
+            // 回归：目标存活时仍是候选（不是本次改动误伤了正常场景）。
+            Assert.True(gameplay.Carriers.InteractionTargets.TryFindNearest(playerId, null, out var beforeKill));
+            Assert.Equal(targetId, beforeKill.EntityId);
+            Assert.Equal(Core.Carriers.Common.InteractionTargetKind.Creature, beforeKill.Kind);
+
+            var autoAttack = gameplay.Carriers.Rules.AutoAttack;
+            autoAttack.SetTarget(playerId, targetId);
+            autoAttack.SetEnabled(playerId, true);
+            var interval = gameplay.Carriers.Equipment.GetWeaponAttackIntervalSeconds(playerId)!.Value;
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(interval));
+            Assert.False(gameplay.Carriers.Units.IsAlive(targetId), "本用例要求武器秒伤足以一次挥击致死");
+
+            // 全程不调用 Despawn：尸体仍留在世界模拟中。
+            Assert.NotNull(world.GetEntity(targetId));
+
+            // 修复前：本查询会返回尸体（creature.* 序数小于 loot.*）。修复后：应返回它自己刚生成的
+            // 战利品。
+            var found = gameplay.Carriers.InteractionTargets.TryFindNearest(playerId, null, out var nearest);
+            Assert.True(found);
+            Assert.Equal(Core.Carriers.Common.InteractionTargetKind.Loot, nearest.Kind);
+            Assert.NotEqual(targetId, nearest.EntityId);
+            var lootId = nearest.EntityId;
+
+            // 同一场景经 PresentationAssembly.UiData 贯通到表现层（interact.nearest.* 与
+            // CarriersAssembly.InteractionTargets 共用同一个注册表实例，见 InteractPathProvider
+            // 判断记录）。
+            Assert.Equal(EntityKinds.Loot, presentation.UiData.Query("interact.nearest.kind")!.Value.AsString);
+            Assert.Equal(lootId.Value, presentation.UiData.Query("interact.nearest.id")!.Value.AsId.Value);
+
+            // 对它发 interact 意图 → 拾取成功（物品进背包），全程未调用 Despawn。
+            var args = new Core.Foundation.Common.Json.JsonObjectBuilder()
+                .Add("loot_instance_id", new Core.Foundation.Common.Json.JsonString(lootId.Value))
+                .Build();
+            world.SubmitIntent(new Intent(playerId, "interact", args));
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(0.01));
+
+            Assert.Equal(swordCountBeforePickup + 1, gameplay.Carriers.Inventory.CountOf(playerId, weaponTemplateId));
+        }
+
+        [Fact]
+        public void InteractPathProvider_DeadCreatureCloserThanLivingCreature_ReturnsLivingCreature()
+        {
+            var presentation = Build(out var gameplay, out var world, out _, out _);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            gameplay.Carriers.Inventory.RegisterUnit(playerId);
+            var weaponTemplateId = new Id("item.sample_sword");
+            var qualityId = new Id("item.quality.sample_common");
+            Assert.True(gameplay.Carriers.Inventory.AddItem(playerId, weaponTemplateId, 1, qualityId, null));
+            var instanceId = gameplay.Carriers.Inventory.ListItems(playerId)[0].InstanceId;
+            var equipResult = gameplay.Carriers.Equipment.Equip(playerId, instanceId, new Id("item.slot.sample_main_hand"));
+            Assert.True(equipResult.Success, equipResult.Reason.ToString());
+
+            // 用不带 loot_table_ref 的 creature.sample_target：死亡不产生地面掉落物，场上只剩"尸体"
+            // 与"活着的 NPC"两个候选，单纯验证候选排除本身，不与掉落候选混杂。
+            var corpseId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, Vec2.Zero, 0.0);
+            var livingId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, new Vec2(5, 0), 0.0);
+
+            var autoAttack = gameplay.Carriers.Rules.AutoAttack;
+            autoAttack.SetTarget(playerId, corpseId);
+            autoAttack.SetEnabled(playerId, true);
+            var interval = gameplay.Carriers.Equipment.GetWeaponAttackIntervalSeconds(playerId)!.Value;
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(interval));
+            Assert.False(gameplay.Carriers.Units.IsAlive(corpseId));
+            Assert.True(gameplay.Carriers.Units.IsAlive(livingId));
+
+            // 尸体（距离 0）比活着的 NPC（距离 5）更近，但候选排除死亡生物：查询应返回活着的 NPC，
+            // 不会被更近的尸体挡住。
+            var found = gameplay.Carriers.InteractionTargets.TryFindNearest(playerId, null, out var nearest);
+            Assert.True(found);
+            Assert.Equal(livingId, nearest.EntityId);
+            Assert.Equal(Core.Carriers.Common.InteractionTargetKind.Creature, nearest.Kind);
         }
     }
 }
