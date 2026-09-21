@@ -70,6 +70,38 @@ namespace Tests.PresentationUi
             Assert.Null(vm.TargetId);
         }
 
+        /// <summary>消费方反馈第九批（阻塞，2026-09-22，ADR-0066）：<see cref="HudViewModel.CurrentAreaId"/>/
+        /// <see cref="HudViewModel.CurrentAreaNameKey"/> 经 <c>player.area.*</c> 路径反映
+        /// <c>AreaTriggerHost</c> 的权威进入/离开状态——进入有名区域后应反映其 id/文本键，离开后应回到
+        /// <c>null</c>（"无"，同既有 <see cref="HudViewModel.TargetId"/> 的一贯口径）。</summary>
+        [Fact]
+        public void HudViewModel_refreshes_current_area_from_area_trigger_host()
+        {
+            var areaId = new Id("area.sample_grove");
+            var nameKey = new Id("l10n.area.sample_grove.name");
+            var world = new UiWorldFixture(areaTriggerRows: new[]
+            {
+                Tests.PresentationUi.UiWorldFixture.AreaTriggerRow(areaId.Value, radius: 5, nameKey: nameKey.Value),
+            });
+            world.Progression.SetForTest(world.PlayerId, 1, 0, 1000);
+
+            using var vm = new HudViewModel(world.DataSource, world.PlayerId, new[] { Health });
+            Assert.Null(vm.CurrentAreaId);
+            Assert.Null(vm.CurrentAreaNameKey);
+
+            world.AreaTrigger!.Evaluate(world.PlayerId, new Vec2(0, 0));
+            vm.Refresh();
+
+            Assert.Equal(areaId, vm.CurrentAreaId);
+            Assert.Equal(nameKey, vm.CurrentAreaNameKey);
+
+            world.AreaTrigger.Evaluate(world.PlayerId, new Vec2(100, 100));
+            vm.Refresh();
+
+            Assert.Null(vm.CurrentAreaId);
+            Assert.Null(vm.CurrentAreaNameKey);
+        }
+
         /// <summary>消费方反馈第 1/4 条（2026-09-21，ADR-0056）：施法条与光环列表两组新增属性随
         /// <c>Refresh</c> 反映底层宿主当前状态——无人读条/无光环时的缺省态，以及施法/施加光环后的
         /// 真实值，均覆盖玩家侧与目标侧。</summary>

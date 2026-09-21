@@ -250,6 +250,22 @@ namespace Presentation.Ui
         /// "现在允许尝试结束回合"。</summary>
         public bool CanEndTurn { get; private set; }
 
+        /// <summary>
+        /// 消费方反馈第九批（阻塞，2026-09-22，ADR-0066）：玩家当前所在区域的原始身份 Id（经
+        /// <c>player.area.id</c> 路径，"当前区域"定义见 <see cref="Presentation.Ui.PlayerPathProvider.
+        /// ResolveCurrentArea"/> 判断记录——所在的、最近进入且尚未离开、并且配置了显示名的那个触发
+        /// 区域）。当前不在任何"有名"区域内时为 <c>null</c>（"无"，含"完全不在任何区域内"与"所在
+        /// 区域都没有配置显示名"两种情形，收敛成同一取值——同 <see cref="TargetId"/> 判断记录一贯的
+        /// "转发原始 Id，不解析显示名称"惯例，具体名称由接入方按 <see cref="CurrentAreaNameKey"/> 这个
+        /// 文本键自行本地化查询）。
+        /// </summary>
+        public Id? CurrentAreaId { get; private set; }
+
+        /// <summary>消费方反馈第九批：玩家当前所在区域的显示名文本键（经 <c>player.area.name_key</c>
+        /// 路径），判断记录同 <see cref="CurrentAreaId"/>；两者恒同时为 <c>null</c> 或同时非
+        /// <c>null</c>（同一次"当前区域"解析结果的两个分量）。</summary>
+        public Id? CurrentAreaNameKey { get; private set; }
+
         public HudViewModel(
             IUiDataSource dataSource,
             Id playerId,
@@ -311,6 +327,12 @@ namespace Presentation.Ui
 
             var targetFactionQuery = _dataSource.Query("target.faction");
             TargetFaction = targetFactionQuery.HasValue ? targetFactionQuery.Value.AsId : (Id?)null;
+
+            var currentAreaIdQuery = _dataSource.Query("player.area.id");
+            CurrentAreaId = currentAreaIdQuery.HasValue ? currentAreaIdQuery.Value.AsId : (Id?)null;
+
+            var currentAreaNameKeyQuery = _dataSource.Query("player.area.name_key");
+            CurrentAreaNameKey = currentAreaNameKeyQuery.HasValue ? currentAreaNameKeyQuery.Value.AsId : (Id?)null;
 
             var playerAliveQuery = _dataSource.Query("player.alive");
             PlayerAlive = playerAliveQuery.HasValue && playerAliveQuery.Value.AsBool;

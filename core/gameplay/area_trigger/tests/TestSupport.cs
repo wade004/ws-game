@@ -172,14 +172,15 @@ namespace Tests.Gameplay.AreaTrigger
                     : J.O(("target_map", J.S(targetMap)), ("spawn_point", J.S(spawnPoint)))),
                 ("condition", condition == null ? JsonNull.Instance : J.S(condition)));
 
-        public static JsonObject QuestExploreRow(string id, string mapId, bool oneShot = false) =>
+        public static JsonObject QuestExploreRow(string id, string mapId, bool oneShot = false, double radius = 5, string? nameKey = null) =>
             J.O(
                 ("id", J.S(id)),
                 ("map_id", J.S(mapId)),
-                ("shape", CircleShape(0, 0, 5)),
+                ("shape", CircleShape(0, 0, radius)),
                 ("trigger_type", J.S("quest_explore")),
                 ("one_shot", J.B(oneShot)),
-                ("params", J.O()));
+                ("params", J.O()),
+                ("name_key", nameKey == null ? JsonNull.Instance : J.S(nameKey)));
 
         public static JsonObject EncounterStartRow(string id, string mapId, string encounterRef) =>
             J.O(

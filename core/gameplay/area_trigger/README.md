@@ -151,3 +151,44 @@ area_trigger/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（`IAreaTriggerHost.GetActiveTriggerIds`，2026-09-22，消费方反馈——游戏接入方第九批
+（阻塞），[ADR-0066](../../../architecture/adr/0066-区域触发宿主契约纳入当前所在区域查询.md)）
+
+背景：`<game>` 要在 HUD 常驻显示玩家当前所在区域名，但本契约只经事件总线派发一次性进入/离开
+事件，不给任何"谁当前在哪些触发范围内"的只读查询出口，消费方被迫自建平行状态账本。表现层"当前
+区域"派生逻辑见 `presentation/ui/README.md` 对应判断记录，本条只记宿主层新增成员。
+
+**契约新增**：`IAreaTriggerHost` 新增只读默认接口成员 `GetActiveTriggerIds(Id unitId)`，返回某
+单位当前所在的全部触发区域 id（含 `RegisterTrap` 登记的陷阱），按进入先后排序（最早进入的在最
+前），不在任何区域时返回空集合；默认实现恒返回 `System.Array.Empty<Id>()`，与本仓库同类契约
+扩展（`ISkillHost` 等）一致的"未装配时降级为空"惯例。**不**附带"是否配置了显示名"一类过滤——
+那是表现层派生"当前区域"时才需要的判断，宿主层只回答"检测到处于范围内"这一件事，理由见
+ADR-0066 决策 1/备选方案一节。
+
+**生产实现（`AreaTriggerHost`）**：新增公开方法 `GetActiveTriggerIds` + 显式接口实现
+`IAreaTriggerHost.GetActiveTriggerIds`（转发到前者）——用显式接口实现而不是让公开方法隐式满足
+契约成员，理由同 `ISkillHost`/`AreaTriggerHost.Diagnostics` 等既有先例：隐式实现会把落地方法的
+物理签名从普通实例方法改写为接口成员的虚方法形态，被 `toolchain/abi_surface` 静态比对误判为
+破坏，显式接口实现规避这一问题。
+
+**内部账本改动**：`_inside` 字段类型从 `HashSet<(Id TriggerId, Id UnitId)>` 改为
+`Dictionary<(Id TriggerId, Id UnitId), long>`，新增 `_nextEnterSeq` 单调计数器字段——每次
+`HandleEnter` 成功进入时分配一个递增序号作为"进入先后"的排序依据，不用系统时钟（违反"运行时
+路径不依赖系统时间"的确定性铁律，回放/测试场景下系统时钟不可控，理由见 ADR-0066 备选方案一节）。
+`Unregister` 原先用 `HashSet.RemoveWhere` 清理该触发体在 `_inside` 里的残留记录，`Dictionary`
+没有同名方法，改用新增私有帮助方法 `RemoveInsideForTrigger` 手动收集匹配键再逐个移除；
+`UnloadMap` 按触发体逐个调用 `Unregister`，无需单独改动即继承同一份清理逻辑。两条移除路径清理
+口径保持一致，避免残留指向已移除触发体的"孤儿"记录，让本查询持续报告一个不存在的区域。
+
+ABI：纯加法——新增一个带默认实现的接口成员 + 生产实现新增一个公开方法，不改动任何既有公开签名；
+`abi_probe.ps1` 核实 `breaks=0`。
+
+测试见 `core/gameplay/area_trigger/tests/AreaTriggerHostTests.cs`
+（`GetActiveTriggerIds_NotInAnyTrigger_ReturnsEmpty`、
+`GetActiveTriggerIds_OrderedByEntryOrder_NotByIdSortOrder`——刻意用不按字母序排列的触发体 id
+证伪"按 id 排序"的误判可能、`GetActiveTriggerIds_LeavingInnerTrigger_FallsBackToOuterOnly`、
+`GetActiveTriggerIds_IncludesTraps`、`GetActiveTriggerIds_MultipleUnits_IndependentOrder`、
+`GetActiveTriggerIds_Unregister_RemovesStaleEntry`、
+`GetActiveTriggerIds_UnloadMap_RemovesStaleEntry`、
+`IAreaTriggerHost_GetActiveTriggerIds_ForwardsToHost`）。

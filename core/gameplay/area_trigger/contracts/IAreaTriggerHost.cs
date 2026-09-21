@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
@@ -41,5 +42,37 @@ namespace Core.Gameplay.AreaTrigger
         /// 本方法职责）。返回内部生成的触发体 id，供后续 <see cref="Unregister"/>。
         /// </summary>
         Id RegisterTrap(Id gobjInstanceId, Shape shape, Id mapId);
+
+        // -----------------------------------------------------------------
+        // 消费方反馈（游戏接入方第九批，阻塞，ADR-0066《区域触发宿主契约纳入当前所在区域查询》）：
+        // "谁在哪个触发范围内"此前只存在 core/AreaTriggerHost 私有字段 _inside 里，契约不暴露——
+        // 接入方要在 HUD 常驻显示当前区域名，只能自己订阅 area.trigger_entered/left 事件、自建一份
+        // 平行状态账本。本成员把这份权威状态提升为只读查询出口。
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 补充（ADR-0066）：<paramref name="unitId"/> 当前所在的全部触发区域 id（含
+        /// <see cref="RegisterTrap"/> 登记的陷阱——本成员只回答"是否检测到处于范围内"，不附加"是否
+        /// 配置了显示名"这层过滤，那是表现层"当前区域名"派生定义的职责，见 09 表现层文档/
+        /// <c>Presentation.Ui.PlayerPathProvider</c> 判断记录），按<b>进入先后排序</b>（最早进入的在
+        /// 最前，最近进入的在最后——与列表末尾元素永远是"最新触发"这一直觉一致，供表现层"取最近的
+        /// 一个"时不需要反向遍历整份权威状态就近似正确，同时仍能整份转发让调用方自行按需过滤/回溯）。
+        /// 不在任何区域时返回空集合，不返回 <c>null</c>（惯例同 <c>Core.Rules.Common.ISkillHost.
+        /// GetKnownSkills</c>"查询类默认实现允许显式降级"，返回空集合而不是 null，调用方不需要额外
+        /// 判空）。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回空集合——这是只读查询，返回一个明确的保守默认值，语义是
+        /// "该宿主实现不提供当前所在区域查询"，供未实现本能力的 <see cref="IAreaTriggerHost"/>（旧版本
+        /// 编译产物、未升级的自定义实现）源码/二进制兼容，新增接口成员不破坏既有实现类的编译。生产实现
+        /// <see cref="AreaTriggerHost"/> 用显式接口实现转发到内部账本（不用隐式实现是刻意的——见
+        /// <c>Core.Rules.Common.ISkillHost</c> 同类新增成员的既有判断记录"ISkillHost 显式接口实现"：
+        /// 隐式实现会把落地方法的物理 IL 属性从普通实例方法改写成 <c>virtual sealed</c>，被
+        /// <c>toolchain/abi_surface</c> 静态签名比对误判为破坏）。任何组合/包装
+        /// <see cref="IAreaTriggerHost"/>（若存在）都应显式转发到内层实现，不应悄悄吃掉这个降级默认
+        /// 值——同 <c>Core.Rules.Common.ISkillHost.GetSkillReadiness</c> 判断记录"框架内
+        /// InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<Id> GetActiveTriggerIds(Id unitId) => System.Array.Empty<Id>();
     }
 }

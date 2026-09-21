@@ -458,6 +458,23 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **区域触发宿主契约纳入当前所在区域查询**（消费方反馈——游戏接入方第九批，阻塞，
+  [ADR-0066](architecture/adr/0066-区域触发宿主契约纳入当前所在区域查询.md)）：
+  `Core.Gameplay.AreaTrigger.IAreaTriggerHost` 新增只读默认接口成员
+  `GetActiveTriggerIds(unitId)`（某单位当前所在的全部触发区域 id，按进入先后排序，含
+  `RegisterTrap` 登记的陷阱，未装配时降级为空集合），生产实现 `AreaTriggerHost` 用显式接口
+  实现转发到内部账本（进入序号改用确定性单调计数，不用墙钟时间）。`Presentation.Ui.
+  PlayerPathProvider` 新增携带 `IAreaTriggerHost`/`IDataRegistryView` 的十四参数构造重载，
+  新增路径 `player.area.id`/`player.area.name_key`——"当前区域"取该单位所在区域中最近进入、
+  尚未离开、且 `AreaTriggerDef.NameKey` 非空的那一个（没有显示名的触发不参与，重叠区域离开
+  内层后回落到仍在其中的外层有名区域）。`Presentation.Ui.HudViewModel` 新增只读属性
+  `CurrentAreaId`/`CurrentAreaNameKey`，经上述路径转发。`Presentation.Assembly.
+  PresentationAssembly` 改用新构造重载装配（`gameplay.AreaTrigger` + 既有 `registry` 构造
+  参数，不新增依赖边界）。纯加法，ABI `breaks=0`（新增 5 行：接口成员、`AreaTriggerHost` 公开
+  方法、视图模型两个属性、`PlayerPathProvider` 新构造重载）。
+
 ## [1.57.0] - 2026-09-22
 
 ### 新增

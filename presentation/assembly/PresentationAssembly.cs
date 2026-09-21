@@ -539,13 +539,17 @@ namespace Presentation.Assembly
             // 传参）——两者都不新增任何依赖边界，只是补上 PlayerPathProvider/TargetPathProvider 这两
             // 处此前没有转发的构造参数。
             var autoAttackHost = gameplay.Carriers.Rules.AutoAttack;
+            // 消费方反馈第九批（阻塞，2026-09-22，ADR-0066）：AreaTrigger 是 GameplayAssembly 早已暴露
+            // 的公开属性（具体类 AreaTriggerHost，实现新增的 IAreaTriggerHost.GetActiveTriggerIds），
+            // registry 是本装配根既有的构造参数（其它路径已经在用，见上方 DisplayInfo/L10nHost 等既有
+            // 用法）——两者都不新增任何依赖边界，只是补上 PlayerPathProvider 此前没有转发的构造参数。
             var providers = new IUiPathProvider[]
             {
                 new PlayerPathProvider(
                     _playerId, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
                     gameplay.Carriers.Rules.Progression, gameplay.Carriers.Inventory, gameplay.Carriers.Equipment,
                     gameplay.Quest, gameplay.Economy, skillBookQuery, auraQuery,
-                    gameplay.Carriers.Units, autoAttackHost),
+                    gameplay.Carriers.Units, autoAttackHost, gameplay.AreaTrigger, registry),
                 new TargetPathProvider(
                     opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
                     gameplay.Carriers.Units, gameplay.Carriers.Creatures, skillBookQuery, auraQuery, autoAttackHost),
