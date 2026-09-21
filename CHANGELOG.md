@@ -478,6 +478,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Presentation.Ui.InteractPathProvider`，新增路径 `interact.nearest.id|kind|distance`
   （`PresentationAssembly` 接线）。纯加法，ABI `breaks=0`。
 
+- **装备宿主契约补模板 id 查询**（消费方反馈——游戏接入方第五批第 2 条，
+  [ADR-0063](architecture/adr/0063-装备宿主契约补模板id查询.md)）：`Core.Carriers.Common.
+  IEquipmentHost` 新增两个只读默认接口成员 `GetEquippedTemplateId(unitId, slot)`/
+  `GetAllEquippedIdentities(unitId)`，新增元素类型 `EquippedItemIdentity`（实例 id + 模板 id）；
+  生产实现 `Core.Carriers.Item.EquipmentHost` 用显式接口实现转发。新增路径
+  `player.equipment.<slot>.template`/`.instance`（既有裸路径 `player.equipment.<slot>` 行为不变），
+  `InventoryViewModel` 新增只读属性 `EquippedSlotIdentities`。纯加法，ABI `breaks=0`，新增 13 个
+  公开签名（见 ADR-0063 验收记录）。
+
 ## [1.55.0] - 2026-09-21
 
 ### 新增

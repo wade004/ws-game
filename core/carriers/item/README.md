@@ -1011,3 +1011,29 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 "无武器则无武器伤害贡献"同一"缺失即 `null`"口径，不抛异常、不返回 `0`（`0` 秒挥击间隔没有安全的
 计时器语义）。供 `Core.Rules.Combat.AutoAttackHost` 消费，见 `core/rules/combat/README.md` 对应
 判断记录。
+
+## 判断记录（`IEquipmentHost` 补模板 id 查询，`EquipmentHost` 显式转发，2026-09-21，消费方反馈——游戏接入方第五批第 2 条，[ADR-0063](../../../architecture/adr/0063-装备宿主契约补模板id查询.md)）
+
+背景：装备面板要显示"槽位名 + 已装备物品名"，需要已装备物品的模板 id——契约上此前只有
+`GetAllEquippedInstances`（本类型公开方法，非契约成员，供 `EquipmentPersistable.Save` 序列化用），
+消费方只能向下转型到本具体类才能拿到模板 id，详细决策见 ADR-0063，本条只记落地要点。
+
+**新增成员**：`Core.Carriers.Common.IEquipmentHost` 新增两个只读默认接口成员
+`GetEquippedTemplateId(unitId, slot)`/`GetAllEquippedIdentities(unitId)`，新增元素类型
+`EquippedItemIdentity`（见 `core/carriers/common/README.md` 对应判断记录）。默认实现恒返回
+`null`/空字典。
+
+**`EquipmentHost` 显式接口实现**：两个新成员取数据源与既有 `GetAllEquippedInstances`（未改动）
+同一份 `_equipped` 账本；判断记录（用显式接口实现，不新增同名公开方法）：本次新增签名本身不与
+任何既有公开方法重名，不产生 ABI 风险，但仍统一走显式接口实现——与本类型上其它按 `ISkillHost`
+惯例落地的默认接口成员（如 `GetWeaponAttackIntervalSeconds`/`GetWeaponSchool`，见上一条判断记录）
+保持同一套"新增契约成员一律显式接口实现"的类型内部约定，减少未来审阅者需要记住"哪些成员是隐式、
+哪些是显式"的心智负担。`InterfaceDefaultMemberForwardingTests` 门禁核实通过（显式接口实现的
+`TargetMethod.DeclaringType` 指向本类型而非接口，不落回默认值）。
+
+测试见 `core/carriers/item/tests/EquipmentHostTests.cs`
+（`IEquipmentHost_GetEquippedTemplateId_*`/`IEquipmentHost_GetAllEquippedIdentities_*`，全部经
+`IEquipmentHost` 接口局部变量调用，不向下转型）与
+`core/carriers/assembly/tests/CarriersAssemblyTests.cs`
+（`Equipment_GetEquippedTemplateId_ViaIEquipmentHostInterface_ReturnsTemplateId_AndClearsOnUnequip`，
+经真实 `CarriersAssembly` 生产装配入口验证，不是模块自己的测试夹具）。

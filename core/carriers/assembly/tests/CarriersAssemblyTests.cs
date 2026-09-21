@@ -1,5 +1,6 @@
 using Adapters.Stub;
 using Core.Carriers.Assembly;
+using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
@@ -115,6 +116,81 @@ namespace Tests.Carriers.Assembly
 
             assembly.Rules.Skill.LearnSkill(unitId, skillId);
             Assert.True(assembly.SkillBindings.Bind(unitId, "slot_0", skillId));
+        }
+
+        /// <summary>ADR-0063《装备宿主契约补模板 id 查询》验收：消费方反馈——游戏接入方第五批第 2
+        /// 条——装备面板要显示"槽位名 + 已装备物品名"，需要经 <see cref="CarriersAssembly.Equipment"/>
+        /// （生产装配入口，不是模块自己的测试夹具）拿到已装备物品的模板 id。<see
+        /// cref="CarriersAssembly.Equipment"/> 的公开类型是具体类 <c>EquipmentHost</c>（不是接口），
+        /// 按任务书"公开类型若是接口就走接口"的对偶情形——这里改为显式声明一个
+        /// <see cref="IEquipmentHost"/> 局部变量承接（赋值是安全的向上转型，不是向下转型），全部断言
+        /// 经该接口变量发起，验证真正命中的是 <c>EquipmentHost</c> 的显式接口实现而不是接口默认降级
+        /// 值。</summary>
+        [Fact]
+        public void Equipment_GetEquippedTemplateId_ViaIEquipmentHostInterface_ReturnsTemplateId_AndClearsOnUnequip()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+
+            var source = new InMemoryDataSource();
+            AddMinimalRequiredTables(source);
+            source.Add("item.slot_definition",
+                "{\"table\": \"item.slot_definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.slot.adr0063_smoke\", \"name_key\": \"l10n.item.slot.adr0063_smoke\"}" +
+                "]}");
+            source.Add("item.quality_definition",
+                "{\"table\": \"item.quality_definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.quality.adr0063_common\", \"name_key\": \"l10n.item.quality.adr0063_common\"}" +
+                "]}");
+            source.Add("item.template",
+                "{\"table\": \"item.template\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"item.adr0063_smoke_shirt\", \"slot\": \"item.slot.adr0063_smoke\", " +
+                "\"quality\": \"item.quality.adr0063_common\", \"item_level\": 1, " +
+                "\"display_ref\": \"display.adr0063_smoke\", \"stack_size\": 1, " +
+                "\"name_key\": \"l10n.item.adr0063_smoke\"}" +
+                "]}");
+
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
+            CarriersSchemaCatalog.RegisterAll(registry);
+            var report = registry.LoadAll();
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var world = new WorldSim(bus);
+            var spatial = new StubSpatialQuery();
+            var navigation = new StubNavigation2D();
+            var rng = new RngHost(1);
+            var assembly = new CarriersAssembly(bus, registry, rng, world, spatial, navigation);
+
+            var unitId = new Id("unit.adr0063_smoke_player");
+            var slot = new Id("item.slot.adr0063_smoke");
+            var templateId = new Id("item.adr0063_smoke_shirt");
+
+            // Equip/Unequip 联动经 IStatHost.RemoveModifiersBySource 要求单位先在 StatHost 注册
+            // （即便本例物品模板不带 stats/armor，Unequip 仍无条件调用 RevertGrants → RemoveModifiersBySource）；
+            // 本测试只关心装备契约新成员，不需要完整的 RulesAssembly.RegisterUnit（那还要求
+            // arch.class 记录），直接调用 StatHost.RegisterUnit 即可满足前置条件。
+            assembly.Rules.Stats.RegisterUnit(unitId);
+
+            assembly.Inventory.AddItem(unitId, templateId, 1);
+            var items = assembly.Inventory.ListItems(unitId);
+            var instanceId = items[items.Count - 1].InstanceId;
+
+            var equipResult = assembly.Equipment.Equip(unitId, instanceId, slot);
+            Assert.True(equipResult.Success, $"装备应当成功：{equipResult.Reason}");
+
+            IEquipmentHost host = assembly.Equipment;
+
+            Assert.Equal(templateId, host.GetEquippedTemplateId(unitId, slot));
+            Assert.Equal(instanceId, host.GetEquipped(unitId, slot)!.Value.InstanceId);
+            Assert.Equal(templateId, host.GetAllEquippedIdentities(unitId)[slot].TemplateId);
+            Assert.Equal(instanceId, host.GetAllEquippedIdentities(unitId)[slot].InstanceId);
+
+            host.Unequip(unitId, slot);
+
+            Assert.Null(host.GetEquippedTemplateId(unitId, slot));
+            Assert.Null(host.GetEquipped(unitId, slot));
+            Assert.Empty(host.GetAllEquippedIdentities(unitId));
         }
 
         [Fact]

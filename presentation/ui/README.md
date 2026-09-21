@@ -442,3 +442,39 @@ InteractionTargets)`（`CarriersAssembly` 新增的只读属性，见该模块 R
 现场查询才会反映最新状态，见 `core/carriers/assembly/README.md` 对应判断记录），断言路径查询结果
 从"命中较近的掉落物"正确回退到"命中较远的场景物件"，覆盖到最外层（视图模型/路径层），不停在
 装配代码中间层。
+
+## 判断记录（`player.equipment.<slot>.template`/`.instance`、`InventoryViewModel.EquippedSlotIdentities`，2026-09-21，消费方反馈——游戏接入方第五批第 2 条，[ADR-0063](../../architecture/adr/0063-装备宿主契约补模板id查询.md)）
+
+背景：装备面板要显示"槽位名 + 已装备物品名"，需要已装备物品的模板 id；既有
+`player.equipment.<slot>` 裸路径只返回实例 id，`IEquipmentHost` 契约同样拿不到模板 id（见
+ADR-0063）。本条只记表现层落地要点，契约层新增成员见 `core/carriers/item/README.md`/
+`core/carriers/common` 对应判断记录。
+
+**`PlayerPathProvider.ResolveEquipment`**：新增 `.template`/`.instance` 两个子路径。装备槽 id
+允许多段（namespaced，如 `equip.main_hand`，见 `UiDataSourceTests.Query_equipment_slot`），沿用
+`ResolveQuest`/`ResolveSkillCooldown` 已有的"末段保留关键字，其余段拼装 id"惯例：
+`remaining.Count >= 3` 且末段不带下标、字面量恰为 `"template"`/`"instance"` 时按子路径解析；否则
+落到既有裸查询分支，行为逐字节不变。`.template` 经新增的 `IEquipmentHost.GetEquippedTemplateId`
+取值，`.instance` 经既有 `IEquipmentHost.GetEquipped` 取值（与裸路径同一数据源，只是显式给出
+子路径入口）。不新增 `.count`（装备 `stack_size` 恒为 1，无信息量）/`.name_key`/`.quality`
+（需要另查模板/词缀表，背包侧 `inventory[i].*` 同样不给，两侧口径一致，详见 ADR-0063）。
+
+**`InventoryViewModel`**：新增只读属性 `EquippedSlotIdentities`
+（`IReadOnlyDictionary<Id, EquippedItemIdentity>`，槽位 id → 实例 id + 模板 id），比照 `Slots`
+（`InventorySlotSnapshot` 携带模板 id）。判断记录（新增属性而不是改写既有
+`EquippedSlots` 的元素类型）：`EquippedSlots`（槽位 id → 裸实例 id）是已发布的公开只读属性，
+ABI 只允许新增，改写其元素类型会破坏既有调用方编译；新增并行属性，两者互不影响，仍只需要裸实例
+id 的既有消费方继续读 `EquippedSlots`。`Refresh()` 同一次遍历内先查裸 `player.equipment.<slot>`
+判断该槽是否已装备，已装备才追加查一次 `.template`（未装备槽本就没有必要查一次必然落空的子
+路径）。
+
+ABI：纯加法——`PlayerPathProvider` 无新增公开签名（`ResolveEquipment` 是私有方法，扩展的是它能
+识别的路径形状，不是新增重载）；`InventoryViewModel` 新增一个只读属性；载体层新增内容见
+`core/carriers/common`/`core/carriers/item` 对应判断记录。全部既有公开签名不改动。
+
+测试见 `presentation/ui/tests/UiDataSourceTests.cs`
+（`Query_equipment_slot_template_and_instance_subpaths`、
+`Query_equipment_slot_template_and_instance_subpaths_AreNull_WhenEmptyOrUnequipped`）与
+`presentation/ui/tests/ViewModelTests.cs`（`InventoryViewModel_reads_slots_and_equipped_items`
+补充断言）——经 `FakeEquipmentHost`（新增 `TemplatesByInstance` 登记表，见该类型判断记录）驱动，
+覆盖已装备/空槽/卸下三种状态。

@@ -513,6 +513,37 @@ namespace Core.Carriers.Item
             return result;
         }
 
+        /// <summary>
+        /// ADR-0063：<see cref="IEquipmentHost.GetEquippedTemplateId"/> 显式接口实现——与
+        /// <see cref="GetAllEquippedInstances"/> 同一份 <see cref="_equipped"/> 账本，取
+        /// <see cref="ItemInstance.TemplateId"/>；该槽位当前无装备时返回 <c>null</c>，语义同
+        /// <see cref="GetEquipped"/>。判断记录（用显式接口实现，不新增同名公开方法）：见接口成员
+        /// <see cref="IEquipmentHost.GetEquippedTemplateId"/> 判断记录"不用隐式实现是刻意的"。
+        /// </summary>
+        Id? IEquipmentHost.GetEquippedTemplateId(Id unitId, Id slot) =>
+            _equipped.TryGetValue(unitId, out var slots) && slots.TryGetValue(slot, out var instance)
+                ? instance.TemplateId
+                : (Id?)null;
+
+        /// <summary>
+        /// ADR-0063：<see cref="IEquipmentHost.GetAllEquippedIdentities"/> 显式接口实现——同
+        /// <see cref="GetAllEquippedInstances"/> 判断记录，遍历 <see cref="_equipped"/> 逐槽映射为
+        /// <see cref="EquippedItemIdentity"/>（实例 id + 模板 id）。
+        /// </summary>
+        IReadOnlyDictionary<Id, EquippedItemIdentity> IEquipmentHost.GetAllEquippedIdentities(Id unitId)
+        {
+            var result = new Dictionary<Id, EquippedItemIdentity>();
+            if (_equipped.TryGetValue(unitId, out var slots))
+            {
+                foreach (var kv in slots)
+                {
+                    result[kv.Key] = new EquippedItemIdentity(kv.Value.InstanceId, kv.Value.TemplateId);
+                }
+            }
+
+            return result;
+        }
+
         /// <summary>消费方反馈第 52 条：把 <paramref name="slot"/> 当前已装备的 <see cref="ItemInstance"/>
         /// 身份字段（模板/品质/词缀）原样映射为 <see cref="EquippedWeaponSummary"/>，供消费方一次调用
         /// 取得与自建适配层手工搬运完全一致的三元组（见 <see cref="EquippedWeaponSummary"/> 类型顶部

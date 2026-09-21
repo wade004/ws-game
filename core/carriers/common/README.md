@@ -110,6 +110,16 @@ L3 程序集本身对 L4 零编译期引用。
    实现放在装配层）。默认实现不另开登记表，直接对 `IWorldSim.QueryEntities` 现场求值，与
    `IWorldSim` 现有的确定性排序保持一致（等距离候选取 `EntityId` 序数最小者）。
 
+8. **消费方反馈——游戏接入方第五批第 2 条（2026-09-21，[ADR-0063](../../../architecture/adr/0063-装备宿主契约补模板id查询.md)）：
+   `IEquipmentHost` 新增 `GetEquippedTemplateId`/`GetAllEquippedIdentities` 两个只读默认接口成员，
+   新增元素类型 `EquippedItemIdentity`**：装备面板要显示"槽位名 + 已装备物品名"，需要模板 id，
+   但既有 `GetEquipped`/`GetAllEquipped` 只返回不携带模板 id 的 `ItemInstanceRef`。不复用本节
+   判断记录 6 的 `EquippedWeaponSummary`：那个类型没有实例 id（回答"挂的是什么"而不是"是哪一件
+   具体实例"），定位不同。默认实现恒返回 `null`/空字典（只读查询允许显式降级，惯例同
+   `core/rules/common.ISkillHost` 的 `Knows`/`GetSkillNameKey`），生产实现
+   `Core.Carriers.Item.EquipmentHost` 用显式接口实现转发（理由与判断记录同 `core/carriers/item/
+   README.md` 对应判断记录）。`ItemInstanceRef` 与既有四个方法签名一字不动。
+
 ## 不负责什么
 
 - 不实现背包/装备/交互/召唤的任何具体算法——那些是 item/gobj/summon/creature 各自模块在

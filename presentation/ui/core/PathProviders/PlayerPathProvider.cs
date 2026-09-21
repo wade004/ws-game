@@ -18,7 +18,8 @@ namespace Presentation.Ui
     /// <c>player.*</c> 路径的解答者（见任务书路径小语法："player.power.&lt;powerType&gt;.current|max、
     /// player.stat.&lt;statId&gt;、player.level、player.xp、player.xp_to_next、
     /// player.inventory.count、player.inventory[i].template|count|instance、
-    /// player.equipment.&lt;slot&gt;、player.quest.&lt;questId&gt;.state|objective[i]、
+    /// player.equipment.&lt;slot&gt;、player.equipment.&lt;slot&gt;.template|instance（ADR-0063 补充，
+    /// 见 <see cref="ResolveEquipment"/> 判断记录）、player.quest.&lt;questId&gt;.state|objective[i]、
     /// player.currency.&lt;id&gt;、player.skills[i]、player.skill.&lt;id&gt;.cooldown、
     /// player.casting.skill|remaining|total、player.auras.count、
     /// player.auras[i].def|stacks|remaining|total|name_key"）。全部查询都绕着构造期注入的
@@ -221,8 +222,52 @@ namespace Presentation.Ui
             }
         }
 
+        /// <summary>
+        /// 消费方反馈第五批第 2 条（2026-09-21，ADR-0063）新增 <c>.template</c>/<c>.instance</c> 子
+        /// 路径：装备面板要显示"槽位名 + 已装备物品名"，需要已装备物品的模板 id——此前
+        /// <c>player.equipment.&lt;slot&gt;</c> 裸路径只返回实例 id（<see cref="IEquipmentHost.GetEquipped"/>
+        /// 语义），拿不到模板 id。
+        /// <para>
+        /// 判断记录（末段保留关键字，惯例同 <see cref="ResolveQuest"/>/<see cref="ResolveSkillCooldown"/>）：
+        /// 装备槽 id 允许多段（namespaced，如 <c>equip.main_hand</c>，见
+        /// <c>Tests.PresentationUi.UiDataSourceTests.Query_equipment_slot</c>），与 <c>inventory[i].&lt;field&gt;</c>
+        /// 的按下标定位不同，无法用"最后一段是字段名"以外的方式消歧。沿用 quest/skill 两条既有子路径
+        /// 同一惯例：<c>remaining.Count &gt;= 3</c> 且末段不带下标、字面量恰为 <c>"template"</c>/
+        /// <c>"instance"</c> 时按子路径解析（其余段拼装槽位 id）；否则落到既有裸查询分支，行为与本次
+        /// 改动之前逐字节一致——<c>player.equipment.&lt;slot&gt;</c>（裸，返回实例 id）的既有行为不变。
+        /// </para>
+        /// <para>
+        /// 判断记录（不给 <c>.count</c>/<c>.quality</c>/<c>.name_key</c>）：装备类物品
+        /// <c>stack_size == 1</c>（见 07 校验），<c>.count</c> 恒为 1 没有信息量，不给；<c>quality</c>/
+        /// 名称需要查 <c>item.template</c>/词缀表，背包侧 <c>inventory[i].*</c> 同样不给（名字由游戏拿
+        /// 模板 id 自己查表），两侧口径保持一致，详见 ADR-0063"备选方案"一节。
+        /// </para>
+        /// </summary>
         private ExprValue? ResolveEquipment(IReadOnlyList<UiPathSegment> remaining, string fullPath, IUiDiagnostics diagnostics)
         {
+            if (remaining.Count >= 3)
+            {
+                var suffix = remaining[remaining.Count - 1];
+                if (!suffix.Index.HasValue && (suffix.Name == "template" || suffix.Name == "instance"))
+                {
+                    var idSegs = remaining.Skip(1).Take(remaining.Count - 2);
+                    if (!UnitSubQueries.TryBuildId(idSegs, out var subSlot))
+                    {
+                        diagnostics.Warn($"UI 路径 \"{fullPath}\" 的装备槽片段不是合法 Id");
+                        return null;
+                    }
+
+                    if (suffix.Name == "template")
+                    {
+                        var templateId = _equipment.GetEquippedTemplateId(_playerId, subSlot);
+                        return templateId.HasValue ? ExprValue.OfId(templateId.Value) : (ExprValue?)null;
+                    }
+
+                    var equippedSub = _equipment.GetEquipped(_playerId, subSlot);
+                    return equippedSub.HasValue ? ExprValue.OfId(equippedSub.Value.InstanceId) : (ExprValue?)null;
+                }
+            }
+
             if (!UnitSubQueries.TryBuildId(remaining.Skip(1), out var slot))
             {
                 diagnostics.Warn($"UI 路径 \"{fullPath}\" 的装备槽片段不是合法 Id");
