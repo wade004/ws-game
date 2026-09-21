@@ -393,9 +393,15 @@ if ($ReleaseRequested) {
     # 版本，见 toolchain/abi_probe_baseline.txt 手动推进说明），"ABI 探针基线缺失"在发布链路上不是
     # 正常状态，必须让 check.ps1 的 ABI 步骤在这种情况下判 FAIL 而不是安静 SKIP——不传本开关会让
     # 一次因为环境问题（例如发布机 dist/ 被误清空）而完全没跑起来的 ABI 探针被门禁静默放行。
+    #
+    # 判断记录（固定传 -FailFast，gate-speed 任务新增，见 check.ps1 .PARAMETER FailFast 判断
+    # 记录）：发布机跑的是"已经在别处验证过、只等最后一次全量把关"的门禁，一旦任一步失败，发布
+    # 流程本身就要终止（见下面 `exit $LASTEXITCODE`），没有必要为了"看全部结果"而白跑完剩余步骤
+    # 多耗几分钟；日常开发者手工跑 `check.ps1`（不带 `-FailFast`）仍然保留"跑完全部、一次看全"
+    # 的原行为，两者场景不同、开关默认值分开定，互不影响。
     Write-Step "check.ps1 门禁（-Release 第 5 步）"
     $checkScript = Join-Path $RepoRoot "check.ps1"
-    $checkArgs = @("-AbiStrict")
+    $checkArgs = @("-AbiStrict", "-FailFast")
     if ($ReleaseSkipUnity) { $checkArgs += "-SkipUnity" }
     & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
     if ($LASTEXITCODE -ne 0) {
