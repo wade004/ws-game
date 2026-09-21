@@ -458,6 +458,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **`consumer_smoke.ps1` 的 `Wait-NoResidualUnityProcess` 等别的仓库正在跑的 Unity 进程导致误报超时**：
+  等待范围从"系统里任何 Unity.exe"收窄为"可能与本次演练撞车的两类工程"——本仓库根目录下的、
+  本脚本工作目录（`gf_consumer_smoke`）下的；拿不到命令行或没有 `-projectPath` 时按保守口径当作
+  要等；明确落在这两处之外的判定不等，但每次检测到都会打印一行提示（PID + 工程路径），不静默忽略。
+  判断归属的纯逻辑抽成 `toolchain/_unity_smoke_wait_scope_guard.ps1` 的
+  `Get-UnitySmokeProcessWaitDecision` 函数（三态返回 `Wait`/`NoWait`/`Unknown`），由
+  `toolchain/tests/test_unity_smoke_wait_scope_guard.py` 覆盖，含仓库根同名前缀目录（如
+  `ws-game-wow`）不被误判为 `ws-game` 子目录这一关键回归用例。`check.ps1` 的
+  `Test-NoResidualUnityProcess`（只管同一工程、发现即报错）语义不同，未改动。
+
 ## [1.55.0] - 2026-09-21
 
 ### 新增

@@ -48,19 +48,29 @@
     -SyncOnly -Dist 会在仓库内的 dist/<version>/ 落地/覆盖分发包快照，这是 build.ps1 一贯的既有
     行为，不是本脚本新增的写入）。
 
-    判断记录（P07 根治之一，2026-09-08，起 Unity 前不检查残留进程）：check.ps1 全量门禁里，前面
-    Unity 编译检查/EditMode/PlayMode/独立版构建四步刚跑完就紧接着跑本脚本，本脚本自己内部又要
-    另外拉起四次全新的 Unity.exe（首次编译、场景构建器、PlayMode 测试、独立版构建）——Unity.exe
-    本体退出（Process.WaitForExit 返回）到它彻底走完许可协商释放/临时文件清理之间存在滞后，
-    曾实测复现"上一个 Unity.exe 刚退出、下一个 Unity.exe 紧接着启动"时的瞬时失败（不是真的代码/
-    数据问题，是启动时机撞上了残留清理窗口）。改法：Wait-NoResidualUnityProcess 在本脚本每一次
-    拉起 Unity 批处理之前都轮询一次系统里是否还有 Unity.exe 进程（不按工程路径过滤——与 check.ps1
-    自己的 Test-NoResidualUnityProcess 语义不同，那个函数只在乎"同一工程"、发现即报错不等待，
-    因为残留可能是人正在交互使用的 Editor 窗口，不该代为等待；本脚本这里几乎总是刚退出的上一步
-    残留清理未完成，等一等大概率自己会消失，因此改为等待），最多等 60 秒，超时才报错并给出诊断
-    （PID + 命令行），不会无限期挂起、也不会假装没看见继续往下跑导致更难定位的失败。两个脚本各自
-    保留一份独立实现（惯例同上——两个脚本各自可以单独运行，不互相依赖），语义按各自场景分别设计，
-    不是简单复制粘贴。
+    判断记录（P07 根治之一，起 Unity 前按撞车范围等待残留进程，不等系统里所有 Unity.exe）：
+    check.ps1 全量门禁里，前面 Unity 编译检查/EditMode/PlayMode/独立版构建四步刚跑完就紧接着跑
+    本脚本，本脚本自己内部又要另外拉起四次全新的 Unity.exe（首次编译、场景构建器、PlayMode 测试、
+    独立版构建）——Unity.exe 本体退出（Process.WaitForExit 返回）到它彻底走完许可协商释放/临时
+    文件清理之间存在滞后，曾实测复现"上一个 Unity.exe 刚退出、下一个 Unity.exe 紧接着启动"时的
+    瞬时失败（不是真的代码/数据问题，是启动时机撞上了残留清理窗口）。这个前提决定了"要不要等"不能
+    只看"系统里有没有 Unity.exe"，也不能完全不看工程路径：等待对象只应该是可能与本次演练撞车的
+    残留——本仓库根目录下的工程（check.ps1 前几步刚跑完的 adapters/unity，正是要防的那种残留）、
+    本脚本自己的工作目录 $WorkDir 下的工程（消费方演练自己刚起的临时工程，四步之间彼此也可能撞车）；
+    别的仓库里长时间正常运行的 Unity 进程（例如另一个项目自己在跑的回归批处理）不是"刚退出还在
+    清理"，等多久都不会消失，继续等只会拖垮门禁而没有任何好处。因此 Wait-NoResidualUnityProcess
+    在本脚本每一次拉起 Unity 批处理之前轮询系统里的 Unity.exe 进程，对每个进程调用
+    _unity_smoke_wait_scope_guard.ps1 的纯函数 Get-UnitySmokeProcessWaitDecision（输入进程命令行
+    + $RepoRoot + $WorkDir，输出 "Wait"/"NoWait"/"Unknown" 三态）分类：落在上述两处之一的算
+    "Wait"；命令行里明确解析出 -projectPath 且落在两处之外的算"NoWait"，不计入等待对象，但每次
+    检测到都会打一行提示（PID + 工程路径）说明"属于其它工程，不等待"，不静默忽略，留痕方便出问题
+    时现场可追溯；拿不到命令行、或命令行里没有 -projectPath 的算"Unknown"，无法判断归属，按原口径
+    当作"要等"处理。只有当前一轮扫描到的全部 Unity.exe 进程都判定为 NoWait（或系统里已经没有
+    Unity.exe）时才放行，最多等 60 秒，超时才报错并给出诊断（PID + 命令行），不会无限期挂起、也
+    不会假装没看见继续往下跑导致更难定位的失败。与 check.ps1 自己的 Test-NoResidualUnityProcess
+    语义不同——那个函数只在乎"同一工程"、发现即报错不等待，因为残留可能是人正在交互使用的 Editor
+    窗口，不该代为等待；两个脚本各自保留一份独立实现（惯例同上——两个脚本各自可以单独运行，不互相
+    依赖），语义按各自场景分别设计，不是简单复制粘贴。
 
     判断记录（P07 根治之二，2026-09-08，check.ps1 全量门禁下失败现场丢失）：check.ps1 用
     `& powershell @consumerArgs | Out-Null` 调用本脚本（判断记录见 check.ps1 该处调用点注释——
@@ -83,6 +93,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Wait-NoResidualUnityProcess 的"从命令行判断是否需要等待"纯逻辑抽在这里，见该函数上方判断记录
+# 与 _unity_smoke_wait_scope_guard.ps1 文件头注释。
+. (Join-Path $PSScriptRoot "_unity_smoke_wait_scope_guard.ps1")
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VersionFilePath = Join-Path $RepoRoot "VERSION"
@@ -161,6 +175,9 @@ function Wait-NoResidualUnityProcess {
     param([int]$TimeoutSeconds = 60)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    # 同一次调用内，"属于其它工程、不等待"的提示每个 PID 只打一次，避免 60 秒轮询期间刷屏——
+    # 不影响可追溯性：第一次检测到时就已经留痕。
+    $notifiedOutOfScopePids = New-Object 'System.Collections.Generic.HashSet[int]'
     while ($true) {
         try {
             $procs = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'Unity.exe'" -ErrorAction Stop)
@@ -169,11 +186,26 @@ function Wait-NoResidualUnityProcess {
             # 演练因为一次诊断性查询失败而卡死——按"未发现残留"处理，放行。
             return
         }
-        if ($procs.Count -eq 0) {
+
+        $relevantProcs = New-Object System.Collections.Generic.List[Object]
+        foreach ($proc in $procs) {
+            $decision = Get-UnitySmokeProcessWaitDecision -CommandLine $proc.CommandLine -RepoRoot $RepoRoot -WorkDir $WorkDir
+            if ($decision -eq "NoWait") {
+                $residualProcId = [int]$proc.ProcessId
+                if (-not $notifiedOutOfScopePids.Contains($residualProcId)) {
+                    Write-Host "[消费方演练残留进程等待] PID $residualProcId：工程路径属于其它工程，不等待（命令行：$($proc.CommandLine)）" -ForegroundColor DarkGray
+                    $notifiedOutOfScopePids.Add($residualProcId) | Out-Null
+                }
+                continue
+            }
+            $relevantProcs.Add($proc)
+        }
+
+        if ($relevantProcs.Count -eq 0) {
             return
         }
         if ((Get-Date) -ge $deadline) {
-            $detail = ($procs | ForEach-Object { "PID $($_.ProcessId): $($_.CommandLine)" }) -join "; "
+            $detail = ($relevantProcs | ForEach-Object { "PID $($_.ProcessId): $($_.CommandLine)" }) -join "; "
             throw "等待 $TimeoutSeconds 秒后仍检测到残留 Unity.exe 进程未退出（$detail），本脚本不会代为结束——请先手工确认该进程状态（是否是人正在交互使用的 Editor 窗口）后重跑。"
         }
         Start-Sleep -Milliseconds 1000
