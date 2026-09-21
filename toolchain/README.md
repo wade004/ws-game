@@ -522,6 +522,33 @@ python toolchain/import_assets.py <子命令> ...
 见上方 `sprite` 子命令产出说明），且只被本文件 `check` 子命令自身的存在性校验消费，不在运行时
 资源加载路径上，本次不借机扩大收口范围。
 
+**判断记录（消费方反馈第 79 条，ADR-0054"决策 1"纳入同一契约范围）**：`DatasetDataDirectory`
+只有正向（数据集名 → 目录），逆向（磁盘上已探测到的数据目录 → 数据集名）没有公开出处，消费方
+（内容编辑器）从"游戏仓库根 + 已探测数据目录"定位资产文件时，中间这一步只能自己切路径末段。
+现已在 `ref_conventions.py` 补齐 `try_get_dataset_name(data_root, dataset_data_directory)`，与
+框架契约面 `AssetRootConventions.TryGetDatasetName` 逐条对应（同一套输入/输出，两侧各自独立
+实现，不互相调用），跨语言一致性经 `toolchain/asset_root_probe` 扩充第 5 个可选参数
+`inverseProbeDirectory` 对照。边界口径（逐条对应消费方反馈原文"路径比较口径请框架定"）：
+
+- 给定目录不是数据根的**直接**子目录（更深层级、不在数据根之下、或就是数据根本身）：返回
+  `None`（不抛异常，与本模块既有 `try_parse_sprite_set_id`/`try_parse_icon_id` 同一惯例——
+  "解析失败"是可预期的业务结果，不是异常情形）。
+- 路径分隔符 `/`/`\`、结尾多余分隔符：比较前归一化（`/` 换成 `os.sep`、去掉结尾多余分隔符）；
+  不经过 `pathlib.PurePath` 做父目录/末段拆分——`PurePath` 会静默折叠单独的 `.` 段，而 C# 侧
+  `Path.GetDirectoryName`/`Path.GetFileName` 不会，为保证两侧对同一输入算出逐字节相同的结果，
+  改为对字符串做与 C# 侧逐字对应的纯前缀/后缀截取。
+- `.`/`..` 路径段：不做任何语义解析，按字面字符比较——`dataset_data_directory` 正向本身也只是
+  字符串/路径拼接，不校验、不规整这类段，逆运算不借机新增正向没有的语义；真实来源（对目录做
+  遍历取得的已存在路径）不会产生这类段，不影响验收口径覆盖的实际场景。
+- 相对路径 vs 绝对路径：不做绝对化处理（不调用 `Path.resolve()`，会依赖当前工作目录，与"运行时
+  路径不依赖运行环境状态"冲突），只按字面字符串比较，调用方须保证两个参数处于同一相对/绝对表示
+  下（典型来源都经同一次 `resolve_data_root` 调用得到，天然满足）。
+- 大小写：Windows 文件系统大小写不敏感，父目录段按 `str.lower()` 比较（不用 `casefold`/文化相关
+  比较，保持跨环境确定性）；还原出的数据集名取自 `dataset_data_directory` 最后一段的**原样
+  字符**，不做任何大小写变换——数据集名是内容标识，大小写以调用方实际观测到的磁盘目录名为准。
+- 假定合法数据集名本身不含路径分隔符（与目录名惯例一致，`dataset_data_directory` 对此也未做
+  任何校验）；数据集名含分隔符属于对该函数的非法用法，逆运算行为不在契约范围内。
+
 图像处理只用 Pillow：`--matting none|rembg|colorkey:#RRGGBB`
 ——`colorkey` 抠图是本工具自写的容差比色（`--colorkey-tolerance`，默认 32），`rembg` 仅在本机
 `~/.u2net/` 下已有权重文件时可用（本工具不会自动联网下载模型权重，未准备好权重直接报错并提示
