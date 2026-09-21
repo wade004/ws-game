@@ -185,7 +185,8 @@ namespace Presentation.Ui
         /// <summary>
         /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：<paramref name="remaining"/>[0] 必须是字面量
         /// <c>"auras"</c>；形状为 <c>auras.count</c> 或 <c>auras[i].(def|stacks|remaining|total|
-        /// name_key)</c>（惯例同既有 <c>player.inventory[i].&lt;field&gt;</c>）。<paramref
+        /// name_key|polarity|icon_ref)</c>（惯例同既有 <c>player.inventory[i].&lt;field&gt;</c>；
+        /// <c>polarity</c>/<c>icon_ref</c> 为 ADR-0060 一个发现的交付缺口新增）。<paramref
         /// name="auraQuery"/> 为 <c>null</c> 表示调用方未装配光环查询能力，惯例同 <see
         /// cref="Casting"/> 判断记录。
         /// </summary>
@@ -239,8 +240,27 @@ namespace Presentation.Ui
                     return snap.Total.HasValue ? ExprValue.OfNumber(snap.Total.Value) : (ExprValue?)null;
                 case "name_key":
                     return snap.NameKey.HasValue ? ExprValue.OfId(snap.NameKey.Value) : (ExprValue?)null;
+                // 一个发现的交付缺口（2026-09-21，ADR-0060）：polarity/icon_ref 两条子路径，惯例同
+                // 上方 name_key——未声明时静默返回"无"，不记诊断（字段本身可选，惯例同 ADR-0056）。
+                // 判断记录（polarity 这一层仍输出字符串，不是原样透传 snap.Polarity 这个枚举）：
+                // Expr/UI 路径小语法当前没有枚举这一等级的值类型（见 Core.Foundation.Expr.ExprValue
+                // 判别联合 Bool|Int|Number|String|Id），本仓库既有做法是"枚举在跨越到这一层时降级
+                // 为它在数据表上对应的 snake_case 文本"（同 target.casting.skill 等既有路径只搬运
+                // Bool/Int/Number/String/Id 五种之一，不新增值类型）；因此这里用 AuraPolarityNames.
+                // ToText 把规则层已经解析好的强类型枚举转回文本，而不是让规则层重新透出裸字符串
+                // （字符串仍是"表现层查询的值类型"，不是"规则层对外的存储类型"，两者不矛盾——规则层
+                // 内部与快照仍是结构化枚举，接入方拼字面量比较错了在规则层就会被类型系统挡住；只有
+                // 到了这条通用小语法的边界，才不得不退化为字符串）。Undeclared 没有对应文本，同
+                // "未声明"既有口径静默返回"无"，不调用 ToText（避免其判断记录里那条"Undeclared 不
+                // 参与互转"的异常在这条路径上被触发）。
+                case "polarity":
+                    return snap.Polarity != AuraPolarity.Undeclared
+                        ? ExprValue.OfString(AuraPolarityNames.ToText(snap.Polarity))
+                        : (ExprValue?)null;
+                case "icon_ref":
+                    return snap.IconRef.HasValue ? ExprValue.OfId(snap.IconRef.Value) : (ExprValue?)null;
                 default:
-                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 auras[i] 字段名 \"{remaining[1].Name}\" 未知（只支持 def/stacks/remaining/total/name_key）");
+                    diagnostics.Warn($"UI 路径 \"{fullPath}\" 的 auras[i] 字段名 \"{remaining[1].Name}\" 未知（只支持 def/stacks/remaining/total/name_key/polarity/icon_ref）");
                     return null;
             }
         }

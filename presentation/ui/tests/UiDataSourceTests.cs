@@ -271,6 +271,38 @@ namespace Tests.PresentationUi
             Assert.Empty(world.Diagnostics.Warnings);
         }
 
+        /// <summary>
+        /// 一个发现的交付缺口（2026-09-21，ADR-0060）：<c>player.auras[i].polarity</c>/
+        /// <c>player.auras[i].icon_ref</c> 转发 <see cref="AuraSnapshot.Polarity"/>/
+        /// <see cref="AuraSnapshot.IconRef"/>；<see cref="AuraSnapshot.Polarity"/> 是结构化枚举
+        /// <see cref="AuraPolarity"/>，路径查询这一层没有枚举值类型（<c>ExprValue</c> 判别联合只有
+        /// Bool/Int/Number/String/Id 五种），按既有惯例降级为该枚举在数据表上对应的文本（由
+        /// <c>AuraPolarityNames.ToText</c> 转出，不是原样透传数据文件字面量）；未声明
+        /// （<see cref="AuraPolarity.Undeclared"/>/<c>null</c>）时路径查询结果为"无"，同既有
+        /// <c>name_key</c> 一贯口径，不记诊断。
+        /// </summary>
+        [Fact]
+        public void Query_player_auras_reports_polarity_and_icon_ref()
+        {
+            var world = new UiWorldFixture();
+            var buff = new Id("skill.aura_def.sample_buff");
+            var debuff = new Id("skill.aura_def.sample_debuff");
+            var buffIcon = new Id("icon.aura.sample_fortify");
+            world.AuraQuery.SetSnapshotsForTest(world.PlayerId, new[]
+            {
+                new AuraSnapshot(buff, stacks: 1, remaining: 8.0, total: 8.0, nameKey: null, polarity: AuraPolarity.Beneficial, iconRef: buffIcon),
+                new AuraSnapshot(debuff, stacks: 1, remaining: 6.0, total: 6.0, nameKey: null, polarity: AuraPolarity.Harmful, iconRef: null),
+            });
+
+            Assert.Equal("beneficial", world.DataSource.Query("player.auras[0].polarity")!.Value.AsString);
+            Assert.Equal(buffIcon, world.DataSource.Query("player.auras[0].icon_ref")!.Value.AsId);
+
+            Assert.Equal("harmful", world.DataSource.Query("player.auras[1].polarity")!.Value.AsString);
+            Assert.Null(world.DataSource.Query("player.auras[1].icon_ref"));
+
+            Assert.Empty(world.Diagnostics.Warnings);
+        }
+
         /// <summary>消费方反馈第 4 条：无光环时 <c>auras.count</c> 为 0，不记诊断。</summary>
         [Fact]
         public void Query_player_auras_count_isZero_withNoDiagnostics_whenNoActiveAuras()

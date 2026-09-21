@@ -866,33 +866,43 @@ namespace Core.Rules.Skill
         /// <summary>
         /// 消费方反馈第 4 条（2026-09-21，ADR-0056）：<see cref="IAuraQuery.GetActiveAuraSnapshots"/>
         /// 的生产实现——把 <see cref="GetActiveAuraDefs"/> 现有"只列出带了哪些"的粗粒度查询，换成
-        /// 表现层增益/减益列表实际需要的完整快照（身份/层数/剩余/总时长/名称键，见 <see
-        /// cref="AuraSnapshot"/>）。排序同 <see cref="GetActiveAuraDefs"/>：按 <see
+        /// 表现层增益/减益列表实际需要的完整快照（身份/层数/剩余/总时长/名称键/极性/图标引用，见
+        /// <see cref="AuraSnapshot"/>）。排序同 <see cref="GetActiveAuraDefs"/>：按 <see
         /// cref="AuraInstanceState.SeqNo"/>（创建顺序）升序，不依赖字典枚举顺序（AGENTS.md §3），
         /// 保证同一批光环在不同调用间返回顺序一致。
         /// <para>
-        /// 名称键判断记录：<see cref="_defs"/>（<see cref="SkillDefCache"/>）在 <c>ApplyAura</c>
+        /// 定义查找判断记录：<see cref="_defs"/>（<see cref="SkillDefCache"/>）在 <c>ApplyAura</c>
         /// 施加实例时早已经解析过同一个 <c>defId</c>（否则不会有 <see cref="AuraInstanceState"/>
         /// 存在），<see cref="SkillDefCache.TryGetAuraDef"/> 理论上恒能命中；仍按 AGENTS.md §3"运行时
         /// 路径不静默降级"防御性判断——万一命中失败（数据被热重载移除等边缘情形），记一条诊断并让该
-        /// 项的 <see cref="AuraSnapshot.NameKey"/> 退化为 <c>null</c>，不让整条查询失败拖垮其它正常
-        /// 项。<c>name_key</c> 字段本身可选（同 <c>skill.def.name_key</c> 惯例），已登记但未声明该
+        /// 项的 <see cref="AuraSnapshot.NameKey"/>/<see cref="AuraSnapshot.Polarity"/>/
+        /// <see cref="AuraSnapshot.IconRef"/> 均退化为 <c>null</c>，不让整条查询失败拖垮其它正常
+        /// 项。三个字段本身均可选（同 <c>skill.def.name_key</c> 惯例，ADR-0060），已登记但未声明
         /// 字段時不算异常，不额外记诊断。
         /// </para>
         /// </summary>
-        public IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId) =>
-            _instances.Values.Where(i => i.TargetId.Equals(unitId)).OrderBy(i => i.SeqNo)
-                .Select(i => new AuraSnapshot(i.DefId, i.Stacks, i.Remaining, i.DurationTotal, ResolveAuraNameKey(i.DefId)))
-                .ToList();
+        public IReadOnlyList<AuraSnapshot> GetActiveAuraSnapshots(Id unitId)
+        {
+            var result = new List<AuraSnapshot>();
+            foreach (var instance in _instances.Values.Where(i => i.TargetId.Equals(unitId)).OrderBy(i => i.SeqNo))
+            {
+                var def = ResolveAuraDef(instance.DefId);
+                result.Add(new AuraSnapshot(
+                    instance.DefId, instance.Stacks, instance.Remaining, instance.DurationTotal,
+                    def?.NameKey, def?.Polarity ?? AuraPolarity.Undeclared, def?.IconRef));
+            }
 
-        private Id? ResolveAuraNameKey(Id auraDefId)
+            return result;
+        }
+
+        private AuraDef? ResolveAuraDef(Id auraDefId)
         {
             if (_defs.TryGetAuraDef(auraDefId, out var def))
             {
-                return def.NameKey;
+                return def;
             }
 
-            _diagnostics.Warn($"光环定义 \"{auraDefId}\" 已有生效实例，但未在 skill.aura_def 登记，无法解析显示名（理论上不应发生）");
+            _diagnostics.Warn($"光环定义 \"{auraDefId}\" 已有生效实例，但未在 skill.aura_def 登记，无法解析显示名/极性/图标引用（理论上不应发生）");
             return null;
         }
 
