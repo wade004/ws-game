@@ -458,6 +458,20 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **任务宿主契约补标题与目标描述文本键查询**（消费方反馈——游戏接入方第六批，
+  [ADR-0064](architecture/adr/0064-任务宿主契约补标题与目标描述文本键查询.md)）：
+  `Core.Gameplay.Quest.IQuestHost` 新增两个只读默认接口成员 `GetQuestTitleKey(questId)`/
+  `GetObjectiveDescriptionKey(questId, objectiveIndex)`（转发 `QuestDefinition.TitleKey`/
+  `QuestObjective.DescriptionKey`，未知任务/越界下标/数据未填均返回 `null`），生产实现
+  `Core.Gameplay.Quest.QuestHost` 用显式接口实现转发。`Presentation.Ui.QuestLogViewModel`
+  新增同名两个只读转发方法。新增路径 `player.quest.<questId>.title_key`/
+  `.objective_description_key[i]`（既有 `player.quest.<questId>.state`/`.objective[i]` 行为
+  不变）。框架参考面板 `Adapter.Unity.Ui.Panels.QuestLogPanel` 新增携带 `IL10nHost` 的
+  `Construct` 加性重载，有标题键时优先经本地化解析显示任务名（既有两参数签名保留未动）。
+  纯加法，ABI `breaks=0`。
+
 ## [1.56.0] - 2026-09-21
 
 ### 新增

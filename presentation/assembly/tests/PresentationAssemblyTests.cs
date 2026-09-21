@@ -220,7 +220,7 @@ namespace Tests.Presentation.Assembly
         private static PresentationAssembly Build(
             out GameplayAssembly gameplay, out WorldSim world, out StubEngine engine, out IEventBus bus,
             PresentationAssemblyOptions? options = null, IViewFactory? viewFactory = null,
-            bool withResourceLoader = false)
+            bool withResourceLoader = false, System.Action<InMemoryDataSource>? extraTables = null)
         {
             bus = new EventBus(
                 EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
@@ -229,6 +229,10 @@ namespace Tests.Presentation.Assembly
             var source = new InMemoryDataSource();
             AddMinimalGameplayTables(source);
             AddMinimalPresentationTables(source);
+            // 消费方反馈第六批（阻塞，ADR-0064）新增：可选钩子，供个别用例（如任务标题/目标描述
+            // 文本键验收）在共享最小数据集之上追加自己需要的表，不必复制一份完整的 Build 流程。
+            // 默认 null，既有全部调用方行为逐字节不变。
+            extraTables?.Invoke(source);
 
             var registryOptions = PresentationSchemaCatalog.CreateOptions();
             registryOptions.FailOnUnknownTable = false;
@@ -309,6 +313,42 @@ namespace Tests.Presentation.Assembly
             // 6 个动作条槽位来自 ui_layout_definition 数据（AddMinimalPresentationTables），
             // 不是 PresentationAssemblyOptions 的兜底默认值 8。
             Assert.Equal(6, presentation.ActionBar.SlotCount);
+        }
+
+        /// <summary>消费方反馈第六批（阻塞）验收：经 <see cref="PresentationAssembly"/> 构建出的
+        /// <see cref="PresentationAssembly.QuestLog"/> 视图模型最外层（不是宿主层，也不是路径层）
+        /// 能读到与真实加载的 <c>quest.def</c> 数据定义一致的标题键/目标描述键——期望值直接复用
+        /// 本用例 authoring 数据时使用的 <c>titleKey</c>/<c>descKey0</c> 两个 <see cref="Id"/> 局部
+        /// 变量（同一份数据、同一份期望值，不写与数据脱节的裸字符串），同
+        /// <c>UiDataSourceTests.Query_quest_state_and_objective</c> 复用 <c>questId</c> 变量同一
+        /// 惯例。第二条目标未声明 <c>description_key</c>，验证降级为"无"（<c>null</c>）。</summary>
+        [Fact]
+        public void QuestLog_ThroughPresentationAssembly_ExposesTitleAndObjectiveDescriptionKeys()
+        {
+            var questId = new Id("quest.quest_log_text_keys_test");
+            var titleKey = new Id("l10n.quest_log_text_keys_test.title");
+            var descKey0 = new Id("l10n.quest_log_text_keys_test.objective_0");
+
+            var presentation = Build(out var gameplay, out _, out _, out _, extraTables: source =>
+            {
+                source.Add("quest.def",
+                    "{\"table\": \"quest.def\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"" + questId.Value + "\", \"title_key\": \"" + titleKey.Value + "\", " +
+                    "\"objectives\": [" +
+                    "{\"type\": \"kill\", \"target_ref\": \"" + SampleTargetTemplateId.Value + "\", \"count\": 1, " +
+                    "\"description_key\": \"" + descKey0.Value + "\"}, " +
+                    "{\"type\": \"kill\", \"target_ref\": \"" + SampleTargetTemplateId.Value + "\", \"count\": 1}" +
+                    "], \"start_method\": \"npc_gossip\", \"turn_in_method\": \"npc_gossip\", \"repeatable\": \"none\"}" +
+                    "]}");
+            });
+
+            Assert.True(gameplay.Quest.Accept(gameplay.PlayerUnitProvider(), questId));
+            presentation.QuestLog.Refresh();
+
+            Assert.Equal(titleKey, presentation.QuestLog.GetQuestTitleKey(questId));
+            Assert.Equal(descKey0, presentation.QuestLog.GetObjectiveDescriptionKey(questId, 0));
+            // 数据未填描述的目标（第二条）→ 无。
+            Assert.Null(presentation.QuestLog.GetObjectiveDescriptionKey(questId, 1));
         }
 
         [Fact]

@@ -85,6 +85,46 @@ namespace Core.Gameplay.Quest
         /// </summary>
         IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId) => System.Array.Empty<int>();
 
+        // -----------------------------------------------------------------
+        // 任务名/目标描述文本键（消费方反馈第六批，阻塞：任务追踪 HUD 要显示"任务名 + 目标描述 +
+        // 进度 + 可交付状态"，前两项此前拿不到——QuestDefinition.TitleKey/QuestObjective.
+        // DescriptionKey 两个字段数据侧早已存在，本契约与 QuestLogViewModel 均未转发，逼表现层
+        // 自己反查数据表，违反"视图不得自己拼宿主数据"）
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 按 <paramref name="questId"/> 取该任务定义的标题文本键（<see cref="QuestDefinition.TitleKey"/>），
+        /// 供任务追踪 UI 展示任务名。任务未登记（含从未存在、或 <see cref="Reload"/> 后已被删除，同
+        /// <see cref="GetObjectiveRequiredCounts"/> 判断记录 CORE-118-QUEST）或该任务未声明
+        /// <c>title_key</c> 时返回 <c>null</c>，不抛异常、不编造占位文案——纯只读查询。
+        /// <para>
+        /// C# 8 默认接口成员：本默认实现恒返回 <c>null</c>——语义是"该宿主实现不提供标题键查询"，
+        /// 与 <c>Core.Rules.Common.ISkillHost.GetSkillNameKey</c> 既有的"查询类默认实现允许显式
+        /// 降级"惯例一致，供未实现本能力的 <see cref="IQuestHost"/>（旧版本编译产物、未升级的自定义
+        /// 实现、测试替身）源码/二进制兼容。生产实现 <see cref="QuestHost"/> 用显式接口实现转发到
+        /// 一个同名公开方法（不用隐式实现是刻意的——隐式实现会把该公开方法的物理 IL 属性从普通实例
+        /// 方法改写成 <c>virtual sealed</c>，被 <c>toolchain/abi_surface</c> 静态签名比对误判为
+        /// 破坏，同 <c>ISkillHost.GetSkillNameKey</c> 判断记录"ISkillHost 显式接口实现"一节）。任何
+        /// 组合/包装 <see cref="IQuestHost"/>（若存在）都应显式转发到内层实现，不应悄悄吃掉这个降级
+        /// 默认值——同 <c>ISkillHost.GetSkillReadiness</c> 判断记录"框架内
+        /// InterfaceDefaultMemberForwardingTests 门禁"。
+        /// </para>
+        /// </summary>
+        Id? GetQuestTitleKey(Id questId) => null;
+
+        /// <summary>
+        /// 按 <paramref name="questId"/> + <paramref name="objectiveIndex"/> 取该任务某条目标的描述
+        /// 文本键（<see cref="QuestObjective.DescriptionKey"/>），下标与 <see cref="GetLog"/> 返回的
+        /// <see cref="QuestProgress.ObjectiveCounts"/>/<see cref="GetObjectiveRequiredCounts"/> 对齐。
+        /// 任务未登记、<paramref name="objectiveIndex"/> 越界、或该条目标未声明 <c>description_key</c>
+        /// 时均返回 <c>null</c>，不抛异常、不编造占位文案——三种情形对调用方（任务追踪 UI）而言都是
+        /// "这条目标暂时没有描述文案可显示"，不需要相互区分。
+        /// <para>
+        /// C# 8 默认接口成员：默认实现与降级/显式接口实现惯例同 <see cref="GetQuestTitleKey"/>。
+        /// </para>
+        /// </summary>
+        Id? GetObjectiveDescriptionKey(Id questId, int objectiveIndex) => null;
+
         /// <summary>该单位当前全部 Active 任务里尚未达标的目标（questId, objectiveIndex, targetRef）
         /// 三元组列表（见 08 第 2.3 节"每个激活任务的每个未完成目标，可关联一个地图标记……逻辑层只
         /// 暴露当前激活目标的位置查询接口"——本方法只给出 targetRef，具体位置由调用方按 targetRef

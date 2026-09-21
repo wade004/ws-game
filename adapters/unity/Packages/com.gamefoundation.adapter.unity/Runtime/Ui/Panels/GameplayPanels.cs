@@ -422,14 +422,44 @@ namespace Adapter.Unity.Ui.Panels
     /// （AGENTS.md §3 确定性要求）。
     /// </para>
     /// </summary>
+    /// <summary>
+    /// 任务日志（09 §7.1、<see cref="QuestLogViewModel"/>）。
+    /// <para>
+    /// 消费方反馈第六批（阻塞）根治：<see cref="RefreshUi"/> 此前只显示 <c>QuestProgress.QuestId</c>
+    /// 裸 id——<see cref="QuestLogViewModel"/> 新增 <c>GetQuestTitleKey</c> 转发后，本面板顺手改为
+    /// 有标题键时优先显示标题键。比照 <see cref="ActionBarPanel"/> 同一手法（见该类型判断记录
+    /// "旧签名保留的语义边界"）：不给既有 <c>Construct(parent, vm)</c> 加必填参数（AGENTS.md §3
+    /// "不给既有构造/方法加参数"，且消费方已在用这个两参数签名），改加一个携带
+    /// <see cref="Core.Foundation.Localization.IL10nHost"/> 的三参数重载——提供了才会优先
+    /// <c>_l10n.Text(titleKey.Value)</c> 渲染真名；未提供 <see cref="Core.Foundation.Localization.IL10nHost"/>
+    /// 时（既有两参数签名）有标题键则退化显示键本身（<c>titleKey.Value.Value</c>，本身是有信息量的
+    /// 键串，不是编造的占位文案，同 <see cref="ActionBarPanel"/> 的 <c>ShortId</c> 兜底判断记录）；
+    /// 完全没有标题键（未声明 <c>title_key</c>）时回退显示 <c>QuestId</c>，保持本字段落地前的行为。
+    /// </para>
+    /// </summary>
     public sealed class QuestLogPanel : UiPanelBehaviour
     {
         private QuestLogViewModel _vm = null!;
         private TextMeshProUGUI _body = null!;
 
-        public void Construct(RectTransform parent, QuestLogViewModel vm)
+        /// <summary>可选——未提供时（既有两参数 <c>Construct</c>）标题展示恒退化到"有标题键则显示键
+        /// 本身，否则显示 QuestId"，见类型判断记录。</summary>
+        private Core.Foundation.Localization.IL10nHost? _l10n;
+
+        /// <summary>既有签名，逐字节保留：不提供 <see cref="Core.Foundation.Localization.IL10nHost"/>
+        /// 时任务名恒按"标题键存在则显示键本身、否则显示 QuestId"展示，供尚未升级到新重载的既有
+        /// 调用方使用。</summary>
+        public void Construct(RectTransform parent, QuestLogViewModel vm) => ConstructCore(parent, vm, l10n: null);
+
+        /// <summary>消费方反馈第六批新增重载：携带 <see cref="Core.Foundation.Localization.IL10nHost"/>，
+        /// 提供后 <see cref="RefreshUi"/> 优先经 <c>l10n.Text(titleKey.Value)</c> 渲染任务真名。</summary>
+        public void Construct(RectTransform parent, QuestLogViewModel vm, Core.Foundation.Localization.IL10nHost l10n) =>
+            ConstructCore(parent, vm, l10n);
+
+        private void ConstructCore(RectTransform parent, QuestLogViewModel vm, Core.Foundation.Localization.IL10nHost? l10n)
         {
             _vm = vm;
+            _l10n = l10n;
             var root = UiWidgets.CreatePanelBackground("QuestLogPanel", parent, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(260f, 220f), new Vector2(150f, 0f));
             _body = UiWidgets.CreateLabel("Body", root, "（无任务）", 15);
             UiWidgets.SetRect(_body.rectTransform, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
@@ -449,10 +479,22 @@ namespace Adapter.Unity.Ui.Panels
             var sb = new StringBuilder();
             foreach (var progress in _vm.Log)
             {
-                sb.Append(progress.QuestId.Value).Append(" [").Append(progress.State).Append("]\n");
+                sb.Append(ResolveQuestTitle(progress.QuestId)).Append(" [").Append(progress.State).Append("]\n");
                 AppendObjectiveProgress(sb, progress, _vm.GetObjectiveRequiredCounts(progress.QuestId));
             }
             _body.text = sb.ToString();
+        }
+
+        /// <summary>见类型判断记录"消费方反馈第六批"：有标题键时优先经 <see cref="_l10n"/> 解析真名，
+        /// 未提供 <see cref="_l10n"/> 时退化显示键本身；完全没有标题键时回退 <paramref name="questId"/>。</summary>
+        private string ResolveQuestTitle(Id questId)
+        {
+            var titleKey = _vm.GetQuestTitleKey(questId);
+            if (!titleKey.HasValue)
+            {
+                return questId.Value;
+            }
+            return _l10n != null ? _l10n.Text(titleKey.Value) : titleKey.Value.Value;
         }
 
         private static void AppendObjectiveProgress(StringBuilder sb, QuestProgress progress, IReadOnlyList<int> required)

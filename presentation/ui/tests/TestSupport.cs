@@ -370,6 +370,27 @@ namespace Tests.PresentationUi
 
         public IReadOnlyList<int> GetObjectiveRequiredCounts(Id questId) =>
             _requiredCounts.TryGetValue(questId, out var l) ? (IReadOnlyList<int>)l : Array.Empty<int>();
+
+        /// <summary>消费方反馈第六批（阻塞）根治：供 <c>title_key</c> 路径子查询/
+        /// <c>QuestLogViewModel.GetQuestTitleKey</c> 转发测试用——同 <see cref="_requiredCounts"/>
+        /// 判断记录惯例，单独一份字典，不设置则走接口默认实现（恒返回 <c>null</c>）。</summary>
+        private readonly Dictionary<Id, Id> _titleKeys = new Dictionary<Id, Id>();
+
+        /// <summary>同上，供 <c>objective_description_key[i]</c> 路径子查询/
+        /// <c>QuestLogViewModel.GetObjectiveDescriptionKey</c> 转发测试用，键为 (questId, objectiveIndex)。</summary>
+        private readonly Dictionary<(Id QuestId, int ObjectiveIndex), Id> _objectiveDescriptionKeys =
+            new Dictionary<(Id, int), Id>();
+
+        public void SeedTitleKeyForTest(Id questId, Id titleKey) => _titleKeys[questId] = titleKey;
+
+        public void SeedObjectiveDescriptionKeyForTest(Id questId, int objectiveIndex, Id descriptionKey) =>
+            _objectiveDescriptionKeys[(questId, objectiveIndex)] = descriptionKey;
+
+        public Id? GetQuestTitleKey(Id questId) =>
+            _titleKeys.TryGetValue(questId, out var key) ? key : (Id?)null;
+
+        public Id? GetObjectiveDescriptionKey(Id questId, int objectiveIndex) =>
+            _objectiveDescriptionKeys.TryGetValue((questId, objectiveIndex), out var key) ? key : (Id?)null;
     }
 
     internal sealed class FakeDialogHost : IDialogHost

@@ -130,6 +130,28 @@ namespace Tests.PresentationUi
             Assert.Null(world.DataSource.Query($"player.quest.{questId}.objective[9]"));
         }
 
+        /// <summary>消费方反馈第六批（阻塞）根治：<c>player.quest.&lt;questId&gt;.title_key</c>/
+        /// <c>.objective_description_key[i]</c> 两条新子路径应转发 <see cref="IQuestHost.GetQuestTitleKey"/>/
+        /// <see cref="IQuestHost.GetObjectiveDescriptionKey"/>；未设置文本键时返回"无"
+        /// （<c>Query</c> 结果为 <c>null</c>），同既有 <c>objective[9]</c> 越界口径一致。</summary>
+        [Fact]
+        public void Query_quest_title_key_and_objective_description_key()
+        {
+            var world = new UiWorldFixture();
+            var questId = new Id("quest.find_the_missing_child");
+            var titleKey = new Id("l10n.quest.find_the_missing_child.title");
+            var descKey0 = new Id("l10n.quest.find_the_missing_child.objective_0");
+            world.Quest.SeedQuestForTest(questId, QuestState.Active, new[] { 2, 0 });
+            world.Quest.SeedTitleKeyForTest(questId, titleKey);
+            world.Quest.SeedObjectiveDescriptionKeyForTest(questId, 0, descKey0);
+
+            Assert.Equal(titleKey, world.DataSource.Query($"player.quest.{questId}.title_key")!.Value.AsId);
+            Assert.Equal(descKey0, world.DataSource.Query($"player.quest.{questId}.objective_description_key[0]")!.Value.AsId);
+            // 第二条目标未 Seed 描述键 == 数据未填，降级为"无"；未知任务同样降级为"无"。
+            Assert.Null(world.DataSource.Query($"player.quest.{questId}.objective_description_key[1]"));
+            Assert.Null(world.DataSource.Query("player.quest.quest.never_registered.title_key"));
+        }
+
         [Fact]
         public void Query_currency_balance()
         {
