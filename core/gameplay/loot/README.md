@@ -666,6 +666,24 @@ loot/
 本模块目前没有需要 `Variants` 的判别字段（`roll_mode` 是分组自身的普通 `Enum`，不分派子字段结构）。
 `quality_weights`（T-N2-8 起）是本模块第一个 Map 型（动态键）字段，键引用 `item.quality_definition`。
 
+## 消费方反馈第五批第 1 条判断记录（2026-09-21，ADR-0062）
+
+新增 `LootHost.Interact(Id unitId, Id lootInstanceId)`：`interact` 意图原生分流第三条（与
+`core/carriers/gobj`/`core/carriers/creature` 两条既有分流并列，见 `LootInteractIntentTickHandler`）
+的实际消费者。判距复用既有 `LootOptions.PickupRange`，不新开一份平行配置；存在性核对失败、拾取
+许可回调拒绝两种情形记诊断（新增只读属性 `Diagnostics`，类型 `ILootDiagnostics`，复用既有类型，
+未新造）；距离不足是正常游玩瞬时状态，同既有 `PickUp` 直接调用路径口径一致，不记诊断。成功路径
+直接调用既有 `PickUp`（签名不变），不重复实现拾取逻辑，`Interact` 只是"判距 + 判权限 + 转调
+`PickUp`"这一层包装。
+
+拾取权限判定新增 `LootOptions.PickupPermissionChecker`（`LootPickupPermissionDelegate?`，默认
+`null`）：核对本模块与 `core/carriers/gobj.GameObjectHost.Interact` 后确认，本仓库任何一条既有
+交互分流都从未实现过身份/归属判定（`DroppedLootEntity.OwnerHint` 本就明确无强制语义），故不新造
+归属系统，改用贯穿本层的"L4 回调注入点、默认放行"惯例，详见 ADR-0062 决策 2。
+
+新增 14 参数构造函数重载（追加可选 `ILootDiagnostics? lootDiagnostics`，链式转发既有 13 参数
+构造函数），ABI 纯加法。`LootPickupFailureReason` 新增 `PermissionDenied` 枚举值。
+
 ## 不负责什么
 
 - 不实现难度倍率的具体计算——`CreatureDeathLootListener` 的 `Multiplier` 只是一个

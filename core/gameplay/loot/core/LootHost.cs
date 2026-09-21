@@ -70,6 +70,18 @@ namespace Core.Gameplay.Loot
         /// 判断记录退化为恒 1（不影响既有掉钱计算）。</summary>
         private readonly LootGoldMultiplierProvider? _goldMultiplierProvider;
 
+        /// <summary>
+        /// ADR-0062：<see cref="Interact"/>（<c>interact</c> 意图原生分流）专用诊断出口——本类既有
+        /// <see cref="_diagnostics"/>（<see cref="IExprDiagnostics"/>）只服务于掉落条件表达式求值，
+        /// 语义与"交互失败原因"不是一回事，不能借用。判断记录（field 初始化器 + 最宽重载覆盖，惯例同
+        /// <c>CreatureDeathLootListener._diagnostics</c>）：本类既有构造重载彼此单向链式
+        /// <c>: this(...)</c>（11→12→13 参），若只在新增的最宽重载里赋值，窄重载构造出来的实例本字段
+        /// 会是 <c>null</c>，<see cref="Interact"/> 的 <c>Warn(...)</c> 调用会抛
+        /// <see cref="NullReferenceException"/>——字段初始化器先于全部构造函数体执行，窄重载因此天然
+        /// 拿到这份默认实例，新增的 14 参重载再在自己构造函数体内用
+        /// <c>lootDiagnostics ?? new InMemoryLootDiagnostics()</c> 覆盖它。</summary>
+        private readonly ILootDiagnostics _lootDiagnostics = new InMemoryLootDiagnostics();
+
         private readonly Dictionary<Id, LootTableDef> _tables = new Dictionary<Id, LootTableDef>();
         private readonly Dictionary<Id, DroppedLootEntity> _dropped = new Dictionary<Id, DroppedLootEntity>();
         private readonly List<Id> _order = new List<Id>();
@@ -170,6 +182,33 @@ namespace Core.Gameplay.Loot
             _goldMultiplierProvider = goldMultiplierProvider;
         }
 
+        /// <summary>
+        /// ADR-0062 新增重载（ABI 硬性规则"只允许新增"，不改既有 13 参构造函数签名——同上两条
+        /// T-N4-7/T-N6-3b 先例）：额外接受 <paramref name="lootDiagnostics"/>，供 <see cref="Interact"/>
+        /// （<c>interact</c> 意图原生分流）报告交互失败原因。未提供（<c>null</c>——旧 13 参构造函数
+        /// 走的路径，或本重载显式传 <c>null</c>）时退化为一份独立的 <see cref="InMemoryLootDiagnostics"/>
+        /// （见 <see cref="_lootDiagnostics"/> 判断记录），不影响既有任何行为。
+        /// </summary>
+        public LootHost(
+            IDataRegistryView registry,
+            IRngHost rng,
+            IEventBus bus,
+            IWorldSim world,
+            IUnitAccess units,
+            IInventoryHost inventory,
+            IExprHostFactory exprHostFactory,
+            Func<double> simTimeProvider,
+            LootOptions? options,
+            IExprDiagnostics? diagnostics,
+            IExprSchema? conditionSchema,
+            IEconomyHost? economyHost,
+            LootGoldMultiplierProvider? goldMultiplierProvider,
+            ILootDiagnostics? lootDiagnostics)
+            : this(registry, rng, bus, world, units, inventory, exprHostFactory, simTimeProvider, options, diagnostics, conditionSchema, economyHost, goldMultiplierProvider)
+        {
+            _lootDiagnostics = lootDiagnostics ?? new InMemoryLootDiagnostics();
+        }
+
         private void ReloadTables()
         {
             _tables.Clear();
@@ -183,6 +222,12 @@ namespace Core.Gameplay.Loot
         /// <summary>当前活跃（尚未被完全拾取/过期销毁）的地面掉落物 id，按 <see cref="Drop"/> 调用
         /// 顺序排列（惯例同 <c>core/carriers/summon.SummonHost.ActiveSummonIds</c>）。</summary>
         public IReadOnlyList<Id> ActiveLootIds => _order;
+
+        /// <summary>诊断出口只读暴露（ABI 只新增只读属性，惯例同
+        /// <c>Core.Carriers.Gobj.GameObjectHost.Diagnostics</c>/<c>Core.Carriers.Creature.
+        /// CreatureInteractionHost.Diagnostics</c>，ADR-0042）：供 adapters/unity 侧统一诊断转发机制
+        /// 轮询 <see cref="Interact"/> 累积的 Warnings，不改变本类型任何既有公开签名。</summary>
+        public ILootDiagnostics Diagnostics => _lootDiagnostics;
 
         /// <summary>按 id 取回一个仍活跃的地面掉落物实体强类型引用（供 <see
         /// cref="DroppedLootPersistable.Save"/> 使用，避免重复维护第二份状态）。</summary>
@@ -835,6 +880,59 @@ namespace Core.Gameplay.Loot
             return _options.FullPolicy == LootPickupPolicy.Reject
                 ? PickUpReject(unitId, lootInstanceId, entity)
                 : PickUpPartial(unitId, lootInstanceId, entity);
+        }
+
+        /// <summary>
+        /// ADR-0062（消费方反馈第五批第 1 条）：<c>interact</c> 意图原生分流的统一入口——与
+        /// <c>Core.Carriers.Gobj.GameObjectHost.Interact</c>/<c>Core.Carriers.Creature.
+        /// CreatureInteractionHost.Interact</c> 两条既有分流同构，供
+        /// <see cref="LootInteractIntentTickHandler"/> 调用。
+        /// <para>
+        /// 判断记录（判距不另起一套配置，复用 <see cref="PickUp"/> 本就在用的
+        /// <see cref="LootOptions.PickupRange"/>）：gobj/creature 各自的交互距离是
+        /// <c>GobjOptions.InteractRange</c>/<c>CreatureInteractOptions.InteractRange</c> 专属字段，
+        /// 但地面掉落物"走近拾取"这件事本就已经有 <see cref="LootOptions.PickupRange"/> 这个专属配置
+        /// 项（08 第 1.2 节），经 <c>interact</c> 意图触发的拾取与直接调用 <see cref="PickUp"/> 应该
+        /// 是同一个"够不够近"的判断——新开一个平行的 <c>InteractRange</c> 只会制造"两个距离配置谁准"
+        /// 的歧义，不新增字段，直接委托给 <see cref="PickUp"/> 复用同一判断。</para>
+        /// <para>
+        /// 判断记录（失败原因枚举化：复用 <see cref="LootPickupFailureReason"/>，不新建平行枚举）：
+        /// 除权限拒绝（<see cref="LootPickupFailureReason.PermissionDenied"/>，本方法独有）外，其余
+        /// 失败原因（不存在/太远/背包放不下/整体撤回）与 <see cref="PickUp"/> 直接调用完全同构——都是
+        /// "这次拾取为什么没有成功"，没有必要为经 <c>interact</c> 意图触发这一件事单独定义一套值。
+        /// </para>
+        /// <para>
+        /// 判断记录（不静默降级，见 AGENTS.md §3）：目标掉落物不存在/已被拾完、权限接缝拒绝两种情形
+        /// 经 <see cref="Diagnostics"/> 记一条警告；距离过远与 gobj/creature 对同一情形的既有处理一致
+        /// （不记诊断——正常游玩中随时会发生的瞬时状态，见 <c>CreatureInteractionHost.Interact</c>
+        /// 判断记录），逐帧重复交互尝试不应该刷诊断；实际拾取阶段（背包放不下等）由
+        /// <see cref="PickUp"/> 自身语义决定，不在本方法重复判断，只在结果非成功时统一补一条诊断。
+        /// </para>
+        /// </summary>
+        public LootPickupResult Interact(Id unitId, Id lootInstanceId)
+        {
+            if (!_dropped.TryGetValue(lootInstanceId, out var entity) || entity.Items.Count == 0)
+            {
+                _lootDiagnostics.Warn(
+                    $"interact 目标掉落物 \"{lootInstanceId}\" 不存在或已被拾取（actorId=\"{unitId}\"），已忽略");
+                return LootPickupResult.Fail(LootPickupFailureReason.NotFound);
+            }
+
+            if (_options.PickupPermissionChecker != null && !_options.PickupPermissionChecker(unitId, lootInstanceId, entity.OwnerHint))
+            {
+                _lootDiagnostics.Warn(
+                    $"interact 发起者 \"{unitId}\" 无权限拾取掉落物 \"{lootInstanceId}\"，已拒绝");
+                return LootPickupResult.Fail(LootPickupFailureReason.PermissionDenied);
+            }
+
+            var result = PickUp(unitId, lootInstanceId);
+            if (!result.Success && result.Reason != LootPickupFailureReason.TooFar)
+            {
+                _lootDiagnostics.Warn(
+                    $"interact 拾取掉落物 \"{lootInstanceId}\" 未成功（actorId=\"{unitId}\"）：{result.Reason}");
+            }
+
+            return result;
         }
 
         /// <summary>T-N2-8b（T-N2-8 已知缺口收口）：按下标把 <paramref name="items"/> 与

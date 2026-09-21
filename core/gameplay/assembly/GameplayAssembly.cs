@@ -689,6 +689,19 @@ namespace Core.Gameplay.Assembly
             //    调用方，按 creature.tier_definition.gold_multiplier（经
             //    CreatureFactory.TryGetGoldMultiplier 查询，未登记分档/tierId 为 null 时恒 1）计算。
             // ---------------------------------------------------------
+            // 消费方反馈同构问题第三处根治（判断记录 19）：本装配根此前从未持有过 CreatureDeathLootListener
+            // 实例（构造后即 `_ = new ...` 弃元），诊断契约因此完全没有到达宿主控制台的通路（ADR-0042
+            // 决策 1）。提前构造这份诊断实例，供 LootDiagnostics 属性转发给 adapters/unity 侧统一
+            // 诊断转发机制登记（惯例同下方 progressionBridgeDiagnostics）。
+            //
+            // ADR-0062：本次把这份实例的构造提前到 LootHost 构造之前（此前只在 CreatureDeathLootListener
+            // 构造前才 new 出来）——LootHost 新增的 14 参重载同样接受 ILootDiagnostics，让
+            // LootHost.Interact（interact 意图原生分流）与 CreatureDeathLootListener 共用同一份诊断
+            // 实例、同一个 "Core.Gameplay.Loot" 诊断来源（ADR-0042 决策 1 一贯要求"同一模块一个来源"），
+            // 不引入第二份独立诊断流。
+            var lootDiagnostics = new InMemoryLootDiagnostics();
+            LootDiagnostics = lootDiagnostics;
+
             Loot = new LootHost(
                 registry, rng, bus, world, Carriers.Units, Carriers.Inventory, ExprHostFactory,
                 () => Carriers.Rules.SimTime, lootOptions, diagnostics: null,
@@ -696,7 +709,8 @@ namespace Core.Gameplay.Assembly
                 goldMultiplierProvider: tierId =>
                     tierId.HasValue && Carriers.Creatures.TryGetGoldMultiplier(tierId.Value, out var goldMultiplier)
                         ? goldMultiplier
-                        : 1.0);
+                        : 1.0,
+                lootDiagnostics: lootDiagnostics);
             deferredLootRoller.Bind(Loot);
 
             // T-N2-8b：Difficulty 已在上一步构造完成，直接传入（不需要像 healthFractionSetter/
@@ -705,13 +719,6 @@ namespace Core.Gameplay.Assembly
             // 2026-09-16 深度复审 D-M1：追加 summons: Carriers.Summons，供 OnUnitDied 货币入账前把
             // 击杀者解析为记账单位（召唤物→主人），与下面 CreatureDeathXpListener 的既有装配点保持
             // 一致（该处一直就传了 summons，见其判断记录）。
-            //
-            // 消费方反馈同构问题第三处根治（判断记录 19）：本装配根此前从未持有过这个监听器实例
-            // （构造后即 `_ = new ...` 弃元），诊断契约因此完全没有到达宿主控制台的通路（ADR-0042
-            // 决策 1）。提前构造这份诊断实例，供 LootDiagnostics 属性转发给 adapters/unity 侧统一
-            // 诊断转发机制登记（惯例同下方 progressionBridgeDiagnostics）。
-            var lootDiagnostics = new InMemoryLootDiagnostics();
-            LootDiagnostics = lootDiagnostics;
             _ = new CreatureDeathLootListener(
                 bus, Loot, Carriers.Creatures, Carriers.Units, world,
                 lootMultiplierProvider: () => Difficulty.LootMultiplier,
@@ -1159,6 +1166,15 @@ namespace Core.Gameplay.Assembly
             // 离散/连续区分求值时机——离散模式下改由 sim.turn_ended/sim.round_ended 事件驱动。
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EncounterTickHandler(Encounter, bus));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new LootExpiryTickHandler(Loot, () => Carriers.Rules.SimTime));
+
+            // ADR-0062：地面掉落物侧 interact 意图消费者，与 core/carriers/assembly.CarriersAssembly
+            // 已经注册的 gobj/creature 两条既有分流共用同一个 TickPhase.TriggerEvaluation 阶段、同一个
+            // "interact" Kind，按 Args 形状分流（见 LootInteractIntentTickHandler/
+            // InteractIntentTickHandler 两者判断记录）。只能在这里（Loot 构造完成之后）注册，不能像
+            // 另两条那样放在 CarriersAssembly 里——见 LootInteractIntentTickHandler 判断记录"挂载
+            // 位置"。诊断复用 lootDiagnostics（同上方 LootHost/CreatureDeathLootListener 共用同一份，
+            // 见 ADR-0042 决策 1"同一模块一个来源"）。
+            world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new LootInteractIntentTickHandler(Loot, lootDiagnostics));
             world.RegisterPhaseHandler(TickPhase.TriggerEvaluation, new EconomySpawnUpdateTickHandler(Economy, Spawn));
 
             // ---------------------------------------------------------

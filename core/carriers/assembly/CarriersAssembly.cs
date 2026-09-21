@@ -56,6 +56,12 @@ namespace Core.Carriers.Assembly
         public EquipmentHost Equipment { get; }
         public CreatureFactory Creatures { get; }
 
+        /// <summary>ADR-0062（消费方反馈第五批第 1 条续）：统一的"最近可交互目标"查询——见
+        /// <see cref="Core.Carriers.Common.IInteractionTargetRegistry"/> 类型注释，场景物件/生物/
+        /// 地面掉落物（后者构造晚于本装配根，见 <see cref="InteractionTargetRegistry"/> 判断记录）
+        /// 三类目标共用同一个入口。</summary>
+        public Core.Carriers.Common.IInteractionTargetRegistry InteractionTargets { get; }
+
         /// <summary>ADR-0051：生物原生交互宿主（消费方反馈第 2 条根治）——见
         /// <see cref="Core.Carriers.Creature.CreatureInteractionHost"/> 判断记录，与
         /// <see cref="GameObjectInteractions"/> 是同一层面并列的两个 <c>interact</c> 意图消费者，
@@ -297,6 +303,13 @@ namespace Core.Carriers.Assembly
                 powers.ModifyPower(unitId, WellKnownPowers.Health, max * fraction - current, new Id("system.revive"));
             };
             Units = new WorldUnitAccess(world, spatial, healthFractionSetter);
+
+            // ADR-0062：最近可交互目标查询——只依赖本步刚构造好的 Units（IUnitAccess）与本方法参数
+            // world（IWorldSim），不需要等 gobj/creature/loot 任何一个具体宿主构造完成（见
+            // InteractionTargetRegistry 判断记录"不持有具体宿主引用，只经 EntityKinds 识别类型"），
+            // 因此可以在这里尽早构造——地面掉落物（L4，晚于 CarriersAssembly 构造）一样能被查到，
+            // 见该类型判断记录"直接查 IWorldSim 现场结果"。
+            InteractionTargets = new InteractionTargetRegistry(world, Units);
 
             // ---------------------------------------------------------
             // 2) CreatureImmunityProvider（IStaticImmunityProvider 的默认实现）+ InventoryHost +

@@ -415,3 +415,30 @@ ABI：纯加法——两个 Provider 各新增一个构造函数重载，`HudVie
 `AutoAttackState` 回落 `NoTarget` 之间存在的一拍延迟（`AutoAttackHost.Update` 既有惯例，见
 `core/sim/tests/AutoAttackHostIntegrationTests.cs` 对应判断记录），而不只是验证某一段转发逻辑
 本身正确。
+
+## 判断记录（`InteractPathProvider`、`interact.nearest.*`，2026-09-21，消费方反馈第五批第 1 条，[ADR-0062](../../architecture/adr/0062-地面掉落物原生交互与统一最近可交互目标查询.md)）
+
+新增 `Presentation.Ui.InteractPathProvider`，`Root => "interact"`，解答 `interact.nearest.
+id|kind|distance` 三个叶子字段。核对现状后确认表现层此前对 gobj/creature 同样从未提供过"附近是否
+有可交互目标"查询——不是"另两类已有、只差 loot"，而是三类都没有；既然要新开路径，直接设计成三类
+统一：`interact.nearest.kind` 返回 `EntityKinds` 既有的三个字符串常量之一（`"gobj"`/`"creature"`/
+`"loot"`，复用既有 token，不新造一套字符串），接入方判断"附近是否有可拾取掉落物"只需要
+`interact.nearest.kind == "loot"`，不需要框架为掉落物单独开一条 `interact.nearest_loot.*`。附近
+无候选时三个叶子均返回 `null`，不记诊断——同 `target.*` 既有惯例（正常查询结果，不是路径错误）；
+段数/关键字不符时才记诊断。
+
+构造函数 `InteractPathProvider(Id unitId, IInteractionTargetRegistry registry, double? maxRange =
+null)`：`unitId` 是查询锚点（同 `PlayerPathProvider` 惯例，只服务"玩家自己按键时附近有什么"这一
+最常见场景，不支持查任意单位）；`maxRange` 默认 `null`（不限距离）——三类目标各自的 `interact`
+意图分流已经在判距（`GobjOptions.InteractRange`/`CreatureInteractOptions.InteractRange`/
+`LootOptions.PickupRange`），本查询只是提示玩家附近有什么，不重复实现一套独立的范围策略。
+`PresentationAssembly` 接线：`new InteractPathProvider(_playerId, gameplay.Carriers.
+InteractionTargets)`（`CarriersAssembly` 新增的只读属性，见该模块 README 对应判断记录）。
+
+验收贯通到生产装配入口：`presentation/assembly/tests/PresentationAssemblyTests.cs` 新增
+`InteractPathProvider_NearestTarget_PrefersCloserLoot_OverFartherGobj_AndFallsBackAfterPickup`
+——经真实 `PresentationAssembly.Build` 装配、真实掉落物生成与真实 `LootHost.PickUp` 拾取（拾取后
+需推进一次 `world.Tick` 让 `MarkForDestruction` 完成生命周期清理，`IInteractionTargetRegistry`
+现场查询才会反映最新状态，见 `core/carriers/assembly/README.md` 对应判断记录），断言路径查询结果
+从"命中较近的掉落物"正确回退到"命中较远的场景物件"，覆盖到最外层（视图模型/路径层），不停在
+装配代码中间层。

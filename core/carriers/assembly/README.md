@@ -176,3 +176,17 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 `core/rules/assembly/README.md` 对应判断记录）换上真实实现，同既有
 `deferredWeaponDamageQuery.Bind(Equipment)` 一类"L3 装配完成后回填 L2 延迟绑定代理"的既定接线
 惯例。不新增/不改动任何公开构造签名，纯粹是既有构造函数体内多一行装配逻辑。
+
+## 判断记录（`InteractionTargetRegistry`，2026-09-21，architecture/adr/0062-地面掉落物原生交互与统一最近可交互目标查询.md）
+
+新增 `Core.Carriers.Assembly.InteractionTargetRegistry`（`core/carriers/common.IInteractionTargetRegistry`
+的默认实现，见该目录 README 对应判断记录）。放在本目录而不是 gobj/creature/loot 任一具体模块：本类型
+与本目录既有的 `EntitySpatialSyncHost`/`NullWorldFlags` 同一类"跨多个载体模块的组合期通用实现"，不
+归属任何单一模块；只依赖 `IWorldSim`/`IUnitAccess`，在 `Units = new WorldUnitAccess(...)` 就绪后立即
+构造（`CarriersAssembly` 新增只读属性 `InteractionTargets`），不需要等 gobj/creature 具体宿主构造
+完成——本类型不持有它们的引用，只经 `EntityKinds` 字符串常量识别目标类型，`core/gameplay/loot`（L4）
+构造出 `LootHost` 之后产生的掉落物实体，本类型透明覆盖（现场查 `IWorldSim`，不持有构造期快照）。
+候选过滤显式排除查询发起者自身（`!entity.EntityId.Equals(unitId)`）——早期实现遗漏这一条，被
+`Tests.PresentationCommon` 用真实 `CreatureFactory.Spawn` 出的玩家单位命中自身的用例发现（玩家单位
+`Kind == EntityKinds.Creature`，未排除自身时会把查询发起者本身算作候选），修正为一处正确性修复，不
+只是测试夹具绕行。不新增/不改动任何既有公开构造签名。
