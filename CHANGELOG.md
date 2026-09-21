@@ -458,6 +458,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.54.0] - 2026-09-21
+
 ### 新增
 
 - **`AssetRootConventions` 新增 `DatasetDataDirectory` 的逆运算 `TryGetDatasetName`**（消费方
