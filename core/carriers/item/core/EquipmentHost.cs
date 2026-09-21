@@ -646,6 +646,41 @@ namespace Core.Carriers.Item
         /// 系统的常规产出）场景下武器秒伤按错误的品质倍率计算，见复审报告 B-M1。
         /// </para>
         /// </summary>
+        /// <summary>
+        /// ADR-0059：<see cref="IWeaponDamageQuery.GetWeaponAttackIntervalSeconds"/> 实现——武器槽
+        /// 选取规则同 <see cref="GetWeaponBaseDamage"/>/<see cref="GetWeaponDps"/>
+        /// （<see cref="TryGetFirstWeaponSlot"/>），值直接取 <see cref="WeaponProfile.Speed"/>；未
+        /// 装备任何武器槽、或该槽没有 <c>weapon_profile</c> 时返回 <c>null</c>（见接口成员判断记录
+        /// "无武器返回 null 而非 0"）。
+        /// </summary>
+        public double? GetWeaponAttackIntervalSeconds(Id unitId)
+        {
+            if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))
+            {
+                return null;
+            }
+
+            var profile = GetWeaponProfile(unitId, weaponSlot);
+            return profile.HasValue ? profile.Value.Speed : (double?)null;
+        }
+
+        /// <summary>
+        /// ADR-0059：<see cref="IWeaponDamageQuery.GetWeaponSchool"/> 实现——武器槽选取规则同
+        /// <see cref="GetWeaponBaseDamage"/>/<see cref="GetWeaponDps"/>，值取
+        /// <see cref="WeaponProfile.WeaponSchool"/>（该字段本身已是 <c>Id?</c>，未装备武器或武器未
+        /// 登记学派都自然落到 <c>null</c>，不需要额外分支）。
+        /// </summary>
+        public Id? GetWeaponSchool(Id unitId)
+        {
+            if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))
+            {
+                return null;
+            }
+
+            var profile = GetWeaponProfile(unitId, weaponSlot);
+            return profile?.WeaponSchool;
+        }
+
         public double GetWeaponDps(Id unitId)
         {
             if (!TryGetFirstWeaponSlot(unitId, out var weaponSlot))

@@ -458,6 +458,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+- **行为变更**：新增普通攻击（武器驱动的自动重复攻击）的框架原生执行机制
+  （[ADR-0059](architecture/adr/0059-普通攻击的框架原生执行机制.md)，答复消费方反馈第三批第 5
+  条：普通攻击此前完全没有框架原生执行路径）。新增
+  `Core.Rules.Combat.AutoAttackHost`（`SetEnabled`/`SetTarget`/`IsEnabled`/`GetTarget`/
+  `GetState`/`Update`）与 `AutoAttackTickHandler`（新增 `TickPhase.CombatResolution` 阶段处理器，
+  只驱动连续时间模式）；`RulesAssembly` 新增只读属性 `AutoAttack`/`AttackIntervalFallback`。
+  普通攻击到点结算复用既有 `weapon_damage_pct` 效果原语与 `Resolver.Resolve` 结算管线（不新增
+  伤害公式），`combat.damage_dealt`/`unit.died` 与技能击杀逐字段同构，既有 XP/掉落监听器无需
+  特判。`IWeaponDamageQuery` 新增默认接口成员
+  `GetWeaponAttackIntervalSeconds`/`GetWeaponSchool`（缺省 `null`，`EquipmentHost` 显式实现）；
+  新增 `IAttackIntervalFallbackProvider` 契约与 `creature.template` 新增可选字段
+  `attack_interval`（未装备武器时的固定挥击间隔回退，纯新增字段不提升 schema 版本）。均为
+  ABI 纯新增（新类型/新只读属性/新默认接口成员），不改动任何既有公开签名的默认运行时行为——
+  未显式调用 `AutoAttack.SetEnabled(...)` 的既有单位不受任何影响，标记为行为变更是因为该模块
+  本身是首次落地的新能力，且其运行时结算会真实产生伤害/事件（一旦游戏侧开始调用）。
+
 ## [1.51.0] - 2026-09-21
 
 ### 新增

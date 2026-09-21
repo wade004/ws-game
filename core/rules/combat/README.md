@@ -511,3 +511,19 @@ combat/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（普通攻击框架原生执行机制，2026-09-21，architecture/adr/0059-普通攻击的框架原生执行机制.md）
+
+新增 `Core.Rules.Combat.AutoAttackHost`（挥击计时驱动，维护每个施法者"开关"×"当前目标"两个正交
+可观测状态 `AutoAttackState { Off, NoTarget, Attacking }`）与 `AutoAttackTickHandler`（新增
+`TickPhase.CombatResolution` 阶段处理器，只在 `SimStep.Kind == Continuous` 驱动，与既有
+`CombatTickHandler` 同一分工惯例）。到点结算不新写伤害公式——直接构造一份
+`EffectContext`（`EffectKind.WeaponDamagePct`，`SkillId` 固定为保留 id
+`AutoAttackHost.NativeSkillId`，不对应任何真实注册的 `skill.def`）调用既有
+`IEffectSink.ApplyEffect`，复用 `EffectDispatcher.ApplyDamageOrHeal` → `Resolver.Resolve` 这条
+现成的结算链路——`combat.damage_dealt`/`unit.died` 与技能击杀逐字段同构，既有 XP/掉落监听器不需要
+为普通攻击写任何特判。目标消失/死亡时清空当前目标、回落到 `NoTarget`（不诊断，正常状态迁移）；
+超出 `AutoAttackOptions.Range`（默认 0=无限制）或命中 `ControlFlags.NoAttack` 时本次挥击被跳过
+（不结算、不诊断，计时器清零重新计时）；挥击间隔两处数据源（已装备武器/生物模板回退）均取不到值
+时不产生任何攻击，经 `ICombatDiagnostics` 告警一次（同一原因持续存在期间不刷屏）——AGENTS.md
+§3"运行时不静默降级"。`RulesAssembly` 新增只读属性 `AutoAttack`（ABI 只新增成员）。

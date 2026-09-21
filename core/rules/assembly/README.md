@@ -311,3 +311,19 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 三个既有公开属性本身是具体类型（`CombatHost`/`SkillHost`/`ProgressionHost`），直接在各自类型上新增
 `Diagnostics` 只读属性即可，不需要 `RulesAssembly` 转发（`CombatHost` 额外新增了 `_diagnostics`
 字段接住此前只转发给内部 `Resolver`、自身不持有的诊断实例引用，见该类型判断记录）。
+
+## 判断记录（新增 AutoAttack 装配与挥击间隔回退代理，2026-09-21，architecture/adr/0059-普通攻击的框架原生执行机制.md）
+
+新增只读属性 `AttackIntervalFallback: DeferredAttackIntervalProvider` 与
+`AutoAttack: Core.Rules.Combat.AutoAttackHost`
+（ABI 均为新增只读属性/新增类型，不改动任何既有公开签名）。`AttackIntervalFallback` 是
+`IAttackIntervalFallbackProvider` 的延迟绑定代理（构造期先塞一份"未绑定真实实现前恒返回 `null`"
+的占位，`CarriersAssembly` 构造完 `CreatureAttackIntervalProvider` 后调 `.Bind(...)` 换上真实
+实现，惯例同既有 `DeferredWeaponDamageQuery`/`DeferredAuraQuery`）；`AutoAttack` 在构造函数体内
+（既有两个 `RulesAssembly` 公开构造函数——短参数重载 `: this(...)` 委托长参数"真实"构造函数——的
+真实构造函数体内追加，不改变任一构造函数的参数列表签名）用 `Units`/`deferredAuras`/
+`Skill.EffectSink`/`WeaponDamageQuery`/`resolvedCombatOptions.PhysicalSchool`/
+`AttackIntervalFallback`/`Combat.Diagnostics` 装配。`RegisterTickHandlers()` 内追加
+`World.RegisterPhaseHandler(TickPhase.CombatResolution, new AutoAttackTickHandler(AutoAttack))`，
+紧跟既有 `CombatTickHandler` 注册之后（同一阶段并列注册，顺序不影响两者各自独立按 `SimStep.Kind`
+过滤连续/离散步）。

@@ -92,6 +92,17 @@ namespace Core.Carriers.Creature
                     description: "指向 dialog.gossip_menu 的对话菜单，供原生 interact 生物路径分发（ADR-0051）；" +
                         "可为空——为空表示该生物当前没有原生可交互内容。L4 高于本模块 L3，退回 Id（仅供内容工具补全/跳转）")
                     .WithSoftReference(table: "dialog.gossip_menu"),
+                // ADR-0059 新增（消费方反馈第三批第 5 条"普通攻击缺少框架原生执行机制"）：该生物没有
+                // 装备武器时，普通攻击挥击间隔（秒）的回退数据源，见
+                // Core.Carriers.Creature.CreatureTemplate.AttackInterval/
+                // Core.Rules.Common.IAttackIntervalFallbackProvider 判断记录。纯新增可选字段，不升
+                // currentSchemaVersion、不需要迁移函数，旧数据行零改动仍合法；缺省 null（该生物没有
+                // 回退攻击间隔）。WithRange(min: 0, minExclusive: true)——0 或负值没有安全语义（0 会让
+                // AutoAttackHost 的挥击计时器每 tick 都判定"到点"，等价于文档明确要避免的"每帧打一次"）。
+                new FieldSchema("attack_interval", FieldKind.Number, required: false,
+                    description: "无武器时普通攻击的挥击间隔（秒），见 AutoAttackHost 判断记录\"武器 speed 优先，" +
+                        "武器缺失才回退本字段\"；缺省 null（该生物没有回退攻击间隔）")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(

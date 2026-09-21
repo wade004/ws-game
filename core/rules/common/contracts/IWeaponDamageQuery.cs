@@ -62,5 +62,42 @@ namespace Core.Rules.Common
         /// </para>
         /// </summary>
         double GetWeaponDps(Id unitId) => 0.0;
+
+        /// <summary>
+        /// ADR-0059 新增（消费方反馈第三批第 5 条"普通攻击缺少框架原生执行机制"）：
+        /// <paramref name="unitId"/> 当前装备武器的挥击间隔（秒），取值直接等于
+        /// <c>item.template.weapon_profile.speed</c>（07 第 1.2 节"伤害范围 = 武器秒伤 ×
+        /// weapon_profile.speed"公式里的同一个 <c>speed</c>——该公式把 <c>speed</c> 定义为"每次挥击
+        /// 覆盖的秒数"，与本方法"挥击间隔"是同一个量，不是另一套新概念）。取法同
+        /// <see cref="GetWeaponBaseDamage"/>/<see cref="GetWeaponDps"/>：按
+        /// <c>item.slot_definition.is_weapon == true</c> 的槽位查找，多个武器槽（双持）时取按槽位 id
+        /// 序数最先命中的一个。未装备任何武器槽（或该槽没有 <c>weapon_profile</c>）时返回
+        /// <c>null</c>——区别于 <see cref="GetWeaponBaseDamage"/>/<see cref="GetWeaponDps"/>"无武器
+        /// 返回 0"（0 在那两个方法里是合法的伤害值，语义是"这次贡献为零"）：挥击间隔为 0 没有对应的
+        /// 安全语义（会让挥击计时器每 tick 都判定"到点"，等价于"每帧打一次"，正是
+        /// <c>Core.Rules.Combat.AutoAttackHost</c> 需要避免的行为），因此用 <c>null</c>
+        /// 显式表达"没有武器数据可用"，调用方（<c>AutoAttackHost</c>）据此转而查询
+        /// <see cref="Core.Rules.Common.IAttackIntervalFallbackProvider"/>（生物模板 <c>attack_interval</c>
+        /// 字段），两者都没有时按"运行时不静默降级"处理——记诊断、当次不攻击，不擅自取一个默认间隔。
+        /// 默认实现返回 <c>null</c>（等价于"未装备/无数据"），真正的求值逻辑由 <c>EquipmentHost</c>
+        /// 显式转发实现（<c>Tests.Presentation.Assembly.InterfaceDefaultMemberForwardingTests</c>
+        /// 门禁要求）；组合/代理实现（<c>Core.Rules.Assembly.DeferredWeaponDamageQuery</c>）同样需要
+        /// 显式转发到内层真实实现。
+        /// </summary>
+        double? GetWeaponAttackIntervalSeconds(Id unitId) => null;
+
+        /// <summary>
+        /// ADR-0059 新增：<paramref name="unitId"/> 当前装备武器的学派（<c>item.template
+        /// .weapon_profile.weapon_school</c>），供 <c>AutoAttackHost</c> 结算普通攻击伤害时确定
+        /// <see cref="EffectContext.School"/>（免疫/抗性/护甲按学派区分，见 06 第 4.1/4.3 节）——
+        /// 普通攻击复用既有 <c>weapon_damage_pct</c> 效果原语与既有结算管线，理应像技能一样把武器
+        /// 学派带进结算，而不是硬编码成固定学派。取法同 <see cref="GetWeaponAttackIntervalSeconds"/>；
+        /// 未装备武器、或武器没有登记 <c>weapon_school</c>（07 第 1.1 节该子字段本就可选）时返回
+        /// <c>null</c>——调用方按 <c>null</c> 退回 <c>CombatOptions.PhysicalSchool</c>（"空手/未声明
+        /// 学派的普通攻击按物理伤害处理"，与近战武器缺省物理学派的常见约定一致，且与
+        /// <see cref="WeaponSchool"/> 字段本身"数据未提供时为 null"的既有防御性处理同一口径）。默认
+        /// 实现返回 <c>null</c>，真正求值逻辑与转发要求同 <see cref="GetWeaponAttackIntervalSeconds"/>。
+        /// </summary>
+        Id? GetWeaponSchool(Id unitId) => null;
     }
 }

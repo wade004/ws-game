@@ -66,6 +66,18 @@ namespace Core.Carriers.Creature
         /// 分支），沿用判别联合会引入一个恒定单分支的多余抽象层。</summary>
         public Id? GossipMenuRef { get; }
 
+        /// <summary>ADR-0059（消费方反馈第三批第 5 条"普通攻击缺少框架原生执行机制"）新增可选字段：
+        /// 该生物没有装备武器时，普通攻击挥击间隔（秒）的回退数据源——见
+        /// <c>Core.Rules.Common.IAttackIntervalFallbackProvider</c>/<c>Core.Rules.Combat
+        /// .AutoAttackHost</c> 判断记录"优先取武器 speed，武器缺失才回退本字段"。纯新增可选字段
+        /// （07 第 2.1 节原字段表未列出，本次任务补录），不升 <see cref="CreatureSchemas.Template"/>
+        /// 的 <c>currentSchemaVersion</c>、不需要迁移函数——旧数据行零改动仍合法，未声明时为
+        /// <c>null</c>，等价于"该生物没有回退攻击间隔"（<c>AutoAttackHost</c> 据此按"运行时不静默
+        /// 降级"处理，记诊断、当次不攻击，不是"当前完全没影响"的静默行为——但这是调用方
+        /// <c>AutoAttackHost</c> 的诊断口径，不是本类型/本字段自身的行为变化：未声明本字段的既有
+        /// 生物模板在"没有启用普通攻击"这一前提下，行为逐位不变）。</summary>
+        public double? AttackInterval { get; }
+
         private CreatureTemplate(
             Id id,
             Id nameKey,
@@ -82,7 +94,8 @@ namespace Core.Carriers.Creature
             IReadOnlyList<Id> immunities,
             Id? onHitReactionRef,
             Id? onDeathReactionRef,
-            Id? gossipMenuRef)
+            Id? gossipMenuRef,
+            double? attackInterval)
         {
             Id = id;
             NameKey = nameKey;
@@ -100,6 +113,7 @@ namespace Core.Carriers.Creature
             OnHitReactionRef = onHitReactionRef;
             OnDeathReactionRef = onDeathReactionRef;
             GossipMenuRef = gossipMenuRef;
+            AttackInterval = attackInterval;
         }
 
         public static CreatureTemplate FromRecord(DataRecord record)
@@ -158,11 +172,12 @@ namespace Core.Carriers.Creature
             var onHitReactionRef = record.TryGetId("on_hit_reaction_ref", out var ohr) ? (Id?)ohr : null;
             var onDeathReactionRef = record.TryGetId("on_death_reaction_ref", out var odr) ? (Id?)odr : null;
             var gossipMenuRef = record.TryGetId("gossip_menu_ref", out var gmr) ? (Id?)gmr : null;
+            var attackInterval = record.TryGetNumber("attack_interval", out var ai) ? (double?)ai : null;
 
             return new CreatureTemplate(
                 id, nameKey, level, tierId, baseStats, statGrowthRef, factionId, npcFlags,
                 aiRotationRef, aiBehaviorRef, lootTableRef, displayRef, immunities,
-                onHitReactionRef, onDeathReactionRef, gossipMenuRef);
+                onHitReactionRef, onDeathReactionRef, gossipMenuRef, attackInterval);
         }
     }
 }

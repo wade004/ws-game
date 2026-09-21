@@ -167,3 +167,12 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 `Args` 是否携带 `creature_instance_id`/`gobj_instance_id` 分流，见
 `core/carriers/creature/README.md` 判断记录 13、`core/carriers/gobj/README.md` 对应判断记录。
 唯一调用点（`core/gameplay/assembly.GameplayAssembly`）已同步显式传入该参数。
+
+## 判断记录（Bind 生物挥击间隔回退代理，2026-09-21，architecture/adr/0059-普通攻击的框架原生执行机制.md）
+
+`CarriersAssembly` 构造函数体内、`Creatures = new CreatureFactory(...)` 之后追加一行：
+`Rules.AttackIntervalFallback.Bind(new Core.Carriers.Creature.CreatureAttackIntervalProvider(world, Creatures))`
+——把 `RulesAssembly` 构造期塞入的占位代理（`DeferredAttackIntervalProvider`，详见
+`core/rules/assembly/README.md` 对应判断记录）换上真实实现，同既有
+`deferredWeaponDamageQuery.Bind(Equipment)` 一类"L3 装配完成后回填 L2 延迟绑定代理"的既定接线
+惯例。不新增/不改动任何公开构造签名，纯粹是既有构造函数体内多一行装配逻辑。

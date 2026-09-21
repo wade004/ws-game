@@ -429,6 +429,13 @@ namespace Core.Carriers.Assembly
                 registry, world, bus, Rules.Stats, Rules.Powers, Rules.Progression, Units, aiRegistrar,
                 creatureOptions);
 
+            // ADR-0059（消费方反馈第三批第 5 条）：换上 RulesAssembly 构造期先用的延迟绑定代理（见
+            // DeferredAttackIntervalProvider 判断记录——真实实现要等 Creatures 在这里构造完成才
+            // 存在，与 WeaponDamageQuery 的循环依赖是同一种模式）。Creatures 本身兼实现
+            // ICreatureTemplateQuery（见下方判断记录"ICreatureTemplateQuery 由 CreatureFactory 兼
+            // 实现"）。
+            Rules.AttackIntervalFallback.Bind(new Core.Carriers.Creature.CreatureAttackIntervalProvider(world, Creatures));
+
             // ADR-0051：生物原生交互宿主（消费方反馈第 2 条根治）——只依赖本步已构造完成的
             // world/Units/Creatures（ICreatureTemplateQuery 由 CreatureFactory 兼实现，见该类型
             // 判断记录），不依赖任何尚未构造的后续步骤。
