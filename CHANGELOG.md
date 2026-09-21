@@ -458,6 +458,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **地面掉落物原生 `interact` 意图分流与统一"最近可交互目标"查询**（消费方反馈第五批第 1 条，
+  [ADR-0062](architecture/adr/0062-地面掉落物原生交互与统一最近可交互目标查询.md)）：`interact`
+  意图新增第三条原生分流 `Core.Gameplay.Loot.LootInteractIntentTickHandler`（Args 携带
+  `loot_instance_id`），与既有 gobj/creature 两条分流并列注册在 `TickPhase.TriggerEvaluation`
+  （`GameplayAssembly` 接线，因 `LootHost` 是 L4 类型）。`LootHost` 新增
+  `Interact(Id unitId, Id lootInstanceId)` 方法（判距复用既有 `LootOptions.PickupRange`，成功后
+  直接调用既有 `PickUp`，不重复实现拾取逻辑）、只读属性 `Diagnostics`（`ILootDiagnostics`）、
+  14 参数构造函数重载（新增可选 `ILootDiagnostics? lootDiagnostics`）；`LootPickupFailureReason`
+  新增 `PermissionDenied`；`LootOptions` 新增委托类型 `LootPickupPermissionDelegate` 与可选属性
+  `PickupPermissionChecker`（默认 `null` = 默认放行，无归属系统，同 `GobjOptions`/
+  `CreatureInteractOptions` 既有回调注入点惯例）。新增
+  `Core.Carriers.Common.IInteractionTargetRegistry`/`InteractionTarget`/`InteractionTargetKind`
+  （`core/carriers/common`）与默认实现 `Core.Carriers.Assembly.InteractionTargetRegistry`
+  （`CarriersAssembly` 新增只读属性 `InteractionTargets`）：统一覆盖 gobj/creature/loot 三类目标的
+  "按最近距离找可交互目标"查询，不另开登记表，直接对 `IWorldSim` 现场求值。表现层新增
+  `Presentation.Ui.InteractPathProvider`，新增路径 `interact.nearest.id|kind|distance`
+  （`PresentationAssembly` 接线）。纯加法，ABI `breaks=0`。
+
 ## [1.55.0] - 2026-09-21
 
 ### 新增

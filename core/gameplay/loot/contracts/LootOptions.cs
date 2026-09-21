@@ -2,6 +2,15 @@ using Core.Foundation.Common;
 
 namespace Core.Gameplay.Loot
 {
+    /// <summary>
+    /// ADR-0062：<c>interact</c> 意图原生分流（<see cref="LootHost.Interact"/>）尝试拾取地面掉落物前
+    /// 的权限判定回调——是否放行由具体游戏决定，本模块不解释 <paramref name="ownerHint"/> 的含义（见
+    /// <see cref="LootOptions.PickupPermissionChecker"/> 判断记录）。返回 <c>true</c> 放行、
+    /// <c>false</c> 拒绝（<see cref="LootHost.Interact"/> 返回
+    /// <see cref="LootPickupFailureReason.PermissionDenied"/>）。
+    /// </summary>
+    public delegate bool LootPickupPermissionDelegate(Id unitId, Id lootInstanceId, Id? ownerHint);
+
     /// <summary>拾取时背包已满的处理策略（见 08 第 1.2 节"拾取动作直接调用 07 的
     /// InventoryHost.addItem，背包已满时的处理策略……为策略配置项"）。与
     /// <c>Core.Carriers.Item.InventoryFullPolicy</c>（单次 <c>AddItem</c> 调用内部"这一批数量放不下
@@ -67,5 +76,25 @@ namespace Core.Gameplay.Loot
         /// 本模块不自动注册——同 <c>core/gameplay/world_state</c> 的既有惯例，见该模块 README"不负责
         /// 什么"一节：具体挂接存档段是组装期的事）。默认 true。</summary>
         public bool PersistDropped { get; set; } = true;
+
+        /// <summary>
+        /// ADR-0062（消费方反馈第五批第 1 条）：<see cref="LootHost.Interact"/>（<c>interact</c> 意图
+        /// 原生分流，与 <c>core/carriers/gobj</c>/<c>core/carriers/creature</c> 两条既有分流同构）
+        /// 在判距、判存在之后、真正调用 <see cref="LootHost.PickUp"/> 之前的权限接缝。
+        /// <para>
+        /// 判断记录（默认放行，不新造归属系统）：<see cref="DroppedLootEntity.OwnerHint"/> 类型注释
+        /// 明确写着"本架构单机场景无实际分配意义，仅为兼容掉落生成管线数据结构而保留"——本模块从未
+        /// 实现过任何"谁能拾取"的判定，<see cref="LootHost.PickUp"/>（既有签名，不改）本身也不检查
+        /// 它。核对 <c>core/carriers/gobj.GameObjectHost.Interact</c> 同一"判归属"接缝发现同样不存在
+        /// （该方法唯一的准入门槛是数据驱动的 <c>LockDef</c>/<c>CheckRequirement</c>，语义是"锁"不是
+        /// "归属"）：本仓库目前没有一处 interact 分流真正实现过身份/队伍归属判定。据此没有旧概念可
+        /// 复用，也不擅自发明一套（掉落物没有"锁"这种数据驱动准入门槛可比照）；改用本仓库贯穿
+        /// <c>GobjOptions</c>/<c>CreatureInteractOptions</c> 的既有惯例——L4 回调注入点，未注入
+        /// （默认 <c>null</c>）时默认放行，把"谁能拾取"这个判断完全留给具体游戏在组装期注入。回调
+        /// 携带 <c>ownerHint</c>（即 <see cref="DroppedLootEntity.OwnerHint"/>）作为上下文供游戏自行
+        /// 解释（队伍/个人归属等），本模块自身不赋予它任何强制语义，与该字段类型注释一贯口径一致。
+        /// </para>
+        /// </summary>
+        public LootPickupPermissionDelegate? PickupPermissionChecker { get; set; }
     }
 }

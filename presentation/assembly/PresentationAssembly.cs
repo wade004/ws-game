@@ -550,6 +550,10 @@ namespace Presentation.Assembly
                     opts.TargetResolver, gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers,
                     gameplay.Carriers.Units, gameplay.Carriers.Creatures, skillBookQuery, auraQuery, autoAttackHost),
                 new UnitPathProvider(gameplay.Carriers.Rules.Stats, gameplay.Carriers.Rules.Powers),
+                // ADR-0062（消费方反馈第五批第 1 条续）：interact.nearest.* ——统一的"最近可交互目标"
+                // 查询，gameplay.Carriers.InteractionTargets 是 CarriersAssembly 早已暴露的公开属性
+                // （见该类型判断记录），本装配根只是补上此前没有转发的 UI 路径，不新增任何依赖边界。
+                new InteractPathProvider(_playerId, gameplay.Carriers.InteractionTargets),
             };
             var uiDataSource = new UiDataSource(bus, providers);
             UiData = uiDataSource;

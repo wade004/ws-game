@@ -146,6 +146,17 @@ namespace Tests.Presentation.Assembly
                 "\"effects\": [{\"kind\": \"mod_stat\", \"params\": " +
                 "{\"stat\": \"stat.max_health\", \"op\": \"flat\", \"value\": 1}}]}" +
                 "]}");
+
+            // ADR-0062（消费方反馈第五批第 1 条续）：InteractPathProvider_* 用例需要一个最小合法
+            // gobj.template 行——kind=save_point，type_data 为空对象（07 第 3.1 节"save_point{}"，
+            // 唯一不需要任何 type_data 子字段的 kind，写法照抄
+            // core/carriers/gobj/tests/GameObjectHostTests.Interact_SavePoint_InvokesSaveRequester
+            // 用到的最小模板形状），不需要 lock_id/on_use。
+            source.Add("gobj.template",
+                "{\"table\": \"gobj.template\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"gobj.sample_marker\", \"name_key\": \"l10n.gobj.sample_marker.name\", " +
+                "\"kind\": \"save_point\", \"type_data\": {}, \"display_ref\": \"display.gobj.sample_marker\"}" +
+                "]}");
         }
 
         private static void AddMinimalPresentationTables(InMemoryDataSource source)
@@ -1583,6 +1594,54 @@ namespace Tests.Presentation.Assembly
             currentTarget = null;
             presentation.Hud.Refresh();
             Assert.Null(presentation.Hud.TargetAlive);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0062（消费方反馈第五批第 1 条续）：interact.nearest.* ——统一的"最近可交互目标"查询，
+        // 经生产装配入口（PresentationAssembly.UiData.Query）一路验证到最外层，不止测到
+        // CarriersAssembly.InteractionTargets 这一层中间结果（上一版曾经只测到中间层导致字段没
+        // 贯通，这次必须测到最外层，见任务书"验收"一节）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void InteractPathProvider_NearestTarget_PrefersCloserLoot_OverFartherGobj_AndFallsBackAfterPickup()
+        {
+            var presentation = Build(out var gameplay, out var world, out _, out _);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            // 物件更远（距离 5），掉落物更近（距离 1）——查询应命中掉落物。
+            var gobjId = gameplay.Carriers.GameObjects.Spawn(new Id("gobj.sample_marker"), SampleMapId, new Vec2(5, 0), 0.0);
+            var lootId = gameplay.Loot.Drop(
+                SampleMapId, new Vec2(1, 0),
+                new List<Core.Carriers.Common.ItemStack> { new Core.Carriers.Common.ItemStack(new Id("item.sample_sword"), 1) });
+
+            Assert.Equal(lootId.Value, presentation.UiData.Query("interact.nearest.id")!.Value.AsId.Value);
+            Assert.Equal(EntityKinds.Loot, presentation.UiData.Query("interact.nearest.kind")!.Value.AsString);
+            Assert.Equal(1.0, presentation.UiData.Query("interact.nearest.distance")!.Value.AsNumber);
+
+            // 拾取掉落物后再查：应回退到物件（唯一剩下的候选）。判断记录：LootHost.PickUp 只
+            // MarkForDestruction（真正从 IWorldSim 集合移除发生在下一次 Tick 的生命周期清理阶段，
+            // 见 IWorldSim.MarkForDestruction 类型注释），本查询直接读 IWorldSim 现场结果（见
+            // InteractionTargetRegistry 判断记录），因此这里需要推进一次 tick 才能观察到掉落物
+            // 真正从候选集合里消失，不是查询本身有延迟。
+            var pickup = gameplay.Loot.PickUp(playerId, lootId);
+            Assert.True(pickup.Success);
+            Assert.DoesNotContain(lootId, gameplay.Loot.ActiveLootIds);
+            world.Tick(Core.Foundation.SimLoop.SimStep.Continuous(0.01));
+
+            Assert.Equal(gobjId.Value, presentation.UiData.Query("interact.nearest.id")!.Value.AsId.Value);
+            Assert.Equal(EntityKinds.Gobj, presentation.UiData.Query("interact.nearest.kind")!.Value.AsString);
+        }
+
+        [Fact]
+        public void InteractPathProvider_NoCandidatesNearby_ReturnsNull_NotADiagnostic()
+        {
+            var presentation = Build(out var gameplay, out _, out _, out _);
+
+            Assert.Null(presentation.UiData.Query("interact.nearest.id"));
+            Assert.Null(presentation.UiData.Query("interact.nearest.kind"));
+            var uiDiag = Assert.IsType<global::Presentation.Ui.InMemoryUiDiagnostics>(presentation.UiDiagnostics);
+            Assert.Empty(uiDiag.Warnings);
         }
     }
 }

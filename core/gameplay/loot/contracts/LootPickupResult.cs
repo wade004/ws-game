@@ -23,6 +23,14 @@ namespace Core.Gameplay.Loot
         /// <summary><see cref="LootOptions.FullPolicy"/>=<see cref="LootPickupPolicy.Partial"/> 下，
         /// 背包已满到一件都放不下（没有任何数量成功加入）。</summary>
         InventoryFull,
+
+        /// <summary>
+        /// ADR-0062：经 <see cref="LootHost.Interact"/>（<c>interact</c> 意图原生分流）尝试拾取时，
+        /// <see cref="LootOptions.PickupPermissionChecker"/> 拒绝了本次拾取——只在经 <c>interact</c>
+        /// 意图分流时才可能出现（<see cref="LootHost.PickUp"/> 直接调用不经权限判定，见该方法与
+        /// <see cref="LootOptions.PickupPermissionChecker"/> 判断记录"默认放行，不新造归属系统"）。
+        /// </summary>
+        PermissionDenied,
     }
 
     /// <summary>

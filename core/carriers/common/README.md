@@ -100,6 +100,16 @@ L3 程序集本身对 L4 零编译期引用。
    `Core.Sim`（`StandardPlayer.EquippedWeaponSummaries`，见 `core/sim/README.md` 判断记录）均已
    依赖本目录，不需要为此新增依赖边。
 
+7. **消费方反馈第五批第 1 条（2026-09-21，ADR-0062）：新增 `IInteractionTargetRegistry`——统一
+   "最近可交互目标"查询，覆盖 gobj/creature/loot 三类目标**：核对后确认该查询此前在本仓库任何一层
+   都不存在（不是"已有、只差 loot 覆盖"）。放在本目录而不是某个具体载体模块：目标分类只依赖
+   `Core.Foundation.SimLoop.Entity.Kind`（既有的 `EntityKinds.Gobj`/`Creature`/`Loot` 三个字符串
+   常量），不需要引用 `core/gameplay/loot` 等 L4 模块的具体类型（`DroppedLootEntity` 等）——接口
+   与其默认实现（`Core.Carriers.Assembly.InteractionTargetRegistry`，见该模块 README）因此可以
+   完全留在 L3，不违反本目录"只定义类型与接口，禁止任何业务逻辑"的边界（接口体本身不含逻辑，
+   实现放在装配层）。默认实现不另开登记表，直接对 `IWorldSim.QueryEntities` 现场求值，与
+   `IWorldSim` 现有的确定性排序保持一致（等距离候选取 `EntityId` 序数最小者）。
+
 ## 不负责什么
 
 - 不实现背包/装备/交互/召唤的任何具体算法——那些是 item/gobj/summon/creature 各自模块在

@@ -81,5 +81,28 @@ namespace Tests.Carriers.Gobj
 
             Assert.Null(ex);
         }
+
+        /// <summary>ADR-0062：与既有的 <c>creature_instance_id</c> 分支同构——Args 携带
+        /// <c>loot_instance_id</c>（而不含 <c>gobj_instance_id</c>）时说明这条 <c>interact</c> 意图是
+        /// 发给 <c>Core.Gameplay.Loot.LootInteractIntentTickHandler</c> 的，本处理器应静默跳过、不记
+        /// 诊断（该意图由 loot 侧处理器自己的诊断出口负责）。</summary>
+        [Fact]
+        public void Tick_WithInteractIntent_LootInstanceIdPresent_SkipsSilently_NoDiagnostic()
+        {
+            var world = new GobjWorldBuilder().Build();
+            var diagnostics = new Core.Carriers.Gobj.InMemoryGobjDiagnostics();
+            world.World.RegisterPhaseHandler(
+                TickPhase.TriggerEvaluation,
+                new Core.Carriers.Gobj.InteractIntentTickHandler(world.Host, diagnostics));
+            world.AddUnit(Unit, new Vec2(0, 0));
+
+            var args = new JsonObjectBuilder().Add("loot_instance_id", new JsonString("loot.inst_1")).Build();
+            world.World.SubmitIntent(new Intent(Unit, "interact", args));
+
+            var ex = Record.Exception(() => world.World.Tick(SimStep.Continuous(0.1)));
+
+            Assert.Null(ex);
+            Assert.Empty(diagnostics.Warnings);
+        }
     }
 }

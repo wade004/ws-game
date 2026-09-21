@@ -35,6 +35,16 @@ namespace Core.Carriers.Gobj
     /// 真正"格式非法"的 <c>interact</c> 意图，维持原有告警。既有调用方（从不携带
     /// <c>creature_instance_id</c>）的行为逐位不变。
     /// </para>
+    /// <para>
+    /// 判断记录（ADR-0062，与 <c>Core.Gameplay.Loot.LootInteractIntentTickHandler</c> 共用同一个
+    /// <c>"interact"</c> Kind）：消费方反馈第五批第 1 条根治后，地面掉落物也能被直接
+    /// <c>interact</c>，Args 形状为 <c>{loot_instance_id: Id}</c>——本处理器缺少
+    /// <c>gobj_instance_id</c> 时，除了上一段已有的 <c>creature_instance_id</c> 判断，追加同样的
+    /// <c>loot_instance_id</c> 判断：携带则说明这条意图是发给 loot 侧处理器的，静默跳过、不记诊断
+    /// （该意图会被 <c>LootInteractIntentTickHandler</c> 处理，由它自己的诊断出口负责）；三个键都
+    /// 不含时才是真正"格式非法"的 <c>interact</c> 意图，维持原有告警。既有调用方（从不携带
+    /// <c>loot_instance_id</c>）的行为逐位不变。
+    /// </para>
     /// </summary>
     public sealed class InteractIntentTickHandler : ITickPhaseHandler
     {
@@ -66,6 +76,13 @@ namespace Core.Carriers.Gobj
                     {
                         // ADR-0051：这条 interact 意图是发给生物侧的，交
                         // CreatureInteractIntentTickHandler 处理，不在此处重复警告。
+                        continue;
+                    }
+
+                    if (intent.Args.ContainsKey("loot_instance_id"))
+                    {
+                        // ADR-0062：这条 interact 意图是发给掉落物侧的，交
+                        // LootInteractIntentTickHandler 处理，不在此处重复警告。
                         continue;
                     }
 
