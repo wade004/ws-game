@@ -22,6 +22,14 @@ namespace Core.Carriers.Common
 
         /// <summary>未知/无法识别的物件实例或类型。</summary>
         Unknown,
+
+        /// <summary>ADR-0067：交互目标（生物）当前已死亡，交互被拒绝——存活判定口径见
+        /// <see cref="Core.Carriers.Creature.CreatureInteractionHost"/> 判断记录。</summary>
+        TargetDead,
+
+        /// <summary>ADR-0067：交互发起者当前已死亡，交互被拒绝——存活判定口径同
+        /// <see cref="TargetDead"/>。</summary>
+        ActorDead,
     }
 
     /// <summary>

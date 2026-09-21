@@ -475,6 +475,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   参数，不新增依赖边界）。纯加法，ABI `breaks=0`（新增 5 行：接口成员、`AreaTriggerHost` 公开
   方法、视图模型两个属性、`PlayerPathProvider` 新构造重载）。
 
+### 行为变更
+
+- **生物原生交互分流拒绝死亡目标与死亡发起者**（消费方反馈——游戏接入方第十批第 1 条，
+  [ADR-0067](architecture/adr/0067-生物原生交互分流拒绝死亡目标与死亡发起者.md)）：
+  `Core.Carriers.Creature.CreatureInteractionHost.Interact` 新增两条存活核对（复用构造期已持有
+  的 `IUnitAccess`，不新增构造参数）——目标生物或交互发起者未存在且存活时拒绝交互，分别返回
+  `Core.Carriers.Common.InteractOutcome` 新增的 `TargetDead`/`ActorDead`（枚举只追加，`breaks=0`）；
+  两种情形均不记诊断（与既有"交互距离不足不记诊断"同一口径）。`"interact"` 意图分流
+  （`CreatureInteractIntentTickHandler`）转调同一 `Interact`，同步生效。**这是一次行为变更**：
+  此前对一个已知的死亡生物 id 直接发起交互会被受理（无对话配置判定为"无可交互内容"、有配置则
+  打开对话），本版本起统一拒绝。
+
 ## [1.57.0] - 2026-09-22
 
 ### 新增

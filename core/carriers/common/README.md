@@ -121,6 +121,13 @@ L3 程序集本身对 L4 零编译期引用。
    `Core.Carriers.Item.EquipmentHost` 用显式接口实现转发（理由与判断记录同 `core/carriers/item/
    README.md` 对应判断记录）。`ItemInstanceRef` 与既有四个方法签名一字不动。
 
+9. **消费方反馈——游戏接入方第十批第 1 条（2026-09-22，[ADR-0067](../../../architecture/adr/0067-生物原生交互分流拒绝死亡目标与死亡发起者.md)）：
+   `InteractOutcome` 新增 `TargetDead`/`ActorDead` 两个枚举成员**：只追加，不改既有取值的数值。
+   本类型原本只服务 `GameObject` 交互（见本文件顶部目录"GameObject 交互结果"注释），
+   `Core.Carriers.Creature.CreatureInteractionHost.Interact`（ADR-0051）复用同一枚举——两个新成员
+   目前只由生物交互宿主产出，`GameObjectHost` 尚未接入对应存活核对（gobj 不是 `IUnitAccess` 概念
+   的实例，没有存活状态，不适用）。
+
 ## 不负责什么
 
 - 不实现背包/装备/交互/召唤的任何具体算法——那些是 item/gobj/summon/creature 各自模块在
