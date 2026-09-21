@@ -248,6 +248,18 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
     断言 `VendorOpenRequestedCallback` 收到的 `npcId` 等于生物实例 id 且不等于菜单 id；另一例断言
     未配置 `GossipMenuRef` 时诊断 Warnings 计数 +1）。
 
+14. **ADR-0067：生物原生交互分流拒绝死亡目标与死亡发起者（消费方反馈第十批第 1 条）**：
+    `CreatureInteractionHost.Interact` 新增两条存活核对，均用构造期已持有的 `IUnitAccess`
+    （不新增构造参数）——目标生物：`Exists`×`IsAlive` 合取为假时拒绝，返回
+    `InteractOutcome.TargetDead`；交互发起者：同一判定为假时拒绝，返回
+    `InteractOutcome.ActorDead`（`Core.Carriers.Common.InteractResult` 新增这两个枚举成员，只
+    追加不改既有取值）。判定口径与 ADR-0061/0065 一致，不看生命值资源池是否 `<= 0`。两种情形均
+    不记诊断，理由同既有"交互距离不足不记诊断"惯例——玩家点中尸体是正常游玩操作，不是内容配置
+    错误。`interact` 意图分流（`CreatureInteractIntentTickHandler`）本就转调同一个 `Interact`，
+    不需要另写判定。这是行为变更（此前允许与死亡生物交互），详见该 ADR。新增测试：
+    `Tests.Gameplay.Assembly.GameplayAssemblyCreatureInteractDeathTests`（装配级，覆盖直连生产
+    入口的目标死亡/发起者死亡拒绝、经 `"interact"` 意图的目标死亡拒绝、存活双方回归成功四例）。
+
 ## 不负责什么
 
 - 不实现刷新表（`SpawnHost`，L4）——本模块只提供 `ICreatureFactory` 供其调用，`summon_only`
