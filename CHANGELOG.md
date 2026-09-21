@@ -487,6 +487,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   同一权威口径）。改动完全落在候选判定内部（`InteractionTargetRegistry` 已持有的 `IUnitAccess`
   依赖），不新增公开签名、不新增可选参数，ABI `breaks=0`。
 
+### 变更
+
+- **提交前钩子按暂存改动分级**（`.githooks/pre-commit`）：不再对每次提交一律跑 28 步
+  `check.ps1 -SkipUnity -Quick`（约 100 秒），改为先按 `git diff --cached --name-only` 判定
+  三档并打印一行说明——暂存改动全部是 `.md` 时跑新增的 `check.ps1 -DocsOnly`（门禁自检、两道
+  禁用词扫描、版本一致性、`toolchain/tests` 里 markdown 链接与编辑器文档一致性两个用例，秒级）；
+  `build.ps1 -Release` 全量门禁通过后仅改五个版本文件（`VERSION`/两个 `package.json`/
+  `packages-lock.json`/`CHANGELOG.md`）的发布提交不重复跑 `check.ps1`（识别条件：该脚本在
+  `git commit` 前设置的 `WS_GAME_RELEASE_COMMIT` 环境变量 + 暂存清单确实只含这五个文件，两者
+  缺一仍照跑）；其余情况照旧跑完整 28 步。分级判断收拢为纯函数
+  `Get-PreCommitCheckTier`（`toolchain/_precommit_tiering_guard.ps1`），
+  `toolchain/tests/test_precommit_tiering_guard.py` 用 pytest 覆盖。
+
 ## [1.56.0] - 2026-09-21
 
 ### 新增

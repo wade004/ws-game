@@ -442,8 +442,20 @@ if ($ReleaseRequested) {
             if ($LASTEXITCODE -ne 0) { throw "git add 失败，退出码 $LASTEXITCODE" }
 
             $commitMessage = "发布 $Release"
-            & git commit -m $commitMessage
-            if ($LASTEXITCODE -ne 0) { throw "git commit 失败，退出码 $LASTEXITCODE" }
+            # 提交前钩子分级任务（2026-09-22）：给这一次、且仅这一次 `git commit` 设置
+            # WS_GAME_RELEASE_COMMIT=1——`.githooks/pre-commit` 据此（还要核对暂存清单确实只有
+            # 上面 git add 的这五个版本文件，两个条件缺一都照常跑）判定为 ReleaseSkip 档，不重复
+            # 跑一遍刚在上面"-Release 第 5 步"已经通过的 check.ps1 全量门禁。$env: 赋值是当前
+            # PowerShell 进程级的环境变量，会被随后 `& git commit` 启动的子进程（git -> sh.exe
+            # 钩子）继承；finally 里立即清掉，不让它泄漏进本次 build.ps1 运行后续任何其它命令
+            # （例如 -PublishRegistry 分支里可能还会跑到的别的 git 操作）。
+            $env:WS_GAME_RELEASE_COMMIT = "1"
+            try {
+                & git commit -m $commitMessage
+                if ($LASTEXITCODE -ne 0) { throw "git commit 失败，退出码 $LASTEXITCODE" }
+            } finally {
+                Remove-Item Env:\WS_GAME_RELEASE_COMMIT -ErrorAction SilentlyContinue
+            }
 
             $ReleaseCommitHash = (& git rev-parse HEAD).Trim()
             $ReleaseCommitShort = (& git rev-parse --short HEAD).Trim()

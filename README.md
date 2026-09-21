@@ -144,13 +144,21 @@ CRLF；实测方法见 `.gitattributes` 对应例外条目上方判断记录）�
 
 ## 提交前钩子（`.githooks/`）
 
-仓库自带一份版本化的 `git` 钩子目录 `.githooks/`（`pre-commit` 调用 `check.ps1 -SkipUnity -Quick`，见上一节），默认不生效（`git` 的 `core.hooksPath` 默认指向 `.git/hooks/`，不会自动读取仓库内任意目录）。首次克隆后按需安装：
+仓库自带一份版本化的 `git` 钩子目录 `.githooks/`，默认不生效（`git` 的 `core.hooksPath` 默认指向 `.git/hooks/`，不会自动读取仓库内任意目录）。首次克隆后按需安装：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 ```
 
-该脚本把 `git config core.hooksPath` 指向 `.githooks/`（幂等，重复跑不报错）；`-Uninstall` 还原为默认值。安装后每次 `git commit` 前会自动跑一遍 `check.ps1 -SkipUnity -Quick`，未通过则本次提交被拦截（终端打印失败明细，同 `check.ps1` 汇总表）；紧急情况需要跳过时用 `git commit --no-verify`（不建议常态化使用）。
+该脚本把 `git config core.hooksPath` 指向 `.githooks/`（幂等，重复跑不报错）；`-Uninstall` 还原为默认值。
+
+安装后每次 `git commit` 前，`pre-commit` 先按本次暂存改动清单（`git diff --cached --name-only`，含重命名/删除；合并提交同样按这份清单判断，不特殊放行）分级，把判定结果打印成一行说明（档位 + 理由），再决定跑多重的门禁——分级判断本身是 `toolchain/_precommit_tiering_guard.ps1` 里的纯函数 `Get-PreCommitCheckTier`，`toolchain/tests/test_precommit_tiering_guard.py` 用 pytest 单独覆盖：
+
+- **DocsOnly**：暂存改动全部是 `.md` 文档（CHANGELOG 定版、答复稿、回归记录一类提交）——跑 `check.ps1 -DocsOnly`，只跑门禁自检、两道禁用词扫描（游戏代号 + architecture 正文技术名，CLAUDE.md 硬性规则的唯一守门，任何档位都不跳过）、版本一致性（含 CHANGELOG.md 条目校验）、`toolchain/tests` 里两个文档相关 pytest 用例（markdown 相对链接、编辑器文档一致性），跳过 `dotnet build`/`test`、数据校验、Unity 相关步骤等——秒级完成。
+- **ReleaseSkip**：`build.ps1 -Release` 在第 5 步全量门禁（含 `-AbiStrict`）通过后，于"第 6 步"提交版本号改动前设置 `WS_GAME_RELEASE_COMMIT=1`，且暂存清单确实只含该步骤 `git add` 的那五个版本文件（`VERSION`、两个 `package.json`、`packages-lock.json`、`CHANGELOG.md`）——不重复跑 `check.ps1`（全量门禁已经在这次提交之前跑过）。
+- **Full**（其余一切情况）：照旧跑 `check.ps1 -SkipUnity -Quick`（28 步，目标总用时 30 秒左右，见上一节）。
+
+分级判断或调用本身失败（如 `powershell` 不可用）一律退回 Full，不静默放行。未通过则本次提交被拦截（终端打印失败明细，同 `check.ps1` 汇总表）；紧急情况需要跳过时用 `git commit --no-verify`（不建议常态化使用）。
 
 ## 版本与发布
 
