@@ -21,6 +21,7 @@ using Adapter.Unity.Presentation;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using NUnit.Framework;
+using Presentation.Common;
 using Presentation.Render;
 using UnityEngine;
 
