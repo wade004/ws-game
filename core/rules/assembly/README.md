@@ -344,3 +344,11 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 `World.RegisterPhaseHandler(TickPhase.CombatResolution, new AutoAttackTickHandler(AutoAttack))`，
 紧跟既有 `CombatTickHandler` 注册之后（同一阶段并列注册，顺序不影响两者各自独立按 `SimStep.Kind`
 过滤连续/离散步）。
+
+## 判断记录（AutoAttack 装配改传真实事件总线，2026-09-23，[ADR-0070](../../../architecture/adr/0070-普通攻击挥击广播表现驱动事件.md)）
+
+`AutoAttack` 的装配调用改为显式传入 `bus: Bus`（`RulesAssembly` 已有的公开只读属性，不新增依赖
+边界）——`AutoAttackHost` 新增的事件总线依赖（见 `core/rules/combat/README.md` 对应判断记录）在
+生产装配这一处接上真实总线，普通攻击挥击才能真正广播到表现层；本模块是仓库内唯一的
+`AutoAttackHost` 生产构造点（全仓检索确认），不存在需要同步更新的第二处装配。装配调用本身经命名
+参数追加，不改变 `AutoAttack` 只读属性的类型与构造函数体外部可见行为。

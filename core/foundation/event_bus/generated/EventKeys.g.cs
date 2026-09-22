@@ -42,6 +42,9 @@ namespace Core.Foundation.EventBus
         /// <summary>aura.stack_changed — 字段：targetId, auraDefId, oldStacks, newStacks。叠加层数变化（见 06 第 8 节）。</summary>
         public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
 
+        /// <summary>combat.auto_attack_swing — 字段：sourceId, targetId。ADR-0070：普通攻击（AutoAttackHost）每结算一次挥击时触发，只表达“挥出了一次普通攻击”本身，不携带学派/伤害值（已由随后发出的 combat.damage_dealt 承载）；在 IEffectSink.ApplyEffect 之前发布，恒先于该次结算对应的 combat.damage_dealt；被跳过的挥击（超射程/被 NoAttack 拦截/未到挥击点/没有攻击周期）不发本事件。</summary>
+        public static readonly Id CombatAutoAttackSwing = new Id("combat.auto_attack_swing");
+
         /// <summary>combat.damage_dealt — 字段：sourceId, targetId, school, amount, isCrit, hitResult, attackInstanceId。结算管线"落地"步骤，伤害类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId（本次结算所属的施法/攻击实例 id，经 CastPipeline.ExecuteEffectsOnly 产生的结算才携带，供命中帧同步按攻击实例整批释放，见 EffectContext.AttackInstanceId 判断记录；可空——光环周期效果等不经 CastPipeline 的结算为空）。</summary>
         public static readonly Id CombatDamageDealt = new Id("combat.damage_dealt");
 
@@ -299,6 +302,7 @@ namespace Core.Foundation.EventBus
             AuraApplied,
             AuraRemoved,
             AuraStackChanged,
+            CombatAutoAttackSwing,
             CombatDamageDealt,
             CombatEntered,
             CombatHealDone,

@@ -343,6 +343,20 @@ namespace Adapter.Unity.Presentation
         /// <c>Tests.Editor</c> 可见，不是公开契约的一部分。</summary>
         internal AnimStateMachine? AnimStateMachineForTests => _animStateMachine;
 
+        /// <summary>
+        /// ADR-0070（消费方反馈第十七批"AnimStateMachine.RequestOverride 扩展点实际不可达"根治）：
+        /// 本工厂内部持有的全局单例 <see cref="AnimStateMachine"/>，公开只读属性——此前只有上面
+        /// <see cref="AnimStateMachineForTests"/> 这个 <c>internal</c> 出口，生产代码（游戏侧程序集）
+        /// 拿不到实例，<see cref="Render.AnimStateMachine.RequestOverride"/> 这个"供具体游戏主动调用"
+        /// 的扩展点因此实际不可达（见 <see cref="Render.AnimStateMachine.RequestOverride"/> 判断记录
+        /// "定位澄清"——本属性是它唯一合法的生产可达入口：游戏专属的表现触发点（如跳跃）经本属性拿到
+        /// 实例后调用 <c>RequestOverride</c>；框架自己拥有的动作（普通攻击/施法/受击/死亡）不需要经
+        /// 本属性，框架自己在对应结算完成时已经广播事件驱动。未装配（<see cref="_animStateMachine"/>
+        /// 为 <c>null</c>，同 <see cref="AnimStateMachineForTests"/> 同一套"未装配的能力静默返回 null"
+        /// 惯例）时为 <c>null</c>，不抛异常。
+        /// </summary>
+        public AnimStateMachine? AnimStateMachine => _animStateMachine;
+
         /// <summary>W6-B 收口：<paramref name="displayId"/> 解析到 kind=model 的 DisplayInfo 时
         /// （见 <see cref="DisplayKind"/>），若装配方提供了 <see cref="_renderer3D"/> 走真实三维渲染
         /// 分支，否则与"完全没有可用 DisplayInfo"同一套退化处理——本类型不假设任何 model 型外形都必须

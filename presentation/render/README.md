@@ -311,6 +311,23 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     构造期诊断注入模式：`SpriteCharacterRig`/`SpriteViewBase` 现有构造函数不允许加参数（AGENTS.md
     "ABI 只新增"），改为固定内部实例、经只读属性暴露，是比新增构造重载更小的改动面。
 
+21. **ADR-0070（消费方反馈第十七批，2026-09-23）：`AnimStateMachine` 新增订阅
+    `combat.auto_attack_swing`，攻击者进入 `AnimState.Attack`；`RequestOverride` 收紧适用边界为
+    "游戏专属触发"**——普通攻击（`Core.Rules.Combat.AutoAttackHost`）结算前广播的新事件只携带
+    `sourceId`/`targetId`，构造函数新增订阅并调用既有 `TryEnter(evt.SourceId, AnimState.Attack)`
+    （不新增状态、不新增优先级层级，与既有 `skill.cast_start` 走同一套仲裁：优先级 2，不覆盖受击/
+    死亡，覆盖待机/移动），每次挥击广播都重新调用一次，天然支持连续挥击重复进入攻击态（同状态重入
+    触发既有 `StateRetriggered`，不是 `StateChanged`）。同时更新 `RequestOverride` 的类型/方法文档：
+    明确它只用于框架不掌握权威判定时点的游戏专属动作（如跳跃，见判断记录 10）；凡是框架自身能算出
+    精确触发时机的动作（普通攻击挥击、技能施法开始/成功/失败/被打断、受击、死亡）必须由框架自己
+    经事件驱动，不应反过来靠游戏侧调用 `RequestOverride` 模拟——此前这条边界只隐含在优先级模型里
+    （框架事件驱动的状态优先级均 ≥ 1，`RequestOverride` 写入的跳跃态占用优先级 1），本次只是写清楚，
+    不改变优先级模型本身。配套：`IViewFactory` 的引擎适配层实现新增一个公开只读属性转发已持有的
+    `AnimStateMachine` 实例（既有仅供框架自测使用的受限出口原样保留）——此前该实例只经这一受限出口
+    暴露，游戏侧程序集不在可见范围内，`RequestOverride` 文档所称"供游戏调用"在生产环境从未真正
+    可达，本次一并根治。ABI：`AnimStateMachine` 新增一个事件订阅（构造期内部行为，不改变构造签名），
+    视图工厂新增一个公开只读属性，不改动任何既有公开签名。
+
 ## 契约缺口
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。

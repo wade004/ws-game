@@ -536,3 +536,20 @@ combat/
 `Attacking`）全部参与文本化映射为 `off`/`no_target`/`attacking`——与 `AuraPolarity` 不同，本类型
 没有"未声明"这一维度（这是运行时查询得出的状态本身，不是登记表里的可选字段），因此不需要预留
 第四个哨兵分支。ABI：纯新增类型，不改动 `AutoAttackState` 枚举本身与任何既有公开签名。
+
+## 判断记录（普通攻击挥击广播，2026-09-23，[ADR-0070](../../../architecture/adr/0070-普通攻击挥击广播表现驱动事件.md)）
+
+消费方反馈第十七批指出：`AutoAttackHost` 到点结算只调用 `IEffectSink.ApplyEffect`，复用既有
+`Resolver.Resolve` 落地链路因此仍会发出 `combat.damage_dealt`，但完全没有任何信号表达"这一拍
+确实发生了一次挥击本身"——表现层的攻击者动作因此永远进不了攻击态。新增事件键
+`RulesEventKeys.CombatAutoAttackSwing`（`combat.auto_attack_swing`）与事件类型
+`AutoAttackSwingEvent`（字段仅 `sourceId`/`targetId`，不携带学派/伤害值，这些已由紧随其后的
+`combat.damage_dealt` 承载，见 ADR-0070 决策 1 判断记录）。`AutoAttackHost` 新增一个 ABI 安全的
+构造函数重载（新增末尾非默认参数 `bus: IEventBus?`，不是给既有构造追加可选参数——既有重载原样
+保留、转发调用新重载并传 `bus: null`，同仓库既定的"新增重载而非新增可选参数"惯例，见
+`SkillCastStartEvent` 系列构造先例）。`Update` 在通过射程/`NoAttack` 门控检查、确认本次会结算之后、
+调用 `IEffectSink.ApplyEffect` **之前**广播本事件——发布顺序即分发顺序（`IEventBus.Enqueue` 既有
+队列语义），保证订阅者看到挥击事件必然先于（如果这一拍命中）对应的伤害事件。被跳过的挥击（超射程、
+`NoAttack` 拦截、未到挥击点、无可用攻击周期）一律不发，与既有"跳过不结算、不诊断"口径一致。生产
+唯一装配点 `RulesAssembly` 改为传入真实总线（`bus: Bus`）。ABI：新增构造函数重载 + 新增事件类型 +
+新增事件键，不改动任何既有公开签名。

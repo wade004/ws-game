@@ -191,6 +191,68 @@ namespace Tests.PresentationRender
             Assert.Equal(AnimState.Hit, machine.GetState(Unit));
         }
 
+        // ------------------------------------------------------------------
+        // ADR-0070：combat.auto_attack_swing 驱动 AnimState.Attack——普通攻击（AutoAttackHost）
+        // 刻意不走施法管线（ADR-0059），不发 skill.cast_start，本状态机需要单独订阅这个新事件才能
+        // 让攻击者进入 Attack（改动前：AutoAttackHost 完全不广播任何事件，攻击者永远停在 Idle/Move，
+        // 见消费方反馈第十七批）。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void AutoAttackSwing_EntersAttack_OnSourceId()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+
+            bus.PublishImmediate(new AutoAttackSwingEvent(Unit, new Id("unit.smoke_target")));
+
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+        }
+
+        /// <summary>挥击是高频重复的瞬态动作（任务书判断记录），连续多次挥击（第二次在第一次 Attack
+        /// 动画播完前到达，未调用 NotifyTransientStateFinished）必须能重复触发——同
+        /// <see cref="SkillCastStart_SameStateReentry_Attack_RaisesStateRetriggered_NotStateChanged"/>
+        /// 同一套语义，只是触发源换成普通攻击自己的事件，且不携带 triggerSkillId（
+        /// AutoAttackSwingEvent 不对应任何真实 skill.def）。</summary>
+        [Fact]
+        public void AutoAttackSwing_SameStateReentry_RaisesStateRetriggered_NotStateChanged_NoSkillId()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+            var changedCount = 0;
+            var retriggered = new List<(AnimState State, Id? SkillId)>();
+            machine.StateChanged += (_, _, _) => changedCount++;
+            machine.StateRetriggered += (id, state, skillId) => retriggered.Add((state, skillId));
+            var target = new Id("unit.smoke_target");
+
+            bus.PublishImmediate(new AutoAttackSwingEvent(Unit, target));
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+            Assert.Equal(1, changedCount);
+            Assert.Empty(retriggered);
+
+            bus.PublishImmediate(new AutoAttackSwingEvent(Unit, target));
+            Assert.Equal(AnimState.Attack, machine.GetState(Unit));
+            Assert.Equal(1, changedCount);
+            Assert.Single(retriggered);
+            Assert.Equal((AnimState.Attack, (Id?)null), retriggered[0]);
+        }
+
+        /// <summary>与瞬发技能共用同一个 Attack 优先级（2），不放宽既有"受击盖过攻击"规则：挥击到达
+        /// 时若当前已在 Hit（优先级 3），不应把状态切回 Attack。</summary>
+        [Fact]
+        public void Priority_AutoAttackSwingDoesNotOverrideHit_ButOverridesIdle()
+        {
+            var bus = CreateBus();
+            var machine = new AnimStateMachine(bus);
+
+            bus.PublishImmediate(new CombatDamageDealtEvent(
+                new Id("unit.attacker"), Unit, new Id("skill.school.physical"), 5.0, isCrit: false, HitResult.Hit));
+            Assert.Equal(AnimState.Hit, machine.GetState(Unit));
+
+            bus.PublishImmediate(new AutoAttackSwingEvent(Unit, new Id("unit.smoke_target")));
+            Assert.Equal(AnimState.Hit, machine.GetState(Unit));
+        }
+
         [Fact]
         public void LocomotionUpdate_DuringTransientState_IsDeferred_AppliesAfterRevert()
         {
