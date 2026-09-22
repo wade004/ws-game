@@ -23,7 +23,7 @@
 #
 # 判断记录（按暂存改动分级，2026-09-22 提交前钩子分级任务）：一轮发布里主会话有 4～5 次提交，
 # 其中 CHANGELOG 定版/答复稿/回归记录只改 .md，build.ps1 -Release 全量门禁通过后做的"发布
-# X.Y.Z"提交只改版本文件——这两类每次都再跑一遍 28 步 check.ps1 -SkipUnity -Quick（约 100 秒）
+# X.Y.Z"提交只改版本文件——这两类每次都再跑一遍 29 步 check.ps1 -SkipUnity -Quick（约 100 秒）
 # 是重复验证。分级判断本身是纯函数 Get-PreCommitCheckTier（见
 # toolchain/_precommit_tiering_guard.ps1，toolchain/tests/test_precommit_tiering_guard.py 用
 # pytest 驱动覆盖），本钩子只做"取暂存清单 -> 调用该函数 -> 按返回档位分派"这几行胶水：
@@ -35,7 +35,7 @@
 #     提交之前跑过（build.ps1 -Release 第 5 步），不重复跑，不用 --no-verify（那样会绕过钩子
 #     本身，事后不可追溯；这里是钩子内部按判定结果主动放行，仍会打印说明）。
 #   - Full（其余一切情况，含合并提交——MERGE_HEAD 存在时同样只按暂存清单判定，不特殊放行）：
-#     照旧跑 check.ps1 -SkipUnity -Quick 28 步。
+#     照旧跑 check.ps1 -SkipUnity -Quick 29 步。
 # 分级判断/调用失败（如 powershell 不可用、precommit_tier.ps1 输出格式不符预期）一律退回 Full，
 # 不静默放行——"档位识别失败"不等于"可以跳过验证"。
 set -e
@@ -71,13 +71,13 @@ case "$tier" in
         status=0
         ;;
     Full)
-        echo "[pre-commit] 档位：Full（$reason）——跑 check.ps1 -SkipUnity -Quick（28 步）..."
+        echo "[pre-commit] 档位：Full（$reason）——跑 check.ps1 -SkipUnity -Quick（29 步）..."
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
         status=$?
         ;;
     *)
         echo "[pre-commit] 分级判断未取到可识别档位（原始输出：$decision），按最保守的 Full 处理。"
-        echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick（28 步）..."
+        echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick（29 步）..."
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
         status=$?
         ;;

@@ -458,6 +458,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **门禁并行两条线偶发把 `test_detach_twice_then_stop_succeeds` 杀出
+  `STATUS_CONTROL_C_EXIT`（1.62.0 发布门禁连续两次命中）**：该用例的行为级回归会启动 4 个各自
+  独立控制台（`CREATE_NEW_CONSOLE`）的 `powershell.exe` 子进程跑 `start_registry.ps1` 的
+  `-Detach`/`-Status`/`-Stop`，是 `toolchain/tests` 全套件里唯一一个对"控制台控制事件"敏感的
+  用例。实测复现确认：这类子进程一旦被其它进程 `AttachConsole` 后
+  `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`，没有自定义处理器时会被系统默认处理器直接终止，
+  退出码正是 3221225786（`STATUS_CONTROL_C_EXIT`），与两次真实失败完全一致；仓库自身代码里
+  确认不存在任何 `AttachConsole`/`GenerateConsoleCtrlEvent` 调用，触发源不在本仓库代码内。
+  另实测排查了两种"让 PowerShell 子进程自身免疫控制台控制事件"的标准手段（P/Invoke
+  `SetConsoleCtrlHandler` 委托、`[Console]::TreatControlCAsInput`），均未能在本类宿主环境下
+  生效，不能作为可信的根治手段。改为把该用例从 `toolchain/_gate_line_heavy.ps1` 的
+  `pytest toolchain/tests -q`（跑在两条并行线之一，与 Unity 串行线共享全流程里最长的执行时间
+  窗口）抽出，单独串行跑在 `check.ps1` 两条并行线派生之前（阶段一），彻底与 Unity 串行线
+  的执行窗口不重叠；`-Quick` 下同步跳过。判断记录见 `check.ps1` `.SYNOPSIS` 判断记录 6)、
+  `toolchain/_gate_line_heavy.ps1` 步骤 6 判断记录。副作用：`check.ps1`/
+  `check.ps1 -SkipUnity -Quick` 的步骤总数各 +1（`README.md`/`.githooks/pre-commit`/
+  `toolchain/_precommit_tiering_guard.ps1` 里"28 步"/"31 步"同步改为"29 步"/"32 步"）。
+
 ## [1.62.0] - 2026-09-22
 
 ### 修复

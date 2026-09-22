@@ -216,6 +216,13 @@ try {
     #    跳过不装"——本次实测（`base`/`python13` 两个 conda 环境均执行 `pip show pytest-xdist`）
     #    均未安装，按任务书"没装就不装，本项跳过并在报告说明"处理，不追加 `-n auto`，本步骤命令行
     #    与原 check.ps1 完全一致。
+    #    判断记录（gate-parallel-ctrlc 修复，2026-09-22 追加 --ignore）：
+    #    `test_registry_stop_pidfile_rewrite_timestamp.py::test_detach_twice_then_stop_succeeds`
+    #    已从本套件抽出、改到 check.ps1 阶段一（两条并行线派生之前）单独串行跑，见 check.ps1
+    #    .SYNOPSIS 判断记录 6)（根因：该用例启动多个 CREATE_NEW_CONSOLE 独立控制台的 PowerShell
+    #    子进程，是全套件里唯一对"控制台控制事件"敏感的用例，本线与 Unity 串行线并行执行的这段
+    #    窗口是全流程耗时最长、统计上暴露风险最大的阶段）。这里加 `--ignore` 排除该文件，避免
+    #    与阶段一的串行调用重复跑两遍。
     # -----------------------------------------------------------------------
     if ($Quick) {
         Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick"
@@ -225,7 +232,9 @@ try {
             $env:PYTHONUTF8 = "1"
             Push-Location $RepoRoot
             try {
-                Test-NativeExitCode "python" @("-m", "pytest", "toolchain/tests", "-q")
+                Test-NativeExitCode "python" @(
+                    "-m", "pytest", "toolchain/tests", "-q",
+                    "--ignore=toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py")
             } finally {
                 Pop-Location
                 $env:PYTHONUTF8 = $prevPythonUtf8

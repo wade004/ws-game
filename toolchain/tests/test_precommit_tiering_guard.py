@@ -2,8 +2,8 @@
 
 背景（见 ``toolchain/_precommit_tiering_guard.ps1`` 文件头判断记录、
 ``.githooks/pre-commit`` 文件头判断记录）：一轮发布里主会话有 4～5 次提交，其中 CHANGELOG
-定版/答复稿/回归记录只改 ``.md``，``build.ps1 -Release`` 在 31 步全量门禁通过后做的"发布
-X.Y.Z"提交只改版本文件——这两类提交此前都会再跑一遍 28 步 ``check.ps1 -SkipUnity -Quick``
+定版/答复稿/回归记录只改 ``.md``，``build.ps1 -Release`` 在 32 步全量门禁通过后做的"发布
+X.Y.Z"提交只改版本文件——这两类提交此前都会再跑一遍 29 步 ``check.ps1 -SkipUnity -Quick``
 （约 100 秒），是重复验证。``.githooks/pre-commit`` 现在按暂存改动清单把提交分成三档：
 ``DocsOnly``（跑 ``check.ps1 -DocsOnly``，只跑文档相关几步）、``ReleaseSkip``（不重复跑
 ``check.ps1``）、``Full``（照旧跑 ``check.ps1 -SkipUnity -Quick``）。

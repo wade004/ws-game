@@ -6,9 +6,9 @@
     `check.ps1 -SkipUnity -Quick`）。
 
     背景（见任务书"问题"一节）：一轮发布里主会话有 4～5 次提交，其中 CHANGELOG 定版、答复稿、
-    回归记录只改 `.md`；`build.ps1 -Release` 在 31 步全量门禁通过后做的"发布 X.Y.Z"提交只改
+    回归记录只改 `.md`；`build.ps1 -Release` 在 32 步全量门禁通过后做的"发布 X.Y.Z"提交只改
     `VERSION`/两个 `package.json`/`packages-lock.json`/`CHANGELOG.md` 五个版本文件——这两类提交
-    再跑一遍 `check.ps1 -SkipUnity -Quick`（28 步，约 100 秒）都是重复验证。
+    再跑一遍 `check.ps1 -SkipUnity -Quick`（29 步，约 100 秒）都是重复验证。
 
     三档判定规则：
       1. **DocsOnly**：暂存清单非空，且每一条路径都以 `.md` 结尾（大小写不敏感）。
