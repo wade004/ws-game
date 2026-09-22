@@ -75,6 +75,37 @@
        按规则不新增安装，`toolchain/_gate_line_heavy.ps1` 里 `pytest toolchain/tests -q` 命令行
        与改造前完全一致，不追加 `-n auto`。
 
+    6) **`test_registry_stop_pidfile_rewrite_timestamp.py::test_detach_twice_then_stop_succeeds`
+       抽出并行线、改到本阶段串行跑（gate-parallel-ctrlc 修复，2026-09-22 追加，见分支
+       `fix/gate-parallel-ctrlc`）**：1.62.0 发布门禁连续两次在该用例失败——一次是第二次
+       `-Detach` 调用返回码 1，一次是返回码 3221225786（0xC000013A，`STATUS_CONTROL_C_EXIT`，
+       进程被控制台控制事件终止），但该用例单独跑（`pytest
+       toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q`）两例均过、12 秒，
+       1.59～1.61 三次发布门禁里也都过。根因排查（工作树 `wt_flake` 内实测，证据见该次会话）：
+       该用例的行为级回归（`test_detach_twice_then_stop_succeeds`）用
+       `subprocess.run(..., creationflags=CREATE_NEW_CONSOLE)` 启动 4 个独立
+       `powershell.exe` 子进程（跑 `start_registry.ps1` 的 `-Detach`/`-Status`/`-Stop`），
+       是 `toolchain/tests` 全套件里唯一一个会启动多个"各自独立控制台"的 Windows 进程自动化
+       用例，因此是全套件里对"控制台控制事件"最敏感的一个。实测复现确认：一个
+       `CREATE_NEW_CONSOLE` 启动的 PowerShell 子进程，只要有别的进程 `AttachConsole` 到它的
+       控制台后调用 `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`，会在没有自定义控制台控制
+       处理器时被系统默认处理器直接终止，退出码正是 3221225786——与两次真实失败完全一致。
+       仓库全文搜索确认本仓库自身代码里不存在任何 `AttachConsole`/`GenerateConsoleCtrlEvent`
+       调用，触发源不在本仓库代码内；进一步实测排查了两种"让 PowerShell 子进程自身免疫控制台
+       控制事件"的标准手段——(a) 通过 `Add-Type` 定义 P/Invoke 委托再 `SetConsoleCtrlHandler`
+       注册一个恒返回 `$true` 的处理器；(b) `[Console]::TreatControlCAsInput = $true`——两者
+       在本机、本类宿主环境下对"外部进程主动 `AttachConsole` + `GenerateConsoleCtrlEvent`
+       发来的事件"均**未能**生效（子进程仍被终止），说明"让 PowerShell 脚本进程自证免疫"这条
+       路线不可靠，不能作为可信的根治手段。鉴于触发源确认不在本仓库代码内、且找不到可靠的
+       进程自身免疫方案，按任务书"最后手段"条款处理：不再让该用例随
+       `toolchain/_gate_line_heavy.ps1` 的整套 `pytest toolchain/tests -q` 一起跑在"两条线
+       并行"阶段（该阶段是全流程里耗时最长的部分，历史上单跑能到数百秒，統计上暴露窗口最大），
+       改为单独抽成本阶段（阶段一，两条并行线派生之前）的一个新步骤，串行跑、且与
+       Unity 串行线完全不重叠；`toolchain/_gate_line_heavy.ps1` 步骤 6 的
+       `pytest toolchain/tests -q` 加 `--ignore` 排除这个文件，避免重复跑。这不改变该用例
+       本身的断言/重试策略（不属于"放宽断言"或"重试掩盖"），只改变它在整条门禁时间线上的
+       调度位置，把暴露窗口从"门禁里最长的并行阶段"换成"门禁里最短的串行前置阶段"。
+
 .PARAMETER SkipUnity
     跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）与消费方演练；只跑
     .NET/Python/禁用词/DLL 同步/包清单一致性几步。同一仓库内并行有人独占 Unity 编辑器时用这个
@@ -568,6 +599,32 @@ Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/chec
         Test-NativeExitCode "python" @("toolchain/check_unity_meta.py")
     } finally {
         Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
+# 12.6 verdaccio -Stop 误判回归（test_registry_stop_pidfile_rewrite_timestamp.py）单独抽出，
+#     串行跑在两条并行线派生之前——不与 Unity 串行线共享执行时间窗口。判断记录（根因/为什么这样
+#     处理）见本文件顶部 .SYNOPSIS 判断记录 6)（gate-parallel-ctrlc 修复，2026-09-22）。
+#     -Quick 跳过（该用例本身要跑真实 Windows 进程自动化，非秒级）；-DocsOnly 下由
+#     Invoke-CheckStep 通用短路逻辑自动 SKIP（未标 -DocRelevant）。
+# -----------------------------------------------------------------------------
+if ($Quick) {
+    Add-SkippedStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外）" "-Quick"
+} else {
+    Invoke-CheckStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外，见 .SYNOPSIS 判断记录 6)）" {
+        $prevPythonUtf8 = $env:PYTHONUTF8
+        $env:PYTHONUTF8 = "1"
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @(
+                "-m", "pytest",
+                "toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py",
+                "-q")
+        } finally {
+            Pop-Location
+            $env:PYTHONUTF8 = $prevPythonUtf8
+        }
     }
 }
 
