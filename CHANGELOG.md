@@ -458,6 +458,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **原生对白面板无法推进剧情对话**（消费方反馈——游戏接入方第十五批，阻塞，框架缺陷）：
+  `Presentation.Ui.UiIntents.ChooseDialogOption` 此前恒转发 `IDialogHost.ChooseOption`，而
+  `IDialogHost.StartStory` 进入剧情会话时会清空会话的 `GossipMenuId`、`ChooseOption` 要求该字段
+  非空——剧情会话里经框架自带对白面板（`DialogPanel.RefreshUi`）点任何剧情分支都会被拒绝，节点
+  恒不推进，玩家用原生对白面板永远走不完剧情对话，只有绕开 UI 直调 `IDialogHost.AdvanceStory`
+  才能推进。改为按当前会话类型分派：剧情会话（`IDialogHost.GetStoryView` 非空）转发
+  `AdvanceStory`，闲聊会话（`IDialogHost.GetGossipView` 非空）转发 `ChooseOption`，判断记录见
+  `presentation/ui/README.md`。`UiIntents.ChooseDialogOption(int)` 签名不变，不影响既有调用方。
+
 ## [1.60.0] - 2026-09-22
 
 ### 行为变更

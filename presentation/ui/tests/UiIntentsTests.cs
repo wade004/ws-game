@@ -1,5 +1,7 @@
+using System;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
+using Core.Gameplay.Dialog;
 using Xunit;
 using Presentation.Ui;
 
@@ -222,13 +224,71 @@ namespace Tests.PresentationUi
             Assert.Contains(questId, quest.TurnedInQuests);
         }
 
+        /// <summary>消费方反馈（游戏接入方第十五批）修复回归：gossip 会话（<see cref="IDialogHost.GetGossipView"/>
+        /// 非空、<see cref="IDialogHost.GetStoryView"/> 为空）里 <see cref="UiIntents.ChooseDialogOption"/>
+        /// 仍转发 <see cref="IDialogHost.ChooseOption"/>，不受本次"按会话类型分派"改动影响。</summary>
         [Fact]
-        public void ChooseDialogOption_delegates_to_dialog_host()
+        public void ChooseDialogOption_GossipSession_DelegatesToChooseOption()
+        {
+            var intents = Build(out _, out _, out _, out var dialog, out _, out _, out _, out _, out _);
+            dialog.GossipViewToReturn = new GossipView(new Id("dialog.gossip_menu.ui_intents_test"), Array.Empty<(int, Id)>());
+
+            Assert.True(intents.ChooseDialogOption(2));
+
+            Assert.Contains(2, dialog.ChosenIndices);
+            Assert.Empty(dialog.AdvancedBranchIndices);
+        }
+
+        /// <summary>消费方反馈（游戏接入方第十五批，阻塞，框架缺陷）根治：剧情会话
+        /// （<see cref="IDialogHost.GetStoryView"/> 非空）里 <see cref="UiIntents.ChooseDialogOption"/>
+        /// 此前恒转发 <see cref="IDialogHost.ChooseOption"/>——<see cref="IDialogHost.StartStory"/>
+        /// 已把会话的 gossip 菜单态清空，<see cref="IDialogHost.ChooseOption"/> 因此恒拒绝，剧情节点
+        /// 经原生对白面板恒不推进；本用例断言修复后改为转发
+        /// <see cref="IDialogHost.AdvanceStory"/>。</summary>
+        [Fact]
+        public void ChooseDialogOption_StorySession_DelegatesToAdvanceStory()
+        {
+            var intents = Build(out _, out _, out _, out var dialog, out _, out _, out _, out _, out _);
+            dialog.StoryViewToReturn = new StoryView(
+                new Id("dialog.story_tree.ui_intents_test"), new Id("dialog.story_tree.ui_intents_test.n1"),
+                new Id("l10n.ui_intents_test.n1"), null, Array.Empty<(int, Id)>());
+
+            Assert.True(intents.ChooseDialogOption(1));
+
+            Assert.Contains(1, dialog.AdvancedBranchIndices);
+            Assert.Empty(dialog.ChosenIndices);
+        }
+
+        /// <summary>两种会话在 <see cref="Core.Gameplay.Dialog.DialogHost"/> 的会话模型里互斥
+        /// （<c>StartStory</c>/<c>OpenGossip</c> 各自清空对方状态，见 <see cref="UiIntents.ChooseDialogOption"/>
+        /// 判断记录），但仍显式覆盖"两者都非空"这一防御性分支：按与唯一消费方 <c>DialogPanel.RefreshUi</c>
+        /// 相同的优先级（先剧情后闲聊）分派到 <see cref="IDialogHost.AdvanceStory"/>，不是无定义行为。</summary>
+        [Fact]
+        public void ChooseDialogOption_BothSessionViewsNonNull_PrefersStory_MatchingDialogPanelPriority()
+        {
+            var intents = Build(out _, out _, out _, out var dialog, out _, out _, out _, out _, out _);
+            dialog.StoryViewToReturn = new StoryView(
+                new Id("dialog.story_tree.ui_intents_test"), new Id("dialog.story_tree.ui_intents_test.n1"),
+                new Id("l10n.ui_intents_test.n1"), null, Array.Empty<(int, Id)>());
+            dialog.GossipViewToReturn = new GossipView(new Id("dialog.gossip_menu.ui_intents_test"), Array.Empty<(int, Id)>());
+
+            Assert.True(intents.ChooseDialogOption(0));
+
+            Assert.Contains(0, dialog.AdvancedBranchIndices);
+            Assert.Empty(dialog.ChosenIndices);
+        }
+
+        /// <summary>两种会话视图都为空（未打开任何对话）时静默返回 false，不抛异常——与本类型其它
+        /// 意图方法"被拒绝时静默返回失败"一贯风格一致。</summary>
+        [Fact]
+        public void ChooseDialogOption_NoActiveSession_ReturnsFalse()
         {
             var intents = Build(out _, out _, out _, out var dialog, out _, out _, out _, out _, out _);
 
-            Assert.True(intents.ChooseDialogOption(2));
-            Assert.Contains(2, dialog.ChosenIndices);
+            Assert.False(intents.ChooseDialogOption(0));
+
+            Assert.Empty(dialog.ChosenIndices);
+            Assert.Empty(dialog.AdvancedBranchIndices);
         }
 
         [Fact]

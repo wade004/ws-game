@@ -577,3 +577,48 @@ ABI：纯加法——`PlayerPathProvider` 新增一个构造函数重载（既�
 有名内层区域→离开内层回落到外层→离开外层归"无"，全程含一个不影响判定但应出现在宿主层查询里的
 无名触发体）见 `presentation/assembly/tests/PresentationAssemblyTests.cs`
 （`AreaTrigger_EndToEnd_PlayerMovement_UpdatesHostQueryAndHud`）。
+
+## 判断记录（缺陷修复：`UiIntents.ChooseDialogOption` 未按会话类型分派，2026-09-22，消费方反馈——游戏接入方第十五批，阻塞）
+
+背景：`UiIntents.ChooseDialogOption` 此前恒转发 `IDialogHost.ChooseOption`。`Core.Gameplay.Dialog.
+DialogHost` 的会话模型里 `GossipMenuId`/`StoryTreeId` 互斥——`StartStory` 进入剧情会话时会清空
+`GossipMenuId`，而 `ChooseOption` 要求 `GossipMenuId` 非空——于是剧情会话里经框架自带对白面板
+（`DialogPanel.RefreshUi`）点任何剧情分支都被 `ChooseOption` 以"当前不在 gossip 会话"为由拒绝，
+节点恒不推进，真实玩家用原生对白面板永远走不完剧情对话，只有绕开 UI 直调 `IDialogHost.AdvanceStory`
+才能推进（消费方反馈第十五批复现路径）。
+
+**修法（一个入口按会话类型分派，不拆两个新方法、不改宿主两个方法的语义）**：`ChooseDialogOption`
+先查 `IDialogHost.GetStoryView`——非空即当前是剧情会话，转发 `AdvanceStory`；否则查
+`IDialogHost.GetGossipView`——非空即当前是闲聊会话，转发 `ChooseOption`；两者都为空（未打开任何
+对话）返回 `false`，不抛异常，同本类型其它意图方法"被拒绝时静默返回失败"一贯风格。
+
+**两种会话能否并存、分派优先级依据**：`DialogHost.StartStory`/`OpenGossip` 各自清空对方状态
+（见两方法实现），运行期任一时刻 `GetStoryView`/`GetGossipView` 至多一个非空，不存在真正需要裁决
+优先级的并存情形；`ChooseDialogOption` 仍显式先查 `GetStoryView` 再查 `GetGossipView`（防御性
+分支覆盖"两者都非空"这一理论上不会发生的状态），顺序与本模块唯一消费方 `DialogPanel.RefreshUi`
+决定渲染哪种视图的顺序（`if (_vm.Story != null) ... else if (_vm.Gossip != null)`）保持一致——
+UI 显示的是哪种会话，点击就转发到哪种会话的推进方法，不会出现"看到剧情分支、点击却按 gossip
+语义处理"的错位。
+
+**排查范围**：搜过全仓库把剧情分支转给 `ChooseOption` 的地方（UI 意图层、示例启动代码、其它面板），
+只有 `DialogPanel.RefreshUi` 一处消费方，且经由 `UiIntents.ChooseDialogOption` 转发——随本次修复
+一并修正，不需要在其它文件另打补丁。`architecture/落地计划/audit-*/core/repro/
+TeleportLoadingBoundaryProbe.cs` 里对 `IDialogHost.ChooseOption` 的直接调用经核实是纯 gossip 场景
+（`OpenGossip` 后选择），与本缺陷无关，未改动。
+
+ABI：无变更——`UiIntents.ChooseDialogOption(int)` 签名不变，内部实现从单一转发改为按会话类型分派。
+`abi_probe.ps1` 核实 `breaks=0`。
+
+测试：`presentation/ui/tests/UiIntentsTests.cs`（`ChooseDialogOption_GossipSession_DelegatesToChooseOption`/
+`ChooseDialogOption_StorySession_DelegatesToAdvanceStory`/
+`ChooseDialogOption_BothSessionViewsNonNull_PrefersStory_MatchingDialogPanelPriority`/
+`ChooseDialogOption_NoActiveSession_ReturnsFalse`，Fake 宿主驱动分派逻辑本身）与
+`presentation/assembly/tests/PresentationAssemblyTests.cs`
+（`ChooseDialogOption_ThroughUiIntents_DrivesGossipStartStoryThenAdvancesStoryToCompletion`，经真实
+`GameplayAssembly`/`PresentationAssembly` 装配、真实 `dialog.gossip_menu`/`dialog.story_tree`
+数据，只经 `UiIntents.ChooseDialogOption` 走完"gossip 选项触发 start_story → 剧情节点逐个推进 →
+终止分支关闭会话发 `dialog.ended`"整条链——终止分支即剧情数据模型能表达的"完成效果"，剧情分支本身
+不像 gossip 选项那样携带 `actions` 列表）。Unity 侧见
+`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/UiSuiteTests.cs`
+（`Dialog_ClickStoryBranchButton_ThroughDialogPanel_AdvancesStoryNode`，经对白面板渲染出的真实
+按钮 `onClick` 推进剧情节点，不直调宿主/`UiIntents`）。
