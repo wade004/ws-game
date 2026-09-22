@@ -458,6 +458,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.63.0] - 2026-09-23
+
 ### 修复
 
 - **门禁并行两条线偶发把 `test_detach_twice_then_stop_succeeds` 杀出
@@ -493,6 +495,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`
   对应条目。ABI：新增构造函数重载（`AutoAttackHost`）、新增事件类型与事件键、新增公开只读属性，
   不改动任何既有公开签名。
+- **门禁两个步骤会重写已发布版本的 dist 产物，发布落地后门禁必然失败**：
+  `toolchain/_gate_line_unity.ps1` 的"包清单一致性"步骤跑 `build.ps1 -SyncOnly -Dist auto`、
+  `toolchain/consumer_smoke.ps1` 默认取 VERSION 文件当演练版本号，两者都会先删掉再重建
+  `dist\<VERSION>\`——而 VERSION 在一次发布落地后就等于那个已发布且已打标签的版本号，正是
+  `toolchain/_dist_immutability_guard.ps1` 承诺"已发布版本的 dist 目录/zip/lock 不可变"要拦的
+  事。2026-09-23 实测：发布 1.62.0 之后再跑全量门禁，这两步一律失败于"拒绝覆盖已发布版本
+  1.62.0 的产物"，且守卫拦住之前这两步本来就在反复重写已分发版本的目录内容。两处一律改为打到
+  `dist\<VERSION>-dryrun\`（合法 semver 预发布标识，`build.ps1` 明确支持，`git tag -l` 天然查
+  不到匹配，正是守卫文件头判断记录里预留给"只验证打包/演练、不是真发布"调用点的放行方式）；
+  包清单一致性的四包版本号比对相应改为与本次打包版本号比对（`build.ps1` 对四个包一律写入同一个
+  `$ResolvedDistVersion`，校验强度不变），`consumer_smoke.ps1` 的版本号格式校验相应接受
+  `X.Y.Z` 与 `X.Y.Z-dryrun` 两种形式，显式传 `-DistVersion X.Y.Z` 演练历史版本快照的用法不变。
 
 ## [1.62.0] - 2026-09-22
 
