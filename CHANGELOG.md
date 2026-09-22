@@ -468,6 +468,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   真正的内容缺口才保留告警，文案不变。不新增构造重载（已有依赖足够判别）。详见
   `core/gameplay/loot/README.md` 判断记录 21。
 
+- 消费方反馈第十三批（游戏接入方）：`GameplayAssembly` 第 11 步给 `SpawnOptions.GobjSpawner` 装的
+  默认委托、示例 `adapters/unity/.../Bootstrap/GameFoundationBootstrap.cs`（样例箱子）此前只转发
+  `GameObjectFactory.Spawn` 的 4 个位置参数，`lockId` 恒为 `null`——经 `spawn.table` 刷出来的
+  `gobj` 无论 `gobj.template.lock_id` 登记了什么锁都不上锁。新增 `GameObjectFactory
+  .SpawnFromTemplate`（ABI 纯新增，按 `templateId` 读 `gobj.template` 取 `LockId` 一并传给
+  `Spawn`），框架默认生成路径与示例改调它；`GameObjectFactory.Spawn` 本身"调用方决定 `lockId`"的
+  既有语义不变。详见 `core/carriers/gobj/README.md` 判断记录 13、`core/gameplay/assembly/README.md`
+  判断记录 16。
+
 ## [1.58.0] - 2026-09-22
 
 ### 新增

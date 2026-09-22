@@ -286,16 +286,12 @@ namespace Tests.Carriers.Gobj
         }
 
         /// <summary>按 <c>gobj.template</c> 记录生成一个实体，<c>lockId</c> 取模板声明的
-        /// <see cref="GameObjectTemplate.LockId"/>（测试便捷封装：<see cref="GameObjectFactory.Spawn"/>
-        /// 本身不读模板字段，见该类型顶部判断记录，正式调用方——如场景加载/刷新表——同样需要自己先
-        /// 解析模板再决定传给 <c>Spawn</c> 的 <c>lockId</c>）。</summary>
-        public Id SpawnFromTemplate(Id templateId, Id mapId, Vec2 position, double facing = 0)
-        {
-            var record = Registry.Get(GobjSchemas.Template.Name, templateId)
-                ?? throw new InvalidOperationException($"gobj.template \"{templateId}\" 不存在");
-            var template = GameObjectTemplate.FromRecord(record);
-            return Factory.Spawn(templateId, mapId, position, facing, template.LockId);
-        }
+        /// <see cref="GameObjectTemplate.LockId"/>（测试便捷封装，转发 <see
+        /// cref="GameObjectFactory.SpawnFromTemplate"/>——消费方反馈第十三批根治后，框架默认生成路径
+        /// 与示例 <c>GameFoundationBootstrap</c> 均已改调同一实现，本类型不再自行维护一份重复逻辑）。
+        /// </summary>
+        public Id SpawnFromTemplate(Id templateId, Id mapId, Vec2 position, double facing = 0) =>
+            Factory.SpawnFromTemplate(Registry, templateId, mapId, position, facing);
     }
 
     internal sealed class GobjWorldBuilder

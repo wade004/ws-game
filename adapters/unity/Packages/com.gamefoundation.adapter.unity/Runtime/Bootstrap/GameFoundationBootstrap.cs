@@ -411,7 +411,11 @@ namespace Adapter.Unity.Bootstrap
             }
 
             var chestPosition = new Vec2(2, 2);
-            ChestEntityId = gameplay.Carriers.GameObjects.Spawn(new Id(_chestTemplateId), mapId, chestPosition, facing: 0.0);
+            // 消费方反馈第十三批根治：改走 GameObjectFactory.SpawnFromTemplate（按模板 id 读
+            // gobj.template 取 lock_id 一并传入），与框架默认生成路径（GameplayAssembly 第 11 步
+            // GobjSpawner 委托）保持同一惯例——样例箱子模板若登记了 lock_id，示例场景应如实演示"箱子
+            // 默认带锁"，不能因为手工生成路径漏传 lockId 而在示例里失真。
+            ChestEntityId = gameplay.Carriers.GameObjects.SpawnFromTemplate(registry, new Id(_chestTemplateId), mapId, chestPosition, facing: 0.0);
             // 判断记录（与框架默认一致，见 CarriersAssembly.DefaultSpatialSyncKinds 判断记录）：
             // 本 gobj 不会被 EntitySpatialSyncHost 登记进 host.SpatialQuery——该空间索引同时被
             // target.chain.sample_nearest_enemy 一类战斗目标解析策略共用，其内部（

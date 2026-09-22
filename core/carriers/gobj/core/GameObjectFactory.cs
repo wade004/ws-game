@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
 using Core.Foundation.SimLoop;
 
 namespace Core.Carriers.Gobj
@@ -10,12 +11,14 @@ namespace Core.Carriers.Gobj
     /// <c>Core.Carriers.Common.ICreatureFactory</c>，但本类型不对外暴露为
     /// <c>core/carriers/common</c> 契约接口——07 第 9 节契约汇总表 GameObject 行只列出
     /// <c>GameObjectHost</c>（<c>interact</c>/<c>tryUnlock</c>）一个契约，"按模板生成实例"不是其它
-    /// 模块需要跨模块调用的能力，故只在本模块内部提供，不新增 common 契约）。不读 <c>gobj.template</c>
-    /// 装配任何字段——<see cref="GameObjectEntity"/> 只持有 <c>templateId</c>/<c>lockId</c>，具体模板
-    /// 字段（<c>kind</c>/<c>type_data</c>/...）由 <see cref="GameObjectHost"/> 按需通过
-    /// <c>IDataRegistryView</c> 现查现解析（同 <c>core/rules/skill</c> 的 <c>SkillDefCache</c> 惯例
-    /// 之外的另一种选择：本模块记录条数少、不在每帧热路径上，未引入缓存层，见 schema/README.md
-    /// "判断记录"）。
+    /// 模块需要跨模块调用的能力，故只在本模块内部提供，不新增 common 契约）。<see cref="Spawn"/> 本身
+    /// 不读 <c>gobj.template</c> 装配任何字段——<see cref="GameObjectEntity"/> 只持有
+    /// <c>templateId</c>/<c>lockId</c>，具体模板字段（<c>kind</c>/<c>type_data</c>/...）由
+    /// <see cref="GameObjectHost"/> 按需通过 <c>IDataRegistryView</c> 现查现解析（同
+    /// <c>core/rules/skill</c> 的 <c>SkillDefCache</c> 惯例之外的另一种选择：本模块记录条数少、不在
+    /// 每帧热路径上，未引入缓存层，见 schema/README.md"判断记录"）。这一条只约束 <see cref="Spawn"/>
+    /// 本身的语义（调用方决定 <c>lockId</c>，不强制照抄模板）；<see cref="SpawnFromTemplate"/> 是消费方
+    /// 反馈第十三批新增的便捷方法，专门解决"按模板生成、锁默认照抄模板"这一常见场景，见该方法判断记录。
     /// </summary>
     public sealed class GameObjectFactory
     {
@@ -53,6 +56,36 @@ namespace Core.Carriers.Gobj
 
             _world.AddEntity(entity);
             return entityId;
+        }
+
+        /// <summary>
+        /// 按 <c>gobj.template</c> 记录生成一个实体，<paramref name="lockId"/> 取模板声明的
+        /// <see cref="GameObjectTemplate.LockId"/>（即顶层 <c>gobj.template.lock_id</c>）——本方法是
+        /// <see cref="Spawn"/> 的便捷封装，不改变 <see cref="Spawn"/> 本身"调用方决定 lockId"的既有
+        /// 语义（手工放置的物件仍可直接调 <see cref="Spawn"/> 并自行传入/覆盖 <paramref
+        /// name="lockId"/>）。
+        /// <para>
+        /// 消费方反馈第十三批根治：框架默认生成路径（<c>core/gameplay/assembly/GameplayAssembly.cs</c>
+        /// 给 <c>SpawnOptions.GobjSpawner</c> 装的默认委托）与示例 <c>GameFoundationBootstrap</c> 此前
+        /// 各自手写一遍"读模板 → 取 lock_id → Spawn"（唯一正确示范只有测试辅助
+        /// <c>core/carriers/gobj/tests/GobjTestSupport.SpawnFromTemplate</c>），导致框架自己的默认
+        /// 组装路径经 <c>spawn.table</c> 刷出的物件从不上锁。判断记录：与其让"读模板→取锁→Spawn"这套
+        /// 逻辑在默认委托、示例两处分别重复一遍，不如在本类型（读模板本就属于 <c>core/carriers/gobj</c>
+        /// 领域内的语义，未越过"不引用 <c>Core.Gameplay</c>"边界）新增一个 ABI 纯新增的便捷入口，两处
+        /// 调用方改调同一份实现，不再各自维护一份读模板逻辑。读取模板的方式与
+        /// <c>GobjTestSupport.SpawnFromTemplate</c>/<see cref="GameObjectTemplate.FromRecord"/> 完全
+        /// 一致，不另写一套解析。
+        /// </para>
+        /// </summary>
+        public Id SpawnFromTemplate(
+            IDataRegistryView registry, Id templateId, Id mapId, Vec2 position, double facing, Id? originKey = null)
+        {
+            if (registry == null) throw new ArgumentNullException(nameof(registry));
+
+            var record = registry.Get(GobjSchemas.Template.Name, templateId)
+                ?? throw new InvalidOperationException($"gobj.template \"{templateId}\" 不存在");
+            var template = GameObjectTemplate.FromRecord(record);
+            return Spawn(templateId, mapId, position, facing, template.LockId, originKey);
         }
 
         /// <summary>见 <see cref="Spawn"/> 判断记录：坐标分量必须编码成 <see cref="Id"/> 允许的字符集
