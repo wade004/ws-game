@@ -33,6 +33,17 @@ namespace Adapter.Unity.Ui.Panels
         private TextMeshProUGUI _bodyLabel = null!;
         private RectTransform _optionsList = null!;
         private readonly System.Collections.Generic.List<GameObject> _optionButtons = new System.Collections.Generic.List<GameObject>();
+        // 判断记录（消费方反馈第十六批，阻塞，框架缺陷修复）：此前 UiWidgets.CreateButton 的
+        // onClick 闭包只在“新建”按钮时绑定一次（见下方 RebuildOptions），按钮被复用（选项数量
+        // 不变或减少）时不会重新绑定——一次点击把会话从 Gossip 切到 Story（闲聊选项动作含
+        // start_story）后，按钮仍挂着上一次 RefreshUi 传入的旧 onClick 闭包，其中闭包捕获的
+        // Gossip 视图子对象已经为 null，点击直接 NullReferenceException（DialogPanel 卡死在第一
+        // 节点）。改法：button.onClick 只在按钮创建时永久绑定一次“读取 _optionClickActions[idx]
+        // 并调用”这层间接层，真正的点击语义（_optionClickActions[i]）在 RebuildOptions 每次调用的
+        // for 循环里对全部按钮（新建的和复用的）无条件重新赋值——不存在“只在新建分支才重绑”的代码
+        // 路径，比“复用分支里手动 RemoveAllListeners 再 AddListener”更不容易再次漏绑（少一处需要
+        // 记得写的对称代码）。
+        private readonly System.Collections.Generic.List<Action?> _optionClickActions = new System.Collections.Generic.List<Action?>();
 
         public void Construct(RectTransform parent, DialogViewModel vm, UiIntents intents, IL10nHost l10n)
         {
@@ -82,19 +93,29 @@ namespace Adapter.Unity.Ui.Panels
             while (_optionButtons.Count < count)
             {
                 var idx = _optionButtons.Count;
-                var (rowRoot, _, _) = UiWidgets.CreateButton($"Option{idx}", _optionsList, "-", () => onClick?.Invoke(idx));
+                // button.onClick 只在这里绑定一次，且永远只读 _optionClickActions[idx]（间接层）——
+                // 不直接闭包捕获本次调用的 onClick，避免按钮被复用到下一次 RefreshUi 时仍执行本次的
+                // 旧动作，见本类型顶部判断记录。
+                var (rowRoot, _, _) = UiWidgets.CreateButton($"Option{idx}", _optionsList, "-", () => _optionClickActions[idx]?.Invoke());
                 _optionButtons.Add(rowRoot.gameObject);
+                _optionClickActions.Add(null);
             }
             while (_optionButtons.Count > count)
             {
                 var last = _optionButtons[_optionButtons.Count - 1];
                 _optionButtons.RemoveAt(_optionButtons.Count - 1);
+                _optionClickActions.RemoveAt(_optionClickActions.Count - 1);
                 Destroy(last);
             }
             for (var i = 0; i < count; i++)
             {
                 var label = _optionButtons[i].transform.Find("Label").GetComponent<TextMeshProUGUI>();
                 label.text = textOf!(i);
+
+                // 无条件重新赋值——新建的和复用的按钮都经过这一段，不存在“只在新建分支才重绑”的
+                // 代码路径（见本类型顶部判断记录）。
+                var capturedIndex = i;
+                _optionClickActions[i] = onClick != null ? () => onClick(capturedIndex) : (Action?)null;
             }
         }
     }

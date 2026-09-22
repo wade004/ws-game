@@ -90,6 +90,8 @@
     { "key": "l10n.dialog.sample_hunter_story.node_intro", "locale": "l10n.locale.zh_cn", "text": "示例猎人：欢迎来到示例地图。" },
     { "key": "l10n.dialog.sample_hunter_story.node_end", "locale": "l10n.locale.zh_cn", "text": "示例猎人：一路小心。" },
     { "key": "l10n.dialog.sample_hunter_story.branch_continue", "locale": "l10n.locale.zh_cn", "text": "（继续）" },
+    { "key": "l10n.dialog.sample_hunter_story_trigger.greeting", "locale": "l10n.locale.zh_cn", "text": "示例猎人：我给你讲个故事吧。" },
+    { "key": "l10n.dialog.sample_hunter_story_trigger.option_start", "locale": "l10n.locale.zh_cn", "text": "听故事" },
     { "key": "l10n.combat.sample_death_text", "locale": "l10n.locale.zh_cn", "text": "阵亡" },
 
     { "key": "l10n.stat.strength.name", "locale": "l10n.locale.en_us", "text": "Strength" },
@@ -180,6 +182,8 @@
     { "key": "l10n.dialog.sample_hunter_story.node_intro", "locale": "l10n.locale.en_us", "text": "Sample Hunter: Welcome to the sample map." },
     { "key": "l10n.dialog.sample_hunter_story.node_end", "locale": "l10n.locale.en_us", "text": "Sample Hunter: Safe travels." },
     { "key": "l10n.dialog.sample_hunter_story.branch_continue", "locale": "l10n.locale.en_us", "text": "(Continue)" },
+    { "key": "l10n.dialog.sample_hunter_story_trigger.greeting", "locale": "l10n.locale.en_us", "text": "Sample Hunter: Let me tell you a story." },
+    { "key": "l10n.dialog.sample_hunter_story_trigger.option_start", "locale": "l10n.locale.en_us", "text": "Hear the story" },
     { "key": "l10n.combat.sample_death_text", "locale": "l10n.locale.en_us", "text": "Slain" },
 
     { "key": "l10n.ui.sample_fallback_demo.text", "locale": "l10n.locale.zh_cn", "text": "这条文本只登记了中文，用于演示语言回退链：en_us 查询本键会经回退链取到这条中文文本。" },

@@ -379,6 +379,69 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual("dialog.sample_hunter_story.node_end", afterView!.NodeId.Value, "点击对白面板渲染的分支按钮应当真的经 UiIntents.ChooseDialogOption 推进到下一剧情节点");
         }
 
+        /// <summary>消费方反馈（游戏接入方第十六批，阻塞，框架缺陷）修复验收：<see cref="DialogPanel.RebuildOptions"/>
+        /// 此前只在"新建"按钮时绑定 <c>onClick</c>（闭包捕获当时传入的点击委托），复用已有按钮（选项
+        /// 数量不变）时不会重新绑定。闲聊菜单只有 1 个选项、该选项动作含 <c>start_story</c> 时，一次
+        /// 点击把会话从 Gossip 切到 Story（<see cref="Core.Gameplay.Dialog.IDialogHost.StartStory"/>
+        /// 清空 <c>session.GossipMenuId</c>），剧情首节点同样只有 1 条分支——<see cref="DialogPanel"/>
+        /// 因此会复用同一个 <c>Option0</c> 按钮对象而不是销毁重建；此时按钮仍挂着上一次（Gossip）
+        /// <c>RefreshUi</c> 绑定的旧闭包，其捕获的 <see cref="DialogViewModel.Gossip"/> 已经为
+        /// <c>null</c>，第二次点击直接 <c>NullReferenceException</c>、对话卡死。数据用框架样例数据集
+        /// 新增的 <c>dialog.sample_hunter_story_trigger</c>（1 个选项，<c>actions=[start_story]</c>，
+        /// 见 <c>data/_sample/dialog/dialog.gossip_menu.json</c>），不复用既有的 5 选项
+        /// <c>dialog.sample_hunter</c> 菜单（选项数量会变化，不会触发"按钮复用"这条路径）。</summary>
+        [UnityTest]
+        public IEnumerator Dialog_ReuseOptionButtonAfterGossipToStoryTransition_ThroughDialogPanel_DoesNotThrow()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+            yield return EnterInWorld(shell);
+
+            var playerId = shell.Framework.PlayerId;
+            var menuId = new Id("dialog.sample_hunter_story_trigger");
+
+            var gossip = shell.Framework.Gameplay.Dialog.OpenGossip(playerId, new Id("npc.sample_hunter"), menuId);
+            Assert.AreEqual(1, gossip.Options.Count, "样例闲聊菜单 dialog.sample_hunter_story_trigger 应当只有 1 个选项（复现条件：只有 1 个选项的闲聊菜单）");
+
+            shell.UiPanelHost.Dialog.Show();
+            shell.UiPanelHost.Dialog.RefreshUi();
+            Assert.IsNotNull(shell.Framework.Presentation.DialogView.Gossip, "DialogViewModel 应当已经反映当前打开的 gossip 会话");
+
+            var branchButton = shell.UiPanelHost.GameplayGroup
+                .Find("DialogPanel/Content/Options/Option0")
+                ?.GetComponent<Button>();
+            Assert.IsNotNull(branchButton, "对白面板应当已经渲染出闲聊菜单的第一个选项按钮");
+
+            // 第一次点击：DialogViewModel 订阅了 StoryNodeEntered 事件（见其类型判断记录），
+            // ChooseOption 内部执行 start_story 动作时会同步触发 Refresh，因此点击一结束视图模型
+            // 已经是最新状态，不需要等一帧。
+            branchButton!.onClick.Invoke();
+
+            Assert.IsNull(shell.Framework.Presentation.DialogView.Gossip, "第一次点击（start_story 动作）后会话应当已经切换到剧情，Gossip 视图应当为 null");
+            var storyView = shell.Framework.Presentation.DialogView.Story;
+            Assert.IsNotNull(storyView, "第一次点击后 DialogViewModel 应当已经反映当前打开的剧情会话");
+            Assert.AreEqual("dialog.sample_hunter_story.node_intro", storyView!.NodeId.Value);
+            Assert.AreEqual(1, storyView.VisibleBranches.Count, "剧情首节点应当只有 1 条分支（复现条件：分支数量与闲聊选项数量相同，触发按钮复用而不是新建/销毁）");
+
+            // 面板重建选项列表（复用/新建/销毁的判断逻辑本身，见 DialogPanel.RebuildOptions）。
+            shell.UiPanelHost.Dialog.RefreshUi();
+
+            var reusedButton = shell.UiPanelHost.GameplayGroup
+                .Find("DialogPanel/Content/Options/Option0")
+                ?.GetComponent<Button>();
+            Assert.AreSame(branchButton, reusedButton, "剧情首节点同样只有 1 条分支，DialogPanel 应当复用同一个 Option0 按钮对象而不是销毁重建——本用例要覆盖的正是这条路径");
+
+            // 第二次点击：复用的按钮此前（修复前）仍挂着第一次 RefreshUi 绑定的旧 onClick 闭包，
+            // 其捕获的 Gossip 视图已经为 null，点击会直接 NullReferenceException。修复后
+            // button.onClick 只读一层间接层，间接层在每次 RebuildOptions 都会无条件重新赋值，
+            // 因此这里应当正常推进到 node_end、不抛异常。
+            reusedButton!.onClick.Invoke();
+
+            var afterView = shell.Framework.Gameplay.Dialog.GetStoryView(playerId);
+            Assert.IsNotNull(afterView, "第二次点击（复用按钮）后应当仍处于剧情会话中（node_end 无分支、不会自动关闭会话）");
+            Assert.AreEqual("dialog.sample_hunter_story.node_end", afterView!.NodeId.Value, "复用后的按钮点击应当真的经 UiIntents.ChooseDialogOption 推进到下一剧情节点，而不是抛异常卡死在 node_intro");
+        }
+
         [UnityTest]
         public IEnumerator Settings_ChangeSfxBusVolume_ChangesAudioBus_AndPersistsFile()
         {
