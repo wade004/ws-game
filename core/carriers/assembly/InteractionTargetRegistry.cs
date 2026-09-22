@@ -23,16 +23,35 @@ namespace Core.Carriers.Assembly
     /// 形态留在世界模拟中（不会被自动 <c>Despawn</c>），本类型据此把它们排除出候选，避免尸体与它
     /// 自己死亡结算生成的地面掉落物同坐标时按 <see cref="Entity.EntityId"/> 序数抢先命中。
     /// </para>
+    /// <para>
+    /// ADR-0069（消费方反馈——游戏接入方第十四批）：候选判定再额外持有一个可选的
+    /// <see cref="ICreatureInteractionHost"/>——生物类实体只有"存在且存活"不足以保证对它发交互会有
+    /// 任何结果（护送/跟随/闲逛一类没有配置原生可交互内容的生物，交互什么都不会发生），本类型据此
+    /// 再核对 <see cref="ICreatureInteractionHost.HasInteractableContent"/>。构造函数按重载注入：
+    /// 未注入（沿用旧的两参构造函数）时视为"无法判定，按有内容处理"（不参与本条过滤，既有调用方
+    /// 行为逐位不变，同该接口成员默认实现的降级口径），真正生产装配（<see
+    /// cref="Core.Carriers.Assembly.CarriersAssembly"/>）显式传入生物交互宿主本身接上这条过滤。
+    /// </para>
     /// </summary>
     public sealed class InteractionTargetRegistry : IInteractionTargetRegistry
     {
         private readonly IWorldSim _world;
         private readonly IUnitAccess _units;
+        private readonly ICreatureInteractionHost? _creatureInteractions;
 
         public InteractionTargetRegistry(IWorldSim world, IUnitAccess units)
+            : this(world, units, creatureInteractions: null)
+        {
+        }
+
+        /// <summary>ADR-0069 新增重载：接受 <see cref="ICreatureInteractionHost"/>（ABI 只加不改，
+        /// 见类型注释判断记录）。<paramref name="creatureInteractions"/> 为 <c>null</c> 时行为与旧的
+        /// 两参构造函数完全一致（生物候选只核对存在且存活，不核对内容）。</summary>
+        public InteractionTargetRegistry(IWorldSim world, IUnitAccess units, ICreatureInteractionHost? creatureInteractions)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _units = units ?? throw new ArgumentNullException(nameof(units));
+            _creatureInteractions = creatureInteractions;
         }
 
         public bool TryFindNearest(Id unitId, double? maxRange, out InteractionTarget target)
@@ -88,17 +107,20 @@ namespace Core.Carriers.Assembly
         }
 
         /// <summary>
-        /// ADR-0065：生物类实体只有在存活时才是候选——存活判定用规则层权威口径
-        /// <see cref="IUnitAccess.Exists"/>×<see cref="IUnitAccess.IsAlive"/>（与 ADR-0061
-        /// <c>player.alive</c>/<c>target.alive</c> 同一口径，不看生命值资源池是否 <c>&lt;= 0</c>）。
-        /// 场景物件、地面掉落物不接入这条判定——它们不是 <see cref="Core.Carriers.Unit.Unit"/> 子类，
-        /// <see cref="IUnitAccess"/> 天然不适用，也没有"存活"这个概念。
+        /// ADR-0065/ADR-0069：生物类实体只有"存在 且 存活 且 有可交互内容"才是候选——存活判定用
+        /// 规则层权威口径 <see cref="IUnitAccess.Exists"/>×<see cref="IUnitAccess.IsAlive"/>（与
+        /// ADR-0061 <c>player.alive</c>/<c>target.alive</c> 同一口径，不看生命值资源池是否
+        /// <c>&lt;= 0</c>）；内容判定见 <see cref="ICreatureInteractionHost.HasInteractableContent"/>
+        /// （<see cref="_creatureInteractions"/> 未注入时不参与本条过滤，见类型注释判断记录）。
+        /// 场景物件、地面掉落物不接入这两条判定——它们不是 <see cref="Core.Carriers.Unit.Unit"/>
+        /// 子类，<see cref="IUnitAccess"/> 天然不适用，也没有"存活"/"可交互内容"这两个概念。
         /// </summary>
         private bool IsInteractionCandidate(Entity entity)
         {
             if (entity.Kind == EntityKinds.Creature)
             {
-                return _units.Exists(entity.EntityId) && _units.IsAlive(entity.EntityId);
+                return _units.Exists(entity.EntityId) && _units.IsAlive(entity.EntityId) &&
+                    (_creatureInteractions == null || _creatureInteractions.HasInteractableContent(entity.EntityId));
             }
 
             return entity.Kind == EntityKinds.Gobj || entity.Kind == EntityKinds.Loot;

@@ -260,6 +260,21 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
     `Tests.Gameplay.Assembly.GameplayAssemblyCreatureInteractDeathTests`（装配级，覆盖直连生产
     入口的目标死亡/发起者死亡拒绝、经 `"interact"` 意图的目标死亡拒绝、存活双方回归成功四例）。
 
+15. **ADR-0069：`ICreatureInteractionHost` 新增 `HasInteractableContent`（消费方反馈——游戏接入方
+    第十四批）**：`CreatureInteractionHost.Interact` 抽出一个私有方法 `HasContent(CreatureTemplate)`
+    （生物模板配置了 `GossipMenuRef` 且 `CreatureInteractOptions.GossipOpener` 已注入，两者同时
+    成立才算"有可交互内容"——任一缺失，`Interact` 分发到对话系统都不会真正发生，对玩家而言是同一
+    种"什么都不会发生"的结果），`Interact` 原有的两段"没有配置 gossip_menu_ref"/"已配置但未注入
+    GossipOpener"诊断分支改为先调 `HasContent` 判定、再按具体缺失哪一项选诊断文案，不改变既有
+    诊断文案/返回值。新增的 `ICreatureInteractionHost.HasInteractableContent` 用显式接口实现转发
+    到同一个 `HasContent`（目标未登记为生物实例时直接返回 `false`——本查询没有诊断出口，"目标
+    未知"不是它的职责）——查询与 `Interact` 因此保证不会出现"查询说能交互、分流说不能"的分歧。
+    本查询不判距离/发起者/存活：即便目标已死亡，只要内容配置存在查询仍返回 `true`（存活判定是
+    `IInteractionTargetRegistry` 层单独核对的另一条件，见 `core/carriers/assembly/README.md` 对应
+    判断记录）。新增测试：`Tests.Carriers.Creature.CreatureInteractionHostHasInteractableContentTests`
+    （六例：有内容/无内容/内容配置但未注入回调三个分支与 `Interact` 结果一致性、死亡生物内容判定
+    不受存活影响、未登记生物 id 返回 `false`、接口默认实现降级为 `true`）。
+
 ## 不负责什么
 
 - 不实现刷新表（`SpawnHost`，L4）——本模块只提供 `ICreatureFactory` 供其调用，`summon_only`

@@ -191,7 +191,21 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 `Kind == EntityKinds.Creature`，未排除自身时会把查询发起者本身算作候选），修正为一处正确性修复，不
 只是测试夹具绕行。不新增/不改动任何既有公开构造签名。
 
-生物类候选仅存活时成立（`IUnitAccess.Exists` × `IUnitAccess.IsAlive`，与表现层
+生物类候选仅存活且有可交互内容时成立（`IUnitAccess.Exists` × `IUnitAccess.IsAlive`，与表现层
 `player.alive`/`target.alive` 同一权威口径，见 architecture/adr/0065-死亡生物不是最近可交互目标的
-候选.md）——场景物件、地面掉落物不是"单位"概念的实例，不接入这条判定。`IsInteractionCandidate`
-从 `static` 改为实例方法（读构造期已持有的 `_units` 字段判存活），不新增构造参数、不新增依赖。
+候选.md；内容判定见下方 ADR-0069 判断记录）——场景物件、地面掉落物不是"单位"概念的实例，不接入
+这两条判定。`IsInteractionCandidate` 从 `static` 改为实例方法（读构造期已持有的 `_units` 字段判
+存活），不新增构造参数、不新增依赖。
+
+## 判断记录（生物候选补可交互内容核对，2026-09-22，architecture/adr/0069-最近可交互目标候选生物需有可交互内容.md）
+
+`InteractionTargetRegistry` 新增构造重载，接受可选的 `Core.Carriers.Common.ICreatureInteractionHost`
+（ABI 只加不改，旧的两参构造函数原样保留、转发新增重载并传 `null`）；`IsInteractionCandidate` 对
+生物候选再叠加一条：`_creatureInteractions == null || _creatureInteractions.HasInteractableContent(id)`
+——未注入时按"无法判定，按有内容处理"降级，不参与过滤，既有调用方（旧签名构造函数）行为逐位
+不变。生产装配 `CarriersAssembly` 必须真的接上这条依赖：`InteractionTargets` 的构造点因此从
+"`Units = new WorldUnitAccess(...)` 就绪后立即构造"（本类型历史版本，见上方"判断记录
+（`InteractionTargetRegistry`...）"一节）后移到"`CreatureInteractions = new CreatureInteractionHost
+(...)` 构造完成之后"——两次构造之间的既有代码没有任何一处读取 `InteractionTargets`，后移不影响
+除本次新增内容过滤之外的任何既有行为；地面掉落物（L4，晚于 `CarriersAssembly` 构造）依旧能被
+查到，不受构造点后移影响（见上方判断记录"直接查 `IWorldSim` 现场结果"）。

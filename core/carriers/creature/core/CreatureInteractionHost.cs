@@ -41,6 +41,15 @@ namespace Core.Carriers.Creature
     /// <c>GameObjectHost.DispatchOnUse</c> 对 <c>DialogOpener</c>/<c>DialogOpenerWithSource</c> 都未
     /// 注入时的既有处理一致）。</description></item>
     /// </list>
+    /// <para>
+    /// ADR-0069：<see cref="ICreatureInteractionHost.HasInteractableContent"/> 显式接口实现——与
+    /// <see cref="Interact"/> 共用同一份私有的 <see cref="HasContent"/> 判定（上面列表倒数第二、第三
+    /// 条"没有配置 gossip_menu_ref"/"已配置但未注入 GossipOpener"两种情形都判定为"无内容"，
+    /// <see cref="HasContent"/> 与它们是同一份判定，不是另写一份），只是本查询不看目标是否已登记为
+    /// 生物实例这件事之外的任何存活/距离/发起者状态。生物未登记（<see cref="_world"/> 查不到对应
+    /// <see cref="CreatureUnit"/>）时返回 <c>false</c>——本查询没有诊断出口可用来记录"目标未知"这类
+    /// 异常输入（诊断是 <see cref="Interact"/> 的职责），直接如实回答"没有可交互内容"。
+    /// </para>
     /// </summary>
     public sealed class CreatureInteractionHost : ICreatureInteractionHost
     {
@@ -100,22 +109,46 @@ namespace Core.Carriers.Creature
 
             var template = _templates.Get(creature.TemplateId!.Value);
 
-            if (!template.GossipMenuRef.HasValue)
+            if (!HasContent(template))
             {
-                _diagnostics.Warn(
-                    $"生物 \"{creatureInstanceId}\"（模板 \"{template.Id}\"）没有配置 gossip_menu_ref，interact 无可交互内容");
-                return new InteractResult(true, InteractOutcome.NoAction);
-            }
+                if (!template.GossipMenuRef.HasValue)
+                {
+                    _diagnostics.Warn(
+                        $"生物 \"{creatureInstanceId}\"（模板 \"{template.Id}\"）没有配置 gossip_menu_ref，interact 无可交互内容");
+                    return new InteractResult(true, InteractOutcome.NoAction);
+                }
 
-            if (_options.GossipOpener == null)
-            {
                 _diagnostics.Warn(
                     $"生物 \"{creatureInstanceId}\" 的 gossip_menu_ref 已配置但未注入 CreatureInteractOptions.GossipOpener");
                 return new InteractResult(false, InteractOutcome.NoAction);
             }
 
-            _options.GossipOpener(unitId, creatureInstanceId, template.GossipMenuRef.Value);
+            _options.GossipOpener!(unitId, creatureInstanceId, template.GossipMenuRef!.Value);
             return new InteractResult(true, InteractOutcome.Dialog, template.GossipMenuRef.Value);
+        }
+
+        /// <summary>ADR-0069：<see cref="Interact"/>/<see cref="ICreatureInteractionHost.HasInteractableContent"/>
+        /// 共用的唯一内容判定（判断记录见类型注释）——生物模板配置了 <see
+        /// cref="CreatureTemplate.GossipMenuRef"/> 且 <see cref="CreatureInteractOptions.GossipOpener"/>
+        /// 已注入，两者同时成立才算"有可交互内容"：任一缺失，<see cref="Interact"/> 分发到对话系统都
+        /// 不会真正发生（要么无处可分发，要么分发目标未配置回调），对玩家而言是同一种"什么都不会
+        /// 发生"的结果，因此本方法把两个既有判断合并成一个布尔值，不为"有内容"开两种细分语义。</summary>
+        private bool HasContent(CreatureTemplate template) =>
+            template.GossipMenuRef.HasValue && _options.GossipOpener != null;
+
+        /// <summary>ADR-0069 显式接口实现：见 <see cref="ICreatureInteractionHost.HasInteractableContent"/>
+        /// 判断记录——不让本方法隐式满足接口同名成员（避免 <c>toolchain/abi_surface</c> 误判），转发到
+        /// 与 <see cref="Interact"/> 共用的 <see cref="HasContent"/>。目标未登记为生物实例时直接返回
+        /// <c>false</c>（本查询没有诊断出口可用，"目标未知"不是本查询的职责，见类型注释）。</summary>
+        bool ICreatureInteractionHost.HasInteractableContent(Id creatureInstanceId)
+        {
+            if (!(_world.GetEntity(creatureInstanceId) is CreatureUnit creature))
+            {
+                return false;
+            }
+
+            var template = _templates.Get(creature.TemplateId!.Value);
+            return HasContent(template);
         }
     }
 }

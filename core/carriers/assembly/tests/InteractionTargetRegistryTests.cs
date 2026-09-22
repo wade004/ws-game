@@ -197,5 +197,85 @@ namespace Tests.Carriers.Assembly
             Assert.Equal(new Id("loot.inst_1"), target.EntityId);
             Assert.Equal(InteractionTargetKind.Loot, target.Kind);
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0069（消费方反馈——游戏接入方第十四批）：生物候选新增"是否有可交互内容"核对，经构造
+        // 重载注入 ICreatureInteractionHost。本组用例只测注册表这一层的过滤接线本身（是否正确调用
+        // 注入的查询、未注入时是否保持旧行为），与 Interact/HasInteractableContent 的判定一致性由
+        // Tests.Carriers.Creature.CreatureInteractionHostHasInteractableContentTests 覆盖，生产装配
+        // 贯通验收见 Tests.Gameplay.Assembly.GameplayAssemblyNearestInteractableCreatureContentTests。
+        // -----------------------------------------------------------------
+
+        /// <summary>最小可控的 <see cref="ICreatureInteractionHost"/> 测试替身：按显式登记表回答
+        /// <see cref="HasInteractableContent"/>，未登记的 id 恒返回 <c>false</c>（本组用例不需要
+        /// <see cref="Interact"/> 产生任何真实效果）。</summary>
+        private sealed class FakeCreatureInteractionHost : ICreatureInteractionHost
+        {
+            private readonly System.Collections.Generic.HashSet<Id> _withContent;
+
+            public FakeCreatureInteractionHost(params Id[] withContent) => _withContent = new System.Collections.Generic.HashSet<Id>(withContent);
+
+            public InteractResult Interact(Id unitId, Id creatureInstanceId) =>
+                new InteractResult(false, InteractOutcome.Unknown);
+
+            public bool HasInteractableContent(Id creatureInstanceId) => _withContent.Contains(creatureInstanceId);
+        }
+
+        [Fact]
+        public void TryFindNearest_CreatureWithoutInteractableContent_IsNotACandidate_EvenIfCloser()
+        {
+            var bus = NewBus();
+            var world = new WorldSim(bus);
+            var units = new WorldUnitAccess(world);
+            var contentId = new Id("creature.inst_with_content");
+            var contentlessId = new Id("creature.inst_without_content");
+            var host = new FakeCreatureInteractionHost(contentId);
+            var registry = new InteractionTargetRegistry(world, units, host);
+
+            var player = new PlayerUnit(new Id("unit.player"), MapId, FactionId, new Id("archetype.test")) { Position = new Vec2(0, 0) };
+            world.AddEntity(player);
+            world.AddEntity(NewCreature(contentlessId.Value, new Vec2(1, 0))); // 更近，但没有可交互内容。
+            world.AddEntity(NewCreature(contentId.Value, new Vec2(5, 0))); // 更远，有可交互内容。
+
+            var found = registry.TryFindNearest(player.EntityId, null, out var target);
+
+            Assert.True(found);
+            Assert.Equal(contentId, target.EntityId);
+            Assert.Equal(InteractionTargetKind.Creature, target.Kind);
+        }
+
+        [Fact]
+        public void TryFindNearest_CreatureWithInteractableContent_IsStillACandidate()
+        {
+            var bus = NewBus();
+            var world = new WorldSim(bus);
+            var units = new WorldUnitAccess(world);
+            var contentId = new Id("creature.inst_with_content");
+            var host = new FakeCreatureInteractionHost(contentId);
+            var registry = new InteractionTargetRegistry(world, units, host);
+
+            var player = new PlayerUnit(new Id("unit.player"), MapId, FactionId, new Id("archetype.test")) { Position = new Vec2(0, 0) };
+            world.AddEntity(player);
+            world.AddEntity(NewCreature(contentId.Value, new Vec2(2, 0)));
+
+            var found = registry.TryFindNearest(player.EntityId, null, out var target);
+
+            Assert.True(found);
+            Assert.Equal(contentId, target.EntityId);
+        }
+
+        [Fact]
+        public void TryFindNearest_NoCreatureInteractionHostInjected_KeepsPriorBehavior_AllAliveCreaturesAreCandidates()
+        {
+            // 未注入 ICreatureInteractionHost（旧的两参构造函数）：行为与本次改动之前逐位一致——存活
+            // 生物即候选，不核对内容（ABI 兼容，既有调用方不必跟改）。
+            var (world, _, registry, player) = NewFixture();
+            world.AddEntity(NewCreature("creature.inst_alive", new Vec2(3, 0)));
+
+            var found = registry.TryFindNearest(player.EntityId, null, out var target);
+
+            Assert.True(found);
+            Assert.Equal(new Id("creature.inst_alive"), target.EntityId);
+        }
     }
 }

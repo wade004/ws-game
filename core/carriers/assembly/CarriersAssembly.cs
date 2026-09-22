@@ -304,13 +304,6 @@ namespace Core.Carriers.Assembly
             };
             Units = new WorldUnitAccess(world, spatial, healthFractionSetter);
 
-            // ADR-0062：最近可交互目标查询——只依赖本步刚构造好的 Units（IUnitAccess）与本方法参数
-            // world（IWorldSim），不需要等 gobj/creature/loot 任何一个具体宿主构造完成（见
-            // InteractionTargetRegistry 判断记录"不持有具体宿主引用，只经 EntityKinds 识别类型"），
-            // 因此可以在这里尽早构造——地面掉落物（L4，晚于 CarriersAssembly 构造）一样能被查到，
-            // 见该类型判断记录"直接查 IWorldSim 现场结果"。
-            InteractionTargets = new InteractionTargetRegistry(world, Units);
-
             // ---------------------------------------------------------
             // 2) CreatureImmunityProvider（IStaticImmunityProvider 的默认实现）+ InventoryHost +
             //    ItemEffectExtension——三者都只需要构造期已有的依赖（world/registry/bus），不依赖
@@ -454,6 +447,15 @@ namespace Core.Carriers.Assembly
             // 判断记录），不依赖任何尚未构造的后续步骤。
             CreatureInteractions = new Core.Carriers.Creature.CreatureInteractionHost(
                 world, Units, Creatures, creatureInteractOptions);
+
+            // ADR-0069（消费方反馈——游戏接入方第十四批）：最近可交互目标查询——依赖本步刚构造好的
+            // CreatureInteractions（ICreatureInteractionHost，用于核对生物候选是否真有可交互内容），
+            // 因此构造点从"Units 就绪后立即构造"（旧位置，见本类型历史版本判断记录）后移到这里；
+            // Units（IUnitAccess）与 world（IWorldSim）两个依赖不受影响，地面掉落物（L4，晚于
+            // CarriersAssembly 构造）依旧能被查到（见 InteractionTargetRegistry 判断记录"直接查
+            // IWorldSim 现场结果"）——本类型在这两步之间没有任何代码读取 InteractionTargets，后移
+            // 不改变除生物内容过滤之外的任何行为。
+            InteractionTargets = new InteractionTargetRegistry(world, Units, CreatureInteractions);
 
             // ---------------------------------------------------------
             // 6) SummonHost（依赖 4 的 Creatures）+ SummonEffectExtension。

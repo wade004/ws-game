@@ -137,7 +137,17 @@ namespace Tests.Carriers.Creature
             "{\"id\": \"creature.sample_elite_no_growth\", \"name_key\": \"l10n.creature.sample_elite_no_growth.name\", " +
             "\"level\": 1, \"tier\": \"creature.tier.elite\", " +
             "\"base_stats\": {\"stat.power\": 10, \"stat.max_health\": 100}, " +
-            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_elite_no_growth\"}" +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_elite_no_growth\"}," +
+            // ADR-0069（消费方反馈——游戏接入方第十四批）：唯一配置了 gossip_menu_ref 的样例模板，供
+            // CreatureInteractionHostHasInteractableContentTests 验证"有内容"分支——gossip_menu_ref
+            // 是软引用（CreatureSchemas 判断记录，L3 不可 Reference L4），不需要真的存在一张
+            // dialog.gossip_menu 表就能通过本表加载校验；creature.sample_basic（既有、无
+            // gossip_menu_ref）直接复用为"无内容"分支，不需要再新增一条。
+            "{\"id\": \"creature.sample_talkative\", \"name_key\": \"l10n.creature.sample_talkative.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
+            "\"base_stats\": {\"stat.power\": 10, \"stat.max_health\": 100}, " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_talkative\", " +
+            "\"gossip_menu_ref\": \"dialog.gossip_menu.sample_talkative\"}" +
             "]";
 
         public static IEventBus CreateBus() =>
