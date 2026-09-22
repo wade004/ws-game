@@ -105,14 +105,105 @@ namespace Tests.Gameplay.Encounter
         }
 
         [Fact]
-        public void Start_ReturnsDistinctIncrementingInstanceIds()
+        public void Start_DifferentEncountersOrMaps_ReturnsDistinctInstanceIds()
         {
             var host = MakeHost(out _, out _, out _, out _, out _, out _);
 
             var first = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            var second = host.Start(new Id("encounter.sample_spawnref"), MapA, Player);
+            var third = host.Start(new Id("encounter.sample_basic"), MapB, Player);
+
+            Assert.NotEqual(first, second);
+            Assert.NotEqual(first, third);
+            Assert.NotEqual(second, third);
+        }
+
+        // -------------------------------------------------------------
+        // ADR-0068：同一地图上同一遭遇定义已有进行中实例时，Start 幂等返回该实例
+        // （消费方反馈——游戏接入方第十一批：encounter_start 类型区域触发 one_shot:false 时，玩家
+        // 来回穿越触发圈会反复调用 Start，此前每次都新建实例，造成同一遭遇多个并存的进行中实例）。
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void Start_SameEncounterSameMap_WhileFirstStillActive_ReturnsSameInstanceId_DoesNotRespawnOrRepublish()
+        {
+            var host = MakeHost(out var world, out _, out _, out _, out _, out var bus);
+            var startedCount = 0;
+            bus.Subscribe<EncounterStartedEvent>(EncounterEventKeys.Started, _ => startedCount++);
+
+            var first = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            var second = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            var third = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+
+            Assert.Equal(first, second);
+            Assert.Equal(first, third);
+            Assert.Equal(1, startedCount); // 只在第一次真正新建时发布过一次
+            Assert.Single(world.SpawnCalls); // 初始单位没有因为后续 Start 调用被重复生成
+            Assert.Single(host.ActiveInstanceIds); // 不会并存出第二个进行中实例
+        }
+
+        [Fact]
+        public void Start_SameEncounterDifferentMap_ReturnsDistinctInstanceIds()
+        {
+            // 不同地图上的同一遭遇定义互不影响——各自独立判定"是否已有进行中实例"。
+            var host = MakeHost(out _, out _, out _, out _, out _, out _);
+
+            var onA = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            var onB = host.Start(new Id("encounter.sample_basic"), MapB, Player);
+
+            Assert.NotEqual(onA, onB);
+            Assert.Equal(2, host.ActiveInstanceIds.Count);
+        }
+
+        [Fact]
+        public void Start_SameEncounterSameMap_AfterPreviousInstanceWon_StartsNewInstance()
+        {
+            // 已结束（胜利/失败/Abort）的实例不算"进行中"，不会挡住重新 Start。
+            var host = MakeHost(out _, out _, out _, out _, out var exprFactory, out _);
+            var first = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            exprFactory.Set("self.is_alive", true);
+            host.Evaluate(first); // Won -> IsActive=false
+
             var second = host.Start(new Id("encounter.sample_basic"), MapA, Player);
 
             Assert.NotEqual(first, second);
+            Assert.True(host.GetState(second).IsActive);
+        }
+
+        [Fact]
+        public void Start_SameEncounterSameMap_AfterAbort_StartsNewInstance()
+        {
+            var host = MakeHost(out _, out _, out _, out _, out _, out _);
+            var first = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+            host.Abort(first);
+
+            var second = host.Start(new Id("encounter.sample_basic"), MapA, Player);
+
+            Assert.NotEqual(first, second);
+            Assert.True(host.GetState(second).IsActive);
+        }
+
+        [Fact]
+        public void TryStart_FirstCall_ReturnsStarted_WithNewInstanceId()
+        {
+            IEncounterHost host = MakeHost(out _, out _, out _, out _, out _, out _);
+
+            var result = host.TryStart(new Id("encounter.sample_basic"), MapA, Player, out var instanceId);
+
+            Assert.Equal(EncounterStartResult.Started, result);
+            Assert.Contains(instanceId, host.ActiveInstanceIds);
+        }
+
+        [Fact]
+        public void TryStart_SecondCall_SameEncounterSameMap_ReturnsAlreadyActive_SameInstanceId()
+        {
+            IEncounterHost host = MakeHost(out _, out _, out _, out _, out _, out _);
+            host.TryStart(new Id("encounter.sample_basic"), MapA, Player, out var first);
+
+            var result = host.TryStart(new Id("encounter.sample_basic"), MapA, Player, out var second);
+
+            Assert.Equal(EncounterStartResult.AlreadyActive, result);
+            Assert.Equal(first, second);
         }
 
         [Fact]

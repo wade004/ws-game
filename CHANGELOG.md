@@ -458,6 +458,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.59.0] - 2026-09-22
+
+### 行为变更
+
+- **遭遇开始幂等化：同一地图同一遭遇已有进行中实例时 `Start` 不再新建**（消费方反馈——游戏接入方
+  第十一批，[ADR-0068](architecture/adr/0068-遭遇开始幂等化.md)）：
+  `Core.Gameplay.Encounter.EncounterHost.Start(encounterId, mapId, playerUnitId)` 此前每次调用都
+  新建一个实例、重新生成参战单位、重新发布 `EncounterStartedEvent`——`encounter_start` 类型区域
+  触发设为 `one_shot: false`（为了死亡后可重打）时，玩家在战斗中来回穿越触发圈会反复触发 `Start`，
+  同一遭遇出现多个并存的进行中实例。现在 `Start` 内部先查同一地图上该遭遇是否已有进行中
+  （`IsActive`）实例，命中则直接返回该实例 id，不做任何其它副作用（幂等）；已结束（胜利/失败/
+  `Abort`）的实例不算，不影响重新开始；不同地图上的同一遭遇定义互不影响。`Core.Gameplay.Encounter.
+  IEncounterHost` 新增默认接口成员 `TryStart(encounterId, mapId, playerUnitId, out instanceId)`，
+  返回新增枚举 `EncounterStartResult`（`Started`/`AlreadyActive`）显式区分本次调用是否真的新建了
+  实例；默认实现委托给既有 `Start` 并恒返回 `Started`（老实现方行为不变），生产实现 `EncounterHost`
+  用显式接口实现覆盖。区域触发默认的 `EncounterStartRequested` 转发逻辑本就是直接转调 `Start`，
+  自动受益，无需改动——`encounter_start` + `one_shot: false` 现在是安全的组合。全仓排查未发现依赖
+  "同一遭遇可并存多个进行中实例"的既有测试或流程。**这是一次行为变更**：本版本起同一地图同一遭遇
+  任意时刻至多一个进行中实例。ABI 纯加法（新增一个默认接口成员 + 一个枚举类型），`breaks=0`。
+
 ### 修复
 
 - **消费方反馈（游戏接入方第十二批）**：`CreatureDeathLootListener.OnUnitDied` 此前对任意死亡

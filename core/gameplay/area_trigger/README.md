@@ -192,3 +192,21 @@ ABI：纯加法——新增一个带默认实现的接口成员 + 生产实现�
 `GetActiveTriggerIds_Unregister_RemovesStaleEntry`、
 `GetActiveTriggerIds_UnloadMap_RemovesStaleEntry`、
 `IAreaTriggerHost_GetActiveTriggerIds_ForwardsToHost`）。
+
+## 判断记录（`encounter_start` + `one_shot: false` 组合现已安全，2026-09-22，
+[ADR-0068](../../../architecture/adr/0068-遭遇开始幂等化.md)）
+
+背景：`trigger_type = encounter_start` 的触发体配成 `one_shot: false`（为了支持"玩家死亡后可以
+重新挑战同一遭遇"这类设计）时，玩家在遭遇战斗过程中来回穿越触发范围边缘会反复命中"进入"检测，
+本模块对该类型的默认转发逻辑（`AreaTriggerOptions.EncounterStartRequested` 未被调用方覆写时的
+默认实现）此前会跟着每次进入都原样转调一次 `IEncounterHost.Start`——而遭遇宿主此前对重复 `Start`
+不做任何去重，导致同一遭遇出现多个并存的进行中实例，是一处真实的消费方反馈缺陷（游戏接入方第
+十一批）。
+
+**本模块自身无需任何改动**：ADR-0068 把去重判定收在遭遇宿主 `EncounterHost.Start` 内部（同一地图
+上同一遭遇定义已有进行中实例时不再新建，原样返回该实例 id），本模块的默认转发逻辑（见
+`GameplayAssembly` 第 15 步 `resolvedAreaTriggerOptions.EncounterStartRequested ??= (unitId,
+encounterRef) => Encounter.Start(encounterRef, ..., unitId)`）本就是直接转调 `Start`，自动继承
+幂等保护，不需要在本模块或装配层额外加一层"是否已有进行中实例"的判断。`encounter_start` +
+`one_shot: false` 这一组合从本版本起是安全的默认配置，不再需要调用方自行覆写
+`EncounterStartRequested` 打补丁去重（消费方此前的临时做法，随本决策落地可以拆除）。

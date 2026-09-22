@@ -27,6 +27,7 @@ encounter/
     EncounterLevelDefinition.cs   encounter.level 一条记录的强类型视图
     EncounterShapeJson.cs         arena_rules.bounds_shape 的 JSON 形状解析
     EncounterState.cs             GetState 查询用的运行期快照
+    EncounterStartResult.cs       TryStart 结果码（Started/AlreadyActive，ADR-0068）
     Events.cs                     EncounterEventKeys + 五个事件类型
     IEncounterHost.cs / ILevelHost.cs  两个契约接口
     SpawnRequester.cs             按 spawn.table 条目生成参战单位的具名委托（见判断记录 2）
@@ -134,6 +135,29 @@ encounter/
    RegisterEncounterSchemas` 无需改动（`EncounterContentValidationRule` 构造签名不变）。见
    `EncounterSchemas.cs`、`EncounterContentValidationRule.cs`、
    `EncounterSchemaCoverageTests.cs`。
+10. **ADR-0068：`Start` 幂等化——同一地图上同一遭遇定义已有进行中实例时不再新建**（消费方反馈——
+    游戏接入方第十一批）：`encounter_start` 类型区域触发设为 `one_shot: false`（为了死亡后可重打）
+    时，玩家在战斗中来回穿越触发圈，此前每次进入都会再 `Start` 一次，同一遭遇出现多个并存的进行中
+    实例，订阅 `EncounterStartedEvent` 做一次性初始化的表现层逻辑被反复重置。现在 `Start` 内部先查
+    `mapId` 上是否已有 `encounterId` 对应的进行中（`IsActive` 为 true）实例，命中则直接返回那个
+    实例 id——不重新生成参战单位、不重新发布 `EncounterStartedEvent`（幂等）；已结束（胜利/失败/
+    `Abort`）的实例不算"进行中"，不会挡住重新 `Start`；不同地图上的同一遭遇定义互不影响。判定逻辑
+    收在私有方法 `StartCore`，`Start` 与新增的 `IEncounterHost.TryStart`（见下）内部共用同一份，不
+    写两份。"已在进行中"是正常游玩场景（走位穿圈是常态），不写诊断。
+    `IEncounterHost` 新增默认接口成员 `TryStart(encounterId, mapId, playerUnitId, out instanceId)`，
+    返回 `EncounterStartResult`（`Started`/`AlreadyActive`）显式区分"这次是否真的新建了"；默认实现
+    只能委托给既有的 `Start` 并恒报告 `Started`（老实现方保持升级前的行为，理由见接口成员判断
+    记录），生产实现 `EncounterHost` 用显式接口实现 `IEncounterHost.TryStart` 覆盖，转发到
+    `StartCore`——不让这个全新落地方法隐式满足接口成员，遵循本仓库既有一系列默认接口成员显式转发
+    的落地惯例（见 `core/rules/common/README.md` 同类判断记录），避免物理签名被改写成
+    `virtual sealed` 形态、被 `toolchain/abi_surface` 静态签名比对误判为破坏。全仓普查未发现依赖
+    "同一遭遇可并存多个进行中实例"这一行为的既有测试或流程（`LevelHost.StartLevel` 重开前总会先
+    `Abort` 掉旧实例，见判断记录 5；区域触发默认的 `EncounterStartRequested` 委托本就是直接转调
+    `Start`，自动受益，无需改动，见 `core/gameplay/area_trigger/README.md` 对应判断记录）——这是
+    一次行为变更，详见 [ADR-0068](../../../architecture/adr/0068-遭遇开始幂等化.md)。见
+    `EncounterHost.cs`（`Start`/`StartCore`/`TryFindActiveInstance`/
+    `IEncounterHost.TryStart`）、`EncounterHostTests.cs`（`Start_SameEncounterSameMap_*`/
+    `TryStart_*` 系列）。
 
 ## 不负责什么
 

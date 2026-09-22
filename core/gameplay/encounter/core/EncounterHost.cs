@@ -153,8 +153,22 @@ namespace Core.Gameplay.Encounter
         // IEncounterHost
         // -----------------------------------------------------------------
 
-        public Id Start(Id encounterId, Id mapId, Id playerUnitId)
+        public Id Start(Id encounterId, Id mapId, Id playerUnitId) =>
+            StartCore(encounterId, mapId, playerUnitId, out _);
+
+        /// <summary>ADR-0068：<see cref="Start"/>/<see cref="IEncounterHost.TryStart"/> 共用的唯一
+        /// 判定与创建逻辑（"Start 内部走同一份判定，不写两份"）。<paramref name="mapId"/> 上
+        /// <paramref name="encounterId"/> 已有进行中实例时直接返回该实例 id、<paramref name="result"/>
+        /// 为 <see cref="EncounterStartResult.AlreadyActive"/>，不做任何其它副作用（不重新生成
+        /// 参战单位、不重新发布 <see cref="EncounterStartedEvent"/>）；否则按既有逻辑新建。</summary>
+        private Id StartCore(Id encounterId, Id mapId, Id playerUnitId, out EncounterStartResult result)
         {
+            if (TryFindActiveInstance(encounterId, mapId, out var existingInstanceId))
+            {
+                result = EncounterStartResult.AlreadyActive;
+                return existingInstanceId;
+            }
+
             var def = RequireDef(encounterId);
 
             var instanceId = new Id($"encounter.inst_{_nextInstanceNumber}");
@@ -178,7 +192,46 @@ namespace Core.Gameplay.Encounter
 
             _bus.PublishImmediate(new EncounterStartedEvent(instanceId));
 
+            result = EncounterStartResult.Started;
             return instanceId;
+        }
+
+        /// <summary>ADR-0068：<paramref name="mapId"/> 上 <paramref name="encounterId"/> 是否已有一个
+        /// 进行中（<see cref="Instance.IsActive"/> 为 true）的实例——"进行中"口径同
+        /// <see cref="GetState"/> 的 <see cref="EncounterState.IsActive"/>，已胜利/失败/
+        /// <see cref="Abort"/> 掉的实例不算。命中的判定按 <see cref="_instanceOrder"/> 声明顺序
+        /// 扫描（与 <see cref="AbortForMap"/> 同一遍历惯例），取第一个匹配——同一地图同一遭遇定义
+        /// 按本类型不变式任意时刻至多一个进行中实例，因此"第一个匹配"等价于"唯一匹配"。</summary>
+        private bool TryFindActiveInstance(Id encounterId, Id mapId, out Id instanceId)
+        {
+            foreach (var id in _instanceOrder)
+            {
+                if (!_instances.TryGetValue(id.Value, out var instance) || !instance.IsActive)
+                {
+                    continue;
+                }
+
+                if (instance.MapId.Equals(mapId) && instance.Def.Id.Equals(encounterId))
+                {
+                    instanceId = id;
+                    return true;
+                }
+            }
+
+            instanceId = default;
+            return false;
+        }
+
+        /// <summary>ADR-0068 显式接口实现：见 <see cref="IEncounterHost.TryStart"/> 判断记录——不让
+        /// 本方法隐式满足接口同名成员，避免把这里新增的落地方法当成"既有公开方法被接口改写物理签名"
+        /// （本类型此前没有 <c>TryStart</c> 公开方法，这里是全新落地，理论上隐式实现不会产生 ABI
+        /// 误报；改用显式实现是遵循派单方已拍板的口径，与本类型/<c>ISkillHost</c> 系列既有默认接口
+        /// 成员落地手法保持一致，便于统一心智模型），转发到与 <see cref="Start"/> 共用的
+        /// <see cref="StartCore"/>。</summary>
+        EncounterStartResult IEncounterHost.TryStart(Id encounterId, Id mapId, Id playerUnitId, out Id instanceId)
+        {
+            instanceId = StartCore(encounterId, mapId, playerUnitId, out var result);
+            return result;
         }
 
         public void Evaluate(Id instanceId)
