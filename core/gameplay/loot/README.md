@@ -547,6 +547,36 @@ loot/
       给定父种子与 `(表id, 条目ref)`，派生子流的初始状态是一个钉死的十六进制常量，两个互不共享
       内存状态的 `RngHost` 实例——模拟跨进程——各自算出同一个值）。
 
+21. **消费方反馈第十二批根治：`CreatureDeathLootListener.OnUnitDied` 先判别死亡单位是不是生物域
+    实体，不是就直接跳过、不写任何诊断**（运行时路径不静默降级，见判断记录 19；本条是它的边界
+    收窄，两者不矛盾——19 讲的是"确实是生物、但查不到模板/掉落表"这一真正的内容缺口不能静默，
+    本条讲的是"根本不是生物"从一开始就不该走到"查模板"这一步，不是"降级"，是"职责范围外"）：
+    此前 `OnUnitDied` 对任意死亡单位（只要 `Entity.TemplateId` 非空）都去 `creature.template`
+    表查模板；玩家单位的 `Entity.TemplateId` 由具体游戏设置为职业原型 id（不在该表里），于是每次
+    玩家死亡都会触发判断记录 19 那条"未登记模板"诊断——玩家死亡是每局必然发生的正常事件，不是
+    内容作者漏配生物模板，这条告警文案对它完全文不对题，消费方的"全程诊断零告警"验收只能靠按
+    告警文案片段排除来规避，依赖诊断文案格式。
+    - **判别依据**：`IUnitAccess.GetSourceKind(unitId)`（T-N1-6，同本文件"击杀者身份核对"分支
+      既有用法，见判断记录 18）——不新增依赖：本类全部五个构造重载早已持有 `_units: IUnitAccess`
+      字段，不需要新构造重载。生产装配（`GameplayAssembly` 第 6 步）实际接的
+      `Core.Carriers.Unit.WorldUnitAccess.GetSourceKind` 按 `Entity.Kind`
+      （`PlayerUnit.Kind = EntityKinds.Player`、`CreatureUnit.Kind = EntityKinds.Creature`）
+      返回真实值，不是 `IUnitAccess` 默认接口方法的 `SourceKind.Unknown` 占位——真正接上生产
+      装配，不是只在测试假实现里生效。
+    - **不用"模板 id 前缀"一类字符串判断**：玩家单位的 `Entity.TemplateId` 具体取值由消费方
+      自己的游戏代码决定（本例是职业原型 id），框架不能假设它的命名规律，只有权威的载体类型
+      判别（`SourceKind`，来自 `Entity.Kind`，不是从 id 字符串猜）才可靠。
+    - **非生物直接返回，连 `_units.GetTemplateId` 都不再调用**：判别放在 `OnUnitDied` 方法体最
+      顶端，早于既有的 `GetTemplateId`/`_templates.Get` 两步，行为上等价于"这次死亡事件本监听器
+      完全不关心"，不产出掉落、不写诊断，回归同判断记录 19 既有"跳过、不阻断死亡结算"控制流。
+    - **回归**：`CreatureDeathLootListener_GeneratesLootAtDeathPosition`/
+      `CreatureDeathLootListener_UnregisteredTemplate_LogsDiagnosticWithTemplateId` 两例验证
+      生物死亡掉落、生物模板缺失仍告警两条既有路径不受影响；新增
+      `CreatureDeathLootListener_NonCreatureUnitDied_NoDiagnostic_NoLoot`（玩家单位
+      `TemplateId` 设成职业原型 id，验证不产出掉落、不写诊断）与经真实 `GameplayAssembly` 装配
+      的 `GameplayAssemblyDeathReloadTests.PlayerDies_RealAssembly_DoesNotLogCreatureLootDiagnostic`
+      （玩家单位经真实死亡结算致死，诊断告警计数不变）。
+
 ## 消费方反馈第 45 条判断记录（2026-09-17）
 
 审计结论：`LootTableAnalyzer.ExpectedProbabilities` 不适用（N/A）——反馈原文点名的问题是"只读

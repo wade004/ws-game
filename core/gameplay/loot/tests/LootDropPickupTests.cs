@@ -284,6 +284,36 @@ namespace Tests.Gameplay.Loot
             Assert.Empty(diagnostics.Warnings);
         }
 
+        /// <summary>消费方反馈第十二批根治（判断记录 21）：死亡单位不是生物域实体（如玩家单位，
+        /// <see cref="Core.Rules.Common.IUnitAccess.GetSourceKind"/> 返回 <see
+        /// cref="Core.Rules.Common.SourceKind.Player"/>）时，本监听器不属于其职责范围，应直接跳过、
+        /// 不写任何诊断——即便玩家单位的 <c>Entity.TemplateId</c> 恰好被消费方设置成职业原型 id
+        /// （不在 <c>creature.template</c> 表里，本用例用 <c>FakeCreatureTemplateQuery</c> 模拟"该
+        /// id 未登记"还原消费方场景），也不应该把"内容作者漏配生物模板"这条告警套到玩家死亡这个每局
+        /// 必然发生的正常事件上。</summary>
+        [Fact]
+        public void CreatureDeathLootListener_NonCreatureUnitDied_NoDiagnostic_NoLoot()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var templates = new FakeCreatureTemplateQuery(); // 故意不登记任何模板（模拟职业原型 id 不在该表）
+            var diagnostics = new InMemoryLootDiagnostics();
+
+            _ = new CreatureDeathLootListener(
+                f.Bus, f.Host, templates, f.Units, f.World,
+                lootMultiplierProvider: null, difficultyHost: null, economyHost: null, summons: null,
+                diagnostics: diagnostics);
+
+            var playerId = new Id("player.sample_dead");
+            var player = LootTestSupport.AddPlayer(f.World, playerId, new Id("map.sample_1"), new Vec2(0, 0));
+            player.TemplateId = new Id("archetype.warrior"); // 消费方场景：玩家模板 id 是职业原型，不在 creature.template
+
+            f.Bus.Enqueue(new UnitDiedEvent(playerId, new Id("player.sample_killer")));
+            f.Bus.DispatchPending();
+
+            Assert.Empty(f.Host.ActiveLootIds);
+            Assert.Empty(diagnostics.Warnings);
+        }
+
         /// <summary>消费方反馈同构问题第三处根治（判断记录 19）：死亡单位的模板 id 未登记到
         /// <see cref="ICreatureTemplateQuery"/> 时，此前完全没有任何可观察信号（用户侧表现"杀怪
         /// 不掉东西且无任何线索"）——本用例验证诊断消息含可定位信息（具体缺失的模板 id），行为

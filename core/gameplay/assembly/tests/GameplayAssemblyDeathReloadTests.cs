@@ -292,5 +292,31 @@ namespace Tests.Gameplay.Assembly
 
             Assert.True(fx.Gameplay.Carriers.Units.IsAlive(PlayerId), "无可用自动存档时应回退到 respawn_point 复活");
         }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第十二批根治（core/gameplay/loot README 判断记录 21）：CreatureDeathLootListener
+        // 此前对任意死亡单位都去 creature.template 表查模板，玩家单位的模板 id 是职业原型（不在该表
+        // 里），于是每次玩家死亡都会写一条和"内容作者漏配生物模板"完全相同的 Loot 诊断告警——玩家
+        // 死亡是每局必然发生的正常事件，不是内容缺口。本用例经真实 GameplayAssembly 装配（第 6 步
+        // 构造的 CreatureDeathLootListener 就订阅在同一个 IEventBus 上，KillPlayer 发布的
+        // UnitDiedEvent 会真正触达它，不是绕开生产装配的 fake 拼装）复现：玩家单位经真实死亡结算
+        // 致死，Loot 诊断告警计数应保持不变。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void PlayerDies_RealAssembly_DoesNotLogCreatureLootDiagnostic()
+        {
+            var fx = Build(RespawnPolicy.ReloadSave, withSceneRouter: false);
+            // 消费方场景还原：玩家实体的 Entity.TemplateId 被具体游戏设置成职业原型 id（同
+            // ArchetypeSample），该 id 不在 creature.template 表里——修复前这会让
+            // CreatureDeathLootListener.OnUnitDied 把它当成生物模板去查，查不到就报"未登记模板"。
+            fx.Player.TemplateId = ArchetypeSample;
+            var diagnostics = (Core.Gameplay.Loot.InMemoryLootDiagnostics)fx.Gameplay.LootDiagnostics;
+            var before = diagnostics.Warnings.Count;
+
+            fx.KillPlayer(MapA);
+
+            Assert.Equal(before, diagnostics.Warnings.Count);
+        }
     }
 }

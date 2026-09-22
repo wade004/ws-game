@@ -173,6 +173,22 @@ namespace Core.Gameplay.Loot
 
         private void OnUnitDied(UnitDiedEvent evt)
         {
+            // 消费方反馈第十二批根治（判断记录 21）：本监听器只负责生物死亡掉落，玩家单位死亡是每局
+            // 必然发生的正常事件，不属于其职责范围。用已注入的 IUnitAccess.GetSourceKind（T-N1-6，
+            // 见该成员判断记录）判别——不新增依赖：本类全部五个构造重载都已持有 _units 字段；生产
+            // 装配（GameplayAssembly 第 6 步）实际接的是 Core.Carriers.Unit.WorldUnitAccess，其
+            // GetSourceKind 按 Entity.Kind（PlayerUnit.Kind = EntityKinds.Player、CreatureUnit.Kind
+            // = EntityKinds.Creature）返回真实值，不是默认接口方法的 Unknown 占位。不用"模板 id 前缀"
+            // 一类字符串判断——玩家单位的 Entity.TemplateId 可能被具体游戏设置成职业原型 id（不在
+            // creature.template 表里，无法反向判断"看起来像生物模板"），只有权威的载体类型判别才
+            // 可靠。非生物（Player/Unknown）直接跳过，不写任何诊断——"不是生物"本身不是内容缺口，
+            // 与下面 catch 分支"确实是生物、但查不到模板/掉落表"这一真正缺口的语义不同，不能共用
+            // 同一条告警文案。
+            if (_units.GetSourceKind(evt.UnitId) != SourceKind.Creature)
+            {
+                return;
+            }
+
             var templateId = _units.GetTemplateId(evt.UnitId);
             if (!templateId.HasValue)
             {
