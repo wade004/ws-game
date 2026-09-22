@@ -34,6 +34,11 @@ namespace Tests.Presentation.Assembly
     {
         private static readonly Id SamplePlayerTemplateId = new Id("creature.sample_player");
         private static readonly Id SampleTargetTemplateId = new Id("creature.sample_target");
+        // ADR-0069（消费方反馈——游戏接入方第十四批）：唯一配置了 gossip_menu_ref 的样例模板，供
+        // "最近可交互目标候选生物需有可交互内容"系列用例区分"有内容"/"无内容"两个分支——
+        // creature.sample_target 本身没有配置，直接复用为"无内容"分支，不需要再新增一条。
+        private static readonly Id SampleTargetWithGossipTemplateId = new Id("creature.sample_target_with_gossip");
+        private static readonly Id SampleGossipMenuId = new Id("dialog.gossip_menu.sample_default");
         private static readonly Id SampleMapId = new Id("world.sample_map");
 
         /// <summary>判断记录：<c>Presentation.Ui.HudViewModel</c>/<c>PlayerPathProvider</c> 构造期
@@ -105,12 +110,37 @@ namespace Tests.Presentation.Assembly
                 // loot_table_ref 的模板，专供 InteractPathProvider_DeadCreature_* 用例走真实死亡
                 // 结算掉落——不复用 creature.sample_target 本身，避免给它附带掉落表后连带影响既有
                 // 不关心掉落的用例（HudViewModel_AutoAttackStateAndTargetAlive 等）。
+                // ADR-0069 勘误：补 gossip_menu_ref——InteractPathProvider_DeadCreature_* 用例在真正
+                // 打死目标之前先回归一次"存活时仍是候选"（ADR-0065 既有断言），本次改动后"候选"
+                // 额外要求有可交互内容，这条模板此前没有配置，该回归断言会被本次改动误伤（不是在
+                // 验证"死亡排除"这条真正想测的东西，而是撞上了新加的内容过滤），补上后让内容过滤
+                // 不参与这组用例、只让死亡排除单独起作用，与该组用例本来的验收目标一致。
                 "{\"id\": \"creature.sample_lootable_target\", \"name_key\": \"l10n.creature.sample_target.name\", " +
                 "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
                 "\"base_stats\": {\"stat.max_health\": 50}, \"stat_growth_ref\": \"prog.sample_curve\", " +
                 "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\", " +
-                "\"loot_table_ref\": \"loot.sample_target_reward\"}" +
+                "\"loot_table_ref\": \"loot.sample_target_reward\", " +
+                "\"gossip_menu_ref\": \"" + SampleGossipMenuId.Value + "\"}," +
+                // ADR-0069（消费方反馈——游戏接入方第十四批）：独立于 creature.sample_target 另开一条
+                // 带 gossip_menu_ref 的模板，供"最近可交互目标候选生物需有可交互内容"系列用例——不
+                // 复用 creature.sample_target 本身，避免给它附带对话内容后连带影响既有不关心内容
+                // 过滤的用例（HudViewModel_AutoAttackStateAndTargetAlive 等仍假定它没有可交互内容）。
+                "{\"id\": \"" + SampleTargetWithGossipTemplateId.Value + "\", \"name_key\": \"l10n.creature.sample_target.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.sample_normal\", " +
+                "\"base_stats\": {\"stat.max_health\": 50}, \"stat_growth_ref\": \"prog.sample_curve\", " +
+                "\"faction_id\": \"fac.sample_hostile\", \"display_ref\": \"display.sample_target\", " +
+                "\"gossip_menu_ref\": \"" + SampleGossipMenuId.Value + "\"}" +
                 "]}");
+
+            // ADR-0069：creature.sample_target_with_gossip 引用的对话菜单——最小合法行（写法照抄
+            // Tests.Gameplay.Assembly.GameplayAssemblyCreatureDialogInteractionTests 的
+            // VendorGossipMenuRowsTemplate 形状），本文件的用例只需要 gossip_menu_ref 配置存在这件事
+            // 本身（HasInteractableContent 只看配置是否存在，不解引用），不需要真的选项、打开对话。
+            source.Add("dialog.gossip_menu",
+                "{\"table\": \"dialog.gossip_menu\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"" + SampleGossipMenuId.Value + "\", \"options\": [" +
+                "{\"text_key\": \"l10n.gossip.sample_default.open_shop\", \"actions\": [{\"kind\": \"vendor\"}]}" +
+                "]}]}");
 
             // 消费方反馈第七批第 1 条（ADR-0065）：creature.sample_lootable_target 死亡时掉落的
             // 战利品表——复用已注册的 item.sample_sword（不新增一条 item.template，减少数据面）,
@@ -1791,8 +1821,14 @@ namespace Tests.Presentation.Assembly
 
             // 用不带 loot_table_ref 的 creature.sample_target：死亡不产生地面掉落物，场上只剩"尸体"
             // 与"活着的 NPC"两个候选，单纯验证候选排除本身，不与掉落候选混杂。
+            // ADR-0069 勘误：livingId 改用带 gossip_menu_ref 的 creature.sample_target_with_gossip——
+            // 本用例要验证的是"死亡排除优先于距离"，不是"内容过滤"；旧写法两者都用 creature
+            // .sample_target（无可交互内容），本次改动后 livingId 会先被内容过滤挡住，不再是因为
+            // "尸体更近却被排除"这条本用例想验证的理由返回，因此换成有内容的模板，让"活着的 NPC"
+            // 继续满足候选条件，只让死亡排除这一条单独起作用（corpseId 是否有内容不影响它已经死亡
+            // 这一事实，不需要跟着改）。
             var corpseId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, Vec2.Zero, 0.0);
-            var livingId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, new Vec2(5, 0), 0.0);
+            var livingId = gameplay.Carriers.Creatures.Spawn(SampleTargetWithGossipTemplateId, SampleMapId, new Vec2(5, 0), 0.0);
 
             var autoAttack = gameplay.Carriers.Rules.AutoAttack;
             autoAttack.SetTarget(playerId, corpseId);
@@ -1808,6 +1844,38 @@ namespace Tests.Presentation.Assembly
             Assert.True(found);
             Assert.Equal(livingId, nearest.EntityId);
             Assert.Equal(Core.Carriers.Common.InteractionTargetKind.Creature, nearest.Kind);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0069（消费方反馈——游戏接入方第十四批）：InteractionTargetRegistry 此前对生物候选只
+        // 核对"存在且存活"（ADR-0065），不看它有没有任何可交互内容——护送/跟随/闲逛一类没有配置
+        // gossip_menu_ref 的生物离玩家最近时会被误选中，玩家按交互键什么也不会发生。经真实
+        // GameplayAssembly/PresentationAssembly 装配验证：CarriersAssembly.InteractionTargets 与
+        // 表现层 interact.nearest.* 两处都必须排除它。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void InteractPathProvider_CreatureWithoutInteractableContentCloser_NotCandidate_NearestReturnsFartherCreatureWithContent()
+        {
+            var presentation = Build(out var gameplay, out _, out _, out _);
+            var playerId = gameplay.PlayerUnitProvider();
+
+            // creature.sample_target（距离 1，更近）没有配置 gossip_menu_ref——对应护送/跟随/闲逛一类
+            // 没有原生可交互内容的生物；creature.sample_target_with_gossip（距离 5，更远）配置了。
+            var contentlessId = gameplay.Carriers.Creatures.Spawn(SampleTargetTemplateId, SampleMapId, new Vec2(1, 0), 0.0);
+            var withContentId = gameplay.Carriers.Creatures.Spawn(SampleTargetWithGossipTemplateId, SampleMapId, new Vec2(5, 0), 0.0);
+
+            var found = gameplay.Carriers.InteractionTargets.TryFindNearest(playerId, null, out var nearest);
+            Assert.True(found);
+            Assert.Equal(withContentId, nearest.EntityId);
+            Assert.NotEqual(contentlessId, nearest.EntityId);
+            Assert.Equal(Core.Carriers.Common.InteractionTargetKind.Creature, nearest.Kind);
+
+            // 同一场景经 PresentationAssembly.UiData 贯通到表现层（interact.nearest.* 与
+            // CarriersAssembly.InteractionTargets 共用同一个注册表实例，见 InteractPathProvider
+            // 判断记录）。
+            Assert.Equal(withContentId.Value, presentation.UiData.Query("interact.nearest.id")!.Value.AsId.Value);
+            Assert.Equal(EntityKinds.Creature, presentation.UiData.Query("interact.nearest.kind")!.Value.AsString);
         }
 
         // -----------------------------------------------------------------

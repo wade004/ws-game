@@ -458,6 +458,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 行为变更
+
+- **"最近可交互目标"候选生物需有可交互内容**（消费方反馈——游戏接入方第十四批，
+  [ADR-0069](architecture/adr/0069-最近可交互目标候选生物需有可交互内容.md)）：
+  `Core.Carriers.Assembly.InteractionTargetRegistry.IsInteractionCandidate` 此前对生物候选只核对
+  "存在且存活"（ADR-0065），不看它有没有任何可交互内容——护送/跟随/闲逛一类没有配置原生对话内容
+  的生物离玩家最近时会被误选中，玩家按交互键什么也不会发生，旁边真正想交互的对象反而够不到。
+  `Core.Carriers.Common.ICreatureInteractionHost` 新增默认接口成员 `HasInteractableContent
+  (creatureInstanceId)`（只读、无副作用，不判距离/发起者/存活），与既有 `Interact` 共用同一份
+  内容判定逻辑（生产实现 `Core.Carriers.Creature.CreatureInteractionHost` 抽出的私有方法），默认
+  实现恒返回 `true`（未升级的既有实现方行为不变）；`InteractionTargetRegistry` 新增构造重载接受
+  该接口（旧的两参构造函数保持不变、按"无法判定按有内容处理"降级，不参与过滤），生产装配
+  `CarriersAssembly` 显式接上。生物候选判定收窄为"存在 且 存活 且 有可交互内容"三者合取。纯
+  加法：两处签名都是新增（默认接口成员 + 构造函数重载），未跟改的既有调用方行为逐位不变。
+
 ## [1.59.0] - 2026-09-22
 
 ### 行为变更

@@ -109,7 +109,8 @@ L3 程序集本身对 L4 零编译期引用。
    完全留在 L3，不违反本目录"只定义类型与接口，禁止任何业务逻辑"的边界（接口体本身不含逻辑，
    实现放在装配层）。默认实现不另开登记表，直接对 `IWorldSim.QueryEntities` 现场求值，与
    `IWorldSim` 现有的确定性排序保持一致（等距离候选取 `EntityId` 序数最小者）。生物类候选仅存活
-   时成立，见 architecture/adr/0065-死亡生物不是最近可交互目标的候选.md。
+   且有可交互内容时成立，见 architecture/adr/0065-死亡生物不是最近可交互目标的候选.md、
+   architecture/adr/0069-最近可交互目标候选生物需有可交互内容.md。
 
 8. **消费方反馈——游戏接入方第五批第 2 条（2026-09-21，[ADR-0063](../../../architecture/adr/0063-装备宿主契约补模板id查询.md)）：
    `IEquipmentHost` 新增 `GetEquippedTemplateId`/`GetAllEquippedIdentities` 两个只读默认接口成员，
@@ -127,6 +128,15 @@ L3 程序集本身对 L4 零编译期引用。
    `Core.Carriers.Creature.CreatureInteractionHost.Interact`（ADR-0051）复用同一枚举——两个新成员
    目前只由生物交互宿主产出，`GameObjectHost` 尚未接入对应存活核对（gobj 不是 `IUnitAccess` 概念
    的实例，没有存活状态，不适用）。
+
+10. **消费方反馈——游戏接入方第十四批（2026-09-22，[ADR-0069](../../../architecture/adr/0069-最近可交互目标候选生物需有可交互内容.md)）：
+    `ICreatureInteractionHost` 新增默认接口成员 `HasInteractableContent(creatureInstanceId)`**：
+    只读、无副作用查询，不判距离/发起者/存活，与 `Interact` 共用同一份内容判定逻辑（见
+    `core/carriers/creature/README.md` 对应判断记录），供 `IInteractionTargetRegistry` 的默认实现
+    过滤"存在且存活但没有任何可交互内容"的生物候选（护送/跟随/闲逛一类生物离玩家最近时被误选中，
+    交互却什么都不会发生）。默认实现恒返回 `true`（"有内容"，只读查询允许显式降级，惯例同
+    `IEncounterHost.TryStart`），生产实现 `Core.Carriers.Creature.CreatureInteractionHost` 用显式
+    接口实现转发。`Interact` 签名不变。
 
 ## 不负责什么
 
