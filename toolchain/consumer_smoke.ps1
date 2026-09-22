@@ -14,7 +14,8 @@
 
 .PARAMETER DistVersion
     要演练的分发包版本号。默认读取仓库根 VERSION 文件（单一版本源，见
-    11_工程规范与测试.md 第 7 节）。
+    11_工程规范与测试.md 第 7 节）并追加 "-dryrun" 后缀，避免覆盖已发布版本的 dist 产物
+    （见下方取值处判断记录）。显式传入时接受 X.Y.Z 或 X.Y.Z-dryrun 两种形式。
 
 .PARAMETER WorkDir
     消费方工程的落地目录。默认落在本次会话 scratchpad 下的 consumer_smoke\（不进仓库、不提交）；
@@ -106,10 +107,18 @@ if ($DistVersion -eq "") {
         Write-Host "找不到版本文件：$VersionFilePath" -ForegroundColor Red
         exit 1
     }
-    $DistVersion = (Get-Content -Path $VersionFilePath -Raw).Trim()
+    # 判断记录（为什么默认版本号要带 "-dryrun" 后缀）：本脚本第 1 步会 build.ps1 -SyncOnly -Dist
+    # <版本> 重建 dist\<版本>\，而 VERSION 文件在一次发布落地后就等于那个已发布且已打标签的版本
+    # 号——直接用它等于反复重写已经分发出去的产物，正是 toolchain/_dist_immutability_guard.ps1
+    # 要拦的事（2026-09-23 实测命中："拒绝覆盖已发布版本 1.62.0 的产物"，门禁本步骤失败）。
+    # "-dryrun" 是合法 semver 预发布标识、build.ps1 明确支持（$DistVersionDryRunPattern），且
+    # git tag -l "v<带后缀>" 天然查不到匹配，是守卫预留给"只验证打包/演练、不是真发布"调用点的
+    # 放行方式。演练验证的是分发包内容与消费方装配流程，与版本号字符串本身无关。显式传
+    # -DistVersion X.Y.Z 仍然可用（例如演练一个已经打好的历史版本快照）。
+    $DistVersion = (Get-Content -Path $VersionFilePath -Raw).Trim() + "-dryrun"
 }
-if ($DistVersion -notmatch '^\d+\.\d+\.\d+$') {
-    Write-Host "版本号格式非法：'$DistVersion'（需形如 X.Y.Z）" -ForegroundColor Red
+if ($DistVersion -notmatch '^\d+\.\d+\.\d+(-dryrun)?$') {
+    Write-Host "版本号格式非法：'$DistVersion'（需形如 X.Y.Z 或 X.Y.Z-dryrun）" -ForegroundColor Red
     exit 1
 }
 
