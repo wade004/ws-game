@@ -401,13 +401,21 @@ namespace Tests.PresentationUi
     internal sealed class FakeDialogHost : IDialogHost
     {
         public StoryView? StoryViewToReturn;
+
+        /// <summary>UiIntents.ChooseDialogOption 按会话类型分派（消费方反馈第十五批修复）判断记录：
+        /// 该方法先查 <see cref="GetStoryView"/> 再查 <see cref="GetGossipView"/> 决定转发到
+        /// <see cref="AdvanceStory"/> 还是 <see cref="ChooseOption"/>，本字段供
+        /// <c>UiIntentsTests</c> 摆出"当前是 gossip 会话"这一状态——默认 null（未打开任何 gossip
+        /// 会话），既有只依赖 <see cref="StoryViewToReturn"/> 的调用方（<c>ViewModelTests</c>）行为
+        /// 不变。</summary>
+        public GossipView? GossipViewToReturn;
+
         public readonly List<int> ChosenIndices = new List<int>();
+        public readonly List<int> AdvancedBranchIndices = new List<int>();
 
         public GossipView OpenGossip(Id unitId, Id npcId, Id menuId) => new GossipView(menuId, Array.Empty<(int, Id)>());
 
-        /// <summary>本 Fake 只服务 <c>DialogViewModel</c> 的 <c>StoryView</c> 相关测试，Gossip 视图
-        /// 恒返回 null（没有测试依赖它）。</summary>
-        public GossipView? GetGossipView(Id unitId) => null;
+        public GossipView? GetGossipView(Id unitId) => GossipViewToReturn;
 
         public bool ChooseOption(Id unitId, int index)
         {
@@ -421,7 +429,11 @@ namespace Tests.PresentationUi
 
         public StoryView? GetStoryView(Id unitId) => StoryViewToReturn;
 
-        public bool AdvanceStory(Id unitId, int branchIndex) => true;
+        public bool AdvanceStory(Id unitId, int branchIndex)
+        {
+            AdvancedBranchIndices.Add(branchIndex);
+            return true;
+        }
     }
 
     internal sealed class FakeEconomyHost : IEconomyHost

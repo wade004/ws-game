@@ -19,6 +19,7 @@ using Presentation.Ui;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
+using UnityEngine.UI;
 
 namespace Adapter.Unity.Tests.Runtime
 {
@@ -330,6 +331,52 @@ namespace Adapter.Unity.Tests.Runtime
 
             var log = shell.Framework.Gameplay.Quest.GetLog(playerId);
             Assert.IsTrue(log.Any(q => q.QuestId.Value == "quest.sample_hunt"), "选择接受任务选项后，任务日志应当出现 quest.sample_hunt");
+        }
+
+        /// <summary>消费方反馈（游戏接入方第十五批，阻塞，框架缺陷）修复验收：此前
+        /// <see cref="UiIntents.ChooseDialogOption"/> 恒转发 <see cref="Core.Gameplay.Dialog.IDialogHost.ChooseOption"/>，
+        /// 剧情会话（<see cref="Core.Gameplay.Dialog.IDialogHost.StartStory"/> 已清空会话的 gossip
+        /// 菜单态）里经原生对白面板点任何分支都会被拒绝，节点恒不推进。本用例与本文件顶部
+        /// "注入意图"判断记录的既有惯例（<see cref="Dialog_ChooseAcceptOption_AdvancesQuestState"/>
+        /// 直调 <c>UiIntents.ChooseDialogOption</c>）刻意不同——本用例要验证的正是"<see cref="DialogPanel"/>
+        /// 渲染出的分支按钮到 <c>UiIntents</c> 这一段接线"本身，因此改走按钮真实 <c>onClick</c>
+        /// （退一级：不做指针物理事件模拟，直接 <see cref="Button.onClick"/> 调用，同任务书验收条款）。
+        /// 数据复用既有样例 <c>data/_sample/dialog/dialog.story_tree.json</c> 的
+        /// <c>dialog.sample_hunter_story</c>（<c>node_intro</c> 单分支"继续" -> <c>node_end</c>），
+        /// 不新增数据文件。</summary>
+        [UnityTest]
+        public IEnumerator Dialog_ClickStoryBranchButton_ThroughDialogPanel_AdvancesStoryNode()
+        {
+            yield return LoadShellScene();
+            var shell = RequireShellRoot();
+            yield return EnterInWorld(shell);
+
+            var playerId = shell.Framework.PlayerId;
+            var treeId = new Id("dialog.sample_hunter_story");
+
+            // 打开剧情会话本身不是本用例要验证的东西（任务书："打开剧情会话后，只经
+            // UiIntents.ChooseDialogOption 连续选择"），直调宿主 StartStory 即可。
+            var started = shell.Framework.Gameplay.Dialog.StartStory(playerId, treeId);
+            Assert.IsTrue(started, "StartStory 应当成功打开剧情会话");
+
+            shell.UiPanelHost.Dialog.Show();
+            shell.UiPanelHost.Dialog.RefreshUi();
+
+            var storyView = shell.Framework.Presentation.DialogView.Story;
+            Assert.IsNotNull(storyView, "DialogViewModel 应当已经反映当前打开的剧情会话");
+            Assert.AreEqual("dialog.sample_hunter_story.node_intro", storyView!.NodeId.Value);
+
+            var branchButton = shell.UiPanelHost.GameplayGroup
+                .Find("DialogPanel/Content/Options/Option0")
+                ?.GetComponent<Button>();
+            Assert.IsNotNull(branchButton, "对白面板应当已经渲染出剧情首节点的第一条分支按钮");
+            branchButton!.onClick.Invoke();
+
+            yield return null;
+
+            var afterView = shell.Framework.Gameplay.Dialog.GetStoryView(playerId);
+            Assert.IsNotNull(afterView, "点击分支按钮后应当仍处于剧情会话中（node_end 无分支、不会自动关闭会话，见 DialogHost.AdvanceStory 判断记录）");
+            Assert.AreEqual("dialog.sample_hunter_story.node_end", afterView!.NodeId.Value, "点击对白面板渲染的分支按钮应当真的经 UiIntents.ChooseDialogOption 推进到下一剧情节点");
         }
 
         [UnityTest]

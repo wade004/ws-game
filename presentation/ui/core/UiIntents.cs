@@ -125,7 +125,40 @@ namespace Presentation.Ui
 
         public bool TurnInQuest(Id questId) => _quest.TurnIn(_playerId, questId);
 
-        public bool ChooseDialogOption(int index) => _dialog.ChooseOption(_playerId, index);
+        /// <summary>
+        /// 消费方反馈（游戏接入方第十五批，阻塞，框架缺陷）修复：本方法此前恒转发
+        /// <see cref="IDialogHost.ChooseOption"/>——<see cref="IDialogHost.StartStory"/> 会把会话的
+        /// gossip 菜单态清空（<c>DialogHost.Session.GossipMenuId</c>），<see cref="IDialogHost.ChooseOption"/>
+        /// 要求该字段非空，于是剧情会话里经原生对白面板（<c>DialogPanel.RefreshUi</c>）点任何分支都
+        /// 被拒绝，节点恒不推进——玩家只有绕开 UI 直调 <see cref="IDialogHost.AdvanceStory"/> 才能走完
+        /// 剧情。
+        /// <para>
+        /// 判断记录（按当前会话类型分派，一个入口不拆两个方法）：<see cref="DialogHost"/> 的会话模型
+        /// 里 <c>GossipMenuId</c>/<c>StoryTreeId</c> 互斥——<c>StartStory</c> 进入剧情时清空
+        /// <c>GossipMenuId</c>，<c>OpenGossip</c> 打开菜单时清空 <c>StoryTreeId</c>（见两方法实现），
+        /// 因此"当前是否在剧情会话"与"当前是否在 gossip 会话"这两个只读查询在任一时刻至多一个为真，
+        /// 不存在需要裁决优先级的真正并存情形。分派顺序（先查 <see cref="IDialogHost.GetStoryView"/>
+        /// 再查 <see cref="IDialogHost.GetGossipView"/>）与唯一消费方 <c>DialogPanel.RefreshUi</c>
+        /// 决定渲染哪一种视图的顺序（<c>if (_vm.Story != null) ... else if (_vm.Gossip != null)</c>）
+        /// 保持一致，UI 显示的是哪种会话，点击就转发到哪种会话的推进方法，不会出现"看到剧情分支、
+        /// 点击却按 gossip 语义处理"的错位。两个会话都未打开时返回 <c>false</c>，不抛异常（与本类型
+        /// 其它意图方法"被拒绝时静默返回失败"一贯风格一致）。不改
+        /// <see cref="IDialogHost.ChooseOption"/>/<see cref="IDialogHost.AdvanceStory"/> 本身的语义——
+        /// 两个宿主方法各自语义清楚，缺陷只在本方法这一层"UI 意图未按会话类型分派"。
+        /// </para>
+        /// </summary>
+        public bool ChooseDialogOption(int index)
+        {
+            if (_dialog.GetStoryView(_playerId) != null)
+            {
+                return _dialog.AdvanceStory(_playerId, index);
+            }
+            if (_dialog.GetGossipView(_playerId) != null)
+            {
+                return _dialog.ChooseOption(_playerId, index);
+            }
+            return false;
+        }
 
         public PurchaseResult Buy(Id vendorId, Id itemId, int count) => _economy.Buy(_playerId, vendorId, itemId, count);
 

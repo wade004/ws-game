@@ -9,6 +9,7 @@ using Core.Foundation.SaveSystem;
 using Core.Foundation.SceneRouter;
 using Core.Foundation.SimLoop;
 using Core.Gameplay.Assembly;
+using Core.Gameplay.Dialog;
 using Core.Rules.Combat;
 using Core.Rules.Common;
 using Core.Foundation.EngineAdapter;
@@ -1973,6 +1974,82 @@ namespace Tests.Presentation.Assembly
             Assert.Null(presentation.Hud.CurrentAreaNameKey);
             Assert.Null(presentation.UiData.Query("player.area.id"));
             Assert.Null(presentation.UiData.Query("player.area.name_key"));
+        }
+
+        /// <summary>消费方反馈（游戏接入方第十五批，阻塞）复现 + 修复验收：<see cref="UiIntents.ChooseDialogOption"/>
+        /// 此前恒转发 <see cref="IDialogHost.ChooseOption"/>，而 <see cref="IDialogHost.StartStory"/>
+        /// 会把会话的 <c>GossipMenuId</c> 置空——剧情会话里经原生对白面板点任何分支都会被
+        /// <see cref="IDialogHost.ChooseOption"/> 以"当前不在 gossip 会话"为由拒绝，节点恒不推进。
+        /// 本用例经真实 <see cref="GameplayAssembly"/>/<see cref="PresentationAssembly"/> 装配、真实
+        /// <c>dialog.gossip_menu</c>/<c>dialog.story_tree</c> 数据，覆盖任务书要求的整条链：从 gossip
+        /// 选项触发的 <c>start_story</c> 动作转入剧情会话，此后每一步推进都只经
+        /// <see cref="UiIntents.ChooseDialogOption"/>（不直调 <see cref="IDialogHost.AdvanceStory"/>），
+        /// 直到终止分支（<c>next_node_id</c> 缺省）——终止即剧情数据模型能表达的"完成效果"（<c>08</c>
+        /// 第 3.2/9 节：终止分支关闭会话、发 <c>dialog.ended</c>，见 <c>DialogHostTests.
+        /// AdvanceStory_ToTerminalBranch_ClosesDialogAndFiresEnded</c> 同款判断——剧情分支本身不像
+        /// gossip 选项那样携带 <c>actions</c> 列表，没有"设置世界标志"这一级动作可用，会话正常关闭
+        /// 就是数据支持的唯一"完成效果"）。</summary>
+        [Fact]
+        public void ChooseDialogOption_ThroughUiIntents_DrivesGossipStartStoryThenAdvancesStoryToCompletion()
+        {
+            var treeId = new Id("dialog.pres_story_test.tree");
+            var node1Id = new Id("dialog.pres_story_test.n1");
+            var node2Id = new Id("dialog.pres_story_test.n2");
+            var node3Id = new Id("dialog.pres_story_test.n3");
+            var menuId = new Id("dialog.pres_story_test.menu");
+            var npcId = new Id("creature.pres_story_test_npc");
+
+            var presentation = Build(out var gameplay, out _, out _, out var bus, extraTables: source =>
+            {
+                source.Add("dialog.story_tree",
+                    "{\"table\": \"dialog.story_tree\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"" + treeId.Value + "\", \"nodes\": [" +
+                    "{\"id\": \"" + node1Id.Value + "\", \"text_key\": \"l10n.pres_story_test.n1\", \"branches\": [" +
+                    "{\"text_key\": \"l10n.pres_story_test.continue\", \"next_node_id\": \"" + node2Id.Value + "\"}]}," +
+                    "{\"id\": \"" + node2Id.Value + "\", \"text_key\": \"l10n.pres_story_test.n2\", \"branches\": [" +
+                    "{\"text_key\": \"l10n.pres_story_test.continue\", \"next_node_id\": \"" + node3Id.Value + "\"}]}," +
+                    "{\"id\": \"" + node3Id.Value + "\", \"text_key\": \"l10n.pres_story_test.n3\", \"branches\": [" +
+                    "{\"text_key\": \"l10n.pres_story_test.end\"}]}" +
+                    "]}]}");
+                source.Add("dialog.gossip_menu",
+                    "{\"table\": \"dialog.gossip_menu\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"" + menuId.Value + "\", \"options\": [" +
+                    "{\"text_key\": \"l10n.pres_story_test.open_story\", \"actions\": [" +
+                    "{\"kind\": \"start_story\", \"ref\": \"" + treeId.Value + "\"}]}" +
+                    "]}]}");
+            });
+
+            var playerId = gameplay.PlayerUnitProvider();
+            var endedCount = 0;
+            bus.Subscribe(DialogEventKeys.Ended, _ => endedCount++);
+
+            gameplay.Dialog.OpenGossip(playerId, npcId, menuId);
+            Assert.NotNull(gameplay.Dialog.GetGossipView(playerId));
+
+            // 闲聊选项触发 start_story：本步骤此前（改前）已经能走通——ChooseDialogOption 当时恒
+            // 转发 ChooseOption，此刻会话仍是 gossip，行为不受本次修复影响，回归覆盖"闲聊会话经
+            // ChooseDialogOption 照常生效"。
+            Assert.True(presentation.UiIntents.ChooseDialogOption(0));
+
+            var afterStartStory = gameplay.Dialog.GetStoryView(playerId);
+            Assert.NotNull(afterStartStory);
+            Assert.Equal(node1Id, afterStartStory!.NodeId);
+            Assert.Null(gameplay.Dialog.GetGossipView(playerId));
+
+            // 改前会在这里失败：会话已转入剧情（GossipMenuId 已被 StartStory 置空），
+            // UiIntents.ChooseDialogOption 仍恒转发 ChooseOption，ChooseOption 判定"当前不在 gossip
+            // 会话"直接返回 false，节点恒不推进——这正是消费方反馈第十五批复现的缺陷本身。
+            Assert.True(presentation.UiIntents.ChooseDialogOption(0));
+            Assert.Equal(node2Id, gameplay.Dialog.GetStoryView(playerId)!.NodeId);
+
+            Assert.True(presentation.UiIntents.ChooseDialogOption(0));
+            Assert.Equal(node3Id, gameplay.Dialog.GetStoryView(playerId)!.NodeId);
+
+            // 终止分支（next_node_id 缺省）：会话关闭、发 dialog.ended——数据模型能表达的"剧情完成
+            // 效果"（判断记录见本用例类型注释）。
+            Assert.True(presentation.UiIntents.ChooseDialogOption(0));
+            Assert.Null(gameplay.Dialog.GetStoryView(playerId));
+            Assert.Equal(1, endedCount);
         }
     }
 }
