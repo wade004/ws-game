@@ -88,20 +88,32 @@ try {
             $versionPath = Join-Path $RepoRoot "VERSION"
             $version = (Get-Content -Path $versionPath -Raw).Trim()
 
+            # 判断记录（为什么打到 dist\<VERSION>-dryrun\ 而不是 -Dist auto 的 dist\<VERSION>\）：
+            # VERSION 文件在一次发布落地后就等于那个已发布版本号（发布提交把它写成 X.Y.Z 并打上
+            # 标签 vX.Y.Z），而本步骤会 Remove-Item 整个 dist\<版本>\ 再重新打一遍包——那正是
+            # toolchain/_dist_immutability_guard.ps1 承诺"已发布版本产物不可变"要拦的事，门禁因此
+            # 会在每次发布之后、下一次发布把 VERSION 顶上去之前一直失败（2026-09-23 实测命中：
+            # "拒绝覆盖已发布版本 1.62.0 的产物"）。改用带 "-dryrun" 后缀的版本号：该后缀是合法的
+            # semver 预发布标识、build.ps1 明确支持（见其 $DistVersionDryRunPattern 一节），且
+            # git tag -l "v<带后缀>" 天然查不到匹配，正是不可变守卫文件头判断记录里预留给这类
+            # "只想验证打包逻辑、不是真发布"调用点的放行方式。本步骤校验的是"四个包版本号彼此一致
+            # 且等于本次请求打包的版本号"，用后缀版本号同样成立。
+            $distVersion = "$version-dryrun"
+
             $buildScript = Join-Path $RepoRoot "build.ps1"
             $ErrorActionPreference = "Continue"
             $buildOutputLines = New-Object System.Collections.Generic.List[string]
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SyncOnly -Dist auto 2>&1 | ForEach-Object {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SyncOnly -Dist $distVersion 2>&1 | ForEach-Object {
                 $line = $_.ToString()
                 Write-Host $line
                 $buildOutputLines.Add($line)
             }
             if ($LASTEXITCODE -ne 0) {
                 $tailLines = $buildOutputLines | Select-Object -Last 30
-                throw ("build.ps1 -SyncOnly -Dist auto 失败，退出码 $LASTEXITCODE。最后 " + $tailLines.Count + " 行输出：`n" + ($tailLines -join "`n"))
+                throw ("build.ps1 -SyncOnly -Dist $distVersion 失败，退出码 $LASTEXITCODE。最后 " + $tailLines.Count + " 行输出：`n" + ($tailLines -join "`n"))
             }
 
-            $packagesRoot = Join-Path $RepoRoot ("dist\" + $version + "\packages")
+            $packagesRoot = Join-Path $RepoRoot ("dist\" + $distVersion + "\packages")
             $packageNames = @(
                 "com.gamefoundation.adapter.unity",
                 "com.gamefoundation.framework-data",
@@ -119,8 +131,8 @@ try {
                     continue
                 }
                 $pkgObj = (Get-Content -Path $pkgJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json
-                if ($pkgObj.version -ne $version) {
-                    $problems += "$pkgName：package.json version=$($pkgObj.version) != VERSION=$version"
+                if ($pkgObj.version -ne $distVersion) {
+                    $problems += "$pkgName：package.json version=$($pkgObj.version) != 本次打包版本=$distVersion（VERSION=$version）"
                 }
 
                 $dryRunJson = & npm pack $pkgDir --dry-run --json 2>$null
