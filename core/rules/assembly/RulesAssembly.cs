@@ -542,10 +542,13 @@ namespace Core.Rules.Assembly
             // （CarriersAssembly 后续步骤才会 Bind），这是安全的——AutoAttackHost.Update 只在真正
             // 调用时才读取它们（同 EffectDispatcher 对 WeaponDamageQuery 的既有用法），不在构造期
             // 缓存查询结果。
+            // ADR-0070：生产装配一律传真实 Bus（本类型构造函数参数已持有，见 Bus 属性），使挥击
+            // 广播（combat.auto_attack_swing）开箱生效——不需要消费方自己再接线一遍事件总线。
             // -------------------------------------------------------------
             AutoAttack = new AutoAttackHost(
                 Units, deferredAuras, Skill.EffectSink, WeaponDamageQuery, resolvedCombatOptions.PhysicalSchool,
-                attackIntervalFallback: AttackIntervalFallback, diagnostics: Combat.Diagnostics);
+                bus: Bus, attackIntervalFallback: AttackIntervalFallback, diagnostics: Combat.Diagnostics,
+                options: null);
 
             // T-N4-9（ADR-0034 决策 7；拍板 9）：CombatOptions.DismountMountAuras 窄委托——
             // Skill.AuraQuery 运行期确实是 AuraHost（真实装配的唯一实现，测试替身可能不是）时才

@@ -32,9 +32,13 @@ namespace Presentation.Render
     /// 两套取值大小写不重叠，本类型只精确匹配移动模式的四个帕斯卡命名取值，其余（含 AI 状态机取值）
     /// 一律忽略，不产生误判。</item>
     /// <item><b>attack / cast</b>：<c>skill.cast_start</c>（<see cref="SkillCastStartEvent"/>）按
-    /// <c>castTime == 0</c> 判定为瞬发（<see cref="AnimState.Attack"/>，覆盖普攻与瞬发技能，09 第 4.2
+    /// <c>castTime == 0</c> 判定为瞬发（<see cref="AnimState.Attack"/>，覆盖瞬发技能，09 第 4.2
     /// 节"attack 与 cast 的具体动作剪辑由武器表现档案决定"未强制区分二者的判据，本类型选取"是否读条"
-    /// 这一逻辑层已有字段作为判据）；<c>castTime > 0</c> 判定为 <see cref="AnimState.Cast"/>。三个
+    /// 这一逻辑层已有字段作为判据）；<c>castTime > 0</c> 判定为 <see cref="AnimState.Cast"/>。普通攻击
+    /// （框架原生一等执行路径，ADR-0059）刻意不走施法管线，不发 <c>skill.cast_start</c>——改由
+    /// <c>combat.auto_attack_swing</c>（<see cref="AutoAttackSwingEvent"/>，ADR-0070）单独驱动
+    /// <see cref="AnimState.Attack"/>（见 <see cref="OnAutoAttackSwing"/>），与瞬发技能共用同一个
+    /// <see cref="AnimState.Attack"/> 状态值、同一套优先级/瞬态重触发规则，只是触发来源不同的事件。三个
     /// 收尾事件 <c>skill.cast_success</c>/<c>skill.cast_failed</c>/<c>skill.cast_interrupted</c>
     /// 只驱动 <see cref="AnimState.Cast"/> 回落（读条/引导的视觉时长本就等于逻辑层的
     /// <c>cast_time</c>/<c>channel_time</c>，二者天然同步）；<see cref="AnimState.Attack"/>（瞬发）
@@ -148,6 +152,7 @@ namespace Presentation.Render
 
             _subscriptions.Add(bus.Subscribe<UnitStateChangedEvent>(CarriersEventKeys.UnitStateChanged, OnUnitStateChanged));
             _subscriptions.Add(bus.Subscribe<SkillCastStartEvent>(RulesEventKeys.SkillCastStart, OnSkillCastStart));
+            _subscriptions.Add(bus.Subscribe<AutoAttackSwingEvent>(RulesEventKeys.CombatAutoAttackSwing, OnAutoAttackSwing));
             _subscriptions.Add(bus.Subscribe<SkillCastSuccessEvent>(RulesEventKeys.SkillCastSuccess, evt => OnSkillCastEnd(evt.CasterId)));
             _subscriptions.Add(bus.Subscribe<SkillCastFailedEvent>(RulesEventKeys.SkillCastFailed, evt => OnSkillCastEnd(evt.CasterId)));
             _subscriptions.Add(bus.Subscribe<SkillCastInterruptedEvent>(RulesEventKeys.SkillCastInterrupted, evt => OnSkillCastEnd(evt.CasterId)));
@@ -164,9 +169,20 @@ namespace Presentation.Render
         public bool IsTerminal(Id entityId) =>
             _entities.TryGetValue(entityId, out var entry) && entry.Current == AnimState.Death;
 
-        /// <summary>手工触发一次"开始"类切换，走与事件触发同一套优先级判定（见类型注释 jump 判断
-        /// 记录）。不接受 <see cref="AnimState.Idle"/>/<see cref="AnimState.Move"/>（运动态只应经
-        /// <c>unit.state_changed</c> 驱动，见 <see cref="OnUnitStateChanged"/>）。</summary>
+        /// <summary>
+        /// 手工触发一次"开始"类切换，走与事件触发同一套优先级判定（见类型注释 jump 判断记录）。不
+        /// 接受 <see cref="AnimState.Idle"/>/<see cref="AnimState.Move"/>（运动态只应经
+        /// <c>unit.state_changed</c> 驱动，见 <see cref="OnUnitStateChanged"/>）。
+        /// <para>
+        /// ADR-0070 判断记录（定位澄清：本方法是"游戏专属"表现触发点，不是框架自有动作的驱动方式）：
+        /// 本方法的设计定位是供**具体游戏自己拥有、框架不知道的表现触发**（如跳跃——见类型注释
+        /// jump 判断记录）主动调用；框架自己拥有的动作（普通攻击/技能施法/受击/死亡）一律由框架在
+        /// 对应结算完成时广播事件驱动（分别见 <see cref="OnAutoAttackSwing"/>/<see cref="OnSkillCastStart"/>/
+        /// <see cref="OnCombatDamageDealt"/>/构造函数 <c>unit.died</c> 订阅），不应该也不需要由消费方
+        /// 改用本方法代劳——框架自己拥有的触发点必须留在框架内部，否则每个消费方各自接线会出现两套
+        /// 不一致的口径（同一份"什么时候算一次普通攻击"的判断逻辑被复制到每个游戏各自的接入代码里）。
+        /// </para>
+        /// </summary>
         public void RequestOverride(Id entityId, AnimState state)
         {
             if (state == AnimState.Idle || state == AnimState.Move)
@@ -239,6 +255,15 @@ namespace Presentation.Render
 
         private void OnSkillCastStart(SkillCastStartEvent evt) =>
             TryEnter(evt.CasterId, evt.CastTime <= 0 ? AnimState.Attack : AnimState.Cast, evt.SkillId);
+
+        /// <summary>ADR-0070：普通攻击每结算一次挥击（<c>AutoAttackHost.Update</c>）驱动一次，走与
+        /// <see cref="OnSkillCastStart"/> 瞬发分支完全相同的 <see cref="AnimState.Attack"/> 优先级/
+        /// 瞬态重触发规则（见 <see cref="TryEnter"/>）——普通攻击是高频重复的瞬态动作，连续多次挥击
+        /// （包括上一次 Attack 动画尚未播完时又到点的情形）都能正确重复进入/重触发。不携带
+        /// <c>triggerSkillId</c>（<c>AutoAttackSwingEvent</c> 本就不对应任何真实 <c>skill.def</c>，
+        /// 见 <see cref="AutoAttackSwingEvent"/> 类型判断记录），<see cref="StateChangedWithSkill"/>/
+        /// <see cref="StateRetriggered"/> 对本次触发恒收到 <c>triggerSkillId == null</c>。</summary>
+        private void OnAutoAttackSwing(AutoAttackSwingEvent evt) => TryEnter(evt.SourceId, AnimState.Attack);
 
         /// <summary>
         /// 判断记录（N19 根治，architecture/落地计划/audit-68c9bed-20260907/code-review.md）：

@@ -477,6 +477,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `toolchain/_gate_line_heavy.ps1` 步骤 6 判断记录。副作用：`check.ps1`/
   `check.ps1 -SkipUnity -Quick` 的步骤总数各 +1（`README.md`/`.githooks/pre-commit`/
   `toolchain/_precommit_tiering_guard.ps1` 里"28 步"/"31 步"同步改为"29 步"/"32 步"）。
+- **框架原生普通攻击完全不广播任何事件，表现层攻击者永远进不了攻击动作态；
+  `AnimStateMachine.RequestOverride` 扩展点在生产环境实际不可达**（消费方反馈——游戏接入方第十七批，
+  框架缺陷，见 [ADR-0070](architecture/adr/0070-普通攻击挥击广播表现驱动事件.md)）：
+  `AutoAttackHost.Update` 到点结算只调用 `IEffectSink.ApplyEffect`，从不广播任何事件，
+  `AnimStateMachine` 无法得知"这一拍挥出了一次普通攻击"，攻击者动作因此恒定停在待机/移动；同时
+  `AnimStateMachine` 唯一的生产持有者只以 `internal AnimStateMachineForTests` 暴露实例，游戏侧
+  程序集不在可见范围内，`RequestOverride` 这个文档写明"供具体游戏调用"的口子从未真正开放过。
+  新增事件键 `combat.auto_attack_swing`（`AutoAttackSwingEvent { sourceId, targetId }`），
+  `AutoAttackHost` 在确认本次挥击会结算之后、调用 `IEffectSink.ApplyEffect` 之前广播（跳过的挥击
+  不发）；`AnimStateMachine` 新增订阅，驱动攻击者进入 `AnimState.Attack`，支持连续挥击重复触发；
+  视图工厂新增公开只读属性转发已持有的 `AnimStateMachine` 实例（既有 `internal` 测试出口原样
+  保留）。判断记录见 `core/rules/combat/README.md`、`core/rules/assembly/README.md`、
+  `presentation/render/README.md`、
+  `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`
+  对应条目。ABI：新增构造函数重载（`AutoAttackHost`）、新增事件类型与事件键、新增公开只读属性，
+  不改动任何既有公开签名。
 
 ## [1.62.0] - 2026-09-22
 

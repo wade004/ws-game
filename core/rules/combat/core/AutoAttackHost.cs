@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.EventBus;
 using Core.Rules.Common;
 
 namespace Core.Rules.Combat
@@ -91,6 +92,10 @@ namespace Core.Rules.Combat
         private readonly ICombatDiagnostics _diagnostics;
         private readonly Id _physicalSchool;
 
+        /// <summary>ADR-0070：挥击广播出口，见 <see cref="Update"/> 判断记录"事件发布时机"。可空——
+        /// 未注入时（旧构造，见下）行为与本决策落地前完全一致，不发事件、不诊断。</summary>
+        private readonly IEventBus? _bus;
+
         private readonly Dictionary<Id, Slot> _slots = new Dictionary<Id, Slot>();
 
         /// <summary>可变配置（<see cref="AutoAttackOptions"/> 惯例同 <see cref="CombatOptions"/>）——
@@ -115,12 +120,39 @@ namespace Core.Rules.Combat
             IAttackIntervalFallbackProvider? attackIntervalFallback = null,
             ICombatDiagnostics? diagnostics = null,
             AutoAttackOptions? options = null)
+            : this(units, auras, effectSink, weaponDamageQuery, physicalSchool, bus: null,
+                  attackIntervalFallback, diagnostics, options)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0070（消费方反馈第十七批"框架原生普通攻击不广播任何事件"根治）：新增重载，接入
+        /// <paramref name="bus"/> 用于挥击结算时广播 <see cref="AutoAttackSwingEvent"/>（见
+        /// <see cref="Update"/> 判断记录"事件发布时机"）。判断记录（为什么是新增重载而不是给上面
+        /// 八参数旧构造追加一个可选参数）：给既有构造追加参数会改变其物理 IL 签名，已编译产物按旧
+        /// 签名调用会在运行时找不到方法（AGENTS.md §3"ABI 只新增"）；本重载九个参数均不带默认值，
+        /// 避免与上面八参数旧构造在只传 5～8 个参数的调用点产生重载二义性（同
+        /// <see cref="SkillCastStartEvent"/> 系列新增重载判断记录同一套推导）。旧构造原样保留，内部
+        /// 委托到本重载，<paramref name="bus"/> 传 <c>null</c>——未注入总线时行为与本决策落地前
+        /// 完全一致（不发事件、不诊断）。
+        /// </summary>
+        public AutoAttackHost(
+            IUnitAccess units,
+            IAuraQuery auras,
+            IEffectSink effectSink,
+            IWeaponDamageQuery weaponDamageQuery,
+            Id physicalSchool,
+            IEventBus? bus,
+            IAttackIntervalFallbackProvider? attackIntervalFallback,
+            ICombatDiagnostics? diagnostics,
+            AutoAttackOptions? options)
         {
             _units = units ?? throw new ArgumentNullException(nameof(units));
             _auras = auras ?? throw new ArgumentNullException(nameof(auras));
             _effectSink = effectSink ?? throw new ArgumentNullException(nameof(effectSink));
             _weaponDamageQuery = weaponDamageQuery ?? throw new ArgumentNullException(nameof(weaponDamageQuery));
             _physicalSchool = physicalSchool;
+            _bus = bus;
             _attackIntervalFallback = attackIntervalFallback ?? NullAttackIntervalFallbackProvider.Instance;
             _diagnostics = diagnostics ?? new InMemoryCombatDiagnostics();
             Options = options ?? new AutoAttackOptions();
@@ -255,6 +287,14 @@ namespace Core.Rules.Combat
                 }
 
                 var school = _weaponDamageQuery.GetWeaponSchool(casterId) ?? _physicalSchool;
+
+                // ADR-0070：走到这里说明本次挥击确实通过了射程/NoAttack 门控、真的要结算——在结算
+                // 落地（下方 ApplyEffect，进而 combat.damage_dealt）之前先发布挥击本身，保证"挥击
+                // 事件先于它造成的伤害事件"这一顺序（与施法管线 skill.cast_start 先于伤害事件的既有
+                // 顺序一致），供表现层（AnimStateMachine）驱动 AnimState.Attack（见
+                // presentation/render/core/AnimStateMachine.cs 判断记录）。_bus 为 null（未注入总线的
+                // 旧构造）时静默跳过，不发事件、不诊断——同本类型一贯"未装配的能力不产生副作用"惯例。
+                _bus?.Enqueue(new AutoAttackSwingEvent(casterId, targetId));
 
                 // weapon_damage_pct、pct=100%（baseValue 兜底 pct，未提供 Params 时
                 // EffectDispatcher.ApplyDamageOrHeal 直接读 context.BaseValue，见该方法判断记录）：

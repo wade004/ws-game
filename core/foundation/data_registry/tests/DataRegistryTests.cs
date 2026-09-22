@@ -245,7 +245,9 @@ namespace Tests.Foundation.Data
             // （见 data/_framework/found/found.event_catalog.json 对应行），88 -> 90。
             // T-N4-8：新增 economy.charged、economy.currency_overflow 两条登记行（ADR-0034 决策 5/4
             // 修订记录；分阶段落地计划 M7），90 -> 92。
-            Assert.Equal(92, registry.GetAll("found.event_catalog").Count);
+            // ADR-0070：新增 combat.auto_attack_swing 一条登记行（消费方反馈第十七批，普通攻击挥击
+            // 广播），92 -> 93。
+            Assert.Equal(93, registry.GetAll("found.event_catalog").Count);
             // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
             Assert.Equal(14, registry.GetAll("found.input_action").Count);
 

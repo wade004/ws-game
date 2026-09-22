@@ -814,11 +814,22 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   （推进每个存活 sprite View 持有的 `ICharacterRig.ProceduralAnim` 时间轴）与
   `Presentation.Vfx.Update(dt)`；此前只有组件本身经单测验证过，没有任何生产帧循环真正驱动它们。
 
+- **判断记录（`AnimStateMachine` 公开访问出口，2026-09-23，
+  [ADR-0070](../../../../architecture/adr/0070-普通攻击挥击广播表现驱动事件.md)）**：`UnityViewFactory`
+  此前只以 `internal AnimStateMachineForTests` 暴露内部持有的 `AnimStateMachine` 实例——这个访问
+  修饰符决定了只有框架自身测试项目能拿到实例，游戏侧程序集不在可见范围内，`AnimStateMachine.
+  RequestOverride` 这个文档写明"供具体游戏调用"的扩展点在生产环境从未真正可达。新增公开只读属性
+  `AnimStateMachine`（与既有 `AnimStateMachineForTests` 指向同一个实例，只是转发出去，不改变
+  `EnsureAnimClipResolver` 首次被"生物"分类 `CreateView` 触发时才懒构造这一既有时机；`internal`
+  出口原样保留供框架自身测试沿用）。ABI：纯新增公开只读属性，不改动任何既有公开签名。
+
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
 `CreateView_ForNonCreatureCategory_DoesNotAttachAnimPlayer`/
 `UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain`）、`Tests/Runtime/AnimationLayerTests.cs`
-（`UnityFrameAnimPlayer`/`AnimClipResolver` 组件本身的独立单测）。
+（`UnityFrameAnimPlayer`/`AnimClipResolver` 组件本身的独立单测）、
+`Tests/Runtime/UnityViewFactoryAnimStateMachineAccessTests.cs`（ADR-0070：反射断言公开属性 getter
+可见性 + 经该出口调用 `RequestOverride` 的功能用例）。
 
 ## model 型外形（W6-B 收口，ADR-0017）
 

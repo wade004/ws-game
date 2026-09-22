@@ -35,6 +35,15 @@ namespace Core.Rules.Common
         public static readonly Id CombatEntered = new Id("combat.entered");
         public static readonly Id CombatLeft = new Id("combat.left");
 
+        /// <summary>ADR-0070（消费方反馈第十七批"普通攻击不驱动表现层挥击动作"根治）：
+        /// <see cref="Core.Rules.Combat.AutoAttackHost.Update"/> 通过射程/<c>NoAttack</c> 门控、确实要
+        /// 结算这一次挥击时，在调用 <c>IEffectSink.ApplyEffect</c>（进而落地
+        /// <see cref="CombatDamageDealt"/>）之前发布——顺序恒为"挥击事件先于它造成的伤害事件"，与
+        /// 施法管线 <see cref="SkillCastStart"/> 先于伤害事件的既有顺序一致。被跳过的挥击（超射程/
+        /// 被 <c>NoAttack</c> 拦截/未到点/没有攻击周期）不发本事件，见 <see cref="AutoAttackSwingEvent"/>
+        /// 判断记录。</summary>
+        public static readonly Id CombatAutoAttackSwing = new Id("combat.auto_attack_swing");
+
         public static readonly Id AuraApplied = new Id("aura.applied");
         public static readonly Id AuraRemoved = new Id("aura.removed");
         public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
@@ -708,6 +717,55 @@ namespace Core.Rules.Common
             switch (name)
             {
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// ADR-0070（消费方反馈第十七批"框架原生普通攻击不广播任何事件，表现层永远进不了
+    /// <c>AnimState.Attack</c>"根治）：普通攻击（<see cref="Core.Rules.Combat.AutoAttackHost"/>）每
+    /// 结算一次挥击时发布——只表达"挥出了一次普通攻击"这一件事本身，不携带学派/伤害值（这两项已由
+    /// 随后发布的 <see cref="CombatDamageDealtEvent"/> 承载，本事件不重复登记）。
+    /// <para>
+    /// 判断记录（为什么新增专用事件，不是让普通攻击去发 <see cref="SkillCastStartEvent"/>）：普通
+    /// 攻击刻意不走施法管线（ADR-0059——<c>AutoAttackHost.NativeSkillId</c> 不对应任何真实注册的
+    /// <c>skill.def</c>），若硬发 <c>skill.cast_start</c>，会污染施法相关订阅方（施法条、打断、proc
+    /// 触发器等按 <c>skillId</c> 反查 <c>skill.def</c> 的既有逻辑）的既定语义——这些订阅方的既有假设
+    /// 是"收到这个事件即存在一条对应的技能定义"，普通攻击不满足这一假设。新增专用事件键与专用强类型
+    /// 事件类型，是"只借用已存在的拼图、不给既有拼图强加新语义"这一贯做法（同 ADR-0059 决策 1"直接
+    /// 复用结算管线、跳过施法管线"同一套推导）在表现层驱动这一侧的延伸。
+    /// </para>
+    /// <para>
+    /// 判断记录（发布时机与"被跳过的挥击不发事件"）：见 <see cref="RulesEventKeys.CombatAutoAttackSwing"/>
+    /// 判断记录——只在通过射程/<c>NoAttack</c> 门控、确实要结算这一次挥击时，于
+    /// <c>IEffectSink.ApplyEffect</c> 之前发布；超射程/被 <c>NoAttack</c> 拦截/未到挥击点/没有攻击
+    /// 周期这几类"这一拍被跳过"的既有情形（见 <see cref="Core.Rules.Combat.AutoAttackHost"/> 类型
+    /// 判断记录）不发布本事件——与它们既有"不结算、不诊断"的口径一致，不额外区分。
+    /// </para>
+    /// </summary>
+    public sealed class AutoAttackSwingEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => RulesEventKeys.CombatAutoAttackSwing;
+
+        /// <summary>挥击者（<c>AutoAttackHost.Update</c> 本次推进的 casterId）。</summary>
+        public Id SourceId { get; }
+
+        /// <summary>被挥击的目标（<c>AutoAttackHost.Update</c> 本次推进的 targetId）。</summary>
+        public Id TargetId { get; }
+
+        public AutoAttackSwingEvent(Id sourceId, Id targetId)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
                 default: value = default; return false;
             }
         }

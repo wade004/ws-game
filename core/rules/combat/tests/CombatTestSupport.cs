@@ -109,10 +109,20 @@ namespace Tests.Rules.Combat
     {
         private readonly HashSet<(Id unit, Id school, EffectKind kind)> _immune = new HashSet<(Id, Id, EffectKind)>();
         private readonly Dictionary<Id, double> _absorb = new Dictionary<Id, double>();
+        private readonly Dictionary<Id, ControlFlags> _controlFlags = new Dictionary<Id, ControlFlags>();
 
         public FakeAuraQuery SetImmune(Id unitId, Id school, EffectKind kind)
         {
             _immune.Add((unitId, school, kind));
+            return this;
+        }
+
+        /// <summary>ADR-0070：<see cref="AutoAttackHostSwingEventTests"/> 需要摆布
+        /// <see cref="ControlFlags.NoAttack"/> 门控——此前本假实现 <see cref="GetControlFlags"/> 硬
+        /// 恒返回 <see cref="ControlFlags.None"/>，未提供任何配置口子。</summary>
+        public FakeAuraQuery SetControlFlags(Id unitId, ControlFlags flags)
+        {
+            _controlFlags[unitId] = flags;
             return this;
         }
 
@@ -128,7 +138,7 @@ namespace Tests.Rules.Combat
 
         public int GetStacks(Id unitId, Id auraDefId) => 0;
 
-        public ControlFlags GetControlFlags(Id unitId) => ControlFlags.None;
+        public ControlFlags GetControlFlags(Id unitId) => _controlFlags.TryGetValue(unitId, out var f) ? f : ControlFlags.None;
 
         public bool IsImmune(Id unitId, Id school, EffectKind kind) => _immune.Contains((unitId, school, kind));
 
@@ -416,6 +426,10 @@ namespace Tests.Rules.Combat
                     new[] { "from", "to", "oldReaction", "newReaction" }),
                 new EventDefinition(RulesEventKeys.CombatDamageDealt, "combat",
                     new[] { "sourceId", "targetId", "school", "amount", "isCrit", "hitResult" }),
+                // ADR-0070：AutoAttackHostSwingEventTests 需要用真实 EventBus（StrictCatalog 默认
+                // true）验证挥击广播，登记本键。
+                new EventDefinition(RulesEventKeys.CombatAutoAttackSwing, "combat",
+                    new[] { "sourceId", "targetId" }),
                 new EventDefinition(RulesEventKeys.CombatHealDone, "combat",
                     new[] { "sourceId", "targetId", "amount", "isCrit" }),
                 new EventDefinition(RulesEventKeys.CombatThreatChanged, "combat",
