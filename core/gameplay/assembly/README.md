@@ -44,7 +44,7 @@ assembly/
 | 8 | `EconomyHost`；回填第 7 步闭包；绑定 `DeferredExprGroupProvider`（player 分组，`ChainedExprGroupProvider` 合并 `PlayerExprGroupProvider` + `PlayerCurrencyExprGroupProvider`） | `ExprHostFactory` |
 | 9 | `QuestHost`（解析 `quest.def`）；绑定 `DeferredExprGroupProvider`（quest 分组） | `ExprHostFactory`、`Reward` |
 | 10 | `AppStateHost`、`HookRegistry` | `IEventBus` |
-| 11 | `SpawnHost`（`GobjSpawner` 接 `GameObjectFactory.Spawn`） | `WorldState`、`Carriers.Creatures` |
+| 11 | `SpawnHost`（`GobjSpawner` 接 `GameObjectFactory.SpawnFromTemplate`，见判断记录 16） | `WorldState`、`Carriers.Creatures` |
 | 12 | `EncounterHost` + `LevelHost`（`spawnRequester` 见判断记录 2） | `Carriers.Creatures`/`Ai`、`Hooks`、`Reward` |
 | 13 | `AchievementHost` | `ExprHostFactory`、`Reward` |
 | 14 | `DialogHost`（`teleportRequested`/`encounterStartRequested` 回调接线） | `AppState`、`Quest`、`Hooks`、`WorldState`、`Carriers.Rules.Skill` |
@@ -61,7 +61,7 @@ assembly/
 | `ILootRoller` | `LootHost`（显式接口实现） | `CarriersAssembly` → `GameObjectHost` | 经 `DeferredLootRoller` 延迟绑定（步骤 2/6） |
 | `SkillGranter` | `Carriers.Rules.Skill.LearnSkill/ForgetSkill` | `RewardDispatcher` | 具名委托闭包 |
 | `CurrencyGranter` | `EconomyHost.Add` | `RewardDispatcher` | 局部变量延迟闭包（步骤 7/8） |
-| `GobjSpawnerDelegate` | `Carriers.GameObjects.Spawn` | `SpawnHost`（`content_ref` 域名 `gobj` 时） | |
+| `GobjSpawnerDelegate` | `Carriers.GameObjects.SpawnFromTemplate`（见判断记录 16） | `SpawnHost`（`content_ref` 域名 `gobj` 时） | |
 | `SpawnRequester` | `Spawn.SpawnNow`（G1 已接线，见判断记录 2） | `EncounterHost` | 已解决 |
 | `DialogOpenerWithSourceDelegate` | `Dialog.OpenGossip`（`gobjInstanceId` 传给 `npcId`，ADR-0044 根治"`dialogRef` 权宜当 `npcId`"，见判断记录 3） | `GobjOptions` → `GameObjectHost` | 已解决 |
 | `TeleportResolverDelegate` | `TeleportTargetResolver.Resolve`（G1 已接线，按 `teleport_target_ref` 解析 `world.map`/`spawn_points`/`teleport_points`，见判断记录 4） | `GobjOptions` → `GameObjectHost` | 已解决 |
@@ -444,6 +444,17 @@ assembly/
     `CreatureDeathXpListener`/`AreaTriggerDiscoveryXpListener`/`RewardDispatcher` 的 `options`/
     `progressionOptions` 参数，取代此前三者各自默认落到全字段缺省 `new ProgressionOptions()`
     实例的写法，见 `core/numbers/progression/README.md`"T-N4-4"一节判断记录 2/5。
+
+16. **消费方反馈第十三批根治：第 11 步默认 `GobjSpawner` 委托改用
+    `GameObjectFactory.SpawnFromTemplate`**（游戏接入方，`ws-game-wow`）：此前直接转发
+    `GameObjectFactory.Spawn` 的 4 个位置参数（`templateId, mapId, position, facing`），`lockId`
+    恒为 `null`——经 `spawn.table` 刷出来的 `gobj` 无论模板登记了什么锁都不上锁。`SpawnFromTemplate`
+    是 `core/carriers/gobj` 新增的便捷方法（按 `templateId` 读 `gobj.template` 取
+    `GameObjectTemplate.LockId` 一并传给 `Spawn`，见该模块 README 判断记录 13），本处只是把默认
+    委托的实现从 `Spawn` 切到 `SpawnFromTemplate`，委托类型 `GobjSpawnerDelegate` 签名不变（仍是 4
+    个位置参数，不携带 `lockId`）、`SpawnOptions.GobjSpawner` 可选属性未注入时的默认行为随之变化
+    （从"不上锁"变为"应用模板锁"）。**最终口径**：框架默认生成路径应用模板锁；调用方若显式注入
+    自定义 `GobjSpawner`，仍自行决定是否照抄模板锁，不受本条影响。
 
 ## T-N4-4：`GameplayAssembly` 新增带 `ProgressionOptions` 的构造重载
 

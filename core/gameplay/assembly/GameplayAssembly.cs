@@ -931,12 +931,18 @@ namespace Core.Gameplay.Assembly
             }
 
             // ---------------------------------------------------------
-            // 11) SpawnHost（GobjSpawner 接 GameObjectFactory.Spawn）。
+            // 11) SpawnHost（GobjSpawner 接 GameObjectFactory.SpawnFromTemplate）。
             // ---------------------------------------------------------
             var resolvedSpawnOptions = spawnOptions ?? new SpawnOptions();
             resolvedSpawnOptions.PlayerUnitResolver = () => PlayerUnitProvider();
+            // 消费方反馈第十三批根治：此前直接转发 GameObjectFactory.Spawn 的 4 个位置参数，lockId 恒
+            // 为 null——经 spawn.table 刷出的 gobj 无论模板登记了什么锁都不上锁。GameObjectFactory.Spawn
+            // 本身"调用方决定 lockId"的语义不变（该委托类型 GobjSpawnerDelegate 签名本就只有 4 个位置
+            // 参数，不携带 lockId，手工放置场景走 GameObjectFactory.Spawn 直接调用不受影响），本处默认
+            // 委托改用 SpawnFromTemplate 便捷方法——按 templateId 读 gobj.template 取 LockId 一并传入，
+            // 见该方法判断记录。
             resolvedSpawnOptions.GobjSpawner ??= (templateId, mapId, position, facing) =>
-                Carriers.GameObjects.Spawn(templateId, mapId, position, facing);
+                Carriers.GameObjects.SpawnFromTemplate(registry, templateId, mapId, position, facing);
             // R14 根治：GobjDespawner 接 GameObjectFactory.Despawn，供 SpawnHost.Load 同图读档时清理
             // gobj 域的孤儿实体（惯例同上一行 GobjSpawner）。
             resolvedSpawnOptions.GobjDespawner ??= entityId => Carriers.GameObjects.Despawn(entityId);

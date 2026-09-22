@@ -46,7 +46,7 @@ gobj/
 | `name_key` | TextKey | 是 | 显示名文本键 |
 | `kind` | Enum(10 值) | 是 | 见下"类型数据"表 |
 | `type_data` | Object | 是 | 按 `kind` 解释，字段并集登记（`GobjSchemas.TypeDataSchema`），字段组完整性见 `GobjTypeDataFieldGroupRule` |
-| `lock_id` | Id（Reference→`gobj.lock`） | 否 | 模板默认锁，运行期实际生效值是 `GameObjectEntity.LockId` |
+| `lock_id` | Id（Reference→`gobj.lock`） | 否 | 模板默认锁，运行期实际生效值是 `GameObjectEntity.LockId`；框架默认生成路径（见判断记录 13）应用本字段，自定义 `GobjSpawner` 的调用方仍自行决定 |
 | `on_use` | Object | 否 | `{kind: skill\|dialog, ref}`，二选一，ADR-0019 F1c 登记为 Variants（`GobjSchemas.OnUseSchema`） |
 | `display_ref` | Id | 是 | 指向 `display.map` |
 | `tags` | List\<Id\> | 否 | 标签集合 |
@@ -287,7 +287,23 @@ JsonObject（同 `core/gameplay/area_trigger` 的 `ParamsSchema`/`trigger_type` 
     `GameObjectHost` 与装配根之间没有稳定的"当前正在分发哪个 gobj"跨调用状态，硬造一个查找表
     是更脆弱的隐式耦合，不如让契约显式携带。详见 [ADR-0044](../../../architecture/adr/0044-gobj对话打开回调新增交互者身份透传路径.md)。
 
-## 契约缺口 / 未覆盖内容
+13. **消费方反馈第十三批根治：新增 `GameObjectFactory.SpawnFromTemplate` 便捷方法，框架默认生成
+    路径改用它以应用模板锁**（游戏接入方，`ws-game-wow`）：`GameObjectFactory.Spawn` 本身"调用方
+    决定 `lockId`"的语义不变（手工放置的物件仍可覆盖模板锁），但框架自己的默认组装路径
+    （`core/gameplay/assembly/GameplayAssembly.cs` 第 11 步给 `SpawnOptions.GobjSpawner` 装的默认
+    委托）与示例 `adapters/unity/.../Bootstrap/GameFoundationBootstrap.cs`（样例箱子）此前都只转发
+    `Spawn` 的 4 个位置参数、从不读模板，`lockId` 恒为 `null`——经 `spawn.table` 刷出来的物件无论
+    模板登记了什么锁都不上锁，唯一正确示范只有测试辅助 `core/carriers/gobj/tests/
+    GobjTestSupport.SpawnFromTemplate`。**最终口径**：框架默认生成路径应用模板锁；自定义
+    `GobjSpawner` 的调用方仍自行决定是否照抄模板锁。**判断记录**：与其让"读模板→取
+    `lock_id`→`Spawn`"这套逻辑在默认委托、示例两处分别重复一遍，新增一个 ABI 纯新增的便捷方法
+    `SpawnFromTemplate(IDataRegistryView registry, Id templateId, Id mapId, Vec2 position, double
+    facing, Id? originKey = null)`（读取模板的方式与 `GameObjectTemplate.FromRecord` 完全一致，
+    不另写一套解析），三处调用方（默认委托、`GameFoundationBootstrap`、`GobjTestSupport`）统一改调
+    它，不再各自维护一份重复逻辑。不放在 `core/gameplay/spawn`（该模块不直接依赖
+    `Core.Carriers.Gobj`，见 `core/gameplay/spawn/README.md`"`content_ref` 域名为 `creature` 与为
+    `gobj` 时走两条不同路径"判断记录），放在本模块符合"读模板本就属于 `core/carriers/gobj` 领域
+    内的语义"这一既有边界。
 
 - **`type_data.trigger_shape`（`trap`）不做结构校验**：05 第 3.5 节 `Shape` 的具体 JSON 形状由
   形状/目标相关模块定义（本模块未见其 JSON schema），本模块的 `GobjTypeDataFieldGroupRule`/
