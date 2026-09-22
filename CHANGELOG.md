@@ -458,6 +458,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **对白面板复用选项按钮时未重绑点击回调，会话由闲聊切到剧情后点击卡死**（消费方反馈——游戏
+  接入方第十六批，阻塞，框架缺陷）：`Adapter.Unity.Ui.Panels.DialogPanel.RebuildOptions` 此前
+  只在"新建"按钮时给 `UiWidgets.CreateButton` 绑定 `onClick`（闭包捕获当次传入的点击委托），
+  复用已有按钮（选项数量不变或减少）时不会重新绑定。闲聊选项动作含 `start_story`
+  （如 `[quest_turn_in, start_story]`）、一次点击把会话从"1 个选项的闲聊菜单"切到"1 条分支的
+  剧情节点"时，按钮被复用而不是重建，仍挂着上一次 Gossip 态 `RefreshUi` 绑定的旧闭包，其捕获的
+  `DialogViewModel.Gossip` 此时已经为 `null`，点击直接 `NullReferenceException`，对话卡在第一
+  节点。改为：`button.onClick` 只在按钮创建时永久绑定一层间接层（读取一个按位置索引的
+  `Action?` 数组并调用），真正的点击语义在每次 `RebuildOptions` 的 `for` 循环里对全部按钮
+  （新建的和复用的）无条件重新赋值，不存在"只在新建分支才重绑"的代码路径。判断记录见
+  `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`
+  "UI 套件（`Runtime/Ui/`）"一节。
+
 ## [1.61.0] - 2026-09-22
 
 ### 修复

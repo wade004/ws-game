@@ -548,6 +548,21 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 - 本地化：面板真正的游戏内容文案（技能/物品/任务/属性显示名、对话选项、菜单条目、难度档位名）
   均经 `IL10nHost.Text`/`ExprValue` 查询 `l10n.text`；纯 UI 框架级 chrome 文案（"使用""删除"
   "（空）"等空态/通用动词）标注为占位调试文本未接入 l10n（见各面板文件顶部判断记录）。
+- **判断记录（消费方反馈第十六批，阻塞，框架缺陷修复）：面板复用可视元素时必须按当前数据重绑
+  交互回调**。`DialogPanel.RebuildOptions`（`Panels/DialogSettingsPanels.cs`）此前只在"新建"
+  按钮时 `UiWidgets.CreateButton` 绑定一次 `onClick`，复用已有按钮（选项数量不变或减少）时不会
+  重新绑定——一次点击把会话从 Gossip 切到 Story（闲聊选项动作含 `start_story`）后，按钮仍挂着
+  上一次 `RefreshUi` 传入的旧闭包，其捕获的 Gossip 视图子对象已经为 `null`，点击直接
+  `NullReferenceException`，对话卡在第一节点。根治：`button.onClick` 只在按钮创建时永久绑定一层
+  间接层（读取一个按位置索引的 `Action?` 数组并调用），真正的点击语义在每次 `RebuildOptions` 的
+  `for` 循环里对全部按钮（新建的和复用的）无条件重新赋值——不存在"只在新建分支才重绑"的代码
+  路径，比"复用分支里手动 `RemoveAllListeners` 再 `AddListener`"更不容易再次漏绑（少一处需要记得
+  写的对称代码）。已排查 `Runtime/Ui/Panels/` 下其余复用可视元素的面板（`ActionBarPanel`/
+  `InventoryPanel`/`ShopPanel` 的买卖两个列表）：均是按位置索引调用固定方法
+  （如 `OnUseClicked(index)`），方法内部按索引实时读取当前视图模型数据，点击回调语义从不随
+  `RefreshUi` 变化，无需重绑；`SkillBookPanel` 每次整体销毁重建按钮列表，不存在复用；
+  `SaveSlotsPanel`/`PauseMenuPanel` 按钮只在 `Construct` 时绑定一次且 `RefreshUi` 不重建/新增
+  按钮，同样不适用本问题。
 
 ### Shell 流程（`Runtime/Shell/`）
 

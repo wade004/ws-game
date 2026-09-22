@@ -32,6 +32,17 @@
           "actions": [ { "kind": "script", "ref": "found.hook.sample_hunter_greeting" } ]
         }
       ]
+    },
+    {
+      "id": "dialog.sample_hunter_story_trigger",
+      "greeting_key": "l10n.dialog.sample_hunter_story_trigger.greeting",
+      "options": [
+        {
+          "text_key": "l10n.dialog.sample_hunter_story_trigger.option_start",
+          "visible_if": "true",
+          "actions": [ { "kind": "start_story", "ref": "dialog.sample_hunter_story" } ]
+        }
+      ]
     }
   ]
 }
