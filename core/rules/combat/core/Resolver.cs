@@ -314,7 +314,17 @@ namespace Core.Rules.Combat
                 else
                 {
                     _threatTable.AddThreat(context.TargetId, context.SourceId, finalAmount);
-                    _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit, context.TriggerChainDepth, context.AttackInstanceId));
+                    // ADR-0073（消费方第十九批第 3 条根治）：把产生本次结算的 EffectContext.SkillId
+                    // 原样戳到落地事件上，供 feedback.binding 按 skillId 过滤——但 IsPeriodic=true 的
+                    // 结算（AuraHost.FirePeriodic 周期效果）截断为 null，因为该路径构造 EffectContext
+                    // 时 skillId 参数传入的实际是光环定义 id（AuraInstanceState.DefId），不是技能 id，
+                    // 原样转发会把一个不属于 skill.def 命名空间的 id 冒充成技能 id（见
+                    // CombatDamageDealtEvent.SkillId 判断记录）。CastPipeline/AutoAttackHost/
+                    // ProjectileHost 三个非周期生产构造点的 EffectContext.SkillId 均已是真正的技能 id
+                    // （AutoAttackHost 固定为保留 id AutoAttackHost.NativeSkillId，有意如此，同判断
+                    // 记录），isPeriodic 恒为 false，原样转发。
+                    var skillId = context.IsPeriodic ? (Id?)null : context.SkillId;
+                    _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit, context.TriggerChainDepth, context.AttackInstanceId, skillId));
                 }
             }
 

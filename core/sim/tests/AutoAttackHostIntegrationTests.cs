@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
@@ -127,6 +128,36 @@ namespace Tests.Sim
 
             Assert.True(world.Gameplay.Carriers.Rules.Powers.TryGetPower(creatureId, WellKnownPowers.Health, out var hpAfter));
             Assert.Equal(hpBefore - expectedDamage, hpAfter, 9);
+        }
+
+        /// <summary>ADR-0073（消费方第十九批第 3 条根治）：普通攻击命中落地的 <c>combat.damage_dealt</c>
+        /// 携带 <see cref="AutoAttackHost.NativeSkillId"/>——是有意的（ADR-0059 决策 3"落地事件与技能
+        /// 击杀完全同构"的延伸），消费方据此可以对"普通攻击命中"这一条件单独声明 <c>feedback.binding</c>。
+        /// 全程经真实 <c>HeadlessWorldBuilder.Build</c>/<c>GameplayAssembly</c> 装配，不反射/白盒读取
+        /// <c>AutoAttackHost</c> 内部状态，<see cref="HeadlessWorld.Events"/> 是装配期真实订阅全部事件
+        /// 得到的列表（同本文件其余用例的既有验收方式）。</summary>
+        [Fact]
+        public void EnableAutoAttack_AdvanceOneSwingInterval_DamageEventCarriesNativeAutoAttackSkillId()
+        {
+            const ulong seed = 20260921_1004UL;
+            var world = BuildDeterministicWorld(seed);
+            var playerId = SimTestWorldFactory.PlayerId;
+            var creatureId = SpawnWolf(world, new Vec2(3, 0));
+
+            var interval = world.Gameplay.Carriers.Equipment.GetWeaponAttackIntervalSeconds(playerId);
+            Assert.True(interval.HasValue && interval.Value > 0.0);
+
+            var autoAttack = world.Gameplay.Carriers.Rules.AutoAttack;
+            autoAttack.SetTarget(playerId, creatureId);
+            autoAttack.SetEnabled(playerId, true);
+
+            world.Clock.Advance(interval!.Value);
+
+            var swingDamage = world.Events
+                .OfType<CombatDamageDealtEvent>()
+                .Single(e => e.SourceId == playerId && e.TargetId == creatureId);
+
+            Assert.Equal(AutoAttackHost.NativeSkillId, swingDamage.SkillId);
         }
 
         /// <summary>验收标准 2：挥击计时驱动（不是每 tick 结算一次）的精确分界——推进"少于一个周期"

@@ -200,6 +200,21 @@ namespace Tests.Presentation.FeedbackBinder
           ]
         }";
 
+        // ADR-0073（消费方第十九批第 3 条根治）：按 skillId 过滤 + attach: target 端到端场景——
+        // "某个技能命中目标时在目标身上播一个特效"这条消费方原始诉求本身，condition 经
+        // event.skill_id 命中 CombatDamageDealtEvent.TryGetField("skillId") 新增分支（P4-3
+        // 既有 snake_case→camelCase 字段名映射，同 event.is_crit 惯例），from_display: skill 经
+        // ExtractId(evt, "skillId", "auraDefId") 命中同一字段。
+        public const string SkillHitVfxRuleRow = @"
+        {
+          ""id"": ""feedback.skill_hit_vfx"",
+          ""event"": ""combat.damage_dealt"",
+          ""condition"": ""event.skill_id == skill.fireball"",
+          ""actions"": [
+            {""kind"": ""play_vfx"", ""params"": {""from_display"": ""skill"", ""attach"": ""target""}}
+          ]
+        }";
+
         public const string CritStyleRow = @"
         {
           ""id"": ""feedback.style.crit"",

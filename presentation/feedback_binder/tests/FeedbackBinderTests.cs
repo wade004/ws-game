@@ -72,6 +72,50 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Empty(sink.Shakes);
         }
 
+        /// <summary>ADR-0073（消费方第十九批第 3 条根治）端到端场景："某个技能命中目标时在目标身上
+        /// 播一个特效"——经真实 <c>feedback.binding</c> 数据（<see
+        /// cref="FeedbackBinderTestSupport.SkillHitVfxRuleRow"/>：<c>event: combat.damage_dealt</c>，
+        /// <c>condition: event.skill_id == skill.fireball</c>，<c>attach: target</c>）驱动，不是只
+        /// 断言事件字段本身。命中该技能时动作确实被派发，且 <c>attach</c> 解析到正确的目标实体；
+        /// 命中另一个技能（本例为普通攻击的保留 id）时条件不成立、不派发——同一条规则，两次不同
+        /// <c>skillId</c> 的真实 <see cref="CombatDamageDealtEvent"/> 驱动，不是两条不同规则。</summary>
+        [Fact]
+        public void SkillHitVfx_DispatchesOnlyForMatchingSkillId_AttachResolvesToTarget()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(FeedbackBinderTestSupport.SkillHitVfxRuleRow);
+
+            var displayRegistry = new FakeDisplayInfoRegistry(new Dictionary<Id, DisplayInfo>
+            {
+                [new Id("skill.fireball")] = FakeDisplayInfoRegistry.Simple(
+                    new Id("display.fireball"), new Id("skill.fireball"), DisplayCategory.Skill, new Id("vfx.fireball_hit"), null),
+            });
+            var resolver = new DisplayInfoResolver(displayRegistry);
+
+            using var binder = new FeedbackBinderCore(
+                bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink, displayInfoResolver: resolver);
+
+            // 不匹配：普通攻击命中（AutoAttackHost.NativeSkillId 的字面值，不引入 core/rules/combat
+            // 依赖，直接写字面 id），condition 不成立，不应派发任何动作。
+            var autoAttackHit = new CombatDamageDealtEvent(
+                new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit,
+                triggerChainDepth: 0, attackInstanceId: null, skillId: new Id("skill.native_auto_attack"));
+            bus.PublishImmediate(autoAttackHit);
+            Assert.Empty(sink.PlayVfxCalls);
+
+            // 匹配：技能命中，condition 成立，动作派发，attach: target 解析到 combat.damage_dealt 的
+            // targetId（unit.wolf），from_display: skill 经 skillId 字段查到 vfx.fireball_hit。
+            var fireballHit = new CombatDamageDealtEvent(
+                new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.fire"), 30.0, isCrit: false, HitResult.Hit,
+                triggerChainDepth: 0, attackInstanceId: new Id("cast.instance.1"), skillId: new Id("skill.fireball"));
+            bus.PublishImmediate(fireballHit);
+
+            Assert.Single(sink.PlayVfxCalls);
+            Assert.Equal(new Id("vfx.fireball_hit"), sink.PlayVfxCalls[0].VfxId);
+            Assert.Equal(new Id("unit.wolf"), sink.PlayVfxCalls[0].Attach.EntityId);
+        }
+
         [Fact]
         public void OnEvent_RuleWithoutCondition_AlwaysDispatchesAllActions()
         {

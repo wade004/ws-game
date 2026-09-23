@@ -35,6 +35,34 @@ namespace Tests.Rules.Common
             Assert.Equal(HitResult.Crit, evt.HitResult);
         }
 
+        /// <summary>ADR-0073：旧的八参数构造（不带 skillId）是 ABI 兼容 façade，SkillId 恒为
+        /// null，TryGetField("skillId") 因此查不到（同既有 attackInstanceId 字段惯例）。</summary>
+        [Fact]
+        public void CombatDamageDealtEvent_LegacyConstructor_SkillIdIsNullAndNotReadable()
+        {
+            var evt = new CombatDamageDealtEvent(
+                new Id("unit.hero"), new Id("unit.wolf"), new Id("school.fire"), 10.0, false, HitResult.Hit);
+
+            Assert.Null(evt.SkillId);
+            Assert.False(evt.TryGetField("skillId", out _));
+        }
+
+        /// <summary>ADR-0073：新的九参数构造携带 skillId 时，TryGetField("skillId") 可读——供
+        /// feedback.binding 的 event.skill_id 条件过滤与 from_display: skill 使用。</summary>
+        [Fact]
+        public void CombatDamageDealtEvent_NewConstructor_CarriesSkillId()
+        {
+            var skillId = new Id("skill.fireball");
+
+            var evt = new CombatDamageDealtEvent(
+                new Id("unit.hero"), new Id("unit.wolf"), new Id("school.fire"), 10.0, false, HitResult.Hit,
+                triggerChainDepth: 0, attackInstanceId: null, skillId: skillId);
+
+            Assert.Equal(skillId, evt.SkillId);
+            Assert.True(evt.TryGetField("skillId", out var value));
+            Assert.Equal(skillId, value.AsId);
+        }
+
         [Fact]
         public void UnitDiedEvent_AllowsNullKiller()
         {

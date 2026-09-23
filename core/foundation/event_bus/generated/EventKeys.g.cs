@@ -45,7 +45,7 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.auto_attack_swing — 字段：sourceId, targetId。ADR-0070：普通攻击（AutoAttackHost）每结算一次挥击时触发，只表达“挥出了一次普通攻击”本身，不携带学派/伤害值（已由随后发出的 combat.damage_dealt 承载）；在 IEffectSink.ApplyEffect 之前发布，恒先于该次结算对应的 combat.damage_dealt；被跳过的挥击（超射程/被 NoAttack 拦截/未到挥击点/没有攻击周期）不发本事件。</summary>
         public static readonly Id CombatAutoAttackSwing = new Id("combat.auto_attack_swing");
 
-        /// <summary>combat.damage_dealt — 字段：sourceId, targetId, school, amount, isCrit, hitResult, attackInstanceId。结算管线"落地"步骤，伤害类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId（本次结算所属的施法/攻击实例 id，经 CastPipeline.ExecuteEffectsOnly 产生的结算才携带，供命中帧同步按攻击实例整批释放，见 EffectContext.AttackInstanceId 判断记录；可空——光环周期效果等不经 CastPipeline 的结算为空）。</summary>
+        /// <summary>combat.damage_dealt — 字段：sourceId, targetId, school, amount, isCrit, hitResult, attackInstanceId, skillId。结算管线"落地"步骤，伤害类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId（本次结算所属的施法/攻击实例 id，经 CastPipeline.ExecuteEffectsOnly 产生的结算才携带，供命中帧同步按攻击实例整批释放，见 EffectContext.AttackInstanceId 判断记录；可空——光环周期效果等不经 CastPipeline 的结算为空）；2026-09-23 新增 skillId（ADR-0073，消费方第十九批第 3 条根治：本次结算所属技能 id，经 EffectContext.SkillId 原样携带；可空——光环周期伤害等不经技能结算路径的伤害为空；普通攻击命中携带框架原生保留 id skill.native_auto_attack，不对应任何真实注册的 skill.def 行，消费方可据此对普通攻击命中同样声明反馈绑定）。</summary>
         public static readonly Id CombatDamageDealt = new Id("combat.damage_dealt");
 
         /// <summary>combat.entered — 字段：unitId, hostileId。进入战斗（见 06 第 8 节）；2026-09-05 勘误补充 hostileId（首个敌对目标：本次触发进战的交互对方 id，CombatHost.NotifyCombatEvent 在该单位真正首次进战时填充，可空——环境触发的进战未传交互对方时为空）。</summary>
