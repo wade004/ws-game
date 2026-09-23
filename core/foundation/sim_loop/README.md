@@ -302,3 +302,17 @@ sim_loop/
 | `Entity` 公共基类与实体集合管理、确定性查询/id 分配 | 是 | 具体实体子类（`Unit`/`GameObject` 等，属于更上层模块） |
 | 通用计时器原语 | 是 | 使用计时器的具体游戏内容（冷却时长等数值） |
 | 离散时间模型：`TurnScheduler`（三种先攻策略）、`PacingPolicy`（两种节奏）、`ISimClockHost.Mode` | 是 | 探索/战斗各自选用哪种时间模型（`found.time_model`）、先攻/节奏策略的具体参数、何时触发模式切换（`core/gameplay/assembly.TimeModelSwitch`，L4） |
+
+## 判断记录（`IsPendingDestruction` 只读查询，2026-09-23，architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
+
+`IWorldSim` 新增默认接口成员 `bool IsPendingDestruction(Id id)`（ABI 只新增：默认实现恒返回
+`false`，既有实现无需改动即可编译）；`WorldSim` 显式覆盖为真实查询 `_pendingDestruction.Contains(id)`
+——与 `MarkForDestruction`/`Tick` 阶段 8 读的是同一份集合。动机：消费方反馈第二十二批复现"两次
+`Tick` 之间 `Despawn` 一个仍被 AI 驱动移动的单位，下一拍中止整个 Tick"（根因见
+`core/carriers/creature/README.md` 对应判断记录）；根治该异常之外，按 `TickPhase` 逐单位处理的
+子系统（`core/rules/ai.AiTickHandler`、`core/carriers/unit.MovementTickHandler`，见各自判断记录）
+在处理前查询本方法、命中即跳过，避免"已标记销毁、尚未真正移除"的窗口期内继续为该单位产生新的
+决策/位移——语义上更贴近"这个单位已经不该再被当存活单位处理"。不改变 `MarkForDestruction`/`Tick`
+阶段 8 的既有时序契约，只是给处理器多一个只读判断依据；不改 `Tick` 的异常语义（不加 try/finally
+强行保证阶段 8 一定跑），阶段内异常仍会中止整拍——本次改动消灭的是触发源，不是掩盖阶段异常本身
+这一既有脆弱性。

@@ -44,6 +44,15 @@ namespace Core.Rules.Ai
 
             foreach (var unitId in _host.RegisteredUnitIds)
             {
+                // ADR-0079（决定 2）：已标记销毁但尚未真正移除的单位，本拍不再为它求新的 AI 决策——
+                // 与 CreatureFactory.Despawn 不再同步注销 Stats/Powers（决定 1）配合，双重保证同一拍/
+                // 相邻两拍之间 Despawn 一个仍在被 AI 驱动移动的单位不会再让 MovementTickHandler 向
+                // 已注销的属性宿主要值。
+                if (world.IsPendingDestruction(unitId))
+                {
+                    continue;
+                }
+
                 var intents = _host.Step(unitId, step.Dt);
                 foreach (var intent in intents)
                 {
@@ -92,6 +101,12 @@ namespace Core.Rules.Ai
             if (!isRegistered)
             {
                 return; // 玩家行动者（或未登记 AI 的行动者），本处理器不介入。
+            }
+
+            // ADR-0079（决定 2）：同连续模式分支，已标记销毁的行动者本回合不再求新的 AI 决策。
+            if (world.IsPendingDestruction(actorId))
+            {
+                return;
             }
 
             var intents = _host.Step(actorId, 1.0);

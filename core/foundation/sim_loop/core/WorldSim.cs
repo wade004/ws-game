@@ -339,6 +339,11 @@ namespace Core.Foundation.SimLoop
             _pendingDestruction.Add(id);
         }
 
+        /// <summary>见 <see cref="IWorldSim.IsPendingDestruction"/>（ADR-0079）：直接查
+        /// <see cref="_pendingDestruction"/>，与 <see cref="Tick"/> 阶段 8、<see cref="ClearAll"/>
+        /// 读的是同一份集合。</summary>
+        public bool IsPendingDestruction(Id id) => _pendingDestruction.Contains(id);
+
         public void AddEntity(Entity entity)
         {
             if (entity == null)

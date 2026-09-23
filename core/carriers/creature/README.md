@@ -300,3 +300,36 @@ ADR-0024 第二批登记（04 第 3.3 节"映射登记"，取代下方已废止�
 `CreatureFactory`/`ICreatureTemplateQuery` 的真实实现要等 `CarriersAssembly` 组装完成之后才存在，
 同类循环见 `IStaticImmunityProvider`/`CreatureImmunityProvider` 判断记录。详见
 `core/rules/combat/README.md` 对应判断记录。
+
+## 判断记录（`Despawn` 不再同步注销 Stats/Powers，2026-09-23，消费方反馈第二十二批，
+architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
+
+根因：`Despawn` 此前同步调用 `_stats.UnregisterUnit`/`_powers.UnregisterUnit`——两者立即生效，而
+`IWorldSim` 对该实体的真正移除（连同 `AiHost` 的行为外壳登记、`EntitySpatialSyncHost` 的空间索引，
+两者都靠订阅 `EntityDestroyedEvent` 自清理）要等到某次 `IWorldSim.Tick` 阶段 8（生命周期清理）。
+"实体何时不再存在"因此出现两个不同时刻：两次调用之间若该实体仍有生效的 AI 移动意图，下一拍
+`MovementTickHandler.ResolveSpeed` 会向已注销的 `StatHost.GetStat` 要属性抛
+`InvalidOperationException`，中止整个 Tick——阶段 8 这次跑不到，实体没被真正移除，下一拍同样的
+路径再抛一次，永久卡死。
+
+根治：`Despawn` 只标记待销毁 + 发 `CreatureDespawnedEvent`（时机/内容不变），并把 `entityId` 记进
+本类型新增的私有集合 `_pendingDespawnUnregistration`；本类型构造函数新订阅
+`Core.Foundation.SimLoop.EntityDestroyedEvent`，处理器 `OnEntityDestroyed` 只对命中这个集合的 id
+才调用 Stats/Powers 的 `UnregisterUnit`（命中即从集合移除），与世界真正移除该实体在同一批
+`DispatchPending` 里一起生效。
+
+**为什么不是让 `StatHost`/`PowerHost` 直接订阅 `EntityDestroyedEvent`（本次改动踩过的坑，已被
+`RacePassiveAuraCrossMapTests` 等既有跨地图用例的真实回归拦下）**：`EntityDestroyedEvent` 不只在
+`IWorldSim.Tick` 阶段 8 为待销毁实体触发，`IWorldSim.ClearAll`（地图切换）也会为**当时仍存活、
+从未调用过 `Despawn`** 的全部实体无差别触发同一事件——包括玩家单位。玩家的 `Stats`/`Powers`
+注册代表跨地图持久的角色状态，`GameplayAssembly.EnterMap` 重新登记的只是世界实体本身，不会重新
+调用 `RulesAssembly.RegisterUnit`。若让两个 L1 宿主自己无差别响应该事件注销，玩家跨地图 ClearAll
+后属性宿主未注册，光环重新施加等后续操作会抛异常。`StatHost`/`PowerHost` 的 `RegisterUnit` 有多个
+调用方（本类型与 `RulesAssembly.RegisterUnit`），各自的生命周期语义不同，注销责任因此留在各自的
+登记方（本类型），不集中收归两个 L1 宿主自己判断——`ClearAll` 场景下未经 `Despawn` 就被整体清空的
+生物，其 Stats/Powers 注册与本次改动之前一样不会被自动注销（既有遗留 gap，不属于本次修复范围）。
+
+新增验收：`core/gameplay/assembly/tests/ADR0079_DespawnDuringAiMovementTests.cs`（脱离引擎，全程走
+真实 `GameplayAssembly` 生产装配入口；四例：两拍之间 Despawn 一个正在被 AI 驱动追击移动的单位不再
+抛异常且被正确移除、同一拍内 Despawn 同样不抛、没有 AI 意图的普通 Despawn 路径行为不变、属性/
+能量宿主真正移除后确已注销）。

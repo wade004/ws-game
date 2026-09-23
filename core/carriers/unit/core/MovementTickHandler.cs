@@ -109,6 +109,8 @@ namespace Core.Carriers.Unit
                 var intent = intents[i];
                 if (intent.Kind != "move_stop") continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
+                // ADR-0079（决定 2）：已标记销毁但尚未真正移除的单位，本拍不再按存活单位处理。
+                if (world.IsPendingDestruction(unit.EntityId)) continue;
                 if (!processedStop.Add(unit.EntityId)) continue;
 
                 var discardedMoveIntent = HasPrecedingMoveIntent(intents, unit.EntityId, lastStopIndex[unit.EntityId]);
@@ -140,6 +142,8 @@ namespace Core.Carriers.Unit
                 if (intent.Kind != "move_displace") continue;
                 if (!lastDisplaceIndex.TryGetValue(intent.ActorId, out var winningDisplaceIndex) || winningDisplaceIndex != i) continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit displaceUnit)) continue;
+                // ADR-0079（决定 2）：已标记销毁但尚未真正移除的单位，本拍不再按存活单位处理。
+                if (world.IsPendingDestruction(displaceUnit.EntityId)) continue;
 
                 // 判断记录：只在 BeginDisplacement 真正开始了一次新位移时才计入 processedThisTick
                 // （见该方法返回值判断记录）——被忽略的 move_displace（已在位移中/被锁定/参数无效）
@@ -191,6 +195,10 @@ namespace Core.Carriers.Unit
                 if (intent.Kind != "move") continue;
                 if (!lastMoveIndex.TryGetValue(intent.ActorId, out var winningIndex) || winningIndex != i) continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
+                // ADR-0079（决定 2）：已标记销毁但尚未真正移除的单位，本拍不再按存活单位处理——这是
+                // 消费方反馈第二十二批复现路径的直接命中点：改动前，两拍之间 Despawn 一个仍被 AI
+                // 驱动移动的单位，这里会向已同步注销的 StatHost.GetStat 要属性抛异常。
+                if (world.IsPendingDestruction(unit.EntityId)) continue;
 
                 ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
                 processedThisTick.Add(unit.EntityId);
@@ -212,6 +220,8 @@ namespace Core.Carriers.Unit
             foreach (var entity in world.QueryEntities(new EntityFilter(predicate: e => e is Unit)))
             {
                 if (processedThisTick.Contains(entity.EntityId)) continue;
+                // ADR-0079（决定 2）：已标记销毁但尚未真正移除的单位，本拍不再续推其既有路径/位移。
+                if (world.IsPendingDestruction(entity.EntityId)) continue;
 
                 var unit = (Unit)entity;
 

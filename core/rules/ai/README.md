@@ -184,3 +184,12 @@ Combat 态下委托给 `RotationEvaluator`（T-N3-10，算法细节、就绪判�
    才发现失败，全部原样通过，未观察到任何行为差异。见 `RotationEvaluator.cs`、
    `RotationEvaluatorTests.cs`（首条不就绪跳过选下一条，冷却/`ConditionNotMet`/`ActionLocked`
    三态各一组）。
+7. **`AiTickHandler` 跳过已标记销毁的单位（2026-09-23，消费方反馈第二十二批，
+   architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）**：连续模式遍历
+   `_host.RegisteredUnitIds`、离散模式处理当前行动者前，各自新增一次
+   `world.IsPendingDestruction(unitId)` 判断，命中即本拍不再为该单位求新的 AI 决策（不调用
+   `_host.Step`）。动机：`IWorldSim.Despawn` 标记销毁与真正移除（`Tick` 阶段 8）之间有窗口期，
+   `AiHost` 对该单位的行为外壳登记要到同一阶段的 `EntityDestroyedEvent` 才清理——不加这层判断，
+   窗口期内仍会继续为它生成移动意图，交给 `core/carriers/unit.MovementTickHandler` 处理（该
+   处理器也做了同样的跳过，见其判断记录）。两处判断独立生效、互相印证：本处理器不生成新意图，
+   移动处理器即便收到"历史遗留"的意图也不会再处理。
