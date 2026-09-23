@@ -192,6 +192,15 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, UnityFrameAnimPlayer> _animPlayersByEntity = new Dictionary<Id, UnityFrameAnimPlayer>();
         private readonly Dictionary<Id, IReadOnlyDictionary<string, Id>> _animClipsByEntity = new Dictionary<Id, IReadOnlyDictionary<string, Id>>();
 
+        /// <summary>ADR-0072 决策 2 新增：纸娃娃层逐层动画——entityId -> (状态 clipId -> (层名 ->
+        /// 该层独立注册在同一个 <see cref="UnityFrameAnimPlayer"/> 上的逐层 clipId))。由
+        /// <see cref="TryAttachPerLayerAnimation"/> 在 <see cref="AttachDefaultAnimation"/> 期间创建
+        /// 空表并登记（此后异步探测逐步填充，见该方法判断记录），供同一方法注册的每实体共享
+        /// <c>player.OnFrameChanged</c> 回调按当前播放 clipId 查表：查到非空表即"至少一层命中"，决定
+        /// 隐藏整身 AnimRoot + 逐层播放；查不到或为空表即"整身兜底"。</summary>
+        private readonly Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>> _perLayerClipsByEntity =
+            new Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>>();
+
         /// <summary>W6-B 新增：model 型实体的默认动画路由表——同 <see cref="_animPlayersByEntity"/>
         /// 姊妹表，供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托在查不到
         /// <see cref="UnityFrameAnimPlayer"/>（sprite 专属）时改走该实体的
@@ -303,6 +312,7 @@ namespace Adapter.Unity.Presentation
             _animPlayersByEntity.Remove(evt.EntityId);
             _animClipsByEntity.Remove(evt.EntityId);
             _modelViewsByEntity.Remove(evt.EntityId);
+            _perLayerClipsByEntity.Remove(evt.EntityId);
 
             // W6-B 新增：命中帧同步注册表同一套"随实体销毁清理"惯例（见 IHitFrameSource.UnregisterRig
             // 契约注释"未登记过时 no-op"，对从未注册过 hit frame 的实体调用同样安全）。
@@ -529,6 +539,11 @@ namespace Adapter.Unity.Presentation
 
             EnsureAnimClipResolver();
 
+            // ADR-0072 决策 2：纸娃娃层逐层动画——只对声明了 paperdoll_layers 的 sprite 型外形生效，
+            // 未声明（item/gobj/projectile 一类，或 paperdoll_layers 为空的 creature）时该方法整体是
+            // 空操作，不影响本方法其余行为，见其判断记录。
+            TryAttachPerLayerAnimation(concreteRenderer, view.EngineHandle, player, info, entityId, clips);
+
             // GP-02 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：此前默认
             // 工厂只接了 StateChanged -> Play 这一半（见 AnimClipResolver），播放完成后从不回头通知
             // AnimStateMachine——Hit/Attack/Cast 这类瞬态状态优先级锁只能靠
@@ -542,6 +557,225 @@ namespace Adapter.Unity.Presentation
             player.OnComplete(() =>
             {
                 stateMachine.NotifyTransientStateFinished(entityId, stateMachine.GetState(entityId));
+            });
+        }
+
+        /// <summary>
+        /// ADR-0072 决策 2 入口：纸娃娃层逐层动画——只对 <paramref name="info"/>.<c>Sprite</c> 声明了
+        /// <c>PaperdollLayers</c> 的外形生效（<paramref name="info"/>.<c>Sprite</c> 为 null 或该列表
+        /// 为空——身体没有纸娃娃层可言——时整体是空操作）。<c>display.anim_set.clips.&lt;state&gt;.
+        /// resource_ref</c> 对这类外形的语义由"整身剪辑资源"改为"逐层剪辑集引用"（04/09 已同步更新），
+        /// 三级探测顺序：① <c>sprite_anim.&lt;去类别前缀点号转下划线&gt;__&lt;方向裸档位名&gt;__
+        /// &lt;层名&gt;</c>（按方向+层名）；② 同前缀去掉方向段、只按 <c>__&lt;层名&gt;</c>；③ 两级都
+        /// 未命中——该层维持当前已经在显示的静态纸娃娃层图（不隐藏、不清空，ADR-0072 决策 2 判断记录
+        /// "隐藏装备中途看起来比不播放动画更糟"）。
+        /// <para>
+        /// 判断记录（方向裸档位名只在挂接时按默认朝向解析一次，不随后续 <see cref="Presentation.Render.SpriteViewBase.SyncPose"/>
+        /// 换向热更新）：与身体/装备静态层的既有颗粒度一致——本类型 <see cref="RegisterDefaultClips"/>
+        /// 对整身默认剪辑同样只在挂接时解析一次，见该方法注释；朝向换图属于"随装备/外形变化事件更新"
+        /// 的既有框架行为（见 <c>SpriteViewBase.RebuildEquippedLayers</c> 类型注释），不是本次 ADR-0072
+        /// 需要补齐的范围，不在这里另起一套热更新机制。</para>
+        /// <para>
+        /// 判断记录（探测范围只覆盖 <c>info.Sprite.PaperdollLayers</c> 声明的身体默认层，不包含装备
+        /// 动态新增的层）：装备新增层的层名在挂接这一刻（装备事件尚未发生）无法预知，且 09/ADR-0071
+        /// 已经确立"装备层与身体层共用同一份层名 -> 渲染器下标映射"（见 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer2D.GetLayerNames"/>
+        /// 判断记录）——下方共享 <c>OnFrameChanged</c> 回调按层名（不是按"身体层/装备层"分类）在
+        /// <em>当前</em> 渲染列表里查下标，因此只要装备恰好用的是 <c>PaperdollLayers</c> 已经声明过的
+        /// 层名（如 "head"——身体默认就有一层裸头，装备把它换成帽子覆盖图，层名不变），逐层动画照样
+        /// 生效；只有装备引入一个 <c>PaperdollLayers</c> 从未出现过的全新层名（如某些游戏专属的"披风"
+        /// 层）时才不会被本次探测覆盖到——这一断层留给具体游戏按需扩展（可自行重写一份等价探测逻辑，
+        /// 本方法非 <c>virtual</c> 是因为 <see cref="UnityViewFactory"/> 全类型本就是"没有具体游戏
+        /// 参与的开箱即用默认路线"，不是可扩展基类，见类型顶部/<see cref="RegisterDefaultClips"/>
+        /// 同一惯例），不阻塞本次 ADR-0072 收口（09/ADR-0072 均记录为已知范围边界，不是缺陷）。</para>
+        /// </summary>
+        private void TryAttachPerLayerAnimation(
+            Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, UnityFrameAnimPlayer player,
+            Core.Foundation.DisplayInfo.DisplayInfo info, Id entityId, IReadOnlyDictionary<string, Id> stateClipIds)
+        {
+            if (info.Sprite == null || info.Sprite.PaperdollLayers.Count == 0)
+            {
+                return;
+            }
+
+            var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
+            if (unityLoader == null)
+            {
+                return;
+            }
+
+            var animSet = TryResolveAnimSet(info.Id);
+            if (animSet == null)
+            {
+                return;
+            }
+
+            var perLayerByState = new Dictionary<Id, Dictionary<string, Id>>();
+            _perLayerClipsByEntity[entityId] = perLayerByState;
+
+            var defaultFacing = Direction.FromQuantized(0.0, info.Sprite.DirectionCount);
+            var (dirSlotId, _) = _conventions.ResolveDirectionSlot(defaultFacing, info.Sprite);
+            var dirBareName = DirectionSlots.StripPrefix(dirSlotId);
+
+            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            {
+                var stateKey = DefaultAnimStateKeys[i];
+                if (!animSet.Clips.TryGetValue(stateKey, out var clipDef) || !stateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+
+                var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
+                var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                perLayerByState[stateClipId] = layerMap;
+
+                ProbeLayersSequential(
+                    unityLoader, player, info.Sprite.PaperdollLayers, layerIndex: 0, strippedRef, dirBareName,
+                    stateClipId, clipDef.Events, layerMap);
+            }
+
+            // 每实体共享一份回调，覆盖该实体此后任意状态切换（不为每个状态各订阅一份）——
+            // player.CurrentClipId 在回调触发的那一刻即代表"当前正在播放哪个状态"，据此在
+            // perLayerByState 里查表即知道这一刻该不该走逐层路线，不需要额外记录"当前状态"。
+            player.OnFrameChanged(frameIndex =>
+            {
+                Dictionary<string, Id>? layerMap = null;
+                var currentClipId = player.CurrentClipId;
+                if (currentClipId.HasValue)
+                {
+                    perLayerByState.TryGetValue(currentClipId.Value, out layerMap);
+                }
+
+                if (layerMap == null || layerMap.Count == 0)
+                {
+                    // 决策 2"整身兜底"：这一状态没有任何一层命中逐层剪辑（或还在异步加载中，尚未有
+                    // 任何一层命中），维持整身 AnimRoot 可见，不触碰任何纸娃娃层。
+                    player.SpriteRenderer.enabled = true;
+                    return;
+                }
+
+                // 决策 2"至少一层命中即隐藏整身"：AnimRoot 此刻展示的内容只用于驱动共享时间轴的
+                // 帧数/帧率（见 ProbeLayersSequential 判断记录"首个命中层同时登记为状态自身 clipId
+                // 的内容"），不应该被实际看到。
+                player.SpriteRenderer.enabled = false;
+
+                var layerNames = concreteRenderer.GetLayerNames(handle);
+                if (layerNames == null)
+                {
+                    return;
+                }
+
+                foreach (var kv in layerMap)
+                {
+                    var layerIndex = -1;
+                    for (var j = 0; j < layerNames.Count; j++)
+                    {
+                        if (string.Equals(layerNames[j], kv.Key, StringComparison.Ordinal))
+                        {
+                            layerIndex = j;
+                            break;
+                        }
+                    }
+                    if (layerIndex < 0)
+                    {
+                        // 该层此刻不在渲染列表里（装备变化导致层集合重建、下标暂时对不上），跳过，
+                        // 不抛异常——下一次 RebuildEquippedLayers/SetLayers 之后的帧会自然恢复。
+                        continue;
+                    }
+
+                    var sprite = player.GetFrame(kv.Value, frameIndex);
+                    if (sprite != null)
+                    {
+                        concreteRenderer.SetLayerSprite(handle, layerIndex, sprite);
+                    }
+                }
+            });
+        }
+
+        /// <summary>ADR-0072 决策 2：<see cref="TryAttachPerLayerAnimation"/> 的逐层递归——按
+        /// <paramref name="layerNames"/> 顺序依次探测每一层（严格顺序，不并发发起下一层的探测），
+        /// 保证"首个命中层"由层序单一确定，不受异步加载完成的先后时序影响（ADR-0072 决策 2 判断记录
+        /// "为什么按层序而不是按异步到达顺序决定权威时间轴"）。单层探测本身（tier1 -> tier2 ->
+        /// 三级不命中）见 <see cref="ProbeLayerClipTier"/>；命中时把该层注册为一个独立 clipId（
+        /// <c>&lt;stateClipId&gt;.layer.&lt;层名&gt;</c>）供 <see cref="UnityFrameAnimPlayer.GetFrame"/>
+        /// 按帧号查询，命中的第一层额外把同一个 Effect 注册为 <paramref name="stateClipId"/> 本身的
+        /// 内容——复用 <see cref="Presentation.Render.FrameAnimPlayer.Update"/> 既有的"每帧重新从
+        /// 字典取最新版本"机制（N18 根治，见该方法判断记录），使共享时间轴的帧数/帧率立即（即便这次
+        /// 注册发生在该状态已经播放中途）生效，不需要调用方额外重新 <see cref="UnityFrameAnimPlayer.Play"/>
+        /// 一次。</summary>
+        private void ProbeLayersSequential(
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, UnityFrameAnimPlayer player,
+            IReadOnlyList<string> layerNames, int layerIndex, string strippedRef, string dirBareName,
+            Id stateClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events,
+            Dictionary<string, Id> layerMap)
+        {
+            if (layerIndex >= layerNames.Count)
+            {
+                return;
+            }
+
+            var layerName = layerNames[layerIndex];
+            var candidates = new[]
+            {
+                new Id($"sprite_anim.{strippedRef}__{dirBareName}__{layerName}"),
+                new Id($"sprite_anim.{strippedRef}__{layerName}"),
+            };
+
+            ProbeLayerClipTier(
+                unityLoader, candidates, tierIndex: 0,
+                onResolved: effect =>
+                {
+                    var perLayerClipId = new Id(stateClipId.Value + ".layer." + layerName);
+                    player.RegisterClipFromEffect(perLayerClipId, effect);
+
+                    var isFirstForState = layerMap.Count == 0;
+                    layerMap[layerName] = perLayerClipId;
+
+                    if (isFirstForState)
+                    {
+                        player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(events, effect.Frames.Length));
+                    }
+
+                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap);
+                },
+                onExhausted: () =>
+                {
+                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap);
+                });
+        }
+
+        /// <summary>ADR-0072 决策 2：单层的二级探测（tier1 -> tier2 -> 三级维持静态）——命中缓存
+        /// （<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryGetEffect"/>）时同步调用
+        /// <paramref name="onResolved"/>；未命中时发起一次真正的异步加载，加载失败（该档位本就没有
+        /// 对应美术，这是探测的正常结果，不是错误）时递归尝试下一档，全部档位耗尽时调用
+        /// <paramref name="onExhausted"/>（决策 2 三级"保持静态"——调用方对此不做任何注册，层维持当前
+        /// 已经在显示的图）。</summary>
+        private void ProbeLayerClipTier(
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, IReadOnlyList<Id> candidates, int tierIndex,
+            Action<Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset> onResolved, Action onExhausted)
+        {
+            if (tierIndex >= candidates.Count)
+            {
+                onExhausted();
+                return;
+            }
+
+            var candidate = candidates[tierIndex];
+            if (unityLoader.TryGetEffect(candidate, out var cached))
+            {
+                onResolved(cached);
+                return;
+            }
+
+            unityLoader.LoadAsync(candidate, ResourceKind.Effect, (loadedId, success) =>
+            {
+                if (success && unityLoader.TryGetEffect(loadedId, out var loaded))
+                {
+                    onResolved(loaded);
+                }
+                else
+                {
+                    ProbeLayerClipTier(unityLoader, candidates, tierIndex + 1, onResolved, onExhausted);
+                }
             });
         }
 

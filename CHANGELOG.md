@@ -458,6 +458,34 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **装备纸娃娃层不随角色朝向切换素材，一件装备只能提供一张图**（消费方反馈第十八批，框架已知
+  简化，见 [ADR-0071](architecture/adr/0071-装备纸娃娃层随朝向换图.md)）：`display.equip_visual.
+  mesh_ref`（sprite 型）此前被 `SpriteViewBase.HandleItemEquipped`/`RebuildEquippedLayers` 直接
+  当作该纸娃娃层的最终资源 Id 使用，跳过了未被覆盖的层都会经过的方向档位换算。`mesh_ref` 语义
+  改为"装备层资源集引用"，新增 `SpriteViewBase.ResolveEquipLayerResourceId`，与身体层
+  `ResolveLayerResourceId` 共用同一套 `"layer.<name>__<方向>__<层名>"` 命名公式；装备新增的层
+  （原先不在默认纸娃娃层集合里的层名）现在与默认层共用同一次方向解析，此前的分叉一并根治。
+  **破坏性数据变更**：升级前把 `mesh_ref` 当"最终资源 Id"直接使用的存量数据需要按新约定重新
+  准备三向（或更多方向）美术，详见 ADR-0071"后果"一节。样例数据与
+  `toolchain/import_sample_assets.py`/`toolchain/asset_import/ref_conventions.py`/
+  `toolchain/asset_import/check_cmd.py` 同步落地三向层图占位资产与对应校验项
+  （`display_anim_equip_layer_file_missing`）。ABI：`SpriteViewBase` 新增
+  `protected virtual` 方法，不改既有签名。
+- **纸娃娃层在真正播放多帧动画的状态下（待机呼吸、攻击挥击等）只有静态图，整身动画画面会盖住
+  装备层**（消费方反馈第十八批同批，框架已知简化，见
+  [ADR-0072](architecture/adr/0072-纸娃娃层逐层播放剪辑.md)）：`display.anim_set.clips.<state>.
+  resource_ref`（sprite 型且声明了 `paperdoll_layers` 时）语义从"整身唯一剪辑"扩展为"逐层剪辑集
+  引用"，按"方向+层名"“仅层名”两级顺序逐层探测；至少一层命中时整身序列帧画面隐藏，未命中的层
+  维持当前静态图不隐藏；一层都没命中时维持升级前的整身兜底播放行为。完全复用既有
+  `IRenderer2D.SetLayers` 渲染路径，flash/fade、flipX、height 偏移等既有表现对参与逐层动画的层
+  继续生效。不是破坏性数据变更——现有扁平 `sprite_anim.<name>` 资源与整身兜底逻辑不改，逐层剪辑
+  是基于磁盘按约定命名的资源是否存在而自动生效的附加能力。样例数据新增两个真正多帧的占位逐层
+  剪辑资源（`toolchain/import_sample_assets.py` 的 `PER_LAYER_SPRITE_ANIM_CLIPS`）。ABI：
+  `IFrameAnimPlayer`/`FrameAnimPlayer` 新增 `OnFrameChanged`（默认接口方法，向前兼容既有实现），
+  Unity 适配层新增若干仅供内部消费的方法，不改任何既有公开签名。
+
 ## [1.63.0] - 2026-09-23
 
 ### 修复

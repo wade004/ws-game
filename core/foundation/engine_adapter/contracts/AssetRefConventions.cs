@@ -75,6 +75,15 @@ namespace Core.Foundation.EngineAdapter
     /// 两条并存规则是表现层既有的"已知简化"（各自类型注释已如此标注），不在本次收口范围，见消费方
     /// 反馈第 65/66 条回复文档"待设计层确认"一节。
     /// </para>
+    /// <para>
+    /// 判断记录（后续裁决，本段不改写上文历史记录，只补充状态）：上一段"待设计层确认"的两条并存
+    /// 规则均已裁决——<c>display.equip_visual.mesh_ref</c>（sprite 型）由
+    /// [ADR-0071](../../../../architecture/adr/0071-装备纸娃娃层随朝向换图.md) 裁决，改为"装备层
+    /// 资源集引用"，见 <see cref="PaperdollLayerFile"/> 判断记录；<c>display.anim_set.clips.
+    /// resource_ref</c>（sprite 型，逐层播放）由
+    /// [ADR-0072](../../../../architecture/adr/0072-纸娃娃层逐层播放剪辑.md) 裁决。两者均不改本
+    /// 方法/<see cref="AnimClipLogicalPath"/>/<see cref="ModelLogicalPath"/> 收口的 model 型规则。
+    /// </para>
     /// </summary>
     public static class AssetRefConventions
     {
@@ -311,6 +320,19 @@ namespace Core.Foundation.EngineAdapter
         /// （见 CHANGELOG 对应条目）已把该行改为 <c>paperdoll.item.sample_hero_hat_test</c>；
         /// <c>SpriteViewBase</c>/<c>UnityResourceLoader</c> 改为实际调用本方法（引擎适配层改为转发）
         /// 仍是后续任务，未随数据迁移一并完成，见 CHANGELOG"未完成/后续任务"小节。
+        /// </para>
+        /// <para>
+        /// 判断记录（[ADR-0071](../../../../architecture/adr/0071-装备纸娃娃层随朝向换图.md) 取代
+        /// 本方法对 <c>display.equip_visual.mesh_ref</c> 运行期消费方式的描述）：sprite 型
+        /// <c>mesh_ref</c> 语义已改为"装备层资源集引用"，运行期经
+        /// <c>Presentation.Render.SpriteViewBase.ResolveEquipLayerResourceId</c> 与身体层同一套
+        /// 方向档位公式换算，落地磁盘路径是 <c>"sprites/&lt;name&gt;/&lt;方向&gt;/&lt;层名&gt;.png"</c>
+        /// 三级目录（同 <see cref="SpriteSetDirectory"/> 系列，非本方法返回的单文件路径），不再是
+        /// 本方法描述的单个扁平文件。本方法本身不删除、不改行为（`paperdoll` 类别前缀集合不变，
+        /// 仍是稳定契约，供其它未来场景使用），只是 <c>display.equip_visual.mesh_ref</c> 不再是它
+        /// 的消费方——工具链侧对应改用
+        /// <c>toolchain/asset_import/ref_conventions.py</c> 新增的
+        /// <c>paperdoll_equip_layer_file</c>。
         /// </para>
         /// </summary>
         public static string PaperdollLayerFile(Id resourceRefId) =>

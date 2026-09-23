@@ -146,6 +146,37 @@ namespace Adapter.Unity.Presentation
 
         public SubscriptionHandle OnAnimEvent(Action<string> callback) => Inner.OnAnimEvent(callback);
 
+        /// <summary>ADR-0072 决策 2：转发到内部 <see cref="Presentation.Render.FrameAnimPlayer.OnFrameChanged"/>
+        /// ——与 <see cref="Play"/>/<see cref="Stop"/>/<see cref="OnComplete"/>/<see cref="OnAnimEvent"/>
+        /// 四个既有方法同一套"原样转发给 <see cref="Inner"/>"惯例（见类型顶部判断记录），本类型自己的
+        /// <see cref="OnFrameChanged(int)"/> 私有回调（按帧号切换 <see cref="Renderer"/> 自身贴图）是
+        /// 另一路独立订阅，互不影响——纸娃娃层逐层动画驱动（<c>UnityViewFactory</c>）经本方法拿到的是
+        /// 同一个帧号推进时机，但落地到的是纸娃娃层各自的 <c>SpriteRenderer</c>（经
+        /// <c>UnityRenderer2D.SetLayerSprite</c>），不是本组件自带的整身 <see cref="Renderer"/>。</summary>
+        public SubscriptionHandle OnFrameChanged(Action<int> callback) => Inner.OnFrameChanged(callback);
+
+        /// <summary>ADR-0072 决策 2 新增：按 <paramref name="clipId"/> 查表取出已注册的帧序列，用
+        /// <paramref name="rawFrameIndex"/> 对帧数取模后返回对应 <see cref="Sprite"/>——"索引取模"
+        /// 是决策 2 判断记录"共享单一时间轴，逐层各自按自己的帧数取模/夹取"里选定的具体规则（见
+        /// ADR-0072 决策 2 备选方案一节"为什么是取模不是夹取"）。<paramref name="clipId"/> 未登记
+        /// （该层这一状态没有解析到逐层剪辑，或还在冷启动异步加载中）或帧数为 0 时返回 <c>null</c>，
+        /// 调用方据此保持该层当前已经在显示的贴图不变（不覆盖，见 <c>UnityViewFactory</c> 逐层动画
+        /// 回调判断记录），不是"清空/占位方块"。</summary>
+        public Sprite? GetFrame(Id clipId, int rawFrameIndex)
+        {
+            if (!_framesByClipId.TryGetValue(clipId, out var frames) || frames.Length == 0)
+            {
+                return null;
+            }
+
+            var index = rawFrameIndex % frames.Length;
+            if (index < 0)
+            {
+                index += frames.Length;
+            }
+            return frames[index];
+        }
+
         private void OnFrameChanged(int frameIndex)
         {
             var clipId = _inner?.CurrentClipId;
