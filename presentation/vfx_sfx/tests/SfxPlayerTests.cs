@@ -319,5 +319,114 @@ namespace Tests.Presentation.VfxSfx
             player.Update(0.016); // 已经没有 pending 项了，后续 Update 不应再触发。
             Assert.Equal(1, changedCount);
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0083：消费方第二十五/二十六批反馈——冷资源音效播放窗口可能短至几帧，轮询"是否正在
+        // 播放"抓不到瞬态；本节覆盖新增的单调累计诊断 PlaybackDiagnostics（请求/开始/丢弃三个计数 +
+        // 最近一次播放记录），断言的是程序里这几个量从什么值变成什么值，不依赖抓取任何瞬态状态。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void PlaybackDiagnostics_ResourceAlreadyLoaded_RequestedAndStartedBothIncrement_LastPlayRecorded()
+        {
+            var player = new SfxPlayer(new StubAudio(), new RngHost(1), BuildCatalog());
+            var diag = player.PlaybackDiagnostics;
+
+            Assert.Equal(0, diag.PlayRequestedCount);
+            Assert.Equal(0, diag.PlayStartedCount);
+            Assert.Null(diag.LastPlay);
+
+            player.Play(PlainSfx, null);
+
+            Assert.Equal(1, diag.PlayRequestedCount);
+            Assert.Equal(1, diag.PlayStartedCount);
+            Assert.Equal(0, diag.PlayDroppedCount);
+            Assert.NotNull(diag.LastPlay);
+            Assert.Equal(new Id("res.footstep"), diag.LastPlay!.Value.ResourceRef);
+            Assert.Equal(1, diag.LastPlay!.Value.Sequence);
+
+            player.Play(PlainSfx, null);
+
+            Assert.Equal(2, diag.PlayRequestedCount);
+            Assert.Equal(2, diag.PlayStartedCount);
+            Assert.Equal(2, diag.LastPlay!.Value.Sequence);
+        }
+
+        [Fact]
+        public void PlaybackDiagnostics_UnknownSfxId_RequestedIncrements_DroppedIncrements_StartedUnchanged()
+        {
+            var player = new SfxPlayer(new StubAudio(), new RngHost(1), BuildCatalog());
+            var diag = player.PlaybackDiagnostics;
+
+            player.Play(new Id("sfx.does_not_exist"), null);
+
+            Assert.Equal(1, diag.PlayRequestedCount);
+            Assert.Equal(0, diag.PlayStartedCount);
+            Assert.Equal(1, diag.PlayDroppedCount);
+            Assert.Null(diag.LastPlay);
+        }
+
+        [Fact]
+        public void PlaybackDiagnostics_ColdResource_StartedIncrements_OnlyAfterLoadCompletes()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), resourceLoader: loader);
+            var diag = player.PlaybackDiagnostics;
+
+            player.Play(PlainSfx, null);
+
+            // 请求已经计数，但资源尚未加载完成，开始播放计数还不能动——这正是消费方轮询"是否在播"
+            // 会落空的那个中间态,但请求计数已经如实反映"这一步确实发生过一次播放请求"。
+            Assert.Equal(1, diag.PlayRequestedCount);
+            Assert.Equal(0, diag.PlayStartedCount);
+            Assert.Null(diag.LastPlay);
+
+            loader.CompletePending(new Id("res.footstep"));
+
+            Assert.Equal(1, diag.PlayStartedCount);
+            Assert.Equal(0, diag.PlayDroppedCount);
+            Assert.Equal(new Id("res.footstep"), diag.LastPlay!.Value.ResourceRef);
+        }
+
+        [Fact]
+        public void PlaybackDiagnostics_ColdResource_LoadFails_DroppedIncrements_StartedUnchanged()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), resourceLoader: loader);
+            var diag = player.PlaybackDiagnostics;
+
+            player.Play(PlainSfx, null);
+            loader.FailPending(new Id("res.footstep"));
+
+            Assert.Equal(1, diag.PlayRequestedCount);
+            Assert.Equal(0, diag.PlayStartedCount);
+            Assert.Equal(1, diag.PlayDroppedCount);
+            Assert.Null(diag.LastPlay);
+        }
+
+        [Fact]
+        public void PlaybackDiagnostics_ColdResource_LoadTimesOut_DroppedIncrements_StartedUnchanged()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var options = new SfxOptions { FirstLoadTimeoutSeconds = 0.0 };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), options: options, resourceLoader: loader);
+            var diag = player.PlaybackDiagnostics;
+
+            player.Play(PlainSfx, null);
+            player.Update(0.016); // C07 时钟入口，不依赖下一次 Play 调用，见既有 Update_* 用例判断记录。
+
+            Assert.Equal(1, diag.PlayRequestedCount);
+            Assert.Equal(0, diag.PlayStartedCount);
+            Assert.Equal(1, diag.PlayDroppedCount);
+            Assert.Null(diag.LastPlay);
+
+            // 迟到的加载完成不应该在超时丢弃之后又补记一次开始播放（同既有 Play_ResourceLoadNeverCompletes
+            // 用例"不应该在超时丢弃之后又补播放一次"判断记录，本用例断言诊断计数同样不受影响）。
+            loader.CompletePending(new Id("res.footstep"));
+            Assert.Equal(0, diag.PlayStartedCount);
+        }
     }
 }

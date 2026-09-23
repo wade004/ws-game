@@ -34,6 +34,12 @@ namespace Presentation.VfxSfx.Core
         private readonly SfxOptions _options;
         private readonly IPresentationDiagnostics _diagnostics;
 
+        /// <summary>ADR-0083 新增：见 <see cref="PlaybackDiagnostics"/> 判断记录——独立于
+        /// <see cref="_diagnostics"/>（文本消息列表）的单调累计计数式诊断，不可选注入，本类型
+        /// 唯一写入方，构造期无条件自建（不像 <see cref="_diagnostics"/> 支持外部注入，因为当前
+        /// 没有任何调用方需要跨实例共享/替换这份计数）。</summary>
+        private readonly SfxPlaybackDiagnosticsRecorder _playbackDiagnostics = new SfxPlaybackDiagnosticsRecorder();
+
         private readonly Dictionary<string, List<ActivePlayback>> _activeByLayer = new Dictionary<string, List<ActivePlayback>>(StringComparer.Ordinal);
         private readonly Dictionary<SfxHandle, ActivePlayback> _byHandle = new Dictionary<SfxHandle, ActivePlayback>();
         private readonly Dictionary<string, double> _layerVolume = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -99,13 +105,24 @@ namespace Presentation.VfxSfx.Core
         /// 属性，暴露构造期注入（或默认自建）的诊断实例供 adapters/unity 轮询转发。</summary>
         public IPresentationDiagnostics Diagnostics => _diagnostics;
 
+        /// <summary>ADR-0083 新增：单调累计的播放请求/开始/丢弃计数 + 最近一次播放记录，供消费方
+        /// 不依赖抓瞬态即可确认"播放调用确实发生过"，经 <see cref="Presentation.Assembly.
+        /// PresentationAssembly.SfxPlaybackDiagnostics"/> 转发到装配根，见该属性判断记录。</summary>
+        public ISfxPlaybackDiagnostics PlaybackDiagnostics => _playbackDiagnostics;
+
         public SfxHandle? Play(Id sfxId, Vec2? at)
         {
+            // ADR-0083：请求计数覆盖本次调用本身，与下方 SweepTimedOutPendingPlays 可能顺带清理掉
+            // 的、属于更早调用的排队项无关（那些项各自的请求早已在各自发生的那次 Play 调用里计数
+            // 过一次），因此本行必须在 Sweep 之前，不能与 Sweep 合并计数。
+            _playbackDiagnostics.RecordRequested();
+
             SweepTimedOutPendingPlays();
 
             if (!_catalog.TryGetValue(sfxId, out var def))
             {
                 _diagnostics.Warn($"sfx.def 未登记 id=\"{sfxId}\"，跳过播放");
+                _playbackDiagnostics.RecordDropped();
                 return null;
             }
 
@@ -140,6 +157,7 @@ namespace Presentation.VfxSfx.Core
             var playback = new ActivePlayback { Handle = handle, Layer = layer, Priority = priority, InsertionSeq = _seq++ };
             GetOrCreateLayerList(layer).Add(playback);
             _byHandle[handle] = playback;
+            _playbackDiagnostics.RecordStarted(resourceRef);
 
             return handle;
         }
@@ -185,6 +203,7 @@ namespace Presentation.VfxSfx.Core
                 if (!success)
                 {
                     _diagnostics.Warn($"sfx \"{pending.SfxId}\" 的资源 \"{resourceId}\" 加载失败，丢弃这次排队等待加载完成后播放的请求");
+                    _playbackDiagnostics.RecordDropped();
                     continue;
                 }
 
@@ -195,6 +214,7 @@ namespace Presentation.VfxSfx.Core
                 var playback = new ActivePlayback { Handle = handle, Layer = pending.Layer, Priority = pending.Priority, InsertionSeq = _seq++ };
                 GetOrCreateLayerList(pending.Layer).Add(playback);
                 _byHandle[handle] = playback;
+                _playbackDiagnostics.RecordStarted(pending.ResourceRef);
                 pending.Handle = handle; // 见 PendingPlay.Handle 判断记录：供同步加载器场景下 QueuePendingPlay 取回。
             }
 
@@ -229,6 +249,7 @@ namespace Presentation.VfxSfx.Core
                     _diagnostics.Warn(
                         $"sfx \"{pending.SfxId}\" 等待资源 \"{pending.ResourceRef}\" 加载超时" +
                         $"（{_options.FirstLoadTimeoutSeconds}s），丢弃这次排队的播放请求");
+                    _playbackDiagnostics.RecordDropped();
                 }
             }
 

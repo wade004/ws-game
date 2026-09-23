@@ -213,6 +213,43 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     CompositeFeedbackSinkTests.cs`（`StopVfx_AfterNaturalLifetimeExpiry_*`，用真实
     `vfx.Update(dt)` 触发自然回收后再调用停止路径）。
 
+19. **ADR-0083：`SfxPlayer` 新增单调累计播放诊断 `ISfxPlaybackDiagnostics`，定位消费方第
+    二十五/二十六批"`play_sfx` 确认已派发但轮询不到播放"**——沿 1.67.0 CHANGELOG 记录的两轮
+    未复现继续排查，本轮实测（`tests/SfxColdLoadTimingTests.cs`）+ 通读 `Play`/
+    `OnResourceLoadCompleted`/`SweepTimedOutPendingPlays` 三处代码路径，结论：
+    - `sfx.def` 占位音效本身极短（`assets/_placeholder/sfx/ui_click_01.wav` 实际 PCM 数据
+      2205 帧/44.1kHz=0.05 秒，`ui_open_01.wav` 6615 帧=0.15 秒，见
+      `toolchain/gen_placeholder_assets.py` `synth_sweep`/`normalize_peak`），"正在播放"这一
+      引擎侧瞬时状态本就只能被观测这么短的一段时间——`adapters/unity` 侧
+      `UnityAudio.ReclaimFinishedSfxSlots` 只在 `AudioSource.isPlaying` 变 `false`（即 clip
+      自然播完）时才回收池位，可观测窗口长度就等于音效本身时长，不存在额外的"提前结束"。
+    - 冷资源首次引用到真正调用 `IAudio.PlaySfx` 之间的墙钟延迟，实测（同构复刻
+      `UnityResourceLoader.LoadAsync` 的"后台线程 `Task.Run` 读字节 + 并发队列 + 按帧 `Tick`
+      消费"架构，见 `tests/SfxColdLoadTimingTests.cs` 判断记录）单次运行 19.08ms（frames=1），
+      量级远小于消费方 0.4 秒轮询窗口——该架构模式本身不会系统性地突破这个窗口。
+    - 冷加载完成后是**补播放**（`OnResourceLoadCompleted` 成功分支恰好调用一次
+      `IAudio.PlaySfx`，用例 `Play_ResourceNotYetLoaded_DoesNotPlayImmediately_
+      PlaysExactlyOnceAfterLoadCompletes` 钉死），只有加载失败/`FirstLoadTimeoutSeconds`
+      到期两种结局才丢弃且不重试；三条丢弃路径（`sfx.def` 未登记、加载失败、加载超时）均已各自
+      伴随一条 `IPresentationDiagnostics.Warn` 文本，逐处核对后**没有发现任何静默吞掉播放请求、
+      不留诊断的分支**——`MakeRoomIfNeeded` 的同层抢占停止是一个相邻但不同的既有行为（提前结束
+      一次已经成功开始、已经计入播放的音效，不是"从未播放"），该分支同样不记诊断，本轮一并记录
+      在案，不在本次范围内改动（不改变既有播放语义，见 ADR-0083"不解决的问题"）。
+    - **综合结论**：现有证据更支持"确实播放了，只是轮询窗口太短/轮询节奏抓不到瞬态"（选项 b），
+      不支持"播放压根没发生"（选项 a，被本模块既有确定性用例与两轮 PlayMode 复现共同排除）；
+      "冷加载本身把开始时间推迟到超出消费方轮询窗口之外"（选项 c）在本轮实测的延迟量级下不成立，
+      但不能排除消费方真实机器/工程存在本轮未接触到的额外延迟来源——**证据不足以完全排除 c 与
+      其它未知因素，如实记录为未能完全定论**，见 ADR-0083。
+    - 新增 `Presentation.VfxSfx.Contracts.ISfxPlaybackDiagnostics`（播放请求/开始/丢弃三个单调
+      计数 + 最近一次播放记录），`SfxPlayer` 新增只读属性 `PlaybackDiagnostics`（构造期无条件
+      自建，不改变现有 `diagnostics`/`resourceLoader` 等既有可选构造参数），经
+      `PresentationAssembly.SfxPlaybackDiagnostics` 转发到装配根——契约形状、是否接入
+      ADR-0042 统一转发集线器（本次刻意不接入，结构性排除）等取舍见该接口类型注释与
+      `presentation/assembly/README.md` 对应判断记录。纯加法，不改变任何既有播放语义与既有
+      公开方法签名行为。回归用例：`tests/SfxPlayerTests.cs`
+      `PlaybackDiagnostics_ResourceAlreadyLoaded_*`/`PlaybackDiagnostics_UnknownSfxId_*`/
+      `PlaybackDiagnostics_ColdResource_*`（三条丢弃路径 + 一条冷加载补播放路径）。
+
 ## 不负责什么
 
 - `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的

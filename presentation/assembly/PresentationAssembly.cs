@@ -204,6 +204,15 @@ namespace Presentation.Assembly
         /// <see cref="Presentation.VfxSfx.Core.SfxPlayer.Diagnostics"/>。</summary>
         public IPresentationDiagnostics SfxDiagnostics { get; }
 
+        /// <summary>ADR-0083 新增：转发 <see cref="Presentation.VfxSfx.Core.SfxPlayer.PlaybackDiagnostics"/>
+        /// ——播放请求/开始/丢弃三个单调计数 + 最近一次播放记录，供消费方不依赖抓取播放瞬态即可
+        /// 确认"播放调用确实发生过"。与 <see cref="SfxDiagnostics"/>（文本消息列表，已接入
+        /// architecture/adr/0042-诊断契约统一转发到宿主控制台.md 的轮询集线器）是两套独立契约，
+        /// 本属性刻意不接入该集线器——理由见 <see cref="Presentation.VfxSfx.Contracts.
+        /// ISfxPlaybackDiagnostics"/> 类型注释"判断记录（不接入 ADR-0042 统一转发集线器）"，本属性
+        /// 只做与 <see cref="VfxDiagnostics"/>/<see cref="SfxDiagnostics"/> 同一惯例的直接透传。</summary>
+        public Presentation.VfxSfx.Contracts.ISfxPlaybackDiagnostics SfxPlaybackDiagnostics { get; }
+
         /// <summary>诊断转发到引擎控制台跟进第三批（判断记录 10 追加）：<see cref="Feedback"/> 内部
         /// 实际下达表现指令的 <see cref="Presentation.FeedbackBinder.Core.CompositeFeedbackSink"/> 是
         /// 本装配根第 3 步构造的局部变量，从未被 <see cref="Feedback"/>（<c>FeedbackBinderCore</c>）
@@ -447,6 +456,7 @@ namespace Presentation.Assembly
             // 把各自已经默认构造好的实例转发出去，本身不改变任何既有构造行为。
             VfxDiagnostics = vfxPlayer.Diagnostics;
             SfxDiagnostics = sfxPlayer.Diagnostics;
+            SfxPlaybackDiagnostics = sfxPlayer.PlaybackDiagnostics;
             WeaponStyle = new WeaponStyleResolver(weaponStyleCatalog);
             VfxSfxDisplayInfoResolver = new DisplayInfoResolver(DisplayInfo);
 

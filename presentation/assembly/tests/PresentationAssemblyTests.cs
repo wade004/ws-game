@@ -433,6 +433,26 @@ namespace Tests.Presentation.Assembly
         }
 
         [Fact]
+        public void SfxPlaybackDiagnostics_IsExposed_SameInstanceAsSfxPlayer_AndReflectsRealPlayback()
+        {
+            // ADR-0083：SfxPlaybackDiagnostics 是与 SfxDiagnostics（文本消息列表）平行的独立转发
+            // 属性，必须转发的是内部 SfxPlayer 自己持有的同一份 PlaybackDiagnostics 实例（同
+            // VfxDiagnostics/SfxDiagnostics 判断记录 10 的转发惯例），且经真实生产装配根调用一次
+            // ISfxPlayer.Play 后，计数应当如实反映"确实发生过一次播放"。
+            var presentation = Build(out _, out _, out _, out _);
+
+            Assert.NotNull(presentation.SfxPlaybackDiagnostics);
+            Assert.Same(
+                presentation.SfxPlaybackDiagnostics,
+                Assert.IsType<global::Presentation.VfxSfx.Core.SfxPlayer>(presentation.Sfx).PlaybackDiagnostics);
+
+            var before = presentation.SfxPlaybackDiagnostics.PlayRequestedCount;
+            presentation.Sfx.Play(new Id("sfx.sample_hit"), null);
+
+            Assert.Equal(before + 1, presentation.SfxPlaybackDiagnostics.PlayRequestedCount);
+        }
+
+        [Fact]
         public void FeedbackSinkDiagnostics_IsExposed_SameInstanceAsCompositeFeedbackSink_AndIndependentOfOtherFour()
         {
             // 诊断转发到引擎控制台第三批（presentation/assembly/README.md 判断记录 10b）：本装配根第

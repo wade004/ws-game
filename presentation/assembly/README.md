@@ -569,3 +569,21 @@ C# 侧确认生产装配下 `presentation.UiDiagnostics` 确实是 `InMemoryUiDi
 运行期三例改前全部在 `Build` 内部 `Assert.False(report.IsBlocking, ...)` 处提前失败（数据加载期
 就阻断，测试根本跑不到断言 flash 是否派发那一步）——如实反映消费方"整个 `feedback.binding` 表
 加载失败、游戏起不来"的原始现象，不是一个只在单元测试夹具里才会复现的边角案例。
+
+## 判断记录（`SfxPlaybackDiagnostics` 新增转发属性，2026-09-24，[ADR-0083](../../architecture/adr/0083-音效播放单调累计诊断.md)）
+
+新增 `SfxPlaybackDiagnostics` 只读属性，转发 `Presentation.VfxSfx.Core.SfxPlayer.
+PlaybackDiagnostics`（`Presentation.VfxSfx.Contracts.ISfxPlaybackDiagnostics`：播放请求/开始/
+丢弃三个单调计数 + 最近一次播放记录）——定位消费方第二十五/二十六批"`play_sfx` 确认已派发但
+轮询不到播放"的产出之一，见 `presentation/vfx_sfx/README.md` 判断记录 19。构造期紧跟既有
+`VfxDiagnostics`/`SfxDiagnostics` 两行转发之后追加 `SfxPlaybackDiagnostics = sfxPlayer.
+PlaybackDiagnostics;`，同一惯例（转发已经构造好的实例，不新增构造参数）。
+
+**判断记录（不接入判断记录 10/上方"诊断契约统一转发机制"描述的 ADR-0042 轮询集线器）**：该集线器
+按 ADR-0042 决策 2 的设计前提是"一个来源名 + 一份只增不减的消息列表引用"，逐帧比较列表长度、
+转发新增的那一段文本；`ISfxPlaybackDiagnostics` 的四个成员是独立计数器与一条可覆写的"最近一次
+播放"记录，不是消息列表，没有"新增的一段文本"可供该集线器逐帧比较转发，结构性不兼容——同
+ADR-0042 决策 5 描述的"不适用轮询式转发"情形，详细理由见 `ISfxPlaybackDiagnostics` 类型注释。
+`VfxDiagnostics`/`SfxDiagnostics`（两份 `PresentationDiagnosticsRecorder`，本质是文本消息列表）
+不受影响，仍按原有方式接入该集线器；`SfxPlaybackDiagnostics` 只做与前两者同一惯例的直接透传，
+不额外登记进集线器，消费方需要时直接读取本属性。
