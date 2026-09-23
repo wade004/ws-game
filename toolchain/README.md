@@ -389,8 +389,13 @@ python toolchain/import_assets.py <子命令> ...
   （像素坐标）；缺失档位用 `--anchor-default name=fx,fy`（画布比例，可重复，默认
   `root=0.5,1.0`）回填并记警告；`--trim` 会按裁剪掉的透明边偏移量平移锚点。写入
   `display.map` 的 `anchor_points` 只取"默认档位"（`front`，即 canonical 列表第一个）的锚点，
-  按 `--pixels-per-unit`（默认 32）换算成世界单位；每个方向档位的完整锚点另存一份到精灵集自己
-  的 `anchors.json`（像素坐标 + 各档位画布尺寸），供后续更细粒度的挂点系统使用。`--scale`/
+  按 `--pixels-per-unit`（未显式传入时按 32 换算，只影响这一步数值计算）换算成世界单位；每个
+  方向档位的完整锚点另存一份到精灵集自己的 `anchors.json`（像素坐标 + 各档位画布尺寸），供后续
+  更细粒度的挂点系统使用。**显式传入 `--pixels-per-unit`（必须 > 0）时，还会在该 `anchors.json`
+  顶层写入同名 `pixels_per_unit` 声明**——这个声明现在有运行期消费方了：引擎适配层解码该精灵集
+  下的图像资源时会优先读取它（未声明/非正数/文件缺失/解析失败才回退运行期全局默认值），见
+  [ADR-0081](../architecture/adr/0081-精灵集自带像素密度在运行期生效.md)；不传该参数则不写这个
+  键（既有精灵集重新导入零 diff，不受影响）。`--scale`/
   `--shadow` 直接写入 `display.map` 对应字段，不改变图像像素；图像的物理缩放不在本工具范围内
   （出图阶段自行控制分辨率）。
 - `icon`：一批图标源图 -> 归一化尺寸（等比缩放 + 透明居中垫底，默认 64x64）落到
@@ -484,7 +489,9 @@ python toolchain/import_assets.py <子命令> ...
   `sprite_atlas_png_missing`、`sprite_direction_count_mismatch`、
   `sprite_layer_size_inconsistent`、`sprite_frame_file_missing`、
   `sprite_mirror_pair_source_not_landed`、`sprite_mirror_pair_missing`、
-  `sprite_anchor_out_of_canvas`、`sprite_declared_anchor_missing`、`icon_id_format_invalid`、
+  `sprite_anchor_out_of_canvas`、`sprite_declared_anchor_missing`、
+  `sprite_pixels_per_unit_invalid`（ADR-0081 新增：顶层 `pixels_per_unit` 出现时必须是正数，不
+  出现不报错）、`icon_id_format_invalid`、
   `icon_file_missing`、`vfx_resource_ref_missing`、`vfx_atlas_missing`、
   `vfx_frames_json_missing`、`sfx_resource_ref_missing`、`sfx_resource_file_missing`、
   `sfx_variants_missing_resource_ref`、`sfx_variant_file_missing`、`world_map_dir_missing`、
