@@ -21,6 +21,12 @@ namespace Core.Foundation.EngineAdapter
     /// 或交给消费方读取/合并剪辑内建的关键帧事件（见 09 表现层 model 动画关键帧登记条款）——
     /// 与 Model 种类同一处境（运行期没有公开 API 能把裸字节反序列化成可用的动画资产，只能消费
     /// 已被引擎资产管线预先导入好的资源），具体解析路径由引擎适配层实现决定。
+    /// MapLayers（[ADR-0080](../../../../architecture/adr/0080-地图分层图接入运行期渲染.md)
+    /// 新增）：对应 world.map 行的 id 本身（不是某一层单独的资源引用——ADR-0053 的路径推导
+    /// 入参就是整行 id，四层是固定文件名，不存在逐层的资源引用 id），加载该地图 ground/overlay/
+    /// decal 三张分层图（nav_hint 不渲染，不在加载范围内，见 ADR-0080 决策 5）；ground/overlay
+    /// 是必需层，二者均可读取到才算加载成功，decal 是可选层，是否存在不影响本次加载成功与否。
+    /// 加载后交给 IRenderer2D.CreateMapLayerInstance 使用，IsLoaded 以地图 id 本身为准。
     /// </summary>
     public enum ResourceKind
     {
@@ -32,7 +38,8 @@ namespace Core.Foundation.EngineAdapter
         NavMesh,
         Effect,
         Model,
-        AnimationClip
+        AnimationClip,
+        MapLayers
     }
 
     /// <summary>加载完成或失败时触发一次，success 为 false 表示加载失败。</summary>

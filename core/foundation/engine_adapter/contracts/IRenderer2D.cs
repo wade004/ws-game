@@ -47,6 +47,53 @@ namespace Core.Foundation.EngineAdapter
     }
 
     /// <summary>
+    /// 地图分层图的不透明句柄（[ADR-0080](../../../../architecture/adr/0080-地图分层图接入运行期渲染.md)
+    /// 新增），同 <see cref="SpriteHandle"/>/<see cref="ParticleHandle"/> 同一惯例：内部只是一个
+    /// 自增编号，不承载任何引擎符号。<c>Value == 0</c>（<c>default</c>）是"未创建/无效"哨兵值——
+    /// <see cref="IRenderer2D.CreateMapLayerInstance"/> 的默认接口实现固定返回 <c>default</c>，
+    /// 调用方经 <see cref="IsValid"/> 判断这次调用是否真的建出了一层（见该方法判断记录）。
+    /// </summary>
+    public readonly struct MapLayerHandle : System.IEquatable<MapLayerHandle>
+    {
+        public int Value { get; }
+
+        public MapLayerHandle(int value) => Value = value;
+
+        /// <summary><c>Value != 0</c>：句柄是否指向一个真实建出的地图分层图实例。</summary>
+        public bool IsValid => Value != 0;
+
+        public bool Equals(MapLayerHandle other) => Value == other.Value;
+
+        public override bool Equals(object? obj) => obj is MapLayerHandle other && Equals(other);
+
+        public override int GetHashCode() => Value;
+
+        public static bool operator ==(MapLayerHandle left, MapLayerHandle right) => left.Equals(right);
+
+        public static bool operator !=(MapLayerHandle left, MapLayerHandle right) => !left.Equals(right);
+    }
+
+    /// <summary>
+    /// 地图分层图的层别（[ADR-0080](../../../../architecture/adr/0080-地图分层图接入运行期渲染.md)
+    /// 决策 1）：对应 ADR-0053 四层分层图中参与渲染的三层——<c>nav_hint</c>（导航标注参考图，不是
+    /// 可见内容）不在本枚举之列，不参与渲染。三个取值分别落到 09_表现层.md 第 3.1 节已声明的
+    /// 地面层/装饰层/前景遮挡层（<see cref="RenderLayers"/> 常量），具体层号由调用方经
+    /// <see cref="IRenderer2D.CreateMapLayerInstance"/> 的 <c>renderLayer</c> 参数传入，本枚举
+    /// 只表达"这是哪一层分层图"，不直接携带层号本身。
+    /// </summary>
+    public enum MapLayerKind
+    {
+        /// <summary>地面层：必需，ADR-0053 <c>ground.png</c>。</summary>
+        Ground,
+
+        /// <summary>前景遮挡层：必需，遮挡单位的近景建筑/树冠，ADR-0053 <c>overlay.png</c>。</summary>
+        Overlay,
+
+        /// <summary>装饰层：可选，不遮挡单位的贴花/痕迹，ADR-0053 <c>decal.png</c>。</summary>
+        Decal,
+    }
+
+    /// <summary>
     /// 粒子发射的固定混合模式（ADR-0074）：整次发射从头到尾的固定属性，不是需要逐帧/播放期间改动
     /// 的着色器参数——因此只在 <see cref="IRenderer2D"/> 新增的 <c>EmitParticle</c> 发射重载携带，
     /// 不经 <see cref="IRenderer2D.SetShaderParam"/> 一类"对已创建实例持续设参"的通道传递（该通道
@@ -119,5 +166,43 @@ namespace Core.Foundation.EngineAdapter
             EmitParticle(effectId, position, parameters);
 
         void StopParticle(ParticleHandle handle);
+
+        /// <summary>
+        /// [ADR-0080](../../../../architecture/adr/0080-地图分层图接入运行期渲染.md) 新增：按
+        /// <paramref name="mapId"/>（<c>world.map</c> 行 id）与 <paramref name="layer"/> 建一层地图
+        /// 分层图实例，覆盖 <paramref name="worldBounds"/> 描述的世界矩形（唯一由调用方按
+        /// <c>world.map.image_transform</c> 算出，本接口不理解也不重新推导坐标换算，见
+        /// <c>Core.Foundation.SceneRouter.MapImageTransform.WorldBounds</c>），固定绘制在
+        /// <paramref name="renderLayer"/>（<see cref="RenderLayers"/> 常量之一）指定的离散图层。
+        /// <para>
+        /// 保留句柄模式，同 <see cref="CreateSpriteInstance"/>：建出的实例持久保持，直到
+        /// <see cref="DestroyMapLayerInstance"/> 释放。只消费已加载完成的资源（<see cref="ResourceKind.MapLayers"/>，
+        /// 谁首次引用谁负责 <c>IResourceLoader.LoadAsync</c>，见该契约"谁首次引用谁负责"条款）——
+        /// 遇到未加载/该地图确实缺失该层图片时，必需层（<see cref="MapLayerKind.Ground"/>/
+        /// <see cref="MapLayerKind.Overlay"/>）使用实现内建的可见占位并记诊断，可选层
+        /// （<see cref="MapLayerKind.Decal"/>）视为"这张地图没有这一层"，不画占位、只记诊断，
+        /// 两种情形均不抛异常。
+        /// </para>
+        /// <para>
+        /// 带默认实现（C# 8+ default interface member，ABI 只加法，同 <see cref="EmitParticle(Id, Vec2, IReadOnlyDictionary{string, double}, VfxBlendMode)"/>
+        /// 惯例）：默认不画任何东西，返回 <c>default</c>（<see cref="MapLayerHandle.IsValid"/> 为
+        /// false），保证本仓库之外既有 <see cref="IRenderer2D"/> 实现方不需要改一行代码即可继续
+        /// 编译通过。本仓库内的具体实现（<c>UnityRenderer2D</c>/<c>StubRenderer2D</c>）显式覆盖本
+        /// 方法，不依赖默认转发。
+        /// </para>
+        /// </summary>
+        MapLayerHandle CreateMapLayerInstance(Id mapId, MapLayerKind layer, Rect worldBounds, int renderLayer) =>
+            default;
+
+        /// <summary>
+        /// [ADR-0080](../../../../architecture/adr/0080-地图分层图接入运行期渲染.md) 新增：释放
+        /// <see cref="CreateMapLayerInstance"/> 建出的实例。<paramref name="handle"/> 为无效句柄
+        /// （<see cref="MapLayerHandle.IsValid"/> 为 false，例如对应地图从未成功建出该层）时应为
+        /// 空操作，不抛异常——调用方（表现层驱动方）只对确曾建出的层调用本方法，但实现方仍需容忍
+        /// 防御性调用。默认实现（同 <see cref="CreateMapLayerInstance"/> 惯例）为空操作。
+        /// </summary>
+        void DestroyMapLayerInstance(MapLayerHandle handle)
+        {
+        }
     }
 }

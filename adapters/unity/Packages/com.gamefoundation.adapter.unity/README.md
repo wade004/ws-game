@@ -342,7 +342,11 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 - `UnityClock.cs`：确定性铁律的落地方式（帧回调 vs 固定步回调的驱动源）；`SubscriptionHandle`
   退订的快照遍历安全性。
 - `UnityRenderer2D.cs`：排序公式、`height` 参数落地、资源缺失占位、`Effect` 资源优先解析
-  （ADR-0016 决策 2、5）。
+  （ADR-0016 决策 2、5）。**ADR-0080 跟进（2026-09-23）**：`CreateMapLayerInstance`/
+  `DestroyMapLayerInstance` 落地——世界矩形中心定位 + 整体缩放铺满（不保留素材原始宽高比）；
+  哪一层图片存在由 `UnityResourceLoader.TryGetMapLayerAsset` 解析结果决定（ground/overlay 缺失
+  按既有占位方块 + 诊断惯例，decal 缺失是合法状态、不画占位不记诊断）；句柄计数器与既有
+  `SpriteHandle`/`ParticleHandle` 同一惯例，只在真的建出 `GameObject` 时才自增。
 - `UnityAudio.cs`：总线音量方案二选一的取舍理由；`position` 参数的 2D 声像落地（ADR-0016 决策 3）。
 - `UnityCamera.cs`：世界平面坐标系与投影简化的判断记录；`frequency` 参数驱动 Perlin 噪声采样
   取代 `UnityEngine.Random`（ADR-0016 决策 4）。
@@ -354,7 +358,13 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `PixelsPerUnit`，逐字节一致），按精灵集目录缓存解析结果（`_spriteSetPixelsPerUnitCache`，含
   "未声明"结论）；`TryResolveSpriteSetRelativeDir`/`ReadDeclaredPixelsPerUnit`
   两个新私有方法与判断记录见该文件、诊断计数 `SpriteSetAnchorsJsonReadCount`。`TryDecodeEffect`
-  不受影响（决策 6）。
+  不受影响（决策 6）。**ADR-0080 跟进（2026-09-23）**：新增 `ResourceKind.MapLayers` 加载分支——
+  `resourceId` 是 `world.map` 行 id 本身（不是单层资源引用），经 `AssetRefConventions` 的
+  `MapGroundFile`/`MapOverlayFile`/`MapDecalFile` 三个公开推导方法解析路径；ground/overlay
+  必需、二者均读取成功才算整次加载成功，decal 可选、文件不存在不算失败；沿用既有 `Effect` 种类
+  同款"后台线程读字节 + 主线程完成队列解码"线程模型（`_mapLayersCompletions`/
+  `FinishMapLayersLoad`），解码结果缓存进 `_mapLayers`，经 `TryGetMapLayerAsset` 供
+  `UnityRenderer2D.CreateMapLayerInstance` 取用。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
   与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
   （ADR-0016 决策 7）；`GetBlockingVersion` 按地图计数、`FindPath` 端点精确接合、`Raycast`/路径

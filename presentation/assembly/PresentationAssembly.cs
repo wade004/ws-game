@@ -182,6 +182,11 @@ namespace Presentation.Assembly
 
         public IRenderConventionHost Render { get; }
 
+        /// <summary>ADR-0080：地图分层图（ground/overlay/decal）接入运行期渲染的驱动方，见其类型
+        /// 注释。构造期即向 <paramref name="sceneRouter"/> 挂 pre_unload/post_load 钩子，随
+        /// <see cref="Dispose"/> 一并退订。</summary>
+        public Presentation.Render.MapLayerHost MapLayers { get; }
+
         public CameraHost Camera { get; }
 
         public IVfxPlayer Vfx { get; }
@@ -365,6 +370,10 @@ namespace Presentation.Assembly
             // ViewBinder 的 IAnchorQuery 镜像判定与本装配根对外暴露的 Render 属性用同一份
             // DirectionIndexRemap 配置，不会出现"锚点镜像"与"纸娃娃层镜像"各自看到不同重映射表。
             Render = new RenderConventionHost(opts.RenderOptions);
+            // ADR-0080：地图分层图驱动方——只依赖本构造函数已有的 sceneRouter/registry/renderer2D/
+            // resourceLoader 四个参数，不依赖本步骤其余组件，构造顺序本身不敏感；放在这里紧邻 Render
+            // 属性赋值之后，与"render 相关组件"这一分组保持在一起。
+            MapLayers = new Presentation.Render.MapLayerHost(sceneRouter, registry, renderer2D, resourceLoader);
             ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions, renderConvention: Render, equipmentVisualSource: opts.EquipmentVisualSource);
             // ADR-0078：步幅位移事件组件，未登记 display.map.stride_distance 的单位零开销、不发任何
             // 事件，构造本身不需要任何可选配置项，见 Stride 属性注释。
@@ -739,6 +748,7 @@ namespace Presentation.Assembly
 
             ViewBinder.Dispose();
             Stride.Dispose();
+            MapLayers.Dispose();
             Camera.Dispose();
             Feedback.Dispose();
             Shell.Dispose();
