@@ -166,7 +166,12 @@ class ImportSampleAssetsTest(unittest.TestCase):
     def test_vfx_rows_have_frames_json(self) -> None:
         vfx_def = read_json(self.data_root / "_sample" / "vfx" / "vfx.def.json")
         rows_by_id = {row["id"]: row for row in vfx_def["rows"]}
-        expected_ids = {"vfx.sample_cast_circle", "vfx.sample_hit_spark", "vfx.sample_burn"}
+        expected_ids = {
+            "vfx.sample_cast_circle",
+            "vfx.sample_hit_spark",
+            "vfx.sample_burn",
+            "vfx.sample_aura_glow",
+        }
         self.assertEqual(expected_ids, set(rows_by_id))
         for row_id, row in rows_by_id.items():
             resource_ref = row["resource_ref"]
@@ -179,6 +184,28 @@ class ImportSampleAssetsTest(unittest.TestCase):
         vfx_def = read_json(self.data_root / "_sample" / "vfx" / "vfx.def.json")
         rows_by_id = {row["id"]: row for row in vfx_def["rows"]}
         self.assertNotIn("lifetime", rows_by_id["vfx.sample_burn"])
+
+    def test_vfx_rows_do_not_share_resource_ref(self) -> None:
+        """不同 id 不得共用同一条物理 resource_ref。
+
+        判断记录：``asset_import.common.check_no_resource_collision`` 会对共用 resource_ref 的
+        两行直接报错（后导入的图集会覆盖先导入的），此时重跑导入脚本本身就失败——样例导入
+        幂等性门禁翻红的是"脚本失败"而不是"产出有 diff"，排查方向容易被带偏，这里直接在数据
+        层面守住。
+        """
+        vfx_def = read_json(self.data_root / "_sample" / "vfx" / "vfx.def.json")
+        refs = [row["resource_ref"] for row in vfx_def["rows"]]
+        self.assertEqual(len(refs), len(set(refs)), msg=str(sorted(refs)))
+
+    def test_vfx_sample_aura_glow_keeps_blend_mode(self) -> None:
+        """``blend_mode``（ADR-0074）必须由 ``vfx`` 子命令一并写出。
+
+        判断记录：``merge_write_row`` 是按 id 的整行覆盖，子命令不写的字段重复导入一次就丢。
+        """
+        vfx_def = read_json(self.data_root / "_sample" / "vfx" / "vfx.def.json")
+        rows_by_id = {row["id"]: row for row in vfx_def["rows"]}
+        self.assertEqual("additive", rows_by_id["vfx.sample_aura_glow"].get("blend_mode"))
+        self.assertNotIn("lifetime", rows_by_id["vfx.sample_aura_glow"])
 
     def test_sfx_sample_hit_variants_contains_resource_ref(self) -> None:
         sfx_def = read_json(self.data_root / "_sample" / "sfx" / "sfx.def.json")

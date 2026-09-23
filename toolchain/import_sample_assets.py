@@ -44,6 +44,7 @@ door closed.png                          icon      icons/gobj/sample_door.png   
 vfx/cast_circle/frame_00..07.png         vfx       vfx/sample_cast_circle/{atlas.png,frames.json} vfx.def.sample_cast_circle（--id 直写实表，整行覆盖）
 vfx/hit_spark/frame_00..07.png           vfx       vfx/sample_hit_spark/{atlas.png,frames.json}   vfx.def.sample_hit_spark（同上）
 vfx/burn/frame_00..07.png                vfx       vfx/sample_burn/{atlas.png,frames.json}        vfx.def.sample_burn（同上）
+vfx/burn/frame_00..07.png                vfx       vfx/sample_aura_glow/{atlas.png,frames.json}   vfx.def.sample_aura_glow（同上，additive 混合样例）
 sfx/hit_01.wav + sfx/hit_02.wav          sfx       sfx/sample_hit_v0.wav + _v1.wav                sfx.def.sample_hit（--id 直写实表，整行覆盖）
 sfx/cast_01.wav                          sfx       sfx/sample_cast_v0.wav                         sfx.def.sample_cast（同上）
 sfx/ui_click_01.wav                      sfx       sfx/sample_ui_click_v0.wav                     sfx.def.sample_ui_click（同上）
@@ -641,6 +642,31 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
                 "--attach-mode",
                 "anchor",
                 "--loop",
+            ]
+            + vfx_common
+        )
+
+        # ADR-0074 additive 混合模式样例。判断记录：它必须有自己的 resource_ref/自己的图集目录，
+        # 不能与 vfx.sample_cast_circle 共用——不同 id 共用同一条物理 resource_ref 会被
+        # asset_import.common.check_no_resource_collision 判为碰撞（后导入的源图集会覆盖先导入的），
+        # 导致样例导入幂等性门禁直接失败。源帧沿用 burn（同为循环型持续特效）。
+        aura_glow_stage = stage / "aura_glow"
+        aura_glow_stage.mkdir(parents=True, exist_ok=True)
+        for png in sorted((placeholder_root / "vfx" / "burn").glob("frame_*.png")):
+            Image.open(png).convert("RGBA").save(aura_glow_stage / png.name)
+        _run(
+            [
+                "vfx",
+                str(aura_glow_stage),
+                "--id",
+                "vfx.sample_aura_glow",
+                "--category",
+                "buff",
+                "--attach-mode",
+                "anchor",
+                "--loop",
+                "--blend-mode",
+                "additive",
             ]
             + vfx_common
         )

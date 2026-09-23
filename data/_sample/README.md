@@ -12,7 +12,7 @@
 | 表 | 文件 | 行数 | 说明 |
 |---|---|---|---|
 | `display.map` | `display/display.map.json` | 9 | `sample_hero`/`sample_beast`/`sample_blade`/`sample_chest`/`sample_door`/`sample_save_point`/`sample_bolt`/`sample_loot_pile`/`sample_quest_marker`（见下"与占位资产的对应关系"） |
-| `vfx.def` | `vfx/vfx.def.json` | 4 | `sample_cast_circle`/`sample_hit_spark`/`sample_burn`，`resource_ref` 对应 `assets/_placeholder/vfx/{cast_circle,hit_spark,burn}/`；另有 `sample_aura_glow`（ADR-0074 新增 `blend_mode: additive` 示例行，与 `sample_cast_circle` 共用同一份特效资源，见下"与占位资产的对应关系"） |
+| `vfx.def` | `vfx/vfx.def.json` | 4 | `sample_cast_circle`/`sample_hit_spark`/`sample_burn`，`resource_ref` 对应 `assets/_placeholder/vfx/{cast_circle,hit_spark,burn}/`；另有 `sample_aura_glow`（ADR-0074 新增 `blend_mode: additive` 示例行，`resource_ref` 对应 `assets/_placeholder/vfx/burn/`，见下"与占位资产的对应关系"） |
 | `sfx.def` | `sfx/sfx.def.json` | 3 | `sample_hit`（含 `hit_01`/`hit_02` 变体）/`sample_cast`/`sample_ui_click` |
 | `display.weapon_style` | `display/display.weapon_style.json` | 2 | `sample_sword`/`sample_staff`，`swing_vfx`/`impact_vfx_override` 引用本目录 `vfx.def` 样例行 |
 | `feedback.binding` | `feedback/feedback.binding.json` | 5 | 按 `event.is_crit` 分流的暴击/普通伤害飘字规则（09 第 6.1 节示例）+ 一条 `aura.applied` 特效规则；ADR-0075 新增一条 `aura.removed` 规则，用 `stop_vfx` 停掉 `aura.applied` 规则播放的 `vfx.sample_aura_glow`，构成 `play_vfx`/`stop_vfx` 成对示例 |
@@ -63,7 +63,7 @@
 | `vfx.sample_cast_circle` | `assets/_sample/vfx/sample_cast_circle/`（`atlas.png` + `frames.json`，源图 `assets/_placeholder/vfx/cast_circle/frame_00.png`…`frame_07.png`） |
 | `vfx.sample_hit_spark` | `assets/_sample/vfx/sample_hit_spark/`（源图 `assets/_placeholder/vfx/hit_spark/`） |
 | `vfx.sample_burn` | `assets/_sample/vfx/sample_burn/`（源图 `assets/_placeholder/vfx/burn/`；`--loop`，不写 `lifetime`） |
-| `vfx.def.sample_aura_glow` 的 `resource_ref` | 与 `vfx.def.sample_cast_circle` 共用 `assets/_sample/vfx/sample_cast_circle/`（不单独生成资产；同上文 `display.map.sample_bolt` 与 `sample_blade` 共用精灵集的先例），`vfx.def` 行本身独立声明 `category: buff`/`attach_mode: anchor`/不写 `lifetime`（持续到显式 `stop_vfx`，见 ADR-0075）/`blend_mode: additive`（见 ADR-0074） |
+| `vfx.def.sample_aura_glow` 的 `resource_ref` | 独占 `assets/_sample/vfx/sample_aura_glow/`，源帧沿用 `assets/_placeholder/vfx/burn/frame_00..07.png`（同为循环型持续特效）。不与 `sample_cast_circle` 共用同一条 `resource_ref`——不同 id 共用同一条物理资源引用会被 `toolchain/asset_import/common.py check_no_resource_collision` 判为碰撞（后导入的图集会覆盖先导入的），样例导入幂等性门禁会直接失败。`vfx.def` 行独立声明 `category: buff`/`attach_mode: anchor`/不写 `lifetime`（持续到显式 `stop_vfx`，见 ADR-0075）/`blend_mode: additive`（见 ADR-0074） |
 | `sfx.sample_hit_v0`/`sfx.sample_hit_v1` | `assets/_sample/sfx/sample_hit_v0.wav`/`sample_hit_v1.wav`（`sfx.def.sample_hit` 的 `variants`，源文件 `assets/_placeholder/sfx/hit_01.wav`/`hit_02.wav`） |
 | `sfx.sample_cast_v0` | `assets/_sample/sfx/sample_cast_v0.wav`（源文件 `assets/_placeholder/sfx/cast_01.wav`） |
 | `sfx.sample_ui_click_v0` | `assets/_sample/sfx/sample_ui_click_v0.wav`（源文件 `assets/_placeholder/sfx/ui_click_01.wav`） |

@@ -2,7 +2,8 @@
 
 字段以 ``presentation/vfx_sfx/schema/VfxSfxSchemas.cs`` 登记的 ``vfx.def`` schema 为准：
 ``id``/``category``/``attach_mode``（必填）、``lifetime``（可选 Number）、``resource_ref``
-（必填 Id）。``frames.json`` 结构（``frame_w``/``frame_h``/``fps``/``frame_duration``/``loop``/
+（必填 Id）、``blend_mode``（可选 Enum：alpha/additive，见 ADR-0074）。``frames.json`` 结构
+（``frame_w``/``frame_h``/``fps``/``frame_duration``/``loop``/
 ``frames:[{index,x,y,w,h,duration}]``）与运行时 ``ResourceKind.Effect`` 加载器
 （``adapters/unity/.../UnityResourceLoader.cs`` ``TryDecodeEffect``）对齐，示例见
 ``assets/_placeholder/vfx/burn/frames.json``；不再写旧版 ``atlas.json``。``--loop`` 且未显式
@@ -31,6 +32,9 @@ from .common import (
 from .ref_conventions import vfx_resource_dir
 
 ATTACH_MODE_CHOICES = ["world", "anchor", "socket", "screen"]
+# vfx.def 的 blend_mode 枚举取值，与 presentation/vfx_sfx/schema/VfxSfxSchemas.cs 的 BlendModes
+# 逐字一致（ADR-0074）。缺省即不写该字段（运行时按 alpha 解释），保持与该字段引入前逐字节一致的产出。
+BLEND_MODE_CHOICES = ["alpha", "additive"]
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -56,6 +60,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fps", type=float, default=24.0, help="序列帧播放帧率，默认 24")
     parser.add_argument(
         "--loop", action="store_true", help="写入 frames.json 的 loop=true（循环播放的特效，如持续光环）"
+    )
+    parser.add_argument(
+        "--blend-mode",
+        choices=BLEND_MODE_CHOICES,
+        default=None,
+        help="混合模式（alpha/additive），省略时不写该字段（运行时按 alpha 解释），见 ADR-0074",
     )
     parser.add_argument("--assets-root", default=None, help="资产根目录，默认仓库 assets/")
     parser.add_argument("--data-root", default=None, help="数据根目录，默认仓库 data/")
@@ -130,6 +140,11 @@ def run(args: argparse.Namespace) -> int:
     if lifetime is not None:
         row["lifetime"] = lifetime
     row["resource_ref"] = resource_ref
+    # 判断记录：merge_write_row 是按 id 的整行覆盖，本子命令不写的字段在重复导入时会被丢掉。
+    # blend_mode（ADR-0074）因此必须由本子命令一并写出，否则任何带 blend_mode 的行一经重导入
+    # 就会静默掉字段，样例导入幂等性门禁会翻红。省略 --blend-mode 时不写该字段（等价 alpha）。
+    if args.blend_mode is not None:
+        row["blend_mode"] = args.blend_mode
 
     vfx_def_path = data_root / args.dataset / "vfx" / "vfx.def.json"
 
