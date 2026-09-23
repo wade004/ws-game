@@ -458,6 +458,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.66.0] - 2026-09-23
+
 ### 新增
 
 - **地图分层图接入运行期渲染**（[ADR-0080](architecture/adr/0080-地图分层图接入运行期渲染.md)）：
@@ -479,11 +481,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `pixels_per_unit`（已声明且 `> 0` 就用它），缺失/非正数/文件不存在/解析失败才回退加载器既有的
   全局 `PixelsPerUnit`（默认 100，回退路径与改动前逐字节一致）；按精灵集目录缓存解析结果，避免
   同一精灵集下多张图反复读盘。新增诊断属性 `SpriteSetAnchorsJsonReadCount`。`ResourceKind.Effect`
-  （`TryDecodeEffect`）与不属于任何精灵集的图像（`"paperdoll."`/`"icon."` 等）不受影响。落地期
-  核实结论：`toolchain/asset_import/sprite_cmd.py`/`check_cmd.py` 产出与校验的 `anchors.json`
-  （`assets/_sample` 等真实数据集）目前顶层没有 `pixels_per_unit` 字段，仅 `_placeholder` 精灵集
-  （`toolchain/gen_placeholder_assets.py` 产出）立即受益；是否让 `sprite_cmd.py` 也写出该字段留给
-  设计层后续裁决，见 ADR-0081"待设计层确认"。
+  （`TryDecodeEffect`）与不属于任何精灵集的图像（`"paperdoll."`/`"icon."` 等）不受影响。
+  工具链侧同步补齐：`toolchain/import_assets.py sprite` 新增 `--pixels-per-unit`（可选，必须 `> 0`，
+  非法值直接报错；不传则 `anchors.json` 一个字节都不写，既有精灵集重导入产出逐字节不变），
+  `check_cmd.py` 新增 `sprite_pixels_per_unit_invalid`（出现时校验为正数，不要求必须声明）——
+  没有这一步，消费方自己的精灵集写不出该字段，运行期解析对他们不生效。已落地的既有精灵集需要用
+  带该参数的导入重跑一次才会受益。`anchors.json` 当前存在两种顶层结构（内容导入工具链按方向档位
+  分层、占位资产生成器整集单一顶层），顶层 `pixels_per_unit` 对两者都成立；收敛这两种结构不在本次
+  范围内，见 ADR-0081"已知不一致 / 待办"。
 
 ## [1.65.0] - 2026-09-23
 
