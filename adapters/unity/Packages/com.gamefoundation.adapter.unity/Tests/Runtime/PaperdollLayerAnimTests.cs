@@ -171,6 +171,24 @@ namespace Adapter.Unity.Tests.Runtime
                 "ADR-0072 决策 2 验收标准 2：hand_main 层应当随共享时间轴帧号推进切换贴图（tier2 命中）",
                 timeoutSeconds: 3f);
 
+            // 协调者第 2 项验收（2026-09-23）：逐层动画路径新写的帧应用逻辑
+            // （UnityRenderer2D.SetLayerSprite）只写 SpriteRenderer.sprite，不碰 flipX——镜像方向
+            // 档位下装备/纸娃娃层是否仍然跟着翻转是真会回归的点（另起一份贴图赋值逻辑很容易漏掉已有
+            // 的 flipX 状态）。本用例整个只调用过一次 SyncPose，朝向是 Direction.FromQuantized(0.0, 8)
+            // ——creature.sample_hero 的 display.map 显式登记了 mirror_pairs
+            // {"direction_slot": "dir.side_l", "mirror_of": "dir.side_r", "flip_x": true}，quantized
+            // 角度 0 对应的 canonical 档位正是 "dir.side_l"（8 方向量化表，见
+            // SpriteViewBaseTests.RebuildEquippedLayers_AcrossThreeDirections_ResolvesThreeDistinctResourceIds
+            // 同一断言过的角度换算），镜像回退解析到裸资源名 "side_r"（与本文件其余用例"side_r"资源
+            // 断言一致，flipX 不编码进资源 Id，见 SpriteViewBase.ResolveLayerResourceId 判断记录）+
+            // flipX=true——本用例因此天然就在镜像档位下运行，不需要额外切一次朝向。head 层正在被
+            // 逐层动画驱动（上面两条断言已确认帧号在推进），此处断言它的 SpriteRenderer.flipX 仍然是
+            // true，证明 SetLayerSprite 的帧写入没有绕过/重置 UnityRenderer2D.SetTransform 早先设好的
+            // flipX 状态。
+            Assert.IsTrue(headRenderer.flipX,
+                "ADR-0072 决策 2：镜像方向档位下，命中逐层剪辑正在播放的装备/纸娃娃层 flipX 应当仍然" +
+                "生效（逐层动画帧写入不应绕开既有的 SetTransform flipX 状态）");
+
             // 验收标准 3：body 层（下标 0）没有任何逐层剪辑（tier1/tier2 均未落地对应资产）——应当
             // 维持 SetLayers 落地的静态帧，保持可见，不被本次逐层动画驱动触碰。
             var bodyLayerTransform = FindChild(layersRoot!, "Layer_0");

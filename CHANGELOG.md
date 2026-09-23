@@ -473,6 +473,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `toolchain/asset_import/check_cmd.py` 同步落地三向层图占位资产与对应校验项
   （`display_anim_equip_layer_file_missing`）。ABI：`SpriteViewBase` 新增
   `protected virtual` 方法，不改既有签名。
+  **补充修复（同日，协调者复核指出遗漏）**：`Adapter.Unity.Presentation.UnitySpriteView.SyncPose`
+  在朝向真正变化时调用的是 `SpriteViewBase.SetPaperdollLayers`，此前该方法完全不看装备覆盖表
+  （`_rig.ComposeAndApplyLayers(layerNamesInOrder, currentFacing, ResolveLayerResourceId)` 对每一层
+  恒用身体层解析），装备层随朝向变化会被身体层资源顶掉、装备新增的额外层更是被整个丢弃，直到下一次
+  装备/卸下事件才恢复——玩家表现为"一转身装备就消失"，是本条反馈"装备层必须随朝向换图"诉求本身
+  未闭环的核心缺口，不是旁支问题。`RebuildEquippedLayers`"按基础层名+装备新增额外层合并、逐层按是否
+  命中覆盖分派"的合成逻辑已抽成私有方法 `ComposeAndApplyEquipAwareLayers(baseLayerNamesInOrder,
+  facing)`，`SetPaperdollLayers` 与 `RebuildEquippedLayers` 现在共用同一份实现；没有任何装备覆盖时
+  结果与旧实现逐字节一致。修复前实测（`SpriteEquipVisualWiringTests.
+  UnityViewFactory_SpriteKind_EquipVisualWired_RealFacingChange_KeepsEquipLayerAndExtraLayer`，只经
+  真实 `SyncPose` 触发、不手工重新分派装备事件）：切到 front 朝向后
+  `GetLoadProgress(HatResolvedLayerResourceIdFront)` 恒为 0（从未请求），退化后的身体层资源
+  `layer.creature_sample_hero__front__head` 反而被请求（`GetLoadProgress` 为 0.5，请求已发起，用例
+  未等待异步加载完成）；装备新增的额外层资源自始至终 `GetLoadProgress` 恒为 0，证明被整个丢弃。
+  修复后同一用例连续切换 front/back/side_r 三个朝向，已装备层与额外层均按对应方向正确解析，8/8
+  用例通过。ABI：`SpriteViewBase` 新增一个私有方法，不改任何既有公开签名。
 - **纸娃娃层在真正播放多帧动画的状态下（待机呼吸、攻击挥击等）只有静态图，整身动画画面会盖住
   装备层**（消费方反馈第十八批同批，框架已知简化，见
   [ADR-0072](architecture/adr/0072-纸娃娃层逐层播放剪辑.md)）：`display.anim_set.clips.<state>.

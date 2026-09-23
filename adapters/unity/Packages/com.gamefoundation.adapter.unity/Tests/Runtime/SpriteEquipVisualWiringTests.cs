@@ -59,6 +59,11 @@ namespace Adapter.Unity.Tests.Runtime
         private static readonly Id HatResolvedLayerResourceIdFront = new Id("layer.item_sample_hero_hat_wiring_test__front__head");
         private static readonly Id HatResolvedLayerResourceIdBack = new Id("layer.item_sample_hero_hat_wiring_test__back__head");
 
+        // 协调者第 1 项修复验收专用（2026-09-23，UnitySpriteView.SyncPose 朝向变化掉装根治）：未装备
+        // 时 head 层在 front 朝向下会经 ResolveLayerResourceId 解析出的身体层资源 id——修复前的 bug
+        // 表现正是"已装备的 head 层朝向变化后退化成这个值"，本常量供下方新用例断言"不应该退化成它"。
+        private static readonly Id BodyHeadResourceIdFront = new Id("layer.creature_sample_hero__front__head");
+
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {
             var host = UnityEngineHost.Ensure();
@@ -208,6 +213,103 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreNotEqual(HatResolvedLayerResourceIdFront, HatResolvedLayerResourceIdBack);
             Assert.AreNotEqual(HatResolvedLayerResourceIdFront, HatResolvedLayerResourceIdSideR);
             Assert.AreNotEqual(HatResolvedLayerResourceIdBack, HatResolvedLayerResourceIdSideR);
+
+            equipSource.Dispose();
+            view.Destroy();
+        }
+
+        /// <summary>
+        /// 协调者第 1 项修复验收（2026-09-23）：<c>UnitySpriteView.SyncPose</c> 在朝向变化时调用
+        /// <c>SpriteViewBase.SetPaperdollLayers</c>，此前该路径完全不看 <c>_equipOverridesBySlot</c>
+        /// （<c>_rig.ComposeAndApplyLayers(layerNamesInOrder, currentFacing, ResolveLayerResourceId)</c>
+        /// 对每一层恒用身体层解析），装备层朝向一变就会被身体层资源顶掉，装备新增的额外层（不在
+        /// <c>creature.sample_hero</c> 默认纸娃娃层集合 <c>["body","hand_main","head"]</c> 里的层名）
+        /// 更是整个消失——<c>UnitySpriteView.SyncPose</c> 传给 <c>SetPaperdollLayers</c> 的
+        /// <c>layerNamesInOrder</c> 恒是 <c>DisplayInfo.Sprite.PaperdollLayers</c>（只有默认层名），
+        /// 额外层名从未出现在这份列表里。本用例不经 <c>OnEvent</c> 重新分派，只调用真实
+        /// <see cref="SpriteViewBase.SyncPose"/> 触发朝向变化，验证两件事：① 已装备槽位（<c>slot.head</c>，
+        /// 命中默认层名 "head"）解析出的资源 id 随朝向切换为对应方向的装备层资源，不退化为
+        /// <see cref="BodyHeadResourceIdFront"/> 一类身体层资源；② 装备新增的额外层（<c>slot.cape</c>，
+        /// 层名 "cape"）朝向变化后仍然存在。
+        /// <para>
+        /// 修复前实测（供报告"修复前→修复后"对照，本条断言曾经确认失败）：切到 front 朝向后
+        /// <c>GetLoadProgress(HatResolvedLayerResourceIdFront)</c> 恒为 0（从未被请求），
+        /// <c>GetLoadProgress(BodyHeadResourceIdFront)</c> 却 &gt; 0（退化成了身体层资源，实测值
+        /// 0.5——请求已发起但本用例未等待异步加载完成，同文件其余用例一贯的断言深度）；额外层
+        /// <c>capeFront</c>（<c>layer.item_sample_hero_hat_wiring_test__front__cape</c>）自始至终
+        /// <c>GetLoadProgress</c> 恒为 0，证明该层从未被合成进层列表，不只是解析错资源，是被整个丢弃。
+        /// </para>
+        /// </summary>
+        [Test]
+        public void UnityViewFactory_SpriteKind_EquipVisualWired_RealFacingChange_KeepsEquipLayerAndExtraLayer()
+        {
+            var fx = BuildFixture();
+            var catalog = new Dictionary<Id, EquipVisualDef>(BuildCatalogByTemplateId(fx.Registry));
+
+            // 装备新增额外层的合成夹具：slot.cape 不在 creature.sample_hero 的默认纸娃娃层集合里，
+            // LayerNameFromSlotId（SpriteViewBase 私有方法，取最后一个点分段）会得到层名 "cape"；
+            // meshRef 直接复用本文件已有的 HatMeshRef 前缀（不需要真实磁盘资产——本用例只断言"是否
+            // 发起过加载请求"证明层未被丢弃，不断言加载成功，同文件其余用例一贯的断言深度）。
+            var capeTemplateId = new Id("item.sample_hero_cape_extra_layer_test");
+            var capeInstanceId = new Id("item_instance.cape_extra_layer_1");
+            var capeSlotId = new Id("slot.cape");
+            catalog[capeTemplateId] = new EquipVisualDef(
+                new Id("display.equip_visual.sample_hero_cape_extra_layer_test"), capeTemplateId, EquipVisualMode.SlotMesh,
+                slotId: capeSlotId, meshRef: HatMeshRef, socketId: null, modelRef: null);
+
+            var equipSource = new EquipmentVisualSource(fx.Bus, catalog);
+            var factory = new UnityViewFactory(
+                fx.Host.Renderer2D, new RenderConventionHost(), fx.DisplayInfo, fx.Host.ResourceLoader,
+                bus: fx.Bus, dataRegistry: fx.Registry,
+                equipVisualByItemInstanceId: equipSource.VisualByItemInstanceId);
+
+            var entityId = new Id("unit.sprite_equip_visual_real_facing_test");
+            var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, SpriteHeroLogicalId, entityId);
+            view.Bind(entityId);
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0); // side_r，_layersInitialized 落地
+
+            var hatInstanceId = new Id("item_instance.hat_real_facing_1");
+            var hatEquipEvt = new ItemEquippedEvent(entityId, hatInstanceId, new Id("slot.head"));
+            fx.Bus.PublishImmediate(new ItemAddedEvent(entityId, hatInstanceId, HatTemplateId, count: 1));
+            fx.Bus.PublishImmediate(hatEquipEvt);
+            view.OnEvent(hatEquipEvt);
+
+            var capeEquipEvt = new ItemEquippedEvent(entityId, capeInstanceId, capeSlotId);
+            fx.Bus.PublishImmediate(new ItemAddedEvent(entityId, capeInstanceId, capeTemplateId, count: 1));
+            fx.Bus.PublishImmediate(capeEquipEvt);
+            view.OnEvent(capeEquipEvt);
+
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR), 0.0,
+                "装备后 side_r 朝向下 head 装备层资源应当已被请求");
+            var capeSideR = new Id("layer.item_sample_hero_hat_wiring_test__side_r__cape");
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeSideR), 0.0,
+                "装备后 side_r 朝向下额外层 cape 资源应当已被请求（未被丢弃）");
+
+            // 真实朝向切换：不再手工重新 OnEvent，只调 SyncPose——这正是 UnitySpriteView.SyncPose 里
+            // "朝向变化 -> SetPaperdollLayers"分支，验证的是这条路径本身是否装备感知。连续切换三个
+            // 方向档位，各自断言一次（协调者验收要求）。
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), height: 0.0); // front
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdFront), 0.0,
+                "真实朝向切换到 front 后，head 装备层应当解析出 front 档位的装备资源");
+            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(BodyHeadResourceIdFront),
+                "head 装备层不应该退化成身体层资源 " + BodyHeadResourceIdFront.Value + "（修复前会退化，见" +
+                "类型顶部判断记录实测值）");
+            var capeFront = new Id("layer.item_sample_hero_hat_wiring_test__front__cape");
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeFront), 0.0,
+                "真实朝向切换到 front 后，额外层 cape 仍然应当存在并解析出 front 档位资源（不应被丢弃）");
+
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 3 / 2, 8), height: 0.0); // back
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdBack), 0.0,
+                "真实朝向切换到 back 后，head 装备层应当解析出 back 档位的装备资源");
+            var capeBack = new Id("layer.item_sample_hero_hat_wiring_test__back__cape");
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeBack), 0.0,
+                "真实朝向切换到 back 后，额外层 cape 仍然应当存在并解析出 back 档位资源");
+
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0); // 回到 side_r
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR), 0.0,
+                "真实朝向切换回 side_r 后，head 装备层应当仍然解析出 side_r 档位的装备资源");
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeSideR), 0.0,
+                "真实朝向切换回 side_r 后，额外层 cape 仍然应当存在");
 
             equipSource.Dispose();
             view.Destroy();
