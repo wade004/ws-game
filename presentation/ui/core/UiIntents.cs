@@ -3,6 +3,7 @@ using Core.Carriers.Common;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
 using Core.Foundation.Localization;
 using Core.Foundation.SimLoop;
@@ -54,6 +55,12 @@ namespace Presentation.Ui
         /// <see cref="EndTurn"/> 此时恒返回 <c>false</c>，不抛异常。</summary>
         private readonly Core.Foundation.SimLoop.TurnScheduler? _turnScheduler;
 
+        /// <summary>ADR-0077：可选事件总线，非空时携带 <c>panelId</c> 参数的重载会
+        /// <c>PublishImmediate</c> 一个 <see cref="UiActionInvokedEvent"/>（见类型注释"判断记录
+        /// （ui.action_invoked）"）；未经新增重载构造（恒为 null）的既有调用方不受影响，本类型其余
+        /// 全部行为不变。</summary>
+        private readonly IEventBus? _eventBus;
+
         public UiIntents(
             Id playerId,
             IWorldSim worldSim,
@@ -82,15 +89,77 @@ namespace Presentation.Ui
             _turnScheduler = turnScheduler;
         }
 
+        /// <summary>ADR-0077 新增重载（新增参数不改既有构造签名，同类型内既有"新增重载、旧重载原样
+        /// 转发"惯例）：<paramref name="eventBus"/> 非空时接入 ui.action_invoked 发布能力，见
+        /// <see cref="_eventBus"/> 字段注释。与旧 12 参重载的参数个数不同（本重载多一个必填
+        /// <paramref name="eventBus"/>），调用方按参数个数即可无歧义选中对应重载，不产生重载决议
+        /// 二义性。</summary>
+        public UiIntents(
+            Id playerId,
+            IWorldSim worldSim,
+            IEquipmentHost equipment,
+            IQuestHost quest,
+            IDialogHost dialog,
+            IEconomyHost economy,
+            IInputMapHost inputMap,
+            IL10nHost l10n,
+            IAppStateHost appState,
+            IAudioLayerVolumeHost audioVolume,
+            ISkillBindingHost skillBindings,
+            Core.Foundation.SimLoop.TurnScheduler? turnScheduler,
+            IEventBus eventBus)
+            : this(playerId, worldSim, equipment, quest, dialog, economy, inputMap, l10n, appState,
+                audioVolume, skillBindings, turnScheduler)
+        {
+            _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
+        }
+
+        /// <summary>ADR-0077 判断记录（ui.action_invoked）：本类型新增的一批携带 <c>panelId</c> 参数
+        /// 的重载（<see cref="CastSkill(Id,Id,Id?)"/> 等）在委派给对应旧方法之前，先调用本辅助方法
+        /// <c>PublishImmediate</c> 一次 <see cref="UiActionInvokedEvent"/>。<paramref name="actionName"/>
+        /// 是框架自持的固定 UI 意图词汇（每个重载各自的方法名语义，如 <c>"cast_skill"</c>），不是
+        /// 调用方传入的自由字符串——不采纳消费方原话里的 <c>buttonId</c>：框架的 UI 核心层不知道、
+        /// 也不该知道某个具体皮肤上有哪些按钮，只知道"哪个面板上触发了哪个 UI 意图"（<paramref
+        /// name="panelId"/> 由调用方给出，与 <see cref="UiPanelRegistry.Open"/>/<see cref="UiPanelRegistry.Close"/>
+        /// 同一套 <c>ui_layout_definition.id</c> 空间，见 <c>architecture/adr/0077-ui交互域事件.md</c>
+        /// "决策"一节）。<see cref="_eventBus"/> 为 null（调用方未经新增构造函数重载接入）时静默跳过，
+        /// 不抛异常——本类型其余"未装配的能力静默降级"一贯风格。</summary>
+        private void PublishActionInvoked(Id panelId, string actionName) =>
+            _eventBus?.PublishImmediate(new UiActionInvokedEvent(panelId, actionName));
+
         public void UseItem(Id instanceId)
         {
             var args = new JsonObjectBuilder().Add("instance_id", new JsonString(instanceId.Value)).Build();
             _worldSim.SubmitIntent(new Intent(_playerId, "use_item", args));
         }
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "use_item"}</c>
+        /// （见 <see cref="PublishActionInvoked"/>），再转发 <see cref="UseItem(Id)"/>。</summary>
+        public void UseItem(Id panelId, Id instanceId)
+        {
+            PublishActionInvoked(panelId, "use_item");
+            UseItem(instanceId);
+        }
+
         public EquipResult Equip(Id instanceId, Id slot) => _equipment.Equip(_playerId, instanceId, slot);
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "equip"}</c>，
+        /// 再转发 <see cref="Equip(Id,Id)"/>。</summary>
+        public EquipResult Equip(Id panelId, Id instanceId, Id slot)
+        {
+            PublishActionInvoked(panelId, "equip");
+            return Equip(instanceId, slot);
+        }
+
         public ItemInstanceRef? Unequip(Id slot) => _equipment.Unequip(_playerId, slot);
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "unequip"}</c>，
+        /// 再转发 <see cref="Unequip(Id)"/>。</summary>
+        public ItemInstanceRef? Unequip(Id panelId, Id slot)
+        {
+            PublishActionInvoked(panelId, "unequip");
+            return Unequip(slot);
+        }
 
         public void CastSkill(Id skillId, Id? targetId)
         {
@@ -100,6 +169,14 @@ namespace Presentation.Ui
                 builder = builder.Add("target_id", new JsonString(targetId.Value.Value));
             }
             _worldSim.SubmitIntent(new Intent(_playerId, "cast", builder.Build()));
+        }
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "cast_skill"}</c>，
+        /// 再转发 <see cref="CastSkill(Id,Id?)"/>。</summary>
+        public void CastSkill(Id panelId, Id skillId, Id? targetId)
+        {
+            PublishActionInvoked(panelId, "cast_skill");
+            CastSkill(skillId, targetId);
         }
 
         /// <summary>
@@ -123,7 +200,23 @@ namespace Presentation.Ui
 
         public bool AcceptQuest(Id questId) => _quest.Accept(_playerId, questId);
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "accept_quest"}</c>，
+        /// 再转发 <see cref="AcceptQuest(Id)"/>。</summary>
+        public bool AcceptQuest(Id panelId, Id questId)
+        {
+            PublishActionInvoked(panelId, "accept_quest");
+            return AcceptQuest(questId);
+        }
+
         public bool TurnInQuest(Id questId) => _quest.TurnIn(_playerId, questId);
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "turn_in_quest"}</c>，
+        /// 再转发 <see cref="TurnInQuest(Id)"/>。</summary>
+        public bool TurnInQuest(Id panelId, Id questId)
+        {
+            PublishActionInvoked(panelId, "turn_in_quest");
+            return TurnInQuest(questId);
+        }
 
         /// <summary>
         /// 消费方反馈（游戏接入方第十五批，阻塞，框架缺陷）修复：本方法此前恒转发
@@ -160,15 +253,63 @@ namespace Presentation.Ui
             return false;
         }
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "choose_dialog_option"}</c>，
+        /// 再转发 <see cref="ChooseDialogOption(int)"/>。</summary>
+        public bool ChooseDialogOption(Id panelId, int index)
+        {
+            PublishActionInvoked(panelId, "choose_dialog_option");
+            return ChooseDialogOption(index);
+        }
+
         public PurchaseResult Buy(Id vendorId, Id itemId, int count) => _economy.Buy(_playerId, vendorId, itemId, count);
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "buy"}</c>，
+        /// 再转发 <see cref="Buy(Id,Id,int)"/>。</summary>
+        public PurchaseResult Buy(Id panelId, Id vendorId, Id itemId, int count)
+        {
+            PublishActionInvoked(panelId, "buy");
+            return Buy(vendorId, itemId, count);
+        }
 
         public SellResult Sell(Id vendorId, Id itemInstanceId, int count) => _economy.Sell(_playerId, vendorId, itemInstanceId, count);
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "sell"}</c>，
+        /// 再转发 <see cref="Sell(Id,Id,int)"/>。</summary>
+        public SellResult Sell(Id panelId, Id vendorId, Id itemInstanceId, int count)
+        {
+            PublishActionInvoked(panelId, "sell");
+            return Sell(vendorId, itemInstanceId, count);
+        }
+
         public bool Rebind(string action, string binding) => _inputMap.Rebind(action, binding);
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "rebind"}</c>，
+        /// 再转发 <see cref="Rebind(string,string)"/>。</summary>
+        public bool Rebind(Id panelId, string action, string binding)
+        {
+            PublishActionInvoked(panelId, "rebind");
+            return Rebind(action, binding);
+        }
 
         public void SetLocale(Id locale) => _l10n.SetLocale(locale);
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "set_locale"}</c>，
+        /// 再转发 <see cref="SetLocale(Id)"/>。</summary>
+        public void SetLocale(Id panelId, Id locale)
+        {
+            PublishActionInvoked(panelId, "set_locale");
+            SetLocale(locale);
+        }
+
         public void SetLayerVolume(string layer, double volume) => _audioVolume.SetVolume(layer, volume);
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "set_layer_volume"}</c>，
+        /// 再转发 <see cref="SetLayerVolume(string,double)"/>。</summary>
+        public void SetLayerVolume(Id panelId, string layer, double volume)
+        {
+            PublishActionInvoked(panelId, "set_layer_volume");
+            SetLayerVolume(layer, volume);
+        }
 
         /// <summary>缺口 4：技能书面板拖放/点击绑定的意图入口——把 <paramref name="skillId"/> 绑定到
         /// 动作条 <paramref name="slot"/> 号槽位（<see cref="ActionBarViewModel.SlotKey"/> 换算槽位键）。
@@ -176,9 +317,25 @@ namespace Presentation.Ui
         public bool BindActionBarSlot(int slot, Id skillId) =>
             _skillBindings.Bind(_playerId, ActionBarViewModel.SlotKey(slot), skillId);
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "bind_action_bar_slot"}</c>，
+        /// 再转发 <see cref="BindActionBarSlot(int,Id)"/>。</summary>
+        public bool BindActionBarSlot(Id panelId, int slot, Id skillId)
+        {
+            PublishActionInvoked(panelId, "bind_action_bar_slot");
+            return BindActionBarSlot(slot, skillId);
+        }
+
         /// <summary>缺口 4：清空动作条 <paramref name="slot"/> 号槽位的绑定。</summary>
         public bool UnbindActionBarSlot(int slot) =>
             _skillBindings.Unbind(_playerId, ActionBarViewModel.SlotKey(slot));
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "unbind_action_bar_slot"}</c>，
+        /// 再转发 <see cref="UnbindActionBarSlot(int)"/>。</summary>
+        public bool UnbindActionBarSlot(Id panelId, int slot)
+        {
+            PublishActionInvoked(panelId, "unbind_action_bar_slot");
+            return UnbindActionBarSlot(slot);
+        }
 
         /// <summary>ADR-0013 离散时间模型（03 第 3.2 节步骤 3"玩家……或调用 endTurn 提交'结束回合'
         /// 意图"）：把 HUD"结束回合"按钮的点击转发到
@@ -203,9 +360,33 @@ namespace Presentation.Ui
             return true;
         }
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "end_turn"}</c>，
+        /// 再转发 <see cref="EndTurn()"/>。</summary>
+        public bool EndTurn(Id panelId)
+        {
+            PublishActionInvoked(panelId, "end_turn");
+            return EndTurn();
+        }
+
         public bool Pause() => _appState.RequestTransition(AppState.Pause);
 
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "pause"}</c>，
+        /// 再转发 <see cref="Pause()"/>。</summary>
+        public bool Pause(Id panelId)
+        {
+            PublishActionInvoked(panelId, "pause");
+            return Pause();
+        }
+
         public bool Resume() => _appState.RequestTransition(AppState.InWorld);
+
+        /// <summary>ADR-0077 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "resume"}</c>，
+        /// 再转发 <see cref="Resume()"/>。</summary>
+        public bool Resume(Id panelId)
+        {
+            PublishActionInvoked(panelId, "resume");
+            return Resume();
+        }
 
         public bool OpenMenu() => _appState.PushSubState(InWorldSubState.MenuOverlay);
 

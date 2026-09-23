@@ -270,6 +270,15 @@ namespace Core.Foundation.EventBus
         /// <summary>targeting.resolved — 字段：unitId, chainId, targetIds。目标解析策略链求解完成后触发（见 01 L2 模块表 targeting 行、06 第 5 节 Targeting）；字段为建议值。</summary>
         public static readonly Id TargetingResolved = new Id("targeting.resolved");
 
+        /// <summary>ui.action_invoked — 字段：panelId, actionName。ADR-0077：presentation/ui 核心层意图入口（UiIntents 携带 panelId 参数的重载）被调用时触发；actionName 取框架自持的 UI 意图词汇（如 cast_skill/equip/buy 等方法自身语义），不是具体游戏的按钮 id；panelId 由调用方传入，与 ui.panel_opened/ui.panel_closed 同一套 id 空间（ui_layout_definition.id）。</summary>
+        public static readonly Id UiActionInvoked = new Id("ui.action_invoked");
+
+        /// <summary>ui.panel_closed — 字段：panelId。ADR-0077：UiPanelRegistry.Close 把一个此前处于打开状态的面板登记为关闭时触发（已关闭再次 Close 不重复触发）；panelId 即 ui_layout_definition.id。</summary>
+        public static readonly Id UiPanelClosed = new Id("ui.panel_closed");
+
+        /// <summary>ui.panel_opened — 字段：panelId。ADR-0077：UiPanelRegistry.Open 把一个此前未打开的面板登记为打开时触发（已打开再次 Open 不重复触发）；panelId 即 ui_layout_definition.id。</summary>
+        public static readonly Id UiPanelOpened = new Id("ui.panel_opened");
+
         /// <summary>unit.died — 字段：unitId, killerId, mapId, position。死亡结算完成（见 06 第 8 节）；W1 收边补 mapId/position（死亡那一刻的地图/坐标快照，供死亡复活执行主体使用，position 不经 Expr 暴露）。</summary>
         public static readonly Id UnitDied = new Id("unit.died");
 
@@ -284,6 +293,9 @@ namespace Core.Foundation.EventBus
 
         /// <summary>unit.state_changed — 字段：unitId, oldState, newState。单位可视状态（如移动/待机/施法等外显状态）变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值，字段命名参照同表 ai.state_changed 行。</summary>
         public static readonly Id UnitStateChanged = new Id("unit.state_changed");
+
+        /// <summary>unit.stride_completed — 字段：unitId, position。ADR-0078：表现层 StrideEmitter 组件订阅 unit.moved，按该单位 display.map.stride_distance（可选字段——步幅是外形/体型属性，未登记或 &lt;=0 时该单位完全不发本事件）累计位移，累计达到一个步幅距离即发一次并扣减累计值（保留余数，不清零）；单次位移超过步幅距离 8 倍视为瞬移，只发一条并把累计清零。本事件只陈述“该单位的累计位移达到了一个步幅距离”这一几何事实，不预设任何呈现含义（是否配脚步声、扬尘特效、地面痕迹等均由具体游戏的 feedback.binding/表现代码决定，框架不登记默认绑定）；由表现层派生，不进入仿真主循环、不写回任何逻辑状态。</summary>
+        public static readonly Id UnitStrideCompleted = new Id("unit.stride_completed");
 
         /// <summary>world.flag_changed — 字段：flagKey, oldValue, newValue, writerId。WorldState.set 写入标志后触发（见 05 第 8.2 节，字段原文给出）。</summary>
         public static readonly Id WorldFlagChanged = new Id("world.flag_changed");
@@ -378,11 +390,15 @@ namespace Core.Foundation.EventBus
             SummonCreated,
             SummonExpired,
             TargetingResolved,
+            UiActionInvoked,
+            UiPanelClosed,
+            UiPanelOpened,
             UnitDied,
             UnitMoved,
             UnitRespawned,
             UnitSkillBindingChanged,
             UnitStateChanged,
+            UnitStrideCompleted,
             WorldFlagChanged,
         };
     }

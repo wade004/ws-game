@@ -52,6 +52,12 @@ namespace Core.Foundation.DisplayInfo
         /// <summary><see cref="Kind"/> 为 <see cref="DisplayKind.Model"/> 时非空，否则为 null。</summary>
         public ModelInfo? Model { get; }
 
+        /// <summary>ADR-0078：步幅距离——该外形迈一步覆盖的位移距离，纯几何/体型属性（体型不同步幅
+        /// 不同），与规则层无关，可选。<c>null</c> 或 <![CDATA[<=]]> 0 时该逻辑 id 对应的单位完全不发
+        /// <c>unit.stride_completed</c>（见 <c>Presentation.ViewBinding.StrideEmitter</c>），零开销
+        /// opt-in——未登记本字段的既有 <c>display.map</c> 行不受影响。</summary>
+        public double? StrideDistance { get; }
+
         public DisplayInfo(
             Id id,
             DisplayCategory category,
@@ -66,6 +72,28 @@ namespace Core.Foundation.DisplayInfo
             Id? weaponStyleRef,
             SpriteInfo? sprite,
             ModelInfo? model)
+            : this(id, category, logicalId, kind, iconId, vfxId, sfxId, scale, shadow, sortOffset,
+                weaponStyleRef, sprite, model, strideDistance: null)
+        {
+        }
+
+        /// <summary>ADR-0078 新增重载：见 <see cref="StrideDistance"/>。旧重载原样保留、转发到本重载
+        /// 并传 <c>strideDistance: null</c>，不改变既有调用方行为（ABI 只新增）。</summary>
+        public DisplayInfo(
+            Id id,
+            DisplayCategory category,
+            Id logicalId,
+            DisplayKind kind,
+            string? iconId,
+            Id? vfxId,
+            Id? sfxId,
+            double scale,
+            ShadowMode shadow,
+            double sortOffset,
+            Id? weaponStyleRef,
+            SpriteInfo? sprite,
+            ModelInfo? model,
+            double? strideDistance)
         {
             Id = id;
             Category = category;
@@ -80,6 +108,7 @@ namespace Core.Foundation.DisplayInfo
             WeaponStyleRef = weaponStyleRef;
             Sprite = sprite;
             Model = model;
+            StrideDistance = strideDistance;
         }
 
         /// <summary>从一条已加载的 <c>display.map</c> <see cref="DataRecord"/> 构造。</summary>
@@ -97,13 +126,14 @@ namespace Core.Foundation.DisplayInfo
             var shadow = record.TryGetString("shadow", out var shadowVal) ? ParseShadow(record, shadowVal) : ShadowMode.Blob;
             var sortOffset = record.TryGetNumber("sort_offset", out var sortVal) ? sortVal : 0.0;
             var weaponStyleRef = record.TryGetId("weapon_style_ref", out var wsrVal) ? (Id?)wsrVal : null;
+            var strideDistance = record.TryGetNumber("stride_distance", out var strideVal) ? (double?)strideVal : null;
 
             var sprite = kind == DisplayKind.Sprite ? ParseSpriteInfo(record) : null;
             var model = kind == DisplayKind.Model ? ParseModelInfo(record) : null;
 
             return new DisplayInfo(
                 id, category, logicalId, kind, iconId, vfxId, sfxId, scale, shadow, sortOffset,
-                weaponStyleRef, sprite, model);
+                weaponStyleRef, sprite, model, strideDistance);
         }
 
         private static DisplayCategory ParseCategory(DataRecord record, string value) => value switch

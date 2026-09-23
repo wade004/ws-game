@@ -50,6 +50,80 @@ namespace Tests.PresentationUi
                 audioVolume, skillBindings);
         }
 
+        /// <summary>ADR-0077 用例专用：构造一个接入真实 <see cref="Core.Foundation.EventBus.IEventBus"/>
+        /// 的 <see cref="UiIntents"/>（新增 13 参重载），供断言 <c>panelId</c> 重载发出
+        /// <see cref="UiActionInvokedEvent"/>。</summary>
+        private static UiIntents BuildWithEventBus(
+            out Core.Foundation.EventBus.IEventBus bus, out Id playerId)
+        {
+            playerId = new Id("unit.hero");
+            var worldSim = new RecordingWorldSim();
+            bus = TestSupport.BuildEventBus();
+            return new UiIntents(playerId, worldSim, new FakeEquipmentHost(), new FakeQuestHost(),
+                new FakeDialogHost(), new FakeEconomyHost(), new FakeInputMapHost(),
+                new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") }),
+                new AppStateHost(TestSupport.BuildEventBus()), new FakeAudioLayerVolumeHost(),
+                new Core.Carriers.Unit.SkillBindingHost(TestSupport.BuildEventBus(), (_, __) => true),
+                turnScheduler: null, eventBus: bus);
+        }
+
+        /// <summary>ADR-0077：带 <c>panelId</c> 的重载在提交底层意图之前先发出
+        /// <c>ui.action_invoked{panelId, actionName}</c>，字段值正确（<c>actionName</c> 是方法自身
+        /// 固定给出的框架 UI 意图词汇，不是调用方传入的自由字符串）。</summary>
+        [Fact]
+        public void CastSkill_WithPanelId_PublishesActionInvokedEvent_BeforeSubmittingIntent()
+        {
+            var intents = BuildWithEventBus(out var bus, out _);
+            var panelId = new Id("ui_layout_definition.sample_action_bar");
+            var skillId = new Id("skill.fireball");
+
+            global::Presentation.Ui.UiActionInvokedEvent? received = null;
+            bus.Subscribe<global::Presentation.Ui.UiActionInvokedEvent>(
+                global::Presentation.Ui.UiEventKeys.ActionInvoked, e => received = e);
+
+            intents.CastSkill(panelId, skillId, targetId: null);
+
+            Assert.NotNull(received);
+            Assert.Equal(panelId, received!.PanelId);
+            Assert.Equal("cast_skill", received.ActionName);
+        }
+
+        /// <summary>ADR-0077：不带 <c>panelId</c> 的既有重载（向后兼容路径）不发出任何
+        /// <c>ui.action_invoked</c>——即便 <see cref="UiIntents"/> 本身已经接入了事件总线。</summary>
+        [Fact]
+        public void CastSkill_WithoutPanelId_DoesNotPublishActionInvokedEvent()
+        {
+            var intents = BuildWithEventBus(out var bus, out _);
+            var received = 0;
+            bus.Subscribe<global::Presentation.Ui.UiActionInvokedEvent>(
+                global::Presentation.Ui.UiEventKeys.ActionInvoked, _ => received++);
+
+            intents.CastSkill(new Id("skill.fireball"), targetId: null);
+
+            Assert.Equal(0, received);
+        }
+
+        /// <summary>ADR-0077：另一个 panelId 重载（<see cref="UiIntents.UseItem(Id,Id)"/>）同样正确
+        /// 发出事件，字段 <c>actionName</c> 与该方法专属的词汇一致——覆盖不止一个重载，避免只验证
+        /// <c>CastSkill</c> 一条路径就断言"全部重载都接好了"。</summary>
+        [Fact]
+        public void UseItem_WithPanelId_PublishesActionInvokedEvent_WithUseItemActionName()
+        {
+            var intents = BuildWithEventBus(out var bus, out _);
+            var panelId = new Id("ui_layout_definition.sample_inventory");
+            var instanceId = new Id("item.instance_0");
+
+            global::Presentation.Ui.UiActionInvokedEvent? received = null;
+            bus.Subscribe<global::Presentation.Ui.UiActionInvokedEvent>(
+                global::Presentation.Ui.UiEventKeys.ActionInvoked, e => received = e);
+
+            intents.UseItem(panelId, instanceId);
+
+            Assert.NotNull(received);
+            Assert.Equal(panelId, received!.PanelId);
+            Assert.Equal("use_item", received.ActionName);
+        }
+
         [Fact]
         public void UseItem_submits_use_item_intent()
         {

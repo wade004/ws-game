@@ -139,6 +139,16 @@ namespace Presentation.Assembly
         /// （调用方明确接管节奏）。默认 null：由本装配根跟随时间模型自动切换（离散 Sequential、连续
         /// Immediate），见 <see cref="PresentationAssembly"/> 构造函数判断记录。</summary>
         public QueueMode? FeedbackQueueMode { get; set; }
+
+        /// <summary>ADR-0077：<see cref="Presentation.Ui.UiPanelRegistry"/> 构造参数
+        /// <c>menuOverlayPanelIds</c> 的透传——"属于 InWorld MenuOverlay 子状态"的那部分面板 id
+        /// 清单（<c>ui_layout_definition.id</c>，见该类型判断记录），由具体游戏按自己的
+        /// <c>ui_layout_definition</c> 数据决定哪些面板属于这一类。默认空列表：不装配任何
+        /// MenuOverlay 联动（<see cref="Panels"/> 属性仍会构造并正常发布
+        /// <c>ui.panel_opened</c>/<c>ui.panel_closed</c>，只是不会触发
+        /// <see cref="Presentation.Ui.UiIntents.OpenMenu"/>/<see cref="Presentation.Ui.UiIntents.CloseMenu"/>），
+        /// 不影响改动前既有行为（<c>UiPanelRegistry</c> 此前完全未接入本装配根）。</summary>
+        public IReadOnlyList<Id> MenuOverlayPanelIds { get; set; } = Array.Empty<Id>();
     }
 
     /// <summary>
@@ -164,6 +174,11 @@ namespace Presentation.Assembly
         public IDisplayInfoRegistry DisplayInfo { get; }
 
         public ViewBinder ViewBinder { get; }
+
+        /// <summary>ADR-0078：步幅位移事件组件，见其类型注释。装配位置紧邻 <see cref="ViewBinder"/>
+        /// （同属 view_binding 模块，同样依赖第 1 步构造好的 <see cref="DisplayInfo"/> 与本装配根的
+        /// <c>world</c>/<c>bus</c> 构造参数）。</summary>
+        public Presentation.ViewBinding.StrideEmitter Stride { get; }
 
         public IRenderConventionHost Render { get; }
 
@@ -226,6 +241,12 @@ namespace Presentation.Assembly
         public Presentation.Ui.IUiDiagnostics UiDiagnostics { get; }
 
         public UiIntents UiIntents { get; }
+
+        /// <summary>ADR-0077：UI 面板开关登记表，构造期接入本装配根的 <see cref="IEventBus"/>——
+        /// 经真实生产装配入口打开/关闭面板会正常发布 <c>ui.panel_opened</c>/<c>ui.panel_closed</c>
+        /// （见 <see cref="Presentation.Ui.UiPanelRegistry"/> 类型注释）。此前本类型完全未装配
+        /// <c>UiPanelRegistry</c>（只有独立单元测试覆盖，无生产接线），本次补上。</summary>
+        public Presentation.Ui.UiPanelRegistry Panels { get; }
 
         public HudViewModel Hud { get; }
 
@@ -345,6 +366,9 @@ namespace Presentation.Assembly
             // DirectionIndexRemap 配置，不会出现"锚点镜像"与"纸娃娃层镜像"各自看到不同重映射表。
             Render = new RenderConventionHost(opts.RenderOptions);
             ViewBinder = new ViewBinder(bus, viewFactory, snapshot, DisplayInfo, opts.ViewBinderOptions, renderConvention: Render, equipmentVisualSource: opts.EquipmentVisualSource);
+            // ADR-0078：步幅位移事件组件，未登记 display.map.stride_distance 的单位零开销、不发任何
+            // 事件，构造本身不需要任何可选配置项，见 Stride 属性注释。
+            Stride = new Presentation.ViewBinding.StrideEmitter(world, DisplayInfo, bus);
 
             var followTarget = new SimSnapshotFollowTarget(snapshot);
 
@@ -569,11 +593,18 @@ namespace Presentation.Assembly
             // ADR-0013 离散时间模型：把 gameplay.TurnScheduler（未装配离散模式时为 null）透传给
             // UiIntents.EndTurn（见该方法判断记录），不需要 opts 新增任何配置项——是否启用离散模式
             // 完全由调用方构造 GameplayAssembly 时是否传入 clockHost 决定，本类型只是如实转发。
+            // ADR-0077：改用携带 eventBus 的新增构造函数重载，UiIntents 携带 panelId 参数的重载
+            // 因此能发布 ui.action_invoked（见该类型判断记录）；旧重载（无 eventBus）保持不发事件的
+            // 改动前行为，本装配根是唯一的生产装配入口，统一切到新重载。
             UiIntents = new UiIntents(
                 _playerId, world, gameplay.Carriers.Equipment, gameplay.Quest, gameplay.Dialog, gameplay.Economy,
                 InputMap, L10n, gameplay.AppState,
                 audioVolume: AudioVolume, skillBindings: gameplay.Carriers.SkillBindings,
-                turnScheduler: gameplay.TurnScheduler);
+                turnScheduler: gameplay.TurnScheduler, eventBus: bus);
+
+            // ADR-0077：UiPanelRegistry 此前完全未接入任何生产装配入口（见 Panels 属性注释），本次
+            // 补上，menuOverlayPanelIds 由 opts 透传（默认空列表，不影响改动前行为）。
+            Panels = new Presentation.Ui.UiPanelRegistry(UiIntents, opts.MenuOverlayPanelIds, bus);
 
             var actionBarSlots = ResolveActionBarSlotCount(registry, opts.ActionBarSlotCountFallback);
 
@@ -707,6 +738,7 @@ namespace Presentation.Assembly
             _subscriptions.Clear();
 
             ViewBinder.Dispose();
+            Stride.Dispose();
             Camera.Dispose();
             Feedback.Dispose();
             Shell.Dispose();
