@@ -3,8 +3,9 @@ using Core.Foundation.Common;
 
 namespace Presentation.FeedbackBinder.Contracts
 {
-    /// <summary>六种反馈动作固定枚举（见 09_表现层.md 第 6.1 节 <c>FeedbackAction</c> 判别联合，
-    /// 拍板决策：六项为固定集合，新增动作类型走审批流程，同 06 EffectKind 惯例）。</summary>
+    /// <summary>反馈动作固定枚举（见 09_表现层.md 第 6.1 节 <c>FeedbackAction</c> 判别联合，
+    /// 拍板决策：固定集合，新增动作类型走审批流程，同 06 EffectKind 惯例）。原六项之后，
+    /// ADR-0075 经审批新增 <see cref="StopVfx"/> 第七项。</summary>
     public enum FeedbackActionKind
     {
         FloatingText,
@@ -13,6 +14,10 @@ namespace Presentation.FeedbackBinder.Contracts
         Freeze,
         ShakeCamera,
         Flash,
+
+        /// <summary>ADR-0075 新增第七项：停止一次此前由 <see cref="PlayVfx"/> 播放的特效，见
+        /// <see cref="StopVfxAction"/>。</summary>
+        StopVfx,
     }
 
     /// <summary>
@@ -80,6 +85,48 @@ namespace Presentation.FeedbackBinder.Contracts
             FromDisplay = fromDisplay;
             Attach = attach;
             AnchorId = anchorId;
+        }
+    }
+
+    /// <summary>停止特效（ADR-0075 新增：09 §6.1 <c>FeedbackAction</c> 判别联合第七项
+    /// <c>StopVfx(vfxId, attach)</c>）。字段形状与 <see cref="PlayVfxAction"/> 对齐——同样支持
+    /// <c>vfx_id?|from_display</c> 二选一与 <c>attach</c>——但不带 <c>anchor_id</c>：本动作不播放
+    /// 任何东西，不需要解析挂接位置，只需要 (vfxId, 附着实体) 这一对键去定位由 <c>play_vfx</c> 播放
+    /// 的在播实例并停止（见 <c>Presentation.FeedbackBinder.Core.CompositeFeedbackSink.StopVfx</c>
+    /// 判断记录），因此 <see cref="Attach"/> 只能是 <see cref="FeedbackAttachTarget.Source"/>/
+    /// <see cref="FeedbackAttachTarget.Target"/>，不支持 <see cref="FeedbackAttachTarget.World"/>
+    /// ——world 附着没有具体实体可作为键，同 <see cref="FlashAction"/> 排除 world 的构造期校验
+    /// 手法一致。</summary>
+    public sealed class StopVfxAction : FeedbackAction
+    {
+        /// <summary>与 <see cref="FromDisplay"/> 二选一，至少一个非空（构造期校验）。</summary>
+        public Id? VfxId { get; }
+
+        public FromDisplaySource? FromDisplay { get; }
+
+        public FeedbackAttachTarget Attach { get; }
+
+        public StopVfxAction(Id? vfxId, FromDisplaySource? fromDisplay, FeedbackAttachTarget attach)
+            : base(FeedbackActionKind.StopVfx)
+        {
+            if (vfxId == null && fromDisplay == null)
+            {
+                throw new ArgumentException("stop_vfx 动作必须提供 vfx_id 或 from_display 之一");
+            }
+            if (vfxId != null && fromDisplay != null)
+            {
+                throw new ArgumentException("stop_vfx 动作的 vfx_id 与 from_display 至多提供一个");
+            }
+            if (attach == FeedbackAttachTarget.World)
+            {
+                throw new ArgumentException(
+                    "stop_vfx 动作的 attach 只能是 source 或 target——按 (vfx_id, 附着实体) 定位在播实例，world 没有实体可作为键，见 ADR-0075",
+                    nameof(attach));
+            }
+
+            VfxId = vfxId;
+            FromDisplay = fromDisplay;
+            Attach = attach;
         }
     }
 

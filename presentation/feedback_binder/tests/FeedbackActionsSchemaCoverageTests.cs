@@ -18,7 +18,7 @@ namespace Tests.Presentation.FeedbackBinder
         {
             var registered = FeedbackSchemas.ActionsItemSchema.Variants!.Cases.Keys.ToHashSet();
             Assert.Equal(FeedbackSchemas.ActionKindValues.ToHashSet(), registered);
-            Assert.Equal(6, System.Enum.GetValues(typeof(FeedbackActionKind)).Length);
+            Assert.Equal(7, System.Enum.GetValues(typeof(FeedbackActionKind)).Length);
         }
 
         [Fact]

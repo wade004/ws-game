@@ -27,7 +27,15 @@
       "event": "aura.applied",
       "actions": [
         { "kind": "play_vfx", "params": { "vfx_id": "vfx.sample_cast_circle", "attach": "target" } },
+        { "kind": "play_vfx", "params": { "vfx_id": "vfx.sample_aura_glow", "attach": "target" } },
         { "kind": "play_sfx", "params": { "sfx_id": "sfx.sample_cast" } }
+      ]
+    },
+    {
+      "id": "feedback.sample_aura_removed",
+      "event": "aura.removed",
+      "actions": [
+        { "kind": "stop_vfx", "params": { "vfx_id": "vfx.sample_aura_glow", "attach": "target" } }
       ]
     },
     {

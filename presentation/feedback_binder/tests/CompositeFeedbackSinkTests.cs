@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Adapters.Stub;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.Rng;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.FeedbackBinder.Core;
@@ -77,6 +78,90 @@ namespace Tests.Presentation.FeedbackBinder
 
             sfxLoader.CompletePending(new Id("res.footstep"));
             Assert.False(sink.HasPendingPlayback);
+        }
+
+        // ------------------------------------------------------------------
+        // ADR-0075：stop_vfx 按 (vfx_id, 附着实体) 定位在播实例并停止。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void StopVfx_StopsInstancePlayedForSameVfxAndEntity()
+        {
+            var renderer = new StubRenderer2D();
+            var vfx = new VfxPlayer(renderer, new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var entityId = new Id("unit.dummy");
+            var sink = new CompositeFeedbackSink(
+                vfx, sfx,
+                onFloatingText: (_, __, ___) => { },
+                onFreeze: _ => { },
+                onShakeCamera: _ => { },
+                onFlash: (_, __) => { },
+                entityPositionResolver: id => id.Equals(entityId) ? Vec2.Zero : (Vec2?)null);
+
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, entityId, null);
+            sink.PlayVfx(WorldVfx, spec);
+            Assert.True(renderer.IsParticleAlive(new ParticleHandle(1)));
+
+            sink.StopVfx(WorldVfx, spec);
+            Assert.False(renderer.IsParticleAlive(new ParticleHandle(1)));
+        }
+
+        [Fact]
+        public void StopVfx_NoInstanceEverPlayed_IsSilentNoOp()
+        {
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, new Id("unit.never_played"), null);
+            var ex = Record.Exception(() => sink.StopVfx(WorldVfx, spec));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void StopVfx_AfterNaturalLifetimeExpiry_DoesNotThrow_AndIsANoOp()
+        {
+            var shortLivedVfx = new Id("vfx.short_lived");
+            var catalog = new Dictionary<Id, VfxDef>
+            {
+                [shortLivedVfx] = new VfxDef(shortLivedVfx, "buff", VfxAttachMode.World, lifetime: 0.1, new Id("res.spark")),
+            };
+            var renderer = new StubRenderer2D();
+            var vfx = new VfxPlayer(renderer, new StubCamera(), catalog);
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var entityId = new Id("unit.dummy2");
+            var sink = new CompositeFeedbackSink(
+                vfx, sfx,
+                onFloatingText: (_, __, ___) => { },
+                onFreeze: _ => { },
+                onShakeCamera: _ => { },
+                onFlash: (_, __) => { },
+                entityPositionResolver: id => Vec2.Zero);
+
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Target, entityId, null);
+            sink.PlayVfx(shortLivedVfx, spec);
+            Assert.True(renderer.IsParticleAlive(new ParticleHandle(1)));
+
+            vfx.Update(1.0); // 超过 lifetime=0.1，VfxPool 自然回收。
+            Assert.False(renderer.IsParticleAlive(new ParticleHandle(1)));
+
+            var ex = Record.Exception(() => sink.StopVfx(shortLivedVfx, spec));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void StopVfx_WorldAttach_HasNoEntityToKeyBy_IsSilentNoOp()
+        {
+            // FeedbackAttachSpec 本身允许构造 world 变体（IFeedbackSink.StopVfx 签名层面不禁止），
+            // 但数据驱动路径（StopVfxAction 构造函数）已经拒绝 world；这里直接对 CompositeFeedbackSink
+            // 这一层断言"没有实体可键时静默忽略"，不依赖上层是否拦截。
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+
+            var ex = Record.Exception(() => sink.StopVfx(WorldVfx, FeedbackAttachSpec.ForWorld(Vec2.Zero)));
+            Assert.Null(ex);
         }
 
         [Fact]

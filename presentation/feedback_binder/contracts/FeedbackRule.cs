@@ -127,6 +127,12 @@ namespace Presentation.FeedbackBinder.Contracts
                         OptionalId(@params, "sfx_id"),
                         OptionalEnum<FromDisplaySource>(@params, "from_display"));
 
+                case "stop_vfx":
+                    return new StopVfxAction(
+                        OptionalId(@params, "vfx_id"),
+                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
+                        RequireEnum<FeedbackAttachTarget>(record, index, @params, "attach"));
+
                 case "freeze":
                     return new FreezeAction(RequireNumber(record, index, @params, "duration_ms"));
 

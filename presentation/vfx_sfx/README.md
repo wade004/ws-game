@@ -192,10 +192,36 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     罗列这份清单，避免未来再次出现"举一个例子当作全部已接线"的文档漂移。详见
     `presentation/assembly/README.md` 判断记录"PRES-118-SFX 根治"。
 
+17. **ADR-0074 粒子发射混合模式**：`vfx.def` 新增可选字段 `blend_mode`（`alpha`/`additive`，缺省
+    `alpha`），`VfxDef` 强类型同步新增 `BlendMode` 属性（新增 6 参构造函数，旧 5 参构造函数转发，
+    行为不变）；`Spawn`/`QueuePendingSpawn`/`OnResourceLoadCompleted` 三处 `EmitParticle` 调用点
+    统一改走 `Core.Foundation.EngineAdapter.IRenderer2D` 新增的带混合模式参数重载（该重载带默认
+    实现，转发到既有 3 参重载并固定按 `Alpha` 处理，未实现该重载的既有 `IRenderer2D` 实现方不受
+    影响）。混合模式是发射时固定属性，不经 `SetShaderParam` 或播放期间动态修改，详见
+    [ADR-0074](../../architecture/adr/0074-粒子发射混合模式.md)。
+18. **ADR-0075 `StopInternal` 幂等修复**：为配合 `feedback_binder` 新增的 `stop_vfx` 动作（该动作
+    对"查不到在播实例"要求静默无操作，见 ADR-0075），发现并修复 `VfxPlayer.StopInternal` 既有的
+    非幂等缺陷——此前对已经不在 `_handleCategory` 中的句柄（已被对象池自然回收/已被重复停止）仍
+    无条件调用 `IRenderer2D.StopParticle`，命中 `StubRenderer2D`/`UnityRenderer2D` 等实现"句柄已
+    销毁或不存在"的防御性异常。现改为先查 `_handleCategory.Remove(handle)` 的返回值
+    （`wasAlive`），只在确实移除成功时才转发 `StopParticle`；`_followTargets.Remove` 与 socket
+    型模型句柄的清理路径不受影响（无论 `wasAlive` 与否都执行，因为它们各自已有独立的存在性判断）。
+    这一修复使本模块自身的 `Stop(handle)`（面向已知句柄的既有公开入口）与新增的"按
+    `(vfx_id, entity)` 键查找句柄后转发 `Stop`"路径（`CompositeFeedbackSink`，见
+    `feedback_binder` README）在"目标已经自然过期"场景下行为一致（都不抛异常），回归用例见
+    `tests/VfxPlayerTests.cs`（新增 blend_mode 两条）与 `presentation/feedback_binder/tests/
+    CompositeFeedbackSinkTests.cs`（`StopVfx_AfterNaturalLifetimeExpiry_*`，用真实
+    `vfx.Update(dt)` 触发自然回收后再调用停止路径）。
+
 ## 不负责什么
 
-- 不接入 `data/_sample/`：本任务不新增示例数据文件，`schema/VfxSfxSchemas` 只声明表结构，测试用
-  `InMemoryDataSource` 内联 JSON 验证 `FromRecord` 的解析正确性。
+- `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的
+  `blend_mode: additive` 示例行 `vfx.sample_aura_glow`），本条注记因此已过时——原表述"本任务不
+  新增示例数据文件"只反映本模块最初落地时的范围，如实保留在下方旧记录之外单独更正，不删旧记录本身
+  （见 CLAUDE.md"有分歧的设计直接删掉"以外的场景——这不是分歧，是范围随后续任务扩大，旧记录仍是
+  当时任务范围的真实描述）。`schema/VfxSfxSchemas` 本身不变，仍然只声明表结构；测试用
+  `InMemoryDataSource` 内联 JSON 的既有验证方式也不变，两者并不互斥——示例数据供 Unity 侧真实
+  资源加载/播放路径与数据校验工具链验证，单测内联 JSON 供 `FromRecord` 解析逻辑的快速回归。
 - 不实现 `CharacterRig`、纸娃娃层、序列帧动画播放器（09 第 4 节，另一任务范围）。
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys` 等）——若集成时该模块已提供
   `AnchorResolver` 或等价类型，以 `presentation/common` 为准，本模块的 `AnchorResolver`/
