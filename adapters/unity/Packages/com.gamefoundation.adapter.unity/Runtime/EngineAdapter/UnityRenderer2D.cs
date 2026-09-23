@@ -80,6 +80,15 @@ namespace Adapter.Unity.EngineAdapter
             /// 分段（如未来出现的非本约定资源）时整段值原样当层名使用，不抛异常——按名查找找不到时
             /// 逐层动画驱动静默跳过该层（同本类型一贯的防御性惯例）。</summary>
             public List<string> LayerNames = new List<string>();
+
+            /// <summary>与 <see cref="LayerRenderers"/>/<see cref="LayerNames"/> 一一对应的层资源
+            /// <see cref="Id"/> 原值，只供框架自身测试断言"这一层当前应用的究竟是哪个资源集的图"
+            /// （见 <see cref="GetLayerResourceIdsForTests"/>）。判断记录：此前这类断言只能经
+            /// <c>IResourceLoader.GetLoadProgress</c> 间接推断，而加载器缓存是整个测试会话共享的
+            /// ——同一份资源被别的用例加载过就恒为已加载，"某资源不应被这个视图用到"这类否定断言
+            /// 因此依赖用例执行顺序（2026-09-23 全量门禁实测：单跑通过、全量跑失败）。本字段让断言
+            /// 改看"这个精灵实例实际应用了什么"，与执行顺序无关。</summary>
+            public List<Id> LayerResourceIds = new List<Id>();
             public int Layer;
             public double SortY;
             public bool FlipX;
@@ -169,6 +178,7 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             instance.LayerNames.Clear();
+            instance.LayerResourceIds.Clear();
 
             for (var i = 0; i < layers.Count; i++)
             {
@@ -189,6 +199,7 @@ namespace Adapter.Unity.EngineAdapter
                 renderer.flipX = instance.FlipX;
                 renderer.color = ComputeColor(instance);
                 instance.LayerNames.Add(ExtractLayerName(layers[i]));
+                instance.LayerResourceIds.Add(layers[i]);
             }
 
             ApplySortingOrders(instance);
@@ -400,6 +411,13 @@ namespace Adapter.Unity.EngineAdapter
         /// 见该字段判断记录。句柄不存在时返回 null。</summary>
         public IReadOnlyList<string>? GetLayerNames(SpriteHandle handle) =>
             _sprites.TryGetValue(handle.Value, out var instance) ? instance.LayerNames : null;
+
+        /// <summary>框架自身测试专用（<c>internal</c>，同 <c>UnityViewFactory.AnimStateMachineForTests</c>
+        /// 惯例，不是公开契约的一部分）：该精灵实例当前实际应用的各层资源 <see cref="Id"/>，顺序与
+        /// <see cref="GetLayerNames"/> 一致。用途见 <see cref="SpriteInstance.LayerResourceIds"/>
+        /// 判断记录。句柄不存在时返回 null。</summary>
+        internal IReadOnlyList<Id>? GetLayerResourceIdsForTests(SpriteHandle handle) =>
+            _sprites.TryGetValue(handle.Value, out var instance) ? instance.LayerResourceIds : null;
 
         /// <summary>
         /// ADR-0072 决策 2 新增：纸娃娃层逐层动画播放的落地方法——直接把调用方已经手上持有的解码

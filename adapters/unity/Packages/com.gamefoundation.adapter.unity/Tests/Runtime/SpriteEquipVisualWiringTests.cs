@@ -279,36 +279,60 @@ namespace Adapter.Unity.Tests.Runtime
             fx.Bus.PublishImmediate(capeEquipEvt);
             view.OnEvent(capeEquipEvt);
 
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR), 0.0,
-                "装备后 side_r 朝向下 head 装备层资源应当已被请求");
+            // 判断记录（2026-09-23 全量门禁实测：本用例单跑通过、全量跑失败，改断言口径）：层资源
+            // 断言一律改看"这个精灵实例当前实际应用了哪些层资源 Id"（GetLayerResourceIdsForTests），
+            // 不再经 IResourceLoader.GetLoadProgress 间接推断。加载器缓存是整个 PlayMode 会话共享的
+            // ——同文件其它用例只要加载过 layer.creature_sample_hero__front__head，"head 装备层不应
+            // 退化成身体层资源"这条否定断言就恒为假失败（实测 Expected 0.0 / But was 1.0），断言结果
+            // 取决于用例执行顺序。改看实际应用的层之后与顺序无关，且是更强的断言：不只是"请求过"，
+            // 而是"这一层此刻挂的就是这个资源"。
+            void AssertLayerResource(string layerName, Id expected, string because)
+            {
+                var names = fx.Host.Renderer2D.GetLayerNames(view.EngineHandle);
+                var ids = fx.Host.Renderer2D.GetLayerResourceIdsForTests(view.EngineHandle);
+                Assert.IsNotNull(names, "层名列表不应为 null（精灵实例应当存活）");
+                Assert.IsNotNull(ids, "层资源 Id 列表不应为 null（精灵实例应当存活）");
+                var index = -1;
+                for (var i = 0; i < names!.Count; i++)
+                {
+                    if (string.Equals(names[i], layerName, System.StringComparison.Ordinal))
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+                Assert.GreaterOrEqual(index, 0, $"层 \"{layerName}\" 应当存在于当前层列表里（{because}）");
+                Assert.AreEqual(expected, ids![index], because);
+            }
+
+            AssertLayerResource("head", HatResolvedLayerResourceIdSideR,
+                "装备后 side_r 朝向下 head 层应当挂装备层资源");
             var capeSideR = new Id("layer.item_sample_hero_hat_wiring_test__side_r__cape");
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeSideR), 0.0,
-                "装备后 side_r 朝向下额外层 cape 资源应当已被请求（未被丢弃）");
+            AssertLayerResource("cape", capeSideR,
+                "装备后 side_r 朝向下额外层 cape 应当存在并挂装备层资源（未被丢弃）");
 
             // 真实朝向切换：不再手工重新 OnEvent，只调 SyncPose——这正是 UnitySpriteView.SyncPose 里
             // "朝向变化 -> SetPaperdollLayers"分支，验证的是这条路径本身是否装备感知。连续切换三个
             // 方向档位，各自断言一次（协调者验收要求）。
             view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), height: 0.0); // front
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdFront), 0.0,
-                "真实朝向切换到 front 后，head 装备层应当解析出 front 档位的装备资源");
-            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(BodyHeadResourceIdFront),
-                "head 装备层不应该退化成身体层资源 " + BodyHeadResourceIdFront.Value + "（修复前会退化，见" +
-                "类型顶部判断记录实测值）");
+            AssertLayerResource("head", HatResolvedLayerResourceIdFront,
+                "真实朝向切换到 front 后，head 层应当挂 front 档位的装备资源，而不是退化成身体层资源 "
+                + BodyHeadResourceIdFront.Value + "（修复前实得的正是这个身体层资源）");
             var capeFront = new Id("layer.item_sample_hero_hat_wiring_test__front__cape");
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeFront), 0.0,
-                "真实朝向切换到 front 后，额外层 cape 仍然应当存在并解析出 front 档位资源（不应被丢弃）");
+            AssertLayerResource("cape", capeFront,
+                "真实朝向切换到 front 后，额外层 cape 仍然应当存在并挂 front 档位资源（不应被丢弃）");
 
             view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 3 / 2, 8), height: 0.0); // back
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdBack), 0.0,
-                "真实朝向切换到 back 后，head 装备层应当解析出 back 档位的装备资源");
+            AssertLayerResource("head", HatResolvedLayerResourceIdBack,
+                "真实朝向切换到 back 后，head 层应当挂 back 档位的装备资源");
             var capeBack = new Id("layer.item_sample_hero_hat_wiring_test__back__cape");
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeBack), 0.0,
-                "真实朝向切换到 back 后，额外层 cape 仍然应当存在并解析出 back 档位资源");
+            AssertLayerResource("cape", capeBack,
+                "真实朝向切换到 back 后，额外层 cape 仍然应当存在并挂 back 档位资源");
 
             view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0); // 回到 side_r
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR), 0.0,
-                "真实朝向切换回 side_r 后，head 装备层应当仍然解析出 side_r 档位的装备资源");
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(capeSideR), 0.0,
+            AssertLayerResource("head", HatResolvedLayerResourceIdSideR,
+                "真实朝向切换回 side_r 后，head 层应当仍然挂 side_r 档位的装备资源");
+            AssertLayerResource("cape", capeSideR,
                 "真实朝向切换回 side_r 后，额外层 cape 仍然应当存在");
 
             equipSource.Dispose();
