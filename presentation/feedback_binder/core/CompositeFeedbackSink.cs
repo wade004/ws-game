@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.VfxSfx.Contracts;
 
@@ -7,9 +9,10 @@ namespace Presentation.FeedbackBinder.Core
 {
     /// <summary>
     /// <see cref="IFeedbackSink"/> 的默认实现（见 09_表现层.md 第 6.1 节"本模块只发指令"）：
-    /// <c>play_vfx</c>/<c>play_sfx</c> 转给注入的 <see cref="Presentation.VfxSfx.Contracts.IVfxPlayer"/>/
-    /// <see cref="Presentation.VfxSfx.Contracts.ISfxPlayer"/>；其余四种（飘字/顿帧/震屏/闪白）转给
-    /// 调用方注入的委托——这四种动作的具体落地（UI 控件池、tick 节奏、镜头/材质参数）不属于
+    /// <c>play_vfx</c>/<c>stop_vfx</c>/<c>play_sfx</c> 转给注入的
+    /// <see cref="Presentation.VfxSfx.Contracts.IVfxPlayer"/>/<see cref="Presentation.VfxSfx.Contracts.ISfxPlayer"/>
+    /// （<c>stop_vfx</c> 见 ADR-0075、<see cref="StopVfx"/> 判断记录）；其余四种（飘字/顿帧/震屏/闪白）
+    /// 转给调用方注入的委托——这四种动作的具体落地（UI 控件池、tick 节奏、镜头/材质参数）不属于
     /// <c>vfx_sfx</c>/<c>feedback_binder</c> 两个模块的契约范围，见 feedback_binder/README.md。
     /// </summary>
     public sealed class CompositeFeedbackSink : IFeedbackSink
@@ -22,6 +25,20 @@ namespace Presentation.FeedbackBinder.Core
         private readonly Action<Id> _onShakeCamera;
         private readonly Action<Id, Id> _onFlash;
         private readonly Presentation.VfxSfx.Contracts.IPresentationDiagnostics _diagnostics;
+
+        /// <summary>ADR-0075：(vfxId, 附着实体) → 当前仍在播的粒子句柄，供 <see cref="StopVfx"/> 按同一
+        /// 对键定位。判断记录（为什么是"覆盖最近一次"而不是维护一个列表"全停"）：同一 (vfxId, 实体)
+        /// 组合再次 <see cref="PlayVfx"/>（如同一光环刷新/重新施加）时，新句柄直接覆盖旧记录——本类型
+        /// 不据此反过来停止旧实例（旧实例是否要跟着停不是本类型能替上层拍板的语义，交给调用方自己先发
+        /// <c>stop_vfx</c> 再发 <c>play_vfx</c>），<see cref="StopVfx"/> 只停止"当前记录着的这一个"
+        /// （最近一次）；选这个规则而不是维护每对键一份列表，是因为字典大小因此只随"当前有多少对不同
+        /// 的 (vfxId, 实体) 组合"增长（同一对键反复重播不增长），不会像列表方案那样在"从未调用
+        /// <c>stop_vfx</c> 的同一对键反复播放"这一常见场景下无界增长——ADR-0075 动机场景（眩晕特效随
+        /// 光环状态显隐）本就是同一对键至多一个逻辑实例在播，这条规则已完全覆盖。只在
+        /// <see cref="FeedbackAttachSpec.EntityId"/> 有值（<c>attach</c> 不是 world）时才登记，见
+        /// <see cref="PlayVfx"/>。</summary>
+        private readonly Dictionary<(Id VfxId, Id EntityId), ParticleHandle> _activeVfxByKey =
+            new Dictionary<(Id, Id), ParticleHandle>();
 
         public CompositeFeedbackSink(
             IVfxPlayer vfxPlayer,
@@ -60,7 +77,38 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            _vfxPlayer.Spawn(vfxId, vfxAttach.Value, null);
+            var handle = _vfxPlayer.Spawn(vfxId, vfxAttach.Value, null);
+
+            // ADR-0075：只在这次播放确有实体可键（attach 不是 world）且确实产生了句柄（未被
+            // vfx.def 未登记/挂接目标不可解析等原因跳过，见 IVfxPlayer.Spawn 判断记录"返回 null"）
+            // 时才登记，供 StopVfx 按同一对键定位，见 _activeVfxByKey 判断记录。
+            if (handle.HasValue && attach.EntityId.HasValue)
+            {
+                _activeVfxByKey[(vfxId, attach.EntityId.Value)] = handle.Value;
+            }
+        }
+
+        /// <summary>ADR-0075：按 (<paramref name="vfxId"/>, <paramref name="attach"/> 的附着实体) 定位
+        /// <see cref="PlayVfx"/> 登记过的当前在播实例并停止；<see cref="IVfxPlayer.Stop"/> 契约本身承诺
+        /// "handle 不存在/已停止时安全忽略"，因此即便记录的句柄已经自然超时回收，本方法也不会抛异常
+        /// （见 <c>Presentation.VfxSfx.Core.VfxPlayer.StopInternal</c> 判断记录）。<paramref name="attach"/>
+        /// 没有实体（world）或这对键从未登记过（没播过/已经被停过一次）时静默返回，不写诊断——"没有
+        /// 在播实例"是数据驱动路径下完全正常会发生的时序，不是缺陷信号（见 ADR-0075 验收标准）。</summary>
+        public void StopVfx(Id vfxId, FeedbackAttachSpec attach)
+        {
+            if (!attach.EntityId.HasValue)
+            {
+                return;
+            }
+
+            var key = (vfxId, attach.EntityId.Value);
+            if (!_activeVfxByKey.TryGetValue(key, out var handle))
+            {
+                return;
+            }
+
+            _activeVfxByKey.Remove(key);
+            _vfxPlayer.Stop(handle);
         }
 
         public void PlaySfx(Id sfxId, Vec2? at) => _sfxPlayer.Play(sfxId, at);

@@ -107,6 +107,50 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         [Fact]
+        public void StopVfxAction_FromRecord_ParsesVfxIdAndAttach()
+        {
+            const string row = @"
+            {
+              ""id"": ""feedback.stop_stun_vfx"",
+              ""event"": ""aura.applied"",
+              ""actions"": [
+                {""kind"": ""stop_vfx"", ""params"": {""vfx_id"": ""vfx.stun_loop"", ""attach"": ""target""}}
+              ]
+            }";
+
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("feedback.binding", "feedback.stop_stun_vfx")!;
+            var rule = FeedbackRule.FromRecord(record, RulesExprSchema.Base);
+
+            var stopVfx = Assert.IsType<StopVfxAction>(Assert.Single(rule.Actions));
+            Assert.Equal(new Id("vfx.stun_loop"), stopVfx.VfxId);
+            Assert.Null(stopVfx.FromDisplay);
+            Assert.Equal(FeedbackAttachTarget.Target, stopVfx.Attach);
+        }
+
+        [Fact]
+        public void StopVfxAction_Constructor_RejectsWorldAttach()
+        {
+            var ex = Assert.Throws<System.ArgumentException>(
+                () => new StopVfxAction(new Id("vfx.stun_loop"), null, FeedbackAttachTarget.World));
+            Assert.Contains("world", ex.Message);
+        }
+
+        [Fact]
+        public void StopVfxAction_Constructor_RequiresExactlyOneOf_VfxIdOrFromDisplay()
+        {
+            Assert.Throws<System.ArgumentException>(
+                () => new StopVfxAction(null, null, FeedbackAttachTarget.Target));
+            Assert.Throws<System.ArgumentException>(
+                () => new StopVfxAction(new Id("vfx.stun_loop"), FromDisplaySource.Skill, FeedbackAttachTarget.Target));
+        }
+
+        [Fact]
         public void FloatingTextStyleDef_FromRecord_ParsesAllFields()
         {
             var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>

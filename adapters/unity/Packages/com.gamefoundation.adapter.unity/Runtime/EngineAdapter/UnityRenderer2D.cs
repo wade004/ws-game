@@ -459,7 +459,17 @@ namespace Adapter.Unity.EngineAdapter
         /// ADR-0017 决策 d 命中帧同步端到端用例：命中帧到达前不应触发本计数，到达后才触发）。</summary>
         public int EmitParticleCallCount { get; private set; }
 
-        public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters)
+        public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters) =>
+            EmitParticle(effectId, position, parameters, VfxBlendMode.Alpha);
+
+        /// <summary>ADR-0074 新增重载：显式实现（不依赖 <see cref="IRenderer2D"/> 的默认转发）。
+        /// <paramref name="blendMode"/> 只在命中 <see cref="EffectSequencePlayer"/> 路径（真实序列帧
+        /// 特效资产）时生效，见该类型 <c>Play</c> 重载；内建通用粒子回退路径（<see cref="ParticleSystem"/>）
+        /// 不受本次改动影响，仍固定用类顶部 <c>RentParticleSystem</c> 配置的材质——回退路径本就是
+        /// "资产缺失时的占位保底"，additive 观感的产品价值集中在真实特效资产上，超出本次消费方反馈
+        /// 范围的额外改动不在此处顺带做。三参旧重载保留、签名不变，转发到本重载并固定传
+        /// <see cref="VfxBlendMode.Alpha"/>——alpha 分支行为与改动前逐字一致。</summary>
+        public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters, VfxBlendMode blendMode)
         {
             EmitParticleCallCount++;
             var handle = _nextParticleHandle++;
@@ -481,7 +491,7 @@ namespace Adapter.Unity.EngineAdapter
                 }
 
                 player.gameObject.SetActive(true);
-                player.Play(frames, durations, effect.Loop);
+                player.Play(frames, durations, effect.Loop, blendMode);
                 _sequencePlayers[handle] = player;
 
                 return new ParticleHandle(handle);
@@ -514,6 +524,14 @@ namespace Adapter.Unity.EngineAdapter
 
             return new ParticleHandle(handle);
         }
+
+        /// <summary>框架自身测试专用（<c>internal</c>，同 <see cref="GetLayerResourceIdsForTests"/>
+        /// 一类"不是公开契约的一部分"惯例）：该粒子句柄若当前命中 <see cref="EffectSequencePlayer"/>
+        /// 路径（真实序列帧特效资产），返回其 <see cref="SpriteRenderer.sharedMaterial"/>——供 PlayMode
+        /// 测试断言 ADR-0074 additive/alpha 混合模式确实换了材质。句柄不存在，或当前命中的是内建通用
+        /// 粒子回退路径（<see cref="ParticleSystem"/>，不受本次改动影响）时返回 null。</summary>
+        internal Material? GetEffectSequenceMaterialForTests(ParticleHandle handle) =>
+            _sequencePlayers.TryGetValue(handle.Value, out var player) ? player.GetComponent<SpriteRenderer>().sharedMaterial : null;
 
         public void StopParticle(ParticleHandle handle)
         {

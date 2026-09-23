@@ -16,6 +16,16 @@ namespace Presentation.FeedbackBinder.Contracts
 
         void PlayVfx(Id vfxId, FeedbackAttachSpec attach);
 
+        /// <summary>ADR-0075 新增：按 (<paramref name="vfxId"/>, <paramref name="attach"/> 解析出的
+        /// 附着实体) 定位此前由 <see cref="PlayVfx"/> 播放、当前仍在播的实例并停止；查不到在播实例时
+        /// （从未播过、已自然超时回收、或已被停止过）静默忽略，不写诊断——"光环没播过特效就被移除"
+        /// 一类场景属于正常情况，不是缺陷信号。带默认实现（C# 8+ default interface member，默认体为
+        /// 空操作），保证既有 <see cref="IFeedbackSink"/> 实现方不需要改一行代码即可继续编译通过
+        /// （ABI 只加法）；本模块默认实现 <c>Presentation.FeedbackBinder.Core.CompositeFeedbackSink</c>
+        /// 显式覆盖，转给 <c>Presentation.VfxSfx.Contracts.IVfxPlayer.Stop</c>，见该类型判断记录
+        /// "为什么按 (vfx_id, 实体) 建表，不把句柄塞进数据层"。</summary>
+        void StopVfx(Id vfxId, FeedbackAttachSpec attach) { }
+
         void PlaySfx(Id sfxId, Vec2? at);
 
         void Freeze(double durationMs);

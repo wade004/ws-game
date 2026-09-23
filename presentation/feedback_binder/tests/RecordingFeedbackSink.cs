@@ -11,6 +11,7 @@ namespace Tests.Presentation.FeedbackBinder
     {
         public readonly List<(Id EntityId, Id StyleId, string Text)> FloatingTexts = new List<(Id, Id, string)>();
         public readonly List<(Id VfxId, FeedbackAttachSpec Attach)> PlayVfxCalls = new List<(Id, FeedbackAttachSpec)>();
+        public readonly List<(Id VfxId, FeedbackAttachSpec Attach)> StopVfxCalls = new List<(Id, FeedbackAttachSpec)>();
         public readonly List<(Id SfxId, Vec2? At)> PlaySfxCalls = new List<(Id, Vec2?)>();
         public readonly List<double> Freezes = new List<double>();
         public readonly List<Id> Shakes = new List<Id>();
@@ -19,6 +20,10 @@ namespace Tests.Presentation.FeedbackBinder
         public void FloatingText(Id entityId, Id styleId, string text) => FloatingTexts.Add((entityId, styleId, text));
 
         public void PlayVfx(Id vfxId, FeedbackAttachSpec attach) => PlayVfxCalls.Add((vfxId, attach));
+
+        /// <summary>ADR-0075：显式实现（不依赖 <see cref="IFeedbackSink"/> 的空操作默认实现），供测试
+        /// 断言 stop_vfx 动作确实被派发、且带着正确的 vfxId/attach。</summary>
+        public void StopVfx(Id vfxId, FeedbackAttachSpec attach) => StopVfxCalls.Add((vfxId, attach));
 
         public void PlaySfx(Id sfxId, Vec2? at)
         {

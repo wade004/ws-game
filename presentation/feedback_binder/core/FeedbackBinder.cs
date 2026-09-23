@@ -362,6 +362,10 @@ namespace Presentation.FeedbackBinder.Core
                     DispatchPlayVfx(playVfx, evt, selfId, targetId);
                     break;
 
+                case StopVfxAction stopVfx:
+                    DispatchStopVfx(stopVfx, evt, selfId, targetId);
+                    break;
+
                 case PlaySfxAction playSfx:
                     DispatchPlaySfx(playSfx, evt, selfId, targetId);
                     break;
@@ -470,6 +474,42 @@ namespace Presentation.FeedbackBinder.Core
             }
 
             _queue.Enqueue(() => _sink.PlayVfx(vfxId.Value, spec));
+        }
+
+        /// <summary>ADR-0075：与 <see cref="DispatchPlayVfx"/> 同一套 vfx_id/from_display 解析、同一套
+        /// attach 换算（World 分支在 <see cref="StopVfxAction"/> 构造期已被拒绝，理论不可达，这里仍
+        /// 保留 <c>default: return;</c> 兜底，同switch 一贯的防御性写法）——唯一差异是不带 anchor_id
+        /// （<see cref="StopVfxAction"/> 本就没有这个字段，见该类型判断记录），派发给
+        /// <see cref="IFeedbackSink.StopVfx"/> 而不是 <see cref="IFeedbackSink.PlayVfx"/>。</summary>
+        private void DispatchStopVfx(StopVfxAction action, IEvent evt, Id selfId, Id? targetId)
+        {
+            var vfxId = ResolveDisplayVfxOrSfxId(action.VfxId, action.FromDisplay, evt, selfId, targetId, isVfx: true);
+            if (vfxId == null)
+            {
+                return;
+            }
+
+            FeedbackAttachSpec spec;
+            switch (action.Attach)
+            {
+                case FeedbackAttachTarget.Source:
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, selfId, null);
+                    break;
+
+                case FeedbackAttachTarget.Target:
+                    if (!targetId.HasValue)
+                    {
+                        _diagnostics.Warn($"feedback 规则 stop_vfx：动作声明 attach=target 但事件 \"{evt.Key}\" 没有 targetId，跳过");
+                        return;
+                    }
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Target, targetId.Value, null);
+                    break;
+
+                default:
+                    return;
+            }
+
+            _queue.Enqueue(() => _sink.StopVfx(vfxId.Value, spec));
         }
 
         private void DispatchPlaySfx(PlaySfxAction action, IEvent evt, Id selfId, Id? targetId)

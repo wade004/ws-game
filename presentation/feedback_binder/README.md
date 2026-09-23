@@ -189,6 +189,22 @@
     `world` 三条业务判断登记层表达不了，继续由 `FeedbackAction` 各子类构造函数（抛异常）承担——
     与 `DataRegistry.LoadAll` 的优雅收集是两套独立的失败通道，互不重复。
 
+17. **ADR-0075 `stop_vfx` 动作**：`FeedbackActionKind` 固定枚举新增第七项 `StopVfx`；新增
+    `StopVfxAction`（构造函数校验 `vfx_id`/`from_display` 二选一、`attach` 不得为 `world`，同
+    `PlayVfxAction`/`FlashAction` 既有校验风格），`FeedbackSchemas.BuildActionVariants` 与
+    `FeedbackRule.ParseAction` 同步登记 `stop_vfx` 变体（`attach` 字段登记层仍表达
+    `FeedbackAttachTargetValues` 全集，`world` 由 `StopVfxAction` 构造函数在运行期拒绝，与判断
+    记录 16 "登记层表达不了的业务判断继续由子类构造函数承担"同一分工）。`IFeedbackSink` 新增
+    `StopVfx(vfxId, attach)`，带默认实现（空方法体，未实现的既有 sink 收到 `stop_vfx` 动作时
+    静默无操作），`FeedbackBinder.DispatchStopVfx` 解析 `attach` 后入队 `_sink.StopVfx(...)`。
+    `CompositeFeedbackSink` 新增 `_activeVfxByKey: Dictionary<(Id VfxId, Id EntityId),
+    ParticleHandle>`——`PlayVfx` 成功且 `attach.EntityId` 有值时按该键覆盖写入最新句柄
+    （"停最近一个"，不维护列表，见 ADR-0075"决策 3"内存有界性论证）；`StopVfx` 按同一键查表，查到
+    即从 `VfxPlayer` 转发 `Stop(handle)` 并移除该键，查不到（特效已自然到期回收/从未播放过/
+    `attach` 是 `world` 没有实体可键）静默返回，不产生任何诊断。详见
+    [ADR-0075](../../architecture/adr/0075-停止特效反馈动作.md)、`presentation/vfx_sfx/README.md`
+    判断记录 18（`VfxPlayer.StopInternal` 幂等修复，`stop_vfx` 命中"已自然过期"场景的前置条件）。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行
@@ -196,8 +212,10 @@
 - 不自己实现 `l10n.text` 查表逻辑（那是 `core/foundation/localization` 的事）——本模块只暴露一个
   可选 `textResolver` 注入点（判断记录 6），`l10n.text` 不再是未接线的契约缺口；`from_display:
   source/target` 的实体 → 模板 id 映射已在 P4-2 修补（判断记录 5），同样不再是契约缺口。
-- 不接入 `data/_sample/`：`schema/FeedbackSchemas` 只声明表结构，测试用 `InMemoryDataSource`
-  内联 JSON 验证 `FromRecord` 的解析正确性。
+- `data/_sample/` 现已有真实示例数据（`data/_sample/feedback/feedback.binding.json`，含 ADR-0075
+  的 `stop_vfx` 示例行 `feedback.sample_aura_removed`），原表述"不接入 `data/_sample/`"已过时，
+  按同 `vfx_sfx` README 判断记录 17 附注一样的方式如实更正而不删旧记录：`schema/FeedbackSchemas`
+  本身仍然只声明表结构，测试用 `InMemoryDataSource` 内联 JSON 的既有验证方式不变，两者并不互斥。
 - 顿帧（`Freeze`）、震屏（`ShakeCamera`）的具体落地（tick 节奏/镜头）仍留给 `IFeedbackSink`
   实现方注入的委托，本模块只发指令；闪白（`Flash`）已由 `PresentationAssembly` 默认接到
   `presentation/render` 的 `ICharacterRig.ProceduralAnim.Flash` 原语（见拍板 6/09 第 4.1 节），

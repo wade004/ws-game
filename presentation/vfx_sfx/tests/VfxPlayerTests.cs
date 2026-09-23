@@ -38,6 +38,35 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
+        public void Spawn_BlendModeDefaultsToAlpha_WhenVfxDefDoesNotDeclareIt()
+        {
+            var renderer = new StubRenderer2D();
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog());
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            Assert.NotNull(handle);
+            Assert.Equal(VfxBlendMode.Alpha, renderer.ParticleBlendModes[handle!.Value.Value]);
+        }
+
+        [Fact]
+        public void Spawn_PassesDeclaredBlendMode_ToRenderer2D()
+        {
+            var renderer = new StubRenderer2D();
+            var additiveVfx = new Id("vfx.additive_glow");
+            var catalog = new Dictionary<Id, VfxDef>(BuildCatalog())
+            {
+                [additiveVfx] = new VfxDef(additiveVfx, "buff", VfxAttachMode.World, null, new Id("res.glow"), VfxBlendMode.Additive),
+            };
+            var player = new VfxPlayer(renderer, new StubCamera(), catalog);
+
+            var handle = player.Spawn(additiveVfx, VfxAttach.World(new Vec2(1, 1)), null);
+
+            Assert.NotNull(handle);
+            Assert.Equal(VfxBlendMode.Additive, renderer.ParticleBlendModes[handle!.Value.Value]);
+        }
+
+        [Fact]
         public void Spawn_Anchor_UsesAnchorResolverWorldPosition()
         {
             var renderer = new StubRenderer2D();

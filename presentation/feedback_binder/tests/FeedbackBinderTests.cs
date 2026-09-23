@@ -151,6 +151,38 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         // ------------------------------------------------------------------
+        // ADR-0075：stop_vfx 动作解析与派发。
+        // ------------------------------------------------------------------
+
+        private const string StopVfxRuleRow = @"
+        {
+          ""id"": ""feedback.aura_removed_stop_vfx"",
+          ""event"": ""aura.applied"",
+          ""actions"": [
+            {""kind"": ""stop_vfx"", ""params"": {""vfx_id"": ""vfx.stun_loop"", ""attach"": ""target""}}
+          ]
+        }";
+
+        [Fact]
+        public void OnEvent_StopVfxAction_DispatchesToSink_WithVfxIdAndAttachEntity()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new RecordingFeedbackSink();
+            var rules = LoadRules(StopVfxRuleRow);
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.stun"), new Id("unit.hero"), 1);
+            bus.PublishImmediate(evt);
+
+            Assert.Empty(sink.PlayVfxCalls);
+            Assert.Single(sink.StopVfxCalls);
+            Assert.Equal(new Id("vfx.stun_loop"), sink.StopVfxCalls[0].VfxId);
+            Assert.Equal(FeedbackAttachTarget.Target, sink.StopVfxCalls[0].Attach.Target);
+            Assert.Equal(new Id("unit.wolf"), sink.StopVfxCalls[0].Attach.EntityId);
+        }
+
+        // ------------------------------------------------------------------
         // 缺口 7 恢复：text_source: literal 经注入的 textResolver 解析真正文案（09 第 7.3 节）。
         // ------------------------------------------------------------------
 

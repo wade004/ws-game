@@ -497,6 +497,27 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   参数个数不对/未知分组仍照常报错）与 `presentation/assembly/tests/PresentationAssemblyTests.cs`
   新增三例（运行期，经真实 `FeedbackBinder`/`RulesExprHostFactory` 管线验证条件按事件真实字段值
   正确求值为真/假）。ABI：不改任何公开签名。
+- **粒子发射支持叠加混合模式**（消费方反馈第十九批第 1 条，见
+  [ADR-0074](architecture/adr/0074-粒子发射混合模式.md)）：`vfx.def` 新增可选字段 `blend_mode`
+  （`alpha`/`additive`，缺省 `alpha`，与改动前行为逐字一致）；`Core.Foundation.EngineAdapter.
+  IRenderer2D.EmitParticle` 新增带混合模式参数的重载（默认接口方法，转发到既有 3 参重载并固定按
+  `Alpha` 处理，既有实现方不受影响）；Unity 适配层按混合模式为 `EffectSequencePlayer` 的渲染实例
+  切换材质，`additive` 使用适配层内置占位材质与自定义叠加混合着色器（随包分发，`build.ps1`
+  同步补齐）。实测：真实序列帧特效资源 + `blend_mode: additive` 数据驱动播放，渲染材质确实切换为
+  叠加混合材质（着色器 `GameFoundation/Vfx/AdditiveUnlit`）；不声明或声明 `alpha` 时材质与改动前
+  完全一致；对象池复用同一播放器组件时材质按当次混合模式正确重设，不残留上一轮取值。ABI：只新增
+  重载/类型/默认接口方法，不改任何既有公开签名。
+- **反馈绑定新增 `stop_vfx` 动作，停止指定实体上正在播放的特效**（消费方反馈第十九批第 2 条，见
+  [ADR-0075](architecture/adr/0075-停止特效反馈动作.md)）：`FeedbackActionKind` 固定枚举新增第七
+  项 `StopVfx`；`feedback.binding` 可声明 `stop_vfx` 动作，字段形状镜像 `play_vfx`（支持
+  `vfx_id`/`from_display` 二选一、`attach` 为 `source`/`target`，不接受 `world`）；
+  `IFeedbackSink` 新增 `StopVfx(vfxId, attach)`（默认接口方法，空实现，既有实现方不受影响）；
+  `CompositeFeedbackSink` 按 `(特效逻辑 id, 附着实体)` 维护最近一次播放句柄（覆盖式单句柄，"停最
+  近一个"而非"停全部"，内存占用有界），查不到在播实例时静默返回、不产生诊断。随附修复
+  `VfxPlayer.StopInternal` 既有的非幂等缺陷（对已自然回收的句柄重复调用会抛异常）。实测：一条
+  `play_vfx` 规则起播后，另一条独立 `stop_vfx` 规则触发即可观察到该特效实例真正停止（按存活状态
+  断言，非仅"方法被调用"）；对已自然到期的特效调用 `stop_vfx` 不抛异常、不产生任何诊断输出。
+  ABI：只新增枚举值/类型/默认接口方法，不改任何既有公开签名。
 
 ## [1.64.0] - 2026-09-23
 

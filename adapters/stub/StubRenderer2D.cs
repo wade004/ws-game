@@ -51,6 +51,11 @@ namespace Adapters.Stub
         public readonly Dictionary<int, Dictionary<string, double>> ShaderParams = new Dictionary<int, Dictionary<string, double>>();
         public readonly Dictionary<int, (Id EffectId, Vec2 Position)> EmittedParticles = new Dictionary<int, (Id, Vec2)>();
 
+        /// <summary>ADR-0074 新增：每个粒子句柄发射时实际传入的混合模式，供测试断言
+        /// <c>VfxDef.BlendMode</c> 是否被真正透传到 <see cref="IRenderer2D"/> 这一层，不依赖接口默认
+        /// 实现（见 <see cref="EmitParticle(Id, Vec2, IReadOnlyDictionary{string, double}, VfxBlendMode)"/>）。</summary>
+        public readonly Dictionary<int, VfxBlendMode> ParticleBlendModes = new Dictionary<int, VfxBlendMode>();
+
         /// <summary>GP-PRES-05 收口新增：记录每个句柄最近一次 <see cref="SetShadow"/> 的模式，供
         /// 测试断言。</summary>
         public readonly Dictionary<int, ShadowMode> Shadows = new Dictionary<int, ShadowMode>();
@@ -100,11 +105,18 @@ namespace Adapters.Stub
             _aliveSprites.Remove(handle.Value);
         }
 
-        public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters)
+        public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters) =>
+            EmitParticle(effectId, position, parameters, VfxBlendMode.Alpha);
+
+        /// <summary>ADR-0074 新增重载：显式实现（不依赖 <see cref="IRenderer2D"/> 的默认转发），记下
+        /// <paramref name="blendMode"/> 供测试断言（见 <see cref="ParticleBlendModes"/>）。三参旧重载
+        /// 改为转发到本方法并固定传 <see cref="VfxBlendMode.Alpha"/>，签名本身不变。</summary>
+        public ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters, VfxBlendMode blendMode)
         {
             var handle = new ParticleHandle(_nextParticleHandle++);
             _aliveParticles.Add(handle.Value);
             EmittedParticles[handle.Value] = (effectId, position);
+            ParticleBlendModes[handle.Value] = blendMode;
             return handle;
         }
 
@@ -117,6 +129,10 @@ namespace Adapters.Stub
 
             _aliveParticles.Remove(handle.Value);
         }
+
+        /// <summary>测试专用只读查询：句柄当前是否仍存活（未销毁/未停止），供断言
+        /// <c>stop_vfx</c>/自然超时一类回收路径确实生效（见 ADR-0075）。</summary>
+        public bool IsParticleAlive(ParticleHandle handle) => _aliveParticles.Contains(handle.Value);
 
         private void EnsureSpriteAlive(SpriteHandle handle)
         {
