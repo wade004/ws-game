@@ -453,6 +453,122 @@ namespace Adapter.Unity.EngineAdapter
             _sprites.Remove(handle.Value);
         }
 
+        private int _nextMapLayerHandle = 1;
+        private readonly Dictionary<int, GameObject> _mapLayerObjects = new Dictionary<int, GameObject>();
+
+        /// <summary>测试专用（同 <see cref="GetLayerResourceIdsForTests"/> 一类"不是公开契约的一部分"
+        /// 惯例）：记录每个地图分层图句柄实际建出时收到的世界矩形，供 PlayMode 测试断言"确实按
+        /// <c>MapLayerHost</c> 传入的世界矩形建的层"，不需要反过来从 Transform 缩放反推。</summary>
+        private readonly Dictionary<int, Core.Foundation.Common.Rect> _mapLayerWorldBoundsForTests = new Dictionary<int, Core.Foundation.Common.Rect>();
+
+        /// <summary>
+        /// [ADR-0080](../../../../../../../architecture/adr/0080-地图分层图接入运行期渲染.md) 实现：
+        /// 建一个覆盖 <paramref name="worldBounds"/> 的地图分层图 <see cref="SpriteRenderer"/>。
+        /// <paramref name="layer"/> 对应的图片经 <see cref="UnityResourceLoader.TryGetMapLayerAsset"/>
+        /// 取用（本类型只消费已加载完成的资源，不触发加载，见该方法判断记录）：
+        /// <list type="bullet">
+        /// <item>地图分层图整套资产尚未加载完成，或 <see cref="MapLayerKind.Ground"/>/
+        /// <see cref="MapLayerKind.Overlay"/> 两个必需层缺失（理论上不应发生，属数据缺陷）：使用
+        /// <see cref="GetPlaceholderSprite"/> 占位并记诊断（同 <see cref="ResolveSprite"/> 惯例）。</item>
+        /// <item><see cref="MapLayerKind.Decal"/> 缺失（<see cref="UnityResourceLoader.MapLayerAsset.Decal"/>
+        /// 为 null，该地图确实没有 decal.png）：不是缺陷，不画占位、不记诊断（是否缺失、是否需要诊断
+        /// 由本方法自行决定，见 <see cref="Presentation.Render.MapLayerHost"/> 类型注释判断记录），
+        /// 直接返回无效句柄——调用方据此不把这一层计入建出的层数。</item>
+        /// </list>
+        /// GameObject 定位/缩放：以 <paramref name="worldBounds"/> 中心为位置，整体缩放到刚好覆盖该
+        /// 矩形（不保留精灵自身宽高比——地图分层图本就假定按 <c>image_transform</c> 声明的像素-单位
+        /// 换算整张铺满该矩形，不是"按素材原始比例居中裁切"）。<paramref name="renderLayer"/> 经既有
+        /// <see cref="SortingConvention.LayerStride"/> 换算成 <c>sortingOrder</c>，与精灵实例共用同一套
+        /// 排序换算，但地图分层图本身不参与同层 sortY 排序（固定用 0），因为它天然是该图层里唯一的
+        /// 一个大范围背景实例，不需要与同层内其它对象比较前后遮挡。
+        /// </summary>
+        public MapLayerHandle CreateMapLayerInstance(Id mapId, MapLayerKind layer, Core.Foundation.Common.Rect worldBounds, int renderLayer)
+        {
+            var hasAsset = _resourceLoader.TryGetMapLayerAsset(mapId, out var asset);
+            Sprite? sprite = null;
+            if (hasAsset)
+            {
+                sprite = layer switch
+                {
+                    MapLayerKind.Ground => asset.Ground,
+                    MapLayerKind.Overlay => asset.Overlay,
+                    MapLayerKind.Decal => asset.Decal,
+                    _ => null,
+                };
+            }
+
+            if (sprite == null)
+            {
+                if (layer == MapLayerKind.Decal)
+                {
+                    // ADR-0080 决策 6：可选层缺失是合法状态，不是缺陷，不画占位、不记诊断。
+                    return default;
+                }
+
+                var warnKey = $"map.{mapId.Value}.{layer}";
+                if (_missingResourceWarned.Add(warnKey))
+                {
+                    Debug.LogWarning($"[UnityRenderer2D] 地图分层图未加载或不存在，使用占位方块：{mapId} / {layer}");
+                }
+                sprite = GetPlaceholderSprite();
+            }
+
+            var handleValue = _nextMapLayerHandle++;
+            var go = new GameObject($"MapLayer_{handleValue}_{mapId.Value}_{layer}");
+            go.transform.SetParent(_root, worldPositionStays: false);
+
+            var min = worldBounds.Min;
+            var max = worldBounds.Max;
+            var centerX = (float)((min.X + max.X) / 2.0);
+            var centerY = (float)((min.Y + max.Y) / 2.0);
+            go.transform.position = new Vector3(centerX, centerY, 0f);
+
+            var renderer = go.AddComponent<SpriteRenderer>();
+            renderer.sprite = sprite;
+            renderer.sortingOrder = renderLayer * SortingConvention.LayerStride;
+
+            var worldWidth = (float)(max.X - min.X);
+            var worldHeight = (float)(max.Y - min.Y);
+            var spriteSize = sprite.bounds.size;
+            if (spriteSize.x > 0f && spriteSize.y > 0f)
+            {
+                go.transform.localScale = new Vector3(worldWidth / spriteSize.x, worldHeight / spriteSize.y, 1f);
+            }
+
+            _mapLayerObjects[handleValue] = go;
+            _mapLayerWorldBoundsForTests[handleValue] = worldBounds;
+            return new MapLayerHandle(handleValue);
+        }
+
+        public void DestroyMapLayerInstance(MapLayerHandle handle)
+        {
+            if (!handle.IsValid)
+            {
+                return;
+            }
+
+            if (_mapLayerObjects.TryGetValue(handle.Value, out var go))
+            {
+                UnityEngine.Object.Destroy(go);
+                _mapLayerObjects.Remove(handle.Value);
+                _mapLayerWorldBoundsForTests.Remove(handle.Value);
+            }
+        }
+
+        /// <summary>测试专用：当前存活（已建未销毁）的地图分层图实例数。</summary>
+        public int AliveMapLayerCount => _mapLayerObjects.Count;
+
+        /// <summary>测试专用：当前存活的地图分层图句柄值快照（同一 <see cref="UnityRenderer2D"/> 实例
+        /// 在测试进程里可能跨多个测试夹具复用——见 <see cref="UnityEngineHost"/> DontDestroyOnLoad
+        /// 单例惯例——句柄计数器本身单调递增、不因销毁重置，PlayMode 测试不能假定"这是本实例第一次
+        /// 建层、句柄从 1 开始"；改为在建层前后各拍一次快照、取差集，才能可靠定位"这次调用新建出的
+        /// 是哪几个句柄"，不受同进程内其它测试夹具残留状态影响。</summary>
+        public IReadOnlyCollection<int> AliveMapLayerHandleValuesForTests => _mapLayerObjects.Keys;
+
+        /// <summary>测试专用：句柄建出时实际收到的世界矩形，供断言"确实按调用方传入的矩形建的层"。</summary>
+        public bool TryGetMapLayerWorldBoundsForTests(MapLayerHandle handle, out Core.Foundation.Common.Rect worldBounds) =>
+            _mapLayerWorldBoundsForTests.TryGetValue(handle.Value, out worldBounds);
+
         /// <summary>累计 <see cref="EmitParticle"/> 调用次数（诊断/测试用，不属于 <see cref="IRenderer2D"/>
         /// 契约本身——同 <see cref="UnityAudio.PlaySfxCallCount"/> 一类"引擎实现之间的内部协作/诊断
         /// 方法"惯例）。供 PlayMode 测试观察"表现层→引擎适配层的特效播放调用链路是否被触发"（如

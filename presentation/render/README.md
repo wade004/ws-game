@@ -27,6 +27,7 @@ render/
     IFrameAnimPlayer.cs          序列帧播放器契约（09 §4.5，勘误扩展 onAnimEvent）
     FrameAnimClip.cs             引擎无关序列帧剪辑元数据（帧数/帧率/关键帧标记，09 勘误新增字段）
   core/
+    MapLayerHost.cs             ADR-0080：地图分层图（ground/decal/overlay）建/销驱动，接入 PresentationAssembly.MapLayers
     RenderLayers.cs            六层的整数层号常量
     RenderOptions.cs             口味配置项（方向档位数、PixelsPerUnit、HitFrameSync 策略）
     SpriteLayerPlacement.cs      ComposeSpriteLayers 产出的单条层放置信息
@@ -41,6 +42,7 @@ render/
     ProceduralAnimSequencer.cs    IProceduralAnim 默认实现：纯时间推进 + 曲线求值，不调用任何 L-1 接口
     FrameAnimPlayer.cs            IFrameAnimPlayer 参考实现：帧号推进 + 关键帧/播放完成事件派发
   tests/
+    MapLayerHostTests.cs           ADR-0080：建层/decal 缺失降级/image_transform 缺失降级/切图不泄漏/Dispose 清理/默认接口成员用例
     RenderConventionHostTests.cs   12 个用例
     SpriteViewBaseTests.cs         10 个用例
     AnimStateMachineTests.cs       逐条转移 + 优先级用例 + StateChangedWithSkill 用例
@@ -342,6 +344,20 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     方向解析）现在也纳入同一次方向解析，行为更一致。**破坏性数据变更**：升级前的单值 `mesh_ref`
     数据在新语义下会解析到不存在的资源（原值本身此后被当"资源集名字前缀"而非"资源 Id"使用），
     见 `architecture/adr/0071-*.md`"升级影响"一节与消费方通知稿。
+
+23. **ADR-0080（地图分层图接入运行期渲染）：`MapLayerHost` 是本模块新增的场景加载驱动方，不是
+    `ICharacterRig`/`RenderConventionHost` 体系的一部分**——世界矩形唯一由 `world.map.image_transform`
+    决定（复用 `MapImageTransform.WorldBounds`，不自造第二套换算），三层是否真的建出（尤其可选层
+    `decal`）由具体 `IRenderer2D` 实现按加载结果自行决定，本类型只按返回的 `MapLayerHandle.IsValid`
+    决定是否纳入销毁清单，避免驱动方与渲染实现各自维护一份"哪些层文件存在"的判断，见类型注释判断
+    记录。**`Dispose` 主动销毁仍存活的层（2026-09-23 补充，超出 ADR-0080 原始决策范围的本模块自主
+    判断）**：`OnPreUnload` 只在真的经 `ISceneRouter` 走一次卸载/切图时才触发，调用方在地图仍加载
+    中直接 `Dispose`（进程退出、测试夹具收尾、未来允许的其它场景）不会经过那条路径；同
+    `ViewFactory.DestroyAllCreatedViews` 一类"自己负责清理自己建出的引擎侧对象"惯例补齐，避免同一
+    进程内反复构造/销毁 `PresentationAssembly` 时前一份实例的地图分层图 GameObject 一直挂在引擎
+    适配层常驻根节点下不被回收（Unity PlayMode 测试套件里多个测试夹具共享同一个 DontDestroyOnLoad
+    宿主单例，正是这条路径会被触发的真实场景，见 `adapters/unity/.../Tests/Runtime/
+    MapLayerHostPlayModeTests.cs` 判断记录）。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）

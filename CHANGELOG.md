@@ -458,6 +458,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **地图分层图接入运行期渲染**（[ADR-0080](architecture/adr/0080-地图分层图接入运行期渲染.md)）：
+  `ground`/`decal`/`overlay` 三层（`nav_hint` 不渲染）经新增表现层驱动
+  `Presentation.Render.MapLayerHost`（已接入 `PresentationAssembly.MapLayers`）在场景加载完成时按
+  `world.map.image_transform` 建层、卸载/切图前销毁，避免切图泄漏；世界矩形唯一由既有
+  `image_transform` 字段决定，不新增任何 schema 字段。`IResourceLoader.ResourceKind` 新增
+  `MapLayers`（按 `world.map` 行 id 整套加载三个固定文件）；`IRenderer2D` 新增
+  `CreateMapLayerInstance`/`DestroyMapLayerInstance` 两个默认接口方法（默认实现不绘制、返回无效
+  句柄，既有实现方不受影响）与 `MapLayerHandle`/`MapLayerKind` 两个新类型。可选层缺失（如样例地图
+  `sample_field` 没有 `decal.png`）只少建一层、记诊断、不报错。
+
 ### 修复
 
 - **精灵集自带像素密度在运行期生效**（消费方反馈第二十三批，改进建议非阻塞，

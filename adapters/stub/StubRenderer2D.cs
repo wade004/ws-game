@@ -141,5 +141,83 @@ namespace Adapters.Stub
                 throw new InvalidOperationException($"精灵句柄 {handle.Value} 已销毁或不存在");
             }
         }
+
+        // ADR-0080：地图分层图建/销测试替身。与本类型其余成员同一惯例——显式实现（不依赖
+        // IRenderer2D 的默认转发），记录调用供测试断言；新增 SetMapLayerAvailable 让测试模拟
+        // "某地图的某一层图片实际不存在"（例如可选层 decal 缺失），不依赖真实文件系统。
+
+        /// <summary>一次 CreateMapLayerInstance 调用的完整参数记录，按调用顺序追加（含返回无效句柄
+        /// 的尝试），供测试断言"确实调用过、但因为该层不存在没有建出实例"这类否定断言。</summary>
+        public readonly struct MapLayerCreateRecord
+        {
+            public readonly Id MapId;
+            public readonly MapLayerKind Layer;
+            public readonly Rect WorldBounds;
+            public readonly int RenderLayer;
+            public readonly MapLayerHandle Handle;
+
+            public MapLayerCreateRecord(Id mapId, MapLayerKind layer, Rect worldBounds, int renderLayer, MapLayerHandle handle)
+            {
+                MapId = mapId;
+                Layer = layer;
+                WorldBounds = worldBounds;
+                RenderLayer = renderLayer;
+                Handle = handle;
+            }
+        }
+
+        private int _nextMapLayerHandle = 1;
+        private readonly HashSet<int> _aliveMapLayers = new HashSet<int>();
+
+        /// <summary>测试专用：默认全部三层均"可用"（返回有效句柄）；测试可用
+        /// <see cref="SetMapLayerAvailable"/> 显式标记某地图的某一层不可用，模拟该层图片文件不存在
+        /// （decal 可选层缺失场景）。</summary>
+        private readonly HashSet<(Id MapId, MapLayerKind Layer)> _unavailableMapLayers =
+            new HashSet<(Id, MapLayerKind)>();
+
+        public readonly List<MapLayerCreateRecord> MapLayerCreateCalls = new List<MapLayerCreateRecord>();
+        public readonly List<MapLayerHandle> MapLayerDestroyCalls = new List<MapLayerHandle>();
+
+        /// <summary>测试用：标记 <paramref name="mapId"/> 的 <paramref name="layer"/> 层图片不存在——
+        /// 后续 <see cref="CreateMapLayerInstance"/> 对该 (地图, 层) 组合返回无效句柄，不计入存活
+        /// 集合。默认（不调用本方法）全部层均视为存在。</summary>
+        public void SetMapLayerAvailable(Id mapId, MapLayerKind layer, bool available)
+        {
+            if (available)
+            {
+                _unavailableMapLayers.Remove((mapId, layer));
+            }
+            else
+            {
+                _unavailableMapLayers.Add((mapId, layer));
+            }
+        }
+
+        public MapLayerHandle CreateMapLayerInstance(Id mapId, MapLayerKind layer, Rect worldBounds, int renderLayer)
+        {
+            if (_unavailableMapLayers.Contains((mapId, layer)))
+            {
+                MapLayerCreateCalls.Add(new MapLayerCreateRecord(mapId, layer, worldBounds, renderLayer, default));
+                return default;
+            }
+
+            var handle = new MapLayerHandle(_nextMapLayerHandle++);
+            _aliveMapLayers.Add(handle.Value);
+            MapLayerCreateCalls.Add(new MapLayerCreateRecord(mapId, layer, worldBounds, renderLayer, handle));
+            return handle;
+        }
+
+        public void DestroyMapLayerInstance(MapLayerHandle handle)
+        {
+            MapLayerDestroyCalls.Add(handle);
+            if (!handle.IsValid)
+            {
+                return;
+            }
+            _aliveMapLayers.Remove(handle.Value);
+        }
+
+        /// <summary>测试专用只读查询：当前存活（已建未销毁）的地图分层图实例数。</summary>
+        public int AliveMapLayerCount => _aliveMapLayers.Count;
     }
 }

@@ -173,6 +173,41 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>[ADR-0080](../../../../../../../architecture/adr/0080-地图分层图接入运行期渲染.md)
+        /// 新增：一个 <see cref="ResourceKind.MapLayers"/> 资源解码后的可绘制形态——<c>ground</c>/
+        /// <c>overlay</c> 是必需层，恒非空（未能解码到两者时整次加载判定为失败，见 <see cref="FinishMapLayersLoad"/>）；
+        /// <c>decal</c> 是可选层，该地图没有 <c>decal.png</c> 时为 <c>null</c>（不是缺陷，见 ADR-0080
+        /// 决策 6）。</summary>
+        public sealed class MapLayerAsset
+        {
+            public Sprite Ground { get; }
+            public Sprite Overlay { get; }
+            public Sprite? Decal { get; }
+
+            public MapLayerAsset(Sprite ground, Sprite overlay, Sprite? decal)
+            {
+                Ground = ground;
+                Overlay = overlay;
+                Decal = decal;
+            }
+        }
+
+        /// <summary>一次 <see cref="ResourceKind.MapLayers"/> 加载在后台线程读完字节后，排入
+        /// <see cref="_mapLayersCompletions"/> 等待下一次 <see cref="Tick"/> 在主线程解码（同
+        /// <see cref="PendingCompletion"/> 用于 Effect 种类的既有惯例——单个资源涉及多份字节，不能
+        /// 复用只携带单一 <see cref="PendingCompletion.Bytes"/> 的通用结构）。</summary>
+        private struct PendingMapLayersCompletion
+        {
+            public Id ResourceId;
+            public bool ReadSuccess;
+            public byte[]? GroundBytes;
+            public byte[]? OverlayBytes;
+
+            /// <summary>null 表示该地图没有 decal.png（可选层缺失，ADR-0080 决策 6），不是读取失败。</summary>
+            public byte[]? DecalBytes;
+            public LoadCallback Callback;
+        }
+
         /// <summary>一次 Font 种类的加载请求，排队等到下一次 <see cref="Tick"/> 在主线程调用
         /// <c>Resources.Load</c> 完成判定（见类型顶部"Font 资源种类"判断记录）。</summary>
         private struct PendingFontLoad
@@ -234,6 +269,10 @@ namespace Adapter.Unity.EngineAdapter
         private readonly HashSet<Id> _loaded = new HashSet<Id>();
         private readonly ConcurrentQueue<PendingCompletion> _completions = new ConcurrentQueue<PendingCompletion>();
 
+        /// <summary>仅 <see cref="ResourceKind.MapLayers"/> 使用：后台线程读完字节后的完成队列，同
+        /// <see cref="_completions"/> 惯例（并发安全，后台线程写入、<see cref="Tick"/> 在主线程排空）。</summary>
+        private readonly ConcurrentQueue<PendingMapLayersCompletion> _mapLayersCompletions = new ConcurrentQueue<PendingMapLayersCompletion>();
+
         private readonly Dictionary<Id, Sprite> _sprites = new Dictionary<Id, Sprite>();
         private readonly Dictionary<Id, AudioClip> _audioClips = new Dictionary<Id, AudioClip>();
         private readonly Dictionary<Id, Font> _fonts = new Dictionary<Id, Font>();
@@ -241,6 +280,10 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, string> _sceneText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, string> _navMeshText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, EffectAsset> _effects = new Dictionary<Id, EffectAsset>();
+
+        /// <summary>ADR-0080 新增：<see cref="ResourceKind.MapLayers"/> 已加载的分层图资产缓存，供
+        /// <see cref="TryGetMapLayerAsset"/> 取用。</summary>
+        private readonly Dictionary<Id, MapLayerAsset> _mapLayers = new Dictionary<Id, MapLayerAsset>();
 
         /// <summary>W6-B 新增：<see cref="ResourceKind.Model"/> 已加载的预制体资产缓存，供
         /// <see cref="TryGetModelPrefab"/>/<see cref="UnityRenderer3D.CreateModelInstance"/> 取用。</summary>
@@ -375,6 +418,54 @@ namespace Adapter.Unity.EngineAdapter
                 return;
             }
 
+            if (kind == ResourceKind.MapLayers)
+            {
+                // ADR-0080：resourceId 是 world.map 行 id 本身（不是单层的资源引用），三个固定文件名
+                // 经 AssetRefConventions 的公开推导方法解析，与内容导入工具链落地产物逐字节一致，见
+                // 该类型判断记录。ground/overlay 必需，二者均读取成功才算整次加载成功；decal 可选，
+                // 文件不存在不算失败（AGENTS.md"运行时路径不静默降级"这条约束针对的是"该失败却假装
+                // 成功"，可选资源缺失本就不是失败，属于该约束的合法边界，不是被绕过）。
+                var groundPath = Path.Combine(RootDir, AssetRefConventions.MapGroundFile(resourceId).Replace('/', Path.DirectorySeparatorChar));
+                var overlayPath = Path.Combine(RootDir, AssetRefConventions.MapOverlayFile(resourceId).Replace('/', Path.DirectorySeparatorChar));
+                var decalPath = Path.Combine(RootDir, AssetRefConventions.MapDecalFile(resourceId).Replace('/', Path.DirectorySeparatorChar));
+
+                Task.Run(() =>
+                {
+                    byte[]? groundBytes = null;
+                    byte[]? overlayBytes = null;
+                    byte[]? decalBytes = null;
+                    var ok = false;
+                    try
+                    {
+                        if (File.Exists(groundPath) && File.Exists(overlayPath))
+                        {
+                            groundBytes = File.ReadAllBytes(groundPath);
+                            overlayBytes = File.ReadAllBytes(overlayPath);
+                            if (File.Exists(decalPath))
+                            {
+                                decalBytes = File.ReadAllBytes(decalPath);
+                            }
+                            ok = true;
+                        }
+                    }
+                    catch
+                    {
+                        ok = false;
+                    }
+
+                    _mapLayersCompletions.Enqueue(new PendingMapLayersCompletion
+                    {
+                        ResourceId = resourceId,
+                        ReadSuccess = ok,
+                        GroundBytes = groundBytes,
+                        OverlayBytes = overlayBytes,
+                        DecalBytes = decalBytes,
+                        Callback = callback
+                    });
+                });
+                return;
+            }
+
             var path = ResolvePath(resourceId, kind);
 
             Task.Run(() =>
@@ -438,6 +529,7 @@ namespace Adapter.Unity.EngineAdapter
             _sceneText.Remove(resourceId);
             _navMeshText.Remove(resourceId);
             _effects.Remove(resourceId);
+            _mapLayers.Remove(resourceId);
             _modelPrefabs.Remove(resourceId);
             _animationClips.Remove(resourceId);
             _standaloneMeshes.Remove(resourceId);
@@ -489,6 +581,11 @@ namespace Adapter.Unity.EngineAdapter
             while (_completions.TryDequeue(out var pending))
             {
                 FinishOnMainThread(pending);
+            }
+
+            while (_mapLayersCompletions.TryDequeue(out var pendingMapLayers))
+            {
+                FinishMapLayersLoad(pendingMapLayers);
             }
         }
 
@@ -580,6 +677,58 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             pending.Callback(pending.ResourceId, success);
+        }
+
+        /// <summary>ADR-0080：在主线程完成一次 <see cref="ResourceKind.MapLayers"/> 加载判定——
+        /// ground/overlay 字节均已在后台线程读到才算 <see cref="PendingMapLayersCompletion.ReadSuccess"/>
+        /// 为 true；本方法据此各自解码成 <see cref="Sprite"/>，decal 字节为 null（该地图没有 decal.png，
+        /// 可选层缺失）时 <see cref="MapLayerAsset.Decal"/> 同样为 null，不视为解码失败。</summary>
+        private void FinishMapLayersLoad(PendingMapLayersCompletion pending)
+        {
+            _loading.Remove(pending.ResourceId);
+
+            if (!pending.ReadSuccess || pending.GroundBytes == null || pending.OverlayBytes == null)
+            {
+                pending.Callback(pending.ResourceId, false);
+                return;
+            }
+
+            var ground = DecodeMapLayerSprite(pending.GroundBytes);
+            var overlay = DecodeMapLayerSprite(pending.OverlayBytes);
+            if (ground == null || overlay == null)
+            {
+                pending.Callback(pending.ResourceId, false);
+                return;
+            }
+
+            var decal = pending.DecalBytes != null ? DecodeMapLayerSprite(pending.DecalBytes) : null;
+
+            _mapLayers[pending.ResourceId] = new MapLayerAsset(ground, overlay, decal);
+            _loaded.Add(pending.ResourceId);
+            pending.Callback(pending.ResourceId, true);
+        }
+
+        /// <summary>把地图分层图字节解码为 <see cref="Sprite"/>：与 <see cref="TryDecodeImage"/> 同一套
+        /// <c>Texture2D.LoadImage</c> 解码路径，像素-单位换算比固定用 <see cref="PixelsPerUnit"/>
+        /// 全局默认值——地图分层图不属于任何精灵集（没有伴生 anchors.json，见 ADR-0081"不属于任何
+        /// 精灵集的图像资源"判断记录同一处境），且消费方（<see cref="UnityRenderer2D.CreateMapLayerInstance"/>）
+        /// 会按调用方传入的世界矩形整体拉伸摆放，本方法解码出的 Sprite 具体像素-单位换算比数值本身
+        /// 不影响最终摆放的世界尺寸，只影响中间量，取全局默认值即可，不必读取任何伴生声明。解码失败
+        /// （非法图片字节）返回 null。</summary>
+        private Sprite? DecodeMapLayerSprite(byte[] bytes)
+        {
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!texture.LoadImage(bytes))
+            {
+                UnityEngine.Object.Destroy(texture);
+                return null;
+            }
+
+            return Sprite.Create(
+                texture,
+                new UnityEngine.Rect(0, 0, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f),
+                PixelsPerUnit);
         }
 
         private bool TryDecodeImage(Id resourceId, byte[] bytes)
@@ -802,6 +951,11 @@ namespace Adapter.Unity.EngineAdapter
         /// 序列帧特效资产（<see cref="ResourceKind.Effect"/>，未加载/加载失败时返回 false，调用方
         /// 回退播放内建通用效果，见该方法判断记录）。</summary>
         public bool TryGetEffect(Id resourceId, out EffectAsset asset) => _effects.TryGetValue(resourceId, out asset!);
+
+        /// <summary>ADR-0080：供 <see cref="UnityRenderer2D.CreateMapLayerInstance"/> 按地图 id 取回
+        /// 已解码的地图分层图资产（<see cref="ResourceKind.MapLayers"/>，未加载/加载失败时返回
+        /// false）。</summary>
+        public bool TryGetMapLayerAsset(Id mapId, out MapLayerAsset asset) => _mapLayers.TryGetValue(mapId, out asset!);
 
         /// <summary>W6-B 新增：供 <see cref="UnityRenderer3D.CreateModelInstance"/> 按 <c>modelId</c>
         /// 取回已加载的模型预制体（见类型顶部"W6-B 新增"判断记录）。未加载/找不到时返回 false——
