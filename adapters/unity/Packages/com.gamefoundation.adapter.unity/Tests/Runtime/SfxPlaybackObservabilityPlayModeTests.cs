@@ -302,14 +302,21 @@ namespace Adapter.Unity.Tests.Runtime
             // sfx.sample_cast），真实发布一次 ui.action_invoked 会同时命中它——不预热的话，两个
             // 资源同时冷加载，轮询窗口内可能观测到 sample_cast（而不是本用例关心的
             // sample_ui_click）在播放，污染判断记录里"预计一次都不命中"这一推算的前提。
-            var warmedUp = false;
+            var warmedUp = false; // 仅用于诊断输出；不进断言，理由见下方判断记录。
             fx.Host.ResourceLoader.LoadAsync(WarmResourceId, ResourceKind.Audio, (_, success) => warmedUp = success);
             var warmGuard = 300;
             while (!fx.Host.ResourceLoader.IsLoaded(WarmResourceId) && warmGuard-- > 0)
             {
                 yield return null;
             }
-            Assert.IsTrue(fx.Host.ResourceLoader.IsLoaded(WarmResourceId) && warmedUp, "sample_cast 应当能预热加载成功");
+            // 判断记录（2026-09-24 全量门禁翻红后改，单跑绿/全量红的典型形态）：这里只能断言
+            // IsLoaded，**不能**连带断言本用例自己那次 LoadAsync 的回调标志。资源加载器缓存是
+            // 整个 PlayMode 会话共享的——全量跑时 sample_cast 往往已被更早的用例加载过，IsLoaded
+            // 第 0 轮就为真、循环立即退出，而本用例自己发出的那次 LoadAsync 回调还没轮到执行，
+            // warmedUp 仍是 false。本用例真正需要的前提只有"预热资源已就绪"这一条，IsLoaded 已经
+            // 完整表达了它，warmedUp 只是"这次加载由谁发起"的副产物，不该进断言。
+            Assert.IsTrue(fx.Host.ResourceLoader.IsLoaded(WarmResourceId),
+                $"sample_cast 应当在有限帧数内就绪（已加载或本次预热完成）；本次预热回调 warmedUp={warmedUp}");
 
             // 现象 2 的冷启动前提：确定性地把 sfx.sample_ui_click_v0 重置为"从未加载过"（同
             // UiEventSymptomsPlayModeTests.PanelOpened_ThenItemEquipped_BothFeedbacksStillFire
