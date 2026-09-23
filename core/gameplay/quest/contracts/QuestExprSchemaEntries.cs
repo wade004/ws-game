@@ -54,21 +54,40 @@ namespace Core.Gameplay.Quest
         /// 放行分支合并"的判断记录）。
         /// <para>
         /// 判断记录（<c>event</c> 分组，任务书"event 类目标 param.eventFilter：eventFilter: Expr"；
-        /// 措辞对齐消费方反馈第四批第 24 条，2026-09-10）：<c>event.&lt;field&gt;</c> 的具体字段名
-        /// 随触发本次求值的事件类型而变（见 <c>Core.Rules.Common.IExprReadableEvent</c> 类型注释
-        /// "事件字段可被 Expr 读取"），任何一份引用登记表都不可能逐条穷举登记；本类型对外层调用
-        /// （<c>quest</c>/<c>player</c>/<c>world</c>）坚持"精确登记，未登记则回退为 Id 字面量"
-        /// （避免 ADR-0015 参数字面量被误判为引用），但 <c>event</c> 分组不适用这套"已登记/未登记"
-        /// 二态判断——事件键由内容自由定义、可能在运行时才登记，本类型对该分组直接不做签名校验：
-        /// <see cref="EventGroupPermissiveSchema.TryGetSignature"/> 对 <c>event</c> 分组恒返回
-        /// <c>true</c>（签名固定为"参数未知、返回 Bool"），不存在"某个 event key 已登记、会被真正
-        /// 校验"的状态（本类型从不登记任何具体 <c>event.*</c> 签名）。这与 <c>RulesExprSchema</c>
-        /// 早期"已知分组内未登记 key 一律放行"的历史策略形似但语义不同：那是"部分 key 可能已登记、
-        /// 其余放行"，本类型是"整个分组都不做静态签名检查"。不影响 ADR-0015 的消歧场景，因为
-        /// <c>event.eventFilter</c> 文本里从不会出现"把某个 <c>event.&lt;field&gt;</c> 引用当函数
-        /// 调用参数传给另一个 <c>event.*</c> 调用"这种自我嵌套写法（<c>event</c> 分组的字段访问永远
-        /// 只出现在比较表达式的一侧，不会有 <c>event.get(event.foo)</c> 这类形态），因此对
-        /// <c>event</c> 恒放行不会引入 <c>WorldExprSchemaEntries</c> 判断记录里描述的那个问题。</para>
+        /// 措辞对齐消费方反馈第四批第 24 条，2026-09-10；ADR-0076 修订，2026-09-23）：
+        /// <c>event.&lt;field&gt;</c> 的具体字段名随触发本次求值的事件类型而变（见
+        /// <c>Core.Rules.Common.IExprReadableEvent</c> 类型注释"事件字段可被 Expr 读取"），任何一份
+        /// 引用登记表都不可能逐条穷举登记；本类型对外层调用（<c>quest</c>/<c>player</c>/<c>world</c>）
+        /// 坚持"精确登记，未登记则回退为 Id 字面量"（避免 ADR-0015 参数字面量被误判为引用），但
+        /// <c>event</c> 分组不适用这套"已登记/未登记"二态判断——事件键由内容自由定义、可能在运行时
+        /// 才登记，本类型对该分组不注入任何签名：<see cref="EventGroupPermissiveSchema.TryGetSignature"/>
+        /// 对 <c>event</c> 分组不做特殊处理，原样把"未登记"结果（<c>false</c>）透传给调用方。</para>
+        /// <para>
+        /// ADR-0076 根治前，这里曾对 <c>event</c> 分组返回一个固定签名（"参数未知、返回 Bool"），
+        /// 意图是"放行"，但实现成了"谎称已知且返回类型恒为 Bool"——<see cref="ExprValidator.ValidateCompare"/>
+        /// 据此认定 <c>event.hit_result == "Hit"</c> 一类比较的左侧类型是 Bool，与右侧 String/Id
+        /// 字面量比较判定"两侧类型不一致"报 Error，而运行期 <c>event.hit_result</c> 实际返回 String——
+        /// 静态期的假类型与运行期真实类型冲突，见消费方第二十批第 3 条。根治后：<c>TryGetSignature</c>
+        /// 对未登记的 <c>event.&lt;key&gt;</c> 如实返回 <c>false</c>，调用方（<see cref="ExprValidator.ValidateReference"/>）
+        /// 已有的"未登记 key 且 group 为 event 时不报 UnknownKey、返回类型未知（<c>null</c>）"分支
+        /// （该方法判断记录，本次未改动）据此把它当"类型未知"处理——<see cref="ExprValidator.ValidateCompare"/>/
+        /// <see cref="ExprValidator.CheckBoolOperand"/> 对类型未知的一侧一律跳过类型检查而不是报错，
+        /// 这才是名副其实的"放行"：不假装知道一个静态期本就无法确定的类型。<see cref="ExprParser.ParseIdentTerm"/>
+        /// 的解析期判定不依赖 <c>TryGetSignature</c> 对 <c>event</c> 返回 <c>true</c>——它已有独立的
+        /// <c>isEventFallbackReference</c> 分支（该方法判断记录，本次未改动），未登记的
+        /// <c>event.&lt;key&gt;</c> 始终解析成 <see cref="ExprReferenceNode"/> 而不会退化成 Id 字面量，
+        /// 因此本次改动不影响解析期行为、也不影响运行期 <c>RulesExprHostFactory.QueryEvent</c> 求值
+        /// 路径（未触碰）。</para>
+        /// <para>
+        /// 未采纳"开放按 key 精确注册 event 签名的入口，让消费方自行登记"：那要求消费方为关心的每一个
+        /// 事件字段单独注册签名，而 <see cref="PresentationSchemaCatalog.FullExprSchema"/>（内部固定
+        /// 引用本类型 <see cref="BuildParsingSchema"/> 的产出）是 <c>PresentationAssembly</c> 硬编码
+        /// 构造 <c>FeedbackRule</c>/<c>FeedbackBinder</c> 时使用的唯一一份，消费方即便自己另外
+        /// compose 一份更精确的 schema 传入 <c>DataRegistryOptions.ExprSchema</c>，也只能让"内容校验期"
+        /// 通过、覆盖不了框架内部这一份用于其它模块校验/运行期装配的 schema，会造成"校验期用一份、
+        /// 运行期解析用另一份"的不一致（ADR-0015 决策 3 明确要求两者一致）——治标不治本。等到事件目录
+        /// 本身开始登记各事件类型携带哪些字段、各自什么类型时，再谈按事件类型精确登记 <c>event</c>
+        /// 分组签名，是这里的将来演进方向，不是本次改动范围。</para>
         /// </summary>
         public static IExprSchema BuildParsingSchema()
         {
@@ -77,15 +96,14 @@ namespace Core.Gameplay.Quest
             return new EventGroupPermissiveSchema(schema);
         }
 
-        /// <summary>把内层精确登记表包一层：<c>event</c> 分组不做签名校验，
-        /// <see cref="TryGetSignature"/> 对该分组恒放行（返回"参数未知、返回 Bool"的固定签名，不区分
-        /// 具体 key 是否曾经登记过——本类型从不登记任何 <c>event.*</c> 签名，见
-        /// <see cref="BuildParsingSchema"/> 判断记录），其余分组严格委托给内层，内层未登记的 key 按
-        /// 该分组自身规则处理（普通分组回退为 Id 字面量）。</summary>
+        /// <summary>把内层精确登记表包一层：<see cref="TryGetSignature"/> 对全部分组（含
+        /// <c>event</c>）如实委托给内层，不再对 <c>event</c> 分组返回任何注入的固定签名（ADR-0076，
+        /// 见 <see cref="BuildParsingSchema"/> 判断记录——"未登记就如实说未登记"，交给
+        /// <see cref="ExprValidator"/>/<see cref="ExprParser"/> 已有的"类型未知则跳过静态检查"分支
+        /// 处理，而不是在这里冒充一个已知类型）。类型名沿用"Permissive"是历史命名，语义已改为
+        /// "对 event 分组不做任何特殊拦截"，重命名不在本次改动范围内（避免无谓的大范围重命名 diff）。</summary>
         private sealed class EventGroupPermissiveSchema : IExprSchema
         {
-            private static readonly ExprSignature Permissive = new ExprSignature(ExprValueKind.Bool, Array.Empty<ExprValueKind>());
-
             private readonly IExprSchema _inner;
 
             public EventGroupPermissiveSchema(IExprSchema inner)
@@ -93,22 +111,8 @@ namespace Core.Gameplay.Quest
                 _inner = inner;
             }
 
-            public bool TryGetSignature(string group, string key, out ExprSignature signature)
-            {
-                if (_inner.TryGetSignature(group, key, out signature))
-                {
-                    return true;
-                }
-
-                if (group == ExprGroups.Event)
-                {
-                    signature = Permissive;
-                    return true;
-                }
-
-                signature = default;
-                return false;
-            }
+            public bool TryGetSignature(string group, string key, out ExprSignature signature) =>
+                _inner.TryGetSignature(group, key, out signature);
 
             /// <summary>
             /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见

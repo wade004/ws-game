@@ -548,3 +548,24 @@ C# 侧确认生产装配下 `presentation.UiDiagnostics` 确实是 `InMemoryUiDi
 自身的行为已由 `presentation/ui/tests/ViewModelTests.cs` 覆盖；本类型现有的
 `Construct_WithMinimalPresentationDataset_DoesNotThrow_AndExposesAllHosts` 等既有装配级测试
 继续覆盖"装配根不抛异常、暴露的宿主非空"这一层，足以捕获接线本身的编译期/运行期错误）。
+
+## 判断记录（消费方——游戏接入方第二十批第 3 条阻塞项根治，2026-09-23，[ADR-0076](../../architecture/adr/0076-event分组静态类型改为未知而非谎称bool.md)）
+
+`PresentationSchemaCatalog.FullExprSchema`（本类型只是转发 `GameplaySchemaCatalog.FullExprSchema`，
+`PresentationAssembly` 硬编码构造 `FeedbackRule`/`FeedbackBinder` 时实际使用的正是这一份）合并自
+`Core.Gameplay.Quest.QuestExprSchemaEntries.BuildParsingSchema()`——真正的根治点在该方法内部
+`EventGroupPermissiveSchema`（见 `core/gameplay/quest/README.md` 判断记录 23、ADR-0076），本类型
+不持有任何独立的 `event` 分组特殊逻辑，只是消费方复现路径经过的装配层入口，本条只记录"复现/验收
+用例落在本目录"这一事实，不重复登记根治决策本身。新增
+`presentation/assembly/tests/ADR0076_EventGroupExprSchemaTests.cs`（静态校验期：只登记
+`feedback.binding` 一张表 + `PresentationSchemaCatalog.CreateOptions()`，经真实
+`DataRegistry.LoadAll` 验证字符串/Id 字段比较不再报 `expr_parsable` Error，语法错误/参数个数不对/
+手工构造的未知分组引用仍照常报错）；`PresentationAssemblyTests.cs` 新增三例（运行期：复用既有
+`Build` 装配全套真实 `GameplayAssembly`/`PresentationAssembly`——内部实际接的是生产
+`RulesExprHostFactory`，不是测试假实现——经 `extraTables` 追加一条 `event.hit_result`/
+`event.school` 条件的 `feedback.binding` 行，用 `OnFlash` 回调观察条件按 `CombatDamageDealtEvent`
+真实字段值求值为真/假）。改动前对这十条用例逐一实测复现：静态期两条比较直接产出
+`expr_parsable` Error"比较两侧类型不一致：Bool 与 String/Id"（与消费方报告的报错文本一致）；
+运行期三例改前全部在 `Build` 内部 `Assert.False(report.IsBlocking, ...)` 处提前失败（数据加载期
+就阻断，测试根本跑不到断言 flash 是否派发那一步）——如实反映消费方"整个 `feedback.binding` 表
+加载失败、游戏起不来"的原始现象，不是一个只在单元测试夹具里才会复现的边角案例。

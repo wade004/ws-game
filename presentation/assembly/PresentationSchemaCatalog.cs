@@ -62,9 +62,10 @@ namespace Presentation.Assembly
     /// 判断记录（<see cref="CreateOptions"/> 不新造一份表现层专属 <see cref="IExprSchema"/>）：
     /// <c>feedback.binding.condition</c>（09 第 6.1 节）读取事件携带数据，字段路径形如
     /// <c>event.is_crit</c>/<c>event.school</c>；<see cref="GameplaySchemaCatalog.FullExprSchema"/>
-    /// 组合的 <c>QuestExprSchemaEntries.BuildParsingSchema()</c> 已经把 <c>event</c> 分组包装成
-    /// "已登记 key 精确匹配，未登记 key 一律放行"（见该方法判断记录，避免 04 第 6.3 节的引用/字面量
-    /// 消歧问题的同时不必穷举事件字段），足以覆盖 <c>FeedbackBinder</c> 的条件解析需求，不需要再
+    /// 组合的 <c>QuestExprSchemaEntries.BuildParsingSchema()</c> 已经把 <c>event</c> 分组处理成
+    /// "解析期恒按引用节点处理、静态校验期未登记 key 不报错也不假设类型"（ADR-0076，见该方法判断记录，
+    /// 避免 04 第 6.3 节的引用/字面量消歧问题的同时不必穷举事件字段、也不会给运行期本就因事件类型而
+    /// 异的字段类型编造一个静态假类型），足以覆盖 <c>FeedbackBinder</c> 的条件解析需求，不需要再
     /// 按任务书设想的"若 FeedbackBinder 用了额外分组，用 CompositeExprSchema 合并"——FeedbackBinder
     /// 运行期真正用来求值 <c>condition</c> 的 <see cref="Core.Foundation.Expr.IExprHostFactory"/>
     /// 也应使用同一份 <see cref="GameplaySchemaCatalog.FullExprSchema"/>（见
