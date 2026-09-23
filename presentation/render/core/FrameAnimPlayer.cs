@@ -86,6 +86,17 @@ namespace Presentation.Render
             return new SubscriptionHandle(() => _onAnimEvent.Remove(callback));
         }
 
+        /// <summary>ADR-0072 决策 2：把 <see cref="IFrameAnimPlayer.OnFrameChanged"/> 契约方法转发到
+        /// 本类型早已存在的 <see cref="FrameChanged"/> 事件（见类型注释——该事件本就是为"引擎适配层
+        /// 订阅后按帧号切换实际显示的贴图"预留的），不新增第二套帧推进/通知机制。</summary>
+        public SubscriptionHandle OnFrameChanged(Action<int> callback)
+        {
+            if (callback == null) throw new ArgumentNullException(nameof(callback));
+            void Handler(int frame) => callback(frame);
+            FrameChanged += Handler;
+            return new SubscriptionHandle(() => FrameChanged -= Handler);
+        }
+
         /// <summary>按 <paramref name="dt"/>（秒）推进当前播放中的剪辑；空闲（未 <see cref="Play"/>
         /// 或已 <see cref="Stop"/>）时是空操作。
         /// <para>

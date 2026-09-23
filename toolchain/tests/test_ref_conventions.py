@@ -29,6 +29,7 @@ if str(TOOLCHAIN_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLCHAIN_DIR))
 
 from asset_import.ref_conventions import (  # noqa: E402
+    EQUIP_LAYER_CHECK_DIRECTIONS,
     KNOWN_CATEGORIES,
     AssetRefPathSpace,
     anim_clip_logical_path,
@@ -41,6 +42,7 @@ from asset_import.ref_conventions import (  # noqa: E402
     map_nav_hint_file,
     map_overlay_file,
     model_logical_path,
+    paperdoll_equip_layer_file,
     paperdoll_layer_file,
     resolve_assets_root,
     resolve_data_root,
@@ -240,6 +242,27 @@ def test_sprite_anim_dir_matches_vfx_resource_dir_style(resource_ref: str, expec
 )
 def test_paperdoll_layer_file_returns_flat_png_under_own_root(resource_ref: str, expected: str) -> None:
     assert paperdoll_layer_file(resource_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_ref, direction, layer_name, expected",
+    [
+        ("paperdoll.item.sample_hero_hat_test", "front", "head", "sprites/item_sample_hero_hat_test/front/head.png"),
+        ("paperdoll.item.sample_hero_hat_test", "side_r", "head", "sprites/item_sample_hero_hat_test/side_r/head.png"),
+        ("paperdoll.item.sample_hero_hat_test", "back", "head", "sprites/item_sample_hero_hat_test/back/head.png"),
+        ("paperdoll.item.sword", "front", "hand_main", "sprites/item_sword/front/hand_main.png"),
+    ],
+)
+def test_paperdoll_equip_layer_file_matches_body_layer_directory_layout(
+    resource_ref: str, direction: str, layer_name: str, expected: str,
+) -> None:
+    # ADR-0071 决策 1：与身体纸娃娃层同一套 sprites/<集合名>/<方向>/<层名>.png 三级目录布局
+    # （见 presentation/render/core/SpriteViewBase.ResolveEquipLayerResourceId 判断记录）。
+    assert paperdoll_equip_layer_file(resource_ref, direction, layer_name) == expected
+
+
+def test_equip_layer_check_directions_are_valid_canonical_names() -> None:
+    assert EQUIP_LAYER_CHECK_DIRECTIONS == ("front", "side_r", "back")
 
 
 @pytest.mark.parametrize(

@@ -68,6 +68,18 @@ namespace Adapter.Unity.EngineAdapter
             public SortingGroup SortingGroup = null!;
             public Transform LayersRoot = null!;
             public List<SpriteRenderer> LayerRenderers = new List<SpriteRenderer>();
+
+            /// <summary>ADR-0072 决策 2 新增：与 <see cref="LayerRenderers"/> 一一对应的层名（从
+            /// <see cref="SetLayers"/> 收到的各层资源 Id 末尾 <c>"__"</c> 分段解析出——身体层/装备层
+            /// 恒以 <c>"layer.&lt;资源集名&gt;__&lt;方向裸档位名&gt;__&lt;层名&gt;"</c> 形式命名，见
+            /// <c>Presentation.Render.SpriteViewBase.ComposeLayerResourceId</c> 判断记录，本字段只是
+            /// 复用该既有约定反解出层名，不新增任何命名规则）。供纸娃娃层逐层动画驱动
+            /// （<c>UnityViewFactory</c> 每实体共享的 <c>OnFrameChanged</c> 回调）按层名定位
+            /// <see cref="SetLayerSprite"/> 的 <c>layerIndex</c> 参数，不要求 <see cref="IRenderer2D.SetLayers"/>
+            /// 契约本身额外携带层名（该契约方法签名不改，ABI 只加法）。资源 Id 不含 <c>"__"</c>
+            /// 分段（如未来出现的非本约定资源）时整段值原样当层名使用，不抛异常——按名查找找不到时
+            /// 逐层动画驱动静默跳过该层（同本类型一贯的防御性惯例）。</summary>
+            public List<string> LayerNames = new List<string>();
             public int Layer;
             public double SortY;
             public bool FlipX;
@@ -156,6 +168,8 @@ namespace Adapter.Unity.EngineAdapter
                 UnityEngine.Object.Destroy(last.gameObject);
             }
 
+            instance.LayerNames.Clear();
+
             for (var i = 0; i < layers.Count; i++)
             {
                 SpriteRenderer renderer;
@@ -174,9 +188,20 @@ namespace Adapter.Unity.EngineAdapter
                 renderer.sprite = ResolveSprite(layers[i]);
                 renderer.flipX = instance.FlipX;
                 renderer.color = ComputeColor(instance);
+                instance.LayerNames.Add(ExtractLayerName(layers[i]));
             }
 
             ApplySortingOrders(instance);
+        }
+
+        /// <summary>见 <see cref="SpriteInstance.LayerNames"/> 判断记录：从形如
+        /// <c>"layer.&lt;资源集名&gt;__&lt;方向裸档位名&gt;__&lt;层名&gt;"</c> 的资源 Id 反解出末尾
+        /// 层名分段。不含 <c>"__"</c> 时整段原样返回。</summary>
+        private static string ExtractLayerName(Id resourceId)
+        {
+            var value = resourceId.Value;
+            var lastIndex = value.LastIndexOf("__", StringComparison.Ordinal);
+            return lastIndex < 0 ? value : value.Substring(lastIndex + 2);
         }
 
         public void SetTransform(SpriteHandle handle, Vec2 position, double height, double sortY, int layer, double rotation, double scale, bool flipX)
@@ -370,6 +395,39 @@ namespace Adapter.Unity.EngineAdapter
             ApplySortingOrders(instance);
         }
 
+        /// <summary>ADR-0072 决策 2 新增：供纸娃娃层逐层动画驱动（<c>UnityViewFactory</c> 每实体共享的
+        /// <c>OnFrameChanged</c> 回调）按层名定位对应 <see cref="SpriteInstance.LayerNames"/> 下标，
+        /// 见该字段判断记录。句柄不存在时返回 null。</summary>
+        public IReadOnlyList<string>? GetLayerNames(SpriteHandle handle) =>
+            _sprites.TryGetValue(handle.Value, out var instance) ? instance.LayerNames : null;
+
+        /// <summary>
+        /// ADR-0072 决策 2 新增：纸娃娃层逐层动画播放的落地方法——直接把调用方已经手上持有的解码
+        /// <see cref="Sprite"/>（来自 <c>UnityFrameAnimPlayer.GetFrame</c>，经 <c>sprite_anim</c>
+        /// atlas+frames.json 解码而来，见该方法判断记录）写入 <see cref="SetLayers"/> 已经建好的第
+        /// <paramref name="layerIndex"/> 个 <see cref="SpriteRenderer"/>——复用同一个渲染器对象，
+        /// 不新建一套平行于 <see cref="LayerRenderers"/> 的渲染通道，因此该层此后仍与其余纸娃娃层
+        /// 一样参与 <see cref="ApplyColor"/>（flash/fade）、<see cref="SetTransform"/> 的 flipX 遍历、
+        /// <see cref="SetShadow"/>（不受影响，影子挂在 <c>Root</c> 下与纸娃娃层无关）——满足 ADR-0072
+        /// "逐层动画结果必须经既有 <see cref="IRenderer2D.SetLayers"/> 渲染通道落地，不新建平行通道"
+        /// 的约束。不经过 <see cref="ResolveSprite"/>/<c>Id</c> 二次查询（调用方已经解码好，同
+        /// <c>UnityFrameAnimPlayer.OnFrameChanged</c> 对整身 <c>Renderer.sprite</c> 的既有直接赋值
+        /// 惯例一致，不是本方法独创的捷径）。句柄不存在或 <paramref name="layerIndex"/> 越界（层集合
+        /// 在逐层动画播放期间因装备变化被重建、下标已失效）时静默跳过，不抛异常，同本类型一贯的
+        /// 防御性惯例。</summary>
+        public void SetLayerSprite(SpriteHandle handle, int layerIndex, Sprite sprite)
+        {
+            if (!_sprites.TryGetValue(handle.Value, out var instance))
+            {
+                return;
+            }
+            if (layerIndex < 0 || layerIndex >= instance.LayerRenderers.Count)
+            {
+                return;
+            }
+            instance.LayerRenderers[layerIndex].sprite = sprite;
+        }
+
         public void DestroySpriteInstance(SpriteHandle handle)
         {
             var instance = EnsureAlive(handle);
@@ -498,6 +556,15 @@ namespace Adapter.Unity.EngineAdapter
             // AnimRootRenderer 排在全部纸娃娃层之上（同一 SortingGroup 内，序号取
             // LayerRenderers.Count——纸娃娃层为空时即为 0，恒不与影子的 -1 冲突）：默认序列帧动画是
             // "没有具体游戏参与也要有得看"的兜底表现，不应被纸娃娃层（若同时存在装备覆盖层）盖住。
+            //
+            // ADR-0072 决策 2 勘误（2026-09-23）：上一段排序结论只在"整身兜底路线"下成立——本方法
+            // 只负责排序序号，不负责显隐；AnimRootRenderer 是否可见改由 UnityViewFactory 的每实体
+            // 共享 OnFrameChanged 回调按"当前播放状态是否至少一层解析到逐层剪辑"逐帧决定
+            // （enabled = false 时隐藏，见该回调判断记录），排序序号即便在隐藏状态下继续按本方法
+            // 计算也不产生任何可见影响。纸娃娃层逐层播放生效时，各层各自的排序序号仍然是
+            // LayerRenderers 数组下标（本方法上面那段循环），不受这里的 AnimRootRenderer 特判影响
+            // ——逐层剪辑帧只是被写进已有的 LayerRenderers[i].sprite（见 SetLayerSprite），层间
+            // 前后顺序与静态纸娃娃层完全一致，不需要额外排序规则。
             if (instance.AnimRootRenderer != null)
             {
                 instance.AnimRootRenderer.sortingOrder = instance.LayerRenderers.Count;

@@ -69,9 +69,13 @@ namespace Presentation.Render
         /// （null）时 <see cref="OnEvent"/> 对装备事件保持默认空处理，等价于 P4-1 行为。</summary>
         private readonly IReadOnlyDictionary<Id, EquipVisualDef>? _equipVisuals;
 
-        /// <summary>当前各装备槽位覆盖的纸娃娃层：槽位 id → (层名, 该层资源 Id)。装备/卸下事件增删本表
-        /// 后重新调用 <see cref="RebuildEquippedLayers"/> 合成完整层列表。</summary>
-        private readonly Dictionary<Id, (string LayerName, Id ResourceId)> _equipOverridesBySlot =
+        /// <summary>当前各装备槽位覆盖的纸娃娃层：槽位 id → (层名, 装备层资源集引用)。
+        /// <c>EquipLayerSetRef</c> 是 <see cref="EquipVisualDef.MeshRef"/> 原值（ADR-0071 决策
+        /// 1：sprite 型下不再是"该层最终资源 Id"，而是与身体层 <c>SpriteSetId</c> 同一位置的"资源集
+        /// 引用"），装备/卸下事件增删本表后重新调用 <see cref="RebuildEquippedLayers"/>——命中覆盖的层
+        /// 改经 <see cref="ResolveEquipLayerResourceId"/> 按当前朝向换算，不再是本表存什么就直接用
+        /// 什么。</summary>
+        private readonly Dictionary<Id, (string LayerName, Id EquipLayerSetRef)> _equipOverridesBySlot =
             new Dictionary<Id, (string, Id)>();
 
         /// <summary><see cref="SyncPose"/> 最近一次收到的朝向，供 <see cref="RebuildEquippedLayers"/>
@@ -167,10 +171,14 @@ namespace Presentation.Render
         /// 默认集合里——装备可以给角色新增一层默认不绘制的部位（如武器）。
         /// </para>
         /// <para>
-        /// 判断记录（<c>mesh_ref</c> 不经方向档位换算）：见 <see cref="EquipVisualDef.MeshRef"/> 字段
-        /// 注释——04 未给该字段定义按方向拆分的子结构，本类型把它当作该层的唯一资源直接使用，是已知
-        /// 简化（该层因此不随朝向切换镜像素材，只整体跟随精灵实例翻转，同 <see cref="SyncPose"/> 的
-        /// <c>flipX</c>）。
+        /// 判断记录（ADR-0071 决策 1，取代此前"<c>mesh_ref</c> 不经方向档位换算"的已知简化）：
+        /// <see cref="EquipVisualDef.MeshRef"/> sprite 型下现与身体层 <c>SpriteSetId</c> 同一位置——
+        /// "该装备层的资源集引用"，不是最终资源 Id。<see cref="HandleItemEquipped"/>/
+        /// <see cref="ResetEquipmentVisuals"/> 只把它原样存进 <see cref="_equipOverridesBySlot"/>，
+        /// 真正的资源 Id 换算延后到 <see cref="RebuildEquippedLayers"/> 按当前朝向调用
+        /// <see cref="ResolveEquipLayerResourceId"/>——与未被覆盖的层经 <see cref="ResolveLayerResourceId"/>
+        /// 换算同一套方向档位规则（见该方法判断记录），装备层因此与身体层一样随朝向切换素材，见
+        /// <see cref="EquipVisualDef.MeshRef"/> 字段注释。
         /// </para>
         /// </summary>
         public virtual void OnEvent(IEvent evt)
@@ -247,44 +255,46 @@ namespace Presentation.Render
         }
 
         /// <summary>用 <see cref="DisplayInfo.Sprite"/>.<c>PaperdollLayers</c> 的默认层名顺序为基底，
-        /// 逐层用 <see cref="_equipOverridesBySlot"/> 里当前生效的装备覆盖资源 Id 替换（未被任何槽位
-        /// 覆盖的层沿用 <see cref="ResolveLayerResourceId"/> 的常规方向档位换算）；装备覆盖引入的、不在
-        /// 默认层名集合里的新层追加在末尾（见 <see cref="OnEvent"/> 判断记录"装备可以新增一层"），按
-        /// <see cref="_equipOverridesBySlot"/> 的槽位 <see cref="Id"/> 升序排列以保证结果确定。</summary>
-        private void RebuildEquippedLayers()
+        /// 追加装备覆盖引入的、不在默认层名集合里的新层（见 <see cref="OnEvent"/> 判断记录"装备可以
+        /// 新增一层"，按 <see cref="_equipOverridesBySlot"/> 的槽位 <see cref="Id"/> 升序排列以保证
+        /// 结果确定），对这一份合并后的完整层名列表统一调一次 <see cref="IRenderConventionHost.ComposeSpriteLayers"/>
+        /// 按当前朝向解析方向槽位——装备新增的层与身体默认层共用同一次方向解析，不另起一套（同
+        /// <see cref="ResolveEquipLayerResourceId"/> 判断记录"两条路径永远同一套方向档位规则"）。
+        /// 逐层再按是否命中 <see cref="_equipOverridesBySlot"/> 覆盖分派到 <see cref="ResolveEquipLayerResourceId"/>
+        /// 或 <see cref="ResolveLayerResourceId"/>（ADR-0071 决策 1：命中覆盖的层不再直接采用
+        /// <see cref="EquipVisualDef.MeshRef"/> 原值，而是把它当"装备层资源集引用"经方向换算）。
+        /// <para>
+        /// 判断记录（协调者反馈根治，2026-09-23：朝向变化掉装）：本方法的"基础层名 + 装备新增额外层
+        /// 合并 -&gt; 逐层按是否命中覆盖分派解析"这套逻辑已抽成 <see cref="ComposeAndApplyEquipAwareLayers"/>
+        /// （接受"基础层名顺序 + 朝向"两个参数），本方法与 <see cref="SetPaperdollLayers"/> 共用同一份
+        /// 实现——此前只有本方法（装备/卸下事件触发）经这套装备感知逻辑，<see cref="SetPaperdollLayers"/>
+        /// （具体游戏 View 子类在朝向变化时调用，见该方法判断记录）走的是另一条完全不感知
+        /// <see cref="_equipOverridesBySlot"/> 的路径，导致已装备的层朝向一变就被身体层资源顶掉、
+        /// 装备新增的额外层更是被整个漏掉（<see cref="SetPaperdollLayers"/> 的调用方只传默认层名，
+        /// 从不包含额外层名）。两个方法现在共用同一套合成逻辑，行为不再分叉。</para>
+        /// </summary>
+        private void RebuildEquippedLayers() => ComposeAndApplyEquipAwareLayers(DisplayInfo.Sprite!.PaperdollLayers, _lastFacing);
+
+        /// <summary>
+        /// 见 <see cref="RebuildEquippedLayers"/>/<see cref="SetPaperdollLayers"/> 判断记录：两者共用的
+        /// "装备感知层合成"核心逻辑——用 <paramref name="baseLayerNamesInOrder"/> 为基底，追加
+        /// <see cref="_equipOverridesBySlot"/> 引入的、不在这份基底集合里的新层（按槽位 Id 升序排列
+        /// 保证结果确定），对合并后的完整层名列表统一调一次
+        /// <see cref="IRenderConventionHost.ComposeSpriteLayers"/> 按 <paramref name="facing"/> 解析
+        /// 方向槽位，逐层按是否命中覆盖分派到 <see cref="ResolveEquipLayerResourceId"/> 或
+        /// <see cref="ResolveLayerResourceId"/>。没有任何装备覆盖时（<c>_equipOverridesBySlot</c> 为空）
+        /// 结果与"直接对 <paramref name="baseLayerNamesInOrder"/> 调用
+        /// <see cref="ResolveLayerResourceId"/>"逐字节一致——<see cref="SetPaperdollLayers"/> 改走本方法
+        /// 后，未装备任何物品的实体朝向变化行为不受影响。</summary>
+        private void ComposeAndApplyEquipAwareLayers(IReadOnlyList<string> baseLayerNamesInOrder, Direction facing)
         {
             var overridesByLayerName = new Dictionary<string, Id>(StringComparer.Ordinal);
             foreach (var kv in _equipOverridesBySlot)
             {
-                overridesByLayerName[kv.Value.LayerName] = kv.Value.ResourceId;
+                overridesByLayerName[kv.Value.LayerName] = kv.Value.EquipLayerSetRef;
             }
 
-            var placements = Conventions.ComposeSpriteLayers(DisplayInfo.Sprite!.PaperdollLayers, DisplayInfo.Sprite!, _lastFacing);
-            var resourceIds = new List<Id>(placements.Count);
-            var coveredLayerNames = new HashSet<string>(StringComparer.Ordinal);
-
-            for (var i = 0; i < placements.Count; i++)
-            {
-                var layerName = placements[i].LayerName;
-                coveredLayerNames.Add(layerName);
-
-                Id resourceId;
-                if (overridesByLayerName.TryGetValue(layerName, out var overrideId))
-                {
-                    resourceId = overrideId;
-                }
-                else
-                {
-                    resourceId = ResolveLayerResourceId(placements[i]);
-                }
-
-                // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：把
-                // HandleResourceLoadCompleted 作为 onComplete 传入，与 SpriteCharacterRig.
-                // ComposeAndApplyLayers 内部同一份回调绑定到同一个 rig 实例，装备驱动的层重建路径
-                // 与朴素层合成路径共用同一套"加载完成后重新应用当前完整层列表"机制。
-                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, _rig.HandleResourceLoadCompleted);
-                resourceIds.Add(resourceId);
-            }
+            var coveredLayerNames = new HashSet<string>(baseLayerNamesInOrder, StringComparer.Ordinal);
 
             var extraLayerNames = new List<string>();
             foreach (var layerName in overridesByLayerName.Keys)
@@ -296,9 +306,24 @@ namespace Presentation.Render
             }
             extraLayerNames.Sort(StringComparer.Ordinal);
 
-            for (var i = 0; i < extraLayerNames.Count; i++)
+            var allLayerNames = new List<string>(baseLayerNamesInOrder.Count + extraLayerNames.Count);
+            allLayerNames.AddRange(baseLayerNamesInOrder);
+            allLayerNames.AddRange(extraLayerNames);
+
+            var placements = Conventions.ComposeSpriteLayers(allLayerNames, DisplayInfo.Sprite!, facing);
+            var resourceIds = new List<Id>(placements.Count);
+
+            for (var i = 0; i < placements.Count; i++)
             {
-                var resourceId = overridesByLayerName[extraLayerNames[i]];
+                var placement = placements[i];
+                var resourceId = overridesByLayerName.TryGetValue(placement.LayerName, out var equipLayerSetRef)
+                    ? ResolveEquipLayerResourceId(placement, equipLayerSetRef)
+                    : ResolveLayerResourceId(placement);
+
+                // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：把
+                // HandleResourceLoadCompleted 作为 onComplete 传入，与 SpriteCharacterRig.
+                // ComposeAndApplyLayers 内部同一份回调绑定到同一个 rig 实例，装备驱动的层重建路径
+                // 与朴素层合成路径共用同一套"加载完成后重新应用当前完整层列表"机制。
                 _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, _rig.HandleResourceLoadCompleted);
                 resourceIds.Add(resourceId);
             }
@@ -321,12 +346,27 @@ namespace Presentation.Render
 
         /// <summary>用给定层名顺序与当前朝向重新合成纸娃娃层并应用到 <see cref="IRenderer2D.SetLayers"/>
         /// （见 09 第 3.3.1 节"层内 z 序 = 列表顺序"）。由具体游戏的 <see cref="OnEvent"/> 重写在收到
-        /// <c>item.equipped</c>/<c>item.unequipped</c> 等装备变化事件时调用。</summary>
+        /// <c>item.equipped</c>/<c>item.unequipped</c> 等装备变化事件时调用；引擎侧 View 子类（如
+        /// <c>Adapter.Unity.Presentation.UnitySpriteView.SyncPose</c>）在朝向变化时也会调用本方法
+        /// 重新合成层——见下方判断记录，本方法签名/可见性不变（ABI 只加法）。
+        /// <para>
+        /// 判断记录（协调者反馈根治，2026-09-23：朝向变化掉装）：本方法此前直接调
+        /// <c>_rig.ComposeAndApplyLayers(layerNamesInOrder, currentFacing, ResolveLayerResourceId)</c>，
+        /// 完全不看 <see cref="_equipOverridesBySlot"/>——朝向变化触发本方法时，已装备槽位命中的层会
+        /// 被身体层解析（<see cref="ResolveLayerResourceId"/>）顶掉，装备新增的额外层（不在
+        /// <paramref name="layerNamesInOrder"/> 里的层名）更是整个消失，直到下一次装备/卸下事件重新
+        /// 调用 <see cref="RebuildEquippedLayers"/> 才恢复——玩家表现为"一转身装备就消失"。改为与
+        /// <see cref="RebuildEquippedLayers"/> 共用 <see cref="ComposeAndApplyEquipAwareLayers"/>：没有
+        /// 任何装备覆盖时结果与旧实现逐字节一致（见该方法判断记录），有装备覆盖时命中的层改走
+        /// <see cref="ResolveEquipLayerResourceId"/>、装备新增的额外层同样会被合并进最终层列表，与
+        /// 朝向变化是否触发本方法这条路径无关。
+        /// </para>
+        /// </summary>
         protected void SetPaperdollLayers(IReadOnlyList<string> layerNamesInOrder, Direction currentFacing)
         {
             EnsureAlive();
 
-            _rig.ComposeAndApplyLayers(layerNamesInOrder, currentFacing, ResolveLayerResourceId);
+            ComposeAndApplyEquipAwareLayers(layerNamesInOrder, currentFacing);
         }
 
         /// <summary>
@@ -356,8 +396,32 @@ namespace Presentation.Render
         protected virtual Id ResolveLayerResourceId(SpriteLayerPlacement placement)
         {
             var spriteSetName = StripCategoryPrefix(DisplayInfo.Sprite!.SpriteSetId);
+            return ComposeLayerResourceId(spriteSetName, placement);
+        }
+
+        /// <summary>
+        /// ADR-0071 决策 1 新增：装备覆盖层的资源 Id 换算——与 <see cref="ResolveLayerResourceId"/>
+        /// 完全同一套方向档位/命名规则（两者共用 <see cref="ComposeLayerResourceId"/>），唯一区别是
+        /// "资源集名字"的来源不是 <see cref="DisplayInfo.Sprite"/>.<c>SpriteSetId</c>，而是
+        /// <paramref name="equipLayerSetRef"/>（<see cref="_equipOverridesBySlot"/> 里存的、来自
+        /// <see cref="EquipVisualDef.MeshRef"/> 的装备层资源集引用，见该字段注释）。<c>protected
+        /// virtual</c>、不改 <see cref="ResolveLayerResourceId"/> 既有签名（ABI 只新增，见 AGENTS.md
+        /// 第 3 节）：具体游戏若要自定义装备层的资源命名规则，覆盖本方法即可，不影响身体层既有覆盖点。
+        /// </summary>
+        protected virtual Id ResolveEquipLayerResourceId(SpriteLayerPlacement placement, Id equipLayerSetRef)
+        {
+            var layerSetName = StripCategoryPrefix(equipLayerSetRef.Value);
+            return ComposeLayerResourceId(layerSetName, placement);
+        }
+
+        /// <summary>见 <see cref="ResolveLayerResourceId"/>/<see cref="ResolveEquipLayerResourceId"/>
+        /// 判断记录：两者共用的资源 Id 拼接公式（14 第 1.2 节命名模板），只是"资源集名字"来源不同
+        /// （身体层用 <c>SpriteSetId</c>，装备层用 <c>EquipVisualDef.MeshRef</c>），确保两条路径
+        /// 永远是同一套方向档位规则，不会出现"身体层换了命名算法、装备层没跟着换"的分叉。</summary>
+        private static Id ComposeLayerResourceId(string layerSetName, SpriteLayerPlacement placement)
+        {
             var directionSlotName = Presentation.Common.DirectionSlots.StripPrefix(placement.DirectionSlotId);
-            return new Id($"layer.{spriteSetName}__{directionSlotName}__{placement.LayerName}");
+            return new Id($"layer.{layerSetName}__{directionSlotName}__{placement.LayerName}");
         }
 
         /// <summary>消费方反馈第 32 条（ADR-0025）：此前本方法独立实现"去掉类别前缀、点号换下划线"

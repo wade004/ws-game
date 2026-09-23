@@ -453,8 +453,12 @@ python toolchain/import_assets.py <子命令> ...
   equip_visual.mesh_ref` 四个字段——经 `ref_conventions.resolve_path_space` 先判断路径空间，
   类别前缀不合法报 `display_anim_ref_category_invalid`；`anim`/`model` 前缀（引擎侧逻辑路径）
   跳过存在性检查（同 ADR-0037 决策 3 理由）；`sprite_anim` 前缀检查 `atlas.png`/`frames.json`
-  是否存在；`paperdoll` 前缀检查对应扁平文件是否存在；其余遗留前缀按目录/文件最小核对，报
-  `display_anim_asset_missing`。**纳入默认集合的时间点**：ADR-0038 落地初期本域曾因样例数据集
+  是否存在；`paperdoll` 前缀专属 `display.equip_visual.mesh_ref`（ADR-0071 决策 1：sprite 型
+  语义变更为"装备层资源集引用"，与身体纸娃娃层同一套方向档位换算解析），改核对
+  `EQUIP_LAYER_CHECK_DIRECTIONS`（`front`/`side_r`/`back`）三个方向档位各自的层文件是否存在
+  （`sprites/<mesh_ref 去掉类别前缀>/<方向>/<slot_id 推导出的层名>.png`，报
+  `display_anim_equip_layer_file_missing`），不再是此前的单个扁平文件；其余遗留前缀按目录/文件
+  最小核对，报 `display_anim_asset_missing`。**纳入默认集合的时间点**：ADR-0038 落地初期本域曾因样例数据集
   `display.equip_visual.sample_hero_hat` 一行的 `mesh_ref` 仍是迁移前的 `sprite.item.
   sample_hero_hat` 遗留取值而暂不进默认集合（纳入会让该行报错、拖垮门禁默认跑法）；数据迁移任务
   已把该行与另外三个受影响字段的全部样例数据行迁移到正确的类别前缀并补齐占位资产，本域随即纳入
@@ -486,8 +490,10 @@ python toolchain/import_assets.py <子命令> ...
   `sfx_variants_missing_resource_ref`、`sfx_variant_file_missing`、`world_map_dir_missing`、
   `world_map_layer_missing`、`world_map_scene_ref_mismatch`、`world_map_nav_ref_mismatch`、
   `display_anim_ref_category_invalid`、`display_anim_sprite_anim_atlas_missing`、
-  `display_anim_sprite_anim_frames_json_missing`、`display_anim_paperdoll_file_missing`、
-  `display_anim_asset_missing`（ADR-0038 落地新增，属 `display_anim` 域，见上方该域说明）。
+  `display_anim_sprite_anim_frames_json_missing`、`display_anim_paperdoll_file_missing`
+  （该检查名保留，现无实际调用方——sprite 型 `mesh_ref` 已改用下一条，见 ADR-0071）、
+  `display_anim_equip_layer_file_missing`（ADR-0071 决策 1 新增）、`display_anim_asset_missing`
+  （ADR-0038 落地新增，属 `display_anim` 域，见上方该域说明）。
 
 全部子命令支持 `--dataset`（默认 `_sample`）、`--assets-root`/`--data-root`
 （默认仓库 `assets/`/`data/`，可指向任意目录，测试与临时数据集用此覆盖）、`--dry-run`

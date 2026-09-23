@@ -51,8 +51,11 @@ maps/placeholder_field/*.png             map       maps/sample_field/*.png      
 Pillow 现生成 2x2 单帧占位图（无占位素材源图，  （无，直接    sprite_anim/<name>/{atlas.png,frames.json}      不回写——data/_sample/display/display.anim_set.json
 见 SPRITE_ANIM_CLIPS）                   生成，        （9 个 clip 名）                                 与 display.weapon_style.json 的 sprite_anim.* 引用值
                                         不经子命令）                                                  本身已是既有数据，本步骤只补齐引用要求的资产文件
-Pillow 现生成 2x2 占位图（无占位素材源图，   同上         paperdoll/<name>.png（1 个文件）                  同上——display.equip_visual.json 的 paperdoll.*
-见 PAPERDOLL_FILES）                                                                                引用值已是既有数据，本步骤只补齐资产文件
+Pillow 现生成 2x2 占位图（无占位素材源图，   同上         sprites/<name>/{front,side_r,back}/<layer>.png     同上——display.equip_visual.json 的 paperdoll.*
+见 PAPERDOLL_EQUIP_LAYER_FILES）                        （每个 name 3 个方向文件，ADR-0071 决策 1）          引用值已是既有数据，本步骤只补齐资产文件
+Pillow 现生成多帧占位图（无占位素材源图，   同上         sprite_anim/<name>/{atlas.png,frames.json}         同上——sample_hero_idle 状态 resource_ref 已改按
+见 PER_LAYER_SPRITE_ANIM_CLIPS）                        （真正 >1 帧，ADR-0072 决策 2）                     "逐层剪辑集引用"解释，本步骤只补齐 tier1/tier2
+                                                                                                       命名对应的资产文件
 ======================================= ========= ========================================= =========================================================
 
 ``sprite`` 子命令按 ``--logical-id`` 派生的 display.map 行 id（``display.<去掉 domain 前缀>``，
@@ -119,8 +122,12 @@ SPRITE_ANIM_CLIPS: list[tuple[str, bool]] = [
     ("sample_staff_cast", False),
 ]
 
-# display.equip_visual.json 迁移后引用的 paperdoll.* 层文件占位资产（扁平单文件，同 icon/sfx
-# 惯例），名字与 sample_hero_hat 的 mesh_ref 逐字节对应。
+# display.equip_visual.json 迁移后引用的 paperdoll.* 装备层占位资产。ADR-0071 决策 1：sprite 型
+# mesh_ref 语义变更为"装备层资源集引用"，与身体纸娃娃层同一套方向档位换算解析，落地布局也改为与
+# 身体层同一套 sprites/<name>/<方向>/<层名>.png 三级目录（不再是此前的单个扁平文件），三个方向见
+# ref_conventions.EQUIP_LAYER_CHECK_DIRECTIONS（front/side_r/back）。(name, layer_name) 与
+# sample_hero_hat/sample_hero_hat_wiring_test 两行的 mesh_ref/slot_id 逐字节对应（两行 slot_id 均为
+# slot.head，见 data/_sample/display/display.equip_visual.json）。
 #
 # item_sample_hero_hat_wiring_test（PlayMode 全量门禁失败 1/3 局部修复，2026-09-19）：
 # SpriteEquipVisualWiringTests 专属资源引用字面量，供 display.equip_visual.
@@ -128,10 +135,44 @@ SPRITE_ANIM_CLIPS: list[tuple[str, bool]] = [
 # EquipmentVisualReplayTests 也在用）彻底隔离——两个测试类此前共享同一字面量，只要其中一个先于
 # 另一个在同一批 -runTests 进程里跑过，后跑的那个"装备前不应加载过 mesh_ref"断言就必然落空；
 # 给专属字面量后该断言不再依赖任何跨用例资源缓存状态或执行顺序。
-PAPERDOLL_FILES: list[str] = [
-    "item_sample_hero_hat_test",
-    "item_sample_hero_hat_wiring_test",
+PAPERDOLL_EQUIP_LAYER_FILES: list[tuple[str, str]] = [
+    ("item_sample_hero_hat_test", "head"),
+    ("item_sample_hero_hat_wiring_test", "head"),
 ]
+
+# 与 ref_conventions.EQUIP_LAYER_CHECK_DIRECTIONS 逐字节一致（本脚本不 import toolchain 包以外的
+# 内容超过既有 asset_import 子包，这里直接取用同一组字面量，两处若漂移会被
+# toolchain/tests/test_import_sample_assets.py 捕获）。
+PAPERDOLL_EQUIP_DIRECTIONS: tuple[str, ...] = ("front", "side_r", "back")
+
+# ADR-0072 决策 2：纸娃娃层逐层动画占位帧集（name, frame_count, loop）——name 与
+# display.anim_set.sample_hero 的 idle 状态 resource_ref（sprite_anim.sample_hero_idle，已改按
+# "逐层剪辑集引用"解释，见 04/09/ADR-0072）按 "<去类别前缀>__<方向裸档位名或层名>__<层名>"/
+# "<去类别前缀>__<层名>" 两级命名模板拼出的具体资源名逐字节对应。两行分别覆盖 tier1（方向+层名，
+# side_r 方向、head 层）与 tier2（仅层名，hand_main 层）两条探测路径，帧数刻意不同（2 vs 3）用于
+# 让 PlayMode 用例同时验证"共享时间轴取模"规则（见 UnityViewFactory.ProbeLayersSequential 判断
+# 记录）。body 层刻意不给任何逐层剪辑——覆盖决策 2 第三级"未命中的层维持静态"。
+PER_LAYER_SPRITE_ANIM_CLIPS: list[tuple[str, int, bool]] = [
+    ("sample_hero_idle__side_r__head", 2, True),
+    ("sample_hero_idle__hand_main", 3, True),
+]
+
+# 逐帧可辨识颜色（同 _EQUIP_LAYER_DIRECTION_COLORS 判断记录，纯 Pillow 生成，无需真实源图）。
+_PER_LAYER_FRAME_COLORS: list[tuple[int, int, int, int]] = [
+    (230, 60, 60, 255),
+    (60, 200, 90, 255),
+    (60, 110, 230, 255),
+    (230, 200, 60, 255),
+]
+
+# 三个方向给出可辨识的不同颜色（不是必需，只是让占位资产本身也能反映"确实是三张不同图"，
+# 便于人工核对/截图排障，同 hero/beast 占位素材的既有惯例——那些是手绘的，这里没有源图，Pillow
+# 纯色生成已经足够区分）。
+_EQUIP_LAYER_DIRECTION_COLORS: dict[str, tuple[int, int, int, int]] = {
+    "front": (220, 90, 90, 255),
+    "side_r": (90, 200, 90, 255),
+    "back": (90, 120, 220, 255),
+}
 
 SPRITE_ANIM_FRAME_SIZE = 2  # 2x2 像素、单帧，最小占位尺寸——本域校验只看文件是否存在。
 
@@ -163,11 +204,47 @@ def _gen_sprite_anim_clip(out_dir: Path, loop: bool) -> None:
     write_json_pretty(out_dir / "frames.json", frames_data)
 
 
-def _gen_paperdoll_file(out_path: Path) -> None:
-    """生成一个最小的 paperdoll 占位层文件（扁平单张 png）。"""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    img = Image.new("RGBA", (SPRITE_ANIM_FRAME_SIZE, SPRITE_ANIM_FRAME_SIZE), (255, 255, 255, 255))
-    img.save(out_path)
+def _gen_per_layer_sprite_anim_clip(out_dir: Path, frame_count: int, loop: bool) -> None:
+    """ADR-0072 决策 2：纸娃娃层逐层动画占位帧集——与 _gen_sprite_anim_clip 同一套 atlas.png +
+    frames.json 结构（同一份 EffectFramesDocument 解析契约，见该类型注释），唯一区别是真正生成
+    frame_count(>1) 帧（不是恒定 1 帧），使 PlayMode 用例能够真实观察到"帧号推进 -> 贴图切换"——
+    _gen_sprite_anim_clip 本身不改，继续服务"整身兜底"场景的既有单帧占位。frame_count 帧沿 x 轴
+    等宽平铺进同一张 atlas，每帧一种可辨识颜色。"""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    frame_size = SPRITE_ANIM_FRAME_SIZE
+    atlas = Image.new("RGBA", (frame_size * frame_count, frame_size), (0, 0, 0, 0))
+    fps = 4.0
+    frame_duration = round(1.0 / fps, 6)
+    frames_meta = []
+    for i in range(frame_count):
+        color = _PER_LAYER_FRAME_COLORS[i % len(_PER_LAYER_FRAME_COLORS)]
+        block = Image.new("RGBA", (frame_size, frame_size), color)
+        atlas.paste(block, (i * frame_size, 0))
+        frames_meta.append(
+            {"index": i, "x": i * frame_size, "y": 0, "w": frame_size, "h": frame_size, "duration": frame_duration}
+        )
+    atlas.save(out_dir / "atlas.png")
+    frames_data = {
+        "frame_w": frame_size,
+        "frame_h": frame_size,
+        "fps": fps,
+        "frame_duration": frame_duration,
+        "loop": loop,
+        "frames": frames_meta,
+    }
+    write_json_pretty(out_dir / "frames.json", frames_data)
+
+
+def _gen_paperdoll_equip_layer_files(assets_root: Path, dataset: str, name: str, layer_name: str) -> None:
+    """ADR-0071 决策 1：生成一个装备层占位资产的三个方向档位文件，落地布局与身体纸娃娃层同一套
+    ``sprites/<name>/<方向>/<层名>.png``（见 ref_conventions.paperdoll_equip_layer_file）——取代此前
+    单个扁平 ``paperdoll/<name>.png`` 文件。"""
+    for direction in PAPERDOLL_EQUIP_DIRECTIONS:
+        out_dir = assets_root / dataset / "sprites" / name / direction
+        out_dir.mkdir(parents=True, exist_ok=True)
+        color = _EQUIP_LAYER_DIRECTION_COLORS[direction]
+        img = Image.new("RGBA", (SPRITE_ANIM_FRAME_SIZE, SPRITE_ANIM_FRAME_SIZE), color)
+        img.save(out_dir / f"{layer_name}.png")
 
 
 # display.map 既有行 id -> (临时表里工具产出行的 id, icon_id 或 None)。
@@ -645,9 +722,16 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
             _gen_sprite_anim_clip(assets_root / DATASET / "sprite_anim" / name, loop)
         print(f"[import_sample_assets] 已生成 {len(SPRITE_ANIM_CLIPS)} 个 sprite_anim 占位帧集")
 
-        for name in PAPERDOLL_FILES:
-            _gen_paperdoll_file(assets_root / DATASET / "paperdoll" / f"{name}.png")
-        print(f"[import_sample_assets] 已生成 {len(PAPERDOLL_FILES)} 个 paperdoll 占位层文件")
+        for name, frame_count, loop in PER_LAYER_SPRITE_ANIM_CLIPS:
+            _gen_per_layer_sprite_anim_clip(assets_root / DATASET / "sprite_anim" / name, frame_count, loop)
+        print(f"[import_sample_assets] 已生成 {len(PER_LAYER_SPRITE_ANIM_CLIPS)} 个纸娃娃层逐层动画占位帧集（ADR-0072）")
+
+        for name, layer_name in PAPERDOLL_EQUIP_LAYER_FILES:
+            _gen_paperdoll_equip_layer_files(assets_root, DATASET, name, layer_name)
+        print(
+            f"[import_sample_assets] 已生成 {len(PAPERDOLL_EQUIP_LAYER_FILES)} 个装备层占位资产"
+            f"（各 {len(PAPERDOLL_EQUIP_DIRECTIONS)} 个方向档位）"
+        )
 
         # --- 7. 回写 display.map ---------------------------------------------------------
 

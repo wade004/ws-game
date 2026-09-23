@@ -30,6 +30,8 @@ __all__ = [
     "model_logical_path",
     "sprite_anim_dir",
     "paperdoll_layer_file",
+    "paperdoll_equip_layer_file",
+    "EQUIP_LAYER_CHECK_DIRECTIONS",
     "AssetRefPathSpace",
     "KNOWN_CATEGORIES",
     "resolve_path_space",
@@ -178,6 +180,38 @@ def paperdoll_layer_file(resource_ref_id: str) -> str:
     逐字对应。
     """
     return "paperdoll/" + strip_category_prefix(resource_ref_id) + ".png"
+
+
+# ADR-0071 决策 1：sprite 型 display.equip_visual.mesh_ref 语义变更——不再是"该纸娃娃层最终资源 Id"
+# （:func:`paperdoll_layer_file` 的单扁平文件假设），而是与身体层 display.map.sprite_set_id 同一
+# 位置的"装备层资源集引用"，运行期经 presentation/render/core/SpriteViewBase.
+# ResolveEquipLayerResourceId 与身体层 ResolveLayerResourceId 同一套方向档位公式换算（14 第 1.2 节
+# 命名模板），落地磁盘路径因此与身体纸娃娃层同一套三级目录布局（见
+# Adapter.Unity.EngineAdapter.UnityResourceLoader.ResolvePath 的 "layer." 类别特例分支），不是
+# :func:`paperdoll_layer_file` 的单文件路径。:func:`paperdoll_layer_file` 本身不删除、不改行为
+# （仍是稳定契约，供未来其它仍需要"扁平单文件"语义的调用方使用），只是不再是 mesh_ref 字段本身的
+# 落地布局。
+EQUIP_LAYER_CHECK_DIRECTIONS: tuple[str, ...] = ("front", "side_r", "back")
+"""ADR-0071 决策 1"占位资产生成器产出三向层图"落地的具体三个方向：14 第 2.1 节 canonical 半圈
+（``front``/``side_r``/``back``）里覆盖跨度最大的三档，同时是 4/8/16 方向下均合法的 canonical 档位
+（不需要额外镜像回退）。装备层实际运行期可能还会用到该半圈的其余 canonical 档位（8/16 方向下的
+``front_side_r``/``back_side_r`` 等）——本元组只是占位资产生成器/校验工具约定的最小落地子集，不是
+运行期方向档位换算规则本身的枚举上限。"""
+
+
+def paperdoll_equip_layer_file(resource_ref_id: str, direction_slot: str, layer_name: str) -> str:
+    """ADR-0071 决策 1：把 sprite 型 ``display.equip_visual.mesh_ref``（装备层资源集引用）在给定
+    方向裸档位名、纸娃娃层名下解析为该层文件在资产根目录下的相对路径（正斜杠分隔，含 ``.png``
+    扩展名）：``"sprites/<mesh_ref 去掉类别前缀，点号换下划线>/<方向裸档位名>/<纸娃娃层名>.png"``——
+    与身体纸娃娃层（:func:`sprite_set_directory` 系列）同一套 ``sprites/<集合名>/<方向>/<层名>.png``
+    三级目录布局，因为运行期两者最终都落进 ``UnityResourceLoader.ResolvePath`` 的 ``"layer."``
+    类别特例分支（见该方法判断记录）。``direction_slot``/``layer_name`` 均为不带任何域前缀的裸名字
+    （分别来自 :mod:`directions` 的 canonical 档位名、``display.equip_visual.slot_id`` 最后一个点分段
+    ——与 ``SpriteViewBase.LayerNameFromSlotId`` 同一规则）。与 C# 侧
+    ``Presentation.Render.Core.SpriteViewBase`` 私有 ``ComposeLayerResourceId`` 拼接出的资源 Id
+    对应同一份磁盘文件。
+    """
+    return f"sprites/{strip_category_prefix(resource_ref_id)}/{direction_slot}/{layer_name}.png"
 
 
 class AssetRefPathSpace(enum.Enum):

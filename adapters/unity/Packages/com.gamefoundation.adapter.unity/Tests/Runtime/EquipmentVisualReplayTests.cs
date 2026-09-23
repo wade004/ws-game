@@ -44,6 +44,15 @@ namespace Adapter.Unity.Tests.Runtime
         private static readonly Id HatTemplateId = new Id("item.sample_hero_hat");
         private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_test"); // ADR-0038 数据迁移后前缀（此前 sprite.item.*）
 
+        // ADR-0071 决策 1（2026-09-23）：HatMeshRef 现在是"装备层资源集引用"而不是最终资源 Id，
+        // 实际请求加载的是 SpriteViewBase.ResolveEquipLayerResourceId 换算出的
+        // "layer.<去类别前缀点号转下划线>__<方向裸档位名>__<槽位推导层名>"——本用例 SyncPose 用
+        // Direction.FromQuantized(0.0, 8) 落在 side_r 档位、slot.head 推导层名 head，故下方常量固定
+        // 为 layer.item_sample_hero_hat_test__side_r__head（同 SpriteViewBaseTests
+        // RebuildEquippedLayers_AcrossThreeDirections_ResolvesThreeDistinctResourceIds 用例验证过的
+        // 同一套公式，非本文件独立推导）。
+        private static readonly Id HatResolvedLayerResourceId = new Id("layer.item_sample_hero_hat_test__side_r__head");
+
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {
             var host = UnityEngineHost.Ensure();
@@ -206,15 +215,15 @@ namespace Adapter.Unity.Tests.Runtime
 
             // 创建前：覆盖用的资源 id 不应该被请求过（排除"资源恰好因为别的原因也被加载"这种假阳性，
             // 同 SpriteEquipVisualWiringTests 一贯手法）。
-            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef),
-                "创建前不应该有任何请求加载 display.equip_visual.sample_hero_hat 声明的 mesh_ref");
+            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceId),
+                "创建前不应该有任何请求加载 display.equip_visual.sample_hero_hat 声明的 mesh_ref 换算出的装备层资源");
 
             // 真实顺序：CreateView（内部触发重放）→ Bind → SyncPose，见方法判断记录。
             var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, SpriteHeroLogicalId, entityId);
             view.Bind(entityId);
             view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0);
 
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef), 0.0,
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceId), 0.0,
                 "根治后：CreateView → Bind → SyncPose 这一真实顺序完成后，装备覆盖资源应当已经开始" +
                 "加载——根治前本断言会失败（进度恒为 0），因为重放事件在 Bind 之前发生，被 EntityId" +
                 "过滤丢弃");
