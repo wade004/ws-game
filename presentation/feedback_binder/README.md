@@ -205,6 +205,36 @@
     [ADR-0075](../../architecture/adr/0075-停止特效反馈动作.md)、`presentation/vfx_sfx/README.md`
     判断记录 18（`VfxPlayer.StopInternal` 幂等修复，`stop_vfx` 命中"已自然过期"场景的前置条件）。
 
+18. **`OnEvent` 单次调用内的异常隔离修复（2026-09-23，由 [ADR-0077](../../architecture/adr/
+    0077-ui交互域事件.md)"落地缺陷与修复"一节的排查引出，但缺陷本身不限于 UI 域事件——任何逻辑
+    事件命中多条 `feedback.binding` 规则时都适用，故记在本模块而不是并入 ADR-0077 正文）：改动前，
+    `OnEvent` 处理同一个事件命中的多条规则时，一条规则的 `condition` 求值抛异常，或某条规则内某个
+    `action` 派发（`Dispatch`）抛异常，会中止本次 `OnEvent` 调用剩余的全部处理——同一事件命中的
+    其它规则、同一规则内排在后面的其它 `action` 一律被跳过；这个异常还会一路冒泡到
+    `IEventBus` 的订阅回调这一层（`FeedbackBinder` 每个事件 key 只登记一个订阅者，异常在那里被
+    总线按订阅者粒度兜住、记一条诊断，但"这一次 `OnEvent` 内部还没处理完的规则/动作"已经回不来了）。
+    `condition` 求值本身另有一层独立兜底：`Core.Foundation.Expr.ExprEvaluator.Evaluate` 早已把
+    "宿主 `Query` 抛异常"整体 try/catch，收敛为"整个表达式判定为 false"、不向外抛出（04 第 6.4
+    节），所以真正会以异常形式冒出来的只有 `action` 派发这一条路径，且只能由 `IFeedbackSink`
+    具体实现抛出——通读当前所有真实接线的 sink（`CompositeFeedbackSink`/`VfxPlayer`/`SfxPlayer`）
+    发现它们的实体解析统一走 `snapshot.Exists(id) ? ... : null` 这类防御式写法，不会在当前代码状态
+    下真的抛出，因此这条缺陷此前从未在真实装配根下被触发过，只能用故障注入的测试替身
+    （`FeedbackBinderTests.ThrowingFeedbackSink`）复现——不代表它不是真缺陷：任何一个未来接入的
+    `IFeedbackSink` 具体实现（尤其是直接调用宿主平台 API 的那种）都可能在某些运行期条件下抛出，
+    不能假定"当前没人抛"等于"以后也不会有人抛"。修法：`condition` 求值与每条 `action` 派发
+    （含 `sync: hit_frame` 批次延迟释放那条路径）分别包一层独立的 try/catch，抛出时记一条诊断
+    （带规则 id/事件 key/动作种类，`sync: hit_frame` 批次因为拿不到触发它的具体规则 id，诊断里
+    注明"命中帧同步批次"代替），跳过这一条规则/这一个动作，不影响同一事件的其它规则、其它动作，
+    也不影响后续任何事件——不改变 `PublishImmediate`/`Enqueue` 既有的立即派发语义（未发现该语义
+    本身与本缺陷有关，故未改动 `Core.Foundation.EventBus.EventBus`）。回归证据：
+    `FeedbackBinderTests.OnEvent_OneRuleActionThrows_OtherRuleForSameEvent_StillExecutes`/
+    `OnEvent_OneActionThrows_LaterActionInSameRule_StillExecutes` 改动前实测为红（`Assert.Single()`
+    断言集合为空），改动后为绿；另两条既有事件 key 互相隔离、`PublishImmediate` 重入安全的性质经
+    `OnEvent_ActionThrowsForOneEvent_SubsequentDifferentEvent_StillDispatchesNormally`/
+    `PublishImmediate_ReentrantPublishFromSubscriberCallback_BothEventsReachAllSubscribers`/
+    `PublishImmediate_ReentrantPublishOfSameKey_BothDispatchesReachAllSubscribers` 验证为改动前后
+    均已正确，本次修复未涉及、也不需要改动事件总线。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

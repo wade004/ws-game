@@ -2233,6 +2233,172 @@ namespace Tests.Presentation.Assembly
             Assert.Contains(engine.Audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(sfxId));
         }
 
+        // -----------------------------------------------------------------
+        // 消费方反馈第二十五批（两条，基于 v1.65.0 实测，ADR-0077 落地缺陷）复现 + 修复验收
+        // -----------------------------------------------------------------
+
+        /// <summary>现象 1 排查记录（未能按消费方描述的最小条件复现，见 ADR-0077"落地缺陷与修复"
+        /// 一节）：经真实 <see cref="PresentationAssembly.Panels"/>（含 MenuOverlay 联动，即
+        /// <see cref="Presentation.Ui.UiIntents.OpenMenu"/> 真实压栈 <see
+        /// cref="Core.Foundation.AppLifecycle.InWorldSubState.MenuOverlay"/>）真实发出一次
+        /// <see cref="UiPanelOpenedEvent"/>，且不引入任何会匹配 <c>ui.panel_opened</c> 的
+        /// <c>feedback.binding</c> 行（同消费方隔离步骤"两条新增 UI 音效绑定的 event 字段改成不存在
+        /// 的占位键"——本用例干脆不新增这两行），之后真实发出一次 <c>item.equipped</c>：
+        /// <c>floating_text</c> 绑定应当照常触发。本用例按此最小条件反复实测均为绿（不复现），
+        /// 与消费方报告的现象不符——已确认 <see cref="Core.Foundation.EventBus.EventBus.DispatchOne"/>
+        /// 按订阅者逐条 try/catch、不同事件 key 各自独立快照遍历（见该类型判断记录），不存在跨事件
+        /// key 的状态污染路径；保留本用例作为"仅发布一次真实 ui.panel_opened 本身不会破坏后续任何
+        /// 绑定"的常驻回归锁，未来这条路径被破坏时能第一时间发现。真正确认存在的缺陷（同一事件内部
+        /// 多条规则/动作未隔离）见下一条 <see
+        /// cref="UiPanelOpened_MatchingRuleConditionThrows_ThroughRealAssembly_SiblingRuleForSameEventStillFires"/>。</summary>
+        [Fact]
+        public void UiPanelOpened_ThenItemEquipped_ThroughRealAssembly_FloatingTextBindingStillFires()
+        {
+            var floatingTexts = new List<(Id EntityId, Id StyleId, string Text)>();
+            var panelId = new Id("ui_layout_definition.sample_action_bar");
+            var options = new PresentationAssemblyOptions
+            {
+                OnFloatingText = (entityId, styleId, text) => floatingTexts.Add((entityId, styleId, text)),
+                // 消费方实测打开的是背包一类 MenuOverlay 面板（见 UiPanelRegistry 类型注释"背包/
+                // 任务日志/角色属性/设置"），Open() 因此会先经 UiIntents.OpenMenu 推入 MenuOverlay
+                // 子状态、再发 ui.panel_opened——本用例复刻这一真实路径，不只发事件本身。
+                MenuOverlayPanelIds = new[] { panelId },
+            };
+
+            var presentation = Build(out var gameplay, out _, out _, out var bus, options, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"feedback.pres_ui_regression_item_equipped\", \"event\": \"item.equipped\", " +
+                    "\"actions\": [{\"kind\": \"floating_text\", \"params\": {\"style_id\": \"feedback.floating_text_style.sample\", " +
+                    "\"text_source\": \"literal:l10n.pres_ui_regression_item_equipped_text\"}}]}" +
+                    "]}");
+            });
+
+            var playerId = gameplay.PlayerUnitProvider();
+
+            // 真实发出一次 ui.panel_opened（经真实 UiPanelRegistry.Open，同现象 1 复现步骤）。
+            presentation.Panels.Open(panelId);
+
+            // 稍后触发一个与面板开关完全无关的事件，真实经 FeedbackBinder 落到 floating_text。
+            bus.PublishImmediate(new Core.Carriers.Common.ItemEquippedEvent(
+                playerId, new Id("item_instance.pres_ui_regression_test"), new Id("item.slot.sample_main_hand")));
+
+            Assert.Single(floatingTexts);
+            Assert.Equal(playerId, floatingTexts[0].EntityId);
+            Assert.Equal(new Id("feedback.floating_text_style.sample"), floatingTexts[0].StyleId);
+        }
+
+        /// <summary>排查记录（不是决策 3 的复现用例——已实测证伪，理由见下）：最初设想"UI 事件
+        /// selfId 退化为 <see cref="Core.Rules.ExprHost.RulesExprHostFactory.NoneId"/>（<c>"none.none"</c>）
+        /// 时，一条形如 <c>self.is_alive</c> 的 <c>condition</c>（从战斗规则模板照抄来的内容作者失误）
+        /// 会经真实 <see cref="Core.Carriers.Unit.WorldUnitAccess"/>.<c>Require</c> 抛
+        /// <see cref="System.InvalidOperationException"/>，进而中止 <c>OnEvent</c> 对同一事件命中的
+        /// <b>另一条规则</b>"这一假设。
+        /// <para>
+        /// 实测证伪：<c>Core.Foundation.Expr.ExprEvaluator.Evaluate</c>（<c>core/foundation/expr/core/
+        /// ExprEvaluator.cs</c>）本身已经把"宿主 <c>Query</c> 抛异常"整体 try/catch 兜底——异常在抛出点
+        /// 记一条诊断错误后收敛为"整个表达式判定为 false"，根本不会以异常形式传出 <c>Evaluate</c>/
+        /// <c>EvaluateBool</c>，更不会传到 <c>FeedbackBinder.OnEvent</c>。也就是说，condition 求值这条
+        /// 路径在 Expr 层就已经被兜住了，<c>self.is_alive</c> 对 <c>none.none</c> 只是让本条规则的
+        /// condition 判定为 false（等价于未命中，正常路由到下一条规则），不是异常隔离在起作用。
+        /// </para>
+        /// <para>
+        /// 本用例改为验证这个真实存在的兜底行为本身（作为回归锁，防止以后有人往 <c>ExprEvaluator</c>
+        /// 里去掉这层 try/catch）：条件求值"退化为 false"与决策 3 修复的"动作派发/条件求值异常隔离"
+        /// 是两条独立生效的防线，不能互相替代着验收。决策 3 真正的红→绿复现证据在
+        /// <c>presentation/feedback_binder/tests/FeedbackBinderTests.cs</c> 的
+        /// <c>OnEvent_OneRuleActionThrows_OtherRuleForSameEvent_StillExecutes</c>/
+        /// <c>OnEvent_OneActionThrows_LaterActionInSameRule_StillExecutes</c>——用手写的
+        /// <c>ThrowingFeedbackSink</c> 让 <b>动作派发</b>（不是条件求值）真实抛出，因为通读
+        /// <c>presentation/assembly/PresentationAssembly.cs</c> 的真实装配后发现，vfx/sfx 的实体位置解析
+        /// （<c>entityPositionResolver</c>）本身也已经是 <c>snapshot.Exists(id) ? ... : null</c> 防御式
+        /// 写法，没有任何真实生产组件的动作派发路径会在当前装配下真的抛出——决策 3 的异常隔离目前只能
+        /// 经故障注入的测试替身在 <c>FeedbackBinder</c> 单元层面复现，经真实装配根找不到一条会真的抛出
+        /// 的路径，如实记录于此，判断记录同步写入 <c>architecture/adr/0077-ui交互域事件.md</c>
+        /// "落地缺陷与修复"一节。</para></summary>
+        [Fact]
+        public void UiPanelOpened_RuleConditionReferencingMissingEntity_AlreadyContainedByExprEvaluator_SiblingRuleForSameEventStillFires()
+        {
+            var panelId = new Id("ui_layout_definition.sample_action_bar");
+            var safeSfxId = new Id("sfx.sample_hit"); // 已由 AddMinimalPresentationTables 登记。
+
+            var presentation = Build(out _, out _, out var engine, out _, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    // 排在前面（Ordinal 序 a < b）：条件引用 self.is_alive，selfId 退化为 none.none，
+                    // 真实 WorldUnitAccess.Require 对该 id 抛异常。
+                    "{\"id\": \"feedback.a_pres_ui_panel_opened_boom\", \"event\": \"ui.panel_opened\", " +
+                    "\"condition\": \"self.is_alive\", " +
+                    "\"actions\": [{\"kind\": \"play_sfx\", \"params\": {\"sfx_id\": \"" + safeSfxId.Value + "\"}}]}," +
+                    // 排在后面：与前一条完全无关的另一条 ui.panel_opened 绑定，无 condition。
+                    "{\"id\": \"feedback.b_pres_ui_panel_opened_survives\", \"event\": \"ui.panel_opened\", " +
+                    "\"actions\": [{\"kind\": \"play_sfx\", \"params\": {\"sfx_id\": \"" + safeSfxId.Value + "\"}}]}" +
+                    "]}");
+            });
+
+            var beforeCount = engine.Audio.ActiveSfxPlaybacks.Count;
+
+            // 真实发出一次 ui.panel_opened：第一条规则条件求值抛异常，第二条必须照常执行——
+            // 断言执行次数（第二条确实把 sfx 播放计数推高了恰好一次），不是只断言"没抛异常"。
+            presentation.Panels.Open(panelId);
+
+            Assert.Equal(beforeCount + 1, engine.Audio.ActiveSfxPlaybacks.Count);
+            Assert.Contains(engine.Audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(safeSfxId));
+        }
+
+        /// <summary>排查记录（现象 2，未复现）：<c>ui.action_invoked</c> -&gt; <c>play_sfx</c> 命中一个
+        /// "首次引用、此前从未加载过"的音效资源——这是消费方现象里的关键变量，既有 ADR-0077 验收用例
+        /// （<see cref="UiIntents_ActionInvokedWithPanelId_ThroughRealAssembly_DrivesFeedbackBindingPlaySfx"/>）
+        /// 未传 <c>withResourceLoader</c>，从未真正经过 <see cref="Core.Foundation.EngineAdapter.IResourceLoader"/>
+        /// 这条冷加载路径，没有覆盖到消费方实测的这条真实路径，本用例补上它。
+        /// <see cref="Adapters.Stub.StubResourceLoader.DeferCallbacks"/> 置真模拟真实引擎的异步语义
+        /// （<c>LoadAsync</c> 不在调用当下同步回调，回调由测试显式经 <c>CompletePending</c> 在"由立即
+        /// 派发的表现层事件回调"这一调用栈**之外**触发，还原消费方怀疑的边界条件）。
+        /// <para>
+        /// 结论：本用例经真实 <see cref="PresentationAssembly"/> 装配根反复验证，在核心层 + 表现层
+        /// C# 代码里稳定为绿——冷加载排队（<c>QueuePendingPlay</c>/<c>_pendingResourceLoads</c> 去重）、
+        /// 异步回调（同步/延迟两种时机）、经 <c>PublishImmediate</c>（UI 事件的立即派发语义）触发的整条
+        /// 链路都按预期工作，播放最终真实发生。沿 <c>play_sfx</c> 整条动作路径通读代码，也没有找到任何
+        /// 依赖实体解析（<c>selfId</c>/<c>targetId</c>）的分支——消费方绑定形如"字面量 <c>sfx_id</c>、
+        /// 无 <c>attach</c>、无 <c>condition</c>"时该路径没有任何会抛异常的实体查找。本用例未能在这一层
+        /// 复现消费方"确认已派发但从未观测到播放"的现象 2；判断记录见
+        /// <c>architecture/adr/0077-ui交互域事件.md</c>"落地缺陷与修复（2026-09-23）"一节——现象 2 疑似
+        /// 引擎适配层（真实音频播放时机/生命周期）问题，核心层 + 表现层 C# 代码找不到可归因的缺陷，
+        /// 留待引擎适配层单独排查。</para></summary>
+        [Fact]
+        public void UiActionInvoked_PlaySfx_FirstReferenceUnloadedResource_PlaysAfterAsyncLoadCompletesLater()
+        {
+            var panelId = new Id("ui_layout_definition.sample_action_bar");
+            var skillId = new Id("skill.sample_ui_cast_test_cold");
+            var sfxId = new Id("sfx.sample_hit"); // 已由 AddMinimalPresentationTables 登记，resource_ref 同名字符串。
+
+            var presentation = Build(out _, out _, out var engine, out _, withResourceLoader: true, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"feedback.pres_ui_regression_action_invoked_sfx\", \"event\": \"ui.action_invoked\", " +
+                    "\"actions\": [{\"kind\": \"play_sfx\", \"params\": {\"sfx_id\": \"" + sfxId.Value + "\"}}]}" +
+                    "]}");
+            });
+
+            // 真实引擎的资源加载是异步的：LoadAsync 不在调用当下同步触发 callback。
+            engine.ResourceLoader.DeferCallbacks = true;
+
+            presentation.UiIntents.CastSkill(panelId, skillId, targetId: null);
+
+            // 首次引用尚未加载完成：这一刻不应该已经播放，应该排队等待。
+            Assert.Empty(engine.Audio.ActiveSfxPlaybacks);
+            Assert.True(engine.ResourceLoader.HasPending(sfxId));
+
+            // 模拟真实引擎异步加载完成回调稍后（不在原调用栈内）到达。
+            engine.ResourceLoader.CompletePending(sfxId);
+
+            Assert.True(engine.Audio.ActiveSfxPlaybacks.Count > 0);
+            Assert.Contains(engine.Audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(sfxId));
+        }
+
         /// <summary>ADR-0078 验收 3：给玩家单位的 <c>display.map</c> 行登记一个真实的
         /// <c>stride_distance</c>，经真实 <see cref="Core.Carriers.Unit.MovementTickHandler"/>
         /// （<see cref="global::Presentation.Ui.UiIntents.Move"/> + 真实 <see cref="WorldSim.Tick"/>，
