@@ -65,6 +65,13 @@ function Test-FsPathIsUnderOrEqual {
 # 从进程命令行里解析 -projectPath 的值：支持带引号（含引号内带空格）与不带引号两种写法，大小写
 # 不敏感匹配 "-projectPath" 本身（Unity 官方固定拼写就是这个大小写，这里放宽只是防御性的）。解析
 # 不到时返回 $null（调用方按"无法判断"处理）。
+#
+# 判断记录（2026-09-23，1.67.0 发布门禁实测翻红后修）：开关名自身后面必须允许一个可选的闭合
+# 引号。按逐参数加引号的方式启动进程时，命令行形如
+#   "...\Unity.exe" "-batchmode" "-projectPath" "D:\some\project" ...
+# 此时 "-projectPath" 后面紧跟的是引号而不是空白，原来的 -projectPath 加 \s+ 匹配不上，整条
+# 命令行被判成"没有 -projectPath" -> Unknown -> 保守等待，于是别的仓库里正常运行的 Unity 批
+# 处理也会被等满超时并判失败（实测：1.67.0 发布门禁的消费方演练因此连挂 3 步）。
 function Get-ProjectPathFromCommandLine {
     param([string]$CommandLine)
     if ([string]::IsNullOrEmpty($CommandLine)) {
@@ -72,7 +79,7 @@ function Get-ProjectPathFromCommandLine {
     }
     $match = [System.Text.RegularExpressions.Regex]::Match(
         $CommandLine,
-        '(?i)-projectPath\s+("(?<quoted>[^"]*)"|(?<bare>\S+))'
+        '(?i)-projectPath"?\s+("(?<quoted>[^"]*)"|(?<bare>\S+))'
     )
     if (-not $match.Success) {
         return $null

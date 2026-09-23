@@ -192,5 +192,34 @@ def test_project_path_equal_to_repo_root_waits(ps_exe: str) -> None:
     assert _run_decision(ps_exe, cmdline) == "Wait"
 
 
+# -------------------------------------------------------------------------
+# 3. 逐参数加引号的命令行（2026-09-23 实测翻红的真实形态）
+#
+# 按参数列表启动进程时，Windows 会把每个参数分别加引号，开关名自己也被引号包住
+# （"-projectPath"），开关名后面紧跟的是引号而不是空白。这三例钉死：归属判定不因为这种写法退化
+# 成 Unknown——否则别的仓库里正常运行的 Unity 批处理会被当成"无法判断"而保守等待，等满超时判
+# 失败（1.67.0 发布门禁的消费方演练即因此连挂 3 步）。
+# -------------------------------------------------------------------------
+
+
+def _each_arg_quoted(project_path: str) -> str:
+    return f'"C:\\Unity.exe" "-batchmode" "-projectPath" "{project_path}" "-logFile" "x.log"'
+
+
+def test_each_arg_quoted_other_repo_does_not_wait(ps_exe: str) -> None:
+    cmdline = _each_arg_quoted("D:\\workespace\\ws-game-wow\\unity")
+    assert _run_decision(ps_exe, cmdline) == "NoWait"
+
+
+def test_each_arg_quoted_repo_root_still_waits(ps_exe: str) -> None:
+    cmdline = _each_arg_quoted("D:\\workespace\\ws-game\\adapters\\unity")
+    assert _run_decision(ps_exe, cmdline) == "Wait"
+
+
+def test_each_arg_quoted_work_dir_still_waits(ps_exe: str) -> None:
+    cmdline = _each_arg_quoted(f"{WORK_DIR_FOR_TEST}\\ConsumerProject")
+    assert _run_decision(ps_exe, cmdline) == "Wait"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
