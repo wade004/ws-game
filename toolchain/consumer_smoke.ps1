@@ -702,6 +702,222 @@ if ($buildOk) {
 }
 
 # -----------------------------------------------------------------------------
+# 11) registry 安装形态下 additive 占位材质冒烟（消费方反馈第二十四批根治，ADR-0074"落地缺陷与
+#     修复"小节）：上面 1~10 步自始至终只用 file: 引用本框架分发包（见步骤 4 判断记录），这正是
+#     ADR-0074 当初交付时"additive 占位材质在经本地 npm 私服注册表安装的不可变包形态下取不到"这个
+#     缺陷从未被本脚本拦住的根本原因——file: 引用与"注册表安装"在 Unity Package Manager 内部走的
+#     不是同一套包解析/资产处理路径（实测复现：同一份内容，file: 形态下 Resources.Load 能取到，
+#     registry 形态下取不到；这是 Unity 自身对"registry 来源只读包"内 Resources 文件夹的既有限制，
+#     不是本仓库打包缺陷——发布出去的 .tgz 内 .mat/.mat.meta/.shader/.shader.meta 四个文件路径与
+#     GUID 均正确，AssetDatabase 也确实完成了导入，见 EffectSequencePlayer.GetAdditiveMaterial
+#     判断记录）。本步骤专门补上这条路径：不复用上面的 games/_template 全量工程（避免为验证一个
+#     材质承受模板全量编译/PlayMode/构建独立版的耗时），另起一个独立、轻量的消费方工程，用本地
+#     Verdaccio 私服 + 按版本号（不是 file:）引用 com.gamefoundation.adapter.unity，驱动一次真实的
+#     EffectSequencePlayer.Play(..., VfxBlendMode.Additive)，断言最终渲染材质的着色器确实是
+#     GameFoundation/Vfx/AdditiveUnlit（不是降级后的默认材质）——这是本脚本里唯一真正走过"注册表
+#     安装"这条链路的步骤，防的就是同一类缺陷（"只验证过 file:/内嵌形态"）再次经这条脚本溜过去。
+# -----------------------------------------------------------------------------
+Invoke-Step "registry 安装形态下 additive 占位材质冒烟" {
+    $registryJsonPath = Join-Path $RepoRoot "toolchain\registry\registry.json"
+    if (-not (Test-Path $registryJsonPath)) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "找不到 $registryJsonPath，无法解析私服地址" }
+    }
+    $registryUrl = ((Get-Content -Path $registryJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json).url
+    $registryNpmrcPath = Join-Path $RepoRoot "toolchain\registry\.npmrc"
+    $startRegistryScript = Join-Path $RepoRoot "toolchain\registry\start_registry.ps1"
+
+    function Test-LocalRegistryPing {
+        param([string]$Url)
+        try {
+            $resp = Invoke-WebRequest -Uri ($Url.TrimEnd('/') + "/-/ping") -UseBasicParsing -TimeoutSec 5
+            return $resp.StatusCode -eq 200
+        } catch {
+            return $false
+        }
+    }
+
+    # 判断记录（本脚本自己负责把私服"带起来"，不假设调用方已经起好）：私服是本机常驻服务，可能
+    # 早已被人手工起过（见 toolchain/registry/README.md"快速开始"），也可能全新环境从未起过——两种
+    # 情况都要能跑通，因此先探活，没探到才 -Detach 起一个，不重复启动已经在跑的实例。
+    if (-not (Test-LocalRegistryPing -Url $registryUrl)) {
+        Write-Host "  本地私服未响应，尝试 -Detach 启动：$startRegistryScript" -ForegroundColor DarkGray
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $startRegistryScript -Detach | Out-Null
+        $deadline = (Get-Date).AddSeconds(30)
+        while (-not (Test-LocalRegistryPing -Url $registryUrl)) {
+            if ((Get-Date) -ge $deadline) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "启动私服后 30 秒仍未探活：$registryUrl" }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    if (-not (Test-Path $registryNpmrcPath)) {
+        Write-Host "  找不到发布账号凭据，尝试跑一次 init_publisher.ps1" -ForegroundColor DarkGray
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "toolchain\registry\init_publisher.ps1") | Out-Null
+        if (-not (Test-Path $registryNpmrcPath)) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "init_publisher.ps1 跑完后仍找不到 $registryNpmrcPath" }
+        }
+    }
+
+    # 判断记录（发布前先尽力 unpublish 一次，忽略结果）：本步骤用的版本号与步骤 1 的 $DistVersion
+    # 相同（"-dryrun" 后缀），每次重跑本脚本时 dist 内容可能已经变化（改了代码、重新构建）——如果
+    # 该版本号已经发布过旧内容，直接 npm publish 会因为"版本号已存在"报错，与"发布不可变"这条既有
+    # 语义冲突。本脚本代表的是"全新一次性演练"场景（同步骤 2 判断记录），因此在演练自己的私服上
+    # 把这个 -dryrun 版本号当作可重新发布的临时内容处理，先尽力 unpublish（首次运行该版本号还不
+    # 存在，unpublish 必然失败，忽略即可）。
+    $pkgDirForPublish = Join-Path $DistRoot "packages\com.gamefoundation.adapter.unity"
+    if (-not (Test-Path $pkgDirForPublish)) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "找不到 $pkgDirForPublish（步骤 1 应已生成，见 build.ps1 5.15 节）" }
+    }
+    # 判断记录（unpublish 前后临时切 $ErrorActionPreference = "Continue"）：npm unpublish --force
+    # 会在 stderr 打一行 "npm warn using --force..."，PowerShell 对原生命令 stderr 输出在
+    # $ErrorActionPreference = "Stop"（本脚本头部全局设置）下会当成终止性错误抛出，与这里"忽略
+    # unpublish 结果，只是尽力而为"的意图冲突（首次运行该版本号还不存在时必然走到这行）——本脚本
+    # 唯一目的是清出一个干净的版本号槽位，不关心 unpublish 本身成功与否。
+    $prevErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & npm unpublish "com.gamefoundation.adapter.unity@$DistVersion" --registry $registryUrl --userconfig $registryNpmrcPath --force 2>&1 | Out-Null
+    } catch {
+    }
+    $ErrorActionPreference = $prevErrorActionPreference
+    # --tag：npm 对 semver 预发布版本号（"-dryrun" 后缀）默认拒绝隐式打上 "latest" 标签发布，
+    # 必须显式指定一个非 "latest" 的 dist-tag（见实测报错 "You must specify a tag using --tag..."）；
+    # 这个 dist-tag 只影响"不带版本号的 npm install 默认解析到谁"，Unity 侧始终按精确版本号
+    # （$DistVersion）引用，不受影响。
+    & npm publish $pkgDirForPublish --registry $registryUrl --userconfig $registryNpmrcPath --tag consumer-smoke-dryrun --silent | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "npm publish 失败（退出码 $LASTEXITCODE）：$pkgDirForPublish -> $registryUrl" }
+    }
+
+    # 另起一个独立、轻量的消费方工程（不复用 $ConsumerProjectDir，理由见本步骤头部注释）。
+    $probeProjectDir = Join-Path $WorkDir "RegistryProbe\ConsumerProject"
+    $probeLogDir = Join-Path $WorkDir "RegistryProbe\logs"
+    New-Item -ItemType Directory -Force -Path (Join-Path $probeProjectDir "Assets\Editor") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $probeProjectDir "Packages") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $probeProjectDir "ProjectSettings") | Out-Null
+    New-Item -ItemType Directory -Force -Path $probeLogDir | Out-Null
+
+    Copy-TreeMirror -SourceDir (Join-Path $RepoRoot "adapters\unity\ProjectSettings") -DestDir (Join-Path $probeProjectDir "ProjectSettings") | Out-Null
+    Copy-TreeMirror -SourceDir (Join-Path $RepoRoot "adapters\unity\Assets\Settings") -DestDir (Join-Path $probeProjectDir "Assets\Settings") | Out-Null
+    Set-Utf8NoBom -Path (Join-Path $probeProjectDir "ProjectSettings\EditorBuildSettings.asset") -Content @"
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes: []
+  m_configObjects: {}
+"@
+
+    # manifest.json：依赖集合取自工作台 manifest.json 的内置模块（同步骤 4 判断记录），去掉工作台
+    # 专属的 file: 包，adapter.unity 改按版本号引用私服（不是 file:），不加 testables——testables
+    # 只对本地/内嵌包生效，registry 来源的包本来就不会编译其 Tests 程序集，不需要也不应该声明。
+    $workbenchManifestPath = Join-Path $RepoRoot "adapters\unity\Packages\manifest.json"
+    $workbenchManifest = (Get-Content -Path $workbenchManifestPath -Raw -Encoding UTF8) | ConvertFrom-Json
+    $probeDependencies = [ordered]@{ "com.gamefoundation.adapter.unity" = $DistVersion }
+    $probeSkipPackages = @("com.gamefoundation.conformance", "com.gamefoundation.game-template")
+    foreach ($prop in $workbenchManifest.dependencies.PSObject.Properties) {
+        if ($probeSkipPackages -contains $prop.Name) { continue }
+        $probeDependencies[$prop.Name] = $prop.Value
+    }
+    $probeManifest = [ordered]@{
+        scopedRegistries = @(
+            [ordered]@{ name = "ws-game private registry (consumer_smoke probe)"; url = $registryUrl; scopes = @("com.gamefoundation") }
+        )
+        dependencies = $probeDependencies
+    }
+    Set-Utf8NoBom -Path (Join-Path $probeProjectDir "Packages\manifest.json") -Content ($probeManifest | ConvertTo-Json -Depth 10)
+
+    # 探针脚本：驱动一次真实的 EffectSequencePlayer.Play(..., VfxBlendMode.Additive)，断言最终渲染
+    # 材质的着色器名——不是自己另写一套"直接查 Resources.Load 找不找得到"的旁路判据，走的是产品代码
+    # 真实调用路径（同 adapters/unity 工作台 UnityRenderer2DTests.EmitParticle_WithAdditiveBlendMode_
+    # SwitchesToAdditiveMaterial 断言口径）。
+    $probeCs = @"
+using System;
+using System.IO;
+using Adapter.Unity.EngineAdapter;
+using Core.Foundation.EngineAdapter;
+using UnityEditor;
+using UnityEngine;
+
+public static class AdditiveMaterialRegistryProbe
+{
+    public static void Run()
+    {
+        string resultPath = Path.Combine(Application.dataPath, "..", "registry_probe_result.txt");
+        try
+        {
+            var go = new GameObject("Probe");
+            var player = go.AddComponent<EffectSequencePlayer>();
+            var texture = new Texture2D(1, 1);
+            var sprite = Sprite.Create(texture, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f));
+            player.Play(new[] { sprite }, new double[] { 1.0 }, false, VfxBlendMode.Additive);
+
+            var renderer = go.GetComponent<SpriteRenderer>();
+            var shaderName = (renderer != null && renderer.sharedMaterial != null && renderer.sharedMaterial.shader != null)
+                ? renderer.sharedMaterial.shader.name
+                : "<null>";
+            bool pass = shaderName == "GameFoundation/Vfx/AdditiveUnlit";
+            File.WriteAllText(resultPath, (pass ? "RESULT=PASS" : "RESULT=FAIL") + " shader=" + shaderName);
+        }
+        catch (Exception ex)
+        {
+            File.WriteAllText(resultPath, "RESULT=EXCEPTION " + ex);
+        }
+        finally
+        {
+            EditorApplication.Exit(0);
+        }
+    }
+}
+"@
+    Set-Utf8NoBom -Path (Join-Path $probeProjectDir "Assets\Editor\AdditiveMaterialRegistryProbe.cs") -Content $probeCs
+
+    # 判断记录（探针脚本需要一个显式 asmdef，不能是默认 Assembly-CSharp-Editor）：
+    # com.gamefoundation.adapter.unity 包的 Runtime/Editor asmdef 都设了 "autoReferenced": false
+    # （见两处 asmdef 判断记录——包内类型不希望被消费方工程里随手的松散脚本隐式带到），探针脚本要
+    # 引用 Adapter.Unity.EngineAdapter.EffectSequencePlayer 与 Core.Foundation.EngineAdapter.
+    # VfxBlendMode，必须有自己的 asmdef 显式 reference "Adapter.Unity"，并把 Core.Foundation.dll
+    # 加进 precompiledReferences（VfxBlendMode 定义在这个precompiled 程序集里，"Adapter.Unity"
+    # 对它的引用不会传递给消费方）。
+    $probeAsmdef = @"
+{
+    "name": "RegistryProbe.Editor",
+    "references": ["Adapter.Unity"],
+    "includePlatforms": ["Editor"],
+    "precompiledReferences": ["Core.Foundation.dll"],
+    "overrideReferences": true,
+    "autoReferenced": true
+}
+"@
+    Set-Utf8NoBom -Path (Join-Path $probeProjectDir "Assets\Editor\RegistryProbe.Editor.asmdef") -Content $probeAsmdef
+
+    Wait-NoResidualUnityProcess
+    $probeLog = Join-Path $probeLogDir "registry_probe.log"
+    $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList @(
+        "-batchmode", "-nographics", "-quit",
+        "-projectPath", $probeProjectDir,
+        "-executeMethod", "AdditiveMaterialRegistryProbe.Run",
+        "-logFile", $probeLog
+    ) -TimeoutSeconds 600
+    if ($proc.TimedOut) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "registry 安装形态探针超过 600s 未完成，见 $probeLog" }
+    }
+
+    $resultPath = Join-Path $probeProjectDir "registry_probe_result.txt"
+    if (-not (Test-Path $resultPath)) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)，未生成探针结果文件，见 $probeLog" }
+    }
+    $resultText = (Get-Content -Path $resultPath -Raw).Trim()
+    [PSCustomObject]@{
+        Ok = $resultText.StartsWith("RESULT=PASS")
+        Detail = "$resultText（Unity 退出码 $($proc.ExitCode)，见 $probeLog）"
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 汇总
 # -----------------------------------------------------------------------------
 Write-Host ""
