@@ -568,6 +568,15 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 
 - `UiSkin.cs`：字体（复用 `UnityUISurface` 已验证的 Noto Sans CJK 占位字体生成路径）、基础色板、
   运行期生成的九宫格占位面板精灵（`assets/_placeholder` 无专用 UI 素材，见类型判断记录）。
+- **已知契约缺口已解除（ADR-0082，消费方反馈第二十七批）：`UiSkin` 此前没有任何公开写入口，
+  换皮做不到**。`Panels/` 下的面板均为 `public sealed class`，内部直接调用 `UiWidgets` 静态方法，
+  消费方代码从未参与这几次调用，给 `UiWidgets` 的方法加可选覆盖参数到不了消费方手里——唯一可行的
+  注入点只能开在 `UiSkin` 自身。现已新增 `UiSkinOverride`（逐项可空，覆盖面覆盖全部颜色 + 两个
+  精灵 + 字体）+ `UiSkin.Install`/`UiSkin.Reset`/`UiSkin.IsOverrideInstalled`；`UiWidgets` 四个
+  读取 `UiSkin` 的方法（`CreatePanelBackground`/`CreateButton`/`CreateLabel`/`CreateProgressBar`）
+  与各面板文件未改一行，注入点开在 `UiSkin` 属性本身即可自动生效；`PanelSprite`/`FlatSprite`/
+  `Font` 的默认值惰性缓存与覆盖分支互不影响。已经建好的面板不会因安装/卸载覆盖而回溯重建（显式
+  取舍，见该 ADR）。
 - `UiRoot.cs`：Screen Space - Overlay `Canvas` + `CanvasScaler` +
   `InputSystemUIInputModule`（若场景内尚无 `EventSystem` 则一并创建）。
 - `UiPanelHost.cs`：按 `ui_layout_definition` 十个面板行登记（缺行只警告不阻断，见类型判断记录）；

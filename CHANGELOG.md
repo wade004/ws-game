@@ -458,6 +458,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **UI 套件皮肤覆盖注入点**（消费方反馈第二十七批，阻塞，
+  [ADR-0082](architecture/adr/0082-UI套件皮肤覆盖注入点.md)）：`Adapter.Unity.Ui.UiSkin` 新增
+  可安装的 `UiSkinOverride`（逐项可空：`PanelBackground`/`PanelBorder`/`TextColor`/
+  `AccentColor`/`DisabledColor`/`DangerColor`/`ButtonIdleColor`/`ButtonHoverColor` 八个颜色，
+  以及 `PanelSprite`/`FlatSprite`/`Font`）+ `UiSkin.Install(UiSkinOverride)`/`UiSkin.Reset()`/
+  `UiSkin.IsOverrideInstalled`。`Adapter.Unity.Ui.UiWidgets` 的 `CreatePanelBackground`/
+  `CreateButton`/`CreateLabel`/`CreateProgressBar` 与各面板文件（`Runtime/Ui/Panels/*.cs`，含
+  直接读取 `UiSkin.FlatSprite`/`UiSkin.AccentColor` 的 `SettingsPanel` 滑条）均未改动一行——注入
+  点开在 `UiSkin` 自身，全部只读值统一改为"覆盖优先，未覆盖回退原默认值"，调用方自动生效。
+  `PanelSprite`/`FlatSprite`/`Font` 的默认值惰性缓存与覆盖分支互不影响：先访问一次默认值触发缓存
+  生成，之后再 `Install` 覆盖，仍然对随后新建的面板生效；已经建好的面板不会因安装/卸载覆盖而回溯
+  重建（显式取舍，见该 ADR）。不解除任何面板类型的密封限定，不改任何面板的公开构造签名。
+
 ## [1.67.0] - 2026-09-24
 
 ### 修复
