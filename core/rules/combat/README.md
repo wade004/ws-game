@@ -553,3 +553,25 @@ combat/
 `NoAttack` 拦截、未到挥击点、无可用攻击周期）一律不发，与既有"跳过不结算、不诊断"口径一致。生产
 唯一装配点 `RulesAssembly` 改为传入真实总线（`bus: Bus`）。ABI：新增构造函数重载 + 新增事件类型 +
 新增事件键，不改动任何既有公开签名。
+
+## 判断记录（伤害事件补携带技能 id，2026-09-23，[ADR-0073](../../../architecture/adr/0073-伤害事件补携带技能id.md)）
+
+消费方第十九批第 3 条指出：要表达"某个技能命中目标时播一个特效"，`feedback.binding` 需要一个同时
+携带"是哪个技能"与"打中了哪个单一目标"的事件——核实后框架里不存在这样的事件：
+`combat.damage_dealt` 有单一 `targetId` 但没有 `skillId`；`skill.cast_success` 有 `skillId` 但目标
+是 `IReadOnlyList<Id> Targets`（施法可以多目标，"打中谁"本就是逐次结算才知道的概念，把它塞回施法
+事件等于伪造一个不存在的一对一关系，`FeedbackBinder.TryGetField` 也从不覆盖 `targets`——Expr 没有
+列表类型），是真缺口。`CombatDamageDealtEvent` 新增可空 `SkillId` 属性（同 `AttackInstanceId` 既有
+可空惯例：新增九参数构造函数重载，八参数旧构造原样保留、转发调用新重载并传 `skillId: null`）。
+取值来源是结算落地那一刻的 `EffectContext.SkillId`——`Resolver.Resolve` 唯一发布点原样转发，但
+`context.IsPeriodic == true`（`AuraHost.FirePeriodic` 周期效果）时截断为 `null`：该路径构造
+`EffectContext` 时 `skillId` 参数传入的实际是光环定义 id（`AuraInstanceState.DefId`），不是技能 id，
+原样转发会把一个不属于 `skill.def` 命名空间的 id 冒充成技能 id；`CastPipeline.ExecuteEffectsOnly`
+（`def.Id`）、`AutoAttackHost.Update`（固定为保留 id `AutoAttackHost.NativeSkillId`）、
+`ProjectileHost.ApplyOnHitEffects`（转发投射物携带的技能 id）三个非周期生产构造点 `isPeriodic` 恒为
+`false`，原样转发。普通攻击命中因此携带 `skill.native_auto_attack`——这是有意的，消费方可借此对
+普通攻击命中同样声明反馈绑定，按 id 精确匹配即可（同 ADR-0059 决策 3"落地事件与技能击杀完全同构"）。
+新增字段 `TryGetField("skillId")` 直接复用 `FeedbackBinder.FromDisplaySource.Skill => ExtractId(evt,
+"skillId", "auraDefId")` 与 `RulesExprHostFactory.Host.QueryEvent` 的"事件字段名→ `event.<field>`"
+既有通用转发机制，`feedback.binding` 按 `event.skill_id` 条件过滤与 `from_display: skill` 均不需要
+额外接线。ABI：新增构造函数重载，不改动任何既有公开签名。

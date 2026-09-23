@@ -458,6 +458,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **`combat.damage_dealt` 补携带可空 `skillId`，供 `feedback.binding` 按技能过滤命中反馈**
+  （消费方第十九批第 3 条，见 [ADR-0073](architecture/adr/0073-伤害事件补携带技能id.md)）：
+  框架此前不存在任何事件同时携带"是哪个技能"与"打中了哪个单一目标"——`combat.damage_dealt`
+  有 `targetId` 但没有 `skillId`，`skill.cast_success` 有 `skillId` 但目标是列表、且
+  `FeedbackBinder` 不解析列表字段。`CombatDamageDealtEvent` 新增可空 `SkillId` 属性，取值经
+  `EffectContext.SkillId` 原样转发；光环周期伤害等不经技能结算路径的伤害为空；普通攻击命中携带
+  框架原生保留 id `skill.native_auto_attack`（不对应任何真实注册的 `skill.def` 行，是有意的，
+  消费方可据此对普通攻击命中同样声明反馈绑定）。`event.skill_id` 条件过滤与
+  `from_display: skill` 经既有通用字段转发机制自动生效，不需要额外接线。ABI：`CombatDamageDealtEvent`
+  新增九参数构造函数重载，既有八参数重载原样保留，不改动任何既有公开签名。
+
 ## [1.64.0] - 2026-09-23
 
 ### 修复

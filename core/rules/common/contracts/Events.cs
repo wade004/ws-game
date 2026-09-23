@@ -368,9 +368,38 @@ namespace Core.Rules.Common
         /// 未经 <c>CastPipeline</c> 产生的结算（如光环周期伤害）为 null。</summary>
         public Id? AttackInstanceId { get; }
 
+        /// <summary>消费方第十九批第 3 条根治（[ADR-0073](../../../../architecture/adr/0073-伤害事件补携带技能id.md)）：
+        /// 本次结算所属的技能——原样携带产生本次落地事件的 <see cref="Core.Rules.Common.EffectContext"/>
+        /// 上的同一个 <see cref="Core.Rules.Common.EffectContext.SkillId"/>，供 <c>feedback.binding</c>
+        /// 按 <c>skillId</c> 过滤"某个技能命中目标"这一表现声明（同 <see cref="AttackInstanceId"/> 判断
+        /// 记录同一套可空惯例）。普通攻击（<c>Core.Rules.Combat.AutoAttackHost</c>）命中携带
+        /// <c>AutoAttackHost.NativeSkillId</c>（保留 id <c>skill.native_auto_attack</c>，不对应任何真实
+        /// 注册的 <c>skill.def</c> 行，见该常量判断记录）——这是有意的，消费方可借此对普通攻击命中同样
+        /// 声明反馈绑定，按 id 精确匹配即可，不需要另外判断"是不是技能"。光环周期伤害
+        /// （<c>Core.Rules.Skill.AuraHost.FirePeriodic</c>）等不经技能结算路径产生的伤害为 null——该
+        /// 路径构造 <see cref="Core.Rules.Common.EffectContext"/> 时 <c>skillId</c> 参数传入的实际是
+        /// 光环定义 id（<c>AuraInstanceState.DefId</c>），不是技能 id，直接转发会把一个不属于
+        /// <c>skill.def</c> 命名空间的 id 冒充成技能 id，故以 <see cref="Core.Rules.Common.EffectContext.IsPeriodic"/>
+        /// 为判据在落地那一步截断（见 <c>Core.Rules.Combat.Resolver.Resolve</c> 判断记录），不是本事件
+        /// 类型自己转发时做选择。</summary>
+        public Id? SkillId { get; }
+
+        /// <summary>ABI 兼容 façade：不带 <see cref="SkillId"/> 的旧构造签名，物理 IL 签名与补充该
+        /// 字段之前完全一致，供旧编译产物不重新编译即可继续加载。<see cref="SkillId"/> 恒为
+        /// <c>null</c>。</summary>
         public CombatDamageDealtEvent(
             Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult,
             int triggerChainDepth = 0, Id? attackInstanceId = null)
+            : this(sourceId, targetId, school, amount, isCrit, hitResult, triggerChainDepth, attackInstanceId, skillId: null)
+        {
+        }
+
+        /// <summary>见 <see cref="SkillId"/> 判断记录：新增重载，九个参数均不带默认值，避免与上面
+        /// 八参数构造在"只传 6～8 个参数"的调用点产生重载二义性（同 <see cref="SkillCastStartEvent"/>
+        /// 五参数构造判断记录同一套推导）。</summary>
+        public CombatDamageDealtEvent(
+            Id sourceId, Id targetId, Id school, double amount, bool isCrit, HitResult hitResult,
+            int triggerChainDepth, Id? attackInstanceId, Id? skillId)
         {
             SourceId = sourceId;
             TargetId = targetId;
@@ -380,6 +409,7 @@ namespace Core.Rules.Common
             HitResult = hitResult;
             TriggerChainDepth = triggerChainDepth;
             AttackInstanceId = attackInstanceId;
+            SkillId = skillId;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -394,6 +424,7 @@ namespace Core.Rules.Common
                 case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
                 case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 case "attackInstanceId" when AttackInstanceId.HasValue: value = ExprValue.OfId(AttackInstanceId.Value); return true;
+                case "skillId" when SkillId.HasValue: value = ExprValue.OfId(SkillId.Value); return true;
                 default: value = default; return false;
             }
         }
