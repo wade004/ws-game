@@ -348,7 +348,13 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   取代 `UnityEngine.Random`（ADR-0016 决策 4）。
 - `UnityInput.cs`：不依赖 `.inputactions` 资产、`anyKey` 聚合控件的绕过方式。
 - `UnityResourceLoader.cs`：资源 id→路径映射、后台线程 + 主线程完成队列的线程模型、音频/字体
-  解码能力边界、`Scene`/`NavMesh`/`Effect` 三个新种类的加载路径（ADR-0016 决策 5）。
+  解码能力边界、`Scene`/`NavMesh`/`Effect` 三个新种类的加载路径（ADR-0016 决策 5）。**ADR-0081
+  跟进（2026-09-23，消费方反馈第二十三批）**：`TryDecodeImage` 解码精灵集下的图像时改为优先读该
+  集自己 `anchors.json` 顶层 `pixels_per_unit`（未声明/非正数/文件缺失/解析失败回退全局
+  `PixelsPerUnit`，逐字节一致），按精灵集目录缓存解析结果（`_spriteSetPixelsPerUnitCache`，含
+  "未声明"结论）；`TryResolveSpriteSetRelativeDir`/`ReadDeclaredPixelsPerUnit`
+  两个新私有方法与判断记录见该文件、诊断计数 `SpriteSetAnchorsJsonReadCount`。`TryDecodeEffect`
+  不受影响（决策 6）。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
   与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
   （ADR-0016 决策 7）；`GetBlockingVersion` 按地图计数、`FindPath` 端点精确接合、`Raycast`/路径

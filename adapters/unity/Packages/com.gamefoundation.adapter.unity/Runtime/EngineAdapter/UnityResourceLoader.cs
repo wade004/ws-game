@@ -138,6 +138,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.EngineAdapter;
 using UnityEngine;
 
@@ -259,11 +260,40 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<(Id ResourceId, string SlotKey), Mesh> _extractedSlotMeshes =
             new Dictionary<(Id, string), Mesh>();
 
-        /// <summary>本加载器使用的像素-单位换算比，供 Sprite.Create 使用；与
+        /// <summary>本加载器使用的像素-单位换算比全局默认值，供 Sprite.Create 使用；与
         /// architecture/14_资产规格书模板.md 第 2.2 节"pixels_per_unit"游戏填写项对应，
-        /// 框架层给一个可运行的默认值 100，具体项目在其接入记录里覆盖（本加载器不读取
-        /// 项目专属配置，避免 L-1 反向依赖游戏内容）。</summary>
+        /// 框架层给一个可运行的默认值 100，具体项目在其接入记录里覆盖。
+        /// <para>
+        /// [ADR-0081](../../../../../../../architecture/adr/0081-精灵集自带像素密度在运行期生效.md)
+        /// 判断记录（不再是唯一取值来源，取代此前"本加载器不读取项目专属配置，避免 L-1 反向依赖游戏
+        /// 内容"这条字段注释——该顾虑对本次改动不成立）：<see cref="TryDecodeImage"/> 解码某个精灵集下
+        /// 的图像（"layer." 纸娃娃层类别、"sprite." 类别本身直接当 Image 使用两种形态，见
+        /// <see cref="ResolveImagePixelsPerUnit"/> 判断记录）时，优先读取该精灵集自己随身携带的
+        /// anchors.json 顶层 <c>pixels_per_unit</c>——这是资产自身的伴生文件（适配层本来就在读同一
+        /// 目录下的图片，与读取 <c>frames.json</c>/<c>atlas.json</c> 同一性质），不是任何项目专属配置
+        /// 或内容数据表，不构成 L-1"适配层反向依赖游戏内容"；该字段缺失、非正数、anchors.json 文件
+        /// 不存在或解析失败时才回退到本属性，回退路径与改动前逐字节一致。不属于任何精灵集的图像资源
+        /// （<c>paperdoll.</c>/<c>icon.</c> 等其它类别，见 <see cref="ResolveImagePixelsPerUnit"/>
+        /// 判断记录）与 <see cref="ResourceKind.Effect"/>（<see cref="TryDecodeEffect"/>，
+        /// <c>frames.json</c> 没有该字段、vfx 图集没有"精灵集"归属层级，本轮不接入）始终只使用本
+        /// 属性，不受影响。
+        /// </para></summary>
         public float PixelsPerUnit { get; set; } = 100f;
+
+        /// <summary>ADR-0081 新增：按精灵集相对目录（如 <c>"sprites/placeholder_hero"</c>）缓存该集
+        /// anchors.json 声明的 <c>pixels_per_unit</c>（<c>null</c> 表示"该集未声明/无效/文件不存在/
+        /// 解析失败"这一结论本身，同样要缓存，避免对没有声明的集反复做 IO，见决策 6）。生命周期与本
+        /// 加载器既有资源缓存（<see cref="_sprites"/> 等字段）同一套口径——随本加载器实例存活，没有
+        /// 独立的清理入口（本类型当前也没有"整体清缓存/重载"入口，<see cref="Unload"/> 只按单个资源
+        /// id 清理，与本缓存的"按精灵集目录"粒度不是同一维度，不需要跟随 <see cref="Unload"/> 清理——
+        /// 同一精灵集的 anchors.json 内容不会因为某个资源被 Unload 而改变）。</summary>
+        private readonly Dictionary<string, float?> _spriteSetPixelsPerUnitCache = new Dictionary<string, float?>();
+
+        /// <summary>测试/诊断用（同 <see cref="PendingLoadCount"/> 惯例）：本加载器实际执行过
+        /// anchors.json 磁盘读取+ 解析的次数（缓存命中不计数，见 <see cref="ReadDeclaredPixelsPerUnit"/>）。
+        /// 供 PlayMode 测试验证"同一精灵集连续解码多张图，anchors.json 只被读一次"（ADR-0081 验收
+        /// 标准 3），不属于 <see cref="IResourceLoader"/> 契约本身。</summary>
+        public int SpriteSetAnchorsJsonReadCount { get; private set; }
 
         public void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback)
         {
@@ -565,10 +595,127 @@ namespace Adapter.Unity.EngineAdapter
                 texture,
                 new UnityEngine.Rect(0, 0, texture.width, texture.height),
                 new Vector2(0.5f, 0.5f),
-                PixelsPerUnit);
+                ResolveImagePixelsPerUnit(resourceId));
             sprite.name = resourceId.Value;
             _sprites[resourceId] = sprite;
             return true;
+        }
+
+        /// <summary>
+        /// [ADR-0081](../../../../../../../architecture/adr/0081-精灵集自带像素密度在运行期生效.md)
+        /// 决策 1：解析 <paramref name="resourceId"/>（<see cref="ResourceKind.Image"/>）应使用的
+        /// 像素-单位换算比——若该资源属于某个精灵集且该集 anchors.json 顶层声明了合法（大于 0）的
+        /// <c>pixels_per_unit</c>，用它；否则（不属于任何精灵集、未声明、非正数、anchors.json 不
+        /// 存在、解析失败）一律回退 <see cref="PixelsPerUnit"/>，回退路径与改动前逐字节一致，不影响
+        /// 既有资产。按精灵集相对目录缓存解析结果（决策 6，见 <see cref="_spriteSetPixelsPerUnitCache"/>
+        /// 判断记录），同一精灵集下解码第二张及之后的图不再重复读盘。
+        /// </summary>
+        private float ResolveImagePixelsPerUnit(Id resourceId)
+        {
+            if (!TryResolveSpriteSetRelativeDir(resourceId, out var spriteSetRelativeDir))
+            {
+                return PixelsPerUnit;
+            }
+
+            if (!_spriteSetPixelsPerUnitCache.TryGetValue(spriteSetRelativeDir, out var declared))
+            {
+                declared = ReadDeclaredPixelsPerUnit(spriteSetRelativeDir);
+                _spriteSetPixelsPerUnitCache[spriteSetRelativeDir] = declared;
+            }
+
+            return declared ?? PixelsPerUnit;
+        }
+
+        /// <summary>
+        /// ADR-0081 判断记录（"不属于任何精灵集的图像资源走什么路径"，任务书要求本方法自行判断并
+        /// 在 ADR 里写明）：判断 <paramref name="resourceId"/>（<see cref="ResourceKind.Image"/>）是否
+        /// 属于某个精灵集，是则给出该精灵集在资产根目录下的相对目录路径（正斜杠分隔，同
+        /// <see cref="AssetRefConventions.SpriteSetDirectory"/> 路径空间，可直接拼进 <see cref="RootDir"/>
+        /// 做文件系统访问）。覆盖两类形态：
+        /// <list type="bullet">
+        /// <item><c>"layer."</c> 类别（身体纸娃娃层与 ADR-0071 装备覆盖层，两者共用同一套
+        /// <c>sprites/&lt;精灵集名&gt;/&lt;方向&gt;/&lt;层名&gt;.png</c> 三级目录，见本类型
+        /// <see cref="ResolvePath"/> 方法"U2-1 判断记录"）：精灵集目录段即双下划线分隔三段资源 id
+        /// 的第一段——层文件本就落在该精灵集目录下，段数不是恰好 3 段时（不满足假定形状）视为不属于
+        /// 任何精灵集，同 <see cref="ResolvePath"/> 对该情形的既有容错退化一致。</item>
+        /// <item><c>"sprite."</c> 类别本身（<c>sprite_set_id</c> 直接当 Image 资源 id 使用的既有
+        /// 简化，见 <see cref="ResolvePath"/> 类型顶部"ADR-0038 适配层接线"一节"非 layer/paperdoll
+        /// 类别的通用回退分支此后只覆盖 sprite 类别本身"）：资源 id 本身就是 <c>sprite_set_id</c>，
+        /// 经 <see cref="AssetRefConventions.SpriteSetDirectory"/> 直接算出目录——该资源本来就是
+        /// "这个精灵集"，用它自己的 anchors.json 合乎直觉。</item>
+        /// </list>
+        /// 其余类别均不落在任何精灵集目录下，返回 <c>false</c>，调用方据此直接回退全局
+        /// <see cref="PixelsPerUnit"/>，不做多余的 anchors.json 查找/IO：
+        /// <list type="bullet">
+        /// <item><c>"paperdoll."</c>——扁平单文件（<see cref="AssetRefConventions.PaperdollLayerFile"/>），
+        /// 不落在任何 <c>sprites/&lt;name&gt;/</c> 目录下，没有伴生的 anchors.json。</item>
+        /// <item><c>"icon."</c> 等其它类别——落在 <c>icons/</c> 等与精灵集无关的独立子目录（见
+        /// <see cref="AssetRefConventions.IconFile"/>），同样没有精灵集语义。</item>
+        /// </list>
+        /// </summary>
+        private static bool TryResolveSpriteSetRelativeDir(Id resourceId, out string spriteSetRelativeDir)
+        {
+            var value = resourceId.Value;
+            if (IsLayerCategory(value))
+            {
+                var layerName = StripCategoryPrefix(value);
+                var parts = layerName.Split(new[] { "__" }, StringSplitOptions.None);
+                if (parts.Length == 3)
+                {
+                    spriteSetRelativeDir = "sprites/" + parts[0];
+                    return true;
+                }
+                spriteSetRelativeDir = null!;
+                return false;
+            }
+
+            if (CategoryPrefixOf(value) == "sprite")
+            {
+                spriteSetRelativeDir = AssetRefConventions.SpriteSetDirectory(resourceId);
+                return true;
+            }
+
+            spriteSetRelativeDir = null!;
+            return false;
+        }
+
+        /// <summary>ADR-0081：实际做一次 anchors.json 磁盘 IO + 解析（只在
+        /// <see cref="ResolveImagePixelsPerUnit"/> 的缓存未命中时调用一次，见
+        /// <see cref="SpriteSetAnchorsJsonReadCount"/> 判断记录）。文件不存在、顶层不是 JSON 对象、
+        /// 不含 <c>pixels_per_unit</c> 字段、该字段不是数字、数值不大于 0、JSON 语法解析失败——均返回
+        /// <c>null</c>（视为"该集未声明"，调用方回退全局默认值），不抛异常，与本加载器其余资源解析
+        /// 失败时"降级、不中断"的既有惯例一致（见类型顶部"判断记录（加载方式）"等既有段落）。</summary>
+        private float? ReadDeclaredPixelsPerUnit(string spriteSetRelativeDir)
+        {
+            SpriteSetAnchorsJsonReadCount++;
+
+            try
+            {
+                var anchorsPath = Path.Combine(
+                    RootDir, spriteSetRelativeDir.Replace('/', Path.DirectorySeparatorChar), "anchors.json");
+                if (!File.Exists(anchorsPath))
+                {
+                    return null;
+                }
+
+                var json = File.ReadAllText(anchorsPath);
+                if (!(JsonReader.Parse(json) is JsonObject obj))
+                {
+                    return null;
+                }
+
+                if (!obj.TryGetValue("pixels_per_unit", out var val) || !(val is JsonNumber num))
+                {
+                    return null;
+                }
+
+                var declared = (float)num.Value;
+                return declared > 0f ? declared : (float?)null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>解析 <c>frames.json</c>（结构见 <see cref="EffectFramesDocument"/>：消费方反馈

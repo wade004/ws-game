@@ -269,5 +269,139 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(64, sprite.rect.width, 0.01f, "占位英雄精灵宽度应为 64 像素（见 assets/_placeholder/MANIFEST.json）");
             Assert.AreEqual(96, sprite.rect.height, 0.01f, "占位英雄精灵高度应为 96 像素（见 assets/_placeholder/MANIFEST.json）");
         }
+
+        /// <summary>
+        /// [ADR-0081](../../../../../../../architecture/adr/0081-精灵集自带像素密度在运行期生效.md)
+        /// 决策 1 主路径实测：占位英雄精灵集 <c>assets/_placeholder/sprites/placeholder_hero/anchors.json</c>
+        /// 顶层声明 <c>"pixels_per_unit": 32</c>（<see cref="DeclaredPixelsPerUnit"/>），画布像素尺寸
+        /// 64×96（同 <see cref="LoadAsync_PlaceholderHeroFrontBody_LoadsWithExpectedSize"/>）。期望的
+        /// 世界尺寸由"画布像素 ÷ 该集声明的 pixels_per_unit"这条规则在用例里现算，不写死裸数——同时
+        /// 与"若忽略声明、沿用加载器全局默认值会得到的尺寸"对照，证明同一张图在声明生效前后渲染尺寸
+        /// 确实不同（不是恰好凑巧相等）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_PlaceholderHeroFrontBody_UsesDeclaredPixelsPerUnit_NotGlobalDefault()
+        {
+            const float canvasWidthPx = 64f;
+            const float canvasHeightPx = 96f;
+            const float declaredPixelsPerUnit = 32f; // assets/_placeholder/sprites/placeholder_hero/anchors.json 顶层 pixels_per_unit
+
+            var resourceId = new Id("layer.placeholder_hero__front__body");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Image, (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(success, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(success!.Value,
+                "占位英雄 front/body 层资源加载应当成功——若失败，请先跑一次 build.ps1 -SyncContent 同步占位资产");
+            Assert.IsTrue(_loader.TryGetSprite(resourceId, out var sprite));
+
+            var expectedWorldWidth = canvasWidthPx / declaredPixelsPerUnit;
+            var expectedWorldHeight = canvasHeightPx / declaredPixelsPerUnit;
+            var worldWidthIfGlobalDefaultUsed = canvasWidthPx / _loader.PixelsPerUnit;
+
+            Assert.AreEqual(expectedWorldWidth, sprite.bounds.size.x, 0.001f,
+                "精灵世界宽度应等于画布像素宽度 ÷ 精灵集自己声明的 pixels_per_unit（ADR-0081 决策 1）");
+            Assert.AreEqual(expectedWorldHeight, sprite.bounds.size.y, 0.001f,
+                "精灵世界高度应等于画布像素高度 ÷ 精灵集自己声明的 pixels_per_unit（ADR-0081 决策 1）");
+            Assert.Greater(UnityEngine.Mathf.Abs(worldWidthIfGlobalDefaultUsed - sprite.bounds.size.x), 0.001f,
+                "声明的 pixels_per_unit 与加载器全局默认值不同，实测世界尺寸必须随之真的变化，" +
+                "不能仍是忽略声明、沿用全局默认值算出的尺寸");
+        }
+
+        /// <summary>
+        /// [ADR-0081](../../../../../../../architecture/adr/0081-精灵集自带像素密度在运行期生效.md)
+        /// 决策 1 回退路径实测：<c>assets/_sample/sprites/creature_sample_hero/anchors.json</c>
+        /// （`toolchain/asset_import/sprite_cmd.py` 产出，"按方向档位分层" schema）顶层没有
+        /// <c>pixels_per_unit</c> 字段（见该 ADR"背景"一节落地期核实结论），画布像素尺寸同样是
+        /// 64×96（`front`/`canvas_size`）。渲染尺寸应等于"画布像素 ÷ 加载器全局 PixelsPerUnit"，
+        /// 与改动前逐字节一致——回退路径不应受本次改动影响。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_SampleHeroFrontBody_NoDeclaredPixelsPerUnit_FallsBackToGlobalDefault()
+        {
+            const float canvasWidthPx = 64f;
+            const float canvasHeightPx = 96f;
+
+            var resourceId = new Id("layer.creature_sample_hero__front__body");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Image, (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(success, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(success!.Value,
+                "样例英雄 front/body 层资源加载应当成功——若失败，请先跑一次 build.ps1 -SyncContent 同步样例资产");
+            Assert.IsTrue(_loader.TryGetSprite(resourceId, out var sprite));
+
+            var expectedWorldWidth = canvasWidthPx / _loader.PixelsPerUnit;
+            var expectedWorldHeight = canvasHeightPx / _loader.PixelsPerUnit;
+
+            Assert.AreEqual(expectedWorldWidth, sprite.bounds.size.x, 0.001f,
+                "anchors.json 未声明 pixels_per_unit 时，精灵世界宽度应回退为画布像素宽度 ÷ 加载器全局 PixelsPerUnit");
+            Assert.AreEqual(expectedWorldHeight, sprite.bounds.size.y, 0.001f,
+                "anchors.json 未声明 pixels_per_unit 时，精灵世界高度应回退为画布像素高度 ÷ 加载器全局 PixelsPerUnit");
+        }
+
+        /// <summary>
+        /// [ADR-0081](../../../../../../../architecture/adr/0081-精灵集自带像素密度在运行期生效.md)
+        /// 决策 6/7 缓存实测：同一精灵集（占位英雄）连续解码两张不同的层图片（front/body、
+        /// front/head），<c>anchors.json</c> 只应被实际读盘+解析一次——第二次解码应命中
+        /// <see cref="UnityResourceLoader.SpriteSetAnchorsJsonReadCount"/> 缓存，不重复触发磁盘 IO。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_TwoImagesInSameSpriteSet_ReadsAnchorsJsonOnlyOnce()
+        {
+            var firstId = new Id("layer.placeholder_hero__front__body");
+            var secondId = new Id("layer.placeholder_hero__front__head");
+            bool? firstSuccess = null;
+            bool? secondSuccess = null;
+
+            Assert.AreEqual(0, _loader.SpriteSetAnchorsJsonReadCount, "加载任何资源之前不应发生过 anchors.json 读取");
+
+            _loader.LoadAsync(firstId, ResourceKind.Image, (id, ok) => firstSuccess = ok);
+
+            var timeout = 5f;
+            while (firstSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(firstSuccess, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(firstSuccess!.Value, "占位英雄 front/body 层资源加载应当成功");
+            Assert.AreEqual(1, _loader.SpriteSetAnchorsJsonReadCount, "解码同一精灵集第一张图应当触发恰好一次 anchors.json 读取");
+
+            _loader.LoadAsync(secondId, ResourceKind.Image, (id, ok) => secondSuccess = ok);
+
+            timeout = 5f;
+            while (secondSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(secondSuccess, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(secondSuccess!.Value, "占位英雄 front/head 层资源加载应当成功");
+            Assert.AreEqual(1, _loader.SpriteSetAnchorsJsonReadCount,
+                "同一精灵集下解码第二张图应当命中缓存，anchors.json 读取计数应仍为 1（不应变成 2）");
+        }
     }
 }
