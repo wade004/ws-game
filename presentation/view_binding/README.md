@@ -123,6 +123,32 @@ public void SyncAll(double alpha)
    `Core.Carriers.Unit.UnitPersistable.CurrentPosition`/`WorldSim`/`ViewBinder`）：无额外
    `world.Tick` 的同图读档、重复读档、显式补一次 tick 的控制组三个用例。
 
+8. **`StrideEmitter`（ADR-0078，2026-09-23，消费方反馈第二十批第 2 条）：新增独立组件，不是 `ViewBinder`
+   自身的一部分**——订阅 `unit.moved`，按单位 `display.map.stride_distance`（可选几何字段）累计位移，
+   达到一个步幅距离即发 `unit.stride_completed { unitId, position }` 并保留余数（不清零）；单次位移
+   超过步幅距离 8 倍视为瞬移，只发一条并清零累计。未登记步幅距离的单位完全不发本事件、不维护任何
+   状态（零开销 opt-in）。单位 → 外形解析复用 `entity.TemplateId ?? entity.EntityId` 既有惯例（同
+   `ViewBinder.OnEntityCreated`），不新建第二套解析路径。
+   判断记录（为什么不并进 `ViewBinder` 本身，另起一个独立类型）：`ViewBinder` 的职责是"逻辑对象 →
+   View 的创建/同步/销毁"，`StrideEmitter` 不创建、不持有、不同步任何 View，是一个纯粹"监听位移、
+   派生节奏事件"的旁路组件，两者关注点不同；独立成型也让"未使用步幅机制的游戏可以完全不构造
+   `StrideEmitter`"这件事更直接（`PresentationAssembly` 仍默认构造，因为未登记步幅距离时本身零开销，
+   见 ADR-0078 决策 1）。
+   判断记录（为什么不违反 09 第 1 节铁律 P2"表现层只订阅"）：`unit.stride_completed` 已纳入 09 第 1
+   节 P2 的例外小集合（与 `presentation.playback_finished`/`ui.panel_opened`/`ui.panel_closed`/
+   `ui.action_invoked` 并列）——本事件由已发布的 `unit.moved` 派生，不携带任何会被解释为"逻辑判定"
+   的数据，不写回仿真、不影响仿真基线。
+   判断记录（命名为什么是"步幅位移"而不是"脚步"）：消费方原始提名 `unit.footstep`，设计层收紧为
+   几何语义命名——同一个"累计位移达到一个步幅距离"的信号可能被用来触发脚步声，也可能触发扬尘特效、
+   镜头微晃、地面痕迹，与"脚"本身无关，框架事件词汇表不把某一种呈现用途焊死进事件名里；`display.map`
+   新增字段同理登记为 `stride_distance`（步幅几何距离），不是"脚步间隔"。框架只登记"什么时候发"，
+   不登记任何默认音效/特效绑定，`data/_sample/feedback/feedback.binding.json` 里挂在本事件上的样例
+   行仅作"怎么用"的示范，不是推荐配置。
+   回归见 `presentation/view_binding/tests/StrideEmitterTests.cs`（累计触发条数、余数保留跨多次移动、
+   瞬移钳制、未登记步幅距离零事件、重新登记后状态清理）与
+   `presentation/assembly/tests/PresentationAssemblyTests.cs`（经真实 `PresentationAssembly.Stride`，
+   真实 `WorldSim.Tick` 推进一个真实距离，断言事件条数等于按步幅距离算出的期望值）。
+
 ## 契约缺口
 
 - 见 `presentation/common/README.md`"契约缺口"一节（`Entity.Kind` 词汇表未统一、

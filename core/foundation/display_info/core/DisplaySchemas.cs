@@ -58,6 +58,7 @@ namespace Core.Foundation.DisplayInfo
                 new FieldSchema("sort_offset", FieldKind.Number, required: false, description: "缺省 0"),
                 new FieldSchema("weapon_style_ref", FieldKind.Id, required: false, description: "指向 display.weapon_style，见判断记录（消费方反馈第 30 条：登记为软引用）")
                     .WithSoftReference(table: "display.weapon_style"),
+                new FieldSchema("stride_distance", FieldKind.Number, required: false, description: "ADR-0078：步幅距离——迈一步覆盖的位移距离，几何/体型属性，与规则层无关；未登记或 <=0 时该逻辑 id 对应的单位不发 unit.stride_completed（见 DisplayInfo.StrideDistance、Presentation.ViewBinding.StrideEmitter）"),
 
                 // sprite 型专属字段（schema 层非必填，见类型注释）
                 new FieldSchema("sprite_set_id", FieldKind.String, required: false, description: "精灵集资源引用（不含路径），sprite 型必填"),
