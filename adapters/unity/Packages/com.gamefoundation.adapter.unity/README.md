@@ -382,7 +382,26 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   实例状态恢复（PR140-02）、Animator 自动过渡完成事件判定（PR140-03）等判断记录。
 - `UnityFileSystem.cs`：`readOnlyContentMode` 构造参数合并原 `StreamingAssetsFileSystem`
   的判断记录 1、`GetContentRootDir` 两种模式下语义一致的判断记录 2（ADR-0016 决策 8）。
-- `EffectSequencePlayer.cs`：`ResourceKind.Effect` 序列帧动画的最小播放组件。
+- `EffectSequencePlayer.cs`：`ResourceKind.Effect` 序列帧动画的最小播放组件。**ADR-0074 落地缺陷
+  跟进（2026-09-23，消费方反馈第二十四批）**：`GetAdditiveMaterial` 原用 `Resources.Load<Material>`
+  取包内 `Runtime/Resources/GameFoundation/materials/vfx_additive.mat`，在经本地 npm 注册表安装的
+  `com.gamefoundation.adapter.unity`（`source: registry`，Unity 判定为只读包）形态下取不到——实测
+  复现：该 .mat 及其引用的 `Runtime/Shaders/VfxAdditiveUnlit.shader` 在发布出去的 .tgz 内都存在、
+  `.meta`/GUID 均正确、AssetDatabase 也确实完成了导入，但 `Resources.Load` 在 Editor 与已构建的
+  Standalone Player 内都返回 null；同一份内容改用 `file:` 本地/内嵌引用（工作台工程、`dist/<ver>/`
+  展开目录）则能正常取到——这是 Unity Package Manager 对"registry 来源只读包"内 `Resources` 文件夹
+  的既有限制，不是本仓库打包遗漏（已用一个独立消费方工程分别验证过两种安装形态，见
+  `toolchain/consumer_smoke.ps1` 新增步骤）。改为 `Shader.Find("GameFoundation/Vfx/AdditiveUnlit")`
+  运行期 `new Material(shader)` 现构造，不再依赖 `Resources.Load`；`Shader.Find` 在两种安装形态下都
+  能取到着色器本身（不经 Resources 索引），但 Standalone Player 构建期会裁剪"没有任何资产实际引用"
+  的着色器（原 .mat 不再被代码引用，不能再指望它顺带保留着色器）——因此新增
+  `Editor/EnsureAdditiveShaderAlwaysIncluded.cs`（`[InitializeOnLoad]`，同包 Editor 程序集）自动把
+  该着色器注册进消费方工程 `ProjectSettings/GraphicsSettings.asset` 的 Always Included Shaders
+  列表，幂等、消费方不需要任何手工步骤；两者缺一不可（已分别用"只切 Shader.Find 不注册"与"注册但
+  不切换"两种半吊子改法在独立版构建里复现仍然失败，确认必须两处同改）。原 `vfx_additive.mat` 资产
+  与 `Editor/GeneratePlaceholderVfxAssets.cs` 生成器未删除（不再是运行期依赖，但保留供 Editor 内
+  可视化预览/未来其它用途）。`blend_mode` 不声明或声明 `alpha` 的材质选择路径（`_defaultMaterial`
+  分支）未改动。
 - `Runtime/Bootstrap/GameFoundationBootstrap.cs`：装配顺序、固定步驱动已改走
   `IClock.RequestFixedStep`/`OnFrame`（ADR-0016 决策 1 补上 `SubscriptionHandle` 退订能力后，
   引擎侧收口任务把此前保留的 `FixedUpdate`/`Update` 直驱写法收口为显式注册 + `OnDestroy` 退订，

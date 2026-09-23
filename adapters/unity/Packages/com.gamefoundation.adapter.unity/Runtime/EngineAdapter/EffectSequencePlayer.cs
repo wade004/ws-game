@@ -7,9 +7,10 @@
 //
 // ADR-0074 新增：Play 按 Core.Foundation.EngineAdapter.VfxBlendMode 给 SpriteRenderer 选材质——
 // alpha（缺省）用 Unity 为该 SpriteRenderer 自动指派的默认材质（与改动前逐字一致，不主动赋值）；
-// additive 用适配层包内自带的占位材质资产（见 GetAdditiveMaterial 判断记录）。本组件是对象池复用
-// 的（EffectSequencePlayerPool），每次 Play 都必须显式落地这一次的混合模式，不能"alpha 就不管"——
-// 否则复用同一个实例的下一次播放会继承上一次残留的材质。
+// additive 用适配层包内自带的占位着色器在运行期现构造的材质（见 GetAdditiveMaterial 判断记录——
+// 2026-09-23 落地缺陷修复后改用 Shader.Find + new Material，不再 Resources.Load 打包内的 .mat
+// 资产）。本组件是对象池复用的（EffectSequencePlayerPool），每次 Play 都必须显式落地这一次的混合
+// 模式，不能"alpha 就不管"——否则复用同一个实例的下一次播放会继承上一次残留的材质。
 using System;
 using UnityEngine;
 using Core.Foundation.EngineAdapter;
@@ -108,15 +109,30 @@ namespace Adapter.Unity.EngineAdapter
                 : _defaultMaterial;
         }
 
-        /// <summary>ADR-0074 新增：additive 占位材质，经 <c>Resources.Load</c> 取适配层包内自带的
-        /// <c>GameFoundation/materials/vfx_additive</c> 资产（同 Model 型占位资产一贯的
-        /// "Resources/GameFoundation/&lt;kind&gt;/&lt;name&gt;" 约定路径，见
-        /// <c>UnityResourceLoader.ResolveModelResourcesPath</c> 判断记录同款惯例；生成器见
-        /// <c>Adapter.Unity.EditorTools.GeneratePlaceholderVfxAssets</c>）。全部实例共享同一份加载结果
-        /// （静态缓存，同 <c>UnityRenderer2D.GetPlaceholderSprite</c>"只生成一次并缓存复用"惯例）；
-        /// 资产缺失（消费方工程未同步该资源，或包版本过旧）时只尝试加载一次、记一条 warning 并退回
-        /// <paramref name="fallback"/>（该次 additive 请求降级为默认材质，不阻断游戏运行，同本文件
-        /// 一贯的防御性惯例——一次性 <c>Debug.LogWarning</c>，不按调用次数刷屏）。</summary>
+        /// <summary>ADR-0074 落地缺陷修复（2026-09-23，消费方反馈第二十四批）：additive 占位材质
+        /// 改在运行期用 <c>Shader.Find</c> 取适配层包内自带的着色器
+        /// <c>GameFoundation/Vfx/AdditiveUnlit</c>（<c>Adapter.Unity/Runtime/Shaders/
+        /// VfxAdditiveUnlit.shader</c>）现构造 <c>new Material(shader)</c>，不再
+        /// <c>Resources.Load</c> 包内的 <c>GameFoundation/materials/vfx_additive.mat</c> 资产——
+        /// 实测复现：经本地 npm registry 安装的 UPM 包（<c>source: registry</c>，Unity 对这类只读包
+        /// 判定为不可变包）其 Resources 文件夹下的资产虽然被 AssetDatabase 正常导入（有效 GUID/
+        /// import artifact），但 <c>Resources.Load</c> 在 Editor 与已构建的 Standalone Player 内
+        /// 都取不到，同一份内容改用 <paramref name="fallback"/> 为 null 时也检查不到的
+        /// <c>file:</c> 本地/内嵌形态（工作台工程、本包源码树）下则能正常取到——这是 Unity Package
+        /// Manager 对"registry 来源只读包"里 Resources 文件夹的既有限制，不是本仓库打包遗漏（见
+        /// build.ps1 判断记录、ADR-0074 落地缺陷补充小节的复现记录：发布出去的 .tgz 内 .mat/.mat.meta/
+        /// .shader/.shader.meta 四个文件全部存在且路径/GUID 均正确）。<c>Shader.Find</c> 按着色器
+        /// 名称检索，不经过 Resources 索引，registry 安装形态下同样能取到；但 Standalone Player 构建
+        /// 会按"是否有资产实际引用"裁剪未使用着色器变体，因此还需要
+        /// <see cref="Adapter.Unity.Editor.EnsureAdditiveShaderAlwaysIncluded"/>（包内 Editor 程序集，
+        /// <c>[InitializeOnLoad]</c> 自动把该着色器注册进消费方工程的 Always Included Shaders 列表，
+        /// 消费方不需要任何手工步骤）配合，两者缺一不可。全部实例共享同一份构造结果（静态缓存，同
+        /// <c>UnityRenderer2D.GetPlaceholderSprite</c>"只生成一次并缓存复用"惯例）；着色器本身缺失
+        /// （包版本过旧/被人为删除）时只尝试一次、记一条 warning 并退回 <paramref name="fallback"/>
+        /// （该次 additive 请求降级为默认材质，不阻断游戏运行，同本文件一贯的防御性惯例——一次性
+        /// <c>Debug.LogWarning</c>，不按调用次数刷屏）。</summary>
+        private const string AdditiveShaderName = "GameFoundation/Vfx/AdditiveUnlit";
+
         private static Material? GetAdditiveMaterial(Material? fallback)
         {
             if (_additiveMaterial != null)
@@ -130,16 +146,17 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             _additiveMaterialLoadAttempted = true;
-            _additiveMaterial = Resources.Load<Material>("GameFoundation/materials/vfx_additive");
+            var shader = Shader.Find(AdditiveShaderName);
 
-            if (_additiveMaterial == null)
+            if (shader == null)
             {
                 Debug.LogWarning(
-                    "[EffectSequencePlayer] 找不到 additive 占位材质 Resources/GameFoundation/materials/vfx_additive，" +
+                    "[EffectSequencePlayer] 找不到 additive 占位着色器 " + AdditiveShaderName + "，" +
                     "本次及后续 additive 播放请求降级为默认（alpha）材质。");
                 return fallback;
             }
 
+            _additiveMaterial = new Material(shader) { name = "vfx_additive (runtime)" };
             return _additiveMaterial;
         }
 
