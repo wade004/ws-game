@@ -458,6 +458,40 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **`SfxPlayer` 新增单调累计播放诊断，定位消费方第二十五/二十六批"`ui.action_invoked ->
+  play_sfx` 确认已派发但 0.4 秒轮询窗口内从未观测到 `sfx.wow_ui_open_01`/`sfx.wow_ui_click_01`
+  播放"**（[ADR-0083](architecture/adr/0083-音效播放单调累计诊断.md)）：新增
+  `Presentation.VfxSfx.Contracts.ISfxPlaybackDiagnostics`（播放请求/开始/丢弃三个单调计数 +
+  最近一次播放记录，资源引用 id + 单调序号），`Presentation.VfxSfx.Core.SfxPlayer` 新增只读
+  属性 `PlaybackDiagnostics`（构造期无条件自建，不改变既有可选构造参数），经
+  `Presentation.Assembly.PresentationAssembly.SfxPlaybackDiagnostics` 转发到装配根；纯加法，
+  不改变任何既有播放语义与既有公开方法签名的行为，刻意不接入 ADR-0042 的诊断消息统一轮询转发
+  机制（结构性不兼容——该机制按"消息列表"设计，本契约是计数器，见 ADR-0083 决策 4）。
+  **本轮定位结论**：占位音效 `assets/_placeholder/sfx/ui_click_01.wav`/`ui_open_01.wav`
+  实际播放时长仅 0.05s/0.15s（对应本框架样例数据 `sfx.sample_ui_click_v0`），"正在播放"这一
+  引擎侧瞬时状态天然只能被观测这么短；冷资源从播放请求到真正调用 `IAudio.PlaySfx` 的墙钟延迟
+  实测（复刻 `UnityResourceLoader.LoadAsync`"后台线程 `Task.Run` 读字节 + 并发队列 + 按帧
+  `Tick` 消费"架构，见 `presentation/vfx_sfx/tests/SfxColdLoadTimingTests.cs`）单次运行
+  19.08ms，远小于 0.4 秒轮询窗口；冷加载完成后是补播放（恰好一次），不是丢弃，三条丢弃路径
+  （资源未登记/加载失败/加载超时）均已各自记诊断，逐处检查未发现静默吞掉播放请求的分支
+  （`MakeRoomIfNeeded` 抢占停止一个已成功播放的实例是相邻但不同的既有行为，不记诊断，本次不
+  改动，如实记录在案）。综合结论：证据更支持"确实播放了，轮询窗口太短抓不到瞬态"，不支持
+  "播放没发生"；"冷加载本身把开始时刻推迟到窗口外"在本轮实测量级下不成立，但不能完全排除消费方
+  真实工程存在本轮未接触到的额外延迟来源，如实记录为未能完全定论。详见 ADR-0083、
+  `presentation/vfx_sfx/README.md` 判断记录 19、`presentation/assembly/README.md` 对应判断
+  记录。回归用例：`presentation/vfx_sfx/tests/SfxPlayerTests.cs`
+  `PlaybackDiagnostics_ResourceAlreadyLoaded_*`/`PlaybackDiagnostics_UnknownSfxId_*`/
+  `PlaybackDiagnostics_ColdResource_*`（四例，四条路径的计数变化）、
+  `SfxColdLoadTimingTests.ColdLoad_RequestToPlaySfx_MeasuredLatency_WellUnder400msPollingWindow`
+  （实测计时）、`presentation/assembly/tests/PresentationAssemblyTests.cs`
+  `SfxPlaybackDiagnostics_IsExposed_SameInstanceAsSfxPlayer_AndReflectsRealPlayback`（转发
+  接线）；`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+  SfxPlaybackObservabilityPlayModeTests.cs` 新增一例贴合消费方观测方式的真实引擎适配层用例
+  （冷资源、真实 `ui.action_invoked` 事件、0.4 秒黑盒轮询，同时断言轮询抓不到与累计诊断读数
+  正确——**本条未经 Unity 批处理编译与 PlayMode 实际运行验证**，交主检出补跑）。
+
 ## [1.67.0] - 2026-09-24
 
 ### 修复
