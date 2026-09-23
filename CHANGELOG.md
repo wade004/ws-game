@@ -502,7 +502,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   接线）；`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
   SfxPlaybackObservabilityPlayModeTests.cs` 新增一例贴合消费方观测方式的真实引擎适配层用例
   （冷资源、真实 `ui.action_invoked` 事件、0.4 秒黑盒轮询，同时断言轮询抓不到与累计诊断读数
-  正确——**本条未经 Unity 批处理编译与 PlayMode 实际运行验证**，交主检出补跑）。
+  正确）。该用例已在主检出真实 Unity PlayMode 下跑通（`result="Passed" total="1"`），并补了一条
+  **阳性对照**：同一轮采样同时观测已预热的 `sfx.sample_cast`（0.4s），**对照命中、冷短音效不命中**
+  ——否则"轮询抓不到"可能因为剪辑命名对不上之类的错误原因恒为真，否定断言会变成假结论。
 
 ## [1.67.0] - 2026-09-24
 
