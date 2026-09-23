@@ -458,6 +458,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **`event.<key>` 与字符串/Id 字面量比较的条件（如 `feedback.binding.condition` 写
+  `event.hit_result == "Hit"`）在内容加载期被误报"比较两侧类型不一致"，整份表加载失败**
+  （消费方——游戏接入方第二十批第 3 条阻塞项，见
+  [ADR-0076](architecture/adr/0076-event分组静态类型改为未知而非谎称bool.md)）：
+  `QuestExprSchemaEntries.BuildParsingSchema` 内部 `EventGroupPermissiveSchema.TryGetSignature`
+  此前对 `event` 分组下任意未登记 key 恒注入一份固定签名（参数未知、返回类型恒为 Bool），
+  `ExprValidator.ValidateCompare` 据此认定该引用类型是 Bool，与运行期实际返回的 String/Id 比较
+  判定类型不一致报 Error——静态期给出的是一个运行期根本不存在的假类型冲突。改为对 `event` 分组
+  不做任何特殊处理、如实返回"未登记"，交给 `ExprValidator` 既有的"类型未知则跳过比较类型检查"
+  分支处理；解析期/运行期求值路径未改动。新增
+  `presentation/assembly/tests/ADR0076_EventGroupExprSchemaTests.cs`（静态校验期，经真实
+  `DataRegistry.LoadAll` + `PresentationSchemaCatalog.FullExprSchema` 验证不再报错，语法错误/
+  参数个数不对/未知分组仍照常报错）与 `presentation/assembly/tests/PresentationAssemblyTests.cs`
+  新增三例（运行期，经真实 `FeedbackBinder`/`RulesExprHostFactory` 管线验证条件按事件真实字段值
+  正确求值为真/假）。ABI：不改任何公开签名。
+
 ## [1.64.0] - 2026-09-23
 
 ### 修复

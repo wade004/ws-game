@@ -383,6 +383,25 @@ quest/
     `.objective_description_key[i]` 两条新路径、`QuestLogPanel` 参考面板改动）见
     `presentation/ui/README.md` 对应判断记录，本条不重复登记。
 
+23. **消费方——游戏接入方第二十批第 3 条（阻塞，2026-09-23）根治：`QuestExprSchemaEntries.
+    BuildParsingSchema` 内部 `EventGroupPermissiveSchema.TryGetSignature` 不再对 `event` 分组
+    注入固定签名，见
+    [ADR-0076](../../../architecture/adr/0076-event分组静态类型改为未知而非谎称bool.md)**——
+    此前对未登记的 `event.<key>` 恒返回"参数未知、返回类型恒为 Bool"的固定签名，本意是"宽松放行"，
+    实际效果是让 `ExprValidator.ValidateCompare` 把 `event.hit_result == "Hit"` 这类比较误判为
+    "Bool 与 String 类型不一致"报 Error（运行期该字段实际返回 String），`feedback.binding` 一类
+    依赖 `event.*` 条件的表整体加载失败。根治后 `TryGetSignature` 对 `event` 分组不做任何特殊
+    处理，如实返回"未登记"，交给 `ExprValidator.ValidateReference`（未登记 key 且 group 为
+    `event` 时不报 `UnknownKey`、返回类型判定为"未知"）与 `ExprValidator.ValidateCompare`/
+    `CheckBoolOperand`（某一侧类型未知即跳过类型检查）这两处早已存在、但因为签名一直被谎称"已知"
+    而从未被触发到的既有分支接管；`ExprParser.ParseIdentTerm` 的 `event` 分组解析判定本就不依赖
+    `TryGetSignature` 对 `event` 返回 `true`（该方法独立的 `isEventFallbackReference` 分支），因此
+    本次改动不影响解析期与运行期，只改变静态类型推断的结论。测试见
+    `presentation/assembly/tests/ADR0076_EventGroupExprSchemaTests.cs`（静态校验期，覆盖字符串/
+    Id 字段比较不再报错、语法错误/参数个数不对/未知分组仍照常报错四类断言）与同目录
+    `PresentationAssemblyTests.cs` 新增三例（运行期，经真实 `FeedbackBinder`/
+    `RulesExprHostFactory` 管线验证条件按事件真实字段值正确求值为真/假）。
+
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`
   三元组，具体位置由调用方按 `targetRef` 对应实体查询，本模块不涉及空间查询（08 第 2.3 节"逻辑层

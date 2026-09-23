@@ -502,6 +502,105 @@ namespace Tests.Presentation.Assembly
             Assert.Equal("17", floatingTexts[0].Text);
         }
 
+        /// <summary>
+        /// ADR-0076 根治验收（运行期，消费方第二十批第 3 条）：静态期覆盖见
+        /// <c>ADR0076_EventGroupExprSchemaTests</c>（同一份 <see cref="PresentationSchemaCatalog.FullExprSchema"/>
+        /// 加载 <c>event.hit_result == "Hit"</c> 条件不再报 <c>expr_parsable</c> Error）；本用例继续
+        /// 经真实 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>（<see cref="Build"/>
+        /// 装配出的完整 <see cref="PresentationAssembly"/>，内部真正接的是
+        /// <c>Core.Rules.ExprHost.RulesExprHostFactory</c>，不是测试假实现）验证运行期按事件真实字段
+        /// 值求值：<see cref="HitResult.Hit"/> 命中时条件为真，规则的 flash 动作被派发。改动前实测：
+        /// 本条数据在装配期（<see cref="Build"/> 内 <c>registry.LoadAll()</c> 后的
+        /// <c>Assert.False(report.IsBlocking, ...)</c>）就会先阻断，测试根本跑不到这里
+        /// （<c>expr_parsable</c> Error "比较两侧类型不一致：Bool 与 String" 属于阻断级）。
+        /// </summary>
+        [Fact]
+        public void EventHitResultStringCondition_ThroughRealFeedbackBinder_EvaluatesTrueOnMatch_ADR0076()
+        {
+            var flashes = new List<(Id EntityId, Id ProfileId)>();
+            var options = new PresentationAssemblyOptions
+            {
+                OnFlash = (entityId, profileId) => flashes.Add((entityId, profileId)),
+            };
+
+            var presentation = Build(out _, out _, out _, out var bus, options, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"feedback.adr0076_hit_result_flash\", \"event\": \"combat.damage_dealt\", " +
+                    "\"condition\": \"event.hit_result == \\\"Hit\\\"\", \"actions\": [" +
+                    "{\"kind\": \"flash\", \"params\": {\"profile_id\": \"feedback.flash.adr0076_hit\", \"target\": \"target\"}}" +
+                    "]}]}");
+            });
+
+            var evt = new CombatDamageDealtEvent(
+                new Id("unit.smoke_player"), new Id("unit.smoke_target"), new Id("skill.school.physical"),
+                17.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Contains(flashes, f => f.EntityId == new Id("unit.smoke_target") && f.ProfileId == new Id("feedback.flash.adr0076_hit"));
+        }
+
+        /// <summary>同上一用例的反面：<see cref="HitResult.Miss"/> 不匹配 <c>"Hit"</c> 字面量时条件为
+        /// 假，规则的 flash 动作不应被派发——证明本次修复不是把 event 分组的比较恒判定为真（不是从
+        /// "恒报错"滑到另一个极端"恒放行为真"），确实按事件真实字段值求值。</summary>
+        [Fact]
+        public void EventHitResultStringCondition_ThroughRealFeedbackBinder_EvaluatesFalseOnMismatch_ADR0076()
+        {
+            var flashes = new List<(Id EntityId, Id ProfileId)>();
+            var options = new PresentationAssemblyOptions
+            {
+                OnFlash = (entityId, profileId) => flashes.Add((entityId, profileId)),
+            };
+
+            var presentation = Build(out _, out _, out _, out var bus, options, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"feedback.adr0076_hit_result_flash\", \"event\": \"combat.damage_dealt\", " +
+                    "\"condition\": \"event.hit_result == \\\"Hit\\\"\", \"actions\": [" +
+                    "{\"kind\": \"flash\", \"params\": {\"profile_id\": \"feedback.flash.adr0076_hit\", \"target\": \"target\"}}" +
+                    "]}]}");
+            });
+
+            var evt = new CombatDamageDealtEvent(
+                new Id("unit.smoke_player"), new Id("unit.smoke_target"), new Id("skill.school.physical"),
+                17.0, isCrit: false, HitResult.Miss);
+            bus.PublishImmediate(evt);
+
+            Assert.DoesNotContain(flashes, f => f.ProfileId == new Id("feedback.flash.adr0076_hit"));
+        }
+
+        /// <summary>ADR-0076 验收标准第 3 条（Id 字面量比较）：<c>event.school</c>（见
+        /// <c>CombatDamageDealtEvent.TryGetField</c> "school" -&gt; <c>ExprValue.OfId</c>）与 Id
+        /// 字面量比较同样经真实管线加载、正确求值。</summary>
+        [Fact]
+        public void EventSchoolIdCondition_ThroughRealFeedbackBinder_EvaluatesTrueOnMatch_ADR0076()
+        {
+            var flashes = new List<(Id EntityId, Id ProfileId)>();
+            var options = new PresentationAssemblyOptions
+            {
+                OnFlash = (entityId, profileId) => flashes.Add((entityId, profileId)),
+            };
+
+            var presentation = Build(out _, out _, out _, out var bus, options, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"feedback.adr0076_school_flash\", \"event\": \"combat.damage_dealt\", " +
+                    "\"condition\": \"event.school == skill.school.physical\", \"actions\": [" +
+                    "{\"kind\": \"flash\", \"params\": {\"profile_id\": \"feedback.flash.adr0076_school\", \"target\": \"target\"}}" +
+                    "]}]}");
+            });
+
+            var evt = new CombatDamageDealtEvent(
+                new Id("unit.smoke_player"), new Id("unit.smoke_target"), new Id("skill.school.physical"),
+                17.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Contains(flashes, f => f.ProfileId == new Id("feedback.flash.adr0076_school"));
+        }
+
         [Fact]
         public void Dispose_UnsubscribesFeedbackBinder_SameEventNoLongerDispatches()
         {
