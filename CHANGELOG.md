@@ -458,6 +458,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.65.0] - 2026-09-23
+
 ### 新增
 
 - **`combat.damage_dealt` 补携带可空 `skillId`，供 `feedback.binding` 按技能过滤命中反馈**
@@ -542,6 +544,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - 09 表现层第 1 节铁律 P2 措辞收窄为"只订阅，允许发出的事件限定在明确枚举的小集合内"（由 1 条
   扩至 4 条：`presentation.playback_finished`、`ui.panel_opened`/`ui.panel_closed`/
   `ui.action_invoked`、`unit.stride_completed`），随上述两条一并落地。
+- **样例 additive 特效行独占 `resource_ref`，`toolchain/import_assets.py vfx` 支持 `--blend-mode`**
+  （门禁修复，无对外契约变化）：ADR-0074 新增的样例行 `vfx.sample_aura_glow` 原与
+  `vfx.sample_cast_circle` 共用同一条物理 `resource_ref`，重跑 `toolchain/import_sample_assets.py`
+  会被 `check_no_resource_collision` 判为碰撞直接报错，样例导入幂等性门禁翻红。现改为独占
+  `resource_ref`（源帧沿用占位资产 `burn`）；`vfx` 子命令新增 `--blend-mode`（缺省不写该字段），
+  因为 `merge_write_row` 是按 id 的整行覆盖，子命令不写的字段一经重导入即丢失。
+  `data/_sample/display/display.map.json` 一并回到导入脚本的规范产出形态。
 
 ## [1.64.0] - 2026-09-23
 
