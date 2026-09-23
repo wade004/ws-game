@@ -28,6 +28,33 @@ namespace Tests.Presentation.VfxSfx
             Assert.Equal(VfxAttachMode.World, def.AttachMode);
             Assert.Equal(1.5, def.Lifetime);
             Assert.Equal(new Id("res.vfx.fire_impact"), def.ResourceRef);
+
+            // ADR-0074：未声明 blend_mode 时默认 Alpha，与改动前逐字一致的既有行为。
+            Assert.Equal(Core.Foundation.EngineAdapter.VfxBlendMode.Alpha, def.BlendMode);
+        }
+
+        [Fact]
+        public void VfxDef_FromRecord_ParsesExplicitAdditiveBlendMode()
+        {
+            const string row = @"
+            {
+              ""id"": ""vfx.spark_additive"",
+              ""category"": ""impact"",
+              ""attach_mode"": ""world"",
+              ""resource_ref"": ""res.vfx.spark_additive"",
+              ""blend_mode"": ""additive""
+            }";
+
+            var (registry, report) = VfxSfxTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["vfx.def"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("vfx.def", "vfx.spark_additive")!;
+            var def = VfxDef.FromRecord(record);
+
+            Assert.Equal(Core.Foundation.EngineAdapter.VfxBlendMode.Additive, def.BlendMode);
         }
 
         [Fact]

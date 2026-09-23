@@ -41,6 +41,11 @@ namespace Presentation.VfxSfx.Core
             public IReadOnlyDictionary<string, double> Parameters = EmptyParams;
             public double TimeoutRemaining;
 
+            /// <summary>ADR-0074 新增：排队等待首次加载完成时一并记下这次播放请求的混合模式，
+            /// <see cref="OnResourceLoadCompleted"/> 真正 <c>EmitParticle</c> 时原样传递，见
+            /// <see cref="VfxDef.BlendMode"/>。</summary>
+            public VfxBlendMode BlendMode;
+
             /// <summary>VFX 持续跟随根治新增：本次排队播放请求对应的跟随目标（见 <see cref="FollowTarget"/>），
             /// 由 <see cref="Spawn"/> 在入队前算好一并携带——真正 <c>EmitParticle</c> 发生在
             /// <see cref="OnResourceLoadCompleted"/>（可能是未来某一帧），只有在那时才拿得到真实
@@ -246,7 +251,7 @@ namespace Presentation.VfxSfx.Core
                 // OnResourceLoadCompleted 才发生，见该方法判断记录；同步加载器（测试桩/引擎缓存
                 // 命中）则可能已经在 QueuePendingSpawn 内部就完成了整个"加载 -> 补播放"，此时直接
                 // 返回那次同步产生的真实句柄，不退化调用方体验。
-                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow);
+                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow, def.BlendMode);
             }
 
             // 判断记录（不再调用 _resourceTracker?.EnsureLoading）：走到这里说明
@@ -258,14 +263,14 @@ namespace Presentation.VfxSfx.Core
             // _pendingResourceLoads 这一套机制统一负责本方法主路径的"资源是否已请求过加载"，
             // 不再重复经由 ResourceReferenceTracker。_resourceTracker 仍保留（构造函数字段），供
             // TrySpawnAttachedToSocket（缺口 13 的 socket 真挂接路径，本次改动未涉及）使用。
-            var handle = _renderer2D.EmitParticle(def.ResourceRef, worldPos.Value, emitParams);
+            var handle = _renderer2D.EmitParticle(def.ResourceRef, worldPos.Value, emitParams, def.BlendMode);
             _handleCategory[handle] = def.Category;
             _pool.Track(def.Category, handle, def.Lifetime);
             RegisterFollow(handle, follow);
             return handle;
         }
 
-        private ParticleHandle? QueuePendingSpawn(Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow)
+        private ParticleHandle? QueuePendingSpawn(Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow, VfxBlendMode blendMode)
         {
             var pending = new PendingSpawn
             {
@@ -277,6 +282,7 @@ namespace Presentation.VfxSfx.Core
                 Parameters = parameters,
                 TimeoutRemaining = _options.FirstLoadTimeoutSeconds,
                 Follow = follow,
+                BlendMode = blendMode,
             };
             _pendingSpawns.Add(pending);
 
@@ -312,7 +318,7 @@ namespace Presentation.VfxSfx.Core
                     continue;
                 }
 
-                var handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters);
+                var handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters, pending.BlendMode);
                 _handleCategory[handle] = pending.Category;
                 _pool.Track(pending.Category, handle, pending.Lifetime);
                 RegisterFollow(handle, pending.Follow);
@@ -499,9 +505,20 @@ namespace Presentation.VfxSfx.Core
             }
         }
 
+        /// <summary>ADR-0075 根治附带修复：见 <see cref="IVfxPlayer.Stop"/> 判断记录
+        /// "handle 不存在/已停止时安全忽略"——此前本方法不论 <paramref name="handle"/> 是否仍在
+        /// <see cref="_handleCategory"/>（本类型对"该句柄当前是否存活"的权威记账）里都无条件转发
+        /// <see cref="IRenderer2D.StopParticle"/>，对一个已经自然到期回收（<see cref="VfxPool.Update"/>
+        /// 经本方法同一条路径先回收过一次）的句柄再次调用会踩到 <c>StubRenderer2D</c>/
+        /// <c>UnityRenderer2D</c> 两个实现"句柄不存在则抛 <see cref="System.InvalidOperationException"/>"
+        /// 的既有防御性断言——ADR-0075 的 <c>stop_vfx</c> 按 (vfx_id, 实体) 定位在播实例，
+        /// "自然超时之后才收到 stop_vfx"是数据驱动路径下完全正常会发生的时序（见该 ADR 决策 2 验收
+        /// 标准"没有在播实例时 stop 不抛异常"），因此改为只在确认 <paramref name="handle"/> 此前仍
+        /// 记账在案时才转发 <see cref="IRenderer2D.StopParticle"/>，已经不在案（重复 Stop、或已自然
+        /// 到期）时静默忽略——不影响首次真正停止一个存活实例的既有路径。</summary>
         private void StopInternal(ParticleHandle handle)
         {
-            _handleCategory.Remove(handle);
+            var wasAlive = _handleCategory.Remove(handle);
             _followTargets.Remove(handle);
 
             if (_socketModelHandles.TryGetValue(handle, out var modelHandle))
@@ -512,7 +529,10 @@ namespace Presentation.VfxSfx.Core
                 return;
             }
 
-            _renderer2D.StopParticle(handle);
+            if (wasAlive)
+            {
+                _renderer2D.StopParticle(handle);
+            }
         }
 
         private Vec2? ResolveAnchor(Id vfxId, VfxAttach at)

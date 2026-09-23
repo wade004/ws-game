@@ -4,8 +4,15 @@
 // atlas.png + frames.json 描述的序列帧，不是预制好的 ParticleSystem）。挂一个 SpriteRenderer，
 // 按 frames.json 的 fps/frame_duration/loop 逐帧切换 sprite；非循环播放完最后一帧后自动停止并
 // 触发 OnFinished，供 UnityRenderer2D 回收进对象池（同 ParticleSystem 池的既有惯例）。
+//
+// ADR-0074 新增：Play 按 Core.Foundation.EngineAdapter.VfxBlendMode 给 SpriteRenderer 选材质——
+// alpha（缺省）用 Unity 为该 SpriteRenderer 自动指派的默认材质（与改动前逐字一致，不主动赋值）；
+// additive 用适配层包内自带的占位材质资产（见 GetAdditiveMaterial 判断记录）。本组件是对象池复用
+// 的（EffectSequencePlayerPool），每次 Play 都必须显式落地这一次的混合模式，不能"alpha 就不管"——
+// 否则复用同一个实例的下一次播放会继承上一次残留的材质。
 using System;
 using UnityEngine;
+using Core.Foundation.EngineAdapter;
 
 namespace Adapter.Unity.EngineAdapter
 {
@@ -18,6 +25,16 @@ namespace Adapter.Unity.EngineAdapter
         private double _elapsedInFrame;
         private bool _playing;
         private SpriteRenderer? _renderer;
+
+        /// <summary>ADR-0074 新增：本实例的 <see cref="SpriteRenderer"/> 刚创建时 Unity 自动指派的
+        /// 默认材质——同 <see cref="Renderer"/> 判断记录同一套"显式 null 检查、不用 ??="惯例，
+        /// 首次经 <see cref="Renderer"/> 取到渲染器时惰性捕获一次；<see cref="ApplyBlendMode"/> 的
+        /// alpha 分支据此显式复原（不是"不管它"），保证对象池复用时不会残留上一次播放留下的
+        /// additive 材质。</summary>
+        private Material? _defaultMaterial;
+
+        private static Material? _additiveMaterial;
+        private static bool _additiveMaterialLoadAttempted;
 
         /// <summary>非循环播放自然结束时触发一次，供调用方回收本实例。</summary>
         public event Action? OnFinished;
@@ -50,7 +67,13 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        public void Play(Sprite[] frames, double[] frameDurations, bool loop)
+        public void Play(Sprite[] frames, double[] frameDurations, bool loop) =>
+            Play(frames, frameDurations, loop, VfxBlendMode.Alpha);
+
+        /// <summary>ADR-0074 新增重载：承载混合模式。既有 3 参 <see cref="Play(Sprite[], double[], bool)"/>
+        /// 保留、签名不变，转发到本重载并固定传 <see cref="VfxBlendMode.Alpha"/>——alpha 分支行为与
+        /// 改动前逐字一致。</summary>
+        public void Play(Sprite[] frames, double[] frameDurations, bool loop, VfxBlendMode blendMode)
         {
             _frames = frames;
             _durations = frameDurations;
@@ -59,10 +82,65 @@ namespace Adapter.Unity.EngineAdapter
             _elapsedInFrame = 0;
             _playing = frames.Length > 0;
 
+            ApplyBlendMode(blendMode);
+
             if (_playing)
             {
                 Renderer.sprite = _frames[0];
             }
+        }
+
+        /// <summary>ADR-0074 判断记录（为什么不用 SpriteRenderer.material 而用 sharedMaterial）：
+        /// <c>material</c> 的 getter 会隐式实例化一份材质副本（"instanced material"），每次 Play 都
+        /// 产生一次分配、且对象池复用场景下越积越多；本组件的两份材质（默认/additive）都是共享资产，
+        /// 不需要逐实例修改材质属性，<c>sharedMaterial</c> 直接引用资产本身，零分配。</summary>
+        private void ApplyBlendMode(VfxBlendMode blendMode)
+        {
+            var renderer = Renderer;
+
+            if (_defaultMaterial == null)
+            {
+                _defaultMaterial = renderer.sharedMaterial;
+            }
+
+            renderer.sharedMaterial = blendMode == VfxBlendMode.Additive
+                ? GetAdditiveMaterial(_defaultMaterial)
+                : _defaultMaterial;
+        }
+
+        /// <summary>ADR-0074 新增：additive 占位材质，经 <c>Resources.Load</c> 取适配层包内自带的
+        /// <c>GameFoundation/materials/vfx_additive</c> 资产（同 Model 型占位资产一贯的
+        /// "Resources/GameFoundation/&lt;kind&gt;/&lt;name&gt;" 约定路径，见
+        /// <c>UnityResourceLoader.ResolveModelResourcesPath</c> 判断记录同款惯例；生成器见
+        /// <c>Adapter.Unity.EditorTools.GeneratePlaceholderVfxAssets</c>）。全部实例共享同一份加载结果
+        /// （静态缓存，同 <c>UnityRenderer2D.GetPlaceholderSprite</c>"只生成一次并缓存复用"惯例）；
+        /// 资产缺失（消费方工程未同步该资源，或包版本过旧）时只尝试加载一次、记一条 warning 并退回
+        /// <paramref name="fallback"/>（该次 additive 请求降级为默认材质，不阻断游戏运行，同本文件
+        /// 一贯的防御性惯例——一次性 <c>Debug.LogWarning</c>，不按调用次数刷屏）。</summary>
+        private static Material? GetAdditiveMaterial(Material? fallback)
+        {
+            if (_additiveMaterial != null)
+            {
+                return _additiveMaterial;
+            }
+
+            if (_additiveMaterialLoadAttempted)
+            {
+                return fallback;
+            }
+
+            _additiveMaterialLoadAttempted = true;
+            _additiveMaterial = Resources.Load<Material>("GameFoundation/materials/vfx_additive");
+
+            if (_additiveMaterial == null)
+            {
+                Debug.LogWarning(
+                    "[EffectSequencePlayer] 找不到 additive 占位材质 Resources/GameFoundation/materials/vfx_additive，" +
+                    "本次及后续 additive 播放请求降级为默认（alpha）材质。");
+                return fallback;
+            }
+
+            return _additiveMaterial;
         }
 
         public void StopImmediately()

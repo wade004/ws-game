@@ -167,6 +167,97 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         // -----------------------------------------------------------------
+        // ADR-0074：EmitParticle 新增混合模式重载，EffectSequencePlayer 按混合模式切换渲染材质。
+        // -----------------------------------------------------------------
+
+        /// <summary>验证改动前基线：不带混合模式的既有 3 参 EmitParticle 重载（DIM 默认转发到
+        /// VfxBlendMode.Alpha）命中真实序列帧资源时，材质与改动前逐字一致——即不是 null、且与
+        /// EffectSequencePlayer 组件自身 SpriteRenderer 预制体上的默认材质相同（既不是额外分配的
+        /// 实例材质，也不是叠加混合材质）。这一条即"改动前基线"，供下面两条 additive/alpha
+        /// 显式重载用例对照。</summary>
+        [UnityTest]
+        public IEnumerator EmitParticle_LegacyThreeArgOverload_UsesDefaultMaterial_UnchangedFromBeforeChange()
+        {
+            var effectId = new Id("vfx.hit_spark");
+            yield return LoadEffectResource(effectId);
+
+            var handle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>());
+            yield return null;
+
+            var material = _renderer.GetEffectSequenceMaterialForTests(handle);
+            Assert.IsNotNull(material, "命中真实序列帧资源后应当能取到渲染材质");
+            Assert.AreNotEqual("GameFoundation/Vfx/AdditiveUnlit", material!.shader.name, "不带混合模式的既有重载不应落到叠加混合材质——这是改动前基线，必须逐字保持");
+        }
+
+        [UnityTest]
+        public IEnumerator EmitParticle_WithAlphaBlendMode_UsesSameMaterialAsLegacyOverload()
+        {
+            var effectId = new Id("vfx.hit_spark");
+            yield return LoadEffectResource(effectId);
+
+            var baselineHandle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>());
+            yield return null;
+            var baselineMaterial = _renderer.GetEffectSequenceMaterialForTests(baselineHandle);
+            _renderer.StopParticle(baselineHandle);
+
+            var alphaHandle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>(), VfxBlendMode.Alpha);
+            yield return null;
+            var alphaMaterial = _renderer.GetEffectSequenceMaterialForTests(alphaHandle);
+
+            Assert.AreEqual(baselineMaterial, alphaMaterial, "显式声明 VfxBlendMode.Alpha 必须与不带混合模式的既有重载取到同一份材质（byte-for-byte 一致）");
+        }
+
+        [UnityTest]
+        public IEnumerator EmitParticle_WithAdditiveBlendMode_SwitchesToAdditiveMaterial()
+        {
+            var effectId = new Id("vfx.hit_spark");
+            yield return LoadEffectResource(effectId);
+
+            var handle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>(), VfxBlendMode.Additive);
+            yield return null;
+
+            var material = _renderer.GetEffectSequenceMaterialForTests(handle);
+            Assert.IsNotNull(material, "additive 分支也必须取到一个真实材质（不能是 null）");
+            Assert.AreEqual("GameFoundation/Vfx/AdditiveUnlit", material!.shader.name, "声明 VfxBlendMode.Additive 时渲染实例的材质必须真的切到叠加混合占位材质");
+        }
+
+        [UnityTest]
+        public IEnumerator EmitParticle_PooledPlayerReused_ReappliesMaterial_AdditiveThenAlpha()
+        {
+            // 对象池复用 EffectSequencePlayer 组件的陷阱（判断记录）：Play() 必须每次都显式重设材质，
+            // 不能"只在 additive 分支才设置"，否则上一轮 additive 用过的实例被复用播 alpha 特效时
+            // 会残留叠加混合材质。
+            var effectId = new Id("vfx.hit_spark");
+            yield return LoadEffectResource(effectId);
+
+            var additiveHandle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>(), VfxBlendMode.Additive);
+            yield return null;
+            Assert.AreEqual("GameFoundation/Vfx/AdditiveUnlit", _renderer.GetEffectSequenceMaterialForTests(additiveHandle)!.shader.name);
+            _renderer.StopParticle(additiveHandle);
+            yield return null; // 归还对象池，下一次 EmitParticle 大概率复用同一个组件实例。
+
+            var alphaHandle = _renderer.EmitParticle(effectId, new Vec2(1, 1), new System.Collections.Generic.Dictionary<string, double>(), VfxBlendMode.Alpha);
+            yield return null;
+            var reusedMaterial = _renderer.GetEffectSequenceMaterialForTests(alphaHandle);
+            Assert.AreNotEqual("GameFoundation/Vfx/AdditiveUnlit", reusedMaterial!.shader.name, "复用的组件播 alpha 特效时必须重设回默认材质，不能残留上一轮 additive 的材质");
+        }
+
+        private IEnumerator LoadEffectResource(Id effectId)
+        {
+            bool? loadSuccess = null;
+            _resourceLoader.LoadAsync(effectId, ResourceKind.Effect, (id, ok) => loadSuccess = ok);
+
+            var timeout = 5f;
+            while (loadSuccess == null && timeout > 0f)
+            {
+                _resourceLoader.Tick();
+                yield return null;
+                timeout -= Time.unscaledDeltaTime > 0 ? Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsTrue(loadSuccess == true, "占位 hit_spark 序列帧特效资源加载应当成功（先跑一次 build.ps1 -SyncContent）");
+        }
+
+        // -----------------------------------------------------------------
         // GP-PRES-05 收口（architecture/落地计划/audit-20260907/gameplay-presentation.md）：
         // 此前 IRenderer2D 完全没有 SetShadow 方法，DisplayInfo.Shadow 数据无法在 sprite 路线落地
         // 为任何实际表现。下面几条用例覆盖 none/blob/projected 三种取值的 2D 路径行为。

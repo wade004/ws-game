@@ -14,6 +14,7 @@ namespace Presentation.VfxSfx.Schema
     public static class VfxSfxSchemas
     {
         private static readonly string[] AttachModes = { "world", "anchor", "socket", "screen" };
+        private static readonly string[] BlendModes = { "alpha", "additive" };
 
         /// <summary><c>vfx.def</c>（09 第 5.1 节）。</summary>
         public static readonly TableSchema Vfx = new TableSchema(
@@ -29,6 +30,8 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("resource_ref", FieldKind.Id, required: true,
                     description: "具体引擎资源的不透明标识，由适配层解释，不对应任何内容表；类别前缀限定 vfx，见 ADR-0038 决策 1")
                     .WithAllowedRefCategories("vfx"),
+                new FieldSchema("blend_mode", FieldKind.Enum, required: false, enumValues: BlendModes,
+                    description: "混合模式（alpha/additive），缺省 alpha（与改动前逐字一致的既有行为），见 ADR-0074"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "vfx");
 

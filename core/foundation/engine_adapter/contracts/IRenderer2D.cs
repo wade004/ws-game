@@ -47,6 +47,22 @@ namespace Core.Foundation.EngineAdapter
     }
 
     /// <summary>
+    /// 粒子发射的固定混合模式（ADR-0074）：整次发射从头到尾的固定属性，不是需要逐帧/播放期间改动
+    /// 的着色器参数——因此只在 <see cref="IRenderer2D"/> 新增的 <c>EmitParticle</c> 发射重载携带，
+    /// 不经 <see cref="IRenderer2D.SetShaderParam"/> 一类"对已创建实例持续设参"的通道传递（该通道
+    /// 只认 <see cref="SpriteHandle"/>，本就不接受 <see cref="ParticleHandle"/>，见 ADR-0074
+    /// "备选方案与为什么不选"）。
+    /// </summary>
+    public enum VfxBlendMode
+    {
+        /// <summary>逐帧覆盖（标准透明度混合），今天的默认且唯一行为。</summary>
+        Alpha,
+
+        /// <summary>叠加变亮，常见于法术/能量类特效的"发光"观感。</summary>
+        Additive,
+    }
+
+    /// <summary>
     /// 精灵实例句柄、分层与 Y 排序、纸娃娃层合成、粒子发射、着色器参数
     /// （见 02_引擎适配层.md 第 1.3 节）。必需接口。采用保留句柄模式：CreateSpriteInstance
     /// 创建一个持久化的精灵实例并返回句柄，后续通过句柄更新分层/变换/着色器参数，
@@ -89,6 +105,18 @@ namespace Core.Foundation.EngineAdapter
         void DestroySpriteInstance(SpriteHandle handle);
 
         ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters);
+
+        /// <summary>
+        /// ADR-0074 新增重载：承载 <c>vfx.def.blend_mode</c>（<see cref="VfxBlendMode"/>）。带默认实现
+        /// （C# 8+ default interface member，同 <c>presentation/assembly/tests/
+        /// InterfaceDefaultMemberForwardingTests.cs</c> 通用门禁惯例）——默认转发到不带
+        /// <paramref name="blendMode"/> 的既有重载，即按 <see cref="VfxBlendMode.Alpha"/> 处理，与该重载
+        /// 改动前逐字一致；这保证本仓库之外、只实现了旧三参重载的既有 <see cref="IRenderer2D"/> 实现方
+        /// 不需要改一行代码即可继续编译通过（ABI 只加法）。本仓库内的具体实现
+        /// （<c>UnityRenderer2D</c>/<c>StubRenderer2D</c>）显式覆盖本方法，不依赖默认转发。
+        /// </summary>
+        ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters, VfxBlendMode blendMode) =>
+            EmitParticle(effectId, position, parameters);
 
         void StopParticle(ParticleHandle handle);
     }

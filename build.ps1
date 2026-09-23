@@ -1081,10 +1081,44 @@ if ($DistRequested) {
     Copy-Item -Path $srcModelGeneratorPath -Destination (Join-Path $dstAdapterEditorDir "GeneratePlaceholderModelAssets.cs") -Force
     Copy-Item -Path $srcModelGeneratorMetaPath -Destination (Join-Path $dstAdapterEditorDir "GeneratePlaceholderModelAssets.cs.meta") -Force
 
-    # 上面两次 Copy-Item 发生在 5. 节最前面 Copy-DistDir 调用之后，需要重新统计一次
+    # ADR-0074 新增：叠加混合占位材质（Assets/Resources/GameFoundation/materials/vfx_additive.mat，
+    # 见 Editor/GeneratePlaceholderVfxAssets.cs 顶部判断记录）与它所引用的自定义着色器
+    # （Assets/Shaders/VfxAdditiveUnlit.shader）同样是"提交在 Assets/、从未随包分发"的缺口，与上面
+    # model/anim_clips 是同一类问题、同一种修法。materials/ 走与 models/anim_clips 完全相同的
+    # Runtime/Resources/GameFoundation/ 路径（EffectSequencePlayer 用 Resources.Load 按该约定路径
+    # 加载）；着色器本身不经 Resources.Load 加载（只被材质以 GUID 引用），不需要落在 Resources/
+    # 下，但仍须作为包内容随 dist 分发——消费方工程只要装了这个包，Unity 就会自动导入这份 .shader
+    # （.meta 里的 GUID 与材质引用的 GUID 一致，导入后即可正确解析，不需要额外接入步骤），否则拿到
+    # 的 vfx_additive.mat 会因为找不到对应 shader GUID 而渲染成粉红色破损材质。
+    $srcVfxMaterialsDir = Join-Path $RepoRoot "adapters\unity\Assets\Resources\GameFoundation\materials"
+    if (-not (Test-Path $srcVfxMaterialsDir)) {
+        Write-Host "打分发包失败：找不到 $srcVfxMaterialsDir（ADR-0074 叠加混合占位材质源目录缺失）" -ForegroundColor Red
+        exit 1
+    }
+    Copy-Item -Path $srcVfxMaterialsDir -Destination (Join-Path $dstModelResourcesDir "materials") -Recurse -Force
+
+    $srcVfxShaderDir = Join-Path $RepoRoot "adapters\unity\Assets\Shaders"
+    if (-not (Test-Path $srcVfxShaderDir)) {
+        Write-Host "打分发包失败：找不到 $srcVfxShaderDir（ADR-0074 叠加混合占位着色器源目录缺失）" -ForegroundColor Red
+        exit 1
+    }
+    $dstVfxShaderDir = Join-Path $distAdapterPkgDir "Runtime\Shaders"
+    New-Item -ItemType Directory -Force -Path $dstVfxShaderDir | Out-Null
+    Copy-Item -Path (Join-Path $srcVfxShaderDir "*") -Destination $dstVfxShaderDir -Recurse -Force
+
+    $srcVfxGeneratorPath = Join-Path $RepoRoot "adapters\unity\Assets\Editor\GeneratePlaceholderVfxAssets.cs"
+    $srcVfxGeneratorMetaPath = $srcVfxGeneratorPath + ".meta"
+    if ((-not (Test-Path $srcVfxGeneratorPath)) -or (-not (Test-Path $srcVfxGeneratorMetaPath))) {
+        Write-Host "打分发包失败：找不到 $srcVfxGeneratorPath 或其 .meta（ADR-0074 叠加混合占位材质生成器缺失）" -ForegroundColor Red
+        exit 1
+    }
+    Copy-Item -Path $srcVfxGeneratorPath -Destination (Join-Path $dstAdapterEditorDir "GeneratePlaceholderVfxAssets.cs") -Force
+    Copy-Item -Path $srcVfxGeneratorMetaPath -Destination (Join-Path $dstAdapterEditorDir "GeneratePlaceholderVfxAssets.cs.meta") -Force
+
+    # 上面几次 Copy-Item 发生在 5. 节最前面 Copy-DistDir 调用之后，需要重新统计一次
     # $adapterFileCount（MANIFEST.txt 的 directory_file_counts 才能反映新增文件）。
     $adapterFileCount = (Get-ChildItem -Path $distAdapterPkgDir -Recurse -File).Count
-    Write-Host ("  已补齐 model/anim_clips 占位资产 + 生成器 -> dist\{0}\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 {1} files）" -f $DistDirVersion, $adapterFileCount)
+    Write-Host ("  已补齐 model/anim_clips/materials 占位资产 + 叠加混合着色器 + 生成器 -> dist\{0}\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 {1} files）" -f $DistDirVersion, $adapterFileCount)
 
     # -------------------------------------------------------------------
     # 5.05 P02 根治新增（审计 architecture/落地计划/audit-7e63d66-20260907/project-review.md
