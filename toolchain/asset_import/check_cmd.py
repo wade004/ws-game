@@ -145,6 +145,9 @@ CHECK_SPRITE_MIRROR_SOURCE_NOT_LANDED = "sprite_mirror_pair_source_not_landed"
 CHECK_SPRITE_MIRROR_PAIR_MISSING = "sprite_mirror_pair_missing"
 CHECK_SPRITE_ANCHOR_OUT_OF_CANVAS = "sprite_anchor_out_of_canvas"
 CHECK_SPRITE_DECLARED_ANCHOR_MISSING = "sprite_declared_anchor_missing"
+# ADR-0081（消费方反馈第二十三批）：anchors.json 顶层可选的 pixels_per_unit 声明——出现时必须是
+# 正数，不出现不报错、不要求声明（决策 C，不新增"必须声明"类检查）。
+CHECK_SPRITE_PIXELS_PER_UNIT_INVALID = "sprite_pixels_per_unit_invalid"
 CHECK_ICON_ID_FORMAT_INVALID = "icon_id_format_invalid"
 CHECK_ICON_FILE_MISSING = "icon_file_missing"
 
@@ -193,6 +196,7 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_SPRITE_MIRROR_PAIR_MISSING,
     CHECK_SPRITE_ANCHOR_OUT_OF_CANVAS,
     CHECK_SPRITE_DECLARED_ANCHOR_MISSING,
+    CHECK_SPRITE_PIXELS_PER_UNIT_INVALID,
     CHECK_ICON_ID_FORMAT_INVALID,
     CHECK_ICON_FILE_MISSING,
     CHECK_VFX_RESOURCE_REF_MISSING,
@@ -490,7 +494,31 @@ def _check_sprite_row(row: dict, assets_root: Path, dataset: str, problems: list
     anchors_data: dict = {}
     if anchors_json_path.is_file():
         anchors_data = read_json(anchors_json_path)
-        for slot_name, entry in anchors_data.items():
+        # ADR-0081（消费方反馈第二十三批）：顶层可选的 pixels_per_unit 是与方向档位条目平级的
+        # 标量兄弟键（sprite_cmd.py --pixels-per-unit 显式传入时才写出，见该脚本判断记录），不是
+        # 方向档位条目本身——必须先摘出来单独校验，否则下面按"每个顶层键都是方向档位条目"遍历时
+        # 会对它调用 .get("canvas_size", ...)，一个 float 没有 .get 方法，直接抛异常。
+        if "pixels_per_unit" in anchors_data:
+            declared_pixels_per_unit = anchors_data["pixels_per_unit"]
+            is_valid_positive_number = (
+                isinstance(declared_pixels_per_unit, (int, float))
+                and not isinstance(declared_pixels_per_unit, bool)
+                and declared_pixels_per_unit > 0
+            )
+            if not is_valid_positive_number:
+                problems.append(CheckIssue(
+                    severity=SEVERITY_ERROR, table="display.map", record_key=row_id,
+                    check=CHECK_SPRITE_PIXELS_PER_UNIT_INVALID, field_path=None,
+                    path=str(anchors_json_path),
+                    message=(
+                        f"{anchors_json_path} 顶层 pixels_per_unit 必须是正数，"
+                        f"实际为 {declared_pixels_per_unit!r}"
+                    ),
+                ))
+        direction_slot_entries = {
+            k: v for k, v in anchors_data.items() if k != "pixels_per_unit"
+        }
+        for slot_name, entry in direction_slot_entries.items():
             canvas = entry.get("canvas_size", [0, 0])
             cw, ch = canvas[0], canvas[1]
             for anchor_name, coord in entry.get("anchors", {}).items():

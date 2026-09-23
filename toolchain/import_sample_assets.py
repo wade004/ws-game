@@ -381,11 +381,15 @@ def run(assets_root: Path, data_root: Path, placeholder_root: Path) -> int:
         stage = tmp_root / "stage"
         stage.mkdir(parents=True, exist_ok=True)
 
+        # ADR-0081（消费方反馈第二十三批）判断记录：这里不再显式传 --pixels-per-unit——
+        # sprite_cmd.py 该参数缺省已改为 None（不再是旧版固定默认值 32.0），显式传参会在
+        # anchors.json 顶层写入 pixels_per_unit 声明（决策 B）。决策 D 明确不给既有 _sample 精灵集
+        # 加这个声明（会改变既有 Unity 用例里精灵的渲染尺寸，制造与本刀无关的红），因此不传该参数；
+        # anchor_points 换算仍按 sprite_cmd.py 内部缺省值 32 计算，与改动前数值逐字节一致，只是不
+        # 再写出这个新键——样例导入幂等性（本函数重跑零 diff）据此保持成立。
         common_sprite_args = [
             "--dataset",
             DATASET,
-            "--pixels-per-unit",
-            "32",
             "--mirror",
             "auto",
             "--assets-root",

@@ -655,6 +655,319 @@ class CheckMirrorPairsAndAnchorTest(ImportAssetsTestBase):
         self.assertIn("缺失", output)
 
 
+def simulate_engine_adapter_declared_pixels_per_unit(anchors_json_path: Path) -> float | None:
+    """在 Python 侧原样复刻已落地引擎适配层实现里
+    ``UnityResourceLoader.ReadDeclaredPixelsPerUnit`` 的解析口径（ADR-0081 决策 2/6）：
+
+    1. 文件不存在 -> None（调用方回退运行期全局默认值）。
+    2. 解析失败/顶层不是对象 -> None。
+    3. 不存在 ``pixels_per_unit`` 键，或其值不是数字（含 bool，需排除） -> None。
+    4. 数值 <= 0 -> None（不声明等同不信任声明）。
+    5. 否则返回该 float 值。
+
+    本函数不是对运行期代码的重新实现验证（它当然不能证明 C# 代码本身正确），而是用来证明
+    "工具链写出的键名/取值 + 这份文档字面描述的解析规则" 两端能对上——即端到端链路本身是通的，
+    不是靠代码审读推断的。"""
+    if not anchors_json_path.is_file():
+        return None
+    try:
+        data = json.loads(anchors_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if "pixels_per_unit" not in data:
+        return None
+    val = data["pixels_per_unit"]
+    if not isinstance(val, (int, float)) or isinstance(val, bool):
+        return None
+    declared = float(val)
+    return declared if declared > 0 else None
+
+
+class SpritePixelsPerUnitDeclarationTest(ImportAssetsTestBase):
+    """ADR-0081 决策 B：``sprite`` 子命令新增 ``--pixels-per-unit``——给了就在 anchors.json
+    顶层写声明，不给就一个字节都不写（既有精灵集重导入的幂等性门禁）。"""
+
+    def _run_sprite_import(self, case_dir: Path, extra_args: list[str]) -> tuple[int, str, Path]:
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "wolf_ppu"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+        anchors_path = case_dir / "anchors.json"
+        write_json(anchors_path, {slot: {"root": [20, 60]} for slot in CANONICAL_8})
+
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.wolf_ppu_test",
+                "--anchors",
+                str(anchors_path),
+                *extra_args,
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        out_anchors = assets_root / "_test" / "sprites" / "creature_wolf_ppu" / "anchors.json"
+        return code, output, out_anchors
+
+    def test_omitted_flag_produces_no_key_and_byte_identical_to_baseline(self) -> None:
+        case_a = self.new_case_dir("ppu_omitted_a")
+        code_a, output_a, anchors_a = self._run_sprite_import(case_a, [])
+        self.assertEqual(0, code_a, msg=output_a)
+        data_a = json.loads(anchors_a.read_text(encoding="utf-8"))
+        self.assertNotIn("pixels_per_unit", data_a)
+
+        # 与另一次独立的、同样不传该参数的导入比较，产出必须逐字节相同（基线一致性）。
+        case_b = self.new_case_dir("ppu_omitted_b")
+        code_b, output_b, anchors_b = self._run_sprite_import(case_b, [])
+        self.assertEqual(0, code_b, msg=output_b)
+        self.assertEqual(anchors_a.read_bytes(), anchors_b.read_bytes())
+
+    def test_explicit_value_written_to_anchors_json_top_level(self) -> None:
+        case_dir = self.new_case_dir("ppu_explicit_48")
+        code, output, anchors_path = self._run_sprite_import(
+            case_dir, ["--pixels-per-unit", "48"]
+        )
+        self.assertEqual(0, code, msg=output)
+        data = json.loads(anchors_path.read_text(encoding="utf-8"))
+        self.assertEqual(48, data["pixels_per_unit"])
+
+        # 数值上是整数，字面量形式应写成 "48"，不是 "48.0"（common.py 的整数值 float 规范化
+        # 惯例同样适用于本新增字段，见 sprite_cmd.py::_build_anchors_payload）。
+        raw_text = anchors_path.read_text(encoding="utf-8")
+        self.assertIn('"pixels_per_unit": 48', raw_text)
+        self.assertNotIn('"pixels_per_unit": 48.0', raw_text)
+
+    def test_explicit_non_integer_value_preserved_as_float(self) -> None:
+        case_dir = self.new_case_dir("ppu_explicit_frac")
+        code, output, anchors_path = self._run_sprite_import(
+            case_dir, ["--pixels-per-unit", "40.5"]
+        )
+        self.assertEqual(0, code, msg=output)
+        raw_text = anchors_path.read_text(encoding="utf-8")
+        self.assertIn('"pixels_per_unit": 40.5', raw_text)
+
+    def test_repeated_import_same_explicit_value_is_idempotent(self) -> None:
+        case_dir = self.new_case_dir("ppu_repeated_same_value")
+        code1, output1, anchors_path = self._run_sprite_import(
+            case_dir, ["--pixels-per-unit", "48"]
+        )
+        self.assertEqual(0, code1, msg=output1)
+        first_bytes = anchors_path.read_bytes()
+
+        code2, output2, _ = self._run_sprite_import(case_dir, ["--pixels-per-unit", "48"])
+        self.assertEqual(0, code2, msg=output2)
+        second_bytes = anchors_path.read_bytes()
+
+        self.assertEqual(first_bytes, second_bytes)
+
+    def test_zero_value_raises_error_not_silent(self) -> None:
+        case_dir = self.new_case_dir("ppu_invalid_zero")
+        code, output, anchors_path = self._run_sprite_import(
+            case_dir, ["--pixels-per-unit", "0"]
+        )
+        self.assertEqual(1, code)
+        self.assertIn("--pixels-per-unit", output)
+        self.assertIn("必须 > 0", output)
+        self.assertFalse(anchors_path.exists())
+
+    def test_negative_value_raises_error_not_silent(self) -> None:
+        case_dir = self.new_case_dir("ppu_invalid_negative")
+        code, output, anchors_path = self._run_sprite_import(
+            case_dir, ["--pixels-per-unit", "-5"]
+        )
+        self.assertEqual(1, code)
+        self.assertIn("--pixels-per-unit", output)
+        self.assertIn("必须 > 0", output)
+        self.assertFalse(anchors_path.exists())
+
+
+class CheckPixelsPerUnitTest(ImportAssetsTestBase):
+    """ADR-0081 决策 C：``check`` 子命令容忍并校验 anchors.json 顶层 pixels_per_unit——出现
+    时校验正数，不出现不报错、不要求声明。"""
+
+    def _build_sprite_with_ppu(self, case_name: str, extra_args: list[str]) -> tuple[Path, Path, Path]:
+        case_dir = self.new_case_dir(case_name)
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "critter_ppu"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+        anchors_path = case_dir / "anchors.json"
+        write_json(anchors_path, {slot: {"root": [20, 60]} for slot in CANONICAL_8})
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.critter_ppu_test",
+                "--anchors",
+                str(anchors_path),
+                *extra_args,
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        anchors_out = assets_root / "_test" / "sprites" / "creature_critter_ppu" / "anchors.json"
+        return assets_root, data_root, anchors_out
+
+    def _run_check(self, assets_root: Path, data_root: Path) -> tuple[int, str]:
+        return run_cli(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+
+    def test_absent_key_does_not_error(self) -> None:
+        assets_root, data_root, _ = self._build_sprite_with_ppu("check_ppu_absent", [])
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(0, code, msg=output)
+
+    def test_valid_positive_value_does_not_error(self) -> None:
+        assets_root, data_root, _ = self._build_sprite_with_ppu(
+            "check_ppu_valid", ["--pixels-per-unit", "48"]
+        )
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(0, code, msg=output)
+
+    def test_non_positive_value_is_reported(self) -> None:
+        assets_root, data_root, anchors_path = self._build_sprite_with_ppu(
+            "check_ppu_non_positive", ["--pixels-per-unit", "48"]
+        )
+        # sprite 命令本身拒绝写入非正值，这里用后置改写模拟"手工损坏/历史遗留数据"。
+        data = json.loads(anchors_path.read_text(encoding="utf-8"))
+        data["pixels_per_unit"] = -1
+        write_json(anchors_path, data)
+
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(1, code, msg=output)
+        self.assertIn("pixels_per_unit", output)
+
+        # 文本模式（render_text）只渲染 "record_key: message"，不含 check 名（既有惯例）；
+        # check 名本身走 --json 模式精确核对（与 CheckDetectsMissingFileTest 等既有用例同一惯例）。
+        code_json, stdout_json, _ = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--json",
+            ]
+        )
+        self.assertEqual(1, code_json)
+        doc = json.loads(stdout_json.splitlines()[0])
+        self.assertEqual(1, len(doc["issues"]))
+        self.assertEqual(check_cmd.CHECK_SPRITE_PIXELS_PER_UNIT_INVALID, doc["issues"][0]["check"])
+
+    def test_non_numeric_value_is_reported(self) -> None:
+        assets_root, data_root, anchors_path = self._build_sprite_with_ppu(
+            "check_ppu_non_numeric", []
+        )
+        data = json.loads(anchors_path.read_text(encoding="utf-8"))
+        data["pixels_per_unit"] = "not_a_number"
+        write_json(anchors_path, data)
+
+        code, output = self._run_check(assets_root, data_root)
+        self.assertEqual(1, code, msg=output)
+        self.assertIn("pixels_per_unit", output)
+
+        code_json, stdout_json, _ = run_cli_split(
+            [
+                "check",
+                "--dataset",
+                "_test",
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+                "--json",
+            ]
+        )
+        self.assertEqual(1, code_json)
+        doc = json.loads(stdout_json.splitlines()[0])
+        self.assertEqual(1, len(doc["issues"]))
+        self.assertEqual(check_cmd.CHECK_SPRITE_PIXELS_PER_UNIT_INVALID, doc["issues"][0]["check"])
+
+
+class SpritePixelsPerUnitRuntimeParsingChainTest(ImportAssetsTestBase):
+    """端到端验收第 2 条：证明"工具链写进去的值能被运行期读到"——两端用同一个键名
+    （``pixels_per_unit``）、同一个解析口径（顶层、数字、必须 > 0，否则视为未声明并回退全局
+    默认值）。运行期一侧的口径通过 ``simulate_engine_adapter_declared_pixels_per_unit``
+    复刻自 UnityResourceLoader.ReadDeclaredPixelsPerUnit 的文字描述（ADR-0081 决策 2/6），
+    真正读取 sprite 子命令实际写出的 anchors.json 文件并执行，不是仅凭代码审读断言。"""
+
+    def _import_sprite(self, case_dir: Path, extra_args: list[str]) -> Path:
+        assets_root, data_root = self.roots(case_dir)
+        src_dir = case_dir / "src" / "wolf_chain"
+        build_layered_sprite_src(src_dir, CANONICAL_8)
+        anchors_path = case_dir / "anchors.json"
+        write_json(anchors_path, {slot: {"root": [20, 60]} for slot in CANONICAL_8})
+        code, output = run_cli(
+            [
+                "sprite",
+                str(src_dir),
+                "--dataset",
+                "_test",
+                "--category",
+                "creature",
+                "--logical-id",
+                "creature.wolf_chain_test",
+                "--anchors",
+                str(anchors_path),
+                *extra_args,
+                "--assets-root",
+                str(assets_root),
+                "--data-root",
+                str(data_root),
+            ]
+        )
+        self.assertEqual(0, code, msg=output)
+        return assets_root / "_test" / "sprites" / "creature_wolf_chain" / "anchors.json"
+
+    def test_declared_value_round_trips_through_toolchain_and_runtime_parsing_rule(self) -> None:
+        case_dir = self.new_case_dir("chain_declared")
+        anchors_path = self._import_sprite(case_dir, ["--pixels-per-unit", "40"])
+        resolved = simulate_engine_adapter_declared_pixels_per_unit(anchors_path)
+        self.assertEqual(40.0, resolved)
+
+    def test_omitted_value_falls_back_to_none_through_runtime_parsing_rule(self) -> None:
+        case_dir = self.new_case_dir("chain_omitted")
+        anchors_path = self._import_sprite(case_dir, [])
+        resolved = simulate_engine_adapter_declared_pixels_per_unit(anchors_path)
+        self.assertIsNone(resolved)
+
+    def test_non_positive_declared_value_is_treated_as_not_declared(self) -> None:
+        case_dir = self.new_case_dir("chain_corrupted_non_positive")
+        anchors_path = self._import_sprite(case_dir, ["--pixels-per-unit", "40"])
+        data = json.loads(anchors_path.read_text(encoding="utf-8"))
+        data["pixels_per_unit"] = 0
+        write_json(anchors_path, data)
+        resolved = simulate_engine_adapter_declared_pixels_per_unit(anchors_path)
+        self.assertIsNone(resolved)
+
+
 class MapCommandTest(ImportAssetsTestBase):
     def _build_layer_src(self, src_dir: Path, layers: dict[str, tuple[int, int]]) -> None:
         src_dir.mkdir(parents=True, exist_ok=True)

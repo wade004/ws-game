@@ -77,7 +77,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--shadow", choices=SHADOW_CHOICES, default="blob", help="写入 display.map 的阴影模式，默认 blob"
     )
     parser.add_argument(
-        "--pixels-per-unit", type=float, default=32.0, help="锚点像素坐标换算为世界单位的除数，默认 32"
+        "--pixels-per-unit",
+        type=float,
+        default=None,
+        help=(
+            "锚点像素坐标换算为世界单位的除数；未显式传入时按 32 换算（向后兼容既有产出），"
+            "此时不在 anchors.json 顶层写入 pixels_per_unit 声明。显式传入时必须 > 0，且还会在该"
+            "精灵集 anchors.json 顶层写入同名 pixels_per_unit 声明，供运行期引擎适配层解码该精灵集"
+            "图像资源时优先使用（ADR-0081），不再回退运行期全局默认值。"
+        ),
     )
     parser.add_argument(
         "--icon-size", type=int, default=64, help="随精灵集登记的 icon.png 归一化尺寸，默认 64"
@@ -118,10 +126,27 @@ def _load_layer_images(entry_path: Path) -> dict[str, Image.Image]:
     return layers
 
 
+_DEFAULT_PIXELS_PER_UNIT = 32.0
+
+
 def run(args: argparse.Namespace) -> int:
     repo_root = _repo_root()
     assets_root = resolve_root(args.assets_root, repo_root, "assets")
     data_root = resolve_root(args.data_root, repo_root, "data")
+
+    # ADR-0081（消费方反馈第二十三批）：--pixels-per-unit 缺省为 None（不是旧版的固定默认值
+    # 32.0），用于区分"用户没传"与"用户显式传了、只是恰好等于旧默认值"两种情形——只有显式传入
+    # 时才在 anchors.json 顶层写入声明（决策 B）；未传入时仍按 32 换算 anchor_points（与改动前
+    # 逐字节一致，见下方 effective_pixels_per_unit），只是不写这个新键。显式传入时必须 > 0，非法
+    # 值直接报错，不静默忽略（AGENTS.md"运行时路径不静默降级"同一惯例）。
+    declared_pixels_per_unit: float | None = args.pixels_per_unit
+    if declared_pixels_per_unit is not None and declared_pixels_per_unit <= 0:
+        raise AssetImportError(
+            f"--pixels-per-unit 必须 > 0，收到 {declared_pixels_per_unit}"
+        )
+    effective_pixels_per_unit = (
+        declared_pixels_per_unit if declared_pixels_per_unit is not None else _DEFAULT_PIXELS_PER_UNIT
+    )
 
     src_dir = Path(args.src).resolve()
     if not src_dir.is_dir():
@@ -266,8 +291,8 @@ def run(args: argparse.Namespace) -> int:
 
     display_anchor_points = {
         name: {
-            "x": round(px / args.pixels_per_unit, 6),
-            "y": round(py / args.pixels_per_unit, 6),
+            "x": round(px / effective_pixels_per_unit, 6),
+            "y": round(py / effective_pixels_per_unit, 6),
         }
         for name, (px, py) in _iter_vec2(per_direction_anchors[default_slot]["anchors"])
     }
@@ -328,7 +353,7 @@ def run(args: argparse.Namespace) -> int:
     sprite_out_dir.mkdir(parents=True, exist_ok=True)
     atlas_img.save(atlas_png_path)
     write_json_pretty(atlas_json_path, {"frames": frame_rects})
-    write_json_pretty(anchors_json_path, per_direction_anchors)
+    write_json_pretty(anchors_json_path, _build_anchors_payload(per_direction_anchors, declared_pixels_per_unit))
 
     if icon_out_path:
         icon_out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -346,6 +371,27 @@ def _layer_out_path(sprite_out_dir: Path, slot_name: str, layer_name: str, is_fl
     if is_flat:
         return sprite_out_dir / f"{slot_name}.png"
     return sprite_out_dir / slot_name / f"{layer_name}.png"
+
+
+def _build_anchors_payload(per_direction_anchors: dict, declared_pixels_per_unit: float | None) -> dict:
+    """ADR-0081 决策 B：按方向档位分层的既有 anchors.json 结构（顶层键均为方向档位名，如
+    ``"front"``/``"side_r"``）之外，顶层追加一个兄弟标量键 ``pixels_per_unit``——方向档位命名
+    （见 ``directions.py``）不会出现这个词，不与既有键冲突。只有显式传入 ``--pixels-per-unit``
+    时才追加这个键，未传入时原样返回 ``per_direction_anchors`` 本身（不新建/不复制），保证"不传
+    该参数"的产出与改动前逐字节一致（既有精灵集重新导入零 diff，见幂等性验收）。数值上是整数的
+    声明值写成整数字面量，不写出 ``32.0`` 这类多余的浮点形式（同
+    ``common._normalize_json_literals`` 的既有惯例，本文件与 ``write_json_pretty`` 均不依赖该
+    私有函数，这里就地做同样的规范化）。"""
+    if declared_pixels_per_unit is None:
+        return per_direction_anchors
+    normalized = (
+        int(declared_pixels_per_unit)
+        if declared_pixels_per_unit.is_integer()
+        else declared_pixels_per_unit
+    )
+    payload = dict(per_direction_anchors)
+    payload["pixels_per_unit"] = normalized
+    return payload
 
 
 def _canvas_size(layers: dict[str, Image.Image]) -> tuple[int, int]:

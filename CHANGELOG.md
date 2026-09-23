@@ -458,6 +458,21 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **精灵集自带像素密度在运行期生效**（消费方反馈第二十三批，改进建议非阻塞，
+  [ADR-0081](architecture/adr/0081-精灵集自带像素密度在运行期生效.md)）：
+  `Adapter.Unity.EngineAdapter.UnityResourceLoader.TryDecodeImage` 解码某个精灵集下的图像
+  （`"layer."`/`"sprite."` 两类资源引用 id）时，改为先读该精灵集自己 `anchors.json` 顶层
+  `pixels_per_unit`（已声明且 `> 0` 就用它），缺失/非正数/文件不存在/解析失败才回退加载器既有的
+  全局 `PixelsPerUnit`（默认 100，回退路径与改动前逐字节一致）；按精灵集目录缓存解析结果，避免
+  同一精灵集下多张图反复读盘。新增诊断属性 `SpriteSetAnchorsJsonReadCount`。`ResourceKind.Effect`
+  （`TryDecodeEffect`）与不属于任何精灵集的图像（`"paperdoll."`/`"icon."` 等）不受影响。落地期
+  核实结论：`toolchain/asset_import/sprite_cmd.py`/`check_cmd.py` 产出与校验的 `anchors.json`
+  （`assets/_sample` 等真实数据集）目前顶层没有 `pixels_per_unit` 字段，仅 `_placeholder` 精灵集
+  （`toolchain/gen_placeholder_assets.py` 产出）立即受益；是否让 `sprite_cmd.py` 也写出该字段留给
+  设计层后续裁决，见 ADR-0081"待设计层确认"。
+
 ## [1.65.0] - 2026-09-23
 
 ### 新增
