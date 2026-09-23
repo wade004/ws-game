@@ -458,6 +458,33 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **UI 交互域事件**（消费方反馈第二十批第 1 条，`presentation/ui/**` 此前只订阅、从不发出事件，
+  `feedback.binding` 无法挂在任何 UI 交互上，见 [ADR-0077](architecture/adr/0077-ui交互域事件.md)）：
+  新增 `ui.panel_opened { panelId }`、`ui.panel_closed { panelId }`、`ui.action_invoked { panelId,
+  actionName }` 三个事件（`domain=ui`），由引擎无关的 UI 核心层发出——`UiPanelRegistry.Open`/
+  `Close`（新增 3 参构造重载，携带 `IEventBus?`）状态真正变化时发出前两者；`UiIntents`（新增 13
+  参构造重载）新增一批携带前导 `panelId` 参数的方法重载（`CastSkill`/`UseItem`/`Equip`/`Unequip`/
+  `Buy`/`Sell` 等）发出第三者，`actionName` 取框架自持的 UI 意图方法名语义，不引入 `buttonId`
+  概念。三个事件只陈述"哪个面板发生了什么交互"，不携带任何呈现意图字段，框架不为任何 UI 交互
+  预设默认音效/特效绑定。随本次改动把此前从未接入任何生产装配根的 `UiPanelRegistry` 一并接入
+  `PresentationAssembly.Panels`（新增 `PresentationAssemblyOptions.MenuOverlayPanelIds` 选项）。
+  ABI：全部新增重载/属性，既有签名不变。
+- **单位步幅位移事件**（消费方反馈第二十批第 2 条，唯一移动事件 `unit.moved` 与移动速度/帧率耦合、
+  无法当固定节奏信号使用，见 [ADR-0078](architecture/adr/0078-单位步幅位移事件.md)）：
+  `display.map` 新增可选字段 `stride_distance`（外形的步幅几何距离，未登记或 `<=0` 该外形完全不
+  使用本机制）；新增表现层组件 `Presentation.ViewBinding.StrideEmitter` 订阅 `unit.moved`，按单位
+  累计位移达到一个步幅距离即发新事件 `unit.stride_completed { unitId, position }` 并保留余数（不
+  清零），单次位移超过步幅距离 8 倍视为瞬移只发一条并清零累计。事件名与字段名一律使用"位移/步幅"
+  几何语义，不使用脚步/footstep 呈现语义，不引入任何步态/动画概念；框架只负责"什么时候发"，不
+  登记任何默认音效/特效绑定。由表现层派生，不进入规则层、不写回任何逻辑状态、不影响仿真基线。
+  ABI：`DisplayInfo` 新增构造重载与只读属性，既有签名不变；`PresentationAssembly` 新增 `Stride`
+  属性。
+- 09 表现层第 1 节铁律 P2 措辞收窄为"只订阅，允许发出的事件限定在明确枚举的小集合内"（由 1 条
+  扩至 4 条：`presentation.playback_finished`、`ui.panel_opened`/`ui.panel_closed`/
+  `ui.action_invoked`、`unit.stride_completed`），随上述两条一并落地。
+
 ## [1.64.0] - 2026-09-23
 
 ### 修复

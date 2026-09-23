@@ -18,7 +18,9 @@ using Presentation.Camera;
 using Presentation.Common;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.Render;
+using Presentation.Ui;
 using Presentation.VfxSfx.Contracts;
+using Presentation.ViewBinding;
 using Xunit;
 
 namespace Tests.Presentation.Assembly
@@ -2050,6 +2052,209 @@ namespace Tests.Presentation.Assembly
             Assert.True(presentation.UiIntents.ChooseDialogOption(0));
             Assert.Null(gameplay.Dialog.GetStoryView(playerId));
             Assert.Equal(1, endedCount);
+        }
+
+        // ==================== ADR-0077/ADR-0078（消费方反馈第二十批）====================
+
+        /// <summary>ADR-0078 用例专用：<c>AddMinimalGameplayTables</c> 的 <c>stat.definition</c> 只
+        /// 登记了 <c>stat.max_health</c>，本切片新增的移动类用例需要真实经过
+        /// <see cref="Core.Carriers.Unit.MovementTickHandler.ResolveSpeed"/>——该方法要求
+        /// <c>stat.move_speed</c> 必须先在 <c>stat.definition</c> 声明（未声明会直接抛异常，未赋值
+        /// 但已声明则按 <c>default_base</c> 取值，此处仍留 0，配合 <c>creature.sample_player</c> 模板
+        /// 未设置该属性，取 <see cref="Core.Carriers.Unit.MovementOptions.DefaultSpeed"/> 缺省值
+        /// 4.0——同 <c>UiIntentsTests.Move_EndToEnd_ThroughMovementTickHandler_DisplacesUnitPosition</c>
+        /// 依赖的同一条框架既有回退规则，不是本用例发明的新行为）才能补上这条声明，不影响既有夹具其它
+        /// 用例（合并同名表，只新增一行）。</summary>
+        private static void AddStatMoveSpeedDefinition(InMemoryDataSource source)
+        {
+            source.Add("stat.definition",
+                "{\"table\": \"stat.definition\", \"schema_version\": 1, \"rows\": [" +
+                "{\"id\": \"stat.move_speed\", \"name_key\": \"l10n.stat.pres_stride_move_speed.name\", " +
+                "\"group\": \"primary\", \"default_base\": 0}" +
+                "]}");
+        }
+
+        /// <summary>ADR-0077 验收 1：经真实 <see cref="PresentationAssembly.Panels"/>（此前完全未接入
+        /// 任何生产装配入口，本次随 ADR-0077 一并接线）打开/关闭一个真实 <c>ui_layout_definition</c>
+        /// 面板，真实经 <see cref="IEventBus.PublishImmediate"/> 发出的 <see cref="UiPanelOpenedEvent"/>/
+        /// <see cref="UiPanelClosedEvent"/> 能被外部订阅方直接观测到，携带的 <c>PanelId</c> 与调用参数
+        /// 一致。改动前该类型从未发布过任何事件，此处为该缺口修复后的直接证据。</summary>
+        [Fact]
+        public void Panels_OpenAndClose_ThroughRealAssembly_PublishRealUiPanelEvents()
+        {
+            var presentation = Build(out _, out _, out _, out var bus);
+            var panelId = new Id("ui_layout_definition.sample_action_bar");
+
+            var opened = new List<Id>();
+            var closed = new List<Id>();
+            bus.Subscribe<UiPanelOpenedEvent>(UiEventKeys.PanelOpened, e => opened.Add(e.PanelId));
+            bus.Subscribe<UiPanelClosedEvent>(UiEventKeys.PanelClosed, e => closed.Add(e.PanelId));
+
+            presentation.Panels.Open(panelId);
+            presentation.Panels.Close(panelId);
+
+            Assert.Equal(new[] { panelId }, opened);
+            Assert.Equal(new[] { panelId }, closed);
+        }
+
+        /// <summary>ADR-0077 验收 1（`ui.action_invoked`）与验收 2（能驱动 `feedback.binding`）一并
+        /// 验证：经真实 <see cref="PresentationAssembly.UiIntents"/> 携带 <c>panelId</c> 的
+        /// <see cref="global::Presentation.Ui.UiIntents.CastSkill(Id,Id,Id?)"/> 重载调用，真实发出
+        /// <see cref="UiActionInvokedEvent"/>，且真实 <c>feedback.binding</c>
+        /// （<c>event: ui.action_invoked</c>，<c>play_sfx</c>）经 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>
+        /// 真实落到 <see cref="StubAudio.PlaySfx"/>（<see cref="StubAudio.ActiveSfxPlaybacks"/> 可观测）。
+        /// 改动前 `presentation/ui/**` 不发出任何事件，`feedback.binding` 无法挂在任何 UI 交互上——
+        /// 本用例是该缺口修复后的端到端证据。</summary>
+        [Fact]
+        public void UiIntents_ActionInvokedWithPanelId_ThroughRealAssembly_DrivesFeedbackBindingPlaySfx()
+        {
+            var panelId = new Id("ui_layout_definition.sample_action_bar");
+            var skillId = new Id("skill.sample_ui_cast_test");
+            var sfxId = new Id("sfx.sample_hit"); // 已由 AddMinimalPresentationTables 登记
+
+            var presentation = Build(out _, out _, out var engine, out var bus, extraTables: source =>
+            {
+                source.Add("feedback.binding",
+                    "{\"table\": \"feedback.binding\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"feedback.pres_ui_action_invoked_test\", \"event\": \"ui.action_invoked\", " +
+                    "\"actions\": [{\"kind\": \"play_sfx\", \"params\": {\"sfx_id\": \"" + sfxId.Value + "\"}}]}" +
+                    "]}");
+            });
+
+            UiActionInvokedEvent? received = null;
+            bus.Subscribe<UiActionInvokedEvent>(UiEventKeys.ActionInvoked, e => received = e);
+            var beforeCount = engine.Audio.ActiveSfxPlaybacks.Count;
+
+            presentation.UiIntents.CastSkill(panelId, skillId, targetId: null);
+
+            Assert.NotNull(received);
+            Assert.Equal(panelId, received!.PanelId);
+            Assert.Equal("cast_skill", received.ActionName);
+            Assert.True(engine.Audio.ActiveSfxPlaybacks.Count > beforeCount);
+            Assert.Contains(engine.Audio.ActiveSfxPlaybacks.Values, p => p.SoundId.Equals(sfxId));
+        }
+
+        /// <summary>ADR-0078 验收 3：给玩家单位的 <c>display.map</c> 行登记一个真实的
+        /// <c>stride_distance</c>，经真实 <see cref="Core.Carriers.Unit.MovementTickHandler"/>
+        /// （<see cref="global::Presentation.Ui.UiIntents.Move"/> + 真实 <see cref="WorldSim.Tick"/>，
+        /// 移动速度取 <c>MovementOptions.DefaultSpeed</c> 缺省值 4.0——本模板未登记
+        /// <c>stat.move_speed</c>）推进一段真实、按规则可算出的距离，断言经
+        /// <see cref="PresentationAssembly.Stride"/> 真实发出的 <see cref="UnitStrideCompletedEvent"/>
+        /// 条数等于 <c>floor(distance / strideDistance)</c>（按规则算出的期望值，不写死裸数）——
+        /// 第一次 Move+Tick 只建立基准（该单位此前从未有过 unit.moved），第二次才是真正计入的位移；
+        /// 余数保留到第三次移动继续累计（第三次断言的期望值把第二次的余数计入）。</summary>
+        [Fact]
+        public void Stride_UnitWithStrideDistanceRegistered_EmitsCountComputedFromRule_PreservesRemainderAcrossMoves()
+        {
+            const double strideDistance = 3.0;
+            const double defaultMoveSpeed = 4.0; // MovementOptions.DefaultSpeed 缺省值
+            const double dtSeconds = 1.0;
+            var distancePerMove = defaultMoveSpeed * dtSeconds;
+
+            var presentation = Build(out _, out var world, out _, out var bus, extraTables: source =>
+            {
+                AddStatMoveSpeedDefinition(source);
+                source.Add("display.map",
+                    "{\"table\": \"display.map\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"display.map.pres_stride_player_test\", \"category\": \"creature\", " +
+                    "\"logical_id\": \"" + SamplePlayerTemplateId.Value + "\", \"kind\": \"sprite\", " +
+                    "\"sprite_set_id\": \"sprite.pres_stride_test\", \"direction_count\": 4, " +
+                    "\"stride_distance\": " + strideDistance.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}" +
+                    "]}");
+            });
+
+            var received = new List<UnitStrideCompletedEvent>();
+            bus.Subscribe<UnitStrideCompletedEvent>(ViewBindingEventKeys.UnitStrideCompleted, e => received.Add(e));
+
+            // 本单位此前从未产生过 unit.moved（CreatureFactory.Spawn 只是写初始位置，不经
+            // MovementTickHandler、不发 unit.moved）——第一次 Move+Tick 是 StrideEmitter 第一次观测到
+            // 这个单位，只建立基准位置，不计入位移（见 StrideEmitter 判断记录"首次观测不产生虚假
+            // 位移"），必须恰好 0 条，不是"因为还没走够一个步幅所以是 0"这种巧合。
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(dtSeconds));
+            Assert.Empty(received);
+
+            // 第二次移动才是 StrideEmitter 真正开始累计的第一段真实位移。
+            received.Clear();
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(dtSeconds));
+            var expectedFirst = (int)System.Math.Floor(distancePerMove / strideDistance);
+            Assert.Equal(expectedFirst, received.Count);
+
+            // 第三次移动验证余数保留：累计值 = 第二次的余数 + 本次新位移，期望值由同一条 floor 规则
+            // 重新算出（不是写死裸数），证明累计没有在两次触发之间被清零重置。
+            received.Clear();
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(dtSeconds));
+            var remainderAfterFirst = distancePerMove - expectedFirst * strideDistance;
+            var expectedSecond = (int)System.Math.Floor((remainderAfterFirst + distancePerMove) / strideDistance);
+            Assert.Equal(expectedSecond, received.Count);
+        }
+
+        /// <summary>ADR-0078 验收 4：未在 <c>display.map</c> 登记 <c>stride_distance</c> 的单位（本用例
+        /// 用默认最小夹具，不追加任何 <c>display.map</c> 行）经真实移动推进后条数恒为 0——零开销
+        /// opt-in 的直接证据，不是"注册了但阈值不可达"。</summary>
+        [Fact]
+        public void Stride_UnitWithoutStrideDistanceRegistered_EmitsZeroEvents_AfterRealMovement()
+        {
+            var presentation = Build(out _, out var world, out _, out var bus, extraTables: AddStatMoveSpeedDefinition);
+
+            var received = new List<UnitStrideCompletedEvent>();
+            bus.Subscribe<UnitStrideCompletedEvent>(ViewBindingEventKeys.UnitStrideCompleted, e => received.Add(e));
+
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(1.0));
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(1.0));
+
+            Assert.Empty(received);
+        }
+
+        /// <summary>ADR-0078 验收 5：瞬移钳制——单次位移超过步幅距离
+        /// <see cref="StrideEmitter.TeleportDistanceMultiplier"/>（8）倍时只发一条，不按
+        /// "距离/步幅距离"整除发多条。用较大的 <c>dt</c>（真实 <see cref="WorldSim.Tick"/> 推进）制造
+        /// 一次真实的大跨度单帧位移，而不是直接构造事件。</summary>
+        [Fact]
+        public void Stride_LargeSingleFrameDisplacement_ThroughRealMovement_EmitsExactlyOneEvent()
+        {
+            const double strideDistance = 0.1;
+            const double defaultMoveSpeed = 4.0; // MovementOptions.DefaultSpeed 缺省值
+            const double teleportDtSeconds = 100.0;
+            var teleportDistance = defaultMoveSpeed * teleportDtSeconds;
+            Assert.True(
+                teleportDistance > strideDistance * StrideEmitter.TeleportDistanceMultiplier,
+                "本用例的前提：本次单帧位移必须真实超过瞬移钳制阈值，否则不是在测钳制分支");
+
+            var presentation = Build(out _, out var world, out _, out var bus, extraTables: source =>
+            {
+                AddStatMoveSpeedDefinition(source);
+                source.Add("display.map",
+                    "{\"table\": \"display.map\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"display.map.pres_stride_teleport_test\", \"category\": \"creature\", " +
+                    "\"logical_id\": \"" + SamplePlayerTemplateId.Value + "\", \"kind\": \"sprite\", " +
+                    "\"sprite_set_id\": \"sprite.pres_stride_test\", \"direction_count\": 4, " +
+                    "\"stride_distance\": " + strideDistance.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}" +
+                    "]}");
+            });
+
+            var received = new List<UnitStrideCompletedEvent>();
+            bus.Subscribe<UnitStrideCompletedEvent>(ViewBindingEventKeys.UnitStrideCompleted, e => received.Add(e));
+
+            // 建立基准（首次观测不计入位移）。
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(1.0));
+            Assert.Empty(received);
+
+            // 大跨度单帧位移：见上方前提断言，teleportDistance 远超 strideDistance * 8。
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(teleportDtSeconds));
+            Assert.Single(received); // 不是按 floor(teleportDistance / strideDistance) 发一大串。
+
+            // 累计清零：紧接着一次远小于步幅距离的正常移动不应触发。
+            received.Clear();
+            presentation.UiIntents.Move(new Core.Foundation.Common.Vec2(1, 0));
+            world.Tick(SimStep.Continuous(0.01)); // distance = 0.04 < strideDistance
+            Assert.Empty(received);
         }
     }
 }

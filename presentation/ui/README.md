@@ -622,3 +622,46 @@ ABI：无变更——`UiIntents.ChooseDialogOption(int)` 签名不变，内部�
 `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/UiSuiteTests.cs`
 （`Dialog_ClickStoryBranchButton_ThroughDialogPanel_AdvancesStoryNode`，经对白面板渲染出的真实
 按钮 `onClick` 推进剧情节点，不直调宿主/`UiIntents`）。
+
+## 判断记录（UI 交互域事件，2026-09-23，消费方反馈第二十批第 1 条，[ADR-0077](../../architecture/adr/0077-ui交互域事件.md)）
+
+`presentation/ui/**` 此前只订阅逻辑层事件刷新视图模型，从未发出任何事件，`feedback.binding`
+无法挂在任何 UI 交互上。新增 `presentation/ui/contracts/Events.cs`（`UiEventKeys`、
+`UiPanelOpenedEvent`/`UiPanelClosedEvent`/`UiActionInvokedEvent`）与两处发布点：
+
+- `UiPanelRegistry.Open`/`Close`：新增可选的 `IEventBus?` 构造参数（新增 3 参重载，旧 2 参重载原样
+  保留、行为逐字节不变），登记状态真正发生变化（已打开再次 `Open`、已关闭再次 `Close` 不重复触发，
+  与既有幂等语义一致）时经 `PublishImmediate` 分别发出 `ui.panel_opened`/`ui.panel_closed`。
+- `UiIntents`：新增可选的 `IEventBus?` 构造参数（新增 13 参重载，与既有 12 参重载按参数**个数**
+  区分，不用可选参数——避免调用方传 12 个参数时产生重载歧义），并新增一批携带前导 `Id panelId`
+  参数的方法重载（`CastSkill`/`UseItem`/`Equip`/`Unequip`/`Buy`/`Sell` 等，`Move`/`OpenMenu`/
+  `CloseMenu` 不提供——它们不对应任何面板内交互），调用即发出 `ui.action_invoked { panelId,
+  actionName }`；`actionName` 由方法自身固定给出（调用方不能自定义字符串，取值即方法自身承载的
+  框架 UI 意图语义，如 `cast_skill`/`equip`/`buy`），`panelId` 由调用方传入。
+
+判断记录（为什么不引入 buttonId，`actionName` 为什么不让调用方自定义）：`UiIntents` 是引擎无关、
+皮肤无关的核心层，不知道、也不该知道具体游戏用什么控件触发了一次交互；若开放调用方自定义
+`actionName` 字符串，等同于允许游戏专属词汇混进框架事件词汇表。`actionName` 复用框架早已维护的
+UI 意图方法名语义，不新建第二套词汇表。
+
+判断记录（`panelId` 为什么由调用方传，不由 `UiIntents` 自己维护"当前面板"）：`UiIntents` 是单例、
+无状态，可能同时服务多个并发展开的面板（如快捷栏与背包同时可见），维护一个全局"当前面板"栈本身
+不可靠；只有调用方知道自己所在的面板是哪一条 `ui_layout_definition.id`。
+
+判断记录（事件只陈述事实，不携带呈现意图；框架不登记默认绑定）：三个事件的字段仅有
+`panelId`/`actionName`，不新增"该不该出声""是不是确认类操作"这类呈现判断字段——这类判断属于
+具体游戏的呈现设计，框架发事件只负责"发生了什么"。相应地框架不为任何 UI 交互登记默认音效/特效
+绑定；`data/_sample/feedback/feedback.binding.json` 里挂在 `ui.action_invoked` 上的样例行仅作
+"怎么用"的示范，使用样例资源，不构成推荐配置。
+
+判断记录（此前 `UiPanelRegistry` 从未接入任何生产装配根）：核实发现该类型此前只有单元测试构造，
+从未被 `PresentationAssembly` 持有——本次随 ADR-0077 一并把它接入 `PresentationAssembly.Panels`
+属性（新增 `PresentationAssemblyOptions.MenuOverlayPanelIds`，默认空集合，构造行为对既有调用方
+不变），使"真实生产装配入口"这一验收前提第一次成立。
+
+回归见 `presentation/ui/tests/UiPanelRegistryTests.cs`（带/不带 `IEventBus` 两种构造下
+`Open`/`Close` 是否发出事件，幂等不重复触发）、`presentation/ui/tests/UiIntentsTests.cs`
+（若干 `panelId` 重载发出 `ui.action_invoked` 且字段正确，不带 `panelId` 的既有重载不发出任何
+事件）与 `presentation/assembly/tests/PresentationAssemblyTests.cs`（经真实 `PresentationAssembly`，
+`Panels.Open`/`Close` 与 `UiIntents` 的 `panelId` 重载在真实装配下可观察，且能驱动真实
+`feedback.binding`/`play_sfx` 实际派发）。

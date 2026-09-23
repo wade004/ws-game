@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Foundation.EventBus;
 
 namespace Presentation.Ui
 {
@@ -25,19 +26,30 @@ namespace Presentation.Ui
         private readonly UiIntents _intents;
         private readonly HashSet<Id> _menuOverlayPanelIds;
         private readonly HashSet<Id> _openPanels = new HashSet<Id>();
+        private readonly IEventBus? _eventBus;
 
         public UiPanelRegistry(UiIntents intents, IEnumerable<Id> menuOverlayPanelIds)
+            : this(intents, menuOverlayPanelIds, eventBus: null)
+        {
+        }
+
+        /// <summary>ADR-0077 新增重载：<paramref name="eventBus"/> 非空时，<see cref="Open"/>/
+        /// <see cref="Close"/> 的 0→1/1→0 边沿分别 <c>PublishImmediate</c> 一次
+        /// <see cref="UiPanelOpenedEvent"/>/<see cref="UiPanelClosedEvent"/>（见该事件类型注释）；
+        /// 旧重载（<paramref name="eventBus"/> 恒为 null）保持改动前行为，不发任何事件。</summary>
+        public UiPanelRegistry(UiIntents intents, IEnumerable<Id> menuOverlayPanelIds, IEventBus? eventBus)
         {
             _intents = intents ?? throw new ArgumentNullException(nameof(intents));
             if (menuOverlayPanelIds == null) throw new ArgumentNullException(nameof(menuOverlayPanelIds));
             _menuOverlayPanelIds = new HashSet<Id>(menuOverlayPanelIds);
+            _eventBus = eventBus;
         }
 
         public bool IsOpen(Id panelId) => _openPanels.Contains(panelId);
 
         public IReadOnlyCollection<Id> OpenPanels => _openPanels;
 
-        /// <summary>打开一个面板；已打开时幂等（不重复调用 OpenMenu）。</summary>
+        /// <summary>打开一个面板；已打开时幂等（不重复调用 OpenMenu/不重复发 ui.panel_opened）。</summary>
         public void Open(Id panelId)
         {
             if (!_openPanels.Add(panelId))
@@ -49,9 +61,11 @@ namespace Presentation.Ui
             {
                 _intents.OpenMenu();
             }
+
+            _eventBus?.PublishImmediate(new UiPanelOpenedEvent(panelId));
         }
 
-        /// <summary>关闭一个面板；本就未打开时幂等。</summary>
+        /// <summary>关闭一个面板；本就未打开时幂等（同样不重复发 ui.panel_closed）。</summary>
         public void Close(Id panelId)
         {
             if (!_openPanels.Remove(panelId))
@@ -63,6 +77,8 @@ namespace Presentation.Ui
             {
                 _intents.CloseMenu();
             }
+
+            _eventBus?.PublishImmediate(new UiPanelClosedEvent(panelId));
         }
 
         private int CountOpenMenuOverlayPanels() => _openPanels.Count(p => _menuOverlayPanelIds.Contains(p));
