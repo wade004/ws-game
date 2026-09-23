@@ -209,8 +209,14 @@ def test_two_lines_run_concurrently(ps_exe: str, tmp_path: Path) -> None:
     # 与 sleep_seconds 大小无关；用倍数阈值在 sleep_seconds 较小时会被这部分固定开销误判为"串行"。
     # 用"单段耗时 + 20 秒固定余量"作为并行判定上限，串行情形下预期总耗时约
     # 2 * sleep_seconds + 固定开销，两者之间留有清晰的分隔带。
-    sleep_seconds = 20
-    fixed_overhead_budget = 15
+    # 2026-09-23 ʵ�ⷭ���ſ���1.67.0 �����Ž������̶�����ʵ�� 16.6s������ԭ�� 15s ��Ԥ�㣬
+    # �ж��������� 35~40s�����ػ����ϣ����������ȫ���Ž�����������Ƕ����һ�� check.ps1 �ӽ��̣�
+    # ���Ϸ� ArtifactsPath �жϼ�¼����Ȼ����������С��Ǵ�ʵ�� 36.59s ���������Ե��ڴ�������
+    # 40s����������ȷʵ�����ˣ��������ֵ������Ϊ���޷����̶�����Ԥ��ſ��� 25s �������ز�����
+    # ͬʱ�ѵ���ģ���ʱ�ӱ������̶������������������ж�����˴� 5s ������ 15s��65s~80s����
+    # �ȱ�ס"���б�Ȼ��ץ��"���оݣ��ֲ��ٿ��������в����̡������Ǳ�������ʱ��Լ 20s �ǵ�Լ 40s��
+    sleep_seconds = 40
+    fixed_overhead_budget = 25
     concurrent_threshold = sleep_seconds + fixed_overhead_budget
     serial_expected_floor = 2 * sleep_seconds
 
