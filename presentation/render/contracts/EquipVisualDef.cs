@@ -32,9 +32,13 @@ namespace Presentation.Render
         public Id? SlotId { get; }
 
         /// <summary><see cref="EquipVisualMode.SlotMesh"/> 时非空，model 型下是替换网格资源引用；
-        /// 缺口 10：sprite 型下 <c>SpriteViewBase</c> 直接把本字段当作该纸娃娃层的资源 Id 使用
-        /// （不再经 <c>ResolveLayerResourceId</c> 的方向档位换算——04 未给 <c>mesh_ref</c> 定义按方向
-        /// 拆分的子结构，本字段视为该层的唯一资源，是已知简化，见判断记录）。</summary>
+        /// 缺口 10：sprite 型下取代此前"直接当最终资源 Id 使用"的已知简化——ADR-0071 决策 1 拍板：
+        /// 本字段与身体层 <c>display.map.sprite_set_id</c> 同一位置，是"该装备层的资源集引用"，不是
+        /// 最终资源 Id。04 仍未给本字段定义按方向拆分的子结构（不拆 schema，见该 ADR"为什么不加子
+        /// 结构"），语义上的"按方向拆分"改由运行期经 <c>SpriteViewBase.ResolveEquipLayerResourceId</c>
+        /// 承担——与身体层 <c>ResolveLayerResourceId</c> 共用同一套方向档位换算公式（<c>StripCategoryPrefix</c>
+        /// 取资源集名字 + 方向裸档位名 + 层名），使装备层与身体层一样随朝向切换素材，不再只整体跟随
+        /// 精灵实例翻转。</summary>
         public Id? MeshRef { get; }
 
         public Id? SocketId { get; }

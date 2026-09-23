@@ -251,6 +251,11 @@ namespace Tests.PresentationRender
                 null, null, null, 1.0, Core.Foundation.DisplayInfo.ShadowMode.Blob, 0.0, null,
                 new SpriteInfo("sprite.creature.hero", 8, mirrorPairs: null, paperdollLayers: paperdollLayers), null);
 
+        // ADR-0071 决策 1 收口：EquipVisualDef.MeshRef 的 sprite 型语义从"该层最终资源 Id"改为
+        // "装备层资源集引用"，与身体层 SpriteSetId 同一位置、经 ResolveEquipLayerResourceId 与身体层
+        // ResolveLayerResourceId 同一套方向档位公式换算。以下用例的 meshRef 统一取
+        // "paperdoll.item.sword"（真实数据惯例前缀），StripCategoryPrefix 后为 "item_sword"。
+
         [Fact]
         public void OnEvent_ItemEquipped_KnownItemInstance_ReplacesLayerResourceAndCallsSetLayers()
         {
@@ -260,7 +265,7 @@ namespace Tests.PresentationRender
             {
                 [new Id("item.instance_1")] = new EquipVisualDef(
                     new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
-                    slotId: new Id("slot.hand_main"), meshRef: new Id("layer.sword_hand_main"), socketId: null, modelRef: null),
+                    slotId: new Id("slot.hand_main"), meshRef: new Id("paperdoll.item.sword"), socketId: null, modelRef: null),
             };
             var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
             view.Bind(new Id("unit.hero_1"));
@@ -272,7 +277,57 @@ namespace Tests.PresentationRender
             var layers = renderer.Layers[handleValue];
             Assert.Equal(2, layers.Count);
             Assert.Equal(new Id("layer.creature_hero__front__body"), layers[0]);
-            Assert.Equal(new Id("layer.sword_hand_main"), layers[1]);
+            // 见 ResolveEquipLayerResourceId 判断记录：与身体层同一套 "layer.<资源集名字去掉类别前缀>
+            // __<方向裸档位名>__<层名>" 公式，装备层资源集名字来自 meshRef（去掉 "paperdoll" 前缀）。
+            Assert.Equal(new Id("layer.item_sword__front__hand_main"), layers[1]);
+        }
+
+        /// <summary>ADR-0071 决策 1 核心验收点：同一件装备在三个不同方向档位下解析出三个不同的层资源
+        /// Id（修复前 <c>mesh_ref</c> 恒被当作最终资源 Id 直接使用，三个朝向下会得到同一个值——本用例
+        /// 先在 front 朝向下取值，再切到 side_l/back 两个朝向重新装备触发 RebuildEquippedLayers，
+        /// 断言三次解析结果按规则算出且互不相同）。<see cref="ResetEquipmentVisuals"/> 是"按当前
+        /// _lastFacing 重算完整层列表"的既有公开入口（同存档恢复/跨图重放场景使用的路径），本用例借它
+        /// 在朝向切换后触发一次重算，不新增测试专属钩子。</summary>
+        [Fact]
+        public void RebuildEquippedLayers_AcrossThreeDirections_ResolvesThreeDistinctResourceIds()
+        {
+            var renderer = new StubRenderer2D();
+            var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
+            var itemInstanceId = new Id("item.instance_1");
+            var slotId = new Id("slot.hand_main");
+            var equipVisuals = new Dictionary<Id, EquipVisualDef>
+            {
+                [itemInstanceId] = new EquipVisualDef(
+                    new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
+                    slotId: slotId, meshRef: new Id("paperdoll.item.sword"), socketId: null, modelRef: null),
+            };
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
+            view.Bind(new Id("unit.hero_1"));
+            var equipped = new[] { new EquippedItemRef(slotId, itemInstanceId, new Id("item.template.sword")) };
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+
+            // index 2/8（90 度）-> canonical "front"，无镜像。
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), 0.0);
+            view.ResetEquipmentVisuals(equipped);
+            var atFront = renderer.Layers[handleValue][1];
+
+            // index 6/8（270 度）-> canonical "back"。
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 3 / 2, 8), 0.0);
+            view.ResetEquipmentVisuals(equipped);
+            var atBack = renderer.Layers[handleValue][1];
+
+            // index 0/8（0 度）-> "side_l"，未登记 mirror_pairs 时按 14 默认镜像表回退到 "side_r"
+            // （见 DirectionSlots 类型注释"8 方向完整对照表"）。
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), 0.0);
+            view.ResetEquipmentVisuals(equipped);
+            var atSideR = renderer.Layers[handleValue][1];
+
+            Assert.Equal(new Id("layer.item_sword__front__hand_main"), atFront);
+            Assert.Equal(new Id("layer.item_sword__back__hand_main"), atBack);
+            Assert.Equal(new Id("layer.item_sword__side_r__hand_main"), atSideR);
+            Assert.NotEqual(atFront, atBack);
+            Assert.NotEqual(atFront, atSideR);
+            Assert.NotEqual(atBack, atSideR);
         }
 
         [Fact]
@@ -299,7 +354,7 @@ namespace Tests.PresentationRender
             {
                 [new Id("item.instance_1")] = new EquipVisualDef(
                     new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
-                    slotId: new Id("slot.hand_main"), meshRef: new Id("layer.sword_hand_main"), socketId: null, modelRef: null),
+                    slotId: new Id("slot.hand_main"), meshRef: new Id("paperdoll.item.sword"), socketId: null, modelRef: null),
             };
             var view = new TestSpriteView(renderer, new RenderConventionHost(), displayInfo, equipVisualByItemInstanceId: equipVisuals);
             view.Bind(new Id("unit.hero_1"));
@@ -327,15 +382,17 @@ namespace Tests.PresentationRender
             var renderer = new StubRenderer2D();
             var loader = new StubResourceLoader { DeferCallbacks = true };
             var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
-            var swordResourceId = new Id("layer.sword_hand_main");
-            loader.Register(swordResourceId);
+            var equipLayerSetRef = new Id("paperdoll.item.sword");
+            // 见 ResolveEquipLayerResourceId 判断记录：facing=front（index 2/8）下的换算结果。
+            var resolvedResourceId = new Id("layer.item_sword__front__hand_main");
+            loader.Register(resolvedResourceId);
             // 构造期会先以 sprite_set_id 发起一次加载（与本用例无关），DeferCallbacks 模式下不会
-            // 自动完成，不影响下面对 swordResourceId 的断言。
+            // 自动完成，不影响下面对 resolvedResourceId 的断言。
             var equipVisuals = new Dictionary<Id, EquipVisualDef>
             {
                 [new Id("item.instance_1")] = new EquipVisualDef(
                     new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
-                    slotId: new Id("slot.hand_main"), meshRef: swordResourceId, socketId: null, modelRef: null),
+                    slotId: new Id("slot.hand_main"), meshRef: equipLayerSetRef, socketId: null, modelRef: null),
             };
             var view = new TestSpriteView(
                 renderer, new RenderConventionHost(), displayInfo, resourceLoader: loader,
@@ -348,15 +405,15 @@ namespace Tests.PresentationRender
             var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
             var callsBeforeCompletion = renderer.SetLayersCalls.Count;
             Assert.True(callsBeforeCompletion >= 1);
-            Assert.Equal(new Id("layer.sword_hand_main"), renderer.Layers[handleValue][1]);
+            Assert.Equal(resolvedResourceId, renderer.Layers[handleValue][1]);
 
-            loader.CompletePending(swordResourceId);
+            loader.CompletePending(resolvedResourceId);
 
             // 加载完成后应再补一次 SetLayers（同一份最新层列表），不是"从此再无动静"。
             Assert.True(renderer.SetLayersCalls.Count > callsBeforeCompletion);
             var lastCall = renderer.SetLayersCalls[renderer.SetLayersCalls.Count - 1];
             Assert.Equal(new Id("layer.creature_hero__front__body"), lastCall.Layers[0]);
-            Assert.Equal(new Id("layer.sword_hand_main"), lastCall.Layers[1]);
+            Assert.Equal(resolvedResourceId, lastCall.Layers[1]);
         }
 
         [Fact]
@@ -365,13 +422,14 @@ namespace Tests.PresentationRender
             var renderer = new StubRenderer2D();
             var loader = new StubResourceLoader { DeferCallbacks = true };
             var displayInfo = MakeSpriteDisplayInfoWithLayers(new[] { "body", "hand_main" });
-            var swordResourceId = new Id("layer.sword_hand_main");
-            loader.Register(swordResourceId);
+            var equipLayerSetRef = new Id("paperdoll.item.sword");
+            var resolvedResourceId = new Id("layer.item_sword__front__hand_main");
+            loader.Register(resolvedResourceId);
             var equipVisuals = new Dictionary<Id, EquipVisualDef>
             {
                 [new Id("item.instance_1")] = new EquipVisualDef(
                     new Id("display.equip_visual.sword"), new Id("item.template.sword"), EquipVisualMode.SlotMesh,
-                    slotId: new Id("slot.hand_main"), meshRef: swordResourceId, socketId: null, modelRef: null),
+                    slotId: new Id("slot.hand_main"), meshRef: equipLayerSetRef, socketId: null, modelRef: null),
             };
             var view = new TestSpriteView(
                 renderer, new RenderConventionHost(), displayInfo, resourceLoader: loader,
@@ -383,7 +441,7 @@ namespace Tests.PresentationRender
 
             view.Destroy();
 
-            var ex = Record.Exception(() => loader.CompletePending(swordResourceId));
+            var ex = Record.Exception(() => loader.CompletePending(resolvedResourceId));
 
             Assert.Null(ex);
             // Destroy 之后到达的迟到回调不应再触发任何一次 SetLayers（rig 已被标记销毁，直接跳过）。

@@ -2052,10 +2052,12 @@ class CheckDisplayAnimRowUnitTest(unittest.TestCase):
         (out_dir / "atlas.png").write_bytes(b"\x89PNG")
         (out_dir / "frames.json").write_text("{}", encoding="utf-8")
 
-    def _write_paperdoll(self, name: str) -> None:
-        out_dir = self.assets_root / self.dataset / "paperdoll"
+    def _write_equip_layer(self, name: str, direction: str, layer_name: str) -> None:
+        """ADR-0071 决策 1：sprite 型 mesh_ref 落地布局——与身体纸娃娃层同一套
+        sprites/<name>/<direction>/<layer>.png 三级目录，见 ref_conventions.paperdoll_equip_layer_file。"""
+        out_dir = self.assets_root / self.dataset / "sprites" / name / direction
         out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / f"{name}.png").write_bytes(b"\x89PNG")
+        (out_dir / f"{layer_name}.png").write_bytes(b"\x89PNG")
 
     def test_anim_set_engine_logical_path_skips_existence_check(self) -> None:
         row = {"id": "display.anim_set.placeholder_biped", "clips": {"idle": {"resource_ref": "anim.idle"}}}
@@ -2096,16 +2098,32 @@ class CheckDisplayAnimRowUnitTest(unittest.TestCase):
         self.assertIn("cast_anim_override[skill.sample_burn]", field_paths)
 
     def test_equip_visual_mesh_ref_paperdoll_missing_then_present(self) -> None:
-        row = {"id": "display.equip_visual.sample_hero_hat", "mesh_ref": "paperdoll.item.sample_hero_hat_test"}
+        # ADR-0071 决策 1：sprite 型 mesh_ref 语义变更为"装备层资源集引用"，本域按
+        # EQUIP_LAYER_CHECK_DIRECTIONS 三个方向档位各自核对层文件，不再是单个扁平文件；
+        # slot_id 推导出的层名 "head" 见 SpriteViewBase.LayerNameFromSlotId 同一规则。
+        row = {
+            "id": "display.equip_visual.sample_hero_hat", "mode": "slot_mesh", "slot_id": "slot.head",
+            "mesh_ref": "paperdoll.item.sample_hero_hat_test",
+        }
         problems: list[check_cmd.CheckIssue] = []
         check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
-        self.assertEqual(1, len(problems))
-        self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING, problems[0].check)
+        self.assertEqual(3, len(problems))
+        for p in problems:
+            self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_EQUIP_LAYER_FILE_MISSING, p.check)
 
-        self._write_paperdoll("item_sample_hero_hat_test")
+        for direction in check_cmd.EQUIP_LAYER_CHECK_DIRECTIONS:
+            self._write_equip_layer("item_sample_hero_hat_test", direction, "head")
         problems2: list[check_cmd.CheckIssue] = []
         check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems2)
         self.assertEqual([], problems2)
+
+    def test_equip_visual_mesh_ref_paperdoll_missing_slot_id_reports_ref_category_invalid(self) -> None:
+        row = {"id": "display.equip_visual.sample_hero_hat", "mode": "slot_mesh", "mesh_ref": "paperdoll.item.sample_hero_hat_test"}
+        problems: list[check_cmd.CheckIssue] = []
+        check_cmd._check_equip_visual_row(row, self.assets_root, self.dataset, problems)
+        self.assertEqual(1, len(problems))
+        self.assertEqual(check_cmd.CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID, problems[0].check)
+        self.assertEqual("slot_id", problems[0].field_path)
 
     def test_equip_visual_mesh_ref_model_logical_path_skips(self) -> None:
         row = {"id": "display.equip_visual.sample_model_helmet", "mesh_ref": "model.placeholder_biped"}

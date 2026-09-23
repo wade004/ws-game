@@ -152,8 +152,8 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
    可选注入 `IReadOnlyDictionary<Id, EquipVisualDef>? equipVisualByItemInstanceId`（按物品实例 id
    索引，见判断记录"为何按实例 id 而不是 item_id"）；`OnEvent` 收到 `item.equipped`/
    `item.unequipped` 时按该表重新解析对应槽位的纸娃娃层资源并调用 `SetLayers`，未注入该表或查不到
-   对应行时保持不变（等价于此前的默认空实现）。`mesh_ref` 不经方向档位换算，是已知简化（见类型
-   注释判断记录）。
+   对应行时保持不变（等价于此前的默认空实现）。`mesh_ref` 的方向档位换算规则见判断记录 22
+   （ADR-0071 已取代此前"不经方向档位换算，是已知简化"的旧表述）。
 5. **高度偏移已由 ADR-0016 解决**：`IRenderer2D.SetTransform` 增加了 `height` 参数
    （与 `IRenderer3D.SetPlacement` 对齐），`SyncPose` 现直接把换算出的像素高度经这个正式参数传递，
    不再借用 `SetShaderParam` 通道，`HeightOffsetShaderParam` 常量已删除。
@@ -328,7 +328,20 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     可达，本次一并根治。ABI：`AnimStateMachine` 新增一个事件订阅（构造期内部行为，不改变构造签名），
     视图工厂新增一个公开只读属性，不改动任何既有公开签名。
 
-## 契约缺口
+22. **ADR-0071 决策 1（消费方反馈第十八批）：`EquipVisualDef.MeshRef` sprite 型下改为"装备层资源集
+    引用"，经与身体层同一套方向档位换算解析**——取代判断记录 3/4 里"`mesh_ref` 不经方向档位换算，
+    是已知简化"的旧结论（一件装备此前只能给一张图，无法随朝向切换素材）。新增
+    `SpriteViewBase.ResolveEquipLayerResourceId(SpriteLayerPlacement, Id equipLayerSetRef)`
+    （`protected virtual`，ABI 加法，不改 `ResolveLayerResourceId` 既有签名），与后者共用私有静态
+    `ComposeLayerResourceId` 拼接同一套 14 §1.2 命名模板公式，唯一差异是"资源集名字"来源
+    （身体层用 `DisplayInfo.Sprite.SpriteSetId`，装备层用 `EquipVisualDef.MeshRef`）——保证两条路径
+    永远同一套方向档位规则，不会出现两边分叉。`_equipOverridesBySlot` 存的从"该层最终资源 Id"改为
+    "装备层资源集引用"，`RebuildEquippedLayers` 改为：先把默认层名与装备新增层名合并成一份完整列表，
+    统一调一次 `ComposeSpriteLayers` 按当前朝向解析方向槽位，再逐层按是否命中覆盖分派到
+    `ResolveEquipLayerResourceId`/`ResolveLayerResourceId`——装备新增的层（此前直接使用覆盖值、不经
+    方向解析）现在也纳入同一次方向解析，行为更一致。**破坏性数据变更**：升级前的单值 `mesh_ref`
+    数据在新语义下会解析到不存在的资源（原值本身此后被当"资源集名字前缀"而非"资源 Id"使用），
+    见 `architecture/adr/0071-*.md`"升级影响"一节与消费方通知稿。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）

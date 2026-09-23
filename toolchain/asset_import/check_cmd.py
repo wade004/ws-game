@@ -70,6 +70,17 @@ mesh_ref`` 四个字段——经 :func:`ref_conventions.resolve_path_space` 判�
 ``paperdoll.item.sample_hero_hat_test``，并对全部四个受影响字段的样例数据逐行核实迁移到正确的
 类别前缀、补齐对应占位资产（``sprite_anim``/``paperdoll`` 两类目录结构），该理由已消除——
 ``display_anim`` 现登记进 ``DEFAULT_DOMAINS``，省略 ``--only`` 时随其余四项一并跑。
+
+判断记录（ADR-0071 决策 1：``display.equip_visual.mesh_ref`` 的 ``paperdoll`` 类别改走专属校验）：
+sprite 型 ``mesh_ref`` 语义变更为"装备层资源集引用"（与身体层 ``display.map.sprite_set_id`` 同一
+位置，经 ``SpriteViewBase.ResolveEquipLayerResourceId`` 与身体层同一套方向档位公式换算），运行期
+不再把它当 :func:`ref_conventions.paperdoll_layer_file` 描述的单个扁平文件消费。``mesh_ref`` 取值
+本身仍是 ``paperdoll`` 前缀（未改类别前缀集合），但 ``_check_equip_visual_row`` 现对该类别单独分派到
+:func:`_check_equip_visual_paperdoll_layers`——按 :data:`ref_conventions.EQUIP_LAYER_CHECK_DIRECTIONS`
+三个方向档位各自核对 ``sprites/<mesh_ref 去掉类别前缀>/<方向>/<slot_id 推导出的层名>.png``（新增检查名
+``display_anim_equip_layer_file_missing``），不再复用 ``_check_display_anim_ref`` 的
+``display_anim_paperdoll_file_missing`` 单文件分支——该分支本身不删除（仍是稳定的检查名契约，理论上
+留给其它未来场景），只是不再被 ``display.equip_visual`` 这一个字段命中。
 """
 
 from __future__ import annotations
@@ -91,10 +102,12 @@ from .common import (
     strip_domain,
 )
 from .ref_conventions import (
+    EQUIP_LAYER_CHECK_DIRECTIONS,
     AssetRefPathSpace,
     map_directory,
     map_ground_file,
     map_overlay_file,
+    paperdoll_equip_layer_file,
     resolve_path_space,
     sfx_resource_file,
     vfx_resource_dir,
@@ -157,6 +170,10 @@ CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID = "display_anim_ref_category_invalid"
 CHECK_DISPLAY_ANIM_SPRITE_ANIM_ATLAS_MISSING = "display_anim_sprite_anim_atlas_missing"
 CHECK_DISPLAY_ANIM_SPRITE_ANIM_FRAMES_JSON_MISSING = "display_anim_sprite_anim_frames_json_missing"
 CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING = "display_anim_paperdoll_file_missing"
+# ADR-0071 决策 1：display.equip_visual.mesh_ref 的 paperdoll 类别取值不再按上面这个扁平单文件规则
+# 校验（该规则仍保留给其它调用方，见 ref_conventions.paperdoll_layer_file 判断记录），改按
+# EQUIP_LAYER_CHECK_DIRECTIONS 三个方向档位各自的层文件核对，见 _check_equip_visual_paperdoll_layers。
+CHECK_DISPLAY_ANIM_EQUIP_LAYER_FILE_MISSING = "display_anim_equip_layer_file_missing"
 # 兜底：某取值路由到"资产根相对"路径空间，但类别前缀不是本域已知的 sprite_anim/paperdoll 两种
 # （典型例子：数据迁移前的旧 mesh_ref，前缀仍是 sprite——见模块 docstring"判断记录"）；本域尚未
 # 针对这类遗留前缀的具体磁盘布局实现专门检查，只做"路径是否存在"的最小核对，如实报告不掩盖。
@@ -193,6 +210,7 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_DISPLAY_ANIM_SPRITE_ANIM_ATLAS_MISSING,
     CHECK_DISPLAY_ANIM_SPRITE_ANIM_FRAMES_JSON_MISSING,
     CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING,
+    CHECK_DISPLAY_ANIM_EQUIP_LAYER_FILE_MISSING,
     CHECK_DISPLAY_ANIM_ASSET_MISSING,
 )
 
@@ -732,14 +750,53 @@ def _check_weapon_style_row(row: dict, assets_root: Path, dataset: str, problems
             )
 
 
+def _check_equip_visual_paperdoll_layers(
+    row_id: str, slot_id: str | None, mesh_ref: str, assets_root: Path, dataset: str, problems: list[CheckIssue],
+) -> None:
+    """ADR-0071 决策 1：sprite 型 mesh_ref 语义变更为"装备层资源集引用"，与身体层 sprite_set_id
+    同一套方向档位换算解析（见 presentation/render/core/SpriteViewBase.ResolveEquipLayerResourceId
+    判断记录），运行期不再把 mesh_ref 当唯一扁平文件消费——改校验运行期实际会解析到的
+    :data:`EQUIP_LAYER_CHECK_DIRECTIONS` 三个方向档位层文件，层名取自本行 ``slot_id`` 最后一个点分段
+    （与 ``SpriteViewBase.LayerNameFromSlotId`` 同一规则）。"""
+    if not slot_id:
+        problems.append(CheckIssue(
+            severity=SEVERITY_ERROR, table="display.equip_visual", record_key=row_id,
+            check=CHECK_DISPLAY_ANIM_REF_CATEGORY_INVALID, field_path="slot_id",
+            message=f"mesh_ref '{mesh_ref}' 使用 paperdoll 类别（sprite 型纸娃娃层）时 slot_id 必须存在，"
+                    "用于推导纸娃娃层名（ADR-0071 决策 1）",
+        ))
+        return
+
+    layer_name = slot_id.rpartition(".")[-1]
+    dataset_root = assets_root / dataset
+    for direction in EQUIP_LAYER_CHECK_DIRECTIONS:
+        file_path = dataset_root / paperdoll_equip_layer_file(mesh_ref, direction, layer_name)
+        if not file_path.is_file():
+            problems.append(CheckIssue(
+                severity=SEVERITY_ERROR, table="display.equip_visual", record_key=row_id,
+                check=CHECK_DISPLAY_ANIM_EQUIP_LAYER_FILE_MISSING, field_path="mesh_ref", path=str(file_path),
+                message=f"资源引用 '{mesh_ref}' 方向档位 '{direction}' 对应的纸娃娃层文件缺失: {file_path}",
+            ))
+
+
 def _check_equip_visual_row(row: dict, assets_root: Path, dataset: str, problems: list[CheckIssue]) -> None:
     row_id = row.get("id", "?")
     mesh_ref = row.get("mesh_ref")
-    if mesh_ref:
-        _check_display_anim_ref(
-            "display.equip_visual", row_id, "mesh_ref", mesh_ref,
-            assets_root, dataset, problems,
-        )
+    if not mesh_ref:
+        return
+
+    category, _, _ = mesh_ref.partition(".")
+    if category == "paperdoll":
+        # ADR-0071 决策 1：paperdoll 类别专属 sprite 型纸娃娃层，不再经共享的
+        # _check_display_anim_ref 单文件规则（该规则仍服务其它调用方，见 paperdoll_layer_file
+        # 判断记录），改走本文件专属的三方向层文件核对。
+        _check_equip_visual_paperdoll_layers(row_id, row.get("slot_id"), mesh_ref, assets_root, dataset, problems)
+        return
+
+    _check_display_anim_ref(
+        "display.equip_visual", row_id, "mesh_ref", mesh_ref,
+        assets_root, dataset, problems,
+    )
 
 
 def run(args: argparse.Namespace) -> int:

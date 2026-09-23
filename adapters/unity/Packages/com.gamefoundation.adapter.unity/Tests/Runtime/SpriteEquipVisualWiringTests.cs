@@ -48,6 +48,17 @@ namespace Adapter.Unity.Tests.Runtime
         private static readonly Id HatTemplateId = new Id("item.sample_hero_hat_wiring_test");
         private static readonly Id HatMeshRef = new Id("paperdoll.item.sample_hero_hat_wiring_test");
 
+        // ADR-0071 决策 1（2026-09-23）：HatMeshRef 现在是"装备层资源集引用"，实际请求加载的资源 id
+        // 经 SpriteViewBase.ResolveEquipLayerResourceId 换算——"layer.<去类别前缀点号转下划线>__
+        // <方向裸档位名>__<槽位推导层名>"。下方三个常量对应 creature.sample_hero（direction_count=8）
+        // 在 front/back/side_r 三个 canonical 档位、slot.head 推导层名 head 时各自解析到的资源 id，
+        // 用于验证"同一件装备、不同朝向解析到不同资源"（ADR-0071 验收标准 1），公式与
+        // SpriteViewBaseTests.RebuildEquippedLayers_AcrossThreeDirections_ResolvesThreeDistinctResourceIds
+        // 单测验证过的同一套换算一致。
+        private static readonly Id HatResolvedLayerResourceIdSideR = new Id("layer.item_sample_hero_hat_wiring_test__side_r__head");
+        private static readonly Id HatResolvedLayerResourceIdFront = new Id("layer.item_sample_hero_hat_wiring_test__front__head");
+        private static readonly Id HatResolvedLayerResourceIdBack = new Id("layer.item_sample_hero_hat_wiring_test__back__head");
+
         private (IEventBus Bus, IDataRegistryView Registry, IDisplayInfoRegistry DisplayInfo, UnityEngineHost Host) BuildFixture()
         {
             var host = UnityEngineHost.Ensure();
@@ -106,8 +117,8 @@ namespace Adapter.Unity.Tests.Runtime
 
             // 装备前：覆盖用的资源 id 不应该被请求过（排除"资源恰好因为别的原因也被加载"这种假阳性；
             // 本文件专属字面量，见类型顶部判断记录，不依赖跨用例执行顺序或资源缓存清理）。
-            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef),
-                "装备前不应该有任何请求加载 display.equip_visual.sample_hero_hat_wiring_test 声明的 mesh_ref");
+            Assert.AreEqual(0.0, fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR),
+                "装备前不应该有任何请求加载 display.equip_visual.sample_hero_hat_wiring_test 声明的 mesh_ref 换算出的装备层资源");
 
             var itemInstanceId = new Id("item_instance.hat_1");
             var equipEvt = new ItemEquippedEvent(entityId, itemInstanceId, new Id("slot.head"));
@@ -118,9 +129,9 @@ namespace Adapter.Unity.Tests.Runtime
             // PR140 根治前：UnitySpriteView 构造函数没有 equipVisualByItemInstanceId 参数，
             // SpriteViewBase 内部的 _equipVisuals 恒为 null，OnEvent 直接短路返回（见该类型判断
             // 记录），mesh_ref 永远不会被请求加载——本断言是根治前后的分界线。
-            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatMeshRef), 0.0,
-                "根治后：装备应当已经把 slot_id=slot.head 的纸娃娃层替换为 EquipVisualDef.MeshRef 声明的资源，" +
-                "触发一次真正的 LoadAsync 请求");
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR), 0.0,
+                "根治后：装备应当已经把 slot_id=slot.head 的纸娃娃层替换为 EquipVisualDef.MeshRef 换算出的" +
+                "装备层资源，触发一次真正的 LoadAsync 请求");
 
             var unequipEvt = new ItemUnequippedEvent(entityId, new Id("slot.head"), itemInstanceId);
             Assert.DoesNotThrow(() =>
@@ -128,6 +139,75 @@ namespace Adapter.Unity.Tests.Runtime
                 fx.Bus.PublishImmediate(unequipEvt);
                 view.OnEvent(unequipEvt);
             });
+
+            equipSource.Dispose();
+            view.Destroy();
+        }
+
+        /// <summary>
+        /// ADR-0071 验收标准 1：同一件已装备物品在 front/back/side_r 三个朝向下应当解析到三个不同的
+        /// 装备层资源 id（不是根治前"无论朝向如何都固定同一张图"）。用真实生产装配入口
+        /// UnityViewFactory + 真实 data/_sample 数据 + 真实 UnityResourceLoader 验证，不经中间层
+        /// 断言——同 SpriteViewBaseTests.RebuildEquippedLayers_AcrossThreeDirections_
+        /// ResolvesThreeDistinctResourceIds 的场景，但那个用例走的是 StubRenderer2D，本用例走的是
+        /// Unity 真实资源加载器，满足"必须经真实生产装配入口验证"的要求（见任务书验收标准 1）。
+        /// </summary>
+        [Test]
+        public void UnityViewFactory_SpriteKind_EquipVisualWired_FacingChange_ResolvesThreeDistinctLayerResources()
+        {
+            var fx = BuildFixture();
+            var catalog = BuildCatalogByTemplateId(fx.Registry);
+            var equipSource = new EquipmentVisualSource(fx.Bus, catalog);
+            var factory = new UnityViewFactory(
+                fx.Host.Renderer2D, new RenderConventionHost(), fx.DisplayInfo, fx.Host.ResourceLoader,
+                bus: fx.Bus, dataRegistry: fx.Registry,
+                equipVisualByItemInstanceId: equipSource.VisualByItemInstanceId);
+
+            var entityId = new Id("unit.sprite_equip_visual_facing_test");
+            var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, SpriteHeroLogicalId, entityId);
+            view.Bind(entityId);
+
+            var itemInstanceId = new Id("item_instance.hat_facing_1");
+            var equipEvt = new ItemEquippedEvent(entityId, itemInstanceId, new Id("slot.head"));
+            fx.Bus.PublishImmediate(new ItemAddedEvent(entityId, itemInstanceId, HatTemplateId, count: 1));
+            fx.Bus.PublishImmediate(equipEvt);
+            view.OnEvent(equipEvt);
+
+            // 判断记录（为什么每次换向后要重新 OnEvent(equipEvt) 而不是只调 SyncPose）：
+            // SpriteViewBase.SyncPose 只更新 _lastFacing/flipX/Transform，不主动触发
+            // RebuildEquippedLayers（09 表述"随装备/外形变化事件更新"——层合成只在装备/卸下等事件
+            // 到达时才重算，不是每帧/每次换向自动重算，这是框架既有行为，不是本次 ADR-0071 引入或
+            // 改动的部分）。真实调用序列因此是"SyncPose 落地新朝向 → 装备事件（或任何会触发
+            // RebuildEquippedLayers 的事件）重新计算层"——与 SpriteViewBaseTests.
+            // RebuildEquippedLayers_AcrossThreeDirections_ResolvesThreeDistinctResourceIds 单测
+            // 每次 SyncPose 后显式调用 ResetEquipmentVisuals 触发重建同一惯例；本用例复用同一个
+            // equipEvt 重新 OnEvent 一次达到同样效果（槽位覆盖值不变，只是强制 RebuildEquippedLayers
+            // 按 _lastFacing 最新值重新换算）。
+            //
+            // 根治前（记录实测值，供报告"修复前→修复后"对照）：RebuildEquippedLayers 命中覆盖的层
+            // 直接把 HatMeshRef 字面量当最终资源 id 使用，不经 ResolveLayerResourceId 方向换算——
+            // 三个朝向请求加载的都是同一个 "paperdoll.item.sample_hero_hat_wiring_test"，
+            // GetLoadProgress(HatResolvedLayerResourceIdFront/Back) 恒为 0，只有 HatMeshRef 本身的
+            // 进度会变化，三个方向永远解析到同一张图。根治后触发 SyncPose 换向 + 重新 OnEvent 应当
+            // 分别请求三个不同 id，下方逐一断言。
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), height: 0.0);
+            view.OnEvent(equipEvt);
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdFront), 0.0,
+                "朝向 front 应当请求加载 front 档位的装备层资源");
+
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 3 / 2, 8), height: 0.0);
+            view.OnEvent(equipEvt);
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdBack), 0.0,
+                "朝向 back 应当请求加载 back 档位的装备层资源");
+
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0);
+            view.OnEvent(equipEvt);
+            Assert.Greater(fx.Host.ResourceLoader.GetLoadProgress(HatResolvedLayerResourceIdSideR), 0.0,
+                "朝向 side_r 应当请求加载 side_r 档位的装备层资源");
+
+            Assert.AreNotEqual(HatResolvedLayerResourceIdFront, HatResolvedLayerResourceIdBack);
+            Assert.AreNotEqual(HatResolvedLayerResourceIdFront, HatResolvedLayerResourceIdSideR);
+            Assert.AreNotEqual(HatResolvedLayerResourceIdBack, HatResolvedLayerResourceIdSideR);
 
             equipSource.Dispose();
             view.Destroy();
