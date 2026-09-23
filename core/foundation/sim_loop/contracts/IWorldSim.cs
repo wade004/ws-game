@@ -63,6 +63,19 @@ namespace Core.Foundation.SimLoop
         /// 本次或下一次 <see cref="Tick"/> 的生命周期清理阶段（阶段 8）。</summary>
         void MarkForDestruction(Id id);
 
+        /// <summary>
+        /// ADR-0079 新增（默认接口成员，纯加法，既有实现无需改动即可编译；<see cref="WorldSim"/>
+        /// 显式覆盖为真实查询）：<paramref name="id"/> 是否已经调用过 <see cref="MarkForDestruction"/>
+        /// 但尚未在某次 <see cref="Tick"/> 阶段 8（生命周期清理）里真正移除——即"已标记销毁、仍在
+        /// <see cref="GetEntity"/> 能查到"的窗口期。按 <see cref="TickPhase"/> 逐单位处理的子系统
+        /// （AI 决策、移动与导航等，见各自类型判断记录）应在处理前先查询本方法，命中即跳过该单位，
+        /// 避免在"已标记销毁、尚未真正移除"的窗口期内继续为它产生新的决策/位移——不影响
+        /// <see cref="MarkForDestruction"/>/<see cref="Tick"/> 阶段 8 本身的既有时序契约，只是给
+        /// 处理器一个只读判断依据。默认实现返回 <c>false</c>（未显式覆盖的既有 <see cref="IWorldSim"/>
+        /// 实现，如测试替身，行为等价于"这项查询不可用，一律当作未标记"，不强制它们迁移）。
+        /// </summary>
+        bool IsPendingDestruction(Id id) => false;
+
         /// <summary>把一个新实体加入集合并发出 <c>entity.created</c> 事件（见 03 第 5 节）。
         /// tick 内外均可调用；重复 id 抛 <see cref="System.InvalidOperationException"/>。</summary>
         void AddEntity(Entity entity);

@@ -144,6 +144,12 @@ namespace Core.Carriers.Creature
             LoadTiers(_registry);
             LoadTemplates(_registry);
             LoadPowerTypeIds(_registry);
+
+            // ADR-0079：见 OnEntityDestroyed/Despawn 判断记录——只对本类型自己 Despawn 过的实体注销
+            // Stats/Powers，惯例同 AiHost/EntitySpatialSyncHost 订阅同一事件，但多一层"是不是我
+            // 标记过"的过滤。
+            _bus.Subscribe<Core.Foundation.SimLoop.EntityDestroyedEvent>(
+                Core.Foundation.SimLoop.SimEventKeys.EntityDestroyed, OnEntityDestroyed);
         }
 
         /// <summary>
@@ -285,16 +291,67 @@ namespace Core.Carriers.Creature
             return entityId;
         }
 
+        /// <summary>
+        /// ADR-0079 补齐（本类自己的"待注销"记账，见 <see cref="Despawn"/> 判断记录）：只登记经
+        /// <see cref="Despawn"/> 标记过待销毁、Stats/Powers 注销延后到真正移除那一刻的实体 id——
+        /// 不是"当前全部存活生物"的镜像，未调用过 <see cref="Despawn"/> 的实体不会出现在这里。
+        /// </summary>
+        private readonly HashSet<Id> _pendingDespawnUnregistration = new HashSet<Id>();
+
+        /// <summary>
+        /// ADR-0079 根治（消费方反馈第二十二批，框架内部时序缺陷，一次异常永久锁死主循环）：本方法
+        /// 此前在这里同步调用 <c>_stats.UnregisterUnit</c>/<c>_powers.UnregisterUnit</c>——两者立即
+        /// 生效，而 <see cref="_world"/> 对该实体的真正移除（连同 <c>AiHost</c> 的行为外壳登记、
+        /// <c>EntitySpatialSyncHost</c> 的空间索引，两者都靠订阅 <c>EntityDestroyedEvent</c> 自清理）
+        /// 要等到某次 <see cref="IWorldSim.Tick"/> 阶段 8（生命周期清理）。"实体何时不再存在"因此
+        /// 出现两个不同时刻：两次调用之间若该实体仍有生效的 AI 移动意图，下一拍
+        /// <c>MovementTickHandler.ResolveSpeed</c> 会向已经注销的 <c>StatHost.GetStat</c> 要属性，
+        /// 抛 <c>InvalidOperationException</c> 中止整个 Tick——阶段 8 这次跑不到，实体没被真正移除，
+        /// 下一拍同样的路径再抛一次，永久卡死。根治：本方法不再同步注销 Stats/Powers，只标记待销毁
+        /// + 发事件（<see cref="CreatureDespawnedEvent"/> 的发出时机与内容不变）+ 把 <paramref
+        /// name="entityId"/> 记进 <see cref="_pendingDespawnUnregistration"/>；本类型构造函数订阅的
+        /// <c>EntityDestroyedEvent</c> 处理器只对命中这个集合的 id 才调用 Stats/Powers 的
+        /// UnregisterUnit，与世界真正移除该实体在同一批 <c>DispatchPending</c> 里一起生效——"实体
+        /// 何时不再存在"从此只有一个时刻。
+        /// <para>
+        /// 判断记录（不直接让 <c>StatHost</c>/<c>PowerHost</c> 订阅 <c>EntityDestroyedEvent</c>、
+        /// 而是把订阅与"是不是我 Despawn 过的"过滤都放在本类：<c>EntityDestroyedEvent</c> 不只在
+        /// <see cref="IWorldSim.Tick"/> 阶段 8 为待销毁实体触发，<see cref="IWorldSim.ClearAll"/>
+        /// （地图切换）也会为**当时仍存活、从未调用过 <see cref="Despawn"/>** 的全部实体无差别触发
+        /// 同一事件——包括玩家单位。玩家的 <c>Stats</c>/<c>Powers</c> 注册代表跨地图持久的角色状态，
+        /// <c>GameplayAssembly.EnterMap</c> 重新登记的只是世界实体本身，不会重新调用
+        /// <c>RulesAssembly.RegisterUnit</c>。本判断记录改动前的第一版实现让 <c>StatHost</c>/
+        /// <c>PowerHost</c> 直接订阅 <c>EntityDestroyedEvent</c>、无差别注销，被
+        /// <c>RacePassiveAuraCrossMapTests</c> 等既有跨地图用例的真实回归当场拦下（玩家 ClearAll
+        /// 后属性宿主未注册，光环重新施加时抛 <c>InvalidOperationException</c>）——StatHost/PowerHost
+        /// 的 <c>RegisterUnit</c> 有多个调用方（本类型与 <c>RulesAssembly.RegisterUnit</c>），各自的
+        /// 生命周期语义不同，注销责任应该留在各自的登记方，不能集中收归两个 L1 宿主自己判断。
+        /// </para>
+        /// </summary>
         public void Despawn(Id entityId, string reason)
         {
             if (reason == null) throw new ArgumentNullException(nameof(reason));
 
             _world.MarkForDestruction(entityId);
-
-            _stats.UnregisterUnit(entityId);
-            _powers.UnregisterUnit(entityId);
+            _pendingDespawnUnregistration.Add(entityId);
 
             _bus.Enqueue(new CreatureDespawnedEvent(entityId, reason));
+        }
+
+        /// <summary>见 <see cref="Despawn"/> 判断记录：本类型构造函数订阅的 <c>EntityDestroyedEvent</c>
+        /// 处理器，只对经本类型 <see cref="Despawn"/> 标记过的 id 注销 Stats/Powers——命中
+        /// <see cref="_pendingDespawnUnregistration"/> 才处理并移除，未命中（玩家、或从未调用过
+        /// <see cref="Despawn"/> 就被 <see cref="IWorldSim.ClearAll"/> 整体清空的实体）原样跳过，不
+        /// 触碰其 Stats/Powers 注册状态。</summary>
+        private void OnEntityDestroyed(Core.Foundation.SimLoop.EntityDestroyedEvent evt)
+        {
+            if (!_pendingDespawnUnregistration.Remove(evt.EntityId))
+            {
+                return;
+            }
+
+            _stats.UnregisterUnit(evt.EntityId);
+            _powers.UnregisterUnit(evt.EntityId);
         }
 
         // -----------------------------------------------------------------

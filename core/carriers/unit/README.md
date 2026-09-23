@@ -346,3 +346,17 @@ unit/
 - 不实现 `AreaTrigger`/`WorldState`/刷新表——那些属于 L4 玩法层（不在本任务范围）。
 - 不提供 `PlayerUnit.QuestLog` 的具体结构或读写逻辑——只保留一个 `JsonObject` 占位存储位，具体由
   未来的 `core/gameplay/quest` 落地。
+
+## 判断记录（`MovementTickHandler` 跳过已标记销毁的单位，2026-09-23，消费方反馈第二十二批，
+architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
+
+`Execute` 内处理 `move_stop`/`move_displace`/`move` 三类意图、以及第二遍"本 tick 未收到新意图但仍
+在走旧路径"的循环，各自在解出目标 `Unit` 之后新增一次 `world.IsPendingDestruction(unit.EntityId)`
+判断，命中即跳过（不生成/不推进任何位移，效果同"这个单位本 tick 不存在"）——`IWorldSim.Despawn`
+标记销毁与真正移除之间有一个窗口期（要等某次 `Tick` 阶段 8），窗口期内若该单位仍有已经排进
+`CurrentIntents` 的 `move` 意图（典型来源：`core/rules/ai.AiTickHandler` 在更早阶段生成），
+`ResolveSpeed` 会读该单位的属性——本次改动前该单位仍在 Stats 注册（见
+`core/carriers/creature/README.md` 对应判断记录，销毁时序已对齐到同一时刻），不会再抛异常，但
+"已经标记要消失的单位还在继续移动"本身是语义上的脏读，故一并跳过，不依赖 Stats 这一步侧面兜底。
+不改变 `IWorldSim` 既有实现的行为（该方法是新增默认接口成员，未覆盖的实现恒返回 `false`，等价于
+本次改动之前）。
