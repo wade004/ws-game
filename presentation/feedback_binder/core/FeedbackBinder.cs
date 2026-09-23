@@ -283,9 +283,32 @@ namespace Presentation.FeedbackBinder.Core
             // ResolveHitFrameBatchToken/_hitFrameBatchTokenByAttacker 判断记录）。
             List<FeedbackAction>? hitFrameBatch = null;
 
+            // 消费方反馈第二十五批决策 3 根治（落地缺陷与修复，见 architecture/adr/0077-ui交互域事件.md
+            // "落地缺陷与修复"一节）：本方法此前对同一事件命中的多条规则、以及一条规则内的多个动作，
+            // 都没有逐条 try/catch——条件求值或任一动作派发一旦抛出异常，会中止 foreach 循环的全部
+            // 剩余处理（本次事件命中的其它规则、同一规则内排在后面的其它动作），只在最外层
+            // IEventBus.DispatchOne 的"每个订阅者一次 try/catch"兜底捕获，代价是"同一事件"这个
+            // 粒度内的其它绑定被连带跳过、且不留诊断痕迹说明具体是哪条规则/动作失败。现在逐条隔离：
+            // 条件求值与每个动作派发各自独立 try/catch，一条规则/一个动作失败只跳过它自己、记一条
+            // 诊断，不影响同一事件的其它规则、不影响同一规则内其它动作，更不影响后续任何事件
+            // （事件级别的隔离本就由 EventBus 按订阅者逐条 try/catch 提供，见该类型判断记录，这里补的
+            // 是"同一事件内部"这一层此前缺失的隔离）。
             foreach (var rule in rules)
             {
-                if (rule.Condition != null && !ExprEvaluator.EvaluateBool(rule.Condition, host, _exprDiagnostics))
+                bool conditionTrue;
+                try
+                {
+                    conditionTrue = rule.Condition == null || ExprEvaluator.EvaluateBool(rule.Condition, host, _exprDiagnostics);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn(
+                        $"feedback 规则 \"{rule.Id}\"（事件 \"{evt.Key}\"）条件求值抛出异常，已跳过本条规则的" +
+                        $"全部动作，不影响同一事件的其它规则：{ex}");
+                    continue;
+                }
+
+                if (!conditionTrue)
                 {
                     continue;
                 }
@@ -299,7 +322,7 @@ namespace Presentation.FeedbackBinder.Core
 
                 foreach (var action in rule.Actions)
                 {
-                    Dispatch(action, evt, selfId, targetId);
+                    SafeDispatch(action, evt, selfId, targetId, rule.Id);
                 }
             }
 
@@ -312,7 +335,7 @@ namespace Presentation.FeedbackBinder.Core
                 {
                     foreach (var action in actionsSnapshot)
                     {
-                        Dispatch(action, evt, selfId, targetId);
+                        SafeDispatch(action, evt, selfId, targetId, ruleId: null);
                     }
                 });
             }
@@ -348,6 +371,27 @@ namespace Presentation.FeedbackBinder.Core
             }
 
             return fallbackToken;
+        }
+
+        /// <summary>决策 3 根治（见 <see cref="OnEvent"/> 判断记录）：<see cref="Dispatch"/> 的
+        /// try/catch 包装——单个动作派发抛出异常时只跳过它自己、记一条诊断，不向上传播（不影响
+        /// 同一事件的其它规则/动作，更不影响后续任何事件，隔离粒度精确到"这一条动作"）。
+        /// <paramref name="ruleId"/> 为 <c>null</c> 时表示这是命中帧同步批次里的动作（PR130-04/
+        /// PR140-04 根治后多条规则已合并成一个扁平列表，见 <see cref="OnEvent"/> 判断记录，不再单独
+        /// 保留每个动作所属的规则 id）。</summary>
+        private void SafeDispatch(FeedbackAction action, IEvent evt, Id selfId, Id? targetId, Id? ruleId)
+        {
+            try
+            {
+                Dispatch(action, evt, selfId, targetId);
+            }
+            catch (Exception ex)
+            {
+                var origin = ruleId.HasValue ? $"规则 \"{ruleId.Value}\"" : "命中帧同步批次";
+                _diagnostics.Warn(
+                    $"feedback {origin}（事件 \"{evt.Key}\"，动作 \"{action.Kind}\"）派发时抛出异常，已跳过这" +
+                    $"一条动作，不影响同一事件的其它规则/动作，更不影响后续任何事件：{ex}");
+            }
         }
 
         private void Dispatch(FeedbackAction action, IEvent evt, Id selfId, Id? targetId)

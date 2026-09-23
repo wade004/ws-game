@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
@@ -727,6 +728,213 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Single(sink.FloatingTexts);
             Assert.Equal(1, finishedCount);
             Assert.False(binder.HasPendingPlayback);
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第二十五批（ADR-0077 落地缺陷）决策 3：反馈分发逐条隔离
+        // -----------------------------------------------------------------
+
+        /// <summary>包住一个真实 <see cref="IFeedbackSink"/> 实现，让某个动作按测试配置的条件抛出，
+        /// 其余调用照常转发给内部真实 <see cref="RecordingFeedbackSink"/>——用于制造一次"确定性
+        /// 的、来自动作出口的异常"，不依赖任何具体游戏数据凑巧触发。</summary>
+        private sealed class ThrowingFeedbackSink : IFeedbackSink
+        {
+            public readonly RecordingFeedbackSink Inner = new RecordingFeedbackSink();
+
+            /// <summary>非 null 时，<see cref="PlayVfx"/> 命中该 vfxId 时抛出本异常（抛出前不记录到
+            /// <see cref="Inner"/>，模拟"这条动作真正执行到一半失败，没有产生任何可观察效果"）。</summary>
+            public Id? ThrowOnPlayVfxId;
+
+            public void FloatingText(Id entityId, Id styleId, string text) => Inner.FloatingText(entityId, styleId, text);
+
+            public void PlayVfx(Id vfxId, FeedbackAttachSpec attach)
+            {
+                if (ThrowOnPlayVfxId.HasValue && vfxId.Equals(ThrowOnPlayVfxId.Value))
+                {
+                    throw new InvalidOperationException($"测试注入的确定性异常：play_vfx \"{vfxId}\"");
+                }
+                Inner.PlayVfx(vfxId, attach);
+            }
+
+            public void StopVfx(Id vfxId, FeedbackAttachSpec attach) => Inner.StopVfx(vfxId, attach);
+
+            public void PlaySfx(Id sfxId, Vec2? at) => Inner.PlaySfx(sfxId, at);
+
+            public void Freeze(double durationMs) => Inner.Freeze(durationMs);
+
+            public void ShakeCamera(Id profileId) => Inner.ShakeCamera(profileId);
+
+            public void Flash(Id entityId, Id profileId) => Inner.Flash(entityId, profileId);
+
+            public bool HasPendingPlayback => Inner.HasPendingPlayback;
+
+            public event Action? PendingPlaybackChanged
+            {
+                add => Inner.PendingPlaybackChanged += value;
+                remove => Inner.PendingPlaybackChanged -= value;
+            }
+        }
+
+        /// <summary>决策 3 复现 + 修复验收（同一事件内的多条绑定）：同一个事件命中两条规则，按
+        /// <c>id</c> 序排在前面的那条（<c>feedback.a_boom</c>）的动作确定性抛出，排在后面的那条
+        /// （<c>feedback.b_survives</c>，与前一条完全无关的另一条绑定，同现象 1 描述的"同一窗口内
+        /// 另一条无关绑定"）必须照常执行——不能因为前一条抛了异常就被连带跳过。改动前实测：
+        /// <see cref="FeedbackBinder.OnEvent"/> 对同一事件的多条规则/动作没有逐条 try/catch，一条
+        /// 抛异常会中止本次 OnEvent 剩余全部处理，只在外层 <see cref="IEventBus"/> 才被兜底捕获——
+        /// 断言执行次数（不是只看"没抛异常"）。</summary>
+        [Fact]
+        public void OnEvent_OneRuleActionThrows_OtherRuleForSameEvent_StillExecutes()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new ThrowingFeedbackSink { ThrowOnPlayVfxId = new Id("vfx.pres_isolation_boom") };
+            var rules = LoadRules(
+                // 按 Id 排序在前：feedback.a_boom < feedback.b_survives（ordinal 字符串比较）。
+                @"{
+                  ""id"": ""feedback.a_boom"",
+                  ""event"": ""combat.damage_dealt"",
+                  ""actions"": [{""kind"": ""play_vfx"", ""params"": {""vfx_id"": ""vfx.pres_isolation_boom"", ""attach"": ""world""}}]
+                }",
+                @"{
+                  ""id"": ""feedback.b_survives"",
+                  ""event"": ""combat.damage_dealt"",
+                  ""actions"": [{""kind"": ""floating_text"", ""params"": {""style_id"": ""feedback.style.normal"", ""text_source"": ""amount""}}]
+                }");
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            // feedback.a_boom 的 play_vfx 确定性抛出，不应留下任何记录。
+            Assert.Empty(sink.Inner.PlayVfxCalls);
+            // feedback.b_survives 是与前一条无关的另一条绑定，必须照常执行恰好一次——断言执行次数。
+            Assert.Single(sink.Inner.FloatingTexts);
+            Assert.Equal("10", sink.Inner.FloatingTexts[0].Text);
+        }
+
+        /// <summary>决策 3 配套：同一条 <c>feedback.a_boom</c> 规则若一次命中还带有排在抛异常动作
+        /// <b>之后</b> 的其它动作，那些动作同样不应该被"一条动作抛异常"连带跳过——逐条隔离到动作
+        /// 级别，不是只到规则级别。用两个 play_vfx 动作验证：第一个抛，第二个必须仍被调用。</summary>
+        [Fact]
+        public void OnEvent_OneActionThrows_LaterActionInSameRule_StillExecutes()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new ThrowingFeedbackSink { ThrowOnPlayVfxId = new Id("vfx.pres_isolation_boom") };
+            var rules = LoadRules(
+                @"{
+                  ""id"": ""feedback.a_boom"",
+                  ""event"": ""combat.damage_dealt"",
+                  ""actions"": [
+                    {""kind"": ""play_vfx"", ""params"": {""vfx_id"": ""vfx.pres_isolation_boom"", ""attach"": ""world""}},
+                    {""kind"": ""play_vfx"", ""params"": {""vfx_id"": ""vfx.pres_isolation_survivor"", ""attach"": ""world""}}
+                  ]
+                }");
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var evt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(evt);
+
+            Assert.Single(sink.Inner.PlayVfxCalls);
+            Assert.Equal(new Id("vfx.pres_isolation_survivor"), sink.Inner.PlayVfxCalls[0].VfxId);
+        }
+
+        /// <summary>决策 3 配套（跨事件回归防线）：即便同一事件内部已经逐条隔离，也要用一条独立用例
+        /// 钉死"跨事件"这一层——一个事件的规则抛异常之后，<b>后续任何事件</b> 的绑定都必须照常工作。
+        /// 经真实 <see cref="IEventBus"/>（不是同一个 <see cref="FeedbackBinder.OnEvent"/> 调用内），
+        /// 验证第一个事件（含会抛异常的规则）与第二个完全独立的事件都各自被正确处理。</summary>
+        [Fact]
+        public void OnEvent_ActionThrowsForOneEvent_SubsequentDifferentEvent_StillDispatchesNormally()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var sink = new ThrowingFeedbackSink { ThrowOnPlayVfxId = new Id("vfx.pres_isolation_boom") };
+            var rules = LoadRules(
+                @"{
+                  ""id"": ""feedback.a_boom"",
+                  ""event"": ""combat.damage_dealt"",
+                  ""actions"": [{""kind"": ""play_vfx"", ""params"": {""vfx_id"": ""vfx.pres_isolation_boom"", ""attach"": ""world""}}]
+                }",
+                @"{
+                  ""id"": ""feedback.aura_applied_survives"",
+                  ""event"": ""aura.applied"",
+                  ""actions"": [{""kind"": ""play_sfx"", ""params"": {""sfx_id"": ""sfx.buff_apply""}}]
+                }");
+
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var damageEvt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(damageEvt);
+            Assert.Empty(sink.Inner.PlayVfxCalls);
+
+            var auraEvt = new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), stacks: 1);
+            bus.PublishImmediate(auraEvt);
+
+            Assert.Single(sink.Inner.PlaySfxCalls);
+            Assert.Equal(new Id("sfx.buff_apply"), sink.Inner.PlaySfxCalls[0].SfxId);
+        }
+
+        // -----------------------------------------------------------------
+        // 消费方反馈第二十五批 决策 4：立即派发的重入语义
+        // -----------------------------------------------------------------
+
+        /// <summary>决策 4：在一次派发的订阅者回调里再发一个事件（正是 <c>UiPanelRegistry.Open</c>
+        /// 先 <c>UiIntents.OpenMenu</c>/后发 <c>ui.panel_opened</c> 这类"一次交互触发多个事件"在做
+        /// 的事），两个事件都必须完整送达各自的全部订阅者，不得因为重入而丢事件、也不得破坏正在
+        /// 进行的那一次派发。直接对 <see cref="IEventBus"/> 钉死这条语义，不经过 FeedbackBinder。</summary>
+        [Fact]
+        public void PublishImmediate_ReentrantPublishFromSubscriberCallback_BothEventsReachAllSubscribers()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var outerCalls = new List<string>();
+            var innerCalls = new List<string>();
+
+            // 外层事件的订阅者在自己的回调里同步再发一个不同 key 的内层事件（重入）。
+            bus.Subscribe(RulesEventKeys.CombatDamageDealt, evt =>
+            {
+                outerCalls.Add("first");
+                bus.PublishImmediate(new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), stacks: 1));
+                outerCalls.Add("resumed-after-reentrant-publish");
+            });
+            // 外层事件的第二个订阅者：验证重入没有打断本次派发正在遍历的订阅者快照。
+            bus.Subscribe(RulesEventKeys.CombatDamageDealt, evt => outerCalls.Add("second"));
+
+            bus.Subscribe(RulesEventKeys.AuraApplied, evt => innerCalls.Add("inner"));
+
+            var damageEvt = new CombatDamageDealtEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(damageEvt);
+
+            // 外层两个订阅者都要被完整调用到（重入没有让第二个订阅者被跳过），且重入调用返回后
+            // 外层回调本身还能继续往下执行。
+            Assert.Equal(new[] { "first", "resumed-after-reentrant-publish", "second" }, outerCalls);
+            // 内层（重入触发的）事件也确实送达了它自己的订阅者，不多不少恰好一次。
+            Assert.Equal(new[] { "inner" }, innerCalls);
+        }
+
+        /// <summary>决策 4 配套：重入派发的是<b>同一个 key</b>（含"事件处理过程中再次触发同一事件"
+        /// 这一更极端的形状）时，两次派发也都必须各自完整送达，不得互相打断彼此的订阅者快照遍历。</summary>
+        [Fact]
+        public void PublishImmediate_ReentrantPublishOfSameKey_BothDispatchesReachAllSubscribers()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var calls = new List<string>();
+            var reentered = false;
+
+            bus.Subscribe(RulesEventKeys.AuraApplied, evt =>
+            {
+                calls.Add("outer:first");
+                if (!reentered)
+                {
+                    reentered = true;
+                    bus.PublishImmediate(new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), stacks: 2));
+                }
+            });
+            bus.Subscribe(RulesEventKeys.AuraApplied, evt => calls.Add("outer:second"));
+
+            bus.PublishImmediate(new AuraAppliedEvent(new Id("unit.wolf"), new Id("skill.aura.burning"), new Id("unit.hero"), stacks: 1));
+
+            // 外层派发的两个订阅者都执行、重入派发的两个订阅者也都执行：共 4 次调用，顺序体现
+            // "重入派发在外层第一个订阅者回调内完整跑完，再回到外层继续跑第二个订阅者"。
+            Assert.Equal(new[] { "outer:first", "outer:first", "outer:second", "outer:second" }, calls);
         }
     }
 }
