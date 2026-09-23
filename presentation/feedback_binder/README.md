@@ -205,8 +205,9 @@
     [ADR-0075](../../architecture/adr/0075-停止特效反馈动作.md)、`presentation/vfx_sfx/README.md`
     判断记录 18（`VfxPlayer.StopInternal` 幂等修复，`stop_vfx` 命中"已自然过期"场景的前置条件）。
 
-18. **`OnEvent` 单次调用内的异常隔离修复（2026-09-23，由 [ADR-0077](../../architecture/adr/
-    0077-ui交互域事件.md)"落地缺陷与修复"一节的排查引出，但缺陷本身不限于 UI 域事件——任何逻辑
+18. **`OnEvent` 单次调用内的异常隔离修复（2026-09-23，由
+    [ADR-0077](../../architecture/adr/0077-ui交互域事件.md)"落地缺陷与修复"一节的排查引出，
+    但缺陷本身不限于 UI 域事件——任何逻辑
     事件命中多条 `feedback.binding` 规则时都适用，故记在本模块而不是并入 ADR-0077 正文）：改动前，
     `OnEvent` 处理同一个事件命中的多条规则时，一条规则的 `condition` 求值抛异常，或某条规则内某个
     `action` 派发（`Dispatch`）抛异常，会中止本次 `OnEvent` 调用剩余的全部处理——同一事件命中的
