@@ -1319,56 +1319,29 @@ namespace Core.Gameplay.Assembly
         /// <see cref="IWorldSim"/>（05 文档"死亡是逻辑状态，不是生命周期状态"），不需要任何"重新
         /// 进图"步骤即可生效。
         /// </para>
-        /// </summary>
-        /// <summary>
-        /// ADR-0085 判断记录（时序源头：save.loaded 延后到世界最终态）：消费方第三十二批阻塞项——
-        /// 跨图读档（目标地图 ≠ 当前地图）之后，<c>Presentation.ViewBinding.ViewBinder</c> 对全部
-        /// 存活实体都建不出 View。根因是本方法此前无条件调用 <c>SaveSystem.Load(slotId)</c>，其内部
-        /// 在逐段 Load 完成后立即 <c>PublishImmediate(SaveLoadedEvent)</c>——此时 <see cref="_world"/>
-        /// 仍是"切场景前"的中间态（玩家字段已指向新地图，但实体集合仍是旧地图那份），<c>ViewBinder</c>
-        /// 收到 <c>save.loaded</c> 做的全量对账因此是针对这份注定被推翻的中间态；紧随其后的
-        /// <see cref="ISceneRouter.LoadScene"/> 触发 <c>IWorldSim.ClearAll</c>，把这批刚对账建出的
-        /// View 全部拆掉，此后没有第二次对账——<c>EnterMap</c>（含 <c>Loot.ReattachToWorld</c>/
-        /// <c>Spawn.ApplyForMap</c> 等重新把实体带回世界的步骤）虽然会让实体重新出现在
-        /// <see cref="_world"/> 里，但它们各自的 <c>entity.created</c> 只是 Enqueue，
-        /// <see cref="Core.Foundation.SceneRouter.SceneRouter.FinishLoading"/> 在调用 post_load 钩子
-        /// 之后不会再补一次 <see cref="IEventBus.DispatchPending"/>（该方法只在 <c>ClearAll</c> 之后
-        /// 补过一次，供销毁事件送达；见其判断记录），这批事件要等到某个不确定的未来 tick 才会被
-        /// 送达——读档完成后剧情立即生成的新实体（同样经由 EnterMap/Spawn 这条路径产生）同样卡在
-        /// 这批未派发事件里，这是"新实体也没 View"这一半症状的确切原因（不是 ViewBinder 的订阅坏了，
-        /// 是它压根还没收到通知）。
         /// <para>
-        /// 修复：<c>save.loaded</c> 的语义应当是"读档完整结束"。跨图分支不再让
-        /// <see cref="ISaveSystem.Load(Id)"/> 在逐段 Load 刚跑完就立即广播——改用
-        /// <see cref="ISaveSystem.Load(Id, bool)"/> 传 <c>deferLoadedNotification: true</c>
-        /// 跳过自动派发，真正发起 <see cref="ISceneRouter.LoadScene"/> 之后把 <c>(slotId,
-        /// migratedFromVersion)</c> 记入 <see cref="_pendingRestoreNotification"/>；
-        /// <see cref="AttachSceneRouter"/> 构造期注册的一个"迟于生产 post_load 钩子"的
-        /// <c>scene_post_load</c> 钩子（见该方法判断记录）在 <c>EnterMap</c> 真正跑完之后调用
-        /// <see cref="ISaveSystem.NotifyLoaded"/> 补发——此时 <see cref="_world"/> 已经是切图后的
-        /// 最终态，<c>ViewBinder.OnSaveLoaded</c> 的对账（连同它内部对"已建 View"实体的插值快照/
-        /// 装备外观重放）第一次、也是唯一一次针对正确的世界状态执行，不再被后续 <c>ClearAll</c>
-        /// 推翻。至于"新实体也没 View"这一半——本次改动<b>不</b>指望这份对账顺带覆盖：对账只在
-        /// <c>save.loaded</c> 那一刻做一次快照，不会管到"此后"才创建的实体；真正解决"新实体也没
-        /// View"的是下面这条独立事实：<c>SceneRouter.FinishLoading</c> 在 ClearAll 之后已经会
-        /// <c>DispatchPending</c> 一次，本次改动让 <c>NotifyLoaded</c> 在 post_load 钩子之后才调用，
-        /// 這次调用本身经 <c>PublishImmediate</c>（不经队列），但它不是让新实体有 View 的机制——真正
-        /// 让 EnterMap 期间新增实体的 <c>entity.created</c> 被送达的，是 <c>GameplayAssembly</c> 在
-        /// 同一个 post_load 钩子里于 <see cref="NotifyLoaded"/> 之前先调用一次
-        /// <see cref="IEventBus.DispatchPending"/>（见 <see cref="AttachSceneRouter"/> 判断记录）——
-        /// 这一行独立生效，同图读档、普通进图两条路径的 post_load 钩子也天然享受同一次
-        /// <c>DispatchPending</c>（钩子注册与地图/是否跨图无关，见该方法判断记录），是本次改动对
-        /// 不变量"当前存活实体与已建 View 必须一一对应"唯一全路径通用的那部分修复。
+        /// ADR-0085 判断记录（跨图读档的 save.loaded 延后到世界最终态）：跨图分支（目标地图 ≠ 当前
+        /// 地图且已装配 <see cref="_sceneRouter"/>）若沿用 <see cref="ISaveSystem.Load(Id)"/>，
+        /// <c>save.loaded</c> 会在逐段 Load 刚完成、<see cref="ISceneRouter.LoadScene"/> 触发
+        /// <c>IWorldSim.ClearAll</c> 之前同步派发——订阅者（如 <c>ViewBinder.OnSaveLoaded</c> 的全量
+        /// 对账、各界面模型的整体重渲染）拿到的是随即被 <c>ClearAll</c> 推翻的切图前中间态。这不会让
+        /// View 永久失联（随后 <c>ClearAll</c> 的销毁事件与 <c>EnterMap</c> 新增实体的创建事件照常
+        /// 送达 <c>ViewBinder</c>），但"读档完成"通知对应的不是读档后的世界。因此跨图分支改用
+        /// <see cref="ISaveSystem.Load(Id, bool)"/> 传 <c>deferLoadedNotification: true</c>，发起
+        /// <see cref="ISceneRouter.LoadScene"/> 之后把 <c>(slotId, migratedFromVersion)</c> 记入
+        /// <see cref="_pendingRestoreNotification"/>，由 <see cref="AttachSceneRouter"/> 注册的高
+        /// order post_load 钩子在 <c>EnterMap</c> 跑完之后调用 <see cref="ISaveSystem.NotifyLoaded"/>
+        /// 补发。
         /// </para>
         /// <para>
         /// 同图读档（目标地图 = 当前地图，或未装配 <see cref="_sceneRouter"/>）不受影响：本方法仍然
-        /// 立即调用 <see cref="ISaveSystem.NotifyLoaded"/>（<paramref name="slotId"/> 处理完毕后走
-        /// <c>!crossMapSwitchStarted</c> 分支），与改动前逐位一致——世界本就没有被切场景推翻，读档
-        /// 那一刻已经是最终态，不需要延后。<see cref="ISceneRouter.LoadScene"/> 抛出
-        /// <see cref="ArgumentException"/>/<see cref="InvalidOperationException"/>（场景切换实际未能
-        /// 发起）时同样立即补发——这两种情形下 post_load 钩子永远不会为这次调用触发，若不在这里兜底
-        /// 补发，<c>save.loaded</c> 会永久不发出，读档本身"仍然算成功"这一既有承诺（见原判断记录）
-        /// 就不成立了。
+        /// 立即调用 <see cref="ISaveSystem.NotifyLoaded"/>（走 <c>!crossMapSwitchStarted</c> 分支），
+        /// 与改动前逐位一致——世界本就没有被切场景推翻，读档那一刻已经是最终态。
+        /// <see cref="ISceneRouter.LoadScene"/> 抛出 <see cref="ArgumentException"/>/
+        /// <see cref="InvalidOperationException"/>（场景切换实际未能发起，例如应用状态机未登记从当前
+        /// 状态到 <c>Loading</c> 的转移）时同样立即补发——这两种情形下 post_load 钩子永远不会为这次
+        /// 调用触发，若不在这里补发，<c>save.loaded</c> 会永久不发出，读档本身"仍然算成功"这一既有
+        /// 承诺就不成立了。
         /// </para>
         /// </summary>
         public LoadResult RestoreFromSlot(Id slotId)
@@ -1635,25 +1608,22 @@ namespace Core.Gameplay.Assembly
         private bool _scenePostLoadFlushHookRegistered;
 
         /// <summary>
-        /// ADR-0085："新实体也没 View"这一半独立原因的确切修复点：<see cref="Core.Foundation.SceneRouter.
-        /// SceneRouter.FinishLoading"/> 调用 post_load 钩子（生产装配/游戏层在其中调用
-        /// <see cref="EnterMap"/>，内部 <see cref="Loot.ReattachToWorld"/>/<c>Spawn.ApplyForMap</c>
-        /// 等步骤新增的实体，以及读档完成后剧情立即生成的新实体走的都是同一条 <see cref="IWorldSim.
-        /// AddEntity"/> 路径）之后，从不补一次 <see cref="IEventBus.DispatchPending"/>——这批实体各自
-        /// 的 <c>entity.created</c> 只是 Enqueue，要等某个不确定的未来 tick 才会被送达
-        /// <c>Presentation.ViewBinding.ViewBinder</c>，不是它的订阅失效、也不是被谁拆掉，只是单纯
-        /// 还没收到通知。本钩子以 order 1000（远大于 <see cref="ISceneRouter.RegisterPostLoadHook"/>
-        /// 固定的 0）注册，保证在生产 post_load 钩子（EnterMap 等）跑完之后才补这一次
-        /// <see cref="IEventBus.DispatchPending"/>——对同图读档、普通进图（新游戏首次
-        /// <see cref="ISceneRouter.LoadScene"/>）、跨图读档三条路径一视同仁，不依赖
-        /// <see cref="_pendingRestoreNotification"/> 是否有值（该字段只决定要不要额外调用
-        /// <see cref="ISaveSystem.NotifyLoaded"/>，与本行是否需要执行无关）。
+        /// ADR-0085：<see cref="Core.Foundation.SceneRouter.SceneRouter.FinishLoading"/> 调用 post_load
+        /// 钩子（生产装配/游戏层在其中调用 <see cref="EnterMap"/>，内部 <see cref="Loot.ReattachToWorld"/>/
+        /// <c>Spawn.ApplyForMap</c>/玩家重新 <see cref="IWorldSim.AddEntity"/> 等步骤新增实体）之后
+        /// 不再冲刷事件队列，这批实体的 <c>entity.created</c> 只是 Enqueue，要等宿主下一次
+        /// <see cref="IEventBus.DispatchPending"/>（或世界 tick 自带的冲刷）才送达订阅者——宿主若在
+        /// 自己的 post_load 钩子里已经冲刷过（如宿主模板），这里是空操作；宿主若没有冲刷，则
+        /// <see cref="ISceneRouter.LoadScene"/> 完成那一刻这批实体尚未建 View，差一个 tick。本钩子以
+        /// order 1000（远大于 <see cref="ISceneRouter.RegisterPostLoadHook"/> 固定的 0）注册，保证在
+        /// 生产 post_load 钩子跑完之后补这一次冲刷，让"LoadScene 完成时存活实体都已建 View"不依赖
+        /// 宿主写法——对同图读档、普通进图、跨图读档三条路径一视同仁，不依赖
+        /// <see cref="_pendingRestoreNotification"/> 是否有值。
         /// <para>
         /// 随后若 <see cref="_pendingRestoreNotification"/> 有值（<see cref="RestoreFromSlot"/> 跨图
-        /// 分支设置，见该方法/字段判断记录），说明这一次 post_load 对应一次待补发的读档完成通知——
-        /// 此时 <see cref="_world"/> 已经是 <see cref="EnterMap"/> 跑完之后的最终态，调用
-        /// <see cref="ISaveSystem.NotifyLoaded"/> 补发 <c>save.migrated</c>/<c>save.loaded</c>，
-        /// 让 <c>ViewBinder.OnSaveLoaded</c> 的全量对账第一次针对正确的世界状态执行。
+        /// 分支设置，见该方法判断记录），说明这一次 post_load 对应一次待补发的读档完成通知——此时
+        /// <see cref="_world"/> 已经是 <see cref="EnterMap"/> 跑完之后的最终态，调用
+        /// <see cref="ISaveSystem.NotifyLoaded"/> 补发 <c>save.migrated</c>/<c>save.loaded</c>。
         /// </para>
         /// </summary>
         private void OnScenePostLoadFlushAndNotify(HookArgs args)

@@ -21,11 +21,12 @@ using Xunit;
 namespace Tests.PresentationViewBinding
 {
     /// <summary>
-    /// 消费方第三十二批阻塞项复现（ADR-0085）：跨图读档（地图 A 存档 → 传送 B → 从 B 读档切回 A）
-    /// 之后，<see cref="ViewBinder.TryGetView"/> 对全部当前存活生物实体返回 false——既包含读档快照
-    /// 里原本就有的实体，也包含读档完成之后才全新生成的实体。本文件用真实
+    /// ADR-0085 时序护栏：宿主 post_load 钩子<b>不</b>冲刷事件队列、<see cref="SceneRouter.LoadScene"/>
+    /// 一返回就断言（不推进任何 tick）时，"存活实体 ⟺ 已建 View"仍须成立——覆盖跨图读档（地图 A
+    /// 存档 → 传送 B → 从 B 读档切回 A）、同图读档、普通进图三条路径。完整宿主帧循环下的端到端
+    /// 用例见 <c>CrossMapRestoreProductionAssemblyTests</c>。本文件用真实
     /// <see cref="GameplayAssembly"/>/<see cref="SceneRouter"/>/<see cref="ViewBinder"/>/真实
-    /// <see cref="SaveSystem"/> 复现两条断言，夹具结构复用
+    /// <see cref="SaveSystem"/>，夹具结构复用
     /// <c>PRES180_SaveLoadViewReconciliationTests.PRES180_04</c> 同一套 world.map 登记方式。
     /// </summary>
     public sealed class CrossMapRestoreViewRebindTests
@@ -209,11 +210,10 @@ namespace Tests.PresentationViewBinding
             Assert.Equal(WorldMapA, restoredLoot!.MapId);
 
             // 断言 1（读档快照里原本就有的实体）：router.Update() 一返回就立刻断言，不额外手工
-            // 推进任何 tick——这正是"读档完成"那一刻真正对外可观察的状态。ADR-0085 判断记录：这里
-            // 故意不像早期草稿那样在断言前插一次 fx.World.Tick，那一次额外 tick 会通过
-            // WorldSim.Tick 自身的 DispatchPending 顺带冲掉本该由本次修复负责冲掉的队列，
-            // 让本用例即使在修复之前也会碰巧通过（假绿），掩盖 SceneRouter.FinishLoading 在
-            // post_load 钩子之后从不补发 DispatchPending 这一根因。玩家与掉落物都应重新拥有 View。
+            // 推进任何 tick——这正是"读档完成"那一刻真正对外可观察的状态。这里故意不在断言前插
+            // fx.World.Tick：那一次 tick 自带的 DispatchPending 会冲掉 post_load 钩子新增实体的
+            // 创建事件，本用例就不再约束"LoadScene 完成时即已建 View"这一时序。玩家与掉落物都应
+            // 重新拥有 View。
             Assert.True(fx.Binder.TryGetView(fx.PlayerId, out var playerView));
             Assert.True(((FakeView)playerView!).IsAlive);
             Assert.True(fx.Binder.TryGetView(lootId, out var lootView));
@@ -291,8 +291,8 @@ namespace Tests.PresentationViewBinding
         /// <summary>
         /// ADR-0085 回归护栏之二："存活实体 ⟺ 已建 View" 这条不变量在普通进图（不涉及任何存档/
         /// 读档）路径下也要成立——本用例专门验证 <see cref="GameplayAssembly.AttachSceneRouter"/>
-        /// 新注册的 post_load 钩子（<c>OnScenePostLoadFlushAndNotify</c>）对"根因二"（
-        /// <c>SceneRouter.FinishLoading</c> 从不在 post_load 钩子之后补发 DispatchPending）的修复，
+        /// 新注册的 post_load 钩子（<c>OnScenePostLoadFlushAndNotify</c>）在 post_load 钩子之后补的
+        /// 那一次 DispatchPending（<c>SceneRouter.FinishLoading</c> 自身在 post_load 之后不冲刷），
         /// 不依赖任何与存档相关的前提（<see cref="_pendingRestoreNotification"/> 为空时这个钩子
         /// 仍然要执行 DispatchPending 这一半）。
         /// </summary>
