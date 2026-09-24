@@ -100,6 +100,16 @@ namespace Core.Rules.Ai
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _navigation = navigation;
             _options = options ?? new AiOptions();
+            // ADR-0084：CombatReentryRangeRatio 越界（<= 0 或 > 1）会让 chase_to_combat 判定退化为
+            // 永远无法满足或超过攻击距离本身，两种情形都破坏"进出点之间隔着余量"的滞回设计——按任务
+            // 书拍板做合法性校验，越界直接抛异常，不静默夹紧。
+            if (_options.CombatReentryRangeRatio <= 0.0 || _options.CombatReentryRangeRatio > 1.0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options),
+                    _options.CombatReentryRangeRatio,
+                    "AiOptions.CombatReentryRangeRatio 必须落在 (0, 1] 区间内");
+            }
             _exprSchema = exprSchema ?? RulesExprSchema.Base;
 
             LoadPatrolPaths(registry);
@@ -321,7 +331,7 @@ namespace Core.Rules.Ai
             var targetPos = _units.GetPosition(target);
             var distanceToTarget = Vec2.Distance(position, targetPos);
             var shouldFight = EvaluateNamedCondition(profile, TransitionChaseToCombat, unitId, state.Target,
-                () => distanceToTarget <= _options.AttackRange);
+                () => distanceToTarget <= _options.AttackRange * _options.CombatReentryRangeRatio);
             if (shouldFight)
             {
                 TransitionTo(unitId, state, BehaviorState.Combat);
@@ -376,11 +386,13 @@ namespace Core.Rules.Ai
                 state.Target = freshHostile;
             }
 
-            // ADR-0084：combat_to_chase——当前目标仍存在，但距离已超出 AttackRange + 滞回余量
-            // （AiOptions.CombatChaseHysteresis）时回到 chase，复用 chase 态既有的移动意图与
-            // leash_range 拴绳判定（HandleChase 内 chase_to_return），本方法不重复实现位移/拴绳。
-            // 每 tick 判定（不受 decision_interval 节流），保证目标一旦超距、单位下一个 Step 就能
-            // 开始朝它移动，不会像根治前那样在原地无限反复施法失败。
+            // ADR-0084：combat_to_chase——当前目标仍存在，但距离已超出 AttackRange（不加余量）时
+            // 回到 chase，复用 chase 态既有的移动意图与 leash_range 拴绳判定（HandleChase 内
+            // chase_to_return），本方法不重复实现位移/拴绳。余量放在 chase_to_combat 一侧（见
+            // AiOptions.CombatReentryRangeRatio）：combat 期间只要目标没有真正脱离攻击距离本身就
+            // 不会被判定回追，不存在"处于 combat、目标却已经打不到"的死区。每 tick 判定（不受
+            // decision_interval 节流），保证目标一旦超距、单位下一个 Step 就能开始朝它移动，不会
+            // 像根治前那样在原地无限反复施法失败。
             if (state.Target.HasValue)
             {
                 var target = state.Target.Value;
@@ -389,7 +401,7 @@ namespace Core.Rules.Ai
                     var targetPos = _units.GetPosition(target);
                     var distanceToTarget = Vec2.Distance(position, targetPos);
                     var shouldChase = EvaluateNamedCondition(profile, TransitionCombatToChase, unitId, state.Target,
-                        () => distanceToTarget > _options.AttackRange + _options.CombatChaseHysteresis);
+                        () => distanceToTarget > _options.AttackRange);
                     if (shouldChase)
                     {
                         TransitionTo(unitId, state, BehaviorState.Chase);

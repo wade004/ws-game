@@ -150,7 +150,7 @@ namespace Tests.Carriers.Assembly
             var spatial = new StubSpatialQuery();
             var rng = new RngHost(1);
 
-            var aiOptions = new AiOptions { AttackRange = 2.0, MoveSpeed = 4.0, CombatChaseHysteresis = 1.0 };
+            var aiOptions = new AiOptions { AttackRange = 2.0, MoveSpeed = 4.0 };
             var combatOptions = new CombatOptions { LeaveCombatDelay = 1.0 };
             var summonOptions = new SummonOptions { JoinCombat = true, SyncCombatState = false };
 
@@ -173,8 +173,8 @@ namespace Tests.Carriers.Assembly
 
             // 主人在 (0,0) 召唤宠物——召唤位置即 RegisterUnit 的 spawnPoint。
             var petId = f.Assembly.Summons.Summon(OwnerId, PetTemplateId, Vec2.Zero);
-            // 敌对目标在 (10,0)：远超 AttackRange+Hysteresis(3) 也远超 leash_range(3)，逼迫"回追几步
-            // 后被拴绳拦下"这条路径。
+            // 敌对目标在 (10,0)：远超 AttackRange(2) 也远超 leash_range(3)，逼迫"回追几步后被拴绳
+            // 拦下"这条路径。
             var hostileId = f.Assembly.Creatures.Spawn(HostileTemplateId, MapId, new Vec2(10, 0), facing: 0);
 
             // 摆入 combat：与消费方最小构造等价（"与敌对 B 相距不超过 AttackRange 使 A 进 combat，

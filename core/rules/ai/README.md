@@ -45,7 +45,7 @@ idle → patrol → chase ⇄ combat → return → flee
 
 `combat → chase`（ADR-0084 新增 `combat_to_chase`）：目标脱离攻击范围但仍在追击范围内时回追，
 复用 `chase` 态既有的移动与 `leash_range` 拴绳判定，回追后仍可能再次 `chase → combat`，因此画作
-`⇄`（详见下表 `combat_to_chase` 行、判断记录 8）。
+`⇄`（详见下表 `combat_to_chase`/`chase_to_combat` 两行、判断记录 8）。
 
 `AiHost.RegisterUnit(unitId, profileId, spawnPoint)` 的初始状态：`profile.patrol_path_ref` 非空则
 `patrol`，否则 `idle`（06 §6.1"无巡逻路径时的默认态"）。
@@ -59,9 +59,9 @@ idle → patrol → chase ⇄ combat → return → flee
 | 转移名 | 默认判定（代码内置） | target 参数 |
 |---|---|---|
 | `idle_to_chase` | `ISpatialQuery` 在 `perception_radius` 内找到最近的、`IFactionMatrix.IsHostile` 为真、存活的单位；找到即转移 | 找到的候选（可能为空） |
-| `chase_to_combat` | 与 `Target` 距离 ≤ `AiOptions.AttackRange` | 当前 `Target` |
+| `chase_to_combat` | 与 `Target` 距离 ≤ `AiOptions.AttackRange * AiOptions.CombatReentryRangeRatio`（ADR-0084：余量放在重进战一侧，见判断记录 8） | 当前 `Target` |
 | `chase_to_return` | `Target` 不存在/已死亡，或距 `SpawnPoint` 距离 > `leash_range` | 当前 `Target` |
-| `combat_to_chase` | `Target` 存在（存活）且与它的距离 > `AiOptions.AttackRange + AiOptions.CombatChaseHysteresis`（ADR-0084：与 `chase_to_combat` 阈值不同、构成滞回区间，见判断记录 8） | 当前 `Target` |
+| `combat_to_chase` | `Target` 存在（存活）且与它的距离 > `AiOptions.AttackRange`（ADR-0084：不加余量，`combat` 期间目标只要仍在攻击距离内就不判定回追，不存在死区，见判断记录 8） | 当前 `Target` |
 | `combat_to_return` | `IThreatTable.GetTopThreat` 为空，且感知范围内找不到新的敌对单位 | 当前 `Target` |
 | `combat_to_flee` | `flee_hp_pct_threshold` 非空且 `hp_pct < threshold`（仅当阈值非空才会求值本转移） | 当前 `Target` |
 | `return_to_idle` | 距 `SpawnPoint` 距离 < `AiOptions.ArrivalEpsilon`（`combat_return_policy` 非 `patrol` 时使用） | `null` |
@@ -198,22 +198,31 @@ Combat 态下委托给 `RotationEvaluator`（T-N3-10，算法细节、就绪判�
    窗口期内仍会继续为它生成移动意图，交给 `core/carriers/unit.MovementTickHandler` 处理（该
    处理器也做了同样的跳过，见其判断记录）。两处判断独立生效、互相印证：本处理器不生成新意图，
    移动处理器即便收到"历史遗留"的意图也不会再处理。
-8. **ADR-0084：新增 `combat_to_chase`（消费方反馈第二十九批，阻塞项）**——根治前 `HandleCombat`
-   只刷新 `Target`、判定 `combat_to_flee`/`combat_to_return`，从不产生 `move` 意图、也没有任何
-   transition 会在目标脱离攻击范围但仍存活/仍在追击范围内时把单位带出 `combat`：单位卡在原地反复
-   `Evaluate` 只会拿到 `OutOfRange`，永远不移动，直到目标彻底消失/死亡或（极端情况下自身产生的
-   `combat_to_return` 覆盖条件）才有机会脱离。新增的 `combat_to_chase` 只做"判定 + 转移"，位移与
-   `leash_range` 拴绳判定完全复用 `chase` 态既有实现（`HandleChase`/`chase_to_return`），不在
-   `combat` 态另写一套。滞回设计：`combat_to_chase` 用 `AttackRange + CombatChaseHysteresis`（新增
-   `AiOptions` 字段，默认 1）而不是裸 `AttackRange`——若两个方向都用同一个阈值，目标停在
-   `AttackRange` 边界附近做亚阈值抖动时，`distance <= AttackRange`（`chase_to_combat`，真）与
-   `distance > AttackRange`（`combat_to_chase` 若不加余量）会在同一个边界两侧来回触发，单位每个
-   决策间隔在 `combat`/`chase` 间翻转；加上非零余量后二者阈值不同，形成一条宽度为
-   `CombatChaseHysteresis` 的滞回区间（`combat` 内目标距离在 `(AttackRange, AttackRange +
-   CombatChaseHysteresis]` 时维持 `combat` 不动作，只有真正超过上沿才回追），亚阈值抖动落在区间内
-   不会触发任何转移。默认值 1 取 `AttackRange` 默认值 2 的一半，纯口味参数，不是架构层面的固定
-   语义。回追转移评估不受 `decision_interval` 节流（与 `combat_to_return`/`combat_to_flee` 等既有
-   转移同一时机，每 tick 判定），保证目标一旦超距、下一个 `Step` 就开始朝它移动。
+8. **ADR-0084：新增 `combat_to_chase`，`chase_to_combat` 默认阈值同步收紧（消费方反馈第二十九批，
+   阻塞项）**——根治前 `HandleCombat` 只刷新 `Target`、判定 `combat_to_flee`/`combat_to_return`，
+   从不产生 `move` 意图、也没有任何 transition 会在目标脱离攻击范围但仍存活/仍在追击范围内时把
+   单位带出 `combat`：单位卡在原地反复 `Evaluate` 只会拿到 `OutOfRange`，永远不移动，直到目标彻底
+   消失/死亡或（极端情况下自身产生的 `combat_to_return` 覆盖条件）才有机会脱离。新增的
+   `combat_to_chase` 只做"判定 + 转移"，位移与 `leash_range` 拴绳判定完全复用 `chase` 态既有实现
+   （`HandleChase`/`chase_to_return`），不在 `combat` 态另写一套。
+   <br/>滞回余量放在重进战一侧、不放在退出一侧：`combat_to_chase` 固定用裸 `AttackRange`
+   （`distance > AttackRange`，不加余量）——`combat` 期间目标只要仍在攻击距离内，判定就不会为真，
+   不存在"处于 combat、目标却已经打不到"的死区。`chase_to_combat` 改用
+   `AttackRange * AiOptions.CombatReentryRangeRatio`（新增 `AiOptions` 字段，默认 0.75，取值域
+   `(0, 1]`，越界在 `AiHost` 构造期抛 `ArgumentOutOfRangeException`，不静默夹紧）——`chase` 态要
+   贴近到比攻击距离更近一截才重新进入 `combat`，进出两个阈值之间天然隔着一段宽度为
+   `AttackRange * (1 - CombatReentryRangeRatio)` 的缓冲区：目标停在 `[AttackRange *
+   CombatReentryRangeRatio, AttackRange]` 之间做亚阈值抖动，两个方向的判定都不会翻转（`chase_to_combat`
+   持续为真、`combat_to_chase` 持续为假），单位全程留在 `combat`、始终能打到目标。余量按
+   `AttackRange` 的比例定义而非绝对距离：绝对余量在小攻击距离（近战）下会让重进战阈值逼近零甚至
+   为负，比例定义不受攻击距离量级影响。默认 0.75（先追近到 75% 攻击距离才重新开打，留 25% 攻击
+   距离宽度的缓冲），纯口味参数，不是架构层面的固定语义。回追转移评估不受 `decision_interval`
+   节流（与 `combat_to_return`/`combat_to_flee` 等既有转移同一时机，每 tick 判定），保证目标一旦
+   超距、下一个 `Step` 就开始朝它移动。
+   <br/>**行为变更**：`chase_to_combat` 默认判定本身被收紧（`AttackRange` → `AttackRange *
+   CombatReentryRangeRatio`），单位要追得比以前更近才会开打——已经用 `ai.behavior_profile.transitions`
+   的 Expr 覆盖 `chase_to_combat` 的内容数据不受影响，覆盖表达式完全替代默认判定，本次改动只影响
+   "没有覆盖时"的兜底计算。
    <br/>召唤物联动实测（`JoinCombat=true`）：`core/carriers/summon/core/SummonTickHandler.TryFollow`
    在召唤物 `ICombatHost.IsInCombat` 为真且 `JoinCombat=true` 时完全跳过跟随（战斗期间"打"和"跟"
    二选一，设计如此，本任务不改）——根治前召唤物在 `combat` 态卡死不动、`TryFollow` 又不跟随，

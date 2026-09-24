@@ -6,7 +6,8 @@ namespace Core.Rules.Ai
     /// <summary>
     /// AI 模块的口味配置项（见任务书拍板：<c>AttackRange</c>/<c>MoveSpeed</c>/<c>FleeReengage</c>/
     /// <c>RandomTieBreak</c>/<c>RngStream</c>/<c>ArrivalEpsilon</c> 六项 + 判断记录补充的
-    /// <see cref="MapId"/>）。全部字段可按具体游戏口味调整，不属于架构层面的固定语义。
+    /// <see cref="MapId"/> + ADR-0084 补充的 <see cref="CombatReentryRangeRatio"/>）。全部字段可按
+    /// 具体游戏口味调整，不属于架构层面的固定语义。
     /// </summary>
     public sealed class AiOptions
     {
@@ -33,16 +34,23 @@ namespace Core.Rules.Ai
         public double ArrivalEpsilon { get; set; } = 0.5;
 
         /// <summary>
-        /// ADR-0084：<c>combat</c>→<c>chase</c>（<c>combat_to_chase</c>）回追判定的滞回余量。目标
-        /// 距离必须超过 <c>AttackRange + CombatChaseHysteresis</c> 才会触发回追，而 <c>chase</c> 重新
-        /// 进入 <c>combat</c> 仍沿用未加余量的 <see cref="AttackRange"/>（<c>chase_to_combat</c> 判定
-        /// 不变）——两个阈值不同，构成一条不对称的滞回区间，避免目标停留在 <c>AttackRange</c> 边界
-        /// 附近小幅抖动时，单位每个决策间隔在 <c>combat</c>/<c>chase</c> 之间来回翻转。默认 1（取
-        /// <see cref="AttackRange"/> 默认值 2 的一半：既让单位在目标脱离攻击范围后不会立刻回追、给
-        /// 小幅抖动留出缓冲，又不会大到让"明显已经打不到"的目标迟迟不触发回追）——具体游戏可按口味
-        /// 调整，不是架构层面的固定语义。
+        /// ADR-0084：<c>chase</c>→<c>combat</c>（<c>chase_to_combat</c>）重新进战判定用的"有效交战
+        /// 距离"占 <see cref="AttackRange"/> 的比例——默认判定改为
+        /// <c>distance &lt;= AttackRange * CombatReentryRangeRatio</c>（不再是裸 <see cref="AttackRange"/>），
+        /// 而 <c>combat</c>→<c>chase</c>（<c>combat_to_chase</c>）退出判定固定用裸
+        /// <see cref="AttackRange"/>（<c>distance &gt; AttackRange</c>，不加余量）。两个方向的阈值因此
+        /// 天然不同，构成一段不对称滞回区间：<c>combat</c> 期间只要目标没有真正脱离攻击距离本身就
+        /// 不会被判定回追，不存在"处于 combat、目标却已经打不到"的死区；<c>chase</c> 态要贴近到比
+        /// 攻击距离更近一截（<see cref="AttackRange"/> 的 <see cref="CombatReentryRangeRatio"/> 倍）才
+        /// 重新进入 <c>combat</c>，为目标停在攻击距离边界附近的小幅抖动预留缓冲，避免每个决策间隔在
+        /// <c>combat</c>/<c>chase</c> 之间来回翻转。默认 0.75（必须先追近到 75% 攻击距离才重新开打，
+        /// 留 25% 攻击距离宽度的缓冲区——经验取值，具体游戏可按口味调整，不是架构层面的固定语义）。
+        /// 取值必须落在 (0, 1] 区间：&lt;= 0 会让重新进战阈值退化为零或负数，永远无法满足，<c>chase</c>
+        /// 态形同锁死；&gt; 1 会让重新进战阈值超过攻击距离本身，与"<c>chase</c> 要追得比攻击距离更近"
+        /// 的设计意图相悖。越界在 <see cref="AiHost"/> 构造期直接抛
+        /// <see cref="ArgumentOutOfRangeException"/>，不做静默夹紧。
         /// </summary>
-        public double CombatChaseHysteresis { get; set; } = 1.0;
+        public double CombatReentryRangeRatio { get; set; } = 0.75;
 
         /// <summary>
         /// 判断记录（契约缺口，集成任务已补齐）：本字段原是"<c>IUnitAccess</c> 不暴露单位所属
