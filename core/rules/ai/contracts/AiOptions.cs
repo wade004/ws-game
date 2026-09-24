@@ -33,6 +33,18 @@ namespace Core.Rules.Ai
         public double ArrivalEpsilon { get; set; } = 0.5;
 
         /// <summary>
+        /// ADR-0084：<c>combat</c>→<c>chase</c>（<c>combat_to_chase</c>）回追判定的滞回余量。目标
+        /// 距离必须超过 <c>AttackRange + CombatChaseHysteresis</c> 才会触发回追，而 <c>chase</c> 重新
+        /// 进入 <c>combat</c> 仍沿用未加余量的 <see cref="AttackRange"/>（<c>chase_to_combat</c> 判定
+        /// 不变）——两个阈值不同，构成一条不对称的滞回区间，避免目标停留在 <c>AttackRange</c> 边界
+        /// 附近小幅抖动时，单位每个决策间隔在 <c>combat</c>/<c>chase</c> 之间来回翻转。默认 1（取
+        /// <see cref="AttackRange"/> 默认值 2 的一半：既让单位在目标脱离攻击范围后不会立刻回追、给
+        /// 小幅抖动留出缓冲，又不会大到让"明显已经打不到"的目标迟迟不触发回追）——具体游戏可按口味
+        /// 调整，不是架构层面的固定语义。
+        /// </summary>
+        public double CombatChaseHysteresis { get; set; } = 1.0;
+
+        /// <summary>
         /// 判断记录（契约缺口，集成任务已补齐）：本字段原是"<c>IUnitAccess</c> 不暴露单位所属
         /// 地图 id"这一契约缺口的权宜之计——只适用于单地图场景，多地图场景无法按单位分别寻路。
         /// 集成任务已给 <c>IUnitAccess</c> 补上 <see cref="Core.Rules.Common.IUnitAccess.GetMapId"/>，

@@ -39,9 +39,13 @@ ai/
 ## 状态机（06 §6.1）
 
 ```
-idle → patrol → chase → combat → return → flee
+idle → patrol → chase ⇄ combat → return → flee
                                 └→ dead（任意状态可进入）
 ```
+
+`combat → chase`（ADR-0084 新增 `combat_to_chase`）：目标脱离攻击范围但仍在追击范围内时回追，
+复用 `chase` 态既有的移动与 `leash_range` 拴绳判定，回追后仍可能再次 `chase → combat`，因此画作
+`⇄`（详见下表 `combat_to_chase` 行、判断记录 8）。
 
 `AiHost.RegisterUnit(unitId, profileId, spawnPoint)` 的初始状态：`profile.patrol_path_ref` 非空则
 `patrol`，否则 `idle`（06 §6.1"无巡逻路径时的默认态"）。
@@ -57,6 +61,7 @@ idle → patrol → chase → combat → return → flee
 | `idle_to_chase` | `ISpatialQuery` 在 `perception_radius` 内找到最近的、`IFactionMatrix.IsHostile` 为真、存活的单位；找到即转移 | 找到的候选（可能为空） |
 | `chase_to_combat` | 与 `Target` 距离 ≤ `AiOptions.AttackRange` | 当前 `Target` |
 | `chase_to_return` | `Target` 不存在/已死亡，或距 `SpawnPoint` 距离 > `leash_range` | 当前 `Target` |
+| `combat_to_chase` | `Target` 存在（存活）且与它的距离 > `AiOptions.AttackRange + AiOptions.CombatChaseHysteresis`（ADR-0084：与 `chase_to_combat` 阈值不同、构成滞回区间，见判断记录 8） | 当前 `Target` |
 | `combat_to_return` | `IThreatTable.GetTopThreat` 为空，且感知范围内找不到新的敌对单位 | 当前 `Target` |
 | `combat_to_flee` | `flee_hp_pct_threshold` 非空且 `hp_pct < threshold`（仅当阈值非空才会求值本转移） | 当前 `Target` |
 | `return_to_idle` | 距 `SpawnPoint` 距离 < `AiOptions.ArrivalEpsilon`（`combat_return_policy` 非 `patrol` 时使用） | `null` |
@@ -193,3 +198,34 @@ Combat 态下委托给 `RotationEvaluator`（T-N3-10，算法细节、就绪判�
    窗口期内仍会继续为它生成移动意图，交给 `core/carriers/unit.MovementTickHandler` 处理（该
    处理器也做了同样的跳过，见其判断记录）。两处判断独立生效、互相印证：本处理器不生成新意图，
    移动处理器即便收到"历史遗留"的意图也不会再处理。
+8. **ADR-0084：新增 `combat_to_chase`（消费方反馈第二十九批，阻塞项）**——根治前 `HandleCombat`
+   只刷新 `Target`、判定 `combat_to_flee`/`combat_to_return`，从不产生 `move` 意图、也没有任何
+   transition 会在目标脱离攻击范围但仍存活/仍在追击范围内时把单位带出 `combat`：单位卡在原地反复
+   `Evaluate` 只会拿到 `OutOfRange`，永远不移动，直到目标彻底消失/死亡或（极端情况下自身产生的
+   `combat_to_return` 覆盖条件）才有机会脱离。新增的 `combat_to_chase` 只做"判定 + 转移"，位移与
+   `leash_range` 拴绳判定完全复用 `chase` 态既有实现（`HandleChase`/`chase_to_return`），不在
+   `combat` 态另写一套。滞回设计：`combat_to_chase` 用 `AttackRange + CombatChaseHysteresis`（新增
+   `AiOptions` 字段，默认 1）而不是裸 `AttackRange`——若两个方向都用同一个阈值，目标停在
+   `AttackRange` 边界附近做亚阈值抖动时，`distance <= AttackRange`（`chase_to_combat`，真）与
+   `distance > AttackRange`（`combat_to_chase` 若不加余量）会在同一个边界两侧来回触发，单位每个
+   决策间隔在 `combat`/`chase` 间翻转；加上非零余量后二者阈值不同，形成一条宽度为
+   `CombatChaseHysteresis` 的滞回区间（`combat` 内目标距离在 `(AttackRange, AttackRange +
+   CombatChaseHysteresis]` 时维持 `combat` 不动作，只有真正超过上沿才回追），亚阈值抖动落在区间内
+   不会触发任何转移。默认值 1 取 `AttackRange` 默认值 2 的一半，纯口味参数，不是架构层面的固定
+   语义。回追转移评估不受 `decision_interval` 节流（与 `combat_to_return`/`combat_to_flee` 等既有
+   转移同一时机，每 tick 判定），保证目标一旦超距、下一个 `Step` 就开始朝它移动。
+   <br/>召唤物联动实测（`JoinCombat=true`）：`core/carriers/summon/core/SummonTickHandler.TryFollow`
+   在召唤物 `ICombatHost.IsInCombat` 为真且 `JoinCombat=true` 时完全跳过跟随（战斗期间"打"和"跟"
+   二选一，设计如此，本任务不改）——根治前召唤物在 `combat` 态卡死不动、`TryFollow` 又不跟随，
+   表现为全程 0 输出、原地冻结；根治后召唤物自己的 `AiHost` 状态机与主人的 `AiHost` 状态机相互独立
+   （各自登记、各自判定），目标脱离召唤物的攻击范围时召唤物按本转移回追，回追超出召唤物自身的
+   `leash_range`（拴绳原点是 `RegisterUnit` 传入的 `spawnPoint`，即 `SummonHost.Summon` 调用时的
+   召唤位置——一个固定点，不随主人当前位置变化）时按既有 `chase_to_return`/`TransitionTowardReturn`
+   脱战，回到该固定点后转 `idle`（`combat_return_policy` 为默认 `return_to_spawn` 时）；`IsInCombat`
+   与 `AiHost.BehaviorState` 是两条独立时间线，前者由 `CombatHost.NotifyCombatEvent` +
+   `CombatOptions.LeaveCombatDelay` 超时判定（不感知召唤物 AI 是否已经脱战），召唤物回到固定点转
+   `idle` 之后，只要不再发生新的战斗事件，`IsInCombat` 会在 `LeaveCombatDelay` 内自然转 false，
+   `TryFollow` 随即恢复跟随并计算"当前"主人位置——最终会跟上主人，不会永久卡在旧位置，只是这段
+   `LeaveCombatDelay` 窗口期内会先在固定点停留。见 `AiCombatRechaseTests.cs`（不变量 (a)/(b)/
+   Expr 覆盖）、`core/carriers/assembly/tests/SummonCombatRechaseTests.cs`（召唤物联动实测，
+   `CarriersAssembly` 真实装配 + `world.Tick` 驱动）。
