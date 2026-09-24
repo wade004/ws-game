@@ -479,6 +479,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   任何场景的 `Exceeded`/`Added`/`Removed`——嵌入式仿真数据集里驱动战斗的场景未覆盖到追击态
   边界收紧这条路径），未重烘基线。
 
+### 修复
+
+- **跨图读档完成通知与场景加载后的事件冲刷时序**
+  （[ADR-0085](architecture/adr/0085-跨图读档完成通知与场景加载冲刷时序.md)）：
+  - 跨图读档（`GameplayAssembly.RestoreFromSlot` 目标地图与当前地图不同）时，`save.loaded`/
+    `save.migrated` 原先在 `LoadScene` 触发 `ClearAll` 之前就同步派发，订阅者拿到的是切图前的
+    中间态。现改为在目标地图 `EnterMap` 跑完之后才派发。
+  - `ISaveSystem` 新增两个带默认实现的接口成员 `Load(Id, bool)` 与 `NotifyLoaded`，不改动既有
+    签名。
+  - `GameplayAssembly.AttachSceneRouter` 新注册一个高 order 的 post_load 钩子，在全部 post_load
+    钩子之后冲刷事件队列。因此 `LoadScene` 完成时，进图新增的实体已经建好 View，不再依赖宿主
+    在自己的钩子里冲刷。
+  - 场景加载失败时，在应用状态转回 `MainMenu` 的时刻补发 `save.loaded`。
+  - **行为变更**：仅跨图读档一条路径上 `save.loaded` 的派发时机变晚。已审计全部 12 个生产订阅者，
+    无一依赖旧时机。
+  - 消费方第三十二批所报"跨图读档后全部存活生物无 View"在框架生产装配下未能复现（新增端到端
+    护栏用例在上一个发布版本与本版本上均通过），本条不是该症状的修复。
+
 ## [1.68.0] - 2026-09-24
 
 ### 新增

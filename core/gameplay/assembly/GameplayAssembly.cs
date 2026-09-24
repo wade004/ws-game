@@ -232,6 +232,16 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         private ISceneRouter? _sceneRouter;
 
+        /// <summary>ADR-0085：<see cref="RestoreFromSlot"/> 跨图分支发起 <see cref="ISceneRouter.LoadScene"/>
+        /// 成功之后，暂存"这次读档完成通知还没发"这件事——<see cref="AttachSceneRouter"/> 注册的
+        /// post_load 钩子在世界到达最终态之后据此调用一次 <see cref="ISaveSystem.NotifyLoaded"/>；
+        /// 该场景加载因资源失败/被取消而从未触发 post_load 时，构造函数订阅的
+        /// <see cref="Core.Foundation.AppLifecycle.AppEventKeys.StateChanged"/> 兜底把它送回
+        /// <see cref="Core.Foundation.AppLifecycle.AppState.MainMenu"/> 那一刻补发，保证"读档一旦
+        /// 成功，save.loaded 终将发出"这条既有承诺不因为跨图分支延后派发而失效（见两处判断记录）。
+        /// 一次性：消费后立即置回 null，重复的 post_load/StateChanged 触发不会重复补发。</summary>
+        private (Id SlotId, int? MigratedFromVersion)? _pendingRestoreNotification;
+
         /// <summary>N14 根治新增：构造期第 16 步已经构造过一份 <see cref="TeleportTargetResolver"/>
         /// （供 <c>GobjOptions.TeleportResolver</c>/<c>DeathPolicyOptions.ResolveDefaultSpawn</c>
         /// 复用），此前只是方法局部变量、<see cref="TeleportUnit"/> 拿不到；提升为字段后
@@ -640,6 +650,12 @@ namespace Core.Gameplay.Assembly
             };
 
             TrackCombatStartTimes();
+
+            // ADR-0085：见 OnAppStateChangedForPendingRestoreNotificationFallback 方法判断记录——
+            // 跨图读档发起的场景切换若异步加载失败，post_load 钩子不会触发，本订阅兜底补发
+            // save.loaded，惯例同上一行 TrackCombatStartTimes（跟随宿主生命周期，不单独退订）。
+            _bus.Subscribe<AppStateChangedEvent>(
+                AppEventKeys.StateChanged, OnAppStateChangedForPendingRestoreNotificationFallback);
 
             ExprHostFactory = new RulesExprHostFactory(
                 Carriers.Units, Carriers.Rules.Stats, Carriers.Rules.Powers, Carriers.Rules.Skill.AuraQuery,
@@ -1303,6 +1319,30 @@ namespace Core.Gameplay.Assembly
         /// <see cref="IWorldSim"/>（05 文档"死亡是逻辑状态，不是生命周期状态"），不需要任何"重新
         /// 进图"步骤即可生效。
         /// </para>
+        /// <para>
+        /// ADR-0085 判断记录（跨图读档的 save.loaded 延后到世界最终态）：跨图分支（目标地图 ≠ 当前
+        /// 地图且已装配 <see cref="_sceneRouter"/>）若沿用 <see cref="ISaveSystem.Load(Id)"/>，
+        /// <c>save.loaded</c> 会在逐段 Load 刚完成、<see cref="ISceneRouter.LoadScene"/> 触发
+        /// <c>IWorldSim.ClearAll</c> 之前同步派发——订阅者（如 <c>ViewBinder.OnSaveLoaded</c> 的全量
+        /// 对账、各界面模型的整体重渲染）拿到的是随即被 <c>ClearAll</c> 推翻的切图前中间态。这不会让
+        /// View 永久失联（随后 <c>ClearAll</c> 的销毁事件与 <c>EnterMap</c> 新增实体的创建事件照常
+        /// 送达 <c>ViewBinder</c>），但"读档完成"通知对应的不是读档后的世界。因此跨图分支改用
+        /// <see cref="ISaveSystem.Load(Id, bool)"/> 传 <c>deferLoadedNotification: true</c>，发起
+        /// <see cref="ISceneRouter.LoadScene"/> 之后把 <c>(slotId, migratedFromVersion)</c> 记入
+        /// <see cref="_pendingRestoreNotification"/>，由 <see cref="AttachSceneRouter"/> 注册的高
+        /// order post_load 钩子在 <c>EnterMap</c> 跑完之后调用 <see cref="ISaveSystem.NotifyLoaded"/>
+        /// 补发。
+        /// </para>
+        /// <para>
+        /// 同图读档（目标地图 = 当前地图，或未装配 <see cref="_sceneRouter"/>）不受影响：本方法仍然
+        /// 立即调用 <see cref="ISaveSystem.NotifyLoaded"/>（走 <c>!crossMapSwitchStarted</c> 分支），
+        /// 与改动前逐位一致——世界本就没有被切场景推翻，读档那一刻已经是最终态。
+        /// <see cref="ISceneRouter.LoadScene"/> 抛出 <see cref="ArgumentException"/>/
+        /// <see cref="InvalidOperationException"/>（场景切换实际未能发起，例如应用状态机未登记从当前
+        /// 状态到 <c>Loading</c> 的转移）时同样立即补发——这两种情形下 post_load 钩子永远不会为这次
+        /// 调用触发，若不在这里补发，<c>save.loaded</c> 会永久不发出，读档本身"仍然算成功"这一既有
+        /// 承诺就不成立了。
+        /// </para>
         /// </summary>
         public LoadResult RestoreFromSlot(Id slotId)
         {
@@ -1315,7 +1355,10 @@ namespace Core.Gameplay.Assembly
             // 复现的一处时序缺口）。
             var mapIdBeforeLoad = _world.GetEntity(PlayerUnitProvider())?.MapId;
 
-            var result = SaveSystem.Load(slotId);
+            // ADR-0085：deferLoadedNotification: true——本方法自己决定何时补发，见类型判断记录。
+            var result = SaveSystem.Load(slotId, deferLoadedNotification: true);
+
+            var crossMapSwitchStarted = false;
 
             if ((result.Status == LoadStatus.Loaded || result.Status == LoadStatus.LoadedFromBackup) &&
                 result.CurrentMapId.HasValue && _sceneRouter != null &&
@@ -1324,17 +1367,32 @@ namespace Core.Gameplay.Assembly
                 try
                 {
                     _sceneRouter.LoadScene(result.CurrentMapId.Value);
+
+                    // LoadScene 没有抛异常：场景切换真正发起了，把"读档完成"的广播记为待发——真正
+                    // 派发挪到 AttachSceneRouter 注册的 post_load 钩子里，等 EnterMap 把世界带到
+                    // 最终态之后再发（见类型判断记录）。
+                    crossMapSwitchStarted = true;
+                    _pendingRestoreNotification = (slotId, result.MigratedFromVersion);
                 }
                 catch (ArgumentException)
                 {
                     // 地图 id 未知：读档本身仍然算成功，场景切换失败留给上层诊断/重试（同
-                    // ShellHost.LoadGame 同款判断记录）。
+                    // ShellHost.LoadGame 同款判断记录）。post_load 钩子不会为这次调用触发，下面
+                    // 立即补发，不让 save.loaded 永久不发出。
                 }
                 catch (InvalidOperationException)
                 {
                     // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上，不吞掉
-                    // 读档结果本身。
+                    // 读档结果本身，同样立即补发。
                 }
+            }
+
+            if (!crossMapSwitchStarted &&
+                (result.Status == LoadStatus.Loaded || result.Status == LoadStatus.LoadedFromBackup))
+            {
+                // 同图读档 / 未装配场景路由 / 场景切换发起失败三种情形：世界此刻已经是最终态（要么
+                // 本就不需要切图，要么切图没能真正发起），立即补发，行为与改动前逐位一致。
+                SaveSystem.NotifyLoaded(slotId, result.MigratedFromVersion);
             }
 
             return result;
@@ -1524,6 +1582,92 @@ namespace Core.Gameplay.Assembly
         public void AttachSceneRouter(ISceneRouter sceneRouter)
         {
             _sceneRouter = sceneRouter ?? throw new ArgumentNullException(nameof(sceneRouter));
+
+            // ADR-0085：只在首次 Attach 时注册一次（<see cref="_scenePostLoadFlushHookRegistered"/>
+            // 守卫）——本方法在既有惯例里理论上可能被多次调用（虽然生产装配一律只调一次，见本方法
+            // 类型注释"必然晚于本类型构造完成"），重复注册会让同一次 post_load 触发多次
+            // <see cref="OnScenePostLoadFlushAndNotify"/>，DispatchPending 本身幂等（队列已空时
+            // 空操作）无害，但 <see cref="ISaveSystem.NotifyLoaded"/> 补发分支靠
+            // <see cref="_pendingRestoreNotification"/> 置空去重，多份订阅没有额外收益，徒增一次
+            // 订阅泄漏（本类型不实现 IDisposable，同 <see cref="TrackCombatStartTimes"/> 等既有
+            // 订阅一贯的"跟随宿主生命周期，不单独退订"惯例，见该方法判断记录）。
+            if (!_scenePostLoadFlushHookRegistered)
+            {
+                _scenePostLoadFlushHookRegistered = true;
+
+                // order 远大于 ISceneRouter.RegisterPostLoadHook 固定使用的 0（见该方法实现）：
+                // 保证本钩子在生产装配/游戏层经该公开 API 注册的全部 post_load 钩子（EnterMap 等）
+                // 都跑完之后才执行，见 OnScenePostLoadFlushAndNotify 判断记录。直接用 Hooks（与
+                // sceneRouter 构造时接收的是同一个 IHookRegistry 实例，见 PRES180_04/本类型多处
+                // 测试夹具"new SceneRouter(..., gameplay.Hooks, ...)"的既有装配惯例）而不是
+                // ISceneRouter.RegisterPostLoadHook——后者的公开签名不接受 order 参数。
+                Hooks.Register(WellKnownHooks.ScenePostLoad, OnScenePostLoadFlushAndNotify, order: 1000);
+            }
+        }
+
+        private bool _scenePostLoadFlushHookRegistered;
+
+        /// <summary>
+        /// ADR-0085：<see cref="Core.Foundation.SceneRouter.SceneRouter.FinishLoading"/> 调用 post_load
+        /// 钩子（生产装配/游戏层在其中调用 <see cref="EnterMap"/>，内部 <see cref="Loot.ReattachToWorld"/>/
+        /// <c>Spawn.ApplyForMap</c>/玩家重新 <see cref="IWorldSim.AddEntity"/> 等步骤新增实体）之后
+        /// 不再冲刷事件队列，这批实体的 <c>entity.created</c> 只是 Enqueue，要等宿主下一次
+        /// <see cref="IEventBus.DispatchPending"/>（或世界 tick 自带的冲刷）才送达订阅者——宿主若在
+        /// 自己的 post_load 钩子里已经冲刷过（如宿主模板），这里是空操作；宿主若没有冲刷，则
+        /// <see cref="ISceneRouter.LoadScene"/> 完成那一刻这批实体尚未建 View，差一个 tick。本钩子以
+        /// order 1000（远大于 <see cref="ISceneRouter.RegisterPostLoadHook"/> 固定的 0）注册，保证在
+        /// 生产 post_load 钩子跑完之后补这一次冲刷，让"LoadScene 完成时存活实体都已建 View"不依赖
+        /// 宿主写法——对同图读档、普通进图、跨图读档三条路径一视同仁，不依赖
+        /// <see cref="_pendingRestoreNotification"/> 是否有值。
+        /// <para>
+        /// 随后若 <see cref="_pendingRestoreNotification"/> 有值（<see cref="RestoreFromSlot"/> 跨图
+        /// 分支设置，见该方法判断记录），说明这一次 post_load 对应一次待补发的读档完成通知——此时
+        /// <see cref="_world"/> 已经是 <see cref="EnterMap"/> 跑完之后的最终态，调用
+        /// <see cref="ISaveSystem.NotifyLoaded"/> 补发 <c>save.migrated</c>/<c>save.loaded</c>。
+        /// </para>
+        /// </summary>
+        private void OnScenePostLoadFlushAndNotify(HookArgs args)
+        {
+            _bus.DispatchPending();
+
+            if (_pendingRestoreNotification == null)
+            {
+                return;
+            }
+
+            var (slotId, migratedFromVersion) = _pendingRestoreNotification.Value;
+            _pendingRestoreNotification = null;
+            SaveSystem.NotifyLoaded(slotId, migratedFromVersion);
+        }
+
+        /// <summary>
+        /// ADR-0085 兜底：见 <see cref="_pendingRestoreNotification"/> 判断记录——
+        /// <see cref="RestoreFromSlot"/> 跨图分支发起 <see cref="ISceneRouter.LoadScene"/> 之后，若该
+        /// 场景加载因资源失败被 <c>SceneRouter.HandleLoadFailure</c>（见该方法判断记录"加载失败路径
+        /// 不新增事件"）取消，post_load 钩子永远不会为这次调用触发，<see cref="_pendingRestoreNotification"/>
+        /// 会永久卡住、<c>save.loaded</c> 永远不发出——读档本身"仍然算成功"这一既有承诺（见
+        /// <see cref="RestoreFromSlot"/> 原判断记录）就不成立了。<c>HandleLoadFailure</c> 内部唯一
+        /// 可观察的信号是它把应用状态转回 <see cref="Core.Foundation.AppLifecycle.AppState.MainMenu"/>，借此兜底补发。
+        /// <para>
+        /// 判断记录（不会与成功路径冲突）：<see cref="Core.Foundation.SceneRouter.SceneRouter.
+        /// FinishLoading"/> 顺序是 <c>RequestTransition(InWorld)</c> 在前、
+        /// <c>Invoke(ScenePostLoad)</c> 在后——成功路径下 <see cref="_pendingRestoreNotification"/>
+        /// 会先被 <see cref="OnScenePostLoadFlushAndNotify"/> 消费掉，不会残留到某次无关的后续
+        /// <see cref="Core.Foundation.AppLifecycle.AppState.MainMenu"/> 转移（如玩家后来从暂停菜单返回主菜单）再被误重复补发；
+        /// 本方法只在 <see cref="AppStateChangedEvent.NewState"/> 恰好是 <see cref="Core.Foundation.AppLifecycle.AppState.MainMenu"/>
+        /// 且 <see cref="_pendingRestoreNotification"/> 仍非空时才动作，两者缺一都是空操作。
+        /// </para>
+        /// </summary>
+        private void OnAppStateChangedForPendingRestoreNotificationFallback(AppStateChangedEvent evt)
+        {
+            if (evt.NewState != Core.Foundation.AppLifecycle.AppState.MainMenu || _pendingRestoreNotification == null)
+            {
+                return;
+            }
+
+            var (slotId, migratedFromVersion) = _pendingRestoreNotification.Value;
+            _pendingRestoreNotification = null;
+            SaveSystem.NotifyLoaded(slotId, migratedFromVersion);
         }
 
         public void SetPendingPlaybackProbe(Func<bool> hasPendingPlayback)

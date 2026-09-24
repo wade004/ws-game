@@ -78,5 +78,44 @@ namespace Core.Foundation.SaveSystem
         /// 哪几个"——机制到此为止，接线是游戏层的事）。
         /// </summary>
         bool ShouldAutoSave(AutoSaveTrigger trigger);
+
+        /// <summary>
+        /// ADR-0085：与 <see cref="Load(Id)"/> 等价地读取并恢复一个存档槽，但当
+        /// <paramref name="deferLoadedNotification"/> 为 <c>true</c> 时跳过末尾对
+        /// <c>save.migrated</c>/<c>save.loaded</c>（<see cref="Core.Foundation.SaveSystem.SaveMigratedEvent"/>/
+        /// <see cref="Core.Foundation.SaveSystem.SaveLoadedEvent"/>）的自动派发——调用方随后必须在
+        /// 它认为"世界已经达到最终态"的时刻手动调用 <see cref="NotifyLoaded"/> 补发，否则这两个事件
+        /// 永远不会发出。目前唯一的调用方是 <c>Core.Gameplay.Assembly.GameplayAssembly.RestoreFromSlot</c>
+        /// 跨图分支（见该方法判断记录"时序源头"）：跨图读档需要先发起 <c>ISceneRouter.LoadScene</c>、
+        /// 等 <c>ClearAll</c>/<c>post_load</c>（<c>EnterMap</c>）都跑完，"读档完成"的广播才真正对应
+        /// "世界最终态"，而不是"逐段 Load 刚跑完、地图还没切"这个必然会被随后 <c>ClearAll</c> 整体
+        /// 推翻的中间态。<paramref name="deferLoadedNotification"/> 为 <c>false</c> 时与
+        /// <see cref="Load(Id)"/> 完全一致（本方法调用 <see cref="Load(Id)"/> 即是该行为）。
+        /// <para>
+        /// C#8 默认接口方法：默认实现直接退化为 <see cref="Load(Id)"/>（即忽略
+        /// <paramref name="deferLoadedNotification"/>，行为等价于永远不延迟）——对既有
+        /// <see cref="ISaveSystem"/> 实现透明，只有本仓库唯一实现 <c>Core.Foundation.SaveSystem.SaveSystem</c>
+        /// 才需要、也确实覆盖了真正支持延迟派发的版本。
+        /// </para>
+        /// </summary>
+        LoadResult Load(Id slotId, bool deferLoadedNotification) => Load(slotId);
+
+        /// <summary>
+        /// 配合 <see cref="Load(Id, bool)"/> 传入 <c>deferLoadedNotification: true</c> 使用：在调用方
+        /// 认定的"世界最终态"时刻手动补发 <c>save.migrated</c>（<paramref name="migratedFromVersion"/>
+        /// 非空时）与 <c>save.loaded</c>——取自 <see cref="LoadResult.MigratedFromVersion"/>，与
+        /// <see cref="Load(Id)"/> 内部自动派发时用的是同一份判断（"迁移链确实执行过"）。对同一次读档
+        /// 只应调用一次；不校验、不去重——重复调用会重复派发，调用方自己保证"只在世界真正达到最终态
+        /// 的那一刻调用一次"（<c>GameplayAssembly.RestoreFromSlot</c> 用一个一次性 pending 字段保证
+        /// 这一点，见该类型判断记录）。
+        /// <para>
+        /// C#8 默认接口方法：默认空实现（不派发任何事件）——只有支持
+        /// <see cref="Load(Id, bool)"/> 延迟派发的实现才需要覆盖本方法；未覆盖 <see cref="Load(Id, bool)"/>
+        /// 的实现也不会有任何调用方需要调用本方法（<see cref="Load(Id, bool)"/> 默认实现从不延迟）。
+        /// </para>
+        /// </summary>
+        void NotifyLoaded(Id slotId, int? migratedFromVersion)
+        {
+        }
     }
 }
