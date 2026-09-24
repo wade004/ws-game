@@ -248,7 +248,16 @@ namespace Core.Foundation.SaveSystem
 
         // ---- Load -----------------------------------------------------------
 
-        public LoadResult Load(Id slotId)
+        public LoadResult Load(Id slotId) => Load(slotId, deferLoadedNotification: false);
+
+        /// <summary>
+        /// ADR-0085：见 <see cref="ISaveSystem.Load(Id, bool)"/> 判断记录。本方法是原
+        /// <see cref="Load(Id)"/> 的真正实现，<paramref name="deferLoadedNotification"/> 为 <c>true</c>
+        /// 时跳过末尾 <c>save.migrated</c>/<c>save.loaded</c> 的自动派发，调用方须改用
+        /// <see cref="NotifyLoaded"/> 手动补发。除了"是否在末尾派发这两个事件"之外，其余全部行为
+        /// （逐段 Load、失败回滚、SuppressDispatch 作用域范围……）与改动前逐位一致。
+        /// </summary>
+        public LoadResult Load(Id slotId, bool deferLoadedNotification)
         {
             var formalPath = SlotPath(slotId);
 
@@ -482,14 +491,26 @@ namespace Core.Foundation.SaveSystem
                 }
             }
 
-            if (migratedFrom.HasValue)
+            if (!deferLoadedNotification)
             {
-                _bus?.PublishImmediate(new SaveMigratedEvent(slotId, migratedFrom.Value, _options.CurrentSaveVersion));
+                NotifyLoaded(slotId, migratedFrom);
+            }
+
+            return LoadResult.Loaded(meta, migratedFrom, status, currentMapId, currentPosition);
+        }
+
+        /// <summary>ADR-0085：见 <see cref="ISaveSystem.NotifyLoaded"/> 判断记录。抽出为独立方法后，
+        /// <see cref="Load(Id, bool)"/> 的自动派发分支（<c>deferLoadedNotification: false</c>）与调用方
+        /// 手动补发分支（<c>GameplayAssembly.RestoreFromSlot</c> 跨图分支）共用同一份"migratedFrom
+        /// 非空才发 save.migrated，随后总是发 save.loaded"逻辑，不重复实现一遍。</summary>
+        public void NotifyLoaded(Id slotId, int? migratedFromVersion)
+        {
+            if (migratedFromVersion.HasValue)
+            {
+                _bus?.PublishImmediate(new SaveMigratedEvent(slotId, migratedFromVersion.Value, _options.CurrentSaveVersion));
             }
 
             _bus?.PublishImmediate(new SaveLoadedEvent(slotId));
-
-            return LoadResult.Loaded(meta, migratedFrom, status, currentMapId, currentPosition);
         }
 
         private static Id? TryGetSectionId(JsonObject sections, string key)
