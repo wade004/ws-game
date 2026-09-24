@@ -458,6 +458,25 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **跨图读档后当前存活实体（含读档完成后新生成的实体）全部丢失 View 绑定**（消费方反馈第
+  三十二批，阻塞项，
+  [ADR-0085](architecture/adr/0085-跨图读档时序缺陷导致View失联.md)）：两个独立根因——
+  （一）跨图分支里 `save.loaded` 在 `ISceneRouter.LoadScene` 触发的 `ClearAll` **之前**就已
+  同步派发，`ViewBinder` 对账出来的 View 随后被整体销毁、没有第二次对账机会；（二）
+  `SceneRouter.FinishLoading` 从不在 post_load 钩子（`GameplayAssembly.EnterMap` 在此钩子
+  内运行）之后补发一次事件队列冲刷，导致该钩子内新增实体的创建事件迟迟不被送达，普通进图/
+  同图读档/跨图读档三条路径下新生成的实体同等受影响。修复：`ISaveSystem` 新增两个带默认实现
+  的接口成员（`Load(Id, bool)`/`NotifyLoaded`），`GameplayAssembly.RestoreFromSlot` 跨图分支
+  改为延迟派发 `save.loaded`，直到 `GameplayAssembly.AttachSceneRouter` 新注册的高优先级
+  post_load 钩子里补一次事件队列冲刷之后才真正发出，把"读档完成"的语义钉死在世界最终态那一刻；
+  另加一条 `AppEventKeys.StateChanged` 兜底订阅，覆盖跨图场景加载异步失败的边缘情形。**行为
+  变更**：跨图读档场景下 `save.loaded`/`save.migrated` 的实际派发时机比此前更晚（从"逐段读档
+  刚完成"延后到"目标地图 `EnterMap` 也跑完"）；已审计全部 12 个生产订阅者（`ViewBinder` 本身
+  与 11 个"收到即整体重渲染/清缓存"的幂等处理），确认该时机变化不改变任何订阅者的可观察行为。
+  不改动任何既有公开成员签名。
+
 ## [1.68.0] - 2026-09-24
 
 ### 新增
