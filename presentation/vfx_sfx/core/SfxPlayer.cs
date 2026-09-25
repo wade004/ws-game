@@ -43,9 +43,35 @@ namespace Presentation.VfxSfx.Core
         private readonly Dictionary<string, List<ActivePlayback>> _activeByLayer = new Dictionary<string, List<ActivePlayback>>(StringComparer.Ordinal);
         private readonly Dictionary<SfxHandle, ActivePlayback> _byHandle = new Dictionary<SfxHandle, ActivePlayback>();
 
-        /// <summary>ADR-0089 新增：见 <see cref="PlayAttached"/> 判断记录——只登记 <c>sfx.def.loop=true</c>
-        /// 且按实体挂接的播放，键 (sfxId, entityId) → 当前在播句柄，供 <see cref="StopAttached"/> 定位。</summary>
-        private readonly Dictionary<(Id SfxId, Id EntityId), SfxHandle> _activeByAttachKey = new Dictionary<(Id, Id), SfxHandle>();
+        /// <summary>缺陷修复（2026-09-26，见 <see cref="PlayAttached"/> 判断记录"冷加载路径不登记
+        /// attach 键"）：值从"当前在播句柄"改为可表达两态的 <see cref="AttachEntry"/>——
+        /// <see cref="AttachEntry.Handle"/>（已在播）或 <see cref="AttachEntry.Pending"/>（仍在排队
+        /// 等待首次加载完成，见 <see cref="PendingPlay.AttachEntityId"/>）。键 (sfxId, entityId) →
+        /// 当前跟踪的播放状态，供 <see cref="StopAttached"/> 定位。</summary>
+        private readonly Dictionary<(Id SfxId, Id EntityId), AttachEntry> _activeByAttachKey = new Dictionary<(Id, Id), AttachEntry>();
+
+        /// <summary>缺陷修复（2026-09-26）：<see cref="_activeByAttachKey"/> 的反向索引，句柄 →
+        /// 该句柄对应的 attach 键。任何路径停止一个被跟踪的句柄（<see cref="Stop(SfxHandle)"/>、
+        /// <see cref="MakeRoomIfNeeded"/> 同层抢占）都必须经它摘掉 <see cref="_activeByAttachKey"/>
+        /// 对应条目，否则 <see cref="PlayAttached"/> 的"同键幂等"会在句柄已经停止播放之后仍然返回这个
+        /// 死句柄，调用方以为循环音效还在播。只有升级为 <see cref="AttachEntry.Handle"/> 态的条目才会
+        /// 出现在这里；<see cref="AttachEntry.Pending"/> 态没有句柄，不登记。</summary>
+        private readonly Dictionary<SfxHandle, (Id SfxId, Id EntityId)> _attachKeyByHandle = new Dictionary<SfxHandle, (Id, Id)>();
+
+        /// <summary>缺陷修复（2026-09-26）：见 <see cref="_activeByAttachKey"/> 判断记录。两态用
+        /// <c>Handle</c>/<c>Pending</c> 二选一表达（构造方法保证互斥，不使用可空 struct 组合字段以
+        /// 避免"两个都非空"的非法状态可表达），不做成 <c>readonly struct</c>——<see cref="Pending"/>
+        /// 引用的 <see cref="PendingPlay"/> 实例的 <see cref="PendingPlay.Cancelled"/> 字段需要被
+        /// <see cref="StopAttached"/> 直接原地翻转，语义上就是在改"这个条目当前指向的排队请求"这一
+        /// 可变状态，用类类型更直接。</summary>
+        private sealed class AttachEntry
+        {
+            public SfxHandle? Handle;
+            public PendingPlay? Pending;
+
+            public static AttachEntry FromHandle(SfxHandle handle) => new AttachEntry { Handle = handle };
+            public static AttachEntry FromPending(PendingPlay pending) => new AttachEntry { Pending = pending };
+        }
         private readonly Dictionary<string, double> _layerVolume = new Dictionary<string, double>(StringComparer.Ordinal);
         private readonly HashSet<string> _mutedLayers = new HashSet<string>(StringComparer.Ordinal);
         private readonly IResourceLoader? _resourceLoader;
@@ -66,6 +92,25 @@ namespace Presentation.VfxSfx.Core
             /// <see cref="OnResourceLoadCompleted"/> 真正 <c>IAudio.PlaySfx</c> 时原样传递，同
             /// <c>VfxPlayer.PendingSpawn.BlendMode</c> 判断记录同一套惯例。</summary>
             public bool Loop;
+
+            /// <summary>缺陷修复（2026-09-26）：非 null 时表示这次排队的播放请求来自 <see
+            /// cref="PlayAttached"/>，携带方式同 <see cref="Loop"/>——排队那一刻（<see
+            /// cref="QueuePendingPlay"/> 内，早于任何 <see cref="IResourceLoader.LoadAsync"/> 回调）
+            /// 就把 <c>(SfxId, AttachEntityId.Value)</c> 登记进 <see cref="_activeByAttachKey"/> 为
+            /// <see cref="AttachEntry.Pending"/> 态，<see cref="OnResourceLoadCompleted"/> 真正播放
+            /// 成功后升级为 <see cref="AttachEntry.Handle"/> 态。修复前只在 <see cref="Play"/> 同步
+            /// 返回真实句柄时才登记，冷加载（真实引擎音频解码永远异步，见
+            /// <c>UnityResourceLoader.LoadAsync</c> 判断记录"音频解码"）首播必然走这条排队路径，
+            /// 键从未登记过，<see cref="StopAttached"/> 永远查不到、循环音效停不下来，见 ADR-0089
+            /// "后果/已知限制"节 2026-09-26 追加。</summary>
+            public Id? AttachEntityId;
+
+            /// <summary>缺陷修复（2026-09-26）：见 <see cref="StopAttached"/> 判断记录"Pending 态：
+            /// 取消排队"——true 时 <see cref="OnResourceLoadCompleted"/> 摘除本条目但不真正
+            /// <c>IAudio.PlaySfx</c>（即便加载成功），避免"进入后没等加载完就离开"留下一个永远停不掉
+            /// 的循环实例。仅对 <see cref="AttachEntityId"/> 非 null 的排队项有意义（<see
+            /// cref="StopAttached"/> 只能定位到经 <see cref="PlayAttached"/> 排队的项）。</summary>
+            public bool Cancelled;
 
             /// <summary>同 <c>VfxPlayer.PendingSpawn.Handle</c> 判断记录（同步加载器场景）：
             /// <see cref="QueuePendingPlay"/> 调用 <see cref="IResourceLoader.LoadAsync"/> 之后，若该
@@ -119,7 +164,17 @@ namespace Presentation.VfxSfx.Core
         /// PresentationAssembly.SfxPlaybackDiagnostics"/> 转发到装配根，见该属性判断记录。</summary>
         public ISfxPlaybackDiagnostics PlaybackDiagnostics => _playbackDiagnostics;
 
-        public SfxHandle? Play(Id sfxId, Vec2? at)
+        public SfxHandle? Play(Id sfxId, Vec2? at) => PlayCore(sfxId, at, attachEntityId: null);
+
+        /// <summary>缺陷修复（2026-09-26）：<see cref="Play"/> 与 <see cref="PlayAttached"/> 共用的实现，
+        /// <paramref name="attachEntityId"/> 非 null 时表示调用方是 <see cref="PlayAttached"/>——
+        /// 必须在"排队那一刻"（走 <see cref="QueuePendingPlay"/> 分支、真正调用 <c>IAudio.PlaySfx</c>
+        /// 之前）就把 attach 键登记为 <see cref="AttachEntry.Pending"/>，不能等 <see cref="Play"/>
+        /// 同步返回句柄之后再登记——真实引擎音频解码永远异步（见 <see cref="PendingPlay.
+        /// AttachEntityId"/> 判断记录），冷加载路径下 <see cref="Play"/> 本就不会同步返回句柄，
+        /// 等它返回值再登记会永远登记不上。<see cref="Play"/> 本身不需要 attach 跟踪，
+        /// 传 <c>null</c> 即可，原有行为逐字不变。</summary>
+        private SfxHandle? PlayCore(Id sfxId, Vec2? at, Id? attachEntityId)
         {
             // ADR-0083：请求计数覆盖本次调用本身，与下方 SweepTimedOutPendingPlays 可能顺带清理掉
             // 的、属于更早调用的排队项无关（那些项各自的请求早已在各自发生的那次 Play 调用里计数
@@ -155,7 +210,7 @@ namespace Presentation.VfxSfx.Core
                 // 判断记录（可能同步返回真实句柄，见 PendingPlay.Handle）：同 VfxPlayer.Spawn 同款
                 // 判断记录——同步加载器（测试桩/引擎缓存命中）可能已经在 QueuePendingPlay 内部就
                 // 完成了整个"加载 -> 补播放"，此时直接返回那次同步产生的真实句柄。
-                return QueuePendingPlay(sfxId, resourceRef, layer, priority, at, loop);
+                return QueuePendingPlay(sfxId, resourceRef, layer, priority, at, loop, attachEntityId);
             }
 
             // 判断记录：不再调用 _resourceTracker?.EnsureLoading，同 VfxPlayer.Spawn 同款判断记录
@@ -172,10 +227,15 @@ namespace Presentation.VfxSfx.Core
             _byHandle[handle] = playback;
             _playbackDiagnostics.RecordStarted(resourceRef);
 
+            if (attachEntityId.HasValue)
+            {
+                RegisterAttachHandle(sfxId, attachEntityId.Value, handle);
+            }
+
             return handle;
         }
 
-        private SfxHandle? QueuePendingPlay(Id sfxId, Id resourceRef, string layer, int priority, Vec2? at, bool loop)
+        private SfxHandle? QueuePendingPlay(Id sfxId, Id resourceRef, string layer, int priority, Vec2? at, bool loop, Id? attachEntityId)
         {
             var pending = new PendingPlay
             {
@@ -186,8 +246,18 @@ namespace Presentation.VfxSfx.Core
                 At = at,
                 Deadline = DateTime.UtcNow.AddSeconds(_options.FirstLoadTimeoutSeconds),
                 Loop = loop,
+                AttachEntityId = attachEntityId,
             };
             _pendingPlays.Add(pending);
+
+            // 缺陷修复（2026-09-26）：必须在这里、调用 LoadAsync 之前登记——见 PlayCore/PendingPlay.
+            // AttachEntityId 判断记录"排队那一刻就登记，不等句柄"。即便下面 LoadAsync 是同步桩、在
+            // 本方法返回前就已经回调完成，OnResourceLoadCompleted 也要能查到这条 Pending 登记才能
+            // 正确升级为 Handle 态（见该方法判断记录），所以登记必须先于 LoadAsync 调用。
+            if (attachEntityId.HasValue)
+            {
+                _activeByAttachKey[(sfxId, attachEntityId.Value)] = AttachEntry.FromPending(pending);
+            }
 
             if (_pendingResourceLoads.Add(resourceRef))
             {
@@ -214,10 +284,20 @@ namespace Presentation.VfxSfx.Core
                 _pendingPlays.RemoveAt(i);
                 removedAny = true;
 
+                if (pending.Cancelled)
+                {
+                    // 缺陷修复（2026-09-26）：见 StopAttached 判断记录"Pending 态：取消排队"——
+                    // StopAttached 已经在取消时摘掉 attach 键，这里只需要不真正播放；不产生诊断
+                    // （同 StopAttached"查不到仍静默"同一惯例，取消本就是调用方主动发起的正常时序，
+                    // 不是缺陷信号）。
+                    continue;
+                }
+
                 if (!success)
                 {
                     _diagnostics.Warn($"sfx \"{pending.SfxId}\" 的资源 \"{resourceId}\" 加载失败，丢弃这次排队等待加载完成后播放的请求");
                     _playbackDiagnostics.RecordDropped();
+                    UnregisterAttachIfStillPending(pending);
                     continue;
                 }
 
@@ -230,6 +310,21 @@ namespace Presentation.VfxSfx.Core
                 _byHandle[handle] = playback;
                 _playbackDiagnostics.RecordStarted(pending.ResourceRef);
                 pending.Handle = handle; // 见 PendingPlay.Handle 判断记录：供同步加载器场景下 QueuePendingPlay 取回。
+
+                // 缺陷修复（2026-09-26）：真正播放成功后，把排队时登记的 Pending 态升级为 Handle 态
+                // ——见 PlayCore/PendingPlay.AttachEntityId 判断记录。ReferenceEquals 守卫：键当前
+                // 指向的是不是恰好这一条 pending（不是同键更晚一次 PlayAttached 排队的新 pending）
+                // ——StopAttached 取消旧 pending 后允许同键立刻重新 PlayAttached 排队一个新的，两者
+                // 会在 _pendingPlays 里共存到各自被摘除为止，不加这层守卫会错误升级到一个已经被取消
+                // 替换掉的旧条目上。
+                if (pending.AttachEntityId.HasValue)
+                {
+                    var key = (pending.SfxId, pending.AttachEntityId.Value);
+                    if (_activeByAttachKey.TryGetValue(key, out var entry) && ReferenceEquals(entry.Pending, pending))
+                    {
+                        RegisterAttachHandle(pending.SfxId, pending.AttachEntityId.Value, handle);
+                    }
+                }
             }
 
             // N17 根治：见 VfxPlayer.OnResourceLoadCompleted 同款判断记录，失败分支同样要通知。
@@ -264,6 +359,10 @@ namespace Presentation.VfxSfx.Core
                         $"sfx \"{pending.SfxId}\" 等待资源 \"{pending.ResourceRef}\" 加载超时" +
                         $"（{_options.FirstLoadTimeoutSeconds}s），丢弃这次排队的播放请求");
                     _playbackDiagnostics.RecordDropped();
+                    // 缺陷修复（2026-09-26）：超时丢弃同样要摘掉排队时登记的 attach 键（若未被
+                    // StopAttached 提前取消/摘除），否则该键会永久指向一个再也不会被处理的 Pending，
+                    // PlayAttached 幂等检查会认为"仍在排队"而拒绝发起新的播放请求。
+                    UnregisterAttachIfStillPending(pending);
                 }
             }
 
@@ -296,14 +395,19 @@ namespace Presentation.VfxSfx.Core
                 _byHandle.Remove(handle);
             }
 
+            // 缺陷修复（2026-09-26）：见 _attachKeyByHandle 判断记录——任何路径停止一个被跟踪的句柄
+            // 都要经这里摘掉 attach 键，不止 StopAttached 一条路径（同层抢占见 MakeRoomIfNeeded）。
+            UnregisterAttachKeyForHandle(handle);
+
             _audio.StopSfx(handle);
         }
 
         /// <summary>ADR-0089：见 <see cref="ISfxPlayer.PlayAttached"/> 判断记录。非循环（未登记/
-        /// <c>Loop=false</c>）退化为普通 <see cref="Play"/>，不登记键；循环且同键已在播时幂等返回
-        /// 已登记句柄，不叠播；循环且冷资源加载中（<see cref="Play"/> 排队返回 null，见该方法判断
-        /// 记录"外部审核阻塞项 4"）时同样不登记——与 <c>CompositeFeedbackSink._activeVfxByKey</c>
-        /// "只在确实产生了句柄时才登记"同一限制，不新建一套"补登记"机制。</summary>
+        /// <c>Loop=false</c>）退化为普通 <see cref="Play"/>，不登记键；循环且同键已登记（<see
+        /// cref="AttachEntry.Handle"/> 已在播，或 <see cref="AttachEntry.Pending"/> 仍在排队等待冷
+        /// 资源加载完成）时幂等返回既有句柄/null，不叠播、不重复排队——键在排队那一刻（<see
+        /// cref="QueuePendingPlay"/> 内）就已登记，见 <see cref="PendingPlay.AttachEntityId"/> 判断
+        /// 记录"缺陷修复（2026-09-26）"，不再要求"确实产生了句柄才登记"。</summary>
         public SfxHandle? PlayAttached(Id sfxId, Id entityId, Vec2? at)
         {
             if (!_catalog.TryGetValue(sfxId, out var def) || !def.Loop)
@@ -314,28 +418,84 @@ namespace Presentation.VfxSfx.Core
             var key = (sfxId, entityId);
             if (_activeByAttachKey.TryGetValue(key, out var existing))
             {
-                return existing;
+                // Handle 态直接返回既有句柄；Pending 态原样返回 pending.Handle（同 QueuePendingPlay
+                // 判断记录，通常为 null，同步加载器场景下可能已经写好）。
+                return existing.Handle ?? existing.Pending!.Handle;
             }
 
-            var handle = Play(sfxId, at);
-            if (handle.HasValue)
-            {
-                _activeByAttachKey[key] = handle.Value;
-            }
-            return handle;
+            return PlayCore(sfxId, at, attachEntityId: entityId);
         }
 
-        /// <summary>ADR-0089：见 <see cref="ISfxPlayer.StopAttached"/> 判断记录。</summary>
+        /// <summary>ADR-0089：见 <see cref="ISfxPlayer.StopAttached"/> 判断记录。缺陷修复
+        /// （2026-09-26）新增 Pending 态处理：见类型顶部"后果/已知限制"追加。</summary>
         public void StopAttached(Id sfxId, Id entityId)
         {
             var key = (sfxId, entityId);
-            if (!_activeByAttachKey.TryGetValue(key, out var handle))
+            if (!_activeByAttachKey.TryGetValue(key, out var entry))
             {
                 return;
             }
 
+            if (entry.Handle.HasValue)
+            {
+                // Stop 经 _attachKeyByHandle 反向索引摘除本条目（含 _activeByAttachKey 本身），
+                // 这里不重复摘除。
+                Stop(entry.Handle.Value);
+                return;
+            }
+
+            // Pending 态：取消排队——"进入后没等加载完就离开"不能留下一个永远停不掉的循环。
+            // OnResourceLoadCompleted 回来时见到 Cancelled=true 就不会真正 IAudio.PlaySfx（见该方法
+            // 判断记录），此处立即摘键，不等加载完成/超时那一刻才摘。
+            entry.Pending!.Cancelled = true;
             _activeByAttachKey.Remove(key);
-            Stop(handle);
+        }
+
+        /// <summary>缺陷修复（2026-09-26）：<see cref="PlayCore"/>（资源已加载，立即产生句柄）与
+        /// <see cref="OnResourceLoadCompleted"/>（冷资源，加载完成后补产生句柄）共用——把 attach 键
+        /// 登记/升级为 <see cref="AttachEntry.Handle"/> 态，并同步写反向索引 <see
+        /// cref="_attachKeyByHandle"/>，供 <see cref="UnregisterAttachKeyForHandle"/> 定位。</summary>
+        private void RegisterAttachHandle(Id sfxId, Id entityId, SfxHandle handle)
+        {
+            var key = (sfxId, entityId);
+            _activeByAttachKey[key] = AttachEntry.FromHandle(handle);
+            _attachKeyByHandle[handle] = key;
+        }
+
+        /// <summary>缺陷修复（2026-09-26）：见 <see cref="_attachKeyByHandle"/> 判断记录——任何路径
+        /// 停止一个被跟踪的句柄都要调用本方法。查不到（该句柄本就不是经 <see cref="PlayAttached"/>
+        /// 跟踪的）时静默忽略。</summary>
+        private void UnregisterAttachKeyForHandle(SfxHandle handle)
+        {
+            if (!_attachKeyByHandle.TryGetValue(handle, out var key))
+            {
+                return;
+            }
+
+            _attachKeyByHandle.Remove(handle);
+            if (_activeByAttachKey.TryGetValue(key, out var entry) && entry.Handle == handle)
+            {
+                _activeByAttachKey.Remove(key);
+            }
+        }
+
+        /// <summary>缺陷修复（2026-09-26）：<see cref="OnResourceLoadCompleted"/> 加载失败分支、<see
+        /// cref="SweepTimedOutPendingPlays"/> 超时分支共用——排队项最终没能播放成功时，若 attach 键
+        /// 仍然指向这条排队项（未被 <see cref="StopAttached"/> 提前摘除/替换，ReferenceEquals 守卫同
+        /// <see cref="OnResourceLoadCompleted"/> 成功分支判断记录），摘掉它，避免键永久指向一个再也
+        /// 不会被处理的 Pending。</summary>
+        private void UnregisterAttachIfStillPending(PendingPlay pending)
+        {
+            if (!pending.AttachEntityId.HasValue)
+            {
+                return;
+            }
+
+            var key = (pending.SfxId, pending.AttachEntityId.Value);
+            if (_activeByAttachKey.TryGetValue(key, out var entry) && ReferenceEquals(entry.Pending, pending))
+            {
+                _activeByAttachKey.Remove(key);
+            }
         }
 
         public void SetLayerVolume(string layer, double volume)
@@ -405,6 +565,10 @@ namespace Presentation.VfxSfx.Core
 
             list.RemoveAt(victimIndex);
             _byHandle.Remove(victim.Handle);
+            // 缺陷修复（2026-09-26）：同层抢占停止的也可能是一个被 attach 跟踪的循环音效实例，同
+            // Stop(SfxHandle) 判断记录，必须一并摘键，否则被抢占后 PlayAttached 幂等检查会返回一个
+            // 已经停止播放的死句柄。
+            UnregisterAttachKeyForHandle(victim.Handle);
             _audio.StopSfx(victim.Handle);
         }
 

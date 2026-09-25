@@ -275,6 +275,27 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/UnityAudioTests.cs`
     `PlaySfx_LoopTrue_SetsAudioSourceLoopTrue`（PlayMode，`AudioSource.loop == true`）。
 
+21. **缺陷修复（2026-09-26，消费方第三十五批阻塞项）：`PlayAttached` 冷加载路径不登记 attach
+    键**——判断记录 20 落地时，`_activeByAttachKey` 只在 `Play` 同步返回真实句柄那一刻才写入；引擎
+    适配层的音频解码永远异步（判断记录 17"外部审核阻塞项 4"同款机制），循环音效在进程内第一次
+    `PlayAttached` 必然先走"排队等待首次加载完成"这条路径，起播成功但键从未登记过，`StopAttached`/
+    `stop_sfx` 因此永远查不到、循环音效停不下来，再次触发还会叠播第二个实例。改为在排队那一刻
+    （早于任何 `IResourceLoader.LoadAsync` 回调）就把键登记为"排队中"态，真正播放成功后升级为
+    "已在播"态；`StopAttached` 对"排队中"态改为取消这次排队（加载完成后不再补播放）并立即摘键，
+    对"已在播"态仍是 `Stop` 并摘键；同键幂等覆盖两态（排队中/已在播都不会叠播或重复排队）；任何
+    路径停止一个被跟踪的句柄（`Stop(handle)`、同层抢占）都经反向索引一并摘键，避免幂等检查返回
+    一个已经停止播放的死句柄。契约签名、既有行为（非循环退化为普通 `Play`、查不到静默忽略）不变。
+    回归用例：`tests/SfxPlayerTests.cs`
+    `PlayAttached_ColdLoad_QueuesAttachKey_StopAttached_StopsPlaybackAfterLoadCompletes`（复现，
+    修复前先证真红）/`PlayAttached_ColdLoad_StopAttachedBeforeLoadCompletes_CancelsQueuedPlay_
+    AndIsIdempotentWhilePending`（不变量，含阳性对照）；
+    `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/
+    SfxAttachColdLoadPlayModeTests.cs`
+    `PlayAttached_ColdLoopSfx_ThenStopAttached_StopsRealAudioSource`（PlayMode，真实
+    `UnityResourceLoader`/`UnityAudio` 上验证，含阳性对照）。见
+    [ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)"后果/已知限制"节
+    2026-09-26 追加。
+
 ## 不负责什么
 
 - `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的

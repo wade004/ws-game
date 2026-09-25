@@ -458,6 +458,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **`SfxPlayer.PlayAttached` 冷加载路径不登记 attach 键**（消费方反馈第三十五批阻塞项，
+  [ADR-0089](architecture/adr/0089-循环音效与stop_sfx动作.md)"后果/已知限制"节追加）：循环音效
+  首次冷加载播放（引擎音频解码永远异步）时 attach 键从未登记过，`StopAttached`/`stop_sfx` 永远
+  停不下来；改为排队那一刻即登记，加载完成后升级，`StopAttached` 可在排队期间取消。
+
 ## [1.71.0] - 2026-09-25
 
 ### 新增

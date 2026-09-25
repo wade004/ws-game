@@ -519,5 +519,77 @@ namespace Tests.Presentation.VfxSfx
             var ex = Record.Exception(() => player.StopAttached(LoopSfx, new Id("unit.never_played")));
             Assert.Null(ex);
         }
+
+        // ------------------------------------------------------------------
+        // 缺陷修复（2026-09-26，消费方第三十五批）：PlayAttached 冷加载路径不登记 attach 键。
+        // 修复前 _activeByAttachKey 只在 Play() 同步返回真实句柄时才写入；真实引擎音频解码永远
+        // 异步（见 SfxPlayer.PendingPlay.AttachEntityId 判断记录），循环音效在进程内第一次
+        // PlayAttached 必然命中"先排队、后在 OnResourceLoadCompleted 里真正播放"这条路径——起播
+        // 成功但键从未登记过，StopAttached/stop_sfx 永远 miss，循环音效停不下来。下面两条用例用
+        // StubResourceLoader.DeferCallbacks=true 模拟真实异步加载，复用既有 BuildLoopCatalog/LoopSfx。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void PlayAttached_ColdLoad_QueuesAttachKey_StopAttached_StopsPlaybackAfterLoadCompletes()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog(), resourceLoader: loader);
+            var entityId = new Id("unit.dummy");
+
+            var handle = player.PlayAttached(LoopSfx, entityId, null);
+            Assert.Null(handle); // 冷资源尚未加载完成，同 Play() 既有语义，不能立即拿到真实句柄。
+            Assert.Empty(audio.ActiveSfxPlaybacks);
+
+            loader.CompletePending(new Id("res.buff_hum"));
+
+            Assert.Single(audio.ActiveSfxPlaybacks); // 加载完成后应当补播放一次。
+
+            player.StopAttached(LoopSfx, entityId);
+
+            // 核心断言（修复前会失败）：修复前 attach 键从未登记过，StopAttached 查不到键、静默
+            // no-op，本条断言会发现桩上仍然记录着这次播放——循环音效播放后永远停不下来。
+            Assert.Empty(audio.ActiveSfxPlaybacks);
+        }
+
+        [Fact]
+        public void PlayAttached_ColdLoad_StopAttachedBeforeLoadCompletes_CancelsQueuedPlay_AndIsIdempotentWhilePending()
+        {
+            // 阳性对照：同一套桩配置，不调用 StopAttached 时应当在加载完成后播放一次——证明下面
+            // "取消后无播放"这条否定断言不是因为桩/资源配置本身有问题（同既有 PollObservesPlaying
+            // 判断记录"否定断言最容易因为错误的原因为真"这一惯例）。
+            var controlAudio = new StubAudio();
+            var controlLoader = new StubResourceLoader { DeferCallbacks = true };
+            var controlPlayer = new SfxPlayer(controlAudio, new RngHost(1), BuildLoopCatalog(), resourceLoader: controlLoader);
+            var entityId = new Id("unit.dummy");
+
+            controlPlayer.PlayAttached(LoopSfx, entityId, null);
+            controlLoader.CompletePending(new Id("res.buff_hum"));
+            Assert.Single(controlAudio.ActiveSfxPlaybacks);
+
+            // 被测：StopAttached 在加载完成之前到达——"进入后没等加载完就离开"不能留下一个永远
+            // 停不掉的循环，见 StopAttached 判断记录"Pending 态：取消排队"。
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog(), resourceLoader: loader);
+
+            var first = player.PlayAttached(LoopSfx, entityId, null);
+            Assert.Null(first);
+
+            // 不变量：Pending 期间第二次 PlayAttached 同键——幂等，不产生第二个排队项（只有一次
+            // LoadAsync 请求，同既有 Play_WithResourceLoaderInjected_LoadsResolvedResourceAsAudio_
+            // OnlyOnce 判断记录同一套去重机制）。
+            var second = player.PlayAttached(LoopSfx, entityId, null);
+            Assert.Null(second);
+            Assert.Single(loader.LoadRequests.FindAll(r => r.ResourceId.Equals(new Id("res.buff_hum"))));
+
+            player.StopAttached(LoopSfx, entityId);
+
+            loader.CompletePending(new Id("res.buff_hum"));
+
+            // 核心断言：取消排队后，加载完成回调不应该补播放——与上面阳性对照的"确实会播放"形成
+            // 对照，证明这不是桩配置问题，而是取消真正生效。
+            Assert.Empty(audio.ActiveSfxPlaybacks);
+        }
     }
 }
