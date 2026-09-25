@@ -66,6 +66,17 @@
   `StopAttached` 在排队期间到达则取消这次排队（不再补播放）；行为、契约签名不变，见
   `presentation/vfx_sfx/core/SfxPlayer.cs` 判断记录"缺陷修复（2026-09-26）"与
   `presentation/vfx_sfx/tests/SfxPlayerTests.cs` 同名复现用例。
+- **区域事件驱动时，跟踪键按"进入的那个单位"逐个建立（2026-09-26，消费方第三十六批排查结论，
+  契约行为，不是缺陷）**：`area.trigger_entered`/`area.trigger_left` 对每个单位各发一次（出生即在
+  区域内的单位在首次评估时就收到"进入"），`attach: source` 取事件的 `unitId`。条件只写
+  `event.trigger_id == ...`、不按单位过滤的 `play_sfx` 规则，会给区域内每个单位（含静止的非玩家
+  单位）各起一个循环实例；玩家离开只停玩家自己那一个，按"场景里是否还有这段音频在播"采样就表现为
+  "停不掉"。只想让玩家听到的区域循环音，`play_sfx`/`stop_sfx` 两条规则的条件都要追加单位过滤（如
+  `self.faction == <玩家阵营>`，`self` 即事件 `unitId`）。复现与对照见
+  `presentation/assembly/tests/AreaTriggerLoopSfxProductionChainTests.cs`。
+- 同批排查中实测到的相邻缺口（未修复，待设计层确认）：单位仍在区域内时该区域被整体卸载
+  （`IAreaTriggerHost.UnloadMap`/`Unregister`，如切图），不会补发 `area.trigger_left`，由"离开"
+  规则负责停止的循环音效会继续播放；与上面"实体销毁时不会自动停止"是同一类生命周期缺口。
 
 ## 备选方案与为什么不选
 

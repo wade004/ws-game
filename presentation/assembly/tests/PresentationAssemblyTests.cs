@@ -33,7 +33,7 @@ namespace Tests.Presentation.Assembly
     /// 一次伤害事件经 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/> 落到飘字回调、
     /// 以及 <see cref="PresentationAssembly.Dispose"/> 退订后同一事件不再触发回调。
     /// </summary>
-    public class PresentationAssemblyTests
+    public partial class PresentationAssemblyTests
     {
         private static readonly Id SamplePlayerTemplateId = new Id("creature.sample_player");
         private static readonly Id SampleTargetTemplateId = new Id("creature.sample_target");
