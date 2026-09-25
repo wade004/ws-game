@@ -62,9 +62,19 @@ namespace Adapter.Unity.Presentation
         /// <summary>见文件顶部判断记录"去重键与上限淘汰策略"：经验值，未特别指定时使用。</summary>
         public const int DefaultCapacity = 500;
 
+        /// <summary>去重表条目：ADR-0086 新增 <see cref="Count"/>（见 <see cref="ShouldForward(string, out int)"/>
+        /// 判断记录）——除去重键本身外，额外记住这个键累计出现过多少次，供调用方在"重复出现"时把
+        /// 次数体现在输出里，而不是让重复被去重逻辑悄无声息地吞掉（消费方第三十二批阻塞项第 3 条：
+        /// "被去重的重复出现要计数，并在后续输出里能看到次数，不能静默丢弃"）。</summary>
+        private sealed class Entry
+        {
+            public string Key = string.Empty;
+            public int Count;
+        }
+
         private readonly int _capacity;
-        private readonly Dictionary<string, LinkedListNode<string>> _index;
-        private readonly LinkedList<string> _lru;
+        private readonly Dictionary<string, LinkedListNode<Entry>> _index;
+        private readonly LinkedList<Entry> _lru;
 
         /// <summary>可关闭：默认开启（见任务书硬约束"默认开启"）。关闭时 <see cref="ShouldForward"/>
         /// 恒返回 <c>false</c>，且不记账（不会把关闭期间路过的消息计入去重表——重新开启后这些消息
@@ -80,25 +90,37 @@ namespace Adapter.Unity.Presentation
 
             Enabled = enabled;
             _capacity = capacity;
-            _index = new Dictionary<string, LinkedListNode<string>>(StringComparer.Ordinal);
-            _lru = new LinkedList<string>();
+            _index = new Dictionary<string, LinkedListNode<Entry>>(StringComparer.Ordinal);
+            _lru = new LinkedList<Entry>();
         }
 
         /// <summary>返回 <c>true</c> 表示本次调用是该消息文本自上次转发（或从未转发）以来第一次
         /// 出现，调用方应当据此转发一次；返回 <c>false</c> 表示未开启，或该消息仍在去重窗口内
         /// （已经转发过、尚未被 LRU 淘汰）。</summary>
-        public bool ShouldForward(string message)
+        public bool ShouldForward(string message) => ShouldForward(message, out _);
+
+        /// <summary>ADR-0086 新增重载（ABI 只新增，原有单参数版本委托到本方法，行为不变）：除返回
+        /// 是否应转发外，<paramref name="occurrenceCount"/> 额外报告这个去重键在当前 LRU 窗口内累计
+        /// 出现过多少次（含本次，首次出现为 1；被 LRU 淘汰后重新出现视为新一轮计数，同既有淘汰语义
+        /// "早被淘汰的旧消息重新出现会被当作新消息再转发一次"）。调用方（
+        /// <see cref="Adapter.Unity.Diagnostics.ExceptionAwareDiagnosticsFeed"/>）用它在重复出现时于
+        /// 输出里体现"这是第几次"，不让重复被去重逻辑悄无声息地吞掉——见判断记录"被去重的重复出现要
+        /// 计数"。</summary>
+        public bool ShouldForward(string message, out int occurrenceCount)
         {
             if (message == null) throw new ArgumentNullException(nameof(message));
 
             if (!Enabled)
             {
+                occurrenceCount = 0;
                 return false;
             }
 
             if (_index.TryGetValue(message, out var existing))
             {
-                // 命中：刷新为最近使用，但本身不是"新"消息，不转发。
+                // 命中：刷新为最近使用，计数 +1，但本身不是"新"消息，不转发。
+                existing.Value.Count++;
+                occurrenceCount = existing.Value.Count;
                 _lru.Remove(existing);
                 _lru.AddFirst(existing);
                 return false;
@@ -110,12 +132,14 @@ namespace Adapter.Unity.Presentation
                 if (oldest != null)
                 {
                     _lru.RemoveLast();
-                    _index.Remove(oldest.Value);
+                    _index.Remove(oldest.Value.Key);
                 }
             }
 
-            var node = _lru.AddFirst(message);
+            var entry = new Entry { Key = message, Count = 1 };
+            var node = _lru.AddFirst(entry);
             _index[message] = node;
+            occurrenceCount = 1;
             return true;
         }
     }

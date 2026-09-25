@@ -200,3 +200,12 @@ scene_router/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（新增只读属性 `Hooks`，2026-09-25，architecture/adr/0086-创建期异常隔离与诊断信息不丢失.md）
+
+`SceneRouter` 新增只读属性 `Hooks`（返回构造时传入的 `IHookRegistry`，ABI 只新增只读属性，不改动
+任何既有公开签名）。背景：`GameplayAssembly.AttachSceneRouter` 隐含"传入的场景路由构造时用的钩子
+注册表与 `GameplayAssembly.Hooks` 是同一实例"这一装配惯例，此前没有任何防呆手段去验证——`ISceneRouter`
+接口本身不暴露这个引用，不同实例时 `ScenePostLoad` 钩子（跨图读档完成通知的补发点）永远不会触发，
+读档一直挂起且没有任何异常/诊断。新增这个属性纯粹是为了让 `AttachSceneRouter` 能在装配期做一次
+`ReferenceEquals` 比对；本模块自身的加载流程、事件时序不受影响。

@@ -548,6 +548,29 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   共享同一实例）/`CompositeFeedbackSink` 五个经本机制覆盖，`SpriteCharacterRig` 走独立的
   `SpriteRigDiagnosticsPump` 路径覆盖；`presentation/ui.IUiDiagnostics` 是另一套独立契约（未实现
   `IPresentationDiagnostics`），不在本机制范围内，接入需要设计层另行拍板，本批未顺手处理。
+  <br/>**第四批跟进（2026-09-25，ADR-0086）**：上面几批都是 `PresentationDiagnosticsConsoleGate`
+  的去重键“就是消息文本本身”这一取舍在这里第一次被落地为文字；ADR-0086 发现这条取舍在
+  `Diagnostics/DiagnosticsHub.cs`（核心层→`DiagnosticsHubComposition.RegisterCoreSources` 登记的
+  事件总线/钩子注册表/应用生命周期/存档系统/场景路由五个来源，即消费方反馈实际流经的链路）会
+  放大成两个问题：转发只带消息文字，异常对象（类型、堆栈）整个丢失；且两个类型不同、文字凑巧
+  相同的异常会被去重键误判成同一条，重复出现的异常在去重后彻底不留痕迹。修法不改
+  `PresentationDiagnosticsConsoleGate` 原有去重键（该类型仍服务于本节其它四条只携带纯字符串的
+  来源，继续按消息文本去重），而是：①在同文件新增
+  `ShouldForward(string message, out int occurrenceCount)` 重载（ABI 只加重载，旧签名不变，
+  内部改用一个 `Entry{Key,Count}` 存储，重复命中时对应计数自增）；②`DiagnosticsHub.cs` 新增
+  `ExceptionAwareErrorProjection`/`ExceptionAwareErrorText`（把“消息 + 可选异常”形状的错误记录
+  投影成携带异常对象的只读列表，纯加法，不改现有 `ProjectedReadOnlyList` 投影路径）与内部
+  `ExceptionAwareDiagnosticsFeed`（去重键 = 来源名+消息+异常类型全名+堆栈顶帧，首次转发带类型
+  全名与完整堆栈，重复命中永远仍会转发一条精简提示并带累计出现次数，不静默丢弃，只是不重复
+  刷屏整段堆栈）；③`DiagnosticsHubComposition.RegisterCoreSources` 把这五个来源的注册从
+  `ProjectedReadOnlyList<XErrorRecord>(diag.Errors, e => e.Message)` 换成
+  `ExceptionAwareErrorProjection.From(diag.Errors, e => e.Message, e => e.Exception)`；其余来源
+  （Gobj/Creature/Item/Projectile/PowerSet/Progression/Combat/Skill/AreaTrigger/Reward/Death/
+  Dialog/Spawn/WorldState/ProgressionBridge/Loot/Ui）从一开始就没有捕获过异常对象，本批未动，
+  详见 architecture/adr/0086-创建期异常隔离与诊断信息不丢失.md“明确不做的事”。Unity 侧新增
+  `Tests/Editor/ADR0086_ExceptionAwareDiagnosticsForwardingEditorTests.cs`（EditMode，2 例，已在
+  真实 Unity 跑过）覆盖“两个类型不同、消息相同的异常互不覆盖”与“重复出现的异常计数可见”两条
+  验收标准。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 

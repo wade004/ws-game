@@ -61,9 +61,20 @@ namespace Tests.PresentationViewBinding
 
         public readonly Dictionary<Id, FakeView> CreatedByEntityId = new Dictionary<Id, FakeView>();
 
+        /// <summary>ADR-0086 回归专用：按实体 id 决定本次 <see cref="CreateView"/> 是否抛异常
+        /// （返回非 null 时抛出该异常，替代正常创建）。默认 null，不影响既有用例。</summary>
+        public Func<Id, Exception?>? ThrowOnCreate;
+
         public IView CreateView(ViewKind kind, Id displayId, Id entityId)
         {
             Calls.Add((kind, displayId, entityId));
+
+            var ex = ThrowOnCreate?.Invoke(entityId);
+            if (ex != null)
+            {
+                throw ex;
+            }
+
             var view = new FakeView();
             CreatedByEntityId[entityId] = view;
             return view;

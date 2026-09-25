@@ -86,12 +86,21 @@ namespace Adapter.Unity.Diagnostics
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
+    /// <summary>诊断来源可轮询的公共形状（ADR-0086 新增，见判断记录"诊断转发不丢异常信息"）：
+    /// <see cref="DiagnosticsFeed"/>（纯字符串错误列表）与 <see cref="ExceptionAwareDiagnosticsFeed"/>
+    /// （携带 <see cref="Exception"/> 对象的错误列表）都实现本接口，<see cref="DiagnosticsHub"/> 只
+    /// 认识这一层，不需要区分具体是哪一种来源。</summary>
+    internal interface IDiagnosticsFeed
+    {
+        void Pump(Adapter.Unity.Presentation.PresentationDiagnosticsConsoleGate gate, Adapter.Unity.Presentation.IPresentationDiagnosticsConsoleSink sink);
+    }
+
     /// <summary>
     /// 单个诊断来源的记账状态：持有 Warnings/可选 Errors 两个"只增不减"列表的引用（调用方保证——
     /// 这是所有既有 InMemory*Diagnostics 实现的共同惯例，见判断记录），记住各自上次转发到第几条，
     /// <see cref="Pump"/> 时只处理新增的那一段，不重新扫描已转发过的部分。
     /// </summary>
-    internal sealed class DiagnosticsFeed
+    internal sealed class DiagnosticsFeed : IDiagnosticsFeed
     {
         private readonly string _sourceName;
         private readonly IReadOnlyList<string> _warnings;
@@ -133,6 +142,167 @@ namespace Adapter.Unity.Diagnostics
         }
     }
 
+    /// <summary>ADR-0086 新增：错误级诊断条目的通用形状——全仓 <c>InMemory*Diagnostics</c> 的
+    /// <c>*ErrorRecord</c 系列结构（<c>EventDiagnosticsErrorRecord</c>/<c>HookDiagnosticsErrorRecord</c>/
+    /// <c>SaveDiagnosticsErrorRecord</c>/<c>SceneDiagnosticsErrorRecord</c>/
+    /// <c>AppLifecycleDiagnosticsErrorRecord</c> 等）都是"消息 + 可选异常"这个形状，但彼此是各模块
+    /// 独立定义的具体类型，不共享基类型（各自模块自成一体，见各自类型注释），本 Hub 不便直接认识
+    /// 这些具体类型。调用方经 <see cref="ExceptionAwareErrorProjection.From{TSource}"/> 把任意这种
+    /// 形状投影成 <c>IReadOnlyList&lt;ExceptionAwareErrorText&gt;</c> 供
+    /// <see cref="DiagnosticsHub.Register(string, IReadOnlyList{string}, IReadOnlyList{ExceptionAwareErrorText})"/>
+    /// 使用——修复此前 <c>DiagnosticsHubComposition</c> 用 <c>ProjectedReadOnlyList&lt;T&gt;(errors,
+    /// e =&gt; e.Message)</c> 只取 <c>Message</c> 字段、把 <c>Exception</c> 整个丢弃的缺口（消费方第
+    /// 三十二批阻塞项第 3 条："适配层转发诊断时只带消息文字，丢了异常类型和堆栈"）。</summary>
+    public readonly struct ExceptionAwareErrorText
+    {
+        public string Message { get; }
+
+        public Exception? Exception { get; }
+
+        public ExceptionAwareErrorText(string message, Exception? exception)
+        {
+            Message = message ?? throw new ArgumentNullException(nameof(message));
+            Exception = exception;
+        }
+    }
+
+    /// <summary>见 <see cref="ExceptionAwareErrorText"/> 判断记录：把任意"消息 + 可选异常"形状的
+    /// <c>IReadOnlyList&lt;TSource&gt;</c> 投影成 <c>IReadOnlyList&lt;ExceptionAwareErrorText&gt;</c>，
+    /// 同 <see cref="ProjectedReadOnlyList{TSource}"/> 一样惰性、不预先整份拷贝。</summary>
+    public static class ExceptionAwareErrorProjection
+    {
+        public static IReadOnlyList<ExceptionAwareErrorText> From<TSource>(
+            IReadOnlyList<TSource> source,
+            Func<TSource, string> messageSelector,
+            Func<TSource, Exception?> exceptionSelector)
+        {
+            return new ProjectedList<TSource>(source, messageSelector, exceptionSelector);
+        }
+
+        private sealed class ProjectedList<TSource> : IReadOnlyList<ExceptionAwareErrorText>
+        {
+            private readonly IReadOnlyList<TSource> _source;
+            private readonly Func<TSource, string> _messageSelector;
+            private readonly Func<TSource, Exception?> _exceptionSelector;
+
+            public ProjectedList(IReadOnlyList<TSource> source, Func<TSource, string> messageSelector, Func<TSource, Exception?> exceptionSelector)
+            {
+                _source = source ?? throw new ArgumentNullException(nameof(source));
+                _messageSelector = messageSelector ?? throw new ArgumentNullException(nameof(messageSelector));
+                _exceptionSelector = exceptionSelector ?? throw new ArgumentNullException(nameof(exceptionSelector));
+            }
+
+            public ExceptionAwareErrorText this[int index] =>
+                new ExceptionAwareErrorText(_messageSelector(_source[index]), _exceptionSelector(_source[index]));
+
+            public int Count => _source.Count;
+
+            public IEnumerator<ExceptionAwareErrorText> GetEnumerator()
+            {
+                for (var i = 0; i < _source.Count; i++)
+                {
+                    yield return this[i];
+                }
+            }
+
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+    }
+
+    /// <summary>ADR-0086 新增：携带异常对象的错误来源的 <see cref="IDiagnosticsFeed"/> 实现——除了
+    /// 走既有的"[来源名][error] 消息"格式转发首次出现，还做两件 <see cref="DiagnosticsFeed"/> 不做
+    /// 的事（消费方第三十二批阻塞项第 3 条三个要求）：
+    /// <list type="number">
+    /// <item>去重键额外纳入异常类型全名与堆栈最顶一帧（<see cref="BuildDedupKey"/>），消息文字凑巧
+    /// 相同但异常类型不同的两条不会被误判成同一条而互相顶替；</item>
+    /// <item>转发文本额外带上异常类型全名与完整堆栈（不只是消息文字）；</item>
+    /// <item>同一去重键重复出现时不静默丢弃——仍然调用一次 sink，只是改用精简的"重复提醒"文本
+    /// （带累计出现次数），不重复整段堆栈刷屏。</item>
+    /// </list>
+    /// </summary>
+    internal sealed class ExceptionAwareDiagnosticsFeed : IDiagnosticsFeed
+    {
+        private readonly string _sourceName;
+        private readonly IReadOnlyList<string> _warnings;
+        private readonly IReadOnlyList<ExceptionAwareErrorText> _errors;
+        private int _warnSeen;
+        private int _errorSeen;
+
+        public ExceptionAwareDiagnosticsFeed(string sourceName, IReadOnlyList<string> warnings, IReadOnlyList<ExceptionAwareErrorText> errors)
+        {
+            _sourceName = sourceName ?? throw new ArgumentNullException(nameof(sourceName));
+            _warnings = warnings ?? throw new ArgumentNullException(nameof(warnings));
+            _errors = errors ?? throw new ArgumentNullException(nameof(errors));
+        }
+
+        public void Pump(Adapter.Unity.Presentation.PresentationDiagnosticsConsoleGate gate, Adapter.Unity.Presentation.IPresentationDiagnosticsConsoleSink sink)
+        {
+            for (; _warnSeen < _warnings.Count; _warnSeen++)
+            {
+                var text = "[" + _sourceName + "] " + _warnings[_warnSeen];
+                if (gate.ShouldForward(text))
+                {
+                    sink.Warn(text);
+                }
+            }
+
+            for (; _errorSeen < _errors.Count; _errorSeen++)
+            {
+                var entry = _errors[_errorSeen];
+                var exception = entry.Exception;
+
+                var dedupKey = BuildDedupKey(_sourceName, entry.Message, exception);
+                var forwarded = gate.ShouldForward(dedupKey, out var occurrenceCount);
+
+                string text;
+                if (forwarded)
+                {
+                    text = exception == null
+                        ? "[" + _sourceName + "][error] " + entry.Message
+                        : "[" + _sourceName + "][error] " + entry.Message + " —— " +
+                          exception.GetType().FullName + ": " + exception.Message + "\n" + exception.StackTrace;
+                }
+                else
+                {
+                    // 判断记录"不能静默丢弃"：去重表认为这是已经转发过的重复，但仍然调用一次 sink，
+                    // 只是换成不含完整堆栈的精简提醒——让"这个错误又出现了、累计几次"始终留在后续
+                    // 输出里，不会因为去重而彻底消失得无影无踪。
+                    var shortDescription = exception == null ? entry.Message : exception.GetType().FullName + ": " + exception.Message;
+                    text = "[" + _sourceName + "][error][重复] " + shortDescription + "（累计出现 " + occurrenceCount + " 次，堆栈同前次）";
+                }
+
+                sink.Warn(text);
+            }
+        }
+
+        /// <summary>去重键至少包含消息文字、异常类型全名、堆栈最顶一帧三项（消费方第三十二批阻塞项
+        /// 第 3 条硬约束"不同的异常不许因为消息文字相同而被合并成一条"）：两个类型不同但消息文字
+        /// 相同的异常，键里的类型全名段不同，天然产生不同的键，不会互相顶替对方在去重表里的计数。
+        /// 无异常对象（<c>Exception == null</c>，如契约里"错误但没有附带异常"的调用方式）时退化为
+        /// 只用消息文字，同 <see cref="DiagnosticsFeed"/> 既有的纯字符串去重语义一致。</summary>
+        private static string BuildDedupKey(string sourceName, string message, Exception? exception)
+        {
+            if (exception == null)
+            {
+                return sourceName + "|" + message;
+            }
+
+            var topFrame = FirstStackFrame(exception.StackTrace);
+            return sourceName + "|" + message + "|" + exception.GetType().FullName + "|" + topFrame;
+        }
+
+        private static string FirstStackFrame(string? stackTrace)
+        {
+            if (string.IsNullOrEmpty(stackTrace))
+            {
+                return string.Empty;
+            }
+
+            var newlineIndex = stackTrace!.IndexOf('\n');
+            return newlineIndex < 0 ? stackTrace : stackTrace.Substring(0, newlineIndex);
+        }
+    }
+
     /// <summary>
     /// 诊断契约统一转发集线器：装配根按 <see cref="Register"/> 逐个登记诊断来源（一次性、装配期
     /// 完成，见文件顶部判断记录），每帧调用一次 <see cref="Pump"/>（惯例同既有
@@ -144,7 +314,7 @@ namespace Adapter.Unity.Diagnostics
     {
         public const int DefaultCapacity = Adapter.Unity.Presentation.PresentationDiagnosticsConsoleGate.DefaultCapacity;
 
-        private readonly List<DiagnosticsFeed> _feeds = new List<DiagnosticsFeed>();
+        private readonly List<IDiagnosticsFeed> _feeds = new List<IDiagnosticsFeed>();
         private readonly Adapter.Unity.Presentation.PresentationDiagnosticsConsoleGate _gate;
         private readonly Adapter.Unity.Presentation.IPresentationDiagnosticsConsoleSink _sink;
 
@@ -184,6 +354,33 @@ namespace Adapter.Unity.Diagnostics
             }
 
             _feeds.Add(new DiagnosticsFeed(sourceName, warnings, errors));
+        }
+
+        /// <summary>ADR-0086 新增重载（ABI 只新增，上面的字符串版本 <see cref="Register(string, IReadOnlyList{string}, IReadOnlyList{string})"/>
+        /// 不受影响）：<paramref name="errors"/> 携带 <see cref="Exception"/> 对象的错误来源专用——
+        /// 经 <see cref="ExceptionAwareErrorProjection.From{TSource}"/> 从任意"消息 + 可选异常"形状
+        /// 投影而来（见该类型判断记录），登记后走 <see cref="ExceptionAwareDiagnosticsFeed"/>，转发
+        /// 文本带异常类型全名与堆栈、去重键区分不同异常类型、重复出现计数可见——修复此前把
+        /// <c>Errors</c> 整份投影成纯字符串（只取 <c>Message</c>，<c>Exception</c> 整个丢弃）的缺口。
+        /// <paramref name="warnings"/> 为 <c>null</c> 时同上面的重载一样静默跳过、不登记。</summary>
+        public void Register(string sourceName, IReadOnlyList<string>? warnings, IReadOnlyList<ExceptionAwareErrorText> errors)
+        {
+            if (warnings == null)
+            {
+                return;
+            }
+
+            if (sourceName == null)
+            {
+                throw new ArgumentNullException(nameof(sourceName));
+            }
+
+            if (errors == null)
+            {
+                throw new ArgumentNullException(nameof(errors));
+            }
+
+            _feeds.Add(new ExceptionAwareDiagnosticsFeed(sourceName, warnings, errors));
         }
 
         /// <summary>逐一轮询全部已登记来源自上次调用以来新增的警告/错误，经共享 gate 去重后转发到

@@ -228,8 +228,29 @@ namespace Presentation.ViewBinding
                 return;
             }
 
-            var view = _factory.CreateView(viewKind, displayId, entityId);
-            view.Bind(entityId);
+            // ADR-0086 根治（消费方第三十二批阻塞项）：CreateView/Bind 及写入绑定表之前的全部步骤
+            // 逐实体隔离——此前本方法（连同 OnSaveLoaded 对账循环，见该方法判断记录）任何一次调用
+            // 抛出的异常都会直接向上传播：经由构造期订阅（entity.created）传播到 EventBus.DispatchOne
+            // 的 catch 块，单个订阅者异常不影响其它订阅者，尚属可控；但经由 OnSaveLoaded 内部循环
+            // （同一次调用里连续为多个实体调用本方法）传播时，会中断循环本身，导致该实体之后排在
+            // 后面的全部实体都拿不到补建机会——"某个实体的显示资源缺失/损坏"这类局部问题被放大成
+            // "跨图读档后全部存活生物都没有 View"。这里不改变成功路径的任何行为，只把失败路径从
+            // "异常向上传播"改为"记一条带实体 id/kind/displayId/异常类型/消息/堆栈的诊断，不写入
+            // 绑定表，正常返回"，让调用方（无论是单次事件订阅还是 OnSaveLoaded 循环）继续处理其它
+            // 实体。
+            IView view;
+            try
+            {
+                view = _factory.CreateView(viewKind, displayId, entityId);
+                view.Bind(entityId);
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Warn(
+                    $"View 创建失败：实体 \"{entityId}\"（kind=\"{kind}\", displayId=\"{displayId}\"）未绑定 " +
+                    $"View，已跳过并继续处理其它实体——{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
+                return;
+            }
 
             _views[entityId] = view;
             _displayIds[entityId] = displayId;
@@ -321,11 +342,24 @@ namespace Presentation.ViewBinding
         {
             var existingIds = new List<Id>(_views.Keys);
 
+            // ADR-0086 根治：同 OnEntityCreated 判断记录——本循环同一次调用要为多个实体销毁陈旧
+            // View，任何一个 view.Destroy() 抛异常都不应该中断循环、连累排在后面的实体。隔离后单个
+            // 失败只记一条诊断，绑定表里该实体的记录可能残留（Destroy 抛异常时 OnEntityDestroyed
+            // 内部的 _views.Remove 等清理步骤未执行），需要人工核查，但不影响其它实体正常销毁。
             foreach (var entityId in existingIds)
             {
                 if (!_snapshot.Exists(entityId))
                 {
-                    OnEntityDestroyed(entityId);
+                    try
+                    {
+                        OnEntityDestroyed(entityId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _diagnostics.Warn(
+                            $"View 销毁失败：实体 \"{entityId}\" 已跳过并继续处理其它实体（绑定表可能" +
+                            $"残留该实体，需要人工核查）——{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
+                    }
                 }
             }
 
@@ -376,6 +410,8 @@ namespace Presentation.ViewBinding
                 return;
             }
 
+            // ADR-0086 根治：同上——装备外观对账同样是"同一次调用为多个实体各调一次 View 方法"的
+            // 循环，隔离原则相同。
             for (var i = 0; i < existingIds.Count; i++)
             {
                 var entityId = existingIds[i];
@@ -384,8 +420,17 @@ namespace Presentation.ViewBinding
                     continue;
                 }
 
-                var equipped = _equipmentVisualSource.ReplayEquippedForUnit(entityId);
-                resettable.ResetEquipmentVisuals(equipped);
+                try
+                {
+                    var equipped = _equipmentVisualSource.ReplayEquippedForUnit(entityId);
+                    resettable.ResetEquipmentVisuals(equipped);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn(
+                        $"装备外观对账失败：实体 \"{entityId}\" 已跳过并继续处理其它实体——" +
+                        $"{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
+                }
             }
         }
 

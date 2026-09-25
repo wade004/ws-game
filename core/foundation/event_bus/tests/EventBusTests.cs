@@ -220,6 +220,46 @@ namespace Tests.Foundation.Events
             Assert.Equal("boom", diagnostics.Errors[0].Exception!.Message);
         }
 
+        // ADR-0086 根治（消费方第三十二批阻塞项第 2 条）：两个订阅者抛不同类型的异常，诊断消息文本
+        // 与 Exception 对象都要能区分出"是哪个类型"，且能读到订阅者标识与堆栈（Exception.StackTrace
+        // 非空——只有真的被抛出并向上传播过一次才会有值，验证 EventBus 没有在中途吞掉/替换掉原始
+        // 异常对象）。
+        [Fact]
+        public void SubscriberExceptions_DifferentTypes_DiagnosticsDistinguishTypeAndCarryStackTrace()
+        {
+            var catalog = MakeCatalog("test.a", "test.b");
+            var diagnostics = new InMemoryEventDiagnostics();
+            var bus = new EventBus(catalog, diagnostics: diagnostics);
+            var keyA = new Id("test.a");
+            var keyB = new Id("test.b");
+
+            bus.Subscribe(keyA, evt => throw new InvalidOperationException("boom-a"));
+            bus.Subscribe(keyB, evt => throw new ArgumentException("boom-b"));
+
+            bus.PublishImmediate(new TestEvent(keyA));
+            bus.PublishImmediate(new TestEvent(keyB));
+
+            Assert.Equal(2, diagnostics.Errors.Count);
+
+            var first = diagnostics.Errors[0];
+            var second = diagnostics.Errors[1];
+
+            Assert.IsType<InvalidOperationException>(first.Exception);
+            Assert.IsType<ArgumentException>(second.Exception);
+            Assert.NotEqual(first.Exception!.GetType(), second.Exception!.GetType());
+
+            // 消息文本本身也要能区分类型（不依赖调用方额外解析 Exception 对象），且带上事件 key、
+            // 订阅者标识（本用例用 lambda，标识至少落在本测试类的编译器生成方法名上）。
+            Assert.Contains("test.a", first.Message);
+            Assert.Contains(nameof(InvalidOperationException), first.Message);
+            Assert.Contains(nameof(EventBusTests), first.Message);
+            Assert.Contains("test.b", second.Message);
+            Assert.Contains(nameof(ArgumentException), second.Message);
+
+            Assert.False(string.IsNullOrEmpty(first.Exception!.StackTrace));
+            Assert.False(string.IsNullOrEmpty(second.Exception!.StackTrace));
+        }
+
         // 7. 严格模式下未登记 key 抛异常；非严格模式记警告并照常派发
         [Fact]
         public void StrictCatalog_ThrowsForUnregisteredKey()

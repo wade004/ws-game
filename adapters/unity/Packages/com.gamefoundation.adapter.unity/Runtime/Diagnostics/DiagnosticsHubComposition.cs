@@ -57,34 +57,41 @@ namespace Adapter.Unity.Diagnostics
             SceneRouter sceneRouter)
         {
             // --- L0 基础模块 ---
+            // ADR-0086 根治（消费方第三十二批阻塞项第 3 条）：此前这五处用 ProjectedReadOnlyList
+            // 只取 Errors 的 Message 字段，把 Exception 对象整个丢弃——EventBus 订阅者异常经这条
+            // 链路转发到引擎控制台时只剩一句通用文案，丢了异常类型与堆栈，排查"跨图读档后 View
+            // 全部失联"时完全定位不到真正抛异常的位置。改用 ExceptionAwareErrorProjection.From +
+            // DiagnosticsHub 的新 Register 重载：Message/Exception 都投影过去，转发文本带类型全名
+            // 与堆栈，去重键额外纳入异常类型与堆栈顶帧、重复出现计数可见，见
+            // DiagnosticsHub.cs/ExceptionAwareDiagnosticsFeed 判断记录。
             if (bus.Diagnostics is InMemoryEventDiagnostics busDiag)
             {
                 hub.Register("Core.Foundation.EventBus", busDiag.Warnings,
-                    new ProjectedReadOnlyList<EventDiagnosticsErrorRecord>(busDiag.Errors, e => e.Message));
+                    ExceptionAwareErrorProjection.From(busDiag.Errors, e => e.Message, e => e.Exception));
             }
 
             if (gameplay.HooksDiagnostics is Core.Foundation.HookRegistry.InMemoryHookDiagnostics hooksDiag)
             {
                 hub.Register("Core.Foundation.HookRegistry", hooksDiag.Warnings,
-                    new ProjectedReadOnlyList<Core.Foundation.HookRegistry.HookDiagnosticsErrorRecord>(hooksDiag.Errors, e => e.Message));
+                    ExceptionAwareErrorProjection.From(hooksDiag.Errors, e => e.Message, e => e.Exception));
             }
 
             if (gameplay.AppStateDiagnostics is Core.Foundation.AppLifecycle.InMemoryAppLifecycleDiagnostics appStateDiag)
             {
                 hub.Register("Core.Foundation.AppLifecycle", appStateDiag.Warnings,
-                    new ProjectedReadOnlyList<Core.Foundation.AppLifecycle.AppLifecycleDiagnosticsErrorRecord>(appStateDiag.Errors, e => e.Message));
+                    ExceptionAwareErrorProjection.From(appStateDiag.Errors, e => e.Message, e => e.Exception));
             }
 
             if (saveSystem.Diagnostics is InMemorySaveDiagnostics saveDiag)
             {
                 hub.Register("Core.Foundation.SaveSystem", saveDiag.Warnings,
-                    new ProjectedReadOnlyList<SaveDiagnosticsErrorRecord>(saveDiag.Errors, e => e.Message));
+                    ExceptionAwareErrorProjection.From(saveDiag.Errors, e => e.Message, e => e.Exception));
             }
 
             if (sceneRouter.Diagnostics is InMemorySceneDiagnostics sceneDiag)
             {
                 hub.Register("Core.Foundation.SceneRouter", sceneDiag.Warnings,
-                    new ProjectedReadOnlyList<SceneDiagnosticsErrorRecord>(sceneDiag.Errors, e => e.Message));
+                    ExceptionAwareErrorProjection.From(sceneDiag.Errors, e => e.Message, e => e.Exception));
             }
 
             if (presentation.InputMapDiagnostics is Core.Foundation.InputMap.InMemoryInputMapDiagnostics inputMapDiag)
