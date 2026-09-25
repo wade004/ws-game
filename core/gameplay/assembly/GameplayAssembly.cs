@@ -1583,6 +1583,30 @@ namespace Core.Gameplay.Assembly
         {
             _sceneRouter = sceneRouter ?? throw new ArgumentNullException(nameof(sceneRouter));
 
+            // ADR-0086 根治（消费方第三十二批阻塞项第 4 条）：本方法紧接着把 ScenePostLoad 钩子注册
+            // 到本类型的 Hooks（见下方 order 1000 注册）；这条钩子要生效，前提是传入的 sceneRouter
+            // 构造时用的 IHookRegistry 与 Hooks 是同一个实例——若生产装配传错了实例（sceneRouter 用
+            // 另一份 IHookRegistry 构造），sceneRouter.Update 完成加载后触发的是那份"另一个"注册表的
+            // ScenePostLoad 钩子，本类型注册在自己 Hooks 上的回调永远不会被调用，跨图读档触发的
+            // save.loaded 补发（见 OnScenePostLoadFlushAndNotify 判断记录）会一直挂起，且没有任何
+            // 异常/诊断——症状只会在读档卡死时才被发现，排查成本高。这里改为构造完成的这一刻就能
+            // 校验的地方立即失败：sceneRouter 是具体类型 Core.Foundation.SceneRouter.SceneRouter 时
+            // （生产装配与全部测试夹具都是这个具体类型，见该类型 Hooks 属性判断记录），比较它的
+            // Hooks 引用与本类型的 Hooks 是否同一实例，不是则直接抛异常、写清原因。sceneRouter 是
+            // 其它 ISceneRouter 实现（如未来的测试替身）时，本类型没有可比较的引用，无法判断，按
+            // "拿不到就不硬造"的原则静默跳过校验，不影响该实现原有行为。
+            if (sceneRouter is Core.Foundation.SceneRouter.SceneRouter concreteSceneRouter
+                && !ReferenceEquals(concreteSceneRouter.Hooks, Hooks))
+            {
+                throw new InvalidOperationException(
+                    "GameplayAssembly.AttachSceneRouter: 传入的 SceneRouter 构造时使用的 IHookRegistry " +
+                    "与本 GameplayAssembly.Hooks 不是同一实例。AttachSceneRouter 在 GameplayAssembly.Hooks " +
+                    "上注册 ScenePostLoad 钩子（order 1000）来补发跨图读档完成通知（见 " +
+                    nameof(OnScenePostLoadFlushAndNotify) + " 判断记录），若 SceneRouter 触发的是另一份 " +
+                    "IHookRegistry 的钩子点，这条回调永远不会被调用，save.loaded 会在跨图读档后一直挂起。" +
+                    "请确保构造 SceneRouter 时传入的 hooks 参数就是这个 GameplayAssembly 实例的 Hooks 属性。");
+            }
+
             // ADR-0085：只在首次 Attach 时注册一次（<see cref="_scenePostLoadFlushHookRegistered"/>
             // 守卫）——本方法在既有惯例里理论上可能被多次调用（虽然生产装配一律只调一次，见本方法
             // 类型注释"必然晚于本类型构造完成"），重复注册会让同一次 post_load 触发多次

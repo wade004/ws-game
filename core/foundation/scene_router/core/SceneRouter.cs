@@ -48,6 +48,16 @@ namespace Core.Foundation.SceneRouter
         /// <summary>诊断出口只读暴露（ABI 只新增只读属性，见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
         /// 供 adapters/unity 侧统一诊断转发机制轮询本实例累积的 Warnings/Errors，不改变本类型任何既有公开签名。</summary>
         public ISceneDiagnostics Diagnostics => _diagnostics;
+
+        /// <summary>ADR-0086 新增（ABI 只新增只读属性）：构造时接收的 <see cref="IHookRegistry"/> 引用
+        /// 只读暴露——<see cref="Core.Gameplay.Assembly.GameplayAssembly.AttachSceneRouter"/> 依赖
+        /// "生产装配传给本类型构造函数的 hooks 参数"与"<c>GameplayAssembly.Hooks</c>"是同一个实例
+        /// （二者不同实例时，本类型触发 <c>ScenePostLoad</c> 钩子不会通知到 <c>GameplayAssembly</c>
+        /// 注册在那个钩子点上的回调，跨图读档完成通知会一直挂起，见该方法判断记录）；此前没有任何
+        /// 公开出口能在事后核实这个不变量是否成立，只能凭生产装配代码"看起来传的是同一份"这一点
+        /// 自觉。补上本属性后，<c>AttachSceneRouter</c> 才能对传入的 <see cref="ISceneRouter"/>
+        /// 做运行期同实例校验，不满足就立即失败，而不是留到跨图读档卡住才被发现。</summary>
+        public IHookRegistry Hooks => _hooks;
         private readonly ISpatialQuery? _spatial;
         private readonly INavigation2D? _navigation;
 

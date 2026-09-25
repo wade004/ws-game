@@ -148,6 +148,21 @@ public void SyncAll(double alpha)
    瞬移钳制、未登记步幅距离零事件、重新登记后状态清理）与
    `presentation/assembly/tests/PresentationAssemblyTests.cs`（经真实 `PresentationAssembly.Stride`，
    真实 `WorldSim.Tick` 推进一个真实距离，断言事件条数等于按步幅距离算出的期望值）。
+9. **ADR-0086 根治：`OnEntityCreated` 与 `OnSaveLoaded` 内部遍历多个实体的循环逐条隔离，不是整体
+   `try/catch`**——消费方反馈第三十二批阻塞项复核确认：`OnEntityCreated` 建 View（视图工厂
+   `CreateView` + `IView.Bind`，写入绑定表之前）此前任何异常都会直接向上传播；`OnSaveLoaded` 用
+   同一循环为多个未绑定实体依次调用 `OnEntityCreated`（见判断记录 5），循环里第一个失败的实体会
+   让排在它后面的全部实体都拿不到补建机会——这足以单独产生"跨图读档后全部存活生物无 View"的
+   症状形态。修复：`OnEntityCreated` 把建 View 那一小段包一层 `try/catch`，失败时不写入绑定表、
+   记一条带实体 id/kind/displayId/异常类型/异常消息/堆栈的诊断（经 `IPresentationDiagnostics.Warn`
+   一条消息文本携带全部字段，未新增接口成员），正常返回；`OnSaveLoaded` 内其余两段遍历多个实体的
+   循环（销毁陈旧 View、判断记录 6 的装备外观对账）同样各自逐条捕获——单个实体失败只记一条诊断，
+   不影响循环处理其余实体，不改变任何成功路径的行为。不做"失败即整体跳过对账"的熔断（会把局部
+   问题重新放大成全体问题，见 ADR-0086"备选方案"）。回归见
+   `presentation/view_binding/tests/ViewBinderTests.cs`
+   `OnEntityCreated_ViewFactoryThrowsForOneEntity_IsolatesFailureAndRecordsDiagnostic`/
+   `OnSaveLoaded_ReconciliationLoop_ViewFactoryThrowsForOneEntity_IsolatesFailureAcrossRemainingEntities`
+   （后者在修复前会真的红——第 3 个实体因循环被第 2 个的异常中断而同样拿不到 View）。
 
 ## 契约缺口
 

@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Presentation.Common;
@@ -131,6 +132,92 @@ namespace Tests.PresentationViewBinding
 
             Assert.Equal(1, binder.Count);
             Assert.Single(factory.Calls);
+        }
+
+        [Fact]
+        public void OnEntityCreated_ViewFactoryThrowsForOneEntity_IsolatesFailureAndRecordsDiagnostic()
+        {
+            // ADR-0086 回归（消费方第三十二批阻塞项）：3 个实体依次调用 OnEntityCreated，视图工厂
+            // 只对第 2 个抛异常。修复前该异常会直接从 OnEntityCreated 向外传播；修复后本方法自己
+            // 隔离失败、不再向上抛异常，第 1、3 个正常绑定 View，只有第 2 个缺失，诊断里能读到第 2
+            // 个实体的 id/kind/displayId/异常类型/堆栈片段。
+            var (world, bus) = BuildWorld();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var factory = new FakeViewFactory();
+            var displayInfo = new FakeDisplayInfoRegistry();
+            var snapshot = new WorldSimSnapshot(world);
+            var binder = new ViewBinder(bus, factory, snapshot, displayInfo, diagnostics: diagnostics);
+
+            var failingEntityId = new Id("unit.e2");
+            var thrown = new InvalidOperationException("模拟视图工厂对第 2 个实体的创建失败");
+            factory.ThrowOnCreate = id => id == failingEntityId ? thrown : null;
+
+            var caught = Record.Exception(() =>
+            {
+                binder.OnEntityCreated(new Id("unit.e1"), "player", new Id("creature.e1"));
+                binder.OnEntityCreated(failingEntityId, "player", new Id("creature.e2"));
+                binder.OnEntityCreated(new Id("unit.e3"), "player", new Id("creature.e3"));
+            });
+
+            Assert.Null(caught);
+            Assert.Equal(2, binder.Count);
+            Assert.True(binder.TryGetView(new Id("unit.e1"), out _));
+            Assert.False(binder.TryGetView(failingEntityId, out _));
+            Assert.True(binder.TryGetView(new Id("unit.e3"), out _));
+
+            var diagnostic = Assert.Single(diagnostics.Warnings);
+            Assert.Contains(failingEntityId.Value, diagnostic);
+            Assert.Contains("player", diagnostic);
+            Assert.Contains("creature.e2", diagnostic);
+            Assert.Contains(nameof(InvalidOperationException), diagnostic);
+            Assert.Contains(thrown.Message, diagnostic);
+            Assert.Contains("FakeViewFactory", diagnostic); // 堆栈片段：异常抛出点应可见。
+        }
+
+        [Fact]
+        public void OnSaveLoaded_ReconciliationLoop_ViewFactoryThrowsForOneEntity_IsolatesFailureAcrossRemainingEntities()
+        {
+            // ADR-0086 回归（消费方第三十二批阻塞项根因用例）：OnSaveLoaded 的补建循环在同一次调用
+            // 里为多个实体依次调用 OnEntityCreated——修复前任何一个实体的 CreateView/Bind 抛异常都
+            // 会中断整个循环，排在它后面的实体全部拿不到 View（"跨图读档后全部存活生物都无 View"
+            // 的根因，本类型此前只在构造期订阅 entity.created，见类型注释"PRES-180 根治"）。这里把
+            // 3 个实体在 SuppressDispatch 作用域内加入 WorldSim（模拟读档逐段 Load 期间 entity.created
+            // 被丢弃、从未正常派发过），随后发出 save.loaded 触发 OnSaveLoaded 的全量补建对账；工厂
+            // 对第 2 个实体抛异常。断言第 3 个必须真的拿到 View——这是修复前会变红的断言。
+            var (world, bus) = BuildWorld();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var factory = new FakeViewFactory();
+            var displayInfo = new FakeDisplayInfoRegistry();
+            var snapshot = new WorldSimSnapshot(world);
+            var binder = new ViewBinder(bus, factory, snapshot, displayInfo, diagnostics: diagnostics);
+
+            var e1 = new TestEntity(new Id("unit.e1"), MapId);
+            var e2 = new TestEntity(new Id("unit.e2"), MapId);
+            var e3 = new TestEntity(new Id("unit.e3"), MapId);
+
+            using (bus.SuppressDispatch())
+            {
+                world.AddEntity(e1);
+                world.AddEntity(e2);
+                world.AddEntity(e3);
+            }
+
+            Assert.Equal(0, binder.Count); // entity.created 被丢弃，对账前尚未绑定任何 View。
+
+            var thrown = new InvalidOperationException("模拟视图工厂对第 2 个实体的创建失败");
+            factory.ThrowOnCreate = id => id == e2.EntityId ? thrown : null;
+
+            var caught = Record.Exception(() => bus.PublishImmediate(new SaveLoadedEvent(new Id("slot.adr0086_test"))));
+
+            Assert.Null(caught);
+            Assert.True(binder.TryGetView(e1.EntityId, out _));
+            Assert.False(binder.TryGetView(e2.EntityId, out _));
+            Assert.True(binder.TryGetView(e3.EntityId, out _)); // 修复前会是 false（循环被中断）。
+            Assert.Equal(2, binder.Count);
+
+            var diagnostic = Assert.Single(diagnostics.Warnings);
+            Assert.Contains(e2.EntityId.Value, diagnostic);
+            Assert.Contains(nameof(InvalidOperationException), diagnostic);
         }
 
         [Fact]

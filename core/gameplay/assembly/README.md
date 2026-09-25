@@ -493,3 +493,18 @@ assembly/
 Dialog.OpenGossip(unitId, creatureInstanceId, dialogRef)`——生物侧与场景物件侧共用同一个
 `DialogHost.OpenGossip` 入口，区别只是传入的是生物实例 id 而非场景物件实例 id，对 `DialogHost`
 而言两者都只是"发起打开该菜单的那个 npcId"，不需要 `DialogHost` 感知调用方是哪一类载体。
+
+## 判断记录（`AttachSceneRouter` 钩子注册表同实例防护，2026-09-25，architecture/adr/0086-创建期异常隔离与诊断信息不丢失.md）
+
+`AttachSceneRouter` 一直隐含"传入的 `sceneRouter` 构造时用的 `IHookRegistry` 与本
+`GameplayAssembly.Hooks` 是同一实例"这一装配惯例——它在 `Hooks` 上注册 `ScenePostLoad` 钩子
+（order 1000）来补发跨图读档完成通知，若 `sceneRouter` 触发的是另一份 `IHookRegistry` 的钩子点，
+这条回调永远不会被调用，`save.loaded` 会在跨图读档后一直挂起，且没有任何异常/诊断，只能在实际
+卡死时才被发现。新增防护：若传入的 `sceneRouter` 能判断为具体类型 `Core.Foundation.SceneRouter.
+SceneRouter`（新增 `Hooks` 只读属性，见 `core/foundation/scene_router/README.md` 判断记录），
+且其 `Hooks` 与本类型的 `Hooks` 不是同一实例，立即抛 `InvalidOperationException`，消息写清楚
+原因。传入的是其它 `ISceneRouter` 实现（测试替身）时无法判断，不做拦截——拿不到可比较的引用就
+不强行拦截未知情形，不是"默认放行"的信任，而是"判断不了就不拦"。已确认生产装配入口
+（`GameFoundationBootstrap`/`FrameworkResidentHost`）与全部既有测试夹具构造 `SceneRouter` 时
+传入的都是 `gameplay.Hooks`，本次新增防护不影响任何既有调用点。见测试
+`ADR0086_AttachSceneRouterHookRegistryGuardTests`。

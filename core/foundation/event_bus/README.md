@@ -151,3 +151,13 @@ event_bus/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（订阅者异常诊断带订阅者标识与异常类型/消息，2026-09-25，architecture/adr/0086-创建期异常隔离与诊断信息不丢失.md）
+
+`DispatchOne` 捕获订阅者异常时，此前诊断消息文本只有事件 key 一项，排查不出是谁抛的、抛的什么。
+`Subscribe`/`Subscribe<T>` 登记时（原始处理函数被包进内部调用壳之前）新增 `DescribeHandler`，从
+委托的 `Method.DeclaringType`/`Method.Name` 尽力而为拼出一个"声明类型.方法名"标识，存进
+`SubscriberEntry.Description`；捕获异常时诊断消息文本拼上事件 key、订阅者标识、异常类型全名、
+异常消息，完整异常对象（含堆栈）仍按原有参数位传给 `IEventDiagnostics.Error`，不丢失。委托标识
+是尽力而为（lambda/匿名方法拿到的类型名可读性有限），但比此前完全没有订阅者信息可用。见测试
+`EventBusTests.SubscriberExceptions_DifferentTypes_DiagnosticsDistinguishTypeAndCarryStackTrace`。

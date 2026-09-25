@@ -47,7 +47,7 @@ namespace Core.Foundation.EventBus
                 throw new ArgumentNullException(nameof(handler));
             }
 
-            var entry = SubscriberEntry.ForRaw(handler);
+            var entry = SubscriberEntry.ForRaw(handler, DescribeHandler(handler));
             AddSubscriber(key, entry);
             return new SubscriptionHandle(() => RemoveSubscriber(key, entry));
         }
@@ -60,6 +60,7 @@ namespace Core.Foundation.EventBus
             }
 
             var typeName = typeof(T).Name;
+            var description = DescribeHandler(handler);
             var entry = SubscriberEntry.ForTyped(evt =>
             {
                 if (evt is T typed)
@@ -72,9 +73,24 @@ namespace Core.Foundation.EventBus
                         $"Subscribe<{typeName}>(\"{key}\") 收到事件，但其运行时类型是 " +
                         $"\"{evt.GetType().Name}\"，与期望类型 \"{typeName}\" 不匹配，已跳过该订阅者本次调用");
                 }
-            });
+            }, description);
             AddSubscriber(key, entry);
             return new SubscriptionHandle(() => RemoveSubscriber(key, entry));
+        }
+
+        /// <summary>ADR-0086 根治（消费方第三十二批阻塞项第 2 条）：订阅者标识——尽力而为地从
+        /// <paramref name="handler"/> 的委托方法信息拼出"声明类型.方法名"，供 <see cref="DispatchOne"/>
+        /// 捕获订阅者异常时写进诊断消息（此前的诊断消息只有事件 key，完全不知道是哪个订阅者抛的）。
+        /// <c>Subscribe</c>/<c>Subscribe&lt;T&gt;</c> 内部会把原始 <paramref name="handler"/> 包进闭包
+        /// lambda 再交给 <see cref="SubscriberEntry"/>，包完之后就再也拿不到原始委托的方法信息了，
+        /// 因此必须在包裹之前、调用方刚传入 <paramref name="handler"/> 的这一刻就取一次。多数订阅者
+        /// 是具名方法或编译器生成的 lambda 闭包方法，<see cref="System.Reflection.MethodInfo.DeclaringType"/>
+        /// 至少能定位到"哪个类型订阅的"，即便方法名是编译器生成的匿名名字也比完全没有强。</summary>
+        private static string DescribeHandler(Delegate handler)
+        {
+            var method = handler.Method;
+            var declaringType = method.DeclaringType?.FullName ?? "?";
+            return declaringType + "." + method.Name;
         }
 
         public void Enqueue(IEvent evt)
@@ -228,7 +244,18 @@ namespace Core.Foundation.EventBus
                 }
                 catch (Exception ex)
                 {
-                    _diagnostics.Error($"订阅者处理事件 \"{evt.Key}\" 时抛出异常，已跳过继续派发给其它订阅者", ex);
+                    // ADR-0086 根治（消费方第三十二批阻塞项第 2 条）：消息文本本身携带事件 key、
+                    // 订阅者标识、异常类型、异常消息四项（此前只有事件 key 一项，排查时完全不知道
+                    // 是哪个订阅者、抛的什么异常）；完整的 Exception（含堆栈）继续按 exception 参数
+                    // 传给 _diagnostics.Error，不在这里把堆栈也拼进字符串——PlatformEventDiagnostics
+                    // 等下游实现已经在 Error(message, exception) 里自行 ToString() 异常对象，重复拼接
+                    // 只会让堆栈在输出里出现两次；真正会把 exception 参数丢掉、只保留 message 字符串
+                    // 的适配层转发路径已在 ADR-0086 另一条决定里改为不丢失异常对象（见
+                    // adapters/unity/Packages/.../Diagnostics/DiagnosticsHub.cs）。
+                    _diagnostics.Error(
+                        $"订阅者 \"{entry.Description}\" 处理事件 \"{evt.Key}\" 时抛出异常 " +
+                        $"{ex.GetType().FullName}: {ex.Message}，已跳过继续派发给其它订阅者",
+                        ex);
                 }
             }
         }
@@ -263,16 +290,21 @@ namespace Core.Foundation.EventBus
 
             public bool IsCancelled;
 
-            private SubscriberEntry(Action<IEvent> invoke)
+            /// <summary>ADR-0086 新增：订阅者标识（见 <see cref="DescribeHandler"/>），
+            /// <see cref="DispatchOne"/> 捕获异常时写进诊断消息。</summary>
+            public string Description { get; }
+
+            private SubscriberEntry(Action<IEvent> invoke, string description)
             {
                 _invoke = invoke;
+                Description = description;
             }
 
-            public static SubscriberEntry ForRaw(EventHandler handler) =>
-                new SubscriberEntry(evt => handler(evt));
+            public static SubscriberEntry ForRaw(EventHandler handler, string description) =>
+                new SubscriberEntry(evt => handler(evt), description);
 
-            public static SubscriberEntry ForTyped(Action<IEvent> invoke) =>
-                new SubscriberEntry(invoke);
+            public static SubscriberEntry ForTyped(Action<IEvent> invoke, string description) =>
+                new SubscriberEntry(invoke, description);
 
             public void Invoke(IEvent evt) => _invoke(evt);
         }
