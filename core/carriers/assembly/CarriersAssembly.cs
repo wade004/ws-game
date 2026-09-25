@@ -302,7 +302,9 @@ namespace Core.Carriers.Assembly
                 var current = powers.GetPower(unitId, WellKnownPowers.Health);
                 powers.ModifyPower(unitId, WellKnownPowers.Health, max * fraction - current, new Id("system.revive"));
             };
-            Units = new WorldUnitAccess(world, spatial, healthFractionSetter);
+            // ADR-0088：改用注入 IEventBus 的重载，使 Units.SetFaction（运行期改阵营的框架入口）
+            // 能发布 unit.faction_changed（见 WorldUnitAccess 该重载/SetFaction 判断记录）。
+            Units = new WorldUnitAccess(world, bus, spatial, healthFractionSetter);
 
             // ---------------------------------------------------------
             // 2) CreatureImmunityProvider（IStaticImmunityProvider 的默认实现）+ InventoryHost +
@@ -483,7 +485,11 @@ namespace Core.Carriers.Assembly
             // ---------------------------------------------------------
             Rules.EffectExtension.Bind(new CompositeEffectExtension(itemExtension, gobjExtension, summonExtension));
 
-            var summonTickHandler = new SummonTickHandler(Summons, Units, Rules.Combat, resolvedSummonOptions);
+            // ADR-0087：传入 Rules.Ai 使 TryFollow 能按"AI 是否确实处于 chase/combat"收紧跳过条件
+            // （见 SummonTickHandler.IsActivelyEngaging 判断记录），而不是只看 ICombatHost.IsInCombat
+            // 标志。Rules（含 Ai）已在上面（第 3 步）构造完成。
+            var summonTickHandler = new SummonTickHandler(
+                Summons, Units, Rules.Combat, resolvedSummonOptions, aiHost: Rules.Ai);
             world.RegisterPhaseHandler(TickPhase.AiDecision, summonTickHandler);
 
             Rules.RegisterTickHandlers();

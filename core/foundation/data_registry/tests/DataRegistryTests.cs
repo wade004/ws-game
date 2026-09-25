@@ -249,7 +249,9 @@ namespace Tests.Foundation.Data
             // 广播），92 -> 93。
             // ADR-0077/ADR-0078：新增 ui.panel_opened、ui.panel_closed、ui.action_invoked、
             // unit.stride_completed 四条登记行（消费方反馈第二十批第 1/2 条），93 -> 97。
-            Assert.Equal(97, registry.GetAll("found.event_catalog").Count);
+            // ADR-0088：新增 unit.faction_changed 一条登记行（消费方反馈第三十三批阻塞项2，运行期
+            // 改变单位阵营的框架入口发布），97 -> 98。
+            Assert.Equal(98, registry.GetAll("found.event_catalog").Count);
             // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
             Assert.Equal(14, registry.GetAll("found.input_action").Count);
 

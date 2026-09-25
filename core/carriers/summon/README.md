@@ -98,6 +98,25 @@ W1 收边补齐：`SummonOptions.cs` 从 `core/` 移入新增的 `contracts/` �
 - `ISummonHost.Dismiss(Id)` 契约签名不带 reason，`SummonHost` 用重载方法补齐（见判断记录 2，
   不修改 `core/carriers/common` 的既有契约签名）。
 
+9. **`TryFollow` 跳过条件改按召唤物自己的 `AiHost` 行为态判定，不再单看 `ICombatHost.IsInCombat`
+   （2026-09-25，消费方第三十三批反馈1，[ADR-0087](../../../architecture/adr/0087-召唤物idle态默认转移候选扩展与跟随跳过条件收紧.md)）**：
+   修订上面判断记录 6——`IsInCombat` 是 `CombatHost.NotifyCombatEvent` +
+   `CombatOptions.LeaveCombatDelay` 超时判定的独立时间线，不感知召唤物自己 `AiHost` 状态机的真实
+   决策；`SyncCombatState=true` 把召唤物同步进战后，即便召唤物自身感知/仇恨都判定"当前无事可做"
+   （典型如 ADR-0087 决定 1 修复前的 `idle` 态：主人在远处交战、召唤物身边无敌对单位、仇恨表因
+   `ShareThreat` 早已转给主人），也会被这一个战斗标志永久挡在跟随之外——原地冻结 108 秒不动、不
+   参战也不跟随。`SummonTickHandler` 新增可选 `IAiHost` 构造参数（ABI 安全新增重载，`CarriersAssembly`
+   传入已装配好的 `Rules.Ai`），`IsActivelyEngaging` 改查召唤物自己的 `AiHost.GetBehaviorState`：
+   `Chase`/`Combat`/`Return`/`Flee` 四态下 AI 自身已经在产生方向明确的移动意图（追击、攻击走位、
+   脱战回程、逃跑），继续跳过跟随只是避免两股移动意图打架；只有 `Idle`/`Patrol`（AI 判定"无事可
+   做"）才放行跟随——覆盖范围比任务书原始措辞"chase/combat"更宽，是因为若只收紧到这两态，`Return`
+   态召唤物会在脱战回程途中被跟随逻辑同时拉向主人当前位置，与 `AiHost` 自己的回程移动打架，实测
+   直接破坏了 `SummonCombatRechaseTests` 验证的"回追脱战后落点应精确回到召唤点"这条既有不变量
+   （ADR-0084），且这个副作用不服务本批反馈的任何验收场景（两个场景都只涉及 `idle` 态），故收窄
+   到"仅 idle/patrol 放行"。`_aiHost` 为 `null`（未注入的既有调用方）或该召唤物未在 `AiHost` 注册
+   （无 `ai_behavior_ref` 的静态召唤物，查询抛 `InvalidOperationException`）时回退/按旧
+   `ICombatHost.IsInCombat` 语义处理，行为与本次改动之前一致。
+
 ## 不负责什么
 
 - 不实现召唤物的存档重建——由拥有者相关状态驱动，属于 L4 职责。

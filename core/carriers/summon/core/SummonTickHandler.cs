@@ -31,19 +31,26 @@ namespace Core.Carriers.Summon
         private readonly ICombatHost _combat;
         private readonly SummonOptions _options;
         private readonly IExprDiagnostics _diagnostics;
+        private readonly IAiHost? _aiHost;
 
         public SummonTickHandler(
             SummonHost summonHost,
             IUnitAccess units,
             ICombatHost combatHost,
             SummonOptions? options = null,
-            IExprDiagnostics? diagnostics = null)
+            IExprDiagnostics? diagnostics = null,
+            IAiHost? aiHost = null)
         {
             _summonHost = summonHost ?? throw new ArgumentNullException(nameof(summonHost));
             _units = units ?? throw new ArgumentNullException(nameof(units));
             _combat = combatHost ?? throw new ArgumentNullException(nameof(combatHost));
             _options = options ?? new SummonOptions();
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
+            // ADR-0087（消费方第三十三批反馈1决定2）：可选依赖，供 TryFollow 判定"召唤物的 AI 是否
+            // 确实处于 chase/combat"（见该方法判断记录）；为 null（既有调用方）时回退旧的
+            // ICombatHost.IsInCombat 判定，行为与本次改动之前完全一致——生产装配
+            // （CarriersAssembly）已改为传入真实 AiHost。
+            _aiHost = aiHost;
         }
 
         public void Execute(SimStep step, IWorldSim world)
@@ -166,8 +173,7 @@ namespace Core.Carriers.Summon
         /// owner 的精确坐标），避免召唤物与 owner 位置完全重合。</summary>
         private void TryFollow(IWorldSim world, Id summonId, Id ownerId)
         {
-            var inCombat = _combat.IsInCombat(summonId);
-            var shouldConsiderFollow = !inCombat || !_options.JoinCombat;
+            var shouldConsiderFollow = !IsActivelyEngaging(summonId) || !_options.JoinCombat;
             if (!shouldConsiderFollow)
             {
                 return;
@@ -196,6 +202,51 @@ namespace Core.Carriers.Summon
                 .Build();
 
             world.AppendCurrentIntent(new Intent(summonId, "move", args));
+        }
+
+        /// <summary>
+        /// ADR-0087（消费方第三十三批反馈1决定2根治）：<see cref="TryFollow"/> 的跳过条件——此前只看
+        /// <see cref="ICombatHost.IsInCombat"/> 标志，导致 <c>SyncCombatState</c> 把召唤物同步进战
+        /// 后，即便召唤物自己的 <see cref="IAiHost"/> 感知/仇恨都判定"该跟随"（如决定 1 修复前的
+        /// idle 态，或仇恨表已清空的场景），也会因为这一个战斗标志被永久挡在跟随之外——原地冻结。
+        /// 收紧为"召唤物的 AI 确实处于 <see cref="BehaviorState.Chase"/>/<see
+        /// cref="BehaviorState.Combat"/>/<see cref="BehaviorState.Return"/>/<see
+        /// cref="BehaviorState.Flee"/>"：这四个态下 AI 自身已经在产生方向明确的移动意图（追击、
+        /// 攻击走位、脱战回程、逃跑），跳过跟随只是避免两股移动意图打架，不涉及"冻结"风险，因此仍
+        /// 属于"确实在忙自己的事"要跳过跟随的范围；只有 <see cref="BehaviorState.Idle"/>/<see
+        /// cref="BehaviorState.Patrol"/>（AI 判定"无事可做"）才需要放行跟随，保证"召唤物不会因为
+        /// 一个战斗标志就原地冻结"这条不变量在任何 AI 决策下都成立，同时不引入
+        /// "回程途中被拉去半路陪跑"这个新的、不在本批反馈范围内的副作用（见
+        /// <c>Tests.Carriers.Assembly.SummonCombatRechaseTests</c> 对脱战回落点精确性的既有断言）。
+        /// <para>
+        /// <see cref="_aiHost"/> 为 null（未注入，既有调用方）时回退旧的 <see cref="ICombatHost.
+        /// IsInCombat"/> 判定，行为与本次改动之前完全一致。<paramref name="summonId"/> 未在
+        /// <see cref="_aiHost"/> 注册（如召唤物模板未配置 <c>ai_behavior_ref</c>，是一个没有行为
+        /// 外壳的静态召唤物）时 <see cref="IAiHost.GetBehaviorState"/> 会抛异常——这类召唤物本来就
+        /// 不可能处于 chase/combat/return/flee，捕获后按"未在忙自己的事"处理，优先保证"不冻结"这条
+        /// 不变量，不为此额外要求 <see cref="SummonTickHandler"/> 依赖具体 <c>AiHost</c> 类型去查询
+        /// 注册表。
+        /// </para>
+        /// </summary>
+        private bool IsActivelyEngaging(Id summonId)
+        {
+            if (_aiHost == null)
+            {
+                return _combat.IsInCombat(summonId);
+            }
+
+            try
+            {
+                var state = _aiHost.GetBehaviorState(summonId);
+                return state == BehaviorState.Chase
+                    || state == BehaviorState.Combat
+                    || state == BehaviorState.Return
+                    || state == BehaviorState.Flee;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
     }
 }

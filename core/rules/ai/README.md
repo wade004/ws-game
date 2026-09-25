@@ -58,7 +58,7 @@ idle → patrol → chase ⇄ combat → return → flee
 
 | 转移名 | 默认判定（代码内置） | target 参数 |
 |---|---|---|
-| `idle_to_chase` | `ISpatialQuery` 在 `perception_radius` 内找到最近的、`IFactionMatrix.IsHostile` 为真、存活的单位；找到即转移 | 找到的候选（可能为空） |
+| `idle_to_chase` | 候选来源两级（ADR-0087，见判断记录 9）：① `ISpatialQuery` 在 `perception_radius` 内找到的最近敌对存活单位，找到即用；② 找不到时，若本单位 `ICombatHost.IsInCombat` 为真，退回取 `IThreatTable.GetTopThreat`——仍存活、仍敌对（`IFactionMatrix.IsHostile`）、且未超出 `leash_range` 才采用，否则视为无候选。找到候选即转移 | 找到的候选（可能为空） |
 | `chase_to_combat` | 与 `Target` 距离 ≤ `AiOptions.AttackRange * AiOptions.CombatReentryRangeRatio`（ADR-0084：余量放在重进战一侧，见判断记录 8） | 当前 `Target` |
 | `chase_to_return` | `Target` 不存在/已死亡，或距 `SpawnPoint` 距离 > `leash_range` | 当前 `Target` |
 | `combat_to_chase` | `Target` 存在（存活）且与它的距离 > `AiOptions.AttackRange`（ADR-0084：不加余量，`combat` 期间目标只要仍在攻击距离内就不判定回追，不存在死区，见判断记录 8） | 当前 `Target` |
@@ -238,3 +238,41 @@ Combat 态下委托给 `RotationEvaluator`（T-N3-10，算法细节、就绪判�
    `LeaveCombatDelay` 窗口期内会先在固定点停留。见 `AiCombatRechaseTests.cs`（不变量 (a)/(b)/
    Expr 覆盖）、`core/carriers/assembly/tests/SummonCombatRechaseTests.cs`（召唤物联动实测，
    `CarriersAssembly` 真实装配 + `world.Tick` 驱动）。
+   <br/>**本段结论已被 ADR-0087（判断记录 9）部分修订**：上面"`JoinCombat=true` 时 `TryFollow`
+   完全跳过跟随，战斗期间'打'和'跟'二选一，设计如此"这一刀切规则在 `IsInCombat` 与召唤物自身
+   `AiHost` 状态机脱节时会导致召唤物原地冻结——已改为按召唤物自己的行为态判定（`Chase`/`Combat`/
+   `Return`/`Flee` 才跳过跟随，`Idle`/`Patrol` 放行），本段其余关于两条独立时间线、`leash_range`
+   拴绳、`combat_return_policy` 回落点的描述不受影响、继续成立。
+
+9. **ADR-0087（消费方第三十三批反馈1，idle/patrol 默认转移候选来源扩展）**：召唤物场景下
+   `SummonTickHandler` 经 `SyncCombatState` 把召唤物同步进战（`IsInCombat=true`）、`ShareThreat`
+   把召唤物累计的仇恨并入主人的仇恨表——但 `HandleIdleOrPatrol` 此前只按 `perception_radius`
+   内的感知结果判定 `idle_to_chase`，完全不读威胁表；召唤物自身感知范围内没有敌对单位（主人在
+   远处交战）时，即使 `IsInCombat` 为真，AI 仍判定"无事可做"留在 `idle`，加上（修订前）
+   `TryFollow` 又因 `IsInCombat` 标志跳过跟随，召唤物表现为原地冻结、既不参战也不跟随，实测持续
+   108 秒。根治口径：威胁表是"当前是否在战、该打谁"的权威来源，感知范围只负责发现*新*目标——
+   `idle`/`patrol` 默认转移候选集新增第二来源：感知范围内无候选时，若 `ICombatHost.IsInCombat`
+   为真，退回取 `IThreatTable.GetTopThreat`，验证仍存活、仍敌对（`IFactionMatrix.IsHostile`，
+   阵营关系可能在两次判定之间变化，不缓存）、且未超出 `leash_range`（拴绳原点是
+   `AiUnitState.SpawnPoint`，与 `chase_to_return`/`combat_to_return` 用的是同一个点）才采用，否则
+   视为无候选、继续留在 `idle`/`patrol`（不会为一条已经无效的威胁表条目强行转移）。不新增转移名：
+   `idle_to_chase` 的 Expr 覆盖语义不变，覆盖表达式返回真假的含义不变，覆盖时完全不读威胁表（覆盖
+   即接管全部判定，与既有"覆盖只影响判定的布尔结果"原则一致，见判断记录 3）——本次改动只扩展了
+   "没有覆盖时"默认候选的来源。`AiHost` 新增可选 `ICombatHost` 构造参数（ABI 安全新增重载，末尾
+   追加、`RulesAssembly` 传入已装配好的 `Combat`）；未注入时（既有调用方、多数单元测试）
+   `HandleIdleOrPatrol` 只用感知来源，行为与本次改动之前完全一致。跟随侧的联动修订（`TryFollow`
+   不能再单看 `IsInCombat` 标志，否则本条修复对召唤物无效）见
+   `core/carriers/summon/README.md` 判断记录 9；决定 2 未省略——`SummonTickHandler` 能低成本拿到
+   `AiHost`（已在同一装配根 `CarriersAssembly` 内可用），未引入新的跨层耦合。
+
+10. **ADR-0088（消费方第三十三批反馈2护栏，决定7）：`HandleCombat` 选目标跳过非敌对的顶端威胁
+    来源**：目标运行期被改判为友方后，仇恨表的源头修复（见
+    `core/rules/combat/README.md`/`core/carriers/unit/README.md` 对应判断记录）会同步清理相关
+    条目，但这条护栏独立存在、不依赖源头修复——`HandleCombat` 不再无条件信任
+    `IThreatTable.GetTopThreat`（该方法只看威胁值高低，不检查敌对性）：新增 `GetTopHostileThreat`
+    复算一遍威胁表全部条目，跳过已死亡/已不存在/`IFactionMatrix.IsHostile` 为假的来源，在剩余
+    仍敌对的条目里按原有"威胁值最高、同值取 `Id` 序数最小"规则（与 `ThreatTable.GetTopThreat`
+    的平局打破算法一致）选一个；全部条目都非敌对时返回空，`state.Target` 保持未赋值，交给既有
+    `combat_to_return` 判定接管（威胁表"为空"与"只剩非敌对来源"在这条护栏下等价）。不复用
+    `IThreatTable.GetTopThreat` 加事后判空重取的写法，是因为威胁值次高但仍敌对的来源可能排在
+    非敌对的最高来源之后，必须完整遍历一遍全部条目而不是只看第一名。

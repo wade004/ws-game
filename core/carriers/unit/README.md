@@ -360,3 +360,21 @@ architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
 "已经标记要消失的单位还在继续移动"本身是语义上的脏读，故一并跳过，不依赖 Stats 这一步侧面兜底。
 不改变 `IWorldSim` 既有实现的行为（该方法是新增默认接口成员，未覆盖的实现恒返回 `false`，等价于
 本次改动之前）。
+
+## 判断记录（`WorldUnitAccess.SetFaction` 运行期改阵营入口，2026-09-25，[ADR-0088](../../../architecture/adr/0088-仇恨表跟随运行期阵营变化清理.md)）
+
+消费方第三十三批反馈2：框架此前不提供任何运行期改变单位阵营的入口，消费方只能绕过直接写实体的
+阵营字段，导致仇恨表/AI 目标选择等下游状态全部不知情。放在哪一层：`IUnitAccess` 是只读查询契约
+（`GetFaction` 已在其上，但契约本身不含任何"改写单位状态"的方法——`SetLevel`/`Revive` 等既有
+"改单位状态"入口同样只存在于具体实现 `WorldUnitAccess` 上，不上升为接口成员），故 `SetFaction`
+同样只加在 `WorldUnitAccess` 这一具体类型上，与既有先例同层。新增一个带 `IEventBus` 参数的构造
+函数重载（既有不带 `bus` 的构造原样保留，`_bus` 为 `null` 时调用 `SetFaction` 直接抛
+`InvalidOperationException`，不静默丢事件）；`CarriersAssembly` 改用新重载装配 `Units`，是唯一
+生产装配路径。`SetFaction` 读旧值、新旧相同直接返回（不产生空变更事件），不同则写入新阵营并用
+`PublishImmediate`（同步派发，不进 `Enqueue` 的下一 tick 队列——参照 `FactionMatrix.SetReaction`
+既有"一次性运行期状态迁移"先例，调用方能在同一行代码后立刻观察到下游清理已完成，不需要手动调用
+`DispatchPending`）发布 `UnitFactionChangedEvent{unitId, oldFactionId, newFactionId}`
+（`RulesEventKeys.UnitFactionChanged` / `unit.faction_changed`，登记进
+`data/_framework/found/found.event_catalog.json` 并过 `gen_event_constants.py --check`）。仇恨表
+一侧的订阅与清理见 `core/rules/combat/README.md` 对应判断记录。ABI：新增构造函数重载 + 新增
+公开方法，不改动任何既有公开签名。

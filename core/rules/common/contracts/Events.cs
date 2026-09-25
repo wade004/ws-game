@@ -53,6 +53,12 @@ namespace Core.Rules.Common
         public static readonly Id UnitDied = new Id("unit.died");
         public static readonly Id UnitRespawned = new Id("unit.respawned");
 
+        /// <summary>ADR-0088（消费方第三十三批反馈2根治）：运行期改变单位阵营的框架入口
+        /// （<see cref="Core.Carriers.Unit.WorldUnitAccess.SetFaction"/>，见该方法判断记录——此前
+        /// 框架未提供入口，消费方只能绕过直接写 <c>Unit.FactionId</c> 字段）写入新阵营后发布，见
+        /// <see cref="UnitFactionChangedEvent"/>。</summary>
+        public static readonly Id UnitFactionChanged = new Id("unit.faction_changed");
+
         public static readonly Id AiStateChanged = new Id("ai.state_changed");
 
         /// <summary>建议行，见本类型上方判断记录。</summary>
@@ -880,6 +886,41 @@ namespace Core.Rules.Common
             {
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
                 case "policy": value = ExprValue.OfString(Policy.ToString()); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>ADR-0088（消费方第三十三批反馈2根治）：运行期单位阵营变化完成（见
+    /// <see cref="RulesEventKeys.UnitFactionChanged"/> 判断记录）。仇恨系统（<see
+    /// cref="Core.Rules.Combat.ThreatTable"/>）订阅本事件，对全部仇恨表删掉"来源与表主人已不再
+    /// 敌对"的条目（双向：<paramref name="unitId"/> 自己表里的来源、以及 <paramref name="unitId"/>
+    /// 作为来源挂在其它单位表上的条目都要检查），现场用 <see cref="Core.Numbers.Faction.IFactionMatrix"/>
+    /// 判定，不缓存旧阵营。</summary>
+    public sealed class UnitFactionChangedEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => RulesEventKeys.UnitFactionChanged;
+
+        public Id UnitId { get; }
+
+        public Id OldFactionId { get; }
+
+        public Id NewFactionId { get; }
+
+        public UnitFactionChangedEvent(Id unitId, Id oldFactionId, Id newFactionId)
+        {
+            UnitId = unitId;
+            OldFactionId = oldFactionId;
+            NewFactionId = newFactionId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "oldFactionId": value = ExprValue.OfId(OldFactionId); return true;
+                case "newFactionId": value = ExprValue.OfId(NewFactionId); return true;
                 default: value = default; return false;
             }
         }

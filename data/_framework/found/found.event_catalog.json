@@ -93,6 +93,7 @@
     { "key": "ui.panel_closed", "domain": "ui", "fields": ["panelId"], "description": "ADR-0077：UiPanelRegistry.Close 把一个此前处于打开状态的面板登记为关闭时触发（已关闭再次 Close 不重复触发）；panelId 即 ui_layout_definition.id" },
     { "key": "ui.panel_opened", "domain": "ui", "fields": ["panelId"], "description": "ADR-0077：UiPanelRegistry.Open 把一个此前未打开的面板登记为打开时触发（已打开再次 Open 不重复触发）；panelId 即 ui_layout_definition.id" },
     { "key": "unit.died", "domain": "unit", "fields": ["unitId", "killerId", "mapId", "position"], "description": "死亡结算完成（见 06 第 8 节）；W1 收边补 mapId/position（死亡那一刻的地图/坐标快照，供死亡复活执行主体使用，position 不经 Expr 暴露）" },
+    { "key": "unit.faction_changed", "domain": "unit", "fields": ["unitId", "oldFactionId", "newFactionId"], "description": "ADR-0088（消费方第三十三批反馈2）：运行期改变单位阵营的框架入口（core/carriers/unit.WorldUnitAccess.SetFaction）写入新阵营后触发（旧值与新值相同不触发）；仇恨系统订阅本事件清理不再敌对的仇恨表条目，不做缓存、现场用 IFactionMatrix 判定" },
     { "key": "unit.moved", "domain": "unit", "fields": ["unitId", "position"], "description": "单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值" },
     { "key": "unit.respawned", "domain": "unit", "fields": ["unitId", "policy"], "description": "按死亡复活策略处理完成（见 06 第 8 节）" },
     { "key": "unit.skill_binding_changed", "domain": "unit", "fields": ["unitId", "slot", "skillId"], "description": "技能槽位绑定关系变化时触发（缺口 4：core/carriers/unit.ISkillBindingHost.Bind/Unbind，对应存档段 player.skill_bindings，见 10 第 2.2 节）；skillId 在 Unbind 后为空（该槽位当前未绑定任何技能）" },

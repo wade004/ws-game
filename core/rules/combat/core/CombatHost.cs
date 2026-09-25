@@ -99,7 +99,9 @@ namespace Core.Rules.Combat
             // 不影响既有装配点（RulesAssembly 等）继续正常工作。
             var levelDiffTables = CombatDataLoader.LoadLevelDiffTables(registry);
 
-            _threatTable = new ThreatTable(units, bus, _options.MaxThreatEntries);
+            // ADR-0088：传入 _factions 使 ThreatTable 能订阅 unit.faction_changed 并现场清理
+            // 不再敌对的仇恨条目（见该类型新增重载判断记录）；_factions 在上面已完成非空校验。
+            _threatTable = new ThreatTable(units, bus, _options.MaxThreatEntries, _factions);
             _resolver = new Resolver(
                 stats, powers, units, auras, factions, rng, bus, _options,
                 hitTables, resistCurves, levelDiffTables, diag, _threatTable, NotifyCombatEvent,

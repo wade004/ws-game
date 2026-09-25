@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
+using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
@@ -19,6 +20,7 @@ namespace Core.Carriers.Unit
         private readonly IWorldSim _world;
         private readonly ISpatialQuery? _spatial;
         private readonly HealthFractionSetter? _healthFractionSetter;
+        private readonly IEventBus? _bus;
 
         /// <summary>
         /// <paramref name="spatial"/> 可选：提供时 <see cref="SetPosition"/> 在写入实体位置后经
@@ -29,10 +31,28 @@ namespace Core.Carriers.Unit
         /// （创建、移动、销毁三个时机分属不同类型，见该类型判断记录）。
         /// <paramref name="healthFractionSetter"/> 可选（W1 收边补齐，见 <see cref="Revive"/>）：
         /// 未注入时 <see cref="Revive"/> 只恢复存活状态与坐标，不触碰生命值。
+        /// <para>
+        /// ADR-0088：本重载不注入 <see cref="IEventBus"/>——<see cref="SetFaction"/> 需要发布
+        /// <c>unit.faction_changed</c>，未注入总线时调用它会抛异常（见该方法判断记录）。生产装配
+        /// 请改用下方注入 <see cref="IEventBus"/> 的重载；本重载保留给不需要改阵营能力的既有调用方
+        /// （测试假实现等），行为与本次改动之前完全一致。
+        /// </para>
         /// </summary>
         public WorldUnitAccess(IWorldSim world, ISpatialQuery? spatial = null, HealthFractionSetter? healthFractionSetter = null)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
+            _spatial = spatial;
+            _healthFractionSetter = healthFractionSetter;
+            _bus = null;
+        }
+
+        /// <summary>ADR-0088（消费方第三十三批反馈2根治）：新增重载，注入 <see cref="IEventBus"/>
+        /// 使 <see cref="SetFaction"/> 能发布 <c>unit.faction_changed</c>（见该方法判断记录）。
+        /// 生产装配（<c>CarriersAssembly</c>）已改为使用本重载。</summary>
+        public WorldUnitAccess(IWorldSim world, IEventBus bus, ISpatialQuery? spatial = null, HealthFractionSetter? healthFractionSetter = null)
+        {
+            _world = world ?? throw new ArgumentNullException(nameof(world));
+            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _spatial = spatial;
             _healthFractionSetter = healthFractionSetter;
         }
@@ -84,6 +104,44 @@ namespace Core.Carriers.Unit
             {
                 unit.Level = level;
             }
+        }
+
+        /// <summary>
+        /// ADR-0088（消费方第三十三批反馈2阻塞项根治）：运行期改变单位阵营的框架入口——此前框架
+        /// 未提供此类入口，消费方只能绕过直接写 <see cref="Unit.FactionId"/> 字段，导致仇恨表/AI
+        /// 无法感知阵营变化（仇恨表不清、AI 继续追一个已经变友方的目标）。写入新阵营后发布
+        /// <see cref="UnitFactionChangedEvent"/>（旧值与新值相同不发，同
+        /// <see cref="Core.Numbers.Faction.FactionMatrix.SetReaction"/> 判断记录同一惯例——阵营变化
+        /// 是一次性状态跃迁，不是 tick 内的高频事件，故用 <see cref="IEventBus.PublishImmediate"/>
+        /// 同步立即派发，使订阅方（<see cref="Core.Rules.Combat.ThreatTable"/>）能在本次调用返回前
+        /// 就完成仇恨表清理，不依赖调用方之后记得 <c>DispatchPending</c>）。
+        /// <para>
+        /// 不在 <see cref="IUnitAccess"/> 接口上（同 <see cref="SetLevel"/>/<see cref="Revive"/>
+        /// 判断记录同一惯例：这不是 skill/combat/targeting/ai 四个模块经 <see cref="IUnitAccess"/>
+        /// 契约会用到的操作，而是供消费方游戏逻辑——如变身/魅惑一类效果——直接调用的窄契约，不必
+        /// 扩大公开契约、也不要求全部 <see cref="IUnitAccess"/> 假实现跟着实现）。要求构造时已注入
+        /// <see cref="IEventBus"/>（见上方新增的双参数重载）；未注入时抛
+        /// <see cref="InvalidOperationException"/>，不静默跳过事件发布（运行时路径不静默降级）。
+        /// </para>
+        /// </summary>
+        public void SetFaction(Id unitId, Id newFactionId)
+        {
+            if (_bus == null)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(WorldUnitAccess)}.{nameof(SetFaction)} 需要构造时注入 {nameof(IEventBus)}" +
+                    "（见带 bus 参数的构造函数重载）");
+            }
+
+            var unit = Require(unitId);
+            var oldFactionId = unit.FactionId;
+            if (oldFactionId.Value == newFactionId.Value)
+            {
+                return;
+            }
+
+            unit.FactionId = newFactionId;
+            _bus.PublishImmediate(new UnitFactionChangedEvent(unitId, oldFactionId, newFactionId));
         }
 
         public double GetFacing(Id unitId) => Require(unitId).Facing;

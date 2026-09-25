@@ -282,6 +282,9 @@ namespace Core.Foundation.EventBus
         /// <summary>unit.died — 字段：unitId, killerId, mapId, position。死亡结算完成（见 06 第 8 节）；W1 收边补 mapId/position（死亡那一刻的地图/坐标快照，供死亡复活执行主体使用，position 不经 Expr 暴露）。</summary>
         public static readonly Id UnitDied = new Id("unit.died");
 
+        /// <summary>unit.faction_changed — 字段：unitId, oldFactionId, newFactionId。ADR-0088（消费方第三十三批反馈2）：运行期改变单位阵营的框架入口（core/carriers/unit.WorldUnitAccess.SetFaction）写入新阵营后触发（旧值与新值相同不触发）；仇恨系统订阅本事件清理不再敌对的仇恨表条目，不做缓存、现场用 IFactionMatrix 判定。</summary>
+        public static readonly Id UnitFactionChanged = new Id("unit.faction_changed");
+
         /// <summary>unit.moved — 字段：unitId, position。单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值。</summary>
         public static readonly Id UnitMoved = new Id("unit.moved");
 
@@ -394,6 +397,7 @@ namespace Core.Foundation.EventBus
             UiPanelClosed,
             UiPanelOpened,
             UnitDied,
+            UnitFactionChanged,
             UnitMoved,
             UnitRespawned,
             UnitSkillBindingChanged,

@@ -458,6 +458,22 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 行为变更
+
+- **召唤物 idle 态默认转移候选扩展为兼看威胁表，`TryFollow` 跳过条件改按行为态判定**（消费方
+  反馈第三十三批阻塞项1，[ADR-0087](architecture/adr/0087-召唤物idle态默认转移候选扩展与跟随跳过条件收紧.md)）：
+  `SyncCombatState`/`ShareThreat` 联动下，召唤物身边无感知目标但仍在战时不再永久卡在 `idle`
+  （感知范围内无候选时退回威胁表最高且仍敌对的来源）；`SummonTickHandler.TryFollow` 不再单看
+  `IsInCombat` 标志，改按召唤物自身 `AiHost` 行为态（`Chase`/`Combat`/`Return`/`Flee` 才跳过跟随）
+  判定，避免旧标志与真实决策脱节导致的原地冻结。
+
+### 修复
+
+- **新增运行期改变单位阵营的框架入口，仇恨表与 AI 目标选择同步清理非敌对条目**（消费方反馈
+  第三十三批阻塞项2，[ADR-0088](architecture/adr/0088-仇恨表跟随运行期阵营变化清理.md)）：
+  `WorldUnitAccess.SetFaction` 发布 `unit.faction_changed`；`ThreatTable` 订阅该事件双向清理
+  不再敌对的仇恨条目；`AiHost.HandleCombat` 选目标时跳过非敌对的顶端威胁来源。
+
 ## [1.69.0] - 2026-09-25
 
 ### 行为变更

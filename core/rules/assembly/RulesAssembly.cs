@@ -570,10 +570,13 @@ namespace Core.Rules.Assembly
             //    重新构造第二份），self/target/combat 的 is_casting 与 Targeting/Skill 内部求值
             //    读到的是同一个真实 SkillHost。
             // -------------------------------------------------------------
+            // ADR-0087：传入 Combat（ICombatHost）使 AiHost 的 idle/patrol 态默认转移候选能判定
+            // "单位是否已经在战"（见该类型 FindIdleChaseCandidate 判断记录）——Combat 已在上面构造
+            // 完成，与本类既有装配顺序一致，不引入新的循环依赖。
             var resolvedAiOptions = aiOptions ?? new AiOptions();
             Ai = new AiHost(
                 Registry, Units, Factions, Powers, Spatial, Skill, Combat.GetThreatTable(ThreatTablePlaceholderId),
-                ExprHostFactory, Bus, Rng, Navigation, resolvedAiOptions);
+                ExprHostFactory, Bus, Rng, Navigation, resolvedAiOptions, exprSchema: null, combatHost: Combat);
 
             // -------------------------------------------------------------
             // 8) tick 处理器挂载（见 README"tick 阶段挂载表"）——除非调用方要求延后

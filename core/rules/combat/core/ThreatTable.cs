@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Numbers.Faction;
 using Core.Rules.Common;
 
 namespace Core.Rules.Combat
@@ -21,6 +22,7 @@ namespace Core.Rules.Combat
         private readonly IUnitAccess _units;
         private readonly IEventBus _bus;
         private readonly int _maxEntries;
+        private readonly IFactionMatrix? _factions;
 
         // 判断记录：外层用 Dictionary（无需按 unitId 排序遍历——GetOrder 靠 CombatHost.Update 自行
         // 排序），内层用 SortedDictionary<Id, double> 保证同一单位的来源按 Id 序数确定性遍历
@@ -28,6 +30,17 @@ namespace Core.Rules.Combat
         private readonly Dictionary<Id, SortedDictionary<Id, double>> _tables = new Dictionary<Id, SortedDictionary<Id, double>>();
 
         public ThreatTable(IUnitAccess units, IEventBus bus, int maxEntries)
+            : this(units, bus, maxEntries, factions: null)
+        {
+        }
+
+        /// <summary>ADR-0088（消费方第三十三批反馈2根治）：新增重载，注入 <paramref name="factions"/>
+        /// 后订阅 <see cref="RulesEventKeys.UnitFactionChanged"/>，在运行期单位改阵营时对全部仇恨表
+        /// 清理"来源与表主人已不再敌对"的条目（见 <see cref="PruneAfterFactionChange"/> 判断记录）。
+        /// <paramref name="factions"/> 为 <c>null</c>（原三参数构造函数的既有调用方）时不订阅，行为
+        /// 与本次改动之前完全一致——生产装配（<see cref="CombatHost"/>）已改为传入真实
+        /// <see cref="IFactionMatrix"/>，测试假实现/未接入阵营矩阵的调用方不受影响。</summary>
+        public ThreatTable(IUnitAccess units, IEventBus bus, int maxEntries, IFactionMatrix? factions)
         {
             _units = units ?? throw new ArgumentNullException(nameof(units));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
@@ -36,6 +49,13 @@ namespace Core.Rules.Combat
                 throw new ArgumentException("maxEntries 必须为正数", nameof(maxEntries));
             }
             _maxEntries = maxEntries;
+            _factions = factions;
+
+            if (_factions != null)
+            {
+                _bus.Subscribe<UnitFactionChangedEvent>(
+                    RulesEventKeys.UnitFactionChanged, evt => PruneAfterFactionChange(evt.UnitId));
+            }
         }
 
         /// <summary>当前持有至少一条仇恨记录的单位，按 Id 序数排序（供治疗仇恨的"敌对来源"
@@ -172,13 +192,92 @@ namespace Core.Rules.Combat
         {
             foreach (var unitId in TrackedUnits)
             {
-                if (!_tables.TryGetValue(unitId, out var table) || !table.TryGetValue(sourceId, out var oldValue))
+                RemoveSource(unitId, sourceId);
+            }
+        }
+
+        /// <summary>ADR-0088：<see cref="IThreatTable.RemoveSource"/> 的真实实现——不存在则
+        /// no-op（同 <see cref="IThreatTable.RemoveSource"/> 文档"若存在"）。<see
+        /// cref="PruneAfterFactionChange"/> 与 <see cref="RemoveSourceEverywhere"/> 均改为经本方法
+        /// 统一完成"移除 + 变化归零事件"，不再各自重复同一段逻辑。</summary>
+        public void RemoveSource(Id unitId, Id sourceId)
+        {
+            if (!_tables.TryGetValue(unitId, out var table) || !table.TryGetValue(sourceId, out var oldValue))
+            {
+                return;
+            }
+
+            table.Remove(sourceId);
+            _bus.Enqueue(new CombatThreatChangedEvent(unitId, sourceId, oldValue, 0.0));
+        }
+
+        /// <summary>ADR-0088（消费方第三十三批反馈2根治）：<see cref="RulesEventKeys.UnitFactionChanged"/>
+        /// 订阅回调——<paramref name="changedUnitId"/> 阵营变化后，对全部仇恨表清理"来源与表主人
+        /// 已不再敌对"的条目，双向都要检查：
+        /// <list type="bullet">
+        /// <item>(a) <paramref name="changedUnitId"/> 自己的仇恨表：逐条来源用变化后的新阵营现场判定
+        /// <see cref="IFactionMatrix.IsHostile"/>，不再敌对即删（消费方反馈场景：A 仇恨顶端是 B，
+        /// B 运行期改判 A 同阵营后，A 表里的 B 应被删除）。</item>
+        /// <item>(b) <paramref name="changedUnitId"/> 作为"来源"挂在其它单位表上的条目：对每个持有
+        /// 该来源的表主人，同样现场判定是否仍敌对，不再敌对即删（双向清理的另一半——变友方的单位
+        /// 自己若曾经是别人的仇恨来源，那些条目也要跟着失效）。</item>
+        /// </list>
+        /// 不做任何缓存——两个方向都直接读 <see cref="IUnitAccess.GetFaction"/> 的当前值，事件本身
+        /// 只用于"知道该重新判定谁了"，不携带用于判定的阵营快照。<see cref="_factions"/> 为 null
+        /// （未订阅）时不会走到本方法。</summary>
+        private void PruneAfterFactionChange(Id changedUnitId)
+        {
+            if (_factions == null || !_units.Exists(changedUnitId))
+            {
+                return;
+            }
+
+            var changedFaction = _units.GetFaction(changedUnitId);
+
+            if (_tables.TryGetValue(changedUnitId, out var ownTable))
+            {
+                var toRemove = new List<Id>();
+                foreach (var pair in ownTable)
+                {
+                    if (!_units.Exists(pair.Key))
+                    {
+                        continue; // 已死亡/已移除的来源交给 PruneDead 处理，不在本方法职责内。
+                    }
+
+                    if (!_factions.IsHostile(changedFaction, _units.GetFaction(pair.Key)))
+                    {
+                        toRemove.Add(pair.Key);
+                    }
+                }
+
+                foreach (var sourceId in toRemove)
+                {
+                    RemoveSource(changedUnitId, sourceId);
+                }
+            }
+
+            foreach (var trackedUnitId in TrackedUnits)
+            {
+                if (trackedUnitId.Equals(changedUnitId))
+                {
+                    continue; // (a) 已处理。
+                }
+
+                if (!_tables.TryGetValue(trackedUnitId, out var table) || !table.ContainsKey(changedUnitId))
                 {
                     continue;
                 }
 
-                table.Remove(sourceId);
-                _bus.Enqueue(new CombatThreatChangedEvent(unitId, sourceId, oldValue, 0.0));
+                if (!_units.Exists(trackedUnitId))
+                {
+                    continue;
+                }
+
+                var ownerFaction = _units.GetFaction(trackedUnitId);
+                if (!_factions.IsHostile(ownerFaction, changedFaction))
+                {
+                    RemoveSource(trackedUnitId, changedUnitId);
+                }
             }
         }
 

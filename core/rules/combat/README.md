@@ -575,3 +575,22 @@ combat/
 "skillId", "auraDefId")` 与 `RulesExprHostFactory.Host.QueryEvent` 的"事件字段名→ `event.<field>`"
 既有通用转发机制，`feedback.binding` 按 `event.skill_id` 条件过滤与 `from_display: skill` 均不需要
 额外接线。ABI：新增构造函数重载，不改动任何既有公开签名。
+
+## 判断记录（仇恨表按运行期阵营变化现场清理，2026-09-25，[ADR-0088](../../../architecture/adr/0088-仇恨表跟随运行期阵营变化清理.md)）
+
+消费方第三十三批反馈2：目标运行期改判友方后（框架此前无入口，消费方只能直接写实体阵营字段）仇恨
+表不清，`AiHost.HandleCombat` 也不检查 `GetTopThreat` 是否仍敌对，AI 一直"追"这个已转友方的目标。
+`IThreatTable` 新增 `RemoveSource(unitId, sourceId)`（只删 `unitId` 自己表里的一条，默认接口实现抛
+`NotSupportedException`——收边新增能力，不强制其它既有实现方，如各模块测试假实现——支持；
+`ThreatTable` 提供真实删除，删除时同样发 `CombatThreatChangedEvent(newValue: 0)`，与既有"威胁值
+变化"事件语义一致，不新开一种"来源移除"事件）。`ThreatTable` 新增可空 `IFactionMatrix` 构造参数
+（4 参数新重载；既有 3 参数构造原样保留、转发调用新重载并传 `factions: null`，ABI 安全）——非空
+时构造期订阅 `unit.faction_changed`（`PruneAfterFactionChange`）：双向清理——① 变更方自己的仇恨表
+里，不再与它敌对的来源；②全部被追踪单位的仇恨表里，把变更方自己当作来源、但变更方已不再与该
+单位敌对的条目。敌对性现场经 `IFactionMatrix.IsHostile` 判定，不缓存（阵营关系本身可能也在变，缓存
+的敌对性会比阵营关系本身更快过期）。`CombatHost` 构造 `ThreatTable` 时传入自己已校验非空的
+`_factions`，唯一生产装配路径因此天然获得这条清理；测试用的 `FakeThreatTable`（各模块自己的测试
+替身）不受影响，继续按旧语义工作，不要求它们支持事件订阅。护栏独立于本条清理存在：见
+`core/rules/ai/README.md` 判断记录（`AiHost.HandleCombat` 新增 `GetTopHostileThreat` 兜底跳过非
+敌对来源）——即便某条路径遗留了一条非敌对的仇恨条目，AI 也不应该选它当目标。ABI：`IThreatTable`
+新增默认接口方法、`ThreatTable` 新增构造函数重载，均不改动任何既有公开签名。

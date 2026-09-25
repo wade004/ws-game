@@ -46,6 +46,11 @@ namespace Tests.Rules.Ai
         {
             var harness = AiTestHarness.Build(ProfilesJson, RotationsJson);
             harness.Units.Add(Unit, Vec2.Zero, AiTestSupport.FactionMonster);
+            // ADR-0088：HandleCombat 选目标现在会跳过 IsHostile 为假的顶端来源（决定7），判定需要
+            // 查询来源单位的阵营——Enemy 必须真实登记（此前只在 FakeThreatTable 里摆了一条从未
+            // 注册的占位 id 也能让旧实现"恒信任 GetTopThreat"蒙混过关，属于夹具依赖了不完整的占位，
+            // 不是本测试要验证的"预算记账"机制本身，按夹具补全处理，不改动任何断言）。
+            harness.Units.Add(Enemy, Vec2.Zero, AiTestSupport.FactionPlayer);
             harness.Host.RegisterUnit(Unit, ProfileId, Vec2.Zero);
             harness.Host.ForceState(Unit, BehaviorState.Combat);
             // 恒有仇恨目标：避免 HandleCombat 在"无威胁且附近无敌对目标"时转入 Return 态，

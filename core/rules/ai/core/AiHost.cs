@@ -53,6 +53,7 @@ namespace Core.Rules.Ai
         private readonly IEventBus _bus;
         private readonly IRngHost _rng;
         private readonly AiOptions _options;
+        private readonly ICombatHost? _combatHost;
         private readonly IExprDiagnostics _exprDiagnostics = new ExprDiagnosticsRecorder();
 
         /// <summary>集成任务改动：解析 <c>ai.behavior_profile.transitions</c>（本类自己解析）与
@@ -86,7 +87,8 @@ namespace Core.Rules.Ai
             IRngHost rng,
             INavigation2D? navigation = null,
             AiOptions? options = null,
-            IExprSchema? exprSchema = null)
+            IExprSchema? exprSchema = null,
+            ICombatHost? combatHost = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             _units = units ?? throw new ArgumentNullException(nameof(units));
@@ -100,6 +102,11 @@ namespace Core.Rules.Ai
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
             _navigation = navigation;
             _options = options ?? new AiOptions();
+            // ADR-0087：可选依赖，供 idle/patrol 态默认转移候选集判定"单位是否已经在战"（见
+            // HandleIdleOrPatrol/FindIdleChaseCandidate 判断记录）；为 null（既有调用方，如各模块
+            // 测试假实现）时该分支恒不触发，行为与本次改动之前完全一致——生产装配
+            // （RulesAssembly）已改为传入真实 CombatHost。
+            _combatHost = combatHost;
             // ADR-0084：CombatReentryRangeRatio 越界（<= 0 或 > 1）会让 chase_to_combat 判定退化为
             // 永远无法满足或超过攻击距离本身，两种情形都破坏"进出点之间隔着余量"的滞回设计——按任务
             // 书拍板做合法性校验，越界直接抛异常，不静默夹紧。
@@ -277,7 +284,7 @@ namespace Core.Rules.Ai
             var profile = _profiles[state.ProfileId.Value];
             var position = _units.GetPosition(unitId);
 
-            var nearestHostile = FindNearestHostile(unitId, position, profile.PerceptionRadius);
+            var nearestHostile = FindIdleChaseCandidate(unitId, state, position, profile);
             var shouldChase = EvaluateNamedCondition(profile, TransitionIdleToChase, unitId, nearestHostile,
                 () => nearestHostile.HasValue);
 
@@ -347,7 +354,13 @@ namespace Core.Rules.Ai
             var profile = _profiles[state.ProfileId.Value];
             var position = _units.GetPosition(unitId);
 
-            var topThreat = _threatTable.GetTopThreat(unitId);
+            // ADR-0088（消费方第三十三批反馈2护栏）：选目标时跳过 IsHostile 为假的顶端来源，继续
+            // 取下一个仍敌对的（见 GetTopHostileThreat 判断记录）——目标运行期转为友方后（消费方
+            // 直接改阵营，仇恨表理应已被 ThreatTable 的 unit.faction_changed 订阅清理，见该类型
+            // 判断记录），即便某条路径遗留了一条非敌对的僵尸条目，AI 也不会继续把它当目标（永不锁定
+            // 非敌对目标的不变量，与源头修复各自独立存在）。全部不敌对则视为无仇恨（topThreat 为
+            // null），走下方既有 noThreat/combat_to_return 判定，不额外分支。
+            var topThreat = GetTopHostileThreat(unitId);
             if (topThreat.HasValue)
             {
                 state.Target = topThreat;
@@ -563,6 +576,96 @@ namespace Core.Rules.Ai
         /// 拉进候选集合再逐个探测存在性的无谓开销，也与其余查询点的处理方式保持一致。</summary>
         private static readonly QueryFilter ExcludeTriggerOnly =
             new QueryFilter(excludedTags: new[] { CollisionLayers.TriggerOnly });
+
+        /// <summary>
+        /// ADR-0087（消费方第三十三批反馈1根治）：<c>idle</c>/<c>patrol</c> 态默认转移候选——仇恨表
+        /// 是战斗中的目标权威，感知半径只用于获取新目标（见该 ADR 决定 1）。优先取感知范围内最近
+        /// 敌对单位；找不到时，若该单位 <see cref="ICombatHost.IsInCombat"/>（如召唤物
+        /// <c>SyncCombatState</c> 联动主人进战）且仇恨表顶端来源存活、仍敌对
+        /// （<see cref="IFactionMatrix.IsHostile"/>）、且在 <see cref="AiBehaviorProfile.LeashRange"/>
+        /// 内（以 <see cref="AiUnitState.SpawnPoint"/> 到来源当前位置的距离判定，与
+        /// <see cref="HandleChase"/> 的拴绳判定同一基准点），才以它为候选——使
+        /// <c>SummonOptions.ShareThreat</c> 合并进来的主人仇恨真正驱动召唤物从 idle/patrol 转入
+        /// chase，不再需要感知范围覆盖到目标才会动。<see cref="_combatHost"/> 未注入（既有调用方）
+        /// 时本分支恒不触发，只回退感知候选，行为与本次改动之前完全一致。
+        /// <para>
+        /// 不新增转移名：<c>idle_to_chase</c> 的 Expr 覆盖语义不变（覆盖的仍是"是否转移"的判定，
+        /// 见 <see cref="HandleIdleOrPatrol"/> 调用点），本方法只是扩大了默认候选集的来源。
+        /// </para>
+        /// </summary>
+        private Id? FindIdleChaseCandidate(Id unitId, AiUnitState state, Vec2 position, AiBehaviorProfile profile)
+        {
+            var nearestHostile = FindNearestHostile(unitId, position, profile.PerceptionRadius);
+            if (nearestHostile.HasValue)
+            {
+                return nearestHostile;
+            }
+
+            if (_combatHost == null || !_combatHost.IsInCombat(unitId))
+            {
+                return null;
+            }
+
+            var topThreat = _threatTable.GetTopThreat(unitId);
+            if (!topThreat.HasValue)
+            {
+                return null;
+            }
+
+            var source = topThreat.Value;
+            if (!_units.Exists(source) || !_units.IsAlive(source))
+            {
+                return null;
+            }
+
+            if (!_factions.IsHostile(_units.GetFaction(unitId), _units.GetFaction(source)))
+            {
+                return null;
+            }
+
+            var sourcePos = _units.GetPosition(source);
+            if (Vec2.Distance(state.SpawnPoint, sourcePos) > profile.LeashRange)
+            {
+                return null;
+            }
+
+            return source;
+        }
+
+        /// <summary>
+        /// ADR-0088（消费方第三十三批反馈2护栏）：仇恨表顶端来源已运行期转为非敌对时不选它作目标——
+        /// 按 <see cref="IThreatTable.GetAll"/> 的原始顺序（按 <see cref="Id"/> 序数升序，见
+        /// <see cref="Core.Rules.Combat.ThreatTable.GetAll"/> 判断记录）复刻
+        /// <see cref="IThreatTable.GetTopThreat"/> 同一套"最高仇恨值、并列取 Id 序数最小者"的选取
+        /// 规则，额外跳过不存在/已死亡/已不再敌对的来源，继续看仇恨值次高的一个。全部候选都被跳过
+        /// 时返回 null（视为无仇恨，<see cref="HandleCombat"/> 走既有 <c>combat_to_return</c>/
+        /// 感知重新拾取新目标判定，不额外分支）。</summary>
+        private Id? GetTopHostileThreat(Id unitId)
+        {
+            var entries = _threatTable.GetAll(unitId);
+            if (entries.Count == 0)
+            {
+                return null;
+            }
+
+            var selfFaction = _units.GetFaction(unitId);
+            Id? best = null;
+            var bestValue = double.NegativeInfinity;
+
+            foreach (var (source, amount) in entries)
+            {
+                if (!_units.Exists(source) || !_units.IsAlive(source)) continue;
+                if (!_factions.IsHostile(selfFaction, _units.GetFaction(source))) continue;
+
+                if (amount > bestValue)
+                {
+                    bestValue = amount;
+                    best = source;
+                }
+            }
+
+            return best;
+        }
 
         private Id? FindNearestHostile(Id unitId, Vec2 position, double radius)
         {
