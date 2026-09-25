@@ -74,6 +74,29 @@ namespace Core.Rules.Ai
         // SortedDictionary 保证按 Id 序数遍历，供 RegisteredUnitIds / AiTickHandler 确定性遍历。
         private readonly SortedDictionary<string, AiUnitState> _states = new SortedDictionary<string, AiUnitState>(StringComparer.Ordinal);
 
+        /// <summary>ADR-0087：保留 1.69.0 及之前的公开构造签名（二进制兼容——可选参数是编译期糖，
+        /// 给公开构造函数追加可选参数会改变物理签名，让只见过旧签名的已编译消费方在运行期抛
+        /// <c>MissingMethodException</c>；发布 ABI 探针会拦下）。转调下方带 <see cref="ICombatHost"/>
+        /// 的完整重载，行为与本次改动之前完全一致。</summary>
+        public AiHost(
+            IDataRegistryView registry,
+            IUnitAccess units,
+            IFactionMatrix factions,
+            IPowerHost powers,
+            ISpatialQuery spatialQuery,
+            ISkillHost skillHost,
+            IThreatTable threatTable,
+            IExprHostFactory exprHostFactory,
+            IEventBus bus,
+            IRngHost rng,
+            INavigation2D? navigation,
+            AiOptions? options,
+            IExprSchema? exprSchema)
+            : this(registry, units, factions, powers, spatialQuery, skillHost, threatTable, exprHostFactory,
+                bus, rng, navigation, options, exprSchema, combatHost: null)
+        {
+        }
+
         public AiHost(
             IDataRegistryView registry,
             IUnitAccess units,

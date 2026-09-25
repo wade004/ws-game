@@ -33,6 +33,20 @@ namespace Core.Carriers.Summon
         private readonly IExprDiagnostics _diagnostics;
         private readonly IAiHost? _aiHost;
 
+        /// <summary>ADR-0087：保留 1.69.0 及之前的公开构造签名（二进制兼容——可选参数是编译期糖，
+        /// 给公开构造函数追加可选参数会改变物理签名，让只见过旧签名的已编译消费方在运行期抛
+        /// <c>MissingMethodException</c>；发布 ABI 探针会拦下）。转调下方带 <see cref="IAiHost"/>
+        /// 的完整重载，行为与本次改动之前完全一致。</summary>
+        public SummonTickHandler(
+            SummonHost summonHost,
+            IUnitAccess units,
+            ICombatHost combatHost,
+            SummonOptions? options,
+            IExprDiagnostics? diagnostics)
+            : this(summonHost, units, combatHost, options, diagnostics, aiHost: null)
+        {
+        }
+
         public SummonTickHandler(
             SummonHost summonHost,
             IUnitAccess units,
