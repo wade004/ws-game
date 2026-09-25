@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using Adapters.Stub;
 using Core.Foundation.Common;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
+using Core.Foundation.Rng;
 using Core.Rules.Common;
 using Presentation.FeedbackBinder.Contracts;
 using Presentation.VfxSfx.Contracts;
@@ -935,6 +937,58 @@ namespace Tests.Presentation.FeedbackBinder
             // 外层派发的两个订阅者都执行、重入派发的两个订阅者也都执行：共 4 次调用，顺序体现
             // "重入派发在外层第一个订阅者回调内完整跑完，再回到外层继续跑第二个订阅者"。
             Assert.Equal(new[] { "outer:first", "outer:first", "outer:second", "outer:second" }, calls);
+        }
+
+        // ------------------------------------------------------------------
+        // ADR-0089：循环音效"进入态播放、离开态停止"，经真实 FeedbackBinder 端到端验证。
+        // ------------------------------------------------------------------
+
+        /// <summary>复现用例（修复前必须真红）：修复前 <c>feedback.binding</c> 没有 <c>stop_sfx</c>
+        /// 动作 kind，<see cref="FeedbackBinderTestSupport.LoopSfxLeaveRuleRow"/> 经
+        /// <c>FeedbackRule.ParseAction</c> 会因未知 <c>kind</c> 直接抛
+        /// <c>Core.Foundation.DataRegistry.DataFieldException</c>，本用例开头的
+        /// <c>LoadRules</c>（内部 <c>Assert.False(report.IsBlocking)</c>）先红；即便只看
+        /// <c>play_sfx</c> 一侧，<c>sfx.def</c> 修复前也没有 <c>loop</c> 字段，"循环、不自然结束"
+        /// 这个形状本身不存在。本用例经真实 <see cref="FeedbackBinderCore"/>（不是
+        /// <see cref="RecordingFeedbackSink"/> 假实现）+ 真实 <see cref="SfxPlayer"/> + 真实
+        /// <see cref="StubAudio"/> 端到端验证：<see cref="FeedbackBinderTestSupport.LoopSfxEnterRuleRow"/>
+        /// 触发的事件播放一个循环实例（<c>Loop=true</c>，且不依赖任何剪辑时长/自然回收信号——
+        /// <see cref="StubAudio"/> 本就不模拟剪辑时长，播放实例只会因显式 <c>StopSfx</c> 被摘除，见
+        /// 该类型注释），<see cref="FeedbackBinderTestSupport.LoopSfxLeaveRuleRow"/> 触发的事件按
+        /// 同一对 (sfx_id, 附着实体) 键把它停止。</summary>
+        [Fact]
+        public void OnEvent_LoopSfxEnterThenLeave_ViaFeedbackBinder_StartsLoopingInstance_ThenStopsIt()
+        {
+            var bus = FeedbackBinderTestSupport.CreateBus();
+            var audio = new StubAudio();
+            var loopSfx = new Id("sfx.buff_hum");
+            var sfxCatalog = new Dictionary<Id, SfxDef>
+            {
+                [loopSfx] = new SfxDef(loopSfx, "combat", null, null, new Id("res.buff_hum"), loop: true),
+            };
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), new Dictionary<Id, VfxDef>());
+            var sfx = new SfxPlayer(audio, new RngHost(1), sfxCatalog);
+            var sink = new CompositeFeedbackSink(
+                vfx, sfx,
+                onFloatingText: (_, __, ___) => { },
+                onFreeze: _ => { },
+                onShakeCamera: _ => { },
+                onFlash: (_, __) => { });
+
+            var rules = LoadRules(FeedbackBinderTestSupport.LoopSfxEnterRuleRow, FeedbackBinderTestSupport.LoopSfxLeaveRuleRow);
+            using var binder = new FeedbackBinderCore(bus, new FeedbackBinderTestSupport.FakeExprHostFactory(), rules, sink);
+
+            var heroId = new Id("unit.hero");
+            var enterEvt = new CombatDamageDealtEvent(heroId, new Id("unit.wolf"), new Id("skill.school.physical"), 10.0, isCrit: false, HitResult.Hit);
+            bus.PublishImmediate(enterEvt);
+
+            Assert.Single(audio.ActiveSfxPlaybacks);
+            Assert.True(System.Linq.Enumerable.Single(audio.ActiveSfxPlaybacks.Values).Loop);
+
+            var leaveEvt = new CombatHealDoneEvent(heroId, new Id("unit.wolf"), 5.0, isCrit: false);
+            bus.PublishImmediate(leaveEvt);
+
+            Assert.Empty(audio.ActiveSfxPlaybacks);
         }
     }
 }

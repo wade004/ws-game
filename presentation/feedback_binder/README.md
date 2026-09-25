@@ -236,6 +236,22 @@
     `PublishImmediate_ReentrantPublishOfSameKey_BothDispatchesReachAllSubscribers` 验证为改动前后
     均已正确，本次修复未涉及、也不需要改动事件总线。
 
+19. **[ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md) `stop_sfx` 动作 + `play_sfx`
+    新增 `attach`**：`FeedbackActionKind` 新增第八项 `StopSfx`；`PlaySfxAction` 新增可选
+    `Attach`（缺省 `World`，旧二参构造转调新增三参构造并固定传 `World`，行为与新增前逐字一致）；
+    新增 `StopSfxAction`（构造函数校验 `sfx_id`/`from_display` 二选一、`attach` 不得为
+    `world`，同判断记录 17 `StopVfxAction` 同款校验风格）。`FeedbackSchemas.ActionKindValues`/
+    `BuildActionVariants` 与 `FeedbackRule.ParseAction` 同步登记 `stop_sfx` 变体、`play_sfx` 变体
+    追加可选 `attach` 字段。`IFeedbackSink` 新增 `PlaySfx(sfxId, at, attach)`（默认体转调旧
+    `PlaySfx(sfxId, at)`）与 `StopSfx(sfxId, attach)`（默认空操作，同判断记录 17 `StopVfx` 惯例），
+    `FeedbackBinder.DispatchPlaySfx`/新增 `DispatchStopSfx` 解析 `attach` 后入队对应 `_sink` 调用。
+    `CompositeFeedbackSink` 的新增实现不像判断记录 17 `_activeVfxByKey` 那样自建按键跟踪表，而是
+    直接转发给 `Presentation.VfxSfx.Contracts.ISfxPlayer.PlayAttached`/`StopAttached`——是否真正
+    需要按 (sfx_id, 附着实体) 跟踪取决于 `sfx.def.loop`，这份判断只有持有 `sfx.def` 目录的
+    `SfxPlayer` 能做，故跟踪表建在 `presentation/vfx_sfx` 一侧，理由与备选方案见 ADR-0089。
+    `attach` 为 world（含 `PlaySfx(Id, Vec2?)` 旧两参重载）时行为与新增前完全一致（不跟踪、不
+    建键）。详见 `presentation/vfx_sfx/README.md` 判断记录 20。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

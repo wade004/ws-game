@@ -428,5 +428,96 @@ namespace Tests.Presentation.VfxSfx
             loader.CompletePending(new Id("res.footstep"));
             Assert.Equal(0, diag.PlayStartedCount);
         }
+
+        // ------------------------------------------------------------------
+        // ADR-0089：sfx.def.loop 传到 IAudio.PlaySfx，PlayAttached/StopAttached 按
+        // (sfxId, entityId) 跟踪循环音效实例。
+        // ------------------------------------------------------------------
+
+        private static readonly Id LoopSfx = new Id("sfx.buff_hum");
+
+        private static Dictionary<Id, SfxDef> BuildLoopCatalog() => new Dictionary<Id, SfxDef>
+        {
+            [LoopSfx] = new SfxDef(LoopSfx, "combat", null, null, new Id("res.buff_hum"), loop: true),
+            [PlainSfx] = new SfxDef(PlainSfx, "combat", 1, null, new Id("res.footstep")),
+        };
+
+        [Fact]
+        public void Play_LoopDef_PassesLoopTrueToAudio()
+        {
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog());
+
+            var handle = player.Play(LoopSfx, null)!.Value;
+
+            Assert.True(audio.ActiveSfxPlaybacks[handle.Value].Loop);
+        }
+
+        [Fact]
+        public void Play_NonLoopDef_PassesLoopFalseToAudio()
+        {
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog());
+
+            var handle = player.Play(PlainSfx, null)!.Value;
+
+            Assert.False(audio.ActiveSfxPlaybacks[handle.Value].Loop);
+        }
+
+        [Fact]
+        public void PlayAttached_LoopDef_RegistersKey_AndStopAttached_StopsIt()
+        {
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog());
+            var entityId = new Id("unit.dummy");
+
+            var handle = player.PlayAttached(LoopSfx, entityId, null)!.Value;
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(handle.Value));
+            Assert.True(audio.ActiveSfxPlaybacks[handle.Value].Loop);
+
+            player.StopAttached(LoopSfx, entityId);
+            Assert.False(audio.ActiveSfxPlaybacks.ContainsKey(handle.Value));
+        }
+
+        [Fact]
+        public void PlayAttached_LoopDef_SameKeyAlreadyPlaying_IsIdempotent_DoesNotStackNewInstance()
+        {
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog());
+            var entityId = new Id("unit.dummy");
+
+            var first = player.PlayAttached(LoopSfx, entityId, null);
+            var second = player.PlayAttached(LoopSfx, entityId, null);
+
+            Assert.Equal(first, second);
+            Assert.Single(audio.ActiveSfxPlaybacks);
+        }
+
+        [Fact]
+        public void PlayAttached_NonLoopDef_DoesNotRegisterKey_StopAttachedIsNoOp()
+        {
+            // 不变量：一次性音效即便带 attach 也不登记跟踪键，退化为普通 Play——与新增前的既有行为
+            // 一致（不跟踪、不建键），StopAttached 查不到键静默忽略，不抛异常、不产生诊断。
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildLoopCatalog());
+            var entityId = new Id("unit.dummy");
+
+            var handle = player.PlayAttached(PlainSfx, entityId, null)!.Value;
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(handle.Value));
+
+            var ex = Record.Exception(() => player.StopAttached(PlainSfx, entityId));
+            Assert.Null(ex);
+            // 一次性音效不经 StopAttached 的键查找摘除，播放实例本身不受影响（既有一次性播放语义不变）。
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(handle.Value));
+        }
+
+        [Fact]
+        public void StopAttached_NoInstanceEverPlayed_IsSilentNoOp()
+        {
+            var player = new SfxPlayer(new StubAudio(), new RngHost(1), BuildLoopCatalog());
+
+            var ex = Record.Exception(() => player.StopAttached(LoopSfx, new Id("unit.never_played")));
+            Assert.Null(ex);
+        }
     }
 }

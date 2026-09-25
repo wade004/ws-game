@@ -458,6 +458,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **循环音效与 `stop_sfx` 动作**（消费方反馈第三十四批阻塞项，
+  [ADR-0089](architecture/adr/0089-循环音效与stop_sfx动作.md)）：`sfx.def` 新增可选 `loop`
+  字段；`feedback.binding` 新增 `stop_sfx` 动作，`play_sfx` 新增可选 `attach`，配合循环音效实现
+  "进入态起播、离开态停止"；`IAudio.PlaySfx`/`ISfxPlayer`/`IFeedbackSink` 均以 ABI 只加法方式
+  新增支撑接口。
+
 ## [1.70.0] - 2026-09-25
 
 ### 行为变更

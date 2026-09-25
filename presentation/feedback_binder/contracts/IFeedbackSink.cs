@@ -28,6 +28,24 @@ namespace Presentation.FeedbackBinder.Contracts
 
         void PlaySfx(Id sfxId, Vec2? at);
 
+        /// <summary>ADR-0089 新增：带 <paramref name="attach"/> 的重载——循环音效
+        /// （<c>sfx.def.loop=true</c>）挂接到具体实体后才能被 <see cref="StopSfx"/> 按同一对
+        /// (sfxId, 附着实体) 键定位停止，非循环音效/<paramref name="attach"/> 为 world 时行为与
+        /// <see cref="PlaySfx(Id, Vec2?)"/> 完全一致（不跟踪、不建键）。默认接口成员，默认体转调
+        /// 旧 <see cref="PlaySfx(Id, Vec2?)"/>、忽略 <paramref name="attach"/>（ABI 只加法，同
+        /// <see cref="StopVfx"/> 惯例），保证既有 <see cref="IFeedbackSink"/> 实现方不需要改一行
+        /// 代码即可继续编译通过；本模块默认实现 <c>CompositeFeedbackSink</c> 显式覆盖，转给
+        /// <c>Presentation.VfxSfx.Contracts.ISfxPlayer.PlayAttached</c>，见该类型判断记录。</summary>
+        void PlaySfx(Id sfxId, Vec2? at, FeedbackAttachSpec attach) => PlaySfx(sfxId, at);
+
+        /// <summary>ADR-0089 新增：按 (<paramref name="sfxId"/>, <paramref name="attach"/> 解析出的
+        /// 附着实体) 定位此前由 <see cref="PlaySfx(Id, Vec2?, FeedbackAttachSpec)"/> 播放、当前仍在播
+        /// 的循环音效实例并停止；查不到在播实例时（从未播过、不是循环音效、已被停止过）静默忽略，
+        /// 不写诊断——同 <see cref="StopVfx"/> 惯例。带默认实现（空操作，ABI 只加法）；本模块默认
+        /// 实现 <c>CompositeFeedbackSink</c> 显式覆盖，转给
+        /// <c>Presentation.VfxSfx.Contracts.ISfxPlayer.StopAttached</c>。</summary>
+        void StopSfx(Id sfxId, FeedbackAttachSpec attach) { }
+
         void Freeze(double durationMs);
 
         void ShakeCamera(Id profileId);

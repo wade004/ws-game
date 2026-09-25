@@ -51,6 +51,8 @@ namespace Presentation.VfxSfx.Schema
                 new FieldSchema("resource_ref", FieldKind.Id, required: true,
                     description: "具体引擎资源的不透明标识，不对应任何内容表；类别前缀限定 sfx，见 ADR-0038 决策 1")
                     .WithAllowedRefCategories("sfx"),
+                new FieldSchema("loop", FieldKind.Bool, required: false,
+                    description: "循环播放，缺省 false；见 ADR-0089（进入态起播、离开态由 feedback.binding 的 stop_sfx 停播）"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "sfx");
 

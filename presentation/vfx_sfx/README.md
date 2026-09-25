@@ -250,6 +250,31 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       `PlaybackDiagnostics_ResourceAlreadyLoaded_*`/`PlaybackDiagnostics_UnknownSfxId_*`/
       `PlaybackDiagnostics_ColdResource_*`（三条丢弃路径 + 一条冷加载补播放路径）。
 
+20. **[ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)：`sfx.def` 新增可选
+    `loop: bool`（缺省 false），`ISfxPlayer` 新增 `PlayAttached`/`StopAttached` 按
+    (sfxId, entityId) 跟踪循环音效实例**：`SfxDef` 新增 `Loop` 属性 + 带该参数的构造重载（旧五参
+    构造转调，`FromRecord` 未提供该字段时缺省 false）；`Core.Foundation.EngineAdapter.IAudio.PlaySfx`
+    新增带 `loop` 的默认接口成员重载（默认体转调旧四参签名、忽略 `loop`），`SfxPlayer.Play` 改为
+    按 `def.Loop` 传参；`Adapters.Stub.StubAudio`（`SfxPlayback` 新增 `Loop` 只读字段）与
+    `Adapter.Unity.EngineAdapter.UnityAudio`（`AudioSource.loop = true`，每次 `RentSlot` 复用旧
+    池位都会显式重新赋值，避免循环标志跨播放串位）均已覆写为真正落地。`ISfxPlayer` 新增默认接口
+    成员 `PlayAttached(sfxId, entityId, at)`/`StopAttached(sfxId, entityId)`（默认体分别退化为
+    普通 `Play`/空操作，ABI 只加法），`SfxPlayer` 显式覆盖：只有 `def.Loop=true` 才登记
+    `(sfxId, entityId) -> SfxHandle` 键（一次性音效退化为普通 `Play`，不建键、不影响既有行为）；
+    同键已在播时 `PlayAttached` 幂等返回已登记句柄，不叠播第二个实例；`StopAttached` 查到即
+    `Stop` 并摘除，查不到静默忽略、不写诊断（同判断记录 18"目标已经自然过期"/ADR-0075 `stop_vfx`
+    "没有在播实例是正常时序"同一惯例）。已知限制（不新建"实体销毁"监听机制）：`VfxPlayer` 对
+    `anchor`/降级 `socket` 跟随实例是靠每帧 `Update` 重新解析实体位置失败才顺带结束特效
+    （`UpdateFollowTargets`），本身不是显式销毁事件；`SfxPlayer` 没有等价的逐帧位置解析可镜像，
+    因此循环音效必须靠内容侧显式 `stop_sfx` 终止，实体在移除信号到达前被销毁的场景不在本次范围
+    内处理，详见该 ADR"后果"节。回归用例：`tests/SfxPlayerTests.cs`
+    `Play_LoopDef_PassesLoopTrueToAudio`/`PlayAttached_LoopDef_RegistersKey_AndStopAttached_
+    StopsIt`/`PlayAttached_LoopDef_SameKeyAlreadyPlaying_IsIdempotent_DoesNotStackNewInstance`/
+    `PlayAttached_NonLoopDef_DoesNotRegisterKey_StopAttachedIsNoOp`、`tests/
+    VfxSfxFromRecordTests.cs` `SfxDef_FromRecord_ParsesExplicitLoopTrue`、
+    `adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/UnityAudioTests.cs`
+    `PlaySfx_LoopTrue_SetsAudioSourceLoopTrue`（PlayMode，`AudioSource.loop == true`）。
+
 ## 不负责什么
 
 - `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的

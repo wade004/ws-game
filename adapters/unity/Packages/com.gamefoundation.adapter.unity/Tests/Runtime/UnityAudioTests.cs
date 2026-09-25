@@ -204,5 +204,42 @@ namespace Adapter.Unity.Tests.Runtime
             _audio.PlaySfx(new Id("sfx.r10_sample_2"), 1.0, 1.0, null);
             Assert.AreEqual(1, _audio.SfxPoolSize, "应当复用已回收的池位，池子大小不应该增长");
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0089：sfx.def.loop 经 SfxPlayer 传到 IAudio.PlaySfx 的新增 loop 重载，Unity 侧落地为
+        // 真正的 AudioSource.loop。
+        // -----------------------------------------------------------------
+
+        [Test]
+        public void PlaySfx_LoopTrue_SetsAudioSourceLoopTrue()
+        {
+            var handle = _audio.PlaySfx(new Id("sfx.adr0089_loop"), 1.0, 1.0, null, loop: true);
+            var source = _audio.GetSfxSourceForHandle(handle);
+
+            Assert.IsNotNull(source);
+            Assert.IsTrue(source!.loop);
+        }
+
+        [Test]
+        public void PlaySfx_LoopFalse_LeavesAudioSourceLoopFalse()
+        {
+            var handle = _audio.PlaySfx(new Id("sfx.adr0089_oneshot"), 1.0, 1.0, null, loop: false);
+            var source = _audio.GetSfxSourceForHandle(handle);
+
+            Assert.IsNotNull(source);
+            Assert.IsFalse(source!.loop);
+        }
+
+        [Test]
+        public void PlaySfx_FourArgOverload_DoesNotSetLoop_SameAsExplicitFalse()
+        {
+            // 不变量：不带 loop 参数的既有四参重载（ADR-0089 前的唯一入口）转调新增五参重载并传
+            // loop: false，行为与新增前逐字一致。
+            var handle = _audio.PlaySfx(new Id("sfx.adr0089_legacy_call"), 1.0, 1.0, null);
+            var source = _audio.GetSfxSourceForHandle(handle);
+
+            Assert.IsNotNull(source);
+            Assert.IsFalse(source!.loop);
+        }
     }
 }

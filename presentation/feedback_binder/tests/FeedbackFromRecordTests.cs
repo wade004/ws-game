@@ -151,6 +151,101 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         [Fact]
+        public void PlaySfxAction_FromRecord_ParsesAttach_DefaultsToWorldWhenOmitted()
+        {
+            // ADR-0089：不声明 attach 时缺省 world，与本字段新增前的既有行为一致。
+            const string row = @"
+            {
+              ""id"": ""feedback.play_sfx_default_attach"",
+              ""event"": ""aura.applied"",
+              ""actions"": [
+                {""kind"": ""play_sfx"", ""params"": {""sfx_id"": ""sfx.buff_apply""}}
+              ]
+            }";
+
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("feedback.binding", "feedback.play_sfx_default_attach")!;
+            var rule = FeedbackRule.FromRecord(record, RulesExprSchema.Base);
+
+            var playSfx = Assert.IsType<PlaySfxAction>(Assert.Single(rule.Actions));
+            Assert.Equal(FeedbackAttachTarget.World, playSfx.Attach);
+        }
+
+        [Fact]
+        public void PlaySfxAction_FromRecord_ParsesExplicitAttach()
+        {
+            const string row = @"
+            {
+              ""id"": ""feedback.play_sfx_source_attach"",
+              ""event"": ""aura.applied"",
+              ""actions"": [
+                {""kind"": ""play_sfx"", ""params"": {""sfx_id"": ""sfx.buff_hum"", ""attach"": ""source""}}
+              ]
+            }";
+
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("feedback.binding", "feedback.play_sfx_source_attach")!;
+            var rule = FeedbackRule.FromRecord(record, RulesExprSchema.Base);
+
+            var playSfx = Assert.IsType<PlaySfxAction>(Assert.Single(rule.Actions));
+            Assert.Equal(FeedbackAttachTarget.Source, playSfx.Attach);
+        }
+
+        [Fact]
+        public void StopSfxAction_FromRecord_ParsesSfxIdAndAttach()
+        {
+            const string row = @"
+            {
+              ""id"": ""feedback.stop_buff_hum"",
+              ""event"": ""aura.applied"",
+              ""actions"": [
+                {""kind"": ""stop_sfx"", ""params"": {""sfx_id"": ""sfx.buff_hum"", ""attach"": ""source""}}
+              ]
+            }";
+
+            var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["feedback.binding"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("feedback.binding", "feedback.stop_buff_hum")!;
+            var rule = FeedbackRule.FromRecord(record, RulesExprSchema.Base);
+
+            var stopSfx = Assert.IsType<StopSfxAction>(Assert.Single(rule.Actions));
+            Assert.Equal(new Id("sfx.buff_hum"), stopSfx.SfxId);
+            Assert.Null(stopSfx.FromDisplay);
+            Assert.Equal(FeedbackAttachTarget.Source, stopSfx.Attach);
+        }
+
+        [Fact]
+        public void StopSfxAction_Constructor_RejectsWorldAttach()
+        {
+            var ex = Assert.Throws<System.ArgumentException>(
+                () => new StopSfxAction(new Id("sfx.buff_hum"), null, FeedbackAttachTarget.World));
+            Assert.Contains("world", ex.Message);
+        }
+
+        [Fact]
+        public void StopSfxAction_Constructor_RequiresExactlyOneOf_SfxIdOrFromDisplay()
+        {
+            Assert.Throws<System.ArgumentException>(
+                () => new StopSfxAction(null, null, FeedbackAttachTarget.Target));
+            Assert.Throws<System.ArgumentException>(
+                () => new StopSfxAction(new Id("sfx.buff_hum"), FromDisplaySource.Skill, FeedbackAttachTarget.Target));
+        }
+
+        [Fact]
         public void FloatingTextStyleDef_FromRecord_ParsesAllFields()
         {
             var (registry, report) = FeedbackBinderTestSupport.BuildRegistry(new Dictionary<string, string>

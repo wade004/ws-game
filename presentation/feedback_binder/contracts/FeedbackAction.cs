@@ -18,6 +18,10 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <summary>ADR-0075 新增第七项：停止一次此前由 <see cref="PlayVfx"/> 播放的特效，见
         /// <see cref="StopVfxAction"/>。</summary>
         StopVfx,
+
+        /// <summary>ADR-0089 新增第八项：停止一次此前由 <see cref="PlaySfx"/>（<c>attach</c> 非
+        /// world 且对应 <c>sfx.def.loop=true</c>）播放的循环音效，见 <see cref="StopSfxAction"/>。</summary>
+        StopSfx,
     }
 
     /// <summary>
@@ -131,14 +135,30 @@ namespace Presentation.FeedbackBinder.Contracts
     }
 
     /// <summary>播放音效（09 §6.1 <c>PlaySfx(sfxId)</c>；本模块拍板同 <see cref="PlayVfxAction"/> 扩展
-    /// <c>sfx_id?|from_display</c> 二选一）。</summary>
+    /// <c>sfx_id?|from_display</c> 二选一）。ADR-0089 新增可选 <see cref="Attach"/>：循环音效
+    /// （<c>sfx.def.loop=true</c>）挂接到 <c>source</c>/<c>target</c> 实体后才能被同一对
+    /// (sfx_id, 附着实体) 键的 <see cref="StopSfxAction"/> 定位停止，同 <see cref="PlayVfxAction.Attach"/>
+    /// 惯例；默认 <see cref="FeedbackAttachTarget.World"/>——与本字段新增前的既有行为逐字一致（不
+    /// 跟踪、不建键，见 <see cref="Presentation.FeedbackBinder.Core.CompositeFeedbackSink.PlaySfx(Id, Vec2?, FeedbackAttachSpec)"/>
+    /// 判断记录）。</summary>
     public sealed class PlaySfxAction : FeedbackAction
     {
         public Id? SfxId { get; }
 
         public FromDisplaySource? FromDisplay { get; }
 
-        public PlaySfxAction(Id? sfxId, FromDisplaySource? fromDisplay) : base(FeedbackActionKind.PlaySfx)
+        public FeedbackAttachTarget Attach { get; }
+
+        /// <summary>ABI 兼容 façade：不带 <see cref="Attach"/> 的旧构造签名，物理 IL 签名与新增该
+        /// 字段之前完全一致，转调新增重载并固定传 <see cref="FeedbackAttachTarget.World"/>（新增
+        /// 字段前的唯一行为）。</summary>
+        public PlaySfxAction(Id? sfxId, FromDisplaySource? fromDisplay)
+            : this(sfxId, fromDisplay, FeedbackAttachTarget.World)
+        {
+        }
+
+        public PlaySfxAction(Id? sfxId, FromDisplaySource? fromDisplay, FeedbackAttachTarget attach)
+            : base(FeedbackActionKind.PlaySfx)
         {
             if (sfxId == null && fromDisplay == null)
             {
@@ -151,6 +171,44 @@ namespace Presentation.FeedbackBinder.Contracts
 
             SfxId = sfxId;
             FromDisplay = fromDisplay;
+            Attach = attach;
+        }
+    }
+
+    /// <summary>停止音效（ADR-0089 新增：09 §6.1 <c>FeedbackAction</c> 判别联合第八项
+    /// <c>StopSfx(sfxId, attach)</c>）。字段形状与 <see cref="StopVfxAction"/> 对齐——
+    /// <c>sfx_id?|from_display</c> 二选一 + <c>attach</c>，且同样不接受
+    /// <see cref="FeedbackAttachTarget.World"/>：本动作按 (sfxId, attach 解析出的附着实体) 定位由
+    /// <see cref="PlaySfxAction"/>（循环音效）播放的在播实例并停止，world 没有实体可作为键。</summary>
+    public sealed class StopSfxAction : FeedbackAction
+    {
+        public Id? SfxId { get; }
+
+        public FromDisplaySource? FromDisplay { get; }
+
+        public FeedbackAttachTarget Attach { get; }
+
+        public StopSfxAction(Id? sfxId, FromDisplaySource? fromDisplay, FeedbackAttachTarget attach)
+            : base(FeedbackActionKind.StopSfx)
+        {
+            if (sfxId == null && fromDisplay == null)
+            {
+                throw new ArgumentException("stop_sfx 动作必须提供 sfx_id 或 from_display 之一");
+            }
+            if (sfxId != null && fromDisplay != null)
+            {
+                throw new ArgumentException("stop_sfx 动作的 sfx_id 与 from_display 至多提供一个");
+            }
+            if (attach == FeedbackAttachTarget.World)
+            {
+                throw new ArgumentException(
+                    "stop_sfx 动作的 attach 只能是 source 或 target——按 (sfx_id, 附着实体) 定位在播实例，world 没有实体可作为键，见 ADR-0089",
+                    nameof(attach));
+            }
+
+            SfxId = sfxId;
+            FromDisplay = fromDisplay;
+            Attach = attach;
         }
     }
 

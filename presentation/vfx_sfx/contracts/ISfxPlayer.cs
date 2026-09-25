@@ -16,6 +16,28 @@ namespace Presentation.VfxSfx.Contracts
 
         void Stop(SfxHandle handle);
 
+        /// <summary>ADR-0089 新增：按 (<paramref name="sfxId"/>, <paramref name="entityId"/>) 播放并在
+        /// <c>sfx.def.loop=true</c> 时登记跟踪，供 <see cref="StopAttached"/> 按同一对键定位停止——
+        /// 形状镜像 <see cref="Presentation.VfxSfx.Contracts.IVfxPlayer.Spawn"/>/<c>Stop</c> 经
+        /// <c>CompositeFeedbackSink._activeVfxByKey</c> 实现的 <c>play_vfx</c>/<c>stop_vfx</c>
+        /// (ADR-0075)，差异在于本模块的"是否需要按键跟踪"取决于 <c>sfx.def.loop</c>（vfx 没有
+        /// loop 概念，任何 attach 到实体的播放都无条件跟踪）：非循环音效（未登记/<c>Loop=false</c>）
+        /// 退化为普通 <see cref="Play"/>，不登记任何键——一次性音效自然播完，"stop"语义空洞，登记
+        /// 只会让字典白白增长且永远等不到一次真正有意义的 <see cref="StopAttached"/>。同一键已在播
+        /// （此前调用登记过、尚未被 <see cref="StopAttached"/> 摘除）时幂等返回已登记的句柄，不叠播
+        /// 第二个实例。默认接口成员（ABI 只加法）：默认体退化为普通 <see cref="Play"/>，不做任何
+        /// attach 跟踪，未覆写本成员的既有 <see cref="ISfxPlayer"/> 实现方（如测试假实现）不需要改
+        /// 一行代码即可继续编译、运行；本模块默认实现 <c>Presentation.VfxSfx.Core.SfxPlayer</c>
+        /// 显式覆写，见该类型判断记录。</summary>
+        SfxHandle? PlayAttached(Id sfxId, Id entityId, Vec2? at) => Play(sfxId, at);
+
+        /// <summary>ADR-0089 新增：按 (<paramref name="sfxId"/>, <paramref name="entityId"/>) 查找
+        /// <see cref="PlayAttached"/> 登记的当前在播循环音效实例并停止；查不到（从未播过、不是循环
+        /// 音效因此从未登记、已被停止过）时静默忽略，不写诊断——同 <c>IFeedbackSink.StopVfx</c>
+        /// （ADR-0075）"没有在播实例是数据驱动路径下完全正常的时序，不是缺陷信号"同一惯例。默认
+        /// 空实现。</summary>
+        void StopAttached(Id sfxId, Id entityId) { }
+
         /// <summary>设置某条分层音效轨道（<c>sfx.def.layer</c>）的音量倍率，作用于该层此后
         /// （以及已在播放、下次调用 <see cref="Play"/> 前保持原音量不变——本模块不追踪单次播放
         /// 归属哪次音量设置，见 vfx_sfx/README.md 判断记录）的播放。</summary>

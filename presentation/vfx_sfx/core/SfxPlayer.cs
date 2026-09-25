@@ -42,6 +42,10 @@ namespace Presentation.VfxSfx.Core
 
         private readonly Dictionary<string, List<ActivePlayback>> _activeByLayer = new Dictionary<string, List<ActivePlayback>>(StringComparer.Ordinal);
         private readonly Dictionary<SfxHandle, ActivePlayback> _byHandle = new Dictionary<SfxHandle, ActivePlayback>();
+
+        /// <summary>ADR-0089 新增：见 <see cref="PlayAttached"/> 判断记录——只登记 <c>sfx.def.loop=true</c>
+        /// 且按实体挂接的播放，键 (sfxId, entityId) → 当前在播句柄，供 <see cref="StopAttached"/> 定位。</summary>
+        private readonly Dictionary<(Id SfxId, Id EntityId), SfxHandle> _activeByAttachKey = new Dictionary<(Id, Id), SfxHandle>();
         private readonly Dictionary<string, double> _layerVolume = new Dictionary<string, double>(StringComparer.Ordinal);
         private readonly HashSet<string> _mutedLayers = new HashSet<string>(StringComparer.Ordinal);
         private readonly IResourceLoader? _resourceLoader;
@@ -57,6 +61,11 @@ namespace Presentation.VfxSfx.Core
             public int Priority;
             public Vec2? At;
             public DateTime Deadline;
+
+            /// <summary>ADR-0089 新增：排队等待首次加载完成时一并记下这次播放请求的循环标志，
+            /// <see cref="OnResourceLoadCompleted"/> 真正 <c>IAudio.PlaySfx</c> 时原样传递，同
+            /// <c>VfxPlayer.PendingSpawn.BlendMode</c> 判断记录同一套惯例。</summary>
+            public bool Loop;
 
             /// <summary>同 <c>VfxPlayer.PendingSpawn.Handle</c> 判断记录（同步加载器场景）：
             /// <see cref="QueuePendingPlay"/> 调用 <see cref="IResourceLoader.LoadAsync"/> 之后，若该
@@ -137,12 +146,16 @@ namespace Presentation.VfxSfx.Core
             // 命中音效不播放"（外部审核实测复现）。资源尚未加载完成时改为排队等待，不立即播放；
             // MakeRoomIfNeeded 的"抢占同层名额"这一步同样延后到真正播放时才做（现在就抢占会在
             // 加载失败/超时丢弃时白白抢占了名额却什么都没播），只在这里记录已经确定要播放这条请求。
+            // ADR-0089：def.Loop 决定本次播放是否按循环方式转发给 IAudio.PlaySfx，见 SfxDef.Loop
+            // 判断记录；未登记 sfx（上面已 return）不会走到这里，恒为已知 def。
+            var loop = def.Loop;
+
             if (_resourceLoader != null && !_resourceLoader.IsLoaded(resourceRef))
             {
                 // 判断记录（可能同步返回真实句柄，见 PendingPlay.Handle）：同 VfxPlayer.Spawn 同款
                 // 判断记录——同步加载器（测试桩/引擎缓存命中）可能已经在 QueuePendingPlay 内部就
                 // 完成了整个"加载 -> 补播放"，此时直接返回那次同步产生的真实句柄。
-                return QueuePendingPlay(sfxId, resourceRef, layer, priority, at);
+                return QueuePendingPlay(sfxId, resourceRef, layer, priority, at, loop);
             }
 
             // 判断记录：不再调用 _resourceTracker?.EnsureLoading，同 VfxPlayer.Spawn 同款判断记录
@@ -152,7 +165,7 @@ namespace Presentation.VfxSfx.Core
             MakeRoomIfNeeded(layer);
 
             var volume = ResolveVolume(layer);
-            var handle = _audio.PlaySfx(resourceRef, volume, pitch: 1.0, position: at);
+            var handle = _audio.PlaySfx(resourceRef, volume, pitch: 1.0, position: at, loop: loop);
 
             var playback = new ActivePlayback { Handle = handle, Layer = layer, Priority = priority, InsertionSeq = _seq++ };
             GetOrCreateLayerList(layer).Add(playback);
@@ -162,7 +175,7 @@ namespace Presentation.VfxSfx.Core
             return handle;
         }
 
-        private SfxHandle? QueuePendingPlay(Id sfxId, Id resourceRef, string layer, int priority, Vec2? at)
+        private SfxHandle? QueuePendingPlay(Id sfxId, Id resourceRef, string layer, int priority, Vec2? at, bool loop)
         {
             var pending = new PendingPlay
             {
@@ -172,6 +185,7 @@ namespace Presentation.VfxSfx.Core
                 Priority = priority,
                 At = at,
                 Deadline = DateTime.UtcNow.AddSeconds(_options.FirstLoadTimeoutSeconds),
+                Loop = loop,
             };
             _pendingPlays.Add(pending);
 
@@ -209,7 +223,7 @@ namespace Presentation.VfxSfx.Core
 
                 MakeRoomIfNeeded(pending.Layer);
                 var volume = ResolveVolume(pending.Layer);
-                var handle = _audio.PlaySfx(pending.ResourceRef, volume, pitch: 1.0, position: pending.At);
+                var handle = _audio.PlaySfx(pending.ResourceRef, volume, pitch: 1.0, position: pending.At, loop: pending.Loop);
 
                 var playback = new ActivePlayback { Handle = handle, Layer = pending.Layer, Priority = pending.Priority, InsertionSeq = _seq++ };
                 GetOrCreateLayerList(pending.Layer).Add(playback);
@@ -283,6 +297,45 @@ namespace Presentation.VfxSfx.Core
             }
 
             _audio.StopSfx(handle);
+        }
+
+        /// <summary>ADR-0089：见 <see cref="ISfxPlayer.PlayAttached"/> 判断记录。非循环（未登记/
+        /// <c>Loop=false</c>）退化为普通 <see cref="Play"/>，不登记键；循环且同键已在播时幂等返回
+        /// 已登记句柄，不叠播；循环且冷资源加载中（<see cref="Play"/> 排队返回 null，见该方法判断
+        /// 记录"外部审核阻塞项 4"）时同样不登记——与 <c>CompositeFeedbackSink._activeVfxByKey</c>
+        /// "只在确实产生了句柄时才登记"同一限制，不新建一套"补登记"机制。</summary>
+        public SfxHandle? PlayAttached(Id sfxId, Id entityId, Vec2? at)
+        {
+            if (!_catalog.TryGetValue(sfxId, out var def) || !def.Loop)
+            {
+                return Play(sfxId, at);
+            }
+
+            var key = (sfxId, entityId);
+            if (_activeByAttachKey.TryGetValue(key, out var existing))
+            {
+                return existing;
+            }
+
+            var handle = Play(sfxId, at);
+            if (handle.HasValue)
+            {
+                _activeByAttachKey[key] = handle.Value;
+            }
+            return handle;
+        }
+
+        /// <summary>ADR-0089：见 <see cref="ISfxPlayer.StopAttached"/> 判断记录。</summary>
+        public void StopAttached(Id sfxId, Id entityId)
+        {
+            var key = (sfxId, entityId);
+            if (!_activeByAttachKey.TryGetValue(key, out var handle))
+            {
+                return;
+            }
+
+            _activeByAttachKey.Remove(key);
+            Stop(handle);
         }
 
         public void SetLayerVolume(string layer, double volume)

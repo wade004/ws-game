@@ -113,6 +113,34 @@ namespace Presentation.FeedbackBinder.Core
 
         public void PlaySfx(Id sfxId, Vec2? at) => _sfxPlayer.Play(sfxId, at);
 
+        /// <summary>ADR-0089：<paramref name="attach"/> 有具体实体时转给
+        /// <see cref="ISfxPlayer.PlayAttached"/>（是否真正登记跟踪由 <c>sfx.def.loop</c> 决定，见该
+        /// 方法判断记录）；world（<see cref="FeedbackAttachSpec.EntityId"/> 为 null）时退化为
+        /// <see cref="PlaySfx(Id, Vec2?)"/>，与本方法新增前的既有行为一致。</summary>
+        public void PlaySfx(Id sfxId, Vec2? at, FeedbackAttachSpec attach)
+        {
+            if (attach.EntityId.HasValue)
+            {
+                _sfxPlayer.PlayAttached(sfxId, attach.EntityId.Value, at);
+                return;
+            }
+
+            _sfxPlayer.Play(sfxId, at);
+        }
+
+        /// <summary>ADR-0089：<paramref name="attach"/> 没有实体（world）时静默返回（同
+        /// <see cref="StopVfx"/> 惯例——理论上数据驱动路径已经在 <c>StopSfxAction</c> 构造期拒绝
+        /// world，这里仍保留防御性判断），否则转给 <see cref="ISfxPlayer.StopAttached"/>。</summary>
+        public void StopSfx(Id sfxId, FeedbackAttachSpec attach)
+        {
+            if (!attach.EntityId.HasValue)
+            {
+                return;
+            }
+
+            _sfxPlayer.StopAttached(sfxId, attach.EntityId.Value);
+        }
+
         public void Freeze(double durationMs) => _onFreeze(durationMs);
 
         public void ShakeCamera(Id profileId) => _onShakeCamera(profileId);

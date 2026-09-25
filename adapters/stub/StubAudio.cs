@@ -19,12 +19,22 @@ namespace Adapters.Stub
             public readonly double Pitch;
             public readonly Vec2? Position;
 
+            /// <summary>ADR-0089 新增字段：见 <see cref="IAudio.PlaySfx(Id, double, double, Vec2?, bool)"/>
+            /// 判断记录。旧四参构造转调本类型新增的五参构造，<see cref="Loop"/> 恒为 false。</summary>
+            public readonly bool Loop;
+
             public SfxPlayback(Id soundId, double volume, double pitch, Vec2? position)
+                : this(soundId, volume, pitch, position, loop: false)
+            {
+            }
+
+            public SfxPlayback(Id soundId, double volume, double pitch, Vec2? position, bool loop)
             {
                 SoundId = soundId;
                 Volume = volume;
                 Pitch = pitch;
                 Position = position;
+                Loop = loop;
             }
         }
 
@@ -50,11 +60,17 @@ namespace Adapters.Stub
         public MusicPlayback? CurrentMusic { get; private set; }
         public double? LastStopMusicFadeOutSeconds { get; private set; }
 
-        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position)
+        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position) =>
+            PlaySfx(soundId, volume, pitch, position, loop: false);
+
+        /// <summary>ADR-0089 新增：桩实现同样记录 <paramref name="loop"/>，供测试断言"loop 标志确实
+        /// 传到了 IAudio 这一层"，不做任何真实循环播放（本类型本就只记录调用参数，不播放任何真实
+        /// 声音，见类型顶部注释）。</summary>
+        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position, bool loop)
         {
             var handle = new SfxHandle(_nextSfxHandle++);
             _activeSfx.Add(handle.Value);
-            ActiveSfxPlaybacks[handle.Value] = new SfxPlayback(soundId, volume, pitch, position);
+            ActiveSfxPlaybacks[handle.Value] = new SfxPlayback(soundId, volume, pitch, position, loop);
             return handle;
         }
 

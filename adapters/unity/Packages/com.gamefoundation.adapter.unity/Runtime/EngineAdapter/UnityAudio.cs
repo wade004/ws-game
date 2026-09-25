@@ -77,7 +77,17 @@ namespace Adapter.Unity.EngineAdapter
         /// 不要求精确匹配任何具体游戏的衰减调校，属于"允许忽略"范围内的最小合理实现（见 02 第 1.4
         /// 节"不支持空间音频的实现可以忽略该参数"）。
         /// </summary>
-        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position)
+        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position) =>
+            PlaySfx(soundId, volume, pitch, position, loop: false);
+
+        /// <summary>ADR-0089 新增：<paramref name="loop"/> 为 true 时设置
+        /// <see cref="AudioSource.loop"/>，配合 <see cref="ReclaimFinishedSfxSlots"/>——循环中的
+        /// <c>AudioSource.isPlaying</c> 在显式 <see cref="StopSfx"/> 之前恒为 true，自然不会被当成
+        /// "自然播放结束"回收，与一次性音效共用同一套对象池、同一套回收逻辑，不需要为循环音效单独
+        /// 开一条池子。每次 <see cref="RentSlot"/> 复用旧池位时本方法都会重新显式赋值
+        /// <c>slot.Source.loop</c>（不论 true/false），避免上一次租用留下的循环标志串到下一次
+        /// 播放。</summary>
+        public SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position, bool loop)
         {
             PlaySfxCallCount++;
             var slot = RentSlot();
@@ -108,6 +118,7 @@ namespace Adapter.Unity.EngineAdapter
 
             slot.Source.volume = (float)(volume * _busVolumes[AudioBus.Sfx]);
             slot.Source.pitch = (float)pitch;
+            slot.Source.loop = loop;
             if (slot.Source.clip != null)
             {
                 slot.Source.Play();

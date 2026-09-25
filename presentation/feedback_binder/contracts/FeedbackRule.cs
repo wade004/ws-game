@@ -125,11 +125,18 @@ namespace Presentation.FeedbackBinder.Contracts
                 case "play_sfx":
                     return new PlaySfxAction(
                         OptionalId(@params, "sfx_id"),
-                        OptionalEnum<FromDisplaySource>(@params, "from_display"));
+                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
+                        OptionalEnum<FeedbackAttachTarget>(@params, "attach") ?? FeedbackAttachTarget.World);
 
                 case "stop_vfx":
                     return new StopVfxAction(
                         OptionalId(@params, "vfx_id"),
+                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
+                        RequireEnum<FeedbackAttachTarget>(record, index, @params, "attach"));
+
+                case "stop_sfx":
+                    return new StopSfxAction(
+                        OptionalId(@params, "sfx_id"),
                         OptionalEnum<FromDisplaySource>(@params, "from_display"),
                         RequireEnum<FeedbackAttachTarget>(record, index, @params, "attach"));
 

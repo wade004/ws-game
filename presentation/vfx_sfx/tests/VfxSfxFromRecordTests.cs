@@ -74,6 +74,32 @@ namespace Tests.Presentation.VfxSfx
             Assert.NotNull(def.Variants);
             Assert.Equal(2, def.Variants!.Count);
             Assert.Equal(new Id("res.sfx.sword_hit_1"), def.ResourceRef);
+
+            // ADR-0089：未声明 loop 时默认 false，与本字段新增前的既有行为逐字一致。
+            Assert.False(def.Loop);
+        }
+
+        [Fact]
+        public void SfxDef_FromRecord_ParsesExplicitLoopTrue()
+        {
+            const string row = @"
+            {
+              ""id"": ""sfx.buff_hum"",
+              ""layer"": ""combat"",
+              ""resource_ref"": ""res.sfx.buff_hum"",
+              ""loop"": true
+            }";
+
+            var (registry, report) = VfxSfxTestSupport.BuildRegistry(new Dictionary<string, string>
+            {
+                ["sfx.def"] = "[" + row + "]",
+            });
+            Assert.False(report.IsBlocking);
+
+            var record = registry.Get("sfx.def", "sfx.buff_hum")!;
+            var def = SfxDef.FromRecord(record);
+
+            Assert.True(def.Loop);
         }
 
         [Fact]

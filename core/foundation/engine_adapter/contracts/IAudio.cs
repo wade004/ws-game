@@ -47,6 +47,19 @@ namespace Core.Foundation.EngineAdapter
         /// </summary>
         SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position);
 
+        /// <summary>
+        /// ADR-0089 新增：默认接口成员（ABI 只加法，见 <see cref="Core.Foundation.Common"/> 命名空间
+        /// 下同惯例的既有默认成员）——<paramref name="loop"/> 为 true 时按循环方式播放，直到调用方
+        /// 显式 <see cref="StopSfx"/>。默认体转调不带 <paramref name="loop"/> 的既有重载、忽略
+        /// <paramref name="loop"/>（不满足循环播放能力的实现退化为一次性播放，而不是抛异常或报错
+        /// 拒绝播放，同 <paramref name="position"/> 参数"不支持可忽略"的既有惯例，见该参数判断
+        /// 记录）：未覆写本成员的既有 <see cref="IAudio"/> 实现方不需要改一行代码即可继续编译、运行。
+        /// <c>adapters/unity</c>（<c>AudioSource.loop = true</c>）与 <c>adapters/stub</c> 均已覆写
+        /// 为真正的循环播放。
+        /// </summary>
+        SfxHandle PlaySfx(Id soundId, double volume, double pitch, Vec2? position, bool loop) =>
+            PlaySfx(soundId, volume, pitch, position);
+
         void StopSfx(SfxHandle handle);
 
         void PlayMusic(Id trackId, double fadeInSeconds, bool loop);

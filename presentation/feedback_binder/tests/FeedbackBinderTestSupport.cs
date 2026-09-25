@@ -215,6 +215,27 @@ namespace Tests.Presentation.FeedbackBinder
           ]
         }";
 
+        // ADR-0089：进入态起播循环音效（combat.damage_dealt 借作"进入"信号）、离开态停播
+        // （combat.heal_done 借作"离开"信号，本测试夹具只关心两个已注册事件各自的 sourceId 字段，
+        // 不代表这两个事件在真实游戏语义上就是"进入/离开"——见 FeedbackBinderTests 该用例注释）。
+        public const string LoopSfxEnterRuleRow = @"
+        {
+          ""id"": ""feedback.loop_sfx_enter"",
+          ""event"": ""combat.damage_dealt"",
+          ""actions"": [
+            {""kind"": ""play_sfx"", ""params"": {""sfx_id"": ""sfx.buff_hum"", ""attach"": ""source""}}
+          ]
+        }";
+
+        public const string LoopSfxLeaveRuleRow = @"
+        {
+          ""id"": ""feedback.loop_sfx_leave"",
+          ""event"": ""combat.heal_done"",
+          ""actions"": [
+            {""kind"": ""stop_sfx"", ""params"": {""sfx_id"": ""sfx.buff_hum"", ""attach"": ""source""}}
+          ]
+        }";
+
         public const string CritStyleRow = @"
         {
           ""id"": ""feedback.style.crit"",

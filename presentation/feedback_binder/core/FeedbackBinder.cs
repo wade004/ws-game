@@ -414,6 +414,10 @@ namespace Presentation.FeedbackBinder.Core
                     DispatchPlaySfx(playSfx, evt, selfId, targetId);
                     break;
 
+                case StopSfxAction stopSfx:
+                    DispatchStopSfx(stopSfx, evt, selfId, targetId);
+                    break;
+
                 case FreezeAction freeze:
                     _queue.Enqueue(() => _sink.Freeze(freeze.DurationMs));
                     break;
@@ -556,6 +560,11 @@ namespace Presentation.FeedbackBinder.Core
             _queue.Enqueue(() => _sink.StopVfx(vfxId.Value, spec));
         }
 
+        /// <summary>ADR-0089：<c>attach</c> 解析同 <see cref="DispatchPlayVfx"/> 一套换算（世界坐标
+        /// 分支没有可用世界位置，因为 <c>play_sfx</c> 本身就没有 world 坐标输入——<c>at</c> 恒传
+        /// null，同新增前的既有行为一致，本方法只是新增了"按 attach 建键供 stop_sfx 定位"这一层，
+        /// 不改变"是否有位置信息"这件事），唯一差异是不带 <c>anchor_id</c>（<c>play_sfx</c> 没有
+        /// 这个概念）。</summary>
         private void DispatchPlaySfx(PlaySfxAction action, IEvent evt, Id selfId, Id? targetId)
         {
             var sfxId = ResolveDisplayVfxOrSfxId(action.SfxId, action.FromDisplay, evt, selfId, targetId, isVfx: false);
@@ -564,7 +573,65 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            _queue.Enqueue(() => _sink.PlaySfx(sfxId.Value, null));
+            FeedbackAttachSpec spec;
+            switch (action.Attach)
+            {
+                case FeedbackAttachTarget.World:
+                    spec = new FeedbackAttachSpec(FeedbackAttachTarget.World, null, null, null);
+                    break;
+
+                case FeedbackAttachTarget.Source:
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, selfId, null);
+                    break;
+
+                case FeedbackAttachTarget.Target:
+                    if (!targetId.HasValue)
+                    {
+                        _diagnostics.Warn($"feedback 规则 play_sfx：动作声明 attach=target 但事件 \"{evt.Key}\" 没有 targetId，跳过");
+                        return;
+                    }
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Target, targetId.Value, null);
+                    break;
+
+                default:
+                    return;
+            }
+
+            _queue.Enqueue(() => _sink.PlaySfx(sfxId.Value, null, spec));
+        }
+
+        /// <summary>ADR-0089：与 <see cref="DispatchPlaySfx"/> 同一套 sfx_id/from_display 解析、同一套
+        /// attach 换算（World 分支在 <see cref="StopSfxAction"/> 构造期已被拒绝，理论不可达，这里仍
+        /// 保留 <c>default: return;</c> 兜底，同 <see cref="DispatchStopVfx"/> 一贯的防御性写法）。</summary>
+        private void DispatchStopSfx(StopSfxAction action, IEvent evt, Id selfId, Id? targetId)
+        {
+            var sfxId = ResolveDisplayVfxOrSfxId(action.SfxId, action.FromDisplay, evt, selfId, targetId, isVfx: false);
+            if (sfxId == null)
+            {
+                return;
+            }
+
+            FeedbackAttachSpec spec;
+            switch (action.Attach)
+            {
+                case FeedbackAttachTarget.Source:
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, selfId, null);
+                    break;
+
+                case FeedbackAttachTarget.Target:
+                    if (!targetId.HasValue)
+                    {
+                        _diagnostics.Warn($"feedback 规则 stop_sfx：动作声明 attach=target 但事件 \"{evt.Key}\" 没有 targetId，跳过");
+                        return;
+                    }
+                    spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Target, targetId.Value, null);
+                    break;
+
+                default:
+                    return;
+            }
+
+            _queue.Enqueue(() => _sink.StopSfx(sfxId.Value, spec));
         }
 
         /// <summary>统一解析 <c>vfx_id?|from_display</c>（<c>play_vfx</c>）与

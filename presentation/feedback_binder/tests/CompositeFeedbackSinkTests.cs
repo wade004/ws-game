@@ -164,6 +164,83 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Null(ex);
         }
 
+        // ------------------------------------------------------------------
+        // ADR-0089：play_sfx(attach) 循环音效按 (sfx_id, 附着实体) 定位，stop_sfx 停止。
+        // ------------------------------------------------------------------
+
+        private static readonly Id LoopSfx = new Id("sfx.buff_hum");
+
+        private static Dictionary<Id, SfxDef> LoopSfxCatalog() => new Dictionary<Id, SfxDef>
+        {
+            [LoopSfx] = new SfxDef(LoopSfx, "combat", null, null, new Id("res.buff_hum"), loop: true),
+            [PlainSfx] = new SfxDef(PlainSfx, "combat", 1, null, new Id("res.footstep")),
+        };
+
+        [Fact]
+        public void PlaySfx_LoopDefWithEntityAttach_StopSfx_StopsInstance()
+        {
+            var audio = new StubAudio();
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(audio, new RngHost(1), LoopSfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+            var entityId = new Id("unit.dummy");
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, entityId, null);
+
+            sink.PlaySfx(LoopSfx, null, spec);
+            Assert.Single(audio.ActiveSfxPlaybacks);
+            Assert.True(System.Linq.Enumerable.Single(audio.ActiveSfxPlaybacks.Values).Loop);
+
+            sink.StopSfx(LoopSfx, spec);
+            Assert.Empty(audio.ActiveSfxPlaybacks);
+        }
+
+        [Fact]
+        public void PlaySfx_LoopDefWithEntityAttach_SameKeyReplayed_IsIdempotent()
+        {
+            var audio = new StubAudio();
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(audio, new RngHost(1), LoopSfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+            var entityId = new Id("unit.dummy");
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, entityId, null);
+
+            sink.PlaySfx(LoopSfx, null, spec);
+            sink.PlaySfx(LoopSfx, null, spec);
+
+            Assert.Single(audio.ActiveSfxPlaybacks);
+        }
+
+        [Fact]
+        public void PlaySfx_WorldAttach_DoesNotTrack_BehavesLikeExistingTwoArgOverload()
+        {
+            // 不变量：attach 为 world（新方法的等价省略值）时不建键、不跟踪，与新增前既有的
+            // PlaySfx(Id, Vec2?) 行为完全一致——即便是循环音效也一样（world 没有实体可作为键）。
+            var audio = new StubAudio();
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(audio, new RngHost(1), LoopSfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+
+            sink.PlaySfx(LoopSfx, null, FeedbackAttachSpec.ForWorld(Vec2.Zero));
+
+            Assert.Single(audio.ActiveSfxPlaybacks);
+            // 没有走 PlayAttached 键跟踪路径：world 没有实体，StopSfx 无从查找，实例不受影响。
+            var ex = Record.Exception(() => sink.StopSfx(LoopSfx, FeedbackAttachSpec.ForWorld(Vec2.Zero)));
+            Assert.Null(ex);
+            Assert.Single(audio.ActiveSfxPlaybacks);
+        }
+
+        [Fact]
+        public void StopSfx_NoInstanceEverPlayed_IsSilentNoOp()
+        {
+            var vfx = new VfxPlayer(new StubRenderer2D(), new StubCamera(), VfxCatalog());
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), LoopSfxCatalog());
+            var sink = BuildSink(vfx, sfx);
+
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, new Id("unit.never_played"), null);
+            var ex = Record.Exception(() => sink.StopSfx(LoopSfx, spec));
+            Assert.Null(ex);
+        }
+
         [Fact]
         public void Diagnostics_ExposesInjectedInstance_ForExternalPolling()
         {

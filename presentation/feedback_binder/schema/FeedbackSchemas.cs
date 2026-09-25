@@ -14,7 +14,7 @@ namespace Presentation.FeedbackBinder.Schema
     {
         public static readonly string[] ActionKindValues =
         {
-            "floating_text", "play_vfx", "play_sfx", "freeze", "shake_camera", "flash", "stop_vfx",
+            "floating_text", "play_vfx", "play_sfx", "freeze", "shake_camera", "flash", "stop_vfx", "stop_sfx",
         };
 
         public static readonly string[] FeedbackAttachTargetValues = { "source", "target", "world" };
@@ -61,7 +61,9 @@ namespace Presentation.FeedbackBinder.Schema
                         description: "与 from_display 二选一，至少一个非空（构造期校验）；sfx.def 本任务未定义，退回 Id"),
                     new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues,
                         description: "与 sfx_id 二选一，取 source/target/skill 显示信息里配置的音效"),
-                }, description: "play_sfx 动作参数：{sfx_id?, from_display?}"),
+                    new FieldSchema("attach", FieldKind.Enum, required: false, enumValues: FeedbackAttachTargetValues,
+                        description: "ADR-0089：音效挂载目标（source/target/world），缺省 world——与本字段新增前的既有行为一致（不跟踪、不建键）；循环音效（sfx.def.loop=true）挂到 source/target 后才能被 stop_sfx 按 (sfx_id, 实体) 定位停止"),
+                }, description: "play_sfx 动作参数：{sfx_id?, from_display?, attach?}"),
                 ["stop_vfx"] = ParamsCase(new[]
                 {
                     new FieldSchema("vfx_id", FieldKind.Id, required: false,
@@ -71,6 +73,15 @@ namespace Presentation.FeedbackBinder.Schema
                     new FieldSchema("attach", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues,
                         description: "特效附着的实体（source/target），不得为 world——按 (vfx_id, 实体) 定位需要具体实体，登记层不表达取值子集，运行期由 StopVfxAction 构造函数校验，见 ADR-0075"),
                 }, description: "stop_vfx 动作参数：{vfx_id?, from_display?, attach}"),
+                ["stop_sfx"] = ParamsCase(new[]
+                {
+                    new FieldSchema("sfx_id", FieldKind.Id, required: false,
+                        description: "与 from_display 二选一，至少一个非空（构造期校验）；按 (sfx_id, attach 解析出的附着实体) 定位由 play_sfx 播放的在播循环实例并停止，见 ADR-0089"),
+                    new FieldSchema("from_display", FieldKind.Enum, required: false, enumValues: FromDisplaySourceValues,
+                        description: "与 sfx_id 二选一，取 source/target/skill 显示信息里配置的音效"),
+                    new FieldSchema("attach", FieldKind.Enum, required: true, enumValues: FeedbackAttachTargetValues,
+                        description: "音效附着的实体（source/target），不得为 world——按 (sfx_id, 实体) 定位需要具体实体，登记层不表达取值子集，运行期由 StopSfxAction 构造函数校验，见 ADR-0089"),
+                }, description: "stop_sfx 动作参数：{sfx_id?, from_display?, attach}"),
                 ["freeze"] = ParamsCase(new[]
                 {
                     new FieldSchema("duration_ms", FieldKind.Number, required: true, description: "须 >= 0，见 FreezeAction 构造函数"),
