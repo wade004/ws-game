@@ -74,9 +74,12 @@
   "停不掉"。只想让玩家听到的区域循环音，`play_sfx`/`stop_sfx` 两条规则的条件都要追加单位过滤（如
   `self.faction == <玩家阵营>`，`self` 即事件 `unitId`）。复现与对照见
   `presentation/assembly/tests/AreaTriggerLoopSfxProductionChainTests.cs`。
-- 同批排查中实测到的相邻缺口（未修复，待设计层确认）：单位仍在区域内时该区域被整体卸载
-  （`IAreaTriggerHost.UnloadMap`/`Unregister`，如切图），不会补发 `area.trigger_left`，由"离开"
-  规则负责停止的循环音效会继续播放；与上面"实体销毁时不会自动停止"是同一类生命周期缺口。
+- 同批排查中实测到的相邻缺口：单位仍在区域内时该区域被整体卸载（`IAreaTriggerHost.UnloadMap`/
+  `Unregister`，如切图），此前不会补发 `area.trigger_left`，由"离开"规则负责停止的循环音效会继续
+  播放；**已由 [ADR-0090](0090-区域卸载与单位消失时补发离开事件.md) 补齐**（卸载/`Unregister`
+  时对仍在区域内的单位补发 `reason=unloaded` 的 `area.trigger_left`；单位本身消失一支仍未落地，
+  见该 ADR"已知限制"）。与上面"实体销毁时不会自动停止"是同一类生命周期缺口，后者（`VfxPlayer`/
+  `SfxPlayer` 层面的"实体销毁"钩子）仍未处理。
 
 ## 备选方案与为什么不选
 

@@ -458,6 +458,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **区域整体卸载时补发 `area.trigger_left`**（消费方反馈第三十六批相邻缺口，
+  [ADR-0090](architecture/adr/0090-区域卸载与单位消失时补发离开事件.md)）：`IAreaTriggerHost.UnloadMap`/
+  `Unregister` 此前不会为仍在区域内的单位补发离开事件，靠"离开"规则停止的循环音效会一直播；
+  `AreaTriggerLeftEvent` 新增 `Reason`（`moved`/`unloaded`/`despawned`，ABI 只加法，旧二参构造
+  转调新三参构造固定传 `moved`）；单位消失（`despawned`）未落地，无现成检测点，见 ADR"已知限制"。
+
 ### 文档
 
 - **区域事件驱动的循环音效"离开后停不掉"排查结论**（消费方反馈第三十六批）：框架链路无缺陷——`area.trigger_*`

@@ -179,7 +179,18 @@ namespace Core.Gameplay.AreaTrigger
         /// <summary>见 <see cref="_inside"/> 判断记录：<see cref="Unregister"/>/<see cref="UnloadMap"/>
         /// （后者逐个转调 <see cref="Unregister"/>，见该方法）都要清掉对应触发体在 <see cref="_inside"/>
         /// 里的记录，否则会残留一个再也不会被 <see cref="HandleLeave"/> 清除的"孤儿"进入记录，
-        /// <see cref="GetActiveTriggerIds"/> 会持续报告一个已经被移除登记的触发体。</summary>
+        /// <see cref="GetActiveTriggerIds"/> 会持续报告一个已经被移除登记的触发体。
+        /// <para>
+        /// 判断记录（ADR-0090，消费方第三十六批相邻缺口）：清理前，对每个命中的 <c>(triggerId,
+        /// unitId)</c> 组合各补发一条 <c>reason=Unloaded</c> 的 <see cref="AreaTriggerLeftEvent"/>——
+        /// 触发体本身即将不存在（<see cref="Unregister"/> 总是先 <see cref="IWorldSim.MarkForDestruction"/>
+        /// 对应实体），单位自然也就"不在其中了"，事件必须与 <see cref="GetActiveTriggerIds"/> 的状态
+        /// 保持一致，否则由"离开"规则负责收尾的下游逻辑（如 ADR-0089 循环音效的 <c>stop_sfx</c>）永远
+        /// 等不到这条事件。只对仍在 <see cref="_inside"/> 里的组合发（已经正常走出的单位不会残留在
+        /// 这里，天然不会重复发送）；<see cref="UnloadMap"/> 逐个调用 <see cref="Unregister"/>，无需
+        /// 额外处理即继承同一份补发逻辑。
+        /// </para>
+        /// </summary>
         private void RemoveInsideForTrigger(Id triggerId)
         {
             List<(Id TriggerId, Id UnitId)>? toRemove = null;
@@ -199,6 +210,7 @@ namespace Core.Gameplay.AreaTrigger
             foreach (var key in toRemove)
             {
                 _inside.Remove(key);
+                _bus.Enqueue(new AreaTriggerLeftEvent(key.TriggerId, key.UnitId, AreaTriggerLeaveReason.Unloaded));
             }
         }
 

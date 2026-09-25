@@ -16,7 +16,10 @@ namespace Core.Gameplay.AreaTrigger
         /// <summary>登记一个触发定义并返回其 id（见 05 第 7.1 节 <c>register</c>）。</summary>
         Id Register(AreaTriggerDef def);
 
-        /// <summary>移除登记（见 05 第 7.1 节 <c>unregister</c>）；未登记的 id 视为空操作。</summary>
+        /// <summary>移除登记（见 05 第 7.1 节 <c>unregister</c>）；未登记的 id 视为空操作。ADR-0090：
+        /// 若该触发体当前有单位仍处于"已进入"状态，会先为每个这样的单位补发一条
+        /// <c>reason=unloaded</c> 的 <see cref="AreaTriggerLeftEvent"/>，再清运行期账本，见
+        /// <c>AreaTriggerHost</c> 判断记录。</summary>
         void Unregister(Id triggerId);
 
         /// <summary>
@@ -31,7 +34,9 @@ namespace Core.Gameplay.AreaTrigger
         /// <paramref name="mapId"/> 全部触发定义（供场景加载时调用）。</summary>
         void LoadForMap(Id mapId, IDataRegistryView data);
 
-        /// <summary>移除 <paramref name="mapId"/> 下全部已登记触发（含陷阱），供场景卸载时调用。</summary>
+        /// <summary>移除 <paramref name="mapId"/> 下全部已登记触发（含陷阱），供场景卸载时调用；
+        /// 逐个转调 <see cref="Unregister"/>，因此同样按 ADR-0090 为仍在区域内的单位补发
+        /// <c>reason=unloaded</c> 的离开事件。</summary>
         void UnloadMap(Id mapId);
 
         /// <summary>

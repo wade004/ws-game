@@ -9,7 +9,7 @@
     { "key": "app.state_changed", "domain": "app", "fields": ["oldState", "newState"], "description": "应用级状态机状态迁移完成（见 01 模块表 app_lifecycle 行、03 第 1、2 节 AppStateHost.onStateChanged）；字段为建议值" },
     { "key": "archetype.applied", "domain": "archetype", "fields": ["unitId", "classId", "raceId"], "description": "职业/种族/天赋模板应用到单位后触发（见 01 L1 模块表 archetype 行、07 第 5 节职业与天赋数据）；字段为建议值（W1 收边勘误：与 ArchetypeAppliedEvent{UnitId,ClassId,RaceId} 实际字段同步，此前登记的 archetypeId 与代码不对应，见 A3 审计 #10）" },
     { "key": "area.trigger_entered", "domain": "area", "fields": ["triggerId", "unitId"], "description": "单位进入区域触发范围且满足 condition 时发出（见 05 第 7.1 节 AreaTrigger 事件与契约，字段原文给出）" },
-    { "key": "area.trigger_left", "domain": "area", "fields": ["triggerId", "unitId"], "description": "单位离开区域触发范围且满足 condition 时发出（见 05 第 7.1 节，字段原文给出）" },
+    { "key": "area.trigger_left", "domain": "area", "fields": ["triggerId", "unitId", "reason"], "description": "单位离开区域触发范围且满足 condition 时发出（见 05 第 7.1 节，字段原文给出）；ADR-0090 新增 reason（moved|unloaded|despawned，见 AreaTriggerLeftEvent.Reason 判断记录），旧字段语义不变" },
     { "key": "aura.applied", "domain": "aura", "fields": ["targetId", "auraDefId", "sourceId", "stacks"], "description": "apply_aura 生效（见 06 第 8 节）" },
     { "key": "aura.removed", "domain": "aura", "fields": ["targetId", "auraDefId", "reason"], "description": "光环到期/驱散/覆盖移除（见 06 第 8 节）" },
     { "key": "aura.stack_changed", "domain": "aura", "fields": ["targetId", "auraDefId", "oldStacks", "newStacks"], "description": "叠加层数变化（见 06 第 8 节）" },

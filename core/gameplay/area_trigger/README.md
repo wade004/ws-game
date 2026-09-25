@@ -210,3 +210,50 @@ encounterRef) => Encounter.Start(encounterRef, ..., unitId)`）本就是直接�
 幂等保护，不需要在本模块或装配层额外加一层"是否已有进行中实例"的判断。`encounter_start` +
 `one_shot: false` 这一组合从本版本起是安全的默认配置，不再需要调用方自行覆写
 `EncounterStartRequested` 打补丁去重（消费方此前的临时做法，随本决策落地可以拆除）。
+
+## 判断记录（区域卸载/单位消失时补发离开事件，2026-09-26，消费方第三十六批相邻缺口，
+[ADR-0090](../../../architecture/adr/0090-区域卸载与单位消失时补发离开事件.md)）
+
+背景：ADR-0089 落地循环音效后发现的相邻缺口——单位仍在区域内时该区域被整体卸载
+（`IAreaTriggerHost.UnloadMap`/`Unregister`，如切图），此前不会补发 `area.trigger_left`，靠"离开"
+规则停止的循环音效（`stop_sfx{attach: source}`）会一直播。
+
+**决策 1（卸载即离开）**：`Unregister(triggerId)` 清理 `_inside` 账本前（私有帮助方法
+`RemoveInsideForTrigger`），对该触发体当前仍记为"在内"的每个单位各补发一条
+`reason=unloaded` 的 `area.trigger_left`，再清状态；`UnloadMap(mapId)` 本就逐个转调
+`Unregister`，无需单独改动即继承同一份补发逻辑。已经正常走出的单位不在 `_inside` 里，不会被
+误重复补发（不变量用例 `AreaTriggerHostTests.UnloadMap_InvariantsForLeaveReasonAndDuplicateSuppression`
+锁定）。
+
+**决策 2（`reason` 字段）**：`AreaTriggerLeftEvent` 新增只读属性 `Reason`（新枚举
+`AreaTriggerLeaveReason { Moved, Unloaded, Despawned }`）+ 三参构造重载（ABI 只加法，旧二参构造
+原样保留、转调三参构造固定传 `Moved`，此前唯一调用点 `HandleLeave` 就是"移动出范围"，行为不变）；
+`TryGetField("reason")` 返回枚举名小写字符串（`moved`/`unloaded`/`despawned`，`ToLowerInvariant`
+惯例同 `core/sim/core/FightRunner.cs`/`CoverageSimulation.cs` 同类枚举转发），供
+`feedback.binding`/任务等订阅方按需过滤（如循环音效只想响应真实走出：
+`event.reason == "moved"`）。`found.event_catalog` 的 `area.trigger_left` 行 `fields` 追加
+`reason`（`EventKeys.g.cs` 同步重新生成）。`AreaTriggerEnteredEvent` 不改。
+
+**决策 3（单位消失，未落地——已知限制）**：任务书要求"若有现成检测点就补发
+`reason=despawned`，没有就不新建机制"。核实结论：`AreaTriggerHost` 不持有 `IUnitAccess`（也不允许
+为此新增依赖注入），`Evaluate(unitId, position)` 由外部（`AreaTriggerTickHandler`）按单位驱动调用；
+单位消失后 `AreaTriggerTickHandler` 只是不再对它调用 `Evaluate`（它按 `IUnitAccess.AllUnits` 逐个
+驱动，消失的单位自然从这份集合里消失），本模块内部完全没有一个"检测到某个 `_inside` 单位已不存在"
+的既有钩子——不是漏看，是真的不存在。按任务书拍板，**不新建**这样一套检测机制（如逐 tick 比较
+"上次的单位集合"与"这次的单位集合"求差集）。结论：单位消失时 `_inside` 里对应的记录会残留、永远
+不会补发 `area.trigger_left`（除非该触发体所在地图之后被 `UnloadMap`/触发体被 `Unregister`，届时按
+决策 1 一并清理并补发 `reason=unloaded`，语义上不完全准确但不会永久残留）；`GetActiveTriggerIds`
+在此期间会持续报告一个已经不存在的单位所在的区域（该查询本就是按 `unitId` 过滤，调用方若查询的是
+一个已消失的单位，得到的列表本身也就没有意义）。真需要这类兜底应另开 ADR，纳入 `IUnitAccess`/
+`IWorldSim` 层面"实体销毁"事件驱动的补发机制，不在本次范围内。
+
+ABI：纯加法——`AreaTriggerLeftEvent` 新增只读属性 + 新增三参构造重载 + 新增枚举类型，不改动任何
+既有公开签名；`abi_probe.ps1` 核实 `breaks=0`。
+
+测试见 `core/gameplay/area_trigger/tests/AreaTriggerHostTests.cs`
+（`UnloadMap_UnitStillInsideTrigger_EmitsLeftEventWithReasonUnloaded`——复现，修复前应为 0 个
+`AreaTriggerLeftEvent`；`UnloadMap_InvariantsForLeaveReasonAndDuplicateSuppression`——不变量：正常
+走出 `reason=moved`、卸载时区内无单位不发任何事件、已走出的单位卸载时不重复发）与
+`presentation/assembly/tests/AreaTriggerLoopSfxProductionChainTests.cs`
+（`AreaTriggerLoopSfx_PlayerInsideZone_MapUnloaded_StopsLoop_ProductionChain`——生产装配级复现，
+修复前循环实例数为 1、修复后为 0）。

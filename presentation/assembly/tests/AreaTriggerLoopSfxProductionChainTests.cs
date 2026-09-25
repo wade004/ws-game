@@ -240,6 +240,36 @@ namespace Tests.Presentation.Assembly
         }
 
         /// <summary>
+        /// 复现（ADR-0090，消费方第三十六批相邻缺口，修复前）：玩家停留在区域内，未曾正常走出，区域
+        /// 所在地图整体卸载（如切图）。修复前 <c>AreaTriggerHost.UnloadMap</c> 不会补发
+        /// <c>area.trigger_left</c>，<c>stop_sfx{attach: source}</c> 规则永远等不到触发条件，循环
+        /// 实例数在卸载后仍为 1；修复后应补发一条 <c>reason=unloaded</c> 的离开事件，循环实例数变为 0。
+        /// </summary>
+        [Fact]
+        public void AreaTriggerLoopSfx_PlayerInsideZone_MapUnloaded_StopsLoop_ProductionChain()
+        {
+            var f = LoopZoneFixture.Create(extraCondition: null, npcPosition: null);
+
+            f.Tick();
+            f.WalkTo(7.0);
+            f.CompleteLoopDecodeIfPending();
+            for (var i = 0; i < 100; i++)
+            {
+                f.Tick();
+            }
+
+            // 阳性对照：玩家仍在中间区域内，循环确实在播。
+            Assert.True(f.PlayingLoopInstances == 1, f.Dump());
+
+            // 区域所在地图整体卸载（ADR-0090 修复目标：这里应补发 reason=unloaded 的 area.trigger_left）。
+            f.Gameplay.AreaTrigger.UnloadMap(SampleMapId);
+            f.Tick();
+
+            Assert.Contains(f.Trace, t => t.EndsWith("left " + LoopZoneId.Value + " unit=player"));
+            Assert.True(f.PlayingLoopInstances == 0, f.Dump());
+        }
+
+        /// <summary>
         /// 不变量（数据侧修法的阳性/阴性对照）：同一现场，规则条件追加按单位过滤
         /// （<c>self.faction == &lt;玩家阵营&gt;</c>，<c>self</c> 即事件 <c>unitId</c>）后，NPC 的"进入"
         /// 事件照发但不起播；玩家在区内时恰好 1 个实例（阳性对照），离开相邻区域后 0 个（阴性断言）。

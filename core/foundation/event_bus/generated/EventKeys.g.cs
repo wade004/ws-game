@@ -30,7 +30,7 @@ namespace Core.Foundation.EventBus
         /// <summary>area.trigger_entered — 字段：triggerId, unitId。单位进入区域触发范围且满足 condition 时发出（见 05 第 7.1 节 AreaTrigger 事件与契约，字段原文给出）。</summary>
         public static readonly Id AreaTriggerEntered = new Id("area.trigger_entered");
 
-        /// <summary>area.trigger_left — 字段：triggerId, unitId。单位离开区域触发范围且满足 condition 时发出（见 05 第 7.1 节，字段原文给出）。</summary>
+        /// <summary>area.trigger_left — 字段：triggerId, unitId, reason。单位离开区域触发范围且满足 condition 时发出（见 05 第 7.1 节，字段原文给出）；ADR-0090 新增 reason（moved|unloaded|despawned，见 AreaTriggerLeftEvent.Reason 判断记录），旧字段语义不变。</summary>
         public static readonly Id AreaTriggerLeft = new Id("area.trigger_left");
 
         /// <summary>aura.applied — 字段：targetId, auraDefId, sourceId, stacks。apply_aura 生效（见 06 第 8 节）。</summary>

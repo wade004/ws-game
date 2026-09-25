@@ -278,6 +278,94 @@ namespace Tests.Gameplay.AreaTrigger
             Assert.Single(events.OfType<AreaTriggerEnteredEvent>());
         }
 
+        // -----------------------------------------------------------------
+        // ADR-0090（消费方第三十六批相邻缺口）：区域整体卸载时补发 area.trigger_left。
+        // -----------------------------------------------------------------
+
+        /// <summary>复现（修复前）：单位仍在区域内时 <see cref="AreaTriggerHost.UnloadMap"/> 不会补发
+        /// <see cref="AreaTriggerLeftEvent"/>——修复前本用例断言 <c>Assert.Single</c> 会因 0 个事件
+        /// 而失败。修复后应收到恰好一条 <c>reason=unloaded</c> 的离开事件。</summary>
+        [Fact]
+        public void UnloadMap_UnitStillInsideTrigger_EmitsLeftEventWithReasonUnloaded()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var registry = AreaTriggerTestSupport.BuildRegistry(bus,
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"));
+            registry.LoadAll();
+
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+            host.LoadForMap(new Id("world.sample_map"), registry);
+
+            var unit = new Id("unit.sample_player");
+            host.Evaluate(unit, new Vec2(0, 0)); // 进入后一直停留在区域内，从未正常走出
+
+            var events = Subscribe(bus);
+            host.UnloadMap(new Id("world.sample_map"));
+            bus.DispatchPending();
+
+            var left = Assert.Single(events.OfType<AreaTriggerLeftEvent>());
+            Assert.Equal(new Id("area.sample_grove"), left.TriggerId);
+            Assert.Equal(unit, left.UnitId);
+            Assert.Equal(AreaTriggerLeaveReason.Unloaded, left.Reason);
+            Assert.True(left.TryGetField("reason", out var reasonValue));
+            Assert.Equal("unloaded", reasonValue.AsString);
+        }
+
+        /// <summary>不变量（三个分支合一，见任务书"不变量用例只加一个分支，不另开第三条"）：
+        /// ① 正常走出（<see cref="AreaTriggerHost.Evaluate"/> 检测到离开）默认 <c>reason=moved</c>；
+        /// ② 卸载时区域内本就没有单位（<c>area.sample_empty</c>，从未被 <c>Evaluate</c> 命中）不产生
+        /// 任何事件；③ 已经正常走出的单位（<c>leftUnit</c>）卸载时不会被重复补发一次 left。</summary>
+        [Fact]
+        public void UnloadMap_InvariantsForLeaveReasonAndDuplicateSuppression()
+        {
+            var bus = AreaTriggerTestSupport.NewEventBus();
+            var registry = AreaTriggerTestSupport.BuildRegistry(bus,
+                AreaTriggerTestSupport.QuestExploreRow("area.sample_grove", "world.sample_map"),
+                J.O(
+                    ("id", J.S("area.sample_empty")),
+                    ("map_id", J.S("world.sample_map")),
+                    ("shape", AreaTriggerTestSupport.CircleShape(500, 500, 5)),
+                    ("trigger_type", J.S("quest_explore")),
+                    ("one_shot", J.B(false)),
+                    ("params", J.O())));
+            registry.LoadAll();
+
+            var worldSim = new Core.Foundation.SimLoop.WorldSim(bus);
+            var worldState = new Core.Gameplay.WorldState.WorldState(bus);
+            var host = new AreaTriggerHost(worldSim, worldState, bus, new FakeExprHostFactory());
+            host.LoadForMap(new Id("world.sample_map"), registry);
+
+            var stayingUnit = new Id("unit.sample_staying");
+            var leftUnit = new Id("unit.sample_left_already");
+
+            host.Evaluate(stayingUnit, new Vec2(0, 0)); // 进入 sample_grove，之后一直留在里面
+            host.Evaluate(leftUnit, new Vec2(0, 0)); // 同样先进入 sample_grove
+
+            var events = Subscribe(bus);
+            host.Evaluate(leftUnit, new Vec2(100, 100)); // ① 正常走出：reason 默认为 moved
+            bus.DispatchPending();
+
+            var movedLeave = Assert.Single(events.OfType<AreaTriggerLeftEvent>());
+            Assert.Equal(leftUnit, movedLeave.UnitId);
+            Assert.Equal(AreaTriggerLeaveReason.Moved, movedLeave.Reason);
+            Assert.True(movedLeave.TryGetField("reason", out var movedReasonValue));
+            Assert.Equal("moved", movedReasonValue.AsString);
+
+            events.Clear();
+
+            // ②③ 卸载整张地图：sample_empty 从未被进入 -> 不产生事件；sample_grove 里 leftUnit 已经
+            // 正常走出（不在 _inside 里）-> 不重复发；只有仍在里面的 stayingUnit 补发一条 reason=unloaded。
+            host.UnloadMap(new Id("world.sample_map"));
+            bus.DispatchPending();
+
+            var unloadLeave = Assert.Single(events.OfType<AreaTriggerLeftEvent>());
+            Assert.Equal(new Id("area.sample_grove"), unloadLeave.TriggerId);
+            Assert.Equal(stayingUnit, unloadLeave.UnitId);
+            Assert.Equal(AreaTriggerLeaveReason.Unloaded, unloadLeave.Reason);
+        }
+
         [Fact]
         public void RegisterTrap_EnterInvokesTrapTriggerDelegate()
         {
