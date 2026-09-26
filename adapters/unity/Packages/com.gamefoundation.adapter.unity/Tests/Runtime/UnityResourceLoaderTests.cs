@@ -649,28 +649,55 @@ namespace Adapter.Unity.Tests.Runtime
                     $"修复前固定使用全局默认值 {_loader.PixelsPerUnit}");
             }
 
-            // "顺带核对"：真实生产链路（UnityViewFactory）确实把 sprite_set_id 作为提示传给了加载器。
-            // 复用同一份 anchors.json/atlas 夹具，构造一条最小 display.map + display.anim_set 数据，
-            // 经 RegisterDefaultClips -> RequestAnimClipUpgrade 走一遍完整装配路径。
+            // "顺带核对"：真实生产链路（UnityViewFactory）确实把 sprite_set_id 作为提示传给了加载器
+            // ——覆盖 RegisterDefaultClips -> RequestAnimClipUpgrade（整体默认剪辑）与
+            // EnsureSpriteClipRegistered -> RequestWeaponClipUpgrade（武器风格/技能覆盖剪辑）两个
+            // 调用点：协调方 2026-09-26 反馈明确指出两者同属一个精灵集的 sprite_anim 资源体系，
+            // 漏接后者就是半个修复，故本用例须一并核对，不新开第三条用例。
             yield return VerifyViewFactoryPassesSpriteSetHint(spriteSetId, frameSize, rootX, rootY, declaredPixelsPerUnit);
         }
 
         /// <summary>见 <see cref="LoadAsync_Effect_WithSpriteSetHint_PivotAndPixelsPerUnitComeFromAnchorsRoot"/>
         /// "顺带核对"一节：直接调用 <see cref="Adapter.Unity.Presentation.UnityViewFactory"/> 私有的
         /// 装配步骤成本过高（需要完整 DisplayInfo/EventBus/IViewFactory 装配上下文），改为对着
-        /// 同一个 <see cref="UnityResourceLoader"/> 实例复刻工厂内 <c>RegisterDefaultClips</c> ->
-        /// <c>RequestAnimClipUpgrade</c> 的调用形状（<c>LoadAsync(resourceRef, ResourceKind.Effect,
-        /// new ResourceLoadHints(spriteSetId), callback)</c>）——这与工厂源码逐字一致（见
-        /// <c>UnityViewFactory.RequestAnimClipUpgrade</c> 判断记录），核对的是"这个调用形状确实按
-        /// 提示解析出正确结果"，不是重新验证一遍工厂自身的六状态登记/占位退化等既有逻辑（那些已由
-        /// 其它既有测试覆盖，不在本次 ADR-0095 范围内）。</summary>
+        /// 同一个 <see cref="UnityResourceLoader"/> 实例复刻工厂内两处调用点的调用形状（均为
+        /// <c>LoadAsync(resourceRef/clipId, ResourceKind.Effect, new ResourceLoadHints(spriteSetId),
+        /// callback)</c>，逐字与工厂源码一致）：
+        /// <list type="number">
+        /// <item><c>RegisterDefaultClips</c> -&gt; <c>RequestAnimClipUpgrade</c>（整体默认状态剪辑）。</item>
+        /// <item><c>EnsureSpriteClipRegistered</c> -&gt; <c>RequestWeaponClipUpgrade</c>（武器风格/
+        /// 技能覆盖剪辑，见 <c>UnityViewFactory._spriteSetIdsByEntity</c> 判断记录——2026-09-26 协调方
+        /// 反馈指出此调用点与前者同属一个精灵集的 <c>sprite_anim</c> 资源，此前漏接是半个修复）。</item>
+        /// </list>
+        /// 核对的是"这两个调用形状确实都按提示解析出正确结果"，不是重新验证一遍工厂自身的六状态登记/
+        /// 占位退化/武器风格解析等既有逻辑（那些已由其它既有测试覆盖，不在本次 ADR-0095 范围内）。
+        /// </summary>
         private IEnumerator VerifyViewFactoryPassesSpriteSetHint(
             Id spriteSetId, int frameSize, double rootX, double rootY, float declaredPixelsPerUnit)
         {
-            var resourceId = new Id("sprite_anim.fixture_beast_walk_via_factory_shape");
-            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot!, "sprite_anim", "fixture_beast_walk_via_factory_shape", "atlas.png"), frameSize, frameSize);
+            yield return VerifyFactoryCallShapePassesSpriteSetHint(
+                spriteSetId, frameSize, rootX, rootY, declaredPixelsPerUnit,
+                "sprite_anim.fixture_beast_walk_via_factory_shape",
+                "工厂同形状调用（RequestAnimClipUpgrade 的 LoadAsync 调用）");
+
+            yield return VerifyFactoryCallShapePassesSpriteSetHint(
+                spriteSetId, frameSize, rootX, rootY, declaredPixelsPerUnit,
+                "sprite_anim.fixture_beast_walk_via_weapon_clip_shape",
+                "工厂同形状调用（RequestWeaponClipUpgrade 的 LoadAsync 调用）");
+        }
+
+        /// <summary>见 <see cref="VerifyViewFactoryPassesSpriteSetHint"/>：两个调用点共用的同一段
+        /// "构造夹具 + 按精灵集提示加载 + 断言枢轴/像素密度" 逻辑，只是资源 id 与断言消息不同
+        /// （<paramref name="callSiteDescription"/> 标注具体核对的是哪一个调用点的形状）。</summary>
+        private IEnumerator VerifyFactoryCallShapePassesSpriteSetHint(
+            Id spriteSetId, int frameSize, double rootX, double rootY, float declaredPixelsPerUnit,
+            string resourceIdValue, string callSiteDescription)
+        {
+            var resourceId = new Id(resourceIdValue);
+            var lastSegment = resourceIdValue.Substring(resourceIdValue.LastIndexOf('.') + 1);
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot!, "sprite_anim", lastSegment, "atlas.png"), frameSize, frameSize);
             WriteTextFixture(
-                System.IO.Path.Combine(_tempFixtureRoot!, "sprite_anim", "fixture_beast_walk_via_factory_shape", "frames.json"),
+                System.IO.Path.Combine(_tempFixtureRoot!, "sprite_anim", lastSegment, "frames.json"),
                 "{\"frames\": [{\"x\": 0, \"y\": 0, \"w\": 48, \"h\": 48}]}");
 
             bool? success = null;
@@ -689,9 +716,9 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsTrue(_loader.TryGetEffect(resourceId, out var asset));
             var sprite = asset.Frames[0].Sprite;
             Assert.AreEqual((float)(rootX / frameSize), sprite.pivot.x / sprite.rect.width, 0.001f,
-                "工厂同形状调用（RequestAnimClipUpgrade 的 LoadAsync 调用）同样应按精灵集提示算出枢轴");
+                $"{callSiteDescription}同样应按精灵集提示算出枢轴");
             Assert.AreEqual(declaredPixelsPerUnit, sprite.pixelsPerUnit, 0.001f,
-                "工厂同形状调用同样应按精灵集提示算出像素密度");
+                $"{callSiteDescription}同样应按精灵集提示算出像素密度");
         }
 
         /// <summary>

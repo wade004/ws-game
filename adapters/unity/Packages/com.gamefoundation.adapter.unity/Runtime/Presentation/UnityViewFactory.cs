@@ -192,6 +192,18 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, UnityFrameAnimPlayer> _animPlayersByEntity = new Dictionary<Id, UnityFrameAnimPlayer>();
         private readonly Dictionary<Id, IReadOnlyDictionary<string, Id>> _animClipsByEntity = new Dictionary<Id, IReadOnlyDictionary<string, Id>>();
 
+        /// <summary>[ADR-0095] entityId -> 该实体显示行所属精灵集 id（找不到时为 <c>null</c>）：
+        /// <see cref="AttachDefaultAnimation"/> 挂接默认动画时与 <see cref="_animPlayersByEntity"/>
+        /// 同步登记，供 <see cref="EnsureSpriteClipRegistered"/>/<see cref="RequestWeaponClipUpgrade"/>
+        /// 在只有 entityId（没有 <see cref="Core.Foundation.DisplayInfo.DisplayInfo"/>）可用的
+        /// <c>playClip</c> 委托里按 entityId 反查——武器风格/技能覆盖剪辑（<see
+        /// cref="Presentation.VfxSfx.Contracts.WeaponStyleDef.AutoAttackAnim"/>/<c>CastAnimOverride</c>）
+        /// 与 <see cref="RegisterDefaultClips"/> 登记的六个默认状态剪辑本质是同一批 <c>sprite_anim</c>
+        /// 资源、属于同一个精灵集，此前只有默认状态那六个走了精灵集提示、武器覆盖剪辑漏接会导致同一
+        /// 精灵集下枢轴/像素密度表现不一致（半个修复），故须与 <see cref="RegisterDefaultClips"/>
+        /// 取同一枢轴来源、走同一套优先级。</summary>
+        private readonly Dictionary<Id, Id?> _spriteSetIdsByEntity = new Dictionary<Id, Id?>();
+
         /// <summary>ADR-0072 决策 2 新增：纸娃娃层逐层动画——entityId -> (状态 clipId -> (层名 ->
         /// 该层独立注册在同一个 <see cref="UnityFrameAnimPlayer"/> 上的逐层 clipId))。由
         /// <see cref="TryAttachPerLayerAnimation"/> 在 <see cref="AttachDefaultAnimation"/> 期间创建
@@ -363,6 +375,7 @@ namespace Adapter.Unity.Presentation
             _animClipsByEntity.Remove(evt.EntityId);
             _modelViewsByEntity.Remove(evt.EntityId);
             _perLayerClipsByEntity.Remove(evt.EntityId);
+            _spriteSetIdsByEntity.Remove(evt.EntityId);
 
             // ADR-0093：方向变化重探测的上下文/缓存同一套"随实体销毁清理"惯例——entityId 可能被完全
             // 不同的新实体复用（同上一条判断记录），留着旧实体的方向缓存没有任何意义，且
@@ -594,6 +607,13 @@ namespace Adapter.Unity.Presentation
 
             _animPlayersByEntity[entityId] = player;
             _animClipsByEntity[entityId] = clips;
+
+            // [ADR-0095] 与 RegisterDefaultClips 内部计算 spriteSetId 取同一来源（info.Sprite.SpriteSetId，
+            // 本方法只由此处调用、info.Kind 恒为 Sprite、info.Sprite 恒非空，见该方法判断记录）；
+            // 按 entityId 另存一份，供只有 entityId 可用的 EnsureSpriteClipRegistered/
+            // RequestWeaponClipUpgrade（playClip 委托路径）反查，使武器风格/技能覆盖剪辑与默认状态
+            // 剪辑走同一个精灵集提示，不再是半个修复。
+            _spriteSetIdsByEntity[entityId] = info.Sprite != null ? (Id?)Id.Parse(info.Sprite.SpriteSetId) : null;
 
             EnsureAnimClipResolver();
 
@@ -1211,8 +1231,13 @@ namespace Adapter.Unity.Presentation
         /// 命中）直接登记真实多帧剪辑；未命中时先登记单帧占位剪辑保证立即可用并记一次诊断，同时发起
         /// 一次真正的异步加载（<see cref="RequestWeaponClipUpgrade"/>），完成后原地升级——与
         /// <see cref="RequestAnimClipUpgrade"/> 是同一套机制在"任意 clipId"而不是"六个固定状态键"上
-        /// 的推广，见类型顶部 <see cref="_pendingWeaponClipResourceLoads"/> 判断记录。</summary>
-        private void EnsureSpriteClipRegistered(UnityFrameAnimPlayer player, Id clipId)
+        /// 的推广，见类型顶部 <see cref="_pendingWeaponClipResourceLoads"/> 判断记录。[ADR-0095]
+        /// <paramref name="entityId"/> 用于按 <see cref="_spriteSetIdsByEntity"/> 反查该实体所属精灵集
+        /// id 并转发给 <see cref="RequestWeaponClipUpgrade"/>——武器风格/技能覆盖剪辑与
+        /// <see cref="RegisterDefaultClips"/> 登记的默认状态剪辑同属一个精灵集的 <c>sprite_anim</c>
+        /// 资源，须走同一枢轴/像素密度来源，找不到时为 <c>null</c>，与默认状态剪辑一致地退回不带提示
+        /// 的旧路径。</summary>
+        private void EnsureSpriteClipRegistered(Id entityId, UnityFrameAnimPlayer player, Id clipId)
         {
             if (player.HasClip(clipId))
             {
@@ -1236,7 +1261,8 @@ namespace Adapter.Unity.Presentation
 
             if (unityLoader != null)
             {
-                RequestWeaponClipUpgrade(unityLoader, clipId, player);
+                var spriteSetId = _spriteSetIdsByEntity.TryGetValue(entityId, out var ssid) ? ssid : null;
+                RequestWeaponClipUpgrade(unityLoader, clipId, player, spriteSetId);
             }
         }
 
@@ -1244,8 +1270,12 @@ namespace Adapter.Unity.Presentation
         /// 去重发起一次 <see cref="IResourceLoader.LoadAsync"/>（同一 clipId 被多个实体的播放器共同
         /// 引用时只发起一次），完成后把全部登记等待方一次性升级为真实多帧剪辑；某个
         /// <paramref name="player"/> 在加载完成前已被销毁（Unity 对象销毁后与 <c>null</c> 比较为真）
-        /// 时跳过它，不抛异常。</summary>
-        private void RequestWeaponClipUpgrade(Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id clipId, UnityFrameAnimPlayer player)
+        /// 时跳过它，不抛异常。[ADR-0095] <paramref name="spriteSetId"/>：该剪辑所属实体的精灵集 id
+        /// （见 <see cref="EnsureSpriteClipRegistered"/> 判断记录），经
+        /// <see cref="Core.Foundation.EngineAdapter.ResourceLoadHints"/> 传给加载器，取值/回退规则与
+        /// <see cref="RequestAnimClipUpgrade"/> 完全一致——两者是同一份 <c>sprite_anim</c> 资源体系上
+        /// 的同一套接线，缺其一就是半个修复。</summary>
+        private void RequestWeaponClipUpgrade(Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id clipId, UnityFrameAnimPlayer player, Id? spriteSetId)
         {
             if (!_pendingWeaponClipWaiters.TryGetValue(clipId, out var waiters))
             {
@@ -1259,7 +1289,7 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            unityLoader.LoadAsync(clipId, ResourceKind.Effect, (loadedId, success) =>
+            LoadCallback onLoaded = (loadedId, success) =>
             {
                 if (!_pendingWeaponClipWaiters.TryGetValue(loadedId, out var pendingWaiters))
                 {
@@ -1283,7 +1313,16 @@ namespace Adapter.Unity.Presentation
                     }
                     waitingPlayer.RegisterClipFromEffect(loadedId, loadedEffect);
                 }
-            });
+            };
+
+            if (spriteSetId.HasValue)
+            {
+                unityLoader.LoadAsync(clipId, ResourceKind.Effect, new Core.Foundation.EngineAdapter.ResourceLoadHints(spriteSetId), onLoaded);
+            }
+            else
+            {
+                unityLoader.LoadAsync(clipId, ResourceKind.Effect, onLoaded);
+            }
         }
 
         /// <summary>ADR-0017 决策 c：把 <c>display.anim_set.clips[*].events</c>（时间轴百分比 + 裸
@@ -1352,7 +1391,7 @@ namespace Adapter.Unity.Presentation
                         // PR130-03 根治：clipId 可能是武器风格/技能覆盖解析出的、从未登记过的剪辑，
                         // 见 EnsureSpriteClipRegistered 判断记录——FrameAnimPlayer.Play 对未登记的
                         // clipId 会抛异常，本调用点必须先保证已登记。
-                        EnsureSpriteClipRegistered(player, clipId);
+                        EnsureSpriteClipRegistered(entityId, player, clipId);
                         player.Play(clipId, loop, speed);
                         return;
                     }
@@ -1482,6 +1521,7 @@ namespace Adapter.Unity.Presentation
             _animPlayersByEntity.Clear();
             _animClipsByEntity.Clear();
             _modelViewsByEntity.Clear();
+            _spriteSetIdsByEntity.Clear();
         }
 
         // --------------------------------------------------------------
