@@ -133,6 +133,30 @@ schema/示例行同步扩枚举；09 第 7.1 节勘误已补 changelog 说明技
 PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_NoManualRefresh`
 （`ShopViewModel` 走真实 `EconomyHost`，需要装配根环境，故放在该测试文件而非本模块）。
 
+## 判断记录（`UiIntents.AbandonQuest`，2026-09-26，消费方反馈第三十八批，阻塞，
+[ADR-0092](../../architecture/adr/0092-玩家主动放弃任务意图.md)）
+
+背景与契约层决策见 ADR-0092、`core/gameplay/quest/README.md` 判断记录 24（新增
+`IQuestHost.Abandon`，与既有 `Fail` 的语义差异、已知限制均在该处登记），本条只记表现层落地要点。
+
+**`UiIntents`**：新增 `AbandonQuest(questId)`/`AbandonQuest(panelId, questId)` 两个重载，形状与
+错误处理完全比照既有 `TurnInQuest` 一对重载——不带 `panelId` 的重载直接转发 `IQuestHost.Abandon`
+并原样返回其 `bool` 结果；带 `panelId` 的重载先发布 `ui.action_invoked { panelId, actionName:
+"abandon_quest" }` 再转发（同 [ADR-0077](../../architecture/adr/0077-ui交互域事件.md) 既有惯例，
+`actionName` 复用框架自持词汇表，不新开一套）。
+
+**`QuestLogViewModel`**：构造期新增一条对 `quest.abandoned` 的订阅，触发方式与既有的
+`quest.failed` 订阅完全一致（整体 `Refresh()` 重建 `Log`/`ActiveObjectives`，不做增量更新）——
+放弃后该任务从 `IQuestHost.GetLog` 里整体消失，与"失败"一样属于"任务从日志中变化"的一类事件，
+复用同一条刷新路径，不新增专门的处理分支。
+
+**测试**：契约层用例见 `core/gameplay/quest/README.md` 判断记录 24；表现层转发用例并入
+`presentation/ui/tests/UiIntentsTests.cs` 既有的
+`AcceptQuest_and_TurnInQuest_and_AbandonQuest_delegate_to_quest_host`（沿用既有测试而非新开一条，
+断言 `AbandonQuest` 转发到假宿主并反映为其 `AbandonedQuests` 记录，放弃后重新接取/交付仍正常）。
+未新增 `QuestLogViewModel` 专属测试——订阅方式与 `quest.failed` 逐字节一致，复用既有对
+`quest.failed`/`OnRelevantEvent` 的既有测试覆盖口径，未单独为 `quest.abandoned` 开一条冗余用例。
+
 ## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
 
 `UiDataSource` 新增只读属性 `Diagnostics`（返回 `IUiDiagnostics`，ABI 只新增只读属性，不改动任何既有公开签名）：

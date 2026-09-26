@@ -189,6 +189,9 @@ namespace Core.Foundation.EventBus
         /// <summary>progression.xp_gained — 字段：unitId, amount, sourceId。经验获取时触发（见 01 L1 模块表 progression 行）；字段为建议值。</summary>
         public static readonly Id ProgressionXpGained = new Id("progression.xp_gained");
 
+        /// <summary>quest.abandoned — 字段：unitId, questId。玩家主动放弃任务时触发（ADR-0092）：任务从已接取/已达标回到未接取，进度与目标计数清零，不产生失败记录，与 quest.failed 语义不同；字段为建议值，新增行。</summary>
+        public static readonly Id QuestAbandoned = new Id("quest.abandoned");
+
         /// <summary>quest.accepted — 字段：unitId, questId。任务被接取、任务日志状态机进入进行中状态时触发（见 01 L4 模块表 quest 行、08 第 9 节）；字段为建议值。</summary>
         public static readonly Id QuestAccepted = new Id("quest.accepted");
 
@@ -366,6 +369,7 @@ namespace Core.Foundation.EventBus
             ProgressionLevelUp,
             ProgressionStateRestored,
             ProgressionXpGained,
+            QuestAbandoned,
             QuestAccepted,
             QuestCompleted,
             QuestFailed,

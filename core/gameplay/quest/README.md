@@ -5,7 +5,7 @@
 八种目标类型（`kill｜collect｜interact｜explore｜escort｜event｜cast｜talk`）的事件驱动进度、任务
 交付时经 `IRewardDispatcher` 结算奖励。对应 01 第 L4 模块表"任务"行（契约 `QuestHost`、数据表
 `quest.def`、事件 `quest.accepted`/`quest.objective_progress`/`quest.completed`/`quest.turned_in`/
-`quest.failed`、策略配置项"任务目标类型集合"）。字段表分片见 `schema/quest.def.md`。
+`quest.failed`/`quest.abandoned`、策略配置项"任务目标类型集合"）。字段表分片见 `schema/quest.def.md`。
 
 依赖（按实际 `using` 语句核实）：
 
@@ -29,10 +29,10 @@
 quest/
   README.md
   contracts/
-    Events.cs                    QuestEventKeys + 五个事件类型（Accepted/ObjectiveProgress/
-                                  Completed/TurnedIn/Failed）
+    Events.cs                    QuestEventKeys + 六个事件类型（Accepted/ObjectiveProgress/
+                                  Completed/TurnedIn/Failed/Abandoned）
     IQuestHost.cs                 任务系统对外契约（GetState/Accept/UpdateProgress/TurnIn/Fail/
-                                  GetLog/GetActiveObjectives/Update）
+                                  Abandon/GetLog/GetActiveObjectives/Update）
     QuestDefinition.cs            quest.def 一条记录的内存态表示 + FromRecord 解析（运行期与
                                   校验期共用）
     QuestEnums.cs                  StartMethod/TurnInMethod/Repeatable/State 四枚举 + wire 名互转
@@ -401,6 +401,28 @@ quest/
     Id 字段比较不再报错、语法错误/参数个数不对/未知分组仍照常报错四类断言）与同目录
     `PresentationAssemblyTests.cs` 新增三例（运行期，经真实 `FeedbackBinder`/
     `RulesExprHostFactory` 管线验证条件按事件真实字段值正确求值为真/假）。
+
+24. **消费方反馈第三十八批（阻塞，2026-09-26）：新增 `IQuestHost.Abandon`（玩家主动放弃任务），见
+    [ADR-0092](../../../architecture/adr/0092-玩家主动放弃任务意图.md)**——`UiIntents` 此前只有
+    `AcceptQuest`/`TurnInQuest`，没有入口能表达"玩家主动放弃一条已接取的任务"；消费方已排除
+    `Fail` 作为替代——`Fail` 是策略开关（`AllowFail`）控制的规则判定结局，进入 `Failed` 后框架不
+    提供任何回到"可再次接取"的路径（核实 `GetState` 对 `Failed` 恒返回 `Failed` 本身，不像可重复
+    任务的 `TurnedIn` 那样存在下一日回落分支），与"放弃后应当能立即重新接取"的预期冲突。新增
+    `Abandon(unitId, questId)` 作为 C# 8 默认接口成员（ABI 只加法，默认体恒抛
+    `NotSupportedException`——与既有查询类默认成员的"静默降级"惯例不同，理由见接口成员判断记录）；
+    只允许对 Active/ObjectivesComplete（已接取、含已达标待交付）的任务放弃，成功时把该任务的
+    `_progress` 记录整体移除（等价于"从未接取过"），发 `quest.abandoned`；未接取/已交付/已失败/
+    定义未登记均返回 `false`，不抛异常、不发事件。已知限制（写入 ADR"后果"一节）：可重复任务的
+    历史累计完成次数与最近交付日随记录一并移除，若此前已交付过若干次、本轮重新接取后又放弃，会
+    连带丢失这段历史（`quest.is_completed` 类查询从"曾经完成过"变回"从未完成"）——是"放弃即完全
+    等价于从未接取过"这一设计决策的直接推论，ADR 已记录为已知限制，未在本次范围内额外处理。
+    表现层落地（`UiIntents.AbandonQuest` 两个重载、`QuestLogViewModel` 订阅
+    `quest.abandoned`）与事件登记（`found.event_catalog` 新增行、`EventKeys.g.cs` 同步生成）见
+    `presentation/ui/README.md` 对应判断记录，本条不重复登记。测试见
+    `core/gameplay/quest/tests/QuestHostTests.cs` 的
+    `Abandon_WhenActive_ReturnsToNeverAccepted_ClearsLogAndProgress_FiresEvent`（复现用例）与
+    `Abandon_UnacceptedOrTurnedIn_Fails_FailPathUnaffected_PersistsAsNeverAccepted`（不变量用例，
+    分支合一：未接取/已交付两支失败无事件、`Fail` 路径不受影响、存档往返后仍是未接取）。
 
 - 不实现"多选一奖励"（08 第 2.4 节"留待后续 ADR"）。
 - 不做地图标记/追踪的具体渲染——`GetActiveObjectives` 只给出 `(questId, objectiveIndex, targetRef)`

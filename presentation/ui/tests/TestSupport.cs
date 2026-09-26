@@ -341,6 +341,24 @@ namespace Tests.PresentationUi
             return true;
         }
 
+        /// <summary>ADR-0092：供 <c>UiIntents.AbandonQuest</c> 转发测试用——最小语义（同真实
+        /// <c>QuestHost</c> 只放行 Active/ObjectivesComplete，其余状态返回失败），移除该任务的假状态
+        /// 记录，等价于"未接取"。</summary>
+        public readonly HashSet<Id> AbandonedQuests = new HashSet<Id>();
+
+        public bool Abandon(Id unitId, Id questId)
+        {
+            if (!_states.TryGetValue(questId, out var state) ||
+                (state != QuestState.Active && state != QuestState.ObjectivesComplete))
+            {
+                return false;
+            }
+            _states.Remove(questId);
+            _objectiveCounts.Remove(questId);
+            AbandonedQuests.Add(questId);
+            return true;
+        }
+
         public IReadOnlyList<QuestProgress> GetLog(Id unitId)
         {
             var result = new List<QuestProgress>();

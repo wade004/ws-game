@@ -286,7 +286,7 @@ namespace Tests.PresentationUi
         }
 
         [Fact]
-        public void AcceptQuest_and_TurnInQuest_delegate_to_quest_host()
+        public void AcceptQuest_and_TurnInQuest_and_AbandonQuest_delegate_to_quest_host()
         {
             var intents = Build(out _, out _, out var quest, out _, out _, out _, out _, out _, out _);
             var questId = new Id("quest.find_the_missing_child");
@@ -294,6 +294,14 @@ namespace Tests.PresentationUi
             Assert.True(intents.AcceptQuest(questId));
             Assert.Contains(questId, quest.AcceptedQuests);
 
+            // ADR-0092：AbandonQuest 转发到 IQuestHost.Abandon 并原样返回其结果（分支合一用例的
+            // 一支，见 core/gameplay/quest/tests/QuestHostTests.cs
+            // Abandon_UnacceptedOrTurnedIn_Fails_FailPathUnaffected_PersistsAsNeverAccepted 判断记录）。
+            Assert.True(intents.AbandonQuest(questId));
+            Assert.Contains(questId, quest.AbandonedQuests);
+
+            // 放弃后该假宿主已不记录这条任务（同真实 QuestHost 语义），重新接取才能再交付。
+            Assert.True(intents.AcceptQuest(questId));
             Assert.True(intents.TurnInQuest(questId));
             Assert.Contains(questId, quest.TurnedInQuests);
         }

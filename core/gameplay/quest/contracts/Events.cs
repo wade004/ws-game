@@ -17,6 +17,7 @@ namespace Core.Gameplay.Quest
         public static readonly Id Completed = new Id("quest.completed");
         public static readonly Id TurnedIn = new Id("quest.turned_in");
         public static readonly Id Failed = new Id("quest.failed");
+        public static readonly Id Abandoned = new Id("quest.abandoned");
     }
 
     /// <summary>任务被接取时触发（见 found.event_catalog <c>quest.accepted</c> 行、08 第 2.2、9 节）。</summary>
@@ -164,6 +165,35 @@ namespace Core.Gameplay.Quest
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
                 case "questId": value = ExprValue.OfId(QuestId); return true;
                 case "reason": value = ExprValue.OfString(Reason); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>玩家主动放弃任务时触发（ADR-0092，见 found.event_catalog <c>quest.abandoned</c>
+    /// 行）。字段与 <see cref="QuestTurnedInEvent"/>/<see cref="QuestFailedEvent"/> 同一惯例，但不带
+    /// 原因字段——放弃不需要"为什么"，与 <see cref="QuestFailedEvent.Reason"/> 服务的"失败原因"
+    /// 语义不同（见 <see cref="IQuestHost.Abandon"/> 判断记录"Fail 与 Abandon 的语义差异"）。</summary>
+    public sealed class QuestAbandonedEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => QuestEventKeys.Abandoned;
+
+        public Id UnitId { get; }
+
+        public Id QuestId { get; }
+
+        public QuestAbandonedEvent(Id unitId, Id questId)
+        {
+            UnitId = unitId;
+            QuestId = questId;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "questId": value = ExprValue.OfId(QuestId); return true;
                 default: value = default; return false;
             }
         }

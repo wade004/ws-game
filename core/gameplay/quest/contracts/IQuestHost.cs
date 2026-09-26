@@ -64,6 +64,41 @@ namespace Core.Gameplay.Quest
         /// </summary>
         bool Fail(Id unitId, Id questId, string reason);
 
+        /// <summary>
+        /// 玩家主动放弃任务（ADR-0092，见该决策"Fail 与 Abandon 的语义差异"一节）。只允许对当前状态为
+        /// <see cref="QuestState.Active"/>/<see cref="QuestState.ObjectivesComplete"/>（已接取、未
+        /// 交付，含已达标但尚未交付）的任务放弃。成功时把该任务的运行期进度记录整体移除——效果等价于
+        /// "这个单位从未接取过这条任务"：<see cref="GetState"/> 落回按 <c>prerequisite</c> 实时求值的
+        /// Available/Unavailable；<see cref="GetLog"/> 不再包含它；目标计数归零；不写入任何"失败"
+        /// 记录（与 <see cref="Fail"/> 刻意区分，见该决策）。成功发 <c>quest.abandoned</c>（字段对齐
+        /// <c>quest.failed</c>/<c>quest.turned_in</c> 既有惯例：<c>unitId</c> + <c>questId</c>）。
+        /// <para>
+        /// 未接取（无进度记录）、已交付（<see cref="QuestState.TurnedIn"/>）、已失败（<see
+        /// cref="QuestState.Failed"/>）、或 <paramref name="questId"/> 未登记（含从未存在、或已被
+        /// 重新登记定义删除，同 <see cref="GetObjectiveRequiredCounts"/> 判断记录 CORE-118-QUEST）
+        /// ——均返回 <c>false</c>，不抛异常、不发事件：这是一个供 UI 一键调用的玩家意图，调用方不
+        /// 需要先查询状态再决定是否可以调用。
+        /// </para>
+        /// <para>
+        /// 已知限制（ADR-0092"后果"一节）：整条运行期记录被移除，包含累计完成次数与最近交付日——
+        /// 若该任务是可重复任务且此前已经交付过若干次（历史累计完成次数 &gt; 0），玩家重新接取本轮
+        /// 又中途放弃，会连带丢失此前全部交付历史（"是否完成过"一类查询会从"曾经完成过"变回"从未
+        /// 完成"）。这是"放弃即回到从未接取"这一设计决策的直接推论，不在本次范围内单独处理，见
+        /// ADR-0092"备选方案"一节为何不选。
+        /// </para>
+        /// <para>
+        /// C# 8 默认接口成员（ABI 只加法，新增契约成员必须带默认实现）：默认实现恒抛
+        /// <see cref="System.NotSupportedException"/>——语义是"该宿主实现不支持玩家主动放弃这一
+        /// 能力"，与既有查询类默认成员（返回 null/空集合）不同：放弃是一个会改变运行期状态、会发
+        /// 事件的写操作，静默降级为"什么都不做但返回 false"会让调用方（UI）误以为放弃已经生效，
+        /// 因此不适用同一套"静默降级"惯例，未实现本能力的宿主应当让调用方明确得知这个操作不可用。
+        /// 生产实现 <see cref="QuestHost"/> 提供真正的实现。
+        /// </para>
+        /// </summary>
+        bool Abandon(Id unitId, Id questId) =>
+            throw new System.NotSupportedException(
+                "该 IQuestHost 实现未提供 Abandon（玩家主动放弃任务）能力，见 ADR-0092");
+
         /// <summary>该单位全部有持久化记录（曾经 Accept 过，含已完成/已失败）的任务进度快照，
         /// 供存档/UI 展示（见 <see cref="QuestPersistable"/>）。</summary>
         IReadOnlyList<QuestProgress> GetLog(Id unitId);

@@ -547,6 +547,31 @@ namespace Core.Gameplay.Quest
             return true;
         }
 
+        /// <summary>见 <see cref="IQuestHost.Abandon"/> 判断记录（ADR-0092）。整条运行期记录直接从
+        /// <see cref="_progress"/> 移除——不新增任何"已放弃"状态标记，效果与该 (unitId, questId)
+        /// 组合从未出现在字典里完全一致；<see cref="GetState"/>/<see cref="GetLog"/>/<see
+        /// cref="SnapshotAll"/> 因此不需要为放弃单独加分支，它们本就在处理"字典里没有这条记录"这个
+        /// 既有形状。定义未登记时按既有降级口径返回 <c>false</c>（同 <see cref="TryGetDefinition"/>
+        /// 服务的既有枚举路径，不像 <see cref="RequireDef"/> 那样抛异常——理由见接口成员判断记录：
+        /// 这是供 UI 一键调用的玩家意图，调用方不应因为极端情形下定义已被 Reload 删除而收到异常）。
+        /// </summary>
+        public bool Abandon(Id unitId, Id questId)
+        {
+            if (!TryGetDefinition(questId, out _))
+            {
+                return false;
+            }
+            if (!_progress.TryGetValue((unitId, questId), out var rt) ||
+                (rt.State != QuestState.Active && rt.State != QuestState.ObjectivesComplete))
+            {
+                return false;
+            }
+
+            _progress.Remove((unitId, questId));
+            Publish(new QuestAbandonedEvent(unitId, questId));
+            return true;
+        }
+
         public IReadOnlyList<QuestProgress> GetLog(Id unitId)
         {
             var result = new List<QuestProgress>();

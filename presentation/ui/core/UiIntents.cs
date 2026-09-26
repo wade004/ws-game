@@ -218,6 +218,17 @@ namespace Presentation.Ui
             return TurnInQuest(questId);
         }
 
+        /// <summary>ADR-0092：玩家主动放弃任务，转发 <see cref="Core.Gameplay.Quest.IQuestHost.Abandon"/>。</summary>
+        public bool AbandonQuest(Id questId) => _quest.Abandon(_playerId, questId);
+
+        /// <summary>ADR-0092 新增重载：先发布 <c>ui.action_invoked{panelId, actionName: "abandon_quest"}</c>，
+        /// 再转发 <see cref="AbandonQuest(Id)"/>。</summary>
+        public bool AbandonQuest(Id panelId, Id questId)
+        {
+            PublishActionInvoked(panelId, "abandon_quest");
+            return AbandonQuest(questId);
+        }
+
         /// <summary>
         /// 消费方反馈（游戏接入方第十五批，阻塞，框架缺陷）修复：本方法此前恒转发
         /// <see cref="IDialogHost.ChooseOption"/>——<see cref="IDialogHost.StartStory"/> 会把会话的

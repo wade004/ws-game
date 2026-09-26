@@ -65,6 +65,9 @@ namespace Presentation.Ui
             _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.Completed, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.TurnedIn, OnRelevantEvent));
             _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.Failed, OnRelevantEvent));
+            // ADR-0092：玩家主动放弃任务后，该任务从 GetLog 里整体消失，同 Failed 一样需要触发一次
+            // 整体重建，不能只靠 ObjectiveProgress/Accepted 一类增量事件推断。
+            _subscriptions.Add(_dataSource.Subscribe(QuestEventKeys.Abandoned, OnRelevantEvent));
             // UI-111-01 根治同惯例（见 InventoryViewModel 类型注释）：同图读档的抑制作用域会连带
             // 压住任务推进事件本身，只有在该作用域外正常派发的 save.loaded 能保证读档后整体重建。
             _subscriptions.Add(_dataSource.Subscribe(SaveEventKeys.SaveLoaded, OnRelevantEvent));

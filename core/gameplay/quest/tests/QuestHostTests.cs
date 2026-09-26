@@ -48,7 +48,7 @@ namespace Tests.Gameplay.Quest
             foreach (var key in new[]
                      {
                          QuestEventKeys.Accepted, QuestEventKeys.ObjectiveProgress, QuestEventKeys.Completed,
-                         QuestEventKeys.TurnedIn, QuestEventKeys.Failed,
+                         QuestEventKeys.TurnedIn, QuestEventKeys.Failed, QuestEventKeys.Abandoned,
                      })
             {
                 Bus.Subscribe(key, evt => Published.Add(evt));
@@ -924,6 +924,98 @@ namespace Tests.Gameplay.Quest
 
             Assert.False(h.Host.Fail(Player, questId, "any"));
             Assert.Equal(QuestState.Active, h.Host.GetState(Player, questId));
+        }
+
+        // ---------------------------------------------------------------
+        // Abandon（ADR-0092：玩家主动放弃任务）
+        // ---------------------------------------------------------------
+
+        /// <summary>复现用例（ADR-0092）：接取 → 推进进度 → Abandon → 状态回到"未接取"（与从未接取
+        /// 过一致，落回按 prerequisite 求值的 Available）、GetLog 不再包含该任务、收到
+        /// quest.abandoned；再次 Accept 后目标计数从 0 起算——修复前 IQuestHost 没有 Abandon
+        /// 成员，本用例在修复前编译不通过（IQuestHost/QuestHost 均无该方法），修复后应全绿。</summary>
+        [Fact]
+        public void Abandon_WhenActive_ReturnsToNeverAccepted_ClearsLogAndProgress_FiresEvent()
+        {
+            var questId = new Id("quest.sample_abandon_kill_wolves");
+            var quest = SimpleKillQuest(questId, new Id("creature.wolf"), 3);
+            var h = new Harness(new[] { quest });
+            h.Host.Accept(Player, questId);
+            h.Host.UpdateProgress(Player, questId, 0, 2);
+
+            var abandoned = h.Host.Abandon(Player, questId);
+
+            Assert.True(abandoned);
+            Assert.Equal(QuestState.Available, h.Host.GetState(Player, questId));
+            Assert.DoesNotContain(h.Host.GetLog(Player), p => p.QuestId.Equals(questId));
+            var evt = Assert.Single(h.PublishedOf<QuestAbandonedEvent>());
+            Assert.Equal(questId, evt.QuestId);
+            Assert.Equal(Player, evt.UnitId);
+
+            Assert.True(h.Host.Accept(Player, questId));
+            Assert.Equal(0, h.Host.GetLog(Player).Single(p => p.QuestId.Equals(questId)).ObjectiveCounts[0]);
+        }
+
+        /// <summary>不变量用例（ADR-0092，分支合一，宿主层部分）：①未接取的任务放弃返回失败、不发
+        /// 事件；②已交付的任务放弃同样返回失败、不发事件；③新增 Abandon 不影响既有 Fail 路径行为
+        /// （仍转移到 Failed、仍发 quest.failed）；④存档往返（Accept → Abandon → Save → 新宿主 Load）
+        /// 后该任务仍不在日志里、可重新接取，与"从未接取过"的存档表现一致。<c>UiIntents.AbandonQuest</c>
+        /// 转发到宿主并返回其结果这一支不在本程序集引用范围内（<c>presentation/ui</c> 是独立项目），
+        /// 并入 <c>presentation/ui/tests/UiIntentsTests.cs</c> 既有的
+        /// <c>AcceptQuest_and_TurnInQuest_delegate_to_quest_host</c> 一并断言，不新开第三条测试。</summary>
+        [Fact]
+        public void Abandon_UnacceptedOrTurnedIn_Fails_FailPathUnaffected_PersistsAsNeverAccepted()
+        {
+            var neverAcceptedId = new Id("quest.sample_abandon_never_accepted");
+            var neverAcceptedQuest = SimpleKillQuest(neverAcceptedId, new Id("creature.wolf"), 1);
+            var turnedInId = new Id("quest.sample_abandon_turned_in");
+            var turnedInQuest = SimpleKillQuest(turnedInId, new Id("creature.wolf"), 1);
+            var failId = new Id("quest.sample_abandon_fail_unaffected");
+            var failQuest = new QuestDefinition(
+                failId,
+                new[] { new QuestObjective(QuestObjectiveType.Escort, new Id("creature.villager"), 1) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
+            var persistId = new Id("quest.sample_abandon_persist");
+            var persistQuest = SimpleKillQuest(persistId, new Id("creature.wolf"), 3);
+
+            var h = new Harness(new[] { neverAcceptedQuest, turnedInQuest, failQuest, persistQuest });
+
+            // ① 未接取：放弃失败，不发事件。
+            Assert.False(h.Host.Abandon(Player, neverAcceptedId));
+            Assert.Empty(h.PublishedOf<QuestAbandonedEvent>());
+
+            // ② 已交付：放弃失败，不发事件。
+            h.Host.Accept(Player, turnedInId);
+            h.Host.UpdateProgress(Player, turnedInId, 0, 1);
+            h.Host.TurnIn(Player, turnedInId);
+            Assert.Equal(QuestState.TurnedIn, h.Host.GetState(Player, turnedInId));
+            Assert.False(h.Host.Abandon(Player, turnedInId));
+            Assert.Empty(h.PublishedOf<QuestAbandonedEvent>());
+
+            // ③ Fail 路径不受影响：仍转移到 Failed，仍发 quest.failed（与 Abandon 语义不同——Fail
+            // 保留失败记录、GetLog 仍能查到该任务，Abandon 则整体移除记录）。
+            h.Host.Accept(Player, failId);
+            Assert.True(h.Host.Fail(Player, failId, "escort_target_died"));
+            Assert.Equal(QuestState.Failed, h.Host.GetState(Player, failId));
+            var failedEvt = Assert.Single(h.PublishedOf<QuestFailedEvent>());
+            Assert.Equal(failId, failedEvt.QuestId);
+            Assert.Contains(h.Host.GetLog(Player), p => p.QuestId.Equals(failId) && p.State == QuestState.Failed);
+
+            // ④ 存档往返：Accept → Abandon → Save → 新宿主 Load 后仍是"未接取"，不在日志里、可再次接取。
+            h.Host.Accept(Player, persistId);
+            h.Host.UpdateProgress(Player, persistId, 0, 1);
+            Assert.True(h.Host.Abandon(Player, persistId));
+            var persistable1 = new QuestPersistable(h.Host, () => Player);
+            var saved = persistable1.Save();
+
+            var h2 = new Harness(new[] { neverAcceptedQuest, turnedInQuest, failQuest, persistQuest });
+            var persistable2 = new QuestPersistable(h2.Host, () => Player);
+            persistable2.Load(saved);
+
+            Assert.DoesNotContain(h2.Host.GetLog(Player), p => p.QuestId.Equals(persistId));
+            Assert.Equal(QuestState.Available, h2.Host.GetState(Player, persistId));
+            Assert.True(h2.Host.Accept(Player, persistId));
+            Assert.Equal(0, h2.Host.GetLog(Player).Single(p => p.QuestId.Equals(persistId)).ObjectiveCounts[0]);
         }
 
         // ---------------------------------------------------------------

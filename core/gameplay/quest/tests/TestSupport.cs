@@ -229,6 +229,7 @@ namespace Tests.Gameplay.Quest
                 new EventDefinition(Core.Gameplay.Quest.QuestEventKeys.Completed, "quest", new[] { "unitId", "questId" }),
                 new EventDefinition(Core.Gameplay.Quest.QuestEventKeys.TurnedIn, "quest", new[] { "unitId", "questId" }),
                 new EventDefinition(Core.Gameplay.Quest.QuestEventKeys.Failed, "quest", new[] { "unitId", "questId", "reason" }),
+                new EventDefinition(Core.Gameplay.Quest.QuestEventKeys.Abandoned, "quest", new[] { "unitId", "questId" }),
                 new EventDefinition(Core.Gameplay.Dialog.DialogEventKeys.GossipOpened, "dialog", new[] { "unitId", "npcId", "menuId" }),
                 new EventDefinition(Core.Gameplay.Dialog.DialogEventKeys.GossipActionExecuted, "dialog", new[] { "unitId", "menuId", "actionId" }),
                 new EventDefinition(Core.Gameplay.Dialog.DialogEventKeys.StoryNodeEntered, "dialog", new[] { "unitId", "treeId", "nodeId" }),

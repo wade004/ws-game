@@ -62,6 +62,7 @@
     { "key": "progression.level_up", "domain": "progression", "fields": ["unitId", "oldLevel", "newLevel"], "description": "等级提升判定完成时触发（见 01 L1 模块表 progression 行）；字段为建议值" },
     { "key": "progression.state_restored", "domain": "progression", "fields": ["unitId", "level"], "description": "R08 收边补齐（外部审计 5e779c6）：读档恢复 player.progression 段（ProgressionHost.RestoreState）时触发，不经过正常升级路径、不发 progression.level_up；供依赖等级的下游缓存（StatHost.RecomputeRatingStats）失效重算，见 core/numbers/progression/contracts/Events.cs ProgressionRestoredEvent 判断记录" },
     { "key": "progression.xp_gained", "domain": "progression", "fields": ["unitId", "amount", "sourceId"], "description": "经验获取时触发（见 01 L1 模块表 progression 行）；字段为建议值" },
+    { "key": "quest.abandoned", "domain": "quest", "fields": ["unitId", "questId"], "description": "玩家主动放弃任务时触发（ADR-0092）：任务从已接取/已达标回到未接取，进度与目标计数清零，不产生失败记录，与 quest.failed 语义不同；字段为建议值，新增行" },
     { "key": "quest.accepted", "domain": "quest", "fields": ["unitId", "questId"], "description": "任务被接取、任务日志状态机进入进行中状态时触发（见 01 L4 模块表 quest 行、08 第 9 节）；字段为建议值" },
     { "key": "quest.completed", "domain": "quest", "fields": ["unitId", "questId"], "description": "任务完成判定时触发（见 01 L4 模块表 quest 行、08 第 9 节）；08 第 9 节契约汇总另记 quest.turned_in（交任务）、quest.failed（失败）两个细分事件，与本行的完整覆盖关系待设计层核对，本行按 01 原文登记，字段为建议值" },
     { "key": "quest.failed", "domain": "quest", "fields": ["unitId", "questId", "reason"], "description": "任务失败判定时触发（见 08 第 9 节契约汇总表）；字段为建议值，新增行" },
