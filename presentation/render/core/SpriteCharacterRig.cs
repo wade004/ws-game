@@ -218,7 +218,19 @@ namespace Presentation.Render
         {
             _lastLayerResourceIds = resourceIds;
             _renderer.SetLayers(_handle, resourceIds);
+            LayersApplied?.Invoke(resourceIds);
         }
+
+        /// <summary>
+        /// ADR-0099 决策 2 收口（消费方反馈第四十四批，已知限制 1 根治）：本类型对渲染器的写入只有
+        /// <see cref="ApplyLayers"/> 这一处（<see cref="ComposeAndApplyLayers"/> 与
+        /// <see cref="HandleResourceLoadCompleted"/> 的迟到回填都委托本方法），本事件在写入之后立即
+        /// 触发一次，因此两条路径天然共用同一个通知出口，不需要分别接线。<see cref="SpriteViewBase"/>
+        /// 在构造期订阅本事件转发到自己的 <see cref="SpriteViewBase.OnLayersComposed"/>（见该方法判断
+        /// 记录），使"首次引用的纸娃娃层资源异步加载完成"这条此前遗漏的路径与"方向槽位变化"/"装备
+        /// 变化"两条既有路径待遇一致——逐层动画当前帧不必再等下一次 <c>OnFrameChanged</c> 才纠正回来。
+        /// </summary>
+        public event Action<IReadOnlyList<Id>>? LayersApplied;
 
         /// <summary>见类型注释"资源加载完成后回填已渲染层"判断记录：作为
         /// <see cref="Presentation.Common.ResourceReferenceTracker.EnsureLoading(Id,ResourceKind,LoadCallback?)"/>

@@ -396,15 +396,17 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     真正变化时触发一次。完整推导见
     [ADR-0093](../../architecture/adr/0093-动画剪辑随朝向档位切换.md)。
 
-26. **ADR-0099（消费方反馈第四十四批，阻塞）：纸娃娃层合成写入渲染器之后新增一个通知出口**——
-    `ComposeAndApplyEquipAwareLayers`（`RebuildEquippedLayers`/`SetPaperdollLayers` 共用的实现）
-    写入渲染器之后紧接着调用新增的受保护可覆写方法 `OnLayersComposed(IReadOnlyList<Id>
-    layerResourceIds)`（默认空实现，ABI 加法）。引擎适配层的具体视图实现把它转发为对外事件，供
-    负责逐层动画写回的一方订阅：命中逐层动画的层立即按播放器当前帧号重新写回一次，不必等下一次
-    自然推进——修复"重合成把当前播放帧临时覆盖成静态图，要等下一帧才纠正回来"的可见闪回。已知
-    限制：资源延迟到位后的冷加载完成回填路径不经过 `ComposeAndApplyEquipAwareLayers`，因此不触发
-    本出口，迟到的资源加载完成仍可能短暂覆盖一次动画帧，是否收口留给设计层按后续反馈决定。完整
-    推导见 [ADR-0099](../../architecture/adr/0099-纸娃娃层只在方向槽位变化时重合成.md)。
+26. **ADR-0099（消费方反馈第四十四批，阻塞）：纸娃娃层写入渲染器之后新增一个通知出口，三条路径
+    共用**——`SpriteCharacterRig.ApplyLayers` 是本模块把纸娃娃层写入渲染器的唯一落点
+    （`ComposeAndApplyLayers`/`ComposeAndApplyEquipAwareLayers`——即 `RebuildEquippedLayers`/
+    `SetPaperdollLayers` 共用的实现——与 `HandleResourceLoadCompleted` 的迟到回填最终都委托本方法），
+    新增 `LayersApplied` 事件在写入渲染器之后触发一次；`SpriteViewBase` 构造期订阅该事件转发到
+    新增的受保护可覆写方法 `OnLayersComposed(IReadOnlyList<Id> layerResourceIds)`（默认空实现，
+    ABI 加法）。引擎适配层的具体视图实现把它转发为对外事件，供负责逐层动画写回的一方订阅：命中
+    逐层动画的层立即按播放器当前帧号重新写回一次，不必等下一次自然推进——修复"重合成把当前播放
+    帧临时覆盖成静态图，要等下一帧才纠正回来"的可见闪回，覆盖方向变化、装备变化、首次引用的
+    资源异步加载完成三条路径（定稿时遗漏第三条，已在同分支的后续提交收口，不再是已知限制）。
+    完整推导见 [ADR-0099](../../architecture/adr/0099-纸娃娃层只在方向槽位变化时重合成.md)。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）

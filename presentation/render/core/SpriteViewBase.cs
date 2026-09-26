@@ -146,6 +146,15 @@ namespace Presentation.Render
             Renderer.SetShadow(Handle, ShadowSpec.ToEngineShadowMode(DisplayInfo.Shadow));
 
             _rig = new SpriteCharacterRig(default, Renderer, Handle, Conventions, DisplayInfo, _resourceTracker, frameAnimPlayer, Options);
+
+            // ADR-0099 决策 2 收口（已知限制 1 根治，见 OnLayersComposed 判断记录）：订阅 SpriteCharacterRig
+            // 唯一的渲染器写入出口，使"方向槽位变化/装备变化"（本类型自己调用 _rig.ApplyLayers）与
+            // "首次引用的纸娃娃层资源异步加载完成后的迟到回填"（_rig.HandleResourceLoadCompleted 内部
+            // 调用 _rig.ApplyLayers，本类型不直接参与）两条路径共用同一个通知出口，不需要分别接线；
+            // OnLayersComposed 是 protected virtual，此处以方法组订阅，调用时按运行期实际类型走虚派发
+            // （构造期订阅、调用发生在构造完成之后，具体子类的重写在那时已经就绪，同 09"虚方法在构造期
+            // 订阅、真正触发在构造完成后"惯例）。
+            _rig.LayersApplied += OnLayersComposed;
         }
 
         public virtual void Bind(Id entityId)
@@ -338,16 +347,23 @@ namespace Presentation.Render
                 resourceIds.Add(resourceId);
             }
 
+            // 判断记录：不在这里直接调用 OnLayersComposed——_rig.ApplyLayers 内部的 LayersApplied 事件
+            // （构造期已订阅到 OnLayersComposed，见构造函数判断记录）会在写入渲染器之后自动触发一次，
+            // 这里再调一次会导致同一次合成触发两次通知。
             _rig.ApplyLayers(resourceIds);
-            OnLayersComposed(resourceIds);
         }
 
         /// <summary>
-        /// ADR-0099 决策 2（消费方反馈第四十四批）：<see cref="ComposeAndApplyEquipAwareLayers"/> 每次
-        /// 把新合成的纸娃娃层资源列表交给 <see cref="_rig"/>.<see cref="SpriteCharacterRig.ApplyLayers"/>
-        /// 写入渲染器之后触发一次——覆盖 <see cref="RebuildEquippedLayers"/>（装备变化）与
-        /// <see cref="SetPaperdollLayers"/>（方向变化，<c>UnitySpriteView.SyncPose</c> 在方向槽位真的
-        /// 变化时调用，见 ADR-0099 决策 1）两条既有调用路径，是"任何一次合法重合成"唯一的落点。
+        /// ADR-0099 决策 2（消费方反馈第四十四批）：<see cref="_rig"/>.<see cref="SpriteCharacterRig.ApplyLayers"/>
+        /// 是本类型对渲染器写入纸娃娃层的唯一出口，写入之后经 <see cref="SpriteCharacterRig.LayersApplied"/>
+        /// 事件（构造函数已订阅到本方法，见该处判断记录）触发一次——覆盖 <see cref="RebuildEquippedLayers"/>
+        /// （装备变化）、<see cref="SetPaperdollLayers"/>（方向变化，<c>UnitySpriteView.SyncPose</c> 在
+        /// 方向槽位真的变化时调用，见 ADR-0099 决策 1）与 <see cref="SpriteCharacterRig.HandleResourceLoadCompleted"/>
+        /// （首次引用的纸娃娃层资源异步加载完成后的迟到回填）三条路径，是"任何一次写入渲染器的重合成"
+        /// 唯一的落点——冷加载回填此前遗漏本钩子（ADR-0099 定稿时的已知限制 1），因为它由
+        /// <see cref="SpriteCharacterRig"/> 内部直接调用 <see cref="SpriteCharacterRig.ApplyLayers"/>，
+        /// 不经过本类型代码；现改为在 <see cref="SpriteCharacterRig.ApplyLayers"/> 内部统一触发通知，
+        /// 不要求调用方各自记得转发，两条既有路径与这一条冷加载路径此后天然待遇一致，不需要再分别接线。
         /// <para>
         /// 判断记录（为什么需要这个钩子）：<see cref="SpriteCharacterRig.ApplyLayers"/> 对每一层无条件
         /// 覆盖 <c>SpriteRenderer.sprite</c> 为本次解析出的静态资源，会把 ADR-0072 挂接的纸娃娃层逐层
@@ -363,16 +379,6 @@ namespace Presentation.Render
         /// <c>LayersComposed</c> 事件），供订阅方按"当前正在播放的逐层动画剪辑 + 播放器当前帧号"立即
         /// 把命中逐层动画的层重新 <c>SetLayerSprite</c> 回当前帧——不推进时间轴、不重置播放进度，只是
         /// 把这一次被覆盖的静态图立即纠正回来，不必等下一次 <c>OnFrameChanged</c>。
-        /// </para>
-        /// <para>
-        /// 已知限制（不在本次改动范围内，向消费方汇报）：<see cref="SpriteCharacterRig.HandleResourceLoadCompleted"/>
-        /// （首次引用的纸娃娃层资源异步加载完成后的迟到回填）内部同样调用一次
-        /// <see cref="SpriteCharacterRig.ApplyLayers"/>，但该方法在 <see cref="SpriteCharacterRig"/>
-        /// 内部，不经过本类型的 <see cref="ComposeAndApplyEquipAwareLayers"/>，因此不会触发本钩子——
-        /// 冷加载完成的这一次回填仍可能短暂覆盖正在播放的逐层动画帧，需等下一次 <c>OnFrameChanged</c>
-        /// 才纠正。本次任务书聚焦"方向末位抖动导致的高频重合成"，未要求覆盖这条低频（每层资源至多
-        /// 触发一次）的冷加载回填路径，按 AGENTS.md 第 0 节要求在此列出，是否需要一并处理待设计层
-        /// 确认。
         /// </para>
         /// </summary>
         protected virtual void OnLayersComposed(IReadOnlyList<Id> layerResourceIds)

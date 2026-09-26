@@ -205,6 +205,68 @@ namespace Adapter.Unity.Tests.Runtime
             return (bus, factory, view, entityId, player!, moveClipId);
         }
 
+        /// <summary>④用例专属：与 <see cref="BuildFixture"/> 逐字节一致的结构，只是用独立的一套
+        /// sprite_set_id/display.map/anim_set/resource_ref 常量（<c>_cold</c> 后缀），确保本用例
+        /// 需要保持"冷"（尚未加载完成）的静态图像资源 Id（<c>layer.&lt;...&gt;_cold__front__body</c>）
+        /// 不会与本文件其它用例已经预热过的任何资源 Id 撞在一起——<see cref="_resourceLoader"/> 是
+        /// 本文件 <c>[SetUp]</c> 里整个测试方法共用的同一个实例，其它用例已经对
+        /// <c>layer.creature_test_hero_0099__front__body</c>（<see cref="BuildFixture"/>/
+        /// <see cref="BuildFixtureWithEquipCatalog"/> 共用的 sprite_set_id）发起过加载请求，如果本
+        /// 用例复用同一个 Id，"是否已经在加载中/已经完成"就不再单纯由本用例控制。只声明 "body" 一层
+        /// （不需要 cape，本用例不验证"无逐层动画的层不被误伤"这一条，已经由①②覆盖）。</summary>
+        private (IEventBus Bus, UnityViewFactory Factory, UnitySpriteView View, Id EntityId, UnityFrameAnimPlayer Player, Id MoveClipId, Id StaticBodyResourceId) BuildFixtureCold()
+        {
+            const string coldSpriteSetIdValue = "sprite.creature.test_hero_0099_cold";
+            const string coldDisplayMapIdValue = "display.map.test_hero_0099_cold";
+            const string coldAnimSetIdValue = "display.anim_set.test_hero_0099_cold";
+            const string coldMoveResourceRefValue = "sprite_anim.test_hero_0099_cold_move";
+
+            var definitions = new List<EventDefinition>();
+            foreach (var key in Core.Foundation.EventBus.EventKeys.All)
+            {
+                definitions.Add(new EventDefinition(key, key.Domain, Array.Empty<string>()));
+            }
+            var catalog = EventCatalog.FromDefinitions(definitions);
+            var bus = new EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
+
+            var sprite = new SpriteInfo(
+                spriteSetId: coldSpriteSetIdValue, directionCount: 8,
+                paperdollLayers: new[] { "body" });
+            var info = new DisplayInfo(
+                id: new Id(coldDisplayMapIdValue),
+                category: DisplayCategory.Creature,
+                logicalId: new Id("creature.test_hero_0099_cold"),
+                kind: DisplayKind.Sprite,
+                iconId: null, vfxId: null, sfxId: null, scale: 1.0,
+                shadow: Core.Foundation.DisplayInfo.ShadowMode.None, sortOffset: 0.0, weaponStyleRef: null,
+                sprite: sprite, model: null);
+
+            var displayInfoRegistry = new FakeDisplayInfoRegistryForAnim();
+            displayInfoRegistry.Add(info);
+
+            var animSetJson = "{\"id\":\"" + coldAnimSetIdValue + "\",\"clips\":{\"move\":{\"resource_ref\":\"" + coldMoveResourceRefValue + "\"}}}";
+            var animSetRaw = (JsonObject)JsonReader.Parse(animSetJson);
+            var animSetSchema = new TableSchema("display.anim_set", "id", 1, Array.Empty<FieldSchema>());
+            var animSetRecord = new DataRecord(animSetSchema, coldAnimSetIdValue, new Id(coldAnimSetIdValue), animSetRaw);
+            var dataRegistry = new FakeAnimSetRegistryForRecompose();
+            dataRegistry.Add(animSetRecord);
+
+            var entityId = new Id("unit.adr0099_test_entity_cold_" + Guid.NewGuid().ToString("N"));
+            var factory = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfoRegistry, _resourceLoader, bus: bus, dataRegistry: dataRegistry);
+
+            var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            view.Bind(entityId);
+            var root = _renderer.GetSpriteRoot(view.EngineHandle);
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
+            Assert.IsNotNull(player, "生物分类应当已挂接默认动画");
+
+            var moveClipId = new Id($"anim.default.{coldDisplayMapIdValue}.move");
+            var staticBodyResourceId = new Id(
+                "layer." + AssetRefConventions.StripCategoryPrefix(coldSpriteSetIdValue) + "__front__body");
+
+            return (bus, factory, view, entityId, player!, moveClipId, staticBodyResourceId);
+        }
+
         private static Transform FindLayer(Transform layersRoot, int index)
         {
             var child = layersRoot.Find($"Layer_{index}");
@@ -303,6 +365,12 @@ namespace Adapter.Unity.Tests.Runtime
         ///    等下一次 <c>OnFrameChanged</c>。
         /// ③ 没有任何逐层动画的 cape 层：以上两次重合成都不应该误伤它——层仍然存在、贴图非空，不抛
         ///    异常（回填只处理命中逐层动画的层，不该动的层保持不动）。
+        /// ④（ADR-0099 已知限制 1 根治，不再是已知限制）：首次引用的纸娃娃层静态图像资源在挂接当下
+        ///    尚未加载完成（占位方块），逐层走路动画已经在播（<c>SpriteCharacterRig.HandleResourceLoadCompleted</c>
+        ///    的既有冷加载回填此前不经过 <see cref="Presentation.Render.SpriteViewBase.OnLayersComposed"/>，
+        ///    加载完成那一刻会把 body 层短暂覆盖回刚加载好的静态图，要等下一次 <c>OnFrameChanged</c>
+        ///    才纠正）——加载完成回调触发后，body 层应当立即已经是当前走路动画帧，不是刚加载完成的
+        ///    静态图。
         /// </summary>
         [UnityTest]
         public IEnumerator SyncPose_RealSlotChangeOrEquipChange_RecomposesAndImmediatelyBackfillsCurrentFrame()
@@ -396,8 +464,68 @@ namespace Adapter.Unity.Tests.Runtime
                 "走路动画帧，不是装备覆盖刚写入的静态贴图");
             Assert.IsNotNull(capeRenderer2.sprite, "②不变量③：cape 层不应该被装备变化这次回填误伤");
 
+            // ④ 首次引用的纸娃娃层静态图像资源冷加载完成后同样应当立即回填（ADR-0099 已知限制 1 根治，
+            // 见 SpriteCharacterRig.LayersApplied/SpriteViewBase.OnLayersComposed 判断记录）。静态图像
+            // 资源（ResourceKind.Image）与逐层走路动画剪辑资源（ResourceKind.Effect，WriteEffectResource/
+            // WarmEffectCache 走的是这一条）是两条独立的加载管线：这里只把走路剪辑预热，静态图像资源
+            // 真实写盘但不预热（不调用 Tick 就不会有 HandleResourceLoadCompleted 回调），制造"首次合成
+            // 时静态资源仍在加载中"的冷态。
+            var (bus3, _, view3, entityId3, player3, moveClipId3, coldStaticBodyResourceId) = BuildFixtureCold();
+            var coldFrontBodyRef = new Id("sprite_anim.test_hero_0099_cold_move__front__body");
+            WriteEffectResource(coldFrontBodyRef, Color.cyan, Color.white);
+            yield return WarmEffectCache(coldFrontBodyRef);
+
+            var coldStaticImagePath = UnityResourceLoader.ResolvePath(coldStaticBodyResourceId, Core.Foundation.EngineAdapter.ResourceKind.Image);
+            Directory.CreateDirectory(Path.GetDirectoryName(coldStaticImagePath)!);
+            var coldTex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            var coldPixels = new Color[16];
+            for (var i = 0; i < 16; i++)
+            {
+                coldPixels[i] = Color.magenta;
+            }
+            coldTex.SetPixels(coldPixels);
+            coldTex.Apply();
+            File.WriteAllBytes(coldStaticImagePath, UnityEngine.ImageConversion.EncodeToPNG(coldTex));
+            UnityEngine.Object.DestroyImmediate(coldTex);
+
+            // 判断记录（同上三处）："Layer_N" 子物体要等首次 SyncPose 触发合成才建出来；此时静态图像
+            // 资源已经发起加载但尚未调用过 Tick，渲染器只能看到占位方块。
+            view3.SyncPose(Vec2.Zero, Direction.FromQuantized(frontFacing, 8), 0.0);
+            var layersRoot3 = _renderer.GetLayersRoot(view3.EngineHandle);
+            var bodyRenderer3 = FindLayer(layersRoot3!, 0).GetComponent<SpriteRenderer>();
+
+            bus3.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(entityId3, "Idle", "Walk"));
+            Assert.AreEqual(moveClipId3, player3.CurrentClipId!.Value, "④：Walk 应当播放 move 剪辑");
+            yield return null; // 让 body 层至少真的写过一次逐层走路动画帧（与静态图像资源是否加载完成无关）。
+
+            var animatedFrontSprite3 = bodyRenderer3.sprite;
+            Assert.IsNotNull(animatedFrontSprite3, "④测试前置：逐层走路动画应当已经在播");
+
+            // 驱动静态图像资源冷加载完成：循环調用 Tick 直到 UnityResourceLoader 缓存里出现真实解析出的
+            // Sprite（TryGetSprite 命中）为止，命中那一刻立即断言、不再额外 yield——避免被下一次自然的
+            // OnFrameChanged 纠正掩盖"根治前会短暂跳回静态图"这一现象（同 ①/② 用例"不等下一次
+            // OnFrameChanged"同一顾虑）。
+            var coldLoaded = false;
+            var coldLoadDeadline = Time.realtimeSinceStartup + 5f;
+            while (!coldLoaded && Time.realtimeSinceStartup < coldLoadDeadline)
+            {
+                _resourceLoader.Tick();
+                coldLoaded = _resourceLoader.TryGetSprite(coldStaticBodyResourceId, out _);
+                if (!coldLoaded)
+                {
+                    yield return null;
+                }
+            }
+            Assert.IsTrue(coldLoaded, "④测试前置：静态图像资源冷加载应当最终成功（先写盘再触发 Tick）");
+
+            Assert.AreEqual(animatedFrontSprite3, bodyRenderer3.sprite,
+                "④核心断言（ADR-0099 已知限制 1 根治）：首次引用的纸娃娃层静态图像资源冷加载完成后，" +
+                "body 层应当立即回填为当前走路动画帧，不是刚加载完成的静态图（根治前会短暂跳回静态图，" +
+                "要等下一次 OnFrameChanged 才纠正）");
+
             view.Destroy();
             view2.Destroy();
+            view3.Destroy();
         }
 
         /// <summary>②用例专属：构造一个注入了 <paramref name="equipCatalog"/> 的 View（

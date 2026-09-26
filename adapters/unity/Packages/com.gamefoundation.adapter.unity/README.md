@@ -954,13 +954,19 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   60Hz 下最多 5 帧空档）。改动两处：① `UnitySpriteView.SyncPose` 判据改为比较
   `IRenderConventionHost.ResolveDirectionSlot` 解析出的 (方向槽位 Id, 镜像标志)，新增
   `PaperdollRecomposeCountForTests`（内部计数，供测试断言重合成次数）；② `SpriteViewBase` 新增
-  受保护可覆写方法 `OnLayersComposed(IReadOnlyList<Id> layerResourceIds)`（默认空实现，
-  `ComposeAndApplyEquipAwareLayers` 写入渲染器之后紧接着调用），`UnitySpriteView` 覆写为
-  `LayersComposed` 事件，`UnityViewFactory.TryAttachPerLayerAnimation` 订阅该事件：命中逐层
-  动画的层立即按播放器当前帧号（`player.CurrentFrame`）重新 `SetLayerSprite` 一次，不推进时间轴、
-  不重置进度。已知限制：`SpriteCharacterRig.HandleResourceLoadCompleted`（冷加载完成后的重新
-  应用路径）不经过 `ComposeAndApplyEquipAwareLayers`，因此不触发本出口，迟到的资源加载完成仍
-  可能短暂覆盖一次动画帧，待设计层按后续反馈决定是否收口。
+  受保护可覆写方法 `OnLayersComposed(IReadOnlyList<Id> layerResourceIds)`（默认空实现），
+  `UnitySpriteView` 覆写为 `LayersComposed` 事件，`UnityViewFactory.TryAttachPerLayerAnimation`
+  订阅该事件：命中逐层动画的层立即按播放器当前帧号（`player.CurrentFrame`）重新 `SetLayerSprite`
+  一次，不推进时间轴、不重置进度。判断记录（定稿后追加，同分支新提交，不 amend）：`OnLayersComposed`
+  最初只挂在 `ComposeAndApplyEquipAwareLayers` 调用点，遗漏 `SpriteCharacterRig.HandleResourceLoadCompleted`
+  （首次引用的纸娃娃层资源异步加载完成后的迟到回填）——该方法在 `SpriteCharacterRig` 内部直接
+  调用 `ApplyLayers`，不经过 `ComposeAndApplyEquipAwareLayers`，冷加载完成那一刻会短暂覆盖正在
+  播放的动画帧，与本仓库"冷/热路径行为必须一致"的既定规则冲突（第三十五批因此返工过）。收口
+  方案：`SpriteCharacterRig.ApplyLayers` 是本类型写入渲染器的唯一落点（`ComposeAndApplyLayers`/
+  `ComposeAndApplyEquipAwareLayers`/`HandleResourceLoadCompleted` 最终都委托它），新增
+  `LayersApplied` 事件在写入渲染器之后触发；`SpriteViewBase` 构造期订阅
+  `_rig.LayersApplied += OnLayersComposed`，不再由 `ComposeAndApplyEquipAwareLayers` 直接调用
+  （避免同一次合成触发两次），三条路径从此天然共用同一个通知出口，不需要新调用点各自记得转发。
 
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
@@ -977,8 +983,8 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
 `SyncPose_SameDirectionSlotRawRadiansJitter_DoesNotRecomposeOrResetAnimatedLayer` 同一方向档位内
 朝向原始弧度连续抖动 60 次，重合成计数与命中逐层动画的层贴图均不受影响；
 `SyncPose_RealSlotChangeOrEquipChange_RecomposesAndImmediatelyBackfillsCurrentFrame` 方向槽位真变化
-/装备变化两类合法重合成，返回后（不等下一次动画播放器推进）逐层动画的层已经是当前帧，无逐层动画
-的层不被误伤）。
+/装备变化/首次引用的纸娃娃层静态图像资源冷加载完成三类合法重合成，返回（或加载完成回调触发）后
+（不等下一次动画播放器推进）逐层动画的层已经是当前帧，无逐层动画的层不被误伤）。
 
 ## model 型外形（W6-B 收口，ADR-0017）
 
