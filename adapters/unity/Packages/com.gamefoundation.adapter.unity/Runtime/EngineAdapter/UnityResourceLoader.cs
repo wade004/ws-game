@@ -250,7 +250,22 @@ namespace Adapter.Unity.EngineAdapter
             public string? EffectFramesJson;
         }
 
-        private static readonly string RootDir = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
+        private static readonly string DefaultRootDir = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
+
+        /// <summary>
+        /// [ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md) 新增，
+        /// 仅供本包测试程序集使用（<c>AssemblyInfo.cs</c> 已对 <c>Adapter.Unity.Tests.Runtime</c>/
+        /// <c>Adapter.Unity.Tests.Editor</c> 开放 <c>InternalsVisibleTo</c>）：单元测试用它临时把
+        /// <see cref="RootDir"/> 指向一个不在真实 StreamingAssets 布局下的临时目录，验证"按方向档位
+        /// 分层"（结构②，<c>toolchain/asset_import/sprite_cmd.py</c> 产出）anchors.json 的解析逻辑，
+        /// 不需要把测试夹具塞进真实 Unity 资产管线（新文件落在 <c>Assets/</c> 下会触发 meta 门禁，见
+        /// AGENTS.md 第 1 节"派单若会在 Unity 导入范围内新建文件"）。为 <c>null</c> 时使用真实计算值
+        /// （<see cref="DefaultRootDir"/>）。本字段是 <c>static</c>（跨全部加载器实例共享），测试必须
+        /// 在用完后（<c>[TearDown]</c>）还原为 <c>null</c>，避免同进程内其它用例串味。
+        /// </summary>
+        internal static string? RootDirOverrideForTests;
+
+        private static string RootDir => RootDirOverrideForTests ?? DefaultRootDir;
 
         /// <summary>仅 <see cref="ResourceKind.Font"/> 使用：主线程专用队列（见类型顶部"Font 资源
         /// 种类"判断记录），不与 <see cref="_completions"/> 共用——后者由后台线程写入，前者只在
@@ -323,20 +338,70 @@ namespace Adapter.Unity.EngineAdapter
         /// </para></summary>
         public float PixelsPerUnit { get; set; } = 100f;
 
-        /// <summary>ADR-0081 新增：按精灵集相对目录（如 <c>"sprites/placeholder_hero"</c>）缓存该集
-        /// anchors.json 声明的 <c>pixels_per_unit</c>（<c>null</c> 表示"该集未声明/无效/文件不存在/
-        /// 解析失败"这一结论本身，同样要缓存，避免对没有声明的集反复做 IO，见决策 6）。生命周期与本
-        /// 加载器既有资源缓存（<see cref="_sprites"/> 等字段）同一套口径——随本加载器实例存活，没有
-        /// 独立的清理入口（本类型当前也没有"整体清缓存/重载"入口，<see cref="Unload"/> 只按单个资源
-        /// id 清理，与本缓存的"按精灵集目录"粒度不是同一维度，不需要跟随 <see cref="Unload"/> 清理——
-        /// 同一精灵集的 anchors.json 内容不会因为某个资源被 Unload 而改变）。</summary>
-        private readonly Dictionary<string, float?> _spriteSetPixelsPerUnitCache = new Dictionary<string, float?>();
+        /// <summary>ADR-0081 新增，[ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)
+        /// 扩展：按精灵集相对目录（如 <c>"sprites/placeholder_hero"</c>）缓存该集 anchors.json 解析出
+        /// 的全部信息（<see cref="SpriteSetAnchorsInfo"/>：<c>pixels_per_unit</c> 声明 + 按方向档位分
+        /// 索引的脚底锚点，见该类型注释）——两条决策共用同一份解析结果，同一份磁盘 IO，不为枢轴信息
+        /// 新增第二次读盘（ADR-0091 决策 4）。<see cref="SpriteSetAnchorsInfo.Empty"/> 表示"该集未声明/
+        /// 无效/文件不存在/解析失败"这一结论本身，同样要缓存，避免对没有声明的集反复做 IO（ADR-0081
+        /// 决策 6）。生命周期与本加载器既有资源缓存（<see cref="_sprites"/> 等字段）同一套口径——随本
+        /// 加载器实例存活，没有独立的清理入口（本类型当前也没有"整体清缓存/重载"入口，<see cref="Unload"/>
+        /// 只按单个资源 id 清理，与本缓存的"按精灵集目录"粒度不是同一维度，不需要跟随 <see cref="Unload"/>
+        /// 清理——同一精灵集的 anchors.json 内容不会因为某个资源被 Unload 而改变）。</summary>
+        private readonly Dictionary<string, SpriteSetAnchorsInfo> _spriteSetAnchorsCache = new Dictionary<string, SpriteSetAnchorsInfo>();
 
         /// <summary>测试/诊断用（同 <see cref="PendingLoadCount"/> 惯例）：本加载器实际执行过
-        /// anchors.json 磁盘读取+ 解析的次数（缓存命中不计数，见 <see cref="ReadDeclaredPixelsPerUnit"/>）。
+        /// anchors.json 磁盘读取+ 解析的次数（缓存命中不计数，见 <see cref="ReadSpriteSetAnchors"/>）。
         /// 供 PlayMode 测试验证"同一精灵集连续解码多张图，anchors.json 只被读一次"（ADR-0081 验收
-        /// 标准 3），不属于 <see cref="IResourceLoader"/> 契约本身。</summary>
+        /// 标准 3，ADR-0091 决策 4 延续同一计数器语义），不属于 <see cref="IResourceLoader"/> 契约本身。</summary>
         public int SpriteSetAnchorsJsonReadCount { get; private set; }
+
+        /// <summary>
+        /// [ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md) 新增：
+        /// 单个精灵集 anchors.json 解析出的、供 <see cref="ResolveImagePixelsPerUnit"/>/
+        /// <see cref="ResolveImagePivot"/> 共用的全部信息（同一次磁盘 IO 产出，见决策 4）。
+        /// </summary>
+        private sealed class SpriteSetAnchorsInfo
+        {
+            /// <summary>anchors.json 不存在/顶层不是对象/解析失败——与改动前"该集未声明"的回退路径
+            /// 逐字节一致。</summary>
+            public static readonly SpriteSetAnchorsInfo Empty = new SpriteSetAnchorsInfo(null, null, null, false);
+
+            /// <summary>顶层 <c>pixels_per_unit</c>（ADR-0081 决策 1），<c>null</c> 表示缺失/非数字/
+            /// 不大于 0。</summary>
+            public float? PixelsPerUnit { get; }
+
+            /// <summary>ADR-0091 决策 1：按方向档位名索引的脚底锚点——像素坐标（原点左上，与 anchors.json
+            /// 原文一致）+ 该方向声明的画布像素尺寸（用于与实际解码纹理尺寸比对，不一致时以纹理为准并
+            /// 记 Warn，见决策 1）。两种 anchors.json 结构在解析期已统一抹平成同一形状（结构①取
+            /// <c>directions.&lt;dir&gt;.root</c> + 顶层单一 <c>canvas</c>；结构②取
+            /// <c>&lt;dir&gt;.anchors.root</c> + 该方向自己的 <c>canvas_size</c>）。<c>null</c>/空表示
+            /// 该集没有任何可用的 root 声明，调用方一律回退默认枢轴 (0.5,0.5)。</summary>
+            public IReadOnlyDictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)>? DirectionRoots { get; }
+
+            /// <summary>ADR-0091 决策 2：解码资源 id 未携带方向信息时使用的回退方向档位键——按"全部
+            /// 方向 root 相同则用它，否则取 authored_directions[0]/directions 第一个键（结构①）或顶层
+            /// 第一个键（结构②）"这条规则在解析期算好、缓存一次，调用方不重复判定。仅当
+            /// <see cref="DirectionRoots"/> 非空时才有意义。</summary>
+            public string? FallbackDirectionKey { get; }
+
+            /// <summary>ADR-0091 决策 2：<see cref="FallbackDirectionKey"/> 是否因"各方向 root 声明不
+            /// 一致、被迫选取兜底方向"而生效——决定调用方是否需要记一条 Warn（全部方向 root 相同时不
+            /// 必警告，任选其一结果都一样）。</summary>
+            public bool FallbackDirectionKeyIsAmbiguous { get; }
+
+            public SpriteSetAnchorsInfo(
+                float? pixelsPerUnit,
+                IReadOnlyDictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)>? directionRoots,
+                string? fallbackDirectionKey,
+                bool fallbackDirectionKeyIsAmbiguous)
+            {
+                PixelsPerUnit = pixelsPerUnit;
+                DirectionRoots = directionRoots;
+                FallbackDirectionKey = fallbackDirectionKey;
+                FallbackDirectionKeyIsAmbiguous = fallbackDirectionKeyIsAmbiguous;
+            }
+        }
 
         public void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback)
         {
@@ -731,6 +796,10 @@ namespace Adapter.Unity.EngineAdapter
                 PixelsPerUnit);
         }
 
+        /// <summary>枢轴回退默认值——不属于任何精灵集、anchors.json 缺失/解析失败/无 root/root 越界
+        /// 时统一使用，与改动前逐字节一致（<c>Sprite.Create</c> 此前固定写死的取值）。</summary>
+        private static readonly Vector2 DefaultPivot = new Vector2(0.5f, 0.5f);
+
         private bool TryDecodeImage(Id resourceId, byte[] bytes)
         {
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
@@ -743,7 +812,7 @@ namespace Adapter.Unity.EngineAdapter
             var sprite = Sprite.Create(
                 texture,
                 new UnityEngine.Rect(0, 0, texture.width, texture.height),
-                new Vector2(0.5f, 0.5f),
+                ResolveImagePivot(resourceId, texture.width, texture.height),
                 ResolveImagePixelsPerUnit(resourceId));
             sprite.name = resourceId.Value;
             _sprites[resourceId] = sprite;
@@ -756,23 +825,93 @@ namespace Adapter.Unity.EngineAdapter
         /// 像素-单位换算比——若该资源属于某个精灵集且该集 anchors.json 顶层声明了合法（大于 0）的
         /// <c>pixels_per_unit</c>，用它；否则（不属于任何精灵集、未声明、非正数、anchors.json 不
         /// 存在、解析失败）一律回退 <see cref="PixelsPerUnit"/>，回退路径与改动前逐字节一致，不影响
-        /// 既有资产。按精灵集相对目录缓存解析结果（决策 6，见 <see cref="_spriteSetPixelsPerUnitCache"/>
+        /// 既有资产。按精灵集相对目录缓存解析结果（决策 6，见 <see cref="_spriteSetAnchorsCache"/>
         /// 判断记录），同一精灵集下解码第二张及之后的图不再重复读盘。
         /// </summary>
         private float ResolveImagePixelsPerUnit(Id resourceId)
         {
-            if (!TryResolveSpriteSetRelativeDir(resourceId, out var spriteSetRelativeDir))
+            if (!TryResolveSpriteSetRelativeDir(resourceId, out var spriteSetRelativeDir, out _))
             {
                 return PixelsPerUnit;
             }
 
-            if (!_spriteSetPixelsPerUnitCache.TryGetValue(spriteSetRelativeDir, out var declared))
+            var info = GetOrReadSpriteSetAnchors(spriteSetRelativeDir);
+            return info.PixelsPerUnit ?? PixelsPerUnit;
+        }
+
+        /// <summary>
+        /// [ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)
+        /// 决策 1：解析 <paramref name="resourceId"/>（<see cref="ResourceKind.Image"/>）应使用的
+        /// 精灵枢轴（归一化 0..1，Unity <c>Sprite.Create</c> 的 <c>pivot</c> 实参语义，原点左下）——
+        /// 若该资源属于某个精灵集、该集 anchors.json 声明了对应方向的脚底锚点 <c>root</c>（像素坐标，
+        /// 原点左上），枢轴 = <c>(root.x / 实际纹理宽度, 1 - root.y / 实际纹理高度)</c>（宽高取
+        /// <paramref name="textureWidth"/>/<paramref name="textureHeight"/> 这两个已解码出的实际值，
+        /// 不取 anchors.json 声明的画布——两者一致时结果等价，不一致时以实际纹理为准并记一条 Warn，
+        /// 详见本方法内比对逻辑）；否则（不属于任何精灵集、anchors.json 不存在/解析失败/该方向无
+        /// <c>root</c>/root 越界）一律回退 <see cref="DefaultPivot"/>，回退路径与改动前逐字节一致，
+        /// 不影响既有资产。与 <see cref="ResolveImagePixelsPerUnit"/> 共用同一份
+        /// <see cref="_spriteSetAnchorsCache"/>（决策 4：不为枢轴信息新增第二次磁盘 IO）。
+        /// </summary>
+        private Vector2 ResolveImagePivot(Id resourceId, int textureWidth, int textureHeight)
+        {
+            if (textureWidth <= 0 || textureHeight <= 0)
             {
-                declared = ReadDeclaredPixelsPerUnit(spriteSetRelativeDir);
-                _spriteSetPixelsPerUnitCache[spriteSetRelativeDir] = declared;
+                // 理论不应发生（TryDecodeImage 已确认 Texture2D.LoadImage 成功才会走到这里），
+                // 纯防御性分支，避免下面的除法产生 NaN。
+                return DefaultPivot;
             }
 
-            return declared ?? PixelsPerUnit;
+            if (!TryResolveSpriteSetRelativeDir(resourceId, out var spriteSetRelativeDir, out var directionSlot))
+            {
+                return DefaultPivot;
+            }
+
+            var info = GetOrReadSpriteSetAnchors(spriteSetRelativeDir);
+            if (info.DirectionRoots == null || info.DirectionRoots.Count == 0)
+            {
+                return DefaultPivot;
+            }
+
+            var resolvedDirectionKey = directionSlot;
+            var usedFallbackDirection = false;
+            if (resolvedDirectionKey == null)
+            {
+                resolvedDirectionKey = info.FallbackDirectionKey;
+                usedFallbackDirection = true;
+            }
+
+            if (resolvedDirectionKey == null || !info.DirectionRoots.TryGetValue(resolvedDirectionKey, out var root))
+            {
+                return DefaultPivot;
+            }
+
+            if (usedFallbackDirection && info.FallbackDirectionKeyIsAmbiguous)
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 精灵集 \"{spriteSetRelativeDir}\" 各方向脚底锚点声明不一致，" +
+                    $"资源 \"{resourceId.Value}\" 未携带方向信息，回退使用 \"{resolvedDirectionKey}\" 方向的" +
+                    "锚点计算枢轴（ADR-0091 决策 2）。");
+            }
+
+            if (root.X < 0 || root.Y < 0 || root.X > textureWidth || root.Y > textureHeight)
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 精灵集 \"{spriteSetRelativeDir}\" 方向 \"{resolvedDirectionKey}\" " +
+                    $"声明的脚底锚点 ({root.X}, {root.Y}) 超出实际解码纹理尺寸 {textureWidth}x{textureHeight}，" +
+                    "回退默认枢轴 (0.5, 0.5)（ADR-0091 决策 3）。");
+                return DefaultPivot;
+            }
+
+            if (root.CanvasWidth.HasValue && root.CanvasHeight.HasValue &&
+                (root.CanvasWidth.Value != textureWidth || root.CanvasHeight.Value != textureHeight))
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 精灵集 \"{spriteSetRelativeDir}\" 方向 \"{resolvedDirectionKey}\" " +
+                    $"anchors.json 声明画布 {root.CanvasWidth}x{root.CanvasHeight} 与实际解码纹理尺寸 " +
+                    $"{textureWidth}x{textureHeight} 不一致，按实际纹理尺寸换算枢轴（ADR-0091 决策 1）。");
+            }
+
+            return new Vector2((float)(root.X / textureWidth), 1f - (float)(root.Y / textureHeight));
         }
 
         /// <summary>
@@ -780,21 +919,24 @@ namespace Adapter.Unity.EngineAdapter
         /// 在 ADR 里写明）：判断 <paramref name="resourceId"/>（<see cref="ResourceKind.Image"/>）是否
         /// 属于某个精灵集，是则给出该精灵集在资产根目录下的相对目录路径（正斜杠分隔，同
         /// <see cref="AssetRefConventions.SpriteSetDirectory"/> 路径空间，可直接拼进 <see cref="RootDir"/>
-        /// 做文件系统访问）。覆盖两类形态：
+        /// 做文件系统访问），以及该资源 id 自带的方向档位（[ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)
+        /// 新增 <paramref name="directionSlot"/> 出参，供 <see cref="ResolveImagePivot"/> 使用；
+        /// <see cref="ResolveImagePixelsPerUnit"/> 不需要方向，丢弃该出参）。覆盖两类形态：
         /// <list type="bullet">
         /// <item><c>"layer."</c> 类别（身体纸娃娃层与 ADR-0071 装备覆盖层，两者共用同一套
         /// <c>sprites/&lt;精灵集名&gt;/&lt;方向&gt;/&lt;层名&gt;.png</c> 三级目录，见本类型
         /// <see cref="ResolvePath"/> 方法"U2-1 判断记录"）：精灵集目录段即双下划线分隔三段资源 id
-        /// 的第一段——层文件本就落在该精灵集目录下，段数不是恰好 3 段时（不满足假定形状）视为不属于
-        /// 任何精灵集，同 <see cref="ResolvePath"/> 对该情形的既有容错退化一致。</item>
+        /// 的第一段，方向档位是第二段——层文件本就落在该精灵集目录下，段数不是恰好 3 段时（不满足
+        /// 假定形状）视为不属于任何精灵集，同 <see cref="ResolvePath"/> 对该情形的既有容错退化一致。</item>
         /// <item><c>"sprite."</c> 类别本身（<c>sprite_set_id</c> 直接当 Image 资源 id 使用的既有
         /// 简化，见 <see cref="ResolvePath"/> 类型顶部"ADR-0038 适配层接线"一节"非 layer/paperdoll
         /// 类别的通用回退分支此后只覆盖 sprite 类别本身"）：资源 id 本身就是 <c>sprite_set_id</c>，
         /// 经 <see cref="AssetRefConventions.SpriteSetDirectory"/> 直接算出目录——该资源本来就是
-        /// "这个精灵集"，用它自己的 anchors.json 合乎直觉。</item>
+        /// "这个精灵集"，用它自己的 anchors.json 合乎直觉；不携带方向信息（<paramref name="directionSlot"/>
+        /// 为 <c>null</c>），枢轴解析按 ADR-0091 决策 2 的回退方向处理。</item>
         /// </list>
         /// 其余类别均不落在任何精灵集目录下，返回 <c>false</c>，调用方据此直接回退全局
-        /// <see cref="PixelsPerUnit"/>，不做多余的 anchors.json 查找/IO：
+        /// <see cref="PixelsPerUnit"/>/<see cref="DefaultPivot"/>，不做多余的 anchors.json 查找/IO：
         /// <list type="bullet">
         /// <item><c>"paperdoll."</c>——扁平单文件（<see cref="AssetRefConventions.PaperdollLayerFile"/>），
         /// 不落在任何 <c>sprites/&lt;name&gt;/</c> 目录下，没有伴生的 anchors.json。</item>
@@ -802,7 +944,7 @@ namespace Adapter.Unity.EngineAdapter
         /// <see cref="AssetRefConventions.IconFile"/>），同样没有精灵集语义。</item>
         /// </list>
         /// </summary>
-        private static bool TryResolveSpriteSetRelativeDir(Id resourceId, out string spriteSetRelativeDir)
+        private static bool TryResolveSpriteSetRelativeDir(Id resourceId, out string spriteSetRelativeDir, out string? directionSlot)
         {
             var value = resourceId.Value;
             if (IsLayerCategory(value))
@@ -812,29 +954,48 @@ namespace Adapter.Unity.EngineAdapter
                 if (parts.Length == 3)
                 {
                     spriteSetRelativeDir = "sprites/" + parts[0];
+                    directionSlot = parts[1];
                     return true;
                 }
                 spriteSetRelativeDir = null!;
+                directionSlot = null;
                 return false;
             }
 
             if (CategoryPrefixOf(value) == "sprite")
             {
                 spriteSetRelativeDir = AssetRefConventions.SpriteSetDirectory(resourceId);
+                directionSlot = null;
                 return true;
             }
 
             spriteSetRelativeDir = null!;
+            directionSlot = null;
             return false;
         }
 
-        /// <summary>ADR-0081：实际做一次 anchors.json 磁盘 IO + 解析（只在
-        /// <see cref="ResolveImagePixelsPerUnit"/> 的缓存未命中时调用一次，见
-        /// <see cref="SpriteSetAnchorsJsonReadCount"/> 判断记录）。文件不存在、顶层不是 JSON 对象、
-        /// 不含 <c>pixels_per_unit</c> 字段、该字段不是数字、数值不大于 0、JSON 语法解析失败——均返回
-        /// <c>null</c>（视为"该集未声明"，调用方回退全局默认值），不抛异常，与本加载器其余资源解析
+        /// <summary>ADR-0081/[ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)：
+        /// 按精灵集相对目录取缓存，未命中才调用 <see cref="ReadSpriteSetAnchors"/> 做磁盘 IO（决策 4：
+        /// <see cref="ResolveImagePixelsPerUnit"/>/<see cref="ResolveImagePivot"/> 共用同一份缓存，不
+        /// 各自维护、不重复读盘）。</summary>
+        private SpriteSetAnchorsInfo GetOrReadSpriteSetAnchors(string spriteSetRelativeDir)
+        {
+            if (!_spriteSetAnchorsCache.TryGetValue(spriteSetRelativeDir, out var info))
+            {
+                info = ReadSpriteSetAnchors(spriteSetRelativeDir);
+                _spriteSetAnchorsCache[spriteSetRelativeDir] = info;
+            }
+            return info;
+        }
+
+        /// <summary>ADR-0081/ADR-0091：实际做一次 anchors.json 磁盘 IO + 解析（只在
+        /// <see cref="GetOrReadSpriteSetAnchors"/> 的缓存未命中时调用一次，见
+        /// <see cref="SpriteSetAnchorsJsonReadCount"/> 判断记录），一次性解析出
+        /// <c>pixels_per_unit</c>（ADR-0081）与按方向档位分层的脚底锚点（ADR-0091 决策 1/4）。文件
+        /// 不存在、顶层不是 JSON 对象、JSON 语法解析失败——返回 <see cref="SpriteSetAnchorsInfo.Empty"/>
+        /// （两条信息均视为"未声明"，调用方各自回退全局默认值），不抛异常，与本加载器其余资源解析
         /// 失败时"降级、不中断"的既有惯例一致（见类型顶部"判断记录（加载方式）"等既有段落）。</summary>
-        private float? ReadDeclaredPixelsPerUnit(string spriteSetRelativeDir)
+        private SpriteSetAnchorsInfo ReadSpriteSetAnchors(string spriteSetRelativeDir)
         {
             SpriteSetAnchorsJsonReadCount++;
 
@@ -844,27 +1005,183 @@ namespace Adapter.Unity.EngineAdapter
                     RootDir, spriteSetRelativeDir.Replace('/', Path.DirectorySeparatorChar), "anchors.json");
                 if (!File.Exists(anchorsPath))
                 {
-                    return null;
+                    return SpriteSetAnchorsInfo.Empty;
                 }
 
                 var json = File.ReadAllText(anchorsPath);
                 if (!(JsonReader.Parse(json) is JsonObject obj))
                 {
-                    return null;
+                    return SpriteSetAnchorsInfo.Empty;
                 }
 
-                if (!obj.TryGetValue("pixels_per_unit", out var val) || !(val is JsonNumber num))
+                float? pixelsPerUnit = null;
+                if (obj.TryGetValue("pixels_per_unit", out var ppuVal) && ppuVal is JsonNumber ppuNum)
+                {
+                    var declared = (float)ppuNum.Value;
+                    pixelsPerUnit = declared > 0f ? declared : (float?)null;
+                }
+
+                var directionRoots = ParseDirectionRoots(obj, out var fallbackKey, out var ambiguous);
+                return new SpriteSetAnchorsInfo(pixelsPerUnit, directionRoots, fallbackKey, ambiguous);
+            }
+            catch
+            {
+                return SpriteSetAnchorsInfo.Empty;
+            }
+        }
+
+        /// <summary>
+        /// [ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md) 决策 1：
+        /// 兼容仓库内并存的两种 anchors.json 顶层结构（ADR-0081 背景已记录、本次仍未收敛，见该 ADR
+        /// "已知不一致/待办"一节）：
+        /// <list type="bullet">
+        /// <item>结构①（<c>toolchain/gen_placeholder_assets.py</c> 产出，整集单一顶层）：顶层
+        /// <c>canvas: {width, height}</c>（全部方向共用同一画布）+ <c>directions: {"&lt;方向&gt;":
+        /// {"root": [x, y], ...}}</c>。</item>
+        /// <item>结构②（<c>toolchain/asset_import/sprite_cmd.py</c> 产出，按方向档位分层）：顶层键
+        /// 即方向档位名，值形如 <c>{"canvas_size": [w, h], "anchors": {"root": [x, y], ...}}</c>
+        /// （<c>pixels_per_unit</c> 是唯一的兄弟标量键，不是方向档位，见 ADR-0081 决策 A）。</item>
+        /// </list>
+        /// 两种结构互斥判定：顶层含 <c>directions</c> 且其值是 JSON 对象 → 结构①；否则遍历顶层除
+        /// <c>pixels_per_unit</c> 外的键，值形如 <c>{"anchors": {"root": [...]}, ...}</c> 的视为一个
+        /// 方向档位 → 结构②。都未命中（既无 <c>directions</c> 也无任何方向档位含 <c>root</c>）时返回
+        /// <c>null</c>，调用方回退默认枢轴。
+        /// </summary>
+        private static IReadOnlyDictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)>? ParseDirectionRoots(
+            JsonObject root, out string? fallbackDirectionKey, out bool fallbackDirectionKeyIsAmbiguous)
+        {
+            fallbackDirectionKey = null;
+            fallbackDirectionKeyIsAmbiguous = false;
+
+            if (root.TryGetValue("directions", out var directionsVal) && directionsVal is JsonObject directionsObj)
+            {
+                int? canvasWidth = null;
+                int? canvasHeight = null;
+                if (root.TryGetValue("canvas", out var canvasVal) && canvasVal is JsonObject canvasObj)
+                {
+                    canvasWidth = TryGetJsonInt(canvasObj, "width");
+                    canvasHeight = TryGetJsonInt(canvasObj, "height");
+                }
+
+                var map = new Dictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)>(StringComparer.Ordinal);
+                string? firstKeyInFileOrder = null;
+                foreach (var entry in directionsObj)
+                {
+                    if (entry.Value is JsonObject dirObj && TryGetRootAnchor(dirObj, out var x, out var y))
+                    {
+                        map[entry.Key] = (x, y, canvasWidth, canvasHeight);
+                        firstKeyInFileOrder ??= entry.Key;
+                    }
+                }
+                if (map.Count == 0)
                 {
                     return null;
                 }
 
-                var declared = (float)num.Value;
-                return declared > 0f ? declared : (float?)null;
+                // 决策 2：结构①优先用 authored_directions[0]（该数组本就是"这个精灵集有哪些方向档位"
+                // 的权威声明，见 gen_placeholder_assets.py 产出），它不存在/不在 map 里时退化用
+                // directions 对象里（JsonObject 保序，见该类型注释"保持键的插入顺序"）第一个有合法
+                // root 的键——不依赖字典枚举顺序，全部取自按文件顺序遍历得到的 firstKeyInFileOrder。
+                string? authoredFirst = null;
+                if (root.TryGetValue("authored_directions", out var authoredVal) && authoredVal is JsonArray authoredArr &&
+                    authoredArr.Count > 0 && authoredArr[0] is JsonString authoredFirstStr)
+                {
+                    authoredFirst = authoredFirstStr.Value;
+                }
+                var preferredKey = authoredFirst != null && map.ContainsKey(authoredFirst) ? authoredFirst : firstKeyInFileOrder!;
+
+                AssignFallbackKey(map, preferredKey, out fallbackDirectionKey, out fallbackDirectionKeyIsAmbiguous);
+                return map;
             }
-            catch
+
             {
-                return null;
+                var map = new Dictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)>(StringComparer.Ordinal);
+                string? firstKeyInFileOrder = null;
+                foreach (var entry in root)
+                {
+                    if (entry.Key == "pixels_per_unit")
+                    {
+                        continue;
+                    }
+                    if (entry.Value is JsonObject dirObj &&
+                        dirObj.TryGetValue("anchors", out var anchorsVal) && anchorsVal is JsonObject anchorsObj &&
+                        TryGetRootAnchor(anchorsObj, out var x, out var y))
+                    {
+                        int? canvasWidth = null;
+                        int? canvasHeight = null;
+                        if (dirObj.TryGetValue("canvas_size", out var canvasSizeVal) && canvasSizeVal is JsonArray canvasArr &&
+                            canvasArr.Count >= 2 && canvasArr[0] is JsonNumber cw && canvasArr[1] is JsonNumber ch)
+                        {
+                            canvasWidth = (int)cw.Value;
+                            canvasHeight = (int)ch.Value;
+                        }
+                        map[entry.Key] = (x, y, canvasWidth, canvasHeight);
+                        firstKeyInFileOrder ??= entry.Key;
+                    }
+                }
+                if (map.Count == 0)
+                {
+                    return null;
+                }
+
+                // 决策 2：结构②用顶层第一个方向档位键（即 firstKeyInFileOrder，按 JsonObject 保序的
+                // 文件出现顺序，不依赖字典枚举顺序）。
+                AssignFallbackKey(map, firstKeyInFileOrder!, out fallbackDirectionKey, out fallbackDirectionKeyIsAmbiguous);
+                return map;
             }
+        }
+
+        /// <summary>决策 2：判断 <paramref name="map"/> 里全部方向的 root 是否完全相同——相同则
+        /// <paramref name="preferredKey"/>（任选其一，结果都一样）不算"有歧义"，调用方不必记 Warn；
+        /// 不同则 <paramref name="preferredKey"/> 是"被迫选中"的兜底方向，<paramref name="ambiguous"/>
+        /// 置 true，调用方在实际命中该回退路径时记一条 Warn。</summary>
+        private static void AssignFallbackKey(
+            Dictionary<string, (double X, double Y, int? CanvasWidth, int? CanvasHeight)> map,
+            string preferredKey,
+            out string fallbackDirectionKey,
+            out bool ambiguous)
+        {
+            var first = map[preferredKey];
+            ambiguous = false;
+            foreach (var kv in map)
+            {
+                if (kv.Value.X != first.X || kv.Value.Y != first.Y)
+                {
+                    ambiguous = true;
+                    break;
+                }
+            }
+            fallbackDirectionKey = preferredKey;
+        }
+
+        /// <summary>从形如 <c>{"root": [x, y], ...}</c> 的 JSON 对象取出 <c>root</c> 二元像素坐标
+        /// （结构①的 <c>directions.&lt;dir&gt;</c>、结构②的 <c>&lt;dir&gt;.anchors</c> 两处调用点共用
+        /// 同一套取值逻辑）。<c>root</c> 缺失、不是数组、长度不足 2、元素不是数字——均返回
+        /// <c>false</c>，调用方视为该方向无可用 root 声明。</summary>
+        private static bool TryGetRootAnchor(JsonObject obj, out double x, out double y)
+        {
+            x = 0;
+            y = 0;
+            if (!obj.TryGetValue("root", out var val) || !(val is JsonArray arr) || arr.Count < 2)
+            {
+                return false;
+            }
+            if (!(arr[0] is JsonNumber nx) || !(arr[1] is JsonNumber ny))
+            {
+                return false;
+            }
+            x = nx.Value;
+            y = ny.Value;
+            return true;
+        }
+
+        private static int? TryGetJsonInt(JsonObject obj, string key)
+        {
+            if (obj.TryGetValue(key, out var val) && val is JsonNumber num)
+            {
+                return (int)num.Value;
+            }
+            return null;
         }
 
         /// <summary>解析 <c>frames.json</c>（结构见 <see cref="EffectFramesDocument"/>：消费方反馈

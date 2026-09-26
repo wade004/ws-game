@@ -358,7 +358,23 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `PixelsPerUnit`，逐字节一致），按精灵集目录缓存解析结果（`_spriteSetPixelsPerUnitCache`，含
   "未声明"结论）；`TryResolveSpriteSetRelativeDir`/`ReadDeclaredPixelsPerUnit`
   两个新私有方法与判断记录见该文件、诊断计数 `SpriteSetAnchorsJsonReadCount`。`TryDecodeEffect`
-  不受影响（决策 6）。**ADR-0080 跟进（2026-09-23）**：新增 `ResourceKind.MapLayers` 加载分支——
+  不受影响（决策 6）。**ADR-0091 跟进（2026-09-26，消费方反馈第三十七批）**：`_spriteSetPixelsPerUnitCache`/
+  `ReadDeclaredPixelsPerUnit` 已随本次改动分别改名/合并为 `_spriteSetAnchorsCache`（值类型改为
+  `SpriteSetAnchorsInfo`，同时携带 `pixels_per_unit` 与按方向档位分层的脚底锚点）/
+  `ReadSpriteSetAnchors`——同一份 anchors.json 读取现在一次性解析出两条信息，`pixels_per_unit`
+  行为逐字节不变。新决策：`TryDecodeImage` 的 `Sprite.Create` 枢轴参数改由新方法
+  `ResolveImagePivot` 按精灵集 anchors.json 声明的脚底锚点 `root`（该精灵集、该方向，像素坐标、
+  原点左上）换算——`pivot = (root.x / 实际纹理宽度, 1 - root.y / 实际纹理高度)`；不属于任何精灵集、
+  anchors.json 无 `root`/解析失败/root 越界时回退 `(0.5, 0.5)`，与改动前逐字节一致。资源 id 不带
+  方向档位（`sprite.` 类别本身）时，若该集全部方向 root 相同直接用，否则取
+  `authored_directions[0]`/`directions` 第一个键（结构①）或顶层第一个键（结构②）并记一条 Warn。
+  两种 anchors.json 结构（顶层 `directions` 嵌套 vs 顶层键即方向档位）均已兼容，仍未收敛为一种
+  （沿用 ADR-0081"已知不一致/待办"记录，未新增收敛工作）。地图分层图（`DecodeMapLayerSprite`）与
+  特效序列帧（`TryDecodeEffect`）两处 `Sprite.Create` 不受影响，枢轴仍固定 `(0.5, 0.5)`——前者不
+  属于任何精灵集、后者按帧渲染不适用"脚底对齐"语义，均见 [ADR-0091](../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)。
+  新增 `internal static UnityResourceLoader.RootDirOverrideForTests`（仅测试可见）供 PlayMode
+  用例覆盖 `RootDir`，验证结构②解析逻辑不需要把测试夹具塞进真实 Unity 资产管线。**ADR-0080
+  跟进（2026-09-23）**：新增 `ResourceKind.MapLayers` 加载分支——
   `resourceId` 是 `world.map` 行 id 本身（不是单层资源引用），经 `AssetRefConventions` 的
   `MapGroundFile`/`MapOverlayFile`/`MapDecalFile` 三个公开推导方法解析路径；ground/overlay
   必需、二者均读取成功才算整次加载成功，decal 可选、文件不存在不算失败；沿用既有 `Effect` 种类

@@ -403,5 +403,206 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(1, _loader.SpriteSetAnchorsJsonReadCount,
                 "同一精灵集下解码第二张图应当命中缓存，anchors.json 读取计数应仍为 1（不应变成 2）");
         }
+
+        /// <summary>[ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)
+        /// 用完必须还原（该字段是 static，跨全部加载器实例共享，不还原会串味到其它用例，见该字段
+        /// 类型注释）。</summary>
+        [TearDown]
+        public void TearDownRootDirOverride()
+        {
+            UnityResourceLoader.RootDirOverrideForTests = null;
+            if (_tempFixtureRoot != null && System.IO.Directory.Exists(_tempFixtureRoot))
+            {
+                System.IO.Directory.Delete(_tempFixtureRoot, true);
+            }
+            _tempFixtureRoot = null;
+        }
+
+        private string? _tempFixtureRoot;
+
+        /// <summary>
+        /// [ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md) 决策 1
+        /// 复现用例（修复前应失败）：占位野兽精灵集 assets/_placeholder/sprites/placeholder_beast/
+        /// anchors.json（结构①）声明 <c>directions.front.root = [24, 44]</c>，画布 48x48（与实际解码
+        /// 出的纹理尺寸一致，见 <c>front/body.png</c>）。期望枢轴由"root 像素坐标 ÷ 实际纹理宽高、
+        /// Y 轴翻转（anchors.json 原点左上，Unity Sprite.pivot 原点左下）"这条规则在用例里现算，不
+        /// 写死裸数。<c>Sprite.pivot</c> 属性本身返回的是像素坐标（相对 <c>rect</c>），除以
+        /// <c>rect.width</c>/<c>rect.height</c> 换算回归一化值，与传给 <c>Sprite.Create</c> 的
+        /// <c>pivot</c> 实参同一量纲。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_PlaceholderBeastFrontBody_PivotComesFromAnchorsRoot()
+        {
+            const double rootX = 24d;
+            const double rootY = 44d;
+
+            var resourceId = new Id("layer.placeholder_beast__front__body");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Image, (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(success, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(success!.Value,
+                "占位野兽 front/body 层资源加载应当成功——若失败，请先跑一次 build.ps1 -SyncContent 同步占位资产");
+            Assert.IsTrue(_loader.TryGetSprite(resourceId, out var sprite));
+
+            var expectedPivotX = (float)(rootX / sprite.rect.width);
+            var expectedPivotY = 1f - (float)(rootY / sprite.rect.height);
+            var actualPivotX = sprite.pivot.x / sprite.rect.width;
+            var actualPivotY = sprite.pivot.y / sprite.rect.height;
+
+            Assert.AreEqual(expectedPivotX, actualPivotX, 0.001f,
+                "枢轴 X 应等于脚底锚点像素 X ÷ 实际纹理宽度（ADR-0091 决策 1）；修复前固定写死 0.5，" +
+                "只有画布恰好左右对称的锚点才会碰巧相等——本例宽度 48、root.x=24 时两者数值相同，" +
+                "不足以证明枢轴取自 anchors.json，真正的区分力在下面的 Y 轴断言");
+            Assert.AreEqual(expectedPivotY, actualPivotY, 0.001f,
+                "枢轴 Y 应等于 1 - 脚底锚点像素 Y ÷ 实际纹理高度（原点左下 vs anchors.json 原点左上，" +
+                "ADR-0091 决策 1）；修复前固定写死 0.5，root.y=44/canvas 44 时期望值约 0.083，" +
+                "与写死值 0.5 有显著差异，能证伪未接入 anchors.json 的旧实现");
+            Assert.Greater(UnityEngine.Mathf.Abs(actualPivotY - 0.5f), 0.001f,
+                "期望的枢轴 Y 与默认写死值 (0.5) 必须有实测差异，否则本用例无法区分'枢轴取自 anchors.json' " +
+                "与'仍是写死默认值、恰好数值相同'两种情况");
+        }
+
+        /// <summary>
+        /// [ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md) 不变量
+        /// 用例（三分支合一）：
+        /// <list type="number">
+        /// <item>不属于任何精灵集的图像（paperdoll 类别，无伴生 anchors.json）——枢轴保持默认
+        /// (0.5, 0.5)，同改动前逐字节一致（决策 3）。</item>
+        /// <item>结构②（<c>toolchain/asset_import/sprite_cmd.py</c> 产出的"按方向档位分层"
+        /// anchors.json）——本用例用 <see cref="UnityResourceLoader.RootDirOverrideForTests"/> 把
+        /// <c>RootDir</c> 临时指向 scratchpad 下现造的一个精灵集夹具（不进 Unity 资产管线，不触发
+        /// meta 门禁），验证该结构同样能正确算出枢轴（决策 1）。</item>
+        /// <item>root 越界（不在 <c>[0,w]×[0,h]</c>）——回退默认枢轴 (0.5, 0.5)（决策 3）。</item>
+        /// </list>
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_Image_PivotInvariants_NonSpriteSetStructure2AndOutOfBoundsRoot()
+        {
+            // 分支 1：不属于任何精灵集的图像——沿用既有用例 ResolvePath_PaperdollCategory_... 已验证
+            // 过的真实同步资产，加载后枢轴应为默认值，不做任何 anchors.json 查找。
+            var paperdollId = new Id("paperdoll.item.sample_hero_hat_test");
+            bool? paperdollSuccess = null;
+            _loader.LoadAsync(paperdollId, ResourceKind.Image, (id, ok) => paperdollSuccess = ok);
+            var timeout = 5f;
+            while (paperdollSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(paperdollSuccess, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(paperdollSuccess!.Value,
+                "纸娃娃层测试资源加载应当成功——若失败，请先跑一次 build.ps1 -SyncContent 同步样例资产");
+            Assert.IsTrue(_loader.TryGetSprite(paperdollId, out var paperdollSprite));
+            Assert.AreEqual(0.5f, paperdollSprite.pivot.x / paperdollSprite.rect.width, 0.001f,
+                "不属于任何精灵集的图像（paperdoll 类别）枢轴 X 应保持默认 0.5（ADR-0091 决策 3）");
+            Assert.AreEqual(0.5f, paperdollSprite.pivot.y / paperdollSprite.rect.height, 0.001f,
+                "不属于任何精灵集的图像（paperdoll 类别）枢轴 Y 应保持默认 0.5（ADR-0091 决策 3）");
+
+            // 分支 2/3 共用同一个临时精灵集根目录，覆盖结构②解析 + root 越界回退。
+            _tempFixtureRoot = System.IO.Path.Combine(
+                UnityEngine.Application.temporaryCachePath, "adr0091_fixture_" + System.Guid.NewGuid().ToString("N"));
+
+            const int canvasW = 40;
+            const int canvasH = 60;
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprites", "testcat_testname.png"), canvasW, canvasH);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprites", "testcat_testname", "anchors.json"),
+                "{\"front\": {\"canvas_size\": [40, 60], \"anchors\": {\"root\": [20, 55]}}, " +
+                "\"back\": {\"canvas_size\": [40, 60], \"anchors\": {\"root\": [20, 55]}}}");
+
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprites", "testcat_oob.png"), canvasW, canvasH);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprites", "testcat_oob", "anchors.json"),
+                "{\"front\": {\"canvas_size\": [40, 60], \"anchors\": {\"root\": [999, 999]}}}");
+
+            UnityResourceLoader.RootDirOverrideForTests = _tempFixtureRoot;
+
+            // 分支 2：结构②，front/back 两个方向 root 相同（testname 资源不带方向信息，走决策 2
+            // "全部方向相同则直接用、不算歧义"分支），期望枢轴 = (20/40, 1-55/60)。
+            var structure2Id = new Id("sprite.testcat.testname");
+            bool? structure2Success = null;
+            _loader.LoadAsync(structure2Id, ResourceKind.Image, (id, ok) => structure2Success = ok);
+            timeout = 5f;
+            while (structure2Success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(structure2Success, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(structure2Success!.Value, "结构②临时精灵集夹具加载应当成功");
+            Assert.IsTrue(_loader.TryGetSprite(structure2Id, out var structure2Sprite));
+            Assert.AreEqual(20f / canvasW, structure2Sprite.pivot.x / structure2Sprite.rect.width, 0.001f,
+                "结构②（按方向档位分层）anchors.json 应能正确算出枢轴 X（ADR-0091 决策 1）");
+            Assert.AreEqual(1f - 55f / canvasH, structure2Sprite.pivot.y / structure2Sprite.rect.height, 0.001f,
+                "结构②（按方向档位分层）anchors.json 应能正确算出枢轴 Y（ADR-0091 决策 1）");
+
+            // 分支 3：root [999,999] 越界（画布只有 40x60），回退默认枢轴。
+            var oobId = new Id("sprite.testcat.oob");
+            bool? oobSuccess = null;
+            _loader.LoadAsync(oobId, ResourceKind.Image, (id, ok) => oobSuccess = ok);
+            timeout = 5f;
+            while (oobSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(oobSuccess, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(oobSuccess!.Value, "root 越界的临时精灵集夹具本身仍应加载成功（只是枢轴回退，不是加载失败）");
+            Assert.IsTrue(_loader.TryGetSprite(oobId, out var oobSprite));
+            Assert.AreEqual(0.5f, oobSprite.pivot.x / oobSprite.rect.width, 0.001f,
+                "root 越界时枢轴 X 应回退默认 0.5（ADR-0091 决策 3）");
+            Assert.AreEqual(0.5f, oobSprite.pivot.y / oobSprite.rect.height, 0.001f,
+                "root 越界时枢轴 Y 应回退默认 0.5（ADR-0091 决策 3）");
+        }
+
+        /// <summary>测试夹具用：在指定路径写一张纯白 PNG（内容本身不重要，只需要是一张能被
+        /// <c>Texture2D.LoadImage</c> 成功解码、尺寸已知的合法图片）。</summary>
+        private static void WritePngFixture(string path, int width, int height)
+        {
+            var dir = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                System.IO.Directory.CreateDirectory(dir);
+            }
+
+            var texture = new UnityEngine.Texture2D(width, height, UnityEngine.TextureFormat.RGBA32, false);
+            var pixels = new UnityEngine.Color32[width * height];
+            for (var i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = new UnityEngine.Color32(255, 255, 255, 255);
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            // 本文件没有 `using UnityEngine;`（全篇用 UnityEngine.X 全限定名，见既有惯例），
+            // 扩展方法语法 texture.EncodeToPNG() 找不到方法（CS1061）——改用全限定静态调用。
+            var bytes = UnityEngine.ImageConversion.EncodeToPNG(texture);
+            System.IO.File.WriteAllBytes(path, bytes);
+            UnityEngine.Object.Destroy(texture);
+        }
+
+        /// <summary>测试夹具用：在指定路径写一个文本文件（本用例只用来写 anchors.json），自动创建
+        /// 父目录。</summary>
+        private static void WriteTextFixture(string path, string content)
+        {
+            var dir = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                System.IO.Directory.CreateDirectory(dir);
+            }
+            System.IO.File.WriteAllText(path, content);
+        }
     }
 }
