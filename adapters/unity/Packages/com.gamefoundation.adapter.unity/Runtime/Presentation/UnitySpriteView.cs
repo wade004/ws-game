@@ -36,8 +36,18 @@ namespace Adapter.Unity.Presentation
         /// <c>UnityRenderer2D.SetShaderParam</c> 落地为纸娃娃层各 SpriteRenderer.color.a。</summary>
         public const string FadeAlphaShaderParam = "fade_alpha";
 
-        private Direction? _lastFacing;
+        private Id? _lastComposedDirectionSlotId;
+        private bool _lastComposedFlipX;
         private bool _layersInitialized;
+
+        /// <summary>消费方反馈第四十四批 / ADR-0099 决策 1 验收用出口：本 View 因方向槽位/镜像变化
+        /// 而实际调用 <see cref="Presentation.Render.SpriteViewBase.SetPaperdollLayers"/> 重合成纸娃娃层
+        /// 的次数（不含装备变化触发的 <c>RebuildEquippedLayers</c>——那条路径不经本类型这处判据，见
+        /// <see cref="SyncPose"/> 判断记录）。<c>internal</c>，经 <c>AssemblyInfo.cs</c> 的
+        /// <c>InternalsVisibleTo</c> 只对 <c>Adapter.Unity.Tests.Runtime</c>/<c>...Tests.Editor</c> 可见，
+        /// 同 <see cref="Adapter.Unity.Presentation.UnityViewFactory.DirectionAwareReprobeCountForTests"/>
+        /// 一贯的测试出口惯例。</summary>
+        internal int PaperdollRecomposeCountForTests { get; private set; }
 
         // 八个程序动画原语里 Move/Rotate/Scale/Stagger/Topple 五个需要叠加到每帧的 Transform 上
         // （Flash/Fade 已经有独立通道——Flash 经 SpriteCharacterRig 直接接 flash_intensity，
@@ -103,6 +113,18 @@ namespace Adapter.Unity.Presentation
 
         protected override void OnDirectionSlotChanged(Id newSlotId) => DirectionSlotChanged?.Invoke(newSlotId);
 
+        /// <summary>ADR-0099 决策 2（消费方反馈第四十四批）：转发基类
+        /// <see cref="Presentation.Render.SpriteViewBase.OnLayersComposed"/> 钩子——本 View 每次真的调用
+        /// 了 <see cref="Presentation.Render.SpriteViewBase.SetPaperdollLayers"/>/<c>RebuildEquippedLayers</c>
+        /// 重合成纸娃娃层（并已经写入渲染器）之后触发一次，供 <see cref="Adapter.Unity.Presentation.UnityViewFactory"/>
+        /// 订阅后把命中逐层动画的层立即按播放器当前帧号回填（见该类型判断记录），不携带参数——订阅方
+        /// 已经持有查询"当前渲染层名列表/当前状态对应的逐层剪辑映射/播放器当前帧号"所需的全部上下文
+        /// （同 <see cref="DirectionSlotChanged"/> 一贯由 <c>UnityViewFactory</c> 自行查询现状，不依赖
+        /// 事件参数传递细节的惯例）。</summary>
+        public event Action? LayersComposed;
+
+        protected override void OnLayersComposed(IReadOnlyList<Id> layerResourceIds) => LayersComposed?.Invoke();
+
         public override void SyncPose(Vec2 pos, Direction facing, double height)
         {
             base.SyncPose(pos, facing, height);
@@ -113,13 +135,30 @@ namespace Adapter.Unity.Presentation
             var layers = DisplayInfo.Sprite!.PaperdollLayers;
             if (layers.Count != 0)
             {
-                if (!_layersInitialized || _lastFacing == null || !_lastFacing.Value.Equals(facing))
+                // ADR-0099 决策 1（消费方反馈第四十四批，取代此前"按 Direction.Equals（含 RawRadians）
+                // 判断朝向是否变化"）：判断记录——沿路径移动时逐 tick 现算的原始朝向弧度
+                // （MovementTickHandler.Facing）在非水平/竖直/45°整数倍角度的直线段上，同一方向档位
+                // 内会因浮点舍入误差在相邻两个双精度值间来回抖动（核心侧同批已根治抖动本身，见
+                // core/carriers/unit/core/MovementTickHandler.cs SegmentFacing 判断记录，但表现层
+                // 不应该把"重合成纸娃娃层"这件昂贵操作的判据建立在"原始弧度是否逐位相同"这么脆弱的
+                // 条件上——两侧独立防御，任一侧修复失效时不至于叠加放大）。改为只看
+                // IRenderConventionHost.ResolveDirectionSlot 解析出的 (方向槽位 Id, 镜像标志)——与
+                // 09 第 3.3.1 节"层的美术素材按方向槽位组织，不按连续弧度组织"这一既有事实对齐，同一
+                // 槽位内朝向弧度无论怎么抖动，最终解析出的纸娃娃层资源 Id 集合逐字节相同，重合成是
+                // 纯粹的空操作，不需要真的执行。
+                var (directionSlotId, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
+                if (!_layersInitialized
+                    || _lastComposedDirectionSlotId == null
+                    || !_lastComposedDirectionSlotId.Value.Equals(directionSlotId)
+                    || _lastComposedFlipX != flipX)
                 {
                     // 每个新解析出的层资源 id 的加载请求已由基类 SetPaperdollLayers 经
                     // ResourceReferenceTracker 负责（见类型顶部注释），本类不再重复调用 LoadAsync。
                     SetPaperdollLayers(layers, facing);
-                    _lastFacing = facing;
+                    _lastComposedDirectionSlotId = directionSlotId;
+                    _lastComposedFlipX = flipX;
                     _layersInitialized = true;
+                    PaperdollRecomposeCountForTests++;
                 }
             }
 

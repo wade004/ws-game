@@ -72,6 +72,34 @@ namespace Core.Carriers.Unit
         /// 的边界不一致）。</summary>
         private const double ZeroLengthEpsilon = 1e-6;
 
+        /// <summary>
+        /// 消费方反馈第四十四批（ADR-0099 决策 3，"同档位内朝向末位抖动"根治）：<see cref="ContinuePathCore"/>/
+        /// <see cref="AdvanceChase"/> 沿路径推进时，第 <paramref name="index"/> 个路点对应的线段方向
+        /// <c>path[index-1] -&gt; path[index]</c> 只依赖建路那一刻就已经固定下来的路点坐标（<see
+        /// cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/> 端点契约保证 <c>path[0]</c>
+        /// 精确等于建路起点，见该接口方法注释），与"这一刻单位实际插值到哪个连续坐标"无关。旧实现在
+        /// 两个调用点内的推进循环里改用 <c>Atan2(waypoint - pos)</c> 现算：<c>pos</c> 每 tick 由
+        /// <c>pos = pos + dir * remaining</c> 连续累加，非水平/竖直/45°整数倍角度的直线段上，同一段内
+        /// 逐 tick 累积的最后一位浮点舍入误差会让 <c>Atan2</c> 结果在同一方向档位内的相邻两个双精度浮点
+        /// 值间来回跳变（消费方 32/32 段闪回逐帧 CSV 实测：闪回起始帧精确等于朝向原值变化帧）。改为只用
+        /// 路点数组本身计算——同一路点段内任意多个 tick 得到逐位完全相同的结果，不再抖动；<paramref
+        /// name="index"/> 越界或恰为 0（按 <see cref="INavigation2D.FindPath"/> 端点契约，<c>path[0]</c>
+        /// 与建路起点重合，dist 恒为 0，两个调用点的推进循环都会在"到达同一档位"分支里直接消费掉第 0 个
+        /// 路点、递增 index 后才会用到本方法，理论上不会以 <c>index == 0</c> 调用本方法）时退回 0 弧度
+        /// 兜底而不是抛异常——纯防御性分支，不代表生产路径依赖它。
+        /// </summary>
+        private static double SegmentFacing(IReadOnlyList<Vec2> path, int index)
+        {
+            if (index <= 0 || index >= path.Count)
+            {
+                return 0.0;
+            }
+
+            var from = path[index - 1];
+            var to = path[index];
+            return Math.Atan2(to.Y - from.Y, to.X - from.X);
+        }
+
         public void Execute(SimStep step, IWorldSim world)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -721,14 +749,14 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     remaining -= dist;
-                    lastFacing = Math.Atan2(toWaypoint.Y, toWaypoint.X);
+                    lastFacing = SegmentFacing(path, index);
                     index++;
                 }
                 else
                 {
                     var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
                     pos = pos + dir * remaining;
-                    lastFacing = Math.Atan2(dir.Y, dir.X);
+                    lastFacing = SegmentFacing(path, index);
                     remaining = 0;
                 }
             }
@@ -872,6 +900,20 @@ namespace Core.Carriers.Unit
 
             var disp = state.Displacement.Value;
 
+            // 消费方反馈第四十四批（ADR-0099 决策 3）：受控位移全程只沿 disp.Origin -> disp.Target
+            // 这一条固定直线（无路点，不像路径跟随那样分段），因此"前进方向"的朝向只依赖这两个建立
+            // 位移时就已经固定下来的端点，与 pos 逐 tick 累加的连续插值坐标无关——预先算好一次，下面
+            // "仍在前进"的三个写回点（到达终点/本采样步内到达/预算耗尽仍在继续）统一复用同一个值，不
+            // 再各自对 pos 重新调用 Atan2（同 SegmentFacing 判断记录，同一根因：非水平/竖直/45°整数倍
+            // 角度的直线上，pos 连续累加的最后一位浮点舍入误差会让逐 tick 现算的 Atan2 抖动）。被阻挡
+            // 回退（Revert 退回 Origin/Stop 停在入射点前）这两个分支是位移终止前的一次性写回，方向本就
+            // 与"前进方向"不同（回退朝向 Origin、或截断点这一刻的真实位置差），不在本次改动范围内，
+            // 仍按 WriteDisplacementPosition 默认行为现算。
+            var forwardDelta = disp.Target - disp.Origin;
+            var forwardFacing = forwardDelta.Length > ZeroLengthEpsilon
+                ? (double?)Math.Atan2(forwardDelta.Y, forwardDelta.X)
+                : null;
+
             if (!unit.Alive)
             {
                 EndDisplacement(unit, MoveStopReason.DisplacementCasterDead);
@@ -918,7 +960,7 @@ namespace Core.Carriers.Unit
                 var distToTarget = toTarget.Length;
                 if (distToTarget <= _options.ArrivalEpsilon)
                 {
-                    WriteDisplacementPosition(unit, disp.Target);
+                    WriteDisplacementPosition(unit, disp.Target, forwardFacing);
                     EndDisplacement(unit, MoveStopReason.DisplacementArrived);
                     return;
                 }
@@ -958,7 +1000,7 @@ namespace Core.Carriers.Unit
 
                 if (reachesTarget)
                 {
-                    WriteDisplacementPosition(unit, pos);
+                    WriteDisplacementPosition(unit, pos, forwardFacing);
                     EndDisplacement(unit, MoveStopReason.DisplacementArrived);
                     return;
                 }
@@ -966,7 +1008,7 @@ namespace Core.Carriers.Unit
 
             // 本次推进预算耗尽，仍未到达/未受阻（仅连续模式会走到这里，见上面 budget 判断记录）：
             // 写回中间位置，位移状态保持进行中，下一 tick 由 Execute 第三遍循环续推。
-            WriteDisplacementPosition(unit, pos);
+            WriteDisplacementPosition(unit, pos, forwardFacing);
             var refreshed = unit.MovementState; // WriteDisplacementPosition 不改 MovementState 其它字段。
             unit.MovementState = new MovementState(null, refreshed.Mode, refreshed.MovementLocked, 0, 0, disp);
         }
@@ -988,8 +1030,17 @@ namespace Core.Carriers.Unit
         /// <see cref="ContinuePathCore"/>/<see cref="ApplyDirectionalMove"/> 惯例，避免发一条位移量为
         /// 零的 <c>unit.moved</c>），否则按移动方向更新朝向、写回位置并入队 <c>unit.moved</c>（复用
         /// 既有事件——ADR-0026 决策 3"位移期间的逐 tick 位置序列经现有 unit.moved 事件观察"）。
+        /// <para>
+        /// 消费方反馈第四十四批（ADR-0099 决策 3）新增 <paramref name="forcedFacing"/>（私有方法签名，
+        /// 不受 AGENTS.md 第 3 节"ABI 只加法"约束，直接加可选参数）：非 null 时直接采用该值，不再对
+        /// <paramref name="newPos"/>/<c>from</c> 现算 <c>Atan2</c>——<see cref="AdvanceDisplacement"/>
+        /// 对"仍在朝目标前进"的三个调用点统一传入建立位移时就固定好的 <c>disp.Origin -&gt; disp.Target</c>
+        /// 方向，避免同一直线上连续多个 tick 因 <paramref name="newPos"/> 的浮点插值误差现算出抖动的
+        /// 朝向（同 <see cref="SegmentFacing"/> 判断记录，同一根因）；<c>null</c>（回退/受阻两个一次性
+        /// 终止分支的既有调用点）保持原有"按本次实际位移方向现算"行为不变。
+        /// </para>
         /// </summary>
-        private void WriteDisplacementPosition(Unit unit, Vec2 newPos)
+        private void WriteDisplacementPosition(Unit unit, Vec2 newPos, double? forcedFacing = null)
         {
             var from = unit.Position;
             if (newPos.Equals(from))
@@ -997,10 +1048,17 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            var direction = newPos - from;
-            if (direction.Length > ZeroLengthEpsilon)
+            if (forcedFacing.HasValue)
             {
-                unit.Facing = Math.Atan2(direction.Y, direction.X);
+                unit.Facing = forcedFacing.Value;
+            }
+            else
+            {
+                var direction = newPos - from;
+                if (direction.Length > ZeroLengthEpsilon)
+                {
+                    unit.Facing = Math.Atan2(direction.Y, direction.X);
+                }
             }
 
             _units.SetPosition(unit.EntityId, newPos);
@@ -1170,14 +1228,14 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     remaining -= dist;
-                    lastFacing = Math.Atan2(toWaypoint.Y, toWaypoint.X);
+                    lastFacing = SegmentFacing(path, index);
                     index++;
                 }
                 else
                 {
                     var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
                     pos = pos + dir * remaining;
-                    lastFacing = Math.Atan2(dir.Y, dir.X);
+                    lastFacing = SegmentFacing(path, index);
                     remaining = 0;
                 }
             }

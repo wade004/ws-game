@@ -943,6 +943,24 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   原样；结果按 (实体, 方向, 状态/层) 缓存（含"两级候选都未命中"这一结果），只在方向真正变化时
   探测一次。诊断计数 `DirectionAwareReprobeCountForTests` 供测试断言探测触发/去重次数。整身路线
   （decision 5）此前不支持按方向探测，本次补齐，与逐层路线待遇一致。
+- **判断记录（纸娃娃层重合成判据改按方向槽位、重合成后立即回填当前帧，消费方反馈第四十四批
+  阻塞，[ADR-0099](../../../../architecture/adr/0099-纸娃娃层只在方向槽位变化时重合成.md)）**：
+  根因是核心侧 `MovementTickHandler` 沿路径逐 tick 用"当前插值位置指向下一路点"现算朝向，非
+  水平/竖直/45°整数倍角度的直线段上会在同一方向档位内产生末位浮点抖动（同批已改为按当前路点段
+  固定的两个端点计算，见该文件 `SegmentFacing` 判断记录，追击/受控位移同款处理）；表现层原判据
+  `!_lastFacing.Value.Equals(facing)`（`Direction.Equals` 连 `RawRadians` 一起比较）会把这种
+  同档位内的抖动误判为"朝向变了"，触发不必要的纸娃娃层重合成，把 [ADR-0072](../../../../architecture/adr/0072-纸娃娃层逐层播放剪辑.md)
+  正在播放的逐层动画当前帧临时覆盖回静态图，要等播放器下一次自然推进才纠正回来（12fps 剪辑在
+  60Hz 下最多 5 帧空档）。改动两处：① `UnitySpriteView.SyncPose` 判据改为比较
+  `IRenderConventionHost.ResolveDirectionSlot` 解析出的 (方向槽位 Id, 镜像标志)，新增
+  `PaperdollRecomposeCountForTests`（内部计数，供测试断言重合成次数）；② `SpriteViewBase` 新增
+  受保护可覆写方法 `OnLayersComposed(IReadOnlyList<Id> layerResourceIds)`（默认空实现，
+  `ComposeAndApplyEquipAwareLayers` 写入渲染器之后紧接着调用），`UnitySpriteView` 覆写为
+  `LayersComposed` 事件，`UnityViewFactory.TryAttachPerLayerAnimation` 订阅该事件：命中逐层
+  动画的层立即按播放器当前帧号（`player.CurrentFrame`）重新 `SetLayerSprite` 一次，不推进时间轴、
+  不重置进度。已知限制：`SpriteCharacterRig.HandleResourceLoadCompleted`（冷加载完成后的重新
+  应用路径）不经过 `ComposeAndApplyEquipAwareLayers`，因此不触发本出口，迟到的资源加载完成仍
+  可能短暂覆盖一次动画帧，待设计层按后续反馈决定是否收口。
 
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
@@ -954,7 +972,13 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
 （ADR-0093：`SyncPose_DirectionChanges_MoveClipSwitchesToNewDirectionResource_PreservingProgress`
 换向后整身剪辑切换到新方向资源且保留播放进度；
 `ReprobeDirectionAwareAnimation_MissingDirectionFallsBackWithoutError_AndSameSlotDoesNotReprobe`
-目标方向无专属资源时静默回退不报错、同一方向档位重复调用不重复探测）。
+目标方向无专属资源时静默回退不报错、同一方向档位重复调用不重复探测）、
+`Tests/Runtime/PaperdollRecomposeOnDirectionJitterTests.cs`（ADR-0099：
+`SyncPose_SameDirectionSlotRawRadiansJitter_DoesNotRecomposeOrResetAnimatedLayer` 同一方向档位内
+朝向原始弧度连续抖动 60 次，重合成计数与命中逐层动画的层贴图均不受影响；
+`SyncPose_RealSlotChangeOrEquipChange_RecomposesAndImmediatelyBackfillsCurrentFrame` 方向槽位真变化
+/装备变化两类合法重合成，返回后（不等下一次动画播放器推进）逐层动画的层已经是当前帧，无逐层动画
+的层不被误伤）。
 
 ## model 型外形（W6-B 收口，ADR-0017）
 

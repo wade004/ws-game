@@ -620,7 +620,7 @@ namespace Adapter.Unity.Presentation
             // ADR-0072 决策 2：纸娃娃层逐层动画——只对声明了 paperdoll_layers 的 sprite 型外形生效，
             // 未声明（item/gobj/projectile 一类，或 paperdoll_layers 为空的 creature）时该方法整体是
             // 空操作，不影响本方法其余行为，见其判断记录。
-            TryAttachPerLayerAnimation(concreteRenderer, view.EngineHandle, player, info, entityId, clips);
+            TryAttachPerLayerAnimation(concreteRenderer, view, player, info, entityId, clips);
 
             // ADR-0093 决策 4：登记方向变化重探测所需的最小上下文，并订阅 UnitySpriteView 转发的
             // SpriteViewBase.OnDirectionSlotChanged 钩子——挂接期这一次探测仍然按默认朝向（同上一条
@@ -684,13 +684,19 @@ namespace Adapter.Unity.Presentation
         /// 同一惯例），不阻塞本次 ADR-0072 收口（09/ADR-0072 均记录为已知范围边界，不是缺陷）。</para>
         /// </summary>
         private void TryAttachPerLayerAnimation(
-            Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, UnityFrameAnimPlayer player,
+            Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, UnitySpriteView view, UnityFrameAnimPlayer player,
             Core.Foundation.DisplayInfo.DisplayInfo info, Id entityId, IReadOnlyDictionary<string, Id> stateClipIds)
         {
             if (info.Sprite == null || info.Sprite.PaperdollLayers.Count == 0)
             {
                 return;
             }
+
+            // ADR-0099 决策 2：本方法此前只接 SpriteHandle（挂接时的一次性快照），改接 view 本身——
+            // 除了原有用途（下方仍需要 handle 定位渲染层），还要订阅 view.LayersComposed（见下方新增
+            // 订阅），只有拿到 view 才能拿到这个事件源。handle 原样从 view.EngineHandle 取值，取值
+            // 时机与改动前逐字节一致（挂接期这一刻的句柄，句柄本身在整个精灵实例生命周期内不变）。
+            var handle = view.EngineHandle;
 
             var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
             if (unityLoader == null)
@@ -736,59 +742,92 @@ namespace Adapter.Unity.Presentation
             // 每实体共享一份回调，覆盖该实体此后任意状态切换（不为每个状态各订阅一份）——
             // player.CurrentClipId 在回调触发的那一刻即代表"当前正在播放哪个状态"，据此在
             // perLayerByState 里查表即知道这一刻该不该走逐层路线，不需要额外记录"当前状态"。
-            player.OnFrameChanged(frameIndex =>
+            player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex));
+
+            // ADR-0099 决策 2（消费方反馈第四十四批）：订阅 UnitySpriteView 转发的
+            // SpriteViewBase.OnLayersComposed 钩子——每次纸娃娃层因方向槽位变化（ADR-0099 决策 1）或
+            // 装备变化重合成、写入渲染器之后，立即按播放器当前帧号（不推进时间轴、不重置）重新执行一次
+            // 与 player.OnFrameChanged 完全相同的写回逻辑，把刚被 SetLayers 覆盖回静态图的、命中逐层
+            // 动画的层立即纠正回当前动画帧，不必等下一次 OnFrameChanged（12fps 剪辑在 60Hz 下最多 5 帧
+            // 空档，见 SpriteViewBase.OnLayersComposed 判断记录）。复用同一个 perLayerByState 对象——
+            // ReprobeDirectionAwareAnimation 换向重探测时对它做的是原地 SwapContents（不是重新赋值新
+            // 对象，见该方法/SwapContents 判断记录），本闭包捕获的引用始终是最新解析结果，不需要重新
+            // 订阅。没有命中任何逐层剪辑的层（layerMap 为空，或某层不在 layerMap 里）保持不变——
+            // ApplyPerLayerFrame 内部与既有 OnFrameChanged 分支同一套"查不到就跳过/整身兜底"逻辑，
+            // 不会误伤本就该维持静态的层（决策 2 不变量③）。
+            view.LayersComposed += () =>
             {
-                Dictionary<string, Id>? layerMap = null;
-                var currentClipId = player.CurrentClipId;
-                if (currentClipId.HasValue)
+                if (player.CurrentClipId.HasValue)
                 {
-                    perLayerByState.TryGetValue(currentClipId.Value, out layerMap);
+                    ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame);
                 }
+            };
+        }
 
-                if (layerMap == null || layerMap.Count == 0)
+        /// <summary>ADR-0072 决策 2 的逐层动画写回核心逻辑（<see cref="TryAttachPerLayerAnimation"/> 的
+        /// <c>player.OnFrameChanged</c> 回调原有实现原样抽出，见该方法判断记录）：按
+        /// <paramref name="player"/>.<see cref="UnityFrameAnimPlayer.CurrentClipId"/> 在
+        /// <paramref name="perLayerByState"/> 里查出当前状态命中逐层剪辑的层集合，命中则隐藏整身
+        /// AnimRoot、逐层按 <paramref name="frameIndex"/> 取帧写回；未命中（或该实体没有声明纸娃娃层）
+        /// 时维持整身兜底可见。ADR-0099 决策 2 新增：除 <see cref="UnityFrameAnimPlayer.OnFrameChanged"/>
+        /// 逐帧调用本方法外，<c>TryAttachPerLayerAnimation</c> 挂接的 <c>view.LayersComposed</c> 处理器
+        /// 也会在每次纸娃娃层重合成之后立即调用一次本方法（<paramref name="frameIndex"/> 传
+        /// <see cref="UnityFrameAnimPlayer.CurrentFrame"/>，不是新的一帧，只是把已经在播放的当前帧
+        /// 重新写回被覆盖的层），两条触发路径共用同一份逻辑，行为定义只有一处。</summary>
+        private static void ApplyPerLayerFrame(
+            Dictionary<Id, Dictionary<string, Id>> perLayerByState, UnityFrameAnimPlayer player,
+            Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, int frameIndex)
+        {
+            Dictionary<string, Id>? layerMap = null;
+            var currentClipId = player.CurrentClipId;
+            if (currentClipId.HasValue)
+            {
+                perLayerByState.TryGetValue(currentClipId.Value, out layerMap);
+            }
+
+            if (layerMap == null || layerMap.Count == 0)
+            {
+                // 决策 2"整身兜底"：这一状态没有任何一层命中逐层剪辑（或还在异步加载中，尚未有
+                // 任何一层命中），维持整身 AnimRoot 可见，不触碰任何纸娃娃层。
+                player.SpriteRenderer.enabled = true;
+                return;
+            }
+
+            // 决策 2"至少一层命中即隐藏整身"：AnimRoot 此刻展示的内容只用于驱动共享时间轴的
+            // 帧数/帧率（见 ProbeLayersSequential 判断记录"首个命中层同时登记为状态自身 clipId
+            // 的内容"），不应该被实际看到。
+            player.SpriteRenderer.enabled = false;
+
+            var layerNames = concreteRenderer.GetLayerNames(handle);
+            if (layerNames == null)
+            {
+                return;
+            }
+
+            foreach (var kv in layerMap)
+            {
+                var layerIndex = -1;
+                for (var j = 0; j < layerNames.Count; j++)
                 {
-                    // 决策 2"整身兜底"：这一状态没有任何一层命中逐层剪辑（或还在异步加载中，尚未有
-                    // 任何一层命中），维持整身 AnimRoot 可见，不触碰任何纸娃娃层。
-                    player.SpriteRenderer.enabled = true;
-                    return;
-                }
-
-                // 决策 2"至少一层命中即隐藏整身"：AnimRoot 此刻展示的内容只用于驱动共享时间轴的
-                // 帧数/帧率（见 ProbeLayersSequential 判断记录"首个命中层同时登记为状态自身 clipId
-                // 的内容"），不应该被实际看到。
-                player.SpriteRenderer.enabled = false;
-
-                var layerNames = concreteRenderer.GetLayerNames(handle);
-                if (layerNames == null)
-                {
-                    return;
-                }
-
-                foreach (var kv in layerMap)
-                {
-                    var layerIndex = -1;
-                    for (var j = 0; j < layerNames.Count; j++)
+                    if (string.Equals(layerNames[j], kv.Key, StringComparison.Ordinal))
                     {
-                        if (string.Equals(layerNames[j], kv.Key, StringComparison.Ordinal))
-                        {
-                            layerIndex = j;
-                            break;
-                        }
-                    }
-                    if (layerIndex < 0)
-                    {
-                        // 该层此刻不在渲染列表里（装备变化导致层集合重建、下标暂时对不上），跳过，
-                        // 不抛异常——下一次 RebuildEquippedLayers/SetLayers 之后的帧会自然恢复。
-                        continue;
-                    }
-
-                    var sprite = player.GetFrame(kv.Value, frameIndex);
-                    if (sprite != null)
-                    {
-                        concreteRenderer.SetLayerSprite(handle, layerIndex, sprite);
+                        layerIndex = j;
+                        break;
                     }
                 }
-            });
+                if (layerIndex < 0)
+                {
+                    // 该层此刻不在渲染列表里（装备变化导致层集合重建、下标暂时对不上），跳过，
+                    // 不抛异常——下一次 RebuildEquippedLayers/SetLayers 之后的帧会自然恢复。
+                    continue;
+                }
+
+                var sprite = player.GetFrame(kv.Value, frameIndex);
+                if (sprite != null)
+                {
+                    concreteRenderer.SetLayerSprite(handle, layerIndex, sprite);
+                }
+            }
         }
 
         /// <summary>ADR-0072 决策 2：<see cref="TryAttachPerLayerAnimation"/> 的逐层递归——按

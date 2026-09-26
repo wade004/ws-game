@@ -339,6 +339,44 @@ namespace Presentation.Render
             }
 
             _rig.ApplyLayers(resourceIds);
+            OnLayersComposed(resourceIds);
+        }
+
+        /// <summary>
+        /// ADR-0099 决策 2（消费方反馈第四十四批）：<see cref="ComposeAndApplyEquipAwareLayers"/> 每次
+        /// 把新合成的纸娃娃层资源列表交给 <see cref="_rig"/>.<see cref="SpriteCharacterRig.ApplyLayers"/>
+        /// 写入渲染器之后触发一次——覆盖 <see cref="RebuildEquippedLayers"/>（装备变化）与
+        /// <see cref="SetPaperdollLayers"/>（方向变化，<c>UnitySpriteView.SyncPose</c> 在方向槽位真的
+        /// 变化时调用，见 ADR-0099 决策 1）两条既有调用路径，是"任何一次合法重合成"唯一的落点。
+        /// <para>
+        /// 判断记录（为什么需要这个钩子）：<see cref="SpriteCharacterRig.ApplyLayers"/> 对每一层无条件
+        /// 覆盖 <c>SpriteRenderer.sprite</c> 为本次解析出的静态资源，会把 ADR-0072 挂接的纸娃娃层逐层
+        /// 走路/攻击等动画（<c>UnityViewFactory.TryAttachPerLayerAnimation</c> 挂在
+        /// <see cref="IFrameAnimPlayer.OnFrameChanged"/> 上按帧号写回的当前动画帧）覆盖回静态图，
+        /// 要等下一次 <c>OnFrameChanged</c> 触发（12fps 剪辑在 60Hz 下最多 5 帧空档）才会被重新写回，
+        /// 期间出现短暂的"贴图跳回静态图再跳回动画帧"的可见闪烁。本方法默认空实现（ABI 加法，
+        /// <c>protected virtual</c>，不改 <see cref="SetPaperdollLayers"/> 既有签名）：本类型不知道
+        /// "方向相关的逐层动画"具体如何组织（那是引擎适配层 <c>UnityViewFactory</c> 所在层的职责，同
+        /// <see cref="OnDirectionSlotChanged"/> 判断记录"只负责事实通知，不负责具体探测/回填逻辑"）；
+        /// 具体游戏/引擎适配层的 View 子类（如 <c>Adapter.Unity.Presentation.UnitySpriteView</c>）重写
+        /// 本方法把 <paramref name="layerResourceIds"/> 对应的这次重合成事实转发出去（该类型转发为
+        /// <c>LayersComposed</c> 事件），供订阅方按"当前正在播放的逐层动画剪辑 + 播放器当前帧号"立即
+        /// 把命中逐层动画的层重新 <c>SetLayerSprite</c> 回当前帧——不推进时间轴、不重置播放进度，只是
+        /// 把这一次被覆盖的静态图立即纠正回来，不必等下一次 <c>OnFrameChanged</c>。
+        /// </para>
+        /// <para>
+        /// 已知限制（不在本次改动范围内，向消费方汇报）：<see cref="SpriteCharacterRig.HandleResourceLoadCompleted"/>
+        /// （首次引用的纸娃娃层资源异步加载完成后的迟到回填）内部同样调用一次
+        /// <see cref="SpriteCharacterRig.ApplyLayers"/>，但该方法在 <see cref="SpriteCharacterRig"/>
+        /// 内部，不经过本类型的 <see cref="ComposeAndApplyEquipAwareLayers"/>，因此不会触发本钩子——
+        /// 冷加载完成的这一次回填仍可能短暂覆盖正在播放的逐层动画帧，需等下一次 <c>OnFrameChanged</c>
+        /// 才纠正。本次任务书聚焦"方向末位抖动导致的高频重合成"，未要求覆盖这条低频（每层资源至多
+        /// 触发一次）的冷加载回填路径，按 AGENTS.md 第 0 节要求在此列出，是否需要一并处理待设计层
+        /// 确认。
+        /// </para>
+        /// </summary>
+        protected virtual void OnLayersComposed(IReadOnlyList<Id> layerResourceIds)
+        {
         }
 
         public virtual void SyncPose(Vec2 pos, Direction facing, double height)
