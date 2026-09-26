@@ -488,8 +488,17 @@ namespace Adapter.Unity.Tests.Runtime
         [UnityTest]
         public IEnumerator LoadAsync_Image_PivotInvariants_NonSpriteSetStructure2AndOutOfBoundsRoot()
         {
-            // 分支 1：不属于任何精灵集的图像——沿用既有用例 ResolvePath_PaperdollCategory_... 已验证
-            // 过的真实同步资产，加载后枢轴应为默认值，不做任何 anchors.json 查找。
+            // 三个分支共用同一个临时资源根目录（用 RootDirOverrideForTests 指过去）。分支 1 的扁平
+            // paperdoll 图也写进夹具，不依赖检出目录里同步出来的资产——扁平 paperdoll/<name>.png 早已不
+            // 再由样例导入生成（ADR-0071 起改为分层目录），新检出/新工作树里没有这份文件，依赖它会让本用例
+            // 只在"碰巧留着旧产物"的检出里绿（1.75.0 发布门禁在新工作树上实测因此翻红）。
+            _tempFixtureRoot = System.IO.Path.Combine(
+                UnityEngine.Application.temporaryCachePath, "adr0091_fixture_" + System.Guid.NewGuid().ToString("N"));
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "paperdoll", "item_sample_hero_hat_test.png"), 8, 8);
+            UnityResourceLoader.RootDirOverrideForTests = _tempFixtureRoot;
+
+            // 分支 1：不属于任何精灵集的图像（paperdoll 类别的扁平图，路径形状同既有用例
+            // ResolvePath_PaperdollCategory_...），加载后枢轴应为默认值，不做任何 anchors.json 查找。
             var paperdollId = new Id("paperdoll.item.sample_hero_hat_test");
             bool? paperdollSuccess = null;
             _loader.LoadAsync(paperdollId, ResourceKind.Image, (id, ok) => paperdollSuccess = ok);
@@ -502,17 +511,14 @@ namespace Adapter.Unity.Tests.Runtime
             }
             Assert.IsNotNull(paperdollSuccess, "加载在超时前应当有结果，不应当悬而不决");
             Assert.IsTrue(paperdollSuccess!.Value,
-                "纸娃娃层测试资源加载应当成功——若失败，请先跑一次 build.ps1 -SyncContent 同步样例资产");
+                "扁平 paperdoll 夹具图加载应当成功");
             Assert.IsTrue(_loader.TryGetSprite(paperdollId, out var paperdollSprite));
             Assert.AreEqual(0.5f, paperdollSprite.pivot.x / paperdollSprite.rect.width, 0.001f,
                 "不属于任何精灵集的图像（paperdoll 类别）枢轴 X 应保持默认 0.5（ADR-0091 决策 3）");
             Assert.AreEqual(0.5f, paperdollSprite.pivot.y / paperdollSprite.rect.height, 0.001f,
                 "不属于任何精灵集的图像（paperdoll 类别）枢轴 Y 应保持默认 0.5（ADR-0091 决策 3）");
 
-            // 分支 2/3 共用同一个临时精灵集根目录，覆盖结构②解析 + root 越界回退。
-            _tempFixtureRoot = System.IO.Path.Combine(
-                UnityEngine.Application.temporaryCachePath, "adr0091_fixture_" + System.Guid.NewGuid().ToString("N"));
-
+            // 分支 2/3：同一临时根目录下再放两个精灵集，覆盖结构②解析 + root 越界回退。
             const int canvasW = 40;
             const int canvasH = 60;
             WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprites", "testcat_testname.png"), canvasW, canvasH);
@@ -525,8 +531,6 @@ namespace Adapter.Unity.Tests.Runtime
             WriteTextFixture(
                 System.IO.Path.Combine(_tempFixtureRoot, "sprites", "testcat_oob", "anchors.json"),
                 "{\"front\": {\"canvas_size\": [40, 60], \"anchors\": {\"root\": [999, 999]}}}");
-
-            UnityResourceLoader.RootDirOverrideForTests = _tempFixtureRoot;
 
             // 分支 2：结构②，front/back 两个方向 root 相同（testname 资源不带方向信息，走决策 2
             // "全部方向相同则直接用、不算歧义"分支），期望枢轴 = (20/40, 1-55/60)。
