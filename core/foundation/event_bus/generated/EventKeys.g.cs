@@ -42,6 +42,9 @@ namespace Core.Foundation.EventBus
         /// <summary>aura.stack_changed — 字段：targetId, auraDefId, oldStacks, newStacks。叠加层数变化（见 06 第 8 节）。</summary>
         public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
 
+        /// <summary>combat.attack_avoided — 字段：sourceId, targetId, school, hitResult, skillId, attackInstanceId。ADR-0098（消费方第四十三批反馈2根治，阻塞）：结算管线的“回避类”结局统一发布——命中表判定为 miss/dodge/parry（步骤 1，Resolver 既有终止分支）或免疫吸收判定为免疫（步骤 7）时触发；hitResult 只会是 Miss/Dodge/Parry/Immune 之一；skillId 语义同 combat.damage_dealt 行（可空，光环周期效果截断为空）；attackInstanceId 同 combat.damage_dealt 行（可空，但不经 Expr 暴露，同 unit.died 行 position 字段惯例）。不改动 combat.damage_dealt/combat.heal_done 的既有发布条件与字段——回避与落地在同一次结算里互斥，不以 amount=0 冒充回避。</summary>
+        public static readonly Id CombatAttackAvoided = new Id("combat.attack_avoided");
+
         /// <summary>combat.auto_attack_swing — 字段：sourceId, targetId。ADR-0070：普通攻击（AutoAttackHost）每结算一次挥击时触发，只表达“挥出了一次普通攻击”本身，不携带学派/伤害值（已由随后发出的 combat.damage_dealt 承载）；在 IEffectSink.ApplyEffect 之前发布，恒先于该次结算对应的 combat.damage_dealt；被跳过的挥击（超射程/被 NoAttack 拦截/未到挥击点/没有攻击周期）不发本事件。</summary>
         public static readonly Id CombatAutoAttackSwing = new Id("combat.auto_attack_swing");
 
@@ -320,6 +323,7 @@ namespace Core.Foundation.EventBus
             AuraApplied,
             AuraRemoved,
             AuraStackChanged,
+            CombatAttackAvoided,
             CombatAutoAttackSwing,
             CombatDamageDealt,
             CombatEntered,

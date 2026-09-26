@@ -229,34 +229,59 @@ namespace Tests.Rules.Combat
         // -----------------------------------------------------------------
 
         [Fact]
-        public void Resolve_Immune_NoDamageNoEvent()
+        public void Resolve_Immune_NoDamageEvent_EmitsAttackAvoidedInstead()
         {
+            // ADR-0098（消费方第四十三批反馈2根治）前：本用例断言 fx.Events 整体为空——免疫判定
+            // 完全不发任何事件。根治后免疫改发 combat.attack_avoided（HitResult.Immune），仍然不发
+            // combat.damage_dealt（不落地、不冒充伤害），见 CombatAttackAvoidedEvent 判断记录
+            // "发布时机与发布点 (2)"。这是行为的既定变更（ADR 拍板），不是放宽断言掩盖问题。
             var fx = MakeFixture("default");
             fx.Auras.SetImmune(Dummy, CombatTestSupport.SchoolPhysical, EffectKind.SchoolDamage);
 
             var result = fx.Host.ResolveEffect(DamageContext(baseValue: 100));
+            fx.Bus.DispatchPending();
 
             Assert.True(result.Immune);
             Assert.Equal(0.0, result.FinalAmount);
             Assert.Equal(1000.0, fx.Powers.GetPower(Dummy, WellKnownPowers.Health));
-            Assert.Empty(fx.Events);
+
+            Assert.DoesNotContain(fx.Events, e => e is CombatDamageDealtEvent);
+            CombatAttackAvoidedEvent? avoided = null;
+            foreach (var evt in fx.Events)
+            {
+                if (evt is CombatAttackAvoidedEvent a) avoided = a;
+            }
+            Assert.NotNull(avoided);
+            Assert.Equal(HitResult.Immune, avoided!.HitResult);
+            Assert.Equal(Hero, avoided.SourceId);
+            Assert.Equal(Dummy, avoided.TargetId);
         }
 
         [Fact]
-        public void Resolve_StaticImmunity_NoDamageNoEvent()
+        public void Resolve_StaticImmunity_NoDamageEvent_EmitsAttackAvoidedInstead()
         {
             // 阶段 3 整理"事项三"：免疫来源是 IStaticImmunityProvider（内容驱动，如
             // creature.template.immunities 声明的学派免疫），不是光环（FakeAuraQuery 本例未配置任何
-            // 免疫）——Resolver 步骤 7 在光环免疫之外叠加查询该契约，效果应与光环免疫等价。
+            // 免疫）——Resolver 步骤 7 在光环免疫之外叠加查询该契约，效果应与光环免疫等价，同样改发
+            // combat.attack_avoided（ADR-0098，见上一条用例判断记录）。
             var fx = MakeFixture("default");
             fx.StaticImmunity.SetImmune(Dummy, CombatTestSupport.SchoolPhysical, EffectKind.SchoolDamage);
 
             var result = fx.Host.ResolveEffect(DamageContext(baseValue: 100));
+            fx.Bus.DispatchPending();
 
             Assert.True(result.Immune);
             Assert.Equal(0.0, result.FinalAmount);
             Assert.Equal(1000.0, fx.Powers.GetPower(Dummy, WellKnownPowers.Health));
-            Assert.Empty(fx.Events);
+
+            Assert.DoesNotContain(fx.Events, e => e is CombatDamageDealtEvent);
+            CombatAttackAvoidedEvent? avoided = null;
+            foreach (var evt in fx.Events)
+            {
+                if (evt is CombatAttackAvoidedEvent a) avoided = a;
+            }
+            Assert.NotNull(avoided);
+            Assert.Equal(HitResult.Immune, avoided!.HitResult);
         }
 
         // -----------------------------------------------------------------
@@ -359,6 +384,119 @@ namespace Tests.Rules.Combat
 
             Assert.Equal(100.0, result.FinalAmount); // 未登记的属性按 0 处理，不影响乘区
             Assert.NotEmpty(fx.Diagnostics.Warnings);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0098（消费方第四十三批反馈2根治，阻塞）：未命中/闪避/招架/免疫统一发布
+        // combat.attack_avoided
+        // -----------------------------------------------------------------
+
+        /// <summary>复现用例（根治前必红：CombatAttackAvoidedEvent 类型不存在，编译失败）。阳性对照
+        /// 同一用例内验证：命中表改为必中时只发 combat.damage_dealt、不发 combat.attack_avoided，
+        /// 证明两者互斥、不是本用例只测了否定分支。</summary>
+        [Fact]
+        public void Resolve_MissBranch_EmitsAttackAvoided_NotDamageDealt_HitBranchEmitsDamageDealtOnly()
+        {
+            var fxMiss = MakeFixture("miss_forced");
+            var missResult = fxMiss.Host.ResolveEffect(DamageContext());
+            fxMiss.Bus.DispatchPending(); // Resolver 只 Enqueue，需要显式派发才能被订阅者观察到
+
+            Assert.Equal(HitResult.Miss, missResult.Hit);
+            Assert.DoesNotContain(fxMiss.Events, e => e is CombatDamageDealtEvent);
+
+            CombatAttackAvoidedEvent? avoided = null;
+            foreach (var evt in fxMiss.Events)
+            {
+                if (evt is CombatAttackAvoidedEvent a) avoided = a;
+            }
+            Assert.NotNull(avoided);
+            Assert.Equal(HitResult.Miss, avoided!.HitResult);
+            Assert.Equal(Hero, avoided.SourceId);
+            Assert.Equal(Dummy, avoided.TargetId);
+            Assert.Equal(CombatTestSupport.SchoolPhysical, avoided.School);
+
+            // 阳性对照：命中表全部分支关闭（"default"）→ 恒为 Hit，只发 combat.damage_dealt。
+            var fxHit = MakeFixture("default");
+            var hitResult = fxHit.Host.ResolveEffect(DamageContext());
+            fxHit.Bus.DispatchPending();
+
+            Assert.Equal(HitResult.Hit, hitResult.Hit);
+            Assert.Contains(fxHit.Events, e => e is CombatDamageDealtEvent);
+            Assert.DoesNotContain(fxHit.Events, e => e is CombatAttackAvoidedEvent);
+        }
+
+        /// <summary>不变量用例（分支合一）：Parry 与 Immune 各触发一次都发本事件，字段经
+        /// TryGetField 全部可读；目标已死亡的既有早退路径与治疗成功落地路径均不发本事件。</summary>
+        [Fact]
+        public void Resolve_ParryAndImmune_BothEmitAttackAvoided_ReadableFields_DeadTargetAndHealDoneDoNot()
+        {
+            // Parry。
+            var fxParry = MakeFixture("parry_enabled");
+            var parryResult = fxParry.Host.ResolveEffect(DamageContext());
+            fxParry.Bus.DispatchPending();
+
+            Assert.Equal(HitResult.Parry, parryResult.Hit);
+            CombatAttackAvoidedEvent? parryAvoided = null;
+            foreach (var evt in fxParry.Events)
+            {
+                if (evt is CombatAttackAvoidedEvent a) parryAvoided = a;
+            }
+            Assert.NotNull(parryAvoided);
+            Assert.Equal(HitResult.Parry, parryAvoided!.HitResult);
+
+            AssertFiveFieldsReadable(parryAvoided, Hero, Dummy, CombatTestSupport.SchoolPhysical, "Parry", SkillId);
+
+            // Immune。
+            var fxImmune = MakeFixture("default");
+            fxImmune.Auras.SetImmune(Dummy, CombatTestSupport.SchoolPhysical, EffectKind.SchoolDamage);
+            var immuneResult = fxImmune.Host.ResolveEffect(DamageContext());
+            fxImmune.Bus.DispatchPending();
+
+            Assert.True(immuneResult.Immune);
+            CombatAttackAvoidedEvent? immuneAvoided = null;
+            foreach (var evt in fxImmune.Events)
+            {
+                if (evt is CombatAttackAvoidedEvent a) immuneAvoided = a;
+            }
+            Assert.NotNull(immuneAvoided);
+            Assert.Equal(HitResult.Immune, immuneAvoided!.HitResult);
+            AssertFiveFieldsReadable(immuneAvoided, Hero, Dummy, CombatTestSupport.SchoolPhysical, "Immune", SkillId);
+
+            // 既有早退路径：对已死亡目标结算按 Miss 处理，但完全不触碰事件，本事件同样不发。
+            var fxDead = MakeFixture("crit_forced");
+            fxDead.Units.SetAlive(Dummy, false);
+            fxDead.Host.ResolveEffect(DamageContext());
+            fxDead.Bus.DispatchPending();
+
+            Assert.DoesNotContain(fxDead.Events, e => e is CombatAttackAvoidedEvent);
+
+            // combat.heal_done 路径：治疗正常落地（未被免疫）时不发本事件——两者在同一次结算里互斥。
+            var fxHeal = MakeFixture("default"); // 全分支关闭，治疗必然落地成功
+            fxHeal.Host.ResolveEffect(HealContext(baseValue: 100));
+            fxHeal.Bus.DispatchPending();
+
+            Assert.Contains(fxHeal.Events, e => e is CombatHealDoneEvent);
+            Assert.DoesNotContain(fxHeal.Events, e => e is CombatAttackAvoidedEvent);
+        }
+
+        private static void AssertFiveFieldsReadable(
+            CombatAttackAvoidedEvent evt, Id expectedSource, Id expectedTarget, Id expectedSchool,
+            string expectedHitResult, Id expectedSkillId)
+        {
+            Assert.True(evt.TryGetField("sourceId", out var sourceValue));
+            Assert.Equal(expectedSource, sourceValue.AsId);
+
+            Assert.True(evt.TryGetField("targetId", out var targetValue));
+            Assert.Equal(expectedTarget, targetValue.AsId);
+
+            Assert.True(evt.TryGetField("school", out var schoolValue));
+            Assert.Equal(expectedSchool, schoolValue.AsId);
+
+            Assert.True(evt.TryGetField("hitResult", out var hitResultValue));
+            Assert.Equal(expectedHitResult, hitResultValue.AsString);
+
+            Assert.True(evt.TryGetField("skillId", out var skillIdValue));
+            Assert.Equal(expectedSkillId, skillIdValue.AsId);
         }
     }
 }

@@ -63,6 +63,54 @@ namespace Tests.Rules.Common
             Assert.Equal(skillId, value.AsId);
         }
 
+        /// <summary>ADR-0098：直接构造级校验（Resolver 侧的发布点覆盖见
+        /// core/rules/combat/tests/ResolverHitTableTests.cs）——Key、五个 Expr 可读字段、可空
+        /// attackInstanceId 不经 Expr 暴露。</summary>
+        [Fact]
+        public void CombatAttackAvoidedEvent_CarriesKeyAndFields()
+        {
+            var source = new Id("unit.hero");
+            var target = new Id("unit.wolf");
+            var school = new Id("school.fire");
+            var skill = new Id("skill.fireball");
+            var attackInstanceId = new Id("attack_instance.1");
+
+            var evt = new CombatAttackAvoidedEvent(
+                source, target, school, HitResult.Dodge, skill, attackInstanceId, triggerChainDepth: 2);
+
+            Assert.Equal(RulesEventKeys.CombatAttackAvoided, evt.Key);
+            Assert.Equal(HitResult.Dodge, evt.HitResult);
+            Assert.Equal(skill, evt.SkillId);
+            Assert.Equal(attackInstanceId, evt.AttackInstanceId);
+            Assert.Equal(2, evt.TriggerChainDepth);
+
+            Assert.True(evt.TryGetField("sourceId", out var sourceValue));
+            Assert.Equal(source, sourceValue.AsId);
+            Assert.True(evt.TryGetField("targetId", out var targetValue));
+            Assert.Equal(target, targetValue.AsId);
+            Assert.True(evt.TryGetField("school", out var schoolValue));
+            Assert.Equal(school, schoolValue.AsId);
+            Assert.True(evt.TryGetField("hitResult", out var hitResultValue));
+            Assert.Equal("Dodge", hitResultValue.AsString);
+            Assert.True(evt.TryGetField("skillId", out var skillValue));
+            Assert.Equal(skill, skillValue.AsId);
+
+            // attackInstanceId 不经 IExprReadableEvent 暴露（同 CombatDamageDealtEvent 既有惯例）。
+            Assert.False(evt.TryGetField("attackInstanceId", out _));
+        }
+
+        /// <summary>可空 skillId 未提供时，TryGetField("skillId") 查不到（同
+        /// CombatDamageDealtEvent 旧构造惯例）。</summary>
+        [Fact]
+        public void CombatAttackAvoidedEvent_NullSkillId_NotReadable()
+        {
+            var evt = new CombatAttackAvoidedEvent(
+                new Id("unit.hero"), new Id("unit.wolf"), new Id("school.fire"), HitResult.Immune);
+
+            Assert.Null(evt.SkillId);
+            Assert.False(evt.TryGetField("skillId", out _));
+        }
+
         [Fact]
         public void UnitDiedEvent_AllowsNullKiller()
         {
@@ -125,6 +173,7 @@ namespace Tests.Rules.Common
         {
             Assert.Equal("skill.cast_start", RulesEventKeys.SkillCastStart.Value);
             Assert.Equal("combat.damage_dealt", RulesEventKeys.CombatDamageDealt.Value);
+            Assert.Equal("combat.attack_avoided", RulesEventKeys.CombatAttackAvoided.Value);
             Assert.Equal("unit.respawned", RulesEventKeys.UnitRespawned.Value);
             Assert.Equal("ai.state_changed", RulesEventKeys.AiStateChanged.Value);
         }

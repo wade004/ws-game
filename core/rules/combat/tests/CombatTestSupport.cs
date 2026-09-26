@@ -426,6 +426,10 @@ namespace Tests.Rules.Combat
                     new[] { "from", "to", "oldReaction", "newReaction" }),
                 new EventDefinition(RulesEventKeys.CombatDamageDealt, "combat",
                     new[] { "sourceId", "targetId", "school", "amount", "isCrit", "hitResult" }),
+                // ADR-0098：未命中/闪避/招架/免疫四类回避类结算结局统一发布，见
+                // CombatAttackAvoidedEvent 判断记录。
+                new EventDefinition(RulesEventKeys.CombatAttackAvoided, "combat",
+                    new[] { "sourceId", "targetId", "school", "hitResult", "skillId" }),
                 // ADR-0070：AutoAttackHostSwingEventTests 需要用真实 EventBus（StrictCatalog 默认
                 // true）验证挥击广播，登记本键。
                 new EventDefinition(RulesEventKeys.CombatAutoAttackSwing, "combat",
@@ -522,6 +526,7 @@ namespace Tests.Rules.Combat
             var bus = MakeBus();
             var events = new List<IEvent>();
             bus.Subscribe(RulesEventKeys.CombatDamageDealt, e => events.Add(e));
+            bus.Subscribe(RulesEventKeys.CombatAttackAvoided, e => events.Add(e));
             bus.Subscribe(RulesEventKeys.CombatHealDone, e => events.Add(e));
             bus.Subscribe(RulesEventKeys.CombatThreatChanged, e => events.Add(e));
             bus.Subscribe(RulesEventKeys.CombatEntered, e => events.Add(e));

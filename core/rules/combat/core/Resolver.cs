@@ -165,6 +165,12 @@ namespace Core.Rules.Combat
             if (hit == HitResult.Miss || hit == HitResult.Dodge || hit == HitResult.Parry)
             {
                 steps.Add($"terminal: hit={hit}，跳过步骤 2-8，FinalAmount=0");
+                // ADR-0098（消费方第四十三批反馈2根治）：三个终止分支统一发布 combat.attack_avoided，
+                // 见 CombatAttackAvoidedEvent 判断记录"发布时机与发布点 (1)"——与既有 NotifyCombatEvent
+                // 调用同一位置，不改变既有仇恨/进战簿记与 ResolveTrace 诊断出口。
+                _bus.Enqueue(new CombatAttackAvoidedEvent(
+                    context.SourceId, context.TargetId, context.School, hit,
+                    ResolveEventSkillId(context), context.AttackInstanceId, context.TriggerChainDepth));
                 _notifyCombatEvent(context.SourceId, context.TargetId);
                 _notifyCombatEvent(context.TargetId, context.SourceId);
                 var terminalResult = new ResolveResult(hit, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
@@ -250,7 +256,14 @@ namespace Core.Rules.Combat
             {
                 absorbed = 0.0;
                 finalAmount = 0.0;
-                steps.Add("immune_absorb: 免疫，FinalAmount=0，不落地、不发事件");
+                // ADR-0098（消费方第四十三批反馈2根治）：免疫判定发布 combat.attack_avoided
+                // （HitResult.Immune），见 CombatAttackAvoidedEvent 判断记录"发布时机与发布点 (2)"——
+                // 伤害/治疗两个语境均可能免疫，均发布本事件；仍然不落地 IPowerHost、不发
+                // combat.damage_dealt/combat.heal_done（两者与本事件在同一次结算里互斥）。
+                steps.Add("immune_absorb: 免疫，FinalAmount=0，不落地、不发 combat.damage_dealt/combat.heal_done，改发 combat.attack_avoided");
+                _bus.Enqueue(new CombatAttackAvoidedEvent(
+                    context.SourceId, context.TargetId, context.School, HitResult.Immune,
+                    ResolveEventSkillId(context), context.AttackInstanceId, context.TriggerChainDepth));
             }
             else if (!isHeal)
             {
@@ -323,7 +336,7 @@ namespace Core.Rules.Combat
                     // ProjectileHost 三个非周期生产构造点的 EffectContext.SkillId 均已是真正的技能 id
                     // （AutoAttackHost 固定为保留 id AutoAttackHost.NativeSkillId，有意如此，同判断
                     // 记录），isPeriodic 恒为 false，原样转发。
-                    var skillId = context.IsPeriodic ? (Id?)null : context.SkillId;
+                    var skillId = ResolveEventSkillId(context);
                     _bus.Enqueue(new CombatDamageDealtEvent(context.SourceId, context.TargetId, context.School, finalAmount, isCrit, hit, context.TriggerChainDepth, context.AttackInstanceId, skillId));
                 }
             }
@@ -791,6 +804,15 @@ namespace Core.Rules.Combat
             var dot = value.LastIndexOf('.');
             return dot < 0 ? value : value.Substring(dot + 1);
         }
+
+        /// <summary>
+        /// ADR-0073/ADR-0098 共用：落地事件（<see cref="CombatDamageDealtEvent"/>）与回避类事件
+        /// （<see cref="CombatAttackAvoidedEvent"/>）携带的 <c>skillId</c> 取同一条截断规则——见
+        /// <see cref="CombatDamageDealtEvent.SkillId"/> 判断记录，<c>context.IsPeriodic</c> 时截断为
+        /// <c>null</c>（光环周期效果的 <see cref="EffectContext.SkillId"/> 实际是光环定义 id，不是
+        /// 技能 id）。原为 <c>CombatDamageDealtEvent</c> 落地分支内联的一次性表达式，ADR-0098 新增
+        /// 两处回避类发布点需要同一条规则，抽成方法避免三处各自维护一份可能漂移的逻辑。</summary>
+        private static Id? ResolveEventSkillId(EffectContext context) => context.IsPeriodic ? (Id?)null : context.SkillId;
 
         // -----------------------------------------------------------------
         // 步骤 9：治疗仇恨

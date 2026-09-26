@@ -594,3 +594,30 @@ combat/
 `core/rules/ai/README.md` 判断记录（`AiHost.HandleCombat` 新增 `GetTopHostileThreat` 兜底跳过非
 敌对来源）——即便某条路径遗留了一条非敌对的仇恨条目，AI 也不应该选它当目标。ABI：`IThreatTable`
 新增默认接口方法、`ThreatTable` 新增构造函数重载，均不改动任何既有公开签名。
+
+## 判断记录（回避类结算发布事件，2026-09-26，[ADR-0098](../../../architecture/adr/0098-回避类结算发布事件.md)）
+
+消费方第四十三批反馈2（阻塞）：`Resolver.Resolve` 对未命中/闪避/招架（步骤 1 三个既有终止分支）
+与免疫吸收（步骤 7 判定为 `true`）均只调用 `NotifyCombatEvent`（仇恨/进战簿记）与
+`CombatOptions.ResolveTrace`（诊断出口，不是事件），完全不经过 `IEventBus.Enqueue`——消费方无法
+用事件驱动这四类"没有造成任何数值变化"的回避反馈。新增事件 `combat.attack_avoided`
+（`CombatAttackAvoidedEvent`，放 `core/rules/common/contracts/Events.cs`，与
+`CombatDamageDealtEvent`/`CombatHealDoneEvent` 同文件同风格）与 `HitResult.Immune` 枚举成员
+（追加到末尾，ABI 只加法）。两处发布点：① 三个终止分支内，与既有 `NotifyCombatEvent` 同一位置；
+② 免疫分支内，伤害/治疗两个语境均可能免疫、均发布，仍不落地 `IPowerHost`、不发
+`combat.damage_dealt`/`combat.heal_done`（三者在同一次结算里互斥，不会同时出现，`combat.heal_done`
+只在治疗成功落地时发，与本事件天然不重叠，不需要额外判断）。`SkillId` 截断规则（`context.IsPeriodic`
+时为 `null`）与 `combat.damage_dealt` 完全一致，抽成 `Resolver.ResolveEventSkillId` 静态方法供三处
+落地/回避发布点共用，避免同一条规则三处各自维护一份可能漂移的表达式。已死亡目标的既有早退路径
+（只记诊断、不触碰任何数值/事件）保持不变，不追加发布——该路径本就是调用方逻辑错误的兜底，不是
+玩家可感知的回避。`CombatAttackAvoidedEvent` 实现 `ITriggerChainEvent`（`TriggerChainDepth` 原样
+戳入 `EffectContext.TriggerChainDepth`，不经 Expr 暴露）：避免新事件类型被声明为
+`skill.proc_def.trigger_event` 时重现 N04 收边补齐（外部审计 68c9bed）此前在 `AuraRemovedEvent`
+上修复过的"事件驱动 Proc 自循环预算旁路"缺口，此项超出消费方反馈字面诉求，属顺带的一致性修正。
+`TryGetField` 只暴露 `sourceId`/`targetId`/`school`/`hitResult`/`skillId` 五个字段，
+`attackInstanceId` 不经 Expr 暴露（同 `CombatDamageDealtEvent` 既有惯例，`AttackInstanceId` 只经
+强类型属性对外）——已知限制：需要按攻击实例关联本事件做 Expr 条件过滤（如 `feedback.binding`
+按批次去重）暂不支持，需要时经宿主代码读取强类型属性。`presentation/feedback_binder` 按
+`feedback.binding` 声明的事件 key 泛化订阅、`FeedbackRuleValidator` 按 `EventKeys.All` 校验，新
+事件登记后自动可用，不需要代码改动。ABI：`Events.cs` 新增类型与常量、`HitResult` 新增枚举成员，
+均不改动任何既有公开签名。

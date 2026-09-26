@@ -31,6 +31,11 @@ namespace Core.Rules.Common
 
         public static readonly Id CombatDamageDealt = new Id("combat.damage_dealt");
         public static readonly Id CombatHealDone = new Id("combat.heal_done");
+
+        /// <summary>ADR-0098（消费方第四十三批反馈2根治，阻塞）：见 <see cref="CombatAttackAvoidedEvent"/>
+        /// 判断记录——未命中/闪避/招架/免疫四类"回避类"结算结局统一发布本事件，<c>combat.damage_dealt</c>/
+        /// <c>combat.heal_done</c> 不受影响、不以 <c>amount=0</c> 冒充回避。</summary>
+        public static readonly Id CombatAttackAvoided = new Id("combat.attack_avoided");
         public static readonly Id CombatThreatChanged = new Id("combat.threat_changed");
         public static readonly Id CombatEntered = new Id("combat.entered");
         public static readonly Id CombatLeft = new Id("combat.left");
@@ -481,6 +486,116 @@ namespace Core.Rules.Common
                 case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
                 case "triggerChainDepth": value = ExprValue.OfInt(TriggerChainDepth); return true;
                 case "attackInstanceId" when AttackInstanceId.HasValue: value = ExprValue.OfId(AttackInstanceId.Value); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// ADR-0098（消费方第四十三批反馈2根治，阻塞）：结算管线的"回避类"结局统一发布事件——此前
+    /// <see cref="Core.Rules.Combat.Resolver.Resolve"/> 对 <c>Miss</c>/<c>Dodge</c>/<c>Parry</c>（步骤 1
+    /// "判定"三个终止分支）与 <c>Immune</c>（步骤 7"免疫吸收"）均只调用
+    /// <c>ICombatHost.NotifyCombatEvent</c>（仇恨/进战簿记）与诊断出口 <c>CombatOptions.ResolveTrace</c>
+    /// （只读诊断通道，不是事件），完全不经过 <see cref="Core.Foundation.EventBus.IEventBus.Enqueue"/>——
+    /// 消费方无法用事件驱动"未命中/闪避/招架/免疫"这一类同属"没有造成任何数值变化"的战斗反馈（飘字
+    /// "Miss"/"Immune"、专属音效），只能反过来用"这一拍没有收到 <c>combat.damage_dealt</c>"这种
+    /// 不可靠的沉默推断，而沉默同样发生在"这一拍根本没有发生任何结算"的场景，两者无法区分。
+    /// <para>
+    /// 判断记录（为什么新增专用事件，不是给 <see cref="CombatDamageDealtEvent"/> 补一个
+    /// <c>amount=0</c> 的特殊值）：<c>combat.damage_dealt</c> 现有订阅方（仇恨/进战计数、任务目标
+    /// 计数、`feedback.binding` 命中特效等）的既有假设是"收到这个事件即发生了一次真实的数值结算"，
+    /// 用 <c>amount=0</c> 冒充回避会让这些订阅方需要额外分支来区分"真实造成 0 点伤害"（如已被完全
+    /// 减免到 0）与"根本没有结算"，语义混淆且不可靠；新增专用事件类型与专用 key，不改动
+    /// <c>combat.damage_dealt</c>/<c>combat.heal_done</c> 的既有字段/发布条件/订阅方语义（本模块与
+    /// ADR-0070 新增 <see cref="AutoAttackSwingEvent"/> 时"只借用已存在的拼图、不给既有拼图强加
+    /// 新语义"同一套推导）。
+    /// </para>
+    /// <para>
+    /// 判断记录（四类回避为什么合用同一个事件类型而不是四个事件）：四者共同点是"结算管线判定为
+    /// 不落地"，携带字段完全相同（谁打谁、什么学派、命中判定结果、可选的技能/攻击实例关联），
+    /// 差异只在 <see cref="HitResult"/> 具体取哪个值——与 <c>combat.damage_dealt</c> 自身也是"命中/
+    /// 偏斜/格挡/暴击等多种细分结果共用同一个事件类型、靠 <see cref="HitResult"/> 字段区分"完全
+    /// 同一惯例，不新开先例。
+    /// </para>
+    /// <para>
+    /// 判断记录（发布时机与发布点，两处）：(1) <c>Miss</c>/<c>Dodge</c>/<c>Parry</c>——
+    /// <see cref="Core.Rules.Combat.Resolver.Resolve"/> 步骤 1 判定出这三者之一后的既有终止分支
+    /// （提前 return，跳过步骤 2-9）内，与既有 <c>NotifyCombatEvent</c> 调用同一位置发布；治疗分支
+    /// 不会进入这三个终止分支（<c>DetermineHit</c> 的 <c>rollAvoidance</c> 对 <c>isHeal</c> 恒为
+    /// <c>false</c>，见该方法判断记录），因此本事件不会以治疗语境发布这三者之一，不需要额外判断。
+    /// (2) <c>Immune</c>——步骤 7 判定 <c>immune == true</c> 的既有分支内，与该分支既有的
+    /// "不落地、不发 <c>combat.damage_dealt</c>/<c>combat.heal_done</c>"逻辑同一位置发布，伤害/治疗
+    /// 两个语境均可能免疫（<see cref="Core.Rules.Common.IAuraQuery.IsImmune"/> 不区分
+    /// <see cref="EffectKind"/>），均发布本事件——与"<c>combat.heal_done</c> 路径不发本事件"并不
+    /// 矛盾：治疗被判定免疫时，落地的是"这次治疗被免疫吸收挡掉了"，从未进入过会发布
+    /// <c>combat.heal_done</c> 的落地步骤，两个事件在同一次结算里互斥、不会同时出现。
+    /// </para>
+    /// <para>
+    /// 判断记录（已死亡目标早退路径不发本事件）：<see cref="Core.Rules.Combat.Resolver.Resolve"/>
+    /// 方法最开头对已死亡目标的既有早退（返回 <c>Miss</c> 但只记诊断、不触碰任何数值/事件，见该
+    /// 分支既有注释）保持不变，不在这条路径追加发布——该路径本就被有意设计为"完全不产生可观测副
+    /// 作用，只留诊断"，追加事件会破坏这一既有契约，且这类调用属于调用方自身逻辑错误（对已经处理
+    /// 过死亡的目标重复结算），不是玩家可感知的"回避"。
+    /// </para>
+    /// </summary>
+    public sealed class CombatAttackAvoidedEvent : IEvent, IExprReadableEvent, ITriggerChainEvent
+    {
+        public Id Key => RulesEventKeys.CombatAttackAvoided;
+
+        public Id SourceId { get; }
+
+        public Id TargetId { get; }
+
+        public Id School { get; }
+
+        /// <summary>只会是 <see cref="HitResult.Miss"/>/<see cref="HitResult.Dodge"/>/
+        /// <see cref="HitResult.Parry"/>/<see cref="HitResult.Immune"/> 之一，见本类型判断记录
+        /// "发布时机与发布点"。</summary>
+        public HitResult HitResult { get; }
+
+        /// <summary>本次结算所属的技能，语义与取值规则同 <see cref="CombatDamageDealtEvent.SkillId"/>
+        /// 判断记录完全一致（含 <c>IsPeriodic</c> 截断规则、普通攻击携带
+        /// <c>AutoAttackHost.NativeSkillId</c>）——同一次结算无论最终落地还是被回避，"这次结算属于
+        /// 哪个技能"这一信息的产生方式不因结局分叉而改变。</summary>
+        public Id? SkillId { get; }
+
+        /// <summary>同一次结算批次共用的攻击实例 id，语义与取值规则同
+        /// <see cref="CombatDamageDealtEvent.AttackInstanceId"/> 判断记录完全一致。未经
+        /// <see cref="IExprReadableEvent"/> 暴露（同 <see cref="CombatDamageDealtEvent"/> 的既有
+        /// 惯例：可空标识类字段只经强类型属性对外，不是 Expr 条件过滤的常见诉求）。</summary>
+        public Id? AttackInstanceId { get; }
+
+        /// <summary>见 <see cref="CombatDamageDealtEvent.TriggerChainDepth"/> 判断记录（RC-01）：
+        /// 产生本次结算的 <see cref="EffectContext.TriggerChainDepth"/> 原样戳到事件上——回避类
+        /// 结局同样可能被声明为某个 <c>skill.proc_def.trigger_event</c>（例如"每次被闪避时触发一个
+        /// 被动技能"），若不实现 <see cref="ITriggerChainEvent"/>，<c>EventCorrelation.GetTriggerChainDepth</c>
+        /// 会对本事件恒取默认值 0（视为根事件），重现 N04 收边补齐（外部审计 68c9bed）此前在
+        /// <see cref="AuraRemovedEvent"/> 上修复过的同一类"事件驱动 Proc 自循环预算旁路"缺口——
+        /// 本次新增事件类型时一并接好，不留给下一次审计重新发现。</summary>
+        public int TriggerChainDepth { get; }
+
+        public CombatAttackAvoidedEvent(
+            Id sourceId, Id targetId, Id school, HitResult hitResult,
+            Id? skillId = null, Id? attackInstanceId = null, int triggerChainDepth = 0)
+        {
+            SourceId = sourceId;
+            TargetId = targetId;
+            School = school;
+            HitResult = hitResult;
+            SkillId = skillId;
+            AttackInstanceId = attackInstanceId;
+            TriggerChainDepth = triggerChainDepth;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "school": value = ExprValue.OfId(School); return true;
+                case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
+                case "skillId" when SkillId.HasValue: value = ExprValue.OfId(SkillId.Value); return true;
                 default: value = default; return false;
             }
         }
