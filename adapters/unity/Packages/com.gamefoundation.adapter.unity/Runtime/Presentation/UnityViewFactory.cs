@@ -932,12 +932,19 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
+            // [ADR-0095] 与 AttachDefaultAnimation/TryAttachPerLayerAnimation 同一判断记录：本方法
+            // 只在 UnitySpriteView 转发 DirectionSlotChanged 时才会被调用，ctx.Info 就是挂接时的
+            // 同一份 DisplayInfo（info.Kind 恒为 Sprite、info.Sprite 恒非空）；换向重新登记的剪辑
+            // 内容同样要按所属精灵集 anchors.json 计算枢轴/像素密度——否则换向后会退化回几何中心/
+            // 全局像素密度，与刚挂接时的表现不一致，是新的半个修复。
+            var spriteSetId = Id.Parse(ctx.Info.Sprite!.SpriteSetId);
+
             // 决策 1：逐层剪辑——仅对已声明纸娃娃层、且挂接期成功建立了 ActivePerLayerByState 的外形
             // 生效（同 TryAttachPerLayerAnimation 判断记录"只对声明了 paperdoll_layers 的 sprite 型
             // 外形生效"）。
             if (ctx.ActivePerLayerByState != null && ctx.Info.Sprite != null && ctx.Info.Sprite.PaperdollLayers.Count > 0)
             {
-                var perLayerByState = GetOrProbePerLayerForDirection(entityId, dirBareName, ctx, unityLoader);
+                var perLayerByState = GetOrProbePerLayerForDirection(entityId, dirBareName, ctx, unityLoader, spriteSetId);
                 SwapContents(ctx.ActivePerLayerByState, perLayerByState);
             }
 
@@ -958,17 +965,20 @@ namespace Adapter.Unity.Presentation
                     continue;
                 }
 
-                ReprobeWholeBodyClipForDirection(entityId, dirBareName, stateKey, stateClipId, clipDef, ctx.Player, unityLoader);
+                ReprobeWholeBodyClipForDirection(entityId, dirBareName, stateKey, stateClipId, clipDef, ctx.Player, unityLoader, spriteSetId);
             }
         }
 
         /// <summary>ADR-0093 决策 1/3：按 <paramref name="dirBareName"/> 对全部六个默认状态做一次逐层
         /// 探测（与 <see cref="TryAttachPerLayerAnimation"/> 挂接时的探测同一套 <see cref="ProbeLayersSequential"/>
         /// 逻辑，只是 dirBareName 参数化），按 (实体, 方向) 缓存结果（含空表示的缺失结果），命中缓存时
-        /// 直接返回，不重复探测。</summary>
+        /// 直接返回，不重复探测。[ADR-0095] <paramref name="spriteSetId"/>：由调用方
+        /// <see cref="ReprobeDirectionAwareAnimation"/> 统一计算的该实体所属精灵集 id，原样转发给
+        /// <see cref="ProbeLayersSequential"/>，取值来源/非空保证与 <see cref="TryAttachPerLayerAnimation"/>
+        /// 挂接时同一套。</summary>
         private Dictionary<Id, Dictionary<string, Id>> GetOrProbePerLayerForDirection(
             Id entityId, string dirBareName, DirectionAwareAnimContext ctx,
-            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader)
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
         {
             if (!_perLayerClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
             {
@@ -998,7 +1008,7 @@ namespace Adapter.Unity.Presentation
 
                 ProbeLayersSequential(
                     unityLoader, ctx.Player, ctx.Info.Sprite!.PaperdollLayers, layerIndex: 0, strippedRef, dirBareName,
-                    stateClipId, clipDef.Events, layerMap);
+                    stateClipId, clipDef.Events, layerMap, spriteSetId);
             }
 
             return perLayerByState;
@@ -1023,11 +1033,14 @@ namespace Adapter.Unity.Presentation
         /// <see cref="Core.Foundation.DisplayInfo.AnimClipDef.ResourceRef"/> 原值（无方向段）。两级都
         /// 未命中（资源尚未加载/该方向没有对应美术）时保持 <paramref name="stateClipId"/> 当前已经登记
         /// 的内容不变（同 ADR-0072 决策 2 三级"保持静态"同一惯例），不触碰、不重试（按 (实体, 方向,
-        /// 状态) 缓存"确认缺失"结果，见 <see cref="_defaultClipCacheByEntityAndDir"/> 判断记录）。</summary>
+        /// 状态) 缓存"确认缺失"结果，见 <see cref="_defaultClipCacheByEntityAndDir"/> 判断记录）。
+        /// [ADR-0095] <paramref name="spriteSetId"/>：由调用方 <see cref="ReprobeDirectionAwareAnimation"/>
+        /// 统一计算的该实体所属精灵集 id，原样转发给 <see cref="ProbeLayerClipTier"/>，使换向后重新
+        /// 解出的整身剪辑与挂接期 <see cref="RequestAnimClipUpgrade"/> 走同一枢轴/像素密度来源。</summary>
         private void ReprobeWholeBodyClipForDirection(
             Id entityId, string dirBareName, string stateKey, Id stateClipId,
             Core.Foundation.DisplayInfo.AnimClipDef clipDef, UnityFrameAnimPlayer player,
-            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader)
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
         {
             if (!_defaultClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
             {
@@ -1057,7 +1070,7 @@ namespace Adapter.Unity.Presentation
             };
 
             ProbeLayerClipTier(
-                unityLoader, candidates, tierIndex: 0,
+                unityLoader, candidates, tierIndex: 0, spriteSetId,
                 onResolved: effect =>
                 {
                     byState[stateKey] = effect;
