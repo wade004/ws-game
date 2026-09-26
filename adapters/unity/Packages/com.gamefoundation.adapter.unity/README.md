@@ -396,7 +396,17 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   必需、二者均读取成功才算整次加载成功，decal 可选、文件不存在不算失败；沿用既有 `Effect` 种类
   同款"后台线程读字节 + 主线程完成队列解码"线程模型（`_mapLayersCompletions`/
   `FinishMapLayersLoad`），解码结果缓存进 `_mapLayers`，经 `TryGetMapLayerAsset` 供
-  `UnityRenderer2D.CreateMapLayerInstance` 取用。
+  `UnityRenderer2D.CreateMapLayerInstance` 取用。**ADR-0096 跟进（2026-09-26，消费方反馈第
+  四十二批）**：三条解码路径（`DecodeMapLayerSprite`/`TryDecodeImage`/`TryDecodeEffect`）新增可写
+  属性 `TextureSampling`（新增公开类型 `TextureSamplingOptions`）——默认对三者开启 mip 链、过滤
+  模式默认三线性（本次解码未开启 mip 链时若仍是默认三线性自动降级为双线性，其它显式配置原样保留）、
+  地图分层图额外声明各向异性等级（默认 4）；新增私有方法 `ApplyTextureSampling` 收口三处共用的
+  "套用采样参数 + mip 生成结果核实"逻辑。`TryDecodeEffect` 开启 `MipChainForEffects` 时，逐帧改为
+  从图集切出独立纹理（新增 `_effectFrameTextures` 缓存，随 `Unload` 一并销毁，避免显存泄漏）——
+  Unity 的 mip 链按整张纹理生成，继续共享图集纹理会让相邻帧像素"渗色"进彼此的低级 mip；关闭时
+  保持全部帧共享同一张图集纹理、不生成 mip 的既有行为，逐字节不变。只影响此后新解码的资源，不
+  回溯已缓存的贴图（已知限制）。详见
+  [ADR-0096](../../../../architecture/adr/0096-运行时解码贴图带多级渐远链.md)。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
   与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
   （ADR-0016 决策 7）；`GetBlockingVersion` 按地图计数、`FindPath` 端点精确接合、`Raycast`/路径

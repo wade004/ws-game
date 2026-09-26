@@ -132,6 +132,26 @@
 // 真实引擎环境（Unity 许可恢复后）跑通完整 check.ps1 验证通过（全部 29 步，PlayMode 288/288），
 // 详见 architecture/落地计划/待引擎环境验证清单-2026-09-19-资源引用类别前缀适配层接线.md（已更新
 // 为验证记录）与 CHANGELOG.md [Unreleased]"引擎适配层接线"小节"验证结果"。
+//
+// ADR-0096 判断记录（消费方第四十二批，阻塞——运行时解码贴图带 mip 链）：本类型三条解码路径
+// （<see cref="DecodeMapLayerSprite"/>/<see cref="TryDecodeImage"/>/<see cref="TryDecodeEffect"/>）
+// 此前统一固定 <c>new Texture2D(2, 2, TextureFormat.RGBA32, false)</c>（不生成 mip 链）后
+// <c>LoadImage</c>，源资产密度高于屏幕实际显示密度时（4K 分辨率下角色按 0.13～0.69 倍缩小等常见
+// 场景）欠采样锯齿明显，移动/缩放时贴图闪烁。现默认对三条路径开启 mip 链（<see cref="TextureSampling"/>，
+// 见 <see cref="TextureSamplingOptions"/>），过滤模式默认三线性（无 mip 时自动降级为双线性，见
+// <see cref="ApplyTextureSampling"/> 判断记录），地图分层图额外声明各向异性等级（默认 4，地图整体
+// 拉伸摆放，观察角度导致的贴图倾斜比角色精灵更常见）。逐帧动画（<see cref="TryDecodeEffect"/>）开启
+// mip 链时每帧改为切成独立纹理（<see cref="Texture2D.GetPixels(int,int,int,int)"/> 取块 + 新纹理
+// <c>SetPixels32</c>/<c>Apply(updateMipmaps: true)</c>，原图集切完即销毁）——Unity 的 mip 链是按
+// 整张纹理生成的，同一图集上不同帧的相邻区域会互相"渗色"进对方的低级 mip，逐帧独立纹理是唯一能让
+// 每帧 mip 链正确反映自身内容而不掺杂集内其它帧像素的做法；帧矩形坐标与 <c>frames.json</c> 原有
+// 传给 <c>Sprite.Create</c> 的 <c>Rect</c> 同一套约定（原点左下），<c>GetPixels(x,y,w,h)</c> 同样
+// 原点左下，无需坐标翻转。已知限制：①只影响此后经本加载器解码的资源，不回溯已缓存的贴图（见
+// <see cref="TextureSamplingOptions"/> 类型顶部）；②逐帧动画开启独立纹理后，加载时多一次 CPU 端
+// 像素拷贝（<c>GetPixels</c> 逐帧读取），且帧与帧之间不再共享同一张图集的 GPU 纹理内存（显存
+// 占用随帧数增长，典型逐帧动画显存开销上升约 33%，即 mip 链本身在 RGBA32 上的固定开销，见
+// CHANGELOG 对应条目）；③关闭 <see cref="TextureSamplingOptions.MipChainForEffects"/> 时保持改动前
+// "全部帧共用同一张图集纹理、无 mip"的行为，与之前逐字节一致。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -309,6 +329,12 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, string> _navMeshText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, EffectAsset> _effects = new Dictionary<Id, EffectAsset>();
 
+        /// <summary>[ADR-0096] 仅当 <see cref="TextureSamplingOptions.MipChainForEffects"/> 开启时使用：
+        /// 一次 <see cref="TryDecodeEffect"/> 解码按帧切出的独立纹理列表（见该方法判断记录——每帧一张
+        /// 独立纹理，不再共享同一张图集纹理），随对应资源 <see cref="Unload"/> 一并销毁，避免显存泄漏。
+        /// 关闭该开关时保持改动前"全部帧共用同一张图集纹理"的行为，本字典不记录该资源的条目。</summary>
+        private readonly Dictionary<Id, List<Texture2D>> _effectFrameTextures = new Dictionary<Id, List<Texture2D>>();
+
         /// <summary>[ADR-0095] 决策 5：记录每个已成功解码的 <see cref="ResourceKind.Effect"/> 资源
         /// 最近一次实际使用的 <see cref="ResourceLoadHints.SpriteSetId"/>（<c>null</c> 是一种合法取值，
         /// 表示"按无提示解码"）。供 <see cref="LoadEffectAsync"/> 判断"再次请求携带的提示是否与已解码
@@ -361,6 +387,14 @@ namespace Adapter.Unity.EngineAdapter
         /// 属性，不受影响。
         /// </para></summary>
         public float PixelsPerUnit { get; set; } = 100f;
+
+        /// <summary>
+        /// [ADR-0096](../../../../../../../architecture/adr/0096-运行时解码贴图带多级渐远链.md) 新增：
+        /// 本加载器三条解码路径共用的贴图采样参数（是否生成 mip 链、过滤模式、地图分层图各向异性
+        /// 等级），见 <see cref="TextureSamplingOptions"/> 类型顶部判断记录。可写属性，调用方可随时
+        /// 整体替换或修改其属性；只影响此后新发起的解码，不回溯已缓存的贴图。
+        /// </summary>
+        public TextureSamplingOptions TextureSampling { get; set; } = new TextureSamplingOptions();
 
         /// <summary>ADR-0081 新增，[ADR-0091](../../../../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)
         /// 扩展：按精灵集相对目录（如 <c>"sprites/placeholder_hero"</c>）缓存该集 anchors.json 解析出
@@ -701,6 +735,20 @@ namespace Adapter.Unity.EngineAdapter
             // 携带什么提示）都应该正常重新解码，不应被当成"与此前不同提示"的冲突场景。
             _effectSpriteSetIdByResource.Remove(resourceId);
             _warnedEffectSpriteSetConflict.Remove(resourceId);
+
+            // [ADR-0096]：开启逐帧独立纹理时（MipChainForEffects），每帧纹理不再共享图集，需要随本
+            // 资源一并显式销毁，否则 Sprite 被移出 _effects 缓存后其独立纹理仍然常驻显存，泄漏。
+            if (_effectFrameTextures.TryGetValue(resourceId, out var frameTextures))
+            {
+                for (var i = 0; i < frameTextures.Count; i++)
+                {
+                    if (frameTextures[i] != null)
+                    {
+                        UnityEngine.Object.Destroy(frameTextures[i]);
+                    }
+                }
+                _effectFrameTextures.Remove(resourceId);
+            }
         }
 
         /// <summary>见 <see cref="Unload"/>：<see cref="_extractedSlotMeshes"/> 用组合键
@@ -890,12 +938,18 @@ namespace Adapter.Unity.EngineAdapter
         /// （非法图片字节）返回 null。</summary>
         private Sprite? DecodeMapLayerSprite(byte[] bytes)
         {
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            var mipChain = TextureSampling.MipChainForMapLayers;
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain);
             if (!texture.LoadImage(bytes))
             {
                 UnityEngine.Object.Destroy(texture);
                 return null;
             }
+
+            ApplyTextureSampling(texture, mipChain, "地图分层图");
+            // [ADR-0096]：各向异性过滤只在有 mip 链时才有意义，关闭 mip 链时回落到引擎默认值 1
+            // （不声明各向异性），不是"关了 mip 但仍强行按声明值设置"这种没有实际效果的中间态。
+            texture.anisoLevel = mipChain ? TextureSampling.MapLayerAnisoLevel : 1;
 
             return Sprite.Create(
                 texture,
@@ -908,14 +962,51 @@ namespace Adapter.Unity.EngineAdapter
         /// 时统一使用，与改动前逐字节一致（<c>Sprite.Create</c> 此前固定写死的取值）。</summary>
         private static readonly Vector2 DefaultPivot = new Vector2(0.5f, 0.5f);
 
+        /// <summary>
+        /// [ADR-0096](../../../../../../../architecture/adr/0096-运行时解码贴图带多级渐远链.md) 判断
+        /// 记录：<see cref="DecodeMapLayerSprite"/>/<see cref="TryDecodeImage"/>/<see cref="TryDecodeEffect"/>
+        /// （逐帧独立纹理分支）三处共用的"套用采样参数"收口——<paramref name="mipChainRequested"/> 为
+        /// <c>true</c>（对应资源种类的 <c>MipChainFor*</c> 开关已开启）时，先核实
+        /// <c>texture.mipmapCount</c> 是否真的大于 1（部分平台/纹理格式组合可能不生成 mip，只记一条
+        /// Warn 不抛异常，与本加载器既有"运行时路径不静默降级、但资源解析失败不中断整体加载"的惯例
+        /// 一致——mip 缺失不是加载失败，是画质降级，不应阻断资源可用），再采用
+        /// <see cref="TextureSamplingOptions.FilterMode"/>；为 <c>false</c> 时，若该属性仍是默认值
+        /// <see cref="UnityEngine.FilterMode.Trilinear"/>，自动降级为
+        /// <see cref="UnityEngine.FilterMode.Bilinear"/>（没有 mip 链时 Trilinear 无级间可插值，等价于
+        /// Bilinear，直接采用更明确，不依赖引擎自身的隐式行为），显式配置为其它取值（如 Point）时原样
+        /// 保留，不强行覆盖。
+        /// </summary>
+        private void ApplyTextureSampling(Texture2D texture, bool mipChainRequested, string diagnosticContext)
+        {
+            if (mipChainRequested)
+            {
+                if (texture.mipmapCount <= 1)
+                {
+                    Debug.LogWarning(
+                        $"[UnityResourceLoader] {diagnosticContext} 请求生成 mip 链，但解码后 " +
+                        $"mipmapCount={texture.mipmapCount}，可能受当前平台/纹理格式限制未能生成" +
+                        "（ADR-0096）。");
+                }
+                texture.filterMode = TextureSampling.FilterMode;
+                return;
+            }
+
+            texture.filterMode = TextureSampling.FilterMode == FilterMode.Trilinear
+                ? FilterMode.Bilinear
+                : TextureSampling.FilterMode;
+        }
+
         private bool TryDecodeImage(Id resourceId, byte[] bytes)
         {
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            var mipChain = TextureSampling.MipChainForImages;
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain);
             if (!texture.LoadImage(bytes))
             {
                 UnityEngine.Object.Destroy(texture);
                 return false;
             }
+
+            ApplyTextureSampling(texture, mipChain, $"图像资源 \"{resourceId.Value}\"");
 
             var sprite = Sprite.Create(
                 texture,
@@ -1314,6 +1405,19 @@ namespace Adapter.Unity.EngineAdapter
         /// 见两方法判断记录。
         /// </para>
         /// </summary>
+        /// <summary>
+        /// [ADR-0096] 决策 3 判断记录（逐帧图集开启 mip 链时按帧切成独立纹理）：Unity 的 mip 链按
+        /// 整张纹理生成，若继续让全部帧共享同一张图集纹理，某一帧的低级 mip 会掺入图集里相邻帧的
+        /// 像素（"渗色"）——缩小观察时一帧会隐约看见邻帧内容。本方法在
+        /// <see cref="TextureSamplingOptions.MipChainForEffects"/> 开启时，先解码图集到一张临时纹理
+        /// （<paramref name="atlasBytes"/>，不为它生成 mip、只用来读像素，切完帧即销毁），再用
+        /// <see cref="Texture2D.GetPixels(int,int,int,int)"/> 按帧矩形取出像素块，写入一张该帧专属
+        /// 尺寸的新纹理（<c>SetPixels32</c> + <c>Apply(updateMipmaps: true)</c>），让每帧的 mip 链只由
+        /// 自己的像素生成。<c>GetPixels(x, y, w, h)</c> 与既有代码传给 <c>Sprite.Create</c> 的
+        /// <c>Rect</c> 同一套坐标约定（原点左下，见 <c>frames.json</c> 既有解析与测试夹具的像素排布），
+        /// 不需要额外的 Y 轴翻转。关闭该开关时保持改动前"全部帧共用同一张图集纹理、无 mip"的行为，
+        /// 逐字节不变。
+        /// </summary>
         private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson, Id? spriteSetId)
         {
             if (!EffectFramesDocument.TryParse(framesJson, out var document))
@@ -1321,31 +1425,70 @@ namespace Adapter.Unity.EngineAdapter
                 return false;
             }
 
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!texture.LoadImage(atlasBytes))
+            var mipChain = TextureSampling.MipChainForEffects;
+
+            // 图集本身在开启逐帧独立纹理时只是像素来源、不作为任何 Sprite 的最终纹理，不需要生成
+            // mip（见本方法判断记录）；关闭时图集本身就是全部帧共用的最终纹理，与改动前一致地不生成
+            // mip（是否生成 mip 由下面 mipChain 分支各自决定）。
+            var atlasTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!atlasTexture.LoadImage(atlasBytes))
             {
-                UnityEngine.Object.Destroy(texture);
+                UnityEngine.Object.Destroy(atlasTexture);
                 return false;
+            }
+
+            if (!mipChain)
+            {
+                ApplyTextureSampling(atlasTexture, mipChainRequested: false, $"逐帧动画 \"{resourceId.Value}\" 图集");
             }
 
             var pixelsPerUnit = ResolveEffectPixelsPerUnit(spriteSetId, document);
 
             var frames = new EffectFrame[document.Frames.Count];
+            List<Texture2D>? frameTextures = mipChain ? new List<Texture2D>(document.Frames.Count) : null;
+
             for (var i = 0; i < document.Frames.Count; i++)
             {
                 var frameData = document.Frames[i];
-                var w = frameData.Width ?? texture.width;
-                var h = frameData.Height ?? texture.height;
-                var pivot = ResolveEffectPivot(resourceId, spriteSetId, document, (int)w, (int)h);
+                var w = (int)(frameData.Width ?? atlasTexture.width);
+                var h = (int)(frameData.Height ?? atlasTexture.height);
+                var pivot = ResolveEffectPivot(resourceId, spriteSetId, document, w, h);
 
-                var sprite = Sprite.Create(
-                    texture,
-                    new UnityEngine.Rect((float)frameData.X, (float)frameData.Y, (float)w, (float)h),
-                    pivot,
-                    pixelsPerUnit);
+                Sprite sprite;
+                if (mipChain)
+                {
+                    // 判断记录：Texture2D.GetPixels32 没有按矩形取块的重载（只有整图/按 mip 级两种），
+                    // 按矩形取块只有 GetPixels(x, y, blockWidth, blockHeight) 这一套（返回 Color[]），
+                    // 改用它配 SetPixels，效果与 GetPixels32/SetPixels32 等价，只是中间类型是
+                    // Color 而不是 Color32。
+                    var frameTexture = new Texture2D(w, h, TextureFormat.RGBA32, true);
+                    frameTexture.SetPixels(atlasTexture.GetPixels((int)frameData.X, (int)frameData.Y, w, h));
+                    frameTexture.Apply(updateMipmaps: true, makeNoLongerReadable: false);
+                    ApplyTextureSampling(frameTexture, mipChainRequested: true,
+                        $"逐帧动画 \"{resourceId.Value}\" 第 {i} 帧");
+
+                    sprite = Sprite.Create(
+                        frameTexture, new UnityEngine.Rect(0, 0, w, h), pivot, pixelsPerUnit);
+                    frameTextures!.Add(frameTexture);
+                }
+                else
+                {
+                    sprite = Sprite.Create(
+                        atlasTexture,
+                        new UnityEngine.Rect((float)frameData.X, (float)frameData.Y, w, h),
+                        pivot,
+                        pixelsPerUnit);
+                }
                 sprite.name = $"{resourceId.Value}_frame{i}";
 
                 frames[i] = new EffectFrame(sprite, frameData.Duration);
+            }
+
+            if (mipChain)
+            {
+                // 图集只是像素来源，全部帧已切成独立纹理，图集本身不再被任何 Sprite 引用，立即销毁。
+                UnityEngine.Object.Destroy(atlasTexture);
+                _effectFrameTextures[resourceId] = frameTextures!;
             }
 
             _effects[resourceId] = new EffectAsset(frames, document.Loop);
