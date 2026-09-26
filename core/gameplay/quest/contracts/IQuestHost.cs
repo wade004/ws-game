@@ -67,27 +67,30 @@ namespace Core.Gameplay.Quest
         /// <summary>
         /// 玩家主动放弃任务（ADR-0092，见该决策"Fail 与 Abandon 的语义差异"一节）。只允许对当前状态为
         /// <see cref="QuestState.Active"/>/<see cref="QuestState.ObjectivesComplete"/>（已接取、未
-        /// 交付，含已达标但尚未交付）的任务放弃。成功时把该任务的运行期进度记录整体移除——效果等价于
-        /// "这个单位从未接取过这条任务"：<see cref="GetState"/> 落回按 <c>prerequisite</c> 实时求值的
-        /// Available/Unavailable；<see cref="GetLog"/> 不再包含它；目标计数归零；不写入任何"失败"
-        /// 记录（与 <see cref="Fail"/> 刻意区分，见该决策）。成功发 <c>quest.abandoned</c>（字段对齐
-        /// <c>quest.failed</c>/<c>quest.turned_in</c> 既有惯例：<c>unitId</c> + <c>questId</c>）。
+        /// 交付，含已达标但尚未交付）的任务放弃，不写入任何"失败"记录（与 <see cref="Fail"/> 刻意
+        /// 区分，见该决策）。成功发 <c>quest.abandoned</c>（字段对齐 <c>quest.failed</c>/
+        /// <c>quest.turned_in</c> 既有惯例：<c>unitId</c> + <c>questId</c>）。
         /// <para>
-        /// 未接取（无进度记录）、已交付（<see cref="QuestState.TurnedIn"/>）、已失败（<see
-        /// cref="QuestState.Failed"/>）、或 <paramref name="questId"/> 未登记（含从未存在、或已被
-        /// 重新登记定义删除，同 <see cref="GetObjectiveRequiredCounts"/> 判断记录 CORE-118-QUEST）
-        /// ——均返回 <c>false</c>，不抛异常、不发事件：这是一个供 UI 一键调用的玩家意图，调用方不
-        /// 需要先查询状态再决定是否可以调用。
+        /// 语义（ADR-0092 决策 2，2026-09-26 改写："放弃 = 回到上一次交付之后的状态；从未交付过 =
+        /// 从未接取过"）：从未交付过（历史累计完成次数为 0）的任务，放弃后整条运行期进度记录移除，
+        /// 效果等价于"这个单位从未接取过这条任务"——<see cref="GetState"/> 落回按 <c>prerequisite</c>
+        /// 实时求值的 Available/Unavailable，<see cref="GetLog"/> 不再包含它。已经交付过至少一次的
+        /// 任务（只可能发生在可重复任务重新接取之后）放弃后不移除记录，而是回到"上一次交付刚完成时"
+        /// 的形状——目标计数归零，累计完成次数与最近交付日照旧保留，<see cref="GetState"/> 按既有的
+        /// 可重复性规则求值（<c>daily</c> 视是否同日回落 Unavailable/Available，<c>unlimited</c> 立即
+        /// Available），依赖"是否曾经完成过"的查询不因为放弃当前这一轮重新接取而失真。
         /// </para>
         /// <para>
-        /// 已知限制（ADR-0092"后果"一节）：整条运行期记录被移除，包含累计完成次数与最近交付日——
-        /// 若该任务是可重复任务且此前已经交付过若干次（历史累计完成次数 &gt; 0），玩家重新接取本轮
-        /// 又中途放弃，会连带丢失此前全部交付历史（"是否完成过"一类查询会从"曾经完成过"变回"从未
-        /// 完成"）。这是"放弃即回到从未接取"这一设计决策的直接推论，不在本次范围内单独处理，见
-        /// ADR-0092"备选方案"一节为何不选。
+        /// 未接取（无进度记录）、已交付（当前状态为 <see cref="QuestState.TurnedIn"/>，注意这与"放弃
+        /// 已交付过的可重复任务后记录回落到 TurnedIn 形状"是两回事——后者放弃前的当前状态必须是
+        /// Active/ObjectivesComplete）、已失败（<see cref="QuestState.Failed"/>）、或 <paramref
+        /// name="questId"/> 未登记（含从未存在、或已被重新登记定义删除，同 <see
+        /// cref="GetObjectiveRequiredCounts"/> 判断记录 CORE-118-QUEST）——均返回 <c>false</c>，不抛
+        /// 异常、不发事件：这是一个供 UI 一键调用的玩家意图，调用方不需要先查询状态再决定是否可以
+        /// 调用。
         /// </para>
         /// <para>
-        /// C# 8 默认接口成员（ABI 只加法，新增契约成员必须带默认实现）：默认实现恒抛
+        /// 默认接口成员（ABI 只加法，新增契约成员必须带默认实现）：默认实现恒抛
         /// <see cref="System.NotSupportedException"/>——语义是"该宿主实现不支持玩家主动放弃这一
         /// 能力"，与既有查询类默认成员（返回 null/空集合）不同：放弃是一个会改变运行期状态、会发
         /// 事件的写操作，静默降级为"什么都不做但返回 false"会让调用方（UI）误以为放弃已经生效，

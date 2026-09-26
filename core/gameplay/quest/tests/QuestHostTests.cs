@@ -959,10 +959,16 @@ namespace Tests.Gameplay.Quest
         /// <summary>不变量用例（ADR-0092，分支合一，宿主层部分）：①未接取的任务放弃返回失败、不发
         /// 事件；②已交付的任务放弃同样返回失败、不发事件；③新增 Abandon 不影响既有 Fail 路径行为
         /// （仍转移到 Failed、仍发 quest.failed）；④存档往返（Accept → Abandon → Save → 新宿主 Load）
-        /// 后该任务仍不在日志里、可重新接取，与"从未接取过"的存档表现一致。<c>UiIntents.AbandonQuest</c>
-        /// 转发到宿主并返回其结果这一支不在本程序集引用范围内（<c>presentation/ui</c> 是独立项目），
-        /// 并入 <c>presentation/ui/tests/UiIntentsTests.cs</c> 既有的
-        /// <c>AcceptQuest_and_TurnInQuest_delegate_to_quest_host</c> 一并断言，不新开第三条测试。</summary>
+        /// 后该任务仍不在日志里、可重新接取，与"从未接取过"的存档表现一致（<c>CompletionCount == 0</c>
+        /// 一支）；⑤可重复任务已交付过一次后再放弃，不丢交付历史（<c>CompletionCount &gt; 0</c>
+        /// 一支，ADR-0092 决策 2 修订口径）：daily 任务交付一次 → 次日重新接取、推进部分进度 →
+        /// Abandon → 记录不移除、回落到"上一次交付刚完成时"的形状（<c>CompletionCount</c> 仍为 1、
+        /// <c>ObjectiveCounts</c> 归零、状态不是 Active）、次日仍可再次接取；存档往返后同样成立。
+        /// <c>UiIntents.AbandonQuest</c> 转发到宿主并返回其结果这一支不在本程序集引用范围内
+        /// （<c>presentation/ui</c> 是独立项目），并入
+        /// <c>presentation/ui/tests/UiIntentsTests.cs</c> 既有的
+        /// <c>AcceptQuest_and_TurnInQuest_delegate_to_quest_host</c> 一并断言，不新开第三条测试。
+        /// </summary>
         [Fact]
         public void Abandon_UnacceptedOrTurnedIn_Fails_FailPathUnaffected_PersistsAsNeverAccepted()
         {
@@ -977,8 +983,14 @@ namespace Tests.Gameplay.Quest
                 QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.None);
             var persistId = new Id("quest.sample_abandon_persist");
             var persistQuest = SimpleKillQuest(persistId, new Id("creature.wolf"), 3);
+            var dailyId = new Id("quest.sample_abandon_daily_keeps_history");
+            var dailyQuest = new QuestDefinition(
+                dailyId,
+                new[] { new QuestObjective(QuestObjectiveType.Kill, new Id("creature.wolf"), 3) },
+                QuestStartMethod.NpcGossip, QuestTurnInMethod.NpcGossip, QuestRepeatable.Daily);
+            var defs = new[] { neverAcceptedQuest, turnedInQuest, failQuest, persistQuest, dailyQuest };
 
-            var h = new Harness(new[] { neverAcceptedQuest, turnedInQuest, failQuest, persistQuest });
+            var h = new Harness(defs);
 
             // ① 未接取：放弃失败，不发事件。
             Assert.False(h.Host.Abandon(Player, neverAcceptedId));
@@ -1001,14 +1013,40 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(failId, failedEvt.QuestId);
             Assert.Contains(h.Host.GetLog(Player), p => p.QuestId.Equals(failId) && p.State == QuestState.Failed);
 
-            // ④ 存档往返：Accept → Abandon → Save → 新宿主 Load 后仍是"未接取"，不在日志里、可再次接取。
+            // ④ 存档往返（CompletionCount == 0）：Accept → Abandon → Save → 新宿主 Load 后仍是
+            // "未接取"，不在日志里、可再次接取。
             h.Host.Accept(Player, persistId);
             h.Host.UpdateProgress(Player, persistId, 0, 1);
             Assert.True(h.Host.Abandon(Player, persistId));
+
+            // ⑤ CompletionCount > 0（ADR-0092 决策 2 修订口径）：daily 任务当天交付一次，次日重新
+            // 接取、推进部分进度后放弃——记录不移除，回落到"上一次交付刚完成时"的形状，不丢交付历史。
+            h.Host.Accept(Player, dailyId);
+            h.Host.UpdateProgress(Player, dailyId, 0, 3);
+            Assert.True(h.Host.TurnIn(Player, dailyId));
+            Assert.Equal(1, h.Host.GetLog(Player).Single(p => p.QuestId.Equals(dailyId)).CompletionCount);
+
+            h.CurrentDay = 1; // 次日：daily 任务的当日交付限制解除，可再次接取。
+            Assert.Equal(QuestState.Available, h.Host.GetState(Player, dailyId));
+            Assert.True(h.Host.Accept(Player, dailyId));
+            h.Host.UpdateProgress(Player, dailyId, 0, 2);
+
+            var abandonedEventsBefore = h.PublishedOf<QuestAbandonedEvent>().Count;
+            Assert.True(h.Host.Abandon(Player, dailyId));
+            Assert.Equal(abandonedEventsBefore + 1, h.PublishedOf<QuestAbandonedEvent>().Count);
+
+            var dailyAfterAbandon = h.Host.GetLog(Player).Single(p => p.QuestId.Equals(dailyId));
+            Assert.Equal(1, dailyAfterAbandon.CompletionCount); // 交付历史未丢失。
+            Assert.Equal(0, dailyAfterAbandon.ObjectiveCounts[0]); // 目标计数归零。
+            Assert.NotEqual(QuestState.Active, dailyAfterAbandon.State); // 不是 Active（回落为 TurnedIn 形状）。
+            Assert.Equal(QuestState.Available, h.Host.GetState(Player, dailyId)); // 仍在"次日"，立即可再接取。
+
+            // 存档往返：整段快照（含 persistId 已放弃、dailyId 回落为 TurnedIn 形状）Save → 新宿主 Load
+            // 后两支断言同样成立。
             var persistable1 = new QuestPersistable(h.Host, () => Player);
             var saved = persistable1.Save();
 
-            var h2 = new Harness(new[] { neverAcceptedQuest, turnedInQuest, failQuest, persistQuest });
+            var h2 = new Harness(defs) { CurrentDay = 1 };
             var persistable2 = new QuestPersistable(h2.Host, () => Player);
             persistable2.Load(saved);
 
@@ -1016,6 +1054,12 @@ namespace Tests.Gameplay.Quest
             Assert.Equal(QuestState.Available, h2.Host.GetState(Player, persistId));
             Assert.True(h2.Host.Accept(Player, persistId));
             Assert.Equal(0, h2.Host.GetLog(Player).Single(p => p.QuestId.Equals(persistId)).ObjectiveCounts[0]);
+
+            var dailyAfterLoad = h2.Host.GetLog(Player).Single(p => p.QuestId.Equals(dailyId));
+            Assert.Equal(1, dailyAfterLoad.CompletionCount);
+            Assert.Equal(0, dailyAfterLoad.ObjectiveCounts[0]);
+            Assert.Equal(QuestState.Available, h2.Host.GetState(Player, dailyId));
+            Assert.True(h2.Host.Accept(Player, dailyId));
         }
 
         // ---------------------------------------------------------------

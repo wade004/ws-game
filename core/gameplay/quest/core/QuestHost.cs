@@ -547,17 +547,30 @@ namespace Core.Gameplay.Quest
             return true;
         }
 
-        /// <summary>见 <see cref="IQuestHost.Abandon"/> 判断记录（ADR-0092）。整条运行期记录直接从
-        /// <see cref="_progress"/> 移除——不新增任何"已放弃"状态标记，效果与该 (unitId, questId)
-        /// 组合从未出现在字典里完全一致；<see cref="GetState"/>/<see cref="GetLog"/>/<see
-        /// cref="SnapshotAll"/> 因此不需要为放弃单独加分支，它们本就在处理"字典里没有这条记录"这个
-        /// 既有形状。定义未登记时按既有降级口径返回 <c>false</c>（同 <see cref="TryGetDefinition"/>
-        /// 服务的既有枚举路径，不像 <see cref="RequireDef"/> 那样抛异常——理由见接口成员判断记录：
-        /// 这是供 UI 一键调用的玩家意图，调用方不应因为极端情形下定义已被 Reload 删除而收到异常）。
+        /// <summary>见 <see cref="IQuestHost.Abandon"/> 判断记录（ADR-0092 决策 2，2026-09-26 改写：
+        /// "放弃 = 回到上一次交付之后的状态；从未交付过 = 从未接取过"）。按 <see
+        /// cref="QuestRuntimeState.CompletionCount"/> 分两支：
+        /// <list type="bullet">
+        /// <item>从未交付过（<c>CompletionCount == 0</c>）：整条记录从 <see cref="_progress"/> 移除
+        /// ——不新增任何"已放弃"状态标记，效果与该 (unitId, questId) 组合从未出现在字典里完全一致。</item>
+        /// <item>已经交付过至少一次（<c>CompletionCount &gt; 0</c>，只可能发生在可重复任务重新接取
+        /// 之后）：不移除记录，改写为"上一次交付刚完成时"的形状——<c>State</c> 置回
+        /// <see cref="QuestState.TurnedIn"/>、<c>ObjectiveCounts</c> 按当前定义的目标数量重建为全零
+        /// 数组；<c>CompletionCount</c>/<c>LastCompletedDay</c>/<c>LastKnownObjectives</c> 原样保留
+        /// 不动。这样 <see cref="GetState"/> 对 <see cref="QuestState.TurnedIn"/> 的既有分支（
+        /// <c>Daily</c> 按 <c>LastCompletedDay</c> 是否为当日决定 Available/Unavailable，
+        /// <c>Unlimited</c> 立即落到 prerequisite 求值分支）天然接管，不需要新增分支；累计交付历史
+        /// （<c>quest.is_completed</c> 类查询依据的 <c>CompletionCount &gt; 0</c>）不因为放弃当前
+        /// 这一轮重新接取而丢失。</item>
+        /// </list>
+        /// 两支都不产生任何"失败"记录、都发 <c>quest.abandoned</c>。定义未登记时按既有降级口径返回
+        /// <c>false</c>（同 <see cref="TryGetDefinition"/> 服务的既有枚举路径，不像 <see
+        /// cref="RequireDef"/> 那样抛异常——理由见接口成员判断记录：这是供 UI 一键调用的玩家意图，
+        /// 调用方不应因为极端情形下定义已被 Reload 删除而收到异常）。
         /// </summary>
         public bool Abandon(Id unitId, Id questId)
         {
-            if (!TryGetDefinition(questId, out _))
+            if (!TryGetDefinition(questId, out var def))
             {
                 return false;
             }
@@ -567,7 +580,17 @@ namespace Core.Gameplay.Quest
                 return false;
             }
 
-            _progress.Remove((unitId, questId));
+            if (rt.CompletionCount == 0)
+            {
+                _progress.Remove((unitId, questId));
+            }
+            else
+            {
+                rt.State = QuestState.TurnedIn;
+                rt.ObjectiveCounts = new int[def.Objectives.Count];
+                // CompletionCount/LastCompletedDay/LastKnownObjectives 原样保留，见方法判断记录。
+            }
+
             Publish(new QuestAbandonedEvent(unitId, questId));
             return true;
         }
