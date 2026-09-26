@@ -661,14 +661,39 @@ namespace Core.Carriers.Unit
                     navVersion = _navigation?.GetBlockingVersion(unit.MapId) ?? 0;
                     chase = chase.WithLastPlannedTargetPosition(targetPos);
                 }
-                // newPath == null：寻路失败，见本方法判断记录"已知限制"——path 保持上面读到的旧值
-                // （可能仍是 null，也可能是尚未过期的旧路径），不更新 LastPlannedTargetPosition。
+                else
+                {
+                    // 判断记录（消费方反馈复核后拍板，修正本方法此前"静默保留旧路径下次重试"的
+                    // 处理）：追击的目标在动，"移动到固定点"寻路失败时 KeepOldPath（默认策略）
+                    // "保留旧路径继续推进、什么都不做"这条既有语义在这里不成立——旧路径的终点是
+                    // 上一次的目标快照，目标下一 tick 大概率又移动了，继续沿用没有意义；若目标恰好
+                    // 站在一块永久不可达的区域（如导航网格之外），"什么都不做"会导致每个 tick 都
+                    // 重新调用一次 FindPath 却每次都失败——寻路开销无界增长，且消费方永远收不到任何
+                    // "到不了"的信号。改为按"移动到固定点"寻路失败的既有口径处理通知面：触发既有的
+                    // <see cref="MovementHost.OnMoveFailed"/>/<see cref="MovementHost.OnMoveFailedDetailed"/>
+                    // （复用 <see cref="MoveFailReason.NoPath"/>，不新增原因值），随后直接结束本次
+                    // 追击（清空 Chase、状态收回 Idle）——不接 <see cref="MovementOptions.PathFailurePolicy"/>
+                    // 的 KeepOldPath/Stop 二选一：那是"移动到固定点"场景的口味开关，追击场景的失败
+                    // 处理语义固定为"结束"，不做可配置（首次规划失败与后续重新规划失败同一处理，见
+                    // <see cref="BeginChase"/> 同样会先进入本方法评估）。事件的 <c>to</c> 参数用目标
+                    // 单位的当前位置（不是内部计算出的停止点 <c>standoffPoint</c>）——对消费方而言，
+                    // "追这个目标失败了"比"到某个内部计算出的坐标失败了"更有意义。
+                    _movementHost.RaiseMoveFailed(unit.EntityId, unit.Position, targetPos);
+                    _movementHost.RaiseMoveFailedDetailed(unit.EntityId, unit.Position, targetPos, MoveFailReason.NoPath);
+                    unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
+                    RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
+                    return;
+                }
             }
 
             if (path == null || path.Count == 0)
             {
                 // 从未成功规划出任何路径：保持追击态，本 tick 不移动，Mode 维持调用前的既有值（从未
-                // 开始移动，也就没有"变回 Idle"这回事）。
+                // 开始移动，也就没有"变回 Idle"这回事）。走到这里时 needsRepath 必然为 false（为
+                // true 时上面的 if/else 分支要么成功换上新路径、要么已经在 else 分支里 return 结束
+                // 追击，两种情形都不会落到这里），即 state.CurrentPath 本身就已经是 null 且未触发
+                // 过重新规划——理论上不会真的发生（needsRepath 的 OR 条件里就包含
+                // "state.CurrentPath == null"），保留只是防御性兜底，不删除既有分支。
                 unit.MovementState = new MovementState(null, state.Mode, state.MovementLocked, 0, 0, null, chase);
                 return;
             }

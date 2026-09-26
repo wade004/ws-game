@@ -33,6 +33,11 @@ namespace Tests.Carriers.Unit
 
             public int FindPathCallCount { get; private set; }
 
+            /// <summary>置为 <c>true</c> 后 <see cref="FindPath"/> 恒返回 <c>null</c>（模拟目标进入
+            /// 永久不可达区域），仍然计数——供"追击目标不可达"分支复用同一个假寻路器，不必另建一个
+            /// 专门返回 null 的类型。</summary>
+            public bool AlwaysUnreachable { get; set; }
+
             public void BuildNavMesh(Id mapId) => _inner.BuildNavMesh(mapId);
 
             public bool IsWalkable(Id mapId, Vec2 point) => _inner.IsWalkable(mapId, point);
@@ -40,7 +45,7 @@ namespace Tests.Carriers.Unit
             public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to)
             {
                 FindPathCallCount++;
-                return _inner.FindPath(mapId, from, to);
+                return AlwaysUnreachable ? null : _inner.FindPath(mapId, from, to);
             }
 
             public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => _inner.Raycast(mapId, from, to);
@@ -279,11 +284,13 @@ namespace Tests.Carriers.Unit
         }
 
         // ------------------------------------------------------------------
-        // 不变量⑤：目标每 tick 位移 0.1、累计 < FollowRepathDistance(0.5) 时不重新规划路径。
+        // 不变量⑤：目标每 tick 位移 0.1、累计 < FollowRepathDistance(0.5) 时不重新规划路径；
+        // 目标进入永久不可达区域时，重新规划失败恰好触发一次既有的寻路失败通知并结束追击（不再
+        // 每 tick 无声重试）。
         // ------------------------------------------------------------------
 
         [Fact]
-        public void ToUnit_TargetDriftsBelowRepathThreshold_DoesNotReplan()
+        public void ToUnit_TargetDriftsBelowRepathThreshold_DoesNotReplan_UnreachableTargetFailsOnceAndEndsChase()
         {
             var nav = new CountingNavigation2D();
             // speed 取一个较小值，保证追击单位在被观测的 4 个 tick 内还没走到上一次规划的终点
@@ -318,6 +325,38 @@ namespace Tests.Carriers.Unit
             fixture.Units.SetPosition(TargetId, targetPos);
             Tick(fixture, 1.0);
             Assert.Equal(2, nav.FindPathCallCount);
+
+            // ---- 追加分支：目标进入永久不可达区域（消费方复核后拍板，见 AdvanceChase 判断记录
+            // "needsRepath"里 else 分支）----
+            var failedEvents = new List<(Id UnitId, Vec2 From, Vec2 To)>();
+            var failedDetailedEvents = new List<(Id UnitId, Vec2 From, Vec2 To, MoveFailReason Reason)>();
+            fixture.Host.OnMoveFailed += (unitId, from, to) => failedEvents.Add((unitId, from, to));
+            fixture.Host.OnMoveFailedDetailed += (unitId, from, to, reason) => failedDetailedEvents.Add((unitId, from, to, reason));
+
+            nav.AlwaysUnreachable = true;
+            // 再漂一次，累计再次超过 0.5，触发下一次重新规划——这次寻路失败。
+            targetPos += new Vec2(0, 0.6);
+            fixture.Units.SetPosition(TargetId, targetPos);
+            Tick(fixture, 1.0);
+
+            Assert.Equal(3, nav.FindPathCallCount);
+            var failed = Assert.Single(failedEvents);
+            Assert.Equal(ChaserId, failed.UnitId);
+            var failedDetailed = Assert.Single(failedDetailedEvents);
+            Assert.Equal(ChaserId, failedDetailed.UnitId);
+            Assert.Equal(MoveFailReason.NoPath, failedDetailed.Reason);
+            Assert.False(fixture.Chaser.MovementState.Chase.HasValue);
+            Assert.Null(fixture.Chaser.MovementState.CurrentPath);
+            Assert.Equal(MoveMode.Idle, fixture.Chaser.MovementState.Mode);
+
+            // 目标继续移动，追击请求已经清空——不应该再调用 FindPath，也不应该再触发失败通知。
+            fixture.Units.SetPosition(TargetId, targetPos + new Vec2(0, 5));
+            Tick(fixture, 1.0);
+            Tick(fixture, 1.0);
+
+            Assert.Equal(3, nav.FindPathCallCount);
+            Assert.Single(failedEvents);
+            Assert.Single(failedDetailedEvents);
         }
     }
 }
