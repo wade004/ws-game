@@ -213,6 +213,33 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>> _perLayerClipsByEntity =
             new Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>>();
 
+        /// <summary>ADR-0100 决策 1：entityId -> 最近一次已知的"合成后层名集合"（<see
+        /// cref="SpriteViewBase.LastComposedLayers"/> 的层名投影）——<see
+        /// cref="TryAttachPerLayerAnimation"/> 挂接时按 <c>PaperdollLayers</c> 初始化一份，此后每次
+        /// <c>view.LayersComposed</c> 触发时与当前实际层名集合比对，不同即视为"装备变化"（层被新增/
+        /// 移除），触发 <see cref="ReprobeForCompositionChange"/>；相同（如单纯方向变化重合成、冷加载
+        /// 迟到回填）则只做既有的"当前帧立即回填"，不重复探测。</summary>
+        private readonly Dictionary<Id, HashSet<string>> _composedLayerNamesByEntity =
+            new Dictionary<Id, HashSet<string>>();
+
+        /// <summary>ADR-0100 决策 3：entityId -> 已经通过 <see cref="EnsureSpriteClipRegistered"/> 走过
+        /// 逐层/方向探测路径的覆盖剪辑 clipId 集合（武器风格 <c>AutoAttackAnim</c>/<c>CastAnimOverride</c>
+        /// 解析出的 clipId）——方向变化（<see cref="ReprobeDirectionAwareAnimation"/>）与装备变化（
+        /// <see cref="ReprobeForCompositionChange"/>）据此知道还有哪些覆盖剪辑需要一并重探测（覆盖剪辑
+        /// 只在首次被 <c>AnimClipResolver</c> 解出并调用 <c>playClip</c> 时才会经
+        /// <see cref="EnsureSpriteClipRegistered"/> 注册一次，此后 <c>player.HasClip</c> 恒为真，不会
+        /// 再次进入该方法，因此方向/装备变化必须靠本表主动补探测，不能指望 EnsureSpriteClipRegistered
+        /// 被重新调用）。</summary>
+        private readonly Dictionary<Id, HashSet<Id>> _overrideClipIdsByEntity = new Dictionary<Id, HashSet<Id>>();
+
+        /// <summary>ADR-0100 决策 3：覆盖剪辑逐层探测结果缓存——(实体, clipId, 方向裸档位名) -> 逐层
+        /// 命中表（非空即至少一层命中；空表示两级候选都未命中，这时才需要额外走整身方向变体，见
+        /// <see cref="TryResolveOverrideClipForCurrentComposition"/> 判断记录）。装备变化时随
+        /// <see cref="ReprobeForCompositionChange"/> 整体失效重建（同一方向下的合成层集合已经变化，
+        /// 旧缓存条目不再有效），见该方法判断记录。</summary>
+        private readonly Dictionary<Id, Dictionary<(Id ClipId, string Dir), Dictionary<string, Id>>> _overrideClipPerLayerCacheByEntityAndDir =
+            new Dictionary<Id, Dictionary<(Id, string), Dictionary<string, Id>>>();
+
         /// <summary>ADR-0093 决策 4：记录每个已挂接默认动画的 sprite 型实体的最小重探测上下文——
         /// <see cref="AttachDefaultAnimation"/> 期间已经拿到的 <see cref="UnityFrameAnimPlayer"/>/
         /// 渲染器/句柄/<c>display.anim_set</c>/状态键到 clipId 的映射，供
@@ -233,6 +260,17 @@ namespace Adapter.Unity.Presentation
             public Core.Foundation.DisplayInfo.AnimSetDef? AnimSet;
             public Dictionary<Id, Dictionary<string, Id>>? ActivePerLayerByState;
 
+            /// <summary>ADR-0100 决策 1/2/3 新增：本实体对应的 <see cref="UnitySpriteView"/>，供
+            /// <see cref="ReprobeDirectionAwareAnimation"/>/<see cref="ReprobeForCompositionChange"/>/
+            /// 覆盖剪辑逐层探测取用 <see cref="SpriteViewBase.LastComposedLayers"/>
+            /// （当前合成出的层集合，见 ADR-0100 决策 1）。此前本类型刻意不在本上下文里持有 View 引用
+            /// （见类型顶部旧版判断记录"不重复持有 UnitySpriteView 本身，避免不必要的耦合"）——
+            /// ADR-0100 需要按"当前合成出的层集合"探测，而不再是挂接时静态的 <c>PaperdollLayers</c>，
+            /// 这份运行期层集合只有 View 自己持有，不得不改为持有引用；仍不持有额外状态，只是多一次
+            /// 属性读取，未引入新的生命周期耦合（View 销毁与本上下文销毁本就同步，见
+            /// <see cref="OnEntityDestroyedForAnim"/>）。</summary>
+            public UnitySpriteView View = null!;
+
             /// <summary>最近一次成功处理过的方向裸档位名（见 <see cref="ReprobeDirectionAwareAnimation"/>
             /// 判断记录），null 表示尚未发生过一次方向变化重探测（挂接期的默认朝向探测不经过本表）。</summary>
             public string? LastDirBareName;
@@ -243,7 +281,7 @@ namespace Adapter.Unity.Presentation
 
         /// <summary>ADR-0093 决策 1/3：逐层剪辑按 (实体, 方向裸档位名) 缓存的解析结果，含"该状态没有
         /// 任何层命中"的缺失结果（空字典）——entityId -> dirBareName -> stateClipId -> (层名 -> 逐层
-        /// clipId)。避免朝向在几个已经访问过的档位间来回切换时重复走一遍 <see cref="ProbeLayersSequential"/>
+        /// clipId)。避免朝向在几个已经访问过的档位间来回切换时重复走一遍 <see cref="ProbeComposedLayersSequential"/>
         /// 的候选遍历/tier 探测逻辑（<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryGetEffect"/>
         /// 本身对已加载资源是同步缓存命中，本表额外省下的是"确认缺失"这一结果的可复用性——不必每次
         /// 切回该方向都重新走一遍二级探测才能再次得出"这一状态没有逐层美术"的结论）。</summary>
@@ -258,7 +296,7 @@ namespace Adapter.Unity.Presentation
             new Dictionary<Id, Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>>();
 
         /// <summary>测试用：<see cref="ReprobeDirectionAwareAnimation"/> 实际执行过重探测的次数（不含
-        /// 被 <see cref="Presentation.Render.SpriteViewBase.OnDirectionSlotChanged"/>"档位未变化不触发"
+        /// 被 <see cref="SpriteViewBase.OnDirectionSlotChanged"/>"档位未变化不触发"
         /// 挡在前面、根本没有到达本方法的调用）——供测试验证 ADR-0093 决策 3"只在档位变化时探测，不
         /// 逐帧探测"这条不变量，不是公开契约的一部分。</summary>
         internal int DirectionAwareReprobeCountForTests { get; private set; }
@@ -266,7 +304,7 @@ namespace Adapter.Unity.Presentation
         /// <summary>W6-B 新增：model 型实体的默认动画路由表——同 <see cref="_animPlayersByEntity"/>
         /// 姊妹表，供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托在查不到
         /// <see cref="UnityFrameAnimPlayer"/>（sprite 专属）时改走该实体的
-        /// <see cref="Presentation.Render.ModelCharacterRig.PlayClip"/>。</summary>
+        /// <see cref="ModelCharacterRig.PlayClip"/>。</summary>
         private readonly Dictionary<Id, UnityModelView> _modelViewsByEntity = new Dictionary<Id, UnityModelView>();
 
         private AnimStateMachine? _animStateMachine;
@@ -384,6 +422,11 @@ namespace Adapter.Unity.Presentation
             _directionAwareAnimByEntity.Remove(evt.EntityId);
             _perLayerClipCacheByEntityAndDir.Remove(evt.EntityId);
             _defaultClipCacheByEntityAndDir.Remove(evt.EntityId);
+
+            // ADR-0100：装备感知层集合探测新增的三张按实体记账的表，同一套"随实体销毁清理"惯例。
+            _composedLayerNamesByEntity.Remove(evt.EntityId);
+            _overrideClipIdsByEntity.Remove(evt.EntityId);
+            _overrideClipPerLayerCacheByEntityAndDir.Remove(evt.EntityId);
 
             // W6-B 新增：命中帧同步注册表同一套"随实体销毁清理"惯例（见 IHitFrameSource.UnregisterRig
             // 契约注释"未登记过时 no-op"，对从未注册过 hit frame 的实体调用同样安全）。
@@ -636,6 +679,7 @@ namespace Adapter.Unity.Presentation
                 StateClipIds = clips,
                 AnimSet = TryResolveAnimSet(info.Id),
                 ActivePerLayerByState = _perLayerClipsByEntity.TryGetValue(entityId, out var activePerLayerByState) ? activePerLayerByState : null,
+                View = view,
             };
             view.DirectionSlotChanged += newSlotId => ReprobeDirectionAwareAnimation(entityId, newSlotId);
 
@@ -660,28 +704,25 @@ namespace Adapter.Unity.Presentation
         /// <c>PaperdollLayers</c> 的外形生效（<paramref name="info"/>.<c>Sprite</c> 为 null 或该列表
         /// 为空——身体没有纸娃娃层可言——时整体是空操作）。<c>display.anim_set.clips.&lt;state&gt;.
         /// resource_ref</c> 对这类外形的语义由"整身剪辑资源"改为"逐层剪辑集引用"（04/09 已同步更新），
-        /// 三级探测顺序：① <c>sprite_anim.&lt;去类别前缀点号转下划线&gt;__&lt;方向裸档位名&gt;__
-        /// &lt;层名&gt;</c>（按方向+层名）；② 同前缀去掉方向段、只按 <c>__&lt;层名&gt;</c>；③ 两级都
-        /// 未命中——该层维持当前已经在显示的静态纸娃娃层图（不隐藏、不清空，ADR-0072 决策 2 判断记录
-        /// "隐藏装备中途看起来比不播放动画更糟"）。
+        /// 探测候选规则见 <see cref="BuildLayerCandidates"/>；两级都未命中——该层维持当前已经在显示的
+        /// 静态纸娃娃层图（不隐藏、不清空，ADR-0072 决策 2 判断记录"隐藏装备中途看起来比不播放动画
+        /// 更糟"）。
         /// <para>
-        /// 判断记录（方向裸档位名只在挂接时按默认朝向解析一次，不随后续 <see cref="Presentation.Render.SpriteViewBase.SyncPose"/>
-        /// 换向热更新）：与身体/装备静态层的既有颗粒度一致——本类型 <see cref="RegisterDefaultClips"/>
-        /// 对整身默认剪辑同样只在挂接时解析一次，见该方法注释；朝向换图属于"随装备/外形变化事件更新"
-        /// 的既有框架行为（见 <c>SpriteViewBase.RebuildEquippedLayers</c> 类型注释），不是本次 ADR-0072
-        /// 需要补齐的范围，不在这里另起一套热更新机制。</para>
+        /// 判断记录（挂接这一刻探测的层集合 = <c>PaperdollLayers</c>，装备动态新增/覆盖的层由
+        /// <see cref="ReprobeForCompositionChange"/> 补齐，ADR-0100 决策 1 取代 ADR-0072 原判断记录
+        /// "探测范围只覆盖身体默认层，不包含装备动态新增的层"）：挂接这一刻（<see cref="CreateView"/>
+        /// 尚未执行到 <c>ReplayEquippedVisuals</c>）装备是否已经穿戴、穿戴了哪些层，View 自己的
+        /// <see cref="SpriteViewBase.LastComposedLayers"/> 尚未反映——本方法用
+        /// <c>PaperdollLayers</c>（当前唯一已知的合成结果）作为起点探测并登记 <see cref="_composedLayerNamesByEntity"/>
+        /// 基线；此后不论是挂接完成后紧接着的已装备物品重放（<c>CreateView.ReplayEquippedVisuals</c>），
+        /// 还是运行期真正的装备/卸下事件，都会经 <c>view.LayersComposed</c> 触发一次"合成后层名集合是否
+        /// 变化"检测（见下方订阅、<see cref="ReprobeForCompositionChange"/>），命中则按当前实际合成出的
+        /// 层集合（含装备 <c>MeshRef</c> 来源）重新探测——不再是"只做一次、此后永久停留在身体默认层"，
+        /// 装备新增的全新层名（不在 <c>PaperdollLayers</c> 里）与覆盖已有层名的装备层都会被覆盖到。</para>
         /// <para>
-        /// 判断记录（探测范围只覆盖 <c>info.Sprite.PaperdollLayers</c> 声明的身体默认层，不包含装备
-        /// 动态新增的层）：装备新增层的层名在挂接这一刻（装备事件尚未发生）无法预知，且 09/ADR-0071
-        /// 已经确立"装备层与身体层共用同一份层名 -> 渲染器下标映射"（见 <see cref="Adapter.Unity.EngineAdapter.UnityRenderer2D.GetLayerNames"/>
-        /// 判断记录）——下方共享 <c>OnFrameChanged</c> 回调按层名（不是按"身体层/装备层"分类）在
-        /// <em>当前</em> 渲染列表里查下标，因此只要装备恰好用的是 <c>PaperdollLayers</c> 已经声明过的
-        /// 层名（如 "head"——身体默认就有一层裸头，装备把它换成帽子覆盖图，层名不变），逐层动画照样
-        /// 生效；只有装备引入一个 <c>PaperdollLayers</c> 从未出现过的全新层名（如某些游戏专属的"披风"
-        /// 层）时才不会被本次探测覆盖到——这一断层留给具体游戏按需扩展（可自行重写一份等价探测逻辑，
-        /// 本方法非 <c>virtual</c> 是因为 <see cref="UnityViewFactory"/> 全类型本就是"没有具体游戏
-        /// 参与的开箱即用默认路线"，不是可扩展基类，见类型顶部/<see cref="RegisterDefaultClips"/>
-        /// 同一惯例），不阻塞本次 ADR-0072 收口（09/ADR-0072 均记录为已知范围边界，不是缺陷）。</para>
+        /// 判断记录（方向裸档位名只在挂接时按默认朝向解析一次，不随后续 <see cref="SpriteViewBase.SyncPose"/>
+        /// 换向热更新）：换向重探测另由 ADR-0093 <see cref="ReprobeDirectionAwareAnimation"/> 承担，本
+        /// 方法只负责挂接这一刻按默认朝向的首次探测。</para>
         /// </summary>
         private void TryAttachPerLayerAnimation(
             Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, UnitySpriteView view, UnityFrameAnimPlayer player,
@@ -722,6 +763,13 @@ namespace Adapter.Unity.Presentation
             var (dirSlotId, _) = _conventions.ResolveDirectionSlot(defaultFacing, info.Sprite);
             var dirBareName = DirectionSlots.StripPrefix(dirSlotId);
 
+            // ADR-0100 决策 1：挂接这一刻唯一已知的合成结果是身体默认层（装备尚未重放，见方法判断
+            // 记录），一律不带 EquipMeshRef——与改动前 ProbeLayersSequential(PaperdollLayers)（现已
+            // 改名为 ProbeComposedLayersSequential）逐字节同一批候选。同时记下这份基线层名集合，供
+            // view.LayersComposed 首次触发时判断"是否已经变化"（见下方订阅）。
+            var initialComposedLayers = BuildInitialComposedLayers(info.Sprite.PaperdollLayers);
+            _composedLayerNamesByEntity[entityId] = ComposedLayerNames(initialComposedLayers);
+
             for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
             {
                 var stateKey = DefaultAnimStateKeys[i];
@@ -734,8 +782,8 @@ namespace Adapter.Unity.Presentation
                 var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
                 perLayerByState[stateClipId] = layerMap;
 
-                ProbeLayersSequential(
-                    unityLoader, player, info.Sprite.PaperdollLayers, layerIndex: 0, strippedRef, dirBareName,
+                ProbeComposedLayersSequential(
+                    unityLoader, player, initialComposedLayers, layerIndex: 0, strippedRef, dirBareName,
                     stateClipId, clipDef.Events, layerMap, spriteSetId);
             }
 
@@ -744,24 +792,60 @@ namespace Adapter.Unity.Presentation
             // perLayerByState 里查表即知道这一刻该不该走逐层路线，不需要额外记录"当前状态"。
             player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex));
 
-            // ADR-0099 决策 2（消费方反馈第四十四批）：订阅 UnitySpriteView 转发的
-            // SpriteViewBase.OnLayersComposed 钩子——每次纸娃娃层因方向槽位变化（ADR-0099 决策 1）或
-            // 装备变化重合成、写入渲染器之后，立即按播放器当前帧号（不推进时间轴、不重置）重新执行一次
-            // 与 player.OnFrameChanged 完全相同的写回逻辑，把刚被 SetLayers 覆盖回静态图的、命中逐层
-            // 动画的层立即纠正回当前动画帧，不必等下一次 OnFrameChanged（12fps 剪辑在 60Hz 下最多 5 帧
-            // 空档，见 SpriteViewBase.OnLayersComposed 判断记录）。复用同一个 perLayerByState 对象——
-            // ReprobeDirectionAwareAnimation 换向重探测时对它做的是原地 SwapContents（不是重新赋值新
-            // 对象，见该方法/SwapContents 判断记录），本闭包捕获的引用始终是最新解析结果，不需要重新
-            // 订阅。没有命中任何逐层剪辑的层（layerMap 为空，或某层不在 layerMap 里）保持不变——
-            // ApplyPerLayerFrame 内部与既有 OnFrameChanged 分支同一套"查不到就跳过/整身兜底"逻辑，
-            // 不会误伤本就该维持静态的层（决策 2 不变量③）。
+            // ADR-0099 决策 2（消费方反馈第四十四批）+ ADR-0100 决策 1（消费方反馈第四十五批）：订阅
+            // UnitySpriteView 转发的 SpriteViewBase.OnLayersComposed 钩子——每次纸娃娃层因方向槽位
+            // 变化（ADR-0099 决策 1）、装备变化，或首次引用的资源异步加载完成的迟到回填而重合成、写入
+            // 渲染器之后，① 立即按播放器当前帧号（不推进时间轴、不重置）重新执行一次与
+            // player.OnFrameChanged 完全相同的写回逻辑（ADR-0099 既有行为），② 额外比对本次合成后的
+            // 层名集合与上一次已知集合是否变化（ADR-0100 新增）——不同即视为装备变化（层被新增/覆盖/
+            // 移除），调用 ReprobeForCompositionChange 按当前实际合成出的层集合（含装备 MeshRef 来源）
+            // 重新探测全部默认状态与已知覆盖剪辑；相同（纯方向变化重合成、冷加载迟到回填）则跳过重探测
+            // ，只做①这一步，避免不必要的重复探测。复用同一个 perLayerByState 对象——
+            // ReprobeDirectionAwareAnimation/ReprobeForCompositionChange 对它做的是原地写入既有 key
+            // （不是重新赋值新对象），本闭包捕获的引用始终是最新解析结果，不需要重新订阅。没有命中任何
+            // 逐层剪辑的层（layerMap 为空，或某层不在 layerMap 里）保持不变——ApplyPerLayerFrame 内部
+            // 与既有 OnFrameChanged 分支同一套"查不到就跳过/整身兜底"逻辑，不会误伤本就该维持静态的层
+            // （决策 2 不变量③）。
             view.LayersComposed += () =>
             {
                 if (player.CurrentClipId.HasValue)
                 {
                     ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame);
                 }
+
+                var currentNames = ComposedLayerNames(view.LastComposedLayers);
+                if (_composedLayerNamesByEntity.TryGetValue(entityId, out var trackedNames) && !trackedNames.SetEquals(currentNames))
+                {
+                    _composedLayerNamesByEntity[entityId] = currentNames;
+                    ReprobeForCompositionChange(entityId);
+                }
             };
+        }
+
+        /// <summary>ADR-0100 决策 1：把身体默认层名列表转换成挂接期使用的"合成层"候选集合，全部标记
+        /// 为身体来源（<c>EquipMeshRef == null</c>）——<see cref="SpriteComposedLayer.ResourceId"/>
+        /// 字段本次探测用不到（探测候选只看层名 + <c>EquipMeshRef</c>，见 <see cref="BuildLayerCandidates"/>），
+        /// 用 <c>default(Id)</c> 占位。</summary>
+        private static IReadOnlyList<SpriteComposedLayer> BuildInitialComposedLayers(IReadOnlyList<string> paperdollLayers)
+        {
+            var result = new List<SpriteComposedLayer>(paperdollLayers.Count);
+            for (var i = 0; i < paperdollLayers.Count; i++)
+            {
+                result.Add(new SpriteComposedLayer(paperdollLayers[i], default, null));
+            }
+            return result;
+        }
+
+        /// <summary>ADR-0100 决策 1：从一份合成层列表投影出层名集合，供 <see cref="_composedLayerNamesByEntity"/>
+        /// 判断"合成后层集合是否变化"。</summary>
+        private static HashSet<string> ComposedLayerNames(IReadOnlyList<SpriteComposedLayer> composedLayers)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < composedLayers.Count; i++)
+            {
+                names.Add(composedLayers[i].LayerName);
+            }
+            return names;
         }
 
         /// <summary>ADR-0072 决策 2 的逐层动画写回核心逻辑（<see cref="TryAttachPerLayerAnimation"/> 的
@@ -794,7 +878,7 @@ namespace Adapter.Unity.Presentation
             }
 
             // 决策 2"至少一层命中即隐藏整身"：AnimRoot 此刻展示的内容只用于驱动共享时间轴的
-            // 帧数/帧率（见 ProbeLayersSequential 判断记录"首个命中层同时登记为状态自身 clipId
+            // 帧数/帧率（见 ProbeComposedLayersSequential 判断记录"首个命中层同时登记为状态自身 clipId
             // 的内容"），不应该被实际看到。
             player.SpriteRenderer.enabled = false;
 
@@ -830,34 +914,35 @@ namespace Adapter.Unity.Presentation
             }
         }
 
-        /// <summary>ADR-0072 决策 2：<see cref="TryAttachPerLayerAnimation"/> 的逐层递归——按
-        /// <paramref name="layerNames"/> 顺序依次探测每一层（严格顺序，不并发发起下一层的探测），
-        /// 保证"首个命中层"由层序单一确定，不受异步加载完成的先后时序影响（ADR-0072 决策 2 判断记录
-        /// "为什么按层序而不是按异步到达顺序决定权威时间轴"）。单层探测本身（tier1 -> tier2 ->
-        /// 三级不命中）见 <see cref="ProbeLayerClipTier"/>；命中时把该层注册为一个独立 clipId（
+        /// <summary>ADR-0072 决策 2、ADR-0100 决策 1/2 扩展：<see cref="TryAttachPerLayerAnimation"/>/
+        /// <see cref="GetOrProbePerLayerForDirection"/>/<see cref="ReprobeForCompositionChange"/>/覆盖
+        /// 剪辑逐层探测共用的逐层递归——按 <paramref name="composedLayers"/>（当前合成出的层集合，
+        /// ADR-0100 决策 1 取代此前固定的 <c>PaperdollLayers</c>）顺序依次探测每一层（严格顺序，不
+        /// 并发发起下一层的探测），保证"首个命中层"由层序单一确定，不受异步加载完成的先后时序影响
+        /// （ADR-0072 决策 2 判断记录"为什么按层序而不是按异步到达顺序决定权威时间轴"）。单层候选
+        /// 见 <see cref="BuildLayerCandidates"/>（身体层沿用 ADR-0072 两级候选；装备层新增 ADR-0100
+        /// 决策 2 的 <c>mesh_ref</c> 前缀候选）；单层探测本身（tier1 -> tier2 -> 三级不命中）见
+        /// <see cref="ProbeLayerClipTier"/>；命中时把该层注册为一个独立 clipId（
         /// <c>&lt;stateClipId&gt;.layer.&lt;层名&gt;</c>）供 <see cref="UnityFrameAnimPlayer.GetFrame"/>
         /// 按帧号查询，命中的第一层额外把同一个 Effect 注册为 <paramref name="stateClipId"/> 本身的
-        /// 内容——复用 <see cref="Presentation.Render.FrameAnimPlayer.Update"/> 既有的"每帧重新从
+        /// 内容——复用 <see cref="FrameAnimPlayer.Update"/> 既有的"每帧重新从
         /// 字典取最新版本"机制（N18 根治，见该方法判断记录），使共享时间轴的帧数/帧率立即（即便这次
         /// 注册发生在该状态已经播放中途）生效，不需要调用方额外重新 <see cref="UnityFrameAnimPlayer.Play"/>
         /// 一次。</summary>
-        private void ProbeLayersSequential(
+        private void ProbeComposedLayersSequential(
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, UnityFrameAnimPlayer player,
-            IReadOnlyList<string> layerNames, int layerIndex, string strippedRef, string dirBareName,
+            IReadOnlyList<SpriteComposedLayer> composedLayers, int layerIndex, string bodyOrClipStrippedRef, string dirBareName,
             Id stateClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events,
             Dictionary<string, Id> layerMap, Id spriteSetId)
         {
-            if (layerIndex >= layerNames.Count)
+            if (layerIndex >= composedLayers.Count)
             {
                 return;
             }
 
-            var layerName = layerNames[layerIndex];
-            var candidates = new[]
-            {
-                new Id($"sprite_anim.{strippedRef}__{dirBareName}__{layerName}"),
-                new Id($"sprite_anim.{strippedRef}__{layerName}"),
-            };
+            var layer = composedLayers[layerIndex];
+            var layerName = layer.LayerName;
+            var candidates = BuildLayerCandidates(layer, bodyOrClipStrippedRef, dirBareName);
 
             ProbeLayerClipTier(
                 unityLoader, candidates, tierIndex: 0, spriteSetId,
@@ -874,12 +959,39 @@ namespace Adapter.Unity.Presentation
                         player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(events, effect.Frames.Length));
                     }
 
-                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
+                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
                 },
                 onExhausted: () =>
                 {
-                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
+                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
                 });
+        }
+
+        /// <summary>ADR-0100 决策 2：单层候选资源 id 构造——身体层（<see cref="SpriteComposedLayer.EquipMeshRef"/>
+        /// 为 <c>null</c>）沿用 ADR-0072 两级候选，不含 mesh 段；装备层新增 mesh 前缀，候选顺序
+        /// <c>sprite_anim.&lt;去前缀 mesh_ref&gt;__&lt;bodyOrClipStrippedRef&gt;__&lt;方向&gt;__&lt;层名&gt;</c>
+        /// → <c>sprite_anim.&lt;去前缀 mesh_ref&gt;__&lt;bodyOrClipStrippedRef&gt;__&lt;层名&gt;</c>。
+        /// <paramref name="bodyOrClipStrippedRef"/>——"身体剪辑"去前缀 ref 段：默认六个状态传身体
+        /// <c>AnimClipDef.ResourceRef</c> 去前缀（与 ADR-0072 既有身体层候选同一来源）；武器风格/技能
+        /// 覆盖剪辑（ADR-0100 决策 3）传该覆盖剪辑自身 clipId 去前缀——覆盖剪辑在逐层探测的语境下
+        /// 扮演的正是"这一刻的身体剪辑"角色，装备层跟随它换算候选，不跟随默认状态的剪辑。</summary>
+        private static Id[] BuildLayerCandidates(SpriteComposedLayer layer, string bodyOrClipStrippedRef, string dirBareName)
+        {
+            if (layer.EquipMeshRef.HasValue)
+            {
+                var meshStripped = AssetRefConventions.StripCategoryPrefix(layer.EquipMeshRef.Value.Value);
+                return new[]
+                {
+                    new Id($"sprite_anim.{meshStripped}__{bodyOrClipStrippedRef}__{dirBareName}__{layer.LayerName}"),
+                    new Id($"sprite_anim.{meshStripped}__{bodyOrClipStrippedRef}__{layer.LayerName}"),
+                };
+            }
+
+            return new[]
+            {
+                new Id($"sprite_anim.{bodyOrClipStrippedRef}__{dirBareName}__{layer.LayerName}"),
+                new Id($"sprite_anim.{bodyOrClipStrippedRef}__{layer.LayerName}"),
+            };
         }
 
         /// <summary>ADR-0072 决策 2：单层的二级探测（tier1 -> tier2 -> 三级维持静态）——命中缓存
@@ -930,7 +1042,7 @@ namespace Adapter.Unity.Presentation
         /// 同一套候选规则新增方向段，见 <see cref="ReprobeWholeBodyClipForDirection"/>）默认动画剪辑。
         /// <para>
         /// 命中时把内容重新登记到与挂接时相同的 clipId（<see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>
-        /// 对同一 clipId 直接覆盖内容），复用 <see cref="Presentation.Render.FrameAnimPlayer.Update"/>
+        /// 对同一 clipId 直接覆盖内容），复用 <see cref="FrameAnimPlayer.Update"/>
         /// 既有的"每帧重新按 clipId 查最新内容、保留已经过的播放时间"机制（N18 根治，见该方法判断记录）
         /// 保留播放进度（ADR-0093 决策 2"保持时间轴"）——正在播放的状态只要仍以同一个 clipId 继续被
         /// <c>FrameAnimPlayer.Update</c> 追踪，内容原地升级即可做到"同一状态内换方向不从头播"，不需要
@@ -988,7 +1100,7 @@ namespace Adapter.Unity.Presentation
             }
 
             // 决策 5：整身默认剪辑——只对"逐层没有任何命中"的状态生效；逐层命中的状态，上面
-            // GetOrProbePerLayerForDirection 内部复用的 ProbeLayersSequential"首个命中层同时登记为
+            // GetOrProbePerLayerForDirection 内部复用的 ProbeComposedLayersSequential"首个命中层同时登记为
             // 状态自身 clipId"已经顺带把 stateClipId 的内容换成新方向，不需要重复处理。
             for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
             {
@@ -1006,15 +1118,29 @@ namespace Adapter.Unity.Presentation
 
                 ReprobeWholeBodyClipForDirection(entityId, dirBareName, stateKey, stateClipId, clipDef, ctx.Player, unityLoader, spriteSetId);
             }
+
+            // ADR-0100 决策 3：方向变化也要重探测已知的覆盖剪辑（武器风格/技能覆盖剪辑）——它们不经过
+            // AnimClipResolver 重新调用 EnsureSpriteClipRegistered（一旦注册过，player.HasClip 恒为真，
+            // 见该方法/_overrideClipIdsByEntity 判断记录），必须在这里主动补探测。
+            if (_overrideClipIdsByEntity.TryGetValue(entityId, out var overrideClipIds))
+            {
+                foreach (var clipId in overrideClipIds)
+                {
+                    ReprobeOverrideClipForDirection(entityId, clipId, dirBareName, ctx, unityLoader, spriteSetId);
+                }
+            }
         }
 
-        /// <summary>ADR-0093 决策 1/3：按 <paramref name="dirBareName"/> 对全部六个默认状态做一次逐层
-        /// 探测（与 <see cref="TryAttachPerLayerAnimation"/> 挂接时的探测同一套 <see cref="ProbeLayersSequential"/>
-        /// 逻辑，只是 dirBareName 参数化），按 (实体, 方向) 缓存结果（含空表示的缺失结果），命中缓存时
-        /// 直接返回，不重复探测。[ADR-0095] <paramref name="spriteSetId"/>：由调用方
-        /// <see cref="ReprobeDirectionAwareAnimation"/> 统一计算的该实体所属精灵集 id，原样转发给
-        /// <see cref="ProbeLayersSequential"/>，取值来源/非空保证与 <see cref="TryAttachPerLayerAnimation"/>
-        /// 挂接时同一套。</summary>
+        /// <summary>ADR-0093 决策 1/3、ADR-0100 决策 1 扩展：按 <paramref name="dirBareName"/> 对全部
+        /// 六个默认状态做一次逐层探测（与 <see cref="TryAttachPerLayerAnimation"/> 挂接时的探测同一套
+        /// <see cref="ProbeComposedLayersSequential"/> 逻辑，只是 dirBareName 参数化，探测的层集合改
+        /// 用 <paramref name="ctx"/>.<c>View</c>.<see cref="SpriteViewBase.LastComposedLayers"/>
+        /// ——当前实际合成出的层集合，含装备来源，见 ADR-0100 决策 1/2），按 (实体, 方向) 缓存结果
+        /// （含空表示的缺失结果），命中缓存时直接返回，不重复探测。装备变化（<see cref="ReprobeForCompositionChange"/>）
+        /// 会整体清空本缓存——同一方向下的合成层集合已经变了，旧缓存条目不再代表当前状态。[ADR-0095]
+        /// <paramref name="spriteSetId"/>：由调用方 <see cref="ReprobeDirectionAwareAnimation"/> 统一
+        /// 计算的该实体所属精灵集 id，原样转发给 <see cref="ProbeComposedLayersSequential"/>，取值来源/
+        /// 非空保证与 <see cref="TryAttachPerLayerAnimation"/> 挂接时同一套。</summary>
         private Dictionary<Id, Dictionary<string, Id>> GetOrProbePerLayerForDirection(
             Id entityId, string dirBareName, DirectionAwareAnimContext ctx,
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
@@ -1033,6 +1159,8 @@ namespace Adapter.Unity.Presentation
             var perLayerByState = new Dictionary<Id, Dictionary<string, Id>>();
             byDir[dirBareName] = perLayerByState;
 
+            var composedLayers = CurrentComposedLayersOrInitial(ctx);
+
             for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
             {
                 var stateKey = DefaultAnimStateKeys[i];
@@ -1045,8 +1173,8 @@ namespace Adapter.Unity.Presentation
                 var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
                 perLayerByState[stateClipId] = layerMap;
 
-                ProbeLayersSequential(
-                    unityLoader, ctx.Player, ctx.Info.Sprite!.PaperdollLayers, layerIndex: 0, strippedRef, dirBareName,
+                ProbeComposedLayersSequential(
+                    unityLoader, ctx.Player, composedLayers, layerIndex: 0, strippedRef, dirBareName,
                     stateClipId, clipDef.Events, layerMap, spriteSetId);
             }
 
@@ -1063,6 +1191,113 @@ namespace Adapter.Unity.Presentation
             foreach (var kv in source)
             {
                 target[kv.Key] = kv.Value;
+            }
+        }
+
+        /// <summary>
+        /// ADR-0100 决策 1：装备变化触发的重探测——<see cref="TryAttachPerLayerAnimation"/> 挂接的
+        /// <c>view.LayersComposed</c> 处理器检测到"合成后层名集合相比上一次已知集合发生变化"（层被
+        /// 新增/覆盖/移除）时调用。按当前方向（<c>ctx.LastDirBareName</c>，尚未发生过方向变化时用挂接
+        /// 期默认朝向）与当前实际合成出的层集合（<c>ctx.View.LastComposedLayers</c>，含装备
+        /// <c>MeshRef</c> 来源）重新探测全部默认状态与已知的覆盖剪辑（ADR-0100 决策 3），原地覆盖
+        /// <c>ctx.ActivePerLayerByState</c> 对应条目——与 <see cref="ReprobeDirectionAwareAnimation"/>
+        /// 共用同一张表、同一套 <see cref="ProbeComposedLayersSequential"/> 探测逻辑，唯一区别是触发
+        /// 时机（装备变化 vs 方向变化）与是否需要重新解析方向（本方法方向不变，只是层集合变了）。
+        /// <para>
+        /// 判断记录（整体清空 (实体, 方向) 缓存，不只更新当前方向这一条）：<see cref="_perLayerClipCacheByEntityAndDir"/>/
+        /// <see cref="_overrideClipPerLayerCacheByEntityAndDir"/> 按方向缓存的是"某个方向下的合成层
+        /// 集合探测结果"，装备变化后同一方向对应的合成层集合已经不同于缓存记录时的状态——若只更新当前
+        /// 方向这一条，之后切到别的、此前访问过的方向时会读到装备变化前的陈旧缓存（漏掉新装的层，或
+        /// 保留已卸下的层）。整体清空后，下一次切到任意方向都会重新走一遍 <see cref="ProbeComposedLayersSequential"/>
+        /// ——对已经加载过的 <c>sprite_anim</c> 资源，<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryGetEffect"/>
+        /// 是同步缓存命中，代价可忽略。
+        /// </para>
+        /// <para>
+        /// 判断记录（不处理整身默认剪辑的方向变体缓存 <see cref="_defaultClipCacheByEntityAndDir"/>）：
+        /// 整身候选（<c>&lt;ref&gt;__&lt;dir&gt;</c>/<c>&lt;ref&gt;</c>）不引用任何层名/装备信息，装备
+        /// 变化不影响其解析结果，见 <see cref="ReprobeWholeBodyClipForDirection"/> 候选公式，不需要
+        /// 随装备变化失效。
+        /// </para>
+        /// </summary>
+        private void ReprobeForCompositionChange(Id entityId)
+        {
+            if (!_directionAwareAnimByEntity.TryGetValue(entityId, out var ctx) || ctx.ActivePerLayerByState == null
+                || ctx.Info.Sprite == null || !(_resourceLoader is Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader))
+            {
+                return;
+            }
+
+            var dirBareName = ctx.LastDirBareName ?? InitialDirBareName(ctx.Info.Sprite);
+            var spriteSetId = Id.Parse(ctx.Info.Sprite.SpriteSetId);
+            var composedLayers = ctx.View.LastComposedLayers;
+
+            // 装备变化后同一方向下的合成层集合已经不同，两张按 (实体, 方向) 缓存的表全部失效，见方法
+            // 判断记录。
+            _perLayerClipCacheByEntityAndDir.Remove(entityId);
+            _overrideClipPerLayerCacheByEntityAndDir.Remove(entityId);
+
+            if (ctx.AnimSet != null)
+            {
+                for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+                {
+                    var stateKey = DefaultAnimStateKeys[i];
+                    if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                    {
+                        continue;
+                    }
+
+                    var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
+                    var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedRef, dirBareName, stateClipId, clipDef.Events, layerMap, spriteSetId);
+                    ctx.ActivePerLayerByState[stateClipId] = layerMap;
+                }
+            }
+
+            // ADR-0100 决策 3：已知的覆盖剪辑同样按当前（不变的）方向、最新的合成层集合重新探测。
+            if (_overrideClipIdsByEntity.TryGetValue(entityId, out var overrideClipIds))
+            {
+                foreach (var clipId in overrideClipIds)
+                {
+                    var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
+                    var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedClip, dirBareName, clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId);
+                    ctx.ActivePerLayerByState[clipId] = layerMap;
+                }
+            }
+        }
+
+        /// <summary>见 <see cref="ReprobeForCompositionChange"/>/<see cref="TryResolveOverrideClipForCurrentComposition"/>
+        /// 判断记录：尚未发生过一次方向变化（<c>ctx.LastDirBareName</c> 为 <c>null</c>）时，按挂接期
+        /// 同一套默认朝向换算出的方向裸档位名——与 <see cref="TryAttachPerLayerAnimation"/> 挂接时的
+        /// 取值公式逐字节一致。</summary>
+        private string InitialDirBareName(Core.Foundation.DisplayInfo.SpriteInfo sprite)
+        {
+            var defaultFacing = Direction.FromQuantized(0.0, sprite.DirectionCount);
+            var (dirSlotId, _) = _conventions.ResolveDirectionSlot(defaultFacing, sprite);
+            return DirectionSlots.StripPrefix(dirSlotId);
+        }
+
+        /// <summary>ADR-0100 决策 3：方向变化时重探测单个已知覆盖剪辑——先重新走一遍逐层探测（结果按
+        /// (实体, clipId, 方向) 缓存，见 <see cref="GetOrProbeOverrideClipPerLayer"/>），命中则覆盖
+        /// <c>ctx.ActivePerLayerByState[clipId]</c>；未命中（层集合里没有任何一层对这个 clipId+新方向
+        /// 有对应美术）则维持决策 2 一贯的"整身兜底"（把该 clipId 的 layerMap 置空），同时尝试整身方向
+        /// 变体（同 ADR-0093 决策 5 同一套惯例，见 <see cref="TryResolveOverrideWholeBodyForDirection"/>）
+        /// ——与 <see cref="ReprobeDirectionAwareAnimation"/> 对默认六个状态"逐层未命中的状态才走整身
+        /// 方向变体"同一套规则的覆盖剪辑版本。</summary>
+        private void ReprobeOverrideClipForDirection(
+            Id entityId, Id clipId, string dirBareName, DirectionAwareAnimContext ctx,
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
+        {
+            var layerMap = GetOrProbeOverrideClipPerLayer(entityId, clipId, dirBareName, ctx, unityLoader, spriteSetId);
+            if (ctx.ActivePerLayerByState != null)
+            {
+                ctx.ActivePerLayerByState[clipId] = layerMap;
+            }
+
+            if (layerMap.Count == 0)
+            {
+                var syntheticStateKey = "override_clip." + clipId.Value;
+                TryResolveOverrideWholeBodyForDirection(entityId, syntheticStateKey, clipId, dirBareName, ctx.Player, unityLoader, spriteSetId);
             }
         }
 
@@ -1272,23 +1507,24 @@ namespace Adapter.Unity.Presentation
             }
         }
 
-        /// <summary>PR130-03 根治：保证 <paramref name="clipId"/> 在 <paramref name="player"/> 上已经
-        /// 登记，供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托在调用
-        /// <see cref="UnityFrameAnimPlayer.Play"/> 之前调用——<paramref name="clipId"/> 可能来自
+        /// <summary>PR130-03 根治、ADR-0100 决策 3 扩展：保证 <paramref name="clipId"/> 在
+        /// <paramref name="player"/> 上已经登记，供 <see cref="EnsureAnimClipResolver"/> 的
+        /// <c>playClip</c> 委托在调用 <see cref="UnityFrameAnimPlayer.Play"/> 之前调用——
+        /// <paramref name="clipId"/> 可能来自
         /// <see cref="Presentation.VfxSfx.Contracts.WeaponStyleDef.AutoAttackAnim"/>/
         /// <see cref="Presentation.VfxSfx.Contracts.WeaponStyleDef.CastAnimOverride"/>，从未随
         /// <see cref="RegisterDefaultClips"/> 的六个默认状态一起登记过。已登记（<see cref="UnityFrameAnimPlayer.HasClip"/>）
-        /// 时直接返回；未登记时按 <see cref="RegisterDefaultClips"/> 同一套优先级尝试解析：资源已在
-        /// <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader"/> 缓存里（<c>TryGetEffect</c>
-        /// 命中）直接登记真实多帧剪辑；未命中时先登记单帧占位剪辑保证立即可用并记一次诊断，同时发起
-        /// 一次真正的异步加载（<see cref="RequestWeaponClipUpgrade"/>），完成后原地升级——与
-        /// <see cref="RequestAnimClipUpgrade"/> 是同一套机制在"任意 clipId"而不是"六个固定状态键"上
-        /// 的推广，见类型顶部 <see cref="_pendingWeaponClipResourceLoads"/> 判断记录。[ADR-0095]
-        /// <paramref name="entityId"/> 用于按 <see cref="_spriteSetIdsByEntity"/> 反查该实体所属精灵集
-        /// id 并转发给 <see cref="RequestWeaponClipUpgrade"/>——武器风格/技能覆盖剪辑与
-        /// <see cref="RegisterDefaultClips"/> 登记的默认状态剪辑同属一个精灵集的 <c>sprite_anim</c>
-        /// 资源，须走同一枢轴/像素密度来源，找不到时为 <c>null</c>，与默认状态剪辑一致地退回不带提示
-        /// 的旧路径。</summary>
+        /// 时直接返回。
+        /// <para>
+        /// ADR-0100 决策 3（消费方反馈第四十五批，取代此前"整身唯一路径"）：该实体已挂接默认动画上下文
+        /// 且声明了纸娃娃层时，优先尝试 <see cref="TryResolveOverrideClipForCurrentComposition"/>——与
+        /// 默认六个状态同一套逐层 + 方向探测（ADR-0072/0093/0100），命中（逐层或整身方向变体，含各自
+        /// 的异步加载在 <c>onExhausted</c>/<c>onResolved</c> 回调里自行完成登记）即返回，不再走下面的
+        /// 整身唯一路径，避免重复发起同一份资源（尤其是整身方向变体候选②本就是原始 <paramref name="clipId"/>
+        /// 本身）的加载。未命中（非纸娃娃层外形、未装配 IEventBus 等既有静默跳过分支）时保留改动前的
+        /// 整身唯一路径：资源已在缓存里直接登记；否则登记单帧占位并发起 <see cref="RequestWeaponClipUpgrade"/>。
+        /// </para>
+        /// </summary>
         private void EnsureSpriteClipRegistered(Id entityId, UnityFrameAnimPlayer player, Id clipId)
         {
             if (player.HasClip(clipId))
@@ -1297,25 +1533,235 @@ namespace Adapter.Unity.Presentation
             }
 
             var unityLoader = _resourceLoader as Adapter.Unity.EngineAdapter.UnityResourceLoader;
-            if (unityLoader != null && unityLoader.TryGetEffect(clipId, out var effect))
+
+            if (unityLoader != null && TryResolveOverrideClipForCurrentComposition(entityId, player, clipId, unityLoader))
             {
-                player.RegisterClipFromEffect(clipId, effect);
                 return;
             }
 
+            if (player.HasClip(clipId))
+            {
+                // TryResolveOverrideClipForCurrentComposition 内部的整身方向变体分支
+                // （TryResolveOverrideWholeBodyForDirection）可能已经同步命中并注册——它的返回值只
+                // 反映"逐层是否命中"，不代表整身也没命中，见该方法判断记录。
+                return;
+            }
+
+            if (!IsPaperdollShapeWithAnimContext(entityId))
+            {
+                // 非纸娃娃层外形（或未装配 IEventBus 等既有静默跳过分支）：保留改动前的整身唯一路径。
+                if (unityLoader != null && unityLoader.TryGetEffect(clipId, out var effect))
+                {
+                    player.RegisterClipFromEffect(clipId, effect);
+                    return;
+                }
+
+                if (_warnedAnimDegraded.Add("weapon_clip." + clipId.Value))
+                {
+                    Debug.LogWarning(
+                        $"[UnityViewFactory] 剪辑 \"{clipId}\"（武器风格/技能覆盖解析得到）尚未登记，" +
+                        "退化为单帧剪辑呈现，同时发起异步加载，加载完成后原地升级为真实多帧剪辑（Rig.PlayClip 仍可执行）");
+                }
+                player.RegisterSingleFrameClip(clipId, FallbackFrame);
+
+                if (unityLoader != null)
+                {
+                    var spriteSetId = _spriteSetIdsByEntity.TryGetValue(entityId, out var ssid) ? ssid : null;
+                    RequestWeaponClipUpgrade(unityLoader, clipId, player, spriteSetId);
+                }
+                return;
+            }
+
+            // 纸娃娃层外形：逐层 + 整身方向变体两条探测均已经在 TryResolveOverrideClipForCurrentComposition
+            // 内部异步发起（各自的 onResolved/onExhausted 会在加载完成后直接原地升级），此处不再额外
+            // 调用 RequestWeaponClipUpgrade——那会与整身方向变体候选②（原始 clipId 本身）重复发起同一
+            // 份资源的加载。只登记单帧占位保证本帧可播放。
             if (_warnedAnimDegraded.Add("weapon_clip." + clipId.Value))
             {
                 Debug.LogWarning(
                     $"[UnityViewFactory] 剪辑 \"{clipId}\"（武器风格/技能覆盖解析得到）尚未登记，" +
-                    "退化为单帧剪辑呈现，同时发起异步加载，加载完成后原地升级为真实多帧剪辑（Rig.PlayClip 仍可执行）");
+                    "退化为单帧剪辑呈现，逐层/整身方向变体探测已发起（ADR-0100），加载完成后原地升级（Rig.PlayClip 仍可执行）");
             }
             player.RegisterSingleFrameClip(clipId, FallbackFrame);
+        }
 
-            if (unityLoader != null)
+        /// <summary>见 <see cref="EnsureSpriteClipRegistered"/> 判断记录：该实体是否已挂接默认动画上下文
+        /// （<see cref="_directionAwareAnimByEntity"/> 有记录）且是声明了纸娃娃层的 sprite 型外形——满足
+        /// 才具备 ADR-0100 决策 3 逐层 + 方向探测的前提条件。</summary>
+        private bool IsPaperdollShapeWithAnimContext(Id entityId) =>
+            _directionAwareAnimByEntity.TryGetValue(entityId, out var ctx)
+            && ctx.Info.Sprite != null && ctx.Info.Sprite.PaperdollLayers.Count > 0;
+
+        /// <summary>
+        /// ADR-0100 决策 3：<paramref name="clipId"/>（武器风格/技能覆盖解析出、首次遇到的覆盖剪辑）
+        /// 走与默认六个状态同一套逐层 + 方向探测。先尝试逐层（<see cref="GetOrProbeOverrideClipPerLayer"/>，
+        /// 按 (实体, clipId, 方向) 缓存），命中（至少一层）即把结果登记进该实体共享的
+        /// <c>ctx.ActivePerLayerByState</c>（与默认六个状态同一张表，<see cref="ApplyPerLayerFrame"/>
+        /// 播放期间会自动按 <c>player.CurrentClipId == clipId</c> 查到），返回 <c>true</c>；未命中时
+        /// 也会把空表登记进去（同 ADR-0072/0093 一贯"空表=整身兜底"约定），并尝试整身方向变体（
+        /// <see cref="TryResolveOverrideWholeBodyForDirection"/>，同 ADR-0093 决策 5 候选②本就含原始
+        /// <paramref name="clipId"/> 本身），把该方法的同步命中结果作为本方法返回值。未挂接默认动画
+        /// 上下文/非纸娃娃层外形时直接返回 <c>false</c>（调用方走既有整身唯一路径，见
+        /// <see cref="EnsureSpriteClipRegistered"/>）。
+        /// </summary>
+        private bool TryResolveOverrideClipForCurrentComposition(
+            Id entityId, UnityFrameAnimPlayer player, Id clipId, Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader)
+        {
+            if (!_directionAwareAnimByEntity.TryGetValue(entityId, out var ctx) || ctx.Info.Sprite == null || ctx.Info.Sprite.PaperdollLayers.Count == 0)
             {
-                var spriteSetId = _spriteSetIdsByEntity.TryGetValue(entityId, out var ssid) ? ssid : null;
-                RequestWeaponClipUpgrade(unityLoader, clipId, player, spriteSetId);
+                return false;
             }
+
+            if (!_overrideClipIdsByEntity.TryGetValue(entityId, out var overrideClips))
+            {
+                overrideClips = new HashSet<Id>();
+                _overrideClipIdsByEntity[entityId] = overrideClips;
+            }
+            overrideClips.Add(clipId);
+
+            var dirBareName = ctx.LastDirBareName ?? InitialDirBareName(ctx.Info.Sprite);
+            var spriteSetId = Id.Parse(ctx.Info.Sprite.SpriteSetId);
+
+            var layerMap = GetOrProbeOverrideClipPerLayer(entityId, clipId, dirBareName, ctx, unityLoader, spriteSetId);
+            if (ctx.ActivePerLayerByState != null)
+            {
+                ctx.ActivePerLayerByState[clipId] = layerMap;
+            }
+
+            if (layerMap.Count > 0)
+            {
+                return true;
+            }
+
+            var syntheticStateKey = "override_clip." + clipId.Value;
+            return TryResolveOverrideWholeBodyForDirection(entityId, syntheticStateKey, clipId, dirBareName, player, unityLoader, spriteSetId);
+        }
+
+        /// <summary>ADR-0100 决策 3：覆盖剪辑逐层探测，按 (实体, clipId, 方向裸档位名) 缓存（命中缓存
+        /// 直接返回，不重复探测）——"身体剪辑"段（<see cref="BuildLayerCandidates"/> 的
+        /// <c>bodyOrClipStrippedRef</c> 参数）用覆盖剪辑自身去前缀 <paramref name="clipId"/>，不是默认
+        /// 状态的 <c>AnimClipDef.ResourceRef</c>（覆盖剪辑在这个语境下扮演的正是"当前身体剪辑"角色，
+        /// 见 <see cref="BuildLayerCandidates"/> 判断记录）。装备变化时随 <see cref="ReprobeForCompositionChange"/>
+        /// 整体清空本缓存。</summary>
+        private Dictionary<string, Id> GetOrProbeOverrideClipPerLayer(
+            Id entityId, Id clipId, string dirBareName, DirectionAwareAnimContext ctx,
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
+        {
+            if (!_overrideClipPerLayerCacheByEntityAndDir.TryGetValue(entityId, out var byKey))
+            {
+                byKey = new Dictionary<(Id, string), Dictionary<string, Id>>();
+                _overrideClipPerLayerCacheByEntityAndDir[entityId] = byKey;
+            }
+
+            var key = (clipId, dirBareName);
+            if (byKey.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
+            var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+            ProbeComposedLayersSequential(
+                unityLoader, ctx.Player, CurrentComposedLayersOrInitial(ctx), 0, strippedClip, dirBareName,
+                clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId);
+            byKey[key] = layerMap;
+            return layerMap;
+        }
+
+        /// <summary>ADR-0100 决策 1 缺陷修复（消费方反馈第四十五批本轮回归发现）：<see cref="GetOrProbePerLayerForDirection"/>/
+        /// <see cref="GetOrProbeOverrideClipPerLayer"/> 都在 <see cref="ReprobeDirectionAwareAnimation"/>
+        /// 内被调用——而后者由 <see cref="UnitySpriteView.DirectionSlotChanged"/> 触发，触发时机是
+        /// <c>UnitySpriteView.SyncPose</c> 里 <c>base.SyncPose</c>（内部调用 <c>OnDirectionSlotChanged</c>）
+        /// 之后、<c>SetPaperdollLayers</c>（真正执行合成、写入 <see cref="SpriteViewBase.LastComposedLayers"/>）
+        /// 之前——对一个实体的第一次 <c>SyncPose</c>（此前从未合成过、<c>LastComposedLayers</c> 仍是构造期
+        /// 默认的空列表）且首次朝向恰好不同于挂接期默认朝向（<see cref="TryAttachPerLayerAnimation"/> 用
+        /// 于挂接期探测的 <c>side_r</c>/<c>front</c> 等）时，直接读 <c>ctx.View.LastComposedLayers</c> 会
+        /// 拿到这份陈旧的空快照，导致该方向下的逐层/覆盖剪辑探测把"当前合成层集合"当成空集合，探测不到
+        /// 任何层（包括本该沿用 ADR-0072 两级候选的身体层），实测复现为 <c>PaperdollRecomposeOnDirectionJitterTests</c>
+        /// 两条既有用例回归（body 层首次 SyncPose 后逐层走路动画完全不生效，退化成整身占位兜底）。修复：
+        /// 空列表（<c>Count == 0</c>）视为"尚未发生过一次真正的合成"，退回
+        /// <see cref="BuildInitialComposedLayers"/>（身体默认层，<c>EquipMeshRef</c> 全为 <c>null</c>）
+        /// 作为这一刻能拿到的最佳近似——与 <see cref="TryAttachPerLayerAnimation"/> 挂接时的探测基线
+        /// 同一来源，首次合成真正完成后 <c>LastComposedLayers</c> 不再为空，后续方向变化直接用真实合成
+        /// 结果（含装备 <c>EquipMeshRef</c>），不再触发本回退分支。</summary>
+        private static IReadOnlyList<SpriteComposedLayer> CurrentComposedLayersOrInitial(DirectionAwareAnimContext ctx)
+        {
+            var composedLayers = ctx.View.LastComposedLayers;
+            return composedLayers.Count == 0
+                ? BuildInitialComposedLayers(ctx.Info.Sprite!.PaperdollLayers)
+                : composedLayers;
+        }
+
+        /// <summary>ADR-0100 决策 3：覆盖剪辑逐层未命中时的整身方向变体回退——同 ADR-0093 决策 5 同一套
+        /// 候选（<c>&lt;去前缀 clipId&gt;__&lt;方向&gt;</c> → 原始 <paramref name="clipId"/> 本身），
+        /// 复用 <see cref="_defaultClipCacheByEntityAndDir"/>（键用 <paramref name="syntheticStateKey"/>
+        /// ="override_clip."+clipId，与默认六个状态的短英文键不会撞名，见调用方判断记录）按
+        /// (实体, 方向) 缓存"确认缺失"结果。两级候选都异步落空（<c>onExhausted</c>）时，若
+        /// <paramref name="player"/> 此刻仍未登记过 <paramref name="clipId"/>（可能与逐层探测的异步
+        /// 结果存在竞态，见方法内判断），登记单帧占位并记一次诊断——是这条路径最终的"两级候选均未命中"
+        /// 兜底，取代 <see cref="EnsureSpriteClipRegistered"/> 旧版无条件调用的 <see cref="RequestWeaponClipUpgrade"/>
+        /// （候选②本就是同一份资源，不重复发起加载）。返回值：候选是否同步命中（供调用方判断是否还
+        /// 需要额外的占位兜底）。</summary>
+        private bool TryResolveOverrideWholeBodyForDirection(
+            Id entityId, string syntheticStateKey, Id clipId, string dirBareName, UnityFrameAnimPlayer player,
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
+        {
+            if (!_defaultClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
+            {
+                byDir = new Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>(StringComparer.Ordinal);
+                _defaultClipCacheByEntityAndDir[entityId] = byDir;
+            }
+            if (!byDir.TryGetValue(dirBareName, out var byState))
+            {
+                byState = new Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>(StringComparer.Ordinal);
+                byDir[dirBareName] = byState;
+            }
+
+            if (byState.TryGetValue(syntheticStateKey, out var cachedEffect))
+            {
+                if (cachedEffect != null)
+                {
+                    player.RegisterClipFromEffect(clipId, cachedEffect);
+                    return true;
+                }
+                return false;
+            }
+
+            var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
+            var candidates = new[]
+            {
+                new Id($"sprite_anim.{strippedClip}__{dirBareName}"),
+                clipId,
+            };
+
+            var resolvedSync = false;
+            ProbeLayerClipTier(
+                unityLoader, candidates, tierIndex: 0, spriteSetId,
+                onResolved: effect =>
+                {
+                    byState[syntheticStateKey] = effect;
+                    player.RegisterClipFromEffect(clipId, effect);
+                    resolvedSync = true;
+                },
+                onExhausted: () =>
+                {
+                    byState[syntheticStateKey] = null;
+                    if (_warnedAnimDegraded.Add("weapon_clip." + clipId.Value))
+                    {
+                        Debug.LogWarning(
+                            $"[UnityViewFactory] 剪辑 \"{clipId}\"（武器风格/技能覆盖解析得到）逐层与整身方向变体" +
+                            "两级候选均未命中，退化为单帧剪辑呈现（不重试）");
+                    }
+                    if (!player.HasClip(clipId))
+                    {
+                        // 判断记录：与逐层探测异步结果的竞态——若逐层已经在此之前异步命中并把内容注册
+                        // 成了 clipId 本身（ProbeComposedLayersSequential"首个命中层同时登记为
+                        // stateClipId 内容"），这里就不需要（也不应该）再覆盖成单帧占位。
+                        player.RegisterSingleFrameClip(clipId, FallbackFrame);
+                    }
+                });
+
+            return resolvedSync;
         }
 
         /// <summary>见 <see cref="EnsureSpriteClipRegistered"/> 判断记录：按 <paramref name="clipId"/>
@@ -1379,7 +1825,7 @@ namespace Adapter.Unity.Presentation
 
         /// <summary>ADR-0017 决策 c：把 <c>display.anim_set.clips[*].events</c>（时间轴百分比 + 裸
         /// 事件名）换算成 <see cref="UnityFrameAnimPlayer.RegisterClip"/> 系列方法要求的"事件名 -> 帧
-        /// 索引"关键帧表（见 <see cref="Presentation.Render.FrameAnimClip.Keyframes"/>）：
+        /// 索引"关键帧表（见 <see cref="FrameAnimClip.Keyframes"/>）：
         /// <c>frameIndex = round(time_pct × (frameCount − 1))</c>，四舍五入后夹在
         /// <c>[0, frameCount − 1]</c> 区间（<paramref name="frameCount"/> 为 0 时返回空表，避免除零/
         /// 负索引）。<paramref name="events"/> 为空或 null 时返回 null（<see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>
@@ -1679,7 +2125,7 @@ namespace Adapter.Unity.Presentation
         /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.AnimEventFunctionName"/> 函数名 +
         /// 裸事件名 String Parameter（见该类型判断记录，<c>"hit_frame"</c> 经
         /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer3D.RaiseAnimEvent"/> 换算后与
-        /// <see cref="Presentation.Render.ModelCharacterRig.HitFrameEventId"/> 逐字相等）。
+        /// <see cref="ModelCharacterRig.HitFrameEventId"/> 逐字相等）。
         /// <para>
         /// 12 §5 二次勘误判断记录（取代上一轮"空配置提前 return、首个非空配置合并写回共享资产"的
         /// 立场——architecture/落地计划/audit-8160178-20260908/presentation/presentation-findings.md

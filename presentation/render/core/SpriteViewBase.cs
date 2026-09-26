@@ -10,6 +10,32 @@ using Presentation.Common;
 namespace Presentation.Render
 {
     /// <summary>
+    /// ADR-0100 决策 1/2 新增：一次纸娃娃层合成（<see cref="SpriteViewBase.OnLayersComposed"/> 触发时）
+    /// 里每一层的层名 + 最终解析出的资源 Id + 来源。<see cref="EquipMeshRef"/> 为 <c>null</c> 表示该层
+    /// 是身体默认层（经 <see cref="SpriteViewBase.ResolveLayerResourceId"/> 解析）；非 <c>null</c> 时是
+    /// 装备覆盖层，取值为该装备 <see cref="EquipVisualDef.MeshRef"/> 原值（经
+    /// <see cref="SpriteViewBase.ResolveEquipLayerResourceId"/> 解析）。供引擎适配层（<c>Adapter.Unity.
+    /// Presentation.UnityViewFactory</c>）按"当前合成出的层集合"做逐层动画探测——不再局限于
+    /// <see cref="Core.Foundation.DisplayInfo.SpriteInfo.PaperdollLayers"/> 声明的身体默认层，装备层
+    /// 候选按 <see cref="EquipMeshRef"/> 取资源集前缀（见 ADR-0100 决策 1/2）。
+    /// </summary>
+    public readonly struct SpriteComposedLayer
+    {
+        public string LayerName { get; }
+
+        public Id ResourceId { get; }
+
+        public Id? EquipMeshRef { get; }
+
+        public SpriteComposedLayer(string layerName, Id resourceId, Id? equipMeshRef)
+        {
+            LayerName = layerName;
+            ResourceId = resourceId;
+            EquipMeshRef = equipMeshRef;
+        }
+    }
+
+    /// <summary>
     /// 引擎无关的 <c>sprite</c> 型 <see cref="IView"/> 骨架（见 09 第 4.1 节 CharacterRig 职责表
     /// "sprite 型持有当前应绘制的纸娃娃层集合……随装备/外形变化事件更新"）：持有
     /// <see cref="SpriteHandle"/>（经 <see cref="IRenderer2D.CreateSpriteInstance"/>）、
@@ -92,6 +118,17 @@ namespace Presentation.Render
         /// 默认朝向预先算出初始值，避免首次 <see cref="SyncPose"/> 恰好与挂接期默认朝向相同时也触发一次
         /// 多余的钩子调用。</summary>
         private Id _lastDirectionSlotId;
+
+        /// <summary>ADR-0100 决策 1/2：本 View 最近一次成功合成并写入渲染器的纸娃娃层集合快照（层名 +
+        /// 资源 Id + 装备来源，见 <see cref="SpriteComposedLayer"/> 类型注释）——
+        /// <see cref="ComposeAndApplyEquipAwareLayers"/> 每次调用都会先更新本字段再调用
+        /// <see cref="SpriteCharacterRig.ApplyLayers"/>（触发 <see cref="OnLayersComposed"/>），因此
+        /// <see cref="OnLayersComposed"/> 触发那一刻 <see cref="LastComposedLayers"/> 恒已反映这一次
+        /// 合成的最新结果，不存在时序滞后。构造完成、尚未发生任何一次合成之前为空列表。</summary>
+        private IReadOnlyList<SpriteComposedLayer> _lastComposedLayers = Array.Empty<SpriteComposedLayer>();
+
+        /// <summary>见 <see cref="_lastComposedLayers"/> 判断记录。</summary>
+        public IReadOnlyList<SpriteComposedLayer> LastComposedLayers => _lastComposedLayers;
 
         /// <summary><paramref name="resourceLoader"/> 可选（同 <c>VfxPlayer</c>/<c>SfxPlayer</c>
         /// 判断记录）：注入时构造期对 <c>sprite_set_id</c>、<see cref="SetPaperdollLayers"/> 期间对
@@ -331,12 +368,16 @@ namespace Presentation.Render
 
             var placements = Conventions.ComposeSpriteLayers(allLayerNames, DisplayInfo.Sprite!, facing);
             var resourceIds = new List<Id>(placements.Count);
+            var composedLayers = new List<SpriteComposedLayer>(placements.Count);
 
             for (var i = 0; i < placements.Count; i++)
             {
                 var placement = placements[i];
-                var resourceId = overridesByLayerName.TryGetValue(placement.LayerName, out var equipLayerSetRef)
-                    ? ResolveEquipLayerResourceId(placement, equipLayerSetRef)
+                Id? equipMeshRef = overridesByLayerName.TryGetValue(placement.LayerName, out var equipLayerSetRef)
+                    ? (Id?)equipLayerSetRef
+                    : null;
+                var resourceId = equipMeshRef.HasValue
+                    ? ResolveEquipLayerResourceId(placement, equipMeshRef.Value)
                     : ResolveLayerResourceId(placement);
 
                 // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：把
@@ -345,7 +386,12 @@ namespace Presentation.Render
                 // 与朴素层合成路径共用同一套"加载完成后重新应用当前完整层列表"机制。
                 _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, _rig.HandleResourceLoadCompleted);
                 resourceIds.Add(resourceId);
+                composedLayers.Add(new SpriteComposedLayer(placement.LayerName, resourceId, equipMeshRef));
             }
+
+            // ADR-0100 决策 1：先更新快照，再写入渲染器——LastComposedLayers 在 OnLayersComposed 触发
+            // 那一刻必须已经反映这一次合成的最新结果（见该字段判断记录），顺序不能颠倒。
+            _lastComposedLayers = composedLayers;
 
             // 判断记录：不在这里直接调用 OnLayersComposed——_rig.ApplyLayers 内部的 LayersApplied 事件
             // （构造期已订阅到 OnLayersComposed，见构造函数判断记录）会在写入渲染器之后自动触发一次，

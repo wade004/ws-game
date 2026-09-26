@@ -967,6 +967,38 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   `LayersApplied` 事件在写入渲染器之后触发；`SpriteViewBase` 构造期订阅
   `_rig.LayersApplied += OnLayersComposed`，不再由 `ComposeAndApplyEquipAwareLayers` 直接调用
   （避免同一次合成触发两次），三条路径从此天然共用同一个通知出口，不需要新调用点各自记得转发。
+- **判断记录（逐层剪辑覆盖装备层与覆盖剪辑，消费方反馈第四十五批阻塞，
+  [ADR-0100](../../../../architecture/adr/0100-逐层剪辑覆盖装备层与覆盖剪辑.md)）**：三条同源
+  问题一并处理。① `SpriteViewBase` 新增只读结构 `SpriteComposedLayer`（层名 + 解析出的资源 id +
+  `EquipMeshRef`，后者非空表示该层来自装备）与公开属性 `LastComposedLayers`，
+  `ComposeAndApplyEquipAwareLayers` 每次合成都先更新该属性、再写入渲染器（顺序不能颠倒，见字段
+  判断记录），使 `LayersComposed` 触发那一刻该属性恒已反映最新合成结果。② `UnityViewFactory`
+  新增 `_composedLayerNamesByEntity` 记录每个实体最近一次已知的层名集合，`LayersComposed`
+  处理器里额外比对本次合成后的层名集合是否变化，命中（装备新增/覆盖/卸下）即调用新增的
+  `ReprobeForCompositionChange` 按 `LastComposedLayers` 重新探测全部默认状态与已知覆盖剪辑
+  （同时整体清空 `_perLayerClipCacheByEntityAndDir`/`_overrideClipPerLayerCacheByEntityAndDir`
+  两张按方向缓存的表——同一方向下的合成层集合已经变化，旧缓存条目不再有效，见该方法判断记录）；
+  未变化（纯方向变化重合成、冷加载迟到回填）不重复探测。`ProbeLayersSequential` 更名
+  `ProbeComposedLayersSequential`，入参从固定的 `PaperdollLayers` 改为
+  `IReadOnlyList<SpriteComposedLayer>`，候选构造抽成新方法 `BuildLayerCandidates`。③ 装备层
+  候选（`BuildLayerCandidates`）：`sprite_anim.<去前缀 EquipMeshRef>__<去前缀身体或覆盖剪辑引用>
+  __<方向裸档位名>__<层名>` → 去掉方向段一级；身体层（`EquipMeshRef == null`）沿用不含装备段的
+  两级公式。④ 覆盖剪辑（武器风格/技能覆盖）新增 `_overrideClipIdsByEntity`（记录每个实体已知的
+  覆盖剪辑 clipId 集合，方向/装备变化时据此补探测——覆盖剪辑只在首次被 `AnimClipResolver` 解出
+  时经 `EnsureSpriteClipRegistered` 注册一次，此后 `player.HasClip` 恒为真，不会再次进入该方法，
+  必须靠这张表主动补探测）与 `_overrideClipPerLayerCacheByEntityAndDir`（按 (实体, clipId, 方向)
+  缓存逐层探测结果）；`EnsureSpriteClipRegistered` 新增 `TryResolveOverrideClipForCurrentComposition`
+  分支：纸娃娃层外形优先走逐层探测（`GetOrProbeOverrideClipPerLayer`，"身体或覆盖剪辑引用"段
+  传覆盖剪辑自身去前缀），未命中时退回整身路径，且整身路径同样支持
+  [ADR-0093](../../../../architecture/adr/0093-动画剪辑随朝向档位切换.md) 决策 5 的方向变体
+  候选（`TryResolveOverrideWholeBodyForDirection`，复用 `_defaultClipCacheByEntityAndDir`、键名
+  加 `"override_clip."` 前缀区分默认六个状态）；非纸娃娃层外形/未装配上下文时保留改动前的整身
+  唯一路径（`RequestWeaponClipUpgrade`）不变。`DirectionAwareAnimContext` 新增字段 `View`
+  （持有 `UnitySpriteView` 引用，取 `LastComposedLayers`——此前判断记录"不重复持有 View 本身"
+  被本次需求突破，见该字段判断记录）。**已知限制（按 AGENTS.md 硬约束逐条登记）**：覆盖剪辑
+  逐层探测与整身方向变体探测是两条独立发起的异步候选链路，哪一条先异步返回不确定，已按"谁先
+  同步/异步命中谁生效、`player.HasClip` 守卫防止后到达的一方覆盖已注册内容"处理、不影响最终
+  正确性，但两条链路仍可能各自对同一份缺失资源发起一次确认性加载请求，不做跨链路去重。
 
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
@@ -984,7 +1016,17 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
 朝向原始弧度连续抖动 60 次，重合成计数与命中逐层动画的层贴图均不受影响；
 `SyncPose_RealSlotChangeOrEquipChange_RecomposesAndImmediatelyBackfillsCurrentFrame` 方向槽位真变化
 /装备变化/首次引用的纸娃娃层静态图像资源冷加载完成三类合法重合成，返回（或加载完成回调触发）后
-（不等下一次动画播放器推进）逐层动画的层已经是当前帧，无逐层动画的层不被误伤）。
+（不等下一次动画播放器推进）逐层动画的层已经是当前帧，无逐层动画的层不被误伤）、
+`Tests/Runtime/PerLayerClipEquipAndOverrideTests.cs`（ADR-0100：
+`Move_EquipMainhandLayer_ParticipatesInPerLayerClip_HidesAnimRootAndSharesFrame` 复现——装备一件
+带逐层夹具的 mesh 到 `PaperdollLayers` 之外的新层，该层参与逐层剪辑并与身体层共享同一条时间轴、
+AnimRoot 隐藏；
+`Invariant_UnequipMeshWithoutFrameSet_OverrideClipPerLayerAndDirectionChange_WholeBodyDirectionVariant_ColdLoadCatchesUp`
+不变量（4 个分支合一，各用独立实体）：①卸下装备层后该层消失、换成没有帧集的 mesh 后维持静态图且
+不影响身体层；②武器风格覆盖剪辑带逐层夹具时 Attack 隐藏 AnimRoot、两层各自播放覆盖剪辑帧，换向后
+没有对应方向夹具的层冻结在最后一帧、命中新方向变体的层继续换帧；③覆盖剪辑没有任何逐层夹具但有
+整身方向变体时维持旧整身路径且支持方向切换；④冷加载——装备层帧集资源首次引用时尚未加载完成，
+异步加载完成后该层追上并显示当前帧，与热路径最终视觉状态一致）。
 
 ## model 型外形（W6-B 收口，ADR-0017）
 
