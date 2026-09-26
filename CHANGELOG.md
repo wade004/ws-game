@@ -458,6 +458,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.79.0] - 2026-09-26
+
+### 新增
+
+- **以单位为目标的追击移动请求**（消费方反馈第四十三批 1，阻塞，
+  [ADR-0097](architecture/adr/0097-以单位为目标的追击移动请求.md)）：新增
+  `MoveRequest.ToUnit(unitId, targetUnitId, stopRange, mode)`，每 tick 跟随目标单位当前位置移动，
+  距离进入 `stopRange` 内自动停止（不清请求，目标走远会自动恢复）；目标不存在/死亡/不在同一地图时
+  自动结束（清请求、就地静止，复用既有 `MovementHost.OnMoveStopped` 通知一次，新增
+  `MoveStopReason.ChaseTargetLost`）。`MovementOptions` 新增 `FollowResumeSlack`（滞回缓冲，默认
+  0.25）与 `FollowRepathDistance`（值得重新规划路径的目标位移阈值，默认 0.5）两个口味配置项。
+
 ## [1.78.0] - 2026-09-26
 
 ### 新增

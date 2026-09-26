@@ -204,5 +204,22 @@ namespace Core.Carriers.Unit
         /// 的精度缺口），具体数值仍是口味配置项，游戏层可按自己的场景尺度调整。
         /// </summary>
         public double DefaultDisplacementSampleStep { get; set; } = 0.5;
+
+        /// <summary>
+        /// ADR-0097《以单位为目标的追击移动请求》：追击（<see cref="MoveRequest.ToUnit"/>）期间的
+        /// 滞回缓冲——已停止（与目标距离曾经 ≤ <see cref="MoveRequest.StopRange"/>）时，只有距离
+        /// 超过 <c>StopRange + FollowResumeSlack</c> 才恢复靠近；已在靠近时，距离 ≤
+        /// <see cref="MoveRequest.StopRange"/> 就停止（见 <c>MovementTickHandler.AdvanceChase</c>
+        /// 判断记录）。防的是目标在 <see cref="MoveRequest.StopRange"/> 边界附近来回抖动时，追击单位
+        /// 跟着每 tick 起停抖动。默认 0.25，口味配置项，游戏层可按自己的追击手感调整。
+        /// </summary>
+        public double FollowResumeSlack { get; set; } = 0.25;
+
+        /// <summary>
+        /// ADR-0097：追击期间，目标相对上一次重新规划路径时的位置移动超过本值才重新规划一次路径；
+        /// 未超过时沿用既有路径继续跟随，不必每 tick 都重新寻路。默认 0.5，口味配置项，游戏层可按
+        /// 自己的场景尺度/目标移动速度调整（值越小追击越贴合目标实时位置、寻路开销越大）。
+        /// </summary>
+        public double FollowRepathDistance { get; set; } = 0.5;
     }
 }

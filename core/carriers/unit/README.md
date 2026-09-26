@@ -378,3 +378,57 @@ architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
 `data/_framework/found/found.event_catalog.json` 并过 `gen_event_constants.py --check`）。仇恨表
 一侧的订阅与清理见 `core/rules/combat/README.md` 对应判断记录。ABI：新增构造函数重载 + 新增
 公开方法，不改动任何既有公开签名。
+
+## ADR-0097《以单位为目标的追击移动请求》：追击（Chase）
+
+消费方第四十三批反馈 1（阻塞）：既有 `MoveRequest` 只有 `ToTarget`（固定点）/`InDirection`（方向）
+两种，均不随目标改变而更新，玩家侧要"追上一个单位并保持距离"只能自己逐 tick 重新提交请求。本模块
+新增第三种由 `MovementTickHandler` 驱动的移动任务：`MoveRequest.ToUnit(unitId, targetUnitId,
+stopRange, mode)`。
+
+- **状态**：`MovementState` 新增 `UnitChaseState? Chase`（目标单位 id/停止距离/移动模式/上次规划
+  路径时的目标位置快照），新增 7 参数构造函数重载（原 6 参数构造函数改为内部转发，物理签名不变）。
+  与既有 `Displacement` 同一惯例互斥（受控位移期间 `move_to_unit` 意图被拒绝），但**不**与
+  `CurrentPath`/`PathIndex`/`NavVersion` 互斥——追击复用这三个既有字段承载"当前正在跟随、终点会
+  周期性重算"的路径，不是第四套独立位移字段。`MoveRequest` 新增 `TargetUnitId`/`StopRange` 两个
+  只读字段与 `ToUnit` 静态工厂（新增内部构造函数重载，原 4 参数公开构造函数改为内部转发）。
+- **意图**：新增 `Intent.Kind == "move_to_unit"`，与既有 `move` 共用同一组"本 tick 最后一条生效"
+  的胜出下标扫描（二者是同一请求槽位的不同表现形式），处理顺序位置不变（仍在 `move_stop`/
+  `move_displace` 之后）。
+- **每 tick 语义**（`MovementTickHandler.AdvanceChase`）：① 目标不存在（含已标记销毁待移除）/
+  已死亡/不在同一地图，经 `EndChase` 自动结束（清空 `Chase`、状态收回 `Idle`，触发既有
+  `MovementHost.OnMoveStopped`，`MoveStopReason` 新增 `ChaseTargetLost`，不新增事件类型）；
+  ② 朝目标更新 `Unit.Facing`；③ 滞回：用 `MovementState.Mode != Idle` 代理"当前是否在靠近"（不
+  另开布尔字段）——已在靠近时距离 ≤ `StopRange` 才停，已停止时距离 &gt;
+  `StopRange + MovementOptions.FollowResumeSlack` 才恢复，中间缓冲区维持现状，防止目标在
+  `StopRange` 边界抖动时追击单位跟着每 tick 起停；④ 需要靠近时，仅当"尚无路径"或"目标相对上次
+  规划时的位移 &gt; `MovementOptions.FollowRepathDistance` 时才重新规划，规划终点是"目标当前位置
+  沿（本单位→目标）方向回退 `StopRange` 的一点"（不是目标本身——直接冲到与目标重合会在到达那一刻
+  比声明的 `StopRange` 近得多，回退一个 `StopRange` 让既有的到达判定自然停在正确距离），随后复用与
+  `ContinuePathCore` 相同的逐路点推进算法消费本 tick 的位移预算；到达路径终点（该次规划时的停止点
+  快照）不收回 `Idle`、不清空 `Chase`，下一 tick 由①②③重新评估。
+- **发起请求（`BeginChase`）**：先把 `MovementState.Mode` 重置为 `Idle` 再交给 `AdvanceChase`
+  评估——"发起时是否需要立即靠近"只取决于与目标的实时距离，与发起前该单位在做什么无关；对外
+  `unit.state_changed` 的"变化前"取值单独通过 `AdvanceChase` 的 `priorModeOverride` 参数传入发起
+  前的真实 `Mode`，不会把这个内部占位值当成"变化前"上报出去。正在进行中的路径跟随或另一次追击，
+  均算被新请求整体替换（触发既有 `OnMoveStopped(Replaced)`）；`ToTarget` 建立新路径时同样把
+  "存在追击请求"计入"有旧的被替换"。既有的 `MovementHost.Stop`（`move_stop`）与方向类 `move`
+  意图不必额外改动即可清空 `Chase`——它们本就通过既有的 4/6 参数 `MovementState` 构造函数整体
+  重建状态，新增的 7 参数构造函数在这条转发链路末端把 `Chase` 恒置为 `null`。
+- **兼容性**：`MovementOptions` 新增 `FollowResumeSlack`（默认 0.25）、`FollowRepathDistance`
+  （默认 0.5），均为带默认值的可写属性，构造函数签名不变。除上述新增成员外不改动任何既有公开
+  签名；`abi_probe` breaks=0。
+- **已知限制**：① 移动请求（含追击）目前不参与存档序列化——本次改动之前就是如此，首次在此明确
+  记录：读档后追击请求不自动恢复，需消费方读档完成后重新下达。② 追击期间重新规划路径失败
+  （`INavigation2D.FindPath` 返回 `null`）时静默保留旧路径原地不动、下一 tick 重试，不触发
+  `MovementHost.OnMoveFailed`/`OnMoveFailedDetailed`，也不接入 `MovementOptions.PathFailurePolicy`
+  ——这两个既有的失败通知/策略仍然只服务于"移动到固定点"场景，追击是一条独立、更简单的分支。
+  ③ 追击单位靠近目标的移动预算足够大时，本 tick 可能一路走到与目标重合（比声明的 `StopRange`
+  更近），下一 tick 的距离判断才会把它收回停止状态，是逐 tick 结算的固有粒度问题。④ 离散模式下，
+  目标死亡/消失只有在本单位下一次收到新的 `move_to_unit` 意图时才会被检测到并结束请求，与既有路径
+  跟随/受控位移在离散模式下"仅在行动者自己回合处理"的惯例一致，不会在其它单位的回合中主动探测。
+
+测试：`core/carriers/unit/tests/UnitChaseTests.cs`（8 例：靠近—停止—目标走远后恢复追击的端到端
+复现；停止区间滞回不动；目标死亡/不在同一地图两种自动结束路径，各自校验 `ChaseTargetLost` 触发
+一次即不再重复；被 `ToTarget` 替换后停止追击；`stopRange` 非正数抛异常；目标位移低于
+`FollowRepathDistance` 阈值不重新规划路径，超过阈值才触发下一次规划）。

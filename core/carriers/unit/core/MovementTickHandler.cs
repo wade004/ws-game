@@ -179,11 +179,17 @@ namespace Core.Carriers.Unit
             // "这正是该单位那条获胜意图"的下标时才调用一次 ApplyIntent——单位互相之间的处理顺序与
             // 修复之前完全一致（获胜意图在 intents 里出现的相对顺序），只是同一单位更早的、已经
             // 确定会被替换的意图不再各自触发一次 ApplyIntent。
+            // ADR-0097《以单位为目标的追击移动请求》："move_to_unit"（MoveRequest.ToUnit）与既有
+            // "move" 共用同一组"本 tick 最后一条生效"的胜出下标扫描——二者是同一逻辑请求槽位的不同
+            // 表现形式（"移动到点/沿方向" vs "追击某单位"），同一单位同一 tick 若混合提交两种意图，
+            // 仍按 intents 原有下标"最后一条生效"，不单独为 move_to_unit 另开一套竞争分组（否则一个
+            // 单位理论上可能同一 tick 内既在追一个目标、又在跟一条路径，与"任一新 MoveRequest 整体
+            // 替换上一个"这一既有惯例矛盾）。
             var lastMoveIndex = new Dictionary<Id, int>();
             for (var i = 0; i < intents.Count; i++)
             {
                 var intent = intents[i];
-                if (intent.Kind != "move") continue;
+                if (intent.Kind != "move" && intent.Kind != "move_to_unit") continue;
                 if (lastStopIndex.TryGetValue(intent.ActorId, out var stopIdx) && stopIdx > i) continue;
 
                 lastMoveIndex[intent.ActorId] = i;
@@ -192,7 +198,7 @@ namespace Core.Carriers.Unit
             for (var i = 0; i < intents.Count; i++)
             {
                 var intent = intents[i];
-                if (intent.Kind != "move") continue;
+                if (intent.Kind != "move" && intent.Kind != "move_to_unit") continue;
                 if (!lastMoveIndex.TryGetValue(intent.ActorId, out var winningIndex) || winningIndex != i) continue;
                 if (!(world.GetEntity(intent.ActorId) is Unit unit)) continue;
                 // ADR-0079（决定 2）：已标记销毁但尚未真正移除的单位，本拍不再按存活单位处理——这是
@@ -200,7 +206,15 @@ namespace Core.Carriers.Unit
                 // 驱动移动的单位，这里会向已同步注销的 StatHost.GetStat 要属性抛异常。
                 if (world.IsPendingDestruction(unit.EntityId)) continue;
 
-                ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
+                if (intent.Kind == "move_to_unit")
+                {
+                    ApplyChaseIntent(unit, intent, world, dt, step.Kind == SimStepKind.Discrete);
+                }
+                else
+                {
+                    ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
+                }
+
                 processedThisTick.Add(unit.EntityId);
             }
 
@@ -233,6 +247,16 @@ namespace Core.Carriers.Unit
                 if (unit.MovementState.Displacement.HasValue)
                 {
                     AdvanceDisplacement(unit, dt, isDiscrete: false);
+                    continue;
+                }
+
+                // ADR-0097：追击态每 tick 都要重新评估目标是否还活着/在同一张图、距离是否跨过滞回
+                // 阈值——即便当前 CurrentPath 为 null（已经停在 StopRange 内待命），也不能像下面的
+                // "CurrentPath == null 直接跳过"那样短路，否则目标重新走远后本单位永远不会恢复追击。
+                if (unit.MovementState.Chase.HasValue)
+                {
+                    if (IsLocked(unit)) continue; // 同路径跟随：锁定期间不推进，不结束请求，解锁后续推。
+                    AdvanceChase(unit, world, dt, isDiscrete: false);
                     continue;
                 }
 
@@ -290,12 +314,16 @@ namespace Core.Carriers.Unit
             // 见 IControlledDisplacementSink.BeginControlledDisplacement 判断记录）。
             var hadDisplacement = state.Displacement.HasValue;
 
-            if (!hadPath && !hadDisplacement && !hadDiscardedMoveIntent)
+            // ADR-0097：显式 Stop 同样能取消一条正在进行（或已停在 StopRange 内待命）的追击请求——
+            // "现有的停止/取消入口同样清它"，与 hadDisplacement 同一惯例，复用 Requested 原因值。
+            var hadChase = state.Chase.HasValue;
+
+            if (!hadPath && !hadDisplacement && !hadChase && !hadDiscardedMoveIntent)
             {
                 return;
             }
 
-            if (hadPath || hadDisplacement)
+            if (hadPath || hadDisplacement || hadChase)
             {
                 var oldMode = state.Mode;
                 unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null);
@@ -427,8 +455,10 @@ namespace Core.Carriers.Unit
 
             // 游戏侧通用能力需求（05 第 6 节勘误"替换"）：新路径整体替换仍在进行中的旧路径时，
             // 触发 OnMoveStopped(Replaced)——仅当旧路径确实存在（寻路失败分支已在上面提前返回，
-            // 不会走到这里，因此这里的"替换"必然是一次成功的重新建路）。
-            var hadPath = oldState.CurrentPath != null;
+            // 不会走到这里，因此这里的"替换"必然是一次成功的重新建路）。ADR-0097：正在进行中的
+            // 追击请求同样算"旧的、被这次 ToTarget 整体替换"的一种（"新的任何 MoveRequest（含
+            // ToTarget）替换它"）。
+            var hadPath = oldState.CurrentPath != null || oldState.Chase.HasValue;
             var navVersion = _navigation?.GetBlockingVersion(unit.MapId) ?? 0;
 
             var oldMode = oldState.Mode;
@@ -441,6 +471,307 @@ namespace Core.Carriers.Unit
             }
 
             ContinuePathCore(unit, dt, isDiscrete);
+        }
+
+        // -------------------------------------------------------------------
+        // ADR-0097《以单位为目标的追击移动请求》：move_to_unit 意图的开始/推进/结束。
+        // -------------------------------------------------------------------
+
+        /// <summary>处理一条 <c>move_to_unit</c> 意图（见 <see cref="MoveRequest.ToUnit"/>）：与
+        /// <see cref="ApplyIntent"/>（目标/方向类 <c>move</c>）同一组前置检查顺序——控制期间禁止移动、
+        /// 受控位移期间普通移动互斥（复用同一处短路，追击也是"普通移动"的一种，不是位移）、离散模式下
+        /// 先按行动点预算门槛，全部通过后才解码参数、进入 <see cref="BeginChase"/>。</summary>
+        private void ApplyChaseIntent(Unit unit, Intent intent, IWorldSim world, double dt, bool isDiscrete)
+        {
+            if (IsLocked(unit))
+            {
+                return;
+            }
+
+            if (unit.MovementState.Displacement.HasValue)
+            {
+                _diagnostics.Warn(
+                    $"MovementTickHandler: 单位 \"{unit.EntityId}\" 正在受控位移中（ADR-0026），" +
+                    "move_to_unit 意图被拒绝");
+                return;
+            }
+
+            if (isDiscrete && !TryConsumeMovementActionPoints(unit, dt))
+            {
+                return; // 行动点不足：同 ApplyIntent，本次意图被拒绝。
+            }
+
+            if (!TryReadChaseArgs(intent.Args, out var targetUnitId, out var stopRange, out var mode))
+            {
+                _diagnostics.Warn(
+                    $"MovementTickHandler: move_to_unit 意图参数不完整，单位 \"{unit.EntityId}\" " +
+                    "本次意图被忽略");
+                return;
+            }
+
+            BeginChase(unit, targetUnitId, stopRange, mode, world, dt, isDiscrete);
+        }
+
+        /// <summary>建立一次新的追击请求（惯例同 <see cref="BeginPathTo"/>：建立状态后立即调用推进一步，
+        /// 保证发起请求的这一 tick 也会产生一次评估/位移，不必等到下一 tick）。
+        /// <para>
+        /// 判断记录（先落地为 <see cref="MoveMode.Idle"/> 再交给 <see cref="AdvanceChase"/> 评估）：
+        /// 新追击请求的"是否需要立即靠近"取决于与目标的实时距离，与发起前该单位在做什么无关（哪怕
+        /// 发起前正在 <see cref="MoveMode.Run"/> 沿另一条路径跑），因此本方法把
+        /// <see cref="Core.Carriers.Unit.MovementState.Mode"/> 统一重置为
+        /// <see cref="MoveMode.Idle"/> 后再调用 <see cref="AdvanceChase"/>——<see cref="AdvanceChase"/>
+        /// 内部用"当前 <c>Mode</c> 是否为 <c>Idle</c>"判断"这一刻算不算已经在靠近"（滞回判断的一部分，
+        /// 见该方法判断记录），发起请求这一刻理应总是从"尚未开始靠近"算起（对应任务书"请求发起时若
+        /// 已在 StopRange 内：不移动，只转向，不结束请求"，且对"发起时距离落在 StopRange 与
+        /// StopRange+FollowResumeSlack 之间"这一任务书未明确的边界情形，按同一滞回惯例外推为"同样不
+        /// 移动"，不单独另开一套开局规则）。但对外可观测的 <c>unit.state_changed</c> 事件不应该把这个
+        /// 内部占位值当成"变化前"——<paramref name="priorModeOverride"/>（<see cref="AdvanceChase"/>
+        /// 参数）就是为此单独传入发起前的真实 <c>Mode</c>。
+        /// </para>
+        /// </summary>
+        private void BeginChase(Unit unit, Id targetUnitId, double stopRange, MoveMode mode, IWorldSim world, double dt, bool isDiscrete)
+        {
+            var from = unit.Position;
+            var oldState = unit.MovementState;
+
+            // 惯例同 BeginPathTo 判断记录"替换"：正在进行中的路径跟随或另一次追击，均算被本次新请求
+            // 整体替换的"旧的"。
+            var hadPrevious = oldState.CurrentPath != null || oldState.Chase.HasValue;
+
+            var chase = new UnitChaseState(targetUnitId, stopRange, mode, unit.Position);
+            unit.MovementState = new MovementState(null, MoveMode.Idle, oldState.MovementLocked, 0, 0, null, chase);
+
+            if (hadPrevious)
+            {
+                _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
+            }
+
+            AdvanceChase(unit, world, dt, isDiscrete, priorModeOverride: oldState.Mode);
+        }
+
+        /// <summary>
+        /// 推进（或维持）<paramref name="unit"/> 当前追击态一步——每次调用顺序：① 目标存活/归属判断，
+        /// 命中任一失效条件即经 <see cref="EndChase"/> 自动结束（清空请求）；② 朝目标更新
+        /// <see cref="Unit.Facing"/>；③ 按滞回规则（<see cref="MovementOptions.FollowResumeSlack"/>）
+        /// 判断本 tick 是"保持静止"还是"需要靠近"；④ 需要靠近时按
+        /// <see cref="MovementOptions.FollowRepathDistance"/> 判断是否重新规划路径（规划终点是"目标
+        /// 当前位置沿本单位→目标方向回退 <see cref="UnitChaseState.StopRange"/> 的一点"，不是目标
+        /// 本身，见本方法判断记录"规划终点"），随后复用与 <see cref="ContinuePathCore"/> 相同的逐
+        /// 路点推进算法消费本 tick 的位移预算——到达路径终点（该次规划时的停止点快照，不是真正的最终
+        /// 目的地）时不收回 <see cref="MoveMode.Idle"/>、不清空
+        /// <see cref="Core.Carriers.Unit.MovementState.Chase"/>，下一 tick 由步骤①②③重新评估。
+        /// <para>
+        /// 判断记录（滞回用 <c>Mode != Idle</c> 做"当前是否在靠近"的代理，不另开一个布尔字段）：
+        /// 正在靠近（<c>Mode</c> 为 <see cref="UnitChaseState.Mode"/>）时，距离 ≤
+        /// <see cref="UnitChaseState.StopRange"/> 才停止；已停止（<c>Mode</c> 为
+        /// <see cref="MoveMode.Idle"/>）时，距离 &gt; <c>StopRange + FollowResumeSlack</c> 才恢复
+        /// 靠近——两个阈值中间的缓冲区内维持当前状态不变，防止目标在 <c>StopRange</c> 边界附近来回
+        /// 抖动时追击单位跟着每 tick 起停。<see cref="BeginChase"/> 发起新请求时先把 <c>Mode</c> 重置
+        /// 为 <see cref="MoveMode.Idle"/>，因此这里读到的"当前是否在靠近"对新请求恒为"否"（见
+        /// <see cref="BeginChase"/> 判断记录）。
+        /// </para>
+        /// <para>
+        /// 判断记录（重新规划路径失败时的已知限制）：<see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/>
+        /// 对目标当前位置寻路失败时，静默保留旧路径（若有）原地不动，下一 tick 用同样的目标位置重试，
+        /// 不触发 <see cref="MovementHost.OnMoveFailed"/>/<see cref="MovementHost.OnMoveFailedDetailed"/>，
+        /// 也不按 <see cref="MovementOptions.PathFailurePolicy"/> 处理——任务书未对追击场景的寻路失败
+        /// 提出要求，按"不劣化、安静重试"收敛范围，与既有路径跟随（<see cref="BeginPathTo"/>/
+        /// <see cref="ReplanPath"/>）的失败事件是两条独立分支，见本模块 README 判断记录"已知限制"。
+        /// </para>
+        /// </summary>
+        /// <param name="priorModeOverride">仅 <see cref="BeginChase"/> 首次评估时传入：本次调用触发
+        /// <c>unit.state_changed</c> 时使用的"变化前"取值，取发起本次追击请求之前该单位真正所处的
+        /// <see cref="Core.Carriers.Unit.MovementState.Mode"/>（见 <see cref="BeginChase"/> 判断
+        /// 记录）。<c>null</c>（<see cref="Execute"/> 第三遍循环续推时的既有情形）表示直接使用
+        /// <see cref="Unit.MovementState"/> 当前值——此时该值本身就是真实的"变化前"取值。</param>
+        private void AdvanceChase(Unit unit, IWorldSim world, double dt, bool isDiscrete, MoveMode? priorModeOverride = null)
+        {
+            var state = unit.MovementState;
+            if (!state.Chase.HasValue)
+            {
+                return; // 防御性：调用方（BeginChase/Execute 第三遍循环）已经判断过非空。
+            }
+
+            var chase = state.Chase.Value;
+            var priorMode = priorModeOverride ?? state.Mode;
+
+            if (!(world.GetEntity(chase.TargetUnitId) is Unit target) ||
+                world.IsPendingDestruction(target.EntityId) ||
+                !target.Alive ||
+                !target.MapId.Equals(unit.MapId))
+            {
+                EndChase(unit, priorMode);
+                return;
+            }
+
+            var targetPos = target.Position;
+            var toTarget = targetPos - unit.Position;
+            var distance = toTarget.Length;
+            if (distance > ZeroLengthEpsilon)
+            {
+                unit.Facing = Math.Atan2(toTarget.Y, toTarget.X);
+            }
+
+            var wasApproaching = state.Mode != MoveMode.Idle;
+            var shouldStop = wasApproaching
+                ? distance <= chase.StopRange
+                : distance <= chase.StopRange + _options.FollowResumeSlack;
+
+            if (shouldStop)
+            {
+                if (priorMode != MoveMode.Idle)
+                {
+                    unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null, chase);
+                    RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
+                }
+
+                // priorMode == Idle：已经停着（或本来就没动过），Chase/CurrentPath 均保持既有值，
+                // 不必重新构造 MovementState。
+                return;
+            }
+
+            var needsRepath = state.CurrentPath == null ||
+                (targetPos - chase.LastPlannedTargetPosition).Length > _options.FollowRepathDistance;
+
+            var path = state.CurrentPath;
+            var pathIndex = state.PathIndex < 0 ? 0 : state.PathIndex;
+            var navVersion = state.NavVersion;
+
+            if (needsRepath)
+            {
+                // 判断记录（规划终点是"停止距离外的一点"，不是目标本身）：直接把目标当前位置当路径
+                // 终点，会让路径跟随按既有"能走多远走多远"的既有语义（同 ContinuePathCore）在单个
+                // tick 内一路走到与目标重合（0 距离）才被下一 tick 的距离检查追上纠正——本 tick 结束
+                // 时短暂地比 StopRange 近得多。这里改为规划到"目标当前位置沿（本单位→目标）方向回退
+                // StopRange"的一点，路径跟随本身的到达判定（ArrivalEpsilon）就会让单位自然停在
+                // StopRange 附近，不依赖"先冲到重合、下一 tick 再纠正"这一额外的一拍延迟。方向用
+                // 重新规划这一刻的 (targetPos - unit.Position) 计算——距离恒 > StopRange（本方法已经
+                // 在上面 shouldStop 分支短路了距离 ≤ StopRange + FollowResumeSlack 的情形，能走到这里
+                // 说明 distance > StopRange + FollowResumeSlack > StopRange，方向向量恒非零）。
+                var standoffPoint = targetPos - toTarget * (chase.StopRange / distance);
+
+                var newPath = _navigation != null
+                    ? _navigation.FindPath(unit.MapId, unit.Position, standoffPoint)
+                    : new List<Vec2> { unit.Position, standoffPoint };
+
+                if (newPath != null)
+                {
+                    path = newPath;
+                    pathIndex = 0;
+                    navVersion = _navigation?.GetBlockingVersion(unit.MapId) ?? 0;
+                    chase = chase.WithLastPlannedTargetPosition(targetPos);
+                }
+                // newPath == null：寻路失败，见本方法判断记录"已知限制"——path 保持上面读到的旧值
+                // （可能仍是 null，也可能是尚未过期的旧路径），不更新 LastPlannedTargetPosition。
+            }
+
+            if (path == null || path.Count == 0)
+            {
+                // 从未成功规划出任何路径：保持追击态，本 tick 不移动，Mode 维持调用前的既有值（从未
+                // 开始移动，也就没有"变回 Idle"这回事）。
+                unit.MovementState = new MovementState(null, state.Mode, state.MovementLocked, 0, 0, null, chase);
+                return;
+            }
+
+            var speed = ResolveSpeed(unit.EntityId);
+            var remaining = speed * dt;
+            var pos = unit.Position;
+            var index = pathIndex;
+            var lastFacing = unit.Facing;
+
+            while (remaining > 0 && index < path.Count)
+            {
+                var waypoint = path[index];
+                var toWaypoint = waypoint - pos;
+                var dist = toWaypoint.Length;
+
+                if (dist <= _options.ArrivalEpsilon)
+                {
+                    pos = waypoint;
+                    index++;
+                    continue;
+                }
+
+                if (dist <= remaining)
+                {
+                    pos = waypoint;
+                    remaining -= dist;
+                    lastFacing = Math.Atan2(toWaypoint.Y, toWaypoint.X);
+                    index++;
+                }
+                else
+                {
+                    var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
+                    pos = pos + dir * remaining;
+                    lastFacing = Math.Atan2(dir.Y, dir.X);
+                    remaining = 0;
+                }
+            }
+
+            if (!pos.Equals(unit.Position))
+            {
+                if (IsBlockedByUnit(unit.EntityId, pos))
+                {
+                    // 判断记录见 IsBlockedByUnit/ContinuePathCore 同名判断记录："简单确定性"——本次
+                    // tick 完全不生效，不写位置/朝向、不改 MovementState（包括刚算出的新路径/chase
+                    // 快照也一并放弃），下一 tick 重新评估、重新（视需要）规划。
+                    return;
+                }
+
+                pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
+                _units.SetPosition(unit.EntityId, pos);
+                unit.Facing = lastFacing;
+                EnqueueMoved(unit.EntityId, pos);
+            }
+
+            unit.MovementState = new MovementState(
+                index >= path.Count ? null : path, chase.Mode, state.MovementLocked, index, navVersion, null, chase);
+
+            if (priorMode != chase.Mode)
+            {
+                RaiseStateChangedIfNeeded(unit.EntityId, priorMode, chase.Mode);
+            }
+        }
+
+        /// <summary>追击自动结束的统一出口（目标不存在/已标记销毁/已死亡/不在同一地图，见
+        /// <see cref="AdvanceChase"/> 调用点）：清空 <see cref="Core.Carriers.Unit.MovementState.Chase"/>
+        /// 与路径、状态收回 <see cref="MoveMode.Idle"/>，并触发既有 <see cref="MovementHost.OnMoveStopped"/>
+        /// （<see cref="MoveStopReason.ChaseTargetLost"/>）——与"距离进入停止区间"不同，这是请求本身
+        /// 被清空（同 <see cref="EndDisplacement"/> 惯例：复用既有事件出口，不新增事件类型）。</summary>
+        private void EndChase(Unit unit, MoveMode priorMode)
+        {
+            unit.MovementState = new MovementState(null, MoveMode.Idle, unit.MovementState.MovementLocked, 0);
+            RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
+            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, MoveStopReason.ChaseTargetLost);
+        }
+
+        /// <summary><see cref="MovementHost.Request"/>（<see cref="MoveRequest.ToUnit"/>）组装的
+        /// <c>move_to_unit</c> 意图参数解码（字段形状 <c>{targetUnitId, stopRange, mode}</c>，见该
+        /// 方法判断记录）。<c>targetUnitId</c>/<c>stopRange</c> 缺失、格式非法或 <c>stopRange</c> 非
+        /// 正数即整体判定失败（<see cref="MoveRequest.ToUnit"/> 已经在构造期校验过 <c>stopRange &gt; 0</c>，
+        /// 这里的非正数分支是防御性兜底，理论上不会由 <see cref="MovementHost.Request"/> 产生）；
+        /// <c>mode</c> 缺失/无法解析时回退 <see cref="MoveMode.Run"/>（惯例同 <see cref="ReadMode"/>
+        /// 在目标类 <c>move</c> 意图上的既有默认值）。</summary>
+        private static bool TryReadChaseArgs(JsonObject args, out Id targetUnitId, out double stopRange, out MoveMode mode)
+        {
+            targetUnitId = default;
+            stopRange = 0;
+            mode = MoveMode.Run;
+
+            if (!(args.TryGetValue("targetUnitId", out var tid) && tid is JsonString tidS &&
+                  Id.TryParse(tidS.Value, out targetUnitId)))
+            {
+                return false;
+            }
+
+            if (!(args.TryGetValue("stopRange", out var sr) && sr is JsonNumber srN) || srN.Value <= 0)
+            {
+                return false;
+            }
+
+            stopRange = srN.Value;
+            mode = ReadMode(args, MoveMode.Run);
+            return true;
         }
 
         // -------------------------------------------------------------------

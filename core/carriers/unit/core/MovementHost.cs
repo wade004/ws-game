@@ -76,6 +76,16 @@ namespace Core.Carriers.Unit
         /// <summary>ADR-0026：一次受控位移进行中，单位死亡（<see cref="Unit.Alive"/> 变为
         /// <c>false</c>）——就地停止。</summary>
         DisplacementCasterDead,
+
+        /// <summary>
+        /// ADR-0097《以单位为目标的追击移动请求》：一次追击（<see cref="MoveRequest.ToUnit"/>）自动
+        /// 结束——目标单位不存在（含已标记销毁待移除，见 <see cref="Core.Foundation.SimLoop.IWorldSim.IsPendingDestruction"/>）、
+        /// 已死亡（<see cref="Unit.Alive"/> 为 <c>false</c>），或与本单位不在同一地图，三者之一命中即
+        /// 触发——单位就地停止，追击请求被清空（不像距离进入停止区间那样保留请求，见
+        /// <c>MovementTickHandler.AdvanceChase</c> 判断记录"自动结束 vs 停止区间"）。复用既有
+        /// <see cref="MovementHost.OnMoveStopped"/> 出口，不新增事件类型（同 ADR-0026 决策 3 惯例）。
+        /// </summary>
+        ChaseTargetLost,
     }
 
     /// <summary>供 <see cref="MovementHost.OnMoveStopped"/> 使用的具名委托：<paramref name="position"/>
@@ -114,16 +124,19 @@ namespace Core.Carriers.Unit
         /// </summary>
         public event MoveStoppedHandler? OnMoveStopped;
 
-        /// <summary>把 <paramref name="request"/> 转译为一条 <c>move</c> 意图并提交（见
-        /// <see cref="IWorldSim.SubmitIntent"/>，进入"下一 tick 待收集"队列——<see cref="Request"/>
-        /// 可在 tick 内外任意时刻调用，与 <see cref="Intent"/> 本身的确定性约定一致）。
-        /// <see cref="MoveRequest.Target"/>/<see cref="MoveRequest.Direction"/> 必须恰好提供一个。</summary>
+        /// <summary>把 <paramref name="request"/> 转译为一条 <c>move</c>（<see cref="MoveRequest.Target"/>/
+        /// <see cref="MoveRequest.Direction"/>）或 <c>move_to_unit</c>（<see cref="MoveRequest.TargetUnitId"/>，
+        /// ADR-0097）意图并提交（见 <see cref="IWorldSim.SubmitIntent"/>，进入"下一 tick 待收集"
+        /// 队列——<see cref="Request"/> 可在 tick 内外任意时刻调用，与 <see cref="Intent"/> 本身的确定性
+        /// 约定一致）。三者必须恰好提供一个（见 <see cref="MoveRequest"/> 三个静态工厂）。</summary>
         public void Request(MoveRequest request)
         {
             JsonObject args;
+            string kind;
 
             if (request.Target.HasValue)
             {
+                kind = "move";
                 args = new JsonObjectBuilder()
                     .Add("x", new JsonNumber(request.Target.Value.X))
                     .Add("y", new JsonNumber(request.Target.Value.Y))
@@ -132,19 +145,29 @@ namespace Core.Carriers.Unit
             }
             else if (request.Direction.HasValue)
             {
+                kind = "move";
                 args = new JsonObjectBuilder()
                     .Add("dx", new JsonNumber(request.Direction.Value.X))
                     .Add("dy", new JsonNumber(request.Direction.Value.Y))
                     .Add("mode", new JsonString(request.Mode.ToString()))
                     .Build();
             }
+            else if (request.TargetUnitId.HasValue)
+            {
+                kind = "move_to_unit";
+                args = new JsonObjectBuilder()
+                    .Add("targetUnitId", new JsonString(request.TargetUnitId.Value.Value))
+                    .Add("stopRange", new JsonNumber(request.StopRange!.Value))
+                    .Add("mode", new JsonString(request.Mode.ToString()))
+                    .Build();
+            }
             else
             {
                 throw new ArgumentException(
-                    "MoveRequest 必须指定 Target 或 Direction 之一", nameof(request));
+                    "MoveRequest 必须指定 Target、Direction 或 TargetUnitId 之一", nameof(request));
             }
 
-            _world.SubmitIntent(new Intent(request.UnitId, "move", args));
+            _world.SubmitIntent(new Intent(request.UnitId, kind, args));
         }
 
         /// <summary>
