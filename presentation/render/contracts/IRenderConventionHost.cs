@@ -34,5 +34,23 @@ namespace Presentation.Render
 
         /// <summary>高度偏移换算为像素纵向偏移（见 09 第 3.4 节）。</summary>
         double HeightOffsetToPixels(double height, double pixelsPerUnit);
+
+        /// <summary>
+        /// ADR-0094 决策 1：把<b>原始朝向弧度</b>（量化之前）按口味约定转换一次——先按
+        /// <see cref="RenderOptions.MirrorFacingY"/> 镜像（角度取负），再加
+        /// <see cref="RenderOptions.FacingAngleOffsetRadians"/>；两者默认值下恒等（原样返回
+        /// <paramref name="rawRadians"/>），与改动前逐字节一致。调用方（<c>presentation/view_binding</c>
+        /// 的 <c>ViewBinder</c>）在把模拟层原始朝向角交给 <see cref="Presentation.Common.Direction.FromQuantized"/>/
+        /// <see cref="Presentation.Common.Direction.Continuous"/> 量化/使用之前先调用本方法，使
+        /// <see cref="DirectionIndexRemap"/>（按方向档位数登记的量化索引重映射表）之外，再提供一组与
+        /// 方向档位数无关的朝向修正口味项（见 <see cref="RenderOptions"/> 两个字段注释、
+        /// <c>presentation/render/README.md</c>"朝向约定"一节推荐配置）。
+        /// <para>
+        /// 默认接口成员（ABI 加法，见 AGENTS.md 第 3 节）：早于本次改动实现本接口的既有代码（含消费方
+        /// 自定义实现）不需要跟着新增这个成员也能继续编译/运行，未重写时行为恒等，不影响任何既有调用
+        /// 方（本接口迄今唯一的实现 <see cref="RenderConventionHost"/> 已重写为真正的实现）。
+        /// </para>
+        /// </summary>
+        double ApplyFacingConvention(double rawRadians) => rawRadians;
     }
 }

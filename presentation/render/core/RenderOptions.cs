@@ -50,5 +50,25 @@ namespace Presentation.Render
         /// <c>SpriteCharacterRig</c> 判断记录）。默认 <see cref="HitFrameSyncStrategy.LogicDriven"/>
         /// （09 建议默认）。</summary>
         public HitFrameSyncStrategy HitFrameSync { get; set; } = HitFrameSyncStrategy.LogicDriven;
+
+        /// <summary>
+        /// ADR-0094 决策 1：与方向档位数无关的朝向约定口味项之一——镜像 Y 分量（等价于把原始朝向角
+        /// 取负：(cosθ, sinθ) 镜像 Y 后是 (cosθ, -sinθ) = (cos(-θ), sin(-θ))）。与
+        /// <see cref="FacingAngleOffsetRadians"/> 一起，在 <see cref="IRenderConventionHost.ApplyFacingConvention"/>
+        /// 里按"先镜像、再加偏移"的顺序作用在<b>原始朝向角</b>上（量化之前，见该方法注释），解决
+        /// <see cref="DirectionIndexRemap"/> 只能按固定方向档位数登记一张表、换一档方向数（4/8/16）就要
+        /// 重新配一张表的问题——本组口味项与方向档位数无关，同一份配置对任意档位数生效。默认
+        /// <c>false</c>（不镜像，行为与改动前逐字节一致）。</summary>
+        public bool MirrorFacingY { get; set; }
+
+        /// <summary>
+        /// ADR-0094 决策 1：与 <see cref="MirrorFacingY"/> 同组的角度偏移口味项（弧度，"先镜像、再加
+        /// 偏移"顺序里的第二步），典型用途——具体引擎适配层把逻辑坐标系原样写成引擎坐标系时（如
+        /// <c>+Y</c> 朝屏幕上方），若与 <see cref="Presentation.Common.DirectionSlots"/> 固定假定的
+        /// "<c>+Y</c> 朝观察者"差 180°（见 <c>presentation/render/README.md</c>"朝向约定"一节），配
+        /// <c>Math.PI</c> 即可修正——等价于按方向档位数手工登记一张旋转半圈的
+        /// <see cref="DirectionIndexRemap"/>，但不需要随方向档位数（4/8/16）各配一张表。默认 <c>0</c>
+        /// （不偏移，行为与改动前逐字节一致）。</summary>
+        public double FacingAngleOffsetRadians { get; set; }
     }
 }

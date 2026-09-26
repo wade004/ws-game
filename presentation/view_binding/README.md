@@ -163,6 +163,15 @@ public void SyncAll(double alpha)
    `OnEntityCreated_ViewFactoryThrowsForOneEntity_IsolatesFailureAndRecordsDiagnostic`/
    `OnSaveLoaded_ReconciliationLoop_ViewFactoryThrowsForOneEntity_IsolatesFailureAcrossRemainingEntities`
    （后者在修复前会真的红——第 3 个实体因循环被第 2 个的异常中断而同样拿不到 View）。
+10. **ADR-0094（消费方反馈第三十九批）：`ResolveDirection` 是"表现层拿到未量化原始朝向弧度"这一
+    事实成立的落地点，朝向约定口味项因此落在这里生效**——`_snapshot.GetFacing` 给出的就是量化之前
+    的原始弧度，`Direction.FromQuantized`/`Direction.Continuous` 都在 `ResolveDirection` 内部才
+    发生；事先核实了这个时序后，`RenderOptions.MirrorFacingY`/`FacingAngleOffsetRadians` 两个与
+    方向档位数无关的口味项经 `IRenderConventionHost.ApplyFacingConvention` 在量化之前统一转换一次
+    原始角度（sprite 型 `Direction.FromQuantized`、model 型 `Direction.Continuous` 同样经过转换，
+    镜头朝向修正对两种外形类型是同一件事），因此 ADR-0094 决策落在"变换原始角度"这一方案，不需要
+    另一个曾设想的"按方向档位数分表重映射"备选方案（见 [ADR-0094](../../architecture/adr/0094-朝向约定口味项与档位数无关.md)
+    "备选方案"一节）。`GetAnchorWorldPosition`（镜像下锚点偏移换算）同一处理，见该方法判断记录。
 
 ## 契约缺口
 

@@ -92,6 +92,17 @@ namespace Adapter.Unity.Presentation
         /// 契约的一部分。</summary>
         public SpriteHandle EngineHandle => Handle;
 
+        /// <summary>ADR-0093：转发基类 <see cref="Presentation.Render.SpriteViewBase.OnDirectionSlotChanged"/>
+        /// 钩子（方向槽位相比上一次 SyncPose 变化时触发一次，同档位内逐帧调用不会重复触发），供
+        /// <see cref="UnityViewFactory.AttachDefaultAnimation"/> 订阅后重新探测该实体的方向相关动画
+        /// 剪辑（逐层 <c>TryAttachPerLayerAnimation</c>/整身 <c>RegisterDefaultClips</c> 均按新档位
+        /// 重新解析，见该方法判断记录）——本类型自己不知道具体探测逻辑，只做事件转发，探测/缓存仍然
+        /// 放在 <see cref="UnityViewFactory"/>（现有 <c>TryAttachPerLayerAnimation</c> 所在层，符合 ADR-0093
+        /// 决策 4"探测/缓存放在引擎适配层视图"）。</summary>
+        public event Action<Id>? DirectionSlotChanged;
+
+        protected override void OnDirectionSlotChanged(Id newSlotId) => DirectionSlotChanged?.Invoke(newSlotId);
+
         public override void SyncPose(Vec2 pos, Direction facing, double height)
         {
             base.SyncPose(pos, facing, height);

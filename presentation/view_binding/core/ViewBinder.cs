@@ -476,9 +476,22 @@ namespace Presentation.ViewBinding
         /// <c>DisplayInfo.Sprite.DirectionCount</c>）或 <see cref="Direction.Continuous"/>（model 型，
         /// 见 09 第 3.2 节）；查不到 <c>DisplayInfo</c>（未登记/尚未 Reload）时按
         /// <see cref="ViewBinderOptions.DefaultDirectionCount"/> 兜底量化，不让整条 SyncAll 因为
-        /// 单个缺失的 DisplayInfo 行而抛异常。</summary>
+        /// 单个缺失的 DisplayInfo 行而抛异常。
+        /// <para>
+        /// ADR-0094 决策 1/2：<paramref name="facingRadians"/>（模拟层的原始朝向弧度，量化之前）先经
+        /// <see cref="IRenderConventionHost.ApplyFacingConvention"/> 转换一次——本类型是"表现层拿到原始
+        /// 朝向角"这一事实成立的落地点（<c>_snapshot.GetFacing</c> 给出的就是未量化的原始弧度，
+        /// <see cref="Direction.FromQuantized"/>/<see cref="Direction.Continuous"/> 都在本方法内部才
+        /// 发生），因此 ADR-0094 的口味项按决策 1（与方向档位数无关的角度口味项）落地，不需要决策 2
+        /// 的备选方案 A（按方向档位数分表的 <c>DirectionIndexRemapByCount</c>）。model 型
+        /// （<see cref="Direction.Continuous"/>）同样经过转换——镜头朝向/坐标轴约定的口味修正对两种
+        /// 外形类型是同一件事，不应只对 sprite 型生效。
+        /// </para>
+        /// </summary>
         private Direction ResolveDirection(double facingRadians, Id entityId)
         {
+            var facing = _renderConvention.ApplyFacingConvention(facingRadians);
+
             if (_displayIds.TryGetValue(entityId, out var displayId))
             {
                 var info = _displayInfo.Lookup(displayId);
@@ -486,17 +499,17 @@ namespace Presentation.ViewBinding
                 {
                     if (info.Kind == DisplayKind.Model)
                     {
-                        return Direction.Continuous(facingRadians);
+                        return Direction.Continuous(facing);
                     }
 
                     if (info.Kind == DisplayKind.Sprite && info.Sprite != null)
                     {
-                        return Direction.FromQuantized(facingRadians, info.Sprite.DirectionCount);
+                        return Direction.FromQuantized(facing, info.Sprite.DirectionCount);
                     }
                 }
             }
 
-            return Direction.FromQuantized(facingRadians, _options.DefaultDirectionCount);
+            return Direction.FromQuantized(facing, _options.DefaultDirectionCount);
         }
 
         /// <summary>缺口 6：<see cref="IAnchorQuery"/> 实现，见接口注释判断记录。</summary>
@@ -540,7 +553,9 @@ namespace Presentation.ViewBinding
                 return null;
             }
 
-            var facing = _snapshot.GetFacing(entityId);
+            // ADR-0094 决策 1：与 ResolveDirection 同一处理——先经 ApplyFacingConvention 转换原始朝向角
+            // 再量化，保证锚点查询与 SyncPose 用同一套朝向约定解析出同一个方向槽位。
+            var facing = _renderConvention.ApplyFacingConvention(_snapshot.GetFacing(entityId));
             var direction = Direction.FromQuantized(facing, spriteInfo.DirectionCount);
             var (slotId, flipX) = _renderConvention.ResolveDirectionSlot(direction, spriteInfo);
 

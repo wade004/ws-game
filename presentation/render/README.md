@@ -29,7 +29,8 @@ render/
   core/
     MapLayerHost.cs             ADR-0080：地图分层图（ground/decal/overlay）建/销驱动，接入 PresentationAssembly.MapLayers
     RenderLayers.cs            六层的整数层号常量
-    RenderOptions.cs             口味配置项（方向档位数、PixelsPerUnit、HitFrameSync 策略）
+    RenderOptions.cs             口味配置项（方向档位数、PixelsPerUnit、HitFrameSync 策略、
+                                   MirrorFacingY/FacingAngleOffsetRadians 朝向约定，ADR-0094）
     SpriteLayerPlacement.cs      ComposeSpriteLayers 产出的单条层放置信息
     ShadowSpec.cs                 影子锚点 + ShadowMode 数据侧→引擎侧转换
     RenderConventionHost.cs       IRenderConventionHost 默认实现
@@ -90,6 +91,17 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 `toolchain/asset_import/directions.py` 的 `_CANONICAL_NAMES[16]` 逐字一致）；`Id` 前缀判断记录见
 `DirectionSlots` 类型注释。`display.map.mirror_pairs` 未登记某个 `_l` 档位时，
 `DirectionSlots.MirrorSourceOf` 给出 14 固定的默认镜像来源（`_l` 镜像自同族 `_r`）作为回退。
+
+### 朝向约定口味项（`RenderOptions.MirrorFacingY`/`FacingAngleOffsetRadians`，ADR-0094）
+
+下表"角度 0 = e（+X）、90° = n（+Y，面朝观察者）"是本模块默认的朝向约定，具体游戏的镜头朝向若与
+之不一致（角度增长方向相反，和/或"角度 0"对应的屏幕朝向整体旋转了一个固定角度），不必再去改
+方向档位数或量化规则本身去绕，配 `RenderOptions` 的这两个口味项即可：`MirrorFacingY`（镜像开关，
+角度取负，处理角度增长方向相反的情况）先生效，`FacingAngleOffsetRadians`（弧度偏移量）后叠加，
+变换后的角度才进入下表的量化——即"先镜像、再偏移"，量化本身不变。两项默认值（`false`/`0`）下
+变换前后逐字节相同，未配置的游戏不受影响。推荐配置方式：先用默认值跑一遍，肉眼核对"角度 0 对应的
+朝向是否符合预期"，对不上再按需要配置这两项，不必逐档位试错。完整推导见
+[ADR-0094](../../architecture/adr/0094-朝向约定口味项与档位数无关.md)、判断记录 24。
 
 ### 索引 → 档位对应表（8 方向，判断记录见下）
 
@@ -358,6 +370,31 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     适配层常驻根节点下不被回收（Unity PlayMode 测试套件里多个测试夹具共享同一个 DontDestroyOnLoad
     宿主单例，正是这条路径会被触发的真实场景，见 `adapters/unity/.../Tests/Runtime/
     MapLayerHostPlayModeTests.cs` 判断记录）。
+
+24. **ADR-0094（消费方反馈第三十九批）：朝向约定新增 `MirrorFacingY`/`FacingAngleOffsetRadians`
+    两个口味项，与方向档位数无关**——事先核实过 `presentation/view_binding` 的 `ViewBinder` 在调用
+    `Direction.FromQuantized` 量化之前手上就有未量化的原始朝向弧度角，因此选择在这一层做统一变换
+    （`RenderConventionHost.ApplyFacingConvention`：先按 `MirrorFacingY` 镜像、再加
+    `FacingAngleOffsetRadians`），而不是另一个曾设想的"按方向档位数各配一张索引重映射表"方案——
+    原始角度层面的变换与档位数无关，配一次对任意档位数生效，索引重映射表则要求每种档位数各自配
+    一份。两项默认值下逐字节不变。既有的 `RenderOptions.DirectionIndexRemap`（判断记录 1"缺口 8"）
+    是另一套独立机制，作用在量化之后的索引上，顺序固定为"先角度层面镜像/偏移、量化、再索引重映射"，
+    不可调换；该配置项长度与当前方向档位数不一致时，此前是纯静默按恒等映射处理，现按
+    (档位数, 表长度) 组合去重记一条一次性 Warn 诊断（经 `RenderConventionHost` 新增的可选诊断出口
+    构造重载，未注入诊断出口时仍纯静默，处理结果本身不变，不抛异常）。完整推导见
+    [ADR-0094](../../architecture/adr/0094-朝向约定口味项与档位数无关.md)。
+
+25. **ADR-0093（消费方反馈第三十九批）：默认挂接的动画剪辑随朝向变化重新探测，取代判断记录（见
+    [ADR-0072](../../architecture/adr/0072-纸娃娃层逐层播放剪辑.md)）里"只在实体挂接时刻按当时
+    朝向探测一次，运行期朝向改变不会重新探测"这条已知限制**——`SpriteViewBase.SyncPose` 解析出的
+    方向槽位与上一次不同时，新增受保护可覆写方法 `OnDirectionSlotChanged(Id newSlotId)`（默认空
+    实现，ABI 加法，早于本次改动的子类不受影响）同步触发一次；引擎适配层的具体视图实现把它转发为
+    对外事件，供负责挂接默认动画的一方订阅并按新方向裸档位名重新走一遍 ADR-0072 决策 1 既有的候选
+    探测规则（逐层与整身两条路线待遇一致，整身路线在本次之前不支持按方向探测）。换向后同一状态内
+    保留已播放的时长，复用判断记录 14（N18 收口）"按原剪辑标识原地覆盖、播放器自己重新换算当前
+    帧"这一既有热替换机制，未新增任何进度记账代码。探测结果按(实体, 方向, 状态/层)缓存，只在方向
+    真正变化时触发一次。完整推导见
+    [ADR-0093](../../architecture/adr/0093-动画剪辑随朝向档位切换.md)。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）

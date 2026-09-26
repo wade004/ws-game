@@ -905,6 +905,18 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   `AnimStateMachine`（与既有 `AnimStateMachineForTests` 指向同一个实例，只是转发出去，不改变
   `EnsureAnimClipResolver` 首次被"生物"分类 `CreateView` 触发时才懒构造这一既有时机；`internal`
   出口原样保留供框架自身测试沿用）。ABI：纯新增公开只读属性，不改动任何既有公开签名。
+- **判断记录（默认剪辑随朝向档位重新探测，消费方反馈第三十九批，
+  [ADR-0093](../../../../architecture/adr/0093-动画剪辑随朝向档位切换.md)）**：此前逐层/整身两条
+  剪辑候选探测规则都只在 `AttachDefaultAnimation` 挂接那一刻按当时朝向跑一次，运行期
+  `UnitySpriteView.SyncPose` 换向不会重新探测（[ADR-0072](../../../../architecture/adr/0072-纸娃娃层逐层播放剪辑.md)
+  已如实记录这条限制）。新增：`UnitySpriteView` 覆写的 `OnDirectionSlotChanged`（表现层基类新增的
+  受保护虚方法钩子）转发出 `DirectionSlotChanged` 事件，`UnityViewFactory.ReprobeDirectionAwareAnimation`
+  订阅该事件，按新方向裸档位名重新走一遍原有候选规则（逐层：方向+层名→仅层名；整身新增"资源引用+
+  方向"这一级，找不到再退回声明的 `resource_ref` 原值），命中则把内容重新登记到原剪辑 id 原地覆盖
+  （换向后保留已播放的时长，复用既有 N18 热替换机制，见本文件"默认动画生命周期"上文），未命中维持
+  原样；结果按 (实体, 方向, 状态/层) 缓存（含"两级候选都未命中"这一结果），只在方向真正变化时
+  探测一次。诊断计数 `DirectionAwareReprobeCountForTests` 供测试断言探测触发/去重次数。整身路线
+  （decision 5）此前不支持按方向探测，本次补齐，与逐层路线待遇一致。
 
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
@@ -912,7 +924,11 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
 `UnitRespawned_SamePlayerInstance_CanTransitionToMoveAgain`）、`Tests/Runtime/AnimationLayerTests.cs`
 （`UnityFrameAnimPlayer`/`AnimClipResolver` 组件本身的独立单测）、
 `Tests/Runtime/UnityViewFactoryAnimStateMachineAccessTests.cs`（ADR-0070：反射断言公开属性 getter
-可见性 + 经该出口调用 `RequestOverride` 的功能用例）。
+可见性 + 经该出口调用 `RequestOverride` 的功能用例）、`Tests/Runtime/DirectionAwareAnimClipTests.cs`
+（ADR-0093：`SyncPose_DirectionChanges_MoveClipSwitchesToNewDirectionResource_PreservingProgress`
+换向后整身剪辑切换到新方向资源且保留播放进度；
+`ReprobeDirectionAwareAnimation_MissingDirectionFallsBackWithoutError_AndSameSlotDoesNotReprobe`
+目标方向无专属资源时静默回退不报错、同一方向档位重复调用不重复探测）。
 
 ## model 型外形（W6-B 收口，ADR-0017）
 

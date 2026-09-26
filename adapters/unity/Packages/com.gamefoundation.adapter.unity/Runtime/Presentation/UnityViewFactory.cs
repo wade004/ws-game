@@ -201,6 +201,56 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>> _perLayerClipsByEntity =
             new Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>>();
 
+        /// <summary>ADR-0093 决策 4：记录每个已挂接默认动画的 sprite 型实体的最小重探测上下文——
+        /// <see cref="AttachDefaultAnimation"/> 期间已经拿到的 <see cref="UnityFrameAnimPlayer"/>/
+        /// 渲染器/句柄/<c>display.anim_set</c>/状态键到 clipId 的映射，供
+        /// <see cref="UnitySpriteView.DirectionSlotChanged"/> 触发时（<see cref="ReprobeDirectionAwareAnimation"/>）
+        /// 重新解析该方向下应播放的剪辑集，不重复持有 <see cref="UnitySpriteView"/> 本身（避免不必要的
+        /// 耦合，同 <see cref="_animPlayersByEntity"/> 一类既有惯例）。<c>ActivePerLayerByState</c> 与
+        /// <see cref="_perLayerClipsByEntity"/> 里同一实体的表是同一个对象引用——
+        /// <see cref="TryAttachPerLayerAnimation"/> 挂接的 <c>player.OnFrameChanged</c> 回调闭包捕获的
+        /// 正是这个对象，方向变化后原地 <c>Clear</c>+重新填充即可让该闭包读到新方向的解析结果，不需要
+        /// 重新订阅一次 <c>OnFrameChanged</c>。</summary>
+        private sealed class DirectionAwareAnimContext
+        {
+            public Core.Foundation.DisplayInfo.DisplayInfo Info = null!;
+            public UnityFrameAnimPlayer Player = null!;
+            public Adapter.Unity.EngineAdapter.UnityRenderer2D Renderer = null!;
+            public SpriteHandle Handle;
+            public IReadOnlyDictionary<string, Id> StateClipIds = null!;
+            public Core.Foundation.DisplayInfo.AnimSetDef? AnimSet;
+            public Dictionary<Id, Dictionary<string, Id>>? ActivePerLayerByState;
+
+            /// <summary>最近一次成功处理过的方向裸档位名（见 <see cref="ReprobeDirectionAwareAnimation"/>
+            /// 判断记录），null 表示尚未发生过一次方向变化重探测（挂接期的默认朝向探测不经过本表）。</summary>
+            public string? LastDirBareName;
+        }
+
+        private readonly Dictionary<Id, DirectionAwareAnimContext> _directionAwareAnimByEntity =
+            new Dictionary<Id, DirectionAwareAnimContext>();
+
+        /// <summary>ADR-0093 决策 1/3：逐层剪辑按 (实体, 方向裸档位名) 缓存的解析结果，含"该状态没有
+        /// 任何层命中"的缺失结果（空字典）——entityId -> dirBareName -> stateClipId -> (层名 -> 逐层
+        /// clipId)。避免朝向在几个已经访问过的档位间来回切换时重复走一遍 <see cref="ProbeLayersSequential"/>
+        /// 的候选遍历/tier 探测逻辑（<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryGetEffect"/>
+        /// 本身对已加载资源是同步缓存命中，本表额外省下的是"确认缺失"这一结果的可复用性——不必每次
+        /// 切回该方向都重新走一遍二级探测才能再次得出"这一状态没有逐层美术"的结论）。</summary>
+        private readonly Dictionary<Id, Dictionary<string, Dictionary<Id, Dictionary<string, Id>>>> _perLayerClipCacheByEntityAndDir =
+            new Dictionary<Id, Dictionary<string, Dictionary<Id, Dictionary<string, Id>>>>();
+
+        /// <summary>ADR-0093 决策 5：整身默认剪辑按 (实体, 方向裸档位名, 状态键) 缓存的解析结果——命中
+        /// 时是已解析的 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset"/>，
+        /// "确认缺失"（两级候选均未命中，回退现有无方向段剪辑）用 <c>null</c> 表示，同一套"缓存缺失
+        /// 结果"考量，见 <see cref="_perLayerClipCacheByEntityAndDir"/> 判断记录。</summary>
+        private readonly Dictionary<Id, Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>> _defaultClipCacheByEntityAndDir =
+            new Dictionary<Id, Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>>();
+
+        /// <summary>测试用：<see cref="ReprobeDirectionAwareAnimation"/> 实际执行过重探测的次数（不含
+        /// 被 <see cref="Presentation.Render.SpriteViewBase.OnDirectionSlotChanged"/>"档位未变化不触发"
+        /// 挡在前面、根本没有到达本方法的调用）——供测试验证 ADR-0093 决策 3"只在档位变化时探测，不
+        /// 逐帧探测"这条不变量，不是公开契约的一部分。</summary>
+        internal int DirectionAwareReprobeCountForTests { get; private set; }
+
         /// <summary>W6-B 新增：model 型实体的默认动画路由表——同 <see cref="_animPlayersByEntity"/>
         /// 姊妹表，供 <see cref="EnsureAnimClipResolver"/> 的 <c>playClip</c> 委托在查不到
         /// <see cref="UnityFrameAnimPlayer"/>（sprite 专属）时改走该实体的
@@ -313,6 +363,14 @@ namespace Adapter.Unity.Presentation
             _animClipsByEntity.Remove(evt.EntityId);
             _modelViewsByEntity.Remove(evt.EntityId);
             _perLayerClipsByEntity.Remove(evt.EntityId);
+
+            // ADR-0093：方向变化重探测的上下文/缓存同一套"随实体销毁清理"惯例——entityId 可能被完全
+            // 不同的新实体复用（同上一条判断记录），留着旧实体的方向缓存没有任何意义，且
+            // DirectionAwareAnimContext.ActivePerLayerByState 引用的正是已随 _perLayerClipsByEntity
+            // 一并移除的旧表对象，不清理会造成悬空引用继续被旧的 DirectionSlotChanged 订阅捕获。
+            _directionAwareAnimByEntity.Remove(evt.EntityId);
+            _perLayerClipCacheByEntityAndDir.Remove(evt.EntityId);
+            _defaultClipCacheByEntityAndDir.Remove(evt.EntityId);
 
             // W6-B 新增：命中帧同步注册表同一套"随实体销毁清理"惯例（见 IHitFrameSource.UnregisterRig
             // 契约注释"未登记过时 no-op"，对从未注册过 hit frame 的实体调用同样安全）。
@@ -543,6 +601,23 @@ namespace Adapter.Unity.Presentation
             // 未声明（item/gobj/projectile 一类，或 paperdoll_layers 为空的 creature）时该方法整体是
             // 空操作，不影响本方法其余行为，见其判断记录。
             TryAttachPerLayerAnimation(concreteRenderer, view.EngineHandle, player, info, entityId, clips);
+
+            // ADR-0093 决策 4：登记方向变化重探测所需的最小上下文，并订阅 UnitySpriteView 转发的
+            // SpriteViewBase.OnDirectionSlotChanged 钩子——挂接期这一次探测仍然按默认朝向（同上一条
+            // TryAttachPerLayerAnimation 判断记录"方向裸档位名只在挂接时解析一次"的既有事实），此后
+            // 每次朝向解析出的方向槽位真的变化时，ReprobeDirectionAwareAnimation 会按新档位重新解析
+            // 逐层/整身默认剪辑，见该方法判断记录。
+            _directionAwareAnimByEntity[entityId] = new DirectionAwareAnimContext
+            {
+                Info = info,
+                Player = player,
+                Renderer = concreteRenderer,
+                Handle = view.EngineHandle,
+                StateClipIds = clips,
+                AnimSet = TryResolveAnimSet(info.Id),
+                ActivePerLayerByState = _perLayerClipsByEntity.TryGetValue(entityId, out var activePerLayerByState) ? activePerLayerByState : null,
+            };
+            view.DirectionSlotChanged += newSlotId => ReprobeDirectionAwareAnimation(entityId, newSlotId);
 
             // GP-02 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：此前默认
             // 工厂只接了 StateChanged -> Play 这一半（见 AnimClipResolver），播放完成后从不回头通知
@@ -777,6 +852,193 @@ namespace Adapter.Unity.Presentation
                     ProbeLayerClipTier(unityLoader, candidates, tierIndex + 1, onResolved, onExhausted);
                 }
             });
+        }
+
+        /// <summary>
+        /// ADR-0093 决策 1/3/5：<see cref="UnitySpriteView.DirectionSlotChanged"/> 钩子的处理方——
+        /// <paramref name="newSlotId"/> 是 <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 已经
+        /// 处理过 <c>DirectionIndexRemap</c>/<c>mirror_pairs</c> 的裸档位 Id（如 <c>"dir.front"</c>），
+        /// 按它对应的裸档位名重新解析该实体逐层（<see cref="TryAttachPerLayerAnimation"/> 同一套候选
+        /// 规则，见 <see cref="GetOrProbePerLayerForDirection"/>）与整身（<see cref="RegisterDefaultClips"/>
+        /// 同一套候选规则新增方向段，见 <see cref="ReprobeWholeBodyClipForDirection"/>）默认动画剪辑。
+        /// <para>
+        /// 命中时把内容重新登记到与挂接时相同的 clipId（<see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>
+        /// 对同一 clipId 直接覆盖内容），复用 <see cref="Presentation.Render.FrameAnimPlayer.Update"/>
+        /// 既有的"每帧重新按 clipId 查最新内容、保留已经过的播放时间"机制（N18 根治，见该方法判断记录）
+        /// 保留播放进度（ADR-0093 决策 2"保持时间轴"）——正在播放的状态只要仍以同一个 clipId 继续被
+        /// <c>FrameAnimPlayer.Update</c> 追踪，内容原地升级即可做到"同一状态内换方向不从头播"，不需要
+        /// 本方法自己另外记账/换算播放进度；不是当前活跃状态的剪辑只是更新了字典条目，下次真正切到
+        /// 该状态时自然从头播（同任何状态切换的既有行为，不属于本次"换方向"要解决的范围）。
+        /// </para>
+        /// </summary>
+        private void ReprobeDirectionAwareAnimation(Id entityId, Id newSlotId)
+        {
+            if (!_directionAwareAnimByEntity.TryGetValue(entityId, out var ctx))
+            {
+                // 未挂接默认动画（未注入 IEventBus/IDataRegistryView、非 UnityRenderer2D 等既有"静默
+                // 跳过"分支，见 AttachDefaultAnimation 判断记录）的实体不会走到这里——UnitySpriteView
+                // 只在 view 自身存在时才会转发 DirectionSlotChanged，防御性判断，不抛异常。
+                return;
+            }
+
+            var dirBareName = DirectionSlots.StripPrefix(newSlotId);
+            if (ctx.LastDirBareName == dirBareName)
+            {
+                // 防御性判断：调用方 SpriteViewBase.SyncPose 已经按"档位是否变化"把关，正常不会发生，
+                // 保留是为了不逐帧探测这条不变量不依赖调用方这一处实现细节。
+                return;
+            }
+            ctx.LastDirBareName = dirBareName;
+            DirectionAwareReprobeCountForTests++;
+
+            if (ctx.AnimSet == null)
+            {
+                // 没有 display.anim_set 行：同 TryAttachPerLayerAnimation/RegisterDefaultClips 既有
+                // "未装配的能力静默跳过"惯例，已登记的剪辑内容（含单帧退化）保持不变。
+                return;
+            }
+
+            if (!(_resourceLoader is Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader))
+            {
+                // 资源加载器不是真实 UnityResourceLoader（测试替身等）：同上一分支同一套静默跳过惯例。
+                return;
+            }
+
+            // 决策 1：逐层剪辑——仅对已声明纸娃娃层、且挂接期成功建立了 ActivePerLayerByState 的外形
+            // 生效（同 TryAttachPerLayerAnimation 判断记录"只对声明了 paperdoll_layers 的 sprite 型
+            // 外形生效"）。
+            if (ctx.ActivePerLayerByState != null && ctx.Info.Sprite != null && ctx.Info.Sprite.PaperdollLayers.Count > 0)
+            {
+                var perLayerByState = GetOrProbePerLayerForDirection(entityId, dirBareName, ctx, unityLoader);
+                SwapContents(ctx.ActivePerLayerByState, perLayerByState);
+            }
+
+            // 决策 5：整身默认剪辑——只对"逐层没有任何命中"的状态生效；逐层命中的状态，上面
+            // GetOrProbePerLayerForDirection 内部复用的 ProbeLayersSequential"首个命中层同时登记为
+            // 状态自身 clipId"已经顺带把 stateClipId 的内容换成新方向，不需要重复处理。
+            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            {
+                var stateKey = DefaultAnimStateKeys[i];
+                if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+
+                if (ctx.ActivePerLayerByState != null
+                    && ctx.ActivePerLayerByState.TryGetValue(stateClipId, out var layerMap) && layerMap.Count > 0)
+                {
+                    continue;
+                }
+
+                ReprobeWholeBodyClipForDirection(entityId, dirBareName, stateKey, stateClipId, clipDef, ctx.Player, unityLoader);
+            }
+        }
+
+        /// <summary>ADR-0093 决策 1/3：按 <paramref name="dirBareName"/> 对全部六个默认状态做一次逐层
+        /// 探测（与 <see cref="TryAttachPerLayerAnimation"/> 挂接时的探测同一套 <see cref="ProbeLayersSequential"/>
+        /// 逻辑，只是 dirBareName 参数化），按 (实体, 方向) 缓存结果（含空表示的缺失结果），命中缓存时
+        /// 直接返回，不重复探测。</summary>
+        private Dictionary<Id, Dictionary<string, Id>> GetOrProbePerLayerForDirection(
+            Id entityId, string dirBareName, DirectionAwareAnimContext ctx,
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader)
+        {
+            if (!_perLayerClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
+            {
+                byDir = new Dictionary<string, Dictionary<Id, Dictionary<string, Id>>>(StringComparer.Ordinal);
+                _perLayerClipCacheByEntityAndDir[entityId] = byDir;
+            }
+
+            if (byDir.TryGetValue(dirBareName, out var cached))
+            {
+                return cached;
+            }
+
+            var perLayerByState = new Dictionary<Id, Dictionary<string, Id>>();
+            byDir[dirBareName] = perLayerByState;
+
+            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            {
+                var stateKey = DefaultAnimStateKeys[i];
+                if (!ctx.AnimSet!.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+
+                var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
+                var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                perLayerByState[stateClipId] = layerMap;
+
+                ProbeLayersSequential(
+                    unityLoader, ctx.Player, ctx.Info.Sprite!.PaperdollLayers, layerIndex: 0, strippedRef, dirBareName,
+                    stateClipId, clipDef.Events, layerMap);
+            }
+
+            return perLayerByState;
+        }
+
+        /// <summary>把 <paramref name="source"/> 的内容原地覆盖进 <paramref name="target"/>（保留
+        /// <paramref name="target"/> 对象本身的引用不变）——<see cref="TryAttachPerLayerAnimation"/>
+        /// 挂接的 <c>player.OnFrameChanged</c> 回调闭包捕获的正是 <paramref name="target"/> 这个对象，
+        /// 必须原地修改而不是重新赋值一个新对象，方向变化的解析结果才能被该闭包看到。</summary>
+        private static void SwapContents(Dictionary<Id, Dictionary<string, Id>> target, Dictionary<Id, Dictionary<string, Id>> source)
+        {
+            target.Clear();
+            foreach (var kv in source)
+            {
+                target[kv.Key] = kv.Value;
+            }
+        }
+
+        /// <summary>ADR-0093 决策 5：整身默认剪辑同样支持 <c>&lt;ref&gt;__&lt;档位&gt;</c> 探测——候选
+        /// 顺序①（新增）<c>sprite_anim.&lt;去类别前缀&gt;__&lt;方向裸档位名&gt;</c>；②（既有回退层级，
+        /// 与 <see cref="RegisterDefaultClips"/> 冷启动路径同一份 <c>resource_ref</c>）
+        /// <see cref="Core.Foundation.DisplayInfo.AnimClipDef.ResourceRef"/> 原值（无方向段）。两级都
+        /// 未命中（资源尚未加载/该方向没有对应美术）时保持 <paramref name="stateClipId"/> 当前已经登记
+        /// 的内容不变（同 ADR-0072 决策 2 三级"保持静态"同一惯例），不触碰、不重试（按 (实体, 方向,
+        /// 状态) 缓存"确认缺失"结果，见 <see cref="_defaultClipCacheByEntityAndDir"/> 判断记录）。</summary>
+        private void ReprobeWholeBodyClipForDirection(
+            Id entityId, string dirBareName, string stateKey, Id stateClipId,
+            Core.Foundation.DisplayInfo.AnimClipDef clipDef, UnityFrameAnimPlayer player,
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader)
+        {
+            if (!_defaultClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
+            {
+                byDir = new Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>(StringComparer.Ordinal);
+                _defaultClipCacheByEntityAndDir[entityId] = byDir;
+            }
+            if (!byDir.TryGetValue(dirBareName, out var byState))
+            {
+                byState = new Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>(StringComparer.Ordinal);
+                byDir[dirBareName] = byState;
+            }
+
+            if (byState.TryGetValue(stateKey, out var cachedEffect))
+            {
+                if (cachedEffect != null)
+                {
+                    player.RegisterClipFromEffect(stateClipId, cachedEffect, ComputeKeyframes(clipDef.Events, cachedEffect.Frames.Length));
+                }
+                return;
+            }
+
+            var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
+            var candidates = new[]
+            {
+                new Id($"sprite_anim.{strippedRef}__{dirBareName}"),
+                clipDef.ResourceRef,
+            };
+
+            ProbeLayerClipTier(
+                unityLoader, candidates, tierIndex: 0,
+                onResolved: effect =>
+                {
+                    byState[stateKey] = effect;
+                    player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(clipDef.Events, effect.Frames.Length));
+                },
+                onExhausted: () =>
+                {
+                    byState[stateKey] = null;
+                });
         }
 
         /// <summary>

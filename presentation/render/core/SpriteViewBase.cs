@@ -84,6 +84,15 @@ namespace Presentation.Render
         /// 档位初始化，首次 SyncPose 前触发的装备事件按该默认朝向合成，不阻断装配。</summary>
         private Direction _lastFacing;
 
+        /// <summary>ADR-0093 决策 3：<see cref="SyncPose"/> 最近一次触发 <see cref="OnDirectionSlotChanged"/>
+        /// 时对应的 <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 结果（已经过 remap/mirror
+        /// 的裸档位 Id，如 <c>"dir.front"</c>），供逐次 <see cref="SyncPose"/> 判断"这一次解析出的档位
+        /// 是否与上一次不同"——只有真的不同才触发钩子，同档位内逐帧调用是空操作（不逐帧探测，见
+        /// <see cref="OnDirectionSlotChanged"/> 判断记录）。构造期按 <see cref="_lastFacing"/> 同一份
+        /// 默认朝向预先算出初始值，避免首次 <see cref="SyncPose"/> 恰好与挂接期默认朝向相同时也触发一次
+        /// 多余的钩子调用。</summary>
+        private Id _lastDirectionSlotId;
+
         /// <summary><paramref name="resourceLoader"/> 可选（同 <c>VfxPlayer</c>/<c>SfxPlayer</c>
         /// 判断记录）：注入时构造期对 <c>sprite_set_id</c>、<see cref="SetPaperdollLayers"/> 期间对
         /// 每个新解析出的纸娃娃层资源 id，均以 <see cref="ResourceKind.Image"/> 触发一次
@@ -124,6 +133,7 @@ namespace Presentation.Render
             _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
             _equipVisuals = equipVisualByItemInstanceId;
             _lastFacing = Direction.FromQuantized(0.0, DisplayInfo.Sprite.DirectionCount);
+            _lastDirectionSlotId = Conventions.ResolveDirectionSlot(_lastFacing, DisplayInfo.Sprite).SlotId;
 
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
             _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
@@ -338,10 +348,35 @@ namespace Presentation.Render
             _lastFacing = facing;
 
             var sortY = Conventions.ComputeSortY(pos, DisplayInfo.SortOffset);
-            var (_, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
+            var (slotId, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
+
+            if (!slotId.Equals(_lastDirectionSlotId))
+            {
+                _lastDirectionSlotId = slotId;
+                OnDirectionSlotChanged(slotId);
+            }
 
             var heightPixels = Conventions.HeightOffsetToPixels(height, Options.PixelsPerUnit);
             Renderer.SetTransform(Handle, pos, heightPixels, sortY, RenderLayers.Units, 0.0, DisplayInfo.Scale, flipX);
+        }
+
+        /// <summary>
+        /// ADR-0093 决策 3/4：<see cref="SyncPose"/> 每次调用都会经 <see cref="IRenderConventionHost.ResolveDirectionSlot"/>
+        /// 重新解析当前朝向对应的方向槽位（已经过 <c>DirectionIndexRemap</c>/<c>mirror_pairs</c> 处理的
+        /// 裸档位 Id，如 <c>"dir.front"</c>）；只有这次解析结果与上一次不同时才会调用本方法一次——同一
+        /// 方向档位内逐帧 <see cref="SyncPose"/>（移动但朝向不变、原地静止）不会重复触发，满足"只在档位
+        /// 变化时探测，不逐帧探测"（见 ADR-0093 决策 3）。
+        /// <para>
+        /// 默认空实现（ABI 加法，<c>protected virtual</c>，不改 <see cref="SyncPose"/> 既有签名）：本类型
+        /// 自身不知道"方向相关的动画剪辑"具体如何组织（那是引擎适配层 <c>TryAttachPerLayerAnimation</c>
+        /// 所在层的职责，见该方法类型注释），只负责"档位变了"这一事实的检测与通知。具体游戏/引擎适配层
+        /// 的 View 子类（如 <c>Adapter.Unity.Presentation.UnitySpriteView</c>）重写本方法，把
+        /// <paramref name="newSlotId"/> 转发给自己持有的动画播放/探测机制，重新解析该方向下应播放的
+        /// 剪辑集（逐层/整身），并保留当前剪辑的播放进度（同一状态内换方向不从头播，见 ADR-0093 决策 2）。
+        /// </para>
+        /// </summary>
+        protected virtual void OnDirectionSlotChanged(Id newSlotId)
+        {
         }
 
         /// <summary>用给定层名顺序与当前朝向重新合成纸娃娃层并应用到 <see cref="IRenderer2D.SetLayers"/>
