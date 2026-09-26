@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.Reflection;
 using Adapter.Unity.EngineAdapter;
 using Core.Foundation.Common;
 using NUnit.Framework;
@@ -15,6 +17,47 @@ namespace Adapter.Unity.Tests.Editor
         public void SetUp()
         {
             _nav = new UnityNavigation2D();
+        }
+
+        /// <summary>反射调用私有的 <c>SegmentHasClearContact</c>（ADR-0101 剪枝判定用的严格口径），
+        /// 供测试直接断言"剪枝后的段与阻挡矩形完全无接触"，不重复实现一份判定逻辑。</summary>
+        private static bool InvokeSegmentHasClearContact(UnityNavigation2D nav, Id mapId, Vec2 a, Vec2 b)
+        {
+            var method = typeof(UnityNavigation2D).GetMethod(
+                "SegmentHasClearContact", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(method, "反射目标 SegmentHasClearContact 应存在（ADR-0101 判断记录）");
+            return (bool)method!.Invoke(nav, new object[] { mapId, a, b })!;
+        }
+
+        private static double PathLength(System.Collections.Generic.IReadOnlyList<Vec2> pts)
+        {
+            double total = 0;
+            for (var i = 0; i < pts.Count - 1; i++)
+            {
+                total += Vec2.Distance(pts[i], pts[i + 1]);
+            }
+
+            return total;
+        }
+
+        /// <summary>线段 [a,b] 是否（在参数 t∈[0,1] 范围内）经过点 p——用于断言剪枝后的段不会贴着
+        /// 两块对角相接阻挡的共享墙角抄近路（ADR-0101 判断记录 4）。</summary>
+        private static bool SegmentPassesThroughPoint(Vec2 a, Vec2 b, Vec2 p, double eps = 1e-9)
+        {
+            var abx = b.X - a.X;
+            var aby = b.Y - a.Y;
+            var apx = p.X - a.X;
+            var apy = p.Y - a.Y;
+            var cross = abx * apy - aby * apx;
+            if (Math.Abs(cross) > eps) return false;
+
+            var dot = apx * abx + apy * aby;
+            if (dot < -eps) return false;
+
+            var sqrLen = abx * abx + aby * aby;
+            if (dot - sqrLen > eps) return false;
+
+            return true;
         }
 
         [Test]
@@ -363,6 +406,135 @@ namespace Adapter.Unity.Tests.Editor
 
             var otherMap = new Id("map.test_version_other");
             Assert.AreEqual(0, _nav.GetBlockingVersion(otherMap), "不同地图的版本号应互不影响");
+        }
+
+        // 以下为 ADR-0101（消费方反馈第四十六批）新增：网格寻路结果做视线剪枝（string pulling）。
+        // 复现：格长 0.5、开阔地零阻挡时，BuildWorldPath 此前把路径拼成 from + 每个格心（含起点格、
+        // 终点格）+ to，中段从不裁剪，导致起步回退、停步朝向错、任意角度目标被拆成来回切向的折线。
+
+        [Test]
+        public void SmoothPath_OpenAreaNoObstacleAlongLine_CollapsesToExactlyTwoPoints_AndDisablingSmoothingKeepsMultiplePoints()
+        {
+            // 两块哨兵阻挡矩形远离两条测试直线，只用来把默认网格边界（无阻挡时硬编码的 [-8,8]
+            // + 2 边距）扩大到能同时容纳 (10,5) 这个端点，不影响任何一段路径的可通行性——SetBlocking
+            // 一旦登记了矩形，网格边界改由全部矩形的包围盒决定（见 BuildGridWithCellSize），不再是
+            // 硬编码的 [-8,8]。
+            var map = new Id("map.test_smooth_open_area");
+            _nav.SetBlocking(map, new[]
+            {
+                new Rect(new Vec2(-15, -15), new Vec2(-14.9, -14.8)),
+                new Rect(new Vec2(15, 15), new Vec2(15.1, 15.2)),
+            });
+            _nav.BuildNavMesh(map);
+
+            var from = new Vec2(0, 0);
+            var toStraight = new Vec2(3, 0);
+            var toDiagonal = new Vec2(10, 5);
+
+            // 阳性对照：关闭剪枝时应保留 A* 的原始格心折线（点数 > 2），证明下面的"恰好 2 点"
+            // 确实是剪枝的效果，不是这两条路径本来就是直线。
+            _nav.SmoothPaths = false;
+            var straightUnsmoothed = _nav.FindPath(map, from, toStraight);
+            var diagonalUnsmoothed = _nav.FindPath(map, from, toDiagonal);
+            Assert.IsNotNull(straightUnsmoothed, "开阔地应能找到路径");
+            Assert.IsNotNull(diagonalUnsmoothed, "开阔地应能找到路径");
+            Assert.Greater(straightUnsmoothed!.Count, 2,
+                "阳性对照：关闭剪枝时 (0,0)->(3,0) 应保留 A* 原始格心折线，不是天然只有 2 点");
+            Assert.Greater(diagonalUnsmoothed!.Count, 2,
+                "阳性对照：关闭剪枝时 (0,0)->(10,5) 应保留 A* 原始格心折线，不是天然只有 2 点");
+
+            _nav.SmoothPaths = true;
+            var straightSmoothed = _nav.FindPath(map, from, toStraight);
+            var diagonalSmoothed = _nav.FindPath(map, from, toDiagonal);
+
+            Assert.IsNotNull(straightSmoothed);
+            Assert.AreEqual(2, straightSmoothed!.Count, "开阔地视线剪枝后 (0,0)->(3,0) 应退化为 [from,to] 两点直线");
+            Assert.AreEqual(from, straightSmoothed[0]);
+            Assert.AreEqual(toStraight, straightSmoothed[1]);
+
+            Assert.IsNotNull(diagonalSmoothed);
+            Assert.AreEqual(2, diagonalSmoothed!.Count, "任意角度目标点、直线通畅时 (0,0)->(10,5) 也应退化为两点直线");
+            Assert.AreEqual(from, diagonalSmoothed[0]);
+            Assert.AreEqual(toDiagonal, diagonalSmoothed[1]);
+        }
+
+        [Test]
+        public void SmoothPath_DetourAroundWall_ReducesPointsKeepsClearSegmentsAndDoesNotLengthenPath()
+        {
+            // 一整面墙挡住直线，必须绕行——验证剪枝在"确实需要拐弯"的场景下仍然安全：每一段都经得起
+            // Raycast 复核、都与阻挡矩形完全无接触（严格口径），点数与总长都不劣于关闭剪枝时。
+            var map = new Id("map.test_smooth_detour_wall");
+            _nav.SetBlocking(map, new[] { new Rect(new Vec2(-0.5, -3), new Vec2(0.5, 3)) });
+            _nav.BuildNavMesh(map);
+
+            var from = new Vec2(-2, 0);
+            var to = new Vec2(2, 0);
+
+            _nav.SmoothPaths = false;
+            var unsmoothed = _nav.FindPath(map, from, to);
+            Assert.IsNotNull(unsmoothed, "墙两侧都有足够绕行空间，应能找到路径");
+
+            _nav.SmoothPaths = true;
+            var smoothed = _nav.FindPath(map, from, to);
+            Assert.IsNotNull(smoothed);
+
+            // ① 剪枝后每段 Raycast 为 null。
+            for (var i = 0; i < smoothed!.Count - 1; i++)
+            {
+                Assert.IsNull(_nav.Raycast(map, smoothed[i], smoothed[i + 1]),
+                    $"剪枝后第 {i} 段不应被 Raycast 判定为受阻");
+            }
+
+            // ② 剪枝后每段与所有阻挡矩形完全无接触（SegmentHasClearContact 的严格口径，不是
+            // SegmentBlocked 那种"仅内部受阻、贴边擦角放行"的宽松口径）。
+            for (var i = 0; i < smoothed.Count - 1; i++)
+            {
+                Assert.IsTrue(InvokeSegmentHasClearContact(_nav, map, smoothed[i], smoothed[i + 1]),
+                    $"剪枝后第 {i} 段应与全部阻挡矩形完全无接触");
+            }
+
+            // ③ 点数不多于关闭剪枝时，总长不长于关闭剪枝时。
+            Assert.LessOrEqual(smoothed.Count, unsmoothed!.Count, "剪枝不应增加路点数");
+            Assert.LessOrEqual(PathLength(smoothed), PathLength(unsmoothed) + 1e-9, "剪枝不应增加路径总长");
+
+            Assert.AreEqual(from, smoothed[0], "首点应精确等于请求的起点");
+            Assert.AreEqual(to, smoothed[smoothed.Count - 1], "末点应精确等于请求的终点");
+        }
+
+        [Test]
+        public void SmoothPath_DiagonalAdjacentBlocks_DoesNotCutThroughSharedCorner()
+        {
+            // 复用 FindPath_DiagonalMove_DisallowedWhenBothOrthogonalNeighborsBlocked 的四个阻挡
+            // 矩形几何（两两对角相接，共享墙角 (0.25,0.25)），但改用从簇外绕行的端点——该测试原本的
+            // 端点困在簇内、彻底无路可走，这里改成从簇外一侧走到另一侧，起终点连线 y=x 恰好在数学
+            // 意义上从共享角点 (0.25,0.25) 穿过。断言剪枝后的任何一段都不会贴着这个共享角点抄近路
+            // （判断记录：SegmentHasClearContact 用严格口径就是为了防住这一类场景，让"禁止切角"
+            // 规则不被剪枝越权架空）。
+            var map = new Id("map.test_smooth_diagonal_corner");
+            _nav.SetBlocking(map, new[]
+            {
+                new Rect(new Vec2(0.25, 0), new Vec2(0.5, 0.25)),
+                new Rect(new Vec2(-0.25, 0), new Vec2(0, 0.25)),
+                new Rect(new Vec2(0, 0.25), new Vec2(0.25, 0.5)),
+                new Rect(new Vec2(0, -0.25), new Vec2(0.25, 0)),
+            });
+            _nav.BuildNavMesh(map);
+
+            var from = new Vec2(-1, -1);
+            var to = new Vec2(1, 1);
+            var sharedCorner = new Vec2(0.25, 0.25);
+
+            Assert.IsFalse(InvokeSegmentHasClearContact(_nav, map, from, to),
+                "前置条件：起终点直线应恰好擦过共享墙角、判定为有接触，否则本用例没有覆盖到收紧口径的分支");
+
+            var path = _nav.FindPath(map, from, to);
+
+            Assert.IsNotNull(path, "从簇外绕行应能找到路径（不同于把中心格困死、彻底无路可走的禁止切角场景）");
+            for (var i = 0; i < path!.Count - 1; i++)
+            {
+                Assert.IsFalse(SegmentPassesThroughPoint(path[i], path[i + 1], sharedCorner),
+                    $"剪枝后第 {i} 段不应贴着共享墙角 {sharedCorner} 抄近路");
+            }
         }
     }
 }

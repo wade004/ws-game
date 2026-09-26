@@ -27,6 +27,11 @@ namespace Core.Foundation.EngineAdapter
         /// 阻挡判定；接合不通过时改选相邻可行走格作为接合点，仍不通过则整体返回 null（而不是返回一条
         /// 端点不精确或穿墙的路径）；找不到可行路径同样返回 null。
         /// </para>
+        /// <para>
+        /// 视线剪枝（ADR-0101）：实现应在返回前对网格路径做视线剪枝（string pulling），省略掉
+        /// 能被一条通畅直线跨过的中间路点；两端点之间直线通畅时应返回 <c>[from, to]</c>。沿路径
+        /// 移动的朝向由每一段的方向决定，因此剪枝后的停步朝向即最后一段的行进方向。
+        /// </para>
         /// </summary>
         IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to);
 

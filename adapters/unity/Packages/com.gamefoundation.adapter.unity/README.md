@@ -1354,6 +1354,31 @@ NAV-110-02 场景因薄墙直接挡住唯一的直线路径、桩不具备绕障
 `NAV111_01_StraightLineFallback_DoesNotOverrideDiagonalCornerCuttingBan` 是收紧判定的专项回归，逐字
 复用既有"禁止切角"用例的阻挡矩形与端点，断言直线兜底不越权放行）。
 
+### ADR-0101 网格寻路结果视线剪枝（消费方反馈第四十六批，2026-09-27）
+
+消费方反馈（复刻脚本只读，见 ADR-0101）：`FindPathViaGrid`/`FindPathWithFineGrid` 拼出的世界路径
+此前从不裁剪中间路点——即便起终点之间直线完全通畅，也会先走到起点格心、再沿一串格心折线走到终点
+格心、最后再接一段到终点，格长 0.5 时开阔地零阻挡也会出现"起步先反向走一小段""停步朝向与最终
+行进方向不一致""任意角度目标点被拆成多段来回切换朝向"三类失真。
+
+**根治**：新增私有方法 `SmoothPath`，在 `BuildWorldPath` 返回非空路径之后、收尾防线逐段
+`SegmentBlocked` 复核之前调用（`FindPathViaGrid`/`FindPathWithFineGrid` 两处各一次）：贪心视线剪枝
+（string pulling）——锚点 `i` 从 0 起，从路径末尾往前找最远的 `j`（`j>=i+2`）使
+`SegmentHasClearContact(pts[i], pts[j])` 成立，删掉 `i`、`j` 之间的全部中间路点、`i` 移到 `j`；找不到
+这样的 `j` 就保留原路点、`i` 前进一步。首尾两点（对应调用方精确传入的 `from`/`to`）永远保留，不参与
+省略判断。判定口径复用 NAV-111-01 已有的 `SegmentHasClearContact`（贴边/擦角也算"有接触"），不是更
+宽松的 `SegmentBlocked`：理由与 NAV-111-01 直线兜底完全一致——拉直后的段绝不能从两块对角相接阻挡的
+共享角点挤过，若改用宽松口径会让 `FindPath_DiagonalMove_DisallowedWhenBothOrthogonalNeighborsBlocked`
+守护的"禁止切角"规则被越权架空；代价是贴边/擦角的合法直线段不会被拉直、原样保留 A* 路点，结果只会
+不差于剪枝前。新增公开属性 `SmoothPaths`（默认 `true`，纯加法不改既有签名）供调用方显式关闭，关闭时
+行为与本次改动前逐字一致。`INavigation2D.FindPath` 契约文档同步补一句：实现应在返回前做视线剪枝，
+两端点间直线通畅时应返回 `[from, to]`；核心层 `MovementTickHandler` 按路点段固定端点计算朝向的既有
+逻辑（ADR-0099）不受影响，拉直后自然得到正确的停步朝向。
+
+对应测试：`Tests/Editor/UnityNavigation2DTests.cs`（`SmoothPath_` 前缀新增用例：开阔地退化为
+`[from,to]`、`SmoothPaths=false` 时点数不退化的阳性对照、绕障场景剪枝后每段 Raycast 清晰/点数与
+总长不劣于未剪枝、对角共享墙角场景剪枝后不穿过该共享角点）。
+
 ### SPATIAL-111-01 根治（第十三轮审核 6739f50，2026-09-09）
 
 审核报告：`architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md`，复现见

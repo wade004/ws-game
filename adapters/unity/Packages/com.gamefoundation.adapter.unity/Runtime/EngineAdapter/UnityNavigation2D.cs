@@ -89,6 +89,12 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, NavGrid> _grids = new Dictionary<Id, NavGrid>();
         private readonly Dictionary<Id, int> _blockingVersion = new Dictionary<Id, int>();
 
+        /// <summary>ADR-0101：网格寻路结果是否做视线剪枝（string pulling），把途经的多余网格路点
+        /// 省略成更直的折线（默认开启）；关闭时 <see cref="FindPath"/> 的行为与剪枝功能落地前逐字
+        /// 一致，供需要保留原始网格路点的调用方（离线诊断、逐格调试可视化等）显式关闭。纯新增公开
+        /// 属性，不改变既有公开签名。</summary>
+        public bool SmoothPaths { get; set; } = true;
+
         public void BuildNavMesh(Id mapId)
         {
             _grids[mapId] = BuildGrid(mapId);
@@ -217,6 +223,8 @@ namespace Adapter.Unity.EngineAdapter
                 return null;
             }
 
+            worldPath = SmoothPath(mapId, worldPath);
+
             // 收尾防线（类型顶部判断记录 2/3）：绝不返回一条含有受阻分段的"假路径"——正常情况下
             // 不该走到这里（BuildWorldPath 已经逐段校验过接合段，网格内部相邻格中心之间的直线因
             // "不许切角"的八邻居展开规则天然不受阻）。
@@ -280,6 +288,8 @@ namespace Adapter.Unity.EngineAdapter
                 return null;
             }
 
+            worldPath = SmoothPath(mapId, worldPath);
+
             for (var i = 0; i < worldPath.Count - 1; i++)
             {
                 if (SegmentBlocked(mapId, worldPath[i], worldPath[i + 1]))
@@ -289,6 +299,42 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             return worldPath;
+        }
+
+        /// <summary>ADR-0101：对 <see cref="BuildWorldPath"/> 产出的世界路径做贪心视线剪枝
+        /// （string pulling）——锚点 i 从 0 起，从末尾往前找最远的 j（j&gt;=i+2）使
+        /// <see cref="SegmentHasClearContact"/> 判定 <c>[pts[i],pts[j]]</c> 通畅，删掉 i、j 之间的
+        /// 全部中间路点、把 i 移到 j；找不到这样的 j 时保留原路点、i 前进一步。首尾两点
+        /// （<paramref name="worldPath"/> 的第一个与最后一个元素，对应调用方精确传入的 from/to）
+        /// 永远保留、不参与省略判断。判定口径用 <see cref="SegmentHasClearContact"/>（贴边/擦角也
+        /// 判定为"有接触"）而不是更宽松的 <see cref="SegmentBlocked"/>：拉直后的段绝不能从两块
+        /// 对角相接阻挡的共享角点挤过——若改用 <see cref="SegmentBlocked"/> 的"仅内部受阻、贴边擦角
+        /// 放行"口径，<c>FindPath_DiagonalMove_DisallowedWhenBothOrthogonalNeighborsBlocked</c>
+        /// 所守的"禁止切角"规则会被这里的拉直越权架空；用严格口径的代价是贴边/擦角的合法直线段不会
+        /// 被拉直、原样保留 A* 路点，结果只会不差于剪枝前。<see cref="SmoothPaths"/> 为 <c>false</c>
+        /// 时原样返回，不做任何裁剪。</summary>
+        private List<Vec2> SmoothPath(Id mapId, List<Vec2> worldPath)
+        {
+            if (!SmoothPaths || worldPath.Count <= 2)
+            {
+                return worldPath;
+            }
+
+            var result = new List<Vec2> { worldPath[0] };
+            var i = 0;
+            while (i < worldPath.Count - 1)
+            {
+                var j = worldPath.Count - 1;
+                while (j > i + 1 && !SegmentHasClearContact(mapId, worldPath[i], worldPath[j]))
+                {
+                    j--;
+                }
+
+                result.Add(worldPath[j]);
+                i = j;
+            }
+
+            return result;
         }
 
         public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to)
