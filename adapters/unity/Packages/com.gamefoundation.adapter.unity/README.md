@@ -372,6 +372,20 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   （沿用 ADR-0081"已知不一致/待办"记录，未新增收敛工作）。地图分层图（`DecodeMapLayerSprite`）与
   特效序列帧（`TryDecodeEffect`）两处 `Sprite.Create` 不受影响，枢轴仍固定 `(0.5, 0.5)`——前者不
   属于任何精灵集、后者按帧渲染不适用"脚底对齐"语义，均见 [ADR-0091](../../../../architecture/adr/0091-精灵枢轴取自精灵集脚底锚点.md)。
+  **ADR-0095 跟进（2026-09-26，消费方反馈第四十批）勘误**：上一条关于 `TryDecodeEffect` 的表述
+  仅对特效序列帧（`vfx.*`）仍然成立；属于精灵集的逐帧动画（`sprite_anim.*`）枢轴/像素密度不再
+  固定——`IResourceLoader` 新增默认接口成员重载
+  `LoadAsync(Id, ResourceKind, ResourceLoadHints, LoadCallback)`（新契约类型 `ResourceLoadHints`
+  仅携带 `SpriteSetId?`，纯加法，未重写该成员的既有实现方无感知）；`UnityViewFactory` 在加载整体
+  默认剪辑（`RequestAnimClipUpgrade`）与逐层剪辑（`ProbeLayerClipTier`）两处随加载请求带上
+  `display.map.sprite_set_id`；`TryDecodeEffect` 收到该提示时，按与 `ResolveImagePivot` 同样的
+  公式与方向回退规则从所属精灵集 `anchors.json`（复用同一份 `_spriteSetAnchorsCache`）解析枢轴，
+  像素密度同理改用该精灵集声明值；`frames.json` 新增可选顶层字段 `pixels_per_unit`/`root`，声明时
+  优先于精灵集提示。未提供提示、或提示对应精灵集/锚点不存在时回退 `(0.5, 0.5)` 与全局
+  `PixelsPerUnit`，逐字节不变。已知限制：同一动画资源标识若先后带不同精灵集提示加载，直接复用
+  已解码结果并记一条去重 Warn，不重新解码（需卸载该资源或重置加载器实例才能按新提示重新解码）；
+  武器/技能覆盖剪辑加载点（`RequestWeaponClipUpgrade`）未随本次接入精灵集提示，仍走回退路径，
+  留待后续任务视需要接入。详见 [ADR-0095](../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)。
   新增 `internal static UnityResourceLoader.RootDirOverrideForTests`（仅测试可见）供 PlayMode
   用例覆盖 `RootDir`，验证结构②解析逻辑不需要把测试夹具塞进真实 Unity 资产管线。**ADR-0080
   跟进（2026-09-23）**：新增 `ResourceKind.MapLayers` 加载分支——

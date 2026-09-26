@@ -248,6 +248,19 @@ namespace Adapter.Unity.EngineAdapter
             /// <summary>仅 <see cref="ResourceKind.Effect"/> 使用：frames.json 的文本内容
             /// （<see cref="Bytes"/> 此时承载 atlas.png 的字节）。</summary>
             public string? EffectFramesJson;
+
+            /// <summary>[ADR-0095](../../../../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)
+            /// 新增，仅 <see cref="ResourceKind.Effect"/> 使用：本次加载请求携带的
+            /// <see cref="ResourceLoadHints.SpriteSetId"/>（经 <see cref="LoadAsync(Id,ResourceKind,ResourceLoadHints,LoadCallback)"/>
+            /// 传入，旧版三参 <see cref="LoadAsync(Id,ResourceKind,LoadCallback)"/> 固定为 <c>null</c>，
+            /// 行为与改动前逐字节一致）。</summary>
+            public Id? SpriteSetId;
+
+            /// <summary>ADR-0095 决策 5，仅 <see cref="ResourceKind.Effect"/> 使用：true 表示本次是
+            /// "同一资源已按某精灵集提示解码过，本次以不同提示重新请求"的复用场景——<see cref="Bytes"/>
+            /// 只是一个占位空数组、<see cref="EffectFramesJson"/> 为 <c>null</c>，不重新解码，直接复用
+            /// <see cref="_effects"/> 已有的缓存结果，见 <see cref="LoadEffectAsync"/> 判断记录。</summary>
+            public bool EffectReuseCache;
         }
 
         private static readonly string DefaultRootDir = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
@@ -295,6 +308,17 @@ namespace Adapter.Unity.EngineAdapter
         private readonly Dictionary<Id, string> _sceneText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, string> _navMeshText = new Dictionary<Id, string>();
         private readonly Dictionary<Id, EffectAsset> _effects = new Dictionary<Id, EffectAsset>();
+
+        /// <summary>[ADR-0095] 决策 5：记录每个已成功解码的 <see cref="ResourceKind.Effect"/> 资源
+        /// 最近一次实际使用的 <see cref="ResourceLoadHints.SpriteSetId"/>（<c>null</c> 是一种合法取值，
+        /// 表示"按无提示解码"）。供 <see cref="LoadEffectAsync"/> 判断"再次请求携带的提示是否与已解码
+        /// 结果不一致"，见该方法判断记录。</summary>
+        private readonly Dictionary<Id, Id?> _effectSpriteSetIdByResource = new Dictionary<Id, Id?>();
+
+        /// <summary>[ADR-0095] 决策 5：<see cref="_effectSpriteSetIdByResource"/> 命中"不同提示重新
+        /// 请求"这一分支时的 Warn 去重集合——按资源 id 只记一次，避免同一资源被反复以不同提示引用时
+        /// 刷屏。</summary>
+        private readonly HashSet<Id> _warnedEffectSpriteSetConflict = new HashSet<Id>();
 
         /// <summary>ADR-0080 新增：<see cref="ResourceKind.MapLayers"/> 已加载的分层图资产缓存，供
         /// <see cref="TryGetMapLayerAsset"/> 取用。</summary>
@@ -448,38 +472,9 @@ namespace Adapter.Unity.EngineAdapter
 
             if (kind == ResourceKind.Effect)
             {
-                var effectDir = ResolveEffectDir(resourceId);
-                Task.Run(() =>
-                {
-                    byte[]? atlasBytes = null;
-                    string? framesJson = null;
-                    var ok = false;
-                    try
-                    {
-                        var atlasPath = Path.Combine(effectDir, "atlas.png");
-                        var framesPath = Path.Combine(effectDir, "frames.json");
-                        if (File.Exists(atlasPath) && File.Exists(framesPath))
-                        {
-                            atlasBytes = File.ReadAllBytes(atlasPath);
-                            framesJson = File.ReadAllText(framesPath);
-                            ok = true;
-                        }
-                    }
-                    catch
-                    {
-                        ok = false;
-                    }
-
-                    _completions.Enqueue(new PendingCompletion
-                    {
-                        ResourceId = resourceId,
-                        Kind = kind,
-                        Bytes = atlasBytes,
-                        EffectFramesJson = framesJson,
-                        ReadSuccess = ok,
-                        Callback = callback
-                    });
-                });
+                // ADR-0095：无提示的旧调用路径，spriteSetId 固定 null，与改动前逐字节一致，见
+                // LoadEffectAsync 判断记录。
+                LoadEffectAsync(resourceId, spriteSetId: null, callback);
                 return;
             }
 
@@ -561,6 +556,108 @@ namespace Adapter.Unity.EngineAdapter
             });
         }
 
+        /// <summary>
+        /// [ADR-0095](../../../../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)
+        /// 新增：带 <see cref="ResourceLoadHints"/> 的加载入口，覆盖 <see cref="IResourceLoader"/>
+        /// 默认接口成员——当前只有 <see cref="ResourceKind.Effect"/>（sprite 型逐帧动画/vfx 特效图集）
+        /// 消费 <paramref name="hints"/>；其余种类不使用提示，直接转调旧三参重载，行为与改动前逐字节
+        /// 一致。</summary>
+        public void LoadAsync(Id resourceId, ResourceKind kind, ResourceLoadHints hints, LoadCallback callback)
+        {
+            if (callback == null) throw new ArgumentNullException(nameof(callback));
+
+            if (kind == ResourceKind.Effect)
+            {
+                LoadEffectAsync(resourceId, hints.SpriteSetId, callback);
+                return;
+            }
+
+            LoadAsync(resourceId, kind, callback);
+        }
+
+        /// <summary>
+        /// [ADR-0095] <see cref="ResourceKind.Effect"/> 资源的实际加载入口，供旧版三参
+        /// <see cref="LoadAsync(Id,ResourceKind,LoadCallback)"/>（<paramref name="spriteSetId"/> 固定
+        /// <c>null</c>）与新版四参 <see cref="LoadAsync(Id,ResourceKind,ResourceLoadHints,LoadCallback)"/>
+        /// （<paramref name="spriteSetId"/> 取自 <see cref="ResourceLoadHints.SpriteSetId"/>）共用。
+        /// <para>
+        /// 决策 5"缓存冲突"判断记录：本方法维护 <see cref="_effectSpriteSetIdByResource"/>，记录每个
+        /// 已成功解码的资源最近一次实际使用的 <paramref name="spriteSetId"/>。若本次请求的取值与已
+        /// 记录的不同（含"此前无提示、这次有提示"或反之），说明同一个逐帧动画资源被两个不同归属的
+        /// 调用方引用——这理论上不该发生（同一资源引用 id 应当只属于一个精灵集），但发生时不重新
+        /// 解码、直接复用已缓存的 <see cref="_effects"/> 结果（沿用第一次解码时用的枢轴/像素密度），
+        /// 只按资源 id 去重记一条 Warn，不抛异常、不产生第二份不一致的解码结果。已知限制：这意味着
+        /// 若第一次解码时提示有误，本方法不会因为后续一次"正确"的请求而自我纠正，需要重新加载器实例
+        /// 生命周期（如重进场景）才会重新解码——与本加载器对其它全部资源种类"从不做增量失效检测，
+        /// 缓存只增不减"的既有惯例一致，不是本次新增的缺口。
+        /// </para>
+        /// </summary>
+        private void LoadEffectAsync(Id resourceId, Id? spriteSetId, LoadCallback callback)
+        {
+            _loading.Add(resourceId);
+
+            if (_effectSpriteSetIdByResource.TryGetValue(resourceId, out var usedSpriteSetId) &&
+                usedSpriteSetId != spriteSetId)
+            {
+                if (_warnedEffectSpriteSetConflict.Add(resourceId))
+                {
+                    Debug.LogWarning(
+                        $"[UnityResourceLoader] 逐帧动画 \"{resourceId.Value}\" 此前已按精灵集提示 " +
+                        $"\"{(usedSpriteSetId.HasValue ? usedSpriteSetId.Value.Value : "(无)")}\" 解码，" +
+                        $"本次以不同提示 \"{(spriteSetId.HasValue ? spriteSetId.Value.Value : "(无)")}\" " +
+                        "重新请求加载，复用已解码结果，不重复解码（ADR-0095 决策 5）。");
+                }
+
+                // 排进 _completions（而不是同步调用 callback）：保持"回调总在下一次 Tick 排队执行"
+                // 这条既有线程约定不变，见类型顶部"判断记录（加载方式）"。不需要真正的磁盘 IO，
+                // 不经 Task.Run 后台线程。
+                _completions.Enqueue(new PendingCompletion
+                {
+                    ResourceId = resourceId,
+                    Kind = ResourceKind.Effect,
+                    Bytes = Array.Empty<byte>(),
+                    ReadSuccess = true,
+                    Callback = callback,
+                    EffectReuseCache = true
+                });
+                return;
+            }
+
+            var effectDir = ResolveEffectDir(resourceId);
+            Task.Run(() =>
+            {
+                byte[]? atlasBytes = null;
+                string? framesJson = null;
+                var ok = false;
+                try
+                {
+                    var atlasPath = Path.Combine(effectDir, "atlas.png");
+                    var framesPath = Path.Combine(effectDir, "frames.json");
+                    if (File.Exists(atlasPath) && File.Exists(framesPath))
+                    {
+                        atlasBytes = File.ReadAllBytes(atlasPath);
+                        framesJson = File.ReadAllText(framesPath);
+                        ok = true;
+                    }
+                }
+                catch
+                {
+                    ok = false;
+                }
+
+                _completions.Enqueue(new PendingCompletion
+                {
+                    ResourceId = resourceId,
+                    Kind = ResourceKind.Effect,
+                    Bytes = atlasBytes,
+                    EffectFramesJson = framesJson,
+                    ReadSuccess = ok,
+                    Callback = callback,
+                    SpriteSetId = spriteSetId
+                });
+            });
+        }
+
         /// <summary>测试/诊断用：仍在等待后台线程读取完成、尚未在主线程 <see cref="Tick"/> 处理完的
         /// 资源加载请求数（<see cref="LoadAsync"/> 里 <c>_loading.Add</c>，<see cref="FinishOnMainThread"/>/
         /// <see cref="FinishFontLoad"/> 里 <c>_loading.Remove</c>）。判断记录（PlayMode 测试根治
@@ -599,6 +696,11 @@ namespace Adapter.Unity.EngineAdapter
             _animationClips.Remove(resourceId);
             _standaloneMeshes.Remove(resourceId);
             RemoveExtractedSlotMeshesFor(resourceId);
+
+            // ADR-0095 决策 5：显式 Unload 后视为该资源的解码记录已作废，下一次 LoadAsync（无论
+            // 携带什么提示）都应该正常重新解码，不应被当成"与此前不同提示"的冲突场景。
+            _effectSpriteSetIdByResource.Remove(resourceId);
+            _warnedEffectSpriteSetConflict.Remove(resourceId);
         }
 
         /// <summary>见 <see cref="Unload"/>：<see cref="_extractedSlotMeshes"/> 用组合键
@@ -728,8 +830,14 @@ namespace Adapter.Unity.EngineAdapter
                     success = true;
                     break;
                 case ResourceKind.Effect:
-                    success = pending.EffectFramesJson != null &&
-                        TryDecodeEffect(pending.ResourceId, pending.Bytes, pending.EffectFramesJson);
+                    // ADR-0095 决策 5：复用场景（见 LoadEffectAsync 判断记录）不重新解码，直接复用
+                    // 已有的 _effects 缓存——理论上此时缓存必定命中（LoadEffectAsync 只在命中过一次
+                    // 成功解码记录后才会进入这条分支），ContainsKey 只是防御性写法，不代表存在缓存
+                    // 未命中却标了 EffectReuseCache 的正常路径。
+                    success = pending.EffectReuseCache
+                        ? _effects.ContainsKey(pending.ResourceId)
+                        : pending.EffectFramesJson != null &&
+                            TryDecodeEffect(pending.ResourceId, pending.Bytes, pending.EffectFramesJson, pending.SpriteSetId);
                     break;
                 default:
                     success = false;
@@ -1197,8 +1305,16 @@ namespace Adapter.Unity.EngineAdapter
         /// 因此 <see cref="EffectFramesDocument"/> 把缺省的 <c>w</c>/<c>h</c> 留成 <c>null</c>，本方法
         /// 拿到纹理尺寸后在这里补上——与改动前逐字节相同的兜底值，只是计算发生的位置不同。
         /// </para>
+        /// <para>
+        /// [ADR-0095](../../../../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)
+        /// 新增 <paramref name="spriteSetId"/>：<c>null</c> 时（vfx 特效图集、或调用方给不出归属信息）
+        /// 逐字节保留改动前行为——枢轴固定 <c>(0.5, 0.5)</c>、像素密度固定 <see cref="PixelsPerUnit"/>；
+        /// 非 <c>null</c> 时（sprite 型逐帧动画，归属某个精灵集）经 <see cref="ResolveEffectPixelsPerUnit"/>/
+        /// <see cref="ResolveEffectPivot"/> 按 frames.json 显式声明 > 精灵集提示 > 全局默认的优先级解析，
+        /// 见两方法判断记录。
+        /// </para>
         /// </summary>
-        private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson)
+        private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson, Id? spriteSetId)
         {
             if (!EffectFramesDocument.TryParse(framesJson, out var document))
             {
@@ -1212,25 +1328,160 @@ namespace Adapter.Unity.EngineAdapter
                 return false;
             }
 
+            var pixelsPerUnit = ResolveEffectPixelsPerUnit(spriteSetId, document);
+
             var frames = new EffectFrame[document.Frames.Count];
             for (var i = 0; i < document.Frames.Count; i++)
             {
                 var frameData = document.Frames[i];
                 var w = frameData.Width ?? texture.width;
                 var h = frameData.Height ?? texture.height;
+                var pivot = ResolveEffectPivot(resourceId, spriteSetId, document, (int)w, (int)h);
 
                 var sprite = Sprite.Create(
                     texture,
                     new UnityEngine.Rect((float)frameData.X, (float)frameData.Y, (float)w, (float)h),
-                    new Vector2(0.5f, 0.5f),
-                    PixelsPerUnit);
+                    pivot,
+                    pixelsPerUnit);
                 sprite.name = $"{resourceId.Value}_frame{i}";
 
                 frames[i] = new EffectFrame(sprite, frameData.Duration);
             }
 
             _effects[resourceId] = new EffectAsset(frames, document.Loop);
+            _effectSpriteSetIdByResource[resourceId] = spriteSetId;
             return true;
+        }
+
+        /// <summary>
+        /// [ADR-0095] 决策 4：<see cref="ResourceKind.Effect"/> 逐帧动画应使用的像素-单位换算比——
+        /// <c>frames.json</c> 显式声明 <see cref="EffectFramesDocument.PixelsPerUnit"/> 时优先用它
+        /// （内容侧对特殊画布的动画有出口）；否则 <paramref name="spriteSetId"/> 非 <c>null</c> 且该
+        /// 精灵集 anchors.json 声明了合法 <c>pixels_per_unit</c> 时用它（同 ADR-0081 对
+        /// <see cref="ResourceKind.Image"/> 的既有规则，复用同一份 <see cref="GetOrReadSpriteSetAnchors"/>
+        /// 缓存，不新增磁盘 IO）；两者都没有时回退 <see cref="PixelsPerUnit"/> 全局默认值——
+        /// <paramref name="spriteSetId"/> 为 <c>null</c>（vfx 特效图集等不属于任何精灵集的情形）时
+        /// 与改动前逐字节一致。
+        /// </summary>
+        private float ResolveEffectPixelsPerUnit(Id? spriteSetId, EffectFramesDocument document)
+        {
+            if (document.PixelsPerUnit.HasValue)
+            {
+                return (float)document.PixelsPerUnit.Value;
+            }
+
+            if (!spriteSetId.HasValue)
+            {
+                return PixelsPerUnit;
+            }
+
+            var info = GetOrReadSpriteSetAnchors(AssetRefConventions.SpriteSetDirectory(spriteSetId.Value));
+            return info.PixelsPerUnit ?? PixelsPerUnit;
+        }
+
+        /// <summary>
+        /// [ADR-0095] 决策 3/4：<see cref="ResourceKind.Effect"/> 逐帧动画单帧应使用的精灵枢轴
+        /// （归一化 0..1，<c>Sprite.Create</c> 的 <c>pivot</c> 实参语义，原点左下）。优先级：
+        /// <list type="number">
+        /// <item><c>frames.json</c> 顶层显式声明 <see cref="EffectFramesDocument.Root"/>：直接按
+        /// <c>(root.x / 帧宽, 1 - root.y / 帧高)</c> 换算，不涉及方向、不比对精灵集画布（这是内容侧
+        /// 对该动画的显式覆盖，越过精灵集归属推导）。</item>
+        /// <item><paramref name="spriteSetId"/> 非 <c>null</c> 且该精灵集 anchors.json 声明了脚底
+        /// 锚点：方向解析——<paramref name="resourceId"/> 带 <c>__&lt;dir&gt;__</c> 段（同
+        /// <see cref="ProbeLayersSequential"/> 产出的逐层剪辑候选 id 形状）时用该方向；不带方向
+        /// （整身默认剪辑，见 <see cref="RegisterDefaultClips"/>）时同 ADR-0091 决策 2：该集全部
+        /// 方向 root 相同直接用，不同则取"首个方向档位"并记一条 Warn。取得 root 后换算公式同
+        /// <see cref="ResolveImagePivot"/>，但宽高比对目标是"帧尺寸"而不是"整张图集纹理尺寸"——
+        /// 逐帧动画的每一帧本身才是"这一格该长什么样"的单位，与静态图像的整张纹理是同一语义层级
+        /// （决策 3"帧尺寸与 anchors 画布不一致：以帧为准并记 Warn"）。</item>
+        /// <item>以上均不满足（不属于任何精灵集、anchors.json 缺失/解析失败/该方向无 root/root
+        /// 越界）：回退 <see cref="DefaultPivot"/>，与改动前逐字节一致，vfx 特效图集
+        /// （<paramref name="spriteSetId"/> 恒为 <c>null</c>）完全不受影响。</item>
+        /// </list>
+        /// </summary>
+        private Vector2 ResolveEffectPivot(
+            Id resourceId, Id? spriteSetId, EffectFramesDocument document, int frameWidth, int frameHeight)
+        {
+            if (frameWidth <= 0 || frameHeight <= 0)
+            {
+                // 防御性分支，理论不应发生（TryDecodeEffect 已确认图集解码成功，帧宽高来自图集
+                // 尺寸或 frames.json 显式声明，见该方法判断记录）。
+                return DefaultPivot;
+            }
+
+            if (document.Root.HasValue)
+            {
+                var explicitRoot = document.Root.Value;
+                return new Vector2((float)(explicitRoot.X / frameWidth), 1f - (float)(explicitRoot.Y / frameHeight));
+            }
+
+            if (!spriteSetId.HasValue)
+            {
+                return DefaultPivot;
+            }
+
+            var spriteSetRelativeDir = AssetRefConventions.SpriteSetDirectory(spriteSetId.Value);
+            var info = GetOrReadSpriteSetAnchors(spriteSetRelativeDir);
+            if (info.DirectionRoots == null || info.DirectionRoots.Count == 0)
+            {
+                return DefaultPivot;
+            }
+
+            var directionSlot = ExtractSpriteAnimDirectionSlot(StripCategoryPrefix(resourceId.Value));
+            var resolvedDirectionKey = directionSlot;
+            var usedFallbackDirection = false;
+            if (resolvedDirectionKey == null)
+            {
+                resolvedDirectionKey = info.FallbackDirectionKey;
+                usedFallbackDirection = true;
+            }
+
+            if (resolvedDirectionKey == null || !info.DirectionRoots.TryGetValue(resolvedDirectionKey, out var root))
+            {
+                return DefaultPivot;
+            }
+
+            if (usedFallbackDirection && info.FallbackDirectionKeyIsAmbiguous)
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 精灵集 \"{spriteSetRelativeDir}\" 各方向脚底锚点声明不一致，" +
+                    $"逐帧动画 \"{resourceId.Value}\" 未携带方向信息，回退使用 \"{resolvedDirectionKey}\" " +
+                    "方向的锚点计算枢轴（ADR-0095 决策 3，沿用 ADR-0091 决策 2）。");
+            }
+
+            if (root.X < 0 || root.Y < 0 || root.X > frameWidth || root.Y > frameHeight)
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 精灵集 \"{spriteSetRelativeDir}\" 方向 \"{resolvedDirectionKey}\" " +
+                    $"声明的脚底锚点 ({root.X}, {root.Y}) 超出逐帧动画 \"{resourceId.Value}\" 帧尺寸 " +
+                    $"{frameWidth}x{frameHeight}，回退默认枢轴 (0.5, 0.5)（ADR-0095 决策 3）。");
+                return DefaultPivot;
+            }
+
+            if (root.CanvasWidth.HasValue && root.CanvasHeight.HasValue &&
+                (root.CanvasWidth.Value != frameWidth || root.CanvasHeight.Value != frameHeight))
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 精灵集 \"{spriteSetRelativeDir}\" 方向 \"{resolvedDirectionKey}\" " +
+                    $"anchors.json 声明画布 {root.CanvasWidth}x{root.CanvasHeight} 与逐帧动画 " +
+                    $"\"{resourceId.Value}\" 帧尺寸 {frameWidth}x{frameHeight} 不一致，按帧尺寸换算枢轴" +
+                    "（ADR-0095 决策 3）。");
+            }
+
+            return new Vector2((float)(root.X / frameWidth), 1f - (float)(root.Y / frameHeight));
+        }
+
+        /// <summary>[ADR-0095] 决策 3：从已去除类别前缀的 <c>sprite_anim</c> 资源名里提取方向档位——
+        /// 与 <see cref="TryResolveSpriteSetRelativeDir"/> 对 <c>"layer."</c> 类别的既有判定同一形状：
+        /// 按 <c>"__"</c> 分段，恰好 3 段（<c>基础名__方向__层名</c>，见
+        /// <see cref="ProbeLayersSequential"/> 产出的候选 id）时取中间段为方向；其余段数（0/1/2 段，
+        /// 例如整身默认剪辑 <c>"sample_hero_idle"</c>、无方向的逐层剪辑
+        /// <c>"sample_hero_idle__hand_main"</c>）视为"不带方向信息"，调用方按 ADR-0091 决策 2 的
+        /// 兜底规则处理。</summary>
+        private static string? ExtractSpriteAnimDirectionSlot(string strippedName)
+        {
+            var parts = strippedName.Split(new[] { "__" }, StringSplitOptions.None);
+            return parts.Length == 3 ? parts[1] : null;
         }
 
         private bool TryDecodeWav(Id resourceId, byte[] bytes)

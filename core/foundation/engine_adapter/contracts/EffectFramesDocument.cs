@@ -40,6 +40,15 @@ namespace Core.Foundation.EngineAdapter
     /// 缺省时按 <c>fps &gt; 0 ? 1.0 / fps : 0.05</c> 推算；单帧 <see cref="EffectFrameData.Duration"/>
     /// 缺省时退回 <see cref="DefaultFrameDuration"/>。见类型顶部验收标准："与改动前逐字节对齐"一节。
     /// </para>
+    /// <para>
+    /// [ADR-0095](../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md) 新增
+    /// 两个可选顶层字段——<see cref="PixelsPerUnit"/>（顶层 <c>pixels_per_unit</c>）与
+    /// <see cref="Root"/>（顶层 <c>root: [x, y]</c>，像素坐标，原点左上，与 anchors.json 的
+    /// <c>root</c> 同一语义）：内容侧显式声明时优先于调用方按所属精灵集给出的加载提示（决策 4，
+    /// "内容侧对特殊画布的动画有出口"）；未声明时两者均为 <c>null</c>，不影响未使用这两个字段的
+    /// 既有 <c>frames.json</c> 文件。<c>pixels_per_unit</c> 非正数视为未声明（与 anchors.json
+    /// 顶层同名字段同一条校验规则）。
+    /// </para>
     /// </summary>
     public sealed class EffectFramesDocument
     {
@@ -59,6 +68,14 @@ namespace Core.Foundation.EngineAdapter
         /// <summary>顶层 <c>loop</c>；JSON 未写出该字段时缺省 <c>false</c>。</summary>
         public bool Loop { get; }
 
+        /// <summary>[ADR-0095] 顶层可选 <c>pixels_per_unit</c>；未声明或不是正数时为 <c>null</c>，
+        /// 见本类型 <see cref="FrameWidth"/> 之前的判断记录。</summary>
+        public double? PixelsPerUnit { get; }
+
+        /// <summary>[ADR-0095] 顶层可选 <c>root: [x, y]</c>（像素坐标，原点左上）；未声明、不是
+        /// 二元数字数组时为 <c>null</c>，见本类型 <see cref="FrameWidth"/> 之前的判断记录。</summary>
+        public (double X, double Y)? Root { get; }
+
         /// <summary>顶层 <c>frames</c> 数组，按 JSON 原始顺序排列（<see cref="EffectFrameData.Index"/>
         /// 即数组下标，见类型顶部判断记录）。</summary>
         public IReadOnlyList<EffectFrameData> Frames { get; }
@@ -69,6 +86,8 @@ namespace Core.Foundation.EngineAdapter
             double fps,
             double defaultFrameDuration,
             bool loop,
+            double? pixelsPerUnit,
+            (double X, double Y)? root,
             IReadOnlyList<EffectFrameData> frames)
         {
             FrameWidth = frameWidth;
@@ -76,6 +95,8 @@ namespace Core.Foundation.EngineAdapter
             Fps = fps;
             DefaultFrameDuration = defaultFrameDuration;
             Loop = loop;
+            PixelsPerUnit = pixelsPerUnit;
+            Root = root;
             Frames = frames;
         }
 
@@ -115,6 +136,21 @@ namespace Core.Foundation.EngineAdapter
                 ? fdNum.Value
                 : (fps > 0 ? 1.0 / fps : 0.05);
 
+            // ADR-0095 决策 4：可选顶层 pixels_per_unit（非正数视为未声明，同 anchors.json 顶层
+            // 同名字段一致的校验规则）与可选顶层 root:[x,y]（二元数字数组，其余形状视为未声明）。
+            double? pixelsPerUnit = null;
+            if (obj.TryGetValue("pixels_per_unit", out var ppuVal) && ppuVal is JsonNumber ppuNum && ppuNum.Value > 0)
+            {
+                pixelsPerUnit = ppuNum.Value;
+            }
+
+            (double X, double Y)? explicitRoot = null;
+            if (obj.TryGetValue("root", out var rootVal) && rootVal is JsonArray rootArr && rootArr.Count >= 2 &&
+                rootArr[0] is JsonNumber rootX && rootArr[1] is JsonNumber rootY)
+            {
+                explicitRoot = (rootX.Value, rootY.Value);
+            }
+
             if (!obj.TryGetValue("frames", out var framesVal) || !(framesVal is JsonArray framesArr))
             {
                 return false;
@@ -139,7 +175,8 @@ namespace Core.Foundation.EngineAdapter
                 frames[i] = new EffectFrameData(i, x, y, w, h, duration);
             }
 
-            document = new EffectFramesDocument(frameWidth, frameHeight, fps, defaultDuration, loop, frames);
+            document = new EffectFramesDocument(
+                frameWidth, frameHeight, fps, defaultDuration, loop, pixelsPerUnit, explicitRoot, frames);
             return true;
         }
 

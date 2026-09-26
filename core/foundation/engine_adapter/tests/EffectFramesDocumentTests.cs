@@ -138,6 +138,51 @@ namespace Tests.Foundation.EngineAdapter
             Assert.Null(document.FrameHeight);
         }
 
+        // --- ADR-0095 新增：可选顶层 pixels_per_unit/root（逐帧动画枢轴与像素密度取自所属精灵集）---
+
+        [Fact]
+        public void TryParse_PixelsPerUnitAndRootMissing_BothNull()
+        {
+            const string json = @"{""frames"":[{""x"":0,""y"":0,""w"":10,""h"":10}]}";
+            Assert.True(EffectFramesDocument.TryParse(json, out var document));
+            Assert.Null(document.PixelsPerUnit);
+            Assert.Null(document.Root);
+        }
+
+        [Fact]
+        public void TryParse_PixelsPerUnitDeclared_ParsesValue()
+        {
+            const string json = @"{""pixels_per_unit"":32,""frames"":[{""x"":0,""y"":0,""w"":10,""h"":10}]}";
+            Assert.True(EffectFramesDocument.TryParse(json, out var document));
+            Assert.Equal(32.0, document.PixelsPerUnit);
+        }
+
+        [Fact]
+        public void TryParse_PixelsPerUnitNotPositive_TreatedAsNotDeclared()
+        {
+            const string json = @"{""pixels_per_unit"":0,""frames"":[{""x"":0,""y"":0,""w"":10,""h"":10}]}";
+            Assert.True(EffectFramesDocument.TryParse(json, out var document));
+            Assert.Null(document.PixelsPerUnit);
+        }
+
+        [Fact]
+        public void TryParse_RootDeclared_ParsesXY()
+        {
+            const string json = @"{""root"":[24,44],""frames"":[{""x"":0,""y"":0,""w"":48,""h"":48}]}";
+            Assert.True(EffectFramesDocument.TryParse(json, out var document));
+            Assert.NotNull(document.Root);
+            Assert.Equal(24.0, document.Root!.Value.X);
+            Assert.Equal(44.0, document.Root!.Value.Y);
+        }
+
+        [Fact]
+        public void TryParse_RootArrayTooShort_TreatedAsNotDeclared()
+        {
+            const string json = @"{""root"":[24],""frames"":[{""x"":0,""y"":0,""w"":48,""h"":48}]}";
+            Assert.True(EffectFramesDocument.TryParse(json, out var document));
+            Assert.Null(document.Root);
+        }
+
         // --- 解析失败分支：与改动前 TryDecodeEffect 源码逐一对应，均返回 false，不抛异常 ---
 
         [Fact]

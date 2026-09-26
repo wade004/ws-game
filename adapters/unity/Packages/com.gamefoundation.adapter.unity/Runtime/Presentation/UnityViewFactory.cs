@@ -684,6 +684,11 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
+            // ADR-0095：本方法顶部已确认 info.Sprite != null（否则已 return），该显示行的精灵集
+            // id 作为加载提示传给 UnityResourceLoader，供逐层剪辑（sprite_anim.* 资源）按所属精灵集
+            // 的 anchors.json 计算枢轴/像素密度，见 ProbeLayerClipTier/UnityResourceLoader.TryDecodeEffect。
+            var spriteSetId = Id.Parse(info.Sprite.SpriteSetId);
+
             var perLayerByState = new Dictionary<Id, Dictionary<string, Id>>();
             _perLayerClipsByEntity[entityId] = perLayerByState;
 
@@ -705,7 +710,7 @@ namespace Adapter.Unity.Presentation
 
                 ProbeLayersSequential(
                     unityLoader, player, info.Sprite.PaperdollLayers, layerIndex: 0, strippedRef, dirBareName,
-                    stateClipId, clipDef.Events, layerMap);
+                    stateClipId, clipDef.Events, layerMap, spriteSetId);
             }
 
             // 每实体共享一份回调，覆盖该实体此后任意状态切换（不为每个状态各订阅一份）——
@@ -781,7 +786,7 @@ namespace Adapter.Unity.Presentation
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, UnityFrameAnimPlayer player,
             IReadOnlyList<string> layerNames, int layerIndex, string strippedRef, string dirBareName,
             Id stateClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events,
-            Dictionary<string, Id> layerMap)
+            Dictionary<string, Id> layerMap, Id spriteSetId)
         {
             if (layerIndex >= layerNames.Count)
             {
@@ -796,7 +801,7 @@ namespace Adapter.Unity.Presentation
             };
 
             ProbeLayerClipTier(
-                unityLoader, candidates, tierIndex: 0,
+                unityLoader, candidates, tierIndex: 0, spriteSetId,
                 onResolved: effect =>
                 {
                     var perLayerClipId = new Id(stateClipId.Value + ".layer." + layerName);
@@ -810,11 +815,11 @@ namespace Adapter.Unity.Presentation
                         player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(events, effect.Frames.Length));
                     }
 
-                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap);
+                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
                 },
                 onExhausted: () =>
                 {
-                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap);
+                    ProbeLayersSequential(unityLoader, player, layerNames, layerIndex + 1, strippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
                 });
         }
 
@@ -823,9 +828,12 @@ namespace Adapter.Unity.Presentation
         /// <paramref name="onResolved"/>；未命中时发起一次真正的异步加载，加载失败（该档位本就没有
         /// 对应美术，这是探测的正常结果，不是错误）时递归尝试下一档，全部档位耗尽时调用
         /// <paramref name="onExhausted"/>（决策 2 三级"保持静态"——调用方对此不做任何注册，层维持当前
-        /// 已经在显示的图）。</summary>
+        /// 已经在显示的图）。[ADR-0095] <paramref name="spriteSetId"/>：该逐层剪辑所属的精灵集，
+        /// 经 <see cref="Core.Foundation.EngineAdapter.ResourceLoadHints"/> 传给加载器，供按所属
+        /// 精灵集的 anchors.json 计算枢轴/像素密度。</summary>
         private void ProbeLayerClipTier(
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, IReadOnlyList<Id> candidates, int tierIndex,
+            Id spriteSetId,
             Action<Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset> onResolved, Action onExhausted)
         {
             if (tierIndex >= candidates.Count)
@@ -841,7 +849,7 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            unityLoader.LoadAsync(candidate, ResourceKind.Effect, (loadedId, success) =>
+            unityLoader.LoadAsync(candidate, ResourceKind.Effect, new Core.Foundation.EngineAdapter.ResourceLoadHints(spriteSetId), (loadedId, success) =>
             {
                 if (success && unityLoader.TryGetEffect(loadedId, out var loaded))
                 {
@@ -849,7 +857,7 @@ namespace Adapter.Unity.Presentation
                 }
                 else
                 {
-                    ProbeLayerClipTier(unityLoader, candidates, tierIndex + 1, onResolved, onExhausted);
+                    ProbeLayerClipTier(unityLoader, candidates, tierIndex + 1, spriteSetId, onResolved, onExhausted);
                 }
             });
         }
@@ -1068,6 +1076,12 @@ namespace Adapter.Unity.Presentation
             var animSet = TryResolveAnimSet(info.Id);
             var result = new Dictionary<string, Id>(StringComparer.Ordinal);
 
+            // ADR-0095：该显示行的精灵集 id（本方法只由 AttachDefaultAnimation(UnitySpriteView, ...)
+            // 调用，info.Kind 恒为 Sprite、info.Sprite 恒非空；仍按"找不到精灵集的显示行不传提示"
+            // 的既有约定防御性判空，找不到时 spriteSetId 为 null，RequestAnimClipUpgrade 据此走
+            // 不带提示的旧路径）。
+            var spriteSetId = info.Sprite != null ? (Id?)Id.Parse(info.Sprite.SpriteSetId) : null;
+
             for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
             {
                 var stateKey = DefaultAnimStateKeys[i];
@@ -1091,7 +1105,7 @@ namespace Adapter.Unity.Presentation
                     // "压根没配"。先登记单帧占位保证立即可用，同时发起真正加载，完成后原地升级成
                     // 真实多帧剪辑（见 RequestAnimClipUpgrade 判断记录），不再永久停留在单帧退化。
                     player.RegisterSingleFrameClip(clipId, FallbackFrame);
-                    RequestAnimClipUpgrade(unityLoader, resourceRef, player, clipId, stateKey, events);
+                    RequestAnimClipUpgrade(unityLoader, resourceRef, player, clipId, stateKey, events, spriteSetId);
                 }
                 else
                 {
@@ -1118,12 +1132,15 @@ namespace Adapter.Unity.Presentation
         /// <see cref="IResourceLoader.LoadAsync"/>（同一资源被多个实体/状态共同引用时只发起一次，见
         /// <see cref="_pendingAnimResourceLoads"/> 判断记录）。加载完成后把全部等待方一次性升级为
         /// 真实多帧剪辑；<paramref name="player"/> 若在加载完成前已被销毁（Unity 对象销毁后与
-        /// <c>null</c> 比较为真，见 Unity 官方"伪 null"惯例），跳过它，不抛异常。
+        /// <c>null</c> 比较为真，见 Unity 官方"伪 null"惯例），跳过它，不抛异常。[ADR-0095]
+        /// <paramref name="spriteSetId"/>：该显示行的精灵集 id，经
+        /// <see cref="Core.Foundation.EngineAdapter.ResourceLoadHints"/> 传给加载器（找不到精灵集时
+        /// 为 <c>null</c>，走不带提示的旧路径，见 <see cref="RegisterDefaultClips"/> 判断记录）。
         /// </summary>
         private void RequestAnimClipUpgrade(
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id resourceRef,
             UnityFrameAnimPlayer player, Id clipId, string stateKey,
-            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events)
+            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events, Id? spriteSetId)
         {
             if (!_pendingAnimClipWaiters.TryGetValue(resourceRef, out var waiters))
             {
@@ -1139,7 +1156,7 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            unityLoader.LoadAsync(resourceRef, ResourceKind.Effect, (loadedResourceId, success) =>
+            LoadCallback onLoaded = (loadedResourceId, success) =>
             {
                 // 判断记录：不从 _pendingAnimResourceLoads 移除——同 VfxPlayer._pendingResourceLoads/
                 // SfxPlayer._pendingResourceLoads 既有惯例"此后永远不再移除，含加载失败的情形，
@@ -1171,7 +1188,16 @@ namespace Adapter.Unity.Presentation
                     }
                     waitingPlayer.RegisterClipFromEffect(waitingClipId, loadedEffect, ComputeKeyframes(waitingEvents, loadedEffect.Frames.Length));
                 }
-            });
+            };
+
+            if (spriteSetId.HasValue)
+            {
+                unityLoader.LoadAsync(resourceRef, ResourceKind.Effect, new Core.Foundation.EngineAdapter.ResourceLoadHints(spriteSetId), onLoaded);
+            }
+            else
+            {
+                unityLoader.LoadAsync(resourceRef, ResourceKind.Effect, onLoaded);
+            }
         }
 
         /// <summary>PR130-03 根治：保证 <paramref name="clipId"/> 在 <paramref name="player"/> 上已经

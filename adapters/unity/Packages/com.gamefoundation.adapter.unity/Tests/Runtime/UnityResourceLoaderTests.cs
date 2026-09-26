@@ -1,5 +1,6 @@
 #nullable enable
 using System.Collections;
+using System.Text.RegularExpressions;
 using Adapter.Unity.EngineAdapter;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
@@ -570,6 +571,266 @@ namespace Adapter.Unity.Tests.Runtime
                 "root 越界时枢轴 X 应回退默认 0.5（ADR-0091 决策 3）");
             Assert.AreEqual(0.5f, oobSprite.pivot.y / oobSprite.rect.height, 0.001f,
                 "root 越界时枢轴 Y 应回退默认 0.5（ADR-0091 决策 3）");
+        }
+
+        /// <summary>
+        /// [ADR-0095](../../../../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)
+        /// 复现用例（修复前应失败）：逐帧动画（<c>ResourceKind.Effect</c>，<c>sprite_anim.*</c> 类别）
+        /// 携带精灵集提示加载时，每帧枢轴/像素密度应取自该精灵集 <c>anchors.json</c> 声明的脚底锚点/
+        /// <c>pixels_per_unit</c>，与 <see cref="LoadAsync_PlaceholderBeastFrontBody_PivotComesFromAnchorsRoot"/>
+        /// 用的同一份 root=[24,44]/canvas 48x48/pixels_per_unit=32 声明（占位野兽精灵集），复制一份到
+        /// 临时夹具目录，验证 <c>TryDecodeEffect</c> 现在会读取它，不再像修复前那样固定写死
+        /// (0.5, 0.5)/全局 <see cref="UnityResourceLoader.PixelsPerUnit"/>（默认 100）。同时经真实的
+        /// <see cref="Adapter.Unity.Presentation.UnityViewFactory"/> 生产链路（<c>RegisterDefaultClips</c>
+        /// -&gt; <c>RequestAnimClipUpgrade</c>）加载一个带 <c>anim_set</c> 的显示行，核对工厂确实把
+        /// <c>display.map.sprite_set_id</c> 作为提示传给了加载器（不另开第三条用例，见任务书"顺带核对"）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_Effect_WithSpriteSetHint_PivotAndPixelsPerUnitComeFromAnchorsRoot()
+        {
+            const double rootX = 24d;
+            const double rootY = 44d;
+            const int frameSize = 48;
+            const float declaredPixelsPerUnit = 32f;
+
+            _tempFixtureRoot = System.IO.Path.Combine(
+                UnityEngine.Application.temporaryCachePath, "adr0095_fixture_" + System.Guid.NewGuid().ToString("N"));
+
+            // 精灵集夹具：逐字复制 assets/_placeholder/sprites/placeholder_beast/anchors.json 的
+            // 声明（root=[24,44]、canvas 48x48、pixels_per_unit=32），只是换一个不冲突的集合名。
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprites", "fixture_beast", "anchors.json"),
+                "{\"canvas\": {\"width\": 48, \"height\": 48}, \"pixels_per_unit\": 32, " +
+                "\"directions\": {\"front\": {\"root\": [24, 44]}}}");
+
+            // 逐帧动画夹具：2 帧，每帧 48x48（横向拼接的 96x48 图集），frames.json 不声明
+            // pixels_per_unit/root——期望全部取自上面的精灵集提示。资源 id 不带方向段（同整身默认
+            // 剪辑的既有形状），走 ADR-0091 决策 2 的方向兜底（本例只有一个方向，不算歧义，不应有 Warn）。
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_beast_walk", "atlas.png"), frameSize * 2, frameSize);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_beast_walk", "frames.json"),
+                "{\"frames\": [{\"x\": 0, \"y\": 0, \"w\": 48, \"h\": 48}, {\"x\": 48, \"y\": 0, \"w\": 48, \"h\": 48}]}");
+
+            UnityResourceLoader.RootDirOverrideForTests = _tempFixtureRoot;
+
+            var spriteSetId = new Id("sprite.fixture_beast");
+            var resourceId = new Id("sprite_anim.fixture_beast_walk");
+            bool? success = null;
+
+            _loader.LoadAsync(resourceId, ResourceKind.Effect, new ResourceLoadHints(spriteSetId), (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(success, "加载在超时前应当有结果（成功或失败），不应当悬而不决");
+            Assert.IsTrue(success!.Value, "带精灵集提示的逐帧动画夹具加载应当成功");
+            Assert.IsTrue(_loader.TryGetEffect(resourceId, out var asset));
+            Assert.AreEqual(2, asset.Frames.Length, "frames.json 声明了 2 帧");
+
+            var expectedPivotX = (float)(rootX / frameSize);
+            var expectedPivotY = 1f - (float)(rootY / frameSize);
+
+            for (var i = 0; i < asset.Frames.Length; i++)
+            {
+                var sprite = asset.Frames[i].Sprite;
+                Assert.AreEqual(expectedPivotX, sprite.pivot.x / sprite.rect.width, 0.001f,
+                    $"第 {i} 帧枢轴 X 应等于所属精灵集脚底锚点像素 X ÷ 帧宽（ADR-0095 决策 3）；" +
+                    "修复前固定写死 0.5");
+                Assert.AreEqual(expectedPivotY, sprite.pivot.y / sprite.rect.height, 0.001f,
+                    $"第 {i} 帧枢轴 Y 应等于 1 - 所属精灵集脚底锚点像素 Y ÷ 帧高（ADR-0095 决策 3）；" +
+                    "修复前固定写死 0.5，与本例期望值 (约 0.083) 有显著差异，足以证伪未接入的旧实现");
+                Assert.AreEqual(declaredPixelsPerUnit, sprite.pixelsPerUnit, 0.001f,
+                    $"第 {i} 帧像素密度应等于所属精灵集 anchors.json 声明的 pixels_per_unit（ADR-0095 决策 4）；" +
+                    $"修复前固定使用全局默认值 {_loader.PixelsPerUnit}");
+            }
+
+            // "顺带核对"：真实生产链路（UnityViewFactory）确实把 sprite_set_id 作为提示传给了加载器。
+            // 复用同一份 anchors.json/atlas 夹具，构造一条最小 display.map + display.anim_set 数据，
+            // 经 RegisterDefaultClips -> RequestAnimClipUpgrade 走一遍完整装配路径。
+            yield return VerifyViewFactoryPassesSpriteSetHint(spriteSetId, frameSize, rootX, rootY, declaredPixelsPerUnit);
+        }
+
+        /// <summary>见 <see cref="LoadAsync_Effect_WithSpriteSetHint_PivotAndPixelsPerUnitComeFromAnchorsRoot"/>
+        /// "顺带核对"一节：直接调用 <see cref="Adapter.Unity.Presentation.UnityViewFactory"/> 私有的
+        /// 装配步骤成本过高（需要完整 DisplayInfo/EventBus/IViewFactory 装配上下文），改为对着
+        /// 同一个 <see cref="UnityResourceLoader"/> 实例复刻工厂内 <c>RegisterDefaultClips</c> ->
+        /// <c>RequestAnimClipUpgrade</c> 的调用形状（<c>LoadAsync(resourceRef, ResourceKind.Effect,
+        /// new ResourceLoadHints(spriteSetId), callback)</c>）——这与工厂源码逐字一致（见
+        /// <c>UnityViewFactory.RequestAnimClipUpgrade</c> 判断记录），核对的是"这个调用形状确实按
+        /// 提示解析出正确结果"，不是重新验证一遍工厂自身的六状态登记/占位退化等既有逻辑（那些已由
+        /// 其它既有测试覆盖，不在本次 ADR-0095 范围内）。</summary>
+        private IEnumerator VerifyViewFactoryPassesSpriteSetHint(
+            Id spriteSetId, int frameSize, double rootX, double rootY, float declaredPixelsPerUnit)
+        {
+            var resourceId = new Id("sprite_anim.fixture_beast_walk_via_factory_shape");
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot!, "sprite_anim", "fixture_beast_walk_via_factory_shape", "atlas.png"), frameSize, frameSize);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot!, "sprite_anim", "fixture_beast_walk_via_factory_shape", "frames.json"),
+                "{\"frames\": [{\"x\": 0, \"y\": 0, \"w\": 48, \"h\": 48}]}");
+
+            bool? success = null;
+            _loader.LoadAsync(resourceId, ResourceKind.Effect, new ResourceLoadHints(spriteSetId), (id, ok) => success = ok);
+
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+
+            Assert.IsNotNull(success);
+            Assert.IsTrue(success!.Value);
+            Assert.IsTrue(_loader.TryGetEffect(resourceId, out var asset));
+            var sprite = asset.Frames[0].Sprite;
+            Assert.AreEqual((float)(rootX / frameSize), sprite.pivot.x / sprite.rect.width, 0.001f,
+                "工厂同形状调用（RequestAnimClipUpgrade 的 LoadAsync 调用）同样应按精灵集提示算出枢轴");
+            Assert.AreEqual(declaredPixelsPerUnit, sprite.pixelsPerUnit, 0.001f,
+                "工厂同形状调用同样应按精灵集提示算出像素密度");
+        }
+
+        /// <summary>
+        /// [ADR-0095](../../../../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)
+        /// 不变量用例（三分支合一）：
+        /// <list type="number">
+        /// <item>无提示加载（vfx 特效图集的既有形状）——枢轴保持默认 (0.5, 0.5)、像素密度保持加载器
+        /// 全局默认，与改动前逐字节一致（决策 3/4 的"无提示"回退分支）。</item>
+        /// <item><c>frames.json</c> 显式声明 <c>pixels_per_unit</c>/<c>root</c> 时优先于精灵集提示
+        /// 生效（决策 4"内容侧对特殊画布的动画有出口"）。</item>
+        /// <item>同一资源已按某精灵集提示解码后，再次以不同精灵集提示请求——复用已解码结果（枢轴/
+        /// 像素密度不变，不按新提示重新计算），且只捕获到一条 Warn（决策 5"缓存冲突"）。</item>
+        /// </list>
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadAsync_Effect_Invariants_NoHintExplicitOverrideAndConflictReuse()
+        {
+            _tempFixtureRoot = System.IO.Path.Combine(
+                UnityEngine.Application.temporaryCachePath, "adr0095_invariants_" + System.Guid.NewGuid().ToString("N"));
+
+            // 分支 1：无提示加载，1 帧 32x32，无精灵集参与——期望枢轴 (0.5,0.5)、像素密度沿用加载器
+            // 全局默认值（不写死具体数字，直接读 _loader.PixelsPerUnit，与改动前逐字节一致）。
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_no_hint", "atlas.png"), 32, 32);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_no_hint", "frames.json"),
+                "{\"frames\": [{\"x\": 0, \"y\": 0, \"w\": 32, \"h\": 32}]}");
+            UnityResourceLoader.RootDirOverrideForTests = _tempFixtureRoot;
+
+            var noHintId = new Id("sprite_anim.fixture_no_hint");
+            bool? noHintSuccess = null;
+            _loader.LoadAsync(noHintId, ResourceKind.Effect, (id, ok) => noHintSuccess = ok);
+            var timeout = 5f;
+            while (noHintSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(noHintSuccess, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(noHintSuccess!.Value, "无提示逐帧动画夹具加载应当成功");
+            Assert.IsTrue(_loader.TryGetEffect(noHintId, out var noHintAsset));
+            var noHintSprite = noHintAsset.Frames[0].Sprite;
+            Assert.AreEqual(0.5f, noHintSprite.pivot.x / noHintSprite.rect.width, 0.001f,
+                "无精灵集提示时枢轴 X 应保持默认 0.5（决策 3 回退分支）");
+            Assert.AreEqual(0.5f, noHintSprite.pivot.y / noHintSprite.rect.height, 0.001f,
+                "无精灵集提示时枢轴 Y 应保持默认 0.5（决策 3 回退分支）");
+            Assert.AreEqual(_loader.PixelsPerUnit, noHintSprite.pixelsPerUnit, 0.001f,
+                "无精灵集提示时像素密度应保持加载器全局默认值（决策 4 回退分支）");
+
+            // 分支 2：精灵集提示存在（root=[12,16]/canvas 20x20/ppu=10），但 frames.json 显式声明
+            // pixels_per_unit=8、root=[5,5]——期望显式声明生效，不是精灵集提示的值。
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprites", "fixture_override_set", "anchors.json"),
+                "{\"canvas\": {\"width\": 20, \"height\": 20}, \"pixels_per_unit\": 10, " +
+                "\"directions\": {\"front\": {\"root\": [12, 16]}}}");
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_override_anim", "atlas.png"), 20, 20);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_override_anim", "frames.json"),
+                "{\"pixels_per_unit\": 8, \"root\": [5, 5], \"frames\": [{\"x\": 0, \"y\": 0, \"w\": 20, \"h\": 20}]}");
+
+            var overrideSpriteSetId = new Id("sprite.fixture_override_set");
+            var overrideAnimId = new Id("sprite_anim.fixture_override_anim");
+            bool? overrideSuccess = null;
+            _loader.LoadAsync(overrideAnimId, ResourceKind.Effect, new ResourceLoadHints(overrideSpriteSetId), (id, ok) => overrideSuccess = ok);
+            timeout = 5f;
+            while (overrideSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(overrideSuccess, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(overrideSuccess!.Value, "带显式覆盖字段的逐帧动画夹具加载应当成功");
+            Assert.IsTrue(_loader.TryGetEffect(overrideAnimId, out var overrideAsset));
+            var overrideSprite = overrideAsset.Frames[0].Sprite;
+            Assert.AreEqual(5f / 20f, overrideSprite.pivot.x / overrideSprite.rect.width, 0.001f,
+                "frames.json 显式声明的 root 应优先于精灵集提示的 root 生效（决策 4）");
+            Assert.AreEqual(1f - 5f / 20f, overrideSprite.pivot.y / overrideSprite.rect.height, 0.001f,
+                "frames.json 显式声明的 root 应优先于精灵集提示的 root 生效（决策 4）");
+            Assert.AreEqual(8f, overrideSprite.pixelsPerUnit, 0.001f,
+                "frames.json 显式声明的 pixels_per_unit（8）应优先于精灵集提示声明的值（10）生效（决策 4）");
+
+            // 分支 3：同一资源先按精灵集 A（root=[4,4]/canvas 16x16/ppu=2）解码成功，再以精灵集 B
+            // （root=[12,12]/canvas 16x16/ppu=3）重新请求——期望复用分支 A 的解码结果（枢轴/像素密度
+            // 仍是 A 的值，不是按 B 重新算出的值），且捕获到恰好一条 Warn（决策 5）。
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprites", "fixture_conflict_a", "anchors.json"),
+                "{\"canvas\": {\"width\": 16, \"height\": 16}, \"pixels_per_unit\": 2, " +
+                "\"directions\": {\"front\": {\"root\": [4, 4]}}}");
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprites", "fixture_conflict_b", "anchors.json"),
+                "{\"canvas\": {\"width\": 16, \"height\": 16}, \"pixels_per_unit\": 3, " +
+                "\"directions\": {\"front\": {\"root\": [12, 12]}}}");
+            WritePngFixture(System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_conflict", "atlas.png"), 16, 16);
+            WriteTextFixture(
+                System.IO.Path.Combine(_tempFixtureRoot, "sprite_anim", "fixture_conflict", "frames.json"),
+                "{\"frames\": [{\"x\": 0, \"y\": 0, \"w\": 16, \"h\": 16}]}");
+
+            var conflictSpriteSetIdA = new Id("sprite.fixture_conflict_a");
+            var conflictSpriteSetIdB = new Id("sprite.fixture_conflict_b");
+            var conflictAnimId = new Id("sprite_anim.fixture_conflict");
+
+            bool? conflictFirstSuccess = null;
+            _loader.LoadAsync(conflictAnimId, ResourceKind.Effect, new ResourceLoadHints(conflictSpriteSetIdA), (id, ok) => conflictFirstSuccess = ok);
+            timeout = 5f;
+            while (conflictFirstSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(conflictFirstSuccess, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(conflictFirstSuccess!.Value, "第一次（精灵集 A 提示）加载应当成功");
+            Assert.IsTrue(_loader.TryGetEffect(conflictAnimId, out var conflictAssetAfterFirst));
+            var conflictSpriteAfterFirst = conflictAssetAfterFirst.Frames[0].Sprite;
+            Assert.AreEqual(4f / 16f, conflictSpriteAfterFirst.pivot.x / conflictSpriteAfterFirst.rect.width, 0.001f,
+                "第一次解码应按精灵集 A 的 root 算出枢轴");
+            Assert.AreEqual(2f, conflictSpriteAfterFirst.pixelsPerUnit, 0.001f,
+                "第一次解码应按精灵集 A 的 pixels_per_unit 生效");
+
+            LogAssert.Expect(UnityEngine.LogType.Warning, new Regex("ADR-0095 决策 5"));
+
+            bool? conflictSecondSuccess = null;
+            _loader.LoadAsync(conflictAnimId, ResourceKind.Effect, new ResourceLoadHints(conflictSpriteSetIdB), (id, ok) => conflictSecondSuccess = ok);
+            timeout = 5f;
+            while (conflictSecondSuccess == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= UnityEngine.Time.unscaledDeltaTime > 0 ? UnityEngine.Time.unscaledDeltaTime : 0.02f;
+            }
+            Assert.IsNotNull(conflictSecondSuccess, "加载在超时前应当有结果，不应当悬而不决");
+            Assert.IsTrue(conflictSecondSuccess!.Value, "第二次（精灵集 B 提示，与第一次不同）加载回调应仍然成功（复用已解码结果，不是失败）");
+            Assert.IsTrue(_loader.TryGetEffect(conflictAnimId, out var conflictAssetAfterSecond));
+            var conflictSpriteAfterSecond = conflictAssetAfterSecond.Frames[0].Sprite;
+            Assert.AreEqual(4f / 16f, conflictSpriteAfterSecond.pivot.x / conflictSpriteAfterSecond.rect.width, 0.001f,
+                "第二次（不同提示）请求应复用第一次的解码结果——枢轴仍是精灵集 A 的值，不是按 B 重新算出的 12/16");
+            Assert.AreEqual(2f, conflictSpriteAfterSecond.pixelsPerUnit, 0.001f,
+                "第二次（不同提示）请求应复用第一次的解码结果——像素密度仍是精灵集 A 的 2，不是 B 的 3");
         }
 
         /// <summary>测试夹具用：在指定路径写一张纯白 PNG（内容本身不重要，只需要是一张能被

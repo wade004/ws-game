@@ -46,6 +46,29 @@ namespace Core.Foundation.EngineAdapter
     public delegate void LoadCallback(Id resourceId, bool success);
 
     /// <summary>
+    /// [ADR-0095](../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md) 新增：
+    /// <see cref="IResourceLoader.LoadAsync(Id,ResourceKind,ResourceLoadHints,LoadCallback)"/> 的
+    /// 可选加载提示，当前只有 <see cref="SpriteSetId"/> 一项——调用方（如引擎适配层的 View 工厂）
+    /// 知道某个 <see cref="ResourceKind.Effect"/> 资源（sprite 型逐帧动画）归属哪个精灵集时把它
+    /// 传入，供实现按该精灵集自己的 anchors.json 计算枢轴/像素密度（同 ADR-0081/ADR-0091 已对
+    /// <see cref="ResourceKind.Image"/> 生效的规则，本次推广到逐帧动画）；调用方给不出该信息
+    /// （如 vfx 特效图集本就不属于任何精灵集）时留 <c>null</c>，实现按改动前逐字节一致的既有
+    /// 回退路径处理。是一个新增的只读结构体类型，不改动任何既有公开签名，符合"ABI 只新增"。
+    /// </summary>
+    public readonly struct ResourceLoadHints
+    {
+        /// <summary>该资源所属的精灵集 id（形如 <c>"sprite.&lt;name&gt;"</c>，
+        /// <see cref="AssetRefConventions.SpriteSetDirectory"/> 的入参形状）；资源不属于任何精灵集
+        /// 或调用方无法给出该信息时为 <c>null</c>。</summary>
+        public Id? SpriteSetId { get; }
+
+        public ResourceLoadHints(Id? spriteSetId)
+        {
+            SpriteSetId = spriteSetId;
+        }
+    }
+
+    /// <summary>
     /// 图片、音频、字体、数据表、场景、导航网格、特效、异步加载（见 02_引擎适配层.md 第 1.7
     /// 节）。必需接口。加载过程不得阻塞主线程；数据表资源经此加载后交给 L0 的 DataRegistry
     /// 解析，图片/音频/字体资源加载后交给 IRenderer2D/IAudio/IUISurface 使用，scene/nav_mesh
@@ -62,6 +85,17 @@ namespace Core.Foundation.EngineAdapter
     public interface IResourceLoader
     {
         void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback);
+
+        /// <summary>
+        /// [ADR-0095](../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)
+        /// 新增默认接口成员：带 <see cref="ResourceLoadHints"/> 的重载。默认实现忽略 hints、转调
+        /// 旧签名，行为与改动前逐字节一致——ABI 只新增：默认接口成员是纯新增，不要求任何既有实现
+        /// 类型（含各模块测试替身、<c>adapters/stub</c>）连带修改即可继续编译通过，先例见
+        /// ADR-0050。只有需要按提示给出更准确解码结果的实现（如引擎适配层的
+        /// <c>UnityResourceLoader</c>）才需要显式重写本方法。
+        /// </summary>
+        void LoadAsync(Id resourceId, ResourceKind kind, ResourceLoadHints hints, LoadCallback callback) =>
+            LoadAsync(resourceId, kind, callback);
 
         bool IsLoaded(Id resourceId);
 
