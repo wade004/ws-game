@@ -70,9 +70,9 @@ namespace Presentation.VfxSfx.Contracts
         /// <c>CompositeFeedbackSink</c>/引擎侧逐帧驱动（同 <c>Presentation.VfxSfx.Core.VfxPlayer.
         /// Update</c> 的既有生产接线，见 <c>FrameworkResidentHost.OnFrameTick</c>）；<paramref
         /// name="dt"/> 对首次加载超时的判定，当前实现内部仍按超时截止时间戳（不是按 dt 累计倒计时）。
-        /// ADR-0105：默认实现另把 <paramref name="dt"/> 累加为自己的表现时钟，供一次性音效按
-        /// <c>SfxOptions.OneShotLayerSlotHoldSeconds</c> 释放同层并发名额；从不驱动本方法时名额不会
-        /// 按时间释放（退回只在显式停止/被抢占时释放）。
+        /// ADR-0105：默认实现在这里按 <c>IAudio.IsSfxPlaying</c> 真实回报释放已播完的一次性音效的
+        /// 同层并发名额，并把 <paramref name="dt"/> 累加为自己的表现时钟，供后端不回报（<c>null</c>）
+        /// 时按 <c>SfxOptions.OneShotLayerSlotHoldSeconds</c> 推定释放。
         /// </summary>
         void Update(double dt);
     }

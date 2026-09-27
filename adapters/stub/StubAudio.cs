@@ -80,6 +80,25 @@ namespace Adapters.Stub
             ActiveSfxPlaybacks.Remove(handle.Value);
         }
 
+        /// <summary>ADR-0105 新增：桩实现是否回报播放状态。true（默认）时 <see cref="IsSfxPlaying"/>
+        /// 按"未被停止、未被 <see cref="CompleteSfx"/> 标记播完"回报 true/false；false 时恒返回
+        /// null，模拟不支持回报的音频后端（表现层据此走按保留时长推定的回退路径）。</summary>
+        public bool ReportsPlaybackState { get; set; } = true;
+
+        /// <summary>ADR-0105 新增：测试用，模拟一次性音效"自然播完"——与 <see cref="StopSfx"/> 一样
+        /// 把句柄移出 <see cref="ActiveSfxPlaybacks"/>，但不是任何调用方主动停止（桩本身不随时间推进，
+        /// 自然播完只能由测试显式声明）。未知/已停止句柄静默忽略。</summary>
+        public void CompleteSfx(SfxHandle handle)
+        {
+            _activeSfx.Remove(handle.Value);
+            ActiveSfxPlaybacks.Remove(handle.Value);
+        }
+
+        /// <summary>ADR-0105：见 <see cref="IAudio.IsSfxPlaying"/>；回报口径见
+        /// <see cref="ReportsPlaybackState"/>。</summary>
+        public bool? IsSfxPlaying(SfxHandle handle) =>
+            ReportsPlaybackState ? _activeSfx.Contains(handle.Value) : (bool?)null;
+
         public void PlayMusic(Id trackId, double fadeInSeconds, bool loop)
         {
             CurrentMusic = new MusicPlayback(trackId, fadeInSeconds, loop);

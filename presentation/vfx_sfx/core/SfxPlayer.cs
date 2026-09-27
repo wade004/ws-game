@@ -86,7 +86,7 @@ namespace Presentation.VfxSfx.Core
         private long _seq;
 
         /// <summary>ADR-0105（消费方反馈第五十四批）：本播放器自己的表现时钟，只由 <see cref="Update"/>
-        /// 的 <c>dt</c> 累加（不读系统时间，保持确定性），供 <see cref="ReleaseExpiredOneShots"/> 判断
+        /// 的 <c>dt</c> 累加（不读系统时间，保持确定性），供 <see cref="ReleaseFinishedOneShots"/> 在后端不回报播放状态时判断
         /// 一次性音效是否已经占满 <see cref="SfxOptions.OneShotLayerSlotHoldSeconds"/>。</summary>
         private double _clockSeconds;
 
@@ -410,6 +410,14 @@ namespace Presentation.VfxSfx.Core
             }
 
             SweepTimedOutPendingPlays();
+
+            // ADR-0105：逐帧也按引擎回报/保留时长释放已播完的一次性音效记账，与 MakeRoomIfNeeded 计数
+            // 前的释放共用同一出口（ReleaseFinishedOneShots）。遍历顺序不影响结果（只摘记账，不产生
+            // 任何对外调用或可观测的先后次序）。
+            foreach (var list in _activeByLayer.Values)
+            {
+                ReleaseFinishedOneShots(list);
+            }
         }
 
         public void Stop(SfxHandle handle)
@@ -571,10 +579,11 @@ namespace Presentation.VfxSfx.Core
 
             var list = GetOrCreateLayerList(layer);
 
-            // ADR-0105（消费方反馈第五十四批根因）：先释放已经占满保留时长、视为自然播完的一次性
-            // 音效，再判断是否满员——此前记账从不释放自然播完的一次性音效，层累计播满上限后"永远
-            // 满员"，同帧先挥击（低优先级）后命中（高优先级）时，挥击声被命中声的抢占当场停掉。
-            ReleaseExpiredOneShots(list);
+            // ADR-0105（消费方反馈第五十四批根因）：先释放已经播完的一次性音效记账（引擎回报为主，
+            // 不支持回报时按保留时长推定），再判断是否满员——此前记账从不释放自然播完的一次性音效，
+            // 层累计播满上限后"永远满员"，同帧先挥击（低优先级）后命中（高优先级）时，挥击声被命中声
+            // 的抢占当场停掉。
+            ReleaseFinishedOneShots(list);
 
             if (list.Count < max)
             {
@@ -603,23 +612,30 @@ namespace Presentation.VfxSfx.Core
             _audio.StopSfx(victim.Handle);
         }
 
-        /// <summary>ADR-0105：见 <see cref="SfxOptions.OneShotLayerSlotHoldSeconds"/> 判断记录。只摘
-        /// 记账（<see cref="_activeByLayer"/>/<see cref="_byHandle"/>），不调用 <c>IAudio.StopSfx</c>
-        /// ——到期只是"推定已播完"，若实际仍在播（比保留时长更长的一次性音效）不应被掐断；之后对该
-        /// 句柄显式 <see cref="Stop"/> 仍照常转发 <c>IAudio.StopSfx</c>。循环音效永不到期；一次性
-        /// 音效从不登记 attach 键（见 <see cref="PlayAttached"/>），因此不需要摘 attach 索引。</summary>
-        private void ReleaseExpiredOneShots(List<ActivePlayback> list)
+        /// <summary>ADR-0105：<see cref="Update"/> 与 <see cref="MakeRoomIfNeeded"/> 共用的唯一释放出口。
+        /// 对每条非循环记账先问 <see cref="IAudio.IsSfxPlaying"/>（引擎真实回报）：<c>false</c> 立即释放；
+        /// <c>true</c> 保留（即便已超过保留时长——真实回报优先于推定）；<c>null</c>（后端不支持回报）才
+        /// 退回 <see cref="SfxOptions.OneShotLayerSlotHoldSeconds"/> 保留时长推定（见该属性判断记录）。
+        /// 只摘记账（<see cref="_activeByLayer"/>/<see cref="_byHandle"/>），不调用 <c>IAudio.StopSfx</c>
+        /// ——已经结束的无需再停，推定到期的若实际仍在播也不应被掐断；之后对该句柄显式
+        /// <see cref="Stop"/> 仍照常转发 <c>IAudio.StopSfx</c>。循环音效不释放（显式停止前一直占名额）；
+        /// 一次性音效从不登记 attach 键（见 <see cref="PlayAttached"/>），因此不需要摘 attach 索引。</summary>
+        private void ReleaseFinishedOneShots(List<ActivePlayback> list)
         {
             var hold = _options.OneShotLayerSlotHoldSeconds;
-            if (!(hold > 0.0))
-            {
-                return;
-            }
-
             for (var i = list.Count - 1; i >= 0; i--)
             {
                 var playback = list[i];
-                if (!playback.Loop && _clockSeconds - playback.StartedAt >= hold)
+                if (playback.Loop)
+                {
+                    continue;
+                }
+
+                var reported = _audio.IsSfxPlaying(playback.Handle);
+                var finished = reported.HasValue
+                    ? !reported.Value
+                    : hold > 0.0 && _clockSeconds - playback.StartedAt >= hold;
+                if (finished)
                 {
                     list.RemoveAt(i);
                     _byHandle.Remove(playback.Handle);

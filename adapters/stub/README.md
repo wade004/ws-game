@@ -18,7 +18,7 @@
 | `IWindow` | `StubWindow` | 内存状态记录；`RequestCloseForTest()` 触发 `OnCloseRequested` |
 | `IClock` | `StubClock` | 手动时钟，`Now()` 从 0 开始；`Advance(seconds)` 推进并触发固定步/帧回调 |
 | `IRenderer2D` | `StubRenderer2D` | 句柄自增分配；记录已创建句柄与最近的分层/变换/着色器参数；销毁后复用抛异常 |
-| `IAudio` | `StubAudio` | 记录当前播放的音乐、存活的音效播放、各总线音量 |
+| `IAudio` | `StubAudio` | 记录当前播放的音乐、存活的音效播放、各总线音量；`IsSfxPlaying`（ADR-0105）按"未停止、未被 `CompleteSfx` 标记自然播完"回报，`ReportsPlaybackState=false` 时恒回报 null（模拟不支持回报的后端） |
 | `IInput` | `StubInput` | 可编程输入；`Press`/`Release`/`SetAxis`/`MoveMouse` 供测试驱动 |
 | `IFileSystem` | `StubFileSystem` | 内存文件系统；`FailNextWrite()` 模拟原子写入失败且旧内容不变 |
 | `IResourceLoader` | `StubResourceLoader` | 同步"异步"；`Register(id)` 登记的资源立即加载成功，未登记的立即失败 |

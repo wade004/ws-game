@@ -12,8 +12,9 @@ namespace Presentation.VfxSfx.Contracts
         /// 优先级处理，见类型 <see cref="Presentation.VfxSfx.Core.SfxPlayer"/> 判断记录；勘误：此前
         /// 本注释误写为"数值越小越高"，与实现方向相反，以实现为准）的一个。
         /// 未在 <see cref="MaxConcurrentPerLayer"/> 登记的层使用 <see cref="DefaultMaxConcurrent"/>。
-        /// 只计入"仍可能在播"的实例：一次性（非循环）音效开始播放满
-        /// <see cref="OneShotLayerSlotHoldSeconds"/> 后视为已自然播完，不再占用名额（ADR-0105）。</summary>
+        /// 只计入"仍可能在播"的实例：一次性（非循环）音效经 <c>IAudio.IsSfxPlaying</c> 回报已结束即
+        /// 释放名额；后端不回报时开始播放满 <see cref="OneShotLayerSlotHoldSeconds"/> 后推定已播完
+        /// （ADR-0105）。</summary>
         public IReadOnlyDictionary<string, int> MaxConcurrentPerLayer { get; set; } =
             new Dictionary<string, int>();
 
@@ -36,21 +37,20 @@ namespace Presentation.VfxSfx.Contracts
         public double FirstLoadTimeoutSeconds { get; set; } = 5.0;
 
         /// <summary>
-        /// ADR-0105 新增（消费方反馈第五十四批）：一次性（<c>sfx.def.loop</c> 未声明/为 false）音效从
-        /// 真正开始播放（<c>IAudio.PlaySfx</c> 被调用，含冷加载完成后的补播放）起，在所属层的并发
-        /// 名额里最多占用多少秒；到期后视为已自然播完，从该层记账中释放（不调用
-        /// <c>IAudio.StopSfx</c>，若实际仍在播也不会被掐断），不再参与 <see cref="MaxConcurrentPerLayer"/>/
-        /// <see cref="DefaultMaxConcurrent"/> 的计数与同层抢占选择。
+        /// ADR-0105 新增（消费方反馈第五十四批）：<b>回退项</b>——只在音频后端对某个句柄的
+        /// <c>IAudio.IsSfxPlaying</c> 回报 <c>null</c>（不支持回报）时生效：一次性（<c>sfx.def.loop</c>
+        /// 未声明/为 false）音效从真正开始播放（<c>IAudio.PlaySfx</c> 被调用，含冷加载完成后的补播放）
+        /// 起，在所属层的并发名额里最多占用多少秒，到期后推定已自然播完、从该层记账中释放（不调用
+        /// <c>IAudio.StopSfx</c>）。后端回报 <c>false</c> 时立即释放、回报 <c>true</c> 时一直保留，均不看
+        /// 本项。
         /// <para>
-        /// 判断记录：<c>IAudio</c> 契约没有"某个句柄是否已播完"的查询，此前记账只在显式停止/被抢占时
-        /// 释放，已经自然播完的一次性音效永久占着名额——层一旦累计播满上限就"永远满员"，此后每次
-        /// 播放都要抢占一个，同层里优先级最低的新音效会被几毫秒后到来的更高优先级音效当场停掉。计时
-        /// 按 <see cref="Presentation.VfxSfx.Contracts.ISfxPlayer.Update"/> 传入的 <c>dt</c> 累计
-        /// （生产装配经 <c>PresentationAssembly.UpdatePlaybackMaintenance</c> 逐帧驱动，不读系统时间），
-        /// 从未驱动 <c>Update</c> 时不会到期，行为与本项新增前一致。循环音效不受本项影响（显式停止前
-        /// 一直占名额）。默认 2 秒：覆盖常见的一次性战斗/界面音效时长；比它更长的一次性音效只是在
-        /// 尾段不再计数（上限在尾段变松），不会被提前停止。取值 ≤ 0 表示不释放（回到本项新增前"只在
-        /// 显式停止/被抢占时释放"的行为）。
+        /// 判断记录：此前记账只在显式停止/被抢占时释放，已经自然播完的一次性音效永久占着名额——层一旦
+        /// 累计播满上限就"永远满员"，此后每次播放都要抢占一个，同层里优先级最低的新音效会被几毫秒后
+        /// 到来的更高优先级音效当场停掉。主路径改为问引擎真实回报；本项只给不回报的后端兜底。计时按
+        /// <see cref="Presentation.VfxSfx.Contracts.ISfxPlayer.Update"/> 传入的 <c>dt</c> 累计（生产装配经
+        /// <c>PresentationAssembly.UpdatePlaybackMaintenance</c> 逐帧驱动，不读系统时间），从未驱动
+        /// <c>Update</c> 时不会到期。循环音效不受本项影响。默认 2 秒：覆盖常见的一次性战斗/界面音效
+        /// 时长。取值 ≤ 0 表示回退路径不释放（回到本项新增前"只在显式停止/被抢占时释放"的行为）。
         /// </para>
         /// </summary>
         public double OneShotLayerSlotHoldSeconds { get; set; } = 2.0;

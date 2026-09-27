@@ -62,6 +62,16 @@ namespace Core.Foundation.EngineAdapter
 
         void StopSfx(SfxHandle handle);
 
+        /// <summary>
+        /// ADR-0105 新增：默认接口成员（ABI 只加法）——回报 <paramref name="handle"/> 对应的这一次音效
+        /// 播放此刻是否仍在播：<c>true</c> 仍在播；<c>false</c> 已结束（自然播完、已被
+        /// <see cref="StopSfx"/>、句柄已回收或从未分配过）；<c>null</c> 表示实现方不支持回报。默认体
+        /// 恒返回 <c>null</c>，未覆写本成员的既有 <see cref="IAudio"/> 实现方不需要改一行代码即可继续
+        /// 编译、运行。表现层音效播放器据此释放同层并发名额（只在回报 <c>null</c> 时才退回按保留时长
+        /// 推定，见 ADR-0105）。
+        /// </summary>
+        bool? IsSfxPlaying(SfxHandle handle) => null;
+
         void PlayMusic(Id trackId, double fadeInSeconds, bool loop);
 
         void StopMusic(double fadeOutSeconds);

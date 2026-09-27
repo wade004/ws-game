@@ -296,19 +296,22 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     [ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)"后果/已知限制"节
     2026-09-26 追加。
 
-22. **[ADR-0105](../../architecture/adr/0105-一次性音效按保留时长释放同层并发名额.md)（消费方第五十四批）：
-    一次性音效按保留时长释放同层并发名额**——根因：`IAudio` 没有"句柄是否已播完"查询，`_activeByLayer`
+22. **[ADR-0105](../../architecture/adr/0105-一次性音效播完即释放同层并发名额.md)（消费方第五十四批）：
+    一次性音效播完即释放同层并发名额**——根因：`IAudio` 没有"句柄是否已播完"查询，`_activeByLayer`
     只在 `Stop`/同层抢占时释放，已自然播完的一次性音效永久占名额；层累计播满 `DefaultMaxConcurrent`
     后"永远满员"，同帧先挥击（低优先级）后命中（高优先级）时挥击声被 `MakeRoomIfNeeded` 选为被抢占者
     当场 `StopSfx`（`PlayStartedCount` 照加、`PlayDroppedCount` 不加、`LastPlay` 同帧被覆盖，与消费方
-    全部黑盒读数吻合）。修法：`SfxOptions.OneShotLayerSlotHoldSeconds`（默认 2 秒，`≤0` 关闭）；
-    `Update(dt)` 累加表现时钟（不读系统时间），`MakeRoomIfNeeded` 计数前先摘掉开始播放已满该时长的
-    非循环记账（不调用 `StopSfx`）；冷加载补播放与热路径同一套记账，`StartedAt` 取真正 `PlaySfx`
-    那一刻。已知限制：保留时长是推定值——更长的一次性音效尾段不计数（上限变松、不会被提前停止），
-    更短的音效播完后到期前仍占名额；从不驱动 `Update` 时不会到期（退回原行为）。回归：
-    `presentation/assembly/tests/AutoAttackSwingSfxPreemptionTests.cs`（生产装配级复现，修复前第 4
-    轮红）、`tests/SfxLayerSlotHoldTests.cs`（N+1 超限仍抢占、到期不 `StopSfx` 不计丢弃、循环不
-    到期、`≤0` 关闭、冷加载两支）。
+    全部黑盒读数吻合）。修法：`IAudio.IsSfxPlaying`（默认接口成员，默认 null）；`Update`/
+    `MakeRoomIfNeeded` 计数前经唯一出口 `ReleaseFinishedOneShots` 对非循环记账逐个询问——false 释放、
+    true 保留、null 才退回 `SfxOptions.OneShotLayerSlotHoldSeconds`（默认 2 秒，`Update(dt)` 累加的
+    表现时钟，不读系统时间）；只摘记账、不调用 `StopSfx`；冷加载补播放与热路径同一套记账，
+    `StartedAt` 取真正 `PlaySfx` 那一刻；循环音效不释放。已知限制：仅后端回报 null 时有推定误差——
+    更长的一次性音效尾段不计数（上限变松、不会被提前停止），更短的音效播完后到期前仍占名额，
+    从不驱动 `Update` 时不会到期。回归：`presentation/assembly/tests/AutoAttackSwingSfxPreemptionTests.cs`
+    （生产装配级复现，引擎回报/回退两支，修复前均第 4 轮红）、`tests/SfxLayerSlotHoldTests.cs`（9 例：
+    引擎回报 false 即释放且不等保留时长、回报 true 压过保留时长、N+1 超限仍抢占、回退到期不
+    `StopSfx` 不计丢弃、循环不释放、`≤0` 关闭、冷加载三支）；引擎侧
+    `adapters/unity/.../Tests/Runtime/SfxEngineReportedFinishPlayModeTests.cs`（真实 AudioSource）。
 
 ## 不负责什么
 

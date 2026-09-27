@@ -139,6 +139,18 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>ADR-0105：覆写 <see cref="IAudio.IsSfxPlaying"/> 默认成员（默认恒 null）。句柄仍占着
+        /// 池位且该池位的 <see cref="AudioSource.isPlaying"/> 为 true 才回报 true；句柄已被
+        /// <see cref="StopSfx"/>/<see cref="ReclaimFinishedSfxSlots"/> 回收、或从未分配过，回报 false；
+        /// 一次性音效 clip 自然播完后 <c>isPlaying</c> 变回 false，即便本帧 <see cref="Tick"/> 尚未回收
+        /// 池位，也同样回报 false（直接读音源状态，不等回收）。句柄单调递增、从不复用，池位被别的句柄
+        /// 复用后旧句柄查不到映射，不会误报成新播放的状态。另要求池位 clip 非空：clip 缺失分支从未
+        /// 真正 Play()，但实测当帧新建（AddComponent）的 AudioSource 在创建当帧 <c>isPlaying</c> 也会读到
+        /// true、下一帧才变 false，只看 <c>isPlaying</c> 会把"什么都没播"误报成在播一帧。</summary>
+        public bool? IsSfxPlaying(SfxHandle handle) =>
+            _activeByHandle.TryGetValue(handle.Value, out var slot) &&
+            slot.Source != null && slot.Source.clip != null && slot.Source.isPlaying;
+
         public void PlayMusic(Id trackId, double fadeInSeconds, bool loop)
         {
             var incoming = _musicUsingA ? _musicSourceB : _musicSourceA;
