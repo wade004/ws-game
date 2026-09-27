@@ -204,14 +204,35 @@ namespace Adapter.Unity.Presentation
         /// 取同一枢轴来源、走同一套优先级。</summary>
         private readonly Dictionary<Id, Id?> _spriteSetIdsByEntity = new Dictionary<Id, Id?>();
 
+        /// <summary>消费方反馈第四十九批·反馈 1 根治：逐层剪辑的注册 clipId（<c>&lt;stateClipId&gt;.layer.
+        /// &lt;层名&gt;</c>，见 <see cref="ProbeComposedLayersSequential"/> 判断记录）与方向无关，跨方向
+        /// 复用同一个 clipId——<see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/> 对同一 clipId
+        /// 直接覆盖内容，若只把 (实体, 方向) 缓存的映射表原样换进 <see cref="DirectionAwareAnimContext.ActivePerLayerByState"/>
+        /// 而不重新调用它，player 上这个 clipId 的内容会停留在"最近一次访问过的另一个方向"注册的效果
+        /// （原始缺陷：走两圈后身体帧停在上一个方向）。本类型额外记录已解析的 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset"/>
+        /// （<c>null</c> 表示候选异步加载仍在途，冷加载与方向切换撞车——加载完成后 <see cref="ProbeLayerClipTier"/>
+        /// 的 <c>onResolved</c> 闭包经同一个对象引用原地登记，见 <see cref="ProbeComposedLayersSequential"/>
+        /// 判断记录，冷热路径归于同一出口）与 <see cref="IsFirstForState"/>（该层是否是
+        /// <see cref="ProbeComposedLayersSequential"/> 探测到的"该状态第一个命中层"——首层额外把效果登记
+        /// 为状态自身 clipId 的内容，见该方法判断记录），供 (实体, 方向) 缓存命中时（<see cref="GetOrProbePerLayerForDirection"/>/
+        /// <see cref="GetOrProbeOverrideClipPerLayer"/> 各自的重登记分支）重新调用
+        /// <see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>，与首次探测路径走同一个调用、同一套
+        /// ADR-0093 决策 2"保持时间轴"（该调用原地覆盖内容，不重置播放进度）。</summary>
+        private sealed class PerLayerCacheEntry
+        {
+            public Id ClipId;
+            public Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset? Effect;
+            public bool IsFirstForState;
+        }
+
         /// <summary>ADR-0072 决策 2 新增：纸娃娃层逐层动画——entityId -> (状态 clipId -> (层名 ->
-        /// 该层独立注册在同一个 <see cref="UnityFrameAnimPlayer"/> 上的逐层 clipId))。由
+        /// 该层独立注册在同一个 <see cref="UnityFrameAnimPlayer"/> 上的逐层 clipId 及其内容))。由
         /// <see cref="TryAttachPerLayerAnimation"/> 在 <see cref="AttachDefaultAnimation"/> 期间创建
         /// 空表并登记（此后异步探测逐步填充，见该方法判断记录），供同一方法注册的每实体共享
         /// <c>player.OnFrameChanged</c> 回调按当前播放 clipId 查表：查到非空表即"至少一层命中"，决定
         /// 隐藏整身 AnimRoot + 逐层播放；查不到或为空表即"整身兜底"。</summary>
-        private readonly Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>> _perLayerClipsByEntity =
-            new Dictionary<Id, Dictionary<Id, Dictionary<string, Id>>>();
+        private readonly Dictionary<Id, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>> _perLayerClipsByEntity =
+            new Dictionary<Id, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>>();
 
         /// <summary>ADR-0100 决策 1：entityId -> 最近一次已知的"合成后层名集合"（<see
         /// cref="SpriteViewBase.LastComposedLayers"/> 的层名投影）——<see
@@ -237,8 +258,8 @@ namespace Adapter.Unity.Presentation
         /// <see cref="TryResolveOverrideClipForCurrentComposition"/> 判断记录）。装备变化时随
         /// <see cref="ReprobeForCompositionChange"/> 整体失效重建（同一方向下的合成层集合已经变化，
         /// 旧缓存条目不再有效），见该方法判断记录。</summary>
-        private readonly Dictionary<Id, Dictionary<(Id ClipId, string Dir), Dictionary<string, Id>>> _overrideClipPerLayerCacheByEntityAndDir =
-            new Dictionary<Id, Dictionary<(Id, string), Dictionary<string, Id>>>();
+        private readonly Dictionary<Id, Dictionary<(Id ClipId, string Dir), Dictionary<string, PerLayerCacheEntry>>> _overrideClipPerLayerCacheByEntityAndDir =
+            new Dictionary<Id, Dictionary<(Id, string), Dictionary<string, PerLayerCacheEntry>>>();
 
         /// <summary>ADR-0093 决策 4：记录每个已挂接默认动画的 sprite 型实体的最小重探测上下文——
         /// <see cref="AttachDefaultAnimation"/> 期间已经拿到的 <see cref="UnityFrameAnimPlayer"/>/
@@ -258,7 +279,7 @@ namespace Adapter.Unity.Presentation
             public SpriteHandle Handle;
             public IReadOnlyDictionary<string, Id> StateClipIds = null!;
             public Core.Foundation.DisplayInfo.AnimSetDef? AnimSet;
-            public Dictionary<Id, Dictionary<string, Id>>? ActivePerLayerByState;
+            public Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>? ActivePerLayerByState;
 
             /// <summary>ADR-0100 决策 1/2/3 新增：本实体对应的 <see cref="UnitySpriteView"/>，供
             /// <see cref="ReprobeDirectionAwareAnimation"/>/<see cref="ReprobeForCompositionChange"/>/
@@ -285,8 +306,8 @@ namespace Adapter.Unity.Presentation
         /// 的候选遍历/tier 探测逻辑（<see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryGetEffect"/>
         /// 本身对已加载资源是同步缓存命中，本表额外省下的是"确认缺失"这一结果的可复用性——不必每次
         /// 切回该方向都重新走一遍二级探测才能再次得出"这一状态没有逐层美术"的结论）。</summary>
-        private readonly Dictionary<Id, Dictionary<string, Dictionary<Id, Dictionary<string, Id>>>> _perLayerClipCacheByEntityAndDir =
-            new Dictionary<Id, Dictionary<string, Dictionary<Id, Dictionary<string, Id>>>>();
+        private readonly Dictionary<Id, Dictionary<string, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>>> _perLayerClipCacheByEntityAndDir =
+            new Dictionary<Id, Dictionary<string, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>>>();
 
         /// <summary>ADR-0093 决策 5：整身默认剪辑按 (实体, 方向裸档位名, 状态键) 缓存的解析结果——命中
         /// 时是已解析的 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset"/>，
@@ -756,7 +777,7 @@ namespace Adapter.Unity.Presentation
             // 的 anchors.json 计算枢轴/像素密度，见 ProbeLayerClipTier/UnityResourceLoader.TryDecodeEffect。
             var spriteSetId = Id.Parse(info.Sprite.SpriteSetId);
 
-            var perLayerByState = new Dictionary<Id, Dictionary<string, Id>>();
+            var perLayerByState = new Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>();
             _perLayerClipsByEntity[entityId] = perLayerByState;
 
             var defaultFacing = Direction.FromQuantized(0.0, info.Sprite.DirectionCount);
@@ -779,7 +800,7 @@ namespace Adapter.Unity.Presentation
                 }
 
                 var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
-                var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                 perLayerByState[stateClipId] = layerMap;
 
                 ProbeComposedLayersSequential(
@@ -859,10 +880,10 @@ namespace Adapter.Unity.Presentation
         /// <see cref="UnityFrameAnimPlayer.CurrentFrame"/>，不是新的一帧，只是把已经在播放的当前帧
         /// 重新写回被覆盖的层），两条触发路径共用同一份逻辑，行为定义只有一处。</summary>
         private static void ApplyPerLayerFrame(
-            Dictionary<Id, Dictionary<string, Id>> perLayerByState, UnityFrameAnimPlayer player,
+            Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> perLayerByState, UnityFrameAnimPlayer player,
             Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, int frameIndex)
         {
-            Dictionary<string, Id>? layerMap = null;
+            Dictionary<string, PerLayerCacheEntry>? layerMap = null;
             var currentClipId = player.CurrentClipId;
             if (currentClipId.HasValue)
             {
@@ -906,7 +927,7 @@ namespace Adapter.Unity.Presentation
                     continue;
                 }
 
-                var sprite = player.GetFrame(kv.Value, frameIndex);
+                var sprite = player.GetFrame(kv.Value.ClipId, frameIndex);
                 if (sprite != null)
                 {
                     concreteRenderer.SetLayerSprite(handle, layerIndex, sprite);
@@ -933,7 +954,7 @@ namespace Adapter.Unity.Presentation
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, UnityFrameAnimPlayer player,
             IReadOnlyList<SpriteComposedLayer> composedLayers, int layerIndex, string bodyOrClipStrippedRef, string dirBareName,
             Id stateClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events,
-            Dictionary<string, Id> layerMap, Id spriteSetId)
+            Dictionary<string, PerLayerCacheEntry> layerMap, Id spriteSetId)
         {
             if (layerIndex >= composedLayers.Count)
             {
@@ -952,7 +973,7 @@ namespace Adapter.Unity.Presentation
                     player.RegisterClipFromEffect(perLayerClipId, effect);
 
                     var isFirstForState = layerMap.Count == 0;
-                    layerMap[layerName] = perLayerClipId;
+                    layerMap[layerName] = new PerLayerCacheEntry { ClipId = perLayerClipId, Effect = effect, IsFirstForState = isFirstForState };
 
                     if (isFirstForState)
                     {
@@ -1140,23 +1161,34 @@ namespace Adapter.Unity.Presentation
         /// 会整体清空本缓存——同一方向下的合成层集合已经变了，旧缓存条目不再代表当前状态。[ADR-0095]
         /// <paramref name="spriteSetId"/>：由调用方 <see cref="ReprobeDirectionAwareAnimation"/> 统一
         /// 计算的该实体所属精灵集 id，原样转发给 <see cref="ProbeComposedLayersSequential"/>，取值来源/
-        /// 非空保证与 <see cref="TryAttachPerLayerAnimation"/> 挂接时同一套。</summary>
-        private Dictionary<Id, Dictionary<string, Id>> GetOrProbePerLayerForDirection(
+        /// 非空保证与 <see cref="TryAttachPerLayerAnimation"/> 挂接时同一套。
+        /// <para>
+        /// 消费方反馈第四十九批·反馈 1 根治：命中缓存时此前直接 <c>return cached;</c>，只把缓存的
+        /// (层名 -> clipId) 映射表换进 <c>ActivePerLayerByState</c>，从不重新调用
+        /// <see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>——逐层 clipId 跨方向复用同一个 id
+        /// （见 <see cref="ProbeComposedLayersSequential"/> 判断记录），player 上的内容因此停留在最近一次
+        /// 访问过的另一个方向。命中缓存时改为先调用 <see cref="ReregisterPerLayerCacheHit"/> 对每一层
+        /// 已解析的效果重新登记（含首层重新登记为状态自身 clipId 的内容），再返回，与首次探测路径走同一套
+        /// 登记调用。
+        /// </para>
+        /// </summary>
+        private Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> GetOrProbePerLayerForDirection(
             Id entityId, string dirBareName, DirectionAwareAnimContext ctx,
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
         {
             if (!_perLayerClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
             {
-                byDir = new Dictionary<string, Dictionary<Id, Dictionary<string, Id>>>(StringComparer.Ordinal);
+                byDir = new Dictionary<string, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>>(StringComparer.Ordinal);
                 _perLayerClipCacheByEntityAndDir[entityId] = byDir;
             }
 
             if (byDir.TryGetValue(dirBareName, out var cached))
             {
+                ReregisterPerLayerCacheHit(ctx, cached);
                 return cached;
             }
 
-            var perLayerByState = new Dictionary<Id, Dictionary<string, Id>>();
+            var perLayerByState = new Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>();
             byDir[dirBareName] = perLayerByState;
 
             var composedLayers = CurrentComposedLayersOrInitial(ctx);
@@ -1170,7 +1202,7 @@ namespace Adapter.Unity.Presentation
                 }
 
                 var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
-                var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                 perLayerByState[stateClipId] = layerMap;
 
                 ProbeComposedLayersSequential(
@@ -1181,11 +1213,52 @@ namespace Adapter.Unity.Presentation
             return perLayerByState;
         }
 
+        /// <summary>消费方反馈第四十九批·反馈 1 根治：见 <see cref="GetOrProbePerLayerForDirection"/>
+        /// 判断记录——对 <paramref name="cached"/> 逐状态、逐层重新调用
+        /// <see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>，与
+        /// <see cref="ProbeComposedLayersSequential"/> 的 <c>onResolved</c> 分支走同一个调用，保持
+        /// ADR-0093 决策 2"保持时间轴"（该调用对同一 clipId 原地覆盖内容，不重置播放进度）。某层
+        /// <see cref="PerLayerCacheEntry.Effect"/> 仍为 <c>null</c>（该层候选异步加载仍在途，冷加载与
+        /// 本次方向切换撞车）时跳过——不是遗漏，是留给该层自己的 <see cref="ProbeLayerClipTier"/>
+        /// <c>onResolved</c> 闭包经同一个 <paramref name="cached"/> 对象引用完成登记（本表就是传入探测的
+        /// <c>layerMap</c> 本身，不是副本），冷热路径因此归于同一出口，作为本次修复的不变量之一。</summary>
+        private static void ReregisterPerLayerCacheHit(
+            DirectionAwareAnimContext ctx, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> cached)
+        {
+            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            {
+                var stateKey = DefaultAnimStateKeys[i];
+                if (!ctx.AnimSet!.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+                if (!cached.TryGetValue(stateClipId, out var layerMap))
+                {
+                    continue;
+                }
+
+                foreach (var kv in layerMap)
+                {
+                    var entry = kv.Value;
+                    if (entry.Effect == null)
+                    {
+                        continue;
+                    }
+
+                    ctx.Player.RegisterClipFromEffect(entry.ClipId, entry.Effect);
+                    if (entry.IsFirstForState)
+                    {
+                        ctx.Player.RegisterClipFromEffect(stateClipId, entry.Effect, ComputeKeyframes(clipDef.Events, entry.Effect.Frames.Length));
+                    }
+                }
+            }
+        }
+
         /// <summary>把 <paramref name="source"/> 的内容原地覆盖进 <paramref name="target"/>（保留
         /// <paramref name="target"/> 对象本身的引用不变）——<see cref="TryAttachPerLayerAnimation"/>
         /// 挂接的 <c>player.OnFrameChanged</c> 回调闭包捕获的正是 <paramref name="target"/> 这个对象，
         /// 必须原地修改而不是重新赋值一个新对象，方向变化的解析结果才能被该闭包看到。</summary>
-        private static void SwapContents(Dictionary<Id, Dictionary<string, Id>> target, Dictionary<Id, Dictionary<string, Id>> source)
+        private static void SwapContents(Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> target, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> source)
         {
             target.Clear();
             foreach (var kv in source)
@@ -1247,7 +1320,7 @@ namespace Adapter.Unity.Presentation
                     }
 
                     var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
-                    var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                    var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                     ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedRef, dirBareName, stateClipId, clipDef.Events, layerMap, spriteSetId);
                     ctx.ActivePerLayerByState[stateClipId] = layerMap;
                 }
@@ -1259,7 +1332,7 @@ namespace Adapter.Unity.Presentation
                 foreach (var clipId in overrideClipIds)
                 {
                     var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
-                    var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+                    var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                     ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedClip, dirBareName, clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId);
                     ctx.ActivePerLayerByState[clipId] = layerMap;
                 }
@@ -1642,30 +1715,68 @@ namespace Adapter.Unity.Presentation
         /// <c>bodyOrClipStrippedRef</c> 参数）用覆盖剪辑自身去前缀 <paramref name="clipId"/>，不是默认
         /// 状态的 <c>AnimClipDef.ResourceRef</c>（覆盖剪辑在这个语境下扮演的正是"当前身体剪辑"角色，
         /// 见 <see cref="BuildLayerCandidates"/> 判断记录）。装备变化时随 <see cref="ReprobeForCompositionChange"/>
-        /// 整体清空本缓存。</summary>
-        private Dictionary<string, Id> GetOrProbeOverrideClipPerLayer(
+        /// 整体清空本缓存。
+        /// <para>
+        /// 消费方反馈第四十九批·反馈 1 根治（未实测、按同一缺陷模式一并修复）：与
+        /// <see cref="GetOrProbePerLayerForDirection"/> 同一缺陷——命中缓存时此前直接
+        /// <c>return cached;</c>，不重新登记，逐层 clipId 跨方向复用同一个 id，player 上的内容会停留在
+        /// 最近一次访问过的另一个方向。命中缓存时改为先调用
+        /// <see cref="ReregisterOverrideClipPerLayerCacheHit"/> 重新登记（含首层重新登记为
+        /// <paramref name="clipId"/> 本身的内容，覆盖剪辑不带 <c>events</c>，同
+        /// <see cref="ProbeComposedLayersSequential"/> 首次探测路径对覆盖剪辑传空事件表同一约定），
+        /// 再返回。
+        /// </para>
+        /// </summary>
+        private Dictionary<string, PerLayerCacheEntry> GetOrProbeOverrideClipPerLayer(
             Id entityId, Id clipId, string dirBareName, DirectionAwareAnimContext ctx,
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
         {
             if (!_overrideClipPerLayerCacheByEntityAndDir.TryGetValue(entityId, out var byKey))
             {
-                byKey = new Dictionary<(Id, string), Dictionary<string, Id>>();
+                byKey = new Dictionary<(Id, string), Dictionary<string, PerLayerCacheEntry>>();
                 _overrideClipPerLayerCacheByEntityAndDir[entityId] = byKey;
             }
 
             var key = (clipId, dirBareName);
             if (byKey.TryGetValue(key, out var cached))
             {
+                ReregisterOverrideClipPerLayerCacheHit(ctx.Player, clipId, cached);
                 return cached;
             }
 
             var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
-            var layerMap = new Dictionary<string, Id>(StringComparer.Ordinal);
+            var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
             ProbeComposedLayersSequential(
                 unityLoader, ctx.Player, CurrentComposedLayersOrInitial(ctx), 0, strippedClip, dirBareName,
                 clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId);
             byKey[key] = layerMap;
             return layerMap;
+        }
+
+        /// <summary>见 <see cref="GetOrProbeOverrideClipPerLayer"/> 判断记录：对 <paramref name="cached"/>
+        /// 逐层重新调用 <see cref="UnityFrameAnimPlayer.RegisterClipFromEffect"/>，与
+        /// <see cref="ReregisterPerLayerCacheHit"/> 同一套做法的覆盖剪辑版本——差异只在于覆盖剪辑的
+        /// "状态自身 clipId"就是 <paramref name="clipId"/> 参数本身（不需要像默认状态那样另外查表），
+        /// 且覆盖剪辑探测时事件表恒为空（<see cref="ComputeKeyframes"/> 对空事件表返回 <c>null</c>，
+        /// 与 <see cref="TryResolveOverrideClipForCurrentComposition"/> 首次探测路径传
+        /// <see cref="Array.Empty{T}"/> 同一结果）。</summary>
+        private static void ReregisterOverrideClipPerLayerCacheHit(
+            UnityFrameAnimPlayer player, Id clipId, Dictionary<string, PerLayerCacheEntry> cached)
+        {
+            foreach (var kv in cached)
+            {
+                var entry = kv.Value;
+                if (entry.Effect == null)
+                {
+                    continue;
+                }
+
+                player.RegisterClipFromEffect(entry.ClipId, entry.Effect);
+                if (entry.IsFirstForState)
+                {
+                    player.RegisterClipFromEffect(clipId, entry.Effect);
+                }
+            }
         }
 
         /// <summary>ADR-0100 决策 1 缺陷修复（消费方反馈第四十五批本轮回归发现）：<see cref="GetOrProbePerLayerForDirection"/>/
