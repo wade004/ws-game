@@ -446,6 +446,55 @@ namespace Adapter.Unity.EngineAdapter
             instance.LayerRenderers[layerIndex].sprite = sprite;
         }
 
+        /// <summary>消费方反馈第五十批根治：逐层剪辑切到"该层没有任何剪辑命中"的状态时，
+        /// <c>UnityViewFactory.ApplyPerLayerFrame</c> 用本方法把该层写回"该层本次合成时收到的静态层图"
+        /// ——按 <paramref name="layerIndex"/> 定位 <see cref="SpriteInstance.LayerResourceIds"/> 里
+        /// <see cref="SetLayers"/> 最近一次给这一层记下的资源 Id，经 <see cref="ResolveSprite"/> 解析
+        /// （与 <see cref="SetLayers"/> 完全同一条解析路径：命中缓存直接用，未命中/未加载完成时占位
+        /// 方块 + 诊断一次，同一份 <c>_missingResourceWarned</c> 去重表），写回同一个
+        /// <see cref="SpriteRenderer"/>，不新建平行加载/解析通道（ADR-0072 决策 2 的既有约束）。
+        /// <para>
+        /// 判断记录（冷加载不需要本方法额外接一条加载回调）：该资源 Id 恒是某次 <see cref="SetLayers"/>
+        /// 已经处理过的层（否则不会出现在 <see cref="SpriteInstance.LayerResourceIds"/> 里），也就是说
+        /// <c>Presentation.Render.SpriteCharacterRig.ComposeAndApplyLayers</c>/<c>RebuildEquippedLayers</c>
+        /// 早已经对它调用过 <c>ResourceReferenceTracker.EnsureLoading</c>——资源仍未加载完成时，本方法
+        /// 与 <see cref="SetLayers"/> 一样先落地占位方块，真正的回填由既有"该资源加载完成 -&gt;
+        /// <c>SpriteCharacterRig.HandleResourceLoadCompleted</c> -&gt; <c>ApplyLayers</c> -&gt;
+        /// <see cref="SetLayers"/> 全量重写全部层"链路自然带上（该链路本就会在下一次冷加载完成/合成/
+        /// 换向/换装时把全部层，含本层，重新解析一遍），本方法不需要（也不应该）另起一条独立的加载
+        /// 回调去重复这件事。
+        /// </para>
+        /// 句柄不存在，或 <paramref name="layerIndex"/> 越界（层集合在装备变化中被重建、下标暂时对不上）
+        /// 时静默跳过，不抛异常，同 <see cref="SetLayerSprite"/> 一贯防御性惯例。</summary>
+        public void RestoreLayerSprite(SpriteHandle handle, int layerIndex)
+        {
+            if (!_sprites.TryGetValue(handle.Value, out var instance))
+            {
+                return;
+            }
+            if (layerIndex < 0 || layerIndex >= instance.LayerRenderers.Count || layerIndex >= instance.LayerResourceIds.Count)
+            {
+                return;
+            }
+
+            instance.LayerRenderers[layerIndex].sprite = ResolveSprite(instance.LayerResourceIds[layerIndex]);
+
+            var countKey = (handle.Value, layerIndex);
+            _restoreLayerSpriteCallCountForTests[countKey] =
+                _restoreLayerSpriteCallCountForTests.TryGetValue(countKey, out var count) ? count + 1 : 1;
+        }
+
+        /// <summary>框架自身测试专用（<c>internal</c>，同 <see cref="GetLayerResourceIdsForTests"/> 一类
+        /// "不是公开契约的一部分"惯例）：<see cref="RestoreLayerSprite"/> 对 (句柄, 层下标) 被调用过的
+        /// 次数——供 PlayMode 测试断言"从未被逐层帧覆盖过的层不应该被本次根治新增的写回逻辑触碰"
+        /// （消费方反馈第五十批不变量④），单纯比较 <c>SpriteRenderer.sprite</c> 引用不足以区分"从未
+        /// 写过"与"写过但恰好解析出同一个缓存 Sprite 实例"两种情况。</summary>
+        private readonly Dictionary<(int Handle, int LayerIndex), int> _restoreLayerSpriteCallCountForTests =
+            new Dictionary<(int, int), int>();
+
+        internal int GetRestoreLayerSpriteCallCountForTests(SpriteHandle handle, int layerIndex) =>
+            _restoreLayerSpriteCallCountForTests.TryGetValue((handle.Value, layerIndex), out var count) ? count : 0;
+
         public void DestroySpriteInstance(SpriteHandle handle)
         {
             var instance = EnsureAlive(handle);

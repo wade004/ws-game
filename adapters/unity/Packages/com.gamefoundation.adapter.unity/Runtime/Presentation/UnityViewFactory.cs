@@ -808,10 +808,18 @@ namespace Adapter.Unity.Presentation
                     stateClipId, clipDef.Events, layerMap, spriteSetId);
             }
 
+            // 消费方反馈第五十批根治：本实体当前被逐层帧覆盖过的层名集合——ApplyPerLayerFrame 用它
+            // 判断"上一次还在播逐层帧、这一次状态已经不再命中"的层，写回该层静态层图（见该方法判断
+            // 记录）。只是一个跟随两处闭包捕获的局部变量，不挂在实例字段上：本表只被下面这两个闭包
+            // 读写，不需要像 perLayerByState 那样被 ReprobeForCompositionChange/
+            // ReprobeDirectionAwareAnimation 从外部按 entityId 查表原地修改，实体销毁时随闭包一起被
+            // 回收，不需要在 OnEntityDestroyedForAnim 里额外清理。
+            var overriddenLayerNames = new HashSet<string>(StringComparer.Ordinal);
+
             // 每实体共享一份回调，覆盖该实体此后任意状态切换（不为每个状态各订阅一份）——
             // player.CurrentClipId 在回调触发的那一刻即代表"当前正在播放哪个状态"，据此在
             // perLayerByState 里查表即知道这一刻该不该走逐层路线，不需要额外记录"当前状态"。
-            player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex));
+            player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex, overriddenLayerNames));
 
             // ADR-0099 决策 2（消费方反馈第四十四批）+ ADR-0100 决策 1（消费方反馈第四十五批）：订阅
             // UnitySpriteView 转发的 SpriteViewBase.OnLayersComposed 钩子——每次纸娃娃层因方向槽位
@@ -823,15 +831,21 @@ namespace Adapter.Unity.Presentation
             // 重新探测全部默认状态与已知覆盖剪辑；相同（纯方向变化重合成、冷加载迟到回填）则跳过重探测
             // ，只做①这一步，避免不必要的重复探测。复用同一个 perLayerByState 对象——
             // ReprobeDirectionAwareAnimation/ReprobeForCompositionChange 对它做的是原地写入既有 key
-            // （不是重新赋值新对象），本闭包捕获的引用始终是最新解析结果，不需要重新订阅。没有命中任何
-            // 逐层剪辑的层（layerMap 为空，或某层不在 layerMap 里）保持不变——ApplyPerLayerFrame 内部
-            // 与既有 OnFrameChanged 分支同一套"查不到就跳过/整身兜底"逻辑，不会误伤本就该维持静态的层
-            // （决策 2 不变量③）。
+            // （不是重新赋值新对象），本闭包捕获的引用始终是最新解析结果，不需要重新订阅。
+            //
+            // 消费方反馈第五十批勘误：上一段判断记录原文"没有命中任何逐层剪辑的层（layerMap 为空，或
+            // 某层不在 layerMap 里）保持不变"已不再成立——本次 SetLayers 已经把全部层（含
+            // overriddenLayerNames 里记录的层）重新解析成静态图，这里先清空覆盖集合（后续
+            // ApplyPerLayerFrame 调用不需要再对着一份"即将被本次 SetLayers 整体覆盖"的旧集合做多余的
+            // 写回），再按当前帧重新执行一次写回逻辑，命中的层会被 ApplyPerLayerFrame 自己重新登记回
+            // 集合。
             view.LayersComposed += () =>
             {
+                overriddenLayerNames.Clear();
+
                 if (player.CurrentClipId.HasValue)
                 {
-                    ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame);
+                    ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame, overriddenLayerNames);
                 }
 
                 var currentNames = ComposedLayerNames(view.LastComposedLayers);
@@ -878,10 +892,24 @@ namespace Adapter.Unity.Presentation
         /// 逐帧调用本方法外，<c>TryAttachPerLayerAnimation</c> 挂接的 <c>view.LayersComposed</c> 处理器
         /// 也会在每次纸娃娃层重合成之后立即调用一次本方法（<paramref name="frameIndex"/> 传
         /// <see cref="UnityFrameAnimPlayer.CurrentFrame"/>，不是新的一帧，只是把已经在播放的当前帧
-        /// 重新写回被覆盖的层），两条触发路径共用同一份逻辑，行为定义只有一处。</summary>
+        /// 重新写回被覆盖的层），两条触发路径共用同一份逻辑，行为定义只有一处。
+        /// <para>
+        /// 消费方反馈第五十批根治（ADR-0072 决策 2 原文契约"两级都探测不到时该层维持 SetLayers 落地
+        /// 的静态图"——此前的实现只在"当前状态命中的层"上写帧，从不清理"上一次状态命中过、这一次
+        /// 状态不再命中"的层，那些层会一直停留在别的状态最后写入的那一帧，直到下一次真正的 SetLayers
+        /// 因换向/换装被调用才会被纠正）：<paramref name="overriddenLayerNames"/> 是
+        /// <see cref="TryAttachPerLayerAnimation"/> 按实体维护的"当前被逐层帧覆盖过的层名"集合——
+        /// 不论这次落在"至少一层命中"分支还是"整身兜底"分支，一律先把集合里这一次状态的
+        /// <paramref name="perLayerByState"/> 已不再包含的层名，经
+        /// <see cref="Adapter.Unity.EngineAdapter.UnityRenderer2D.RestoreLayerSprite"/> 写回该层本次
+        /// 合成的静态层图（该方法复用与 <c>SetLayers</c> 完全同一条解析路径，见其判断记录），再处理
+        /// 当前命中层——命中层写完逐层帧后原地登记回集合，供下一次状态切换时判断是否需要写回。
+        /// </para>
+        /// </summary>
         private static void ApplyPerLayerFrame(
             Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> perLayerByState, UnityFrameAnimPlayer player,
-            Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, int frameIndex)
+            Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, int frameIndex,
+            HashSet<string> overriddenLayerNames)
         {
             Dictionary<string, PerLayerCacheEntry>? layerMap = null;
             var currentClipId = player.CurrentClipId;
@@ -890,10 +918,36 @@ namespace Adapter.Unity.Presentation
                 perLayerByState.TryGetValue(currentClipId.Value, out layerMap);
             }
 
+            var layerNames = concreteRenderer.GetLayerNames(handle);
+
+            // 先处理"上一次被逐层帧覆盖过、这一次状态已经不再命中"的层——不论下面落在"至少一层
+            // 命中"还是"整身兜底"分支，这一步都要做（决策 2 的静态图维持契约不区分这两个分支）。
+            if (layerNames != null && overriddenLayerNames.Count > 0)
+            {
+                var staleLayerNames = new List<string>(overriddenLayerNames);
+                for (var i = 0; i < staleLayerNames.Count; i++)
+                {
+                    var layerName = staleLayerNames[i];
+                    if (layerMap != null && layerMap.ContainsKey(layerName))
+                    {
+                        // 这一次状态仍然命中同一层，保留在覆盖集合里，不写回静态图（下面的命中层
+                        // 循环会重新写入这一帧的逐层内容）。
+                        continue;
+                    }
+
+                    var layerIndex = FindLayerIndex(layerNames, layerName);
+                    if (layerIndex >= 0)
+                    {
+                        concreteRenderer.RestoreLayerSprite(handle, layerIndex);
+                    }
+                    overriddenLayerNames.Remove(layerName);
+                }
+            }
+
             if (layerMap == null || layerMap.Count == 0)
             {
                 // 决策 2"整身兜底"：这一状态没有任何一层命中逐层剪辑（或还在异步加载中，尚未有
-                // 任何一层命中），维持整身 AnimRoot 可见，不触碰任何纸娃娃层。
+                // 任何一层命中）——此前被覆盖过的层已经在上面写回静态图，这里只负责展示整身 AnimRoot。
                 player.SpriteRenderer.enabled = true;
                 return;
             }
@@ -903,7 +957,6 @@ namespace Adapter.Unity.Presentation
             // 的内容"），不应该被实际看到。
             player.SpriteRenderer.enabled = false;
 
-            var layerNames = concreteRenderer.GetLayerNames(handle);
             if (layerNames == null)
             {
                 return;
@@ -911,15 +964,7 @@ namespace Adapter.Unity.Presentation
 
             foreach (var kv in layerMap)
             {
-                var layerIndex = -1;
-                for (var j = 0; j < layerNames.Count; j++)
-                {
-                    if (string.Equals(layerNames[j], kv.Key, StringComparison.Ordinal))
-                    {
-                        layerIndex = j;
-                        break;
-                    }
-                }
+                var layerIndex = FindLayerIndex(layerNames, kv.Key);
                 if (layerIndex < 0)
                 {
                     // 该层此刻不在渲染列表里（装备变化导致层集合重建、下标暂时对不上），跳过，
@@ -931,8 +976,26 @@ namespace Adapter.Unity.Presentation
                 if (sprite != null)
                 {
                     concreteRenderer.SetLayerSprite(handle, layerIndex, sprite);
+                    overriddenLayerNames.Add(kv.Key);
                 }
             }
+        }
+
+        /// <summary>见 <see cref="ApplyPerLayerFrame"/> 判断记录：按层名在 <paramref name="layerNames"/>
+        /// 里线性查找下标（<see cref="Adapter.Unity.EngineAdapter.UnityRenderer2D.GetLayerNames"/> 返回
+        /// 的顺序即 <c>SetLayerSprite</c>/<c>RestoreLayerSprite</c> 的 <c>layerIndex</c> 参数），
+        /// 找不到返回 -1，同一份查找逻辑此前在 <see cref="ApplyPerLayerFrame"/> 内重复了一遍，抽出为
+        /// 共享方法。</summary>
+        private static int FindLayerIndex(IReadOnlyList<string> layerNames, string layerName)
+        {
+            for (var j = 0; j < layerNames.Count; j++)
+            {
+                if (string.Equals(layerNames[j], layerName, StringComparison.Ordinal))
+                {
+                    return j;
+                }
+            }
+            return -1;
         }
 
         /// <summary>ADR-0072 决策 2、ADR-0100 决策 1/2 扩展：<see cref="TryAttachPerLayerAnimation"/>/

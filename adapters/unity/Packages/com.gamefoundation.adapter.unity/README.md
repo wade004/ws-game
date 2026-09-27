@@ -999,6 +999,24 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   逐层探测与整身方向变体探测是两条独立发起的异步候选链路，哪一条先异步返回不确定，已按"谁先
   同步/异步命中谁生效、`player.HasClip` 守卫防止后到达的一方覆盖已注册内容"处理、不影响最终
   正确性，但两条链路仍可能各自对同一份缺失资源发起一次确认性加载请求，不做跨链路去重。
+- **判断记录（切到无逐层剪辑的状态时写回该层静态层图，消费方反馈第五十批）**：ADR-0072 决策 2
+  原文契约"两级都探测不到时该层维持 `SetLayers` 落地的静态图"此前的实现只在"当前状态命中的层"上
+  写帧，从未清理"上一次状态命中过、这一次状态不再命中"的层（如装备的 `mainhand` 层只在
+  `attack` 声明了逐层剪辑、切回 `idle` 后该层没有任何逐层剪辑命中），那些层会一直停在别的状态
+  最后写入的一帧，直到下一次真正的 `SetLayers`（换向/换装）才被纠正。收口方案：
+  `TryAttachPerLayerAnimation` 按实体维护局部闭包变量 `overriddenLayerNames`（当前被逐层帧覆盖
+  过的层名集合，不挂实例字段，随闭包本身在实体销毁时被回收）；`ApplyPerLayerFrame`
+  不论落在"至少一层命中"还是"整身兜底"分支，一律先把集合里这一次状态已不再命中的层名，经新增的
+  `UnityRenderer2D.RestoreLayerSprite`（复用 `SetLayers`/`SetLayerSprite` 同一条 `ResolveSprite`
+  解析路径，不建平行加载机制，天然满足冷/热路径一致——冷加载未完成时和 `SetLayers` 一样先落占位图，
+  真正的静态图随既有的 `HandleResourceLoadCompleted`→`ApplyLayers`→`SetLayers` 回填链路自然到达）
+  写回该层最近一次合成的静态图，再处理当前命中层（命中层写完逐层帧后登记回集合）；`SetLayers`
+  经 `LayersApplied`/`OnLayersComposed` 统一出口触发时清空该集合（本次合成已经把全部层重新解析成
+  静态图，不需要再对着一份即将被整体覆盖的旧集合做多余写回）。任务书原定静态图来源为
+  `ctx.View.LastComposedLayers[i].ResourceId`，实现改用数据等价、已按下标对齐好的
+  `UnityRenderer2D.SpriteInstance.LayerResourceIds[layerIndex]`（`SetLayers` 写入、与
+  `LayerRenderers`/`LayerNames` 同下标）——两者均是"该层最近一次合成的资源 id"，改用后者可以让
+  `ApplyPerLayerFrame` 保持 `static` 方法、不需要为此新增 `UnitySpriteView` 参数。
 
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
@@ -1026,7 +1044,18 @@ AnimRoot 隐藏；
 不影响身体层；②武器风格覆盖剪辑带逐层夹具时 Attack 隐藏 AnimRoot、两层各自播放覆盖剪辑帧，换向后
 没有对应方向夹具的层冻结在最后一帧、命中新方向变体的层继续换帧；③覆盖剪辑没有任何逐层夹具但有
 整身方向变体时维持旧整身路径且支持方向切换；④冷加载——装备层帧集资源首次引用时尚未加载完成，
-异步加载完成后该层追上并显示当前帧，与热路径最终视觉状态一致）。
+异步加载完成后该层追上并显示当前帧，与热路径最终视觉状态一致）；消费方反馈第五十批新增：
+`AttackToIdle_MainhandOnlyHasAttackClip_RestoresStaticLayerImageOnIdle` 复现——装备的 `mainhand`
+层只在 Attack 声明逐层剪辑，播放 Attack 后切回未声明该层剪辑的 Idle，断言该层贴图写回本次合成的
+静态层图而非停留在 Attack 最后一帧，身体层逐层动画不受影响；
+`Invariant_WholeBodyFallbackRestoresLayer_DirectionChangeAfterRestore_ColdLoad_UntouchedControlLayer`
+不变量（4 个分支合一，各用独立实体）：①切到整身兜底状态（没有任何层命中逐层剪辑）时此前被覆盖过的
+装备层同样写回静态图、AnimRoot 恢复可见；②该次写回之后再换向重合成，装备层拿到新方向的正确静态图，
+身体层逐层动画不中断；③冷加载——写回时机点静态层图尚未加载完成，先落占位图，加载完成后追上真实
+静态图；④对照——从未被任何逐层剪辑覆盖过的层，经 `UnityRenderer2D.GetRestoreLayerSpriteCallCountForTests`
+（测试专用调用计数访问器，与既有 `ForTests` 后缀命名惯例一致）断言新写回逻辑从未触碰过该层（不能
+只比较 `Sprite` 引用相等，引用相等无法区分"从未写入"与"写入后恰好解析到同一份缓存 `Sprite`
+实例"两种情形）。
 
 ## model 型外形（W6-B 收口，ADR-0017）
 

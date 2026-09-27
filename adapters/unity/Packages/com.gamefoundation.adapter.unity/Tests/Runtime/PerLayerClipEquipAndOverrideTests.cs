@@ -187,6 +187,46 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsTrue(_resourceLoader.TryGetEffect(resourceId, out _), $"冷加载资源 \"{resourceId}\" 应当能在合理时间内异步加载完成");
         }
 
+        /// <summary>消费方反馈第五十批专用：在指定路径写一张纯白 PNG（逐字节复用
+        /// UnityResourceLoaderTests.WritePngFixture 的写法），供静态层图（<c>layer.*</c>，
+        /// <see cref="Core.Foundation.EngineAdapter.ResourceKind.Image"/>）资源使用——与本文件其余
+        /// 用例写的 <c>sprite_anim.*</c> atlas+frames.json（逐层剪辑）是完全不同的资源种类，落盘路径
+        /// 也不同（见 <see cref="UnityResourceLoader.ResolvePath"/> 按 kind 分子目录）。</summary>
+        private static void WritePngFixture(string path, int width, int height)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            var pixels = new Color32[width * height];
+            for (var i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = new Color32(255, 255, 255, 255);
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            File.WriteAllBytes(path, UnityEngine.ImageConversion.EncodeToPNG(texture));
+            UnityEngine.Object.DestroyImmediate(texture);
+        }
+
+        /// <summary>轮询直到 <paramref name="resourceId"/> 出现在 <see cref="_resourceLoader"/> 的静态
+        /// 精灵缓存里——同 <see cref="WaitUntilEffectCached"/> 惯例，只是查
+        /// <see cref="UnityResourceLoader.TryGetSprite"/> 而不是 <see cref="UnityResourceLoader.TryGetEffect"/>
+        /// （静态层图与逐层剪辑帧走 <see cref="UnityResourceLoader"/> 两套不同的缓存）。</summary>
+        private IEnumerator WaitUntilSpriteCached(Id resourceId, float timeoutSeconds = 5f)
+        {
+            var deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (!_resourceLoader.TryGetSprite(resourceId, out _) && Time.realtimeSinceStartup < deadline)
+            {
+                _resourceLoader.Tick();
+                yield return null;
+            }
+            Assert.IsTrue(_resourceLoader.TryGetSprite(resourceId, out _), $"静态层图 \"{resourceId}\" 应当能在合理时间内异步加载完成");
+        }
+
         private static Transform? FindChild(Transform root, string name)
         {
             for (var i = 0; i < root.childCount; i++)
@@ -309,6 +349,76 @@ namespace Adapter.Unity.Tests.Runtime
             var moveClipId = new Id($"anim.default.{displayMapIdValue}.move");
 
             return (bus, factory, view, entityId, player!, moveClipId, equipCatalog, equipSource, new Id(weaponStyleIdValue));
+        }
+
+        /// <summary>消费方反馈第五十批专用夹具：与 <see cref="BuildFixture"/> 同一套最小替身惯例，两处
+        /// 差异——① 不传 <c>weaponStyleSource</c>：<c>AnimClipResolver.PlayResolvedClip</c> 的武器风格
+        /// 覆盖分支要求 <c>_weaponStyles</c> 与 <c>_weaponStyleSource</c> 同时非空才生效（见该方法判断
+        /// 记录），本夹具留空后 Attack 状态必然落到 <c>display.anim_set.clips.attack</c> 声明的默认
+        /// 剪辑，不会被武器风格覆盖抢先命中；② <c>display.anim_set.clips</c> 同时声明 <c>idle</c>/
+        /// <c>attack</c> 两个状态（<see cref="BuildFixture"/> 只声明 <c>move</c> 一个）——复现"逐层剪辑
+        /// 切到没有该层剪辑的状态"需要同时具备"两个状态都有逐层剪辑的层（body）"与"只有其中一个状态
+        /// 有逐层剪辑的层（装备层）"，用 idle/attack 两个真实状态名而不是借用 move，与消费方原始反馈的
+        /// 状态名一致。</summary>
+        private (IEventBus Bus, UnityViewFactory Factory, UnitySpriteView View, Id EntityId, UnityFrameAnimPlayer Player,
+            Id IdleClipId, Id AttackClipId, Dictionary<Id, EquipVisualDef> Catalog, EquipmentVisualSource EquipSource)
+            BuildFixtureIdleAttack(string suffix, string idleResourceRefValue, string attackResourceRefValue)
+        {
+            var definitions = new List<EventDefinition>();
+            foreach (var key in EventKeys.All)
+            {
+                definitions.Add(new EventDefinition(key, key.Domain, Array.Empty<string>()));
+            }
+            var catalog = EventCatalog.FromDefinitions(definitions);
+            var bus = new EventBus(catalog, new EventBusOptions { StrictCatalog = false, AuditLog = false });
+
+            var displayMapIdValue = "display.map.test_0101_" + suffix;
+            var animSetIdValue = "display.anim_set.test_0101_" + suffix;
+
+            var sprite = new SpriteInfo(spriteSetId: "sprite.creature.test_0101_" + suffix, directionCount: 8, paperdollLayers: new[] { "body" });
+            var info = new DisplayInfo(
+                id: new Id(displayMapIdValue),
+                category: DisplayCategory.Creature,
+                logicalId: new Id("creature.test_0101_" + suffix),
+                kind: DisplayKind.Sprite,
+                iconId: null, vfxId: null, sfxId: null, scale: 1.0,
+                shadow: Core.Foundation.DisplayInfo.ShadowMode.None, sortOffset: 0.0, weaponStyleRef: null,
+                sprite: sprite, model: null);
+
+            var displayInfoRegistry = new FakeDisplayInfoRegistryForAnim();
+            displayInfoRegistry.Add(info);
+
+            var dataRegistry = new FakeAnimSetAndWeaponStyleRegistry();
+
+            var animSetJson = "{\"id\":\"" + animSetIdValue + "\",\"clips\":{" +
+                "\"idle\":{\"resource_ref\":\"" + idleResourceRefValue + "\"}," +
+                "\"attack\":{\"resource_ref\":\"" + attackResourceRefValue + "\"}" +
+                "}}";
+            var animSetRaw = (JsonObject)JsonReader.Parse(animSetJson);
+            var animSetSchema = new TableSchema("display.anim_set", "id", 1, Array.Empty<FieldSchema>());
+            dataRegistry.Add("display.anim_set", new DataRecord(animSetSchema, animSetIdValue, new Id(animSetIdValue), animSetRaw));
+
+            var equipCatalog = new Dictionary<Id, EquipVisualDef>();
+            var equipSource = new EquipmentVisualSource(bus, equipCatalog);
+
+            var entityId = new Id("unit.test_0101_" + suffix + "_" + Guid.NewGuid().ToString("N"));
+            var factory = new UnityViewFactory(
+                _renderer, new RenderConventionHost(), displayInfoRegistry, _resourceLoader,
+                bus: bus, dataRegistry: dataRegistry,
+                equipVisualByItemInstanceId: equipSource.VisualByItemInstanceId);
+
+            var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            view.Bind(entityId);
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0);
+
+            var root = _renderer.GetSpriteRoot(view.EngineHandle);
+            var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
+            Assert.IsNotNull(player, "生物分类应当已挂接默认动画");
+
+            var idleClipId = new Id($"anim.default.{displayMapIdValue}.idle");
+            var attackClipId = new Id($"anim.default.{displayMapIdValue}.attack");
+
+            return (bus, factory, view, entityId, player!, idleClipId, attackClipId, equipCatalog, equipSource);
         }
 
         private static void Equip(IEventBus bus, UnitySpriteView view, Id entityId, Id itemTemplateId, Id itemInstanceId, Id slotId)
@@ -621,6 +731,330 @@ namespace Adapter.Unity.Tests.Runtime
                     "帧号对应的帧——与预热完成后的热路径（复现用例/不变量①②）最终视觉状态一致，不应该因为" +
                     "是异步迟到加载就停留在静态合成图",
                     timeoutSeconds: 3f);
+
+                fx.EquipSource.Dispose();
+                fx.View.Destroy();
+            }
+        }
+
+        /// <summary>消费方反馈第五十批核心复现：body 层 idle/attack 都有逐层帧集，装备 mainhand 层只有
+        /// attack 帧集——先播 attack（确认 mainhand 显示 attack 逐层帧），再切回 idle（idle 没有为
+        /// mainhand 声明任何逐层剪辑）。根治前 ApplyPerLayerFrame 只遍历当前状态命中的 layerMap（idle
+        /// 只有 body），从不清理"上一次命中过、这一次状态没有命中"的层留在 SpriteRenderer.sprite 上的
+        /// 最后一帧——mainhand 会永久停在 attack 最后一帧，直至下一次真正的 SetLayers（换向/换装）。
+        /// 本用例修复前必然红（mainhand 停在 attack 最后一帧），见下方核心断言。</summary>
+        [UnityTest]
+        public IEnumerator AttackToIdle_MainhandOnlyHasAttackClip_RestoresStaticLayerImageOnIdle()
+        {
+            var bodyIdleRef = new Id("sprite_anim.hero50_idle__side_r__body");
+            var bodyAttackRef = new Id("sprite_anim.hero50_attack__side_r__body");
+            var mainhandAttackRef = new Id("sprite_anim.mh50__hero50_attack__side_r__mainhand");
+            WriteEffectResource(bodyIdleRef, Color.red, Color.green);
+            WriteEffectResource(bodyAttackRef, Color.magenta, Color.cyan);
+            WriteEffectResource(mainhandAttackRef, Color.black, Color.white);
+            yield return WarmEffectCache(bodyIdleRef);
+            yield return WarmEffectCache(bodyAttackRef);
+            yield return WarmEffectCache(mainhandAttackRef);
+            _resourceLoader.TryGetEffect(mainhandAttackRef, out var mainhandAttackEffect);
+
+            var fx = BuildFixtureIdleAttack("repro50", "sprite_anim.hero50_idle", "sprite_anim.hero50_attack");
+
+            var itemTemplateId = new Id("item.test_0101_mh50");
+            var itemInstanceId = new Id("item_instance.test_0101_mh50_1");
+            var slotId = new Id("slot.mainhand");
+            var meshRef = new Id("mesh.mh50");
+            fx.Catalog[itemTemplateId] = new EquipVisualDef(
+                new Id("display.equip_visual.test_0101_mh50"), itemTemplateId, EquipVisualMode.SlotMesh,
+                slotId: slotId, meshRef: meshRef, socketId: null, modelRef: null);
+
+            // mainhand 的静态层图预先写盘并等待加载完成——本用例只关心"命中态之间来回切换"这一件事，
+            // 冷加载分支另有专门的不变量③覆盖，这里排除掉冷加载这个变量。
+            var mainhandStaticId = new Id("layer.mh50__side_r__mainhand");
+            WritePngFixture(UnityResourceLoader.ResolvePath(mainhandStaticId, ResourceKind.Image), 4, 4);
+
+            Equip(fx.Bus, fx.View, fx.EntityId, itemTemplateId, itemInstanceId, slotId);
+            yield return WaitUntilSpriteCached(mainhandStaticId);
+            _resourceLoader.TryGetSprite(mainhandStaticId, out var mainhandStaticSprite);
+
+            var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
+            Assert.IsNotNull(layersRoot, "应当已经建好 LayersRoot 子物体");
+
+            // ---- 先播 attack：body、mainhand 都应当显示 attack 逐层帧 ----
+            fx.Factory.AnimStateMachine!.RequestOverride(fx.EntityId, AnimState.Attack);
+            yield return null;
+
+            Assert.AreEqual(fx.AttackClipId, fx.Player.CurrentClipId!.Value, "应当已经切到 attack 剪辑");
+            var mainhandRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "mainhand");
+            Assert.IsNotNull(mainhandRenderer, "mainhand 应当已经作为装备新增层存在于当前层列表");
+            var attackFrame = fx.Player.CurrentFrame;
+            Assert.AreEqual(
+                mainhandAttackEffect.Frames[attackFrame % mainhandAttackEffect.Frames.Length].Sprite, mainhandRenderer!.sprite,
+                "前置条件：attack 状态下 mainhand 应当显示 attack 逐层剪辑的当前帧");
+
+            // ---- 核心：回落到 idle（idle 没有为 mainhand 声明任何逐层剪辑）----
+            fx.Factory.AnimStateMachine!.NotifyTransientStateFinished(fx.EntityId, AnimState.Attack);
+            yield return null;
+
+            Assert.AreEqual(fx.IdleClipId, fx.Player.CurrentClipId!.Value, "应当已经回落到 idle 剪辑");
+            Assert.IsNotNull(FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body"),
+                "body 层应当仍然存在，继续显示 idle 逐层剪辑（不受本次修复影响）");
+
+            Assert.AreEqual(mainhandStaticSprite, mainhandRenderer!.sprite,
+                "核心断言（消费方反馈第五十批）：idle 状态没有为 mainhand 声明任何逐层剪辑，mainhand 层" +
+                "应当写回该层本次合成的静态层图（layer.mh50__side_r__mainhand），不应该继续停留在 attack " +
+                "剪辑的最后一帧——根治前该层贴图恒为 attack 最后一帧，本断言即为红→绿分界线");
+
+            fx.EquipSource.Dispose();
+            fx.View.Destroy();
+        }
+
+        /// <summary>消费方反馈第五十批不变量（4 个分支合一，各用独立实体，同 ADR-0100 既有 Invariant
+        /// 用例一贯惯例）：
+        /// ① 整身兜底：切到一个任何层都没有逐层帧的状态（Hit）时，此前动画过的装备层（mainhand）同样
+        ///    写回静态图，AnimRoot 恢复可见。
+        /// ② 写回后再换向重合成：装备层（mainhand）切到新方向的静态图，body 的逐层帧照常换成新方向
+        ///    对应的逐层夹具继续播放，不受影响。
+        /// ③ 冷加载：装备层的静态层图在写回那一刻尚未加载完成——先落地占位方块，加载完成后应当显示
+        ///    真实静态图，不应该停留在逐层帧最后一帧上（AGENTS.md 冷/热路径一致性不变量）。
+        /// ④ 对照：从未被逐层帧覆盖过的层（装备了一个两个状态都没有逐层剪辑的 mesh）不应该被本次
+        ///    根治新增的写回逻辑触碰——用
+        ///    <see cref="UnityRenderer2D.GetRestoreLayerSpriteCallCountForTests"/> 断言调用次数恒为 0，
+        ///    不只是精灵引用凑巧没变。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Invariant_WholeBodyFallbackRestoresLayer_DirectionChangeAfterRestore_ColdLoad_UntouchedControlLayer()
+        {
+            // ---------- ① 整身兜底也写回覆盖过的层 ----------
+            {
+                var bodyIdleRef = new Id("sprite_anim.hero50a_idle__side_r__body");
+                var bodyAttackRef = new Id("sprite_anim.hero50a_attack__side_r__body");
+                var mainhandAttackRef = new Id("sprite_anim.mh50a__hero50a_attack__side_r__mainhand");
+                WriteEffectResource(bodyIdleRef, Color.red, Color.green);
+                WriteEffectResource(bodyAttackRef, Color.magenta, Color.cyan);
+                WriteEffectResource(mainhandAttackRef, Color.black, Color.white);
+                yield return WarmEffectCache(bodyIdleRef);
+                yield return WarmEffectCache(bodyAttackRef);
+                yield return WarmEffectCache(mainhandAttackRef);
+
+                var fx = BuildFixtureIdleAttack("inv50a", "sprite_anim.hero50a_idle", "sprite_anim.hero50a_attack");
+                var slotId = new Id("slot.mainhand");
+                var itemTemplateId = new Id("item.test_0101_mh50a");
+                var itemInstanceId = new Id("item_instance.test_0101_mh50a_1");
+                fx.Catalog[itemTemplateId] = new EquipVisualDef(
+                    new Id("display.equip_visual.test_0101_mh50a"), itemTemplateId, EquipVisualMode.SlotMesh,
+                    slotId: slotId, meshRef: new Id("mesh.mh50a"), socketId: null, modelRef: null);
+
+                var mainhandStaticId = new Id("layer.mh50a__side_r__mainhand");
+                WritePngFixture(UnityResourceLoader.ResolvePath(mainhandStaticId, ResourceKind.Image), 4, 4);
+
+                Equip(fx.Bus, fx.View, fx.EntityId, itemTemplateId, itemInstanceId, slotId);
+                yield return WaitUntilSpriteCached(mainhandStaticId);
+                _resourceLoader.TryGetSprite(mainhandStaticId, out var mainhandStaticSprite);
+
+                var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
+                var animRootTransform = FindChild(layersRoot!, "AnimRoot");
+                var animRootRenderer = animRootTransform!.GetComponent<SpriteRenderer>();
+
+                fx.Factory.AnimStateMachine!.RequestOverride(fx.EntityId, AnimState.Attack);
+                yield return null;
+                Assert.IsFalse(animRootRenderer.enabled, "前置条件：attack 至少一层命中，AnimRoot 应当隐藏");
+                var mainhandRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "mainhand");
+                Assert.AreNotEqual(mainhandStaticSprite, mainhandRenderer!.sprite,
+                    "前置条件：attack 状态下 mainhand 应当显示逐层剪辑帧，不是静态图");
+
+                // Hit 状态没有在 display.anim_set.clips 里声明（BuildFixtureIdleAttack 只声明了
+                // idle/attack），perLayerByState 里压根没有它的表项——落到"整身兜底"分支
+                // （layerMap == null），优先级 3 高于 Attack 的 2，可以直接打断。
+                fx.Factory.AnimStateMachine!.RequestOverride(fx.EntityId, AnimState.Hit);
+                yield return null;
+
+                Assert.IsTrue(animRootRenderer.enabled,
+                    "不变量①：切到没有任何逐层剪辑的状态（整身兜底）时，AnimRoot 应当恢复可见");
+                Assert.AreEqual(mainhandStaticSprite, mainhandRenderer!.sprite,
+                    "不变量①核心断言：整身兜底分支同样要把此前动画过的装备层写回静态层图，不应该继续" +
+                    "停留在 attack 剪辑的最后一帧");
+
+                fx.EquipSource.Dispose();
+                fx.View.Destroy();
+            }
+
+            // ---------- ② 写回后再换向重合成 ----------
+            {
+                // body 的 idle 逐层剪辑按 side_r/front 两个方向各写一份 tier1（同 PerLayerClipEquip
+                // AndOverrideTests 既有 Invariant 用例②"换向后 body 切到覆盖剪辑 front 档位的逐层夹具"
+                // 一贯做法）——两份都预热成同步缓存命中，换向后的重探测不需要经过一轮真正的异步
+                // LoadAsync 往返就能立即解析，断言不依赖额外的轮询等待时长。
+                var bodyIdleSideR = new Id("sprite_anim.hero50b_idle__side_r__body");
+                var bodyIdleFront = new Id("sprite_anim.hero50b_idle__front__body");
+                var mainhandAttackRef = new Id("sprite_anim.mh50b__hero50b_attack__side_r__mainhand");
+                WriteEffectResource(bodyIdleSideR, Color.red, Color.green);
+                WriteEffectResource(bodyIdleFront, Color.blue, Color.yellow);
+                WriteEffectResource(mainhandAttackRef, Color.black, Color.white);
+                yield return WarmEffectCache(bodyIdleSideR);
+                yield return WarmEffectCache(bodyIdleFront);
+                yield return WarmEffectCache(mainhandAttackRef);
+                _resourceLoader.TryGetEffect(bodyIdleFront, out var bodyIdleFrontEffect);
+
+                var fx = BuildFixtureIdleAttack("inv50b", "sprite_anim.hero50b_idle", "sprite_anim.hero50b_attack");
+                var slotId = new Id("slot.mainhand");
+                var itemTemplateId = new Id("item.test_0101_mh50b");
+                var itemInstanceId = new Id("item_instance.test_0101_mh50b_1");
+                fx.Catalog[itemTemplateId] = new EquipVisualDef(
+                    new Id("display.equip_visual.test_0101_mh50b"), itemTemplateId, EquipVisualMode.SlotMesh,
+                    slotId: slotId, meshRef: new Id("mesh.mh50b"), socketId: null, modelRef: null);
+
+                var mainhandStaticSideR = new Id("layer.mh50b__side_r__mainhand");
+                var mainhandStaticFront = new Id("layer.mh50b__front__mainhand");
+                WritePngFixture(UnityResourceLoader.ResolvePath(mainhandStaticSideR, ResourceKind.Image), 4, 4);
+                WritePngFixture(UnityResourceLoader.ResolvePath(mainhandStaticFront, ResourceKind.Image), 6, 6);
+
+                Equip(fx.Bus, fx.View, fx.EntityId, itemTemplateId, itemInstanceId, slotId);
+                // 换装时的初次合成只按当前方向（side_r）合成层，front 变体这一刻还没有被任何合成
+                // 请求过——只等 side_r 加载完成，front 留到换向之后才轮询等待（见下方）。
+                yield return WaitUntilSpriteCached(mainhandStaticSideR);
+
+                var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
+
+                fx.Factory.AnimStateMachine!.RequestOverride(fx.EntityId, AnimState.Attack);
+                yield return null;
+                fx.Factory.AnimStateMachine!.NotifyTransientStateFinished(fx.EntityId, AnimState.Attack);
+                yield return null;
+
+                Assert.AreEqual(fx.IdleClipId, fx.Player.CurrentClipId!.Value, "前置条件：应当已经回落到 idle 剪辑");
+                var bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");
+                var mainhandRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "mainhand");
+
+                // ---- 换向：mainhand 应当变成新方向的静态图，body 逐层帧照常换成新方向的逐层夹具 ----
+                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 8), height: 0.0);
+                yield return null;
+                // 换向重合成才会第一次请求 front 变体的静态层图，这里才开始等它加载完成。
+                yield return WaitUntilSpriteCached(mainhandStaticFront);
+                _resourceLoader.TryGetSprite(mainhandStaticFront, out var mainhandStaticFrontSprite);
+                yield return WaitUntilOrFail(
+                    () => mainhandRenderer!.sprite == mainhandStaticFrontSprite,
+                    "不变量②核心断言：换向后 mainhand 应当显示新方向（front）的静态层图",
+                    timeoutSeconds: 3f);
+                yield return WaitUntilOrFail(
+                    () => bodyRenderer!.sprite == bodyIdleFrontEffect.Frames[fx.Player.CurrentFrame % bodyIdleFrontEffect.Frames.Length].Sprite,
+                    "不变量②核心断言：body 层应当照常换成新方向（front）的 idle 逐层夹具帧，不应该被" +
+                    "换向重合成打断",
+                    timeoutSeconds: 3f);
+
+                fx.EquipSource.Dispose();
+                fx.View.Destroy();
+            }
+
+            // ---------- ③ 冷加载：写回那一刻静态层图尚未加载完成 ----------
+            {
+                var bodyIdleRef = new Id("sprite_anim.hero50c_idle__side_r__body");
+                var bodyAttackRef = new Id("sprite_anim.hero50c_attack__side_r__body");
+                var mainhandAttackRef = new Id("sprite_anim.mh50c__hero50c_attack__side_r__mainhand");
+                WriteEffectResource(bodyIdleRef, Color.red, Color.green);
+                WriteEffectResource(bodyAttackRef, Color.magenta, Color.cyan);
+                WriteEffectResource(mainhandAttackRef, Color.black, Color.white);
+                yield return WarmEffectCache(bodyIdleRef);
+                yield return WarmEffectCache(bodyAttackRef);
+                yield return WarmEffectCache(mainhandAttackRef);
+
+                var fx = BuildFixtureIdleAttack("inv50c", "sprite_anim.hero50c_idle", "sprite_anim.hero50c_attack");
+                var slotId = new Id("slot.mainhand");
+                var itemTemplateId = new Id("item.test_0101_mh50c");
+                var itemInstanceId = new Id("item_instance.test_0101_mh50c_1");
+                fx.Catalog[itemTemplateId] = new EquipVisualDef(
+                    new Id("display.equip_visual.test_0101_mh50c"), itemTemplateId, EquipVisualMode.SlotMesh,
+                    slotId: slotId, meshRef: new Id("mesh.mh50c"), socketId: null, modelRef: null);
+
+                // 冷加载核心：mainhand 的静态层图写盘但刻意不预热（不调用 WaitUntilSpriteCached）——
+                // 装备事件触发的 EnsureLoading 会自己发起真正的异步 LoadAsync，本分支只在写回那一刻
+                // （切到 idle）故意不推进 Tick，让它保持"仍在加载中"。
+                var mainhandStaticId = new Id("layer.mh50c__side_r__mainhand");
+                WritePngFixture(UnityResourceLoader.ResolvePath(mainhandStaticId, ResourceKind.Image), 4, 4);
+
+                Equip(fx.Bus, fx.View, fx.EntityId, itemTemplateId, itemInstanceId, slotId);
+                // 不等待 mainhandStaticId 加载完成——刻意保持"冷"。
+
+                var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
+                fx.Factory.AnimStateMachine!.RequestOverride(fx.EntityId, AnimState.Attack);
+                yield return null;
+                fx.Factory.AnimStateMachine!.NotifyTransientStateFinished(fx.EntityId, AnimState.Attack);
+                yield return null;
+
+                Assert.AreEqual(fx.IdleClipId, fx.Player.CurrentClipId!.Value, "前置条件：应当已经回落到 idle 剪辑");
+                var mainhandRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "mainhand");
+                Assert.IsFalse(_resourceLoader.TryGetSprite(mainhandStaticId, out _),
+                    "前置条件：写回那一刻 mainhand 的静态层图应当仍未加载完成（真正的冷加载场景）");
+                Assert.AreEqual("placeholder.sprite", mainhandRenderer!.sprite.name,
+                    "不变量③：静态层图尚未加载完成时，写回逻辑应当同 SetLayers 一样先落地占位方块，" +
+                    "不应该继续停留在 attack 剪辑的最后一帧上");
+
+                yield return WaitUntilSpriteCached(mainhandStaticId);
+                _resourceLoader.TryGetSprite(mainhandStaticId, out var mainhandStaticSprite);
+                yield return WaitUntilOrFail(
+                    () => mainhandRenderer!.sprite == mainhandStaticSprite,
+                    "不变量③核心断言（AGENTS.md 冷/热路径一致性）：静态层图加载完成后，mainhand 层应当" +
+                    "追上并显示真实静态图，与预热完成后的热路径（复现用例/不变量①②）最终视觉状态一致",
+                    timeoutSeconds: 3f);
+
+                fx.EquipSource.Dispose();
+                fx.View.Destroy();
+            }
+
+            // ---------- ④ 对照：从未被逐层帧覆盖过的层不应该被触碰 ----------
+            {
+                var bodyIdleRef = new Id("sprite_anim.hero50d_idle__side_r__body");
+                var bodyAttackRef = new Id("sprite_anim.hero50d_attack__side_r__body");
+                WriteEffectResource(bodyIdleRef, Color.red, Color.green);
+                WriteEffectResource(bodyAttackRef, Color.magenta, Color.cyan);
+                yield return WarmEffectCache(bodyIdleRef);
+                yield return WarmEffectCache(bodyAttackRef);
+
+                var fx = BuildFixtureIdleAttack("inv50d", "sprite_anim.hero50d_idle", "sprite_anim.hero50d_attack");
+                var slotId = new Id("slot.mainhand");
+                var itemTemplateId = new Id("item.test_0101_mh50d");
+                var itemInstanceId = new Id("item_instance.test_0101_mh50d_1");
+                // mesh.mh50d 两个状态都没有对应的逐层剪辑资源（两级候选均不存在磁盘上）——mainhand 层
+                // 应当从始至终只显示静态图，从未被 ApplyPerLayerFrame 的写回逻辑触碰过。
+                fx.Catalog[itemTemplateId] = new EquipVisualDef(
+                    new Id("display.equip_visual.test_0101_mh50d"), itemTemplateId, EquipVisualMode.SlotMesh,
+                    slotId: slotId, meshRef: new Id("mesh.mh50d"), socketId: null, modelRef: null);
+
+                var mainhandStaticId = new Id("layer.mh50d__side_r__mainhand");
+                WritePngFixture(UnityResourceLoader.ResolvePath(mainhandStaticId, ResourceKind.Image), 4, 4);
+
+                Equip(fx.Bus, fx.View, fx.EntityId, itemTemplateId, itemInstanceId, slotId);
+                yield return WaitUntilSpriteCached(mainhandStaticId);
+
+                var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
+                var mainhandRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "mainhand");
+                Assert.IsNotNull(mainhandRenderer, "装备后 mainhand 层应当存在（只是没有逐层剪辑）");
+
+                var mainhandLayerNames = _renderer.GetLayerNames(fx.View.EngineHandle);
+                var mainhandLayerIndex = -1;
+                for (var i = 0; i < mainhandLayerNames!.Count; i++)
+                {
+                    if (string.Equals(mainhandLayerNames[i], "mainhand", StringComparison.Ordinal))
+                    {
+                        mainhandLayerIndex = i;
+                        break;
+                    }
+                }
+                Assert.GreaterOrEqual(mainhandLayerIndex, 0, "应当能在当前层列表里定位到 mainhand 下标");
+
+                var spriteBefore = mainhandRenderer!.sprite;
+                var callCountBefore = _renderer.GetRestoreLayerSpriteCallCountForTests(fx.View.EngineHandle, mainhandLayerIndex);
+
+                fx.Factory.AnimStateMachine!.RequestOverride(fx.EntityId, AnimState.Attack);
+                yield return null;
+                fx.Factory.AnimStateMachine!.NotifyTransientStateFinished(fx.EntityId, AnimState.Attack);
+                yield return null;
+
+                Assert.AreEqual(fx.IdleClipId, fx.Player.CurrentClipId!.Value, "前置条件：应当已经回落到 idle 剪辑");
+                Assert.AreEqual(spriteBefore, mainhandRenderer!.sprite,
+                    "不变量④：从未被逐层帧覆盖过的层，attack->idle 来回切换后精灵引用应当不变");
+                Assert.AreEqual(callCountBefore, _renderer.GetRestoreLayerSpriteCallCountForTests(fx.View.EngineHandle, mainhandLayerIndex),
+                    "不变量④核心断言：RestoreLayerSprite 不应该被调用到这个从未被逐层帧覆盖过的层——" +
+                    "单看精灵引用不足以区分“从未写过”与“写过但恰好解析出同一个缓存 Sprite 实例”，本断言" +
+                    "直接看调用次数");
 
                 fx.EquipSource.Dispose();
                 fx.View.Destroy();

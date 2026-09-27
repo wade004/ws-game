@@ -465,6 +465,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `SummonTickHandler.TryFollow` 直接跟随点不可行走时改为在 owner 周围采样候选点（新增可选属性
   `SummonOptions.FollowCandidates`，默认 16，`≤1` 不采样），根治召唤物从阻挡一侧接近 owner 时永久
   冻结；`MovementTickHandler` 修正"寻路失败保留旧路径"策略下旧路径本 tick 不推进的缺陷。
+- **切到无逐层剪辑的状态时写回该层静态层图**（消费方反馈第五十批，修订 ADR-0072 决策 2 一处已不
+  再成立的判断记录表述）：`UnityViewFactory` 按实体跟踪"当前被逐层帧覆盖过的层名"集合，状态切换
+  后集合中不再命中当前状态的层，经新增的 `UnityRenderer2D.RestoreLayerSprite`（复用 `SetLayers`
+  同一条解析路径）写回该层最近一次合成的静态层图，不再停留在旧状态的最后一帧；`SetLayers` 触发的
+  统一出口处清空该集合。
 
 ## [1.83.0] - 2026-09-27
 
