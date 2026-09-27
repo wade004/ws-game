@@ -408,6 +408,18 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     资源异步加载完成三条路径（定稿时遗漏第三条，已在同分支的后续提交收口，不再是已知限制）。
     完整推导见 [ADR-0099](../../architecture/adr/0099-纸娃娃层只在方向槽位变化时重合成.md)。
 
+27. **ADR-0104（消费方反馈第五十二批）：`TieBreakComparer` 由"建议"改为规则，`IRenderer2D` 新增
+    登记/读回两个默认接口成员，接入引擎适配层真正确定同层同 `sortY` 的绘制先后**——
+    `IRenderConventionHost.TieBreakComparer` 契约文档措辞收紧：比较结果靠前 = 先绘制 = 位于画面更
+    后方，同 `sortY` 时 `Id` 更小者在后、更大者在前；`SpriteViewBase.Bind` 在实体身份就绪的这一刻
+    调用新增的 `IRenderer2D.SetSortIdentity`（默认空实现，ABI 加法）登记该句柄参与平局比较的稳定
+    id——冷加载（资源尚未加载完成，渲染占位方块）与热路径共用同一个调用点，不分别接线；新增
+    `IRenderer2D.CompareDrawOrder`（默认恒返回 0）供读回验证。本模块只负责比较器语义与登记调用点，
+    引擎适配层如何把比较器全序落到具体渲染管线的绘制顺序不在本模块职责内（见
+    `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`"判断记录索引"
+    `UnityRenderer2D.cs` 条目 ADR-0104 跟进）。完整推导见
+    [ADR-0104](../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)。
+
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）
 - `AnimStateMachine` 的 `jump` 状态没有事件驱动来源（06 事件词汇表当前无 `unit.jumped`/

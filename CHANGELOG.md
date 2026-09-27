@@ -470,6 +470,12 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   后集合中不再命中当前状态的层，经新增的 `UnityRenderer2D.RestoreLayerSprite`（复用 `SetLayers`
   同一条解析路径）写回该层最近一次合成的静态层图，不再停留在旧状态的最后一帧；`SetLayers` 触发的
   统一出口处清空该集合。
+- **接入平局比较器，同 sortY 精灵绘制顺序确定且可读回**（消费方反馈第五十二批，
+  [ADR-0104](architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)）：`IRenderer2D` 新增
+  `SetSortIdentity`/`CompareDrawOrder` 两个默认接口成员；`SpriteViewBase.Bind` 登记稳定 id；
+  `UnityRenderer2D` 按 `(Layer, SortY)` 精确建组，组内按 `IRenderConventionHost.TieBreakComparer`
+  全序给一个肉眼不可见的排序轴方向位置偏移，根治近战贴身、脚下 `sortY` 逐位相同时前后遮挡逐帧
+  互换的画面闪烁；生产装配点接入比较器。
 
 ## [1.83.0] - 2026-09-27
 

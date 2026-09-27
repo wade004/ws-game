@@ -493,6 +493,13 @@ namespace Adapter.Unity.Bootstrap
                 : global::Presentation.Render.HitFrameSyncStrategy.LogicDriven;
             var renderOptions = new global::Presentation.Render.RenderOptions { HitFrameSync = hitFrameSyncStrategy };
 
+            // ADR-0104（消费方反馈第五十二批）：同层同 sortY 的平局绘制顺序须由
+            // IRenderConventionHost.TieBreakComparer 驱动（见该属性/UnityRenderer2D.TieBreakComparer
+            // 判断记录），构造 RenderConventionHost 后立即接到 Renderer2D，不留缺口——未装配时
+            // UnityRenderer2D 退化为按 Id 升序的同一规则，不是"不处理"，但生产装配理应直接接上。
+            var renderConventions = new RenderConventionHost();
+            _host.Renderer2D.TieBreakComparer = renderConventions.TieBreakComparer;
+
             // 外部审核阻塞项 3 收口（architecture/落地计划/audit-20260907/followup-2026-09-07.md
             // "外部审核阻塞项处理"一节）：传入 bus/registry 两个可选参数，使 UnityViewFactory 默认
             // 给"生物"型 sprite/model 视图挂接默认动画接线（见该类型 AttachDefaultAnimation/
@@ -500,7 +507,7 @@ namespace Adapter.Unity.Bootstrap
             // _host.Renderer3D/HitFrameSource/weaponStyleSource 三个新可选参数，见各自判断记录。
             // W6 收口追加传入 renderOptions（见上方判断记录）。
             var viewFactory = new UnityViewFactory(
-                _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
+                _host.Renderer2D, renderConventions, viewFactoryDisplayInfo, _host.ResourceLoader,
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
                 renderOptions: renderOptions,

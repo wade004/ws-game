@@ -483,8 +483,13 @@ namespace Adapter.Unity.Shell
                 _bus, equipVisualCatalog, equipmentSnapshotResolver);
             _equipVisualSource = equipVisualSource;
 
+            // ADR-0104（消费方反馈第五十二批）：同 GameFoundationBootstrap.cs 同一判断记录——构造
+            // RenderConventionHost 后立即把 TieBreakComparer 接到 Renderer2D，不留缺口。
+            var renderConventions = new RenderConventionHost();
+            _host.Renderer2D.TieBreakComparer = renderConventions.TieBreakComparer;
+
             var viewFactory = new UnityViewFactory(
-                _host.Renderer2D, new RenderConventionHost(), viewFactoryDisplayInfo, _host.ResourceLoader,
+                _host.Renderer2D, renderConventions, viewFactoryDisplayInfo, _host.ResourceLoader,
                 bus: _bus, dataRegistry: registry,
                 renderer3D: _host.Renderer3D, hitFrameSource: HitFrameSource, weaponStyleSource: weaponStyleSource,
                 renderOptions: renderOptions,

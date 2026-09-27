@@ -60,6 +60,19 @@ namespace Adapters.Stub
         /// 测试断言。</summary>
         public readonly Dictionary<int, ShadowMode> Shadows = new Dictionary<int, ShadowMode>();
 
+        /// <summary>ADR-0104 新增：记录每个句柄最近一次 <see cref="SetSortIdentity"/> 登记的稳定
+        /// 平局比较 <see cref="Id"/>，供测试断言"冷加载/热路径共用同一登记调用点"这一不变量（见
+        /// <c>Presentation.Render.SpriteViewBase.Bind</c> 判断记录）。本类型不做任何真实排序，
+        /// <see cref="CompareDrawOrder"/> 沿用接口默认实现（恒返回 0）——桩实现没有"实际落到引擎的
+        /// 最终绘制顺序"可读回。</summary>
+        public readonly Dictionary<int, Id> SortIdentities = new Dictionary<int, Id>();
+
+        public void SetSortIdentity(SpriteHandle handle, Id id)
+        {
+            EnsureSpriteAlive(handle);
+            SortIdentities[handle.Value] = id;
+        }
+
         public SpriteHandle CreateSpriteInstance(Id spriteSetId)
         {
             var handle = new SpriteHandle(_nextSpriteHandle++);

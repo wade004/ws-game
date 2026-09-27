@@ -151,6 +151,42 @@ namespace Core.Foundation.EngineAdapter
 
         void DestroySpriteInstance(SpriteHandle handle);
 
+        /// <summary>
+        /// [ADR-0104](../../../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md) 新增
+        /// （消费方反馈第五十二批）：登记该句柄参与 <c>Presentation.Render.IRenderConventionHost.TieBreakComparer</c>
+        /// 平局比较（09_表现层.md 第 3.1 节"排序键相同时的平局规则"）的稳定 <see cref="Id"/>，供
+        /// <see cref="CompareDrawOrder"/> 在同层同 <c>sortY</c> 时确定绘制先后。调用方
+        /// （<c>Presentation.Render.SpriteViewBase</c>）在实体身份就绪时（<c>Bind</c>）调用一次，
+        /// 冷加载（首次引用的资源尚未加载完成，仍用占位方块渲染）与热路径（资源已就绪）共用同一调用点，
+        /// 不需要分别接线——本方法与资源是否加载完成无关，只登记身份。
+        /// <para>
+        /// 默认接口成员（ABI 加法，见 AGENTS.md 第 3 节）：默认空操作（no-op）——不支持平局比较能力
+        /// 的既有 <see cref="IRenderer2D"/> 实现方（含本仓库之外的既有实现）不需要跟着新增这个成员
+        /// 也能继续编译/运行，行为与改动前逐字节一致；本仓库内的具体实现（<c>UnityRenderer2D</c>）
+        /// 显式覆盖为真正的登记表写入，<c>StubRenderer2D</c> 不覆盖（该实现本就不做任何视觉排序，
+        /// 无平局可言，见该类型判断记录）。
+        /// </para>
+        /// </summary>
+        void SetSortIdentity(SpriteHandle handle, Id id)
+        {
+        }
+
+        /// <summary>
+        /// [ADR-0104](../../../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md) 新增
+        /// （消费方反馈第五十二批）：比较两个精灵句柄<b>实际落到引擎的最终绘制顺序</b>（离散图层、
+        /// 排序序号、透明排序轴上的最终位置——含平局偏移），不是重新调用一遍
+        /// <c>Presentation.Render.IRenderConventionHost.TieBreakComparer</c> 重算一次比较结果；用于
+        /// 验证同层同 <c>sortY</c> 的两个精灵之间前后顺序确定且可读回。返回值 &lt;0 表示
+        /// <paramref name="a"/> 先绘制（位于 <paramref name="b"/> 后方），&gt;0 表示 <paramref name="a"/>
+        /// 后绘制（位于前方），0 表示无法区分（句柄不存在、相同句柄，或实现未支持读回）。
+        /// <para>
+        /// 默认接口成员（ABI 加法）：默认恒返回 <c>0</c>——不支持读回的既有 <see cref="IRenderer2D"/>
+        /// 实现方不需要跟着新增这个成员也能继续编译/运行；本仓库内的具体实现（<c>UnityRenderer2D</c>）
+        /// 显式覆盖。
+        /// </para>
+        /// </summary>
+        int CompareDrawOrder(SpriteHandle a, SpriteHandle b) => 0;
+
         ParticleHandle EmitParticle(Id effectId, Vec2 position, IReadOnlyDictionary<string, double> parameters);
 
         /// <summary>

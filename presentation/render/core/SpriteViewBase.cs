@@ -194,9 +194,23 @@ namespace Presentation.Render
             _rig.LayersApplied += OnLayersComposed;
         }
 
+        /// <summary>
+        /// ADR-0104 决策 3（消费方反馈第五十二批）：<paramref name="entityId"/> 就绪的这一刻登记
+        /// <see cref="IRenderer2D.SetSortIdentity"/>，供引擎适配层解决同层同 <c>sortY</c> 的平局绘制
+        /// 顺序（见该方法契约注释）。构造期 <see cref="Handle"/> 创建时尚无实体身份可用（本类型
+        /// 构造函数不接受 entityId 参数，见类型注释"契约缺口"一节同一惯例），因此改在本方法——
+        /// 视图生命周期里实体身份首次就绪的唯一时刻——登记，冷加载（首次引用的纸娃娃层资源尚未加载
+        /// 完成，此刻仍渲染占位方块）与热路径（资源已就绪）走的是同一个 <see cref="Bind"/> 调用，不
+        /// 需要分别接线（本方法登记的是"这个句柄是谁"，与它当前贴的是占位图还是真实资源无关）。
+        /// <c>Adapter.Unity.Presentation.UnityViewFactory</c>（引擎侧工厂）"创建后立即调用一次
+        /// Bind、随后按既有绑定协议可能再调用一次同一 entityId"的既有惯例（见该类型判断记录）下，
+        /// 重复调用本方法两次幂等——<see cref="IRenderer2D.SetSortIdentity"/> 的具体实现须保证同一
+        /// 句柄重复登记同一 id 是空操作，不产生副作用。
+        /// </summary>
         public virtual void Bind(Id entityId)
         {
             EntityId = entityId;
+            Renderer.SetSortIdentity(Handle, entityId);
             _rig.Bind(entityId);
             IsAlive = true;
         }

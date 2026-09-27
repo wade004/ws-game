@@ -346,7 +346,19 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `DestroyMapLayerInstance` 落地——世界矩形中心定位 + 整体缩放铺满（不保留素材原始宽高比）；
   哪一层图片存在由 `UnityResourceLoader.TryGetMapLayerAsset` 解析结果决定（ground/overlay 缺失
   按既有占位方块 + 诊断惯例，decal 缺失是合法状态、不画占位不记诊断）；句柄计数器与既有
-  `SpriteHandle`/`ParticleHandle` 同一惯例，只在真的建出 `GameObject` 时才自增。
+  `SpriteHandle`/`ParticleHandle` 同一惯例，只在真的建出 `GameObject` 时才自增。**ADR-0104
+  跟进（2026-09-27，消费方反馈第五十二批）**：`SetSortIdentity`/`CompareDrawOrder` 落地；新增
+  `TieBreakComparer` 公开属性（`GameFoundationBootstrap.cs`/`FrameworkResidentHost.cs` 两个生产
+  装配点接入 `IRenderConventionHost.TieBreakComparer`，`null` 时退化为按 `Id` 升序的
+  `DefaultTieBreakComparer`，不退化为不处理）。`sortingOrder` 既有公式不变；按 `(Layer, SortY)`
+  精确建组（`_tieBreakGroups`，键取 `SetTransform` 收到的原始值，不取整），组内按比较器全序给第
+  k 个成员（k 从 0 起）在世界 Y 上叠加 `-k * SortingConvention.TieBreakEpsilon`（新增公开常量，
+  1e-4 世界单位量级）——方向依据 PlayMode 实测：`Renderer2DData.asset` 既有 Transparency Sort
+  Axis = (0,1,0) 下世界 Y 更大者先绘制（更靠画面后方），与既有 `baseOrder` 公式方向一致，因此
+  比较器全序中更靠前（更先绘制）的成员分配更大的世界 Y（偏移更接近 0），见
+  `UnityRenderer2DTieBreakTests`。偏移只写 `Root.transform` 本地 Y，不改 `SortY`/`sortingOrder`
+  计算、不影响 `LayersRoot` 的 height 偏移；组内成员因位置/图层变化离组、或整个实例被销毁时偏移
+  归零/整条移除。详见 [ADR-0104](../../../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)。
 - `UnityAudio.cs`：总线音量方案二选一的取舍理由；`position` 参数的 2D 声像落地（ADR-0016 决策 3）。
 - `UnityCamera.cs`：世界平面坐标系与投影简化的判断记录；`frequency` 参数驱动 Perlin 噪声采样
   取代 `UnityEngine.Random`（ADR-0016 决策 4）。

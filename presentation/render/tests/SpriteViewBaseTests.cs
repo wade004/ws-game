@@ -98,6 +98,48 @@ namespace Tests.PresentationRender
             Assert.True(view.IsAlive);
         }
 
+        // -----------------------------------------------------------------
+        // ADR-0104（消费方反馈第五十二批）不变量 3："冷加载/延迟创建句柄的视图也登记了
+        // SetSortIdentity"——句柄在构造期已经建出（本类型不存在"延迟创建句柄"这条路径，见
+        // SpriteViewBase.Bind 判断记录"构造期 Handle 创建时尚无实体身份可用"一节），因此"冷加载"
+        // 落在"首次引用的资源尚未加载完成"这一既有含义上：Bind 登记稳定 id 与资源是否加载完成完全
+        // 无关、共用同一个调用点，下面两条用例分别覆盖"资源同步加载"（热，默认 StubResourceLoader）
+        // 与"资源仍在加载中"（冷，DeferCallbacks=true 且从不 CompletePending）两种情形，断言结果
+        // 逐字节一致——不是各自一套接线。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Bind_RegistersSortIdentity_WithRenderer_HotPath_ResourceAlreadyResolved()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader();
+            loader.Register(new Id("sprite.creature.hero"));
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), resourceLoader: loader);
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+
+            view.Bind(new Id("unit.hero_1"));
+
+            Assert.True(renderer.SortIdentities.TryGetValue(handleValue, out var registered));
+            Assert.Equal(new Id("unit.hero_1"), registered);
+        }
+
+        [Fact]
+        public void Bind_RegistersSortIdentity_WithRenderer_ColdPath_ResourceStillLoading()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var view = new TestSpriteView(renderer, new RenderConventionHost(), MakeSpriteDisplayInfo(), resourceLoader: loader);
+            var handleValue = new List<int>(renderer.CreatedSpriteSets.Keys)[0];
+            // sprite_set_id 的加载请求此刻仍"待完成"（DeferCallbacks 模式，构造期从未
+            // CompletePending），本实例此刻实际渲染的是引擎侧占位方块——冷加载路径。
+            Assert.True(loader.HasPending(new Id("sprite.creature.hero")));
+
+            view.Bind(new Id("unit.hero_1"));
+
+            Assert.True(renderer.SortIdentities.TryGetValue(handleValue, out var registered));
+            Assert.Equal(new Id("unit.hero_1"), registered);
+        }
+
         [Fact]
         public void SyncPose_BeforeBind_Throws()
         {

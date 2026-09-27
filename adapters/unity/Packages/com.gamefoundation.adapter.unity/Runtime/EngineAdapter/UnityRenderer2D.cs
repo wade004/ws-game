@@ -38,6 +38,28 @@
 // 判断记录），解析不到时回退播放一个内建的通用爆发粒子效果（不抛异常、不阻断游戏运行）；
 // parameters 里的 "duration"/"start_lifetime"/"start_speed"/"start_size" 四个已知键会覆盖对应
 // 模块参数（仅回退路径生效，具体特效资产自带参数不经这四个键覆盖），其余键被忽略。
+//
+// ADR-0104 新增（消费方反馈第五十二批，同 sortY 精灵前后顺序确定且可读回）：sortingOrder 相等
+// （含"同层且 sortY 逐位相同"这一确切平局场景）时，此前完全交给 URP 2D Renderer 的 Transparency
+// Sort Axis（世界 Y 轴，见上方"排序判断记录"）兜底——但 sortY 逐位相同时 Root 的世界 Y 坐标也逐位
+// 相同，引擎的次级排序同样是平局，实际先后顺序由内部实现决定、可逐帧互换（消费方复现：近战贴身，
+// 玩家与敌人脚下 Y 逐比特相同）。现按 (Layer, SortY) 精确建组（_tieBreakGroups，键为改动前既有
+// SetTransform 收到的原始参数，不是取整后的 sortingOrder），组内成员按 IRenderConventionHost.
+// TieBreakComparer（经 SetSortIdentity 登记的稳定 Id + 组内共同的 SortY）排出全序，第 k 个成员
+// （k 从 0 起）在世界 Y 上叠加 -k * SortingConvention.TieBreakEpsilon 的偏移——k=0（比较器最小、
+// 语义上"最先绘制/最靠后方"）不偏移，k 越大越往负方向偏移，方向依据实测（见
+// UnityRenderer2DTieBreakTests.axis实测方法/该测试类顶部实测记录）：Transparency Sort Axis=(0,1,0)
+// 下世界 Y 更大者先绘制（更靠后方），与本类型既有 baseOrder 公式"sortY 更大 -> sortingOrder 更小 ->
+// 更先绘制"同一方向，因此组内把"比较器更靠前"的成员分配更大的世界 Y（偏移更接近 0）。偏移只写入
+// Root.transform 的本地 Y（SpriteInstance.PositionY 记住不含偏移的原始逻辑 Y，供组成员增减/重排
+// 时不必等下一次 SetTransform 就能重新落位），不改变 SortY/Layer/sortingOrder 三者的既有计算公式，
+// 也不影响 LayersRoot 的 height 偏移（两者互相独立的本地位移，见 SetTransform 判断记录）。
+// TieBreakComparer 属性由生产装配点（GameFoundationBootstrap.cs/FrameworkResidentHost.cs）接入
+// IRenderConventionHost.TieBreakComparer；为 null（未装配/测试直接 new UnityRenderer2D 不设置）时
+// RebalanceTieBreakGroup 退化为与 RenderConventionHost.SortYThenIdComparer 逐字节相同的规则（按
+// Id 升序），不退化为"不处理"。CompareDrawOrder 读的是 SortingGroup.sortingOrder（一级键）与
+// Root.transform.position.y（二级键，已经叠加平局偏移）两个"引擎实际落地的最终值"，不重新调用
+// TieBreakComparer 计算。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -60,6 +82,13 @@ namespace Adapter.Unity.EngineAdapter
         {
             public const int LayerStride = 1000;
             public const double SortYScale = 1.0;
+
+            /// <summary>ADR-0104 新增：同层同 <c>sortY</c> 平局组内，比较器全序中第 k 个成员
+            /// （k 从 0 起）叠加的透明排序轴方向位置偏移量级（世界单位）——1e-4 远小于 1 个
+            /// <c>SortYScale=1.0</c> 换算出的 sortingOrder 步进，不会把成员带出所属的 sortingOrder
+            /// 整数区间，也远小于任何美术资源的可见像素尺度（默认 <c>PixelsPerUnit</c> 下换算不到
+            /// 一个子像素），肉眼不可见。</summary>
+            public const double TieBreakEpsilon = 1e-4;
         }
 
         private sealed class SpriteInstance
@@ -120,11 +149,52 @@ namespace Adapter.Unity.EngineAdapter
             /// item/gobj/projectile 一类不挂，见 <c>UnityViewFactory.AttachDefaultAnimation</c> 调用点
             /// 判断记录）。</summary>
             public SpriteRenderer? AnimRootRenderer;
+
+            /// <summary>ADR-0104 新增：经 <see cref="SetSortIdentity"/> 登记的稳定平局比较 Id；未登记
+            /// 时为 <c>default(Id)</c>（<see cref="Id.Value"/> 为 <c>null</c>），仍能参与
+            /// <see cref="RebalanceTieBreakGroup"/> 排序（<see cref="Id.CompareTo"/> 对 <c>null</c> 值
+            /// 走 <see cref="string.CompareOrdinal"/> 的既有 null 语义，不抛异常），只是无法保证与其它
+            /// 已登记句柄之间的顺序稳定——调用方（<c>SpriteViewBase.Bind</c>）应始终登记。</summary>
+            public Id SortIdentity;
+
+            /// <summary>ADR-0104 新增：<see cref="SetTransform"/> 收到的原始逻辑 Y（不含平局偏移），
+            /// 供 <see cref="RebalanceTieBreakGroup"/> 在同组成员增减/重排时重新计算
+            /// <see cref="TieBreakOffsetY"/> 后立即回写 <see cref="Root"/> 的最终本地 Y，不必等下一次
+            /// <see cref="SetTransform"/> 调用。</summary>
+            public double PositionY;
+
+            /// <summary>ADR-0104 新增：本实例在所属平局组（<see cref="TieBreakGroupKey"/>）内、按
+            /// <c>IRenderConventionHost.TieBreakComparer</c> 全序排序后的位置对应的透明排序轴方向
+            /// （世界 Y）位置偏移；组内只有一个成员、或本实例当前不属于任何组时为 0。</summary>
+            public double TieBreakOffsetY;
+
+            /// <summary>ADR-0104 新增：本实例当前所属的平局分组键 (Layer, SortY)（<c>SortY</c> 取
+            /// <see cref="SetTransform"/> 收到的原始值，逐位比较，不取整）；尚未经历过
+            /// <see cref="SetTransform"/> 时为 <c>null</c>，不参与任何分组——避免创建期默认
+            /// <c>Layer=0</c>/<c>SortY=0</c> 把全部新建未定位实例错误地聚成一组。</summary>
+            public (int Layer, double SortY)? TieBreakGroupKey;
+        }
+
+        /// <summary>ADR-0104 新增：为 <c>null</c> 时 <see cref="RebalanceTieBreakGroup"/> 退化为的
+        /// 平局比较兜底规则——与 <c>Presentation.Render.RenderConventionHost</c> 内部
+        /// <c>SortYThenIdComparer</c>（先比 <c>SortY</c> 再比 <c>Id</c>）逐字节相同，不是"不处理"
+        /// （组内 <c>SortY</c> 恒相等，实际只按 <see cref="Id"/> 升序生效）。</summary>
+        private sealed class DefaultTieBreakComparer : IComparer<(Id Id, double SortY)>
+        {
+            public static readonly DefaultTieBreakComparer Instance = new DefaultTieBreakComparer();
+
+            public int Compare((Id Id, double SortY) x, (Id Id, double SortY) y)
+            {
+                var cmp = x.SortY.CompareTo(y.SortY);
+                return cmp != 0 ? cmp : x.Id.CompareTo(y.Id);
+            }
         }
 
         private readonly Transform _root;
         private readonly UnityResourceLoader _resourceLoader;
         private readonly Dictionary<int, SpriteInstance> _sprites = new Dictionary<int, SpriteInstance>();
+        private readonly Dictionary<(int Layer, double SortY), List<SpriteInstance>> _tieBreakGroups =
+            new Dictionary<(int, double), List<SpriteInstance>>();
         private readonly Dictionary<int, ParticleSystem> _particles = new Dictionary<int, ParticleSystem>();
         private readonly List<ParticleSystem> _particlePool = new List<ParticleSystem>();
         private readonly Dictionary<int, EffectSequencePlayer> _sequencePlayers = new Dictionary<int, EffectSequencePlayer>();
@@ -137,6 +207,14 @@ namespace Adapter.Unity.EngineAdapter
         private Sprite? _shadowSprite;
 
         public float PixelsPerUnit => _resourceLoader.PixelsPerUnit;
+
+        /// <summary>ADR-0104 新增：生产装配点（<c>GameFoundationBootstrap.cs</c>/
+        /// <c>FrameworkResidentHost.cs</c>）接入 <c>IRenderConventionHost.TieBreakComparer</c>，供
+        /// <see cref="RebalanceTieBreakGroup"/> 决定同层同 <c>sortY</c> 平局组内的绘制顺序。<c>null</c>
+        /// （未装配——含全部直接 <c>new UnityRenderer2D(...)</c> 构造、未额外设置本属性的既有测试
+        /// 夹具）时退化为 <see cref="DefaultTieBreakComparer"/>（按 <see cref="Id"/> 升序，不退化为
+        /// "不处理"）。</summary>
+        public IComparer<(Id Id, double SortY)>? TieBreakComparer { get; set; }
 
         public UnityRenderer2D(Transform root, UnityResourceLoader resourceLoader)
         {
@@ -219,7 +297,13 @@ namespace Adapter.Unity.EngineAdapter
         {
             var instance = EnsureAlive(handle);
 
-            instance.Root.transform.localPosition = new Vector3((float)position.X, (float)position.Y, 0f);
+            // ADR-0104：Root 的本地 Y 记为"逻辑 Y + 当前平局偏移"（不是 position.Y 原样写入），使
+            // 同层同 sortY 平局组内已经分到非零 TieBreakOffsetY 的实例，逐帧 SetTransform 也不会把
+            // 偏移冲掉；PositionY 单独记住不含偏移的原始值，供 RebalanceTieBreakGroup 在组内成员
+            // 增减/重排时重新落位。
+            instance.PositionY = position.Y;
+            instance.Root.transform.localPosition =
+                new Vector3((float)position.X, (float)(position.Y + instance.TieBreakOffsetY), 0f);
             instance.Root.transform.localRotation = Quaternion.Euler(0f, 0f, (float)(rotation * Mathf.Rad2Deg));
             instance.Root.transform.localScale = new Vector3((float)scale, (float)scale, 1f);
 
@@ -229,6 +313,7 @@ namespace Adapter.Unity.EngineAdapter
             var layersLocal = instance.LayersRoot.localPosition;
             instance.LayersRoot.localPosition = new Vector3(layersLocal.x, worldHeightOffset, layersLocal.z);
 
+            var oldTieBreakGroupKey = instance.TieBreakGroupKey;
             instance.Layer = layer;
             instance.SortY = sortY;
             instance.FlipX = flipX;
@@ -244,6 +329,10 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             ApplySortingOrders(instance);
+
+            // ADR-0104：(Layer, SortY) 变化后重新分组——sortingOrder 公式本身（上一行）不受影响，
+            // 只有平局组成员构成可能变化。
+            UpdateTieBreakGroupMembership(instance, oldTieBreakGroupKey);
         }
 
         /// <summary>
@@ -498,8 +587,172 @@ namespace Adapter.Unity.EngineAdapter
         public void DestroySpriteInstance(SpriteHandle handle)
         {
             var instance = EnsureAlive(handle);
+
+            // ADR-0104：离组前先脱离平局分组（剩余组员据此重新落位），再销毁——否则
+            // _tieBreakGroups 会留一个指向已销毁 GameObject 的悬空引用。
+            if (instance.TieBreakGroupKey.HasValue)
+            {
+                RemoveFromTieBreakGroup(instance, instance.TieBreakGroupKey.Value);
+            }
+
             UnityEngine.Object.Destroy(instance.Root);
             _sprites.Remove(handle.Value);
+        }
+
+        /// <summary>
+        /// [ADR-0104](../../../../../../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)
+        /// 实现（消费方反馈第五十二批）：见 <see cref="IRenderer2D.SetSortIdentity"/> 契约注释。相同
+        /// id 重复登记是空操作（不触发多余的组内重排）；id 真的变化且句柄当前属于某个平局组时，立即
+        /// 重排该组（<see cref="RebalanceTieBreakGroup"/>），不必等下一次 <see cref="SetTransform"/>。
+        /// </summary>
+        public void SetSortIdentity(SpriteHandle handle, Id id)
+        {
+            var instance = EnsureAlive(handle);
+            if (instance.SortIdentity.Equals(id))
+            {
+                return;
+            }
+
+            instance.SortIdentity = id;
+            if (instance.TieBreakGroupKey.HasValue &&
+                _tieBreakGroups.TryGetValue(instance.TieBreakGroupKey.Value, out var members))
+            {
+                RebalanceTieBreakGroup(members);
+            }
+        }
+
+        /// <summary>
+        /// [ADR-0104](../../../../../../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)
+        /// 实现：见 <see cref="IRenderer2D.CompareDrawOrder"/> 契约注释——读引擎实际落地的两个最终键，
+        /// 不重新调用 <see cref="TieBreakComparer"/>。一级键 <see cref="SortingGroup.sortingOrder"/>
+        /// （由 <see cref="ApplySortingOrders"/> 按既有 <c>layer * LayerStride - round(sortY *
+        /// SortYScale)</c> 公式算出，本方法不改这条公式）：数值更小者先绘制（Unity 语义"sortingOrder
+        /// 越大越靠前/后绘制"，见类型顶部"排序判断记录"），与 <see cref="IComparer{T}.Compare"/> 的
+        /// 升序语义方向一致，直接 <see cref="int.CompareTo(int)"/> 即可。二级键（一级键相等时）：
+        /// <see cref="Transform.position"/> 的世界 Y（已经叠加 <see cref="RebalanceTieBreakGroup"/>
+        /// 写入的平局偏移）——按类型顶部"排序判断记录"/本次新增顶部注释实测记录，世界 Y 更大者先绘制，
+        /// 与一级键"数值更小者先绘制"方向相反，因此二级键比较要反过来取（<c>by.CompareTo(ay)</c>：
+        /// <paramref name="a"/> 的世界 Y 更大时返回负值）。句柄不存在或相同句柄时返回 0（"无法区分"，
+        /// 见契约注释）。
+        /// </summary>
+        public int CompareDrawOrder(SpriteHandle a, SpriteHandle b)
+        {
+            if (a.Value == b.Value)
+            {
+                return 0;
+            }
+
+            if (!_sprites.TryGetValue(a.Value, out var ia) || !_sprites.TryGetValue(b.Value, out var ib))
+            {
+                return 0;
+            }
+
+            var orderCmp = ia.SortingGroup.sortingOrder.CompareTo(ib.SortingGroup.sortingOrder);
+            if (orderCmp != 0)
+            {
+                return orderCmp;
+            }
+
+            var ay = ia.Root.transform.position.y;
+            var by = ib.Root.transform.position.y;
+            return by.CompareTo(ay);
+        }
+
+        /// <summary>ADR-0104 新增：<paramref name="instance"/> 的 (Layer, SortY) 分组键在
+        /// <see cref="SetTransform"/> 里发生变化（含首次经历 <see cref="SetTransform"/>，此时
+        /// <paramref name="oldKey"/> 为 <c>null</c>）后调用——未变化时提前返回（组内成员构成、组内
+        /// 各自 <see cref="SpriteInstance.SortY"/> 均未变，比较器结果不会变，不需要重排）；变化时先
+        /// 从旧组摘除（旧组若仍有剩余成员，随之重排），再计入新组（重排新组）。</summary>
+        private void UpdateTieBreakGroupMembership(SpriteInstance instance, (int Layer, double SortY)? oldKey)
+        {
+            var newKey = (instance.Layer, instance.SortY);
+            if (oldKey.HasValue && oldKey.Value.Equals(newKey))
+            {
+                return;
+            }
+
+            if (oldKey.HasValue)
+            {
+                RemoveFromTieBreakGroup(instance, oldKey.Value);
+            }
+
+            instance.TieBreakGroupKey = newKey;
+            if (!_tieBreakGroups.TryGetValue(newKey, out var members))
+            {
+                members = new List<SpriteInstance>();
+                _tieBreakGroups[newKey] = members;
+            }
+            members.Add(instance);
+            RebalanceTieBreakGroup(members);
+        }
+
+        /// <summary>ADR-0104 新增：把 <paramref name="instance"/> 从 <paramref name="key"/> 对应的
+        /// 平局组摘除；组摘空则整条移除索引，否则对剩余成员重排（原持有非零偏移的成员可能因此归零，
+        /// 见 <see cref="RebalanceTieBreakGroup"/>）。调用方负责随后把 <see cref="SpriteInstance.TieBreakGroupKey"/>
+        /// 更新为新值（<see cref="UpdateTieBreakGroupMembership"/>）或保持 <c>null</c>（<see cref="DestroySpriteInstance"/>）——
+        /// 本方法统一先清空，交由各自调用点决定后续。</summary>
+        private void RemoveFromTieBreakGroup(SpriteInstance instance, (int Layer, double SortY) key)
+        {
+            if (_tieBreakGroups.TryGetValue(key, out var members))
+            {
+                members.Remove(instance);
+                if (members.Count == 0)
+                {
+                    _tieBreakGroups.Remove(key);
+                }
+                else
+                {
+                    RebalanceTieBreakGroup(members);
+                }
+            }
+
+            instance.TieBreakGroupKey = null;
+        }
+
+        /// <summary>ADR-0104 新增：按 <see cref="TieBreakComparer"/>（<c>null</c> 退化为
+        /// <see cref="DefaultTieBreakComparer"/>，见该类型判断记录）对 <paramref name="members"/>
+        /// 排出全序，第 k 个（k 从 0 起）分配偏移 <c>-k * SortingConvention.TieBreakEpsilon</c>——
+        /// k=0（比较器最小、语义上"最先绘制/最靠画面后方"）偏移为 0，k 越大越往负方向偏移（世界 Y 越
+        /// 小，按类型顶部实测记录越靠画面前方，与"比较器越靠后越先绘制在前"一致）。组内只剩一个成员
+        /// 时偏移归零。<paramref name="members"/> 本身只用于读取当前成员集合，不在本方法内被替换（
+        /// 增删由调用方 <see cref="UpdateTieBreakGroupMembership"/>/<see cref="RemoveFromTieBreakGroup"/>
+        /// 负责）。</summary>
+        private void RebalanceTieBreakGroup(List<SpriteInstance> members)
+        {
+            if (members.Count <= 1)
+            {
+                if (members.Count == 1)
+                {
+                    SetTieBreakOffsetY(members[0], 0.0);
+                }
+                return;
+            }
+
+            var comparer = TieBreakComparer ?? DefaultTieBreakComparer.Instance;
+            var ordered = new List<SpriteInstance>(members);
+            ordered.Sort((x, y) => comparer.Compare((x.SortIdentity, x.SortY), (y.SortIdentity, y.SortY)));
+
+            for (var k = 0; k < ordered.Count; k++)
+            {
+                SetTieBreakOffsetY(ordered[k], -k * SortingConvention.TieBreakEpsilon);
+            }
+        }
+
+        /// <summary>ADR-0104 新增：写入 <see cref="SpriteInstance.TieBreakOffsetY"/> 并立即回写
+        /// <see cref="SpriteInstance.Root"/> 的本地 Y（<see cref="SpriteInstance.PositionY"/> +
+        /// 新偏移），不等下一次 <see cref="SetTransform"/>——组内成员增减/重排可能发生在与之无关的
+        /// 其它实例的 <see cref="SetTransform"/> 调用期间，此时本实例本轮不会再收到一次
+        /// <see cref="SetTransform"/>。值未变化时提前返回，避免每帧无谓触碰 <see cref="Transform"/>。</summary>
+        private static void SetTieBreakOffsetY(SpriteInstance instance, double offsetY)
+        {
+            if (instance.TieBreakOffsetY == offsetY)
+            {
+                return;
+            }
+
+            instance.TieBreakOffsetY = offsetY;
+            var local = instance.Root.transform.localPosition;
+            instance.Root.transform.localPosition = new Vector3(local.x, (float)(instance.PositionY + offsetY), local.z);
         }
 
         private int _nextMapLayerHandle = 1;

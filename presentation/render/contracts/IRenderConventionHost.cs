@@ -16,8 +16,14 @@ namespace Presentation.Render
         /// 见 09 第 3.1 节）。</summary>
         double ComputeSortY(Vec2 logicalPos, double sortOffset);
 
-        /// <summary>排序键相同时的平局比较器：按对象稳定 id 排序，避免同帧抖动闪烁
-        /// （见 09 第 3.1 节"排序键相同时的平局规则（建议）"）。</summary>
+        /// <summary>
+        /// 排序键相同时的平局比较器（[ADR-0104](../../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)：
+        /// 取代此前"建议"措辞，现为规则）：比较结果 &lt;0 表示排在前者更先绘制、位于画面更后方；
+        /// 同层且 <c>SortY</c> 逐位相等时按 <see cref="Id"/> 升序排列——<see cref="Id"/> 更小者先绘制
+        /// （在后方），更大者后绘制（在前方），避免同帧抖动闪烁（见 09 第 3.1 节"排序键相同时的平局
+        /// 规则"）。引擎适配层负责把这一比较序落到具体渲染管线实际生效的绘制顺序、并可读回验证
+        /// （见 <c>Core.Foundation.EngineAdapter.IRenderer2D.SetSortIdentity</c>/<c>CompareDrawOrder</c>）。
+        /// </summary>
         IComparer<(Id Id, double SortY)> TieBreakComparer { get; }
 
         /// <summary>把量化后的 <see cref="Direction"/> 解析为具体应绘制的方向槽位 id 与是否翻转：
