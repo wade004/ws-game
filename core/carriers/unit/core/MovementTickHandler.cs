@@ -397,6 +397,27 @@ namespace Core.Carriers.Unit
         /// （消费方实测 532 tick 连续 <c>NoPath</c>）。<c>Stop</c> 分支或"本来就没有旧状态可继续"时
         /// 返回 <c>false</c>，调用方行为与本次改动之前一致（含入 <c>processedThisTick</c>）。
         /// </para>
+        /// <para>
+        /// ADR-0103 追加根治（消费方 1.84.0 门禁全量回归发现，PlayMode 用例
+        /// <c>ReRequestBlockedTarget_DefaultPolicy_KeepsAdvancingOldPath_FailsOnce</c>/
+        /// <c>ReRequestBlockedTarget_StopInsideFailureCallback_OldPathNoLongerAdvances_NoRepeatFailure</c>
+        /// 实测 Expected 1 Actual 2）：<see cref="MovementState.CurrentPath"/> 非空时，把它的
+        /// <see cref="MovementState.NavVersion"/> 前移到调用时刻的
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.GetBlockingVersion"/>——这一处理
+        /// 原来只在 <see cref="ReplanPath"/> 自己重算失败时做（避免"下一 tick 自动重验对同一次阻挡
+        /// 变化重复触发"，见该方法判断记录），现提前到本方法统一做，覆盖 <see cref="BeginPathTo"/>
+        /// 直接建路失败这条此前没有前移版本号的路径：决定 3 让 KeepOldPath 失败的单位当 tick 就被
+        /// 排除出 <c>processedThisTick</c>、进入 <see cref="Execute"/> 第二遍循环续推，若不在这里
+        /// 前移版本号，第二遍的 <see cref="RevalidateBlocking"/> 会认为"旧路径还没按当前阻挡版本
+        /// 验证过"，对同一次阻挡变化独立再跑一次 <see cref="ReplanPath"/>——当旧路径恰好也被这次阻挡
+        /// 变化波及时（典型如"重新请求同一个已被围住的目标"：旧路径与新请求的目标是同一个点），
+        /// <see cref="ReplanPath"/> 会再失败一次、经本方法再触发一次失败回调，让同一 tick 内产生两次
+        /// 通知——这正是两条 PlayMode 用例复现的缺陷，不是设计预期（"失败通知必须恰好一次"）。前移
+        /// 版本号后，第二遍的 <see cref="RevalidateBlocking"/> 发现版本已经"验证过"直接放行、不再
+        /// 重复触发；<see cref="ReplanPath"/> 自身失败分支原有的版本前移逻辑因此收拢到本方法统一
+        /// 处理，不再各自维护一份（见该方法判断记录）。<see cref="_navigation"/> 为 <c>null</c> 时
+        /// 不做任何处理，行为与本次改动之前一致（未装配导航谈不上"阻挡版本"）。
+        /// </para>
         /// </summary>
         private bool HandlePathFailure(Unit unit, Vec2 from, Vec2 to, MoveFailReason reason)
         {
@@ -410,6 +431,18 @@ namespace Core.Carriers.Unit
             }
 
             var state = unit.MovementState;
+            if (state.CurrentPath != null && _navigation != null)
+            {
+                var currentVersion = _navigation.GetBlockingVersion(unit.MapId);
+                if (state.NavVersion != currentVersion)
+                {
+                    unit.MovementState = new MovementState(
+                        state.CurrentPath, state.Mode, state.MovementLocked, state.PathIndex, currentVersion,
+                        state.Displacement, state.Chase);
+                    state = unit.MovementState;
+                }
+            }
+
             return state.Displacement.HasValue || state.Chase.HasValue || state.CurrentPath != null;
         }
 
@@ -1483,28 +1516,16 @@ namespace Core.Carriers.Unit
             var newPath = _navigation!.FindPath(unit.MapId, from, target);
             if (newPath == null)
             {
-                HandlePathFailure(unit, from, target, MoveFailReason.BlockingChanged);
-
-                // 判断记录（不应重复触发失败回调）：HandlePathFailure 按 PathFailurePolicy 处理——
-                // Stop 分支已经把路径清空（下面 CurrentPath 为 null，本方法调用点循环不会再碰这个
-                // 单位）；KeepOldPath（默认）分支旧路径原样保留，但如果不把 NavVersion 前移到
-                // currentVersion，下一 tick RevalidateBlocking 会发现"仍然是建路时的旧版本 vs 当前
-                // 版本不等"，对同一次阻挡变化重新调用一次 ReplanPath、再次失败、再次触发回调——每
-                // 个后续 tick 都重复一次，破坏"重新请求已被围住的目标应恰好触发一次
-                // OnMoveFailedDetailed"契约（该 bug 已被 PlayMode 用例
+                // 判断记录（不应重复触发失败回调；NavVersion 前移已收拢进 HandlePathFailure）：
+                // 本方法此前在这里自己把 NavVersion 前移到 currentVersion，避免"下一 tick
+                // RevalidateBlocking 发现仍是建路时的旧版本、对同一次阻挡变化重新调用一次
+                // ReplanPath、再次失败、再次触发回调"（该 bug 曾被 PlayMode 用例
                 // ReRequestBlockedTarget_DefaultPolicy_KeepsAdvancingOldPath_FailsOnce 用真实数值
-                // 复现：failCount 从预期 1 涨到 11，与"多跑 10 个 tick"逐 tick 各触发一次完全吻合）。
-                // 把 NavVersion 前移到 currentVersion，标记"已经按这个版本处理过（虽然重算失败）"，
-                // 语义与 RevalidateRemainingSegments 未受阻分支"只更新版本号"一致——下一次真正触发
-                // 重验的前提是版本号再次变化（又一次 SetBlocking/Clear/BuildNavMesh）。
-                var keptState = unit.MovementState;
-                if (keptState.CurrentPath != null)
-                {
-                    unit.MovementState = new MovementState(
-                        keptState.CurrentPath, keptState.Mode, keptState.MovementLocked,
-                        keptState.PathIndex, currentVersion);
-                }
-
+                // 复现：failCount 从预期 1 涨到 11）。ADR-0103 追加根治把这一处理提前到
+                // HandlePathFailure 内部统一做（覆盖 BeginPathTo 直接建路失败这条此前没有前移版本号
+                // 的路径，见该方法判断记录），本方法不再重复维护一份——调用后直接读
+                // unit.MovementState.CurrentPath 判定返回值即可。
+                HandlePathFailure(unit, from, target, MoveFailReason.BlockingChanged);
                 return unit.MovementState.CurrentPath != null;
             }
 

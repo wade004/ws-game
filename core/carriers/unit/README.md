@@ -508,3 +508,27 @@ stopRange, mode)`。
 验证过的"第二遍循环续推"路径，本用例验证的是"第一遍循环失败的单位现在也能进入同一条续推路径"）。
 其余 `PathFailurePolicy`/`BlockingChangePolicy` 系列用例原样通过。召唤物跟随侧的复现/不变量用例见
 `core/carriers/summon/tests/SummonFollowNavigationTests.cs`（见该模块 README）。
+
+## 判断记录（ADR-0103 决定 3 追加根治：同 tick 续推与阻挡重验重复触发失败通知，2026-09-27，
+1.84.0 全量 PlayMode 回归发现）
+
+上面"`HandlePathFailure` 返回值改造"让 `KeepOldPath` 下失败的单位不计入 `processedThisTick`，从而
+进入 `Execute` 第二遍循环同 tick 续推——但第二遍循环自己也有一套`RevalidateBlocking`→`ReplanPath`
+的阻挡重验逻辑：若新请求失败的目标与旧路径目标是同一个点（两者都被同一次阻挡事件挡住是常见场景），
+旧路径的 `NavVersion` 仍是旧值，第二遍循环判定"阻挡已变化"，又发起一次独立的 `ReplanPath`，其内部
+再次寻路失败又调用一次 `HandlePathFailure`——同一次寻路失败在同一 tick 触发两次
+`OnMoveFailedDetailed`（Unity PlayMode 用例
+`MovementStopAndBlockingPlayModeTests.ReRequestBlockedTarget_DefaultPolicy_KeepsAdvancingOldPath_FailsOnce`
+与 `...StopInsideFailureCallback_OldPathNoLongerAdvances_NoRepeatFailure` 均实测 Expected 1 Actual 2）。
+
+修法：把"失败后把 `NavVersion` 前移到当前阻挡版本"这条逻辑（原来只有 `ReplanPath` 内部一处）收拢进
+`HandlePathFailure` 统一处理——只要 `KeepOldPath` 分支下旧路径仍存在且 `NavVersion` 与当前阻挡版本
+不一致就前移。这样 `BeginPathTo` 触发的失败结束时旧路径的 `NavVersion` 已经等于当前版本，第二遍循环
+的 `RevalidateBlocking` 检查版本相符直接跳过重验、走 `ContinuePathCore` 正常续推，不会再进
+`ReplanPath` 重复寻路。`ReplanPath` 内原有的前移逻辑因此变成死代码一并删除。
+
+结论：`OnMoveFailedDetailed` 恰好一次触发与 ADR-0103 决定 3"同 tick 续推旧路径"这两条要求之间，
+不存在需要二选一的真实冲突——冲突只是本次改造引入的副作用，用上面的收拢修法即可同时满足，未改动
+`MovementStopAndBlockingPlayModeTests` 两条既有用例的任何断言。核心回归：`dotnet test
+core/carriers/tests/Tests.Carriers.csproj` 665/665 通过；Unity PlayMode 定向
+`MovementStopAndBlockingPlayModeTests` 11/11 通过（含上述两条此前回归的用例）。
