@@ -458,15 +458,6 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-### 修复
-
-- **KeepOldPath 同 tick 续推与常规阻挡重验重复触发失败通知**（1.84.0 全量 PlayMode 回归发现，
-  [ADR-0103](architecture/adr/0103-召唤物跟随点不可走时采样候选点与旧路径续推.md) 决策 3 追加根治）：
-  `HandlePathFailure` 统一前移 `NavVersion` 至当前阻挡版本（原来只有 `ReplanPath` 一处这么做），
-  使同 tick 内因重新请求失败而保留旧路径的单位，不会在第二遍循环的阻挡重验逻辑里因版本不一致又
-  触发一次 `ReplanPath` 失败，根治 `OnMoveFailedDetailed` 同一次寻路失败触发两次的问题；`ReplanPath`
-  内原有的重复前移逻辑随之收拢删除。未改动任何既有用例期望。
-
 ## [1.84.0] - 2026-09-27
 
 ### 修复
