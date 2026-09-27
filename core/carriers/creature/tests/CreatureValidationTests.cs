@@ -96,5 +96,95 @@ namespace Tests.Carriers.Creature
             }
             Assert.True(found, "应报告 stat_growth_ref 引用不存在的错误");
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0106：power_floors 校验（消费方反馈第五十五批"单一模板受伤但不死"）
+        // -----------------------------------------------------------------
+
+        private const string PowerTypeRowsWithNonZeroMin = "[" +
+            "{\"id\": \"arch.power.health\", \"name_key\": \"l10n.power.health.name\", " +
+            "\"max_source\": {\"kind\": \"fixed\", \"value\": 100}, \"min\": 5}" +
+            "]";
+
+        /// <summary>不变量⑤之一：<c>power_floors</c> 的值低于该资源类型定义的 <c>min</c> 时，
+        /// <c>CreatureContentValidationRule</c> 的 <c>creature_power_floor_min</c> 检查项给出带 id
+        /// 的诊断，不静默放行。</summary>
+        [Fact]
+        public void Validate_RejectsPowerFloorBelowDefinitionMin()
+        {
+            var bus = CreatureTestSupport.CreateBus();
+
+            const string templateRows = "[" +
+                "{\"id\": \"creature.sample_bad_power_floor\", \"name_key\": \"l10n.creature.sample_bad_power_floor.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
+                "\"base_stats\": {\"stat.power\": 1}, \"faction_id\": \"fac.test_monster\", " +
+                "\"display_ref\": \"display.sample\", " +
+                "\"power_floors\": {\"arch.power.health\": 2}}" + // 2 < arch.power.health.min(5)
+                "]";
+
+            var source = new InMemoryDataSource()
+                .Add("stat.definition", CreatureTestSupport.Envelope("stat.definition", CreatureTestSupport.StatDefinitionRows))
+                .Add(CreatureSchemas.TierDefinition.Name,
+                    CreatureTestSupport.Envelope(CreatureSchemas.TierDefinition.Name, CreatureTestSupport.TierDefinitionRows))
+                .Add("arch.power_type", CreatureTestSupport.Envelope("arch.power_type", PowerTypeRowsWithNonZeroMin))
+                .Add(CreatureSchemas.Template.Name,
+                    CreatureTestSupport.Envelope(CreatureSchemas.Template.Name, templateRows));
+
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(StatSchemas.Definition);
+            registry.RegisterSchema(CreatureSchemas.TierDefinition);
+            registry.RegisterSchema(Core.Numbers.PowerSet.PowerSchemas.PowerType);
+            registry.RegisterSchema(CreatureSchemas.Template);
+            registry.RegisterValidationRule(new CreatureContentValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == "creature_power_floor_min" &&
+                i.Field == "power_floors.arch.power.health" &&
+                i.RecordKey == "creature.sample_bad_power_floor" &&
+                i.Message.Contains("arch.power.health"));
+        }
+
+        /// <summary>不变量⑤之二：<c>power_floors</c> 的键不是已登记的 <c>arch.power_type</c> 时，
+        /// 由该字段登记的 <c>MapSchema.ReferenceKeyTable</c> 天生给出 <c>reference_integrity</c>
+        /// 诊断（惯例同 <c>base_stats</c> 的 <c>stat.definition</c> 键），<c>CreatureContentValidationRule</c>
+        /// 不重复报告 <c>creature_power_floor_min</c>。</summary>
+        [Fact]
+        public void Validate_RejectsUnknownPowerFloorKey_ViaReferenceIntegrity_NotDuplicated()
+        {
+            var bus = CreatureTestSupport.CreateBus();
+
+            const string templateRows = "[" +
+                "{\"id\": \"creature.sample_unknown_power_floor_key\", \"name_key\": \"l10n.creature.sample_unknown_power_floor_key.name\", " +
+                "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
+                "\"base_stats\": {\"stat.power\": 1}, \"faction_id\": \"fac.test_monster\", " +
+                "\"display_ref\": \"display.sample\", " +
+                "\"power_floors\": {\"arch.power.does_not_exist\": 1}}" +
+                "]";
+
+            var source = new InMemoryDataSource()
+                .Add("stat.definition", CreatureTestSupport.Envelope("stat.definition", CreatureTestSupport.StatDefinitionRows))
+                .Add(CreatureSchemas.TierDefinition.Name,
+                    CreatureTestSupport.Envelope(CreatureSchemas.TierDefinition.Name, CreatureTestSupport.TierDefinitionRows))
+                .Add("arch.power_type", CreatureTestSupport.Envelope("arch.power_type", PowerTypeRowsWithNonZeroMin))
+                .Add(CreatureSchemas.Template.Name,
+                    CreatureTestSupport.Envelope(CreatureSchemas.Template.Name, templateRows));
+
+            var registry = new DataRegistry(source, bus, new DataRegistryOptions());
+            registry.RegisterSchema(StatSchemas.Definition);
+            registry.RegisterSchema(CreatureSchemas.TierDefinition);
+            registry.RegisterSchema(Core.Numbers.PowerSet.PowerSchemas.PowerType);
+            registry.RegisterSchema(CreatureSchemas.Template);
+            registry.RegisterValidationRule(new CreatureContentValidationRule());
+
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i =>
+                i.Check == "reference_integrity" && i.Field == "power_floors[arch.power.does_not_exist]");
+            Assert.DoesNotContain(report.Issues, i => i.Check == "creature_power_floor_min");
+        }
     }
 }

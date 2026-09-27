@@ -18,6 +18,11 @@ namespace Core.Numbers.PowerSet
         {
             public double Current;
             public double Max;
+
+            /// <summary>ADR-0106：单位级下限覆盖，<c>null</c> 表示未覆盖（回落到
+            /// <see cref="PowerTypeDefinition.Min"/>），见 <see cref="SetMinOverride"/>/
+            /// <see cref="EffectiveMin"/>。</summary>
+            public double? MinOverride;
         }
 
         private sealed class UnitState
@@ -342,9 +347,50 @@ namespace Core.Numbers.PowerSet
 
                 if (power.Current > newMax)
                 {
-                    var clampedTarget = newMax < definition.Min ? definition.Min : newMax;
+                    var effectiveMin = EffectiveMin(power, definition);
+                    var clampedTarget = newMax < effectiveMin ? effectiveMin : newMax;
                     SetCurrentClamped(unitId, powerType, definition, power, clampedTarget);
                 }
+            }
+        }
+
+        /// <summary>
+        /// ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）新增：见
+        /// <see cref="IPowerHost.SetMinOverride"/> 契约注释。前置校验顺序：先确认单位已注册且持有该
+        /// 资源类型（<see cref="RequirePower"/>，与既有 <see cref="ModifyPower"/> 同一惯例），再校验
+        /// <paramref name="min"/> 落在 <c>[definition.Min, power.Max]</c> 区间——校验顺序决定报告的
+        /// 异常类型："单位/资源类型未注册"报 <see cref="InvalidOperationException"/>（与本类型其余查询
+        /// 方法一致），"覆盖值越界"报 <see cref="ArgumentException"/>（与本类型其余入参校验一致，如
+        /// <see cref="RegisterUnit"/> 的 <c>powerTypes</c> 为空）。
+        /// </summary>
+        public void SetMinOverride(Id unitId, Id powerType, double? min)
+        {
+            var definition = RequireDefinition(powerType);
+            var power = RequirePower(unitId, powerType);
+
+            if (min.HasValue)
+            {
+                if (min.Value < definition.Min)
+                {
+                    throw new ArgumentException(
+                        $"单位 \"{unitId}\" 资源类型 \"{powerType}\" 的下限覆盖 {min.Value} 低于该资源类型定义的下限 {definition.Min}",
+                        nameof(min));
+                }
+
+                if (min.Value > power.Max)
+                {
+                    throw new ArgumentException(
+                        $"单位 \"{unitId}\" 资源类型 \"{powerType}\" 的下限覆盖 {min.Value} 高于该单位当前上限 {power.Max}",
+                        nameof(min));
+                }
+            }
+
+            power.MinOverride = min;
+
+            var effectiveMin = EffectiveMin(power, definition);
+            if (power.Current < effectiveMin)
+            {
+                SetCurrentClamped(unitId, powerType, definition, power, effectiveMin);
             }
         }
 
@@ -407,7 +453,7 @@ namespace Core.Numbers.PowerSet
 
         private static double ClampTarget(PowerTypeDefinition definition, PowerState power, double raw)
         {
-            var lower = definition.Min;
+            var lower = EffectiveMin(power, definition);
             var upper = definition.AllowOverflow ? double.PositiveInfinity : power.Max;
 
             if (raw < lower)
@@ -423,6 +469,13 @@ namespace Core.Numbers.PowerSet
             return raw;
         }
 
+        /// <summary>ADR-0106：本类型全部夹取/"跌到下限"判定的唯一取值出口——覆盖存在时用覆盖值，
+        /// 否则回落到资源类型定义的 <see cref="PowerTypeDefinition.Min"/>。不复制这段判断逻辑，
+        /// <see cref="RegisterUnit"/> 初始值、<see cref="ClampTarget"/>、<see cref="RecomputeMax"/>
+        /// 上限下降夹取、<see cref="SetCurrentClamped"/> 的 depleted 判定均经本方法读取。</summary>
+        private static double EffectiveMin(PowerState power, PowerTypeDefinition definition) =>
+            power.MinOverride ?? definition.Min;
+
         /// <summary>把当前值直接设为 <paramref name="target"/>（调用方已完成夹取计算），
         /// 值变化时发事件；供 <see cref="ApplyDelta"/>、脱战回满、上限下降夹取三处复用。</summary>
         private void SetCurrentClamped(Id unitId, Id powerType, PowerTypeDefinition definition, PowerState power, double target)
@@ -436,7 +489,11 @@ namespace Core.Numbers.PowerSet
             power.Current = target;
             _bus.Enqueue(new PowerChangedEvent(unitId, powerType, old, target));
 
-            if (old > definition.Min && target <= definition.Min)
+            // ADR-0106：depleted 判定改读 EffectiveMin——覆盖存在时，"跌到下限"指跌到覆盖值，不是
+            // 资源类型定义的全局 Min（否则覆盖了下限却仍在覆盖值那一刻误发 depleted，与"不死"这一
+            // 设计意图矛盾：调用方若订阅 power.depleted 做死亡结算的旁路判断，会看到与预期不符的信号）。
+            var effectiveMin = EffectiveMin(power, definition);
+            if (old > effectiveMin && target <= effectiveMin)
             {
                 _bus.Enqueue(new PowerDepletedEvent(unitId, powerType));
             }

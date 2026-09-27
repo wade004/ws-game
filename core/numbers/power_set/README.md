@@ -128,6 +128,36 @@ power_set/
    `progression.level_up`/`progression.state_restored` → `StatHost.RecomputeRatingStats` 两条
    既有订阅同一装配层惯例。
 
+## ADR-0106：单位级资源下限覆盖（消费方反馈第五十五批"单一模板受伤但不死"）
+
+10. **`SetMinOverride` 是第五个共用 `SetCurrentClamped` 落值入口，本身不新增夹取逻辑**——`Min`
+    这个概念此前只有资源类型定义一层（`arch.power_type.min`，对该类型下全部单位统一生效）；本次
+    在 `PowerState` 上加一个每单位每资源类型的 `MinOverride`（`double?`），新增私有静态方法
+    `EffectiveMin(power, definition) => power.MinOverride ?? definition.Min`，把
+    `RegisterUnit`/`ClampTarget`（`ApplyDelta` 的夹取）/`RecomputeMax` 上限下降夹取/
+    `SetCurrentClamped` 的"跌到下限"判定统一改读这一处，不复制判断逻辑到多处。设置覆盖时如果
+    当前值已经低于新下限，立即经 `SetCurrentClamped` 夹上去，与其余三个既有入口共用同一条
+    "落值 + 发事件"路径。
+11. **"跌到下限"（`power.depleted`）判定语义变化：从"跌到资源类型定义的全局 `Min`"改为"跌到
+    这个单位当前生效的下限"**——覆盖存在时，从高于覆盖值跌到覆盖值仍会正常发一次
+    `power.depleted`（语义没有消失，只是下限本身换成了覆盖值）；连续多次停在覆盖值不重复发，
+    与改动前对全局 `Min` 的既有行为一致，只是判定的基准值换了。选择让这个事件继续按新基准触发、
+    不特殊压制它的理由：本决策的"不死"效果由 `core/rules/combat.Resolver` 的死亡判定读
+    `GetPower() <= 0`（已经被夹在覆盖下限之上，不可能触发）保证，不依赖 `power.depleted`
+    是否发出；若某个未来消费方把这个事件当"死亡"的同义信号使用，属于误用契约语义（事件名字面
+    意思就是"资源池空了"，从来不等价于"单位死了"），不是本模块需要兼容的场景。
+12. **校验/合法性只在 `SetMinOverride` 入口做，不在 `EffectiveMin` 每次取值时重复做**——覆盖值
+    是否合法（`>= definition.Min` 且 `<= power.Max`）只在设置那一刻检查一次；后续上限可能因
+    `RecomputeMax` 变化而降到覆盖值以下，`EffectiveMin` 不会因此重新校验或自动清除覆盖——这与
+    `ClampTarget` 本身"上界优先于下界"的既有夹取顺序一致（`raw < lower` 判在 `raw > upper` 之前，
+    覆盖值恰好比新上限更高时，当前值会先被夹到新上限，不会出现"当前值同时违反上下界"的中间态）。
+13. **`IPowerHost.SetMinOverride` 默认体抛 `NotSupportedException`，不是空操作**——本成员会真正
+    改变夹取下限这一数值语义，默认体若悄悄什么都不做，调用方会误以为覆盖已生效，实际单位仍可能
+    被打穿到 0，属于 AGENTS.md"运行时不做静默降级"要拦截的"看似成功、实则无效"。本接口目前只有
+    `PowerHost` 一个生产实现（显式覆盖）；测试替身（如
+    `core/rules/expr_host/tests/ExprHostTestSupport.FakePowerHost`）新增本成员不构成编译破坏，
+    它们不是本次缺陷涉及的生成/结算路径的真实消费方。
+
 ## 诊断
 
 `IPowerDiagnostics`（默认实现 `InMemoryPowerDiagnostics`，内存列表）目前只记录一类警告：

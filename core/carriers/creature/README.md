@@ -333,3 +333,33 @@ architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
 真实 `GameplayAssembly` 生产装配入口；四例：两拍之间 Despawn 一个正在被 AI 驱动追击移动的单位不再
 抛异常且被正确移除、同一拍内 Despawn 同样不抛、没有 AI 意图的普通 Despawn 路径行为不变、属性/
 能量宿主真正移除后确已注销）。
+
+## 判断记录（`creature.template` 新增 `power_floors` 单位级资源下限覆盖，2026-09-28，
+消费方反馈第五十五批，architecture/adr/0106-单位级资源下限覆盖.md）
+
+背景：消费方需要一个生物模板（训练假人一类）能持续挨打——伤害事件、飘字、受击表现照常，但生命值
+永不归零、不触发死亡结算，其余单位死亡结算逐位不变。免疫会整体吞掉伤害事件，不满足要求；在
+`core/rules/combat.Resolver` 死亡判定处按模板特判同样不选（见 ADR-0106"备选方案"）。
+
+落地：`CreatureTemplate` 新增只读属性 `PowerFloors`（`IReadOnlyDictionary<Id, double>`，缺省空
+字典，惯例同 `Immunities`）——新增属性经 ABI 硬性规则要求追加了一个新的私有构造函数重载（18 参，
+比既有 17 参多一个 `powerFloors`），既有 17 参构造函数物理签名不变、其 `PowerFloors` 落到共享的
+空字典单例，`FromRecord`（本类型唯一调用方）恒调用新重载。`CreatureSchemas.Template` 新增可选
+字段 `power_floors`（`FieldKind.Object` + `MapSchema.ReferenceKeyTable("arch.power_type", ...)`，
+键的引用完整性由该登记天生的 `reference_integrity` 检查项覆盖，惯例同 `base_stats` 的
+`stat.definition` 键）；`CreatureContentValidationRule` 新增 `creature_power_floor_min` 检查项，
+补一条登记层无法表达的跨记录数值约束——"值须 ≥ 该资源类型定义的 `min`"（`FieldRange` 只能表达字面
+常量区间）。`CreatureFactory.SpawnCore` 在 `_powers.RegisterUnit` 之后逐条调用新的
+`IPowerHost.SetMinOverride`（见 `core/numbers/power_set/README.md` 判断记录 10～13）落地覆盖。
+
+判断记录（`ResolvePowerTypes` 步骤①"预留扩展点"注释未改动的理由）：任务书条件性要求"该注释如与
+本决定矛盾则改写"。经核实两者是正交维度——步骤①决定"这个模板生成的单位应该注册哪些资源类型"，
+`power_floors` 决定"已经注册的某个资源类型在这个单位上的下限覆盖是多少"，后者不提供、也不需要
+提供"按模板选择资源类型集合"的能力，因此该注释未与本次改动产生冲突，未改动（属于任务书条件
+未触发，不是遗漏）。
+
+已知限制：若 `CreatureOptions.DefaultPowerTypes` 被显式覆盖为不含 `power_floors` 某键涉及资源
+类型的子集，`SetMinOverride` 会因该单位未持有这个资源类型直接抛 `InvalidOperationException`，
+中止整个生成流程——`power_floors` 的值合法性校验（`>= arch.power_type.min`）与"这个资源类型
+是否真的会被这个单位注册"是两个独立配置维度，未做交叉校验，留给内容作者自己保证两处配置一致
+（默认路径回落到数据集全部已登记资源类型时不会触发，见 ADR-0106"已知限制"一节）。

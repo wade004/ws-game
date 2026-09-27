@@ -103,6 +103,21 @@ namespace Core.Carriers.Creature
                     description: "无武器时普通攻击的挥击间隔（秒），见 AutoAttackHost 判断记录\"武器 speed 优先，" +
                         "武器缺失才回退本字段\"；缺省 null（该生物没有回退攻击间隔）")
                     .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                // ADR-0106 新增（消费方反馈第五十五批"单一模板受伤但不死"）：单位级资源下限覆盖，
+                // 键须为已登记的 arch.power_type（MapSchema.ReferenceKeyTable 登记为 reference_integrity
+                // 检查项，惯例同 base_stats 的 stat.definition 键）；"值 ≥ 该类型的 min"是跨记录数值
+                // 约束（登记层无法表达"某字段值须 ≥ 另一张表另一条记录的某字段值"），由
+                // CreatureContentValidationRule 的 creature_power_floor_min 检查项报告，见该类型判断
+                // 记录。缺省空（该生物没有任何资源下限覆盖），由 CreatureFactory 在 RegisterUnit 之后
+                // 逐条调用 IPowerHost.SetMinOverride 落地，见该方法判断记录。纯新增可选字段，不升
+                // currentSchemaVersion、不需要迁移函数，旧数据行零改动仍合法。
+                new FieldSchema("power_floors", FieldKind.Object, required: false,
+                    description: "Map<PowerTypeId, Number>：单位级资源下限覆盖（ADR-0106），供单一模板" +
+                        "持续挨打但不死；键须为已登记的 arch.power_type，值须 ≥ 该类型的 min（跨记录约束，" +
+                        "由 CreatureContentValidationRule 报告）；缺省空")
+                    .WithMap(MapSchema.ReferenceKeyTable("arch.power_type",
+                        new FieldSchema("value", FieldKind.Number, required: true,
+                            description: "该资源类型在本模板生成的单位上的下限覆盖值，须 ≥ arch.power_type.min"))),
             }).WithOwnership(SchemaLayer.Carriers, "creature");
 
         public static readonly TableSchema TierDefinition = new TableSchema(

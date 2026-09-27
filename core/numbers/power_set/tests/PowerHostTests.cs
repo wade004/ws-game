@@ -647,5 +647,181 @@ namespace Tests.Numbers.PowerSet
             // 重新注册后应是全新状态（回到 min，而不是保留 Unregister 之前的 40）。
             Assert.Equal(0, host.GetPower(Hero, Rage));
         }
+
+        // -----------------------------------------------------------------
+        // SetMinOverride（ADR-0106：单位级资源下限覆盖，消费方反馈第五十五批）
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void SetMinOverride_BelowDefinitionMin_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, min: 5);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            Assert.Throws<ArgumentException>(() => host.SetMinOverride(Hero, Rage, 4));
+        }
+
+        [Fact]
+        public void SetMinOverride_AboveCurrentMax_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            Assert.Throws<ArgumentException>(() => host.SetMinOverride(Hero, Rage, 101));
+        }
+
+        [Fact]
+        public void SetMinOverride_UnregisteredUnit_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { rage }, bus);
+
+            Assert.Throws<InvalidOperationException>(() => host.SetMinOverride(new Id("unit.never_registered"), Rage, 1));
+        }
+
+        [Fact]
+        public void SetMinOverride_UnregisteredPowerType_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { mana, rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+
+            // Hero 只注册了 mana，没有 rage。
+            Assert.Throws<InvalidOperationException>(() => host.SetMinOverride(Hero, Rage, 1));
+        }
+
+        [Fact]
+        public void SetMinOverride_ClampsFutureModifyPower_NeverBelowOverride_AndAmountEventUnaffected()
+        {
+            // 复现 ADR-0106 设计意图的最小单元版本：覆盖下限后，ModifyPower 无论传入多大的负增量，
+            // 当前值都不会跌破覆盖值——呼应 core/rules/combat.Resolver 判断记录"选覆盖下限而非死亡
+            // 判定特判"：Resolver 自己不需要改，落地入口本身已经把值夹在覆盖下限之上。
+            var bus = PowerTestSupport.CreateBus();
+            var health = PowerTestSupport.FixedType("arch.power.health", maxValue: 100);
+            var host = new PowerHost(new[] { health }, bus);
+            var healthId = new Id("arch.power.health");
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.health"));
+
+            host.SetMinOverride(Hero, healthId, 1);
+
+            host.ModifyPower(Hero, healthId, -10000, ModifySource);
+            Assert.Equal(1, host.GetPower(Hero, healthId));
+
+            host.ModifyPower(Hero, healthId, -1, ModifySource);
+            Assert.Equal(1, host.GetPower(Hero, healthId));
+        }
+
+        [Fact]
+        public void SetMinOverride_CurrentBelowNewFloor_ImmediatelyClampsUp_FiresChangedNotDepleted()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage")); // 当前值 0（startFull=false, min=0）
+
+            var changed = new List<PowerChangedEvent>();
+            var depleted = new List<PowerDepletedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+            bus.Subscribe<PowerDepletedEvent>(PowerEventKeys.Depleted, e => depleted.Add(e));
+
+            host.SetMinOverride(Hero, Rage, 10); // 当前值 0 < 新下限 10，应立即夹上去
+
+            bus.DispatchPending();
+
+            Assert.Equal(10, host.GetPower(Hero, Rage));
+            Assert.Single(changed);
+            Assert.Equal(0, changed[0].OldValue);
+            Assert.Equal(10, changed[0].NewValue);
+            // 夹的方向是从低于下限升到下限，不是从高于下限跌到下限，不应发 depleted。
+            Assert.Empty(depleted);
+        }
+
+        [Fact]
+        public void SetMinOverride_Null_ClearsOverride_FallsBackToDefinitionMin()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, min: 0);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            host.SetMinOverride(Hero, Rage, 20);
+            host.ModifyPower(Hero, Rage, -1000, ModifySource);
+            Assert.Equal(20, host.GetPower(Hero, Rage));
+
+            host.SetMinOverride(Hero, Rage, null);
+            host.ModifyPower(Hero, Rage, -1000, ModifySource);
+
+            // 覆盖已清除，回落到资源类型定义的 min（本例为 0）。
+            Assert.Equal(0, host.GetPower(Hero, Rage));
+        }
+
+        [Fact]
+        public void PowerDepleted_FiresOnlyOnce_OnConsecutiveHitsToOverrideFloor()
+        {
+            // PowerDepleted_FiresOnlyOnce_OnConsecutiveHitsToMin 的覆盖版本："跌到下限"改按
+            // EffectiveMin（覆盖值）判定，不再是资源类型定义的全局 min——从高于覆盖值跌到覆盖值仍应
+            // 发一次 power.depleted（语义是"跌到这个单位当前生效的下限"，不是"永不再发 depleted"；
+            // "受伤但不死"依赖的是 Resolver 判死用的 GetPower() <= 0 这条路径夹在覆盖值之上，不依赖
+            // 本事件是否发出，见 core/rules/combat.Resolver 判断记录），反复打到覆盖值只发一次。
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+            host.SetMinOverride(Hero, Rage, 5);
+            host.ModifyPower(Hero, Rage, 50, ModifySource); // 5 -> 55（先垫高，避免 SetMinOverride 自己的夹取事件混进来）
+            bus.DispatchPending();
+
+            var depleted = new List<PowerDepletedEvent>();
+            bus.Subscribe<PowerDepletedEvent>(PowerEventKeys.Depleted, e => depleted.Add(e));
+
+            host.ModifyPower(Hero, Rage, -1000, ModifySource); // 55 -> 5（覆盖下限），跌到下限，发一次
+            host.ModifyPower(Hero, Rage, -1000, ModifySource); // 已经是 5，不再变化，不再发
+            bus.DispatchPending();
+
+            Assert.Equal(5, host.GetPower(Hero, Rage));
+            Assert.Single(depleted);
+            Assert.Equal(Hero, depleted[0].UnitId);
+            Assert.Equal(Rage, depleted[0].PowerType);
+        }
+
+        [Fact]
+        public void UnregisterUnit_ThenRegisterAgain_DoesNotCarryOverPreviousOverride()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+            host.SetMinOverride(Hero, Rage, 30);
+
+            host.UnregisterUnit(Hero);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+
+            // 覆盖随单位一起被清除：重新注册后 ModifyPower 应能打到资源类型定义的 min（0），不再
+            // 停在旧覆盖值 30。
+            host.ModifyPower(Hero, Rage, -1000, ModifySource);
+            Assert.Equal(0, host.GetPower(Hero, Rage));
+        }
+
+        [Fact]
+        public void Advance_WithMinOverride_RegenStillAppliesAboveFloor()
+        {
+            // 不变量⑥：覆盖下限只改变"能跌到多低"，不影响下限之上的正常回复（regen）行为。
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false, regenOutOfCombat: 3);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+            host.SetMinOverride(Hero, Rage, 5); // 当前值 0 < 5，立即夹到 5
+
+            host.Advance(Hero, 2.0); // 脱战 regen 3/秒 × 2 秒 = +6
+
+            Assert.Equal(11, host.GetPower(Hero, Rage));
+        }
     }
 }

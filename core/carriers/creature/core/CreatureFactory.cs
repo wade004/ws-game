@@ -281,6 +281,19 @@ namespace Core.Carriers.Creature
 
             _powers.RegisterUnit(entityId, ResolvePowerTypes(template));
 
+            // ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）：RegisterUnit 之后逐条落地单位级
+            // 资源下限覆盖——必须在 RegisterUnit 之后（SetMinOverride 要求单位已持有该资源类型，见
+            // IPowerHost.SetMinOverride 判断记录）。template.PowerFloors 引用的资源类型未出现在
+            // ResolvePowerTypes(template) 实际注册的集合内时（仅当 CreatureOptions.DefaultPowerTypes
+            // 被显式覆盖为不含该类型的子集才会发生，默认回落到 _allPowerTypeIds 时恒含全部已登记
+            // 类型，不会触发），SetMinOverride 会因单位未持有该资源类型抛
+            // InvalidOperationException——已知限制，不在本方法内静默吞掉或跳过，理由见 07/该字段
+            // 校验判断记录"值 ≥ 该类型 Min"只保证覆盖值本身合法，不保证该类型确实会被这个单位注册。
+            foreach (var kv in template.PowerFloors)
+            {
+                _powers.SetMinOverride(entityId, kv.Key, kv.Value);
+            }
+
             if (template.AiBehaviorRef.HasValue)
             {
                 _aiRegistrar(entityId, template.AiBehaviorRef.Value, position, template.AiRotationRef);

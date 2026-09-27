@@ -458,6 +458,16 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **单位级资源下限覆盖**（消费方反馈第五十五批"单一模板受伤但不死"，[ADR-0106](architecture/adr/0106-单位级资源下限覆盖.md)）：
+  `IPowerHost` 新增默认接口成员 `SetMinOverride(unitId, powerType, min)`，`PowerHost` 全部夹取出口
+  统一改读"覆盖 ?? 资源类型定义的 min"；`creature.template` 新增可选字段 `power_floors`
+  （`Map<PowerTypeId, Number>`），`CreatureFactory` 在 `RegisterUnit` 之后逐条落地为覆盖，
+  `CreatureContentValidationRule` 新增 `creature_power_floor_min` 检查项校验覆盖值不低于该资源
+  类型的 `min`。战斗结算与伤害事件不改——落地数值仍是结算前的原始量，生命值被夹在覆盖下限之上，
+  死亡判定自然不触发。
+
 ## [1.85.0] - 2026-09-27
 
 ### 修复

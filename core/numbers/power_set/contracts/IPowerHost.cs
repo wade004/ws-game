@@ -155,5 +155,45 @@ namespace Core.Numbers.PowerSet
         /// 单位未注册时抛异常。
         /// </summary>
         void RecomputeMax(Id unitId);
+
+        /// <summary>
+        /// ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）新增：为 <paramref name="unitId"/> 的
+        /// <paramref name="powerType"/> 设置单位级下限覆盖，<paramref name="min"/> 为 <c>null</c> 时
+        /// 清除覆盖（回落到 <see cref="PowerTypeDefinition.Min"/>）。<see cref="PowerHost"/> 全部夹取
+        /// 出口（<c>RegisterUnit</c> 初始值、<c>ApplyDelta</c> 下界、上限下降夹取、<c>SetCurrentClamped</c>
+        /// 的"跌到下限"判定）此后统一读"覆盖 ?? 定义 Min"，不再单读 <see cref="PowerTypeDefinition.Min"/>
+        /// ——这是唯一改动点，<c>combat.damage_dealt</c> 等事件携带的数值不受影响（仍是结算管线算出的
+        /// 夹取前原始量，见 <c>Core.Rules.Combat.Resolver</c> 判断记录"选覆盖下限而非死亡判定特判"）。
+        /// <para>
+        /// 前置条件：<paramref name="unitId"/> 必须已注册且持有 <paramref name="powerType"/>（否则抛
+        /// <see cref="System.InvalidOperationException"/>，与 <see cref="GetPower"/> 同一约定）；
+        /// <paramref name="min"/> 非 <c>null</c> 时必须 <c>&gt;=</c> <see cref="PowerTypeDefinition.Min"/>
+        /// 且 <c>&lt;=</c> 该单位该资源类型的当前上限，否则抛 <see cref="System.ArgumentException"/>
+        /// ——覆盖只能收紧"这个单位不应该被打到 0/低于下限以下"这一意图本身的下界，不能突破资源类型
+        /// 定义的全局下限，也不能超过自己的上限（下限 &gt; 上限没有意义）。设置后若当前值低于新下限，
+        /// 立即经既有"落值 + 发事件"唯一出口（<c>SetCurrentClamped</c>）夹上去，与
+        /// <see cref="ModifyPower"/>/<see cref="SetInCombat"/> 脱战回满/<see cref="RecomputeMax"/> 上限
+        /// 夹取共用同一处，可能触发 <c>power.changed</c>（不会触发 <c>power.depleted</c>——夹的方向是
+        /// 从低于下限升到下限，不是从高于下限跌到下限）。<see cref="UnregisterUnit"/> 连带清除覆盖
+        /// （覆盖存于单位内部状态，随单位一起移除，不需要调用方额外清理）。
+        /// </para>
+        /// <para>
+        /// 判断记录（默认实现，C#8 默认接口方法，ABI 门禁 G3"公开 API 只能新增"，惯例同
+        /// <see cref="RefillAll"/>/<see cref="TryGetPower"/>）：默认体抛
+        /// <see cref="System.NotSupportedException"/>，不是空操作——本成员会真正改变夹取下限这一数值
+        /// 语义，若默认体悄悄什么都不做，调用方会以为覆盖已生效、实际单位仍按原下限（含 0）被打死，
+        /// 这正是 11 第 4 节"运行时不做静默降级"要拦截的那种"看似成功、实则无效"的降级；比照
+        /// <see cref="RecomputeMax"/> 一类"改变既有数值状态"的成员本就是必须实现的抽象成员，本成员
+        /// 因为要保持"公开 API 只新增"才退而求其次用带默认实现的接口成员，但默认体选择显式失败而非
+        /// 悄悄放行。本接口目前只有 <see cref="PowerHost"/> 一个生产实现（显式覆盖，见其同名成员判断
+        /// 记录）；其余实现方（<c>core/rules/expr_host/tests/ExprHostTestSupport.FakePowerHost</c> 等
+        /// 测试替身）新增本成员不构成编译破坏，它们本就不是本次缺陷涉及的生成/结算路径的真实消费方，
+        /// 调用本方法会显式抛出而不是产生一个看似正确的空操作。
+        /// </para>
+        /// </summary>
+        void SetMinOverride(Id unitId, Id powerType, double? min) =>
+            throw new System.NotSupportedException(
+                $"{GetType().Name} 未实现 {nameof(SetMinOverride)}（ADR-0106 单位级资源下限覆盖，" +
+                $"默认接口成员故意不做静默空操作，见 IPowerHost.{nameof(SetMinOverride)} 判断记录）");
     }
 }

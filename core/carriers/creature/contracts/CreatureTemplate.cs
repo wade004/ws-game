@@ -78,6 +78,18 @@ namespace Core.Carriers.Creature
         /// 生物模板在"没有启用普通攻击"这一前提下，行为逐位不变）。</summary>
         public double? AttackInterval { get; }
 
+        private static readonly IReadOnlyDictionary<Id, double> EmptyPowerFloors = new Dictionary<Id, double>();
+
+        /// <summary>ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）新增可选字段：单位级资源下限
+        /// 覆盖，键为 <c>arch.power_type</c> id、值为该资源类型在本模板生成的单位上的下限覆盖（须
+        /// ≥ 该类型的 <c>min</c>，见 <see cref="Core.Carriers.Creature.CreatureContentValidationRule"/>
+        /// 判断记录）。<see cref="Core.Carriers.Creature.CreatureFactory"/> 在
+        /// <see cref="Core.Numbers.PowerSet.IPowerHost.RegisterUnit"/> 之后逐条调用
+        /// <see cref="Core.Numbers.PowerSet.IPowerHost.SetMinOverride"/> 落地（见该方法判断记录）。
+        /// 缺省空字典（不是 null，调用方不需要额外 null 检查，惯例同 <see cref="Immunities"/>）——
+        /// 未声明本字段的既有生物模板行为逐位不变。</summary>
+        public IReadOnlyDictionary<Id, double> PowerFloors { get; }
+
         private CreatureTemplate(
             Id id,
             Id nameKey,
@@ -114,6 +126,39 @@ namespace Core.Carriers.Creature
             OnDeathReactionRef = onDeathReactionRef;
             GossipMenuRef = gossipMenuRef;
             AttackInterval = attackInterval;
+            PowerFloors = EmptyPowerFloors;
+        }
+
+        /// <summary>ADR-0106 新增重载（ABI 硬性规则"只允许新增"，不改既有 17 参构造函数物理签名，
+        /// 惯例同 <see cref="Core.Carriers.Creature.CreatureFactory"/> T-N6-3b 新增构造重载的既有
+        /// 先例）：追加 <paramref name="powerFloors"/>。委托给既有构造函数设置其余字段后再补
+        /// <see cref="PowerFloors"/>——get-only 自动属性允许在链式构造之后的构造函数体内赋值。
+        /// <see cref="FromRecord"/> 是本类型唯一调用方，恒调用本重载；既有 17 参构造函数保留仅为
+        /// 满足 ABI"新增不改旧"的字面要求，其 <see cref="PowerFloors"/> 落到共享的空字典单例。</summary>
+        private CreatureTemplate(
+            Id id,
+            Id nameKey,
+            int level,
+            Id tierId,
+            IReadOnlyDictionary<Id, double> baseStats,
+            Id? statGrowthRef,
+            Id factionId,
+            IReadOnlyList<NpcFlag> npcFlags,
+            Id? aiRotationRef,
+            Id? aiBehaviorRef,
+            Id? lootTableRef,
+            Id displayRef,
+            IReadOnlyList<Id> immunities,
+            Id? onHitReactionRef,
+            Id? onDeathReactionRef,
+            Id? gossipMenuRef,
+            double? attackInterval,
+            IReadOnlyDictionary<Id, double> powerFloors)
+            : this(id, nameKey, level, tierId, baseStats, statGrowthRef, factionId, npcFlags,
+                  aiRotationRef, aiBehaviorRef, lootTableRef, displayRef, immunities,
+                  onHitReactionRef, onDeathReactionRef, gossipMenuRef, attackInterval)
+        {
+            PowerFloors = powerFloors;
         }
 
         public static CreatureTemplate FromRecord(DataRecord record)
@@ -174,10 +219,29 @@ namespace Core.Carriers.Creature
             var gossipMenuRef = record.TryGetId("gossip_menu_ref", out var gmr) ? (Id?)gmr : null;
             var attackInterval = record.TryGetNumber("attack_interval", out var ai) ? (double?)ai : null;
 
+            var powerFloors = EmptyPowerFloors;
+            if (record.TryGetObject("power_floors", out var powerFloorsObj))
+            {
+                var floors = new Dictionary<Id, double>();
+                foreach (var kv in powerFloorsObj)
+                {
+                    if (kv.Value is JsonNumber floorNum && Id.TryParse(kv.Key, out var powerTypeId))
+                    {
+                        floors[powerTypeId] = floorNum.Value;
+                    }
+                    else
+                    {
+                        throw new DataFieldException(record.Table.Name, record.Key, "power_floors",
+                            $"元素 \"{kv.Key}\" 不是合法的 Id → Number 映射");
+                    }
+                }
+                powerFloors = floors;
+            }
+
             return new CreatureTemplate(
                 id, nameKey, level, tierId, baseStats, statGrowthRef, factionId, npcFlags,
                 aiRotationRef, aiBehaviorRef, lootTableRef, displayRef, immunities,
-                onHitReactionRef, onDeathReactionRef, gossipMenuRef, attackInterval);
+                onHitReactionRef, onDeathReactionRef, gossipMenuRef, attackInterval, powerFloors);
         }
     }
 }
