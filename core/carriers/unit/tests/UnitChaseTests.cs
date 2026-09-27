@@ -335,11 +335,18 @@ namespace Tests.Carriers.Unit
 
             nav.AlwaysUnreachable = true;
             // 再漂一次，累计再次超过 0.5，触发下一次重新规划——这次寻路失败。
+            // ADR-0102（修订 ADR-0097 决策 5）：AlwaysUnreachable 时直接回退点与
+            // TryFindStandoffCandidatePath 采样的全部候选（含直接回退点，总计
+            // MovementOptions.ChaseStandoffCandidates 个）都会失败，才真正判定为"到不了"——
+            // 期望调用次数按规则算出，不写死裸数：本次重规划前 FindPathCallCount 已经是 2，
+            // 全部候选耗尽新增 ChaseStandoffCandidates 次调用。
+            var candidatesPerFailedReplan = new MovementOptions().ChaseStandoffCandidates;
+            var expectedCallsAfterUnreachableReplan = 2 + candidatesPerFailedReplan;
             targetPos += new Vec2(0, 0.6);
             fixture.Units.SetPosition(TargetId, targetPos);
             Tick(fixture, 1.0);
 
-            Assert.Equal(3, nav.FindPathCallCount);
+            Assert.Equal(expectedCallsAfterUnreachableReplan, nav.FindPathCallCount);
             var failed = Assert.Single(failedEvents);
             Assert.Equal(ChaserId, failed.UnitId);
             var failedDetailed = Assert.Single(failedDetailedEvents);
@@ -354,9 +361,65 @@ namespace Tests.Carriers.Unit
             Tick(fixture, 1.0);
             Tick(fixture, 1.0);
 
-            Assert.Equal(3, nav.FindPathCallCount);
+            Assert.Equal(expectedCallsAfterUnreachableReplan, nav.FindPathCallCount);
             Assert.Single(failedEvents);
             Assert.Single(failedDetailedEvents);
+        }
+
+        // ------------------------------------------------------------------
+        // 不变量③（ADR-0102）：ChaseStandoffCandidates = 1 时不采样，行为与 1.82.0（ADR-0102 落地前）
+        // 逐字一致——直接回退点失败即视为"到不了"，只触发一次 FindPath 调用。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ToUnit_ChaseStandoffCandidatesDisabled_DoesNotSample_BehavesLike1820()
+        {
+            var nav = new CountingNavigation2D { AlwaysUnreachable = true };
+            var options = new MovementOptions { ChaseStandoffCandidates = 1 };
+            var fixture = Build(chaserSpeed: 10.0, targetStart: new Vec2(4, 0), navigation: nav, options: options);
+
+            var failedDetailedEvents = new List<MoveFailReason>();
+            fixture.Host.OnMoveFailedDetailed += (unitId, from, to, reason) => failedDetailedEvents.Add(reason);
+
+            RequestChase(fixture, stopRange: 1.5);
+            Tick(fixture, 1.0);
+
+            Assert.Equal(1, nav.FindPathCallCount);
+            var reason = Assert.Single(failedDetailedEvents);
+            Assert.Equal(MoveFailReason.NoPath, reason);
+            Assert.False(fixture.Chaser.MovementState.Chase.HasValue);
+        }
+
+        // ------------------------------------------------------------------
+        // ADR-0102 复现：目标紧贴一块阻挡矩形，直接回退点恰好落在阻挡内，但停止距离圆上其它候选点
+        // 可走——采样应找到第一个成功候选，追击正常推进、不触发失败通知。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ToUnit_DirectStandoffPointBlocked_SamplesCandidate_SucceedsWithoutMoveFailed()
+        {
+            var nav = new CountingNavigation2D();
+            // 阻挡矩形只盖住直接回退点 (2.5, 0)（目标 (4,0) 沿"单位(0,0)→目标"方向回退 StopRange=1.5
+            // 得到），Y 方向留 ±0.4——第一个采样候选（偏移 +δ=+22.5°，见 TryFindStandoffCandidatePath）
+            // 落在 (2.614, -0.574)，|y|=0.574 > 0.4，在阻挡矩形之外，故直接回退点失败、第一个候选
+            // 成功，期望 FindPathCallCount = 1（直接点）+ 1（第一个候选）= 2。
+            nav.SetBlocking(MapId, new[] { new Rect(new Vec2(2.2, -0.4), new Vec2(2.8, 0.4)) });
+            var fixture = Build(chaserSpeed: 10.0, targetStart: new Vec2(4, 0), navigation: nav);
+
+            var failedEvents = new List<Id>();
+            fixture.Host.OnMoveFailed += (unitId, from, to) => failedEvents.Add(unitId);
+            var startPos = fixture.Units.GetPosition(ChaserId);
+
+            RequestChase(fixture, stopRange: 1.5);
+            for (var i = 0; i < 5; i++)
+            {
+                Tick(fixture, 1.0);
+            }
+
+            Assert.Empty(failedEvents);
+            Assert.NotEqual(startPos, fixture.Units.GetPosition(ChaserId));
+            Assert.True(DistanceChaserToTarget(fixture) <= 1.5 + 0.25 + 1e-6);
+            Assert.Equal(2, nav.FindPathCallCount);
         }
     }
 }

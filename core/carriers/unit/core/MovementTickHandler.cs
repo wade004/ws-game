@@ -599,12 +599,23 @@ namespace Core.Carriers.Unit
         /// <see cref="BeginChase"/> 判断记录）。
         /// </para>
         /// <para>
-        /// 判断记录（重新规划路径失败时的已知限制）：<see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/>
-        /// 对目标当前位置寻路失败时，静默保留旧路径（若有）原地不动，下一 tick 用同样的目标位置重试，
-        /// 不触发 <see cref="MovementHost.OnMoveFailed"/>/<see cref="MovementHost.OnMoveFailedDetailed"/>，
-        /// 也不按 <see cref="MovementOptions.PathFailurePolicy"/> 处理——任务书未对追击场景的寻路失败
-        /// 提出要求，按"不劣化、安静重试"收敛范围，与既有路径跟随（<see cref="BeginPathTo"/>/
-        /// <see cref="ReplanPath"/>）的失败事件是两条独立分支，见本模块 README 判断记录"已知限制"。
+        /// 判断记录（ADR-0102，修订 ADR-0097 决策 5"重新规划路径失败"的处理，替换本段此前已经
+        /// 过期的描述）：直接回退点（沿"单位→目标"方向回退 <see cref="UnitChaseState.StopRange"/>
+        /// 的那一点）寻路失败时，不立即判定为"到不了"——目标自身所在格通常是可走的，直接回退点落在
+        /// 不可走格往往只是这一个采样点运气不好（例如目标紧贴一块阻挡物的某一侧），因此改为按
+        /// <see cref="TryFindStandoffCandidatePath"/> 在目标周围的停止距离圆上再采样若干候选站位点，
+        /// 取第一个寻路成功的；全部候选（含直接回退点）都失败才真正判定为"到不了"，触发既有的
+        /// <see cref="MovementHost.OnMoveFailed"/>/<see cref="MovementHost.OnMoveFailedDetailed"/>
+        /// （复用 <see cref="MoveFailReason.NoPath"/>）并结束本次追击——不接
+        /// <see cref="MovementOptions.PathFailurePolicy"/> 的 KeepOldPath/Stop 二选一，追击场景的
+        /// 失败处理语义固定为"结束"（见既有判断记录、下方 else 分支注释）。
+        /// </para>
+        /// <para>
+        /// 判断记录（已知限制：追击单位自身站在不可走格不处理）：<see cref="INavigation2D.FindPath"/>
+        /// 端点契约保证起点不可走时任何终点都返回 null（见该接口方法注释），因此追击单位自己站进
+        /// 阻挡时，直接回退点与全部采样候选必然一起失败，表现与"目标真的处于永久不可达区域"完全
+        /// 相同，按上面同一套"结束追击"处理——单位站进阻挡是放置/生成问题，不是追击系统的职责，本次
+        /// 不额外区分这两种成因（见 ADR-0102"备选方案与为什么不选"）。
         /// </para>
         /// </summary>
         /// <param name="priorModeOverride">仅 <see cref="BeginChase"/> 首次评估时传入：本次调用触发
@@ -682,6 +693,16 @@ namespace Core.Carriers.Unit
                     ? _navigation.FindPath(unit.MapId, unit.Position, standoffPoint)
                     : new List<Vec2> { unit.Position, standoffPoint };
 
+                // ADR-0102（修订 ADR-0097 决策 5）：直接回退点失败时，先在目标周围的停止距离圆上
+                // 采样若干候选站位点再判定"到不了"（见 TryFindStandoffCandidatePath、本方法上方
+                // 判断记录）；_navigation == null 时直接回退点已经是无条件成功的直线路径（见上面
+                // newPath 的三元表达式），走不到这里，故只在 _navigation != null 时才需要采样。
+                if (newPath == null && _navigation != null && _options.ChaseStandoffCandidates > 1 &&
+                    TryFindStandoffCandidatePath(unit, targetPos, chase.StopRange, out var candidatePath))
+                {
+                    newPath = candidatePath;
+                }
+
                 if (newPath != null)
                 {
                     path = newPath;
@@ -692,7 +713,8 @@ namespace Core.Carriers.Unit
                 else
                 {
                     // 判断记录（消费方反馈复核后拍板，修正本方法此前"静默保留旧路径下次重试"的
-                    // 处理）：追击的目标在动，"移动到固定点"寻路失败时 KeepOldPath（默认策略）
+                    // 处理；ADR-0102 修订：先经过上面的候选站位点采样仍全部失败，才真正判定为
+                    // "到不了"）：追击的目标在动，"移动到固定点"寻路失败时 KeepOldPath（默认策略）
                     // "保留旧路径继续推进、什么都不做"这条既有语义在这里不成立——旧路径的终点是
                     // 上一次的目标快照，目标下一 tick 大概率又移动了，继续沿用没有意义；若目标恰好
                     // 站在一块永久不可达的区域（如导航网格之外），"什么都不做"会导致每个 tick 都
@@ -784,6 +806,47 @@ namespace Core.Carriers.Unit
             {
                 RaiseStateChangedIfNeeded(unit.EntityId, priorMode, chase.Mode);
             }
+        }
+
+        /// <summary>
+        /// ADR-0102《追击规划点不可达时采样候选站位点》（修订 ADR-0097 决策 5）：<see cref="AdvanceChase"/>
+        /// 的直接回退点（目标当前位置沿"单位→目标"方向回退 <paramref name="stopRange"/> 的那一点，
+        /// 角度上等价于本方法的偏移 0）寻路失败后调用——以 <paramref name="targetPos"/> 为圆心、
+        /// <paramref name="stopRange"/> 为半径，从"正对追击单位的方向"（即直接回退点所在角度，
+        /// <c>atan2(unit.Position - targetPos)</c>）起，按左右交替外扩的角度序列
+        /// <c>+δ, -δ, +2δ, -2δ, …</c>（<c>δ = 2π / MovementOptions.ChaseStandoffCandidates</c>）依次
+        /// 生成候选点并调用 <see cref="INavigation2D.FindPath"/>，返回第一个寻路成功的候选（角偏
+        /// 最小即绕路最短）；不显式尝试偏移 0——直接回退点已经由调用方试过一次并失败，本方法只补齐
+        /// 圆上其余 <c>ChaseStandoffCandidates - 1</c> 个候选。全部候选都失败时返回 <c>false</c>，
+        /// 调用方按既有 ADR-0097 决策 5 的口径触发一次 <c>NoPath</c> 失败通知并结束追击（本方法不
+        /// 涉及事件面，只负责寻路尝试）。
+        /// </summary>
+        private bool TryFindStandoffCandidatePath(
+            Unit unit, Vec2 targetPos, double stopRange, out IReadOnlyList<Vec2>? path)
+        {
+            var candidates = _options.ChaseStandoffCandidates;
+            var baseAngle = Math.Atan2(unit.Position.Y - targetPos.Y, unit.Position.X - targetPos.X);
+            var delta = 2.0 * Math.PI / candidates;
+
+            for (var i = 1; i < candidates; i++)
+            {
+                var sign = i % 2 == 1 ? 1 : -1;
+                var magnitude = (i + 1) / 2;
+                var angle = baseAngle + sign * magnitude * delta;
+                var candidatePoint = new Vec2(
+                    targetPos.X + stopRange * Math.Cos(angle),
+                    targetPos.Y + stopRange * Math.Sin(angle));
+
+                var candidatePath = _navigation!.FindPath(unit.MapId, unit.Position, candidatePoint);
+                if (candidatePath != null)
+                {
+                    path = candidatePath;
+                    return true;
+                }
+            }
+
+            path = null;
+            return false;
         }
 
         /// <summary>追击自动结束的统一出口（目标不存在/已标记销毁/已死亡/不在同一地图，见

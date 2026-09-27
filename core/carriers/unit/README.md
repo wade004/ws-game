@@ -418,14 +418,16 @@ stopRange, mode)`。
 - **兼容性**：`MovementOptions` 新增 `FollowResumeSlack`（默认 0.25）、`FollowRepathDistance`
   （默认 0.5），均为带默认值的可写属性，构造函数签名不变。除上述新增成员外不改动任何既有公开
   签名；`abi_probe` breaks=0。
-- **重新规划路径失败**（消费方复核后拍板，修正本节最初版本"静默保留旧路径下次重试"的处理）：
-  追击的目标在动，"移动到固定点"寻路失败时默认策略"保留旧路径原地不动、下次重试"这条既有语义在
-  追击场景不成立——旧路径的终点是上一次的目标快照，目标下一 tick 大概率又移动了，继续沿用没有
-  意义；若目标恰好站在一块永久不可达的区域，"什么都不做"会导致每个 tick 都重新调用一次
-  `INavigation2D.FindPath` 却每次都失败，寻路开销无界增长，且消费方永远收不到"到不了"的信号。
-  改为按"移动到固定点"寻路失败的既有口径处理通知面：`FindPath` 返回 `null` 时（含首次规划失败）
-  触发既有的 `MovementHost.OnMoveFailed`/`OnMoveFailedDetailed`（复用既有的 `MoveFailReason.NoPath`，
-  不新增原因值），随后直接结束本次追击（清空 `Chase`、状态收回 `Idle`）——不接入
+- **重新规划路径失败**（消费方复核后拍板，修正本节最初版本"静默保留旧路径下次重试"的处理；
+  [ADR-0102](../../../architecture/adr/0102-追击规划点不可达时采样候选站位点.md) 修订：判定
+  "失败"之前先做一次候选站位点采样，见下方独立小节）：追击的目标在动，"移动到固定点"寻路失败时
+  默认策略"保留旧路径原地不动、下次重试"这条既有语义在追击场景不成立——旧路径的终点是上一次的
+  目标快照，目标下一 tick 大概率又移动了，继续沿用没有意义；若目标恰好站在一块永久不可达的区域，
+  "什么都不做"会导致每个 tick 都重新调用一次 `INavigation2D.FindPath` 却每次都失败，寻路开销
+  无界增长，且消费方永远收不到"到不了"的信号。改为按"移动到固定点"寻路失败的既有口径处理通知面：
+  直接回退点与候选站位点全部寻路失败后（含首次规划失败）触发既有的
+  `MovementHost.OnMoveFailed`/`OnMoveFailedDetailed`（复用既有的 `MoveFailReason.NoPath`，不
+  新增原因值），随后直接结束本次追击（清空 `Chase`、状态收回 `Idle`）——不接入
   `MovementOptions.PathFailurePolicy` 的 `KeepOldPath`/`Stop` 二选一：那是"移动到固定点"场景的
   口味开关，追击场景的失败处理语义固定为"结束"，不做可配置。
 - **已知限制**：① 移动请求（含追击）目前不参与存档序列化——本次改动之前就是如此，首次在此明确
@@ -433,9 +435,39 @@ stopRange, mode)`。
   大时，本 tick 可能一路走到与目标重合（比声明的 `StopRange` 更近），下一 tick 的距离判断才会把它
   收回停止状态，是逐 tick 结算的固有粒度问题。③ 离散模式下，目标死亡/消失只有在本单位下一次收到
   新的 `move_to_unit` 意图时才会被检测到并结束请求，与既有路径跟随/受控位移在离散模式下"仅在
-  行动者自己回合处理"的惯例一致，不会在其它单位的回合中主动探测。
+  行动者自己回合处理"的惯例一致，不会在其它单位的回合中主动探测。④ 追击单位自身站在不可走格时
+  （见下方独立小节"已知限制"）不特殊处理，仍按"到不了"结束。
 
-测试：`core/carriers/unit/tests/UnitChaseTests.cs`（8 例：靠近—停止—目标走远后恢复追击的端到端
+## ADR-0102《追击规划点不可达时采样候选站位点》：候选站位点采样（修订 ADR-0097 决策 5）
+
+消费方第四十九批反馈 2（阻塞）：直接回退点（目标当前位置沿"单位→目标"方向回退 `StopRange` 的
+一点）寻路失败时，此前立即判定为"到不了"；加了物件静态阻挡后，站在物件旁的目标从被挡一侧被追击，
+这一个点常落在不可走格，即便目标自身所在格可走、停止距离圆上大多数方向也都可走。
+
+- **采样规则**（`MovementTickHandler.TryFindStandoffCandidatePath`）：直接回退点失败且已装配
+  `INavigation2D`、`MovementOptions.ChaseStandoffCandidates &gt; 1` 时才采样；以目标当前位置为
+  圆心、`StopRange` 为半径，从直接回退点所在角度（"正对追击单位的方向"）起，按 `+δ, -δ, +2δ,
+  -2δ, …`（`δ = 2π / ChaseStandoffCandidates`）依次生成候选点并调用 `FindPath`，取第一个成功的
+  （角偏最小即绕路最短）；不重复尝试偏移 0（直接回退点已经单独试过），只补齐圆上其余
+  `ChaseStandoffCandidates - 1` 个候选。全部候选（含直接回退点，最多共
+  `ChaseStandoffCandidates` 次 `FindPath` 调用）都失败才真正判定为"到不了"，走既有的失败通知 +
+  结束追击流程。
+- **兼容性**：`MovementOptions` 新增可写属性 `ChaseStandoffCandidates`（默认 16，构造函数签名
+  不变）；`≤1` 时不采样，行为与 1.82.0（本决策落地前）逐字一致；未装配 `INavigation2D` 时同样不
+  采样（直接连线场景不存在"寻路失败"这一分支）。`abi_probe` breaks=0（仅新增该属性一处）。
+- **已知限制**：追击单位自身站在不可走格时，`INavigation2D.FindPath` 端点契约保证起点不可走则
+  任何终点都返回 `null`，因此直接回退点与全部采样候选会一起失败，表现与"目标真的处于永久不可达
+  区域"完全相同，按同一套"结束追击"处理——单位站进阻挡是放置/生成问题，不是追击系统的职责，本次
+  不为此单独区分成因（见 ADR-0102"备选方案与为什么不选"）。
+
+测试：`core/carriers/unit/tests/UnitChaseTests.cs`（10 例，在原 8 例基础上新增：①
+`ToUnit_DirectStandoffPointBlocked_SamplesCandidate_SucceedsWithoutMoveFailed`——目标站在一块
+阻挡矩形旁、直接回退点落在阻挡内、圆上其它点可走，验证采样找到第一个成功候选、不触发失败通知、
+最终停在 `StopRange` 附近；② `ToUnit_ChaseStandoffCandidatesDisabled_DoesNotSample_BehavesLike1820`
+——`ChaseStandoffCandidates = 1` 时不采样，直接回退点失败即结束追击，只调用一次 `FindPath`。原有
+"目标进入永久不可达区域"用例改为按 `ChaseStandoffCandidates` 算出的公式断言 `FindPathCallCount`
+（全部候选耗尽新增 `ChaseStandoffCandidates` 次调用），不再写死裸数；其余 7 例原样通过，作为
+"直接点可走时行为与采样前完全一致"的阳性对照。原 8 例汇总：靠近—停止—目标走远后恢复追击的端到端
 复现；停止区间滞回不动；目标死亡/不在同一地图两种自动结束路径，各自校验 `ChaseTargetLost` 触发
 一次即不再重复；被 `ToTarget` 替换后停止追击；`stopRange` 非正数抛异常；目标位移低于
 `FollowRepathDistance` 阈值不重新规划路径、超过阈值才触发下一次规划，并在同一用例里扩展验证目标

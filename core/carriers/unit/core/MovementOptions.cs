@@ -221,5 +221,17 @@ namespace Core.Carriers.Unit
         /// 自己的场景尺度/目标移动速度调整（值越小追击越贴合目标实时位置、寻路开销越大）。
         /// </summary>
         public double FollowRepathDistance { get; set; } = 0.5;
+
+        /// <summary>
+        /// ADR-0102《追击规划点不可达时采样候选站位点》（修订 ADR-0097 决策 5）：重新规划路径时，
+        /// 直接回退点（目标当前位置沿"本单位→目标"方向回退 <see cref="MoveRequest.StopRange"/> 的
+        /// 那一点）寻路失败后，以目标当前位置为圆心、<see cref="MoveRequest.StopRange"/> 为半径采样
+        /// 的候选站位点个数（见 <c>MovementTickHandler.TryFindStandoffCandidatePath</c>）——候选点
+        /// 均匀分布在这个圆上，含直接回退点本身（即角度偏移 0 的那个候选，已经单独尝试过，采样只
+        /// 补齐其余 <c>ChaseStandoffCandidates - 1</c> 个）。默认 16，口味配置项：值越大越可能绕开
+        /// 局部阻挡、单次规划失败时的寻路调用次数上限也越高（含直接点在内最多 <c>ChaseStandoffCandidates</c>
+        /// 次）。<c>≤ 1</c> 表示不采样，只用直接回退点——行为与 ADR-0097 落地时逐字一致。
+        /// </summary>
+        public int ChaseStandoffCandidates { get; set; } = 16;
     }
 }
