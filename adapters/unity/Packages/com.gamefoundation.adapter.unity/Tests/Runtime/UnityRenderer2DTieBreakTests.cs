@@ -31,6 +31,26 @@ namespace Adapter.Unity.Tests.Runtime
 {
     public sealed class UnityRenderer2DTieBreakTests : PlayModeTestBase
     {
+        // 判断记录（PlayMode 全量门禁 1.84.0 发现：本用例定向重跑 43/43 绿，全量 342 例里红——
+        // Expected: greater than 128, But was: 61，仅 frame 0 即失败）：
+        // 二分定位到根因与 MovementStopAndBlockingPlayModeTests 组合即必现（该类
+        // SceneManager.LoadScene("Shell") 加载真实游戏场景，PlayModeIsolation.TearDownAfterTest
+        // 按设计只做"跨用例通用清理"——World.ClearAll/切回 MainMenu/销毁残留
+        // GameFoundationBootstrap/去重 EventSystem，见该类型判断记录——不卸载、也不是它的职责去
+        // 卸载已加载的 Shell 场景本身；该场景的相机、UI、地图/地表可见对象在后续用例窗口内继续
+        // 常驻。本用例此前用 <c>cullingMask = ~0</c>（渲染全部层）+ 世界原点附近取景，一旦 Shell
+        // 场景恰好先于本用例加载，二者恰好共享 Default 层与世界原点附近视野，本相机就会把 Shell
+        // 场景残留的可见对象也读进重叠区像素——不是生产平局偏移逻辑失效（同一进程内
+        // Invariant_* 三条不变量全绿、CompareDrawOrder 符号在故障帧仍然正确，见下方注释），是本
+        // 测试自己没有像 UnityRenderer2DTests 等纯数值断言用例那样对"共享场景可能残留任意其它
+        // 用例的可见对象"免疫——真正读渲染像素的用例必须显式把自己隔离到一个只有自己知道的 Layer，
+        // 不能依赖"当前套件里凑巧没有别的用例加载过场景"这种顺序假设（该假设在定向过滤子集里成立、
+        // 在全量门禁里不成立）。修法：本类专属的高位 Layer（31，本项目 TagManager.asset 里
+        // 8~31 全部未使用，见该资源文件），相机 cullingMask 只留这一层，探针 SpriteRenderer 落在
+        // 同一层——无论 Shell 场景残留什么，都不会被这个 Layer 选中，不依赖套件顺序/其它用例的
+        // 清理是否完整即可确定复现与验收。
+        private const int IsolationLayer = 31;
+
         private GameObject _rootGo = null!;
         private UnityResourceLoader _resourceLoader = null!;
         private UnityRenderer2D _renderer = null!;
@@ -54,7 +74,8 @@ namespace Adapter.Unity.Tests.Runtime
             _camera.transform.rotation = Quaternion.identity;
             _camera.clearFlags = CameraClearFlags.SolidColor;
             _camera.backgroundColor = Color.black;
-            _camera.cullingMask = ~0;
+            // 只看本类专属隔离层（见类型顶部判断记录），不依赖"共享场景当前干净"这一套件顺序假设。
+            _camera.cullingMask = 1 << IsolationLayer;
 
             _renderTexture = new RenderTexture(8, 8, 16);
             _camera.targetTexture = _renderTexture;
@@ -89,7 +110,7 @@ namespace Adapter.Unity.Tests.Runtime
         private SpriteRenderer AttachSolidRenderer(SpriteHandle handle, Color32 color)
         {
             var layersRoot = _renderer.GetLayersRoot(handle)!;
-            var child = new GameObject("SolidColorProbe");
+            var child = new GameObject("SolidColorProbe") { layer = IsolationLayer };
             child.transform.SetParent(layersRoot, worldPositionStays: false);
             var renderer = child.AddComponent<SpriteRenderer>();
             renderer.sprite = CreateSolidSprite(color);
