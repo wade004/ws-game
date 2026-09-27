@@ -458,6 +458,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **同槽位换装（同层名、不同 mesh_ref）未触发逐层剪辑重探测**（消费方反馈第五十三批）：
+  `UnityViewFactory` 判断"合成层是否变化"的依据从只投影 `LayerName` 改为投影
+  `(LayerName, ResourceId)` 二元组——同槽位换装（如 `mainhand` 层从装备 A 换成装备 B）前后
+  层名集合不变但 `ResourceId` 随 `EquipMeshRef` 变化，此前被误判为"没有变化"而不触发重探测，
+  该层会一直播放旧装备的帧集直至下一次方向切换才被纠正；现同层名换资源同样触发
+  `ReprobeForCompositionChange`，冷加载路径同一出口，行为一致。
+
 ## [1.84.0] - 2026-09-27
 
 ### 修复

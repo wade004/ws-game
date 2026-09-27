@@ -234,14 +234,27 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>> _perLayerClipsByEntity =
             new Dictionary<Id, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>>();
 
-        /// <summary>ADR-0100 决策 1：entityId -> 最近一次已知的"合成后层名集合"（<see
-        /// cref="SpriteViewBase.LastComposedLayers"/> 的层名投影）——<see
-        /// cref="TryAttachPerLayerAnimation"/> 挂接时按 <c>PaperdollLayers</c> 初始化一份，此后每次
-        /// <c>view.LayersComposed</c> 触发时与当前实际层名集合比对，不同即视为"装备变化"（层被新增/
-        /// 移除），触发 <see cref="ReprobeForCompositionChange"/>；相同（如单纯方向变化重合成、冷加载
-        /// 迟到回填）则只做既有的"当前帧立即回填"，不重复探测。</summary>
-        private readonly Dictionary<Id, HashSet<string>> _composedLayerNamesByEntity =
-            new Dictionary<Id, HashSet<string>>();
+        /// <summary>ADR-0100 决策 1（消费方反馈第五十三批扩展为"层名 + 资源 id"二元判据）：entityId ->
+        /// 最近一次已知的"合成后 (层名, 资源 id) 集合"（<see cref="SpriteViewBase.LastComposedLayers"/>
+        /// 的投影，见 <see cref="ComposedLayerIdentity"/>）——<see cref="TryAttachPerLayerAnimation"/>
+        /// 挂接时按 <c>PaperdollLayers</c> 初始化一份，此后每次 <c>view.LayersComposed</c> 触发时与
+        /// 当前实际集合比对，不同即视为"装备变化"（层被新增/移除，或同层名换了资源——同槽位换装，见
+        /// 判断记录），触发 <see cref="ReprobeForCompositionChange"/>；相同（如单纯方向变化重合成、
+        /// 冷加载迟到回填）则只做既有的"当前帧立即回填"，不重复探测。
+        /// <para>
+        /// 判断记录（消费方反馈第五十三批：同槽位换装未触发重探测）：此前只投影 <c>LayerName</c>——
+        /// 同一层名换成另一件装备（如 <c>mainhand</c> 槽从装备 A 换成装备 B，两者都落在 <c>mainhand</c>
+        /// 层）前后层名集合逐字节相同，被误判为"没有变化"，逐层剪辑按方向缓存的候选/内容不失效，换装
+        /// 那一刻已在场、且之后未发生方向切换的方向档位会一直播放旧装备的帧集，直至下一次真正的方向
+        /// 变化重探测才被纠正。<see cref="SpriteComposedLayer.ResourceId"/> 是该层最终解析出的合成
+        /// 资源 id（身体层含 <c>SpriteSetId</c>，装备层含 <see cref="SpriteComposedLayer.EquipMeshRef"/>
+        /// 换算得到的资源集名字，见该类型注释与 <c>Presentation.Render.SpriteViewBase.ComposeLayerResourceId</c>），
+        /// 同层名换装（<c>EquipMeshRef</c> 变化）必然导致 <c>ResourceId</c> 随之变化——判据改投影
+        /// <c>(LayerName, ResourceId)</c> 二元组后，同槽位换装与既有的新增/移除层场景同样能被判定为
+        /// "变化"，既有场景的判定结果不受影响（未变化的层 ResourceId 也不变，二元组同样相等）。</para>
+        /// </summary>
+        private readonly Dictionary<Id, HashSet<(string LayerName, Id ResourceId)>> _composedLayerIdentityByEntity =
+            new Dictionary<Id, HashSet<(string, Id)>>();
 
         /// <summary>ADR-0100 决策 3：entityId -> 已经通过 <see cref="EnsureSpriteClipRegistered"/> 走过
         /// 逐层/方向探测路径的覆盖剪辑 clipId 集合（武器风格 <c>AutoAttackAnim</c>/<c>CastAnimOverride</c>
@@ -445,7 +458,7 @@ namespace Adapter.Unity.Presentation
             _defaultClipCacheByEntityAndDir.Remove(evt.EntityId);
 
             // ADR-0100：装备感知层集合探测新增的三张按实体记账的表，同一套"随实体销毁清理"惯例。
-            _composedLayerNamesByEntity.Remove(evt.EntityId);
+            _composedLayerIdentityByEntity.Remove(evt.EntityId);
             _overrideClipIdsByEntity.Remove(evt.EntityId);
             _overrideClipPerLayerCacheByEntityAndDir.Remove(evt.EntityId);
 
@@ -734,12 +747,14 @@ namespace Adapter.Unity.Presentation
         /// "探测范围只覆盖身体默认层，不包含装备动态新增的层"）：挂接这一刻（<see cref="CreateView"/>
         /// 尚未执行到 <c>ReplayEquippedVisuals</c>）装备是否已经穿戴、穿戴了哪些层，View 自己的
         /// <see cref="SpriteViewBase.LastComposedLayers"/> 尚未反映——本方法用
-        /// <c>PaperdollLayers</c>（当前唯一已知的合成结果）作为起点探测并登记 <see cref="_composedLayerNamesByEntity"/>
+        /// <c>PaperdollLayers</c>（当前唯一已知的合成结果）作为起点探测并登记 <see cref="_composedLayerIdentityByEntity"/>
         /// 基线；此后不论是挂接完成后紧接着的已装备物品重放（<c>CreateView.ReplayEquippedVisuals</c>），
-        /// 还是运行期真正的装备/卸下事件，都会经 <c>view.LayersComposed</c> 触发一次"合成后层名集合是否
-        /// 变化"检测（见下方订阅、<see cref="ReprobeForCompositionChange"/>），命中则按当前实际合成出的
-        /// 层集合（含装备 <c>MeshRef</c> 来源）重新探测——不再是"只做一次、此后永久停留在身体默认层"，
-        /// 装备新增的全新层名（不在 <c>PaperdollLayers</c> 里）与覆盖已有层名的装备层都会被覆盖到。</para>
+        /// 还是运行期真正的装备/卸下事件，都会经 <c>view.LayersComposed</c> 触发一次"合成后 (层名, 资源
+        /// id) 集合是否变化"检测（见下方订阅、<see cref="ReprobeForCompositionChange"/>），命中则按当前
+        /// 实际合成出的层集合（含装备 <c>MeshRef</c> 来源）重新探测——不再是"只做一次、此后永久停留在
+        /// 身体默认层"，装备新增的全新层名（不在 <c>PaperdollLayers</c> 里）、覆盖已有层名的装备层、
+        /// 以及同层名换成另一件装备（消费方反馈第五十三批：<c>ResourceId</c> 随 <c>EquipMeshRef</c>
+        /// 变化）都会被覆盖到。</para>
         /// <para>
         /// 判断记录（方向裸档位名只在挂接时按默认朝向解析一次，不随后续 <see cref="SpriteViewBase.SyncPose"/>
         /// 换向热更新）：换向重探测另由 ADR-0093 <see cref="ReprobeDirectionAwareAnimation"/> 承担，本
@@ -786,10 +801,11 @@ namespace Adapter.Unity.Presentation
 
             // ADR-0100 决策 1：挂接这一刻唯一已知的合成结果是身体默认层（装备尚未重放，见方法判断
             // 记录），一律不带 EquipMeshRef——与改动前 ProbeLayersSequential(PaperdollLayers)（现已
-            // 改名为 ProbeComposedLayersSequential）逐字节同一批候选。同时记下这份基线层名集合，供
-            // view.LayersComposed 首次触发时判断"是否已经变化"（见下方订阅）。
+            // 改名为 ProbeComposedLayersSequential）逐字节同一批候选。同时记下这份基线 (层名, 资源 id)
+            // 集合，供 view.LayersComposed 首次触发时判断"是否已经变化"（见下方订阅、消费方反馈第
+            // 五十三批扩展判据的判断记录）。
             var initialComposedLayers = BuildInitialComposedLayers(info.Sprite.PaperdollLayers);
-            _composedLayerNamesByEntity[entityId] = ComposedLayerNames(initialComposedLayers);
+            _composedLayerIdentityByEntity[entityId] = ComposedLayerIdentity(initialComposedLayers);
 
             for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
             {
@@ -821,15 +837,17 @@ namespace Adapter.Unity.Presentation
             // perLayerByState 里查表即知道这一刻该不该走逐层路线，不需要额外记录"当前状态"。
             player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex, overriddenLayerNames));
 
-            // ADR-0099 决策 2（消费方反馈第四十四批）+ ADR-0100 决策 1（消费方反馈第四十五批）：订阅
-            // UnitySpriteView 转发的 SpriteViewBase.OnLayersComposed 钩子——每次纸娃娃层因方向槽位
-            // 变化（ADR-0099 决策 1）、装备变化，或首次引用的资源异步加载完成的迟到回填而重合成、写入
-            // 渲染器之后，① 立即按播放器当前帧号（不推进时间轴、不重置）重新执行一次与
-            // player.OnFrameChanged 完全相同的写回逻辑（ADR-0099 既有行为），② 额外比对本次合成后的
-            // 层名集合与上一次已知集合是否变化（ADR-0100 新增）——不同即视为装备变化（层被新增/覆盖/
-            // 移除），调用 ReprobeForCompositionChange 按当前实际合成出的层集合（含装备 MeshRef 来源）
-            // 重新探测全部默认状态与已知覆盖剪辑；相同（纯方向变化重合成、冷加载迟到回填）则跳过重探测
-            // ，只做①这一步，避免不必要的重复探测。复用同一个 perLayerByState 对象——
+            // ADR-0099 决策 2（消费方反馈第四十四批）+ ADR-0100 决策 1（消费方反馈第四十五批，第五十三
+            // 批扩展判据）：订阅 UnitySpriteView 转发的 SpriteViewBase.OnLayersComposed 钩子——每次
+            // 纸娃娃层因方向槽位变化（ADR-0099 决策 1）、装备变化，或首次引用的资源异步加载完成的迟到
+            // 回填而重合成、写入渲染器之后，① 立即按播放器当前帧号（不推进时间轴、不重置）重新执行一次
+            // 与 player.OnFrameChanged 完全相同的写回逻辑（ADR-0099 既有行为），② 额外比对本次合成后的
+            // (层名, 资源 id) 集合与上一次已知集合是否变化（ADR-0100 新增，第五十三批把判据从"仅层名"
+            // 扩展为"层名 + 资源 id"二元组，见 _composedLayerIdentityByEntity 判断记录"同槽位换装未
+            // 触发重探测"）——不同即视为装备变化（层被新增/覆盖/移除，或同层名换了资源），调用
+            // ReprobeForCompositionChange 按当前实际合成出的层集合（含装备 MeshRef 来源）重新探测
+            // 全部默认状态与已知覆盖剪辑；相同（纯方向变化重合成、冷加载迟到回填）则跳过重探测，只做
+            // ①这一步，避免不必要的重复探测。复用同一个 perLayerByState 对象——
             // ReprobeDirectionAwareAnimation/ReprobeForCompositionChange 对它做的是原地写入既有 key
             // （不是重新赋值新对象），本闭包捕获的引用始终是最新解析结果，不需要重新订阅。
             //
@@ -848,10 +866,10 @@ namespace Adapter.Unity.Presentation
                     ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame, overriddenLayerNames);
                 }
 
-                var currentNames = ComposedLayerNames(view.LastComposedLayers);
-                if (_composedLayerNamesByEntity.TryGetValue(entityId, out var trackedNames) && !trackedNames.SetEquals(currentNames))
+                var currentIdentity = ComposedLayerIdentity(view.LastComposedLayers);
+                if (_composedLayerIdentityByEntity.TryGetValue(entityId, out var trackedIdentity) && !trackedIdentity.SetEquals(currentIdentity))
                 {
-                    _composedLayerNamesByEntity[entityId] = currentNames;
+                    _composedLayerIdentityByEntity[entityId] = currentIdentity;
                     ReprobeForCompositionChange(entityId);
                 }
             };
@@ -871,16 +889,17 @@ namespace Adapter.Unity.Presentation
             return result;
         }
 
-        /// <summary>ADR-0100 决策 1：从一份合成层列表投影出层名集合，供 <see cref="_composedLayerNamesByEntity"/>
-        /// 判断"合成后层集合是否变化"。</summary>
-        private static HashSet<string> ComposedLayerNames(IReadOnlyList<SpriteComposedLayer> composedLayers)
+        /// <summary>ADR-0100 决策 1（消费方反馈第五十三批扩展）：从一份合成层列表投影出 (层名, 资源 id)
+        /// 二元组集合，供 <see cref="_composedLayerIdentityByEntity"/> 判断"合成后层集合是否变化"——
+        /// 二元组而不是单看层名，使同层名换资源（同槽位换装）也能被判定为"变化"，见该字段判断记录。</summary>
+        private static HashSet<(string LayerName, Id ResourceId)> ComposedLayerIdentity(IReadOnlyList<SpriteComposedLayer> composedLayers)
         {
-            var names = new HashSet<string>(StringComparer.Ordinal);
+            var identity = new HashSet<(string, Id)>();
             for (var i = 0; i < composedLayers.Count; i++)
             {
-                names.Add(composedLayers[i].LayerName);
+                identity.Add((composedLayers[i].LayerName, composedLayers[i].ResourceId));
             }
-            return names;
+            return identity;
         }
 
         /// <summary>ADR-0072 决策 2 的逐层动画写回核心逻辑（<see cref="TryAttachPerLayerAnimation"/> 的
@@ -1331,9 +1350,10 @@ namespace Adapter.Unity.Presentation
         }
 
         /// <summary>
-        /// ADR-0100 决策 1：装备变化触发的重探测——<see cref="TryAttachPerLayerAnimation"/> 挂接的
-        /// <c>view.LayersComposed</c> 处理器检测到"合成后层名集合相比上一次已知集合发生变化"（层被
-        /// 新增/覆盖/移除）时调用。按当前方向（<c>ctx.LastDirBareName</c>，尚未发生过方向变化时用挂接
+        /// ADR-0100 决策 1（消费方反馈第五十三批扩展判据）：装备变化触发的重探测——
+        /// <see cref="TryAttachPerLayerAnimation"/> 挂接的 <c>view.LayersComposed</c> 处理器检测到
+        /// "合成后 (层名, 资源 id) 集合相比上一次已知集合发生变化"（层被新增/覆盖/移除，或同层名换了
+        /// 资源——同槽位换装）时调用。按当前方向（<c>ctx.LastDirBareName</c>，尚未发生过方向变化时用挂接
         /// 期默认朝向）与当前实际合成出的层集合（<c>ctx.View.LastComposedLayers</c>，含装备
         /// <c>MeshRef</c> 来源）重新探测全部默认状态与已知的覆盖剪辑（ADR-0100 决策 3），原地覆盖
         /// <c>ctx.ActivePerLayerByState</c> 对应条目——与 <see cref="ReprobeDirectionAwareAnimation"/>

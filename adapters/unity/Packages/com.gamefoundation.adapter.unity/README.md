@@ -1029,6 +1029,30 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   `UnityRenderer2D.SpriteInstance.LayerResourceIds[layerIndex]`（`SetLayers` 写入、与
   `LayerRenderers`/`LayerNames` 同下标）——两者均是"该层最近一次合成的资源 id"，改用后者可以让
   `ApplyPerLayerFrame` 保持 `static` 方法、不需要为此新增 `UnitySpriteView` 参数。
+- **判断记录（同槽位换装未触发重探测，消费方反馈第五十三批）**：`_composedLayerNamesByEntity`
+  （已随本次改动更名为 `_composedLayerIdentityByEntity`）此前只投影 `SpriteComposedLayer.LayerName`
+  与上一次快照 `SetEquals`，不等才调 `ReprobeForCompositionChange`——同槽位换装（如
+  `mainhand` 层从装备 A 换成装备 B）前后层名集合逐字节相同，被误判为"没有变化"，逐层剪辑按
+  方向缓存的候选/内容不失效，换装那一刻已在场且之后未发生方向切换的方向档位会一直播放旧装备
+  的帧集，直至下一次真正的方向变化重探测才被纠正。收口方案：判据改投影
+  `(LayerName, ResourceId)` 二元组——`SpriteComposedLayer.ResourceId` 是该层最终解析出的合成
+  资源 id，装备层由 `EquipMeshRef` 换算得到，同层名换装（`EquipMeshRef` 变化）必然导致
+  `ResourceId` 随之变化，据此与既有的新增/移除层场景同样判定为"变化"；既有场景（层名集合真变化、
+  纯方向变化重合成、冷加载迟到回填）判定结果不受影响。消费方一并追问 1.84.0 第五十批改动是否、
+  以及通过什么机制掩盖了本症状——在当前 main（含第五十批改动）上按消费方场景（同槽位换装、不
+  换向）编写复现用例，未加本次判据改动时真实复现为红（断言"mainhand 层应当显示装备 B 的逐层
+  剪辑当前帧"失败），证明未被掩盖：第五十批改动（`RestoreLayerSprite` 状态切换时写回静态层图）
+  与本症状是完全独立的两处逻辑（前者处理"状态切换后层退出逐层剪辑"，本症状是"合成层变化判据
+  漏判"），互不影响。
+
+对应测试：`Tests/Runtime/EquipSlotSwapReprobeTests.cs`（消费方反馈第五十三批：
+`SameSlotEquipSwap_SameLayerName_DifferentMeshRef_ReprobesToNewGearFrames` 复现——同槽位装备 A
+换成装备 B（同层名 mainhand、不同 mesh_ref），不换向，mainhand 层应当追上并显示装备 B 的逐层
+剪辑帧，body 层不受影响；
+`Invariant_DirectionRoundTrip_ColdLoad_NewLayerNameChange_SwapBackToOriginal` 不变量（4 个分支
+合一，各用独立实体）：①换装后换向再换回仍显示装备 B；②冷加载——换装那一刻新装备帧集尚未加载
+完成，加载完成后当前方向立即显示新帧；③阳性对照——层名集合真变化（新增 waist 层）既有路径
+行为不受影响；④再次换回装备 A（B -> A）同样触发重探测）。
 
 对应测试：`Tests/Runtime/UnityViewFactoryDefaultAnimationTests.cs`
 （`CreateView_ForCreatureCategory_MoveCastHit_PlayDistinctDefaultClips`/
