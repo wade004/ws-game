@@ -693,8 +693,16 @@ namespace Tests.Carriers.Unit
         // -----------------------------------------------------------------
 
         [Fact]
-        public void PathFailurePolicy_KeepOldPath_Default_NewRequestFails_PreservesOldPath_ResumesNextTick()
+        public void PathFailurePolicy_KeepOldPath_Default_NewRequestFails_PreservesOldPath_ResumesSameTick()
         {
+            // ADR-0103 决定 3 根治（消费方反馈第五十一批·反馈 3）：本用例此前名为
+            // "...ResumesNextTick"，断言新请求寻路失败的那个 tick 位置不变、要再等一个没有新意图的
+            // tick 才会继续推进旧路径——这段断言把缺陷本体当成了预期行为：修复前，单位在 Execute
+            // 第一遍循环里已经被计入 processedThisTick（不论 BeginPathTo 是否成功），第二遍"沿旧路径
+            // 续推"的循环因此 continue 跳过，旧路径本 tick 完全不推进；如果游戏层每 tick 都重发同一个
+            // 失败的 move 意图（如召唤物跟随一个被挡住的目标点，见 core/carriers/summon 的
+            // SummonFollowNavigationTests），旧路径会永久冻结（消费方实测 532 tick 连续 NoPath）。
+            // 修复后：本 tick 就应该沿旧路径续推一次 dt，不必等到下一个没有新意图的 tick。
             var nav = new StubNavigation2D();
             // 阻挡矩形只挡住去 (10,0) 的新目标，不影响去 (2,0) 的旧目标。
             nav.SetBlocking(MapId, new[] { new Rect(new Vec2(5, -1), new Vec2(6, 1)) });
@@ -704,14 +712,15 @@ namespace Tests.Carriers.Unit
             fixture.World.Tick(SimStep.Continuous(1.0)); // 走到 (1,0)，仍在旧路径上
 
             fixture.World.SubmitIntent(new Intent(HeroId, "move", TargetArgs(10, 0))); // 新目标被挡
-            fixture.World.Tick(SimStep.Continuous(1.0)); // 失败：默认 KeepOldPath，本 tick 不推进
+            fixture.World.Tick(SimStep.Continuous(1.0)); // 新目标寻路失败：KeepOldPath 本 tick 仍续推旧路径
 
-            Assert.Equal(new Vec2(1, 0), fixture.Units.GetPosition(HeroId)); // 位置未变
-            Assert.NotNull(fixture.Player.MovementState.CurrentPath); // 旧路径仍然保留
-
-            fixture.World.Tick(SimStep.Continuous(1.0)); // 没有新意图：继续沿旧路径推进
+            // 本 tick 已经沿旧路径走完剩余 1 单位（默认 BlockingChangePolicy.Replan 会先对旧目标重算，
+            // 旧目标所在线段未受阻，重算原地等价成功，随后正常推进——同
+            // BlockingChangePolicy_Revalidate_SegmentBlocked_ReplanAlsoFails_KeepOldPath_KeepsAdvancing
+            // 用例已验证过的"KeepOldPath 下第二遍循环本 tick 就续推"路径，本用例验证的是"第一遍循环
+            // 失败的单位现在也能进入同一条第二遍续推路径"）。
             Assert.Equal(new Vec2(2, 0), fixture.Units.GetPosition(HeroId));
-            Assert.Null(fixture.Player.MovementState.CurrentPath); // 到达旧目标
+            Assert.Null(fixture.Player.MovementState.CurrentPath); // 到达旧目标，路径清空
         }
 
         [Fact]

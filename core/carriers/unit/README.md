@@ -472,3 +472,39 @@ stopRange, mode)`。
 一次即不再重复；被 `ToTarget` 替换后停止追击；`stopRange` 非正数抛异常；目标位移低于
 `FollowRepathDistance` 阈值不重新规划路径、超过阈值才触发下一次规划，并在同一用例里扩展验证目标
 进入永久不可达区域时恰好触发一次寻路失败通知并结束追击、此后不再调用 `FindPath`）。
+
+## ADR-0103《召唤物跟随点不可走时采样候选点与旧路径续推》：候选采样公式抽取 + KeepOldPath 续推缺陷根治
+
+消费方第五十一批反馈：① 召唤物跟随（`core/carriers/summon`）的直接跟随点落进 owner 紧贴的阻挡
+格时永久冻结（同 ADR-0102 的采样思路，见该模块 README）；② `HandlePathFailure` 走
+`PathFailurePolicy.KeepOldPath`（默认策略）时只承诺"不清空状态"，但调用方 `Execute` 第一遍循环
+已经无条件把该单位计入 `processedThisTick`，第二遍"沿旧路径续推"的循环因此 `continue` 跳过，
+"保留旧路径"名不副实——旧路径本 tick 完全不推进，若调用方每 tick 都重发同一个失败的 `move` 意图
+（召唤物跟随正是这种调用方式），旧路径永久冻结（消费方实测 532 tick 连续 `NoPath`）。
+
+- **候选采样公式抽取为共享工具**：`TryFindStandoffCandidatePath` 里"以某点为圆心、按左右交替
+  外扩的角度序列生成候选点"这套公式本身与目标（是给谁采样候选站位）无关，抽成本模块新增的
+  `internal static` 工具 `StandoffCandidates.Enumerate(center, directionToApproacher, radius,
+  count)`，供本方法与 `core/carriers/summon` 的 `SummonTickHandler.TryFollow`（ADR-0103 决定 1）
+  共用同一套实现，不必各自维护一份等价逻辑。产出序列与抽取前逐位相同（`UnitChaseTests` 全部原样
+  通过，证明追击行为未变）。两个模块同属 `Core.Carriers` 程序集，`internal` 直接跨模块命名空间
+  可见，未新增 `InternalsVisibleTo`。
+- **`HandlePathFailure` 返回值改造**：新增返回值——`KeepOldPath` 分支下是否确有可继续的旧状态
+  （`MovementState.Displacement`/`Chase`/`CurrentPath` 任一非空）；`BeginPathTo`/`ApplyIntent`
+  据此把该单位从本 tick 的 `processedThisTick` 里排除，让 `Execute` 第二遍循环把它当"本 tick 未
+  收到新意图"的单位正常续推，本 tick 就能沿旧路径/追击/受控位移推进一次 `dt`，不必等到下一个没有
+  新意图的 tick。`Stop` 策略或"本来就没有旧状态可继续"时返回 `false`，行为与本次改动之前一致。
+  只影响 `move`/目标类意图（`ApplyChaseIntent`/`move_to_unit` 的失败走 `EndChase` 直接结束请求，
+  不经过 `HandlePathFailure`/`PathFailurePolicy` 分支，不受影响）。三个私有方法的返回值类型改动
+  （`void`→`bool`），不涉及任何公开签名，`abi_probe` 不受影响。
+- **已知限制**：候选只按 `IsWalkable` 过滤，不代表可达——这条限制与 ADR-0102 相同，见该节说明，
+  两者共用同一套采样工具，限制也一并共用。
+
+测试：既有 `PathFailurePolicy_KeepOldPath_Default_NewRequestFails_PreservesOldPath_ResumesNextTick`
+改名为 `...ResumesSameTick` 并更新断言——修复前的断言"新目标寻路失败那个 tick 位置不变，要再等一
+个 tick 才推进"其实是在给缺陷本体拍照，修复后同一 tick 就应该续推到底（默认
+`BlockingChangePolicy.Replan` 对旧目标重算原地等价成功，随后正常推进，同
+`BlockingChangePolicy_Revalidate_SegmentBlocked_ReplanAlsoFails_KeepOldPath_KeepsAdvancing` 已经
+验证过的"第二遍循环续推"路径，本用例验证的是"第一遍循环失败的单位现在也能进入同一条续推路径"）。
+其余 `PathFailurePolicy`/`BlockingChangePolicy` 系列用例原样通过。召唤物跟随侧的复现/不变量用例见
+`core/carriers/summon/tests/SummonFollowNavigationTests.cs`（见该模块 README）。

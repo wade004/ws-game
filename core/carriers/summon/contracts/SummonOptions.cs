@@ -54,5 +54,19 @@ namespace Core.Carriers.Summon
         /// 06 第 3.2 节 <c>summon</c> 原语"归属"），默认 true——绝大多数召唤物/宠物应该与 owner
         /// 同阵营，才能被 AI 的敌我判定正确对待。</summary>
         public bool InheritOwnerFaction { get; set; } = true;
+
+        /// <summary>
+        /// ADR-0103 决定 1（消费方反馈第五十一批·反馈 1 根治）：<c>SummonTickHandler.TryFollow</c>
+        /// 算出的直接跟随点不可行走时，以 owner 为圆心、<see cref="FollowStopDistance"/> 为半径采样
+        /// 的候选站位点个数——惯例同 <c>core/carriers/unit</c> 的 <c>MovementOptions.
+        /// ChaseStandoffCandidates</c>（同一套交替外扩角度序列，见
+        /// <c>Core.Carriers.Unit.StandoffCandidates</c>），候选点均匀分布在这个圆上，含直接跟随点
+        /// 本身（角度偏移 0，已经单独尝试过），采样只补齐圆上其余 <c>FollowCandidates - 1</c> 个。
+        /// 默认 16，口味配置项：值越大越可能绕开局部阻挡、单次采样失败判定为"退到 owner 位置"之前
+        /// 的可行走性检查次数上限也越高（含直接点在内最多 <c>FollowCandidates</c> 次）。<c>≤ 1</c>
+        /// 表示不采样，只用直接跟随点——行为与 ADR-0087 落地时逐字一致（不可走照发，寻路失败由
+        /// 移动系统的 <see cref="Core.Carriers.Unit.MovementOptions.PathFailurePolicy"/> 处理）。
+        /// </summary>
+        public int FollowCandidates { get; set; } = 16;
     }
 }

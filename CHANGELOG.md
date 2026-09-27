@@ -458,6 +458,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **召唤物跟随点不可走时采样候选点；移动系统"保留旧路径"策略下旧路径本 tick 真正续推**（消费方
+  反馈第五十一批，阻塞，[ADR-0103](architecture/adr/0103-召唤物跟随点不可走时采样候选点与旧路径续推.md)）：
+  `SummonTickHandler.TryFollow` 直接跟随点不可行走时改为在 owner 周围采样候选点（新增可选属性
+  `SummonOptions.FollowCandidates`，默认 16，`≤1` 不采样），根治召唤物从阻挡一侧接近 owner 时永久
+  冻结；`MovementTickHandler` 修正"寻路失败保留旧路径"策略下旧路径本 tick 不推进的缺陷。
+
 ## [1.83.0] - 2026-09-27
 
 ### 修复

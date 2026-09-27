@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.Expr;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
@@ -32,6 +33,7 @@ namespace Core.Carriers.Summon
         private readonly SummonOptions _options;
         private readonly IExprDiagnostics _diagnostics;
         private readonly IAiHost? _aiHost;
+        private readonly INavigation2D? _navigation;
 
         /// <summary>ADR-0087：保留 1.69.0 及之前的公开构造签名（二进制兼容——可选参数是编译期糖，
         /// 给公开构造函数追加可选参数会改变物理签名，让只见过旧签名的已编译消费方在运行期抛
@@ -47,6 +49,11 @@ namespace Core.Carriers.Summon
         {
         }
 
+        /// <summary>ADR-0103：保留 1.83.0 及之前的公开构造签名（二进制兼容，惯例同上方旧签名构造
+        /// 函数——可选参数是编译期糖，给本构造函数追加可选参数同样会改变物理签名）。转调下方带
+        /// <see cref="INavigation2D"/> 的完整重载并传 <c>navigation: null</c>，行为与本次改动之前
+        /// 完全一致（<see cref="TryFollow"/> 在 <see cref="_navigation"/> 为 null 时不做任何可行走
+        /// 性检查，见该方法判断记录）。</summary>
         public SummonTickHandler(
             SummonHost summonHost,
             IUnitAccess units,
@@ -54,6 +61,28 @@ namespace Core.Carriers.Summon
             SummonOptions? options = null,
             IExprDiagnostics? diagnostics = null,
             IAiHost? aiHost = null)
+            : this(summonHost, units, combatHost, options, diagnostics, aiHost, navigation: null)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0103 决定 1（消费方反馈第五十一批·反馈 1 根治）：新增 <paramref name="navigation"/>，
+        /// 供 <see cref="TryFollow"/> 校验直接跟随点的可行走性、不可行走时在 owner 周围采样候选点
+        /// （见该方法判断记录）。<c>null</c>（既有调用方，转调自上方旧签名构造函数）时行为与本次
+        /// 改动之前完全一致——不做任何可行走性检查，直接用连线公式算出的点，可能落进阻挡格由移动
+        /// 系统的 <see cref="Core.Carriers.Unit.MovementOptions.PathFailurePolicy"/> 处理（该分支的
+        /// "旧路径必须续推"缺陷由 ADR-0103 决定 3 在 <c>MovementTickHandler</c> 一并修复）。生产装配
+        /// （<c>CarriersAssembly</c>）已改为传入与 <c>MovementTickHandler</c> 相同的真实
+        /// <see cref="INavigation2D"/> 实例。
+        /// </summary>
+        public SummonTickHandler(
+            SummonHost summonHost,
+            IUnitAccess units,
+            ICombatHost combatHost,
+            SummonOptions? options,
+            IExprDiagnostics? diagnostics,
+            IAiHost? aiHost,
+            INavigation2D? navigation)
         {
             _summonHost = summonHost ?? throw new ArgumentNullException(nameof(summonHost));
             _units = units ?? throw new ArgumentNullException(nameof(units));
@@ -65,6 +94,7 @@ namespace Core.Carriers.Summon
             // ICombatHost.IsInCombat 判定，行为与本次改动之前完全一致——生产装配
             // （CarriersAssembly）已改为传入真实 AiHost。
             _aiHost = aiHost;
+            _navigation = navigation;
         }
 
         public void Execute(SimStep step, IWorldSim world)
@@ -207,7 +237,9 @@ namespace Core.Carriers.Summon
             var direction = distance > double.Epsilon
                 ? new Vec2(toOwner.X / distance, toOwner.Y / distance)
                 : Vec2.Zero;
-            var targetPoint = ownerPos - direction * stopAt;
+            var directTargetPoint = ownerPos - direction * stopAt;
+
+            var targetPoint = ResolveFollowTargetPoint(summonId, summonPos, ownerPos, directTargetPoint, stopAt);
 
             var args = new JsonObjectBuilder()
                 .Add("x", new JsonNumber(targetPoint.X))
@@ -216,6 +248,73 @@ namespace Core.Carriers.Summon
                 .Build();
 
             world.AppendCurrentIntent(new Intent(summonId, "move", args));
+        }
+
+        /// <summary>
+        /// ADR-0103 决定 1（消费方反馈第五十一批·反馈 1 根治）：<see cref="TryFollow"/> 算出的直接
+        /// 跟随点（沿"召唤物→owner"连线、距 owner <see cref="SummonOptions.FollowStopDistance"/> 处）
+        /// 可能落进 owner 紧贴的阻挡格——1.83.0 之前该点从不校验可行走性，召唤物从阻挡一侧接近时会
+        /// 对着一个永远不可行走的终点反复发 <c>move</c> 意图，<see cref="Core.Carriers.Unit.
+        /// MovementTickHandler"/> 的 <c>BeginPathTo</c> 因 <see cref="INavigation2D.FindPath"/> 端点
+        /// 契约（起终点任一不可行走即返回 <c>null</c>）恒 <c>NoPath</c>，召唤物停下后连线不再变、
+        /// 跟随点不再变，永久冻结在原地（消费方实测 532 tick 连续 <c>NoPath</c>）。
+        /// <para>
+        /// 本方法只用 <see cref="INavigation2D.IsWalkable"/> 过滤（<see cref="TryFollow"/> 每 tick
+        /// 都会调用一次，不在这里跑 <see cref="INavigation2D.FindPath"/>——那是移动系统
+        /// <c>BeginPathTo</c> 自己的职责，本方法只负责挑一个"至少自己那一格可走"的候选点，真正的
+        /// 可达性仍交给 <c>FindPath</c>）：<paramref name="directTargetPoint"/> 可走则原样返回（与
+        /// 1.83.0 逐字一致，既有跟随用例是阳性对照）；不可走则以 <paramref name="ownerPos"/> 为圆心、
+        /// <paramref name="stopAt"/> 为半径，复用 <see cref="StandoffCandidates"/>（ADR-0102
+        /// <c>MovementTickHandler.TryFindStandoffCandidatePath</c> 同一套交替外扩角度序列的抽取版，
+        /// 见该类型判断记录）依次尝试，取第一个 <c>IsWalkable</c> 为真的候选；全部候选（含直接点）
+        /// 都不可走则退到 <paramref name="ownerPos"/> 本身——owner 所在点的可行走性由 owner 自己
+        /// 保证，接受召唤物与 owner 位置重叠这一权衡（同既有 <see cref="SummonOptions.
+        /// FollowStopDistance"/> 判断记录"避免完全重合"的让步：不可行走场景下重合好于永久卡死）。
+        /// </para>
+        /// <para>
+        /// 已知限制（ADR-0103 负面）：候选只按 <c>IsWalkable</c> 过滤，不代表可达——owner 恰好站在
+        /// 一个可走但被完全封闭的孤岛内时，选中的候选仍可能被 <c>FindPath</c> 判定为 <c>NoPath</c>；
+        /// 这与既有"目标在孤岛"的通用情形相同，不在本次改动范围内。
+        /// </para>
+        /// <para>
+        /// <see cref="_navigation"/> 为 null（未注入，既有调用方）、<see cref="SummonOptions.
+        /// FollowCandidates"/> <c>&lt;= 1</c>（口味配置项显式关闭采样，见该属性判断记录"行为与
+        /// ADR-0087 落地时逐字一致"）、或 <see cref="IUnitAccess.GetMapId"/> 对
+        /// <paramref name="summonId"/> 返回 <c>null</c>（未接入地图概念的实现）时，直接返回
+        /// <paramref name="directTargetPoint"/>，不做任何可行走性检查——行为与本次改动之前完全
+        /// 一致，不可走照发，寻路失败由移动系统报（<see cref="Core.Carriers.Unit.MovementOptions.
+        /// PathFailurePolicy"/>）。
+        /// </para>
+        /// </summary>
+        private Vec2 ResolveFollowTargetPoint(
+            Id summonId, Vec2 summonPos, Vec2 ownerPos, Vec2 directTargetPoint, double stopAt)
+        {
+            if (_navigation == null || _options.FollowCandidates <= 1)
+            {
+                return directTargetPoint;
+            }
+
+            var mapId = _units.GetMapId(summonId);
+            if (!mapId.HasValue)
+            {
+                return directTargetPoint;
+            }
+
+            if (_navigation.IsWalkable(mapId.Value, directTargetPoint))
+            {
+                return directTargetPoint;
+            }
+
+            var directionToApproacher = summonPos - ownerPos;
+            foreach (var candidate in StandoffCandidates.Enumerate(ownerPos, directionToApproacher, stopAt, _options.FollowCandidates))
+            {
+                if (_navigation.IsWalkable(mapId.Value, candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return ownerPos;
         }
 
         /// <summary>

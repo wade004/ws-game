@@ -117,6 +117,29 @@ W1 收边补齐：`SummonOptions.cs` 从 `core/` 移入新增的 `contracts/` �
    （无 `ai_behavior_ref` 的静态召唤物，查询抛 `InvalidOperationException`）时回退/按旧
    `ICombatHost.IsInCombat` 语义处理，行为与本次改动之前一致。
 
+10. **`TryFollow` 直接跟随点不可行走时在 owner 周围采样候选点**（2026-09-27，消费方第五十一批
+    反馈 1，[ADR-0103](../../../architecture/adr/0103-召唤物跟随点不可走时采样候选点与旧路径续推.md)）：
+    直接跟随点（沿"召唤物→owner"连线、距 owner `FollowStopDistance` 处）此前从不校验可行走性，
+    owner 贴着一块阻挡物件站、召唤物从被挡一侧接近时，这一个点常年落进阻挡格——`MovementTickHandler.
+    BeginPathTo` 的 `FindPath` 因端点契约恒 `NoPath`，召唤物停下后连线不再变、跟随点不再变，永久
+    冻结（消费方实测 532 tick 连续 `NoPath`）。`SummonTickHandler` 新增可选 `INavigation2D` 构造
+    参数（ABI 安全新增重载，`CarriersAssembly` 传入与 `MovementTickHandler` 相同的导航实例），
+    `TryFollow` 只用 `IsWalkable` 校验直接点（每 tick 都调用，不在这里跑 `FindPath`——真正的可达性
+    仍交给移动系统）：可走照原样使用；不可走则以 owner 为圆心、`FollowStopDistance` 为半径，复用
+    `core/carriers/unit` 的 `StandoffCandidates`（ADR-0102 同一套交替外扩角度序列的抽取版）依次
+    尝试，取第一个 `IsWalkable` 为真的候选（新增可选属性 `SummonOptions.FollowCandidates`，默认
+    16，`≤1` 不采样）；全部候选都不可走则退到 owner 当前位置本身，接受召唤物与 owner 重叠这一
+    权衡。`_navigation` 为 `null`（未注入的既有调用方）时行为与本次改动之前完全一致。
+    **已知限制**：候选只按 `IsWalkable` 过滤，不代表可达——owner 站在一个可行走但被完全封闭的
+    孤岛内时，选中的候选仍可能被 `FindPath` 判定为 `NoPath`，与既有"目标在孤岛"的通用情形相同，
+    不在本次改动范围内单独处理。另见 `core/carriers/unit` README 同一 ADR 小节"`HandlePathFailure`
+    返回值改造"——移动系统"保留旧路径"策略下旧路径本 tick 不推进的缺陷一并修复，召唤物跟随的
+    `move` 意图每 tick 重发正是该缺陷此前"永久冻结"的直接诱因之一。测试见
+    `core/carriers/summon/tests/SummonFollowNavigationTests.cs`：复现（owner 紧贴阻挡矩形、直接点
+    落在矩形内、圆上 +δ 候选可走，20 tick 内收敛且期间 0 次 `OnMoveFailedDetailed`）+ 三条不变量
+    （直接点可走时目标点与改动前逐位相同；全部候选不可走退到 owner 位置；`FollowCandidates = 1`
+    不采样、行为同改动前）。
+
 ## 不负责什么
 
 - 不实现召唤物的存档重建——由拥有者相关状态驱动，属于 L4 职责。

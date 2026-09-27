@@ -236,14 +236,27 @@ namespace Core.Carriers.Unit
 
                 if (intent.Kind == "move_to_unit")
                 {
+                    // move_to_unit（追击）失败时走 EndChase 直接结束请求（ADR-0097 决策 5/ADR-0102），
+                    // 不经过 HandlePathFailure/PathFailurePolicy 分支，因此不存在"本 tick 还要续推
+                    // 旧状态"的情形，恒计入 processedThisTick，行为与本次改动之前一致。
                     ApplyChaseIntent(unit, intent, world, dt, step.Kind == SimStepKind.Discrete);
+                    processedThisTick.Add(unit.EntityId);
                 }
                 else
                 {
-                    ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
+                    // ADR-0103 决定 3：ApplyIntent 返回 false 仅在 BeginPathTo 建路失败、
+                    // PathFailurePolicy.KeepOldPath 且确有旧状态（路径/追击/受控位移）可继续时出现
+                    // （见 HandlePathFailure/BeginPathTo/ApplyIntent 判断记录）——此时不把该单位计入
+                    // processedThisTick，让下面 Execute 第二遍循环把它当"本 tick 未收到新意图"续推
+                    // 旧状态，本 tick 就能沿旧路径/追击/位移推进一次 dt，不必等到下一个没有新意图的
+                    // tick（消费方反馈第五十一批·反馈 3：修复前每 tick 重发同一个失败 move 意图时，
+                    // 旧路径本 tick 永远不推进，532 tick 连续 NoPath 永久冻结）。
+                    var handledFully = ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
+                    if (handledFully)
+                    {
+                        processedThisTick.Add(unit.EntityId);
+                    }
                 }
-
-                processedThisTick.Add(unit.EntityId);
             }
 
             if (step.Kind == SimStepKind.Discrete)
@@ -365,13 +378,27 @@ namespace Core.Carriers.Unit
         /// 重算失败共用）：先同时触发 <see cref="MovementHost.OnMoveFailed"/>（保持原签名，既有订阅方
         /// 不受影响）与 <see cref="MovementHost.OnMoveFailedDetailed"/>（携带 <paramref name="reason"/>），
         /// 再按 <see cref="MovementOptions.PathFailurePolicy"/> 决定后续：<c>KeepOldPath</c>（默认）
-        /// 不做任何状态改动，沿用既有路径（若有）继续推进，向后兼容本任务之前的唯一行为；<c>Stop</c>
-        /// 清空路径并触发 <see cref="MovementHost.OnMoveStopped"/>（<see cref="MoveStopReason.PathFailed"/>）。
+        /// 不做任何状态改动，沿用既有路径（若有）继续推进；<c>Stop</c> 清空路径并触发
+        /// <see cref="MovementHost.OnMoveStopped"/>（<see cref="MoveStopReason.PathFailed"/>）。
         /// 重入安全：本方法每次调用只触发一次失败回调，调用方（游戏层）若在回调内同步调用
         /// <see cref="MovementHost.Stop"/>/<see cref="MovementHost.Request"/>，二者都只是
         /// <see cref="Core.Foundation.SimLoop.IWorldSim.SubmitIntent"/>（下一 tick 才生效，见两方法
-        /// 判断记录），不会在本次 <see cref="Execute"/> 内递归触发新的失败回调。</summary>
-        private void HandlePathFailure(Unit unit, Vec2 from, Vec2 to, MoveFailReason reason)
+        /// 判断记录），不会在本次 <see cref="Execute"/> 内递归触发新的失败回调。
+        /// <para>
+        /// ADR-0103 决定 3（消费方反馈第五十一批·反馈 3 根治）：返回值——<c>KeepOldPath</c> 分支下，
+        /// 是否确有可继续的旧状态（<see cref="MovementState.Displacement"/>/<see
+        /// cref="MovementState.Chase"/>/<see cref="MovementState.CurrentPath"/> 任一非空）。<see
+        /// cref="BeginPathTo"/> 据此把该单位从本 tick 的 <c>processedThisTick</c> 里排除，使
+        /// <see cref="Execute"/> 第二遍循环把它当成"本 tick 未收到新意图"的单位继续按旧状态推进一次
+        /// dt——缺陷根因：此前 <c>KeepOldPath</c> 只承诺"不清空状态"，但调用方（<see
+        /// cref="Execute"/> 第一遍循环）已经无条件把该单位计入 <c>processedThisTick</c>，第二遍
+        /// "沿旧路径续推"的循环因此 <c>continue</c> 跳过，旧路径本 tick 完全不推进；若游戏层每 tick
+        /// 都重发同一个失败的 <c>move</c> 意图（如召唤物跟随一个被挡住的目标点），旧路径会永久冻结
+        /// （消费方实测 532 tick 连续 <c>NoPath</c>）。<c>Stop</c> 分支或"本来就没有旧状态可继续"时
+        /// 返回 <c>false</c>，调用方行为与本次改动之前一致（含入 <c>processedThisTick</c>）。
+        /// </para>
+        /// </summary>
+        private bool HandlePathFailure(Unit unit, Vec2 from, Vec2 to, MoveFailReason reason)
         {
             _movementHost.RaiseMoveFailed(unit.EntityId, from, to);
             _movementHost.RaiseMoveFailedDetailed(unit.EntityId, from, to, reason);
@@ -379,14 +406,25 @@ namespace Core.Carriers.Unit
             if (_options.PathFailurePolicy == PathFailurePolicy.Stop)
             {
                 ApplyStop(unit, MoveStopReason.PathFailed, hadDiscardedMoveIntent: false);
+                return false;
             }
+
+            var state = unit.MovementState;
+            return state.Displacement.HasValue || state.Chase.HasValue || state.CurrentPath != null;
         }
 
-        private void ApplyIntent(Unit unit, Intent intent, double dt, bool isDiscrete)
+        /// <summary>处理一条 <c>move</c> 意图。返回值供 <see cref="Execute"/> 第一遍循环判断是否应把
+        /// 该单位计入 <c>processedThisTick</c>：<c>true</c>（本次调用已完整处理，含"零长度目标/方向
+        /// 移动/参数不完整/前置检查未通过"等所有既有分支，以及建路成功）——行为与本次改动之前完全
+        /// 一致；<c>false</c> 仅在 <see cref="BeginPathTo"/> 因 <see cref="HandlePathFailure"/> 判定
+        /// "KeepOldPath 且确有旧状态可继续"时出现（ADR-0103 决定 3，见该方法判断记录），调用方据此
+        /// 不计入 <c>processedThisTick</c>，让第二遍循环把本单位当"本 tick 未收到新意图"续推旧状态。
+        /// </summary>
+        private bool ApplyIntent(Unit unit, Intent intent, double dt, bool isDiscrete)
         {
             if (IsLocked(unit))
             {
-                return;
+                return true;
             }
 
             // ADR-0026《技能位移的连续模式》：受控位移期间普通寻路/方向移动意图被拒绝（"位移与
@@ -398,31 +436,31 @@ namespace Core.Carriers.Unit
                 _diagnostics.Warn(
                     $"MovementTickHandler: 单位 \"{unit.EntityId}\" 正在受控位移中（ADR-0026），" +
                     "普通移动意图被拒绝");
-                return;
+                return true;
             }
 
             if (isDiscrete && !TryConsumeMovementActionPoints(unit, dt))
             {
-                return; // 行动点不足：本次移动意图被拒绝，见 TryConsumeMovementActionPoints 注释。
+                return true; // 行动点不足：本次移动意图被拒绝，见 TryConsumeMovementActionPoints 注释。
             }
 
             if (TryReadTarget(intent.Args, out var target))
             {
                 var mode = ReadMode(intent.Args, MoveMode.Run);
-                BeginPathTo(unit, target, mode, dt, isDiscrete);
-                return;
+                return BeginPathTo(unit, target, mode, dt, isDiscrete);
             }
 
             if (TryReadDirection(intent.Args, out var direction))
             {
                 var mode = ReadMode(intent.Args, MoveMode.Walk);
                 ApplyDirectionalMove(unit, direction, mode, dt, isDiscrete);
-                return;
+                return true;
             }
 
             _diagnostics.Warn(
                 $"MovementTickHandler: move 意图缺少 target(x,y) 或 direction(dx,dy) 参数，单位 " +
                 $"\"{unit.EntityId}\" 本次意图被忽略");
+            return true;
         }
 
         /// <summary>
@@ -458,7 +496,10 @@ namespace Core.Carriers.Unit
             return false;
         }
 
-        private void BeginPathTo(Unit unit, Vec2 target, MoveMode mode, double dt, bool isDiscrete)
+        /// <summary>返回值：见 <see cref="ApplyIntent"/> 判断记录——<c>true</c> 表示本次调用已完整
+        /// 处理（零长度目标/建路成功），<c>false</c> 仅在建路失败且 <see cref="HandlePathFailure"/>
+        /// 判定"KeepOldPath 且确有旧状态可继续"时出现（ADR-0103 决定 3）。</summary>
+        private bool BeginPathTo(Unit unit, Vec2 target, MoveMode mode, double dt, bool isDiscrete)
         {
             var from = unit.Position;
 
@@ -467,7 +508,7 @@ namespace Core.Carriers.Unit
             // "已经在目标点"都不构成一次有意义的移动请求。
             if ((target - from).Length <= ZeroLengthEpsilon)
             {
-                return;
+                return true;
             }
 
             var oldState = unit.MovementState;
@@ -477,8 +518,10 @@ namespace Core.Carriers.Unit
 
             if (path == null)
             {
-                HandlePathFailure(unit, from, target, MoveFailReason.NoPath);
-                return;
+                // ADR-0103 决定 3：HandlePathFailure 返回 true（KeepOldPath 且确有旧状态可继续）时，
+                // 本方法返回 false，让 Execute 第一遍循环把本单位排除出 processedThisTick，交第二遍
+                // 循环本 tick 就续推那个旧状态，不必等到下一个没有新意图的 tick。
+                return !HandlePathFailure(unit, from, target, MoveFailReason.NoPath);
             }
 
             // 游戏侧通用能力需求（05 第 6 节勘误"替换"）：新路径整体替换仍在进行中的旧路径时，
@@ -499,6 +542,7 @@ namespace Core.Carriers.Unit
             }
 
             ContinuePathCore(unit, dt, isDiscrete);
+            return true;
         }
 
         // -------------------------------------------------------------------
@@ -812,31 +856,23 @@ namespace Core.Carriers.Unit
         /// ADR-0102《追击规划点不可达时采样候选站位点》（修订 ADR-0097 决策 5）：<see cref="AdvanceChase"/>
         /// 的直接回退点（目标当前位置沿"单位→目标"方向回退 <paramref name="stopRange"/> 的那一点，
         /// 角度上等价于本方法的偏移 0）寻路失败后调用——以 <paramref name="targetPos"/> 为圆心、
-        /// <paramref name="stopRange"/> 为半径，从"正对追击单位的方向"（即直接回退点所在角度，
-        /// <c>atan2(unit.Position - targetPos)</c>）起，按左右交替外扩的角度序列
-        /// <c>+δ, -δ, +2δ, -2δ, …</c>（<c>δ = 2π / MovementOptions.ChaseStandoffCandidates</c>）依次
-        /// 生成候选点并调用 <see cref="INavigation2D.FindPath"/>，返回第一个寻路成功的候选（角偏
-        /// 最小即绕路最短）；不显式尝试偏移 0——直接回退点已经由调用方试过一次并失败，本方法只补齐
-        /// 圆上其余 <c>ChaseStandoffCandidates - 1</c> 个候选。全部候选都失败时返回 <c>false</c>，
-        /// 调用方按既有 ADR-0097 决策 5 的口径触发一次 <c>NoPath</c> 失败通知并结束追击（本方法不
-        /// 涉及事件面，只负责寻路尝试）。
+        /// <paramref name="stopRange"/> 为半径，依次尝试 <see cref="StandoffCandidates.Enumerate"/>
+        /// 产出的候选点（ADR-0103 决策 2：交替外扩的角度序列本身已抽成该共享工具，供本方法与召唤物
+        /// 跟随 <c>Core.Carriers.Summon.SummonTickHandler.TryFollow</c> 共用，本方法只负责在候选点上
+        /// 调用 <see cref="INavigation2D.FindPath"/>），返回第一个寻路成功的候选（角偏最小即绕路
+        /// 最短）；不显式尝试偏移 0——直接回退点已经由调用方试过一次并失败，本方法只补齐圆上其余
+        /// <c>ChaseStandoffCandidates - 1</c> 个候选。全部候选都失败时返回 <c>false</c>，调用方按
+        /// 既有 ADR-0097 决策 5 的口径触发一次 <c>NoPath</c> 失败通知并结束追击（本方法不涉及事件
+        /// 面，只负责寻路尝试）。
         /// </summary>
         private bool TryFindStandoffCandidatePath(
             Unit unit, Vec2 targetPos, double stopRange, out IReadOnlyList<Vec2>? path)
         {
             var candidates = _options.ChaseStandoffCandidates;
-            var baseAngle = Math.Atan2(unit.Position.Y - targetPos.Y, unit.Position.X - targetPos.X);
-            var delta = 2.0 * Math.PI / candidates;
+            var directionToApproacher = new Vec2(unit.Position.X - targetPos.X, unit.Position.Y - targetPos.Y);
 
-            for (var i = 1; i < candidates; i++)
+            foreach (var candidatePoint in StandoffCandidates.Enumerate(targetPos, directionToApproacher, stopRange, candidates))
             {
-                var sign = i % 2 == 1 ? 1 : -1;
-                var magnitude = (i + 1) / 2;
-                var angle = baseAngle + sign * magnitude * delta;
-                var candidatePoint = new Vec2(
-                    targetPos.X + stopRange * Math.Cos(angle),
-                    targetPos.Y + stopRange * Math.Sin(angle));
-
                 var candidatePath = _navigation!.FindPath(unit.MapId, unit.Position, candidatePoint);
                 if (candidatePath != null)
                 {

@@ -488,8 +488,13 @@ namespace Core.Carriers.Assembly
             // ADR-0087：传入 Rules.Ai 使 TryFollow 能按"AI 是否确实处于 chase/combat"收紧跳过条件
             // （见 SummonTickHandler.IsActivelyEngaging 判断记录），而不是只看 ICombatHost.IsInCombat
             // 标志。Rules（含 Ai）已在上面（第 3 步）构造完成。
+            // ADR-0103 决定 1：传入本方法参数 navigation（与下面 MovementTickHandler 构造用的同一个
+            // 导航实例），使 TryFollow 能校验直接跟随点的可行走性、不可行走时在 owner 周围采样候选点
+            // （见 SummonTickHandler.ResolveFollowTargetPoint 判断记录）。navigation 未装配（null）时
+            // 行为与本次改动之前完全一致。
             var summonTickHandler = new SummonTickHandler(
-                Summons, Units, Rules.Combat, resolvedSummonOptions, aiHost: Rules.Ai);
+                Summons, Units, Rules.Combat, resolvedSummonOptions, diagnostics: null, aiHost: Rules.Ai,
+                navigation: navigation);
             world.RegisterPhaseHandler(TickPhase.AiDecision, summonTickHandler);
 
             Rules.RegisterTickHandlers();
