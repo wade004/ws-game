@@ -171,6 +171,12 @@ namespace Core.Rules.Skill
             // 本构造函数最早的必填参数之一，此刻已可用。
             _auraHost.Units = _units;
 
+            // ADR-0108（消费方反馈第五十七批"静息回复"）新增：回填 AuraHost.PowerRegen（见该属性
+            // 判断记录"新增可写属性而非构造函数参数"），供 mod_power_regen 光环效果登记运行期回复
+            // 速率修饰器。powerHost 是本构造函数最早的必填参数之一，此刻已可用（同 _units 上一行
+            // 判断记录同一时机）。
+            _auraHost.PowerRegen = powerHost;
+
             // ProcHost 的触发回调用方法组转换绑定 TriggerCastInternal——该方法内部读取 _pipeline
             // 字段，而 _pipeline 要到本构造函数末尾才赋值；C# 闭包/方法组按调用时刻求值字段，
             // 只要真正触发发生在构造完成之后（游戏运行期间），这里提前绑定是安全的。

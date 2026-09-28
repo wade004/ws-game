@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Numbers.PowerSet;
 using Core.Numbers.StatBlock;
 using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
@@ -151,6 +152,19 @@ namespace Core.Rules.Skill
         /// 接口实现的保守默认——两类作用域属性对它一律不匹配，不是遗漏也不崩溃），不改变既有行为。
         /// </summary>
         public IUnitAccess? Units { get; set; }
+
+        /// <summary>
+        /// ADR-0108（消费方反馈第五十七批"静息回复"）新增：供 <c>mod_power_regen</c> 光环效果登记/
+        /// 撤销运行期回复速率修饰器（<see cref="Core.Numbers.PowerSet.IPowerHost.AddRegenModifier"/>/
+        /// <see cref="Core.Numbers.PowerSet.IPowerHost.RemoveRegenModifier"/>），由 <see
+        /// cref="SkillHost"/> 在构造完成后回填（判断记录同 <see cref="Units"/>/<see cref="EffectSink"/>
+        /// "新增可写属性而非构造函数参数"——本类型的构造函数是 ABI 表面的一部分，新增依赖一律走
+        /// 组合根回填可写属性，不改动物理签名）。未注入（<c>null</c>，典型场景：只装配
+        /// <c>core/rules</c> 不装配 <c>core/numbers/power_set</c> 的纯 L2 测试/集成，或既有测试夹具
+        /// 未跟着改动）时，含 <c>mod_power_regen</c> 效果的光环施加/移除会记一条诊断警告后跳过（见
+        /// <see cref="ReapplyPowerRegenMods"/> 判断记录），不影响该光环其余效果落地，不抛异常。
+        /// </summary>
+        public IPowerHost? PowerRegen { get; set; }
 
         /// <summary>C08 收口：见 <see cref="IAuraQuery.InstanceReplaced"/> 判断记录。</summary>
         public event Action<Id, Id, Id, Id>? InstanceReplaced;
@@ -305,6 +319,7 @@ namespace Core.Rules.Skill
                 var old = existing.Stacks;
                 existing.Stacks = newStacks;
                 ReapplyStatMods(existing, def);
+                ReapplyPowerRegenMods(existing, def);
                 existing.AbsorbRemaining += AbsorbPerStack(def, out _);
                 _bus.Enqueue(new AuraStackChangedEvent(existing.TargetId, def.Id, old, existing.Stacks, triggerChainDepth));
                 return new AuraInstanceRef(existing.InstanceId);
@@ -363,6 +378,7 @@ namespace Core.Rules.Skill
 
             ApplyStaticEffects(instance, def);
             ReapplyStatMods(instance, def);
+            ReapplyPowerRegenMods(instance, def);
 
             _instances[instance.InstanceId] = instance;
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)sourceId : null;
@@ -413,6 +429,12 @@ namespace Core.Rules.Skill
             {
                 _statHost.RemoveModifiersBySource(instance.TargetId, instance.InstanceId);
             }
+
+            // ADR-0108：撤销本实例登记的全部回复速率修饰器（若曾登记）。不需要像上面 IStatHost 那样
+            // 先查"是否仍注册"再决定是否调用——IPowerHost.RemoveRegenModifier 的契约本身就要求对
+            // "单位/资源类型未注册"静默忽略（见该接口成员判断记录"清理路径的既定容错尺度"），这里
+            // 直接调用是安全的。
+            RemovePowerRegenMods(instance);
 
             _instances.Remove(instance.InstanceId);
             var sourceKey = _options.AllowMultiSourceTiming ? (Id?)instance.SourceId : null;
@@ -494,7 +516,8 @@ namespace Core.Rules.Skill
                 for (var i = 0; i < def.Effects.Count; i++)
                 {
                     var entry = def.Effects[i];
-                    if (entry.Kind != AuraEffectKind.PeriodicDamage && entry.Kind != AuraEffectKind.PeriodicHeal)
+                    if (entry.Kind != AuraEffectKind.PeriodicDamage && entry.Kind != AuraEffectKind.PeriodicHeal
+                        && entry.Kind != AuraEffectKind.PeriodicEnergize)
                     {
                         continue;
                     }
@@ -557,7 +580,18 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            var kind = entry.Kind == AuraEffectKind.PeriodicDamage ? EffectKind.SchoolDamage : EffectKind.Heal;
+            // ADR-0108：PeriodicEnergize 追加为第三种取值——同 PeriodicDamage/PeriodicHeal 惯例，
+            // 只决定落地时用哪个 EffectKind，school/base_value/coefficient 三个字段的读取（下方）
+            // 对 PeriodicEnergize 而言恒是无意义的默认值（该效果的 params 不声明这三个字段，见
+            // SkillSchemas.PeriodicEnergize 判断记录），ApplyEnergize 只读 context.Params 里的
+            // power_type/amount，不消费这三个字段，因此不需要为它们另开分支。
+            var kind = entry.Kind switch
+            {
+                AuraEffectKind.PeriodicDamage => EffectKind.SchoolDamage,
+                AuraEffectKind.PeriodicHeal => EffectKind.Heal,
+                AuraEffectKind.PeriodicEnergize => EffectKind.Energize,
+                _ => throw new InvalidOperationException($"FirePeriodic 不支持的 AuraEffectKind：{entry.Kind}（Update 的周期效果过滤条件应已排除其它取值）"),
+            };
             var school = ParamsX.GetId(entry.Params, "school", default);
             var baseValue = ParamsX.GetNumber(entry.Params, "base_value");
             var coefficient = ParamsX.GetNumber(entry.Params, "coefficient");
@@ -719,6 +753,103 @@ namespace Core.Rules.Skill
                 _statHost.AddModifier(instance.TargetId, new StatModifier(stat, op, value, instance.InstanceId));
             }
         }
+
+        /// <summary>
+        /// ADR-0108（消费方反馈第五十七批"静息回复"）新增：登记/替换本光环实例名下全部
+        /// <c>mod_power_regen</c> 效果对应的 <see cref="RegenModifier"/>，惯例同 <see
+        /// cref="ReapplyStatMods"/>（先移除本实例 id 名下的旧值，再按 <paramref name="def"/> 当前
+        /// 的效果列表重新写入一遍）——调用点同 <see cref="ReapplyStatMods"/>：<see
+        /// cref="CreateInstance"/>、<see cref="ReapplyExisting"/> 正常叠加分支；<see
+        /// cref="StackOverflowPolicy.RefreshOnly"/> 分支同 <see cref="ReapplyStatMods"/> 一样不重新
+        /// 写入（只刷新剩余时长，不产生新的静态效果实例）。不按 <see cref="AuraInstanceState.Stacks"/>
+        /// 缩放 <c>multiplier</c>/<c>add</c>——与 <see cref="ReapplyStatMods"/> 的 <c>value * Stacks</c>
+        /// 不同：任务书拍板的组合公式（见 <see cref="Core.Numbers.PowerSet.PowerHost"/>
+        /// <c>ComputeEffectiveRegenRate</c> 判断记录）没有提及叠加层数这一维度，本方法忠实只登记
+        /// <c>params</c> 声明的值本身，不额外引入"层数"语义。
+        /// <para>
+        /// <see cref="PowerRegen"/> 未注入时（见该属性判断记录）：若本光环确实声明了
+        /// <c>mod_power_regen</c> 效果，记一条诊断警告后整体跳过（不逐条重试、不抛异常）——同 <see
+        /// cref="FirePeriodic"/> 对 <see cref="EffectSink"/> 判空的既有惯例（"未接线"是可预期的测试/
+        /// 局部集成场景，不是运行时崩溃条件，但也不应该悄悄看起来像是生效了）；本光环若根本不含这
+        /// 类效果（绝大多数光环），不产生任何警告噪音。
+        /// </para>
+        /// </summary>
+        private void ReapplyPowerRegenMods(AuraInstanceState instance, AuraDef def)
+        {
+            var hasModPowerRegen = false;
+            foreach (var entry in def.Effects)
+            {
+                if (entry.Kind == AuraEffectKind.ModPowerRegen)
+                {
+                    hasModPowerRegen = true;
+                    break;
+                }
+            }
+
+            if (!hasModPowerRegen)
+            {
+                return;
+            }
+
+            if (PowerRegen == null)
+            {
+                _diagnostics.Warn(
+                    $"光环 \"{def.Id}\" 声明了 mod_power_regen 效果，但 AuraHost.PowerRegen 未注入，本次施加/刷新已跳过该效果（见 AuraHost.PowerRegen 判断记录）");
+                return;
+            }
+
+            foreach (var entry in def.Effects)
+            {
+                if (entry.Kind != AuraEffectKind.ModPowerRegen) continue;
+
+                var powerType = ParamsX.GetId(entry.Params, "power_type", default);
+                PowerRegen.RemoveRegenModifier(instance.TargetId, powerType, instance.InstanceId);
+            }
+
+            foreach (var entry in def.Effects)
+            {
+                if (entry.Kind != AuraEffectKind.ModPowerRegen) continue;
+
+                var powerType = ParamsX.GetId(entry.Params, "power_type", default);
+                var multiplier = ParamsX.GetNumber(entry.Params, "multiplier", 1.0);
+                var add = ParamsX.GetNumber(entry.Params, "add", 0.0);
+                var scope = ParseRegenScope(ParamsX.GetString(entry.Params, "scope", "out_of_combat"));
+                PowerRegen.AddRegenModifier(instance.TargetId, powerType, instance.InstanceId, new RegenModifier(scope, multiplier, add));
+            }
+        }
+
+        /// <summary>ADR-0108：<see cref="RemoveInstanceInternal"/> 的收口调用——撤销本实例名下全部
+        /// <c>mod_power_regen</c> 效果登记过的修饰器。<see cref="PowerRegen"/> 未注入时静默跳过（清理
+        /// 路径不因"这个能力本来就没接线"而警告或抛异常，与 <see cref="ReapplyPowerRegenMods"/> 施加
+        /// 路径故意警告不同——施加路径的警告是提醒内容作者"这条效果没有生效"，移除路径没有对应的
+        /// 用户可感知后果需要提醒）。</summary>
+        private void RemovePowerRegenMods(AuraInstanceState instance)
+        {
+            if (PowerRegen == null)
+            {
+                return;
+            }
+
+            var def = _defs.GetAuraDef(instance.DefId);
+            foreach (var entry in def.Effects)
+            {
+                if (entry.Kind != AuraEffectKind.ModPowerRegen) continue;
+
+                var powerType = ParamsX.GetId(entry.Params, "power_type", default);
+                PowerRegen.RemoveRegenModifier(instance.TargetId, powerType, instance.InstanceId);
+            }
+        }
+
+        /// <summary>ADR-0108：<c>mod_power_regen.params.scope</c> 文本 → <see cref="RegenScope"/>，
+        /// 惯例同 <see cref="ParseControlFlags"/>（未知取值兜底为最保守的 <see
+        /// cref="RegenScope.OutOfCombat"/>——正常数据已经过 <c>SkillSchemas.RegenScopeValues</c> 枚举
+        /// 校验，走到"未知取值"分支只会是绕过加载期校验的测试/工具场景）。</summary>
+        private static RegenScope ParseRegenScope(string text) => text switch
+        {
+            "in_combat" => RegenScope.InCombat,
+            "both" => RegenScope.Both,
+            _ => RegenScope.OutOfCombat,
+        };
 
         // -----------------------------------------------------------------
         // IAuraQuery

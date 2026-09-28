@@ -59,6 +59,11 @@ namespace Core.Rules.Skill
         public static readonly string[] ModStatOpValues = { "flat", "pct", "mult" };
         public static readonly string[] ControlFlagValues = { "no_move", "no_cast", "no_attack", "no_interact" };
 
+        /// <summary>ADR-0108（消费方反馈第五十七批"静息回复"）新增：<c>mod_power_regen</c> 光环效果
+        /// <c>params.scope</c> 合法取值，与 <see cref="Core.Numbers.PowerSet.RegenScope"/> 逐一对应
+        /// （见 <c>AuraHost.ReapplyPowerRegenMods</c> 判断记录）。</summary>
+        public static readonly string[] RegenScopeValues = { "out_of_combat", "in_combat", "both" };
+
         /// <summary>一个发现的交付缺口（2026-09-21，ADR-0060）：<c>skill.aura_def.polarity</c>
         /// 合法取值——该光环对承受者是有利（<c>beneficial</c>）还是有害（<c>harmful</c>）。固定
         /// 两值，不含"中性"：光环未声明本字段即代表"未声明"，不需要再用一个取值表达同一件事。</summary>
@@ -437,6 +442,38 @@ namespace Core.Rules.Skill
                     new FieldSchema("params", FieldKind.Object, required: false, fields: Array.Empty<FieldSchema>(),
                         description: "无参数"),
                 },
+
+                // ADR-0108（消费方反馈第五十七批"静息回复"）新增：持续修饰目标某个资源类型的运行期
+                // 回复速率，见 AuraHost.ReapplyPowerRegenMods/Core.Numbers.PowerSet.IPowerHost.
+                // AddRegenModifier 判断记录。
+                [AuraEffectKindNames.ToText(AuraEffectKind.ModPowerRegen)] = ParamsCase(required: true, new[]
+                {
+                    new FieldSchema("power_type", FieldKind.Id, required: true,
+                        description: "被修正回复速率的资源类型引用（同 energize.power_type 判断记录，按 Id 登记为软引用）")
+                        .WithSoftReference(table: "arch.power_type"),
+                    new FieldSchema("multiplier", FieldKind.Number, required: false, description: "缺省 1，不允许负数")
+                        .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("add", FieldKind.Number, required: false, description: "缺省 0，允许负数（用于回复变慢一类内容）"),
+                    new FieldSchema("scope", FieldKind.Enum, required: false, enumValues: RegenScopeValues, description: "缺省 out_of_combat"),
+                }, "持续修正目标某个资源类型的回复速率，见 power_type/multiplier/add/scope 子字段"),
+
+                // ADR-0108 新增：周期形态的资源恢复（PeriodicDamage/PeriodicHeal 的资源恢复版本），
+                // 每跳经 EffectKind.Energize 落地（见 AuraHost.FirePeriodic 判断记录）。不复用
+                // PeriodicParamsCase——Energize 结算不消费 school/base_value/coefficient/scaling 这些
+                // 伤害或治疗专属字段（同顶层 energize 效果 params 只有 power_type/amount 两个字段的
+                // 既有登记，见本文件 EffectKind.Energize 判断记录），只额外补一个周期形态必需的
+                // interval（任务书原文未列出该字段，但没有它无法表达"周期"这一形态——AuraHost.Update
+                // 的周期结算循环统一读取 params.interval 决定跳的间隔，同 periodic_damage/
+                // periodic_heal 的既有必填约定，见判断记录）。
+                [AuraEffectKindNames.ToText(AuraEffectKind.PeriodicEnergize)] = ParamsCase(required: true, new[]
+                {
+                    new FieldSchema("interval", FieldKind.Number, required: true, description: "周期间隔，以时间单位计（同 periodic_damage/periodic_heal 判断记录）")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)).WithUnit(FieldUnit.Time),
+                    new FieldSchema("power_type", FieldKind.Id, required: true,
+                        description: "每跳恢复/扣减的资源类型引用（同 energize.power_type 判断记录，按 Id 登记为软引用）")
+                        .WithSoftReference(table: "arch.power_type"),
+                    new FieldSchema("amount", FieldKind.Number, required: true, description: "每跳恢复/扣减量"),
+                }, "按 interval 周期对目标恢复/扣减一次指定资源类型的数值，见 interval/power_type/amount 子字段"),
             };
 
             return new VariantSchema("kind", cases);

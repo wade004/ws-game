@@ -195,5 +195,55 @@ namespace Core.Numbers.PowerSet
             throw new System.NotSupportedException(
                 $"{GetType().Name} 未实现 {nameof(SetMinOverride)}（ADR-0106 单位级资源下限覆盖，" +
                 $"默认接口成员故意不做静默空操作，见 IPowerHost.{nameof(SetMinOverride)} 判断记录）");
+
+        /// <summary>
+        /// ADR-0108（消费方反馈第五十七批"静息回复"）新增：为 <paramref name="unitId"/> 的
+        /// <paramref name="powerType"/> 登记/替换一条运行期回复速率修饰器（<see cref="RegenModifier"/>），
+        /// 供"某个运行期状态下这个单位的这种资源回复更快/更慢"这类内容（典型如"坐下回复加速"）落地——
+        /// 06 原文的 <c>regen_out_of_combat</c>/<c>regen_in_combat</c> 是资源类型级全局固定数字，没有
+        /// 任何按单位的运行期倍率/加成钩子，本方法是补齐的必要展开（同 <see cref="SetMinOverride"/>
+        /// 判断记录同一处理时机——运行期状态管理方法按需展开进契约）。
+        /// <para>
+        /// <paramref name="key"/> 标识"是谁登记的这条修饰器"（典型取调用方自己的光环实例 id），同一
+        /// <paramref name="key"/> 重复调用是替换（覆盖旧值），不是叠加——不同 <paramref name="key"/>
+        /// 的多条修饰器才会一起参与组合（见 <see cref="Core.Numbers.PowerSet.PowerHost"/>"有效速率"
+        /// 公式判断记录）。前置条件：<paramref name="unitId"/> 必须已注册且持有
+        /// <paramref name="powerType"/>，否则抛 <see cref="System.InvalidOperationException"/>（与
+        /// <see cref="ModifyPower"/>/<see cref="SetMinOverride"/> 同一惯例——本方法在写入与某个具体
+        /// 资源池绑定的运行期状态，目标资源池必须先存在）。
+        /// </para>
+        /// <para>
+        /// 判断记录（默认实现，C#8 默认接口方法，ABI 门禁 G3"公开 API 只能新增"，惯例同
+        /// <see cref="SetMinOverride"/>）：默认体抛 <see cref="System.NotSupportedException"/>，理由
+        /// 同 <see cref="SetMinOverride"/> 判断记录——本成员会真正改变有效回复速率这一数值语义，默认体
+        /// 悄悄空操作会让调用方误以为修饰器已生效。本接口目前只有
+        /// <see cref="Core.Numbers.PowerSet.PowerHost"/> 一个生产实现（显式覆盖）；其余测试替身新增
+        /// 本成员不构成编译破坏，调用会显式抛出而不是产生看似正确的空操作。
+        /// </para>
+        /// </summary>
+        void AddRegenModifier(Id unitId, Id powerType, Id key, RegenModifier modifier) =>
+            throw new System.NotSupportedException(
+                $"{GetType().Name} 未实现 {nameof(AddRegenModifier)}（ADR-0108 单位级回复速率修饰器，" +
+                $"默认接口成员故意不做静默空操作，见 IPowerHost.{nameof(AddRegenModifier)} 判断记录）");
+
+        /// <summary>
+        /// ADR-0108 新增：移除 <paramref name="unitId"/> 的 <paramref name="powerType"/> 下、由
+        /// <paramref name="key"/> 登记的回复速率修饰器；<paramref name="unitId"/>/<paramref name="powerType"/>
+        /// 未注册、或该 <paramref name="key"/> 从未登记过，均静默忽略（不抛异常）——本方法主要供光环
+        /// 到期/移除时的清理路径调用，清理路径不应因为"目标资源池状态已经先一步发生变化"而崩溃（同
+        /// <see cref="TryGetPower"/> 一类"容错查询/清理"方法的既有惯例，与写入新状态的
+        /// <see cref="AddRegenModifier"/> 要求前置条件成立不同——两者一写一清，容错尺度分别对齐各自
+        /// 的既有惯例）。
+        /// <para>
+        /// 判断记录（默认实现，写法同 <see cref="AddRegenModifier"/>）：默认体同样抛
+        /// <see cref="System.NotSupportedException"/>，不是空操作——虽然本方法运行时对"目标不存在"
+        /// 静默忽略，但对"未实现移除能力的宿主"仍应显式失败，避免调用方以为移除已生效、实际修饰器
+        /// 仍在起作用（同 <see cref="AddRegenModifier"/> 判断记录"看似成功、实则无效"的降级顾虑）。
+        /// </para>
+        /// </summary>
+        void RemoveRegenModifier(Id unitId, Id powerType, Id key) =>
+            throw new System.NotSupportedException(
+                $"{GetType().Name} 未实现 {nameof(RemoveRegenModifier)}（ADR-0108 单位级回复速率修饰器，" +
+                $"默认接口成员故意不做静默空操作，见 IPowerHost.{nameof(RemoveRegenModifier)} 判断记录）");
     }
 }

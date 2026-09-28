@@ -53,6 +53,10 @@ power_set/
   先 regen 后 decay（decay 只在脱战生效），确定性推进。
 - `RecomputeMax(unitId)`：`max_source.kind == "stat"` 的资源类型重新查询上限，上限下降时当前
   值随之夹取。
+- `AddRegenModifier(unitId, powerType, key, modifier)` / `RemoveRegenModifier(unitId, powerType,
+  key)`（ADR-0108 新增默认接口成员，见下方"ADR-0108"判断记录）：按"单位 + 资源类型 + 调用方
+  标识"登记/移除一条回复速率修饰器（`RegenModifier`：生效范围/乘算系数/加算增量），同一 `key`
+  重复登记是替换不是叠加；唯一回复速率读取点改为综合定义速率与全部匹配当前战斗状态的修饰器。
 
 ## 设计要点与判断记录
 
@@ -157,6 +161,29 @@ power_set/
     `PowerHost` 一个生产实现（显式覆盖）；测试替身（如
     `core/rules/expr_host/tests/ExprHostTestSupport.FakePowerHost`）新增本成员不构成编译破坏，
     它们不是本次缺陷涉及的生成/结算路径的真实消费方。
+
+## ADR-0108：静息回复（消费方反馈第五十七批）
+
+14. **回复速率修饰器公式是"先加后乘"：`(定义速率 + Σ匹配 Add) × Π匹配 Multiplier`，结果为负
+    夹到零**——`Add` 允许为负（表达"这个状态下回复变慢"），`Multiplier` 构造时校验 `>= 0`（负
+    倍率没有"回复速率"这一物理量的合理解释，见 `RegenModifier` 构造函数）；组合公式不区分修饰器
+    来自哪个调用方，多个登记项的乘算连乘、加算连加，与资源池既有"多来源叠加"心智模型一致，不是
+    本次新增的特殊规则。
+15. **修饰器按 `SortedDictionary<Id, RegenModifier>` 存储，不用 `Dictionary`**——与
+    `core/rules/combat.ThreatTable` 内层表同一惯例：多个修饰器求和/连乘涉及浮点运算，遍历顺序
+    必须确定，才能保证同一组输入每次算出逐位相同的结果，便于回归比对。
+16. **`AddRegenModifier` 要求单位与资源类型已登记（否则抛异常，与 `ModifyPower`/`SetMinOverride`
+    等既有写入口一致），`RemoveRegenModifier` 对不存在的单位/资源类型/`key` 一律静默返回**——
+    前者是"写入"语义，调用方传错标识属于用法错误，应尽早暴露；后者是清理路径（光环到期/移除、
+    单位注销附带清理），调用顺序或存在性不应该成为撤销操作的前置条件，静默返回与既有清理路径
+    （如 `UnregisterUnit`）的容错惯例一致。单位 `UnregisterUnit` 时随之清除该单位全部修饰器；
+    脱战衰减（`decay_out_of_combat`）是独立字段，不读修饰器，不受本决策影响。
+17. **`IPowerHost.AddRegenModifier`/`RemoveRegenModifier` 默认体抛 `NotSupportedException`，
+    不是空操作**——与 `SetMinOverride`（判断记录 13）同一理由：这两个成员会真正改变回复速率这一
+    数值语义，默认体若悄悄什么都不做，调用方（`AuraHost`）会误以为修饰器已生效，实际回复速率
+    仍是未修饰的定义值，属于"看似成功、实则无效"的静默降级。本接口目前只有 `PowerHost` 一个
+    生产实现（显式覆盖）；`core/numbers/power_set/tests/Adr0108_RegenModifierTests.cs` 里的
+    `BareFakePowerHost` 依赖默认体的抛出行为验证这一点，不是新增的兼容性负担。
 
 ## 诊断
 

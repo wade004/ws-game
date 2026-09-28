@@ -309,11 +309,14 @@ namespace Core.Rules.Combat
             }
 
             // ---------------- 步骤 9：后置 ----------------
+            // ADR-0108（消费方反馈第五十七批"静息回复"）根治：见本方法末尾治疗分支的进战通知判断
+            // 记录——heal_threat_applied 只在治疗分支、且确实对至少一个存活敌对单位追加了仇恨时置真。
+            var healThreatApplied = false;
             if (!immune)
             {
                 if (isHeal)
                 {
-                    ApplyHealThreat(context.SourceId, context.TargetId, finalAmount, steps);
+                    healThreatApplied = ApplyHealThreat(context.SourceId, context.TargetId, finalAmount, steps);
                     // RC-01 收边补齐：把产生本次结算的 EffectContext.TriggerChainDepth 原样戳到
                     // 落地事件上（见 EffectContext.TriggerChainDepth/ITriggerChainEvent 判断记录），
                     // 供 ProcHost 在 combat.heal_done 是某个 skill.proc_def.trigger_event 时读回，
@@ -341,8 +344,29 @@ namespace Core.Rules.Combat
                 }
             }
 
-            _notifyCombatEvent(context.SourceId, context.TargetId);
-            _notifyCombatEvent(context.TargetId, context.SourceId);
+            // ADR-0108 根治（消费方反馈第五十七批"静息回复"缺口 3）：伤害路径两行不变——结算双方
+            // 无条件各自 NotifyCombatEvent 一次（含免疫命中，同本方法之前的既有行为）。治疗路径改为
+            // 只在"确实对至少一个存活敌对单位追加了仇恨"（healThreatApplied）时，通知治疗者一方进战
+            // （ApplyHealThreat 判断记录"治疗仇恨已经让治疗者出现在该敌对单位的仇恨表里，进战标志
+            // 与之对齐"）；被治疗者一律不通知——它若本来就在战，仇恨表已经维持它的状态，不需要额外
+            // 刷新；它若不在战，一次治疗本身不构成"这个单位正在被攻击/正在参战"的信号。这是有意的
+            // 行为变更：此前两个都不在战的单位之间互相治疗（含自我治疗、光环周期治疗）会无条件把
+            // 双方拉进战、并且每一跳都刷新脱战计时器（NotifyCombatEvent 对已在战单位仍会刷新
+            // _timeSinceLastEvent），导致脱战回复永远没有机会启动（见 core/rules/combat/README 判断
+            // 记录/ADR-0108 决策 3）。
+            if (isHeal)
+            {
+                if (healThreatApplied)
+                {
+                    _notifyCombatEvent(context.SourceId, null);
+                }
+            }
+            else
+            {
+                _notifyCombatEvent(context.SourceId, context.TargetId);
+                _notifyCombatEvent(context.TargetId, context.SourceId);
+            }
+
             steps.Add("post: 仇恨/进战/事件处理完成");
 
             var result = new ResolveResult(hit, requestedAmount, finalAmount, absorbed, immune, isHeal, steps);
@@ -825,21 +849,34 @@ namespace Core.Rules.Combat
         /// 判断记录（任务书"拍板简化"）：不引入"阵营仇恨表"这一新概念，改为对每个当前已经把
         /// 被治疗者或治疗者记在自己仇恨表里的敌对单位，追加 <c>amount × HealThreatCoefficient</c>
         /// 的仇恨——语义上等价于"正在攻击这个治疗小队的敌人，仇恨值因为看到治疗而提升"，且复用
-        /// 现有 <see cref="ThreatTable"/> 结构，不新增数据形状。
+        /// 现有 <see cref="ThreatTable"/> 结构，不新增数据形状。追加的仇恨记在<b>被治疗者</b>已有的
+        /// 仇恨条目上（<c>_threatTable.AddThreat(ownerId, targetId, delta)</c>——被治疗者是敌对 AI
+        /// 实际会攻击的目标），不会在敌对单位的仇恨表里另外创建一条以治疗者为来源的独立条目；这一
+        /// 条数据形状本身不是本次改动范围（ADR-0108 决策 3 只改"治疗是否让治疗者进入战斗状态"这一
+        /// 独立信号，不改此处的仇恨记账对象）。
+        /// </para>
+        /// <para>
+        /// ADR-0108（消费方反馈第五十七批"静息回复"）新增返回值：<c>true</c> 表示本次调用确实对
+        /// 至少一个存活敌对单位追加了仇恨（<paramref name="steps"/> 记录的 <c>applied &gt; 0</c>），
+        /// 供 <see cref="Resolve"/> 据此判断治疗者一方是否应当因为这次治疗进入战斗——治疗仇恨已经
+        /// 让治疗者在某个敌对单位的"这次治疗牵连到的目标"范围内产生了实际影响，进战标志与这一事实
+        /// 对齐；系数 &lt;= 0、治疗量 &lt;= 0、被治疗者不存在、或没有任何敌对单位当前跟踪本次治疗
+        /// 相关单位，均返回 <c>false</c>（沿用此前各分支已有的 <c>steps.Add</c> 诊断文案，不改变
+        /// 既有的"跳过"判定逻辑本身，只是把判定结果透传给调用方）。
         /// </para>
         /// </summary>
-        private void ApplyHealThreat(Id sourceId, Id targetId, double amount, List<string> steps)
+        private bool ApplyHealThreat(Id sourceId, Id targetId, double amount, List<string> steps)
         {
             if (_options.HealThreatCoefficient <= 0.0 || amount <= 0.0)
             {
                 steps.Add("heal_threat: 系数<=0 或治疗量<=0，跳过");
-                return;
+                return false;
             }
 
             if (!_units.Exists(targetId))
             {
                 steps.Add("heal_threat: 被治疗者不存在，跳过");
-                return;
+                return false;
             }
 
             var healedFaction = _units.GetFaction(targetId);
@@ -871,6 +908,7 @@ namespace Core.Rules.Combat
             }
 
             steps.Add($"heal_threat: delta={delta} 应用到 {applied} 个已跟踪该次治疗相关单位的敌对单位");
+            return applied > 0;
         }
 
         private bool ContainsSource(Id ownerId, Id sourceId)

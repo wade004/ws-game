@@ -107,7 +107,8 @@ namespace Tests.Rules.Skill
         // SkillSchemas.BudgetRule 判断记录）。
         private readonly List<JsonObject> _budgetRules = new List<JsonObject>();
         private readonly List<JsonObject> _statDefs = new List<JsonObject>();
-        private readonly List<(string Id, double Max, bool StartFull)> _powerTypes = new List<(string, double, bool)>();
+        private readonly List<(string Id, double Max, bool StartFull, double RegenOutOfCombat, double RegenInCombat)> _powerTypes =
+            new List<(string, double, bool, double, double)>();
         private readonly List<IValidationRule> _extraRules = new List<IValidationRule>();
 
         public SkillOptions Options { get; } = new SkillOptions();
@@ -204,9 +205,9 @@ namespace Tests.Rules.Skill
             return this;
         }
 
-        public SkillWorldBuilder Power(string id, double max, bool startFull = true)
+        public SkillWorldBuilder Power(string id, double max, bool startFull = true, double regenOutOfCombat = 0, double regenInCombat = 0)
         {
-            _powerTypes.Add((id, max, startFull));
+            _powerTypes.Add((id, max, startFull, regenOutOfCombat, regenInCombat));
             return this;
         }
 
@@ -251,7 +252,7 @@ namespace Tests.Rules.Skill
             }
 
             var stats = new StatHost(registry, bus);
-            var powers = new PowerHost(_powerTypes.Select(p => PowerType(p.Id, p.Max, p.StartFull)), bus);
+            var powers = new PowerHost(_powerTypes.Select(p => PowerType(p.Id, p.Max, p.StartFull, p.RegenOutOfCombat, p.RegenInCombat)), bus);
             var rng = new RngHost(RngSeed);
             var units = new FakeUnitAccess();
             var combat = new FakeCombatHost();
@@ -303,14 +304,16 @@ namespace Tests.Rules.Skill
             return idx < 0 ? id : id.Substring(idx + 1);
         }
 
-        private static PowerTypeDefinition PowerType(string id, double max, bool startFull)
+        private static PowerTypeDefinition PowerType(string id, double max, bool startFull, double regenOutOfCombat = 0, double regenInCombat = 0)
         {
             var json = J.O(
                 ("id", J.S(id)),
                 ("name_key", J.S("l10n.power." + LastSegment(id) + ".name")),
                 ("max_source", J.O(("kind", J.S("fixed")), ("value", J.N(max)))),
                 ("start_full", J.B(startFull)),
-                ("allow_overflow", J.B(true)));
+                ("allow_overflow", J.B(true)),
+                ("regen_out_of_combat", J.N(regenOutOfCombat)),
+                ("regen_in_combat", J.N(regenInCombat)));
             var record = new DataRecord(PowerSchemas.PowerType, id, new Id(id), json);
             return new PowerTypeDefinition(record);
         }

@@ -23,6 +23,13 @@ namespace Core.Numbers.PowerSet
             /// <see cref="PowerTypeDefinition.Min"/>），见 <see cref="SetMinOverride"/>/
             /// <see cref="EffectiveMin"/>。</summary>
             public double? MinOverride;
+
+            /// <summary>ADR-0108：运行期回复速率修饰器表，键为调用方登记时传入的 <c>key</c>（典型是
+            /// 光环实例 id）；<c>null</c> 表示尚未登记过任何修饰器（惰性分配，绝大多数资源池永远
+            /// 用不到，不为每个 PowerState 都分配一个空字典）。用 <see cref="SortedDictionary{TKey,TValue}"/>
+            /// 而不是 <see cref="Dictionary{TKey,TValue}"/>——见 <see cref="ComputeEffectiveRegenRate"/>
+            /// 判断记录"确定性遍历"，惯例同 <c>Core.Rules.Combat.ThreatTable</c> 内层表。</summary>
+            public SortedDictionary<Id, RegenModifier>? RegenModifiers;
         }
 
         private sealed class UnitState
@@ -394,6 +401,37 @@ namespace Core.Numbers.PowerSet
             }
         }
 
+        /// <summary>ADR-0108：见 <see cref="IPowerHost.AddRegenModifier"/> 契约注释。前置校验同
+        /// <see cref="SetMinOverride"/>——先经 <see cref="RequirePower"/> 确认单位已注册且持有该资源
+        /// 类型（未满足抛 <see cref="InvalidOperationException"/>），再写入/替换 <c>key</c> 对应的
+        /// 修饰器（惰性分配 <see cref="PowerState.RegenModifiers"/>）。写入不重算/不立即触发任何
+        /// <c>power.changed</c>——有效速率只在下一次 <see cref="Advance"/>/<see cref="AdvanceAll"/>
+        /// 推进时读取（同 <c>arch.power_type</c> 定义速率本身"只影响后续 Advance，不倒推已经流逝的
+        /// 时间"这一既有语义一致，不新增特例）。</summary>
+        public void AddRegenModifier(Id unitId, Id powerType, Id key, RegenModifier modifier)
+        {
+            var power = RequirePower(unitId, powerType);
+            (power.RegenModifiers ??= new SortedDictionary<Id, RegenModifier>())[key] = modifier;
+        }
+
+        /// <summary>ADR-0108：见 <see cref="IPowerHost.RemoveRegenModifier"/> 契约注释——单位未注册、
+        /// 未持有该资源类型、或该 <c>key</c> 从未登记过，均静默返回，不抛异常（清理路径的既定容错
+        /// 尺度，见该接口成员判断记录）。</summary>
+        public void RemoveRegenModifier(Id unitId, Id powerType, Id key)
+        {
+            if (!_units.TryGetValue(unitId, out var state))
+            {
+                return;
+            }
+
+            if (!state.Powers.TryGetValue(powerType, out var power))
+            {
+                return;
+            }
+
+            power.RegenModifiers?.Remove(key);
+        }
+
         // -----------------------------------------------------------------
         // 内部
         // -----------------------------------------------------------------
@@ -410,8 +448,9 @@ namespace Core.Numbers.PowerSet
                 var definition = _definitions[powerType];
                 var power = state.Powers[powerType];
 
-                // 先 regen 后 decay（见 IPowerHost.Advance 注释）。
-                var regenRate = state.InCombat ? definition.RegenInCombat : definition.RegenOutOfCombat;
+                // 先 regen 后 decay（见 IPowerHost.Advance 注释）。ADR-0108：regenRate 改经
+                // ComputeEffectiveRegenRate 读取（叠加运行期修饰器），定义速率本身的读取点不变。
+                var regenRate = ComputeEffectiveRegenRate(definition, power, state.InCombat);
                 if (regenRate != 0)
                 {
                     ApplyDelta(unitId, powerType, definition, power, regenRate * timeUnits);
@@ -421,6 +460,65 @@ namespace Core.Numbers.PowerSet
                 {
                     ApplyDelta(unitId, powerType, definition, power, -definition.DecayOutOfCombat * timeUnits);
                 }
+            }
+        }
+
+        /// <summary>
+        /// ADR-0108：单一取值出口——把 <c>arch.power_type</c> 定义速率（按 <paramref name="inCombat"/>
+        /// 二选一，与本方法之前的既有读取逐位一致）与该资源池当前登记的全部 <see cref="RegenModifier"/>
+        /// 组合成"这一次 Advance 实际使用的回复速率"。公式（任务书拍板，与
+        /// <see cref="IPowerHost.AddRegenModifier"/> 判断记录同一处描述）：
+        /// <c>(定义速率 + Σ 匹配当前战斗状态的 Add) × Π 匹配当前战斗状态的 Multiplier</c>，结果
+        /// <c>&lt; 0</c> 夹到 0（负回复速率没有意义——本方法只处理"回复"这一读取点，脱战衰减
+        /// <see cref="PowerTypeDefinition.DecayOutOfCombat"/> 走独立字段，不经本方法，不受影响）。
+        /// 没有任何登记过的修饰器（<see cref="PowerState.RegenModifiers"/> 为 <c>null</c> 或空）时
+        /// 直接返回定义速率本身，不做任何浮点运算——与本方法引入之前逐位一致（回归）。
+        /// <para>
+        /// 判断记录（遍历顺序确定性）：<see cref="PowerState.RegenModifiers"/> 是
+        /// <see cref="SortedDictionary{TKey,TValue}"/>（按 <c>key</c> 的 <c>Id</c> 序数排序），不是
+        /// 普通 <see cref="Dictionary{TKey,TValue}"/>——加法/乘法虽然数学上满足交换律，但浮点运算不
+        /// 满足结合律，不同遍历顺序可能得到位级不同的结果；本仓库对"不依赖字典枚举顺序"有硬性规则
+        /// （11 第 3 节），既有先例 <c>Core.Rules.Combat.ThreatTable</c> 内层表同样用
+        /// <see cref="SortedDictionary{TKey,TValue}"/> 保证确定性，此处沿用同一惯例。
+        /// </para>
+        /// </summary>
+        private static double ComputeEffectiveRegenRate(PowerTypeDefinition definition, PowerState power, bool inCombat)
+        {
+            var baseRate = inCombat ? definition.RegenInCombat : definition.RegenOutOfCombat;
+            if (power.RegenModifiers == null || power.RegenModifiers.Count == 0)
+            {
+                return baseRate;
+            }
+
+            double addSum = 0;
+            double multProduct = 1;
+            foreach (var modifier in power.RegenModifiers.Values)
+            {
+                if (!MatchesScope(modifier.Scope, inCombat))
+                {
+                    continue;
+                }
+
+                addSum += modifier.Add;
+                multProduct *= modifier.Multiplier;
+            }
+
+            var effective = (baseRate + addSum) * multProduct;
+            return effective < 0 ? 0 : effective;
+        }
+
+        private static bool MatchesScope(RegenScope scope, bool inCombat)
+        {
+            switch (scope)
+            {
+                case RegenScope.Both:
+                    return true;
+                case RegenScope.InCombat:
+                    return inCombat;
+                case RegenScope.OutOfCombat:
+                    return !inCombat;
+                default:
+                    return false;
             }
         }
 

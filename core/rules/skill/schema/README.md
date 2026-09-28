@@ -46,7 +46,7 @@ Number 必填}`；`charges` `{max: Int 必填, recharge_time: Number 必填}`）
 | `max_stacks` | Int | 否 | 缺省 1 |
 | `stack_category` | Id | 否 | 跨定义的静态叠加校验分组，仅供加载期内容校验使用（见校验规则"叠加类别冲突"）；不是运行时叠加槽位维度，运行时按 `(target, aura_def, sourceKey)` 分槽，与本字段无关（见 [ADR-0023](../../../../architecture/adr/0023-光环叠加类别为静态校验分组.md)） |
 | `dispel_type` | Id | 否 | 供 `dispel` 效果按类别筛选 |
-| `effects` | Array | 是 | `[{kind: String, params: Object}, ...]`，`kind` 取值见 `AuraEffectKindNames`（10 项）；ADR-0019 起元素结构登记为 `SkillSchemas.AuraEffectsItemSchema`，10 种取值各自的 `params` 结构见下"光环效果参数表" |
+| `effects` | Array | 是 | `[{kind: String, params: Object}, ...]`，`kind` 取值见 `AuraEffectKindNames`（12 项，[ADR-0108](../../../../architecture/adr/0108-静息回复.md) 追加 `mod_power_regen`/`periodic_energize` 两项）；ADR-0019 起元素结构登记为 `SkillSchemas.AuraEffectsItemSchema`，12 种取值各自的 `params` 结构见下"光环效果参数表" |
 
 ## `skill.proc_def`
 
@@ -239,6 +239,8 @@ T-N3-9/T-N3-10 在真正消费这份集合时解析落实，详见该类型顶�
 | `override_skill` | `from`:Reference(`skill.def`)/是、`to`:Reference(`skill.def`)/是 | `AuraHost.ApplyStaticEffects`/`ResolveSkillOverride` |
 | `control` | `flags`:Array(Item=Enum(no_move\|no_cast\|no_attack\|no_interact))/否、`category`:Enum(stun\|root\|silence\|disarm\|fear\|polymorph)/否（T-N3-6 新增，缺省未分类，取值集合 `Core.Rules.Common.ControlCategoryValues.All`） | `AuraHost.ApplyStaticEffects`/`ParseControlFlags`（`category` 分支另见下方"控制类别与按类别免疫"一节） |
 | `flag` | 无参数 | 仅供 `self.has_aura(...)` 判断，不产生其它效果 |
+| `mod_power_regen` | `power_type`:Reference(`arch.power_type`)/是、`multiplier`:Number/否（缺省 1，`WithRange(min:0)`）、`add`:Number/否（缺省 0，允许负数）、`scope`:Enum(`out_of_combat`\|`in_combat`\|`both`)/否（缺省 `out_of_combat`） | `AuraHost.ReapplyPowerRegenMods`/`RemovePowerRegenMods`（施加/刷新时登记、移除/到期时撤销，接 `IPowerHost.AddRegenModifier`/`RemoveRegenModifier`，[ADR-0108](../../../../architecture/adr/0108-静息回复.md)） |
+| `periodic_energize` | `interval`:Number/是（同 `periodic_damage`/`periodic_heal`）、`power_type`:Reference(`arch.power_type`)/是、`amount`:Number/是（每跳恢复/扣减量） | `AuraHost.Update`/`FirePeriodic`（每跳复用瞬时 `EffectKind.Energize` 的落地逻辑，不经战斗结算、不触发进战，[ADR-0108](../../../../architecture/adr/0108-静息回复.md)） |
 
 ## 控制类别与按类别免疫（T-N3-6）
 
