@@ -197,5 +197,33 @@ namespace Core.Rules.Combat
         /// <c>null</c>）时进战下马退化为"不移除任何光环，不抛异常"。
         /// </summary>
         public DismountMountAurasDelegate? DismountMountAuras { get; set; }
+
+        /// <summary>
+        /// [ADR-0107](../../../../architecture/adr/0107-脱战判定的交战范围.md)：脱战判定
+        /// （见 <see cref="CombatHost"/> 的 <c>HasLivingHostileThreatSource</c>）把"周边无存活的
+        /// 敌对仇恨来源"（06 第 4.5 节）落实为一个可配置的交战范围——仇恨来源（不论是本单位自己
+        /// 仇恨表里的记录，还是本单位作为攻击来源挂在某个存活敌对单位仇恨表里，两个方向同一标准）
+        /// 与本单位当前位置（<see cref="Core.Rules.Common.IUnitAccess.GetPosition"/>）的距离超过
+        /// 本值的条目不计入"仍有存活敌对来源"，距离恰等于本值视为范围内。修复前完全不限距离，导致
+        /// 打伤一个敌人不杀、跑开任意距离也永远脱不了战（消费方反馈第五十六批）。
+        /// <para>
+        /// 默认 30——本模块/<c>ai</c>/<c>carriers</c> 现有配置项里没有语义匹配的"感知/索敌半径"
+        /// 可以直接复用（<c>AiOptions.AttackRange</c> 默认 2 是近战攻击距离量级，太小；
+        /// <c>ai.behavior_profile.perception_radius</c> 是按数据行配置的 AI 感知半径，不是
+        /// <see cref="CombatOptions"/> 这一层的标量口味项），取与
+        /// <c>Core.Carriers.Projectile.ProjectileOptions.DefaultMaxRange</c>（远程技能/投射物
+        /// 默认最大射程，同为世界单位）同一量级的 30，具体游戏按口味调整。
+        /// </para>
+        /// <para>
+        /// 小于等于 0 的取值表示不限范围（旧行为，向后兼容既有未显式配置本项的装配）。
+        /// </para>
+        /// <para>
+        /// 已知限制：仇恨表本身不因超出范围而修剪——超范围条目仍留在 <see cref="IThreatTable"/>
+        /// 里参与 AI 目标选择等其它用途，只是脱战判定不再计入它们；因此敌方 AI 可能仍在追击一个
+        /// 已被判定"脱战"的单位，追击者进入范围后再次交手才会重新计入进战——AI 侧的脱离/回归
+        /// （leash/evade）是独立能力，本项不覆盖。
+        /// </para>
+        /// </summary>
+        public double ThreatSourceRange { get; set; } = 30.0;
     }
 }

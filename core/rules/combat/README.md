@@ -621,3 +621,21 @@ combat/
 `feedback.binding` 声明的事件 key 泛化订阅、`FeedbackRuleValidator` 按 `EventKeys.All` 校验，新
 事件登记后自动可用，不需要代码改动。ABI：`Events.cs` 新增类型与常量、`HitResult` 新增枚举成员，
 均不改动任何既有公开签名。
+
+## 判断记录（脱战判定的交战范围，2026-09-28，[ADR-0107](../../../architecture/adr/0107-脱战判定的交战范围.md)）
+
+消费方第五十六批反馈（生产装配复现）：`CombatHost.HasLivingHostileThreatSource`（`Update` 脱战判定
+唯一读取的方法）此前只检查"仇恨表里有记录、来源存活、双方敌对"三个条件，完全没有距离限定——06
+第 4.5 节"周边无存活的敌对仇恨来源"里的"周边"从未落地，实际是全图范围，导致打伤一个敌人不杀、
+跑开任意距离也永远脱不了战。新增 `CombatOptions.ThreatSourceRange`（默认 30，`<= 0` 表示不限范围），
+两个方向（判定单位自己仇恨表里的记录；判定单位作为攻击来源挂在某个存活敌对单位仇恨表里）新增同一条
+距离过滤，位置读 `IUnitAccess.GetPosition`（`CombatHost` 已持有的既有依赖，不新增契约面），距离恰
+等于该值视为范围内。仇恨表本身不因超出范围而修剪——超范围条目仍留在 `ThreatTable` 里参与 AI 目标
+选择等其它用途，只是脱战判定不再计入，已知限制（AI 可能仍在追击一个已判定"脱战"的单位；leash/evade
+是独立能力，本次不做）见 `CombatOptions.ThreatSourceRange` 判断记录与 ADR-0107"后果"一节。默认值
+30 取自与 `ProjectileOptions.DefaultMaxRange`（远程技能/投射物默认最大射程）同一量级，理由是本模块/
+`ai`/`carriers` 现有配置项里没有语义匹配、量级合适的"感知/索敌半径"可以直接复用（`AiOptions.
+AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profile.perception_radius` 是按数据行
+配置的 AI 感知半径，不是 `CombatOptions` 这一层的标量口味项）。ABI：`CombatOptions` 新增一个带默认
+值的属性，不改动任何既有公开签名；默认值 30（有限范围）本身即是本次修复的内容，未显式配置本项的
+既有装配数值结果不再逐位不变（这是判断有意为之的不完全兼容点，见 ADR"后果"一节）。

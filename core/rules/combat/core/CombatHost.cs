@@ -343,6 +343,15 @@ namespace Core.Rules.Combat
         /// 匹配，脱战判定不受影响（见 <c>CombatEnterLeaveTests.Update_AfterDelay_NoLivingHostileSource_LeavesCombatAndClearsThreat</c>
         /// 等既有用例：攻击者死亡后两个方向均查不到存活敌对来源，防御方仍会正常脱战）。
         /// </para>
+        /// <para>
+        /// [ADR-0107](../../../../architecture/adr/0107-脱战判定的交战范围.md)（消费方反馈第五十六批）：
+        /// 06 第 4.5 节原文"周边无存活的敌对仇恨来源"里的"周边"此前完全未落地——两个方向只要查到
+        /// 存活敌对来源就判定"仍在交战"，不论该来源离 <paramref name="unitId"/> 有多远，导致打伤一个
+        /// 敌人不杀、跑开任意距离也永远脱不了战。两个方向新增同一条距离过滤：来源与
+        /// <paramref name="unitId"/> 当前位置（<see cref="IUnitAccess.GetPosition"/>）的距离超过
+        /// <see cref="CombatOptions.ThreatSourceRange"/> 视为不计入（<c>&lt;= 0</c> 表示不限范围，
+        /// 距离恰等于该值视为范围内）。仇恨表本身不因此修剪，见该配置项判断记录"已知限制"。
+        /// </para>
         /// </summary>
         private bool HasLivingHostileThreatSource(Id unitId)
         {
@@ -352,6 +361,7 @@ namespace Core.Rules.Combat
             }
 
             var unitFaction = _units.GetFaction(unitId);
+            var unitPosition = _units.GetPosition(unitId);
 
             // 方向一：unitId 自己的仇恨表——谁攻击过/仇恨过 unitId。
             foreach (var (source, _) in _threatTable.GetAll(unitId))
@@ -361,7 +371,12 @@ namespace Core.Rules.Combat
                     continue;
                 }
 
-                if (_factions.IsHostile(unitFaction, _units.GetFaction(source)))
+                if (!_factions.IsHostile(unitFaction, _units.GetFaction(source)))
+                {
+                    continue;
+                }
+
+                if (IsWithinThreatSourceRange(unitPosition, source))
                 {
                     return true;
                 }
@@ -381,13 +396,35 @@ namespace Core.Rules.Combat
                     continue;
                 }
 
-                if (_factions.IsHostile(unitFaction, _units.GetFaction(trackedUnit)))
+                if (!_factions.IsHostile(unitFaction, _units.GetFaction(trackedUnit)))
+                {
+                    continue;
+                }
+
+                if (IsWithinThreatSourceRange(unitPosition, trackedUnit))
                 {
                     return true;
                 }
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// [ADR-0107](../../../../architecture/adr/0107-脱战判定的交战范围.md)：<paramref name="sourceId"/>
+        /// 与 <paramref name="unitPosition"/> 的距离是否落在 <see cref="CombatOptions.ThreatSourceRange"/>
+        /// 之内（<c>&lt;= 0</c> 恒视为范围内，距离恰等于该值视为范围内）。调用方（<see
+        /// cref="HasLivingHostileThreatSource"/> 两个方向）已经用 <see cref="IUnitAccess.Exists"/>
+        /// 过滤过 <paramref name="sourceId"/>，本方法不再重复判断存在性。
+        /// </summary>
+        private bool IsWithinThreatSourceRange(Vec2 unitPosition, Id sourceId)
+        {
+            if (_options.ThreatSourceRange <= 0.0)
+            {
+                return true;
+            }
+
+            return Vec2.Distance(unitPosition, _units.GetPosition(sourceId)) <= _options.ThreatSourceRange;
         }
     }
 }
