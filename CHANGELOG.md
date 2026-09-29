@@ -458,6 +458,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.89.0] - 2026-09-29
+
 ### 新增
 
 - **点目标不可走/不可达时吸附到最近的可达点**（消费方反馈第六十批，[ADR-0110](architecture/adr/0110-导航契约新增最近可走点.md)）：`INavigation2D` 新增默认接口成员 `TryFindNearestWalkable`/`FindNearestWalkableCandidates`（几何）与 `TryFindNearestReachable`（与单位连通、返回点必可 `FindPath`；桩与网格实现精确，网格按阻挡版本缓存连通标号），排序共用 `NearestWalkableSearch`/`NavGridLayout`。
