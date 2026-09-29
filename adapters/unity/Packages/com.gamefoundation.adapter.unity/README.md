@@ -419,6 +419,17 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   保持全部帧共享同一张图集纹理、不生成 mip 的既有行为，逐字节不变。只影响此后新解码的资源，不
   回溯已缓存的贴图（已知限制）。详见
   [ADR-0096](../../../../architecture/adr/0096-运行时解码贴图带多级渐远链.md)。
+- `UnityResourceLoader.MainThreadBudget.cs`/`ManagedPngDecoder.cs`（**ADR-0109，2026-09-29，消费方反馈第
+  五十八批"首次换向长帧"**）：`ResourceKind.Image` 与 `ResourceKind.Effect` 的位图解码与逐帧动画按帧切块
+  移到后台线程（纯托管解码器，8 位非隔行 RGB/RGBA；其它变体整个资源回退主线程解码并按资源 id 记一条
+  Warn），主线程 `Tick` 只做"建纹理 + `SetPixelData` 灌字节 + `Apply`（多级渐远链仍由引擎生成）+ 建
+  Sprite"，受新增公开可写属性 `MainThreadBudgetMilliseconds`（默认 `4.0`，`<= 0` 不限即旧的一帧排空）
+  约束，按"一张最终纹理"为工作单元续作，一个资源做完才写缓存/记已加载/回调；新增公开只读诊断
+  `LastTickDecodeMilliseconds`/`PeakTickDecodeMilliseconds`/`MaxWorkUnitMilliseconds`/
+  `LastTickWorkUnitCount`/`PendingMainThreadCompletionCount` 与 `ResetTickDiagnostics()`。**行为变更**：
+  同一帧发起的多个冷加载不再保证在下一帧全部完成。`MapLayers`、音频、数据表、字体、模型、动画剪辑不改。
+  已知限制逐条见 `UnityResourceLoader.MainThreadBudget.cs` 类型顶部注释与
+  [ADR-0109](../../../../architecture/adr/0109-资源解码分帧与后台化.md)。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
   与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
   （ADR-0016 决策 7）；`GetBlockingVersion` 按地图计数、`FindPath` 端点精确接合、`Raycast`/路径

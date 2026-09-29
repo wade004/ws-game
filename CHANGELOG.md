@@ -458,6 +458,14 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 变更
+
+- **资源解码分帧与后台化**（消费方反馈第五十八批"首次换向长帧"，[ADR-0109](architecture/adr/0109-资源解码分帧与后台化.md)）：
+  `UnityResourceLoader` 的 `Image`/`Effect` 位图解码与逐帧动画按帧切块移到后台线程（托管解码器不支持的变体整体回退主线程并记 Warn），
+  主线程 `Tick` 按新增公开属性 `MainThreadBudgetMilliseconds`（默认 `4.0` ms，`<= 0` 不限）分帧、每次至少推进一个工作单元；新增只读诊断
+  `LastTickDecodeMilliseconds`/`PeakTickDecodeMilliseconds`/`MaxWorkUnitMilliseconds`/`LastTickWorkUnitCount`/
+  `PendingMainThreadCompletionCount` 与 `ResetTickDiagnostics()`。**行为变更**：同一帧发起的多个冷加载不再保证在下一帧全部完成。
+
 ## [1.87.0] - 2026-09-28
 
 ### 新增

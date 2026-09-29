@@ -152,6 +152,15 @@
 // 占用随帧数增长，典型逐帧动画显存开销上升约 33%，即 mip 链本身在 RGBA32 上的固定开销，见
 // CHANGELOG 对应条目）；③关闭 <see cref="TextureSamplingOptions.MipChainForEffects"/> 时保持改动前
 // "全部帧共用同一张图集纹理、无 mip"的行为，与之前逐字节一致。
+//
+// [ADR-0109](../../../../../../../architecture/adr/0109-资源解码分帧与后台化.md) 判断记录（消费方第五十八批，
+// 阻塞——首次换向长帧）：ResourceKind.Image 与 ResourceKind.Effect 两条路径的 PNG 解码与逐帧动画按帧
+// 切块改到后台线程（托管 PNG 解码器 ManagedPngDecoder），主线程 <see cref="Tick"/> 只做"建纹理 + 灌字节 +
+// Apply + 建 Sprite"，受 <see cref="MainThreadBudgetMilliseconds"/> 预算约束并按工作单元续作；完整说明与
+// 逐条已知限制见 UnityResourceLoader.MainThreadBudget.cs 类型顶部注释与 ADR-0109。上文 ADR-0096 已知限制
+// ②"加载时多一次 CPU 端像素拷贝（GetPixels 逐帧读取）"现已改由后台线程按字节切块完成，主线程不再有
+// GetPixels/SetPixels；<see cref="TryDecodeImage"/>/<see cref="TryDecodeEffect"/> 保留为托管解码器不支持的
+// PNG 变体的主线程回退路径（逐字节保持 1.87.0 行为）。
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -164,7 +173,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityResourceLoader : IResourceLoader
+    public sealed partial class UnityResourceLoader : IResourceLoader
     {
         /// <summary>解码出的一帧序列帧动画（<see cref="EffectAsset"/> 的元素）。</summary>
         public readonly struct EffectFrame
@@ -281,6 +290,15 @@ namespace Adapter.Unity.EngineAdapter
             /// 只是一个占位空数组、<see cref="EffectFramesJson"/> 为 <c>null</c>，不重新解码，直接复用
             /// <see cref="_effects"/> 已有的缓存结果，见 <see cref="LoadEffectAsync"/> 判断记录。</summary>
             public bool EffectReuseCache;
+
+            /// <summary>[ADR-0109]，仅 Image/Effect 使用：发起请求时（主线程）取的 mip 链开关快照
+            /// （<see cref="TextureSamplingOptions.MipChainForImages"/>/<see cref="TextureSamplingOptions.MipChainForEffects"/>），
+            /// 后台切块与主线程建纹理共用这一份取值。</summary>
+            public bool MipChain;
+
+            /// <summary>[ADR-0109]，仅 Image/Effect 使用：后台线程的准备结果（托管解码后的像素、切好
+            /// 的帧块，或回退/失败标记）；读取失败或复用缓存时为 <c>null</c>。</summary>
+            public PreparedTextures? Prepared;
         }
 
         private static readonly string DefaultRootDir = Path.Combine(Application.streamingAssetsPath, "GameFoundation");
@@ -562,7 +580,10 @@ namespace Adapter.Unity.EngineAdapter
 
             var path = ResolvePath(resourceId, kind);
 
-            Task.Run(() =>
+            // ADR-0109：mip 链开关在发起请求时（主线程）取快照，随请求带到后台。
+            var mipChain = kind == ResourceKind.Image && TextureSampling.MipChainForImages;
+
+            Task.Run(async () =>
             {
                 byte[]? bytes = null;
                 var ok = false;
@@ -579,13 +600,26 @@ namespace Adapter.Unity.EngineAdapter
                     ok = false;
                 }
 
+                PreparedTextures? prepared = null;
+                if (ok && kind == ResourceKind.Image && bytes != null)
+                {
+                    prepared = await PrepareTexturesAsync(bytes, framesJson: null, mipChain, isEffect: false).ConfigureAwait(false);
+                    if (prepared.FallbackReason == null)
+                    {
+                        // 已在后台解码成像素，压缩字节不再需要（回退路径才需要它）。
+                        bytes = Array.Empty<byte>();
+                    }
+                }
+
                 _completions.Enqueue(new PendingCompletion
                 {
                     ResourceId = resourceId,
                     Kind = kind,
                     Bytes = bytes,
                     ReadSuccess = ok,
-                    Callback = callback
+                    Callback = callback,
+                    MipChain = mipChain,
+                    Prepared = prepared
                 });
             });
         }
@@ -658,7 +692,11 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             var effectDir = ResolveEffectDir(resourceId);
-            Task.Run(() =>
+
+            // ADR-0109：mip 链开关在发起请求时（主线程）取快照，随请求带到后台。
+            var mipChain = TextureSampling.MipChainForEffects;
+
+            Task.Run(async () =>
             {
                 byte[]? atlasBytes = null;
                 string? framesJson = null;
@@ -679,6 +717,17 @@ namespace Adapter.Unity.EngineAdapter
                     ok = false;
                 }
 
+                PreparedTextures? prepared = null;
+                if (ok && atlasBytes != null)
+                {
+                    prepared = await PrepareTexturesAsync(atlasBytes, framesJson, mipChain, isEffect: true).ConfigureAwait(false);
+                    if (prepared.FallbackReason == null)
+                    {
+                        // 已在后台解码成像素，压缩字节不再需要（回退路径才需要它）。
+                        atlasBytes = Array.Empty<byte>();
+                    }
+                }
+
                 _completions.Enqueue(new PendingCompletion
                 {
                     ResourceId = resourceId,
@@ -687,7 +736,9 @@ namespace Adapter.Unity.EngineAdapter
                     EffectFramesJson = framesJson,
                     ReadSuccess = ok,
                     Callback = callback,
-                    SpriteSetId = spriteSetId
+                    SpriteSetId = spriteSetId,
+                    MipChain = mipChain,
+                    Prepared = prepared
                 });
             });
         }
@@ -735,6 +786,7 @@ namespace Adapter.Unity.EngineAdapter
             // 携带什么提示）都应该正常重新解码，不应被当成"与此前不同提示"的冲突场景。
             _effectSpriteSetIdByResource.Remove(resourceId);
             _warnedEffectSpriteSetConflict.Remove(resourceId);
+            _warnedManagedDecodeFallback.Remove(resourceId);
 
             // [ADR-0096]：开启逐帧独立纹理时（MipChainForEffects），每帧纹理不再共享图集，需要随本
             // 资源一并显式销毁，否则 Sprite 被移出 _effects 缓存后其独立纹理仍然常驻显存，泄漏。
@@ -774,8 +826,10 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        /// <summary>由 UnityEngineHost.Update 每帧调用：把后台线程读完的文件字节在主线程完成
-        /// 引擎侧解码并触发调用方回调。</summary>
+        /// <summary>由 UnityEngineHost.Update 每帧调用：把后台线程读完（Image/Effect 另已在后台解码成
+        /// 像素）的资源在主线程完成引擎侧收尾并触发调用方回调。ADR-0109：字体/模型/动画剪辑三个
+        /// 主线程专用队列一次排空；完成队列受 <see cref="MainThreadBudgetMilliseconds"/> 约束，
+        /// 每次 Tick 至少推进一个工作单元，未做完的资源留待下个 Tick 续作。</summary>
         internal void Tick()
         {
             while (_pendingFontLoads.Count > 0)
@@ -793,15 +847,9 @@ namespace Adapter.Unity.EngineAdapter
                 FinishAnimClipLoad(_pendingAnimClipLoads.Dequeue());
             }
 
-            while (_completions.TryDequeue(out var pending))
-            {
-                FinishOnMainThread(pending);
-            }
-
-            while (_mapLayersCompletions.TryDequeue(out var pendingMapLayers))
-            {
-                FinishMapLayersLoad(pendingMapLayers);
-            }
+            // ADR-0109：_completions 与 _mapLayersCompletions 共用同一份主线程时间预算（先前者后者），
+            // 见 UnityResourceLoader.MainThreadBudget.cs。
+            RunBudgetedCompletions();
         }
 
         /// <summary>在主线程完成一次 Font 资源的加载判定：路径存在的已导入字体资产即视为
@@ -860,7 +908,8 @@ namespace Adapter.Unity.EngineAdapter
             switch (pending.Kind)
             {
                 case ResourceKind.Image:
-                    success = TryDecodeImage(pending.ResourceId, pending.Bytes);
+                    NoteManagedDecodeFallback(pending);
+                    success = TryDecodeImage(pending.ResourceId, pending.Bytes, pending.MipChain);
                     break;
                 case ResourceKind.Audio:
                     success = TryDecodeWav(pending.ResourceId, pending.Bytes);
@@ -882,10 +931,16 @@ namespace Adapter.Unity.EngineAdapter
                     // 已有的 _effects 缓存——理论上此时缓存必定命中（LoadEffectAsync 只在命中过一次
                     // 成功解码记录后才会进入这条分支），ContainsKey 只是防御性写法，不代表存在缓存
                     // 未命中却标了 EffectReuseCache 的正常路径。
+                    if (!pending.EffectReuseCache)
+                    {
+                        NoteManagedDecodeFallback(pending);
+                    }
+
                     success = pending.EffectReuseCache
                         ? _effects.ContainsKey(pending.ResourceId)
                         : pending.EffectFramesJson != null &&
-                            TryDecodeEffect(pending.ResourceId, pending.Bytes, pending.EffectFramesJson, pending.SpriteSetId);
+                            TryDecodeEffect(pending.ResourceId, pending.Bytes, pending.EffectFramesJson, pending.SpriteSetId,
+                                pending.MipChain);
                     break;
                 default:
                     success = false;
@@ -996,9 +1051,10 @@ namespace Adapter.Unity.EngineAdapter
                 : TextureSampling.FilterMode;
         }
 
-        private bool TryDecodeImage(Id resourceId, byte[] bytes)
+        /// <summary>ADR-0109：托管解码器不支持的 PNG 变体的主线程回退路径（逐字节保持 1.87.0 行为，
+        /// 仅 mip 链开关改由请求时的快照 <paramref name="mipChain"/> 传入）。</summary>
+        private bool TryDecodeImage(Id resourceId, byte[] bytes, bool mipChain)
         {
-            var mipChain = TextureSampling.MipChainForImages;
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain);
             if (!texture.LoadImage(bytes))
             {
@@ -1418,14 +1474,15 @@ namespace Adapter.Unity.EngineAdapter
         /// 不需要额外的 Y 轴翻转。关闭该开关时保持改动前"全部帧共用同一张图集纹理、无 mip"的行为，
         /// 逐字节不变。
         /// </summary>
-        private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson, Id? spriteSetId)
+        // ADR-0109：本方法现仅是托管 PNG 解码器不支持的变体（调色板/16 位/隔行等）的主线程整块
+        // 回退路径，逐字节保持 1.87.0 行为（含 GetPixels/SetPixels 与长帧风险）；正常路径见
+        // UnityResourceLoader.MainThreadBudget.cs。mip 链开关改由请求时的快照 mipChain 传入。
+        private bool TryDecodeEffect(Id resourceId, byte[] atlasBytes, string framesJson, Id? spriteSetId, bool mipChain)
         {
             if (!EffectFramesDocument.TryParse(framesJson, out var document))
             {
                 return false;
             }
-
-            var mipChain = TextureSampling.MipChainForEffects;
 
             // 图集本身在开启逐帧独立纹理时只是像素来源、不作为任何 Sprite 的最终纹理，不需要生成
             // mip（见本方法判断记录）；关闭时图集本身就是全部帧共用的最终纹理，与改动前一致地不生成
