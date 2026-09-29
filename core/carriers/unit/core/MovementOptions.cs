@@ -47,6 +47,26 @@ namespace Core.Carriers.Unit
     }
 
     /// <summary>
+    /// ADR-0110：点目标移动请求（<see cref="MoveRequest.ToTarget"/>）的目标点落在阻挡里（
+    /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.IsWalkable"/> 为 false）时的处理策略。
+    /// </summary>
+    public enum UnwalkableTargetPolicy
+    {
+        /// <summary>整体拒绝（默认，1.87.0 行为逐字节不变）：<c>FindPath</c> 端点契约要求终点可走，
+        /// 不可走的目标点建路失败，按 <see cref="PathFailurePolicy"/> 处理并触发
+        /// <see cref="MovementHost.OnMoveFailed"/>（<see cref="MoveFailReason.NoPath"/>）。</summary>
+        Reject,
+
+        /// <summary>吸附到最近可走点再寻路（桌面 ARPG 惯例：点墙也走到墙边）：用
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.TryFindNearestWalkable"/> 在
+        /// <see cref="MovementOptions.UnwalkableTargetSnapRadius"/> 内取最近可走点作为实际终点；该点寻路失败
+        /// （落在不可达孤岛上）时按同一排序规则依次尝试后续候选，至多
+        /// <see cref="MovementOptions.UnwalkableTargetCandidates"/> 个，全部失败才 <c>NoPath</c>。
+        /// 解析结果与原始点不同时触发 <see cref="MovementHost.OnMoveTargetAdjusted"/>。</summary>
+        SnapToNearestWalkable,
+    }
+
+    /// <summary>
     /// <c>MovementTickHandler</c> 的口味配置项（见任务书拍板：速度属性 id 与缺省速度、到达判定
     /// 阈值，均可按具体游戏口味调整，不属于架构层面的固定语义，惯例同 <c>core/rules/ai</c> 的
     /// <c>AiOptions</c>）。
@@ -233,5 +253,28 @@ namespace Core.Carriers.Unit
         /// 次）。<c>≤ 1</c> 表示不采样，只用直接回退点——行为与 ADR-0097 落地时逐字一致。
         /// </summary>
         public int ChaseStandoffCandidates { get; set; } = 16;
+
+        /// <summary>
+        /// ADR-0110《导航契约新增"最近可走点"》：点目标请求（<see cref="MoveRequest.ToTarget"/> 一族——
+        /// 含召唤物跟随等以 <c>move</c> 意图提交目标点的调用方，移动系统看到的都是同一种意图）的目标点
+        /// 不可走时的处理，默认 <see cref="Core.Carriers.Unit.UnwalkableTargetPolicy.Reject"/>（整体拒绝，
+        /// 与 1.87.0 逐字节一致）。开启 <see cref="Core.Carriers.Unit.UnwalkableTargetPolicy.SnapToNearestWalkable"/>
+        /// 后，首次建路与阻挡变化后的重规划都从**原始请求目标**解析。追击（<see cref="MoveRequest.ToUnit"/>）、
+        /// 方向移动、受控位移不受影响。
+        /// </summary>
+        public UnwalkableTargetPolicy UnwalkableTargetPolicy { get; set; } = UnwalkableTargetPolicy.Reject;
+
+        /// <summary>
+        /// ADR-0110：<see cref="UnwalkableTargetPolicy"/> 为 <c>SnapToNearestWalkable</c> 时最近可走点的搜索半径
+        /// （世界单位，以原始请求目标为圆心），半径内没有可走点按 <c>NoPath</c> 失败。默认 8.0，口味配置项。
+        /// </summary>
+        public double UnwalkableTargetSnapRadius { get; set; } = 8.0;
+
+        /// <summary>
+        /// ADR-0110：最近可走点寻路失败（落在不可达孤岛上）时，按同一排序规则依次尝试的候选点总数上限
+        /// （含最近点本身，与 <see cref="ChaseStandoffCandidates"/> 同口径）；全部失败才 <c>NoPath</c>。
+        /// 默认 8；<c>&lt;= 1</c> 表示只试最近点、不再尝试后续候选。
+        /// </summary>
+        public int UnwalkableTargetCandidates { get; set; } = 8;
     }
 }

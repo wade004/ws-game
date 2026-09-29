@@ -128,3 +128,9 @@
    "候选筛选提前漏选"缺陷的根因（采样间距/分桶粒度）在桩实现里天生不存在，因此两侧实现都应当
    直接返回正确结果，不需要为桩侧声明降级路径；具体场景与坐标见 `Navigation2DScenarios.cs`/
    `SpatialQueryScenarios.cs` 对应场景体的类型注释。
+
+9. **最近可走点场景两侧都不 `Skip`，且共用同一组输入（ADR-0110，2026-09-29）。** "TryFindNearestWalkable_同一阻挡图
+   与输入_结果等于规则算出的期望"场景在 `SetBlocking` 之后，对厚墙正中/薄墙内/半径内无可走点/点本身可走六组输入，
+   用 `IsWalkable` + 核心 `NavGridLayout` 从零算出规则期望，逐名核对 `TryFindNearestWalkable` 与
+   `FindNearestWalkableCandidates`。桩（核心 `ConformanceStubTests`）与 Unity 网格实现（`ConformanceUnityTests`）
+   各自跑这一份场景，因此"同一张阻挡图两个实现给出相同结果"由同一期望传递保证。

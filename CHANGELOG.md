@@ -458,6 +458,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **点目标不可走时吸附到最近可走点**（消费方反馈第六十批，[ADR-0110](architecture/adr/0110-导航契约新增最近可走点.md)）：`INavigation2D` 新增默认接口成员
+  `TryFindNearestWalkable`/`FindNearestWalkableCandidates`（排序：到点距离按格宽量化、再到单位距离、再坐标字典序；桩与网格实现共用 `NavGridLayout`/`NearestWalkableSearch`，结果一致）。
+  `MovementOptions` 新增 `UnwalkableTargetPolicy`（默认 `Reject`，行为不变；`SnapToNearestWalkable` 时首次建路与阻挡变化重规划都从原始点解析）、`UnwalkableTargetSnapRadius`（8.0）、`UnwalkableTargetCandidates`（8）；
+  `MovementHost.OnMoveTargetAdjusted` 通知目标被调整，失败通知目标仍为原始点；`MovementState.RequestedTarget` 记录原始目标。纯新增 ABI。
+
 ## [1.88.0] - 2026-09-29
 
 ### 变更

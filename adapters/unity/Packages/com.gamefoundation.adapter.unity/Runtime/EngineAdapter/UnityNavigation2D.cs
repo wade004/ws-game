@@ -44,9 +44,9 @@ namespace Adapter.Unity.EngineAdapter
 {
     public sealed class UnityNavigation2D : INavigation2D
     {
-        private const double DefaultCellSize = 0.25;
-        private const int MaxGridDimension = 192;
-        private const double BoundsMargin = 2.0;
+        // 网格几何（缺省格宽/格数上限/边距与布局公式）的唯一定义点是核心的 NavGridLayout（ADR-0110：
+        // 最近可走点搜索要求测试桩与本类型按同一份几何量化距离），这里只引用。
+        private const double DefaultCellSize = NavGridLayout.DefaultCellSize;
 
         /// <summary>NAV-110-02 根治用兜底网格格子尺寸（见 <see cref="FindPathWithFineGrid"/>
         /// 判断记录）：比默认格子尺寸 <see cref="DefaultCellSize"/> 更细，只在主网格算出的路径未能
@@ -386,6 +386,54 @@ namespace Adapter.Unity.EngineAdapter
             BumpVersion(mapId);
         }
 
+        /// <summary>
+        /// ADR-0110：最近可走点（契约方法，见 <see cref="INavigation2D.TryFindNearestWalkable"/>）。委托
+        /// <see cref="FindNearestWalkableCandidates"/>（<c>maxCount = 1</c>），排序规则只有
+        /// <see cref="NearestWalkableSearch"/> 一份。
+        /// </summary>
+        public bool TryFindNearestWalkable(Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, out Vec2 walkable)
+        {
+            var results = new List<Vec2>(1);
+            if (FindNearestWalkableCandidates(mapId, point, maxRadius, preferNear, 1, results) > 0)
+            {
+                walkable = results[0];
+                return true;
+            }
+
+            walkable = default;
+            return false;
+        }
+
+        /// <summary>
+        /// ADR-0110：候选枚举（契约方法，见 <see cref="INavigation2D.FindNearestWalkableCandidates"/>）。
+        /// 按本类型自己的 A* 网格精确搜索：候选 = 主网格（<see cref="DefaultCellSize"/> 起、按
+        /// <see cref="NavGridLayout"/> 同一公式自适应放大）里格心可行走的格子的中心点——这些格子正是
+        /// <see cref="FindPath"/> 的 A* 使用的格子，返回的格心作为终点不会因贴边被判不可走；排序由
+        /// <see cref="NearestWalkableSearch.CollectOnGrid"/>（测试桩用同一个方法、同一份布局公式，因此对
+        /// 同一张阻挡图给出相同结果）。<see cref="IsWalkable"/> 对网格范围外的点也返回 true
+        /// （只有登记的阻挡矩形不可走），<paramref name="point"/> 本身可走时原样返回，不受网格范围限制。
+        /// </summary>
+        public int FindNearestWalkableCandidates(
+            Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, int maxCount, List<Vec2> results)
+        {
+            if (!_grids.TryGetValue(mapId, out var grid))
+            {
+                grid = BuildGrid(mapId);
+                _grids[mapId] = grid;
+            }
+
+            var layout = new NavGridLayout(grid.Origin, grid.CellSize, grid.Width, grid.Height);
+            return NearestWalkableSearch.CollectOnGrid(
+                layout,
+                (ix, iy) => grid.Walkable[ix, iy],
+                point,
+                IsWalkable(mapId, point),
+                maxRadius,
+                preferNear,
+                maxCount,
+                results);
+        }
+
         /// <summary>非契约便捷方法：从一个 Tilemap 的实心格子（TileBase 非空）生成阻挡矩形，
         /// 每个实心格子一个独立 AABB，整批经 <see cref="SetBlocking"/> 一次性替换该地图当前登记
         /// （不是增量追加——同一张 Tilemap 的两次调用不会产生重复登记，供使用 Unity Tilemap
@@ -419,51 +467,23 @@ namespace Adapter.Unity.EngineAdapter
 
         /// <summary>NAV-110-02 根治新增：<see cref="BuildGrid"/> 的参数化版本，供
         /// <see cref="FindPathWithFineGrid"/> 复用同一套网格构建流程（边界计算、
-        /// <see cref="MaxGridDimension"/> 自适应放大）而只替换格子尺寸与占用判定方式。
+        /// <see cref="NavGridLayout.MaxGridDimension"/> 自适应放大）而只替换格子尺寸与占用判定方式。
         /// <paramref name="useAccurateInterior"/> 为 <c>false</c> 时行为与改动前的 <c>BuildGrid</c>
         /// 完全一致（仅采样格子中心，见 <see cref="IsBlockedByRects"/>）；为 <c>true</c> 时改用
         /// "格子内部与阻挡矩形内部是否相交"判定（<see cref="IsCellInteriorBlockedByRects"/>），
         /// 不会再对比格子尺寸更窄的薄障碍视而不见。</summary>
         private NavGrid BuildGridWithCellSize(Id mapId, double baseCellSize, bool useAccurateInterior)
         {
-            Vec2 min = new Vec2(-8, -8);
-            Vec2 max = new Vec2(8, 8);
-
-            if (_blockingRects.TryGetValue(mapId, out var rects) && rects.Count > 0)
-            {
-                min = rects[0].Min;
-                max = rects[0].Max;
-                foreach (var rect in rects)
-                {
-                    min = new Vec2(Math.Min(min.X, rect.Min.X), Math.Min(min.Y, rect.Min.Y));
-                    max = new Vec2(Math.Max(max.X, rect.Max.X), Math.Max(max.Y, rect.Max.Y));
-                }
-            }
-
-            min = new Vec2(min.X - BoundsMargin, min.Y - BoundsMargin);
-            max = new Vec2(max.X + BoundsMargin, max.Y + BoundsMargin);
-
-            var spanX = Math.Max(max.X - min.X, baseCellSize);
-            var spanY = Math.Max(max.Y - min.Y, baseCellSize);
-            var cellSize = baseCellSize;
-
-            var width = (int)Math.Ceiling(spanX / cellSize);
-            var height = (int)Math.Ceiling(spanY / cellSize);
-            if (width > MaxGridDimension || height > MaxGridDimension)
-            {
-                var scale = Math.Max((double)width / MaxGridDimension, (double)height / MaxGridDimension);
-                cellSize *= scale;
-                width = (int)Math.Ceiling(spanX / cellSize);
-                height = (int)Math.Ceiling(spanY / cellSize);
-            }
+            _blockingRects.TryGetValue(mapId, out var blockers);
+            var layout = NavGridLayout.Compute(blockers, r => r.Min, r => r.Max, baseCellSize);
 
             var grid = new NavGrid
             {
-                Origin = min,
-                CellSize = cellSize,
-                Width = Math.Max(width, 1),
-                Height = Math.Max(height, 1),
-                Walkable = new bool[Math.Max(width, 1), Math.Max(height, 1)]
+                Origin = layout.Origin,
+                CellSize = layout.CellSize,
+                Width = layout.Width,
+                Height = layout.Height,
+                Walkable = new bool[layout.Width, layout.Height]
             };
 
             for (var gx = 0; gx < grid.Width; gx++)

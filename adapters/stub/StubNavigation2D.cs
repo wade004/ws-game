@@ -226,6 +226,49 @@ namespace Adapters.Stub
         /// 不会掩盖任何一次真实的阻挡变化（见该接口成员判断记录）。</summary>
         public int GetBlockingVersion(Id mapId) => _blockingVersions.TryGetValue(mapId, out var v) ? v : 0;
 
+        /// <summary>
+        /// ADR-0110：最近可走点（契约方法，见 <see cref="INavigation2D.TryFindNearestWalkable"/>）。委托
+        /// <see cref="FindNearestWalkableCandidates"/>（<c>maxCount = 1</c>），排序规则只有
+        /// <see cref="NearestWalkableSearch"/> 一份。
+        /// </summary>
+        public bool TryFindNearestWalkable(Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, out Vec2 walkable)
+        {
+            var results = new List<Vec2>(1);
+            if (FindNearestWalkableCandidates(mapId, point, maxRadius, preferNear, 1, results) > 0)
+            {
+                walkable = results[0];
+                return true;
+            }
+
+            walkable = default;
+            return false;
+        }
+
+        /// <summary>
+        /// ADR-0110：候选枚举（契约方法，见 <see cref="INavigation2D.FindNearestWalkableCandidates"/>）。
+        /// 本桩没有真实网格，但为了与网格实现对同一张阻挡图给出**相同**的最近可走点，按与网格实现
+        /// 同一份几何（<see cref="NavGridLayout.Compute{T}"/>：阻挡包围盒外扩边距、缺省格宽 0.25）虚拟出
+        /// 格子，候选 = 各格中心点里 <see cref="IsWalkable"/> 为真者，由
+        /// <see cref="NearestWalkableSearch.CollectOnGrid"/> 排序。<see cref="IsWalkable"/> 对虚拟网格范围外
+        /// 的点也返回 true（本桩与网格实现一致，只有登记的阻挡矩形不可走），<paramref name="point"/>
+        /// 本身可走时原样返回，不受网格范围限制。
+        /// </summary>
+        public int FindNearestWalkableCandidates(
+            Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, int maxCount, List<Vec2> results)
+        {
+            _blockingRects.TryGetValue(mapId, out var rects);
+            var layout = NavGridLayout.Compute(rects, r => r.Min, r => r.Max);
+            return NearestWalkableSearch.CollectOnGrid(
+                layout,
+                (ix, iy) => IsWalkable(mapId, layout.CellCenter(ix, iy)),
+                point,
+                IsWalkable(mapId, point),
+                maxRadius,
+                preferNear,
+                maxCount,
+                results);
+        }
+
         private void BumpBlockingVersion(Id mapId) =>
             _blockingVersions[mapId] = (_blockingVersions.TryGetValue(mapId, out var v) ? v : 0) + 1;
     }

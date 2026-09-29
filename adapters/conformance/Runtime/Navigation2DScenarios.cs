@@ -25,9 +25,116 @@ namespace Adapters.Conformance
             new ConformanceScenario<INavigation2D>("FindPath_端点格中心受阻但端点与直线均可通行_每段Raycast均不受阻", FindPath_EndpointCellCenterBlocked_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻", FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_通道窄于两级采样格但直线畅通_每段Raycast均不受阻", FindPath_NarrowCorridorThinnerThanGrids_EverySegmentRaycastNull),
+            new ConformanceScenario<INavigation2D>("TryFindNearestWalkable_同一阻挡图与输入_结果等于规则算出的期望", NearestWalkable_SameInputs_EqualRuleComputedExpectation),
         };
 
         private static readonly Id MapId = new Id("map.conformance_probe");
+
+        /// <summary>ADR-0110 最近可走点用例的阻挡图：一堵厚墙（2 宽）与一堵比任何采样格都薄的薄墙（0.1 宽）。
+        /// 测试桩（核心用例经 ConformanceStubTests 跑本场景）与 Unity 网格实现（引擎侧用例经
+        /// ConformanceUnityTests 跑本场景）共用这一份输入，期望值由排序规则算出，两个实现因此对同一张阻挡图
+        /// 给出相同的最近可走点。</summary>
+        private static readonly Rect[] NearestWalkableBlockers =
+        {
+            new Rect(new Vec2(2, -1), new Vec2(4, 1)),
+            new Rect(new Vec2(6, -2), new Vec2(6.1, 2)),
+        };
+
+        /// <summary>(点击点, 偏好点, 半径)：厚墙正中两侧并列、薄墙内两侧并列、半径内无可走点、点本身可走。</summary>
+        private static readonly (Vec2 Point, Vec2 Prefer, double Radius)[] NearestWalkableProbes =
+        {
+            (new Vec2(3, 0), new Vec2(0.5, 0), 8.0),
+            (new Vec2(3, 0), new Vec2(5, 0.3), 8.0),
+            (new Vec2(6.05, 0), new Vec2(5, 0), 8.0),
+            (new Vec2(6.05, 0), new Vec2(7, 0), 8.0),
+            (new Vec2(3, 0), new Vec2(0.5, 0), 0.5),
+            (new Vec2(0, 0), new Vec2(9, 9), 8.0),
+        };
+
+        /// <summary>按 ADR-0110 排序规则从零算出的期望候选序列：格几何取 <see cref="NavGridLayout.Compute(IReadOnlyList{Rect}, double)"/>，
+        /// 可走判定只用 <see cref="INavigation2D.IsWalkable"/>；主键 = floor(到点击点距离 / 格宽)，次键 = 到偏好点
+        /// 距离，再按坐标字典序。</summary>
+        private static List<Vec2> RuleExpectedCandidates(INavigation2D nav, Id map, Vec2 point, Vec2 prefer, double radius)
+        {
+            var layout = NavGridLayout.Compute(NearestWalkableBlockers);
+            var pool = new List<(long K1, long K2, double X, double Y)>();
+            for (var ix = 0; ix < layout.Width; ix++)
+            {
+                for (var iy = 0; iy < layout.Height; iy++)
+                {
+                    var c = layout.CellCenter(ix, iy);
+                    var d = Vec2.Distance(point, c);
+                    if (d > radius || !nav.IsWalkable(map, c))
+                    {
+                        continue;
+                    }
+
+                    pool.Add(((long)System.Math.Floor(d / layout.CellSize + 1e-9),
+                        (long)System.Math.Round(Vec2.Distance(c, prefer) / 1e-9), c.X, c.Y));
+                }
+            }
+
+            pool.Sort((a, b) =>
+            {
+                var r = a.K1.CompareTo(b.K1);
+                if (r != 0) return r;
+                r = a.K2.CompareTo(b.K2);
+                if (r != 0) return r;
+                r = a.X.CompareTo(b.X);
+                return r != 0 ? r : a.Y.CompareTo(b.Y);
+            });
+
+            var list = new List<Vec2>();
+            if (nav.IsWalkable(map, point))
+            {
+                list.Add(point);
+            }
+
+            foreach (var e in pool)
+            {
+                list.Add(new Vec2(e.X, e.Y));
+            }
+
+            return list;
+        }
+
+        private static IEnumerator NearestWalkable_SameInputs_EqualRuleComputedExpectation(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_nearest_walkable");
+            nav.SetBlocking(map, NearestWalkableBlockers);
+            nav.BuildNavMesh(map);
+
+            foreach (var probe in NearestWalkableProbes)
+            {
+                var expected = RuleExpectedCandidates(nav, map, probe.Point, probe.Prefer, probe.Radius);
+                var label = $"点击点={probe.Point} 偏好点={probe.Prefer} 半径={probe.Radius}";
+
+                var found = nav.TryFindNearestWalkable(map, probe.Point, probe.Radius, probe.Prefer, out var nearest);
+                assert.Equal(expected.Count > 0, found, "TryFindNearestWalkable 的返回值应等于'规则算出的候选集合非空'：" + label);
+                if (found && expected.Count > 0)
+                {
+                    assert.Equal(expected[0], nearest, "最近可走点应等于规则算出的第一名：" + label);
+                    assert.True(nav.IsWalkable(map, nearest), "返回的最近可走点必须 IsWalkable：" + label);
+                    if (nav.IsWalkable(map, probe.Point))
+                    {
+                        assert.Equal(probe.Point, nearest, "点击点本身可走时应原样返回它：" + label);
+                    }
+                }
+
+                var candidates = new List<Vec2> { new Vec2(99, 99) };
+                var count = nav.FindNearestWalkableCandidates(map, probe.Point, probe.Radius, probe.Prefer, 6, candidates);
+                var expectedCount = System.Math.Min(6, expected.Count);
+                assert.Equal(expectedCount, count, "候选个数应等于 min(maxCount, 规则算出的候选数)（并先清空 results）：" + label);
+                assert.Equal(count, candidates.Count, "返回个数应等于 results 的元素数：" + label);
+                for (var i = 0; i < count && i < candidates.Count; i++)
+                {
+                    assert.Equal(expected[i], candidates[i], $"第 {i} 名候选应等于规则算出的第 {i} 名：{label}");
+                }
+            }
+
+            nav.Clear(map);
+            yield break;
+        }
 
         private static IEnumerator NoBlocking_EverythingWalkable(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
         {

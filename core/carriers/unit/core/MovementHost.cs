@@ -27,6 +27,11 @@ namespace Core.Carriers.Unit
     /// 判断记录"保持原签名"）。</summary>
     public delegate void MoveFailedDetailedHandler(Id unitId, Vec2 from, Vec2 to, MoveFailReason reason);
 
+    /// <summary>供 <see cref="MovementHost.OnMoveTargetAdjusted"/> 使用的具名委托（ADR-0110）：
+    /// <paramref name="requestedTarget"/> 是调用方提交的原始点目标，<paramref name="resolvedTarget"/> 是
+    /// 移动系统实际寻路前往的最近可走点。</summary>
+    public delegate void MoveTargetAdjustedHandler(Id unitId, Vec2 requestedTarget, Vec2 resolvedTarget);
+
     /// <summary><see cref="MovementHost.OnMoveStopped"/> 触发原因（游戏侧通用能力需求，05 第 6 节
     /// 勘误）。</summary>
     public enum MoveStopReason
@@ -118,6 +123,15 @@ namespace Core.Carriers.Unit
         /// <see cref="OnMoveFailed"/> 在同一失败点同时触发（不是互斥的替代事件），已订阅
         /// <see cref="OnMoveFailed"/> 的既有调用方不受影响，需要区分原因的新调用方改订阅本事件。</summary>
         public event MoveFailedDetailedHandler? OnMoveFailedDetailed;
+
+        /// <summary>
+        /// ADR-0110：点目标被调整时触发——<see cref="MovementOptions.UnwalkableTargetPolicy"/> 为
+        /// <c>SnapToNearestWalkable</c>，且解析出的最近可走点与原始请求目标不同、并且据此建路成功。每次解析
+        /// 触发一次（首次建路一次；阻挡变化后的重规划每次重新解析各一次），解析结果与原始点相同（目标本身可走）
+        /// 时不触发；建路全部失败时不触发（只有 <see cref="OnMoveFailed"/>，其目标仍是原始请求目标）。
+        /// 到达判定与到达通知按解析后的目标走。
+        /// </summary>
+        public event MoveTargetAdjustedHandler? OnMoveTargetAdjusted;
 
         /// <summary>某单位的路径跟随/待处理移动意图被取消时触发（游戏侧通用能力需求，05 第 6 节
         /// 勘误）：仅在确有路径或待处理意图被取消时触发一次（见 <see cref="Stop"/> 判断记录"幂等"）。
@@ -225,6 +239,11 @@ namespace Core.Carriers.Unit
         /// </summary>
         internal void RaiseMoveFailedDetailed(Id unitId, Vec2 from, Vec2 to, MoveFailReason reason) =>
             OnMoveFailedDetailed?.Invoke(unitId, from, to, reason);
+
+        /// <summary>供 <see cref="MovementTickHandler"/>（同程序集）回调触发
+        /// <see cref="OnMoveTargetAdjusted"/>，不对外公开，惯例同 <see cref="RaiseMoveFailed"/>。</summary>
+        internal void RaiseMoveTargetAdjusted(Id unitId, Vec2 requestedTarget, Vec2 resolvedTarget) =>
+            OnMoveTargetAdjusted?.Invoke(unitId, requestedTarget, resolvedTarget);
 
         /// <summary>供 <see cref="MovementTickHandler"/>（同程序集）回调触发
         /// <see cref="OnMoveStopped"/>，不对外公开，惯例同 <see cref="RaiseMoveFailed"/>。</summary>

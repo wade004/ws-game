@@ -438,7 +438,7 @@ namespace Core.Carriers.Unit
                 {
                     unit.MovementState = new MovementState(
                         state.CurrentPath, state.Mode, state.MovementLocked, state.PathIndex, currentVersion,
-                        state.Displacement, state.Chase);
+                        state.Displacement, state.Chase, state.RequestedTarget);
                     state = unit.MovementState;
                 }
             }
@@ -545,9 +545,15 @@ namespace Core.Carriers.Unit
             }
 
             var oldState = unit.MovementState;
-            IReadOnlyList<Vec2>? path = _navigation != null
-                ? _navigation.FindPath(unit.MapId, from, target)
-                : new List<Vec2> { from, target };
+
+            // ADR-0110：UnwalkableTargetPolicy = SnapToNearestWalkable 时点目标先解析最近可走点再建路
+            // （见 FindPointTargetPath）；默认 Reject 走下面既有的直接 FindPath，行为逐字节不变。
+            var snapping = IsSnapPolicyActive();
+            IReadOnlyList<Vec2>? path = snapping
+                ? FindPointTargetPath(unit, from, target)
+                : _navigation != null
+                    ? _navigation.FindPath(unit.MapId, from, target)
+                    : new List<Vec2> { from, target };
 
             if (path == null)
             {
@@ -566,7 +572,9 @@ namespace Core.Carriers.Unit
             var navVersion = _navigation?.GetBlockingVersion(unit.MapId) ?? 0;
 
             var oldMode = oldState.Mode;
-            unit.MovementState = new MovementState(path, mode, oldState.MovementLocked, 0, navVersion);
+            unit.MovementState = snapping
+                ? new MovementState(path, mode, oldState.MovementLocked, 0, navVersion, null, null, target)
+                : new MovementState(path, mode, oldState.MovementLocked, 0, navVersion);
             RaiseStateChangedIfNeeded(unit.EntityId, oldMode, mode);
 
             if (hadPath)
@@ -576,6 +584,72 @@ namespace Core.Carriers.Unit
 
             ContinuePathCore(unit, dt, isDiscrete);
             return true;
+        }
+
+        /// <summary>ADR-0110：点目标的"最近可走点"解析是否生效——已装配导航，且
+        /// <see cref="MovementOptions.UnwalkableTargetPolicy"/> 为 <c>SnapToNearestWalkable</c>。</summary>
+        private bool IsSnapPolicyActive() =>
+            _navigation != null && _options.UnwalkableTargetPolicy == UnwalkableTargetPolicy.SnapToNearestWalkable;
+
+        /// <summary>
+        /// ADR-0110：点目标（<see cref="MoveRequest.ToTarget"/> 一族的 <c>move</c> 意图）在
+        /// <c>SnapToNearestWalkable</c> 策略下的**唯一**建路入口，首次建路（<see cref="BeginPathTo"/>）与阻挡变化
+        /// 后的重规划（<see cref="ReplanPath"/>）都经它，且总是从<b>原始请求目标</b>
+        /// <paramref name="requested"/> 起解析，不从上一次解析出的终点重来。步骤：① 经
+        /// <see cref="INavigation2D.TryFindNearestWalkable"/> 取最近可走点（<paramref name="requested"/> 本身可走时
+        /// 就是它自己；以 <paramref name="from"/> 为次键偏好点，并列取单位所在一侧），半径
+        /// <see cref="MovementOptions.UnwalkableTargetSnapRadius"/>，半径内无可走点即失败；② 对它 <c>FindPath</c>；
+        /// ③ 失败（落在不可达孤岛上）时经 <see cref="INavigation2D.FindNearestWalkableCandidates"/> 按同一排序规则
+        /// 取至多 <see cref="MovementOptions.UnwalkableTargetCandidates"/> 个候选，依次尝试（跳过已试过的最近点）；
+        /// 全部失败返回 <c>null</c>，调用方按原始目标走既有失败处理（<see cref="HandlePathFailure"/>，失败目标
+        /// 仍是原始请求目标）。成功且解析结果与 <paramref name="requested"/> 不同时触发一次
+        /// <see cref="MovementHost.OnMoveTargetAdjusted"/>。排序规则只在
+        /// <c>Core.Foundation.EngineAdapter.NearestWalkableSearch</c> 一处实现，本方法不重复排序。
+        /// <para>
+        /// 判断记录：requested 本身可走但 <c>FindPath</c> 不可达（如一整块封闭区域内的点）时同样会走第 ③ 步的
+        /// 候选回退——契约只有"可走"这一个判据，无法区分"可走但不可达"与"不可走"，两者在孤岛上的表现一致。
+        /// </para>
+        /// </summary>
+        private IReadOnlyList<Vec2>? FindPointTargetPath(Unit unit, Vec2 from, Vec2 requested)
+        {
+            var nav = _navigation!;
+            var radius = _options.UnwalkableTargetSnapRadius;
+
+            if (!nav.TryFindNearestWalkable(unit.MapId, requested, radius, from, out var nearest))
+            {
+                return null;
+            }
+
+            var resolved = nearest;
+            var path = nav.FindPath(unit.MapId, from, nearest);
+
+            if (path == null && _options.UnwalkableTargetCandidates > 1)
+            {
+                var candidates = new List<Vec2>();
+                nav.FindNearestWalkableCandidates(
+                    unit.MapId, requested, radius, from, _options.UnwalkableTargetCandidates, candidates);
+
+                for (var i = 0; i < candidates.Count && path == null; i++)
+                {
+                    if (candidates[i].Equals(nearest))
+                    {
+                        continue; // 最近点已经试过。
+                    }
+
+                    path = nav.FindPath(unit.MapId, from, candidates[i]);
+                    if (path != null)
+                    {
+                        resolved = candidates[i];
+                    }
+                }
+            }
+
+            if (path != null && !resolved.Equals(requested))
+            {
+                _movementHost.RaiseMoveTargetAdjusted(unit.EntityId, requested, resolved);
+            }
+
+            return path;
         }
 
         // -------------------------------------------------------------------
@@ -1403,7 +1477,8 @@ namespace Core.Carriers.Unit
             }
             else
             {
-                unit.MovementState = new MovementState(path, state.Mode, state.MovementLocked, index, state.NavVersion);
+                unit.MovementState = new MovementState(
+                    path, state.Mode, state.MovementLocked, index, state.NavVersion, null, null, state.RequestedTarget);
             }
         }
 
@@ -1487,7 +1562,9 @@ namespace Core.Carriers.Unit
 
             if (!blocked)
             {
-                unit.MovementState = new MovementState(state.CurrentPath, state.Mode, state.MovementLocked, state.PathIndex, currentVersion);
+                unit.MovementState = new MovementState(
+                    state.CurrentPath, state.Mode, state.MovementLocked, state.PathIndex, currentVersion, null, null,
+                    state.RequestedTarget);
                 return true;
             }
 
@@ -1510,10 +1587,17 @@ namespace Core.Carriers.Unit
         {
             var state = unit.MovementState;
             var path = state.CurrentPath!;
-            var target = path[path.Count - 1];
             var from = unit.Position;
 
-            var newPath = _navigation!.FindPath(unit.MapId, from, target);
+            // ADR-0110：SnapToNearestWalkable 且该路径由点目标请求建立（RequestedTarget 非空）时，重规划从
+            // **原始请求目标**重新解析（原始点后来变可走了就直接去原始点），而不是从上一次解析出的终点
+            // path[^1]；失败通知里携带的目标同样是原始请求目标。默认 Reject 下逐字节沿用既有的 path[^1]。
+            var snapping = IsSnapPolicyActive() && state.RequestedTarget.HasValue;
+            var target = snapping ? state.RequestedTarget!.Value : path[path.Count - 1];
+
+            var newPath = snapping
+                ? FindPointTargetPath(unit, from, target)
+                : _navigation!.FindPath(unit.MapId, from, target);
             if (newPath == null)
             {
                 // 判断记录（不应重复触发失败回调；NavVersion 前移已收拢进 HandlePathFailure）：
@@ -1529,7 +1613,9 @@ namespace Core.Carriers.Unit
                 return unit.MovementState.CurrentPath != null;
             }
 
-            unit.MovementState = new MovementState(newPath, state.Mode, state.MovementLocked, 0, currentVersion);
+            unit.MovementState = snapping
+                ? new MovementState(newPath, state.Mode, state.MovementLocked, 0, currentVersion, null, null, target)
+                : new MovementState(newPath, state.Mode, state.MovementLocked, 0, currentVersion);
             return true;
         }
 

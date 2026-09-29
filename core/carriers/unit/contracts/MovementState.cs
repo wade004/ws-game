@@ -72,6 +72,16 @@ namespace Core.Carriers.Unit
         /// </summary>
         public UnitChaseState? Chase { get; }
 
+        /// <summary>
+        /// ADR-0110：建立 <see cref="CurrentPath"/> 的那次点目标请求（<see cref="MoveRequest.ToTarget"/>）的
+        /// **原始请求目标**（未经"最近可走点"解析的点击点）。仅当
+        /// <see cref="MovementOptions.UnwalkableTargetPolicy"/> 为 <c>SnapToNearestWalkable</c> 时由
+        /// <c>MovementTickHandler</c> 写入，其余情形（默认 <c>Reject</c>、方向移动、追击、无路径）为
+        /// <c>null</c>。阻挡变化后的重规划据此从原始点重新解析，而不是从上一次解析出的终点重规划——原始点
+        /// 后来变可走了就直接去原始点。路径跟随期间随 <see cref="CurrentPath"/> 一起原样带过。
+        /// </summary>
+        public Vec2? RequestedTarget { get; }
+
         public MovementState(
             IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion = 0)
             : this(currentPath, mode, movementLocked, pathIndex, navVersion, null)
@@ -98,6 +108,16 @@ namespace Core.Carriers.Unit
         public MovementState(
             IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion,
             ControlledDisplacementState? displacement, UnitChaseState? chase)
+            : this(currentPath, mode, movementLocked, pathIndex, navVersion, displacement, chase, null)
+        {
+        }
+
+        /// <summary>ADR-0110 新增重载（不改动上面既有 7 参数构造函数的物理签名，同一惯例）：额外携带
+        /// <paramref name="requestedTarget"/>。既有 4/5/6/7 参数构造函数均转发到本构造函数、
+        /// <c>requestedTarget</c> 恒为 <c>null</c>。</summary>
+        public MovementState(
+            IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion,
+            ControlledDisplacementState? displacement, UnitChaseState? chase, Vec2? requestedTarget)
         {
             CurrentPath = currentPath;
             Mode = mode;
@@ -106,6 +126,7 @@ namespace Core.Carriers.Unit
             NavVersion = navVersion;
             Displacement = displacement;
             Chase = chase;
+            RequestedTarget = requestedTarget;
         }
 
         /// <summary>未在移动、未被锁定的默认状态。</summary>
@@ -117,6 +138,6 @@ namespace Core.Carriers.Unit
         /// 同样原样带过（ADR-0026/ADR-0097：锁定/解锁控制效果不应该悄悄打断或凭空产生一次受控位移/
         /// 追击，开始/结束只由 <c>MovementTickHandler</c> 显式管理）。</summary>
         public MovementState WithLocked(bool movementLocked) =>
-            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion, Displacement, Chase);
+            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion, Displacement, Chase, RequestedTarget);
     }
 }

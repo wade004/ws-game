@@ -532,3 +532,31 @@ stopRange, mode)`。
 `MovementStopAndBlockingPlayModeTests` 两条既有用例的任何断言。核心回归：`dotnet test
 core/carriers/tests/Tests.Carriers.csproj` 665/665 通过；Unity PlayMode 定向
 `MovementStopAndBlockingPlayModeTests` 11/11 通过（含上述两条此前回归的用例）。
+
+## ADR-0110《导航契约新增"最近可走点"》：点目标不可走时吸附到最近可走点（2026-09-29，消费方反馈第六十批）
+
+点目标（`MoveRequest.ToTarget` 一族）落在阻挡里时，`FindPath` 端点契约使建路必失败、单位原地不动。新增
+`MovementOptions.UnwalkableTargetPolicy`（`Reject` 默认，行为逐字节不变 / `SnapToNearestWalkable`）、
+`UnwalkableTargetSnapRadius`（8.0）、`UnwalkableTargetCandidates`（8，含最近点的候选总数上限）与
+`MovementHost.OnMoveTargetAdjusted`（单位、原始请求目标、解析后目标）。取舍：
+
+- **建路只经一个入口**：`MovementTickHandler.FindPointTargetPath`——先 `TryFindNearestWalkable`（次键偏好点传
+  单位当前位置），对最近点 `FindPath`，失败再经 `FindNearestWalkableCandidates` 按同一排序依次试后续候选
+  （跳过已试过的最近点），全部失败返回 null 走既有 `HandlePathFailure`（失败目标仍是**原始请求目标**）。排序
+  规则只在契约层 `NearestWalkableSearch` 一处实现，移动系统不重复排序。点目标的建路调用点只有两处，都接入：
+  `BeginPathTo`（首次建路）与 `ReplanPath`（阻挡变化后重规划，`Replan` 直接进入、`Revalidate` 判定受阻后进入）。
+  追击的两处 `FindPath`（`AdvanceChase` 直接回退点、`TryFindStandoffCandidatePath`）是 `ToUnit` 追击，不在范围。
+- **重规划从原始点重新解析**：`MovementState` 新增只读属性 `RequestedTarget`（新增 8 参数构造重载，既有 4/5/6/7 参数
+  构造转发、恒 `null`），仅 `SnapToNearestWalkable` 时由 `BeginPathTo`/`ReplanPath` 写入，`ContinuePathCore`/
+  `HandlePathFailure`/`RevalidateRemainingSegments`/`WithLocked` 原样带过；`ReplanPath` 在该策略且属性非空时用它
+  代替 `path[^1]`。`Reject` 下不写入、`ReplanPath` 仍用 `path[^1]`，与 1.87.0 逐字节一致。
+- **"被调整"通知只在建路成功且解析结果 ≠ 原始点时触发**，每次解析一次（重规划再次解析各一次）；全部候选失败
+  只有失败通知。零长度判断（`|target - from| <= 1e-6`）仍针对原始目标，解析后的终点若恰与当前位置重合，
+  `FindPath` 返回单元素路径，随即按到达处理，不另设分支。
+- **离散步**：解析发生在 `BeginPathTo`，早于既有的格子吸附（吸附作用于位置推进），因此"先解析再吸附"。
+- **已知限制**：见 ADR-0110"负面"——可走不等于可达、精度一格、范围外的点不夹取（导航对其判可走）、对召唤物跟随等
+  同种意图一并生效、`Revalidate`/`Ignore`/`Stop` 下无实际重规划时不重新解析、单位自身站在阻挡里仍失败。
+
+测试：`core/carriers/assembly/tests/ADR0110_UnwalkableTargetSnapTests.cs`（生产装配级：真实 `CarriersAssembly` +
+带阻挡的桩导航；一条复现 + 六支不变量中的五支，第六支"两个导航实现结果一致"见
+`adapters/conformance/Runtime/Navigation2DScenarios` 的最近可走点场景，桩与 Unity 实现共用同一组输入）。
