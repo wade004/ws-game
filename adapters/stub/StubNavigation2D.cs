@@ -269,6 +269,41 @@ namespace Adapters.Stub
                 results);
         }
 
+        /// <summary>
+        /// ADR-0110：与 <paramref name="from"/> 连通的最近可走点（契约方法，见
+        /// <see cref="INavigation2D.TryFindNearestReachable"/>）。本桩的 <see cref="FindPath"/> 只有直线，"连通"
+        /// 就是 <c>FindPath(from, 候选) != null</c>（两端可走且线段内部不受阻）——它依赖 <paramref name="from"/>
+        /// 的位置、不是等价类关系，没有可缓存的"连通分量标号"，因此逐候选直接用同一个判定，谓词与
+        /// <see cref="FindPath"/> 逐字同源（保证返回点必可 <c>FindPath</c>）。候选枚举与排序同
+        /// <see cref="FindNearestWalkableCandidates"/>（同一份虚拟格子、同一个
+        /// <see cref="NearestWalkableSearch.CollectOnGrid"/>），谓词只在候选能刷新当前最优时才调用，单次点击
+        /// 的线段判定次数只与"刷新最优"的次数相关。
+        /// </summary>
+        public bool TryFindNearestReachable(Id mapId, Vec2 from, Vec2 point, double maxRadius, out Vec2 reachable)
+        {
+            _blockingRects.TryGetValue(mapId, out var rects);
+            var layout = NavGridLayout.Compute(rects, r => r.Min, r => r.Max);
+            var results = new List<Vec2>(1);
+            NearestWalkableSearch.CollectOnGrid(
+                layout,
+                (ix, iy) => FindPath(mapId, from, layout.CellCenter(ix, iy)) != null,
+                point,
+                FindPath(mapId, from, point) != null,
+                maxRadius,
+                from,
+                1,
+                results);
+
+            if (results.Count > 0)
+            {
+                reachable = results[0];
+                return true;
+            }
+
+            reachable = default;
+            return false;
+        }
+
         private void BumpBlockingVersion(Id mapId) =>
             _blockingVersions[mapId] = (_blockingVersions.TryGetValue(mapId, out var v) ? v : 0) + 1;
     }

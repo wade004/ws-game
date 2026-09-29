@@ -460,9 +460,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 新增
 
-- **点目标不可走时吸附到最近可走点**（消费方反馈第六十批，[ADR-0110](architecture/adr/0110-导航契约新增最近可走点.md)）：`INavigation2D` 新增默认接口成员
-  `TryFindNearestWalkable`/`FindNearestWalkableCandidates`（排序：到点距离按格宽量化、再到单位距离、再坐标字典序；桩与网格实现共用 `NavGridLayout`/`NearestWalkableSearch`，结果一致）。
-  `MovementOptions` 新增 `UnwalkableTargetPolicy`（默认 `Reject`，行为不变；`SnapToNearestWalkable` 时首次建路与阻挡变化重规划都从原始点解析）、`UnwalkableTargetSnapRadius`（8.0）、`UnwalkableTargetCandidates`（8）；
+- **点目标不可走/不可达时吸附到最近的可达点**（消费方反馈第六十批，[ADR-0110](architecture/adr/0110-导航契约新增最近可走点.md)）：`INavigation2D` 新增默认接口成员 `TryFindNearestWalkable`/`FindNearestWalkableCandidates`（几何）与 `TryFindNearestReachable`（与单位连通、返回点必可 `FindPath`；桩与网格实现精确，网格按阻挡版本缓存连通标号），排序共用 `NearestWalkableSearch`/`NavGridLayout`。
+  `MovementOptions` 新增 `UnwalkableTargetPolicy`（默认 `Reject`，行为不变；`SnapToNearestWalkable` 对全部点目标 `move` 意图生效，含召唤物跟随，首次建路与重规划都从原始点解析，点可走却不可达也吸附）、`UnwalkableTargetSnapRadius`（8.0）、`UnwalkableTargetCandidates`（8，仅第三方近似实现兜底）；
   `MovementHost.OnMoveTargetAdjusted` 通知目标被调整，失败通知目标仍为原始点；`MovementState.RequestedTarget` 记录原始目标。纯新增 ABI。
 
 ## [1.88.0] - 2026-09-29

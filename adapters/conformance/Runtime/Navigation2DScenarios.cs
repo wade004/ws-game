@@ -26,6 +26,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<INavigation2D>("FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻", FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_通道窄于两级采样格但直线畅通_每段Raycast均不受阻", FindPath_NarrowCorridorThinnerThanGrids_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("TryFindNearestWalkable_同一阻挡图与输入_结果等于规则算出的期望", NearestWalkable_SameInputs_EqualRuleComputedExpectation),
+            new ConformanceScenario<INavigation2D>("TryFindNearestReachable_围住的房间外侧点击_取房间内连通的最近点且缺口打开后点击点本身可达", NearestReachable_EnclosedRoom_PicksConnectedPointAndFollowsBlockingChange),
         };
 
         private static readonly Id MapId = new Id("map.conformance_probe");
@@ -54,9 +55,19 @@ namespace Adapters.Conformance
         /// <summary>按 ADR-0110 排序规则从零算出的期望候选序列：格几何取 <see cref="NavGridLayout.Compute(IReadOnlyList{Rect}, double)"/>，
         /// 可走判定只用 <see cref="INavigation2D.IsWalkable"/>；主键 = floor(到点击点距离 / 格宽)，次键 = 到偏好点
         /// 距离，再按坐标字典序。</summary>
-        private static List<Vec2> RuleExpectedCandidates(INavigation2D nav, Id map, Vec2 point, Vec2 prefer, double radius)
+        private static List<Vec2> RuleExpectedCandidates(INavigation2D nav, Id map, Vec2 point, Vec2 prefer, double radius) =>
+            RuleRanked(nav, map, NearestWalkableBlockers, point, prefer, radius, null);
+
+        /// <summary>同 <see cref="RuleExpectedCandidates"/>，但阻挡图由调用方给定，且 <paramref name="reachableFrom"/> 非空时
+        /// 候选还必须与该点连通——连通的判据就是被测实现自己的 <see cref="INavigation2D.FindPath"/>（规则本身：
+        /// "返回点必可 FindPath"，反过来"可 FindPath 的最近点"就是期望）。可达模式只需要第一名，找到即停。</summary>
+        private static List<Vec2> RuleRanked(
+            INavigation2D nav, Id map, Rect[] blockers, Vec2 point, Vec2 prefer, double radius, Vec2? reachableFrom)
         {
-            var layout = NavGridLayout.Compute(NearestWalkableBlockers);
+            bool Qualifies(Vec2 c) =>
+                nav.IsWalkable(map, c) && (!reachableFrom.HasValue || nav.FindPath(map, reachableFrom.Value, c) != null);
+
+            var layout = NavGridLayout.Compute(blockers);
             var pool = new List<(long K1, long K2, double X, double Y)>();
             for (var ix = 0; ix < layout.Width; ix++)
             {
@@ -85,17 +96,95 @@ namespace Adapters.Conformance
             });
 
             var list = new List<Vec2>();
-            if (nav.IsWalkable(map, point))
+            if (Qualifies(point))
             {
                 list.Add(point);
+                if (reachableFrom.HasValue)
+                {
+                    return list;
+                }
             }
 
             foreach (var e in pool)
             {
-                list.Add(new Vec2(e.X, e.Y));
+                var c = new Vec2(e.X, e.Y);
+                if (reachableFrom.HasValue && nav.FindPath(map, reachableFrom.Value, c) == null)
+                {
+                    continue;
+                }
+
+                list.Add(c);
+                if (reachableFrom.HasValue)
+                {
+                    break;
+                }
             }
 
             return list;
+        }
+
+        /// <summary>ADR-0110（1b）可达查询用例的阻挡图：<c>[0,10]x[0,6]</c> 的房间被 1 宽阻挡带围住。</summary>
+        private static readonly Rect[] EnclosedRoom =
+        {
+            new Rect(new Vec2(-1, -1), new Vec2(0, 7)),
+            new Rect(new Vec2(10, -1), new Vec2(11, 7)),
+            new Rect(new Vec2(0, -1), new Vec2(10, 0)),
+            new Rect(new Vec2(0, 6), new Vec2(10, 7)),
+        };
+
+        /// <summary><see cref="EnclosedRoom"/> 的东侧阻挡带在 <c>y∈(2,4)</c> 处打开一个缺口（包围盒不变，网格布局不变）。</summary>
+        private static readonly Rect[] EnclosedRoomWithGap =
+        {
+            new Rect(new Vec2(-1, -1), new Vec2(0, 7)),
+            new Rect(new Vec2(10, -1), new Vec2(11, 2)),
+            new Rect(new Vec2(10, 4), new Vec2(11, 7)),
+            new Rect(new Vec2(0, -1), new Vec2(10, 0)),
+            new Rect(new Vec2(0, 6), new Vec2(10, 7)),
+        };
+
+        private static IEnumerator NearestReachable_EnclosedRoom_PicksConnectedPointAndFollowsBlockingChange(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_nearest_reachable");
+            var from = new Vec2(5, 3);
+            var click = new Vec2(12.5, 3); // 带外侧、网格范围内的可走点：可走但从房间里走不到。
+            const double radius = 4.0;
+
+            // 阶段 A：四周封死。点击点可走却不可达；期望 = 规则算出的"与 from 连通"的第一名（房间内贴东带的格心）。
+            nav.SetBlocking(map, EnclosedRoom);
+            nav.BuildNavMesh(map);
+            assert.True(nav.IsWalkable(map, click), "夹具：点击点本身可走（在阻挡带外侧）");
+            assert.True(nav.FindPath(map, from, click) == null, "夹具：点击点从房间里走不到");
+
+            var expected = RuleRanked(nav, map, EnclosedRoom, click, from, radius, from);
+            assert.True(expected.Count > 0, "夹具：半径内存在与 from 连通的可走点");
+            var found = nav.TryFindNearestReachable(map, from, click, radius, out var reachable);
+            assert.True(found, "TryFindNearestReachable 应在半径内找到与 from 连通的点");
+            assert.Equal(expected[0], reachable, "与 from 连通的最近点应等于规则算出的第一名");
+            assert.True(nav.FindPath(map, from, reachable) != null, "返回点必须可 FindPath");
+            assert.True(reachable.X < 10, "返回点应在房间内侧（东带以西），实际 " + reachable);
+
+            // 半径内没有连通的点：false，reachable 为 default。
+            assert.True(!nav.TryFindNearestReachable(map, from, click, 1.0, out var none), "半径 1 内没有与 from 连通的可走点，应返回 false");
+            assert.Equal(default(Vec2), none, "返回 false 时 reachable 应为 default");
+
+            // 起点不可走：false。
+            assert.True(!nav.TryFindNearestReachable(map, new Vec2(10.5, 3), click, radius, out _), "起点在阻挡里，应返回 false");
+
+            // 阶段 B：东带打开缺口（阻挡版本变化）。点击点变为可达，应原样返回；连通信息不得读陈旧缓存。
+            nav.SetBlocking(map, EnclosedRoomWithGap);
+            assert.True(nav.FindPath(map, from, click) != null, "夹具：缺口打开后点击点可达");
+            var expectedOpen = RuleRanked(nav, map, EnclosedRoomWithGap, click, from, radius, from);
+            assert.Equal(click, expectedOpen[0], "规则期望：点击点本身可走且连通时排第一");
+            assert.True(nav.TryFindNearestReachable(map, from, click, radius, out var reachableOpen), "缺口打开后应找到点");
+            assert.Equal(click, reachableOpen, "缺口打开后点击点本身可达，应原样返回它（连通标号必须随阻挡版本重算）");
+
+            // 阶段 C：缺口再关上：回到阶段 A 的结果。
+            nav.SetBlocking(map, EnclosedRoom);
+            assert.True(nav.TryFindNearestReachable(map, from, click, radius, out var reachableClosedAgain), "缺口关上后应仍能找到房间内的点");
+            assert.Equal(expected[0], reachableClosedAgain, "缺口关上后应回到阶段 A 的结果");
+
+            nav.Clear(map);
+            yield break;
         }
 
         private static IEnumerator NearestWalkable_SameInputs_EqualRuleComputedExpectation(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)

@@ -82,7 +82,7 @@ namespace Core.Foundation.EngineAdapter
         /// <para>
         /// 返回的点必满足 <see cref="IsWalkable"/> 为 true，且把它作为 <see cref="FindPath"/> 的终点不会
         /// 因"贴边/落在格边界"被判不可走（取格心或等价的安全点）——可走不等于可达：孤岛上的点仍可能
-        /// <see cref="FindPath"/> 失败，调用方按需用 <see cref="FindNearestWalkableCandidates"/> 取后续候选。
+        /// <see cref="FindPath"/> 失败，需要"从某点走得到"的调用方用 <see cref="TryFindNearestReachable"/>。
         /// </para>
         /// <para>
         /// 默认实现委托 <see cref="FindNearestWalkableCandidates"/>（<c>maxCount = 1</c>）；网格实现应覆盖
@@ -106,8 +106,9 @@ namespace Core.Foundation.EngineAdapter
         /// ADR-0110：按 <see cref="TryFindNearestWalkable"/> 同一排序规则，取前 <paramref name="maxCount"/>
         /// 个可走候选点（第一个就是 <see cref="TryFindNearestWalkable"/> 的结果）。先清空
         /// <paramref name="results"/>，再把候选依次追加进去，返回追加个数（范围内可走点不足时少于
-        /// <paramref name="maxCount"/>，无可走点时为 0）。供"最近点作为终点寻路失败（落在不可达孤岛上）
-        /// 时依次尝试后续候选"使用，排序规则只有 <see cref="NearestWalkableSearch"/> 这一份实现。
+        /// <paramref name="maxCount"/>，无可走点时为 0）。供需要几何候选列表的调用方使用（移动系统在
+        /// <see cref="TryFindNearestReachable"/> 给出的点仍然 <see cref="FindPath"/> 失败时也用它兜底），排序规则只有
+        /// <see cref="NearestWalkableSearch"/> 这一份实现。
         /// <para>
         /// 默认实现只用 <see cref="IsWalkable"/> 做同心环采样
         /// （<see cref="NearestWalkableSearch.CollectSampled"/>：步长 <see cref="NearestWalkableSearch.SampledStep"/>
@@ -120,5 +121,46 @@ namespace Core.Foundation.EngineAdapter
         int FindNearestWalkableCandidates(
             Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, int maxCount, List<Vec2> results) =>
             NearestWalkableSearch.CollectSampled(p => IsWalkable(mapId, p), point, maxRadius, preferNear, maxCount, results);
+
+        /// <summary>
+        /// ADR-0110：在以 <paramref name="point"/> 为圆心、<paramref name="maxRadius"/> 为半径的范围内，找离
+        /// <paramref name="point"/> 最近的、<b>与 <paramref name="from"/> 连通</b>的可走点（点击落在阻挡里、
+        /// 或落在围栏/边界带的另一侧时，几何上最近的可走点常常是不可达的，移动系统据此取"从单位当前位置
+        /// 走得到"的那个）。连通规则与本实现的 <see cref="FindPath"/> 完全一致（含"不许切角"等邻接规则）：
+        /// 返回 <c>true</c> 时 <c>FindPath(mapId, from, reachable)</c> 必定成功。排序规则与
+        /// <see cref="TryFindNearestWalkable"/> 是同一份（<see cref="NearestWalkableSearch"/>：主键到
+        /// <paramref name="point"/> 的量化距离，次键到 <paramref name="from"/> 的距离，三键坐标字典序），
+        /// 只是候选限定为与 <paramref name="from"/> 连通者；<paramref name="point"/> 本身可走且与
+        /// <paramref name="from"/> 连通时原样返回它。范围内没有这样的点返回 <c>false</c>
+        /// （<paramref name="reachable"/> 为 default）。
+        /// <para>
+        /// 内置的两个实现（测试桩与引擎适配层）都是精确实现：网格实现按阻挡版本缓存连通分量标号，查询时
+        /// 只比较标号；测试桩的 <see cref="FindPath"/> 只有直线，连通即"直线不受阻"，逐候选直接用同一个判定。
+        /// </para>
+        /// <para>
+        /// 默认实现是近似（给不知道网格与连通结构的第三方实现者）：取 <see cref="FindNearestWalkableCandidates"/>
+        /// 的前 <see cref="NearestWalkableSearch.ReachableProbeLimit"/>（64）个候选，按序逐个
+        /// <see cref="FindPath"/> 试探，返回第一个成功者；前 64 个候选都不可达时返回 <c>false</c>，即使更远处
+        /// 存在可达点也不会被发现——所以大片不可达区域紧贴 <paramref name="point"/> 时默认实现会"找不到"，
+        /// 需要精确结果的实现应覆盖本成员。
+        /// </para>
+        /// </summary>
+        bool TryFindNearestReachable(Id mapId, Vec2 from, Vec2 point, double maxRadius, out Vec2 reachable)
+        {
+            var candidates = new List<Vec2>();
+            FindNearestWalkableCandidates(
+                mapId, point, maxRadius, from, NearestWalkableSearch.ReachableProbeLimit, candidates);
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                if (FindPath(mapId, from, candidates[i]) != null)
+                {
+                    reachable = candidates[i];
+                    return true;
+                }
+            }
+
+            reachable = default;
+            return false;
+        }
     }
 }

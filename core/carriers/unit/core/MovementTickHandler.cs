@@ -596,18 +596,20 @@ namespace Core.Carriers.Unit
         /// <c>SnapToNearestWalkable</c> 策略下的**唯一**建路入口，首次建路（<see cref="BeginPathTo"/>）与阻挡变化
         /// 后的重规划（<see cref="ReplanPath"/>）都经它，且总是从<b>原始请求目标</b>
         /// <paramref name="requested"/> 起解析，不从上一次解析出的终点重来。步骤：① 经
-        /// <see cref="INavigation2D.TryFindNearestWalkable"/> 取最近可走点（<paramref name="requested"/> 本身可走时
-        /// 就是它自己；以 <paramref name="from"/> 为次键偏好点，并列取单位所在一侧），半径
-        /// <see cref="MovementOptions.UnwalkableTargetSnapRadius"/>，半径内无可走点即失败；② 对它 <c>FindPath</c>；
-        /// ③ 失败（落在不可达孤岛上）时经 <see cref="INavigation2D.FindNearestWalkableCandidates"/> 按同一排序规则
-        /// 取至多 <see cref="MovementOptions.UnwalkableTargetCandidates"/> 个候选，依次尝试（跳过已试过的最近点）；
+        /// <see cref="INavigation2D.TryFindNearestReachable"/> 取"与单位当前位置 <paramref name="from"/> 连通的
+        /// 最近可走点"（<paramref name="requested"/> 本身可走且连通时就是它自己），半径
+        /// <see cref="MovementOptions.UnwalkableTargetSnapRadius"/>，半径内没有这样的点即失败；② 对它
+        /// <c>FindPath</c>——内置导航实现保证必定成功，一次成功；③ 只有第 ② 步仍失败（第三方近似实现返回了
+        /// 实际走不到的点）时，才经 <see cref="INavigation2D.FindNearestWalkableCandidates"/> 按同一排序规则取至多
+        /// <see cref="MovementOptions.UnwalkableTargetCandidates"/> 个几何候选依次尝试（跳过已试过的那个）；
         /// 全部失败返回 <c>null</c>，调用方按原始目标走既有失败处理（<see cref="HandlePathFailure"/>，失败目标
         /// 仍是原始请求目标）。成功且解析结果与 <paramref name="requested"/> 不同时触发一次
         /// <see cref="MovementHost.OnMoveTargetAdjusted"/>。排序规则只在
         /// <c>Core.Foundation.EngineAdapter.NearestWalkableSearch</c> 一处实现，本方法不重复排序。
         /// <para>
-        /// 判断记录：requested 本身可走但 <c>FindPath</c> 不可达（如一整块封闭区域内的点）时同样会走第 ③ 步的
-        /// 候选回退——契约只有"可走"这一个判据，无法区分"可走但不可达"与"不可走"，两者在孤岛上的表现一致。
+        /// 判断记录：requested 本身可走但不可达（封闭院落里的点、边界阻挡带外侧的点）同样走这条路径——
+        /// "可走"与"从单位处可达"是两回事，旧版（只按几何取最近可走点再试少量候选）在这两种点上会因最近的
+        /// 一批候选全部在不可达一侧而 NoPath，所以改由导航按连通性直接挑出可达的那一个。
         /// </para>
         /// </summary>
         private IReadOnlyList<Vec2>? FindPointTargetPath(Unit unit, Vec2 from, Vec2 requested)
@@ -615,25 +617,26 @@ namespace Core.Carriers.Unit
             var nav = _navigation!;
             var radius = _options.UnwalkableTargetSnapRadius;
 
-            if (!nav.TryFindNearestWalkable(unit.MapId, requested, radius, from, out var nearest))
+            if (!nav.TryFindNearestReachable(unit.MapId, from, requested, radius, out var reachable))
             {
                 return null;
             }
 
-            var resolved = nearest;
-            var path = nav.FindPath(unit.MapId, from, nearest);
+            var resolved = reachable;
+            var path = nav.FindPath(unit.MapId, from, reachable);
 
             if (path == null && _options.UnwalkableTargetCandidates > 1)
             {
+                // 近似实现兜底：导航声称可达但 FindPath 失败，按几何排序取后续候选逐个试。
                 var candidates = new List<Vec2>();
                 nav.FindNearestWalkableCandidates(
                     unit.MapId, requested, radius, from, _options.UnwalkableTargetCandidates, candidates);
 
                 for (var i = 0; i < candidates.Count && path == null; i++)
                 {
-                    if (candidates[i].Equals(nearest))
+                    if (candidates[i].Equals(reachable))
                     {
-                        continue; // 最近点已经试过。
+                        continue; // 已经试过。
                     }
 
                     path = nav.FindPath(unit.MapId, from, candidates[i]);

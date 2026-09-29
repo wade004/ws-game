@@ -57,10 +57,11 @@ namespace Core.Carriers.Unit
         /// <see cref="MovementHost.OnMoveFailed"/>（<see cref="MoveFailReason.NoPath"/>）。</summary>
         Reject,
 
-        /// <summary>吸附到最近可走点再寻路（桌面 ARPG 惯例：点墙也走到墙边）：用
-        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.TryFindNearestWalkable"/> 在
-        /// <see cref="MovementOptions.UnwalkableTargetSnapRadius"/> 内取最近可走点作为实际终点；该点寻路失败
-        /// （落在不可达孤岛上）时按同一排序规则依次尝试后续候选，至多
+        /// <summary>吸附到最近的<b>可达</b>可走点再寻路（桌面 ARPG 惯例：点墙也走到墙边）：用
+        /// <see cref="Core.Foundation.EngineAdapter.INavigation2D.TryFindNearestReachable"/> 在
+        /// <see cref="MovementOptions.UnwalkableTargetSnapRadius"/> 内取"与单位当前位置连通"的最近可走点作为
+        /// 实际终点——点击点落在阻挡里、围栏另一侧、封闭院落里、边界阻挡带外侧时都成立。导航实现的近似
+        /// （第三方默认实现）给出的点仍然走不到时，再按几何排序依次尝试后续候选，至多
         /// <see cref="MovementOptions.UnwalkableTargetCandidates"/> 个，全部失败才 <c>NoPath</c>。
         /// 解析结果与原始点不同时触发 <see cref="MovementHost.OnMoveTargetAdjusted"/>。</summary>
         SnapToNearestWalkable,
@@ -271,9 +272,10 @@ namespace Core.Carriers.Unit
         public double UnwalkableTargetSnapRadius { get; set; } = 8.0;
 
         /// <summary>
-        /// ADR-0110：最近可走点寻路失败（落在不可达孤岛上）时，按同一排序规则依次尝试的候选点总数上限
-        /// （含最近点本身，与 <see cref="ChaseStandoffCandidates"/> 同口径）；全部失败才 <c>NoPath</c>。
-        /// 默认 8；<c>&lt;= 1</c> 表示只试最近点、不再尝试后续候选。
+        /// ADR-0110：<see cref="Core.Foundation.EngineAdapter.INavigation2D.TryFindNearestReachable"/> 给出的点
+        /// 仍然 <c>FindPath</c> 失败时（第三方实现的近似所致；内置实现不会走到这里），按几何排序依次尝试的
+        /// 候选点总数上限（含已试过的那个，与 <see cref="ChaseStandoffCandidates"/> 同口径）；全部失败才
+        /// <c>NoPath</c>。默认 8；<c>&lt;= 1</c> 表示不再尝试后续候选。
         /// </summary>
         public int UnwalkableTargetCandidates { get; set; } = 8;
     }

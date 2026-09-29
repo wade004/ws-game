@@ -83,6 +83,12 @@ namespace Adapter.Unity.EngineAdapter
             public int Width;
             public int Height;
             public bool[,] Walkable = null!;
+
+            /// <summary>ADR-0110：格子连通分量标号（不可走格为 -1），首次做"与单位连通的最近可走点"查询时惰性
+            /// 计算。本对象在阻挡数据变化时随 <c>_grids</c> 一起丢弃重建（<see cref="SetBlocking"/>/
+            /// <see cref="Clear"/>/<see cref="BuildNavMesh"/> 即阻挡版本变化的全部入口），所以标号天然按阻挡
+            /// 版本缓存：版本没变就复用，变了才在下一次查询时重算一次。</summary>
+            public int[,]? ComponentLabels;
         }
 
         private readonly Dictionary<Id, List<BlockingRect>> _blockingRects = new Dictionary<Id, List<BlockingRect>>();
@@ -432,6 +438,178 @@ namespace Adapter.Unity.EngineAdapter
                 preferNear,
                 maxCount,
                 results);
+        }
+
+        /// <summary>
+        /// ADR-0110：与 <paramref name="from"/> 连通的最近可走点（契约方法，见
+        /// <see cref="INavigation2D.TryFindNearestReachable"/>）。连通 = <see cref="FindPath"/> 使用的主网格上的
+        /// 连通：A* 的邻接是 8 方向，但对角移动要求两个正交邻居格都可走，因此对角边从不连接原本不连通的两个
+        /// 格子，连通分量等于 4 邻域连通分量（<see cref="ComputeComponentLabels"/>，按阻挡版本缓存在
+        /// <see cref="NavGrid.ComponentLabels"/>，重算只在阻挡变化后的第一次查询发生）。候选 = 主网格里与
+        /// <paramref name="from"/> 入口格同标号的可走格中心，排序委托 <see cref="NearestWalkableSearch.CollectOnGrid"/>
+        /// （同 <see cref="FindNearestWalkableCandidates"/>）。
+        /// <para>
+        /// 判断记录：标号是"整图连通"的廉价预筛，选出排序第一的同分量候选后，再对它调用一次
+        /// <see cref="FindPath"/> 确认（每次点击一次寻路，与移动系统随后自己的那次同量级）；确认失败的候选
+        /// 被排除后取下一名，至多 <see cref="MaxReachableVerifyAttempts"/> 次。这样"返回点必可 <c>FindPath</c>"
+        /// 不依赖标号与 <see cref="FindPath"/> 的细节（端点接合、比格子更薄的阻挡触发的细网格兜底）完全一致。
+        /// <paramref name="from"/>/<paramref name="point"/> 落在网格范围外时 <see cref="FindPath"/> 本身退化为
+        /// 直线检查，这里同样只用 <see cref="FindPath"/> 判定（不参与标号）。
+        /// </para>
+        /// </summary>
+        public bool TryFindNearestReachable(Id mapId, Vec2 from, Vec2 point, double maxRadius, out Vec2 reachable)
+        {
+            reachable = default;
+            if (!IsWalkable(mapId, from))
+            {
+                return false;
+            }
+
+            if (!_grids.TryGetValue(mapId, out var grid))
+            {
+                grid = BuildGrid(mapId);
+                _grids[mapId] = grid;
+            }
+
+            // 起点的标号：起点所在格（格中心受阻时取 FindPath 同一套 ResolveEntryCell 的入口格）。起点在网格外
+            // 或无法进入网格时没有标号，退化为逐候选 FindPath。
+            var fromLabel = -1;
+            if (TryWorldToCell(grid, from, out var fromCell))
+            {
+                var entry = ResolveEntryCell(grid, mapId, fromCell, from);
+                if (entry.HasValue)
+                {
+                    fromLabel = EnsureComponentLabels(grid)[entry.Value.x, entry.Value.y];
+                }
+            }
+
+            var labels = fromLabel >= 0 ? grid.ComponentLabels : null;
+
+            // point 本身：可走且（有标号时）与起点同分量才有资格原样返回。
+            var pointQualifies = IsWalkable(mapId, point);
+            if (pointQualifies && labels != null && TryWorldToCell(grid, point, out var pointCell))
+            {
+                var pointEntry = ResolveEntryCell(grid, mapId, pointCell, point);
+                pointQualifies = !pointEntry.HasValue || labels[pointEntry.Value.x, pointEntry.Value.y] == fromLabel;
+            }
+
+            var layout = new NavGridLayout(grid.Origin, grid.CellSize, grid.Width, grid.Height);
+            var rejected = new HashSet<(int, int)>();
+            var results = new List<Vec2>(1);
+            for (var attempt = 0; attempt < MaxReachableVerifyAttempts; attempt++)
+            {
+                NearestWalkableSearch.CollectOnGrid(
+                    layout,
+                    (ix, iy) => (labels == null || labels[ix, iy] == fromLabel) && !rejected.Contains((ix, iy)),
+                    point,
+                    pointQualifies,
+                    maxRadius,
+                    from,
+                    1,
+                    results);
+                if (results.Count == 0)
+                {
+                    return false;
+                }
+
+                var candidate = results[0];
+                if (FindPath(mapId, from, candidate) != null)
+                {
+                    reachable = candidate;
+                    return true;
+                }
+
+                // 预筛通过但 FindPath 不认（起点/候选端点接合失败等边角）：排除它，取下一名。
+                if (candidate.Equals(point))
+                {
+                    pointQualifies = false;
+                }
+                else if (TryWorldToCell(grid, candidate, out var badCell))
+                {
+                    rejected.Add(badCell);
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary><see cref="TryFindNearestReachable"/> 里"标号预筛通过但 <see cref="FindPath"/> 不认"的候选最多排除
+        /// 几次（预期为 0；只有比格子更薄的阻挡、端点接合失败等边角才会触发）。</summary>
+        private const int MaxReachableVerifyAttempts = 16;
+
+        private static int[,] EnsureComponentLabels(NavGrid grid)
+        {
+            if (grid.ComponentLabels == null)
+            {
+                grid.ComponentLabels = ComputeComponentLabels(grid.Walkable, grid.Width, grid.Height, out _);
+            }
+
+            return grid.ComponentLabels;
+        }
+
+        /// <summary>ADR-0110：主网格的连通分量标号（不可走格 -1，可走格 0..count-1），4 邻域洪泛，
+        /// O(格子数)（上限 <see cref="NavGridLayout.MaxGridDimension"/>² 个格子）。4 邻域与 A* 的 8 邻域"不许
+        /// 切角"规则等价：对角邻居只在两个正交邻居都可走时才可达，此时它们本来就已经和当前格连通。</summary>
+        internal static int[,] ComputeComponentLabels(bool[,] walkable, int width, int height, out int count)
+        {
+            var labels = new int[width, height];
+            for (var x = 0; x < width; x++)
+            {
+                for (var y = 0; y < height; y++)
+                {
+                    labels[x, y] = -1;
+                }
+            }
+
+            var stack = new int[width * height];
+            count = 0;
+            for (var sx = 0; sx < width; sx++)
+            {
+                for (var sy = 0; sy < height; sy++)
+                {
+                    if (!walkable[sx, sy] || labels[sx, sy] >= 0)
+                    {
+                        continue;
+                    }
+
+                    var top = 0;
+                    stack[top++] = sx * height + sy;
+                    labels[sx, sy] = count;
+                    while (top > 0)
+                    {
+                        var packed = stack[--top];
+                        var cx = packed / height;
+                        var cy = packed % height;
+                        if (cx > 0 && walkable[cx - 1, cy] && labels[cx - 1, cy] < 0)
+                        {
+                            labels[cx - 1, cy] = count;
+                            stack[top++] = (cx - 1) * height + cy;
+                        }
+
+                        if (cx < width - 1 && walkable[cx + 1, cy] && labels[cx + 1, cy] < 0)
+                        {
+                            labels[cx + 1, cy] = count;
+                            stack[top++] = (cx + 1) * height + cy;
+                        }
+
+                        if (cy > 0 && walkable[cx, cy - 1] && labels[cx, cy - 1] < 0)
+                        {
+                            labels[cx, cy - 1] = count;
+                            stack[top++] = cx * height + cy - 1;
+                        }
+
+                        if (cy < height - 1 && walkable[cx, cy + 1] && labels[cx, cy + 1] < 0)
+                        {
+                            labels[cx, cy + 1] = count;
+                            stack[top++] = cx * height + cy + 1;
+                        }
+                    }
+
+                    count++;
+                }
+            }
+
+            return labels;
         }
 
         /// <summary>非契约便捷方法：从一个 Tilemap 的实心格子（TileBase 非空）生成阻挡矩形，

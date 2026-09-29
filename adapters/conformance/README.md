@@ -129,8 +129,12 @@
    直接返回正确结果，不需要为桩侧声明降级路径；具体场景与坐标见 `Navigation2DScenarios.cs`/
    `SpatialQueryScenarios.cs` 对应场景体的类型注释。
 
-9. **最近可走点场景两侧都不 `Skip`，且共用同一组输入（ADR-0110，2026-09-29）。** "TryFindNearestWalkable_同一阻挡图
+9. **最近可走点与可达最近点场景两侧都不 `Skip`，且共用同一组输入（ADR-0110，2026-09-29）。** "TryFindNearestWalkable_同一阻挡图
    与输入_结果等于规则算出的期望"场景在 `SetBlocking` 之后，对厚墙正中/薄墙内/半径内无可走点/点本身可走六组输入，
    用 `IsWalkable` + 核心 `NavGridLayout` 从零算出规则期望，逐名核对 `TryFindNearestWalkable` 与
-   `FindNearestWalkableCandidates`。桩（核心 `ConformanceStubTests`）与 Unity 网格实现（`ConformanceUnityTests`）
-   各自跑这一份场景，因此"同一张阻挡图两个实现给出相同结果"由同一期望传递保证。
+   `FindNearestWalkableCandidates`。"TryFindNearestReachable_围住的房间外侧点击……"场景：房间四周封死时点击带外侧的可走点，
+   期望 = 规则枚举（可走 + 该实现自己的 `FindPath(from, 候选) != null`，排序同上）的第一名，且返回点必可 `FindPath`、半径
+   不够/起点不可走返回 false；东带打开缺口（阻挡版本变化）后点击点本身可达、应原样返回（连通标号必须随阻挡版本重算），缺口
+   再关上回到原结果。桩（核心 `ConformanceStubTests`）与 Unity 网格实现（`ConformanceUnityTests`）
+   各自跑这一份场景，因此"同一张阻挡图两个实现给出相同结果"由同一期望传递保证（期望的连通判据是各实现自己的 `FindPath`，
+   两个实现对"直线可达 / 网格可达"的差异不影响这个场景选用的开阔房间几何）。

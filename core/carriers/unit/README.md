@@ -533,19 +533,22 @@ stopRange, mode)`。
 core/carriers/tests/Tests.Carriers.csproj` 665/665 通过；Unity PlayMode 定向
 `MovementStopAndBlockingPlayModeTests` 11/11 通过（含上述两条此前回归的用例）。
 
-## ADR-0110《导航契约新增"最近可走点"》：点目标不可走时吸附到最近可走点（2026-09-29，消费方反馈第六十批）
+## ADR-0110《导航契约新增"最近可走点"与"可达最近点"》：点目标不可走/不可达时吸附到最近的可达点（2026-09-29，消费方反馈第六十批）
 
-点目标（`MoveRequest.ToTarget` 一族）落在阻挡里时，`FindPath` 端点契约使建路必失败、单位原地不动。新增
-`MovementOptions.UnwalkableTargetPolicy`（`Reject` 默认，行为逐字节不变 / `SnapToNearestWalkable`）、
-`UnwalkableTargetSnapRadius`（8.0）、`UnwalkableTargetCandidates`（8，含最近点的候选总数上限）与
-`MovementHost.OnMoveTargetAdjusted`（单位、原始请求目标、解析后目标）。取舍：
+点目标（`MoveRequest.ToTarget` 一族）落在阻挡里，或可走却从单位处走不到（围栏另一侧、封闭院落里、地图外围阻挡带外侧）时，
+`FindPath` 端点契约/连通性使建路必失败、单位原地不动。新增 `MovementOptions.UnwalkableTargetPolicy`（`Reject` 默认，
+行为逐字节不变 / `SnapToNearestWalkable`）、`UnwalkableTargetSnapRadius`（8.0）、`UnwalkableTargetCandidates`（8，只服务第三方近似
+实现的兜底）与 `MovementHost.OnMoveTargetAdjusted`（单位、原始请求目标、解析后目标）。取舍：
 
-- **建路只经一个入口**：`MovementTickHandler.FindPointTargetPath`——先 `TryFindNearestWalkable`（次键偏好点传
-  单位当前位置），对最近点 `FindPath`，失败再经 `FindNearestWalkableCandidates` 按同一排序依次试后续候选
-  （跳过已试过的最近点），全部失败返回 null 走既有 `HandlePathFailure`（失败目标仍是**原始请求目标**）。排序
-  规则只在契约层 `NearestWalkableSearch` 一处实现，移动系统不重复排序。点目标的建路调用点只有两处，都接入：
+- **建路只经一个入口**：`MovementTickHandler.FindPointTargetPath`——先 `TryFindNearestReachable(单位位置, 原始目标, 半径)`
+  取与单位连通的最近可走点（导航保证返回点必可 `FindPath`），再对它 `FindPath`；只有 `FindPath` 仍失败（第三方近似
+  实现给出了走不到的点）才经 `FindNearestWalkableCandidates` 按几何排序依次试 `UnwalkableTargetCandidates` 个后续候选
+  （跳过已试过的那个）。全部失败或半径内没有可达点返回 null 走既有 `HandlePathFailure`（失败目标仍是**原始请求目标**）。
+  排序规则只在契约层 `NearestWalkableSearch` 一处实现，移动系统不重复排序。点目标的建路调用点只有两处，都接入：
   `BeginPathTo`（首次建路）与 `ReplanPath`（阻挡变化后重规划，`Replan` 直接进入、`Revalidate` 判定受阻后进入）。
   追击的两处 `FindPath`（`AdvanceChase` 直接回退点、`TryFindStandoffCandidatePath`）是 `ToUnit` 追击，不在范围。
+  **为什么改用可达查询（首版是几何最近点 + 少量候选回退）**：点击点可走却不可达时，最近一批几何候选全在不可达一侧，
+  候选数再大也是碰运气；由导航按连通性直接挑，一次成功。
 - **重规划从原始点重新解析**：`MovementState` 新增只读属性 `RequestedTarget`（新增 8 参数构造重载，既有 4/5/6/7 参数
   构造转发、恒 `null`），仅 `SnapToNearestWalkable` 时由 `BeginPathTo`/`ReplanPath` 写入，`ContinuePathCore`/
   `HandlePathFailure`/`RevalidateRemainingSegments`/`WithLocked` 原样带过；`ReplanPath` 在该策略且属性非空时用它
@@ -554,9 +557,12 @@ core/carriers/tests/Tests.Carriers.csproj` 665/665 通过；Unity PlayMode 定�
   只有失败通知。零长度判断（`|target - from| <= 1e-6`）仍针对原始目标，解析后的终点若恰与当前位置重合，
   `FindPath` 返回单元素路径，随即按到达处理，不另设分支。
 - **离散步**：解析发生在 `BeginPathTo`，早于既有的格子吸附（吸附作用于位置推进），因此"先解析再吸附"。
-- **已知限制**：见 ADR-0110"负面"——可走不等于可达、精度一格、范围外的点不夹取（导航对其判可走）、对召唤物跟随等
-  同种意图一并生效、`Revalidate`/`Ignore`/`Stop` 下无实际重规划时不重新解析、单位自身站在阻挡里仍失败。
+- **仍然成立的限制**：见 ADR-0110"负面"——精度一格、半径内没有可达点仍 `NoPath`（默认半径 8.0，外框很厚时点在外框外侧
+  会落在半径之外，游戏可调大）、范围外的点不夹取、对召唤物跟随等同种意图一并生效、`Revalidate`/`Ignore`/`Stop` 下无实际
+  重规划时不重新解析、单位自身站在阻挡里仍失败。
 
 测试：`core/carriers/assembly/tests/ADR0110_UnwalkableTargetSnapTests.cs`（生产装配级：真实 `CarriersAssembly` +
-带阻挡的桩导航；一条复现 + 六支不变量中的五支，第六支"两个导航实现结果一致"见
-`adapters/conformance/Runtime/Navigation2DScenarios` 的最近可走点场景，桩与 Unity 实现共用同一组输入）。
+带阻挡的桩导航；两条复现——点击厚墙正中、点击围住的房间外侧——加七支不变量：默认 Reject、外框带内、近似实现的候选回退
+与耗尽、半径内无点、重规划从原始点重新解析、孤岛不试探直接选连通点并配阳性对照、缺口打开后可达点被选中）；
+"两个导航实现结果一致"见 `adapters/conformance/Runtime/Navigation2DScenarios` 的最近可走点与可达最近点场景，桩与 Unity
+实现共用同一组输入。

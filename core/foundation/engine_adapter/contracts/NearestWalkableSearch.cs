@@ -116,6 +116,11 @@ namespace Core.Foundation.EngineAdapter
         /// <c>MaxSampledRings × SampledStep</c> = 256 世界单位）。</summary>
         public const int MaxSampledRings = 1024;
 
+        /// <summary><see cref="INavigation2D.TryFindNearestReachable"/> 默认实现最多试探的候选个数：候选按
+        /// 排序规则从近到远逐个 <see cref="INavigation2D.FindPath"/>，试到第 64 个仍不可达就放弃（近似，
+        /// 见该成员注释）。</summary>
+        internal const int ReachableProbeLimit = 64;
+
         private const double QuantizeEpsilon = 1e-9;
         private const double PreferQuantum = 1e-9;
 
@@ -187,14 +192,19 @@ namespace Core.Foundation.EngineAdapter
         }
 
         /// <summary>
-        /// 按网格精确搜索：候选 = <paramref name="layout"/> 内各格的中心点（<paramref name="cellWalkable"/>
-        /// 为真者），距离 <paramref name="point"/> 不超过 <paramref name="maxRadius"/>。
-        /// <paramref name="pointItselfWalkable"/> 为真时 <paramref name="point"/> 本身排第一（原样返回，
-        /// 不量化到格心）。把至多 <paramref name="maxCount"/> 个候选按排序规则依次追加到
-        /// <paramref name="results"/>（先清空），返回追加个数。
+        /// 按网格精确搜索：候选 = <paramref name="layout"/> 内各格的中心点（<paramref name="cellQualifies"/>
+        /// 为真者），距离 <paramref name="point"/> 不超过 <paramref name="maxRadius"/>。"qualifies"由调用方定义：
+        /// 可走（<see cref="INavigation2D.FindNearestWalkableCandidates"/>），或可走且与某点连通
+        /// （<see cref="INavigation2D.TryFindNearestReachable"/>）——排序规则与候选限定无关，只有这一份。
+        /// <paramref name="pointItselfQualifies"/> 为真时 <paramref name="point"/> 本身排第一（原样返回，
+        /// 不量化到格心）。<paramref name="maxCount"/> 为 1 时先算候选的排序键、只在它还能超过当前最优时才调用
+        /// <paramref name="cellQualifies"/>（谓词可以很贵，例如一次寻路，调用次数因此只与"刷新最优"的次数
+        /// 相关，而不是候选格总数）；<paramref name="maxCount"/> 大于 1 时对范围内全部格调用。把至多
+        /// <paramref name="maxCount"/> 个候选按排序规则依次追加到 <paramref name="results"/>（先清空），
+        /// 返回追加个数。
         /// </summary>
         public static int CollectOnGrid(
-            NavGridLayout layout, Func<int, int, bool> cellWalkable, Vec2 point, bool pointItselfWalkable,
+            NavGridLayout layout, Func<int, int, bool> cellQualifies, Vec2 point, bool pointItselfQualifies,
             double maxRadius, Vec2 preferNear, int maxCount, List<Vec2> results)
         {
             results.Clear();
@@ -209,12 +219,12 @@ namespace Core.Foundation.EngineAdapter
             }
 
             var pool = new List<Candidate>();
-            if (pointItselfWalkable)
+            if (pointItselfQualifies)
             {
                 pool.Add(new Candidate(-1, 0, point));
             }
 
-            if (!(pointItselfWalkable && maxCount == 1))
+            if (!(pointItselfQualifies && maxCount == 1))
             {
                 var cell = layout.CellSize;
                 if (!TryClampRange((point.X - maxRadius - layout.Origin.X) / cell, (point.X + maxRadius - layout.Origin.X) / cell, layout.Width, out var loX, out var hiX) ||
@@ -237,20 +247,20 @@ namespace Core.Foundation.EngineAdapter
                             continue;
                         }
 
-                        if (!cellWalkable(ix, iy))
-                        {
-                            continue;
-                        }
-
                         var candidate = MakeCandidate(point, center, preferNear, cell);
                         if (maxCount == 1)
                         {
-                            if (!best.HasValue || Compare(candidate, best.Value) < 0)
+                            if (best.HasValue && Compare(candidate, best.Value) >= 0)
+                            {
+                                continue; // 超不过当前最优：不必调用（可能很贵的）谓词。
+                            }
+
+                            if (cellQualifies(ix, iy))
                             {
                                 best = candidate;
                             }
                         }
-                        else
+                        else if (cellQualifies(ix, iy))
                         {
                             pool.Add(candidate);
                         }

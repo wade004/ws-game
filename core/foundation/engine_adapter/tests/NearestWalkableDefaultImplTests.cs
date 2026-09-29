@@ -13,15 +13,22 @@ namespace Tests.Foundation.EngineAdapter
     /// 落在半径内、点本身可走时原样返回、并列时取偏好点一侧、距离与网格精确实现（桩）至多相差一环步长；
     /// 范围内无可走点返回 false。桩/Unity 网格实现与规则期望的逐点一致由
     /// <c>adapters/conformance</c> 的 <c>Navigation2DScenarios</c> 场景共用同一组输入负责。
+    /// <para>
+    /// 可达查询（<see cref="INavigation2D.TryFindNearestReachable"/>）的默认实现同样是近似：取前
+    /// <see cref="NearestWalkableSearch.ReachableProbeLimit"/> 个候选逐个 <c>FindPath</c> 试探。第二条用例锁住它的
+    /// 两面：返回点必可 <c>FindPath</c>；前 64 个候选都在不可达一侧时返回 false（精确实现能找到更远的可达点）。
+    /// </para>
     /// </summary>
     public sealed class NearestWalkableDefaultImplTests
     {
         private static readonly Id Map = new Id("map.adr0110_default_impl");
 
-        /// <summary>只实现接口必需成员、不覆盖 ADR-0110 两个默认成员的最小第三方实现。</summary>
+        /// <summary>只实现接口必需成员、不覆盖 ADR-0110 三个默认成员的最小第三方实现（<c>FindPath</c> 借用桩的
+        /// 直线判定，使"连通"有意义）。</summary>
         private sealed class RectOnlyNavigation : INavigation2D
         {
             private readonly List<Rect> _rects = new List<Rect>();
+            private readonly StubNavigation2D _pathing = new StubNavigation2D();
 
             public void BuildNavMesh(Id mapId) { }
 
@@ -38,7 +45,7 @@ namespace Tests.Foundation.EngineAdapter
                 return true;
             }
 
-            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) => null;
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) => _pathing.FindPath(mapId, from, to);
 
             public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => null;
 
@@ -46,9 +53,14 @@ namespace Tests.Foundation.EngineAdapter
             {
                 _rects.Clear();
                 _rects.AddRange(rects);
+                _pathing.SetBlocking(mapId, rects);
             }
 
-            public void Clear(Id mapId) => _rects.Clear();
+            public void Clear(Id mapId)
+            {
+                _rects.Clear();
+                _pathing.Clear(mapId);
+            }
         }
 
         [Fact]
@@ -87,6 +99,51 @@ namespace Tests.Foundation.EngineAdapter
             // 半径内没有可走点：false，walkable 为 default。
             Assert.False(defaultImpl.TryFindNearestWalkable(Map, click, 0.5, prefer, out var none));
             Assert.Equal(default(Vec2), none);
+        }
+
+        [Fact]
+        public void DefaultInterfaceImpl_TryFindNearestReachable_ReturnsPathableUnitSidePoint_ButGivesUpWhenFirst64CandidatesAreUnreachable()
+        {
+            // 小隔间（0.5x0.5，封死）紧贴点击点：默认实现按候选逐个试探，前几个在隔间里、FindPath 失败，最终取到单位一侧的点。
+            var pocket = new[]
+            {
+                new Rect(new Vec2(2, -1), new Vec2(2.75, 1)),
+                new Rect(new Vec2(3.25, -1), new Vec2(4, 1)),
+                new Rect(new Vec2(2.75, -1), new Vec2(3.25, -0.25)),
+                new Rect(new Vec2(2.75, 0.25), new Vec2(3.25, 1)),
+            };
+            INavigation2D defaultImpl = new RectOnlyNavigation();
+            defaultImpl.SetBlocking(Map, pocket);
+            var from = new Vec2(0.5, 0);
+            var click = new Vec2(2.7, 0);
+
+            Assert.True(defaultImpl.TryFindNearestReachable(Map, from, click, 8.0, out var reachable));
+            Assert.NotNull(defaultImpl.FindPath(Map, from, reachable));
+            Assert.True(reachable.X < 2, $"应取单位所在一侧的点，实际 {reachable}");
+
+            // 点击点落在一个大封闭房间正中：房间内可走候选远多于 64 个且全部不可达，默认实现找不到房间外的
+            // 可达点（近似的代价）；精确实现（桩）能在半径内找到房间外贴墙的可达点。
+            var room = new[]
+            {
+                new Rect(new Vec2(-2, -2), new Vec2(-1.5, 2)),
+                new Rect(new Vec2(1.5, -2), new Vec2(2, 2)),
+                new Rect(new Vec2(-1.5, -2), new Vec2(1.5, -1.5)),
+                new Rect(new Vec2(-1.5, 1.5), new Vec2(1.5, 2)),
+            };
+            defaultImpl.SetBlocking(Map, room);
+            INavigation2D stub = new StubNavigation2D();
+            stub.SetBlocking(Map, room);
+            var outside = new Vec2(-4, 0);
+            var center = new Vec2(0, 0);
+
+            Assert.True(defaultImpl.IsWalkable(Map, center));
+            Assert.Null(defaultImpl.FindPath(Map, outside, center));
+            Assert.False(defaultImpl.TryFindNearestReachable(Map, outside, center, 8.0, out var none));
+            Assert.Equal(default(Vec2), none);
+
+            Assert.True(stub.TryFindNearestReachable(Map, outside, center, 8.0, out var exact));
+            Assert.NotNull(stub.FindPath(Map, outside, exact));
+            Assert.True(exact.X < -2, $"精确实现应给出房间外贴墙的可达点，实际 {exact}");
         }
     }
 }

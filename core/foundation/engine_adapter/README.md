@@ -88,20 +88,24 @@ engine_adapter/
 | `Callback` | 具名 `delegate` | 每个回调按参数单独定义，不用裸 `Action`/`Func` |
 | 枚举 `a\|b\|c` | C# `enum`，值名 PascalCase | |
 
-## ADR-0110：`INavigation2D` 最近可走点（2026-09-29，消费方反馈第六十批）
+## ADR-0110：`INavigation2D` 最近可走点与可达最近点（2026-09-29，消费方反馈第六十批）
 
-`INavigation2D` 新增两个默认接口成员：`TryFindNearestWalkable`（最近可走点）与 `FindNearestWalkableCandidates`
-（同一排序规则的前 N 个候选）。排序（写死）：主键 = 到点击点距离按格宽量化，次键 = 到偏好点（典型传单位
-位置）距离，再按坐标字典序；点本身可走时原样返回；返回格心。取舍：
+`INavigation2D` 新增三个默认接口成员：`TryFindNearestWalkable`/`FindNearestWalkableCandidates`（纯几何：最近可走点及前 N 个
+候选）与 `TryFindNearestReachable(mapId, from, point, maxRadius, out reachable)`（与 `from` 连通的最近点，返回点必可
+`FindPath`）。排序（写死，三者共用）：主键 = 到点击点距离按格宽量化，次键 = 到偏好点距离（可达查询固定取 `from`），再按坐标
+字典序；点本身满足条件时原样返回；返回格心。取舍：
 
-- **格几何与排序只有一份**：`contracts/NearestWalkableSearch.cs` 内 `NavGridLayout`（网格布局公式：阻挡包围盒外扩
-  2.0、缺省格宽 0.25、单轴 ≤192 格自适应放大）与 `NearestWalkableSearch`（`CollectOnGrid` 按格精确、
-  `CollectSampled` 只靠 `IsWalkable` 的同心环采样）。`StubNavigation2D` 按同一布局虚拟出格子、
-  `UnityNavigation2D` 用自己的 A* 网格（其构建也改经 `NavGridLayout.Compute`，不再各抄一份公式），因此同一张
-  阻挡图上两个实现给出相同结果。
-- **默认接口实现是近似**（采样步长 0.25、每环 `max(8, ceil(2πr/0.25))` 个方向、至多 1024 环）：给不知道网格的
-  第三方实现者；环上两采样点之间的可走点可能漏掉。锁在 `tests/NearestWalkableDefaultImplTests.cs`。
-- **不夹取网格范围外的点**：导航对网格范围外的点判可走（只有登记的阻挡不可走），点本身可走即原样返回；
-  夹取会让开阔图上的远点击被截断。
-- 一致性场景 `Navigation2DScenarios` "TryFindNearestWalkable_同一阻挡图与输入_结果等于规则算出的期望"由测试桩
-  （核心侧 `ConformanceStubTests`）与 Unity 实现（引擎侧 `ConformanceUnityTests`）共用同一组输入与期望算法。
+- **格几何与排序只有一份，且公开**：`contracts/NearestWalkableSearch.cs` 内 `NavGridLayout`（网格布局公式：阻挡包围盒外扩
+  2.0、缺省格宽 0.25、单轴 ≤192 格自适应放大）与 `NearestWalkableSearch`（`CollectOnGrid` 按格精确、`CollectSampled` 只靠
+  `IsWalkable` 的同心环采样）。公开是因为接口注释要求网格实现覆盖候选枚举并调用 `CollectOnGrid`（第三方网格实现同样要用）；
+  对外契约成员见 ADR-0110 决策 4，比较器/候选结构/夹取/`ReachableProbeLimit` 是私有或内部细节。没收成内部类型加友元程序集：
+  核心程序集得逐个登记下游程序集名，第三方无从使用。`StubNavigation2D` 按同一布局虚拟格子、`UnityNavigation2D` 用自己的 A*
+  网格（构建也改经 `NavGridLayout.Compute`），同一张阻挡图上结果一致。`CollectOnGrid` 的"格子满足条件"谓词在 `maxCount=1`
+  时只在候选能刷新当前最优时才调用（谓词可以是一次寻路）。
+- **默认接口实现是近似**：候选枚举用环采样（步长 0.25、每环 `max(8, ceil(2πr/0.25))` 个方向、至多 1024 环），可达查询取前 64 个
+  候选逐个 `FindPath`；前 64 个都不可达就返回 false。给不知道网格/连通结构的第三方实现者。锁在
+  `tests/NearestWalkableDefaultImplTests.cs`（含"前 64 个候选都在隔间里"的耗尽用例，以及桩的精确结果对照）。
+- **不夹取网格范围外的点**：导航对网格范围外的点判可走（只有登记的阻挡矩形不可走），点本身满足条件即原样返回；夹取会让开阔图上
+  的远点击被截断。
+- 一致性场景 `Navigation2DScenarios` 的"最近可走点"与"可达最近点"两个场景由测试桩（核心侧 `ConformanceStubTests`）与 Unity
+  实现（引擎侧 `ConformanceUnityTests`）共用同一组输入与期望算法。
