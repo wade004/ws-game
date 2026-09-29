@@ -427,7 +427,9 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   约束，按"一张最终纹理"为工作单元续作，一个资源做完才写缓存/记已加载/回调；新增公开只读诊断
   `LastTickDecodeMilliseconds`/`PeakTickDecodeMilliseconds`/`MaxWorkUnitMilliseconds`/
   `LastTickWorkUnitCount`/`PendingMainThreadCompletionCount` 与 `ResetTickDiagnostics()`。**行为变更**：
-  同一帧发起的多个冷加载不再保证在下一帧全部完成。`MapLayers`、音频、数据表、字体、模型、动画剪辑不改。
+  同一帧发起的多个冷加载不再保证在下一帧全部完成。运行期解码的 Image/Effect 精灵一律用
+  `SpriteMeshType.FullRect`（`Sprite.Create` 默认的贴合轮廓网格在主线程描轮廓，真实帧图每个 2～18 ms；`rect`/`pivot`/
+  `bounds`/渲染像素实测不变，`textureRect` 与顶点数据变为整矩形）。`MapLayers`、音频、数据表、字体、模型、动画剪辑不改。
   已知限制逐条见 `UnityResourceLoader.MainThreadBudget.cs` 类型顶部注释与
   [ADR-0109](../../../../architecture/adr/0109-资源解码分帧与后台化.md)。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）

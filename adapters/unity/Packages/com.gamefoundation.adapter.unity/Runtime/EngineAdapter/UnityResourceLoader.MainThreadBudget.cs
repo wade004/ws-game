@@ -15,7 +15,10 @@
 //      的 RGBA 数据同时驻留）。
 //   ② 主线程：一个工作单元 = 一张最终纹理（开 mip 链的逐帧动画一帧一张；关 mip 链时整张图集一张；
 //      Image 一张）；用 Texture2D.SetPixelData 灌后台已切好的字节，mip 链仍由引擎
-//      Apply(updateMipmaps: true) 生成（不手写 mip 滤波，像素结果与 1.87.0 一致）。
+//      Apply(updateMipmaps: true) 生成（不手写 mip 滤波，像素结果与 1.87.0 一致）。建纹理不初始化像素
+//      内存（createUninitialized，SetPixelData 随即写满）；建精灵一律用整矩形网格
+//      （<see cref="CreateFullRectSprite"/>）——默认的"贴合轮廓"网格要在主线程描 alpha 轮廓，实测
+//      消费方真实帧图每个 2～18 ms，是单元耗时里最大的一项，整矩形约 0.02 ms（第五十八批续作）。
 //   ③ 一个资源的全部工作单元做完才写入 _effects/_sprites 缓存、才 _loaded.Add、才触发回调——
 //      任何读取口永远看不到半成品；未做完的资源留在队首（<see cref="_activeCompletion"/>）下个
 //      Tick 续作；回调只在主线程 Tick 内触发，完成顺序保持完成队列先进先出。
@@ -41,6 +44,10 @@
 //      在此处由引擎 GetPixels 抛异常，异常会逸出 Tick；本次不再逸出）。
 //   6) 后台线程读到的 TextureSampling 只有 mip 链开关；FilterMode/MapLayerAnisoLevel 等在建纹理
 //      时读取当时取值。
+//   7) 运行期解码出的 Image/Effect 精灵网格是整矩形（4 个顶点）而不是贴合轮廓：sprite.rect/pivot/
+//      pixelsPerUnit/bounds 与 SpriteRenderer.bounds 与旧网格逐项相等、渲染像素逐字节相同（实测），
+//      但 sprite.textureRect、顶点/三角形数据不同；透明区域也会被光栅化（GPU 填充率略增，不改变
+//      画面）。依赖精灵网格形状的消费方代码（自定义网格遮罩/阴影投射/物理形状）不会得到"贴合轮廓"。
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -588,9 +595,26 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>ADR-0109 决策 4：运行期解码出的图像 / 逐帧动画精灵一律用整矩形网格。<c>Sprite.Create</c>
+        /// 的默认网格类型是"贴合轮廓"，引擎要在主线程扫描 alpha 描出轮廓再三角化（实测消费方真实
+        /// 帧图 640x576 约 2～5 ms，832x1088 约 18 ms，是主线程单元里最大的一项）；整矩形网格只是四个顶点、
+        /// 约 0.02 ms。<c>extrude</c> 取该重载的原默认值 0，其余参数不变；<c>sprite.rect / pivot /
+        /// pixelsPerUnit / bounds</c> 与 <c>SpriteRenderer.bounds</c> 与贴合轮廓时逐项相等（实测），渲染像素
+        /// 逐字节相同；差别只在 <c>textureRect</c> 与顶点/三角形数据，见 ADR-0109 已知限制 8。
+        /// 回退路径（<c>TryDecodeImage / TryDecodeEffect</c>）同样经此方法建精灵。地图分层图不经此处。</summary>
+        internal static Sprite CreateFullRectSprite(Texture2D texture, UnityEngine.Rect rect, Vector2 pivot, float pixelsPerUnit)
+        {
+            return Sprite.Create(texture, rect, pivot, pixelsPerUnit, 0u, SpriteMeshType.FullRect);
+        }
+
         private static Texture2D BuildTexture(PreparedTexture unit, bool mipChain)
         {
-            var texture = new Texture2D(unit.Width, unit.Height, TextureFormat.RGBA32, mipChain);
+            // 构造时不初始化像素内存（createUninitialized）：紧接着的 SetPixelData 会写满 mip0 的全部字节，
+            // 多级渐远链由随后的 Apply(updateMipmaps) 从 mip0 重新生成，没有任何一个字节会被读到未初始化
+            // 内容；实测每个 640x576 帧的构造耗时约 0.96 ms -> 0.44 ms，mip0 与像素输出逐字节不变。
+            // mipCount: -1 = 引擎按尺寸算出完整链，与原来 mipChain=true 的链长一致；1 = 无渐远链。
+            var texture = new Texture2D(unit.Width, unit.Height, TextureFormat.RGBA32,
+                mipChain ? -1 : 1, linear: false, createUninitialized: true);
             try
             {
                 texture.SetPixelData(unit.Rgba!, 0);
@@ -640,7 +664,7 @@ namespace Adapter.Unity.EngineAdapter
                 texture = BuildTexture(prepared.Units[0], pending.MipChain);
                 ApplyTextureSampling(texture, pending.MipChain, $"图像资源 \"{pending.ResourceId.Value}\"");
 
-                var sprite = Sprite.Create(
+                var sprite = CreateFullRectSprite(
                     texture,
                     new UnityEngine.Rect(0, 0, texture.width, texture.height),
                     ResolveImagePivot(pending.ResourceId, texture.width, texture.height),
@@ -687,7 +711,7 @@ namespace Adapter.Unity.EngineAdapter
                     var w = (int)(frameData.Width ?? prepared.AtlasWidth);
                     var h = (int)(frameData.Height ?? prepared.AtlasHeight);
                     var pivot = ResolveEffectPivot(pending.ResourceId, pending.SpriteSetId, document, w, h);
-                    var sprite = Sprite.Create(
+                    var sprite = CreateFullRectSprite(
                         atlasTexture,
                         new UnityEngine.Rect((float)frameData.X, (float)frameData.Y, w, h),
                         pivot,
@@ -745,7 +769,7 @@ namespace Adapter.Unity.EngineAdapter
                     ApplyTextureSampling(frameTexture, mipChainRequested: true,
                         $"逐帧动画 \"{pending.ResourceId.Value}\" 第 {i} 帧");
 
-                    var sprite = Sprite.Create(
+                    var sprite = CreateFullRectSprite(
                         frameTexture, new UnityEngine.Rect(0, 0, unit.Width, unit.Height), pivot, job.PixelsPerUnit);
                     sprite.name = $"{pending.ResourceId.Value}_frame{i}";
                     job.Frames![i] = new EffectFrame(sprite, frameData.Duration);

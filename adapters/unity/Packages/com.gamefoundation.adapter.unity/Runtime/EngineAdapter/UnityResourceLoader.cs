@@ -1064,7 +1064,7 @@ namespace Adapter.Unity.EngineAdapter
 
             ApplyTextureSampling(texture, mipChain, $"图像资源 \"{resourceId.Value}\"");
 
-            var sprite = Sprite.Create(
+            var sprite = CreateFullRectSprite(
                 texture,
                 new UnityEngine.Rect(0, 0, texture.width, texture.height),
                 ResolveImagePivot(resourceId, texture.width, texture.height),
@@ -1524,13 +1524,13 @@ namespace Adapter.Unity.EngineAdapter
                     ApplyTextureSampling(frameTexture, mipChainRequested: true,
                         $"逐帧动画 \"{resourceId.Value}\" 第 {i} 帧");
 
-                    sprite = Sprite.Create(
+                    sprite = CreateFullRectSprite(
                         frameTexture, new UnityEngine.Rect(0, 0, w, h), pivot, pixelsPerUnit);
                     frameTextures!.Add(frameTexture);
                 }
                 else
                 {
-                    sprite = Sprite.Create(
+                    sprite = CreateFullRectSprite(
                         atlasTexture,
                         new UnityEngine.Rect((float)frameData.X, (float)frameData.Y, w, h),
                         pivot,

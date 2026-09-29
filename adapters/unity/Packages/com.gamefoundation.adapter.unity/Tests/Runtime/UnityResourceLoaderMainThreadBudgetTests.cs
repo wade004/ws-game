@@ -378,7 +378,10 @@ namespace Adapter.Unity.Tests.Runtime
         /// 同理；②16 位 PNG（托管解码器不支持的变体）走回退仍加载成功、写了 Warn、并被计入回退计数；
         /// ③MainThreadBudgetMilliseconds = 0 时一次 Tick 排空全部完成项，预算极小时每次 Tick 恰好
         /// 推进一个工作单元；④热路径：EffectReuseCache 复用不重新解码、返回同一个 EffectAsset，
-        /// TryGetEffect 命中读取不受影响。</summary>
+        /// TryGetEffect 命中读取不受影响；⑤精灵网格改为整矩形后（第五十八批续作）：同一资源的
+        /// sprite.rect/pivot/pixelsPerUnit/bounds/SpriteRenderer.bounds 与"贴合轮廓"参照精灵逐项相等、
+        /// 渲染到隔离层 RenderTexture 的像素逐字节相同，且 textureRect 为整矩形、顶点数为 4
+        /// （覆盖 Image、Effect 开 mip、Effect 关 mip 共用图集、回退路径四个分支）；mip1 与 1.87.0 做法逐字节相等。</summary>
         [UnityTest]
         public IEnumerator Invariants_ManagedDecodeMatchesLoadImage_FallbackWarns_ZeroBudgetDrains_HotPathReusesCache()
         {
@@ -429,6 +432,14 @@ namespace Adapter.Unity.Tests.Runtime
                     Assert.AreEqual(r.H, frameTexture.height);
                     Assert.Greater(frameTexture.mipmapCount, 1, "开 mip 链时每帧仍由引擎 Apply(updateMipmaps) 生成 mip 链");
                     AssertPixelsEqual(expected, frameTexture.GetPixels32(0), $"{kind} 逐帧动画第 {i} 帧 mip0");
+
+                    // 建纹理改为不初始化像素内存后，mip1 仍须与 1.87.0 的做法（new + SetPixels + Apply(mip)）逐字节相等。
+                    var referenceFrame = new Texture2D(r.W, r.H, TextureFormat.RGBA32, true);
+                    referenceFrame.SetPixels(reference.GetPixels(r.X, r.Y, r.W, r.H));
+                    referenceFrame.Apply(updateMipmaps: true, makeNoLongerReadable: false);
+                    Assert.AreEqual(referenceFrame.mipmapCount, frameTexture.mipmapCount, $"{kind} 第 {i} 帧 mip 链长度");
+                    AssertPixelsEqual(referenceFrame.GetPixels32(1), frameTexture.GetPixels32(1), $"{kind} 逐帧动画第 {i} 帧 mip1");
+                    Object.DestroyImmediate(referenceFrame);
                 }
 
                 Assert.IsTrue(loader.TryGetSprite(imageId, out var imageSprite));
@@ -460,7 +471,48 @@ namespace Adapter.Unity.Tests.Runtime
                 Assert.AreEqual(2, loader.MainThreadFallbackDecodeCount, "两次回退都应当计数");
                 Assert.IsTrue(loader.TryGetEffect(effectId, out var fallbackAsset));
                 Assert.AreEqual(rects.Count, fallbackAsset.Frames.Length);
-                Assert.IsTrue(loader.TryGetSprite(imageId, out _));
+                Assert.IsTrue(loader.TryGetSprite(imageId, out var fallbackSprite));
+                AssertFullRectMeshOnly(fallbackAsset.Frames[0].Sprite, "回退路径 Effect 帧");
+                AssertFullRectMeshOnly(fallbackSprite, "回退路径 Image");
+            }
+
+            // ---- ⑤ 精灵网格整矩形：与"贴合轮廓"参照逐项相等，渲染像素逐字节相同 ---------------------------
+            {
+                // 带透明边距的夹具（中间不透明圆盘，四周 alpha=0），保证"贴合轮廓"网格确实比整矩形小——否则本
+                // 检查对不上号。
+                var marginPng = MakeMarginPng(96, 80);
+                var marginRects = new List<(int X, int Y, int W, int H)> { (0, 0, 48, 40), (48, 40, 48, 40) };
+                WriteEffect(_tempRoot, "adr0109_margin", marginPng, FramesJson(marginRects));
+                WriteImage(_tempRoot, "adr0109_margin_img", marginPng);
+                WriteEffect(_tempRoot, "adr0109_margin_atlas", marginPng, FramesJson(marginRects));
+
+                var done = 0;
+                loader.LoadAsync(new Id("sprite_anim.adr0109_margin"), ResourceKind.Effect, (_, ok) => { Assert.IsTrue(ok); done++; });
+                loader.LoadAsync(new Id("sprite.adr0109_margin_img"), ResourceKind.Image, (_, ok) => { Assert.IsTrue(ok); done++; });
+                yield return WaitFor(() => done == 2, "⑤ 透明边距夹具（开 mip）加载", loader);
+
+                Assert.IsTrue(loader.TryGetEffect(new Id("sprite_anim.adr0109_margin"), out var marginAsset));
+                foreach (var frame in marginAsset.Frames)
+                {
+                    AssertSpriteMatchesTightReference(frame.Sprite, "Effect 开 mip 帧");
+                }
+
+                Assert.IsTrue(loader.TryGetSprite(new Id("sprite.adr0109_margin_img"), out var marginImage));
+                AssertSpriteMatchesTightReference(marginImage, "Image");
+
+                // 关 mip 链：全部帧共用同一张图集纹理，精灵矩形是图集内的子矩形。
+                loader.TextureSampling.MipChainForEffects = false;
+                var atlasDone = false;
+                loader.LoadAsync(new Id("sprite_anim.adr0109_margin_atlas"), ResourceKind.Effect, (_, ok) => { Assert.IsTrue(ok); atlasDone = true; });
+                loader.TextureSampling.MipChainForEffects = true; // 请求时已取快照，恢复不影响本次
+                yield return WaitFor(() => atlasDone, "⑤ 透明边距夹具（关 mip、共用图集）加载", loader);
+
+                Assert.IsTrue(loader.TryGetEffect(new Id("sprite_anim.adr0109_margin_atlas"), out var atlasAsset));
+                Assert.AreSame(atlasAsset.Frames[0].Sprite.texture, atlasAsset.Frames[1].Sprite.texture, "关 mip 链各帧应共用同一张图集");
+                foreach (var frame in atlasAsset.Frames)
+                {
+                    AssertSpriteMatchesTightReference(frame.Sprite, "Effect 关 mip 共用图集帧");
+                }
             }
 
             // ---- ③ 预算 0 一次排空；预算极小每次 Tick 恰好一个工作单元 ------------------------------
@@ -531,6 +583,131 @@ namespace Adapter.Unity.Tests.Runtime
                 Assert.AreSame(textureBefore, after.Frames[0].Sprite.texture, "复用缓存不得重新解码出新纹理");
                 Assert.AreEqual(decodedBefore, loader.ManagedDecodeCount + loader.MainThreadFallbackDecodeCount,
                     "复用缓存不经过任何解码路径");
+            }
+        }
+
+        /// <summary>中间一个不透明圆盘、其余全透明（alpha=0，RGB 非零）的 RGBA PNG。</summary>
+        private static byte[] MakeMarginPng(int width, int height)
+        {
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            var pixels = new Color32[width * height];
+            var cx = (width - 1) / 2f;
+            var cy = (height - 1) / 2f;
+            var radius = System.Math.Min(width, height) * 0.2f;
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var inside = (x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius;
+                    pixels[y * width + x] = inside
+                        ? new Color32((byte)(40 + x * 2), (byte)(200 - y), (byte)(90 + x + y), 255)
+                        : new Color32(200, 30, 60, 0);
+                }
+            }
+
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            var png = ImageConversion.EncodeToPNG(texture);
+            Object.DestroyImmediate(texture);
+            return png;
+        }
+
+        /// <summary>只核对"整矩形网格"这一点：textureRect 等于 rect、四个顶点。</summary>
+        private static void AssertFullRectMeshOnly(Sprite sprite, string what)
+        {
+            Assert.AreEqual(sprite.rect.x, sprite.textureRect.x, 1e-3f, what + "：textureRect.x 应等于 rect.x（整矩形）");
+            Assert.AreEqual(sprite.rect.y, sprite.textureRect.y, 1e-3f, what + "：textureRect.y");
+            Assert.AreEqual(sprite.rect.width, sprite.textureRect.width, 1e-3f, what + "：textureRect.width");
+            Assert.AreEqual(sprite.rect.height, sprite.textureRect.height, 1e-3f, what + "：textureRect.height");
+            Assert.AreEqual(4, sprite.vertices.Length, what + "：整矩形网格应恰有 4 个顶点");
+        }
+
+        /// <summary>用同一张纹理、同一 rect/pivot/pixelsPerUnit 建一个"贴合轮廓"（<c>Sprite.Create</c> 默认网格，
+        /// 即 1.87.0 的做法）参照精灵，逐项对拍，并把两者渲染到隔离层 RenderTexture 逐字节比像素。</summary>
+        private static void AssertSpriteMatchesTightReference(Sprite sprite, string what)
+        {
+            const int isolationLayer = 30;
+            var rect = sprite.rect;
+            var normalizedPivot = new Vector2(sprite.pivot.x / rect.width, sprite.pivot.y / rect.height);
+            var reference = Sprite.Create(sprite.texture, rect, normalizedPivot, sprite.pixelsPerUnit);
+            var cameraGo = new GameObject("adr0109_probe_camera");
+            var spriteGo = new GameObject("adr0109_probe_sprite") { layer = isolationLayer };
+            var referenceGo = new GameObject("adr0109_probe_reference") { layer = isolationLayer };
+            var renderTexture = new RenderTexture((int)rect.width, (int)rect.height, 0, RenderTextureFormat.ARGB32);
+            try
+            {
+                AssertFullRectMeshOnly(sprite, what);
+                Assert.Less(reference.textureRect.width * reference.textureRect.height, rect.width * rect.height,
+                    what + "：夹具应使贴合轮廓参照网格小于整矩形，否则本对拍没有意义");
+
+                Assert.AreEqual(reference.rect, sprite.rect, what + "：sprite.rect");
+                Assert.AreEqual(reference.pivot.x, sprite.pivot.x, 1e-3f, what + "：pivot.x");
+                Assert.AreEqual(reference.pivot.y, sprite.pivot.y, 1e-3f, what + "：pivot.y");
+                Assert.AreEqual(reference.pixelsPerUnit, sprite.pixelsPerUnit, 1e-6f, what + "：pixelsPerUnit");
+                Assert.AreEqual(reference.bounds.center.x, sprite.bounds.center.x, 1e-4f, what + "：bounds.center.x");
+                Assert.AreEqual(reference.bounds.center.y, sprite.bounds.center.y, 1e-4f, what + "：bounds.center.y");
+                Assert.AreEqual(reference.bounds.size.x, sprite.bounds.size.x, 1e-4f, what + "：bounds.size.x");
+                Assert.AreEqual(reference.bounds.size.y, sprite.bounds.size.y, 1e-4f, what + "：bounds.size.y");
+
+                var spriteRenderer = spriteGo.AddComponent<SpriteRenderer>();
+                spriteRenderer.sprite = sprite;
+                var referenceRenderer = referenceGo.AddComponent<SpriteRenderer>();
+                referenceRenderer.sprite = reference;
+                Assert.AreEqual(referenceRenderer.bounds.size.x, spriteRenderer.bounds.size.x, 1e-4f, what + "：SpriteRenderer.bounds.size.x");
+                Assert.AreEqual(referenceRenderer.bounds.size.y, spriteRenderer.bounds.size.y, 1e-4f, what + "：SpriteRenderer.bounds.size.y");
+                Assert.AreEqual(referenceRenderer.bounds.center.x, spriteRenderer.bounds.center.x, 1e-4f, what + "：SpriteRenderer.bounds.center.x");
+                Assert.AreEqual(referenceRenderer.bounds.center.y, spriteRenderer.bounds.center.y, 1e-4f, what + "：SpriteRenderer.bounds.center.y");
+
+                var camera = cameraGo.AddComponent<Camera>();
+                camera.orthographic = true;
+                camera.orthographicSize = rect.height / sprite.pixelsPerUnit / 2f;
+                camera.transform.position = new Vector3(
+                    (0.5f - normalizedPivot.x) * rect.width / sprite.pixelsPerUnit,
+                    (0.5f - normalizedPivot.y) * rect.height / sprite.pixelsPerUnit,
+                    -10f);
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
+                camera.cullingMask = 1 << isolationLayer;
+                camera.targetTexture = renderTexture;
+                camera.enabled = false;
+
+                Color32[] Render(GameObject show, GameObject hide)
+                {
+                    show.SetActive(true);
+                    hide.SetActive(false);
+                    camera.Render();
+                    var previous = RenderTexture.active;
+                    RenderTexture.active = renderTexture;
+                    var readback = new Texture2D(renderTexture.width, renderTexture.height, TextureFormat.RGBA32, false);
+                    readback.ReadPixels(new UnityEngine.Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+                    readback.Apply();
+                    RenderTexture.active = previous;
+                    var pixels = readback.GetPixels32();
+                    Object.DestroyImmediate(readback);
+                    return pixels;
+                }
+
+                var actual = Render(spriteGo, referenceGo);
+                var expected = Render(referenceGo, spriteGo);
+                var visible = 0;
+                foreach (var p in expected)
+                {
+                    if (p.a != 0)
+                    {
+                        visible++;
+                    }
+                }
+
+                Assert.Greater(visible, 0, what + "：参照精灵渲染结果不应为空，否则像素对拍没有意义");
+                AssertPixelsEqual(expected, actual, what + " 渲染像素");
+            }
+            finally
+            {
+                Object.DestroyImmediate(renderTexture);
+                Object.DestroyImmediate(cameraGo);
+                Object.DestroyImmediate(spriteGo);
+                Object.DestroyImmediate(referenceGo);
+                Object.DestroyImmediate(reference);
             }
         }
 
