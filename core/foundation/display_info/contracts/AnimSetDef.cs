@@ -76,10 +76,24 @@ namespace Core.Foundation.DisplayInfo
     /// </summary>
     public sealed class AnimSetDef
     {
+        /// <summary>
+        /// ADR-0111：战斗姿态变体剪辑键的前缀。处于战斗姿态时，动画状态 <c>&lt;key&gt;</c>（
+        /// <c>idle/move/attack/cast/hit/death/jump</c>）的默认剪辑先查 <see cref="Clips"/> 里的
+        /// <c>combat_&lt;key&gt;</c>（如 <c>combat_idle</c>），<b>没有该键就回落到 <c>&lt;key&gt;</c></b>；
+        /// 优先级：技能覆盖/武器风格覆盖剪辑 &gt; 战斗姿态变体键 &gt; 普通键。前缀字符串全仓库只在这里定义
+        /// 一处，需要它的地方一律经本常量或 <see cref="CombatClipKey"/> 取用。
+        /// </summary>
+        public const string CombatClipKeyPrefix = "combat_";
+
+        /// <summary>ADR-0111：<paramref name="baseClipKey"/>（如 <c>"idle"</c>）对应的战斗姿态变体剪辑键
+        /// （<c>"combat_idle"</c>），见 <see cref="CombatClipKeyPrefix"/>。</summary>
+        public static string CombatClipKey(string baseClipKey) => CombatClipKeyPrefix + baseClipKey;
+
         public Id Id { get; }
 
         /// <summary>剪辑名（如 <c>"idle"</c>/<c>"attack"</c>）到 <see cref="AnimClipDef"/> 的映射，
-        /// 键与 04 第 7.1.1 节剪辑名惯例一致，不要求点分 Id 格式。</summary>
+        /// 键与 04 第 7.1.1 节剪辑名惯例一致，不要求点分 Id 格式；除七个基础状态键外，还可声明战斗姿态
+        /// 变体键 <c>combat_&lt;基础键&gt;</c>（ADR-0111，见 <see cref="CombatClipKeyPrefix"/>）。</summary>
         public IReadOnlyDictionary<string, AnimClipDef> Clips { get; }
 
         public AnimSetDef(Id id, IReadOnlyDictionary<string, AnimClipDef> clips)

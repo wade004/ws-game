@@ -53,6 +53,14 @@ namespace Presentation.Render
     /// <item><b>death</b>：<c>unit.died</c>（<see cref="UnitDiedEvent"/>）触发，终态——本类型对已进入
     /// Death 的实体后续全部事件不再处理（见 <see cref="IsTerminal"/>），与 09 第 1 节"表现层是唯一
     /// 看得见的一层"无关，纯粹是"死亡后不应该再切回 idle/move"的显而易见约束。</item>
+    /// <item><b>战斗姿态（ADR-0111）</b>：<c>combat.entered</c>/<c>combat.left</c>（
+    /// <see cref="CombatEnteredEvent"/>/<see cref="CombatLeftEvent"/>，逐单位发布）驱动一个与
+    /// <see cref="AnimState"/> <b>正交</b>的布尔维度（<see cref="IsInCombatStance"/>/
+    /// <see cref="CombatStanceChanged"/>），<b>不新增 <see cref="AnimState"/> 成员</b>——新增成员会波及
+    /// 所有按 Idle/Move 判断运动态的代码与消费方的穷举分支，而正交维度对全部状态一视同仁，将来"战斗中
+    /// 移动/受击"用另一套剪辑不需要再改契约。本类型只维护这个布尔值，不切换状态、不选剪辑；姿态变化时
+    /// 瞬态状态不被打断，其回落（<see cref="RevertToLocomotion"/>）触发的 <see cref="StateChanged"/> 由
+    /// 订阅方按当时姿态解析剪辑；Death 终态不受影响。</item>
     /// <item><b>jump</b>：06 第 8 节事件词汇表当前没有 <c>unit.jumped</c>/<c>unit.landed</c> 一类事件
     /// （跳跃目前只体现为 05 第 3 节的逻辑高度值，读取该值需要按帧轮询 <c>ISimSnapshot.GetHeight</c>，
     /// 会让本模块反过来依赖 <c>presentation/view_binding</c>，与 <c>presentation/camera</c> 模块"同层
@@ -96,6 +104,7 @@ namespace Presentation.Render
         {
             public AnimState Current = AnimState.Idle;
             public AnimState Locomotion = AnimState.Idle;
+            public bool InCombat;
         }
 
         private readonly Dictionary<Id, Entry> _entities = new Dictionary<Id, Entry>();
@@ -146,9 +155,33 @@ namespace Presentation.Render
         /// </summary>
         public event Action<Id, AnimState, Id?>? StateRetriggered;
 
-        public AnimStateMachine(IEventBus bus)
+        /// <summary>
+        /// ADR-0111：战斗姿态（"是否处于战斗姿态"，与 <see cref="AnimState"/> 正交的一个布尔维度，
+        /// 见 <see cref="IsInCombatStance"/>）发生变化时触发（entityId, inCombat）；姿态没变时不触发。
+        /// 状态机本身不切换 <see cref="AnimState"/>、不选剪辑——姿态变化后该不该换剪辑、换哪个，由
+        /// 订阅方（<c>AnimClipResolver</c> 一类）按"当前状态 + 新姿态"重新解析决定。
+        /// </summary>
+        public event Action<Id, bool>? CombatStanceChanged;
+
+        private readonly Func<Id, bool>? _combatProbe;
+
+        public AnimStateMachine(IEventBus bus) : this(bus, null)
+        {
+        }
+
+        /// <summary>
+        /// ADR-0111：带"战斗中探针"的构造重载。<paramref name="combatProbe"/> 是只读查询（"该单位此刻是否
+        /// 在战斗中"，生产装配接到规则层的 <c>ICombatHost.IsInCombat</c>），只在<b>首次跟踪某实体</b>时
+        /// 调用一次，确定该实体的初始战斗姿态——视图晚于 <c>combat.entered</c> 创建（读档、重生、单位
+        /// 进入视野时已在战中）时事件已经错过，没有探针初始姿态会恒为"非战斗"。探针只读，不给表现层任何
+        /// 逻辑层写入能力（09 第 1 节铁律不变）；<c>null</c> 时初始姿态一律为非战斗（即
+        /// <see cref="AnimStateMachine(IEventBus)"/> 的既有行为）。探针抛出的异常不吞，原样传播（运行时
+        /// 路径不静默降级）。
+        /// </summary>
+        public AnimStateMachine(IEventBus bus, Func<Id, bool>? combatProbe)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
+            _combatProbe = combatProbe;
 
             _subscriptions.Add(bus.Subscribe<UnitStateChangedEvent>(CarriersEventKeys.UnitStateChanged, OnUnitStateChanged));
             _subscriptions.Add(bus.Subscribe<SkillCastStartEvent>(RulesEventKeys.SkillCastStart, OnSkillCastStart));
@@ -158,6 +191,11 @@ namespace Presentation.Render
             _subscriptions.Add(bus.Subscribe<SkillCastInterruptedEvent>(RulesEventKeys.SkillCastInterrupted, evt => OnSkillCastEnd(evt.CasterId)));
             _subscriptions.Add(bus.Subscribe<CombatDamageDealtEvent>(RulesEventKeys.CombatDamageDealt, OnCombatDamageDealt));
             _subscriptions.Add(bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, evt => TryEnter(evt.UnitId, AnimState.Death)));
+            // ADR-0111：combat.entered/combat.left 逐单位携带 unitId（CombatHost 对每个单位各发一次，
+            // 见 CombatEnteredEvent/CombatLeftEvent），读档不补发（CombatHost.RestoreCombatState 注释）
+            // ——读档/重生后的初始姿态靠构造重载的探针，不靠事件。
+            _subscriptions.Add(bus.Subscribe<CombatEnteredEvent>(RulesEventKeys.CombatEntered, evt => SetCombatStance(evt.UnitId, true)));
+            _subscriptions.Add(bus.Subscribe<CombatLeftEvent>(RulesEventKeys.CombatLeft, evt => SetCombatStance(evt.UnitId, false)));
         }
 
         /// <summary>当前状态；未跟踪过的实体默认 <see cref="AnimState.Idle"/>（还没收到任何该实体的
@@ -168,6 +206,22 @@ namespace Presentation.Render
         /// <summary>是否已进入终态（见类型注释"death 终态"）。</summary>
         public bool IsTerminal(Id entityId) =>
             _entities.TryGetValue(entityId, out var entry) && entry.Current == AnimState.Death;
+
+        /// <summary>
+        /// ADR-0111：该实体当前是否处于战斗姿态。只由 <c>combat.entered</c>/<c>combat.left</c> 事件驱动
+        /// （首次跟踪时的初始值来自构造重载的探针）；<b>未跟踪过的实体恒为 false</b>（本查询不触发探针、
+        /// 不创建跟踪记录）——调用方若需要"视图刚创建时已在战中"的初始姿态，先调用 <see cref="Track"/>。
+        /// 姿态与 <see cref="AnimState"/> 正交：任何状态（含 <see cref="AnimState.Death"/>）下都可读。
+        /// </summary>
+        public bool IsInCombatStance(Id entityId) =>
+            _entities.TryGetValue(entityId, out var entry) && entry.InCombat;
+
+        /// <summary>
+        /// ADR-0111：显式开始跟踪该实体——首次跟踪时用构造重载的探针确定初始战斗姿态（不触发任何事件，
+        /// 这是"初始值"不是"变化"）；已在跟踪则什么都不做。供视图挂接方在视图创建那一刻调用，使此后
+        /// 的姿态变化都以"视图已知的姿态"为基线做增量。
+        /// </summary>
+        public void Track(Id entityId) => GetOrCreate(entityId);
 
         /// <summary>
         /// 手工触发一次"开始"类切换，走与事件触发同一套优先级判定（见类型注释 jump 判断记录）。不
@@ -214,7 +268,8 @@ namespace Presentation.Render
         }
 
         /// <summary>释放对该实体的跟踪（例如 View 销毁/实体离开场景时由调用方清理，避免字典无限增长）。
-        /// 不触发 <see cref="StateChanged"/>——纯粹的簿记清理，不是一次状态切换。</summary>
+        /// 同时清除战斗姿态（ADR-0111）。不触发 <see cref="StateChanged"/>/<see cref="CombatStanceChanged"/>
+        /// ——纯粹的簿记清理，不是一次状态切换。</summary>
         public void Forget(Id entityId) => _entities.Remove(entityId);
 
         public void Dispose()
@@ -337,11 +392,47 @@ namespace Presentation.Render
             StateChangedWithSkill?.Invoke(entityId, previous, next, triggerSkillId);
         }
 
-        private Entry GetOrCreate(Id entityId)
+        /// <summary>
+        /// ADR-0111：战斗姿态变化。姿态与 <see cref="AnimState"/> 正交，本方法不改 <see cref="Entry.Current"/>
+        /// ——瞬态状态（Attack/Cast/Hit/Jump）不被打断，其回落时 <see cref="RevertToLocomotion"/> 触发的
+        /// <see cref="StateChanged"/> 由订阅方按<b>当时</b>的姿态解析剪辑；Death 终态不受影响（姿态仍被记录，
+        /// 只是没有订阅方需要据此切运动态剪辑）。姿态没变不触发事件。
+        /// <para>
+        /// 判断记录（事件首次跟踪的实体不调用探针）：<c>combat.entered</c> 是 false→true 的迁移、
+        /// <c>combat.left</c> 是 true→false 的迁移（CombatHost 只在真实迁移时发布），因此由这两个事件
+        /// 首次创建跟踪记录时，迁移前的姿态是确定的（取事件值的反面），不需要也不应该问探针——探针读的是
+        /// 规则层"此刻"的值，而事件是入队后才派发的，探针此刻可能已经等于事件值，用它当基线会把这次迁移
+        /// 误判为"没变"而吞掉事件。
+        /// </para>
+        /// </summary>
+        private void SetCombatStance(Id entityId, bool inCombat)
+        {
+            var entry = GetOrCreate(entityId, priorCombatStance: !inCombat);
+            if (entry.InCombat == inCombat)
+            {
+                return;
+            }
+
+            entry.InCombat = inCombat;
+            CombatStanceChanged?.Invoke(entityId, inCombat);
+        }
+
+        private Entry GetOrCreate(Id entityId, bool? priorCombatStance = null)
         {
             if (!_entities.TryGetValue(entityId, out var entry))
             {
                 entry = new Entry();
+                // ADR-0111：首次跟踪某实体时确定初始战斗姿态——调用方已知迁移前姿态（战斗事件首次创建
+                // 记录，见 SetCombatStance 判断记录）就直接用，否则调用一次探针（只在创建时调用一次，
+                // 此后姿态由事件驱动）。
+                if (priorCombatStance.HasValue)
+                {
+                    entry.InCombat = priorCombatStance.Value;
+                }
+                else if (_combatProbe != null)
+                {
+                    entry.InCombat = _combatProbe(entityId);
+                }
                 _entities[entityId] = entry;
             }
             return entry;

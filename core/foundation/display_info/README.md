@@ -121,6 +121,8 @@ display_info/
    若后续要收紧为"互斥留空"，需先在 04/`schema/README.md` 补明确措辞，再扩展本规则或另开
    检查项，不在本次改动范围内。
 
+7. **ADR-0111（消费方反馈第六十一批）：`display.anim_set.clips` 的战斗姿态变体键 `combat_<状态键>` 不新增 schema 字段、不设键白名单**：`clips` 在 schema 里登记为自由键表（`FreeKeyed`），一直没有键白名单，未知键当前的处理是"原样进入 `AnimSetDef.Clips`、不报错"，声明了 `combat_*` 键即生效。`AnimSetDef` 新增常量 `CombatClipKeyPrefix`（`"combat_"`）与静态方法 `CombatClipKey(baseKey)`，前缀全仓库只在这一处定义。`AnimSetEventsShapeRule` 对变体键与基础键一视同仁地检查 `events` 形状。不加白名单的理由：白名单会让任何游戏自己扩展的状态键（如 `jump`）都被拒绝，且变体键拼错（如 `combat_idel`）在运行期表现为"没有变体、回落基础键"，属于美术资源缺失同一口径，交给资源校验而不是 schema。契约面纯加法。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |

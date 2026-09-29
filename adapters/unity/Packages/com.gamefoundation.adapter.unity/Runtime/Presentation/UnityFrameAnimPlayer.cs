@@ -43,6 +43,11 @@ namespace Adapter.Unity.Presentation
         private readonly Dictionary<Id, FrameAnimClip> _clipMetaById = new Dictionary<Id, FrameAnimClip>();
         private readonly Dictionary<Id, Sprite[]> _framesByClipId = new Dictionary<Id, Sprite[]>();
 
+        // ADR-0111：登记内容是"单帧占位"（RegisterSingleFrameClip，资源尚未加载/根本没有美术）的剪辑 id
+        // 集合——真实内容（RegisterClipFromEffect）到达时移出。供 HasRealContent 回答"这条剪辑的真实
+        // 美术是否已经到位"。
+        private readonly HashSet<Id> _placeholderClipIds = new HashSet<Id>();
+
         private FrameAnimPlayer? _inner;
         private SpriteRenderer? _renderer;
 
@@ -99,13 +104,18 @@ namespace Adapter.Unity.Presentation
 
             _clipMetaById[clipId] = new FrameAnimClip(clipId, frames.Length, frameRate, keyframes);
             _framesByClipId[clipId] = frames;
+            _placeholderClipIds.Remove(clipId);
         }
 
         /// <summary>把一张已加载的单帧静态图登记成一个"1 帧剪辑"（见类型顶部判断记录②）：
         /// <see cref="Play"/> 时立即切到该帧并停留，<paramref name="loop"/>/<paramref name="speed"/>
         /// 参数在只有一帧的情况下不产生可观察效果，但仍然会在正确的时机触发
         /// <see cref="OnComplete"/>（<c>loop=false</c> 时）——不是"什么都不做的哑实现"。</summary>
-        public void RegisterSingleFrameClip(Id clipId, Sprite frame) => RegisterClip(clipId, new[] { frame }, frameRate: 1.0);
+        public void RegisterSingleFrameClip(Id clipId, Sprite frame)
+        {
+            RegisterClip(clipId, new[] { frame }, frameRate: 1.0);
+            _placeholderClipIds.Add(clipId);
+        }
 
         /// <summary>从一个已经经 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.TryGetEffect"/>
         /// 加载成功的序列帧特效资产登记一个剪辑（见类型顶部判断记录①，复用 vfx atlas+frames.json
@@ -130,9 +140,20 @@ namespace Adapter.Unity.Presentation
             }
 
             RegisterClip(clipId, frames, frameRate, keyframes);
+            ClipContentRegistered?.Invoke(clipId);
         }
 
+        /// <summary>ADR-0111：经 <see cref="RegisterClipFromEffect"/> 登记了真实序列帧内容（不是
+        /// <see cref="RegisterSingleFrameClip"/> 的单帧占位）之后触发，参数是被登记（或被原地覆盖）的
+        /// clipId。供 <c>UnityViewFactory</c> 在战斗姿态变体剪辑的冷加载内容到位时补切（见
+        /// <c>AnimClipResolver.Refresh</c>）。</summary>
+        public event Action<Id>? ClipContentRegistered;
+
         public bool HasClip(Id clipId) => _clipMetaById.ContainsKey(clipId);
+
+        /// <summary>ADR-0111：<paramref name="clipId"/> 已登记且内容是真实序列帧（不是单帧占位，见
+        /// <see cref="RegisterSingleFrameClip"/>）。</summary>
+        public bool HasRealContent(Id clipId) => _clipMetaById.ContainsKey(clipId) && !_placeholderClipIds.Contains(clipId);
 
         public Id? CurrentClipId => _inner?.CurrentClipId;
 

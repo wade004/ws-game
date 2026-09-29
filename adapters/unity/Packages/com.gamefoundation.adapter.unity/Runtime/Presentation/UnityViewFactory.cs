@@ -67,6 +67,49 @@ namespace Adapter.Unity.Presentation
         /// <see cref="AnimClipResolver"/> 对任意一次状态切换都能查到表项，不遗漏。</summary>
         private static readonly string[] DefaultAnimStateKeys = { "idle", "move", "attack", "cast", "hit", "death" };
 
+        /// <summary>ADR-0111：某外形实际需要登记/探测/重探测的默认剪辑键——基础键（
+        /// <see cref="DefaultAnimStateKeys"/>）+ 该外形 <c>display.anim_set.clips</c> 里<b>实际声明了</b>的战斗
+        /// 姿态变体键（<c>combat_&lt;七个基础状态键之一&gt;</c>，见 <see cref="Core.Foundation.DisplayInfo.AnimSetDef.CombatClipKeyPrefix"/>）。
+        /// 只登记声明了的变体键——没声明的不登记，也就不会产生"没有可用剪辑、退化为单帧"的诊断，
+        /// <see cref="AnimClipResolver"/> 查表查不到变体键时自然回落普通键。所有按默认键遍历的接线点（默认
+        /// 剪辑登记、逐层探测、换向重探测、换装/合成层变化重探测、逐层缓存重登记）一律经本方法取键表，
+        /// 键表定义只有这一处；没有变体键的外形返回的恰好就是 <see cref="DefaultAnimStateKeys"/>，与改动前
+        /// 逐项一致。<paramref name="animSet"/> 为 null（该外形没有 anim_set 行）同样只返回基础键。</summary>
+        private static IReadOnlyList<string> AnimStateKeysFor(Core.Foundation.DisplayInfo.AnimSetDef? animSet)
+        {
+            if (animSet == null)
+            {
+                return DefaultAnimStateKeys;
+            }
+
+            List<string>? keys = null;
+            var states = (AnimState[])Enum.GetValues(typeof(AnimState));
+            for (var i = 0; i < states.Length; i++)
+            {
+                var variantKey = AnimClipResolver.CombatStateKey(states[i]);
+                if (animSet.Clips.ContainsKey(variantKey))
+                {
+                    keys ??= new List<string>(DefaultAnimStateKeys);
+                    keys.Add(variantKey);
+                }
+            }
+            return keys ?? (IReadOnlyList<string>)DefaultAnimStateKeys;
+        }
+
+        /// <summary>ADR-0111：战斗中探针（"该单位此刻是否在战斗中"，只读查询），生产装配入口接
+        /// <c>ICombatHost.IsInCombat</c>（见 <c>GameFoundationBootstrap</c>/<c>FrameworkResidentHost</c>/
+        /// <c>games/_template GameBootstrap</c>）。全局单例 <see cref="AnimStateMachine"/> 懒构造时把它
+        /// 以闭包形式传入（每次调用读取当前字段值），因此在第一个视图挂接之前或之后赋值都生效；为 null
+        /// 时初始战斗姿态恒为非战斗（读档/重生/进入视野时已在战中的单位要靠它才有正确初始姿态，见
+        /// <see cref="AnimStateMachine.Track"/>）。</summary>
+        public Func<Id, bool>? CombatProbe { get; set; }
+
+        /// <summary>ADR-0111：默认剪辑（六个基础状态 + 声明了的战斗姿态变体）的逐层探测在途计数——
+        /// (实体, 状态 clipId) -> 尚未结束的 <see cref="ProbeComposedLayersSequential"/> 数量。变体剪辑要等
+        /// 内容到位且没有探测在途才算就绪（<see cref="IsStateClipReady"/>），避免冷加载时身体层已就位、
+        /// 装备层还没探测完就切过去（半切状态）。探测链每个分支（命中/耗尽）最终都会走到末尾，计数必然归零。</summary>
+        private readonly Dictionary<(Id Entity, Id Clip), int> _stateProbesInFlight = new Dictionary<(Id, Id), int>();
+
         private readonly IRenderer2D _renderer2D;
         private readonly IRenderConventionHost _conventions;
         private readonly IDisplayInfoRegistry _displayInfo;
@@ -443,6 +486,8 @@ namespace Adapter.Unity.Presentation
         private void OnEntityDestroyedForAnim(EntityDestroyedEvent evt)
         {
             _animStateMachine?.Forget(evt.EntityId);
+            _animClipResolver?.Forget(evt.EntityId);
+            ForgetStateProbes(evt.EntityId);
             _animPlayersByEntity.Remove(evt.EntityId);
             _animClipsByEntity.Remove(evt.EntityId);
             _modelViewsByEntity.Remove(evt.EntityId);
@@ -477,6 +522,15 @@ namespace Adapter.Unity.Presentation
         private void OnUnitRespawnedForAnim(UnitRespawnedEvent evt)
         {
             _animStateMachine?.Forget(evt.UnitId);
+            _animClipResolver?.Forget(evt.UnitId);
+
+            // ADR-0111：Forget 同时清掉了战斗姿态——视图原地复用，重新登记跟踪并按探针确定复活那一刻的
+            // 初始姿态（复活时已在战中的单位不会再收到 combat.entered），姿态对应的变体剪辑就绪才补切。
+            if (_animStateMachine != null && _animClipResolver != null && _animClipsByEntity.ContainsKey(evt.UnitId))
+            {
+                _animStateMachine.Track(evt.UnitId);
+                _animClipResolver.Refresh(evt.UnitId);
+            }
         }
 
         /// <summary>本工厂迄今创建过的全部 View，只读快照（诊断/测试用）。</summary>
@@ -731,6 +785,90 @@ namespace Adapter.Unity.Presentation
             {
                 stateMachine.NotifyTransientStateFinished(entityId, stateMachine.GetState(entityId));
             });
+
+            // ADR-0111：战斗姿态变体剪辑的内容（冷加载）到位时补切——与热路径同一出口
+            // （AnimClipResolver.Refresh）。挂接期间同步发生的登记不在此订阅范围内，由下面紧随其后的
+            // 显式 Refresh 统一处理。
+            player.ClipContentRegistered += _ => _animClipResolver?.Refresh(entityId);
+
+            // ADR-0111：视图创建这一刻起开始跟踪该实体（首次跟踪用探针确定初始战斗姿态，读档/重生/进入
+            // 视野时已在战中的单位不会再收到 combat.entered），并按初始姿态做一次解析——姿态是战斗且该状态
+            // 有就绪的变体剪辑才会真的播放；没有变体键的外形（解析结果与普通键相同）什么都不做。
+            stateMachine.Track(entityId);
+            _animClipResolver!.Refresh(entityId);
+        }
+
+        /// <summary>ADR-0111：<see cref="_stateProbesInFlight"/> 计数 +1（一条默认剪辑逐层探测链开始）。</summary>
+        private void BeginStateProbe(Id entityId, Id stateClipId)
+        {
+            var key = (entityId, stateClipId);
+            _stateProbesInFlight[key] = _stateProbesInFlight.TryGetValue(key, out var count) ? count + 1 : 1;
+        }
+
+        /// <summary>ADR-0111：一条默认剪辑逐层探测链结束（每层都已命中或耗尽）：计数 -1，归零后该剪辑的
+        /// 内容才可能"就绪"，触发一次 <see cref="AnimClipResolver.Refresh"/> 补切（冷加载路径；热路径
+        /// 上探测同步结束，此时视图尚在挂接中，见 <see cref="_directionAwareAnimByEntity"/> 判断，补切由
+        /// 挂接末尾的显式 Refresh 完成）。实体已被清理（<see cref="ForgetStateProbes"/>）时静默跳过。</summary>
+        private void EndStateProbe(Id entityId, Id stateClipId)
+        {
+            var key = (entityId, stateClipId);
+            if (!_stateProbesInFlight.TryGetValue(key, out var count))
+            {
+                return;
+            }
+
+            if (count <= 1)
+            {
+                _stateProbesInFlight.Remove(key);
+            }
+            else
+            {
+                _stateProbesInFlight[key] = count - 1;
+            }
+
+            if (count <= 1 && _directionAwareAnimByEntity.ContainsKey(entityId))
+            {
+                _animClipResolver?.Refresh(entityId);
+            }
+        }
+
+        private void ForgetStateProbes(Id entityId)
+        {
+            List<(Id Entity, Id Clip)>? stale = null;
+            foreach (var key in _stateProbesInFlight.Keys)
+            {
+                if (key.Entity.Equals(entityId))
+                {
+                    (stale ??= new List<(Id, Id)>()).Add(key);
+                }
+            }
+            if (stale != null)
+            {
+                for (var i = 0; i < stale.Count; i++)
+                {
+                    _stateProbesInFlight.Remove(stale[i]);
+                }
+            }
+        }
+
+        /// <summary>ADR-0111：<see cref="AnimClipResolver"/> 的"剪辑就绪探针"——战斗姿态变体剪辑的内容此刻
+        /// 是否可以真正播放。sprite 型：播放器上该剪辑已登记<b>真实序列帧内容</b>（不是单帧占位）且没有逐层
+        /// 探测在途（身体层与装备层都探测完，避免半切）；内容永远不会到位（该变体没有对应美术）则一直不
+        /// 就绪，维持当前显示。model 型（没有 <see cref="UnityFrameAnimPlayer"/>，剪辑按名字交给 Animator
+        /// 现查现用）没有异步内容登记这一步，恒视为就绪。</summary>
+        private bool IsStateClipReady(Id entityId, Id clipId)
+        {
+            if (!_animPlayersByEntity.TryGetValue(entityId, out var player))
+            {
+                return true;
+            }
+
+            if (player == null || !player.HasRealContent(clipId))
+            {
+                return false;
+            }
+
+            return !_stateProbesInFlight.ContainsKey((entityId, clipId));
         }
 
         /// <summary>
@@ -807,9 +945,10 @@ namespace Adapter.Unity.Presentation
             var initialComposedLayers = BuildInitialComposedLayers(info.Sprite.PaperdollLayers);
             _composedLayerIdentityByEntity[entityId] = ComposedLayerIdentity(initialComposedLayers);
 
-            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            var stateKeys = AnimStateKeysFor(animSet);
+            for (var i = 0; i < stateKeys.Count; i++)
             {
-                var stateKey = DefaultAnimStateKeys[i];
+                var stateKey = stateKeys[i];
                 if (!animSet.Clips.TryGetValue(stateKey, out var clipDef) || !stateClipIds.TryGetValue(stateKey, out var stateClipId))
                 {
                     continue;
@@ -819,9 +958,11 @@ namespace Adapter.Unity.Presentation
                 var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                 perLayerByState[stateClipId] = layerMap;
 
+                BeginStateProbe(entityId, stateClipId);
                 ProbeComposedLayersSequential(
                     unityLoader, player, initialComposedLayers, layerIndex: 0, strippedRef, dirBareName,
-                    stateClipId, clipDef.Events, layerMap, spriteSetId);
+                    stateClipId, clipDef.Events, layerMap, spriteSetId,
+                    onFinished: () => EndStateProbe(entityId, stateClipId));
             }
 
             // 消费方反馈第五十批根治：本实体当前被逐层帧覆盖过的层名集合——ApplyPerLayerFrame 用它
@@ -1036,10 +1177,13 @@ namespace Adapter.Unity.Presentation
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, UnityFrameAnimPlayer player,
             IReadOnlyList<SpriteComposedLayer> composedLayers, int layerIndex, string bodyOrClipStrippedRef, string dirBareName,
             Id stateClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events,
-            Dictionary<string, PerLayerCacheEntry> layerMap, Id spriteSetId)
+            Dictionary<string, PerLayerCacheEntry> layerMap, Id spriteSetId, Action? onFinished = null)
         {
             if (layerIndex >= composedLayers.Count)
             {
+                // ADR-0111：整条探测链走完（每一层都已命中或耗尽）——通知调用方（战斗姿态变体剪辑的就绪
+                // 判定据此结束"探测在途"，见 _stateProbesInFlight）。
+                onFinished?.Invoke();
                 return;
             }
 
@@ -1062,11 +1206,11 @@ namespace Adapter.Unity.Presentation
                         player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(events, effect.Frames.Length));
                     }
 
-                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
+                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId, onFinished);
                 },
                 onExhausted: () =>
                 {
-                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId);
+                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId, onFinished);
                 });
         }
 
@@ -1205,9 +1349,10 @@ namespace Adapter.Unity.Presentation
             // 决策 5：整身默认剪辑——只对"逐层没有任何命中"的状态生效；逐层命中的状态，上面
             // GetOrProbePerLayerForDirection 内部复用的 ProbeComposedLayersSequential"首个命中层同时登记为
             // 状态自身 clipId"已经顺带把 stateClipId 的内容换成新方向，不需要重复处理。
-            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+            for (var i = 0; i < stateKeys.Count; i++)
             {
-                var stateKey = DefaultAnimStateKeys[i];
+                var stateKey = stateKeys[i];
                 if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
                 {
                     continue;
@@ -1275,9 +1420,10 @@ namespace Adapter.Unity.Presentation
 
             var composedLayers = CurrentComposedLayersOrInitial(ctx);
 
-            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+            for (var i = 0; i < stateKeys.Count; i++)
             {
-                var stateKey = DefaultAnimStateKeys[i];
+                var stateKey = stateKeys[i];
                 if (!ctx.AnimSet!.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
                 {
                     continue;
@@ -1287,9 +1433,11 @@ namespace Adapter.Unity.Presentation
                 var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                 perLayerByState[stateClipId] = layerMap;
 
+                BeginStateProbe(entityId, stateClipId);
                 ProbeComposedLayersSequential(
                     unityLoader, ctx.Player, composedLayers, layerIndex: 0, strippedRef, dirBareName,
-                    stateClipId, clipDef.Events, layerMap, spriteSetId);
+                    stateClipId, clipDef.Events, layerMap, spriteSetId,
+                    onFinished: () => EndStateProbe(entityId, stateClipId));
             }
 
             return perLayerByState;
@@ -1307,9 +1455,10 @@ namespace Adapter.Unity.Presentation
         private static void ReregisterPerLayerCacheHit(
             DirectionAwareAnimContext ctx, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> cached)
         {
-            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+            for (var i = 0; i < stateKeys.Count; i++)
             {
-                var stateKey = DefaultAnimStateKeys[i];
+                var stateKey = stateKeys[i];
                 if (!ctx.AnimSet!.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
                 {
                     continue;
@@ -1394,9 +1543,10 @@ namespace Adapter.Unity.Presentation
 
             if (ctx.AnimSet != null)
             {
-                for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+                var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+                for (var i = 0; i < stateKeys.Count; i++)
                 {
-                    var stateKey = DefaultAnimStateKeys[i];
+                    var stateKey = stateKeys[i];
                     if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
                     {
                         continue;
@@ -1404,7 +1554,9 @@ namespace Adapter.Unity.Presentation
 
                     var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
                     var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
-                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedRef, dirBareName, stateClipId, clipDef.Events, layerMap, spriteSetId);
+                    BeginStateProbe(entityId, stateClipId);
+                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedRef, dirBareName, stateClipId, clipDef.Events, layerMap, spriteSetId,
+                        onFinished: () => EndStateProbe(entityId, stateClipId));
                     ctx.ActivePerLayerByState[stateClipId] = layerMap;
                 }
             }
@@ -1545,9 +1697,10 @@ namespace Adapter.Unity.Presentation
             // 不带提示的旧路径）。
             var spriteSetId = info.Sprite != null ? (Id?)Id.Parse(info.Sprite.SpriteSetId) : null;
 
-            for (var i = 0; i < DefaultAnimStateKeys.Length; i++)
+            var stateKeys = AnimStateKeysFor(animSet);
+            for (var i = 0; i < stateKeys.Count; i++)
             {
-                var stateKey = DefaultAnimStateKeys[i];
+                var stateKey = stateKeys[i];
                 var clipId = new Id($"anim.default.{info.Id.Value}.{stateKey}");
                 Core.Foundation.DisplayInfo.AnimClipDef? clipDef = null;
                 var hasDeclaredResource = animSet != null && animSet.Clips.TryGetValue(stateKey, out clipDef);
@@ -2072,7 +2225,8 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            _animStateMachine = new AnimStateMachine(_bus!);
+            // ADR-0111：探针以闭包传入、每次调用读取 CombatProbe 当前值（未赋值时恒为非战斗）。
+            _animStateMachine = new AnimStateMachine(_bus!, entityId => CombatProbe?.Invoke(entityId) ?? false);
             _animClipResolver = new AnimClipResolver(
                 _animStateMachine,
                 defaultClipsForEntity: entityId => _animClipsByEntity.TryGetValue(entityId, out var clips) ? clips : null,
@@ -2099,7 +2253,8 @@ namespace Adapter.Unity.Presentation
                     }
                 },
                 weaponStyleSource: _weaponStyleSource,
-                weaponStyles: ResolveWeaponStyleCatalog());
+                weaponStyles: ResolveWeaponStyleCatalog(),
+                isClipReady: IsStateClipReady);
         }
 
         /// <summary>W6-B 新增：懒解析一次 <c>display.weapon_style</c> 全表（见 <see cref="AnimClipResolver"/>
@@ -2210,6 +2365,15 @@ namespace Adapter.Unity.Presentation
             // 避免下一局游戏（同一 UnityViewFactory 实例复用）里 entityId 复用时读到已销毁组件的
             // 悬空引用。AnimStateMachine/AnimClipResolver 不重建——它们不持有任何具体 View/引擎对象
             // 引用，装配一次即可跨局复用。
+            // ADR-0111：状态机/解析器本身不重建，但按实体记的战斗姿态与"最近播放剪辑"必须随视图一起清掉——
+            // 否则下一局复用同一 entityId 的新视图会读到上一局遗留的战斗姿态。
+            foreach (var id in new List<Id>(_animClipsByEntity.Keys))
+            {
+                _animStateMachine?.Forget(id);
+                _animClipResolver?.Forget(id);
+                ForgetStateProbes(id);
+            }
+
             _animPlayersByEntity.Clear();
             _animClipsByEntity.Clear();
             _modelViewsByEntity.Clear();
@@ -2270,6 +2434,12 @@ namespace Adapter.Unity.Presentation
                     stateMachine.NotifyTransientStateFinished(entityId, stateMachine.GetState(entityId));
                 }
             });
+
+            // ADR-0111：与 sprite 路线同一套初始姿态处理（见 AttachDefaultAnimation 同名段落）。model 型的
+            // 默认剪辑表就是 display.anim_set 全部键（RegisterDefaultModelClips 不区分键名），战斗姿态变体键
+            // 天然在表里，无需额外登记。
+            stateMachine.Track(entityId);
+            _animClipResolver!.Refresh(entityId);
         }
 
         /// <summary>解析 <c>DisplayInfo.Model.AnimSetRef</c> 指向的 <c>display.anim_set</c> 行（model

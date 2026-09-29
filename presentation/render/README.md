@@ -419,6 +419,10 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md`"判断记录索引"
     `UnityRenderer2D.cs` 条目 ADR-0104 跟进）。完整推导见
     [ADR-0104](../../architecture/adr/0104-渲染平局规则接入与绘制顺序可读回.md)。
+28. **ADR-0111（消费方反馈第六十一批"战斗待机"）：`AnimStateMachine` 新增与 `AnimState` 正交的战斗姿态记账**——
+    不新增 `AnimState` 成员。订阅 `combat.entered`/`combat.left`（逻辑层每单位在真实迁移时各入队一次；读档、销毁不发），维护每实体一个布尔；新增只读 `IsInCombatStance`、变化事件 `CombatStanceChanged`（姿态没变不触发）、显式 `Track`，构造新增重载接受初始姿态探针 `Func<Id,bool>`（首次跟踪某实体时调用一次；旧构造保留，初始恒非战斗），`Forget` 清姿态。
+    取舍：①由战斗事件首次创建记录的实体**不问探针**——迁移前姿态已知是事件值的反面，探针此刻读到的往往已等于事件值，拿它当基线会把这次迁移判成"没变"而吞掉（`CombatProbe_DeterminesInitialStanceOnce_EventCreatedEntriesSkipProbe_ForgetClears` 锁定）；②姿态变化**不触发** `StateChanged`/`StateRetriggered`，本类型不选剪辑、不打断瞬态，回落到运动态时读到的是当时姿态（`StanceChange_DoesNotInterruptTransientState_RevertSeesCurrentStance_DeathUnaffected`）；③`Death` 终态记录不受姿态变化影响。"该状态该播哪个剪辑、变体键回落"是解析层（适配层 `AnimClipResolver`）的事，见适配层 README "判断记录索引" ADR-0111 条目。剪辑键前缀 `combat_` 只在契约层 `AnimSetDef.CombatClipKeyPrefix` 定义一处。
+    测试：`presentation/render/tests/AnimStateMachineCombatStanceTests.cs`（3 例，通过：订阅+去重+与状态正交、瞬态不打断、探针语义）；完整推导见 [ADR-0111](../../architecture/adr/0111-战斗姿态动画变体.md)。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）

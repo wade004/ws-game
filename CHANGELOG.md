@@ -458,6 +458,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **战斗姿态动画变体（战斗待机）**（消费方反馈第六十一批，[ADR-0111](architecture/adr/0111-战斗姿态动画变体.md)）：`display.anim_set.clips` 可声明 `combat_<状态键>`（七个状态键），单位在战斗中优先播它、没有就回落基础键（覆盖剪辑优先级更高）；`AnimStateMachine` 新增与 `AnimState` 正交的战斗姿态记账（`IsInCombatStance`/`CombatStanceChanged`/带初始姿态探针的构造重载），`AnimClipResolver` 新增 `Refresh`，运动态即时切换、瞬态不打断、冷加载补切、装备层经逐层剪辑跟随；没有变体键的外形行为不变。
+  `UnityViewFactory.CombatProbe` 需接 `ICombatHost.IsInCombat`（三个框架装配入口已接，自写装配入口需照抄）。纯新增 ABI。
+
 ## [1.89.0] - 2026-09-29
 
 ### 新增

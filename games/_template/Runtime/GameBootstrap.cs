@@ -449,6 +449,11 @@ namespace Game.Template
                 equipmentVisualSource: _equipVisualSource);
             ViewFactory = viewFactory;
 
+            // ADR-0111：战斗姿态初始值探针——视图晚于 combat.entered 创建（读档、重生、单位进入视野时已在
+            // 战中）时进战事件已经错过，AnimStateMachine 首次跟踪某实体时用它（只读的 ICombatHost.IsInCombat）
+            // 确定初始战斗姿态；表现层不持有任何逻辑层写入能力，探针只是只读查询。
+            viewFactory.CombatProbe = gameplay.Carriers.Rules.Combat.IsInCombat;
+
             var presentationRng = new RngHost(_options.Seed ^ 0x9E3779B97F4A7C15UL);
             var sceneRouter = new Core.Foundation.SceneRouter.SceneRouter(
                 registry, _host.ResourceLoader, gameplay.AppState, world, gameplay.Hooks, _bus,

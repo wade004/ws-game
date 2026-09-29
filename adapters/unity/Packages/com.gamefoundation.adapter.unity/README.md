@@ -638,6 +638,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `Tests/Editor/ADR0086_ExceptionAwareDiagnosticsForwardingEditorTests.cs`（EditMode，2 例，已在
   真实 Unity 跑过）覆盖“两个类型不同、消息相同的异常互不覆盖”与“重复出现的异常计数可见”两条
   验收标准。
+- `AnimClipResolver.cs` / `UnityViewFactory.cs` / `UnityFrameAnimPlayer.cs`：**ADR-0111（消费方反馈第六十一批，战斗待机）**——战斗姿态下状态 `<key>` 先查 `combat_<key>`、没有回落 `<key>`（优先级：武器风格/技能覆盖 > 变体键 > 基础键；循环跟随基础状态）。取舍：①解析层 `Refresh(entity)` 对运动态重新解析，与"最近实际播放的剪辑"相同则什么都不做；从未播放过任何剪辑时基线取"不考虑变体的基础键剪辑"，所以没有变体键的外形进出战零额外重播；瞬态不打断，回落时按当时姿态解析。②冷加载与热路径同一出口：变体剪辑就绪 = 播放器上已登记真实序列帧内容（`UnityFrameAnimPlayer.HasRealContent`，区别于单帧占位）且该 (实体, 剪辑) 没有逐层探测在途（`_stateProbesInFlight`，身体层+装备层都探测完才切，避免半切）；内容到位（`ClipContentRegistered`）或探测结束时调 `Refresh` 补切，期间已脱战则不切；已在播的变体在重探测期间不因就绪探针暂时为假而被踢回基础键。③接线点全部经同一张键表 `AnimStateKeysFor`（基础键 + 外形实际声明的变体键）：默认剪辑登记、逐层探测、换向重探测、换装/合成层变化重探测、逐层缓存重登记；视图创建与重生时 `Track` + `Refresh`（创建时已在战中则初始即战斗待机）；销毁/重生/`DestroyAllCreatedViews` 清姿态与最近播放记账（`DestroyAllCreatedViews` 此前漏清状态机记账，顺带补齐）。model 型默认剪辑表就是 `anim_set` 全部键，变体键天然在表内，就绪恒真。④`UnityViewFactory.CombatProbe`（`Func<Id,bool>`）由三个生产装配入口（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` 的 `GameBootstrap`）接 `ICombatHost.IsInCombat`；游戏自己写装配入口的需要照抄，否则读档/重生/进入视野时已在战中的单位初始姿态为非战斗。已知限制见 `AnimClipResolver.cs` 顶部注释（变体美术永远不到位则维持当前显示、覆盖剪辑不感知姿态、`jump` 无默认登记）。测试：`Tests/Runtime/CombatStanceAnimReproTests.cs`（复现，1.89.0 上红）、`CombatStanceAnimInvariantTests.cs`（不变量，6 个分支 + 解析层）、夹具 `CombatStanceAnimFixture.cs`。 [ADR-0111](../../../../architecture/adr/0111-战斗姿态动画变体.md)。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
