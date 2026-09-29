@@ -114,15 +114,20 @@ namespace Tests.Sim
 
         /// <summary>见 <see cref="FightRunner"/> 判断记录"隔离方案"：实测
         /// <c>HeadlessWorldBuilder.Build</c> 平均耗时，供该判断记录引用。放宽到 100ms 门槛（远高于
-        /// 实测个位数至十几毫秒）只是避免偶发慢速 CI 环境下的抖动误报，不代表这是设计预期的上限。</summary>
+        /// 实测个位数至十几毫秒）只是避免偶发慢速 CI 环境下的抖动误报，不代表这是设计预期的上限。
+        /// 判定取逐次耗时的最小值而不是平均值：本用例随整个解决方案的测试程序集并行执行，机器另有
+        /// 重负载时平均值量到的是调度等待而不是 <c>Build</c> 自身的开销（1.88.0 发布时同一份代码
+        /// 单跑通过、并行跑平均 175～185ms 连续两次误报），最小值才反映该判断记录关心的固有开销。</summary>
         [Fact]
         public void Probe_BuildTiming_WellUnder50MsThreshold()
         {
             var dataSources = SimTestWorldFactory.BuildEmbeddedDataSources();
             const int iterations = 20;
+            var minMs = double.MaxValue;
             var sw = Stopwatch.StartNew();
             for (var i = 0; i < iterations; i++)
             {
+                var iterationStartMs = sw.Elapsed.TotalMilliseconds;
                 Core.Sim.HeadlessWorldBuilder.Build(new Core.Sim.HeadlessWorldOptions
                 {
                     DataSources = dataSources,
@@ -133,12 +138,13 @@ namespace Tests.Sim
                     PlayerClassId = SimTestWorldFactory.EmbeddedClassId,
                     GameId = SimTestWorldFactory.EmbeddedGameId,
                 });
+                minMs = Math.Min(minMs, sw.Elapsed.TotalMilliseconds - iterationStartMs);
             }
             sw.Stop();
             var avgMs = sw.Elapsed.TotalMilliseconds / iterations;
-            _output.WriteLine($"HeadlessWorldBuilder.Build 平均耗时 = {avgMs:F2} ms（{iterations} 次连续调用）");
+            _output.WriteLine($"HeadlessWorldBuilder.Build 平均耗时 = {avgMs:F2} ms、最小耗时 = {minMs:F2} ms（{iterations} 次连续调用）");
 
-            Assert.True(avgMs < 100, $"Build 平均耗时 {avgMs:F2}ms 超出隔离方案判断记录假设的安全边界");
+            Assert.True(minMs < 100, $"Build 最小耗时 {minMs:F2}ms（平均 {avgMs:F2}ms）超出隔离方案判断记录假设的安全边界");
         }
 
         /// <summary>
