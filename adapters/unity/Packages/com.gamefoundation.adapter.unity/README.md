@@ -818,7 +818,7 @@ Boot ──Start()──> MainMenu ──ShowSlots()──> SaveSlots ──(选
 
 `UnityResourceLoader` 是 `DontDestroyOnLoad` 单例、跨整个 `-runTests` 进程只有一份实例、已加载
 资源的缓存不随用例结束清空（详见
-`architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`）。任何断言依赖"某个
+`docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`）。任何断言依赖"某个
 精灵/纸娃娃层/动画剪辑资源已经加载成功"的 `[UnityTest]`，如果自己既不触发加载也不等待加载完成
 就直接快照断言，全量门禁里大概率会因为"更早跑过的用例已经把同一份资源预热进缓存"而侥幸通过——
 但同一条用例单独用 `-testFilter` 跑会失败，因为资源确实还没加载完成。这类用例不是在验证"被测

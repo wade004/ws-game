@@ -60,7 +60,7 @@
 
 ## 2. 仓库硬性规则
 
-- `architecture/00～14`、`architecture/adr/`、`数值设计/` 正文不出现任何引擎/语言/框架/工具名（`immunity` 例外）；具体技术名只允许写在 `architecture/选型/`、`architecture/落地计划/`、`toolchain/`、`editor/docs/`、`adapters/`、`docs/`。
+- `architecture/00～14`、`architecture/adr/`、`数值设计/` 正文不出现任何引擎/语言/框架/工具名（`immunity` 例外）；具体技术名只允许写在 `architecture/选型/`、`architecture/落地计划/`、`toolchain/`、`docs/编辑器/`、`adapters/`、`docs/`。
 - 全仓库任何文件不出现具体游戏代号，用 `<game>` 或 `sample_*` 占位。
 - 改动架构结论要先出 ADR；只是细节勘误按 `architecture/12_扩展与变更流程.md` §5 处理——版本号不变、变更记录写"勘误："、关联 ADR 列 "—" 或对应 ADR 编号。
 - 每个模块 README 的"判断记录"要记录关键取舍及理由，不能只改代码不留痕。
@@ -92,7 +92,7 @@
   `Runtime/Plugins/Core/*.dll`（这是 gitignore 的构建产物，Unity 实际加载的是这份二进制副本，
   git 操作从不触碰它）；确认方式是按上一条重新构建+`-SyncOnly` 同步，而不是假设"代码已经是最新
   就代表 Unity 看到的也是最新"。详见
-  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md` 追加节。
+  `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md` 追加节。
 - Unity 只允许通过 `build.ps1`/`check.ps1` 以 `-batchmode` 方式调用，不直接手工开 Unity 编辑器操作工作树。
 - **不要在深层 scratchpad 工作树里跑 Unity 测试步骤**（EditMode/PlayMode/独立版构建/消费方演练）：
   `git worktree add` 到系统临时目录下的工作树，根路径比主检出深很多，`GameTemplateResidentTests.
@@ -143,12 +143,12 @@
 - Unity PlayMode 测试失败先用 `python toolchain/unity_test_triage.py` 分诊，不要直接改测试或改断言；
   分诊后核对断言是否在给"已知即将修复的旧错误行为"拍照（修复生效后断言过期是测试侧问题，不是
   回归），排除测试侧问题后才怀疑产品代码，详见
-  `architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md`"标准流程清单"。
+  `docs/复盘/排查复盘-2026-09-15-PlayMode-PRES180.md`"标准流程清单"。
 - 不要靠"用例之间清空全局资源缓存"解决 PlayMode 测试串味：`DontDestroyOnLoad` 单例的缓存字段
   可能有其它模块按同一份数据维护的去重表/索引等派生状态，清缓存不清派生状态会让资源永不重新
   加载，制造更隐蔽的新故障；应给失败用例配专属输入（专属资源引用字面量/数据行/占位资产），让
   断言不依赖执行顺序，详见
-  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`。
+  `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`。
 - Unity 许可排障（Hub 界面显示 Personal 许可已激活，但批处理仍报错误码 198"无有效许可"）：Hub
   界面显示的是账号层面的授权状态，Unity 批处理真正读取的是本机磁盘上的许可文件（由 Unity 许可
   客户端写出、定期续签），两者会脱节。处理顺序：① 先在 Hub 里点"刷新"（通常会触发重新拉取并

@@ -133,7 +133,7 @@ jobs:
       - name: Stage self-contained get_framework.ps1 assets
         shell: powershell
         # 判断记录（消费方反馈 E2 根治，2026-09-10，见
-        # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2）：toolchain/get_framework.ps1
+        # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2）：toolchain/get_framework.ps1
         # 与 toolchain/_hash.ps1 是随本次 tag 提交一起 checkout 出来的纯文本源文件，不依赖任何
         # dotnet/npm 构建步骤——与下面的 zip/lock/tgz（确定性构建产物，字节随 checkout 路径变化，
         # 见文件头"本机已验证产物优先"一整套判断记录）性质完全不同，同一个 commit checkout 出来的
@@ -249,7 +249,7 @@ jobs:
         # 逻辑（Repair missing assets from existing zip 步骤）按 tgz 文件名通配处理，不需要为
         # 第四个包单独加分支，新增本包后自动覆盖。
         # 判断记录（消费方反馈 E2/E4 根治，2026-09-10，见
-        # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2/E4）：新增三项必需附件——
+        # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2/E4）：新增三项必需附件——
         # get_framework.ps1、_hash.ps1（固定文件名，不带版本号，上一步已无条件拷到 dist/，纯
         # 源文件，任何 commit 下都是确定性的，见该步骤判断记录）、ws-game-$version-samples.zip
         # （E4 新增的验收数据集独立包，build.ps1 -Dist/-Release/-Zip 同一次打包新增产出）。get_

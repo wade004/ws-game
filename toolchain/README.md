@@ -320,7 +320,7 @@ python toolchain/gen_event_constants.py
 
 ## 数据表字段顺序格式化（format_data.py，消费方反馈 E11 根治）
 
-消费方反馈 E11（2026-09-10，见 `architecture/落地计划/消费方反馈-2026-09-10-编辑器.md` E11）：
+消费方反馈 E11（2026-09-10，见 `docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md` E11）：
 示例数据里记录字段的书写顺序与对应 `TableSchema.Fields` 的登记顺序经常不一致，编辑器等工具按
 schema 顺序渲染表单/生成 diff 时与仓库里实际的 JSON 字段顺序对不上。`toolchain/format_data.py
 --schema-order` 把每条记录的字段按该表 `TableSchema.Fields` 的登记顺序重排（未登记字段保持原
@@ -911,7 +911,7 @@ DLL：两者均 `breaks=0`（1.12.0 additions=275，1.13.0 additions=186；未�
 
 ## Unity 测试结果分诊（`unity_test_triage.py`，排查复盘 2026-09-15 落地）
 
-背景见 `architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md`：一次 PlayMode
+背景见 `docs/复盘/排查复盘-2026-09-15-PlayMode-PRES180.md`：一次 PlayMode
 全量门禁稳定失败排查耗时约 3.5 小时、约 156 万 token，其中很大一块耗在"没有工具把失败用例对应
 的日志片段与首个异常抽出来，只能整段读 `playmode.log`"（十几千行）。本脚本补上这一环，输入
 NUnit3 结果 XML（`playmode.xml`/`editmode.xml`）与对应 Unity 日志（`playmode.log`/

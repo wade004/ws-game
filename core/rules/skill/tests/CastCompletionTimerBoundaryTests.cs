@@ -8,7 +8,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary>
     /// 消费方反馈 2026-09-10（读条完成当帧新冷却被提前推进问题，证据 c08-new-cooldown，见
-    /// architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md）复现与根治：读条/引导恰好
+    /// docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md）复现与根治：读条/引导恰好
     /// 在本次 <c>Update(dt)</c> 内完成时，<c>CastPipeline.FinishCast</c>/<c>ExecuteEffectsOnly</c>
     /// 新创建的冷却/公共冷却/充能恢复窗口/光环实例不应该被同一次调用里紧接着执行的
     /// <see cref="Core.Rules.Skill.SkillHost.AdvanceRoundTimers"/> 用同一个 <c>dt</c> 再扣一遍

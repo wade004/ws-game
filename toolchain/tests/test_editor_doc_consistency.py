@@ -1,4 +1,4 @@
-"""``editor/docs/编辑器产品文档.md`` 与其手工同步的 ``.html`` 版本之间的一致性门禁。
+"""``docs/编辑器/编辑器产品文档.md`` 与其手工同步的 ``.html`` 版本之间的一致性门禁。
 
 背景（T-N5-5，阶段 N5 文档收尾）：编辑器产品文档没有自动转换脚本（见 DOC-118-03 勘误），HTML 版
 一直靠人工同步 md 版的改动；T-N5-4 落地时如实记录过"HTML 版只同步到 md v2.6，第 4.1 节契约面
@@ -36,7 +36,7 @@ import pytest
 
 TOOLCHAIN_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = TOOLCHAIN_DIR.parent
-DOCS_DIR = REPO_ROOT / "editor" / "docs"
+DOCS_DIR = REPO_ROOT / "docs" / "编辑器"
 MD_FILE = DOCS_DIR / "编辑器产品文档.md"
 HTML_FILE = DOCS_DIR / "编辑器产品文档.html"
 

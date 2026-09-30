@@ -40,7 +40,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第三批第 22 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：本数据源自身的
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：本数据源自身的
         /// "根"标识——当且仅当它是 <see cref="DataTableSource.Location"/> 的前缀时，
         /// <c>Core.Foundation.DataRegistry.DataRegistry</c> 用它裁出相对路径（见
         /// <see cref="OverrideDiagnostic.OverridingRelativePath"/>）。带默认实现（恒返回

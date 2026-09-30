@@ -147,7 +147,7 @@ namespace Core.Rules.Combat
         public bool IsInCombat(Id unitId) => _inCombat.TryGetValue(unitId, out var value) && value;
 
         /// <summary>
-        /// C11-RELOAD 根治新增（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命
+        /// C11-RELOAD 根治新增（docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命
         /// 周期.md 第 2 项）：清空该单位的运行期战斗态——<see cref="_inCombat"/> 标记、脱战计时器、
         /// 双向仇恨表（<see cref="ThreatTable.Clear"/> 该单位自己持有的仇恨表 + <see
         /// cref="ThreatTable.RemoveSourceEverywhere"/> 把它从其它单位仇恨表里摘除，同 <see

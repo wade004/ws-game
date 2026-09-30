@@ -69,7 +69,7 @@ namespace Core.Rules.Skill
         private readonly TriggerCastCallback _triggerCast;
 
         /// <summary>消费方反馈 2026-09-10（同一光环多个 Proc 触发器静默忽略问题，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md）根治：此前是
+        /// docs/消费方反馈/消费方反馈-2026-09-10-多Proc触发器.md）根治：此前是
         /// <c>Dictionary&lt;Id, Attachment&gt;</c>——以 <c>instanceId</c> 为单值键的单槽存储，
         /// 同一光环实例第二次 <see cref="Attach"/> 会直接覆盖第一次的订阅（旧订阅的
         /// <see cref="SubscriptionHandle"/> 从未 <c>Dispose</c>，是另一层订阅泄漏），只有最后一次

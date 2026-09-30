@@ -1,6 +1,6 @@
 #nullable enable
 // TestFirstChanceExceptionLogger：测试运行期"首个异常记录"回调（排查复盘 2026-09-15 落地，见
-// architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md）。
+// docs/复盘/排查复盘-2026-09-15-PlayMode-PRES180.md）。
 //
 // 背景：一次 PlayMode 全量门禁稳定失败（VerticalSliceTests.PRES180_...）排查耗时约 3.5 小时、
 // 约 156 万 token 才查明真因——玩家资源池跨用例未回满，导致 PRES180 的攻击断言（Assert.IsTrue

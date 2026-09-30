@@ -53,7 +53,7 @@ namespace Core.Foundation.Expr
 
         /// <summary>
         /// 消费方反馈第三批第 19 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：该问题对应的
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：该问题对应的
         /// 源文本起始字符偏移（0 基，与 <see cref="ExprParseException.Position"/>/
         /// <see cref="ExprToken.Start"/> 同一套坐标系）；<c>-1</c> 表示未定位到具体源区间——旧
         /// 构造重载（不传位置）与不携带区间信息的问题种类（如某些无法归到单一子树的整体性问题）

@@ -225,7 +225,7 @@ namespace Core.Foundation.EngineAdapter
         void Clear();
 
         /// <summary>
-        /// C11-RELOAD 根治新增（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命
+        /// C11-RELOAD 根治新增（docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命
         /// 周期.md）：批量重同步一批对象在空间索引中的位置——供读档等"某个对象的位置可能已经绕开
         /// <see cref="UpdatePosition"/> 被直接改写"的场景，在派生状态重建阶段做一次全量兜底重同步
         /// （见 <c>Core.Gameplay.Assembly.GameplayAssembly</c> 的 <c>IDerivedStateRebuilder</c> 实现

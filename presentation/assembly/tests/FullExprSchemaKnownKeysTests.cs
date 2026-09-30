@@ -7,7 +7,7 @@ namespace Tests.Presentation.Assembly
 {
     /// <summary>
     /// 消费方反馈（编辑器）第 27 条复现/回归（2026-09-11，见
-    /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：正式装配的
+    /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md）：正式装配的
     /// <see cref="PresentationSchemaCatalog.FullExprSchema"/>（等于
     /// <see cref="Core.Gameplay.Assembly.GameplaySchemaCatalog.FullExprSchema"/>，即
     /// <c>CompositeExprSchema(QuestExprSchemaEntries.BuildParsingSchema(), RulesExprSchema.Base)</c>）

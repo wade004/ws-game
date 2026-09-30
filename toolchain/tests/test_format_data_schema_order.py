@@ -1,5 +1,5 @@
 """``toolchain/format_data.py --schema-order`` 回归测试（消费方反馈 E11 根治，2026-09-10，见
-architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E11）。
+docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E11）。
 
 背景：示例数据里记录字段的书写顺序与对应 ``TableSchema.Fields`` 的登记顺序经常不一致。根治：新增
 ``toolchain/format_data.py --schema-order``，调用 ``toolchain/validator --list-tables --json``

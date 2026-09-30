@@ -1861,7 +1861,7 @@ namespace Core.Gameplay.Assembly
             private Id? _previousRaceId;
 
             /// <summary>
-            /// C11-RELOAD/C11-PENDING-LOAD 根治新增参数（architecture/落地计划/消费方反馈-2026-09-11-
+            /// C11-RELOAD/C11-PENDING-LOAD 根治新增参数（docs/消费方反馈/消费方反馈-2026-09-11-
             /// 读档空间索引与复活生命周期.md）：<paramref name="units"/>/<paramref name="spatial"/>
             /// 供 <see cref="OnSectionLoaded"/> 在 <c>world.current_position</c> 段恢复之后做一次
             /// "空间索引全量重同步"兜底（见该方法判断记录）；<paramref name="death"/> 供

@@ -1211,7 +1211,7 @@ if ($DistRequested) {
     Write-Host ("  已补齐 -> dist\{0}\adapters\headless\{{Adapters.Stub,Core.Sim}}.dll + README.md（sha256: Adapters.Stub={1}, Core.Sim={2}）" -f $DistDirVersion, $headlessAssemblyShaMap["Adapters.Stub.dll"], $headlessAssemblyShaMap["Core.Sim.dll"])
 
     # -------------------------------------------------------------------
-    # 5.057 消费方反馈 E1 根治（architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1）：
+    # 5.057 消费方反馈 E1 根治（docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E1）：
     #      toolchain/validate_data.py 第二道校验此前一律用 `dotnet run --project toolchain/validator`
     #      现场编译——解压产物落在消费方仓库内时，MSBuild 按项目目录向上找 Directory.Build.props
     #      会继承到消费方自己的设置（如 TreatWarningsAsErrors=true），把本工具 XML 文档注释里原本
@@ -1628,7 +1628,7 @@ if ($DistRequested) {
         Write-Host ("  已生成 {0}（{1} MB，zip 内顶层目录 {2}/）" -f $zipPath, $zipSizeMb, $zipTopLevelName)
 
         # -------------------------------------------------------------------
-        # 5.65 消费方反馈 E4 根治（architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E4）：
+        # 5.65 消费方反馈 E4 根治（docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E4）：
         #      主 zip（上面这份）从不带 data/_sample、assets/_sample——那是本仓库自测用的验收数据集
         #      （见 data/README.md"两类目录"一节），不代表任何真实游戏内容，因此不随 -Dist 打进
         #      dist/<ver>/ 快照（见前面"打分发包"一节 Copy-DistDir 调用列表，只带 data/_framework）。
@@ -1780,7 +1780,7 @@ if ($DistRequested) {
                 throw "无法确定当前分支（detached HEAD 或 git rev-parse 失败），-Release/-Publish 要求在一个具名分支（main 或维护分支 release/X.Y.x）上执行"
             }
             # 判断记录（消费方反馈 E2 根治，2026-09-10，见
-            # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2）：Release 附件集合新增
+            # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2）：Release 附件集合新增
             # toolchain/get_framework.ps1（自包含后，游戏侧只下载这一个文件即可用，见该脚本文件头
             # 判断记录）；继续一并附上 toolchain/_hash.ps1，兼容消费方现有"下载 get_framework.ps1 +
             # _hash.ps1 两个文件"的还原脚本（本脚本自身不再读取它，纯粹是向后兼容附件，见

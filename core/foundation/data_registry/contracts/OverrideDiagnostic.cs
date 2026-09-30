@@ -26,7 +26,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第三批第 22 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：胜出行所在
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：胜出行所在
         /// 数据根在本次 <see cref="IDataRegistry.LoadAll(System.Collections.Generic.IReadOnlyList{IDataSource})"/>
         /// 传入的 <c>sources</c> 列表中的下标（0 基，"根序号"，与 <c>toolchain/validator</c>
         /// <c>--data-root</c> 重复参数的声明顺序一致）；<c>-1</c> 表示未知（旧构造重载、或加载期

@@ -7,7 +7,7 @@ namespace Core.Foundation.DataRegistry
 {
     /// <summary>
     /// 消费方反馈第 45 条（2026-09-17，见
-    /// architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45条.md）：只读分析/展示类入口
+    /// docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第45条.md）：只读分析/展示类入口
     /// （<c>ItemBudgetCurve.BuildStatBudgetInfo</c>、<c>EquipmentScoreAnalyzer.Score</c>、
     /// <c>SkillBudgetAnalyzer.Analyze</c>、<c>ExpectedStatCalculator</c> 等——产出的是给人看的
     /// 分析/展示信息，不是驱动运行期业务逻辑的权威数据，见 architecture/11_工程规范与测试.md 第 4

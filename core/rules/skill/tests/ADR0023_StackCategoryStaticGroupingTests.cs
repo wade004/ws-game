@@ -8,7 +8,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary>
     /// ADR-0023"光环叠加类别为静态校验分组"验收测试（消费方反馈"光环叠加类别契约一致性核对"，见
-    /// `architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md`）：`stack_category` 是加载期静态
+    /// `docs/消费方反馈/消费方反馈-2026-09-10-光环叠加类别.md`）：`stack_category` 是加载期静态
     /// 内容校验分组，不是运行时叠加槽位维度——运行时按 `(target, aura_def, sourceKey)` 分槽，同一
     /// `stack_category` 下不同 `aura_def` 各自独立叠加、互不影响。四条用例对应消费方反馈"最小复现与
     /// 验收"一节列出的四条验收标准，覆盖点见各方法注释。均使用真实 `SkillHost`/`AuraHost`（经

@@ -109,7 +109,7 @@ archetype/
    "sample_a" 惯例，`warrior_like`/`mage_like` 只是让测试断言的意图更直观，不是真实游戏职业名）。
 
 9. **消费方反馈第 54～58 条（2026-09-18）回复要点**（详见
-   `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+   `docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
    - **第 58 条：`arch.talent_tree.nodes[].id` 有意登记为 `FieldKind.String` 而非
      `FieldKind.Id`**，与 `dialog.story_tree.nodes[].id`（`FieldKind.Id`，受 `field_id_format`
      点分格式约束）不同——天赋树节点 id 只在同一棵树内以字符串比较，不要求全局 `Id` 格式，运行时

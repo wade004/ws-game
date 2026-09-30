@@ -6,7 +6,7 @@ namespace Tests.Numbers.Archetype
 {
     /// <summary>
     /// 消费方反馈第 57 条（2026-09-18，见
-    /// architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md）验收：
+    /// docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第54-58条.md）验收：
     /// <c>ArchTalentTreeCycleValidationRule</c> 三项图诊断（<c>talent_node_id</c>/
     /// <c>talent_prerequisite_missing</c>/<c>talent_prerequisite_cycle</c>）的结构化定位——前两项
     /// <c>Field</c> 补具体下标路径，后者按环上出现顺序填入

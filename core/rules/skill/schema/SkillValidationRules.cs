@@ -125,7 +125,7 @@ namespace Core.Rules.Skill
 
     /// <summary>
     /// 同一光环重复引用同一 <c>proc_trigger</c> 定义校验（消费方反馈 2026-09-10"同一光环多个 Proc
-    /// 触发器静默忽略问题"，见 architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md）。
+    /// 触发器静默忽略问题"，见 docs/消费方反馈/消费方反馈-2026-09-10-多Proc触发器.md）。
     /// <para>
     /// 契约决定：单光环允许登记多个 <c>proc_trigger</c> 效果条目，各自独立经 <see cref="ProcHost"/>
     /// 挂载、独立结算条件/概率/内部冷却（见 <see cref="AuraInstanceState.ProcDefRefs"/> 判断记录）。

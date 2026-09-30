@@ -43,7 +43,7 @@ namespace Core.Rules.Skill
     /// </para>
     /// <para>
     /// 判断记录（P2 根治，消费方反馈 2026-09-11"只读就绪查询影响后续充能状态"，见
-    /// architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md；06 第 3.5 节同批勘误）：
+    /// docs/消费方反馈/消费方反馈-2026-09-11-充能查询副作用.md；06 第 3.5 节同批勘误）：
     /// <b>查询纯化</b>——<see cref="GetCharges(Id, SkillDef)"/>/<see cref="GetChargeRechargeRemaining"/>/
     /// <see cref="GetEffectiveChargesMax"/>/<see cref="GetEffectiveRechargeTimeScaled"/>/
     /// <see cref="IsSkillReady"/>/<see cref="GetCooldown(Id, SkillDef)"/> 等只读路径此前经
@@ -130,7 +130,7 @@ namespace Core.Rules.Skill
 
         /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="_currentFactor"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="_currentFactor"/>
         /// 的只读公开出口——供 <see cref="SkillHost.GetSkillReadiness"/> 把 <see cref="SpellModResolver"/>
         /// 修饰后、仍是 authoring 规范单位的 <c>cooldown_duration</c> 换算成与 <see cref="GetCooldown"/>
         /// 同一口径的"当前模式计时单位"（换算方式与 <see cref="StartCooldown"/> 写入倒计时状态前的
@@ -221,7 +221,7 @@ namespace Core.Rules.Skill
 
         /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：距下一次充能恢复完成
+        /// docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md）：距下一次充能恢复完成
         /// 的剩余时间——供 <see cref="SkillHost.GetSkillReadiness"/> 呈现"部分充能恢复中"这一状态
         /// （区分"当前充能数"与"下次恢复还差多久"，<see cref="GetCharges(Id, SkillDef)"/> 只呈现前者）。
         /// 满充能（含从未消耗过）时恒为 0——没有正在进行的恢复窗口，与 <see cref="AddCharge"/>/

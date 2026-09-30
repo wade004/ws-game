@@ -138,7 +138,7 @@ unit/
     保留"例外——`Id?` 本身就有明确无歧义的空值，不存在"清空成什么才对"的两难。见
     `UnitPersistableTests`（`RaceId_*` 系列）、`RacePassiveAuraCrossMapTests`。
 
-14. **C11-RELOAD 根治（2026-09-11，消费方反馈第 C11 项，基线 1.22.0，architecture/落地计划/
+14. **C11-RELOAD 根治（2026-09-11，消费方反馈第 C11 项，基线 1.22.0，docs/消费方反馈/
     消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：`UnitPersistable.CurrentPosition`
     新增 `(PlayerUnit, IUnitAccess)` 重载，`Load` 经 `IUnitAccess.SetPosition` 写入位置**——
     此前唯一的工厂方法（`CurrentPosition(PlayerUnit)`）的 `Load` 直接改写 `_player.Position`
@@ -281,7 +281,7 @@ unit/
 
 ## ADR-0026《技能位移的连续模式》：受控位移（Controlled Displacement）
 
-消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：
+消费方反馈"连续技能位移"（`docs/消费方反馈/消费方反馈-2026-09-11-技能位移连续模式.md`）：
 `core/rules/skill` 的 `move` 效果原语此前只有一次性 `SetPosition` 的瞬移语义（合法墙前目标 leap
 到墙对面时终点直接跳变穿墙）。本模块新增"受控位移"——与既有 `CurrentPath`（路径跟随）平级、互斥
 的第二种由 `MovementTickHandler` 驱动的位移任务，由 `EffectDispatcher.ApplyMove`（L2）经依赖倒置

@@ -7,7 +7,7 @@ namespace Tests.Gameplay.Quest
 {
     /// <summary>
     /// 消费方反馈第 54 条（2026-09-18，见
-    /// architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md）验收：
+    /// docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第54-58条.md）验收：
     /// <see cref="QuestReferenceExtractor.ExtractReferencedQuestIds"/> 新增的公开静态入口，覆盖多引用、
     /// 去重与顺序约定、无引用、非法表达式四类行为。
     /// </summary>

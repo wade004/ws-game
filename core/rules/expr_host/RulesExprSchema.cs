@@ -54,7 +54,7 @@ namespace Core.Rules.ExprHost
 
         /// <summary>
         /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：转发给
+        /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md）：转发给
         /// <see cref="_known"/>（真正持有全部已登记签名的内层 <see cref="ExprSchema"/>）——本类型
         /// 不显式重写会落回 <see cref="IExprSchema.KnownKeys"/> 的默认实现（恒返回空集合），与
         /// <see cref="TryGetSignature"/> 已经转发给 <see cref="_known"/> 的行为不一致（签名能查到，

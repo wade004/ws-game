@@ -469,7 +469,7 @@ namespace Core.Rules.Skill
         /// <c>(SkillId, IReadOnlyList&lt;Id&gt; Targets, Id CastInstanceId)</c> 三元组，形状是单位目标
         /// 专属的；把地面坐标请求也塞进同一个队列槽位需要扩出第二套"排队的是地面请求还是单位目标
         /// 请求"的分支语义，超出消费方反馈"动态地面坐标施法请求"的最小场景与验证条件范围（见
-        /// architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md）。本方法在施法者已经处于
+        /// docs/消费方反馈/消费方反馈-2026-09-11-地面坐标施法.md）。本方法在施法者已经处于
         /// 读条/引导中时一律直接拒绝（<see cref="CastFailureReason.Busy"/>），不区分是否落在
         /// <see cref="SkillOptions.QueueWindow"/> 窗口内——与 <see cref="CastSkill"/> 窗口外拒绝复用
         /// 同一个失败原因码，但地面坐标请求没有"窗口内则入队"这一分支。地面坐标施法排队留待后续

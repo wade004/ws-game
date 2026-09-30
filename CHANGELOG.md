@@ -30,7 +30,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `data.load_completed`/`data.validation_failed`）；`.github/workflows/release.yml` 四包修正
   （编辑器项目若参照本仓库发布工作流的必需附件集合，需同步补齐第四个 `.tgz`）。
 - **E1～E4 交付面变化（1.15.0，消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器.md)）**：
+  [消费方反馈-2026-09-10-编辑器.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md)）**：
   Release 新增预编译 `toolchain/validator`（附隔离用的空 `Directory.Build.props`）作为发布附件，
   编辑器项目不再需要自行现场编译 validator；`toolchain/get_framework.ps1` 改为自包含（不再
   dot-source 同目录 `_hash.ps1`），可单独下载使用；`ws-game.lock` 的 `source` 字段不再写本机
@@ -47,26 +47,26 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `Tables`/`GetAll` 求和，不要求已有实现类改动，不构成 ABI 破坏），`CreateRegistry` 路径（调用方
   自行持有 registry、自行调用 `Reload`）现在也能拿到精确记录计数，不必自行遍历求和。
 - **ADR-0021（1.15.0，消费方反馈处理，
-  [消费方反馈-2026-09-10-技能效果参数范围.md](architecture/落地计划/消费方反馈-2026-09-10-技能效果参数范围.md)）**：
+  [消费方反馈-2026-09-10-技能效果参数范围.md](docs/消费方反馈/消费方反馈-2026-09-10-技能效果参数范围.md)）**：
   `FieldSchema` 新增可选 `Range` 字段（Number/Int 字段的取值范围登记），`toolchain/validator
   --list-tables --json` 每张表新增 `field_ranges` 导出，编辑器可据此在数值输入控件上就地校验，
   不必等到一次完整加载校验才发现越界。
 - **ADR-0022（1.16.0，消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)）**：
+  [消费方反馈-2026-09-10-编辑器-第二批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md)）**：
   `TableSchema` 新增 `Layer`/`Module`/`Domain`/`TimeScope`，`FieldSchema` 新增 `Group`/`Unit`，
   `IdList` 字段种类补齐 `ReferenceTable`/`ReferenceDomain`/`WithFreeIds` 登记，`reference_integrity`
   扩展覆盖 `IdList` 元素；元数据门禁新增五项自洽检查；`toolchain/validator --list-tables --json`
   每张表新增 `layer`/`module`/`domain`/`time_scope`，每个字段新增 `field_meta`
   （`group`/`unit`/`reference_table`/`reference_domain`/`free_ids`）。
 - **第 17 条修复（1.16.1，消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
+  [消费方反馈-2026-09-10-编辑器-第二批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md)
   第 17 条）**：`DataRegistry.RecordCount` 阻断态不再抛异常（直接读内部按表合并去重后的记录快照）；
   `IDataRegistryView` 新增 `bool TryGetRecordCount(out int count)`（带默认实现，阻断态返回
   `false` 而不抛异常）；`ContentValidationAssembly.Run` 统一改用 `registry.RecordCount`，不再另开
   事件订阅旁路。`IDataRegistryView.RecordCount` 默认实现本身保持不变（仍可能抛异常，供无具体
   `DataRegistry` 实现的第三方替身兜底），XML 注释已更新建议改用新成员。
 - **消费方反馈第三批 18/19/20/22（1.17.0，消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)）**：
+  [消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)）**：
   `IExprSchema` 新增 `KnownKeys(string group)`/`KnownGroups`（带默认实现）：按分组枚举已登记的
   宿主引用 key，供编辑器自动补全；`ExprIssue`/`ExprNode`（及全部子类）新增源文本位置区间
   `Start`/`Length`（新增重载构造，既有构造不变）：`ExprParser.Parse` 产出的语法树与
@@ -83,9 +83,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   其 `KnownKeys`/`KnownGroups` 此前逐级落回接口默认实现（返回空集合），九个分组全部返回空——
   已在四处组合/包装实现补齐显式转发（并集聚合全部成员登记表的结果，不再只反映某一个成员登记
   表），新增反射门禁 `InterfaceDefaultMemberForwardingTests` 防止同类遗漏再次发生。详见
-  [消费方反馈-2026-09-11-编辑器-第27条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md)。
+  [消费方反馈-2026-09-11-编辑器-第27条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md)。
 - **消费方反馈第 28/29 条（1.20.0，消费方反馈处理，
-  [消费方反馈-2026-09-11-编辑器-第28-29条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md)）**：
+  [消费方反馈-2026-09-11-编辑器-第28-29条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第28-29条.md)）**：
   `FieldSchema` 新增可选 `AllowedValues`（`IdList`/`Id` 固定取值集合登记，与 `FreeIds`/
   `ReferenceTable` 互斥，新增运行期检查名 `field_allowed_value`，元数据门禁新增
   `idlist_allowed_values_conflict`）与可选 `SoftReferenceTable`/`SoftReferenceDomain`
@@ -99,45 +99,45 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   ResolveResult>?`（结算追踪回调），供编辑器"右侧结算预览"/"简易战斗回放"直接订阅
   `Resolver.Resolve` 每次真实返回前的完整输入输出（含分步中间值 `Steps`），不必自行复刻结算
   公式。详见
-  [消费方反馈-2026-09-11-编辑器-第31条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md)。
+  [消费方反馈-2026-09-11-编辑器-第31条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第31条.md)。
 - **消费方反馈第 32 条（1.23.0）**：新增
   `Core.Foundation.EngineAdapter.AssetRefConventions`，把此前分散在引擎适配层、框架表现层、
   `toolchain/asset_import` 三处的 `sprite_set_id`/`icon_id` → 资产相对路径解析规则收口为公开
   契约（`SpriteSetDirectory`/`IconFile`/`TryParseSpriteSetId`/`TryParseIconId`），规则本身不变。
   详见 [ADR-0025](architecture/adr/0025-资源引用标识到资产相对路径的约定纳入公开契约.md)、
-  [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
+  [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
 - **消费方反馈第 34 条（1.23.0）**：`PresentationSchemaCatalog` 新增公开
   `DefaultDisplayMapCoverageSources`（五张表），`ContentValidationOptions
   .DisplayMapCoverageSources` 未指定时默认使用该清单，`DisplayMapCoverageRule` 从此默认启用
   （此前默认禁用）；`toolchain/validator` 的 `--display-map-sources` 改为可选覆盖参数。详见
-  [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
+  [消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
 - **消费方反馈第 35 条（1.24.0）**：新增公开
   `Core.Gameplay.Loot.LootTableAnalyzer.ExpectedProbabilities(LootTableDef,
   LootAnalysisContext)`（掉落表期望概率分析），供编辑器"掉落与爆率编辑器"分组树右侧概率/期望
   数量列直接调用而不必复刻语义或做蒙特卡洛逼近；与真实抽取（`LootHost.Roll`）共用同一份条件
   筛选/权重归一实现，不改变任何抽取行为。详见
-  [消费方反馈-2026-09-11-编辑器-第35条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md)。
+  [消费方反馈-2026-09-11-编辑器-第35条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第35条.md)。
 - **消费方反馈第 37 条（1.26.0）**：`IDataRegistryView` 新增
   `GetReferenceDeclarations(): IReadOnlyList<ReferenceDeclaration>`（只读回吐经
   `IDataRegistry.DeclareReference` 声明的全部引用关系：源表/源字段/目标表/是否可选/登记来源），
   `IDataRegistry.DeclareReference` 新增带来源标注的重载；`toolchain/validator --list-tables
   --json` 新增 `reference_declarations` 导出；`SchemaAudit` 新增元数据门禁检查
   `declared_reference_unregistered`（告警级）。详见
-  [消费方反馈-2026-09-12-编辑器-第37条.md](architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md)。
+  [消费方反馈-2026-09-12-编辑器-第37条.md](docs/消费方反馈/消费方反馈-2026-09-12-编辑器-第37条.md)。
 - **消费方反馈第 38/39 条（1.26.1）**：`QuestContentValidationRule` 新增前置链循环检测
   `quest_prerequisite_cycle`/`quest_prerequisite_unknown`（阻断级，不新增公开 API，编辑器第 38
   条）；`dialog.story_tree.nodes[].performance_hook_ref`/`dialog.gossip_menu.options[].
   actions[]{kind=script}.ref`/`encounter.def.phases[].on_enter_hook`/`skill.def.
   effects[]{kind=script}.params.hook_id`/`area.trigger_def.params{trigger_type=script}.hook_id`
   五处字段补登 `SoftReferenceTable("found.hook")`（纯新增可选元数据，编辑器第 39 条）。详见
-  [消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
+  [消费方反馈-2026-09-13-编辑器-第38-39条.md](docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
 - **ADR-0029（1.27.0）**：`Core.Foundation.DataRegistry.SchemaMigrator` 公开静态类
   （`BuildChain`/`MigrateRow`/`MigrateEnvelope`），把此前只服务于加载期内部的迁移链串接逻辑收口
   为公开、单一来源的静态入口，并新增"整表迁移"（信封级，供内容工具写回磁盘前调用）；加载器新增
   信封级可选键 `migrated_from` 的形状校验；`toolchain/validator --list-tables --json` 每张表新增
   `schema_version`/`migrations` 导出。详见
   [ADR-0029](architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md)、
-  [消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)。
+  [消费方反馈-2026-09-13-编辑器-第40条.md](docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第40条.md)。
 - **消费方反馈第 41/42 条（1.28.0）**：`DataRegistryOptions` 新增 `WarnOnMissingTranslation`
   （默认 `true`）——`l10n.locale` 已登记的非默认语言下 `TextKey` 字段缺翻译，新增 Warning 级
   `text_key_exists`（消息附带回退链落点），默认语言缺失仍是 Error；`toolchain/validator` 新增
@@ -145,7 +145,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `toolchain/validate_data.py` 透传同名参数；`l10n.locale.fallback` 字段改登记为
   `FieldKind.Reference`（`--list-tables --json` 该字段 `kind` 由 `Id` 变为 `Reference`），指向
   未登记语言的坏数据从此在加载期即报 `reference_integrity` 错误。详见
-  [消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
+  [消费方反馈-2026-09-14-编辑器-第41-42条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
 - **消费方反馈第 43/44 条（1.29.0）**：`Presentation.Assembly.ContentValidationAssembly` 新增
   `OptionalRules`/`OptionalRuleDescriptor`/`TryGetOptionalRuleByCheck`（可选规则"规则名 ↔ 检查名"
   关联单一来源），`SpawnSummonOnlyCreatureRule`/`DisplayMapCoverageRule` 的 `CheckName` 常量随之
@@ -155,7 +155,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   默认禁用，比照 1.23.0 `DisplayMapCoverageRule` 先例），`DisabledOptionalRules`/
   `disabled_optional_rules` 默认恒为空（第 44 条根治）；示例数据集新增 `summon_only` 生物模板
   `creature.sample_summon_totem`。详见
-  [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
+  [消费方反馈-2026-09-14-编辑器-第43-44条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
 - **数值设计落地 T-N0-1（1.30.0）**：`FieldSchema` 新增可选 `Curve`/`WithCurve(CurveSchema)`
   （曲线形态标记：断点表 `{x, y}` + 横轴语义 / 二元饱和 `{k, cap}`，见 04 第 3.6 节），新增契约
   类型 `CurveSchema`/`CurveAxis`/`CurveShape` 与工厂 `CurveSchema.BreakpointsField`/`SaturationField`；
@@ -410,13 +410,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   `toolchain/README.md`），供消费方按数值域分组展示、按 `enabled` 判断"这条规则当前是否真的会产出
   问题"。均为纯新增公开类型/成员与纯新增 JSON 字段。
 - **数值设计落地阶段 N5 · T-N5-4（1.35.0，文档版本 v2.16）**：编辑器产品文档
-  （`editor/docs/编辑器产品文档.md`/`.html`）第 4.1 节补齐 T-N3-9/T-N2-4 落地的两个 Analyzer
+  （`docs/编辑器/编辑器产品文档.md`/`.html`）第 4.1 节补齐 T-N3-9/T-N2-4 落地的两个 Analyzer
   契约面（`SkillBudgetAnalyzer`/`EquipmentScoreAnalyzer`）与 T-N5-2/T-N5-3 落地的数值规则集中
   登记清单/`ExprReferenceCollector`；第 5.8 节新增"内容覆盖仿真离群值列表"行，标注依赖阶段 N6
   （`core/sim`）产出，当前仅为契约意向。纯文档变更，不涉及代码。HTML 版同步新增内容；HTML 自
   v2.6 起累积的历史缺口（v2.7～v2.15 期间第 4.1 节新增的其余契约面尚未回填 HTML）不在本条改动
   范围，已在 HTML 头部说明如实标注；该缺口已由 T-N5-5（同版本）回填，详见下方正文"文档"小节。
-- **消费方反馈第 45/46/47 条（1.38.0，[回复文档](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45-47条.md)）**：
+- **消费方反馈第 45/46/47 条（1.38.0，[回复文档](docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第45-47条.md)）**：
   第 45 条——`IDataRegistryView.TryGet`（带默认实现）、`Core.Foundation.DataRegistry
   .TolerantRegistryView`（`Wrap`/`IsDegraded`/`MissingTables`/`WasMissing`），
   `ItemBudgetCurve.BuildStatBudgetInfo`/`EquipmentScoreAnalyzer.Score`/`SkillBudgetAnalyzer
@@ -1804,7 +1804,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **消费方问询文档改写为通知文档**：原 `消费方问询-2026-09-20-第71条反问答复要求.md`
   发出后消费方一直未答复，设计层已通过 ADR-0046/ADR-0047 直接把契约定下来并落地，原问询的三个
   问题因此不再需要作答，继续留着会让消费方误以为还欠一份回复。已 `git mv` 改名为
-  [消费方通知-2026-09-20-校验报告消费契约.md](architecture/落地计划/消费方通知-2026-09-20-校验报告消费契约.md)
+  [消费方通知-2026-09-20-校验报告消费契约.md](docs/消费方反馈/消费方通知-2026-09-20-校验报告消费契约.md)
   并整篇改写为通知：一句话复述原诉求、逐条列出已定契约（日志文本不是契约的硬边界、同进程走
   `DataValidationFailedEvent.Issues`、跨进程走落盘出口、两条通道的 `issues[]` 字段形状与命令行
   `--json` 共用同一份序列化实现）、给消费方按"是否与宿主同进程"给出迁移选择建议，并明确原三个
@@ -1869,7 +1869,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - **消费方反馈处理记录（wow，交互/gossip/任务日志/NpcFlag/持久化/掉落RNG 七项核实，
   2026-09-20）**：新增
-  [消费方反馈-2026-09-20-wow-交互gossip任务日志掉落RNG.md](architecture/落地计划/消费方反馈-2026-09-20-wow-交互gossip任务日志掉落RNG.md)，
+  [消费方反馈-2026-09-20-wow-交互gossip任务日志掉落RNG.md](docs/消费方反馈/消费方反馈-2026-09-20-wow-交互gossip任务日志掉落RNG.md)，
   逐条核实消费方（`ws-game-wow`）2026-09-20 提交的反馈文档《交互/gossip/任务日志/NpcFlag/
   持久化注册策略/掉落RNG 共七项核实》：7 条候选反馈中 7 条成立或部分成立、1 条（候选 5（原稿）：
   持久化注册策略"两种并存"）经框架侧复核确认确实不成立，与消费方自查结论一致；已成立的 7 条中
@@ -1909,7 +1909,7 @@ out DataRecord)`（消费方反馈第 45 条，1.38.0 引入）返回值语义�
 断言反而从此前的"恒真摆设"变为真正有效）；`games/_template/Tests/Runtime/
 GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修复改用 `Get(...)` 返回值
 判空，不再依赖 `TryGet` 布尔值，不受本次修正影响。消费方通知文档：
-[消费方通知-2026-09-19-TryGet契约行为修正.md](architecture/落地计划/消费方通知-2026-09-19-TryGet契约行为修正.md)。
+[消费方通知-2026-09-19-TryGet契约行为修正.md](docs/消费方反馈/消费方通知-2026-09-19-TryGet契约行为修正.md)。
 
 ### 新增
 
@@ -1967,7 +1967,7 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
   `rule_execution_failed`（Error 级，携带规则名/异常类型名/异常消息，`DataFieldException` 类型的
   异常额外带上其自带的表/记录/字段定位），异常前该规则已产出的问题保留、其余规则照常跑完，最终
   产出完整报告、退出码回到正常的"校验失败"语义（1），不再是 CLR 崩溃码。详见
-  [消费方反馈-2026-09-19-编辑器-第73条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第73条.md)。
+  [消费方反馈-2026-09-19-编辑器-第73条.md](docs/消费方反馈/消费方反馈-2026-09-19-编辑器-第73条.md)。
 
 - **`SchemaMigrator.MigrateRow` 单行迁移执行期异常隔离（同源同构缺口根治，紧接上一条）**：
   第 73 条根治时扫出的同类未隔离点——`DataRegistry.LoadOneTablePartial` 逐行调用
@@ -2202,7 +2202,7 @@ GameTemplateResidentTests.cs` 两条 PlayMode 用例已在 1.45.0 随二次修�
 2/3，详见下方"新增"小节）；决策 5 另补了命令行开关命名约定（运行期宿主自身解析的开关走短横线
 全小写族，批处理构建工具解析的开关走驼峰族，禁止跨类别近似名）。消费方反馈第 67～72 条统一处理
 记录见
-[消费方反馈-2026-09-19-编辑器-第67-72条.md](architecture/落地计划/消费方反馈-2026-09-19-编辑器-第67-72条.md)。
+[消费方反馈-2026-09-19-编辑器-第67-72条.md](docs/消费方反馈/消费方反馈-2026-09-19-编辑器-第67-72条.md)。
 
 本版还随本分支一并落地三项非反馈单驱动的修复/增强：表现层诊断（`IPresentationDiagnostics`）
 转发到引擎控制台（含模板侧补线，详见下方"新增"小节）；纸娃娃层/方向档位资源加载完成后未回填
@@ -2315,7 +2315,7 @@ Unity 编译失败；② 第 68 条两条新增 PlayMode 用例覆盖根只放�
   `DataValidationFailedEvent` 不携带结构化问题列表——评估两种补结构化出口的方案后认为均需要新的
   对外契约承诺，未实现，反问草稿已并入下方统一回复文档。
 - 新增消费方反馈第 67～72 条统一回复文档
-  `architecture/落地计划/消费方反馈-2026-09-19-编辑器-第67-72条.md`：合并
+  `docs/消费方反馈/消费方反馈-2026-09-19-编辑器-第67-72条.md`：合并
   `design/0040-tooling-contract`（ADR-0040）、`feat/68-69-tooling-entries`（第 68、69 条）、
   `feat/70-72-tooling`/`feat/72-build-tests`（第 70、72 条及补测试）、`feat/67-71-contract-docs`
   （第 67、71 条）四条源分支的处理记录，并如实记录了独立验收发现的问题及后续处理结果——四条
@@ -2336,10 +2336,10 @@ Unity 编译失败；② 第 68 条两条新增 PlayMode 用例覆盖根只放�
   说明等待对象与时长的失败信息，不放宽/不删除原有断言。已扫查全部 37 个 PlayMode/EditMode 测试
   文件中涉及资源加载状态查询的用例，未发现其它同类隐性顺序依赖（其余用例均已用私有
   `UnityResourceLoader` 实例、专属资源引用字面量或已有轮询等待，详见
-  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训三/正面做法"
+  `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训三/正面做法"
   两节与包 README"PlayMode 用例写法约定"一节）。
 - **纸娃娃层/方向档位资源异步加载完成后未回填已渲染画面**（诊断记录
-  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"）：上面那条
+  `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"）：上面那条
   "改轮询等待"本身没有错，但等多久都通不过——真因是
   `Presentation.Common.ResourceReferenceTracker.EnsureLoading` 此前固定给
   `IResourceLoader.LoadAsync` 传空操作完成回调，`UnityRenderer2D.SetLayers` 只在调用当下同步
@@ -2355,7 +2355,7 @@ Unity 编译失败；② 第 68 条两条新增 PlayMode 用例覆盖根只放�
   ResourceReferenceTrackerTests.cs` 全新文件 6 例；`SpriteCharacterRigTests.cs`/
   `SpriteViewBaseTests.cs` 各新增覆盖成功回填/失败诊断/多层共享资源去重/销毁后不触发的用例）。
 - **`build.ps1` 静默同步陈旧核心 DLL 到 Unity 适配层包**（诊断记录见
-  `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训五"）：DLL
+  `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训五"）：DLL
   同步步骤固定读取默认构建输出路径（`<程序集目录>\bin\$Configuration\netstandard2.1\`），若按
   AGENTS.md §4 旧规则用 `--artifacts-path` 构建后再 `-SyncOnly`，同步的是默认路径下更早一次
   构建遗留的陈旧产物，此前只在源文件缺失时报错、陈旧但存在时无任何提示，曾造成连续三轮
@@ -2543,7 +2543,7 @@ Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity Play
 ### 迁移说明
 
 见上方"破坏性变更"小节的逐字段 before/after 表格；消费方通知文档：
-[消费方通知-2026-09-19-资源引用类别前缀契约变更.md](architecture/落地计划/消费方通知-2026-09-19-资源引用类别前缀契约变更.md)。
+[消费方通知-2026-09-19-资源引用类别前缀契约变更.md](docs/消费方反馈/消费方通知-2026-09-19-资源引用类别前缀契约变更.md)。
 
 ### 引擎适配层接线（ADR-0038 决策 8 第二项，本批提前落地）
 
@@ -2627,7 +2627,7 @@ Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity Play
 ## [1.43.0] - 2026-09-18
 
 消费方反馈第 62/63/64/65/66 条（见
-[消费方反馈-2026-09-18-编辑器-第62-66条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第62-66条.md)）。
+[消费方反馈-2026-09-18-编辑器-第62-66条.md](docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第62-66条.md)）。
 
 ### 新增
 
@@ -2687,7 +2687,7 @@ Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity Play
 ## [1.42.0] - 2026-09-18
 
 消费方反馈第 59/60/61 条与第 56 条追问（见
-[消费方反馈-2026-09-18-编辑器-第59-61条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第59-61条.md)）。
+[消费方反馈-2026-09-18-编辑器-第59-61条.md](docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第59-61条.md)）。
 
 ### 新增
 
@@ -2796,7 +2796,7 @@ Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity Play
 ## [1.41.0] - 2026-09-18
 
 编辑器上游反馈第 54～58 条（见
-[消费方反馈-2026-09-18-编辑器-第54-58条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md)，
+[消费方反馈-2026-09-18-编辑器-第54-58条.md](docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第54-58条.md)，
 第 55 条原分片文档已并入本文件同一份回复文档的第 55 条小节）。
 
 ### 新增
@@ -2846,7 +2846,7 @@ Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity Play
   （`FieldKind.Id`）不同——原因（天赋树节点 id 只在同一棵树内以字符串比较，运行时
   `ArchetypeRegistry.ParseTalentTree` 也只检查非空字符串）此前只写在代码注释，本次补进
   `core/numbers/archetype/README.md`/两处 `FieldSchema.Description`/
-  `editor/docs/编辑器产品文档.md`（`.html` 同步）。纯文档新增，不改 `FieldKind`、不改数据。
+  `docs/编辑器/编辑器产品文档.md`（`.html` 同步）。纯文档新增，不改 `FieldKind`、不改数据。
 
 ### 勘误
 
@@ -2892,8 +2892,8 @@ Unity 编译检查 PASS（19.2s）、Unity EditMode PASS（70/70）、Unity Play
 ## [1.40.0] - 2026-09-17
 
 编辑器上游反馈第 49～53 条（
-[消费方反馈-2026-09-17-编辑器-第49-51条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第49-51条.md)、
-[消费方反馈-2026-09-17-编辑器-第52-53条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第52-53条.md)）。
+[消费方反馈-2026-09-17-编辑器-第49-51条.md](docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第49-51条.md)、
+[消费方反馈-2026-09-17-编辑器-第52-53条.md](docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第52-53条.md)）。
 第 50 条（高优先级）：`FightRunner`/`ArenaSimulation`/`GrowthSimulation`/`CoverageSimulation`
 四个 `Run` 入口新增接受 `CancellationToken`/`IProgress<Core.Sim.SimProgress>` 的重载（新只读
 结构体 `SimProgress`：`Stage`/`Completed`/`Total`/`Detail`），取消抛 `OperationCanceledException`
@@ -3042,10 +3042,10 @@ side-effect-free、可在调用方不并发修改共享输入的前提下安全�
 ### 文档
 
 - 新建
-  [消费方反馈-2026-09-18-编辑器-第48条.md](architecture/落地计划/消费方反馈-2026-09-18-编辑器-第48条.md)。
+  [消费方反馈-2026-09-18-编辑器-第48条.md](docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第48条.md)。
 - `core/gameplay/loot/README.md` 新增"消费方反馈第 48 条判断记录"一节，并补一条"本次收口顺带修复
   既有缺陷"说明（`InclusionProbabilities` k>=n 快速路径零权重条目误报）。
-- `editor/docs/编辑器产品文档.md`/`.html`（v2.18）第 4.1 节新增一行契约面——"掉落品质/词缀/货币
+- `docs/编辑器/编辑器产品文档.md`/`.html`（v2.18）第 4.1 节新增一行契约面——"掉落品质/词缀/货币
   期望分布分析入口"（消费方反馈第 48 条）；变更记录表追加 v2.18 一行。
 
 ### 迁移说明
@@ -3125,8 +3125,8 @@ side-effect-free、可在调用方不并发修改共享输入的前提下安全�
 
 ### 文档
 
-- 新建 [消费方反馈-2026-09-17-编辑器-第45-47条.md](architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45-47条.md)。
-- `editor/docs/编辑器产品文档.md`/`.html`（v2.17）第 4.1 节新增两行契约面——"只读分析入口阻断态
+- 新建 [消费方反馈-2026-09-17-编辑器-第45-47条.md](docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第45-47条.md)。
+- `docs/编辑器/编辑器产品文档.md`/`.html`（v2.17）第 4.1 节新增两行契约面——"只读分析入口阻断态
   容错"（消费方反馈第 45 条）与"字段级 Id 语法与规则解析容错"（消费方反馈第 47 条）；变更记录表
   追加 v2.17（反馈 45）/v2.17（反馈 47）两行；现有 v2.17 行补充 `item.template.stat_roll_ref`
   收口说明；`TableSchema`/`FieldSchema` 一行描述追加 `deprecated_paths` 说明，变更记录表再追加
@@ -3626,7 +3626,7 @@ MINOR 版本：数值设计落地阶段 N6"数值仿真"（[数值设计分阶�
 - **`architecture/04_数据与内容管线.md`**：核对 §1.1 表清单 `sim.scenario`/`sim.anchor` 两行与
   §5 三条 sim 检查行——均已在 T-N6-2a 完整登记且与 `core/sim/schema/SimValidationRules.cs` 的
   检查名常量逐字一致，本任务核对后确认不需要改动。
-- **编辑器产品文档**（`editor/docs/编辑器产品文档.md`/`.html`）：第 4.1 节"数值规则集中登记清单
+- **编辑器产品文档**（`docs/编辑器/编辑器产品文档.md`/`.html`）：第 4.1 节"数值规则集中登记清单
   与校验报告分组"一行补一句说明——04 第 5 节分级表当前共 23 行（20 行数值域 + 3 行 T-N6-2a 新增
   的 `sim.anchor`/`sim.scenario` 表结构检查），后者按既定口径（04 表登记、`NumericValidationRule
   Catalog` 目录不收录）不计入本行所述的 20 行只读登记，编辑器如需展示 sim 域检查项目前需直接读
@@ -3713,7 +3713,7 @@ MINOR 版本：数值设计落地阶段 N5"校验全集与编辑器契约面"（
   表达式（Expr）字段中 `self.stat(<id>)`/`target.stat(<id>)` 引用。细节勘误，版本号不变。
 - **`architecture/落地计划/数值规则核对表-N5.md`**：内容已并入 `数值设计分阶段落地计划.md` 末节
   "落地进度记录"N5 记录；原文件保留作工作产物，头部加说明指向该节。
-- **编辑器产品文档**（`editor/docs/编辑器产品文档.md`/`.html`）：
+- **编辑器产品文档**（`docs/编辑器/编辑器产品文档.md`/`.html`）：
   - T-N5-4：第 4.1 节契约面清单新增三行——技能预算分析 `Core.Rules.Skill.SkillBudgetAnalyzer.
     Analyze`/`ComputeGrantValue`（[ADR-0031](architecture/adr/0031-技能数值契约与预算.md) 决策
     2，T-N3-9）、装备评分 `Core.Carriers.Item.EquipmentScoreAnalyzer.Score`/`Compare`
@@ -3732,7 +3732,7 @@ MINOR 版本：数值设计落地阶段 N5"校验全集与编辑器契约面"（
     5.7.5（schema 迁移改用 `SchemaMigrator.MigrateEnvelope`）/5.7.6（可选规则默认注册情况 +
     `OptionalRules`/`TryGetOptionalRuleByCheck`）/5.8（`ResolveTrace` 相关依据文案）六处 md 已
     更新但 HTML 未跟上的正文段，逐条对照 md 版对应版本的变更记录描述定位；`toolchain/tests/
-    test_editor_doc_consistency.py`（3 例）随之全绿。`editor/README.md` 版本号与说明同步更新。
+    test_editor_doc_consistency.py`（3 例）随之全绿。`docs/编辑器/README.md` 版本号与说明同步更新。
   - `CHANGELOG.md` 文首"编辑器相关契约"索引里 T-N5-2/3/4 三条已从 `（Unreleased）` 改标
     `（1.35.0）`，内容不变。
 
@@ -4713,7 +4713,7 @@ MINOR 版本：消费方反馈处理——问题面板"本条来自可选规则"
 `ICreatureTemplateQuery` 才注册、`toolchain/validator` 按既有设计从不接线该依赖、示例数据门禁
 因此从未真正跑过这条规则"是真实缺口而非可搁置的边界，决定比照 1.23.0 `DisplayMapCoverageRule`
 默认启用的先例一并根治。核实、逐条回复、根治追记见
-[消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
+[消费方反馈-2026-09-14-编辑器-第43-44条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第43-44条.md)。
 提交链：`d1787b9`（第 43 条：可选规则描述符）、`64f20d7`（第 44 条：示例数据补 summon_only 生物
 正例演示）、`ccd7c78`（回复文档 + 编辑器产品文档回填）、`e51d2d6`（第 44 条根治：
 `SpawnSummonOnlyCreatureRule` 改为默认接线）、`5a9dda6`（独立复核修正：两份 README 同步默认接线
@@ -4734,7 +4734,7 @@ MINOR 版本：消费方反馈处理——问题面板"本条来自可选规则"
   既有 `disabled_optional_rules`/`enabled_optional_rules` 之后追加
   `optional_rules: [{rule, check, enabled}]`（`rule`/`check` 直接来自 `OptionalRules`）。详见消费方
   反馈第 43 条，
-  [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)。【编辑器相关契约】
+  [消费方反馈-2026-09-14-编辑器-第43-44条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第43-44条.md)。【编辑器相关契约】
 - `Core.Carriers.Creature.RegistryCreatureTemplateQuery`（新增公开类型，实现
   `ICreatureTemplateQuery`）：构造参数 `IDataRegistryView view`，`Get`/`HasFlag` 直接从已加载的
   `view` 现读现解析 `creature.template` 记录（不像 `CreatureFactory` 那样在构造期预先解析出完整
@@ -4771,12 +4771,12 @@ MINOR 版本：消费方反馈处理——问题面板"本条来自可选规则"
   `SpawnSummonOnlyCreatureRule` 相关段落改写为默认接线行为。
 - **`data/README.md`**："creature 示例数据（summon_only 正例演示）"一节改写：`toolchain/validator`
   侧现同样会拦下（此前"无法演示"的既有边界已根治），补充新增 pytest 用例引用与行为变更提醒。
-- **`editor/docs/编辑器产品文档.md`**（v2.13 → v2.15）：第 4.4 节"校验装配入口"（签名示例注释、
+- **`docs/编辑器/编辑器产品文档.md`**（v2.13 → v2.15）：第 4.4 节"校验装配入口"（签名示例注释、
   正文段落）、第 5.7.6 节"校验覆盖矩阵与可选规则装配"表格行、第 5.9 节"游戏专属定制清单"附近
   "可选规则标注"一句，均按新行为改写；变更记录新增两行（v2.14 第 43/44 条落地、v2.15 第 44 条
   追加根治）。
 - 新增
-  [消费方反馈-2026-09-14-编辑器-第43-44条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md)：
+  [消费方反馈-2026-09-14-编辑器-第43-44条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第43-44条.md)：
   反馈复现、决策依据、处理方式、验证结果、对编辑器的使用建议，及追记（二次根治）说明。
 
 ### 迁移说明
@@ -4817,7 +4817,7 @@ MINOR 版本：消费方反馈处理——`text_key_exists` 此前只校验默�
 完全静默，编辑器本地化矩阵的 `HasMissing` 判定只能自行扫描 `l10n.text` 重新推断（编辑器第 42
 条）；框架示例数据集只有一种语言，编辑器无法用真实数据验证多语言/回退链/变量缺失路径（编辑器第
 41 条）。核实与逐条回复见
-[消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
+[消费方反馈-2026-09-14-编辑器-第41-42条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第41-42条.md)。
 独立复核通过后，整合 agent 另发现一处既有缺口一并收口：`l10n.locale.fallback` 登记为
 `FieldKind.Id`，指向未登记语言的坏数据加载期不拦，要到 `L10nHost` 构造期才抛异常；详见该文档末尾
 "复核附带收口"小节。
@@ -4857,10 +4857,10 @@ MINOR 版本：消费方反馈处理——`text_key_exists` 此前只校验默�
   检查项覆盖面补齐，不改变结论，不出 ADR）。
 - **`data/README.md`**：新增"l10n 示例数据（多语言/回退链/变量缺失演示）"一节，说明第二语言与
   两个演示键的用途。
-- **`editor/docs/编辑器产品文档.md`**（v2.12 → v2.13）：变更记录新增一行；第 5.5.8 节"本地化
+- **`docs/编辑器/编辑器产品文档.md`**（v2.12 → v2.13）：变更记录新增一行；第 5.5.8 节"本地化
   编辑器"补充"框架契约更新（消费方反馈第 42 条）"说明，建议矩阵 `HasMissing` 复用框架诊断。
 - 新增
-  [消费方反馈-2026-09-14-编辑器-第41-42条.md](architecture/落地计划/消费方反馈-2026-09-14-编辑器-第41-42条.md)：
+  [消费方反馈-2026-09-14-编辑器-第41-42条.md](docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第41-42条.md)：
   反馈复现、决策依据、处理方式、验证结果、对编辑器的使用建议，及复核附带收口说明。
 
 ### 迁移说明
@@ -4893,7 +4893,7 @@ MINOR 版本：消费方反馈处理——`text_key_exists` 此前只校验默�
 MINOR 版本：消费方反馈处理——数据注册表加载期内部私有的"迁移链串接"逻辑此前从未对外公开，内容
 工具（编辑器"执行迁移并写回磁盘"功能）被迫照着文字描述与框架源码自行复刻链选取语义与信封改写
 逻辑，且没有真实迁移用例可供端到端比对（编辑器第 40 条）；核实与逐条回复见
-[消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)、
+[消费方反馈-2026-09-13-编辑器-第40条.md](docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第40条.md)、
 [ADR-0029](architecture/adr/0029-迁移链串接与整表迁移纳入公开契约.md)。
 提交链：`4f11244`（公开 SchemaMigrator：迁移链串接 + 整表迁移）、`51955ca`（迁移链演示表 +
 `--list-tables --json` 导出 + `format_data.py` 根治）、`507eaa2`（ADR-0029 + 04/README/编辑器
@@ -4930,9 +4930,9 @@ MINOR 版本：消费方反馈处理——数据注册表加载期内部私有�
 - **04 数据与内容管线**：第 1.1 节总索引新增 `found.migration_sample` 一行；第 3 节字段表之后
   补充 `migrated_from` 的信封级语义说明；变更记录表 2026-09-13 第 40 条一行补上 ADR-0029 链接。
 - **`data/README.md`**：补充迁移链演示表的归属说明（示例数据目录，不随主分发包发布）。
-- **`editor/docs/编辑器产品文档.md`**（v2.11 → v2.12）：变更记录新增一行。
+- **`docs/编辑器/编辑器产品文档.md`**（v2.11 → v2.12）：变更记录新增一行。
 - 新增
-  [消费方反馈-2026-09-13-编辑器-第40条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md)：
+  [消费方反馈-2026-09-13-编辑器-第40条.md](docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第40条.md)：
   反馈复现、决策依据、处理方式、验证结果与对编辑器的使用建议。
 
 ### 迁移说明
@@ -4959,7 +4959,7 @@ MINOR 版本：消费方反馈处理——数据注册表加载期内部私有�
 
 PATCH 版本：消费方反馈处理——`quest.def.prerequisite` 前置链循环检测缺失（编辑器第 38 条）+
 `found.hook` 消费方字段引用元数据缺失（编辑器第 39 条），核实与逐条回复见
-[消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
+[消费方反馈-2026-09-13-编辑器-第38-39条.md](docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第38-39条.md)。
 提交链：`5e028fb`（第 38 条实现 + 测试）、`69ea8c6`（第 39 条实现 + 测试）、`d1fa3d2`（编辑器
 产品文档 + 回复文档），分支 `wax/editor38-39`，`--no-ff` 合入 `main` `6baa22c`、`13ef2f4`（合入后
 CHANGELOG/落地方案/回复文档回填 + `speaker_ref` 说明更正），本笔提交（变更记录与迁移说明）。
@@ -4994,11 +4994,11 @@ CHANGELOG/落地方案/回复文档回填 + `speaker_ref` 说明更正），本�
   schema/dialog.gossip_menu.md`、`core/gameplay/dialog/schema/dialog.story_tree.md`、
   `core/gameplay/encounter/schema/README.md`、`core/rules/skill/schema/README.md`）：五处字段
   描述改写为如实反映"`found.hook` 已登记 `TableSchema`，本字段补软引用"，不再出现过时表述。
-- **`editor/docs/编辑器产品文档.md`**（v2.9 → v2.11）：变更记录新增两行，4.1 节补充五处字段清单。
+- **`docs/编辑器/编辑器产品文档.md`**（v2.9 → v2.11）：变更记录新增两行，4.1 节补充五处字段清单。
 - **`dialog.story_tree.md` 判断记录 1**（合入后勘误，非本轮反馈范围）：`speaker_ref` 字段代码
   实际早已登记 `.WithSoftReference(table: "creature.template")`（消费方反馈第 30 条落地），文档
   仍写"不登记 Reference"、未提软引用，改为如实描述；只改文档不改代码。
-- 新增 [消费方反馈-2026-09-13-编辑器-第38-39条.md](architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md)：
+- 新增 [消费方反馈-2026-09-13-编辑器-第38-39条.md](docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第38-39条.md)：
   两条反馈的复现、根因、处理方式、验证结果。
 
 ### 迁移说明
@@ -5021,7 +5021,7 @@ CHANGELOG/落地方案/回复文档回填 + `speaker_ref` 说明更正），本�
 ## [1.26.0] - 2026-09-12
 
 MINOR 版本：消费方反馈处理——`declareReference` 登记可读回（编辑器第 37 条），核实与逐条回复见
-[消费方反馈-2026-09-12-编辑器-第37条.md](architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md)。
+[消费方反馈-2026-09-12-编辑器-第37条.md](docs/消费方反馈/消费方反馈-2026-09-12-编辑器-第37条.md)。
 提交链：`6d0ecbd`（实现 + 测试）、`baca53a`（文档 + 回复），分支 `wau/editor37`，`--no-ff` 合入
 `main` `95a7f79`、`84b3e46`（合入后 CHANGELOG/落地方案文档回填），本笔提交（1.26.0 变更记录与
 迁移说明）。
@@ -5032,7 +5032,7 @@ MINOR 版本：消费方反馈处理——`declareReference` 登记可读回（�
   （只读回吐经 `IDataRegistry.DeclareReference` 声明的全部引用关系：源表/源字段/目标表/是否
   可选/登记来源），`IDataRegistry.DeclareReference` 新增带来源标注的重载；`toolchain/validator
   --list-tables --json` 新增 `reference_declarations` 导出（见架构文档 04 第 4 节勘误、
-  `architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md`）——`declareReference` 登记
+  `docs/消费方反馈/消费方反馈-2026-09-12-编辑器-第37条.md`）——`declareReference` 登记
   此前只驱动加载期硬校验、没有公开读回方式，内容工具（引用图/影响分析）只能按值弱推断某字段
   是否是引用；新契约面均为带默认实现的接口成员/新增重载/新增只读导出字段，不破坏既有兼容
   调用。【编辑器相关契约】
@@ -5071,7 +5071,7 @@ MINOR 版本：消费方反馈处理——`declareReference` 登记可读回（�
 PATCH 版本：消费方反馈处理——进出战斗死亡复活通用能力（M-C11）——同图读档未同步空间索引、
 读档后 `CombatHost`/`PowerHost` 战斗态分歧、延迟复活 pending 队列未随读档/实体销毁/
 `WorldSim.ClearAll`/宿主释放失效，三项均已根治并补测试回归。核实与逐条回复见
-[消费方反馈-2026-09-11-读档空间索引与复活生命周期.md](architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md)。
+[消费方反馈-2026-09-11-读档空间索引与复活生命周期.md](docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md)。
 提交链：`d2e95d0`（实现 + `C11_LifecycleReloadTests.cs` 7 例）、`7aad3ec`（架构文档回填 +
 回复文档），分支 `was/c11-lifecycle`，`--no-ff` 合入 `main` `36453e4`、`0f4995c`（合入后
 CHANGELOG/落地方案/回复文档回填）、本笔提交（变更记录与迁移说明）。
@@ -5107,7 +5107,7 @@ CHANGELOG/落地方案/回复文档回填）、本笔提交（变更记录与迁
   运行期状态、再按段恢复）。
 - 四个模块 README（`core/carriers/unit`、`core/gameplay/assembly`、`core/gameplay/death`、
   `core/rules/combat`）补充本次新增公开成员的判断记录索引。
-- 新增 `architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md`：三项
+- 新增 `docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md`：三项
   问题的复现（含真实探针 FAIL 输出）、根因、处理方式、修复位置、复现前后对比、测试清单、
   新增公开成员清单（ABI 影响）、给消费方的兼容性提示。
 
@@ -5137,9 +5137,9 @@ CHANGELOG/落地方案/回复文档回填）、本笔提交（变更记录与迁
 ## [1.25.0] - 2026-09-11
 
 MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C10）第 1/2/3/4 节处理，核实与逐条回复见
-[消费方反馈-2026-09-11-技能位移连续模式.md](architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md)、
-[消费方反馈-2026-09-11-地面坐标施法.md](architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md)、
-[消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](architecture/落地计划/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
+[消费方反馈-2026-09-11-技能位移连续模式.md](docs/消费方反馈/消费方反馈-2026-09-11-技能位移连续模式.md)、
+[消费方反馈-2026-09-11-地面坐标施法.md](docs/消费方反馈/消费方反馈-2026-09-11-地面坐标施法.md)、
+[消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](docs/消费方反馈/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
 提交链：连续位移 `015e882`（ADR-0026 + 契约/schema）/`b65af95`（实现 + 46 例测试）/`2115ecc`
 （文档 + 回复），分支 `wao/continuous-move`，`--no-ff` 合入 `main` `f38dd14`；地面坐标施法
 `bc59d9a`（ADR-0027 + 契约/schema）/`d63dca3`（实现 + 验收测试）/`917452f`（文档 + 回复），
@@ -5158,7 +5158,7 @@ MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C
   接入 `core/carriers/unit` 的 `MovementHost`/`MovementTickHandler`）交给 L3 落地逐 tick 推进/
   阻挡裁决/终止条件（到达/受阻/控制打断/施法者死亡/显式 Stop）。详见
   [ADR-0026](architecture/adr/0026-技能位移的连续模式.md)、
-  [消费方反馈-2026-09-11-技能位移连续模式.md](architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md)。
+  [消费方反馈-2026-09-11-技能位移连续模式.md](docs/消费方反馈/消费方反馈-2026-09-11-技能位移连续模式.md)。
 - 新增独立施法入口 `ISkillHost.CastSkillAtGround`/`CastPipeline.CastSkillAtGround`，以显式世界
   坐标点（而非选中的单位列表）为落点，与既有 `CastSkill` 结构性互斥。新增 `skill.def.
   ground_target` 字段（缺省 `false`，`SkillDef.AllowGroundTarget`）门禁；射程/视线仅当
@@ -5168,7 +5168,7 @@ MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C
   （`AtRequest`/`AtRelease`），效果落地时改用新增的 `ITargetHost.ResolveAtPoint` 解析命中单位。
   `EffectContext`/`SkillCastStartEvent`/`SkillCastSuccessEvent` 各新增一个 `GroundPoint` 属性。
   详见 [ADR-0027](architecture/adr/0027-地面坐标施法请求.md)、
-  [消费方反馈-2026-09-11-地面坐标施法.md](architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md)。
+  [消费方反馈-2026-09-11-地面坐标施法.md](docs/消费方反馈/消费方反馈-2026-09-11-地面坐标施法.md)。
 - `projectile` 效果原语新增可选的敌友关系策略参数 `relation_policy`
   （`default|hostile_only|friendly_only|locked_target_only`，缺省 `default`）与 `pierce_order`
   （`nearest|hostile_first`，缺省 `nearest`），裁决优先级为"施法者排除 → 目标锁定 → 关系筛选 →
@@ -5179,7 +5179,7 @@ MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C
   LeaveMap` 既有出图收尾入口自动接线）。详见
   [ADR-0028](architecture/adr/0028-投射物碰撞的敌友关系策略.md)、
   `core/carriers/projectile/README.md`"敌友关系策略"一节、
-  [消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](architecture/落地计划/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
+  [消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md](docs/消费方反馈/消费方反馈-2026-09-11-投射物敌友策略与ActiveCount.md)。
 
 ### 迁移说明
 
@@ -5220,8 +5220,8 @@ MINOR 版本：消费方反馈"投射物与技能位移通用能力反馈"（M-C
 ## [1.24.0] - 2026-09-11
 
 MINOR 版本：消费方反馈第 35/36 条处理，核实与逐条回复见
-[消费方反馈-2026-09-11-编辑器-第35条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md)、
-[消费方反馈-2026-09-11-编辑器-第36条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第36条.md)。
+[消费方反馈-2026-09-11-编辑器-第35条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第35条.md)、
+[消费方反馈-2026-09-11-编辑器-第36条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第36条.md)。
 提交链：第 35 条 `cc59037`（纯函数收口）/`2e9bb6f`（分析器 + 测试）/`09a25fb`（文档 + 回复），
 分支 `wam/loot-analyzer`，`--no-ff` 合入 `main` `52bb607`；第 36 条 `17b9846`（根治代码 +
 测试）/`5b75876`（文档 + 回复），分支 `wal/growth-fix`，`--no-ff` 合入 `main` `15d0bcc`；
@@ -5234,7 +5234,7 @@ MINOR 版本：消费方反馈第 35/36 条处理，核实与逐条回复见
   unitId)`（C#8 默认接口方法，默认空操作，既有实现方零改动仍可编译）——按当前已注册等级重新
   聚合"2 级到当前等级"的曲线成长量并整体写回属性宿主，供调用方在把单位注册到某个 > 1 的起始
   等级之后一次性补写成长，与升级（`AddXp`）/读档恢复（`RestoreState`）共用同一份聚合逻辑。详见
-  [消费方反馈-2026-09-11-编辑器-第36条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第36条.md)。
+  [消费方反馈-2026-09-11-编辑器-第36条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第36条.md)。
 - `Core.Gameplay.Loot` 新增公开 `LootTableAnalyzer.ExpectedProbabilities(LootTableDef,
   LootAnalysisContext): IReadOnlyList<LootExpectedOutcome>`（掉落表期望概率分析），按叶子
   （嵌套 `loot.*` 展开后的 `item.*` 引用）聚合给出至少掉落一次的概率、期望数量、来源路径，与
@@ -5244,7 +5244,7 @@ MINOR 版本：消费方反馈第 35/36 条处理，核实与逐条回复见
   候选池时标注近似（`LootExpectedOutcome.IsApproximate`）。条件求值支持三种模式
   （`AssumeTrue`/`AssumeFalse`/按给定 `IExprHost` 求值）。不改变 `LootHost`/`LootTableDef`
   既有契约，不改变任何抽取行为。【编辑器相关契约】详见
-  [消费方反馈-2026-09-11-编辑器-第35条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第35条.md)。
+  [消费方反馈-2026-09-11-编辑器-第35条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第35条.md)。
 
 ### 修复
 
@@ -5254,7 +5254,7 @@ MINOR 版本：消费方反馈第 35/36 条处理，核实与逐条回复见
   恢复共用同一份聚合实现）以属性修正形式写入。出生等级 1（既有示例数据现状）的生物不受影响；
   已有存档不需要任何迁移（生物本身不逐个持久化，玩家出生等级恒为 1，历史存档从未落入本条缺陷
   窗口）。详见
-  [消费方反馈-2026-09-11-编辑器-第36条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第36条.md)。
+  [消费方反馈-2026-09-11-编辑器-第36条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第36条.md)。
 
 ### 迁移说明
 
@@ -5278,7 +5278,7 @@ MINOR 版本：消费方反馈第 35/36 条处理，核实与逐条回复见
 ## [1.23.0] - 2026-09-11
 
 MINOR 版本：消费方反馈第 30/32/33/34 条处理，核实与逐条回复见
-[消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
+[消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第30-32-33-34条.md)。
 提交链：`e11a55b`（第 30 条）、`8331310`（第 32 条，ADR-0025）、`7127bd5`（第 33 条）、
 `bbae580`（第 34 条）、`81f40c2`（回复文档），分支 `waj/editor5`，`--no-ff` 合入 `main`
 `a0623b2`；`e1fbeb2`（本版本变更记录与计划文档回填）。
@@ -5351,14 +5351,14 @@ MINOR 版本：消费方反馈处理——结算中间步骤经真实施法路�
 `ResolveTrace: Action<EffectContext, ResolveResult>?`（结算追踪回调），`Resolver.Resolve` 三条
 返回路径统一接入，供编辑器"右侧结算预览"/"简易战斗回放"直接订阅真实结算的分步中间值，不必自行
 复刻结算公式脱离真实施法路径单独计算。核实与逐条回复见
-[消费方反馈-2026-09-11-编辑器-第31条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md)。
+[消费方反馈-2026-09-11-编辑器-第31条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第31条.md)。
 提交链：`d5da983`（契约 + 实现 + 测试）、`bba9474`（06 勘误 + 判断记录 + 回复文档 + 编辑器
 产品文档 v2.7）、`49fabe5`（`--no-ff` 合入 `main`）。
 
 ### 新增
 
 - `CombatOptions` 新增可选 `ResolveTrace: Action<EffectContext, ResolveResult>?`（结算追踪
-  回调，见架构文档 06 第 4.1 节勘误、`architecture/落地计划/消费方反馈-2026-09-11-编辑器-
+  回调，见架构文档 06 第 4.1 节勘误、`docs/消费方反馈/消费方反馈-2026-09-11-编辑器-
   第31条.md`）——供内容工具/诊断消费方在结算管线（`Resolver.Resolve`）每次真实返回前（含
   判定步骤即终止的短路分支）获取本次 `EffectContext` 与完整 `ResolveResult`（含各步骤中间值
   `Steps`），覆盖技能瞬发/读条完成/引导 tick、光环周期效果、Proc 触发的嵌套施法、弹道命中后
@@ -5372,7 +5372,7 @@ MINOR 版本：消费方反馈处理——结算中间步骤经真实施法路�
   输出（含 `Steps`）交给该回调恰好一次，不改变固定步骤本身，未接入时零开销；变更记录新增一行。
 - `core/rules/combat/README.md`：判断记录 16——记录方案选型（三选一选方案 1 的理由）、落地路径
   覆盖清单、异常吞掉的诊断通道约定；目录树同步补充新增测试文件说明。
-- `editor/docs/编辑器产品文档.md`（v2.6 → v2.7）：第 4.1 节契约面清单补充 `ResolveTrace`
+- `docs/编辑器/编辑器产品文档.md`（v2.6 → v2.7）：第 4.1 节契约面清单补充 `ResolveTrace`
   签名与语义；第 5.5.2 节"右侧结算预览"、第 5.8 节"简易战斗回放"补充其实现直接订阅
   `ResolveTrace`、不必自行复刻结算公式的说明；变更记录新增 v2.7 条目。
 
@@ -5398,7 +5398,7 @@ PATCH 版本：消费方反馈处理——只读就绪查询影响后续充能�
 `IsSkillReady`/`GetCooldown`）不再惰性创建或修改充能账本；充能上限发生变化（`charges` 维度
 SpellMod 生效/失效）时，已存在账本的当前充能数按守恒规则跟随调整（提高同步增、降低夹取并按需清零
 恢复窗口），不再因"查没查询过一次"而产生分叉。核实与逐条回复见
-[消费方反馈-2026-09-11-充能查询副作用.md](architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md)。
+[消费方反馈-2026-09-11-充能查询副作用.md](docs/消费方反馈/消费方反馈-2026-09-11-充能查询副作用.md)。
 提交链：`2c16551`（`CooldownTracker` 修复 + 单元/集成测试）、`656588c`（06 第 3.5 节勘误 +
 判断记录 + 回复文档 + 落地方案登记）、本笔提交（变更记录与迁移说明）。
 
@@ -5414,7 +5414,7 @@ SpellMod 生效/失效）时，已存在账本的当前充能数按守恒规则�
   触达/推进账本前先对账，只读路径（`ComputeReadOnlySnapshot`）计算同一结果但不写回，保证查询
   是否发生过不影响后续原生施法的实际充能数与连续可施放次数。
   （消费方反馈处理，
-  [消费方反馈-2026-09-11-充能查询副作用.md](architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md)，
+  [消费方反馈-2026-09-11-充能查询副作用.md](docs/消费方反馈/消费方反馈-2026-09-11-充能查询副作用.md)，
   提交 `2c16551`）。
 
 ### 文档
@@ -5444,7 +5444,7 @@ MINOR 版本：消费方反馈处理——冷却充能与公共冷却缺少统�
 恢复剩余、技能冷却/分类冷却/公共冷却剩余、修饰后的有效值、按位标记的阻塞来源），裁决口径与
 `CastSkill` 施法管线步骤 3（冷却/充能）、步骤 4（公共冷却）一致；`CastSkill` 仍是唯一最终裁决。
 核实与逐条回复见
-[消费方反馈-2026-09-11-冷却充能只读查询.md](architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md)。
+[消费方反馈-2026-09-11-冷却充能只读查询.md](docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md)。
 提交链：`d4ed9cd`（契约 + 实现 + 验收测试）、`0e87e1a`（06 勘误 + 判断记录 + 回复文档）、
 `2b601b4`（`--no-ff` 合入 `main`）。
 
@@ -5495,7 +5495,7 @@ MINOR 版本：消费方反馈第 28/29 条（编辑器内容校验）落地—�
 （`AllowedValues`/`WithAllowedValues`）与软引用元数据（`SoftReferenceTable`/`SoftReferenceDomain`/
 `WithSoftReference`），`NpcFlagIds` 新增 `All`；07/06/04 文档同步 + 06 事件表字段语义勘误。核实与
 逐条回复见
-[消费方反馈-2026-09-11-编辑器-第28-29条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第28-29条.md)。
+[消费方反馈-2026-09-11-编辑器-第28-29条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第28-29条.md)。
 提交链：`92228d1`（`FieldSchema` 固定取值登记与软引用元数据）、`f940e47`（文档同步第 28/29 条）、
 `689d0e6`/`efafa91`（06 事件表字段语义勘误分支与 `--no-ff` 合入 `main`）、`4975e40`（变更记录）。
 
@@ -5536,7 +5536,7 @@ MINOR 版本：消费方反馈第 28/29 条（编辑器内容校验）落地—�
 - 06 事件表 `combat.damage_dealt` 行补充字段语义说明——`triggerChainDepth`（产生本次结算的
   `EffectContext.triggerChainDepth` 原样戳入）、`attackInstanceId`（同一次结算批次共用的攻击
   实例 id）两字段的含义解释，不改变已登记的字段列表与事件契约（`689d0e6`）。
-- `editor/docs/编辑器产品文档.md`（v2.6）契约面清单同步补充。
+- `docs/编辑器/编辑器产品文档.md`（v2.6）契约面清单同步补充。
 
 ### 迁移说明
 
@@ -5572,7 +5572,7 @@ CORE-118-CAST/PRES-118-SFX/PRES-118-VIEW/TOOL-118-ABI/TOOL-118-LOCK）与消费�
 成员转发门禁）。归档与核实表见
 [audit-d6fda65-20260911/](architecture/落地计划/audit-d6fda65-20260911/)、
 [followup-2026-09-11.md](architecture/落地计划/audit-d6fda65-20260911/followup-2026-09-11.md)、
-[消费方反馈-2026-09-11-编辑器-第27条.md](architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md)。
+[消费方反馈-2026-09-11-编辑器-第27条.md](docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md)。
 提交链：`907c15d`/`d40938c`（`ww/core18`：CORE-118-QUEST/CAST）、`003f73d`/`82cbad1`/`6a9b1cf`
 （`wx/pres18`：PRES-118-CAMERA/SFX/VIEW）、`349d484`（`wy/tool18`：TOOL-118-ABI/LOCK + 九类
 文档其余行）、`638d62e`/`b436226`/`aba64cd`（`wz/gridsnap`：格子吸附通用实现）、
@@ -5661,10 +5661,10 @@ CORE-118-CAST/PRES-118-SFX/PRES-118-VIEW/TOOL-118-ABI/TOOL-118-LOCK）与消费�
   `adr/0024` 一行。
 - 根 `README.md` 落地状态摘要：ATB 从"明确非目标"改列"延期/预留"；teleport 一行改为
   "`teleport_points` 引用目标完整性校验"（元素结构已登记，未提供的是跨表引用完整性检查）。
-- `editor/docs/编辑器产品文档.html` 版本头/变更记录表/第 4.1 节契约面清单表按 md 版（v2.5）同步
+- `docs/编辑器/编辑器产品文档.html` 版本头/变更记录表/第 4.1 节契约面清单表按 md 版（v2.5）同步
   补齐 `Range`/`field_meta`（`group`/`unit`/`reference_table`/`reference_domain`/`free_ids`/
   `map_key`/`map_value`）/`TryGetAll`/`TryQuery`/`OverrideDiagnostic` 新字段/`ExprNode`/
-  `ExprIssue` 区间/`KnownKeys`/`KnownGroups` 等新契约；`editor/README.md` 版本号同步至 v2.5 并
+  `ExprIssue` 区间/`KnownKeys`/`KnownGroups` 等新契约；`docs/编辑器/README.md` 版本号同步至 v2.5 并
   注明 HTML 由 md 手工同步生成（仓库内无自动转换脚本）。
 - `architecture/14_资产规格书模板.md`"基础架构提供 / 游戏层提供"表导入工具责任行改为"通用实现是
   框架交付物，游戏负责具体资源/参数/阈值/专属扩展"，按 ADR-0014 与当前 `toolchain/` 落地状态更正
@@ -5725,10 +5725,10 @@ CORE-118-CAST/PRES-118-SFX/PRES-118-VIEW/TOOL-118-ABI/TOOL-118-LOCK）与消费�
 MINOR 版本：编辑器相关契约新增（ADR-0024 动态键映射登记、消费方反馈第三批第 21 条 + 第四批第
 24/25/26 条）+ 施法生命周期事件新增实例标识与失败原因码 + 读条完成当帧新冷却被提前推进的时序
 修复 + 06 §8 事件词汇表勘误。核实与逐条回复见
-[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+[消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)
 第 21 条、
-[消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)、
-[消费方反馈-2026-09-10-施法时序与实例标识.md](architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md)。
+[消费方反馈-2026-09-10-编辑器-第四批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第四批.md)、
+[消费方反馈-2026-09-10-施法时序与实例标识.md](docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md)。
 提交链：`dd2fdec`/`9a57361`/`f8ffc3d`（ws/adr24：ADR-0024 新增 + 第二批 18 字段登记 + 文档
 对齐）、`9b3fcbd`/`6d76569`（wt/editor4：第四批第 25/26 条根治 + 文档同步）、`f6d99dd`/
 `75b3f41`/`37ca21b`（wu/cast17：读条完成新冷却提前推进根治 + `CastInstanceId` + 文档）、
@@ -5744,18 +5744,18 @@ MINOR 版本：编辑器相关契约新增（ADR-0024 动态键映射登记、�
   `map_key`（键约束）/`map_value`（值种类）。18 个此前退化为 JSON 子编辑的字段中 12 个改用
   `Map` 登记、1 个改用既有 `Item` 登记（`Array<String>`），元数据门禁白名单从 20 条收敛到 7
   条。详见
-  [消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+  [消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)
   第 21 条。
 - **消费方反馈第四批第 26 条**：`RecordExprMapping`/`RecordExprMapping.ToExprValueKind(FieldKind)`
   （字段种类 → Expr 标量类型的映射函数，驱动 `RecordExprSchema.For` 的 `self.<field>` 自动
   登记）由框架内部实现放宽为 `public static`，供编辑器等消费方直接复用同一份映射规则。详见
-  [消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)。
+  [消费方反馈-2026-09-10-编辑器-第四批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第四批.md)。
 - **施法生命周期事件实例标识（消费方反馈"施法时序与实例标识"）**：`SkillCastStartEvent`/
   `SkillCastSuccessEvent`/`SkillCastFailedEvent`/`SkillCastInterruptedEvent` 新增只读属性
   `CastInstanceId`（与 `CastResult.CastInstanceId` 同一枚 id）及对应构造重载，用于跨事件关联
   同一次施法请求的完整生命周期；新增失败原因码 `CastFailureReason.QueueCleared`（法术队列请求
   被新请求覆盖、或所在读条/引导被打断清空时发出）。详见
-  [消费方反馈-2026-09-10-施法时序与实例标识.md](architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md)。
+  [消费方反馈-2026-09-10-施法时序与实例标识.md](docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md)。
 
 ### 修复
 
@@ -5763,12 +5763,12 @@ MINOR 版本：编辑器相关契约新增（ADR-0024 动态键映射登记、�
   `RecordExprSchema.For(TableSchema)`）不再把 `FieldKind.Expr` 字段注册为 `self.<field>` 引用
   ——该字段种类的值是待求值的表达式文本，没有明确取值语义，此前误按 `String` 注册；改为与
   `IdList`/`Vec2`/`Object`/`Array` 同等对待，不登记。全仓 grep 确认无真实使用者受影响。详见
-  [消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)。
+  [消费方反馈-2026-09-10-编辑器-第四批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第四批.md)。
 - **读条/引导完成当帧新冷却被提前推进**：`SkillHost.Update`（连续模式）此前"结算触发"与"冷却
   等既有计时器统一推进"共用同一次调用、且结算触发在前，导致同一完成时刻新创建的计时状态
   （冷却/公共冷却/充能恢复窗口/光环持续时间与周期累加器）被同一个 `dt` 二次扣减；改为先推进
   既有计时器、再处理结算触发，GCD/充能/光环同类问题一并修复。详见
-  [消费方反馈-2026-09-10-施法时序与实例标识.md](architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md)。
+  [消费方反馈-2026-09-10-施法时序与实例标识.md](docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md)。
 
 ### 文档与门禁
 
@@ -5814,8 +5814,8 @@ MINOR 版本：编辑器相关契约新增（ADR-0024 动态键映射登记、�
 MINOR 版本：编辑器相关契约新增（消费方反馈第三批 18/19/20/22/23 条）+ 框架数据/持久化合同修复
 （外部深度审核第十九方 V-01/V-02/V-03 + 消费方反馈"同一光环多个 Proc 触发器"）+ ABI 工具门禁补强
 （ABI-1162-01）+ 五处文档勘误（DOC-162-01～05）。核实与逐条回复见
-[消费方反馈-2026-09-10-多Proc触发器.md](architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md)、
-[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)、
+[消费方反馈-2026-09-10-多Proc触发器.md](docs/消费方反馈/消费方反馈-2026-09-10-多Proc触发器.md)、
+[消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)、
 [architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md](architecture/落地计划/audit-4faab73-20260910/followup-2026-09-10d.md)。
 提交链：`5ef4128`/`e103f18`（多 Proc 触发器修复与文档）、`f6f8c15`/`44f320d`（wo/core17：
 V-01/V-02/V-03 + DOC-162-01/05）、`f602c8c`（wp/tool17：ABI-1162-01 + DOC-162-02/03/04 + 归档）、
@@ -5830,9 +5830,9 @@ V-01/V-02/V-03 + DOC-162-01/05）、`f602c8c`（wp/tool17：ABI-1162-01 + DOC-16
   `OverrideDiagnostic` 新增 `OverridingRootIndex`/`OverriddenRootIndex`/
   `OverridingRelativePath`/`OverriddenRelativePath`。
 - **ADR-0024 + 第 21/25/26 条（1.18.0，消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+  [消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)
   第 21 条、
-  [消费方反馈-2026-09-10-编辑器-第四批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第四批.md)）**：
+  [消费方反馈-2026-09-10-编辑器-第四批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第四批.md)）**：
   `FieldSchema` 新增 `Map`（动态键映射子结构登记，与 `Fields`/`Variants` 并列，`MapSchema`
   契约类型）；`toolchain/validator --list-tables --json` 每个顶层字段的 `field_meta` 新增
   `map_key`/`map_value`；18 个此前退化为 JSON 子编辑的字段中 12 个改用 `Map` 登记、1 个改用
@@ -5854,7 +5854,7 @@ V-01/V-02/V-03 + DOC-162-01/05）、`f602c8c`（wp/tool17：ABI-1162-01 + DOC-16
 落地，其中至少 3 个字段（`arch.class.base_stats`/`arch.race.stat_mods`/
 `creature.template.base_stats`）需要先给 `FieldSchema` 设计一种当前不支持的"动态键 Map"登记
 形态，建议单独立项，见
-[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+[消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)
 第 21 条。
 
 ### 修复
@@ -5954,7 +5954,7 @@ DLL 实跑通过，独立的公开 API 表面差异比对（`toolchain/abi_surfa
 对照 1.12.0 基线运行时真实拦下了这 7 处（7 个构造函数）破坏，本版本据此没有直接发布这个实现，
 而是改为给每个类新增一个真正独立的重载构造（既有构造物理签名完全不动）——`abi_probe.ps1` 复跑
 `breaks=0` 后才采用这个形态发布，见
-[消费方反馈-2026-09-10-编辑器-第三批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md)
+[消费方反馈-2026-09-10-编辑器-第三批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md)
 第 19 条"踩坑记录"。
 
 ## [1.16.2] - 2026-09-10
@@ -6018,7 +6018,7 @@ F-01/F-02/F-03）、`a6702c0`（工具链与文档：ABI-116-01 + DOC-116-01～0
   改写措辞，`AuraHost.cs`/`SkillOptions.cs`/`SkillValidationRules.cs`/两份模块 README 同步对齐；
   跨定义共享叠加槽位列入落地方案"能力边界与未默认接入能力索引"表"未提供"分类。不改变任何运行时
   算法与公开签名，消费方复核见
-  [消费方反馈-2026-09-10-光环叠加类别.md](architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md)（提交 `d7a300f`/`8dc7008`）。
+  [消费方反馈-2026-09-10-光环叠加类别.md](docs/消费方反馈/消费方反馈-2026-09-10-光环叠加类别.md)（提交 `d7a300f`/`8dc7008`）。
 
 ### 迁移说明
 
@@ -6038,7 +6038,7 @@ F-01/F-02/F-03）、`a6702c0`（工具链与文档：ABI-116-01 + DOC-116-01～0
 ## [1.16.1] - 2026-09-10
 
 消费方（内容编辑器项目）反馈第二批第 17 条根治，另含 ADR-0022 文档事实勘误；核实与逐条回复见
-`architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md` 第 17 条。提交 `0364cce`（代码与
+`docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md` 第 17 条。提交 `0364cce`（代码与
 测试）、`2de351d`（文档与变更记录）、`0ee0bbe`（ADR-0022 勘误）。
 
 ### 修复
@@ -6047,7 +6047,7 @@ F-01/F-02/F-03）、`a6702c0`（工具链与文档：ABI-116-01 + DOC-116-01～0
   `EnsureReadable`）；`IDataRegistryView` 新增默认成员 `TryGetRecordCount(out int count)`
   （阻断态返回 `false` 而不抛异常）；`ContentValidationAssembly.Run` 去掉靠事件订阅拿计数的旁路，
   统一改用 `registry.RecordCount`，与 `CreateRegistry`+`Reload` 路径口径一致（消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
+  [消费方反馈-2026-09-10-编辑器-第二批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md)
   第 17 条，提交 `0364cce`/`2de351d`）：【编辑器相关契约】见上方索引"第 17 条修复（1.16.1）"一行。
 
 ### 文档
@@ -6071,14 +6071,14 @@ F-01/F-02/F-03）、`a6702c0`（工具链与文档：ABI-116-01 + DOC-116-01～0
 
 消费方（内容编辑器项目）反馈处理，[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)
 （登记表补充导航与编辑元数据）与 XML 文档注释修复均在本版本收口；核实与逐条回复见
-`architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md`。提交 `53b2e90`/`ad84a2f`/
+`docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md`。提交 `53b2e90`/`ad84a2f`/
 `74cff87`/`5688c4b`（ADR-0022 落地）、`ab4d42c`（XML 文档注释修复）。
 
 ### 新增
 
 - 登记表补充导航与编辑元数据（[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)，
   消费方反馈处理，
-  [消费方反馈-2026-09-10-编辑器-第二批.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md)
+  [消费方反馈-2026-09-10-编辑器-第二批.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md)
   第 12～16 条，提交 `53b2e90`/`ad84a2f`）：【编辑器相关契约】
   - `TableSchema` 新增只读属性 `Layer`/`Module`/`Domain`/`TimeScope` 与 `WithOwnership`/
     `WithDomain`/`WithTimeScope` 链式登记方法；全部 63 张已登记表填齐 `Layer`/`Module`，
@@ -6105,7 +6105,7 @@ F-01/F-02/F-03）、`a6702c0`（工具链与文档：ABI-116-01 + DOC-116-01～0
 ### 文档与门禁
 
 - 新增文档：[ADR-0022](architecture/adr/0022-登记表补充导航与编辑元数据.md)、
-  `architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md`（消费方反馈第 12～16 条逐条回复，
+  `docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md`（消费方反馈第 12～16 条逐条回复，
   提交 `74cff87`）。
 - 顶部"编辑器相关契约"索引：ADR-0022 条目版本标注由"下一版本"改为"1.16.0"（详见文首索引小节，
   与本版本正式发布对齐）。
@@ -6223,7 +6223,7 @@ MINOR。
   - 归档、核实表与逐项判断/修复位置/验收见
     `architecture/落地计划/audit-76d16a5-20260910/followup-2026-09-10b.md`。
 - 消费方（内容编辑器项目）反馈处理，逐条现象/根因/处理方式/验证结果见
-  [消费方反馈-2026-09-10-编辑器.md](architecture/落地计划/消费方反馈-2026-09-10-编辑器.md)：
+  [消费方反馈-2026-09-10-编辑器.md](docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md)：
   - **E1**：`toolchain/validator` 现场编译受消费方 `Directory.Build.props` 影响导致校验失败——
     Release 现附带预编译的 `validator/bin/`（附隔离用的空 `Directory.Build.props`），
     `validate_data.py` 改为优先执行预编译产物，找不到才退回现场编译，提交 `dc6e2e5`。
@@ -6254,12 +6254,12 @@ MINOR。
     `toolchain/format_data.py --schema-order[--check]`，对 `data/_sample` 6 个文件重排并纳入
     `check.ps1` 门禁，提交 `3deba37`。
   - 逐条复现、根因、验证结果与迁移提示见
-    `architecture/落地计划/消费方反馈-2026-09-10-编辑器.md`（该文档本身提交 `f3f2d20`）。
+    `docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md`（该文档本身提交 `f3f2d20`）。
 
 ### 文档与门禁
 
-- 新增文档：`architecture/落地计划/消费方反馈-2026-09-10-编辑器.md`（E1～E11 逐条归档，提交
-  `f3f2d20`）、`architecture/落地计划/消费方反馈-2026-09-10-技能效果参数范围.md`（ADR-0021 消费方
+- 新增文档：`docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md`（E1～E11 逐条归档，提交
+  `f3f2d20`）、`docs/消费方反馈/消费方反馈-2026-09-10-技能效果参数范围.md`（ADR-0021 消费方
   反馈归档）、[ADR-0020](architecture/adr/0020-表达式词法器纳入公开契约.md)、
   [ADR-0021](architecture/adr/0021-字段登记表纳入数值范围约束.md)、
   `architecture/落地计划/audit-76d16a5-20260910/followup-2026-09-10b.md`（第十五轮审核核实表）。
@@ -6457,7 +6457,7 @@ L0/L5 登记，首批登记范围收口（`e50339a`）；ADR-0018 决策 3 F2 �
   模板到游戏仓库；12 第 2 节新增原语审批流程"再改注册表"一步补充同时登记该原语的变体子结构。
 - `architecture/落地计划/落地方案与分阶段计划.md` 3.5 节"四条消费通道"表新增"无头适配层与校
   验装配入口"一行，3.5.1 节补一句"三个包"归属未决说明。
-- `editor/docs/编辑器产品文档.md` 升级 v2 → v2.1：全文 ADR-0018/0019 引用由"草案，待拍板"改为
+- `docs/编辑器/编辑器产品文档.md` 升级 v2 → v2.1：全文 ADR-0018/0019 引用由"草案，待拍板"改为
   正式链接，附录 F 等处措辞同步改为已拍板。
 - `architecture/04_数据与内容管线.md` 勘误（F1a 落地对齐，版本号不变）：3.2 节示例改正为真实
   `{kind, params: {...}}` 形状，补充 `CommonFields`、惰性递归中立记法、递归深度上限与"分层边界"
@@ -6472,7 +6472,7 @@ L0/L5 登记，首批登记范围收口（`e50339a`）；ADR-0018 决策 3 F2 �
   新增 `adapters/headless/README.md`（zip 通道说明文档源文件）。根 `README.md`、
   `toolchain/README.md`（validator 一节）、`data/README.md`（"与校验器的关系"一节）、
   `toolchain/registry/README.md`、`presentation/assembly/README.md`（新增"校验装配入口"一节）
-  同步更新。`editor/docs/编辑器产品文档.md` 第 4.3 节状态改"已落地（1.13.0 起）"、第 4.4 节状态
+  同步更新。`docs/编辑器/编辑器产品文档.md` 第 4.3 节状态改"已落地（1.13.0 起）"、第 4.4 节状态
   改"已落地"（仅改状态句，html 版本本轮未重生成，待下次文档转换一并同步）。
 
 ### 新增

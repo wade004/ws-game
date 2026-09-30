@@ -7,7 +7,7 @@ namespace Tests.Gameplay.Quest
 {
     /// <summary>
     /// 消费方反馈第 38 条验收（2026-09-13，见
-    /// architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md）：
+    /// docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第38-39条.md）：
     /// <c>QuestContentValidationRule</c> 新增 <c>quest_prerequisite_cycle</c>（前置链成环，含自环）与
     /// <c>quest_prerequisite_unknown</c>（前置引用了不存在的任务）两项检查。全部用例经正式
     /// <see cref="ContentValidationAssembly.Run"/> 默认参数装配（真实装配路径，不是手工拼

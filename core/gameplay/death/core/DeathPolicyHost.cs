@@ -91,7 +91,7 @@ namespace Core.Gameplay.Death
 
             _unitDiedSubscription = _bus.Subscribe<UnitDiedEvent>(RulesEventKeys.UnitDied, OnUnitDied);
 
-            // C11-CLEANUP 根治新增（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活
+            // C11-CLEANUP 根治新增（docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活
             // 生命周期.md 第 3 项）：订阅 entity.destroyed，任一 pending 复活记录对应的单位被销毁
             // （含 IWorldSim.ClearAll——见该方法判断记录"按 EntityId 序数顺序 Enqueue 全部实体各一次
             // entity.destroyed"）时立即摘除对应记录，见 OnEntityDestroyedForPending 判断记录。本订阅

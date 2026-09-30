@@ -1,6 +1,6 @@
 """``toolchain/get_framework.ps1`` 内联的 ``Get-Sha256FileHash`` 函数体与
 ``toolchain/_hash.ps1`` 原版保持一致的静态回归测试（消费方反馈 E2 根治，2026-09-10，见
-architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E2）。
+docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2）。
 
 背景：``get_framework.ps1`` 此前 dot-source 同目录 ``_hash.ps1`` 加载 ``Get-Sha256FileHash``
 共享函数——但游戏仓库侧引用本脚本的典型方式是"只下载 get_framework.ps1 单个文件"（GitHub Release

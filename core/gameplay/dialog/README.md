@@ -110,7 +110,7 @@ dialog/
    `schema/dialog.story_tree.md` 各自"子结构登记表（ADR-0019 / F1b）"一节。
 
 9. **消费方反馈第 56～58 条（2026-09-18）**（详见
-   `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+   `docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
    - 新增 `story_tree_node_unreachable`（Warning，`NonEscalatable`）：从运行时实际入口
      `nodes[0]`（`StoryTreeDefinition.FirstNode`/`DialogHost.StartStory`，起点定义以运行时为准）
      出发不可达的节点。内部复用新增的公开图分析入口

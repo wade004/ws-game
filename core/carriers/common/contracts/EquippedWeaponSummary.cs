@@ -5,7 +5,7 @@ using Core.Foundation.Common;
 namespace Core.Carriers.Common
 {
     /// <summary>
-    /// 消费方反馈第 52 条（<c>architecture/落地计划/消费方反馈-2026-09-17-编辑器-第52-53条.md</c>）：
+    /// 消费方反馈第 52 条（<c>docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第52-53条.md</c>）：
     /// 把一个已装备 <see cref="ItemInstance"/> 的身份字段（模板/品质/词缀）原样重排为"武器摘要三元组"
     /// ——纯搬运、不计算数值（同 <see cref="ItemInstance"/> 顶部判断记录"物品实例只存身份……不存任何
     /// 算出的属性数值"的口径），供下游消费方（如编辑器结算预览 <c>SettlementPreviewRequest.CasterWeapon

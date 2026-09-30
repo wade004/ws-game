@@ -219,7 +219,7 @@ quest/
     签名不变，仅内部开始真正使用既有参数）。
 
 15. **消费方反馈第 54/56/57 条（2026-09-18）**（详见
-    `architecture/落地计划/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
+    `docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第54-58条.md`）：
     - **第 54 条**：新增公开静态入口 `QuestReferenceExtractor.ExtractReferencedQuestIds(string
       prerequisiteExprText, IExprSchema? schema = null) : IReadOnlyList<Id>`（
       `core/gameplay/quest/contracts/QuestReferenceExtractor.cs`），提取 `prerequisite` 里引用的

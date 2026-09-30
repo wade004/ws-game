@@ -901,7 +901,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：显式声明为类
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：显式声明为类
         /// 公开成员（同签名的公开属性，不是 <c>IDataRegistryView.RecordCount =></c> 形式的显式接口
         /// 实现）——按 C# 8+ 默认接口成员规则，实现类提供的同签名公开成员会覆盖接口默认实现，
         /// 无论调用方以 <see cref="DataRegistry"/> 具体类型还是以 <see cref="IDataRegistryView"/>/
@@ -960,7 +960,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第三批第 20 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：阻断态下的
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：阻断态下的
         /// 内容工具只读通道——显式接口实现（<c>bool IDataRegistryView.TryGetAll(...)</c> 语法，
         /// 不是同签名公开成员），刻意不出现在 <see cref="DataRegistry"/> 的公开类型表面上，只能
         /// 通过 <see cref="IDataRegistryView"/> 接口引用调用，呼应任务书"仅供内容工具使用"的定位——

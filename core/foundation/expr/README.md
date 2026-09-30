@@ -145,7 +145,7 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
    同时不禁止"和分组同名的 Id 字面量"这种合法用法。
 
    判断记录（消费方反馈 E6 根治，2026-09-10，见
-   architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E6）：上一段"忘了登记"的唯一消除方式
+   docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E6）：上一段"忘了登记"的唯一消除方式
    此前只有"把这个 Id 本身也登记进 schema 的签名表"一种（见
    `ExprAdr0015Tests.SuspiciousReferenceSpelling_NotReported_WhenGroupKeyIsRegistered`），对
    "该 Id 正被用作某个已登记引用的实参、且那个实参位置的静态期望类型本来就是 `Id`"这一同样合法、

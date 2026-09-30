@@ -6,7 +6,7 @@ namespace Tests.Foundation.Expr
 {
     /// <summary>
     /// 消费方反馈第三批第 18 条（2026-09-10，见
-    /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 18 条）：
+    /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 18 条）：
     /// <see cref="IExprSchema.KnownKeys(string)"/>/<see cref="IExprSchema.KnownGroups"/>。
     /// </summary>
     public class ExprSchemaKnownKeysTests

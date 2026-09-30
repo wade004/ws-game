@@ -9,7 +9,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary>
     /// 消费方反馈 2026-09-10"同一光环多个 Proc 触发器静默忽略问题"验收（见
-    /// architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md，消费方证据目录
+    /// docs/消费方反馈/消费方反馈-2026-09-10-多Proc触发器.md，消费方证据目录
     /// <c>ws-game-wow/docs/框架反馈/证据/c07-multiple-proc-1.15.0-20260910/</c>，命名前缀 C07
     /// 取自该证据目录）。
     /// <para>

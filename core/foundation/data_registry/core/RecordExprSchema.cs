@@ -61,7 +61,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：<paramref name="group"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md）：<paramref name="group"/>
         /// 为 <see cref="ExprGroups.Self"/> 时返回 <see cref="For"/> 登记过的全部字段名（按序号
         /// Ordinal 排序，确定性；与 <see cref="ExprSchema.KnownKeys"/> 同一份判断记录），其它分组
         /// 本类型从不登记（见 <see cref="TryGetSignature"/>），返回空集合。</summary>

@@ -63,7 +63,7 @@ namespace Core.Foundation.DataRegistry
         private FieldGroup? _group;
 
         /// <summary>ADR-0022（04 第 3.4 节"字段分组元数据"）：字段语义分组，供编辑器表单视图折叠/
-        /// 排序（<c>editor/docs/编辑器产品文档.md</c> 5.4.1 节）。未经 <see cref="WithGroup"/> 显式
+        /// 排序（<c>docs/编辑器/编辑器产品文档.md</c> 5.4.1 节）。未经 <see cref="WithGroup"/> 显式
         /// 登记时，按 <see cref="FieldGroup"/> 类型判断记录所述规则计算默认值——见
         /// <see cref="DefaultGroup"/>。</summary>
         public FieldGroup Group => _group ?? DefaultGroup;

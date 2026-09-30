@@ -5,7 +5,7 @@ namespace Tests.Foundation.Expr
 {
     /// <summary>
     /// <see cref="ExprLexer"/> 公开契约回归测试（消费方反馈 E5 根治，ADR-0020：词法切分入口纳入
-    /// 公开契约，2026-09-10，见 architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E5）。覆盖
+    /// 公开契约，2026-09-10，见 docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E5）。覆盖
     /// 各 token 种类、<see cref="ExprToken.Start"/>/<see cref="ExprToken.Length"/> 位置区间、
     /// 非法字符/未闭合字符串报错位置与 <see cref="ExprParser.Parse"/> 对同一输入的报错位置一致。
     /// </summary>

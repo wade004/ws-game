@@ -354,7 +354,7 @@ namespace Presentation.Assembly
             var report = registry.LoadAll(sources);
 
             // 判断记录（消费方反馈第 17 条根治，2026-09-10，取代原 E10 处理方式；见
-            // architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：此前阻断态下
+            // docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：此前阻断态下
             // IDataRegistryView.RecordCount 默认实现仍按 Tables/GetAll 求和，GetAll 阻断态会抛异常
             // （IDataRegistryView.GetAll 契约），Run 只能另开一条订阅 data.load_completed 事件的旁路
             // 规避。DataRegistry.RecordCount 现在显式覆盖为直接读内部按表合并去重后的记录快照

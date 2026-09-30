@@ -49,7 +49,7 @@ namespace Core.Gameplay.Quest
     /// <c>QuestSchemas.RewardsFields</c> 未登记该子字段）——<c>reward_world_flag_value_required</c>。</item>
     /// <item>
     /// 消费方反馈第 38 条（2026-09-13，见
-    /// architecture/落地计划/消费方反馈-2026-09-13-编辑器-第38-39条.md）：<c>prerequisite</c> 里
+    /// docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第38-39条.md）：<c>prerequisite</c> 里
     /// <c>quest.*</c> 引用（<c>is_active</c>/<c>is_completed</c>/<c>is_available</c>/
     /// <c>is_objectives_complete</c>/<c>objective_progress</c>，见
     /// <see cref="QuestExprSchemaEntries.RegisterInto"/>）引用的任务 id 若不存在于

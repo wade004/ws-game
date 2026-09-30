@@ -116,7 +116,7 @@ namespace Core.Gameplay.Quest
 
             /// <summary>
             /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
-            /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：<c>event</c> 分组
+            /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md）：<c>event</c> 分组
             /// 恒放行、不存在"已登记 key 集合"（见 <see cref="TryGetSignature"/> 与
             /// <see cref="BuildParsingSchema"/> 判断记录——事件字段由内容自由定义，本类型从不登记
             /// 任何具体 <c>event.*</c> 签名，因此没有"该分组下已知 key 有哪些"这个问题的答案，

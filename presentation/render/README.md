@@ -307,7 +307,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     的外观状态"这一具体能力，不知道、也不需要知道自己何时被谁调用。
 
 20. **资源加载完成后回填已渲染层**（诊断记录
-    `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"根治，取代
+    `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"根治，取代
     此前"首次引用未加载完成的资源→落地占位方块→此后再没有机制刷新"的结构性缺口）：
     `SpriteCharacterRig.ComposeAndApplyLayers`/`SpriteViewBase.RebuildEquippedLayers` 调用
     `ResourceReferenceTracker.EnsureLoading` 时统一传入 `SpriteCharacterRig.

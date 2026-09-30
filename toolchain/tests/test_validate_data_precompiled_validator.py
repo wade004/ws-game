@@ -1,6 +1,6 @@
 """``toolchain/validate_data.py`` 第二道校验优先使用预编译 ``validator/bin/Validator.dll`` 的
 调度逻辑回归测试（消费方反馈 E1 根治，2026-09-10，见
-``architecture/落地计划/消费方反馈-2026-09-10-编辑器.md`` E1）。
+``docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md`` E1）。
 
 背景：``validate_data.py`` 此前一律用 ``dotnet run --project toolchain/validator`` 现场编译
 第二道校验。若 ``toolchain/`` 目录（源码仓库内、或消费方解压出的 dist zip/UPM 包）落在消费方仓库

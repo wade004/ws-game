@@ -1,6 +1,6 @@
 """``SpawnSummonOnlyCreatureRule`` 默认接线端到端回归测试（消费方反馈第 44 条根治，2026-09-14，
 比照消费方反馈第 34 条 ``DisplayMapCoverageRule`` 先例，见
-``architecture/落地计划/消费方反馈-2026-09-14-编辑器-第43-44条.md``）。
+``docs/消费方反馈/消费方反馈-2026-09-14-编辑器-第43-44条.md``）。
 
 背景：此前 ``toolchain/validator``（一次性命令行进程）从不为
 ``Presentation.Assembly.ContentValidationOptions.CreatureTemplateQuery`` 传参，

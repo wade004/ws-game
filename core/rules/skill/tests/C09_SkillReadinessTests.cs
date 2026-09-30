@@ -18,7 +18,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary>
     /// 消费方反馈 2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"验收（见
-    /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md，消费方反馈原文
+    /// docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md，消费方反馈原文
     /// <c>ws-game-wow/docs/框架反馈/冷却充能与公共冷却缺少统一只读查询接口.md</c>，命名前缀 C09
     /// 沿用本模块既有验收测试惯例——见 <c>C07_MultipleProcTriggersTests</c>）。
     /// <para>

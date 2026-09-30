@@ -142,7 +142,7 @@ namespace Adapter.Unity.Tests.Runtime
             var endX = bootstrap.World!.GetEntity(bootstrap.PlayerId)!.Position.X;
             Assert.Greater(endX, startX, "向 +X 方向持续提交移动意图后，玩家世界坐标 x 应当增大");
 
-            // 判断记录（2026-09-19 隐性顺序依赖根治，见 architecture/落地计划/
+            // 判断记录（2026-09-19 隐性顺序依赖根治，见 docs/复盘/
             // 排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md"正面做法"一节）：侧向方向档位的层
             // 资源 Id 按 SpriteViewBase.ResolveLayerResourceId 的命名规则把方向档位编码进资源 Id 本身
             // （"layer.{spriteSetName}__{directionSlotName}__{layerName}"），front 与 side_r 是两个

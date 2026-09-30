@@ -17,7 +17,7 @@ using Xunit;
 namespace Tests.Rules.Skill
 {
     /// <summary>
-    /// ADR-0027《地面坐标施法请求》验收（见 architecture/落地计划/消费方反馈-2026-09-11-地面坐标施法.md）：
+    /// ADR-0027《地面坐标施法请求》验收（见 docs/消费方反馈/消费方反馈-2026-09-11-地面坐标施法.md）：
     /// 命名前缀 C10b 沿用本模块既有验收测试惯例（<see cref="C10_ResolveTraceTests"/> 已用 C10），本文件
     /// 按任务书要求经真实 <see cref="RulesAssembly"/> 装配根 + 真实 <see cref="Core.Rules.Skill.SkillHost.CastSkillAtGround"/>
     /// 端到端验证；<see cref="ISpatialQuery"/>/<see cref="INavigation2D"/> 均为带墙的可配置桩实现（见

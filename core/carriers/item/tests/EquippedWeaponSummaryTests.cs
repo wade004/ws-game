@@ -10,7 +10,7 @@ using Xunit;
 namespace Tests.Carriers.Item
 {
     /// <summary>
-    /// 消费方反馈第 52 条（<c>architecture/落地计划/消费方反馈-2026-09-17-编辑器-第52-53条.md</c>）：
+    /// 消费方反馈第 52 条（<c>docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第52-53条.md</c>）：
     /// <see cref="EquipmentHost.GetEquippedWeaponSummary"/>/<see
     /// cref="EquipmentHost.GetAllEquippedWeaponSummaries"/> 与 <see cref="EquippedWeaponSummary"/> 的
     /// 落地验收——输出须与消费方此前自建适配层手工搬运 <c>ItemInstance.TemplateId</c>/<c>Quality</c>/

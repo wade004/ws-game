@@ -1,5 +1,5 @@
 """``toolchain/unity_test_triage.py`` 回归测试（排查复盘 2026-09-15 落地，见
-``architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md``）。
+``docs/复盘/排查复盘-2026-09-15-PlayMode-PRES180.md``）。
 
 核心场景（本文件最重要的一条用例 ``test_last_exception_overridden_by_first_assertion``）：
 用内嵌的最小 NUnit3 结果 XML + Unity 日志夹具，还原本次复盘的真实机制——窗口内先出现

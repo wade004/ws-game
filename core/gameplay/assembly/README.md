@@ -387,7 +387,7 @@ assembly/
     不叠加。测试：`core/gameplay/assembly/tests/CORE_110_FollowupAuditTests.cs`。
 
 14. **C11-RELOAD/C11-PENDING-LOAD 根治（2026-09-11，消费方反馈第 C11 项，基线 1.22.0，
-    architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：读档"恢复顺序与
+    docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：读档"恢复顺序与
     一致性契约"（10 第 3 节）在装配根的落点**——真实探针复现三处读档一致性缺口，均发生在
     "各段自己的字段被 `Load` 正确写回"与"依赖该字段的运行期派生结构同步"这两件事之间：
     - **位置**：`RegisterPersistables` 里的 `UnitPersistable.CurrentPosition` 改传新增的

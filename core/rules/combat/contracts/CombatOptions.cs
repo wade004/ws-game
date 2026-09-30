@@ -128,7 +128,7 @@ namespace Core.Rules.Combat
 
         /// <summary>
         /// 结算追踪回调（消费方反馈 2026-09-11 编辑器第 31 条，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md"方案 1"）：仅供内容工具/
+        /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第31条.md"方案 1"）：仅供内容工具/
         /// 诊断消费，不改变结算管线本身。<see cref="Resolver.Resolve"/> 是全部伤害/治疗效果原语
         /// （<c>school_damage</c>/<c>weapon_damage_pct</c>/<c>heal</c>）落地的唯一出口（见
         /// <c>core/rules/skill/core/EffectDispatcher.ApplyDamageOrHeal</c> 恒调用

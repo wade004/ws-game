@@ -178,7 +178,7 @@ combat/
     变更记录。
 
 16. **`CombatOptions.ResolveTrace`：结算追踪回调（消费方反馈 2026-09-11 编辑器第 31 条，见
-    `architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md`"方案 1"）**：消费方内容编辑器
+    `docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第31条.md`"方案 1"）**：消费方内容编辑器
     反馈"结算中间步骤经真实施法路径不可观测"——`ResolveResult.Steps` 总是被计算，但
     `CastPipeline.ExecuteEffectsOnly` 丢弃了 `ApplyEffect` 的返回值，落地事件
     （`CombatDamageDealtEvent`/`CombatHealDoneEvent`）也不携带分步明细，导致内容工具无法按 06
@@ -203,7 +203,7 @@ combat/
     两条跨路径不变量）。
 
 17. **C11-RELOAD 根治新增 `ClearCombatState`/`RestoreCombatState`（2026-09-11，消费方反馈第 C11
-    项，基线 1.22.0，architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：
+    项，基线 1.22.0，docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md）：
     `CombatHost` 自身的 `_inCombat` 字典是"是否在战"的唯一来源，读档场景需要一个绕开事件总线、
     直接把这份状态与 `IPowerHost` 同步的入口**——真实探针复现：`player.vitals` 段
     （`Core.Gameplay.Assembly.PlayerVitalsPersistable`）此前恢复 `in_combat` 时直接调用

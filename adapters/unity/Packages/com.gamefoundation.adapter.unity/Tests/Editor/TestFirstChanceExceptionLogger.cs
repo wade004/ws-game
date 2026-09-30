@@ -7,7 +7,7 @@
 // 记录（含最初按 AppDomain.FirstChanceException 实现、2026-09-15 实测证伪该方案在本仓库
 // Unity 6000.3.23f1 Mono 运行时完全不触发、改为本文件现在的"用例边界 + Application.
 // logMessageReceivedThreaded"设计的完整过程），均见 Runtime 版文件头注释与
-// architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md。
+// docs/复盘/排查复盘-2026-09-15-PlayMode-PRES180.md。
 using NUnit.Framework.Interfaces;
 using UnityEngine;
 using UnityEngine.TestRunner;

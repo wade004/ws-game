@@ -27,7 +27,7 @@ namespace Core.Foundation.Expr
     {
         /// <summary>
         /// 消费方反馈第三批第 19 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：该节点在源文本里
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 19 条）：该节点在源文本里
         /// 的起始字符偏移（0 基，与 <see cref="ExprToken.Start"/>/<see cref="ExprParseException.Position"/>
         /// 同一套坐标系）。<c>-1</c> 表示未知——本类型的既有构造方式（不传位置信息，供既有测试与
         /// 除 <see cref="ExprParser"/> 之外的调用方直接手写语法树时使用）都落在这个默认值上；只有

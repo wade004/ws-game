@@ -51,7 +51,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第 40 条（2026-09-13，见
-        /// <c>architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md</c>）迁移链演示表：框架内
+        /// <c>docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第40条.md</c>）迁移链演示表：框架内
         /// 唯一真正声明并使用了 <see cref="TableMigration"/> 的登记表，没有任何运行时消费方——只用于
         /// 让内容工具/编辑器用真实数据（<c>data/_sample/found/found.migration_sample.json</c>，
         /// <c>schema_version: 1</c>）验证"迁移链串接 + 整表迁移"复刻实现是否与框架行为一致，不必再像

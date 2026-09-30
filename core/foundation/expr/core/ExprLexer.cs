@@ -6,7 +6,7 @@ namespace Core.Foundation.Expr
 {
     /// <summary>
     /// Expr 词法 token 的种类（消费方反馈 E5 根治，ADR-0020：词法切分入口纳入公开契约，
-    /// 2026-09-10，见 architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E5）：随
+    /// 2026-09-10，见 docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E5）：随
     /// <see cref="ExprToken"/>/<see cref="ExprLexer"/> 一并从 <c>internal</c> 转为公开——此前
     /// 只有 <see cref="ExprParser"/> 内部消费，语法高亮等编辑器工具拿不到 token 种类/位置信息，
     /// 只能自己另写一套词法规则，与解析器实际认得的语法必然逐渐漂移（关键字集合、转义规则、点分
@@ -85,7 +85,7 @@ namespace Core.Foundation.Expr
     /// 单遍扫描字符数组。
     /// <para>
     /// 判断记录（消费方反馈 E5 根治，ADR-0020：词法切分入口纳入公开契约，2026-09-10，见
-    /// architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E5）：本类型与
+    /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E5）：本类型与
     /// <see cref="ExprToken"/>/<see cref="ExprTokenKind"/> 一并从 <c>internal</c> 改为
     /// <c>public</c>，成为 <c>core/foundation/expr</c> 公开契约面的一部分——<see cref="Tokenize"/>
     /// 是 Expr 解析器契约新增的公开词法切分入口，与 <see cref="ExprParser.Parse"/> 共用同一套词法

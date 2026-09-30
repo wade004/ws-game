@@ -106,7 +106,7 @@ namespace Core.Rules.Common
 
         /// <summary>
         /// 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议，证据 c08-cast-event-contract，
-        /// 见 architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md）根治：本次施法请求的
+        /// 见 docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md）根治：本次施法请求的
         /// 稳定实例 id，与 <see cref="Core.Rules.Common.CastResult.CastInstanceId"/> 是同一个值（见
         /// <c>CastPipeline.NextCastInstanceId</c> 判断记录"身份规则"）——校验通过、进入排队或立即
         /// 开始时分配，本事件与随后的 <see cref="SkillCastSuccessEvent"/>/<see cref="SkillCastInterruptedEvent"/>

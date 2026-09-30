@@ -110,7 +110,7 @@ namespace Core.Gameplay.Assembly
         }
 
         /// <summary>
-        /// C11-RELOAD 根治新增重载（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活
+        /// C11-RELOAD 根治新增重载（docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活
         /// 生命周期.md 第 2 项）：额外注入 <see cref="CombatHost"/>——<see cref="Load"/> 恢复
         /// <c>in_combat</c> 字段时改经 <see cref="CombatHost.RestoreCombatState"/>（唯一来源，见该
         /// 方法判断记录），不再直接调用 <see cref="IPowerHost.SetInCombat"/>：直接调用只会改到

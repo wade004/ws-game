@@ -42,7 +42,7 @@ namespace Core.Foundation.Expr
 
         /// <summary>
         /// 判断记录（消费方反馈 E6 根治，2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E6）：<paramref name="suppressSuspiciousIdWarning"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E6）：<paramref name="suppressSuspiciousIdWarning"/>
         /// 只在 <see cref="ValidateReference"/> 处理某个参数位置、且该位置按已登记签名期望类型
         /// 恰好是 <see cref="ExprValueKind.Id"/> 时才会传 <c>true</c>（见该方法判断记录），其余
         /// 全部调用点维持默认的 <c>false</c>（行为与改动前完全一致）。

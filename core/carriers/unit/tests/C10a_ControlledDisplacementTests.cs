@@ -18,7 +18,7 @@ namespace Tests.Carriers.Unit
     /// 由 <c>core/rules/skill/tests/C10a_ContinuousMoveDispatchTests.cs</c> 覆盖；端到端的真实技能
     /// 施法见 <c>core/carriers/assembly/tests/C10a_ContinuousMoveEndToEndTests.cs</c>）。
     /// <para>
-    /// 消费方反馈最小场景复现（<c>architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md</c>、
+    /// 消费方反馈最小场景复现（<c>docs/消费方反馈/消费方反馈-2026-09-11-技能位移连续模式.md</c>、
     /// M-C10 反馈第 1 节）：目标在墙前 <c>(1,0)</c>，static leap 到 <c>(3,0)</c>，墙 <c>x=1.5..2</c>——
     /// 瞬移模式下终点直接跳变；<see cref="Blocking_Stop_StopsBeforeWall_MatchesFeedbackMinimalScenario"/>/
     /// <see cref="Blocking_Revert_ReturnsToOrigin_SameFeedbackScenario"/> 两例用同一坐标验证连续模式。

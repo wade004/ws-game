@@ -1,5 +1,5 @@
 """``toolchain/get_framework.ps1 -WithSamples`` 回归测试（消费方反馈 E4 根治，2026-09-10，见
-architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E4）。
+docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E4）。
 
 背景：主 zip（``ws-game-<ver>.zip``）从不带 ``data/_sample``、``assets/_sample``——那是本仓库自测
 用的验收数据集，不代表任何真实游戏内容，因此不随 ``-Dist`` 打进 ``dist/<ver>/`` 快照。消费方反馈：

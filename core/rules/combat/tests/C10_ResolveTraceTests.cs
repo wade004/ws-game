@@ -8,7 +8,7 @@ namespace Tests.Rules.Combat
 {
     /// <summary>
     /// 消费方反馈 2026-09-11"编辑器第 31 条：结算中间步骤经真实施法路径不可观测"验收（见
-    /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第31条.md"方案 1"，命名前缀 C10 延续本
+    /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第31条.md"方案 1"，命名前缀 C10 延续本
     /// 仓库既有验收测试惯例——见 <c>core/rules/skill/tests/C07_MultipleProcTriggersTests.cs</c>/
     /// <c>C09_SkillReadinessTests.cs</c>）。
     /// <para>

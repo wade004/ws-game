@@ -462,7 +462,7 @@ skill/
     `CreatureUnit.Immunities` 的 `effect.<kind>` 写法均按 (学派, 效果原语类型) 泛化定义（见 06 第
     3.3 节勘误，2026-09-10），此前 `interrupt`/`dispel`/`energize`/`teleport`/`move` 等分支从未
     查询过免疫，导致打断免疫等标记对这些效果原语完全不生效（外部消费方复现，详见
-    `architecture/落地计划/消费方反馈-2026-09-10-打断免疫.md`）。免疫命中时直接返回
+    `docs/消费方反馈/消费方反馈-2026-09-10-打断免疫.md`）。免疫命中时直接返回
     `immune: true` 的 `ResolveResult`（沿用伤害/治疗分支既有的返回形状），不进入具体分支、不产生
     该效果的任何事件/状态变化——含 `interrupt` 命中免疫时不触发学派锁定（锁定是"成功打断"的连带
     后果，免疫拦截下这次打断本身没有发生）。例外：`EffectKind.ApplyAura` 不纳入本统一判定，`AuraHost.ApplyAura`
@@ -494,11 +494,11 @@ skill/
     `AuraHost.cs`/`SkillOptions.cs`/`SkillValidationRules.cs`/`schema/README.md` 的措辞；新增
     验收测试见 `tests/ADR0023_StackCategoryStaticGroupingTests.cs`（覆盖静态校验允许同类别一致
     形态、运行时同类别不同定义各自独立叠加、溢出策略只影响命中定义、`AllowMultiSourceTiming`
-    开关下 `sourceKey` 分槽/不分槽四条场景，详见 `architecture/落地计划/消费方反馈-2026-09-10-光环叠加类别.md`）。
+    开关下 `sourceKey` 分槽/不分槽四条场景，详见 `docs/消费方反馈/消费方反馈-2026-09-10-光环叠加类别.md`）。
 
 42. **同一光环多个 `proc_trigger` 各自独立生效，此前实现按单值字段处理是缺陷（消费方 2026-09-10
     反馈"同一光环多个 Proc 触发器静默忽略问题"，见
-    `architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md`）**：消费方反馈复现，
+    `docs/消费方反馈/消费方反馈-2026-09-10-多Proc触发器.md`）**：消费方反馈复现，
     `skill.aura_def.effects` 登记两个 `proc_trigger` 效果条目（各自引用不同的 `skill.proc_def`）
     加载校验通过，但运行期只有 `effects` 数组里最后一条真正生效——根因是 `AuraInstanceState`
     此前只有单值 `Id? ProcDefRef`，`ApplyStaticEffects` 遍历同一光环定义的多个 `proc_trigger`
@@ -529,7 +529,7 @@ skill/
 
 43. **读条完成当帧新创建的冷却被同一 `dt` 二次扣减（消费方 2026-09-10 反馈"读条完成当帧新冷却
     被提前推进问题"，见
-    `architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md`）**：消费方复现
+    `docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md`）**：消费方复现
     `cast_time=0.5`、`cooldown_duration=1` 的技能，恰好在读条完成的那次 `Update(dt)` 调用内，
     新开启的冷却剩余没有显示满额 `1`，而是按当次推进被拆成几段而不同（单步 `Update(0.5)` 剩
     `0.5`；两步 `[0.25,0.25]` 剩 `0.75`；三步 `[0.25,0.125,0.125]` 剩 `0.875`；瞬发同次调用
@@ -620,7 +620,7 @@ skill/
     私有方法）。ABI 探针 breaks=0。
 
 46. **冷却/充能/公共冷却统一只读查询接口（消费方反馈 2026-09-11"冷却充能与公共冷却缺少统一只读
-    查询接口"，见 `architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md`，06 第 3.1/3.6/7
+    查询接口"，见 `docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md`，06 第 3.1/3.6/7
     节同批勘误）：此前 `ISkillHost.GetCooldown` 是消费方唯一的间接查询出口——不区分究竟是技能自身
     冷却、分类冷却还是充能未恢复，不呈现当前充能数、下次充能恢复剩余、公共冷却是否生效、修饰后的
     完整周期，消费方只能靠反复调用 `GetCooldown` + 自行拼凑猜测。新增 `SkillReadiness`（不可变值
@@ -659,7 +659,7 @@ skill/
     基线 1.12.0）breaks=0。
 
 47. **P2 根治（消费方反馈 2026-09-11"只读就绪查询影响后续充能状态"，见
-    `architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md`，06 第 3.5 节同批勘误）：
+    `docs/消费方反馈/消费方反馈-2026-09-11-充能查询副作用.md`，06 第 3.5 节同批勘误）：
     充能只读查询不得产生状态、`charges` 维度有效上限变化的守恒规则**：条目 46 新增的
     `GetSkillReadiness` 只读接口投入使用后，消费方复现出一处与"只读查询"契约相反的可观测副作用
     ——`CooldownTracker.GetCharges(unitId, def)`/`GetChargeRechargeRemaining` 等只读方法此前经
@@ -1452,7 +1452,7 @@ skill/
 
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
-消费方反馈"连续技能位移"（`architecture/落地计划/消费方反馈-2026-09-11-技能位移连续模式.md`）：
+消费方反馈"连续技能位移"（`docs/消费方反馈/消费方反馈-2026-09-11-技能位移连续模式.md`）：
 `EffectDispatcher.ApplyMove` 的三种子类型（`charge`/`leap`/`knockback`）只做一次性 `SetPosition`，
 没有连续路径采样/碰撞裁决。新增可选参数 `motion`（`instant`，缺省，原有语义；`continuous`）——
 判断记录（命名不复用既有 `mode` 字段）：`mode` 早已表示子类型取值集合

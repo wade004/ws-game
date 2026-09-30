@@ -9,7 +9,7 @@ namespace Tests.Foundation.Data
 {
     /// <summary>
     /// 消费方反馈第 40 条（2026-09-13）：<see cref="SchemaMigrator"/> 三个公开静态方法的单元测试，见
-    /// <c>architecture/落地计划/消费方反馈-2026-09-13-编辑器-第40条.md</c>。<see cref="DataRegistry"/>
+    /// <c>docs/消费方反馈/消费方反馈-2026-09-13-编辑器-第40条.md</c>。<see cref="DataRegistry"/>
     /// 侧"加载器接受信封级可选键 migrated_from"、演示表 <c>found.migration_sample</c> 的真实加载行为、
     /// 与"加载器结果 == MigrateEnvelope 后再加载的结果"一致性用例，见本文件末尾几个测试方法。
     /// </summary>

@@ -26,7 +26,7 @@ namespace Toolchain.Validator
     /// <c>--data-root</c> 也归一化为单元素列表——消费方反馈 E1 根治，cref 此前未指定参数列表，与
     /// 同名的无参重载 <see cref="DataRegistry.LoadAll()"/> 产生 CS0419 歧义警告，消费方
     /// <c>Directory.Build.props</c> 若设置 <c>TreatWarningsAsErrors=true</c> 会被提升为编译错误，
-    /// 见 architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1），逐条打印校验问题。
+    /// 见 docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E1），逐条打印校验问题。
     /// <para>
     /// 判断记录：本类是唯一的真实校验逻辑实现——<c>toolchain/validate_data.py</c> 只做骨架级
     /// 信封/表名/id 格式检查（阶段 0），不得与本类重复实现任何字段级/引用完整性/Expr 规则（落地
@@ -345,7 +345,7 @@ namespace Toolchain.Validator
                     foreach (var diag in overrides.OrderBy(d => d.Table, StringComparer.Ordinal).ThenBy(d => d.RecordKey, StringComparer.Ordinal))
                     {
                         // 消费方反馈第三批第 22 条（2026-09-10，见
-                        // architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：
+                        // docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 22 条）：
                         // 人类可读文本改用"根序号 + 相对路径"，比完整绝对路径更短、跨机器可比对；
                         // 绝对路径仍随 --json 一并给出（见 AppendOverrideJson）。
                         Console.WriteLine($"  [override] {diag.Table}[{diag.RecordKey}]: " +
@@ -464,7 +464,7 @@ namespace Toolchain.Validator
 
         /// <summary>
         /// 消费方反馈第三批第 23 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 23 条）：<paramref name="schemas"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 23 条）：<paramref name="schemas"/>
         /// 新增输出到 <c>--json</c> 的 <c>table_names</c> 字段——本次已注册的全部表名（与
         /// <c>SchemaAudit.EnumerateRegisteredSchemas</c> 同一份快照，纯增量字段，不影响既有消费方
         /// 已在用的 <c>tables</c>/<c>fields</c>/<c>errors</c>/<c>warnings</c>/<c>blocking</c>/<c>issues</c>
@@ -616,7 +616,7 @@ namespace Toolchain.Validator
                     sb.Append(',');
                     sb.Append("\"time_scope\":\"").Append(JsonEscape((ownerSchema?.TimeScope ?? TimeScope.None).ToString())).Append("\",");
                     // 判断记录（消费方反馈 E11 根治，2026-09-10，见
-                    // architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E11）：追加顶层字段的
+                    // docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E11）：追加顶层字段的
                     // 登记顺序（TableSchema.Fields，构造时的登记顺序，见该类型注释）——
                     // toolchain/format_data.py --schema-order 靠这份顺序把示例数据记录字段重排成
                     // 与 schema 声明一致，不需要新增一个独立的验证器子命令，复用既有的

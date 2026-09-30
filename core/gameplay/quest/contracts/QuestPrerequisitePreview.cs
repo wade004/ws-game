@@ -95,7 +95,7 @@ namespace Core.Gameplay.Quest
 
     /// <summary>
     /// 消费方反馈第 55 条（2026-09-18，见
-    /// architecture/落地计划/消费方反馈-2026-09-18-编辑器-第55条.md）：只读、无状态的任务前置链
+    /// docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第55条.md）：只读、无状态的任务前置链
     /// "预演"入口——不改动 <see cref="IQuestHost"/> 既有成员（运行期状态机契约），单独新增本静态类。
     /// <para>
     /// <b>语义边界（判断记录）</b>：本类型只分析 <see cref="QuestDefinition.Prerequisite"/> 表达式里

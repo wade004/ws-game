@@ -87,7 +87,7 @@ Program.cs``）。第一道骨架检查只做"若出现必须是布尔值"这一
                        见 ``DataRegistryOptions.WarnOnMissingTranslation``），恢复
                        只查默认语言的旧行为。
     ``--json``         消费方反馈 E8 根治（2026-09-10，见
-                       architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E8）：
+                       docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E8）：
                        把第一道骨架检查结果与第二道 ``toolchain/validator --json``
                        输出合并为一份 JSON，打印到标准输出（人类可读的诊断消息改
                        打印到标准错误，标准输出只有这一份 JSON，供调用方直接
@@ -455,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         root_args = [args.framework_root] + root_args
 
     # 判断记录（消费方反馈 E9 根治，2026-09-10，见
-    # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E9）：相对路径此前按 repo_root
+    # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E9）：相对路径此前按 repo_root
     # （find_repo_root() = 本文件所在目录的上一级）解析，不是按调用方实际运行时的当前工作目录——
     # 这在"从仓库根目录运行本脚本"这一惯例场景下 repo_root 恰好等于当前工作目录，看不出区别；
     # 但游戏侧把 toolchain/ 整个目录复制/引用到自己仓库、又不是从自己仓库根目录调用本脚本时
@@ -562,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:
     validator_project = Path(__file__).resolve().parent / "validator"
 
     # 判断记录（消费方反馈 E1 根治，2026-09-10，见
-    # architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E1）：此前一律用
+    # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E1）：此前一律用
     # `dotnet run --project toolchain/validator` 现场编译——若本文件所在的 toolchain/ 目录（无论是
     # 源码仓库内、还是消费方解压出的 dist zip/UPM 包）落在消费方仓库工作树内，MSBuild 沿项目目录
     # 向上查找 Directory.Build.props 会继承到消费方自己的设置（如 TreatWarningsAsErrors=true），

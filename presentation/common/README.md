@@ -101,7 +101,7 @@ common/
    中立缩写）保持一致，逻辑分类语义不变，只影响 `EntityKindMapping.TryMap` 内部映射与调用方对该
    枚举成员的引用（生产代码仅 `presentation/common/contracts/EntityKindMapping.cs` 一处消费）。
 7. **`ResourceReferenceTracker.EnsureLoading` 新增 `onComplete` 回调重载**（诊断记录
-   `architecture/落地计划/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"根治）：
+   `docs/复盘/排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md`"教训四"根治）：
    此前固定给 `IResourceLoader.LoadAsync` 传空操作回调，导致"首次引用某资源时缓存未命中→落地
    占位方块"之后，即使资源异步加载真正完成，也没有任何机制通知消费方（`presentation/render` 的
    `SpriteCharacterRig`）回头刷新已渲染的占位方块——隔离跑 PlayMode 用例证实这不是竞态是结构性

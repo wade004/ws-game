@@ -6,7 +6,7 @@ namespace Core.Gameplay.Dialog
 {
     /// <summary>
     /// 消费方反馈第 55 条（2026-09-18，见
-    /// architecture/落地计划/消费方反馈-2026-09-18-编辑器-第55条.md）：单条剧情分支在预演结构里的
+    /// docs/消费方反馈/消费方反馈-2026-09-18-编辑器-第55条.md）：单条剧情分支在预演结构里的
     /// 只读快照——<see cref="TargetNodeId"/> 为 <c>null</c> 表示该分支是终止分支（同
     /// <see cref="StoryBranchDef.NextNodeId"/> 语义，见该类型判断记录"分支粒度的终止语义"）。
     /// <see cref="ConditionText"/> 为该分支 <see cref="StoryBranchDef.Condition"/> 的规范化文本

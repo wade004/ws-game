@@ -141,7 +141,7 @@ namespace Adapter.Unity.Tests.Runtime
         // 下一次主线程 Tick（同 PlayModeIsolation.cs PendingLoadCount 判断记录），不能假设
         // EnterInWorld 返回时加载已经落地。
         //
-        // 与 PRES180 历史回归（architecture/落地计划/排查复盘-2026-09-15-PlayMode-PRES180.md）的
+        // 与 PRES180 历史回归（docs/复盘/排查复盘-2026-09-15-PlayMode-PRES180.md）的
         // 关系：该复盘的真因是"新游戏"入口不回满玩家资源池，导致 PRES180 末尾的 Assert.IsTrue(died)
         // 真实失败、又被 Unity Test Framework 的日志检查机制覆盖成一句无关警告——与本方法验证的
         // "动画资源是否加载成功"是两个完全独立的维度。本方法不触碰 PlayModeIsolation 的资源池回满
@@ -644,7 +644,7 @@ namespace Adapter.Unity.Tests.Runtime
             // 前缀 "layer.creature_sample_hero__" 来自该行 sprite_set_id="sprite.creature.sample_hero"
             // （去掉 "sprite." 前缀、点号换下划线，见 SpriteViewBase.ResolveLayerResourceId）。
             //
-            // 判断记录（2026-09-19 隐性顺序依赖根治，见 architecture/落地计划/
+            // 判断记录（2026-09-19 隐性顺序依赖根治，见 docs/复盘/
             // 排查复盘-2026-09-19-PlayMode-全局缓存清理反例.md"正面做法"一节）：三层纸娃娃资源各自是
             // 独立的资源引用（layer.creature_sample_hero__front__body/hand_main/head），经
             // UnityResourceLoader 异步加载（后台线程读取 + 每帧 Tick 在主线程完成）。EnterInWorld

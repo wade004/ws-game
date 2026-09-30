@@ -62,7 +62,7 @@ namespace Core.Rules.Skill
         public readonly HashSet<EffectKind> ImmuneEffectKinds = new HashSet<EffectKind>();
 
         /// <summary>消费方反馈 2026-09-10（同一光环多个 Proc 触发器静默忽略问题，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-多Proc触发器.md）根治：此前是单值
+        /// docs/消费方反馈/消费方反馈-2026-09-10-多Proc触发器.md）根治：此前是单值
         /// <c>Id? ProcDefRef</c>，<see cref="ApplyStaticEffects"/> 遍历 <c>def.Effects</c> 时同一
         /// 字段被后一个 <c>proc_trigger</c> 效果条目覆盖，只有最后登记的触发器真正挂载到
         /// <see cref="ProcHost"/>，前面的条目加载校验通过却在运行期被静默丢弃。改为有序集合，

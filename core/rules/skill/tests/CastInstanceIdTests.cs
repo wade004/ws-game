@@ -7,7 +7,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary>
     /// 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议，证据 c08-cast-event-contract，
-    /// 见 architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md）复现与根治：
+    /// 见 docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md）复现与根治：
     /// <see cref="SkillCastStartEvent"/>/<see cref="SkillCastSuccessEvent"/>/
     /// <see cref="SkillCastFailedEvent"/>/<see cref="SkillCastInterruptedEvent"/> 新增只读属性
     /// <c>CastInstanceId</c>，与 <see cref="CastResult.CastInstanceId"/> 同一枚 id、同一身份规则：

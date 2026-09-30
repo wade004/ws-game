@@ -34,7 +34,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 判断记录（消费方反馈 E10 根治，2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E10）：全部已加载表的记录总数。
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E10）：全部已加载表的记录总数。
         /// <see cref="Presentation.Assembly.ContentValidationAssembly.Run"/> 走一条独立的事件订阅
         /// 路径拿到精确记录数（见该方法判断记录——即便加载结果阻断也能取到，<see cref="GetAll"/>
         /// 阻断时会抛异常，两条路径语义不同、不能互相替代）；但 <see cref="Presentation.Assembly.ContentValidationAssembly.CreateRegistry"/>
@@ -49,7 +49,7 @@ namespace Core.Foundation.DataRegistry
         /// 静默降级"）。
         /// <para>
         /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：本默认实现按
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：本默认实现按
         /// <see cref="Tables"/>/<see cref="GetAll"/> 求和这一点保持不变（上一段判断记录仍然成立，
         /// 是"未持有具体 <c>DataRegistry</c> 实现、只有本接口"的第三方/测试替身唯一通用的兜底算法），
         /// 因此阻断态下仍可能抛出 <see cref="GetAll"/> 抛出的异常——调用方明确知道自己拿到的是具体
@@ -64,7 +64,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 判断记录（消费方反馈第 17 条根治，2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：尝试获取
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第二批.md 第 17 条）：尝试获取
         /// <see cref="RecordCount"/>，阻断态（或任何导致 <see cref="RecordCount"/> 默认实现内部
         /// <see cref="GetAll"/> 抛出"数据校验未通过，禁止读取"的场景）返回 <c>false</c> 而不抛异常，
         /// <paramref name="count"/> 置 0；成功时返回 <c>true</c>，<paramref name="count"/> 为实际
@@ -93,7 +93,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第三批第 20 条（2026-09-10，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：阻断态下的
+        /// docs/消费方反馈/消费方反馈-2026-09-10-编辑器-第三批.md 第 20 条）：阻断态下的
         /// 只读通道——仅供内容工具使用（编辑器等场景需要在数据未通过校验时仍能读取当前已合并的
         /// 记录，供作者定位/修复问题；运行期宿主必须继续用 <see cref="GetAll"/>，阻断态即禁止
         /// 读取，见 11 第 4 节"运行时不做静默降级"，本成员不改变那条规则）。默认实现按
@@ -154,7 +154,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第 45 条（2026-09-17，见
-        /// architecture/落地计划/消费方反馈-2026-09-17-编辑器-第45条.md）：<see cref="TryGetAll"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-17-编辑器-第45条.md）：<see cref="TryGetAll"/>
         /// 的同族成员，覆盖单记录 <see cref="Get(string, string)"/>——L2 及以上层"只读分析、供内容
         /// 工具展示用"的入口（<c>ItemBudgetCurve.BuildStatBudgetInfo</c>、
         /// <c>EquipmentScoreAnalyzer.Score</c>、<c>SkillBudgetAnalyzer.Analyze</c> 等，本条反馈同批
@@ -220,7 +220,7 @@ namespace Core.Foundation.DataRegistry
 
         /// <summary>
         /// 消费方反馈第 37 条（2026-09-12，见
-        /// architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md）：只读回吐全部经
+        /// docs/消费方反馈/消费方反馈-2026-09-12-编辑器-第37条.md）：只读回吐全部经
         /// <see cref="IDataRegistry.DeclareReference(string, string, string)"/>（含带来源标注的重载）
         /// 登记的引用声明（见 <see cref="ReferenceDeclaration"/>）。<c>DeclareReference</c> 此前只写入
         /// 注册期一侧、驱动加载期 <c>reference_integrity</c> 硬校验，没有任何公开读回方式——内容工具

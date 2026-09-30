@@ -44,7 +44,7 @@ namespace Core.Rules.ExprHost
 
         /// <summary>
         /// 消费方反馈（编辑器）第 27 条根治（2026-09-11，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-编辑器-第27条.md）：按 <see cref="_schemas"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-11-编辑器-第27条.md）：按 <see cref="_schemas"/>
         /// 传入顺序依次并集各成员 schema 的 <see cref="IExprSchema.KnownKeys"/>，去重后按序号
         /// （Ordinal）排序返回——不是"第一个命中即返回"（<see cref="TryGetSignature"/> 的语义），
         /// 因为已知 key 清单需要的是"全部成员 schema 各自贡献的 key 并集"，任何一个成员登记过该 key

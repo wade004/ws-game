@@ -8,7 +8,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary>
     /// P2 根治验收（消费方反馈 2026-09-11"只读就绪查询影响后续充能状态"，见
-    /// architecture/落地计划/消费方反馈-2026-09-11-充能查询副作用.md；<see cref="CooldownTracker"/>
+    /// docs/消费方反馈/消费方反馈-2026-09-11-充能查询副作用.md；<see cref="CooldownTracker"/>
     /// 类型判断记录"查询纯化"/"充能上限变化守恒规则"）：直接构造裸 <see cref="CooldownTracker"/>
     /// （不经 <see cref="SkillHost"/>/<see cref="RulesAssembly"/>），验证类型判断记录声明的两条不变式：
     /// <list type="number">

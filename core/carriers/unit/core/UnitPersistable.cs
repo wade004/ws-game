@@ -27,7 +27,7 @@ namespace Core.Carriers.Unit
         /// <summary>
         /// <c>world.current_position</c> 段（见 10 第 2.3 节）。
         /// <para>
-        /// C11-RELOAD 根治（架构落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md 第 1
+        /// C11-RELOAD 根治（docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md 第 1
         /// 项）判断记录：本重载保留 <see cref="Load"/> 直接写 <paramref name="player"/>.<see
         /// cref="PlayerUnit.Position"/> 字段的旧行为，绕开 <see cref="IUnitAccess.SetPosition"/>——
         /// 空间索引因此不会同步（<see cref="Core.Carriers.Unit.WorldUnitAccess.SetPosition"/> 才会

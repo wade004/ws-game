@@ -4,7 +4,7 @@ namespace Core.Foundation.DataRegistry
 {
     /// <summary>
     /// 消费方反馈第 37 条（04 第 4 节勘误"declareReference 读回"，2026-09-12，见
-    /// architecture/落地计划/消费方反馈-2026-09-12-编辑器-第37条.md）：一条经
+    /// docs/消费方反馈/消费方反馈-2026-09-12-编辑器-第37条.md）：一条经
     /// <see cref="IDataRegistry.DeclareReference(string, string, string)"/>（及带来源标注的重载
     /// <see cref="IDataRegistry.DeclareReference(string, string, string, string)"/>）登记的"某表某
     /// 字段整体指向另一张表"声明的只读快照，供 <see cref="IDataRegistryView.GetReferenceDeclarations"/>

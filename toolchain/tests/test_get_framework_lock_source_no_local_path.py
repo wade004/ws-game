@@ -1,12 +1,12 @@
 """``toolchain/get_framework.ps1`` 写 ``ws-game.lock`` 时不再携带本机绝对路径的回归测试
-（消费方反馈 E3 根治，2026-09-10，见 architecture/落地计划/消费方反馈-2026-09-10-编辑器.md E3）。
+（消费方反馈 E3 根治，2026-09-10，见 docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E3）。
 
 背景：``ws-game.lock`` 是约定提交进游戏仓库的文件（见 get_framework.ps1 ``.PARAMETER LockPath``
 说明）。``-FromLocalDist`` 场景此前把调用方本机的绝对路径原样写进 ``source.local_path``——消费方
 提交这份锁文件后换一台机器（不同本地路径）重新运行本脚本，``source.local_path`` 就会变化，产生一次
 与"框架引用内容"完全无关、纯粹因本机路径不同而触发的锁文件 diff。
 
-根治：a) ``source`` 不再写绝对路径，只写 ``channel``（沿用，``editor/docs/编辑器产品文档.md`` 已将
+根治：a) ``source`` 不再写绝对路径，只写 ``channel``（沿用，``docs/编辑器/编辑器产品文档.md`` 已将
 ``source.channel`` 记为契约字段）与相对的 ``zip_file_name``；b) 判定"锁文件是否需要改写"时改为只比较
 ``version``/``git_commit``/``dlls``/``headless_dlls``/``validator_dlls``/``samples`` 这几个描述框架
 引用内容本身的字段（``Test-LockContentEquivalent`` 函数），``source`` 字段的任何差异（含新旧字段名

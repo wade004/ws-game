@@ -500,7 +500,7 @@ namespace Core.Rules.Skill
 
         /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
-        /// architecture/落地计划/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="ISkillHost"/>
+        /// docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="ISkillHost"/>
         /// 默认降级实现的显式覆盖——直接从 <see cref="_cooldowns"/>/<see cref="_spellMods"/>/
         /// <see cref="_options"/> 读取精确状态，裁决口径与 <see cref="TryStartCast"/>（经
         /// <see cref="CastPipeline"/>）步骤 3/4 完全一致：
@@ -970,7 +970,7 @@ namespace Core.Rules.Skill
         /// （见 <see cref="SkillTickHandler"/> 调用时机）。
         /// <para>
         /// 消费方反馈 2026-09-10（读条完成当帧新冷却被提前推进问题，证据 c08-new-cooldown，见
-        /// architecture/落地计划/消费方反馈-2026-09-10-施法时序与实例标识.md）根治：本方法此前先
+        /// docs/消费方反馈/消费方反馈-2026-09-10-施法时序与实例标识.md）根治：本方法此前先
         /// 调 <c>_pipeline.Update(dt)</c> 再调 <see cref="AdvanceRoundTimers"/>——读条/引导恰好在本次
         /// <paramref name="dt"/> 内完成时，<c>_pipeline.Update</c> 内部经 <c>CastPipeline.FinishCast</c>
         /// 新开启的冷却/公共冷却/充能恢复窗口，会被同一次调用里紧接着执行的

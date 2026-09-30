@@ -16,7 +16,7 @@ using Xunit;
 namespace Tests.Gameplay.Assembly
 {
     /// <summary>
-    /// C11 根治回归（architecture/落地计划/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md，
+    /// C11 根治回归（docs/消费方反馈/消费方反馈-2026-09-11-读档空间索引与复活生命周期.md，
     /// 消费方反馈 <c>M-C11_进出战斗死亡复活通用能力反馈.md</c>，基线 1.22.0）：脱离引擎，用真实
     /// <see cref="GameplayAssembly"/>/<see cref="SaveSystem"/>/<see cref="WorldSim"/>/
     /// <see cref="WorldUnitAccess"/>/<see cref="StubSpatialQuery"/> 复现并回归三项修复：
