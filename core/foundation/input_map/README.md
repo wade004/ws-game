@@ -136,6 +136,12 @@ input_map/
     `DataRegistry` 加载校验、直接调用 `FromRecord` 构造的调用路径，AGENTS.md"运行时路径不静默
     降级"），不是重复诊断——两者分属"加载期批量校验"与"运行时最后一道防线"两个不同阶段。
 
+13. **`ImportBindings` 全量解析、校验通过后再落地，任一条非法整批拒绝**（[ADR-0121](../../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md)
+    第 8 条，覆盖梳理 D8）：先逐条检查动作存在、值为字符串数组、每条绑定格式合法，全部通过后才统一写入
+    `CurrentBindings`/`ParsedBindings`/脏标记；此前逐条边解析边落地，非法项之前的合法项已经生效，留下
+    “前半应用”的状态。非法输入抛出的异常类型不变（未知动作 `InvalidOperationException`，形状/格式非法
+    `ArgumentException`），区别只是抛出时所有动作的绑定与导入前逐项相等。
+
 ## 诊断
 
 `IInputMapDiagnostics`（默认实现 `InMemoryInputMapDiagnostics`）记录：`Rebind` 检测到同组

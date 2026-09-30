@@ -390,6 +390,132 @@ namespace Tests.Numbers.Archetype
         }
 
         // -----------------------------------------------------------------
+        // 3b. ADR-0121 第 7 条（D7）：先全部校验再写；同一单位重复 ApplyTo
+        // -----------------------------------------------------------------
+
+        private static void AssertNoWriterCalled(RecordingWriters writers)
+        {
+            Assert.Empty(writers.CallOrder);
+            Assert.Empty(writers.BaseWrites);
+            Assert.Empty(writers.ModWrites);
+            Assert.Empty(writers.PowerRegistrations);
+            Assert.Empty(writers.AuraApplies);
+            Assert.Empty(writers.DerivationOverrideWrites);
+        }
+
+        [Fact]
+        public void ApplyTo_UnknownRace_ThrowsWithoutCallingAnyWriter()
+        {
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withAuraApplier: true, withDerivationOverrideWriter: true);
+            var classId = new Id("arch.class.sample_a");
+            Assert.NotNull(host.GetClass(classId));
+
+            Assert.Throws<ArgumentException>(() =>
+                host.ApplyTo(new Id("unit.d7_unknown_race"), classId, new Id("arch.race.unknown")));
+
+            AssertNoWriterCalled(writers);
+        }
+
+        [Fact]
+        public void ApplyTo_UnknownClass_ThrowsWithoutCallingAnyWriter()
+        {
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withAuraApplier: true, withDerivationOverrideWriter: true);
+            var raceId = new Id("arch.race.sample_x");
+            Assert.NotNull(host.GetRace(raceId));
+
+            Assert.Throws<ArgumentException>(() =>
+                host.ApplyTo(new Id("unit.d7_unknown_class"), new Id("arch.class.unknown"), raceId));
+
+            AssertNoWriterCalled(writers);
+        }
+
+        /// <summary>只藏起天赋树表的注册表视图：模拟“职业声明的天赋树在天赋树表里查不到”。真实
+        /// <see cref="DataRegistry"/> 在加载期会以 reference_integrity 阻断并拒绝读取，无法直接构造出
+        /// 该状态，所以用视图包装。</summary>
+        private sealed class HideTalentTreesView : IDataRegistryView
+        {
+            private readonly IDataRegistryView _inner;
+            public HideTalentTreesView(IDataRegistryView inner) { _inner = inner; }
+            public DataRecord? Get(string table, string key) => table == "arch.talent_tree" ? null : _inner.Get(table, key);
+            public DataRecord? Get(string table, Id id) => table == "arch.talent_tree" ? null : _inner.Get(table, id);
+            public IReadOnlyList<DataRecord> GetAll(string table) =>
+                table == "arch.talent_tree" ? Array.Empty<DataRecord>() : _inner.GetAll(table);
+            public IReadOnlyList<DataRecord> Query(string table, Core.Foundation.Expr.ExprNode predicate) => _inner.Query(table, predicate);
+            public IReadOnlyList<DataRecord> Query(string table, string predicateText) => _inner.Query(table, predicateText);
+            public IReadOnlyList<string> Tables => _inner.Tables;
+            public TableSchema? GetSchema(string table) => _inner.GetSchema(table);
+        }
+
+        [Fact]
+        public void ApplyTo_ClassReferencesUnknownTalentTree_ThrowsWithoutCallingAnyWriter()
+        {
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(new HideTalentTreesView(registry), bus, writers, withAuraApplier: true, withDerivationOverrideWriter: true);
+            var classId = new Id("arch.class.sample_a");
+            var cls = host.GetClass(classId);
+            Assert.NotNull(cls);
+            Assert.NotNull(cls!.TalentTreeRef);
+            Assert.Null(host.GetTalentTree(cls.TalentTreeRef!.Value));
+
+            Assert.Throws<ArgumentException>(() =>
+                host.ApplyTo(new Id("unit.d7_unknown_tree"), classId, new Id("arch.race.sample_x")));
+
+            AssertNoWriterCalled(writers);
+        }
+
+        [Fact]
+        public void ApplyTo_SameUnitTwice_SecondCallThrowsInvalidOperationAndWritesNothing()
+        {
+            // 仓库内无对同一单位重复 ApplyTo 的调用方（唯一生产入口 RulesAssembly.RegisterUnit 先经
+            // StatHost.RegisterUnit 拒绝重复登记），按 ADR-0121 第 7 条：写入前抛 InvalidOperationException。
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers, withAuraApplier: true, withDerivationOverrideWriter: true);
+            var unit = new Id("unit.d7_twice");
+            var classId = new Id("arch.class.sample_a");
+            var raceId = new Id("arch.race.sample_x");
+
+            host.ApplyTo(unit, classId, raceId);
+            var callsAfterFirst = writers.CallOrder.Count;
+            var modsAfterFirst = writers.ModWrites.Count;
+            Assert.True(callsAfterFirst > 0);
+
+            Assert.Throws<InvalidOperationException>(() => host.ApplyTo(unit, classId, raceId));
+
+            Assert.Equal(callsAfterFirst, writers.CallOrder.Count);
+            Assert.Equal(modsAfterFirst, writers.ModWrites.Count);
+        }
+
+        [Fact]
+        public void ApplyTo_DifferentUnits_AreIndependent()
+        {
+            var registry = MakeRegistry(ClassRows, RaceRows, GoodTalentTreeRows, out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var host = MakeRegistryHost(registry, bus, writers);
+            var classId = new Id("arch.class.sample_a");
+
+            host.ApplyTo(new Id("unit.d7_a"), classId, null);
+            host.ApplyTo(new Id("unit.d7_b"), classId, null); // 不抛
+
+            Assert.Equal(2, writers.PowerRegistrations.Count);
+        }
+
+        // -----------------------------------------------------------------
         // 4. 天赋树成环 / 前置不存在被校验规则拦截
         // -----------------------------------------------------------------
 

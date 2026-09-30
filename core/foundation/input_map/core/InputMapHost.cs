@@ -383,10 +383,16 @@ namespace Core.Foundation.InputMap
             return builder.Build();
         }
 
+        /// <summary>
+        /// 判断记录（ADR-0121 第 8 条，D8）：先把整份输入全量解析、校验（动作存在、值是字符串数组、
+        /// 每条绑定格式合法），全部通过后才统一落地；任一条非法整批拒绝、原绑定与脏标记保持不变。
+        /// 此前逐条边解析边落地，非法项之前的合法项已经写进去，留下“前半应用”的状态。
+        /// </summary>
         public void ImportBindings(JsonObject bindings)
         {
             if (bindings == null) throw new ArgumentNullException(nameof(bindings));
 
+            var staged = new List<(ActionState State, List<string> Bindings, List<ParsedBinding> Parsed)>(bindings.Count);
             foreach (var entry in bindings)
             {
                 var actionName = entry.Key;
@@ -407,10 +413,15 @@ namespace Core.Foundation.InputMap
                     newBindings.Add(s.Value);
                 }
 
-                var parsed = ParseAll(newBindings); // 格式非法直接抛 ArgumentException
-                state.CurrentBindings = newBindings;
-                state.ParsedBindings = parsed;
-                state.IsDirty = !BindingListEquals(state.CurrentBindings, state.Definition.DefaultBindings);
+                var parsed = ParseAll(newBindings); // 格式非法直接抛 ArgumentException（此时还没有任何落地）
+                staged.Add((state, newBindings, parsed));
+            }
+
+            foreach (var item in staged)
+            {
+                item.State.CurrentBindings = item.Bindings;
+                item.State.ParsedBindings = item.Parsed;
+                item.State.IsDirty = !BindingListEquals(item.State.CurrentBindings, item.State.Definition.DefaultBindings);
             }
         }
 

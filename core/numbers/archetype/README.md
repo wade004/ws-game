@@ -152,6 +152,16 @@ archetype/
     不新增跨层引用；"开关关闭时不注册"这一装配层行为覆盖在
     `presentation/assembly/tests/ContentValidationAssemblyTests.cs`。
 
+11. **`ApplyTo` 先全部校验再写；同一单位不允许重复 `ApplyTo`**（[ADR-0121](../../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md)
+    第 7 条，覆盖梳理 D7）：职业、种族、职业声明的天赋树（`talent_tree_ref`）全部解析成功后才调用任何
+    writer，未知职业/种族/天赋树一律在写入前抛 `ArgumentException`，writers 零调用（此前未知种族在
+    职业基础属性、派生系数覆盖写出之后才抛，留下半应用状态）。重复应用：grep 仓库内
+    core/presentation/games/adapters（测试除外）只有 `RulesAssembly.RegisterUnit` 一个生产调用方，它先经
+    `StatHost.RegisterUnit` 拒绝重复登记，没有对同一单位重复 `ApplyTo` 的调用方，故取“写入前抛
+    `InvalidOperationException`”分支，不做“撤销前一次同 sourceId 修正再应用”。已应用单位集合只增不减
+    （writers 全部成功后才记入）；单位销毁后想用同一 id 重新应用需新建注册表实例，换职业/种族走
+    `RulesAssembly` 的专用换职业路径，不经本方法。
+
 ## 不负责什么
 
 - 不实现属性聚合/资源池/派生系数覆盖的具体运算，只通过 `StatBaseWriter`/`StatModifierWriter`/

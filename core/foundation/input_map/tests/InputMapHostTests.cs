@@ -454,6 +454,61 @@ namespace Tests.Foundation.InputMap
         }
 
         [Fact]
+        public void ImportBindings_ContainsInvalidEntry_RejectsWholeBatchAndLeavesEveryBindingUnchanged()
+        {
+            // ADR-0121 第 8 条（D8）：全量解析、校验通过后再落地；任一条非法整批拒绝。
+            // 合法项排在非法项前面，逐条边解析边落地的旧实现会先把合法项写进去。
+            var host = new InputMapHost(MakeBus());
+            var names = new[] { "input.action.confirm", "input.action.cancel", "input.action.interact" };
+            host.DeclareActionSet(new Id("input.set.gameplay"), new[]
+            {
+                Button(names[0], "key:enter"),
+                Button(names[1], "key:escape"),
+                Button(names[2], "key:e"),
+            });
+            host.Rebind(names[2], "key:f"); // 导入前就有一个已改动的动作
+
+            var before = new Dictionary<string, string[]>();
+            foreach (var n in names) before[n] = new List<string>(host.GetBindings(n)).ToArray();
+            var exportedBefore = host.ExportBindings();
+
+            var builder = new JsonObjectBuilder();
+            builder.Add(names[0], new JsonArray(new JsonValue[] { new JsonString("key:space") }));           // 合法
+            builder.Add(names[2], new JsonArray(new JsonValue[] { new JsonString("key:g") }));               // 合法
+            builder.Add(names[1], new JsonArray(new JsonValue[] { new JsonString("not_a_valid_binding") })); // 非法格式
+            var mixed = builder.Build();
+
+            Assert.Throws<ArgumentException>(() => host.ImportBindings(mixed));
+
+            foreach (var n in names)
+            {
+                Assert.Equal(before[n], host.GetBindings(n));
+            }
+            var exportedAfter = host.ExportBindings();
+            Assert.Equal(exportedBefore.Count, exportedAfter.Count);
+            foreach (var n in names)
+            {
+                Assert.Equal(exportedBefore.ContainsKey(n), exportedAfter.ContainsKey(n));
+            }
+        }
+
+        [Fact]
+        public void ImportBindings_UnknownActionAfterValidEntry_RejectsWholeBatchAndLeavesBindingsUnchanged()
+        {
+            var host = new InputMapHost(MakeBus());
+            host.DeclareActionSet(new Id("input.set.gameplay"), new[] { Button("input.action.confirm", "key:enter") });
+
+            var builder = new JsonObjectBuilder();
+            builder.Add("input.action.confirm", new JsonArray(new JsonValue[] { new JsonString("key:space") }));
+            builder.Add("input.action.ghost", new JsonArray(new JsonValue[] { new JsonString("key:x") }));
+
+            Assert.Throws<InvalidOperationException>(() => host.ImportBindings(builder.Build()));
+
+            Assert.Equal(new[] { "key:enter" }, host.GetBindings("input.action.confirm"));
+            Assert.False(host.ExportBindings().ContainsKey("input.action.confirm"));
+        }
+
+        [Fact]
         public void ResetBindings_RestoresDefaultAndClearsDirtyFlag()
         {
             var host = new InputMapHost(MakeBus());

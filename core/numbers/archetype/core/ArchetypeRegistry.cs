@@ -41,6 +41,7 @@ namespace Core.Numbers.Archetype
         private readonly Dictionary<string, RaceDefinition> _races = new Dictionary<string, RaceDefinition>(StringComparer.Ordinal);
         private readonly Dictionary<string, TalentTree> _talentTrees = new Dictionary<string, TalentTree>(StringComparer.Ordinal);
         private readonly List<ClassDefinition> _classOrder = new List<ClassDefinition>();
+        private readonly HashSet<Id> _appliedUnits = new HashSet<Id>();
 
         public IReadOnlyList<ClassDefinition> Classes => _classOrder;
 
@@ -137,9 +138,36 @@ namespace Core.Numbers.Archetype
 
         public TalentTree? GetTalentTree(Id id) => _talentTrees.TryGetValue(id.Value, out var t) ? t : null;
 
+        /// <summary>
+        /// 判断记录（ADR-0121 第 7 条，D7）：先把职业、种族、职业声明的天赋树<b>全部解析成功</b>，再检查
+        /// 该单位是否已应用过，最后才调用任何 writer——任一步失败都是零副作用（此前未知种族在职业基础
+        /// 属性、派生系数覆盖已写出之后才抛，留下半应用状态）。
+        /// 同一单位重复 <c>ApplyTo</c>：仓库内（core/presentation/games/adapters，测试除外）唯一的生产
+        /// 调用方是 <c>RulesAssembly.RegisterUnit</c>，它先经 <c>StatHost.RegisterUnit</c> 拒绝重复登记，
+        /// 不存在对同一单位重复应用的调用方，因此采用“写入前抛 <see cref="InvalidOperationException"/>”
+        /// 而不做“撤销前一次同 sourceId 修正再应用”。已应用单位集合只增不减：单位销毁后同一 id 想重新
+        /// 应用，需要新建注册表实例（换职业/种族走 <c>RulesAssembly</c> 的专用换职业路径，不经本方法）。
+        /// 只有 writer 全部成功返回后才记入已应用集合，writer 自己抛出时允许调用方修正后重试。
+        /// </summary>
         public AppliedArchetype ApplyTo(Id unitId, Id classId, Id? raceId)
         {
             var cls = GetClass(classId) ?? throw new ArgumentException($"未知职业 \"{classId}\"", nameof(classId));
+
+            RaceDefinition? race = null;
+            if (raceId.HasValue)
+            {
+                race = GetRace(raceId.Value) ?? throw new ArgumentException($"未知种族 \"{raceId.Value}\"", nameof(raceId));
+            }
+
+            if (cls.TalentTreeRef.HasValue && GetTalentTree(cls.TalentTreeRef.Value) == null)
+            {
+                throw new ArgumentException($"职业 \"{classId}\" 引用的天赋树 \"{cls.TalentTreeRef.Value}\" 不存在", nameof(classId));
+            }
+
+            if (_appliedUnits.Contains(unitId))
+            {
+                throw new InvalidOperationException($"单位 \"{unitId}\" 已经应用过职业/种族模板，不允许对同一单位重复 ApplyTo");
+            }
 
             foreach (var kv in cls.BaseStats)
             {
@@ -151,9 +179,8 @@ namespace Core.Numbers.Archetype
             // cls.DerivationOverrides 完整列表（可能为空），由接收方负责全量替换语义。
             _derivationOverrideWriter?.Invoke(unitId, cls.DerivationOverrides);
 
-            if (raceId.HasValue)
+            if (raceId.HasValue && race != null)
             {
-                var race = GetRace(raceId.Value) ?? throw new ArgumentException($"未知种族 \"{raceId.Value}\"", nameof(raceId));
                 foreach (var kv in race.StatMods)
                 {
                     _statModifierWriter(unitId, new Id(kv.Key), "flat", kv.Value, raceId.Value);
@@ -172,6 +199,8 @@ namespace Core.Numbers.Archetype
             }
 
             _powerRegistrar(unitId, cls.PowerTypes);
+
+            _appliedUnits.Add(unitId);
 
             _bus.PublishImmediate(new ArchetypeAppliedEvent(unitId, classId, raceId));
 
