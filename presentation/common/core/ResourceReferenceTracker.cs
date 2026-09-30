@@ -56,6 +56,10 @@ namespace Presentation.Common
         /// <see cref="Presentation.Render.SpriteCharacterRig.HandleResourceLoadCompleted"/> 那样绑定
         /// 到实例而不是绑定到某一次具体调用），不能假设每次调用都会各自拿到一次通知。
         /// </para>
+        /// <para>
+        /// 判断记录（ADR-0125 D22，现行为钉住）：失败不重试——某 id 的加载回调报告失败后，同一 id 不会被重新加载；
+        /// <c>LoadAsync</c> 同步抛异常时原样向调用方传播，且该 id 已记为已请求（<c>Add</c> 先于调用），之后同样不重试。
+        /// </para>
         /// </summary>
         public void EnsureLoading(Id resourceId, ResourceKind kind, LoadCallback? onComplete)
         {

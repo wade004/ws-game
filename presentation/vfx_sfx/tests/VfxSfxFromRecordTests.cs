@@ -1,6 +1,9 @@
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
+using Core.Foundation.DataRegistry;
 using Presentation.VfxSfx.Contracts;
+using Presentation.VfxSfx.Schema;
 using Xunit;
 
 namespace Tests.Presentation.VfxSfx
@@ -118,6 +121,105 @@ namespace Tests.Presentation.VfxSfx
             Assert.Equal(new Id("vfx.greatsword_swing"), def.SwingVfx);
             Assert.Equal(new Id("vfx.cleave_impact"), def.ImpactVfxOverride[new Id("skill.cleave")]);
             Assert.Equal(new Id("anim.greatsword.cleave"), def.CastAnimOverride[new Id("skill.cleave")]);
+        }
+
+        // ------------------------------------------------------------------
+        // T-M14（ADR-0125）：错误路径。直接用 DataRecord 构造函数喂绕过校验的坏行。
+        // ------------------------------------------------------------------
+
+        private static DataRecord Raw(TableSchema table, string key, string json) =>
+            new DataRecord(table, key, null, (JsonObject)JsonReader.Parse(json));
+
+        private const string GoodVfx =
+            "\"id\":\"vfx.t\",\"category\":\"combat\",\"attach_mode\":\"world\",\"resource_ref\":\"res.vfx_t\"";
+
+        [Theory]
+        [InlineData("{\"category\":\"combat\",\"attach_mode\":\"world\",\"resource_ref\":\"res.a\"}", "id")]
+        [InlineData("{\"id\":\"vfx.t\",\"attach_mode\":\"world\",\"resource_ref\":\"res.a\"}", "category")]
+        [InlineData("{\"id\":\"vfx.t\",\"category\":\"combat\",\"resource_ref\":\"res.a\"}", "attach_mode")]
+        [InlineData("{\"id\":\"vfx.t\",\"category\":\"combat\",\"attach_mode\":\"world\"}", "resource_ref")]
+        [InlineData("{\"id\":3,\"category\":\"combat\",\"attach_mode\":\"world\",\"resource_ref\":\"res.a\"}", "id")]
+        [InlineData("{\"id\":\"vfx.t\",\"category\":7,\"attach_mode\":\"world\",\"resource_ref\":\"res.a\"}", "category")]
+        [InlineData("{\"id\":\"vfx.t\",\"category\":\"combat\",\"attach_mode\":false,\"resource_ref\":\"res.a\"}", "attach_mode")]
+        [InlineData("{\"id\":\"vfx.t\",\"category\":\"combat\",\"attach_mode\":\"world\",\"resource_ref\":\"Bad Ref\"}", "resource_ref")]
+        public void VfxDef_FromRecord_MissingOrWrongTypeRequiredField_ThrowsDataFieldException(string rowJson, string expectedField)
+        {
+            var ex = Assert.Throws<DataFieldException>(() => VfxDef.FromRecord(Raw(VfxSfxSchemas.Vfx, "vfx.t", rowJson)));
+
+            Assert.Equal(expectedField, ex.Field);
+            Assert.Equal("vfx.def", ex.Table);
+        }
+
+        [Theory]
+        [InlineData("attach_mode", "teleport")]
+        [InlineData("attach_mode", "WORLD")]
+        [InlineData("attach_mode", "")]
+        [InlineData("blend_mode", "multiply")]
+        [InlineData("blend_mode", "ADDITIVE")]
+        public void VfxDef_FromRecord_UnknownEnumValue_ThrowsDataFieldException_NamingTheField(string field, string value)
+        {
+            var row = field == "attach_mode"
+                ? "{\"id\":\"vfx.t\",\"category\":\"combat\",\"attach_mode\":\"" + value + "\",\"resource_ref\":\"res.a\"}"
+                : "{" + GoodVfx + ",\"blend_mode\":\"" + value + "\"}";
+
+            var ex = Assert.Throws<DataFieldException>(() => VfxDef.FromRecord(Raw(VfxSfxSchemas.Vfx, "vfx.t", row)));
+
+            Assert.Equal(field, ex.Field);
+            Assert.Contains("未知的 " + field + " 取值", ex.Message);
+        }
+
+        [Theory]
+        [InlineData("{\"layer\":\"combat\",\"resource_ref\":\"res.a\"}", "id")]
+        [InlineData("{\"id\":\"sfx.t\",\"resource_ref\":\"res.a\"}", "layer")]
+        [InlineData("{\"id\":\"sfx.t\",\"layer\":\"combat\"}", "resource_ref")]
+        [InlineData("{\"id\":true,\"layer\":\"combat\",\"resource_ref\":\"res.a\"}", "id")]
+        [InlineData("{\"id\":\"sfx.t\",\"layer\":5,\"resource_ref\":\"res.a\"}", "layer")]
+        [InlineData("{\"id\":\"sfx.t\",\"layer\":\"combat\",\"resource_ref\":\"Bad Ref\"}", "resource_ref")]
+        public void SfxDef_FromRecord_MissingOrWrongTypeRequiredField_ThrowsDataFieldException(string rowJson, string expectedField)
+        {
+            var ex = Assert.Throws<DataFieldException>(() => SfxDef.FromRecord(Raw(VfxSfxSchemas.Sfx, "sfx.t", rowJson)));
+
+            Assert.Equal(expectedField, ex.Field);
+            Assert.Equal("sfx.def", ex.Table);
+        }
+
+        [Theory]
+        [InlineData("{\"auto_attack_anim\":\"anim.a\"}", "id")]
+        [InlineData("{\"id\":\"display.weapon_style.t\"}", "auto_attack_anim")]
+        [InlineData("{\"id\":\"display.weapon_style.t\",\"auto_attack_anim\":12}", "auto_attack_anim")]
+        [InlineData("{\"id\":\"display.weapon_style.t\",\"auto_attack_anim\":\"Bad Anim\"}", "auto_attack_anim")]
+        public void WeaponStyleDef_FromRecord_MissingOrWrongTypeRequiredField_ThrowsDataFieldException(string rowJson, string expectedField)
+        {
+            var ex = Assert.Throws<DataFieldException>(() => WeaponStyleDef.FromRecord(Raw(VfxSfxSchemas.WeaponStyle, "display.weapon_style.t", rowJson)));
+
+            Assert.Equal(expectedField, ex.Field);
+            Assert.Equal("display.weapon_style", ex.Table);
+        }
+
+        [Theory]
+        [InlineData("cast_anim_override", "{\"Bad Key\":\"anim.a\"}", "键 \"Bad Key\" 不是合法 Id")]
+        [InlineData("cast_anim_override", "{\"skill.a\":\"Bad Value\"}", "值不是合法 Id 字符串")]
+        [InlineData("impact_vfx_override", "{\"skill.a\":42}", "值不是合法 Id 字符串")]
+        [InlineData("impact_vfx_override", "{\"skill\":\"vfx.a\"}", "键 \"skill\" 不是合法 Id")]
+        public void WeaponStyleDef_FromRecord_BadOverrideMapEntry_ThrowsDataFieldException_NamingTheMapField(
+            string mapField, string mapJson, string expectedMessagePart)
+        {
+            var row = "{\"id\":\"display.weapon_style.t\",\"auto_attack_anim\":\"anim.a\",\"" + mapField + "\":" + mapJson + "}";
+
+            var ex = Assert.Throws<DataFieldException>(() =>
+                WeaponStyleDef.FromRecord(Raw(VfxSfxSchemas.WeaponStyle, "display.weapon_style.t", row)));
+
+            Assert.Equal(mapField, ex.Field);
+            Assert.Contains(expectedMessagePart, ex.Message);
+        }
+
+        [Fact]
+        public void VfxSfxDefs_Constructors_NullStringArguments_Throw()
+        {
+            Assert.Equal("category", Assert.Throws<System.ArgumentNullException>(
+                () => new VfxDef(new Id("vfx.t"), null!, VfxAttachMode.World, null, new Id("res.a"))).ParamName);
+            Assert.Equal("layer", Assert.Throws<System.ArgumentNullException>(
+                () => new SfxDef(new Id("sfx.t"), null!, null, null, new Id("res.a"))).ParamName);
         }
     }
 }

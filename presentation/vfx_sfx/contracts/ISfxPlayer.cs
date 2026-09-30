@@ -40,7 +40,10 @@ namespace Presentation.VfxSfx.Contracts
 
         /// <summary>设置某条分层音效轨道（<c>sfx.def.layer</c>）的音量倍率，作用于该层此后
         /// （以及已在播放、下次调用 <see cref="Play"/> 前保持原音量不变——本模块不追踪单次播放
-        /// 归属哪次音量设置，见 vfx_sfx/README.md 判断记录）的播放。</summary>
+        /// 归属哪次音量设置，见 vfx_sfx/README.md 判断记录）的播放。
+        /// ADR-0125 D21 起默认实现的入参语义：NaN/Infinity 抛 <see cref="System.ArgumentOutOfRangeException"/>，
+        /// 有限值夹取到 [0,1]，<paramref name="layer"/> 不是 <c>sfx.def.layer</c> 现有取值时抛
+        /// <see cref="System.ArgumentException"/>（不写入）。</summary>
         void SetLayerVolume(string layer, double volume);
 
         /// <summary>静音/取消静音某条分层音效轨道；静音时 <see cref="Play"/> 仍会调用

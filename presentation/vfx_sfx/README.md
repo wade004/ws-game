@@ -342,6 +342,19 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       （D2 复现）+ 未到期/恰到期两向；`Priority_LowerArrivalOnFullLayer_IsRejected_ActiveSetUnchanged`
       （D3 复现）+ 规则 Theory、未声明优先级、冷加载路径、循环 attach 不留键。
 
+24. **[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第 D21 条：音量入口拒绝非有限值、未知层抛异常、持久化失败记诊断**：
+    - `AudioLayerVolumeHost.SetVolume` / `SfxPlayer.SetLayerVolume` 对 `NaN`/`±Infinity` 抛
+      `ArgumentOutOfRangeException`（形参名 `volume`）；有限值裁剪到 `[0,1]`，**存下来并持久化的是裁剪后的值**
+      （此前入口不做有限性校验，非有限值会进入状态与持久化）。共享规则在内部 `LayerVolume.Normalize`/`Clamp`。
+    - 未知层名抛 `ArgumentException`（形参名 `layer`）且不写入新键（此前静默新增一个无人使用的层键）；`null` 层名
+      抛 `ArgumentNullException`。`SfxPlayer` 的"已知层"= 目录里任一 `sfx.def.layer`。
+    - `ISettingsStore.Save` 返回 `false` 时，`AudioLayerVolumeHost.Diagnostics` 记一条警告（层名与音量），
+      **不回滚内存值**（本次会话内有效、重启不恢复）。读档恢复时持久化的有限数值同样裁剪，非有限值忽略（取默认 1.0）。
+    - ABI 只新增：`AudioLayerVolumeHost` 新增五参构造（多一个 `IPresentationDiagnostics?`）与 `Diagnostics` 属性，
+      原四参构造转调新构造并自建 recorder；`PresentationAssembly` 改用五参并共享 `SfxPlayer.Diagnostics`。
+      复现/不变量：`tests/AudioLayerVolumeHostTests.cs`、`tests/SfxPlayerTests.cs` 的 NaN/Infinity、裁剪 Theory、
+      未知层无残留键、`Save` 失败诊断各例。
+
 ## 不负责什么
 
 - `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的

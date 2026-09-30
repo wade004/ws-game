@@ -47,6 +47,7 @@ namespace Presentation.ViewBinding
         private readonly IDisplayInfoRegistry _displayInfo;
         private readonly IEventBus _bus;
         private readonly SubscriptionHandle _subscription;
+        private readonly SubscriptionHandle _destroyedSubscription;
 
         private readonly Dictionary<Id, Vec2> _lastPosition = new Dictionary<Id, Vec2>();
         private readonly Dictionary<Id, double> _accumulated = new Dictionary<Id, double>();
@@ -57,6 +58,18 @@ namespace Presentation.ViewBinding
             _displayInfo = displayInfo ?? throw new ArgumentNullException(nameof(displayInfo));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _subscription = bus.Subscribe<UnitMovedEvent>(CarriersEventKeys.UnitMoved, OnUnitMoved);
+            // ADR-0125 D23：与 ViewBinder 同源（SimEventKeys.EntityDestroyed），实体销毁时清掉它的位置与累计状态。
+            _destroyedSubscription = bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, OnEntityDestroyed);
+        }
+
+        /// <summary>ADR-0125 D23：实体销毁即清理该实体的 <c>_lastPosition</c>/<c>_accumulated</c>。此前这两张表
+        /// 只在"单位退化为未登记步幅"时才清，销毁后同 id 再生成（读档重建、对象池复用 id 等）会拿旧位置
+        /// 算出虚假位移（远处重生被判为瞬移虚发一条，近处重生白白继承旧累计余数）。重生后的第一次
+        /// <c>unit.moved</c> 重新只建立基准，与从未观测过的新单位行为一致。</summary>
+        private void OnEntityDestroyed(EntityDestroyedEvent evt)
+        {
+            _lastPosition.Remove(evt.EntityId);
+            _accumulated.Remove(evt.EntityId);
         }
 
         private void OnUnitMoved(UnitMovedEvent evt)
@@ -115,6 +128,7 @@ namespace Presentation.ViewBinding
         public void Dispose()
         {
             _subscription.Dispose();
+            _destroyedSubscription.Dispose();
         }
     }
 }

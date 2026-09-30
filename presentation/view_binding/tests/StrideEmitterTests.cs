@@ -190,6 +190,126 @@ namespace Tests.PresentationViewBinding
             Assert.Empty(received);
         }
 
+        /// <summary>D23（ADR-0125）复现 + 不变量一：实体销毁后同 id 再生成在远处，第一次
+        /// <c>unit.moved</c> 只建立新基准，不得拿销毁前的旧位置算位移（修复前会按旧位置 (0,0) 到新位置
+        /// 的巨大距离判为瞬移，虚发一条 <c>unit.stride_completed</c>）。</summary>
+        [Fact]
+        public void EntityDestroyed_ThenSameIdRespawnedFarAway_FirstMoveProducesNoSpuriousStride()
+        {
+            var (_, world, bus, display) = Build();
+            var unitId = new Id("unit.reused");
+            var templateId = new Id("creature.reused");
+            const double strideDistance = 2.0;
+            SpawnUnit(world, unitId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero)); // 建立基准
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(strideDistance, 0))); // 正常走出一个步幅
+            bus.DispatchPending();
+            Assert.Single(received);
+            received.Clear();
+
+            // 销毁 -> 同 id 在远处（远超瞬移阈值）重新生成。
+            bus.Enqueue(new EntityDestroyedEvent(unitId));
+            bus.DispatchPending();
+            var farAway = strideDistance * StrideEmitter.TeleportDistanceMultiplier * 10;
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(farAway, 0)));
+            bus.DispatchPending();
+
+            Assert.Empty(received);
+        }
+
+        /// <summary>D23 不变量二：销毁同时清掉累计余数——销毁前累计了一段不足一个步幅的余数，
+        /// 同 id 重生后从零累计：再走 (stride - 余数) 这么远不得触发（若余数残留就会触发）。</summary>
+        [Fact]
+        public void EntityDestroyed_ClearsAccumulatedRemainder_RespawnedUnitAccumulatesFromZero()
+        {
+            var (_, world, bus, display) = Build();
+            var unitId = new Id("unit.reused_acc");
+            var templateId = new Id("creature.reused_acc");
+            const double strideDistance = 10.0;
+            SpawnUnit(world, unitId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero));
+            bus.DispatchPending();
+            var carried = strideDistance * 0.9;
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(carried, 0))); // 累计 0.9 个步幅，未触发
+            bus.DispatchPending();
+            Assert.Empty(received);
+
+            bus.Enqueue(new EntityDestroyedEvent(unitId));
+            bus.DispatchPending();
+
+            // 重生：首个 unit.moved 只建基准；再走 0.2 个步幅。若旧余数 0.9 残留，会凑满 1.1 个步幅而触发。
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero));
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(strideDistance * 0.2, 0)));
+            bus.DispatchPending();
+
+            Assert.Empty(received);
+        }
+
+        /// <summary>D23 不变量三：只清被销毁实体自己的状态，其它实体的累计不受影响。</summary>
+        [Fact]
+        public void EntityDestroyed_DoesNotDisturbOtherEntitiesState()
+        {
+            var (_, world, bus, display) = Build();
+            var keepId = new Id("unit.keep");
+            var goneId = new Id("unit.gone");
+            var templateId = new Id("creature.shared");
+            const double strideDistance = 10.0;
+            SpawnUnit(world, keepId, templateId, Vec2.Zero);
+            SpawnUnit(world, goneId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            foreach (var id in new[] { keepId, goneId })
+            {
+                bus.Enqueue(new UnitMovedEvent(id, Vec2.Zero));
+            }
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(keepId, new Vec2(strideDistance * 0.6, 0)));
+            bus.DispatchPending();
+            Assert.Empty(received);
+
+            bus.Enqueue(new EntityDestroyedEvent(goneId));
+            bus.DispatchPending();
+
+            // keep 累计的 0.6 仍在：再走 0.5 个步幅共 1.1 个，恰触发一次。
+            bus.Enqueue(new UnitMovedEvent(keepId, new Vec2(strideDistance * 1.1, 0)));
+            bus.DispatchPending();
+
+            var only = Assert.Single(received);
+            Assert.Equal(keepId, only.UnitId);
+        }
+
+        /// <summary>Dispose 同时退订 <c>unit.moved</c> 与实体销毁事件：之后再投喂任何事件都不再产生输出、
+        /// 也不抛异常。</summary>
+        [Fact]
+        public void Dispose_UnsubscribesFromMovedAndDestroyedEvents()
+        {
+            var (emitter, world, bus, display) = Build();
+            var unitId = new Id("unit.disposed");
+            var templateId = new Id("creature.disposed");
+            const double strideDistance = 2.0;
+            SpawnUnit(world, unitId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            emitter.Dispose();
+
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero));
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(strideDistance * 3, 0)));
+            bus.Enqueue(new EntityDestroyedEvent(unitId));
+            bus.DispatchPending();
+
+            Assert.Empty(received);
+        }
+
         /// <summary>最小可运行 <see cref="IDisplayInfoRegistry"/> 假实现，只承载
         /// <see cref="StrideEmitter"/> 实际用到的 <see cref="Lookup"/>，其余成员本套件不会触达。</summary>
         private sealed class FakeDisplayInfoRegistry : IDisplayInfoRegistry

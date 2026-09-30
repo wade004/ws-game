@@ -548,9 +548,31 @@ namespace Presentation.VfxSfx.Core
             }
         }
 
+        /// <summary>ADR-0125 D21：<paramref name="layer"/> 必须是 <c>sfx.def</c> 里至少一条记录使用过的层名，
+        /// 否则抛 <see cref="ArgumentException"/> 且不写入（此前任意字符串都会在 <see cref="_layerVolume"/>
+        /// 里留下永远用不到的键）；NaN/Infinity 抛 <see cref="ArgumentOutOfRangeException"/>；有限值夹取到 [0,1]。
+        /// 层名按目录现状逐次判定（不缓存层集合），目录是调用方持有的只读字典，热重载替换条目后立即生效。</summary>
         public void SetLayerVolume(string layer, double volume)
         {
-            _layerVolume[layer] = volume;
+            if (layer == null) throw new ArgumentNullException(nameof(layer));
+            if (!IsKnownLayer(layer))
+            {
+                throw new ArgumentException($"未知音效层 \"{layer}\"：sfx.def 中没有任何记录使用该层", nameof(layer));
+            }
+
+            _layerVolume[layer] = LayerVolume.Normalize(volume, nameof(volume));
+        }
+
+        private bool IsKnownLayer(string layer)
+        {
+            foreach (var def in _catalog.Values)
+            {
+                if (string.Equals(def.Layer, layer, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void SetLayerMuted(string layer, bool muted)

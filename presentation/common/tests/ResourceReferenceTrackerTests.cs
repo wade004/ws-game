@@ -101,6 +101,84 @@ namespace Tests.PresentationCommon
             Assert.Single(loader.LoadRequests.FindAll(r => r.ResourceId.Equals(id)));
         }
 
+        /// <summary>D22（ADR-0125，设计决定）：加载失败后同 id 不重试——失败与成功一样都算"已请求"，同一 id 只会
+        /// 调用一次 <c>LoadAsync</c>；重试属上层策略（调用方换一个 id 引用，或自己持有加载器再调）。即便失败之后
+        /// 资源"后来才可用"（此处在失败后才 Register），也不会自动再次触发。</summary>
+        [Fact]
+        public void EnsureLoading_AfterFailedLoad_SameId_IsNotRetried()
+        {
+            var loader = new StubResourceLoader();
+            var id = new Id("layer.hero__front__late");
+            var tracker = new ResourceReferenceTracker(loader);
+
+            var outcomes = new List<bool>();
+            tracker.EnsureLoading(id, ResourceKind.Image, (_, success) => outcomes.Add(success));
+            Assert.Equal(new[] { false }, outcomes); // 第一次：未登记 -> 同步失败
+
+            loader.Register(id); // 资源之后变得可加载
+            tracker.EnsureLoading(id, ResourceKind.Image, (_, success) => outcomes.Add(success));
+            tracker.EnsureLoading(id, ResourceKind.Image);
+
+            Assert.Single(loader.LoadRequests.FindAll(r => r.ResourceId.Equals(id)));
+            Assert.Equal(new[] { false }, outcomes); // 后两次的回调被丢弃，没有新的成功通知
+            Assert.False(loader.IsLoaded(id));
+        }
+
+        /// <summary>D22 配套：失败不影响其它 id 的独立请求（去重按 id 分别记账）。</summary>
+        [Fact]
+        public void EnsureLoading_FailureOfOneId_DoesNotBlockOtherIds()
+        {
+            var loader = new StubResourceLoader();
+            var bad = new Id("layer.hero__front__bad");
+            var good = new Id("layer.hero__front__good");
+            loader.Register(good);
+            var tracker = new ResourceReferenceTracker(loader);
+
+            tracker.EnsureLoading(bad, ResourceKind.Image);
+            tracker.EnsureLoading(good, ResourceKind.Image);
+
+            Assert.False(loader.IsLoaded(bad));
+            Assert.True(loader.IsLoaded(good));
+        }
+
+        private sealed class ThrowingResourceLoader : IResourceLoader
+        {
+            public int LoadCalls;
+
+            public void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback)
+            {
+                LoadCalls++;
+                throw new System.InvalidOperationException("loader blew up");
+            }
+
+            public bool IsLoaded(Id resourceId) => false;
+            public double GetLoadProgress(Id resourceId) => 0;
+            public void Unload(Id resourceId) { }
+        }
+
+        /// <summary>D22 契约（读代码定，设计决定见 ADR-0125）：loader 同步抛异常时，id 已在调用 <c>LoadAsync</c>
+        /// 之前登记为"已请求"——异常原样抛给首个调用方（不吞、不包装），之后同 id 的调用不再触达 loader、
+        /// 也不再抛（与"失败不重试"同一口径）；调用方若要重试必须换 id 或自持加载器。</summary>
+        [Fact]
+        public void EnsureLoading_LoaderThrowsSynchronously_PropagatesOnce_ThenIdIsRemembered()
+        {
+            var loader = new ThrowingResourceLoader();
+            var tracker = new ResourceReferenceTracker(loader);
+            var id = new Id("layer.hero__front__throws");
+
+            var ex = Assert.Throws<System.InvalidOperationException>(() => tracker.EnsureLoading(id, ResourceKind.Image));
+            Assert.Equal("loader blew up", ex.Message);
+            Assert.Equal(1, loader.LoadCalls);
+
+            tracker.EnsureLoading(id, ResourceKind.Image); // 不再抛
+            tracker.EnsureLoading(id, ResourceKind.Image, (_, _) => { });
+            Assert.Equal(1, loader.LoadCalls); // 不再触达 loader
+
+            // 别的 id 不受影响：仍会触达 loader（并照样抛）。
+            Assert.Throws<System.InvalidOperationException>(() => tracker.EnsureLoading(new Id("layer.hero__front__other"), ResourceKind.Image));
+            Assert.Equal(2, loader.LoadCalls);
+        }
+
         [Fact]
         public void EnsureLoading_NoCallbackPassed_DoesNotThrow_OnCompletion()
         {

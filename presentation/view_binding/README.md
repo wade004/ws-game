@@ -181,6 +181,13 @@ public void SyncAll(double alpha)
     被跳过而残留，即 `OnSaveLoaded` 旧注释里"需要人工核查"的已知限制，现已消除）；`OnSaveLoaded` 第一循环因此
     不再需要自己的 `try/catch`。回归见 `presentation/view_binding/tests/ViewBinderPerViewIsolationTests.cs`。
 
+12. **[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第 D23 条：`StrideEmitter` 在实体销毁时清理位移缓存**：
+    `StrideEmitter` 构造时与 `ViewBinder` 订阅同一个 `entity.destroyed`，收到后移除该实体在 `_lastPosition` 与
+    `_accumulated` 中的条目（`Dispose` 同时退订两条订阅）。此前销毁不清理：同 id 的实体在远处重生，首帧会按旧
+    缓存位置算出一次虚假的巨大位移并据此发射一串步伐粒子；`_accumulated` 的余量也会串到新实体上。
+    复现/不变量：`tests/StrideEmitterTests.cs` 的"远处重生不产生虚假位移"、"余量清零"、"不影响其它实体"、
+    "Dispose 退订两条订阅"。无公开签名变化。
+
 ## 契约缺口
 
 - 见 `presentation/common/README.md`"契约缺口"一节（`Entity.Kind` 词汇表未统一、

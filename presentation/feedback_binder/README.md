@@ -252,6 +252,16 @@
     `attach` 为 world（含 `PlaySfx(Id, Vec2?)` 旧两参重载）时行为与新增前完全一致（不跟踪、不
     建键）。详见 `presentation/vfx_sfx/README.md` 判断记录 20。
 
+20. **[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第 D24 条：`FeedbackRule` 可选 Id/枚举字段非法值不再静默吞成 `null`**：
+    `OptionalId`/`OptionalEnum<T>` 对"字段缺失或 JSON `null`"仍返回 `null`（合法的"未指定"），但字段存在且取值
+    非法（非字符串、非法 Id 格式、未知枚举值、数字字符串如 `"3"`）时抛 `DataFieldException`（`Field="actions"`，
+    消息带第几个元素与字段名）——此前这类数据错误悄悄退化为"未指定"，动作带着错误含义执行。`RequireEnum` 与
+    `OptionalEnum` 共用 `TryParseEnum`（`Enum.TryParse` 忽略大小写且 `Enum.IsDefined`，拒绝数字字符串）。
+    `tests/FeedbackFromRecordTests.cs` 补全：顶层字段、动作元素（必填/类型/非法 Id/非法枚举）、D24 可选字段非法
+    （正反例）、构造器不变量违反经 `FromRecord` 以 `ArgumentException` 暴露（**已知不一致**：构造器校验抛
+    `ArgumentException` 而 schema 解析抛 `DataFieldException`，本条不统一，见汇报）；`vfx_sfx` 的
+    `VfxSfxFromRecordTests.cs` 补 `vfx.def`/`sfx.def`/`weapon_style` 的缺字段/类型不符/非法枚举。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

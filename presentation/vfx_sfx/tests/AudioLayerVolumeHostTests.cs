@@ -170,5 +170,174 @@ namespace Tests.Presentation.VfxSfx
             Assert.Equal(0.33, sfxPlayer2.LayerVolumes["combat"]);
             Assert.Equal(0.55, audio2.BusVolumes[AudioBus.Music]);
         }
+
+        // ---- D21（ADR-0125）：音量校验 / 夹取 / 未知层 / 持久化失败诊断 ----
+
+        public static IEnumerable<object[]> NonFiniteVolumes() => new[]
+        {
+            new object[] { double.NaN },
+            new object[] { double.PositiveInfinity },
+            new object[] { double.NegativeInfinity },
+        };
+
+        [Theory]
+        [MemberData(nameof(NonFiniteVolumes))]
+        public void SetVolume_NonFinite_ThrowsArgumentOutOfRange_AndChangesNothing(double bad)
+        {
+            var sfxPlayer = new RecordingSfxPlayer();
+            var audio = new StubAudio();
+            var store = new SettingsStore(new StubFileSystem());
+            var host = new AudioLayerVolumeHost(new[] { "combat" }, sfxPlayer, audio, store);
+            host.SetVolume("combat", 0.3);
+
+            var ex = Assert.Throws<System.ArgumentOutOfRangeException>(() => host.SetVolume("combat", bad));
+            Assert.Equal("volume", ex.ParamName);
+            var exMusic = Assert.Throws<System.ArgumentOutOfRangeException>(() => host.SetVolume(AudioLayerVolumeHost.MusicLayer, bad));
+            Assert.Equal("volume", exMusic.ParamName);
+
+            // 不变量：抛出后内存值、已应用到后端的值、持久化的值都维持上一次合法写入。
+            Assert.Equal(0.3, host.GetVolume("combat"));
+            Assert.Equal(0.3, sfxPlayer.LayerVolumes["combat"]);
+            Assert.Equal(1.0, audio.BusVolumes[AudioBus.Music]);
+            var saved = store.Load();
+            Assert.Equal(0.3, Assert.IsType<Core.Foundation.Common.Json.JsonNumber>(saved["audio.volume.combat"]).Value);
+            Assert.False(saved.ContainsKey("audio.volume.music"));
+        }
+
+        [Theory]
+        [InlineData(-0.5)]
+        [InlineData(-1e9)]
+        [InlineData(0.0)]
+        [InlineData(0.42)]
+        [InlineData(1.0)]
+        [InlineData(1.5)]
+        [InlineData(1e9)]
+        public void SetVolume_FiniteValue_IsClampedToUnitRange_InMemoryAppliedAndPersisted(double requested)
+        {
+            // 期望值由规则 clamp(v, 0, 1) 算出，不写裸数。
+            var expected = System.Math.Min(1.0, System.Math.Max(0.0, requested));
+            var sfxPlayer = new RecordingSfxPlayer();
+            var audio = new StubAudio();
+            var store = new SettingsStore(new StubFileSystem());
+            var host = new AudioLayerVolumeHost(new[] { "combat" }, sfxPlayer, audio, store);
+
+            host.SetVolume("combat", requested);
+            host.SetVolume(AudioLayerVolumeHost.MusicLayer, requested);
+
+            Assert.Equal(expected, host.GetVolume("combat"));
+            Assert.Equal(expected, sfxPlayer.LayerVolumes["combat"]);
+            Assert.Equal(expected, audio.BusVolumes[AudioBus.Music]);
+            var saved = store.Load();
+            Assert.Equal(expected, Assert.IsType<Core.Foundation.Common.Json.JsonNumber>(saved["audio.volume.combat"]).Value);
+            Assert.Equal(expected, Assert.IsType<Core.Foundation.Common.Json.JsonNumber>(saved["audio.volume.music"]).Value);
+        }
+
+        [Fact]
+        public void SetVolume_UnknownLayer_ThrowsArgumentException_AndWritesNoNewKey()
+        {
+            var sfxPlayer = new RecordingSfxPlayer();
+            var audio = new StubAudio();
+            var store = new SettingsStore(new StubFileSystem());
+            var host = new AudioLayerVolumeHost(new[] { "combat" }, sfxPlayer, audio, store);
+            var layersBefore = new List<string>(host.Layers);
+            var appliedBefore = new Dictionary<string, double>(sfxPlayer.LayerVolumes);
+
+            var ex = Assert.Throws<System.ArgumentException>(() => host.SetVolume("ghost", 0.5));
+
+            Assert.Equal("layer", ex.ParamName);
+            Assert.IsNotType<System.ArgumentNullException>(ex);
+            Assert.Equal(layersBefore, host.Layers);
+            Assert.Equal(appliedBefore, sfxPlayer.LayerVolumes);
+            Assert.Equal(1.0, host.GetVolume("ghost")); // 未登记层读取仍是默认满音量（契约不变）
+            Assert.False(store.Load().ContainsKey("audio.volume.ghost"));
+        }
+
+        /// <summary>Save 恒返回 false 的设置存储（其余委托给真实实现），模拟磁盘写失败。</summary>
+        private sealed class FailingSaveSettingsStore : ISettingsStore
+        {
+            private readonly ISettingsStore _inner;
+            public int SaveCalls;
+
+            public FailingSaveSettingsStore(ISettingsStore inner) => _inner = inner;
+
+            public Core.Foundation.Common.Json.JsonObject Load() => _inner.Load();
+            public bool Save(Core.Foundation.Common.Json.JsonObject data) { SaveCalls++; return false; }
+            public int SettingsVersion => _inner.SettingsVersion;
+            public void RegisterMigration(ISaveMigration migration) => _inner.RegisterMigration(migration);
+        }
+
+        [Fact]
+        public void SetVolume_SaveReturnsFalse_RecordsDiagnostic_AndKeepsVolumeEffectiveThisSession()
+        {
+            var sfxPlayer = new RecordingSfxPlayer();
+            var audio = new StubAudio();
+            var store = new FailingSaveSettingsStore(new SettingsStore(new StubFileSystem()));
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var host = new AudioLayerVolumeHost(new[] { "combat" }, sfxPlayer, audio, store, diagnostics);
+            Assert.Empty(diagnostics.Warnings); // 构造期只读取，不写盘，不应有警告
+
+            host.SetVolume("combat", 0.25);
+
+            var warning = Assert.Single(diagnostics.Warnings);
+            Assert.Contains("combat", warning);
+            Assert.Equal(1, store.SaveCalls);
+            // 持久化失败不回滚：本次会话内音量仍然生效。
+            Assert.Equal(0.25, host.GetVolume("combat"));
+            Assert.Equal(0.25, sfxPlayer.LayerVolumes["combat"]);
+        }
+
+        [Fact]
+        public void SetVolume_SaveSucceeds_RecordsNoDiagnostic()
+        {
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var host = new AudioLayerVolumeHost(
+                new[] { "combat" }, new RecordingSfxPlayer(), new StubAudio(), new SettingsStore(new StubFileSystem()), diagnostics);
+
+            host.SetVolume("combat", 0.5);
+
+            Assert.Empty(diagnostics.Warnings);
+        }
+
+        [Fact]
+        public void Diagnostics_FourArgConstructor_DefaultsToOwnRecorder_AndFiveArgNullFallsBack()
+        {
+            var store = new FailingSaveSettingsStore(new SettingsStore(new StubFileSystem()));
+            var fourArg = new AudioLayerVolumeHost(new[] { "combat" }, new RecordingSfxPlayer(), new StubAudio(), store);
+            var fiveArgNull = new AudioLayerVolumeHost(new[] { "combat" }, new RecordingSfxPlayer(), new StubAudio(), store, null);
+
+            fourArg.SetVolume("combat", 0.1);
+            fiveArgNull.SetVolume("combat", 0.1);
+
+            Assert.Single(Assert.IsType<PresentationDiagnosticsRecorder>(fourArg.Diagnostics).Warnings);
+            Assert.Single(Assert.IsType<PresentationDiagnosticsRecorder>(fiveArgNull.Diagnostics).Warnings);
+        }
+
+        [Fact]
+        public void SetVolume_NullLayer_ThrowsArgumentNull()
+        {
+            var host = new AudioLayerVolumeHost(new[] { "combat" }, new RecordingSfxPlayer(), new StubAudio(), new SettingsStore(new StubFileSystem()));
+
+            Assert.Equal("layer", Assert.Throws<System.ArgumentNullException>(() => host.SetVolume(null!, 0.5)).ParamName);
+        }
+
+        [Fact]
+        public void Construct_PersistedOutOfRangeVolume_IsClampedOnRestore()
+        {
+            var fs = new StubFileSystem();
+            var store = new SettingsStore(fs);
+            var builder = new Core.Foundation.Common.Json.JsonObjectBuilder();
+            builder.Add("audio.volume.combat", new Core.Foundation.Common.Json.JsonNumber(7.5));
+            builder.Add("audio.volume.music", new Core.Foundation.Common.Json.JsonNumber(-3.0));
+            store.Save(builder.Build());
+
+            var sfxPlayer = new RecordingSfxPlayer();
+            var audio = new StubAudio();
+            var host = new AudioLayerVolumeHost(new[] { "combat" }, sfxPlayer, audio, store);
+
+            Assert.Equal(1.0, host.GetVolume("combat"));
+            Assert.Equal(1.0, sfxPlayer.LayerVolumes["combat"]);
+            Assert.Equal(0.0, host.GetVolume(AudioLayerVolumeHost.MusicLayer));
+            Assert.Equal(0.0, audio.BusVolumes[AudioBus.Music]);
+        }
     }
 }

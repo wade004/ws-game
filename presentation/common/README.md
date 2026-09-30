@@ -110,6 +110,20 @@ common/
    做什么完全是调用方职责）；原两参数重载保留不变（ABI 只新增，内部转发新重载、`onComplete`
    传 `null`，语义与此前固定空回调完全一致）。
 
+8. **[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第 D22 条：`ResourceReferenceTracker` 失败不重试、同步抛异常契约（现行为钉住）**：
+   - 某 id 的 `LoadAsync` 完成回调报告失败后，**同一 id 不会被重新加载**（`_requested` 只增不减；失败由消费方
+     用占位表现并记诊断，追踪器不持有结果）。一个 id 失败不影响其它 id。
+   - `IResourceLoader.LoadAsync` 同步抛异常时，异常向调用方原样传播，**该 id 已记为已请求**（`Add` 先于调用），
+     之后不再重试。调用方如需重试必须换 id 或重建追踪器。
+   - 已知缺口（待设计层确认，本条不改）：构造函数未对 `loader` 做空参守卫（`null` 会推迟到首次 `EnsureLoading` 才抛
+     `NullReferenceException`）。
+   用例：`tests/ResourceReferenceTrackerTests.cs` 的 D22 三例。
+   **T-M15 空参守卫清单**：`tests/NullGuardTests.cs` 用反射枚举 `Presentation` 命名空间下全部公共构造器的非可空
+   引用形参，逐形参断言传 `null` 抛 `ArgumentNullException` 且 `ParamName` 一致（字符串形参的"不能为空白"守卫断言
+   `ArgumentException`）；源码确实没有守卫的形参登记在 `KnownUnguardedConstructorParameters`（8 项，含上面的
+   `loader`），并有"清单不过期"用例（登记项一旦补了守卫就要求删掉）。`tests/NullGuardMethodTests.cs` 手写覆盖非构造器
+   守卫（公共方法、静态工厂、受保护/internal 构造器）。合计覆盖 72 个类型。
+
 ## 契约缺口
 
 - **`Entity.Kind` 字符串词汇表已完整登记（G1 + 收边任务 + 加固任务）**：`Core.Foundation.SimLoop.EntityKinds`

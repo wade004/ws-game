@@ -117,27 +117,27 @@ namespace Presentation.FeedbackBinder.Contracts
 
                 case "play_vfx":
                     return new PlayVfxAction(
-                        OptionalId(@params, "vfx_id"),
-                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
+                        OptionalId(record, index, @params, "vfx_id"),
+                        OptionalEnum<FromDisplaySource>(record, index, @params, "from_display"),
                         RequireEnum<FeedbackAttachTarget>(record, index, @params, "attach"),
-                        OptionalId(@params, "anchor_id"));
+                        OptionalId(record, index, @params, "anchor_id"));
 
                 case "play_sfx":
                     return new PlaySfxAction(
-                        OptionalId(@params, "sfx_id"),
-                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
-                        OptionalEnum<FeedbackAttachTarget>(@params, "attach") ?? FeedbackAttachTarget.World);
+                        OptionalId(record, index, @params, "sfx_id"),
+                        OptionalEnum<FromDisplaySource>(record, index, @params, "from_display"),
+                        OptionalEnum<FeedbackAttachTarget>(record, index, @params, "attach") ?? FeedbackAttachTarget.World);
 
                 case "stop_vfx":
                     return new StopVfxAction(
-                        OptionalId(@params, "vfx_id"),
-                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
+                        OptionalId(record, index, @params, "vfx_id"),
+                        OptionalEnum<FromDisplaySource>(record, index, @params, "from_display"),
                         RequireEnum<FeedbackAttachTarget>(record, index, @params, "attach"));
 
                 case "stop_sfx":
                     return new StopSfxAction(
-                        OptionalId(@params, "sfx_id"),
-                        OptionalEnum<FromDisplaySource>(@params, "from_display"),
+                        OptionalId(record, index, @params, "sfx_id"),
+                        OptionalEnum<FromDisplaySource>(record, index, @params, "from_display"),
                         RequireEnum<FeedbackAttachTarget>(record, index, @params, "attach"));
 
                 case "freeze":
@@ -183,21 +183,50 @@ namespace Presentation.FeedbackBinder.Contracts
             throw new DataFieldException(record.Table.Name, record.Key, "actions", $"第 {index} 个元素缺少必填 Id 字段 \"{field}\"");
         }
 
-        private static Id? OptionalId(JsonObject obj, string field) =>
-            obj.TryGetValue(field, out var v) && v is JsonString s && Id.TryParse(s.Value, out var id) ? id : (Id?)null;
+        /// <summary>ADR-0125 D24：可选 Id 字段——缺省或 JSON null 返回 null；出现但不是合法 Id 字符串
+        /// （类型不符或格式非法）抛 <see cref="DataFieldException"/>，不再静默变 null。</summary>
+        private static Id? OptionalId(DataRecord record, int index, JsonObject obj, string field)
+        {
+            if (!obj.TryGetValue(field, out var v) || v.Kind == JsonKind.Null)
+            {
+                return null;
+            }
+            if (v is JsonString s && Id.TryParse(s.Value, out var id))
+            {
+                return id;
+            }
+            throw new DataFieldException(record.Table.Name, record.Key, "actions", $"第 {index} 个元素的可选 Id 字段 \"{field}\" 取值非法（{DescribeValue(v)}）");
+        }
 
         private static TEnum RequireEnum<TEnum>(DataRecord record, int index, JsonObject obj, string field) where TEnum : struct
         {
-            if (obj.TryGetValue(field, out var v) && v is JsonString s && System.Enum.TryParse<TEnum>(s.Value, ignoreCase: true, out var e))
+            if (obj.TryGetValue(field, out var v) && v is JsonString s && TryParseEnum<TEnum>(s.Value, out var e))
             {
                 return e;
             }
             throw new DataFieldException(record.Table.Name, record.Key, "actions", $"第 {index} 个元素缺少必填枚举字段 \"{field}\"");
         }
 
-        private static TEnum? OptionalEnum<TEnum>(JsonObject obj, string field) where TEnum : struct =>
-            obj.TryGetValue(field, out var v) && v is JsonString s && System.Enum.TryParse<TEnum>(s.Value, ignoreCase: true, out var e)
-                ? e
-                : (TEnum?)null;
+        /// <summary>ADR-0125 D24：可选枚举字段——缺省或 JSON null 返回 null；出现但不是合法枚举名（类型不符、
+        /// 未知名字、数字字符串）抛 <see cref="DataFieldException"/>，不再静默变 null。</summary>
+        private static TEnum? OptionalEnum<TEnum>(DataRecord record, int index, JsonObject obj, string field) where TEnum : struct
+        {
+            if (!obj.TryGetValue(field, out var v) || v.Kind == JsonKind.Null)
+            {
+                return null;
+            }
+            if (v is JsonString s && TryParseEnum<TEnum>(s.Value, out var e))
+            {
+                return e;
+            }
+            throw new DataFieldException(record.Table.Name, record.Key, "actions", $"第 {index} 个元素的可选枚举字段 \"{field}\" 取值非法（{DescribeValue(v)}）");
+        }
+
+        /// <summary>忽略大小写按名字解析；<see cref="System.Enum.TryParse{TEnum}(string,bool,out TEnum)"/> 会把 "99"
+        /// 这类数字字符串当作合法值返回越界枚举，这里额外要求结果是已定义成员。</summary>
+        private static bool TryParseEnum<TEnum>(string text, out TEnum value) where TEnum : struct =>
+            System.Enum.TryParse<TEnum>(text, ignoreCase: true, out value) && System.Enum.IsDefined(typeof(TEnum), value);
+
+        private static string DescribeValue(JsonValue v) => v is JsonString s ? $"\"{s.Value}\"" : $"类型 {v.Kind}";
     }
 }

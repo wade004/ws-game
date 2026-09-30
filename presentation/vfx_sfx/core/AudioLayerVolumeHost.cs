@@ -43,16 +43,33 @@ namespace Presentation.VfxSfx.Core
 
         public IReadOnlyList<string> Layers => _layers;
 
+        /// <summary>ADR-0125 D21 新增：持久化失败（<see cref="ISettingsStore.Save"/> 返回 false）等降级路径的诊断出口；
+        /// 4 参构造默认自建一份 <see cref="PresentationDiagnosticsRecorder"/>，装配根把 <c>SfxPlayer</c> 的诊断实例
+        /// 传给 5 参构造，使这类警告与其它音频诊断一起被引擎侧轮询转发。</summary>
+        public IPresentationDiagnostics Diagnostics { get; }
+
         public AudioLayerVolumeHost(
             IReadOnlyList<string> sfxLayers,
             ISfxPlayer sfxPlayer,
             IAudio audio,
             ISettingsStore settingsStore)
+            : this(sfxLayers, sfxPlayer, audio, settingsStore, null)
+        {
+        }
+
+        /// <summary>ADR-0125 D21 新增重载（旧 4 参签名原样保留并转调）：额外注入诊断出口。</summary>
+        public AudioLayerVolumeHost(
+            IReadOnlyList<string> sfxLayers,
+            ISfxPlayer sfxPlayer,
+            IAudio audio,
+            ISettingsStore settingsStore,
+            IPresentationDiagnostics? diagnostics)
         {
             if (sfxLayers == null) throw new ArgumentNullException(nameof(sfxLayers));
             _sfxPlayer = sfxPlayer ?? throw new ArgumentNullException(nameof(sfxPlayer));
             _audio = audio ?? throw new ArgumentNullException(nameof(audio));
             _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
+            Diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
 
             _layers = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -72,9 +89,12 @@ namespace Presentation.VfxSfx.Core
             foreach (var layer in _layers)
             {
                 var volume = DefaultVolume;
-                if (data.TryGetValue(VolumeKey(layer), out var value) && value is JsonNumber number)
+                if (data.TryGetValue(VolumeKey(layer), out var value) && value is JsonNumber number
+                    && !double.IsNaN(number.Value) && !double.IsInfinity(number.Value))
                 {
-                    volume = number.Value;
+                    // ADR-0125 D21：持久化文件可能被手改或来自旧版本（旧版本不夹取），恢复时同样夹取到 [0,1]；
+                    // 非有限数值（如 1e999 解析为 Infinity）视为无效，退回默认满音量。
+                    volume = LayerVolume.Clamp(number.Value);
                 }
                 _volumes[layer] = volume;
                 ApplyToAudio(layer, volume);
@@ -87,6 +107,15 @@ namespace Presentation.VfxSfx.Core
         public void SetVolume(string layer, double volume)
         {
             if (layer == null) throw new ArgumentNullException(nameof(layer));
+            if (!_volumes.ContainsKey(layer))
+            {
+                // ADR-0125 D21：未知层名不写入新键（此前会在内存表与设置文档里留下永远不会被读取/列出的孤儿键）。
+                throw new ArgumentException($"未知音量层 \"{layer}\"，可用层见 Layers", nameof(layer));
+            }
+
+            // ADR-0125 D21：NaN/Infinity 抛 ArgumentOutOfRangeException；有限值夹取到 [0,1]，
+            // 应用到后端与持久化的都是夹取后的值。
+            volume = LayerVolume.Normalize(volume, nameof(volume));
 
             _volumes[layer] = volume;
             ApplyToAudio(layer, volume);
@@ -129,7 +158,14 @@ namespace Presentation.VfxSfx.Core
                 builder.Add(key, new JsonNumber(volume));
             }
 
-            _settingsStore.Save(builder.Build());
+            if (!_settingsStore.Save(builder.Build()))
+            {
+                // ADR-0125 D21：此前 Save 的返回值被忽略。内存里与后端已生效的音量保留（本次调整当前会话仍然有效），
+                // 只记一条诊断说明"重启后不会恢复"，不抛异常、不回滚。
+                Diagnostics.Warn(
+                    $"音量设置持久化失败：ISettingsStore.Save 返回 false，层 \"{layer}\" 的音量 {volume.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    "本次会话内有效，但重启后不会恢复");
+            }
         }
 
         private static string VolumeKey(string layer) => $"audio.volume.{layer}";

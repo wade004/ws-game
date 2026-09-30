@@ -16,16 +16,18 @@ namespace Presentation.VfxSfx.Contracts
         /// <c>"music"</c> 塞进 sfx 层清单）。</summary>
         IReadOnlyList<string> Layers { get; }
 
-        /// <summary>当前生效音量，范围与语义由具体游戏约定（本接口不做 [0,1] 裁剪，同
-        /// <see cref="Core.Foundation.EngineAdapter.IAudio.SetBusVolume"/>/
-        /// <see cref="Presentation.VfxSfx.Contracts.ISfxPlayer.SetLayerVolume"/> 惯例）。
+        /// <summary>当前生效音量（默认实现保证落在 [0,1]，见 <see cref="SetVolume"/>）。
         /// <paramref name="layer"/> 不在 <see cref="Layers"/> 里时返回 1.0（默认满音量，不抛异常）。</summary>
         double GetVolume(string layer);
 
         /// <summary>设置 <paramref name="layer"/> 的音量：<c>"music"</c> 经
         /// <see cref="Core.Foundation.EngineAdapter.IAudio.SetBusVolume"/> 应用，其余层经
         /// <see cref="ISfxPlayer.SetLayerVolume"/> 应用；随后经 <see cref="Core.Foundation.SaveSystem.ISettingsStore"/>
-        /// 持久化（键 <c>audio.volume.&lt;layer&gt;</c>），下次构造本接口实现时自动恢复。</summary>
+        /// 持久化（键 <c>audio.volume.&lt;layer&gt;</c>），下次构造本接口实现时自动恢复。
+        /// ADR-0125 D21 起默认实现的入参语义：<paramref name="volume"/> 为 NaN/Infinity 抛
+        /// <see cref="System.ArgumentOutOfRangeException"/>；有限值夹取到 [0,1]（应用与持久化的都是夹取后的值）；
+        /// <paramref name="layer"/> 不在 <see cref="Layers"/> 里抛 <see cref="System.ArgumentException"/>，不写入任何状态；
+        /// 持久化失败（<c>ISettingsStore.Save</c> 返回 false）不抛异常，记一条诊断，本次会话内音量仍然生效。</summary>
         void SetVolume(string layer, double volume);
     }
 }

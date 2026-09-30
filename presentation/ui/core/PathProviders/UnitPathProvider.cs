@@ -23,7 +23,8 @@ namespace Presentation.Ui
     /// <see cref="UnitSubQueries"/> 的既有逻辑。多数运行期单位 id 形如 <c>unit.inst_3</c>、内容
     /// 模板挂载的固定单位 id 形如 <c>unit.hero</c>，均不含 "power"/"stat" 字面量段，本策略在
     /// 现有命名惯例下是安全的；若未来出现名字恰好含 "power"/"stat" 段的单位 id，调用方需要避免
-    /// 通过本路径查询它（属于已知限制，见本模块 README）。
+    /// 通过本路径查询它。<b>设计决定，见 ADR-0125</b>（D16）：单位 id 命名约束写在 <c>presentation/ui/README.md</c>，
+    /// 现行为由 <c>UnitPathProviderTests</c> 钉住。
     /// </para>
     /// </summary>
     public sealed class UnitPathProvider : IUiPathProvider

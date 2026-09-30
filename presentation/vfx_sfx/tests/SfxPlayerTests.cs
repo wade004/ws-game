@@ -120,6 +120,67 @@ namespace Tests.Presentation.VfxSfx
             Assert.Equal(0.4, audio.ActiveSfxPlaybacks[handle.Value].Volume);
         }
 
+        public static IEnumerable<object[]> NonFiniteVolumes() => new[]
+        {
+            new object[] { double.NaN },
+            new object[] { double.PositiveInfinity },
+            new object[] { double.NegativeInfinity },
+        };
+
+        /// <summary>D21（ADR-0125）：NaN/Infinity 抛 ArgumentOutOfRange，已设置的层音量不受影响。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteVolumes))]
+        public void SetLayerVolume_NonFinite_ThrowsArgumentOutOfRange_AndKeepsPreviousVolume(double bad)
+        {
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog());
+            player.SetLayerVolume("combat", 0.4);
+
+            var ex = Assert.Throws<System.ArgumentOutOfRangeException>(() => player.SetLayerVolume("combat", bad));
+            Assert.Equal("volume", ex.ParamName);
+
+            var handle = player.Play(PlainSfx, null)!.Value;
+            Assert.Equal(0.4, audio.ActiveSfxPlaybacks[handle.Value].Volume);
+        }
+
+        /// <summary>D21：有限值夹取到 [0,1]，期望值由规则算出。</summary>
+        [Theory]
+        [InlineData(-2.0)]
+        [InlineData(0.0)]
+        [InlineData(0.65)]
+        [InlineData(1.0)]
+        [InlineData(3.0)]
+        public void SetLayerVolume_FiniteValue_IsClampedToUnitRange(double requested)
+        {
+            var expected = System.Math.Min(1.0, System.Math.Max(0.0, requested));
+            var audio = new StubAudio();
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog());
+
+            player.SetLayerVolume("combat", requested);
+            var handle = player.Play(PlainSfx, null)!.Value;
+
+            Assert.Equal(expected, audio.ActiveSfxPlaybacks[handle.Value].Volume);
+        }
+
+        /// <summary>D21：未在 sfx.def 任何条目中出现的层名抛 ArgumentException，且不留下该层的音量键
+        /// （之后即便该层名出现在别处也读不到这次写入）。</summary>
+        [Fact]
+        public void SetLayerVolume_UnknownLayer_ThrowsArgumentException_AndLeavesNoResidue()
+        {
+            var audio = new StubAudio();
+            var catalog = BuildCatalog();
+            var player = new SfxPlayer(audio, new RngHost(1), catalog);
+
+            var ex = Assert.Throws<System.ArgumentException>(() => player.SetLayerVolume("ghost", 0.1));
+            Assert.Equal("layer", ex.ParamName);
+
+            // 之后登记一个属于 "ghost" 层的音效：其音量必须是默认满音量（若上面写入了残留键，会读到 0.1）。
+            var ghostSfx = new Id("sfx.ghost_sound");
+            catalog[ghostSfx] = new SfxDef(ghostSfx, "ghost", 1, null, new Id("res.ghost"));
+            var handle = player.Play(ghostSfx, null)!.Value;
+            Assert.Equal(1.0, audio.ActiveSfxPlaybacks[handle.Value].Volume);
+        }
+
         [Fact]
         public void SetLayerMuted_ForcesZeroVolume()
         {

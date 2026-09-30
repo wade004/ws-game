@@ -476,7 +476,7 @@ namespace Presentation.Assembly
             // 顺序取数据出现顺序，同下方 settingsLayers 此前的去重口味一致，改用同一份计算结果）。
             var sfxLayers = sfxCatalog.Values
                 .Select(d => d.Layer).Distinct(StringComparer.Ordinal).OrderBy(l => l, StringComparer.Ordinal).ToList();
-            AudioVolume = new AudioLayerVolumeHost(sfxLayers, sfxPlayer, audio, SettingsStore);
+            AudioVolume = new AudioLayerVolumeHost(sfxLayers, sfxPlayer, audio, SettingsStore, sfxPlayer.Diagnostics);
 
             // ---------------------------------------------------------
             // 3) feedback_binder：feedback.binding/feedback.floating_text_style 建规则集；

@@ -706,3 +706,21 @@ UI 意图方法名语义，不新建第二套词汇表。
 `Refresh()` 重算，不新增事件契约。回归：`PresentationAssemblyOptionsWiringTests` 的三条
 `Options_SettingsActionNames_*` 与 `ViewModelTests` 的 `SettingsViewModel_explicit_list_skips_undeclared_actions_until_declared`/
 `SettingsViewModel_without_list_shows_all_declared_actions_in_declaration_order`。
+
+## 判断记录（`UnitPathProvider` 单位 id 命名约束、T-M31 补测，2026-10-01，[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md)，D16）
+
+**单位 id 命名约束（设计决定，现行为钉住）**：`unit.<id>.power|stat.…` 按"`unit` 之后第一次出现的字面量段 `power`
+或 `stat`"切分单位 id，因此**运行期单位 id 的任何一段不得是字面量 `power` 或 `stat`**（如 `squad.power.lead`）——
+这类 id 无法通过本路径查询（返回 `null` 并记"单位 id 片段不是合法 Id"/"找不到 unit.<id>.power|stat 的关键字分界"
+警告）；以 `power`/`stat` 开头的 id 同理找不到分界。另一个已知副作用：当一个已登记单位 id 恰是另一个的前缀段时，
+按最短前缀归属，可能静默归到前缀单位（返回 `null`，无警告）。内容模板的单位 id 与 `IWorldSim.AllocateEntityId`
+的 `<kind>.inst_<n>` 形式均不含这些字面量段，故不改实现；新增单位 id 命名时须遵守本约束。用例：
+`tests/UnitPathProviderTests.cs`。
+
+**T-M31 补测（无行为变更）**：`tests/ShopViewModelTests.cs`（真实 `EconomyHost`：货架快照、未知商人退化空货架、
+购买成功刷新、四种购买失败路径后视图与余额不变且不产生事件、读档抑制作用域内购买由 `save.loaded` 重建、Dispose 退订）；
+`tests/ViewModelDisposeTests.cs`（全部 11 个 `IDisposable` 视图模型：Dispose 后其构造期订阅的全部句柄 `IsDisposed`、
+重复 Dispose 不抛，外加"清单覆盖全部视图模型类型"的反射守护；`InMemoryUiDiagnostics` 直接用例）；
+`tests/UiLayoutSchemaTests.cs`（`ui_layout_definition` schema 正反例与 `FromRecord` 错误路径）；
+`tests/UiIntentsFailurePathTests.cs`（用真实经济/技能绑定/应用状态宿主观察失败路径：失败结果原样透传、宿主异常原样传播、
+带 `panelId` 的重载在宿主调用之前就发出 `ui.action_invoked`，即失败的点击同样可观测——此现行为被钉住）。
