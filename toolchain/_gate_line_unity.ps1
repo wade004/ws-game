@@ -48,6 +48,7 @@ $script:GateFailed = $false
 $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } else { $null }
 
 . (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
+. (Join-Path $RepoRoot "toolchain\_gate_test_floors.ps1")
 . (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
 
 try {
@@ -234,6 +235,7 @@ try {
     # -------------------------------------------------------------------
     # Unity 相关四步 + IL2CPP 三步 + 消费方演练（-SkipUnity 时整体跳过）
     # -------------------------------------------------------------------
+    $GateFloorsPath = Join-Path $RepoRoot "toolchain\gate_floors.json"
     if ($SkipUnity) {
         Add-SkippedStep "Unity 编译检查" "-SkipUnity"
         Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
@@ -284,9 +286,15 @@ try {
             if (-not $editModeOk) {
                 Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
             }
+            # 用例数下限（复盘 I-2）：result==Passed 之外，还要 passed 不低于 gate_floors.json 的
+            # unity_editmode.min_passed、skipped+inconclusive 不超过 max_skipped；四个数写进 Detail。
+            $floorResult = Invoke-GateTestFloorCheck -Kind NUnit -Path $resultsXml -Suite "unity_editmode" -FloorsPath $GateFloorsPath
+            if (-not $floorResult.Ok) {
+                Write-Host "用例数下限未达：$($floorResult.Detail)" -ForegroundColor Red
+            }
             [PSCustomObject]@{
-                Ok     = $editModeOk
-                Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
+                Ok     = ($editModeOk -and $floorResult.Ok)
+                Detail = "failed=$($root.failed) result=$($root.result) " + $floorResult.Detail
             }
         }
 
@@ -313,9 +321,15 @@ try {
             if (-not $playModeOk) {
                 Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
             }
+            # 用例数下限（复盘 I-2）：result==Passed 之外，还要 passed 不低于 gate_floors.json 的
+            # unity_playmode.min_passed、skipped+inconclusive 不超过 max_skipped；四个数写进 Detail。
+            $floorResult = Invoke-GateTestFloorCheck -Kind NUnit -Path $resultsXml -Suite "unity_playmode" -FloorsPath $GateFloorsPath
+            if (-not $floorResult.Ok) {
+                Write-Host "用例数下限未达：$($floorResult.Detail)" -ForegroundColor Red
+            }
             [PSCustomObject]@{
-                Ok     = $playModeOk
-                Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
+                Ok     = ($playModeOk -and $floorResult.Ok)
+                Detail = "failed=$($root.failed) result=$($root.result) " + $floorResult.Detail
             }
         }
 

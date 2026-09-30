@@ -739,9 +739,25 @@ Invoke-Step "registry 安装形态下 additive 占位材质冒烟" {
     # 判断记录（本脚本自己负责把私服"带起来"，不假设调用方已经起好）：私服是本机常驻服务，可能
     # 早已被人手工起过（见 toolchain/registry/README.md"快速开始"），也可能全新环境从未起过——两种
     # 情况都要能跑通，因此先探活，没探到才 -Detach 起一个，不重复启动已经在跑的实例。
+    #
+    # 判断记录（2026-10-01 冷启动挂起根治，全量回归实测卡 16 分钟）：此前这里写的是
+    # `& powershell ... start_registry.ps1 -Detach | Out-Null`。start_registry.ps1 -Detach 会
+    # Start-Process 拉起一个常驻的 node（verdaccio）后台进程，该进程继承了这条 `| Out-Null` 管道的
+    # 写端句柄；start_registry.ps1 自己早就退出了，但管道写端还被常驻的 node 攥着，`Out-Null` 永远
+    # 等不到管道关闭（EOF），整个演练脚本就此无限挂起。只有"私服此前没在跑、需要现起"才会走到这一
+    # 行，所以本机私服常驻时门禁一直是绿的，冷启动环境（新机器、私服刚被停掉）才必现。
+    # 修法：不经管道。用 Start-Process 把 start_registry.ps1 -Detach 作为一个独立进程拉起（不重定向
+    # 任何输出，因此不存在需要继承的管道句柄），只对这个辅助进程本身带超时地等它退出
+    # （Process.WaitForExit(毫秒)，不等它的后代），随后仍由下面的探活循环（30 秒超时）判定私服是否
+    # 真正起来。辅助进程超时未退出时只杀这个辅助进程，不碰 node。
     if (-not (Test-LocalRegistryPing -Url $registryUrl)) {
         Write-Host "  本地私服未响应，尝试 -Detach 启动：$startRegistryScript" -ForegroundColor DarkGray
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $startRegistryScript -Detach | Out-Null
+        $startRegistryProc = Start-Process -FilePath "powershell" -PassThru -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $startRegistryScript, "-Detach")
+        if (-not $startRegistryProc.WaitForExit(60000)) {
+            Write-Host "  start_registry.ps1 -Detach 60 秒未退出，强制结束该辅助进程（不影响已拉起的 node），继续探活" -ForegroundColor Yellow
+            try { $startRegistryProc.Kill() } catch { }
+        }
         $deadline = (Get-Date).AddSeconds(30)
         while (-not (Test-LocalRegistryPing -Url $registryUrl)) {
             if ((Get-Date) -ge $deadline) {

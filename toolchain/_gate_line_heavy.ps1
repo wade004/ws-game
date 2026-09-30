@@ -60,6 +60,7 @@ $script:GateFailed = $false
 $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } else { $null }
 
 . (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
+. (Join-Path $RepoRoot "toolchain\_gate_test_floors.ps1")
 
 try {
     # 判断记录：故意不经过 Invoke-CheckStep（不受 -DocsOnly/-FailFast/-Quick 任何一个开关的短路
@@ -81,10 +82,17 @@ try {
     }
 
     # -----------------------------------------------------------------------
-    # 2. dotnet test（六工程；性能基线机器归一化诊断行处理同原 check.ps1，判断记录见该函数头）
+    # 2. dotnet test（测试工程数以 Core.sln 里 Tests.*.csproj 的条目数为准，步骤名里的数字由脚本
+    #    数出来、不写死，新增/删减测试工程时步骤名自动跟着变——此前写死"六工程"，实际早已是八个，
+    #    复盘 I-11；性能基线机器归一化诊断行处理同原 check.ps1，判断记录见该函数头）
+    #    用例数下限（复盘 I-2）：trx 是这一步本来就在产出的机器可读结果，直接读 Counters 求和，
+    #    passed 低于 toolchain/gate_floors.json 的 dotnet_test.min_passed、或 skipped 超过
+    #    max_skipped 即 FAIL，判断记录见 toolchain/_gate_test_floors.ps1 与 check.ps1 头部。
     # -----------------------------------------------------------------------
     $PerfTrxDir = Join-Path $ArtifactsPath "perf_trx"
-    Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（六工程，含 Perf 类别）" {
+    $GateFloorsPath = Join-Path $RepoRoot "toolchain\gate_floors.json"
+    $TestProjectCount = @(Select-String -LiteralPath $SolutionPath -Pattern '^Project\(.*,\s*"[^"]*Tests\.[^"\\]*\.csproj"').Count
+    Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（$TestProjectCount 个测试工程，含 Perf 类别；用例数下限见 gate_floors.json）" {
         if (Test-Path $PerfTrxDir) {
             Remove-Item $PerfTrxDir -Recurse -Force
         }
@@ -105,7 +113,13 @@ try {
             }
         }
 
-        $ok
+        $floorResult = Invoke-GateTestFloorCheck -Kind Trx -Path $PerfTrxDir -Suite "dotnet_test" -FloorsPath $GateFloorsPath
+        if ($floorResult.Ok) {
+            Write-Host "用例数下限：$($floorResult.Detail)" -ForegroundColor DarkGray
+        } else {
+            Write-Host "用例数下限未达：$($floorResult.Detail)" -ForegroundColor Red
+        }
+        [PSCustomObject]@{ Ok = ($ok -and $floorResult.Ok); Detail = $floorResult.Detail }
     }
 
     # -----------------------------------------------------------------------
@@ -227,18 +241,33 @@ try {
     if ($Quick) {
         Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick"
     } else {
-        Invoke-CheckStep "python -m pytest toolchain/tests -q" {
+        # 用例数下限（复盘 I-2）：加 --junitxml 产出机器可读结果，读 tests/failures/errors/skipped
+        # 与 toolchain/gate_floors.json 的 pytest 登记比较（判断记录见 toolchain/_gate_test_floors.ps1）。
+        # 该下限只覆盖本步骤实际跑的用例（已 --ignore 掉阶段一单独串行跑的那个文件）。
+        $pytestJunit = Join-Path $ArtifactsPath "pytest_junit.xml"
+        Invoke-CheckStep "python -m pytest toolchain/tests -q（用例数下限见 gate_floors.json）" {
+            if (Test-Path -LiteralPath $pytestJunit) {
+                Remove-Item -LiteralPath $pytestJunit -Force
+            }
             $prevPythonUtf8 = $env:PYTHONUTF8
             $env:PYTHONUTF8 = "1"
             Push-Location $RepoRoot
             try {
-                Test-NativeExitCode "python" @(
+                $pytestOk = Test-NativeExitCode "python" @(
                     "-m", "pytest", "toolchain/tests", "-q",
-                    "--ignore=toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py")
+                    "--ignore=toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py",
+                    "--junitxml=$pytestJunit")
             } finally {
                 Pop-Location
                 $env:PYTHONUTF8 = $prevPythonUtf8
             }
+            $floorResult = Invoke-GateTestFloorCheck -Kind JUnit -Path $pytestJunit -Suite "pytest" -FloorsPath $GateFloorsPath
+            if ($floorResult.Ok) {
+                Write-Host "用例数下限：$($floorResult.Detail)" -ForegroundColor DarkGray
+            } else {
+                Write-Host "用例数下限未达：$($floorResult.Detail)" -ForegroundColor Red
+            }
+            [PSCustomObject]@{ Ok = ($pytestOk -and $floorResult.Ok); Detail = $floorResult.Detail }
         }
     }
 

@@ -1,0 +1,41 @@
+{
+  "_comment": [
+    "门禁测试步骤的用例数下限登记（唯一出处；复盘 docs/复盘/测试覆盖梳理-2026-10-01.md 第 4 节 I-2）。",
+    "判定逻辑在 toolchain/_gate_test_floors.ps1：解析结果文件，passed < min_passed 即 FAIL；skipped + inconclusive > max_skipped 即 FAIL；failed > 0 即 FAIL；四个计数恒写进步骤 Detail。",
+    "取值规则：min_passed = 当前实测 passed 的 90% 向下取整到十位（例：5303 * 0.9 = 4772.7 -> 4770）；max_skipped = 当前实测 skipped 数（含 Assert.Ignore / [Ignore] / xfail 一类）。",
+    "维护义务：套件明显增长后（新增一批测试、跑过一轮全量确认实测数）要把 min_passed 按同一规则抬高，否则下限形同虚设；确属有意删减用例时才下调，并在提交信息里写明理由。",
+    "measured_passed / measured_skipped / measured_at 只是登记取值依据，门禁判定不读它们（测试 toolchain/tests/test_gate_floors_logic.py 会核对 min_passed / max_skipped 与这两个实测数是否符合上面的规则）。",
+    "pytest 一项只覆盖 _gate_line_heavy.ps1 里那一步实际跑的用例（已 --ignore 掉 check.ps1 阶段一单独串行跑的 test_registry_stop_pidfile_rewrite_timestamp.py）。"
+  ],
+  "suites": {
+    "dotnet_test": {
+      "min_passed": 4770,
+      "max_skipped": 2,
+      "measured_passed": 5303,
+      "measured_skipped": 2,
+      "measured_at": "2026-10-01",
+      "note": "2 个 skipped 是并行测试覆盖切片里登记为已知缺陷复现的 [Fact/Theory(Skip=...)]（core/sim/tests/BaselineContractTests.cs 种子精度、presentation/assembly/tests/PresentationAssemblyOptionsWiringTests.cs SettingsActionNames），缺陷修复并去掉 Skip 后把 max_skipped 收回到 0"
+    },
+    "pytest": {
+      "min_passed": 510,
+      "max_skipped": 0,
+      "measured_passed": 573,
+      "measured_skipped": 0,
+      "measured_at": "2026-10-01"
+    },
+    "unity_editmode": {
+      "min_passed": 80,
+      "max_skipped": 0,
+      "measured_passed": 91,
+      "measured_skipped": 0,
+      "measured_at": "2026-10-01"
+    },
+    "unity_playmode": {
+      "min_passed": 320,
+      "max_skipped": 0,
+      "measured_passed": 362,
+      "measured_skipped": 0,
+      "measured_at": "2026-10-01"
+    }
+  }
+}

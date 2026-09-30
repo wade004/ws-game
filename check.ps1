@@ -106,6 +106,24 @@
        本身的断言/重试策略（不属于"放宽断言"或"重试掩盖"），只改变它在整条门禁时间线上的
        调度位置，把暴露窗口从"门禁里最长的并行阶段"换成"门禁里最短的串行前置阶段"。
 
+    7) **测试步骤用例数下限（`toolchain/gate_floors.json`，复盘 I-2，2026-10-01）**：dotnet test、
+       pytest、Unity EditMode、Unity PlayMode 四步此前只看退出码/结果 Passed，整批用例被悄悄丢掉
+       （程序集没编进来、发现规则坏了、批量 Assert.Ignore、过滤器写错）时剩下的照样全绿。现在四步
+       各自解析结果文件（dotnet test 的 trx、pytest 的 junitxml、Unity 的 NUnit XML）里的
+       total/passed/skipped/inconclusive，与 gate_floors.json 登记的下限比较：passed < min_passed
+       即 FAIL，skipped+inconclusive > max_skipped 即 FAIL，四个数恒写进步骤 Detail。解析与判定
+       逻辑集中在 `toolchain/_gate_test_floors.ps1`（`toolchain/tests/test_gate_floors_logic.py`
+       用伪造的 trx/junit/NUnit 夹具验证低于下限 FAIL、超过 skip FAIL、正常 PASS）。
+       **下限取值规则**（唯一出处，数字只在 gate_floors.json）：min_passed = 当前实测 passed 的 90%
+       向下取整到十位；max_skipped = 当前实测 skipped 数。**维护义务**：套件明显增长后（新增一批
+       测试、跑过一轮全量确认实测数），要按同一规则把 min_passed 抬高并更新 measured_*，否则下限
+       形同虚设；确属有意删减用例才下调，且在提交信息里写明理由。`-Quick`/`-SkipUnity` 下被跳过的
+       步骤本来就不跑，不受下限约束；pytest 一项只覆盖 `_gate_line_heavy.ps1` 实际跑的那批用例。
+       同一轮还做了两件小事：模板数据根 `games/_template/data/game` 的 `validate_data.py --strict`
+       单独成一步（复盘 I-1，见下方 10b 步骤注释，秒级，`-Quick`/`-SkipUnity` 下也跑）；
+       dotnet test 步骤名里的测试工程数改为脚本从 Core.sln 数出来（复盘 I-11，此前写死"六工程"，
+       实际早已不是六个）。
+
 .PARAMETER SkipUnity
     跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）与消费方演练；只跑
     .NET/Python/禁用词/DLL 同步/包清单一致性几步。同一仓库内并行有人独占 Unity 编辑器时用这个
@@ -153,8 +171,9 @@
 
 .PARAMETER Quick
     工程收尾 K 新增，供 `.githooks/pre-commit` 调用：只跑"秒级能跑完"的子集——dotnet
-    build/test、三道数据校验（合并根 + data/_framework 框架根 + core/sim/tests/data 嵌入仿真
-    数据集，反馈 46 后续新增第三道，见步骤 6a 判断记录）、事件常量一致性检查、两道禁用词
+    build/test、四道数据校验（合并根 + data/_framework 框架根 + core/sim/tests/data 嵌入仿真
+    数据集，反馈 46 后续新增第三道，见步骤 6a 判断记录；再加 games/_template/data/game 模板数据根
+    第四道，见步骤 10b 注释）、事件常量一致性检查、两道禁用词
     扫描、版本一致性；跳过占位资产生成器检查（`gen_placeholder_assets.py --check`，需要 Pillow
     且逐张比较占位图较慢）、`toolchain` 自身 pytest、数值仿真基线比对（T-N6-7 新增，见该步骤
     判断记录——任务书硬性规则"禁止把数值仿真列为 -Quick 步骤"，本开关下始终 SKIP，不代表其不重要）、
@@ -568,6 +587,44 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/si
     } finally {
         Pop-Location
     }
+}
+
+# -----------------------------------------------------------------------------
+# 10b. 模板数据根 games/_template/data/game 单独 validate_data.py --strict 校验（复盘 I-1，
+#      2026-10-01）。AGENTS.md §4 G1 要求"默认数据根与 games/_template/data/game 必须 warnings 为
+#      0"，但此前门禁只覆盖合并根、data/_framework、core/sim/tests/data 三套，模板数据根从未进过
+#      任何自动步骤——它随分发包发给每个新游戏，一旦带着错误/警告出门，消费方第一次校验就红。秒级
+#      步骤，-Quick / -SkipUnity 下同样跑（放在"便宜的先跑"这批里）。
+#      判定比 --strict 多一层：--strict 只把"可升级"的警告升成错误，validator 输出里标了
+#      non-escalatable 的警告规则即使命中也不会让退出码变非 0，所以额外解析汇总行
+#      `errors N, warnings M`，warnings 必须恰为 0（G1 原话）。games/_template/validate.ps1 是随模板
+#      分发给消费方的校验入口（还会跑资产交叉校验、需要消费方自己的目录布局），不是门禁步骤，
+#      与本步骤不重复调用同一件事，保留不动。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root games/_template/data/game（模板数据根单独校验，warnings 须为 0）" {
+    Push-Location $RepoRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $templateOutput = @(& python "toolchain/validate_data.py" "--strict" "--framework-root" "data/_framework" "--data-root" "games/_template/data/game")
+        $templateExit = $LASTEXITCODE
+        $templateOutput | ForEach-Object { Write-Host $_ }
+    } finally {
+        Pop-Location
+    }
+    if ($templateExit -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "validate_data.py 退出码=$templateExit，见上方输出" }
+    }
+    $summary = @($templateOutput | Where-Object { $_ -match 'errors\s+(\d+),\s*warnings\s+(\d+)' })
+    if ($summary.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "未在输出里找到 'errors N, warnings M' 汇总行，无法确认 warnings 为 0" }
+    }
+    [void]($summary[-1] -match 'errors\s+(\d+),\s*warnings\s+(\d+)')
+    $tplErrors = [int]$Matches[1]
+    $tplWarnings = [int]$Matches[2]
+    if ($tplErrors -ne 0 -or $tplWarnings -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "模板数据根应为 0 error 0 warning（AGENTS.md §4 G1），实际 errors=$tplErrors warnings=$tplWarnings" }
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "errors=0 warnings=0" }
 }
 
 # -----------------------------------------------------------------------------
