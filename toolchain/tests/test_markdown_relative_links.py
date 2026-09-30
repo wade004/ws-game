@@ -210,6 +210,25 @@ def _is_gitignored(path: Path) -> bool:
     return result.returncode == 0
 
 
+# 已删除的审计归档目录/审计过程文档前缀（仓库相对路径，POSIX 形式）。`architecture/落地计划/audit-*` 是外部
+# 审计的证据归档，属于生成物，已整体从 git 删除（历史即备份，按 `git show eb5a5e26:<路径>` 取回，见
+# `architecture/落地计划/README.md`）；正文里遗留的指向它们的相对链接是历史引文，按设计不再解析，
+# 不算文档缺陷，也不逐条改写。
+_REMOVED_AUDIT_ARCHIVE_PREFIXES = (
+    "architecture/落地计划/audit-",
+    "architecture/落地计划/文档代码一致性审计_",
+    "architecture/落地计划/文档代码深度审核_",
+)
+
+
+def _is_removed_audit_archive(path: Path) -> bool:
+    try:
+        rel = path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return False
+    return rel.startswith(_REMOVED_AUDIT_ARCHIVE_PREFIXES)
+
+
 def _collect_broken_links() -> list[str]:
     problems: list[str] = []
     md_files = _list_tracked_markdown_files()
@@ -234,6 +253,9 @@ def _collect_broken_links() -> list[str]:
                 continue
             path_part, resolved_path = resolved
             if resolved_path.exists():
+                continue
+            if _is_removed_audit_archive(resolved_path):
+                # 指向已删除的 audit-* 审计归档（历史引文，见 _REMOVED_AUDIT_ARCHIVE_PREFIXES）。
                 continue
             if _is_gitignored(resolved_path):
                 # 指向 .gitignore 覆盖路径（构建产物/一次性日志等）：按设计不随仓库提交，不算

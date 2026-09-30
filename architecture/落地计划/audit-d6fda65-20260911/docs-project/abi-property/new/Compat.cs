@@ -1,1 +1,0 @@
-public class Compat { public static int Value { get { return 7; } } }

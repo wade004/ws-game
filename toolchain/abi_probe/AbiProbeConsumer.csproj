@@ -2,8 +2,7 @@
   <!--
     ABI 探针最小消费方工程（见 toolchain/abi_probe.ps1 头注释、architecture/11_工程规范与测试.md
     第 7 节"发布说明不得宣称未经验证的二进制兼容"）。改造自
-    architecture/落地计划/audit-c9ff301-20260909/docs-project/api-compat/FieldSchemaConsumer.csproj
-    （第十四轮修订版审核 codex 探针原型），扩展为覆盖本轮恢复的全部 6 个已删除公开规则类型 + 2 处
+    2026-09-09 第十四轮审核的探针原型（审计归档已删除，见 git 历史），扩展为覆盖本轮恢复的全部 6 个已删除公开规则类型 + 2 处
     构造签名收窄，四个程序集（Core.Foundation/Carriers/Rules/Gameplay）各自的一条最小调用路径。
 
     判断记录（为什么不用 <ProjectReference> 直接引用本仓库源码工程）：本工程刻意只用
