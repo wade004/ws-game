@@ -1,14 +1,14 @@
 ﻿<#
 .SYNOPSIS
     发布前 ABI 探针（第十六方深度审核 codex 第十四轮修订版跟进，见
-    architecture/落地计划/audit-c9ff301-20260909/ followup-2026-09-10.md、
+    audit-c9ff301-20260909/ followup-2026-09-10.md、
     architecture/11_工程规范与测试.md 第 7 节"发布说明不得宣称未经验证的二进制兼容"）：验证一份
     只见过基线版本（`toolchain/abi_probe_baseline.txt`，默认 1.12.0）公开签名的已编译消费方，
     换上本次工作树刚构建出的正式 DLL、**不重新编译**，运行期是否仍然成功——不满足则说明这是一次
     未经声明的二进制破坏性变更（`System.MissingMethodException`/`TypeLoadException` 等），门禁
     直接失败，而不是像 1.13.0 那样等外部审计事后才发现。
 
-    改造自 architecture/落地计划/audit-c9ff301-20260909/docs-project/api-compat/run-api-compat.ps1
+    改造自 audit-c9ff301-20260909/docs-project/api-compat/run-api-compat.ps1
     （codex 探针原型，硬编码 1.12.0→1.13.0、只测 FieldSchema 一个签名、且是"期望复现失败"的一次性
     取证脚本）：本脚本参数化基线版本、覆盖本轮恢复的全部签名，四个程序集，且是"期望通过"的常规门禁
     （非零退出即失败），供 check.ps1 全量步骤与后续 build.ps1 -Release 发布前重复调用。
@@ -78,7 +78,7 @@
     系统代码页读取不带 BOM 的脚本文件）。
 
     consumer 项目见 toolchain/abi_probe/（AbiProbeConsumer.csproj + Program.cs，改造自
-    architecture/落地计划/audit-c9ff301-20260909/docs-project/api-compat/ 的探针原型，见该目录下
+    audit-c9ff301-20260909/docs-project/api-compat/ 的探针原型，见该目录下
     两个文件各自头部判断记录）；表面差异工具见 toolchain/abi_surface/（AbiSurface.csproj +
     Program.cs/SurfaceDumper.cs/SurfaceCompare.cs/TypeNameFormatter.cs）。
 #>

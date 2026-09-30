@@ -1,7 +1,7 @@
 """`toolchain/get_framework.ps1` 的路径边界回归测试（PJ150-01 根治）。
 
 背景（第八轮审计，2026-09-08，见
-``architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md`` PJ150-01）：`-AllowVersionMismatch`
+``audit-3224ca1-20260908/AUDIT_REPORT.md`` PJ150-01）：`-AllowVersionMismatch`
 放行版本不一致时，脚本此前把锁文件里未经格式校验的 ``version`` 字段直接赋给
 ``$EffectiveVersion`` 并拼进落地目录路径；把该字段构造成形如 ``x/../../outside_sentinel``
 的值，拼出的路径规范化后会落到 ``-Target`` 之外的任意兄弟目录，脚本随后对该目录执行
@@ -31,7 +31,7 @@ python -m pytest toolchain/tests/test_get_framework_path_boundary.py -q
 环境下全部用例自动跳过。
 
 判断记录（第九轮审计工具链条目，2026-09-08，见
-``architecture/落地计划/audit-85f1f4f-20260908/``）：本文件 ``_run_script`` 此前
+``audit-85f1f4f-20260908/``）：本文件 ``_run_script`` 此前
 ``subprocess.run(..., text=True)`` 未指定 ``encoding``，本机 GBK 控制台下解码子进程输出会直接
 ``UnicodeDecodeError``，测试连 ``get_framework.ps1`` 是否正常工作都验证不到；已改为显式
 ``encoding="utf-8", errors="replace"``。同一轮还发现 ``get_framework.ps1`` 依赖的内置

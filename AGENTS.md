@@ -60,7 +60,7 @@
 
 ## 2. 仓库硬性规则
 
-- `architecture/00～14`、`architecture/adr/`、`数值设计/` 正文不出现任何引擎/语言/框架/工具名（`immunity` 例外）；具体技术名只允许写在 `architecture/选型/`、`architecture/落地计划/`、`toolchain/`、`docs/编辑器/`、`adapters/`、`docs/`。
+- `architecture/00～14`、`architecture/adr/`、`数值设计/` 正文不出现任何引擎/语言/框架/工具名（`immunity` 例外）；具体技术名只允许写在 `architecture/选型/`、`architecture/落地计划/`、`toolchain/`、`adapters/`、`docs/`。
 - 全仓库任何文件不出现具体游戏代号，用 `<game>` 或 `sample_*` 占位。
 - 改动架构结论要先出 ADR；只是细节勘误按 `architecture/12_扩展与变更流程.md` §5 处理——版本号不变、变更记录写"勘误："、关联 ADR 列 "—" 或对应 ADR 编号。
 - 每个模块 README 的"判断记录"要记录关键取舍及理由，不能只改代码不留痕。

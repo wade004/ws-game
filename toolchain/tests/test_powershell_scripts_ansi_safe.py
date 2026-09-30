@@ -18,7 +18,7 @@ PowerShell 5.1 按系统 ANSI 代码页（cp1252）读取脚本文件，中文 U
    `Get-Content -Raw` 的默认读取（BOM 会被正确识别为 UTF-8，不需要额外模拟），断言两种情形下解析
    错误数都是 0。
 
-`architecture/落地计划/audit-*/` 目录下的历史审计证据脚本（复现脚本、探针脚本等）不在本次门禁
+`audit-*/` 目录下的历史审计证据脚本（复现脚本、探针脚本等）不在本次门禁
 范围内——它们是特定审计轮次的既有证据文件，改动会破坏审计留痕，且本身不参与 `build.ps1`/
 `check.ps1` 的正常执行路径。
 
@@ -52,7 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPER_SCRIPT = Path(__file__).resolve().parent / "_ansi_parse_check.ps1"
 
 # audit-*/ 下的历史审计证据脚本不参与本门禁（见模块 docstring）。
-_EXCLUDE_SEGMENT = "architecture/落地计划/audit-"
+_EXCLUDE_SEGMENT = "audit-"
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32", reason="依赖 Windows PowerShell/pwsh 解析 .ps1 脚本"

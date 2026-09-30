@@ -1,7 +1,7 @@
 """扫描仓库内 Markdown 文档的相对文件链接，核对目标文件确实存在。
 
 背景（PJ130 交付侧审计，2026-09-08，见
-``architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md`` "文档漂移与需更新项"第 6/7
+``audit-5c444f1-20260908/AUDIT_REPORT.md`` "文档漂移与需更新项"第 6/7
 条）：`architecture/落地计划/落地方案与分阶段计划.md` 与四个模块 `schema/README.md`/
 `save_slot_meta.md` 曾各自出现相对路径层级数错误（如 `adr/0017-...` 缺一层 `../`、
 `../../../architecture` 少算一层目录），链接在 GitHub 网页或本地编辑器点击后 404。这类问题此前
@@ -210,14 +210,15 @@ def _is_gitignored(path: Path) -> bool:
     return result.returncode == 0
 
 
-# 已删除的审计归档目录/审计过程文档前缀（仓库相对路径，POSIX 形式）。`architecture/落地计划/audit-*` 是外部
+# 已删除的审计归档目录/审计过程文档前缀（仓库相对路径，POSIX 形式）。`audit-*` 是外部
 # 审计的证据归档，属于生成物，已整体从 git 删除（历史即备份，按 `git show eb5a5e26:<路径>` 取回，见
 # `architecture/落地计划/README.md`）；正文里遗留的指向它们的相对链接是历史引文，按设计不再解析，
 # 不算文档缺陷，也不逐条改写。
+_PLAN_DIR = "architecture/落地计划/"
 _REMOVED_AUDIT_ARCHIVE_PREFIXES = (
-    "architecture/落地计划/audit-",
-    "architecture/落地计划/文档代码一致性审计_",
-    "architecture/落地计划/文档代码深度审核_",
+    _PLAN_DIR + "audit-",
+    _PLAN_DIR + "文档代码一致性审计_",
+    _PLAN_DIR + "文档代码深度审核_",
 )
 
 

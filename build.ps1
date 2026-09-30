@@ -794,7 +794,7 @@ Write-Host ("  assets/_placeholder -> StreamingAssets/GameFoundation/assets/_pla
 
 # sprites/audio/vfx 三处同时同步 assets/_placeholder/<x>（占位素材）与 assets/_sample/<x>
 # （toolchain/import_sample_assets.py 导入的样例资产）到同一棵目标目录树，见上方 4 节头注释。
-# 判断记录（P07 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# 判断记录（P07 根治，2026-09-07，审计 audit-7e63d66-20260907/
 # project-review.md P07）：source -> target 子目录名映射（sprites->sprites、sfx->audio、
 # vfx->vfx）此前在本文件与 toolchain/sync_package_content.ps1（私服交付通道，同步进消费方 Unity
 # 工程）各自维护一份，后者完全漏掉了这一步（只整体镜像 assets/_placeholder 本身，消费方按原始
@@ -1020,7 +1020,7 @@ if ($DistRequested) {
     $tmpEssentialsFileCount = Copy-DistDir -SourceRelative "adapters\unity\Assets\TextMesh Pro" -DestName "assets\textmesh_pro_essentials"
 
     # -------------------------------------------------------------------
-    # 5.055 PJ130-02 根治新增（审计 architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md
+    # 5.055 PJ130-02 根治新增（审计 audit-5c444f1-20260908/AUDIT_REPORT.md
     #      PJ130-02）：ADR-0017 W6-B 的 model 型外形占位资产（Assets/Resources/GameFoundation/
     #      {models,anim_clips}，胶囊体 + AnimatorController + 四条 AnimationClip，见
     #      Editor/GeneratePlaceholderModelAssets.cs 顶部判断记录）此前从未随 dist 分发——上面
@@ -1121,7 +1121,7 @@ if ($DistRequested) {
     Write-Host ("  已补齐 model/anim_clips/materials 占位资产 + 叠加混合着色器 + 生成器 -> dist\{0}\adapters\unity\Packages\com.gamefoundation.adapter.unity\（当前共 {1} files）" -f $DistDirVersion, $adapterFileCount)
 
     # -------------------------------------------------------------------
-    # 5.05 P02 根治新增（审计 architecture/落地计划/audit-7e63d66-20260907/project-review.md
+    # 5.05 P02 根治新增（审计 audit-7e63d66-20260907/project-review.md
     #      P02）：toolchain/validator/Validator.csproj 在"源码树不存在"（本 dist ZIP、下方 5.15
     #      组装出的 com.gamefoundation.toolchain UPM 包 Tools~/validator/）场景下改用
     #      <Reference HintPath="lib\*.dll"> 直接引用编译好的六个核心 DLL（见该 csproj 判断记录），
@@ -1767,7 +1767,7 @@ if ($DistRequested) {
             }
 
             # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
-            # 判断记录（P05 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+            # 判断记录（P05 根治，2026-09-07，审计 audit-7e63d66-20260907/
             # project-review.md P05）：此前硬编码 `git push origin main --tags`——无论 -Release
             # 实际在哪个分支上执行（例如维护分支 release/1.0.x 上打 PATCH 版本），都固定推 main，
             # 且 `--tags` 会把本地全部标签一起推送，不是"只推本次新建的这一个标签"。改为取当前

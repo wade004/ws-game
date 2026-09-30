@@ -6,35 +6,44 @@
 
 `architecture/` 是已定稿的架构文档集，是本仓库唯一的规范来源，入口见 [architecture/README.md](architecture/README.md)；技术选型、工程结构、分工与分阶段落地计划见 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)。面向执行 agent 的派单规则单一来源见 [AGENTS.md](AGENTS.md)。
 
-> 落地状态：阶段 0～5（环境骨架、L0 基础层、L1+L2 数值与规则、L3+L4 载体与玩法、Unity 适配层+表现层+UI 套件、美术管线与资产规格）均已完成，详见落地计划文档末节「落地进度记录」。3D 渲染（model 型外形）、装备外观、武器动画（`auto_attack_anim`/`cast_anim_override`）、关键帧反馈（`anim_keyframe_driven`）四项能力框架侧均**已实现**，**默认接线**由各装配根的口味配置开关控制（决策见 [ADR-0017](architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)，明细见落地计划「W6 表现能力补齐」小节）；"框架已实现"“默认接线”与"是否已有真实 Unity/消费方运行证据验证"是三件分开记录的事，不能互相替代，证据等级口径见各轮审计报告（`architecture/落地计划/audit-*/AUDIT_REPORT.md`）。除上述四项外，其余能力边界按该节表格的分类口径分属当前仍开放的状态——分类口径 2026-09-09（第十四轮修订版审核责任解耦跟进，基线 `c9ff301`）由四类扩到六类：**未实现**（如孤儿检查——04 明确定位为建议、非门禁契约、不构成本轮待办、`teleport_points` 引用目标完整性校验——元素结构 `{id?, position?}` 本身已登记校验，未提供的是"带 id 的命名点是否被某处 `teleport_target_ref` 正确引用、引用的目标地图/落点是否存在"这层跨表引用完整性检查）、**延期/预留**（如 ATB——`TimeModelSchema` 已登记为合法预留枚举值，`TurnScheduler.Configure` 遇到时抛 `NotSupportedException`，是否/何时实现由后续版本排期决定，区别于"明确非目标"的无计划实现）、**已实现未默认接线**（如采集时钟、回放接入、`FeedbackRuleValidator`、`SpawnSummonOnlyCreatureRule` 的查询接入、owner/day/vendor 回调——默认未提供业务回调/固定时钟不能被误读为整个 Quest/采集能力关闭）、**游戏责任**（框架已提供机制/字段/扩展点，是否/如何进一步落地由具体游戏或宿主决定，不构成框架待办——如天赋完整点数管理、`SampleNewGameStarter` 新局重置、位移轨迹碰撞、escort 自动路线）、**明确非目标**（如 `day_cycle`、导航跨帧请求预算与空间查询完整索引化——02 第 1.8/1.9 节"性能约定"已收窄为实现方自行决定的性能边界，均已有决策记录明确不是待接的缺口）、**暂不落地（用户拍板，2026-09-09）**（编辑器工具：产品文档已完成，实现按用户拍板暂缓，ADR-0018 已将其列为框架仓库外部消费方项目，见 [docs/编辑器/README.md](docs/编辑器/README.md)）；框架提供 `TargetPoint` 字段（施法请求可携带的可空落点），地面点选到具体目标的解析/消费由上层 AI 或玩家辅助施法负责，不属于框架未实现项；已核实"至少一处生产装配根默认接入调用链"的**已实现且默认接线**能力（如上述四项、`target.chain` 形状范围目标查询、Summon follow/owner/联动、`ISkillHost.FindUnits`——已委托 `ISpatialQuery.QueryShape` 并按 `UnitFilter` 全维度过滤、生产装配默认注入 `Spatial`/`Factions`、VFX 锚点持续跟随——新增可选能力接口 `IParticleRepositioner`，Unity 参考适配层默认实现）不再列入"能力边界"表格本体，归档在该节"已修复历史项"小节。逐项源码锚点与当前完整条目数以 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)「能力边界与未默认接入能力索引」一节的表格为准（本行不重复维护具体数字，避免与该表更新脱节）。
+> 落地状态：阶段 0～5（环境骨架、L0 基础层、L1+L2 数值与规则、L3+L4 载体与玩法、Unity 适配层+表现层+UI 套件、美术管线与资产规格）均已完成，详见落地计划文档末节「落地进度记录」。3D 渲染（model 型外形）、装备外观、武器动画（`auto_attack_anim`/`cast_anim_override`）、关键帧反馈（`anim_keyframe_driven`）四项能力框架侧均**已实现**，**默认接线**由各装配根的口味配置开关控制（决策见 [ADR-0017](architecture/adr/0017-模型型外形默认路线补齐与命中帧同步.md)，明细见落地计划「W6 表现能力补齐」小节）；"框架已实现"“默认接线”与"是否已有真实 Unity/消费方运行证据验证"是三件分开记录的事，不能互相替代，证据等级口径见各轮审计报告（`audit-*/AUDIT_REPORT.md`）。除上述四项外，其余能力边界按该节表格的分类口径分属当前仍开放的状态——分类口径 2026-09-09（第十四轮修订版审核责任解耦跟进，基线 `c9ff301`）由四类扩到六类：**未实现**（如孤儿检查——04 明确定位为建议、非门禁契约、不构成本轮待办、`teleport_points` 引用目标完整性校验——元素结构 `{id?, position?}` 本身已登记校验，未提供的是"带 id 的命名点是否被某处 `teleport_target_ref` 正确引用、引用的目标地图/落点是否存在"这层跨表引用完整性检查）、**延期/预留**（如 ATB——`TimeModelSchema` 已登记为合法预留枚举值，`TurnScheduler.Configure` 遇到时抛 `NotSupportedException`，是否/何时实现由后续版本排期决定，区别于"明确非目标"的无计划实现）、**已实现未默认接线**（如采集时钟、回放接入、`FeedbackRuleValidator`、`SpawnSummonOnlyCreatureRule` 的查询接入、owner/day/vendor 回调——默认未提供业务回调/固定时钟不能被误读为整个 Quest/采集能力关闭）、**游戏责任**（框架已提供机制/字段/扩展点，是否/如何进一步落地由具体游戏或宿主决定，不构成框架待办——如天赋完整点数管理、`SampleNewGameStarter` 新局重置、位移轨迹碰撞、escort 自动路线）、**明确非目标**（如 `day_cycle`、导航跨帧请求预算与空间查询完整索引化——02 第 1.8/1.9 节"性能约定"已收窄为实现方自行决定的性能边界，均已有决策记录明确不是待接的缺口）、**暂不落地（用户拍板，2026-09-09）**（编辑器工具：产品文档已完成，实现按用户拍板暂缓，ADR-0018 已将其列为框架仓库外部消费方项目，见 [docs/编辑器/README.md](docs/编辑器/README.md)）；框架提供 `TargetPoint` 字段（施法请求可携带的可空落点），地面点选到具体目标的解析/消费由上层 AI 或玩家辅助施法负责，不属于框架未实现项；已核实"至少一处生产装配根默认接入调用链"的**已实现且默认接线**能力（如上述四项、`target.chain` 形状范围目标查询、Summon follow/owner/联动、`ISkillHost.FindUnits`——已委托 `ISpatialQuery.QueryShape` 并按 `UnitFilter` 全维度过滤、生产装配默认注入 `Spatial`/`Factions`、VFX 锚点持续跟随——新增可选能力接口 `IParticleRepositioner`，Unity 参考适配层默认实现）不再列入"能力边界"表格本体，归档在该节"已修复历史项"小节。逐项源码锚点与当前完整条目数以 [architecture/落地计划/落地方案与分阶段计划.md](architecture/落地计划/落地方案与分阶段计划.md)「能力边界与未默认接入能力索引」一节的表格为准（本行不重复维护具体数字，避免与该表更新脱节）。
 
 ## 顶层目录结构
 
 ```
 .github/workflows/      GitHub Actions 持续集成工作流（ci.yml + release.yml，见"持续集成"一节）
 .githooks/              版本化 git 钩子（pre-commit，见"提交前钩子"一节）
-architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（ADR 全集）+ 落地计划/ + 选型/
+architecture/          架构文档集（已定稿），本仓库唯一的规范来源；00~14 号文档 + adr/（ADR 全集）+ 数值设计/ + 选型/ + 图解/ + 落地计划/（落地计划与进度记录）
 core/                  L0~L4 纯逻辑类库，零引擎依赖，目标框架 .NET Standard 2.1
   foundation/            L0 基础层：event_bus、rng、expr、data_registry、sim_loop、save_system、input_map、l10n、display_info、scene_router、hook_registry、app_lifecycle
   numbers/               L1 数值层：stat_block、power_set、progression、archetype、faction
   rules/                 L2 规则层：skill、combat、targeting、ai
   carriers/              L3 载体层：item、creature、gobj、summon
   gameplay/              L4 玩法层：loot、quest、dialog、encounter、difficulty、achievement、economy、world_state、area_trigger、spawn、death（死亡复活三策略执行主体）
+  sim/                   数值仿真骨架 Core.Sim（ADR-0035）：无头运行器的装配根与 simrunner 场景基线，见 core/sim/README.md
 presentation/           L5 表现层的引擎无关部分（Presentation.Common：渲染/相机/UI 数据绑定、反馈绑定、VFX/SFX 播放体系、纸娃娃合成与动画状态机/程序动画原语等，均不依赖具体引擎）
 adapters/
   stub/                  桩适配层（Adapters.Stub，"无头适配层"），纯 .NET 实现；供 xUnit 测试/CI 驱动，同时是框架正式交付物之一（ADR-0018 决策 3）——随构建产物分发（zip 快照 `adapters/headless/`、私服第四个包 `com.gamefoundation.adapter.headless`），供内容编辑器等无头宿主使用；`core/sim/`（数值仿真骨架，ADR-0035 决策 1）依赖它组装无头世界，`Core.Sim.dll` 同目录一并分发
   unity/                 Unity 6 LTS 工作台工程；真正的框架交付物是内嵌 UPM 包 adapters/unity/Packages/com.gamefoundation.adapter.unity/
+  conformance/           引擎适配层契约一致性测试套件（同一份场景源码驱动桩实现与各引擎实现），见 adapters/conformance/README.md
 games/_template/        游戏层骨架模板（本地包 com.gamefoundation.game-template），新游戏复制本目录改名接入；真实游戏代码放各自仓库
+data/_framework/    框架自带的 5 张数据表（arch.power_type 与 found.* 四张），随分发包 dist/<version>/data/_framework/ 一起发给游戏，见 data/README.md
 data/_sample/           框架自测/校验器自测用的示例数据表，不代表任何真实游戏内容；真实游戏数据放各自仓库的 data/<game>/
 assets/_placeholder/    灰盒竖切用的通用占位资产包（精灵、特效、音效、音乐、地图分层图、字体等源素材），随版本快照一并交付
 assets/_sample/         由 toolchain/import_sample_assets.py 驱动资产导入工具真实产出并提交入库的样例资产（消费 assets/_placeholder 源素材生成），供 data/_sample 的 display/vfx/sfx/world 四张表引用；改了 assets/_placeholder 源素材或需修复 data/_sample 引用时重跑该脚本幂等重新生成，见 toolchain/README.md"data/_sample 的资产来源"一节
 toolchain/              校验、构建、资产导入等跨游戏 Python 工具链（validate_data.py、import_assets.py 等）；get_framework.ps1 是游戏侧按版本号引用本框架的工具（zip 通道），见"版本与发布"一节
   registry/              私服（Verdaccio 注册表）交付通道：本机/局域网内起一个私有包仓库，发布四个可发布包（游戏侧按版本号依赖其中三个，第四个包按需自取），与 zip 通道并存，见 toolchain/registry/README.md
   sync_package_content.ps1  私服通道配套：把游戏工程解析到的 com.gamefoundation.framework-data 包内容同步到该工程的 StreamingAssets/TextMesh Pro
-editor/                内容编辑器产品文档（markdown + 离线 HTML）；编辑器代码不在本仓库：基础套件与模板在独立的编辑器项目，编辑器实例随各游戏仓库走，见 docs/编辑器/README.md
+docs/                  非规范的工程往来与记录（规范只放 architecture/）
+  升级指南/              面向游戏侧的跨版本升级指南，见"版本与发布"一节
+  消费方反馈/            消费方反馈稿与框架侧答复、通知稿（按日期与批次命名）
+  复盘/                  排查复盘（PlayMode 等疑难问题的根因与标准流程）
+  编辑器/                内容编辑器产品文档（markdown + 离线 HTML）；编辑器代码不在本仓库：基础套件与模板在独立的编辑器项目，编辑器实例随各游戏仓库走，见 docs/编辑器/README.md
+  CHANGELOG-归档-0.1.0至1.79.x.md  从根 CHANGELOG.md 拆出的 0.1.0～1.79.0 历史版本条目
 dist/<version>/         build.ps1 -Dist 产出的版本快照（构建产物，.gitignore，不入库，可由源码重建）；-Release/-Zip 额外产出 ws-game-<version>.zip/.lock
 VERSION                 单一版本源（纯文本版本号，如 0.2.0），两个 package.json、CHANGELOG.md、dist 快照均以此为准，见"版本与发布"一节
-CHANGELOG.md             变更日志（Keep a Changelog 风格），发布时随 VERSION 一并更新
+CHANGELOG.md             变更日志（Keep a Changelog 风格），发布时随 VERSION 一并更新（1.80.0 起；更早版本见 docs/CHANGELOG-归档-0.1.0至1.79.x.md）
+REGRESSION_LOG.md       全量回归记录（每轮一行：run_id / 通过或失败 / 对应提交 / 日期）
 Core.sln                六个核心类库 + 六个测试工程的 .NET 解决方案
 build.ps1               DLL 同步、内容同步、版本快照打包、发布流程脚本（PowerShell 5.1 兼容）
 check.ps1               一键门禁脚本：构建/测试/校验/禁用词扫描/Unity 编译与测试/独立版冒烟一次跑完并汇总（PowerShell 5.1 兼容）

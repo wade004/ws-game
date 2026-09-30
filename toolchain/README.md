@@ -47,7 +47,7 @@ UTF-8，但字节巧合下没有触发这个具体的解析错误，本机门禁
 
 根治：给 `_hash.ps1` 补上 UTF-8 BOM（内容不变，只在文件开头加 3 字节 `EF BB BF`），并把"脚本
 含非 ASCII 字符必须带 BOM"升级为门禁校验——`toolchain/tests/test_powershell_scripts_ansi_safe.py`
-对仓库内跟踪的每个 `.ps1`/`.psm1` 文件（`architecture/落地计划/audit-*/` 下的历史审计证据脚本
+对仓库内跟踪的每个 `.ps1`/`.psm1` 文件（`audit-*/` 下的历史审计证据脚本
 除外）做两件事：(a) 含非 ASCII 字节的文件必须以 BOM 开头；(b) 用 PowerShell 语言分析器
 （`Parser.ParseInput`，只做语法解析、不执行）复核脚本能否被正确解析——没有 BOM 的文件按
 `cp1252` 解码文件字节模拟"目标运行代码页误读"场景，带 BOM 的文件按 PowerShell 自身
@@ -136,7 +136,7 @@ python toolchain/validate_data.py
 `StubFileSystem` 只有内存实现，本工具需要读真实文件，因此在工具自己的目录下补一个只读磁盘
 实现（不放进 `core/`，也不修改 `adapters/stub` 任何一行）。
 
-判断记录（P02 根治，2026-09-07，审计 `architecture/落地计划/audit-7e63d66-20260907/
+判断记录（P02 根治，2026-09-07，审计 `audit-7e63d66-20260907/
 project-review.md` P02）：`Validator.csproj` 对核心程序集（`Core.Foundation`/`Core.Numbers`/
 `Core.Rules`/`Core.Carriers`/`Core.Gameplay`/`Presentation.Common`）的引用按"`presentation/`
 源码树是否存在"二选一——本仓库内（`presentation/Presentation.Common.csproj` 存在）走
@@ -591,7 +591,7 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 ## Markdown 相对链接校验（`test_markdown_relative_links.py`）
 
 `toolchain/tests/test_markdown_relative_links.py` 扫描所有由 `git ls-files` 跟踪的 `*.md`
-文件（含 `architecture/落地计划/audit-*/` 各轮审计归档，2026-09-09 起不再整段排除审计目录，
+文件（含 `audit-*/` 各轮审计归档，2026-09-09 起不再整段排除审计目录，
 理由与判断记录见该测试文件顶部 docstring），校验其中的相对文件链接确实指向存在的文件；同时识别
 两类合法的"非字面路径"写法后再判定：`path.cs:123`/`path.cs:123-145` 这种源码行号引用记法（剥掉
 行号后缀再判存在性），以及仍落在 `.gitignore` 覆盖范围内的一次性构建产物/日志（按设计不入库，
@@ -710,7 +710,7 @@ diff。判定"锁文件是否需要改写"时也不再整份 JSON 字符串比�
 `README.md`"版本与发布"一节与 `architecture/落地计划/落地方案与分阶段计划.md` 第 3.5 节。
 
 **路径边界判断记录（PJ150-01 根治，2026-09-08，审计
-`architecture/落地计划/audit-3224ca1-20260908/AUDIT_REPORT.md` PJ150-01）**：锁文件的 `version`
+`audit-3224ca1-20260908/AUDIT_REPORT.md` PJ150-01）**：锁文件的 `version`
 字段此前只在与 `-Version` 相等时才被信任；`-AllowVersionMismatch` 放行版本不一致后，脚本会把该
 字段原样拼进落地目录路径并对其执行 `Remove-Item -Recurse -Force`——六个 DLL 的哈希校验不覆盖这个
 元数据字段，把 `version` 构造成形如 `x/../../outside_sentinel` 的值即可让落地路径规范化后逃出

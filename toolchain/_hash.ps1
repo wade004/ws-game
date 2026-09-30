@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
     共享的 SHA256 文件哈希计算函数（第九轮审计工具链条目根治，见
-    architecture/落地计划/audit-85f1f4f-20260908/）。判断记录：本机 Windows PowerShell 5.1
+    audit-85f1f4f-20260908/）。判断记录：本机 Windows PowerShell 5.1
     环境下曾观察到内置 `Get-FileHash` cmdlet 不可用（原因未查明，怀疑与 PSModulePath 相关，
     `pwsh`（PowerShell 7）下同一台机器可正常调用），`toolchain/get_framework.ps1`（游戏侧拉取
     发布产物后校验六个核心 DLL 哈希）、`toolchain/sync_package_content.ps1`（私服通道同步内容前

@@ -311,7 +311,7 @@ $script:FailFastFlagPath = $null
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# 0. 门禁自检（F1 根治回归，architecture/落地计划/audit-20260907/delivery-validation.md）：
+# 0. 门禁自检（F1 根治回归，audit-20260907/delivery-validation.md）：
 #    Test-NativeExitCode 此前会把原生命令的 stdout 泄漏进 Invoke-CheckStep 的结果判定，导致
 #    "有输出且退出码非零"的失败命令被误判为 PASS（复现细节见 toolchain/_gate_step_runner.ps1
 #    两函数上方判断记录）。本步骤在全部真正的检查步骤之前，用两个独立探针（失败/成功各一次，均带

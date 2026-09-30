@@ -7,7 +7,7 @@
     <RootNamespace>Toolchain.Validator</RootNamespace>
   </PropertyGroup>
 
-  <!-- 判断记录（P02 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+  <!-- 判断记录（P02 根治，2026-09-07，审计 audit-7e63d66-20260907/
        project-review.md P02）：本项目此前无条件用 <ProjectReference> 引用
        ../../presentation/Presentation.Common.csproj（经其传递引用 Core.Gameplay/Core.Carriers/
        Core.Rules/Core.Numbers/Core.Foundation）与 ../../adapters/stub/Adapters.Stub.csproj。

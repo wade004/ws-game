@@ -111,7 +111,7 @@ dotnet build <resolved>\validator\Validator.csproj -c Release
 dotnet build <resolved>\simrunner\SimRunner.csproj -c Release
 ```
 
-判断记录（P02 根治，2026-09-07，审计 `architecture/落地计划/audit-7e63d66-20260907/
+判断记录（P02 根治，2026-09-07，审计 `audit-7e63d66-20260907/
 project-review.md` P02）：此前 `Validator.csproj` 无条件用 `ProjectReference` 指向
 `../../presentation/Presentation.Common.csproj`（经其传递引用 `core/` 下四个程序集）与
 `../../adapters/stub/Adapters.Stub.csproj`，两者在本包内都不存在（本包不含 `presentation/`/

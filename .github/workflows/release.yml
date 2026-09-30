@@ -44,7 +44,7 @@ name: Release
 # 路径下产出不同字节）。
 #
 # 判断记录（缺附件 fallback 根治为"从已验证 zip 抽取"而不是"新构建混配"，2026-09-08，见
-# architecture/落地计划/audit-5c444f1-20260908/AUDIT_REPORT.md PJ130-01）：上一条判断记录只解决
+# audit-5c444f1-20260908/AUDIT_REPORT.md PJ130-01）：上一条判断记录只解决
 # "全部缺失 vs 部分缺失"的上传范围问题，没有解决"部分缺失时怎么补"——原逻辑一律调用
 # `build.ps1 -SkipTests` + `-SyncOnly -Dist -Zip` 在托管运行器上重新构建，即使已有 zip 存在、只是
 # lock 或某个 .tgz 缺失。这与上一条判断记录本身的结论矛盾：托管运行器的 checkout 路径与本机不同，
@@ -64,7 +64,7 @@ name: Release
 #
 #
 # 判断记录（zip 缺失分支收紧为阻断而非全量重建混批，2026-09-08，见
-# architecture/落地计划/audit-c86bfa9-20260908/AUDIT_REPORT.md PJ140-02）：上一条判断记录
+# audit-c86bfa9-20260908/AUDIT_REPORT.md PJ140-02）：上一条判断记录
 # （"缺附件 fallback 根治为'从已验证 zip 抽取'"）只覆盖了"zip 存在、其余附件缺失"这一支——
 # 从已验证 zip 里原样抽字节，保证补的内容与 zip 同源。但另一支"zip 本身缺失、lock/tgz 中至少
 # 一个仍在"没有被覆盖：原逻辑一律当作"没有旧包可复用"，直接触发 build.ps1 全量重建；托管运行器

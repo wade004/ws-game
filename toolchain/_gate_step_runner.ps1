@@ -196,8 +196,8 @@ function Add-SkippedStep {
 
 # 跑一个原生可执行文件并按退出码判定通过/失败。判断记录（F1/TOOL-01 根治、局部降级
 # $ErrorActionPreference）与原 check.ps1 完全一致，原样搬入，不重复贴一遍长注释——详见本仓库
-# git 历史 `check.ps1` 对应函数（2026-09 之前）与 `architecture/落地计划/audit-20260907/
-# delivery-validation.md` F1、`architecture/落地计划/audit-b3b91ee-20260907/code-review.md`
+# git 历史 `check.ps1` 对应函数（2026-09 之前）与 `audit-20260907/
+# delivery-validation.md` F1、`audit-b3b91ee-20260907/code-review.md`
 # TOOL-01。
 function Test-NativeExitCode {
     param(

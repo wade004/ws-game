@@ -140,7 +140,7 @@ function Copy-IfChanged {
     return $true
 }
 
-# 判断记录（P03 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# 判断记录（P03 根治，2026-09-07，审计 audit-7e63d66-20260907/
 # project-review.md P03）：此前 Sync-Tree 对目标目录做整树镜像——凡是目标目录里存在、但这一次
 # 源目录里没有同名相对路径的文件，一律删除。这对包专属目录（如 Assets/StreamingAssets/
 # GameFoundation/data/_framework）是对的（该目录树整体由框架内容拥有，理应镜像），但
@@ -224,7 +224,7 @@ Sync-Tree -SourceDir (Join-Path $dataDir "data\_framework") -TargetDir (Join-Pat
 Write-Step "同步 Data~/assets/_placeholder -> $DestDir\assets\_placeholder"
 Sync-Tree -SourceDir (Join-Path $dataDir "assets\_placeholder") -TargetDir (Join-Path $DestDir "assets\_placeholder") -Label "assets/_placeholder"
 
-# 判断记录（P07 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+# 判断记录（P07 根治，2026-09-07，审计 audit-7e63d66-20260907/
 # project-review.md P07）：上面这一步只是把 assets/_placeholder 原样整体镜像进
 # $DestDir\assets\_placeholder（即 .../GameFoundation/assets/_placeholder/sfx/ui_click_01.wav
 # 这样的原始子目录名），但 UnityResourceLoader（adapters/unity/Packages/com.gamefoundation.

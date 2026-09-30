@@ -1,6 +1,6 @@
 """``toolchain/validate_data.py`` 第二道校验的 ``validator_project`` 路径解析回归测试。
 
-背景（P02 根治，审计 architecture/落地计划/audit-7e63d66-20260907/project-review.md P02）：
+背景（P02 根治，审计 audit-7e63d66-20260907/project-review.md P02）：
 此前用 ``find_repo_root() / "toolchain" / "validator"`` 拼路径，``find_repo_root()`` 是
 "本文件所在目录的上一级"。这在源码仓库内正确（``repo_root`` 就是仓库根），但在
 UPM ``com.gamefoundation.toolchain`` 包内不成立——``validate_data.py`` 随包落在

@@ -45,7 +45,7 @@
     用于本机验证发布产物、或没有网络访问 GitHub 权限的场景。
 
 .PARAMETER AllowVersionMismatch
-    判断记录（P04 根治，2026-09-07，审计 architecture/落地计划/audit-7e63d66-20260907/
+    判断记录（P04 根治，2026-09-07，审计 audit-7e63d66-20260907/
     project-review.md P04）：默认严格模式——锁文件里记录的实际版本号（`ws-game-<Version>.lock`
     的 `version` 字段，即这份 zip 真正打包的版本）与调用方 `-Version` 请求的版本号不一致时直接
     报错退出，不落地、不删除/不覆盖任何已有的 `-Target` 子目录（此前只 warning 后继续，会按
@@ -98,7 +98,7 @@
     "校验通过才落地"的语义；已存在的旧版本目录只有在本次校验通过后才会被替换。这条"校验后才
     落地"的语义只适用于 zip 通道——`-FromRegistry` 通道的完整性校验交给 npm/UPM 自己的包传输
     机制（tarball 校验和），本脚本不重复实现。
-    判断记录（PJ150-01 根治，2026-09-08，审计 architecture/落地计划/audit-3224ca1-20260908/
+    判断记录（PJ150-01 根治，2026-09-08，审计 audit-3224ca1-20260908/
     AUDIT_REPORT.md PJ150-01）：`-AllowVersionMismatch` 放行版本不一致后，锁文件 `version` 字段
     此前未经格式校验就被用于拼接落地目录路径并触发 `Remove-Item -Recurse -Force`，构造成
     `x/../../outside_sentinel` 形式可越界删除 `-Target` 之外的目录，六个 DLL 的哈希校验不覆盖
@@ -169,7 +169,7 @@ if ($Version -notmatch $VersionFormatPattern) {
     exit 1
 }
 
-# 判断记录（P150-01 根治，2026-09-08，审计 architecture/落地计划/audit-3224ca1-20260908/
+# 判断记录（P150-01 根治，2026-09-08，审计 audit-3224ca1-20260908/
 # AUDIT_REPORT.md PJ150-01）：锁文件里的 `version` 字段此前只在“等于 -Version”时才被信任；一旦
 # 调用方传了 -AllowVersionMismatch 放行版本不一致，脚本会把锁文件 version 原样赋给
 # $EffectiveVersion 并直接拼进落地目录路径（`<Target>/ws-game-<EffectiveVersion>/`），随后对该
