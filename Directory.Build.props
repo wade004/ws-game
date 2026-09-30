@@ -9,4 +9,19 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!-- 判断记录（API 参考手册，见 docs/manual/README 与 build.ps1 -Dist）：只对"进入 API 参考的
+       类库"（工程名以 Core.、Presentation.、Adapters. 开头，即 Core.sln 里的核心程序集、
+       表现层、桩适配层与诊断转发工程）生成 XML 注释文件；测试工程（Tests. 开头）与工具工程
+       （Validator、SimRunner、各类探针）保持不生成。TreatWarningsAsErrors 仍为 true，
+       CS1591（公开成员缺注释）在此关闭——注释完整性不由编译器把关。同理关闭六类"注释内引用质量"
+       告警：CS1573（部分参数缺 param）、CS1574（cref 解析不到，多为指向私有成员/测试类型/
+       跨程序集名字）、CS0419（cref 指向重载组，编译器取其一）、CS1580（cref 参数类型无效）、
+       CS1734（paramref 名字不是当前成员参数）——开启文档生成前的存量注释里这几类共 650 余处，
+       全部只影响手册里的超链接是否可点，不影响内容；CS1570（XML 格式错误，会让整段注释丢失）
+       保持为错误，存量 6 处已修。 -->
+  <PropertyGroup Condition="!$(MSBuildProjectName.StartsWith('Tests.')) And ($(MSBuildProjectName.StartsWith('Core.')) Or $(MSBuildProjectName.StartsWith('Presentation.')) Or $(MSBuildProjectName.StartsWith('Adapters.')))">
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS0419;CS1580;CS1734</NoWarn>
+  </PropertyGroup>
+
 </Project>

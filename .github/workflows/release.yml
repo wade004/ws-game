@@ -545,6 +545,19 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -SkipTests
           exit $LASTEXITCODE
 
+      - name: Restore dotnet tools (docfx for the API reference manual)
+        # 判断记录（API 参考手册，ADR-0124）：下一步 `build.ps1 -SyncOnly -Dist -Zip` 默认会调用
+        # docs/manual/build.ps1 生成手册并打进 dist/<ver>/manual/ 与 zip；docfx 由仓库根
+        # .config/dotnet-tools.json 声明（本地工具清单），需要先 `dotnet tool restore`。手册脚本自己
+        # 也会恢复一次，这里单列一步是为了恢复失败（NuGet 源不可达）时在日志里一眼定位到这一步，而不是
+        # 淹没在打包输出里；与下一步同一个 if 条件。
+        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing == 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          dotnet tool restore
+          exit $LASTEXITCODE
+
       - name: build.ps1 -SyncOnly -Dist <version> -Zip
         # 判断记录（2026-09-08 收紧）：同上一步骤，仅 zip 缺失才需要重建；zip 存在时的缺件由抽取
         # 步骤补齐。

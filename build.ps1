@@ -136,6 +136,14 @@
     发布过，这个开关会破坏本仓库"标签 + dist zip + lock 不可变发布"的对外承诺，不应该在日常
     调用里习惯性带上。
 
+.PARAMETER SkipManual
+    API 参考手册新增（ADR-0124）：默认 `-Dist`/`-Release`/`-Zip` 在打分发包时会调用
+    `docs/manual/build.ps1` 生成手册站点（docfx：API 参考 + 模块 README + 架构文档），
+    并把 `docs/manual/_site/` 拷进 `dist/<版本>/manual/`；docfx 恢复/构建失败即报错退出，
+    不静默跳过。本开关跳过这一步（dist 内没有 `manual/` 目录），发布路径不要传。另外，直接传
+    `-Dist X.Y.Z-dryrun`（"只想验证打包清单/npm pack"的形式，内部调用方 check.ps1"包清单一致性"
+    步骤与 `toolchain/consumer_smoke.ps1` 用的就是它）时默认也跳过手册；`-Release -DryRun` 不跳过。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符。
 #>
@@ -152,7 +160,8 @@ param(
     [switch]$Zip,
     [switch]$PublishRegistry,
     [string]$RegistryUrl = "",
-    [switch]$AllowOverwriteDist
+    [switch]$AllowOverwriteDist,
+    [switch]$SkipManual
 )
 
 $ErrorActionPreference = "Stop"
@@ -1020,6 +1029,31 @@ if ($DistRequested) {
     $tmpEssentialsFileCount = Copy-DistDir -SourceRelative "adapters\unity\Assets\TextMesh Pro" -DestName "assets\textmesh_pro_essentials"
 
     # -------------------------------------------------------------------
+    # 5.06 API 参考手册新增（ADR-0124）：调用 docs/manual/build.ps1（dotnet tool restore → 生成 toc →
+    #      docfx 元数据抽取 + 站点构建）生成 docs/manual/_site/，整份拷进 dist/<版本>/manual/，随
+    #      版本快照（含 -Zip 的 zip）一起分发。
+    #
+    #      判断记录（失败即终止，不静默跳过）：手册是分发包的一部分，docfx 恢复（需联网取 NuGet）
+    #      或构建失败时发出的包就缺手册，属于产物不完整，因此报错退出并给出提示；只有显式
+    #      -SkipManual（内部门禁调用方）才不生成。子进程方式调用：手册脚本里有 exit 语句，
+    #      dot-source/同进程调用会直接结束本脚本；-SkipBuild 是因为本脚本走到这里之前核心程序集已经
+    #      构建过（-SyncOnly 则要求产物已存在），不重复 dotnet build。
+    # -------------------------------------------------------------------
+    $manualFileCount = 0
+    $SkipManualEffective = ($SkipManual -or (($Dist -match $DistVersionDryRunPattern) -and (-not $ReleaseRequested)))
+    if ($SkipManualEffective) {
+        Write-Host "  已跳过 API 参考手册（-SkipManual，或直接传 -Dist X.Y.Z-dryrun 的打包验证形式；dist 内不含 manual/）" -ForegroundColor Yellow
+    } else {
+        Write-Step "生成 API 参考手册（docs\manual\build.ps1）并拷进 dist\$DistDirVersion\manual\"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "docs\manual\build.ps1") -SkipBuild
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "打分发包失败：API 参考手册生成失败（退出码 $LASTEXITCODE，详见上方输出与 docs\manual\_docfx.log）。docfx 由 .config/dotnet-tools.json 声明，需先执行 dotnet tool restore（要能访问 NuGet 源）。确实不需要手册时显式传 -SkipManual。" -ForegroundColor Red
+            exit 1
+        }
+        $manualFileCount = Copy-DistDir -SourceRelative "docs\manual\_site" -DestName "manual"
+    }
+
+    # -------------------------------------------------------------------
     # 5.055 PJ130-02 根治新增（审计 audit-5c444f1-20260908/AUDIT_REPORT.md
     #      PJ130-02）：ADR-0017 W6-B 的 model 型外形占位资产（Assets/Resources/GameFoundation/
     #      {models,anim_clips}，胶囊体 + AnimatorController + 四条 AnimationClip，见
@@ -1560,6 +1594,7 @@ if ($DistRequested) {
         "assets/_placeholder: $assetsFileCount files",
         "data/_framework: $dataFrameworkFileCount files",
         "assets/textmesh_pro_essentials: $tmpEssentialsFileCount files",
+        $(if ($SkipManualEffective) { "manual: (skipped)" } else { "manual: $manualFileCount files" }),
         "",
         "[architecture_docs]"
     ) + $archDocLines + @(

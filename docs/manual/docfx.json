@@ -1,0 +1,68 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "../..",
+          "files": [
+            "core/*/Core.*.csproj",
+            "presentation/Presentation.Common.csproj",
+            "adapters/stub/Adapters.Stub.csproj",
+            "adapters/unity/DiagnosticsForwarding/Adapters.Unity.DiagnosticsForwarding.csproj"
+          ]
+        }
+      ],
+      "dest": "api",
+      "properties": { "Configuration": "Release" }
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [ "api/**.yml", "api/index.md", "index.md", "toc.yml", "concepts/**/toc.yml" ]
+      },
+      {
+        "src": "../..",
+        "dest": "concepts",
+        "files": [
+          "README.md",
+          "adapters/**/README.md",
+          "assets/**/README.md",
+          "core/**/README.md",
+          "data/**/README.md",
+          "games/**/README.md",
+          "presentation/**/README.md",
+          "toolchain/**/README.md",
+          "architecture/**/*.md"
+        ],
+        "exclude": [
+          "**/node_modules/**",
+          "**/bin/**",
+          "**/obj/**",
+          "**/Library/**",
+          "**/_site/**",
+          "docs/**",
+          "**/StreamingAssets/**",
+          "dist/**",
+          ".cache/**",
+          "scratchpad/**"
+        ]
+      },
+      {
+        "src": "..",
+        "dest": "concepts/docs",
+        "files": [ "**/README.md" ],
+        "exclude": [ "manual/**" ]
+      }
+    ],
+    "output": "_site",
+    "template": [ "default", "modern" ],
+    "globalMetadata": {
+      "_appTitle": "ws-game 框架手册",
+      "_appName": "ws-game",
+      "_lang": "zh-CN",
+      "_enableSearch": true,
+      "_disableContribution": true
+    }
+  }
+}

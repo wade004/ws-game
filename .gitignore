@@ -61,3 +61,11 @@ toolchain/registry/*.log
 # 未被任何仓库脚本（build.ps1/check.ps1/toolchain/*.ps1）生成，纯手工/一次性操作产物。
 .cache/
 scratchpad/
+# API 参考手册（docs/manual/，构建入口 docs/manual/build.ps1）：站点产物、DocFX 抽取的元数据、
+# 构建日志、toolchain/gen_manual_toc.py 生成的目录文件都是生成物，只留本地不提交
+# （docs/manual/api/index.md 是手写入口页，不受 *.yml 规则影响）。
+docs/manual/_site/
+docs/manual/_docfx.log
+docs/manual/api/*.yml
+docs/manual/api/.manifest
+docs/manual/concepts/
