@@ -61,4 +61,4 @@
 | full-20260930-03 | 通过（32/32，1.91.0 发布门禁，PlayMode 362/362，一次通过） | eb8c36a4 | 2026-09-30 |
 | full-20261001-01 | 通过（32 步：29 PASS / 3 SKIP（IL2CPP 三步未开 -Il2cpp）/ 0 FAIL；EditMode 91/91、PlayMode 362/362，ADR-0121 十条缺陷收口；首跑卡在 consumer_smoke 私服冷启动（环境性，见汇报），私服起好后重跑通过） | d856bd31 + 收口提交 | 2026-10-01 |
 | full-20261001-02 | 通过（G1 全量部分，因改 Directory.Build.props 多工程共享构建配置触发：dotnet build Core.sln -c Release 0 警告 0 错误；dotnet test Core.sln -c Release --no-build 总计 5329、通过 5327、失败 0、跳过 2；check.ps1 -SkipUnity -Quick 30 步通过；未跑 Unity 步骤与 check.ps1 非 Quick 全量） | 9efb4dfa | 2026-10-01 |
-| full-20261001-03 | ͨ�������Ը��ǵڶ����տڣ�check.ps1 ȫ���� Unity��33 �� = 30 PASS / 3 SKIP��IL2CPP ����δ�� -Il2cpp��/ 0 FAIL��dotnet test 5342 ͨ�� 0 ������pytest 661 ͨ�� 0 ������EditMode 91/91��PlayMode 362/362�������������״�ʵ��ȫ����ꣻABI ̽�� breaks=0�������˳��Ϊ -03��-02 �ѱ�ͬ���ֲ��ύռ�ã� | �տ��ύ | 2026-10-01 |
+| full-20261001-03 | 通过（测试覆盖第二批收口，check.ps1 全量含 Unity：33 步 = 30 PASS / 3 SKIP（IL2CPP 三步未开 -Il2cpp）/ 0 FAIL；dotnet test 5342 通过 0 跳过、pytest 661 通过 0 跳过、EditMode 91/91、PlayMode 362/362；用例数下限首次实跑全部达标；ABI 探针 breaks=0；序号顺延为 -03，-02 已被同日手册提交占用） | 19c6f426 | 2026-10-01 |
