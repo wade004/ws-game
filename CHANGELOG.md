@@ -470,6 +470,19 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - `Directory.Build.props`：`Core.*`、`Presentation.*`、`Adapters.*` 类库开启 `GenerateDocumentationFile`（测试/工具工程不开），并对这些工程关闭 CS1591/CS1573/CS1574/CS0419/CS1580/CS1734；`TreatWarningsAsErrors` 仍为 true。不改任何公开签名与运行时行为，DLL 内容不变。
 - 文档注释勘误：修复 4 处注释 XML 格式错误（`IDataRegistry.TryGet` 缺 `</para>`、`StatHost`/`GobjSchemas`/`DiagnosticsHub` 各一处标签未闭合），此前这些注释会整段丢失；给 18 个没有任何 `<summary>` 的非测试 `.cs` 文件、以及 API 范围内另外 28 个无注释的公开类型补一句话用途说明。
 
+### 测试
+
+- **`CarriersAssembly` 真实组合根探针**（测试覆盖第二批，9 例，`core/carriers/assembly/tests/CarriersCompositionRootProbeTests.cs`）：经真实 `CarriersAssembly` + `Rules.Skill.CastSkill` 施放 `create_item`/`open_lock`/`summon` 三类效果并断言运行时结果（物品入包、锁解开并消耗钥匙、召唤物出现且归属施法者；无钥匙等失败分支），真实组合根下 `set_world_flag` 无扩展处理时断言 Warn 诊断且无副作用，`CompositeEffectExtension` 的先到先得/全不处理/空参数语义；`CarriersAssemblyTests` 空世界空跑用例补真实断言。无生产代码变化。
+- **表现层生产装配接线探针**（测试覆盖第二批，`presentation/assembly/tests/`）：`PresentationAssemblyOptions` 每个可注入选项经真实 `PresentationAssembly` 注入后断言运行时结果（`PresentationAssemblyOptionsWiringTests`，30 例）；`PresentationAssembly.Dispose` 完整性——表现层全部总线订阅与场景钩子退订、`IDisposable` 公开子系统可观测、二次 `Dispose` 幂等（`PresentationAssemblyDisposeTests`，6 例）；`SchemaFieldRangeExport`/`SchemaFieldItemCountExport` 正常路径、路径记法、自引用/深度上限、空与非法输入（各 12 例）。探针暴露的真缺陷见下方"修复"。
+- **`SimRunner`/`Validator` 命令行进程级契约与基线比对契约**（测试覆盖第二批 T-H7）：`toolchain/tests/test_simrunner_cli.py`（36 例：退出码 0/1/2/3、`--update-baseline`/`--runs`/`--progress`/`--json`、摘要行格式、基线文件损坏）、`toolchain/tests/test_validator_cli.py`（34 例：参数错误、`--strict`、`--list-tables`、`--display-map-sources`、`--enable-graph-isolation`、`--schema-audit` + `--allowlist`）、`toolchain/tests/test_gate_sim_added_guard.py`（11 例）、`core/sim/tests/BaselineContractTests.cs`（42 例：`Added`/`Removed` 判定、`ToText` 首行 `added=<n>`、`ToJson`/`SortedRows` 顺序确定性、`DatasetChanged`、`SimBaseline.Parse` 异常类型、种子往返、指纹与加载顺序无关）。
+
+### 门禁
+
+- **模板数据根纳入严格校验**：`check.ps1` 新增 `games/_template/data/game` 的 `validate_data.py --strict` 步骤（秒级，`-Quick`/`-SkipUnity` 也跑），要求 warnings 为 0。
+- **测试用例数下限**：新增 `toolchain/gate_floors.json` 与 `toolchain/_gate_test_floors.ps1`，`dotnet test`（trx）、`pytest`（junitxml）、Unity EditMode/PlayMode（NUnit XML）四个测试步骤解析结果文件的 passed/skipped/failed/inconclusive，`passed` 低于下限、`skipped + inconclusive` 超过上限、`failed > 0` 均 FAIL，四个计数恒写进步骤 Detail；防止"整批用例被静默排除/跳过仍全绿"。`dotnet test` 步骤名里的测试工程数改为从 `Core.sln` 数出（此前写死"六工程"，实际早已是八个）。
+- **`consumer_smoke` 私服冷启动**：私服不在运行时改用 `Start-Process` 起 `start_registry.ps1 -Detach` 并带超时等待就绪，修复 `| Out-Null` 被后台 node 进程占住管道而卡死。
+- **`added>0` 拦截判定抽函数**：门禁线的 `Added` 差异拦截从 `_gate_line_heavy.ps1` 内联正则抽成 `toolchain/_sim_added_guard.ps1` 的 `Get-SimRunnerAddedVerdict` 并单测；同时有意收紧一处——`simrunner` 退出码 0 却解析不出任何场景摘要行、或出现 `scenario=` 开头但格式不匹配的行时 FAIL（此前静默放行）。
+
 ### 修复
 
 - **区域触发内的实体被销毁时补发离开事件**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 9 条，覆盖梳理 D9）：`AreaTriggerHost` 订阅 `entity.destroyed`，区内实体被销毁（含 `IWorldSim.ClearAll`）时对每个所在触发体补发 `reason=despawned` 的 `area.trigger_left` 并清"已进入"记录，此前 `AreaTriggerLeaveReason.Despawned` 从未发出、记录残留，`GetActiveTriggerIds` 持续报告已销毁实体，同 Id 再生成后进入还可能被残留记录吞掉 `area.trigger_entered`。死亡但实体仍存在不算离开；与卸载补发（`unloaded`）共存不重复。无签名变化。
@@ -483,6 +496,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **相机跟随目标丢失时保持最后位置**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 6 条，覆盖梳理 D6）：被跟随实体销毁后，`CameraHost.Update` 不再每帧抛异常——继续向最后一次有效位置跟随并停在那里，每次丢失只记一条诊断，目标重现后自动继续跟随。有签名变化（仅新增）：`ICameraFollowTarget` 新增默认接口成员 `TryGetPosition(entityId, alpha, out position)`（旧实现不改也能编译；内置 `SimSnapshotFollowTarget`/`DelegateFollowTarget` 覆写为不抛）；`CameraHost` 新增五参构造重载注入诊断出口，旧四参构造原样保留。
 - **读档场景路由失败显式暴露**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 10 条，覆盖梳理 D10）：`ShellHost.LoadGame` 读档成功但场景路由被拒绝（`ArgumentException` 未知场景 / `InvalidOperationException` 状态不允许）时，读档仍算成功（`Status` 不变），但不再静默吞掉——`LoadResult` 新增只增字段 `SceneRouteFailed`/`SceneRouteError`（含目标地图 id 与异常消息）并向 `ShellHost.Diagnostics` 记一条警告。有签名变化（仅新增）：`LoadResult.SceneRouteFailed`/`SceneRouteError`/`WithSceneRouteFailure(string)`，`ShellHost` 新增带 `IPresentationDiagnostics` 的十一参构造重载，旧构造签名保留。
 - **相机与外壳的诊断接入装配层共享诊断**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 6、10 条的接线收口）：`PresentationAssembly` 把同一份 `PresentationDiagnosticsRecorder` 传给 `CameraHost`（五参重载）、`CompositeFeedbackSink` 与 `ShellHost`（十一参重载），`Camera.Diagnostics`/`Shell.Diagnostics`/`FeedbackSinkDiagnostics` 是同一实例；`adapters/unity` 既有的 ADR-0042 轮询转发（`PresentationAssemblyDiagnosticsForwarder` 已轮询 `FeedbackSinkDiagnostics`）无需改动即可把"相机跟随目标丢失""读档场景路由失败"转发到引擎控制台。三处消息共处一个 `Warnings` 列表。无签名变化。
+- **`PresentationAssemblyOptions.SettingsActionNames` 注入非空清单不再使构造期抛异常**（测试覆盖第二批缺陷 1，位置 `presentation/ui/core/ViewModels/SettingsViewModel.cs`、`presentation/assembly/PresentationAssembly.cs`、`core/foundation/input_map`）：此前注入任何非空清单，`PresentationAssembly` 构造期 `SettingsViewModel.Refresh()` 对未声明的动作盲调 `IInputMapHost.GetBindings`，抛 `InvalidOperationException`，选项事实上不可用。现在设置面板的按键绑定行只列**当前已声明**的动作（清单里未声明的跳过，之后声明并 `Refresh()` 即出现，行顺序按清单顺序）；`SettingsActionNames = null`（默认）改为"当前已声明的全部动作"（声明顺序），与字段注释统一（此前默认恒为空清单，即不设该选项时设置面板恒无按键绑定行，现在会列出所有已声明动作）。**签名只新增**：`IInputMapHost.GetDeclaredActionNames()` 默认接口成员（默认返回 `null` = 不支持枚举，`InputMapHost` 覆盖为声明顺序快照）、`SettingsViewModel` 不带动作清单的四参构造重载；既有五参构造不变。
+- **`simrunner` 基线文件损坏不再崩溃**（测试覆盖第二批缺陷 2，位置 `toolchain/simrunner/Program.cs`）：基线文件是非法 JSON、缺必填字段或字段类型不符时，此前 `JsonParseException`/`KeyNotFoundException` 未捕获，进程以 Unhandled exception 崩溃；现按"数据装载阻断"返回退出码 2 并打印"基线文件损坏：<路径>：<原因>"。无公开签名变化。
+- **`validator --schema-audit` 白名单文件不是合法 JSON 不再崩溃**（测试覆盖第二批缺陷 3，位置 `toolchain/validator/Program.cs` 的 `RunSchemaAudit`）：此前只捕获 `FormatException`，`JsonParseException` 未捕获致进程崩溃；现与结构非法同属"白名单文件格式非法"，退出码 2。无公开签名变化。
+- **`SimBaseline`/`SimReport` 种子超过 2^53 不再丢精度**（测试覆盖第二批缺陷 4，位置 `core/sim/core/SimBaseline.cs`、`SimReport.cs`）：种子此前经 `JsonNumber`（double）往返，2^53+1 读回成 2^53、`ulong.MaxValue` 读回成 0。现 `ToJson` 把 `seed` 写成十进制字符串，`SimBaseline.Parse` 同时接受字符串与数字（旧基线写法）；仓库内已入库的基线不重写，`--update-baseline` 自然重写时才变成字符串。消费方若自行解析基线/报告 JSON 的 `seed` 字段，需同时接受数字与字符串。无公开签名变化。
 
 ## [1.91.0] - 2026-09-30
 

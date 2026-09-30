@@ -1503,3 +1503,19 @@ InvalidOperationException or ArgumentException or DirectoryNotFoundException)` �
 四处，构成"框架遍历/调用调用方提供的数据驱动型可插拔实现"这一问题形状在当前代码库内的完整清单，
 均已隔离；引擎适配层、诊断旁路、业务域默认实现三类按类别排除并说明理由，诊断旁路类未逐个源码核实
 （已如实标注），其余两类经抽样/结构性核实排除。
+
+## 判断记录（基线/报告种子改写十进制字符串、基线文件损坏退出码 2，2026-10-01，测试覆盖第二批缺陷 2/4）
+
+1. **种子精度**：`SimBaseline.ToJson`/`SimReport.ToJson` 此前把种子写成 JSON 数字（`ulong` 隐式转 `double`），超过
+   2^53 的种子静默丢精度（2^53+1 读回成 2^53，`ulong.MaxValue` 读回成 0）。现在两者都把 `seed` 写成**十进制字符串**；
+   `SimBaseline.Parse` 同时接受字符串（新写法，逐位精确）与数字（旧基线写法，沿用 double 读法）。仓库内已入库的
+   三份基线（种子是数字）不重写，`--update-baseline` 自然重写时才变成字符串。其它 JSON 类型或非十进制无符号整数的字符串抛
+   `InvalidCastException`（与其它字段"类型不符"口径一致）。`baseline.ToJson` 文本里种子由数字变字符串，属基线文件格式的
+   向后兼容扩展（读旧写新），无公开签名变化。回归：`core/sim/tests/BaselineContractTests.cs`
+   （`SeedAboveDoublePrecision_*`、`ToJson_WritesSeedAsDecimalString`、`Parse_LegacyNumericSeed_StillParses`、
+   `Parse_StringSeed_EqualsNumericSeed`）。
+2. **基线文件损坏**：`toolchain/simrunner` 读基线文件（比对与 `--update-baseline` 读既有条数两处）遇到非法 JSON
+   （`JsonParseException`）、缺必填字段（`KeyNotFoundException`）、字段类型不符（`InvalidCastException`）时，此前未捕获、
+   进程以 Unhandled exception 崩溃；现包成带文件路径的 `InvalidOperationException`（"基线文件损坏：<路径>：<原因>"），
+   由 `RunCommand` 同一分支按"数据装载阻断"返回退出码 2。回归：`toolchain/tests/test_simrunner_cli.py`
+   `test_corrupt_baseline_file_should_exit_2_not_crash`。

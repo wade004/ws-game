@@ -263,7 +263,7 @@ dotnet run --project toolchain/validator -- --schema-audit [--allowlist <path>] 
 白名单只允许豁免 `composite_without_substructure`，不允许豁免 `missing_description`——描述缺失
 必须真正补齐，不能靠白名单绕过（见 `toolchain/schema_audit_allowlist.json` 头注释、条目清单与
 逐条 reason）。文本模式末尾汇总一行 `tables N, fields M, errors E, warnings W`。返回码：`0` 未
-阻断（`errors == 0`）；`1` 阻断；`2` 命令行参数错误（白名单文件不存在/格式非法）。`check.ps1`
+阻断（`errors == 0`）；`1` 阻断；`2` 命令行参数错误（白名单文件不存在/格式非法，含文件内容不是合法 JSON）。`check.ps1`
 "元数据门禁"步骤即上面这条命令，`-Quick` 下也跑（秒级，不需要 Unity/构建产物）。
 
 ## `toolchain/simrunner`（数值仿真报告与基线比对命令行工具，T-N6-6/T-N6-7）

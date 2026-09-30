@@ -425,8 +425,10 @@ namespace Toolchain.Validator
                 {
                     allowlist = SchemaAuditAllowlist.Parse(allowlistText);
                 }
-                catch (FormatException ex)
+                catch (Exception ex) when (ex is FormatException || ex is Core.Foundation.Common.Json.JsonParseException)
                 {
+                    // 非 JSON 文本（JsonReader.Parse 抛 JsonParseException）与结构非法（Parse 抛 FormatException）
+                    // 同属"白名单文件格式非法"，统一退出码 2，不让未捕获异常崩进程（测试覆盖第二批缺陷 3）。
                     Console.Error.WriteLine($"参数错误：白名单文件格式非法：{allowlistPath}：{ex.Message}");
                     return 2;
                 }

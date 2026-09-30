@@ -689,3 +689,20 @@ UI 意图方法名语义，不新建第二套词汇表。
 事件）与 `presentation/assembly/tests/PresentationAssemblyTests.cs`（经真实 `PresentationAssembly`，
 `Panels.Open`/`Close` 与 `UiIntents` 的 `panelId` 重载在真实装配下可观察，且能驱动真实
 `feedback.binding`/`play_sfx` 实际派发）。
+
+## 判断记录（`SettingsViewModel` 按键绑定行只列"当前已声明"的动作，2026-10-01，测试覆盖第二批缺陷 1）
+
+生产装配探针（`presentation/assembly/tests/PresentationAssemblyOptionsWiringTests.cs`）发现：
+`PresentationAssemblyOptions.SettingsActionNames` 注入任何非空清单，`PresentationAssembly` 构造期就抛
+`InvalidOperationException`（"未声明的动作"）——`SettingsViewModel` 构造期 `Refresh()` 对清单每一项调
+`IInputMapHost.GetBindings`，而 `InputMapHost` 由装配根自己在构造期新建、此时尚无动作被声明，调用方也没有
+入口能在构造之前声明动作，选项事实上不可用。修法（ABI 只新增）：`IInputMapHost` 新增默认接口成员
+`GetDeclaredActionNames()`（`InputMapHost` 覆盖为声明顺序快照；默认实现返回 `null` = "不支持枚举"）；
+`SettingsViewModel.Refresh()` 每次重算行集合——显式清单只列其中已声明的动作（清单顺序），未声明的跳过不抛，
+之后声明并 `Refresh()` 即出现；新增不带清单的构造重载，表示"当前已声明的全部动作"（声明顺序），
+`SettingsActionNames = null`（默认）改走该重载，与字段注释语义统一（此前默认恒为空清单，与注释"取当前已声明的
+动作"不符）。既有五参构造签名不变。宿主若不支持枚举（第三方实现未覆盖默认成员）：显式清单退化为信任调用方、
+`null` 清单无行可列。输入映射没有"声明/重绑定成功"事件（只有重绑定冲突事件，已订阅），"变化后刷新"靠调用
+`Refresh()` 重算，不新增事件契约。回归：`PresentationAssemblyOptionsWiringTests` 的三条
+`Options_SettingsActionNames_*` 与 `ViewModelTests` 的 `SettingsViewModel_explicit_list_skips_undeclared_actions_until_declared`/
+`SettingsViewModel_without_list_shows_all_declared_actions_in_declaration_order`。

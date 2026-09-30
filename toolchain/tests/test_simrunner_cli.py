@@ -367,16 +367,9 @@ def test_progress_flag_writes_progress_lines_to_stderr_only(dll, env):
     assert "PROGRESS" not in without.stderr
 
 
-# ---------------------------------------------------------------- 已知缺陷（待设计层确认）
+# ---------------------------------------------------------------- 基线文件损坏
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="已知缺陷：基线文件损坏（非法 JSON / 缺字段）时 toolchain/simrunner/Program.cs 的 RunCommand 只捕获 "
-    "InvalidOperationException/ArgumentException/DirectoryNotFoundException，SimBaseline.Parse 抛出的 "
-    "JsonParseException/KeyNotFoundException 未被捕获，进程以 Unhandled exception 崩溃而不是按'数据装载阻断'退出码 2。"
-    "本用例断言期望行为；修复后 strict xfail 会转红，届时删掉 xfail 标记。待设计层确认修法。",
-)
 @pytest.mark.parametrize("content", ["{bad", '{"schema_version": 1}'])
 def test_corrupt_baseline_file_should_exit_2_not_crash(dll, env, content):
     _baseline_path(env).write_text(content, encoding="utf-8")

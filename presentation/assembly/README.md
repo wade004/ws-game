@@ -204,7 +204,8 @@ FeedbackOptions.HitFrameSync` 判断记录"两个落点，装配层负责保持�
 | `LoadedMapIdResolver` | `null`（缺口 11 恢复：`ShellHost.LoadGame` 现优先用 `LoadResult.CurrentMapId`，本委托降级为该字段为 null 时才用的可选覆盖） | 见 `presentation/shell/core/ShellHost.cs` `LoadGame` 判断记录 |
 | `TargetResolver` | 恒 `null`（当前无目标） | `TargetPathProvider` 用 |
 | `HudPowerTypes` | `[WellKnownPowers.Health]` | 与 `CreatureOptions.DefaultPowerTypes` 同一默认 |
-| `CharacterStatConfig`/`EquipmentSlotIds`/`PauseMenuOptions`/`SettingsActionNames` | 空列表 | 架构未拍板具体游戏内容，见各字段注释 |
+| `CharacterStatConfig`/`EquipmentSlotIds`/`PauseMenuOptions` | 空列表 | 架构未拍板具体游戏内容，见各字段注释 |
+| `SettingsActionNames` | `null` = 当前已声明的全部动作 | 非空清单只列其中已声明的动作，构造后才声明的动作 `Settings.Refresh()` 后出现（`presentation/ui/README.md` 判断记录） |
 | `OnFloatingText`/`OnFreeze` | 空实现 | 09 §6.1 反馈动作里，`play_vfx`/`play_sfx`/`shake_camera` 已经有默认落地（见装配步骤 3），飘字/顿帧的具体呈现（UI 控件池、tick 节奏）不属于任何一个 L5 模块的契约范围 |
 | `OnFlash` | `null`（默认改走 `ICharacterRig.ProceduralAnim.Flash`，见判断记录 7；显式提供时完全覆盖默认行为） | 拍板 6（09 §4 动画层缺口 6 恢复）：此前空实现，现经 `ViewBinder`+`IHasCharacterRig` 接到程序动画原语 |
 | `FlashProfileResolver` | `null`（恒返回 `FlashParams.Default`，忽略 `profileId`） | 09 §6.1 `Flash(profileId, target)` 未定义 `flash_profile` 登记表，具体强度/时长解析留给游戏层；仅在 `OnFlash` 未被显式覆盖时生效 |

@@ -584,6 +584,8 @@ namespace Tests.PresentationUi
         public IReadOnlyList<string> GetBindings(string actionName) =>
             _bindings.TryGetValue(actionName, out var l) ? l : (IReadOnlyList<string>)Array.Empty<string>();
 
+        public IReadOnlyList<string>? GetDeclaredActionNames() => new List<string>(_bindings.Keys);
+
         public void SetBindingsForTest(string actionName, params string[] bindings) => _bindings[actionName] = new List<string>(bindings);
     }
 

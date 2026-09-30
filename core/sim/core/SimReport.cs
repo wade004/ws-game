@@ -216,7 +216,7 @@ namespace Core.Sim
                 .Add("kind", new JsonString(Kind))
                 .Add("dataset_fingerprint", new JsonString(DatasetFingerprint))
                 .Add("generated_with_version", new JsonString(GeneratedWithVersion))
-                .Add("seed", new JsonNumber(Seed))
+                .Add("seed", new JsonString(Seed.ToString(CultureInfo.InvariantCulture)))
                 .Add("runs_override", RunsOverride.HasValue ? (JsonValue)new JsonNumber(RunsOverride.Value) : JsonNull.Instance)
                 .Add("bandwidths", bandwidthsBuilder.Build())
                 .Add("stats", new JsonArray(statsArray))

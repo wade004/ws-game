@@ -66,5 +66,17 @@ namespace Core.Foundation.InputMap
 
         /// <summary>查询 <paramref name="actionName"/> 当前生效的绑定列表（只读快照）。</summary>
         IReadOnlyList<string> GetBindings(string actionName);
+
+        /// <summary>
+        /// 当前已声明的全部动作名（<c>ActionDefinition.ActionId.Value</c>），按声明顺序（先声明的动作集在前、
+        /// 集内按传入顺序）排列的只读快照；之后再声明新动作集，已取得的快照不变，需重新调用。
+        /// <para>
+        /// C# 8 默认接口成员（ABI 只加不改；缺陷修复：此前接口没有"枚举已声明动作"的入口，上层面板只能
+        /// 对未声明的动作名盲调 <see cref="GetBindings"/> 并撞上 <see cref="System.InvalidOperationException"/>）：
+        /// 默认实现返回 <c>null</c>，含义是"本实现不支持枚举"（不是"没有任何动作"）——调用方据此退化为
+        /// 信任调用方自带的动作名清单。<see cref="InputMapHost"/> 覆盖为真实快照（永不为 <c>null</c>）。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<string>? GetDeclaredActionNames() => null;
     }
 }

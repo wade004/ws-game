@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -85,7 +86,7 @@ namespace Core.Sim
                 .Add("kind", new JsonString(Kind))
                 .Add("dataset_fingerprint", new JsonString(DatasetFingerprint))
                 .Add("generated_with_version", new JsonString(GeneratedWithVersion))
-                .Add("seed", new JsonNumber(Seed))
+                .Add("seed", new JsonString(Seed.ToString(CultureInfo.InvariantCulture)))
                 .Add("stats", statsBuilder.Build())
                 .Build();
 
@@ -105,7 +106,7 @@ namespace Core.Sim
             var kind = ((JsonString)obj["kind"]).Value;
             var fingerprint = ((JsonString)obj["dataset_fingerprint"]).Value;
             var version = ((JsonString)obj["generated_with_version"]).Value;
-            var seed = (ulong)((JsonNumber)obj["seed"]).Value;
+            var seed = ParseSeed(obj["seed"]);
 
             var stats = new Dictionary<string, double>(StringComparer.Ordinal);
             if (obj.TryGetValue("stats", out var statsVal) && statsVal is JsonObject statsObj)
@@ -117,6 +118,33 @@ namespace Core.Sim
             }
 
             return new SimBaseline(schemaVersion, scenarioId, kind, fingerprint, version, seed, stats);
+        }
+
+        /// <summary>
+        /// 种子读取（缺陷修复：种子此前经 <see cref="JsonNumber"/>（double）往返，超过 2^53 的种子静默丢精度）。
+        /// <see cref="ToJson"/> 现把种子写成十进制字符串；本方法同时接受字符串（新写法，逐位精确）与数字
+        /// （旧基线写法，沿用 double 读法——旧基线里的种子本来就是 double 写出的，不重写也不改判）。
+        /// 其它 JSON 类型抛 <see cref="InvalidCastException"/>（与其它字段"类型不符"口径一致），字符串不是
+        /// 十进制无符号整数同样抛 <see cref="InvalidCastException"/>。
+        /// </summary>
+        private static ulong ParseSeed(JsonValue value)
+        {
+            if (value is JsonNumber number)
+            {
+                return (ulong)number.Value;
+            }
+
+            if (value is JsonString text)
+            {
+                if (ulong.TryParse(text.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var seed))
+                {
+                    return seed;
+                }
+
+                throw new InvalidCastException($"基线字段 \"seed\" 的字符串值 \"{text.Value}\" 不是十进制无符号整数");
+            }
+
+            throw new InvalidCastException("基线字段 \"seed\" 必须是十进制字符串（新写法）或数字（旧基线写法）");
         }
     }
 }

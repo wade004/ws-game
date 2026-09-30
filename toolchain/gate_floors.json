@@ -9,17 +9,16 @@
   ],
   "suites": {
     "dotnet_test": {
-      "min_passed": 4770,
-      "max_skipped": 2,
-      "measured_passed": 5303,
-      "measured_skipped": 2,
-      "measured_at": "2026-10-01",
-      "note": "2 个 skipped 是并行测试覆盖切片里登记为已知缺陷复现的 [Fact/Theory(Skip=...)]（core/sim/tests/BaselineContractTests.cs 种子精度、presentation/assembly/tests/PresentationAssemblyOptionsWiringTests.cs SettingsActionNames），缺陷修复并去掉 Skip 后把 max_skipped 收回到 0"
+      "min_passed": 4800,
+      "max_skipped": 0,
+      "measured_passed": 5342,
+      "measured_skipped": 0,
+      "measured_at": "2026-10-01"
     },
     "pytest": {
-      "min_passed": 510,
+      "min_passed": 590,
       "max_skipped": 0,
-      "measured_passed": 573,
+      "measured_passed": 661,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },

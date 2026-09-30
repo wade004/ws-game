@@ -298,7 +298,10 @@ namespace Tests.Sim
         [InlineData("kind", "null")]
         [InlineData("dataset_fingerprint", "[]")]
         [InlineData("generated_with_version", "1")]
-        [InlineData("seed", "\"7\"")]
+        [InlineData("seed", "true")]
+        [InlineData("seed", "[]")]
+        [InlineData("seed", "\"abc\"")]
+        [InlineData("seed", "\"-7\"")]
         public void Parse_WrongFieldType_ThrowsInvalidCastException(string field, string replacementLiteral)
         {
             var text = ValidBaselineJson.Replace(
@@ -373,19 +376,53 @@ namespace Tests.Sim
             AssertSeedRoundTrips(seed);
         }
 
-        /// <summary>已知缺陷（2026-10-01 本用例暴露，待设计层裁决，见提交说明）：<c>SimBaseline.ToJson</c>
-        /// 用 <c>new JsonNumber(Seed)</c>（ulong 隐式转 double）写种子、<c>Parse</c> 用
-        /// <c>(ulong)JsonNumber.Value</c> 读回，超过 2^53 的种子不能往返（2^53+1 读回成 2^53，
-        /// <c>ulong.MaxValue</c> 读回成 0）。当前登记的场景种子（如 20260916）远小于 2^53，门禁不受影响，
-        /// 但 <c>sim.scenario.base_seed</c> 若登记大种子，基线会静默记错种子。缺陷在 core 生产代码
-        /// （<c>core/sim/core/SimBaseline.cs</c> 的 <c>ToJson</c>/<c>Parse</c>，<c>SimReport.ToJson</c> 同形），
-        /// 本切片只加测试不改生产行为，因此用 Skip 显式登记而不是放宽断言；修复后删掉 Skip 即为回归用例。</summary>
-        [Theory(Skip = "已知缺陷：SimBaseline 种子经 double 往返，>2^53 丢精度；待设计层裁决修复方式")]
+        /// <summary>缺陷修复回归（2026-10-01 探针暴露、已修）：<c>SimBaseline.ToJson</c> 此前用
+        /// <c>new JsonNumber(Seed)</c>（ulong 隐式转 double）写种子，超过 2^53 的种子不能往返（2^53+1 读回成 2^53，
+        /// <c>ulong.MaxValue</c> 读回成 0）。现 <c>ToJson</c> 把种子写成十进制字符串，<c>Parse</c> 逐位精确读回。</summary>
+        [Theory]
         [InlineData(9007199254740993UL)]      // 2^53 + 1
         [InlineData(18446744073709551615UL)]  // ulong.MaxValue
         public void SeedAboveDoublePrecision_RoundTripsThroughBaselineJson_Exactly(ulong seed)
         {
             AssertSeedRoundTrips(seed);
+        }
+
+        /// <summary>新写法：种子以十进制字符串落盘（不再是 JSON 数字），这是大种子逐位精确的前提。</summary>
+        [Fact]
+        public void ToJson_WritesSeedAsDecimalString()
+        {
+            var baseline = new SimBaseline(
+                SimReport.SchemaVersion, new Id("sim.scenario.x"), "arena", "abc", "1.0.0", ulong.MaxValue,
+                new Dictionary<string, double>(StringComparer.Ordinal) { ["a"] = 1.0 });
+
+            var obj = (JsonObject)JsonReader.Parse(baseline.ToJson());
+
+            Assert.Equal(ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture), Assert.IsType<JsonString>(obj["seed"]).Value);
+        }
+
+        /// <summary>旧基线兼容：仓库里已入库的基线（种子是 JSON 数字）无需重写，<c>Parse</c> 仍按数字读回。</summary>
+        [Theory]
+        [InlineData(0UL)]
+        [InlineData(7UL)]
+        [InlineData(20260916UL)]
+        [InlineData(9007199254740992UL)]      // 2^53，旧写法仍能精确表示的上界
+        public void Parse_LegacyNumericSeed_StillParses(ulong seed)
+        {
+            var legacyJson = ValidBaselineJson.Replace(
+                "\"seed\":7", "\"seed\":" + seed.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            var parsed = SimBaseline.Parse(legacyJson);
+
+            Assert.Equal(seed, parsed.Seed);
+        }
+
+        /// <summary>新旧两种写法读出同一个种子（字符串写法与数字写法等价）。</summary>
+        [Fact]
+        public void Parse_StringSeed_EqualsNumericSeed()
+        {
+            var asString = ValidBaselineJson.Replace("\"seed\":7", "\"seed\":\"7\"");
+
+            Assert.Equal(SimBaseline.Parse(ValidBaselineJson).Seed, SimBaseline.Parse(asString).Seed);
         }
 
         // ---- 数据集指纹与加载顺序无关 --------------------------------------------------------

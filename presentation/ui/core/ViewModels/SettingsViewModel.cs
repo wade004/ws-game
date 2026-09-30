@@ -38,13 +38,25 @@ namespace Presentation.Ui
     /// 视图模型侧不直接持有写入口——UI 控件对用户输入的响应统一走 <see cref="UiIntents"/>（09 第
     /// 7.2 节铁律 P3），本类型只负责"读出来展示"。
     /// </para>
+    /// <para>
+    /// 判断记录（按键绑定行只列"当前已声明"的动作，测试覆盖第二批缺陷 1）：动作名清单在构造期就要给，
+    /// 而输入映射宿主通常在装配根构造期才新建、此时尚无任何动作集被声明——此前对清单里未声明的动作盲调
+    /// <see cref="IInputMapHost.GetBindings"/>，抛 <see cref="InvalidOperationException"/>，清单选项事实上
+    /// 不可用。现在每次 <see cref="Refresh"/> 都重算：用 <see cref="IInputMapHost.GetDeclaredActionNames"/>
+    /// 取当前已声明动作，清单里未声明的动作跳过（不抛、不占行），之后声明了再 <see cref="Refresh"/> 行即出现；
+    /// 不传清单（<c>null</c>）则列出全部已声明动作（声明顺序）。输入映射宿主没有"声明/绑定成功变化"事件
+    /// （只有重绑定冲突事件，已订阅），所以"变化后刷新"靠 <see cref="Refresh"/> 重算，不新增事件契约。
+    /// 宿主若不支持枚举（<see cref="IInputMapHost.GetDeclaredActionNames"/> 返回 <c>null</c>，第三方实现的
+    /// 默认值）：显式清单退化为信任调用方（行为同修复前，清单里出现未声明动作仍由宿主抛出）；<c>null</c>
+    /// 清单则无行可列。
+    /// </para>
     /// </summary>
     public sealed class SettingsViewModel : IDisposable
     {
         private readonly IUiDataSource _dataSource;
         private readonly IL10nHost _l10n;
         private readonly IInputMapHost _inputMap;
-        private readonly IReadOnlyList<string> _actionNames;
+        private readonly IReadOnlyList<string>? _actionNames;
         private readonly IAudioLayerVolumeHost _audioVolume;
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
         private readonly List<BindingRow> _bindingRows = new List<BindingRow>();
@@ -58,17 +70,42 @@ namespace Presentation.Ui
 
         public IReadOnlyDictionary<string, double> LayerVolumes => _layerVolumes;
 
+        /// <summary>按键绑定行只列 <paramref name="actionNames"/> 里<b>当前已声明</b>的动作（未声明的跳过，
+        /// 之后声明了 <see cref="Refresh"/> 即出现，见类型注释判断记录）；<paramref name="actionNames"/>
+        /// 不可为 <c>null</c>（要"全部已声明动作"用不带清单的重载）。</summary>
         public SettingsViewModel(
             IUiDataSource dataSource,
             IL10nHost l10n,
             IInputMapHost inputMap,
             IReadOnlyList<string> actionNames,
             IAudioLayerVolumeHost audioVolume)
+            : this(dataSource, l10n, inputMap, actionNames ?? throw new ArgumentNullException(nameof(actionNames)), audioVolume, listAllDeclared: false)
+        {
+        }
+
+        /// <summary>按键绑定行列出输入映射宿主当前已声明的<b>全部</b>动作（声明顺序），每次
+        /// <see cref="Refresh"/> 重算，之后新声明的动作随刷新出现。</summary>
+        public SettingsViewModel(
+            IUiDataSource dataSource,
+            IL10nHost l10n,
+            IInputMapHost inputMap,
+            IAudioLayerVolumeHost audioVolume)
+            : this(dataSource, l10n, inputMap, null, audioVolume, listAllDeclared: true)
+        {
+        }
+
+        private SettingsViewModel(
+            IUiDataSource dataSource,
+            IL10nHost l10n,
+            IInputMapHost inputMap,
+            IReadOnlyList<string>? actionNames,
+            IAudioLayerVolumeHost audioVolume,
+            bool listAllDeclared)
         {
             _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
             _l10n = l10n ?? throw new ArgumentNullException(nameof(l10n));
             _inputMap = inputMap ?? throw new ArgumentNullException(nameof(inputMap));
-            _actionNames = actionNames ?? throw new ArgumentNullException(nameof(actionNames));
+            _actionNames = listAllDeclared ? null : actionNames;
             _audioVolume = audioVolume ?? throw new ArgumentNullException(nameof(audioVolume));
 
             _subscriptions.Add(_dataSource.Subscribe(L10nEventKeys.LanguageChanged, OnRelevantEvent));
@@ -84,7 +121,7 @@ namespace Presentation.Ui
             Locale = _l10n.GetLocale();
 
             _bindingRows.Clear();
-            foreach (var actionName in _actionNames)
+            foreach (var actionName in ResolveActionNames())
             {
                 var bindings = _inputMap.GetBindings(actionName);
                 var conflicts = new List<IReadOnlyList<string>>(bindings.Count);
@@ -108,6 +145,32 @@ namespace Presentation.Ui
             {
                 _layerVolumes[layer] = _audioVolume.GetVolume(layer);
             }
+        }
+
+        /// <summary>本次刷新要展示的动作名：已声明动作 ∩ 显式清单（清单按调用方给的顺序），或全部已声明动作。</summary>
+        private IReadOnlyList<string> ResolveActionNames()
+        {
+            var declared = _inputMap.GetDeclaredActionNames();
+            if (_actionNames == null)
+            {
+                return declared ?? Array.Empty<string>();
+            }
+
+            if (declared == null)
+            {
+                return _actionNames;
+            }
+
+            var declaredSet = new HashSet<string>(declared, StringComparer.Ordinal);
+            var result = new List<string>(_actionNames.Count);
+            foreach (var name in _actionNames)
+            {
+                if (declaredSet.Contains(name))
+                {
+                    result.Add(name);
+                }
+            }
+            return result;
         }
 
         public void Dispose()

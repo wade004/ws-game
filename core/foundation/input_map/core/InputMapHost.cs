@@ -182,6 +182,9 @@ namespace Core.Foundation.InputMap
 
         public IReadOnlyList<string> GetBindings(string actionName) => RequireAction(actionName).CurrentBindings;
 
+        /// <summary>已声明动作名的快照（声明顺序）；返回新列表，之后再声明不影响已取得的快照。</summary>
+        public IReadOnlyList<string> GetDeclaredActionNames() => _actionOrder.ToArray();
+
         // -----------------------------------------------------------------
         // 每帧推进
         // -----------------------------------------------------------------

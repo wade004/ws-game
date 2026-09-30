@@ -1,9 +1,11 @@
 using System.Collections.Generic;
+using System.Linq;
 using Adapters.Stub;
 using Core.Carriers.Common;
 using Core.Foundation.AppLifecycle;
 using Core.Foundation.Common;
 using Core.Foundation.Expr;
+using Core.Foundation.InputMap;
 using Core.Gameplay.Dialog;
 using Core.Gameplay.Quest;
 using Core.Gameplay.WorldState;
@@ -908,6 +910,54 @@ namespace Tests.PresentationUi
             var moveRow = vm.Bindings[0];
             Assert.Equal("input.action.move", moveRow.ActionName);
             Assert.Contains("input.action.jump", moveRow.Conflicts[0]);
+        }
+
+        [Fact]
+        public void SettingsViewModel_explicit_list_skips_undeclared_actions_until_declared()
+        {
+            var world = new UiWorldFixture();
+            var l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") });
+            var inputMap = new FakeInputMapHost();
+            var audioVolume = new FakeAudioLayerVolumeHost(new[] { "sfx" });
+
+            using var vm = new SettingsViewModel(
+                world.DataSource, l10n, inputMap, new[] { "input.action.move", "input.action.jump" }, audioVolume);
+            Assert.Empty(vm.Bindings);
+
+            inputMap.DeclareActionSet(new Id("input.set.late"), new[]
+            {
+                new ActionDefinition(new Id("input.action.jump"), ActionKind.Button, new[] { "key:space" }),
+            });
+            vm.Refresh();
+
+            var row = Assert.Single(vm.Bindings);
+            Assert.Equal("input.action.jump", row.ActionName);
+            Assert.Equal(inputMap.GetBindings("input.action.jump"), row.Bindings);
+        }
+
+        [Fact]
+        public void SettingsViewModel_without_list_shows_all_declared_actions_in_declaration_order()
+        {
+            var world = new UiWorldFixture();
+            var l10n = new FakeL10nHost(new Id("l10n.en_us"), new[] { new Id("l10n.en_us") });
+            var inputMap = new FakeInputMapHost();
+            var audioVolume = new FakeAudioLayerVolumeHost(new[] { "sfx" });
+
+            using var vm = new SettingsViewModel(world.DataSource, l10n, inputMap, audioVolume);
+            Assert.Empty(vm.Bindings);
+
+            inputMap.DeclareActionSet(new Id("input.set.all"), new[]
+            {
+                new ActionDefinition(new Id("input.action.move"), ActionKind.Button, new[] { "key:w" }),
+                new ActionDefinition(new Id("input.action.jump"), ActionKind.Button, new[] { "key:w" }),
+            });
+            vm.Refresh();
+
+            Assert.Equal(
+                new[] { "input.action.move", "input.action.jump" },
+                vm.Bindings.Select(r => r.ActionName).ToArray());
+            // 冲突提示照常：两个动作共用 key:w。
+            Assert.Contains("input.action.jump", vm.Bindings[0].Conflicts[0]);
         }
 
         [Fact]

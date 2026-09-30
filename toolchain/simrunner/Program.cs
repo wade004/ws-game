@@ -172,6 +172,24 @@ namespace Toolchain.SimRunner
             }
         }
 
+        /// <summary>
+        /// 读并解析一份基线文件。文件损坏（非法 JSON -> <see cref="JsonParseException"/>、缺必填字段 ->
+        /// <see cref="KeyNotFoundException"/>、字段类型/取值不符 -> <see cref="InvalidCastException"/>）时，
+        /// 包成带文件路径的 <see cref="InvalidOperationException"/> 抛出，由 <c>RunCommand</c> 同一分支按
+        /// "数据装载阻断"收口为退出码 2，不再让未捕获异常崩进程（测试覆盖第二批缺陷 2）。
+        /// </summary>
+        private static SimBaseline ParseBaselineFile(string baselinePath)
+        {
+            try
+            {
+                return SimBaseline.Parse(File.ReadAllText(baselinePath));
+            }
+            catch (Exception ex) when (ex is JsonParseException or KeyNotFoundException or InvalidCastException)
+            {
+                throw new InvalidOperationException($"基线文件损坏：{baselinePath}：{ex.Message}", ex);
+            }
+        }
+
         private static bool TryTakeValue(string[] args, ref int i, out string? value)
         {
             if (i + 1 >= args.Length)
@@ -293,7 +311,7 @@ namespace Toolchain.SimRunner
                     var baselinePath = Path.Combine(baselineDir!, shortId + ".json");
                     var newBaseline = SimBaseline.FromReport(report);
                     var existedBefore = File.Exists(baselinePath);
-                    var previousStatCount = existedBefore ? SimBaseline.Parse(File.ReadAllText(baselinePath)).Stats.Count : 0;
+                    var previousStatCount = existedBefore ? ParseBaselineFile(baselinePath).Stats.Count : 0;
 
                     Console.WriteLine(existedBefore
                         ? $"更新基线：{baselinePath}（覆盖既有 {previousStatCount} 条统计量 -> {newBaseline.Stats.Count} 条统计量）"
@@ -312,7 +330,7 @@ namespace Toolchain.SimRunner
                     }
                     else
                     {
-                        var baseline = SimBaseline.Parse(File.ReadAllText(baselinePath));
+                        var baseline = ParseBaselineFile(baselinePath);
                         var diff = BaselineComparer.Compare(report, baseline);
                         exceeded = diff.ExceededCount;
                         added = diff.AddedCount;

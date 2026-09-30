@@ -151,28 +151,40 @@ namespace Tests.Presentation.Assembly
         // SettingsActionNames
         // -----------------------------------------------------------------
 
+        private static ActionDefinition OptionsAction(string name, string binding) =>
+            new ActionDefinition(new Id(name), ActionKind.Button, new[] { binding });
+
+        /// <summary>默认（<c>SettingsActionNames = null</c>）= 当前已声明的全部动作：构造期还没有任何动作时无行，
+        /// 构造后才声明的动作在 <c>Refresh()</c> 后按声明顺序全部出现（缺陷修复前默认恒为空清单）。</summary>
         [Fact]
-        public void Options_SettingsActionNames_Default_SettingsBindingsAreEmptyEvenAfterActionsDeclared()
+        public void Options_SettingsActionNames_Default_ListsAllDeclaredActions_IncludingThoseDeclaredAfterConstruction()
         {
-            var actionId = new Id("input.action.options_wiring_confirm");
-            var declared = new ActionDefinition(actionId, ActionKind.Button, new[] { "key:enter" });
+            var confirm = OptionsAction("input.action.options_wiring_confirm", "key:enter");
+            var cancel = OptionsAction("input.action.options_wiring_cancel", "key:escape");
 
             var presentation = Build(out _, out _, out _, out _);
-            presentation.InputMap.DeclareActionSet(new Id("input.set.options_wiring"), new[] { declared });
+            Assert.Empty(presentation.Settings.Bindings);
+
+            presentation.InputMap.DeclareActionSet(new Id("input.set.options_wiring_a"), new[] { confirm });
+            presentation.InputMap.DeclareActionSet(new Id("input.set.options_wiring_b"), new[] { cancel });
             presentation.Settings.Refresh();
 
-            Assert.Empty(presentation.Settings.Bindings);
+            Assert.Equal(
+                new[] { confirm.ActionId.Value, cancel.ActionId.Value },
+                presentation.Settings.Bindings.Select(r => r.ActionName).ToArray());
+            foreach (var row in presentation.Settings.Bindings)
+            {
+                Assert.Equal(presentation.InputMap.GetBindings(row.ActionName), row.Bindings);
+            }
         }
 
         /// <summary>
-        /// 探针暴露的真缺陷（待设计层确认，见汇报）：<see cref="PresentationAssemblyOptions.SettingsActionNames"/>
-        /// 注入任何非空清单，都会在 <see cref="PresentationAssembly"/> 构造期抛
-        /// <see cref="InvalidOperationException"/>（"未声明的动作"）——<c>SettingsViewModel</c> 构造期立即
-        /// <c>Refresh()</c> 调 <c>IInputMapHost.GetBindings</c>，而 <c>InputMapHost</c> 由装配根自己在构造期新建，
-        /// 此时尚无任何动作被声明，调用方也没有任何入口能在构造之前往它里面声明动作。选项因此事实上不可用。
-        /// 修复后去掉 Skip。
+        /// 缺陷修复回归（测试覆盖第二批缺陷 1）：<see cref="PresentationAssemblyOptions.SettingsActionNames"/> 注入非空清单，
+        /// 此前在 <see cref="PresentationAssembly"/> 构造期就抛 <see cref="InvalidOperationException"/>（"未声明的动作"）——
+        /// <c>SettingsViewModel</c> 构造期立即 <c>Refresh()</c> 调 <c>IInputMapHost.GetBindings</c>，而 <c>InputMapHost</c>
+        /// 由装配根自己在构造期新建，此时尚无任何动作被声明。修复后：清单里未声明的动作跳过，声明后刷新即出现。
         /// </summary>
-        [Fact(Skip = "真缺陷复现：SettingsActionNames 注入非空清单时构造期抛 InvalidOperationException（未声明的动作），待设计层确认，见 PresentationAssembly.cs 第 665-666 行")]
+        [Fact]
         public void Options_SettingsActionNames_Injected_SettingsRowsReflectInputMapBindings()
         {
             var actionId = new Id("input.action.options_wiring_confirm");
@@ -187,6 +199,35 @@ namespace Tests.Presentation.Assembly
             var row = Assert.Single(presentation.Settings.Bindings);
             Assert.Equal(actionId.Value, row.ActionName);
             Assert.Equal(presentation.InputMap.GetBindings(actionId.Value), row.Bindings);
+        }
+
+        /// <summary>注入清单：构造后才声明的动作在刷新后出现（构造期不抛、无行）；清单外的已声明动作不进面板；
+        /// 行顺序按清单顺序，不按声明顺序。</summary>
+        [Fact]
+        public void Options_SettingsActionNames_Injected_UndeclaredSkipped_LateDeclaredAppearOnRefresh_ListOrderWins()
+        {
+            var first = OptionsAction("input.action.options_wiring_first", "key:a");
+            var second = OptionsAction("input.action.options_wiring_second", "key:b");
+            var notListed = OptionsAction("input.action.options_wiring_not_listed", "key:c");
+            var options = new PresentationAssemblyOptions
+            {
+                SettingsActionNames = new[] { first.ActionId.Value, second.ActionId.Value },
+            };
+
+            var presentation = Build(out _, out _, out _, out _, options);
+            Assert.Empty(presentation.Settings.Bindings);
+
+            presentation.InputMap.DeclareActionSet(new Id("input.set.options_wiring_a"), new[] { second, notListed });
+            presentation.Settings.Refresh();
+            Assert.Equal(
+                new[] { second.ActionId.Value },
+                presentation.Settings.Bindings.Select(r => r.ActionName).ToArray());
+
+            presentation.InputMap.DeclareActionSet(new Id("input.set.options_wiring_b"), new[] { first });
+            presentation.Settings.Refresh();
+            Assert.Equal(
+                new[] { first.ActionId.Value, second.ActionId.Value },
+                presentation.Settings.Bindings.Select(r => r.ActionName).ToArray());
         }
 
         // -----------------------------------------------------------------

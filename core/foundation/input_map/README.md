@@ -166,3 +166,12 @@ input_map/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（新增默认接口成员 `IInputMapHost.GetDeclaredActionNames`，2026-10-01，测试覆盖第二批缺陷 1）
+
+接口此前没有"枚举已声明动作"的入口，上层面板（`presentation/ui` 的 `SettingsViewModel`）只能对未声明的动作名
+盲调 `GetBindings` 并撞上 `InvalidOperationException`。新增 C# 8 默认接口成员 `GetDeclaredActionNames()`
+（ABI 只新增）：`InputMapHost` 覆盖为声明顺序的新数组快照（永不为 `null`）；默认实现返回 `null`，语义是
+"本实现不支持枚举"而不是"没有任何动作"，调用方据此退化。未新增变化事件（声明/重绑定成功不发事件的既有
+契约不变），调用方要感知变化就重新调用。用例：`presentation/ui/tests`（`FakeInputMapHost` 覆盖）与
+`presentation/assembly/tests/PresentationAssemblyOptionsWiringTests.cs`（真实 `InputMapHost`）。

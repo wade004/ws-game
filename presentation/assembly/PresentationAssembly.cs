@@ -68,8 +68,10 @@ namespace Presentation.Assembly
         /// <summary>暂停菜单选项清单（游戏内容），默认空列表。</summary>
         public IReadOnlyList<PauseMenuOption> PauseMenuOptions { get; set; } = Array.Empty<PauseMenuOption>();
 
-        /// <summary>设置面板展示的按键动作名清单，默认取 <see cref="IInputMapHost"/> 当前已声明的
-        /// 动作（构造期通常为空，见 <c>presentation/ui/README.md</c>）。</summary>
+        /// <summary>设置面板展示的按键动作名清单；<c>null</c>（默认）= 当前已声明的全部动作（声明顺序，构造后
+        /// 才声明的动作在 <c>Settings.Refresh()</c> 后出现）。非空清单只列其中<b>当前已声明</b>的动作，未声明的
+        /// 跳过不抛（之后声明了刷新即出现），见 <c>presentation/ui/README.md</c> 与 <see cref="SettingsViewModel"/>
+        /// 类型注释判断记录。</summary>
         public IReadOnlyList<string>? SettingsActionNames { get; set; }
 
         /// <summary>飘字动作的最终落地回调（见 09 第 6.1 节 <c>FloatingText</c>）：具体飘字 UI 控件
@@ -662,8 +664,11 @@ namespace Presentation.Assembly
             Shop = new ShopViewModel(UiData, gameplay.Economy, _playerId);
             SaveSystem = gameplay.SaveSystem;
 
-            var settingsActionNames = opts.SettingsActionNames ?? Array.Empty<string>();
-            Settings = new SettingsViewModel(UiData, L10n, InputMap, settingsActionNames, AudioVolume);
+            // null = 当前已声明的全部动作（不带清单的重载）；显式清单只列其中已声明的动作（见
+            // SettingsViewModel 类型注释判断记录）。
+            Settings = opts.SettingsActionNames == null
+                ? new SettingsViewModel(UiData, L10n, InputMap, AudioVolume)
+                : new SettingsViewModel(UiData, L10n, InputMap, opts.SettingsActionNames, AudioVolume);
 
             SaveSlots = new SaveSlotsViewModel(UiData, SaveSystem);
             PauseMenu = new PauseMenuViewModel(UiData, gameplay.AppState, opts.PauseMenuOptions);

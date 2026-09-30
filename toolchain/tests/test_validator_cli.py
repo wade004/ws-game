@@ -334,13 +334,6 @@ def test_schema_audit_structurally_invalid_allowlist_exits_2(dll, tmp_path, cont
     assert "白名单文件格式非法" in proc.stderr and fragment in proc.stderr
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="已知缺陷：白名单文件不是合法 JSON 时 toolchain/validator/Program.cs 的 RunSchemaAudit 只捕获 "
-    "FormatException，SchemaAuditAllowlist.Parse 内 JsonReader.Parse 抛出的 JsonParseException 未被捕获，"
-    "进程以 Unhandled exception 崩溃而不是按'白名单文件格式非法'退出码 2。本用例断言期望行为；"
-    "修复后 strict xfail 会转红，届时删掉 xfail 标记。待设计层确认修法。",
-)
 def test_schema_audit_non_json_allowlist_should_exit_2_not_crash(dll, tmp_path):
     bad = tmp_path / "allowlist.json"
     bad.write_text("{bad", encoding="utf-8")
