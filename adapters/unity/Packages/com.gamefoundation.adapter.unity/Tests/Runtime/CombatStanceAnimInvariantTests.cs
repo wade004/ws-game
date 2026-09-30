@@ -12,6 +12,14 @@
 //   ⑥ 优先级：武器风格覆盖剪辑 > 战斗姿态变体键 > 普通键；
 //   ⑦ 解析层（无播放器、model 路线同一张 "键 -> 剪辑" 表）：战斗中移动（没有 combat_move）播普通 move、停下
 //      回 combat_idle；剪辑就绪探针的冷加载语义；无变体键外形进出战不产生任何多余播放。
+//
+// 第六十二批（ADR-0111 相邻缺陷，复活 = 显示复位）：Invariant_Respawn_* 一支用例，各分支独立实体——
+//   ⑧ 复活时在战 + 变体已就绪 -> combat_idle 那一套，全程无死亡帧；
+//   ⑨ 复活时在战 + 变体未就绪（冷）-> 先 idle（立刻站起来），加载完成后切 combat_idle，全程无死亡帧；
+//   ⑩ 外形没有任何 combat_* 键，复活 -> idle，从头播（帧回到 0），复活后立刻移动正常切到 move；
+//   ⑪ 解析层播放计数：复位恰好播放一次，阳性对照 Refresh（旧路径）一次都不播；视图新建（非复活）无变体键零额外播放；
+//      冷复位记账记实际播放的普通键，变体就绪后 Refresh 补切一次。
+// "规则层已脱战/在战"用夹具的战斗探针（生产装配接 ICombatHost.IsInCombat）表达，同复现用例。
 using System.Collections;
 using System.Collections.Generic;
 using Adapter.Unity.Presentation;
@@ -447,6 +455,236 @@ namespace Adapter.Unity.Tests.Runtime
                 bus.PublishImmediate(new CombatEnteredEvent(other));
                 bus.PublishImmediate(new CombatLeftEvent(other));
                 Assert.AreEqual(new[] { (move, true) }, plainCalls, "⑦无变体键外形：只有移动触发的那一次播放，进出战不产生任何多余播放");
+            }
+        }
+
+        private sealed class DeathSampler
+        {
+            public bool SawDeath;
+        }
+
+        /// <summary>打死并等死亡剪辑播完（两层都停在死亡资源上），返回后单位停在倒地末帧。</summary>
+        private IEnumerator DieAndFinish(Fx fx, string deathBody, string? deathWeapon)
+        {
+            var finished = false;
+            fx.Player.OnComplete(() => finished = true);
+            fx.Bus.PublishImmediate(new UnitDiedEvent(fx.EntityId, new Id("unit.attacker")));
+            yield return WaitBounded(() => finished && AppliedResource(fx, "body") == deathBody
+                && (deathWeapon == null || AppliedResource(fx, "mainhand") == deathWeapon));
+            Assert.IsTrue(finished, "前置条件：死亡剪辑应当播放完毕");
+            Assert.AreEqual(deathBody, AppliedResource(fx, "body"), "前置条件：死亡后身体层应用死亡剪辑");
+        }
+
+        /// <summary>从当前帧起逐帧采样 <paramref name="frames"/> 帧，记录是否出现过死亡资源。</summary>
+        private IEnumerator SampleDeath(Fx fx, DeathSampler sampler, string deathBody, string? deathWeapon, int frames, bool pumpLoader = false)
+        {
+            for (var i = 0; i < frames; i++)
+            {
+                sampler.SawDeath |= AppliedResource(fx, "body") == deathBody
+                    || (deathWeapon != null && AppliedResource(fx, "mainhand") == deathWeapon);
+                if (pumpLoader)
+                {
+                    Loader.Tick();
+                }
+                yield return null;
+            }
+            sampler.SawDeath |= AppliedResource(fx, "body") == deathBody
+                || (deathWeapon != null && AppliedResource(fx, "mainhand") == deathWeapon);
+        }
+
+        private static void Respawn(Fx fx) =>
+            fx.Bus.PublishImmediate(new UnitRespawnedEvent(fx.EntityId, Core.Rules.Common.RespawnPolicy.RespawnPoint));
+
+        [UnityTest]
+        public IEnumerator Invariant_Respawn_ResetsDisplayToLocomotionClip_HotCold_NoVariant_Move_PlayCounts()
+        {
+            // =====================================================================================
+            // ⑧ 复活时在战 + 变体已就绪：combat_idle 那一套，全程无死亡帧。
+            // =====================================================================================
+            {
+                const string mesh = "mesh.w62a";
+                var idleB = WriteArt(null, "h62a_idle", SideDir, "body");
+                var idleW = WriteArt(mesh, "h62a_idle", SideDir, "mainhand");
+                var combatB = WriteArt(null, "h62a_combat_idle", SideDir, "body");
+                var combatW = WriteArt(mesh, "h62a_combat_idle", SideDir, "mainhand");
+                var deathB = WriteArt(null, "h62a_death", SideDir, "body");
+                var deathW = WriteArt(mesh, "h62a_death", SideDir, "mainhand");
+                foreach (var id in new[] { idleB, idleW, combatB, combatW, deathB, deathW })
+                {
+                    yield return WarmEffectCache(id);
+                }
+
+                var inCombat = true;
+                var fx = BuildFixture("inv62a", new Dictionary<string, string>
+                {
+                    ["idle"] = ResourceRefOf("h62a_idle"),
+                    ["combat_idle"] = ResourceRefOf("h62a_combat_idle"),
+                    ["death"] = ResourceRefOf("h62a_death"),
+                }, configureFactory: f => f.CombatProbe = id => inCombat);
+                EquipMesh(fx, "inv62a_w", "slot.mainhand", mesh);
+                yield return DieAndFinish(fx, deathB.Value, deathW.Value);
+
+                Respawn(fx);
+                var sampler = new DeathSampler();
+                Assert.AreEqual(fx.DefaultClipId("combat_idle"), fx.Player.CurrentClipId, "⑧复活（在战、变体就绪）当帧起就是 combat_idle 剪辑");
+                yield return SampleDeath(fx, sampler, deathB.Value, deathW.Value, 30);
+                Assert.AreEqual(combatB.Value, AppliedResource(fx, "body"), "⑧身体层应用 combat_idle 那一套");
+                Assert.AreEqual(combatW.Value, AppliedResource(fx, "mainhand"), "⑧装备层应用 combat_idle 那一套");
+                Assert.IsFalse(sampler.SawDeath, "⑧复活后不应出现死亡剪辑的资源");
+
+                fx.EquipSource.Dispose();
+                fx.View.Destroy();
+            }
+
+            // =====================================================================================
+            // ⑨ 复活时在战 + 变体未就绪（冷）：先 idle（立刻站起来），加载完成后切 combat_idle，全程无死亡帧。
+            //    combat_idle 资源写盘但不预热；夹具的独立加载器不 Tick 就不会有任何异步加载完成。
+            // =====================================================================================
+            {
+                const string mesh = "mesh.w62b";
+                var idleB = WriteArt(null, "h62b_idle", SideDir, "body");
+                var idleW = WriteArt(mesh, "h62b_idle", SideDir, "mainhand");
+                var combatB = WriteArt(null, "h62b_combat_idle", SideDir, "body");
+                var combatW = WriteArt(mesh, "h62b_combat_idle", SideDir, "mainhand");
+                var deathB = WriteArt(null, "h62b_death", SideDir, "body");
+                var deathW = WriteArt(mesh, "h62b_death", SideDir, "mainhand");
+                foreach (var id in new[] { idleB, idleW, deathB, deathW })
+                {
+                    yield return WarmEffectCache(id);
+                }
+
+                var inCombat = false;
+                var fx = BuildFixture("inv62b", new Dictionary<string, string>
+                {
+                    ["idle"] = ResourceRefOf("h62b_idle"),
+                    ["combat_idle"] = ResourceRefOf("h62b_combat_idle"),
+                    ["death"] = ResourceRefOf("h62b_death"),
+                }, configureFactory: f => f.CombatProbe = id => inCombat);
+                EquipMesh(fx, "inv62b_w", "slot.mainhand", mesh);
+                yield return DieAndFinish(fx, deathB.Value, deathW.Value);
+                Assert.IsFalse(Loader.TryGetEffect(combatB, out _), "前置条件：combat_idle 身体层资源尚未加载（冷）");
+
+                inCombat = true;
+                Respawn(fx);
+                var sampler = new DeathSampler();
+                Assert.AreEqual(fx.DefaultClipId("idle"), fx.Player.CurrentClipId, "⑨变体没就绪：复活当帧先播普通 idle，立刻站起来");
+                yield return SampleDeath(fx, sampler, deathB.Value, deathW.Value, 10);
+                Assert.AreEqual(idleB.Value, AppliedResource(fx, "body"), "⑨冷加载期间身体层是 idle 那一套（不是死亡末帧）");
+                Assert.AreEqual(idleW.Value, AppliedResource(fx, "mainhand"), "⑨冷加载期间装备层是 idle 那一套");
+
+                yield return PumpUntilCached(combatB, combatW);
+                yield return WaitBounded(() => AppliedResource(fx, "body") == combatB.Value && AppliedResource(fx, "mainhand") == combatW.Value);
+                yield return SampleDeath(fx, sampler, deathB.Value, deathW.Value, 5, pumpLoader: true);
+                Assert.AreEqual(fx.DefaultClipId("combat_idle"), fx.Player.CurrentClipId, "⑨变体就绪后切 combat_idle");
+                Assert.AreEqual(combatB.Value, AppliedResource(fx, "body"), "⑨加载完成后身体层切到 combat_idle");
+                Assert.AreEqual(combatW.Value, AppliedResource(fx, "mainhand"), "⑨加载完成后装备层切到 combat_idle");
+                Assert.IsFalse(sampler.SawDeath, "⑨全程不应出现死亡剪辑的资源");
+
+                fx.EquipSource.Dispose();
+                fx.View.Destroy();
+            }
+
+            // =====================================================================================
+            // ⑩ 外形没有任何 combat_* 键：复活 -> idle 从头播；复活后立刻移动正常切到 move，无残留。
+            // =====================================================================================
+            {
+                var idleB = WriteArt(null, "h62c_idle", SideDir, "body");
+                var moveB = WriteArt(null, "h62c_move", SideDir, "body");
+                var deathB = WriteArt(null, "h62c_death", SideDir, "body");
+                foreach (var id in new[] { idleB, moveB, deathB })
+                {
+                    yield return WarmEffectCache(id);
+                }
+
+                var fx = BuildFixture("inv62c", new Dictionary<string, string>
+                {
+                    ["idle"] = ResourceRefOf("h62c_idle"),
+                    ["move"] = ResourceRefOf("h62c_move"),
+                    ["death"] = ResourceRefOf("h62c_death"),
+                });
+                yield return DieAndFinish(fx, deathB.Value, null);
+
+                Respawn(fx);
+                Assert.AreEqual(fx.DefaultClipId("idle"), fx.Player.CurrentClipId, "⑩没有变体键：复活后是 idle 剪辑");
+                Assert.AreEqual(0, fx.Player.CurrentFrame, "⑩复活重新从头播 idle（帧回到 0）");
+                var sampler = new DeathSampler();
+                yield return SampleDeath(fx, sampler, deathB.Value, null, 10);
+                Assert.AreEqual(idleB.Value, AppliedResource(fx, "body"), "⑩复活后身体层是 idle 那一套");
+                Assert.IsFalse(sampler.SawDeath, "⑩复活后不应出现死亡剪辑的资源");
+
+                fx.Bus.PublishImmediate(new UnitStateChangedEvent(fx.EntityId, "Idle", "Walk"));
+                Assert.AreEqual(fx.DefaultClipId("move"), fx.Player.CurrentClipId, "⑩复活后立刻移动：切到 move 剪辑");
+                yield return SampleDeath(fx, sampler, deathB.Value, null, 10);
+                Assert.AreEqual(moveB.Value, AppliedResource(fx, "body"), "⑩移动时身体层是 move 那一套，无残留");
+                Assert.IsFalse(sampler.SawDeath);
+
+                fx.View.Destroy();
+            }
+
+            // =====================================================================================
+            // ⑪ 解析层播放计数（无播放器）。
+            // =====================================================================================
+            {
+                var bus = NewBus();
+                var idle = new Id("clip.idle62");
+                var combatIdle = new Id("clip.combat_idle62");
+                var ready = true;
+                var inCombatFlag = false;
+
+                // 无变体键的外形：复位恰好播放一次；阳性对照——Refresh（旧路径）一次都不播；视图新建（Track + Refresh）零播放。
+                var plainTable = new Dictionary<string, Id> { ["idle"] = idle };
+                var plainCalls = new List<(Id Clip, bool Loop)>();
+                using var plainMachine = new AnimStateMachine(bus, id => inCombatFlag);
+                using var plainResolver = new AnimClipResolver(plainMachine, id => plainTable, (id, clip, loop, speed) => plainCalls.Add((clip, loop)));
+                var fresh = new Id("unit.inv62_fresh");
+                plainMachine.Track(fresh);
+                plainResolver.Refresh(fresh);
+                Assert.AreEqual(0, plainCalls.Count, "⑪视图新建（非复活）、无变体键：零额外播放");
+
+                var refreshOnly = new Id("unit.inv62_refresh");
+                plainMachine.Forget(refreshOnly);
+                plainResolver.Forget(refreshOnly);
+                plainMachine.Track(refreshOnly);
+                plainResolver.Refresh(refreshOnly);
+                Assert.AreEqual(0, plainCalls.Count, "⑪阳性对照：复活路径若仍走 Refresh，无变体键/已脱战什么都不播（缺陷本身）");
+
+                var respawned = new Id("unit.inv62_respawn");
+                bus.PublishImmediate(new UnitDiedEvent(respawned, new Id("unit.attacker")));
+                Assert.AreEqual(AnimState.Death, plainMachine.GetState(respawned));
+                plainMachine.Forget(respawned);
+                plainResolver.Forget(respawned);
+                plainMachine.Track(respawned);
+                plainResolver.ResetToLocomotionClip(respawned);
+                Assert.AreEqual(new[] { (idle, true) }, plainCalls, "⑪复位：恰好播放一次 idle（循环）");
+
+                // 冷复位：在战但变体没就绪 -> 复位播普通键（记账记实际播放的），变体就绪后 Refresh 补切一次，再 Refresh 不重播。
+                var variantTable = new Dictionary<string, Id> { ["idle"] = idle, [AnimClipResolver.CombatStateKey(AnimState.Idle)] = combatIdle };
+                var variantCalls = new List<(Id Clip, bool Loop)>();
+                inCombatFlag = true;
+                using var variantMachine = new AnimStateMachine(bus, id => inCombatFlag);
+                using var variantResolver = new AnimClipResolver(
+                    variantMachine, id => variantTable, (id, clip, loop, speed) => variantCalls.Add((clip, loop)),
+                    weaponStyleSource: null, weaponStyles: null, isClipReady: (id, clip) => ready);
+                var cold = new Id("unit.inv62_cold");
+                variantMachine.Track(cold);
+                Assert.IsTrue(variantMachine.IsInCombatStance(cold));
+                ready = false;
+                variantResolver.ResetToLocomotionClip(cold);
+                Assert.AreEqual(new[] { (idle, true) }, variantCalls, "⑪冷复位：变体没就绪先播普通 idle");
+                variantResolver.Refresh(cold);
+                Assert.AreEqual(1, variantCalls.Count, "⑪变体仍没就绪：Refresh 不动");
+                ready = true;
+                variantResolver.Refresh(cold);
+                Assert.AreEqual(new[] { (idle, true), (combatIdle, true) }, variantCalls, "⑪变体就绪后补切一次");
+                variantResolver.Refresh(cold);
+                Assert.AreEqual(2, variantCalls.Count, "⑪补切之后 Refresh 幂等");
+
+                // 热复位（变体就绪）：直接播变体一次。
+                var hot = new Id("unit.inv62_hot");
+                variantMachine.Track(hot);
+                variantCalls.Clear();
+                variantResolver.ResetToLocomotionClip(hot);
+                Assert.AreEqual(new[] { (combatIdle, true) }, variantCalls, "⑪热复位：变体已就绪，直接播 combat_idle 恰好一次");
             }
         }
 

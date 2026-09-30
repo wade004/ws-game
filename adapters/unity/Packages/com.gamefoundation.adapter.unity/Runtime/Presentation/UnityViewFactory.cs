@@ -525,11 +525,14 @@ namespace Adapter.Unity.Presentation
             _animClipResolver?.Forget(evt.UnitId);
 
             // ADR-0111：Forget 同时清掉了战斗姿态——视图原地复用，重新登记跟踪并按探针确定复活那一刻的
-            // 初始姿态（复活时已在战中的单位不会再收到 combat.entered），姿态对应的变体剪辑就绪才补切。
+            // 初始姿态（复活时已在战中的单位不会再收到 combat.entered）。复活 = 显示复位：视图此刻停在死亡
+            // 剪辑末帧，不是"静态显示的普通待机"，因此不能走带基线比较的 Refresh（已脱战或外形没有变体键时
+            // 解析结果等于基线、什么都不播，活人会一直停在倒地末帧），改调 ResetToLocomotionClip 无条件播放
+            // 一次；姿态对应的变体剪辑没就绪先播普通待机，就绪后由既有补切路径（Refresh）切过去。
             if (_animStateMachine != null && _animClipResolver != null && _animClipsByEntity.ContainsKey(evt.UnitId))
             {
                 _animStateMachine.Track(evt.UnitId);
-                _animClipResolver.Refresh(evt.UnitId);
+                _animClipResolver.ResetToLocomotionClip(evt.UnitId);
             }
         }
 

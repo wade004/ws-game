@@ -199,6 +199,42 @@ namespace Adapter.Unity.Presentation
             PlayAndRecord(entityId, desired.Value, DefaultLoop(state));
         }
 
+        /// <summary>
+        /// 显示复位（复活）：按实体<b>当前</b>状态与战斗姿态解析运动态（Idle/Move）剪辑并<b>无条件播放一次</b>
+        /// （从头播），不与任何基线比较，随后写入"最近播放剪辑"记账。<see cref="Refresh"/> 的"无记录时基线取普通键
+        /// 剪辑"假设视图当前静态显示的就是普通待机，复活那一刻这个假设不成立——视图停在死亡剪辑末帧，
+        /// 已脱战或外形没有任何变体键时解析结果恰好等于基线，<see cref="Refresh"/> 会什么都不播，活人继续显示
+        /// 倒地末帧。复活路径改调本方法（<c>UnityViewFactory.OnUnitRespawnedForAnim</c>）；<see cref="Refresh"/>
+        /// 的语义与其它调用点不变。姿态对应的变体剪辑尚未就绪（冷加载）时按 <see cref="ResolveDefaultClip"/> 的
+        /// 既有规则先播普通键剪辑（记账记实际播放的那条），变体就绪后由 <see cref="Refresh"/> 补切——绝不停在
+        /// 死亡末帧等加载。走与状态切换相同的播放出口（<c>playClip</c> 委托），逐层帧、装备层、model 型 rig 随之复位。
+        /// 状态不是 Idle/Move（复活前已 <see cref="AnimStateMachine.Forget"/> 并 <see cref="AnimStateMachine.Track"/>，
+        /// 正常恒为 Idle）或表里没有该状态的剪辑时什么都不播。
+        /// <para>已知限制：①无条件播放——对从未死亡的实体误调也会把当前待机从头重播一次（唯一调用点是复活事件处理，
+        /// 不做基线比较正是本方法的语义）；②只复位运动态剪辑，不处理复活瞬间的武器风格覆盖/瞬态（复活时状态已清空，
+        /// 没有进行中的瞬态）；③变体永远不就绪则一直播普通待机（同 <see cref="Refresh"/> 的限制）。</para>
+        /// </summary>
+        internal void ResetToLocomotionClip(Id entityId)
+        {
+            var state = _stateMachine.GetState(entityId);
+            if (state != AnimState.Idle && state != AnimState.Move)
+            {
+                return;
+            }
+
+            var table = _defaultClipsForEntity(entityId);
+            if (table == null)
+            {
+                return;
+            }
+
+            var clip = ResolveDefaultClip(entityId, state, table, allowVariant: true);
+            if (clip.HasValue)
+            {
+                PlayAndRecord(entityId, clip.Value, DefaultLoop(state));
+            }
+        }
+
         /// <summary>ADR-0111：释放对该实体的"最近播放剪辑"记账（实体销毁/重生时由调用方清理，同
         /// <see cref="AnimStateMachine.Forget"/> 配套）。</summary>
         public void Forget(Id entityId) => _lastPlayedClip.Remove(entityId);
