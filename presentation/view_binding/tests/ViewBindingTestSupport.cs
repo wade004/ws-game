@@ -41,14 +41,43 @@ namespace Tests.PresentationViewBinding
             IsAlive = true;
         }
 
-        public void OnEvent(IEvent evt) => ReceivedEvents.Add(evt);
+        /// <summary>D5（ADR-0121 第 5 条）回归专用：非 null 时对应回调抛出该异常（调用照常先记录）。
+        /// 默认 null，不影响既有用例。</summary>
+        public Func<Exception?>? ThrowOnSyncPose;
 
-        public void SyncPose(Vec2 pos, Direction facing, double height) => SyncCalls.Add((pos, facing, height));
+        public Func<Exception?>? ThrowOnEvent;
+
+        public Func<Exception?>? ThrowOnDestroy;
+
+        public void OnEvent(IEvent evt)
+        {
+            ReceivedEvents.Add(evt);
+            var ex = ThrowOnEvent?.Invoke();
+            if (ex != null)
+            {
+                throw ex;
+            }
+        }
+
+        public void SyncPose(Vec2 pos, Direction facing, double height)
+        {
+            SyncCalls.Add((pos, facing, height));
+            var ex = ThrowOnSyncPose?.Invoke();
+            if (ex != null)
+            {
+                throw ex;
+            }
+        }
 
         public void Destroy()
         {
             IsAlive = false;
             Destroyed = true;
+            var ex = ThrowOnDestroy?.Invoke();
+            if (ex != null)
+            {
+                throw ex;
+            }
         }
     }
 

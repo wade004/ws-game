@@ -19,5 +19,22 @@ namespace Presentation.Camera
     public interface ICameraFollowTarget
     {
         Vec2 GetPosition(Id entityId, double alpha);
+
+        /// <summary>
+        /// ADR-0121 第 6 条（D6）：跟随目标以"可能不存在"为契约——目标不存在（被跟随实体已销毁/未绑定）时
+        /// 返回 <c>false</c>、<paramref name="position"/> 为 <c>default</c>，不抛异常；
+        /// <see cref="CameraHost.Update"/> 据此保持最后位置并只记一条诊断。
+        /// <para>
+        /// 默认接口成员（ABI 只新增，旧实现不改也能编译）：默认实现原样包装 <see cref="GetPosition"/>——
+        /// 永远返回 <c>true</c>，<see cref="GetPosition"/> 抛出的异常照旧向上传播（保持旧实现的既有行为）。
+        /// 内置的 <see cref="SimSnapshotFollowTarget"/> 与 <see cref="DelegateFollowTarget"/> 覆写为不抛的实现；
+        /// 自定义实现要获得"目标丢失保护"须自行覆写本成员。
+        /// </para>
+        /// </summary>
+        bool TryGetPosition(Id entityId, double alpha, out Vec2 position)
+        {
+            position = GetPosition(entityId, alpha);
+            return true;
+        }
     }
 }

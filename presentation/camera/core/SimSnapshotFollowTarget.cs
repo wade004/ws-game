@@ -17,5 +17,18 @@ namespace Presentation.Camera
         }
 
         public Vec2 GetPosition(Id entityId, double alpha) => _snapshot.GetPosition(entityId);
+
+        /// <summary>ADR-0121 第 6 条（D6）：先查 <see cref="ISimSnapshot.Exists"/>，实体不存在返回 false，不抛。</summary>
+        public bool TryGetPosition(Id entityId, double alpha, out Vec2 position)
+        {
+            if (!_snapshot.Exists(entityId))
+            {
+                position = default;
+                return false;
+            }
+
+            position = _snapshot.GetPosition(entityId);
+            return true;
+        }
     }
 }

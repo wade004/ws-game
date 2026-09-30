@@ -17,5 +17,22 @@ namespace Presentation.Camera
         }
 
         public Vec2 GetPosition(Id entityId, double alpha) => _resolver(entityId, alpha);
+
+        /// <summary>ADR-0121 第 6 条（D6）：包一层委托的"目标缺失"语义——被包装的解析函数对不存在的实体按惯例抛异常
+        /// （如 <c>ViewBinder.GetInterpolatedPosition</c> 对未绑定实体抛 <see cref="InvalidOperationException"/>），
+        /// 这里把解析函数抛出的任何异常都视为"目标当前不可取"，返回 false 而不向上传播。</summary>
+        public bool TryGetPosition(Id entityId, double alpha, out Vec2 position)
+        {
+            try
+            {
+                position = _resolver(entityId, alpha);
+                return true;
+            }
+            catch (Exception)
+            {
+                position = default;
+                return false;
+            }
+        }
     }
 }

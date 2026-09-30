@@ -89,6 +89,10 @@ namespace Presentation.ViewBinding
         private readonly EquipmentVisualSource? _equipmentVisualSource;
 
         private readonly Dictionary<Id, IView> _views = new Dictionary<Id, IView>();
+
+        /// <summary>ADR-0121 第 5 条（D5）：当前处于"SyncPose 连续失败"状态的实体（已记过诊断，不逐帧重复
+        /// 记录）；成功同步一次或实体销毁后移除，下一轮失败重新记一条。</summary>
+        private readonly HashSet<Id> _syncFailed = new HashSet<Id>();
         private readonly Dictionary<Id, Id> _displayIds = new Dictionary<Id, Id>();
         private readonly Dictionary<Id, Vec2> _prevPositions = new Dictionary<Id, Vec2>();
         private readonly Dictionary<Id, Vec2> _currPositions = new Dictionary<Id, Vec2>();
@@ -266,15 +270,32 @@ namespace Presentation.ViewBinding
 
         public void OnEntityDestroyed(Id entityId)
         {
+            // ADR-0121 第 5 条（D5）：view.Destroy 失败只记一条诊断，绑定表与位置缓存无论如何都清理——
+            // 此前 Destroy 抛异常会让 _views.Remove 等清理步骤被跳过，绑定表残留（OnSaveLoaded 旧注释
+            // "需人工核查"的已知限制，现已消除）。本方法因此不再向调用方（事件订阅、OnSaveLoaded 循环）
+            // 传播视图异常，其余实体的销毁不受影响（11 章 §4 表现层异常不影响 tick）。
             if (_views.TryGetValue(entityId, out var view))
             {
-                view.Destroy();
-                _views.Remove(entityId);
+                try
+                {
+                    view.Destroy();
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn(
+                        $"View 销毁失败：实体 \"{entityId}\" 的 View.Destroy 抛出异常，已从绑定表移除该实体并继续处理其它实体" +
+                        $"——{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
+                }
+                finally
+                {
+                    _views.Remove(entityId);
+                }
             }
 
             _displayIds.Remove(entityId);
             _prevPositions.Remove(entityId);
             _currPositions.Remove(entityId);
+            _syncFailed.Remove(entityId);
         }
 
         /// <summary>PRES-180 根治：<c>save.loaded</c> 触发的全量对账（见类型注释）。分两个独立方向，
@@ -343,23 +364,14 @@ namespace Presentation.ViewBinding
             var existingIds = new List<Id>(_views.Keys);
 
             // ADR-0086 根治：同 OnEntityCreated 判断记录——本循环同一次调用要为多个实体销毁陈旧
-            // View，任何一个 view.Destroy() 抛异常都不应该中断循环、连累排在后面的实体。隔离后单个
-            // 失败只记一条诊断，绑定表里该实体的记录可能残留（Destroy 抛异常时 OnEntityDestroyed
-            // 内部的 _views.Remove 等清理步骤未执行），需要人工核查，但不影响其它实体正常销毁。
+            // View，任何一个 view.Destroy() 抛异常都不应该中断循环、连累排在后面的实体。ADR-0121 第 5 条
+            // （D5）起隔离与"从绑定表移除"都下沉到 OnEntityDestroyed 内部（Destroy 失败记诊断、仍移除），
+            // 本循环无需再包 try/catch，也不再有"绑定表可能残留"的情形。
             foreach (var entityId in existingIds)
             {
                 if (!_snapshot.Exists(entityId))
                 {
-                    try
-                    {
-                        OnEntityDestroyed(entityId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _diagnostics.Warn(
-                            $"View 销毁失败：实体 \"{entityId}\" 已跳过并继续处理其它实体（绑定表可能" +
-                            $"残留该实体，需要人工核查）——{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
-                    }
+                    OnEntityDestroyed(entityId);
                 }
             }
 
@@ -458,17 +470,34 @@ namespace Presentation.ViewBinding
         /// 的后续工作，见 presentation/common/README.md"契约缺口"。</summary>
         public void SyncAll(double alpha)
         {
+            // ADR-0121 第 5 条（D5）：逐视图 try/catch——一个视图（或它的位置/朝向/方向解析）抛异常只记诊断，
+            // 其余视图照常同步（11 章 §4 表现层异常不影响 tick）。同一实体连续逐帧失败只记一条
+            // （_syncFailed 去重，直到该实体某帧同步成功后才重新计一轮），避免 SyncAll 每帧刷诊断、让
+            // 内存诊断列表无界增长；诊断按 ADR 语义"失败记诊断"仍在每轮失败首帧给出。
             foreach (var pair in _views)
             {
                 var entityId = pair.Key;
                 var view = pair.Value;
 
-                var pos = GetInterpolatedPosition(entityId, alpha);
-                var facing = _snapshot.Exists(entityId) ? _snapshot.GetFacing(entityId) : 0.0;
-                var height = _snapshot.Exists(entityId) ? _snapshot.GetHeight(entityId) : 0.0;
-                var direction = ResolveDirection(facing, entityId);
+                try
+                {
+                    var pos = GetInterpolatedPosition(entityId, alpha);
+                    var facing = _snapshot.Exists(entityId) ? _snapshot.GetFacing(entityId) : 0.0;
+                    var height = _snapshot.Exists(entityId) ? _snapshot.GetHeight(entityId) : 0.0;
+                    var direction = ResolveDirection(facing, entityId);
 
-                view.SyncPose(pos, direction, height);
+                    view.SyncPose(pos, direction, height);
+                    _syncFailed.Remove(entityId);
+                }
+                catch (Exception ex)
+                {
+                    if (_syncFailed.Add(entityId))
+                    {
+                        _diagnostics.Warn(
+                            $"View 同步失败：实体 \"{entityId}\" 的 SyncPose 抛出异常，已跳过并继续同步其它实体" +
+                            $"（该实体持续失败期间不重复记录）——{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
+                    }
+                }
             }
         }
 
@@ -642,9 +671,20 @@ namespace Presentation.ViewBinding
                 return;
             }
 
+            // ADR-0121 第 5 条（D5）：逐视图 try/catch——一个视图的 OnEvent 抛异常只记诊断，其余命中的视图
+            // 照常收到本事件。事件是离散的，每次失败各记一条。
             foreach (var id in matchedEntityIds)
             {
-                _views[id].OnEvent(evt);
+                try
+                {
+                    _views[id].OnEvent(evt);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn(
+                        $"View 事件转发失败：实体 \"{id}\" 的 View.OnEvent 抛出异常，已跳过并继续转发给其它 View" +
+                        $"——{ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
+                }
             }
         }
     }

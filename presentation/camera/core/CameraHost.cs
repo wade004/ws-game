@@ -5,6 +5,7 @@ using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.SceneRouter;
 using Core.Gameplay.Encounter;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.Camera
 {
@@ -29,12 +30,36 @@ namespace Presentation.Camera
         private CameraProfile? _currentProfile;
         private Id? _followEntityId;
 
+        private readonly IPresentationDiagnostics _diagnostics;
+
+        /// <summary>ADR-0121 第 6 条（D6）：跟随目标最近一次成功取到并已交给 <see cref="ICamera.Follow"/> 的
+        /// （已按 profile 边界夹取的）位置；目标丢失期间保持它。<see cref="Follow"/> 换目标时清空。</summary>
+        private Vec2? _lastFollowPosition;
+
+        /// <summary>目标丢失诊断的去重标志：一次"丢失"只记一条（多帧不刷），目标重新出现后复位，
+        /// 下一次丢失重新记一条。</summary>
+        private bool _targetLostReported;
+
         public CameraHost(
             ICamera camera,
             ICameraFollowTarget followTarget,
             IEventBus? bus = null,
             CameraHostOptions? options = null)
+            : this(camera, followTarget, bus, options, diagnostics: null)
         {
+        }
+
+        /// <summary>ADR-0121 第 6 条（D6）新增的重载：额外接受诊断出口（跟随目标丢失记一条警告）。不在既有
+        /// 四参构造上加可选参数（ABI 只新增，见 AGENTS 第 3 节）；传 null 时自建
+        /// <see cref="PresentationDiagnosticsRecorder"/>，经 <see cref="Diagnostics"/> 暴露。</summary>
+        public CameraHost(
+            ICamera camera,
+            ICameraFollowTarget followTarget,
+            IEventBus? bus,
+            CameraHostOptions? options,
+            IPresentationDiagnostics? diagnostics)
+        {
+            _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
             _camera = camera ?? throw new ArgumentNullException(nameof(camera));
             _followTarget = followTarget ?? throw new ArgumentNullException(nameof(followTarget));
             _options = options ?? new CameraHostOptions();
@@ -69,6 +94,9 @@ namespace Presentation.Camera
         /// <summary>当前跟随目标；未 <see cref="Follow"/> 前为 null。</summary>
         public Id? FollowEntityId => _followEntityId;
 
+        /// <summary>构造期注入（或默认自建）的诊断出口，供适配层轮询转发（惯例同 <c>ViewBinder.Diagnostics</c>）。</summary>
+        public IPresentationDiagnostics Diagnostics => _diagnostics;
+
         public void RegisterProfile(CameraProfile profile)
         {
             if (profile == null)
@@ -91,6 +119,8 @@ namespace Presentation.Camera
         public void Follow(Id entityId)
         {
             _followEntityId = entityId;
+            _lastFollowPosition = null;
+            _targetLostReported = false;
         }
 
         public void Update(double alpha)
@@ -100,12 +130,35 @@ namespace Presentation.Camera
                 return;
             }
 
-            var pos = _followTarget.GetPosition(_followEntityId.Value, alpha);
+            // ADR-0121 第 6 条（D6）：目标以"可能不存在"为契约。目标缺失时保持上一位置（继续向最后一次
+            // 有效位置 Follow，相机收敛并停在那里；从未取到过位置则不动）、每次丢失只记一条诊断（多帧不
+            // 刷）；目标重新出现则继续跟随并复位去重标志。
+            if (!_followTarget.TryGetPosition(_followEntityId.Value, alpha, out var pos))
+            {
+                if (!_targetLostReported)
+                {
+                    _targetLostReported = true;
+                    _diagnostics.Warn(
+                        $"相机跟随目标丢失：实体 \"{_followEntityId.Value}\" 当前不存在，镜头保持最后位置" +
+                        "（目标重新出现后自动继续跟随；持续丢失期间不重复记录）");
+                }
+
+                if (_lastFollowPosition.HasValue)
+                {
+                    _camera.Follow(_lastFollowPosition.Value, _currentProfile.FollowLerp);
+                }
+
+                return;
+            }
+
+            _targetLostReported = false;
+
             if (_currentProfile.Bounds.HasValue)
             {
                 pos = _currentProfile.Bounds.Value.Clamp(pos);
             }
 
+            _lastFollowPosition = pos;
             _camera.Follow(pos, _currentProfile.FollowLerp);
         }
 
@@ -170,6 +223,8 @@ namespace Presentation.Camera
             }
 
             _followEntityId = null;
+            _lastFollowPosition = null;
+            _targetLostReported = false;
 
             var resolved = _options.FollowTargetResolverOnReset?.Invoke();
             if (resolved.HasValue)

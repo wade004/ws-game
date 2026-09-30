@@ -172,6 +172,14 @@ public void SyncAll(double alpha)
     镜头朝向修正对两种外形类型是同一件事），因此 ADR-0094 决策落在"变换原始角度"这一方案，不需要
     另一个曾设想的"按方向档位数分表重映射"备选方案（见 [ADR-0094](../../architecture/adr/0094-朝向约定口味项与档位数无关.md)
     "备选方案"一节）。`GetAnchorWorldPosition`（镜像下锚点偏移换算）同一处理，见该方法判断记录。
+11. **ADR-0121 第 5 条（D5）：`SyncAll`/`OnForwardableEvent`/`OnEntityDestroyed`/`OnSaveLoaded` 逐视图异常隔离**：
+    续判断记录 9（创建期与对账循环已隔离），补齐其余四处逐视图回调：`SyncAll` 每个视图各自 `try/catch`
+    （含位置/朝向/方向解析），一个视图 `SyncPose` 抛异常只记诊断、其余视图照常同步；同一实体连续逐帧失败只在每轮
+    失败首帧记一条（`_syncFailed` 去重，成功同步一次或实体销毁后复位），避免逐帧刷诊断、内存诊断列表无界增长；
+    `OnForwardableEvent` 对每个命中视图各自隔离 `OnEvent`（离散事件，每次失败一条）；`OnEntityDestroyed` 里
+    `view.Destroy()` 失败记诊断，**仍从绑定表移除该实体并清理位置缓存**（此前 `Destroy` 抛异常会让 `_views.Remove`
+    被跳过而残留，即 `OnSaveLoaded` 旧注释里"需要人工核查"的已知限制，现已消除）；`OnSaveLoaded` 第一循环因此
+    不再需要自己的 `try/catch`。回归见 `presentation/view_binding/tests/ViewBinderPerViewIsolationTests.cs`。
 
 ## 契约缺口
 

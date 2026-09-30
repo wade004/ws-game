@@ -67,6 +67,19 @@ camera/
    两参构造函数签名），只新增不修改，见 `CameraHostOptions.cs` 判断记录"ABI 兼容"。
    `Presentation.Assembly.PresentationAssembly` 在 `AutoConfigureCameraFromFirstProfile` 打开、调用方
    未显式装配本委托时，默认补一个"继续跟随同一玩家单位"的解析函数，见该类型判断记录。
+7. **ADR-0121 第 6 条（D6）：跟随目标以"可能不存在"为契约，丢失时保持最后位置**：
+   被跟随实体销毁后，`SimSnapshotFollowTarget`（`ISimSnapshot.GetPosition` 对缺失实体抛）与包
+   `ViewBinder.GetInterpolatedPosition` 的 `DelegateFollowTarget` 会让 `CameraHost.Update` 每帧抛异常。
+   `ICameraFollowTarget` 新增**默认接口成员** `TryGetPosition(entityId, alpha, out position)`（默认实现原样包装
+   `GetPosition`，旧实现不改也能编译；ABI 只新增），两个内置实现覆写为不抛（前者先查 `Exists`，后者把解析
+   函数抛出的任何异常视为"目标当前不可取"）。`CameraHost.Update` 目标缺失时继续向最后一次有效（已按边界夹取的）
+   位置 `Follow`，相机停在那里；每次丢失只记一条诊断（`_targetLostReported` 去重，多帧不刷），目标重现则继续
+   跟随并复位标志，再次丢失重新记一条；`Follow(newId)`/`scene.load_finished` 重置会清空最后位置与去重标志。
+   诊断出口经**新增构造重载** `CameraHost(camera, followTarget, bus, options, diagnostics)` 注入（不在既有四参构造上加
+   可选参数），默认自建 `PresentationDiagnosticsRecorder`，经 `CameraHost.Diagnostics` 暴露。自定义
+   `ICameraFollowTarget` 实现若不覆写 `TryGetPosition`，`GetPosition` 抛出的异常仍照旧向上传播（默认成员不吞异常）。
+   `PresentationAssembly` 尚未把共享诊断出口传给 `CameraHost`（待装配整合单接线），当前诊断落在 `Camera.Diagnostics`。
+   用例：`presentation/camera/tests/CameraFollowTargetLossTests.cs`。
 
 ## 契约缺口
 
