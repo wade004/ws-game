@@ -6,7 +6,20 @@ using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.FeedbackBinder.Core
 {
+    /// <summary>H5b 根治新增（游戏侧复核发现 2）：某一批等待项最终被释放的原因——命中帧事件真正到达，
+    /// 还是超时兜底（见 <see cref="HitFrameSyncPolicy"/> 类型注释"超时兜底默认 0.5 秒"判断记录）。
+    /// 供诊断/测试断言"确实是命中帧路径释放，不是超时兜底路径偶然掩盖了命中帧从未到达这一缺口"——此前
+    /// 端到端测试（<c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）只用一个远大于默认超时的等待
+    /// 死线轮询"VFX 是否终于入队"，命中帧链路即便完全断线，也会在 0.5 秒超时兜底后让同一断言"看似"
+    /// 通过，测试实际上从未真正验证过命中帧本身有没有被触发。</summary>
+    public enum HitFrameSyncReleaseReason
+    {
+        HitFrame,
+        Timeout,
+    }
+
     /// <summary>
+    /// 命中帧同步策略：受击反馈等待攻击动画的命中帧才放行，超过超时兜底时长也会放行。
     /// 命中帧同步等待队列（ADR-0017 决策 d）：<see cref="Presentation.FeedbackBinder.Core.FeedbackBinder"/>
     /// 在 <c>RenderOptions.HitFrameSync == AnimKeyframeDriven</c> 且规则声明
     /// <see cref="Presentation.FeedbackBinder.Contracts.FeedbackSyncMode.HitFrame"/> 时，把该规则的
@@ -74,19 +87,6 @@ namespace Presentation.FeedbackBinder.Core
     /// 本次改动是纯粹的泛化，不改变任何既有调用方观察到的结果。
     /// </para>
     /// </summary>
-    /// <summary>H5b 根治新增（游戏侧复核发现 2）：某一批等待项最终被释放的原因——命中帧事件真正到达，
-    /// 还是超时兜底（见 <see cref="HitFrameSyncPolicy"/> 类型注释"超时兜底默认 0.5 秒"判断记录）。
-    /// 供诊断/测试断言"确实是命中帧路径释放，不是超时兜底路径偶然掩盖了命中帧从未到达这一缺口"——此前
-    /// 端到端测试（<c>Tests/Runtime/HitFrameSyncEndToEndTests.cs</c>）只用一个远大于默认超时的等待
-    /// 死线轮询"VFX 是否终于入队"，命中帧链路即便完全断线，也会在 0.5 秒超时兜底后让同一断言"看似"
-    /// 通过，测试实际上从未真正验证过命中帧本身有没有被触发。</summary>
-    public enum HitFrameSyncReleaseReason
-    {
-        HitFrame,
-        Timeout,
-    }
-
-    /// <summary>命中帧同步策略：受击反馈等待攻击动画的命中帧才放行，超过超时兜底时长也会放行。</summary>
     public sealed class HitFrameSyncPolicy : IDisposable
     {
         /// <summary>默认超时兜底时长（秒），见类型注释判断记录。</summary>
