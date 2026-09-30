@@ -15,7 +15,10 @@ namespace Presentation.VfxSfx.Contracts
         /// <summary>播放一条特效；<paramref name="vfxId"/> 未在 <c>vfx.def</c> 登记、或
         /// <paramref name="at"/> 的挂接目标不可解析时返回 null（记一条诊断，不抛异常）。
         /// <paramref name="parameters"/> 供 <c>IRenderer2D.EmitParticle</c> 的着色器/发射参数
-        /// 透传，可为 null（等价空字典）。</summary>
+        /// 透传，可为 null（等价空字典）。
+        /// <para>ADR-0121 决策 1：冷加载与热路径一致——资源尚未加载完成而排队时同样返回可用句柄（占位
+        /// 句柄，不是后端分配的真实句柄）；对它调用 <see cref="Stop"/>，加载完成前取消排队（之后不再
+        /// 补发），加载完成后停止补发出来的粒子。</para></summary>
         ParticleHandle? Spawn(Id vfxId, VfxAttach at, IReadOnlyDictionary<string, double>? parameters);
 
         /// <summary>提前停止一次播放；<paramref name="handle"/> 不存在/已停止时安全忽略。</summary>
@@ -27,7 +30,7 @@ namespace Presentation.VfxSfx.Contracts
 
         /// <summary>GP-09 新增（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：
         /// 仍在排队等待首次异步加载完成（或超时）的播放请求数——<see cref="Spawn"/> 命中未加载完成
-        /// 的资源时不会立即产生播放效果，也不返回可用于判定"这一步已经播完"的信号（返回 null），
+        /// 的资源时不会立即产生播放效果，返回的也只是占位句柄（不是可用于判定"这一步已经播完"的信号），
         /// 调用方（<c>Presentation.FeedbackBinder.Core.CompositeFeedbackSink</c>/
         /// <c>FeedbackBinder.HasPendingPlayback</c>）需要靠本属性把"冷资源首次加载"也计入离散步的
         /// 表现完成门，否则该步会在特效真正播出前就被判定为已完成。</summary>

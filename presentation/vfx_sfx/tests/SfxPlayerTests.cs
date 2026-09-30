@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Adapters.Stub;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.Rng;
 using Presentation.VfxSfx.Contracts;
 using Presentation.VfxSfx.Core;
@@ -318,6 +319,256 @@ namespace Tests.Presentation.VfxSfx
 
             player.Update(0.016); // 已经没有 pending 项了，后续 Update 不应再触发。
             Assert.Equal(1, changedCount);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0121 决策 2（D2）：SFX 冷加载超时改为 dt 累计（与 VfxPlayer 同一口径），不读墙钟。
+        // 期望由规则算出：累计 dt >= FirstLoadTimeoutSeconds 即丢弃；未到期不丢弃。
+        // -----------------------------------------------------------------
+
+        /// <summary>D2 复现：timeout=2.0 时累计 dt=2.5 必须丢弃；墙钟实现下测试进程实际只过了几微秒，
+        /// 排队项不会被丢弃。</summary>
+        [Fact]
+        public void Update_ColdLoadTimeout_IsDrivenByAccumulatedDt_NotWallClock()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var options = new SfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), options: options, diagnostics: diagnostics, resourceLoader: loader);
+
+            player.Play(PlainSfx, null);
+            Assert.Equal(1, player.PendingPlayCount);
+
+            player.Update(options.FirstLoadTimeoutSeconds + 0.5);
+
+            Assert.Equal(0, player.PendingPlayCount);
+            Assert.Contains(diagnostics.Warnings, w => w.Contains("res.footstep") && w.Contains("超时"));
+            Assert.Equal(1, player.PlaybackDiagnostics.PlayDroppedCount);
+        }
+
+        /// <summary>D2 不变量（未到期一向）：timeout>0 且累计 dt 未到 timeout 时不丢弃——包括期间发生任意次
+        /// 其它 Play 调用（Play 开头的惰性扫描不推进时间）；加载完成后正常补播放。</summary>
+        [Fact]
+        public void Update_ColdLoadTimeout_NotExpired_KeepsPending_AndPlaysWhenLoadCompletes()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var options = new SfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), options: options, resourceLoader: loader);
+
+            player.Play(PlainSfx, null);
+            player.Update(options.FirstLoadTimeoutSeconds * 0.4);
+            player.Play(PlainSfx, null); // 同一资源再次排队；Play 不推进时间。
+            player.Update(options.FirstLoadTimeoutSeconds * 0.4); // 累计 0.8 * timeout，仍未到期。
+
+            Assert.Equal(2, player.PendingPlayCount);
+            Assert.Equal(0, player.PlaybackDiagnostics.PlayDroppedCount);
+
+            loader.CompletePending(new Id("res.footstep"));
+
+            Assert.Equal(0, player.PendingPlayCount);
+            Assert.Equal(2, audio.ActiveSfxPlaybacks.Count);
+            Assert.Equal(2, player.PlaybackDiagnostics.PlayStartedCount);
+        }
+
+        /// <summary>D2 不变量（到期一向）：累计 dt 恰好等于 timeout 即到期丢弃（与 VfxPlayer 的
+        /// "剩余 &lt;= 0 即丢弃"同口径）；到期后迟到的加载完成不补播放。</summary>
+        [Fact]
+        public void Update_ColdLoadTimeout_ExpiresExactlyAtAccumulatedTimeout_AndLateCompletionDoesNotPlay()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var options = new SfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new SfxPlayer(audio, new RngHost(1), BuildCatalog(), options: options, resourceLoader: loader);
+
+            player.Play(PlainSfx, null);
+            player.Update(options.FirstLoadTimeoutSeconds / 2.0);
+            Assert.Equal(1, player.PendingPlayCount);
+            player.Update(options.FirstLoadTimeoutSeconds / 2.0);
+            Assert.Equal(0, player.PendingPlayCount);
+
+            loader.CompletePending(new Id("res.footstep"));
+            Assert.Empty(audio.ActiveSfxPlaybacks);
+            Assert.Equal(0, player.PlaybackDiagnostics.PlayStartedCount);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0121 决策 3（D3）：层满时新来者优先级严格低于全部在播实例则拒绝（不播、返回空句柄、
+        // 记一条诊断、在播集合不变）；相等或更高则淘汰"最低优先级中最老"的实例（现行为不变）。
+        // -----------------------------------------------------------------
+
+        private static readonly Id P3 = new Id("sfx.prio_3");
+        private static readonly Id P5 = new Id("sfx.prio_5");
+        private static readonly Id P7 = new Id("sfx.prio_7");
+        private static readonly Id P9 = new Id("sfx.prio_9");
+        private static readonly Id PNone = new Id("sfx.prio_none");
+        private static readonly Id PNone2 = new Id("sfx.prio_none_2");
+
+        private static Dictionary<Id, SfxDef> PriorityCatalog() => new Dictionary<Id, SfxDef>
+        {
+            [P3] = new SfxDef(P3, "combat", 3, null, new Id("res.prio_3")),
+            [P5] = new SfxDef(P5, "combat", 5, null, new Id("res.prio_5")),
+            [P7] = new SfxDef(P7, "combat", 7, null, new Id("res.prio_7")),
+            [P9] = new SfxDef(P9, "combat", 9, null, new Id("res.prio_9")),
+            [PNone] = new SfxDef(PNone, "combat", null, null, new Id("res.prio_none")),
+            [PNone2] = new SfxDef(PNone2, "combat", null, null, new Id("res.prio_none_2")),
+        };
+
+        private static SfxPlayer BuildPriorityPlayer(StubAudio audio, int layerMax, PresentationDiagnosticsRecorder? diagnostics = null, IResourceLoader? loader = null) =>
+            new SfxPlayer(
+                audio, new RngHost(1), PriorityCatalog(),
+                new SfxOptions { MaxConcurrentPerLayer = new Dictionary<string, int> { ["combat"] = layerMax } },
+                diagnostics, loader);
+
+        private static HashSet<int> ActiveHandleValues(StubAudio audio) => new HashSet<int>(audio.ActiveSfxPlaybacks.Keys);
+
+        /// <summary>D3 复现：层满（容量 1）且在播的优先级 9 高于新来者优先级 3——修复前低优先级新音
+        /// 顶掉高优先级旧音。</summary>
+        [Fact]
+        public void Priority_LowerArrivalOnFullLayer_IsRejected_ActiveSetUnchanged()
+        {
+            var audio = new StubAudio();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var player = BuildPriorityPlayer(audio, layerMax: 1, diagnostics);
+
+            var high = player.Play(P9, null);
+            Assert.NotNull(high);
+            var before = ActiveHandleValues(audio);
+            var warningsBefore = diagnostics.Warnings.Count;
+
+            var low = player.Play(P3, null);
+
+            Assert.Null(low);
+            Assert.Equal(before, ActiveHandleValues(audio));
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(high!.Value.Value));
+            Assert.Equal(warningsBefore + 1, diagnostics.Warnings.Count);
+            Assert.Equal(2, player.PlaybackDiagnostics.PlayRequestedCount);
+            Assert.Equal(1, player.PlaybackDiagnostics.PlayStartedCount);
+            Assert.Equal(1, player.PlaybackDiagnostics.PlayDroppedCount);
+        }
+
+        /// <summary>不变量：对若干层内在播优先级组合与新来者优先级，结果由规则算出——新来者优先级严格
+        /// 低于在播最小值则拒绝且集合不变；否则恰好淘汰最低优先级中最老的一个并播放新来者。</summary>
+        [Theory]
+        [InlineData(2, 3)]
+        [InlineData(2, 5)]
+        [InlineData(2, 7)]
+        [InlineData(2, 9)]
+        [InlineData(3, 3)]
+        [InlineData(3, 5)]
+        [InlineData(3, 7)]
+        [InlineData(3, 9)]
+        public void Priority_ArrivalOnFullLayer_FollowsStrictlyLowerRejectRule(int layerMax, int arrivalPriority)
+        {
+            var audio = new StubAudio();
+            var player = BuildPriorityPlayer(audio, layerMax);
+            var residentIds = new[] { P5, P9, P7 };
+            var resident = new List<(Id Id, int Priority, int Handle)>();
+            for (var i = 0; i < layerMax; i++)
+            {
+                var h = player.Play(residentIds[i], null)!.Value.Value;
+                resident.Add((residentIds[i], PriorityCatalog()[residentIds[i]].Priority!.Value, h));
+            }
+
+            var arrivalId = arrivalPriority == 3 ? P3 : arrivalPriority == 5 ? P5 : arrivalPriority == 7 ? P7 : P9;
+            var before = ActiveHandleValues(audio);
+
+            var handle = player.Play(arrivalId, null);
+
+            var minPriority = int.MaxValue;
+            foreach (var r in resident)
+            {
+                minPriority = System.Math.Min(minPriority, r.Priority);
+            }
+
+            if (arrivalPriority < minPriority)
+            {
+                Assert.Null(handle);
+                Assert.Equal(before, ActiveHandleValues(audio));
+            }
+            else
+            {
+                Assert.NotNull(handle);
+                // 淘汰"最低优先级中最老"：resident 按播放先后排列，取第一个最小优先级项。
+                var victim = resident.Find(r => r.Priority == minPriority);
+                var expected = new HashSet<int>(before);
+                expected.Remove(victim.Handle);
+                expected.Add(handle!.Value.Value);
+                Assert.Equal(expected, ActiveHandleValues(audio));
+            }
+        }
+
+        /// <summary>未声明 priority 按最低优先级（int.MinValue）处理：相对已声明者被拒绝；与同为未声明者相等，
+        /// 淘汰最老的。</summary>
+        [Fact]
+        public void Priority_Undeclared_TreatedAsLowest_RejectedAgainstDeclared_EqualAgainstUndeclared()
+        {
+            var audio = new StubAudio();
+            var player = BuildPriorityPlayer(audio, layerMax: 1);
+
+            var declared = player.Play(P3, null)!.Value;
+            Assert.Null(player.Play(PNone, null));
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(declared.Value));
+
+            // 换一个层内全是未声明者的场景。
+            var audio2 = new StubAudio();
+            var player2 = BuildPriorityPlayer(audio2, layerMax: 1);
+            var first = player2.Play(PNone, null)!.Value;
+            var second = player2.Play(PNone2, null);
+
+            Assert.NotNull(second);
+            Assert.False(audio2.ActiveSfxPlaybacks.ContainsKey(first.Value));
+            Assert.True(audio2.ActiveSfxPlaybacks.ContainsKey(second!.Value.Value));
+        }
+
+        /// <summary>不变量（冷路径与热路径同一规则，AGENTS 第 0 节）：冷加载补播放时层满且全部更高，同样拒绝——
+        /// 在播集合不变、记一条诊断、丢弃计数 +1、迟到不补播。</summary>
+        [Fact]
+        public void Priority_ColdLoad_LowerArrivalOnFullLayer_IsRejectedAtLoadCompletion()
+        {
+            var audio = new StubAudio();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var player = BuildPriorityPlayer(audio, layerMax: 1, diagnostics, loader);
+
+            player.Play(P9, null);
+            loader.CompletePending(new Id("res.prio_9"));
+            Assert.Single(audio.ActiveSfxPlaybacks);
+            var before = ActiveHandleValues(audio);
+
+            player.Play(P3, null);
+            Assert.Equal(1, player.PendingPlayCount);
+            var warningsBefore = diagnostics.Warnings.Count;
+            loader.CompletePending(new Id("res.prio_3"));
+
+            Assert.Equal(0, player.PendingPlayCount);
+            Assert.Equal(before, ActiveHandleValues(audio));
+            Assert.Equal(warningsBefore + 1, diagnostics.Warnings.Count);
+            Assert.Equal(1, player.PlaybackDiagnostics.PlayDroppedCount);
+            Assert.Equal(1, player.PlaybackDiagnostics.PlayStartedCount);
+        }
+
+        /// <summary>不变量：被拒绝的循环 attach 播放不留下 attach 键——之后腾出名额再 PlayAttached 能正常播放。</summary>
+        [Fact]
+        public void Priority_RejectedLoopAttachedPlay_LeavesNoAttachKey()
+        {
+            var loopLow = new Id("sfx.loop_low");
+            var catalog = PriorityCatalog();
+            catalog[loopLow] = new SfxDef(loopLow, "combat", 1, null, new Id("res.loop_low"), loop: true);
+            var audio = new StubAudio();
+            var player = new SfxPlayer(
+                audio, new RngHost(1), catalog,
+                new SfxOptions { MaxConcurrentPerLayer = new Dictionary<string, int> { ["combat"] = 1 } });
+            var entity = new Id("unit.hero");
+
+            var high = player.Play(P9, null)!.Value;
+            Assert.Null(player.PlayAttached(loopLow, entity, null));
+
+            player.Stop(high);
+            var replay = player.PlayAttached(loopLow, entity, null);
+            Assert.NotNull(replay);
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(replay!.Value.Value));
         }
 
         // -----------------------------------------------------------------

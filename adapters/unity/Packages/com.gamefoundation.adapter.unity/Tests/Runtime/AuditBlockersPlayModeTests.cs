@@ -328,7 +328,7 @@ namespace Adapter.Unity.Tests.Runtime
             var vfxHandle = vfxPlayer.Spawn(vfxId, VfxAttach.World(Vec2.Zero), null);
             var sfxHandle = sfxPlayer.Play(sfxId, Vec2.Zero);
 
-            Assert.IsNull(vfxHandle, "资源尚未加载完成，首次 Spawn 不应立即返回真实句柄（外部审核阻塞项 4）");
+            Assert.IsNotNull(vfxHandle, "资源尚未加载完成，首次 Spawn 返回可 Stop 的占位句柄而不是真实句柄（外部审核阻塞项 4；ADR-0121 决策 1）");
             Assert.IsNull(sfxHandle, "资源尚未加载完成，首次 Play 不应立即返回真实句柄（外部审核阻塞项 4）");
             Assert.AreEqual(playSfxCallCountBefore, host.Audio.PlaySfxCallCount, "资源就绪前不应该调用 IAudio.PlaySfx");
 

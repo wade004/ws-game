@@ -362,7 +362,9 @@ namespace Tests.Presentation.VfxSfx
 
             var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
 
-            Assert.Null(handle); // 资源尚未加载完成，本次调用不能立即拿到真实句柄。
+            // ADR-0121 决策 1：资源尚未加载完成时不能立即拿到真实句柄，但冷加载与热路径一致，
+            // 返回的是可用的占位句柄（可 Stop 取消排队），不再是 null。
+            Assert.NotNull(handle);
             Assert.Empty(renderer.EmittedParticles); // 首次施法命中特效不应该在资源就绪前就播放。
 
             loader.CompletePending(new Id("res.spark"));
@@ -489,6 +491,198 @@ namespace Tests.Presentation.VfxSfx
 
             player.Update(1.0); // 已经没有 pending 项了，后续 Update 不应再触发。
             Assert.Equal(1, changedCount);
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0121 决策 1（D1）：VFX 冷加载中可 Stop。冷加载与热路径一致——Spawn 在资源未就绪时也
+        // 返回可用句柄；对该句柄 Stop 取消排队，资源到达后不再补发；资源已到达后再 Stop 则停掉
+        // 补发出来的那个粒子。期望值由规则算出（存活粒子数 = 被补发且未被停止的数量）。
+        // -----------------------------------------------------------------
+
+        private static int AliveParticleCount(StubRenderer2D renderer)
+        {
+            var alive = 0;
+            foreach (var key in renderer.EmittedParticles.Keys)
+            {
+                if (renderer.IsParticleAlive(new ParticleHandle(key)))
+                {
+                    alive++;
+                }
+            }
+            return alive;
+        }
+
+        /// <summary>D1 复现：冷加载中 Spawn 拿不到句柄（返回 null），Stop 无从下手，资源到达后粒子被
+        /// 补发且无人停止（无寿命的循环特效会永久残留）。</summary>
+        [Fact]
+        public void Spawn_ColdLoad_StopBeforeLoadCompletes_ReturnsUsableHandle_AndNeverEmitsAfterLoad()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            Assert.NotNull(handle);
+
+            player.Stop(handle!.Value);
+            Assert.Equal(0, player.PendingSpawnCount);
+
+            loader.CompletePending(new Id("res.spark"));
+
+            Assert.Empty(renderer.EmittedParticles);
+            Assert.Equal(0, AliveParticleCount(renderer));
+        }
+
+        [Fact]
+        public void Spawn_ColdLoad_StopAfterLoadCompletes_StopsTheEmittedParticle()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            Assert.NotNull(handle);
+            loader.CompletePending(new Id("res.spark"));
+            Assert.Equal(1, AliveParticleCount(renderer));
+
+            player.Stop(handle!.Value);
+
+            Assert.Equal(0, AliveParticleCount(renderer));
+
+            // 再停一次安全忽略（IVfxPlayer.Stop 契约）。
+            var ex = Record.Exception(() => player.Stop(handle.Value));
+            Assert.Null(ex);
+        }
+
+        /// <summary>不变量：冷路径（Stop 在加载完成前/后）与热路径（资源已就绪、立即 Stop）的最终
+        /// 状态一致——存活粒子数 0、排队数 0。</summary>
+        [Theory]
+        [InlineData("hot")]
+        [InlineData("cold_stop_before_load")]
+        [InlineData("cold_stop_after_load")]
+        public void Spawn_ThenStop_FinalStateIdenticalAcrossHotAndColdPaths(string path)
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = path != "hot" };
+            loader.Register(new Id("res.spark"));
+            if (path == "hot")
+            {
+                loader.LoadAsync(new Id("res.spark"), ResourceKind.Effect, (_, __) => { });
+            }
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            Assert.NotNull(handle);
+
+            switch (path)
+            {
+                case "hot":
+                    player.Stop(handle!.Value);
+                    break;
+                case "cold_stop_before_load":
+                    player.Stop(handle!.Value);
+                    loader.CompletePending(new Id("res.spark"));
+                    break;
+                default:
+                    loader.CompletePending(new Id("res.spark"));
+                    player.Stop(handle!.Value);
+                    break;
+            }
+
+            Assert.Equal(0, AliveParticleCount(renderer));
+            Assert.Equal(0, player.PendingSpawnCount);
+        }
+
+        [Fact]
+        public void Spawn_ColdLoad_StopOneOfTwoQueued_OnlyTheOtherIsEmittedAfterLoad()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            var first = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            var second = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(2, 2)), null);
+            Assert.NotNull(first);
+            Assert.NotNull(second);
+            Assert.NotEqual(first!.Value, second!.Value); // 各排队请求持有各自独立的句柄。
+            Assert.Equal(2, player.PendingSpawnCount);
+
+            player.Stop(first.Value);
+            Assert.Equal(1, player.PendingSpawnCount);
+
+            loader.CompletePending(new Id("res.spark"));
+
+            var emitted = Assert.Single(renderer.EmittedParticles);
+            Assert.Equal(new Vec2(2, 2), emitted.Value.Position);
+        }
+
+        [Fact]
+        public void Spawn_ColdLoad_StopBeforeLoadCompletes_TriggersPendingSpawnCountChanged_Once()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            var changedCount = 0;
+            player.PendingSpawnCountChanged += () => changedCount++;
+
+            player.Stop(handle!.Value);
+            Assert.Equal(1, changedCount);
+
+            // 已取消的句柄再停、以及之后的加载完成，都不应再触发信号。
+            player.Stop(handle.Value);
+            loader.CompletePending(new Id("res.spark"));
+            Assert.Equal(1, changedCount);
+        }
+
+        [Fact]
+        public void Spawn_ColdLoad_LoadFails_ThenStop_IsSafeNoOp()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader);
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(1, 1)), null);
+            Assert.NotNull(handle);
+            loader.FailPending(new Id("res.spark"));
+
+            Assert.Null(Record.Exception(() => player.Stop(handle!.Value)));
+            Assert.Equal(0, AliveParticleCount(renderer));
+        }
+
+        [Fact]
+        public void Spawn_ColdLoad_TimesOut_ThenStop_IsSafeNoOp()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var options = new VfxOptions { FirstLoadTimeoutSeconds = 2.0 };
+            var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog(), options: options, resourceLoader: loader);
+
+            var handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(3, 3)), null);
+            Assert.NotNull(handle);
+            player.Update(options.FirstLoadTimeoutSeconds + 0.5);
+            Assert.Equal(0, player.PendingSpawnCount);
+
+            Assert.Null(Record.Exception(() => player.Stop(handle!.Value)));
+            Assert.Equal(0, AliveParticleCount(renderer));
+        }
+
+        [Fact]
+        public void Spawn_ColdLoad_Anchor_StopBeforeLoadCompletes_NeverEmits()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var player = new VfxPlayer(
+                renderer, new StubCamera(), BuildCatalog(), resourceLoader: loader,
+                anchorResolver: (e, a) => new Vec2(5, 6));
+
+            var handle = player.Spawn(AnchorVfx, VfxAttach.Anchor(new Id("unit.hero"), new Id("anchor.hand_main")), null);
+            Assert.NotNull(handle);
+
+            player.Stop(handle!.Value);
+            loader.CompletePending(new Id("res.glow"));
+
+            Assert.Empty(renderer.EmittedParticles);
         }
     }
 }

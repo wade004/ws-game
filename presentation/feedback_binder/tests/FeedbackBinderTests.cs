@@ -500,11 +500,11 @@ namespace Tests.Presentation.FeedbackBinder
             {
                 [sfxId] = new SfxDef(sfxId, "combat", null, null, new Id("res.sample_cold_hit")),
             };
-            // SfxPlayer 的超时判定按墙钟时间戳（DateTime.UtcNow），不是按 Update 的 dt 累计（见
-            // ISfxPlayer.Update 判断记录），FirstLoadTimeoutSeconds=0 使 Play 那一刻的截止时间就是
-            // "此刻"，任何之后调用的 Update（哪怕只过了几微秒的真实墙钟时间）都会判定已超时——同
-            // SfxPlayerTests 里既有超时用例的惯例。
-            var sfxOptions = new SfxOptions { FirstLoadTimeoutSeconds = 0.0 };
+            // ADR-0121 决策 2（D2）：SfxPlayer 的首次加载超时按 Update 传入 dt 累计的表现时钟判定（与
+            // VfxPlayer 同口径，不读墙钟）。超时阈值取 0.05 秒；下面先推进不足阈值的 dt（仍应 pending），
+            // 再推进到累计超过阈值（应被清理），两向都由 dt 决定，与测试实际耗时无关。
+            const double FirstLoadTimeoutSeconds = 0.05;
+            var sfxOptions = new SfxOptions { FirstLoadTimeoutSeconds = FirstLoadTimeoutSeconds };
             var sfx = new SfxPlayer(new Adapters.Stub.StubAudio(), new Core.Foundation.Rng.RngHost(1), sfxCatalog, options: sfxOptions, resourceLoader: sfxLoader);
             var vfx = new VfxPlayer(new Adapters.Stub.StubRenderer2D(), new Adapters.Stub.StubCamera(), new Dictionary<Id, VfxDef>());
             var sink = new CompositeFeedbackSink(
@@ -532,7 +532,11 @@ namespace Tests.Presentation.FeedbackBinder
             // 只推进 SfxPlayer 自己的时钟（同生产 FrameworkResidentHost.OnFrameTick 里
             // Presentation.Sfx.Update(dt) 与 Presentation.Feedback.Update(dt) 各自独立调用的既有
             // 接线），全程不再调用任何 Play——超时必须完全靠这一个独立入口被发现。
-            sfx.Update(0.1); // 累计超过 FirstLoadTimeoutSeconds=0.05，触发超时清理。
+            sfx.Update(FirstLoadTimeoutSeconds / 2.0); // 累计未到阈值：仍在等待，节奏门不应打开。
+            Assert.True(sink.HasPendingPlayback, "累计 dt 未到超时阈值，冷资源仍应视为 pending");
+            Assert.Equal(0, finishedCount);
+
+            sfx.Update(FirstLoadTimeoutSeconds); // 累计 1.5 倍阈值，超过 FirstLoadTimeoutSeconds，触发超时清理。
 
             Assert.False(sink.HasPendingPlayback, "超时后应视为不再 pending");
             Assert.Equal(1, finishedCount); // 恰好发布一次，不多不少。

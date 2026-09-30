@@ -69,7 +69,8 @@ namespace Presentation.VfxSfx.Contracts
         /// cref="Presentation.VfxSfx.Contracts.IVfxPlayer.Update"/> 同一惯例，由
         /// <c>CompositeFeedbackSink</c>/引擎侧逐帧驱动（同 <c>Presentation.VfxSfx.Core.VfxPlayer.
         /// Update</c> 的既有生产接线，见 <c>FrameworkResidentHost.OnFrameTick</c>）；<paramref
-        /// name="dt"/> 对首次加载超时的判定，当前实现内部仍按超时截止时间戳（不是按 dt 累计倒计时）。
+        /// name="dt"/> 累计成表现时钟，是首次加载超时判定的唯一计时来源（ADR-0121 决策 2，与 <c>VfxPlayer</c>
+        /// 同一口径，不读墙钟）。
         /// ADR-0105：默认实现在这里按 <c>IAudio.IsSfxPlaying</c> 真实回报释放已播完的一次性音效的
         /// 同层并发名额，并把 <paramref name="dt"/> 累加为自己的表现时钟，供后端不回报（<c>null</c>）
         /// 时按 <c>SfxOptions.OneShotLayerSlotHoldSeconds</c> 推定释放。

@@ -37,9 +37,10 @@ namespace Presentation.VfxSfx.Contracts
         /// 已知边界"）。只增不减。</summary>
         long PlayStartedCount { get; }
 
-        /// <summary>累计因资源缺失/加载失败/首次加载超时而放弃、从未真正播放的次数——三条路径
+        /// <summary>累计因资源缺失/加载失败/首次加载超时/层满被拒而放弃、从未真正播放的次数——四条路径
         /// （<c>sfx.def</c> 未登记、<see cref="Core.Foundation.EngineAdapter.IResourceLoader.LoadAsync"/>
-        /// 回调失败、<c>FirstLoadTimeoutSeconds</c> 到期）统一计入同一个桶，均已各自伴随一条
+        /// 回调失败、<c>FirstLoadTimeoutSeconds</c> 到期、同层并发已满且新来者优先级严格低于全部在播实例
+        /// ——ADR-0121 决策 3）统一计入同一个桶，均已各自伴随一条
         /// <see cref="IPresentationDiagnostics.Warn"/> 文本（见 <c>SfxPlayer</c> 判断记录），本计数
         /// 只是同一批事件的数值化镜像，不是新增的判定逻辑。只增不减。</summary>
         long PlayDroppedCount { get; }

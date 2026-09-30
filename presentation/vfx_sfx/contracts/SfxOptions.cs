@@ -11,6 +11,9 @@ namespace Presentation.VfxSfx.Contracts
         /// 当前优先级最低（<see cref="SfxDef.Priority"/> 数值越大视为优先级越高，未声明按最低
         /// 优先级处理，见类型 <see cref="Presentation.VfxSfx.Core.SfxPlayer"/> 判断记录；勘误：此前
         /// 本注释误写为"数值越小越高"，与实现方向相反，以实现为准）的一个。
+        /// ADR-0121 决策 3：新来者优先级严格低于该层全部在播实例时，不淘汰任何实例，而是拒绝这次播放
+        /// （返回空句柄、记一条诊断、计入 <c>ISfxPlaybackDiagnostics.PlayDroppedCount</c>）；相等或更高才
+        /// 淘汰最低优先级中最老的一个。
         /// 未在 <see cref="MaxConcurrentPerLayer"/> 登记的层使用 <see cref="DefaultMaxConcurrent"/>。
         /// 只计入"仍可能在播"的实例：一次性（非循环）音效经 <c>IAudio.IsSfxPlaying</c> 回报已结束即
         /// 释放名额；后端不回报时开始播放满 <see cref="OneShotLayerSlotHoldSeconds"/> 后推定已播完
@@ -29,10 +32,12 @@ namespace Presentation.VfxSfx.Contracts
         /// 判断记录）：某个音效资源（<c>sfx.def.resource_ref</c> 或命中的 <c>variants</c>）首次被
         /// 引用、资源尚未加载完成时，一次排队等待的最长秒数——同 <c>VfxOptions.
         /// FirstLoadTimeoutSeconds</c> 判断记录，但 <see cref="ISfxPlayer"/> 契约本身没有
-        /// <c>Update(dt)</c> 方法（09 原文未定义，不新增契约方法），本项按墙钟时间（非模拟时间）
-        /// 计量，在下一次任意 <see cref="Presentation.VfxSfx.Core.SfxPlayer.Play"/> 调用时惰性清理
-        /// 已超时的排队项（见该方法判断记录），不依赖任何逐帧驱动。默认 5 秒，同
-        /// <c>VfxOptions.FirstLoadTimeoutSeconds</c> 取值理由。
+        /// <c>Update(dt)</c> 方法（09 原文未定义，不新增契约方法）。ADR-0121 决策 2：本项与
+        /// <c>VfxOptions.FirstLoadTimeoutSeconds</c> 同口径，按 <see cref="ISfxPlayer.Update"/> 传入的
+        /// <c>dt</c> 累计的表现时钟计量（不读系统时间，保持确定性）；累计 dt 达到本值即丢弃排队项，
+        /// 下一次任意 <see cref="Presentation.VfxSfx.Core.SfxPlayer.Play"/> 开头的惰性扫描按当前时钟判断
+        /// 但不推进时间。从未驱动 <c>Update</c> 时不会到期；取值 0 表示下一次扫描即视为到期。默认 5 秒，
+        /// 同 <c>VfxOptions.FirstLoadTimeoutSeconds</c> 取值理由。
         /// </summary>
         public double FirstLoadTimeoutSeconds { get; set; } = 5.0;
 

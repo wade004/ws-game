@@ -88,10 +88,12 @@ namespace Tests.Presentation.VfxSfx
             Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(high.Value));
 
             // 释放的只是已到期的那一个：high 仍在保留时长内、仍占唯一名额，下一个同层播放照原规则
-            // （层满时停掉层内优先级最低者，层内此刻只有 high）抢占它。
-            var mid = player.Play(Mid, null)!.Value;
+            // （层满时停掉层内优先级最低者，层内此刻只有 high）抢占它。ADR-0121 决策 3 之后新来者
+            // 优先级须不低于在播者才能抢占，因此这里用同优先级的第二个 high（原先用更低优先级的 mid，
+            // 恰是"低优先级新音顶掉高优先级旧音"的旧行为，已拍板为缺陷，见 SfxPlayerTests 的 Priority_* 用例）。
+            var nextHigh = player.Play(High, null)!.Value;
             Assert.False(audio.ActiveSfxPlaybacks.ContainsKey(high.Value));
-            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(mid.Value));
+            Assert.True(audio.ActiveSfxPlaybacks.ContainsKey(nextHigh.Value));
 
             var diag = player.PlaybackDiagnostics;
             Assert.Equal(0, diag.PlayDroppedCount);

@@ -313,6 +313,35 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `StopSfx` 不计丢弃、循环不释放、`≤0` 关闭、冷加载三支）；引擎侧
     `adapters/unity/.../Tests/Runtime/SfxEngineReportedFinishPlayModeTests.cs`（真实 AudioSource）。
 
+23. **[ADR-0121](../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 决策 1～3（测试覆盖梳理
+    D1/D2/D3，见 `docs/复盘/测试覆盖梳理-2026-10-01.md` 第 2.1 节）**：
+    - **D1 VFX 冷加载中可 Stop**：`VfxPlayer.Spawn` 在资源未就绪而排队时也返回可用句柄（与热路径一致）。
+      排队时分配占位句柄（`int.MinValue` 起递增，与后端正值句柄、socket 合成负值句柄都不重叠），
+      `Stop(占位句柄)` 取消排队（资源到达后不再补发，并触发 `PendingSpawnCountChanged`）；补发之后占位
+      句柄映射到真实句柄，`Stop` 仍能停到那个粒子；加载失败/超时/已取消后再 `Stop` 安全忽略。同步加载器
+      （加载在 `Spawn` 调用栈内完成）仍直接返回真实句柄。`CompositeFeedbackSink` 因此无论冷热都能登记
+      句柄，`stop_vfx` 冷加载中到达也生效。旧用例 `Spawn_ResourceNotYetLoaded_...` 与 Unity PlayMode 用例
+      里"冷加载 `Spawn` 返回 null"的断言是在给旧行为拍照，改为 `NotNull`。
+    - **D2 SFX 冷加载超时改 dt 累计**：`PendingPlay.Deadline` 由 `DateTime.UtcNow` 改为
+      `_clockSeconds + FirstLoadTimeoutSeconds`（`_clockSeconds` 只由 `Update(dt)` 推进，与 `VfxPlayer`
+      同口径）；`Play` 开头的惰性扫描保留，只按当前时钟判断、不推进时间；累计 dt 等于阈值即到期。
+      `FirstLoadTimeoutSeconds=0` 语义不变（下一次扫描即到期）。依赖墙钟的
+      `SfxColdLoadTimingTests` 改为 dt 驱动的确定性用例（按帧 `Update` + 同构加载器 `Tick`，断言累计 dt
+      而非 `Stopwatch`）；`FeedbackBinderTests` 里与代码不符的 `0.05` 注释改为代码也取 0.05 并补"未到期
+      仍 pending"一支。
+    - **D3 层满时低优先级新来者被拒绝**：`MakeRoomIfNeeded` 改为 `TryMakeRoom`——新来者优先级严格
+      低于该层全部在播实例（低于在播最低优先级）时不淘汰任何实例：不播、返回 null、记一条诊断、计入
+      `PlayDroppedCount`；相等或更高仍淘汰"最低优先级中最老"。未声明 priority 按 `int.MinValue`，对已声明
+      者总被拒绝、与同为未声明者相等。冷加载补播放（`OnResourceLoadCompleted`）走同一出口，拒绝时同样丢弃
+      并摘掉排队时登记的 attach 键。`SfxLayerSlotHoldTests` 里一条用更低优先级 `Mid` 抢占 `High` 的用例
+      是在给旧行为拍照，改用同优先级 `High`（仍验证"保留时长内 high 占着唯一名额"）。
+    - 回归/不变量用例：`tests/VfxPlayerTests.cs` `Spawn_ColdLoad_StopBeforeLoadCompletes_ReturnsUsableHandle_
+      AndNeverEmitsAfterLoad`（D1 复现）等 8 例（含热/冷两支最终状态一致的 Theory）、
+      `feedback_binder/tests/CompositeFeedbackSinkTests.cs` `StopVfx_ColdLoad_StopBeforeLoadCompletes_NeverEmits`
+      与冷热一致 Theory；`tests/SfxPlayerTests.cs` `Update_ColdLoadTimeout_IsDrivenByAccumulatedDt_NotWallClock`
+      （D2 复现）+ 未到期/恰到期两向；`Priority_LowerArrivalOnFullLayer_IsRejected_ActiveSetUnchanged`
+      （D3 复现）+ 规则 Theory、未声明优先级、冷加载路径、循环 attach 不留键。
+
 ## 不负责什么
 
 - `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的

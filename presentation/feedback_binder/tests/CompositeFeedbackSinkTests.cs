@@ -165,6 +165,96 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         // ------------------------------------------------------------------
+        // ADR-0121 决策 1（D1）：无论冷热都登记句柄——stop_vfx 在资源加载完成前到达也要生效。
+        // ------------------------------------------------------------------
+
+        private static int AliveParticleCount(StubRenderer2D renderer)
+        {
+            var alive = 0;
+            foreach (var key in renderer.EmittedParticles.Keys)
+            {
+                if (renderer.IsParticleAlive(new ParticleHandle(key)))
+                {
+                    alive++;
+                }
+            }
+            return alive;
+        }
+
+        private static CompositeFeedbackSink BuildEntitySink(IVfxPlayer vfx, ISfxPlayer sfx, Id entityId) => new CompositeFeedbackSink(
+            vfx, sfx,
+            onFloatingText: (_, __, ___) => { },
+            onFreeze: _ => { },
+            onShakeCamera: _ => { },
+            onFlash: (_, __) => { },
+            entityPositionResolver: id => id.Equals(entityId) ? Vec2.Zero : (Vec2?)null);
+
+        /// <summary>D1 复现：冷加载期间 <c>play_vfx</c> 拿不到句柄，<c>_activeVfxByKey</c> 没登记，
+        /// 随后的 <c>stop_vfx</c> 是空操作，资源到达后粒子被补发且无人停止。</summary>
+        [Fact]
+        public void StopVfx_ColdLoad_StopBeforeLoadCompletes_NeverEmits()
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = true };
+            var vfx = new VfxPlayer(renderer, new StubCamera(), VfxCatalog(), resourceLoader: loader);
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var entityId = new Id("unit.dummy");
+            var sink = BuildEntitySink(vfx, sfx, entityId);
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, entityId, null);
+
+            sink.PlayVfx(WorldVfx, spec);
+            Assert.True(sink.HasPendingPlayback);
+
+            sink.StopVfx(WorldVfx, spec);
+            Assert.False(sink.HasPendingPlayback);
+
+            loader.CompletePending(new Id("res.spark"));
+
+            Assert.Empty(renderer.EmittedParticles);
+        }
+
+        /// <summary>不变量：冷路径（stop 在加载完成前/后）与热路径（资源已就绪）的最终状态一致。</summary>
+        [Theory]
+        [InlineData("hot")]
+        [InlineData("cold_stop_before_load")]
+        [InlineData("cold_stop_after_load")]
+        public void StopVfx_FinalStateIdenticalAcrossHotAndColdPaths(string path)
+        {
+            var renderer = new StubRenderer2D();
+            var loader = new StubResourceLoader { DeferCallbacks = path != "hot" };
+            loader.Register(new Id("res.spark"));
+            if (path == "hot")
+            {
+                loader.LoadAsync(new Id("res.spark"), ResourceKind.Effect, (_, __) => { });
+            }
+            var vfx = new VfxPlayer(renderer, new StubCamera(), VfxCatalog(), resourceLoader: loader);
+            var sfx = new SfxPlayer(new StubAudio(), new RngHost(1), SfxCatalog());
+            var entityId = new Id("unit.dummy");
+            var sink = BuildEntitySink(vfx, sfx, entityId);
+            var spec = FeedbackAttachSpec.ForEntity(FeedbackAttachTarget.Source, entityId, null);
+
+            sink.PlayVfx(WorldVfx, spec);
+
+            switch (path)
+            {
+                case "hot":
+                    sink.StopVfx(WorldVfx, spec);
+                    break;
+                case "cold_stop_before_load":
+                    sink.StopVfx(WorldVfx, spec);
+                    loader.CompletePending(new Id("res.spark"));
+                    break;
+                default:
+                    loader.CompletePending(new Id("res.spark"));
+                    sink.StopVfx(WorldVfx, spec);
+                    break;
+            }
+
+            Assert.Equal(0, AliveParticleCount(renderer));
+            Assert.False(sink.HasPendingPlayback);
+        }
+
+        // ------------------------------------------------------------------
         // ADR-0089：play_sfx(attach) 循环音效按 (sfx_id, 附着实体) 定位，stop_sfx 停止。
         // ------------------------------------------------------------------
 

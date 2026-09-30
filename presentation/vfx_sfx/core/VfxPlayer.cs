@@ -65,6 +65,10 @@ namespace Presentation.VfxSfx.Core
             /// Spawn 调用是否其实可以同步返回一个真实句柄"，不必总是返回 null（否则纯同步的测试/
             /// 引擎场景会出现"资源明明已经播放了，调用方却拿到 null 句柄"的体验倒退）。</summary>
             public ParticleHandle? Handle;
+
+            /// <summary>ADR-0121 决策 1（D1）：排队期间交给调用方的占位句柄（见
+            /// <see cref="_pendingByPlaceholder"/> 判断记录），<see cref="Stop"/> 凭它取消排队。</summary>
+            public ParticleHandle Placeholder;
         }
 
         private readonly List<PendingSpawn> _pendingSpawns = new List<PendingSpawn>();
@@ -87,6 +91,26 @@ namespace Presentation.VfxSfx.Core
         /// <see cref="_pool"/> 摘除记录（<see cref="VfxPool.Untrack"/> 需要遍历全部分类，这里
         /// 反向索引一份避免每次 Stop 都线性扫描全部池）。</summary>
         private readonly Dictionary<ParticleHandle, string> _handleCategory = new Dictionary<ParticleHandle, string>();
+
+        /// <summary>ADR-0121 决策 1（D1）：冷加载（资源未就绪）时 <see cref="Spawn"/> 也要返回可用句柄，
+        /// 与热路径一致；此时真实 <see cref="ParticleHandle"/> 尚不存在（<c>EmitParticle</c> 推迟到
+        /// <see cref="OnResourceLoadCompleted"/>），因此排队时分配一个占位句柄交给调用方，占位值取
+        /// <c>int.MinValue</c> 起递增的区间——与后端 <see cref="IRenderer2D.EmitParticle"/> 分配的正值句柄、
+        /// 以及 socket 真挂接合成句柄（<see cref="TrySpawnAttachedToSocket"/>，从 -1 起向下的小负值）
+        /// 都不重叠。占位句柄 → 仍在排队的请求；<see cref="Stop"/> 凭它取消排队（资源到达后不再补发）。
+        /// 请求离队（加载完成/失败/超时/被取消）时同步摘除本表条目。</summary>
+        private readonly Dictionary<ParticleHandle, PendingSpawn> _pendingByPlaceholder = new Dictionary<ParticleHandle, PendingSpawn>();
+
+        /// <summary>ADR-0121 决策 1（D1）：排队请求加载成功、真正 <c>EmitParticle</c> 之后，占位句柄 →
+        /// 真实句柄的映射，使调用方手里的占位句柄在粒子补发后依然能 <see cref="Stop"/> 到那个粒子。
+        /// 真实句柄结束（<see cref="StopInternal"/>，含自然到期回收）时同步摘除，不残留。</summary>
+        private readonly Dictionary<ParticleHandle, ParticleHandle> _realByPlaceholder = new Dictionary<ParticleHandle, ParticleHandle>();
+
+        /// <summary><see cref="_realByPlaceholder"/> 的反向索引（真实句柄 → 占位句柄），供
+        /// <see cref="StopInternal"/> 摘除映射。</summary>
+        private readonly Dictionary<ParticleHandle, ParticleHandle> _placeholderByReal = new Dictionary<ParticleHandle, ParticleHandle>();
+
+        private int _nextPlaceholder = int.MinValue;
 
         /// <summary>缺口 13：socket 真挂接产生的合成 <see cref="ParticleHandle"/>（见
         /// <see cref="TrySpawnAttachedToSocket"/> 判断记录）→ 对应的子 <see cref="ModelHandle"/>，
@@ -283,8 +307,10 @@ namespace Presentation.VfxSfx.Core
                 TimeoutRemaining = _options.FirstLoadTimeoutSeconds,
                 Follow = follow,
                 BlendMode = blendMode,
+                Placeholder = new ParticleHandle(_nextPlaceholder++),
             };
             _pendingSpawns.Add(pending);
+            _pendingByPlaceholder[pending.Placeholder] = pending;
 
             if (_pendingResourceLoads.Add(def.ResourceRef))
             {
@@ -292,9 +318,20 @@ namespace Presentation.VfxSfx.Core
             }
 
             // 见 PendingSpawn.Handle 判断记录：同步加载器场景下，上面的 LoadAsync 调用可能已经在
-            // 调用栈内把 pending 从 _pendingSpawns 摘除并写好了 Handle；异步场景下 pending 仍在
-            // 队列里、Handle 仍是 null，原样返回 null。
-            return pending.Handle;
+            // 调用栈内把 pending 从 _pendingSpawns 摘除并写好了 Handle——此时与热路径完全一致，直接
+            // 返回真实句柄，占位句柄的映射也不需要保留。
+            if (pending.Handle.HasValue)
+            {
+                if (_placeholderByReal.Remove(pending.Handle.Value))
+                {
+                    _realByPlaceholder.Remove(pending.Placeholder);
+                }
+                return pending.Handle;
+            }
+
+            // ADR-0121 决策 1（D1）：仍在排队（异步加载器）——返回占位句柄，调用方可凭它 Stop 取消排队。
+            // 同步回调但加载失败/已被丢弃（请求已离队且没有 Handle）时不再有东西可停，保持返回 null。
+            return _pendingByPlaceholder.ContainsKey(pending.Placeholder) ? pending.Placeholder : (ParticleHandle?)null;
         }
 
         private void OnResourceLoadCompleted(Id resourceId, bool success)
@@ -310,6 +347,7 @@ namespace Presentation.VfxSfx.Core
                 }
 
                 _pendingSpawns.RemoveAt(i);
+                _pendingByPlaceholder.Remove(pending.Placeholder);
                 removedAny = true;
 
                 if (!success)
@@ -322,6 +360,11 @@ namespace Presentation.VfxSfx.Core
                 _handleCategory[handle] = pending.Category;
                 _pool.Track(pending.Category, handle, pending.Lifetime);
                 RegisterFollow(handle, pending.Follow);
+
+                // ADR-0121 决策 1（D1）：调用方手里是占位句柄，补发之后把它映射到真实句柄，使
+                // Stop(占位句柄) 仍能停到这个粒子。
+                _realByPlaceholder[pending.Placeholder] = handle;
+                _placeholderByReal[handle] = pending.Placeholder;
                 pending.Handle = handle; // 见 PendingSpawn.Handle 判断记录：供同步加载器场景下 QueuePendingSpawn 取回。
             }
 
@@ -382,8 +425,26 @@ namespace Presentation.VfxSfx.Core
             return particleHandle;
         }
 
+        /// <summary>ADR-0121 决策 1（D1）：<paramref name="handle"/> 可能是 <see cref="Spawn"/> 冷加载时返回
+        /// 的占位句柄——仍在排队则取消排队（资源到达后不再补发，并触发
+        /// <see cref="PendingSpawnCountChanged"/> 让外部重新检查是否已播完）；已补发则解析为真实句柄
+        /// 后停止；请求已因加载失败/超时/被取消而离队，或本就不存在的句柄安全忽略（<see cref="IVfxPlayer.Stop"/>
+        /// 契约）。</summary>
         public void Stop(ParticleHandle handle)
         {
+            if (_pendingByPlaceholder.TryGetValue(handle, out var pending))
+            {
+                _pendingByPlaceholder.Remove(handle);
+                _pendingSpawns.Remove(pending);
+                PendingSpawnCountChanged?.Invoke();
+                return;
+            }
+
+            if (_realByPlaceholder.TryGetValue(handle, out var real))
+            {
+                handle = real; // StopInternal 会一并摘除占位映射。
+            }
+
             _pool.Untrack(handle);
             StopInternal(handle);
         }
@@ -424,6 +485,7 @@ namespace Presentation.VfxSfx.Core
                 if (pending.TimeoutRemaining <= 0)
                 {
                     _pendingSpawns.RemoveAt(i);
+                    _pendingByPlaceholder.Remove(pending.Placeholder);
                     timedOutAny = true;
                     _diagnostics.Warn(
                         $"vfx \"{pending.VfxId}\" 等待资源 \"{pending.ResourceRef}\" 加载超时" +
@@ -520,6 +582,11 @@ namespace Presentation.VfxSfx.Core
         {
             var wasAlive = _handleCategory.Remove(handle);
             _followTargets.Remove(handle);
+            if (_placeholderByReal.TryGetValue(handle, out var placeholder))
+            {
+                _placeholderByReal.Remove(handle);
+                _realByPlaceholder.Remove(placeholder);
+            }
 
             if (_socketModelHandles.TryGetValue(handle, out var modelHandle))
             {

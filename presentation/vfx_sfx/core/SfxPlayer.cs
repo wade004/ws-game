@@ -60,7 +60,7 @@ namespace Presentation.VfxSfx.Core
 
         /// <summary>缺陷修复（2026-09-26）：<see cref="_activeByAttachKey"/> 的反向索引，句柄 →
         /// 该句柄对应的 attach 键。任何路径停止一个被跟踪的句柄（<see cref="Stop(SfxHandle)"/>、
-        /// <see cref="MakeRoomIfNeeded"/> 同层抢占）都必须经它摘掉 <see cref="_activeByAttachKey"/>
+        /// <see cref="TryMakeRoom"/> 同层抢占）都必须经它摘掉 <see cref="_activeByAttachKey"/>
         /// 对应条目，否则 <see cref="PlayAttached"/> 的"同键幂等"会在句柄已经停止播放之后仍然返回这个
         /// 死句柄，调用方以为循环音效还在播。只有升级为 <see cref="AttachEntry.Handle"/> 态的条目才会
         /// 出现在这里；<see cref="AttachEntry.Pending"/> 态没有句柄，不登记。</summary>
@@ -99,7 +99,11 @@ namespace Presentation.VfxSfx.Core
             public string Layer = string.Empty;
             public int Priority;
             public Vec2? At;
-            public DateTime Deadline;
+
+            /// <summary>ADR-0121 决策 2（D2）：截止时刻，单位与 <see cref="_clockSeconds"/> 相同（排队那一刻的
+            /// 表现时钟读数 + <see cref="SfxOptions.FirstLoadTimeoutSeconds"/>）；表现时钟 &gt;= 本值即视为超时。
+            /// 与 <c>VfxPlayer</c> 的 dt 累计倒计时同一口径，不读系统时间。</summary>
+            public double Deadline;
 
             /// <summary>ADR-0089 新增：排队等待首次加载完成时一并记下这次播放请求的循环标志，
             /// <see cref="OnResourceLoadCompleted"/> 真正 <c>IAudio.PlaySfx</c> 时原样传递，同
@@ -212,7 +216,7 @@ namespace Presentation.VfxSfx.Core
             // 只调用 ResourceReferenceTracker.EnsureLoading（fire-and-forget）就立即在同一次调用内
             // IAudio.PlaySfx，首次引用某个资源时播放的是引擎侧尚未就绪的音效资源，落地为"首次施法
             // 命中音效不播放"（外部审核实测复现）。资源尚未加载完成时改为排队等待，不立即播放；
-            // MakeRoomIfNeeded 的"抢占同层名额"这一步同样延后到真正播放时才做（现在就抢占会在
+            // TryMakeRoom 的"抢占同层名额"这一步同样延后到真正播放时才做（现在就抢占会在
             // 加载失败/超时丢弃时白白抢占了名额却什么都没播），只在这里记录已经确定要播放这条请求。
             // ADR-0089：def.Loop 决定本次播放是否按循环方式转发给 IAudio.PlaySfx，见 SfxDef.Loop
             // 判断记录；未登记 sfx（上面已 return）不会走到这里，恒为已知 def。
@@ -230,7 +234,11 @@ namespace Presentation.VfxSfx.Core
             // ——走到这里说明资源已加载完成，_pendingResourceLoads 这一套机制已经统一负责"资源是否
             // 已请求过加载"，不需要也不应该再经由 ResourceReferenceTracker 重复请求一次（两套独立
             // 去重机制互不知道对方，重复调用会触发两次 LoadAsync）。
-            MakeRoomIfNeeded(layer);
+            if (!TryMakeRoom(sfxId, layer, priority))
+            {
+                _playbackDiagnostics.RecordDropped();
+                return null;
+            }
 
             var volume = ResolveVolume(layer);
             var handle = _audio.PlaySfx(resourceRef, volume, pitch: 1.0, position: at, loop: loop);
@@ -257,7 +265,7 @@ namespace Presentation.VfxSfx.Core
                 Layer = layer,
                 Priority = priority,
                 At = at,
-                Deadline = DateTime.UtcNow.AddSeconds(_options.FirstLoadTimeoutSeconds),
+                Deadline = _clockSeconds + _options.FirstLoadTimeoutSeconds,
                 Loop = loop,
                 AttachEntityId = attachEntityId,
             };
@@ -314,7 +322,15 @@ namespace Presentation.VfxSfx.Core
                     continue;
                 }
 
-                MakeRoomIfNeeded(pending.Layer);
+                // ADR-0121 决策 3（D3）：冷加载补播放与热路径同一规则——层满且新来者优先级严格低于全部
+                // 在播实例时拒绝（TryMakeRoom 已记诊断），与加载失败/超时同样计入丢弃并摘掉 attach 键。
+                if (!TryMakeRoom(pending.SfxId, pending.Layer, pending.Priority))
+                {
+                    _playbackDiagnostics.RecordDropped();
+                    UnregisterAttachIfStillPending(pending);
+                    continue;
+                }
+
                 var volume = ResolveVolume(pending.Layer);
                 var handle = _audio.PlaySfx(pending.ResourceRef, volume, pitch: 1.0, position: pending.At, loop: pending.Loop);
 
@@ -352,7 +368,8 @@ namespace Presentation.VfxSfx.Core
         /// 方法（09 原文未定义，不新增契约方法，见 <c>SfxOptions.FirstLoadTimeoutSeconds</c> 判断
         /// 记录），超时清理改为在下一次任意 <see cref="Play"/> 调用开头惰性扫一遍——正常游戏循环里
         /// <see cref="Play"/> 会被频繁调用（每次音效触发都会经过），足以在合理时间内发现并清理
-        /// 真正卡死不回调的排队项，不需要专门的逐帧驱动。</summary>
+        /// 真正卡死不回调的排队项，不需要专门的逐帧驱动。ADR-0121 决策 2：超时判定按 <see cref="Update"/>
+        /// 累计的表现时钟（<see cref="_clockSeconds"/>）而非墙钟，本方法本身不推进时间。</summary>
         private void SweepTimedOutPendingPlays()
         {
             if (_pendingPlays.Count == 0)
@@ -360,12 +377,11 @@ namespace Presentation.VfxSfx.Core
                 return;
             }
 
-            var now = DateTime.UtcNow;
             var removedAny = false;
             for (var i = _pendingPlays.Count - 1; i >= 0; i--)
             {
                 var pending = _pendingPlays[i];
-                if (now >= pending.Deadline)
+                if (_clockSeconds >= pending.Deadline)
                 {
                     _pendingPlays.RemoveAt(i);
                     removedAny = true;
@@ -400,8 +416,9 @@ namespace Presentation.VfxSfx.Core
         /// cref="Play"/> 调用，直接复用既有的 <see cref="SweepTimedOutPendingPlays"/>（内部已经在
         /// 真正摘除任何一项时触发 <see cref="PendingPlayCountChanged"/>），供引擎侧逐帧驱动。
         /// ADR-0105：另把 <paramref name="dt"/>（非负、非 NaN 才计入）累加进 <see cref="_clockSeconds"/>，
-        /// 供一次性音效按 <see cref="SfxOptions.OneShotLayerSlotHoldSeconds"/> 释放层名额；首次加载
-        /// 超时判定仍按原截止时间戳，不受本时钟影响。</summary>
+        /// 供一次性音效按 <see cref="SfxOptions.OneShotLayerSlotHoldSeconds"/> 释放层名额，同一时钟也是
+        /// 首次加载超时（<see cref="SfxOptions.FirstLoadTimeoutSeconds"/>）的唯一计时来源（ADR-0121 决策 2）：
+        /// 只有 <see cref="Update"/> 推进时间，<see cref="Play"/> 开头的惰性扫描只按当前时钟判断，不推进时间。</summary>
         public void Update(double dt)
         {
             if (dt > 0.0 && !double.IsInfinity(dt))
@@ -411,7 +428,7 @@ namespace Presentation.VfxSfx.Core
 
             SweepTimedOutPendingPlays();
 
-            // ADR-0105：逐帧也按引擎回报/保留时长释放已播完的一次性音效记账，与 MakeRoomIfNeeded 计数
+            // ADR-0105：逐帧也按引擎回报/保留时长释放已播完的一次性音效记账，与 TryMakeRoom 计数
             // 前的释放共用同一出口（ReleaseFinishedOneShots）。遍历顺序不影响结果（只摘记账，不产生
             // 任何对外调用或可观测的先后次序）。
             foreach (var list in _activeByLayer.Values)
@@ -429,7 +446,7 @@ namespace Presentation.VfxSfx.Core
             }
 
             // 缺陷修复（2026-09-26）：见 _attachKeyByHandle 判断记录——任何路径停止一个被跟踪的句柄
-            // 都要经这里摘掉 attach 键，不止 StopAttached 一条路径（同层抢占见 MakeRoomIfNeeded）。
+            // 都要经这里摘掉 attach 键，不止 StopAttached 一条路径（同层抢占见 TryMakeRoom）。
             UnregisterAttachKeyForHandle(handle);
 
             _audio.StopSfx(handle);
@@ -569,12 +586,18 @@ namespace Presentation.VfxSfx.Core
             return _layerVolume.TryGetValue(layer, out var v) ? v : 1.0;
         }
 
-        private void MakeRoomIfNeeded(string layer)
+        /// <summary>同层并发名额裁决（ADR-0121 决策 3，D3）。有空位直接放行；层满时比较新来者与在播实例：
+        /// 新来者优先级<b>严格低于</b>全部在播实例（即低于在播最低优先级）则拒绝——不播、不动在播集合、
+        /// 记一条诊断、返回 false，由调用方按丢弃处理（返回空句柄、计入 <c>PlayDroppedCount</c>）；
+        /// 相等或更高则淘汰"最低优先级中最老"的实例（既有行为不变）并放行。理由：低优先级新音顶掉
+        /// 高优先级旧音不符合"优先级"本义。未声明 priority 按 <see cref="int.MinValue"/> 处理，
+        /// 因此对已声明者总是被拒绝，与同为未声明者相等（淘汰最老）。</summary>
+        private bool TryMakeRoom(Id sfxId, string layer, int priority)
         {
             var max = _options.MaxConcurrentPerLayer.TryGetValue(layer, out var m) ? m : _options.DefaultMaxConcurrent;
             if (max <= 0)
             {
-                return;
+                return true;
             }
 
             var list = GetOrCreateLayerList(layer);
@@ -587,7 +610,7 @@ namespace Presentation.VfxSfx.Core
 
             if (list.Count < max)
             {
-                return;
+                return true;
             }
 
             var victimIndex = 0;
@@ -603,6 +626,14 @@ namespace Presentation.VfxSfx.Core
                 }
             }
 
+            if (priority < victim.Priority)
+            {
+                _diagnostics.Warn(
+                    $"sfx \"{sfxId}\"（层 \"{layer}\"，优先级 {priority}）：该层并发已满且在播实例优先级均更高" +
+                    $"（最低 {victim.Priority}），拒绝播放这次请求，在播实例保持不变");
+                return false;
+            }
+
             list.RemoveAt(victimIndex);
             _byHandle.Remove(victim.Handle);
             // 缺陷修复（2026-09-26）：同层抢占停止的也可能是一个被 attach 跟踪的循环音效实例，同
@@ -610,9 +641,10 @@ namespace Presentation.VfxSfx.Core
             // 已经停止播放的死句柄。
             UnregisterAttachKeyForHandle(victim.Handle);
             _audio.StopSfx(victim.Handle);
+            return true;
         }
 
-        /// <summary>ADR-0105：<see cref="Update"/> 与 <see cref="MakeRoomIfNeeded"/> 共用的唯一释放出口。
+        /// <summary>ADR-0105：<see cref="Update"/> 与 <see cref="TryMakeRoom"/> 共用的唯一释放出口。
         /// 对每条非循环记账先问 <see cref="IAudio.IsSfxPlaying"/>（引擎真实回报）：<c>false</c> 立即释放；
         /// <c>true</c> 保留（即便已超过保留时长——真实回报优先于推定）；<c>null</c>（后端不支持回报）才
         /// 退回 <see cref="SfxOptions.OneShotLayerSlotHoldSeconds"/> 保留时长推定（见该属性判断记录）。
