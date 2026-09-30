@@ -19,8 +19,11 @@ Added 差异因此在 31/31 全 PASS 下潜伏 4 天、跨两次发布才被复�
 3. 真实联动：用真实 ``SimRunner.dll`` 的标准输出喂函数——零差异放行；把基线里删一行统计量（simrunner
    自身仍退出 0）后函数必须拦截。这一条钉住"simrunner 摘要行格式"与"门禁正则"两端的真实契约。
 
+4. 接线静态检查：门禁线脚本确实 dot-source 了本文件并调用该函数（防止以后又把判定内联回去、
+   函数变成无人调用的死代码）。
+
 跨平台说明：1～3 依赖 ``powershell`` / ``pwsh`` 可执行，本机没有时 skip（与仓库其余 .ps1 相关测试
-约定一致）；3 另需 dotnet。
+约定一致）；3 另需 dotnet；4 是纯文本断言，任何平台都跑。
 """
 
 from __future__ import annotations
@@ -192,3 +195,16 @@ def test_real_simrunner_output_zero_diff_passes_and_missing_stat_blocks(tmp_path
     v = _run_verdict(ps_exe, tmp_path, drifted.stdout.splitlines())
     assert v["blocked"] is True and v["reason"] == "added"
     assert v["added"] == "sim.scenario.sim_coverage_all(+1)"
+
+
+# ---------------------------------------------------------------- 接线静态检查
+
+
+def test_gate_line_dot_sources_guard_and_calls_the_function():
+    text = GATE_SCRIPT.read_text(encoding="utf-8-sig")
+    assert re.search(r'^\s*\.\s+\(Join-Path \$RepoRoot "toolchain\\_sim_added_guard\.ps1"\)\s*$', text, re.M), (
+        "门禁线脚本必须 dot-source toolchain\\_sim_added_guard.ps1"
+    )
+    assert "Get-SimRunnerAddedVerdict -OutputLines" in text, "门禁线脚本必须调用 Get-SimRunnerAddedVerdict"
+    # 不许再把 added 正则内联回门禁线脚本（判定只有函数一份）。
+    assert "added=(\\d+)" not in text, "added=(\\d+) 正则应只存在于 _sim_added_guard.ps1"

@@ -61,6 +61,7 @@ $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } e
 
 . (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
 . (Join-Path $RepoRoot "toolchain\_gate_test_floors.ps1")
+. (Join-Path $RepoRoot "toolchain\_sim_added_guard.ps1")
 
 try {
     # 判断记录：故意不经过 Invoke-CheckStep（不受 -DocsOnly/-FailFast/-Quick 任何一个开关的短路
@@ -325,14 +326,22 @@ try {
                 return [PSCustomObject]@{ Ok = $false; Detail = "toolchain/simrunner 退出码=$simExitCode（0=全部场景无 Exceeded/Removed，1=存在 Exceeded/Removed，2=参数/数据装载错误，3=基线文件缺失；见上方场景摘要/RESULT 行与 diff 全文）" }
             }
 
-            $addedScenarios = @()
-            foreach ($line in $simOutputLines) {
-                if ($line -match '^scenario=(\S+)\s+kind=\S+\s+stats=\d+\s+exceeded=\d+\s+added=(\d+)\s+removed=\d+\s+result=') {
-                    $addedCount = [int]$Matches[2]
-                    if ($addedCount -gt 0) {
-                        $addedScenarios += [PSCustomObject]@{ Id = $Matches[1]; Count = $addedCount }
-                    }
+            # 判断记录：Added 拦截判定抽成 toolchain/_sim_added_guard.ps1 的 Get-SimRunnerAddedVerdict
+            # （正则与此前内联版逐字相同），由 toolchain/tests/test_gate_sim_added_guard.py 直接验证。
+            # 与内联版唯一的行为差异是有意收紧：simrunner 退出码 0 时必然已打印至少一行场景摘要，
+            # 若一行都解析不出来（或出现以 scenario= 开头却匹配不上的行），说明摘要行格式被改动、
+            # 原正则悄悄失配，此时不能当作"没有 Added"放行。
+            $addedVerdict = Get-SimRunnerAddedVerdict -OutputLines ([string[]]@($simOutputLines | ForEach-Object { "$_" }))
+            $addedScenarios = @($addedVerdict.AddedScenarios)
+
+            if ($addedVerdict.Reason -in @("no_summary_line", "malformed_summary_line")) {
+                $driftDetail = if ($addedVerdict.Reason -eq "no_summary_line") {
+                    "simrunner 退出码=0 却没有输出任何场景摘要行"
+                } else {
+                    "simrunner 输出里有 $(@($addedVerdict.MalformedLines).Count) 行以 scenario= 开头却不符合场景摘要行格式：" +
+                    ((@($addedVerdict.MalformedLines) | Select-Object -First 3) -join " | ")
                 }
+                return [PSCustomObject]@{ Ok = $false; Detail = "数值仿真基线比对：$driftDetail——无法确认 added=<n> 是否为 0。通常是 toolchain/simrunner/Program.cs 的场景摘要行格式被改动而本门禁的解析（toolchain/_sim_added_guard.ps1）没有同步；先对齐两端格式，不要直接放行。" }
             }
 
             if ($addedScenarios.Count -gt 0) {
