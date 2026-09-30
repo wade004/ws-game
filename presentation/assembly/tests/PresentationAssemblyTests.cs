@@ -273,9 +273,12 @@ namespace Tests.Presentation.Assembly
         private static PresentationAssembly Build(
             out GameplayAssembly gameplay, out WorldSim world, out StubEngine engine, out IEventBus bus,
             PresentationAssemblyOptions? options = null, IViewFactory? viewFactory = null,
-            bool withResourceLoader = false, System.Action<InMemoryDataSource>? extraTables = null)
+            bool withResourceLoader = false, System.Action<InMemoryDataSource>? extraTables = null,
+            IEventBus? busOverride = null, IHitFrameSource? hitFrameSource = null, bool discreteTimeModel = false)
         {
-            bus = new EventBus(
+            // busOverride：生产装配接线探针用（装配选项/Dispose 完整性用例），传入包装过的总线以观测订阅；
+            // 默认 null，既有全部调用方行为逐字节不变。
+            bus = busOverride ?? new EventBus(
                 EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
                 new EventBusOptions { StrictCatalog = false });
 
@@ -286,6 +289,17 @@ namespace Tests.Presentation.Assembly
             // 文本键验收）在共享最小数据集之上追加自己需要的表，不必复制一份完整的 Build 流程。
             // 默认 null，既有全部调用方行为逐字节不变。
             extraTables?.Invoke(source);
+            if (discreteTimeModel)
+            {
+                // 探索连续、战斗离散（同 FeedbackQueueMode_AutoSwitchesWithTimeModel_* 用例数据）；配合下面传给
+                // GameplayAssembly 的 clockHost，使 gameplay.TimeModelSwitch 非空、装配根建立自己的三个订阅。
+                source.Add("found.time_model",
+                    "{\"table\": \"found.time_model\", \"schema_version\": 1, \"rows\": [" +
+                    "{\"id\": \"found.time_model.exploration\", \"scope\": \"exploration\", \"mode\": \"continuous\"}," +
+                    "{\"id\": \"found.time_model.combat\", \"scope\": \"combat\", \"mode\": \"discrete\", " +
+                    "\"seconds_per_turn\": 6, \"initiative_policy\": \"fixed_order\", \"movement_budget_rule\": \"distance\"}" +
+                    "]}");
+            }
 
             var registryOptions = PresentationSchemaCatalog.CreateOptions();
             registryOptions.FailOnUnknownTable = false;
@@ -310,7 +324,8 @@ namespace Tests.Presentation.Assembly
             gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => playerId,
-                playerFactionId: playerFaction);
+                playerFactionId: playerFaction,
+                clockHost: discreteTimeModel ? new Core.Foundation.SimLoop.SimClockHost(world) : null);
 
             // 判断记录：见 AddMinimalGameplayTables 类型注释——用 CreatureFactory.Spawn 生成一个
             // 真正经 Stats/Powers/Progression 三处注册的单位当"玩家"，PlayerUnitProvider 闭包捕获
@@ -327,7 +342,8 @@ namespace Tests.Presentation.Assembly
             return new PresentationAssembly(
                 gameplay, world, registry, bus, presentationRng, viewFactory,
                 engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options,
-                resourceLoader: withResourceLoader ? engine.ResourceLoader : null);
+                resourceLoader: withResourceLoader ? engine.ResourceLoader : null,
+                hitFrameSource: hitFrameSource);
         }
 
         [Fact]
