@@ -220,6 +220,8 @@ namespace Core.Numbers.PowerSet
 
         public void ModifyPower(Id unitId, Id powerType, double delta, Id sourceId)
         {
+            // ADR-0125 D17：夹取对 NaN 不生效（比较恒假），非有限 delta 会把当前值写成 NaN，前置拒绝。
+            NumericGuard.RequireFinite(delta, nameof(delta));
             var definition = RequireDefinition(powerType);
             var power = RequirePower(unitId, powerType);
             ApplyDelta(unitId, powerType, definition, power, delta);
@@ -291,6 +293,7 @@ namespace Core.Numbers.PowerSet
 
         public void Advance(Id unitId, double timeUnits)
         {
+            NumericGuard.RequireFinite(timeUnits, nameof(timeUnits)); // ADR-0125 D17
             if (timeUnits < 0)
             {
                 throw new ArgumentException("timeUnits 不能为负数", nameof(timeUnits));
@@ -302,6 +305,7 @@ namespace Core.Numbers.PowerSet
 
         public void AdvanceAll(double timeUnits)
         {
+            NumericGuard.RequireFinite(timeUnits, nameof(timeUnits)); // ADR-0125 D17
             if (timeUnits < 0)
             {
                 throw new ArgumentException("timeUnits 不能为负数", nameof(timeUnits));
@@ -377,6 +381,8 @@ namespace Core.Numbers.PowerSet
 
             if (min.HasValue)
             {
+                // ADR-0125 D17：NaN 会穿过下面两个区间比较（比较恒假）被写成下限覆盖，先拒绝非有限数。
+                NumericGuard.RequireFinite(min.Value, nameof(min));
                 if (min.Value < definition.Min)
                 {
                     throw new ArgumentException(

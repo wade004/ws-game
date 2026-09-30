@@ -24,7 +24,9 @@ namespace Core.Numbers.Faction
         /// <summary>
         /// 运行期覆盖 <c>(from, to)</c> 这一方向的反应（不影响 <c>(to, from)</c>）。改动前后的值
         /// 不同才发 <see cref="FactionRelationChangedEvent"/>。<paramref name="from"/>/
-        /// <paramref name="to"/> 任一是未登记的阵营时抛 <see cref="System.ArgumentException"/>。
+        /// <paramref name="to"/> 任一是未登记的阵营时抛 <see cref="System.ArgumentException"/>；
+        /// <paramref name="from"/> == <paramref name="to"/> 时同样抛 <see cref="System.ArgumentException"/>
+        /// （同阵营反应固定为 <see cref="Reaction.Friendly"/>，不可写，不写入、不发事件；ADR-0125 D18）。
         /// </summary>
         void SetReaction(Id from, Id to, Reaction reaction);
 

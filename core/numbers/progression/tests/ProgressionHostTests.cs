@@ -1012,5 +1012,146 @@ namespace Tests.Numbers.Progression
             Assert.NotNull(xpGained);
             Assert.Equal(1000, xpGained!.Amount); // 不是旧算法的 999×2×2=3996
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0125 D17 / T-H5：非法入参路径
+        // -----------------------------------------------------------------
+
+        public static IEnumerable<object[]> NonFiniteMultipliers => new[]
+        {
+            new object[] { double.NaN },
+            new object[] { double.PositiveInfinity },
+            new object[] { double.NegativeInfinity },
+        };
+
+        private static (ProgressionHost Host, IEventBus Bus, RecordingWriters Writers, InMemoryProgressionDiagnostics Diagnostics, Id Unit)
+            BuildSampleHost(string unitName, int startLevel = 1)
+        {
+            var registry = MakeRegistry(GoodCurveRows, out var bus, registerCurveRule: true);
+            Assert.False(registry.LoadAll().IsBlocking);
+
+            var writers = new RecordingWriters();
+            var diagnostics = new InMemoryProgressionDiagnostics();
+            var host = MakeHost(registry, bus, writers, diagnostics);
+            var unit = new Id(unitName);
+            host.RegisterUnit(unit, new Id("prog.curve.sample"), startLevel);
+            return (host, bus, writers, diagnostics, unit);
+        }
+
+        /// <summary>D17 同类写入口：<c>GrantFromSource</c> 的 <c>multiplier</c> 为 NaN/±Infinity 时抛
+        /// <see cref="ArgumentOutOfRangeException"/>（修复前 <c>(long)Math.Round(NaN)</c> 的结果依赖平台：x64
+        /// 得到 <c>long.MinValue</c> 被下游"经验不能为负"误打误撞拦住，ARM 饱和转换则得到 0 或 <c>long.MaxValue</c>）；
+        /// 等级/经验不变、不发事件。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteMultipliers))]
+        public void GrantFromSource_NonFiniteMultiplier_Throws_NoEvent_StateUnchanged(double bad)
+        {
+            var (host, bus, _, _, unit) = BuildSampleHost("unit.h5_grant_nonfinite");
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 30);
+            var xpBefore = host.GetXp(unit);
+            var levelBefore = host.GetLevel(unit);
+            var gained = new List<XpGainedEvent>();
+            bus.Subscribe<XpGainedEvent>(ProgressionEventKeys.XpGained, e => gained.Add(e));
+
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                host.GrantFromSource(unit, new Id("prog.xp.kill_wolf"), bad));
+            bus.DispatchPending();
+
+            Assert.Empty(gained);
+            Assert.Equal(xpBefore, host.GetXp(unit));
+            Assert.Equal(levelBefore, host.GetLevel(unit));
+        }
+
+        /// <summary>T-H5：<c>AddXp</c> 负数抛 <see cref="ArgumentOutOfRangeException"/>（含 <c>long.MinValue</c>），
+        /// 等级/经验不变、不发 <c>xp_gained</c>、不写成长。</summary>
+        [Theory]
+        [InlineData(-1L)]
+        [InlineData(long.MinValue)]
+        public void AddXp_Negative_Throws_NoEvent_StateUnchanged(long amount)
+        {
+            var (host, bus, writers, _, unit) = BuildSampleHost("unit.h5_addxp_negative");
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 30);
+            var gained = new List<XpGainedEvent>();
+            bus.Subscribe<XpGainedEvent>(ProgressionEventKeys.XpGained, e => gained.Add(e));
+            var writesBefore = writers.WriteCalls.Count;
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.AddXp(unit, new Id("prog.xp.kill_wolf"), amount));
+            bus.DispatchPending();
+
+            Assert.Empty(gained);
+            Assert.Equal(1, host.GetLevel(unit));
+            Assert.Equal(30, host.GetXp(unit));
+            Assert.Equal(writesBefore, writers.WriteCalls.Count);
+        }
+
+        /// <summary>T-H5：<c>GrantXp</c>/<c>GrantFromSource</c> 的负值不抛，而是在舍入处钳为 0 入账
+        /// （<c>RoundXp</c> 文档："负值钳为 0"，与引入曲线来源之前 <c>GrantFromSource</c> 的行为逐位一致）——
+        /// 与 <c>AddXp(负数)</c> 抛异常的契约不同，这里按现行为钉住：等级/经验不变。</summary>
+        [Fact]
+        public void GrantXp_AndGrantFromSource_NegativeResult_IsClampedToZero_NotThrown()
+        {
+            var registry = MakeGrantXpRegistry(out var bus);
+            Assert.False(registry.LoadAll().IsBlocking);
+            var host = MakeHost(registry, bus, new RecordingWriters());
+            var unit = new Id("unit.h5_grant_negative");
+            host.RegisterUnit(unit, new Id("prog.curve.n42"), startLevel: 5);
+            host.AddXp(unit, new Id("prog.xp.quest_n42"), 25);
+
+            // 任务当量为负 -> raw < 0 -> 钳 0。
+            var granted = host.GrantXp(unit, new Id("prog.xp.quest_n42"), new XpContext(sourceLevel: 5, equivalent: -2.0));
+            Assert.Equal(0, granted);
+
+            // 负倍率同理（曲线来源分支）。
+            host.GrantFromSource(unit, new Id("prog.xp.kill_n42"), multiplier: -3.0);
+
+            Assert.Equal(5, host.GetLevel(unit));
+            Assert.Equal(25, host.GetXp(unit));
+        }
+
+        /// <summary>T-H5 / 第 424 行诊断：一次 <c>AddXp</c> 升到满级且还剩残余经验时，残余被丢弃并记一条诊断
+        /// （消息含残余数值），等级 = 满级，经验归 0。期望残余由曲线规则算出：总量 − 逐级门槛之和。</summary>
+        [Fact]
+        public void AddXp_LevelingToMaxLevelWithLeftover_DiscardsResidual_AndWarnsOnce()
+        {
+            var (host, _, _, diagnostics, unit) = BuildSampleHost("unit.h5_residual");
+            var curve = new long[] { 100, 100 }; // GoodCurveRows：1->2、2->3 的门槛
+            long total = 0;
+            foreach (var cost in curve) total += cost;
+            const long extra = 37;
+
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), total + extra);
+
+            Assert.Equal(3, host.GetLevel(unit));
+            Assert.Equal(0, host.GetXp(unit));
+            Assert.Single(diagnostics.Warnings);
+            Assert.Contains(extra.ToString(System.Globalization.CultureInfo.InvariantCulture), diagnostics.Warnings[0]);
+            Assert.Contains("残余经验", diagnostics.Warnings[0]);
+        }
+
+        /// <summary>T-H5 / 第 424 行诊断的反面：升到满级时恰好没有残余（总量 = 逐级门槛之和）则不记诊断。</summary>
+        [Fact]
+        public void AddXp_LevelingToMaxLevelWithNoLeftover_DoesNotWarn()
+        {
+            var (host, _, _, diagnostics, unit) = BuildSampleHost("unit.h5_no_residual");
+
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), 100 + 100);
+
+            Assert.Equal(3, host.GetLevel(unit));
+            Assert.Equal(0, host.GetXp(unit));
+            Assert.Empty(diagnostics.Warnings);
+        }
+
+        /// <summary>T-H5 / long 上界：从零经验起 <c>AddXp(long.MaxValue)</c> 不回绕——升满级、残余丢弃并记诊断。</summary>
+        [Fact]
+        public void AddXp_LongMaxFromZeroXp_LevelsToMaxWithoutWrapping()
+        {
+            var (host, _, _, diagnostics, unit) = BuildSampleHost("unit.h5_long_max");
+
+            host.AddXp(unit, new Id("prog.xp.kill_wolf"), long.MaxValue);
+
+            Assert.Equal(3, host.GetLevel(unit));
+            Assert.Equal(0, host.GetXp(unit));
+            Assert.Single(diagnostics.Warnings);
+        }
     }
 }

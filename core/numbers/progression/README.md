@@ -336,6 +336,18 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
    （配置非 1 的 `ExtraXpMultiplierProvider`，只有真正执行 kill 分支代码路径才会读取它，区分
    "数值恰好相同"与"确实走了这条分支"）。
 
+## ADR-0125 D17：数值写入口拒绝 NaN/±Infinity（2026-10-01，行为收紧）
+
+`GrantFromSource` 的 `multiplier` 为 NaN 或 ±Infinity 时抛 `ArgumentOutOfRangeException`，等级/经验不变、不发
+`progression.xp_gained`。理由：`RoundXp` 里 `(long)Math.Round(NaN/Infinity)` 的 C# 结果依赖平台（x64 得
+`long.MinValue`，恰好被下游"经验增量不能为负"拦住；饱和转换的平台得 0 或 `long.MaxValue`），不满足确定性
+硬约束。`AddXp` 收到负数仍抛 `ArgumentOutOfRangeException`（既有契约）；`GrantXp`/`GrantFromSource` 的
+负结果仍在 `RoundXp` 钳为 0（既有行为，测试钉住）。复现/守护用例
+`ProgressionHostTests.GrantFromSource_NonFiniteMultiplier_*`。
+
+依据 [ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) D17；共用校验是
+`core/numbers/NumericGuard.cs`（`internal`，不进公开 API）。不改任何公开签名。
+
 ## 不负责什么
 
 - 不实现"经验来源的触发条件"求值（`prog.xp_source.condition` 是 Expr 字段，本模块只登记类型）。

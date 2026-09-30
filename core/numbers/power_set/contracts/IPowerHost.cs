@@ -71,6 +71,9 @@ namespace Core.Numbers.PowerSet
         /// 一次，见 06 第 2.2 节"事件"）。<paramref name="sourceId"/> 供调用方标记本次修改的
         /// 来源（如触发本次消耗的技能 id），事件本身按 06 原文只携带
         /// <c>{unitId, powerType, oldValue, newValue}</c>，不下发 sourceId。
+        /// <paramref name="delta"/> 为 NaN 或 ±Infinity 时抛 <see cref="System.ArgumentOutOfRangeException"/>，
+        /// 不发事件、状态不变（ADR-0125 D17；<see cref="Advance"/>/<see cref="AdvanceAll"/> 的时长、
+        /// <see cref="SetMinOverride"/> 的覆盖值同理）。
         /// </summary>
         void ModifyPower(Id unitId, Id powerType, double delta, Id sourceId);
 

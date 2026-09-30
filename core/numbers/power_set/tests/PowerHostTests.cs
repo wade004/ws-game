@@ -634,7 +634,7 @@ namespace Tests.Numbers.PowerSet
         public void UnregisterUnit_ThenRegisterAgain_Succeeds()
         {
             // UnregisterUnit 应真正从内部索引移除该单位，允许之后用同一个 id 重新 RegisterUnit
-            // （RegisterUnit 对已注册单位会抛异常，见 RegisterUnit_DuplicateUnit_Throws 一类既有用例）。
+            // （RegisterUnit 对已注册单位会抛异常，见本文件 RegisterUnit_DuplicateUnit_Throws 用例）。
             var bus = PowerTestSupport.CreateBus();
             var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false, min: 0);
             var host = new PowerHost(new[] { rage }, bus);
@@ -822,6 +822,187 @@ namespace Tests.Numbers.PowerSet
             host.Advance(Hero, 2.0); // 脱战 regen 3/秒 × 2 秒 = +6
 
             Assert.Equal(11, host.GetPower(Hero, Rage));
+        }
+
+        // -----------------------------------------------------------------
+        // ADR-0125 D17 / T-H5：非法入参路径
+        // -----------------------------------------------------------------
+
+        /// <summary>非有限数三取值（NaN、+Infinity、-Infinity），供 D17 各写入口共用。</summary>
+        public static IEnumerable<object[]> NonFiniteValues => new[]
+        {
+            new object[] { double.NaN },
+            new object[] { double.PositiveInfinity },
+            new object[] { double.NegativeInfinity },
+        };
+
+        /// <summary>D17 复现/守护：修复前 <c>ModifyPower(NaN)</c> 会把当前值写成 NaN 并发 <c>power.changed</c>
+        /// （夹取对 NaN 不生效）。修复后抛 <see cref="ArgumentOutOfRangeException"/>，不发事件，当前值不变。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void ModifyPower_NonFiniteDelta_Throws_NoEvent_StateUnchanged(double bad)
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+            host.ModifyPower(Hero, Rage, 30, ModifySource);
+            bus.DispatchPending();
+
+            var changed = new List<PowerChangedEvent>();
+            var depleted = new List<PowerDepletedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+            bus.Subscribe<PowerDepletedEvent>(PowerEventKeys.Depleted, e => depleted.Add(e));
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.ModifyPower(Hero, Rage, bad, ModifySource));
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.ModifyPower(Hero, Rage, bad, ModifySource));
+            bus.DispatchPending();
+
+            Assert.Empty(changed);
+            Assert.Empty(depleted);
+            Assert.Equal(30, host.GetPower(Hero, Rage));
+        }
+
+        /// <summary>D17 同类写入口：<c>Advance</c>/<c>AdvanceAll</c> 的时长非有限时抛出（修复前 NaN 会经
+        /// <c>regenRate * NaN</c> 把当前值写成 NaN），状态不变、不发事件。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void Advance_AndAdvanceAll_NonFiniteDuration_Throws_StateUnchanged(double bad)
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100, startFull: false, regenOutOfCombat: 2);
+            var host = new PowerHost(new[] { mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+            host.Advance(Hero, 5); // 由规则：regen 2 * 5
+            bus.DispatchPending();
+            var expected = 2.0 * 5.0;
+            Assert.Equal(expected, host.GetPower(Hero, Mana));
+
+            var changed = new List<PowerChangedEvent>();
+            bus.Subscribe<PowerChangedEvent>(PowerEventKeys.Changed, e => changed.Add(e));
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.Advance(Hero, bad));
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.AdvanceAll(bad));
+            bus.DispatchPending();
+
+            Assert.Empty(changed);
+            Assert.Equal(expected, host.GetPower(Hero, Mana));
+        }
+
+        /// <summary>D17 同类写入口：<c>SetMinOverride</c> 的下限覆盖值为 NaN/±Infinity 时抛
+        /// <see cref="ArgumentOutOfRangeException"/>（修复前 NaN 通过区间比较校验，写成 NaN 下限）；
+        /// 已有的覆盖与当前值不变。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void SetMinOverride_NonFinite_Throws_StateUnchanged(double bad)
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100, startFull: false);
+            var host = new PowerHost(new[] { rage }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.rage"));
+            host.SetMinOverride(Hero, Rage, 5); // 当前值 0 -> 夹到 5
+            Assert.Equal(5, host.GetPower(Hero, Rage));
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.SetMinOverride(Hero, Rage, bad));
+
+            // 覆盖仍为 5：继续向下打到下限，停在 5。
+            host.ModifyPower(Hero, Rage, -1000, ModifySource);
+            Assert.Equal(5, host.GetPower(Hero, Rage));
+        }
+
+        /// <summary>D17 同类写入口：<see cref="RegenModifier"/> 构造期对非有限的 multiplier/add 抛
+        /// <see cref="ArgumentOutOfRangeException"/>（修复前 NaN 通过 <c>multiplier &lt; 0</c> 校验）。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void RegenModifier_NonFiniteMultiplierOrAdd_Throws(double bad)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => new RegenModifier(RegenScope.Both, multiplier: bad));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new RegenModifier(RegenScope.Both, add: bad));
+        }
+
+        /// <summary>T-H5：同一单位重复 <c>RegisterUnit</c> 抛 <see cref="InvalidOperationException"/>，
+        /// 已有状态不被重置，<c>AdvanceAll</c> 也不会把该单位推进两次（<c>_unitOrder</c> 未被重复追加）。
+        /// （<see cref="UnregisterUnit_ThenRegisterAgain_Succeeds"/> 注释引用本用例。）</summary>
+        [Fact]
+        public void RegisterUnit_DuplicateUnit_Throws()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100, startFull: false, regenOutOfCombat: 2);
+            var host = new PowerHost(new[] { mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+            host.ModifyPower(Hero, Mana, 10, ModifySource);
+
+            Assert.Throws<InvalidOperationException>(() =>
+                host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana")));
+
+            Assert.Equal(10, host.GetPower(Hero, Mana)); // 没有被重置回 min
+            host.AdvanceAll(3);
+            Assert.Equal(10 + 2.0 * 3, host.GetPower(Hero, Mana)); // 只推进一次
+        }
+
+        /// <summary>T-H5：<c>RegisterUnit</c> 的 <c>powerTypes</c> 参数校验——null 抛
+        /// <see cref="ArgumentNullException"/>；空列表、同一次调用内重复的资源类型抛
+        /// <see cref="ArgumentException"/>；失败后单位不会留下半注册状态。</summary>
+        [Fact]
+        public void RegisterUnit_InvalidPowerTypeList_Throws_AndLeavesNoResidue()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var rage = PowerTestSupport.FixedType("arch.power.rage", maxValue: 100);
+            var host = new PowerHost(new[] { mana, rage }, bus);
+
+            Assert.Throws<ArgumentNullException>(() => host.RegisterUnit(Hero, null!));
+            Assert.Throws<ArgumentException>(() => host.RegisterUnit(Hero, PowerTestSupport.Ids()));
+            // 重复项出现在列表后部：前面的合法项已经处理过，失败后仍不能留下单位。
+            Assert.Throws<ArgumentException>(() =>
+                host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana", "arch.power.rage", "arch.power.mana")));
+
+            Assert.False(host.IsRegistered(Hero));
+            // 随后用合法列表仍可正常注册（无残留）。
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana", "arch.power.rage"));
+            Assert.Equal(2, host.GetRegisteredPowerTypes(Hero).Count);
+        }
+
+        /// <summary>T-H5：<c>Advance</c>/<c>AdvanceAll</c> 负时长抛 <see cref="ArgumentException"/>，当前值不变；
+        /// 0 时长是合法 no-op。</summary>
+        [Fact]
+        public void Advance_AndAdvanceAll_NegativeDuration_Throws_ZeroIsNoOp()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100, startFull: false, regenOutOfCombat: 2);
+            var host = new PowerHost(new[] { mana }, bus);
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana"));
+            host.Advance(Hero, 4);
+            var expected = 2.0 * 4.0;
+
+            Assert.Throws<ArgumentException>(() => host.Advance(Hero, -0.5));
+            Assert.Throws<ArgumentException>(() => host.AdvanceAll(-0.5));
+            Assert.Equal(expected, host.GetPower(Hero, Mana));
+
+            host.Advance(Hero, 0);
+            host.AdvanceAll(0);
+            Assert.Equal(expected, host.GetPower(Hero, Mana));
+        }
+
+        /// <summary>T-H5：构造期资源类型定义列表校验——集合本身为 null 抛
+        /// <see cref="ArgumentNullException"/>；含 null 元素、同 id 重复定义抛 <see cref="ArgumentException"/>；
+        /// 总线为 null 抛 <see cref="ArgumentNullException"/>；空集合合法（之后注册任何资源类型都因未登记而抛
+        /// <see cref="InvalidOperationException"/>）。</summary>
+        [Fact]
+        public void Constructor_InvalidPowerTypeDefinitions_Throw()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var mana = PowerTestSupport.FixedType("arch.power.mana", maxValue: 100);
+            var manaAgain = PowerTestSupport.FixedType("arch.power.mana", maxValue: 50);
+
+            Assert.Throws<ArgumentNullException>(() => new PowerHost(null!, bus));
+            Assert.Throws<ArgumentException>(() => new PowerHost(new PowerTypeDefinition[] { mana, null! }, bus));
+            Assert.Throws<ArgumentException>(() => new PowerHost(new[] { mana, manaAgain }, bus));
+            Assert.Throws<ArgumentNullException>(() => new PowerHost(new[] { mana }, null!));
+
+            var empty = new PowerHost(Array.Empty<PowerTypeDefinition>(), bus);
+            Assert.Throws<InvalidOperationException>(() =>
+                empty.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.mana")));
         }
     }
 }

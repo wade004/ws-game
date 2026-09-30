@@ -1662,5 +1662,224 @@ namespace Tests.Numbers.StatBlock
             bus.DispatchPending();
             AssertNoStatFiresMoreThanOnce(captured, "RecomputeRatingStats(no rating stats)");
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0125 D17 / T-H5：非法入参路径
+        // -----------------------------------------------------------------
+
+        /// <summary>非有限数三取值（NaN、+Infinity、-Infinity），供 D17 各写入口共用。</summary>
+        public static IEnumerable<object[]> NonFiniteValues => new[]
+        {
+            new object[] { double.NaN },
+            new object[] { double.PositiveInfinity },
+            new object[] { double.NegativeInfinity },
+        };
+
+        /// <summary>D17 复现/守护：修复前 <c>SetBase(NaN)</c> 因 <c>NaN != NaN</c> 每次都发
+        /// <c>stat.changed</c>，且把 NaN 写进基础值。修复后抛 <see cref="ArgumentOutOfRangeException"/>，
+        /// 不发事件，基础值/最终值保持抛出前的有限数。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void SetBase_NonFinite_Throws_NoEvent_StateUnchanged(double bad)
+        {
+            var (host, captured, bus, _) = BuildHost();
+            var unit = new Id("unit.h5_setbase_nonfinite");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatA, 10.0);
+            bus.DispatchPending();
+            captured.Clear();
+
+            // 连续两次：修复前每次都会发事件（NaN != NaN），修复后两次都抛、零事件。
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.SetBase(unit, StatA, bad));
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.SetBase(unit, StatA, bad));
+            bus.DispatchPending();
+
+            Assert.Empty(captured);
+            Assert.Equal(10.0, host.GetBase(unit, StatA));
+            Assert.Equal(10.0, host.GetStat(unit, StatA));
+        }
+
+        /// <summary>D17：<c>AddModifier</c> 的修正值非有限时抛出，三种运算类型各验一次；不入列表、不发事件、
+        /// 最终值不变。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void AddModifier_NonFiniteValue_Throws_NoEvent_StateUnchanged(double bad)
+        {
+            var (host, captured, bus, _) = BuildHost();
+            var unit = new Id("unit.h5_addmod_nonfinite");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatA, 10.0);
+            bus.DispatchPending();
+            captured.Clear();
+
+            foreach (StatModifierOp op in Enum.GetValues(typeof(StatModifierOp)))
+            {
+                var modifier = new StatModifier(StatA, op, bad, new Id("src.h5_bad"));
+                Assert.Throws<ArgumentOutOfRangeException>(() => host.AddModifier(unit, modifier));
+            }
+            bus.DispatchPending();
+
+            Assert.Empty(captured);
+            Assert.Empty(host.GetModifiers(unit, StatA));
+            Assert.Equal(10.0, host.GetStat(unit, StatA));
+        }
+
+        /// <summary>D17 同类写入口：<c>SetDerivationCoefficientOverrides</c> 的系数非有限时整体拒绝（即使
+        /// 同一批里夹带合法项），覆盖表保持抛出前的状态，不发事件。</summary>
+        [Theory]
+        [MemberData(nameof(NonFiniteValues))]
+        public void SetDerivationCoefficientOverrides_NonFiniteCoefficient_Throws_StateUnchanged(double bad)
+        {
+            var (host, captured, bus) = BuildDerivedHost(DerivedStatDefinitionJson);
+            var unit = new Id("unit.h5_override_nonfinite");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatSrcA, 100.0);
+            host.SetBase(unit, StatSrcB, 10.0);
+            host.SetDerivationCoefficientOverrides(unit, new[] { (StatDerivedX, StatSrcA, 5.0) });
+            var expected = host.GetStat(unit, StatDerivedX); // 由规则：100*5 + 10*0.5
+            bus.DispatchPending();
+            captured.Clear();
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => host.SetDerivationCoefficientOverrides(
+                unit, new[] { (StatDerivedX, StatSrcB, 1.0), (StatDerivedX, StatSrcA, bad) }));
+            bus.DispatchPending();
+
+            Assert.Empty(captured);
+            Assert.Equal(100.0 * 5.0 + 10.0 * 0.5, expected, 10);
+            Assert.Equal(expected, host.GetStat(unit, StatDerivedX), 10);
+        }
+
+        /// <summary>T-H5：同一单位重复 <c>RegisterUnit</c> 抛 <see cref="InvalidOperationException"/>，
+        /// 且已有状态不被清空；<c>UnregisterUnit</c> 之后可重新注册。</summary>
+        [Fact]
+        public void RegisterUnit_Duplicate_Throws_AndKeepsExistingState()
+        {
+            var (host, _, _, _) = BuildHost();
+            var unit = new Id("unit.h5_dup_register");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatA, 7.0);
+
+            Assert.Throws<InvalidOperationException>(() => host.RegisterUnit(unit));
+
+            Assert.True(host.IsRegistered(unit));
+            Assert.Equal(7.0, host.GetBase(unit, StatA));
+
+            host.UnregisterUnit(unit);
+            host.RegisterUnit(unit); // 注销后允许重新注册
+            Assert.Equal(0.0, host.GetBase(unit, StatA));
+        }
+
+        /// <summary>T-H5：同一修正实例（同属性、同运算、同值、同来源）连续添加两次 = 叠加两条，不去重、不覆盖；
+        /// 最终值按聚合规则计算，<c>GetModifiers</c> 按添加顺序返回两条。</summary>
+        [Fact]
+        public void AddModifier_SameModifierTwice_StacksAsTwoEntries()
+        {
+            var (host, captured, bus, _) = BuildHost();
+            var unit = new Id("unit.h5_dup_modifier");
+            var source = new Id("src.h5_dup");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatA, 10.0);
+            bus.DispatchPending();
+            captured.Clear();
+
+            const double flat = 4.0;
+            var modifier = new StatModifier(StatA, StatModifierOp.Flat, flat, source);
+            host.AddModifier(unit, modifier);
+            host.AddModifier(unit, modifier);
+            bus.DispatchPending();
+
+            Assert.Equal(2, host.GetModifiers(unit, StatA).Count);
+            Assert.Equal(10.0 + 2 * flat, host.GetStat(unit, StatA), 10);
+            // 每次添加都改变了最终值，各发一次事件：10->14、14->18。
+            Assert.Equal(2, captured.Count);
+            Assert.Equal(10.0 + flat, captured[0].NewValue, 10);
+            Assert.Equal(10.0 + 2 * flat, captured[1].NewValue, 10);
+        }
+
+        /// <summary>T-H5：同一 <c>sourceId</c> 挂在多个属性、同一属性上多条时，<c>RemoveModifiersBySource</c>
+        /// 一次整体撤销该来源名下全部修正，其它来源的修正保留；再撤销一次是无事件的 no-op。</summary>
+        [Fact]
+        public void RemoveModifiersBySource_SameSourceOnManyStatsAndEntries_RemovesAllOfThatSourceOnly()
+        {
+            var (host, captured, bus, _) = BuildHost();
+            var unit = new Id("unit.h5_same_source");
+            var sourceX = new Id("src.h5_x");
+            var sourceY = new Id("src.h5_y");
+            host.RegisterUnit(unit);
+            host.SetBase(unit, StatA, 10.0);
+            host.SetBase(unit, StatB, 20.0);
+
+            host.AddModifier(unit, new StatModifier(StatA, StatModifierOp.Flat, 1.0, sourceX));
+            host.AddModifier(unit, new StatModifier(StatA, StatModifierOp.Flat, 2.0, sourceX));
+            host.AddModifier(unit, new StatModifier(StatA, StatModifierOp.Flat, 100.0, sourceY));
+            host.AddModifier(unit, new StatModifier(StatB, StatModifierOp.Flat, 3.0, sourceX));
+            bus.DispatchPending();
+            captured.Clear();
+
+            host.RemoveModifiersBySource(unit, sourceX);
+            bus.DispatchPending();
+
+            var remainingA = host.GetModifiers(unit, StatA);
+            Assert.Single(remainingA);
+            Assert.Equal(sourceY, remainingA[0].SourceId);
+            Assert.Empty(host.GetModifiers(unit, StatB));
+            Assert.Equal(10.0 + 100.0, host.GetStat(unit, StatA), 10);
+            Assert.Equal(20.0, host.GetStat(unit, StatB), 10);
+            Assert.Equal(2, captured.Count); // A、B 各一次
+
+            captured.Clear();
+            host.RemoveModifiersBySource(unit, sourceX); // 已无该来源：no-op
+            bus.DispatchPending();
+            Assert.Empty(captured);
+        }
+
+        private const string ScopedStatDefinitionJson = @"
+        {
+            ""table"": ""stat.definition"",
+            ""schema_version"": 2,
+            ""rows"": [
+                { ""id"": ""stat.h5_scoped_player"", ""name_key"": ""l10n.h5.a"", ""category"": ""percent"", ""scope"": ""from_player"" },
+                { ""id"": ""stat.h5_scoped_creature"", ""name_key"": ""l10n.h5.b"", ""category"": ""percent"", ""scope"": ""from_creature"" },
+                { ""id"": ""stat.h5_unscoped"", ""name_key"": ""l10n.h5.c"", ""category"": ""percent"" }
+            ]
+        }";
+
+        /// <summary>T-H5：<c>IStatHost.GetScope</c>——登记了 scope 的属性返回登记值；未写 scope 的属性缺省
+        /// <c>"any"</c>；完全未登记的属性同样返回 <c>"any"</c>（不抛，见 <c>GetScope</c> 判断记录）。</summary>
+        [Fact]
+        public void GetScope_ReturnsDeclaredScope_AndAnyForUnscopedOrUnknownStat()
+        {
+            var captured = new List<StatChangedEvent>();
+            var bus = MakeBus(captured);
+            var (registry, report) = BuildRegistry(bus, ScopedStatDefinitionJson, null, new StatDefinitionValidationRule());
+            Assert.False(report.IsBlocking);
+            IStatHost host = new StatHost(registry, bus, new StatHostOptions());
+
+            Assert.Equal("from_player", host.GetScope(new Id("stat.h5_scoped_player")));
+            Assert.Equal("from_creature", host.GetScope(new Id("stat.h5_scoped_creature")));
+            Assert.Equal("any", host.GetScope(new Id("stat.h5_unscoped")));
+            Assert.Equal("any", host.GetScope(new Id("stat.h5_never_defined")));
+        }
+
+        /// <summary><c>IStatHost.GetScope</c> 的默认接口实现（测试假实现不必覆盖）恒返回 <c>"any"</c>。</summary>
+        [Fact]
+        public void GetScope_DefaultInterfaceImplementation_ReturnsAny()
+        {
+            IStatHost bare = new BareStatHost();
+            Assert.Equal("any", bare.GetScope(new Id("stat.anything")));
+        }
+
+        private sealed class BareStatHost : IStatHost
+        {
+            public void RegisterUnit(Id unitId) => throw new NotImplementedException();
+            public void UnregisterUnit(Id unitId) => throw new NotImplementedException();
+            public bool IsRegistered(Id unitId) => throw new NotImplementedException();
+            public void SetBase(Id unitId, Id stat, double value) => throw new NotImplementedException();
+            public double GetBase(Id unitId, Id stat) => throw new NotImplementedException();
+            public double GetStat(Id unitId, Id stat) => throw new NotImplementedException();
+            public void AddModifier(Id unitId, StatModifier modifier) => throw new NotImplementedException();
+            public void RemoveModifiersBySource(Id unitId, Id sourceId) => throw new NotImplementedException();
+            public IReadOnlyList<StatModifier> GetModifiers(Id unitId, Id stat) => throw new NotImplementedException();
+        }
     }
 }

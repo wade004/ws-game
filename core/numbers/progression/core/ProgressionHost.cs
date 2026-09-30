@@ -528,6 +528,9 @@ namespace Core.Numbers.Progression
         /// cref="GrantFromSource"/> 保持既有 <c>void</c> 签名不变）。</summary>
         private long GrantFromSourceCore(Id unitId, Id xpSourceId, double multiplier)
         {
+            // ADR-0125 D17：非有限倍率经 (long)Math.Round 的结果依赖平台（x64 得 long.MinValue，饱和转换的
+            // 平台得 0 或 long.MaxValue），前置拒绝。
+            NumericGuard.RequireFinite(multiplier, nameof(multiplier));
             var source = GetXpSourceOrThrow(xpSourceId);
 
             double raw;

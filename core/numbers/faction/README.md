@@ -48,6 +48,13 @@ faction/
    登记的阵营 id 时抛 `ArgumentException`——与 `L10nHost.SetLocale` 对未声明语言的处理同一
    惯例，视为调用方拼错 id 的编程错误，不是需要静默兜底的正常业务分支。
 
+5. **`SetReaction(from == to)` 抛 `ArgumentException`，不写入、不发事件（ADR-0125 D18，行为收紧）**：
+   `GetReaction` 对同阵营恒返回 `Friendly`（优先级第 1 条），此前 `SetReaction(X, X, r)` 仍会写入
+   一个永远读不到的覆盖，且 `r != Friendly` 时照常发布 `faction.relation_changed`（old=Friendly,
+   new=r），写入与读取自相矛盾、订阅者收到与现实不符的事件。拍板：自身反应固定 `Friendly`，不可写
+   （依据 [ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) D18；
+   复现/守护用例 `FactionMatrixTests.SetReaction_SameFaction_Throws_NoEvent_NoStateChange`）。不改签名。
+
 ## 不负责什么
 
 - 不实现"进出战斗""仇恨表"一类由阵营关系驱动的战斗判定——那是 L2 `combat`（`ThreatTable`）的

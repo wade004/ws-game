@@ -185,6 +185,19 @@ power_set/
     生产实现（显式覆盖）；`core/numbers/power_set/tests/Adr0108_RegenModifierTests.cs` 里的
     `BareFakePowerHost` 依赖默认体的抛出行为验证这一点，不是新增的兼容性负担。
 
+## ADR-0125 D17：数值写入口拒绝 NaN/±Infinity（2026-10-01，行为收紧）
+
+`ModifyPower`（`delta`）、`Advance`/`AdvanceAll`（`timeUnits`）、`SetMinOverride`（覆盖值）、`RegenModifier`
+构造（`multiplier`/`add`）收到 NaN 或 ±Infinity 时抛 `ArgumentOutOfRangeException`，在任何状态变更之前
+拒绝：不发 `power.changed`/`power.depleted`，当前值/上限/覆盖不变。理由：夹取与区间校验里的比较对 NaN 恒为
+假，NaN 会原样穿过并把当前值、下限覆盖或回复速率写成 NaN（`Advance(NaN)` 经 `regenRate * NaN`）。`Advance`
+负时长仍抛 `ArgumentException`（既有契约不变，非有限检查先于负数检查）。复现/守护用例
+`PowerHostTests.ModifyPower_NonFiniteDelta_*`、`Advance_AndAdvanceAll_NonFiniteDuration_*`、
+`SetMinOverride_NonFinite_*`、`RegenModifier_NonFiniteMultiplierOrAdd_Throws`。
+
+依据 [ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) D17；共用校验是
+`core/numbers/NumericGuard.cs`（`internal`，不进公开 API）。不改任何公开签名。
+
 ## 诊断
 
 `IPowerDiagnostics`（默认实现 `InMemoryPowerDiagnostics`，内存列表）目前只记录一类警告：

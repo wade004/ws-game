@@ -24,7 +24,9 @@ namespace Core.Numbers.StatBlock
 
         /// <summary>显式设置某单位某属性的基础值（未设置过时默认取
         /// <c>stat.definition.default_base</c>，见 <see cref="GetBase"/>）。若最终值因此变化，
-        /// 发出一次 <c>stat.changed</c>；取值与设置前相同则不发（见 06 第 1.3 节"事件"）。</summary>
+        /// 发出一次 <c>stat.changed</c>；取值与设置前相同则不发（见 06 第 1.3 节"事件"）。
+        /// <paramref name="value"/> 为 NaN 或 ±Infinity 时抛 <see cref="System.ArgumentOutOfRangeException"/>，
+        /// 不发事件、状态不变（ADR-0125 D17；<see cref="AddModifier"/> 的修正值同理）。</summary>
         void SetBase(Id unitId, Id stat, double value);
 
         /// <summary>读取某单位某属性当前的基础值（未显式 <see cref="SetBase"/> 过时返回

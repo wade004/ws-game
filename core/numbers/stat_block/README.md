@@ -475,6 +475,17 @@ percent` 属性做"百分比→点数"折算，这是 `StatHost.ConvertRating`�
   （同一模式扩展场景）、`EventCountInvariant_AnyWritePath_NeverFiresSameStatMoreThanOnceInOneCall`
   （通用不变式：任意写入路径对任意受影响属性单次调用内只应广播 0 或 1 条事件）。
 
+## ADR-0125 D17：数值写入口拒绝 NaN/±Infinity（2026-10-01，行为收紧）
+
+`SetBase`、`AddModifier`（修正值）、`SetDerivationCoefficientOverrides`（任一系数）收到 NaN 或 ±Infinity 时
+抛 `ArgumentOutOfRangeException`，在任何状态变更之前拒绝：不发 `stat.changed`、基础值/修正列表/覆盖表保持
+原状。理由：`NaN != NaN` 使"值变了才发事件"的变化检测恒真，`SetBase(NaN)` 每次都发事件且把 NaN 写进聚合
+结果；无穷大同样使后续聚合与夹取失去意义。复现/守护用例 `StatHostTests.SetBase_NonFinite_*`、
+`AddModifier_NonFiniteValue_*`、`SetDerivationCoefficientOverrides_NonFiniteCoefficient_*`。
+
+依据 [ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) D17；共用校验是
+`core/numbers/NumericGuard.cs`（`internal`，不进公开 API）。不改任何公开签名。
+
 ## 用法
 
 ```csharp

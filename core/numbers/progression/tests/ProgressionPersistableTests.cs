@@ -218,5 +218,73 @@ namespace Tests.Numbers.Progression
 
             Assert.Throws<ArgumentException>(() => host.RestoreState(Unit, CurveId, level: 99, xp: 0));
         }
+
+        // -----------------------------------------------------------------
+        // T-H5：Load 失败路径——抛出之外，单位状态（等级/经验/成长写入/事件）必须保持不变
+        // -----------------------------------------------------------------
+
+        private static string BadPayload(string name)
+        {
+            switch (name)
+            {
+                case "not_an_object": return "\"nope\"";
+                case "missing_xp": return "{\"curve_id\":\"prog.curve.sample\",\"level\":3}";
+                case "missing_level": return "{\"curve_id\":\"prog.curve.sample\",\"xp\":5}";
+                case "curve_id_not_string": return "{\"curve_id\":7,\"level\":3,\"xp\":5}";
+                case "level_fractional": return "{\"curve_id\":\"prog.curve.sample\",\"level\":2.5,\"xp\":5}";
+                case "xp_fractional": return "{\"curve_id\":\"prog.curve.sample\",\"level\":3,\"xp\":1.5}";
+                case "unknown_curve": return "{\"curve_id\":\"prog.curve.never_defined\",\"level\":3,\"xp\":5}";
+                case "level_above_max": return "{\"curve_id\":\"prog.curve.sample\",\"level\":99,\"xp\":5}";
+                case "level_zero": return "{\"curve_id\":\"prog.curve.sample\",\"level\":0,\"xp\":5}";
+                default: throw new ArgumentOutOfRangeException(nameof(name));
+            }
+        }
+
+        /// <summary>Load 收到形状非法/引用非法/等级越界的数据时抛出（形状类 <see cref="FormatException"/>，
+        /// 引用/范围类 <see cref="ArgumentException"/>），并且单位原有的等级、经验、已写入的成长修正调用次数、
+        /// 已发布事件都保持不变——不留半恢复状态。</summary>
+        [Theory]
+        [InlineData("not_an_object", true)]
+        [InlineData("missing_xp", true)]
+        [InlineData("missing_level", true)]
+        [InlineData("curve_id_not_string", true)]
+        [InlineData("level_fractional", true)]
+        [InlineData("xp_fractional", true)]
+        [InlineData("unknown_curve", false)]
+        [InlineData("level_above_max", false)]
+        [InlineData("level_zero", false)]
+        public void Load_BadData_Throws_AndLeavesUnitStateUntouched(string payloadName, bool isShapeError)
+        {
+            var registry = MakeRegistry(out var bus);
+            var writers = new RecordingWriters();
+            var host = MakeHost(registry, bus, writers);
+            host.RegisterUnit(Unit, CurveId, startLevel: 1);
+            host.AddXp(Unit, new Id("system.test"), 120); // 升到 2 级，剩余 20 经验
+            var restored = new List<ProgressionRestoredEvent>();
+            bus.Subscribe<ProgressionRestoredEvent>(ProgressionEventKeys.StateRestored, e => restored.Add(e));
+
+            var snapshotBefore = JsonWriter.Write(host.SaveUnit(Unit));
+            var writeCallsBefore = writers.WriteCalls.Count;
+            var removeCallsBefore = writers.RemoveCalls.Count;
+            var payload = JsonReader.Parse(BadPayload(payloadName));
+
+            var persistable = ProgressionPersistable.For(host, Unit);
+            if (isShapeError)
+            {
+                Assert.Throws<FormatException>(() => persistable.Load(payload));
+            }
+            else
+            {
+                Assert.Throws<ArgumentException>(() => persistable.Load(payload));
+            }
+            bus.DispatchPending();
+
+            Assert.Equal(snapshotBefore, JsonWriter.Write(host.SaveUnit(Unit)));
+            Assert.Equal(2, host.GetLevel(Unit));
+            Assert.Equal(20, host.GetXp(Unit));
+            Assert.Equal(writeCallsBefore, writers.WriteCalls.Count);
+            Assert.Equal(removeCallsBefore, writers.RemoveCalls.Count);
+            Assert.Empty(restored);
+        }
     }
 }

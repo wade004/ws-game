@@ -40,6 +40,9 @@ namespace Core.Numbers.PowerSet
 
         public RegenModifier(RegenScope scope, double multiplier = 1.0, double add = 0.0)
         {
+            // ADR-0125 D17：NaN 会穿过 multiplier < 0 校验，进入有效速率公式后把速率污染成 NaN。
+            NumericGuard.RequireFinite(multiplier, nameof(multiplier));
+            NumericGuard.RequireFinite(add, nameof(add));
             if (multiplier < 0)
             {
                 throw new ArgumentException($"multiplier 不能为负数（{multiplier}）——负倍率没有合理的回复速率语义", nameof(multiplier));

@@ -198,5 +198,74 @@ namespace Tests.Numbers.Faction
             Assert.Contains(B, matrix.Factions);
             Assert.Contains(C, matrix.Factions);
         }
+
+        // -----------------------------------------------------------------
+        // 9. ADR-0125 D18：SetReaction(from==to) 抛出，不写入、不发事件
+        // -----------------------------------------------------------------
+
+        /// <summary>D18 复现/守护：同阵营反应固定 Friendly（<see cref="IFactionMatrix.GetReaction"/>
+        /// 优先级第 1 条），不可写。修复前 <c>SetReaction(X, X, Hostile)</c> 会写入永远读不到的覆盖
+        /// 并照常发布 <see cref="FactionRelationChangedEvent"/>（old=Friendly,new=Hostile），写入与读取自相矛盾。
+        /// 对三种 <see cref="Reaction"/> 取值（含与固定值相同的 Friendly）、三个阵营逐一断言：抛
+        /// <see cref="ArgumentException"/>、不发事件、其它方向的解析结果不受影响。</summary>
+        [Fact]
+        public void SetReaction_SameFaction_Throws_NoEvent_NoStateChange()
+        {
+            var matrix = MakeMatrix(out var bus);
+            var received = new System.Collections.Generic.List<FactionRelationChangedEvent>();
+            bus.Subscribe<FactionRelationChangedEvent>(FactionEventKeys.RelationChanged, e => received.Add(e));
+
+            var before = new System.Collections.Generic.List<Reaction>();
+            foreach (var from in matrix.Factions)
+            {
+                foreach (var to in matrix.Factions)
+                {
+                    before.Add(matrix.GetReaction(from, to));
+                }
+            }
+
+            foreach (var faction in matrix.Factions)
+            {
+                foreach (Reaction reaction in Enum.GetValues(typeof(Reaction)))
+                {
+                    Assert.Throws<ArgumentException>(() => matrix.SetReaction(faction, faction, reaction));
+                }
+            }
+
+            bus.DispatchPending();
+            Assert.Empty(received);
+
+            var after = new System.Collections.Generic.List<Reaction>();
+            foreach (var from in matrix.Factions)
+            {
+                foreach (var to in matrix.Factions)
+                {
+                    after.Add(matrix.GetReaction(from, to));
+                }
+            }
+            Assert.Equal(before, after);
+            foreach (var faction in matrix.Factions)
+            {
+                Assert.Equal(Reaction.Friendly, matrix.GetReaction(faction, faction));
+            }
+        }
+
+        /// <summary>D18 回归护栏：自指被拒绝之后，不同阵营之间的 <c>SetReaction</c> 仍然正常写入并发事件
+        /// （拒绝范围只限 from==to）。</summary>
+        [Fact]
+        public void SetReaction_DifferentFactions_StillWorksAfterSameFactionRejected()
+        {
+            var matrix = MakeMatrix(out var bus);
+            var received = new System.Collections.Generic.List<FactionRelationChangedEvent>();
+            bus.Subscribe<FactionRelationChangedEvent>(FactionEventKeys.RelationChanged, e => received.Add(e));
+
+            Assert.Throws<ArgumentException>(() => matrix.SetReaction(B, B, Reaction.Hostile));
+            matrix.SetReaction(B, C, Reaction.Hostile);
+
+            Assert.Equal(Reaction.Hostile, matrix.GetReaction(B, C));
+            Assert.Single(received);
+            Assert.Equal(B, received[0].From);
+            Assert.Equal(C, received[0].To);
+        }
     }
 }

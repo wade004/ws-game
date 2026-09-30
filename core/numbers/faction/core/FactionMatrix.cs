@@ -74,6 +74,14 @@ namespace Core.Numbers.Faction
             EnsureKnown(from);
             EnsureKnown(to);
 
+            // ADR-0125 D18：同阵营反应固定 Friendly（GetReaction 优先级第 1 条），不可写；
+            // 此前会写入永远读不到的覆盖并照常发布事件，写入与读取自相矛盾。
+            if (string.Equals(from.Value, to.Value, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"阵营 \"{from}\" 对自身的反应固定为 Friendly，不可写入", nameof(to));
+            }
+
             var old = GetReaction(from, to);
             _overrides[(from.Value, to.Value)] = reaction;
 

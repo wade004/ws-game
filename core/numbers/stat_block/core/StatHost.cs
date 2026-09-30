@@ -558,6 +558,8 @@ namespace Core.Numbers.StatBlock
 
         public void SetBase(Id unitId, Id stat, double value)
         {
+            // ADR-0125 D17：非有限数在任何状态变更前拒绝（NaN != NaN 会让变化检测恒真、每次都发事件）。
+            NumericGuard.RequireFinite(value, nameof(value));
             var unit = RequireUnit(unitId);
             var def = RequireDefinition(stat);
 
@@ -640,6 +642,8 @@ namespace Core.Numbers.StatBlock
 
         public void AddModifier(Id unitId, StatModifier modifier)
         {
+            // ADR-0125 D17：同 SetBase，修正值非有限时整条拒绝，不入列表、不发事件。
+            NumericGuard.RequireFinite(modifier.Value, nameof(modifier));
             var unit = RequireUnit(unitId);
             var def = RequireDefinition(modifier.Stat);
 
@@ -848,6 +852,12 @@ namespace Core.Numbers.StatBlock
         public void SetDerivationCoefficientOverrides(Id unitId, IReadOnlyList<(Id Stat, Id Source, double Coefficient)> overrides)
         {
             var unit = RequireUnit(unitId);
+
+            // ADR-0125 D17：先整体校验再动手——任一系数非有限则整批拒绝，覆盖表保持调用前状态。
+            for (int i = 0; i < overrides.Count; i++)
+            {
+                NumericGuard.RequireFinite(overrides[i].Coefficient, nameof(overrides));
+            }
 
             var newMap = new Dictionary<Id, Dictionary<Id, double>>();
             for (int i = 0; i < overrides.Count; i++)
