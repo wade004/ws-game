@@ -90,7 +90,7 @@ namespace Presentation.Ui
             Id = id;
             Panel = panel;
             Slots = slots;
-            Fields = fields;
+            Fields = fields ?? throw new ArgumentNullException(nameof(fields));
         }
 
         public static UiLayoutDefinition FromRecord(DataRecord record)

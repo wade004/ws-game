@@ -108,18 +108,13 @@ namespace Tests.PresentationCommon
 
     public class ConstructorNullGuardTests
     {
-        /// <summary>源码构造器里确实没有空参守卫的形参（本任务不新增守卫，仅登记；是否补守卫待设计层确认，见汇报）。
+        /// <summary>源码构造器里确实没有空参守卫的形参（当前已清空，见下）。
         /// 键格式：<c>Namespace.Type(paramName)</c>（同一类型多个构造器重载共用形参名时一并豁免）。</summary>
         private static readonly HashSet<string> KnownUnguardedConstructorParameters = new HashSet<string>(StringComparer.Ordinal)
         {
-            "Presentation.Common.ResourceReferenceTracker(loader)",
-            "Presentation.Ui.InteractPathProvider(registry)",
-            "Presentation.Ui.UiActionInvokedEvent(actionName)",
-            "Presentation.Ui.UiLayoutDefinition(fields)",
-            "Presentation.Assembly.NumericValidationRuleDescriptor(ruleId)",
-            "Presentation.Assembly.NumericValidationRuleDescriptor(checkName)",
-            "Presentation.Assembly.NumericValidationRuleDescriptor(gradingItemName)",
-            "Presentation.Assembly.NumericValidationRuleDescriptor(group)",
+            // 已清空：ResourceReferenceTracker(loader)/InteractPathProvider(registry)/UiActionInvokedEvent(actionName)/
+            // UiLayoutDefinition(fields)/NumericValidationRuleDescriptor 的 4 个字符串形参在 ADR-0125 收口补了空参守卫，
+            // 现由下方反射 Theory 直接覆盖。今后若再登记，须带原因。
         };
 
         /// <summary>源码对 null 形参抛的不是 ArgumentNullException 而是 ArgumentException（"不能为空/空白"一类，

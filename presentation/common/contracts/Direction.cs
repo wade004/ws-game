@@ -60,7 +60,7 @@ namespace Presentation.Common
             }
         }
 
-        public override string ToString() => $"Direction(raw={RawRadians}, index={Index}/{DirectionCount})";
+        public override string ToString() => FormattableString.Invariant($"Direction(raw={RawRadians}, index={Index}/{DirectionCount})");
 
         public static bool operator ==(Direction left, Direction right) => left.Equals(right);
 

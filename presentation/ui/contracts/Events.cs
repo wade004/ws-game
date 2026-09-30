@@ -1,3 +1,4 @@
+using System;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
@@ -104,7 +105,7 @@ namespace Presentation.Ui
         public UiActionInvokedEvent(Id panelId, string actionName)
         {
             PanelId = panelId;
-            ActionName = actionName;
+            ActionName = actionName ?? throw new ArgumentNullException(nameof(actionName));
         }
 
         public bool TryGetField(string name, out ExprValue value)

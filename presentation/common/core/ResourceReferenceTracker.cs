@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
@@ -25,7 +26,7 @@ namespace Presentation.Common
 
         public ResourceReferenceTracker(IResourceLoader loader)
         {
-            _loader = loader;
+            _loader = loader ?? throw new ArgumentNullException(nameof(loader));
         }
 
         /// <summary>首次引用 <paramref name="resourceId"/> 时以 <paramref name="kind"/> 触发一次

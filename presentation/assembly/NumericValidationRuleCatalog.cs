@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Carriers.Item;
 using Core.Foundation.DataRegistry;
@@ -153,12 +154,12 @@ namespace Presentation.Assembly
             string group,
             bool requiresAnchor)
         {
-            RuleId = ruleId;
-            CheckName = checkName;
+            RuleId = ruleId ?? throw new ArgumentNullException(nameof(ruleId));
+            CheckName = checkName ?? throw new ArgumentNullException(nameof(checkName));
             Severity = severity;
             NonEscalatable = nonEscalatable;
-            GradingItemName = gradingItemName;
-            Group = group;
+            GradingItemName = gradingItemName ?? throw new ArgumentNullException(nameof(gradingItemName));
+            Group = group ?? throw new ArgumentNullException(nameof(group));
             RequiresAnchor = requiresAnchor;
         }
     }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Carriers.Common;
 using Core.Foundation.Common;
@@ -37,7 +38,7 @@ namespace Presentation.Ui
         public InteractPathProvider(Id unitId, IInteractionTargetRegistry registry, double? maxRange = null)
         {
             _unitId = unitId;
-            _registry = registry;
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _maxRange = maxRange;
         }
 

@@ -9,9 +9,9 @@
   ],
   "suites": {
     "dotnet_test": {
-      "min_passed": 4800,
+      "min_passed": 5790,
       "max_skipped": 0,
-      "measured_passed": 5342,
+      "measured_passed": 6439,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },
