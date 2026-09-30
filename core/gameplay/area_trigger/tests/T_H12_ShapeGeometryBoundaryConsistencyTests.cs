@@ -392,14 +392,15 @@ namespace Tests.Gameplay.AreaTrigger
         [Theory]
         [InlineData("rect")]
         [InlineData("cone")]
+        [InlineData("line")] // ADR-0125：桩的线带口径改为矩形带后，端面外 / 端面角等此前避开的点一并钉进来
         public void QueryShape_ForPointEntities_MatchesShapeGeometryContains_OnBoundaryCases(string kind)
         {
             // 排除：顶点容差 1e-9 内的点（ShapeGeometry 视为顶点恒为内，桩实现用 distance<=entityRadius(=0) 判顶点，
             // 只在恰为 0 距离时为内——二者在 (0,1e-9) 距离内有差异，见 cone/apex_tolerance_behind_inside）。
             var selected = Cases.Values
-                .Where(c => c.Shape.Kind == (kind == "rect" ? ShapeKind.Rect : ShapeKind.Cone))
+                .Where(c => c.Shape.Kind == (kind == "rect" ? ShapeKind.Rect : kind == "line" ? ShapeKind.Line : ShapeKind.Cone))
                 .Where(c => !c.Name.Contains("apex_tolerance"))
-                .GroupBy(c => c.Shape.ToString())
+                .GroupBy(c => c.Shape) // Shape 是只含值类型字段的 struct：按值分组，每个点对着自己的形状比对
                 .ToList();
             Assert.NotEmpty(selected);
 
@@ -429,7 +430,7 @@ namespace Tests.Gameplay.AreaTrigger
         [Fact]
         public void QueryShape_Line_ForPointEntities_MatchesContains_WithinTheBandInteriorAndOnSideEdges()
         {
-            // 线带内部与侧边（局部 0<=x<=length）两种实现一致；端面外侧的"圆头"差异另见汇报（桩把线带当胶囊）。
+            // 线带内部与侧边（局部 0<=x<=length）两种实现一致；端面外侧的点见 ADR0125_StubSpatialQueryLineBandTests 与上面 line 的 Theory。
             var shape = Shape.Line(Vec2.Zero, 0, 10, 4);
             var q = Register(
                 ("unit.mid", new Vec2(5, 0), 0),

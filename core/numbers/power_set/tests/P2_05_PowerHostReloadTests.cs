@@ -79,5 +79,69 @@ namespace Tests.Numbers.PowerSet
             host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.p2_05_rage", "arch.power.p2_05_mana"));
             Assert.Equal(30, host.GetPowerMax(Hero, new Id("arch.power.p2_05_mana")));
         }
+
+        // -----------------------------------------------------------------
+        // ADR-0125 第三批探针缺陷：Reload 原子性（先 Clear 后逐个加入，中途失败旧表已被清空）
+        // -----------------------------------------------------------------
+
+        private static System.Collections.Generic.IEnumerable<PowerTypeDefinition> ThrowingSequence(
+            PowerTypeDefinition first)
+        {
+            yield return first;
+            throw new System.InvalidOperationException("boom-reload");
+        }
+
+        /// <summary>复现：新列表里有重复 id，Reload 抛 <see cref="System.ArgumentException"/>，
+        /// 此前旧的资源类型表已被 Clear——此后为旧类型注册单位会抛"未知资源类型"。不变量：失败后旧表
+        /// 逐项不变（旧类型仍可注册并读到旧上限，新列表里已解析的类型不漏进去）。</summary>
+        [Fact]
+        public void Reload_DuplicateIdInNewList_Throws_AndKeepsOldDefinitions()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rageV1 = PowerTestSupport.FixedType("arch.power.p2_05_rage", maxValue: 100);
+            var host = new PowerHost(new[] { rageV1 }, bus);
+            var mana = PowerTestSupport.FixedType("arch.power.p2_05_mana", maxValue: 30);
+            var rageDup1 = PowerTestSupport.FixedType("arch.power.p2_05_rage", maxValue: 250);
+            var rageDup2 = PowerTestSupport.FixedType("arch.power.p2_05_rage", maxValue: 260);
+
+            Assert.Throws<System.ArgumentException>(() => host.Reload(new[] { mana, rageDup1, rageDup2 }));
+
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.p2_05_rage"));
+            Assert.Equal(100, host.GetPowerMax(Hero, Rage)); // 旧定义原样
+            var other = new Id("unit.p2_05_power_reload_other");
+            Assert.ThrowsAny<System.Exception>(() =>
+                host.RegisterUnit(other, PowerTestSupport.Ids("arch.power.p2_05_mana"))); // 新列表里解析过的 mana 不得漏入
+        }
+
+        [Fact]
+        public void Reload_NullElementOrNullList_Throws_AndKeepsOldDefinitions()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rageV1 = PowerTestSupport.FixedType("arch.power.p2_05_rage", maxValue: 100);
+            var host = new PowerHost(new[] { rageV1 }, bus);
+            var mana = PowerTestSupport.FixedType("arch.power.p2_05_mana", maxValue: 30);
+
+            Assert.Throws<System.ArgumentException>(() => host.Reload(new PowerTypeDefinition[] { mana, null! }));
+            Assert.Throws<System.ArgumentNullException>(() => host.Reload(null!));
+
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.p2_05_rage"));
+            Assert.Equal(100, host.GetPowerMax(Hero, Rage));
+        }
+
+        /// <summary>枚举新定义时来源本身抛异常（例如数据层懒加载失败）：异常原样向上抛，旧表不变。</summary>
+        [Fact]
+        public void Reload_SequenceThrowsMidway_PropagatesAndKeepsOldDefinitions()
+        {
+            var bus = PowerTestSupport.CreateBus();
+            var rageV1 = PowerTestSupport.FixedType("arch.power.p2_05_rage", maxValue: 100);
+            var host = new PowerHost(new[] { rageV1 }, bus);
+            var mana = PowerTestSupport.FixedType("arch.power.p2_05_mana", maxValue: 30);
+
+            var ex = Assert.Throws<System.InvalidOperationException>(() => host.Reload(ThrowingSequence(mana)));
+            Assert.Equal("boom-reload", ex.Message);
+
+            host.RegisterUnit(Hero, PowerTestSupport.Ids("arch.power.p2_05_rage"));
+            Assert.Equal(100, host.GetPowerMax(Hero, Rage));
+        }
     }
 }

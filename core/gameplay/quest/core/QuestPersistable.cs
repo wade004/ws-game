@@ -96,6 +96,9 @@ namespace Core.Gameplay.Quest
                 }
 
                 if (!entry.TryGetValue("state", out var stateVal) || !(stateVal is JsonString stateStr) ||
+                    // ADR-0125 第三批：先 IsDefined(按名字精确匹配) 再解析——Enum.TryParse 会接受数字串 / 负数 /
+                    // 名字按位或的组合串，得到未定义的 QuestState 值。
+                    !Enum.IsDefined(typeof(QuestState), stateStr.Value) ||
                     !Enum.TryParse<QuestState>(stateStr.Value, out var state))
                 {
                     throw new FormatException($"player.quest_state[\"{kv.Key}\"].state 缺失或取值非法");

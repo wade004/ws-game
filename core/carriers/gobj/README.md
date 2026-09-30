@@ -355,3 +355,11 @@ JsonObject（同 `core/gameplay/area_trigger` 的 `ParamsSchema`/`trigger_type` 
 交给另一个处理器）；两个字段都不携带时才是真正的格式错误，维持原有诊断。两个处理器挂在同一个
 `TickPhase.TriggerEvaluation`，处理顺序不影响正确性（各自只认自己的字段）。既有调用方（从未携带
 `creature_instance_id`）的行为、既有诊断文案与测试断言均不受影响，`Tests.Carriers` 全量复跑确认。
+
+## 判断记录（`GobjPendingLootPersistable.Load` 坏形状不再静默清空台账，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+根不是对象 / 缺 `pending_loot` / `pending_loot` 不是数组这三种**段本身坏形状**，此前静默把既有待补发余量台账替换为空表
+（玩家的余量无声蒸发）；现按类注释"坏形状丢弃并记 Warn"——保持既有台账不变并记一条 Warn。段整体缺失（`JsonNull`，旧存档
+无该段）仍是"归零重建为空"，不记诊断。条目内物品 `count` 非正数 / 非整数 / 超 `int` 范围：此前 `ItemStack` 构造抛
+`ArgumentOutOfRangeException`（与"绝不抛"相悖），现丢弃该条并记 Warn，其余条目照常恢复，`Load` 不抛。
+用例 `T_H11_GobjPendingLootPersistableBadShapeTests`（原"台账被清空 / 抛 ArgumentOutOfRange"两组断言随口径改为新口径）。

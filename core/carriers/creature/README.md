@@ -365,3 +365,13 @@ architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
 校验（`>= arch.power_type.min`）与"这个资源类型是否真的会被这个单位注册"仍是两个独立配置维度，数据层
 不做交叉校验，冲突在生成时显式失败。用例：`CreatureFactoryTests.Spawn_PowerFloorsConflictWithReducedDefaultPowerTypes_ThrowsAndLeavesNoResidue`
 （抛出后 `EntityCount`/AI 登记/事件队列与调用前逐项相等）。
+
+## 判断记录（`Spawn` 失败回滚（原子性），2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`CreatureFactory.SpawnCore` 在 `AddEntity` 之后任一步骤（Stats/Progression/Powers 登记、属性写入、资源下限覆盖、
+AI 登记）抛出，此前实体与已完成的登记全部残留。现在只回滚本次调用**自己完成**的步骤（Powers → Progression → Stats →
+世界实体，标志位记账；调用方先于本次调用建立的同 id 登记不被误注销），异常原样向上抛。世界实体经新增的
+`IWorldSim.RemoveEntityImmediately` 立即移除并 `Enqueue` 一条 `entity.destroyed`（AI 外壳、空间索引等靠 destroyed 自清理）。
+**不覆盖的情形**：`entity.created` 已入队无法撤回（订阅者会先后收到 created/destroyed 一对）；已 `PublishImmediate` 的
+`stat.changed` 等无法撤回；实体 id 序号只增不减；回滚期次生异常被吞以保住原始异常。用例
+`CreatureFactorySpawnAtomicityTests`（AI 登记抛出 / Stats 重复登记 / Powers 重复登记三条复现 + 回滚后再 Spawn 正常）。

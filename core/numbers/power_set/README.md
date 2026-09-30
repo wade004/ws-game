@@ -223,3 +223,9 @@ power_set/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（`PowerHost.Reload` 原子性，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`Reload` 此前先 `Clear()` 旧表再逐个加入新定义，新列表含 null 元素 / 重复 id / 枚举自身抛异常时，旧表已被清空。现先把
+新定义全部解析进一张新表，全部成功后才替换 `_definitions`；任何中途失败原样向上抛，旧表逐项不变（构造期 `LoadDefinitions`
+共用同一解析函数）。用例 `P2_05_PowerHostReloadTests.Reload_*`（重复 id / null 元素与 null 列表 / 枚举中途抛出）。

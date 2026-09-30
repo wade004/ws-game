@@ -249,60 +249,118 @@ namespace Core.Carriers.Creature
 
             unit.Tags.Add(template.TierId);
 
-            _world.AddEntity(unit);
-            // 冗余但幂等地再写一次位置：经注入的 IUnitAccess（如 WorldUnitAccess）写入，触发其可能
-            // 附带的空间索引同步（见 core/carriers/unit README 判断记录 4"WorldUnitAccess.SetPosition
-            // 写入新位置后同步登记"）——直接写 unit.Position 不会触碰任何空间索引。
-            _units.SetPosition(entityId, position);
-
-            _stats.RegisterUnit(entityId);
-            ApplyStats(entityId, template, tier, spawnLevel);
-
-            if (template.StatGrowthRef.HasValue)
+            // ADR-0125 第三批（CreatureFactory.SpawnCore 非原子）：AddEntity 之后任一登记步骤（Stats/Progression/Powers
+            // 登记、属性写入、资源下限覆盖、AI 登记）抛出，此前实体与已完成的登记全部残留，调用方拿到异常却不知道
+            // 世界里多了一个"半成品"生物。现在任一步抛出都回滚本次调用已经完成的部分（只回滚自己完成的步骤：
+            // 例如 Stats.RegisterUnit 因"调用方先于本次调用登记了同 id"而抛出时，那份外来登记不被误注销），
+            // 再把异常原样向上抛。回滚的边界见 RollbackSpawn。
+            var added = false;
+            var statsRegistered = false;
+            var progressionRegistered = false;
+            var powersRegistered = false;
+            try
             {
-                // T-N6-3b 判断记录（RegisterUnit 改传 spawnLevel，而不是固定 template.Level）：
-                // spawnLevel 未被 6 参 Spawn 覆盖时恒等于 template.Level，本行为对既有调用方
-                // （5 参 Spawn/既有测试）零变化。被覆盖时，Progression 内部登记的"当前等级"自然
-                // 同步为 spawnLevel（否则后续 AddXp/GetXpToNext 等仍按模板等级计算，与
-                // CreatureUnit.Level 已经写成 spawnLevel 相互矛盾）——不是本任务新引入的"双重计分"：
-                // 曲线"2..当前登记等级"复利本就是 ApplyGrowthToCurrentLevel 的既有既定语义（见类型
-                // 判断记录"成长唯一来源"），本任务只是把"当前登记等级"的来源从硬编码的 template.Level
-                // 改成 spawnLevel，曲线本身的计算方式不变。若某模板既配置了 stat_growth_ref、又通过
-                // 6 参 Spawn 指定了与模板不同的等级、且未注入 ICreatureLevelScaler，基础属性仍会经
-                // 本步骤按曲线"2..spawnLevel"计算出与"未覆盖时不同"的修正值——<see
-                // cref="ICreatureLevelScaler"/> 类型判断记录"未注入时属性不变"特指本类型新增的缩放器
-                // 这一步（<see cref="ResolveBaseStats"/>）不生效，不改写曲线这一既有独立机制的既定
-                // 行为；两者是否要在同一模板上组合使用，留给设计层/装配层的口味决策，本任务不禁止也不
-                // 特殊处理这一组合。
-                _progression.RegisterUnit(entityId, template.StatGrowthRef.Value, spawnLevel);
-                // 消费方反馈第 36 条根治：出生等级 > 1 时，"2 级到出生等级"的曲线成长只经这一步
-                // 写成修正（与升级、读档共用同一份聚合实现，见类型判断记录），不再叠进 ApplyStats
-                // 写的基础值——放在 Powers.RegisterUnit 之前，保证 max_source: stat 的资源类型
-                // 用到的是已经计入成长的最终属性值（与改动前的既有顺序要求一致）。
-                _progression.ApplyGrowthToCurrentLevel(entityId);
+                _world.AddEntity(unit);
+                added = true;
+                // 冗余但幂等地再写一次位置：经注入的 IUnitAccess（如 WorldUnitAccess）写入，触发其可能
+                // 附带的空间索引同步（见 core/carriers/unit README 判断记录 4"WorldUnitAccess.SetPosition
+                // 写入新位置后同步登记"）——直接写 unit.Position 不会触碰任何空间索引。
+                _units.SetPosition(entityId, position);
+
+                _stats.RegisterUnit(entityId);
+                statsRegistered = true;
+                ApplyStats(entityId, template, tier, spawnLevel);
+
+                if (template.StatGrowthRef.HasValue)
+                {
+                    // T-N6-3b 判断记录（RegisterUnit 改传 spawnLevel，而不是固定 template.Level）：
+                    // spawnLevel 未被 6 参 Spawn 覆盖时恒等于 template.Level，本行为对既有调用方
+                    // （5 参 Spawn/既有测试）零变化。被覆盖时，Progression 内部登记的"当前等级"自然
+                    // 同步为 spawnLevel（否则后续 AddXp/GetXpToNext 等仍按模板等级计算，与
+                    // CreatureUnit.Level 已经写成 spawnLevel 相互矛盾）——不是本任务新引入的"双重计分"：
+                    // 曲线"2..当前登记等级"复利本就是 ApplyGrowthToCurrentLevel 的既有既定语义（见类型
+                    // 判断记录"成长唯一来源"），本任务只是把"当前登记等级"的来源从硬编码的 template.Level
+                    // 改成 spawnLevel，曲线本身的计算方式不变。若某模板既配置了 stat_growth_ref、又通过
+                    // 6 参 Spawn 指定了与模板不同的等级、且未注入 ICreatureLevelScaler，基础属性仍会经
+                    // 本步骤按曲线"2..spawnLevel"计算出与"未覆盖时不同"的修正值——<see
+                    // cref="ICreatureLevelScaler"/> 类型判断记录"未注入时属性不变"特指本类型新增的缩放器
+                    // 这一步（<see cref="ResolveBaseStats"/>）不生效，不改写曲线这一既有独立机制的既定
+                    // 行为；两者是否要在同一模板上组合使用，留给设计层/装配层的口味决策，本任务不禁止也不
+                    // 特殊处理这一组合。
+                    _progression.RegisterUnit(entityId, template.StatGrowthRef.Value, spawnLevel);
+                    progressionRegistered = true;
+                    // 消费方反馈第 36 条根治：出生等级 > 1 时，"2 级到出生等级"的曲线成长只经这一步
+                    // 写成修正（与升级、读档共用同一份聚合实现，见类型判断记录），不再叠进 ApplyStats
+                    // 写的基础值——放在 Powers.RegisterUnit 之前，保证 max_source: stat 的资源类型
+                    // 用到的是已经计入成长的最终属性值（与改动前的既有顺序要求一致）。
+                    _progression.ApplyGrowthToCurrentLevel(entityId);
+                }
+
+                _powers.RegisterUnit(entityId, ResolvePowerTypes(template));
+                powersRegistered = true;
+
+                // ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）：RegisterUnit 之后逐条落地单位级
+                // 资源下限覆盖——必须在 RegisterUnit 之后（SetMinOverride 要求单位已持有该资源类型，见
+                // IPowerHost.SetMinOverride 判断记录）。template.PowerFloors 引用的资源类型若不在
+                // ResolvePowerTypes(template) 实际注册的集合内（CreatureOptions.DefaultPowerTypes 被显式缩减
+                // 为不含该类型的子集），ADR-0125 D13 起已在 SpawnCore 开头由 RequirePowerFloorsHeld 校验并
+                // 抛出，不会走到这里——此处 SetMinOverride 不再可能因"单位未持有该资源类型"抛异常。
+                foreach (var kv in template.PowerFloors)
+                {
+                    _powers.SetMinOverride(entityId, kv.Key, kv.Value);
+                }
+
+                if (template.AiBehaviorRef.HasValue)
+                {
+                    _aiRegistrar(entityId, template.AiBehaviorRef.Value, position, template.AiRotationRef);
+                }
             }
-
-            _powers.RegisterUnit(entityId, ResolvePowerTypes(template));
-
-            // ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）：RegisterUnit 之后逐条落地单位级
-            // 资源下限覆盖——必须在 RegisterUnit 之后（SetMinOverride 要求单位已持有该资源类型，见
-            // IPowerHost.SetMinOverride 判断记录）。template.PowerFloors 引用的资源类型若不在
-            // ResolvePowerTypes(template) 实际注册的集合内（CreatureOptions.DefaultPowerTypes 被显式缩减
-            // 为不含该类型的子集），ADR-0125 D13 起已在 SpawnCore 开头由 RequirePowerFloorsHeld 校验并
-            // 抛出，不会走到这里——此处 SetMinOverride 不再可能因"单位未持有该资源类型"抛异常。
-            foreach (var kv in template.PowerFloors)
+            catch (Exception)
             {
-                _powers.SetMinOverride(entityId, kv.Key, kv.Value);
-            }
-
-            if (template.AiBehaviorRef.HasValue)
-            {
-                _aiRegistrar(entityId, template.AiBehaviorRef.Value, position, template.AiRotationRef);
+                RollbackSpawn(entityId, added, statsRegistered, progressionRegistered, powersRegistered);
+                throw;
             }
 
             _bus.Enqueue(new CreatureSpawnedEvent(entityId, templateId));
 
             return entityId;
+        }
+
+        /// <summary>
+        /// ADR-0125 第三批：撤销 <see cref="SpawnCore"/> 中途失败时已经完成的步骤，顺序与登记相反
+        /// （Powers → Progression → Stats → 世界实体）。只撤销标志位为真的步骤。
+        /// <para>
+        /// 边界（写明不覆盖的情形）：① 世界实体经 <see cref="IWorldSim.RemoveEntityImmediately"/> 立即移除，并随之
+        /// <c>Enqueue</c> 一条 <c>entity.destroyed</c>——此前 <c>AddEntity</c> 已经 <c>Enqueue</c> 的
+        /// <c>entity.created</c> 无法从总线撤回，订阅者会先后收到 created/destroyed 一对（空间索引、AI 外壳、光环等
+        /// 靠 destroyed 自清理，AI 登记正是借此回滚）；② 已经经 <c>PublishImmediate</c> 同步派发出去的事件
+        /// （如属性写入触发的 <c>stat.changed</c>）无法撤回；③ 实体 id 序号只增不减，失败的那次占用的序号不复用；
+        /// ④ 未覆写 <see cref="IWorldSim.RemoveEntityImmediately"/> 的世界实现（测试替身）退化为 MarkForDestruction，
+        /// 实体要等下一次 Tick 才移除。回滚本身是尽力而为：某一步回滚抛出时吞掉，继续回滚其余步骤——原始异常
+        /// 才是调用方需要看到的，不被回滚期的次生异常覆盖。
+        /// </para>
+        /// </summary>
+        private void RollbackSpawn(Id entityId, bool added, bool statsRegistered, bool progressionRegistered, bool powersRegistered)
+        {
+            if (powersRegistered)
+            {
+                try { _powers.UnregisterUnit(entityId); } catch (Exception) { }
+            }
+
+            if (progressionRegistered)
+            {
+                try { _progression.UnregisterUnit(entityId); } catch (Exception) { }
+            }
+
+            if (statsRegistered)
+            {
+                try { _stats.UnregisterUnit(entityId); } catch (Exception) { }
+            }
+
+            if (added)
+            {
+                try { _world.RemoveEntityImmediately(entityId); } catch (Exception) { }
+            }
         }
 
         /// <summary>D13（ADR-0125）：<paramref name="template"/>.PowerFloors 的每个键都必须落在

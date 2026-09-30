@@ -1355,6 +1355,10 @@ namespace Core.Gameplay.Loot
             }
         }
 
+        /// <summary>ADR-0125 第三批：供 <see cref="DroppedLootPersistable.Load"/> 在提交前探测"世界里该 id 已被什么
+        /// 实体占用"（同程序集内部用，不扩公开面）。</summary>
+        internal Core.Foundation.SimLoop.Entity? FindWorldEntity(Id id) => _world.GetEntity(id);
+
         internal static int ExtractSequence(Id lootEntityId)
         {
             const string prefix = "loot.inst_";

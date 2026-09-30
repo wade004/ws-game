@@ -440,3 +440,9 @@ quest/
   `core/gameplay/loot`/`core/gameplay/world_state`）。
 - 不解决 `Core.Gameplay.Common` 判断记录 2 描述的 `CurrencyGranter`/`TalentPointGranter` 契约缺口
   本身——奖励结算全部委托给 `IRewardDispatcher`，本模块只负责在 `TurnIn` 时机调用它。
+
+## 判断记录（`QuestPersistable.Load` 的 `state` 只认枚举名，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`Enum.TryParse` 会接受数字串、负数与名字按位或的组合串（组合值恰好等于另一个已定义值时连 `Enum.IsDefined(值)`
+也拦不住），把未定义或错误的 `QuestState` 写进运行期。现先用 `Enum.IsDefined(typeof(QuestState), 文本)`（按名字精确匹配）
+再解析；不通过抛 `FormatException`，任务状态不变。用例 `ADR0125_QuestPersistableStateEnumTests`。

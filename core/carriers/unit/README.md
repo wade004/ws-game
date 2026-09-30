@@ -567,3 +567,10 @@ core/carriers/tests/Tests.Carriers.csproj` 665/665 通过；Unity PlayMode 定�
 与耗尽、半径内无点、重规划从原始点重新解析、孤岛不试探直接选连通点并配阳性对照、缺口打开后可达点被选中）；
 "两个导航实现结果一致"见 `adapters/conformance/Runtime/Navigation2DScenarios` 的最近可走点与可达最近点场景，桩与 Unity
 实现共用同一组输入。
+
+## 判断记录（意图参数 `mode`/`blocking` 只认枚举名，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`MovementTickHandler.ReadMode`（`mode`）与位移参数解码（`blocking`）用 `Enum.TryParse`，数字串（含未定义数字）会被采用，
+例如 `blocking:"1"` 被当 `Revert`。现只认枚举名，其余走既有"无法解析 → 回退默认（mode 按意图类型的 fallback，
+blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（墙前受控位移：Revert 的数字串仍停在墙前）。
+本次只改参数解码，未改移动/导航逻辑，未涉及需跑 `MovementStopAndBlockingPlayModeTests` 的路径（交互时序不变）。

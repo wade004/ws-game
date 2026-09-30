@@ -179,12 +179,39 @@ namespace Adapters.Stub
             return Math.Abs(diff) <= angle / 2.0 + angularMargin;
         }
 
+        /// <summary>
+        /// ADR-0125 第三批（StubSpatialQuery.QueryShape(Line) 口径）：线带是<b>矩形带</b>（端面平直，05 §3.5 与
+        /// <see cref="ShapeGeometry.Contains"/> 同口径），不是"点到线段距离 &lt;= width/2 + r"的胶囊——后者在端面外
+        /// 侧有圆头，零半径实体落在端面外 &lt;= width/2 处会被误命中，带半径实体在端面外 gap &gt; r 处也会被误命中。
+        /// 判定：实体中心落在带内（直接复用 <see cref="ShapeGeometry.Contains"/>）即命中；带半径实体另按
+        /// "圆与矩形带相交"判定（局部坐标下圆心到带的最近点距离 &lt;= r，闭区间，同本类 <see cref="IsInRotatedRect"/>
+        /// 对 Rect 的口径）。
+        /// </summary>
         private static bool IsInLineShape(Shape shape, Entry entry)
         {
-            var direction = new Vec2(Math.Cos(shape.Direction), Math.Sin(shape.Direction));
-            var to = shape.Origin + direction * shape.Length;
-            var distance = DistancePointToSegment(entry.Position, shape.Origin, to);
-            return distance <= shape.Width / 2.0 + entry.Radius;
+            if (ShapeGeometry.Contains(shape, entry.Position))
+            {
+                return true;
+            }
+
+            if (entry.Radius <= 0)
+            {
+                return false;
+            }
+
+            var relative = entry.Position - shape.Origin;
+            var cos = Math.Cos(-shape.Direction);
+            var sin = Math.Sin(-shape.Direction);
+            var localX = relative.X * cos - relative.Y * sin;
+            var localY = relative.X * sin + relative.Y * cos;
+
+            var halfWidth = shape.Width / 2.0;
+            var closestX = Math.Max(0.0, Math.Min(localX, shape.Length));
+            var closestY = Math.Max(-halfWidth, Math.Min(localY, halfWidth));
+
+            var dx = localX - closestX;
+            var dy = localY - closestY;
+            return Math.Sqrt(dx * dx + dy * dy) <= entry.Radius;
         }
 
         private static bool IsInRotatedRect(Shape shape, Entry entry)

@@ -17,13 +17,13 @@ namespace Tests.Carriers.Gobj
     /// 类型注释明确规定 Load 对坏形状<b>安全丢弃、记诊断（<see cref="ISaveDiagnostics.Warn"/>）、不抛异常</b>，
     /// 且 Load 语义是"读档 = 归零重建"——用解析出的表整体替换既有待补发台账。因此本文件断言的是该设计口径：
     /// <list type="bullet">
-    /// <item>根不是对象 / 缺 <c>pending_loot</c> / <c>pending_loot</c> 不是数组：不抛，台账被替换为空表
-    /// （<b>既有台账被清空</b>，且此分支不记任何诊断——待设计层确认）；</item>
+    /// <item>根不是对象 / 缺 <c>pending_loot</c> / <c>pending_loot</c> 不是数组（ADR-0125 第三批修复后）：
+    /// 按类注释"坏形状丢弃并记 Warn"——<b>既有台账保持不变</b>并记一条 Warn（此前静默替换为空表）；
+    /// 段整体缺失（<see cref="JsonNull"/>，旧存档无该段）仍按"旧存档无该字段视为空"替换为空表、不记诊断；</item>
     /// <item>数组元素级坏形状（元素不是对象、缺 / 非法 originKey、仅有 1.5 旧字段 gobjInstanceId、缺 items、items 内
     /// 物品字段缺失 / 类型不符 / id 非法）：只丢弃该条、每条记一条 Warn，其余合法条目照常恢复；</item>
-    /// <item>items 内物品的 <c>count&lt;=0</c>：<b>Load 抛 <see cref="ArgumentOutOfRangeException"/></b>（来自
-    /// <see cref="ItemStack"/> 构造），与类型注释"绝不抛"相悖；抛出发生在替换台账之前，因此既有台账不变——
-    /// 汇报中登记，待设计层确认。</item>
+    /// <item>items 内物品的 <c>count&lt;=0</c>（或非整数、超 int 范围）：同样丢弃该条并记一条 Warn（ADR-0125 第三批修复前
+    /// 是抛 <see cref="ArgumentOutOfRangeException"/>，与类注释"绝不抛"相悖），其余合法条目照常恢复，Load 不抛。</item>
     /// </list>
     /// "引用不存在的 id"无校验：originKey / templateId 只校验 id 格式，不校验对应实体 / 物品模板是否存在。
     /// </para>
@@ -94,51 +94,61 @@ namespace Tests.Carriers.Gobj
             Assert.Equal(4, f.World.Host.PendingLootSnapshot()[KeepA].Single().Count);
         }
 
-        // ---- 1. 根不是对象 / 段形状不符：不抛，台账被替换为空表 ----
+        // ---- 1. 根不是对象 / 段形状不符（ADR-0125）：保持既有台账不变 + 一条 Warn，不抛 ----
 
-        [Fact]
-        public void Load_RootIsString_DoesNotThrow_ReplacesLedgerWithEmpty()
+        private static void AssertLedgerKeptWithOneWarning(Fixture f, JsonValue bad)
         {
-            var f = NewFixture();
+            var before = Capture(f);
 
-            var ex = Record.Exception(() => f.Persistable.Load(new JsonString("wrong-shape")));
+            var ex = Record.Exception(() => f.Persistable.Load(bad));
 
             Assert.Null(ex);
-            Assert.Empty(f.World.Host.PendingLootSnapshot());
+            Assert.Equal(before, Capture(f));
+            Assert.NotEqual(string.Empty, before);
+            Assert.Single(f.Diagnostics.Warnings);
+            Assert.Empty(f.Diagnostics.Errors);
         }
 
         [Fact]
-        public void Load_RootIsArray_DoesNotThrow_ReplacesLedgerWithEmpty()
-        {
-            var f = NewFixture();
-
-            var ex = Record.Exception(() => f.Persistable.Load(new JsonArray(Array.Empty<JsonValue>())));
-
-            Assert.Null(ex);
-            Assert.Empty(f.World.Host.PendingLootSnapshot());
-        }
+        public void Load_RootIsString_KeepsLedger_WithOneWarning() =>
+            AssertLedgerKeptWithOneWarning(NewFixture(), new JsonString("wrong-shape"));
 
         [Fact]
-        public void Load_ObjectWithoutPendingLootKey_DoesNotThrow_ReplacesLedgerWithEmpty()
-        {
-            var f = NewFixture();
-
-            var ex = Record.Exception(() => f.Persistable.Load(new JsonObjectBuilder().Add("other", JsonBool.True).Build()));
-
-            Assert.Null(ex);
-            Assert.Empty(f.World.Host.PendingLootSnapshot());
-        }
+        public void Load_RootIsArray_KeepsLedger_WithOneWarning() =>
+            AssertLedgerKeptWithOneWarning(NewFixture(), new JsonArray(Array.Empty<JsonValue>()));
 
         [Fact]
-        public void Load_PendingLootIsNotArray_DoesNotThrow_ReplacesLedgerWithEmpty()
+        public void Load_ObjectWithoutPendingLootKey_KeepsLedger_WithOneWarning() =>
+            AssertLedgerKeptWithOneWarning(NewFixture(), new JsonObjectBuilder().Add("other", JsonBool.True).Build());
+
+        [Fact]
+        public void Load_PendingLootIsNotArray_KeepsLedger_WithOneWarning() =>
+            AssertLedgerKeptWithOneWarning(NewFixture(),
+                new JsonObjectBuilder().Add("pending_loot", new JsonString("nope")).Build());
+
+        /// <summary>段整体缺失（旧存档没有这段）不是坏形状：沿用"归零重建 + 视为空"，不记诊断。</summary>
+        [Fact]
+        public void Load_JsonNull_ReplacesLedgerWithEmpty_WithoutWarning()
         {
             var f = NewFixture();
 
-            var ex = Record.Exception(() => f.Persistable.Load(
-                new JsonObjectBuilder().Add("pending_loot", new JsonString("nope")).Build()));
+            var ex = Record.Exception(() => f.Persistable.Load(JsonNull.Instance));
 
             Assert.Null(ex);
             Assert.Empty(f.World.Host.PendingLootSnapshot());
+            Assert.Empty(f.Diagnostics.Warnings);
+        }
+
+        /// <summary>合法的空表 <c>{"pending_loot": []}</c> 仍是"归零重建"：清空既有台账，不记诊断。</summary>
+        [Fact]
+        public void Load_EmptyPendingLootArray_ReplacesLedgerWithEmpty_WithoutWarning()
+        {
+            var f = NewFixture();
+
+            f.Persistable.Load(Section());
+
+            Assert.Empty(f.World.Host.PendingLootSnapshot());
+            Assert.Empty(f.Diagnostics.Warnings);
         }
 
         // ---- 2. 元素级坏形状：丢弃该条 + 一条 Warn，合法条目保留 ----
@@ -261,22 +271,34 @@ namespace Tests.Carriers.Gobj
             Assert.Empty(f.Diagnostics.Warnings);
         }
 
-        // ---- 4. count<=0：Load 抛 ArgumentOutOfRangeException，既有台账不变（与类型注释"绝不抛"相悖，待设计层确认） ----
+        // ---- 4. count 非法（ADR-0125）：丢弃该条 + 一条 Warn，Load 不抛，其余合法条目保留 ----
 
         [Theory]
         [InlineData(0)]
         [InlineData(-3)]
-        public void Load_ItemCountNotPositive_ThrowsArgumentOutOfRange_AndKeepsExistingLedger(int count)
+        public void Load_ItemCountNotPositive_DiscardsThatEntryOnly_WithOneWarning(int count) =>
+            AssertOnlyGoodEntrySurvives_WithOneWarning(NewFixture(),
+                Entry("origin.sample_h11_bad", Item(new JsonString(Ore.Value), new JsonNumber(count))));
+
+        [Fact]
+        public void Load_ItemCountBeyondIntRangeOrFractional_DiscardsThatEntryOnly_WithOneWarning()
+        {
+            // (int) 强转对超范围 / 小数的结果依赖平台（x64 回绕成 int.MinValue），按"非法计数"统一丢弃。
+            AssertOnlyGoodEntrySurvives_WithOneWarning(NewFixture(),
+                Entry("origin.sample_h11_bad", Item(new JsonString(Ore.Value), JsonNumber.FromInt64((long)int.MaxValue + 1))));
+            AssertOnlyGoodEntrySurvives_WithOneWarning(NewFixture(),
+                Entry("origin.sample_h11_bad", Item(new JsonString(Ore.Value), new JsonNumber(2.5))));
+        }
+
+        [Fact]
+        public void Load_PositiveCountAtIntMax_IsAccepted()
         {
             var f = NewFixture();
-            var before = Capture(f);
 
-            var ex = Record.Exception(() => f.Persistable.Load(Section(
-                Entry(GoodOrigin, GoodItem()),
-                Entry("origin.sample_h11_bad", Item(new JsonString(Ore.Value), new JsonNumber(count))))));
+            f.Persistable.Load(Section(Entry(GoodOrigin, Item(new JsonString(Ore.Value), new JsonNumber(int.MaxValue)))));
 
-            Assert.IsType<ArgumentOutOfRangeException>(ex);
-            Assert.Equal(before, Capture(f));
+            Assert.Equal("origin.sample_h11_good=item.sample_h11_orex" + int.MaxValue, Capture(f));
+            Assert.Empty(f.Diagnostics.Warnings);
         }
     }
 }

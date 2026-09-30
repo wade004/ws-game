@@ -109,3 +109,9 @@ Item.EquipmentPersistable.Load` 曾经的同一类缺陷成因相同（见 `core
 - 不做离散战斗模式（`combat_mode_override`）相关的任何难度联动——ADR-0013 离散时间模型现已接线
   （见 `core/gameplay/encounter/README.md`/`GameplayAssembly` 判断记录），但本模块（难度档位）
   与该覆盖字段没有交集，08/06 文档均未要求二者联动，不是遗留限制。
+
+## 判断记录（`DifficultyHost.Load` 的 `scope` 只认枚举名，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+同类写法：`scope` 用 `Enum.TryParse` 时数字串会被解析成（可能未定义的）`DifficultyScope`。现只认枚举名；其余按既有
+"无法解析的文本"口径处理——`CurrentScope` 保持 `null`，其余字段照常恢复（不抛，与该字段此前对非法文本的宽容口径一致）。
+用例 `ADR0125_DifficultyLoadScopeEnumTests`。

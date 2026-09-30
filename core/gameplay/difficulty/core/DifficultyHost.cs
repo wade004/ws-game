@@ -213,6 +213,8 @@ namespace Core.Gameplay.Difficulty
             }
 
             if (obj.TryGetValue("scope", out var scopeValue) && scopeValue is JsonString scopeStr
+                // ADR-0125 第三批：只认枚举名（Enum.TryParse 会把数字串解析成未定义的 DifficultyScope 值）。
+                && Enum.IsDefined(typeof(DifficultyScope), scopeStr.Value)
                 && Enum.TryParse<DifficultyScope>(scopeStr.Value, out var scope))
             {
                 CurrentScope = scope;

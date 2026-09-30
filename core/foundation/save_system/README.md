@@ -560,3 +560,9 @@ JSON 字符串验证——本条约定同样适用于 `ISettingsStore` 的设置
 以及返回置位副本的 `WithSceneRouteFailure(string)`。存档系统自身产出的结果两字段恒为默认值；只有外壳
 （`presentation/shell` 的 `ShellHost.LoadGame`）在读档成功、场景路由被拒绝时置位，用于区分"读档成功且场景已开始
 加载"与"读档成功但场景没切成"。`Status` 不受影响（读档仍算成功）。私有构造函数增加的参数不属公开 ABI。
+
+## 判断记录（`SettingsStore.Load` 版本号超 int 范围按文件损坏处理，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`settings_version` 超出 `int` 范围（如 `2^32 + 2`）时，此前 `(int)versionLong` 截断回绕成小版本号，把一份"超前版本"
+误当旧版本去跑迁移链。现与 `SaveSystem.TryGetInt` 同口径：范围外按文件损坏处理，走既有的"损坏退化为空设置"分支
+（返回空对象，不触发任何迁移，不抛异常）。用例 `SettingsStoreVersionOverflowReproTests`。不改公开签名。

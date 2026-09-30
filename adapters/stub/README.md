@@ -42,3 +42,11 @@ engine.FileSystem.WriteTextAtomic("save/slot1.json", "{}");
 被测对象按需注入 `engine.Clock`、`engine.FileSystem` 等具体桩实例（各桩类型上还暴露了
 接口之外的测试专用方法，如 `StubClock.Advance`、`StubInput.Press`，直接使用具体类型即可
 调用）。
+
+## 判断记录（`StubSpatialQuery.QueryShape(Line)` 改为矩形带口径，2026-10-01，行为收紧，[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+此前按"点到线段距离 <= width/2 + r"判定（胶囊，端点处是圆头），与 05 §3.5 及 `ShapeGeometry.Contains` 的矩形带不一致：
+零半径实体落在端面外 <= width/2 处被误命中，带半径实体在端面外 gap > r 处也被误命中。现为：实体中心落在带内（直接复用
+`ShapeGeometry.Contains`，闭区间）即命中；带半径实体另按"圆与矩形带相交"（局部坐标下圆心到带的最近点距离 <= r，同本桩
+`Rect` 口径）判定。跨实现一致性用例 `T_H12_ShapeGeometryBoundaryConsistencyTests.QueryShape_ForPointEntities_*`
+新增 `line` 一支并改为每个点对着自己的形状比对；端面用例 `ADR0125_StubSpatialQueryLineBandTests`。

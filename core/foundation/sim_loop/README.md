@@ -316,3 +316,10 @@ sim_loop/
 阶段 8 的既有时序契约，只是给处理器多一个只读判断依据；不改 `Tick` 的异常语义（不加 try/finally
 强行保证阶段 8 一定跑），阶段内异常仍会中止整拍——本次改动消灭的是触发源，不是掩盖阶段异常本身
 这一既有脆弱性。
+
+## 判断记录（`IWorldSim.RemoveEntityImmediately` 回滚一次刚完成的 `AddEntity`，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`IWorldSim` 新增默认接口成员 `bool RemoveEntityImmediately(Id)`（纯加法，既有实现无需改动；默认实现退化为
+`MarkForDestruction` 并返回 `false`）。`WorldSim` 覆写：立即从集合移除实体、清待销毁标记、`Enqueue` 一条
+`EntityDestroyedEvent`，返回是否真移除。只用于"创建流程半途失败、撤销本次创建"（`CreatureFactory.Spawn`），
+正常生命周期结束仍走 `MarkForDestruction` + 阶段 8。不回退 id 序号。

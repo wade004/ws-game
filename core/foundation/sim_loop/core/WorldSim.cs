@@ -363,6 +363,24 @@ namespace Core.Foundation.SimLoop
             _bus.Enqueue(new EntityCreatedEvent(entity.EntityId, entity.Kind, displayId));
         }
 
+        /// <summary>见 <see cref="IWorldSim.RemoveEntityImmediately"/>（ADR-0125 第三批）：与 <see cref="Tick"/> 阶段 8
+        /// 对待销毁实体的处理同一套动作（先 <c>Enqueue</c> <see cref="EntityDestroyedEvent"/>、标记 Destroyed、移出
+        /// <see cref="_entities"/>），区别只是立即执行，并顺手清掉可能存在的待销毁标记。ID 序号不回退（序号只增不减，
+        /// 已分配的 id 永不复用）。</summary>
+        public bool RemoveEntityImmediately(Id id)
+        {
+            if (!_entities.TryGetValue(id, out var entity))
+            {
+                return false;
+            }
+
+            _bus.Enqueue(new EntityDestroyedEvent(id));
+            entity.Lifecycle = EntityLifecycle.Destroyed;
+            _entities.Remove(id);
+            _pendingDestruction.Remove(id);
+            return true;
+        }
+
         public Id AllocateEntityId(string kind)
         {
             if (string.IsNullOrEmpty(kind))

@@ -205,7 +205,8 @@ namespace Core.Foundation.AppLifecycle
 
         private static AppState ParseAppState(string value)
         {
-            if (Enum.TryParse<AppState>(value, out var state))
+            // ADR-0125 第三批：只认枚举名（Enum.TryParse 会把数字串解析成任意 AppState 值，包括未定义的）。
+            if (value != null && Enum.IsDefined(typeof(AppState), value) && Enum.TryParse<AppState>(value, out var state))
             {
                 return state;
             }

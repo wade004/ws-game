@@ -1306,6 +1306,8 @@ namespace Core.Carriers.Unit
             speed = spN.Value;
 
             if (args.TryGetValue("blocking", out var bl) && bl is JsonString blS &&
+                // ADR-0125 第三批：只认枚举名（数字串 / 未定义数字按"无法解析 → 保持默认 Stop"处理）。
+                Enum.IsDefined(typeof(DisplacementBlockingPolicy), blS.Value) &&
                 Enum.TryParse<DisplacementBlockingPolicy>(blS.Value, out var parsedBlocking))
             {
                 blocking = parsedBlocking;
@@ -1740,6 +1742,8 @@ namespace Core.Carriers.Unit
         private static MoveMode ReadMode(JsonObject args, MoveMode fallback)
         {
             if (args.TryGetValue("mode", out var modeValue) && modeValue is JsonString text &&
+                // ADR-0125 第三批：只认枚举名（数字串 / 未定义数字按"无法解析 → 回退 fallback"处理）。
+                Enum.IsDefined(typeof(MoveMode), text.Value) &&
                 Enum.TryParse<MoveMode>(text.Value, out var mode))
             {
                 return mode;

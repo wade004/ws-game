@@ -157,3 +157,8 @@ app_lifecycle/
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（`AppStateMachineConfig.FromDefinitions` 主状态名只认枚举名，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+`kind: main` 行的 `from`/`to` 用 `Enum.TryParse` 解析，数字串（含未定义数字）会被当作 `AppState` 写进转移表。现只认
+枚举名，其余抛 `ArgumentException`（与"不是合法枚举名"同一口径）。用例 `ADR0125_AppStateNameParsingTests`。

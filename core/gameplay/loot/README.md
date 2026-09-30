@@ -742,3 +742,11 @@ loot/
   经这两条路径产出的货币"堆叠"仍是普通 `ItemStack`（`TemplateId` 落在 `econ` 域），若调用方绕开
   `PickUp`、自行处理这些堆叠（如直接 `IInventoryHost.AddItem`），不会被本任务的货币拦截逻辑覆盖；
   本任务只保证经 `LootHost.PickUp` 这一条唯一拾取入口的货币条目不进背包。
+
+## 判断记录（`DroppedLootPersistable.Load` 原子性，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+此前"先 `ClearDroppedExcept`（销毁既有掉落）、后 `RestoreDropped`"，快照元素 `entityId` 与世界里的**非掉落物**实体
+（玩家、生物……）重名时，`RestoreDropped` 内 `AddEntity` 才抛错，既有掉落早已被销毁。现把该冲突放进"校验先于提交"：
+全部元素解析并确认不与世界里的非掉落物实体冲突后才 `ClearDroppedExcept` + `RestoreDropped`；冲突抛
+`InvalidOperationException`，`ActiveLootIds`、世界实体集合与 `Save()` 均与 Load 前逐项相等。与既有掉落物同 id 仍是合法的
+"原地覆写"，不算冲突。用例 `ADR0125_DroppedLootPersistableAtomicLoadTests`。

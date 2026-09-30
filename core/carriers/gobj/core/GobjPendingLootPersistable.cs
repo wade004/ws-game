@@ -26,8 +26,14 @@ namespace Core.Carriers.Gobj
     /// 判断记录——字段名与旧存档兼容：<see cref="Save"/> 输出 <c>{ "pending_loot": [...] }</c>
     /// （而不是把数组直接当段体），预留同一段未来追加其它字段的空间；<see cref="Load"/> 对
     /// <c>data is JsonNull</c>（这段在存档里整体不存在，即 CHANGELOG 里"旧存档无该字段视为空"）
-    /// 与"存在但 <c>pending_loot</c> 键缺失/类型不对"两种情况都当作空表处理，不抛异常——旧版本
-    /// 存档（本字段引入之前产生的）读档时不会因为缺这一段而失败。
+    /// 当作空表处理，不抛异常——旧版本存档（本字段引入之前产生的）读档时不会因为缺这一段而失败。
+    /// </para>
+    /// <para>
+    /// ADR-0125 第三批（坏形状口径统一为类注释所述的"丢弃并记 Warn，绝不抛"）：根不是对象、缺
+    /// <c>pending_loot</c>、<c>pending_loot</c> 不是数组这三种<b>段本身坏形状</b>，此前静默把既有台账替换成空表
+    /// （玩家的待补发余量无声蒸发）；现在<b>保持既有台账不变</b>并记一条 Warn。条目内 <c>count</c> 非正数、
+    /// 非整数或超出 <see cref="int"/> 范围同样丢弃该条并记 Warn（此前 <c>ItemStack</c> 构造抛
+    /// <see cref="ArgumentOutOfRangeException"/>，与"绝不抛"相悖）。
     /// </para>
     /// <para>
     /// CR150-02 根治（architecture/落地计划/audit-3224ca1-20260908，P2）：条目键从
@@ -84,37 +90,48 @@ namespace Core.Carriers.Gobj
         {
             var result = new Dictionary<Id, IReadOnlyList<ItemStack>>();
 
-            if (data is JsonObject obj
-                && obj.TryGetValue("pending_loot", out var raw)
-                && raw is JsonArray array)
+            if (data is JsonNull)
             {
-                foreach (var entryRaw in array)
+                // 旧存档没有这段：视为"无待补发余量"，归零重建，不记诊断（判断记录见类型顶部）。
+                _host.RestorePendingLoot(result);
+                return;
+            }
+
+            if (!(data is JsonObject obj)
+                || !obj.TryGetValue("pending_loot", out var raw)
+                || !(raw is JsonArray array))
+            {
+                // ADR-0125：段本身坏形状——保持既有台账不变，记一条 Warn（此前静默替换为空表）。
+                _diagnostics.Warn(
+                    $"{SectionKey} 段不是 {{ \"pending_loot\": [...] }} 形状的 JSON 对象（实际种类：{data.Kind}，" +
+                    "或缺 pending_loot / pending_loot 不是数组），已安全丢弃整段，既有待补发余量台账保持不变");
+                return;
+            }
+
+            foreach (var entryRaw in array)
+            {
+                if (!(entryRaw is JsonObject entryObj))
                 {
-                    if (!(entryRaw is JsonObject entryObj))
-                    {
-                        _diagnostics.Warn($"{SectionKey} 段的一个元素不是 JSON 对象，已安全丢弃该条");
-                        continue;
-                    }
+                    _diagnostics.Warn($"{SectionKey} 段的一个元素不是 JSON 对象，已安全丢弃该条");
+                    continue;
+                }
 
-                    if (!TryResolveOriginKey(entryObj, out var originKey))
-                    {
-                        continue;
-                    }
+                if (!TryResolveOriginKey(entryObj, out var originKey))
+                {
+                    continue;
+                }
 
-                    if (!TryParseItems(entryObj, originKey, out var items))
-                    {
-                        continue;
-                    }
+                if (!TryParseItems(entryObj, originKey, out var items))
+                {
+                    continue;
+                }
 
-                    if (items.Count > 0)
-                    {
-                        result[originKey] = items;
-                    }
+                if (items.Count > 0)
+                {
+                    result[originKey] = items;
                 }
             }
 
-            // data is JsonNull（旧存档没有这段）、或段存在但字段缺失/类型不对：result 保持空表，
-            // 视为"无待补发余量"，不抛异常（判断记录见类型顶部）。
             _host.RestorePendingLoot(result);
         }
 
@@ -182,7 +199,16 @@ namespace Core.Carriers.Gobj
                     return false;
                 }
 
-                items.Add(new ItemStack(templateId, (int)countNumber.Value));
+                // ADR-0125：count 必须是 [1, int.MaxValue] 内的整数——<see cref="ItemStack"/> 构造对 count<=0 抛
+                // ArgumentOutOfRangeException，(int) 强转又会把超范围值回绕成任意整数；都按"物品格式不合法"丢弃该条。
+                if (!countNumber.TryGetInt64(out var countLong) || countLong < 1 || countLong > int.MaxValue)
+                {
+                    _diagnostics.Warn($"{SectionKey} 段条目 \"{originKey}\" 中有一件物品的 count 不是 1..{int.MaxValue} 的整数，已安全丢弃该条整条记账");
+                    items.Clear();
+                    return false;
+                }
+
+                items.Add(new ItemStack(templateId, (int)countLong));
             }
 
             return true;

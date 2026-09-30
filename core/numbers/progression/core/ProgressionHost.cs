@@ -316,6 +316,9 @@ namespace Core.Numbers.Progression
             _levelSync?.Invoke(unitId, startLevel);
         }
 
+        /// <summary>见 <see cref="IProgressionHost.UnregisterUnit"/>（ADR-0125 第三批）。</summary>
+        public void UnregisterUnit(Id unitId) => _units.Remove(unitId.Value);
+
         public int GetLevel(Id unitId) => GetUnitOrThrow(unitId).Level;
 
         public long GetXp(Id unitId) => GetUnitOrThrow(unitId).Xp;
@@ -364,6 +367,15 @@ namespace Core.Numbers.Progression
                     $"单位 \"{unitId}\" 已达曲线 \"{unit.Curve.Id}\" 满级（{effectiveMaxLevel}），" +
                     $"丢弃经验 {amount}（来源 \"{sourceId}\"）");
                 return 0;
+            }
+
+            // ADR-0125 第三批（ProgressionHost 缺陷①）：Xp 是 long，累加溢出时 unchecked 回绕成负数且事件已发出。
+            // 必须在发布事件、改动任何状态之前拒绝：溢出 ⇔ amount > long.MaxValue − 当前 Xp（amount 已保证 ≥ 0）。
+            if (amount > long.MaxValue - unit.Xp)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(amount), amount,
+                    $"单位 \"{unitId}\" 当前经验 {unit.Xp} 再加 {amount} 会超出 long 范围，已拒绝（状态未改动）");
             }
 
             _bus.PublishImmediate(new XpGainedEvent(unitId, sourceId, amount));
@@ -503,6 +515,25 @@ namespace Core.Numbers.Progression
                     $"读档等级 {level} 超出曲线 \"{curveId}\" 的范围 [1,{curve.MaxLevel}]", nameof(level));
             }
 
+            // ADR-0125 第三批（ProgressionHost 缺陷④）：xp 在任何状态变更前校验——负数，或等级低于有效满级时
+            // 已达本级升级门槛（正常游玩里达到门槛即升级，存档里不会出现这种状态），一律按存档损坏拒绝。
+            // 门槛 ≤ 0 表示该级没有后续升级（与 AddXpCore 循环里的 xpToNext <= 0 判据一致），不设上限。
+            if (xp < 0)
+            {
+                throw new FormatException($"读档经验 {xp} 不能为负（单位 \"{unitId}\"）");
+            }
+
+            if (level < GetEffectiveMaxLevel(curve))
+            {
+                var xpToNext = curve.Entries[level - 1].XpToNext;
+                if (xpToNext > 0 && xp >= xpToNext)
+                {
+                    throw new FormatException(
+                        $"读档经验 {xp} 已达等级 {level} 的升级门槛 {xpToNext}（单位 \"{unitId}\"，曲线 \"{curveId}\"），" +
+                        "存档损坏或被篡改");
+                }
+            }
+
             var unit = new UnitState { Curve = curve, Level = level, Xp = xp };
             _units[unitId.Value] = unit;
             ApplyGrowth(unitId, unit);
@@ -635,8 +666,30 @@ namespace Core.Numbers.Progression
         }
 
         /// <summary>四舍五入到 <see cref="long"/>（<see cref="MidpointRounding.AwayFromZero"/>），
-        /// 负值钳为 0——与本方法引入之前 <see cref="GrantFromSource"/> 的舍入方式逐位一致。</summary>
-        private static long RoundXp(double raw) => raw <= 0 ? 0L : (long)Math.Round(raw, MidpointRounding.AwayFromZero);
+        /// 负值钳为 0——与本方法引入之前 <see cref="GrantFromSource"/> 的舍入方式逐位一致。
+        /// <para>
+        /// ADR-0125 第三批（ProgressionHost 缺陷③）：有限但 ≥ 2^63 的值（以及 NaN/+Infinity）此前直接
+        /// <c>(long)</c> 强转，结果依赖平台（x64 得 <c>long.MinValue</c>，饱和转换的平台得
+        /// <c>long.MaxValue</c>）。现在显式抛 <see cref="ArgumentOutOfRangeException"/>（参数名 <c>raw</c>），
+        /// 不再借平台行为漏成下游"经验增量不能为负"或静默满级。</para></summary>
+        private static long RoundXp(double raw)
+        {
+            if (raw <= 0)
+            {
+                return 0L;
+            }
+
+            // 9223372036854775808.0 == 2^63，半开区间上界：小于它的 double 都能安全转换（最大为 2^63 − 1024）。
+            if (double.IsNaN(raw) || raw >= 9223372036854775808.0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(raw),
+                    raw.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "经验折算结果超出 long 范围（或不是数），已拒绝");
+            }
+
+            return (long)Math.Round(raw, MidpointRounding.AwayFromZero);
+        }
 
         private XpSourceInfo GetXpSourceOrThrow(Id xpSourceId)
         {

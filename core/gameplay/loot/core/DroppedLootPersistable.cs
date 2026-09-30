@@ -80,6 +80,22 @@ namespace Core.Gameplay.Loot
                 restoredIds.Add(entity.EntityId);
             }
 
+            // ADR-0125 第三批（DroppedLootPersistable.Load 非原子）：修复前"先 ClearDroppedExcept（销毁既有掉落）、
+            // 后 RestoreDropped"，快照某元素的 entityId 与世界里的非掉落物实体（玩家、生物……）重名时，
+            // RestoreDropped 内 AddEntity 才抛 InvalidOperationException，此时既有掉落早已被销毁。
+            // 现在把这一类冲突也放进"校验先于提交"：全部元素校验通过后才 Clear + Restore。
+            // 世界里同 id 的实体若本身就是掉落物，属于 RestoreDropped 的"原地覆写"路径，不算冲突。
+            foreach (var entity in entities)
+            {
+                var occupant = _lootHost.FindWorldEntity(entity.EntityId);
+                if (occupant != null && !(occupant is DroppedLootEntity))
+                {
+                    throw new InvalidOperationException(
+                        $"{SectionKey} 段的掉落物 entityId \"{entity.EntityId}\" 与世界里已有的非掉落物实体（{occupant.Kind}）重名，" +
+                        "已拒绝整段读档（既有地面掉落物保持不变）");
+                }
+            }
+
             _lootHost.ClearDroppedExcept(restoredIds);
 
             var maxSequence = 0;

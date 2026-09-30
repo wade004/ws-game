@@ -83,6 +83,14 @@ namespace Core.Numbers.Progression
                         "player.progression 段的数据不是 {curve_id, level, xp} 形状的 JSON 对象");
                 }
 
+                // ADR-0125 第三批（ProgressionHost 缺陷②）：level 是 long，(int) 强转会把 2^32+1 回绕成 1
+                // "读档成功"却读回错的等级——超出 int 范围按形状非法处理。
+                if (level < int.MinValue || level > int.MaxValue)
+                {
+                    throw new FormatException(
+                        $"player.progression 段的 level 超出 int 范围：{level}");
+                }
+
                 _host.RestoreState(_unitId, new Id(curveIdStr.Value), (int)level, xp);
             }
         }

@@ -368,3 +368,15 @@ CORE_170_02_ProgressionLevelSyncTests`（真实 `GameplayAssembly` 多级 `AddXp
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（ProgressionHost 四处缺陷，2026-10-01，行为收紧，[ADR-0125](../../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
+
+① `AddXp` 的 `Xp += amount` 会溢出回绕成负数：现在在发布 `xp_gained`、改动任何状态之前检查
+`amount > long.MaxValue - 当前 Xp`，溢出抛 `ArgumentOutOfRangeException`，状态与事件均不变。
+② `ProgressionPersistable.Load` 对 `level` 的 `(int)` 强转把 `2^32+1` 回绕成 1：超出 `int` 范围抛 `FormatException`。
+③ `RoundXp` 对有限但 ≥ 2^63（及 NaN/+Infinity）的值依赖平台（x64 得 `long.MinValue`，被下游"经验增量不能为负"
+误拦；饱和转换平台静默满级）：现显式抛 `ArgumentOutOfRangeException`（参数名 `raw`）；**负结果钳 0 的既有行为保留**。
+④ `RestoreState`（及经它的 `Load`）在任何状态变更前校验 xp：负数、或等级低于有效满级且 `xp >= 本级升级门槛`
+（门槛 ≤ 0 视为无后续升级，不设上限）抛 `FormatException`——正常游玩到门槛即升级，存档里不会出现这种状态。
+另新增默认接口成员 `IProgressionHost.UnregisterUnit`（`ProgressionHost` 覆写），供创建流程回滚用。
+用例 `ProgressionBatch3DefectTests`。

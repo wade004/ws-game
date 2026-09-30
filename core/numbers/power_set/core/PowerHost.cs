@@ -67,20 +67,38 @@ namespace Core.Numbers.PowerSet
         /// 与本类型既有的"上限变化经 <see cref="RecomputeMax"/> 显式重算，不隐式在定义变化时
         /// 联动"惯例一致（调用方若需要新定义的上限立即生效，仍应显式对受影响单位调用
         /// <see cref="RecomputeMax"/>，本方法不越权自动遍历全部已注册单位）。
+        /// <para>
+        /// ADR-0125 第三批（PowerHost.Reload 非原子）：此前先 <c>Clear()</c> 旧表、再逐个加入新定义，新列表里
+        /// 有 null 元素 / 重复 id / 枚举本身抛异常时，旧表已被清空，之后为旧类型注册单位会抛"未知资源类型"。
+        /// 现在先把新定义全部解析进一张新表，<b>全部成功后</b>才替换 <see cref="_definitions"/>；中途任何失败都
+        /// 原样向上抛，旧表逐项不变。</para>
         /// </summary>
         public void Reload(IEnumerable<PowerTypeDefinition> powerTypes)
         {
+            var fresh = ParseDefinitions(powerTypes);
             _definitions.Clear();
-            LoadDefinitions(powerTypes);
+            foreach (var pair in fresh)
+            {
+                _definitions.Add(pair.Key, pair.Value);
+            }
         }
 
         private void LoadDefinitions(IEnumerable<PowerTypeDefinition> powerTypes)
+        {
+            foreach (var pair in ParseDefinitions(powerTypes))
+            {
+                _definitions.Add(pair.Key, pair.Value);
+            }
+        }
+
+        private static Dictionary<Id, PowerTypeDefinition> ParseDefinitions(IEnumerable<PowerTypeDefinition> powerTypes)
         {
             if (powerTypes == null)
             {
                 throw new ArgumentNullException(nameof(powerTypes));
             }
 
+            var parsed = new Dictionary<Id, PowerTypeDefinition>();
             foreach (var definition in powerTypes)
             {
                 if (definition == null)
@@ -88,13 +106,15 @@ namespace Core.Numbers.PowerSet
                     throw new ArgumentException("资源类型定义列表不能包含 null 元素", nameof(powerTypes));
                 }
 
-                if (_definitions.ContainsKey(definition.Id))
+                if (parsed.ContainsKey(definition.Id))
                 {
                     throw new ArgumentException($"资源类型 \"{definition.Id}\" 重复登记", nameof(powerTypes));
                 }
 
-                _definitions.Add(definition.Id, definition);
+                parsed.Add(definition.Id, definition);
             }
+
+            return parsed;
         }
 
         // -----------------------------------------------------------------

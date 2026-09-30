@@ -80,6 +80,23 @@ namespace Core.Foundation.SimLoop
         /// tick 内外均可调用；重复 id 抛 <see cref="System.InvalidOperationException"/>。</summary>
         void AddEntity(Entity entity);
 
+        /// <summary>
+        /// ADR-0125 第三批新增（默认接口成员，纯加法，既有实现无需改动即可编译；<see cref="WorldSim"/> 显式覆盖）：
+        /// <b>回滚一次刚完成的 <see cref="AddEntity"/></b>——立即同步把 <paramref name="id"/> 对应的实体从集合里移除
+        /// （<see cref="GetEntity"/> 随即返回 null、<see cref="EntityCount"/> 减一、不再处于待销毁状态），并对它
+        /// <c>Enqueue</c> 一条 <c>entity.destroyed</c> 事件，使已经（或即将，<c>entity.created</c> 此时多半还在队列里）
+        /// 对它做过登记的订阅者（空间索引、AI 外壳、光环等）走自己既有的"销毁即清理"路径。只用于"创建流程做到一半失败，
+        /// 撤销本次创建"（如 <c>CreatureFactory.Spawn</c> 的原子性回滚），正常的实体生命周期结束仍走
+        /// <see cref="MarkForDestruction"/> + <see cref="Tick"/> 阶段 8。返回是否真的移除了实体（id 不存在返回 false）。
+        /// 默认实现（未覆盖的既有实现，如测试替身）退化为 <see cref="MarkForDestruction"/> 并返回 <c>false</c>：
+        /// 实体要等到下一次 <see cref="Tick"/> 阶段 8 才移除，不具备"立即"语义。
+        /// </summary>
+        bool RemoveEntityImmediately(Id id)
+        {
+            MarkForDestruction(id);
+            return false;
+        }
+
         /// <summary>按类型生成一个确定性的运行期实体 id：<c>"&lt;kind&gt;.inst_&lt;序号&gt;"</c>，
         /// 序号从 1 起按 <paramref name="kind"/> 分别递增。</summary>
         Id AllocateEntityId(string kind);

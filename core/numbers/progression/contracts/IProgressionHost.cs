@@ -23,6 +23,16 @@ namespace Core.Numbers.Progression
         void RegisterUnit(Id unitId, Id curveId, int startLevel = 1);
 
         /// <summary>
+        /// ADR-0125 第三批新增（默认接口成员，纯加法）：撤销 <see cref="RegisterUnit"/> 的登记，供创建流程失败时回滚
+        /// （如 <c>CreatureFactory.Spawn</c> 的原子性回滚）。未登记的 <paramref name="unitId"/> 静默忽略（幂等，同
+        /// <c>IStatHost.UnregisterUnit</c>）。默认实现为空操作，不强制既有实现迁移；<c>ProgressionHost</c> 显式覆盖。
+        /// 不撤销 <see cref="StatModifierWriter"/> 已写入属性宿主的成长修正——那些修正随属性宿主对该单位的注销一并消失。
+        /// </summary>
+        void UnregisterUnit(Id unitId)
+        {
+        }
+
+        /// <summary>
         /// 消费方反馈第 36 条根治：按 <paramref name="unitId"/> 当前已注册的等级，重新聚合
         /// "2 级到当前等级"的曲线成长量并整体写回属性宿主（来源 <c>prog.growth</c>）——内部复用与
         /// <see cref="AddXp"/> 升级路径、<see cref="RestoreState"/> 读档路径末尾完全相同的一段聚合

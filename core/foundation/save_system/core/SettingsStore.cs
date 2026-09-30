@@ -78,6 +78,13 @@ namespace Core.Foundation.SaveSystem
                 return ExtractSettings(envelope);
             }
 
+            if (versionLong < int.MinValue || versionLong > int.MaxValue)
+            {
+                // 版本号超出 int 范围：与 SaveSystem.TryGetInt 同口径，按文件损坏处理（退化为空设置），
+                // 不做 (int) 截断回绕成小版本号而误触发迁移（ADR-0125，第三批探针缺陷）。
+                return EmptyObject();
+            }
+
             var version = (int)versionLong;
             if (version < _options.CurrentVersion)
             {
