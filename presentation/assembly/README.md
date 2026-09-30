@@ -606,5 +606,15 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 
 装配根改用 `ShellHost` 新增的十一参重载，注入一份 `PresentationDiagnosticsRecorder`，读档后场景路由被拒绝的
 警告经 `Shell.Diagnostics` 读取；本装配根不为它再新增 `ShellDiagnostics` 转发属性（`Shell` 本身就是具体类型
-`ShellHost`）。**未做**：把 `Shell.Diagnostics` 接入 ADR-0042 的引擎控制台轮询集线器属于 `adapters/unity`
-侧后续项，本次不动。
+`ShellHost`）。（接线已在 ADR-0121 收口补齐，见下一条判断记录。）
+
+## 判断记录（`CameraHost`/`ShellHost` 共用装配层共享诊断，2026-10-01，[ADR-0121](../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 收口，D6/D10）
+
+装配根在构造 `CameraHost` 之前建一份 `PresentationDiagnosticsRecorder`（`sharedPresentationDiagnostics`），同时传给
+`CameraHost` 五参重载、`CompositeFeedbackSink`（即 `FeedbackSinkDiagnostics`）与 `ShellHost` 十一参重载：
+`Camera.Diagnostics`、`Shell.Diagnostics`、`FeedbackSinkDiagnostics` 是**同一实例**。取舍：`adapters/unity` 的
+`PresentationAssemblyDiagnosticsForwarder`（ADR-0042）已按五源轮询 `FeedbackSinkDiagnostics`，共用实例后相机目标
+丢失与读档场景路由失败自动进入引擎控制台，不需要给该转发器构造函数加参数或新增来源；代价是三处消息共处一个
+`Warnings` 列表（消息文本各自带来源上下文：相机跟随目标丢失 / `ShellHost.LoadGame` / `shake_camera`），不再有"某子系统
+`Warnings` 只含自己产生的消息"的隔离性。调用方经 `CameraHostOptions`/自建 `CameraHost` 时不受影响。用例：
+`tests/SharedDiagnosticsWiringTests.cs`（同一实例断言 + 相机丢失目标 / 读档路由失败各一条落在共享诊断上）。

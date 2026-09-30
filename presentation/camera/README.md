@@ -78,7 +78,7 @@ camera/
    诊断出口经**新增构造重载** `CameraHost(camera, followTarget, bus, options, diagnostics)` 注入（不在既有四参构造上加
    可选参数），默认自建 `PresentationDiagnosticsRecorder`，经 `CameraHost.Diagnostics` 暴露。自定义
    `ICameraFollowTarget` 实现若不覆写 `TryGetPosition`，`GetPosition` 抛出的异常仍照旧向上传播（默认成员不吞异常）。
-   `PresentationAssembly` 尚未把共享诊断出口传给 `CameraHost`（待装配整合单接线），当前诊断落在 `Camera.Diagnostics`。
+   `PresentationAssembly` 已把装配层共享诊断（即 `FeedbackSinkDiagnostics`）经该重载传给 `CameraHost`（ADR-0121 收口接线，见 `presentation/assembly/README.md`），装配路径下 `Camera.Diagnostics` 与之同一实例。
    用例：`presentation/camera/tests/CameraFollowTargetLossTests.cs`。
 
 ## 契约缺口

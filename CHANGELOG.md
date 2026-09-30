@@ -458,15 +458,24 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-### 修复
-
-- **`ArchetypeRegistry.ApplyTo` 先全部校验再写**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 7 条，覆盖梳理 D7）：职业、种族、职业声明的天赋树全部解析成功后才调用任何 writer，未知职业/种族/天赋树在写入前抛 `ArgumentException`、writers 零调用（此前未知种族在职业基础属性与派生系数覆盖写出之后才抛，留下半应用状态）。同一单位重复 `ApplyTo` 在写入前抛 `InvalidOperationException`（仓库内唯一生产调用方 `RulesAssembly.RegisterUnit` 本就拒绝重复登记）。无签名变化。
-- **`InputMapHost.ImportBindings` 全量解析后再落地**（ADR-0121 第 8 条，覆盖梳理 D8）：任一条非法（未知动作、值非数组、元素非字符串、绑定格式非法）整批拒绝，全部动作的绑定与脏标记保持导入前状态（此前非法项之前的合法项已经生效）。异常类型不变。无签名变化。
-
 ### 新增
 
 - **手感设计文档集与 ADR-0113～0120**（设计层，文档类变更，无代码与签名变化）：新增 `architecture/手感设计/`（README + 00～07 共九份：手感总纲、输入与动作、移动与运动仲裁、攻击受击与命中、姿势与动画契约、手感档案与解析、手感实验室与验收、镜头与音画反馈）与八条 ADR——[ADR-0113](architecture/adr/0113-手感体系纳入框架判定型与呈现型两半拆分.md)（判定型/呈现型两半拆分）、[ADR-0114](architecture/adr/0114-技能结算新增时间线模式.md)（技能结算新增时间线模式，与目标选择式并存）、[ADR-0115](architecture/adr/0115-输入缓冲与动作时间线.md)（输入缓冲与动作时间线）、[ADR-0116](architecture/adr/0116-运动仲裁器与运动档案.md)（运动仲裁器与运动档案）、[ADR-0117](architecture/adr/0117-局部顿帧作为判定型手感.md)（局部顿帧）、[ADR-0118](architecture/adr/0118-手感档案分层解析与字段登记.md)（手感档案分层解析与字段登记）、[ADR-0119](architecture/adr/0119-姿势维度模型与标准姿势库.md)（姿势维度模型与标准姿势库）、[ADR-0120](architecture/adr/0120-手感实验室为框架交付物.md)（手感实验室为框架交付物）。受影响的 02/03/04/05/06/09/11/13/14 号文档的变更记录已加指针行，正文随落地切片同步。
 - **手感设计补装备与 UI 资产契约及实验室场景矩阵**（设计层，文档类变更，无代码与签名变化）：新增 `architecture/手感设计/08_装备与UI资产契约.md`（换装链路、装备资产包、界面皮肤包、导入校验与完整性报告），`06_手感实验室与验收.md` 补场景矩阵（2D/2.5D/3D × 目标选择式/动作式）与换装场景，并新增两条 ADR——[ADR-0122](architecture/adr/0122-手感实验室场景矩阵与跨场景不变量.md)（手感实验室场景矩阵与跨场景不变量）、[ADR-0123](architecture/adr/0123-装备资产包与界面皮肤包契约.md)（装备资产包与界面皮肤包契约）。受影响的 04/09/13/14 号文档的变更记录已加指针行，正文随落地切片同步。
+
+### 修复
+
+- **区域触发内的实体被销毁时补发离开事件**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 9 条，覆盖梳理 D9）：`AreaTriggerHost` 订阅 `entity.destroyed`，区内实体被销毁（含 `IWorldSim.ClearAll`）时对每个所在触发体补发 `reason=despawned` 的 `area.trigger_left` 并清"已进入"记录，此前 `AreaTriggerLeaveReason.Despawned` 从未发出、记录残留，`GetActiveTriggerIds` 持续报告已销毁实体，同 Id 再生成后进入还可能被残留记录吞掉 `area.trigger_entered`。死亡但实体仍存在不算离开；与卸载补发（`unloaded`）共存不重复。无签名变化。
+- **`ArchetypeRegistry.ApplyTo` 先全部校验再写**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 7 条，覆盖梳理 D7）：职业、种族、职业声明的天赋树全部解析成功后才调用任何 writer，未知职业/种族/天赋树在写入前抛 `ArgumentException`、writers 零调用（此前未知种族在职业基础属性与派生系数覆盖写出之后才抛，留下半应用状态）。同一单位重复 `ApplyTo` 在写入前抛 `InvalidOperationException`（仓库内唯一生产调用方 `RulesAssembly.RegisterUnit` 本就拒绝重复登记）。无签名变化。
+- **`InputMapHost.ImportBindings` 全量解析后再落地**（ADR-0121 第 8 条，覆盖梳理 D8）：任一条非法（未知动作、值非数组、元素非字符串、绑定格式非法）整批拒绝，全部动作的绑定与脏标记保持导入前状态（此前非法项之前的合法项已经生效）。异常类型不变。无签名变化。
+- **`VfxPlayer` 冷加载排队期间可 `Stop`**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 1 条，覆盖梳理 D1）：`Spawn` 在资源未就绪而排队时也返回可用句柄（占位句柄，与后端正值句柄不重叠），`Stop(占位句柄)` 取消排队使资源到达后不再补发、补发之后仍能停到那个粒子；加载失败/超时/已取消后再 `Stop` 安全忽略。`CompositeFeedbackSink` 因此冷热都登记句柄，`stop_vfx` 在加载完成前到达也生效（此前冷加载 `Spawn` 返回 null，停不掉）。冷加载 `Spawn` 由返回 null 改为返回占位句柄是行为变化；无签名变化。
+- **`SfxPlayer` 首次加载超时改按 `Update(dt)` 累计判定**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 2 条，覆盖梳理 D2）：超时截止由墙钟时间改为表现时钟（只由 `Update(dt)` 推进，与 `VfxPlayer` 同口径），累计 dt 等于阈值即到期，`FirstLoadTimeoutSeconds=0` 语义不变；暂停/慢帧/重负载下不再因真实时间流逝误判超时。无签名变化。
+- **`SfxPlayer` 层满时拒绝优先级更低的新音**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 3 条，覆盖梳理 D3）：新来者优先级严格低于该层全部在播实例时不淘汰任何实例——不播、返回空句柄、记一条诊断、计入丢弃计数；相等或更高仍淘汰"最低优先级中最老"；冷加载补播放走同一出口。此前低优先级新音会顶掉高优先级在播音。无签名变化。
+- **震屏缺失 preset 不再抛，记诊断并跳过**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 4 条，覆盖梳理 D4）：`shake_camera` 的 `profile_id` 语义定为"当前相机档 `shake_presets` 里的 preset id"（写入 `feedback.binding` 字段登记表描述，字段名不改）；`PresentationAssembly` 在无生效档或当前档无该 preset（典型：相位切档后）时向 `FeedbackSinkDiagnostics` 记一条警告并跳过本次震屏，同事件其它动作与后续派发照常，不再抛 `ArgumentException` 被吞成一条不带上下文的诊断。补事件→规则→震屏→相机、事件→顿帧两条端到端用例。无签名变化（`CameraHost.Shake` 抛出契约不变）。
+- **`ViewBinder` 逐视图异常隔离**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 5 条，覆盖梳理 D5）：`SyncAll`/`OnForwardableEvent`/`OnEntityDestroyed`/`OnSaveLoaded` 每个视图各自 `try/catch`，一个视图抛异常只记诊断、其余视图照常；同一实体连续逐帧失败只在每轮首帧记一条；`view.Destroy()` 失败仍从绑定表移除该实体并清位置缓存（此前残留）。无签名变化。
+- **相机跟随目标丢失时保持最后位置**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 6 条，覆盖梳理 D6）：被跟随实体销毁后，`CameraHost.Update` 不再每帧抛异常——继续向最后一次有效位置跟随并停在那里，每次丢失只记一条诊断，目标重现后自动继续跟随。有签名变化（仅新增）：`ICameraFollowTarget` 新增默认接口成员 `TryGetPosition(entityId, alpha, out position)`（旧实现不改也能编译；内置 `SimSnapshotFollowTarget`/`DelegateFollowTarget` 覆写为不抛）；`CameraHost` 新增五参构造重载注入诊断出口，旧四参构造原样保留。
+- **读档场景路由失败显式暴露**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 10 条，覆盖梳理 D10）：`ShellHost.LoadGame` 读档成功但场景路由被拒绝（`ArgumentException` 未知场景 / `InvalidOperationException` 状态不允许）时，读档仍算成功（`Status` 不变），但不再静默吞掉——`LoadResult` 新增只增字段 `SceneRouteFailed`/`SceneRouteError`（含目标地图 id 与异常消息）并向 `ShellHost.Diagnostics` 记一条警告。有签名变化（仅新增）：`LoadResult.SceneRouteFailed`/`SceneRouteError`/`WithSceneRouteFailure(string)`，`ShellHost` 新增带 `IPresentationDiagnostics` 的十一参构造重载，旧构造签名保留。
+- **相机与外壳的诊断接入装配层共享诊断**（[ADR-0121](architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 6、10 条的接线收口）：`PresentationAssembly` 把同一份 `PresentationDiagnosticsRecorder` 传给 `CameraHost`（五参重载）、`CompositeFeedbackSink` 与 `ShellHost`（十一参重载），`Camera.Diagnostics`/`Shell.Diagnostics`/`FeedbackSinkDiagnostics` 是同一实例；`adapters/unity` 既有的 ADR-0042 轮询转发（`PresentationAssemblyDiagnosticsForwarder` 已轮询 `FeedbackSinkDiagnostics`）无需改动即可把"相机跟随目标丢失""读档场景路由失败"转发到引擎控制台。三处消息共处一个 `Warnings` 列表。无签名变化。
 
 ## [1.91.0] - 2026-09-30
 

@@ -221,7 +221,10 @@ namespace Presentation.Assembly
         /// 构造期已经默认自建（或未来若注入则转发）的
         /// <see cref="Presentation.FeedbackBinder.Core.CompositeFeedbackSink.Diagnostics"/>——同
         /// <see cref="VfxDiagnostics"/>/<see cref="SfxDiagnostics"/> 一样是"接口类型的容器持有具体类型
-        /// 实例，装配根代为转发"这一惯例的第三个落点，不是新的取舍。</summary>
+        /// 实例，装配根代为转发"这一惯例的第三个落点，不是新的取舍。
+        /// <para>ADR-0121 起本实例同时是 <see cref="Camera"/>（<c>CameraHost.Diagnostics</c>，跟随目标丢失）
+        /// 与 <see cref="Shell"/>（<c>ShellHost.Diagnostics</c>，读档场景路由失败）的诊断出口，三者同一
+        /// 实例，adapters/unity 既有的五源轮询转发无需新增来源即可覆盖。</para></summary>
         public IPresentationDiagnostics FeedbackSinkDiagnostics { get; }
 
         public IWeaponStyleResolver WeaponStyle { get; }
@@ -409,7 +412,14 @@ namespace Presentation.Assembly
                     followTargetResolverOnReset: () => _playerId);
             }
 
-            Camera = new CameraHost(camera, followTarget, bus, cameraHostOptions);
+            // ADR-0121 第 6 条（D6）诊断接线：CameraHost（跟随目标丢失）与下方 ShellHost（读档场景路由失败）
+            // 与 CompositeFeedbackSink 共用同一个装配层共享 recorder = FeedbackSinkDiagnostics——
+            // adapters/unity 的 PresentationAssemblyDiagnosticsForwarder 已按五源轮询该 recorder，
+            // 不需要新增转发来源（也就不改转发器构造签名），Camera.Diagnostics/Shell.Diagnostics 与
+            // FeedbackSinkDiagnostics 是同一实例。代价：这三处的消息共处一个 Warnings 列表（消息文本自带
+            // 来源前缀，如 "CameraHost："/"ShellHost.LoadGame："/"shake_camera"）。
+            var sharedPresentationDiagnostics = new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder();
+            Camera = new CameraHost(camera, followTarget, bus, cameraHostOptions, sharedPresentationDiagnostics);
             if (opts.AutoConfigureCameraFromFirstProfile)
             {
                 var firstProfileRecord = registry.GetAll(CameraSchemas.Profile.Name).FirstOrDefault();
@@ -487,9 +497,9 @@ namespace Presentation.Assembly
 
             var flashProfileResolver = opts.FlashProfileResolver ?? (_ => FlashParams.Default);
             // ADR-0121 第 4 条（D4）：onShakeCamera 需要在当前相机档没有该 shake preset 时记诊断并跳过，
-            // 诊断要落在 sink 自己的 FeedbackSinkDiagnostics 上——这里显式建好同一份 recorder，
-            // 同时传给下面的 CompositeFeedbackSink（其构造期本就默认自建同类型 recorder，行为等价）。
-            var feedbackSinkDiagnostics = new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder();
+            // 诊断要落在 FeedbackSinkDiagnostics 上——该 recorder 已在相机装配处提前建好（见
+            // sharedPresentationDiagnostics），同时传给下面的 CompositeFeedbackSink。
+            var feedbackSinkDiagnostics = sharedPresentationDiagnostics;
             var feedbackSink = new CompositeFeedbackSink(
                 vfxPlayer, sfxPlayer,
                 onFloatingText: opts.OnFloatingText ?? ((_, __, ___) => { }),
@@ -680,7 +690,7 @@ namespace Presentation.Assembly
             Shell = new ShellHost(
                 gameplay.AppState, sceneRouter, SaveSystem, SettingsStore, gameplay.Difficulty, InputMap, bus,
                 newGameStarter, timestampProvider, loadedMapIdResolver,
-                new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder());
+                sharedPresentationDiagnostics);
             ShellViewModel = new ShellViewModel(Shell, SaveSystem, bus, shellMenu);
         }
 
