@@ -6,8 +6,10 @@ using System;
 
 namespace Adapter.Unity.EngineAdapter
 {
+    /// <summary>极简 WAV 解码器：只支持 PCM、16 位的 RIFF/WAVE，解码为归一化浮点采样。</summary>
     internal static class WavDecoder
     {
+        /// <summary>尝试解码 WAV 字节流；格式不符（非 RIFF/WAVE、非 16 位 PCM、缺 fmt/data 块）返回 false。</summary>
         public static bool TryDecode(byte[] bytes, out int channels, out int sampleRate, out float[] samples)
         {
             channels = 0;

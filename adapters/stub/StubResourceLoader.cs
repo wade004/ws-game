@@ -18,6 +18,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IResourceLoader"/> 的最小桩实现：同步回调的“异步”加载，只有测试登记过的资源 id 才加载成功。</summary>
     public sealed class StubResourceLoader : IResourceLoader
     {
         private readonly HashSet<Id> _registered = new HashSet<Id>();

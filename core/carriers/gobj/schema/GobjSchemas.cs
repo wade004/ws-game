@@ -82,7 +82,7 @@ namespace Core.Carriers.Gobj
                 "sign{text_key}；字段组必填性见 GobjTypeDataFieldGroupRule（Variants 不适用，见本字段判断记录）");
 
         /// <summary><c>gobj.template.on_use</c>：判别字段 <c>kind</c> 与被判别的 <c>ref</c> 同处
-        /// <c>on_use</c> 对象内，Variants 适用（不同于 <see cref="TypeDataSchema"/)）。原
+        /// <c>on_use</c> 对象内，Variants 适用（不同于 <see cref="TypeDataSchema"/>）。原
         /// <c>GobjOnUseKindRule</c> 的三项检查（kind 存在且合法字符串/取值在二选一集合内/ref 是合法
         /// Id）已被 <c>variant_discriminator</c>/<c>field_type</c>/<c>required_field</c> 内建校验
         /// 完全覆盖，整条退役删除（见 schema/README.md"退役规则"）。</summary>

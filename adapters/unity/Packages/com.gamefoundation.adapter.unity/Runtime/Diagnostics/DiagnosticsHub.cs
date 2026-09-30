@@ -143,7 +143,7 @@ namespace Adapter.Unity.Diagnostics
     }
 
     /// <summary>ADR-0086 新增：错误级诊断条目的通用形状——全仓 <c>InMemory*Diagnostics</c> 的
-    /// <c>*ErrorRecord</c 系列结构（<c>EventDiagnosticsErrorRecord</c>/<c>HookDiagnosticsErrorRecord</c>/
+    /// <c>*ErrorRecord</c> 系列结构（<c>EventDiagnosticsErrorRecord</c>/<c>HookDiagnosticsErrorRecord</c>/
     /// <c>SaveDiagnosticsErrorRecord</c>/<c>SceneDiagnosticsErrorRecord</c>/
     /// <c>AppLifecycleDiagnosticsErrorRecord</c> 等）都是"消息 + 可选异常"这个形状，但彼此是各模块
     /// 独立定义的具体类型，不共享基类型（各自模块自成一体，见各自类型注释），本 Hub 不便直接认识

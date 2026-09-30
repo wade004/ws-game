@@ -12,6 +12,7 @@ using UnityEngine;
 
 namespace Game.Template
 {
+    /// <summary>模板场景的自动开局组件：启动时确保游戏引导完成，必要时启动外壳并请求新游戏。</summary>
     public sealed class TemplateAutoStart : MonoBehaviour
     {
         private static readonly Id AutoStartSlotId = new Id("game.template.auto_start");

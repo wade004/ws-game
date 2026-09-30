@@ -20,6 +20,7 @@ namespace Presentation.Shell
         Back,
     }
 
+    /// <summary>外壳菜单动作（new_game、load_game、settings 等）的线格式名称集合，供数据校验引用。</summary>
     public static class ShellMenuActionWireNames
     {
         public static readonly string[] EnumValues = { "new_game", "load_game", "settings", "quit", "resume", "back" };

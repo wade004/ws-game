@@ -7,8 +7,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Conformance
 {
+    /// <summary><see cref="IAudio"/> 的契约一致性场景集合：任何引擎适配层的音频实现都应通过这组场景。</summary>
     public static class AudioScenarios
     {
+        /// <summary>全部 IAudio 一致性场景（按声明顺序执行）。</summary>
         public static readonly IReadOnlyList<ConformanceScenario<IAudio>> All = new[]
         {
             new ConformanceScenario<IAudio>("StopSfx_未知句柄不抛异常", StopSfx_UnknownHandle_DoesNotThrow),

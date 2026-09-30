@@ -18,6 +18,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="INavigation2D"/> 的最小桩实现：直线路径与默认全可走，阻挡矩形由测试登记。</summary>
     public sealed class StubNavigation2D : INavigation2D
     {
         private readonly struct BlockingRect

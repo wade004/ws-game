@@ -6,6 +6,7 @@ using Core.Gameplay.Economy;
 using Core.Gameplay.Loot;
 using Core.Rules.Skill;
 
+/// <summary>ABI 探针消费方：针对基线版本编译，运行期逐条执行基线时代的公开签名，检出二进制不兼容。</summary>
 public static class Program
 {
     // 判断记录：每一条调用都必须是"旧编译产物在运行期真的会执行到"的形状，不是只声明类型
@@ -20,6 +21,7 @@ public static class Program
     // 届时需要相应更新或移除本段调用——见 toolchain/abi_probe_baseline.txt 头部判断记录"手动推进"
     // 说明）。传 null 触发预期 ArgumentNullException，同上面几行的"能解析到签名"验证手法一致，不是
     // 只声明类型存在。
+    /// <summary>依次调用基线版本的公开构造/方法，任何签名丢失都会在运行期以异常或非零退出码暴露。</summary>
     public static void Main()
     {
         try

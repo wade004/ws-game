@@ -7,8 +7,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Conformance
 {
+    /// <summary><see cref="IClock"/> 的契约一致性场景集合：任何引擎适配层的时钟实现都应通过这组场景。</summary>
     public static class ClockScenarios
     {
+        /// <summary>全部 IClock 一致性场景（按声明顺序执行）。</summary>
         public static readonly IReadOnlyList<ConformanceScenario<IClock>> All = new[]
         {
             new ConformanceScenario<IClock>("Now_单调不递减", Now_IsMonotonicNonDecreasing),

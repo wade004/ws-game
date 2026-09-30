@@ -7,6 +7,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IPlatform"/> 的最小桩实现：崩溃日志、剪贴板与系统语言都只存在内存里。</summary>
     public sealed class StubPlatform : IPlatform
     {
         private readonly List<string> _crashLog = new List<string>();

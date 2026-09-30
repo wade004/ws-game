@@ -66,6 +66,7 @@ namespace Core.Gameplay.Quest
         InventoryFull,
     }
 
+    /// <summary>任务数据里各枚举字段（接取方式、交付方式、可重复性等）的线格式取值集合，供数据校验引用。</summary>
     public static class QuestEnumWireNames
     {
         public static readonly string[] StartMethodValues = { "npc_gossip", "item_use", "area_trigger", "auto", "gobj_interact" };

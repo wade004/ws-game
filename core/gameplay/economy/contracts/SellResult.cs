@@ -2,6 +2,7 @@ using System;
 
 namespace Core.Gameplay.Economy
 {
+    /// <summary>出售失败的原因（商人不存在、物品不属于该背包或数量不足等）；<c>None</c> 表示成功。</summary>
     public enum SellFailureReason
     {
         None,

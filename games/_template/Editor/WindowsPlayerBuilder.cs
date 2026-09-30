@@ -47,8 +47,10 @@ using UnityEditor;
 
 namespace Game.Template.EditorTools
 {
+    /// <summary>Windows 64 位独立版构建入口，供批处理以 -executeMethod 调用；输出路径与是否开发版由命令行参数/环境变量决定。</summary>
     public static class WindowsPlayerBuilder
     {
+        /// <summary>构建 Windows 64 位独立版并按构建结果以 0/1 退出编辑器进程。</summary>
         public static void BuildWindows64Player()
         {
             var commandLineArgs = Environment.GetCommandLineArgs();

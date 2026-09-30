@@ -10,6 +10,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IWindow"/> 的最小桩实现：窗口状态只存在内存字段里，带测试专用的焦点与关闭请求开关。</summary>
     public sealed class StubWindow : IWindow
     {
         private readonly List<Callback> _closeCallbacks = new List<Callback>();

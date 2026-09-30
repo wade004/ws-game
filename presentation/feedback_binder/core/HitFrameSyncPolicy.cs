@@ -86,6 +86,7 @@ namespace Presentation.FeedbackBinder.Core
         Timeout,
     }
 
+    /// <summary>命中帧同步策略：受击反馈等待攻击动画的命中帧才放行，超过超时兜底时长也会放行。</summary>
     public sealed class HitFrameSyncPolicy : IDisposable
     {
         /// <summary>默认超时兜底时长（秒），见类型注释判断记录。</summary>

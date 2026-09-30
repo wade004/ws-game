@@ -14,8 +14,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Conformance
 {
+    /// <summary><see cref="IFileSystem"/> 的契约一致性场景集合：任何引擎适配层的文件系统实现都应通过这组场景。</summary>
     public static class FileSystemScenarios
     {
+        /// <summary>全部 IFileSystem 一致性场景（按声明顺序执行）。</summary>
         public static readonly IReadOnlyList<ConformanceScenario<IFileSystem>> All = new[]
         {
             new ConformanceScenario<IFileSystem>("WriteTextAtomic_ReadText_往返一致", WriteThenRead_RoundTrips),

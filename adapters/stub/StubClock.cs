@@ -12,6 +12,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IClock"/> 的最小桩实现：手动时钟，只能通过测试方法推进，不读取任何系统时间。</summary>
     public sealed class StubClock : IClock
     {
         private sealed class FrameRegistration

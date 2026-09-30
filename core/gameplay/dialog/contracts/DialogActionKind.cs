@@ -16,6 +16,7 @@ namespace Core.Gameplay.Dialog
         Script,
     }
 
+    /// <summary>对话动作种类的线格式名称集合（vendor、quest_accept 等），供数据校验引用。</summary>
     public static class DialogActionKinds
     {
         public static readonly string[] EnumValues =

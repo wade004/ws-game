@@ -10,8 +10,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IRenderer2D"/> 的最小桩实现：只记录调用（创建、图层、变换、着色参数、粒子），不做任何真实绘制。</summary>
     public sealed class StubRenderer2D : IRenderer2D
     {
+        /// <summary>一次 <c>SetTransform</c> 调用记录的变换（位置、高度、排序 Y、层、旋转、缩放）。</summary>
         public readonly struct TransformRecord
         {
             public readonly Vec2 Position;

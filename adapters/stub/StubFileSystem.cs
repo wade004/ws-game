@@ -13,6 +13,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IFileSystem"/> 的最小桩实现：内存字典文件系统，不接触真实磁盘；带测试专用的写入失败开关。</summary>
     public sealed class StubFileSystem : IFileSystem
     {
         private const string ContentRoot = "content://";

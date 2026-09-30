@@ -15,17 +15,20 @@ using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
+    /// <summary><see cref="IPlatform"/> 的 Unity 实现：系统语言、剪贴板与崩溃日志落盘。</summary>
     public sealed class UnityPlatform : IPlatform
     {
         private const string CrashLogFileName = "crash_log.txt";
 
         private readonly UnityFileSystem _fileSystem;
 
+        /// <summary>用给定的 Unity 文件系统（崩溃日志写入位置）构造；为 null 抛 <see cref="ArgumentNullException"/>。</summary>
         public UnityPlatform(UnityFileSystem fileSystem)
         {
             _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
         }
 
+        /// <summary>把 Unity 系统语言映射为语言标签（如 zh-Hans、en），未识别的语言回退为 en。</summary>
         public string GetSystemLanguage()
         {
             switch (Application.systemLanguage)
@@ -44,17 +47,20 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>读取系统剪贴板文本；为空时返回 null。</summary>
         public string? GetClipboardText()
         {
             var text = GUIUtility.systemCopyBuffer;
             return string.IsNullOrEmpty(text) ? null : text;
         }
 
+        /// <summary>写入系统剪贴板文本（null 按空串处理）。</summary>
         public void SetClipboardText(string text)
         {
             GUIUtility.systemCopyBuffer = text ?? string.Empty;
         }
 
+        /// <summary>把带 UTC 时间戳的崩溃上下文与详情追加写入崩溃日志文件。</summary>
         public void ReportCrash(string context, string details)
         {
             var line = $"[{DateTime.UtcNow:O}] {context}: {details}\n";

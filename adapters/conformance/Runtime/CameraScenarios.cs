@@ -7,8 +7,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Conformance
 {
+    /// <summary><see cref="ICamera"/> 的契约一致性场景集合：任何引擎适配层的镜头实现都应通过这组场景。</summary>
     public static class CameraScenarios
     {
+        /// <summary>全部 ICamera 一致性场景（按声明顺序执行）。</summary>
         public static readonly IReadOnlyList<ConformanceScenario<ICamera>> All = new[]
         {
             new ConformanceScenario<ICamera>("Configure_SetZoom_夹紧到区间内", Configure_ThenSetZoom_ClampsToRange),

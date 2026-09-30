@@ -11,6 +11,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IInput"/> 的最小桩实现：可编程输入，测试通过专用方法模拟按键、摇杆与鼠标变化。</summary>
     public sealed class StubInput : IInput
     {
         private readonly HashSet<string> _keysDown = new HashSet<string>(StringComparer.Ordinal);

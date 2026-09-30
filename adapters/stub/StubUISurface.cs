@@ -10,8 +10,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IUISurface"/> 的最小桩实现：只记录界面表面的创建、布局、绘制文字与焦点调用，不做任何真实界面渲染。</summary>
     public sealed class StubUISurface : IUISurface
     {
+        /// <summary>一次 <c>DrawText</c> 调用的记录（表面 id、文本、位置、字体 id、字号）。</summary>
         public readonly struct DrawTextCall
         {
             public readonly Id SurfaceId;

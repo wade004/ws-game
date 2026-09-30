@@ -186,6 +186,7 @@ namespace Core.Foundation.DataRegistry
         /// <c>record != null</c> 作为返回值。<see
         /// cref="Core.Foundation.DataRegistry.DataRegistry"/> 显式覆盖为阻断态也能读取的直接实现
         /// （见该类型同名成员判断记录，同样已按本次契约修正调整），不经过这里的 try/catch。
+        /// </para>
         /// </summary>
         bool TryGet(string table, string key, out DataRecord? record)
         {

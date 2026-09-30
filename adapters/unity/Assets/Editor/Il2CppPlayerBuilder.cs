@@ -39,8 +39,10 @@ using UnityEditor.Build;
 
 namespace Adapter.Unity.EditorTools
 {
+    /// <summary>IL2CPP 脚本后端独立版构建入口：构建前临时切到 IL2CPP，构建后还原原始后端，供批处理以 -executeMethod 调用。</summary>
     public static class Il2CppPlayerBuilder
     {
+        /// <summary>以 IL2CPP 后端构建 Windows 64 位独立版到命令行/环境变量指定的输出路径，结束时按构建结果退出编辑器进程。</summary>
         public static void BuildWindows64PlayerIl2cpp()
         {
             var outputPath = ResolveOutputPath();

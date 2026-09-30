@@ -16,6 +16,7 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="ISpatialQuery"/> 的最小桩实现：对测试手工登记的对象做线性扫描的范围/射线查询。</summary>
     public sealed class StubSpatialQuery : ISpatialQuery
     {
         private sealed class Entry

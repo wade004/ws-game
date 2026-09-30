@@ -321,6 +321,7 @@ namespace Core.Rules.Skill
         }
     }
 
+    /// <summary>校验规则：技能声明了充能上限但充能恢复时间为 0 时给出警告。</summary>
     public sealed class ChargesRechargeTimeZeroWarningRule : IValidationRule
     {
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)

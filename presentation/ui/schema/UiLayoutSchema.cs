@@ -37,6 +37,7 @@ namespace Presentation.Ui
         Shop,
     }
 
+    /// <summary>界面面板种类的线格式名称集合，供布局数据校验引用。</summary>
     public static class UiPanelWireNames
     {
         public static readonly string[] EnumValues =

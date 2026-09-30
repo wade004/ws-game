@@ -30,6 +30,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
+    /// <summary>挂在动画状态上的行为：把 Animator 的状态进入/退出回调转发给所属三维渲染器，使动画结束事件不依赖外部轮询采样。</summary>
     public sealed class AnimStateFinishRelay : StateMachineBehaviour
     {
         private UnityRenderer3D? _owner;
@@ -41,11 +42,13 @@ namespace Adapter.Unity.EngineAdapter
             _handleValue = handleValue;
         }
 
+        /// <summary>状态进入时转发给所属渲染器（entered=true）。</summary>
         public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
         {
             _owner?.OnAnimStateEvent(_handleValue, stateInfo.shortNameHash, layerIndex, entered: true, stateInfo.normalizedTime);
         }
 
+        /// <summary>状态退出时转发给所属渲染器（entered=false）。</summary>
         public override void OnStateExit(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
         {
             _owner?.OnAnimStateEvent(_handleValue, stateInfo.shortNameHash, layerIndex, entered: false, stateInfo.normalizedTime);

@@ -6,8 +6,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Conformance
 {
+    /// <summary><see cref="IInput"/> 的契约一致性场景集合：任何引擎适配层的输入实现都应通过这组场景。</summary>
     public static class InputScenarios
     {
+        /// <summary>全部 IInput 一致性场景（按声明顺序执行）。</summary>
         public static readonly IReadOnlyList<ConformanceScenario<IInput>> All = new[]
         {
             new ConformanceScenario<IInput>("IsKeyDown_未知键返回false", IsKeyDown_UnknownKey_ReturnsFalse),

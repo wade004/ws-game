@@ -3,6 +3,7 @@ using Core.Foundation.Common;
 
 namespace Presentation.FeedbackBinder.Contracts
 {
+    /// <summary>反馈文本的来源种类（事件字段格式化、本地化文本键等）。</summary>
     public enum TextSourceKind
     {
         /// <summary>取事件字段（<c>event.&lt;field&gt;</c>，经 <c>IExprReadableEvent.TryGetField</c>），

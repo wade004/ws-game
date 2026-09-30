@@ -12,8 +12,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IRenderer3D"/> 的最小桩实现：只记录模型实例、摆放、动画与挂点调用，不做任何真实三维渲染。</summary>
     public sealed class StubRenderer3D : IRenderer3D
     {
+        /// <summary>一次摆放调用记录的位置信息（平面位置、高度、朝向、缩放、排序 Y）。</summary>
         public readonly struct PlacementRecord
         {
             public readonly Vec2 PlanePos;
@@ -32,6 +34,7 @@ namespace Adapters.Stub
             }
         }
 
+        /// <summary>一次动画播放调用的记录（片段 id、是否循环、速度、混合秒数）。</summary>
         public readonly struct AnimPlayback
         {
             public readonly Id ClipId;

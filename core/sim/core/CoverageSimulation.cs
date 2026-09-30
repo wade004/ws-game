@@ -20,6 +20,7 @@ namespace Core.Sim
         Warning,
     }
 
+    /// <summary>覆盖率仿真涉及的内容类别（技能、物品、生物等）。</summary>
     public enum CoverageCategory
     {
         Skill,

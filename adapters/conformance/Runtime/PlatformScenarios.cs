@@ -7,8 +7,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Conformance
 {
+    /// <summary><see cref="IPlatform"/> 的契约一致性场景集合（可选接口，只覆盖两侧都已实现的部分）。</summary>
     public static class PlatformScenarios
     {
+        /// <summary>全部 IPlatform 一致性场景（按声明顺序执行）。</summary>
         public static readonly IReadOnlyList<ConformanceScenario<IPlatform>> All = new[]
         {
             new ConformanceScenario<IPlatform>("GetSystemLanguage_返回非空字符串", GetSystemLanguage_ReturnsNonEmptyString),

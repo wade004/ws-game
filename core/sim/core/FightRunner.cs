@@ -124,6 +124,7 @@ namespace Core.Sim
         }
     }
 
+    /// <summary>一场单挑仿真的结局（玩家获胜、失败、超时等）。</summary>
     public enum FightOutcome
     {
         /// <summary>玩家击杀生物，自己仍存活。</summary>

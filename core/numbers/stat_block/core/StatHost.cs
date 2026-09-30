@@ -1184,7 +1184,7 @@ namespace Core.Numbers.StatBlock
         /// <para>
         /// 判断记录（T-N1-4，ADR-0030 决策 2"职业模板可覆盖派生系数"）：每条来源的系数先查
         /// <paramref name="unit"/>.<see cref="UnitStats.DerivationOverrides"/>（按
-        /// <c>(本属性 id, 来源 id)</c）二级查找），命中则用覆盖值取代 <c>stat.definition</c> 里登记的
+        /// <c>(本属性 id, 来源 id)</c>）二级查找），命中则用覆盖值取代 <c>stat.definition</c> 里登记的
         /// 默认系数；未命中（含整条属性都没有任何覆盖、或覆盖表里没有这一条具体的来源边）时回退到
         /// <paramref name="def"/> 自己的系数——覆盖只影响"用哪个数"，不改变来源集合本身，也不需要
         /// 在这里做"覆盖是否指向一条真实存在的 derived_from 边"的校验：覆盖表本就只按

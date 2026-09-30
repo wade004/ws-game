@@ -10,8 +10,10 @@ using Core.Foundation.EngineAdapter;
 
 namespace Adapters.Stub
 {
+    /// <summary><see cref="IAudio"/> 的最小桩实现：只记录音效/音乐的播放、停止与音量设置，不接任何真实音频设备。</summary>
     public sealed class StubAudio : IAudio
     {
+        /// <summary>一次音效播放的记录（音效 id、音量、音调、位置等）。</summary>
         public readonly struct SfxPlayback
         {
             public readonly Id SoundId;
@@ -38,6 +40,7 @@ namespace Adapters.Stub
             }
         }
 
+        /// <summary>一次音乐播放的记录（曲目 id、淡入秒数、是否循环）。</summary>
         public readonly struct MusicPlayback
         {
             public readonly Id TrackId;
