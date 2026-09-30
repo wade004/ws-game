@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Core.Foundation.Common
 {
@@ -31,7 +32,7 @@ namespace Core.Foundation.Common
             }
         }
 
-        public override string ToString() => $"[{Min} .. {Max}]";
+        public override string ToString() => string.Format(CultureInfo.InvariantCulture, "[{0} .. {1}]", Min, Max);
 
         public static bool operator ==(Rect left, Rect right) => left.Equals(right);
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
@@ -42,7 +43,7 @@ namespace Core.Foundation.DisplayInfo
             }
         }
 
-        public override string ToString() => $"{Name}@{TimePct:0.###}";
+        public override string ToString() => Name + "@" + TimePct.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     /// <summary>一条 <c>display.anim_set.clips</c> 映射的单个剪辑条目（<c>{resource_ref, events}</c>）。</summary>

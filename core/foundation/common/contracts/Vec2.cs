@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Core.Foundation.Common
 {
@@ -51,7 +52,7 @@ namespace Core.Foundation.Common
             }
         }
 
-        public override string ToString() => $"({X}, {Y})";
+        public override string ToString() => string.Format(CultureInfo.InvariantCulture, "({0}, {1})", X, Y);
 
         public static bool operator ==(Vec2 left, Vec2 right) => left.Equals(right);
 

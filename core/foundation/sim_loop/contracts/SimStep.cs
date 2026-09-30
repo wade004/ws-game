@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Core.Foundation.Common;
 
 namespace Core.Foundation.SimLoop
@@ -93,7 +94,7 @@ namespace Core.Foundation.SimLoop
 
         public override string ToString() =>
             Kind == SimStepKind.Continuous
-                ? $"Continuous(dt={Dt})"
+                ? "Continuous(dt=" + Dt.ToString(CultureInfo.InvariantCulture) + ")"
                 : $"Discrete(actorId={ActorId}, phase={Phase})";
 
         public static bool operator ==(SimStep left, SimStep right) => left.Equals(right);
