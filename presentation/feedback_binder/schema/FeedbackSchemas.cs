@@ -90,7 +90,7 @@ namespace Presentation.FeedbackBinder.Schema
                 {
                     // camera_profile 与本模块同属 L5，但分属两个不同的 Presentation 子目录；判断记录
                     // 同 vfx_id/sfx_id：本模块不预设跨子模块表已加载，退回 Id（不做引用完整性检查）。
-                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
+                    new FieldSchema("profile_id", FieldKind.Id, required: true, description: "震屏 preset id：语义 = 当前相机档（camera_profile）shake_presets 里的 preset id，字段名沿用不改（ADR-0121 第 4 条、ADR-0039）；运行期当前档没有该 preset 时记一条诊断并跳过本次震屏，不抛异常（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
                         .WithSoftReference(table: "camera_profile"),
                 }, description: "shake_camera 动作参数：{profile_id}"),
                 ["flash"] = ParamsCase(new[]

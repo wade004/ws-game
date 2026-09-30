@@ -25,6 +25,9 @@ namespace Tests.PresentationShell
         private readonly IAppStateHost _appState;
         private readonly IEventBus _eventBus;
 
+        public const string UnknownSceneMessage = "未知场景 id";
+        public const string AlreadyLoadingMessage = "已在加载中";
+
         public readonly List<Id> LoadSceneCalls = new List<Id>();
         public bool ThrowUnknownSceneOnLoad;
 
@@ -44,12 +47,12 @@ namespace Tests.PresentationShell
         {
             if (State == SceneRouterState.Loading)
             {
-                throw new InvalidOperationException("已在加载中");
+                throw new InvalidOperationException(AlreadyLoadingMessage);
             }
 
             if (ThrowUnknownSceneOnLoad)
             {
-                throw new ArgumentException("未知场景 id");
+                throw new ArgumentException(UnknownSceneMessage);
             }
 
             if (!_appState.RequestTransition(AppState.Loading))

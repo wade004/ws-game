@@ -587,3 +587,24 @@ ADR-0042 决策 5 描述的"不适用轮询式转发"情形，详细理由见 `I
 `VfxDiagnostics`/`SfxDiagnostics`（两份 `PresentationDiagnosticsRecorder`，本质是文本消息列表）
 不受影响，仍按原有方式接入该集线器；`SfxPlaybackDiagnostics` 只做与前两者同一惯例的直接透传，
 不额外登记进集线器，消费方需要时直接读取本属性。
+
+## 判断记录（震屏 `profile_id` 语义与缺失 preset 处理，2026-10-01，[ADR-0121](../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 4 条，D4）
+
+`shake_camera` 动作的 `profile_id` 字段语义 = **当前相机档的 shake preset id**（`CameraHost.CurrentProfile.
+ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破坏性变更政策，ADR-0039），语义写进
+`feedback.binding` 的字段登记表描述（`FeedbackSchemas` 的 `shake_camera` 分支）。装配根第 3 步
+`onShakeCamera` 不再直接 `Camera.Shake(profileId)`，改走 `ShakeCameraOrDiagnose`：当前没有生效档、或当前档
+没有该 preset（典型：相位切档后新档不含旧 preset）时**不抛**，向 `FeedbackSinkDiagnostics` 记一条警告并跳过
+本次震屏；此前该情形抛 `ArgumentException`，被 `FeedbackBinder.SafeDispatch` 吞成一条不带上下文的诊断。
+`CameraHost.Shake` 自身的抛出契约不变（ABI 只新增）。装配根为此显式建一份
+`PresentationDiagnosticsRecorder` 同时传给 `CompositeFeedbackSink`，`FeedbackSinkDiagnostics` 仍是该 sink
+自己持有的那一份，转发惯例不变。补 事件→规则→ShakeCamera→CameraHost→`StubCamera.LastShake*`、
+事件→Freeze→`OnFreeze` 两条端到端用例，以及 preset 缺失（诊断恰一条、相机未震、同事件飘字与后续事件派发
+照常）用例，见 `tests/ShakeFreezeEndToEndTests.cs`。
+
+## 判断记录（`ShellHost` 改走带诊断出口的重载，2026-10-01，[ADR-0121](../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 10 条，D10）
+
+装配根改用 `ShellHost` 新增的十一参重载，注入一份 `PresentationDiagnosticsRecorder`，读档后场景路由被拒绝的
+警告经 `Shell.Diagnostics` 读取；本装配根不为它再新增 `ShellDiagnostics` 转发属性（`Shell` 本身就是具体类型
+`ShellHost`）。**未做**：把 `Shell.Diagnostics` 接入 ADR-0042 的引擎控制台轮询集线器属于 `adapters/unity`
+侧后续项，本次不动。

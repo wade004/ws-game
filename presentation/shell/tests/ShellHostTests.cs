@@ -4,6 +4,7 @@ using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.SaveSystem;
 using Presentation.Shell;
+using Presentation.VfxSfx.Contracts;
 using Tests.PresentationUi;
 using Xunit;
 
@@ -26,6 +27,7 @@ namespace Tests.PresentationShell
             public readonly FakeDifficultyHost Difficulty = new FakeDifficultyHost();
             public readonly FakeInputMapHost InputMap = new FakeInputMapHost();
             public readonly Core.Foundation.EventBus.IEventBus EventBus;
+            public readonly PresentationDiagnosticsRecorder Diagnostics = new PresentationDiagnosticsRecorder();
 
             public Id? StartedSlotId;
             public Id? StartedDifficultyId;
@@ -58,7 +60,8 @@ namespace Tests.PresentationShell
                         return StartMap;
                     },
                     () => "2026-09-05T00:00:00Z",
-                    loadedMapIdResolver: () => LoadedMapIdResult);
+                    () => LoadedMapIdResult,
+                    Diagnostics);
             }
         }
 
@@ -177,6 +180,88 @@ namespace Tests.PresentationShell
             Assert.Equal(LoadStatus.Loaded, result.Status);
             Assert.Single(f.SceneRouter.LoadSceneCalls);
             Assert.Equal(f.StartMap, f.SceneRouter.LoadSceneCalls[0]);
+        }
+
+        // ADR-0121 第 10 条（D10）：场景路由被拒绝时读档仍算成功，但 LoadResult 显式暴露失败并记诊断。
+        // 期望值由规则算出：Status 仍为 Loaded；SceneRouteFailed 置位；SceneRouteError 含目标地图 id 与
+        // 场景路由抛出的异常消息；诊断恰一条。
+
+        [Fact]
+        public void LoadGame_scene_route_ArgumentException_is_exposed_on_result_and_recorded_ADR0121_D10()
+        {
+            var f = new Fixture();
+            f.Shell.Start();
+            f.SaveSys.Save(new SaveRequest(f.SlotId, "2026-09-04T00:00:00Z"));
+            f.SceneRouter.ThrowUnknownSceneOnLoad = true;
+
+            var result = f.Shell.LoadGame(f.SlotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.True(result.SceneRouteFailed);
+            Assert.NotNull(result.SceneRouteError);
+            Assert.Contains(f.StartMap.ToString(), result.SceneRouteError);
+            Assert.Contains(FakeSceneRouter.UnknownSceneMessage, result.SceneRouteError);
+            Assert.Empty(f.SceneRouter.LoadSceneCalls);
+            Assert.Single(f.Diagnostics.Warnings);
+            Assert.Contains(f.StartMap.ToString(), f.Diagnostics.Warnings[0]);
+        }
+
+        [Fact]
+        public void LoadGame_scene_route_InvalidOperationException_is_exposed_on_result_and_recorded_ADR0121_D10()
+        {
+            var f = new Fixture();
+            f.Shell.Start();
+            f.SaveSys.Save(new SaveRequest(f.SlotId, "2026-09-04T00:00:00Z"));
+            // 第一次读档让场景路由进入 Loading；第二次读档时路由以"已在加载中"抛 InvalidOperationException。
+            var first = f.Shell.LoadGame(f.SlotId);
+            Assert.False(first.SceneRouteFailed);
+            Assert.Empty(f.Diagnostics.Warnings);
+
+            var second = f.Shell.LoadGame(f.SlotId);
+
+            Assert.Equal(LoadStatus.Loaded, second.Status);
+            Assert.True(second.SceneRouteFailed);
+            Assert.NotNull(second.SceneRouteError);
+            Assert.Contains(f.StartMap.ToString(), second.SceneRouteError);
+            Assert.Contains(FakeSceneRouter.AlreadyLoadingMessage, second.SceneRouteError);
+            Assert.Single(f.SceneRouter.LoadSceneCalls);
+            Assert.Single(f.Diagnostics.Warnings);
+        }
+
+        [Fact]
+        public void LoadGame_normal_route_leaves_scene_route_fields_at_defaults_ADR0121_D10()
+        {
+            var f = new Fixture();
+            f.Shell.Start();
+            f.SaveSys.Save(new SaveRequest(f.SlotId, "2026-09-04T00:00:00Z"));
+
+            var loaded = f.Shell.LoadGame(f.SlotId);
+            var notFound = f.Shell.LoadGame(new Id("save.slot_missing"));
+
+            Assert.Equal(LoadStatus.Loaded, loaded.Status);
+            Assert.False(loaded.SceneRouteFailed);
+            Assert.Null(loaded.SceneRouteError);
+            Assert.False(notFound.SceneRouteFailed);
+            Assert.Null(notFound.SceneRouteError);
+            Assert.Empty(f.Diagnostics.Warnings);
+        }
+
+        [Fact]
+        public void Legacy_constructor_without_diagnostics_still_works_and_exposes_a_recorder_ADR0121_D10()
+        {
+            var f = new Fixture();
+            var shell = new ShellHost(
+                f.AppState, f.SceneRouter, f.SaveSys, f.SettingsStoreInstance, f.Difficulty, f.InputMap,
+                f.EventBus, (slotId, difficultyId, archetypeId) => f.StartMap, () => "2026-09-05T00:00:00Z");
+            shell.Start();
+            f.SaveSys.Save(new SaveRequest(f.SlotId, "2026-09-04T00:00:00Z"));
+
+            // 旧构造函数未注入 resolver 时以 LoadResult.CurrentMapId 为准；存档未登记 world 段则跳过场景切换。
+            var result = shell.LoadGame(f.SlotId);
+
+            Assert.Equal(LoadStatus.Loaded, result.Status);
+            Assert.NotNull(shell.Diagnostics);
+            Assert.False(result.SceneRouteFailed);
         }
 
         [Fact]

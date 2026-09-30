@@ -51,3 +51,15 @@ action:Enum(6值), target_panel:Reference(ui_layout_definition)?}`，按 `ShellM
   应无匹配。
 - `dotnet test` 覆盖：状态流转与 `IAppStateHost` 转移调用、新游戏/读档流程的委托与场景路由调用、
   设置保存往返、加载进度事件、退出。
+
+## 判断记录（`LoadGame` 场景路由失败显式暴露，2026-10-01，[ADR-0121](../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 10 条，D10）
+
+`LoadGame` 读档成功后按存档地图 id 切场景，场景路由抛 `ArgumentException`（未知场景 id）或
+`InvalidOperationException`（当前应用状态不允许转入 Loading）时，此前两个空 catch 静默吞掉且仍返回
+`Loaded`（违反运行时路径不静默降级）。现在：读档**仍算成功**（存档已加载，`Status` 不变），但返回值
+`LoadResult` 新增只增字段 `SceneRouteFailed`（bool，默认 false）与 `SceneRouteError`（string?，含目标地图 id
+与异常消息），并向 `ShellHost.Diagnostics` 记一条警告；两条 catch 分支各一条用例，另有"正常路由时两字段为
+默认值"的不变量用例（`tests/ShellHostTests.cs`）。`LoadResult` 不可变，新增 `WithSceneRouteFailure(string)`
+返回置位副本。ABI 只新增：`ShellHost` 旧构造函数签名原样保留并转调新增的十一参重载（多一个
+`IPresentationDiagnostics`），旧构造函数的诊断默认自建一份 recorder。`NewGame` 的场景路由失败仍按原约定返回
+`false`，不在本条范围。

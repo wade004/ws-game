@@ -486,11 +486,15 @@ namespace Presentation.Assembly
             L10nDiagnostics = l10nHost.Diagnostics;
 
             var flashProfileResolver = opts.FlashProfileResolver ?? (_ => FlashParams.Default);
+            // ADR-0121 第 4 条（D4）：onShakeCamera 需要在当前相机档没有该 shake preset 时记诊断并跳过，
+            // 诊断要落在 sink 自己的 FeedbackSinkDiagnostics 上——这里显式建好同一份 recorder，
+            // 同时传给下面的 CompositeFeedbackSink（其构造期本就默认自建同类型 recorder，行为等价）。
+            var feedbackSinkDiagnostics = new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder();
             var feedbackSink = new CompositeFeedbackSink(
                 vfxPlayer, sfxPlayer,
                 onFloatingText: opts.OnFloatingText ?? ((_, __, ___) => { }),
                 onFreeze: opts.OnFreeze ?? (_ => { }),
-                onShakeCamera: profileId => Camera.Shake(profileId),
+                onShakeCamera: presetId => ShakeCameraOrDiagnose(presetId, feedbackSinkDiagnostics),
                 onFlash: opts.OnFlash ?? ((entityId, profileId) =>
                 {
                     // 缺口 6 恢复（09 第 4.1 节程序动画原语）：见 PresentationAssemblyOptions.OnFlash
@@ -500,7 +504,7 @@ namespace Presentation.Assembly
                         hasRig.Rig.ProceduralAnim.Flash(flashProfileResolver(profileId));
                     }
                 }),
-                entityPositionResolver: entityPositionResolver);
+                entityPositionResolver: entityPositionResolver, diagnostics: feedbackSinkDiagnostics);
             // 诊断转发到引擎控制台跟进第三批（判断记录 10 追加）：见 FeedbackSinkDiagnostics 属性
             // 注释——本装配根不传 diagnostics 构造参数给 CompositeFeedbackSink（保持"未注入时默认自建
             // 一份 PresentationDiagnosticsRecorder"这一改动前行为不变），这里只是把已经默认构造好的
@@ -672,10 +676,42 @@ namespace Presentation.Assembly
                     "NewGameStarter 未注入：如何创建一局新游戏的起始状态是具体游戏的事，框架不提供默认实现，见 presentation/assembly/README.md"));
             var timestampProvider = opts.TimestampProvider ?? (() => DateTime.UtcNow.ToString("o"));
 
+            // ADR-0121 第 10 条（D10）：走带诊断出口的新重载，LoadGame 场景路由失败的警告经 ShellDiagnostics 转发。
             Shell = new ShellHost(
                 gameplay.AppState, sceneRouter, SaveSystem, SettingsStore, gameplay.Difficulty, InputMap, bus,
-                newGameStarter, timestampProvider, loadedMapIdResolver: loadedMapIdResolver);
+                newGameStarter, timestampProvider, loadedMapIdResolver,
+                new Presentation.VfxSfx.Contracts.PresentationDiagnosticsRecorder());
             ShellViewModel = new ShellViewModel(Shell, SaveSystem, bus, shellMenu);
+        }
+
+        /// <summary>ADR-0121 第 4 条（D4）：<c>shake_camera</c> 动作的 <c>profile_id</c> 语义 = 当前相机档
+        /// （<see cref="CameraHost.CurrentProfile"/>）<c>shake_presets</c> 里的 preset id。当前没有生效档，
+        /// 或当前档没有该 preset（典型：相位切档后新档不含旧 preset）时不抛异常——记一条诊断并跳过本次
+        /// 震屏，同一事件的其它动作与后续事件的派发不受影响（不再依赖
+        /// <c>FeedbackBinder.SafeDispatch</c> 把 <c>ArgumentException</c> 吞成一条不带上下文的诊断）。</summary>
+        private void ShakeCameraOrDiagnose(Id shakePresetId, Presentation.VfxSfx.Contracts.IPresentationDiagnostics diagnostics)
+        {
+            var profile = Camera.CurrentProfile;
+            if (profile == null)
+            {
+                diagnostics.Warn(
+                    $"shake_camera 的 profile_id（震屏 preset）\"{shakePresetId}\" 无法解析：相机尚未 Configure 任何档，已跳过本次震屏");
+                return;
+            }
+
+            var presets = profile.ShakePresets;
+            for (var i = 0; i < presets.Count; i++)
+            {
+                if (presets[i].Id.Equals(shakePresetId))
+                {
+                    Camera.Shake(shakePresetId);
+                    return;
+                }
+            }
+
+            diagnostics.Warn(
+                $"shake_camera 的 profile_id（震屏 preset）\"{shakePresetId}\" 未在当前相机档 \"{profile.Id}\" 的 " +
+                "shake_presets 登记，已跳过本次震屏");
         }
 
         /// <summary>拍板 5：按 <paramref name="timeModelSwitch"/>.<c>CurrentMode</c> 把

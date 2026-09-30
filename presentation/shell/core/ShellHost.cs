@@ -8,6 +8,7 @@ using Core.Foundation.InputMap;
 using Core.Foundation.SaveSystem;
 using Core.Foundation.SceneRouter;
 using Core.Gameplay.Difficulty;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.Shell
 {
@@ -38,6 +39,10 @@ namespace Presentation.Shell
 
         private ShellPage _mainMenuSubPage = ShellPage.MainMenu;
 
+        /// <summary>ADR-0121 第 10 条（D10）：本外壳的诊断出口（<see cref="LoadGame"/> 场景路由被拒绝时
+        /// 记警告）；供装配根/宿主轮询转发到控制台，或由测试直接检查。</summary>
+        public IPresentationDiagnostics Diagnostics { get; }
+
         public ShellHost(
             IAppStateHost appState,
             ISceneRouter sceneRouter,
@@ -49,7 +54,30 @@ namespace Presentation.Shell
             NewGameStarter newGameStarter,
             Func<string> timestampProvider,
             LoadedMapIdResolver? loadedMapIdResolver = null)
+            : this(
+                appState, sceneRouter, saveSystem, settingsStore, difficulty, inputMap, eventBus, newGameStarter,
+                timestampProvider, loadedMapIdResolver, new PresentationDiagnosticsRecorder())
         {
+        }
+
+        /// <summary>ADR-0121 第 10 条（D10）新增重载：可注入诊断出口（<see cref="LoadGame"/> 场景路由失败时
+        /// 记一条警告）。旧构造函数签名原样保留并转调本重载（诊断默认自建一份
+        /// <see cref="PresentationDiagnosticsRecorder"/>，经 <see cref="Diagnostics"/> 读取），
+        /// 遵守 ABI 只新增。</summary>
+        public ShellHost(
+            IAppStateHost appState,
+            ISceneRouter sceneRouter,
+            ISaveSystem saveSystem,
+            ISettingsStore settingsStore,
+            IDifficultyHost difficulty,
+            IInputMapHost inputMap,
+            IEventBus eventBus,
+            NewGameStarter newGameStarter,
+            Func<string> timestampProvider,
+            LoadedMapIdResolver? loadedMapIdResolver,
+            IPresentationDiagnostics diagnostics)
+        {
+            Diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _appState = appState ?? throw new ArgumentNullException(nameof(appState));
             _sceneRouter = sceneRouter ?? throw new ArgumentNullException(nameof(sceneRouter));
             _saveSystem = saveSystem ?? throw new ArgumentNullException(nameof(saveSystem));
@@ -147,7 +175,9 @@ namespace Presentation.Shell
         /// <c>world.current_map_id</c> 段，见任务书"ShellHost 读档后用 LoadResult.CurrentMapId 进图"）；
         /// 该字段为 null（存档未登记 world 段，或该段尚未来得及在游戏层实现——见其字段注释）时才回退
         /// <see cref="_loadedMapIdResolver"/>（未注入时视为"无法确定地图 id"，跳过场景切换，读档结果
-        /// 本身仍照常返回，同下方两个 catch 分支"读档本身仍然算成功"的一贯处理）。
+        /// 本身仍照常返回）。场景路由抛 <see cref="ArgumentException"/>/<see cref="InvalidOperationException"/>
+        /// 时（ADR-0121 第 10 条）：读档仍算成功，但返回值的 <see cref="LoadResult.SceneRouteFailed"/> 置位、
+        /// <see cref="LoadResult.SceneRouteError"/> 带原因，并向 <see cref="Diagnostics"/> 记一条警告。
         /// <see cref="LoadResult.CurrentPosition"/> 不在本方法内消费——ShellHost 不持有玩家实体引用
         /// （铁律 P1/P3，见类型注释），原样保留在返回值里，由拿到 <see cref="LoadResult"/> 的调用方
         /// （游戏层/表现层装配代码）在场景加载完成后自行落位玩家。
@@ -164,18 +194,30 @@ namespace Presentation.Shell
                     {
                         _sceneRouter.LoadScene(mapId.Value);
                     }
-                    catch (ArgumentException)
+                    catch (ArgumentException ex)
                     {
-                        // 地图 id 未知：读档本身仍然算成功，场景切换失败留给上层诊断/重试。
+                        // 地图 id 未知：读档本身仍然算成功，但场景切换失败要显式暴露（ADR-0121 第 10 条）。
+                        result = ReportSceneRouteFailure(result, mapId.Value, ex);
                     }
-                    catch (InvalidOperationException)
+                    catch (InvalidOperationException ex)
                     {
-                        // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上，不吞掉读档结果。
+                        // 当前应用状态不允许切到 Loading（例如已经在 Loading 中）：同上，读档结果照常返回。
+                        result = ReportSceneRouteFailure(result, mapId.Value, ex);
                     }
                 }
             }
 
             return result;
+        }
+
+        /// <summary>ADR-0121 第 10 条（D10）：读档成功后场景路由被拒绝——读档结果保持成功（存档已加载），
+        /// 但返回的 <see cref="LoadResult"/> 置位 <see cref="LoadResult.SceneRouteFailed"/> 并携带原因，
+        /// 同时向 <see cref="Diagnostics"/> 记一条警告；不再静默吞掉（AGENTS 第 3 节"运行时路径不静默降级"）。</summary>
+        private LoadResult ReportSceneRouteFailure(LoadResult result, Id mapId, Exception ex)
+        {
+            var error = $"读档成功但场景路由拒绝加载地图 \"{mapId}\"（{ex.GetType().Name}）：{ex.Message}";
+            Diagnostics.Warn($"ShellHost.LoadGame：{error}");
+            return result.WithSceneRouteFailure(error);
         }
 
         public SaveResult OverwriteSlot(Id slotId, long? playTimeSeconds, IReadOnlyDictionary<string, string>? displaySummary) =>

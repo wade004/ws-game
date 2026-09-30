@@ -60,9 +60,21 @@ namespace Core.Foundation.SaveSystem
         /// <summary>同 <see cref="CurrentMapId"/>，读自 <c>world.current_position</c> 段。</summary>
         public Vec2? CurrentPosition { get; }
 
+        /// <summary>ADR-0121 第 10 条（D10）：读档成功后外壳（<c>ShellHost.LoadGame</c>）按存档里的地图
+        /// id 切场景，场景路由拒绝（未知场景 id，或当前应用状态不允许转入加载中）时置 true。读档本身
+        /// 仍算成功（存档已加载，<see cref="Status"/> 不变）；本字段让调用方能区分"读档成功且场景已
+        /// 开始加载"与"读档成功但场景没切成"，不再静默。只增字段，默认 false；存档系统自身产出的
+        /// 结果永远为 false，只有 <see cref="WithSceneRouteFailure"/> 会置位。</summary>
+        public bool SceneRouteFailed { get; }
+
+        /// <summary>ADR-0121 第 10 条（D10）：<see cref="SceneRouteFailed"/> 为 true 时的失败原因文本
+        /// （含目标地图 id 与场景路由抛出的异常消息）；未失败时为 null。</summary>
+        public string? SceneRouteError { get; }
+
         private LoadResult(
             LoadStatus status, SaveMeta? meta, int? migratedFromVersion, string? message,
-            Id? currentMapId = null, Vec2? currentPosition = null)
+            Id? currentMapId = null, Vec2? currentPosition = null,
+            bool sceneRouteFailed = false, string? sceneRouteError = null)
         {
             Status = status;
             Meta = meta;
@@ -70,12 +82,25 @@ namespace Core.Foundation.SaveSystem
             Message = message;
             CurrentMapId = currentMapId;
             CurrentPosition = currentPosition;
+            SceneRouteFailed = sceneRouteFailed;
+            SceneRouteError = sceneRouteError;
         }
 
         public static LoadResult Loaded(
             SaveMeta meta, int? migratedFromVersion, LoadStatus status,
             Id? currentMapId = null, Vec2? currentPosition = null) =>
             new LoadResult(status, meta, migratedFromVersion, null, currentMapId, currentPosition);
+
+        /// <summary>ADR-0121 第 10 条（D10）：返回一份与本结果完全相同、仅额外置位
+        /// <see cref="SceneRouteFailed"/>=true 并携带 <see cref="SceneRouteError"/> 的新结果（本类型不可变，
+        /// 不原地修改）。供外壳在读档成功后场景路由被拒绝时显式暴露失败。</summary>
+        public LoadResult WithSceneRouteFailure(string error)
+        {
+            if (error == null) throw new System.ArgumentNullException(nameof(error));
+            return new LoadResult(
+                Status, Meta, MigratedFromVersion, Message, CurrentMapId, CurrentPosition,
+                sceneRouteFailed: true, sceneRouteError: error);
+        }
 
         public static LoadResult NotFound() => new LoadResult(LoadStatus.NotFound, null, null, null);
 

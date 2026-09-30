@@ -553,3 +553,10 @@ JSON 字符串验证——本条约定同样适用于 `ISettingsStore` 的设置
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（`LoadResult` 新增场景路由失败字段，2026-10-01，[ADR-0121](../../../architecture/adr/0121-测试覆盖梳理第一批十条行为语义拍板.md) 第 10 条，D10）
+
+`LoadResult` 新增只增属性 `SceneRouteFailed`（bool，默认 false）与 `SceneRouteError`（string?，默认 null）
+以及返回置位副本的 `WithSceneRouteFailure(string)`。存档系统自身产出的结果两字段恒为默认值；只有外壳
+（`presentation/shell` 的 `ShellHost.LoadGame`）在读档成功、场景路由被拒绝时置位，用于区分"读档成功且场景已开始
+加载"与"读档成功但场景没切成"。`Status` 不受影响（读档仍算成功）。私有构造函数增加的参数不属公开 ABI。
