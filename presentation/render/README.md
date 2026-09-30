@@ -426,7 +426,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 
 29. **ADR-0112（消费方反馈第六十三批）：方向切换原子化**——`SpriteViewBase` 把"期望方向"与"已显示方向"分开：
     期望方向由 `SyncPose` 每帧算出，槽位相对已显示方向变化时视图每帧调用新增的受保护虚方法
-    `PrepareDirection(Direction, Id, bool)`（默认恒真）询问"新方向是否准备好"，准备好才当帧提交（静态层、
+    `PrepareDirection(Direction, Id, bool)`（默认恒真）询问"新方向是否准备好（当前显示所需的资源都有结论）"，准备好才当帧提交（静态层、
     装备层、逐层剪辑、整身/覆盖剪辑、按方向的锚点一起换）；准备期间全部视觉内容停在已显示方向，模拟朝向不受
     影响。仅镜像变化（同槽位、翻转不同）与热转向当帧提交。**`OnDirectionSlotChanged` 改为提交时触发**（此前是期望
     方向变化的当帧），提交后再触发新增的 `OnDirectionCommitted`。契约面纯加法：只读 `DesiredDirection`、

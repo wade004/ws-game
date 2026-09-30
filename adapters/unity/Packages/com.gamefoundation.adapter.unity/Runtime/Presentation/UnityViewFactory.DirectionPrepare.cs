@@ -3,9 +3,11 @@
 //
 // 一、方向准备（原子化方向切换）
 // 视图（SpriteViewBase）每帧由姿态算出"期望方向"，显示用的是"已显示方向"。期望方向的槽位相对已显示方向
-// 变化时，视图每帧询问本文件的 PrepareDirectionForView：该方向下——当前合成层集合里每一层的静态图，加上
-// 全部状态键（基础键 + 该外形声明的战斗变体键）与已登记覆盖剪辑的逐层/整身剪辑——是否每一项都已有结论
-// （加载成功，或已确认不存在：探测各档耗尽/加载失败）。有结论之前整个实体的全部视觉内容保持已显示方向；
+// 变化时，视图每帧询问本文件的 PrepareDirectionForView：该方向下"当前显示所需"的每一项是否都已有结论
+// （加载成功，或已确认不存在：探测各档耗尽/加载失败）——① 当前合成层集合里每一层的静态图；② 运动态 idle/move
+// （含该外形声明的对应战斗变体键）与实体此刻所处状态的状态键的逐层/整身剪辑；③ 此刻正在播放的覆盖剪辑（有的话）。
+// 其余状态键与覆盖剪辑不阻塞提交，提交时由 ProbeMissingStatesInBackground 在后台补探测（ADR-0112 A1/A2）。
+// 有结论之前整个实体的全部视觉内容保持已显示方向；
 // 全部有结论的那一帧，视图在同一次 SyncPose 里提交（先 DirectionSlotChanged，工厂据此走缓存命中路径换入
 // 新方向的逐层/整身剪辑；再重合成纸娃娃层）。
 //
@@ -16,15 +18,19 @@
 // 准备状态（DirPrep）按 (实体, 方向) 保留：准备中期望方向又变了，已发出的加载让它自然完成进加载器缓存，
 // 不取消、不报错，改为准备最新的期望方向；期望方向变回已显示方向则无事发生。
 //
+// 提交后进入尚未就绪的状态：该状态在已显示方向下逐层剪辑没就绪的层显示已显示方向的静态图，整身兜底渲染器
+// 受方向不变量约束（内容方向 != 已显示方向则隐藏）；剪辑加载完成后走既有补切路径接上。
+//
 // 二、方向预热
-// PrewarmDirections 对一个实体的每个方向档位（镜像对去重后）依次执行与上面相同的准备，填满缓存、不改变
-// 显示。逐档位顺序执行（一个档位有结论后再发起下一个），有实体正在做真实转向的方向准备时在档位之间暂停
+// PrewarmDirections 对一个实体的每个方向档位（镜像对去重后）依次执行与上面相同的准备（预热计全部状态键与覆盖
+// 剪辑，requireAll），填满缓存、不改变显示。逐档位顺序执行（一个档位有结论后再发起下一个），有实体正在做真实转向的方向准备时在档位之间暂停
 // （让路）；预热过的实体换装后自动对新增层补预热（粘性）；实体销毁时取消并清理。走加载器既有的分帧预算，
 // 不新增第二套预算。
 //
 // 已知限制（同 ADR-0112，逐条）：
-//   1) 冷转向的保持时间 = 新方向全部资源里最慢的一项完成的时间（含全部状态键，不只是当前状态），没有超时；
-//      加载失败按"缺失"算结论，从不无限等待。
+//   1) 冷转向的保持时间 = 新方向"当前显示所需"资源（静态层图 + 运动态与当前状态的剪辑）里最慢的一项完成的时间，
+//      没有超时；加载失败按"缺失"算结论，从不无限等待。提交后首次进入尚未就绪的非运动态状态时，该状态各层先
+//      显示新方向静态图（不是动画），剪辑加载完成后接上（要避免用预热）。
 //   2) 首次显示与换装不是原子的：层图先以占位图出现，被真图替换（各约 1 帧）。
 //   3) 被放弃的目标方向（准备中期望方向又变了）的在途加载不取消，占用一部分加载带宽，结果进缓存。
 //   4) 预热的让路只发生在档位之间，一个档位内已发起的加载不会因转向而暂停。
@@ -149,7 +155,7 @@ namespace Adapter.Unity.Presentation
             }
 
             var dirBare = DirectionSlots.StripPrefix(slotId);
-            var ready = EvaluateDirection(entityId, ctx, unityLoader, dirBare, facing, install: true, allowRequest: true);
+            var ready = EvaluateDirection(entityId, ctx, unityLoader, dirBare, facing, install: true, allowRequest: true, requireAll: false);
             if (ready)
             {
                 _turnPendingEntities.Remove(entityId);
@@ -207,7 +213,7 @@ namespace Adapter.Unity.Presentation
         /// </summary>
         private bool EvaluateDirection(
             Id entityId, DirectionAwareAnimContext ctx, Adapter.Unity.EngineAdapter.UnityResourceLoader loader,
-            string dirBare, Direction facing, bool install, bool allowRequest)
+            string dirBare, Direction facing, bool install, bool allowRequest, bool requireAll)
         {
             var sprite = ctx.Info.Sprite!;
             var view = ctx.View;
@@ -236,12 +242,19 @@ namespace Adapter.Unity.Presentation
             var wholeBodies = new List<(string Key, WholeBodyCacheEntry Entry)>();
             var overrideMaps = new List<(Id ClipId, Dictionary<string, PerLayerCacheEntry> Map)>();
 
-            // 2. 全部状态键（基础键 + 战斗变体键）。
+            // 2. 状态键。提交（requireAll == false）只等"当前显示所需"：运动态 idle/move（含声明了的战斗变体键）与
+            //    实体此刻所处状态的键；其余状态键不在这里发起、不阻塞提交，提交后由换向路径在后台补探测
+            //    （ADR-0112 A2）。预热（requireAll == true）计全部键——预热的目的就是填满缓存。
+            var currentStateKey = requireAll ? null : CurrentStateKey(ctx);
             var stateKeys = AnimStateKeysFor(ctx.AnimSet);
             for (var i = 0; i < stateKeys.Count; i++)
             {
                 var stateKey = stateKeys[i];
                 if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+                if (!requireAll && !IsCommitCriticalStateKey(stateKey, currentStateKey))
                 {
                     continue;
                 }
@@ -291,11 +304,16 @@ namespace Adapter.Unity.Presentation
                 }
             }
 
-            // 3. 已登记的覆盖剪辑（武器风格/技能覆盖）。
+            // 3. 已登记的覆盖剪辑（武器风格/技能覆盖）。提交只等此刻正在播放的那一条（有的话），其余在提交后补探测。
+            var currentClipId = requireAll ? null : ctx.Player.CurrentClipId;
             if (_overrideClipIdsByEntity.TryGetValue(entityId, out var overrideClipIds))
             {
                 foreach (var clipId in overrideClipIds)
                 {
+                    if (!requireAll && !(currentClipId.HasValue && currentClipId.Value.Equals(clipId)))
+                    {
+                        continue;
+                    }
                     var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
                     var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                     var clipDone = true;
@@ -345,6 +363,31 @@ namespace Adapter.Unity.Presentation
             }
 
             return concluded;
+        }
+
+        /// <summary>提交所需的状态键（ADR-0112 A1）：运动态 <c>idle</c>/<c>move</c> 及其声明了的战斗变体键，加上实体
+        /// 此刻所处状态的键（<paramref name="currentStateKey"/>）。</summary>
+        private static bool IsCommitCriticalStateKey(string stateKey, string? currentStateKey) =>
+            stateKey == "idle" || stateKey == "move"
+            || stateKey == AnimSetDef.CombatClipKey("idle") || stateKey == AnimSetDef.CombatClipKey("move")
+            || (currentStateKey != null && stateKey == currentStateKey);
+
+        /// <summary>播放器此刻正在播的默认状态剪辑对应的状态键；播放的不是默认状态剪辑（覆盖剪辑/无）时为 <c>null</c>。</summary>
+        private static string? CurrentStateKey(DirectionAwareAnimContext ctx)
+        {
+            var current = ctx.Player.CurrentClipId;
+            if (!current.HasValue)
+            {
+                return null;
+            }
+            foreach (var kv in ctx.StateClipIds)
+            {
+                if (kv.Value.Equals(current.Value))
+                {
+                    return kv.Key;
+                }
+            }
+            return null;
         }
 
         private static string LayerKey(SpriteComposedLayer layer) =>
@@ -469,7 +512,18 @@ namespace Adapter.Unity.Presentation
                     byDir = new Dictionary<string, Dictionary<Id, Dictionary<string, PerLayerCacheEntry>>>(StringComparer.Ordinal);
                     _perLayerClipCacheByEntityAndDir[entityId] = byDir;
                 }
-                byDir[dirBare] = perLayerStates;
+                if (byDir.TryGetValue(dirBare, out var existing))
+                {
+                    // 合并而不是整表替换：该方向已有的条目（此前提交后补探测/预热填进去的其它状态键）保留。
+                    foreach (var kv in perLayerStates)
+                    {
+                        existing[kv.Key] = kv.Value;
+                    }
+                }
+                else
+                {
+                    byDir[dirBare] = perLayerStates;
+                }
             }
 
             if (wholeBodies.Count > 0)
@@ -590,7 +644,7 @@ namespace Adapter.Unity.Presentation
                 for (var i = 0; i < slots.Count; i++)
                 {
                     var dirBare = DirectionSlots.StripPrefix(slots[i].SlotId);
-                    if (EvaluateDirection(entityId, ctx, unityLoader, dirBare, slots[i].Facing, install: false, allowRequest: false))
+                    if (EvaluateDirection(entityId, ctx, unityLoader, dirBare, slots[i].Facing, install: false, allowRequest: false, requireAll: true))
                     {
                         readyDirections++;
                     }
@@ -625,7 +679,7 @@ namespace Adapter.Unity.Presentation
                 }
 
                 var slot = state.Slots[state.Index];
-                if (!EvaluateDirection(entityId, ctx, unityLoader, slot.Dir, slot.Facing, install: true, allowRequest: true))
+                if (!EvaluateDirection(entityId, ctx, unityLoader, slot.Dir, slot.Facing, install: true, allowRequest: true, requireAll: true))
                 {
                     return;
                 }

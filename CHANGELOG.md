@@ -460,8 +460,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 修复
 
-- **精灵单位冷转向时新旧方向混搭、闪占位图**（消费方反馈第六十三批 A，[ADR-0112](architecture/adr/0112-方向切换原子化与按实体预热全部方向.md)）：视图区分期望方向与已显示方向，新方向的静态层/装备层/逐层与整身剪辑全部有结论（缺美术算结论，不无限等待）后才当帧整体提交，准备期间整个实体保持旧方向；整身兜底渲染器可见时内容方向必须等于已显示方向；仅镜像变化与热转向当帧提交。
-  **行为变化**：`SpriteViewBase.OnDirectionSlotChanged` / `UnitySpriteView.DirectionSlotChanged` 改为**提交时**触发（此前是期望方向变化的当帧）；冷转向保持时间 = 新方向全部状态键资源加载完成的时间（真实外形实测 4 ms 预算 440～590 ms、8 ms 预算 270～300 ms）；合成层身份改为 (层名, 装备资源集引用)，纯方向变化不再整体重探测。
+- **精灵单位冷转向时新旧方向混搭、闪占位图**（消费方反馈第六十三批 A，[ADR-0112](architecture/adr/0112-方向切换原子化与按实体预热全部方向.md)）：视图区分期望方向与已显示方向，新方向"当前显示所需"的资源（当前层集合的静态图 + 运动态 idle/move 与当前状态的剪辑）全部有结论（缺美术算结论，不无限等待）后才当帧整体提交，其余状态键提交后后台补加载，准备期间整个实体保持旧方向；整身兜底渲染器可见时内容方向必须等于已显示方向；仅镜像变化与热转向当帧提交。
+  **行为变化**：`SpriteViewBase.OnDirectionSlotChanged` / `UnitySpriteView.DirectionSlotChanged` 改为**提交时**触发（此前是期望方向变化的当帧）；冷转向保持时间 = 上述所需资源加载完成的时间（真实外形实测 4 ms 预算 240～350 ms、8 ms 预算 155～240 ms；提交后首次进入尚未就绪的状态时该状态各层先显示新方向静态图，剪辑就绪后接上）；合成层身份改为 (层名, 装备资源集引用)，纯方向变化不再整体重探测。
   新增只读查询 `DesiredDirection`/`DisplayedDirection`/`HasPendingDirectionSwitch`（及 `HasDisplayedDirection`/`DisplayedFacing`）、纯计算 `ComposeLayersForDirection`、受保护虚方法 `PrepareDirection`/`OnDirectionCommitted`。默认开启，无开关。纯新增 ABI。
 
 ### 新增

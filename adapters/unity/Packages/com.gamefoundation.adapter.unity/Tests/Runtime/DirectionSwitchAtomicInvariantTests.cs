@@ -195,6 +195,64 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(ClipOf(log[commit].Find("body")!), ClipOf(log[commit].Find("mainhand")!), "⑤提交帧身体/装备同步\n" + Dump(log));
             AssertNoMixedDirection(log, "⑤等待期间状态变化");
             Finish(fx);
+
+            // (b) 提交条件只等"当前显示所需"（ADR-0112 A1/A2）：站着 idle 转向 front，front 的 idle/move 热（运动态）、
+            //     attack 冷（非当前状态）——提交不许等 attack；提交后立刻进入尚未就绪的攻击状态：身体/装备层显示新方向
+            //     （已显示方向）的静态层图，不混搭、不占位、兜底渲染器不可见；attack 的 front 剪辑加载完成后接上。
+            {
+                const string s2 = "sta2";
+                const string mesh2 = "mesh.w63sta2";
+                var keys2 = new[] { "idle", "move", "attack" };
+                WriteArtSet(s2, mesh2, keys2, SideDir);
+                WriteArtSet(s2, mesh2, keys2, FrontDir);
+                yield return WarmArtSet(s2, mesh2, keys2, SideDir);
+                yield return WarmArtSet(s2, mesh2, new[] { "idle", "move" }, FrontDir);
+                var box2 = new Box<Fx>();
+                yield return Build(box2, s2, mesh2, keys2);
+                var fx2 = box2.Value;
+                var frontAttackBody = LayerResourceId(null, ClipName(s2, "attack"), FrontDir, "body");
+                var frontAttackWeapon = LayerResourceId(mesh2, ClipName(s2, "attack"), FrontDir, "mainhand");
+                Assert.IsFalse(Loader.TryGetEffect(frontAttackBody, out _), "⑤(b)前置条件：front 的 attack 剪辑必须是冷的");
+
+                var log2 = new List<FrameReading>();
+                yield return RunUntil(fx2, Face(FrontDir), () => !fx2.View.HasPendingDirectionSwitch && fx2.View.DisplayedDirection.SlotId.Value.EndsWith(FrontDir), 60, log2);
+                Assert.IsFalse(fx2.View.HasPendingDirectionSwitch, "⑤(b)只差非当前状态 attack 的美术，不应阻塞提交\n" + Dump(log2));
+                Assert.IsFalse(Loader.TryGetEffect(frontAttackBody, out _), "⑤(b)提交时 attack 的 front 剪辑还没加载完（提交没有等它）\n" + Dump(log2));
+                Assert.IsFalse(Loader.TryGetEffect(frontAttackWeapon, out _), "⑤(b)提交时 attack 的 front 装备剪辑还没加载完\n" + Dump(log2));
+                AssertAllInDir(log2[log2.Count - 1], FrontDir, 2, "⑤(b)提交后 idle 已是 front", log2);
+                AssertNoMixedDirection(log2, "⑤(b)提交前后");
+
+                // 提交后立刻进入尚未就绪的攻击状态；加载器先不给进展，读数逐帧采样。
+                var log3 = new List<FrameReading>();
+                yield return RunFrames(fx2, Face(FrontDir), 4, log3, tickThisFrame: _ => false, beforeFrame: i =>
+                {
+                    fx2.Bus.PublishImmediate(new AutoAttackSwingEvent(fx2.EntityId, new Id("unit.test_dummy_63")));
+                });
+                for (var i = 1; i < log3.Count; i++)
+                {
+                    var body = log3[i].Find("body");
+                    var weapon = log3[i].Find("mainhand");
+                    Assert.IsNotNull(body, $"⑤(b)攻击剪辑未就绪时身体层应显示静态图（第 {i} 帧）\n{Dump(log3)}");
+                    Assert.IsNotNull(weapon, $"⑤(b)攻击剪辑未就绪时装备层应显示静态图（第 {i} 帧）\n{Dump(log3)}");
+                    Assert.AreEqual(StaticLayerId(s2, null, FrontDir, "body").Value, body!.Resource, $"⑤(b)身体层显示新方向静态图（第 {i} 帧）\n{Dump(log3)}");
+                    Assert.AreEqual(StaticLayerId(s2, mesh2, FrontDir, "mainhand").Value, weapon!.Resource, $"⑤(b)装备层显示新方向静态图（第 {i} 帧）\n{Dump(log3)}");
+                    Assert.IsNull(log3[i].Find("(fallback)"), $"⑤(b)整身兜底渲染器此刻不许可见（内容是旧方向）（第 {i} 帧）\n{Dump(log3)}");
+                }
+                AssertNoMixedDirection(log3, "⑤(b)进入未就绪攻击状态");
+                UnityEngine.Debug.Log("[dir63-trace] ⑤(b) enter-unready-attack per-frame readings:\n" + Dump(log3));
+
+                // 加载器恢复：attack 的 front 剪辑加载完成后身体/装备层接上（同一状态剪辑，同步）。
+                var log4 = new List<FrameReading>();
+                yield return RunFrames(fx2, Face(FrontDir), 40, log4, beforeFrame: i =>
+                {
+                    fx2.Bus.PublishImmediate(new AutoAttackSwingEvent(fx2.EntityId, new Id("unit.test_dummy_63")));
+                });
+                var last2 = log4[log4.Count - 1];
+                Assert.AreEqual(frontAttackBody.Value, last2.Find("body")!.Resource, "⑤(b)攻击剪辑就绪后身体层接上 front 攻击剪辑\n" + Dump(log4));
+                Assert.AreEqual(frontAttackWeapon.Value, last2.Find("mainhand")!.Resource, "⑤(b)攻击剪辑就绪后装备层接上 front 攻击剪辑\n" + Dump(log4));
+                AssertNoMixedDirection(log4, "⑤(b)攻击剪辑接上");
+                Finish(fx2);
+            }
         }
 
         // ⑥ 新方向缺美术：算"有结论"，提交后回落（装备层无剪辑 -> 静态层图；整层没有任何美术 -> 也照样提交，不无限等待）。

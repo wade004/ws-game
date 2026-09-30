@@ -1419,9 +1419,10 @@ namespace Adapter.Unity.Presentation
             // 决策 1：逐层剪辑——仅对已声明纸娃娃层、且挂接期成功建立了 ActivePerLayerByState 的外形
             // 生效（同 TryAttachPerLayerAnimation 判断记录"只对声明了 paperdoll_layers 的 sprite 型
             // 外形生效"）。
+            var deferredWholeBody = new HashSet<Id>();
             if (ctx.ActivePerLayerByState != null && ctx.Info.Sprite != null && ctx.Info.Sprite.PaperdollLayers.Count > 0)
             {
-                var perLayerByState = GetOrProbePerLayerForDirection(entityId, dirBareName, ctx, unityLoader, spriteSetId);
+                var perLayerByState = GetOrProbePerLayerForDirection(entityId, dirBareName, ctx, unityLoader, spriteSetId, deferredWholeBody);
                 SwapContents(ctx.ActivePerLayerByState, perLayerByState);
             }
 
@@ -1440,6 +1441,13 @@ namespace Adapter.Unity.Presentation
                 if (ctx.ActivePerLayerByState != null
                     && ctx.ActivePerLayerByState.TryGetValue(stateClipId, out var layerMap) && layerMap.Count > 0)
                 {
+                    continue;
+                }
+
+                if (deferredWholeBody.Contains(stateClipId))
+                {
+                    // ADR-0112 A2：提交时尚未探测完的状态键（提交后后台补探测），逐层全部耗尽之后才轮到整身方向变体
+                    // （见 GetOrProbePerLayerForDirection 的 onFinished），不在逐层结果未出时抢先登记整身内容。
                     continue;
                 }
 
@@ -1488,7 +1496,7 @@ namespace Adapter.Unity.Presentation
         /// </summary>
         private Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> GetOrProbePerLayerForDirection(
             Id entityId, string dirBareName, DirectionAwareAnimContext ctx,
-            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId, HashSet<Id>? deferredWholeBody = null)
         {
             if (!_perLayerClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
             {
@@ -1499,6 +1507,7 @@ namespace Adapter.Unity.Presentation
             if (byDir.TryGetValue(dirBareName, out var cached))
             {
                 ReregisterPerLayerCacheHit(ctx, cached);
+                ProbeMissingStatesInBackground(entityId, dirBareName, ctx, unityLoader, spriteSetId, cached, deferredWholeBody);
                 return cached;
             }
 
@@ -1529,6 +1538,52 @@ namespace Adapter.Unity.Presentation
             }
 
             return perLayerByState;
+        }
+
+        /// <summary>ADR-0112 A1/A2：方向准备只等"当前显示所需"的状态键（<see cref="EvaluateDirection"/>），命中的缓存
+        /// 因此可能没有其它状态键的表项。这里对缺表项的状态键按普通逐层探测在后台补上（表项先以空表放进
+        /// <paramref name="cached"/>，探测异步填充；命中的加载器缓存同步命中）。这些状态键在提交后被进入时，逐层
+        /// 内容没就绪的层显示已显示方向的静态图、整身兜底渲染器受方向不变量约束（<see cref="ContentMatchesDisplayedDirection"/>），
+        /// 剪辑就绪后由既有补切路径接上。逐层全部耗尽（该方向没有对应逐层美术）时再走整身方向变体探测。</summary>
+        private void ProbeMissingStatesInBackground(
+            Id entityId, string dirBareName, DirectionAwareAnimContext ctx,
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId,
+            Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> cached, HashSet<Id>? deferredWholeBody)
+        {
+            var composedLayers = CurrentComposedLayersOrInitial(ctx);
+            var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+            for (var i = 0; i < stateKeys.Count; i++)
+            {
+                var stateKey = stateKeys[i];
+                if (!ctx.AnimSet!.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId)
+                    || cached.ContainsKey(stateClipId))
+                {
+                    continue;
+                }
+
+                var strippedRef = AssetRefConventions.StripCategoryPrefix(clipDef.ResourceRef.Value);
+                var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
+                cached[stateClipId] = layerMap;
+                deferredWholeBody?.Add(stateClipId);
+
+                var capturedKey = stateKey;
+                var capturedClipDef = clipDef;
+                var capturedClipId = stateClipId;
+                BeginStateProbe(entityId, stateClipId);
+                ProbeComposedLayersSequential(
+                    unityLoader, ctx.Player, composedLayers, layerIndex: 0, strippedRef, dirBareName,
+                    stateClipId, clipDef.Events, layerMap, spriteSetId,
+                    onFinished: () =>
+                    {
+                        EndStateProbe(entityId, capturedClipId);
+                        if (layerMap.Count == 0 && _directionAwareAnimByEntity.TryGetValue(entityId, out var liveCtx))
+                        {
+                            ReprobeWholeBodyClipForDirection(
+                                entityId, dirBareName, capturedKey, capturedClipId, capturedClipDef, liveCtx.Player, unityLoader, spriteSetId);
+                        }
+                    },
+                    mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
+            }
         }
 
         /// <summary>消费方反馈第四十九批·反馈 1 根治：见 <see cref="GetOrProbePerLayerForDirection"/>
