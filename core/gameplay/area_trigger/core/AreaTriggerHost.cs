@@ -115,6 +115,12 @@ namespace Core.Gameplay.AreaTrigger
             _hooks = hooks;
             _options = options ?? new AreaTriggerOptions();
             _diagnostics = diagnostics ?? new InMemoryAreaTriggerDiagnostics();
+
+            // ADR-0114 第 9 条（D9）：订阅 entity.destroyed（含 IWorldSim.ClearAll 逐实体 Enqueue 的那一份，
+            // 见 WorldSim.ClearAll 注释），区内实体被销毁时补发 reason=Despawned 的离开事件并清 _inside，
+            // 见 OnEntityDestroyed 判断记录。订阅生命周期与总线相同（宿主与总线同寿命，惯例同
+            // DeathPolicyHost 对同一事件的订阅）。
+            _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, OnEntityDestroyed);
         }
 
         // -----------------------------------------------------------------
@@ -211,6 +217,45 @@ namespace Core.Gameplay.AreaTrigger
             {
                 _inside.Remove(key);
                 _bus.Enqueue(new AreaTriggerLeftEvent(key.TriggerId, key.UnitId, AreaTriggerLeaveReason.Unloaded));
+            }
+        }
+
+        /// <summary>
+        /// 判断记录（ADR-0114 第 9 条，D9）：实体被真正销毁（<c>entity.destroyed</c> 派发）时，对该实体
+        /// 仍记在 <see cref="_inside"/> 里的每个触发体各补发一条 <c>reason=Despawned</c> 的
+        /// <see cref="AreaTriggerLeftEvent"/> 并清掉对应记录——与 <see cref="RemoveInsideForTrigger"/>
+        /// 的 <c>Unloaded</c> 补发对称，都是"实体/触发体不存在了，事件必须与 <see cref="GetActiveTriggerIds"/>
+        /// 状态一致"，使由"离开"规则收尾的下游逻辑（如循环音效的 <c>stop_sfx</c>）不再悬空，同 Id 再生成
+        /// 后进入判定也不会被残留记录吞掉 <c>Entered</c>。
+        /// <para>
+        /// 死亡但实体仍存在（<c>UnitDiedEvent</c>）不算离开——尸体仍在区内，本方法只响应销毁事件，
+        /// 不订阅死亡事件。与 <c>Unloaded</c> 补发共存不重复：两条路径都以"从 <see cref="_inside"/> 移除"
+        /// 为发事件的前提，谁先清掉记录，另一条就找不到该组合。与 <c>Unloaded</c> 一致，补发的离开事件
+        /// 不触发 <c>script</c> 类型的 <c>leave</c> 钩子（单位已不存在，没有可交给脚本的对象）。
+        /// 多个触发体按 <c>TriggerId</c> 序数排序补发，保持确定性。
+        /// </para>
+        /// </summary>
+        private void OnEntityDestroyed(EntityDestroyedEvent evt)
+        {
+            List<Id>? triggerIds = null;
+            foreach (var key in _inside.Keys)
+            {
+                if (key.UnitId.Equals(evt.EntityId))
+                {
+                    (triggerIds ??= new List<Id>()).Add(key.TriggerId);
+                }
+            }
+
+            if (triggerIds == null)
+            {
+                return;
+            }
+
+            triggerIds.Sort();
+            foreach (var triggerId in triggerIds)
+            {
+                _inside.Remove((triggerId, evt.EntityId));
+                _bus.Enqueue(new AreaTriggerLeftEvent(triggerId, evt.EntityId, AreaTriggerLeaveReason.Despawned));
             }
         }
 

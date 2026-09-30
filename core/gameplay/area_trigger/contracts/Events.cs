@@ -46,8 +46,8 @@ namespace Core.Gameplay.AreaTrigger
     /// ADR-0090（消费方第三十六批相邻缺口）：<see cref="AreaTriggerLeftEvent"/> 的离开成因分类——
     /// 单位真正移动出触发范围（<c>Moved</c>，此前唯一的隐含语义）、触发体所在区域被整体卸载
     /// （<c>Unloaded</c>，见 <see cref="IAreaTriggerHost.UnloadMap"/>/<see cref="IAreaTriggerHost.Unregister"/>
-    /// 判断记录）、单位本身消失（<c>Despawned</c>，见 <c>AreaTriggerHost</c> 判断记录"卸载/消失补发
-    /// 离开事件"——本版本未落地这一分支，见该判断记录"已知限制"）。
+    /// 判断记录）、单位本身被销毁（<c>Despawned</c>，ADR-0114 第 9 条：<c>AreaTriggerHost</c> 订阅
+    /// <c>entity.destroyed</c> 补发；死亡但实体仍存在不算）。
     /// </summary>
     public enum AreaTriggerLeaveReason
     {
@@ -59,8 +59,9 @@ namespace Core.Gameplay.AreaTrigger
         /// <see cref="IAreaTriggerHost.Unregister"/>），区域本身不存在了，单位因此不再处于其中。</summary>
         Unloaded,
 
-        /// <summary>单位本身消失（未落地，见 <c>AreaTriggerHost</c> 判断记录"已知限制"：本模块没有
-        /// 现成的"单位消失"检测点，不为此新建机制）。</summary>
+        /// <summary>单位本身被销毁（<c>entity.destroyed</c>，含 <c>IWorldSim.ClearAll</c>）：
+        /// <c>AreaTriggerHost</c> 对仍记在"已进入"状态里的每个触发体补发，见其 <c>OnEntityDestroyed</c>
+        /// 判断记录（ADR-0114 第 9 条）。死亡但实体仍存在不发。</summary>
         Despawned,
     }
 

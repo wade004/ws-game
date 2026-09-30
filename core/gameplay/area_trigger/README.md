@@ -234,18 +234,17 @@ encounterRef) => Encounter.Start(encounterRef, ..., unitId)`）本就是直接�
 `event.reason == "moved"`）。`found.event_catalog` 的 `area.trigger_left` 行 `fields` 追加
 `reason`（`EventKeys.g.cs` 同步重新生成）。`AreaTriggerEnteredEvent` 不改。
 
-**决策 3（单位消失，未落地——已知限制）**：任务书要求"若有现成检测点就补发
-`reason=despawned`，没有就不新建机制"。核实结论：`AreaTriggerHost` 不持有 `IUnitAccess`（也不允许
-为此新增依赖注入），`Evaluate(unitId, position)` 由外部（`AreaTriggerTickHandler`）按单位驱动调用；
-单位消失后 `AreaTriggerTickHandler` 只是不再对它调用 `Evaluate`（它按 `IUnitAccess.AllUnits` 逐个
-驱动，消失的单位自然从这份集合里消失），本模块内部完全没有一个"检测到某个 `_inside` 单位已不存在"
-的既有钩子——不是漏看，是真的不存在。按任务书拍板，**不新建**这样一套检测机制（如逐 tick 比较
-"上次的单位集合"与"这次的单位集合"求差集）。结论：单位消失时 `_inside` 里对应的记录会残留、永远
-不会补发 `area.trigger_left`（除非该触发体所在地图之后被 `UnloadMap`/触发体被 `Unregister`，届时按
-决策 1 一并清理并补发 `reason=unloaded`，语义上不完全准确但不会永久残留）；`GetActiveTriggerIds`
-在此期间会持续报告一个已经不存在的单位所在的区域（该查询本就是按 `unitId` 过滤，调用方若查询的是
-一个已消失的单位，得到的列表本身也就没有意义）。真需要这类兜底应另开 ADR，纳入 `IUnitAccess`/
-`IWorldSim` 层面"实体销毁"事件驱动的补发机制，不在本次范围内。
+**决策 3（单位消失，ADR-0114 第 9 条落地，D9）**：ADR-0090 当时因没有现成检测点未落地；现改为
+`AreaTriggerHost` 构造时订阅 `entity.destroyed`（`IWorldSim` 生命周期清理阶段与 `ClearAll` 都会发），
+区内实体被销毁时，对其仍记在 `_inside` 里的每个触发体按 `TriggerId` 序数补发
+`reason=despawned` 的 `area.trigger_left` 并清账本（私有 `OnEntityDestroyed`）。**死亡但实体仍存在
+不算离开**（尸体仍在区内，不订阅死亡事件）。与卸载补发共存不重复：两条路径都以"从 `_inside` 移除"
+为发事件的前提，谁先清掉记录另一条就找不到该组合。补发的离开事件与 `unloaded` 一致，不触发
+`script` 类型的 `leave` 钩子（单位已不存在）。销毁后同 Id 再生成并进入，正常收到
+`area.trigger_entered`。用例见 `core/gameplay/area_trigger/tests/AreaTriggerDespawnTests.cs`
+（复现 `EntityDestroyedInsideZones_EmitsDespawnedLeavePerTrigger_AndClearsInside`；不变量
+`EntityDestroyedThenRespawnedWithSameId_ReEntersNormally`、`UnitDiedButEntityStillExists_DoesNotEmitLeave`、
+`UnloadThenDestroy_EmitsOnlyUnloaded_NoDuplicate`、`DestroyThenUnload_EmitsOnlyDespawned_NoDuplicate`）。
 
 ABI：纯加法——`AreaTriggerLeftEvent` 新增只读属性 + 新增三参构造重载 + 新增枚举类型，不改动任何
 既有公开签名；`abi_probe.ps1` 核实 `breaks=0`。
