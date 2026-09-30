@@ -210,12 +210,21 @@ namespace Tests.Carriers.Assembly
             var spatial = new StubSpatialQuery();
             var rng = new RngHost(1);
 
-            _ = new CarriersAssembly(bus, registry, rng, world, spatial);
+            var assembly = new CarriersAssembly(bus, registry, rng, world, spatial);
 
-            for (var i = 0; i < 5; i++)
+            const int tickCount = 5;
+            var tickBefore = world.TickIndex;
+            for (var i = 0; i < tickCount; i++)
             {
                 world.Tick(SimStep.Continuous(0.1));
             }
+
+            // 空世界空跑：五个 tick 全部推进完成（tick 计数恰好增加 tickCount），没有凭空产生实体/召唤物，
+            // 且 tick 处理器挂载（SummonTickHandler 先于 AiTickHandler 等）没有产生任何世界诊断告警。
+            Assert.Equal(tickBefore + tickCount, world.TickIndex);
+            Assert.Equal(0, world.EntityCount);
+            Assert.Empty(assembly.Summons.ActiveSummonIds);
+            Assert.Empty(world.DiagnosticsWarnings);
         }
     }
 }
