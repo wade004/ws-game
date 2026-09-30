@@ -21,6 +21,7 @@
 // sample_hero_hat_wiring_test 一行，配套占位资产已并入 toolchain/import_sample_assets.py 的
 // PAPERDOLL_FILES 生成流水线），不再与 EquipmentVisualReplayTests 共享任何字面量——"未被加载过"
 // 这一前提由夹具本身独占保证，与执行顺序、跨用例缓存清理均无关。
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -37,6 +38,7 @@ using Presentation.Assembly;
 using Presentation.Common;
 using Presentation.Render;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
@@ -240,8 +242,8 @@ namespace Adapter.Unity.Tests.Runtime
         /// <c>GetLoadProgress</c> 恒为 0，证明该层从未被合成进层列表，不只是解析错资源，是被整个丢弃。
         /// </para>
         /// </summary>
-        [Test]
-        public void UnityViewFactory_SpriteKind_EquipVisualWired_RealFacingChange_KeepsEquipLayerAndExtraLayer()
+        [UnityTest]
+        public IEnumerator UnityViewFactory_SpriteKind_EquipVisualWired_RealFacingChange_KeepsEquipLayerAndExtraLayer()
         {
             var fx = BuildFixture();
             var catalog = new Dictionary<Id, EquipVisualDef>(BuildCatalogByTemplateId(fx.Registry));
@@ -263,6 +265,7 @@ namespace Adapter.Unity.Tests.Runtime
                 bus: fx.Bus, dataRegistry: fx.Registry,
                 equipVisualByItemInstanceId: equipSource.VisualByItemInstanceId);
 
+            System.Action TickHostLoader = () => (fx.Host.ResourceLoader as UnityResourceLoader)?.Tick();
             var entityId = new Id("unit.sprite_equip_visual_real_facing_test");
             var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, SpriteHeroLogicalId, entityId);
             view.Bind(entityId);
@@ -314,7 +317,7 @@ namespace Adapter.Unity.Tests.Runtime
             // 真实朝向切换：不再手工重新 OnEvent，只调 SyncPose——这正是 UnitySpriteView.SyncPose 里
             // "朝向变化 -> SetPaperdollLayers"分支，验证的是这条路径本身是否装备感知。连续切换三个
             // 方向档位，各自断言一次（协调者验收要求）。
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2, 8), height: 0.0); // front
+            yield return DirectionSwitchSettle.SyncUntilCommitted(view, Direction.FromQuantized(System.Math.PI / 2, 8), TickHostLoader); // front
             AssertLayerResource("head", HatResolvedLayerResourceIdFront,
                 "真实朝向切换到 front 后，head 层应当挂 front 档位的装备资源，而不是退化成身体层资源 "
                 + BodyHeadResourceIdFront.Value + "（修复前实得的正是这个身体层资源）");
@@ -322,14 +325,14 @@ namespace Adapter.Unity.Tests.Runtime
             AssertLayerResource("cape", capeFront,
                 "真实朝向切换到 front 后，额外层 cape 仍然应当存在并挂 front 档位资源（不应被丢弃）");
 
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI * 3 / 2, 8), height: 0.0); // back
+            yield return DirectionSwitchSettle.SyncUntilCommitted(view, Direction.FromQuantized(System.Math.PI * 3 / 2, 8), TickHostLoader); // back
             AssertLayerResource("head", HatResolvedLayerResourceIdBack,
                 "真实朝向切换到 back 后，head 层应当挂 back 档位的装备资源");
             var capeBack = new Id("layer.item_sample_hero_hat_wiring_test__back__cape");
             AssertLayerResource("cape", capeBack,
                 "真实朝向切换到 back 后，额外层 cape 仍然应当存在并挂 back 档位资源");
 
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0); // 回到 side_r
+            yield return DirectionSwitchSettle.SyncUntilCommitted(view, Direction.FromQuantized(0.0, 8), TickHostLoader); // 回到 side_r
             AssertLayerResource("head", HatResolvedLayerResourceIdSideR,
                 "真实朝向切换回 side_r 后，head 层应当仍然挂 side_r 档位的装备资源");
             AssertLayerResource("cape", capeSideR,

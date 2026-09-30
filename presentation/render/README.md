@@ -424,6 +424,18 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     取舍：①由战斗事件首次创建记录的实体**不问探针**——迁移前姿态已知是事件值的反面，探针此刻读到的往往已等于事件值，拿它当基线会把这次迁移判成"没变"而吞掉（`CombatProbe_DeterminesInitialStanceOnce_EventCreatedEntriesSkipProbe_ForgetClears` 锁定）；②姿态变化**不触发** `StateChanged`/`StateRetriggered`，本类型不选剪辑、不打断瞬态，回落到运动态时读到的是当时姿态（`StanceChange_DoesNotInterruptTransientState_RevertSeesCurrentStance_DeathUnaffected`）；③`Death` 终态记录不受姿态变化影响。"该状态该播哪个剪辑、变体键回落"是解析层（适配层 `AnimClipResolver`）的事，见适配层 README "判断记录索引" ADR-0111 条目。剪辑键前缀 `combat_` 只在契约层 `AnimSetDef.CombatClipKeyPrefix` 定义一处。
     测试：`presentation/render/tests/AnimStateMachineCombatStanceTests.cs`（3 例，通过：订阅+去重+与状态正交、瞬态不打断、探针语义）；完整推导见 [ADR-0111](../../architecture/adr/0111-战斗姿态动画变体.md)。
 
+29. **ADR-0112（消费方反馈第六十三批）：方向切换原子化**——`SpriteViewBase` 把"期望方向"与"已显示方向"分开：
+    期望方向由 `SyncPose` 每帧算出，槽位相对已显示方向变化时视图每帧调用新增的受保护虚方法
+    `PrepareDirection(Direction, Id, bool)`（默认恒真）询问"新方向是否准备好"，准备好才当帧提交（静态层、
+    装备层、逐层剪辑、整身/覆盖剪辑、按方向的锚点一起换）；准备期间全部视觉内容停在已显示方向，模拟朝向不受
+    影响。仅镜像变化（同槽位、翻转不同）与热转向当帧提交。**`OnDirectionSlotChanged` 改为提交时触发**（此前是期望
+    方向变化的当帧），提交后再触发新增的 `OnDirectionCommitted`。契约面纯加法：只读 `DesiredDirection`、
+    `DisplayedDirection`、`HasDisplayedDirection`、`HasPendingDirectionSwitch`、`DisplayedFacing`；纯计算
+    `ComposeLayersForDirection(Direction)`（与应用路径共用实现）、`GetDistinctDirectionSlots()`、
+    `EnsureLayerImage(Id, bool)`（经追踪器预取静态层图并记录结论）。层静态图的加载完成回调统一记录结论，
+    只有属于当前已显示层集合的资源才转发给 rig 重新应用。
+    测试：`adapters/unity/.../Tests/Runtime/DirectionSwitchAtomic{Repro,Invariant}Tests.cs`。
+
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）
 - `AnimStateMachine` 的 `jump` 状态没有事件驱动来源（06 事件词汇表当前无 `unit.jumped`/

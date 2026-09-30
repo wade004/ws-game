@@ -90,6 +90,16 @@ namespace Presentation.Render
 
         private readonly Presentation.Common.ResourceReferenceTracker? _resourceTracker;
 
+        /// <summary>ADR-0112：构造期注入的资源加载器（与 <see cref="_resourceTracker"/> 同一来源），供
+        /// <see cref="EnsureLayerImage"/> 判断"该层静态图是否已被别处加载完成"。</summary>
+        private readonly IResourceLoader? _resourceLoader;
+
+        /// <summary>ADR-0112：本视图经 <see cref="_resourceTracker"/> 发起过的纸娃娃层静态图的加载结论
+        /// （资源 id → 是否成功）。<see cref="ResourceReferenceTracker"/> 同一 id 只回调一次、且回调只属于
+        /// 首次请求，所以所有经它发起的层图请求都统一挂 <see cref="OnLayerImageLoadCompleted"/>，由它记录结论
+        /// 并转发给 rig——方向准备阶段据此判断"每层静态图都已有结论"。</summary>
+        private readonly Dictionary<Id, bool> _layerImageConclusions = new Dictionary<Id, bool>();
+
         /// <summary>缺口 10：<c>item.template</c> 物品实例 id → <see cref="EquipVisualDef"/> 的查询表
         /// （见 <see cref="OnEvent"/> 判断记录"为何按物品实例 id 而不是 item_id 索引"）。未注入
         /// （null）时 <see cref="OnEvent"/> 对装备事件保持默认空处理，等价于 P4-1 行为。</summary>
@@ -110,14 +120,29 @@ namespace Presentation.Render
         /// 档位初始化，首次 SyncPose 前触发的装备事件按该默认朝向合成，不阻断装配。</summary>
         private Direction _lastFacing;
 
-        /// <summary>ADR-0093 决策 3：<see cref="SyncPose"/> 最近一次触发 <see cref="OnDirectionSlotChanged"/>
-        /// 时对应的 <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 结果（已经过 remap/mirror
-        /// 的裸档位 Id，如 <c>"dir.front"</c>），供逐次 <see cref="SyncPose"/> 判断"这一次解析出的档位
-        /// 是否与上一次不同"——只有真的不同才触发钩子，同档位内逐帧调用是空操作（不逐帧探测，见
-        /// <see cref="OnDirectionSlotChanged"/> 判断记录）。构造期按 <see cref="_lastFacing"/> 同一份
-        /// 默认朝向预先算出初始值，避免首次 <see cref="SyncPose"/> 恰好与挂接期默认朝向相同时也触发一次
-        /// 多余的钩子调用。</summary>
-        private Id _lastDirectionSlotId;
+        /// <summary>ADR-0112：已显示方向的裸档位 Id（<see cref="IRenderConventionHost.ResolveDirectionSlot"/>
+        /// 经 remap/mirror 处理后的槽位，如 <c>"dir.front"</c>）——视觉内容（纸娃娃层、逐层剪辑、整身剪辑）
+        /// 当前实际对应的方向。取代 ADR-0093 的 <c>_lastDirectionSlotId</c>（"最近一次触发钩子时的槽位"）：
+        /// 语义收窄为"最近一次提交的槽位"，只在 <see cref="CommitDirection"/> 里改变。构造期按
+        /// <see cref="_lastFacing"/> 同一份默认朝向预先算出初始值，避免首次 <see cref="SyncPose"/> 恰好与
+        /// 挂接期默认朝向相同时也触发一次多余的钩子调用。</summary>
+        private Id _displayedSlotId;
+
+        /// <summary>ADR-0112：已显示方向的镜像标志（与 <see cref="_displayedSlotId"/> 同时提交）。</summary>
+        private bool _displayedFlipX;
+
+        /// <summary>ADR-0112：已显示方向对应的朝向（提交那一刻的 <see cref="SyncPose"/> 入参）。</summary>
+        private Direction _displayedFacing;
+
+        /// <summary>ADR-0112：<see cref="CommitDirection"/> 是否至少执行过一次。首次显示（还没有"上一方向"
+        /// 可保持）直接提交，不经过 <see cref="PrepareDirection"/> 的等待。</summary>
+        private bool _directionCommitted;
+
+        /// <summary>ADR-0112：期望方向——最近一次 <see cref="SyncPose"/> 由朝向算出的槽位/镜像，可能领先
+        /// 于已显示方向（方向准备尚未完成）。</summary>
+        private Id _desiredSlotId;
+
+        private bool _desiredFlipX;
 
         /// <summary>ADR-0100 决策 1/2：本 View 最近一次成功合成并写入渲染器的纸娃娃层集合快照（层名 +
         /// 资源 Id + 装备来源，见 <see cref="SpriteComposedLayer"/> 类型注释）——
@@ -170,7 +195,13 @@ namespace Presentation.Render
             _resourceTracker = resourceLoader != null ? new Presentation.Common.ResourceReferenceTracker(resourceLoader) : null;
             _equipVisuals = equipVisualByItemInstanceId;
             _lastFacing = Direction.FromQuantized(0.0, DisplayInfo.Sprite.DirectionCount);
-            _lastDirectionSlotId = Conventions.ResolveDirectionSlot(_lastFacing, DisplayInfo.Sprite).SlotId;
+            var (initialSlotId, initialFlipX) = Conventions.ResolveDirectionSlot(_lastFacing, DisplayInfo.Sprite);
+            _displayedSlotId = initialSlotId;
+            _displayedFlipX = initialFlipX;
+            _displayedFacing = _lastFacing;
+            _desiredSlotId = initialSlotId;
+            _desiredFlipX = initialFlipX;
+            _resourceLoader = resourceLoader;
 
             var spriteSetId = Id.Parse(DisplayInfo.Sprite.SpriteSetId);
             _resourceTracker?.EnsureLoading(spriteSetId, ResourceKind.Image);
@@ -358,6 +389,38 @@ namespace Presentation.Render
         /// 后，未装备任何物品的实体朝向变化行为不受影响。</summary>
         private void ComposeAndApplyEquipAwareLayers(IReadOnlyList<string> baseLayerNamesInOrder, Direction facing)
         {
+            var composedLayers = ComposeEquipAwareLayers(baseLayerNamesInOrder, facing);
+            var resourceIds = new List<Id>(composedLayers.Count);
+            for (var i = 0; i < composedLayers.Count; i++)
+            {
+                var resourceId = composedLayers[i].ResourceId;
+
+                // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：加载完成回调统一走
+                // OnLayerImageLoadCompleted（ADR-0112：先记录该层图的加载结论，再转发给 rig 的
+                // HandleResourceLoadCompleted），装备驱动的层重建路径与朴素层合成路径共用同一套
+                // "加载完成后重新应用当前完整层列表"机制。
+                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, OnLayerImageLoadCompleted);
+                resourceIds.Add(resourceId);
+            }
+
+            // ADR-0100 决策 1：先更新快照，再写入渲染器——LastComposedLayers 在 OnLayersComposed 触发
+            // 那一刻必须已经反映这一次合成的最新结果（见该字段判断记录），顺序不能颠倒。
+            _lastComposedLayers = composedLayers;
+
+            // 判断记录：不在这里直接调用 OnLayersComposed——_rig.ApplyLayers 内部的 LayersApplied 事件
+            // （构造期已订阅到 OnLayersComposed，见构造函数判断记录）会在写入渲染器之后自动触发一次，
+            // 这里再调一次会导致同一次合成触发两次通知。
+            _rig.ApplyLayers(resourceIds);
+        }
+
+        /// <summary>
+        /// ADR-0112 决策 3：把"某个朝向下会合成出哪些层、各自对应哪个资源 id"抽成对任意朝向求值的纯计算
+        /// （不写渲染器、不发起加载、不改任何视图状态）——<see cref="ComposeAndApplyEquipAwareLayers"/>（提交
+        /// 阶段真正应用）与 <see cref="ComposeLayersForDirection"/>（方向准备阶段预取资源）共用同一份实现，
+        /// "准备阶段算出的层集合"与"提交阶段应用的层集合"因此不可能分叉。
+        /// </summary>
+        private IReadOnlyList<SpriteComposedLayer> ComposeEquipAwareLayers(IReadOnlyList<string> baseLayerNamesInOrder, Direction facing)
+        {
             var overridesByLayerName = new Dictionary<string, Id>(StringComparer.Ordinal);
             foreach (var kv in _equipOverridesBySlot)
             {
@@ -381,7 +444,6 @@ namespace Presentation.Render
             allLayerNames.AddRange(extraLayerNames);
 
             var placements = Conventions.ComposeSpriteLayers(allLayerNames, DisplayInfo.Sprite!, facing);
-            var resourceIds = new List<Id>(placements.Count);
             var composedLayers = new List<SpriteComposedLayer>(placements.Count);
 
             for (var i = 0; i < placements.Count; i++)
@@ -394,23 +456,121 @@ namespace Presentation.Render
                     ? ResolveEquipLayerResourceId(placement, equipMeshRef.Value)
                     : ResolveLayerResourceId(placement);
 
-                // 见 SpriteCharacterRig 类型注释"资源加载完成后回填已渲染层"判断记录：把
-                // HandleResourceLoadCompleted 作为 onComplete 传入，与 SpriteCharacterRig.
-                // ComposeAndApplyLayers 内部同一份回调绑定到同一个 rig 实例，装备驱动的层重建路径
-                // 与朴素层合成路径共用同一套"加载完成后重新应用当前完整层列表"机制。
-                _resourceTracker?.EnsureLoading(resourceId, ResourceKind.Image, _rig.HandleResourceLoadCompleted);
-                resourceIds.Add(resourceId);
                 composedLayers.Add(new SpriteComposedLayer(placement.LayerName, resourceId, equipMeshRef));
             }
 
-            // ADR-0100 决策 1：先更新快照，再写入渲染器——LastComposedLayers 在 OnLayersComposed 触发
-            // 那一刻必须已经反映这一次合成的最新结果（见该字段判断记录），顺序不能颠倒。
-            _lastComposedLayers = composedLayers;
+            return composedLayers;
+        }
 
-            // 判断记录：不在这里直接调用 OnLayersComposed——_rig.ApplyLayers 内部的 LayersApplied 事件
-            // （构造期已订阅到 OnLayersComposed，见构造函数判断记录）会在写入渲染器之后自动触发一次，
-            // 这里再调一次会导致同一次合成触发两次通知。
-            _rig.ApplyLayers(resourceIds);
+        /// <summary>
+        /// ADR-0112 决策 3：在 <paramref name="facing"/> 朝向下、按当前装备状态，本视图会合成出的层集合
+        /// （层名 + 资源 id + 装备来源）。纯计算——不写渲染器、不触发加载、不改变视图状态，
+        /// 与 <see cref="SyncPose"/> 提交该朝向时实际应用的层集合逐项一致（同一份实现，见
+        /// <see cref="ComposeEquipAwareLayers"/>）。供引擎适配层的方向准备阶段预取资源用。
+        /// </summary>
+        public IReadOnlyList<SpriteComposedLayer> ComposeLayersForDirection(Direction facing) =>
+            ComposeEquipAwareLayers(DisplayInfo.Sprite!.PaperdollLayers, facing);
+
+        /// <summary>
+        /// ADR-0112 决策 1/B1：本外形的全部方向档位（镜像对去重后）：每个不同的
+        /// <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 槽位一条，附一个能解析到该槽位的代表朝向
+        /// （按量化索引构造，弧度取该索引的档位中心角）。顺序按量化索引升序。供方向预热枚举档位用。
+        /// </summary>
+        public IReadOnlyList<(Id SlotId, Direction Facing)> GetDistinctDirectionSlots()
+        {
+            var sprite = DisplayInfo.Sprite!;
+            var count = sprite.DirectionCount;
+            var result = new List<(Id, Direction)>(count);
+            var seen = new HashSet<Id>();
+            for (var i = 0; i < count; i++)
+            {
+                var facing = new Direction(2.0 * Math.PI * i / count, i, count);
+                var (slotId, _) = Conventions.ResolveDirectionSlot(facing, sprite);
+                if (seen.Add(slotId))
+                {
+                    result.Add((slotId, facing));
+                }
+            }
+            return result;
+        }
+
+        /// <summary>ADR-0112：某个纸娃娃层静态图的加载状态，见 <see cref="EnsureLayerImage"/>。</summary>
+        public enum LayerImageState
+        {
+            /// <summary>加载请求在途，尚无结论。</summary>
+            Pending,
+
+            /// <summary>已加载成功。</summary>
+            Loaded,
+
+            /// <summary>已确认不存在或加载失败（有结论，提交后该层按既有占位规则显示）。</summary>
+            Missing,
+        }
+
+        /// <summary>
+        /// ADR-0112 决策 3：方向准备阶段预取某一层静态图——保证 <paramref name="resourceId"/> 已经发起过（且只
+        /// 发起一次）加载并返回当前状态；不改变任何显示（不重合成、不写渲染器、不显示占位图）。请求经本视图的
+        /// <see cref="ResourceReferenceTracker"/> 发出，与提交阶段的层合成共用同一份"谁首次引用谁加载"记账，
+        /// 提交时不会对同一 id 重复发起加载。资源已被别处加载完成（<see cref="IResourceLoader.IsLoaded"/>）时
+        /// 直接视为已加载，不再请求。没有注入加载器时恒返回 <see cref="LayerImageState.Loaded"/>（无从等待）。
+        /// <paramref name="allowRequest"/> 为 <c>false</c> 时只查询、不发起加载（尚无结论的一律返回
+        /// <see cref="LayerImageState.Pending"/>），供只读进度查询用。
+        /// </summary>
+        public LayerImageState EnsureLayerImage(Id resourceId, bool allowRequest = true)
+        {
+            if (_layerImageConclusions.TryGetValue(resourceId, out var success))
+            {
+                return success ? LayerImageState.Loaded : LayerImageState.Missing;
+            }
+
+            if (_resourceTracker == null || _resourceLoader == null || _destroyed)
+            {
+                return LayerImageState.Loaded;
+            }
+
+            if (_resourceLoader.IsLoaded(resourceId))
+            {
+                _layerImageConclusions[resourceId] = true;
+                return LayerImageState.Loaded;
+            }
+
+            if (!allowRequest)
+            {
+                return LayerImageState.Pending;
+            }
+
+            _resourceTracker.EnsureLoading(resourceId, ResourceKind.Image, OnLayerImageLoadCompleted);
+
+            // 加载器可能同步回调（引擎无关的测试用实现），此时结论已经记录。
+            if (_layerImageConclusions.TryGetValue(resourceId, out success))
+            {
+                return success ? LayerImageState.Loaded : LayerImageState.Missing;
+            }
+            return LayerImageState.Pending;
+        }
+
+        /// <summary>ADR-0112：本视图经追踪器发起的全部层图加载的统一完成回调——先记录结论，再转发给 rig。
+        /// 只有当完成的资源属于"当前已显示的层集合"时才转发（它会重新应用当前层列表，把占位图换成真图）；
+        /// 方向准备/预热预取的、尚未显示的方向的层图完成时不转发，避免为不可见的资源重复写渲染器。</summary>
+        private void OnLayerImageLoadCompleted(Id resourceId, bool success)
+        {
+            _layerImageConclusions[resourceId] = success;
+
+            if (!success)
+            {
+                // 失败时 rig 只记一条诊断、不重新应用层列表，不论该资源是否已显示都转发（保留既有诊断）。
+                _rig.HandleResourceLoadCompleted(resourceId, success);
+                return;
+            }
+
+            for (var i = 0; i < _lastComposedLayers.Count; i++)
+            {
+                if (_lastComposedLayers[i].ResourceId.Equals(resourceId))
+                {
+                    _rig.HandleResourceLoadCompleted(resourceId, success);
+                    return;
+                }
+            }
         }
 
         /// <summary>
@@ -445,24 +605,100 @@ namespace Presentation.Render
         {
         }
 
+        /// <summary>
+        /// ADR-0112 决策 1/5/6：每帧由姿态算出<b>期望方向</b>（槽位 + 镜像），显示用的是<b>已显示方向</b>，两者
+        /// 只在"方向准备"期间不同：
+        /// <list type="bullet">
+        /// <item>首次显示（还没有"上一方向"可保持）与仅镜像变化（同一槽位的镜像对，资源不变）：当帧提交；</item>
+        /// <item>槽位变化：询问 <see cref="PrepareDirection"/>（默认恒就绪，方向相关的动画/资源由引擎适配层
+        /// 子类接管）——就绪则当帧提交，未就绪则整个实体的全部视觉内容保持已显示方向，下一帧再问；</item>
+        /// <item>准备期间期望方向又变了：以最新期望方向为准重新询问，显示始终停在最后一次提交的方向；期望
+        /// 方向变回已显示方向：什么都不做（撤销待切换）。</item>
+        /// </list>
+        /// 变换里的镜像标志用已显示方向的，与静态层/逐层剪辑同一时刻切换。模拟侧的朝向不受影响。
+        /// </summary>
         public virtual void SyncPose(Vec2 pos, Direction facing, double height)
         {
             EnsureAlive();
 
-            _lastFacing = facing;
-
             var sortY = Conventions.ComputeSortY(pos, DisplayInfo.SortOffset);
             var (slotId, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
+            _desiredSlotId = slotId;
+            _desiredFlipX = flipX;
 
-            if (!slotId.Equals(_lastDirectionSlotId))
+            if (!_directionCommitted)
             {
-                _lastDirectionSlotId = slotId;
-                OnDirectionSlotChanged(slotId);
+                CommitDirection(facing, slotId, flipX);
+            }
+            else if (slotId.Equals(_displayedSlotId))
+            {
+                if (flipX != _displayedFlipX)
+                {
+                    CommitDirection(facing, slotId, flipX);
+                }
+            }
+            else if (PrepareDirection(facing, slotId, flipX))
+            {
+                CommitDirection(facing, slotId, flipX);
             }
 
             var heightPixels = Conventions.HeightOffsetToPixels(height, Options.PixelsPerUnit);
-            Renderer.SetTransform(Handle, pos, heightPixels, sortY, RenderLayers.Units, 0.0, DisplayInfo.Scale, flipX);
+            Renderer.SetTransform(Handle, pos, heightPixels, sortY, RenderLayers.Units, 0.0, DisplayInfo.Scale, _displayedFlipX);
         }
+
+        /// <summary>ADR-0112：把期望方向提交为已显示方向，并按固定顺序触发两个钩子——先
+        /// <see cref="OnDirectionSlotChanged"/>（槽位变了才触发：引擎适配层据此换入新方向的逐层/整身剪辑，
+        /// 提交时所需内容都已在缓存里，走同步命中路径），再 <see cref="OnDirectionCommitted"/>（子类据此重合成
+        /// 纸娃娃层）。两个钩子在同一次 <see cref="SyncPose"/> 调用里连续执行，渲染器在此期间不会读到中间态。</summary>
+        private void CommitDirection(Direction facing, Id slotId, bool flipX)
+        {
+            var slotChanged = !slotId.Equals(_displayedSlotId);
+            _displayedSlotId = slotId;
+            _displayedFlipX = flipX;
+            _displayedFacing = facing;
+            _lastFacing = facing;
+            _directionCommitted = true;
+
+            if (slotChanged)
+            {
+                OnDirectionSlotChanged(slotId);
+            }
+
+            OnDirectionCommitted(facing, slotId, flipX);
+        }
+
+        /// <summary>ADR-0112 决策 1/2：期望方向的槽位相对已显示方向变化时，每帧询问一次"该方向是否已经准备
+        /// 完成"，返回 <c>true</c> 则当帧提交、<c>false</c> 则保持已显示方向。实现方应在其中<b>只加载、不改
+        /// 显示</b>（不重合成层、不换逐层映射、不重登记剪辑内容、不显示占位图）。默认恒返回 <c>true</c>
+        /// （没有方向相关资源可等待，行为等同引入本机制之前）。<c>protected virtual</c>，ABI 只新增。</summary>
+        protected virtual bool PrepareDirection(Direction facing, Id slotId, bool flipX) => true;
+
+        /// <summary>ADR-0112：方向提交之后（<see cref="OnDirectionSlotChanged"/> 之后）触发，参数是新提交的
+        /// 朝向/槽位/镜像；首次显示、槽位变化、仅镜像变化三种提交都会触发。默认空实现。<c>protected
+        /// virtual</c>，ABI 只新增。</summary>
+        protected virtual void OnDirectionCommitted(Direction facing, Id slotId, bool flipX)
+        {
+        }
+
+        /// <summary>ADR-0112 决策 10：期望方向（最近一次 <see cref="SyncPose"/> 由朝向算出的槽位与镜像）。
+        /// 尚未收到过 <see cref="SyncPose"/> 时为构造期默认朝向的解析结果。</summary>
+        public (Id SlotId, bool FlipX) DesiredDirection => (_desiredSlotId, _desiredFlipX);
+
+        /// <summary>ADR-0112 决策 10：已显示方向——视觉内容（纸娃娃层、逐层/整身剪辑、变换镜像）当前实际
+        /// 对应的槽位与镜像；只在提交时改变。</summary>
+        public (Id SlotId, bool FlipX) DisplayedDirection => (_displayedSlotId, _displayedFlipX);
+
+        /// <summary>ADR-0112：是否已经至少提交过一次方向（<see cref="DisplayedDirection"/> 是真实显示过的
+        /// 方向，而不是构造期默认值）。</summary>
+        public bool HasDisplayedDirection => _directionCommitted;
+
+        /// <summary>ADR-0112 决策 10：是否有待切换——期望方向与已显示方向不同（准备尚未完成）。首次显示前
+        /// 恒为 <c>false</c>（首次显示不等待）。</summary>
+        public bool HasPendingDirectionSwitch =>
+            _directionCommitted && (!_desiredSlotId.Equals(_displayedSlotId) || _desiredFlipX != _displayedFlipX);
+
+        /// <summary>ADR-0112：已显示方向对应的朝向（提交那一刻的入参），供按方向取值的挂点/锚点使用。</summary>
+        public Direction DisplayedFacing => _displayedFacing;
 
         /// <summary>
         /// ADR-0093 决策 3/4：<see cref="SyncPose"/> 每次调用都会经 <see cref="IRenderConventionHost.ResolveDirectionSlot"/>
@@ -470,6 +706,11 @@ namespace Presentation.Render
         /// 裸档位 Id，如 <c>"dir.front"</c>）；只有这次解析结果与上一次不同时才会调用本方法一次——同一
         /// 方向档位内逐帧 <see cref="SyncPose"/>（移动但朝向不变、原地静止）不会重复触发，满足"只在档位
         /// 变化时探测，不逐帧探测"（见 ADR-0093 决策 3）。
+        /// <para>
+        /// ADR-0112 语义变更：本方法在方向<b>提交</b>时触发（新方向的静态图与剪辑全部准备完成的那一帧，或热转向/
+        /// 首次显示的当帧），不再是期望方向变化的当帧；准备期间视觉内容停在已显示方向，见
+        /// <see cref="DesiredDirection"/>/<see cref="DisplayedDirection"/>/<see cref="HasPendingDirectionSwitch"/>。
+        /// </para>
         /// <para>
         /// 默认空实现（ABI 加法，<c>protected virtual</c>，不改 <see cref="SyncPose"/> 既有签名）：本类型
         /// 自身不知道"方向相关的动画剪辑"具体如何组织（那是引擎适配层 <c>TryAttachPerLayerAnimation</c>

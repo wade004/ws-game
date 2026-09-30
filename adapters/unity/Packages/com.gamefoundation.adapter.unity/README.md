@@ -1043,6 +1043,19 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   `UnityRenderer2D.SpriteInstance.LayerResourceIds[layerIndex]`（`SetLayers` 写入、与
   `LayerRenderers`/`LayerNames` 同下标）——两者均是"该层最近一次合成的资源 id"，改用后者可以让
   `ApplyPerLayerFrame` 保持 `static` 方法、不需要为此新增 `UnitySpriteView` 参数。
+- **判断记录（方向切换原子化与按实体预热全部方向，消费方反馈第六十三批，
+  [ADR-0112](../../../../architecture/adr/0112-方向切换原子化与按实体预热全部方向.md)）**：此前档位一变，
+  静态层当帧按新方向重合成、逐层剪辑内容却要等新方向探测异步完成才换，冷转向期间整身兜底渲染器还会继续播旧方向
+  内容压在新方向层之上。现在 `UnitySpriteView.DirectionPreparer`（工厂在挂接时安装）作为视图的方向准备闸门：
+  `UnityViewFactory.DirectionPrepare.cs` 的 `PrepareDirectionForView` 对新方向并行推进"每层静态图 + 全部状态键
+  （含战斗变体键）× 合成层 + 覆盖剪辑"的分档探测链（带方向 → 无方向 → 保持静态语义不变），全部有结论（加载成功或确认
+  缺失）才把结果写入按 (实体, 方向) 缓存并让视图当帧提交，提交走既有的缓存命中路径。整身兜底渲染器方向不变量靠给
+  `UnityFrameAnimPlayer` 登记的剪辑内容打"内容方向"标签（`RegisterClipFromEffect` 新增重载）实现：`ApplyPerLayerFrame`
+  在兜底分支发现内容方向与已显示方向不一致就保持隐藏、显示静态层；探测结果只在方向等于已显示方向时才写入播放器
+  （其余只进缓存）。合成层身份改为 (层名, 装备资源集引用)，纯方向变化不再触发整体重探测。新增公开：
+  `UnityViewFactory.PrewarmDirections(Id, Action<Id,bool>?)`、`TryGetDirectionPrewarmProgress`、
+  `DirectionPrewarm`（`DirectionPrewarmPolicy.None` 默认 / `OnAttach`）。预热已知代价：全部方向贴图常驻内存
+  （真实外形实测约 1.4 GB）。`DirectionSlotChanged` 改为提交时触发。
 - **判断记录（同槽位换装未触发重探测，消费方反馈第五十三批）**：`_composedLayerNamesByEntity`
   （已随本次改动更名为 `_composedLayerIdentityByEntity`）此前只投影 `SpriteComposedLayer.LayerName`
   与上一次快照 `SetEquals`，不等才调 `ReprobeForCompositionChange`——同槽位换装（如

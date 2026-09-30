@@ -402,7 +402,7 @@ namespace Adapter.Unity.Tests.Runtime
 
             // ① 真实方向槽位变化：front -> side_r。
             var recomposeCountBeforeSlotChange = view.PaperdollRecomposeCountForTests;
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(sideRFacing, 8), 0.0);
+            yield return DirectionSwitchSettle.SyncUntilCommitted(view, Direction.FromQuantized(sideRFacing, 8), _resourceLoader.Tick);
             Assert.AreEqual(recomposeCountBeforeSlotChange + 1, view.PaperdollRecomposeCountForTests,
                 "①：方向槽位真变化（front -> side_r）应当恰好触发一次重合成");
 

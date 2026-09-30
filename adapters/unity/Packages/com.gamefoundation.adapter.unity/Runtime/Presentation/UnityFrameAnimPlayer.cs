@@ -48,6 +48,13 @@ namespace Adapter.Unity.Presentation
         // 美术是否已经到位"。
         private readonly HashSet<Id> _placeholderClipIds = new HashSet<Id>();
 
+        // ADR-0112：登记内容的方向标签——剪辑 id -> 该内容来自哪个方向档位的美术（方向裸档位名）。没有条目
+        // 表示"与方向无关"（单帧占位、无方向段的兜底资源、显式登记的剪辑），任何已显示方向下都可展示；
+        // 有条目表示这是某个方向档位专属的美术。供整身兜底渲染器的方向不变量判断"它上面登记的内容是不是
+        // 已显示方向的"（见 UnityViewFactory.ContentMatchesDisplayedDirection）。任何一次 RegisterClip 都会
+        // 清掉旧标签（内容被换掉了，旧标签不再成立），带标签的登记重载在同一次调用里重新写上。
+        private readonly Dictionary<Id, string> _contentDirectionByClip = new Dictionary<Id, string>();
+
         private FrameAnimPlayer? _inner;
         private SpriteRenderer? _renderer;
 
@@ -105,6 +112,7 @@ namespace Adapter.Unity.Presentation
             _clipMetaById[clipId] = new FrameAnimClip(clipId, frames.Length, frameRate, keyframes);
             _framesByClipId[clipId] = frames;
             _placeholderClipIds.Remove(clipId);
+            _contentDirectionByClip.Remove(clipId);
         }
 
         /// <summary>把一张已加载的单帧静态图登记成一个"1 帧剪辑"（见类型顶部判断记录②）：
@@ -141,6 +149,61 @@ namespace Adapter.Unity.Presentation
 
             RegisterClip(clipId, frames, frameRate, keyframes);
             ClipContentRegistered?.Invoke(clipId);
+        }
+
+        /// <summary>ADR-0112：同 <see cref="RegisterClipFromEffect(Id, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset, IReadOnlyDictionary{string,int}?)"/>，
+        /// 额外在触发 <see cref="ClipContentRegistered"/> 之前写入内容的方向标签（<paramref name="contentDirection"/>
+        /// 为方向裸档位名；<c>null</c> 表示与方向无关）——订阅方在事件里读到的标签已经是新内容的。</summary>
+        public void RegisterClipFromEffect(
+            Id clipId, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset effect,
+            IReadOnlyDictionary<string, int>? keyframes, string? contentDirection)
+        {
+            if (effect == null) throw new ArgumentNullException(nameof(effect));
+
+            var frames = new Sprite[effect.Frames.Length];
+            double frameRate = 12.0;
+            if (effect.Frames.Length > 0 && effect.Frames[0].Duration > 0)
+            {
+                frameRate = 1.0 / effect.Frames[0].Duration;
+            }
+            for (var i = 0; i < effect.Frames.Length; i++)
+            {
+                frames[i] = effect.Frames[i].Sprite;
+            }
+
+            RegisterClip(clipId, frames, frameRate, keyframes);
+            if (contentDirection != null)
+            {
+                _contentDirectionByClip[clipId] = contentDirection;
+            }
+            ClipContentRegistered?.Invoke(clipId);
+        }
+
+        /// <summary>ADR-0112：<paramref name="clipId"/> 当前登记内容的方向标签（方向裸档位名）；与方向无关或未
+        /// 登记时为 <c>null</c>。</summary>
+        internal string? GetClipContentDirection(Id clipId) =>
+            _contentDirectionByClip.TryGetValue(clipId, out var dir) ? dir : null;
+
+        /// <summary>ADR-0112：把整身渲染器立即刷新为当前剪辑的当前帧（内容被原地换掉后，渲染器上的贴图要等
+        /// 下一次帧号变化才会更新，最多滞后一个帧间隔——方向提交时不能容忍这一段旧方向画面）。没有正在播放的
+        /// 剪辑或帧序列缺失时什么都不做。</summary>
+        internal void RefreshDisplayedFrame()
+        {
+            var clipId = CurrentClipId;
+            if (clipId == null)
+            {
+                return;
+            }
+
+            if (_framesByClipId.TryGetValue(clipId.Value, out var frames) && frames.Length > 0)
+            {
+                var index = CurrentFrame % frames.Length;
+                if (index < 0)
+                {
+                    index += frames.Length;
+                }
+                Renderer.sprite = frames[index];
+            }
         }
 
         /// <summary>ADR-0111：经 <see cref="RegisterClipFromEffect"/> 登记了真实序列帧内容（不是

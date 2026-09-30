@@ -458,6 +458,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **精灵单位冷转向时新旧方向混搭、闪占位图**（消费方反馈第六十三批 A，[ADR-0112](architecture/adr/0112-方向切换原子化与按实体预热全部方向.md)）：视图区分期望方向与已显示方向，新方向的静态层/装备层/逐层与整身剪辑全部有结论（缺美术算结论，不无限等待）后才当帧整体提交，准备期间整个实体保持旧方向；整身兜底渲染器可见时内容方向必须等于已显示方向；仅镜像变化与热转向当帧提交。
+  **行为变化**：`SpriteViewBase.OnDirectionSlotChanged` / `UnitySpriteView.DirectionSlotChanged` 改为**提交时**触发（此前是期望方向变化的当帧）；冷转向保持时间 = 新方向全部状态键资源加载完成的时间（真实外形实测 4 ms 预算 440～590 ms、8 ms 预算 270～300 ms）；合成层身份改为 (层名, 装备资源集引用)，纯方向变化不再整体重探测。
+  新增只读查询 `DesiredDirection`/`DisplayedDirection`/`HasPendingDirectionSwitch`（及 `HasDisplayedDirection`/`DisplayedFacing`）、纯计算 `ComposeLayersForDirection`、受保护虚方法 `PrepareDirection`/`OnDirectionCommitted`。默认开启，无开关。纯新增 ABI。
+
+### 新增
+
+- **按实体预热全部方向**（消费方反馈第六十三批 B，ADR-0112）：`UnityViewFactory.PrewarmDirections(entityId, onCompleted)`（镜像对去重后逐档位顺序执行，转向准备优先、档位之间让路，换装后补预热新增层，销毁取消并以 `false` 回调）与只读 `TryGetDirectionPrewarmProgress`；选项 `UnityViewFactory.DirectionPrewarm`（`DirectionPrewarmPolicy.None` 默认 / `OnAttach`）。
+  预热后首次转向任一方向 0 帧；代价是该外形全部方向的贴图常驻内存（真实 16 方向外形实测约 1.4 GB，预热耗时 4 ms 预算约 3.6 s / 8 ms 预算约 2.3 s），默认不预热。走加载器既有分帧预算。纯新增 ABI。
+
 ## [1.90.1] - 2026-09-30
 
 ### 修复

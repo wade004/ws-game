@@ -53,6 +53,9 @@ namespace Adapter.Unity.Tests.Runtime
         private string _scratchRoot = null!;
         private readonly List<Id> _writtenResources = new List<Id>();
 
+        /// <summary>ADR-0112 新增：子类（方向切换原子化夹具）需要读本用例写过盘的序列帧资源清单与临时根目录。</summary>
+        protected IReadOnlyList<Id> WrittenEffectResources => _writtenResources;
+
         [SetUp]
         public void FixtureSetUp()
         {
@@ -208,6 +211,7 @@ namespace Adapter.Unity.Tests.Runtime
             public Id EntityId;
             public UnityFrameAnimPlayer Player = null!;
             public string DisplayMapIdValue = null!;
+            public string Suffix = null!;
             public Dictionary<Id, EquipVisualDef> EquipCatalog = null!;
             public EquipmentVisualSource EquipSource = null!;
 
@@ -221,7 +225,8 @@ namespace Adapter.Unity.Tests.Runtime
         /// 工厂上的开关）。视图创建后朝向 side_r（raw facing=0.0）。</summary>
         protected Fx BuildFixture(
             string suffix, IReadOnlyDictionary<string, string> clips, Id? weaponStyleAutoAttack = null,
-            Action<UnityViewFactory>? configureFactory = null)
+            Action<UnityViewFactory>? configureFactory = null,
+            int directionCount = 8, string? spriteSetId = null)
         {
             var definitions = new List<EventDefinition>();
             foreach (var key in EventKeys.All)
@@ -234,7 +239,7 @@ namespace Adapter.Unity.Tests.Runtime
             var animSetIdValue = "display.anim_set.test_0111_" + suffix;
             var weaponStyleIdValue = "display.weapon_style.test_0111_" + suffix;
 
-            var sprite = new SpriteInfo(spriteSetId: "sprite.creature.test_0111_" + suffix, directionCount: 8, paperdollLayers: new[] { "body" });
+            var sprite = new SpriteInfo(spriteSetId: spriteSetId ?? "sprite.creature.test_0111_" + suffix, directionCount: directionCount, paperdollLayers: new[] { "body" });
             var info = new DisplayInfo(
                 id: new Id(displayMapIdValue),
                 category: DisplayCategory.Creature,
@@ -283,7 +288,7 @@ namespace Adapter.Unity.Tests.Runtime
 
             var view = (UnitySpriteView)factory.CreateView(ViewKind.Unit, info.LogicalId, entityId);
             view.Bind(entityId);
-            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, 8), height: 0.0);
+            view.SyncPose(Vec2.Zero, Direction.FromQuantized(0.0, directionCount), height: 0.0);
 
             var root = Renderer.GetSpriteRoot(view.EngineHandle);
             var player = root!.GetComponentInChildren<UnityFrameAnimPlayer>();
@@ -293,7 +298,7 @@ namespace Adapter.Unity.Tests.Runtime
             return new Fx
             {
                 Bus = bus, Factory = factory, View = view, EntityId = entityId, Player = player!,
-                DisplayMapIdValue = displayMapIdValue, EquipCatalog = equipCatalog, EquipSource = equipSource,
+                DisplayMapIdValue = displayMapIdValue, Suffix = suffix, EquipCatalog = equipCatalog, EquipSource = equipSource,
             };
         }
 

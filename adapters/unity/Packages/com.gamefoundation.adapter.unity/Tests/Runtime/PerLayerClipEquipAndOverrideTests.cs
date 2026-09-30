@@ -628,7 +628,7 @@ namespace Adapter.Unity.Tests.Runtime
                 yield return WarmEffectCache(atkBodyFront);
                 _resourceLoader.TryGetEffect(atkBodyFront, out var atkBodyFrontEffect);
 
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 8), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 8), _resourceLoader.Tick);
                 yield return null;
 
                 yield return WaitUntilOrFail(
@@ -672,7 +672,7 @@ namespace Adapter.Unity.Tests.Runtime
                 // 先转到 front，使 ctx.LastDirBareName="front"（ReprobeDirectionAwareAnimation 在
                 // DirectionSlotChanged 触发时立即赋值，见该方法判断记录），覆盖剪辑触发时按这份已知
                 // 方向探测，不需要等 Attack 之后再转向。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 8), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 8), _resourceLoader.Tick);
 
                 fx.Bus.PublishImmediate(new SkillCastStartEvent(fx.EntityId, new Id("skill.test_0100_inv_c_strike"), castTime: 0.0));
                 yield return null;
@@ -925,9 +925,9 @@ namespace Adapter.Unity.Tests.Runtime
                 var mainhandRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "mainhand");
 
                 // ---- 换向：mainhand 应当变成新方向的静态图，body 逐层帧照常换成新方向的逐层夹具 ----
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 8), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 8), _resourceLoader.Tick);
                 yield return null;
-                // 换向重合成才会第一次请求 front 变体的静态层图，这里才开始等它加载完成。
+                // 换向准备（ADR-0112）会先请求 front 变体的静态层图，这里继续等它加载完成。
                 yield return WaitUntilSpriteCached(mainhandStaticFront);
                 _resourceLoader.TryGetSprite(mainhandStaticFront, out var mainhandStaticFrontSprite);
                 yield return WaitUntilOrFail(

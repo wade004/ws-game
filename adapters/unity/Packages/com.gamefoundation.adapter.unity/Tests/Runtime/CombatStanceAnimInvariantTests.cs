@@ -302,7 +302,7 @@ namespace Adapter.Unity.Tests.Runtime
 
                 // 换向：front。时间轴按既有换向规则不重置（同一 clip id 原地升级内容，不重新 Play）。
                 yield return WaitForFrameOne(fx.Player);
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(System.Math.PI / 2.0, 8), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(System.Math.PI / 2.0, 8), Loader.Tick);
                 Isolate();
                 Assert.AreEqual(combatClip, fx.Player.CurrentClipId, "⑤换向：仍是 combat_idle 剪辑（没有掉回 idle）");
                 Assert.AreEqual(1, fx.Player.CurrentFrame, "⑤换向：时间轴按既有换向规则保持，不重置");

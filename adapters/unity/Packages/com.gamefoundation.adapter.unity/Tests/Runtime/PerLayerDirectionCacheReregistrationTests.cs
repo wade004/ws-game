@@ -327,16 +327,16 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsNotNull(layersRoot, "应当已经建好 LayersRoot 子物体");
 
             // 1st：back（首次探测，(实体, 方向) 缓存未命中）。
-            fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+            yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
             Assert.AreEqual(1, fx.Factory.DirectionAwareReprobeCountForTests, "转到 back 应当恰好触发一次重探测");
 
             // 2nd：side_r（另一方向首次探测，未命中——把逐层 clipId 的内容覆盖成 side_r，是复现缺陷的
             // 关键前置条件：clipId 与方向无关，跨方向共用同一个 id）。
-            fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI, 4), height: 0.0);
+            yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI, 4), _resourceLoader.Tick);
             Assert.AreEqual(2, fx.Factory.DirectionAwareReprobeCountForTests, "转到 side_r 应当再触发一次重探测");
 
             // 3rd：back 第二次——命中 (实体, back) 缓存。根治前这里直接 return cached，不重新登记。
-            fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+            yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
             Assert.AreEqual(3, fx.Factory.DirectionAwareReprobeCountForTests, "第二次转到 back 应当仍然触发重探测（命中缓存也算一次重探测尝试）");
 
             fx.Bus.PublishImmediate(new UnitStateChangedEvent(fx.EntityId, "Idle", "Walk"));
@@ -390,7 +390,7 @@ namespace Adapter.Unity.Tests.Runtime
 
                 var fx = BuildFixture("inv1", "sprite_anim.dircache_inv1_move", "sprite_anim.dircache_inv1_attack_unused", weaponStyleAutoAttackClipId: null);
 
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 4), height: 0.0); // front，1st，未命中
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 4), _resourceLoader.Tick); // front，1st，未命中
                 fx.Bus.PublishImmediate(new UnitStateChangedEvent(fx.EntityId, "Idle", "Walk"));
 
                 var elapsed = 0f;
@@ -402,8 +402,8 @@ namespace Adapter.Unity.Tests.Runtime
                 var frameBeforeSwitch = fx.Player.CurrentFrame;
                 Assert.Greater(frameBeforeSwitch, 0, "前置条件：播放应当已经推进到非 0 帧（单帧 0.25 秒，已等待 0.3 秒）");
 
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0); // back，2nd，未命中
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 4), height: 0.0); // front 第二次，3rd，命中缓存
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick); // back，2nd，未命中
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 4), _resourceLoader.Tick); // front 第二次，3rd，命中缓存
                 yield return null;
 
                 Assert.Greater(
@@ -431,7 +431,7 @@ namespace Adapter.Unity.Tests.Runtime
                     weaponStyleAutoAttackClipId: autoAttackClipId);
                 var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
 
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0); // back
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick); // back
                 fx.Bus.PublishImmediate(new SkillCastStartEvent(fx.EntityId, new Id("skill.dircache_inv2_strike"), castTime: 0.0));
                 yield return null;
 
@@ -440,13 +440,13 @@ namespace Adapter.Unity.Tests.Runtime
                 StringAssert.Contains("__back__", bodyRenderer!.sprite.name, "覆盖剪辑首次探测应当命中 back 方向逐层夹具");
 
                 // 换向 front：覆盖剪辑逐层缓存对该方向首次探测（未命中），把 clipId 内容覆盖成 front。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 4), _resourceLoader.Tick);
                 yield return null;
                 bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");
                 StringAssert.Contains("__front__", bodyRenderer!.sprite.name, "前置条件：换向 front 后覆盖剪辑应当先切到 front 方向内容");
 
                 // 换回 back 第二次：命中 (实体, clipId, back) 缓存。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
                 yield return null;
                 bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");
                 StringAssert.Contains(
@@ -470,7 +470,7 @@ namespace Adapter.Unity.Tests.Runtime
                 var fx = BuildFixture("inv3", "sprite_anim.dircache_inv3_move", "sprite_anim.dircache_inv3_attack_unused", weaponStyleAutoAttackClipId: null);
                 var layersRoot = _renderer.GetLayersRoot(fx.View.EngineHandle);
 
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 4), height: 0.0); // front，热路径，未命中
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 4), _resourceLoader.Tick); // front，热路径，未命中
                 fx.Bus.PublishImmediate(new UnitStateChangedEvent(fx.EntityId, "Idle", "Walk"));
                 yield return null;
                 var bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");
@@ -479,7 +479,7 @@ namespace Adapter.Unity.Tests.Runtime
                 // 换到 back：这一刻 backRef 尚未加载完成（冷加载在途），(实体, back) 缓存条目已创建但
                 // body 层还没有已解析的效果——冷加载路径必须与热路径同一出口（AGENTS.md 不变量），不允许
                 // 被写成"已知限制"。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
                 yield return WaitUntilEffectCached(backRef);
                 yield return WaitUntilOrFail(
                     () =>
@@ -491,14 +491,14 @@ namespace Adapter.Unity.Tests.Runtime
                     timeoutSeconds: 3f);
 
                 // 再换回 front：命中 (实体, front) 缓存——验证冷加载落定之后，缓存命中路径仍然正确。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI / 2.0, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI / 2.0, 4), _resourceLoader.Tick);
                 yield return null;
                 bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");
                 StringAssert.Contains("__front__", bodyRenderer!.sprite.name, "冷加载落定后再次命中 front 缓存仍应正确");
 
                 // 再换回 back 第二次：命中 (实体, back) 缓存（效果此前已经异步解析完成并写入了缓存对象）
                 // ——核心断言：缓存命中重新登记同样正确，不停留在 front。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
                 yield return null;
                 bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");
                 StringAssert.Contains(
@@ -541,11 +541,11 @@ namespace Adapter.Unity.Tests.Runtime
 
                 // 方向环：back -> side_r -> back（命中缓存）——与复现用例同一套换向节奏，验证不会因为
                 // 逐层缓存重新登记逻辑而对 mainhand 产生任何副作用（不抛异常、不被误登记进逐层动画）。
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
                 yield return null;
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI, 4), _resourceLoader.Tick);
                 yield return null;
-                fx.View.SyncPose(Vec2.Zero, Direction.FromQuantized(Math.PI * 1.5, 4), height: 0.0);
+                yield return DirectionSwitchSettle.SyncUntilCommitted(fx.View, Direction.FromQuantized(Math.PI * 1.5, 4), _resourceLoader.Tick);
                 yield return null;
 
                 var bodyRenderer = FindLayerRenderer(fx.View.EngineHandle, layersRoot!, "body");

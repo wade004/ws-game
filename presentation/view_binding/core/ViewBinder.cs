@@ -555,9 +555,22 @@ namespace Presentation.ViewBinding
 
             // ADR-0094 决策 1：与 ResolveDirection 同一处理——先经 ApplyFacingConvention 转换原始朝向角
             // 再量化，保证锚点查询与 SyncPose 用同一套朝向约定解析出同一个方向槽位。
-            var facing = _renderConvention.ApplyFacingConvention(_snapshot.GetFacing(entityId));
-            var direction = Direction.FromQuantized(facing, spriteInfo.DirectionCount);
-            var (slotId, flipX) = _renderConvention.ResolveDirectionSlot(direction, spriteInfo);
+            //
+            // ADR-0112 决策 1：视图已经提交过方向时，锚点按"已显示方向"取值——方向准备期间（模拟朝向已变、
+            // 视觉内容仍是旧方向）挂点必须跟着画面走，不能提前指向尚未显示的新方向；视图还没提交过方向（首次
+            // SyncPose 之前）时退回按模拟朝向解析（与改动前一致）。
+            Id slotId;
+            bool flipX;
+            if (_views.TryGetValue(entityId, out var anchorView) && anchorView is SpriteViewBase spriteView && spriteView.HasDisplayedDirection)
+            {
+                (slotId, flipX) = spriteView.DisplayedDirection;
+            }
+            else
+            {
+                var facing = _renderConvention.ApplyFacingConvention(_snapshot.GetFacing(entityId));
+                var direction = Direction.FromQuantized(facing, spriteInfo.DirectionCount);
+                (slotId, flipX) = _renderConvention.ResolveDirectionSlot(direction, spriteInfo);
+            }
 
             // GP-PRES-07 收口：按当前方向槽位取 offset_by_direction 覆盖值，缺省回退 Offset（见
             // AnchorDef.ResolveOffset 判断记录）；镜像（flipX）仍然是独立于方向覆盖的第二步—— 09

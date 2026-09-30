@@ -60,7 +60,7 @@ namespace Adapter.Unity.Presentation
         public void Destroy() => IsAlive = false;
     }
 
-    public sealed class UnityViewFactory : IViewFactory
+    public sealed partial class UnityViewFactory : IViewFactory
     {
         /// <summary>动画状态机驱动到剪辑的六个状态名，见 <see cref="AnimClipResolver.StateKey"/>；
         /// 逐一登记默认剪辑（真实 <c>display.anim_set</c> 或单帧退化），使
@@ -266,6 +266,26 @@ namespace Adapter.Unity.Presentation
             public Id ClipId;
             public Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset? Effect;
             public bool IsFirstForState;
+
+            /// <summary>ADR-0112：该层效果的方向标签——命中方向专属候选（第 0 档）时为方向裸档位名，命中
+            /// 与方向无关的回退候选（第 1 档）时为 <c>null</c>。重登记时原样写回播放器（见
+            /// <see cref="UnityFrameAnimPlayer.RegisterClipFromEffect(Id, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset, IReadOnlyDictionary{string,int}?, string?)"/>）。</summary>
+            public string? ContentDir;
+        }
+
+        /// <summary>ADR-0112：整身默认剪辑/覆盖剪辑整身方向变体的缓存条目——命中时 <see cref="Effect"/> 非空且
+        /// <see cref="ContentDir"/> 记录方向标签；"确认缺失"（两级候选均未命中）用 <see cref="Effect"/> 为
+        /// <c>null</c> 表示，取代此前直接用 <c>null</c> 表示缺失（多了方向标签这一维度）。</summary>
+        private readonly struct WholeBodyCacheEntry
+        {
+            public readonly Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset? Effect;
+            public readonly string? ContentDir;
+
+            public WholeBodyCacheEntry(Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset? effect, string? contentDir)
+            {
+                Effect = effect;
+                ContentDir = contentDir;
+            }
         }
 
         /// <summary>ADR-0072 决策 2 新增：纸娃娃层逐层动画——entityId -> (状态 clipId -> (层名 ->
@@ -369,8 +389,8 @@ namespace Adapter.Unity.Presentation
         /// 时是已解析的 <see cref="Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset"/>，
         /// "确认缺失"（两级候选均未命中，回退现有无方向段剪辑）用 <c>null</c> 表示，同一套"缓存缺失
         /// 结果"考量，见 <see cref="_perLayerClipCacheByEntityAndDir"/> 判断记录。</summary>
-        private readonly Dictionary<Id, Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>> _defaultClipCacheByEntityAndDir =
-            new Dictionary<Id, Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>>();
+        private readonly Dictionary<Id, Dictionary<string, Dictionary<string, WholeBodyCacheEntry>>> _defaultClipCacheByEntityAndDir =
+            new Dictionary<Id, Dictionary<string, Dictionary<string, WholeBodyCacheEntry>>>();
 
         /// <summary>测试用：<see cref="ReprobeDirectionAwareAnimation"/> 实际执行过重探测的次数（不含
         /// 被 <see cref="SpriteViewBase.OnDirectionSlotChanged"/>"档位未变化不触发"
@@ -488,6 +508,10 @@ namespace Adapter.Unity.Presentation
             _animStateMachine?.Forget(evt.EntityId);
             _animClipResolver?.Forget(evt.EntityId);
             ForgetStateProbes(evt.EntityId);
+
+            // ADR-0112：方向准备/预热记账（取消后续档位、清空准备状态、摘掉视图上的闸门与推进委托）——必须
+            // 在下面移除 _directionAwareAnimByEntity 之前执行（要经它找到视图）。
+            ForgetDirectionPreparation(evt.EntityId);
             _animPlayersByEntity.Remove(evt.EntityId);
             _animClipsByEntity.Remove(evt.EntityId);
             _modelViewsByEntity.Remove(evt.EntityId);
@@ -774,6 +798,10 @@ namespace Adapter.Unity.Presentation
             };
             view.DirectionSlotChanged += newSlotId => ReprobeDirectionAwareAnimation(entityId, newSlotId);
 
+            // ADR-0112：方向准备闸门——期望方向的槽位相对已显示方向变化时，视图每帧询问该方向是否已经准备
+            // 完成（只加载、不改显示），有结论才当帧提交，见 UnityViewFactory.DirectionPrepare.cs 顶部判断记录。
+            view.DirectionPreparer = (facing, slotId, flipX) => PrepareDirectionForView(entityId, facing, slotId);
+
             // GP-02 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：此前默认
             // 工厂只接了 StateChanged -> Play 这一半（见 AnimClipResolver），播放完成后从不回头通知
             // AnimStateMachine——Hit/Attack/Cast 这类瞬态状态优先级锁只能靠
@@ -799,6 +827,13 @@ namespace Adapter.Unity.Presentation
             // 有就绪的变体剪辑才会真的播放；没有变体键的外形（解析结果与普通键相同）什么都不做。
             stateMachine.Track(entityId);
             _animClipResolver!.Refresh(entityId);
+
+            // ADR-0112 B4：自动预热策略（默认 None，不发起任何额外加载）。OnAttach 时每个挂接了方向相关动画
+            // 上下文的实体挂接后立即开始预热全部方向；此后装备重放引起的合成层变化由粘性补预热接住。
+            if (DirectionPrewarm == DirectionPrewarmPolicy.OnAttach)
+            {
+                PrewarmDirections(entityId);
+            }
         }
 
         /// <summary>ADR-0111：<see cref="_stateProbesInFlight"/> 计数 +1（一条默认剪辑逐层探测链开始）。</summary>
@@ -965,7 +1000,8 @@ namespace Adapter.Unity.Presentation
                 ProbeComposedLayersSequential(
                     unityLoader, player, initialComposedLayers, layerIndex: 0, strippedRef, dirBareName,
                     stateClipId, clipDef.Events, layerMap, spriteSetId,
-                    onFinished: () => EndStateProbe(entityId, stateClipId));
+                    onFinished: () => EndStateProbe(entityId, stateClipId),
+                    mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
             }
 
             // 消费方反馈第五十批根治：本实体当前被逐层帧覆盖过的层名集合——ApplyPerLayerFrame 用它
@@ -979,7 +1015,11 @@ namespace Adapter.Unity.Presentation
             // 每实体共享一份回调，覆盖该实体此后任意状态切换（不为每个状态各订阅一份）——
             // player.CurrentClipId 在回调触发的那一刻即代表"当前正在播放哪个状态"，据此在
             // perLayerByState 里查表即知道这一刻该不该走逐层路线，不需要额外记录"当前状态"。
-            player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex, overriddenLayerNames));
+            //
+            // ADR-0112 决策 8：兜底渲染器方向不变量的判断委托——按实体查已显示方向，与播放器上该剪辑内容的
+            // 方向标签比对（见 ContentMatchesDisplayedDirection）。
+            Func<Id, bool> fallbackContentMatchesDisplayed = clipId => ContentMatchesDisplayedDirection(entityId, player, clipId);
+            player.OnFrameChanged(frameIndex => ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, frameIndex, overriddenLayerNames, fallbackContentMatchesDisplayed));
 
             // ADR-0099 决策 2（消费方反馈第四十四批）+ ADR-0100 决策 1（消费方反馈第四十五批，第五十三
             // 批扩展判据）：订阅 UnitySpriteView 转发的 SpriteViewBase.OnLayersComposed 钩子——每次
@@ -1007,7 +1047,7 @@ namespace Adapter.Unity.Presentation
 
                 if (player.CurrentClipId.HasValue)
                 {
-                    ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame, overriddenLayerNames);
+                    ApplyPerLayerFrame(perLayerByState, player, concreteRenderer, handle, player.CurrentFrame, overriddenLayerNames, fallbackContentMatchesDisplayed);
                 }
 
                 var currentIdentity = ComposedLayerIdentity(view.LastComposedLayers);
@@ -1038,10 +1078,16 @@ namespace Adapter.Unity.Presentation
         /// 二元组而不是单看层名，使同层名换资源（同槽位换装）也能被判定为"变化"，见该字段判断记录。</summary>
         private static HashSet<(string LayerName, Id ResourceId)> ComposedLayerIdentity(IReadOnlyList<SpriteComposedLayer> composedLayers)
         {
+            // ADR-0112：身份 = (层名, 装备资源集引用)。此前投影的是合成后的层静态图资源 id——它含方向档位段
+            // （layer.<集>__<方向>__<层>），纯方向变化的重合成也会被判成"装备变化"，触发一次完整的逐层重探测
+            // （清空全部按方向缓存、逐层逐状态串行重探测，冷加载时把刚提交的方向又打回空映射）。装备变化只体现在
+            // "哪些层、各来自哪个装备资源集"，与方向无关；同槽位换装时同层名的装备资源集引用变化，仍被判为变化。
+            // 元组第二分量仍用 Id 类型（身体层为 default），不改字段类型。
             var identity = new HashSet<(string, Id)>();
             for (var i = 0; i < composedLayers.Count; i++)
             {
-                identity.Add((composedLayers[i].LayerName, composedLayers[i].ResourceId));
+                var equipMeshRef = composedLayers[i].EquipMeshRef;
+                identity.Add((composedLayers[i].LayerName, equipMeshRef.HasValue ? equipMeshRef.Value : default));
             }
             return identity;
         }
@@ -1072,7 +1118,7 @@ namespace Adapter.Unity.Presentation
         private static void ApplyPerLayerFrame(
             Dictionary<Id, Dictionary<string, PerLayerCacheEntry>> perLayerByState, UnityFrameAnimPlayer player,
             Adapter.Unity.EngineAdapter.UnityRenderer2D concreteRenderer, SpriteHandle handle, int frameIndex,
-            HashSet<string> overriddenLayerNames)
+            HashSet<string> overriddenLayerNames, Func<Id, bool>? fallbackContentMatchesDisplayed = null)
         {
             Dictionary<string, PerLayerCacheEntry>? layerMap = null;
             var currentClipId = player.CurrentClipId;
@@ -1111,7 +1157,23 @@ namespace Adapter.Unity.Presentation
             {
                 // 决策 2"整身兜底"：这一状态没有任何一层命中逐层剪辑（或还在异步加载中，尚未有
                 // 任何一层命中）——此前被覆盖过的层已经在上面写回静态图，这里只负责展示整身 AnimRoot。
+                //
+                // ADR-0112 决策 8（整身兜底渲染器的方向不变量）：兜底渲染器可见时，它上面登记的剪辑内容的方向
+                // 必须等于已显示方向（内容与方向无关时任何方向都可展示）；不满足（该方向下这一状态没有可用的
+                // 整身美术，播放器上还留着别的方向的内容）时保持隐藏、显示静态层——任何路径都不允许出现
+                // "兜底渲染器显示方向 A、纸娃娃层显示方向 B"。
+                if (currentClipId.HasValue && fallbackContentMatchesDisplayed != null
+                    && !fallbackContentMatchesDisplayed(currentClipId.Value))
+                {
+                    player.SpriteRenderer.enabled = false;
+                    return;
+                }
+
                 player.SpriteRenderer.enabled = true;
+
+                // ADR-0112 决策 4：兜底渲染器上的贴图只在帧号变化时才更新，重新启用/内容被换掉的那一刻
+                // 立即对齐到当前帧，不留一个帧间隔的旧内容。
+                player.RefreshDisplayedFrame();
                 return;
             }
 
@@ -1180,7 +1242,8 @@ namespace Adapter.Unity.Presentation
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, UnityFrameAnimPlayer player,
             IReadOnlyList<SpriteComposedLayer> composedLayers, int layerIndex, string bodyOrClipStrippedRef, string dirBareName,
             Id stateClipId, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events,
-            Dictionary<string, PerLayerCacheEntry> layerMap, Id spriteSetId, Action? onFinished = null)
+            Dictionary<string, PerLayerCacheEntry> layerMap, Id spriteSetId, Action? onFinished = null,
+            Func<bool>? mayRegister = null)
         {
             if (layerIndex >= composedLayers.Count)
             {
@@ -1196,24 +1259,33 @@ namespace Adapter.Unity.Presentation
 
             ProbeLayerClipTier(
                 unityLoader, candidates, tierIndex: 0, spriteSetId,
-                onResolved: effect =>
+                onResolved: (effect, tier) =>
                 {
                     var perLayerClipId = new Id(stateClipId.Value + ".layer." + layerName);
-                    player.RegisterClipFromEffect(perLayerClipId, effect);
+                    var contentDir = tier == 0 ? dirBareName : null;
 
-                    var isFirstForState = layerMap.Count == 0;
-                    layerMap[layerName] = new PerLayerCacheEntry { ClipId = perLayerClipId, Effect = effect, IsFirstForState = isFirstForState };
-
-                    if (isFirstForState)
+                    // ADR-0112 决策 8：只有该方向此刻就是已显示方向才把内容登记到播放器上——探测的是别的方向
+                    // （方向已经又变了、这条探测链是上一个方向遗留下来的）时只填缓存条目，不碰播放器，避免旧方向
+                    // 内容晚到覆盖已显示方向的登记；该方向日后被提交时由 ReregisterPerLayerCacheHit 补登记。
+                    var canRegister = mayRegister == null || mayRegister();
+                    if (canRegister)
                     {
-                        player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(events, effect.Frames.Length));
+                        player.RegisterClipFromEffect(perLayerClipId, effect, null, contentDir);
                     }
 
-                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId, onFinished);
+                    var isFirstForState = layerMap.Count == 0;
+                    layerMap[layerName] = new PerLayerCacheEntry { ClipId = perLayerClipId, Effect = effect, IsFirstForState = isFirstForState, ContentDir = contentDir };
+
+                    if (isFirstForState && canRegister)
+                    {
+                        player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(events, effect.Frames.Length), contentDir);
+                    }
+
+                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId, onFinished, mayRegister);
                 },
                 onExhausted: () =>
                 {
-                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId, onFinished);
+                    ProbeComposedLayersSequential(unityLoader, player, composedLayers, layerIndex + 1, bodyOrClipStrippedRef, dirBareName, stateClipId, events, layerMap, spriteSetId, onFinished, mayRegister);
                 });
         }
 
@@ -1255,7 +1327,7 @@ namespace Adapter.Unity.Presentation
         private void ProbeLayerClipTier(
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, IReadOnlyList<Id> candidates, int tierIndex,
             Id spriteSetId,
-            Action<Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset> onResolved, Action onExhausted)
+            Action<Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset, int> onResolved, Action onExhausted)
         {
             if (tierIndex >= candidates.Count)
             {
@@ -1266,7 +1338,7 @@ namespace Adapter.Unity.Presentation
             var candidate = candidates[tierIndex];
             if (unityLoader.TryGetEffect(candidate, out var cached))
             {
-                onResolved(cached);
+                onResolved(cached, tierIndex);
                 return;
             }
 
@@ -1274,7 +1346,7 @@ namespace Adapter.Unity.Presentation
             {
                 if (success && unityLoader.TryGetEffect(loadedId, out var loaded))
                 {
-                    onResolved(loaded);
+                    onResolved(loaded, tierIndex);
                 }
                 else
                 {
@@ -1318,6 +1390,10 @@ namespace Adapter.Unity.Presentation
                 return;
             }
             ctx.LastDirBareName = dirBareName;
+
+            // ADR-0112：本方法由视图在方向"提交"时触发（DirectionSlotChanged 改为提交时触发，不再是期望方向
+            // 变化的当帧）：该实体的待切换已经完成，预热可以继续。
+            _turnPendingEntities.Remove(entityId);
             DirectionAwareReprobeCountForTests++;
 
             if (ctx.AnimSet == null)
@@ -1380,6 +1456,14 @@ namespace Adapter.Unity.Presentation
                     ReprobeOverrideClipForDirection(entityId, clipId, dirBareName, ctx, unityLoader, spriteSetId);
                 }
             }
+
+            // ADR-0112 决策 4：没有纸娃娃层的外形没有 view.LayersComposed 后续的逐层写回（整身渲染器是唯一的
+            // 视觉内容），内容被换成新方向后立即把整身渲染器对齐到当前帧，不留一个帧间隔的旧方向画面。纸娃娃层
+            // 外形由提交后紧随其后的层重合成 -> LayersComposed -> ApplyPerLayerFrame 完成同样的对齐。
+            if (ctx.ActivePerLayerByState == null)
+            {
+                ctx.Player.RefreshDisplayedFrame();
+            }
         }
 
         /// <summary>ADR-0093 决策 1/3、ADR-0100 决策 1 扩展：按 <paramref name="dirBareName"/> 对全部
@@ -1440,7 +1524,8 @@ namespace Adapter.Unity.Presentation
                 ProbeComposedLayersSequential(
                     unityLoader, ctx.Player, composedLayers, layerIndex: 0, strippedRef, dirBareName,
                     stateClipId, clipDef.Events, layerMap, spriteSetId,
-                    onFinished: () => EndStateProbe(entityId, stateClipId));
+                    onFinished: () => EndStateProbe(entityId, stateClipId),
+                    mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
             }
 
             return perLayerByState;
@@ -1479,10 +1564,10 @@ namespace Adapter.Unity.Presentation
                         continue;
                     }
 
-                    ctx.Player.RegisterClipFromEffect(entry.ClipId, entry.Effect);
+                    ctx.Player.RegisterClipFromEffect(entry.ClipId, entry.Effect, null, entry.ContentDir);
                     if (entry.IsFirstForState)
                     {
-                        ctx.Player.RegisterClipFromEffect(stateClipId, entry.Effect, ComputeKeyframes(clipDef.Events, entry.Effect.Frames.Length));
+                        ctx.Player.RegisterClipFromEffect(stateClipId, entry.Effect, ComputeKeyframes(clipDef.Events, entry.Effect.Frames.Length), entry.ContentDir);
                     }
                 }
             }
@@ -1559,7 +1644,8 @@ namespace Adapter.Unity.Presentation
                     var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
                     BeginStateProbe(entityId, stateClipId);
                     ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedRef, dirBareName, stateClipId, clipDef.Events, layerMap, spriteSetId,
-                        onFinished: () => EndStateProbe(entityId, stateClipId));
+                        onFinished: () => EndStateProbe(entityId, stateClipId),
+                        mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
                     ctx.ActivePerLayerByState[stateClipId] = layerMap;
                 }
             }
@@ -1571,10 +1657,14 @@ namespace Adapter.Unity.Presentation
                 {
                     var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
                     var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
-                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedClip, dirBareName, clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId);
+                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedClip, dirBareName, clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId,
+                        mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
                     ctx.ActivePerLayerByState[clipId] = layerMap;
                 }
             }
+
+            // ADR-0112 B3（粘性）：被预热过的实体合成层集合变了，对新增层补预热（见 MarkPrewarmDirty）。
+            MarkPrewarmDirty(entityId);
         }
 
         /// <summary>见 <see cref="ReprobeForCompositionChange"/>/<see cref="TryResolveOverrideClipForCurrentComposition"/>
@@ -1612,6 +1702,23 @@ namespace Adapter.Unity.Presentation
             }
         }
 
+        /// <summary>取 (实体, 方向) 的整身默认剪辑缓存表（不存在则创建空表），见
+        /// <see cref="_defaultClipCacheByEntityAndDir"/>。</summary>
+        private Dictionary<string, WholeBodyCacheEntry> GetWholeBodyCacheForDirection(Id entityId, string dirBareName)
+        {
+            if (!_defaultClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
+            {
+                byDir = new Dictionary<string, Dictionary<string, WholeBodyCacheEntry>>(StringComparer.Ordinal);
+                _defaultClipCacheByEntityAndDir[entityId] = byDir;
+            }
+            if (!byDir.TryGetValue(dirBareName, out var byState))
+            {
+                byState = new Dictionary<string, WholeBodyCacheEntry>(StringComparer.Ordinal);
+                byDir[dirBareName] = byState;
+            }
+            return byState;
+        }
+
         /// <summary>ADR-0093 决策 5：整身默认剪辑同样支持 <c>&lt;ref&gt;__&lt;档位&gt;</c> 探测——候选
         /// 顺序①（新增）<c>sprite_anim.&lt;去类别前缀&gt;__&lt;方向裸档位名&gt;</c>；②（既有回退层级，
         /// 与 <see cref="RegisterDefaultClips"/> 冷启动路径同一份 <c>resource_ref</c>）
@@ -1627,22 +1734,13 @@ namespace Adapter.Unity.Presentation
             Core.Foundation.DisplayInfo.AnimClipDef clipDef, UnityFrameAnimPlayer player,
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
         {
-            if (!_defaultClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
-            {
-                byDir = new Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>(StringComparer.Ordinal);
-                _defaultClipCacheByEntityAndDir[entityId] = byDir;
-            }
-            if (!byDir.TryGetValue(dirBareName, out var byState))
-            {
-                byState = new Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>(StringComparer.Ordinal);
-                byDir[dirBareName] = byState;
-            }
+            var byState = GetWholeBodyCacheForDirection(entityId, dirBareName);
 
-            if (byState.TryGetValue(stateKey, out var cachedEffect))
+            if (byState.TryGetValue(stateKey, out var cachedEntry))
             {
-                if (cachedEffect != null)
+                if (cachedEntry.Effect != null)
                 {
-                    player.RegisterClipFromEffect(stateClipId, cachedEffect, ComputeKeyframes(clipDef.Events, cachedEffect.Frames.Length));
+                    player.RegisterClipFromEffect(stateClipId, cachedEntry.Effect, ComputeKeyframes(clipDef.Events, cachedEntry.Effect.Frames.Length), cachedEntry.ContentDir);
                 }
                 return;
             }
@@ -1656,14 +1754,18 @@ namespace Adapter.Unity.Presentation
 
             ProbeLayerClipTier(
                 unityLoader, candidates, tierIndex: 0, spriteSetId,
-                onResolved: effect =>
+                onResolved: (effect, tier) =>
                 {
-                    byState[stateKey] = effect;
-                    player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(clipDef.Events, effect.Frames.Length));
+                    var contentDir = tier == 0 ? dirBareName : null;
+                    byState[stateKey] = new WholeBodyCacheEntry(effect, contentDir);
+                    if (IsDisplayedDirection(entityId, dirBareName))
+                    {
+                        player.RegisterClipFromEffect(stateClipId, effect, ComputeKeyframes(clipDef.Events, effect.Frames.Length), contentDir);
+                    }
                 },
                 onExhausted: () =>
                 {
-                    byState[stateKey] = null;
+                    byState[stateKey] = new WholeBodyCacheEntry(null, null);
                 });
         }
 
@@ -1987,7 +2089,8 @@ namespace Adapter.Unity.Presentation
             var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
             ProbeComposedLayersSequential(
                 unityLoader, ctx.Player, CurrentComposedLayersOrInitial(ctx), 0, strippedClip, dirBareName,
-                clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId);
+                clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId,
+                mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
             byKey[key] = layerMap;
             return layerMap;
         }
@@ -2010,10 +2113,10 @@ namespace Adapter.Unity.Presentation
                     continue;
                 }
 
-                player.RegisterClipFromEffect(entry.ClipId, entry.Effect);
+                player.RegisterClipFromEffect(entry.ClipId, entry.Effect, null, entry.ContentDir);
                 if (entry.IsFirstForState)
                 {
-                    player.RegisterClipFromEffect(clipId, entry.Effect);
+                    player.RegisterClipFromEffect(clipId, entry.Effect, null, entry.ContentDir);
                 }
             }
         }
@@ -2056,22 +2159,13 @@ namespace Adapter.Unity.Presentation
             Id entityId, string syntheticStateKey, Id clipId, string dirBareName, UnityFrameAnimPlayer player,
             Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id spriteSetId)
         {
-            if (!_defaultClipCacheByEntityAndDir.TryGetValue(entityId, out var byDir))
-            {
-                byDir = new Dictionary<string, Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>>(StringComparer.Ordinal);
-                _defaultClipCacheByEntityAndDir[entityId] = byDir;
-            }
-            if (!byDir.TryGetValue(dirBareName, out var byState))
-            {
-                byState = new Dictionary<string, Adapter.Unity.EngineAdapter.UnityResourceLoader.EffectAsset?>(StringComparer.Ordinal);
-                byDir[dirBareName] = byState;
-            }
+            var byState = GetWholeBodyCacheForDirection(entityId, dirBareName);
 
-            if (byState.TryGetValue(syntheticStateKey, out var cachedEffect))
+            if (byState.TryGetValue(syntheticStateKey, out var cachedEntry))
             {
-                if (cachedEffect != null)
+                if (cachedEntry.Effect != null)
                 {
-                    player.RegisterClipFromEffect(clipId, cachedEffect);
+                    player.RegisterClipFromEffect(clipId, cachedEntry.Effect, null, cachedEntry.ContentDir);
                     return true;
                 }
                 return false;
@@ -2087,15 +2181,19 @@ namespace Adapter.Unity.Presentation
             var resolvedSync = false;
             ProbeLayerClipTier(
                 unityLoader, candidates, tierIndex: 0, spriteSetId,
-                onResolved: effect =>
+                onResolved: (effect, tier) =>
                 {
-                    byState[syntheticStateKey] = effect;
-                    player.RegisterClipFromEffect(clipId, effect);
+                    var contentDir = tier == 0 ? dirBareName : null;
+                    byState[syntheticStateKey] = new WholeBodyCacheEntry(effect, contentDir);
+                    if (IsDisplayedDirection(entityId, dirBareName))
+                    {
+                        player.RegisterClipFromEffect(clipId, effect, null, contentDir);
+                    }
                     resolvedSync = true;
                 },
                 onExhausted: () =>
                 {
-                    byState[syntheticStateKey] = null;
+                    byState[syntheticStateKey] = new WholeBodyCacheEntry(null, null);
                     if (_warnedAnimDegraded.Add("weapon_clip." + clipId.Value))
                     {
                         Debug.LogWarning(
@@ -2376,6 +2474,18 @@ namespace Adapter.Unity.Presentation
                 _animClipResolver?.Forget(id);
                 ForgetStateProbes(id);
             }
+
+            // ADR-0112：方向准备/预热记账随视图一起清空（未完成的预热回调 false）。
+            foreach (var id in new List<Id>(_directionAwareAnimByEntity.Keys))
+            {
+                ForgetDirectionPreparation(id);
+            }
+            foreach (var id in new List<Id>(_prewarmByEntity.Keys))
+            {
+                ForgetDirectionPreparation(id);
+            }
+            _dirPrepByEntity.Clear();
+            _turnPendingEntities.Clear();
 
             _animPlayersByEntity.Clear();
             _animClipsByEntity.Clear();

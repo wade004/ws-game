@@ -36,10 +36,6 @@ namespace Adapter.Unity.Presentation
         /// <c>UnityRenderer2D.SetShaderParam</c> 落地为纸娃娃层各 SpriteRenderer.color.a。</summary>
         public const string FadeAlphaShaderParam = "fade_alpha";
 
-        private Id? _lastComposedDirectionSlotId;
-        private bool _lastComposedFlipX;
-        private bool _layersInitialized;
-
         /// <summary>消费方反馈第四十四批 / ADR-0099 决策 1 验收用出口：本 View 因方向槽位/镜像变化
         /// 而实际调用 <see cref="Presentation.Render.SpriteViewBase.SetPaperdollLayers"/> 重合成纸娃娃层
         /// 的次数（不含装备变化触发的 <c>RebuildEquippedLayers</c>——那条路径不经本类型这处判据，见
@@ -103,7 +99,7 @@ namespace Adapter.Unity.Presentation
         public SpriteHandle EngineHandle => Handle;
 
         /// <summary>ADR-0093：转发基类 <see cref="Presentation.Render.SpriteViewBase.OnDirectionSlotChanged"/>
-        /// 钩子（方向槽位相比上一次 SyncPose 变化时触发一次，同档位内逐帧调用不会重复触发），供
+        /// 钩子（ADR-0112：方向<b>提交</b>时触发，不再是期望方向变化的当帧；方向档位相比上一次已显示方向变化时触发一次，同档位内逐帧调用不会重复触发），供
         /// <see cref="UnityViewFactory.AttachDefaultAnimation"/> 订阅后重新探测该实体的方向相关动画
         /// 剪辑（逐层 <c>TryAttachPerLayerAnimation</c>/整身 <c>RegisterDefaultClips</c> 均按新档位
         /// 重新解析，见该方法判断记录）——本类型自己不知道具体探测逻辑，只做事件转发，探测/缓存仍然
@@ -125,42 +121,53 @@ namespace Adapter.Unity.Presentation
 
         protected override void OnLayersComposed(IReadOnlyList<Id> layerResourceIds) => LayersComposed?.Invoke();
 
+        /// <summary>ADR-0112 决策 1/2/3：方向准备闸门，由 <see cref="UnityViewFactory"/> 在挂接默认动画时设置
+        /// （参数：期望朝向/槽位/镜像；返回该方向是否已经准备完成）。<c>null</c>（没有挂接动画上下文的视图）时
+        /// 恒视为就绪。闸门只加载、不改显示，见 <see cref="PrepareDirection"/>。</summary>
+        internal Func<Direction, Id, bool, bool>? DirectionPreparer { get; set; }
+
+        /// <summary>ADR-0112 决策 2（B）：每次 <see cref="SyncPose"/> 提交/保持决定之后调用一次，供工厂推进该实体
+        /// 的方向预热（预热没有事件驱动的唤醒源时靠它每帧推进）。<c>null</c> 时无开销。</summary>
+        internal Action? AfterSyncPose { get; set; }
+
+        protected override bool PrepareDirection(Direction facing, Id slotId, bool flipX) =>
+            DirectionPreparer == null || DirectionPreparer(facing, slotId, flipX);
+
+        /// <summary>ADR-0112：方向提交时重合成纸娃娃层（首次显示、槽位变化、仅镜像变化三种提交都会走到这里，
+        /// 与此前 <c>SyncPose</c> 里"(槽位, 镜像) 相对上次合成是否变化"的判据等价——提交只在这两者之一变化
+        /// 或首次显示时发生）。纸娃娃层未声明（如 gobj 箱子/门，见 data/_sample/README.md"判断记录"：占位
+        /// 美术不是按方向组织，没有可用的层数据）时跳过合成，保持无可见精灵层，如实记录不代为发明命名规则
+        /// （见包 README"契约缺口"）。
+        /// <para>
+        /// ADR-0099 决策 1（消费方反馈第四十四批，取代此前"按 Direction.Equals（含 RawRadians）判断朝向是否
+        /// 变化"）判断记录：沿路径移动时逐 tick 现算的原始朝向弧度在非水平/竖直/45°整数倍角度的直线段上，同一
+        /// 方向档位内会因浮点舍入误差在相邻两个双精度值间来回抖动，表现层不应该把"重合成纸娃娃层"这件昂贵
+        /// 操作的判据建立在"原始弧度是否逐位相同"这么脆弱的条件上。判据只看
+        /// <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 解析出的 (方向槽位 Id, 镜像标志)——基类
+        /// <see cref="SpriteViewBase.SyncPose"/> 的提交判据同样如此，同一槽位内朝向弧度无论怎么抖动都不会
+        /// 触发提交，重合成是纯粹的空操作。</para></summary>
+        protected override void OnDirectionCommitted(Direction facing, Id slotId, bool flipX)
+        {
+            var layers = DisplayInfo.Sprite!.PaperdollLayers;
+            if (layers.Count == 0)
+            {
+                return;
+            }
+
+            // 每个新解析出的层资源 id 的加载请求已由基类 SetPaperdollLayers 经
+            // ResourceReferenceTracker 负责（见类型顶部注释），本类不再重复调用 LoadAsync。
+            SetPaperdollLayers(layers, facing);
+            PaperdollRecomposeCountForTests++;
+        }
+
         public override void SyncPose(Vec2 pos, Direction facing, double height)
         {
+            // ADR-0112：方向的"提交"（含纸娃娃层重合成）发生在 base.SyncPose 内部经 OnDirectionCommitted
+            // 钩子完成，见该方法判断记录；期望方向与已显示方向在方向准备期间可能不同，下面读取镜像标志一律用
+            // 已显示方向的。
             base.SyncPose(pos, facing, height);
 
-            // 纸娃娃层未声明（如 gobj 箱子/门，见 data/_sample/README.md"判断记录"：占位美术不是
-            // 按方向组织，没有可用的层数据）时跳过合成，保持无可见精灵层，如实记录不代为发明命名
-            // 规则（见包 README"契约缺口"）。
-            var layers = DisplayInfo.Sprite!.PaperdollLayers;
-            if (layers.Count != 0)
-            {
-                // ADR-0099 决策 1（消费方反馈第四十四批，取代此前"按 Direction.Equals（含 RawRadians）
-                // 判断朝向是否变化"）：判断记录——沿路径移动时逐 tick 现算的原始朝向弧度
-                // （MovementTickHandler.Facing）在非水平/竖直/45°整数倍角度的直线段上，同一方向档位
-                // 内会因浮点舍入误差在相邻两个双精度值间来回抖动（核心侧同批已根治抖动本身，见
-                // core/carriers/unit/core/MovementTickHandler.cs SegmentFacing 判断记录，但表现层
-                // 不应该把"重合成纸娃娃层"这件昂贵操作的判据建立在"原始弧度是否逐位相同"这么脆弱的
-                // 条件上——两侧独立防御，任一侧修复失效时不至于叠加放大）。改为只看
-                // IRenderConventionHost.ResolveDirectionSlot 解析出的 (方向槽位 Id, 镜像标志)——与
-                // 09 第 3.3.1 节"层的美术素材按方向槽位组织，不按连续弧度组织"这一既有事实对齐，同一
-                // 槽位内朝向弧度无论怎么抖动，最终解析出的纸娃娃层资源 Id 集合逐字节相同，重合成是
-                // 纯粹的空操作，不需要真的执行。
-                var (directionSlotId, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
-                if (!_layersInitialized
-                    || _lastComposedDirectionSlotId == null
-                    || !_lastComposedDirectionSlotId.Value.Equals(directionSlotId)
-                    || _lastComposedFlipX != flipX)
-                {
-                    // 每个新解析出的层资源 id 的加载请求已由基类 SetPaperdollLayers 经
-                    // ResourceReferenceTracker 负责（见类型顶部注释），本类不再重复调用 LoadAsync。
-                    SetPaperdollLayers(layers, facing);
-                    _lastComposedDirectionSlotId = directionSlotId;
-                    _lastComposedFlipX = flipX;
-                    _layersInitialized = true;
-                    PaperdollRecomposeCountForTests++;
-                }
-            }
+            AfterSyncPose?.Invoke();
 
             // W3b 新增（八个程序动画原语可视化，拍板 6）：Move/Stagger/Rotate/Scale 四类原语的
             // 当前采样值叠加到 base.SyncPose 已经算好的"逻辑位置/朝向"结果之上，重新调用一次
@@ -172,7 +179,7 @@ namespace Adapter.Unity.Presentation
             if (_moveOffset != Vec2.Zero || _staggerOffset != Vec2.Zero || _rotationDelta != 0.0 || _scaleMultiplier != 1.0)
             {
                 var sortY = Conventions.ComputeSortY(pos, DisplayInfo.SortOffset);
-                var (_, flipX) = Conventions.ResolveDirectionSlot(facing, DisplayInfo.Sprite!);
+                var flipX = DisplayedDirection.FlipX;
                 var heightPixels = Conventions.HeightOffsetToPixels(height, Options.PixelsPerUnit);
                 var effectivePos = pos + _moveOffset + _staggerOffset;
                 var effectiveScale = DisplayInfo.Scale * _scaleMultiplier;
