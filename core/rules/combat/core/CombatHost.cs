@@ -350,7 +350,7 @@ namespace Core.Rules.Combat
         /// 敌人不杀、跑开任意距离也永远脱不了战。两个方向新增同一条距离过滤：来源与
         /// <paramref name="unitId"/> 当前位置（<see cref="IUnitAccess.GetPosition"/>）的距离超过
         /// <see cref="CombatOptions.ThreatSourceRange"/> 视为不计入（<c>&lt;= 0</c> 表示不限范围，
-        /// 距离恰等于该值视为范围内）。仇恨表本身不因此修剪，见该配置项判断记录"已知限制"。
+        /// 距离恰等于该值视为范围内）。仇恨表本身不因此修剪，见该配置项判断记录"设计决定，见 ADR-0125"。
         /// </para>
         /// </summary>
         private bool HasLivingHostileThreatSource(Id unitId)

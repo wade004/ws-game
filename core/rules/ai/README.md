@@ -115,9 +115,9 @@ Combat 态下委托给 `RotationEvaluator`（T-N3-10，算法细节、就绪判�
 无状态保证（硬性规则"禁止求值组件持有单位状态"）：`RotationEvaluator` 只在构造期一次性从
 `IDataRegistryView` 编译全部 `ai.rotation` 记录到一份私有只读字典（`priority` 排序、`condition`
 解析、"敌对单体"分类均只算一次），此后只读——这是"内容编译缓存"，不随传入哪个 `unitId` 变化，
-不是"单位状态"；`Evaluate` 本身不写任何实例字段，每次调用只读入参与该缓存。已知限制（非本任务
-新引入，`AiHost` 迁移前同样如此）：构造完成后 `IDataRegistry.Reload`（开发期热重载）不会使这份
-缓存失效，需要整体重建一个新实例。
+不是"单位状态"；`Evaluate` 本身不写任何实例字段，每次调用只读入参与该缓存。设计决定，见
+ADR-0125（D11；`AiHost` 迁移前同样如此）：构造完成后 `IDataRegistry.Reload`（开发期热重载）不会使这份
+缓存失效，需要整体重建一个新实例；由 `RotationEvaluatorHotReloadTests` 钉住现行为。
 
 ## 位移
 

@@ -43,10 +43,12 @@ namespace Tests.Carriers.Creature
             public List<CreatureDespawnedEvent> DespawnedEvents = null!;
         }
 
-        private static Fixture Build(CreatureOptions? options = null, ICreatureLevelScaler? levelScaler = null)
+        private static Fixture Build(CreatureOptions? options = null, ICreatureLevelScaler? levelScaler = null, string? templateRows = null)
         {
             var bus = CreatureTestSupport.CreateBus();
-            var registry = CreatureTestSupport.MakeRegistry(bus);
+            var registry = templateRows == null
+                ? CreatureTestSupport.MakeRegistry(bus)
+                : CreatureTestSupport.MakeRegistry(bus, templateRows);
             var world = new WorldSim(bus);
             var units = new WorldUnitAccess(world);
             var stats = CreatureTestSupport.MakeStatHost(registry, bus);
@@ -415,6 +417,62 @@ namespace Tests.Carriers.Creature
 
             Assert.True(f.Powers.HasPower(id, WellKnownPowers.Health));
             Assert.False(f.Powers.TryGetPower(id, new Id("arch.power.mana"), out _));
+        }
+
+        // -----------------------------------------------------------------
+        // D13（ADR-0125）：PowerFloors 与缩减后的 DefaultPowerTypes 冲突
+        // -----------------------------------------------------------------
+
+        private static readonly Id ManaPowerId = new Id("arch.power.mana");
+
+        /// <summary>带 <c>power_floors</c>（键为 mana）的专属模板；数据层校验（键已登记、值 ≥ min）
+        /// 全部通过，冲突只在运行期出现：<see cref="CreatureOptions.DefaultPowerTypes"/> 被缩减为
+        /// 不含 mana 的子集。</summary>
+        private static readonly string ManaFloorTemplateRows = "[" +
+            "{\"id\": \"creature.sample_mana_floor\", \"name_key\": \"l10n.creature.sample_mana_floor.name\", " +
+            "\"level\": 1, \"tier\": \"creature.tier.normal\", " +
+            "\"base_stats\": {\"stat.power\": 10, \"stat.max_health\": 100}, " +
+            "\"faction_id\": \"fac.test_monster\", \"display_ref\": \"display.sample_mana_floor\", " +
+            "\"ai_behavior_ref\": \"ai.behavior.sample\", " +
+            "\"power_floors\": {\"arch.power.mana\": 1}}" +
+            "]";
+
+        /// <summary>复现（D13）：<c>power_floors</c> 引用 mana，而 <c>DefaultPowerTypes</c> 只含 health
+        /// ——<c>Spawn</c> 必须抛 <see cref="InvalidOperationException"/>，且不变量：抛出后世界实体数、
+        /// AI 登记、事件队列与调用前逐项相等（修前实体已 AddEntity、Stats/Powers 已登记，实体残留）。</summary>
+        [Fact]
+        public void Spawn_PowerFloorsConflictWithReducedDefaultPowerTypes_ThrowsAndLeavesNoResidue()
+        {
+            var options = new CreatureOptions { DefaultPowerTypes = new[] { WellKnownPowers.Health } };
+            var f = Build(options, templateRows: ManaFloorTemplateRows);
+            var templateId = new Id("creature.sample_mana_floor");
+            f.Bus.DispatchPending(); // 清掉装配期可能遗留的事件，作为"调用前"基线
+            var entityCountBefore = f.World.EntityCount;
+            var aiCallsBefore = f.AiCalls.Count;
+            var spawnedBefore = f.SpawnedEvents.Count;
+
+            Assert.Throws<InvalidOperationException>(
+                () => f.Factory.Spawn(templateId, MapId, new Vec2(3, 4), 0));
+
+            Assert.Equal(entityCountBefore, f.World.EntityCount);
+            Assert.Equal(aiCallsBefore, f.AiCalls.Count);
+            Assert.Equal(0, f.Bus.DispatchPending()); // 事件队列：抛出没有遗留任何待派发事件
+            Assert.Equal(spawnedBefore, f.SpawnedEvents.Count);
+            Assert.Empty(f.World.QueryEntities(new EntityFilter(EntityKinds.Creature)));
+        }
+
+        /// <summary>阳性对照：同一模板在 <c>DefaultPowerTypes</c> 含 mana（默认回落到数据集全部资源类型）
+        /// 时正常生成，且 mana 下限覆盖生效——证明上面的异常只来自"冲突"。</summary>
+        [Fact]
+        public void Spawn_PowerFloorsWithoutConflict_SucceedsAndFloorIsHeld()
+        {
+            var f = Build(templateRows: ManaFloorTemplateRows);
+
+            var id = f.Factory.Spawn(new Id("creature.sample_mana_floor"), MapId, Vec2.Zero, 0);
+
+            Assert.True(f.Powers.HasPower(id, ManaPowerId));
+            Assert.Single(f.AiCalls);
+            Assert.Single(f.World.QueryEntities(new EntityFilter(EntityKinds.Creature)));
         }
 
         [Fact]

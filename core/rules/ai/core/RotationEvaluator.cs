@@ -29,10 +29,11 @@ namespace Core.Rules.Ai
     /// "禁止求值组件持有单位状态"。
     /// </para>
     /// <para>
-    /// 已知限制（与迁移前 <c>AiHost.LoadRotations</c> 同一限制，非本任务新引入）：构造完成后若
-    /// <see cref="IDataRegistry.Reload"/>（开发期热重载）发生，<see cref="_rotations"/> 不会自动失效/
-    /// 重新编译——调用方需要整体重建一个新的 <see cref="RotationEvaluator"/> 实例。集成任务如需支持
-    /// 热重载下的即时生效，需要订阅 reload 事件并重新编译，本任务不新增该能力。
+    /// 设计决定，见 ADR-0125（D11；与迁移前 <c>AiHost.LoadRotations</c> 同一行为，非本任务新引入）：
+    /// 构造完成后若 <see cref="IDataRegistry.Reload"/>（开发期热重载）发生，<see cref="_rotations"/>
+    /// 不会自动失效/重新编译——调用方需要整体重建一个新的 <see cref="RotationEvaluator"/> 实例。
+    /// 现行为由 <c>RotationEvaluatorHotReloadTests</c> 钉住（热重载后旧实例仍按旧编译结果选技能，重建
+    /// 实例后才读到新版本）；集成任务如需支持热重载下的即时生效，需要订阅 reload 事件并重新编译。
     /// </para>
     /// <para>
     /// 就绪判定（<see cref="ISkillHost.GetSkillReadiness"/>）先于 <see cref="ISkillHost.CastSkill"/>：

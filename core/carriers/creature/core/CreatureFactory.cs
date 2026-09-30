@@ -201,6 +201,9 @@ namespace Core.Carriers.Creature
             var tier = RequireTier(template.TierId);
             var spawnLevel = levelOverride ?? template.Level;
 
+            // D13（ADR-0125）：在向世界注册任何东西之前校验，冲突时抛出后世界/Stats/Powers/AI/事件均无残留。
+            RequirePowerFloorsHeld(template);
+
             var entityId = _world.AllocateEntityId(EntityKinds.Creature);
             var unit = new CreatureUnit(entityId, mapId, template.FactionId, templateId)
             {
@@ -283,12 +286,10 @@ namespace Core.Carriers.Creature
 
             // ADR-0106（消费方反馈第五十五批"单一模板受伤但不死"）：RegisterUnit 之后逐条落地单位级
             // 资源下限覆盖——必须在 RegisterUnit 之后（SetMinOverride 要求单位已持有该资源类型，见
-            // IPowerHost.SetMinOverride 判断记录）。template.PowerFloors 引用的资源类型未出现在
-            // ResolvePowerTypes(template) 实际注册的集合内时（仅当 CreatureOptions.DefaultPowerTypes
-            // 被显式覆盖为不含该类型的子集才会发生，默认回落到 _allPowerTypeIds 时恒含全部已登记
-            // 类型，不会触发），SetMinOverride 会因单位未持有该资源类型抛
-            // InvalidOperationException——已知限制，不在本方法内静默吞掉或跳过，理由见 07/该字段
-            // 校验判断记录"值 ≥ 该类型 Min"只保证覆盖值本身合法，不保证该类型确实会被这个单位注册。
+            // IPowerHost.SetMinOverride 判断记录）。template.PowerFloors 引用的资源类型若不在
+            // ResolvePowerTypes(template) 实际注册的集合内（CreatureOptions.DefaultPowerTypes 被显式缩减
+            // 为不含该类型的子集），ADR-0125 D13 起已在 SpawnCore 开头由 RequirePowerFloorsHeld 校验并
+            // 抛出，不会走到这里——此处 SetMinOverride 不再可能因"单位未持有该资源类型"抛异常。
             foreach (var kv in template.PowerFloors)
             {
                 _powers.SetMinOverride(entityId, kv.Key, kv.Value);
@@ -302,6 +303,42 @@ namespace Core.Carriers.Creature
             _bus.Enqueue(new CreatureSpawnedEvent(entityId, templateId));
 
             return entityId;
+        }
+
+        /// <summary>D13（ADR-0125）：<paramref name="template"/>.PowerFloors 的每个键都必须落在
+        /// <see cref="ResolvePowerTypes"/> 实际注册的资源类型集合内，否则抛
+        /// <see cref="InvalidOperationException"/>。数据层校验（键已登记、值 ≥ min）保证不了"这个类型
+        /// 会被这个单位注册"——仅当 <see cref="CreatureOptions.DefaultPowerTypes"/> 被显式缩减为不含
+        /// 该类型的子集时才会冲突。本方法必须在 <see cref="IWorldSim.AllocateEntityId(string)"/>/AddEntity 之前
+        /// 调用：此前冲突在 RegisterUnit 之后才由 SetMinOverride 抛出，实体与 Stats/Powers 登记已
+        /// 落地且无人回滚。</summary>
+        private void RequirePowerFloorsHeld(CreatureTemplate template)
+        {
+            if (template.PowerFloors.Count == 0)
+            {
+                return;
+            }
+
+            var registered = ResolvePowerTypes(template);
+            foreach (var kv in template.PowerFloors)
+            {
+                var held = false;
+                for (var i = 0; i < registered.Count; i++)
+                {
+                    if (registered[i] == kv.Key)
+                    {
+                        held = true;
+                        break;
+                    }
+                }
+                if (!held)
+                {
+                    throw new InvalidOperationException(
+                        $"creature.template \"{template.Id}\" 的 power_floors 引用资源类型 \"{kv.Key}\"，" +
+                        "但它不在本工厂实际注册的资源类型集合内（CreatureOptions.DefaultPowerTypes 被缩减为不含该类型的子集）；" +
+                        "请把该类型加入 DefaultPowerTypes，或去掉模板的 power_floors 条目");
+                }
+            }
         }
 
         /// <summary>

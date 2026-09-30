@@ -631,8 +631,8 @@ combat/
 两个方向（判定单位自己仇恨表里的记录；判定单位作为攻击来源挂在某个存活敌对单位仇恨表里）新增同一条
 距离过滤，位置读 `IUnitAccess.GetPosition`（`CombatHost` 已持有的既有依赖，不新增契约面），距离恰
 等于该值视为范围内。仇恨表本身不因超出范围而修剪——超范围条目仍留在 `ThreatTable` 里参与 AI 目标
-选择等其它用途，只是脱战判定不再计入，已知限制（AI 可能仍在追击一个已判定"脱战"的单位；leash/evade
-是独立能力，本次不做）见 `CombatOptions.ThreatSourceRange` 判断记录与 ADR-0107"后果"一节。默认值
+选择等其它用途，只是脱战判定不再计入，设计决定，见 ADR-0125（D12；AI 可能仍在追击一个已判定"脱战"的单位；leash/evade
+是独立能力，本次不做；`ADR0107_ThreatSourceRangeTests.Update_SourceOutsideRange_ThreatEntryIsNotPruned_*` 钉住）见 `CombatOptions.ThreatSourceRange` 判断记录与 ADR-0107"后果"一节。默认值
 30 取自与 `ProjectileOptions.DefaultMaxRange`（远程技能/投射物默认最大射程）同一量级，理由是本模块/
 `ai`/`carriers` 现有配置项里没有语义匹配、量级合适的"感知/索敌半径"可以直接复用（`AiOptions.
 AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profile.perception_radius` 是按数据行

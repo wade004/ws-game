@@ -158,14 +158,20 @@ namespace Tests.Carriers.Creature
         /// <summary>装配一个已加载 stat.definition/creature.tier_definition/creature.template/
         /// prog.level_curve/arch.power_type（消费方反馈第 33 条新增，见 <see cref="PowerTypeRows"/>
         /// 判断记录）五张表的 <see cref="DataRegistry"/>。</summary>
-        public static DataRegistry MakeRegistry(IEventBus bus)
+        public static DataRegistry MakeRegistry(IEventBus bus) => MakeRegistry(bus, TemplateRows);
+
+        /// <summary>同 <see cref="MakeRegistry(IEventBus)"/>，但 <c>creature.template</c> 表行改用调用方
+        /// 给的 <paramref name="templateRows"/>（JSON 数组文本）——供需要专属模板的用例（如 D13
+        /// <c>power_floors</c> 与缩减后的 <c>DefaultPowerTypes</c> 冲突）使用，不污染共享的
+        /// <see cref="TemplateRows"/>。</summary>
+        public static DataRegistry MakeRegistry(IEventBus bus, string templateRows)
         {
             var source = new InMemoryDataSource()
                 .Add("stat.definition", Envelope("stat.definition", StatDefinitionRows))
                 .Add(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name,
                     Envelope(Core.Carriers.Creature.CreatureSchemas.TierDefinition.Name, TierDefinitionRows))
                 .Add(Core.Carriers.Creature.CreatureSchemas.Template.Name,
-                    Envelope(Core.Carriers.Creature.CreatureSchemas.Template.Name, TemplateRows))
+                    Envelope(Core.Carriers.Creature.CreatureSchemas.Template.Name, templateRows))
                 .Add("prog.level_curve", Envelope("prog.level_curve", LevelCurveRows))
                 .Add(PowerSchemas.PowerType.Name, Envelope(PowerSchemas.PowerType.Name, PowerTypeRows));
 

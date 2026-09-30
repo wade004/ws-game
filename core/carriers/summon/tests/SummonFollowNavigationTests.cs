@@ -241,6 +241,69 @@ namespace Tests.Carriers.Summon
             }
         }
 
+        // -----------------------------------------------------------------
+        // D14（测试覆盖梳理 2026-10-01；设计决定，见 ADR-0125 / ADR-0103 负面）：跟随候选只按
+        // IsWalkable 过滤，"可走"不等于"可达"。owner 站在被四面围墙完全封闭的孤岛里，直接跟随点
+        // 落在孤岛内的一小块阻挡上，第一个采样候选（孤岛内另一可走格）被选中；召唤物在孤岛外，
+        // 到该候选的寻路恒 NoPath，移动系统逐 tick 报 NoPath、召唤物不会靠近。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TryFollow_OwnerOnEnclosedIsland_PicksWalkableButUnreachableCandidate_NoPathReported()
+        {
+            var f = Build(summonSpeed: 5.0);
+            const double wallInner = 2.1;
+            const double wallOuter = 2.5;
+            var directPointBlocker = new Rect(new Vec2(-1.6, -0.3), new Vec2(-1.4, 0.3));
+            f.Navigation.SetBlocking(MapId, new[]
+            {
+                // 四面围墙围成以 owner(原点) 为中心的封闭孤岛（内部 |x|,|y| < wallInner）。
+                new Rect(new Vec2(-wallOuter, wallInner), new Vec2(wallOuter, wallOuter)),
+                new Rect(new Vec2(-wallOuter, -wallOuter), new Vec2(wallOuter, -wallInner)),
+                new Rect(new Vec2(-wallOuter, -wallOuter), new Vec2(-wallInner, wallOuter)),
+                new Rect(new Vec2(wallInner, -wallOuter), new Vec2(wallOuter, wallOuter)),
+                directPointBlocker, // 直接跟随点 (-FollowStopDistance, 0) 落在孤岛内的阻挡上
+            });
+
+            var captured = new List<Intent>();
+            f.World.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new CaptureIntentsHandler(captured));
+            var summonStart = new Vec2(-10, 0);
+            var summonId = SpawnFollower(f, summonStart, speed: 5.0);
+
+            f.World.Tick(SimStep.Continuous(1.0));
+
+            // 期望候选点由规则算出：圆心 owner、半径 FollowStopDistance、起始角取"owner→召唤物"方向，
+            // 第一个候选偏移 +2π/FollowCandidates（StandoffCandidates 的交替外扩序列）。
+            var options = new SummonOptions();
+            var ownerPos = f.Units.GetPosition(OwnerId);
+            var baseAngle = Math.Atan2(summonStart.Y - ownerPos.Y, summonStart.X - ownerPos.X);
+            var firstAngle = baseAngle + 2.0 * Math.PI / options.FollowCandidates;
+            var expected = new Vec2(
+                ownerPos.X + options.FollowStopDistance * Math.Cos(firstAngle),
+                ownerPos.Y + options.FollowStopDistance * Math.Sin(firstAngle));
+
+            var moveIntent = FindMoveIntent(captured, summonId);
+            Assert.NotNull(moveIntent);
+            var args = moveIntent!.Value.Args;
+            var chosen = new Vec2(
+                ((Core.Foundation.Common.Json.JsonNumber)args["x"]).Value,
+                ((Core.Foundation.Common.Json.JsonNumber)args["y"]).Value);
+            Assert.Equal(expected.X, chosen.X, 6);
+            Assert.Equal(expected.Y, chosen.Y, 6);
+
+            // 现行为：选中的候选"可走"……
+            Assert.True(f.Navigation.IsWalkable(MapId, chosen));
+            Assert.False(f.Navigation.IsWalkable(MapId, new Vec2(-options.FollowStopDistance, 0))); // 直接点确实不可走
+            // ……但从召唤物所在处不可达，且移动系统据此报 NoPath、召唤物留在原地。
+            Assert.Null(f.Navigation.FindPath(MapId, summonStart, chosen));
+            Assert.NotEmpty(f.FailedDetailed);
+            foreach (var failure in f.FailedDetailed)
+            {
+                Assert.Equal(MoveFailReason.NoPath, failure.Reason);
+            }
+            Assert.Equal(summonStart, f.Units.GetPosition(summonId));
+        }
+
         private sealed class CaptureIntentsHandler : ITickPhaseHandler
         {
             private readonly List<Intent> _sink;

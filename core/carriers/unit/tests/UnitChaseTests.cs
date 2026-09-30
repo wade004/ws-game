@@ -421,5 +421,47 @@ namespace Tests.Carriers.Unit
             Assert.True(DistanceChaserToTarget(fixture) <= 1.5 + 0.25 + 1e-6);
             Assert.Equal(2, nav.FindPathCallCount);
         }
+
+        // ------------------------------------------------------------------
+        // D15（测试覆盖梳理 2026-10-01；设计决定，见 ADR-0125 / ADR-0102）：追击单位自身站在不可走格
+        // 时不做特殊处理——INavigation2D.FindPath 端点契约保证起点不可走时任何终点都返回 null，
+        // 直接回退点与全部采样候选一起失败，表现与"目标真的处于永久不可达区域"完全相同：
+        // 触发一次 NoPath 失败通知并结束追击。两种成因的可观测结果逐项相等。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ToUnit_ChaserStandsOnUnwalkableCell_FailsLikeUnreachableTarget_NoSpecialHandling()
+        {
+            // 成因 A：追击单位自己站在阻挡矩形里，目标本身可达。
+            var navBlockedStart = new CountingNavigation2D();
+            navBlockedStart.SetBlocking(MapId, new[] { new Rect(new Vec2(-0.5, -0.5), new Vec2(0.5, 0.5)) });
+            var a = Build(chaserSpeed: 10.0, targetStart: new Vec2(4, 0), navigation: navBlockedStart);
+            Assert.False(navBlockedStart.IsWalkable(MapId, a.Units.GetPosition(ChaserId)));
+            Assert.True(navBlockedStart.IsWalkable(MapId, a.Units.GetPosition(TargetId)));
+            var failedA = new List<MoveFailReason>();
+            a.Host.OnMoveFailedDetailed += (unitId, from, to, reason) => failedA.Add(reason);
+
+            // 成因 B：追击单位站在可走处，但目标被判定永久不可达。
+            var navUnreachable = new CountingNavigation2D { AlwaysUnreachable = true };
+            var b = Build(chaserSpeed: 10.0, targetStart: new Vec2(4, 0), navigation: navUnreachable);
+            var failedB = new List<MoveFailReason>();
+            b.Host.OnMoveFailedDetailed += (unitId, from, to, reason) => failedB.Add(reason);
+
+            RequestChase(a, stopRange: 1.5);
+            RequestChase(b, stopRange: 1.5);
+            Tick(a, 1.0);
+            Tick(b, 1.0);
+
+            // 期望调用次数按规则算出：直接回退点 + 其余采样候选，共 ChaseStandoffCandidates 次。
+            var expectedCalls = new MovementOptions().ChaseStandoffCandidates;
+            Assert.Equal(expectedCalls, navBlockedStart.FindPathCallCount);
+            Assert.Equal(navUnreachable.FindPathCallCount, navBlockedStart.FindPathCallCount);
+            Assert.Equal(MoveFailReason.NoPath, Assert.Single(failedA));
+            Assert.Equal(Assert.Single(failedB), Assert.Single(failedA));
+            Assert.False(a.Chaser.MovementState.Chase.HasValue);
+            Assert.False(b.Chaser.MovementState.Chase.HasValue);
+            Assert.Equal(MoveMode.Idle, a.Chaser.MovementState.Mode);
+            Assert.Equal(Vec2.Zero, a.Units.GetPosition(ChaserId)); // 没有被挪出阻挡格
+        }
     }
 }

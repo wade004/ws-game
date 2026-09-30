@@ -282,5 +282,49 @@ namespace Tests.Carriers.Assembly
 
             Assert.True(f.Assembly.Rules.Combat.IsInCombat(AttackerId));
         }
+
+        // -----------------------------------------------------------------
+        // D12（测试覆盖梳理 2026-10-01；设计决定，见 ADR-0125）：ThreatSourceRange 只影响脱战判定，
+        // 不修剪仇恨表。防御方同时被一个范围外（仇恨更高）和一个范围内的来源攻击：范围外来源这条
+        // 记录原样留在表里，仍参与 GetTopThreat（AI 目标选择据此可能继续追击已"脱战"的一方）；
+        // 防御方因范围内来源而仍在战，范围外来源自己则按判定脱战。
+        // -----------------------------------------------------------------
+        [Fact]
+        public void Update_SourceOutsideRange_ThreatEntryIsNotPruned_AndStillTopThreat_WhileOtherSourceKeepsUnitInCombat()
+        {
+            const double range = 10.0;
+            const double delay = 2.0;
+            var f = Build(threatSourceRange: range, leaveCombatDelay: delay);
+            var nearId = new Id("unit.threat_range_near_attacker");
+            var near = new PlayerUnit(nearId, MapId, AttackerFaction, ArchetypeId) { Position = Vec2.Zero };
+            f.World.AddEntity(near);
+            f.Assembly.Rules.Stats.RegisterUnit(nearId);
+            f.Assembly.Rules.Powers.RegisterUnit(nearId, new[] { WellKnownPowers.Health });
+
+            DealNonLethalDamage(f); // AttackerId 对 DefenderId 记 10 点仇恨
+            f.Assembly.Rules.Combat.NotifyCombatEvent(nearId, f.DefenderId);
+            f.Assembly.Rules.Combat.NotifyCombatEvent(f.DefenderId, nearId);
+            var threatTable = f.Assembly.Rules.Combat.GetThreatTable(f.DefenderId);
+            const double nearThreat = 10.0;
+            const double farExtraThreat = 50.0;
+            threatTable.AddThreat(f.DefenderId, nearId, nearThreat);
+            threatTable.AddThreat(f.DefenderId, AttackerId, farExtraThreat); // 远处来源仇恨更高
+            var farThreatBefore = threatTable.GetThreat(f.DefenderId, AttackerId);
+            Assert.True(farThreatBefore > nearThreat);
+
+            f.Units.SetPosition(AttackerId, new Vec2(range + 1.0, 0));   // 超出范围
+            f.Units.SetPosition(nearId, new Vec2(range - 1.0, 0));       // 范围内
+
+            AdvanceBy(f, totalSeconds: delay * 3);
+
+            // 脱战判定：范围外来源不再计入，范围内来源让防御方仍在战。
+            Assert.True(f.Assembly.Rules.Combat.IsInCombat(f.DefenderId));
+            Assert.False(f.Assembly.Rules.Combat.IsInCombat(AttackerId));
+
+            // 现行为（设计决定）：范围外来源的条目没有被修剪，数值不变，且仍是最高仇恨目标。
+            Assert.Equal(farThreatBefore, threatTable.GetThreat(f.DefenderId, AttackerId));
+            Assert.Contains(threatTable.GetAll(f.DefenderId), e => e.source.Equals(AttackerId));
+            Assert.Equal(AttackerId, threatTable.GetTopThreat(f.DefenderId));
+        }
     }
 }

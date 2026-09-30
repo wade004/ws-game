@@ -358,8 +358,10 @@ architecture/adr/0079-销毁时序对齐与待销毁单位跳过处理.md）
 提供"按模板选择资源类型集合"的能力，因此该注释未与本次改动产生冲突，未改动（属于任务书条件
 未触发，不是遗漏）。
 
-已知限制：若 `CreatureOptions.DefaultPowerTypes` 被显式覆盖为不含 `power_floors` 某键涉及资源
-类型的子集，`SetMinOverride` 会因该单位未持有这个资源类型直接抛 `InvalidOperationException`，
-中止整个生成流程——`power_floors` 的值合法性校验（`>= arch.power_type.min`）与"这个资源类型
-是否真的会被这个单位注册"是两个独立配置维度，未做交叉校验，留给内容作者自己保证两处配置一致
-（默认路径回落到数据集全部已登记资源类型时不会触发，见 ADR-0106"已知限制"一节）。
+修复（ADR-0125 D13，取代此前的"已知限制"）：若 `CreatureOptions.DefaultPowerTypes` 被显式覆盖为不含
+`power_floors` 某键涉及资源类型的子集，`Spawn` 现在在向世界注册实体**之前**（`SpawnCore` 开头的
+`RequirePowerFloorsHeld`）校验并抛 `InvalidOperationException`；此前是 `RegisterUnit` 之后才由
+`SetMinOverride` 抛出，实体、Stats/Powers 登记已落地无人回滚（半成品残留）。`power_floors` 的值合法性
+校验（`>= arch.power_type.min`）与"这个资源类型是否真的会被这个单位注册"仍是两个独立配置维度，数据层
+不做交叉校验，冲突在生成时显式失败。用例：`CreatureFactoryTests.Spawn_PowerFloorsConflictWithReducedDefaultPowerTypes_ThrowsAndLeavesNoResidue`
+（抛出后 `EntityCount`/AI 登记/事件队列与调用前逐项相等）。

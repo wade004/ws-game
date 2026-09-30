@@ -130,9 +130,9 @@ W1 收边补齐：`SummonOptions.cs` 从 `core/` 移入新增的 `contracts/` �
     尝试，取第一个 `IsWalkable` 为真的候选（新增可选属性 `SummonOptions.FollowCandidates`，默认
     16，`≤1` 不采样）；全部候选都不可走则退到 owner 当前位置本身，接受召唤物与 owner 重叠这一
     权衡。`_navigation` 为 `null`（未注入的既有调用方）时行为与本次改动之前完全一致。
-    **已知限制**：候选只按 `IsWalkable` 过滤，不代表可达——owner 站在一个可行走但被完全封闭的
+    **设计决定，见 ADR-0125（D14）**：候选只按 `IsWalkable` 过滤，不代表可达——owner 站在一个可行走但被完全封闭的
     孤岛内时，选中的候选仍可能被 `FindPath` 判定为 `NoPath`，与既有"目标在孤岛"的通用情形相同，
-    不在本次改动范围内单独处理。另见 `core/carriers/unit` README 同一 ADR 小节"`HandlePathFailure`
+    不在本次改动范围内单独处理；`SummonFollowNavigationTests.TryFollow_OwnerOnEnclosedIsland_*` 钉住现行为。另见 `core/carriers/unit` README 同一 ADR 小节"`HandlePathFailure`
     返回值改造"——移动系统"保留旧路径"策略下旧路径本 tick 不推进的缺陷一并修复，召唤物跟随的
     `move` 意图每 tick 重发正是该缺陷此前"永久冻结"的直接诱因之一。测试见
     `core/carriers/summon/tests/SummonFollowNavigationTests.cs`：复现（owner 紧贴阻挡矩形、直接点

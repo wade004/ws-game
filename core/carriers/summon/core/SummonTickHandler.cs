@@ -272,7 +272,7 @@ namespace Core.Carriers.Summon
         /// FollowStopDistance"/> 判断记录"避免完全重合"的让步：不可行走场景下重合好于永久卡死）。
         /// </para>
         /// <para>
-        /// 已知限制（ADR-0103 负面）：候选只按 <c>IsWalkable</c> 过滤，不代表可达——owner 恰好站在
+        /// 设计决定，见 ADR-0125（D14；ADR-0103 负面）：候选只按 <c>IsWalkable</c> 过滤，不代表可达——owner 恰好站在
         /// 一个可走但被完全封闭的孤岛内时，选中的候选仍可能被 <c>FindPath</c> 判定为 <c>NoPath</c>；
         /// 这与既有"目标在孤岛"的通用情形相同，不在本次改动范围内。
         /// </para>

@@ -436,7 +436,7 @@ stopRange, mode)`。
   收回停止状态，是逐 tick 结算的固有粒度问题。③ 离散模式下，目标死亡/消失只有在本单位下一次收到
   新的 `move_to_unit` 意图时才会被检测到并结束请求，与既有路径跟随/受控位移在离散模式下"仅在
   行动者自己回合处理"的惯例一致，不会在其它单位的回合中主动探测。④ 追击单位自身站在不可走格时
-  （见下方独立小节"已知限制"）不特殊处理，仍按"到不了"结束。
+  （见下方独立小节"设计决定，见 ADR-0125"）不特殊处理，仍按"到不了"结束。
 
 ## ADR-0102《追击规划点不可达时采样候选站位点》：候选站位点采样（修订 ADR-0097 决策 5）
 
@@ -455,10 +455,11 @@ stopRange, mode)`。
 - **兼容性**：`MovementOptions` 新增可写属性 `ChaseStandoffCandidates`（默认 16，构造函数签名
   不变）；`≤1` 时不采样，行为与 1.82.0（本决策落地前）逐字一致；未装配 `INavigation2D` 时同样不
   采样（直接连线场景不存在"寻路失败"这一分支）。`abi_probe` breaks=0（仅新增该属性一处）。
-- **已知限制**：追击单位自身站在不可走格时，`INavigation2D.FindPath` 端点契约保证起点不可走则
+- **设计决定，见 ADR-0125（D15）**：追击单位自身站在不可走格时，`INavigation2D.FindPath` 端点契约保证起点不可走则
   任何终点都返回 `null`，因此直接回退点与全部采样候选会一起失败，表现与"目标真的处于永久不可达
   区域"完全相同，按同一套"结束追击"处理——单位站进阻挡是放置/生成问题，不是追击系统的职责，本次
-  不为此单独区分成因（见 ADR-0102"备选方案与为什么不选"）。
+  不为此单独区分成因（见 ADR-0102"备选方案与为什么不选"）；`UnitChaseTests.ToUnit_ChaserStandsOnUnwalkableCell_*`
+  钉住现行为（与目标不可达的可观测结果逐项相等）。
 
 测试：`core/carriers/unit/tests/UnitChaseTests.cs`（10 例，在原 8 例基础上新增：①
 `ToUnit_DirectStandoffPointBlocked_SamplesCandidate_SucceedsWithoutMoveFailed`——目标站在一块
@@ -497,7 +498,7 @@ stopRange, mode)`。
   只影响 `move`/目标类意图（`ApplyChaseIntent`/`move_to_unit` 的失败走 `EndChase` 直接结束请求，
   不经过 `HandlePathFailure`/`PathFailurePolicy` 分支，不受影响）。三个私有方法的返回值类型改动
   （`void`→`bool`），不涉及任何公开签名，`abi_probe` 不受影响。
-- **已知限制**：候选只按 `IsWalkable` 过滤，不代表可达——这条限制与 ADR-0102 相同，见该节说明，
+- **设计决定，见 ADR-0125（D14）**：候选只按 `IsWalkable` 过滤，不代表可达——这条限制与 ADR-0102 相同，见该节说明，
   两者共用同一套采样工具，限制也一并共用。
 
 测试：既有 `PathFailurePolicy_KeepOldPath_Default_NewRequestFails_PreservesOldPath_ResumesNextTick`
