@@ -81,6 +81,22 @@ python toolchain/validate_data.py
 
 同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
+`-Dist`/`-Dist auto`/`-Release`/`-Zip` 还会调用 `docs/manual/build.ps1` 生成 API 参考手册并放进 `dist/<version>/manual/`（见下一节）；手册生成失败即打包失败，不静默跳过。直接传 `-Dist X.Y.Z-dryrun`（只验证打包清单的形式，`check.ps1`"包清单一致性"步骤与 `toolchain/consumer_smoke.ps1` 用它）或显式传 `-SkipManual` 时跳过手册。
+
+### API 参考手册（`docs/manual/`，ADR-0124）
+
+javadoc 式的 API 参考：按命名空间 → 类型 → 成员逐条列出公开接口，含源码 `///` 注释里写的用途说明；各模块 `README.md`（概念文档）与 `architecture/` 下的架构文档、ADR 并入同一站点，保持原相对路径，彼此链接可点。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File docs\manual\build.ps1   # 生成，约 1～2 分钟，任一步失败即非零退出
+dotnet docfx serve docs\manual\_site                                        # 本地浏览（直接双击 .html 缺搜索/目录脚本）
+```
+
+- **步骤**：`dotnet tool restore`（按 `.config/dotnet-tools.json` 恢复 DocFX，需能访问 NuGet 源）→ `dotnet build Core.sln -c Release`（可 `-SkipBuild` 跳过）→ `toolchain/gen_manual_toc.py`（按目录层级生成概念文档与架构文档的导航目录）→ `docfx`。
+- **产物**：`docs/manual/_site/`（静态站点）；随版本快照分发为 `dist/<version>/manual/`。`_site/`、`docs/manual/api/*.yml`、`docs/manual/concepts/`（生成的导航目录）、`docs/manual/_docfx.log` 都是生成物，已在 `.gitignore`，不入库；手写部分只有 `docfx.json`、`toc.yml`、`index.md`、`api/index.md`、`build.ps1`。
+- **范围**：`Core.sln` 里的类库——`Core.Foundation/Numbers/Rules/Carriers/Gameplay/Sim`、`Presentation.Common`、`Adapters.Stub`，以及诊断转发工程 `Adapters.Unity.DiagnosticsForwarding`。`Directory.Build.props` 只对这些类库打开 `GenerateDocumentationFile`（测试/工具工程不开），并关闭 CS1591（公开成员缺注释）与五类注释内引用告警——注释完整性不由编译器把关。
+- **已知缺口**：**Unity 适配层 UPM 包**（`adapters/unity/Packages/com.gamefoundation.adapter.unity`）由 Unity 编译、不在 `Core.sln` 里，**未纳入** API 参考（只有诊断转发工程按引用编译的三份源文件出现在手册里）；README/架构文档里指向源码、数据、脚本等非 markdown 文件的链接在站点里是断的，以仓库为准；注释里指向私有成员/测试类型/重载组的 `cref` 在页面上显示为纯文本。
+
 ### Unity 工作台（命令行跑测试）
 
 先跑过一次 `build.ps1`（至少 `-SyncContent`），否则内容数据集与占位资源不会同步到 Unity 工程。

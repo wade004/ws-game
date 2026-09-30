@@ -60,3 +60,4 @@
 | full-20260930-02 | 通过（32/32，1.90.1 发布门禁，PlayMode 358/358，一次通过） | e31f852c | 2026-09-30 |
 | full-20260930-03 | 通过（32/32，1.91.0 发布门禁，PlayMode 362/362，一次通过） | eb8c36a4 | 2026-09-30 |
 | full-20261001-01 | 通过（32 步：29 PASS / 3 SKIP（IL2CPP 三步未开 -Il2cpp）/ 0 FAIL；EditMode 91/91、PlayMode 362/362，ADR-0121 十条缺陷收口；首跑卡在 consumer_smoke 私服冷启动（环境性，见汇报），私服起好后重跑通过） | d856bd31 + 收口提交 | 2026-10-01 |
+| full-20261001-02 | 通过（G1 全量部分，因改 Directory.Build.props 多工程共享构建配置触发：dotnet build Core.sln -c Release 0 警告 0 错误；dotnet test Core.sln -c Release --no-build 总计 5329、通过 5327、失败 0、跳过 2；check.ps1 -SkipUnity -Quick 30 步通过；未跑 Unity 步骤与 check.ps1 非 Quick 全量） | 9efb4dfa | 2026-10-01 |

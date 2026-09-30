@@ -462,6 +462,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - **手感设计文档集与 ADR-0113～0120**（设计层，文档类变更，无代码与签名变化）：新增 `architecture/手感设计/`（README + 00～07 共九份：手感总纲、输入与动作、移动与运动仲裁、攻击受击与命中、姿势与动画契约、手感档案与解析、手感实验室与验收、镜头与音画反馈）与八条 ADR——[ADR-0113](architecture/adr/0113-手感体系纳入框架判定型与呈现型两半拆分.md)（判定型/呈现型两半拆分）、[ADR-0114](architecture/adr/0114-技能结算新增时间线模式.md)（技能结算新增时间线模式，与目标选择式并存）、[ADR-0115](architecture/adr/0115-输入缓冲与动作时间线.md)（输入缓冲与动作时间线）、[ADR-0116](architecture/adr/0116-运动仲裁器与运动档案.md)（运动仲裁器与运动档案）、[ADR-0117](architecture/adr/0117-局部顿帧作为判定型手感.md)（局部顿帧）、[ADR-0118](architecture/adr/0118-手感档案分层解析与字段登记.md)（手感档案分层解析与字段登记）、[ADR-0119](architecture/adr/0119-姿势维度模型与标准姿势库.md)（姿势维度模型与标准姿势库）、[ADR-0120](architecture/adr/0120-手感实验室为框架交付物.md)（手感实验室为框架交付物）。受影响的 02/03/04/05/06/09/11/13/14 号文档的变更记录已加指针行，正文随落地切片同步。
 - **手感设计补装备与 UI 资产契约及实验室场景矩阵**（设计层，文档类变更，无代码与签名变化）：新增 `architecture/手感设计/08_装备与UI资产契约.md`（换装链路、装备资产包、界面皮肤包、导入校验与完整性报告），`06_手感实验室与验收.md` 补场景矩阵（2D/2.5D/3D × 目标选择式/动作式）与换装场景，并新增两条 ADR——[ADR-0122](architecture/adr/0122-手感实验室场景矩阵与跨场景不变量.md)（手感实验室场景矩阵与跨场景不变量）、[ADR-0123](architecture/adr/0123-装备资产包与界面皮肤包契约.md)（装备资产包与界面皮肤包契约）。受影响的 04/09/13/14 号文档的变更记录已加指针行，正文随落地切片同步。
+- **API 参考手册（ADR-0124）**：新增 `docs/manual/`（DocFX 站点，入口 `docs/manual/build.ps1`）——从 `Core.sln` 类库的 `///` 注释生成按命名空间 → 类型 → 成员逐条列出的 API 参考（67 个命名空间、约 1360 个页面），并把全部 114 份已入库 `README.md`（概念文档）与 `architecture/` 文档、ADR 并入同一站点；`build.ps1 -Dist`/`-Release`/`-Zip` 默认生成并放进 `dist/<version>/manual/`（`MANIFEST.txt` 新增 `manual:` 文件数行），手册生成失败即打包失败；新增 `-SkipManual` 开关（直接传 `-Dist X.Y.Z-dryrun` 时默认跳过）。新增 `.config/dotnet-tools.json`（固定 docfx 版本，`dotnet tool restore` 可复现）、`toolchain/gen_manual_toc.py`（生成概念文档导航目录）；`.github/workflows/release.yml` 打包前补 `dotnet tool restore` 一步。
+- **已知缺口**：Unity 适配层 UPM 包由 Unity 编译、不在 `Core.sln`，未纳入 API 参考；README/架构文档里指向非 markdown 文件的链接在站点内是断的。
+
+### 变更
+
+- `Directory.Build.props`：`Core.*`、`Presentation.*`、`Adapters.*` 类库开启 `GenerateDocumentationFile`（测试/工具工程不开），并对这些工程关闭 CS1591/CS1573/CS1574/CS0419/CS1580/CS1734；`TreatWarningsAsErrors` 仍为 true。不改任何公开签名与运行时行为，DLL 内容不变。
+- 文档注释勘误：修复 4 处注释 XML 格式错误（`IDataRegistry.TryGet` 缺 `</para>`、`StatHost`/`GobjSchemas`/`DiagnosticsHub` 各一处标签未闭合），此前这些注释会整段丢失；给 18 个没有任何 `<summary>` 的非测试 `.cs` 文件、以及 API 范围内另外 28 个无注释的公开类型补一句话用途说明。
 
 ### 修复
 
