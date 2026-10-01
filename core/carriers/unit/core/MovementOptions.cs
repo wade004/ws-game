@@ -68,6 +68,29 @@ namespace Core.Carriers.Unit
     }
 
     /// <summary>
+    /// 手感设计/02 第 3.2 节 <c>resume_path_after_forced</c>：<c>forced</c> 来源（击退、受控位移）胜出期间既有路径挂起，
+    /// 结束后的处理。
+    /// </summary>
+    public enum ResumePathAfterForcedPolicy
+    {
+        /// <summary>丢弃（缺省，等同 ADR-0026 既有行为：开始受控位移即清空路径）。</summary>
+        Drop,
+
+        /// <summary>恢复：位移结束后以挂起时的最终目标重新寻路并继续（从当前位置重规划，不沿旧路点续走）。</summary>
+        Resume,
+    }
+
+    /// <summary>手感设计/02 第 6 节 <c>knockback_stack</c>：目标已处于 <c>forced</c> 时新的击退如何处理。</summary>
+    public enum KnockbackStackPolicy
+    {
+        /// <summary>新击退替换进行中的位移（缺省）。</summary>
+        Replace,
+
+        /// <summary>忽略新击退。</summary>
+        Ignore,
+    }
+
+    /// <summary>
     /// <c>MovementTickHandler</c> 的口味配置项（见任务书拍板：速度属性 id 与缺省速度、到达判定
     /// 阈值，均可按具体游戏口味调整，不属于架构层面的固定语义，惯例同 <c>core/rules/ai</c> 的
     /// <c>AiOptions</c>）。
@@ -278,5 +301,25 @@ namespace Core.Carriers.Unit
         /// <c>NoPath</c>。默认 8；<c>&lt;= 1</c> 表示不再尝试后续候选。
         /// </summary>
         public int UnwalkableTargetCandidates { get; set; } = 8;
+
+        /// <summary>
+        /// 手感设计/02 第 3.2 节：<c>forced</c> 位移结束后挂起的路径是丢弃还是恢复，默认
+        /// <see cref="ResumePathAfterForcedPolicy.Drop"/>（既有行为）。只在装配了运动服务（<see cref="MotionServices"/>）
+        /// 的单位上生效。
+        /// </summary>
+        public ResumePathAfterForcedPolicy ResumePathAfterForced { get; set; } = ResumePathAfterForcedPolicy.Drop;
+
+        /// <summary>
+        /// 手感设计/02 第 6 节：目标已处于受控位移（<c>forced</c>）时新击退的处理，默认
+        /// <see cref="KnockbackStackPolicy.Replace"/>。只对 <see cref="MovementHost.BeginKnockback"/> 发出的击退生效，
+        /// 普通 <c>move_displace</c>（ADR-0026：不支持嵌套）行为不变。
+        /// </summary>
+        public KnockbackStackPolicy KnockbackStack { get; set; } = KnockbackStackPolicy.Replace;
+
+        /// <summary>
+        /// 手感设计/02 第 6 节：击退位移总时长（秒），<c>ease_out</c> 曲线在这段时间内走完整段距离。默认 0.2；
+        /// 游戏级口味配置（设计文档只规定曲线形态，没有给时长字段）。
+        /// </summary>
+        public double KnockbackDurationSeconds { get; set; } = 0.2;
     }
 }

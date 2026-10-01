@@ -118,6 +118,18 @@ namespace Core.Carriers.Unit
         public MovementState(
             IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion,
             ControlledDisplacementState? displacement, UnitChaseState? chase, Vec2? requestedTarget)
+            : this(currentPath, mode, movementLocked, pathIndex, navVersion, displacement, chase, requestedTarget, default)
+        {
+        }
+
+        /// <summary>手感设计/02（ADR-0116）新增重载（不改动上面既有 8 参数构造函数的物理签名，同一惯例）：额外携带
+        /// <paramref name="motion"/>。既有 4～8 参数构造函数均转发到本构造函数、<c>motion</c> 恒为默认值（零速度、
+        /// <see cref="MotionMode.Grounded"/>、<see cref="MotionSource.None"/>）——运动学状态由
+        /// <c>MovementTickHandler</c> 在每 tick 末统一写回（<see cref="WithMotion"/>），不需要逐个重建点手工携带。</summary>
+        public MovementState(
+            IReadOnlyList<Vec2>? currentPath, MoveMode mode, bool movementLocked, int pathIndex, int navVersion,
+            ControlledDisplacementState? displacement, UnitChaseState? chase, Vec2? requestedTarget,
+            MotionKinematics motion)
         {
             CurrentPath = currentPath;
             Mode = mode;
@@ -127,7 +139,30 @@ namespace Core.Carriers.Unit
             Displacement = displacement;
             Chase = chase;
             RequestedTarget = requestedTarget;
+            Motion = motion;
         }
+
+        /// <summary>
+        /// 运动学状态（手感设计/02 第 2 节新增字段：速度、期望方向、运动模式、胜出来源）。瞬态，不进存档；
+        /// 没有装配运动服务时恒为默认值。
+        /// </summary>
+        public MotionKinematics Motion { get; }
+
+        /// <summary>当前速度（世界单位/秒），见 <see cref="MotionKinematics.Velocity"/>。</summary>
+        public Vec2 Velocity => Motion.Velocity;
+
+        /// <summary>本 tick 期望方向，见 <see cref="MotionKinematics.DesiredDirection"/>。</summary>
+        public Vec2 DesiredDirection => Motion.DesiredDirection;
+
+        /// <summary>当前运动模式，见 <see cref="MotionKinematics.Mode"/>。</summary>
+        public MotionMode MotionMode => Motion.Mode;
+
+        /// <summary>本 tick 胜出的位移来源，见 <see cref="MotionKinematics.Source"/>。</summary>
+        public MotionSource MotionSource => Motion.Source;
+
+        /// <summary>返回一份仅运动学状态不同的新实例（其余字段照抄）。</summary>
+        public MovementState WithMotion(MotionKinematics motion) =>
+            new MovementState(CurrentPath, Mode, MovementLocked, PathIndex, NavVersion, Displacement, Chase, RequestedTarget, motion);
 
         /// <summary>未在移动、未被锁定的默认状态。</summary>
         public static readonly MovementState Idle = new MovementState(null, MoveMode.Idle, false, 0);
@@ -138,6 +173,6 @@ namespace Core.Carriers.Unit
         /// 同样原样带过（ADR-0026/ADR-0097：锁定/解锁控制效果不应该悄悄打断或凭空产生一次受控位移/
         /// 追击，开始/结束只由 <c>MovementTickHandler</c> 显式管理）。</summary>
         public MovementState WithLocked(bool movementLocked) =>
-            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion, Displacement, Chase, RequestedTarget);
+            new MovementState(CurrentPath, Mode, movementLocked, PathIndex, NavVersion, Displacement, Chase, RequestedTarget, Motion);
     }
 }

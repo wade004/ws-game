@@ -138,6 +138,12 @@ namespace Core.Carriers.Unit
         /// </summary>
         public event MoveStoppedHandler? OnMoveStopped;
 
+        /// <summary>
+        /// 运动服务（手感设计/02；ADR-0116）：不赋值（null）即没有运动档案，<c>MovementTickHandler</c> 逐位保持既有行为。
+        /// 由装配根在手感系统装配后赋值（惯例同 <c>Rules.Skill.DisplacementSink = Movement</c> 的属性接入，不改任何构造签名）。
+        /// </summary>
+        public MotionServices? Motion { get; set; }
+
         /// <summary>把 <paramref name="request"/> 转译为一条 <c>move</c>（<see cref="MoveRequest.Target"/>/
         /// <see cref="MoveRequest.Direction"/>）或 <c>move_to_unit</c>（<see cref="MoveRequest.TargetUnitId"/>，
         /// ADR-0097）意图并提交（见 <see cref="IWorldSim.SubmitIntent"/>，进入"下一 tick 待收集"
@@ -232,6 +238,40 @@ namespace Core.Carriers.Unit
         /// <summary>供 <see cref="MovementTickHandler"/>（同程序集）在寻路失败时回调触发
         /// <see cref="OnMoveFailed"/>，不对外公开——外部调用方只应通过 <see cref="Request"/> 与订阅
         /// <see cref="OnMoveFailed"/> 与本类型交互。</summary>
+        /// <summary>
+        /// 手感设计/02 第 6 节：提交一次击退（<c>forced</c> 来源、<c>ease_out</c> 曲线、导航裁决截断）。与
+        /// <see cref="BeginControlledDisplacement"/> 同样只是提交一条 <c>move_displace</c> 意图（下一 tick 生效），额外携带
+        /// <c>knockback</c> 标记、曲线与总时长；目标已处于受控位移时按 <c>MovementOptions.KnockbackStack</c> 处理
+        /// （<c>replace</c> 缺省 / <c>ignore</c>）。起点取提交时刻目标的位置。
+        /// </summary>
+        public void BeginKnockback(KnockbackRequest request)
+        {
+            if (!(_world.GetEntity(request.UnitId) is Entity entity))
+            {
+                throw new ArgumentException($"击退目标 \"{request.UnitId}\" 不存在", nameof(request));
+            }
+
+            var origin = entity.Position;
+            var length = request.Direction.Length;
+            var unit = new Vec2(request.Direction.X / length, request.Direction.Y / length);
+            var target = origin + unit * request.DistanceWorld;
+
+            var args = new JsonObjectBuilder()
+                .Add("originX", new JsonNumber(origin.X))
+                .Add("originY", new JsonNumber(origin.Y))
+                .Add("targetX", new JsonNumber(target.X))
+                .Add("targetY", new JsonNumber(target.Y))
+                .Add("speed", new JsonNumber(request.DurationSeconds > 0.0 ? request.DistanceWorld / request.DurationSeconds : 1.0))
+                .Add("blocking", new JsonString(Core.Rules.Common.DisplacementBlockingPolicy.Stop.ToString()))
+                .Add("sampleStep", new JsonNumber(0.0))
+                .Add("knockback", JsonBool.True)
+                .Add("curve", new JsonString("ease_out"))
+                .Add("duration", new JsonNumber(request.DurationSeconds))
+                .Build();
+
+            _world.SubmitIntent(new Intent(request.UnitId, "move_displace", args));
+        }
+
         internal void RaiseMoveFailed(Id unitId, Vec2 from, Vec2 to) => OnMoveFailed?.Invoke(unitId, from, to);
 
         /// <summary>供 <see cref="MovementTickHandler"/>（同程序集）回调触发

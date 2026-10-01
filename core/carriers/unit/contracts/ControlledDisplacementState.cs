@@ -27,12 +27,40 @@ namespace Core.Carriers.Unit
 
         public ControlledDisplacementState(
             Vec2 origin, Vec2 target, double speed, DisplacementBlockingPolicy blocking, double sampleStep)
+            : this(origin, target, speed, blocking, sampleStep, null, 0.0, 0.0)
+        {
+        }
+
+        /// <summary>
+        /// 手感设计/02 第 6 节（ADR-0116 决策 7）新增重载（既有 5 参数构造的物理签名不变）：带进度曲线的位移——
+        /// 击退用 <c>ease_out</c>，在 <paramref name="durationSeconds"/> 内按曲线走完整段距离（此时 <see cref="Speed"/>
+        /// 是平均速度，仅作记录）。<paramref name="curve"/> 为 null 即既有的匀速位移。
+        /// </summary>
+        public ControlledDisplacementState(
+            Vec2 origin, Vec2 target, double speed, DisplacementBlockingPolicy blocking, double sampleStep,
+            string? curve, double durationSeconds, double elapsedSeconds)
         {
             Origin = origin;
             Target = target;
             Speed = speed;
             Blocking = blocking;
             SampleStep = sampleStep;
+            Curve = curve;
+            DurationSeconds = durationSeconds;
+            ElapsedSeconds = elapsedSeconds;
         }
+
+        /// <summary>进度曲线引用（<c>ease_out</c> 等）；null 表示既有的匀速位移。</summary>
+        public string? Curve { get; }
+
+        /// <summary>带曲线位移的总时长（秒）；匀速位移为 0。</summary>
+        public double DurationSeconds { get; }
+
+        /// <summary>带曲线位移已经过的时间（秒）；匀速位移为 0。</summary>
+        public double ElapsedSeconds { get; }
+
+        /// <summary>返回仅已过时间不同的新实例。</summary>
+        public ControlledDisplacementState WithElapsed(double elapsedSeconds) =>
+            new ControlledDisplacementState(Origin, Target, Speed, Blocking, SampleStep, Curve, DurationSeconds, elapsedSeconds);
     }
 }

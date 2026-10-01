@@ -29,7 +29,7 @@ namespace Core.Carriers.Unit
     /// <see cref="MovementState.CurrentPath"/>，典型场景是玩家持续按住移动键、每 tick 重新提交。</item>
     /// </list>
     /// </summary>
-    public sealed class MovementTickHandler : ITickPhaseHandler
+    public sealed partial class MovementTickHandler : ITickPhaseHandler
     {
         private readonly IUnitAccess _units;
         private readonly IStatHost _stats;
@@ -110,6 +110,9 @@ namespace Core.Carriers.Unit
             // 而不是真实经过的秒数，见 MovementOptions.DiscreteTurnEquivalentSeconds 判断记录。
             var dt = step.Kind == SimStepKind.Continuous ? step.Dt : _options.DiscreteTurnEquivalentSeconds;
 
+            // 手感设计/02 运动层：未装配运动服务（或离散步、dt 不为正）时下面所有 Motion* 入口立即返回，既有路径一字未动。
+            BeginMotionTick(step, dt);
+
             // world.CurrentIntents 在离散步下已经只包含当前行动者的意图（见 WorldSim.Tick 判断
             // 记录），下面几遍循环不需要额外按 step.ActorId 过滤。
             var intents = world.CurrentIntents;
@@ -183,6 +186,9 @@ namespace Core.Carriers.Unit
                 }
             }
 
+            // 运动层：动作位移段（action|root_motion 来源）先于 move 意图结算，胜出的 tick 压制该单位的输入位移。
+            MotionActionPass(world, dt);
+
             // 第一遍 B：消费本 tick 存活的 move 意图（(重新)确立移动状态并推进这一 tick 的位移）。
             // 被同一 tick 内更晚提交的 move_stop 丢弃的 move 意图在这里跳过（见上方 lastStopIndex）。
             //
@@ -240,7 +246,11 @@ namespace Core.Carriers.Unit
                     // 不经过 HandlePathFailure/PathFailurePolicy 分支，因此不存在"本 tick 还要续推
                     // 旧状态"的情形，恒计入 processedThisTick，行为与本次改动之前一致。
                     ApplyChaseIntent(unit, intent, world, dt, step.Kind == SimStepKind.Discrete);
-                    processedThisTick.Add(unit.EntityId);
+                    // 运动层：forced 优先于输入——受控位移进行中的单位收到（被拒绝的）移动意图时，不能因此跳过位移续推。
+                    if (!MotionDisplacementOutranksIntent(unit))
+                    {
+                        processedThisTick.Add(unit.EntityId);
+                    }
                 }
                 else
                 {
@@ -252,7 +262,7 @@ namespace Core.Carriers.Unit
                     // tick（消费方反馈第五十一批·反馈 3：修复前每 tick 重发同一个失败 move 意图时，
                     // 旧路径本 tick 永远不推进，532 tick 连续 NoPath 永久冻结）。
                     var handledFully = ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
-                    if (handledFully)
+                    if (handledFully && !MotionDisplacementOutranksIntent(unit))
                     {
                         processedThisTick.Add(unit.EntityId);
                     }
@@ -291,6 +301,9 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
+                // 运动层仲裁：dead/frozen/staggered/动作位移段压制路径与追击的续推（保留状态，解除后继续）。
+                if (MotionRegularBlocked(unit)) continue;
+
                 // ADR-0097：追击态每 tick 都要重新评估目标是否还活着/在同一张图、距离是否跨过滞回
                 // 阈值——即便当前 CurrentPath 为 null（已经停在 StopRange 内待命），也不能像下面的
                 // "CurrentPath == null 直接跳过"那样短路，否则目标重新走远后本单位永远不会恢复追击。
@@ -311,6 +324,9 @@ namespace Core.Carriers.Unit
                 // 判断记录"离散步下只处理当前行动者"），格子吸附因此恒不生效，与该判断记录一致。
                 ContinuePathCore(unit, dt, isDiscrete: false);
             }
+
+            // 运动层收尾：恢复路径、无意图单位的减速滑行、运动学状态写回。
+            FinishMotionTick(world, dt);
         }
 
         /// <summary>本 tick 的意图列表 <paramref name="intents"/> 中，<paramref name="stopIndex"/>
@@ -347,6 +363,7 @@ namespace Core.Carriers.Unit
         {
             var state = unit.MovementState;
             var hadPath = state.CurrentPath != null;
+            _suspendedPaths.Remove(unit.EntityId); // 运动层：显式停止同时丢弃受控位移挂起的路径。
 
             // ADR-0026 补齐：显式 Stop（既有 MovementHost.Stop，Kind == "move_stop"）也能取消一次
             // 进行中的受控位移——就地停止（不套用 blocking 策略的 revert/pull-back，"调用方主动喊
@@ -457,6 +474,12 @@ namespace Core.Carriers.Unit
         {
             if (IsLocked(unit))
             {
+                // 运动层：rooted 模式不位移但可转向（手感设计/02 第 3.1 节）；未启用运动层时是空操作。
+                if (!isDiscrete)
+                {
+                    MotionLockedIntent(unit, intent);
+                }
+
                 return true;
             }
 
@@ -545,6 +568,7 @@ namespace Core.Carriers.Unit
             }
 
             var oldState = unit.MovementState;
+            _suspendedPaths.Remove(unit.EntityId); // 运动层：新的移动请求整体替换受控位移挂起的旧路径。
 
             // ADR-0110：UnwalkableTargetPolicy = SnapToNearestWalkable 时点目标先解析最近可走点再建路
             // （见 FindPointTargetPath）；默认 Reject 走下面既有的直接 FindPath，行为逐字节不变。
@@ -715,6 +739,7 @@ namespace Core.Carriers.Unit
         {
             var from = unit.Position;
             var oldState = unit.MovementState;
+            _suspendedPaths.Remove(unit.EntityId);
 
             // 惯例同 BeginPathTo 判断记录"替换"：正在进行中的路径跟随或另一次追击，均算被本次新请求
             // 整体替换的"旧的"。
@@ -802,7 +827,7 @@ namespace Core.Carriers.Unit
             var distance = toTarget.Length;
             if (distance > ZeroLengthEpsilon)
             {
-                unit.Facing = Math.Atan2(toTarget.Y, toTarget.X);
+                unit.Facing = isDiscrete ? Math.Atan2(toTarget.Y, toTarget.X) : MotionFacing(unit, Math.Atan2(toTarget.Y, toTarget.X));
             }
 
             var wasApproaching = state.Mode != MoveMode.Idle;
@@ -820,6 +845,13 @@ namespace Core.Carriers.Unit
 
                 // priorMode == Idle：已经停着（或本来就没动过），Chase/CurrentPath 均保持既有值，
                 // 不必重新构造 MovementState。
+                return;
+            }
+
+            // 运动层仲裁：压制期间不规划、不推进（追击请求保留，解除后继续）。
+            var mt = isDiscrete ? null : GetMotionTick(unit);
+            if (mt != null && MotionBlocksRegular(unit, mt))
+            {
                 return;
             }
 
@@ -902,9 +934,13 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            var speed = ResolveSpeed(unit.EntityId);
-            var remaining = speed * dt;
+            var integrated = false;
+            var budget = mt == null
+                ? ResolveSpeed(unit.EntityId) * dt
+                : MotionPathBudget(unit, mt, chase.Mode, path, pathIndex, dt, out integrated);
+            var remaining = budget;
             var pos = unit.Position;
+            var startPos = pos;
             var index = pathIndex;
             var lastFacing = unit.Facing;
 
@@ -937,10 +973,21 @@ namespace Core.Carriers.Unit
                 }
             }
 
+            if (mt != null)
+            {
+                MotionRecordPath(unit, mt, startPos, pos, index >= path.Count, integrated, budget / dt, dt);
+            }
+
             if (!pos.Equals(unit.Position))
             {
                 if (IsBlockedByUnit(unit.EntityId, pos))
                 {
+                    if (mt != null)
+                    {
+                        mt.VelocityOut = Vec2.Zero;
+                        mt.Source = MotionSource.None;
+                    }
+
                     // 判断记录见 IsBlockedByUnit/ContinuePathCore 同名判断记录："简单确定性"——本次
                     // tick 完全不生效，不写位置/朝向、不改 MovementState（包括刚算出的新路径/chase
                     // 快照也一并放弃），下一 tick 重新评估、重新（视需要）规划。
@@ -949,7 +996,7 @@ namespace Core.Carriers.Unit
 
                 pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
                 _units.SetPosition(unit.EntityId, pos);
-                unit.Facing = lastFacing;
+                unit.Facing = mt == null ? lastFacing : MotionFacing(unit, lastFacing);
                 EnqueueMoved(unit.EntityId, pos);
             }
 
@@ -1050,17 +1097,29 @@ namespace Core.Carriers.Unit
         /// 判断记录）。</summary>
         private bool BeginDisplacement(Unit unit, Intent intent, double dt, bool isDiscrete)
         {
-            if (IsLocked(unit))
+            // 运动层（手感设计/02 第 3.2 节）：forced 优先级高于 rooted/staggered，所以被控制的单位仍可被受控位移（击退）带走；
+            // dead/frozen 不可开始；已在受控位移中时仅击退可按 KnockbackStack 策略替换。未启用运动层时走下面既有两条检查。
+            if (_motionOn)
             {
-                return false; // 同 ApplyIntent 判断记录：控制期间禁止移动同样适用于"开始"一次受控位移。
+                if (!MotionBeginDisplacementGate(unit, intent))
+                {
+                    return false;
+                }
             }
-
-            if (unit.MovementState.Displacement.HasValue)
+            else
             {
-                _diagnostics.Warn(
-                    $"MovementTickHandler: 单位 \"{unit.EntityId}\" 已在受控位移中，忽略新的 " +
-                    "move_displace 意图（不支持位移嵌套/覆盖，见 ADR-0026 判断记录）");
-                return false;
+                if (IsLocked(unit))
+                {
+                    return false; // 同 ApplyIntent 判断记录：控制期间禁止移动同样适用于"开始"一次受控位移。
+                }
+
+                if (unit.MovementState.Displacement.HasValue)
+                {
+                    _diagnostics.Warn(
+                        $"MovementTickHandler: 单位 \"{unit.EntityId}\" 已在受控位移中，忽略新的 " +
+                        "move_displace 意图（不支持位移嵌套/覆盖，见 ADR-0026 判断记录）");
+                    return false;
+                }
             }
 
             if (!TryReadDisplaceArgs(intent.Args, out var origin, out var target, out var speed, out var blocking, out var sampleStep))
@@ -1080,9 +1139,12 @@ namespace Core.Carriers.Unit
             }
 
             var resolvedSampleStep = sampleStep > 0 ? sampleStep : _options.DefaultDisplacementSampleStep;
-            var displacement = new ControlledDisplacementState(origin, target, speed, blocking, resolvedSampleStep);
+            var displacement = _motionOn
+                ? MotionBuildDisplacement(unit, intent, origin, target, speed, blocking, resolvedSampleStep)
+                : new ControlledDisplacementState(origin, target, speed, blocking, resolvedSampleStep);
 
             var oldState = unit.MovementState;
+            MotionSuspendPath(unit, oldState);
             var oldMode = oldState.Mode;
             unit.MovementState = new MovementState(null, MoveMode.Forced, oldState.MovementLocked, 0, 0, displacement);
             RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Forced);
@@ -1100,6 +1162,23 @@ namespace Core.Carriers.Unit
         /// <paramref name="isDiscrete"/> 判断记录）。
         /// </summary>
         private void AdvanceDisplacement(Unit unit, double dt, bool isDiscrete)
+        {
+            var motion = isDiscrete ? null : GetMotionTick(unit);
+            if (motion == null)
+            {
+                AdvanceDisplacementCore(unit, dt, isDiscrete);
+                return;
+            }
+
+            if (!unit.MovementState.Displacement.HasValue)
+            {
+                return;
+            }
+
+            MotionAdvanceDisplacement(unit, motion, dt, isDiscrete);
+        }
+
+        private void AdvanceDisplacementCore(Unit unit, double dt, bool isDiscrete)
         {
             var state = unit.MovementState;
             if (!state.Displacement.HasValue)
@@ -1129,7 +1208,8 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            if (IsLocked(unit))
+            // 运动层启用时 forced 优先于 rooted（手感设计/02 第 3.2 节）：控制状态不再结束受控位移。
+            if (!_motionOn && IsLocked(unit))
             {
                 EndDisplacement(unit, MoveStopReason.DisplacementControlled);
                 return;
@@ -1233,6 +1313,7 @@ namespace Core.Carriers.Unit
             unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null);
             RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
             _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+            MotionEndDisplacement(unit, reason);
         }
 
         /// <summary>受控位移专用的位置写回帮助方法：位置未变化时不写、不发事件（同
@@ -1257,7 +1338,11 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            if (forcedFacing.HasValue)
+            if (_suppressFacingWrite)
+            {
+                // 运动层：forced 模式规则不允许转向（击退不改变朝向），位置照常写回。
+            }
+            else if (forcedFacing.HasValue)
             {
                 unit.Facing = forcedFacing.Value;
             }
@@ -1352,6 +1437,12 @@ namespace Core.Carriers.Unit
                 return;
             }
 
+            // 运动层（连续步且已装配运动服务）：速度积分/滑墙/仲裁；缺省档案下与下面的既有算式逐位一致。
+            if (!isDiscrete && MotionDirectional(unit, direction, mode, dt))
+            {
+                return;
+            }
+
             var normalized = new Vec2(direction.X / length, direction.Y / length);
             var speed = ResolveSpeed(unit.EntityId);
             var from = unit.Position;
@@ -1416,10 +1507,23 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            var speed = ResolveSpeed(unit.EntityId);
-            var remaining = speed * dt;
-            var pos = unit.Position;
             var index = state.PathIndex < 0 ? 0 : state.PathIndex;
+
+            // 运动层：仲裁压制（dead/frozen/forced/staggered/动作位移段）时本 tick 不沿路径推进，路径状态保留；
+            // 档案作用于路径跟随时位移预算由速度积分器给出，否则仍是既有的 属性速度 × dt。
+            var mt = isDiscrete ? null : GetMotionTick(unit);
+            if (mt != null && MotionBlocksRegular(unit, mt))
+            {
+                return;
+            }
+
+            var integrated = false;
+            var budget = mt == null
+                ? ResolveSpeed(unit.EntityId) * dt
+                : MotionPathBudget(unit, mt, state.Mode, path, index, dt, out integrated);
+            var remaining = budget;
+            var pos = unit.Position;
+            var startPos = pos;
             var lastFacing = unit.Facing;
 
             while (remaining > 0 && index < path.Count)
@@ -1451,10 +1555,21 @@ namespace Core.Carriers.Unit
                 }
             }
 
+            if (mt != null)
+            {
+                MotionRecordPath(unit, mt, startPos, pos, index >= path.Count, integrated, budget / dt, dt);
+            }
+
             if (!pos.Equals(unit.Position))
             {
                 if (IsBlockedByUnit(unit.EntityId, pos))
                 {
+                    if (mt != null)
+                    {
+                        mt.VelocityOut = Vec2.Zero;
+                        mt.Source = MotionSource.None;
+                    }
+
                     // 判断记录见 IsBlockedByUnit：本次 tick 算出的终点被其他单位占据——本次 tick
                     // 完全不生效（不写位置/朝向、不改 MovementState），path/index 保持调用前的
                     // 既有值，下一 tick 用同样的路径与起点重试（简单确定性，不做滑动/绕行，见
@@ -1470,7 +1585,7 @@ namespace Core.Carriers.Unit
                 pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
 
                 _units.SetPosition(unit.EntityId, pos);
-                unit.Facing = lastFacing;
+                unit.Facing = mt == null ? lastFacing : MotionFacing(unit, lastFacing);
                 EnqueueMoved(unit.EntityId, pos);
             }
 
