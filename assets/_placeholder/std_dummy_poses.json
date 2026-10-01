@@ -1,0 +1,1363 @@
+{
+  "generator": "toolchain/gen_std_dummy_poses.py",
+  "doc": "architecture/手感设计/04_姿势与动画契约.md 第 6.2 节",
+  "anim_set_id": "display.anim_set.std_dummy_biped",
+  "params": {
+    "fps": 20,
+    "frame_ms": 50.0,
+    "direction_count": 8,
+    "composite_direction_variants": true,
+    "canvas": [
+      144,
+      144
+    ],
+    "pixels_per_unit": 32,
+    "body_height_px": 64,
+    "root_px": [
+      72,
+      140
+    ],
+    "layers": {
+      "body": "body",
+      "weapon": "hand_main"
+    },
+    "reference_base_speed_body_heights_per_s": 2.0,
+    "walk_speed_ratio": 0.45,
+    "run_speed_ratio": 1.0,
+    "frame_count_rule": "每相 max(1, floor(ms*fps/1000+0.5))；相内帧时长均分（相边界与三相毫秒数精确对齐）"
+  },
+  "directions": {
+    "canonical": [
+      "front",
+      "front_side_r",
+      "side_r",
+      "back_side_r",
+      "back"
+    ],
+    "yaw_deg": {
+      "front": 0.0,
+      "front_side_r": 45.0,
+      "side_r": 90.0,
+      "back_side_r": 135.0,
+      "back": 180.0
+    },
+    "mirror_pairs": [
+      {
+        "direction_slot": "front_side_l",
+        "mirror_of": "front_side_r",
+        "flip_x": true
+      },
+      {
+        "direction_slot": "side_l",
+        "mirror_of": "side_r",
+        "flip_x": true
+      },
+      {
+        "direction_slot": "back_side_l",
+        "mirror_of": "back_side_r",
+        "flip_x": true
+      }
+    ]
+  },
+  "clips": {
+    "idle": {
+      "resource_ref": "sprite_anim.std_dummy_idle",
+      "tier": "required",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body"
+      ],
+      "events": []
+    },
+    "idle.combat": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat",
+      "tier": "recommended",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body"
+      ],
+      "events": []
+    },
+    "move.walk": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk",
+      "tier": "required",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run": {
+      "resource_ref": "sprite_anim.std_dummy_move_run",
+      "tier": "required",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat",
+      "tier": "recommended",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "idle.1h": {
+      "resource_ref": "sprite_anim.std_dummy_idle_1h",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": []
+    },
+    "idle.combat.1h": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_1h",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": []
+    },
+    "move.walk.1h": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_1h",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.1h": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_1h",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.1h": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_1h",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "idle.2h": {
+      "resource_ref": "sprite_anim.std_dummy_idle_2h",
+      "tier": "recommended",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": []
+    },
+    "idle.combat.2h": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_2h",
+      "tier": "recommended",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": []
+    },
+    "move.walk.2h": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_2h",
+      "tier": "recommended",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.2h": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_2h",
+      "tier": "recommended",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.2h": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_2h",
+      "tier": "recommended",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "attack.unarmed": {
+      "resource_ref": "sprite_anim.std_dummy_attack_unarmed",
+      "tier": "required",
+      "family": "unarmed",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 95
+        },
+        {
+          "name": "active",
+          "ms": 70
+        },
+        {
+          "name": "recovery",
+          "ms": 160
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        1,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 325,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2923
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.4
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2923
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9015
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ]
+    },
+    "attack.unarmed.02": {
+      "resource_ref": "sprite_anim.std_dummy_attack_unarmed_02",
+      "tier": "recommended",
+      "family": "unarmed",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 95
+        },
+        {
+          "name": "active",
+          "ms": 70
+        },
+        {
+          "name": "recovery",
+          "ms": 160
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        1,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 325,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2923
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.4
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2923
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9015
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ]
+    },
+    "attack.unarmed.03": {
+      "resource_ref": "sprite_anim.std_dummy_attack_unarmed_03",
+      "tier": "recommended",
+      "family": "unarmed",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 115
+        },
+        {
+          "name": "active",
+          "ms": 90
+        },
+        {
+          "name": "recovery",
+          "ms": 210
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        2,
+        4
+      ],
+      "frame_count": 8,
+      "total_ms": 415,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2771
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3855
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.494
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2771
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.494
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ]
+    },
+    "attack.1h": {
+      "resource_ref": "sprite_anim.std_dummy_attack_1h",
+      "tier": "required",
+      "family": "1h",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 110
+        },
+        {
+          "name": "active",
+          "ms": 80
+        },
+        {
+          "name": "recovery",
+          "ms": 190
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        2,
+        4
+      ],
+      "frame_count": 8,
+      "total_ms": 380,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2895
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3947
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2895
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ]
+    },
+    "attack.1h.02": {
+      "resource_ref": "sprite_anim.std_dummy_attack_1h_02",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 110
+        },
+        {
+          "name": "active",
+          "ms": 80
+        },
+        {
+          "name": "recovery",
+          "ms": 190
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        2,
+        4
+      ],
+      "frame_count": 8,
+      "total_ms": 380,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2895
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3947
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2895
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ]
+    },
+    "attack.1h.03": {
+      "resource_ref": "sprite_anim.std_dummy_attack_1h_03",
+      "tier": "recommended",
+      "family": "1h",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 130
+        },
+        {
+          "name": "active",
+          "ms": 100
+        },
+        {
+          "name": "recovery",
+          "ms": 245
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        5
+      ],
+      "frame_count": 10,
+      "total_ms": 475,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2737
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3789
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4842
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2737
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4842
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ]
+    },
+    "attack.2h": {
+      "resource_ref": "sprite_anim.std_dummy_attack_2h",
+      "tier": "required",
+      "family": "2h",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 170
+        },
+        {
+          "name": "active",
+          "ms": 100
+        },
+        {
+          "name": "recovery",
+          "ms": 290
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        6
+      ],
+      "frame_count": 11,
+      "total_ms": 560,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.3036
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3929
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4821
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.3036
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4821
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.4821
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.8964
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.75
+        }
+      ]
+    },
+    "attack.2h.02": {
+      "resource_ref": "sprite_anim.std_dummy_attack_2h_02",
+      "tier": "recommended",
+      "family": "2h",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 170
+        },
+        {
+          "name": "active",
+          "ms": 100
+        },
+        {
+          "name": "recovery",
+          "ms": 290
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        6
+      ],
+      "frame_count": 11,
+      "total_ms": 560,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.3036
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3929
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4821
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.3036
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4821
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.75
+        }
+      ]
+    },
+    "attack": {
+      "resource_ref": "sprite_anim.std_dummy_attack_unarmed",
+      "tier": "required",
+      "family": "unarmed",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 95
+        },
+        {
+          "name": "active",
+          "ms": 70
+        },
+        {
+          "name": "recovery",
+          "ms": 160
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        1,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 325,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2923
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.4
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2923
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5077
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9015
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.65
+        }
+      ],
+      "alias_of": "attack.unarmed"
+    },
+    "hit": {
+      "resource_ref": "sprite_anim.std_dummy_hit",
+      "tier": "required",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "impact",
+          "ms": 80
+        },
+        {
+          "name": "recover",
+          "ms": 220
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        4
+      ],
+      "frame_count": 6,
+      "total_ms": 300,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "impact",
+          "time_pct": 0.0
+        }
+      ]
+    },
+    "hit.light": {
+      "resource_ref": "sprite_anim.std_dummy_hit_light",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "impact",
+          "ms": 60
+        },
+        {
+          "name": "recover",
+          "ms": 190
+        }
+      ],
+      "frames_per_phase": [
+        1,
+        4
+      ],
+      "frame_count": 5,
+      "total_ms": 250,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "impact",
+          "time_pct": 0.0
+        }
+      ]
+    },
+    "hit.heavy": {
+      "resource_ref": "sprite_anim.std_dummy_hit_heavy",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "impact",
+          "ms": 100
+        },
+        {
+          "name": "recover",
+          "ms": 300
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        6
+      ],
+      "frame_count": 8,
+      "total_ms": 400,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "impact",
+          "time_pct": 0.0
+        }
+      ]
+    },
+    "hit.knockback": {
+      "resource_ref": "sprite_anim.std_dummy_hit_knockback",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "impact",
+          "ms": 100
+        },
+        {
+          "name": "recover",
+          "ms": 400
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        8
+      ],
+      "frame_count": 10,
+      "total_ms": 500,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "impact",
+          "time_pct": 0.0
+        }
+      ]
+    },
+    "hit.knockdown": {
+      "resource_ref": "sprite_anim.std_dummy_hit_knockdown",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "fall",
+          "ms": 300
+        },
+        {
+          "name": "lie",
+          "ms": 400
+        }
+      ],
+      "frames_per_phase": [
+        6,
+        8
+      ],
+      "frame_count": 14,
+      "total_ms": 700,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "impact",
+          "time_pct": 0.0
+        }
+      ]
+    },
+    "hit.getup": {
+      "resource_ref": "sprite_anim.std_dummy_hit_getup",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "rise",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body"
+      ],
+      "events": []
+    },
+    "death": {
+      "resource_ref": "sprite_anim.std_dummy_death",
+      "tier": "required",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "fall",
+          "ms": 400
+        },
+        {
+          "name": "lie",
+          "ms": 500
+        }
+      ],
+      "frames_per_phase": [
+        8,
+        10
+      ],
+      "frame_count": 18,
+      "total_ms": 900,
+      "layers": [
+        "body"
+      ],
+      "events": []
+    },
+    "jump": {
+      "resource_ref": "sprite_anim.std_dummy_jump",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "takeoff",
+          "ms": 120
+        },
+        {
+          "name": "air",
+          "ms": 360
+        },
+        {
+          "name": "land",
+          "ms": 120
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        7,
+        2
+      ],
+      "frame_count": 11,
+      "total_ms": 600,
+      "layers": [
+        "body"
+      ],
+      "events": []
+    },
+    "cast": {
+      "resource_ref": "sprite_anim.std_dummy_cast",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 250
+        },
+        {
+          "name": "release",
+          "ms": 100
+        },
+        {
+          "name": "recovery",
+          "ms": 250
+        }
+      ],
+      "frames_per_phase": [
+        5,
+        2,
+        5
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "release",
+          "time_pct": 0.4167
+        }
+      ]
+    },
+    "dodge": {
+      "resource_ref": "sprite_anim.std_dummy_dodge",
+      "tier": "recommended",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "start",
+          "ms": 60
+        },
+        {
+          "name": "motion",
+          "ms": 240
+        },
+        {
+          "name": "recover",
+          "ms": 100
+        }
+      ],
+      "frames_per_phase": [
+        1,
+        5,
+        2
+      ],
+      "frame_count": 8,
+      "total_ms": 400,
+      "layers": [
+        "body"
+      ],
+      "events": [
+        {
+          "name": "motion_start",
+          "time_pct": 0.15
+        },
+        {
+          "name": "invuln_start",
+          "time_pct": 0.15
+        },
+        {
+          "name": "invuln_end",
+          "time_pct": 0.6
+        },
+        {
+          "name": "motion_end",
+          "time_pct": 0.75
+        }
+      ]
+    }
+  }
+}
