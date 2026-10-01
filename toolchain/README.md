@@ -1436,3 +1436,20 @@ build/test 步骤）。
 - **`IncludeSourceRevisionInInformationalVersion` 关闭**：避免 SDK 在标签后再追加提交哈希，使读出的产品版本就是标签本身。
 - **分支名规范只判 `feature/`、`bugfix/`**：主干上的合并后全量门禁、发布维护分支与游离 HEAD 不应被它挡住；不合规名字的标签仍照推导，失败信息单独给出（非 ASCII 名字会同时给出转义形式，避免控制台代码页不一致时看不清）。
 - **已知限制**：①`build.ps1 -Release -DryRun` 不写发布说明文件（发布说明只在非 DryRun 的提交步骤里生成），首行格式由 `_release_notes.ps1` 的用例直接覆盖；②标签经环境变量传给构建，非 ASCII 分支名在非 UTF-8 代码页下可能被改写——这种名字本来就会被门禁判失败；③直接在命令行手工构建（不经 `check.ps1`/`build.ps1`）时信息版本是 `VERSION` 内容而非带后缀的标签。
+
+## 包管理器子进程消失的失败现场抓取与演练工作目录隔离（`_upm_evidence.ps1`，2026-10-01）
+
+门禁里的 Unity 批处理偶发几秒内退出，引擎日志含 `IPCStream (Upm-xxxxx): IPC stream failed to read (Not connected)` 与 `[Package Manager] Failed to resolve packages: operation cancelled.`：包管理器子进程（`UnityPackageManager.exe`）在解析途中消失（中途结束该进程可复现同一签名）。真正的触发者没查到，因为 `%LOCALAPPDATA%\Unity\Editor\upm.log` 与子进程退出码会被下一次运行覆盖。本节的做法是"下次再出现时当场留证"，不是猜根因。
+
+- **抓取**：`_gate_line_unity.ps1` 的编译检查/EditMode/PlayMode/独立版构建/IL2CPP 构建与 `consumer_smoke.ps1` 的首次编译/场景构建器/PlayMode/独立版构建/registry 探针，在引擎退出码非零时调 `Get-UpmEvidenceDetailSuffix`：日志含签名才抓。抓到后在 `<ArtifactsPath>\upm_evidence\<时间>_<步骤>\` 存 `upm_candidate<N>.log`（`upm.log` 的每个存在的候选路径各一份）、`engine_log_excerpt.txt`（包管理器相关行 + 日志末尾 60 行）、`unity_processes.txt`（Unity 相关进程快照，用来对照"是不是别的会话误杀"）、`summary.txt`；步骤 Detail 追加 `包管理器子进程退出码=…（-1/1 疑似外部结束，101 疑似自身崩溃）；现场已存 <路径>`。演练步骤的子进程输出被 `| Out-Null` 吞掉，所以 Unity 线在演练失败时从 `consumer_smoke.log` 里把这些摘要行并进 `consumer_drill` 的 Detail。
+- **判定函数可单测**：`Test-UpmIpcFailureSignature`（退出码非零且日志含签名）、`Get-UpmChildExitCodes`、`Save-UpmFailureEvidence`；用例见 `tests/test_upm_evidence.py`。
+- **演练工作目录**：默认 `<TEMP>\gf_consumer_smoke_<仓库根路径 SHA-256 前 8 位>`（`Get-ConsumerSmokeDefaultWorkDir`，在 `_unity_smoke_wait_scope_guard.ps1`），主检出与各工作树互不清空对方的工程；显式 `-WorkDir` 优先。
+- **注册表测试的清理**：`tests/_pid_identity.py` 按"映像名 + 启动时间"核对后才结束进程；`start_registry.ps1 -LogDir` 让测试把 verdaccio 日志写进临时目录。
+
+### 判断记录
+
+- **只在引擎退出码非零时抓取**：实测（消费方演练里结束 `UnityPackageManager.exe`）Unity 会重新拉起包管理器（日志 `Server process restart attempt #2`）并正常完成，此时日志里同样有 `IPC stream failed to read`，但引擎退出码为 0、步骤通过——这类不是失败，不留证。
+- **退出码格式**：日志行是 ``[Package Manager] Server process stopped with exit code `4294967295` ``（数字外有反引号，按无符号 32 位打印；`Stop-Process` 结束的 -1 即 4294967295），脚本折回有符号值；包管理器可能被拉起多次，每次一行，摘要按顺序全列。
+- **抓取不参与步骤判定**：只产生 Detail 后缀字符串，内部全部 try/catch，任何失败都只让摘要多一句"现场抓取部分失败"；`tests/test_upm_evidence.py` 里有静态用例保证 `$upmNote` 只出现在 Detail 里。
+- **建留证目录用 `[System.IO.Directory]::CreateDirectory`**：`New-Item -ItemType Directory -Force` 在父路径是同名文件时既不报错也建不出目录（实测），会让后面的写文件连环失败。
+- **已知限制**：①`upm.log` 只取 `%LOCALAPPDATA%\Unity\Editor\upm.log`（Windows 上 Unity 6 的实测位置，已核实存在）及其等价写法，其它平台/版本的位置未覆盖；②抓取发生在引擎进程退出之后，`upm.log` 若在这之前已被另一个 Unity 实例的新包管理器覆盖则抓到的是新的——`unity_processes.txt` 与 `summary.txt` 里的引擎日志片段是补充对证手段；③引擎超时被强杀（`TimedOut`）的路径不抓取；④只覆盖 Editor 批处理步骤，独立版冒烟（Player）不经包管理器；⑤`Get-UnityProcessSnapshotText` 查询 `Win32_Process`，拿不到时在文件里写失败原因，不重试；⑥PID 复用无法在测试里可控地制造，`test_pid_identity_kill.py` 用"同一 PID、身份不符"等价构造覆盖判定本身。

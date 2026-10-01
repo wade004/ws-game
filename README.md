@@ -123,8 +123,8 @@ Unity.exe -batchmode                -projectPath adapters\unity -runTests -testP
 powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\consumer_smoke.ps1
 ```
 
-默认版本号读仓库根 `VERSION`、工作目录落在系统临时目录下的 `gf_consumer_smoke\`（每次运行前清空
-重建）；`-DistVersion`/`-WorkDir`/`-UnityExe`/`-SkipCleanWorkDir` 可覆盖，见该脚本头注释。
+默认版本号读仓库根 `VERSION`、工作目录落在系统临时目录下的 `gf_consumer_smoke_<8 位哈希>\`（哈希由
+本检出的仓库根路径派生，主检出与各工作树互不共用；每次运行前清空重建）；`-DistVersion`/`-WorkDir`/`-UnityExe`/`-SkipCleanWorkDir` 可覆盖，见该脚本头注释。
 `check.ps1` 默认会跑这一步（`-SkipConsumer` 跳过，`-SkipUnity` 时一并跳过），是 11 号文档"提交
 门槛清单"的一部分。
 
