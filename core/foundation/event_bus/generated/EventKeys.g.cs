@@ -75,7 +75,7 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit, attackInstanceId。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId，同 combat.damage_dealt 一致，见该行说明。</summary>
         public static readonly Id CombatHealDone = new Id("combat.heal_done");
 
-        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；Expr 暴露 sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。</summary>
+        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction, castInstanceId。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；2026-10-02 勘误补充 castInstanceId（发起本次命中的动作/施法实例 id，与 action.started.castInstanceId 同值；时间线空间命中填入，instant 命中为空——同一动作实例的多段多目标命中共用它，attackInstanceId 仍是每次结算一个；打击反馈的挥空窗口据此按动作实例配对，可空字段不经 Expr 暴露）；Expr 暴露 sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。</summary>
         public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
 
         /// <summary>combat.left — 字段：unitId。脱离战斗（见 06 第 8 节）。</summary>

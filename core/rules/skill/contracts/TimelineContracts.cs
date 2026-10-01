@@ -105,6 +105,77 @@ namespace Core.Rules.Skill
         public void ResolveHit(in TimelineHitContext context) => context.Settlement.SettleInstant();
     }
 
+    /// <summary>目标辅助的解析请求（时间线 → 目标辅助实现；全部量已换算为世界单位/度，手感设计/02 第 5 节）。</summary>
+    public readonly struct ActionAssistRequest
+    {
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        /// <summary>候选解析用的目标选择链。</summary>
+        public Id ChainRef { get; }
+
+        /// <summary>候选允许的最大距离（世界单位）。</summary>
+        public double MaxDistance { get; }
+
+        /// <summary>候选相对朝向允许的最大角度（度，单侧）。</summary>
+        public double MaxAngleDeg { get; }
+
+        public TimelineAssistMode Mode { get; }
+
+        /// <summary>档案动作组 <c>turn_assist_deg</c>（度）：朝向修正上限。</summary>
+        public double TurnAssistDeg { get; }
+
+        /// <summary>动作位移声明距离（世界单位，标定后；无位移块为 0）：<c>close_distance</c> 缩放上限。</summary>
+        public double DeclaredDistance { get; }
+
+        /// <summary>判定形状从行动者向前的覆盖深度（世界单位）：<c>close_distance</c> 缩放依据。</summary>
+        public double ShapeReach { get; }
+
+        public ActionAssistRequest(
+            Id actorId, Id castInstanceId, Id chainRef, double maxDistance, double maxAngleDeg, TimelineAssistMode mode,
+            double turnAssistDeg, double declaredDistance, double shapeReach)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            ChainRef = chainRef;
+            MaxDistance = maxDistance;
+            MaxAngleDeg = maxAngleDeg;
+            Mode = mode;
+            TurnAssistDeg = turnAssistDeg;
+            DeclaredDistance = declaredDistance;
+            ShapeReach = shapeReach;
+        }
+    }
+
+    /// <summary>目标辅助的结果：辅助目标、朝向修正量（度，带符号，已按 <c>turn_assist_deg</c> 限幅）、距离修正量（世界单位）。</summary>
+    public readonly struct ActionAssistOutcome
+    {
+        public Id TargetId { get; }
+
+        public double FacingDeltaDeg { get; }
+
+        public double DistanceAdjust { get; }
+
+        public ActionAssistOutcome(Id targetId, double facingDeltaDeg, double distanceAdjust)
+        {
+            TargetId = targetId;
+            FacingDeltaDeg = facingDeltaDeg;
+            DistanceAdjust = distanceAdjust;
+        }
+    }
+
+    /// <summary>
+    /// 目标辅助入口（手感设计/02 第 5 节）。<b>缺省关闭</b>：<see cref="TimelineServices.TargetAssist"/> 为空即没有目标辅助，
+    /// 声明了 <c>target_assist</c> 的动作也按未声明处理。时间线（L2）只认本接口；实现在载体层
+    /// （<c>Core.Carriers.Unit.ActionTargetAssistAdapter</c>，复用运动侧 <c>TargetAssistEvaluator</c> 与目标选择链候选解析）。
+    /// 没有候选返回 false（静默，不发事件）。
+    /// </summary>
+    public interface IActionTargetAssist
+    {
+        bool TryAssist(in ActionAssistRequest request, out ActionAssistOutcome outcome);
+    }
+
     /// <summary>剪辑里的一个事件（<c>display.anim_set.clips[*].events</c> 的一项：名 + 时间百分比）。</summary>
     public readonly struct ClipEvent
     {
@@ -189,7 +260,21 @@ namespace Core.Rules.Skill
         /// <summary>输入动作 → 技能映射；为空时取消进入不可用（窗口内连招不需要映射，仍可用）。</summary>
         public IActionSkillBinding? Binding { get; set; }
 
-        /// <summary>命中解析钩子；为空时用 <see cref="InstantSettlementHitResolver"/>。</summary>
+        /// <summary>
+        /// 命中解析钩子；为空时由施法管线按技能数据选择内建路径：目标选择链声明了 <c>shape</c> 则空间命中
+        /// （去重、无敌前置检查、<c>combat.hit_confirmed</c>，手感设计/03 第 2.2/2.3 节），没有 <c>shape</c> 则
+        /// <see cref="InstantSettlementHitResolver"/> 式 instant 结算。设置了本钩子即完全由它接管 <c>hit</c> 标记的解析
+        /// （去重与无敌检查随之由钩子负责）。
+        /// </summary>
         public ITimelineHitResolver? HitResolver { get; set; }
+
+        /// <summary>
+        /// 受击裁决（<see cref="IHitFeelArbiter"/>，<c>HitFeelHost</c> 实现）：时间线命中发 <c>combat.hit_confirmed</c> 前取冲击等级、
+        /// 两侧顿帧 tick 数与受击反应。为空时全部取 <see cref="HitFeelOutcome.None"/>（不顿帧、不裁决，但事件照发、几何字段齐全）。
+        /// </summary>
+        public IHitFeelArbiter? HitFeel { get; set; }
+
+        /// <summary>目标辅助入口（缺省 null：关闭，见 <see cref="IActionTargetAssist"/>）。</summary>
+        public IActionTargetAssist? TargetAssist { get; set; }
     }
 }

@@ -14,7 +14,7 @@ namespace Core.Rules.Skill
     /// <para>
     /// 判断记录（阻断与警告的划分）：运行期会得到错误行为的（总时长与 <c>cast_time</c> 不符、标记超出动作时长、位移块缺起止
     /// 标记、连招指向不存在的技能……）为 Error；只是作者可能没意识到的（表现类标记写进了判定块、声明了无敌开始没有结束、
-    /// 有效果却没有 <c>hit</c> 标记、<c>hit_policy: continuous</c> 尚未实现）为 Warning。
+    /// 有效果却没有 <c>hit</c> 标记、目标辅助的缩放没有位移块可缩）为 Warning；<c>continuous</c>/<c>spatial</c> 命中缺命中形状为 Error（运行期会静默退回 instant）。
     /// </para>
     /// </summary>
     public sealed class SkillTimelineRule : IValidationRule
@@ -320,19 +320,70 @@ namespace Core.Rules.Skill
 
             // 命中解析
             var hitPolicy = tl.TryGetValue("hit_policy", out var hp) && hp is JsonString hps ? hps.Value : "marker";
-            if (hitPolicy == "continuous")
+            var hitMode = tl.TryGetValue("hit_mode", out var hm) && hm is JsonString hms ? hms.Value : "auto";
+            var continuous = hitPolicy == "continuous";
+
+            // 命中形状：目标选择链（target_shape_ref）有没有声明 shape（空间命中的前提）。链不存在由 schema 的软引用/别处报，这里按"未知"处理。
+            bool? chainHasShape = null;
+            var chainTableLoaded = view.Tables.Contains("target.chain_def");
+            if (chainTableLoaded && record.TryGetString("target_shape_ref", out var shapeRef))
             {
-                issues.Add(Warn("timeline_hit_policy_continuous",
-                    "hit_policy: continuous 由时间线命中切片实现，当前版本按 marker 处理（只在 hit 标记处结算）", "timeline.hit_policy"));
+                var chainRecord = view.Get("target.chain_def", shapeRef);
+                if (chainRecord != null)
+                {
+                    chainHasShape = chainRecord.TryGetObject("shape", out _);
+                }
+            }
+
+            if (chainHasShape == false && hitMode == "spatial")
+            {
+                issues.Add(Err("timeline_spatial_without_shape",
+                    "hit_mode: spatial 要求 target_shape_ref 指向的目标选择链声明 shape（命中形状）", "timeline.hit_mode"));
+            }
+
+            if (continuous && hitMode == "instant")
+            {
+                issues.Add(Err("timeline_continuous_instant_conflict",
+                    "hit_policy: continuous 需要空间命中，不能与 hit_mode: instant 同时声明", "timeline.hit_mode"));
+            }
+
+            if (continuous && hitMode != "instant" && chainHasShape == false)
+            {
+                issues.Add(Err("timeline_continuous_without_shape",
+                    "hit_policy: continuous 逐 tick 用目标选择链的 shape 做空间命中，target_shape_ref 指向的链没有声明 shape", "timeline.hit_policy"));
             }
 
             var costAt = tl.TryGetValue("cost_at", out var ca) && ca is JsonString cas ? cas.Value : "commit";
-            if (costAt == "first_hit" && !hasHit)
+            if (costAt == "first_hit" && !hasHit && !continuous)
             {
                 issues.Add(Err("timeline_cost_first_hit_without_hit", "cost_at: first_hit 要求至少一个 hit 标记，否则资源永远不会被扣除", "timeline.cost_at"));
             }
 
-            if (!hasHit && record.TryGetArray("effects", out var effects) && effects.Count > 0)
+            // 目标辅助（手感设计/02 第 5 节）
+            if (tl.TryGetValue("target_assist", out var assistVal) && assistVal is JsonObject assist)
+            {
+                if (chainTableLoaded && assist.TryGetValue("chain_ref", out var chainVal) && chainVal is JsonString chainStr
+                    && view.Get("target.chain_def", chainStr.Value) == null)
+                {
+                    issues.Add(Err("timeline_target_assist_chain_missing",
+                        "target_assist.chain_ref 指向的目标选择链 \"" + chainStr.Value + "\" 不存在", "timeline.target_assist.chain_ref"));
+                }
+
+                var closeDistance = assist.TryGetValue("mode", out var amv) && amv is JsonString ams && ams.Value == "close_distance";
+                if (closeDistance && !tl.TryGetValue("motion", out _))
+                {
+                    issues.Add(Warn("timeline_target_assist_close_distance_without_motion",
+                        "target_assist.mode: close_distance 缩放的是 motion 块的位移距离，但没有声明 motion，缩放不会发生", "timeline.target_assist.mode"));
+                }
+
+                if (closeDistance && chainHasShape == false)
+                {
+                    issues.Add(Warn("timeline_target_assist_close_distance_without_shape",
+                        "target_assist.mode: close_distance 按判定形状的覆盖深度缩放距离，target_shape_ref 的链没有 shape，覆盖深度按 0 处理（冲到贴身）", "timeline.target_assist.mode"));
+                }
+            }
+
+            if (!hasHit && !continuous && record.TryGetArray("effects", out var effects) && effects.Count > 0)
             {
                 issues.Add(Warn("timeline_effects_without_hit",
                     "技能声明了 effects 但 timeline 没有 hit 标记：时间线模式下效果只在 hit 标记处结算，当前永远不会结算"));

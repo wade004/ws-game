@@ -169,6 +169,28 @@ namespace Core.Rules.Targeting
             return resolution;
         }
 
+        /// <summary>见 <see cref="ITargetHost.TryGetChainShape"/>：直接读链的 <c>shape</c> 字段（形状模板）。</summary>
+        public bool TryGetChainShape(Id chainId, out EngineShape template)
+        {
+            var chain = LoadChain(chainId);
+            if (chain.Shape.HasValue)
+            {
+                template = chain.Shape.Value;
+                return true;
+            }
+
+            template = default;
+            return false;
+        }
+
+        /// <summary>
+        /// 见 <see cref="ITargetHost.ResolveAtPose"/>：与 <see cref="ResolveWithCoefficients"/> 复用同一条
+        /// <see cref="ResolveChainWithCoefficients"/> 管线，只把形状锚点/排序基准换成给定位姿；不发布
+        /// <see cref="TargetingResolvedEvent"/>（逐 tick 多次采样，见接口判断记录）。
+        /// </summary>
+        public TargetResolution ResolveAtPose(Id chainId, Id casterId, Vec2 origin, double facing, Id? currentTarget = null) =>
+            ResolveChainWithCoefficients(chainId, casterId, currentTarget, origin, facing, depth: 0);
+
         private static IReadOnlyList<Id> ProjectTargets(TargetResolution resolution)
         {
             var ids = new List<Id>(resolution.Targets.Count);

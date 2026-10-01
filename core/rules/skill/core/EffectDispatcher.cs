@@ -850,11 +850,29 @@ namespace Core.Rules.Skill
         // 见该接口判断记录"依赖倒置"）
         // -----------------------------------------------------------------
 
+        /// <summary>
+        /// 手感落地（手感设计/03 第 2.5 节）：施法管线在时间线 <c>release</c> 标记处执行 <c>projectile</c> 效果时，经本属性
+        /// 把"发射动作的命中钩子"交给紧随其后的 <see cref="ApplyProjectile"/>（调用前赋值、调用后清空，由管线保证成对）。
+        /// 判断记录（为什么是带外属性而不是 <see cref="EffectContext"/> 新字段）：<see cref="EffectContext"/> 已有多个构造重载、
+        /// 且是跨模块值类型，投射物钩子只在 <c>projectile</c> 效果一个出口用到；带外属性不动 <see cref="IEffectSink"/>
+        /// 与 <see cref="EffectContext"/> 的任何公开签名。缺省 null：投射物走既有路径。
+        /// </summary>
+        internal IProjectileHitHook? AmbientProjectileHook { get; set; }
+
         private ResolveResult ApplyProjectile(EffectContext context)
         {
             if (_projectileSpawner != null)
             {
-                _projectileSpawner.Spawn(context, this);
+                var hook = AmbientProjectileHook;
+                if (hook != null)
+                {
+                    _projectileSpawner.Spawn(context, this, hook);
+                }
+                else
+                {
+                    _projectileSpawner.Spawn(context, this);
+                }
+
                 return NoOp(context);
             }
 

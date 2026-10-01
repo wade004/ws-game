@@ -50,8 +50,58 @@ namespace Core.Rules.Skill
         /// <summary>每个 <c>hit</c> 标记到达时解析一次目标并结算。</summary>
         Marker,
 
-        /// <summary>判定相内逐 tick 解析（未实现，按 <see cref="Marker"/> 处理并记警告，见 README）。</summary>
+        /// <summary>
+        /// 判定相内逐 tick 解析（时间线空间命中切片实现，手感设计/03 第 2.2 节）：每 tick 用同一条目标选择链以攻击方当前位姿解析一次，
+        /// 两个 tick 位姿之间按 <c>sample_step_ms</c>（缺省一个 tick 的 1/4）线性插值多次采样、并按形状尺寸加密，高速形状不漏目标；
+        /// 同一攻击实例对同一目标只命中一次（<c>rehit_interval_ms</c> 声明后按间隔分段，可再次命中）。<c>hit</c> 标记不再触发结算。
+        /// </summary>
         Continuous,
+    }
+
+    /// <summary>命中解析走哪条路径（<c>skill.def.timeline.hit_mode</c>，时间线空间命中切片新增）。</summary>
+    public enum TimelineHitMode
+    {
+        /// <summary>缺省：目标选择链声明了 <c>shape</c> 则空间命中，没有则保持 instant 结算（S3a 行为）。</summary>
+        Auto,
+
+        /// <summary>强制空间命中（链没有 <c>shape</c> 时校验器报错）。</summary>
+        Spatial,
+
+        /// <summary>强制 instant 结算（即便链有 <c>shape</c>）：hit 标记处按目标选择链解析并结算，不做去重与无敌前置检查。</summary>
+        Instant,
+    }
+
+    /// <summary>目标辅助的模式（手感设计/02 第 5 节 <c>target_assist.mode</c>）。</summary>
+    public enum TimelineAssistMode
+    {
+        /// <summary>只把朝向对齐到辅助目标（转角不超过档案 <c>turn_assist_deg</c>）。</summary>
+        FaceOnly,
+
+        /// <summary>还把本次位移距离缩放到"判定相形状恰好覆盖目标"所需的值（不超过声明距离）。</summary>
+        CloseDistance,
+    }
+
+    /// <summary>目标辅助声明（<c>skill.def.timeline.target_assist</c>，手感设计/02 第 5 节）。缺省不声明即没有目标辅助。</summary>
+    public sealed class TimelineTargetAssist
+    {
+        /// <summary>候选解析用的目标选择链（<c>target.chain_def</c> id）。</summary>
+        public Id ChainRef { get; }
+
+        /// <summary>候选允许的最大距离（身高倍数，经标定换算为世界单位，同 <c>motion.distance</c>）。</summary>
+        public double MaxDistance { get; }
+
+        /// <summary>候选相对朝向允许的最大角度（度，单侧）。</summary>
+        public double MaxAngleDeg { get; }
+
+        public TimelineAssistMode Mode { get; }
+
+        public TimelineTargetAssist(Id chainRef, double maxDistance, double maxAngleDeg, TimelineAssistMode mode)
+        {
+            ChainRef = chainRef;
+            MaxDistance = maxDistance;
+            MaxAngleDeg = maxAngleDeg;
+            Mode = mode;
+        }
     }
 
     /// <summary>蓄力相声明（手感设计/01 第 3.1 节 <c>charge</c>）。</summary>
@@ -155,6 +205,24 @@ namespace Core.Rules.Skill
         /// <summary>当前动作层的手感覆盖行 id（<c>feel.action</c>），可空。</summary>
         public string? FeelRef { get; }
 
+        /// <summary>命中解析路径（缺省 <see cref="TimelineHitMode.Auto"/>）。</summary>
+        public TimelineHitMode HitMode { get; }
+
+        /// <summary>
+        /// <c>continuous</c> 命中两 tick 位姿之间的采样步长（毫秒）；0 即缺省"一个 tick 的 1/4"（手感设计/03 第 2.2 节
+        /// <c>sample_step</c>，本实现按毫秒声明）。运行期还会按形状尺寸加密，保证位移不超过形状特征尺寸的一半。
+        /// </summary>
+        public double SampleStepMs { get; }
+
+        /// <summary>
+        /// 多段命中的最小再命中间隔（毫秒，0 = 未声明）。<c>marker</c> 策略：同一目标在不同段之间、距上次命中不足该间隔时不再命中；
+        /// <c>continuous</c> 策略：判定相按该间隔切成段，每段是一份新的命中集合（同一目标每个间隔可命中一次）。
+        /// </summary>
+        public double RehitIntervalMs { get; }
+
+        /// <summary>目标辅助声明；null 即没有目标辅助。</summary>
+        public TimelineTargetAssist? TargetAssist { get; }
+
         /// <summary>三相之和（毫秒，不含蓄力）。</summary>
         public double TotalMs => StartupMs + ActiveMs + RecoveryMs;
 
@@ -172,7 +240,35 @@ namespace Core.Rules.Skill
             TimelineCooldownAt cooldownAt,
             ActionMotion? motion,
             string? feelRef)
+            : this(
+                source, charge, startupMs, activeMs, recoveryMs, markers, cancelWindows, combo, hitPolicy, costAt, cooldownAt,
+                motion, feelRef, TimelineHitMode.Auto, 0.0, 0.0, null)
         {
+        }
+
+        public TimelineDef(
+            TimelineSource source,
+            TimelineCharge? charge,
+            double startupMs,
+            double activeMs,
+            double recoveryMs,
+            IReadOnlyList<TimelineMarker> markers,
+            IReadOnlyList<TimelineCancelWindow> cancelWindows,
+            TimelineCombo? combo,
+            TimelineHitPolicy hitPolicy,
+            TimelineCostAt costAt,
+            TimelineCooldownAt cooldownAt,
+            ActionMotion? motion,
+            string? feelRef,
+            TimelineHitMode hitMode,
+            double sampleStepMs,
+            double rehitIntervalMs,
+            TimelineTargetAssist? targetAssist)
+        {
+            HitMode = hitMode;
+            SampleStepMs = sampleStepMs;
+            RehitIntervalMs = rehitIntervalMs;
+            TargetAssist = targetAssist;
             Source = source;
             Charge = charge;
             StartupMs = startupMs;
@@ -284,9 +380,25 @@ namespace Core.Rules.Skill
 
             var feelRef = Str(obj, "feel_ref");
 
+            var hitMode = Str(obj, "hit_mode") switch
+            {
+                "spatial" => TimelineHitMode.Spatial,
+                "instant" => TimelineHitMode.Instant,
+                _ => TimelineHitMode.Auto,
+            };
+
+            TimelineTargetAssist? assist = null;
+            if (obj.TryGetValue("target_assist", out var assistVal) && assistVal is JsonObject assistObj)
+            {
+                var assistMode = Str(assistObj, "mode") == "close_distance" ? TimelineAssistMode.CloseDistance : TimelineAssistMode.FaceOnly;
+                assist = new TimelineTargetAssist(
+                    new Id(Str(assistObj, "chain_ref")!), Num(assistObj, "max_distance"), Num(assistObj, "max_angle_deg"), assistMode);
+            }
+
             return new TimelineDef(
                 source, charge, Num(obj, "startup_ms"), Num(obj, "active_ms"), Num(obj, "recovery_ms"),
-                markers, windows, combo, hitPolicy, costAt, cooldownAt, motion, string.IsNullOrEmpty(feelRef) ? null : feelRef);
+                markers, windows, combo, hitPolicy, costAt, cooldownAt, motion, string.IsNullOrEmpty(feelRef) ? null : feelRef,
+                hitMode, Num(obj, "sample_step_ms"), Num(obj, "rehit_interval_ms"), assist);
         }
 
         private static ActionMotion ParseMotion(JsonObject m)

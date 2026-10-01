@@ -126,3 +126,10 @@ engine_adapter/
   Unity 实现（引擎侧 `ConformanceUnityTests`）共用；`tests/RaycastWithNormalTests.cs` 覆盖桩的细节（随机线段命中点逐位对照、角点对角法线、内角合并与登记顺序无关、起点在内部、
   默认实现的边界）。
 
+
+## `ShapeGeometry.RebaseAt` 与 `ShapeGeometry.ClosestPoint`（2026-10-02，手感落地 S3b）
+
+- `RebaseAt(Shape template, Vec2 origin, double facing)`：把"形状模板"（目标选择链 `shape` 的存储形态，`Origin` 为零、方向/旋转为 0）按位置与朝向重新锚定成可直接查询的形状；锚定规则与 `TargetHost` 解析链时一致
+  （circle 取位置；cone/line 方向取朝向；rect 旋转取朝向）。时间线 `continuous` 命中沿攻击方位姿移动形状时用。
+- `ClosestPoint(Shape shape, Vec2 point)`：形状区域内离 `point` 最近的点（点在形状内返回其自身；circle/rect/line/cone 四种）。时间线命中给接触点用；契约里取不到目标碰撞半径，目标按中心点处理。
+- 复现/不变量：`tests/ShapeGeometryPoseTests.cs`（重新锚定后的查询等于模板在局部坐标里的查询；`ClosestPoint` 在形状内、形状内点映射到自身、不存在更近的形状内采样点）。

@@ -91,7 +91,8 @@ namespace Presentation.FeedbackBinder.Core
         private readonly IPresentationDiagnostics _diagnostics;
         private readonly List<Candidate> _group = new List<Candidate>();
         private readonly List<RawHitstop> _hitstops = new List<RawHitstop>();
-        private readonly Dictionary<Id, int> _whiffWindows = new Dictionary<Id, int>();
+        // 挥空窗口：键 = (行动者, 动作实例)，值 = 窗口内命中数。动作实例为 null 的窗口来自没有施法实例 id 的旧调用方式（按行动者配对）。
+        private readonly Dictionary<(Id Actor, Id? Cast), int> _whiffWindows = new Dictionary<(Id Actor, Id? Cast), int>();
         private readonly HashSet<string> _reported = new HashSet<string>(StringComparer.Ordinal);
 
         private long _tick;
@@ -240,51 +241,87 @@ namespace Presentation.FeedbackBinder.Core
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// 记录一次命中接触（任何结局，包括被回避——"打到了但被闪避"与挥空分开）：攻击者的判定窗口内命中数加一。
-        /// 判断记录：<c>combat.hit_confirmed</c> 带的是攻击实例 id，<c>action.marker</c> 带的是施法实例 id，两者不是同一个 id
-        /// （手感设计/03 与事件契约），不能按"本攻击实例"配对；改按攻击者在判定窗口内的命中数计数
-        /// （窗口从 <c>active_start</c> 标记/判定相开始到 <c>active_end</c> 标记/离开判定相）。同一动作内多段判定（
-        /// 多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空——已知局限，写在 feedback_binder/README.md。
+        /// 记录一次命中接触（任何结局，包括被回避——"打到了但被闪避"与挥空分开）：命中数加一。
+        /// 判断记录：窗口按 (行动者, 动作实例) 配对（手感设计/03 第 2.4 节 <c>combat.hit_confirmed.castInstanceId</c> 与
+        /// <c>action.marker</c>/<c>action.phase_changed</c> 的施法实例 id 是同一个值）：带动作实例 id 的命中只计入同一动作实例的窗口，
+        /// 上一段连招的迟到命中不会误计入下一段、投射物在动作结束后命中也不会污染别的窗口。没有动作实例 id 的命中
+        /// （instant 的 <c>combat.damage_dealt</c>/<c>combat.attack_avoided</c>、旧的按行动者调用方式）计入该行动者全部打开的窗口。
+        /// 同一动作内多段判定（多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空——已知局限，写在 feedback_binder/README.md。
         /// </summary>
         public void ObserveHit(ImpactHit hit)
         {
-            if (_whiffWindows.TryGetValue(hit.SourceId, out var count))
-            {
-                _whiffWindows[hit.SourceId] = count + 1;
-            }
-        }
-
-        public void OnActionMarker(Id actorId, string name)
-        {
-            if (name == "active_start")
-            {
-                _whiffWindows[actorId] = 0;
-            }
-            else if (name == "active_end")
-            {
-                CloseWindow(actorId);
-            }
-        }
-
-        public void OnActionPhase(Id actorId, ActionPhase phase)
-        {
-            if (phase == ActionPhase.Active)
-            {
-                if (!_whiffWindows.ContainsKey(actorId)) _whiffWindows[actorId] = 0;
-            }
-            else
-            {
-                CloseWindow(actorId);
-            }
-        }
-
-        private void CloseWindow(Id actorId)
-        {
-            if (!_whiffWindows.TryGetValue(actorId, out var count))
+            if (_whiffWindows.Count == 0)
             {
                 return;
             }
-            _whiffWindows.Remove(actorId);
+
+            if (hit.CastInstanceId.HasValue)
+            {
+                var key = (hit.SourceId, (Id?)hit.CastInstanceId);
+                if (_whiffWindows.TryGetValue(key, out var count))
+                {
+                    _whiffWindows[key] = count + 1;
+                }
+
+                return;
+            }
+
+            List<(Id Actor, Id? Cast)>? keys = null;
+            foreach (var kv in _whiffWindows)
+            {
+                if (kv.Key.Actor.Equals(hit.SourceId))
+                {
+                    keys ??= new List<(Id Actor, Id? Cast)>();
+                    keys.Add(kv.Key);
+                }
+            }
+
+            if (keys != null)
+            {
+                foreach (var key in keys)
+                {
+                    _whiffWindows[key] = _whiffWindows[key] + 1;
+                }
+            }
+        }
+
+        public void OnActionMarker(Id actorId, string name) => OnActionMarker(actorId, name, null);
+
+        /// <summary><see cref="OnActionMarker(Id, string)"/> 的按动作实例版本：窗口键为 (行动者, <paramref name="castInstanceId"/>)。</summary>
+        public void OnActionMarker(Id actorId, string name, Id? castInstanceId)
+        {
+            if (name == "active_start")
+            {
+                _whiffWindows[(actorId, castInstanceId)] = 0;
+            }
+            else if (name == "active_end")
+            {
+                CloseWindow(actorId, castInstanceId);
+            }
+        }
+
+        public void OnActionPhase(Id actorId, ActionPhase phase) => OnActionPhase(actorId, phase, null);
+
+        /// <summary><see cref="OnActionPhase(Id, ActionPhase)"/> 的按动作实例版本。</summary>
+        public void OnActionPhase(Id actorId, ActionPhase phase, Id? castInstanceId)
+        {
+            if (phase == ActionPhase.Active)
+            {
+                if (!_whiffWindows.ContainsKey((actorId, castInstanceId))) _whiffWindows[(actorId, castInstanceId)] = 0;
+            }
+            else
+            {
+                CloseWindow(actorId, castInstanceId);
+            }
+        }
+
+        private void CloseWindow(Id actorId, Id? castInstanceId)
+        {
+            if (!_whiffWindows.TryGetValue((actorId, castInstanceId), out var count))
+            {
+                return;
+            }
+            _whiffWindows.Remove((actorId, castInstanceId));
             if (count == 0 && _options.WhiffFeedback)
             {
                 OfferWhiff(actorId);

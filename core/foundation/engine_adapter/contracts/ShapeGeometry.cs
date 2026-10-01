@@ -60,6 +60,90 @@ namespace Core.Foundation.EngineAdapter
             }
         }
 
+        /// <summary>
+        /// 把"形状模板"（<c>Origin</c> 为零、<c>Direction</c>/<c>Rotation</c> 为 0，目标选择链 <c>shape</c> 的存储形态）按给定
+        /// 位置与朝向重新锚定成可直接查询的形状（手感设计/03 第 2.2 节：<c>continuous</c> 命中沿攻击方位姿移动形状）。
+        /// 与 <c>TargetHost</c> 解析链时的锚定规则逐位一致：circle 取位置；cone/line 方向取朝向；rect 旋转取朝向。
+        /// </summary>
+        public static Shape RebaseAt(Shape template, Vec2 origin, double facing)
+        {
+            switch (template.Kind)
+            {
+                case ShapeKind.Circle:
+                    return Shape.Circle(origin, template.Radius);
+                case ShapeKind.Cone:
+                    return Shape.Cone(origin, facing, template.Angle, template.Radius);
+                case ShapeKind.Line:
+                    return Shape.Line(origin, facing, template.Length, template.Width);
+                case ShapeKind.Rect:
+                    return Shape.Rect(origin, template.HalfExtents, facing);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(template), template.Kind, "未知 Shape 种类");
+            }
+        }
+
+        /// <summary>
+        /// 形状区域内离 <paramref name="point"/> 最近的点（点在形状内返回其自身）。供时间线命中给接触点用
+        /// （手感设计/03 第 2.4 节：形状与目标碰撞体的最近交点；契约里取不到目标碰撞半径，半径按 0 处理，
+        /// 见 skill 模块 README 已知局限）。
+        /// </summary>
+        public static Vec2 ClosestPoint(Shape shape, Vec2 point)
+        {
+            switch (shape.Kind)
+            {
+                case ShapeKind.Circle:
+                {
+                    var to = point - shape.Origin;
+                    var len = to.Length;
+                    if (len <= shape.Radius || len < 1e-12) return point;
+                    return shape.Origin + to * (shape.Radius / len);
+                }
+
+                case ShapeKind.Rect:
+                {
+                    var (lx, ly) = ToLocal(shape.Origin, point, shape.Rotation);
+                    var cx = Math.Max(-shape.HalfExtents.X, Math.Min(shape.HalfExtents.X, lx));
+                    var cy = Math.Max(-shape.HalfExtents.Y, Math.Min(shape.HalfExtents.Y, ly));
+                    var cos = Math.Cos(shape.Rotation);
+                    var sin = Math.Sin(shape.Rotation);
+                    return shape.Origin + new Vec2(cx * cos - cy * sin, cx * sin + cy * cos);
+                }
+
+                case ShapeKind.Line:
+                {
+                    var (along, across) = ToLocal(shape.Origin, point, shape.Direction);
+                    var ca = Math.Max(0.0, Math.Min(shape.Length, along));
+                    var cb = Math.Max(-shape.Width / 2.0, Math.Min(shape.Width / 2.0, across));
+                    var cos = Math.Cos(shape.Direction);
+                    var sin = Math.Sin(shape.Direction);
+                    return shape.Origin + new Vec2(ca * cos - cb * sin, ca * sin + cb * cos);
+                }
+
+                case ShapeKind.Cone:
+                {
+                    if (Contains(shape, point)) return point;
+                    var to = point - shape.Origin;
+                    var len = to.Length;
+                    var delta = NormalizeAngle(Math.Atan2(to.Y, to.X) - shape.Direction);
+                    var half = shape.Angle / 2.0;
+                    if (Math.Abs(delta) <= half)
+                    {
+                        // 角度在扇形内、只是超出半径：落在圆弧上。
+                        return shape.Origin + to * (shape.Radius / len);
+                    }
+
+                    // 角度在扇形外：落在较近的一条边（从顶点出发、长 Radius 的线段）上。
+                    var edgeAngle = shape.Direction + (delta > 0 ? half : -half);
+                    var edge = new Vec2(Math.Cos(edgeAngle), Math.Sin(edgeAngle));
+                    var t = Math.Max(0.0, Math.Min(shape.Radius, to.X * edge.X + to.Y * edge.Y));
+                    return shape.Origin + edge * t;
+                }
+
+                default:
+                    return point;
+            }
+        }
+
         private static (double, double) ToLocal(Vec2 origin, Vec2 point, double axisRotation)
         {
             var dx = point.X - origin.X;

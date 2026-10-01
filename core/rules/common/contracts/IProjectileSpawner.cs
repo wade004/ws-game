@@ -32,5 +32,16 @@ namespace Core.Rules.Common
         /// 单位为 <c>TargetId</c> 构造新的 <see cref="EffectContext"/> 逐项调用。
         /// </param>
         void Spawn(EffectContext context, IEffectSink effectSink);
+
+        /// <summary>
+        /// 手感落地（手感设计/03 第 2.5 节）：同 <see cref="Spawn(EffectContext, IEffectSink)"/>，额外交给投射物一个命中钩子
+        /// （时间线 <c>release</c> 标记发射的投射物用它沿用发射动作的攻击实例 id、做无敌前置检查与发布
+        /// <c>combat.hit_confirmed</c>）。<paramref name="hitHook"/> 为 null 等价于两参数重载。
+        /// <para>
+        /// C# 8 默认接口成员：默认实现忽略钩子、退化为两参数重载（命中后按既有路径结算，没有 hit_confirmed）——
+        /// 供未实现本能力的假实现源码/二进制兼容；生产实现 <c>Core.Carriers.Projectile.ProjectileHost</c> 显式覆盖。
+        /// </para>
+        /// </summary>
+        void Spawn(EffectContext context, IEffectSink effectSink, IProjectileHitHook? hitHook) => Spawn(context, effectSink);
     }
 }

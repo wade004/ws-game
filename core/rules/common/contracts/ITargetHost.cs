@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 
 namespace Core.Rules.Common
 {
@@ -89,5 +90,35 @@ namespace Core.Rules.Common
                 Resolve(chainId, casterId, currentTarget).Select(id => (id, 1.0)),
                 TargetOverflowPolicy.Truncate,
                 cap: 0);
+
+        /// <summary>
+        /// 手感落地（时间线空间命中，手感设计/03 第 2.2 节）：取 <paramref name="chainId"/> 链声明的形状模板
+        /// （<c>shape</c> 字段，Origin 为零、方向为 0 的未锚定形态）；链没有声明 <c>shape</c> 返回 false。
+        /// 时间线据此判断"技能有没有命中形状"（有则走空间命中，没有则保持 instant 结算）、做扫掠采样的步长估算、
+        /// 以及算接触点。
+        /// <para>
+        /// C# 8 默认接口成员：默认实现恒返回 false（"没有形状"，时间线退回 instant 结算，等价于本成员引入之前）；
+        /// 生产实现 <see cref="Core.Rules.Targeting.TargetHost"/> 显式覆盖。同 <see cref="ResolveAtPoint"/> 判断记录
+        /// "InterfaceDefaultMemberForwardingTests 门禁"：包装实现方必须显式转发。
+        /// </para>
+        /// </summary>
+        bool TryGetChainShape(Id chainId, out Shape template)
+        {
+            template = default;
+            return false;
+        }
+
+        /// <summary>
+        /// 手感落地（时间线空间命中）：按 <paramref name="chainId"/> 解析目标，但把形状锚点换成显式给定的位姿
+        /// （<paramref name="origin"/> + <paramref name="facing"/>，弧度）。<c>continuous</c> 命中在两个 tick 的攻击方位姿
+        /// 之间插值采样时用它；与 <see cref="ResolveAtPoint"/> 的区别是后者朝向固定为 0。不发布 <c>targeting.resolved</c>
+        /// （同 <see cref="ResolveAtPoint"/>：逐 tick 多次采样不适合叠进每次解析一事件的既有流）。
+        /// <para>
+        /// 默认实现退化为 <see cref="ResolveWithCoefficients"/>（按施法者当前位姿解析，忽略给定位姿）——
+        /// 供未实现本能力的假实现源码/二进制兼容；生产实现 <see cref="Core.Rules.Targeting.TargetHost"/> 显式覆盖。
+        /// </para>
+        /// </summary>
+        TargetResolution ResolveAtPose(Id chainId, Id casterId, Vec2 origin, double facing, Id? currentTarget = null) =>
+            ResolveWithCoefficients(chainId, casterId, currentTarget);
     }
 }

@@ -123,10 +123,10 @@ namespace Tests.Presentation.FeedbackBinder
         public static ImpactHit Hit(
             Id source, Id target, string impactClass = "medium", HitResult result = HitResult.Hit, double ratio = 0.0,
             bool crit = false, bool kill = false, double amount = 10.0, Vec2? contact = null, Vec2? direction = null,
-            Id? attackInstance = null) =>
+            Id? attackInstance = null, Id? castInstance = null) =>
             new ImpactHit(
                 source, target, null, attackInstance, result, impactClass, amount, ratio, crit, kill,
-                contact, Vec2.Zero, direction ?? new Vec2(1, 0));
+                contact, Vec2.Zero, direction ?? new Vec2(1, 0), castInstance);
     }
 
     /// <summary>记录全部新接口调用的 sink（在 <see cref="RecordingFeedbackSink"/> 之上加手感新增的几个口）。</summary>

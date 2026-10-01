@@ -216,3 +216,12 @@ CarriersAssembly` 装配时从 `Rules.Factions` 回填，见该类型判断记�
 销毁，永远达不到）；速度为负的投射物朝施法方向的反向飞行。改法：`Spawn` 在读出速度后立即判断
 `!(speed > 0)`（NaN 同样拒绝），经 `_diagnostics.Warn` 记录"投射物速度必须为正数"并整体跳过生成，不创建
 实体、不发任何事件。正速度的行为不变。见 `ProjectileFlightEdgeTests`。
+
+## 判断记录（命中钩子 `IProjectileHitHook`，2026-10-02，手感落地 S3b，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 2.5 节）
+
+- **新增重载** `ProjectileHost.Spawn(context, sink, IProjectileHitHook? hitHook)`（`IProjectileSpawner` 的默认接口成员，生产实现显式覆盖）；两参数 `Spawn` 等价于传 `null`，既有行为逐位不变
+  （命中后效果的 `AttackInstanceId` 仍为空）。钩子由施法管线的时间线 `release` 标记交来（见 `core/rules/skill/README.md` T23）。
+- **命中流程**：每个候选目标（单位命中与 `impact_on_expiry` 的范围判定都一样）先 `BeforeHit(info, out attackInstanceId)`——返回 false 表示目标处于无敌窗口：宿主不回灌效果、不计穿透次数、投射物继续飞；
+  目标仍进该发投射物的 `HitUnitIds`，同一发不会再次判定同一目标。返回 true 时把钩子给的攻击实例 id 戳进效果上下文，回灌 `on_hit_effects` 后 `AfterHit(info, attackInstanceId, results)` 交回各效果的结算结果。
+- `ProjectileHitInfo.ContactPoint` = 本 tick 飞行线段上离目标中心最近的点（`impact_on_expiry` 取到期位置）；`FlightDirection` = 本 tick 位移方向（无位移取 +X；`impact_on_expiry` 取到期位置指向目标的方向）；`PierceCount` = 命中前已计的穿透数。
+- 复现/不变量：`tests/ProjectileHitHookTests.cs`（`max_pierce_count: 2` 命中前两个目标后投射物消失；被拒绝目标不消耗穿透名额；攻击实例 id 透传；碰撞点与同一发去重；无钩子行为不变；到期范围判定也过钩子）。

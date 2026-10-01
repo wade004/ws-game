@@ -393,6 +393,59 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Null(rig.Pipeline.Flush());
         }
 
+        // 挥空窗口按 (行动者, 动作实例) 配对（combat.hit_confirmed.castInstanceId，手感设计/03 第 2.4 节）。
+
+        [Fact]
+        public void WhiffWindows_ArePairedByCastInstance_AHitOfAnotherCastDoesNotCancelTheWhiff()
+        {
+            var rig = Make(SwordProfile());
+            var castA = new Id("cast.kit_a");
+            var castB = new Id("cast.kit_b");
+
+            rig.Pipeline.OnActionMarker(Player, "active_start", castA);
+            rig.Pipeline.OnActionMarker(Player, "active_start", castB);
+            // 命中属于动作 B：动作 A 的窗口里没有任何命中。
+            rig.Pipeline.ObserveHit(Hit(Player, Enemy1, castInstance: castB));
+            rig.Pipeline.OnActionMarker(Player, "active_end", castB);
+            Assert.Null(rig.Pipeline.Flush()); // B 命中过，不挥空。
+            rig.Pipeline.OnActionMarker(Player, "active_end", castA);
+            var whiff = Assert.Single(rig.Pipeline.Flush()!.Plans);
+            Assert.Equal(ImpactOutcome.Whiff, whiff.Outcome);
+        }
+
+        [Fact]
+        public void WhiffWindows_ALateHitFromThePreviousCast_DoesNotCountForTheNextCastsWindow()
+        {
+            var rig = Make(SwordProfile());
+            var first = new Id("cast.kit_first");
+            var second = new Id("cast.kit_second");
+            rig.Pipeline.OnActionMarker(Player, "active_start", first);
+            rig.Pipeline.OnActionMarker(Player, "active_end", first);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome); // 第一段窗口里没有命中：挥空。
+            rig.Pipeline.OnActionMarker(Player, "active_start", second);
+            rig.Pipeline.ObserveHit(Hit(Player, Enemy1, castInstance: first)); // 上一段的迟到命中。
+            rig.Pipeline.OnActionMarker(Player, "active_end", second);
+            var whiff = Assert.Single(rig.Pipeline.Flush()!.Plans);
+            Assert.Equal(ImpactOutcome.Whiff, whiff.Outcome);
+        }
+
+        [Fact]
+        public void WhiffWindows_AHitWithoutACastInstance_CountsForEveryOpenWindowOfThatActor()
+        {
+            var rig = Make(SwordProfile());
+            var cast = new Id("cast.kit_legacy");
+            rig.Pipeline.OnActionMarker(Player, "active_start", cast);
+            rig.Pipeline.ObserveHit(Hit(Player, Enemy1)); // instant 路径的命中没有动作实例 id。
+            rig.Pipeline.OnActionMarker(Player, "active_end", cast);
+            Assert.Null(rig.Pipeline.Flush());
+
+            // 另一个行动者的命中不串窗口。
+            rig.Pipeline.OnActionMarker(Player, "active_start", cast);
+            rig.Pipeline.ObserveHit(Hit(Enemy1, Player));
+            rig.Pipeline.OnActionMarker(Player, "active_end", cast);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome);
+        }
+
         [Fact]
         public void Whiff_CanBeDisabledByOption()
         {

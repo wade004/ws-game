@@ -107,6 +107,8 @@ namespace Tests.Rules.Skill
         // SkillSchemas.BudgetRule 判断记录）。
         private readonly List<JsonObject> _budgetRules = new List<JsonObject>();
         private readonly List<JsonObject> _statDefs = new List<JsonObject>();
+        // 手感落地：target.chain_def 行（供时间线校验规则读链是否声明 shape；只在登记了行时才注册该表与 schema，既有用例不受影响）。
+        private readonly List<JsonObject> _targetChains = new List<JsonObject>();
         private readonly List<(string Id, double Max, bool StartFull, double RegenOutOfCombat, double RegenInCombat)> _powerTypes =
             new List<(string, double, bool, double, double)>();
         private readonly List<IValidationRule> _extraRules = new List<IValidationRule>();
@@ -143,6 +145,11 @@ namespace Tests.Rules.Skill
 
         public ulong RngSeed { get; set; } = 1;
 
+        /// <summary>手感落地（空间命中）：用测试自己的 <see cref="ITargetHost"/>（按单位位置/朝向做形状命中的假实现）替换缺省的
+        /// <see cref="FakeTargetHost"/>；参数是本 world 的 <see cref="FakeUnitAccess"/>。<see cref="SkillWorld.Targets"/> 仍是一个（此时不被
+        /// 技能宿主使用的）<see cref="FakeTargetHost"/>。</summary>
+        public Func<FakeUnitAccess, ITargetHost>? TargetHostFactory { get; set; }
+
         /// <summary>只跑到"注册 schema/校验规则 + LoadAll"这一步，返回校验报告，不构造
         /// <see cref="SkillHost"/> 及其余真实宿主——供只关心校验结果、数据本身预期不合法（因而
         /// 不适合走 <see cref="Build"/>，那里数据不合法会直接抛异常）的测试使用（见
@@ -161,6 +168,10 @@ namespace Tests.Rules.Skill
             _source.Add("skill.base_curve", TableJson("skill.base_curve", _baseCurves));
             _source.Add("skill.budget_rule", TableJson("skill.budget_rule", _budgetRules));
             _source.Add("stat.definition", TableJson("stat.definition", _statDefs));
+            if (_targetChains.Count > 0)
+            {
+                _source.Add("target.chain_def", TableJson("target.chain_def", _targetChains));
+            }
 
             var bus = CreateBus();
             var registry = new DataRegistry(_source, bus, new DataRegistryOptions { FailOnUnknownTable = false, Strictness = strictness });
@@ -172,6 +183,10 @@ namespace Tests.Rules.Skill
             registry.RegisterSchema(SkillSchemas.BaseCurve);
             registry.RegisterSchema(SkillSchemas.BudgetRule);
             registry.RegisterSchema(StatSchemas.Definition);
+            if (_targetChains.Count > 0)
+            {
+                registry.RegisterSchema(Core.Rules.Targeting.TargetSchemas.ChainDef);
+            }
 
             foreach (var rule in _extraRules)
             {
@@ -182,6 +197,8 @@ namespace Tests.Rules.Skill
         }
 
         public SkillWorldBuilder SkillDef(JsonObject row) { _skillDefs.Add(row); return this; }
+
+        public SkillWorldBuilder TargetChain(JsonObject row) { _targetChains.Add(row); return this; }
 
         public SkillWorldBuilder AuraDef(JsonObject row) { _auraDefs.Add(row); return this; }
 
@@ -227,6 +244,10 @@ namespace Tests.Rules.Skill
             _source.Add("skill.base_curve", TableJson("skill.base_curve", _baseCurves));
             _source.Add("skill.budget_rule", TableJson("skill.budget_rule", _budgetRules));
             _source.Add("stat.definition", TableJson("stat.definition", _statDefs));
+            if (_targetChains.Count > 0)
+            {
+                _source.Add("target.chain_def", TableJson("target.chain_def", _targetChains));
+            }
 
             var bus = CreateBus();
             var registry = new DataRegistry(_source, bus, new DataRegistryOptions { FailOnUnknownTable = false });
@@ -238,6 +259,10 @@ namespace Tests.Rules.Skill
             registry.RegisterSchema(SkillSchemas.BaseCurve);
             registry.RegisterSchema(SkillSchemas.BudgetRule);
             registry.RegisterSchema(StatSchemas.Definition);
+            if (_targetChains.Count > 0)
+            {
+                registry.RegisterSchema(Core.Rules.Targeting.TargetSchemas.ChainDef);
+            }
 
             foreach (var rule in _extraRules)
             {
@@ -261,7 +286,7 @@ namespace Tests.Rules.Skill
             var diagnostics = new InMemorySkillDiagnostics();
 
             var host = new SkillHost(
-                registry, bus, units, stats, powers, rng, combat, targets, exprs, SpatialQuery,
+                registry, bus, units, stats, powers, rng, combat, TargetHostFactory != null ? TargetHostFactory(units) : targets, exprs, SpatialQuery,
                 Options, Extension, diagnostics, exprSchema: null, staticImmunity: StaticImmunity,
                 projectileSpawner: ProjectileSpawner, weaponDamageQuery: WeaponDamageQuery,
                 factions: null, navigation: null); // 显式传 factions/navigation（哪怕都是 null）选中
