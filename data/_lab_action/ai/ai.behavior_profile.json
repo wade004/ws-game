@@ -1,0 +1,15 @@
+{
+  "table": "ai.behavior_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.behavior_profile.lab_a_patrol",
+      "perception_radius": 0.5,
+      "patrol_path_ref": "ai.path.lab_a_patrol_line",
+      "leash_range": 40,
+      "combat_return_policy": "patrol",
+      "rotation_ref": "ai.rotation.lab_a_passive",
+      "decision_interval": 0.5
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "l10n.creature.tier.lab_a_frail.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "脆皮档"
+    },
+    {
+      "key": "l10n.creature.tier.lab_a_patrol.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "巡逻档"
+    },
+    {
+      "key": "l10n.creature.tier.lab_a_elite.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "动作式精英档"
+    },
+    {
+      "key": "l10n.creature.lab_a_frail.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "脆皮木桩"
+    },
+    {
+      "key": "l10n.creature.lab_a_elite.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "动作式精英"
+    },
+    {
+      "key": "l10n.creature.lab_a_patrol.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "动作式巡逻靶"
+    }
+  ]
+}

@@ -1,0 +1,488 @@
+{
+  "table": "skill.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.lab_a_slash",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.5,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 250,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ],
+        "cancel_windows": [
+          {
+            "class": "dodge",
+            "open_ms": 250,
+            "close_ms": 500
+          }
+        ]
+      },
+      "note": "动作式近战普攻：前摇 150/判定 100/后摇 250，hit 标记在判定相起点；后摇后段开放闪避取消窗口。"
+    },
+    {
+      "id": "skill.lab_a_combo1",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.4,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 200,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ],
+        "combo": {
+          "next": "skill.lab_a_combo2",
+          "open_ms": 200,
+          "close_ms": 400
+        }
+      },
+      "note": "三段连招第 1 段（轻）：接续窗口开在后摇中段。"
+    },
+    {
+      "id": "skill.lab_a_combo2",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.4,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 200,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ],
+        "combo": {
+          "next": "skill.lab_a_combo3",
+          "open_ms": 200,
+          "close_ms": 400
+        }
+      },
+      "note": "三段连招第 2 段（轻）。"
+    },
+    {
+      "id": "skill.lab_a_combo3",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.6,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 350,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ],
+        "feel_ref": "feel.action.lab_a_finisher"
+      },
+      "note": "三段连招第 3 段（终结，重）：动作层手感行放大顿帧与冲击等级。"
+    },
+    {
+      "id": "skill.lab_a_dodge",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.35,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": {
+        "startup_ms": 50,
+        "active_ms": 150,
+        "recovery_ms": 150,
+        "markers": [
+          {
+            "name": "invuln_start",
+            "at_ms": 50
+          },
+          {
+            "name": "invuln_end",
+            "at_ms": 200
+          },
+          {
+            "name": "motion_start",
+            "at_ms": 50
+          },
+          {
+            "name": "motion_end",
+            "at_ms": 200
+          }
+        ],
+        "motion": {
+          "kind": "dash",
+          "distance": 2.0,
+          "direction": "facing",
+          "blocking": "stop"
+        }
+      },
+      "note": "闪避：有无敌窗口与位移；不可被取消。"
+    },
+    {
+      "id": "skill.lab_a_charge",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.55,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 300,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ],
+        "charge": {
+          "min_ms": 250,
+          "max_ms": 850
+        }
+      },
+      "note": "蓄力斩：按住超过阈值后松开；蓄力比例只随动作开始事件给出。"
+    },
+    {
+      "id": "skill.lab_a_projectile",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 30,
+      "cast_time": 0.45,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_nearest_enemy",
+      "effects": [
+        {
+          "kind": "projectile",
+          "params": {
+            "travel_mode": "straight",
+            "hit_behavior": "impact_on_first",
+            "speed": 20,
+            "max_range": 30,
+            "on_hit_effects": [
+              {
+                "kind": "school_damage",
+                "params": {
+                  "base_value": 10,
+                  "scaling": [
+                    {
+                      "stat": "stat.attack_power",
+                      "coefficient": 1.0
+                    }
+                  ],
+                  "school": "school.physical"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 50,
+        "recovery_ms": 250,
+        "markers": [
+          {
+            "name": "release",
+            "at_ms": 150
+          },
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ]
+      },
+      "note": "投射物（release 标记发射）：命中伤害写在 on_hit_effects。"
+    },
+    {
+      "id": "skill.lab_a_bolt",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 30,
+      "cast_time": 0.45,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_nearest_enemy",
+      "effects": [
+        {
+          "kind": "projectile",
+          "params": {
+            "travel_mode": "straight",
+            "hit_behavior": "impact_on_first",
+            "speed": 20,
+            "max_range": 30,
+            "on_hit_effects": [
+              {
+                "kind": "school_damage",
+                "params": {
+                  "base_value": 10,
+                  "scaling": [
+                    {
+                      "stat": "stat.attack_power",
+                      "coefficient": 1.0
+                    }
+                  ],
+                  "school": "school.physical"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 50,
+        "recovery_ms": 250,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ]
+      },
+      "note": "投射物（没有 release 标记，随 hit 标记发射）：S7b 修复的路径，命中必须恰好被确认一次。"
+    },
+    {
+      "id": "skill.lab_a_lunge",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.45,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 250,
+        "markers": [
+          {
+            "name": "motion_start",
+            "at_ms": 50
+          },
+          {
+            "name": "motion_end",
+            "at_ms": 150
+          },
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ],
+        "motion": {
+          "kind": "lunge",
+          "distance": 1.5,
+          "direction": "toward_target",
+          "blocking": "stop"
+        },
+        "target_assist": {
+          "chain_ref": "target.chain.lab_nearest_enemy",
+          "max_distance": 12,
+          "max_angle_deg": 180,
+          "mode": "face_only"
+        }
+      },
+      "note": "突进斩：目标辅助转向目标，位移朝向目标；用于巡逻靶。"
+    },
+    {
+      "id": "skill.lab_a_slam",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.6,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 350,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ],
+        "feel_ref": "feel.action.lab_a_slam"
+      },
+      "note": "重击：动作层手感行把攻击方顿帧拉高（击杀放大后触顶）。"
+    },
+    {
+      "id": "skill.lab_a_elite_swing",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.7,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 300,
+        "active_ms": 100,
+        "recovery_ms": 300,
+        "markers": [
+          {
+            "name": "armor_start",
+            "at_ms": 0
+          },
+          {
+            "name": "armor_end",
+            "at_ms": 400
+          },
+          {
+            "name": "hit",
+            "at_ms": 300
+          }
+        ]
+      },
+      "note": "精英挥击：前摇与判定相带霸体窗口（armor_start..armor_end），判定相起点命中。"
+    }
+  ]
+}

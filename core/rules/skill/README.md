@@ -1497,6 +1497,16 @@ skill/
 - **T30 测试**：`SpatialHitTests`（形状命中、扫掠、去重、无敌、动作实例配对、投射物钩子、目标辅助、离散与确定性）、`SpatialHitValidationTests`、`TargetHostResolveAtPoseTests`（targeting）、
   `ProjectileHitHookTests`（carriers/projectile，穿透 2 命中前两个后消失）、`ActionTargetAssistTests`（carriers/unit）、`ShapeGeometryPoseTests`（foundation）、`ImpactPipelineTests`/`ImpactBinderTests` 的挥空配对用例。
 
+- **T31 没有 `release` 标记的时间线技能：`hit` 标记处发射的投射物同样带命中钩子（S7b，手感实验室扩展发现的 S11 缺口）**：T23 只在 `release` 标记处给投射物配钩子；
+  没有 `release` 的动作 `projectile` 在 `hit` 标记处与其它效果一起结算（S3a 行为），这条路径此前走 `ExecuteEffectsOnly` 时没有传钩子，于是投射物命中带时间线技能 id 的
+  `combat.damage_dealt`，既被 `HitFeelHost` 的 `IsTimelineSkill` 早退跳过（不顿帧、不反应），时间线路径也只对 `school_damage`/`weapon_damage_pct` 发 `hit_confirmed`，
+  结果是"打中了却没有 `combat.hit_confirmed`、没有顿帧与反应、反馈侧只剩挥空窗口"。修法：`CastPipeline.SettleTimelineBatch` 在 `EffectSubset.All` 且技能含 `projectile` 效果时同样构造
+  `TimelineProjectileHook`（与 `release` 路径同一个钩子、同一份账本语义），投射物命中经 `BeforeHit`/`AfterHit` 发且只发一条 `hit_confirmed`（`castInstanceId` 沿用发射动作）。
+  复现/不变量测试：`FeelWiringEndToEndTests.TimelineProjectileHit_IsConfirmedExactlyOnce_PerDamageHit`（`core/gameplay/assembly/tests`；覆盖 release 标记 / 只有 hit 标记 / 同技能另带直接伤害三种形态，
+  断言伤害事件数 = `hit_confirmed` 数、各自攻击实例 id 互不相同、顿帧已开始）；实验室脚本 `feel_projectile` 以六个格子的指纹钉住运行时凭据（`spatialhit.unconfirmed_damage = 0`、`duplicate_confirmations = 0`）。
+  仍未覆盖（保持原样，不算"命中"）：时间线技能里 `script`/扩展伤害类效果与周期伤害（DOT 跳）产生的 `damage_dealt` 不发 `hit_confirmed`、也被 `IsTimelineSkill` 早退，
+  理由是它们不是"一次命中"——给它们发确认要先定"命中"的口径（周期跳是否每跳一次确认），属设计问题，不在本修复范围。
+
 **已知局限（逐条登记，随汇报转达）**：
 1. 没有 `supportsSweep` 能力接口：`continuous` 一律子采样（线性插值位姿，上限 256 个采样/区间）；形状极小而位移极大时按上限均匀采样，可能漏目标。
 2. 契约里取不到目标碰撞半径：目标按中心点判定（`continuous` 接触点 = 形状到目标中心的最近点，目标在形状内即目标中心）。

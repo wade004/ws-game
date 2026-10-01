@@ -59,11 +59,26 @@ namespace Tests.Lab
             return new LabRunner(LabDataset.Load(sources), null, rel => LabDataSources.FromDirectory(Path.Combine(root, rel)));
         }
 
-        public static List<InputScript> StandardScripts() => LabFixtures.LoadScripts(FixturesDir);
+        /// <summary>夹具目录里全部脚本（旧标准脚本 + 手感场景脚本）。</summary>
+        public static List<InputScript> AllScripts() => LabFixtures.LoadScripts(FixturesDir);
+
+        /// <summary>旧标准脚本（十个，不开手感装配）：既有基线与既有测试的口径。</summary>
+        public static List<InputScript> StandardScripts() => AllScripts().FindAll(s => !s.Meta.Feel);
+
+        /// <summary>手感场景脚本（<c>meta.feel</c> 为真，格式版本 3）。</summary>
+        public static List<InputScript> FeelScripts() => AllScripts().FindAll(s => s.Meta.Feel);
+
+        /// <summary>按 JSON 往返复制一份脚本（保留全部元信息），再改帧率上限。</summary>
+        public static InputScript CloneWithFrameRate(InputScript script, int frameRateCap)
+        {
+            var clone = InputScript.Parse(script.ToJson());
+            clone.Meta.FrameRateCap = frameRateCap;
+            return clone;
+        }
 
         public static InputScript Script(string id)
         {
-            foreach (var s in StandardScripts())
+            foreach (var s in AllScripts())
             {
                 if (s.Meta.ScriptId == id)
                 {

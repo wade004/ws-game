@@ -1,0 +1,52 @@
+{
+  "table": "feel.action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.action.lab_a_finisher",
+      "description": "三段连招终结：冲击等级 heavy，顿帧拉长。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "heavy"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 70
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 90
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "feel.action.lab_a_slam",
+      "description": "重击：攻击方顿帧 90 ms、击杀放大 2 倍（180 ms 触顶到攻击方上限）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 90
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 2.0
+        }
+      ]
+    }
+  ]
+}

@@ -13,7 +13,9 @@ namespace Toolchain.FeelLab
     /// <item><c>run</c>：数据根 + 格子 + 脚本 → 指纹文件（可选同时写完整记录、与基线比较）；</item>
     /// <item><c>suite</c>：全部标准脚本 × 适用格子逐个与基线比较（<c>--update-baseline</c> 重写基线）；</item>
     /// <item><c>export-test</c>：脚本 + 指纹 → 夹具（脚本文件 + 基线文件）；</item>
-    /// <item><c>list</c>：列出格子及其在无头宿主上的可运行状态。</item>
+    /// <item><c>list</c>：列出格子及其在无头宿主上的可运行状态；</item>
+    /// <item><c>invariants</c>：跨格子不变量（ADR-0122 决定 4）：平面组合逻辑组一致、动作式（剥 timeline + 经典预设）= 目标选择式、
+    /// 经典预设下手感装配透明；不比较基线，不改任何文件。</item>
     /// </list>
     /// <para>
     /// 退出码：0 全部通过；1 至少一个格子基线比较有差异；2 命令行参数错误；3 缺基线（无差异但有格子没有基线）；
@@ -61,6 +63,7 @@ namespace Toolchain.FeelLab
                     case "suite": return Suite(options);
                     case "export-test": return ExportTest(options);
                     case "list": return List(options);
+                    case "invariants": return Invariants(options);
                     default:
                         Console.Error.WriteLine($"未知命令：{command}");
                         Console.Error.WriteLine(Usage());
@@ -96,6 +99,7 @@ namespace Toolchain.FeelLab
             "  feellab suite [--fixtures <dir>] [--script <id>] [--cell <格子>] [--update-baseline]\n" +
             "  feellab export-test --script <file> [--fixtures <dir>] [--cell <格子>]\n" +
             "  feellab list\n" +
+            "  feellab invariants [--fixtures <dir>] [--script <id>]\n" +
             "公共参数：--framework-root <dir>（默认 data/_framework）  --data-root <dir>（可重复，默认 data/_lab）\n" +
             "默认夹具目录 lab/fixtures，默认输出目录 lab/out。";
 
@@ -136,7 +140,8 @@ namespace Toolchain.FeelLab
                 return ExitNotRunnable;
             }
 
-            var fingerprint = Fingerprint.Build(recording, runner.Registry, runner.DatasetFor(script).Hash);
+            var fingerprint = Fingerprint.Build(
+                recording, runner.Registry, runner.DatasetFor(script, runner.Dataset.Catalog.GetScenario(cell)).Hash);
             var outDir = o.Get("out") ?? Path.Combine("lab", "out");
             Directory.CreateDirectory(outDir);
             var fpPath = Path.Combine(outDir, $"{script.Meta.ScriptId}.{cell}.fingerprint.json");
@@ -254,6 +259,61 @@ namespace Toolchain.FeelLab
             }
 
             return ExitOk;
+        }
+
+        private static int Invariants(Options o)
+        {
+            var fixtures = o.Get("fixtures") ?? Path.Combine("lab", "fixtures");
+            var runner = CreateRunner(o);
+            var onlyScript = o.Get("script");
+            var scripts = new List<InputScript>();
+            foreach (var script in LabFixtures.LoadScripts(fixtures))
+            {
+                if (onlyScript == null || string.Equals(onlyScript, script.Meta.ScriptId, StringComparison.Ordinal))
+                {
+                    scripts.Add(script);
+                }
+            }
+
+            if (scripts.Count == 0)
+            {
+                Console.Error.WriteLine($"没有可检查的脚本：夹具目录 {fixtures} 下无脚本或过滤条件无匹配");
+                return ExitArgs;
+            }
+
+            var results = LabInvariants.Check(runner, scripts);
+            int pass = 0, fail = 0;
+            var byInvariant = new SortedDictionary<string, int[]>(StringComparer.Ordinal);
+            foreach (var r in results)
+            {
+                if (!byInvariant.TryGetValue(r.Invariant, out var counts))
+                {
+                    counts = new int[2];
+                    byInvariant[r.Invariant] = counts;
+                }
+
+                if (r.Ok)
+                {
+                    pass++;
+                    counts[0]++;
+                }
+                else
+                {
+                    fail++;
+                    counts[1]++;
+                    Console.WriteLine(r.ToString());
+                }
+            }
+
+            foreach (var pair in byInvariant)
+            {
+                Console.WriteLine($"不变量 {pair.Key}：通过 {pair.Value[0]}，不一致 {pair.Value[1]}");
+            }
+
+            Console.WriteLine($"合计 {results.Count}：通过 {pass}，不一致 {fail}");
+            // 机器可读汇总（纯 ASCII，同 suite 的 RESULT 行约定）。
+            Console.WriteLine($"RESULT invariants total={results.Count} pass={pass} fail={fail}");
+            return fail > 0 ? ExitDiff : ExitOk;
         }
 
         private static int List(Options o)

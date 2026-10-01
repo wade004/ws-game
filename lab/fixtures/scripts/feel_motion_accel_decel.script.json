@@ -1,0 +1,54 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_motion_accel_decel",
+    "scriptVersion": 1,
+    "description": "起步与刹停（06 第 3.6 节 motion_accel_decel）：开阔地向 +x 全速推 40 tick 再松杆 30 tick。量起步到全速 tick 数（加速 90ms=5 tick）、刹停 tick 数（减速 70ms=4 tick）、峰值速度（基础速度）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 80,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 45,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

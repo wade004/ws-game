@@ -1,0 +1,54 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_motion_wall_slant",
+    "scriptVersion": 1,
+    "description": "斜撞墙（06 第 3.6 节 motion_wall_slant）：从 (9,0) 沿 (1,1) 斜撞直墙（x=12）；贴墙滑行（预设 wall_slide）保留沿墙分量，量终点位置 y 方向的滑行距离与速度占比。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 9,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 1
+      }
+    },
+    {
+      "tick": 100,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

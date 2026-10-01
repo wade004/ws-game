@@ -1,0 +1,70 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_charge",
+    "scriptVersion": 1,
+    "description": "蓄力（06 第 3.6 节 charge）：蓄力键三次——短按（低于蓄力阈值）、按住 30 tick（蓄力比例落在最小与最大蓄力之间）、按住 60 tick（超过最大蓄力）；木桩承接。蓄力比例原样记录（不预判其效果，06 第 3.6 节）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 260,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.charge": "skill.lab_a_charge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_charge",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_charge",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.lab_a_charge",
+      "kind": "press"
+    },
+    {
+      "tick": 90,
+      "action": "input.action.lab_a_charge",
+      "kind": "release"
+    },
+    {
+      "tick": 140,
+      "action": "input.action.lab_a_charge",
+      "kind": "press"
+    },
+    {
+      "tick": 200,
+      "action": "input.action.lab_a_charge",
+      "kind": "release"
+    }
+  ]
+}

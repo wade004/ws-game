@@ -160,7 +160,7 @@ namespace Tests.Lab
         }
 
         [Fact]
-        public void ActionCells_BehaveLikeTargetedCells_UntilTimelineMechanismLands()
+        public void ActionCells_BehaveLikeTargetedCells_ForScriptsWithoutFeelAssembly()
         {
             var runner = LabTestSupport.Runner;
             foreach (var script in LabTestSupport.StandardScripts())
@@ -195,7 +195,13 @@ namespace Tests.Lab
         [Fact]
         public void AllStandardScripts_OnAllSixCells_MatchCommittedBaselines()
         {
-            var results = LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir);
+            // 旧标准脚本（十个）的基线与手感场景脚本的基线分开把关（后者见 FeelSceneTests）；这里的口径与扩展前一字不差。
+            var results = new List<CellResult>();
+            foreach (var script in LabTestSupport.StandardScripts())
+            {
+                results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
+            }
+
             Assert.Equal(10 * 6, results.Count);
             var failures = new StringBuilder();
             foreach (var r in results)

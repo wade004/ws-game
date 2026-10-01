@@ -319,6 +319,19 @@ namespace Core.Rules.Skill
             result == HitResult.Miss || result == HitResult.Dodge || result == HitResult.Parry
             || result == HitResult.Immune || result == HitResult.Invulnerable;
 
+        private static bool HasProjectileEffect(SkillDef def)
+        {
+            foreach (var effect in def.Effects)
+            {
+                if (effect.Kind == EffectKind.Projectile)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool HasAttackEffect(SkillDef def, EffectSubset subset)
         {
             foreach (var effect in def.Effects)
@@ -382,9 +395,19 @@ namespace Core.Rules.Skill
             }
 
             var outcomes = attack ? new List<EffectOutcome>() : null;
+            // S7b 修复（S11 缺口）：没有 release 标记的动作，投射物效果随 hit 标记在 All 子集里一起发射；
+            // 其命中伤害原先既不经本路径确认（HasAttackEffect 只认直接伤害类效果），又被即时适配器按"时间线技能"跳过，
+            // 于是没有 hit_confirmed、没有顿帧与僵直。这里给投射物带上与 release 路径同一个命中钩子，
+            // 让每次投射物命中恰好由时间线路径确认一次（钩子内部做无敌前置检查与确认事件）。
+            IProjectileHitHook? projectileHook = null;
+            if (subset == EffectSubset.All && HasProjectileEffect(def))
+            {
+                projectileHook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment);
+            }
+
             var id = ExecuteEffectsOnly(
                 casterId, def, live, targetCoefficients: coefficients, presetAttackInstanceId: attackInstanceId,
-                subset: subset, outcomes: outcomes);
+                subset: subset, outcomes: outcomes, projectileHook: projectileHook);
             if (outcomes == null)
             {
                 return;

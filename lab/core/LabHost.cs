@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Adapters.Stub;
+using Core.Carriers.Assembly;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -56,10 +57,20 @@ namespace Lab
     /// 适配器每个固定步同步）；宿主在每步 <c>Advance</c> 返回后把玩家位置写回空间索引，等价引擎侧"固定步后同步"。
     /// </para>
     /// <para>
-    /// 判断记录（动作式格子）：时间线机制（<c>timeline</c> 块）尚未落地，动作式格子（<c>settlement: action</c>）在宿主里
-    /// 与目标选择式格子行为一致——两者的差异只在数据集与预设（ADR-0122 决策 4），宿主不读取 <c>settlement</c> 之外的
+    /// 判断记录（动作式格子）：宿主本身不区分动作式与目标选择式——两者的差异只在数据集与预设（ADR-0122 决策 4）。
+    /// 既有脚本（meta 没有 <c>feel</c>）在两类格子上行为一致（基线不变）；手感场景脚本（meta <c>feel</c> 为真）经生产装配
+    /// 开启手感系统：动作式格子用带 <c>timeline</c> 块的技能与 <c>arpg_responsive</c> 预设，目标选择式格子用同一批技能
+    /// 剥掉 <c>timeline</c> 后与 <c>rpg_classic</c> 预设（见 <see cref="LabRunVariant"/>）。宿主不读取 <c>settlement</c> 之外的
     /// 呈现字段（<c>form</c>/<c>camera_mode</c>/<c>control_space</c>/<c>hit_shape</c>），只有 <c>facing</c> 决定表现时间线里
     /// 方向量化的档位。
+    /// </para>
+    /// <para>
+    /// 判断记录（手感场景宿主顺序）：开手感时在既有逐步顺序上增加——脚本 <c>cast</c> 事件（靶子出手）在脚本事件处理里提交；
+    /// 输入映射的按钮边沿经 <c>InputBufferHost.BindLocalInput</c> 进输入缓冲，由生产装配的 tick 步骤 1 处理器消费并施放
+    /// （宿主不再自己提交施放意图）；每步末尾（事件派发之后）采缓冲槽与运动层状态并让反馈流水线兜底出批；
+    /// 靶子（含 AI 巡逻靶）的位置每步同步进空间索引（引擎侧由物理空间查询适配器做）。可破坏障碍是真正的动态阻挡：
+    /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.SetBlocking</c> 批量替换去掉，
+    /// 阻挡版本号随之递增（06 第 10 节勘误 4 的收口）。
     /// </para>
     /// </summary>
     public static class LabHost
@@ -105,7 +116,8 @@ namespace Lab
             HeadlessWorldBuilder.Build(CreateWorldOptions(options, new Id("world.lab_arena"), Vec2.Zero, 0.02, null));
 
         private static HeadlessWorldOptions CreateWorldOptions(
-            LabHostOptions options, Id mapId, Vec2 start, double stepSeconds, StubNavigation2D? navigation)
+            LabHostOptions options, Id mapId, Vec2 start, double stepSeconds, StubNavigation2D? navigation,
+            CarriersFeelOptions? feelOptions = null)
         {
             return new HeadlessWorldOptions
             {
@@ -121,12 +133,35 @@ namespace Lab
                 StepSeconds = stepSeconds,
                 EnableDiscreteTimeModel = true,
                 Navigation = navigation,
+                FeelOptions = feelOptions,
             };
         }
 
-        /// <summary>跑一份脚本在一个格子上的完整过程并返回三条时间线的记录。</summary>
-        public static LabRecording Run(LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog = null)
+        /// <summary>
+        /// 手感场景用的标定行 id：脚本显式给了就用它；否则按预设短名取 <c>feel.calibration.lab_&lt;短名&gt;</c>
+        /// （如 <c>feel.preset.arpg_responsive</c> → <c>feel.calibration.lab_arpg_responsive</c>，实验室动作式数据根里每个预设一行）。
+        /// </summary>
+        public static string CalibrationFor(ScriptMeta meta, string presetId)
         {
+            if (meta.FeelCalibrationId.Length > 0)
+            {
+                return meta.FeelCalibrationId;
+            }
+
+            const string prefix = "feel.preset.";
+            if (!presetId.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                throw new LabFormatException($"脚本 {meta.ScriptId} 的预设 {presetId} 不是 {prefix}* 形式，无法推出标定行（请在 meta.feelCalibrationId 里指定）");
+            }
+
+            return "feel.calibration.lab_" + presetId.Substring(prefix.Length);
+        }
+
+        /// <summary>跑一份脚本在一个格子上的完整过程并返回三条时间线的记录。</summary>
+        public static LabRecording Run(
+            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog = null, LabRunVariant? variant = null)
+        {
+            variant ??= LabRunVariant.Default;
             if (options == null) throw new ArgumentNullException(nameof(options));
             if (cell == null) throw new ArgumentNullException(nameof(cell));
             if (script == null) throw new ArgumentNullException(nameof(script));
@@ -144,7 +179,16 @@ namespace Lab
             // 先用探针世界读出格子关联的地形与靶子集（它们在数据里，格子才知道地图 id）。
             catalog ??= new LabCatalog(BuildProbe(options).Registry);
             var arena = catalog.GetArena(cell.ArenaId);
-            var dummySet = catalog.GetDummySet(cell.DummySetId);
+            var dummySet = catalog.GetDummySet(meta.DummySetId.Length > 0 ? new Id(meta.DummySetId) : cell.DummySetId);
+
+            // 手感场景：预设与标定；FeelOff 变体让同一脚本在旧路径上跑（不装手感系统）。
+            var feelScene = meta.Feel;
+            var feelOn = feelScene && !variant.FeelOff;
+            var effectivePreset = variant.PresetId ?? (string.IsNullOrEmpty(meta.PresetId) ? cell.DefaultPreset : meta.PresetId);
+            var calibrationId = feelScene ? CalibrationFor(meta, effectivePreset) : string.Empty;
+            var feelOptions = feelOn
+                ? new CarriersFeelOptions { CalibrationId = calibrationId, LocalMoveActionName = options.MoveAction }
+                : null;
 
             var rects = new List<Rect>(arena.Blocks.Count);
             foreach (var block in arena.Blocks)
@@ -154,7 +198,8 @@ namespace Lab
 
             nav.SetBlocking(arena.MapId, rects);
 
-            var world = HeadlessWorldBuilder.Build(CreateWorldOptions(options, arena.MapId, meta.PlayerStart, step, nav));
+            var dynamicBlocks = new List<KeyValuePair<Id, Rect>>();
+            var world = HeadlessWorldBuilder.Build(CreateWorldOptions(options, arena.MapId, meta.PlayerStart, step, nav, feelOptions));
             var playerId = world.Player.EntityId;
             var recording = new LabRecording(script, cell, step) { StartPosition = meta.PlayerStart };
 
@@ -166,8 +211,29 @@ namespace Lab
                 world.Gameplay.Carriers.Rules.Skill.LearnFromBook(playerId, bookId, 1);
             }
 
+            // 手感场景：学会槽位技能与额外技能，并把技能槽位绑到玩家（输入缓冲的出口按槽位查技能）。
+            if (feelScene)
+            {
+                var skillHost = world.Gameplay.Carriers.Rules.Skill;
+                foreach (var pair in meta.SkillSlots)
+                {
+                    skillHost.LearnSkill(playerId, new Id(pair.Value));
+                    if (!world.Gameplay.Carriers.SkillBindings.Bind(playerId, pair.Key, new Id(pair.Value)))
+                    {
+                        throw new LabFormatException($"脚本 {meta.ScriptId} 的技能槽位绑定失败：{pair.Key} -> {pair.Value}");
+                    }
+                }
+
+                foreach (var extra in meta.LearnSkills)
+                {
+                    skillHost.LearnSkill(playerId, new Id(extra));
+                }
+            }
+
             // 靶子：按脚本选择的分组出场，默认关闭 AI（保证可复现），保留 AI 的条目（巡逻靶）按数据声明。
             var labels = new Dictionary<Id, string> { { playerId, "player" } };
+            var dummyUnits = new List<KeyValuePair<string, Id>>();
+            var dummyByLabel = new Dictionary<string, Id>(StringComparer.Ordinal);
             var wanted = new HashSet<string>(meta.DummyGroups, StringComparer.Ordinal);
             foreach (var dummy in dummySet.Entries)
             {
@@ -200,7 +266,26 @@ namespace Lab
 
                     labels[id] = label;
                     recording.Dummies.Add(new KeyValuePair<string, Vec2>(label, pos));
+                    dummyUnits.Add(new KeyValuePair<string, Id>(label, id));
+                    dummyByLabel[label] = id;
+                    if (feelScene && string.Equals(dummy.Kind, "breakable", StringComparison.Ordinal))
+                    {
+                        // 可破坏障碍是动态阻挡：占位矩形随地形阻挡一起生效，被打死后移除（见类型判断记录）。
+                        dynamicBlocks.Add(new KeyValuePair<Id, Rect>(
+                            id, new Rect(new Vec2(pos.X - 0.5, pos.Y - 0.5), new Vec2(pos.X + 0.5, pos.Y + 0.5))));
+                    }
                 }
+            }
+
+            if (dynamicBlocks.Count > 0)
+            {
+                var all = new List<Rect>(rects);
+                foreach (var block in dynamicBlocks)
+                {
+                    all.Add(block.Value);
+                }
+
+                nav.SetBlocking(arena.MapId, all);
             }
 
             // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
@@ -217,6 +302,9 @@ namespace Lab
             {
                 throw new LabFormatException($"移动动作 {options.MoveAction} 无法重绑到左摇杆");
             }
+
+            // 手感场景：本地输入的按钮边沿接给输入缓冲（与 PresentationAssembly 的接线同一个调用）。
+            world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
 
             // 表现：ViewBinder + 记录型假 View，只关心玩家那一个 View 的位姿。
             var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
@@ -252,8 +340,59 @@ namespace Lab
             }
 
             var bindings = new List<KeyValuePair<string, Id>>(cell.SkillBindings);
+            if (feelScene)
+            {
+                // 手感场景的施放走输入缓冲（开）或由按钮边沿直接提交施放意图（FeelOff 变体，槽位技能绑定到声明了槽位的动作）。
+                bindings.Clear();
+                if (variant.FeelOff)
+                {
+                    foreach (var definition in definitions)
+                    {
+                        if (definition.SkillSlot == null)
+                        {
+                            continue;
+                        }
+
+                        foreach (var slot in meta.SkillSlots)
+                        {
+                            if (string.Equals(slot.Key, definition.SkillSlot, StringComparison.Ordinal))
+                            {
+                                bindings.Add(new KeyValuePair<string, Id>(definition.ActionId.Value, new Id(slot.Value)));
+                            }
+                        }
+                    }
+                }
+            }
+
+            FeelRig? feelRig = null;
+            Func<Id?, int>? ordinalOf = null;
+            if (feelOn)
+            {
+                recording.Feel = new FeelRecording { Preset = effectivePreset, CalibrationId = calibrationId, Assembled = true };
+            }
+
             var wasActive = new Dictionary<string, bool>(StringComparer.Ordinal);
             var instanceOrdinals = new Dictionary<Id, int>();
+            if (feelOn)
+            {
+                ordinalOf = id =>
+                {
+                    if (!id.HasValue)
+                    {
+                        return 0;
+                    }
+
+                    if (!instanceOrdinals.TryGetValue(id.Value, out var n))
+                    {
+                        n = instanceOrdinals.Count + 1;
+                        instanceOrdinals[id.Value] = n;
+                    }
+
+                    return n;
+                };
+                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits);
+            }
+
             var eventCursor = 0;
             var tick = 0;
             var duration = meta.DurationTicks;
@@ -279,6 +418,20 @@ namespace Lab
                         rig.Unequip(tick, e.Action);
                     }
 
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.Cast)
+                {
+                    if (!dummyByLabel.TryGetValue(e.Actor, out var caster))
+                    {
+                        throw new LabFormatException($"脚本 cast 事件的行动者 {e.Actor} 不在本次出场的靶子里");
+                    }
+
+                    var casterSkill = new Id(e.Action);
+                    var skillHost = world.Gameplay.Carriers.Rules.Skill;
+                    skillHost.LearnSkill(caster, casterSkill);
+                    skillHost.CastSkill(caster, casterSkill, Array.Empty<Id>());
                     return;
                 }
 
@@ -311,6 +464,7 @@ namespace Lab
                     return;
                 }
 
+                feelRig?.BeginTick(tick);
                 if (byTick.TryGetValue(tick, out var events))
                 {
                     foreach (var e in events)
@@ -351,6 +505,17 @@ namespace Lab
 
                 world.Gameplay.Advance(stepSeconds);
                 world.Spatial.UpdatePosition(playerId, world.Player.Position);
+                if (feelScene)
+                {
+                    // 靶子（含 AI 巡逻靶、被击退的靶子）的位置同步进空间索引，等价引擎侧"固定步后同步"。
+                    foreach (var dummyUnit in dummyUnits)
+                    {
+                        if (world.World.GetEntity(dummyUnit.Value) is Unit moved && moved.Alive)
+                        {
+                            world.Spatial.UpdatePosition(dummyUnit.Value, moved.Position);
+                        }
+                    }
+                }
 
                 recording.Ticks.Add(new TickSample(
                     tick, world.Player.Position, world.Player.Facing, world.Player.MovementState.Mode.ToString(), world.Player.Alive,
@@ -360,10 +525,31 @@ namespace Lab
                 {
                     var dispatched = world.Events[eventCursor++];
                     rig?.OnEvent(dispatched, tick);
+                    feelRig?.OnEvent(dispatched, tick);
                     RecordEvent(dispatched, tick, labels, instanceOrdinals, recording);
+                    if (dispatched is UnitDiedEvent died && dynamicBlocks.Count > 0)
+                    {
+                        for (var b = 0; b < dynamicBlocks.Count; b++)
+                        {
+                            if (dynamicBlocks[b].Key.Equals(died.UnitId))
+                            {
+                                dynamicBlocks.RemoveAt(b);
+                                var remaining = new List<Rect>(rects);
+                                foreach (var block in dynamicBlocks)
+                                {
+                                    remaining.Add(block.Value);
+                                }
+
+                                nav.SetBlocking(arena.MapId, remaining);
+                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remaining.Count, nav.GetBlockingVersion(arena.MapId));
+                                break;
+                            }
+                        }
+                    }
                 }
 
                 rig?.EndTick();
+                feelRig?.EndTick(tick);
 
                 tick++;
             }
@@ -406,6 +592,7 @@ namespace Lab
             }
 
             recording.TotalEventCount = world.Events.Count;
+            feelRig?.Dispose();
             rig?.Dispose();
             binder.Dispose();
             return recording;

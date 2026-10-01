@@ -1,0 +1,118 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.map.lab_a_frail",
+      "category": "creature",
+      "logical_id": "creature.lab_a_frail",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_elite",
+      "category": "creature",
+      "logical_id": "creature.lab_a_elite",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_patrol",
+      "category": "creature",
+      "logical_id": "creature.lab_a_patrol",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_slash",
+      "category": "skill",
+      "logical_id": "skill.lab_a_slash",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_combo1",
+      "category": "skill",
+      "logical_id": "skill.lab_a_combo1",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_combo2",
+      "category": "skill",
+      "logical_id": "skill.lab_a_combo2",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_combo3",
+      "category": "skill",
+      "logical_id": "skill.lab_a_combo3",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_dodge",
+      "category": "skill",
+      "logical_id": "skill.lab_a_dodge",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_charge",
+      "category": "skill",
+      "logical_id": "skill.lab_a_charge",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_projectile",
+      "category": "skill",
+      "logical_id": "skill.lab_a_projectile",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_bolt",
+      "category": "skill",
+      "logical_id": "skill.lab_a_bolt",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_lunge",
+      "category": "skill",
+      "logical_id": "skill.lab_a_lunge",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_slam",
+      "category": "skill",
+      "logical_id": "skill.lab_a_slam",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_elite_swing",
+      "category": "skill",
+      "logical_id": "skill.lab_a_elite_swing",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    }
+  ]
+}

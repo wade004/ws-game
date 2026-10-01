@@ -34,7 +34,7 @@ namespace Lab
         /// （只活在返回的数据来源里，不动磁盘上的共享数据）。脚本没有任何扩展数据声明时原样返回基础来源。
         /// </summary>
         public static IReadOnlyList<IDataSource> ForScript(
-            IReadOnlyList<IDataSource> baseSources, ScriptMeta meta, Func<string, IDataSource> resolveRoot)
+            IReadOnlyList<IDataSource> baseSources, ScriptMeta meta, Func<string, IDataSource> resolveRoot, bool stripTimelines = false)
         {
             if (meta.ExtraDataRoots.Count == 0)
             {
@@ -56,10 +56,68 @@ namespace Lab
                     source = new TableOverlayDataSource(source, (table, text) => RewriteTable(table, text, meta));
                 }
 
+                if (stripTimelines && meta.Feel)
+                {
+                    // 目标选择式变体：同一批技能剥掉 timeline 块（连招/取消/蓄力/标记/位移都在块里，随之消失）并把 cast_time 置 0（瞬发）。
+                    source = new TableOverlayDataSource(source, (table, text) => StripTimelines(table, text));
+                }
+
                 result.Add(source);
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 剥掉 <c>skill.def</c> 每一行的 <c>timeline</c> 块并把 <c>cast_time</c> 置 0：有 <c>timeline</c> 的技能 <c>cast_time</c>
+        /// 必须等于三相之和（校验规则），剥块后不置 0 就变成一个读条技能，而不是"没有时间线的瞬发技能"。其余表与其余行原样返回（null）。
+        /// </summary>
+        public static string? StripTimelines(string table, string text)
+        {
+            if (!string.Equals(table, "skill.def", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var root = LabJson.ParseObject(text, table);
+            var rewritten = new JsonObjectBuilder();
+            for (var i = 0; i < root.Count; i++)
+            {
+                var entry = root[i];
+                if (!string.Equals(entry.Key, "rows", StringComparison.Ordinal) || !(entry.Value is JsonArray rows))
+                {
+                    rewritten.Add(entry.Key, entry.Value);
+                    continue;
+                }
+
+                var newRows = new List<JsonValue>();
+                foreach (var row in rows)
+                {
+                    if (!(row is JsonObject rowObj) || !rowObj.ContainsKey("timeline"))
+                    {
+                        newRows.Add(row);
+                        continue;
+                    }
+
+                    var builder = new JsonObjectBuilder();
+                    for (var k = 0; k < rowObj.Count; k++)
+                    {
+                        var key = rowObj[k].Key;
+                        if (string.Equals(key, "timeline", StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        builder.Add(key, string.Equals(key, "cast_time", StringComparison.Ordinal) ? LabJson.Num(0) : rowObj[k].Value);
+                    }
+
+                    newRows.Add(builder.Build());
+                }
+
+                rewritten.Add(entry.Key, new JsonArray(newRows));
+            }
+
+            return LabJson.Write(rewritten.Build());
         }
 
         private static string? RewriteTable(string table, string text, ScriptMeta meta)

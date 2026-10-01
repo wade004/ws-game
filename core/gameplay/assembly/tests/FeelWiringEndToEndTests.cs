@@ -54,9 +54,29 @@ namespace Tests.Gameplay.Assembly
     ""effects"": [ { ""kind"": ""school_damage"", ""params"": { ""base_value"": 10, ""scaling"": [ { ""stat"": ""stat.attack_power"", ""coefficient"": 1.0 } ], ""school"": ""school.physical"" } } ]
   }";
 
+        // 投射物时间线技能（S7b 修复 S11 缺口）：命中伤害写在 projectile 的 on_hit_effects 里。
+        // releaseMarker 为真时投射物在 release 标记处发射（hit 标记只结算其余效果）；为假时随 hit 标记发射。
+        private static string ProjectileTimelineSkill(string id, bool releaseMarker, bool withDirectDamage)
+        {
+            var marker = releaseMarker ? "release" : "hit";
+            var direct = withDirectDamage
+                ? @", { ""kind"": ""school_damage"", ""params"": { ""base_value"": 10, ""coefficient"": 0, ""school"": ""school.physical"" } }"
+                : "";
+            return @"{
+    ""id"": """ + id + @""", ""school"": ""school.physical"", ""kind"": ""active"", ""range"": 3, ""cast_time"": 0.4,
+    ""cooldown_duration"": 0, ""respects_gcd"": false, ""target_shape_ref"": ""target.chain.lab_nearest_enemy"",
+    ""timeline"": { ""startup_ms"": 100, ""active_ms"": 60, ""recovery_ms"": 240, ""markers"": [ { ""name"": """ + marker + @""", ""at_ms"": 100 } ] },
+    ""effects"": [ { ""kind"": ""projectile"", ""params"": { ""travel_mode"": ""straight"", ""hit_behavior"": ""impact_on_first"", ""speed"": 20, ""max_range"": 30,
+        ""on_hit_effects"": [ { ""kind"": ""school_damage"", ""params"": { ""base_value"": 10, ""coefficient"": 0, ""school"": ""school.physical"" } } ] } }" + direct + @" ]
+  }";
+        }
+
         private static readonly string SwingSkillJson = @"{
   ""table"": ""skill.def"", ""schema_version"": 1,
   ""rows"": [ " + TimelineSkill("skill.fw_swing", "target.chain.lab_nearest_enemy") + ",\n  "
+            + ProjectileTimelineSkill("skill.fw_bolt", releaseMarker: false, withDirectDamage: false) + ",\n  "
+            + ProjectileTimelineSkill("skill.fw_bolt_release", releaseMarker: true, withDirectDamage: false) + ",\n  "
+            + ProjectileTimelineSkill("skill.fw_mixed", releaseMarker: false, withDirectDamage: true) + ",\n  "
             + TimelineSkill("skill.fw_cone_swing", "target.chain.fw_cone_enemies") + ",\n  "
             + TimelineSkill("skill.fw_flat_swing", "target.chain.fw_current_enemy") + ",\n  "
             + TimelineSkill(
@@ -460,6 +480,37 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(attackerTicks, started.Single(e => e.UnitIds.Contains(PlayerId)).Ticks);
             Assert.Equal(targetTicks, started.Single(e => e.UnitIds.Contains(target)).Ticks);
             Assert.Single(rig.Of<CombatReactionAppliedEvent>());
+        }
+
+        /// <summary>
+        /// S7b 复现（S11 缺口）：时间线技能的投射物效果随 hit 标记发射（没有 release 标记）时，其命中曾既不被时间线路径确认、
+        /// 又被即时适配器按"时间线技能"跳过——没有 hit_confirmed、没有顿帧、没有受击反应。
+        /// 不变量：每一次造成伤害的命中恰好一条 combat.hit_confirmed，且与伤害事件一一对应（攻击实例互不重复）。
+        /// </summary>
+        [Theory]
+        [InlineData("skill.fw_bolt", 1)]
+        [InlineData("skill.fw_bolt_release", 1)]
+        [InlineData("skill.fw_mixed", 2)]
+        public void TimelineProjectileHit_IsConfirmedExactlyOnce_PerDamageHit(string skillId, int expectedHits)
+        {
+            var rig = Build(feel: true);
+            var target = SpawnDummy(rig, StakeTemplate, new Vec2(1.5, 0));
+            rig.Feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.AttackerHitstopMs, FeelOp.Set, FeelValue.Of(50)));
+            rig.Feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.TargetHitstopMs, FeelOp.Set, FeelValue.Of(110)));
+            var skill = new Id(skillId);
+            var skills = rig.World.Gameplay.Carriers.Rules.Skill;
+            skills.LearnSkill(PlayerId, skill);
+            var cast = skills.CastSkill(PlayerId, skill, new Id[0]);
+            Assert.True(cast.Success, cast.Reason.ToString());
+            rig.Run(90);
+
+            var damages = rig.Of<CombatDamageDealtEvent>().Select(x => x.Event).ToList();
+            var hits = rig.Of<CombatHitConfirmedEvent>().Select(x => x.Event).ToList();
+            Assert.Equal(expectedHits, damages.Count);
+            Assert.Equal(damages.Count, hits.Count);
+            Assert.Equal(hits.Count, hits.Select(h => h.AttackInstanceId).Distinct().Count());
+            Assert.All(hits, h => Assert.Equal(target, h.TargetId));
+            Assert.True(rig.Of<FeelHitstopStartedEvent>().Any(), "确认之后应有顿帧");
         }
 
         [Fact]
