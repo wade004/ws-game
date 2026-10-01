@@ -77,7 +77,7 @@ python toolchain/validate_data.py
 | `powershell -File build.ps1 -Dist <version>` | 额外把适配层包、`games/_template`、`toolchain`（不含 `.venv`/`__pycache__`/`registry`/`node_modules`/`bin`/`obj`，但预编译的 `toolchain/validator/bin`、`toolchain/simrunner/bin` 单独补回）、`assets/_placeholder`、`data/_framework`、`adapters/headless`（无头适配层 `Adapters.Stub.dll` + 数值仿真骨架 `Core.Sim.dll` + README，ADR-0018 决策 3、ADR-0035 决策 1/5）打成一份版本快照 `dist/<version>/`，并生成扩展后的 `MANIFEST.txt`；同时无条件额外组装私服交付通道的四个包到 `dist/<version>/packages/{四个包名}/` 并 `npm pack` 出四个 `.tgz`（见下方"版本与发布"一节"私服通道"） |
 | `powershell -File build.ps1 -Dist auto` | 同上，但版本号不由调用方指定，改为读取仓库根 `VERSION` 文件当前内容 |
 | `powershell -File build.ps1 -Dist <version> -Zip` | 在 `-Dist` 基础上额外打 `dist/ws-game-<version>.zip` + `dist/ws-game-<version>.lock`，不做任何版本号写回/提交/打标签（`.github/workflows/release.yml` 用这条路径） |
-| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-ReleaseSkipUnity] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验 → 写回版本号 → 全量门禁 → 提交 → 打包 + zip + lock + 四个 npm 包（打包完成自检 `git_commit` 指向发布提交） → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 四个包到私服；见下方"版本与发布"一节 |
+| `powershell -File build.ps1 -Release <version> [-DryRun] [-Publish] [-PublishRegistry [-RegistryUrl <url>]]` | 完整发布流程：校验（含 `REGRESSION_LOG.md` 含 Unity 全量记录） → 写回版本号 → 全量门禁（含 IL2CPP 三步） → 提交 → 打包 + zip + lock + 四个 npm 包（打包完成自检 `git_commit` 指向发布提交） → 打标签；`-PublishRegistry` 独立于 `-Publish` 控制是否额外 `npm publish` 四个包到私服；见下方"版本与发布"一节 |
 
 同步与打包均按文件哈希比较、只处理变化的文件；`-Dist` 打的快照不入库，可随时由源码重新生成；`-Dist` 传入的版本号必须形如 `X.Y.Z`（三段纯数字），格式非法直接报错退出。
 
@@ -203,7 +203,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 
 - **DocsOnly**：暂存改动全部是 `.md` 文档（CHANGELOG 定版、答复稿、回归记录一类提交）——跑 `check.ps1 -DocsOnly`，只跑门禁自检、两道禁用词扫描（游戏代号 + architecture 正文技术名，CLAUDE.md 硬性规则的唯一守门，任何档位都不跳过）、版本一致性（含 CHANGELOG.md 条目校验）、`toolchain/tests` 里两个文档相关 pytest 用例（markdown 相对链接、编辑器文档一致性），跳过 `dotnet build`/`test`、数据校验、Unity 相关步骤等——秒级完成。
 - **ReleaseSkip**：`build.ps1 -Release` 在第 5 步全量门禁（含 `-AbiStrict`）通过后，于"第 6 步"提交版本号改动前设置 `WS_GAME_RELEASE_COMMIT=1`，且暂存清单确实只含该步骤 `git add` 的那五个版本文件（`VERSION`、两个 `package.json`、`packages-lock.json`、`CHANGELOG.md`）——不重复跑 `check.ps1`（全量门禁已经在这次提交之前跑过）。
-- **Full**（其余一切情况）：照旧跑 `check.ps1 -SkipUnity -Quick`（29 步，目标总用时 30 秒左右，见上一节）。
+- **Full**（其余一切情况）：照旧跑 `check.ps1 -SkipUnity -Quick`（32 步，目标总用时 30 秒左右，见上一节）。
 
 分级判断或调用本身失败（如 `powershell` 不可用）一律退回 Full，不静默放行。未通过则本次提交被拦截（终端打印失败明细，同 `check.ps1` 汇总表）；紧急情况需要跳过时用 `git commit --no-verify`（不建议常态化使用）。
 
@@ -221,8 +221,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\install_hooks.ps1
 
 ```powershell
 powershell -File build.ps1 -Release 1.0.0                                    # 完整发布：校验 → 写回版本号 → 全量门禁 → 打包+zip+lock → 提交 → 打标签
-powershell -File build.ps1 -Release 1.0.0 -ReleaseSkipUnity                  # 同上，但门禁跳过 Unity 相关步骤（没装 Unity 的机器）
-powershell -File build.ps1 -Release 1.0.0 -DryRun -ReleaseSkipUnity          # 只跑校验+打包，不改任何源码文件、不提交、不打标签（产物名带 -dryrun 后缀）
+powershell -File build.ps1 -Release 1.0.0 -DryRun                            # 只跑校验+打包，不改任何源码文件、不提交、不打标签（产物名带 -dryrun 后缀）
 powershell -File build.ps1 -Release 1.0.0 -Publish                          # 打完标签后自动执行 git push 与创建 GitHub Release
 ```
 
@@ -231,8 +230,9 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
 1. 校验版本号格式，且必须严格大于 `VERSION` 当前值（语义化版本数值比较）。
 2. 校验 `git status` 干净（工作树不能有未提交改动）。
 3. 校验 `CHANGELOG.md` 已存在 `## [X.Y.Z]` 条目（没有则报错，提示先补齐变更记录）。
+   另校验 `REGRESSION_LOG.md` 里有对应当前 `HEAD` 的"含 Unity 全量通过"记录（记录的提交就是 `HEAD`，或是其祖先且其后只改了 `docs/`、`architecture/`、`*.md`；结果列须以"通过"开头并含"含 Unity"或"PlayMode N/N"字样），没有则拒绝发布并打印原因——先在有 Unity 的机器上对当前提交跑 `check.ps1` 全量并登记一行；`-DryRun` 只警告不拦。发布不再有"跳过 Unity"的开关。
 4. 把版本号写回 `VERSION`、两个 `package.json` 与 `adapters/unity/Packages/packages-lock.json`（`com.gamefoundation.game-template` 条目下对适配层包依赖版本号的 UPM 镜像字段；`-DryRun` 时跳过这一步，不触碰任何源码文件）。
-5. 跑一遍 `check.ps1`（默认全量，`-ReleaseSkipUnity` 传 `-SkipUnity` 给它）。
+5. 跑一遍 `check.ps1`（全量，固定传 `-AbiStrict -FailFast -Il2cpp`：含 Unity 相关步骤，并额外跑 IL2CPP 构建与两种冒烟；日常 `check.ps1` 不跑 IL2CPP 三步）。
 6. 非 `-DryRun` 时：门禁通过后立即提交 `VERSION`/两个 `package.json`/`packages-lock.json`/`CHANGELOG.md`（提交信息 `发布 <ver>`）——先于下一步打包，使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净。
 7. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）；非 `-DryRun` 时打包完成后自检 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足则报错退出（此时提交已产生但未打标签，按打印的提示 `git reset --soft` 回退后修复重跑）；自检通过后打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
 

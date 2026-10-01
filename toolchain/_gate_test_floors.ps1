@@ -167,3 +167,45 @@ function Invoke-GateTestFloorCheck {
     }
     return (Test-GateTestCounts -Counts $counts -Floor $floor -Suite $Suite)
 }
+
+# -----------------------------------------------------------------------------
+# 第四批追加（2026-10-01，复盘 I-2 余项 / I-5 缩减版 / I-8 余项）
+# -----------------------------------------------------------------------------
+
+# 判断记录（I-2 余项）：dotnet test 步骤原先找不到性能基线诊断行（PerfBaselineTests 被意外排除或没编进
+# 本次运行）时只 Write-Host 一行黄色警告、步骤照样 PASS，整个 Perf 类别塌了也无人察觉。解析抽成本函数
+# 让调用点能判 FAIL，也让 toolchain/tests/test_gate_floors_logic.py 能用伪造 trx 夹具直接验证。正则与
+# 此前内联版逐字相同。目录不存在或没有 trx 返回空数组（调用方据此判 FAIL，不在这里抛）。
+function Get-PerfDiagnosticLines {
+    param([Parameter(Mandatory = $true)][string]$TrxDir)
+    if (-not (Test-Path -LiteralPath $TrxDir)) { return @() }
+    $lines = @(Get-ChildItem -LiteralPath $TrxDir -Filter "*.trx" -Recurse -ErrorAction SilentlyContinue |
+        Select-String -Pattern '^\s*<StdOut>perf \S+_WithinBaselineThreshold median=.*factor=.*reference=' |
+        ForEach-Object { ($_.Line.Trim() -replace '^<StdOut>', '') -replace '</StdOut>$', '' })
+    return @($lines | Sort-Object -Unique)
+}
+
+# 判断记录（I-5 缩减版）：全量门禁额外跑的两类 pytest（不设 PYTHONUTF8 的环境矩阵、PowerShell 5.1/7
+# 双宿主矩阵）没有各自的下限登记，判据统一为：junit 可解析、failed=0、skipped+inconclusive=0（环境性
+# skip 在矩阵里一律 FAIL——矩阵的意义就是"这些用例在这个环境里真的跑了"，宿主缺失/条件不满足被
+# skip 吞掉等于没跑）、passed 不低于调用方给的 MinPassed（防整批用例被丢）。
+function Test-GateExtraPytestRun {
+    param(
+        [Parameter(Mandatory = $true)][string]$JUnitPath,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [int]$MinPassed = 1
+    )
+    $counts = Get-JUnitTestCounts -XmlPath $JUnitPath
+    if ($null -eq $counts) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "[$Label] 未找到可解析的 junit 结果：$JUnitPath" }
+    }
+    $detail = "total=$($counts.Total) passed=$($counts.Passed) skipped=$($counts.Skipped)（要求 passed>=$MinPassed，skipped 必须为 0）"
+    $problems = @()
+    if ($counts.Failed -gt 0) { $problems += "failed=$($counts.Failed)" }
+    if ($counts.Skipped + $counts.Inconclusive -gt 0) { $problems += "skipped+inconclusive=$($counts.Skipped + $counts.Inconclusive)（环境性 skip 在矩阵步骤里一律 FAIL）" }
+    if ($counts.Passed -lt $MinPassed) { $problems += "passed=$($counts.Passed) 低于要求 $MinPassed" }
+    if ($problems.Count -gt 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "[$Label] " + ($problems -join "；") + " | " + $detail }
+    }
+    return [PSCustomObject]@{ Ok = $true; Detail = "[$Label] $detail" }
+}

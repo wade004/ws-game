@@ -50,6 +50,8 @@ $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } e
 . (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
 . (Join-Path $RepoRoot "toolchain\_gate_test_floors.ps1")
 . (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
+# 第四批（复盘 I-8 余项）：结果 XML / 冒烟日志 / 包清单三处判定逻辑抽成纯函数，见该文件头。
+. (Join-Path $RepoRoot "toolchain\_gate_unity_verdicts.ps1")
 
 try {
     # 判断记录同 toolchain/_gate_line_heavy.ps1 同名段落：故意不经过 Invoke-CheckStep，不受
@@ -121,8 +123,6 @@ try {
                 "com.gamefoundation.toolchain",
                 "com.gamefoundation.adapter.headless"
             )
-            $forbiddenSegments = @("__pycache__", "bin", "obj", "storage")
-
             $problems = @()
             foreach ($pkgName in $packageNames) {
                 $pkgDir = Join-Path $packagesRoot $pkgName
@@ -143,86 +143,11 @@ try {
                 }
                 $dryRunObj = ($dryRunJson -join "`n") | ConvertFrom-Json
                 $fileEntries = $dryRunObj[0].files
-                $hitSegments = New-Object System.Collections.Generic.HashSet[string]
-                foreach ($entry in $fileEntries) {
-                    $normalizedEntryPath = $entry.path -replace '\\', '/'
-                    if ($normalizedEntryPath -match '(^|/)(validator|simrunner)/bin/') {
-                        continue
-                    }
-                    $entryPathSegments = $entry.path -split '[\\/]'
-                    foreach ($seg in $forbiddenSegments) {
-                        if ($entryPathSegments -contains $seg) {
-                            [void]$hitSegments.Add($seg)
-                        }
-                    }
-                }
-                if ($hitSegments.Count -gt 0) {
-                    $problems += ("$pkgName：npm pack --dry-run 文件清单命中排除名单：" + (($hitSegments) -join ", "))
-                }
-
-                if ($pkgName -eq "com.gamefoundation.adapter.unity") {
-                    $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
-                    $requiredModelAssetSuffixes = @(
-                        "Runtime/Resources/GameFoundation/models/placeholder_biped.prefab",
-                        "Runtime/Resources/GameFoundation/models/placeholder_biped.controller",
-                        "Runtime/Resources/GameFoundation/anim_clips/idle.anim",
-                        "Runtime/Resources/GameFoundation/anim_clips/attack.anim",
-                        "Runtime/Resources/GameFoundation/anim_clips/cast.anim",
-                        "Runtime/Resources/GameFoundation/anim_clips/hit.anim",
-                        "Editor/GeneratePlaceholderModelAssets.cs"
-                    )
-                    $missingModelAssets = @()
-                    foreach ($suffix in $requiredModelAssetSuffixes) {
-                        $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
-                        if ($hit.Count -eq 0) {
-                            $missingModelAssets += $suffix
-                        }
-                    }
-                    if ($missingModelAssets.Count -gt 0) {
-                        $problems += ("$pkgName：npm pack --dry-run 文件清单缺失 model/anim 占位资产或生成器（PJ130-02）：" + ($missingModelAssets -join ", "))
-                    }
-                }
-
-                if ($pkgName -eq "com.gamefoundation.toolchain") {
-                    $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
-                    $requiredValidatorArtifacts = @(
-                        "Tools~/validator/bin/Validator.dll",
-                        "Tools~/validator/Directory.Build.props"
-                    )
-                    $missingValidatorArtifacts = @()
-                    foreach ($suffix in $requiredValidatorArtifacts) {
-                        $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
-                        if ($hit.Count -eq 0) {
-                            $missingValidatorArtifacts += $suffix
-                        }
-                    }
-                    if ($missingValidatorArtifacts.Count -gt 0) {
-                        $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 validator 或隔离用 Directory.Build.props（消费方反馈 E1）：" + ($missingValidatorArtifacts -join ", "))
-                    }
-
-                    $requiredSimRunnerArtifacts = @(
-                        "Tools~/simrunner/bin/SimRunner.dll",
-                        "Tools~/simrunner/Directory.Build.props"
-                    )
-                    $missingSimRunnerArtifacts = @()
-                    foreach ($suffix in $requiredSimRunnerArtifacts) {
-                        $hit = @($entryPaths | Where-Object { $_ -like "*$suffix" })
-                        if ($hit.Count -eq 0) {
-                            $missingSimRunnerArtifacts += $suffix
-                        }
-                    }
-                    if ($missingSimRunnerArtifacts.Count -gt 0) {
-                        $problems += ("$pkgName：npm pack --dry-run 文件清单缺失预编译 simrunner 或隔离用 Directory.Build.props（T-N6-7）：" + ($missingSimRunnerArtifacts -join ", "))
-                    }
-                }
-
-                if ($pkgName -eq "com.gamefoundation.adapter.headless") {
-                    $entryPaths = @($fileEntries | ForEach-Object { ($_.path -replace '\\', '/') })
-                    $hitCoreSim = @($entryPaths | Where-Object { $_ -like "*Lib~/Core.Sim.dll" })
-                    if ($hitCoreSim.Count -eq 0) {
-                        $problems += "$pkgName：npm pack --dry-run 文件清单缺失 Lib~/Core.Sim.dll（T-N6-7）"
-                    }
-                }
+                # 判断记录（第四批，复盘 I-8 余项）：排除名单与各包必需文件清单的判定抽成纯函数
+                # Get-PackageManifestProblems（toolchain/_gate_unity_verdicts.ps1，文案与判定条件和
+                # 抽取前逐字一致），由 toolchain/tests/test_gate_unity_verdicts.py 用伪造清单直接验证。
+                $entryPathList = @($fileEntries | ForEach-Object { [string]$_.path })
+                $problems += @(Get-PackageManifestProblems -PackageName $pkgName -EntryPaths $entryPathList)
             }
 
             if ($problems.Count -gt 0) {
@@ -277,12 +202,12 @@ try {
             if ($proc.ExitCode -ne 0) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
             }
-            if (-not (Test-Path $resultsXml)) {
+            # 结果 XML 判定抽成 Get-UnityTestRunVerdict（toolchain/_gate_unity_verdicts.ps1，第四批 I-8 余项）。
+            $verdict = Get-UnityTestRunVerdict -ResultsXml $resultsXml
+            if (-not $verdict.Exists) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml" }
             }
-            [xml]$xml = Get-Content -Path $resultsXml -Raw
-            $root = $xml.DocumentElement
-            $editModeOk = ($root.result -eq "Passed")
+            $editModeOk = $verdict.Ok
             if (-not $editModeOk) {
                 Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
             }
@@ -294,7 +219,7 @@ try {
             }
             [PSCustomObject]@{
                 Ok     = ($editModeOk -and $floorResult.Ok)
-                Detail = "failed=$($root.failed) result=$($root.result) " + $floorResult.Detail
+                Detail = "failed=$($verdict.Failed) result=$($verdict.Result) " + $floorResult.Detail
             }
         }
 
@@ -312,12 +237,12 @@ try {
             if ($proc.ExitCode -ne 0) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
             }
-            if (-not (Test-Path $resultsXml)) {
+            # 结果 XML 判定抽成 Get-UnityTestRunVerdict（toolchain/_gate_unity_verdicts.ps1，第四批 I-8 余项）。
+            $verdict = Get-UnityTestRunVerdict -ResultsXml $resultsXml
+            if (-not $verdict.Exists) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml" }
             }
-            [xml]$xml = Get-Content -Path $resultsXml -Raw
-            $root = $xml.DocumentElement
-            $playModeOk = ($root.result -eq "Passed")
+            $playModeOk = $verdict.Ok
             if (-not $playModeOk) {
                 Invoke-UnityTestTriageOnFailure -ResultsXml $resultsXml -LogPath $log
             }
@@ -329,7 +254,7 @@ try {
             }
             [PSCustomObject]@{
                 Ok     = ($playModeOk -and $floorResult.Ok)
-                Detail = "failed=$($root.failed) result=$($root.result) " + $floorResult.Detail
+                Detail = "failed=$($verdict.Failed) result=$($verdict.Result) " + $floorResult.Detail
             }
         }
 
@@ -372,7 +297,7 @@ try {
             }
             $logText = Get-Content -Path $smokeLog -Raw
             [PSCustomObject]@{
-                Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK")
+                Ok     = (Test-SmokeLogText -LogText $logText)
                 Detail = "见 $smokeLog"
             }
         }
@@ -405,7 +330,7 @@ try {
             }
             $logText = Get-Content -Path $smokeLog -Raw
             [PSCustomObject]@{
-                Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
+                Ok     = (Test-SmokeLogText -LogText $logText -Discrete)
                 Detail = "见 $smokeLog"
             }
         }
@@ -469,7 +394,7 @@ try {
                 }
                 $logText = Get-Content -Path $smokeLog -Raw
                 [PSCustomObject]@{
-                    Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK")
+                    Ok     = (Test-SmokeLogText -LogText $logText)
                     Detail = "见 $smokeLog"
                 }
             }
@@ -498,7 +423,7 @@ try {
                 }
                 $logText = Get-Content -Path $smokeLog -Raw
                 [PSCustomObject]@{
-                    Ok     = ($logText -match "\[GF-SMOKE\] RESULT=OK") -and ($logText -match "step=discrete_round ok")
+                    Ok     = (Test-SmokeLogText -LogText $logText -Discrete)
                     Detail = "见 $smokeLog"
                 }
             }

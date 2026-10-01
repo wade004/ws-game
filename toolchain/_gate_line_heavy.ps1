@@ -39,6 +39,10 @@ param(
     [switch]$DocsOnly,
     [switch]$FailFast,
     [switch]$AbiStrict,
+    # 第四批（复盘 I-5 缩减版）新增：环境矩阵两步（不设 PYTHONUTF8 的 pytest、PowerShell 5.1/7 双宿主
+    # pytest）只在全量门禁里跑，-Quick 与 -SkipUnity 都不跑（-SkipUnity 是 CI 的固定形态，设计层拍板
+    # "日常切片/CI 不受影响"），所以本线也要知道 -SkipUnity；本线其余步骤不受它影响。
+    [switch]$SkipUnity,
     [string]$FailFastFlagPath = "",
     [Parameter(Mandatory = $true)][string]$ResultsJsonPath,
     [string]$TranscriptPath = "",
@@ -102,16 +106,17 @@ try {
             "test", $SolutionPath, "-c", $Configuration, "--no-build", "--artifacts-path", $ArtifactsPath,
             "--logger", "trx", "--results-directory", $PerfTrxDir)
 
-        if (Test-Path $PerfTrxDir) {
-            $perfLines = Get-ChildItem $PerfTrxDir -Filter "*.trx" -Recurse -ErrorAction SilentlyContinue |
-                Select-String -Pattern '^\s*<StdOut>perf \S+_WithinBaselineThreshold median=.*factor=.*reference=' |
-                ForEach-Object { ($_.Line.Trim() -replace '^<StdOut>', '') -replace '</StdOut>$', '' }
-            if ($perfLines) {
-                Write-Host "---- 性能基线机器归一化诊断（Perf 类别，见 core/gameplay/tests/Perf/README.md） ----" -ForegroundColor Cyan
-                $perfLines | Sort-Object -Unique | ForEach-Object { Write-Host $_ }
-            } else {
-                Write-Host "警告：未能从 trx 结果中找到性能基线诊断行（PerfBaselineTests 是否被意外排除或未编译进本次运行？）" -ForegroundColor Yellow
-            }
+        # 判断记录（复盘 I-2 余项，2026-10-01）：性能基线诊断行缺失此前只打黄色警告、步骤照样 PASS，
+        # PerfBaselineTests 被意外排除/没编进来时 Perf 类别整个塌了也无人察觉。现在缺失直接 FAIL
+        # （解析抽成 _gate_test_floors.ps1 的 Get-PerfDiagnosticLines，伪造 trx 夹具见
+        # toolchain/tests/test_gate_floors_logic.py）。
+        $perfLines = @(Get-PerfDiagnosticLines -TrxDir $PerfTrxDir)
+        $perfDiagOk = ($perfLines.Count -gt 0)
+        if ($perfDiagOk) {
+            Write-Host "---- 性能基线机器归一化诊断（Perf 类别，见 core/gameplay/tests/Perf/README.md） ----" -ForegroundColor Cyan
+            $perfLines | ForEach-Object { Write-Host $_ }
+        } else {
+            Write-Host "未能从 trx 结果中找到性能基线诊断行（PerfBaselineTests 是否被意外排除或未编译进本次运行？），判 FAIL" -ForegroundColor Red
         }
 
         $floorResult = Invoke-GateTestFloorCheck -Kind Trx -Path $PerfTrxDir -Suite "dotnet_test" -FloorsPath $GateFloorsPath
@@ -120,7 +125,8 @@ try {
         } else {
             Write-Host "用例数下限未达：$($floorResult.Detail)" -ForegroundColor Red
         }
-        [PSCustomObject]@{ Ok = ($ok -and $floorResult.Ok); Detail = $floorResult.Detail }
+        $perfDetail = if ($perfDiagOk) { "perf 诊断行 $($perfLines.Count) 条" } else { "性能基线诊断行缺失（PerfBaselineTests 被排除或未编译进本次运行）" }
+        [PSCustomObject]@{ Ok = ($ok -and $floorResult.Ok -and $perfDiagOk); Detail = ($floorResult.Detail + "；" + $perfDetail) }
     }
 
     # -----------------------------------------------------------------------
@@ -369,6 +375,112 @@ try {
             return $true
         }
     }
+    # -----------------------------------------------------------------------
+    # 6c / 6d. 工具链测试环境矩阵（测试覆盖第四批，复盘 I-5 缩减版，设计层拍板见
+    #     docs/复盘/测试覆盖剩余项-2026-10-01.md 末节）。只在全量门禁（不含 -Quick、不含 -SkipUnity，
+    #     即不含 CI 的固定形态）里跑，日常切片与 CI 不受影响；时长约各 +3 分钟 / +3.5 分钟，因本线与
+    #     Unity 串行线并行（Unity 线数分钟起），不拉长全量门禁墙钟。
+    #
+    #     6c 默认编码矩阵：步骤 6 的主 pytest 固定 PYTHONUTF8=1 跑（这是日常开发环境的惯例），把
+    #     PYTHONUTF8 与 PYTHONIOENCODING 都摘掉再整套跑一遍，抓"依赖 UTF-8 模式才能工作"的编码缺陷
+    #     （系统 ANSI 代码页下的文件读写、子进程输出解码）。判据：junit 可解析、failed=0、skipped=0，
+    #     passed 不低于 gate_floors.json 里 pytest 的 min_passed（同一批用例，下限共用，不另登记数字）。
+    #
+    #     6d PowerShell 双宿主矩阵：toolchain/tests 里启动 PowerShell 子进程跑 .ps1 的那批用例（各测试
+    #     文件自己 shutil.which 选宿主，惯例 5.1 优先，所以过去永远只在 5.1 下跑）用环境变量
+    #     WS_GAME_PS_HOST=5.1 / 7 各整批跑一遍，开关由 toolchain/tests/conftest.py 实现（会话开始时真的
+    #     启动所选宿主核对主版本，宿主缺失或解析错位直接 pytest.exit，不会悄悄退化）。"这批用例"=
+    #     toolchain/tests/test_*.py 里出现带引号的 "powershell"/"pwsh" 字样、或引用共用工具 _ps_harness 的文件（动态筛选，新增同类
+    #     测试自动纳入；筛不出任何文件判 FAIL，防筛选规则坏了静默变空）；test_registry_stop_pidfile_
+    #     rewrite_timestamp.py 排除，它按 check.ps1 阶段一的既有判断记录单独串行跑。判据同 6c 但
+    #     MinPassed 取 1，另要求两个宿主的 total 相等（两遍跑的是同一批用例）。环境性 skip 一律 FAIL。
+    # -----------------------------------------------------------------------
+    $matrixSkipReason = if ($Quick) { "-Quick" } elseif ($SkipUnity) { "-SkipUnity（环境矩阵只在全量门禁里跑，CI 的 -SkipUnity 形态不含）" } else { "" }
+
+    if ($matrixSkipReason -ne "") {
+        Add-SkippedStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" $matrixSkipReason
+    } else {
+        $noUtf8Junit = Join-Path $ArtifactsPath "pytest_junit_noutf8.xml"
+        Invoke-CheckStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" {
+            if (Test-Path -LiteralPath $noUtf8Junit) {
+                Remove-Item -LiteralPath $noUtf8Junit -Force
+            }
+            $prevPythonUtf8 = $env:PYTHONUTF8
+            $prevPythonIoEncoding = $env:PYTHONIOENCODING
+            Remove-Item Env:\PYTHONUTF8 -ErrorAction SilentlyContinue
+            Remove-Item Env:\PYTHONIOENCODING -ErrorAction SilentlyContinue
+            Push-Location $RepoRoot
+            try {
+                $noUtf8Ok = Test-NativeExitCode "python" @(
+                    "-m", "pytest", "toolchain/tests", "-q",
+                    "--ignore=toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py",
+                    "--junitxml=$noUtf8Junit")
+            } finally {
+                Pop-Location
+                $env:PYTHONUTF8 = $prevPythonUtf8
+                $env:PYTHONIOENCODING = $prevPythonIoEncoding
+            }
+            $floorsCfg = Get-GateFloorsConfig -FloorsPath $GateFloorsPath
+            $minPassed = [int]$floorsCfg.suites.pytest.min_passed
+            $noUtf8Result = Test-GateExtraPytestRun -JUnitPath $noUtf8Junit -Label "pytest 不设 PYTHONUTF8" -MinPassed $minPassed
+            if (-not $noUtf8Result.Ok) {
+                Write-Host "环境矩阵未达：$($noUtf8Result.Detail)" -ForegroundColor Red
+            }
+            [PSCustomObject]@{ Ok = ($noUtf8Ok -and $noUtf8Result.Ok); Detail = $noUtf8Result.Detail }
+        }
+    }
+
+    if ($matrixSkipReason -ne "") {
+        Add-SkippedStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" $matrixSkipReason
+    } else {
+        Invoke-CheckStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" {
+            $testsDir = Join-Path $RepoRoot "toolchain\tests"
+            $psTestFiles = @(Get-ChildItem -LiteralPath $testsDir -Filter "test_*.py" -File |
+                Where-Object { $_.Name -ne "test_registry_stop_pidfile_rewrite_timestamp.py" } |
+                Where-Object { Select-String -LiteralPath $_.FullName -Pattern '(["''](powershell|pwsh)(\.exe)?["'']|_ps_harness)' -Quiet } |
+                ForEach-Object { "toolchain/tests/" + $_.Name })
+            if ($psTestFiles.Count -eq 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "没有筛选出任何 PowerShell 脚本类 pytest 文件（筛选规则失效？）" }
+            }
+            Write-Host "PowerShell 脚本类 pytest 文件 $($psTestFiles.Count) 个：$($psTestFiles -join ' ')"
+
+            $prevPythonUtf8 = $env:PYTHONUTF8
+            $prevPsHost = $env:WS_GAME_PS_HOST
+            $env:PYTHONUTF8 = "1"
+            $allOk = $true
+            $details = @()
+            $totals = @()
+            Push-Location $RepoRoot
+            try {
+                foreach ($psHost in @("5.1", "7")) {
+                    $hostJunit = Join-Path $ArtifactsPath ("pytest_junit_pshost_" + $psHost.Replace(".", "") + ".xml")
+                    if (Test-Path -LiteralPath $hostJunit) {
+                        Remove-Item -LiteralPath $hostJunit -Force
+                    }
+                    $env:WS_GAME_PS_HOST = $psHost
+                    $runOk = Test-NativeExitCode "python" (@("-m", "pytest") + $psTestFiles + @("-q", "-p", "no:cacheprovider", "--junitxml=$hostJunit"))
+                    $hostResult = Test-GateExtraPytestRun -JUnitPath $hostJunit -Label "PowerShell $psHost" -MinPassed 1
+                    if (-not $hostResult.Ok) {
+                        Write-Host "环境矩阵未达：$($hostResult.Detail)" -ForegroundColor Red
+                    }
+                    if (-not ($runOk -and $hostResult.Ok)) { $allOk = $false }
+                    $details += $hostResult.Detail
+                    $hostCounts = Get-JUnitTestCounts -XmlPath $hostJunit
+                    if ($null -ne $hostCounts) { $totals += $hostCounts.Total }
+                }
+            } finally {
+                Pop-Location
+                $env:PYTHONUTF8 = $prevPythonUtf8
+                $env:WS_GAME_PS_HOST = $prevPsHost
+            }
+            if ($allOk -and $totals.Count -eq 2 -and $totals[0] -ne $totals[1]) {
+                $allOk = $false
+                $details += "两个宿主跑的用例总数不一致（5.1=$($totals[0]) 7=$($totals[1])）"
+            }
+            [PSCustomObject]@{ Ok = $allOk; Detail = ($details -join " | ") }
+        }
+    }
+
 } catch {
     # 兜底：本线内任何一处未被 Invoke-CheckStep 自己 try/catch 接住的异常（理论上不应该发生，
     # 因为每个真正的检查都已经包在 Invoke-CheckStep 里；这里只防"本脚本自身的胶水代码"，如

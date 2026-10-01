@@ -56,14 +56,21 @@
          干净的提交状态，不能夹带未提交的改动。
       3. 校验仓库根 CHANGELOG.md 已存在形如 `## [X.Y.Z]` 的条目（不含该条目直接报错退出，提示先
          在 CHANGELOG.md 补齐该版本的变更记录）。
+      3b. 校验 `REGRESSION_LOG.md` 里有对应当前 HEAD 的"含 Unity 全量通过"记录（复盘 I-13）：记录的
+         提交就是 HEAD，或是 HEAD 的祖先且其后到 HEAD 只改了文档类文件（`docs/`、`architecture/`、
+         `*.md`）；否则拒绝发布并打印原因（需要先在有 Unity 的机器上对当前提交跑 `check.ps1` 全量并
+         登记）。判定规则与记录行格式见 `toolchain/_release_regression_guard.ps1`。`-DryRun` 不拦，
+         只打印同一份判定作警告。
       4. 非 `-DryRun` 时：把该版本号写回仓库根 VERSION 文件、两个 package.json（含
          `games/_template/package.json` 对适配层包的依赖版本号）与
          `adapters/unity/Packages/packages-lock.json`（`com.gamefoundation.game-template` 条目下
          对适配层包依赖版本号的镜像字段，UPM 打开工程时会自行核对/改写这个字段，写回步骤同步覆盖
          避免下一步门禁跑出一份未提交的改动）——这一步是本次发布"成为新的当前版本"的唯一写入点，
          `-DryRun` 时跳过，不触碰任何源码文件。
-      5. 跑一遍 `check.ps1`（默认全量，含 Unity 相关步骤与消费方演练；`-ReleaseSkipUnity` 传
-         `-SkipUnity` 给 check.ps1，用于没有装 Unity 的机器，但默认要求全量门禁通过才能发布）。
+      5. 跑一遍 `check.ps1`（全量，含 Unity 相关步骤与消费方演练，并固定传 `-Il2cpp` 额外跑 IL2CPP
+         构建与两种冒烟——复盘 I-6，发布前核心库在 AOT 下的真实可运行性必须有证据；日常 `check.ps1`
+         不跑这三步）。发布门禁没有"跳过 Unity"的开关（原先跳过 Unity 的发布开关已于测试覆盖第四批删除，
+         复盘 I-13）。
       6. 非 `-DryRun` 时：门禁通过后立即提交 VERSION/两个 package.json/packages-lock.json/
          CHANGELOG.md 的改动（提交信息 `发布 <ver>`），并在 `dist/release-notes-<ver>.txt` 落一份
          CHANGELOG.md 该版本条目正文（供 `gh release create --notes-file` 使用）——先于下一步打包，
@@ -95,11 +102,6 @@
     打印的两条命令（`git push origin <当前分支> refs/tags/v<ver>`、`gh release create ...`），
     不再需要人工另行复制粘贴执行。省略时（默认）只打印这两条命令，不自动执行，由人工/设计层
     确认后自行运行。
-
-.PARAMETER ReleaseSkipUnity
-    仅与 `-Release` 同传有效。第 5 步跑 `check.ps1` 时额外传 `-SkipUnity`，跳过 Unity 相关四步与
-    消费方演练（没有装 Unity 或 Unity 被占用的机器上用）。省略时（默认）要求 `check.ps1` 全量通过
-    才能发布——"发布"这个动作本身就意味着要对外承诺质量，默认不放宽。
 
 .PARAMETER Zip
     独立于 `-Release` 使用：与 `-Dist`/`-Dist auto` 同传时，额外打一份 `dist/ws-game-<ver>.zip`
@@ -156,7 +158,6 @@ param(
     [string]$Release = "",
     [switch]$DryRun,
     [switch]$Publish,
-    [switch]$ReleaseSkipUnity,
     [switch]$Zip,
     [switch]$PublishRegistry,
     [string]$RegistryUrl = "",
@@ -189,6 +190,11 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # _version_writeback.ps1/_lock_writeback.ps1/_unity_path_length_guard.ps1 同一模式），供
 # toolchain/tests/test_dist_immutability_guard.py 单独 dot-source 测试。
 . (Join-Path $RepoRoot "toolchain\_dist_immutability_guard.ps1")
+# 判断记录（复盘 I-13，2026-10-01）：-Release 写回版本号之前核对 REGRESSION_LOG.md 里有对应当前
+# HEAD 的"含 Unity 全量通过"记录，取代已删除的"发布时跳过 Unity"开关；判定函数独立成文件（同目录其余
+# 守卫同一模式），供 toolchain/tests/test_release_regression_guard.py 单独 dot-source 测试，规则与
+# 记录行格式见该文件头。
+. (Join-Path $RepoRoot "toolchain\_release_regression_guard.ps1")
 
 function Write-Step {
     param([string]$Message)
@@ -239,16 +245,15 @@ if ($DistRequested) {
 }
 
 # -----------------------------------------------------------------------------
-# 版本管理方案新增：-Release 发布流程（见上方 .PARAMETER Release/DryRun/Publish/ReleaseSkipUnity
-# 说明）。本节只做第 1～3 步的前置校验并把 -Release 转译成等价的 -Dist 请求（复用下方既有的打包
+# 版本管理方案新增：-Release 发布流程（见上方 .PARAMETER Release/DryRun/Publish 说明）。本节只做第 1～3 步的前置校验并把 -Release 转译成等价的 -Dist 请求（复用下方既有的打包
 # 逻辑，只是打包目录名在 -DryRun 时额外带 -dryrun 后缀，见 $DistDirVersion）；第 4 步（写回源码
 # 版本号）紧跟本节之后单独一节；check.ps1 门禁、zip/lock 产物、提交与打标签在打包完成之后（脚本
 # 末尾）另起一节，因为它们依赖打包已经产出的 dist/<dir>/ 目录与其中的 DLL 哈希。
 # -----------------------------------------------------------------------------
 $ReleaseRequested = ($Release -ne "")
 
-if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $ReleaseSkipUnity -or $PublishRegistry)) {
-    Write-Host "-DryRun/-Publish/-ReleaseSkipUnity/-PublishRegistry 仅在同传 -Release 时有效" -ForegroundColor Red
+if ((-not $ReleaseRequested) -and ($DryRun -or $Publish -or $PublishRegistry)) {
+    Write-Host "-DryRun/-Publish/-PublishRegistry 仅在同传 -Release 时有效" -ForegroundColor Red
     exit 1
 }
 if ($DryRun -and $Publish) {
@@ -354,6 +359,19 @@ if ($ReleaseRequested) {
     $ReleaseChangelogSection = ($changelogLines[$headingIndex..($sectionEndIndex - 1)] -join "`n").Trim()
     Write-Host "  CHANGELOG.md 已找到 [$Release] 条目：校验通过"
 
+    # 第 3b 步（复盘 I-13）：必须有对应当前 HEAD 的"含 Unity 全量通过"回归记录才允许真正发布。
+    # 放在写回版本号（第 4 步）之前——此时 HEAD 仍是待发布的开发提交，拒绝时工作树没有被任何改动
+    # 污染；DryRun 只警告不拦（见 toolchain/_release_regression_guard.ps1 判断记录 5)）。
+    $regressionVerdict = Test-ReleaseRegressionRecord -RepoRoot $RepoRoot
+    if ($regressionVerdict.Ok) {
+        Write-Host "  含 Unity 全量回归记录：校验通过（$($regressionVerdict.Reason)）"
+    } elseif ($DryRun) {
+        Write-Host "  警告（-DryRun 不拦）：$($regressionVerdict.Reason)" -ForegroundColor Yellow
+    } else {
+        Write-Host "拒绝发布：$($regressionVerdict.Reason)" -ForegroundColor Red
+        exit 1
+    }
+
     # -Dist 与 -Release 二选一：-Release 内部转译为一次 -Dist 请求，复用下方既有打包逻辑；
     # 若调用方同时显式传了 -Dist，以 -Release 为准（更明确的意图），并提示一句。
     if ($DistRequested -and ($ResolvedDistVersion -ne $Release)) {
@@ -394,8 +412,13 @@ if ($ReleaseRequested) {
         Write-Host "  已写回 adapters\unity\Packages\packages-lock.json -> com.gamefoundation.game-template.dependencies.com.gamefoundation.adapter.unity=$Release"
     }
 
-    # 第 5 步：全量门禁（-ReleaseSkipUnity 时传 -SkipUnity 给 check.ps1）。DryRun 同样跑——
-    # DryRun 的目的正是验证"发布流水线全流程能否走通"，门禁本身不写文件，天然安全。
+    # 第 5 步：全量门禁（含 Unity，没有跳过 Unity 的开关）。DryRun 同样跑——DryRun 的目的正是验证
+    # "发布流水线全流程能否走通"，门禁本身不写文件，天然安全。
+    #
+    # 判断记录（固定传 -Il2cpp，复盘 I-6，2026-10-01 设计层拍板）：IL2CPP 三步（IL2CPP 独立版构建 +
+    # 两种无人值守冒烟）验证核心类库在 AOT 编译下的真实可运行性，耗时分钟到十余分钟、依赖 IL2CPP 模块
+    # 与 C++ 工具链，所以日常 check.ps1 默认不跑；但发布前这是唯一一次对外承诺质量的时刻，不能留
+    # 盲区，因此只在这里固定传。
     #
     # 判断记录（固定传 -AbiStrict，外部审计 audit-76d16a5-20260910 PJ114-02 根治）：发布机在跑到
     # 这一步之前，第 4 步已经确保历史版本 dist/ 产物齐备（`-Release` 打包本身就要求能追溯到基线
@@ -410,8 +433,7 @@ if ($ReleaseRequested) {
     # 的原行为，两者场景不同、开关默认值分开定，互不影响。
     Write-Step "check.ps1 门禁（-Release 第 5 步）"
     $checkScript = Join-Path $RepoRoot "check.ps1"
-    $checkArgs = @("-AbiStrict", "-FailFast")
-    if ($ReleaseSkipUnity) { $checkArgs += "-SkipUnity" }
+    $checkArgs = @("-AbiStrict", "-FailFast", "-Il2cpp")
     & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Host "check.ps1 未通过（退出码 $LASTEXITCODE），发布流程终止" -ForegroundColor Red

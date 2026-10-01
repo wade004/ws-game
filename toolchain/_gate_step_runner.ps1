@@ -194,6 +194,22 @@ function Add-SkippedStep {
     })
 }
 
+# 判断记录（复盘 I-12 余项，2026-10-01）：汇总表里的 SKIP 有两类，此前混在一起不可分辨——
+# (a) 开关/流程导致的预期 SKIP（-Quick、-SkipUnity、-DocsOnly、-SkipConsumer、未传 -Il2cpp、-FailFast
+#     下游步骤被短路）；(b) 环境导致的 SKIP（ABI 探针本地无基线发行包、样例导入幂等性门禁因工作树已有
+#     未提交改动而跳过……）——后者意味着"这一步其实没验证"，却和前者一样安静地躺在 SKIP 列里。本函数
+#     从结果列表里挑出 (b)：SKIP 行的 Detail 不是上述开关/短路原因开头的，一律算环境性 SKIP，
+#     check.ps1 汇总段把它们单独计数并逐条打印；发布路径上 ABI 的基线缺失本身另有 -AbiStrict 判 FAIL。
+#     新增的开关类 Add-SkippedStep 原因文案若不以下面列出的前缀开头，会被当成环境性 SKIP 打出来——
+#     那正是想要的提醒（要么改文案对齐前缀，要么确认它确实是环境问题）。
+function Get-EnvironmentalSkipRows {
+    param([Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()]$Results)
+    $flagDriven = '^(-Quick|-SkipUnity|-SkipConsumer|-DocsOnly|未传 -Il2cpp|上游步骤已失败|并行的另一条线已失败|前置快速检查失败)'
+    return @($Results | Where-Object {
+        $_.Result -eq "SKIP" -and ([string]$_.Detail) -notmatch $flagDriven
+    })
+}
+
 # 跑一个原生可执行文件并按退出码判定通过/失败。判断记录（F1/TOOL-01 根治、局部降级
 # $ErrorActionPreference）与原 check.ps1 完全一致，原样搬入，不重复贴一遍长注释——详见本仓库
 # git 历史 `check.ps1` 对应函数（2026-09 之前）与 `audit-20260907/

@@ -124,6 +124,37 @@
        dotnet test 步骤名里的测试工程数改为脚本从 Core.sln 数出来（复盘 I-11，此前写死"六工程"，
        实际早已不是六个）。
 
+    8) **测试覆盖第四批的门禁调整（2026-10-01，复盘 docs/复盘/测试覆盖剩余项-2026-10-01.md 末节
+       "拍板"，下面各条是这些决定在门禁里的唯一落点）**：
+       - **I-5 缩减版（环境矩阵）**：全量门禁（不含 `-Quick`、不含 `-SkipUnity`，即也不含 CI 的固定
+         形态）在 `toolchain/_gate_line_heavy.ps1` 多两步——6c 把 `PYTHONUTF8`/`PYTHONIOENCODING`
+         摘掉后整套 `pytest toolchain/tests` 再跑一遍；6d 把"启动 PowerShell 子进程跑 .ps1"的那批
+         pytest 文件在 Windows PowerShell 5.1 与 PowerShell 7 两个宿主各整批跑一遍（环境变量
+         `WS_GAME_PS_HOST`，实现与宿主核对见 `toolchain/tests/conftest.py`）。两步里 skipped 一律
+         FAIL。`-Quick`/`-SkipUnity` 下这两步登记为可见 SKIP，所以三种形态的总步骤数各 +2。
+       - **I-6（IL2CPP/AOT 只进发布门禁）**：IL2CPP 三步（构建 + 两种冒烟）仍然只由 `-Il2cpp` 开启，
+         默认 `check.ps1`（含 pre-commit、CI、日常全量）不跑——代码现状即如此（`_gate_line_unity.ps1`
+         里 `if (-not $Il2cpp)` 分支登记三个 SKIP，`-Il2cpp` 默认 `$false`），本次只确认并登记判断；
+         新增的是 `build.ps1 -Release` 第 5 步调用本脚本时固定传 `-Il2cpp`（发布前核心库在 AOT 下
+         的真实可运行性必须有证据）。
+       - **I-7（不做）**：不为 `build.ps1 -Release`/`-Dist` 全流程写自动化 dry-run 用例——脚本近两千
+         行、仅 Windows、耗时长，写稳的成本高于收益；发布流程靠真实发布 + `REGRESSION_LOG.md` 登记
+         + 既有的 `toolchain/_dist_immutability_guard.ps1` 等纯函数守卫的单测兜底。
+       - **I-13（发布必须有含 Unity 全量记录）**：`build.ps1` 里"发布时跳过 Unity"的开关删除（发布
+         门禁恒为全量）；`-Release` 在写回版本号之前先核对 `REGRESSION_LOG.md`，没有对应当前 HEAD
+         （或其祖先且其后只改了文档）的含 Unity 全量通过记录就拒绝发布，判定函数与规则见
+         `toolchain/_release_regression_guard.ps1`。CI 仍不跑 Unity。
+       - **I-2 余项**：dotnet test 步骤里找不到性能基线诊断行（PerfBaselineTests 被排除/没编进来）
+         由"黄色警告照样 PASS"改为 FAIL（`Get-PerfDiagnosticLines`，伪造 trx 夹具用例在
+         `toolchain/tests/test_gate_floors_logic.py`）。
+       - **I-8 / I-12 余项**：门禁自身的判定逻辑抽成纯函数后用 pytest 子进程直接测——Unity 结果
+         XML 判定、冒烟日志判定、npm 包清单必需文件清单（`toolchain/_gate_unity_verdicts.ps1`）、
+         `Resolve-UnityExe`/`Invoke-NativeAndWait`/`Test-NoResidualUnityProcess`（`_gate_step_runner.ps1`
+         原函数，直接测）；汇总段新增"环境性 SKIP"单独计数并逐条打印（`Get-EnvironmentalSkipRows`：
+         不是 `-Quick`/`-SkipUnity`/`-DocsOnly`/`-SkipConsumer`/未传 `-Il2cpp`/FailFast 短路造成的 SKIP，
+         如 ABI 探针本机无基线发行包、样例导入幂等性门禁因工作树有未提交改动而跳过，意味着该步骤本次
+         没有验证）。pytest 环境性 skip 早已因 `max_skipped=0` 判 FAIL，不变。
+
 .PARAMETER SkipUnity
     跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）与消费方演练；只跑
     .NET/Python/禁用词/DLL 同步/包清单一致性几步。同一仓库内并行有人独占 Unity 编辑器时用这个
@@ -200,7 +231,8 @@
     （Adapter.Unity.EditorTools.Il2CppPlayerBuilder.BuildWindows64PlayerIl2cpp，构建前临时切
     NamedBuildTarget.Standalone 的脚本后端到 IL2CPP，构建后还原，不永久修改 ProjectSettings）+
     两种无人值守冒烟（-gf-smoke / -gf-smoke-discrete），验证核心类库在 AOT 编译（无反射兜底）下
-    的真实可运行性。`-SkipUnity` 时本开关不生效（-SkipUnity 已整体跳过 Unity）。
+    的真实可运行性。`-SkipUnity` 时本开关不生效（-SkipUnity 已整体跳过 Unity）。`build.ps1 -Release`
+    第 5 步固定传本开关（复盘 I-6，见 .SYNOPSIS 判断记录 8)）；日常/pre-commit/CI 仍默认不跑。
 
 .PARAMETER DocsOnly
     提交前钩子分级任务新增（2026-09-22），供 `.githooks/pre-commit` 在判定本次提交暂存改动
@@ -740,6 +772,7 @@ if ($FailFast -and $script:GateFailed) {
         DocsOnly                   = [bool]$DocsOnly
         FailFast                   = [bool]$FailFast
         AbiStrict                  = [bool]$AbiStrict
+        SkipUnity                  = [bool]$SkipUnity
         FailFastFlagPath           = $failFastFlagPath
         ResultsJsonPath            = $heavyResultsJson
         TranscriptPath             = $heavyLog
@@ -869,6 +902,19 @@ $displayRows | Format-Table -AutoSize Step, Result, Seconds, Detail | Out-String
 # "门禁通过"。加 @() 强制数组上下文后 .Count 在 0/1/多个匹配下都正确。
 $failed = @($script:Results | Where-Object { $_.Result -eq "FAIL" })
 $totalSeconds = ($script:Results | Measure-Object -Property Seconds -Sum).Sum
+
+# 环境性 SKIP 单独计数并逐条打印（复盘 I-12 余项，判断记录见 toolchain/_gate_step_runner.ps1
+# Get-EnvironmentalSkipRows 与本文件顶部 .SYNOPSIS 判断记录 8)）。不改变通过/失败判定，只让"其实没
+# 验证"的 SKIP 在汇总里一眼可辨。
+$envSkips = @(Get-EnvironmentalSkipRows -Results $script:Results)
+if ($envSkips.Count -gt 0) {
+    Write-Host "环境性 SKIP：$($envSkips.Count) 项（非开关导致，该步骤本次没有验证，请确认是否预期）：" -ForegroundColor Yellow
+    foreach ($envSkip in $envSkips) {
+        Write-Host "  - $($envSkip.Step)：$($envSkip.Detail)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "环境性 SKIP：0 项" -ForegroundColor DarkGray
+}
 
 if ($failed.Count -gt 0) {
     Write-Host "门禁失败：$($failed.Count) 步未通过（共 $($script:Results.Count) 步，步骤耗时求和 ${totalSeconds}s，脚本总墙钟 ${overallSeconds}s）。" -ForegroundColor Red
