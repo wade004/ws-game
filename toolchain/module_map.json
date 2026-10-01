@@ -78,7 +78,8 @@
     "doc_globs": [
       "**/*.md",
       "architecture/**",
-      "docs/**"
+      "docs/**",
+      "timing/**"
     ],
     "shared_tests_globs": [
       "core/*/assembly/tests/**",

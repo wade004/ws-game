@@ -100,6 +100,17 @@ def test_repro_t0_docs_only_runs_exactly_the_docs_subset(mmap: dict) -> None:
     assert plan["engine"]["mode"] == "none"
 
 
+def test_repro_timing_log_is_t0_not_unknown(mmap: dict) -> None:
+    # 复现：AGENTS.md §1c 的 timing/*.jsonl 入库后，未登记时被「未知路径 = T3」判成全量，
+    # 一次改动夹带耗时记录就让切片级门禁退化为全量。它是统计原始数据，与文档同属 T0。
+    plan = _plan(mmap, "timing/20261001_ai-transformation_20261001.jsonl")
+    assert plan["level"] == "T0"
+    assert _run_ids(plan) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "docs_pytest"}
+    # 夹带一个 T1 改动时只升到 T1，不升到 T3
+    plan2 = _plan(mmap, "timing/x.jsonl", "core/foundation/event_bus/core/EventBus.cs")
+    assert plan2["level"] == "T1"
+
+
 def test_repro_t1_module_internal(mmap: dict) -> None:
     plan = _plan(mmap, "core/foundation/event_bus/core/EventBus.cs", "core/foundation/event_bus/tests/EventBusTests.cs")
     assert plan["level"] == "T1"
