@@ -467,6 +467,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **数值仿真基线比对挪出 T1**：模块表步骤新增 `min_level`，仿真基线只在 T2 及以上触发；仿真自己的输入数据与基线文件（`core/sim/tests/data/**`、`core/sim/tests/baseline/**`）经 `always_triggers` 不受限制。
 - **定向模式不再把「T? 未触发」误报为环境性 SKIP**：汇总段的环境性 SKIP 判定正则把定向模式的未触发原因归入开关类；主线新增的环境矩阵 6c/6d 与 IL2CPP 三步补步骤编号并登记模块表。
 - **pytest 用例数下限上调**：`toolchain/gate_floors.json` 的 pytest `min_passed` 780 → 840（合并前全量门禁实测 934，新增定向门禁用例）。
+- **分支版本标签由工具自动推导（ADR-0127）**：落地 `AGENTS.md` §1b 的版本号格式。新增 `toolchain/version_label.py`：feature/bugfix 分支标签为 `<VERSION>_<名>`，main 为 `<VERSION>_release`，其它分支把 `/` 换成 `-`，游离 HEAD 为 `<VERSION>_detached-<短提交号>`；`--check-branch-name` 检查分支名规范。`check.ps1` 开头与汇总末尾打印"版本标签：…"，新增门禁步骤"分支名规范"（只判 feature/bugfix 分支，已登记模块表）。`Directory.Build.props` 把程序集信息版本设为标签（`check.ps1`/`build.ps1` 经环境变量传入，未传时回退 `VERSION` 内容；程序集版本与文件版本不动，ABI 不变，没有新增公开接口）。`build.ps1 -Release` 的发布说明首行写 `<新版本>_release`（`toolchain/_release_notes.ps1`）。`VERSION`、包版本、发布标签、发布包名、变更日志标题与 ABI 基线仍是纯语义化版本，版本校验逻辑不变。
 
 ## [1.92.0] - 2026-10-01
 

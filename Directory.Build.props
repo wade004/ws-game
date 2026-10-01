@@ -9,6 +9,19 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!-- 判断记录（版本标签，ADR-0127）：程序集信息版本（InformationalVersion，文件属性里的"产品版本"）
+       写成版本标签 `<VERSION 内容>_<分支名>` / `<VERSION 内容>_release`（推导规则见 toolchain/version_label.py）。
+       标签由 check.ps1 / build.ps1 推导后经环境变量 WsGameVersionLabel 传入（MSBuild 把环境变量当属性读，
+       也可用 -p:WsGameVersionLabel=... 显式传）；都没传时回退为仓库根 VERSION 文件内容（纯 X.Y.Z）。
+       只设信息版本：AssemblyVersion 与 FileVersion 不动（公开面兼容性不变）；
+       IncludeSourceRevisionInInformationalVersion 关闭，避免 SDK 在标签后再追加提交哈希后缀。
+       VERSION 文件本身与包版本字段仍是纯语义化版本。 -->
+  <PropertyGroup>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <InformationalVersion Condition="'$(WsGameVersionLabel)' != ''">$(WsGameVersionLabel)</InformationalVersion>
+    <InformationalVersion Condition="'$(WsGameVersionLabel)' == '' And Exists('$(MSBuildThisFileDirectory)VERSION')">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</InformationalVersion>
+  </PropertyGroup>
+
   <!-- 判断记录（API 参考手册，见 docs/manual/README 与 build.ps1 -Dist）：只对"进入 API 参考的
        类库"（工程名以 Core.、Presentation.、Adapters. 开头，即 Core.sln 里的核心程序集、
        表现层、桩适配层与诊断转发工程）生成 XML 注释文件；测试工程（Tests. 开头）与工具工程
