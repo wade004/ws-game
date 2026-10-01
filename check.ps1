@@ -252,6 +252,9 @@
     "探针没跑"本身就是发布链路故障，必须失败而不是安静跳过——`build.ps1 -Release` 调用全量 check
     时固定传本开关（见该脚本调用点判断记录）。`-Quick`/`-SkipUnity` 均不影响本开关是否生效（本开关
     只改变"基线缺失"这一种局面下 ABI 步骤的判定，`-Quick` 下 ABI 步骤本身整体 SKIP，不受影响）。
+    链接工作树里本身没有 `dist/` 时，探针会自动回落到主工作树的 `dist\ws-game-<基线版本>.zip`
+    （见 `toolchain/_abi_baseline_resolve.ps1`），门禁本身不判基线是否存在，因此无需任何额外处理，
+    也不要把 `dist` 复制进工作树。
 
 .PARAMETER Il2cpp
     工程收尾 K 新增，默认不跑（因为耗时数分钟到十几分钟，见 adapters/unity/README.md"IL2CPP

@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+from _latest_dist import locate_dist_file
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1199,7 +1200,8 @@ def test_real_baseline_end_to_end_via_abi_probe(tmp_path: Path) -> None:
     baseline_version_file = REPO_ROOT / "toolchain" / "abi_probe_baseline.txt"
     assert baseline_version_file.is_file()
     baseline_version = baseline_version_file.read_text(encoding="utf-8").strip()
-    baseline_zip = REPO_ROOT / "dist" / f"ws-game-{baseline_version}.zip"
+    # 链接工作树里没有 dist/ 时回落到主检出的 dist/（与 abi_probe.ps1 同口径，见 _latest_dist 判断记录第 4 条）。
+    baseline_zip = locate_dist_file(REPO_ROOT, f"ws-game-{baseline_version}.zip")
     if not baseline_zip.is_file():
         pytest.skip(f"本机没有 dist/ws-game-{baseline_version}.zip，跳过真实基线端到端测试（不是 pass）")
 

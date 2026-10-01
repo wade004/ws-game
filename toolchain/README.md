@@ -1518,3 +1518,32 @@ build/test 步骤）。
   ④防线只覆盖 `toolchain/tests` 下的 pytest 会话：`check.ps1` 其它步骤、`build.ps1`、dotnet/Unity 测试里起的 git 不在本次范围；
   ⑤没有 conftest 的运行方式（`--noconftest`、把单个测试文件拷到别处跑）下，被测脚本自己起的只读 git 仍会继承调用方的 `GIT_*`（只读，不写；测试自己起的写操作仍走辅助函数，不受影响）；
   ⑥`gate_floors.json` 的 pytest `min_passed` 未随本次新增的 30 条用例上调，留待合并前全量实测后按既有规则抬高。
+
+## `dist/` ������ ABI ���߻��䣨`prune_dist.ps1`��`_abi_baseline_resolve.ps1`��2026-10-02��
+
+������`dist/` �� `.gitignore` �ı����������棬��ǰֻ�������������Լ 12.4 GB��433 ����Ŀ�������лỰ�����ӹ����������Ž�ʱ��
+`abi_probe.ps1` ֻ�� `<������>\dist` �Ҳ������ߣ��������ǰ����� `dist` ���ƽ�ÿ����������ÿ��Լ 12.5 GB����
+
+**�жϼ�¼**
+
+1. **��������**��`prune_dist.ps1` �ļ�ͷΪ׼����������ǰ `VERSION` + �������µ���ʽ�汾��`-KeepVersions`��Ĭ�� 2����
+   `<ver>/`���� zip��samples zip������ `.lock` / `release-notes-*.txt` ����С���Ƿ�����¼�������� `-dryrun` ����ɾ���Ž�ÿ���ش򣩣�
+   �ϲ�����̬�ġ����ڵ�ǰ�汾�Ĳ��������ɣ����ѷ���˽��/GitHub Release���������� `dist/`�����ɱ䷢��������"�ѷ���"�� `git tag`������ `dist/`
+   ����û���ļ�����������ʷ���ﲻ������������С���ʷ�汾��Ҫʱ�����ǩ�� `build.ps1 -Dist <ver>` �ؽ����ؽ� zip �� sha ����֤��
+   ���� `.lock` ��ͬ��`.lock` ������¼����
+2. **���Ᵽ�� ABI ���� zip������������һ����**��`abi_probe_baseline.txt` ��¼�İ汾����ǰ 1.12.0������������棩�� `ws-game-<���߰汾>.zip`��
+   `build.ps1 -Release` �̶��� `-AbiStrict`������ȱʧ���÷��� FAIL��`test_real_baseline_end_to_end_via_abi_probe` �ڻ���ȱʧʱ skip��
+   ײ�Ž��� skip ���� 0��ֻ�� zip�������ð汾Ŀ¼�� samples ����Լ 50 MB����
+3. **��ȫ**��ֻ�� `<RepoRoot>\dist` ��һ�㰴��̬������`dist` ��������ɾ��Ŀ�������ڲ��κ�һ�����ؽ����㼴�ܾ�������������������Ԥ�졢��ɾ�κζ�������
+   ��ɾ·��������������� `dist\` ֮�¡����� `-Apply` ֻ���嵥��
+4. **�Զ�����**��`build.ps1 -Release`���� `-DryRun`��ȫ���ɹ��������ǩ������ѡ��˽��/GitHub ������֮�����ӽ��̵��� `prune_dist.ps1 -Apply`��
+   ���� try/catch��ʧ��ֻ���棬���ķ���������˳��루�ű�ĩβ�̶� `exit 0`����
+5. **���߻���**��`abi_probe.ps1` Ĭ�Ͻ����������� `dist` �Ҳ������ұ�Ŀ¼�����ӹ�������`git rev-parse --git-dir` �� `--git-common-dir`��ʱ�����䵽
+   `--git-common-dir` ��Ŀ¼�������������� `dist\ws-game-<���߰汾>.zip`�������"������������"����ʽ `-BaselineZip` ���䣻������û������ԭ����
+   SKIP���˳��� 3��/`-AbiStrict` FAIL����ֵʱ��ʱժ�� `GIT_DIR` �ȹ���ע��������� `Env:` ������ɾ������PowerShell 7 ��
+   `SetEnvironmentVariable(��, $null)` ���ÿմ�������ɾ������ `GIT_DIR` ���� git ��������`check.ps1` �� ABI ���豾�����л����Ƿ���ڣ�ֱ�ӵ�̽�룬
+   ����Ķ���pytest ����ʵ dist ����������`test_get_framework_path_boundary`��`test_lock_writeback_repair_parity`��`test_real_baseline_end_to_end_via_abi_probe`��
+   �� `_latest_dist.resolve_dist_dir` / `locate_dist_file` ͬ�ھ����䣬���ӹ������ﲻ���� `dist/` ȱʧ�� skip��
+6. **��֪����**���ٻ���ֻ�����ӹ�������`git worktree add` �����ģ���������¡û��"��������"���ȱ������ SKIP����`prune_dist.ps1` ������ `dist/` ��
+   �ϲ�����̬����Ŀ�����;ʧ�ܲ����� `tag-message-<ver>.txt`����ֻ��������г������˹��壻�������� `VERSION` �ļ���"��ǰ�汾"���� `VERSION`
+   ���� `dist/` ��ĳЩ�汾��ά����֧������ʱ�����ڵ�ǰ�汾����Ŀһ�ɲ���������ɾ����

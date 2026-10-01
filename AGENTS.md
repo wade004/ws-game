@@ -34,7 +34,13 @@
 
 ## 1. 工作树与 git
 
-- 每个任务开独立工作树：`git -C D:\workespace\ws-game worktree add "<scratchpad>\<name>" -b <branch> main`。
+- 每个任务开独立工作树，位置固定为短路径 `D:\wt\<name>`（不放系统临时目录/scratchpad：路径浅，Unity 步骤不触 MAX_PATH）：
+  `git -C D:\workespace\ws-game worktree add D:\wt\<name> -b <branch> main`。**不得把 `dist` 复制进工作树**
+  （整份约十几 GB）：ABI 基线由 `toolchain/abi_probe.ps1` 在工作树里找不到时自动回落到主检出的 `dist`，
+  pytest 的真实 dist 产物用例同理；任务收尾 `git worktree remove D:\wt\<name>`。
+- `dist/` 发版后自动瘦身：`build.ps1 -Release`（非 `-DryRun`）成功打完标签后会调用 `toolchain/prune_dist.ps1 -Apply`
+  （保留当前与上一版本、ABI 基线 zip、全部 lock/release-notes，其余历史产物与全部 `-dryrun` 产物删除，需要时按标签
+  `build.ps1 -Dist <ver>` 重建）；手动：`pwsh toolchain\prune_dist.ps1 -Apply`（先不带 `-Apply` 看清单）。
 - 所有 git 命令用 `git -C "<工作树绝对路径>"`；其它命令须在同一个工具调用内 `Push-Location … Pop-Location`（PowerShell/Bash 工具调用之间，当前目录会重置回主树）。
 - 提交前先打印 `git -C "<工作树>" rev-parse --show-toplevel` 核对确实在工作树内。
 - **文件编辑工具（Edit/Write 等）一律传工作树的绝对路径**，禁止相对路径、禁止主检出路径。上一条讲的是
@@ -168,7 +174,7 @@
     在汇报里写明理由，是否补跑由派单方（设计层或验收 agent）决定，不擅自执行。
 - **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向子集。
 - **G2**：`check.ps1 -Quick` 全 PASS。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向重跑，不必跑 `check.ps1 -Quick` 全量。
-- **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -BaselineZip "dist\ws-game-<上一版>.zip" -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。
+- **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。基线版本取自 `toolchain/abi_probe_baseline.txt`，探针先找本工作树 `dist\ws-game-<基线版本>.zip`，没有就自动回落到主检出的 `dist`（输出标"来自主工作树"）；工作树里不需要也不得复制 `dist`，要换基线才显式传 `-BaselineZip`。
 - **G4**：模块 README 的"判断记录" + `CHANGELOG.md` `[Unreleased]` 段新增条目——除非派单说明本次改动由后续整合单统一写变更记录。
 - 涉及仿真相关改动，三份基线要零差异（`simrunner run --scenario all …`）。**`Added`（基线里从未
   记录过的统计量）也算差异**，不是只看 `Exceeded`/`Removed`：`simrunner` 自身退出码 0 只承诺

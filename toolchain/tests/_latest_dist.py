@@ -9,6 +9,9 @@
 2. ``dist/`` 里一个成对的包都没有（干净 checkout、从未发布过）才 skip，属环境性。
 3. 只认严格 ``ws-game-<主>.<次>.<修订>.zip`` 与同名 ``.lock``：``-samples.zip``、``-dryrun`` 目录等
    不参与。
+4. 链接工作树里没有 ``dist/``（``dist/`` 只存在于主检出，.gitignore）时回落到主检出的 ``dist/``
+   （:func:`resolve_dist_dir` / :func:`locate_dist_file`），与 ``toolchain/abi_probe.ps1`` 的基线回落同一口径：
+   工作树里不需要、也不得为了让这类用例不 skip 而复制整个 ``dist``（2026-10-02，dist 瘦身与基线回落）。
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Optional, Tuple
+
+from _git_env import run_git
 
 _ZIP_RE = re.compile(r"^ws-game-(\d+)\.(\d+)\.(\d+)\.zip$")
 
@@ -38,3 +43,46 @@ def find_latest_dist_package(dist_dir: Path) -> Optional[Tuple[str, Path, Path]]
     if best is None:
         return None
     return ".".join(str(n) for n in best[0]), best[1], best[2]
+
+
+def main_checkout_root(repo_root: Path) -> Optional[Path]:
+    """``repo_root`` 是链接工作树时返回主检出根目录，否则（主检出、非 git 目录、git 不可用）返回 None。"""
+    try:
+        git_dir = run_git(repo_root, "rev-parse", "--path-format=absolute", "--git-dir", check=False)
+        common = run_git(repo_root, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+    except (OSError, AssertionError):
+        return None
+    if git_dir.returncode != 0 or common.returncode != 0:
+        return None
+    git_dir_path = Path(git_dir.stdout.strip()).resolve()
+    common_path = Path(common.stdout.strip()).resolve()
+    if git_dir_path == common_path:
+        return None
+    return common_path.parent
+
+
+def resolve_dist_dir(repo_root: Path) -> Path:
+    """本工作树 ``dist/`` 里有任何 ``ws-game-*.zip`` 就用它；没有且主检出的 ``dist/`` 有，就用主检出的；
+    都没有返回本工作树的 ``dist/``（调用方按"没有产物"处理）。"""
+    local = Path(repo_root) / "dist"
+    if local.is_dir() and any(local.glob("ws-game-*.zip")):
+        return local
+    main_root = main_checkout_root(Path(repo_root))
+    if main_root is not None:
+        main_dist = main_root / "dist"
+        if main_dist.is_dir():
+            return main_dist
+    return local
+
+
+def locate_dist_file(repo_root: Path, name: str) -> Path:
+    """``dist/<name>`` 的路径：本工作树有就用本工作树的，否则回落到主检出的（存在才回落），都没有返回本工作树路径。"""
+    local = Path(repo_root) / "dist" / name
+    if local.is_file():
+        return local
+    main_root = main_checkout_root(Path(repo_root))
+    if main_root is not None:
+        candidate = main_root / "dist" / name
+        if candidate.is_file():
+            return candidate
+    return local
