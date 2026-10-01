@@ -1389,7 +1389,7 @@ build/test 步骤）。
 
 ## 门禁耗时自动记录（`_gate_timing.ps1` / `timing_report.py`，AGENTS.md §1c）
 
-`check.ps1` 每次运行结束（通过或失败都写）把每个步骤追加到仓库根 `timing/<年月日>_<分支名去 feature/ bugfix/ 前缀>.jsonl`（main 上为 `<年月日>_main.jsonl`），一行一条 JSON，字段与 §1c 完全一致：`task`、`branch`、`phase`、`step`、`start`、`end`、`seconds`、`result`、`note`。
+`check.ps1` 每次运行结束（通过或失败都写）把每个步骤追加到仓库根 `timing/<年月日>_<分支名去 feature/ bugfix/ 前缀>.jsonl`（main 与游离 HEAD 上改写待领目录 `timing/_pending/<年月日>_main_<时分秒>.jsonl`，见下），一行一条 JSON，字段与 §1c 完全一致：`task`、`branch`、`phase`、`step`、`start`、`end`、`seconds`、`result`、`note`。
 
 | 字段 | 取值 |
 | --- | --- |
@@ -1401,7 +1401,9 @@ build/test 步骤）。
 
 开关：`-NoTiming` 跳过写入（`.githooks/pre-commit` 与 `build.ps1 -Release` 调用门禁时固定带，否则每次提交/发布都弄脏工作树，发布打包自检还会看到 `-dirty`）。写入失败（只读、取不到分支……）不影响门禁结论，只在汇总末尾打一行警告。
 
-统计：`python toolchain/timing_report.py [--since 2026-10-01] [--branch <名>] [--phase 全量门禁] [--json]`，按 phase、按 step 输出次数、合计、中位数、P90、最大值，只写 stdout。
+统计：`python toolchain/timing_report.py [--since 2026-10-01] [--branch <名>] [--phase 全量门禁] [--json] [--no-pending]`，按 phase、按 step 输出次数、合计、中位数、P90、最大值，只写 stdout；默认也统计 `timing/_pending/` 下还没被领走的行。
+
+**待领目录**：在 `main`（及游离 HEAD）上运行时，耗时改写 `timing/_pending/<年月日>_main_<时分秒>.jsonl`（`.gitignore` 覆盖，不弄脏主检出）。下一条分支在跑合并前全量之前，在自己的工作树里运行 `python toolchain/claim_pending_records.py [--from <主检出>] [--dry-run]`：把主检出待领文件并入 `timing/<日期>_main.jsonl` 并删除被领走的文件，输出领走几个文件、几行；在 main 上运行会被拒绝。随后连同 `REGRESSION_LOG.md` 的合并后行一起按显式 pathspec 提交（`AGENTS.md` §1b）。
 
 ### 判断记录
 
@@ -1410,7 +1412,9 @@ build/test 步骤）。
 - **phase 汇总不含 `_total` 行**：`_total` 与同一次运行里的步骤行重叠，一起加会重复计数；它只作为 `(phase, _total)` 一个 step 单独列出。P90 用线性插值，保证 中位数 ≤ P90 ≤ 最大值。
 - **定向模式由干活子进程写**：父进程只透传 `-TimingTask`/`-NoTiming`，所以定向运行的 `_total` 不含父进程的判定（`change_impact.py`）与子进程启动时间。
 - **Windows PowerShell 5.1 的两个坑（实测）**：`@($List[Object])` 抛 "Argument types do not match"（门禁的 `$script:Results` 就是这个类型），所以写入函数直接 `foreach`；`Sort-Object` 不保证稳定，按 start 排序改用 `[Array]::Sort` 配序数比较。
-- **已知限制**：脚本非正常终止（未被 `Invoke-CheckStep` 接住的异常、被强行结束）时不写记录；在 main 上跑门禁（合并后全量）会在主检出产生未提交的 `timing/<日期>_main.jsonl`，按 `AGENTS.md` §1b 末条由下一条要合并的分支带入；同一天同一分支多次运行追加到同一文件，靠 `task`/`start` 区分。
+- **main 与游离 HEAD 写待领目录，不写已跟踪文件**：在 main 上跑门禁（合并后全量）若追加到已入库的 `timing/<日期>_main.jsonl`，主检出就变脏，挡住 `build.ps1 -Release`（要求干净工作树）和下一次 `git merge --ff-only`。所以 `Get-GateTimingFilePath` 在分支名为 `main` 或 `detached` 时返回 `timing/_pending/<年月日>_main_<时分秒>.jsonl`（游离 HEAD 为 `_detached_`；一次运行一个文件，文件名带时分秒），该目录在 `.gitignore` 里；判定与 `version_label.py` 同口径（`Test-GateTimingUsesPending`，测试里有两边一致性用例）。feature/bugfix/release 分支保持原行为，`-NoTiming` 语义不变。
+- **领取脚本 `claim_pending_records.py` 的取舍**：在分支工作树里运行，`--from` 缺省取 `git worktree list` 里检出 main 的工作树；并入规则是"同一天的待领文件按时分秒顺序追加到 `timing/<日期>_main.jsonl`、丢弃逐字节重复行"（包括与目标文件已有行重复的行，所以"写入成功但删除失败"后重跑不会重复）；先写完目标文件再删待领文件；只删主检出 `timing/_pending/` 下未被 git 跟踪的普通文件（符号链接、已跟踪文件、文件名不合规的一律不动、打印警告）；在 main、游离 HEAD、与 `--from` 同一目录、与 `--from` 不同仓库的情形拒绝（退出码 1）；不 `git add`、不提交。领走即删除，所以重复运行第二次领 0 个文件。`REGRESSION_LOG.md` 的合并后行仍由人写（不自动化）。`timing_report.py` 默认把待领目录也算进统计（`--no-pending` 排除），领取后两处不会重复计数。
+- **已知限制**：脚本非正常终止（未被 `Invoke-CheckStep` 接住的异常、被强行结束）时不写记录；游离 HEAD 的待领文件也并入 `<日期>_main.jsonl`（行里的 `branch` 字段仍是 `detached`）；同一天同一分支多次运行追加到同一文件，靠 `task`/`start` 区分；待领文件只存在于主检出本机，换机器或删了主检出目录就丢（与此前"主检出里一份未跟踪文件"同等）；`release/X.Y.x` 等其它分支上的记录仍写已跟踪的 `timing/<日期>_<分支>.jsonl`（那些分支上没有"禁止直接提交"约束，也不挡发布）。
 
 ## 版本标签与分支名规范（`version_label.py`，ADR-0127）
 

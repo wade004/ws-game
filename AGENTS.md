@@ -83,10 +83,11 @@
 - **合并前后都跑全量门禁**：合并到 `main` 之前，在分支上跑一次全量（含引擎侧）；合并之后在 `main` 上
   再跑一次全量。两次都在 `REGRESSION_LOG.md` 追加一行。这是 §4 回归分级里全量回归的第三种
   时刻；定向门禁（`check.ps1 -Changed`）只用于分支内的日常迭代，不替代合并前后的全量。
-- **合并后记录怎么入库**：`main` 上的合并后全量产生的 `REGRESSION_LOG.md` 新行与 `timing/<日期>_main.jsonl`，
-  由**下一条要合并的分支**带入——把日志行追加进该分支的 `REGRESSION_LOG.md`、把 `timing/<日期>_main.jsonl`
-  拷进该分支的工作树，在该分支上提交，然后删除主检出里那份未跟踪的 `timing/<日期>_main.jsonl`。理由：
-  `main` 禁止直接提交；而为一行记录单独开分支，这个分支自己的合并前后全量又会产生新记录，无限递归。
+- **合并后记录怎么入库**：`main` 上的合并后全量把耗时写进被 .gitignore 覆盖的待领目录
+  `timing/_pending/`（不写已跟踪文件，主检出保持干净，不挡 `build.ps1 -Release` 与 `git merge --ff-only`）。
+  **下一条要合并的分支**在跑合并前全量之前，先在自己的工作树里运行 `python toolchain/claim_pending_records.py`
+  把耗时领走（并入 `timing/<日期>_main.jsonl`、删除主检出里被领走的待领文件），并在 `REGRESSION_LOG.md` 补上
+  上一次的合并后行，一起提交。理由：`main` 禁止直接提交；而为一行记录单独开分支，这个分支自己的合并前后全量又会产生新记录，无限递归。
 
 ## 1c. 耗时记录（2026-10-01 项目负责人拍板，每个任务必做）
 
@@ -99,7 +100,8 @@
 - 门禁运行的逐步耗时由 `check.ps1` 在每次运行结束（通过或失败）自动追加到当前分支的任务文件：`phase` 定向
   模式记 `定向门禁`、否则 `全量门禁`，`step` 用步骤稳定 Id，另有一行 `_total` 记脚本总墙钟，start/end 是每步
   真实起止时间；`-NoTiming` 跳过（预提交钩子与 `build.ps1 -Release` 已带）。**人只补非门禁阶段**（勘察、设计、
-  编码、提交、汇报、等待）。统计：`python toolchain/timing_report.py [--since --branch --phase --json]`。
+  编码、提交、汇报、等待）。在 `main`/游离 HEAD 上运行时改写 gitignore 的 `timing/_pending/`（见 §1b 末条）。
+  统计：`python toolchain/timing_report.py [--since --branch --phase --json --no-pending]`（默认含待领目录）。
 - 这个目录**入库**，是「生成物不进 git」规则的明示例外：每行只有一条短记录，是统计的原始数据。
   日志全文仍不入库。
 - 汇报里的「实测耗时」一律引用 `timing/` 里的行，不另抄一份。

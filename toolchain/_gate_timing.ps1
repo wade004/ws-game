@@ -16,6 +16,12 @@
   note 里带并行阶段墙钟与环境性 SKIP 数。
 - 文件名分支部分：去掉 `feature/`、`bugfix/` 前缀；其余 `/` 换成 `-`（如 `release/1.12.x` 记成
   `release-1.12.x`）；分离头指针记为 `detached`。同一分支同一天多次运行追加到同一文件。
+- **main 与游离 HEAD 上不写已跟踪文件，改写待领目录**（"待领耗时记录"切片，2026-10-01）：`timing/<年月日>_main.jsonl`
+  一旦入库，之后每次在 main 上跑门禁都会往已跟踪文件追加，主检出变脏，挡住 `build.ps1 -Release`（要求干净工作树）
+  与下一次 `git merge --ff-only`。所以分支名是 `main`（与 `version_label.py` 的 MAIN_BRANCH 同一判定）或游离
+  HEAD 时，改写 `timing/_pending/<年月日>_main_<时分秒>.jsonl`（游离 HEAD 为 `<年月日>_detached_<时分秒>`），
+  该目录被 .gitignore 覆盖、一次运行一个文件（文件名带时分秒，永不追加到已有文件）；由下一条分支用
+  `toolchain/claim_pending_records.py` 领走并入库。feature/bugfix/release 等分支保持原行为。
 - 写入失败（只读、磁盘满、git 取不到分支……）不影响门禁结论：Write-GateTimingFromRun 吞掉异常、
   返回错误文本，由调用方在汇总末尾打一行警告；成功返回 $null。
 - 行尾 LF、UTF-8 无 BOM；每行 JSON 由本文件手工拼装（字符串字段交给 ConvertTo-Json 转义，seconds 用
@@ -76,14 +82,27 @@ function Get-GateTimingBranchSlug {
     return ($slug -replace '[\\/]', '-')
 }
 
+# 本次运行该写待领目录而不是 timing/ 下的已跟踪文件吗：main 与游离 HEAD（Get-GateTimingBranch 返回 "detached"）。
+# 与 toolchain/version_label.py 的 MAIN_BRANCH / 游离 HEAD 判定同口径（测试里有一致性用例）。
+function Test-GateTimingUsesPending {
+    param([Parameter(Mandatory = $true)][string]$Branch)
+    return ($Branch -eq "main" -or $Branch -eq "detached")
+}
+
 function Get-GateTimingFilePath {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Branch,
         [Parameter(Mandatory = $true)][datetime]$Date
     )
-    $day = $Date.ToString("yyyyMMdd", [System.Globalization.CultureInfo]::InvariantCulture)
-    return (Join-Path (Join-Path $RepoRoot "timing") ("{0}_{1}.jsonl" -f $day, (Get-GateTimingBranchSlug -Branch $Branch)))
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    $day = $Date.ToString("yyyyMMdd", $inv)
+    $timingDir = Join-Path $RepoRoot "timing"
+    if (Test-GateTimingUsesPending -Branch $Branch) {
+        $clock = $Date.ToString("HHmmss", $inv)
+        return (Join-Path (Join-Path $timingDir "_pending") ("{0}_{1}_{2}.jsonl" -f $day, (Get-GateTimingBranchSlug -Branch $Branch), $clock))
+    }
+    return (Join-Path $timingDir ("{0}_{1}.jsonl" -f $day, (Get-GateTimingBranchSlug -Branch $Branch)))
 }
 
 # 一行 JSON（字段顺序固定，同 AGENTS.md 1c）。

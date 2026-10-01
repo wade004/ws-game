@@ -12,6 +12,9 @@
   三者相等。
 - 过滤：``--since`` 比较行的 ``start`` 日期（含当天）；``--branch`` 精确匹配行里的 ``branch`` 字段，或匹配
   文件名里的分支简名（去 ``feature/``、``bugfix/`` 前缀）；``--phase`` 精确匹配。三者可叠加（取交集）。
+- **默认也统计待领目录** ``<timing-dir>/_pending/*.jsonl``（"待领耗时记录"切片）：``check.ps1`` 在 main/游离 HEAD
+  上把耗时写到那里，等下一条分支用 ``toolchain/claim_pending_records.py`` 领走；不统计的话，在主检出上看统计会漏掉
+  还没被领走的行。``--no-pending`` 排除。领走即删除，所以同一行不会被两个目录重复统计。
 - 坏行（不是 JSON、缺 ``phase``/``step``/``seconds``、seconds 不是数字）跳过并在 stderr 打一行计数，不中断。
 
 用法::
@@ -20,6 +23,7 @@
     python toolchain/timing_report.py --json               # JSON（供脚本/测试读）
     python toolchain/timing_report.py --since 2026-10-01 --phase 全量门禁
     python toolchain/timing_report.py --branch feature/targeted-gate_20261001
+    python toolchain/timing_report.py --no-pending         # 不统计 timing/_pending/ 下还没被领走的行
     python toolchain/timing_report.py --timing-dir <目录>  # 读别的目录（测试用）
 
 返回码：0 成功（含没有任何记录）；2 参数错。
@@ -41,6 +45,7 @@ from _console import ensure_utf8_stdio  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TIMING_DIR = REPO_ROOT / "timing"
+PENDING_DIRNAME = "_pending"
 
 TOTAL_STEP = "_total"
 PHASE_ORDER = ["勘察", "设计", "编码", "定向门禁", "全量门禁", "提交", "汇报", "等待"]
@@ -95,11 +100,15 @@ def load_rows(
     since: str | None = None,
     branch: str | None = None,
     phase: str | None = None,
+    include_pending: bool = True,
 ) -> tuple[list[dict[str, Any]], int, int]:
-    """返回 (通过过滤的行, 读到的文件数, 跳过的坏行数)。"""
+    """返回 (通过过滤的行, 读到的文件数, 跳过的坏行数)。``include_pending`` 为真时一并读 ``_pending/`` 下的文件。"""
     rows: list[dict[str, Any]] = []
     bad = 0
     files = sorted(timing_dir.glob("*.jsonl")) if timing_dir.is_dir() else []
+    pending_dir = timing_dir / PENDING_DIRNAME
+    if include_pending and pending_dir.is_dir():
+        files += sorted(pending_dir.glob("*.jsonl"))
     wanted_branch_slug = branch_slug(branch) if branch else None
     for path in files:
         with path.open(encoding="utf-8-sig") as fh:
@@ -206,8 +215,9 @@ def build_report(
     since: str | None = None,
     branch: str | None = None,
     phase: str | None = None,
+    include_pending: bool = True,
 ) -> tuple[dict[str, Any], int]:
-    rows, files, bad = load_rows(timing_dir, since=since, branch=branch, phase=phase)
+    rows, files, bad = load_rows(timing_dir, since=since, branch=branch, phase=phase, include_pending=include_pending)
     report = aggregate(rows)
     report["files"] = files
     report["filters"] = {"since": since, "branch": branch, "phase": phase}
@@ -220,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--since", help="只统计 start 日期不早于此日（YYYYMMDD 或 YYYY-MM-DD）")
     parser.add_argument("--branch", help="只统计该分支（行里的 branch 字段，或去前缀后的简名）")
     parser.add_argument("--phase", help="只统计该 phase")
+    parser.add_argument("--no-pending", action="store_true", help="不统计 timing/_pending/ 下还没被领走的待领文件")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument("--timing-dir", default=str(DEFAULT_TIMING_DIR), help="记录目录（默认仓库根 timing/）")
     args = parser.parse_args(argv)
@@ -232,7 +243,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"参数错误：{exc}", file=sys.stderr)
             return 2
 
-    report, bad = build_report(Path(args.timing_dir), since=since, branch=args.branch, phase=args.phase)
+    report, bad = build_report(
+        Path(args.timing_dir), since=since, branch=args.branch, phase=args.phase, include_pending=not args.no_pending
+    )
     if bad:
         print(f"警告：跳过 {bad} 个坏行（非 JSON 或缺 phase/step/seconds）", file=sys.stderr)
     if args.json:

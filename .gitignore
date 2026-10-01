@@ -69,3 +69,7 @@ docs/manual/_docfx.log
 docs/manual/api/*.yml
 docs/manual/api/.manifest
 docs/manual/concepts/
+# 待领耗时记录：check.ps1 在 main/游离 HEAD 上把耗时写到这里（一次运行一个文件），不写已跟踪的
+# timing/<日期>_main.jsonl（否则主检出变脏，挡住 build.ps1 -Release 与 git merge --ff-only）；
+# 由下一条分支用 toolchain/claim_pending_records.py 领走并入库（AGENTS.md §1b）。
+timing/_pending/
