@@ -13,6 +13,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- T-M8（2026-10-01 第四批拍板）：HeadlessWorldBuilder.Build 耗时用例改到 Perf 类别、按机器归一化口径断言，
+         复用 Tests.Gameplay 同一份参考负载实现（不复制一份，避免两处口径漂移）；internal 类型随源文件链接进本程序集。 -->
+    <Compile Include="../../gameplay/tests/Perf/PerfMachineCalibration.cs" Link="Perf/PerfMachineCalibration.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Core.Sim.csproj" />
     <!-- 经 Core.Sim 传递可见，这里显式列出是为了与 Tests.Gameplay.csproj 同款惯例保持一致
          （显式声明本工程实际用到哪些程序集，不依赖传递引用的隐式可见性）。 -->

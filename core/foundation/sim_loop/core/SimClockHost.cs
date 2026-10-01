@@ -32,6 +32,7 @@ namespace Core.Foundation.SimLoop
             var resolvedOptions = options ?? new SimLoopOptions();
             ValidateStepSeconds(resolvedOptions.StepSeconds);
             ValidateMaxCatchUpSteps(resolvedOptions.MaxCatchUpSteps);
+            ValidateTimeScale(resolvedOptions.DefaultTimeScale);
 
             _stepSeconds = resolvedOptions.StepSeconds;
             _maxCatchUpSteps = resolvedOptions.MaxCatchUpSteps;
@@ -72,11 +73,7 @@ namespace Core.Foundation.SimLoop
 
         public void SetTimeScale(double scale)
         {
-            if (scale < 0)
-            {
-                throw new ArgumentException("时间缩放系数不能为负数", nameof(scale));
-            }
-
+            ValidateTimeScale(scale);
             _timeScale = scale;
         }
 
@@ -91,7 +88,7 @@ namespace Core.Foundation.SimLoop
         /// </summary>
         public double Advance(double realDeltaSeconds)
         {
-            if (realDeltaSeconds < 0)
+            if (!(realDeltaSeconds >= 0))
             {
                 throw new ArgumentException("realDeltaSeconds 不能为负数", nameof(realDeltaSeconds));
             }
@@ -158,9 +155,19 @@ namespace Core.Foundation.SimLoop
 
         private static void ValidateStepSeconds(double stepSeconds)
         {
-            if (stepSeconds <= 0)
+            if (!(stepSeconds > 0))
             {
                 throw new ArgumentException("stepSeconds 必须为正数", nameof(stepSeconds));
+            }
+        }
+
+        private static void ValidateTimeScale(double scale)
+        {
+            // 写成 !(scale >= 0) 而不是 scale < 0：NaN 对任何比较都为 false，原写法会放过 NaN，
+            // NaN 缩放进累积器后永久毒化时间轴（后续每次 Advance 都返回 NaN 且不再产生 tick）。
+            if (!(scale >= 0))
+            {
+                throw new ArgumentException("时间缩放系数不能为负数或 NaN", nameof(scale));
             }
         }
 

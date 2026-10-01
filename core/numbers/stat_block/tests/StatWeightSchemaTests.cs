@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
@@ -12,8 +11,8 @@ namespace Tests.Numbers.StatBlock
     /// 分阶段落地计划 T-N1-5（ADR-0030 决策 7；04 第 1.1 节表清单 <c>stat.weight</c> 行）：
     /// <see cref="StatSchemas.Weight"/> 的 schema 覆盖测试（合法记录、缺必填、引用不存在、
     /// <c>class_overrides</c> 子结构坏形状，惯例同 <c>StatSchemaCoverageTests.cs</c>）与
-    /// "<see cref="StatHost"/> 不读该表"防御测试（源码扫描 + 行为双重覆盖，见类型顶部禁止事项
-    /// "禁止 StatHost 消费权重表"）。
+    /// "<see cref="StatHost"/> 不读该表"防御测试（两条行为用例：取值不受影响 + 经读取记录装饰器断言
+    /// 全程未读该表，见类型顶部禁止事项"禁止 StatHost 消费权重表"；2026-10-01 起不再做源码文本扫描）。
     /// </summary>
     public sealed class StatWeightSchemaTests
     {
@@ -145,29 +144,74 @@ namespace Tests.Numbers.StatBlock
         // 禁止事项"禁止 StatHost 消费权重表"防御：源码扫描 + 行为测试双重覆盖。
         // -----------------------------------------------------------------
 
-        /// <summary>定位本源文件在磁盘上的绝对路径（同 <c>core/numbers/tests/L1SampleDataTests.cs
-        /// FindRepoRoot</c> 手法），不依赖运行期程序集目录——测试按任务书要求用 --artifacts-path
-        /// 输出到仓库外的 scratch 目录，不能假设输出目录与源码目录同构。本文件固定位于
-        /// <c>core/numbers/stat_block/tests/StatWeightSchemaTests.cs</c>，同目录的上一级
-        /// （<c>tests</c> 的父目录）即 <c>stat_block</c>，从那里拼 <c>core/StatHost.cs</c> 即目标
-        /// 源文件。</summary>
-        private static string StatHostSourcePath([System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
+        /// <summary>记录读取行为的 <see cref="IDataRegistryView"/> 装饰器：把对 <c>Get/GetAll/Query/GetSchema</c> 的每次
+        /// 调用涉及的表名记下来，其余成员原样转发。用来把"StatHost 不读 stat.weight"从源码文本扫描改写成
+        /// 行为断言（T-M9，2026-10-01 测试覆盖第四批拍板：不留文本扫描）。</summary>
+        private sealed class RecordingView : IDataRegistryView
         {
-            var testsDir = Path.GetDirectoryName(sourceFilePath) ?? throw new InvalidOperationException("CallerFilePath 为空");
-            var statBlockDir = new DirectoryInfo(testsDir).Parent
-                ?? throw new InvalidOperationException($"源文件路径层级不足：{sourceFilePath}");
-            return Path.Combine(statBlockDir.FullName, "core", "StatHost.cs");
+            private readonly IDataRegistryView _inner;
+
+            public System.Collections.Generic.List<string> TablesRead { get; } = new System.Collections.Generic.List<string>();
+
+            public RecordingView(IDataRegistryView inner)
+            {
+                _inner = inner;
+            }
+
+            public DataRecord? Get(string table, string key) { TablesRead.Add(table); return _inner.Get(table, key); }
+
+            public DataRecord? Get(string table, Id id) { TablesRead.Add(table); return _inner.Get(table, id); }
+
+            public System.Collections.Generic.IReadOnlyList<DataRecord> GetAll(string table)
+            {
+                TablesRead.Add(table);
+                return _inner.GetAll(table);
+            }
+
+            public System.Collections.Generic.IReadOnlyList<DataRecord> Query(string table, Core.Foundation.Expr.ExprNode predicate)
+            {
+                TablesRead.Add(table);
+                return _inner.Query(table, predicate);
+            }
+
+            public System.Collections.Generic.IReadOnlyList<DataRecord> Query(string table, string predicateText)
+            {
+                TablesRead.Add(table);
+                return _inner.Query(table, predicateText);
+            }
+
+            public System.Collections.Generic.IReadOnlyList<string> Tables => _inner.Tables;
+
+            public TableSchema? GetSchema(string table) { TablesRead.Add(table); return _inner.GetSchema(table); }
         }
 
+        /// <summary>行为版"禁止 StatHost 消费权重表"：经装饰器观察 StatHost 构造、注册单位、取值，以及
+        /// 注册表 Reload 触发的重新装载全过程，从未读取 <c>stat.weight</c>（含 schema 查询）；
+        /// 同时对照确认它确实读取了 <c>stat.definition</c>（证明装饰器能观察到读取）。</summary>
         [Fact]
-        public void StatHostSource_DoesNotReferenceStatWeightTable()
+        public void StatHost_NeverReadsStatWeightTable_AcrossConstructionQueryAndReload()
         {
-            var path = StatHostSourcePath();
-            Assert.True(File.Exists(path), $"StatHost.cs 源文件未找到：{path}");
+            var defRows = "[{\"id\":\"stat.cov_host_b\",\"name_key\":\"l10n.host_b\",\"category\":\"primary\",\"group\":\"primary\"," +
+                "\"default_base\":7}]";
+            var weightRows = "[{\"id\":\"stat.weight.cov_host_b\",\"stat\":\"stat.cov_host_b\",\"weight\":3.0}]";
+            var registry = BuildRegistry(defRows, weightRows);
+            Assert.False(registry.LoadAll().IsBlocking);
+            var view = new RecordingView(registry);
+            var bus = NewBus();
 
-            var text = File.ReadAllText(path);
+            var statHost = new StatHost(view, bus, new StatHostOptions());
+            var unitId = new Id("unit.cov_host_b");
+            statHost.RegisterUnit(unitId);
+            var before = statHost.GetStat(unitId, new Id("stat.cov_host_b"));
 
-            Assert.DoesNotContain("stat.weight", text, StringComparison.Ordinal);
+            // 触发重装载：StatHost 订阅了 LoadCompleted，收到后重新读取定义（经 StatHost 自己的总线发布）。
+            bus.PublishImmediate(new DataLoadCompletedEvent(2, 2, 0, 0));
+            var after = statHost.GetStat(unitId, new Id("stat.cov_host_b"));
+
+            Assert.Contains(StatSchemas.Definition.Name, view.TablesRead);
+            Assert.DoesNotContain(StatSchemas.Weight.Name, view.TablesRead);
+            Assert.Equal(7.0, before);
+            Assert.Equal(before, after);
         }
 
         [Fact]
@@ -182,9 +226,9 @@ namespace Tests.Numbers.StatBlock
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
 
             var bus = NewBus();
-            // StatHost 构造/注册/取值全程正常——stat.weight 表已加载进 registry，但 StatHost 不读取
-            // 它（源码扫描断言见 StatHostSource_DoesNotReferenceStatWeightTable），本用例断言"不抛
-            // 异常、取值不受影响"这一行为层面的结论，与源码扫描互为补充证据。
+            // StatHost 构造/注册/取值全程正常——stat.weight 表已加载进 registry，但 StatHost 不读取它
+            // （读取记录断言见 StatHost_NeverReadsStatWeightTable_AcrossConstructionQueryAndReload），
+            // 本用例断言"不抛异常、取值不受影响"。
             var statHost = new StatHost(registry, bus, new StatHostOptions());
             var unitId = new Id("unit.cov_host");
             statHost.RegisterUnit(unitId);

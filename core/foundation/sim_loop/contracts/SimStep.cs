@@ -58,7 +58,7 @@ namespace Core.Foundation.SimLoop
         /// <summary>构造一个连续步，<paramref name="dt"/> 为本步经过的秒数（不能为负）。</summary>
         public static SimStep Continuous(double dt)
         {
-            if (dt < 0)
+            if (!(dt >= 0))
             {
                 throw new ArgumentException("dt 不能为负数", nameof(dt));
             }

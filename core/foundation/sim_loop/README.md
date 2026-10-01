@@ -323,3 +323,21 @@ sim_loop/
 `MarkForDestruction` 并返回 `false`）。`WorldSim` 覆写：立即从集合移除实体、清待销毁标记、`Enqueue` 一条
 `EntityDestroyedEvent`，返回是否真移除。只用于"创建流程半途失败、撤销本次创建"（`CreatureFactory.Spawn`），
 正常生命周期结束仍走 `MarkForDestruction` + 阶段 8。不回退 id 序号。
+
+## 判断记录（边界与异常路径补测暴露的四处缺陷，2026-10-01，测试覆盖第四批 T-M2/T-M3/T-M4）
+
+先复现再根治，回归用例在 `core/foundation/sim_loop/tests/`（`IntentTests`/`SimStepTests`/`SimLoopBoundaryTests`）：
+
+1. **`Intent.Kind` 校验正则的 `$` 放过结尾换行**：`^[a-z][a-z0-9_]*$` 在 .NET 里 `$` 匹配"字符串末尾或末尾换行之前"，
+   `"move\n"` 被当成合法 Kind。改为 `\z`（严格字符串末尾）。纯收紧，不影响任何合法取值。
+2. **`NaN` 绕过"不能为负"类守卫**：`dt < 0`/`scale < 0` 对 `NaN` 恒为 false，`NaN` 放行后污染时钟累积与计时器。
+   统一改为 `!(x >= 0)`/`!(x > 0)` 习语（`SimStep` 构造、`SimClockHost.Advance`/`ValidateStepSeconds`、`SimTimers.Create`/`RescaleAll`）。
+3. **`SimClockHost` 构造函数未校验 `DefaultTimeScale`**：此前只有 `SetTimeScale` 校验，构造时传负数/NaN 被接受。
+   抽出私有 `ValidateTimeScale`，构造函数与 `SetTimeScale` 共用。异常类型沿用 `ArgumentOutOfRangeException`，消息统一。
+4. **`WorldSim.Tick` 阶段处理器抛异常后 `_isTicking` 卡死为 true**：此后 `Tick` 以外的"仅 Tick 外可调用"操作全部被拒。
+   `Tick` 主体包进 `try/finally`，`finally` 里复位。异常本身仍原样向调用方传播（不吞）。
+
+已刻画、**待设计层确认**（本批只写特征化用例，不改行为）：
+- `WorldSim.Tick` 无重入守卫：阶段处理器内再调 `Tick` 会嵌套执行，嵌套 tick 与外层共用同一 `tickIndex`。
+- `AppStateHost` 回调抛异常不隔离（`EventBus` 订阅者异常是隔离的，二者口径不一致）；回调内重入迁移时事件送达顺序与迁移顺序不一致。
+- `RngStreamState` 全零状态被接受并且永远产出 0.0（xoshiro 类算法的退化点）；`SeedDerivation` 的"全零回退"分支数学上不可达，无法单独触发。

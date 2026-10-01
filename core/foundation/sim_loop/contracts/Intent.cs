@@ -22,7 +22,8 @@ namespace Core.Foundation.SimLoop
     public readonly struct Intent : IEquatable<Intent>
     {
         private static readonly Regex KindFormatRegex = new Regex(
-            "^[a-z][a-z0-9_]*$",
+            // 以 \z（输入绝对末尾）收尾而不是 $：.NET 的 $ 也匹配"末尾换行符之前"，"move\n" 会被放过。
+            "^[a-z][a-z0-9_]*\\z",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private static readonly JsonObject EmptyArgs = new JsonObjectBuilder().Build();

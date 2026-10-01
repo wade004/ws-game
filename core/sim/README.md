@@ -54,7 +54,7 @@ T-N6-4（本次任务，ADR-0035 决策 3）：三级仿真的第一级——战
 记录"改为构造后可写的公开属性"）；`HeadlessWorldOptions` 新增 `CombatOptions` 属性（转发给
 `GameplayAssembly` 既有的同名构造参数，此前恒隐式传 `null`）。隔离方案：每场 `FightRunner.Run`
 各自新建一整套 `HeadlessWorld`（实测 `HeadlessWorldBuilder.Build` 平均 ~10～25ms，远低于任务书
-50ms 判断线，见 `FightRunnerTests.Probe_BuildTiming_WellUnder50MsThreshold`），不做"同一世界内
+50ms 判断线，见 `SimPerfBaselineTests.HeadlessBuild_MinTiming_WithinBaselineThreshold`），不做"同一世界内
 重生重置"，不触碰任何被仿真模块的重置能力。为让"生物会主动追击并攻击玩家"这条链路真正跑通，
 本任务修了嵌入数据集两处此前从未被触发过的缺口——`fac.reaction_matrix` 缺反向敌对行（生物→玩家）、
 `stat.definition` 缺 `stat.move_speed`（`MovementTickHandler` 硬性要求）——均记录在
@@ -668,7 +668,7 @@ DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用，断言不
 
 21. **隔离方案：为何是"每场新建世界"而不是"同一世界内重生重置"**：任务书给了一条可测量的决策
     线——`HeadlessWorldBuilder.Build` 平均耗时 ≤50ms 就每场新建，否则要在同一世界内重生生物/重置
-    玩家并说明 RNG 流如何按种子重置。实测（`FightRunnerTests.Probe_BuildTiming_WellUnder50MsThreshold`，
+    玩家并说明 RNG 流如何按种子重置。实测（`SimPerfBaselineTests.HeadlessBuild_MinTiming_WithinBaselineThreshold`，
     20 次连续 `Build`）在本机环境稳定落在 10～25ms，远低于 50ms 这条线——`IRngHost.Reset(masterSeed)`
     虽然存在（理论上可以在不重建世界的前提下换种子），但"重生重置"方案还需要解决光环/仇恨/冷却/
     AI 行为状态如何清零这一整类问题，任务书明确"禁止给被仿真模块加重置功能"，选择更简单的"每场
@@ -1519,3 +1519,23 @@ InvalidOperationException or ArgumentException or DirectoryNotFoundException)` �
    进程以 Unhandled exception 崩溃；现包成带文件路径的 `InvalidOperationException`（"基线文件损坏：<路径>：<原因>"），
    由 `RunCommand` 同一分支按"数据装载阻断"返回退出码 2。回归：`toolchain/tests/test_simrunner_cli.py`
    `test_corrupt_baseline_file_should_exit_2_not_crash`。
+
+## 判断记录（第四批测试覆盖：Perf 基线与边界补测，2026-10-01，T-M5/T-M8/T-M15/T-L6）
+
+1. **T-M8 墙钟阈值用例移到 Perf 类别、改相对基线倍数**：原 `FightRunnerTests.Probe_BuildTiming_WellUnder50MsThreshold`
+   （绝对 `minMs < 100`，并行执行下误报过）删除；新用例 `SimPerfBaselineTests.HeadlessBuild_MinTiming_WithinBaselineThreshold`
+   （`[Trait("Category","Perf")]`）读 `core/sim/tests/perf_baseline.json`，判定量仍是 20 次 `Build` 的逐次最小值，
+   阈值 = `headless_build_threshold_ms × clamp(本机 ReferenceMs ÷ reference_workload_ms, 1, calibration_factor_max)`，
+   与 `core/gameplay/tests/Perf` 同口径；参考负载 `PerfMachineCalibration` 经 `Tests.Sim.csproj` 链接同一源文件，不复制。
+   输出行字段名保持 `median=`（实为最小值），以便 `_gate_test_floors.ps1` 的 `Get-PerfDiagnosticLines` 正则收进门禁日志。
+   上文"隔离方案"判断（第 21 条）里对该探针用例的引用已同步改名。
+2. **sim 测试辅助新增**：`SimTestWorldFactory.BuildSampleDataSources()`、`BuildEmbeddedDataSourcesWithEdit(Func<path,text,text>)`
+   （在嵌入式数据集读出后按文件改写文本，用于构造"曲线永远升不了级""锚点表为空"这类数据而不碰数据文件本身）。
+3. **安全阀与入口守卫的覆盖口径**：`GrowthSimulation.MaxKillsPerLevelSafety`（400）用"把 `prog.level_curve` 的 `xp_to_next` 全改成
+   天文数字"触发，断言只剩一个样本、`Kills == MaxKillsPerLevelSafety`；`FightOutcome` 的 CreatureWin/Draw/PlayerWin/Timeout 用
+   `Units.SetAlive` 在入口处精确构造，不依赖战斗随机性。
+4. **`ScenarioCatalog` 的 `DataFieldException` 分支是防御性的**：真实 schema 在装载期就拦住了这些字段错误，测试里用一个
+   故意放宽的 `RelaxedScenario` schema（只登记 schema 不登记规则）才能触达；`ScenarioDef`/`ArenaCellResult` 构造函数为 internal
+   （`Core.Sim` 无 `InternalsVisibleTo`），只经 `ScenarioCatalog` 与真实运行间接覆盖。
+5. **`StandardPlayerBuilder.FindLatestInstance` 的"找不回背包实例"分支在现有宿主上不可达**：`InventoryHost.AddItem` 对新槽位恒成功
+   且原样记录模板/品质/词缀，按身份匹配不会落空；构造它必须改生产代码或注入返回不一致数据的宿主替身，属防御性兜底，本批不覆盖、不改。

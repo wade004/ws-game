@@ -240,65 +240,75 @@ namespace Core.Foundation.SimLoop
             }
 
             _isTicking = true;
-
-            // 判断记录：sim.tick_started 用 PublishImmediate 立即派发，先于本 tick 全部阶段
-            // 处理器执行；这是一个"tick 开始"的边界标记事件，不属于 03 第 4.2 节步骤 7
-            // 所指"本 tick 累积的事件"（那些事件由步骤 1~6 的处理器产生，仍走 Enqueue +
-            // 本方法后段的 DispatchPending 批量派发，符合"同步派发 + tick 末批处理"）。
-            _bus.PublishImmediate(new SimTickStartedEvent(tickIndex, dt));
-
-            if (step.Kind == SimStepKind.Continuous)
+            // 判断记录（2026-10-01 测试覆盖第四批 T-M1）：_isTicking 用 try/finally 复位。阶段处理器抛异常时
+            // Tick 仍按既有语义中止整拍（不跑阶段 8、不推进 tick 计数，见本模块 README ADR-0079 判断记录），
+            // 但该标志不能留在 true——否则 tick 外调用 AppendCurrentIntent 的守卫失效，意图被静默写进
+            // 下一拍会覆盖的列表而丢失。只复位标志，不改异常语义。
+            try
             {
-                _timers.Advance(step.Dt);
-            }
-            else
-            {
-                _diagnosticsWarnings.Add(
-                    $"tick {tickIndex}：离散步（Discrete）不推进全局计时器——离散步以行动者为粒度，" +
-                    "不代表统一的时间推进量，全局计时器（冷却/光环剩余时长等）的换算发生在连续/离散" +
-                    "模式切换时刻（见 03 第 3.3 节步骤 2、TimeModelSwitch），不是每个离散步都线性推进");
-            }
 
-            for (var i = 0; i < RegistrablePhaseOrder.Length; i++)
-            {
-                ExecutePhase(RegistrablePhaseOrder[i], step);
-            }
+                // 判断记录：sim.tick_started 用 PublishImmediate 立即派发，先于本 tick 全部阶段
+                // 处理器执行；这是一个"tick 开始"的边界标记事件，不属于 03 第 4.2 节步骤 7
+                // 所指"本 tick 累积的事件"（那些事件由步骤 1~6 的处理器产生，仍走 Enqueue +
+                // 本方法后段的 DispatchPending 批量派发，符合"同步派发 + tick 末批处理"）。
+                _bus.PublishImmediate(new SimTickStartedEvent(tickIndex, dt));
 
-            // 阶段 7：事件派发——把步骤 1~6 产生的全部事件按入队顺序批量派发给订阅者。
-            _bus.DispatchPending();
-
-            // 阶段 8：生命周期清理——对每个待销毁实体先发出 entity.destroyed，再真正移除。
-            if (_pendingDestruction.Count > 0)
-            {
-                var ids = new List<Id>(_pendingDestruction);
-                ids.Sort();
-
-                for (var i = 0; i < ids.Count; i++)
+                if (step.Kind == SimStepKind.Continuous)
                 {
-                    var id = ids[i];
-                    if (_entities.TryGetValue(id, out var entity))
-                    {
-                        _bus.Enqueue(new EntityDestroyedEvent(id));
-                        entity.Lifecycle = EntityLifecycle.Destroyed;
-                        _entities.Remove(id);
-                    }
+                    _timers.Advance(step.Dt);
+                }
+                else
+                {
+                    _diagnosticsWarnings.Add(
+                        $"tick {tickIndex}：离散步（Discrete）不推进全局计时器——离散步以行动者为粒度，" +
+                        "不代表统一的时间推进量，全局计时器（冷却/光环剩余时长等）的换算发生在连续/离散" +
+                        "模式切换时刻（见 03 第 3.3 节步骤 2、TimeModelSwitch），不是每个离散步都线性推进");
                 }
 
-                _pendingDestruction.Clear();
+                for (var i = 0; i < RegistrablePhaseOrder.Length; i++)
+                {
+                    ExecutePhase(RegistrablePhaseOrder[i], step);
+                }
+
+                // 阶段 7：事件派发——把步骤 1~6 产生的全部事件按入队顺序批量派发给订阅者。
+                _bus.DispatchPending();
+
+                // 阶段 8：生命周期清理——对每个待销毁实体先发出 entity.destroyed，再真正移除。
+                if (_pendingDestruction.Count > 0)
+                {
+                    var ids = new List<Id>(_pendingDestruction);
+                    ids.Sort();
+
+                    for (var i = 0; i < ids.Count; i++)
+                    {
+                        var id = ids[i];
+                        if (_entities.TryGetValue(id, out var entity))
+                        {
+                            _bus.Enqueue(new EntityDestroyedEvent(id));
+                            entity.Lifecycle = EntityLifecycle.Destroyed;
+                            _entities.Remove(id);
+                        }
+                    }
+
+                    _pendingDestruction.Clear();
+                }
+
+                _bus.Enqueue(new SimTickFinishedEvent(tickIndex));
+
+                // 再调用一次 DispatchPending，让本阶段刚入队的 entity.destroyed 与
+                // sim.tick_finished 在本 tick 内送达（而不是留到下一次 Tick 才派发）。
+                _bus.DispatchPending();
+
+                // 阶段 8 末清空 CurrentIntents（见 IWorldSim.CurrentIntents 注释）：本 tick 的意图
+                // 已在阶段 1~6 被处理器消费完毕，tick 结束后不应继续可见。
+                _currentIntentsList = new List<Intent>();
+
+                _tickCounter++;
             }
-
-            _bus.Enqueue(new SimTickFinishedEvent(tickIndex));
-
-            // 再调用一次 DispatchPending，让本阶段刚入队的 entity.destroyed 与
-            // sim.tick_finished 在本 tick 内送达（而不是留到下一次 Tick 才派发）。
-            _bus.DispatchPending();
-
-            // 阶段 8 末清空 CurrentIntents（见 IWorldSim.CurrentIntents 注释）：本 tick 的意图
-            // 已在阶段 1~6 被处理器消费完毕，tick 结束后不应继续可见。
-            _currentIntentsList = new List<Intent>();
-            _isTicking = false;
-
-            _tickCounter++;
+            finally
+            {
+                _isTicking = false;
+            }
         }
 
         public Entity? GetEntity(Id id) => _entities.TryGetValue(id, out var entity) ? entity : null;

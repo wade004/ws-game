@@ -27,7 +27,7 @@ namespace Core.Foundation.SimLoop
 
         public TimerHandle Create(double durationUnits)
         {
-            if (durationUnits < 0)
+            if (!(durationUnits >= 0))
             {
                 throw new ArgumentException("durationUnits 不能为负数", nameof(durationUnits));
             }
@@ -78,7 +78,7 @@ namespace Core.Foundation.SimLoop
         /// </summary>
         public void RescaleAll(double factor)
         {
-            if (factor <= 0)
+            if (!(factor > 0))
             {
                 throw new ArgumentException("factor 必须为正数", nameof(factor));
             }

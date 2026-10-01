@@ -1,0 +1,9 @@
+{
+  "_comment": "HeadlessWorldBuilder.Build 性能基线（T-M8，2026-10-01）：headless_build_min_ms 是本机 20 次连续调用逐次最小值的三次运行中位数（并行负载下最小值才反映 Build 的固有开销，见 SimPerfBaselineTests 顶部判断记录），threshold = 基线 × 5。机器归一化口径同 core/gameplay/tests/Perf/README.md：reference_workload_ms 是记录本基线时同一台机器上 PerfMachineCalibration 参考负载 5 次的中位数（三次运行 44.4/44.9/49.6，取 44.9）；更新 headless_build_min_ms 时必须同一次运行里重测 reference_workload_ms。",
+  "machine": "win32, 32 logical processors, .NET 8 Release build",
+  "measured_at": "2026-10-01",
+  "headless_build_min_ms": 5.03,
+  "headless_build_threshold_ms": 25.15,
+  "reference_workload_ms": 44.9,
+  "calibration_factor_max": 8
+}

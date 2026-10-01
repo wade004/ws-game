@@ -108,6 +108,40 @@ namespace Tests.Sim
             return new IDataSource[] { frameworkSource, embeddedSource };
         }
 
+        /// <summary>第四批新增：<c>data/_framework</c> + <c>data/_sample</c> 两根的原始数据源列表（惯例同
+        /// <see cref="BuildWorld"/>），供需要 <c>data/_sample</c> 专有表（如 <c>found.time_model</c>）的
+        /// <see cref="Core.Sim.HeadlessWorldOptions"/> 选项用例直接组装。每次调用返回全新的文件系统与数据源。</summary>
+        public static IReadOnlyList<IDataSource> BuildSampleDataSources()
+        {
+            var fs = new StubFileSystem();
+            var repoRoot = FindRepoRoot();
+            var frameworkSource = BuildDiskSource(fs, repoRoot, "data/_framework");
+            var sampleSource = BuildDiskSource(fs, repoRoot, "data/_sample");
+            return new IDataSource[] { frameworkSource, sampleSource };
+        }
+
+        /// <summary>第四批新增：同 <see cref="BuildEmbeddedDataSources"/>，但嵌入式数据集每个 JSON 文件的文本先经
+        /// <paramref name="transform"/>（参数为相对 <c>core/sim/tests/data</c> 的 <c>/</c> 分隔路径与原文，返回新文本）改写再
+        /// 写入桩文件系统——用来在内存里构造"数据严重失衡"的变体（如永远升不了级的等级曲线），不改磁盘上的嵌入式数据集。</summary>
+        public static IReadOnlyList<IDataSource> BuildEmbeddedDataSourcesWithEdit(Func<string, string, string> transform)
+        {
+            var fs = new StubFileSystem();
+            var repoRoot = FindRepoRoot();
+            var frameworkSource = BuildDiskSource(fs, repoRoot, "data/_framework");
+
+            const string relativeRoot = "core/sim/tests/data";
+            var absoluteRoot = Path.Combine(repoRoot, relativeRoot.Replace('/', Path.DirectorySeparatorChar));
+            foreach (var file in Directory.GetFiles(absoluteRoot, "*.json", SearchOption.AllDirectories))
+            {
+                var rel = file.Substring(absoluteRoot.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    .Replace('\\', '/');
+                fs.WriteTextAtomic(relativeRoot + "/" + rel, transform(rel, File.ReadAllText(file)));
+            }
+
+            return new IDataSource[] { frameworkSource, new FileSystemDataSource(fs, relativeRoot) };
+        }
+
         /// <summary>T-N6-2b：构造一个基于嵌入式最小仿真数据集（<c>core/sim/tests/data</c>，随
         /// <c>data/_framework</c> 一起加载，惯例同 <see cref="BuildWorld"/> 的 framework+sample 两根）
         /// 的无头世界。数据根镜像 <c>data/_sample</c> 的目录/文件命名（<c>&lt;域&gt;/&lt;表名&gt;.json</c>），
