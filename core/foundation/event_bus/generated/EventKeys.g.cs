@@ -15,6 +15,24 @@ namespace Core.Foundation.EventBus
         /// <summary>achievement.unlocked — 字段：achievementId, unitId。成就达成解锁时触发（见 01 L4 模块表 achievement 行、08 第 6、9 节）；字段为建议值。</summary>
         public static readonly Id AchievementUnlocked = new Id("achievement.unlocked");
 
+        /// <summary>action.cancelled — 字段：actorId, castInstanceId, reason, nextSkillId。手感设计/01 第 3.4/3.7 节：动作未自然结束即终止；reason 取 cancel_into|stagger|death|cleared，仅 cancel_into 携带 nextSkillId（其余为空）；与 skill.cast_interrupted 同批（满足 06 第 3.6 节施法终结事件保证）。</summary>
+        public static readonly Id ActionCancelled = new Id("action.cancelled");
+
+        /// <summary>action.finished — 字段：actorId, castInstanceId。手感设计/01 第 3.7 节：后摇自然结束，与 skill.cast_success 同批；动作被取消/打断时不发。</summary>
+        public static readonly Id ActionFinished = new Id("action.finished");
+
+        /// <summary>action.marker — 字段：actorId, castInstanceId, name, args。手感设计/01 第 3.3/3.7 节：判定类时间标记到达（hit、release、invuln_start 等）；args 为字符串映射（如 segment），无参数为空；表现类标记（trail_start、footstep、fx）只存在于剪辑元数据，不经本事件。</summary>
+        public static readonly Id ActionMarker = new Id("action.marker");
+
+        /// <summary>action.phase_changed — 字段：actorId, castInstanceId, phase。手感设计/01 第 3.7 节：动作相位切换；phase 取 charge|startup|active|recovery。</summary>
+        public static readonly Id ActionPhaseChanged = new Id("action.phase_changed");
+
+        /// <summary>action.started — 字段：actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio。手感设计/01 第 3.7 节（ADR-0115）：时间线动作开始推进，与 skill.cast_start 同批发出；durationTicks 为三相之和（已含速率重映射），chargeRatio 为蓄力比例 0~1（非蓄力动作为 0）。</summary>
+        public static readonly Id ActionStarted = new Id("action.started");
+
+        /// <summary>action.target_assisted — 字段：actorId, castInstanceId, targetId, facingDelta, distanceAdjust。手感设计/02 第 5 节：目标辅助（软锁定）生效；facingDelta 为朝向修正（度，带符号），distanceAdjust 为位移距离修正（close_distance 模式，face_only 为 0）；没有候选目标时不发。</summary>
+        public static readonly Id ActionTargetAssisted = new Id("action.target_assisted");
+
         /// <summary>ai.decision_made — 字段：unitId, decisionId。AI 行为外壳按优先级表选出本次决策后触发（见 01 L2 模块表 ai 行）；06 第 6 节未展开字段定义，字段为建议值。</summary>
         public static readonly Id AiDecisionMade = new Id("ai.decision_made");
 
@@ -42,7 +60,7 @@ namespace Core.Foundation.EventBus
         /// <summary>aura.stack_changed — 字段：targetId, auraDefId, oldStacks, newStacks。叠加层数变化（见 06 第 8 节）。</summary>
         public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
 
-        /// <summary>combat.attack_avoided — 字段：sourceId, targetId, school, hitResult, skillId, attackInstanceId。ADR-0098（消费方第四十三批反馈2根治，阻塞）：结算管线的“回避类”结局统一发布——命中表判定为 miss/dodge/parry（步骤 1，Resolver 既有终止分支）或免疫吸收判定为免疫（步骤 7）时触发；hitResult 只会是 Miss/Dodge/Parry/Immune 之一；skillId 语义同 combat.damage_dealt 行（可空，光环周期效果截断为空）；attackInstanceId 同 combat.damage_dealt 行（可空，但不经 Expr 暴露，同 unit.died 行 position 字段惯例）。不改动 combat.damage_dealt/combat.heal_done 的既有发布条件与字段——回避与落地在同一次结算里互斥，不以 amount=0 冒充回避。</summary>
+        /// <summary>combat.attack_avoided — 字段：sourceId, targetId, school, hitResult, skillId, attackInstanceId。ADR-0098（消费方第四十三批反馈2根治，阻塞）：结算管线的“回避类”结局统一发布——命中表判定为 miss/dodge/parry（步骤 1，Resolver 既有终止分支）或免疫吸收判定为免疫（步骤 7）时触发；hitResult 只会是 Miss/Dodge/Parry/Immune/Invulnerable 之一（Invulnerable：手感设计/03 第 2.3 节，目标处于无敌窗口时在九步之前前置判为回避，ADR-0114）；skillId 语义同 combat.damage_dealt 行（可空，光环周期效果截断为空）；attackInstanceId 同 combat.damage_dealt 行（可空，但不经 Expr 暴露，同 unit.died 行 position 字段惯例）。不改动 combat.damage_dealt/combat.heal_done 的既有发布条件与字段——回避与落地在同一次结算里互斥，不以 amount=0 冒充回避。</summary>
         public static readonly Id CombatAttackAvoided = new Id("combat.attack_avoided");
 
         /// <summary>combat.auto_attack_swing — 字段：sourceId, targetId。ADR-0070：普通攻击（AutoAttackHost）每结算一次挥击时触发，只表达“挥出了一次普通攻击”本身，不携带学派/伤害值（已由随后发出的 combat.damage_dealt 承载）；在 IEffectSink.ApplyEffect 之前发布，恒先于该次结算对应的 combat.damage_dealt；被跳过的挥击（超射程/被 NoAttack 拦截/未到挥击点/没有攻击周期）不发本事件。</summary>
@@ -57,8 +75,14 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit, attackInstanceId。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId，同 combat.damage_dealt 一致，见该行说明。</summary>
         public static readonly Id CombatHealDone = new Id("combat.heal_done");
 
+        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；Expr 暴露 sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。</summary>
+        public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
+
         /// <summary>combat.left — 字段：unitId。脱离战斗（见 06 第 8 节）。</summary>
         public static readonly Id CombatLeft = new Id("combat.left");
+
+        /// <summary>combat.reaction_applied — 字段：targetId, reaction, sourceId, attackInstanceId, durationTicks。手感设计/03 第 4/7 节：受击裁决落地；reaction 为 flinch|stagger_light|stagger|knockback|knockdown|death（none 不发）；durationTicks 为硬直（倒地含 downed_ms）换算 tick 数。</summary>
+        public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
 
         /// <summary>combat.threat_changed — 字段：unitId, sourceId, oldValue, newValue。仇恨表更新（见 06 第 8 节）。</summary>
         public static readonly Id CombatThreatChanged = new Id("combat.threat_changed");
@@ -135,6 +159,12 @@ namespace Core.Foundation.EventBus
         /// <summary>faction.relation_changed — 字段：from, to, oldReaction, newReaction。阵营间敌对/中立/友好关系变化时触发（见 01 L1 模块表 faction 行、04 第 fac.reaction_matrix 说明）；字段为建议值（W1 收边勘误：与代码实际字段 {From,To,OldReaction,NewReaction} 同步，此前登记的 factionId/otherFactionId 与代码不对应，见 A3 审计 #11）。</summary>
         public static readonly Id FactionRelationChanged = new Id("faction.relation_changed");
 
+        /// <summary>feel.hitstop_ended — 字段：unitIds。手感设计/03 第 3 节：顿帧解冻或强制释放（死亡、销毁、场景卸载、离散模式切换时无条件释放）。</summary>
+        public static readonly Id FeelHitstopEnded = new Id("feel.hitstop_ended");
+
+        /// <summary>feel.hitstop_started — 字段：unitIds, ticks, attackInstanceId。手感设计/03 第 3 节（ADR-0117）：局部顿帧施加，冻结 unitIds 的行动者动作时钟（不是模拟时钟、不是表现帧）；表现层据此冻结对应实体的动画时间轴。</summary>
+        public static readonly Id FeelHitstopStarted = new Id("feel.hitstop_started");
+
         /// <summary>gobj.interacted — 字段：unitId, gobjInstanceId。GameObjectHost.interact 交互触发时发出（见 01 L3 模块表 gobj 行、07 第 3.6 节 interact 契约）；原名 gobj.used，2026-09-05 勘误改名为 gobj.interacted（见 07/08 第 9 节契约汇总表）；字段为建议值。</summary>
         public static readonly Id GobjInteracted = new Id("gobj.interacted");
 
@@ -146,6 +176,9 @@ namespace Core.Foundation.EventBus
 
         /// <summary>input.action_triggered — 字段：actionName。物理输入经 InputMap 转译出的游戏动作被触发（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputActionTriggered = new Id("input.action_triggered");
+
+        /// <summary>input.buffer_dropped — 字段：actorId, actionId, reason, reasonCode。手感设计/01 第 2.2/3.7 节（ADR-0115）：输入缓冲记录未被执行即离开缓冲，每条记录至多一次；reason 取 replaced|full|expired|cleared|rejected，rejected 时 reasonCode 为管线拒绝原因码，其它原因为空。</summary>
+        public static readonly Id InputBufferDropped = new Id("input.buffer_dropped");
 
         /// <summary>input.rebind_conflict — 字段：actionName, binding。重绑定检测到冲突（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputRebindConflict = new Id("input.rebind_conflict");
@@ -314,6 +347,12 @@ namespace Core.Foundation.EventBus
         {
             AchievementProgressed,
             AchievementUnlocked,
+            ActionCancelled,
+            ActionFinished,
+            ActionMarker,
+            ActionPhaseChanged,
+            ActionStarted,
+            ActionTargetAssisted,
             AiDecisionMade,
             AiStateChanged,
             AppStateChanged,
@@ -328,7 +367,9 @@ namespace Core.Foundation.EventBus
             CombatDamageDealt,
             CombatEntered,
             CombatHealDone,
+            CombatHitConfirmed,
             CombatLeft,
+            CombatReactionApplied,
             CombatThreatChanged,
             CreatureDespawned,
             CreatureSpawned,
@@ -354,10 +395,13 @@ namespace Core.Foundation.EventBus
             EntityCreated,
             EntityDestroyed,
             FactionRelationChanged,
+            FeelHitstopEnded,
+            FeelHitstopStarted,
             GobjInteracted,
             GobjStateChanged,
             HookInvoked,
             InputActionTriggered,
+            InputBufferDropped,
             InputRebindConflict,
             ItemAdded,
             ItemEquipped,

@@ -171,6 +171,11 @@ namespace Core.Carriers.Item
                     .WithDeprecated("1.32.0", "affixes",
                         note: "随机属性改经 item.affix（budget_share/stat_mix/quality_pool/weight）承担，"
                             + "item.template.affixes 字段登记该模板可抽取的词缀候选白名单"),
+                // 手感体系（手感设计/05 第 2 节、08 第 4 节，ADR-0118/0123）新增：武器手感行引用，
+                // 与 display.weapon_style 同 id 分表（规则层只读 feel.weapon）。纯新增可选字段，
+                // 不升 currentSchemaVersion；缺省缺失（该物品不提供武器手感层）。
+                new FieldSchema("feel_weapon_ref", FieldKind.Reference, required: false, referenceTable: "feel.weapon",
+                    description: "武器手感（手感解析第 4 层）：指向 feel.weapon 的行；缺省该物品不提供武器手感层"),
                 new FieldSchema("value_override", FieldKind.Number, required: false,
                     description: "基准价值覆盖（ADR-0032 决策；07 第 1.1 节修订段；ADR-0034）：未填按 "
                         + "econ.value_curve 公式（08 第 7.4 节，未落地）算出基准价值；填了且偏离公式超带宽"

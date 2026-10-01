@@ -1,0 +1,9 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    { "id": "feel.calibration.test_a", "base_preset": "feel.preset.arpg_responsive",
+      "reference_height": 2.0, "base_speed": 4.0, "animation_fps": 30.0, "reference_camera_height": 10.0,
+      "reference_zoom": 1.0, "pixels_per_unit": 32.0, "marker_tolerance_ms": 50.0 }
+  ]
+}

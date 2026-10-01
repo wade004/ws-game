@@ -80,6 +80,38 @@ namespace Core.Rules.Common
         /// <c>found.event_catalog</c> 收口登记（见 data/_framework/found/found.event_catalog.json
         /// 对应行）。</summary>
         public static readonly Id TimeModelRescaled = new Id("sim.time_model_rescaled");
+
+        // ---- 手感体系新增事件（手感设计/01、02、03，ADR-0114/0115/0117；类型见 FeelEvents.cs）----
+
+        /// <summary>时间线动作开始推进，见 <see cref="ActionStartedEvent"/>。</summary>
+        public static readonly Id ActionStarted = new Id("action.started");
+
+        /// <summary>相位切换，见 <see cref="ActionPhaseChangedEvent"/>。</summary>
+        public static readonly Id ActionPhaseChanged = new Id("action.phase_changed");
+
+        /// <summary>判定类时间标记到达，见 <see cref="ActionMarkerEvent"/>。</summary>
+        public static readonly Id ActionMarker = new Id("action.marker");
+
+        /// <summary>动作未自然结束即终止，见 <see cref="ActionCancelledEvent"/>。</summary>
+        public static readonly Id ActionCancelled = new Id("action.cancelled");
+
+        /// <summary>动作后摇自然结束，见 <see cref="ActionFinishedEvent"/>。</summary>
+        public static readonly Id ActionFinished = new Id("action.finished");
+
+        /// <summary>目标辅助生效，见 <see cref="ActionTargetAssistedEvent"/>。</summary>
+        public static readonly Id ActionTargetAssisted = new Id("action.target_assisted");
+
+        /// <summary>一次命中的完整结论，见 <see cref="CombatHitConfirmedEvent"/>。</summary>
+        public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
+
+        /// <summary>受击裁决落地，见 <see cref="CombatReactionAppliedEvent"/>。</summary>
+        public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
+
+        /// <summary>局部顿帧施加，见 <see cref="FeelHitstopStartedEvent"/>。</summary>
+        public static readonly Id FeelHitstopStarted = new Id("feel.hitstop_started");
+
+        /// <summary>局部顿帧解除，见 <see cref="FeelHitstopEndedEvent"/>。</summary>
+        public static readonly Id FeelHitstopEnded = new Id("feel.hitstop_ended");
     }
 
     /// <summary>死亡复活策略（见 06 第 4.6 节表格，三值）。<see cref="UnitRespawnedEvent.Policy"/> 用本

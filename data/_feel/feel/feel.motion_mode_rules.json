@@ -1,0 +1,62 @@
+{
+  "table": "feel.motion_mode_rules",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.motion_mode.grounded",
+      "description": "缺省：接受输入位移与转向。",
+      "mode": "grounded",
+      "accepts_input_displacement": "yes",
+      "allows_turn": "yes",
+      "keeps_momentum_on_exit": "none"
+    },
+    {
+      "id": "feel.motion_mode.action",
+      "description": "动作时间线进行中：输入位移按 action_move_speed_ratio，转向按 action_turn_lock，退出动量按 keep_momentum_on_action_end。",
+      "mode": "action",
+      "accepts_input_displacement": "by_profile",
+      "allows_turn": "by_profile",
+      "keeps_momentum_on_exit": "by_profile"
+    },
+    {
+      "id": "feel.motion_mode.forced",
+      "description": "击退、冲锋/跳跃/受控位移、抛飞：位移由受控任务给出。",
+      "mode": "forced",
+      "accepts_input_displacement": "no",
+      "allows_turn": "no",
+      "keeps_momentum_on_exit": "no"
+    },
+    {
+      "id": "feel.motion_mode.staggered",
+      "description": "硬直。",
+      "mode": "staggered",
+      "accepts_input_displacement": "no",
+      "allows_turn": "no",
+      "keeps_momentum_on_exit": "no"
+    },
+    {
+      "id": "feel.motion_mode.rooted",
+      "description": "定身（movementLocked）：不位移但可转向。",
+      "mode": "rooted",
+      "accepts_input_displacement": "no",
+      "allows_turn": "yes",
+      "keeps_momentum_on_exit": "no"
+    },
+    {
+      "id": "feel.motion_mode.frozen",
+      "description": "局部顿帧叠加态：叠在任一模式之上，位移为零，解冻后恢复原模式，velocity 保留。",
+      "mode": "frozen",
+      "accepts_input_displacement": "no",
+      "allows_turn": "no",
+      "keeps_momentum_on_exit": "restore_previous_mode"
+    },
+    {
+      "id": "feel.motion_mode.dead",
+      "description": "死亡。",
+      "mode": "dead",
+      "accepts_input_displacement": "no",
+      "allows_turn": "no",
+      "keeps_momentum_on_exit": "none"
+    }
+  ]
+}

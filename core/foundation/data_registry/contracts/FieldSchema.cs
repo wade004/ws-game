@@ -132,6 +132,22 @@ namespace Core.Foundation.DataRegistry
             return this;
         }
 
+        /// <summary>
+        /// 手感字段登记元数据（手感设计/05 第 4 节、ADR-0118）：半属/分组/允许操作/合成来源/单位/副手可叠加。
+        /// 未登记时为 <c>null</c>——绝大多数字段不是手感字段，行为与登记前完全一致（向后兼容，同
+        /// <see cref="Range"/> 的登记惯例）。
+        /// </summary>
+        public FeelFieldMeta? Feel { get; private set; }
+
+        /// <summary>登记 <see cref="Feel"/>；只能设置一次。返回 <c>this</c> 便于链式调用。</summary>
+        public FieldSchema WithFeel(FeelFieldMeta feel)
+        {
+            if (feel == null) throw new ArgumentNullException(nameof(feel));
+            if (Feel != null) throw new InvalidOperationException($"字段 \"{Name}\"：Feel 已设置，不可重复设置");
+            Feel = feel;
+            return this;
+        }
+
         /// <summary>ADR-0022（04 第 3.4 节"IdList 引用目标"）：仅 <see cref="FieldKind.IdList"/> 字段
         /// 有意义——显式标记该字段确属"自由 id 列表"（值不指向任何已登记表/domain，或分层边界不允许
         /// 静态耦合目标表，如 <c>arch.class.power_types</c>/<c>arch.race.passive_auras</c> 见
