@@ -93,6 +93,26 @@ namespace Adapter.Unity.Presentation
                     keys.Add(variantKey);
                 }
             }
+
+            // 手感设计/04（ADR-0119）：姿势维度键（<state>[.<gait>][.<stance>][.<family>][.<variant>]，如 move.run、
+            // idle.combat.2h、attack.1h）。只纳入"首段是七个基础状态键之一"的已声明键（其它自由键如 dodge/stunned 由技能覆盖剪辑
+            // 等路径使用，不在本键表），且排在上面的基础键与旧式战斗变体键之后、按序数排序——没有任何维度键的外形（含旧式
+            // combat_<state> 键）得到的键表与改动前逐项一致。
+            List<string>? poseKeys = null;
+            foreach (var declared in animSet.Clips.Keys)
+            {
+                if (declared.IndexOf(Core.Foundation.DisplayInfo.PoseKeys.Separator) < 0) continue;
+                if (Array.IndexOf(DefaultAnimStateKeys, Core.Foundation.DisplayInfo.PoseKeys.StateOf(declared)) < 0
+                    && Core.Foundation.DisplayInfo.PoseKeys.StateOf(declared) != AnimClipResolver.StateKey(AnimState.Jump)) continue;
+                poseKeys ??= new List<string>();
+                poseKeys.Add(declared);
+            }
+            if (poseKeys != null)
+            {
+                poseKeys.Sort(StringComparer.Ordinal);
+                keys ??= new List<string>(DefaultAnimStateKeys);
+                keys.AddRange(poseKeys);
+            }
             return keys ?? (IReadOnlyList<string>)DefaultAnimStateKeys;
         }
 
@@ -2369,7 +2389,8 @@ namespace Adapter.Unity.Presentation
             var animSetId = new Id("display.anim_set." + lastSegment);
 
             var record = _dataRegistry.Get("display.anim_set", animSetId);
-            return record == null ? null : Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record);
+            // 手感设计/04 第 7 节：经注册表合并 extends 继承链（无 extends 的记录结果与单记录解析逐项一致）。
+            return record == null ? null : Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, _dataRegistry);
         }
 
         /// <summary>全局单例 <see cref="AnimClipResolver"/>：首次挂接默认动画时懒构造，此后全部实体
@@ -2632,7 +2653,7 @@ namespace Adapter.Unity.Presentation
                 return result;
             }
 
-            var animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record);
+            var animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, _dataRegistry);
             foreach (var kv in animSet.Clips)
             {
                 result[kv.Key] = kv.Value.ResourceRef;
