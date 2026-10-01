@@ -4,6 +4,7 @@ using NUnit.Framework;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityWindowTests : PlayModeTestBase
     {
         [Test]

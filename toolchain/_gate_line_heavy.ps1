@@ -44,6 +44,10 @@ param(
     # "日常切片/CI 不受影响"），所以本线也要知道 -SkipUnity；本线其余步骤不受它影响。
     [switch]$SkipUnity,
     [string]$FailFastFlagPath = "",
+    # 定向门禁（ADR-0126）：toolchain/change_impact.py 写出的判定 JSON；空串 = 非定向模式（全部步骤
+    # 照旧）。给了则各 Invoke-CheckStep 的 -Id 按判定结果决定跑还是改判 SKIP，dotnet test 按判定里的
+    # 测试工程列表逐个跑。
+    [string]$PlanFile = "",
     [Parameter(Mandatory = $true)][string]$ResultsJsonPath,
     [string]$TranscriptPath = "",
     # 仅供并行编排的自证测试使用（见 check.ps1 验收记录）：在本线第一步之前插入一个可控耗时的
@@ -66,6 +70,7 @@ $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } e
 . (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
 . (Join-Path $RepoRoot "toolchain\_gate_test_floors.ps1")
 . (Join-Path $RepoRoot "toolchain\_sim_added_guard.ps1")
+Import-GatePlan -Path $PlanFile
 
 try {
     # 判断记录：故意不经过 Invoke-CheckStep（不受 -DocsOnly/-FailFast/-Quick 任何一个开关的短路
@@ -82,7 +87,7 @@ try {
     # -----------------------------------------------------------------------
     # 1. dotnet build（原步骤编号沿用，方便与旧日志/文档对照）
     # -----------------------------------------------------------------------
-    Invoke-CheckStep "dotnet build Core.sln -c $Configuration" {
+    Invoke-CheckStep "dotnet build Core.sln -c $Configuration" -Id "dotnet_build" {
         Test-NativeExitCode "dotnet" @("build", $SolutionPath, "-c", $Configuration, "--artifacts-path", $ArtifactsPath)
     }
 
@@ -97,9 +102,39 @@ try {
     $PerfTrxDir = Join-Path $ArtifactsPath "perf_trx"
     $GateFloorsPath = Join-Path $RepoRoot "toolchain\gate_floors.json"
     $TestProjectCount = @(Select-String -LiteralPath $SolutionPath -Pattern '^Project\(.*,\s*"[^"]*Tests\.[^"\\]*\.csproj"').Count
-    Invoke-CheckStep "dotnet test Core.sln -c $Configuration --no-build（$TestProjectCount 个测试工程，含 Perf 类别；用例数下限见 gate_floors.json）" {
+    # 定向模式（ADR-0126 T1/T2）：判定里 dotnet_test.mode=projects 时只跑命中层（T2 另加下游一层）的
+    # 测试工程，逐个 `dotnet test <工程> --no-build`；用例数下限换成子集底线（见
+    # toolchain/_gate_test_floors.ps1 Invoke-GateTargetedCountsCheck）。mode=solution（T3）或没有判定
+    # 文件时走原来的 Core.sln 全量。
+    $targetedTestProjects = @()
+    if ($script:GatePlan -and [string]$script:GatePlan.dotnet_test.mode -eq "projects") {
+        $targetedTestProjects = @($script:GatePlan.dotnet_test.projects | ForEach-Object { [string]$_ })
+    }
+    $dotnetTestName = "dotnet test Core.sln -c $Configuration --no-build（$TestProjectCount 个测试工程，含 Perf 类别；用例数下限见 gate_floors.json）"
+    if ($targetedTestProjects.Count -gt 0) {
+        $dotnetTestName = "dotnet test（定向：" + (($targetedTestProjects | ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_) }) -join "、") + "，--no-build）"
+    }
+    Invoke-CheckStep $dotnetTestName -Id "dotnet_test" {
         if (Test-Path $PerfTrxDir) {
             Remove-Item $PerfTrxDir -Recurse -Force
+        }
+
+        if ($targetedTestProjects.Count -gt 0) {
+            $allProjectsOk = $true
+            foreach ($proj in $targetedTestProjects) {
+                $projPath = Join-Path $RepoRoot $proj
+                $projOk = Test-NativeExitCode "dotnet" @(
+                    "test", $projPath, "-c", $Configuration, "--no-build", "--artifacts-path", $ArtifactsPath,
+                    "--logger", "trx", "--results-directory", $PerfTrxDir)
+                if (-not $projOk) { $allProjectsOk = $false }
+            }
+            $targetedResult = Invoke-GateTargetedCountsCheck -Kind Trx -Path $PerfTrxDir -Suite "dotnet_test" -FloorsPath $GateFloorsPath
+            if ($targetedResult.Ok) {
+                Write-Host "定向子集计数：$($targetedResult.Detail)" -ForegroundColor DarkGray
+            } else {
+                Write-Host "定向子集计数未达：$($targetedResult.Detail)" -ForegroundColor Red
+            }
+            return [PSCustomObject]@{ Ok = ($allProjectsOk -and $targetedResult.Ok); Detail = $targetedResult.Detail }
         }
 
         $ok = Test-NativeExitCode "dotnet" @(
@@ -136,7 +171,7 @@ try {
     if ($Quick) {
         Add-SkippedStep "ABI 探针（toolchain/abi_probe.ps1）" "-Quick"
     } else {
-        Invoke-CheckStep "ABI 探针（toolchain/abi_probe.ps1）" {
+        Invoke-CheckStep "ABI 探针（toolchain/abi_probe.ps1）" -Id "abi_probe" {
             $abiProbeScript = Join-Path $RepoRoot "toolchain\abi_probe.ps1"
             if (-not (Test-Path -LiteralPath $ArtifactsPath)) {
                 New-Item -ItemType Directory -Force -Path $ArtifactsPath | Out-Null
@@ -167,7 +202,7 @@ try {
     if ($Quick) {
         Add-SkippedStep "python toolchain/gen_placeholder_assets.py --check" "-Quick"
     } else {
-        Invoke-CheckStep "python toolchain/gen_placeholder_assets.py --check" {
+        Invoke-CheckStep "python toolchain/gen_placeholder_assets.py --check" -Id "placeholder_assets" {
             Push-Location $RepoRoot
             try {
                 Test-NativeExitCode "python" @("toolchain/gen_placeholder_assets.py", "--check")
@@ -183,7 +218,7 @@ try {
     if ($Quick) {
         Add-SkippedStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" "-Quick"
     } else {
-        Invoke-CheckStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" {
+        Invoke-CheckStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" -Id "sample_import_idem" {
             Push-Location $RepoRoot
             try {
                 $watchPaths = @("data/_sample", "assets/_sample")
@@ -252,7 +287,7 @@ try {
         # 与 toolchain/gate_floors.json 的 pytest 登记比较（判断记录见 toolchain/_gate_test_floors.ps1）。
         # 该下限只覆盖本步骤实际跑的用例（已 --ignore 掉阶段一单独串行跑的那个文件）。
         $pytestJunit = Join-Path $ArtifactsPath "pytest_junit.xml"
-        Invoke-CheckStep "python -m pytest toolchain/tests -q（用例数下限见 gate_floors.json）" {
+        Invoke-CheckStep "python -m pytest toolchain/tests -q（用例数下限见 gate_floors.json）" -Id "toolchain_pytest" {
             if (Test-Path -LiteralPath $pytestJunit) {
                 Remove-Item -LiteralPath $pytestJunit -Force
             }
@@ -285,7 +320,7 @@ try {
     if ($Quick) {
         Add-SkippedStep "数值仿真基线比对（toolchain/simrunner）" "-Quick"
     } else {
-        Invoke-CheckStep "数值仿真基线比对（toolchain/simrunner）" {
+        Invoke-CheckStep "数值仿真基线比对（toolchain/simrunner）" -Id "sim_baseline" {
             $simOutDir = Join-Path $ArtifactsPath "sim_out"
             if (Test-Path -LiteralPath $simOutDir) {
                 Remove-Item -LiteralPath $simOutDir -Recurse -Force
@@ -401,7 +436,7 @@ try {
         Add-SkippedStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" $matrixSkipReason
     } else {
         $noUtf8Junit = Join-Path $ArtifactsPath "pytest_junit_noutf8.xml"
-        Invoke-CheckStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" {
+        Invoke-CheckStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" -Id "pytest_env_matrix_utf8" {
             if (Test-Path -LiteralPath $noUtf8Junit) {
                 Remove-Item -LiteralPath $noUtf8Junit -Force
             }
@@ -433,7 +468,7 @@ try {
     if ($matrixSkipReason -ne "") {
         Add-SkippedStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" $matrixSkipReason
     } else {
-        Invoke-CheckStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" {
+        Invoke-CheckStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" -Id "pytest_env_matrix_pshost" {
             $testsDir = Join-Path $RepoRoot "toolchain\tests"
             $psTestFiles = @(Get-ChildItem -LiteralPath $testsDir -Filter "test_*.py" -File |
                 Where-Object { $_.Name -ne "test_registry_stop_pidfile_rewrite_timestamp.py" } |

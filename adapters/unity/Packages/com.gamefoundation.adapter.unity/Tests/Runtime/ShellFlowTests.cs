@@ -14,6 +14,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shell")]
     public sealed class ShellFlowTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";

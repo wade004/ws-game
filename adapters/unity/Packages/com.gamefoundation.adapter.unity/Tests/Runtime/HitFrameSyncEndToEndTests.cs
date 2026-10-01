@@ -54,6 +54,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:feedback_binder")]
     public sealed class HitFrameSyncEndToEndTests : PlayModeTestBase
     {
         private GameObject? _go;

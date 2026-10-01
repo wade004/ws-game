@@ -10,6 +10,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityRenderer2DTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;

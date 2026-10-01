@@ -29,6 +29,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityRenderer2DTieBreakTests : PlayModeTestBase
     {
         // 判断记录（PlayMode 全量门禁 1.84.0 发现：本用例定向重跑 43/43 绿，全量 342 例里红——

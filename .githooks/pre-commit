@@ -21,23 +21,25 @@
 # validate_data.py/gen_event_constants.py 等多个 Python 子进程，统一导出可避免这些脚本任何一处
 # 打印非 ASCII 文本时，在本机默认非 UTF-8 控制台代码页下出问题。
 #
-# 判断记录（按暂存改动分级，2026-09-22 提交前钩子分级任务）：一轮发布里主会话有 4～5 次提交，
-# 其中 CHANGELOG 定版/答复稿/回归记录只改 .md，build.ps1 -Release 全量门禁通过后做的"发布
-# X.Y.Z"提交只改版本文件——这两类每次都再跑一遍 32 步 check.ps1 -SkipUnity -Quick（约 100 秒）
-# 是重复验证。分级判断本身是纯函数 Get-PreCommitCheckTier（见
-# toolchain/_precommit_tiering_guard.ps1，toolchain/tests/test_precommit_tiering_guard.py 用
-# pytest 驱动覆盖），本钩子只做"取暂存清单 -> 调用该函数 -> 按返回档位分派"这几行胶水：
-#   - DocsOnly：暂存改动全部是 .md，跑 check.ps1 -DocsOnly（只跑文档相关几步，含禁用词扫描——
-#     该扫描是 CLAUDE.md 硬性规则的唯一守门，任何档位都不能跳过，具体步骤集合见 check.ps1
-#     .PARAMETER DocsOnly 说明）。
-#   - ReleaseSkip：build.ps1 -Release 在"-Release 第 6 步"设置 WS_GAME_RELEASE_COMMIT=1 后
-#     再 git commit，且暂存清单确实只含该脚本 git add 的那几个版本文件——全量门禁已经在这次
-#     提交之前跑过（build.ps1 -Release 第 5 步），不重复跑，不用 --no-verify（那样会绕过钩子
-#     本身，事后不可追溯；这里是钩子内部按判定结果主动放行，仍会打印说明）。
-#   - Full（其余一切情况，含合并提交——MERGE_HEAD 存在时同样只按暂存清单判定，不特殊放行）：
-#     照旧跑 check.ps1 -SkipUnity -Quick 32 步。
-# 分级判断/调用失败（如 powershell 不可用、precommit_tier.ps1 输出格式不符预期）一律退回 Full，
-# 不静默放行——"档位识别失败"不等于"可以跳过验证"。
+# 判断记录（按暂存改动分级，2026-09-22 提交前钩子分级任务；2026-10-01 改由定向门禁统一判级，
+# ADR-0126）：一轮发布里主会话有 4～5 次提交，其中 CHANGELOG 定版/答复稿/回归记录只改文档，
+# build.ps1 -Release 全量门禁通过后做的"发布 X.Y.Z"提交只改版本文件——这两类每次都再跑一遍
+# check.ps1 -SkipUnity -Quick 是重复验证。现在的分派只有两步：
+#   1) ReleaseSkip（唯一仍由 toolchain/precommit_tier.ps1 判定的档位）：build.ps1 -Release 在
+#      "-Release 第 6 步"设置 WS_GAME_RELEASE_COMMIT=1 后再 git commit，且暂存清单确实只含该脚本
+#      git add 的那几个版本文件——全量门禁已经在这次提交之前跑过（第 5 步），不重复跑，不用
+#      --no-verify（那样会绕过钩子本身，事后不可追溯；这里是钩子内部按判定结果主动放行，仍会
+#      打印说明）。分级纯函数见 toolchain/_precommit_tiering_guard.ps1，由
+#      toolchain/tests/test_precommit_tiering_guard.py 覆盖。
+#   2) 其余一切情况（含合并提交——MERGE_HEAD 存在时同样只按暂存清单判定，不特殊放行）：跑
+#      check.ps1 -Staged -SkipUnity，由 toolchain/change_impact.py 按暂存路径统一判级（T0～T3，
+#      规则与步骤触发表见 toolchain/module_map.json）。此前的 DocsOnly 档就是现在的 T0（暂存改动全
+#      是文档，只跑同一组文档相关步骤，含禁用词扫描——CLAUDE.md 硬性规则的唯一守门，任何档位都不能
+#      跳过）；T1/T2 只跑命中层的测试工程与触发的步骤；T3（共享面/未知路径）此前叫 Full，
+#      为保持"提交前只做秒级快速把关"的既有口径，这一档额外带 -Quick（与旧 Full 档完全相同：
+#      check.ps1 -SkipUnity -Quick），完整全量仍由里程碑/手工 check.ps1 承担。
+# 暂存清单为空（如空提交）、判级脚本调用失败（python/powershell 不可用、输出不是 T0～T3）一律退回
+# 旧 Full 档（-SkipUnity -Quick，不走定向），不静默放行——"档位识别失败"不等于"可以跳过验证"。
 set -e
 
 export PYTHONUTF8=1
@@ -60,28 +62,33 @@ fi
 tier=$(printf '%s' "$decision" | cut -d'|' -f1)
 reason=$(printf '%s' "$decision" | cut -d'|' -f2-)
 
-case "$tier" in
-    DocsOnly)
-        echo "[pre-commit] 档位：DocsOnly（$reason）——跑 check.ps1 -DocsOnly（文档相关子集，含禁用词扫描）..."
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -DocsOnly
-        status=$?
-        ;;
-    ReleaseSkip)
-        echo "[pre-commit] 档位：ReleaseSkip（$reason）——不重复跑 check.ps1。"
-        status=0
-        ;;
-    Full)
-        echo "[pre-commit] 档位：Full（$reason）——跑 check.ps1 -SkipUnity -Quick（32 步）..."
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
-        status=$?
-        ;;
-    *)
-        echo "[pre-commit] 分级判断未取到可识别档位（原始输出：$decision），按最保守的 Full 处理。"
-        echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick（32 步）..."
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
-        status=$?
-        ;;
-esac
+if [ "$tier" = "ReleaseSkip" ]; then
+    echo "[pre-commit] 档位：ReleaseSkip（$reason）——不重复跑 check.ps1。"
+    status=0
+else
+    level=""
+    if [ -n "$staged_files" ] && command -v python >/dev/null 2>&1; then
+        level=$(python toolchain/change_impact.py --staged --print-level 2>/dev/null | tr -d '\r' || true)
+    fi
+    case "$level" in
+        T0|T1|T2)
+            echo "[pre-commit] 定向门禁：暂存改动判为 $level——跑 check.ps1 -Staged -SkipUnity（只跑命中的步骤，全文日志落盘）..."
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -Staged -SkipUnity
+            status=$?
+            ;;
+        T3)
+            echo "[pre-commit] 定向门禁：暂存改动判为 T3（共享面/未知路径）——跑 check.ps1 -Staged -SkipUnity -Quick（与旧 Full 档相同的快速全量）..."
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -Staged -SkipUnity -Quick
+            status=$?
+            ;;
+        *)
+            echo "[pre-commit] 未取到可识别的定向级别（暂存清单为空，或判级脚本不可用；原始输出：$level），按最保守的旧 Full 档处理。"
+            echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick..."
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
+            status=$?
+            ;;
+    esac
+fi
 
 if [ "$status" -ne 0 ]; then
     echo "[pre-commit] 门禁未通过（退出码 $status），提交已拦截。"

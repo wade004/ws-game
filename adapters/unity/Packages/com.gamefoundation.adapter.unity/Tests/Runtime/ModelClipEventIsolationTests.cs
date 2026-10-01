@@ -34,6 +34,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class ModelClipEventIsolationTests : PlayModeTestBase
     {
         private static readonly Id AttackClipRef = new Id("anim.attack");

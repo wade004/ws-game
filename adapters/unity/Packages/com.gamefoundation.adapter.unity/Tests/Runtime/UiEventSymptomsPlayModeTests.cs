@@ -69,6 +69,7 @@ using FeedbackBinderCore = Presentation.FeedbackBinder.Core.FeedbackBinder;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:ui")]
     public sealed class UiEventSymptomsPlayModeTests : PlayModeTestBase
     {
         private const string PlayerFactionId = "fac.player";

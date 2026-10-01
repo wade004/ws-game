@@ -25,6 +25,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class EquipVisualSocketClearTests : PlayModeTestBase
     {
         private static readonly Id ModelHeroLogicalId = new Id("creature.sample_model_hero");

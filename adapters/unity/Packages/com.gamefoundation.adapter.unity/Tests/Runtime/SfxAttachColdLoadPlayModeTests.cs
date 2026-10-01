@@ -23,6 +23,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:vfx_sfx")]
     public sealed class SfxAttachColdLoadPlayModeTests : PlayModeTestBase
     {
         private static readonly Id LoopSfxId = new Id("sfx.pres35_cold_loop_probe");

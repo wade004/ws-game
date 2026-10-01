@@ -19,6 +19,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityRenderer3DTests : PlayModeTestBase
     {
         private static readonly Id PlaceholderModelId = new Id("model.placeholder_biped");

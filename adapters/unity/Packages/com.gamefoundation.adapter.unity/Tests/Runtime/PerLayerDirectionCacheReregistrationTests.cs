@@ -47,6 +47,7 @@ using DisplayInfo = Core.Foundation.DisplayInfo.DisplayInfo;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class PerLayerDirectionCacheReregistrationTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;

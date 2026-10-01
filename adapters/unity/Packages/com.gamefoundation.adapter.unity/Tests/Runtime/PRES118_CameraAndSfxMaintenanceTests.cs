@@ -36,6 +36,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class PRES118_CameraAndSfxMaintenanceTests : PlayModeTestBase
     {
         private static readonly Id SfxProbeId = new Id("sfx.pres118_missing_resource_probe");

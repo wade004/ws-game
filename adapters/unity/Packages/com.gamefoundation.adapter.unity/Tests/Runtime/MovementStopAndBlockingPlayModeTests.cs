@@ -32,6 +32,8 @@ using Rect = Core.Foundation.Common.Rect;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:unit")]
+    [Category("interaction:movement_stop_blocking")]
     public sealed class MovementStopAndBlockingPlayModeTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";

@@ -7,6 +7,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityCameraTests : PlayModeTestBase
     {
         private GameObject _cameraGo = null!;

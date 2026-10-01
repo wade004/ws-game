@@ -30,6 +30,7 @@ namespace Adapter.Unity.Tests.Runtime
         public Id? GetWeaponStyleRef(Id entityId) => _ref;
     }
 
+    [Category("module:render")]
     public sealed class AnimClipResolverTests : PlayModeTestBase
     {
         private static IEventBus NewBus()

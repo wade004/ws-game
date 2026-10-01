@@ -33,6 +33,7 @@ using UnityEngine.UI;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:ui")]
     public sealed class UiSkinOverridePlayModeTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";

@@ -28,6 +28,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class DiagnosticsHubCompositionPlayModeTests : PlayModeTestBase
     {
         /// <summary>netstandard2.1 没有 ReferenceEqualityComparer，自带一个引用相等比较器。</summary>

@@ -31,6 +31,8 @@ param(
     [switch]$Il2cpp,
     [string]$UnityExe = "",
     [string]$FailFastFlagPath = "",
+    # 定向门禁（ADR-0126）：判定 JSON，语义同 _gate_line_heavy.ps1 同名参数；空串 = 非定向模式。
+    [string]$PlanFile = "",
     [Parameter(Mandatory = $true)][string]$ResultsJsonPath,
     [string]$TranscriptPath = "",
     # 仅供并行编排的自证测试使用，见 _gate_line_heavy.ps1 同名参数判断记录；默认 0 不生效。
@@ -52,6 +54,7 @@ $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } e
 . (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
 # 第四批（复盘 I-8 余项）：结果 XML / 冒烟日志 / 包清单三处判定逻辑抽成纯函数，见该文件头。
 . (Join-Path $RepoRoot "toolchain\_gate_unity_verdicts.ps1")
+Import-GatePlan -Path $PlanFile
 
 try {
     # 判断记录同 toolchain/_gate_line_heavy.ps1 同名段落：故意不经过 Invoke-CheckStep，不受
@@ -73,7 +76,7 @@ try {
     if ($Quick) {
         Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick"
     } else {
-        Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" {
+        Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" -Id "sync_dll" {
             $buildScript = Join-Path $RepoRoot "build.ps1"
             & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -SkipTests | Out-Null
             return ($LASTEXITCODE -eq 0)
@@ -87,7 +90,7 @@ try {
     if ($Quick) {
         Add-SkippedStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
     } else {
-        Invoke-CheckStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" {
+        Invoke-CheckStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" -Id "pkg_manifest" {
             $versionPath = Join-Path $RepoRoot "VERSION"
             $version = (Get-Content -Path $versionPath -Raw).Trim()
 
@@ -161,10 +164,20 @@ try {
     # Unity 相关四步 + IL2CPP 三步 + 消费方演练（-SkipUnity 时整体跳过）
     # -------------------------------------------------------------------
     $GateFloorsPath = Join-Path $RepoRoot "toolchain\gate_floors.json"
+    # 定向门禁（ADR-0126）：引擎侧待跑的 PlayMode 分类过滤串（T1 仅交互例外、T2 为命中模块分类 + shared
+    # + 交互例外；T3 或非定向模式为空串 = 不过滤、跑全部）。分号分隔，直接作为 Unity 的 -testCategory 值。
+    $playModeCategoryFilter = ""
+    if ($script:GatePlan -and [string]$script:GatePlan.engine.mode -eq "filtered") {
+        $playModeCategoryFilter = [string]$script:GatePlan.engine.playmode_filter
+    }
     if ($SkipUnity) {
         Add-SkippedStep "Unity 编译检查" "-SkipUnity"
         Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
-        Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
+        if ($playModeCategoryFilter -ne "") {
+            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑，由主会话执行：-testCategory '$playModeCategoryFilter'）"
+        } else {
+            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
+        }
         Add-SkippedStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" "-SkipUnity"
         Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity"
         Add-SkippedStep "消费方演练" "-SkipUnity"
@@ -174,7 +187,7 @@ try {
         $resolvedUnityExe = Resolve-UnityExe -Explicit $UnityExe
         $unityProjectPath = Join-Path $RepoRoot "adapters\unity"
 
-        Invoke-CheckStep "Unity 编译检查" {
+        Invoke-CheckStep "Unity 编译检查" -Id "unity_compile" {
             Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
             $log = Join-Path $UnityOutDir "compile.log"
             $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
@@ -188,7 +201,7 @@ try {
             }
         }
 
-        Invoke-CheckStep "Unity EditMode 测试" {
+        Invoke-CheckStep "Unity EditMode 测试" -Id "unity_editmode" {
             Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
             $resultsXml = Join-Path $UnityOutDir "editmode.xml"
             $log = Join-Path $UnityOutDir "editmode.log"
@@ -223,17 +236,28 @@ try {
             }
         }
 
-        Invoke-CheckStep "Unity PlayMode 测试" {
+        $playModeStepName = "Unity PlayMode 测试"
+        if ($playModeCategoryFilter -ne "") {
+            $playModeStepName = "Unity PlayMode 测试（定向：-testCategory $playModeCategoryFilter）"
+        }
+        Invoke-CheckStep $playModeStepName -Id "unity_playmode" {
             Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
             $resultsXml = Join-Path $UnityOutDir "playmode.xml"
             $log = Join-Path $UnityOutDir "playmode.log"
-            $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList @(
+            $playModeArgs = @(
                 "-batchmode",
                 "-projectPath", $unityProjectPath,
                 "-runTests", "-testPlatform", "PlayMode",
                 "-testResults", $resultsXml,
                 "-logFile", $log
             )
+            # 定向门禁（ADR-0126）：-testCategory 取分号分隔的 NUnit 分类名（模块分类 module:<名>、
+            # module:shared、交互例外分类）。与 -testFilter 是"取交集"语义，所以交互例外也登记成分类、
+            # 不另传 -testFilter。
+            if ($playModeCategoryFilter -ne "") {
+                $playModeArgs += @("-testCategory", $playModeCategoryFilter)
+            }
+            $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList $playModeArgs
             if ($proc.ExitCode -ne 0) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
             }
@@ -248,7 +272,12 @@ try {
             }
             # 用例数下限（复盘 I-2）：result==Passed 之外，还要 passed 不低于 gate_floors.json 的
             # unity_playmode.min_passed、skipped+inconclusive 不超过 max_skipped；四个数写进 Detail。
-            $floorResult = Invoke-GateTestFloorCheck -Kind NUnit -Path $resultsXml -Suite "unity_playmode" -FloorsPath $GateFloorsPath
+            # 按分类过滤的定向运行只跑了子集，全套件下限不适用，改用子集底线（passed>=1 等）。
+            if ($playModeCategoryFilter -ne "") {
+                $floorResult = Invoke-GateTargetedCountsCheck -Kind NUnit -Path $resultsXml -Suite "unity_playmode" -FloorsPath $GateFloorsPath
+            } else {
+                $floorResult = Invoke-GateTestFloorCheck -Kind NUnit -Path $resultsXml -Suite "unity_playmode" -FloorsPath $GateFloorsPath
+            }
             if (-not $floorResult.Ok) {
                 Write-Host "用例数下限未达：$($floorResult.Detail)" -ForegroundColor Red
             }
@@ -258,7 +287,7 @@ try {
             }
         }
 
-        Invoke-CheckStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" {
+        Invoke-CheckStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" -Id "unity_build_smoke" {
             Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
             $buildLog = Join-Path $UnityOutDir "build.log"
             $exePath = Join-Path $UnityOutDir "Shell.exe"
@@ -302,7 +331,7 @@ try {
             }
         }
 
-        Invoke-CheckStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" {
+        Invoke-CheckStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" -Id "unity_smoke_discrete" {
             $exePath = Join-Path $UnityOutDir "Shell.exe"
             if (-not (Test-Path $exePath)) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "未生成独立版产物：$exePath" }
@@ -346,7 +375,7 @@ try {
             }
             $il2cppExePath = Join-Path $il2cppOutDir "Shell_il2cpp.exe"
 
-            Invoke-CheckStep "IL2CPP 独立版构建" {
+            Invoke-CheckStep "IL2CPP 独立版构建" -Id "il2cpp_build" {
                 Test-NoResidualUnityProcess -ProjectPath $unityProjectPath
                 $buildLog = Join-Path $UnityOutDir "build_il2cpp.log"
                 $prevEnv = $env:GF_IL2CPP_OUTPUT_PATH
@@ -370,7 +399,7 @@ try {
                 [PSCustomObject]@{ Ok = $true; Detail = "见 $buildLog" }
             }
 
-            Invoke-CheckStep "IL2CPP 独立版 -gf-smoke 冒烟" {
+            Invoke-CheckStep "IL2CPP 独立版 -gf-smoke 冒烟" -Id "il2cpp_smoke" {
                 if (-not (Test-Path $il2cppExePath)) {
                     return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
                 }
@@ -399,7 +428,7 @@ try {
                 }
             }
 
-            Invoke-CheckStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" {
+            Invoke-CheckStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" -Id "il2cpp_smoke_discrete" {
                 if (-not (Test-Path $il2cppExePath)) {
                     return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
                 }
@@ -432,7 +461,7 @@ try {
         if ($SkipConsumer) {
             Add-SkippedStep "消费方演练" "-SkipConsumer"
         } else {
-            Invoke-CheckStep "消费方演练（toolchain/consumer_smoke.ps1）" {
+            Invoke-CheckStep "消费方演练（toolchain/consumer_smoke.ps1）" -Id "consumer_drill" {
                 $consumerScript = Join-Path $RepoRoot "toolchain\consumer_smoke.ps1"
                 $consumerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $consumerScript)
                 if ($UnityExe -ne "") {

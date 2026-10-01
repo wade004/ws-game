@@ -20,6 +20,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class GlobalPlayModeTestSetupTests
     {
         private string _tempSavesDir = null!;

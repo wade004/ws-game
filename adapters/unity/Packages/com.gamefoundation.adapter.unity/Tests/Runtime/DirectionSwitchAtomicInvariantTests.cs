@@ -18,6 +18,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class DirectionSwitchAtomicInvariantTests : DirectionSwitchFixtureBase
     {
         private static void AssertAllInDir(FrameReading frame, string dir, int minVisible, string what, List<FrameReading> log)

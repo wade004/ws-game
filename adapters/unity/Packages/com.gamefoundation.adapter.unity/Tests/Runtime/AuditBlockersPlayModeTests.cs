@@ -39,6 +39,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class AuditBlockersPlayModeTests : PlayModeTestBase
     {
         private const string PlayerFactionId = "fac.player";

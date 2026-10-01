@@ -77,12 +77,24 @@ function Invoke-CheckStep {
     param(
         [string]$Name,
         [scriptblock]$Action,
-        [switch]$DocRelevant
+        [switch]$DocRelevant,
+        [string]$Id = ""
     )
 
     if ($DocsOnly -and -not $DocRelevant) {
         Add-SkippedStep $Name "-DocsOnly（非文档相关步骤，仅纯文档改动的提交跳过）"
         return
+    }
+
+    # 定向门禁（ADR-0126）：调用点带 -Id 且本进程加载了判定结果（Import-GatePlan）时，判定结果里
+    # 标为不跑的步骤直接改判可见 SKIP，原因写成『T? 未触发』等判定器给出的文字。没加载判定结果
+    # （不传 -Changed/-Staged/-Modules）时本段完全不生效，行为与此前一致。
+    if ($Id -ne "" -and $script:GateStepPlan -and $script:GateStepPlan.ContainsKey($Id)) {
+        $planned = $script:GateStepPlan[$Id]
+        if (-not $planned.Run) {
+            Add-SkippedStep $Name $planned.Reason
+            return
+        }
     }
 
     if ($FailFast) {
@@ -204,7 +216,7 @@ function Add-SkippedStep {
 #     那正是想要的提醒（要么改文案对齐前缀，要么确认它确实是环境问题）。
 function Get-EnvironmentalSkipRows {
     param([Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()]$Results)
-    $flagDriven = '^(-Quick|-SkipUnity|-SkipConsumer|-DocsOnly|未传 -Il2cpp|上游步骤已失败|并行的另一条线已失败|前置快速检查失败)'
+    $flagDriven = '^(-Quick|-SkipUnity|-SkipConsumer|-DocsOnly|未传 -Il2cpp|T[0-3] 未触发|上游步骤已失败|并行的另一条线已失败|前置快速检查失败)'
     return @($Results | Where-Object {
         $_.Result -eq "SKIP" -and ([string]$_.Detail) -notmatch $flagDriven
     })
@@ -319,6 +331,31 @@ function Invoke-UnityTestTriageOnFailure {
 # 对象，是为了避开 PowerShell 后台作业跨进程对象序列化的深度/类型还原不确定性（见
 # `Start-Job`/`Receive-Job` 官方文档"反序列化对象"一节的已知限制），JSON 是更可控、可读、
 # 也方便调试（落盘文件可以直接打开看）的选择。
+# 定向门禁（ADR-0126）：读 toolchain/change_impact.py 写出的判定 JSON，设置本脚本作用域内的
+# $script:GatePlan（整份判定，供各步骤读 dotnet_test/engine 等细节）与 $script:GateStepPlan（步骤
+# id -> @{ Run; Reason } 的哈希表，供 Invoke-CheckStep 的 -Id 判定）。-Path 为空串时什么都不做
+# （非定向模式）；文件缺失/损坏抛异常，不静默退回全量——"判定失败"不等于"可以全跑也可以全不跑"，
+# 由调用方（check.ps1 主进程）把它记成明确的失败。
+function Import-GatePlan {
+    param([string]$Path)
+    if ([string]::IsNullOrEmpty($Path)) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "找不到定向判定文件：$Path"
+    }
+    $plan = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $map = @{}
+    foreach ($s in @($plan.steps.run)) {
+        $map[[string]$s.id] = @{ Run = $true; Reason = [string]$s.reason }
+    }
+    foreach ($s in @($plan.steps.skip)) {
+        $map[[string]$s.id] = @{ Run = $false; Reason = [string]$s.reason }
+    }
+    $script:GatePlan = $plan
+    $script:GateStepPlan = $map
+}
+
 function Write-GateResultsJson {
     param([string]$Path)
     $dir = Split-Path -Parent $Path

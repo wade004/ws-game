@@ -12,6 +12,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class DirectionPrewarmReproTests : DirectionSwitchFixtureBase
     {
         private static readonly string[] Keys = { "idle" };

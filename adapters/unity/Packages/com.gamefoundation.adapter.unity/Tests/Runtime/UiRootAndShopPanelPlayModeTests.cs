@@ -25,6 +25,7 @@ using UnityEngine.UI;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:ui")]
     public sealed class UiRootAndShopPanelPlayModeTests : PlayModeTestBase
     {
         private const string VendorId = "econ.vendor.sample_hunter";
