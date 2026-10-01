@@ -1547,3 +1547,8 @@ InvalidOperationException or ArgumentException or DirectoryNotFoundException)` �
 
 1. **`lab.scenario`/`lab.arena`/`lab.dummy_set` 的 schema 声明放在本模块**（`schema/LabSchemas.cs`，由 `SimSchemaCatalog.RegisterAll` 一并注册）：这三张表与 `sim.*` 同属"仅无头宿主与内容工具读取、运行期宿主不读"的工具表，沿用本模块已有的两个接入点（`HeadlessWorldBuilder` 与校验器的 `ExtraSchemaRegistration`），校验器与独立发行包不必新增对实验室内核的引用。本模块只知道表形状，不引用 `lab/` 下的内核，保持"运行时核心程序集不反向引用实验室内核"。归属沿用 `SchemaLayer.Sim`，不新增枚举成员（域名 `lab` 已在 04 第 2.2 节登记）。
 2. **`HeadlessWorldOptions.Navigation`**：新增可选的导航接口透传（转发给 `GameplayAssembly` 既有的 `navigation` 参数；缺省 `null`，即此前恒定的"未装配导航、移动不做阻挡判定"，行为逐位不变），让实验室宿主能把竞技场阻挡登记进桩导航。只增不改，无任何既有调用方受影响。
+
+## 判断记录（手感落地 S10：`HeadlessWorldOptions.FeelOptions`，2026-10-02）
+
+1. **`HeadlessWorldOptions.FeelOptions`**：新增可选的手感装配选项透传（缺省 `null` 即不启用，行为与新增本属性之前逐位一致）。启用时步长取本装配根的 `StepSeconds`（显式给了不同的 `CarriersFeelOptions.StepSeconds` 抛 `ArgumentException`），数据根必须含 `feel.*` 行（如 `data/_feel`）；标定行有多行（如框架缺省加游戏自带）必须在选项里给 `CalibrationId`。因为只有最长的 `GameplayAssembly` 构造重载接受 `feelOptions`，装配根改走该重载并把其余参数按此前经可选参数重载时的缺省全部显式传 `null`——这一改写不改变任何既有选项的行为。
+2. **端到端冒烟放在 `core/gameplay/assembly/tests/FeelWiringEndToEndTests.cs`**：用本装配根装一个世界（`data/_framework` + `data/_feel` + `data/_lab` + 测试内联覆盖层）。覆盖层（时间线技能、带 `class`/`buffer_ms`/`skill_slot` 的输入动作、一行 `rpg_classic` 标定）内联在测试里而不是落成磁盘数据目录，避免被数据校验与内容工具当作一份游戏数据集扫描。

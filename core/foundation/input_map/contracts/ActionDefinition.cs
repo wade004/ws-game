@@ -57,6 +57,9 @@ namespace Core.Foundation.InputMap
         /// <summary>宽限窗口适用的条件名（<c>found.grace_condition</c> 的 key，手感设计/01 第 2.4 节）；缺省为空。</summary>
         public IReadOnlyList<Id> GraceConditions { get; }
 
+        /// <summary>缓冲接受后施放的技能所在的技能绑定槽位名（S10 加法字段）；<c>null</c> 表示本动作不映射技能。</summary>
+        public string? SkillSlot { get; }
+
         /// <summary>生效优先级：显式值，否则类别缺省；未声明类别的动作为 0。</summary>
         public int EffectivePriority => Priority ?? (Class.HasValue ? ActionClassDefaults.Priority(Class.Value) : 0);
 
@@ -74,7 +77,28 @@ namespace Core.Foundation.InputMap
             string? description = null)
             : this(actionId, kind, defaultBindings, rebindGroup, description,
                 actionClass: null, bufferMs: null, priority: null, holdThresholdMs: null,
-                repeatPolicy: InputRepeatPolicy.Refresh, faceOnAccept: null, graceConditions: null)
+                repeatPolicy: InputRepeatPolicy.Refresh, faceOnAccept: null, graceConditions: null, skillSlot: null)
+        {
+        }
+
+        /// <summary>
+        /// 十二参数构造（手感落地 S1 的签名）原样保留，转调带 <c>skillSlot</c> 的十三参数重载（纯加法，ABI 只增不减）。
+        /// </summary>
+        public ActionDefinition(
+            Id actionId,
+            ActionKind kind,
+            IReadOnlyList<string> defaultBindings,
+            string rebindGroup,
+            string? description,
+            ActionClass? actionClass,
+            double? bufferMs,
+            int? priority,
+            double? holdThresholdMs,
+            InputRepeatPolicy repeatPolicy,
+            bool? faceOnAccept,
+            IReadOnlyList<Id>? graceConditions)
+            : this(actionId, kind, defaultBindings, rebindGroup, description, actionClass, bufferMs, priority,
+                holdThresholdMs, repeatPolicy, faceOnAccept, graceConditions, skillSlot: null)
         {
         }
 
@@ -94,7 +118,8 @@ namespace Core.Foundation.InputMap
             double? holdThresholdMs,
             InputRepeatPolicy repeatPolicy,
             bool? faceOnAccept,
-            IReadOnlyList<Id>? graceConditions)
+            IReadOnlyList<Id>? graceConditions,
+            string? skillSlot)
         {
             if (defaultBindings == null || defaultBindings.Count == 0)
             {
@@ -126,6 +151,7 @@ namespace Core.Foundation.InputMap
             RepeatPolicy = repeatPolicy;
             FaceOnAccept = faceOnAccept;
             GraceConditions = graceConditions ?? Array.Empty<Id>();
+            SkillSlot = string.IsNullOrEmpty(skillSlot) ? null : skillSlot;
         }
 
         /// <summary>
@@ -187,8 +213,10 @@ namespace Core.Foundation.InputMap
             bool? faceOnAccept = record.TryGetBool("face_on_accept", out var fa) ? fa : (bool?)null;
             IReadOnlyList<Id>? graceConditions = record.TryGetIdList("grace_conditions", out var gc) ? gc : null;
 
+            string? skillSlot = record.TryGetString("skill_slot", out var ss) ? ss : null;
+
             return new ActionDefinition(actionId, kind, bindings, rebindGroup, description,
-                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions);
+                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions, skillSlot);
         }
 
         private static ActionClass ParseClass(DataRecord record, string classText)

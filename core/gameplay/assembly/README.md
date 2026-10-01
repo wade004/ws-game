@@ -508,3 +508,15 @@ SceneRouter`（新增 `Hooks` 只读属性，见 `core/foundation/scene_router/R
 （`GameFoundationBootstrap`/`FrameworkResidentHost`）与全部既有测试夹具构造 `SceneRouter` 时
 传入的都是 `gameplay.Hooks`，本次新增防护不影响任何既有调用点。见测试
 `ADR0086_AttachSceneRouterHookRegistryGuardTests`。
+
+## 手感落地 S10：`GameplayAssembly` 新增带 `CarriersFeelOptions` 的构造重载（2026-10-02）
+
+`GameplayAssembly` 新增末尾多一个 `CarriersFeelOptions? feelOptions` 参数的构造重载（真正的构造逻辑在这里；带 `CreatureInteractOptions` 的最长旧重载纯转发并传 `null`）；`GameplayAssembly.Feel` 即 `Carriers.Feel`，不传则为 `null`、既有行为逐位不变。`HeadlessWorldBuilder` 经 `HeadlessWorldOptions.FeelOptions` 透传；`PresentationAssembly` 的手感镜头与打击反馈流水线在 `PresentationAssemblyOptions.FeelResolver` 为空时取 `gameplay.Feel?.Resolver`，并把本地输入映射的按钮边沿接给输入缓冲。
+
+本节追加的判断记录（S10 本节编号）：
+
+1. **为什么新增一个最长重载而不是可选参数重载加参数**：可选参数构造重载（无进度、无生物交互参数的那个）再追加可选参数，会让既有按位置或命名参数调用的调用方产生重载歧义；最长的重载是 ABI 基线里已发布的物理签名，只在它后面新增"多一个参数"的重载最安全（G3 约束）。代价：走可选参数重载的调用方（Unity 宿主引导）拿不到 `feelOptions`，需要改走最长重载——`HeadlessWorldBuilder` 与 `games/_template` 已改，Unity 适配层的两个引导类本切片不动（已知限制，交给 Unity 侧切片）。
+2. **步长与离散模式取时钟宿主**：`StepSeconds` 取 `ISimClockHost` 的步长，显式给了不同值抛 `ArgumentException`；`IsDiscreteMode` 在调用方没给时取时钟宿主的模式（回合制下局部顿帧与时间线不生效）。
+3. **换图/读档/离开地图清输入缓冲**：`EnterMap`/`RestoreFromSlot`/`LeaveMap` 里 `Carriers.Feel?.InputBuffer.ClearAll()`，避免上一张图里按下的记录在新图里被接受。不清动作时钟（时钟是模拟时间的一部分，不属于地图状态）。
+4. **本地行动者绑定固定在表现层装配时**：`BindLocalInput` 在 `PresentationAssembly` 构造时用 `PlayerUnitProvider()` 的结果绑定；玩家单位 id 在会话中途变化（换主角）不会重绑，已知限制。
+5. **未启用手感时的不变量**：`FeelWiringEndToEndTests` 里"关闭手感"与"启用且预设 `rpg_classic`、无时间线技能、无带类别输入动作"两个世界跑同一脚本，逐 tick 位置/运动模式/事件序列逐位一致；启用方多出的只有观测事件 `combat.hit_confirmed`/`feel.hitstop_*`/`combat.reaction_applied`，其取值在 `rpg_classic` 下是中性值（顿帧 0、反应 None）。这些额外事件是"启用手感"的观测面，不算行为差异。

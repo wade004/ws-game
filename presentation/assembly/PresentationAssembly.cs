@@ -394,6 +394,10 @@ namespace Presentation.Assembly
 
             _playerId = gameplay.PlayerUnitProvider();
 
+            // 手感落地 S10：显式注入的手感解析器优先；否则取游戏层装配出的手感系统的解析器（全装配唯一的那一个）。
+            // 两者都没有时为 null，全部手感呈现关闭，装配行为与未引入手感时逐位一致。
+            var feelResolver = opts.FeelResolver ?? gameplay.Feel?.Resolver;
+
             // 缺口 12：SettingsStore 提前到最前面构造（原在第 4 步 ui 小节内），本装配根第 2 步
             // vfx_sfx 小节构造 AudioLayerVolumeHost 时就需要用到同一个 ISettingsStore 实例。
             SettingsStore = ResolveSettingsStore(fileSystem);
@@ -457,9 +461,9 @@ namespace Presentation.Assembly
 
             // 手感镜头（手感设计/07 第 2 节）：注入手感解析器才启用。档案经呈现型视图读取；战斗缩放跟随玩家单位的
             // combat.entered/combat.left；缺省档案（rpg_classic 一类中性值）下 CameraHost 旁路，行为与改动前逐位一致。
-            if (opts.FeelResolver != null)
+            if (feelResolver != null)
             {
-                var feelForCamera = opts.FeelResolver;
+                var feelForCamera = feelResolver;
                 Camera.EnableFeel(
                     id => CameraFeelProfile.FromPresenting(feelForCamera.ResolvePresenting(id)),
                     feelForCamera.Calibration.ReferenceCameraHeight);
@@ -546,9 +550,9 @@ namespace Presentation.Assembly
             // 手感打击反馈包流水线（手感设计/07 第 1/4/5/6 节）：注入手感解析器才构造；音效分层索引取
             // sfx.def 里声明了 feel_layer 的行，反馈包取 feedback.impact_profile 表。
             ImpactPipeline? impactPipeline = null;
-            if (opts.FeelResolver != null)
+            if (feelResolver != null)
             {
-                var feel = opts.FeelResolver;
+                var feel = feelResolver;
                 var impactProfiles = registry.GetAll(Presentation.FeedbackBinder.Schema.FeedbackSchemas.ImpactProfile.Name)
                     .Select(ImpactProfile.FromRecord).ToDictionary(p => p.Id);
                 var impactOptions = opts.ImpactOptions ?? new ImpactOptions();
@@ -655,6 +659,9 @@ namespace Presentation.Assembly
             // ---------------------------------------------------------
             var inputMapHost = new Core.Foundation.InputMap.InputMapHost(bus);
             InputMap = inputMapHost;
+            // 手感落地 S10：手感系统已装配时，把本地输入的按钮边沿接给输入缓冲（本地玩家单位为行动者，按下瞬间以
+            // CarriersFeelOptions.LocalMoveActionName 指定的轴采方向快照）；未装配手感时不接，输入行为逐位不变。
+            gameplay.Feel?.InputBuffer.BindLocalInput(inputMapHost, _playerId, gameplay.Feel.LocalMoveActionName);
             InputMapDiagnostics = inputMapHost.Diagnostics;
 
             var skillBookQuery = new SkillHostSkillBookQuery(gameplay.Carriers.Rules.Skill);

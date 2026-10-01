@@ -143,6 +143,13 @@ namespace Core.Sim
         /// 不动任何既有签名）。
         /// </summary>
         public Core.Foundation.EngineAdapter.INavigation2D? Navigation { get; set; }
+
+        /// <summary>
+        /// 手感落地 S10 新增：转发给 <c>GameplayAssembly</c> 的手感装配选项。默认 <c>null</c> 即不启用手感系统，行为与新增本属性之前逐位一致。
+        /// 启用时步长取 <see cref="StepSeconds"/>（显式给了不同的 <c>CarriersFeelOptions.StepSeconds</c> 抛异常）；数据根必须含 <c>feel.*</c> 行
+        /// （如 <c>data/_feel</c>）。ABI 只新增（新增可写属性，不动任何既有签名）。
+        /// </summary>
+        public Core.Carriers.Assembly.CarriersFeelOptions? FeelOptions { get; set; }
     }
 
     /// <summary>
@@ -283,14 +290,60 @@ namespace Core.Sim
 
             var clock = new SimClockHost(world, new SimLoopOptions { StepSeconds = options.StepSeconds, MaxCatchUpSteps = options.MaxCatchUpSteps });
 
+            // 手感落地 S10：启用手感时步长取本装配根的模拟步长（与 SimLoopOptions.StepSeconds 同值），显式给了不同的值直接报错。
+            var feelOptions = options.FeelOptions;
+            if (feelOptions != null)
+            {
+                if (feelOptions.StepSeconds.HasValue && Math.Abs(feelOptions.StepSeconds.Value - options.StepSeconds) > 1e-12)
+                {
+                    throw new ArgumentException(
+                        $"手感步长 {feelOptions.StepSeconds.Value} 与无头世界步长 {options.StepSeconds} 不一致：毫秒到 tick 的换算必须与模拟步长相同",
+                        nameof(options));
+                }
+
+                feelOptions = feelOptions.WithStepSeconds(options.StepSeconds);
+            }
+
+            // 走带全部参数的最长重载（只有它接受 feelOptions）；其余参数取与此前经可选参数重载时相同的缺省（全 null）。
             var gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
                 playerUnitProvider: () => options.PlayerId,
                 playerFactionId: options.PlayerFactionId,
-                clockHost: options.EnableDiscreteTimeModel ? clock : null,
                 navigation: options.Navigation,
+                spatialSyncKinds: null,
+                sceneRouter: null,
+                statOptions: null,
                 combatOptions: options.CombatOptions,
-                lootOptions: options.LootOptions);
+                skillOptions: null,
+                targetingOptions: null,
+                aiOptions: null,
+                inventoryOptions: null,
+                itemOptions: null,
+                creatureOptions: null,
+                summonOptions: null,
+                gobjOptions: null,
+                movementOptions: null,
+                worldStateOptions: null,
+                lootOptions: options.LootOptions,
+                economyOptions: null,
+                questOptions: null,
+                difficultyOptions: null,
+                achievementOptions: null,
+                areaTriggerOptions: null,
+                spawnOptions: null,
+                autosaveSlotId: null,
+                autosaveTimestampProvider: null,
+                clockHost: options.EnableDiscreteTimeModel ? clock : null,
+                pacingPolicy: null,
+                timeModelSwitchOptions: null,
+                combatParticipantsResolver: null,
+                deathPolicyOptions: null,
+                questOwnerResolver: null,
+                questDayProvider: null,
+                vendorOpenRequested: null,
+                progressionOptions: null,
+                creatureInteractOptions: null,
+                feelOptions: feelOptions);
 
             var player = new PlayerUnit(options.PlayerId, options.MapId, options.PlayerFactionId, options.PlayerClassId)
             {

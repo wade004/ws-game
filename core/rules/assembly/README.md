@@ -362,3 +362,19 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 `newRace`），任一未登记即在**任何写入之前**抛 `ArgumentException`；写入阶段改用预先解析好的 `cls`/`newRace`，
 不再二次查表。成功路径的写入顺序与结果不变。见 `RulesAssemblyArchetypeReloadTests`
 （`..._UnknownClass_...LeavesStatsUntouched`/`..._UnknownRace_...LeavesStatsUntouched`）。
+
+## 手感落地 S10：规则层手感接线（`RulesFeelAssembly`，2026-10-02）
+
+把手感机制接进生产装配的规则层部分：局部顿帧与受击裁决（`HitFeelAssembly.Attach`，它创建的 `ActorActionClock` 即全装配唯一的动作时钟）、动作时间线协作者
+（`SkillHost.AttachTimelineServices`）、移动输入通知（`TimelineMoveIntentTickHandler`）。入口是 `RulesFeelAssembly.Attach(rules, resolver, options, stepSeconds)`，由
+`CarriersAssembly` 构造的最后一步调用；选项类 `RulesFeelOptions`（`StepSeconds`/`HitFeel`/`IsDiscreteMode`/`TimelineHitResolver`），载体层有继承它的 `CarriersFeelOptions`。**缺省不启用**，既有行为逐位不变。
+
+本节追加的判断记录（S10 本节编号，不并入上文既有编号）：
+
+1. **静态接线而不是 `RulesAssembly` 构造参数**：`RulesAssembly` 的构造函数已经历多轮追加参数，再加一个会是第 23 个；而解析器要读装备/生物模板（载体层数据）才能装配，规则层装配时拿不到。所以由持有解析器的上层（`CarriersAssembly`）在构造完成后调用本方法，行为与"构造期传入"等价，且不改任何物理签名。
+2. **解析器包装 `InvalidatingActionFeelResolver`**：`IFeelResolver.BeginAction/EndAction` 本身不使缓存失效，但判定型消费者（受击裁决读攻击方顿帧、运动层读加速度）读的是缓存的 `Resolve`，"攻击期间武器临时覆盖"与动作层手感引用只有缓存按"是否在动作中"重算后才对它们可见。时间线（`CastPipeline`）不依赖手感模块的失效事件，也不该为此改动，所以在装配根用包装器在 Begin/End 两端失效；失效放在底层调用之后（时间线在 `BeginAction` 返回之后才登记进行中动作、在 `EndAction` 之前已移除，下一次重算读到的才是新状态）。
+3. **受击打断时间线不另写第二个适配**：`HitFeelAssembly.Attach` 传入技能宿主后注册 `SkillHostStaggerInterruptSink`，它调用 `SkillHost.Interrupt`；对时间线动作该入口终止动作并发 `action.cancelled{Stagger}` 与 `skill.cast_interrupted`（S3a 判断记录），任务要求的"S3a 经 `AddInterruptSink` 注册 Stagger 打断口"由这一接线满足。运行时冒烟 `StaggeredActor_ActionIsCancelledWithStaggerReason` 覆盖。
+4. **`HitFeelOptions.IsTimelineSkill` 只在给了自定义 `TimelineHitResolver` 时接到 `SkillHost.IsTimelineSkill`**：缺省（无自定义命中解析钩子）沿用 `InstantSettlementHitResolver` 的瞬时结算，时间线技能命中同样经 `combat.damage_dealt`（带 `SkillId`），必须由受击裁决的 instant 适配器合成 `combat.hit_confirmed`；若此时接了 `IsTimelineSkill` 就会把这条合成掐掉，时间线技能永远没有顿帧与硬直。只有空间命中解析（S3b）这类自己发 `combat.hit_confirmed` 的钩子才需要避免重复合成。
+5. **`TimelineMoveIntentTickHandler` 的"移动输入"口径**：挂在 `SkillPipeline` 阶段、紧随 `SkillTickHandler`；`move` 意图带目标点（`x`/`y`）或非零方向（`dx`/`dy` 不全 0）、以及 `move_to_unit` 算移动输入；零方向 `move`（松开摇杆）与 `move_stop` 不算；离散步一律跳过。没有时间线动作时 `SkillHost.NotifyMoveIntent` 立刻返回，行为不变。
+
+已知限制：`TimelineHitResolver` 之外的空间命中（S3b）本切片不接；数据热加载（`FeelResolver.Reload`）不接线；`SkillOptions.ActionStepSeconds` 只在启用手感时被写成手感步长（调用方传入的对象会被写入）。

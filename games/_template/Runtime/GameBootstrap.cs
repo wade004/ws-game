@@ -348,16 +348,36 @@ namespace Game.Template
             // 为零）。见文件顶部判断记录：此前只传 pacingPolicy 不传 clockHost 是一处死配置。
             var clockHost = new SimClockHost(world, new SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
 
+            // 手感落地 S10：手感装配选项只在最长的构造重载里（前面的可选参数重载保持物理签名不变），所以这里改走最长重载，
+            // 未列出的参数显式传 null——与此前经可选参数重载时的缺省逐一相同；_options.FeelOptions 缺省 null 即不启用手感，行为不变。
             var gameplay = new GameplayAssembly(
                 _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
+                spatialSyncKinds: null,
+                sceneRouter: null,
+                statOptions: null,
                 combatOptions: _options.BuildCombatOptions(),
                 skillOptions: _options.BuildSkillOptions(),
                 targetingOptions: _options.BuildTargetingOptions(),
+                aiOptions: null,
+                inventoryOptions: null,
+                itemOptions: null,
+                creatureOptions: null,
+                summonOptions: null,
+                gobjOptions: null,
                 movementOptions: _options.BuildMovementOptions(),
+                worldStateOptions: null,
                 lootOptions: _options.BuildLootOptions(),
+                economyOptions: null,
+                questOptions: null,
+                difficultyOptions: null,
+                achievementOptions: null,
+                areaTriggerOptions: null,
+                spawnOptions: null,
+                autosaveSlotId: null,
+                autosaveTimestampProvider: null,
                 clockHost: clockHost,
                 pacingPolicy: _options.PacingWaitForPlayback ? new WaitForPlaybackPacingPolicy() : new ImmediatePacingPolicy(),
                 // 第十一方深度审核修复"第 0 步"补齐（architecture/落地计划/audit-85f1f4f-20260908，
@@ -367,7 +387,10 @@ namespace Game.Template
                 // 不改变未显式赋值时的既有行为。
                 questOwnerResolver: _options.QuestOwnerResolver,
                 questDayProvider: _options.QuestDayProvider,
-                vendorOpenRequested: _options.VendorOpenRequested);
+                vendorOpenRequested: _options.VendorOpenRequested,
+                progressionOptions: null,
+                creatureInteractOptions: null,
+                feelOptions: _options.FeelOptions);
             Gameplay = gameplay;
 
             _player = new PlayerUnit(PlayerId, new Id(_options.StartMapId), factionId, _classId)

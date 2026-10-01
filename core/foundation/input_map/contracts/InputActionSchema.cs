@@ -64,6 +64,11 @@ namespace Core.Foundation.InputMap
                     description: "被接受时是否把行动者朝向对齐到按下瞬间的移动轴方向（无轴输入则保持当前朝向）；缺省按类别（attack/skill/dodge 为真）"),
                 new FieldSchema("grace_conditions", FieldKind.IdList, required: false, referenceTable: "found.grace_condition",
                     description: "宽限窗口适用的条件名（found.grace_condition 的 key）：条件刚失效后的 grace_ms 内仍视为满足；缺省为空"),
+                // 手感落地 S10（生产装配接线）：输入动作 -> 技能的映射。设计文档没有给出这一层，数据里此前也没有，
+                // 缓冲被接受之后"该发哪个技能"没处可查，因此加一个可选字段指向技能绑定槽位名（见 SkillBindingHost）。
+                new FieldSchema("skill_slot", FieldKind.String, required: false,
+                    description: "缓冲接受后要施放的技能所在的技能绑定槽位名（与 SkillBindingHost 的 slot 同名，如 slot_0）；" +
+                        "缺省表示该动作不映射技能（装配层的缓冲出口对它不发 cast 意图）"),
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true)

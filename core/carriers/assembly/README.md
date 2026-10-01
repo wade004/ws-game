@@ -209,3 +209,23 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 (...)` 构造完成之后"——两次构造之间的既有代码没有任何一处读取 `InteractionTargets`，后移不影响
 除本次新增内容过滤之外的任何既有行为；地面掉落物（L4，晚于 `CarriersAssembly` 构造）依旧能被
 查到，不受构造点后移影响（见上方判断记录"直接查 `IWorldSim` 现场结果"）。
+
+## 手感落地 S10：载体层手感接线（`CarriersFeelAssembly`，2026-10-02）
+
+`CarriersAssembly` 新增末尾多一个 `CarriersFeelOptions? feelOptions` 参数的构造重载（最长的旧重载纯转发并传 `null`，物理签名不变）；传入非 null 即启用手感系统，`CarriersAssembly.Feel`（`CarriersFeelSystem`）持有：全装配唯一的解析器与动作时钟、输入缓冲 `InputBufferHost`、`ActionSlotSkillBinding`、`BufferedActionIntentSink`、可选的 `GraceTracker`、运动层 `MotionServices`。接线顺序：装配解析器（带生产提供者）→ 规则层接线（见 `core/rules/assembly/README.md`）→ 输入缓冲（声明 `found.input_action`、映射、出口、步骤 1 处理器、时间线拉取口）→ 失效与清理订阅 → 运动层（`MovementHost.Motion` + `MotionHitFeelWiring.Connect`）。数据里没有 `feel.*` 行时抛 `InvalidOperationException`，不静默降级；标定行有多行必须给 `CalibrationId`。
+
+本节追加的判断记录（S10 本节编号）：
+
+1. **单一动作时钟**：时钟只在 `HitFeelAssembly.Attach` 里创建一次，输入缓冲（过期按动作时钟计）、时间线、局部顿帧、运动层 `frozen` 叠加态读的都是它，顿帧时缓冲窗口随之暂停。
+2. **输入动作 → 技能映射用 `found.input_action.skill_slot`（S10 加法字段）**：数据里原来没有"动作对应哪个技能"，新增可选字段 `skill_slot`（技能绑定槽位名），经 `SkillBindingHost` 取行动者当前绑定的技能；`ActionSlotSkillBinding` 同时是时间线取消进入用的 `IActionSkillBinding` 与缓冲出口的映射来源，两处用同一份。缺省不写即不映射。
+3. **缓冲出口 `BufferedActionIntentSink` 在时间线动作进行中拒绝接受**：记录留给时间线自己在取消窗口/连招窗口里拉取（`CastPipeline` 每个推进 tick 末尾对缓冲 `TryConsume`）。若出口此时接受，同一 tick 内会被施法管线以 `ActionLocked` 拒绝并"撤销消费"，而缓冲对"本 tick 已取用过"的行动者不再提供候选，时间线的拉取被饿死。动作结束后的下一个步骤 1 出口接受它——这就是"在后摇结束前 X 毫秒按下，动作一结束就接上"（冒烟 `BufferedPress_BeforeRecoveryEnds_StartsNextActionOnFirstAcceptableTick`）。
+4. **受击硬直中拒绝接受**：行动者处于 `IHitReactionQuery.IsStaggered` 时记录保留，硬直结束前按缓冲窗口（动作时钟，顿帧暂停）计时。
+5. **施法被拒回报缓冲**：出口经 `skill.cast_failed` 回报 `InputBufferHost.ReportRejected`，只认"本 tick 由本出口提交的那次施法"的失败；时间可解 = `ActionLocked`/`GcdActive`/`Busy`，以及剩余冷却不超过记录剩余缓冲的 `OnCooldown`（同时间线取消进入口径），其余原因丢弃记录。
+6. **接受时朝向对齐是瞬时对齐**：`FaceOnAccept` 且有按下瞬间方向快照时，接受瞬间 `Facing = Atan2(y, x)`；不经运动层转向速率（转向速率是行走惯性，攻击起手的方向修正才是 `face_on_accept` 语义）。
+7. **主手/副手武器的定义**：数据里只有 `item.slot_definition.is_weapon`，没有主/副手概念。缺省取武器槽按槽位 id 序数排序的第 1 个为主手、第 2 个为副手（与 `EquipmentHost` 找"第一个武器槽"同一规则）；游戏槽位命名不符时用 `CarriersFeelOptions.MainHandSlot/OffhandSlot` 显式指定。
+8. **光环临时手感条目键 = 光环定义 id，层数不放大**：`AuraSnapshot` 不带光环实例 id，同一定义的多层叠加只算一条。"按层数叠乘"的手感修饰要先在 `IAuraQuery` 暴露实例 id 与层数语义，不在本切片内绕开。
+9. **失效订阅在步骤 7 才生效**：装备变化、光环施加/移除事件经事件总线在步骤 7 派发，所以这些变化对手感的影响从当 tick 派发之后才可见（同 tick 内更早步骤读到旧值），与既有事件驱动模块同一口径。
+10. **运动层的 `MotionServices.Actions` 取技能宿主的 `ActionStateQuery`**：时间线动作进行中运动模式为 `Action`。
+11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
+
+已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线；本地玩家绑定在 `PresentationAssembly` 构造时固定；Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）未改，仍直接提交 `cast` 意图并调用不含 `feelOptions` 的可选参数构造重载。

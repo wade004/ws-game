@@ -724,6 +724,19 @@ namespace Core.Rules.Skill
         public void NotifyMoveIntent(Id unitId) => _pipeline.NotifyMoveIntent(unitId);
 
         /// <summary>
+        /// 该技能是否带动作时间线（<c>skill.def</c> 声明了 <c>timeline</c> 段）；未知技能返回 false。
+        /// 手感落地 S10 加法：装配层把它接给受击裁决的 <c>HitFeelOptions.IsTimelineSkill</c>（时间线命中改由命中解析钩子自己发 <c>combat.hit_confirmed</c> 时，instant 适配器不再为该技能重复合成）。
+        /// </summary>
+        public bool IsTimelineSkill(Id skillId) => _defs.TryGetSkillDef(skillId, out var def) && def.Timeline != null;
+
+        /// <summary>
+        /// 时间线技能声明的手感引用（<c>timeline.feel_ref</c>，动作层手感档案的 id 尾段）；无时间线、未声明或未知技能返回 null。
+        /// 手感落地 S10 加法：生产的 <c>IFeelActionProvider</c> 经它按"进行中的动作"取动作层覆盖。
+        /// </summary>
+        public string? GetTimelineFeelRef(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) ? def.Timeline?.FeelRef : null;
+
+        /// <summary>
         /// 终止行动者进行中的时间线动作（受击硬直、死亡以外的外部终止入口，如受击裁决切片的 <c>stagger</c>）：
         /// 发 <c>action.cancelled{reason}</c> 与 <c>skill.cast_interrupted</c>；没有时间线动作时空操作。
         /// </summary>
