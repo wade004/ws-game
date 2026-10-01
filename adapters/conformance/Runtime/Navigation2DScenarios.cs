@@ -22,6 +22,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<INavigation2D>("FindPath_终点落在阻挡矩形内部时返回null", FindPath_UnwalkableEndpoint_ReturnsNull),
             new ConformanceScenario<INavigation2D>("FindPath_双矩形拐角工况_每段Raycast均不受阻", FindPath_DoubleRectCorner_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("GetBlockingVersion_SetBlocking与BuildNavMesh与Clear均递增", GetBlockingVersion_IncrementsOnChanges),
+            new ConformanceScenario<INavigation2D>("RaycastWithNormal_命中点与Raycast逐位相同_法线为穿入面的单位外法线", RaycastWithNormal_PointMatchesRaycast_NormalIsEnteredFaceOutwardNormal),
             new ConformanceScenario<INavigation2D>("FindPath_端点格中心受阻但端点与直线均可通行_每段Raycast均不受阻", FindPath_EndpointCellCenterBlocked_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻", FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_通道窄于两级采样格但直线畅通_每段Raycast均不受阻", FindPath_NarrowCorridorThinnerThanGrids_EverySegmentRaycastNull),
@@ -478,6 +479,44 @@ namespace Adapters.Conformance
                     var hit = nav.Raycast(map, path[i], path[i + 1]);
                     assert.IsNull(hit, $"路径第 {i} 段不应被 Raycast 判定为受阻（Raycast 与 FindPath 必须共用同一阻挡判定）");
                 }
+            }
+
+            nav.Clear(map);
+            yield break;
+        }
+
+        /// <summary>手感落地 S2b：带法线的射线查询。命中点必须与 <see cref="INavigation2D.Raycast"/> 逐位相同（同一次判定），
+        /// 法线是被穿入的矩形面的单位外法线（指向射线来向一侧）；无命中两个入口都返回 null。期望值由矩形几何算出：
+        /// 从左穿入左面为 (-1,0)、从右为 (+1,0)、从下为 (0,-1)、从上为 (0,+1)。</summary>
+        private static IEnumerator RaycastWithNormal_PointMatchesRaycast_NormalIsEnteredFaceOutwardNormal(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_raycast_normal");
+            nav.SetBlocking(map, new[] { new Rect(new Vec2(2, -1), new Vec2(5, 1)) });
+            nav.BuildNavMesh(map);
+
+            var probes = new[]
+            {
+                (From: new Vec2(0, 0.2), To: new Vec2(4, 0.5), Normal: new Vec2(-1, 0)),
+                (From: new Vec2(8, -0.3), To: new Vec2(3, 0.4), Normal: new Vec2(1, 0)),
+                (From: new Vec2(3, -4), To: new Vec2(3.5, 0), Normal: new Vec2(0, -1)),
+                (From: new Vec2(4, 4), To: new Vec2(3.5, 0), Normal: new Vec2(0, 1)),
+            };
+            foreach (var probe in probes)
+            {
+                var label = $"{probe.From} -> {probe.To}";
+                var plain = nav.Raycast(map, probe.From, probe.To);
+                var withNormal = nav.RaycastWithNormal(map, probe.From, probe.To);
+                assert.True(plain.HasValue && withNormal.HasValue, "夹具：线段应当穿入阻挡矩形：" + label);
+                assert.Equal(plain!.Value, withNormal!.Value.Point, "命中点应与 Raycast 逐位相同：" + label);
+                assert.Equal(probe.Normal, withNormal.Value.Normal, "法线应为被穿入面的单位外法线：" + label);
+            }
+
+            var miss = new[] { (From: new Vec2(0, 3), To: new Vec2(8, 3)), (From: new Vec2(0, 1), To: new Vec2(8, 1)) };
+            foreach (var probe in miss)
+            {
+                var label = $"{probe.From} -> {probe.To}";
+                assert.IsNull(nav.Raycast(map, probe.From, probe.To), "夹具：线段不穿入内部（含贴边）：" + label);
+                assert.True(!nav.RaycastWithNormal(map, probe.From, probe.To).HasValue, "无阻挡（含只贴边）时带法线的查询也应为空：" + label);
             }
 
             nav.Clear(map);

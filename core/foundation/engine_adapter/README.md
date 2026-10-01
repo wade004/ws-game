@@ -109,3 +109,20 @@ engine_adapter/
   的远点击被截断。
 - 一致性场景 `Navigation2DScenarios` 的"最近可走点"与"可达最近点"两个场景由测试桩（核心侧 `ConformanceStubTests`）与 Unity
   实现（引擎侧 `ConformanceUnityTests`）共用同一组输入与期望算法。
+
+## `INavigation2D.RaycastWithNormal`：带碰撞法线的射线查询（2026-10-02，手感落地 S2b）
+
+新增默认接口成员 `RaycastWithNormal(mapId, from, to)`，返回 `NavRayHit{Point, Normal}?`（`contracts/NavRayHit.cs`）。供运动层 `wall_slide` 沿墙切向滑动用
+（手感设计/02 第 3 节）；`INavigation2D` 是本仓库自己的契约，按加法补，不是上游缺口。取舍：
+
+- **同一次判定、命中点逐位相同**：`Point` 与 `Raycast` 返回值是同一个点，内置实现让 `Raycast` 直接取 `RaycastWithNormal(...)?.Point`，不并存两份相交判定。
+  可通行规则不变（仅边界/角点相切不算命中）。
+- **法线 = 被穿入表面的单位外法线**（指向自由空间一侧）。角点（射线恰好穿过两个面的交线，或两块矩形在同一点同时被命中的内角）取两个外法线之和归一化；起点已在
+  阻挡内部或实现不能确定时为零向量，调用方视为"无法滑动，整体停下"，不得猜方向。轴向法线分量恰为 ±1/0（不经归一化运算），保证轴对齐阻挡下滑墙与逐轴处理逐位一致。
+- **几何只有一份**：`NavRaycastNormals.RectEntryNormal`（按 slab 穿入参数判断被穿入的面）与 `Merge`（同点多面合并）由测试桩与 Unity 实现共用。
+- **默认实现是近似**：命中点取 `Raycast`，法线用 `NavRaycastNormals.ProbeAxisNormal`（沿射线回退一小段后在 x、y 轴各向前探，恰有一轴被挡即该轴为法向；
+  内角、擦角、斜面给零向量）。给只会 `Raycast` 的第三方实现源码兼容；能给精确法线的实现应覆盖。
+- 一致性场景 `Navigation2DScenarios` 新增 `RaycastWithNormal_...`（命中点与 `Raycast` 逐位相同、四个面的法线、贴边不命中），测试桩（核心侧 `ConformanceStubTests`）与
+  Unity 实现（引擎侧 `ConformanceUnityTests`）共用；`tests/RaycastWithNormalTests.cs` 覆盖桩的细节（随机线段命中点逐位对照、角点对角法线、内角合并与登记顺序无关、起点在内部、
+  默认实现的边界）。
+

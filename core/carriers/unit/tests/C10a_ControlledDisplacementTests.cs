@@ -314,6 +314,61 @@ namespace Tests.Carriers.Unit
             Assert.Equal(0.0, pos.Y, 6);
         }
 
+        // 既有缺陷（手感落地 S2b 在缺省路径修掉）：受控位移进行中的单位每 tick 都提交移动意图（玩家持续按键、AI 每 tick 重发）时，
+        // 意图被拒绝后该单位曾被记入"本 tick 已处理"，第二遍循环跳过位移续推，位移被永久卡住。
+        [Theory]
+        [InlineData("direction")]
+        [InlineData("target")]
+        [InlineData("chase")]
+        public void MoveIntentEveryTick_DoesNotStallAControlledDisplacement(string intentKind)
+        {
+            var fixture = Build();
+            var otherId = new Id("unit.other");
+            fixture.World.AddEntity(new PlayerUnit(otherId, MapId, FactionId, ArchetypeId) { Position = new Vec2(0, 50) });
+            fixture.Host.BeginControlledDisplacement(Request(Vec2.Zero, new Vec2(4, 0), speed: 1.0));
+
+            void SubmitIntent()
+            {
+                var args = new Core.Foundation.Common.Json.JsonObjectBuilder();
+                switch (intentKind)
+                {
+                    case "direction":
+                        args.Add("dx", new Core.Foundation.Common.Json.JsonNumber(0))
+                            .Add("dy", new Core.Foundation.Common.Json.JsonNumber(1));
+                        break;
+                    case "target":
+                        args.Add("x", new Core.Foundation.Common.Json.JsonNumber(0))
+                            .Add("y", new Core.Foundation.Common.Json.JsonNumber(30));
+                        break;
+                    default:
+                        args.Add("targetUnitId", new Core.Foundation.Common.Json.JsonString(otherId.ToString()))
+                            .Add("stopRange", new Core.Foundation.Common.Json.JsonNumber(1));
+                        break;
+                }
+
+                args.Add("mode", new Core.Foundation.Common.Json.JsonString("Run"));
+                fixture.World.SubmitIntent(new Intent(
+                    HeroId, intentKind == "chase" ? "move_to_unit" : "move", args.Build()));
+            }
+
+            var reason = (MoveStopReason?)null;
+            fixture.Host.OnMoveStopped += (id, _, r) => reason = r;
+
+            // 位移每 tick 走 速度 × dt = 1；持续输入不应让任何一个 tick 的位移停滞，也不应混入输入位移（y 恒为 0）。
+            for (var tick = 1; tick <= 4; tick++)
+            {
+                SubmitIntent();
+                fixture.World.Tick(SimStep.Continuous(1.0));
+
+                var pos = fixture.Units.GetPosition(HeroId);
+                Assert.Equal((double)tick, pos.X, 6);
+                Assert.Equal(0.0, pos.Y, 6);
+            }
+
+            Assert.False(fixture.Player.MovementState.IsControlledDisplacementActive);
+            Assert.Equal(MoveStopReason.DisplacementArrived, reason);
+        }
+
         // -----------------------------------------------------------------
         // 暂停：时间模型暂停（dt=0）不推进。
         // -----------------------------------------------------------------
