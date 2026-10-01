@@ -74,13 +74,27 @@ namespace Core.Rules.Common
         /// <summary>连招序号（首段为 0）。</summary>
         public int ComboIndex { get; }
 
+        /// <summary>
+        /// 动作位移段快照（手感设计/02 第 4 节，<see cref="ActionMotionState"/>）；动作没有 <c>motion</c> 块时为 null。
+        /// 运动仲裁器只消费它（按 <see cref="ElapsedTicks"/> 与窗口比对），由动作时间线在动作被接受时填入。
+        /// </summary>
+        public ActionMotionState? Motion { get; }
+
         public ActionState(Id skillId, Id castInstanceId, ActionPhase phase, int elapsedTicks, int comboIndex)
+            : this(skillId, castInstanceId, phase, elapsedTicks, comboIndex, null)
+        {
+        }
+
+        /// <summary>手感设计/02 新增重载（既有 5 参数构造的物理签名不变，转发到本构造且 <c>motion</c> 为 null）。</summary>
+        public ActionState(
+            Id skillId, Id castInstanceId, ActionPhase phase, int elapsedTicks, int comboIndex, ActionMotionState? motion)
         {
             SkillId = skillId;
             CastInstanceId = castInstanceId;
             Phase = phase;
             ElapsedTicks = elapsedTicks;
             ComboIndex = comboIndex;
+            Motion = motion;
         }
     }
 }

@@ -21,7 +21,10 @@ unit/
     Unit.cs               abstract Unit : Entity（05 §1.2 字段）+ UnitCombatState 枚举
     PlayerUnit.cs           PlayerUnit : Unit
     CreatureUnit.cs         CreatureUnit : Unit
-    MovementState.cs        MovementState（05 §6.2）+ MoveMode 枚举
+    MovementState.cs        MovementState（05 §6.2）+ MoveMode 枚举（+ 运动学 Motion，手感设计/02）
+    MotionKinematics.cs     运动学快照（速度/模式/来源）+ MotionMode/MotionSource（手感设计/02）
+    MotionServices.cs       运动服务装配点 + 硬直/根运动/曲线/目标辅助的小接口（手感设计/02）
+    KnockbackRequest.cs     击退请求（MovementHost.BeginKnockback）
     MoveRequest.cs           MoveRequest（05 §6.2）
     ISpatialIndexSync.cs    WorldUnitAccess 可选注入的空间索引同步小接口
     ISkillBindingHost.cs    缺口 4：技能槽位绑定契约 + KnownSkillQuery 具名委托
@@ -31,6 +34,11 @@ unit/
     WorldUnitAccess.cs       IUnitAccess 的真实实现 + Revive 窄契约（W1 收边补齐，拍板 3 前置）
     MovementHost.cs           MoveRequest → Intent 提交入口 + OnMoveFailed 回调
     MovementTickHandler.cs   TickPhase.MovementAndNavigation 的移动系统本体
+    MovementTickHandler.Motion.cs  运动层：运动仲裁、速度积分、滑墙、动作位移、击退（partial，手感设计/02）
+    MotionProfile.cs         运动档案读取（判定型视图 -> 值快照）
+    MotionModeRuleSet.cs     运动模式规则表（feel.motion_mode_rules 的消费结果）
+    MotionMath.cs            曲线求值/反求、速度趋近、朝向限速（纯函数）
+    MotionSupport.cs         目标辅助、步态输入、击退距离的纯函数
     MovementOptions.cs       移动系统口味配置项
     DirectionQuantizer.cs    05 §3.2 方向量化算法（纯函数）
     UnitPersistable.cs        world.current_map_id / world.current_position / player.archetype
@@ -574,3 +582,60 @@ core/carriers/tests/Tests.Carriers.csproj` 665/665 通过；Unity PlayMode 定�
 例如 `blocking:"1"` 被当 `Revert`。现只认枚举名，其余走既有"无法解析 → 回退默认（mode 按意图类型的 fallback，
 blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（墙前受控位移：Revert 的数字串仍停在墙前）。
 本次只改参数解码，未改移动/导航逻辑，未涉及需跑 `MovementStopAndBlockingPlayModeTests` 的路径（交互时序不变）。
+
+## 判断记录（运动档案与运动仲裁器，2026-10-02，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md)、ADR-0116，手感落地 S2）
+
+`MovementTickHandler` 拆成两个 partial 文件：主文件保持既有流程，`MovementTickHandler.Motion.cs` 是运动层。入口是
+`MovementHost.Motion`（`MotionServices`）：**不赋值或 `Feel` 为空即没有运动层，既有路径一字未动**；离散步与 `dt <= 0` 也不启用。
+
+1. **缺省档案逐位等价**：档案取 `rpg_classic`（瞬时达速、瞬时转向、`walk_speed_ratio` 为 1、不滑墙）时，方向移动仍是
+   `from + 单位方向 × (速率 × dt)`，速率恰为目标速度（`accel_ms`/`decel_ms` 为 0 时 `ApproachSpeed` 直接返回目标，不经运算），
+   朝向速率为 0 时 `StepFacing` 直接返回目标朝向。用例 `DefaultProfile_PositionFacingAndMode_AreBitIdenticalToLegacyMovement`
+   逐 tick 比较位置/朝向/模式的二进制位（方向、路径、追击、撞墙四类混合场景）。
+2. **仲裁用"各来源入口处的放行判断"实现优先级**，每 tick 恰一个来源产生位移：`dead > frozen > forced > staggered > rooted >
+   action|root_motion > regular`。forced（受控位移）不受 rooted/staggered 影响（优先级更高，被控制的目标仍会被击退），所以运动层启用时
+   `AdvanceDisplacement`/`BeginDisplacement` 不再因 `IsLocked` 结束或拒绝位移；frozen 期间位移任务与速度原样保留，解冻后继续。
+3. **运动学写回**：每 tick 末把速度、期望方向、模式、底层模式、来源、基础移速写入 `MovementState.Motion`（`MotionKinematics`）。
+   `frozen` 是叠加态：`Mode` 为 Frozen、`BaseMode` 保留底层模式，速度保留。重建 `MovementState` 的既有代码路径会丢掉 `Motion`，
+   但每 tick 末统一重写，所以对外可见值不丢。
+4. **速度积分**：毫秒按步长折成"tick 数（实数，不取整）"，每 tick 沿曲线前进 `1/ticks`，进度到 1（容差 1e-9）吸附目标，所以
+   `accel_ms = A` 的达速 tick 数恰为 `ceil(A / 步长)`，`6 × (1/60) / 0.1` 这类浮点误差不会多走一拍；曲线用反求（二分 48 次）
+   从当前速度还原进度，速度是唯一积分状态，目标速度中途改变时自然续接。制动速率按"`decel_ms` 内从基础移速降到零"定，满速急停距离离散值为
+   `v·dt·(N−1)/2`，与连续公式 `v·decel/2` 相差不超过半个 tick 的位移（位移按 tick 末速率计，与既有"速率 × dt"同构）。
+   速度由向量长度还原，与标量速率差最后一位浮点，所以 `ApproachSpeed` 对相对 1e-9 之内的差按"已在目标速度"处理。
+5. **目标速度 = 单位移动速度属性 × 倍率**（不是标定基础移速 × 倍率）：`walk_speed_ratio`/`action_move_speed_ratio` 取标定前的相对值，
+   毫秒字段取绝对值，距离字段（击退、动作位移、停止距离）由 `FeelCalibration` 换算（身高倍数 × 参考身高）。移速属性为 5 的单位
+   不会按标定基础移速 4 去走。`sprint_speed_ratio` 本轮不消费（没有 Sprint 移动模式）。
+6. **反向策略**：`instant` 方向立即对齐期望方向、速率沿加速/制动曲线趋近目标（保留速率）；`through_zero` 反向（夹角大于 90°）先沿原方向
+   制动到零，再沿新方向加速。无输入时沿原方向制动到零（`FinishMotionTick` 对没有意图的单位做减速滑行）。
+7. **滑墙（`wall_slide`）**：`Raycast` 截断后，把剩余位移沿阻挡边切向再裁决一次（最多一次、不递归）；法向用导航契约现有手段取得——在截断点
+   沿位移方向各轴向前探 `2 × ArrivalEpsilon`（`Raycast`），恰有一个轴被挡即该轴是墙法向。**限制**：只对轴对齐阻挡（`SetBlocking(Rect)` 契约）成立；
+   墙角（两轴都被挡）与擦角（都不挡）整体停下，不滑动；`INavigation2D` 不返回碰撞法线，需要任意角度墙面滑动要上游给出带法线的射线查询，
+   本模块不自建替代。滑动后速度的法向分量置零（无抖动），不滑墙则整体置零。
+8. **路径跟随与追击**：`apply_to_path_following` 为真时位移预算由速度积分器给出（`arrival_decel` 为真时到终点前按 `sqrt(2·a·L)` 限速，
+   `a` 为基础移速/`decel` 秒数，到达时速度归零不再滑行越过终点）；为假时仍是既有的 `属性速度 × dt`。到达减速的限速按线性制动率估算，
+   与制动曲线形状无关（只需要不越过终点）。追击的朝向走转向速率（`MotionFacing`）。
+9. **动作位移（`action`/`root_motion` 来源）**：`MotionActionPass` 在 move 意图之前结算，胜出的 tick 压制该单位输入位移。读取
+   `IActionStateQuery.Current(unit).Motion`（`ActionMotionState`）：窗口内逐 tick 位移 = `DistanceWorld × (f(p1) − f(p0))`，各 tick 之和恰为总距离；
+   `charge` 额外按到目标身前 `StopDistanceWorld` 与累计已走距离（按 `CastInstanceId` 记）夹取；`blocking: slide` 沿用滑墙切向裁决。`root_motion` 驱动与
+   代码驱动互斥，`IRootMotionSource.SupportsRootMotion` 为假时抛 `InvalidOperationException`，不降级。**契约新增**：`ActionState.Motion`
+   与 `ActionMotion*` 类型落在 `core/rules/common/contracts/ActionMotion.cs`（`ActionState` 新增 6 参构造，5 参构造转发，ABI 只加不改），由动作时间线（S3a）填充。
+10. **击退（forced 模式）**：`MovementHost.BeginKnockback(KnockbackRequest)` 提交带 `knockback`/`curve=ease_out`/`duration` 的 `move_displace`；
+    曲线位移从当前位置按 `起点 + 向量 × 曲线(已过时间/总时长)` 逐 tick 取点并经导航裁决截断（起点取处理那一刻的位置，避免意图提交到处理之间位置回跳）。
+    时长是游戏级选项 `MovementOptions.KnockbackDurationSeconds`（缺省 0.2，设计未给默认）；`KnockbackStack`（缺省 `Replace`，另有 `Ignore`）管叠加，
+    被替换的位移以 `Replaced` 结束；`ResumePathAfterForced`（缺省 `Drop`，另有 `Resume`）管路径恢复：`Resume` 时记下被挂起路径的最终目标，位移自然结束
+    （到达/受阻）后在同 tick 收尾处重新建路（`dt = 0`，下一 tick 才开始走）。追击请求不恢复。距离 = `knockback_distance`（身高倍数，标定换算）×
+    (1 − 击退抗性) × 冲击等级倍率，`MotionKnockback` 只按传入的冲击倍率相乘（受击裁决切片提供）。forced 模式不转向（规则表）。
+11. **既有行为里的一处停滞（未改，仅运动层规避）**：既有实现下，受控位移进行中的单位若同 tick 收到 `move` 意图，`ApplyIntent` 拒绝后返回 true，
+    单位被记入 `processedThisTick`，第二遍循环跳过位移续推——每 tick 都提交输入的单位位移会被卡住。运动层启用时（`MotionDisplacementOutranksIntent`）
+    不把这种单位记入"已处理"，位移照常续推；运动层未启用时保持既有行为。
+12. **模式规则表**：`MotionModeRuleSet.Default` 与框架数据 `feel.motion_mode_rules` 七行逐项一致（用例锁定）；`by_profile` 只对 `action` 有定义，
+    `restore_previous_mode` 只对 `frozen` 有定义，别处写这两个值构造时抛异常；`staggered` 需要 `IStaggerStateQuery` 实现（受击裁决切片提供，没有实现时恒为否）。
+13. **目标辅助与步态**：`TargetAssistEvaluator` 与 `ITargetAssistResolver` 只在运动侧给出纯函数与接口，缺省关闭（`MotionServices.TargetAssist` 为空）；
+    步态只导出输入（`GaitInputs.From`：速度/基础移速比值 + 呈现型阈值），带滞回的 idle/walk/run/sprint 派生在表现层（S5）。
+14. **装配**：本轮不接 `CarriersAssembly` 与实验室，游戏自己设置 `MovementHost.Motion`；PlayMode 侧受影响的交互时序组是
+    `MovementStopAndBlockingPlayModeTests`（`MovementTickHandler.cs` 的 module_map 例外），运动层未启用时该组行为不变。
+
+测试：`core/carriers/unit/tests/MotionArbiterTests.cs`（51 例：缺省逐位等价；`accel_ms` 达速 tick 数与速度曲线；减速与停止距离；反向策略；
+转向速率；rooted/staggered/frozen/dead/forced 仲裁与优先级链；击退曲线、叠加与恢复策略；滑墙开关位移差；路径跟随与到达减速；动作位移、charge、
+root_motion；规则表与档案读取；目标辅助、步态与击退距离的纯函数）。
