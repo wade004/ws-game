@@ -1,0 +1,49 @@
+{
+  "table": "display.equip_visual",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.equip_visual.std_sword_1h",
+      "item_id": "item.std_sword_1h",
+      "mode": "slot_mesh",
+      "slot_id": "slot.hand_main",
+      "mesh_ref": "paperdoll.item.std_sword_1h",
+      "preview_direction": "dir.front_side_r"
+    },
+    {
+      "id": "display.equip_visual.std_greatsword",
+      "item_id": "item.std_greatsword",
+      "mode": "slot_mesh",
+      "slot_id": "slot.hand_main",
+      "mesh_ref": "paperdoll.item.std_greatsword"
+    },
+    {
+      "id": "display.equip_visual.std_dagger",
+      "item_id": "item.std_dagger",
+      "mode": "slot_mesh",
+      "slot_id": "slot.hand_main",
+      "mesh_ref": "paperdoll.item.std_dagger"
+    },
+    {
+      "id": "display.equip_visual.std_bow",
+      "item_id": "item.std_bow",
+      "mode": "slot_mesh",
+      "slot_id": "slot.hand_main",
+      "mesh_ref": "paperdoll.item.std_bow"
+    },
+    {
+      "id": "display.equip_visual.std_staff",
+      "item_id": "item.std_staff",
+      "mode": "slot_mesh",
+      "slot_id": "slot.hand_main",
+      "mesh_ref": "paperdoll.item.std_staff"
+    },
+    {
+      "id": "display.equip_visual.std_chestplate",
+      "item_id": "item.std_chestplate",
+      "mode": "slot_mesh",
+      "slot_id": "slot.chest",
+      "mesh_ref": "paperdoll.item.std_chestplate"
+    }
+  ]
+}

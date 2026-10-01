@@ -55,7 +55,7 @@ assets/_placeholder/sprite_anim/
   std_dummy_<键>/                      整身合成，默认朝向 front；resource_ref = sprite_anim.std_dummy_<键>（点号换下划线）
   std_dummy_<键>__<方向档>/            整身合成的方向变体（ADR-0093）
   std_dummy_<键>__<方向档>__body/      身体层逐层剪辑（ADR-0072 第一级：方向 + 层名）
-  std_dummy_<键>__<方向档>__hand_main/ 武器层逐层剪辑（仅 1h/2h 族剪辑；层名沿用占位英雄的主手层 hand_main）
+  std_dummy_<键>__<方向档>__hand_main/ 武器层逐层剪辑（1h/2h 族剪辑，加无族的 hit.*/death/jump/cast/dodge；层名沿用占位英雄的主手层 hand_main）
 assets/_placeholder/std_dummy_poses.json   规格：参数、每键相位/帧数/事件/位移、方向档
 data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_biped
 ```
@@ -93,7 +93,7 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
 ## 判断记录
 
 1. **产物入库，跟随既有占位资产惯例**：`assets/_placeholder` 下的占位资产（精灵/特效/音效/地图）都是脚本确定性生成后**入库**的
-   （构建把该目录整棵拷进发布包，不在构建期重新生成），假人姿势集同样是随版本发布的框架资产，故生成产物入库（约 880 个文件、2.6 MB；
+   （构建把该目录整棵拷进发布包，不在构建期重新生成），假人姿势集同样是随版本发布的框架资产，故生成产物入库（约 980 个文件、2.8 MB；
    同样的输入产出逐字节一致，有测试）。唯一不入库的是缩略拼图（审阅证据，属"生成物不进 git"）。规格文件 `std_dummy_poses.json`
    与 MANIFEST 分开：`gen_placeholder_assets.py --check` 只核对它自己的清单，不会误认这批文件为残留。
 2. **一行而不是按体量三行**：05 第 9 节"姿势集"一行写的是"标准骨骼三组（对应三体量）、假人集一组"；04 第 7 节把体量差异表达为"选哪套姿势集"，
@@ -102,9 +102,13 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
    参数改动（帧率、时长、位移）重新生成即可；代价是造型僵硬，只作"可读"的占位，美术按 04 第 4 节逐键替换。
 4. **画布 144×144**：2h 巨剑侧面前伸（肩到剑尖约 0.95 身高）与上举要不被裁切，自检断言任何帧不触碰边缘；更小的画布（128）实测裁切了巨剑攻击帧。
 5. **取样规则**：循环剪辑在帧起点取样（第 0 帧即接触姿势，与 `footstep`@0 对齐）；非循环在帧中点取样。
-6. **武器层只出现在持械族剪辑，层名 `hand_main`**：逐层剪辑按 ADR-0072 两级探测的第一级命名（方向 + 层名）；第二级（仅层名）不生成，
-   因为所有剪辑都带全方向。无武器族的剪辑（`hit.*`、`death`、`jump`、`cast`、`dodge`）没有武器层剪辑，按 ADR-0072 武器层维持静态图。
-   ADR-0100 的"装备层候选"命名（带装备资源集引用段）不生成：那是游戏装备美术自己的命名空间，假人只提供身体与一把占位武器。
+6. **武器层给持械族剪辑，也给无族的状态剪辑，层名 `hand_main`**：逐层剪辑按 ADR-0072 两级探测的第一级命名（方向 + 层名）；第二级（仅层名）不生成，
+   因为所有剪辑都带全方向。无武器族的 `hit.*`、`death`、`jump`、`cast`、`dodge` 也出武器层剪辑（手感落地 S8a），使持械角色播这些键时武器随身体帧走，
+   不再是静态图：武器画占位单手剑、俯仰角固定为 `STATE_CLIP_WEAPON_PITCH`（90 度，剑身沿躯干朝向水平前指；默认 0 度剑尖竖直向下，落地/倒地时扎出画布底边），
+   倒地姿势里低于地面的武器角点压到地面高度（`skeleton.render(clamp_weapon_to_ground=True)`）。整身合成与身体层仍是徒手姿势，规格里每键多一个
+   `weapon_layer_family`（持械族取自身族，状态剪辑取 `1h`，徒手 idle/move/attack.unarmed 为 null）。自检断言：这些键有非空的武器层图集，
+   且武器层随身体帧变化（身体帧不同而武器层逐帧完全相同视为"没有随身体帧走"，报错）。
+   ADR-0100 的"装备层候选"命名（带装备资源集引用段）仍不在这里生成：那是装备美术自己的命名空间，由 `toolchain/std_equip_set` 按物品生成。
 7. **整身方向变体也生成**（ADR-0093）：没有声明纸娃娃层的外形用整身剪辑时也能随朝向换图；代价是多约 1/3 文件，可用 `--no-composite-dirs` 关闭。
 8. **别名键 `attack`**：04 第 3 节必备键 `attack` 复用 `attack.unarmed` 第一段的资源与事件（同一个 `resource_ref`），不重复出图。
 9. **`hit` 的 `segment` 不写**：现有 `events` 条目只有 `name/time_pct`，没有 `segment`，每个剪辑只放一个 `hit`，多段攻击用多个键表达（见 14 第 2.3 节）。
@@ -112,7 +116,7 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
 ## 已知限制
 
 - `frames.json` 没有原点/锚点字段（04 第 8 节要求 `sprite` 型校验"原点"）：约定脚点 `(72,140)`（画布水平居中、距底边 4 像素）只写在规格文件里，运行期不校验。
-- 武器层在 `hit.*`/`death`/`jump`/`cast`/`dodge` 里没有逐层剪辑，持械角色播这些键时武器层是静态图，不随身体动。
+- 无族状态剪辑（`hit.*`/`death`/`jump`/`cast`/`dodge`）的武器层统一画占位单手剑、固定持握俯仰角，不随 2h 等族改形；装备美术按 ADR-0100 用自己的逐层剪辑覆盖（`toolchain/std_equip_set` 给每件占位装备按其族出这些键的武器层）。
 - 闪避是低身冲刺姿势，不是翻滚；受击/倒地/起身/死亡是关键姿势插值的占位，不含布娃娃物理。
 - 假人的 `idle`/`move` 手臂与武器姿势是手调关键姿势，未保证"双手握持时副手恰好落在剑柄上"（2h 族副手只是靠近）。
 - 每循环位移依赖自拟的参考基础移速 2.0 身高/秒（见上）；未做"脚是否打滑"的像素级验证，只验证接触姿势两脚间距。

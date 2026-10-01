@@ -1,0 +1,26 @@
+{
+  "table": "item.slot_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.slot.std_main_hand",
+      "name_key": "l10n.item.slot.std_main_hand.name",
+      "sort_weight": 1,
+      "is_weapon": true,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": false
+    },
+    {
+      "id": "item.slot.std_chest",
+      "name_key": "l10n.item.slot.std_chest.name",
+      "sort_weight": 11,
+      "is_weapon": false,
+      "is_equipment": true,
+      "budget_coefficient": 1.0,
+      "price_coefficient": 1.0,
+      "has_armor": true
+    }
+  ]
+}

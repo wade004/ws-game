@@ -7,7 +7,7 @@
       "description": "单手剑（轻近战）试调起点（手感设计/05 第 9 节，俯视近战原型，不是已验证值）。",
       "maturity": "experimental",
       "profile_version": 1,
-      "family": "sword_1h",
+      "family": "1h",
       "writes": [
         {
           "field": "impact_class",
@@ -136,7 +136,7 @@
       "description": "巨剑（重近战，双手）试调起点（手感设计/05 第 9 节，不是已验证值）。",
       "maturity": "experimental",
       "profile_version": 1,
-      "family": "greatsword",
+      "family": "2h",
       "writes": [
         {
           "field": "impact_class",

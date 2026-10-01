@@ -62,6 +62,11 @@ mesh_ref`` 四个字段——经 :func:`ref_conventions.resolve_path_space` 判�
 相对"（``sprite_anim``/``paperdoll`` 前缀）的值做存在性检查，"引擎侧逻辑路径"（``anim``/``model``
 前缀）的值按 ADR-0037 决策 3 同一理由跳过（不在本工具 ``--assets-root`` 检查域内）。
 
+判断记录（``equip`` 检查域，手感设计/08、ADR-0123）：``--only equip`` 显式开启装备资产包 + 界面皮肤包校验，不进
+``DEFAULT_DOMAINS``/``ALL_DOMAINS``（见 :data:`OPT_IN_DOMAINS`），规则与检查名在 :mod:`equip_pack`/:mod:`skin_pack`。
+装备域有警告级问题（回落记录，不阻断），所以返回码与 ``--json`` 的 ``ok`` 改为"有错误级问题才失败"；既有五个域的
+问题全部是错误级，行为不变。
+
 判断记录（``display_anim`` 纳入默认检查集合）：``display_anim`` 域此前暂不进默认集合的唯一理由是
 ``data/_sample/display/display.equip_visual.json`` 现有一行 ``mesh_ref:
 "sprite.item.sample_hero_hat_test"`` 仍用 ADR-0038 之前的旧 ``sprite`` 前缀（该前缀本身路由到
@@ -118,6 +123,13 @@ DEFAULT_DOMAINS = ("sprite", "vfx", "sfx", "world", "display_anim")
 # ADR-0038 决策 6 后半：display_anim 域已实现、已测试，数据迁移任务完成后随即纳入 DEFAULT_DOMAINS
 # （省略 --only 时的默认覆盖集合）——见模块 docstring"判断记录（display_anim 纳入默认检查集合）"。
 ALL_DOMAINS = DEFAULT_DOMAINS
+
+# 手感设计/08 第 5 节（ADR-0123）：装备资产包 + 界面皮肤包校验域。只在显式 ``--only equip`` 时跑，不进
+# DEFAULT_DOMAINS/ALL_DOMAINS（默认集合是"每个数据集都有这些表"的域；装备域依赖框架占位装备集 data/_equip
+# 与 assets/_placeholder，对 data/_sample 这类没有装备资产包的数据集没有意义）。实现与命令行
+# ``import_assets.py equip`` 共用 :func:`equip_cmd.run_equip`，见 :mod:`equip_pack` 判断记录。
+OPT_IN_DOMAINS = ("equip",)
+EQUIP_ASSETS_DATASET = "_placeholder"
 
 # 地图必需分层文件对应的 ref_conventions 路径函数（14 第 9.1 节"框架固定项"三层中的地面图/
 # 前景遮挡层；装饰层 decal.png、导航标注 nav_hint.png 属于可选辅助分层，见 map 子命令与 14 第 9
@@ -277,7 +289,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--only",
         default=None,
-        metavar="sprite,vfx,sfx,world,display_anim",
+        metavar="sprite,vfx,sfx,world,display_anim[,equip]",
         help=(
             "只跑逗号分隔的检查域子集（取值见上）；省略则跑 DEFAULT_DOMAINS 全部五项（sprite/vfx/"
             "sfx/world/display_anim，ADR-0038 决策 6 后半：数据迁移任务完成后 display_anim 已纳入"
@@ -303,10 +315,10 @@ def _parse_only(value: str | None) -> set[str]:
         # 后 display_anim 已纳入默认集合，与 ALL_DOMAINS 等同，见模块 docstring 判断记录。
         return set(DEFAULT_DOMAINS)
     domains = {v.strip() for v in value.split(",") if v.strip()}
-    unknown = domains - set(ALL_DOMAINS)
+    unknown = domains - set(ALL_DOMAINS) - set(OPT_IN_DOMAINS)
     if unknown:
         raise AssetImportError(
-            f"--only 取值 {sorted(unknown)} 不在合法域集合 {ALL_DOMAINS} 内"
+            f"--only 取值 {sorted(unknown)} 不在合法域集合 {ALL_DOMAINS + OPT_IN_DOMAINS} 内"
         )
     return domains
 
@@ -935,6 +947,18 @@ def run(args: argparse.Namespace) -> int:
         for row in equip_visual_rows:
             _check_equip_visual_row(row, assets_root, args.dataset, problems)
 
+    equip_item_count = 0
+    if "equip" in only:
+        # 延迟导入：equip_pack 反向依赖本模块的 CheckIssue，顶层互相 import 会成环。
+        from . import equip_cmd
+
+        framework_roots = [data_root / "_framework", data_root / "_feel", data_root / args.dataset]
+        equip_report = equip_cmd.run_equip(
+            [r for r in dict.fromkeys(framework_roots) if r.is_dir()], assets_root / EQUIP_ASSETS_DATASET,
+        )
+        equip_item_count = len(equip_report.items)
+        problems.extend(equip_report.issues)
+
     for issue in problems:
         print(issue.render_text(), file=log_stream)
 
@@ -946,6 +970,9 @@ def run(args: argparse.Namespace) -> int:
         f"{len(problems)} 个问题",
         file=log_stream,
     )
+
+    # 装备域有警告级问题（回落记录，不阻断）；其余域的问题都是错误级，因此"有错误才失败"对既有域行为不变。
+    failing = [p for p in problems if p.severity == SEVERITY_ERROR]
 
     if use_json:
         error_count = sum(1 for p in problems if p.severity == SEVERITY_ERROR)
@@ -965,12 +992,14 @@ def run(args: argparse.Namespace) -> int:
             domain_counts["display.anim_set"] = len(anim_set_rows)
             domain_counts["display.weapon_style"] = len(weapon_style_rows)
             domain_counts["display.equip_visual"] = len(equip_visual_rows)
+        if "equip" in only:
+            domain_counts["item.template"] = equip_item_count
 
         document = {
             "tool": "import_assets.check",
             "dataset": args.dataset,
             "domains": sorted(only),
-            "ok": not problems,
+            "ok": not failing,
             "counts": {"error": error_count, "warning": warning_count},
             "domain_counts": {k: domain_counts[k] for k in sorted(domain_counts)},
             "issues": [p.as_dict() for p in problems],
@@ -978,4 +1007,4 @@ def run(args: argparse.Namespace) -> int:
         # ensure_ascii=False：中文不转义（消费方反馈第 62 条原文要求）；stdout 只这一行 JSON。
         print(json.dumps(document, ensure_ascii=False))
 
-    return 1 if problems else 0
+    return 1 if failing else 0

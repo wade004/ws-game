@@ -186,6 +186,11 @@ namespace Core.Foundation.DisplayInfo
                     .WithAllowedRefCategories("model", "paperdoll"),
                 new FieldSchema("socket_id", FieldKind.Id, required: false, description: "mode: socket_attach 时必填，对应 display.map 的 sockets"),
                 new FieldSchema("model_ref", FieldKind.Id, required: false, description: "mode: socket_attach 时必填"),
+                // 手感设计/08 第 4 节、ADR-0123：装备面板纸娃娃预览区使用的方向档。纯新增可选字段，不升
+                // currentSchemaVersion；取值是方向槽位 id（dir.<裸档位名>，与 display.map.mirror_pairs.direction_slot
+                // 同一套局部 id 空间，不指向已登记表）；缺省取姿势集的正面档。
+                new FieldSchema("preview_direction", FieldKind.Id, required: false,
+                    description: "装备面板预览区使用的方向档（方向槽位 id，如 dir.front_side_r）；缺省取姿势集的正面档，见 手感设计/08 第 3/4 节"),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Foundation, "display");

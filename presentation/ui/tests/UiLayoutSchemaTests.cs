@@ -67,6 +67,42 @@ namespace Tests.PresentationUi
             Assert.Equal("bottom", ((JsonString)def.Fields["anchor"]).Value);
         }
 
+        // ---- skin_ref（手感设计/08 第 3/4 节、ADR-0123）：可选加法字段 ----
+
+        [Fact]
+        public void Schema_SkinRef_OptionalAndParsed_AbsentMeansPlaceholder_AndSchemaVersionUnchanged()
+        {
+            var (registry, report) = Load(
+                "[{\"id\":\"ui_layout_definition.skinned\",\"panel\":\"inventory\",\"skin_ref\":\"skin.my_game\",\"fields\":{}}," +
+                "{\"id\":\"ui_layout_definition.plain\",\"panel\":\"hud\",\"fields\":{}}]");
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            var skinned = UiLayoutDefinition.FromRecord(registry.Get(UiSchemas.UiLayoutDefinition.Name, "ui_layout_definition.skinned")!);
+            var plain = UiLayoutDefinition.FromRecord(registry.Get(UiSchemas.UiLayoutDefinition.Name, "ui_layout_definition.plain")!);
+
+            Assert.Equal(new Id("skin.my_game"), skinned.SkinRef);
+            Assert.Null(plain.SkinRef);
+            Assert.Equal(1, UiSchemas.UiLayoutDefinition.CurrentSchemaVersion);
+        }
+
+        [Fact]
+        public void Schema_SkinRefNotAnId_IsBlocking()
+        {
+            var (_, report) = Load("[{\"id\":\"ui_layout_definition.bad\",\"panel\":\"hud\",\"skin_ref\":3,\"fields\":{}}]");
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Field == "skin_ref");
+        }
+
+        [Fact]
+        public void LegacyFourArgConstructor_StillWorks_WithNullSkinRef()
+        {
+            var def = new UiLayoutDefinition(new Id("ui_layout_definition.legacy"), UiPanel.Hud, null,
+                (JsonObject)JsonReader.Parse("{}"));
+
+            Assert.Null(def.SkinRef);
+        }
+
         // ---- schema 反例 ----
 
         [Theory]

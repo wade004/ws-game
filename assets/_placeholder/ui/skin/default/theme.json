@@ -1,0 +1,13 @@
+{
+  "colors": {
+    "panel": "#343a48",
+    "panel_edge": "#0f1014",
+    "text": "#e6e8ee",
+    "text_dim": "#9aa0ae",
+    "highlight": "#ffd866",
+    "disabled": "#5a5e6a",
+    "ok": "#5ac878",
+    "blocked": "#dc5a50"
+  },
+  "font": "fonts/noto_sans_cjk_sc.otf"
+}

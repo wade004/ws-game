@@ -102,6 +102,14 @@ PHASES_OTHER = {
 DODGE_INVULN_MS = 180
 
 FAMILIES_WITH_WEAPON = ("1h", "2h")
+#: 无武器族的状态剪辑（hit.*/death/jump/cast/dodge）也要给武器层（hand_main）出逐层剪辑，使持械角色播这些键时
+#: 武器随身体帧走（ADR-0072：缺逐层剪辑的层维持静态图）。这些剪辑不分族，武器层统一画占位单手剑（假人只提供
+#: 一把占位武器；游戏装备美术按 ADR-0100 候选命名覆盖）。整身合成与身体层仍是徒手姿势。
+WEAPON_LAYER_DEFAULT_FAMILY = "1h"
+#: 状态剪辑里武器相对躯干的俯仰角（度）：90 = 剑身沿躯干朝向水平前指（与战斗站姿 wp=100 接近）。默认 0 会让
+#: 剑尖竖直向下，落地蹲姿/倒地时扎出画布底边（自检会报裁切）；wp=40（和平持握）在落地蹲姿时仍擦到底边。
+STATE_CLIP_WEAPON_PITCH = 90.0
+STATE_CLIPS_WITH_WEAPON_LAYER = ("hit", "death", "jump", "cast", "dodge")
 WEAPON_LENGTH = {"1h": 0.38, "2h": 0.58}
 WEAPON_SECTION = {"1h": 0.024, "2h": 0.034}
 
@@ -178,6 +186,17 @@ class ClipDef:
     @property
     def has_weapon(self) -> bool:
         return self.family in FAMILIES_WITH_WEAPON
+
+    @property
+    def weapon_layer_family(self) -> str | None:
+        """武器层（hand_main）逐层剪辑里画的武器族；None 表示该剪辑没有武器层剪辑。
+        持械族剪辑取自身族；无族的状态剪辑（hit.*/death/jump/cast/dodge）取占位单手剑，其余（徒手 idle/move/
+        attack.unarmed 与别名 attack）无武器层。"""
+        if self.has_weapon:
+            return self.family
+        if self.key.split(".")[0] in STATE_CLIPS_WITH_WEAPON_LAYER:
+            return WEAPON_LAYER_DEFAULT_FAMILY
+        return None
 
     @property
     def total_ms(self) -> int:

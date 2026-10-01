@@ -1,0 +1,31 @@
+{
+  "table": "ui_layout_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ui_layout_definition.std_character_stats",
+      "panel": "character_stats",
+      "fields": {
+        "anchor": "top_left"
+      },
+      "skin_ref": "skin.default"
+    },
+    {
+      "id": "ui_layout_definition.std_inventory",
+      "panel": "inventory",
+      "fields": {
+        "anchor": "top_right"
+      },
+      "skin_ref": "skin.default"
+    },
+    {
+      "id": "ui_layout_definition.std_action_bar",
+      "panel": "action_bar",
+      "slots": 8,
+      "fields": {
+        "anchor": "bottom_center"
+      },
+      "skin_ref": "skin.default"
+    }
+  ]
+}

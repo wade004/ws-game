@@ -79,6 +79,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": []
     },
     "idle.combat": {
@@ -100,6 +101,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": []
     },
     "move.walk": {
@@ -121,6 +123,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "footstep",
@@ -153,6 +156,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "footstep",
@@ -185,6 +189,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "footstep",
@@ -218,6 +223,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": []
     },
     "idle.combat.1h": {
@@ -240,6 +246,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": []
     },
     "move.walk.1h": {
@@ -262,6 +269,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "footstep",
@@ -295,6 +303,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "footstep",
@@ -328,6 +337,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "footstep",
@@ -361,6 +371,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": []
     },
     "idle.combat.2h": {
@@ -383,6 +394,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": []
     },
     "move.walk.2h": {
@@ -405,6 +417,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": [
         {
           "name": "footstep",
@@ -438,6 +451,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": [
         {
           "name": "footstep",
@@ -471,6 +485,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": [
         {
           "name": "footstep",
@@ -513,6 +528,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "active_start",
@@ -577,6 +593,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "active_start",
@@ -641,6 +658,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "active_start",
@@ -698,6 +716,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "active_start",
@@ -763,6 +782,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "active_start",
@@ -828,6 +848,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "active_start",
@@ -885,6 +906,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": [
         {
           "name": "active_start",
@@ -950,6 +972,7 @@
         "body",
         "hand_main"
       ],
+      "weapon_layer_family": "2h",
       "events": [
         {
           "name": "active_start",
@@ -1006,6 +1029,7 @@
       "layers": [
         "body"
       ],
+      "weapon_layer_family": null,
       "events": [
         {
           "name": "active_start",
@@ -1064,8 +1088,10 @@
       "frame_count": 6,
       "total_ms": 300,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "impact",
@@ -1095,8 +1121,10 @@
       "frame_count": 5,
       "total_ms": 250,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "impact",
@@ -1126,8 +1154,10 @@
       "frame_count": 8,
       "total_ms": 400,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "impact",
@@ -1157,8 +1187,10 @@
       "frame_count": 10,
       "total_ms": 500,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "impact",
@@ -1188,8 +1220,10 @@
       "frame_count": 14,
       "total_ms": 700,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "impact",
@@ -1214,8 +1248,10 @@
       "frame_count": 12,
       "total_ms": 600,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": []
     },
     "death": {
@@ -1240,8 +1276,10 @@
       "frame_count": 18,
       "total_ms": 900,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": []
     },
     "jump": {
@@ -1271,8 +1309,10 @@
       "frame_count": 11,
       "total_ms": 600,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": []
     },
     "cast": {
@@ -1302,8 +1342,10 @@
       "frame_count": 12,
       "total_ms": 600,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "release",
@@ -1338,8 +1380,10 @@
       "frame_count": 8,
       "total_ms": 400,
       "layers": [
-        "body"
+        "body",
+        "hand_main"
       ],
+      "weapon_layer_family": "1h",
       "events": [
         {
           "name": "motion_start",

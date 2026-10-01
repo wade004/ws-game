@@ -176,6 +176,12 @@ namespace Core.Carriers.Item
                 // 不升 currentSchemaVersion；缺省缺失（该物品不提供武器手感层）。
                 new FieldSchema("feel_weapon_ref", FieldKind.Reference, required: false, referenceTable: "feel.weapon",
                     description: "武器手感（手感解析第 4 层）：指向 feel.weapon 的行；缺省该物品不提供武器手感层"),
+                // 装备资产包（手感设计/08 第 2/4 节，ADR-0123）新增：穿脱音效引用。纯新增可选字段，不升
+                // currentSchemaVersion；本模块不引用 presentation 的 sfx.def 类型，登记为软引用（同
+                // display_ref 的做法），仅供内容工具补全/跳转与资产导入工具的装备完整性报告核对。
+                new FieldSchema("equip_sfx_ref", FieldKind.Id, required: false,
+                    description: "穿脱音效（手感设计/08 第 2 节装备音效，可选）：指向 sfx.def 的行；缺省该物品穿脱无专属音效")
+                    .WithSoftReference(table: "sfx.def"),
                 new FieldSchema("value_override", FieldKind.Number, required: false,
                     description: "基准价值覆盖（ADR-0032 决策；07 第 1.1 节修订段；ADR-0034）：未填按 "
                         + "econ.value_curve 公式（08 第 7.4 节，未落地）算出基准价值；填了且偏离公式超带宽"

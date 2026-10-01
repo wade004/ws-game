@@ -117,6 +117,52 @@ namespace Tests.Carriers.Item
         }
 
         // -----------------------------------------------------------------
+        // equip_sfx_ref（手感设计/08 第 4 节、ADR-0123）：可选加法字段，软引用 sfx.def，缺省/填写都不阻断
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void EquipSfxRef_IsOptionalSoftReferenceToSfxDef_AndDoesNotBumpSchemaVersion()
+        {
+            var field = Core.Carriers.Item.ItemSchemas.Template.Fields.Single(f => f.Name == "equip_sfx_ref");
+
+            Assert.Equal(FieldKind.Id, field.Kind);
+            Assert.False(field.Required);
+            Assert.Equal("sfx.def", field.SoftReferenceTable);
+            Assert.Equal(1, Core.Carriers.Item.ItemSchemas.Template.CurrentSchemaVersion);
+        }
+
+        [Fact]
+        public void EquipSfxRef_PresentOrAbsent_LoadsWithoutErrors_EvenWhenTargetRowIsNotLoaded()
+        {
+            // 软引用不做存在性阻断（sfx.def 属于 presentation 层，item 模块不加载）：填写指向不存在行的值也不阻断；
+            // 存在性由资产导入工具的装备完整性报告核对。
+            var rows = "[" +
+                "{\"id\":\"item.cov_equip_sfx_a\",\"slot\":\"item.slot.cov_sample\",\"quality\":\"item.quality.cov_sample\",\"item_level\":1," +
+                "\"display_ref\":\"display.map.a\",\"stack_size\":1,\"name_key\":\"l10n.item.a\",\"equip_sfx_ref\":\"sfx.not_loaded_here\"}," +
+                "{\"id\":\"item.cov_equip_sfx_b\",\"slot\":\"item.slot.cov_sample\",\"quality\":\"item.quality.cov_sample\",\"item_level\":1," +
+                "\"display_ref\":\"display.map.b\",\"stack_size\":1,\"name_key\":\"l10n.item.b\"}]";
+
+            var source = BaseSource().Add("item.template", Envelope("item.template", rows));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+        }
+
+        [Fact]
+        public void EquipSfxRef_NotAnId_ReportsFieldType()
+        {
+            var rows = TemplateRow("item.cov_equip_sfx_bad", "item.slot.cov_sample", "item.quality.cov_sample",
+                "\"equip_sfx_ref\":7");
+
+            var source = BaseSource().Add("item.template", Envelope("item.template", rows));
+            var report = NewRegistry(source).LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "equip_sfx_ref");
+        }
+
+        // -----------------------------------------------------------------
         // grants.skills/auras：Reference(skill.def)/Reference(skill.aura_def)，L3 引用 L2 合法
         // -----------------------------------------------------------------
 

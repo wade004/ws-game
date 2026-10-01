@@ -362,7 +362,7 @@ python toolchain/format_data.py --schema-order --data-root data/_framework  # �
 python toolchain/import_assets.py <子命令> ...
 ```
 
-六个子命令（各自 `--help` 查看完整参数）：
+七个子命令（各自 `--help` 查看完整参数）：
 
 - `sprite`：精灵集源目录 -> 规范化精灵资源 + `display.map` 行。
   输入约定：`<src>/<direction_slot>/<layer>.png`（纸娃娃多层）或 `<src>/<direction_slot>.png`
@@ -468,6 +468,26 @@ python toolchain/import_assets.py <子命令> ...
   sample_hero_hat` 遗留取值而暂不进默认集合（纳入会让该行报错、拖垮门禁默认跑法）；数据迁移任务
   已把该行与另外三个受影响字段的全部样例数据行迁移到正确的类别前缀并补齐占位资产，本域随即纳入
   `DEFAULT_DOMAINS`，不再需要显式 `--only display_anim` 才能核对。
+
+  **`equip` 域（手感设计/08，ADR-0123，显式 opt-in）**：`--only equip` 才跑，不进 `DEFAULT_DOMAINS`/`ALL_DOMAINS`
+  （默认集合是"每个数据集都有这些表"的域；装备域依赖框架占位装备集 `data/_equip` 与 `assets/_placeholder`）。
+  数据根取 `data/_framework` + `data/_feel` + `data/<--dataset>`，资产取 `assets/_placeholder`；实现与下面的 `equip`
+  子命令共用 `equip_cmd.run_equip`。与其余域不同，装备域有警告级问题（回落记录，不阻断），所以 `check` 的返回码
+  现在按"有错误级问题才为 1"判定（既有域的问题全是错误级，行为不变）。
+- `equip`：装备资产包 + 界面皮肤包校验，输出**装备完整性报告**（`toolchain/asset_import/equip_pack.py`、
+  `skin_pack.py`，规则与检查名清单见两个文件的 docstring 与
+  [手感设计/08](../architecture/手感设计/08_装备与UI资产契约.md) 第 5 节）。默认读 `data/_framework`、`data/_feel`、
+  `data/_equip` 与 `assets/_placeholder`（`--data-root`/`--assets-dir`/`--anim-set`/`--direction-count`/
+  `--skin-ref` 可覆盖）。错误级：图标缺失/尺寸不合规/贴边、装备缺 `display.equip_visual`、纸娃娃静态层图或必备姿势键
+  逐层剪辑（ADR-0100 两级探测）缺失、`model` 型槽位/挂点命名不在 model 型 `display.map.slots/sockets` 里、武器缺
+  `display.weapon_style` 或 `feel.weapon`（同 id 分表）、`preview_direction` 非声明方向档；警告级（报告写明回落目标）：
+  推荐键层剪辑缺失（回落静态层图）、覆盖剪辑无逐层剪辑、`feel.weapon.family` 在姿势集里无键、`sfx_material` 在
+  `sfx.def` 无 swing/impact 行（回落 `generic`）、`equip_sfx_ref`/`trail_ref` 悬空、皮肤包缺项（回落 `skin.default`）。
+  错误级物品不能进入 validated 数据集：判定接口 `EquipReport.is_validated(item_id)` / `filter_validated(tables, report)`，
+  命令行 `--blocked-out <文件>` 写出被阻断物品 id。报告写 `--report-dir`（默认 `bin/_check_artifacts/equip_report/`，
+  已在 `.gitignore`，只留本地）的 `equip_completeness.json`/`.txt`；返回码 `0` 零错误（`--strict-warnings` 时还要零警告）
+  / `1`。门禁步骤 `equip_pack_check`（占位装备集须零错误零警告）与 `validate_equip_data`。占位装备集与占位皮肤包
+  的生成器见 [`std_equip_set/README.md`](std_equip_set/README.md)。
 
   **`--json`（消费方反馈第 62 条）**：stdout 只输出一个 JSON 文档（UTF-8、中文不转义），其余日志
   （逐条问题的人类可读文本、末尾汇总行）改走 stderr；不加 `--json` 时文本输出（含走 stdout 而非
@@ -593,6 +613,12 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 程序绘制的几何人偶姿势集（sprite 型）：序列帧 + `display.anim_set.std_dummy_biped` 数据行 + 规格文件，
 自带只读自检（`--check`）与每键一格缩略拼图（`--sheet`，只留本地）。用法、参数、键清单、帧数规则、判断记录与
 已知限制见 [`std_dummy_poses/README.md`](std_dummy_poses/README.md)；测试见 `tests/test_std_dummy_poses.py`。
+
+## 框架级占位装备集生成器（`gen_std_equip_set.py`，手感设计/06 第 2 节、08）
+
+单手剑/双手巨剑/匕首/弓/法杖/胸甲各一个完整装备资产包（图标 + 纸娃娃静态层图 + 逐层剪辑 + 外观/武器表现/手感/音效材质数据行
+`data/_equip`）与框架占位皮肤包 `skin.default`（`assets/_placeholder/ui/skin/default/`），全部程序绘制，是 `import_assets.py equip`
+的参照实现。用法、布局与判断记录见 [`std_equip_set/README.md`](std_equip_set/README.md)；测试见 `tests/test_equip_pack.py`。
 
 ## Markdown 相对链接校验（`test_markdown_relative_links.py`）
 

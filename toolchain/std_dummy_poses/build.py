@@ -5,7 +5,7 @@
   <assets_out>/sprite_anim/std_dummy_<键>/                     整身合成（默认朝向 front）；资源引用 sprite_anim.std_dummy_<键>
   <assets_out>/sprite_anim/std_dummy_<键>__<方向>/             整身合成的方向变体（ADR-0093，仅 canonical 右侧档，左侧靠翻转）
   <assets_out>/sprite_anim/std_dummy_<键>__<方向>__body/       身体层逐层剪辑（ADR-0072 第一级：方向+层名）
-  <assets_out>/sprite_anim/std_dummy_<键>__<方向>__hand_main/  武器层逐层剪辑（仅 1h/2h 族剪辑）
+  <assets_out>/sprite_anim/std_dummy_<键>__<方向>__hand_main/  武器层逐层剪辑（1h/2h 族剪辑，以及无族的 hit.*/death/jump/cast/dodge——武器随身体帧走）
   <assets_out>/std_dummy_poses.json                            规格（参数、每键相位/帧数/事件/位移、清单）
   <data_out>/display/display.anim_set.json                     框架级数据行
 """
@@ -114,7 +114,8 @@ def build_spec(direction_count: int, fps: int, composite_dirs: bool) -> dict:
             "frames_per_phase": [n for _n, n, _d in plan],
             "frame_count": sum(n for _n, n, _d in plan),
             "total_ms": c.total_ms,
-            "layers": [C.LAYER_BODY] + ([C.LAYER_WEAPON] if c.has_weapon else []),
+            "layers": [C.LAYER_BODY] + ([C.LAYER_WEAPON] if c.weapon_layer_family else []),
+            "weapon_layer_family": c.weapon_layer_family,
             "events": clip_events(c),
         }
         if c.alias_of:
@@ -223,8 +224,11 @@ def generate(assets_out: Path, data_out: Path, direction_count: int = C.DEFAULT_
             body = [render(p, yaw, weapon, "body") for p in poses]
             _write_clip(clip_dir(assets_out, c.resource_ref, slot, C.LAYER_BODY), body, durations_s, c.loop, fps)
             n_dirs += 1
-            if weapon:
-                wp = [render(p, yaw, weapon, "weapon") for p in poses]
+            if c.weapon_layer_family:
+                # 无族状态剪辑的姿势没有持握角：武器层用统一的携带俯仰角（见 config.STATE_CLIP_WEAPON_PITCH）
+                wposes = poses if c.has_weapon else [dict(p, wp=C.STATE_CLIP_WEAPON_PITCH) for p in poses]
+                wp = [render(p, yaw, c.weapon_layer_family, "weapon", clamp_weapon_to_ground=not c.has_weapon)
+                      for p in wposes]
                 _write_clip(clip_dir(assets_out, c.resource_ref, slot, C.LAYER_WEAPON), wp, durations_s, c.loop, fps)
                 n_dirs += 1
     _write_json(assets_out / SPEC_FILE, spec)

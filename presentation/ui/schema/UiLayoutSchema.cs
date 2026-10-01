@@ -85,12 +85,23 @@ namespace Presentation.Ui
         /// <summary>布局参数，结构由引擎适配层/具体游戏约定，本模块只透传（见类型注释）。</summary>
         public JsonObject Fields { get; }
 
+        /// <summary>界面皮肤包引用（<c>skin_ref</c>，手感设计/08 第 3/4 节、ADR-0123）；缺省为 null，
+        /// 表示使用框架占位皮肤。本模块只透传，不解析皮肤包内容（皮肤资源由引擎适配层按资产目录约定读取）。</summary>
+        public Id? SkinRef { get; }
+
         public UiLayoutDefinition(Id id, UiPanel panel, int? slots, JsonObject fields)
+            : this(id, panel, slots, fields, null)
+        {
+        }
+
+        /// <summary>带皮肤包引用的重载（ABI 只新增：保留四参数构造并转调本重载）。</summary>
+        public UiLayoutDefinition(Id id, UiPanel panel, int? slots, JsonObject fields, Id? skinRef)
         {
             Id = id;
             Panel = panel;
             Slots = slots;
             Fields = fields ?? throw new ArgumentNullException(nameof(fields));
+            SkinRef = skinRef;
         }
 
         public static UiLayoutDefinition FromRecord(DataRecord record)
@@ -107,7 +118,9 @@ namespace Presentation.Ui
             var slots = record.TryGetInt("slots", out var slotsVal) ? (int?)slotsVal : null;
             var fields = record.TryGetObject("fields", out var fieldsVal) ? fieldsVal : new JsonObjectBuilder().Build();
 
-            return new UiLayoutDefinition(id, panel, slots, fields);
+            var skinRef = record.TryGetId("skin_ref", out var skinVal) ? (Id?)skinVal : null;
+
+            return new UiLayoutDefinition(id, panel, slots, fields, skinRef);
         }
     }
 
@@ -125,6 +138,11 @@ namespace Presentation.Ui
                 new FieldSchema("panel", FieldKind.Enum, required: true, enumValues: UiPanelWireNames.EnumValues, description: "面板类别"),
                 new FieldSchema("slots", FieldKind.Int, required: false, description: "动作条槽位数量，仅 panel=action_bar 时有意义"),
                 new FieldSchema("fields", FieldKind.Object, required: true, description: "布局参数，结构留给引擎适配层解释"),
+                // 手感设计/08 第 3/4 节、ADR-0123：界面皮肤包引用。纯新增可选字段，不升 currentSchemaVersion；
+                // 皮肤包是资产目录（assets/<数据集>/ui/skin/<名>/，名取 skin.<名> 去掉前缀），不是内容表，
+                // 因此不登记 SoftReferenceTable；缺省取框架占位皮肤。
+                new FieldSchema("skin_ref", FieldKind.Id, required: false,
+                    description: "界面皮肤包名（skin.<名>，对应 assets/<数据集>/ui/skin/<名>/ 资产目录，不是内容表）；缺省取框架占位皮肤，缺项回落占位并进装备完整性报告，见 手感设计/08 第 3 节"),
             })
             .WithOwnership(SchemaLayer.Presentation, "ui")
             .WithDomain("ui");
