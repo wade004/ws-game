@@ -20,6 +20,7 @@ combat/
   contracts/
     CombatOptions.cs        构造期策略配置（命中表 id、属性 id 引用、系数、脱战时长、仇恨上限、死亡策略、结算追踪回调、T-N1-7 目标乘区/被暴击减免显式属性 id 清单、T-N1-8 LevelDiffTableId/EffectiveLevelIncludesGearOffset、T-N4-9 DismountOnEnterCombat/MountAuraDispelType/DismountMountAuras）
     ICombatDiagnostics.cs   最小诊断出口
+    HitFeelOptions.cs       受击裁决策略（韧性属性、霸体光环、冲击等级映射与击退倍率、时间线技能排除、离散模式开关）
   core/
     HitTableConfig.cs        combat.hit_table_config 强类型视图（T-N1-8：miss 分支新增 HitStat）
     ResistCurve.cs           combat.resist_curve 强类型视图 + 减免求值（table 分支自 T-N0-5 起委托 PiecewiseCurve 插值，saturation 公式不变）
@@ -29,6 +30,7 @@ combat/
     ThreatTable.cs            IThreatTable 默认实现
     CombatHost.cs             ICombatHost 默认实现
     CombatTickHandler.cs      接入 sim_loop TickPhase.CombatResolution
+    HitFeelHost.cs            局部顿帧与受击裁决宿主（手感落地 S6）：Evaluate 裁决、combat.hit_confirmed 落地、instant 适配、硬直与击退
     InMemoryCombatDiagnostics.cs
   schema/
     CombatSchemas.cs          三张表的 TableSchema 声明
@@ -46,6 +48,7 @@ combat/
                               委托未接线两种降级、已在战不重复移除
     CombatDeterminismTests.cs 同种子重放一致性
     CombatValidationRuleTests.cs 数据校验规则正反例
+    HitFeelHostTests.cs       手感落地 S6：局部顿帧、受击裁决、instant 适配的运行时冒烟
 ```
 
 ## 设计要点与判断记录
@@ -639,3 +642,41 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 配置的 AI 感知半径，不是 `CombatOptions` 这一层的标量口味项）。ABI：`CombatOptions` 新增一个带默认
 值的属性，不改动任何既有公开签名；默认值 30（有限范围）本身即是本次修复的内容，未显式配置本项的
 既有装配数值结果不再逐位不变（这是判断有意为之的不完全兼容点，见 ADR"后果"一节）。
+
+
+## 判断记录（局部顿帧与受击裁决，2026-10-02，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)、ADR-0117，手感落地 S6）
+
+新增 `core/HitFeelHost.cs`（`IHitFeelArbiter` + `IHitReactionQuery`）与 `contracts/HitFeelOptions.cs`；装配入口 `core/rules/assembly/HitFeelAssembly.Attach`
+（先创建并挂接行动者动作时钟、再创建宿主，保证两者对 `sim.tick_finished` 的订阅顺序）。**没有手感系统（没有 `IFeelJudgingSource`）时调用方不调用装配，
+既有行为逐位不变**；缺省档案 `rpg_classic` 下顿帧 0、`reaction_cap = none`，裁决只会在致死时产出 `Death`（见 7）。
+
+1. **三件事分开**：`Evaluate` 是纯函数（读手感表、韧性属性、霸体状态，不写状态），空间命中切片发 `combat.hit_confirmed` 前用它填冲击等级/两侧顿帧/受击反应；
+   宿主订阅 `combat.hit_confirmed` 落地（冻结动作时钟、登记硬直、提交击退、发事件）；instant 适配订阅 `combat.damage_dealt`/`combat.attack_avoided`，合成同样的
+   `combat.hit_confirmed`，目标选择式战斗因此也有顿帧与受击。时间线技能由 `HitFeelOptions.IsTimelineSkill` 排除，防止被空间命中与 instant 适配各算一次。
+2. **instant 适配只认"一次命中"**：伤害事件既无技能 id 也无攻击实例 id（光环周期伤害）不是命中；回避类结局（Miss/Dodge/Parry/Immune/Invulnerable）不顿帧不裁决。
+   接触点取目标位置、接触法线取指向攻击方、世界方向取攻击方 → 目标（两者重合时取攻击方朝向）。
+3. **击杀判据**：`Resolver` 先入队 `unit.died`、紧接着入队致死那一击的 `combat.damage_dealt`，所以"本 tick 已处理 `unit.died` 再见到该目标的伤害事件"才是击杀；
+   同 tick 内更早入队的非致死命中看到的是"还没见到 `unit.died`"。不用 `IsAlive` 判击杀（批量命中时会把更早的非致死命中也算成击杀）。
+4. **顿帧批次在 tick 末落地**（`sim.tick_finished`，`FlushHitstop` 也可手动调用）：同一单位批内取最大；攻击方多目标命中取 `min(max(各值), attacker_hitstop_cap_ms 换算)`，
+   受击方取 `hitstop_cap_ms` 换算后的上限；落地前宿主按所属单位的上限再限一次（事件里的 tick 数可能来自不经 `Evaluate` 的发出方，限幅幂等）。冻结中再命中取"剩余与新值之大者"
+   （`ActorActionClock` 的窗口合并），`feel.hitstop_started` 只在冻结真的变长时再发一条，值为新的剩余时长。`feel.hitstop_ended` 在冻结的最后一个 tick 末发出。
+5. **硬直与顿帧分别计时**：受击方先顿帧、顿帧结束后的下一个 tick 起算硬直（`IsStaggered` 为真共 `hit_stun_ms` 换算 tick 数，倒地再加 `downed_ms` 换算值）；顿帧中硬直不推进。
+   硬直窗口的推进挂在 `sim.tick_started`（先于全部阶段处理器），所以运动仲裁在步骤 4 读到的状态与阶段处理器注册顺序无关。再次破韧取"剩余与新值之大者"。
+6. **反应裁决顺序**：死亡 > 霸体 > 韧性 > 冲击等级映射 > `reaction_cap`。霸体（`IActionStateQuery.IsSuperArmor` 或 `HitFeelOptions.SuperArmorAuraDef` 光环）期间无反应、
+   受击方顿帧视 `SuperArmorTargetHitstop`（缺省仍有）；`stagger_power ≤ 韧性`（属性 `HitFeelOptions.PoiseStat`，缺省 `stat.poise`，未登记按 0）只 `Flinch`；
+   否则按 `ImpactReactions`（light→stagger_light、medium→stagger、heavy→knockback、massive→knockdown；未知等级 `UnknownImpactReaction`）取反应，再用 `reaction_cap` 取较低者。
+7. **致死**：反应 `Death`，受击方顿帧 0、不进硬直、不提交击退，已有冻结与硬直窗口当场释放；攻击方吃击杀放大后的顿帧（`kill_hitstop_scale`，限幅后）。
+   `unit.died`/`entity.destroyed` 无条件释放该单位的冻结与硬直，`sim.time_model_rescaled` 释放全部（离散模式切换），均幂等并补发 `feel.hitstop_ended`。
+8. **击退**：距离 = 攻击方 `knockback_distance`（标定后世界单位）×(1 − 目标击退抗性)×`KnockbackImpactMultipliers[冲击等级]`（缺省 0.5/0.75/1.0/1.5，试调起点，未经试玩），
+   经 `IKnockbackSink`（`MovementHost` 实现）提交；目标有顿帧时在顿帧最后一个 tick 的 tick 开始处提交（意图下一 tick 生效，运动仲裁的 frozen 会把受控位移原地挂住至解冻），
+   无顿帧时在命中 tick 末提交；目标已死则不提交。击退公式在 rules 层重复了 `MotionKnockback.ComputeDistanceWorld`（rules 不能引用 carriers），两处由测试各自钉住。
+9. **打断口**：`IStaggerInterruptSink` 可注册多个；`HitFeelAssembly` 在传入 `ISkillHost` 时注册 `SkillHostStaggerInterruptSink`（读条/引导中才 `Interrupt`，不锁学派）；
+   时间线动作的打断（`action.cancelled{reason: Stagger}`）由 S3a 经 `AddInterruptSink` 注册。
+10. **离散时间模型**：`HitFeelOptions.IsDiscreteMode` 为真时 `Evaluate` 返回无结果、事件全部忽略（顿帧与硬直在回合制下不生效，手感设计/00 第 7 节）。
+11. **契约新增（只加不改）**：`rules/common` 的 `HitFeelInput`/`HitFeelOutcome`/`IHitFeelArbiter`/`IHitReactionQuery`/`IKnockbackSink`/`IStaggerInterruptSink`；
+    `IActionStateQuery.IsSuperArmor(Id)` 默认接口成员（缺省 false，时间线实现方覆盖）；`HitFeelOptions`；`HitFeelHost`；`core/rules/assembly` 的 `HitFeelSystem`/`HitFeelAssembly`/`SkillHostStaggerInterruptSink`。
+12. **已知局限**：① 光环类霸体（`SuperArmorAuraDef` 经 `IAuraQuery.HasAura`）没有独立用例，只由 `IsSuperArmor` 路径覆盖；② instant 适配对同一技能内多个伤害效果各算一次命中（嵌套取大不累加，
+    结果等价，但 `combat.reaction_applied` 会多发）；③ 空间命中、`combat.hit_confirmed` 的几何字段与动作时间线的霸体窗口由后续切片（S3b/S3a）提供，本切片的测试用替身发射器。
+
+测试：`tests/HitFeelHostTests.cs`（46 例，全部以档案毫秒与 `FeelCalibration.MillisecondsToTicks` 算期望：双方冻结 tick 数、三目标取大并限幅、嵌套取大不累加、破韧/未破韧、硬直从顿帧结束起算、
+霸体、致死、`reaction_cap` 矩阵、倒地、回避类、击退距离与提交时刻、真实 `CombatHost` 的 instant 适配、缺省档案无副作用、离散模式、释放保证、确定性、事件键登记）。

@@ -38,7 +38,7 @@
 | `source` | Enum(`data`\|`clip`) | 否 | 作者态权威来源，缺省 `data`；`clip` 时校验器要求与剪辑标记一致（运行期永远只读本块） |
 | `charge` | Object | 否 | `{min_ms, max_ms}` 蓄力范围（`max_ms > min_ms`），只换算 `action.started.chargeRatio` |
 | `startup_ms` / `active_ms` / `recovery_ms` | Number（毫秒，≥ 0） | 是 | 三相时长；三相之和必须等于 `cast_time × 1000` |
-| `markers` | Array | 否 | `[{name, at_ms, args?}]`，`name` 取 `hit`（可写 `hit:<段>`）/`invuln_start`/`invuln_end`/`motion_start`/`motion_end`/`release`；`at_ms` 相对动作开始（不含蓄力），不得超出总时长 |
+| `markers` | Array | 否 | `[{name, at_ms, args?}]`，`name` 取 `hit`（可写 `hit:<段>`）/`invuln_start`/`invuln_end`/`armor_start`/`armor_end`/`motion_start`/`motion_end`/`release`；`at_ms` 相对动作开始（不含蓄力），不得超出总时长 |
 | `cancel_windows` | Array | 否 | `[{class, open_ms, close_ms?}]`，`class` 取输入类别（`move`/`attack`/`skill`/`dodge`/`interact`/`item`/`menu`）；`close_ms` 缺省到动作结束，超出末尾截断 |
 | `combo` | Object | 否 | `{next, open_ms, close_ms}`，`next` 为同表另一条声明了 `timeline` 的技能 |
 | `hit_policy` | Enum(`marker`\|`continuous`) | 否 | 缺省 `marker`；`continuous` 只登记，运行时按 `marker` 处理并给 Warning |
@@ -49,9 +49,9 @@
 
 语义校验由 `SkillTimelineRule`（`RulesSchemaCatalog` 登记）负责，Error 检查名：`timeline_zero_duration`、`timeline_cast_time_mismatch`、
 `timeline_on_passive`、`timeline_channel_time_exclusive`、`timeline_charge_range`、`timeline_marker_{segment,out_of_range,derived,unknown,duplicate_segment}`、
-`timeline_invuln_{unpaired,order}`、`timeline_motion_{markers,order,charge_incomplete}`、`timeline_window_{out_of_range,order}`、
+`timeline_invuln_{unpaired,order}`、`timeline_armor_{unpaired,order}`、`timeline_motion_{markers,order,charge_incomplete}`、`timeline_window_{out_of_range,order}`、
 `timeline_combo_{order,out_of_range,next_missing,next_no_timeline}`、`timeline_cost_first_hit_without_hit`；Warning：`timeline_ground_target_unsupported`、
-`timeline_marker_presentation`、`timeline_invuln_unterminated`、`timeline_motion_markers_without_block`、`timeline_hit_policy_continuous`、`timeline_effects_without_hit`。
+`timeline_marker_presentation`、`timeline_invuln_unterminated`、`timeline_armor_unterminated`、`timeline_motion_markers_without_block`、`timeline_hit_policy_continuous`、`timeline_effects_without_hit`。
 剪辑一致性（`TimelineClipConsistencyRule`，check `timeline_clip_missing`/`timeline_clip_mismatch`/`timeline_clip_deviation`）依赖
 `IClipMarkerSource`，尚无生产来源，未登记进目录（见 `../README.md` T9）。
 

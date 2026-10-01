@@ -21,5 +21,12 @@ namespace Core.Rules.Common
 
         /// <summary>行动者动作时钟是否被顿帧暂停。</summary>
         bool IsActionClockPaused(Id unitId);
+
+        /// <summary>
+        /// 行动者当前是否处于霸体窗口（时间线标记 <c>armor_start</c>～<c>armor_end</c>，手感设计/03 第 4 节）。受击裁决读它：
+        /// 霸体期间命中不产生反应（仍扣血，受击方顿帧视策略）。C# 默认接口成员（纯加法，既有实现无需改动，缺省恒 false）；
+        /// 动作时间线的实现方覆盖它。光环类霸体不经本成员，见 <c>HitFeelOptions.SuperArmorAuraDef</c>。
+        /// </summary>
+        bool IsSuperArmor(Id unitId) => false;
     }
 }

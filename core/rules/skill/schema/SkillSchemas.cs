@@ -859,7 +859,7 @@ namespace Core.Rules.Skill
                 item: new FieldSchema("<marker>", FieldKind.Object, required: true, fields: new[]
                 {
                     new FieldSchema("name", FieldKind.String, required: true,
-                        description: "标记名：hit（多段写 hit:<段> 或 args.segment）、invuln_start/invuln_end、motion_start/motion_end、release"),
+                        description: "标记名：hit（多段写 hit:<段> 或 args.segment）、invuln_start/invuln_end、armor_start/armor_end、motion_start/motion_end、release"),
                     new FieldSchema("at_ms", FieldKind.Number, required: true, description: "相对动作开始（不含蓄力）的毫秒数")
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("args", FieldKind.Object, required: false,

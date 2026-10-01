@@ -26,7 +26,7 @@ namespace Core.Rules.Skill
 
         private static readonly HashSet<string> AuthorableMarkers = new HashSet<string>(StringComparer.Ordinal)
         {
-            "hit", "invuln_start", "invuln_end", "motion_start", "motion_end", "release",
+            "hit", "invuln_start", "invuln_end", "armor_start", "armor_end", "motion_start", "motion_end", "release",
         };
 
         private static readonly HashSet<string> DerivedMarkers = new HashSet<string>(StringComparer.Ordinal)
@@ -121,6 +121,8 @@ namespace Core.Rules.Skill
             var motionEnd = (double?)null;
             var invulnStart = (double?)null;
             var invulnEnd = (double?)null;
+            var armorStart = (double?)null;
+            var armorEnd = (double?)null;
             var hitSegments = new HashSet<string>(StringComparer.Ordinal);
             if (tl.TryGetValue("markers", out var markersVal) && markersVal is JsonArray markers)
             {
@@ -194,6 +196,8 @@ namespace Core.Rules.Skill
                         case "motion_end": motionEnd = at; break;
                         case "invuln_start": invulnStart = at; break;
                         case "invuln_end": invulnEnd = at; break;
+                        case "armor_start": armorStart = at; break;
+                        case "armor_end": armorEnd = at; break;
                     }
                 }
             }
@@ -210,6 +214,20 @@ namespace Core.Rules.Skill
             else if (invulnStart.HasValue && invulnEnd.HasValue && invulnEnd.Value < invulnStart.Value)
             {
                 issues.Add(Err("timeline_invuln_order", "invuln_end 早于 invuln_start", "timeline.markers"));
+            }
+
+            // 霸体窗口（与无敌窗口同级别）
+            if (armorEnd.HasValue && !armorStart.HasValue)
+            {
+                issues.Add(Err("timeline_armor_unpaired", "声明了 armor_end 但没有 armor_start", "timeline.markers"));
+            }
+            else if (armorStart.HasValue && !armorEnd.HasValue)
+            {
+                issues.Add(Warn("timeline_armor_unterminated", "声明了 armor_start 但没有 armor_end，霸体将持续到动作结束", "timeline.markers"));
+            }
+            else if (armorStart.HasValue && armorEnd.HasValue && armorEnd.Value < armorStart.Value)
+            {
+                issues.Add(Err("timeline_armor_order", "armor_end 早于 armor_start", "timeline.markers"));
             }
 
             // 位移块与 motion_start/motion_end

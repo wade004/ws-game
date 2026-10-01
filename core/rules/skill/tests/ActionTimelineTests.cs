@@ -620,6 +620,84 @@ namespace Tests.Rules.Skill
             Assert.False(h.Query.IsInvulnerable(Actor));
         }
 
+        // ------------------------------------------------------------------ 霸体窗口（armor_start/armor_end，手感设计/03 第 4 节）
+
+        private static JsonObject ArmorSkill(string id = "skill.sample_armor_swing", bool withEnd = true) =>
+            TlSkill(id, 50, 150, 100,
+                markers: withEnd
+                    ? new[] { Marker("armor_start", 50), Marker("armor_end", 150) }
+                    : new[] { Marker("armor_start", 50) });
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SuperArmorWindow_FollowsMarkers_TrueInsideFalseOutside(bool invulnAlsoDeclared)
+        {
+            // 复现 + 不变量：窗口 [armor_start, armor_end) 内为真，之外（含动作自然结束后）为假；与无敌窗口互不串位。
+            var skill = invulnAlsoDeclared
+                ? TlSkill("skill.sample_armor_swing", 50, 150, 100,
+                    markers: new[] { Marker("armor_start", 50), Marker("armor_end", 150), Marker("invuln_start", 0), Marker("invuln_end", 50) })
+                : ArmorSkill();
+            var h = Make(new[] { skill });
+            Assert.False(h.Query.IsSuperArmor(Actor));
+            h.CastInTick("skill.sample_armor_swing");
+            var start = Ticks(50);
+            var end = Ticks(150);
+            var total = Ticks(50) + Ticks(150) + Ticks(100);
+            var insideSeen = 0;
+            for (var i = 1; i <= total + 2; i++)
+            {
+                h.Tick();
+                var e = h.ElapsedTicks;
+                var inside = e >= start && e < end;
+                if (e >= 0)
+                {
+                    Assert.Equal(inside, h.Query.IsSuperArmor(Actor));
+                    if (inside) insideSeen++;
+                    if (invulnAlsoDeclared) Assert.Equal(e < start, h.Query.IsInvulnerable(Actor));
+                    else Assert.False(h.Query.IsInvulnerable(Actor));
+                }
+            }
+
+            Assert.Equal(end - start, insideSeen);
+            Assert.False(h.Query.IsSuperArmor(Actor)); // 动作已自然结束
+            Assert.Equal(2, h.Of<ActionMarkerEvent>().Count(m => m.Event.Name.StartsWith("armor_", StringComparison.Ordinal)));
+        }
+
+        [Fact]
+        public void SuperArmorWindow_ResetsWhenActionIsCancelledInsideTheWindow()
+        {
+            var h = Make(new[] { ArmorSkill() });
+            h.CastInTick("skill.sample_armor_swing");
+            while (h.ElapsedTicks < Ticks(50) + 1) h.Tick();
+            Assert.True(h.Query.IsSuperArmor(Actor));
+
+            h.World.Host.CancelAction(Actor, ActionCancelReason.Stagger);
+            h.World.Flush();
+            Assert.False(h.Query.IsSuperArmor(Actor));
+
+            // 取消后再开始同一动作：窗口从头算，开始时不带上一次的残留。
+            h.Tick();
+            h.CastInTick("skill.sample_armor_swing");
+            Assert.False(h.Query.IsSuperArmor(Actor));
+        }
+
+        [Fact]
+        public void SuperArmorWindow_WithoutEndMarker_LastsUntilTheActionEnds()
+        {
+            var h = Make(new[] { ArmorSkill(withEnd: false) });
+            h.CastInTick("skill.sample_armor_swing");
+            var total = Ticks(50) + Ticks(150) + Ticks(100);
+            while (h.ElapsedTicks < total - 1)
+            {
+                h.Tick();
+                if (h.ElapsedTicks >= Ticks(50)) Assert.True(h.Query.IsSuperArmor(Actor));
+            }
+
+            h.TickN(3);
+            Assert.False(h.Query.IsSuperArmor(Actor));
+        }
+
         [Fact]
         public void ActionState_Motion_IsFilledFromDeclaredMotionBlock_WithCalibratedDistanceAndWindowTicks()
         {

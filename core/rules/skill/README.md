@@ -1680,7 +1680,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
   = 以 `target_shape_ref` 目标选择链解析目标（有显式目标则按显式目标过滤）后走既有效果结算。时间线命中切片（S3b）替换该钩子，
   在其中实现空间命中、攻击实例去重与无敌前置检查；`TimelineHitContext.Settlement` 是它调用既有结算管线的出口。
 - **T9 `source: clip`**：运行期永远只读 `skill.def.timeline`（规则层不读表现域）。作者态工具 `TimelineClipImporter` 把剪辑事件
-  （`active_start/active_end` 界定判定相；`hit`/`hit:<n>`、`combo_open/close`、`cancel_open:<类>`、`invuln_*`、`motion_*`、`release` 抄写）
+  （`active_start/active_end` 界定判定相；`hit`/`hit:<n>`、`combo_open/close`、`cancel_open:<类>`、`invuln_*`、`armor_*`、`motion_*`、`release` 抄写）
   导入成时间线字段；`TimelineClipConsistencyRule(IClipMarkerSource, toleranceMs)` 比对：`source: clip` 任一偏差（超过 0.5 毫秒抄写取整误差）
   Error，`source: data` 超过 `marker_tolerance_ms` Warning，取不到剪辑时 `clip` 为 Error、`data` 跳过。**当前数据里没有"技能 → 动画集 →
   剪辑"的对应关系，没有生产用 `IClipMarkerSource`**，所以该规则没有登记进 `RulesSchemaCatalog`（只登记了不依赖剪辑的
@@ -1704,6 +1704,12 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
   （S1 输入缓冲的生产实现、动作时钟装配、输入动作→技能映射都不属于本切片），生产路径上时间线技能目前只在上述最小组合下可用。
 - **T14 时间模型切换**：`RescaleAll`（连续⇄离散）清空进行中的时间线动作与连招链（`action.cancelled{cleared}` 与
   `skill.cast_interrupted{reason: CLEARED}`），随后按读条/引导路径换算其余状态（03 第 6 节）。
+- **T15 霸体窗口 `armor_start`/`armor_end`**：镜像无敌窗口——运行态布尔 `ActionRun.SuperArmor`，两个标记到达时置位/复位并照常发 `action.marker`；
+  `CastPipeline` 覆盖 `IActionStateQuery.IsSuperArmor`（S6 追加的默认成员，缺省恒 false），动作自然结束（运行态随动作移除）与被取消
+  （`OnRunCancelled` 复位）后即读为假。加载期校验与无敌同级别：`timeline_armor_unpaired`/`timeline_armor_order` Error、`timeline_armor_unterminated`
+  Warning（未收尾则霸体持续到动作结束）；`TimelineClipImporter` 把剪辑里的 `armor_*` 与 `invuln_*` 同样抄写。理由：手感设计/03 第 4 节规定霸体
+  来自时间线标记或光环标志，光环部分由受击裁决宿主的 `HitFeelOptions.SuperArmorAuraDef` 处理，时间线部分必须由动作状态查询的实现方提供，
+  不在接口上写恒 false 转发、也不登记豁免。
 
 **已知局限（逐条登记，随汇报转达）**：
 1. `hit_policy: continuous` 只登记字段与解析，运行时按 `marker` 处理并在加载期给 Warning（`timeline_hit_policy_continuous`）。

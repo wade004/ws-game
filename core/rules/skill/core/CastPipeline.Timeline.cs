@@ -44,6 +44,7 @@ namespace Core.Rules.Skill
         public bool CooldownStarted;
         public bool FirstHitSeen;
         public bool Invulnerable;
+        public bool SuperArmor;
         public bool MotionOpen;
 
         /// <summary>动作被接受时落定的位移段快照（声明了 <c>motion</c> 块才有；运动仲裁器经 <see cref="ActionState.Motion"/> 读取）。</summary>
@@ -183,6 +184,13 @@ namespace Core.Rules.Skill
         {
             var run = RunOf(unitId);
             return run != null && run.Invulnerable;
+        }
+
+        /// <summary>霸体窗口（<c>armor_start</c>～<c>armor_end</c>）：镜像 <see cref="IsInvulnerable"/>，受击裁决经它读取（手感设计/03 第 4 节）。</summary>
+        public bool IsSuperArmor(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.SuperArmor;
         }
 
         public bool IsActionClockPaused(Id unitId) => _timeline?.Clock != null && _timeline.Clock.IsPaused(unitId);
@@ -575,6 +583,12 @@ namespace Core.Rules.Skill
                 case "invuln_end":
                     run.Invulnerable = false;
                     break;
+                case "armor_start":
+                    run.SuperArmor = true;
+                    break;
+                case "armor_end":
+                    run.SuperArmor = false;
+                    break;
                 case "motion_start":
                     run.MotionOpen = true;
                     break;
@@ -719,6 +733,7 @@ namespace Core.Rules.Skill
         {
             var run = state.Run!;
             run.Invulnerable = false;
+            run.SuperArmor = false;
             run.MotionOpen = false;
 
             // cooldown_at: finish 的动作被取消/打断时在终止那一刻起算（不让"取消"成为绕开冷却的手段）；清空（场景/模式切换）不起算。

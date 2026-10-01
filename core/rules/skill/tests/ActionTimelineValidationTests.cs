@@ -70,6 +70,22 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
+        public void ArmorWindowMarkers_FollowTheSameRulesAsInvulnerability()
+        {
+            var unpaired = Validate(TlSkill("skill.sample_a1", 200, 100, 300, markers: new[] { Marker("armor_end", 150) }));
+            Assert.Contains(unpaired.Issues, i => i.Check == "timeline_armor_unpaired" && i.Severity == ValidationSeverity.Error);
+
+            var unterminated = Validate(TlSkill("skill.sample_a2", 200, 100, 300, markers: new[] { Marker("armor_start", 50) }));
+            Assert.Contains(unterminated.Issues, i => i.Check == "timeline_armor_unterminated" && i.Severity == ValidationSeverity.Warning);
+
+            var reversed = Validate(TlSkill("skill.sample_a3", 200, 100, 300, markers: new[] { Marker("armor_start", 150), Marker("armor_end", 50) }));
+            Assert.Contains(reversed.Issues, i => i.Check == "timeline_armor_order" && i.Severity == ValidationSeverity.Error);
+
+            var ok = Validate(TlSkill("skill.sample_a4", 200, 100, 300, markers: new[] { Marker("armor_start", 50), Marker("armor_end", 150) }));
+            Assert.DoesNotContain(ok.Issues, i => i.Check.StartsWith("timeline_armor") || i.Check == "timeline_marker_unknown");
+        }
+
+        [Fact]
         public void ComboNext_MustExistAndDeclareATimeline()
         {
             var missing = Validate(TlSkill("skill.sample_a", 200, 100, 300, combo: ComboBlock("skill.sample_nowhere", 300, 600)));
@@ -114,6 +130,18 @@ namespace Tests.Rules.Skill
                 new ClipEvent("active_end", 300 / totalMs), new ClipEvent("combo_open", 300 / totalMs), new ClipEvent("combo_close", 600 / totalMs),
                 new ClipEvent("cancel_open:dodge", 100 / totalMs), new ClipEvent("trail_start", 210 / totalMs),
             });
+
+        [Fact]
+        public void ClipImporter_CopiesArmorWindowMarkersLikeInvulnerability()
+        {
+            var t = TimelineClipImporter.Import(new ClipMarkerSet("clip.sample_armor", 500, new[]
+            {
+                new ClipEvent("armor_start", 0.2), new ClipEvent("armor_end", 0.6), new ClipEvent("invuln_start", 0.1), new ClipEvent("invuln_end", 0.3),
+            }));
+            Assert.Equal(new[] { "armor_start", "armor_end", "invuln_start", "invuln_end" }, t.Markers.Select(m => m.Name));
+            Assert.Equal(new[] { 100.0, 300.0, 50.0, 150.0 }, t.Markers.Select(m => System.Math.Round(m.AtMs, 6)));
+            Assert.DoesNotContain(t.Notes, n => n.Contains("armor"));
+        }
 
         [Fact]
         public void ClipImporter_DerivesPhasesMarkersAndWindows()

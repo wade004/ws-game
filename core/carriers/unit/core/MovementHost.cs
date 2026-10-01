@@ -107,7 +107,7 @@ namespace Core.Carriers.Unit
     /// <see cref="OnMoveFailed"/>（found.event_catalog 未登记 <c>unit.move_failed</c> 事件，任务书
     /// 拍板"不新增事件，改为委托回调"，见本模块 README）。
     /// </summary>
-    public sealed class MovementHost : IControlledDisplacementSink
+    public sealed class MovementHost : IControlledDisplacementSink, IKnockbackSink
     {
         private readonly IWorldSim _world;
 
@@ -233,6 +233,17 @@ namespace Core.Carriers.Unit
                 .Build();
 
             _world.SubmitIntent(new Intent(request.UnitId, "move_displace", args));
+        }
+
+        /// <summary>
+        /// <see cref="IKnockbackSink"/>：受击裁决（<c>core/rules/combat</c> 的 <c>HitFeelHost</c>）提交击退的入口，
+        /// 转成 <see cref="KnockbackRequest"/> 走 <see cref="BeginKnockback(KnockbackRequest)"/>。方向为零向量或距离非正时静默忽略
+        /// （没有位移可做，不是错误）；目标不存在仍抛异常（由调用方先查存活）。
+        /// </summary>
+        public void BeginKnockback(Id unitId, Vec2 direction, double distanceWorld, double durationSeconds)
+        {
+            if (!(distanceWorld > 0.0) || !(direction.Length > 1e-9)) return;
+            BeginKnockback(new KnockbackRequest(unitId, direction, distanceWorld, durationSeconds));
         }
 
         /// <summary>供 <see cref="MovementTickHandler"/>（同程序集）在寻路失败时回调触发

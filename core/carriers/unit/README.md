@@ -39,6 +39,7 @@ unit/
     MotionModeRuleSet.cs     运动模式规则表（feel.motion_mode_rules 的消费结果）
     MotionMath.cs            曲线求值/反求、速度趋近、朝向限速（纯函数）
     MotionSupport.cs         目标辅助、步态输入、击退距离的纯函数
+    MotionHitFeelWiring.cs   受击裁决接进运动层：硬直查询适配 + 动作时钟/硬直/击退口接线（手感落地 S6）
     MovementOptions.cs       移动系统口味配置项
     DirectionQuantizer.cs    05 §3.2 方向量化算法（纯函数）
     UnitPersistable.cs        world.current_map_id / world.current_position / player.archetype
@@ -659,3 +660,16 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 6. **（缺省路径修复，记录 11）** 复现用例 `C10a_ControlledDisplacementTests.MoveIntentEveryTick_DoesNotStallAControlledDisplacement`（方向/目标点/追击三种意图各一例）：
    修复前第 2 个 tick 位移停在 1，修复后逐 tick 走 `速度·dt`、第 4 个 tick 到达并以 `DisplacementArrived` 结束。被控制（`IsLocked`）的单位同理：意图被忽略后位移交给
    `AdvanceDisplacement` 按它自己的控制规则处理，与"没有意图"时一致（此前持续输入会让它永远不结束）。
+
+## 判断记录（受击裁决接进运动层，2026-10-02，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)、ADR-0117，手感落地 S6）
+
+补上运动层判断记录 12 里"`staggered` 需要 `IStaggerStateQuery` 实现（受击裁决切片提供）"的缺口：
+
+1. **新增 `core/MotionHitFeelWiring.cs`**：`HitReactionStaggerQuery`（`IStaggerStateQuery` → rules 层 `IHitReactionQuery` 的适配，rules 不能引用 carriers，所以由 carriers 一侧适配）与
+   `MotionHitFeelWiring.Connect(movement, clock, host)`——把行动者动作时钟接成 `frozen` 叠加态来源、把受击裁决的硬直接成 `staggered` 模式来源、把 `MovementHost` 设为受击裁决的击退口。`MotionServices.Feel`
+   等其它服务仍由调用方设置（缺 `Feel` 运动层本身不开启）。**不接 `CarriersAssembly`**（并行切片也在改装配，由主会话合并后统一接）。
+2. **`MovementHost` 实现 `IKnockbackSink`**：新增重载 `BeginKnockback(Id, Vec2, double, double)`（方向为零或距离非正时静默忽略），转成既有 `KnockbackRequest` 路径，既有签名不变（ABI 只加）。
+3. **时序**：受击方顿帧 `t` 个 tick（仲裁器选 `frozen`，位置与受控位移原地挂住）→ 顿帧结束后的下一个 tick 起 `staggered` 共 `hit_stun_ms` 换算 tick 数（输入与转向被挡）→ 回到常规；
+   击退（`forced` 优先级高于 `staggered`）在顿帧最后一个 tick 提交，解冻后以 `ease_out` 走完公式距离。用例 `tests/HitReactionMotionTests.cs`（6 例，真实 `MovementTickHandler` 与仲裁器）：
+   模式序列、输入被挡、韧性未破只冻结、致死为 `Dead`、击退距离与起点、缺省档案接线前后位置/朝向/模式逐位一致。
+4. **PlayMode**：改动涉及 `MovementHost.cs`（只加重载与接口声明，`MovementTickHandler.cs` 未改）；仍请主会话按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
