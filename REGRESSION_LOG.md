@@ -69,3 +69,4 @@
 | full-20261001-08 | 通过（合并后，main 快进到 8261822c 后在主检出跑 check.ps1 全量含 Unity：36 步全过，脚本墙钟 793.9s；dotnet test 8034/8034、pytest 934/934（6c 934/934、6d PowerShell 5.1+7 各 440/440）、EditMode 185/185、PlayMode 374/374；ABI 探针 PASS） | 8261822c | 2026-10-01 |
 | full-20261001-09 | 通过（合并前，分支 feature/branch-version-label_20261001，在 D:\wt\branch-version-label 跑 check.ps1 全量含 Unity：37 步全过，脚本墙钟 793.1s；dotnet test 8034/8034、EditMode 185/185、PlayMode 374/374） | 05c300aa | 2026-10-01 |
 | full-20261001-10 | 通过（合并后，main 快进到 05c300aa 后在主检出跑 check.ps1 全量含 Unity：37 步全过，脚本墙钟 818.8s；dotnet test 8034/8034、pytest 972/972（6d PowerShell 5.1+7 各 477/477）、EditMode 185/185、PlayMode 374/374） | 05c300aa | 2026-10-01 |
+| full-20261001-11 | 通过（合并前，分支 feature/gate-timing-autolog_20261001，在 D:\wt\gate-timing-autolog 跑 check.ps1 全量含 Unity：37 步全过，脚本墙钟 876.7s；dotnet test 8034/8034、pytest 997/997（6d PowerShell 5.1+7 各 501/501）、EditMode 185/185、PlayMode 374/374；逐步耗时已由门禁自动写入 timing/） | 2a255dc4 | 2026-10-01 |
