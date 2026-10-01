@@ -100,7 +100,16 @@ namespace Adapters.Stub
             return new List<Vec2> { from, to };
         }
 
-        public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to)
+        public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => RaycastWithNormal(mapId, from, to)?.Point;
+
+        /// <summary>
+        /// 手感落地 S2b：带法线的射线查询（契约方法，见 <see cref="INavigation2D.RaycastWithNormal"/>）。<see cref="Raycast"/> 就是
+        /// 本方法取 <see cref="NavRayHit.Point"/>（同一份相交判定，命中点与此前的 Raycast 逐位相同）；法线由
+        /// <see cref="NavRaycastNormals.RectEntryNormal"/> 按被穿入的矩形面给出（轴向法线恰为 ±1/0）。多块矩形在同一点同时被命中
+        /// （例如两面墙围成的内角）时按 <see cref="NavRaycastNormals.Merge"/> 合并法线，不取"先登记者优先"的任意一块——
+        /// 否则内角处会随登记顺序决定沿哪面墙滑。
+        /// </summary>
+        public NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to)
         {
             if (!_blockingRects.TryGetValue(mapId, out var rects))
             {
@@ -108,6 +117,7 @@ namespace Adapters.Stub
             }
 
             Vec2? closestHit = null;
+            var closestNormal = Vec2.Zero;
             var closestDistanceSqr = double.MaxValue;
 
             foreach (var rect in rects)
@@ -119,11 +129,17 @@ namespace Adapters.Stub
                     {
                         closestDistanceSqr = distanceSqr;
                         closestHit = hit;
+                        closestNormal = NavRaycastNormals.RectEntryNormal(from, to, rect.Min, rect.Max);
+                    }
+                    else if (closestHit.HasValue && hit.Equals(closestHit.Value))
+                    {
+                        closestNormal = NavRaycastNormals.Merge(
+                            closestNormal, NavRaycastNormals.RectEntryNormal(from, to, rect.Min, rect.Max));
                     }
                 }
             }
 
-            return closestHit;
+            return closestHit.HasValue ? new NavRayHit(closestHit.Value, closestNormal) : (NavRayHit?)null;
         }
 
         private bool SegmentBlocked(Id mapId, Vec2 from, Vec2 to)

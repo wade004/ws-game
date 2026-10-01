@@ -343,7 +343,16 @@ namespace Adapter.Unity.EngineAdapter
             return result;
         }
 
-        public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to)
+        public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => RaycastWithNormal(mapId, from, to)?.Point;
+
+        /// <summary>
+        /// 手感落地 S2b：带法线的射线查询（契约方法，见 <see cref="INavigation2D.RaycastWithNormal"/>）。<see cref="Raycast"/> 就是
+        /// 本方法取 <see cref="NavRayHit.Point"/>（同一份相交判定，命中点与此前的 Raycast 逐位相同）；法线由
+        /// <see cref="NavRaycastNormals.RectEntryNormal"/> 按被穿入的矩形面给出（轴向法线恰为 ±1/0），多块矩形在同一点同时被命中
+        /// 时按 <see cref="NavRaycastNormals.Merge"/> 合并。阻挡来源是矩形并集（Tilemap 实心格同样折成矩形），所以法线只有轴向与
+        /// 角点对角两种——斜线墙在 Tilemap 上本就是阶梯形，阶梯面的法线逐级交替，需要平滑法线的游戏应在阻挡数据侧处理，不在本契约内。
+        /// </summary>
+        public NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to)
         {
             if (!_blockingRects.TryGetValue(mapId, out var rects))
             {
@@ -351,6 +360,7 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             Vec2? closestHit = null;
+            var closestNormal = Vec2.Zero;
             var closestDistanceSqr = double.MaxValue;
 
             foreach (var rect in rects)
@@ -362,11 +372,17 @@ namespace Adapter.Unity.EngineAdapter
                     {
                         closestDistanceSqr = distanceSqr;
                         closestHit = hit;
+                        closestNormal = NavRaycastNormals.RectEntryNormal(from, to, rect.Min, rect.Max);
+                    }
+                    else if (closestHit.HasValue && hit.Equals(closestHit.Value))
+                    {
+                        closestNormal = NavRaycastNormals.Merge(
+                            closestNormal, NavRaycastNormals.RectEntryNormal(from, to, rect.Min, rect.Max));
                     }
                 }
             }
 
-            return closestHit;
+            return closestHit.HasValue ? new NavRayHit(closestHit.Value, closestNormal) : (NavRayHit?)null;
         }
 
         /// <summary>契约方法（INavigation2D / ADR-0016 决策 7）：以传入的整批矩形替换该地图当前

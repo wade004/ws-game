@@ -49,6 +49,29 @@ namespace Core.Foundation.EngineAdapter
         Vec2? Raycast(Id mapId, Vec2 from, Vec2 to);
 
         /// <summary>
+        /// 手感落地 S2b（手感设计/02 <c>wall_slide</c>）：与 <see cref="Raycast"/> 同一次判定，额外返回命中处阻挡表面的法线，供移动系统
+        /// 把被阻挡截断的位移沿墙面切向继续（去掉法向分量）。无阻挡返回 null；有阻挡时 <see cref="NavRayHit.Point"/> 与
+        /// <see cref="Raycast"/> 的返回值<b>逐位相同</b>，<see cref="NavRayHit.Normal"/> 是指向阻挡区域外侧的单位法线（定义、角点与
+        /// 起点在内部等退化情形见 <see cref="NavRayHit"/>）。同样遵守"可通行判定统一规则"：仅与边界或角点相切不算命中。
+        /// <para>
+        /// 默认实现（ABI 只加不改，既有实现无需改动即源码兼容）：命中点取 <see cref="Raycast"/>，法线用
+        /// <see cref="NavRaycastNormals.ProbeAxisNormal"/> 的轴向探测近似——只对轴对齐阻挡成立，内角与擦角给零向量（调用方视为整体停下）。
+        /// 能给出精确法线的实现（测试桩、网格实现；任意朝向的阻挡面更必须）应当覆盖本成员，并让 <see cref="Raycast"/> 与本成员共用同一份
+        /// 相交判定，避免两个入口给出不同的命中点。
+        /// </para>
+        /// </summary>
+        NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to)
+        {
+            var hit = Raycast(mapId, from, to);
+            if (!hit.HasValue)
+            {
+                return null;
+            }
+
+            return new NavRayHit(hit.Value, NavRaycastNormals.ProbeAxisNormal(this, mapId, from, to, hit.Value));
+        }
+
+        /// <summary>
         /// 登记一批运行时动态阻挡矩形（如临时关闭的门、被摧毁的可破坏物），供
         /// IsWalkable/FindPath/Raycast 在原有静态导航数据之上叠加判定，不需要重新
         /// BuildNavMesh 整图（见 ADR-0016 决策 7）。同一 mapId 再次调用以传入的整批矩形

@@ -100,6 +100,17 @@ namespace Core.Carriers.Unit
             return Math.Atan2(to.Y - from.Y, to.X - from.X);
         }
 
+        /// <summary>
+        /// 单位正处于受控位移时为真：位移优先于普通移动意图（"位移与移动互斥"，<see cref="ApplyIntent"/>/<see cref="ApplyChaseIntent"/>
+        /// 顶部短路拒绝意图），所以该单位本 tick 收到的移动意图被拒绝后，不能把它记入 <c>processedThisTick</c>——否则
+        /// <see cref="Execute"/> 第二遍循环会跳过它的位移续推，每 tick 都提交输入的单位（玩家持续按键、AI 每 tick 重发）的
+        /// 受控位移被永久卡住。<b>判断记录（手感落地 S2b，缺省路径根治）</b>：这是 ADR-0026 落地时就存在的缺陷，S2 只在运动层启用时
+        /// 规避；现不论运动层是否启用一律如此处理。本 tick 刚由 <c>move_displace</c> 开始的位移已经在第一遍 A.5 计入
+        /// <c>processedThisTick</c> 并推进过一次 dt，这里不会让它被推进两次。被控制（<see cref="IsLocked"/>）的单位同理：
+        /// 意图被忽略后位移照常交给 <see cref="AdvanceDisplacement"/> 按它自己的控制/死亡规则处理，与"没有意图"时一致。
+        /// </summary>
+        private static bool DisplacementOutranksIntent(Unit unit) => unit.MovementState.Displacement.HasValue;
+
         public void Execute(SimStep step, IWorldSim world)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -246,8 +257,8 @@ namespace Core.Carriers.Unit
                     // 不经过 HandlePathFailure/PathFailurePolicy 分支，因此不存在"本 tick 还要续推
                     // 旧状态"的情形，恒计入 processedThisTick，行为与本次改动之前一致。
                     ApplyChaseIntent(unit, intent, world, dt, step.Kind == SimStepKind.Discrete);
-                    // 运动层：forced 优先于输入——受控位移进行中的单位收到（被拒绝的）移动意图时，不能因此跳过位移续推。
-                    if (!MotionDisplacementOutranksIntent(unit))
+                    // 受控位移进行中的单位收到（被拒绝的）移动意图时，不能因此跳过位移续推（见 DisplacementOutranksIntent）。
+                    if (!DisplacementOutranksIntent(unit))
                     {
                         processedThisTick.Add(unit.EntityId);
                     }
@@ -262,7 +273,7 @@ namespace Core.Carriers.Unit
                     // tick（消费方反馈第五十一批·反馈 3：修复前每 tick 重发同一个失败 move 意图时，
                     // 旧路径本 tick 永远不推进，532 tick 连续 NoPath 永久冻结）。
                     var handledFully = ApplyIntent(unit, intent, dt, step.Kind == SimStepKind.Discrete);
-                    if (handledFully && !MotionDisplacementOutranksIntent(unit))
+                    if (handledFully && !DisplacementOutranksIntent(unit))
                     {
                         processedThisTick.Add(unit.EntityId);
                     }

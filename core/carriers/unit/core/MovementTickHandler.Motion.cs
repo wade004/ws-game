@@ -167,13 +167,6 @@ namespace Core.Carriers.Unit
             t.Dead || t.Frozen || t.Staggered || t.Rooted || t.ActionActive || t.ForcedThisTick ||
             unit.MovementState.Displacement.HasValue;
 
-        /// <summary>
-        /// 运动层启用且单位正处于受控位移（forced）时为真：forced 优先级高于输入位移，该单位本 tick 收到的移动意图被拒绝后，
-        /// 不能把它记入"本 tick 已处理"——否则第二遍循环会跳过它的位移续推，每 tick 都提交输入的单位（玩家持续按键、AI 每 tick
-        /// 重发）会被击退位移永久卡住。未启用运动层时恒为假，既有行为不变。
-        /// </summary>
-        private bool MotionDisplacementOutranksIntent(Unit unit) => _motionOn && unit.MovementState.Displacement.HasValue;
-
         /// <summary>未启用运动层返回 false；启用时返回该单位 regular 来源是否被压制。</summary>
         private bool MotionRegularBlocked(Unit unit)
         {
@@ -286,13 +279,27 @@ namespace Core.Carriers.Unit
                 var newPos = from + dir * stepLen;
                 var blocked = false;
                 var slid = false;
-                var axisX = false;
-                var axisY = false;
+                var slideNormal = Vec2.Zero;
+                var slideSecondBlocked = false;
+                var slideSecondNormal = Vec2.Zero;
                 var candidate = true;
 
                 if (_navigation != null)
                 {
-                    var hit = _navigation.Raycast(unit.MapId, from, newPos);
+                    // 不滑墙时仍走 Raycast（既有查询，行为与此前逐字一致）；滑墙才需要法线，改用带法线的查询取命中点与法线。
+                    var hitNormal = Vec2.Zero;
+                    Vec2? hit;
+                    if (profile.WallSlide)
+                    {
+                        var withNormal = _navigation.RaycastWithNormal(unit.MapId, from, newPos);
+                        hit = withNormal?.Point;
+                        hitNormal = withNormal?.Normal ?? Vec2.Zero;
+                    }
+                    else
+                    {
+                        hit = _navigation.Raycast(unit.MapId, from, newPos);
+                    }
+
                     if (hit.HasValue)
                     {
                         blocked = true;
@@ -300,10 +307,13 @@ namespace Core.Carriers.Unit
                         var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
                         newPos = from + dir * (hitDistance - pullBack);
                         if (profile.WallSlide &&
-                            TrySlide(unit, from, dir, stepLen, hitDistance, pullBack, out var slidPos, out axisX, out axisY))
+                            TrySlide(
+                                unit, from, dir, stepLen, hitDistance, pullBack, hitNormal,
+                                out var slidPos, out slideSecondBlocked, out slideSecondNormal))
                         {
                             newPos = slidPos;
                             slid = true;
+                            slideNormal = hitNormal;
                         }
                     }
 
@@ -334,9 +344,16 @@ namespace Core.Carriers.Unit
                 if (blocked || !candidate)
                 {
                     // 被阻挡：滑墙时去掉法向分量，否则整体置零，保证下一 tick 不会重新撞上同一堵墙产生抖动。
-                    velocity = slid
-                        ? new Vec2(axisX ? 0.0 : velocity.X, axisY ? 0.0 : velocity.Y)
-                        : Vec2.Zero;
+                    velocity = slid ? RemoveNormalComponent(velocity, slideNormal) : Vec2.Zero;
+                    if (slid && slideSecondBlocked)
+                    {
+                        // 滑动那一段又撞上第二面墙（内角）：速度同样去掉沿第二个法线的分量；法线不可用，或去完之后仍指向第一面墙
+                        // （夹在内角里没有可行方向）时整体置零。
+                        var along = slideSecondNormal.X == 0.0 && slideSecondNormal.Y == 0.0
+                            ? Vec2.Zero
+                            : RemoveNormalComponent(velocity, slideSecondNormal);
+                        velocity = along.X * slideNormal.X + along.Y * slideNormal.Y < -1e-12 ? Vec2.Zero : along;
+                    }
                 }
             }
 
@@ -361,63 +378,57 @@ namespace Core.Carriers.Unit
         }
 
         /// <summary>
-        /// <c>wall_slide</c>：截断后把剩余位移沿阻挡边切向再裁决一次（最多一次，不递归）。法向用导航契约现有的探测手段取得——在截断点沿
-        /// 位移方向各轴向前探一小段（<c>Raycast</c>），恰有一个轴被挡即该轴为墙法向（轴对齐阻挡，对应 <c>SetBlocking(Rect)</c> 的契约）；
-        /// 两轴都被挡（墙角）或都不挡（擦角）时不滑动、整体停下。
+        /// <c>wall_slide</c>：截断后把剩余位移沿阻挡面切向再裁决一次（最多一次，不递归）。法线由调用方从带法线的射线查询
+        /// （<see cref="Core.Foundation.EngineAdapter.INavigation2D.RaycastWithNormal"/>）取得——任意朝向的墙面、擦过的墙角都能给出切向；
+        /// 法线为零向量（实现不能确定，或起点已在阻挡内部）时不滑动、整体停下，本类不自己猜一个方向。
+        /// 切向位移 = 剩余位移 − 法向分量（<c>rem − (rem·n)n</c>）；轴对齐法线 <c>(±1, 0)</c>/<c>(0, ±1)</c> 下这条算式的每一步都是精确运算，
+        /// 结果与此前逐轴处理（轴向探测）逐位相同。切向那一段仍经射线查询裁决：内角处被第二面墙截断、不穿模，并把第二个命中面的法线
+        /// 经 <paramref name="secondNormal"/> 交给调用方（<paramref name="secondBlocked"/> 为真时速度也要去掉沿它的分量，内角里两个法线
+        /// 去完速度即为零）。
         /// </summary>
         private bool TrySlide(
-            Unit unit, Vec2 from, Vec2 dir, double stepLen, double hitDistance, double pullBack,
-            out Vec2 endPos, out bool blockedX, out bool blockedY)
+            Unit unit, Vec2 from, Vec2 dir, double stepLen, double hitDistance, double pullBack, Vec2 normal,
+            out Vec2 endPos, out bool secondBlocked, out Vec2 secondNormal)
         {
             endPos = from;
-            blockedX = false;
-            blockedY = false;
+            secondBlocked = false;
+            secondNormal = Vec2.Zero;
             if (_navigation == null) return false;
+            if (normal.X == 0.0 && normal.Y == 0.0) return false;
 
             var advance = hitDistance - pullBack;
             var p1 = from + dir * advance;
             var remainingLen = stepLen - advance;
             if (remainingLen <= ZeroLengthEpsilon) return false;
 
-            var probe = _options.ArrivalEpsilon * 2.0;
-            if (Math.Abs(dir.X) > 1e-9)
-            {
-                blockedX = _navigation.Raycast(unit.MapId, p1, p1 + new Vec2(Math.Sign(dir.X) * probe, 0.0)).HasValue;
-            }
-
-            if (Math.Abs(dir.Y) > 1e-9)
-            {
-                blockedY = _navigation.Raycast(unit.MapId, p1, p1 + new Vec2(0.0, Math.Sign(dir.Y) * probe)).HasValue;
-            }
-
-            if (blockedX == blockedY)
-            {
-                blockedX = false;
-                blockedY = false;
-                return false;
-            }
-
             var rem = dir * remainingLen;
-            var slide = blockedX ? new Vec2(0.0, rem.Y) : new Vec2(rem.X, 0.0);
+            var into = rem.X * normal.X + rem.Y * normal.Y;
+            if (into >= 0.0) return false; // 剩余位移没有指向墙面：不是一次"撞上"，不做切向改写。
+
+            var slide = new Vec2(rem.X - normal.X * into, rem.Y - normal.Y * into);
             var slideLen = slide.Length;
-            if (slideLen <= ZeroLengthEpsilon)
-            {
-                blockedX = false;
-                blockedY = false;
-                return false;
-            }
+            if (slideLen <= ZeroLengthEpsilon) return false;
 
             var p2 = p1 + slide;
-            var hit2 = _navigation.Raycast(unit.MapId, p1, p2);
+            var hit2 = _navigation.RaycastWithNormal(unit.MapId, p1, p2);
             if (hit2.HasValue)
             {
-                var d2 = (hit2.Value - p1).Length;
+                var d2 = (hit2.Value.Point - p1).Length;
                 var pb2 = Math.Min(d2, _options.ArrivalEpsilon);
                 p2 = p1 + slide * ((d2 - pb2) / slideLen);
+                secondBlocked = true;
+                secondNormal = hit2.Value.Normal;
             }
 
             endPos = p2;
             return true;
+        }
+
+        /// <summary>速度去掉沿 <paramref name="normal"/> 的分量（<c>v − (v·n)n</c>）：滑墙后下一 tick 不再把速度推向同一堵墙。</summary>
+        private static Vec2 RemoveNormalComponent(Vec2 velocity, Vec2 normal)
+        {
+            var into = velocity.X * normal.X + velocity.Y * normal.Y;
+            return new Vec2(velocity.X - normal.X * into, velocity.Y - normal.Y * into);
         }
 
         // ================================================================== 路径跟随/追击（regular）
@@ -764,14 +775,27 @@ namespace Core.Carriers.Unit
                 var candidate = true;
                 if (_navigation != null)
                 {
-                    var hit = _navigation.Raycast(unit.MapId, from, newPos);
+                    var slideBlocking = decl.Blocking == ActionMotionBlocking.Slide;
+                    var hitNormal = Vec2.Zero;
+                    Vec2? hit;
+                    if (slideBlocking)
+                    {
+                        var withNormal = _navigation.RaycastWithNormal(unit.MapId, from, newPos);
+                        hit = withNormal?.Point;
+                        hitNormal = withNormal?.Normal ?? Vec2.Zero;
+                    }
+                    else
+                    {
+                        hit = _navigation.Raycast(unit.MapId, from, newPos);
+                    }
+
                     if (hit.HasValue)
                     {
                         var hitDistance = (hit.Value - from).Length;
                         var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
                         newPos = from + dir * (hitDistance - pullBack);
-                        if (decl.Blocking == ActionMotionBlocking.Slide &&
-                            TrySlide(unit, from, dir, step, hitDistance, pullBack, out var slidPos, out _, out _))
+                        if (slideBlocking &&
+                            TrySlide(unit, from, dir, step, hitDistance, pullBack, hitNormal, out var slidPos, out _, out _))
                         {
                             newPos = slidPos;
                         }

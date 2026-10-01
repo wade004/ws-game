@@ -50,6 +50,8 @@ namespace Tests.Carriers.Unit
 
             public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => _inner.Raycast(mapId, from, to);
 
+            public NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to) => _inner.RaycastWithNormal(mapId, from, to);
+
             public int GetBlockingVersion(Id mapId) => _inner.GetBlockingVersion(mapId);
 
             public void SetBlocking(Id mapId, IReadOnlyList<Rect> rects) => _inner.SetBlocking(mapId, rects);

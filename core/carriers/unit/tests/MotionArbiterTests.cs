@@ -11,6 +11,7 @@ using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
@@ -179,7 +180,7 @@ namespace Tests.Carriers.Unit
         }
 
         private static Fx Build(
-            bool motion = true, StubNavigation2D? nav = null, MovementOptions? options = null,
+            bool motion = true, INavigation2D? nav = null, MovementOptions? options = null,
             string basePreset = "feel.preset.rpg_classic", bool withDummy = false)
         {
             var bus = new EventBus(
@@ -780,6 +781,431 @@ namespace Tests.Carriers.Unit
             }
 
             Assert.True(fx.Pos.X < 2.0 && fx.Pos.Y < 2.0);
+        }
+
+        // ------------------------------------------------------------------ 滑墙：轴对齐阻挡与 S2 逐位一致
+
+        private static ulong Fnv(ulong h, long v)
+        {
+            unchecked
+            {
+                for (var i = 0; i < 8; i++)
+                {
+                    h ^= (ulong)((v >> (i * 8)) & 0xFF);
+                    h *= 1099511628211UL;
+                }
+
+                return h;
+            }
+        }
+
+        /// <summary>
+        /// 轴对齐阻挡下的运动轨迹指纹：逐 tick 的位置、朝向、速度向量二进制位按序折成一个 64 位散列。
+        /// 期望值是 S2 提交（滑墙靠轴向探测）上跑出来的实测散列，换成带法线的射线查询后必须逐位不变。
+        /// </summary>
+        private static ulong AxisAlignedFingerprint(int scenario)
+        {
+            var nav = new StubNavigation2D();
+            var ticks = 40;
+            Fx fx;
+            Action<int> drive;
+            switch (scenario)
+            {
+                case 0: // 竖墙，斜向输入，瞬时达速
+                    nav.SetBlocking(MapId, new[] { new Rect(new Vec2(2, -50), new Vec2(3, 50)) });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, true);
+                    drive = _ => fx.Move(1, 1);
+                    break;
+                case 1: // 横墙，大角度斜向输入，带加减速曲线
+                    nav.SetBlocking(MapId, new[] { new Rect(new Vec2(-50, 1.5), new Vec2(50, 2.5)) });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, true);
+                    fx.Set(FeelFieldNames.AccelMs, 300.0);
+                    fx.Set(FeelFieldNames.DecelMs, 200.0);
+                    drive = i => fx.Move(0.3, i < 30 ? 1 : -0.2);
+                    break;
+                case 2: // 两面墙围成的内角（平局命中），斜向输入
+                    nav.SetBlocking(MapId, new[]
+                    {
+                        new Rect(new Vec2(2, -50), new Vec2(3, 50)), new Rect(new Vec2(-50, 2), new Vec2(50, 3)),
+                    });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, true);
+                    drive = _ => fx.Move(1, 1);
+                    break;
+                case 3: // 内角（非平局），带加减速
+                    nav.SetBlocking(MapId, new[]
+                    {
+                        new Rect(new Vec2(2, -50), new Vec2(3, 50)), new Rect(new Vec2(-50, 3.4), new Vec2(50, 4)),
+                    });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, true);
+                    fx.Set(FeelFieldNames.AccelMs, 200.0);
+                    drive = _ => fx.Move(1, 0.7);
+                    break;
+                case 4: // 负方向的墙，反向输入
+                    nav.SetBlocking(MapId, new[] { new Rect(new Vec2(-3, -50), new Vec2(-2, 50)) });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, true);
+                    drive = _ => fx.Move(-1, -0.6);
+                    break;
+                case 5: // 正对墙面的输入：撞停
+                    nav.SetBlocking(MapId, new[] { new Rect(new Vec2(2, -50), new Vec2(3, 50)) });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, true);
+                    drive = _ => fx.Move(1, 0);
+                    break;
+                case 6: // 关闭滑墙：整体停下
+                    nav.SetBlocking(MapId, new[] { new Rect(new Vec2(2, -50), new Vec2(3, 50)) });
+                    fx = Build(nav: nav);
+                    fx.Set(FeelFieldNames.WallSlide, false);
+                    drive = _ => fx.Move(1, 1);
+                    break;
+                case 7: // 动作冲刺 + 滑墙
+                    nav.SetBlocking(MapId, new[] { new Rect(new Vec2(1.2, -50), new Vec2(2, 50)) });
+                    fx = Build(nav: nav);
+                    {
+                        var dir = new Vec2(Math.Sqrt(0.5), Math.Sqrt(0.5));
+                        var motion = Lunge(3.0, 0, 3, dir, blocking: ActionMotionBlocking.Slide);
+                        drive = i => fx.Actions.State = i < 3 ? Act(i, motion) : (ActionState?)null;
+                    }
+
+                    ticks = 8;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(scenario));
+            }
+
+            var h = 14695981039346656037UL;
+            for (var i = 0; i < ticks; i++)
+            {
+                drive(i);
+                fx.Tick();
+                h = Fnv(h, BitConverter.DoubleToInt64Bits(fx.Pos.X));
+                h = Fnv(h, BitConverter.DoubleToInt64Bits(fx.Pos.Y));
+                h = Fnv(h, BitConverter.DoubleToInt64Bits(fx.Player.Facing));
+                if (scenario == 3) continue; // 内角（非平局）里 S2 把"撞上第二面墙后的速度"留着不去掉，新实现去掉；位置逐位一致，速度不比。
+                h = Fnv(h, BitConverter.DoubleToInt64Bits(fx.Mo.Velocity.X));
+                h = Fnv(h, BitConverter.DoubleToInt64Bits(fx.Mo.Velocity.Y));
+            }
+
+            return h;
+        }
+
+        [Fact]
+        public void WallSlide_AxisAlignedBlockers_AreBitIdenticalToTheAxisProbeBaseline()
+        {
+            var actual = new List<string>();
+            for (var s = 0; s < 8; s++) actual.Add($"{AxisAlignedFingerprint(s):X16}");
+            Assert.Equal(string.Join(",", AxisAlignedBaseline), string.Join(",", actual));
+        }
+
+        private static readonly string[] AxisAlignedBaseline =
+        {
+            "1D10578C31104652", "B8D25A2DA30F216E", "3F76293A86A44695", "FE551BD74D3EB62D",
+            "0E7B4C7D257B9BA6", "B965965FDB51A87F", "3F76293A86A44695", "0A664797E92962F7",
+        };
+
+        // ------------------------------------------------------------------ 滑墙：带法线的射线查询（斜墙、墙角、擦角）
+
+        /// <summary>
+        /// 任意朝向阻挡面的导航替身：阻挡区域 = 若干凸多边形，每个多边形是一组半平面 <c>n·p &lt; c</c>（<c>n</c> 为单位外法线）的交集。
+        /// <c>Raycast</c> 与 <c>RaycastWithNormal</c> 共用 Cyrus-Beck 裁剪（开区间：只贴边不算命中）。<c>SetBlocking</c> 接受轴对齐矩形，
+        /// 便于与桩实现对照。
+        /// </summary>
+        private sealed class ConvexNavigation : INavigation2D
+        {
+            private readonly List<(double Nx, double Ny, double C)[]> _regions = new List<(double, double, double)[]>();
+
+            public ConvexNavigation Add(params (double Nx, double Ny, double C)[] planes)
+            {
+                _regions.Add(planes);
+                return this;
+            }
+
+            /// <summary>半平面 <c>n·p &gt; offset</c> 为阻挡（<paramref name="outward"/> 是指向自由空间的单位外法线）。</summary>
+            public ConvexNavigation AddHalfPlane(Vec2 outward, Vec2 pointOnWall) =>
+                Add((outward.X, outward.Y, outward.X * pointOnWall.X + outward.Y * pointOnWall.Y));
+
+            public void BuildNavMesh(Id mapId) { }
+
+            public bool IsWalkable(Id mapId, Vec2 point)
+            {
+                foreach (var region in _regions)
+                {
+                    var inside = true;
+                    foreach (var (nx, ny, c) in region)
+                    {
+                        if (!(nx * point.X + ny * point.Y < c)) { inside = false; break; }
+                    }
+
+                    if (inside) return false;
+                }
+
+                return true;
+            }
+
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) =>
+                IsWalkable(mapId, from) && IsWalkable(mapId, to) && !Raycast(mapId, from, to).HasValue
+                    ? new List<Vec2> { from, to }
+                    : null;
+
+            public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => RaycastWithNormal(mapId, from, to)?.Point;
+
+            public NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to)
+            {
+                var dx = to.X - from.X;
+                var dy = to.Y - from.Y;
+                NavRayHit? best = null;
+                var bestT = double.MaxValue;
+                foreach (var region in _regions)
+                {
+                    var tBest = double.NegativeInfinity;
+                    var tExit = 1.0;
+                    var normal = Vec2.Zero;
+                    var empty = false;
+                    foreach (var (nx, ny, c) in region)
+                    {
+                        var denom = nx * dx + ny * dy;
+                        var num = c - (nx * from.X + ny * from.Y);
+                        if (denom == 0.0)
+                        {
+                            if (num <= 0.0) { empty = true; break; }
+                            continue;
+                        }
+
+                        var t = num / denom;
+                        if (denom < 0.0)
+                        {
+                            if (t > tBest) { tBest = t; normal = new Vec2(nx, ny); }
+                            else if (t == tBest) normal = NavRaycastNormals.Merge(normal, new Vec2(nx, ny));
+                        }
+                        else
+                        {
+                            tExit = Math.Min(tExit, t);
+                        }
+                    }
+
+                    var tEnter = Math.Max(0.0, tBest);
+                    if (empty || !(tEnter < tExit)) continue;
+                    var point = new Vec2(from.X + dx * tEnter, from.Y + dy * tEnter);
+                    var hitNormal = tBest >= 0.0 ? normal : Vec2.Zero;
+                    if (tEnter < bestT)
+                    {
+                        bestT = tEnter;
+                        best = new NavRayHit(point, hitNormal);
+                    }
+                    else if (tEnter == bestT && best.HasValue)
+                    {
+                        best = new NavRayHit(best.Value.Point, NavRaycastNormals.Merge(best.Value.Normal, hitNormal));
+                    }
+                }
+
+                return best;
+            }
+
+            public void SetBlocking(Id mapId, IReadOnlyList<Rect> rects)
+            {
+                _regions.Clear();
+                foreach (var r in rects)
+                {
+                    Add((-1, 0, -r.Min.X), (1, 0, r.Max.X), (0, -1, -r.Min.Y), (0, 1, r.Max.Y));
+                }
+            }
+
+            public void Clear(Id mapId) => _regions.Clear();
+        }
+
+        private static readonly double Inv2 = Math.Sqrt(0.5);
+
+        /// <summary>
+        /// 斜墙所在直线 <c>x + y = WallSum</c>。取一个不是步长（0.4）整数倍的值，避免单位恰好落在墙面边界上
+        /// （边界相切不算受阻，那是退化的测试夹具，与滑墙算法无关）。
+        /// </summary>
+        private const double WallSum = 4.05;
+
+        /// <summary>45° 斜墙：阻挡区域 <c>x + y &gt; WallSum</c>，自由空间在原点一侧，外法线 <c>(-√½, -√½)</c>，沿墙切向 <c>(√½, -√½)</c>。</summary>
+        private static ConvexNavigation DiagonalWall() =>
+            new ConvexNavigation().AddHalfPlane(new Vec2(-Inv2, -Inv2), new Vec2(WallSum / 2, WallSum / 2));
+
+        [Theory]
+        [InlineData(1.0, 0.0)]
+        [InlineData(1.0, 0.4)]
+        [InlineData(0.3, 1.0)]
+        public void WallSlide_OnADiagonalWall_PerTickDisplacementIsSpeedTimesDtTimesTheTangentialComponent(double dx, double dy)
+        {
+            var fx = Build(nav: DiagonalWall());
+            fx.Set(FeelFieldNames.WallSlide, true);
+            var len = Math.Sqrt(dx * dx + dy * dy);
+            var dir = new Vec2(dx / len, dy / len);
+            var normal = new Vec2(-Inv2, -Inv2);
+            var tangent = new Vec2(Inv2, -Inv2);
+            var step = Speed * Dt;
+            var tangential = dir.Dot(tangent); // 位移的切向分量系数（可正可负）
+
+            var prev = Vec2.Zero;
+            var contactTick = -1;
+            double gap = double.NaN;
+            for (var i = 0; i < 40; i++)
+            {
+                fx.Move(dx, dy);
+                fx.Tick();
+                var pos = fx.Pos;
+                var disp = pos - prev;
+                var free = Near2(disp, dir * step);
+                if (contactTick < 0 && !free) contactTick = i;
+
+                if (contactTick >= 0)
+                {
+                    // 撞墙之后：沿切向的位移 = 速度 × dt × 切向分量，法向不再有位移（无抖动、不穿墙）。
+                    Near(step * tangential, disp.Dot(tangent), 1e-9);
+                    if (i > contactTick)
+                    {
+                        Near(0.0, disp.Dot(normal), 1e-9);
+                        Near(gap, WallSum - (pos.X + pos.Y), 1e-9);
+                    }
+                    else
+                    {
+                        gap = WallSum - (pos.X + pos.Y);
+                    }
+
+                    Near(0.0, fx.Mo.Velocity.Dot(normal), 1e-9); // 速度的法向分量被去掉
+                    Near(Speed * tangential, fx.Mo.Velocity.Dot(tangent), 1e-9);
+                }
+
+                Assert.True(pos.X + pos.Y < WallSum, $"tick {i} 穿墙：{pos}");
+                prev = pos;
+            }
+
+            Assert.True(contactTick >= 0, "夹具：应当撞上斜墙");
+            Assert.True(gap > 0.0 && gap < 0.05, $"贴墙距离应是一个到达容差量级的小正数，实测 {gap}");
+        }
+
+        private static bool Near2(Vec2 a, Vec2 b) => (a - b).Length <= 1e-9;
+
+        /// <summary>只转发 Raycast 等必需成员、不覆盖 RaycastWithNormal 的包装：走接口默认实现（轴向探测近似）。</summary>
+        private sealed class DefaultNormalNavigation : INavigation2D
+        {
+            private readonly INavigation2D _inner;
+
+            public DefaultNormalNavigation(INavigation2D inner) => _inner = inner;
+
+            public void BuildNavMesh(Id mapId) => _inner.BuildNavMesh(mapId);
+
+            public bool IsWalkable(Id mapId, Vec2 point) => _inner.IsWalkable(mapId, point);
+
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) => _inner.FindPath(mapId, from, to);
+
+            public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => _inner.Raycast(mapId, from, to);
+
+            public void SetBlocking(Id mapId, IReadOnlyList<Rect> rects) => _inner.SetBlocking(mapId, rects);
+
+            public void Clear(Id mapId) => _inner.Clear(mapId);
+        }
+
+        [Fact]
+        public void WallSlide_WithAnImplementationThatOnlyHasTheDefaultNormal_StopsOnADiagonalWall_NeverGuessesATangent()
+        {
+            // 接口默认实现只做轴向探测，斜墙上两轴都探不到（或两轴同时探到）阻挡：法线为零向量，移动系统整体停下，不自己猜切向。
+            var fx = Build(nav: new DefaultNormalNavigation(DiagonalWall()));
+            fx.Set(FeelFieldNames.WallSlide, true);
+            var positions = new List<Vec2>();
+            for (var i = 0; i < 30; i++)
+            {
+                fx.Move(1, 0.4);
+                fx.Tick();
+                positions.Add(fx.Pos);
+            }
+
+            Assert.True((positions[^1] - positions[^5]).Length < 1e-9, "没有可用法线时撞墙后应整体停下");
+            Assert.True(positions[^1].X + positions[^1].Y < WallSum);
+        }
+
+        [Fact]
+        public void WallSlide_IntoAnAcuteInnerCorner_StopsAtTheCornerWithoutPenetratingOrJittering()
+        {
+            // 斜墙 x + y > WallSum 与横墙 y < -1 围成内角 (WallSum + 1, -1)：沿斜墙向下滑，在内角处被第二面墙截断，之后原地不动。
+            var nav = DiagonalWall().AddHalfPlane(new Vec2(0, 1), new Vec2(0, -1));
+            var fx = Build(nav: nav);
+            fx.Set(FeelFieldNames.WallSlide, true);
+            var positions = new List<Vec2>();
+            for (var i = 0; i < 80; i++)
+            {
+                fx.Move(1, 0);
+                fx.Tick();
+                positions.Add(fx.Pos);
+                Assert.True(nav.IsWalkable(MapId, fx.Pos), $"tick {i} 进入阻挡内部：{fx.Pos}");
+            }
+
+            // 沿墙单调推进（x 不减、y 不增），到内角后不再移动。
+            for (var i = 1; i < positions.Count; i++)
+            {
+                Assert.True(positions[i].X >= positions[i - 1].X - Eps && positions[i].Y <= positions[i - 1].Y + Eps);
+            }
+
+            var last = positions[^1];
+            Assert.True(Math.Abs(last.X - (WallSum + 1.0)) < 0.05 && Math.Abs(last.Y + 1.0) < 0.05, $"应停在内角附近，实测 {last}");
+            for (var i = positions.Count - 10; i < positions.Count; i++)
+            {
+                Assert.True((positions[i] - last).Length < 1e-9, "内角处不应抖动");
+            }
+
+            Assert.True(fx.Mo.Velocity.Length < 1e-9, "内角里两个法线的分量都去掉后速度为零");
+        }
+
+        [Fact]
+        public void WallSlide_PastAConvexCorner_GlidesAroundItInsteadOfStopping()
+        {
+            // 菱形（正方形旋转 45°，中心 (4,0)，半对角线 1）：沿 y = 0.17 向 +x 走，先打在左上斜面上，
+            // 沿斜面滑到上顶点，越过顶点后恢复直行。S2 的轴向探测在斜面上两轴都探不到阻挡，会整体停住。
+            var c = 4.0;
+            var h = Inv2;
+            var nav = new ConvexNavigation().Add(
+                (h, h, h * c + h), (h, -h, h * c + h), (-h, h, -h * c + h), (-h, -h, -h * c + h));
+            var fx = Build(nav: nav);
+            fx.Set(FeelFieldNames.WallSlide, true);
+            fx.Units.SetPosition(HeroId, new Vec2(0, 0.17));
+            var maxY = 0.0;
+            for (var i = 0; i < 60; i++)
+            {
+                fx.Move(1, 0);
+                fx.Tick();
+                Assert.True(nav.IsWalkable(MapId, fx.Pos), $"tick {i} 进入菱形内部：{fx.Pos}");
+                maxY = Math.Max(maxY, fx.Pos.Y);
+            }
+
+            Assert.True(maxY > 1.0, $"应当爬上菱形的上顶点（y 超过 1），实测最高 {maxY}");
+            Assert.True(fx.Pos.X > 6.0, $"越过顶点后应继续向 +x 前进，实测 {fx.Pos}");
+
+            // 对照：关掉滑墙，同一条路线撞上斜面就整体停下。
+            var off = Build(nav: nav);
+            off.Set(FeelFieldNames.WallSlide, false);
+            off.Units.SetPosition(HeroId, new Vec2(0, 0.17));
+            for (var i = 0; i < 60; i++)
+            {
+                off.Move(1, 0);
+                off.Tick();
+            }
+
+            Assert.True(off.Pos.X < 3.3);
+        }
+
+        [Fact]
+        public void ActionLunge_SlideOnADiagonalWall_KeepsTheTangentialPartAndStaysOutside()
+        {
+            var nav = DiagonalWall();
+            var fx = Build(nav: nav);
+            var motion = Lunge(6.0, 0, 6, new Vec2(1, 0), blocking: ActionMotionBlocking.Slide);
+            for (var i = 0; i < 8; i++)
+            {
+                fx.Actions.State = i < 6 ? Act(i, motion) : (ActionState?)null;
+                fx.Tick();
+                Assert.True(fx.Pos.X + fx.Pos.Y < WallSum, $"tick {i} 穿墙：{fx.Pos}");
+            }
+
+            Assert.True(fx.Pos.Y < -0.5, $"沿斜墙向下滑，y 应明显为负，实测 {fx.Pos}");
+            Assert.True(fx.Pos.X + fx.Pos.Y > WallSum - 0.1, $"应贴着斜墙，实测 {fx.Pos}");
         }
 
         // ------------------------------------------------------------------ 路径跟随 / 到达减速

@@ -608,10 +608,9 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
    不会按标定基础移速 4 去走。`sprint_speed_ratio` 本轮不消费（没有 Sprint 移动模式）。
 6. **反向策略**：`instant` 方向立即对齐期望方向、速率沿加速/制动曲线趋近目标（保留速率）；`through_zero` 反向（夹角大于 90°）先沿原方向
    制动到零，再沿新方向加速。无输入时沿原方向制动到零（`FinishMotionTick` 对没有意图的单位做减速滑行）。
-7. **滑墙（`wall_slide`）**：`Raycast` 截断后，把剩余位移沿阻挡边切向再裁决一次（最多一次、不递归）；法向用导航契约现有手段取得——在截断点
-   沿位移方向各轴向前探 `2 × ArrivalEpsilon`（`Raycast`），恰有一个轴被挡即该轴是墙法向。**限制**：只对轴对齐阻挡（`SetBlocking(Rect)` 契约）成立；
-   墙角（两轴都被挡）与擦角（都不挡）整体停下，不滑动；`INavigation2D` 不返回碰撞法线，需要任意角度墙面滑动要上游给出带法线的射线查询，
-   本模块不自建替代。滑动后速度的法向分量置零（无抖动），不滑墙则整体置零。
+7. **滑墙（`wall_slide`）**：`RaycastWithNormal` 截断后，把剩余位移沿阻挡面切向再裁决一次（最多一次、不递归）：切向 = `剩余位移 − (剩余位移·n)n`，
+   `n` 是导航契约带回的命中面外法线（S2b 起；S2 原先靠轴向探测，只对轴对齐阻挡成立）。法线为零向量（实现不能确定，或起点已在阻挡内部）时不滑动、整体停下。
+   滑动后速度的法向分量置零（无抖动），不滑墙则整体置零。细节与取舍见下文"S2b"判断记录。
 8. **路径跟随与追击**：`apply_to_path_following` 为真时位移预算由速度积分器给出（`arrival_decel` 为真时到终点前按 `sqrt(2·a·L)` 限速，
    `a` 为基础移速/`decel` 秒数，到达时速度归零不再滑行越过终点）；为假时仍是既有的 `属性速度 × dt`。到达减速的限速按线性制动率估算，
    与制动曲线形状无关（只需要不越过终点）。追击的朝向走转向速率（`MotionFacing`）。
@@ -626,9 +625,9 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
     被替换的位移以 `Replaced` 结束；`ResumePathAfterForced`（缺省 `Drop`，另有 `Resume`）管路径恢复：`Resume` 时记下被挂起路径的最终目标，位移自然结束
     （到达/受阻）后在同 tick 收尾处重新建路（`dt = 0`，下一 tick 才开始走）。追击请求不恢复。距离 = `knockback_distance`（身高倍数，标定换算）×
     (1 − 击退抗性) × 冲击等级倍率，`MotionKnockback` 只按传入的冲击倍率相乘（受击裁决切片提供）。forced 模式不转向（规则表）。
-11. **既有行为里的一处停滞（未改，仅运动层规避）**：既有实现下，受控位移进行中的单位若同 tick 收到 `move` 意图，`ApplyIntent` 拒绝后返回 true，
-    单位被记入 `processedThisTick`，第二遍循环跳过位移续推——每 tick 都提交输入的单位位移会被卡住。运动层启用时（`MotionDisplacementOutranksIntent`）
-    不把这种单位记入"已处理"，位移照常续推；运动层未启用时保持既有行为。
+11. **受控位移期间持续的移动意图不再卡住位移（S2b 缺省路径根治）**：ADR-0026 落地时的缺陷——受控位移进行中的单位同 tick 收到 `move`/`move_to_unit` 意图，
+    `ApplyIntent` 拒绝后返回 true，单位被记入 `processedThisTick`，第二遍循环跳过位移续推，每 tick 都提交输入的单位位移被卡住。S2 只在运动层启用时规避，
+    现在 `DisplacementOutranksIntent`（主文件）不论运动层是否启用一律不把这种单位记入"已处理"。本 tick 刚开始的位移已在第一遍计入并推进过一次，不会推进两遍。
 12. **模式规则表**：`MotionModeRuleSet.Default` 与框架数据 `feel.motion_mode_rules` 七行逐项一致（用例锁定）；`by_profile` 只对 `action` 有定义，
     `restore_previous_mode` 只对 `frozen` 有定义，别处写这两个值构造时抛异常；`staggered` 需要 `IStaggerStateQuery` 实现（受击裁决切片提供，没有实现时恒为否）。
 13. **目标辅助与步态**：`TargetAssistEvaluator` 与 `ITargetAssistResolver` 只在运动侧给出纯函数与接口，缺省关闭（`MotionServices.TargetAssist` 为空）；
@@ -639,3 +638,24 @@ blocking 为 `Stop`）"分支。用例 `ADR0125_MovementIntentEnumArgsTests`（�
 测试：`core/carriers/unit/tests/MotionArbiterTests.cs`（51 例：缺省逐位等价；`accel_ms` 达速 tick 数与速度曲线；减速与停止距离；反向策略；
 转向速率；rooted/staggered/frozen/dead/forced 仲裁与优先级链；击退曲线、叠加与恢复策略；滑墙开关位移差；路径跟随与到达减速；动作位移、charge、
 root_motion；规则表与档案读取；目标辅助、步态与击退距离的纯函数）。
+
+## 判断记录（运动层遗留两项，2026-10-02，手感落地 S2b）
+
+1. **滑墙改用带法线的射线查询**：`INavigation2D.RaycastWithNormal`（默认接口成员，ABI 只加不改；返回 `NavRayHit{Point, Normal}`，`Point` 与 `Raycast` 逐位相同，
+   `Normal` 为指向自由空间一侧的单位外法线）。测试桩与 Unity 网格实现覆盖为精确法线（共用 `NavRaycastNormals.RectEntryNormal`：按被穿入的矩形面给出，轴向分量恰为 ±1/0；
+   同点命中两块矩形——内角——按 `Merge` 合并，不取先登记者），其余实现走默认实现（轴向探测近似，内角/擦角给零向量即整体停下，不自己猜切向）。
+   运动层只在 `wall_slide`（或动作位移 `blocking: slide`）为真时才调用带法线的查询，不滑墙的路径仍走 `Raycast`，行为一字未动。
+2. **轴对齐阻挡逐位一致**：切向算式 `rem − (rem·n)n`、速度去法向 `v − (v·n)n` 在 `n = (±1,0)/(0,±1)` 下每一步都是精确运算，结果与 S2 逐轴处理逐位相同；
+   `MotionArbiterTests.WallSlide_AxisAlignedBlockers_AreBitIdenticalToTheAxisProbeBaseline` 用 S2 提交上实测的 8 个场景轨迹散列（位置/朝向/速度的二进制位）锁定。
+3. **有意的差异（只在 S2 的盲区）**：(a) 擦过墙角（命中点离面边缘不到一个到达容差）和斜面上，S2 探不到阻挡而整体停下，现在沿切向继续；
+   (b) 内角（滑动那一段又撞上第二面墙）时，速度也去掉沿第二法线的分量，去完仍指向第一面墙（夹在内角里）则置零——S2 在非平局内角里把撞第二面墙后的速度原样留着，
+   带加减速的档案下单位被钉在角里却保持着速度；位置轨迹与 S2 一致，只有速度不同（散列用例对该场景只比位置）。
+4. **斜墙/墙角/擦角的运行时冒烟**（`ConvexNavigation` 测试替身：凸多边形半平面交集，Cyrus-Beck 裁剪）：45° 斜墙上每 tick 沿切向位移 = `速度·dt·(方向·切向)`，
+   法向位移为零、贴墙距离恒定、速度法向分量为零；锐角内角停在角点、不进入阻挡、不抖动、速度归零；菱形（旋转 45° 的方块）擦角沿斜面爬到顶点后恢复直行；
+   只有默认实现的导航在斜墙上整体停下。
+5. **已知局限**：Tilemap/网格实现的阻挡是矩形并集，斜线墙在其上是阶梯形，法线逐级交替（轴向法线），不会比阶梯更平滑——需要平滑法线的游戏在阻挡数据侧处理；
+   单位恰好落在斜墙的边界线上（边界相切不算受阻，上一 tick 终点正好落在线上）时，滑动目标点可能因浮点误差落入内部，被 `IsWalkable` 拒绝而该 tick 不位移，
+   下一 tick 的位置仍在原处（不会陷进去）；一般情形下命中前总有到达容差的回退，不会落在线上。
+6. **（缺省路径修复，记录 11）** 复现用例 `C10a_ControlledDisplacementTests.MoveIntentEveryTick_DoesNotStallAControlledDisplacement`（方向/目标点/追击三种意图各一例）：
+   修复前第 2 个 tick 位移停在 1，修复后逐 tick 走 `速度·dt`、第 4 个 tick 到达并以 `DisplacementArrived` 结束。被控制（`IsLocked`）的单位同理：意图被忽略后位移交给
+   `AdvanceDisplacement` 按它自己的控制规则处理，与"没有意图"时一致（此前持续输入会让它永远不结束）。
