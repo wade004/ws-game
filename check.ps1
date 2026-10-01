@@ -124,6 +124,19 @@
        dotnet test 步骤名里的测试工程数改为脚本从 Core.sln 数出来（复盘 I-11，此前写死"六工程"，
        实际早已不是六个）。
 
+    8) **定向门禁（ADR-0126，2026-10-01）：`-Changed`/`-Staged`/`-Modules`/`-DryRun`**。全量门禁
+       约 7 分钟，其中真正贵的是引擎线、工具链 pytest（130 秒，与核心层改动无关）和进上下文的日志文本。
+       改动路径 -> 级别 T0～T3 -> 要跑的步骤/测试工程/引擎侧分类，全部由 `toolchain/change_impact.py`
+       读 `toolchain/module_map.json` 判定（执行 agent 不自己决定跑什么）；本脚本只做三件事：调用判定器、
+       在开头打印「本次判定」、按判定结果给每个 `Invoke-CheckStep -Id` 放行或改判可见 SKIP
+       （原因写成『T? 未触发』）。不传这四个参数时本段完全不生效，行为与此前一致。
+       **日志分流**：定向模式下本脚本把自己再起一个子进程（带隐藏开关 `-TargetedInner`）跑真正的步骤，
+       父进程把子进程的全文输出落盘到 `$ArtifactsPath\check_targeted.log`（给了 `-LogFile` 就落到
+       `-LogFile`，复用既有开关、不另造），控制台只留：每步一行结果（`[步骤] 通过/失败，用时`）、末尾
+       汇总表、首个失败步骤的最后 30 行。引擎侧待跑的 PlayMode 分类过滤串在「本次判定」里单独列出——
+       执行 agent 不能开引擎，这块由主会话在主检出执行。判定失败（参数错、git 出错）直接退出码 1，
+       不退回全量。
+
 .PARAMETER SkipUnity
     跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）与消费方演练；只跑
     .NET/Python/禁用词/DLL 同步/包清单一致性几步。同一仓库内并行有人独占 Unity 编辑器时用这个
@@ -224,6 +237,22 @@
     "第 5 步"调用点判断记录）；日常直接跑 `check.ps1` 不传本开关，保持"跑完全部、一次看全"的
     原行为。
 
+.PARAMETER Changed
+    定向门禁（ADR-0126）：基线提交/分支，默认 `main`。判定范围 = 工作树（含暂存、未暂存、未跟踪）相对
+    `merge-base(基线, HEAD)` 的全部改动。传了本参数（或下面任一定向参数）即进入定向模式：先打印「本次
+    判定」，再按判定结果只跑相关步骤，全文日志落盘（见 .SYNOPSIS 判断记录 8)）。典型用法：切片级
+    `pwsh check.ps1 -Changed main -SkipUnity`。
+
+.PARAMETER Staged
+    定向门禁：只看暂存区（`git diff --cached`），供 `.githooks/pre-commit` 用。
+
+.PARAMETER Modules
+    定向门禁：手动指定子模块（逗号分隔，名字见 `toolchain/module_map.json`），按 T1（子模块内部）处理；
+    单独给 `-Modules` 时只看这些模块，同时给了 `-Changed`/`-Staged` 则与路径判定取并集。
+
+.PARAMETER DryRun
+    定向门禁：只打印「本次判定」（含将传给 Unity 的 `-testCategory` 分类过滤串）后退出，不执行任何步骤。
+
 .NOTES
     PowerShell 5.1 兼容：不使用 &&、??、三元运算符；两条并行线用 `Start-Job -ScriptBlock`（PS
     5.1 内建的后台作业机制，不依赖 `Start-ThreadJob`/`ForEach-Object -Parallel` 等 PS 7+ 专属
@@ -254,6 +283,15 @@ param(
     [switch]$AbiStrict,
     [switch]$Il2cpp,
     [switch]$FailFast,
+    # 定向门禁（ADR-0126），见 .SYNOPSIS 判断记录 8) 与各 .PARAMETER。四个都不传 = 行为与此前一致。
+    [string]$Changed = "main",
+    [switch]$Staged,
+    [string[]]$Modules = @(),
+    [switch]$DryRun,
+    # 以下两个是定向模式父进程调用自己的内部开关，不是给人用的：-TargetedInner 表示"我就是干活的子进程，
+    # 不要再套一层日志分流"，-PlanFile 是父进程写好的判定 JSON。
+    [switch]$TargetedInner,
+    [string]$PlanFile = "",
     [string]$ArtifactsPath = "",
     [string]$UnityExe = "",
     [string]$Configuration = "Release",
@@ -284,6 +322,106 @@ if (-not (Test-Path $ArtifactsPath)) {
 $UnityOutDir = Join-Path $ArtifactsPath "unity"
 if (-not (Test-Path $UnityOutDir)) {
     New-Item -ItemType Directory -Force -Path $UnityOutDir | Out-Null
+}
+
+# -----------------------------------------------------------------------------
+# 定向门禁（ADR-0126）：父进程。调 toolchain/change_impact.py 判定 -> 打印「本次判定」-> -DryRun 到此
+# 为止；否则把自己再起一个子进程（-TargetedInner）跑真正的步骤，全文输出落盘，控制台只留每步一行结果、
+# 汇总表、首个失败步骤的最后 30 行（日志分流，见 .SYNOPSIS 判断记录 8)）。不传任何定向参数时整段跳过。
+# 判定失败不退回全量：直接退出码 1。
+# -----------------------------------------------------------------------------
+$TargetedMode = $PSBoundParameters.ContainsKey("Changed") -or $Staged -or ($Modules.Count -gt 0) -or $DryRun -or $TargetedInner
+if ($TargetedMode -and -not $TargetedInner) {
+    $impactScript = Join-Path $RepoRoot "toolchain\change_impact.py"
+    $planPath = Join-Path $ArtifactsPath "change_impact_plan.json"
+    $planTextPath = Join-Path $ArtifactsPath "change_impact_plan.txt"
+    $moduleList = @($Modules | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+
+    $impactArgs = @($impactScript)
+    if ($Staged) {
+        $impactArgs += "--staged"
+    } elseif ($PSBoundParameters.ContainsKey("Changed") -or $moduleList.Count -eq 0) {
+        $impactArgs += @("--base", $Changed)
+    }
+    if ($moduleList.Count -gt 0) {
+        $impactArgs += @("--modules", ($moduleList -join ","))
+    }
+    $impactArgs += @("--out", $planPath, "--text-out", $planTextPath, "--quiet")
+
+    $ErrorActionPreference = "Continue"
+    & python @impactArgs
+    $impactExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($impactExit -ne 0 -or -not (Test-Path -LiteralPath $planTextPath)) {
+        Write-Host "定向判定失败（toolchain/change_impact.py 退出码 $impactExit），不退回全量，请修正参数后重跑。" -ForegroundColor Red
+        exit 1
+    }
+    Get-Content -LiteralPath $planTextPath -Encoding UTF8 | ForEach-Object { Write-Host $_ }
+
+    if ($DryRun) {
+        $dryPlan = Get-Content -LiteralPath $planPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ([string]$dryPlan.engine.playmode_filter -ne "") {
+            Write-Host "将传给 Unity 的 PlayMode 参数：-runTests -testPlatform PlayMode -testCategory `"$($dryPlan.engine.playmode_filter)`"" -ForegroundColor Cyan
+        } elseif ([string]$dryPlan.engine.mode -eq "all") {
+            Write-Host "将传给 Unity 的 PlayMode 参数：-runTests -testPlatform PlayMode（不加 -testCategory，跑全部）" -ForegroundColor Cyan
+        }
+        Write-Host "（-DryRun：只打印判定，未执行任何步骤）" -ForegroundColor Yellow
+        exit 0
+    }
+
+    $fullLog = if ($LogFile -ne "") { $LogFile } else { Join-Path $ArtifactsPath "check_targeted.log" }
+    $fullLogDir = Split-Path -Parent $fullLog
+    if ($fullLogDir -and -not (Test-Path $fullLogDir)) {
+        New-Item -ItemType Directory -Force -Path $fullLogDir | Out-Null
+    }
+    $innerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath,
+        "-TargetedInner", "-PlanFile", $planPath, "-ArtifactsPath", $ArtifactsPath, "-Configuration", $Configuration)
+    foreach ($sw in @("SkipUnity", "SkipSmoke", "SkipConsumer", "Quick", "DocsOnly", "AbiStrict", "Il2cpp", "FailFast")) {
+        if ((Get-Variable -Name $sw -ValueOnly)) { $innerArgs += "-$sw" }
+    }
+    if ($UnityExe -ne "") { $innerArgs += @("-UnityExe", $UnityExe) }
+
+    Write-Host ""
+    Write-Host "==== 开始执行（全文日志：$fullLog；控制台只显示每步结果、汇总表、首个失败的最后 30 行） ====" -ForegroundColor Cyan
+    $hostExe = (Get-Process -Id $PID).Path
+    $logWriter = New-Object System.IO.StreamWriter($fullLog, $false, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        & $hostExe @innerArgs | ForEach-Object {
+            $logLine = [string]$_
+            $logWriter.WriteLine($logLine)
+            if ($logLine -match '^\[.+\] (通过|失败)，用时') {
+                Write-Host $logLine
+            }
+        }
+        $innerExit = $LASTEXITCODE
+    } finally {
+        $logWriter.Flush()
+        $logWriter.Close()
+    }
+
+    $logLines = @(Get-Content -LiteralPath $fullLog -Encoding UTF8)
+    $summaryIdx = -1
+    $firstFailIdx = -1
+    for ($i = 0; $i -lt $logLines.Count; $i++) {
+        if ($summaryIdx -lt 0 -and $logLines[$i] -eq "==== 汇总 ====") { $summaryIdx = $i }
+        if ($firstFailIdx -lt 0 -and $logLines[$i] -match '^\[.+\] 失败，用时') { $firstFailIdx = $i }
+    }
+    if ($firstFailIdx -ge 0) {
+        $failStart = [Math]::Max(0, $firstFailIdx - 29)
+        Write-Host ""
+        Write-Host "---- 首个失败步骤的输出（最后 30 行；全文见 $fullLog） ----" -ForegroundColor Red
+        $logLines[$failStart..$firstFailIdx] | ForEach-Object { Write-Host $_ }
+    }
+    if ($summaryIdx -ge 0) {
+        $logLines[$summaryIdx..($logLines.Count - 1)] | ForEach-Object { Write-Host $_ }
+    } else {
+        Write-Host ""
+        Write-Host "子进程没有打印汇总表（可能异常退出），日志最后 30 行：" -ForegroundColor Red
+        $tailStart = [Math]::Max(0, $logLines.Count - 30)
+        $logLines[$tailStart..($logLines.Count - 1)] | ForEach-Object { Write-Host $_ }
+    }
+    Write-Host "完整日志：$fullLog"
+    exit $innerExit
 }
 
 # -----------------------------------------------------------------------------
@@ -324,6 +462,8 @@ $script:GateFailed = $false
 $script:FailFastFlagPath = $null
 
 . (Join-Path $RepoRoot "toolchain\_gate_step_runner.ps1")
+# 定向门禁子进程：载入父进程写好的判定 JSON（非定向模式 $PlanFile 为空串，什么都不做）。
+Import-GatePlan -Path $PlanFile
 
 # =============================================================================
 # 阶段一：快速前置步骤（串行，见本文件顶部判断记录 2)——秒级、不依赖 Unity/重构建，排在最前面）
@@ -337,7 +477,7 @@ $script:FailFastFlagPath = $null
 #    stdout 输出）验证判定逻辑本身是可信的——如果这一步本身失败，说明门禁基础设施有问题，后续
 #    全部步骤的 PASS/FAIL 都不可信，理应第一个报告。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定" -DocRelevant {
+Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定" -DocRelevant -Id "self_check" {
     $failProbeOk = Test-NativeExitCode "powershell.exe" @("-NoProfile", "-Command", "Write-Output 'F1_SELF_CHECK_PROBE'; exit 7")
     if ($failProbeOk) {
         return [PSCustomObject]@{ Ok = $false; Detail = "失败探针（stdout 非空 + exit 7）被误判为成功——Test-NativeExitCode 回归，见该函数判断记录" }
@@ -365,7 +505,7 @@ Invoke-CheckStep "门禁自检：Test-NativeExitCode 对失败/成功原生命�
 #    gate-speed 任务改造：改用 `git grep`，只扫受版本管理的文件，不再靠目录名黑名单排除
 #    Get-ChildItem -Recurse 遍历出来的构建产物/缓存目录（判断记录见本文件顶部 4)）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号（git grep，只扫受版本管理的文件）" -DocRelevant {
+Invoke-CheckStep "禁用词扫描：全仓库不出现具体游戏代号（git grep，只扫受版本管理的文件）" -DocRelevant -Id "ban_codename" {
     # 见原实现同一处注释：字符串拼接构造被扫描词，避免脚本自身源码里出现完整拼写。
     $bannedCodename = "note" + "moss"
     Push-Location $RepoRoot
@@ -407,7 +547,7 @@ function Get-ScannableFiles {
     }
 }
 
-Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）" -DocRelevant {
+Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名（immunity 例外）" -DocRelevant -Id "ban_arch_terms" {
     $targets = @()
     $targets += Get-ChildItem -Path (Join-Path $RepoRoot "architecture") -Filter "0*.md" -File -ErrorAction SilentlyContinue
     $targets += Get-ChildItem -Path (Join-Path $RepoRoot "architecture") -Filter "1*.md" -File -ErrorAction SilentlyContinue
@@ -435,7 +575,7 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
 # -----------------------------------------------------------------------------
 # 3. 版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md" -DocRelevant {
+Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-lock.json 与 CHANGELOG.md" -DocRelevant -Id "version_consistency" {
     $versionPath = Join-Path $RepoRoot "VERSION"
     if (-not (Test-Path $versionPath)) {
         throw "找不到版本文件：$versionPath"
@@ -503,9 +643,23 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-loc
 }
 
 # -----------------------------------------------------------------------------
+# 3b. 模块表自检（ADR-0126）：toolchain/module_map.json 必须覆盖所有子模块目录——出现未登记的子模块目录
+#     或表里登记了不存在的目录即 FAIL（定向门禁按这张表选测，表漂移会让"该跑的测试没被选中"）。
+#     纯 Python、毫秒级，所有模式（全量/-Quick/定向）都跑；-DocsOnly 下不跑（改文档不会增删子模块目录）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "模块表覆盖所有子模块目录（python toolchain/gen_module_map.py --check，ADR-0126）" -Id "module_map_check" {
+    Push-Location $RepoRoot
+    try {
+        Test-NativeExitCode "python" @("toolchain/gen_module_map.py", "--check")
+    } finally {
+        Pop-Location
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 4. 数据校验（合并根：data/_framework + data/_sample）
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --strict（合并根）" {
+Invoke-CheckStep "python toolchain/validate_data.py --strict（合并根）" -Id "validate_merged" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict")
@@ -517,7 +671,7 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict（合并根）" {
 # -----------------------------------------------------------------------------
 # 5. 框架根单独完整校验（不加 --strict，见 data/README.md"与校验器的关系"一节判断记录）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）" {
+Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework（框架根单独完整校验）" -Id "validate_framework" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/validate_data.py", "--data-root", "data/_framework")
@@ -530,7 +684,7 @@ Invoke-CheckStep "python toolchain/validate_data.py --data-root data/_framework�
 # 6. 元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）——秒级，不加载
 #    任何数据。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）" {
+Invoke-CheckStep "元数据门禁：validator --schema-audit（ADR-0018 决策 3/ADR-0019 决策 4）" -Id "schema_audit" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "dotnet" @("run", "--project", "toolchain/validator", "--", "--schema-audit", "--allowlist", "toolchain/schema_audit_allowlist.json")
@@ -542,7 +696,7 @@ Invoke-CheckStep "元数据门禁：validator --schema-audit（ADR-0018 决策 3
 # -----------------------------------------------------------------------------
 # 7. 事件常量生成器一致性检查
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {
+Invoke-CheckStep "python toolchain/gen_event_constants.py --check" -Id "event_constants" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/gen_event_constants.py", "--check")
@@ -554,7 +708,7 @@ Invoke-CheckStep "python toolchain/gen_event_constants.py --check" {
 # -----------------------------------------------------------------------------
 # 8. 数据表字段顺序与 schema 登记顺序一致性检查（消费方反馈 E11）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消费方反馈 E11）" {
+Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消费方反馈 E11）" -Id "schema_order" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/format_data.py", "--schema-order", "--check", "--data-root", "data/_framework", "--data-root", "data/_sample")
@@ -567,7 +721,7 @@ Invoke-CheckStep "python toolchain/format_data.py --schema-order --check（消�
 # 9. 资产导入工具交叉校验（import_assets.py check，全量交叉校验 sprite/vfx/sfx/world 四域，只
 #    比对文件是否存在、不读图片，秒级完成）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" {
+Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" -Id "import_assets_check" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/import_assets.py", "check", "--dataset", "_sample")
@@ -580,7 +734,7 @@ Invoke-CheckStep "python toolchain/import_assets.py check --dataset _sample" {
 # 10. core/sim/tests/data（嵌入仿真数据集）单独 validate_data.py --strict 校验（反馈 46 后续，
 #     见 core/sim/README.md 判断记录 41——秒级的纯数据/元数据校验，不跑仿真、不编译 Unity）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/sim/tests/data（嵌入仿真数据集单独校验）" {
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/sim/tests/data（嵌入仿真数据集单独校验）" -Id "validate_sim_data" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/validate_data.py", "--strict", "--framework-root", "data/_framework", "--data-root", "core/sim/tests/data")
@@ -601,7 +755,7 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root core/si
 #      分发给消费方的校验入口（还会跑资产交叉校验、需要消费方自己的目录布局），不是门禁步骤，
 #      与本步骤不重复调用同一件事，保留不动。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root games/_template/data/game（模板数据根单独校验，warnings 须为 0）" {
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root games/_template/data/game（模板数据根单独校验，warnings 须为 0）" -Id "validate_template_data" {
     Push-Location $RepoRoot
     try {
         $ErrorActionPreference = "Continue"
@@ -630,7 +784,7 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root games/_
 # -----------------------------------------------------------------------------
 # 11. 工作树文本文件无 CR（消费方反馈 E7 根治）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）" {
+Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）" -Id "crlf_check" {
     Push-Location $RepoRoot
     try {
         $eolOutput = & git ls-files --eol
@@ -650,7 +804,7 @@ Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的
 # -----------------------------------------------------------------------------
 # 12. Unity .meta 完整性检查（不依赖 Unity 本体，toolchain/check_unity_meta.py）。
 # -----------------------------------------------------------------------------
-Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/check_unity_meta.py）" {
+Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/check_unity_meta.py）" -Id "unity_meta" {
     Push-Location $RepoRoot
     try {
         Test-NativeExitCode "python" @("toolchain/check_unity_meta.py")
@@ -669,7 +823,7 @@ Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/chec
 if ($Quick) {
     Add-SkippedStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外）" "-Quick"
 } else {
-    Invoke-CheckStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外，见 .SYNOPSIS 判断记录 6)）" {
+    Invoke-CheckStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外，见 .SYNOPSIS 判断记录 6)）" -Id "registry_pytest" {
         $prevPythonUtf8 = $env:PYTHONUTF8
         $env:PYTHONUTF8 = "1"
         Push-Location $RepoRoot
@@ -688,8 +842,8 @@ if ($Quick) {
 # -----------------------------------------------------------------------------
 # 12.5 -DocsOnly 专用：toolchain 自身 pytest 套件里两个文档相关用例。
 # -----------------------------------------------------------------------------
-if ($DocsOnly) {
-    Invoke-CheckStep "python -m pytest toolchain/tests -q（文档相关子集：markdown 链接 + 编辑器文档一致性，-DocsOnly）" -DocRelevant {
+if ($DocsOnly -or $script:GateStepPlan) {
+    Invoke-CheckStep "python -m pytest toolchain/tests -q（文档相关子集：markdown 链接 + 编辑器文档一致性，-DocsOnly/定向）" -DocRelevant -Id "docs_pytest" {
         $prevPythonUtf8 = $env:PYTHONUTF8
         $env:PYTHONUTF8 = "1"
         Push-Location $RepoRoot
@@ -741,6 +895,7 @@ if ($FailFast -and $script:GateFailed) {
         FailFast                   = [bool]$FailFast
         AbiStrict                  = [bool]$AbiStrict
         FailFastFlagPath           = $failFastFlagPath
+        PlanFile                   = $PlanFile
         ResultsJsonPath            = $heavyResultsJson
         TranscriptPath             = $heavyLog
         InjectMockSleepSeconds     = $InjectMockSleepHeavySeconds
@@ -759,6 +914,7 @@ if ($FailFast -and $script:GateFailed) {
         Il2cpp                     = [bool]$Il2cpp
         UnityExe                   = $UnityExe
         FailFastFlagPath           = $failFastFlagPath
+        PlanFile                   = $PlanFile
         ResultsJsonPath            = $unityResultsJson
         TranscriptPath             = $unityLog
         InjectMockSleepSeconds     = $InjectMockSleepUnitySeconds

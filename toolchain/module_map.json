@@ -1,0 +1,991 @@
+{
+  "schema_version": 1,
+  "_comment": [
+    "模块表（唯一出处，ADR-0126）：一张表两个用途——模块分工（owner）与定向门禁的选测依据（toolchain/change_impact.py 读它判级、选测试工程/步骤/引擎侧分类）。",
+    "modules 段由 toolchain/gen_module_map.py 从目录结构生成（path/layer/test_namespaces 是派生字段，重新生成会刷新），owner/interaction_exceptions 是人工字段，重新生成时按模块名保留；layers/tier_rules/steps/engine 四段全是人工维护，生成脚本不碰。",
+    "门禁自检（check.ps1 的『模块表覆盖所有子模块目录』一步）等价于 python toolchain/gen_module_map.py --check：目录里出现未登记的子模块、或表里登记了不存在的目录，即 FAIL。",
+    "子模块 = core/<层>/<模块>/ 与 presentation/<模块>/ 下除 bin、obj、tests、common、assembly 之外的目录；sim 层只有一个子模块（layers.sim.single_module=true，名字即层名，目录 core/sim/）。common/、assembly/ 是共享面，归 T3，不登记成子模块。",
+    "tier_rules 的判级顺序见 toolchain/README.md『定向门禁』一节与 ADR-0126：先看模块公开面（contracts/schema/generated）→ 再看 *.md 与 architecture/docs（T0）→ 再看共享面（T3）→ 再看模块内部（T1）→ 未被任何规则覆盖的路径按 T3。每个路径取最高级的并集。",
+    "steps 段登记 check.ps1 每个步骤的触发规则：T3 = 全部触发；T0 只跑 base_tiers 含 T0 的步骤；T1/T2 跑 base_tiers 含该级别的步骤，外加 triggers 命中改动路径的步骤（triggers 默认只看非 .md 路径，trigger_md=true 的步骤例外）；requires 为依赖步骤（被触发的步骤会把依赖一起拉进来）；engine_gated=true 的步骤只在 T3 或引擎侧有待跑分类时才跑。",
+    "owner 初版统一 TBD，由设计层分配；跨层改动由上游层负责人拍板。"
+  ],
+  "layers": {
+    "foundation": {
+      "path": "core/foundation/",
+      "test_project": "core/foundation/tests/Tests.Foundation.csproj",
+      "downstream": [
+        "numbers"
+      ],
+      "owner": "TBD"
+    },
+    "numbers": {
+      "path": "core/numbers/",
+      "test_project": "core/numbers/tests/Tests.Numbers.csproj",
+      "downstream": [
+        "rules"
+      ],
+      "owner": "TBD"
+    },
+    "rules": {
+      "path": "core/rules/",
+      "test_project": "core/rules/tests/Tests.Rules.csproj",
+      "downstream": [
+        "carriers"
+      ],
+      "owner": "TBD"
+    },
+    "carriers": {
+      "path": "core/carriers/",
+      "test_project": "core/carriers/tests/Tests.Carriers.csproj",
+      "downstream": [
+        "gameplay"
+      ],
+      "owner": "TBD"
+    },
+    "gameplay": {
+      "path": "core/gameplay/",
+      "test_project": "core/gameplay/tests/Tests.Gameplay.csproj",
+      "downstream": [
+        "sim",
+        "presentation"
+      ],
+      "owner": "TBD"
+    },
+    "sim": {
+      "path": "core/sim/",
+      "test_project": "core/sim/tests/Tests.Sim.csproj",
+      "downstream": [],
+      "single_module": true,
+      "owner": "TBD"
+    },
+    "presentation": {
+      "path": "presentation/",
+      "test_project": "presentation/tests/Tests.PresentationCommon.csproj",
+      "downstream": [],
+      "owner": "TBD"
+    }
+  },
+  "tier_rules": {
+    "public_dirs": [
+      "contracts",
+      "schema",
+      "generated"
+    ],
+    "public_file_regex": [
+      "^I[A-Z][A-Za-z0-9_]*\\.cs$",
+      "^[A-Za-z0-9_]*Events\\.cs$"
+    ],
+    "doc_globs": [
+      "**/*.md",
+      "architecture/**",
+      "docs/**"
+    ],
+    "shared_tests_globs": [
+      "core/*/assembly/tests/**",
+      "core/*/common/tests/**",
+      "presentation/assembly/tests/**",
+      "presentation/common/tests/**"
+    ],
+    "shared_globs": [
+      "**/*.csproj",
+      "**/*.sln",
+      "Directory.Build.props",
+      "check.ps1",
+      "build.ps1",
+      ".gitattributes",
+      "core/*/assembly/**",
+      "core/*/common/**",
+      "presentation/assembly/**",
+      "presentation/common/**",
+      "data/**",
+      "adapters/stub/**",
+      "toolchain/**",
+      "adapters/unity/Packages/**/Runtime/**",
+      "core/*/*",
+      "presentation/*"
+    ],
+    "default_level": "T3"
+  },
+  "engine": {
+    "category_prefix": "module:",
+    "shared_category": "module:shared",
+    "playmode_tests_dir": "adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/",
+    "_comment": "引擎侧 PlayMode 测试类按被测模块打 NUnit [Category(\"module:<模块名>\")]，映射不清的打 module:shared；T2 只跑命中模块的分类 + shared（含登记的交互例外分类），T3 跑全部。Unity 的 -testCategory 以分号分隔多个分类，与 -testFilter 取交集，所以交互例外也用分类表达。"
+  },
+  "steps": [
+    {
+      "id": "self_check",
+      "label": "门禁自检：Test-NativeExitCode 对失败/成功原生命令正确判定",
+      "base_tiers": [
+        "T0",
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": []
+    },
+    {
+      "id": "ban_codename",
+      "label": "禁用词扫描：全仓库不出现具体游戏代号",
+      "base_tiers": [
+        "T0",
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": []
+    },
+    {
+      "id": "ban_arch_terms",
+      "label": "禁用词扫描：architecture 正文不出现引擎/语言/框架/工具名",
+      "base_tiers": [
+        "T0",
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": []
+    },
+    {
+      "id": "version_consistency",
+      "label": "版本一致性",
+      "base_tiers": [
+        "T0",
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": []
+    },
+    {
+      "id": "module_map_check",
+      "label": "模块表覆盖所有子模块目录",
+      "base_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": []
+    },
+    {
+      "id": "validate_merged",
+      "label": "validate_data.py --strict（合并根）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "validate_framework",
+      "label": "validate_data.py --data-root data/_framework（框架根）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "schema_audit",
+      "label": "元数据门禁 validator --schema-audit",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "event_constants",
+      "label": "gen_event_constants.py --check",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/foundation/event_bus/**"
+      ]
+    },
+    {
+      "id": "schema_order",
+      "label": "format_data.py --schema-order --check",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "import_assets_check",
+      "label": "import_assets.py check --dataset _sample",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "assets/**"
+      ]
+    },
+    {
+      "id": "validate_sim_data",
+      "label": "validate_data.py --strict --data-root core/sim/tests/data（嵌入仿真数据集）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/sim/tests/data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "validate_template_data",
+      "label": "validate_data.py --strict --data-root games/_template/data/game（模板数据根）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "games/_template/data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "crlf_check",
+      "label": "工作树文本文件无 CR",
+      "base_tiers": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": [
+        ".gitattributes"
+      ]
+    },
+    {
+      "id": "unity_meta",
+      "label": "Unity .meta 完整性检查",
+      "base_tiers": [],
+      "triggers": [
+        "adapters/**",
+        "games/_template/**"
+      ]
+    },
+    {
+      "id": "registry_pytest",
+      "label": "pytest：私服 -Stop 误判回归（隔离于并行线之外）",
+      "base_tiers": [],
+      "triggers": [
+        "toolchain/**"
+      ]
+    },
+    {
+      "id": "docs_pytest",
+      "label": "pytest：文档相关子集（markdown 链接 + 编辑器文档一致性）",
+      "base_tiers": [
+        "T0"
+      ],
+      "trigger_md": true,
+      "triggers": [
+        "**/*.md",
+        "architecture/**",
+        "docs/**"
+      ]
+    },
+    {
+      "id": "dotnet_build",
+      "label": "dotnet build Core.sln",
+      "base_tiers": [
+        "T1",
+        "T2"
+      ],
+      "triggers": []
+    },
+    {
+      "id": "dotnet_test",
+      "label": "dotnet test（T1/T2 只跑命中层的测试工程；T3 跑 Core.sln 全量）",
+      "base_tiers": [
+        "T1",
+        "T2"
+      ],
+      "triggers": [],
+      "requires": [
+        "dotnet_build"
+      ]
+    },
+    {
+      "id": "abi_probe",
+      "label": "ABI 探针",
+      "base_tiers": [
+        "T2"
+      ],
+      "triggers": [],
+      "requires": [
+        "dotnet_build"
+      ]
+    },
+    {
+      "id": "placeholder_assets",
+      "label": "gen_placeholder_assets.py --check",
+      "base_tiers": [],
+      "triggers": [
+        "assets/**",
+        "toolchain/gen_placeholder_assets.py"
+      ]
+    },
+    {
+      "id": "sample_import_idem",
+      "label": "样例导入幂等性门禁",
+      "base_tiers": [],
+      "triggers": [
+        "data/_sample/**",
+        "assets/_sample/**",
+        "toolchain/import_sample_assets.py"
+      ]
+    },
+    {
+      "id": "toolchain_pytest",
+      "label": "pytest toolchain/tests 全量",
+      "base_tiers": [],
+      "triggers": [
+        "toolchain/**"
+      ]
+    },
+    {
+      "id": "sim_baseline",
+      "label": "数值仿真基线比对",
+      "base_tiers": [],
+      "triggers": [
+        "core/**",
+        "data/**"
+      ],
+      "requires": [
+        "dotnet_build"
+      ]
+    },
+    {
+      "id": "sync_dll",
+      "label": "build.ps1 -SkipTests（同步 DLL）",
+      "base_tiers": [],
+      "triggers": [],
+      "engine_gated": true
+    },
+    {
+      "id": "pkg_manifest",
+      "label": "包清单一致性",
+      "base_tiers": [],
+      "triggers": [
+        "adapters/unity/Packages/**",
+        "games/_template/**",
+        "toolchain/registry/**"
+      ]
+    },
+    {
+      "id": "unity_compile",
+      "label": "Unity 编译检查",
+      "base_tiers": [],
+      "triggers": []
+    },
+    {
+      "id": "unity_editmode",
+      "label": "Unity EditMode 测试",
+      "base_tiers": [],
+      "triggers": []
+    },
+    {
+      "id": "unity_playmode",
+      "label": "Unity PlayMode 测试（T2 按分类过滤）",
+      "base_tiers": [],
+      "triggers": [],
+      "engine_gated": true
+    },
+    {
+      "id": "unity_build_smoke",
+      "label": "独立版构建 + -gf-smoke 冒烟",
+      "base_tiers": [],
+      "triggers": []
+    },
+    {
+      "id": "unity_smoke_discrete",
+      "label": "独立版 -gf-smoke-discrete 冒烟",
+      "base_tiers": [],
+      "triggers": []
+    },
+    {
+      "id": "consumer_drill",
+      "label": "消费方演练",
+      "base_tiers": [],
+      "triggers": []
+    }
+  ],
+  "modules": [
+    {
+      "name": "app_lifecycle",
+      "layer": "foundation",
+      "path": "core/foundation/app_lifecycle/",
+      "test_namespaces": [
+        "Tests.Foundation.AppLifecycle"
+      ],
+      "engine_category": "module:app_lifecycle",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "data_registry",
+      "layer": "foundation",
+      "path": "core/foundation/data_registry/",
+      "test_namespaces": [
+        "Tests.Foundation.Data"
+      ],
+      "engine_category": "module:data_registry",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "display_info",
+      "layer": "foundation",
+      "path": "core/foundation/display_info/",
+      "test_namespaces": [
+        "Tests.Foundation.DisplayInfo"
+      ],
+      "engine_category": "module:display_info",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "engine_adapter",
+      "layer": "foundation",
+      "path": "core/foundation/engine_adapter/",
+      "test_namespaces": [
+        "Tests.Foundation.EngineAdapter"
+      ],
+      "engine_category": "module:engine_adapter",
+      "owner": "TBD",
+      "interaction_exceptions": [
+        {
+          "id": "movement_stop_blocking",
+          "when_paths": [
+            "core/foundation/engine_adapter/contracts/INavigation2D.cs"
+          ],
+          "also_run": {
+            "engine_class": "MovementStopAndBlockingPlayModeTests",
+            "engine_category": "interaction:movement_stop_blocking"
+          },
+          "why": "导航契约变化会改变移动 tick 的阻挡/停止语义，必须跑同一条引擎侧移动 PlayMode 回归（原文字规则：改到 MovementTickHandler.cs、导航契约或其实现）；导航契约的实现（adapters/stub、引擎侧包 Runtime）属 T3，全量已覆盖"
+        }
+      ]
+    },
+    {
+      "name": "event_bus",
+      "layer": "foundation",
+      "path": "core/foundation/event_bus/",
+      "test_namespaces": [
+        "Tests.Foundation.Events"
+      ],
+      "engine_category": "module:event_bus",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "expr",
+      "layer": "foundation",
+      "path": "core/foundation/expr/",
+      "test_namespaces": [
+        "Tests.Foundation.Expr"
+      ],
+      "engine_category": "module:expr",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "hook_registry",
+      "layer": "foundation",
+      "path": "core/foundation/hook_registry/",
+      "test_namespaces": [
+        "Tests.Foundation.HookRegistry"
+      ],
+      "engine_category": "module:hook_registry",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "input_map",
+      "layer": "foundation",
+      "path": "core/foundation/input_map/",
+      "test_namespaces": [
+        "Tests.Foundation.InputMap"
+      ],
+      "engine_category": "module:input_map",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "localization",
+      "layer": "foundation",
+      "path": "core/foundation/localization/",
+      "test_namespaces": [
+        "Tests.Foundation.Localization"
+      ],
+      "engine_category": "module:localization",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "rng",
+      "layer": "foundation",
+      "path": "core/foundation/rng/",
+      "test_namespaces": [
+        "Tests.Foundation.Rng"
+      ],
+      "engine_category": "module:rng",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "save_system",
+      "layer": "foundation",
+      "path": "core/foundation/save_system/",
+      "test_namespaces": [
+        "Tests.Foundation.SaveSystem",
+        "Tests.Foundation.SaveSystem.Migration"
+      ],
+      "engine_category": "module:save_system",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "scene_router",
+      "layer": "foundation",
+      "path": "core/foundation/scene_router/",
+      "test_namespaces": [
+        "Tests.Foundation.SceneRouter"
+      ],
+      "engine_category": "module:scene_router",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "sim_loop",
+      "layer": "foundation",
+      "path": "core/foundation/sim_loop/",
+      "test_namespaces": [
+        "Tests.Foundation.SimLoop"
+      ],
+      "engine_category": "module:sim_loop",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "archetype",
+      "layer": "numbers",
+      "path": "core/numbers/archetype/",
+      "test_namespaces": [
+        "Tests.Numbers.Archetype"
+      ],
+      "engine_category": "module:archetype",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "faction",
+      "layer": "numbers",
+      "path": "core/numbers/faction/",
+      "test_namespaces": [
+        "Tests.Numbers.Faction"
+      ],
+      "engine_category": "module:faction",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "power_set",
+      "layer": "numbers",
+      "path": "core/numbers/power_set/",
+      "test_namespaces": [
+        "Tests.Numbers.PowerSet"
+      ],
+      "engine_category": "module:power_set",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "progression",
+      "layer": "numbers",
+      "path": "core/numbers/progression/",
+      "test_namespaces": [
+        "Tests.Numbers.Progression"
+      ],
+      "engine_category": "module:progression",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "stat_block",
+      "layer": "numbers",
+      "path": "core/numbers/stat_block/",
+      "test_namespaces": [
+        "Tests.Numbers.StatBlock"
+      ],
+      "engine_category": "module:stat_block",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "ai",
+      "layer": "rules",
+      "path": "core/rules/ai/",
+      "test_namespaces": [
+        "Tests.Rules.Ai"
+      ],
+      "engine_category": "module:ai",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "combat",
+      "layer": "rules",
+      "path": "core/rules/combat/",
+      "test_namespaces": [
+        "Tests.Rules.Combat"
+      ],
+      "engine_category": "module:combat",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "expr_host",
+      "layer": "rules",
+      "path": "core/rules/expr_host/",
+      "test_namespaces": [
+        "Tests.Rules.ExprHost"
+      ],
+      "engine_category": "module:expr_host",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "skill",
+      "layer": "rules",
+      "path": "core/rules/skill/",
+      "test_namespaces": [
+        "Tests.Rules.Culture",
+        "Tests.Rules.Skill"
+      ],
+      "engine_category": "module:skill",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "targeting",
+      "layer": "rules",
+      "path": "core/rules/targeting/",
+      "test_namespaces": [
+        "Tests.Rules.Targeting"
+      ],
+      "engine_category": "module:targeting",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "creature",
+      "layer": "carriers",
+      "path": "core/carriers/creature/",
+      "test_namespaces": [
+        "Tests.Carriers.Creature"
+      ],
+      "engine_category": "module:creature",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "gobj",
+      "layer": "carriers",
+      "path": "core/carriers/gobj/",
+      "test_namespaces": [
+        "Tests.Carriers.Culture",
+        "Tests.Carriers.Gobj"
+      ],
+      "engine_category": "module:gobj",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "item",
+      "layer": "carriers",
+      "path": "core/carriers/item/",
+      "test_namespaces": [
+        "Tests.Carriers.Item"
+      ],
+      "engine_category": "module:item",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "projectile",
+      "layer": "carriers",
+      "path": "core/carriers/projectile/",
+      "test_namespaces": [
+        "Tests.Carriers.Projectile"
+      ],
+      "engine_category": "module:projectile",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "summon",
+      "layer": "carriers",
+      "path": "core/carriers/summon/",
+      "test_namespaces": [
+        "Tests.Carriers.Summon"
+      ],
+      "engine_category": "module:summon",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "unit",
+      "layer": "carriers",
+      "path": "core/carriers/unit/",
+      "test_namespaces": [
+        "Tests.Carriers.Unit"
+      ],
+      "engine_category": "module:unit",
+      "owner": "TBD",
+      "interaction_exceptions": [
+        {
+          "id": "movement_stop_blocking",
+          "when_paths": [
+            "core/carriers/unit/core/MovementTickHandler.cs"
+          ],
+          "also_run": {
+            "engine_class": "MovementStopAndBlockingPlayModeTests",
+            "engine_category": "interaction:movement_stop_blocking"
+          },
+          "why": "移动 tick 的『同一 tick 两遍循环、阻挡版本重验』交互只有引擎侧 MovementStopAndBlockingPlayModeTests 覆盖（1.84.0 门禁因漏跑返工一轮，原文字规则见 AGENTS.md 旧 §0，现迁入本表）"
+        }
+      ]
+    },
+    {
+      "name": "achievement",
+      "layer": "gameplay",
+      "path": "core/gameplay/achievement/",
+      "test_namespaces": [
+        "Tests.Gameplay.Achievement"
+      ],
+      "engine_category": "module:achievement",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "area_trigger",
+      "layer": "gameplay",
+      "path": "core/gameplay/area_trigger/",
+      "test_namespaces": [
+        "Tests.Gameplay.AreaTrigger"
+      ],
+      "engine_category": "module:area_trigger",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "death",
+      "layer": "gameplay",
+      "path": "core/gameplay/death/",
+      "test_namespaces": [
+        "Tests.Gameplay.Death"
+      ],
+      "engine_category": "module:death",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "dialog",
+      "layer": "gameplay",
+      "path": "core/gameplay/dialog/",
+      "test_namespaces": [
+        "Tests.Gameplay.Dialog"
+      ],
+      "engine_category": "module:dialog",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "difficulty",
+      "layer": "gameplay",
+      "path": "core/gameplay/difficulty/",
+      "test_namespaces": [
+        "Tests.Gameplay.Difficulty"
+      ],
+      "engine_category": "module:difficulty",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "economy",
+      "layer": "gameplay",
+      "path": "core/gameplay/economy/",
+      "test_namespaces": [
+        "Tests.Gameplay.Economy"
+      ],
+      "engine_category": "module:economy",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "encounter",
+      "layer": "gameplay",
+      "path": "core/gameplay/encounter/",
+      "test_namespaces": [
+        "Tests.Gameplay.Encounter"
+      ],
+      "engine_category": "module:encounter",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "loot",
+      "layer": "gameplay",
+      "path": "core/gameplay/loot/",
+      "test_namespaces": [
+        "Tests.Gameplay.Loot"
+      ],
+      "engine_category": "module:loot",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "progression_bridge",
+      "layer": "gameplay",
+      "path": "core/gameplay/progression_bridge/",
+      "test_namespaces": [
+        "Tests.Gameplay.ProgressionBridge"
+      ],
+      "engine_category": "module:progression_bridge",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "quest",
+      "layer": "gameplay",
+      "path": "core/gameplay/quest/",
+      "test_namespaces": [
+        "Tests.Gameplay.Quest"
+      ],
+      "engine_category": "module:quest",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "spawn",
+      "layer": "gameplay",
+      "path": "core/gameplay/spawn/",
+      "test_namespaces": [
+        "Tests.Gameplay.Spawn"
+      ],
+      "engine_category": "module:spawn",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "world_state",
+      "layer": "gameplay",
+      "path": "core/gameplay/world_state/",
+      "test_namespaces": [
+        "Tests.Gameplay.Culture",
+        "Tests.Gameplay.WorldState"
+      ],
+      "engine_category": "module:world_state",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "sim",
+      "layer": "sim",
+      "path": "core/sim/",
+      "test_namespaces": [
+        "Tests.Sim",
+        "Tests.Sim.Culture"
+      ],
+      "engine_category": "module:sim",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "camera",
+      "layer": "presentation",
+      "path": "presentation/camera/",
+      "test_namespaces": [
+        "Tests.Presentation.Camera",
+        "Tests.PresentationCamera"
+      ],
+      "engine_category": "module:camera",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "feedback_binder",
+      "layer": "presentation",
+      "path": "presentation/feedback_binder/",
+      "test_namespaces": [
+        "Tests.Presentation.FeedbackBinder"
+      ],
+      "engine_category": "module:feedback_binder",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "render",
+      "layer": "presentation",
+      "path": "presentation/render/",
+      "test_namespaces": [
+        "Tests.Presentation.Render",
+        "Tests.PresentationRender"
+      ],
+      "engine_category": "module:render",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "shell",
+      "layer": "presentation",
+      "path": "presentation/shell/",
+      "test_namespaces": [
+        "Tests.Presentation.Shell",
+        "Tests.PresentationShell"
+      ],
+      "engine_category": "module:shell",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "ui",
+      "layer": "presentation",
+      "path": "presentation/ui/",
+      "test_namespaces": [
+        "Tests.PresentationUi"
+      ],
+      "engine_category": "module:ui",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "vfx_sfx",
+      "layer": "presentation",
+      "path": "presentation/vfx_sfx/",
+      "test_namespaces": [
+        "Tests.Presentation.VfxSfx"
+      ],
+      "engine_category": "module:vfx_sfx",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "view_binding",
+      "layer": "presentation",
+      "path": "presentation/view_binding/",
+      "test_namespaces": [
+        "Tests.PresentationViewBinding"
+      ],
+      "engine_category": "module:view_binding",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    }
+  ]
+}

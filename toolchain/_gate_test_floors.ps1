@@ -167,3 +167,49 @@ function Invoke-GateTestFloorCheck {
     }
     return (Test-GateTestCounts -Counts $counts -Floor $floor -Suite $Suite)
 }
+
+# 定向门禁（ADR-0126）的子集判定：定向模式只跑了套件的一部分（命中层的测试工程 / 引擎侧按分类过滤），
+# gate_floors.json 登记的是"全套件"下限，拿子集去比必然误判，所以这里改用三条能在子集上成立的底线：
+#   - failed > 0                                  -> FAIL
+#   - passed < 1                                  -> FAIL（一条都没跑到，说明测试工程/分类过滤串选空了，
+#                                                    "选空"不能算绿）
+#   - skipped + inconclusive 超过该套件登记的 max_skipped -> FAIL（批量跳过同样要拦）
+# 四个数恒写进 Detail；缺文件/缺登记一律 FAIL，口径同 Invoke-GateTestFloorCheck。全套件下限仍由 T3
+# 全量门禁（以及里程碑全量回归）把关，这是定向模式换速度付出的、写进 ADR-0126 的已知取舍。
+function Invoke-GateTargetedCountsCheck {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("Trx", "NUnit")][string]$Kind,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Suite,
+        [Parameter(Mandatory = $true)][string]$FloorsPath
+    )
+    try {
+        $cfg = Get-GateFloorsConfig -FloorsPath $FloorsPath
+    } catch {
+        return [PSCustomObject]@{ Ok = $false; Detail = $_.Exception.Message }
+    }
+    $floor = $null
+    if ($cfg.PSObject.Properties.Name -contains "suites") {
+        $prop = $cfg.suites.PSObject.Properties[$Suite]
+        if ($null -ne $prop) { $floor = $prop.Value }
+    }
+    if ($null -eq $floor) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "toolchain/gate_floors.json 没有登记套件 '$Suite'（缺登记不放行）" }
+    }
+    $counts = $null
+    if ($Kind -eq "Trx") { $counts = Get-TrxTestCounts -TrxDir $Path } else { $counts = Get-NUnitTestCounts -XmlPath $Path }
+    if ($null -eq $counts) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "[$Suite] 未找到可解析的测试结果（$Kind：$Path）" }
+    }
+    $maxSkipped = [int]$floor.max_skipped
+    $skipLike = $counts.Skipped + $counts.Inconclusive
+    $detail = "定向子集：total=$($counts.Total) passed=$($counts.Passed) skipped=$($counts.Skipped) inconclusive=$($counts.Inconclusive)（不比全套件下限，只要求 failed=0、passed>=1、skipped+inconclusive<=$maxSkipped）"
+    $problems = @()
+    if ($counts.Failed -gt 0) { $problems += "failed=$($counts.Failed)" }
+    if ($counts.Passed -lt 1) { $problems += "passed=0（一条都没跑到，测试工程或分类过滤串选空了）" }
+    if ($skipLike -gt $maxSkipped) { $problems += "skipped+inconclusive=$skipLike 超过允许值 $maxSkipped" }
+    if ($problems.Count -gt 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "[$Suite] " + ($problems -join "；") + " | " + $detail }
+    }
+    return [PSCustomObject]@{ Ok = $true; Detail = $detail }
+}
