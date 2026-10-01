@@ -485,6 +485,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ### 门禁
 
+- **定向门禁：四级影响集（ADR-0126）**：新增 `toolchain/module_map.json`（子模块表：路径前缀、层、测试命名空间、引擎侧分类、责任人、交互例外；步骤触发规则）、`toolchain/gen_module_map.py`（生成与 `--check` 自检，新增门禁步骤"模块表覆盖所有子模块目录"）、`toolchain/change_impact.py`（改动 → T0～T3 影响集，输出 JSON）。`check.ps1` 新增 `-Changed <基线>`（默认 main）、`-Staged`、`-Modules a,b`、`-DryRun`：先打印"本次判定"块，只跑被触发的步骤，其余标 SKIP 与"T? 未触发"，全文日志落盘、控制台只留每步一行 + 汇总 + 首个失败的最后 30 行；不带这些参数时行为不变。T2 切片级只向下游多看一层，其余风险由里程碑全量兜底。
+- **提交前钩子改走定向判级**：钩子对非发布提交调用 `check.ps1 -Staged -SkipUnity`，原 DocsOnly 档即 T0；T3 额外带 `-Quick`（与旧 Full 档等价）；暂存为空或判级失败退回旧 Full 档。
+- **引擎侧 PlayMode 用例带模块分类**：`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/` 下所有用例类加 `[Category("module:<模块名>")]`（归属不明的为 `module:shared`），移动阻挡用例另带交互例外分类；只改既有文件。分类过滤的实际效果待主会话在引擎侧对账。
+- **定向模式的用例数下限**：子集运行不适用全量下限，改为失败为 0、通过至少 1、跳过数不超过上限。
 - **模板数据根纳入严格校验**：`check.ps1` 新增 `games/_template/data/game` 的 `validate_data.py --strict` 步骤（秒级，`-Quick`/`-SkipUnity` 也跑），要求 warnings 为 0。
 - **测试用例数下限**：新增 `toolchain/gate_floors.json` 与 `toolchain/_gate_test_floors.ps1`，`dotnet test`（trx）、`pytest`（junitxml）、Unity EditMode/PlayMode（NUnit XML）四个测试步骤解析结果文件的 passed/skipped/failed/inconclusive，`passed` 低于下限、`skipped + inconclusive` 超过上限、`failed > 0` 均 FAIL，四个计数恒写进步骤 Detail；防止"整批用例被静默排除/跳过仍全绿"。`dotnet test` 步骤名里的测试工程数改为从 `Core.sln` 数出（此前写死"六工程"，实际早已是八个）。
 - **`consumer_smoke` 私服冷启动**：私服不在运行时改用 `Start-Process` 起 `start_registry.ps1 -Detach` 并带超时等待就绪，修复 `| Out-Null` 被后台 node 进程占住管道而卡死。
