@@ -116,25 +116,57 @@ namespace Tests.PresentationRender
         // ComposeAndApplyLayers / ApplyLayers：no-op，不抛异常
         // ------------------------------------------------------------------
 
-        [Fact]
-        public void ComposeAndApplyLayers_IsNoOp_DoesNotThrow()
+        /// <summary>渲染器侧全部可观测状态的快照（T-M13：把"不抛"补成"确实没产生任何渲染副作用"）。</summary>
+        private static string RendererState(StubRenderer3D r)
         {
-            var (_, _, rig) = NewRig();
-
-            var ex = Record.Exception(() =>
-                rig.ComposeAndApplyLayers(Array.Empty<string>(), Direction.Continuous(0.0), _ => new Id("layer.x")));
-
-            Assert.Null(ex);
+            var parts = new List<string>
+            {
+                "models=" + r.CreatedModels.Count,
+                "placements=" + r.Placements.Count,
+                "anims=" + r.CurrentAnims.Count,
+                "speeds=" + r.AnimSpeeds.Count,
+                "attachments=" + r.Attachments.Count,
+                "shadows=" + r.Shadows.Count,
+            };
+            foreach (var kv in r.SlotMeshes) parts.Add("slot" + kv.Key + "=" + string.Join(",", kv.Value));
+            foreach (var kv in r.MaterialParams) parts.Add("mat" + kv.Key + "=" + string.Join(",", kv.Value));
+            return string.Join("|", parts);
         }
 
         [Fact]
-        public void ApplyLayers_IsNoOp_DoesNotThrow()
+        public void ComposeAndApplyLayers_IsNoOp_LeavesRendererStateUntouched_EvenWithRealInputs()
         {
-            var (_, _, rig) = NewRig();
+            var (renderer, _, rig) = NewRig();
+            var before = RendererState(renderer);
 
-            var ex = Record.Exception(() => rig.ApplyLayers(Array.Empty<Id>()));
+            var ex = Record.Exception(() =>
+                rig.ComposeAndApplyLayers(new[] { "body", "head", "weapon" }, Direction.Continuous(1.0), _ => new Id("layer.x")));
 
             Assert.Null(ex);
+            Assert.Equal(before, RendererState(renderer));
+        }
+
+        [Fact]
+        public void ComposeAndApplyLayers_NeverInvokesTheResourceResolver_ForModelRigs()
+        {
+            var (_, _, rig) = NewRig();
+            var resolved = 0;
+
+            rig.ComposeAndApplyLayers(new[] { "body" }, Direction.Continuous(0.0), _ => { resolved++; return new Id("layer.x"); });
+
+            Assert.Equal(0, resolved);
+        }
+
+        [Fact]
+        public void ApplyLayers_IsNoOp_LeavesRendererStateUntouched_EvenWithRealInputs()
+        {
+            var (renderer, _, rig) = NewRig();
+            var before = RendererState(renderer);
+
+            var ex = Record.Exception(() => rig.ApplyLayers(new[] { new Id("layer.a"), new Id("layer.b") }));
+
+            Assert.Null(ex);
+            Assert.Equal(before, RendererState(renderer));
         }
 
         // ------------------------------------------------------------------

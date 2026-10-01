@@ -92,6 +92,12 @@ difficulty/
    真实值（`CurrentTier.HasValue ? RequireTier(CurrentTier.Value).XpMultiplier : 1.0`），不落回
    默认值，已过 `InterfaceDefaultMemberForwardingTests` 门禁。
 
+9. **T-M14（测试覆盖第四批，2026-10-01）：`DifficultyTierDefinition.FromRecord` 的 `item_level_offset` 超出 32 位
+   整数范围改报 `DataFieldException`**——复现：`item_level_offset: 4294967297`（`TryGetInt` 成功）旧实现 `(int)`
+   强转静默回绕成 1，难度档的物品等级偏移被悄悄改掉；内容校验不检查该上界，兜底落在解析层。改法：强转前判断
+   范围，越界抛带 `item_level_offset` 字段的 `DataFieldException`；缺省（0）与范围内取值不变。见
+   `DifficultyTierDefinitionErrorPathTests`。
+
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 
 `DifficultyHost.Load` 修复前开头无条件把 `CurrentTier`/`CurrentScope`/`CurrentMapId` 三个字段

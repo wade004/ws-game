@@ -142,6 +142,17 @@ namespace Core.Carriers.Projectile
             var travelMode = GetString(context.Params, "travel_mode", "straight");
             var hitBehavior = GetString(context.Params, "hit_behavior", "impact_on_first");
             var speed = GetNumber(context.Params, "speed", _options.DefaultSpeed);
+            if (!(speed > 0))
+            {
+                // 测试覆盖第四批 T-M19：speed 为 0/负数/NaN 的投射物既不会前进也不会到期（DistanceTraveled
+                // 永远不增长），会成为永不销毁的僵尸实体并使 IsQuiescent 永远为假；负速度还会倒飞。
+                // 运行时路径不静默降级（AGENTS.md §3）：拒绝生成并告警，与"发射者不存在"同一出口形态。
+                _diagnostics.Warn(
+                    $"ProjectileHost.Spawn: 投射物速度必须为正数（实际 {speed.ToString(System.Globalization.CultureInfo.InvariantCulture)}，" +
+                    $"技能 \"{context.SkillId}\"），已跳过生成");
+                return;
+            }
+
             var maxRange = GetNumber(context.Params, "max_range", _options.DefaultMaxRange);
             var arcHeight = GetNumber(context.Params, "arc_height", _options.DefaultArcHeight);
             var impactRadius = GetNumber(context.Params, "impact_radius", _options.DefaultImpactRadius);

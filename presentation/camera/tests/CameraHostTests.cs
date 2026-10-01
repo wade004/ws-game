@@ -268,7 +268,11 @@ namespace Tests.PresentationCamera
         public void Dispose_IsIdempotent_CalledTwiceDoesNotThrow()
         {
             var camera = new StubCamera();
-            var host = new CameraHost(camera, new FakeFollowTarget());
+            var bus = CreateBus();
+            var phaseSwitch = new Dictionary<int, Id> { [1] = new Id("camera_profile.phase1") };
+            var host = new CameraHost(camera, new FakeFollowTarget(), bus, new CameraHostOptions(phaseProfileSwitch: phaseSwitch));
+            host.Configure(MakeProfile(new Id("camera_profile.default")));
+            host.RegisterProfile(new CameraProfile(new Id("camera_profile.phase1"), pitchDegrees: 40, yawDegrees: 10, zoomMin: 1, zoomMax: 3, zoomDefault: 2, followLerp: 0.1));
 
             var ex = Record.Exception(() =>
             {
@@ -276,7 +280,10 @@ namespace Tests.PresentationCamera
                 host.Dispose();
             });
 
+            // T-M13：二次 Dispose 不抛，且退订状态保持——之后的遭遇阶段事件不再触发镜头配置切换。
             Assert.Null(ex);
+            bus.PublishImmediate(new EncounterPhaseChangedEvent(new Id("encounter.inst_1"), oldPhase: 0, newPhase: 1));
+            Assert.Equal(new Id("camera_profile.default"), host.CurrentProfile?.Id);
         }
     }
 }

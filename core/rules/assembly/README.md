@@ -352,3 +352,13 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 生产装配这一处接上真实总线，普通攻击挥击才能真正广播到表现层；本模块是仓库内唯一的
 `AutoAttackHost` 生产构造点（全仓检索确认），不存在需要同步更新的第二处装配。装配调用本身经命名
 参数追加，不改变 `AutoAttack` 只读属性的类型与构造函数体外部可见行为。
+
+## 判断记录（`ReloadArchetypeAndRace` 先解析后写入，失败原子，2026-10-01，测试覆盖第四批 T-M17，同 ADR-0121 D7 写法）
+
+复现：`ReloadArchetypeAndRace(unit, classId, raceId)` 传入未登记的职业时，旧实现先 `ClearModifiersBySource`
+并按旧种族回退加成、再 `Archetypes.GetClass` 才抛 `ArgumentException`，调用方捕获异常后单位属性已被
+改动（测试里最大生命由 13 变成 10）；传入未登记的种族时同样在已清除旧种族加成之后才抛（25）。属于
+"校验失败却留下半改状态"的非原子缺陷。改法：方法开头先解析并校验全部定义（职业 `cls`、变更时的新种族
+`newRace`），任一未登记即在**任何写入之前**抛 `ArgumentException`；写入阶段改用预先解析好的 `cls`/`newRace`，
+不再二次查表。成功路径的写入顺序与结果不变。见 `RulesAssemblyArchetypeReloadTests`
+（`..._UnknownClass_...LeavesStatsUntouched`/`..._UnknownRace_...LeavesStatsUntouched`）。

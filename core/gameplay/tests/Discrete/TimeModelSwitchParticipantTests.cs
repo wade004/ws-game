@@ -121,5 +121,47 @@ namespace Tests.Gameplay.Discrete
             Assert.Contains(DiscreteFightWorldBuilder.NpcId, fx.Scheduler.GetOrder());
             Assert.DoesNotContain(ThirdUnitId, fx.Scheduler.GetOrder());
         }
+
+        // ------------------------------------------------------------------
+        // T-L14（测试覆盖剩余项 2026-10-01）：TimeModelSwitchOptions.ParticipantSearchRadius 的实际作用
+        // ------------------------------------------------------------------
+
+        /// <summary>在远处（离玩家 5、离 NPC 4）放一个与玩家互为敌对阵营的存活单位，推进到离散模式，
+        /// 返回该单位是否被拉进行动顺序。</summary>
+        private static bool FarHostileJoinsFight(Core.Gameplay.Assembly.TimeModelSwitchOptions? options)
+        {
+            var fx = DiscreteFightWorldBuilder.Build(switchOptions: options);
+            var farPosition = new Vec2(5.0, 0);
+            var far = new Core.Carriers.Unit.CreatureUnit(
+                ThirdUnitId, DiscreteFightWorldBuilder.MapId, DiscreteFightWorldBuilder.FactionWildlife,
+                DiscreteFightWorldBuilder.ClassSample)
+            { Position = farPosition };
+            fx.World.AddEntity(far);
+            fx.Rules.RegisterUnit(ThirdUnitId, DiscreteFightWorldBuilder.ClassSample, raceId: null, level: 1);
+            fx.Spatial.Register(ThirdUnitId, farPosition, 0.1);
+
+            for (var i = 0; i < 20 && fx.TimeModelSwitch.CurrentMode == TimeModelMode.Continuous; i++)
+            {
+                fx.ContinuousTickWithPlayerCast(DiscreteFightWorldBuilder.SkillStrike);
+            }
+
+            Assert.Equal(TimeModelMode.Discrete, fx.TimeModelSwitch.CurrentMode);
+            return fx.Scheduler.GetOrder().Contains(ThirdUnitId);
+        }
+
+        [Fact]
+        public void ParticipantSearchRadius_DefaultsToThirty()
+        {
+            Assert.Equal(30.0, new Core.Gameplay.Assembly.TimeModelSwitchOptions().ParticipantSearchRadius);
+        }
+
+        [Fact]
+        public void ParticipantSearchRadius_DefaultRadiusCoversFarHostile_NarrowRadiusDoesNot()
+        {
+            Assert.True(FarHostileJoinsFight(null), "默认半径 30 应覆盖距离 5 的敌对单位");
+            Assert.False(
+                FarHostileJoinsFight(new Core.Gameplay.Assembly.TimeModelSwitchOptions { ParticipantSearchRadius = 1.5 }),
+                "半径 1.5 不应覆盖距离 4～5 的敌对单位");
+        }
     }
 }

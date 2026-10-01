@@ -285,8 +285,19 @@ namespace Tests.PresentationRender
             var handle = renderer.CreateSpriteInstance(new Id("sprite.creature.hero"));
             var rig = MakeRig(renderer, handle);
 
+            var transformsBefore = new Dictionary<int, StubRenderer2D.TransformRecord>(renderer.Transforms);
+            var layersBefore = renderer.SetLayersCalls.Count;
+
             var ex = Record.Exception(() => rig.PlayClip(new Id("anim.sample")));
+
+            // T-M13：未注入帧动画播放器时 PlayClip 是纯 no-op——渲染器上没有任何额外的图层/变换写入。
             Assert.Null(ex);
+            Assert.Equal(layersBefore, renderer.SetLayersCalls.Count);
+            Assert.Equal(transformsBefore.Count, renderer.Transforms.Count);
+            foreach (var kv in transformsBefore)
+            {
+                Assert.Equal(kv.Value, renderer.Transforms[kv.Key]);
+            }
         }
 
         [Fact]

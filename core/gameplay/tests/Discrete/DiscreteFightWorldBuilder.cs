@@ -337,7 +337,7 @@ namespace Tests.Gameplay.Discrete
                 new JsonObjectBuilder().Add("skill_id", new JsonString(skillId.Value)).Build();
         }
 
-        public static Fixture Build(ulong seed = 20260905UL)
+        public static Fixture Build(ulong seed = 20260905UL, Core.Gameplay.Assembly.TimeModelSwitchOptions? switchOptions = null)
         {
             var bus = BuildEventBus(out var events);
 
@@ -394,6 +394,7 @@ namespace Tests.Gameplay.Discrete
 
             var timeModelSwitch = new Core.Gameplay.Assembly.TimeModelSwitch(
                 scheduler, clock, appState, world, units, spatial, bus, registry,
+                options: switchOptions,
                 factions: rules.Factions, combatOptions: rules.CombatOptions);
 
             return new Fixture

@@ -692,5 +692,115 @@ namespace Tests.Gameplay.Loot
             f.Host.ReattachToWorld(mapB);
             Assert.Null(f.World.GetEntity(lootA));
         }
+
+        /// <summary>掉落物实体 id 形如 <c>loot.inst_N</c>（<c>IWorldSim.AllocateEntityId("loot")</c>），取出序号 N；
+        /// 形状不符返回 0。（<c>LootHost.ExtractSequence</c> 为 internal，全仓无 InternalsVisibleTo，这里照同一规则自备。）</summary>
+        private static int LootSequence(Id lootId)
+        {
+            const string prefix = "loot.inst_";
+            var v = lootId.Value;
+            return v.StartsWith(prefix, StringComparison.Ordinal) && int.TryParse(v.Substring(prefix.Length), out var n) ? n : 0;
+        }
+
+        // ------------------------------------------------------------------
+        // T-L14（测试覆盖剩余项 2026-10-01）：PurgeExpired / ReserveLootIdSequenceAtLeast 直接用例
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void PurgeExpired_DestroysOnlyDropsWhoseExpireAtIsAtOrBeforeNow_BoundaryInclusive()
+        {
+            const double lifetime = 10;
+            var f = NewFixture(SingleChanceTable, new LootOptions { DefaultLifetime = lifetime });
+            var map = new Id("map.sample_1");
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 1) };
+            f.SimTime = 0;
+            var early = f.Host.Drop(map, new Vec2(0, 0), items);
+            f.SimTime = 5;
+            var late = f.Host.Drop(map, new Vec2(1, 0), items);
+            var earlyExpireAt = 0 + lifetime;
+            var lateExpireAt = 5 + lifetime;
+
+            f.Host.PurgeExpired(earlyExpireAt - 0.001);
+            Assert.Contains(early, f.Host.ActiveLootIds);
+            Assert.Contains(late, f.Host.ActiveLootIds);
+
+            f.Host.PurgeExpired(earlyExpireAt);
+            Assert.DoesNotContain(early, f.Host.ActiveLootIds);
+            Assert.Contains(late, f.Host.ActiveLootIds);
+            Assert.True(f.World.IsPendingDestruction(early));
+            Assert.False(f.World.IsPendingDestruction(late));
+
+            f.Host.PurgeExpired(lateExpireAt);
+            Assert.Empty(f.Host.ActiveLootIds);
+            Assert.True(f.World.IsPendingDestruction(late));
+        }
+
+        [Fact]
+        public void PurgeExpired_NeverTouchesDropsWithoutLifetime()
+        {
+            var f = NewFixture(SingleChanceTable, new LootOptions { DefaultLifetime = 0 });
+            f.SimTime = 0;
+            var lootId = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+            Assert.True(f.Host.TryGetDropped(lootId, out var dropped));
+            Assert.Null(dropped.ExpireAt);
+
+            f.Host.PurgeExpired(double.MaxValue);
+
+            Assert.Contains(lootId, f.Host.ActiveLootIds);
+            Assert.False(f.World.IsPendingDestruction(lootId));
+        }
+
+        [Fact]
+        public void PurgeExpired_OnEmptyHost_DoesNothing()
+        {
+            var f = NewFixture(SingleChanceTable);
+
+            var ex = Record.Exception(() => f.Host.PurgeExpired(1000));
+
+            Assert.Null(ex);
+            Assert.Empty(f.Host.ActiveLootIds);
+        }
+
+        [Fact]
+        public void ReserveLootIdSequenceAtLeast_AdvancesCounter_SoNextDropIdIsStrictlyGreater()
+        {
+            const int restoredMax = 7;
+            var f = NewFixture(SingleChanceTable);
+
+            f.Host.ReserveLootIdSequenceAtLeast(restoredMax);
+            var next = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+
+            Assert.True(LootSequence(next) > restoredMax, $"下一个掉落物 id 序号应严格大于 {restoredMax}，实际 {next}");
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-3)]
+        public void ReserveLootIdSequenceAtLeast_NonPositive_IsNoOp_FirstDropStillGetsSequenceOne(int restoredMax)
+        {
+            var f = NewFixture(SingleChanceTable);
+
+            f.Host.ReserveLootIdSequenceAtLeast(restoredMax);
+            var first = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), new[] { new ItemStack(new Id("item.sample_ore"), 1) });
+
+            Assert.Equal(1, LootSequence(first));
+        }
+
+        [Fact]
+        public void ReserveLootIdSequenceAtLeast_WhenCounterAlreadyPastTarget_DoesNotConsumeMoreThanNeeded()
+        {
+            var f = NewFixture(SingleChanceTable);
+            var items = new[] { new ItemStack(new Id("item.sample_ore"), 1) };
+            var a = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), items);
+            var b = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), items);
+            Assert.Equal(2, LootSequence(b));
+
+            // 目标 1 小于计数器当前值：循环仅再分配一次便已超过目标。
+            f.Host.ReserveLootIdSequenceAtLeast(1);
+            var c = f.Host.Drop(new Id("map.sample_1"), new Vec2(0, 0), items);
+
+            Assert.NotEqual(a, c);
+            Assert.Equal(4, LootSequence(c));
+        }
     }
 }

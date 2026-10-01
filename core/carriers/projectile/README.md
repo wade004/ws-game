@@ -208,3 +208,11 @@ CarriersAssembly` 装配时从 `Rules.Factions` 回填，见该类型判断记�
 （`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template.GameBootstrap`）每帧轮询转发
 一次（恒映射为控制台 Warning，不产生 Error，硬约束见该 ADR）。本模块自身逻辑不变，只是多了一个
 对外只读出口。
+
+## 判断记录（`Spawn` 拒绝非正速度，2026-10-01，测试覆盖第四批 T-M19）
+
+复现：技能数据里投射物 `speed` 解析为 0 或负数（含 NaN）时，旧 `ProjectileHost.Spawn` 仍创建投射物：速度为
+0 的投射物永不前进、永不命中也永不到达终点，成为不会过期的僵尸实体（`Update` 里按"已飞行距离 >= 射程"才
+销毁，永远达不到）；速度为负的投射物朝施法方向的反向飞行。改法：`Spawn` 在读出速度后立即判断
+`!(speed > 0)`（NaN 同样拒绝），经 `_diagnostics.Warn` 记录"投射物速度必须为正数"并整体跳过生成，不创建
+实体、不发任何事件。正速度的行为不变。见 `ProjectileFlightEdgeTests`。

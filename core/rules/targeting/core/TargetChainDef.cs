@@ -101,7 +101,14 @@ namespace Core.Rules.Targeting
                     throw new DataFieldException(record.Table.Name, record.Key, "max_targets", "不能为负数");
                 }
 
-                MaxTargets = checked((int)maxTargets);
+                if (maxTargets > int.MaxValue)
+                {
+                    // 旧实现 checked((int)…) 会抛裸 OverflowException，与同方法其它字段的 DataFieldException 不一致，
+                    // 且丢失表名/记录键/字段名（T-M14 复现，见 README 判断记录）。
+                    throw new DataFieldException(record.Table.Name, record.Key, "max_targets", "超出 32 位整数范围");
+                }
+
+                MaxTargets = (int)maxTargets;
             }
             else
             {

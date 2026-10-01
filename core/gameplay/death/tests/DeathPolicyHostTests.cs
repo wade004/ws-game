@@ -316,5 +316,53 @@ namespace Tests.Gameplay.Death
 
             Assert.Equal(RespawnPolicy.ReloadSave, fx.Host.EffectivePolicy);
         }
+
+        // ==== ClearPending（T-L14，测试覆盖剩余项 2026-10-01）====================
+
+        [Fact]
+        public void ClearPending_DropsQueuedRespawn_SoNoReviveAndNoRespawnedEventFollow()
+        {
+            var fx = Build(defaultPolicy: RespawnPolicy.RespawnPoint, options: new DeathPolicyOptions { RespawnDelayTicks = 2 });
+            fx.Died(PlayerId);
+            fx.Tick(); // 1/2：尚在队列中。
+
+            fx.Host.ClearPending();
+            fx.Tick();
+            fx.Tick();
+            fx.Bus.DispatchPending();
+
+            Assert.Empty(fx.Revived);
+            Assert.Empty(fx.RespawnedEvents);
+        }
+
+        [Fact]
+        public void ClearPending_OnEmptyQueue_IsSafeNoOp_AndLaterDeathsStillRespawn()
+        {
+            var fx = Build(defaultPolicy: RespawnPolicy.RespawnPoint);
+
+            var ex = Record.Exception(() => fx.Host.ClearPending());
+            fx.Died(PlayerId);
+            fx.Tick();
+
+            Assert.Null(ex);
+            Assert.Single(fx.Revived);
+        }
+
+        [Fact]
+        public void ClearPending_OnlyClearsQueue_DoesNotDisableTheHost()
+        {
+            var fx = Build(defaultPolicy: RespawnPolicy.RespawnPoint);
+            fx.Died(PlayerId);
+            fx.Host.ClearPending();
+            fx.Tick();
+            Assert.Empty(fx.Revived);
+
+            // 清空之后新发生的死亡仍按策略排队、到点复活（订阅未被取消）。
+            fx.Died(PlayerId);
+            fx.Tick();
+
+            var revived = Assert.Single(fx.Revived);
+            Assert.Equal(PlayerId, revived.UnitId);
+        }
     }
 }

@@ -689,5 +689,77 @@ namespace Tests.Carriers.Item
 
             Assert.Equal(0.0, f.Equipment.GetWeaponBaseDamage(Player), 6);
         }
+
+        // -----------------------------------------------------------------
+        // T-L14（测试覆盖剩余项 2026-10-01）：GetWeaponProfile 的直接用例（此前只经 GetWeaponBaseDamage /
+        // GetWeaponDps 间接触及，字段映射与"无装备/无 weapon_profile 返回 null"两个分支没有断言）。
+        // 期望值从模板记录本身读取，不在用例里重复写裸数。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void GetWeaponProfile_EquippedWeapon_ReturnsEveryFieldDeclaredOnTemplate()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var instanceId = GiveAndReturnInstance(f, "item.sample_weapon_a");
+            f.Equipment.Equip(Player, instanceId, new Id("item.slot.main_hand"));
+
+            var declared = f.Registry.Get("item.template", new Id("item.sample_weapon_a"))!;
+            Assert.True(declared.TryGetObject("weapon_profile", out var raw));
+            var expectedMin = ((Core.Foundation.Common.Json.JsonNumber)raw["damage_min"]).Value;
+            var expectedMax = ((Core.Foundation.Common.Json.JsonNumber)raw["damage_max"]).Value;
+            var expectedSpeed = ((Core.Foundation.Common.Json.JsonNumber)raw["speed"]).Value;
+            var expectedSchool = new Id(((Core.Foundation.Common.Json.JsonString)raw["weapon_school"]).Value);
+
+            var profile = f.Equipment.GetWeaponProfile(Player, new Id("item.slot.main_hand"));
+
+            Assert.True(profile.HasValue);
+            Assert.Equal(expectedMin, profile.Value.DamageMin);
+            Assert.Equal(expectedMax, profile.Value.DamageMax);
+            Assert.Equal(expectedSpeed, profile.Value.Speed);
+            Assert.Equal(expectedSchool, profile.Value.WeaponSchool);
+        }
+
+        [Fact]
+        public void GetWeaponProfile_SlotEmpty_ReturnsNull()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+
+            Assert.Null(f.Equipment.GetWeaponProfile(Player, new Id("item.slot.main_hand")));
+        }
+
+        [Fact]
+        public void GetWeaponProfile_UnknownUnit_ReturnsNull()
+        {
+            var f = Build();
+
+            Assert.Null(f.Equipment.GetWeaponProfile(new Id("player.nobody"), new Id("item.slot.main_hand")));
+        }
+
+        [Fact]
+        public void GetWeaponProfile_EquippedItemWithoutWeaponProfile_ReturnsNull()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var chestId = GiveAndReturnInstance(f, "item.sample_chest_armor");
+            f.Equipment.Equip(Player, chestId, new Id("item.slot.chest"));
+
+            Assert.Null(f.Equipment.GetWeaponProfile(Player, new Id("item.slot.chest")));
+        }
+
+        [Fact]
+        public void GetWeaponProfile_AfterUnequip_ReturnsNullAgain()
+        {
+            var f = Build();
+            f.StatHost.RegisterUnit(Player);
+            var instanceId = GiveAndReturnInstance(f, "item.sample_weapon_b");
+            f.Equipment.Equip(Player, instanceId, new Id("item.slot.main_hand"));
+            Assert.NotNull(f.Equipment.GetWeaponProfile(Player, new Id("item.slot.main_hand")));
+
+            f.Equipment.Unequip(Player, new Id("item.slot.main_hand"));
+
+            Assert.Null(f.Equipment.GetWeaponProfile(Player, new Id("item.slot.main_hand")));
+        }
     }
 }

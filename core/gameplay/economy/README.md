@@ -370,6 +370,13 @@ economy/
     新定价，不落后于数据）/`.MultipleVendors_OnlySecondVendorHasPriceAmount_SellUsesSecondVendorsPrice`
     （多商人优先级逐位保留）。
 
+17. **T-M14（测试覆盖第四批，2026-10-01）：`EconomyDataParser.ParseSellItem` 的 `stock_limit` 超出 32 位整数
+    范围改报 `DataFieldException`**——复现：`stock_limit: 4294967297`（`TryGetInt64` 成功、非负）旧实现
+    `(int)` 强转静默回绕成 1，商人库存被悄悄改成 1 件；`2147483648` 回绕成负数库存。内容校验没有对该上界做
+    检查，所以兜底落在解析层。改法：强转前判断 `> int.MaxValue`，抛带 `sell_items` 字段与条目下标的
+    `DataFieldException`；负数、缺省、非数字（按"未提供"处理）的既有行为不变。见
+    `EconomyDataParserErrorPathTests`。
+
 ## 子结构登记表（ADR-0019 / F1b）
 
 `econ.vendor.sell_items` 元素结构（对照 `EconomyDataParser.ParseSellItem` 运行时解析代码）：

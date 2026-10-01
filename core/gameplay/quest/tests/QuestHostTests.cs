@@ -141,6 +141,40 @@ namespace Tests.Gameplay.Quest
             Assert.Empty(h.PublishedOf<QuestTurnedInEvent>());
         }
 
+        /// <summary>T-M23（测试覆盖剩余项 2026-10-01）：<c>TurnIn(..., out QuestTurnInFailure)</c> 在任务不处于
+        /// <see cref="QuestState.ObjectivesComplete"/> 时（尚未接取/进行中/已交付）统一报
+        /// <see cref="QuestTurnInFailure.NotReady"/>，且不改变状态、不发奖励、不发交付事件。</summary>
+        [Fact]
+        public void TurnIn_NotInObjectivesComplete_ReportsNotReady_ForEveryOtherState_WithoutSideEffects()
+        {
+            var quest = SimpleKillQuest(new Id("quest.sample_kill_wolves"), new Id("creature.wolf"), 1);
+            var h = new Harness(new[] { quest });
+
+            // 尚未接取（Available）。
+            Assert.False(h.Host.TurnIn(Player, quest.Id, out var failureAvailable));
+            Assert.Equal(QuestTurnInFailure.NotReady, failureAvailable);
+            Assert.Equal(QuestState.Available, h.Host.GetState(Player, quest.Id));
+
+            // 进行中（Active）。
+            h.Host.Accept(Player, quest.Id);
+            Assert.False(h.Host.TurnIn(Player, quest.Id, out var failureActive));
+            Assert.Equal(QuestTurnInFailure.NotReady, failureActive);
+            Assert.Equal(QuestState.Active, h.Host.GetState(Player, quest.Id));
+
+            // 已交付（TurnedIn）后再交付一次。
+            h.Units.SetTemplate(new Id("unit.wolf_1"), new Id("creature.wolf"));
+            h.Bus.PublishImmediate(new UnitDiedEvent(new Id("unit.wolf_1"), Player));
+            Assert.True(h.Host.TurnIn(Player, quest.Id, out var failureOk));
+            Assert.Equal(QuestTurnInFailure.None, failureOk);
+            var rewardCalls = h.Rewards.Calls.Count;
+            Assert.False(h.Host.TurnIn(Player, quest.Id, out var failureAgain));
+            Assert.Equal(QuestTurnInFailure.NotReady, failureAgain);
+            Assert.Equal(QuestState.TurnedIn, h.Host.GetState(Player, quest.Id));
+
+            Assert.Equal(rewardCalls, h.Rewards.Calls.Count);
+            Assert.Single(h.PublishedOf<QuestTurnedInEvent>());
+        }
+
         /// <summary>N02 复现与根治（architecture/落地计划/audit-68c9bed-20260907/code-review.md）：
         /// 满背包（<c>InventoryFullPolicy.Reject</c>，此处用 <see cref="FakeRewardDispatcher.ShouldFail"/>
         /// 模拟其 <c>AddItem</c> 失败的效果）时奖励发放失败——旧实现忽略失败、任务仍置
@@ -774,6 +808,30 @@ namespace Tests.Gameplay.Quest
             var expr = ExprParser.Parse("quest.is_objectives_complete(quest.sample_kill_wolves)", Schema);
 
             Assert.NotNull(expr);
+
+            // T-M13：不止"解析不抛"——解析出的节点交给真实求值器，在任务各阶段给出与
+            // QuestIsObjectivesComplete_TrueOnlyInObjectivesCompleteState 同一口径的结果，且求值无诊断错误。
+            var questId = new Id("quest.sample_kill_wolves");
+            var h = new Harness(new[] { SimpleKillQuest(questId, new Id("creature.wolf"), 1) });
+            var host = new TestExprHostFactory(
+                new QuestExprGroupProvider(h.Host, () => Player),
+                new PlayerExprGroupProvider(h.Inventory, h.Progression, () => Player)).CreateFor(Player, null, null);
+
+            bool Evaluate()
+            {
+                var diagnostics = new ExprDiagnosticsRecorder();
+                var value = ExprEvaluator.EvaluateBool(expr, host, diagnostics);
+                Assert.False(diagnostics.HasErrors, string.Join("; ", diagnostics.Errors.Select(e => e.Message)));
+                return value;
+            }
+
+            Assert.False(Evaluate());
+            h.Host.Accept(Player, questId);
+            Assert.False(Evaluate());
+            h.Units.SetTemplate(new Id("unit.wolf_1"), new Id("creature.wolf"));
+            h.Bus.PublishImmediate(new UnitDiedEvent(new Id("unit.wolf_1"), Player));
+            Assert.Equal(QuestState.ObjectivesComplete, h.Host.GetState(Player, questId));
+            Assert.True(Evaluate());
         }
 
         [Fact]

@@ -278,9 +278,23 @@ namespace Tests.PresentationRender
             // 任意 IEvent 均可——本用例只关心默认实现不抛异常，不关心具体事件语义（原用
             // Presentation.Common.PlaybackFinishedEvent 当占位事件，该类型已随 09 勘误"去重"删除，
             // 见 PresentationEventKeys 类型注释，这里换一个已在本文件 using 范围内的真实事件类型）。
+            var transformsBefore = new Dictionary<int, StubRenderer2D.TransformRecord>(renderer.Transforms);
+            var layerCallsBefore = renderer.SetLayersCalls.Count;
+            var particlesBefore = renderer.EmittedParticles.Count;
+            var shaderBefore = renderer.ShaderParams.Count;
+
             var ex = Record.Exception(() => view.OnEvent(new UnitMovedEvent(new Id("unit.other"), Vec2.Zero)));
 
+            // T-M13：默认实现确实什么都不做——渲染器上没有新增任何变换/图层/粒子/着色参数写入。
             Assert.Null(ex);
+            Assert.Equal(layerCallsBefore, renderer.SetLayersCalls.Count);
+            Assert.Equal(particlesBefore, renderer.EmittedParticles.Count);
+            Assert.Equal(shaderBefore, renderer.ShaderParams.Count);
+            Assert.Equal(transformsBefore.Count, renderer.Transforms.Count);
+            foreach (var kv in transformsBefore)
+            {
+                Assert.Equal(kv.Value, renderer.Transforms[kv.Key]);
+            }
         }
 
         // -----------------------------------------------------------------

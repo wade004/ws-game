@@ -190,7 +190,11 @@ namespace Tests.PresentationCommon
             tracker.EnsureLoading(id, ResourceKind.Image, onComplete: null);
 
             var ex = Record.Exception(() => loader.CompletePending(id));
+
+            // T-M13：不仅不抛——无回调时加载照常完成，且只发起过一次加载请求。
             Assert.Null(ex);
+            Assert.True(loader.IsLoaded(id));
+            Assert.Single(loader.LoadRequests.FindAll(r => r.ResourceId.Equals(id)));
         }
     }
 }

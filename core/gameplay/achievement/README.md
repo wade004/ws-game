@@ -108,6 +108,14 @@ achievement/
    里原有的 `achv_criteria_min_count` 判断分支同步删除（避免同一缺陷双报）；空数组时下方逐元素循环
    天然是空操作，无需额外提前返回。
 
+9. **T-M14（测试覆盖第四批，2026-10-01）：`AchievementCriterion.FromRecord` 的 `count` 超出 32 位整数范围改报
+   `DataFieldException`**——复现：`count: 4294967301`（`TryGetInt64` 成功）旧实现直接 `(int)` 强转，静默
+   回绕成 5，成就实际只需 5 次即解锁；`count: 2147483648` 则回绕成负数、被构造期 `count >= 1` 守卫以
+   `ArgumentOutOfRangeException` 拒绝（异常类型与其它字段不一致）。`AchievementContentValidationRule` 只检查
+   `count >= 1`，不拦这类超大值，所以兜底必须落在解析层。改法：强转前判断范围，越界抛带
+   `criteria[i].count` 路径的 `DataFieldException`；`count < 1` 仍由构造期守卫与内容校验规则
+   `achv_criterion_count_positive` 负责，行为不变。见 `AchievementContractsErrorPathTests`。
+
 ## CORE-170-03 根治（第十轮外部审计，P2，architecture/落地计划/audit-8160178-20260908）
 
 `AchievementHost.Load` 修复前开头无条件清空该玩家全部进度/解锁/待领奖记录，随后才校验 `data`

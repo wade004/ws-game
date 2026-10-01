@@ -339,9 +339,15 @@ namespace Tests.Presentation.VfxSfx
             var renderer = new StubRenderer2D();
             var player = new VfxPlayer(renderer, new StubCamera(), BuildCatalog());
 
-            var ex = Record.Exception(() => player.Spawn(WorldVfx, VfxAttach.World(Vec2.Zero), null));
+            Core.Foundation.EngineAdapter.ParticleHandle? handle = null;
+            var ex = Record.Exception(() => handle = player.Spawn(WorldVfx, VfxAttach.World(new Vec2(2, 5)), null));
 
+            // T-M13：不仅不抛——没有资源加载器时退化为直接发射，粒子确实落到了渲染器的目标位置上。
             Assert.Null(ex);
+            Assert.NotNull(handle);
+            var (effectId, pos) = renderer.EmittedParticles[handle!.Value.Value];
+            Assert.Equal(new Id("res.spark"), effectId);
+            Assert.Equal(new Vec2(2, 5), pos);
         }
 
         // -----------------------------------------------------------------

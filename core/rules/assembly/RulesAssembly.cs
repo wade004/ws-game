@@ -853,6 +853,17 @@ namespace Core.Rules.Assembly
         {
             var raceChanged = !previousRaceId.HasValue || !raceId.HasValue || !previousRaceId.Value.Equals(raceId.Value);
 
+            // 失败原子性（测试覆盖第四批 T-L14 复现）：新职业、新种族（仅当种族变化时才会读取）先
+            // 全部解析成功，再写任何状态。此前未知职业在旧种族修正已被摘掉之后才抛、未知种族在
+            // 新职业基础键/派生覆盖已写入之后才抛，留下半应用状态（同 ArchetypeRegistry.ApplyTo
+            // ADR-0121 D7 同一类缺陷）。
+            var cls = Archetypes.GetClass(classId) ?? throw new ArgumentException($"未知职业 \"{classId}\"", nameof(classId));
+            RaceDefinition? newRace = null;
+            if (raceId.HasValue && raceChanged)
+            {
+                newRace = Archetypes.GetRace(raceId.Value) ?? throw new ArgumentException($"未知种族 \"{raceId.Value}\"", nameof(raceId));
+            }
+
             if (previousRaceId.HasValue && raceChanged)
             {
                 Stats.RemoveModifiersBySource(unitId, previousRaceId.Value);
@@ -874,7 +885,6 @@ namespace Core.Rules.Assembly
 
             var classChanged = !previousClassId.HasValue || !previousClassId.Value.Equals(classId);
             var oldClass = previousClassId.HasValue ? Archetypes.GetClass(previousClassId.Value) : null;
-            var cls = Archetypes.GetClass(classId) ?? throw new ArgumentException($"未知职业 \"{classId}\"", nameof(classId));
 
             if (classChanged && oldClass != null)
             {
@@ -903,10 +913,9 @@ namespace Core.Rules.Assembly
 
             if (raceId.HasValue)
             {
-                if (raceChanged)
+                if (newRace != null)
                 {
-                    var race = Archetypes.GetRace(raceId.Value) ?? throw new ArgumentException($"未知种族 \"{raceId.Value}\"", nameof(raceId));
-                    foreach (var kv in race.StatMods)
+                    foreach (var kv in newRace.StatMods)
                     {
                         Stats.AddModifier(unitId, new StatModifier(new Id(kv.Key), StatModifierOp.Flat, kv.Value, raceId.Value));
                     }

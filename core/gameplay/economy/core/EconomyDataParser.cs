@@ -94,6 +94,12 @@ namespace Core.Gameplay.Economy
                     throw new DataFieldException(record.Table.Name, record.Key, "sell_items", $"第 {index} 项 stock_limit 不能为负数");
                 }
 
+                if (stockLong > int.MaxValue)
+                {
+                    // 旧实现直接 (int) 强转：4294967297 会静默回绕成 1（T-M14 复现，见 README 判断记录 17）。
+                    throw new DataFieldException(record.Table.Name, record.Key, "sell_items", $"第 {index} 项 stock_limit 超出 32 位整数范围");
+                }
+
                 stockLimit = (int)stockLong;
             }
 

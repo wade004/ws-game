@@ -158,6 +158,13 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
       施法（`CastSkillAtGround`）与 `TriggerCast` 触发链两条入口本任务未接入系数（超出 T-N3-8
       范围，恒系数 1，与改动前行为一致），留给后续任务按需扩展。
 
+14. **T-M14（测试覆盖第四批，2026-10-01）：`TargetChainDef` 的 `max_targets` 超 32 位范围改报
+    `DataFieldException`**——复现：`max_targets: 4294967296` 旧实现 `checked((int)…)` 抛出裸
+    `OverflowException`，既与同构造函数其它字段（负数、`overflow_policy`、`shape.kind`）的
+    `DataFieldException` 不一致，又丢失表名/记录键/字段名，内容作者无法定位。改法：强转前判断
+    `> int.MaxValue`，抛带 `max_targets` 字段路径的 `DataFieldException`；负数与缺省行为不变。见
+    `TargetChainDefErrorPathTests`。
+
 ## 不负责什么
 
 - 不提供 `IExprHostFactory` 的默认实现——集成任务职责（见 common/README.md"谁实现、谁调用"）。

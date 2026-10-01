@@ -81,6 +81,12 @@ namespace Core.Gameplay.Achievement
                 throw new DataFieldException(record.Table.Name, record.Key, $"criteria[{index}].count", "必须是整数");
             }
 
+            // 超出 32 位整数范围必须报错：旧实现直接 (int) 强转，4294967301 会静默回绕成 5。
+            if (countValue < int.MinValue || countValue > int.MaxValue)
+            {
+                throw new DataFieldException(record.Table.Name, record.Key, $"criteria[{index}].count", "超出 32 位整数范围");
+            }
+
             string? filterText = null;
             if (criterionJson.TryGetValue("filter", out var filterRaw) && filterRaw is JsonString filterStr)
             {

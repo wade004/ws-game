@@ -277,5 +277,40 @@ namespace Tests.Carriers.Assembly
             Assert.True(found);
             Assert.Equal(new Id("creature.inst_alive"), target.EntityId);
         }
+
+        // -----------------------------------------------------------------
+        // T-M21（测试覆盖剩余项 2026-10-01）：真正等距的两个存活候选——保留 EntityId 序数最小者，
+        // 与登记/加入世界的先后顺序无关（QueryEntities 按 EntityId 序数返回，循环只在严格更近时替换）。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void TryFindNearest_TwoCandidatesAtExactlyEqualDistance_PicksOrdinalSmallestEntityId()
+        {
+            var (world, _, registry, player) = NewFixture();
+
+            // 故意先加入序数较大者，且两者分居施法者两侧，距离逐位相等。
+            world.AddEntity(new FakeInteractableEntity(new Id("loot.tie_b"), MapId, EntityKinds.Loot) { Position = new Vec2(-4, 0) });
+            world.AddEntity(new FakeInteractableEntity(new Id("loot.tie_a"), MapId, EntityKinds.Loot) { Position = new Vec2(4, 0) });
+
+            Assert.True(registry.TryFindNearest(player.EntityId, null, out var target));
+
+            Assert.Equal(new Id("loot.tie_a"), target.EntityId);
+            Assert.Equal(4.0, target.Distance);
+        }
+
+        [Fact]
+        public void TryFindNearest_EqualDistanceAcrossKinds_StillResolvesByOrdinalEntityId_NotByKind()
+        {
+            var (world, _, registry, player) = NewFixture();
+
+            world.AddEntity(new FakeInteractableEntity(new Id("loot.tie_x"), MapId, EntityKinds.Loot) { Position = new Vec2(0, 6) });
+            world.AddEntity(new FakeInteractableEntity(new Id("gobj.tie_y"), MapId, EntityKinds.Gobj) { Position = new Vec2(0, -6) });
+
+            Assert.True(registry.TryFindNearest(player.EntityId, null, out var target));
+
+            // "gobj.tie_y" 的序数小于 "loot.tie_x"，即使两者种类不同，也按序数而非种类优先级取舍。
+            Assert.Equal(new Id("gobj.tie_y"), target.EntityId);
+            Assert.Equal(InteractionTargetKind.GameObject, target.Kind);
+        }
     }
 }

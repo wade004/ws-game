@@ -374,5 +374,78 @@ namespace Tests.Gameplay.Spawn
             Assert.Equal(generated, afterRecord!.EntityId);
             Assert.Equal(beforeRecord!.SpawnCount, afterRecord!.SpawnCount);
         }
+
+        // ------------------------------------------------------------------
+        // T-L14（测试覆盖剩余项 2026-10-01）：NotifyDespawn 直接调用（不经总线事件）
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void NotifyDespawn_UnknownEntity_IsNoOp_AndLeavesTrackedSpawnAlone()
+        {
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_wolf", "world.sample_map", "creature.sample_wolf", "timer", respawnTimer: 5));
+            var spawned = fx.Host.ApplyForMap(Map).Single();
+
+            var ex = Record.Exception(() => fx.Host.NotifyDespawn(new Id("creature.inst_never_spawned"), "died"));
+
+            Assert.Null(ex);
+            var record = fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"))!;
+            Assert.Equal(spawned, record.EntityId);
+            Assert.Null(record.RespawnRemaining);
+        }
+
+        [Fact]
+        public void NotifyDespawn_TimerPolicy_ClearsEntityAndStartsCountdownFromRespawnTimer()
+        {
+            const double respawnTimer = 5;
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_wolf", "world.sample_map", "creature.sample_wolf", "timer", respawnTimer: respawnTimer));
+            var spawned = fx.Host.ApplyForMap(Map).Single();
+
+            fx.Host.NotifyDespawn(spawned, "died");
+
+            var record = fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"))!;
+            Assert.Null(record.EntityId);
+            Assert.Equal(respawnTimer, record.RespawnRemaining);
+            Assert.Equal(1, record.SpawnCount);
+        }
+
+        [Fact]
+        public void NotifyDespawn_TimerPolicyWithoutTimer_StartsCountdownAtZero()
+        {
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_wolf", "world.sample_map", "creature.sample_wolf", "timer"));
+            var spawned = fx.Host.ApplyForMap(Map).Single();
+
+            fx.Host.NotifyDespawn(spawned, "died");
+
+            Assert.Equal(0.0, fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"))!.RespawnRemaining);
+        }
+
+        [Fact]
+        public void NotifyDespawn_NonTimerPolicy_ClearsEntityWithoutCountdown()
+        {
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_wolf", "world.sample_map", "creature.sample_wolf", "on_map_enter"));
+            var spawned = fx.Host.ApplyForMap(Map).Single();
+
+            fx.Host.NotifyDespawn(spawned, "died");
+
+            var record = fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"))!;
+            Assert.Null(record.EntityId);
+            Assert.Null(record.RespawnRemaining);
+        }
+
+        [Fact]
+        public void NotifyDespawn_SecondCallForSameEntity_IsIgnored_DoesNotRestartCountdown()
+        {
+            const double respawnTimer = 5;
+            var fx = Build(SpawnTestSupport.Row("spawn.sample_wolf", "world.sample_map", "creature.sample_wolf", "timer", respawnTimer: respawnTimer));
+            var spawned = fx.Host.ApplyForMap(Map).Single();
+            fx.Host.NotifyDespawn(spawned, "died");
+            fx.Host.Update(2);
+            var afterUpdate = fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"))!.RespawnRemaining;
+            Assert.Equal(respawnTimer - 2, afterUpdate);
+
+            fx.Host.NotifyDespawn(spawned, "destroyed");
+
+            Assert.Equal(afterUpdate, fx.Host.GetSpawnRecord(new Id("spawn.sample_wolf"))!.RespawnRemaining);
+        }
     }
 }

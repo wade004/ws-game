@@ -68,7 +68,17 @@ namespace Core.Gameplay.Difficulty
             var modifierAuraRefs = record.TryGetIdList("modifier_aura_refs", out var refs) ? refs : EmptyIds;
             var affixPoolRef = record.TryGetId("affix_pool_ref", out var apr) ? (Id?)apr : null;
             var lootMultiplier = record.GetNumber("loot_multiplier");
-            var itemLevelOffset = record.TryGetInt("item_level_offset", out var ilo) ? (int)ilo : 0;
+            var itemLevelOffset = 0;
+            if (record.TryGetInt("item_level_offset", out var ilo))
+            {
+                if (ilo < int.MinValue || ilo > int.MaxValue)
+                {
+                    // 旧实现直接 (int) 强转：4294967297 会静默回绕成 1（T-M14 复现，见 README 判断记录）。
+                    throw new DataFieldException(record.Table.Name, record.Key, "item_level_offset", "超出 32 位整数范围");
+                }
+
+                itemLevelOffset = (int)ilo;
+            }
             var sortWeight = record.TryGetNumber("sort_weight", out var sw) ? sw : 0.0;
             var xpMultiplier = record.TryGetNumber("xp_multiplier", out var xm) ? xm : 1.0;
 

@@ -123,8 +123,11 @@ namespace Tests.Rules.Combat
             // NewSampleCurve_WithK0_FixesLowLevelDegeneration_ComparedToK0Zero 测试单独覆盖。
             var existingCurves = allCurves.Where(c => c.Curve.K0 == 0.0).ToList();
             Assert.NotEmpty(existingCurves);
-            Assert.True(existingCurves.Count == allCurves.Count - 1,
-                $"预期恰好一条样例登记了非零 k0（新增探针），实际既有（k0=0）记录 {existingCurves.Count}/{allCurves.Count}");
+            // T-L9：不写死"恰好 1 条"——数据集今后新增更多 k0 曲线不应让本用例无故翻红。按 k0 条件
+            // 计数：被排除出逐位比对的只能是 k0 != 0 的记录，且 k0 探针样例必须确实在被排除之列。
+            var k0Curves = allCurves.Where(c => c.Curve.K0 != 0.0).ToList();
+            Assert.Equal(allCurves.Count, existingCurves.Count + k0Curves.Count);
+            Assert.Contains(k0Curves, c => c.CurveId.EndsWith("physical_with_floor", StringComparison.Ordinal));
 
             var mismatches = new List<string>();
             var coveredInstanceCount = 0;
