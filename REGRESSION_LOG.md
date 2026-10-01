@@ -76,3 +76,4 @@
 | full-20261001-15 | 失败（同上重跑：36/37，PlayMode 373/374，已登记计时类用例 SfxEngineReportedFinishPlayModeTests 短音效自然播完超时，环境性；消费方演练本次通过）。期间排查确认包管理器断连为环境偶发：同签名可用中途杀进程稳定复现，与本分支代码及私服同版本号包无关，该工作树单跑消费方演练两次 11/11 通过 | 31e0d4a1 | 2026-10-01 |
 | full-20261001-16 | 通过（合并前第四次，同一提交未改代码：37 步全过，脚本墙钟 921.7s；dotnet test 8034/8034、pytest 1036/1036（6d PowerShell 5.1+7 各 540/540）、EditMode 185/185、PlayMode 374/374） | 31e0d4a1 | 2026-10-01 |
 | full-20261001-17 | 通过（合并后，main 快进到 d3602221 后在主检出跑 check.ps1 全量含 Unity：37 步全过，脚本墙钟 911.8s；dotnet test 8034/8034、pytest 1036/1036（6d PowerShell 5.1+7 各 540/540）、EditMode 185/185、PlayMode 374/374；逐步耗时追加在 timing/20261001_main.jsonl） | d3602221 | 2026-10-01 |
+| full-20261001-18 | 通过（合并前，分支 bugfix/upm-evidence-stale-pid_20261001，在 D:\wt\upm-evidence 跑 check.ps1 全量含 Unity：37 步全过，脚本墙钟 945.5s；dotnet test 8034/8034、pytest 1054/1054（6d PowerShell 5.1+7 各 558/558）、EditMode 185/185、PlayMode 374/374） | 148130a6 | 2026-10-01 |
