@@ -229,3 +229,10 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
 
 已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线；本地玩家绑定在 `PresentationAssembly` 构造时固定；Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）未改，仍直接提交 `cast` 意图并调用不含 `feelOptions` 的可选参数构造重载。
+
+## 手感落地 S11：时间线目标辅助接进生产装配（2026-10-02）
+
+`CarriersFeelAssembly.Attach` 在时间线协作者上补 `TargetAssist = new ActionTargetAssistAdapter(options.TargetAssist ?? new TargetChainAssistResolver(rules.Targeting, carriers.Units), carriers.Units)`（`HitFeel` 与 `IsTimelineSkill` 的接线在规则层，见 `core/rules/assembly/README.md` S11 节）。本节编号为 S11 本节编号：
+
+1. **候选解析缺省用目标选择链，`CarriersFeelOptions.TargetAssist` 可覆盖（游戏层软锁定）**：同一个选项同时是运动层 `MotionServices.TargetAssist` 与时间线 `target_assist` 的候选来源，覆盖时两处一致；没有覆盖时运动层仍为 null（缺省关闭、与 S10 一致），时间线侧装配缺省解析器——但只有技能数据声明了 `timeline.target_assist` 才生效，没声明的技能行为与未装配时逐位一致（用例 `TargetAssist_NotDeclaredBySkill_LeavesFacingAlone`）。
+2. **`IUnitFacingWriter` 由生产 `WorldUnitAccess` 提供**：`CarriersAssembly` 构造 `RulesAssembly` 时传入的 `IUnitAccess` 就是 `WorldUnitAccess`（同时实现 `IUnitFacingWriter`），`CastPipeline` 持有的是同一个对象，朝向修正可落地；用例 `TargetAssist_DeclaredBySkill_TurnsTheActorByTheProfileCap_ThroughProductionAssembly` 断言朝向写入量等于 min(候选夹角, 档案 `turn_assist_deg`)。

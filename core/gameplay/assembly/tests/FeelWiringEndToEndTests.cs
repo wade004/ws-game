@@ -15,6 +15,7 @@ using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
 using Core.Foundation.SimLoop;
 using Core.Carriers.Assembly;
+using Core.Numbers.PowerSet;
 using Core.Rules.Common;
 using Core.Sim;
 using Xunit;
@@ -30,6 +31,10 @@ namespace Tests.Gameplay.Assembly
         private static readonly Id MapId = new Id("world.lab_arena");
         private static readonly Id PlayerId = new Id("unit.lab_player");
         private static readonly Id SwingSkill = new Id("skill.fw_swing");
+        private static readonly Id ConeSwingSkill = new Id("skill.fw_cone_swing");
+        private static readonly Id FlatSwingSkill = new Id("skill.fw_flat_swing");
+        private static readonly Id AssistSwingSkill = new Id("skill.fw_assist_swing");
+        private static readonly Id InstantSkill = new Id("skill.lab_slash");
         private static readonly Id AttackAction = new Id("input.action.fw_attack");
         private static readonly Id StakeTemplate = new Id("creature.lab_stake");
         private static readonly Id MobTemplate = new Id("creature.lab_mob");
@@ -39,14 +44,35 @@ namespace Tests.Gameplay.Assembly
         // ------------------------------------------------------------------ 数据
 
         // 时间线技能：前摇 100 ms、有效 60 ms、后摇 240 ms，hit 标记落在有效帧起点；cast_time 必须等于三段之和（秒）。
-        private const string SwingSkillJson = @"{
-  ""table"": ""skill.def"", ""schema_version"": 1,
-  ""rows"": [ {
-    ""id"": ""skill.fw_swing"", ""school"": ""school.physical"", ""kind"": ""active"", ""range"": 3, ""cast_time"": 0.4,
-    ""cooldown_duration"": 0, ""respects_gcd"": false, ""target_shape_ref"": ""target.chain.lab_nearest_enemy"",
-    ""timeline"": { ""startup_ms"": 100, ""active_ms"": 60, ""recovery_ms"": 240, ""markers"": [ { ""name"": ""hit"", ""at_ms"": 100 } ] },
+        // 同一套时间线数据挂不同的目标选择链：fw_swing 用实验室圆形（半径 30）链 -> 空间命中；fw_cone_swing 用本文件的扇形链 -> 空间命中但只命中扇形内；
+        // fw_flat_swing 用没有 shape 的 current_target 链 -> 链无 shape 的时间线 instant 结算（目标取施法请求的显式目标）；
+        // fw_assist_swing 声明目标辅助（face_only，候选取实验室圆形链）。
+        private static string TimelineSkill(string id, string chain, string extra = "") => @"{
+    ""id"": """ + id + @""", ""school"": ""school.physical"", ""kind"": ""active"", ""range"": 3, ""cast_time"": 0.4,
+    ""cooldown_duration"": 0, ""respects_gcd"": false, ""target_shape_ref"": """ + chain + @""",
+    ""timeline"": { ""startup_ms"": 100, ""active_ms"": 60, ""recovery_ms"": 240, ""markers"": [ { ""name"": ""hit"", ""at_ms"": 100 } ]" + extra + @" },
     ""effects"": [ { ""kind"": ""school_damage"", ""params"": { ""base_value"": 10, ""scaling"": [ { ""stat"": ""stat.attack_power"", ""coefficient"": 1.0 } ], ""school"": ""school.physical"" } } ]
-  } ]
+  }";
+
+        private static readonly string SwingSkillJson = @"{
+  ""table"": ""skill.def"", ""schema_version"": 1,
+  ""rows"": [ " + TimelineSkill("skill.fw_swing", "target.chain.lab_nearest_enemy") + ",\n  "
+            + TimelineSkill("skill.fw_cone_swing", "target.chain.fw_cone_enemies") + ",\n  "
+            + TimelineSkill("skill.fw_flat_swing", "target.chain.fw_current_enemy") + ",\n  "
+            + TimelineSkill(
+                "skill.fw_assist_swing", "target.chain.lab_nearest_enemy",
+                @", ""target_assist"": { ""chain_ref"": ""target.chain.lab_nearest_enemy"", ""max_distance"": 10, ""max_angle_deg"": 90, ""mode"": ""face_only"" }")
+            + @" ]
+}";
+
+        // 目标选择链：扇形（张角 90 度 = pi/2 弧度，半径 3，全部敌对存活者）与没有 shape 的当前目标链。
+        private const string ChainJson = @"{
+  ""table"": ""target.chain_def"", ""schema_version"": 1,
+  ""rows"": [
+    { ""id"": ""target.chain.fw_cone_enemies"", ""source"": ""all_in_shape"", ""shape"": { ""kind"": ""cone"", ""angle"": 1.5707963267948966, ""radius"": 3 },
+      ""filters"": [""relation:hostile"", ""alive""], ""sort_by"": { ""key"": ""distance"", ""direction"": ""asc"" }, ""max_targets"": 8 },
+    { ""id"": ""target.chain.fw_current_enemy"", ""source"": ""current_target"", ""filters"": [""relation:hostile"", ""alive""], ""max_targets"": 1 }
+  ]
 }";
 
         // 带类别与缓冲窗口的输入动作（class + buffer_ms + skill_slot，S10 加法字段）。
@@ -99,6 +125,7 @@ namespace Tests.Gameplay.Assembly
             if (withFeelOverlay)
             {
                 fs.WriteTextAtomic("test/_fw_feel/skill/skill.def.json", SwingSkillJson);
+                fs.WriteTextAtomic("test/_fw_feel/target/target.chain_def.json", ChainJson);
                 fs.WriteTextAtomic("test/_fw_feel/found/found.input_action.json", AttackActionJson);
                 sources.Add(new FileSystemDataSource(fs, "test/_fw_feel"));
             }
@@ -368,6 +395,151 @@ namespace Tests.Gameplay.Assembly
             var cancelled = rig.Of<ActionCancelledEvent>().Where(c => c.Event.ActorId == PlayerId).ToList();
             Assert.Single(cancelled);
             Assert.Equal(ActionCancelReason.Stagger, cancelled[0].Event.Reason);
+        }
+
+        // ------------------------------------------------------------------ S11：空间命中、目标辅助与单次确认（经生产装配）
+
+        /// <summary>三种命中路径：每种路径下一次命中恰好一条确认、一次顿帧评估。</summary>
+        public enum HitPath
+        {
+            /// <summary>时间线技能 + 带 shape 的链：空间命中（marker 策略）。</summary>
+            TimelineSpatial,
+
+            /// <summary>时间线技能 + 没有 shape 的链：instant 式结算，由时间线路径自己发确认。</summary>
+            TimelineChainWithoutShape,
+
+            /// <summary>没有时间线的 instant 技能：由受击裁决的 instant 适配器合成确认。</summary>
+            Instant,
+        }
+
+        private static void CastPath(Rig rig, HitPath path, Id target)
+        {
+            var skills = rig.World.Gameplay.Carriers.Rules.Skill;
+            Id skill;
+            Id[] explicitTargets;
+            switch (path)
+            {
+                case HitPath.TimelineSpatial: skill = SwingSkill; explicitTargets = new Id[0]; break;
+                case HitPath.TimelineChainWithoutShape: skill = FlatSwingSkill; explicitTargets = new[] { target }; break;
+                default: skill = InstantSkill; explicitTargets = new Id[0]; break;
+            }
+
+            skills.LearnSkill(PlayerId, skill);
+            var cast = skills.CastSkill(PlayerId, skill, explicitTargets);
+            Assert.True(cast.Success, cast.Reason.ToString());
+        }
+
+        [Theory]
+        [InlineData(HitPath.TimelineSpatial)]
+        [InlineData(HitPath.TimelineChainWithoutShape)]
+        [InlineData(HitPath.Instant)]
+        public void EachHit_ProducesExactlyOneConfirmation_AndOneHitstopEvaluation(HitPath path)
+        {
+            var rig = Build(feel: true);
+            var target = SpawnDummy(rig, StakeTemplate, new Vec2(1.5, 0));
+            rig.Feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.AttackerHitstopMs, FeelOp.Set, FeelValue.Of(50)));
+            rig.Feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.TargetHitstopMs, FeelOp.Set, FeelValue.Of(110)));
+            var judging = rig.Feel.Resolver.ResolveJudging(PlayerId);
+            var attackerTicks = Ticks(judging.GetNumber(FeelFieldNames.AttackerHitstopMs));
+            var targetTicks = Ticks(judging.GetNumber(FeelFieldNames.TargetHitstopMs));
+            Assert.True(attackerTicks > 0 && targetTicks > 0 && attackerTicks != targetTicks);
+
+            CastPath(rig, path, target);
+            rig.Run(60 + attackerTicks + targetTicks);
+
+            // 复现（S10 装配的缺陷）：时间线技能的命中曾既由时间线路径确认、又被 instant 适配器按 combat.damage_dealt 再合成一条。
+            Assert.Single(rig.Of<CombatDamageDealtEvent>());
+            var hit = Assert.Single(rig.Of<CombatHitConfirmedEvent>()).Event;
+            Assert.Equal(target, hit.TargetId);
+            Assert.Equal(attackerTicks, hit.AttackerHitStopTicks);
+            Assert.Equal(targetTicks, hit.TargetHitStopTicks);
+
+            // 顿帧评估一次：两侧时长不同 -> 起始事件按时长分成两组，各一条；一次评估落地的冻结不会叠加第二轮。
+            var started = rig.Of<FeelHitstopStartedEvent>().Select(x => x.Event).ToList();
+            Assert.Equal(2, started.Count);
+            Assert.Equal(attackerTicks, started.Single(e => e.UnitIds.Contains(PlayerId)).Ticks);
+            Assert.Equal(targetTicks, started.Single(e => e.UnitIds.Contains(target)).Ticks);
+            Assert.Single(rig.Of<CombatReactionAppliedEvent>());
+        }
+
+        [Fact]
+        public void ShapedTimelineSkill_ThroughProductionAssembly_HitsOnlyTargetsInsideTheCone()
+        {
+            var rig = Build(feel: true);
+            rig.World.Gameplay.Carriers.Units.SetFacing(PlayerId, 0.0);
+            var inside = SpawnDummy(rig, StakeTemplate, new Vec2(1.5, 0));
+            var behind = SpawnDummy(rig, StakeTemplate, new Vec2(-1.5, 0));
+            var side = SpawnDummy(rig, StakeTemplate, new Vec2(0, 2.5));
+            var powers = rig.World.Gameplay.Carriers.Rules.Powers;
+            var before = new Dictionary<Id, double>
+            {
+                [inside] = powers.GetPower(inside, WellKnownPowers.Health),
+                [behind] = powers.GetPower(behind, WellKnownPowers.Health),
+                [side] = powers.GetPower(side, WellKnownPowers.Health),
+            };
+
+            var skills = rig.World.Gameplay.Carriers.Rules.Skill;
+            skills.LearnSkill(PlayerId, ConeSwingSkill);
+            var cast = skills.CastSkill(PlayerId, ConeSwingSkill, new Id[0]);
+            Assert.True(cast.Success, cast.Reason.ToString());
+            rig.Run(40);
+
+            // 扇形外的目标（身后、侧面 90 度，都在半径 3 之内）不被命中，也没有伤害。
+            var hit = Assert.Single(rig.Of<CombatHitConfirmedEvent>()).Event;
+            Assert.Equal(inside, hit.TargetId);
+            Assert.True(powers.GetPower(inside, WellKnownPowers.Health) < before[inside]);
+            Assert.Equal(before[behind], powers.GetPower(behind, WellKnownPowers.Health));
+            Assert.Equal(before[side], powers.GetPower(side, WellKnownPowers.Health));
+
+            // 对照：同一份时间线数据、同样站位，链换成圆形（半径 30，max_targets 1）则最近的一个（侧面那个）被命中——扇形限制来自链的 shape，不是别处。
+            var control = Build(feel: true);
+            control.World.Gameplay.Carriers.Units.SetFacing(PlayerId, 0.0);
+            var near = SpawnDummy(control, StakeTemplate, new Vec2(0, 1.0));
+            SpawnDummy(control, StakeTemplate, new Vec2(1.5, 0));
+            control.World.Gameplay.Carriers.Rules.Skill.LearnSkill(PlayerId, SwingSkill);
+            Assert.True(control.World.Gameplay.Carriers.Rules.Skill.CastSkill(PlayerId, SwingSkill, new Id[0]).Success);
+            control.Run(40);
+            Assert.Equal(near, Assert.Single(control.Of<CombatHitConfirmedEvent>()).Event.TargetId);
+        }
+
+        [Fact]
+        public void TargetAssist_DeclaredBySkill_TurnsTheActorByTheProfileCap_ThroughProductionAssembly()
+        {
+            var rig = Build(feel: true);
+            var units = rig.World.Gameplay.Carriers.Units;
+            units.SetFacing(PlayerId, 0.0);
+            // 目标在 60 度方向、距离 2（身高倍数标定后的 10 世界单位以内）：朝向修正取 min(60, 档案 turn_assist_deg)。
+            var target = SpawnDummy(rig, StakeTemplate, new Vec2(2.0 * Math.Cos(Math.PI / 3), 2.0 * Math.Sin(Math.PI / 3)));
+            var cap = rig.Feel.Resolver.ResolveJudging(PlayerId).GetNumber(FeelFieldNames.TurnAssistDeg);
+            Assert.True(cap > 0 && cap < 60);
+
+            var skills = rig.World.Gameplay.Carriers.Rules.Skill;
+            skills.LearnSkill(PlayerId, AssistSwingSkill);
+            var cast = skills.CastSkill(PlayerId, AssistSwingSkill, new Id[0]);
+            Assert.True(cast.Success, cast.Reason.ToString());
+            rig.Step();
+
+            var assisted = Assert.Single(rig.Of<ActionTargetAssistedEvent>()).Event;
+            Assert.Equal(target, assisted.TargetId);
+            Assert.Equal(cap, assisted.FacingDelta, 9);
+            // 朝向真的被写入：生产的 IUnitAccess（WorldUnitAccess）同时是 IUnitFacingWriter。
+            Assert.Equal(cap * Math.PI / 180.0, units.GetFacing(PlayerId), 9);
+        }
+
+        [Fact]
+        public void TargetAssist_NotDeclaredBySkill_LeavesFacingAlone()
+        {
+            var rig = Build(feel: true);
+            var units = rig.World.Gameplay.Carriers.Units;
+            units.SetFacing(PlayerId, 0.0);
+            SpawnDummy(rig, StakeTemplate, new Vec2(2.0 * Math.Cos(Math.PI / 3), 2.0 * Math.Sin(Math.PI / 3)));
+            var skills = rig.World.Gameplay.Carriers.Rules.Skill;
+            skills.LearnSkill(PlayerId, SwingSkill);
+            Assert.True(skills.CastSkill(PlayerId, SwingSkill, new Id[0]).Success);
+            rig.Step();
+
+            Assert.Empty(rig.Of<ActionTargetAssistedEvent>());
+            Assert.Equal(0.0, units.GetFacing(PlayerId), 9);
         }
 
         // ------------------------------------------------------------------ 逐位不变

@@ -374,7 +374,17 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 1. **静态接线而不是 `RulesAssembly` 构造参数**：`RulesAssembly` 的构造函数已经历多轮追加参数，再加一个会是第 23 个；而解析器要读装备/生物模板（载体层数据）才能装配，规则层装配时拿不到。所以由持有解析器的上层（`CarriersAssembly`）在构造完成后调用本方法，行为与"构造期传入"等价，且不改任何物理签名。
 2. **解析器包装 `InvalidatingActionFeelResolver`**：`IFeelResolver.BeginAction/EndAction` 本身不使缓存失效，但判定型消费者（受击裁决读攻击方顿帧、运动层读加速度）读的是缓存的 `Resolve`，"攻击期间武器临时覆盖"与动作层手感引用只有缓存按"是否在动作中"重算后才对它们可见。时间线（`CastPipeline`）不依赖手感模块的失效事件，也不该为此改动，所以在装配根用包装器在 Begin/End 两端失效；失效放在底层调用之后（时间线在 `BeginAction` 返回之后才登记进行中动作、在 `EndAction` 之前已移除，下一次重算读到的才是新状态）。
 3. **受击打断时间线不另写第二个适配**：`HitFeelAssembly.Attach` 传入技能宿主后注册 `SkillHostStaggerInterruptSink`，它调用 `SkillHost.Interrupt`；对时间线动作该入口终止动作并发 `action.cancelled{Stagger}` 与 `skill.cast_interrupted`（S3a 判断记录），任务要求的"S3a 经 `AddInterruptSink` 注册 Stagger 打断口"由这一接线满足。运行时冒烟 `StaggeredActor_ActionIsCancelledWithStaggerReason` 覆盖。
-4. **`HitFeelOptions.IsTimelineSkill` 只在给了自定义 `TimelineHitResolver` 时接到 `SkillHost.IsTimelineSkill`**：缺省（无自定义命中解析钩子）沿用 `InstantSettlementHitResolver` 的瞬时结算，时间线技能命中同样经 `combat.damage_dealt`（带 `SkillId`），必须由受击裁决的 instant 适配器合成 `combat.hit_confirmed`；若此时接了 `IsTimelineSkill` 就会把这条合成掐掉，时间线技能永远没有顿帧与硬直。只有空间命中解析（S3b）这类自己发 `combat.hit_confirmed` 的钩子才需要避免重复合成。
+4. **`HitFeelOptions.IsTimelineSkill` 的接线**：已由 S11 改为无条件接 `SkillHost.IsTimelineSkill`（见本文件 S11 节，S10 原先的条件接线随 S3b 空间命中入库而过时）。
 5. **`TimelineMoveIntentTickHandler` 的"移动输入"口径**：挂在 `SkillPipeline` 阶段、紧随 `SkillTickHandler`；`move` 意图带目标点（`x`/`y`）或非零方向（`dx`/`dy` 不全 0）、以及 `move_to_unit` 算移动输入；零方向 `move`（松开摇杆）与 `move_stop` 不算；离散步一律跳过。没有时间线动作时 `SkillHost.NotifyMoveIntent` 立刻返回，行为不变。
 
-已知限制：`TimelineHitResolver` 之外的空间命中（S3b）本切片不接；数据热加载（`FeelResolver.Reload`）不接线；`SkillOptions.ActionStepSeconds` 只在启用手感时被写成手感步长（调用方传入的对象会被写入）。
+已知限制：数据热加载（`FeelResolver.Reload`）不接线；`SkillOptions.ActionStepSeconds` 只在启用手感时被写成手感步长（调用方传入的对象会被写入）。
+
+## 手感落地 S11：空间命中与受击裁决接进生产装配（2026-10-02）
+
+`RulesFeelAssembly.Attach` 的两处改动（载体层的目标辅助见 `core/carriers/assembly/README.md` S11 节）。本节编号为 S11 本节编号，**订正上文 S10 第 4 条**：
+
+1. **`HitFeelOptions.IsTimelineSkill` 无条件接 `SkillHost.IsTimelineSkill`**（订正 S10 第 4 条"只在给了自定义 `TimelineHitResolver` 时接"）。S10 之后 S3b 让时间线技能无论链有没有 `shape` 都自己发 `combat.hit_confirmed`（空间命中、链无 `shape` 的 instant 结算、自定义钩子、时间线投射物命中钩子四条路径统一），S10 那条前提（"缺省沿用 instant 结算、命中事件要由受击裁决合成"）已不成立：不接就会让同一次命中既被时间线路径确认、又被 `HitFeelHost` 的 instant 适配器按 `combat.damage_dealt` 再合成一条，顿帧批次与受击反应被评估两次（集成分支上 `FeelWiringEndToEndTests` 两例 "Sequence contains more than one element" 即此）。现在 instant 适配器只管没有时间线的技能（目标选择式战斗、普通攻击）。调用方自己给了 `HitFeelOptions.IsTimelineSkill` 时尊重它。
+2. **`TimelineServices.HitFeel` 接 `HitFeelHost`**：时间线命中发 `combat.hit_confirmed` 前经 `IHitFeelArbiter.Evaluate` 填冲击等级、两侧顿帧 tick 数与受击反应；不接则全部取 `HitFeelOutcome.None`（事件字段为空值，没有顿帧）。
+3. **`HitFeelHost._killPending` 的残留**（S3b 已知局限第 10 条交代给本切片核对）：`unit.died` 先于致死那一击的 `combat.damage_dealt` 入队，instant 适配器靠"已见 `unit.died`"判击杀并在合成时消费标记；时间线技能的伤害事件被 `IsTimelineSkill` 早退时旧实现不消费，标记残留到下一个 tick 起点，同一 tick 内（如击杀后复活再被 instant 命中）对该单位的 instant 命中会被误判为击杀（顿帧放大、反应 Death）。修法：时间线早退分支与周期伤害早退分支都消费标记（时间线击杀的 `isKill` 由时间线路径自己按 `IsAlive` 判，不依赖标记）。用例 `HitFeelHostTests.InstantMode_KillMarkLeftByATimelineKill_IsConsumed_...`。
+
+运行时验证（`FeelWiringEndToEndTests`，经 `HeadlessWorldBuilder` 生产装配）：`EachHit_ProducesExactlyOneConfirmation_AndOneHitstopEvaluation`（空间命中时间线 / 链无 `shape` 时间线 / instant 三条路径各一次命中 → 恰好 1 条 `combat.hit_confirmed`、1 条伤害事件、2 条 `feel.hitstop_started`（两侧顿帧毫秒不同，按档案毫秒经 `MillisecondsToTicks` 算期望）），`ShapedTimelineSkill_..._HitsOnlyTargetsInsideTheCone`（扇形外目标不被命中、血量不变），`TargetAssist_*`。
