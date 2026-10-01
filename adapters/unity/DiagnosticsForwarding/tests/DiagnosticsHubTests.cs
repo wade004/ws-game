@@ -156,6 +156,33 @@ namespace Adapter.Unity.Diagnostics.Tests
         }
 
         [Fact]
+        public void Enabled_False_ExceptionAwareErrorSource_ForwardsNothing_SameAsPlainSources()
+        {
+            // 复现（测试覆盖第四批 T-M47 发现）：关闭开关时 ExceptionAwareDiagnosticsFeed 仍无条件调用
+            // sink.Warn（gate.ShouldForward 因 Enabled=false 返回 false 被误当成“重复”，输出
+            // “累计出现 0 次”的伪重复行）。开关语义（见 Enabled_CanBeToggledAtRuntime 与 gate 注释）：
+            // 关闭时恒不转发、不记账。
+            var sink = new RecordingConsoleSink();
+            var hub = new DiagnosticsHub(sink, enabled: false);
+            var warnings = new List<string>();
+            var errors = new List<ExceptionAwareErrorText>();
+            hub.Register("A", warnings, errors);
+
+            errors.Add(new ExceptionAwareErrorText("boom", new System.InvalidOperationException("x")));
+            errors.Add(new ExceptionAwareErrorText("plain", null));
+            warnings.Add("w");
+            hub.Pump();
+
+            Assert.Empty(sink.Messages);
+
+            // 关闭期间路过的消息不记账：重新开启后同文本再次出现，按“新消息”完整转发（不是“重复”）。
+            hub.Enabled = true;
+            errors.Add(new ExceptionAwareErrorText("plain", null));
+            hub.Pump();
+            Assert.Equal(new[] { "[A][error] plain" }, sink.Messages);
+        }
+
+        [Fact]
         public void MultipleSourcesRegisteredBeforeAnyDataArrives_AllPolledIndependently()
         {
             var sink = new RecordingConsoleSink();

@@ -19,6 +19,9 @@
          判断记录 2：选择直接编译源码而不是把 adapters/conformance 做成独立类库加进 Core.sln）。
          同一份源码也被 adapters/unity 工作台工程以 Unity 本地包形式引用，供 Unity 侧测试使用。 -->
     <Compile Include="../../../adapters/conformance/**/*.cs" />
+    <!-- adapters/stub 的桩专项测试（测试覆盖第四批 T-M11）：源码放在 adapters/stub/tests/（Adapters.Stub.csproj
+         已 Compile Remove 该目录），随本测试工程编译，与上一条 conformance 源码同一做法，不另起测试工程/不改 Core.sln。 -->
+    <Compile Include="../../../adapters/stub/tests/**/*.cs" />
   </ItemGroup>
 
   <ItemGroup>

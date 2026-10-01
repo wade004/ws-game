@@ -699,6 +699,28 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `SaveSlotsPanel`/`PauseMenuPanel` 按钮只在 `Construct` 时绑定一次且 `RefreshUi` 不重建/新增
   按钮，同样不适用本问题。
 
+- **面板关闭后背景/控件仍留在画面上（测试覆盖第四批 T-M47/T-L15 发现并修复，2026-10-01）**：
+  `UiPanelHost.CreatePanel` 此前造出的面板物体是不带任何视觉的空壳，而各面板 `Construct` 又把
+  背景与全部控件挂在传入的 `parent`（`GameplayGroup`/`content`）下，`UiPanelBehaviour.Hide()`
+  只停用空壳——十一个面板的“默认关闭/关闭”从未真正让画面上的背景消失。复现用例
+  `UiRootAndShopPanelPlayModeTests.EveryPanel_WhenHidden_HasNoVisiblePanelBackground_AndWhenShown_HasOne`
+  （修复前第一个断言即在 Hud 上失败）。修法（最小，`Runtime/Ui/UiPanelHost.cs` 一处）：面板物体做成铺满父节点
+  的拉伸节点（同 `UiWidgets.CreateRoot`），十一处 `Construct` 的 parent 改为面板物体自己，背景锚点相对于与
+  原父节点同大的面板节点，布局不变、显隐随面板物体生效。后果：背景在层级里下沉一层
+  （`GameplayGroup/Dialog/DialogPanel/...`），`UiSuiteTests` 三处硬编码的 `Find("DialogPanel/Content/
+  Options/Option0")` 随之改为 `Find("Dialog/DialogPanel/Content/Options/Option0")`（断言本身未改）；
+  `UiSkinOverridePlayModeTests` 用自建探针节点作父节点，不受影响。
+
+- **`DiagnosticsHub` 关闭开关时异常感知通道仍写控制台（同批发现并修复，2026-10-01）**：
+  `ExceptionAwareDiagnosticsFeed.Pump` 的 error 分支在 `gate.ShouldForward` 返回 false 时一律当成“重复”，
+  仍调用 `sink.Warn` 输出“累计出现 0 次”的伪重复行；而 `Enabled=false` 时 gate 同样返回 false 且
+  `occurrenceCount` 恒为 0（见 `PresentationDiagnosticsConsoleGate.ShouldForward`），导致开关对 EventBus/Hook/
+  AppLifecycle/Save/SceneRouter 五个来源的 error 通道关不掉。复现用例
+  `DiagnosticsHubTests.Enabled_False_ExceptionAwareErrorSource_ForwardsNothing_SameAsPlainSources`（dotnet，
+  修复前红）。修法：`!forwarded && occurrenceCount == 0` 时 `continue`（游标照常推进、不转发、不记账，与
+  `DiagnosticsFeed` 一致）。同批 PlayMode 用例 `DiagnosticsHubCompositionPlayModeTests` 另以 24 来源普查表 +
+  反射遍历覆盖 `RegisterCoreSources` 的登记完整性（新增公开可达的 `InMemory*Diagnostics` 忘登记会红）。
+
 ### Shell 流程（`Runtime/Shell/`）
 
 ```

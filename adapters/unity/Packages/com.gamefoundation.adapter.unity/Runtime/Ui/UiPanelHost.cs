@@ -84,40 +84,40 @@ namespace Adapter.Unity.Ui
             // InputMap（input.action.end_turn 键盘/手柄绑定，见 HudPanel.Construct 判断记录）；原
             // 独立于本登记表之外的 TurnStatusPanel 已删除。
             Hud = CreatePanel<HudPanel>("Hud", GameplayGroup);
-            Hud.Construct(GameplayGroup, presentation.Hud, presentation.UiIntents, presentation.InputMap);
+            Hud.Construct((RectTransform)Hud.transform, presentation.Hud, presentation.UiIntents, presentation.InputMap);
             _panels[UiPanel.Hud] = Hud;
 
             ActionBar = CreatePanel<ActionBarPanel>("ActionBar", GameplayGroup);
             // 消费方反馈第 3 条（2026-09-20，ADR-0048）：改走 ActionBarPanel.Construct 新增的
             // 携带 IL10nHost 的加性重载（渲染 skill.def.name_key），既有三参数签名保留未动，
             // 见该类型判断记录。
-            ActionBar.Construct(GameplayGroup, presentation.ActionBar, presentation.UiIntents, presentation.L10n);
+            ActionBar.Construct((RectTransform)ActionBar.transform, presentation.ActionBar, presentation.UiIntents, presentation.L10n);
             _panels[UiPanel.ActionBar] = ActionBar;
 
             Inventory = CreatePanel<InventoryPanel>("Inventory", GameplayGroup);
-            Inventory.Construct(GameplayGroup, presentation.Inventory, presentation.UiIntents);
+            Inventory.Construct((RectTransform)Inventory.transform, presentation.Inventory, presentation.UiIntents);
             Inventory.Hide();
             _panels[UiPanel.Inventory] = Inventory;
 
             QuestLog = CreatePanel<QuestLogPanel>("QuestLog", GameplayGroup);
             // 消费方反馈第六批（阻塞）：改走 QuestLogPanel.Construct 新增的携带 IL10nHost 的加性重载
             // （渲染 quest.def.title_key），既有两参数签名保留未动，见该类型判断记录。
-            QuestLog.Construct(GameplayGroup, presentation.QuestLog, presentation.L10n);
+            QuestLog.Construct((RectTransform)QuestLog.transform, presentation.QuestLog, presentation.L10n);
             QuestLog.Hide();
             _panels[UiPanel.QuestLog] = QuestLog;
 
             Dialog = CreatePanel<DialogPanel>("Dialog", GameplayGroup);
-            Dialog.Construct(GameplayGroup, presentation.DialogView, presentation.UiIntents, presentation.L10n);
+            Dialog.Construct((RectTransform)Dialog.transform, presentation.DialogView, presentation.UiIntents, presentation.L10n);
             Dialog.Hide();
             _panels[UiPanel.Dialog] = Dialog;
 
             SkillBook = CreatePanel<SkillBookPanel>("SkillBook", GameplayGroup);
-            SkillBook.Construct(GameplayGroup, presentation.SkillBook, presentation.UiIntents);
+            SkillBook.Construct((RectTransform)SkillBook.transform, presentation.SkillBook, presentation.UiIntents);
             SkillBook.Hide();
             _panels[UiPanel.SkillBook] = SkillBook;
 
             CharacterStats = CreatePanel<CharacterStatsPanel>("CharacterStats", GameplayGroup);
-            CharacterStats.Construct(GameplayGroup, presentation.CharacterStats);
+            CharacterStats.Construct((RectTransform)CharacterStats.transform, presentation.CharacterStats);
             CharacterStats.Hide();
             _panels[UiPanel.CharacterStats] = CharacterStats;
 
@@ -125,24 +125,24 @@ namespace Adapter.Unity.Ui
             // Settings 面板同样需要在"游戏内面板整体隐藏"的主菜单页面下也能被 ShellRoot 独立打开
             // （shell_menu_definition 的 settings 菜单项）。
             Settings = CreatePanel<SettingsPanel>("Settings", content);
-            Settings.Construct(content, presentation.Settings, presentation.UiIntents, SaveSettingsToStore(presentation), getSfxBusVolume, onSfxBusVolumeChanged);
+            Settings.Construct((RectTransform)Settings.transform, presentation.Settings, presentation.UiIntents, SaveSettingsToStore(presentation), getSfxBusVolume, onSfxBusVolumeChanged);
             Settings.Hide();
             _panels[UiPanel.Settings] = Settings;
 
             SaveSlots = CreatePanel<SaveSlotsPanel>("SaveSlots", content);
-            SaveSlots.Construct(content, presentation.SaveSlots, saveSlotCandidates, onSaveSlotLoad, onSaveSlotSaveOrOverwrite, onSaveSlotDelete);
+            SaveSlots.Construct((RectTransform)SaveSlots.transform, presentation.SaveSlots, saveSlotCandidates, onSaveSlotLoad, onSaveSlotSaveOrOverwrite, onSaveSlotDelete);
             SaveSlots.Hide();
             _panels[UiPanel.SaveSlots] = SaveSlots;
 
             PauseMenu = CreatePanel<PauseMenuPanel>("PauseMenu", content);
-            PauseMenu.Construct(content, presentation.PauseMenu, presentation.L10n, onPauseOptionClicked);
+            PauseMenu.Construct((RectTransform)PauseMenu.transform, presentation.PauseMenu, presentation.L10n, onPauseOptionClicked);
             PauseMenu.Hide();
             _panels[UiPanel.PauseMenu] = PauseMenu;
 
             // 拍板 7：Shop 挂在 GameplayGroup 下（同 Inventory/QuestLog 一贯的"游戏内菜单类面板"归属，
             // 不像 SaveSlots/PauseMenu/Settings 需要在主菜单页面下也能单独打开）。
             Shop = CreatePanel<ShopPanel>("Shop", GameplayGroup);
-            Shop.Construct(GameplayGroup, presentation.Shop, presentation.Inventory, presentation.UiIntents);
+            Shop.Construct((RectTransform)Shop.transform, presentation.Shop, presentation.Inventory, presentation.UiIntents);
             Shop.Hide();
             _panels[UiPanel.Shop] = Shop;
         }
@@ -152,11 +152,16 @@ namespace Adapter.Unity.Ui
             presentation.Shell.SaveSettings(new Core.Foundation.Common.Json.JsonObjectBuilder().Build());
         };
 
+        /// <summary>判断记录（面板显隐必须作用在面板自己的视觉子树上，测试覆盖第四批 T-M47/T-L15 发现并修复）：
+        /// 此前这里造出的面板物体是一个空壳（不带任何视觉），而各面板 <c>Construct</c> 又把背景与全部控件挂在
+        /// 传入的 <c>parent</c>（GameplayGroup/content）下——<see cref="UiPanelBehaviour.Hide"/> 只停用空壳，
+        /// 背景与控件仍然留在画面上，“默认关闭”的面板其实一直可见。修法：面板物体本身做成铺满父节点的拉伸
+        /// 节点（与 <see cref="UiWidgets.CreateRoot"/> 同口径），<c>Construct</c> 的 parent 改为面板物体自己，
+        /// 各面板背景的锚点/偏移相对于“与原父节点同大”的面板节点，布局不变，显隐随面板物体生效。</summary>
         private static T CreatePanel<T>(string name, Transform parent) where T : Component
         {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-            return go.AddComponent<T>();
+            var rect = UiWidgets.CreateRoot(name, parent);
+            return rect.gameObject.AddComponent<T>();
         }
 
         public void Toggle(UiPanel panel)

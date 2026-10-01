@@ -242,6 +242,16 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   启动首次加载没有单一确定的表，`table` 固定为 JSON `null`，不是空字符串或 `"all"`。消费方不再
   需要解析 `[DataHotReload] 热重载 "<表名>" ...` 这行日志文本即可知道本次热重载对应哪一张表。
 
+### 热重载与口味配置项的 EditMode 用例（测试覆盖第四批 T-M48，2026-10-01）
+
+`Tests/Editor/DataHotReloadFailureAndDebounceEditModeTests.cs` 覆盖热重载的失败与去抖语义：坏表重载不抛异常、
+注册表被整体阻断并只发 `ValidationFailed`（不发 `LoadCompleted`）；修复后下一次重载恢复并反映修复后的行；
+监视根下新增文件触发重载且覆盖框架行；去抖窗口内连续多次修改只重载一次且取最终内容、间隔超过窗口则各自重载。
+`GameOptionsTests.cs` 覆盖默认口味与框架默认 Options 等价、非默认值逐字段透传、默认 id 串合法且带 template
+占位、`JsonUtility` 往返不丢。判断记录：用反射调用 `internal` 的 `Build*Options`，不给模板加
+`InternalsVisibleTo`（模板改名后程序集名变化会让硬编码的特性失效）；`Game.Template.EditorTests.asmdef`
+因此补了 `Core.Rules/Core.Carriers/Core.Gameplay/Presentation.Common` 四个预编译引用。
+
 ## 构建独立版
 
 默认走 Unity 内置命令行开关：

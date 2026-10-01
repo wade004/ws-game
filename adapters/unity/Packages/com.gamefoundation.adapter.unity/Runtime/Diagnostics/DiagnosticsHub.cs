@@ -253,6 +253,15 @@ namespace Adapter.Unity.Diagnostics
 
                 var dedupKey = BuildDedupKey(_sourceName, entry.Message, exception);
                 var forwarded = gate.ShouldForward(dedupKey, out var occurrenceCount);
+                if (!forwarded && occurrenceCount == 0)
+                {
+                    // 判断记录（测试覆盖第四批 T-M47 复现修复）：gate 关闭时 ShouldForward 返回 false 且
+                    // occurrenceCount 恒为 0（见 PresentationDiagnosticsConsoleGate.ShouldForward），与
+                    // “已转发过的重复”（false 且计数 >= 2）是两件事。此前这里把前者误当成重复，仍然调用
+                    // sink.Warn 输出“累计出现 0 次”的伪重复行，开关关不掉这条链路。关闭时与 DiagnosticsFeed
+                    // 一致：游标照常推进、不转发、不记账。
+                    continue;
+                }
 
                 string text;
                 if (forwarded)

@@ -367,7 +367,7 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual("dialog.sample_hunter_story.node_intro", storyView!.NodeId.Value);
 
             var branchButton = shell.UiPanelHost.GameplayGroup
-                .Find("DialogPanel/Content/Options/Option0")
+                .Find("Dialog/DialogPanel/Content/Options/Option0")
                 ?.GetComponent<Button>();
             Assert.IsNotNull(branchButton, "对白面板应当已经渲染出剧情首节点的第一条分支按钮");
             branchButton!.onClick.Invoke();
@@ -408,7 +408,7 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsNotNull(shell.Framework.Presentation.DialogView.Gossip, "DialogViewModel 应当已经反映当前打开的 gossip 会话");
 
             var branchButton = shell.UiPanelHost.GameplayGroup
-                .Find("DialogPanel/Content/Options/Option0")
+                .Find("Dialog/DialogPanel/Content/Options/Option0")
                 ?.GetComponent<Button>();
             Assert.IsNotNull(branchButton, "对白面板应当已经渲染出闲聊菜单的第一个选项按钮");
 
@@ -427,7 +427,7 @@ namespace Adapter.Unity.Tests.Runtime
             shell.UiPanelHost.Dialog.RefreshUi();
 
             var reusedButton = shell.UiPanelHost.GameplayGroup
-                .Find("DialogPanel/Content/Options/Option0")
+                .Find("Dialog/DialogPanel/Content/Options/Option0")
                 ?.GetComponent<Button>();
             Assert.AreSame(branchButton, reusedButton, "剧情首节点同样只有 1 条分支，DialogPanel 应当复用同一个 Option0 按钮对象而不是销毁重建——本用例要覆盖的正是这条路径");
 

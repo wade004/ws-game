@@ -43,6 +43,19 @@ engine.FileSystem.WriteTextAtomic("save/slot1.json", "{}");
 接口之外的测试专用方法，如 `StubClock.Advance`、`StubInput.Press`，直接使用具体类型即可
 调用）。
 
+## 判断记录（桩自身用例的位置与编译方式，测试覆盖第四批 T-M11，2026-10-01）
+
+`adapters/stub/tests/` 是七个桩（Audio/Camera/Input/Platform/UISurface/Renderer2D/ResourceLoader）与
+`CollisionLayers`/`NavGridLayout` 的 xunit 用例，**不单独建测试工程**：由
+`core/foundation/tests/Tests.Foundation.csproj` 以 `<Compile Include="../../../adapters/stub/tests/**/*.cs" />`
+一并编译（该工程已引用 `Adapters.Stub` 并纳入 `adapters/conformance` 源码，同一做法）。命名空间用
+`Tests.StubAdapters`——不能用 `Tests.Adapters.*`，否则会让用例文件里的 `using Adapters.Stub;` 被解析到
+`Tests.Adapters`。适配契约一致性套件（`adapters/conformance`）覆盖“接口约定”，本目录覆盖“桩自己的
+实现语义”（录制、计数、确定性、边界）。T-M10：`ConformanceStubTests.StubSkippedScenarios_EqualTheKnownList_NoMoreNoFewer`
+断言桩侧被一致性套件跳过的场景恰好等于已知两项（双矩形/薄墙 `FindPath` 视线剪枝），多跳或少跳都红。
+已知文档/实现不一致（未改，留待设计层）：`StubResourceLoader` 的 `DeferCallbacks` 注释与 `CompletePending`
+的实际排队语义措辞不一致，用例按实现行为断言。
+
 ## 判断记录（`StubSpatialQuery.QueryShape(Line)` 改为矩形带口径，2026-10-01，行为收紧，[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
 
 此前按"点到线段距离 <= width/2 + r"判定（胶囊，端点处是圆头），与 05 §3.5 及 `ShapeGeometry.Contains` 的矩形带不一致：

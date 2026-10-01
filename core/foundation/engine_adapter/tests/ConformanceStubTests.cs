@@ -9,6 +9,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Adapters.Conformance;
 using Adapters.Stub;
 using Core.Foundation.EngineAdapter;
@@ -92,6 +93,9 @@ namespace Tests.Foundation.EngineAdapter
             }
         }
 
+        private static readonly AsyncLocal<List<(string Scenario, string Reason)>?> SkipSink =
+            new AsyncLocal<List<(string, string)>?>();
+
         private static void Run<TImpl>(IReadOnlyList<ConformanceScenario<TImpl>> all, string scenarioName, TImpl impl, ConformanceContext ctx)
         {
             var scenario = all.First(s => s.Name == scenarioName);
@@ -106,6 +110,11 @@ namespace Tests.Foundation.EngineAdapter
                 // 后判为通过；桩实现按设计不应该真正触发 Skip（全部钩子桩侧都能提供），命中这里
                 // 通常意味着某个钩子在桩侧被漏配置，值得在测试输出里留痕。
                 Console.WriteLine($"[Skip] {scenarioName}: {skip.Message}");
+                // 测试覆盖第四批 T-M10：被跳过的场景此前只剩一行控制台输出、报告里仍显示“通过”，
+                // 跳过数不可见。这里额外把 (场景名, 原因) 记进当前调用链的收集器（仅
+                // StubSkippedScenarios_EqualTheKnownList 会装上收集器），由那条用例断言桩侧 Skip 集合
+                // 恰等于已知清单——多出一个（某钩子被漏配）或少一个（已知跳过被悄悄修好却没更新清单）都红。
+                SkipSink.Value?.Add((scenarioName, skip.Message));
             }
         }
 
@@ -254,6 +263,66 @@ namespace Tests.Foundation.EngineAdapter
         {
             var camera = new StubCamera();
             Run(CameraScenarios.All, scenarioName, camera, NewStubContext());
+        }
+
+        /// <summary>桩侧已知会 Skip 的场景清单（场景名）：桩的 <see cref="StubNavigation2D"/> 是直线导航，
+        /// 不做绕障规划，两条要求“绕障路径”的场景在桩上恒 Skip（原因见
+        /// <c>Navigation2DScenarios</c> 两处 <c>assert.Skip</c> 与 StubNavigation2D 类型顶部判断记录）。
+        /// 其余三处 Skip（写入失败模拟、阻挡版本追踪、窗口关闭触发）桩侧钩子齐全，不应触发。</summary>
+        private static readonly string[] KnownStubSkips =
+        {
+            "FindPath_双矩形拐角工况_每段Raycast均不受阻",
+            "FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻",
+        };
+
+        /// <summary>每个接口一行：(接口名, 场景名枚举, 对单个场景名执行对应 [Theory] 方法体)。</summary>
+        private static IEnumerable<(string Interface, IEnumerable<string> Names, Action<ConformanceStubTests, string> Run)> AllInterfaceRuns() =>
+            new (string, IEnumerable<string>, Action<ConformanceStubTests, string>)[]
+            {
+                ("Window", WindowScenarios.All.Select(s => s.Name), (t, n) => t.Window(n)),
+                ("Clock", ClockScenarios.All.Select(s => s.Name), (t, n) => t.Clock(n)),
+                ("Renderer2D", Renderer2DScenarios.All.Select(s => s.Name), (t, n) => t.Renderer2D(n)),
+                ("Audio", AudioScenarios.All.Select(s => s.Name), (t, n) => t.Audio(n)),
+                ("Input", InputScenarios.All.Select(s => s.Name), (t, n) => t.Input(n)),
+                ("FileSystem", FileSystemScenarios.All.Select(s => s.Name), (t, n) => t.FileSystem(n)),
+                ("ResourceLoader", ResourceLoaderScenarios.All.Select(s => s.Name), (t, n) => t.ResourceLoader(n)),
+                ("Navigation2D", Navigation2DScenarios.All.Select(s => s.Name), (t, n) => t.Navigation2D(n)),
+                ("SpatialQuery", SpatialQueryScenarios.All.Select(s => s.Name), (t, n) => t.SpatialQuery(n)),
+                ("UISurface", UISurfaceScenarios.All.Select(s => s.Name), (t, n) => t.UISurface(n)),
+                ("Platform", PlatformScenarios.All.Select(s => s.Name), (t, n) => t.Platform(n)),
+                ("Renderer3D", Renderer3DScenarios.All.Select(s => s.Name), (t, n) => t.Renderer3D(n)),
+                ("Camera", CameraScenarios.All.Select(s => s.Name), (t, n) => t.Camera(n)),
+            };
+
+        [Fact]
+        public void StubSkippedScenarios_EqualTheKnownList_NoMoreNoFewer()
+        {
+            var skips = new List<(string Scenario, string Reason)>();
+            SkipSink.Value = skips;
+            try
+            {
+                var self = new ConformanceStubTests();
+                foreach (var (_, names, run) in AllInterfaceRuns())
+                {
+                    foreach (var name in names)
+                    {
+                        run(self, name);
+                    }
+                }
+            }
+            finally
+            {
+                SkipSink.Value = null;
+            }
+
+            var actual = skips.Select(s => s.Scenario).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            var expected = KnownStubSkips.OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            Assert.Equal(expected, actual);
+            // 防止清单里的名字改名后与场景脱节而“恰好都为空”：已知跳过必须是真实存在的场景。
+            var allNames = AllInterfaceRuns().SelectMany(r => r.Names).ToHashSet(StringComparer.Ordinal);
+            Assert.All(KnownStubSkips, n => Assert.Contains(n, allNames));
+            // 跳过原因必须是“桩不支持绕障路径规划”这一已知语义，而不是别的缺口借同名位置混入。
+            Assert.All(skips, s => Assert.Contains("绕障", s.Reason));
         }
     }
 }
