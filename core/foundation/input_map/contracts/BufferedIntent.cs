@@ -65,6 +65,13 @@ namespace Core.Foundation.InputMap
         /// <summary>是否已被消费（接受为意图）。</summary>
         public bool Consumed { get; }
 
+        /// <summary>
+        /// 接受时是否把行动者朝向对齐到 <see cref="DirectionSnapshot"/>（手感设计/01 第 2.1 节 <c>face_on_accept</c>，
+        /// 由动作定义显式值或类别缺省得出）。无轴输入（<see cref="DirectionSnapshot"/> 为 null）时保持当前朝向。
+        /// </summary>
+        public bool FaceOnAccept { get; }
+
+        /// <summary>九参数构造（S0 契约，原样保留）：<see cref="FaceOnAccept"/> 取类别缺省。</summary>
         public BufferedIntent(
             Id actionId,
             ActionClass actionClass,
@@ -75,6 +82,23 @@ namespace Core.Foundation.InputMap
             BufferHoldState holdState,
             int heldTicks,
             bool consumed)
+            : this(actionId, actionClass, submittedTick, expiresAtActionTime, priority, directionSnapshot, holdState, heldTicks,
+                consumed, ActionClassDefaults.FaceOnAccept(actionClass))
+        {
+        }
+
+        /// <summary>带 <see cref="FaceOnAccept"/> 的构造（纯加法重载）。</summary>
+        public BufferedIntent(
+            Id actionId,
+            ActionClass actionClass,
+            long submittedTick,
+            long expiresAtActionTime,
+            int priority,
+            Vec2? directionSnapshot,
+            BufferHoldState holdState,
+            int heldTicks,
+            bool consumed,
+            bool faceOnAccept)
         {
             ActionId = actionId;
             Class = actionClass;
@@ -85,6 +109,7 @@ namespace Core.Foundation.InputMap
             HoldState = holdState;
             HeldTicks = heldTicks;
             Consumed = consumed;
+            FaceOnAccept = faceOnAccept;
         }
     }
 }

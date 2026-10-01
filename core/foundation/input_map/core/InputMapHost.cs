@@ -51,6 +51,22 @@ namespace Core.Foundation.InputMap
             public bool CurrentActive;
             public Vec2 CachedAxis;
             public bool IsDirty;
+
+            /// <summary>边沿记录用的"上一次求值时是否激活"（仅 <see cref="InputMapHost.SetEdgeSink"/> 登记后才使用）。</summary>
+            public bool EdgeActive;
+        }
+
+        private IInputEdgeSink? _edgeSink;
+        private readonly List<KeyValuePair<string, bool>> _edgeScratch = new List<KeyValuePair<string, bool>>();
+
+        /// <summary>
+        /// 登记按钮边沿接收端（见 <see cref="IInputMapHost.SetEdgeSink"/>）。判断记录：边沿按"本批次内逐事件之后重算每个按钮动作的
+        /// 激活状态"得出，因此一个动作绑定多个按键时遵循与 <see cref="IsActionActive"/> 相同的"或"语义（任一按下 → 激活，最后一个
+        /// 抬起 → 非激活），同一批次内"按下→抬起"产生两条边沿（点按不丢）；与既有 <see cref="InputActionTriggeredEvent"/> 的判定互不影响。
+        /// </summary>
+        public void SetEdgeSink(IInputEdgeSink? sink)
+        {
+            _edgeSink = sink;
         }
 
         // -----------------------------------------------------------------
@@ -206,6 +222,19 @@ namespace Core.Foundation.InputMap
             var pressEdgeMouse = new HashSet<string>(StringComparer.Ordinal);
             var pressEdgePad = new HashSet<string>(StringComparer.Ordinal);
 
+            // 手感设计/01 第 1 节：登记了边沿接收端时，批次开始先把"上次激活状态"对齐到当前状态（防重绑定后漂移），
+            // 每个事件处理完后重算按钮动作激活状态，状态翻转即记一条边沿，批次末统一按发生顺序交付。
+            var edgeSink = _edgeSink;
+            if (edgeSink != null)
+            {
+                _edgeScratch.Clear();
+                foreach (var name in _actionOrder)
+                {
+                    var st = _actions[name];
+                    st.EdgeActive = st.CurrentActive;
+                }
+            }
+
             var events = input.PollEvents();
             for (int i = 0; i < events.Count; i++)
             {
@@ -230,6 +259,21 @@ namespace Core.Foundation.InputMap
                         // MouseMoved / GamepadConnected / GamepadDisconnected：本模块的绑定语法
                         // 不消费这些事件种类，忽略。
                         break;
+                }
+
+                if (edgeSink != null)
+                {
+                    foreach (var name in _actionOrder)
+                    {
+                        var st = _actions[name];
+                        if (st.Definition.Kind != ActionKind.Button) continue;
+                        var nowActive = EvaluateDigital(st.ParsedBindings);
+                        if (nowActive != st.EdgeActive)
+                        {
+                            st.EdgeActive = nowActive;
+                            _edgeScratch.Add(new KeyValuePair<string, bool>(name, nowActive));
+                        }
+                    }
                 }
             }
 
@@ -260,6 +304,17 @@ namespace Core.Foundation.InputMap
                     case ActionKind.Axis2D:
                         state.CachedAxis = EvaluateAxis2D(state.ParsedBindings, input);
                         break;
+                }
+            }
+
+            if (edgeSink != null && _edgeScratch.Count > 0)
+            {
+                // 交付期间接收端可能再调用本类型的只读查询，先复制一份避免遍历中被改动。
+                var delivery = _edgeScratch.ToArray();
+                _edgeScratch.Clear();
+                for (int i = 0; i < delivery.Length; i++)
+                {
+                    edgeSink.OnButtonEdge(delivery[i].Key, delivery[i].Value);
                 }
             }
         }

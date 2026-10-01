@@ -44,6 +44,26 @@ namespace Core.Foundation.InputMap
                     description: "重绑分组，缺省视为 \"default\""),
                 new FieldSchema("description", FieldKind.String, required: false,
                     description: "该输入动作的说明文本，供编辑器/文档展示，可为空"),
+                // 手感设计/01 第 2.1 节（手感落地第 1 波 S1）：以下七个字段全部可选、纯加法；既有数据一行不改仍然合法，
+                // 且缺省值保证既有输入行为逐位不变（未声明 class 的动作不经输入缓冲，见 ActionDefinition.Class 判断记录）。
+                new FieldSchema("class", FieldKind.Enum, required: false,
+                    enumValues: new[] { "move", "attack", "skill", "dodge", "interact", "item", "menu" },
+                    description: "动作类别（取消窗口、优先级、连招按类别工作）；缺省表示不经输入缓冲（既有行为）；move 为轴类，不入缓冲"),
+                new FieldSchema("buffer_ms", FieldKind.Number, required: false,
+                    description: "缓冲窗口（毫秒）；缺省取手感档案输入组 buffer_ms（无手感档案时为 0）；0 表示不缓冲，只在按下当 tick 有效")
+                    .WithRange(FieldRange.Range(min: 0, max: 1000)),
+                new FieldSchema("priority", FieldKind.Int, required: false,
+                    description: "同 tick 多条待消费意图的排序与槽满替换依据（越大越优先）；缺省按类别（dodge > attack = skill > item > interact > menu）"),
+                new FieldSchema("hold_threshold_ms", FieldKind.Number, required: false,
+                    description: "按住阈值（毫秒）：声明后区分点按与按住（抬起早于阈值为点按，否则为按住，蓄力类动作用）；缺省不声明")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true, max: 5000)),
+                new FieldSchema("repeat_policy", FieldKind.Enum, required: false,
+                    enumValues: new[] { "refresh", "ignore" },
+                    description: "同一动作在缓冲未过期时再次按下：refresh 刷新过期时刻（缺省），ignore 忽略本次按下"),
+                new FieldSchema("face_on_accept", FieldKind.Bool, required: false,
+                    description: "被接受时是否把行动者朝向对齐到按下瞬间的移动轴方向（无轴输入则保持当前朝向）；缺省按类别（attack/skill/dodge 为真）"),
+                new FieldSchema("grace_conditions", FieldKind.IdList, required: false, referenceTable: "found.grace_condition",
+                    description: "宽限窗口适用的条件名（found.grace_condition 的 key）：条件刚失效后的 grace_ms 内仍视为满足；缺省为空"),
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true)

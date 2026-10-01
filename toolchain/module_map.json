@@ -583,6 +583,16 @@
       ]
     },
     {
+      "id": "validate_feel_data",
+      "label": "validate_data.py --strict --data-root data/_feel（手感框架数据集，含缺省标定行，errors/warnings 须为 0）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
       "id": "equip_pack_check",
       "label": "import_assets.py equip --strict-warnings（装备资产包 + 界面皮肤包完整性，占位装备集须零错误零警告）",
       "base_tiers": [],

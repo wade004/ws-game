@@ -173,7 +173,7 @@ namespace Tests.Carriers.Unit
             FeelSchemas.RegisterAll(registry);
             var report = registry.LoadAll();
             Assert.Equal(0, report.ErrorCount);
-            var result = FeelAssembly.Assemble(registry, new FeelAssemblyOptions { StepSeconds = Dt });
+            var result = FeelAssembly.Assemble(registry, new FeelAssemblyOptions { StepSeconds = Dt, CalibrationId = "feel.calibration.motion_test" });
             Assert.True(result.IsAssembled);
             return result.System!;
         }

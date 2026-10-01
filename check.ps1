@@ -940,6 +940,37 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_e
 }
 
 # -----------------------------------------------------------------------------
+# 10d. 手感框架数据集 data/_feel 单独 validate_data.py --strict 校验（手感落地 S1 收 S0 遗留 (a)）。
+#      _feel 随 data/_framework 一起被框架消费方装载；它必须能"自己"过校验（含缺省标定行 feel.calibration.framework_default），
+#      不依赖游戏根补标定。判定同实验室数据集：退出码 0 且汇总行 errors/warnings 均为 0。秒级步骤。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_feel（手感框架数据集单独校验，errors/warnings 须为 0）" -Id "validate_feel_data" {
+    Push-Location $RepoRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $feelDataOutput = @(& python "toolchain/validate_data.py" "--strict" "--data-root" "data/_feel")
+        $feelDataExit = $LASTEXITCODE
+        $feelDataOutput | ForEach-Object { Write-Host $_ }
+    } finally {
+        Pop-Location
+    }
+    if ($feelDataExit -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "validate_data.py 退出码=$feelDataExit，见上方输出" }
+    }
+    $feelSummaryLines = @($feelDataOutput | Where-Object { $_ -match 'errors\s+(\d+),\s*warnings\s+(\d+)' })
+    if ($feelSummaryLines.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "未在输出里找到 'errors N, warnings M' 汇总行，无法确认 errors/warnings 为 0" }
+    }
+    [void]($feelSummaryLines[-1] -match 'errors\s+(\d+),\s*warnings\s+(\d+)')
+    $feelErrors = [int]$Matches[1]
+    $feelWarnings = [int]$Matches[2]
+    if ($feelErrors -ne 0 -or $feelWarnings -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "手感框架数据集应为 0 error 0 warning，实际 errors=$feelErrors warnings=$feelWarnings" }
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "errors=0 warnings=0" }
+}
+
+# -----------------------------------------------------------------------------
 # 10e. 装备完整性检查（import_assets.py equip，手感设计/08 第 5 节）：装备资产包（图标、外观映射、纸娃娃层 ×
 #      必备/推荐姿势键 × 方向档、武器双表、音效材质）+ 界面皮肤包（槽位框/品质框/拖拽态/提示框/预览区/主题）。
 #      只比对文件与数据行是否存在，秒级。--strict-warnings：框架占位装备集是参照实现，必须零错误零警告

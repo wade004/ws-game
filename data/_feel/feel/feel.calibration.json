@@ -1,0 +1,18 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.calibration.framework_default",
+      "description": "框架缺省标定（试调起点，未经任何游戏标定）：参考身高 1 世界单位使“身高倍数”与世界单位一致；基础移速 4 世界单位/秒；动画 30 fps；参考镜头高度 10 世界单位、缩放 1；像素密度 32 像素/世界单位；标记容差 50 ms。毫秒到 tick 的换算依据是模拟固定步长（装配参数 StepSeconds，框架缺省 1/60 秒即 60 tick/s），不写在标定行里。真实游戏应写自己的标定行并在装配时指定 CalibrationId。",
+      "base_preset": "feel.preset.arpg_responsive",
+      "reference_height": 1.0,
+      "base_speed": 4.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    }
+  ]
+}

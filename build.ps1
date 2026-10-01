@@ -835,6 +835,9 @@ function Sync-ContentTree {
 $dataFrameworkSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "data\_framework")) -DestDir (Join-Path $StreamingAssetsRoot "data\_framework")
 Write-Host ("  data/_framework -> StreamingAssets/GameFoundation/data/_framework：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataFrameworkSyncResult.Total, $dataFrameworkSyncResult.Copied, $dataFrameworkSyncResult.Skipped, $dataFrameworkSyncResult.Removed)
 
+$dataFeelSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "data\_feel")) -DestDir (Join-Path $StreamingAssetsRoot "data\_feel")
+Write-Host ("  data/_feel -> StreamingAssets/GameFoundation/data/_feel（手感框架数据集，与 data/_framework 并列的框架根）：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataFeelSyncResult.Total, $dataFeelSyncResult.Copied, $dataFeelSyncResult.Skipped, $dataFeelSyncResult.Removed)
+
 $dataSyncResult = Sync-ContentTree -SourceDirs @((Join-Path $RepoRoot "data\_sample")) -DestDir (Join-Path $StreamingAssetsRoot "data\_sample")
 Write-Host ("  data/_sample -> StreamingAssets/GameFoundation/data/_sample：共 {0} 个文件，拷贝 {1}，跳过 {2}，删除 {3}" -f $dataSyncResult.Total, $dataSyncResult.Copied, $dataSyncResult.Skipped, $dataSyncResult.Removed)
 
@@ -1065,6 +1068,11 @@ if ($DistRequested) {
     # 新游戏按 games/_template/README.md 的接入方式是"分发包 data/_framework + 自己的 data/<game>"
     # 两根合并加载/校验（见 data/README.md"多根加载与合并规则"）。
     $dataFrameworkFileCount = Copy-DistDir -SourceRelative "data\_framework" -DestName "data\_framework"
+    # 手感落地 S1（收 S0 遗留 (b)）：data/_feel 是手感框架级数据集（档案/预设/标定缺省行），与 data/_framework
+    # 同属"框架数据、游戏根之外"，消费方装载时与 data/_framework 并列作为框架根；此前它没进发版打包，
+    # 导致 dist 里的游戏根拿不到手感档案。打包方式与 data/_framework 完全相同（整树拷贝、
+    # 同样进 framework-data 包 Data~/、MANIFEST 计数与 data_schemas 清单）。data/_lab（实验室内部数据）仍不分发。
+    $dataFeelFileCount = Copy-DistDir -SourceRelative "data\_feel" -DestName "data\_feel"
 
     # 消费方演练任务新增（toolchain/consumer_smoke.ps1 实跑暴露的 dist 缺口，见该脚本判断记录）：
     # TextMeshPro 是 games/_template 主菜单 UI（TemplateShellUi 经 UnityUISurface.DrawText）的运行期
@@ -1504,6 +1512,7 @@ if ($DistRequested) {
     $pkgDataDataTilde = Join-Path $pkgDataDir "Data~"
     New-Item -ItemType Directory -Force -Path $pkgDataDataTilde | Out-Null
     Copy-Item -Path (Join-Path $DistRoot "data\_framework") -Destination (Join-Path $pkgDataDataTilde "data\_framework") -Recurse -Force
+    Copy-Item -Path (Join-Path $DistRoot "data\_feel") -Destination (Join-Path $pkgDataDataTilde "data\_feel") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "assets\_placeholder") -Destination (Join-Path $pkgDataDataTilde "assets\_placeholder") -Recurse -Force
     Copy-Item -Path (Join-Path $DistRoot "assets\textmesh_pro_essentials") -Destination (Join-Path $pkgDataDataTilde "assets\textmesh_pro_essentials") -Recurse -Force
     Write-Host "  已组装 $pkgDataDir"
@@ -1598,15 +1607,18 @@ if ($DistRequested) {
     #     "两类目录"一节与 build.ps1 判断记录）。
     # -------------------------------------------------------------------
     $dataSchemaLines = @()
-    $dataFrameworkSrcDir = Join-Path $RepoRoot "data\_framework"
-    if (Test-Path $dataFrameworkSrcDir) {
-        $schemaJsonFiles = Get-ChildItem -Path $dataFrameworkSrcDir -Filter "*.json" -File -Recurse | Sort-Object FullName
-        foreach ($sjf in $schemaJsonFiles) {
-            try {
-                $tableObj = (Get-Content -Path $sjf.FullName -Raw -Encoding UTF8) | ConvertFrom-Json
-                $dataSchemaLines += ("  {0}: schema_version={1}" -f $tableObj.table, $tableObj.schema_version)
-            } catch {
-                $dataSchemaLines += ("  {0}: 解析失败（{1}）" -f $sjf.Name, $_.Exception.Message)
+    # data/_feel 与 data/_framework 同属分发的框架级数据，表清单一并列出（手感落地 S1）。
+    foreach ($dataSrcName in @("_framework", "_feel")) {
+        $dataFrameworkSrcDir = Join-Path $RepoRoot ("data\" + $dataSrcName)
+        if (Test-Path $dataFrameworkSrcDir) {
+            $schemaJsonFiles = Get-ChildItem -Path $dataFrameworkSrcDir -Filter "*.json" -File -Recurse | Sort-Object FullName
+            foreach ($sjf in $schemaJsonFiles) {
+                try {
+                    $tableObj = (Get-Content -Path $sjf.FullName -Raw -Encoding UTF8) | ConvertFrom-Json
+                    $dataSchemaLines += ("  {0}: schema_version={1}" -f $tableObj.table, $tableObj.schema_version)
+                } catch {
+                    $dataSchemaLines += ("  {0}: 解析失败（{1}）" -f $sjf.Name, $_.Exception.Message)
+                }
             }
         }
     }
@@ -1645,6 +1657,7 @@ if ($DistRequested) {
         "toolchain: $toolchainFileCount files",
         "assets/_placeholder: $assetsFileCount files",
         "data/_framework: $dataFrameworkFileCount files",
+        "data/_feel: $dataFeelFileCount files",
         "assets/textmesh_pro_essentials: $tmpEssentialsFileCount files",
         $(if ($SkipManualEffective) { "manual: (skipped)" } else { "manual: $manualFileCount files" }),
         "",

@@ -118,6 +118,16 @@ function Get-PackageManifestProblems {
         }
     }
 
+    if ($PackageName -eq "com.gamefoundation.framework-data") {
+        # 手感落地 S1（收 S0 遗留 (b)）：发版产物必须带 data/_feel（含缺省标定行），否则消费方的框架根拿不到手感档案。
+        $missingFeel = @(Get-MissingSuffixes -Suffixes @(
+            "Data~/data/_feel/feel/feel.calibration.json",
+            "Data~/data/_feel/feel/feel.preset.json"))
+        if ($missingFeel.Count -gt 0) {
+            $problems += ("$PackageName：npm pack --dry-run 文件清单缺失 data/_feel 手感框架数据（S1 发版打包断言）：" + ($missingFeel -join ", "))
+        }
+    }
+
     if ($PackageName -eq "com.gamefoundation.adapter.headless") {
         $missingCoreSim = @(Get-MissingSuffixes -Suffixes @("Lib~/Core.Sim.dll"))
         if ($missingCoreSim.Count -gt 0) {
