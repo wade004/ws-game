@@ -8,7 +8,9 @@ namespace Lab
     /// <summary>
     /// 脚本事件种类：按下、松开、轴值（轴值每个事件设一次并保持，直到下一个同动作的轴事件）；
     /// 换装场景（<see cref="ScriptMeta.Scene"/> = <c>equip</c>，格式版本 2）另有穿上物品与卸下槽位：
-    /// <see cref="Equip"/> 的 <see cref="ScriptEvent.Action"/> 是物品模板 id，<see cref="Unequip"/> 的是装备槽位 id。
+    /// <see cref="Equip"/> 的 <see cref="ScriptEvent.Action"/> 是物品模板 id，<see cref="Unequip"/> 的是装备槽位 id；
+    /// 手感场景（<see cref="ScriptMeta.Feel"/>，格式版本 3）另有 <see cref="Cast"/>：<see cref="ScriptEvent.Actor"/> 指明的靶子
+    /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -17,6 +19,7 @@ namespace Lab
         Axis,
         Equip,
         Unequip,
+        Cast,
     }
 
     /// <summary>
@@ -38,7 +41,10 @@ namespace Lab
 
         public double? RealTimestamp { get; }
 
-        public ScriptEvent(int tick, string action, ScriptEventKind kind, Vec2 value = default, double? realTimestamp = null)
+        /// <summary>事件的行动者：空表示玩家（所有既有事件）；<see cref="ScriptEventKind.Cast"/> 里是靶子的出场标签。</summary>
+        public string Actor { get; }
+
+        public ScriptEvent(int tick, string action, ScriptEventKind kind, Vec2 value = default, double? realTimestamp = null, string actor = "")
         {
             if (tick < 0)
             {
@@ -50,6 +56,7 @@ namespace Lab
             Kind = kind;
             Value = value;
             RealTimestamp = realTimestamp;
+            Actor = actor ?? string.Empty;
         }
     }
 
@@ -122,6 +129,26 @@ namespace Lab
         /// <summary>空手（主手没有武器行或武器行没声明普攻时间线）时的普通攻击技能 id。</summary>
         public string UnarmedAttackSkill { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 手感场景开关（格式版本 3）：为真时宿主经<b>生产装配</b>开启手感系统（<c>HeadlessWorldOptions.FeelOptions</c>），
+        /// 输入经输入缓冲与技能槽位绑定施放，并装出打击反馈流水线（假 sink）采表现时间线；为假（缺省）时一切与既有行为逐位一致。
+        /// 预设取 <see cref="PresetId"/>（空取格子缺省），标定取 <see cref="FeelCalibrationId"/>（空按预设在数据里找
+        /// <c>feel.calibration.lab_&lt;预设短名&gt;</c>）。
+        /// </summary>
+        public bool Feel { get; set; }
+
+        /// <summary>技能槽位 → 技能 id（手感场景，格式版本 3）：宿主按它调用 <c>SkillBindings.Bind</c>，并让玩家学会这些技能。保持声明顺序。</summary>
+        public List<KeyValuePair<string, string>> SkillSlots { get; } = new List<KeyValuePair<string, string>>();
+
+        /// <summary>除槽位技能外玩家还要学会的技能（连招的后续段等，手感场景，格式版本 3）。</summary>
+        public List<string> LearnSkills { get; } = new List<string>();
+
+        /// <summary>覆盖格子缺省的靶子集 id（<c>lab.dummy_set</c>，手感场景，格式版本 3）；空取格子的靶子集。</summary>
+        public string DummySetId { get; set; } = string.Empty;
+
+        /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
+        public bool UsesFeelFormat => Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0;
+
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
             Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
@@ -144,14 +171,33 @@ namespace Lab
         /// </summary>
         public const int ExtendedFormatVersion = 2;
 
+        /// <summary>
+        /// 手感场景格式版本：在扩展格式之上再加手感字段（<c>feel</c>、<c>skillSlots</c>、<c>learnSkills</c>、<c>dummySet</c>）与 <c>cast</c> 事件
+        /// （含事件的 <c>actor</c> 字段）。只有脚本用到它们才写本版本，其余脚本的序列化文本与扩展之前逐字相同。
+        /// </summary>
+        public const int FeelFormatVersion = 3;
+
         /// <summary>本内核读取的最高格式版本。</summary>
-        public const int MaxSupportedFormatVersion = ExtendedFormatVersion;
+        public const int MaxSupportedFormatVersion = FeelFormatVersion;
 
         /// <summary>该脚本序列化时写的格式版本。</summary>
         public int EffectiveFormatVersion
         {
             get
             {
+                if (Meta.UsesFeelFormat)
+                {
+                    return FeelFormatVersion;
+                }
+
+                foreach (var e in Events)
+                {
+                    if (e.Kind == ScriptEventKind.Cast || e.Actor.Length > 0)
+                    {
+                        return FeelFormatVersion;
+                    }
+                }
+
                 if (Meta.UsesExtendedFormat)
                 {
                     return ExtendedFormatVersion;
@@ -220,6 +266,21 @@ namespace Lab
             meta.Scene = LabJson.OptionalString(metaObj, "scene", what + ".meta") ?? string.Empty;
             meta.FeelCalibrationId = LabJson.OptionalString(metaObj, "feelCalibrationId", what + ".meta") ?? string.Empty;
             meta.UnarmedAttackSkill = LabJson.OptionalString(metaObj, "unarmedAttackSkill", what + ".meta") ?? string.Empty;
+            meta.DummySetId = LabJson.OptionalString(metaObj, "dummySet", what + ".meta") ?? string.Empty;
+            meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
+            ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
+            if (metaObj.TryGetValue("skillSlots", out var slots) && slots is JsonObject slotsObj)
+            {
+                for (var i = 0; i < slotsObj.Count; i++)
+                {
+                    meta.SkillSlots.Add(new KeyValuePair<string, string>(
+                        slotsObj[i].Key,
+                        slotsObj[i].Value is JsonString ss
+                            ? ss.Value
+                            : throw new LabFormatException($"{what}.meta.skillSlots.{slotsObj[i].Key} 必须是字符串")));
+                }
+            }
+
             ReadStrings(metaObj, "extraDataRoots", meta.ExtraDataRoots, what + ".meta");
             ReadStrings(metaObj, "extraDataExcludeTables", meta.ExtraDataExcludeTables, what + ".meta");
             ReadStrings(metaObj, "extraDataExcludeRows", meta.ExtraDataExcludeRows, what + ".meta");
@@ -259,7 +320,8 @@ namespace Lab
                     case "axis": kind = ScriptEventKind.Axis; break;
                     case "equip": kind = ScriptEventKind.Equip; break;
                     case "unequip": kind = ScriptEventKind.Unequip; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip）");
+                    case "cast": kind = ScriptEventKind.Cast; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast）");
                 }
 
                 var value = Vec2.Zero;
@@ -270,7 +332,8 @@ namespace Lab
                 }
 
                 double? ts = eo.TryGetValue("realTs", out var t) && t is JsonNumber tn ? tn.Value : (double?)null;
-                events.Add(new ScriptEvent(tick, action, kind, value, ts));
+                var actor = LabJson.OptionalString(eo, "actor", what + ".events[]") ?? string.Empty;
+                events.Add(new ScriptEvent(tick, action, kind, value, ts, actor));
             }
 
             return new InputScript(meta, events);
@@ -297,6 +360,7 @@ namespace Lab
                 case ScriptEventKind.Release: return "release";
                 case ScriptEventKind.Axis: return "axis";
                 case ScriptEventKind.Equip: return "equip";
+                case ScriptEventKind.Cast: return "cast";
                 default: return "unequip";
             }
         }
@@ -316,6 +380,21 @@ namespace Lab
                 .Add("durationTicks", LabJson.Num(Meta.DurationTicks))
                 .Add("playerStart", LabJson.Vec(Meta.PlayerStart))
                 .Add("dummyGroups", new JsonArray(Meta.DummyGroups.ConvertAll(g => (JsonValue)LabJson.Str(g))));
+            if (Meta.UsesFeelFormat)
+            {
+                // 手感场景字段只在用到时才写（先于扩展字段的块，键序固定）。
+                meta.Add("feel", LabJson.Bool(Meta.Feel))
+                    .Add("dummySet", LabJson.Str(Meta.DummySetId))
+                    .Add("learnSkills", new JsonArray(Meta.LearnSkills.ConvertAll(g => (JsonValue)LabJson.Str(g))));
+                var slotBuilder = new JsonObjectBuilder();
+                foreach (var pair in Meta.SkillSlots)
+                {
+                    slotBuilder.Add(pair.Key, LabJson.Str(pair.Value));
+                }
+
+                meta.Add("skillSlots", slotBuilder.Build());
+            }
+
             if (Meta.UsesExtendedFormat)
             {
                 // 扩展字段只在用到时才写，既有脚本的序列化文本因此与扩展之前逐字相同。
@@ -346,6 +425,11 @@ namespace Lab
                 if (e.Kind == ScriptEventKind.Axis)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
+                }
+
+                if (e.Actor.Length > 0)
+                {
+                    b.Add("actor", LabJson.Str(e.Actor));
                 }
 
                 if (e.RealTimestamp.HasValue)

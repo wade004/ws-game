@@ -1,0 +1,56 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_elite_armor",
+    "scriptVersion": 1,
+    "description": "精英霸体（06 第 3.6 节 elite_armor）：精英在 3 个单位处起手重击（霸体窗口 0..400ms，精英的扇形够不到 3 个单位外的玩家），玩家用投射物（bolt）远程命中精英，命中落在霸体窗口内——精英受击反应被霸体顶掉（反应为 None）、动作不被打断。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "elite"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.skill": "skill.lab_a_bolt"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "skill.lab_a_elite_swing",
+      "kind": "cast",
+      "actor": "elite"
+    },
+    {
+      "tick": 2,
+      "action": "input.action.lab_a_skill",
+      "kind": "press"
+    },
+    {
+      "tick": 3,
+      "action": "input.action.lab_a_skill",
+      "kind": "release"
+    }
+  ]
+}

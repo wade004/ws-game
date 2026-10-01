@@ -1,0 +1,103 @@
+{
+  "table": "lab.dummy_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.dummy_set.lab_action",
+      "entries": [
+        {
+          "name": "stake",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake"
+        },
+        {
+          "name": "mob",
+          "kind": "mob",
+          "creature_ref": "creature.lab_mob",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "mob"
+        },
+        {
+          "name": "frail",
+          "kind": "mob",
+          "creature_ref": "creature.lab_a_frail",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "frail"
+        },
+        {
+          "name": "pack_l",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": -1
+          },
+          "group": "pack"
+        },
+        {
+          "name": "pack_c",
+          "kind": "mob",
+          "creature_ref": "creature.lab_a_frail",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "pack"
+        },
+        {
+          "name": "pack_r",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": 1
+          },
+          "group": "pack"
+        },
+        {
+          "name": "elite",
+          "kind": "elite",
+          "creature_ref": "creature.lab_a_elite",
+          "position": {
+            "x": 3,
+            "y": 0
+          },
+          "group": "elite"
+        },
+        {
+          "name": "patrol",
+          "kind": "patrol",
+          "creature_ref": "creature.lab_a_patrol",
+          "position": {
+            "x": 2,
+            "y": -3
+          },
+          "group": "patrol",
+          "ai": true
+        },
+        {
+          "name": "breakable",
+          "kind": "breakable",
+          "creature_ref": "creature.lab_breakable",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "breakable"
+        }
+      ],
+      "note": "动作式实验室靶子集：全部靶子贴近玩家出生点（原点，朝向 +x），落在 2.5 单位的近战扇形内；精英在 x=3 面朝玩家，巡逻靶沿 x=2 往返，可破坏障碍同时是动态阻挡。"
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_projectile",
+    "scriptVersion": 1,
+    "description": "投射物（06 第 3.6 节 projectile）：释放标记发射投射物命中 2 个单位外的木桩（经投射物钩子确认命中，S11 缺口修复的运行时凭据），再用 bolt（命中标记直接起投射物、无释放标记）打同一木桩；两次施放都必须恰好一条命中确认。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 150,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_projectile",
+      "lab_a.skill": "skill.lab_a_bolt"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 70,
+      "action": "input.action.lab_a_skill",
+      "kind": "press"
+    },
+    {
+      "tick": 71,
+      "action": "input.action.lab_a_skill",
+      "kind": "release"
+    }
+  ]
+}

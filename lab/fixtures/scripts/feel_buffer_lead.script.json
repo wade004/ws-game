@@ -1,0 +1,99 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_buffer_lead",
+    "scriptVersion": 1,
+    "description": "输入缓冲提前量边界（06 第 3.6 节 buffer_lead）：每次试验挥击后在取消窗口打开前 N 个 tick 按闪避（N 分别为 6、7、8；缓冲 120ms=7 tick），看哪次被缓冲住并在窗口打开那 tick 取消、哪次缓冲过期。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 330,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash",
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 14,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 15,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    },
+    {
+      "tick": 85,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 86,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 93,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 94,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    },
+    {
+      "tick": 165,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 166,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 172,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 173,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ]
+}

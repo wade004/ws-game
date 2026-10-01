@@ -1,0 +1,19 @@
+{
+  "table": "feel.character",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.character.lab_a_elite",
+      "description": "实验室精英：受击反应封顶 flinch（抗硬直）；霸体来自精英挥击技能的 armor 标记窗口。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "reaction_cap",
+          "op": "set",
+          "value": "flinch"
+        }
+      ]
+    }
+  ]
+}

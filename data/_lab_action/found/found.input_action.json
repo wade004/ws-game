@@ -1,0 +1,51 @@
+{
+  "table": "found.input_action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "input.action.lab_a_attack",
+      "kind": "button",
+      "default_bindings": [
+        "key:j"
+      ],
+      "rebind_group": "default",
+      "class": "attack",
+      "skill_slot": "lab_a.attack",
+      "description": "动作式格子实验室输入动作：按钮类别与技能槽位由本表声明，槽位到技能的绑定由脚本 meta 的 skillSlots 给出。"
+    },
+    {
+      "key": "input.action.lab_a_dodge",
+      "kind": "button",
+      "default_bindings": [
+        "key:k"
+      ],
+      "rebind_group": "default",
+      "class": "dodge",
+      "skill_slot": "lab_a.dodge",
+      "description": "动作式格子实验室输入动作：按钮类别与技能槽位由本表声明，槽位到技能的绑定由脚本 meta 的 skillSlots 给出。"
+    },
+    {
+      "key": "input.action.lab_a_skill",
+      "kind": "button",
+      "default_bindings": [
+        "key:l"
+      ],
+      "rebind_group": "default",
+      "class": "skill",
+      "skill_slot": "lab_a.skill",
+      "description": "动作式格子实验室输入动作：按钮类别与技能槽位由本表声明，槽位到技能的绑定由脚本 meta 的 skillSlots 给出。"
+    },
+    {
+      "key": "input.action.lab_a_charge",
+      "kind": "button",
+      "default_bindings": [
+        "key:u"
+      ],
+      "rebind_group": "default",
+      "class": "attack",
+      "hold_threshold_ms": 250,
+      "skill_slot": "lab_a.charge",
+      "description": "动作式格子实验室输入动作：按钮类别与技能槽位由本表声明，槽位到技能的绑定由脚本 meta 的 skillSlots 给出。"
+    }
+  ]
+}

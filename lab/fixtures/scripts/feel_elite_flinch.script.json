@@ -1,0 +1,56 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_elite_flinch",
+    "scriptVersion": 1,
+    "description": "精英霸体窗口之后（06 第 3.6 节 elite_armor 的另一半）：同上，但玩家的投射物命中落在霸体窗口结束之后（精英收招段）——霸体不再顶掉反应，精英按其表现档案的反应上限（flinch）落地：只有畏缩，没有硬直（0 tick），起手重击不被打断。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "elite"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.skill": "skill.lab_a_bolt"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "skill.lab_a_elite_swing",
+      "kind": "cast",
+      "actor": "elite"
+    },
+    {
+      "tick": 21,
+      "action": "input.action.lab_a_skill",
+      "kind": "press"
+    },
+    {
+      "tick": 22,
+      "action": "input.action.lab_a_skill",
+      "kind": "release"
+    }
+  ]
+}

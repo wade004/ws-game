@@ -1,0 +1,24 @@
+{
+  "table": "target.chain_def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "target.chain.lab_a_arc",
+      "source": "all_in_shape",
+      "shape": {
+        "kind": "cone",
+        "angle": 1.5707963267948966,
+        "radius": 2.5
+      },
+      "filters": [
+        "relation:hostile",
+        "alive"
+      ],
+      "sort_by": {
+        "key": "distance",
+        "direction": "asc"
+      },
+      "max_targets": 8
+    }
+  ]
+}

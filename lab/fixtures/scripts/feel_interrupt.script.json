@@ -1,0 +1,56 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_interrupt",
+    "scriptVersion": 1,
+    "description": "打断（06 第 3.6 节 elite_interrupt 的普通靶对照）：普通靶（无霸体、无反应上限）在 tick 3 起手挥击，玩家在 tick 0 起手的挥击先命中它（命中落在它的前摇里）——受击硬直把它的挥击取消（取消原因 Stagger），它的命中标记不再触发，玩家不受伤。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "mob"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 1,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 3,
+      "action": "skill.lab_a_slash",
+      "kind": "cast",
+      "actor": "mob"
+    }
+  ]
+}

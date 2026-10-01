@@ -940,6 +940,38 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_e
 }
 
 # -----------------------------------------------------------------------------
+# 10d. 手感实验室动作式数据 data/_lab_action 单独 validate_data.py --strict 校验（手感设计/06，S7b 实验室扩展）。
+#      _lab_action 是实验室的第二个额外数据根（动作式格子的 timeline 技能、输入动作、靶子集与手感覆盖行），
+#      脚本 meta.extraDataRoots 在"框架根 + _lab 基础集 + data/_feel"之上叠加它；这里按同样的四根叠加装载，
+#      判定同实验室数据集：退出码 0 且汇总行 errors/warnings 均为 0。秒级步骤。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_lab_action（实验室动作式数据，叠加框架根、data/_lab 与 data/_feel，warnings 须为 0）" -Id "validate_lab_action_data" {
+    Push-Location $RepoRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $labActionOutput = @(& python "toolchain/validate_data.py" "--strict" "--framework-root" "data/_framework" "--data-root" "data/_lab" "--data-root" "data/_feel" "--data-root" "data/_lab_action")
+        $labActionExit = $LASTEXITCODE
+        $labActionOutput | ForEach-Object { Write-Host $_ }
+    } finally {
+        Pop-Location
+    }
+    if ($labActionExit -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "validate_data.py 退出码=$labActionExit，见上方输出" }
+    }
+    $labActionSummaryLines = @($labActionOutput | Where-Object { $_ -match 'errors\s+(\d+),\s*warnings\s+(\d+)' })
+    if ($labActionSummaryLines.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "未在输出里找到 'errors N, warnings M' 汇总行，无法确认 warnings 为 0" }
+    }
+    [void]($labActionSummaryLines[-1] -match 'errors\s+(\d+),\s*warnings\s+(\d+)')
+    $labActionErrors = [int]$Matches[1]
+    $labActionWarnings = [int]$Matches[2]
+    if ($labActionErrors -ne 0 -or $labActionWarnings -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "实验室动作式数据应为 0 error 0 warning，实际 errors=$labActionErrors warnings=$labActionWarnings" }
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "errors=0 warnings=0" }
+}
+
+# -----------------------------------------------------------------------------
 # 10d. 手感框架数据集 data/_feel 单独 validate_data.py --strict 校验（手感落地 S1 收 S0 遗留 (a)）。
 #      _feel 随 data/_framework 一起被框架消费方装载；它必须能"自己"过校验（含缺省标定行 feel.calibration.framework_default），
 #      不依赖游戏根补标定。判定同实验室数据集：退出码 0 且汇总行 errors/warnings 均为 0。秒级步骤。

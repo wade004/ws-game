@@ -1,0 +1,30 @@
+{
+  "table": "creature.tier_definition",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "creature.tier.lab_a_frail",
+      "name_key": "l10n.creature.tier.lab_a_frail.name",
+      "stat_multiplier": 1.0,
+      "control_immune": false,
+      "sort_weight": 6,
+      "xp_multiplier": 1.0
+    },
+    {
+      "id": "creature.tier.lab_a_patrol",
+      "name_key": "l10n.creature.tier.lab_a_patrol.name",
+      "stat_multiplier": 1.0,
+      "control_immune": false,
+      "sort_weight": 7,
+      "xp_multiplier": 1.0
+    },
+    {
+      "id": "creature.tier.lab_a_elite",
+      "name_key": "l10n.creature.tier.lab_a_elite.name",
+      "stat_multiplier": 1.0,
+      "control_immune": true,
+      "sort_weight": 8,
+      "xp_multiplier": 1.0
+    }
+  ]
+}

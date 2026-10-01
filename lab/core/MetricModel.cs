@@ -237,6 +237,13 @@ namespace Lab
                 .Register(new MovementMetricGroup())
                 .Register(new AttackMetricGroup())
                 .Register(new PerformanceMetricGroup())
-                .Register(new EquipMetricGroup());
+                .Register(new EquipMetricGroup())
+                .Register(new InputBufferMetricGroup())
+                .Register(new ActionTimelineMetricGroup())
+                .Register(new HitstopMetricGroup())
+                .Register(new HitReactionMetricGroup())
+                .Register(new MotionMetricGroup())
+                .Register(new SpatialHitMetricGroup())
+                .Register(new PresentationTimelineMetricGroup());
     }
 }

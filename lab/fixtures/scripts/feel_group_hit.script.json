@@ -1,0 +1,60 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_group_hit",
+    "scriptVersion": 1,
+    "description": "群体命中（06 第 3.6 节 group_hit）：三个靶子并排（两木桩夹一个低血量靶子），重击技能（feel.action 覆盖：攻击方顿帧 90ms、击杀倍率 2.0）扫三个——同 tick 多目标命中确认各一条；攻击方顿帧取各命中最大值并受攻击方顿帧上限约束（击杀放大 180ms 压到 100ms=6 tick）；第二击只剩两个木桩，无击杀，取覆盖的 90ms。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "pack"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slam"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 70,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 71,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_combo3",
+    "scriptVersion": 1,
+    "description": "三连击（06 第 3.6 节 combo3）：木桩前连按三次攻击，三段技能经连招窗口串成 combo1>combo2>combo3；第三段带 feel_ref 重击覆盖。量每段开始 tick、连招序号、命中段与等级、重击顿帧/硬直（来自覆盖行）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [
+      "skill.lab_a_combo2",
+      "skill.lab_a_combo3"
+    ],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_combo1"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 19,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 20,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 34,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 35,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

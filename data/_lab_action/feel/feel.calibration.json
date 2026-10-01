@@ -1,0 +1,30 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.calibration.lab_arpg_responsive",
+      "description": "实验室动作式格子标定：基础预设 arpg_responsive；参考身高 1、基础移速 5（等于玩家 stat.move_speed 缺省）。",
+      "base_preset": "feel.preset.arpg_responsive",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_rpg_classic",
+      "description": "实验室目标选择式格子标定：基础预设 rpg_classic；其余同上。",
+      "base_preset": "feel.preset.rpg_classic",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    }
+  ]
+}

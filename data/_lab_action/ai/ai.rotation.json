@@ -1,0 +1,10 @@
+{
+  "table": "ai.rotation",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.rotation.lab_a_passive",
+      "entries": []
+    }
+  ]
+}

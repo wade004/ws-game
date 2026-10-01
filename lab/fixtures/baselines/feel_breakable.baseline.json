@@ -1,0 +1,912 @@
+{
+  "formatVersion": 1,
+  "script": "feel_breakable",
+  "cells": {
+    "2d_targeted": {
+      "key": {
+        "script": "feel_breakable",
+        "scriptVersion": 1,
+        "dataset": "ac4242389fde5ddb",
+        "preset": "feel.preset.rpg_classic",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "2d_targeted",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": 0,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": 1,
+          "visible_move_ms": 16.666666667
+        },
+        "movement": {
+          "ticks_requested": 120,
+          "path_length": 6.5,
+          "net_displacement": 6.5,
+          "speed_steady": 5,
+          "accel_ticks": 0,
+          "stop_ticks": 0,
+          "stop_distance": 0,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": 1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 0,
+          "blocked_ticks": 42,
+          "obstructed_speed_fraction": 0,
+          "obstructed_jitter_ticks": 0
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 5,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 5,
+          "damage_events": 5,
+          "damage_total": 100,
+          "targets_hit": 1,
+          "kills": 1,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 1,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 340,
+          "event_count_total": 808,
+          "frames": 340,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 8192
+        },
+        "inputbuf": {
+          "press_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "slot_visible_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "consume_ticks": "",
+          "accept_latency_ticks": [],
+          "accept_latency_max": -1,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 1,
+          "slot_occupied_ticks": 5
+        },
+        "actiontl": {
+          "starts": "",
+          "phase_ticks": "",
+          "action_total_ticks": [],
+          "markers": "",
+          "cancels": "",
+          "finishes": "",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "Hit:5",
+          "reaction_counts": "Death:1;None:4",
+          "reactions": "230:breakable:Death:0",
+          "staggered_ticks": "",
+          "kills": 1,
+          "hit_classes": "medium,medium,medium,medium,medium"
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx18,Grounded/Nonex242,Grounded/Regularx60,Grounded/Nonex20",
+          "speed_max": 5,
+          "ticks_to_full_speed": 0,
+          "ticks_to_stop": 1,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "6.5,0",
+          "blocking_updates": "230:5/3",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 5,
+          "avoided": 0,
+          "hit_sets": "0.0=breakable",
+          "confirm_ticks": "70:player>breakable;110:player>breakable;150:player>breakable;190:player>breakable;230:player>breakable",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "70:sfx.lab_impact_t2;110:sfx.lab_impact_t2;150:sfx.lab_impact_t2;190:sfx.lab_impact_t2;230:sfx.lab_impact_t2;230:sfx.lab_sweetener_t1",
+          "sfx_count": 6,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": 0,
+          "other_ops": ""
+        }
+      }
+    },
+    "2d_action": {
+      "key": {
+        "script": "feel_breakable",
+        "scriptVersion": 1,
+        "dataset": "9f95d55ac17abe23",
+        "preset": "feel.preset.arpg_responsive",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "2d_action",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": 0,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": 1,
+          "visible_move_ms": 16.666666667
+        },
+        "movement": {
+          "ticks_requested": 120,
+          "path_length": 3.804673721,
+          "net_displacement": 3.804673721,
+          "speed_steady": 2.5,
+          "accel_ticks": 5,
+          "stop_ticks": 2,
+          "stop_distance": 0.023809524,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": 1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 11,
+          "blocked_ticks": 24,
+          "obstructed_speed_fraction": 0.044699872,
+          "obstructed_jitter_ticks": 5
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 5,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 5,
+          "damage_events": 5,
+          "damage_total": 100,
+          "targets_hit": 1,
+          "kills": 1,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 1,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 340,
+          "event_count_total": 890,
+          "frames": 340,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 32768
+        },
+        "inputbuf": {
+          "press_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "slot_visible_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "consume_ticks": "70:skill.lab_a_slash;110:skill.lab_a_slash;150:skill.lab_a_slash;190:skill.lab_a_slash;230:skill.lab_a_slash",
+          "accept_latency_ticks": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "accept_latency_max": 0,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 1,
+          "slot_occupied_ticks": 5
+        },
+        "actiontl": {
+          "starts": "player@70:skill.lab_a_slash#0;player@110:skill.lab_a_slash#0;player@150:skill.lab_a_slash#0;player@190:skill.lab_a_slash#0;player@230:skill.lab_a_slash#0",
+          "phase_ticks": "player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=9/recovery=15",
+          "action_total_ticks": [
+            32,
+            32,
+            32,
+            32,
+            33
+          ],
+          "markers": "player@79:hit;player@87:cancel_open:dodge;player@102:cancel_close:dodge;player@119:hit;player@127:cancel_open:dodge;player@142:cancel_close:dodge;player@159:hit;player@167:cancel_open:dodge;player@182:cancel_close:dodge;player@199:hit;player@207:cancel_open:dodge;player@222:cancel_close:dodge;player@239:hit;player@248:cancel_open:dodge;player@263:cancel_close:dodge",
+          "cancels": "",
+          "finishes": "player@102;player@142;player@182;player@222;player@263",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "79:player:2;79:breakable:3;119:player:2;119:breakable:3;159:player:2;159:breakable:3;199:player:2;199:breakable:3;239:player:3",
+          "started_ticks_player": 11,
+          "frozen_ticks_player": 11,
+          "frozen_ticks_targets": "breakable=12",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "Hit:5",
+          "reaction_counts": "Death:1;Stagger:4",
+          "reactions": "79:breakable:Stagger:9;119:breakable:Stagger:9;159:breakable:Stagger:9;199:breakable:Stagger:9;239:breakable:Death:0",
+          "staggered_ticks": "breakable=36",
+          "kills": 1,
+          "hit_classes": "medium,medium,medium,medium,medium"
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx38,Grounded/Nonex1,Grounded/Regularx1,Grounded/Nonex30,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex3,Action/Nonex20,Grounded/Regularx59,Grounded/Nonex18",
+          "speed_max": 2.5,
+          "ticks_to_full_speed": 5,
+          "ticks_to_stop": 3,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "3.804673721,0",
+          "blocking_updates": "239:5/3",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 5,
+          "avoided": 0,
+          "hit_sets": "0.0=breakable;1.0=breakable;2.0=breakable;3.0=breakable;4.0=breakable",
+          "confirm_ticks": "79:player>breakable;119:player>breakable;159:player>breakable;199:player>breakable;239:player>breakable",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "79:sfx.lab_impact_t2;119:sfx.lab_impact_t2;159:sfx.lab_impact_t2;199:sfx.lab_impact_t2;239:sfx.lab_impact_t2;239:sfx.lab_sweetener_t1",
+          "sfx_count": 6,
+          "camera_cues": "79:1:;119:1:;159:1:;199:1:;239:1:",
+          "camera_magnitudes": [
+            0.01,
+            0.01,
+            0.01,
+            0.01,
+            0.02
+          ],
+          "camera_decay_ms": [
+            120,
+            120,
+            120,
+            120,
+            160
+          ],
+          "freeze_ops": "79:freeze:player:2;79:freeze:breakable:3;81:release:player:0;82:release:breakable:0;119:freeze:player:2;119:freeze:breakable:3;121:release:player:0;122:release:breakable:0;159:freeze:player:2;159:freeze:breakable:3;161:release:player:0;162:release:breakable:0;199:freeze:player:2;199:freeze:breakable:3;201:release:player:0;202:release:breakable:0;239:freeze:player:3;242:release:player:0",
+          "first_feedback_lag_ticks": 0,
+          "other_ops": ""
+        }
+      }
+    },
+    "2_5d_targeted": {
+      "key": {
+        "script": "feel_breakable",
+        "scriptVersion": 1,
+        "dataset": "ac4242389fde5ddb",
+        "preset": "feel.preset.rpg_classic",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "2_5d_targeted",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": 0,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": 1,
+          "visible_move_ms": 16.666666667
+        },
+        "movement": {
+          "ticks_requested": 120,
+          "path_length": 6.5,
+          "net_displacement": 6.5,
+          "speed_steady": 5,
+          "accel_ticks": 0,
+          "stop_ticks": 0,
+          "stop_distance": 0,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": 1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 0,
+          "blocked_ticks": 42,
+          "obstructed_speed_fraction": 0,
+          "obstructed_jitter_ticks": 0
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 5,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 5,
+          "damage_events": 5,
+          "damage_total": 100,
+          "targets_hit": 1,
+          "kills": 1,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 1,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 340,
+          "event_count_total": 808,
+          "frames": 340,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 8192
+        },
+        "inputbuf": {
+          "press_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "slot_visible_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "consume_ticks": "",
+          "accept_latency_ticks": [],
+          "accept_latency_max": -1,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 1,
+          "slot_occupied_ticks": 5
+        },
+        "actiontl": {
+          "starts": "",
+          "phase_ticks": "",
+          "action_total_ticks": [],
+          "markers": "",
+          "cancels": "",
+          "finishes": "",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "Hit:5",
+          "reaction_counts": "Death:1;None:4",
+          "reactions": "230:breakable:Death:0",
+          "staggered_ticks": "",
+          "kills": 1,
+          "hit_classes": "medium,medium,medium,medium,medium"
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx18,Grounded/Nonex242,Grounded/Regularx60,Grounded/Nonex20",
+          "speed_max": 5,
+          "ticks_to_full_speed": 0,
+          "ticks_to_stop": 1,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "6.5,0",
+          "blocking_updates": "230:5/3",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 5,
+          "avoided": 0,
+          "hit_sets": "0.0=breakable",
+          "confirm_ticks": "70:player>breakable;110:player>breakable;150:player>breakable;190:player>breakable;230:player>breakable",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "70:sfx.lab_impact_t2;110:sfx.lab_impact_t2;150:sfx.lab_impact_t2;190:sfx.lab_impact_t2;230:sfx.lab_impact_t2;230:sfx.lab_sweetener_t1",
+          "sfx_count": 6,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": 0,
+          "other_ops": ""
+        }
+      }
+    },
+    "2_5d_action": {
+      "key": {
+        "script": "feel_breakable",
+        "scriptVersion": 1,
+        "dataset": "9f95d55ac17abe23",
+        "preset": "feel.preset.arpg_responsive",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "2_5d_action",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": 0,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": 1,
+          "visible_move_ms": 16.666666667
+        },
+        "movement": {
+          "ticks_requested": 120,
+          "path_length": 3.804673721,
+          "net_displacement": 3.804673721,
+          "speed_steady": 2.5,
+          "accel_ticks": 5,
+          "stop_ticks": 2,
+          "stop_distance": 0.023809524,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": 1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 11,
+          "blocked_ticks": 24,
+          "obstructed_speed_fraction": 0.044699872,
+          "obstructed_jitter_ticks": 5
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 5,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 5,
+          "damage_events": 5,
+          "damage_total": 100,
+          "targets_hit": 1,
+          "kills": 1,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 1,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 340,
+          "event_count_total": 890,
+          "frames": 340,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 32768
+        },
+        "inputbuf": {
+          "press_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "slot_visible_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "consume_ticks": "70:skill.lab_a_slash;110:skill.lab_a_slash;150:skill.lab_a_slash;190:skill.lab_a_slash;230:skill.lab_a_slash",
+          "accept_latency_ticks": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "accept_latency_max": 0,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 1,
+          "slot_occupied_ticks": 5
+        },
+        "actiontl": {
+          "starts": "player@70:skill.lab_a_slash#0;player@110:skill.lab_a_slash#0;player@150:skill.lab_a_slash#0;player@190:skill.lab_a_slash#0;player@230:skill.lab_a_slash#0",
+          "phase_ticks": "player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=9/recovery=15",
+          "action_total_ticks": [
+            32,
+            32,
+            32,
+            32,
+            33
+          ],
+          "markers": "player@79:hit;player@87:cancel_open:dodge;player@102:cancel_close:dodge;player@119:hit;player@127:cancel_open:dodge;player@142:cancel_close:dodge;player@159:hit;player@167:cancel_open:dodge;player@182:cancel_close:dodge;player@199:hit;player@207:cancel_open:dodge;player@222:cancel_close:dodge;player@239:hit;player@248:cancel_open:dodge;player@263:cancel_close:dodge",
+          "cancels": "",
+          "finishes": "player@102;player@142;player@182;player@222;player@263",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "79:player:2;79:breakable:3;119:player:2;119:breakable:3;159:player:2;159:breakable:3;199:player:2;199:breakable:3;239:player:3",
+          "started_ticks_player": 11,
+          "frozen_ticks_player": 11,
+          "frozen_ticks_targets": "breakable=12",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "Hit:5",
+          "reaction_counts": "Death:1;Stagger:4",
+          "reactions": "79:breakable:Stagger:9;119:breakable:Stagger:9;159:breakable:Stagger:9;199:breakable:Stagger:9;239:breakable:Death:0",
+          "staggered_ticks": "breakable=36",
+          "kills": 1,
+          "hit_classes": "medium,medium,medium,medium,medium"
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx38,Grounded/Nonex1,Grounded/Regularx1,Grounded/Nonex30,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex3,Action/Nonex20,Grounded/Regularx59,Grounded/Nonex18",
+          "speed_max": 2.5,
+          "ticks_to_full_speed": 5,
+          "ticks_to_stop": 3,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "3.804673721,0",
+          "blocking_updates": "239:5/3",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 5,
+          "avoided": 0,
+          "hit_sets": "0.0=breakable;1.0=breakable;2.0=breakable;3.0=breakable;4.0=breakable",
+          "confirm_ticks": "79:player>breakable;119:player>breakable;159:player>breakable;199:player>breakable;239:player>breakable",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "79:sfx.lab_impact_t2;119:sfx.lab_impact_t2;159:sfx.lab_impact_t2;199:sfx.lab_impact_t2;239:sfx.lab_impact_t2;239:sfx.lab_sweetener_t1",
+          "sfx_count": 6,
+          "camera_cues": "79:1:;119:1:;159:1:;199:1:;239:1:",
+          "camera_magnitudes": [
+            0.01,
+            0.01,
+            0.01,
+            0.01,
+            0.02
+          ],
+          "camera_decay_ms": [
+            120,
+            120,
+            120,
+            120,
+            160
+          ],
+          "freeze_ops": "79:freeze:player:2;79:freeze:breakable:3;81:release:player:0;82:release:breakable:0;119:freeze:player:2;119:freeze:breakable:3;121:release:player:0;122:release:breakable:0;159:freeze:player:2;159:freeze:breakable:3;161:release:player:0;162:release:breakable:0;199:freeze:player:2;199:freeze:breakable:3;201:release:player:0;202:release:breakable:0;239:freeze:player:3;242:release:player:0",
+          "first_feedback_lag_ticks": 0,
+          "other_ops": ""
+        }
+      }
+    },
+    "3d_targeted": {
+      "key": {
+        "script": "feel_breakable",
+        "scriptVersion": 1,
+        "dataset": "ac4242389fde5ddb",
+        "preset": "feel.preset.rpg_classic",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "3d_targeted",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": 0,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": 1,
+          "visible_move_ms": 16.666666667
+        },
+        "movement": {
+          "ticks_requested": 120,
+          "path_length": 6.5,
+          "net_displacement": 6.5,
+          "speed_steady": 5,
+          "accel_ticks": 0,
+          "stop_ticks": 0,
+          "stop_distance": 0,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": 1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 0,
+          "blocked_ticks": 42,
+          "obstructed_speed_fraction": 0,
+          "obstructed_jitter_ticks": 0
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 5,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 5,
+          "damage_events": 5,
+          "damage_total": 100,
+          "targets_hit": 1,
+          "kills": 1,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 1,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 340,
+          "event_count_total": 808,
+          "frames": 340,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 8192
+        },
+        "inputbuf": {
+          "press_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "slot_visible_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "consume_ticks": "",
+          "accept_latency_ticks": [],
+          "accept_latency_max": -1,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 1,
+          "slot_occupied_ticks": 5
+        },
+        "actiontl": {
+          "starts": "",
+          "phase_ticks": "",
+          "action_total_ticks": [],
+          "markers": "",
+          "cancels": "",
+          "finishes": "",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "Hit:5",
+          "reaction_counts": "Death:1;None:4",
+          "reactions": "230:breakable:Death:0",
+          "staggered_ticks": "",
+          "kills": 1,
+          "hit_classes": "medium,medium,medium,medium,medium"
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx18,Grounded/Nonex242,Grounded/Regularx60,Grounded/Nonex20",
+          "speed_max": 5,
+          "ticks_to_full_speed": 0,
+          "ticks_to_stop": 1,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "6.5,0",
+          "blocking_updates": "230:5/3",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 5,
+          "avoided": 0,
+          "hit_sets": "0.0=breakable",
+          "confirm_ticks": "70:player>breakable;110:player>breakable;150:player>breakable;190:player>breakable;230:player>breakable",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "70:sfx.lab_impact_t2;110:sfx.lab_impact_t2;150:sfx.lab_impact_t2;190:sfx.lab_impact_t2;230:sfx.lab_impact_t2;230:sfx.lab_sweetener_t1",
+          "sfx_count": 6,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": 0,
+          "other_ops": ""
+        }
+      }
+    },
+    "3d_action": {
+      "key": {
+        "script": "feel_breakable",
+        "scriptVersion": 1,
+        "dataset": "9f95d55ac17abe23",
+        "preset": "feel.preset.arpg_responsive",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "3d_action",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": 0,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": 1,
+          "visible_move_ms": 16.666666667
+        },
+        "movement": {
+          "ticks_requested": 120,
+          "path_length": 3.804673721,
+          "net_displacement": 3.804673721,
+          "speed_steady": 2.5,
+          "accel_ticks": 5,
+          "stop_ticks": 2,
+          "stop_distance": 0.023809524,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": 1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 11,
+          "blocked_ticks": 24,
+          "obstructed_speed_fraction": 0.044699872,
+          "obstructed_jitter_ticks": 5
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 5,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 5,
+          "damage_events": 5,
+          "damage_total": 100,
+          "targets_hit": 1,
+          "kills": 1,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 1,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 340,
+          "event_count_total": 890,
+          "frames": 340,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 32768
+        },
+        "inputbuf": {
+          "press_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "slot_visible_ticks": "70:lab_a_attack;110:lab_a_attack;150:lab_a_attack;190:lab_a_attack;230:lab_a_attack",
+          "consume_ticks": "70:skill.lab_a_slash;110:skill.lab_a_slash;150:skill.lab_a_slash;190:skill.lab_a_slash;230:skill.lab_a_slash",
+          "accept_latency_ticks": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "accept_latency_max": 0,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 1,
+          "slot_occupied_ticks": 5
+        },
+        "actiontl": {
+          "starts": "player@70:skill.lab_a_slash#0;player@110:skill.lab_a_slash#0;player@150:skill.lab_a_slash#0;player@190:skill.lab_a_slash#0;player@230:skill.lab_a_slash#0",
+          "phase_ticks": "player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=8/recovery=15;player:skill.lab_a_slash:startup=9/active=9/recovery=15",
+          "action_total_ticks": [
+            32,
+            32,
+            32,
+            32,
+            33
+          ],
+          "markers": "player@79:hit;player@87:cancel_open:dodge;player@102:cancel_close:dodge;player@119:hit;player@127:cancel_open:dodge;player@142:cancel_close:dodge;player@159:hit;player@167:cancel_open:dodge;player@182:cancel_close:dodge;player@199:hit;player@207:cancel_open:dodge;player@222:cancel_close:dodge;player@239:hit;player@248:cancel_open:dodge;player@263:cancel_close:dodge",
+          "cancels": "",
+          "finishes": "player@102;player@142;player@182;player@222;player@263",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "79:player:2;79:breakable:3;119:player:2;119:breakable:3;159:player:2;159:breakable:3;199:player:2;199:breakable:3;239:player:3",
+          "started_ticks_player": 11,
+          "frozen_ticks_player": 11,
+          "frozen_ticks_targets": "breakable=12",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "Hit:5",
+          "reaction_counts": "Death:1;Stagger:4",
+          "reactions": "79:breakable:Stagger:9;119:breakable:Stagger:9;159:breakable:Stagger:9;199:breakable:Stagger:9;239:breakable:Death:0",
+          "staggered_ticks": "breakable=36",
+          "kills": 1,
+          "hit_classes": "medium,medium,medium,medium,medium"
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx38,Grounded/Nonex1,Grounded/Regularx1,Grounded/Nonex30,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex8,Action/Nonex10,Frozen/Nonex3,Action/Nonex20,Grounded/Regularx59,Grounded/Nonex18",
+          "speed_max": 2.5,
+          "ticks_to_full_speed": 5,
+          "ticks_to_stop": 3,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "3.804673721,0",
+          "blocking_updates": "239:5/3",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 5,
+          "avoided": 0,
+          "hit_sets": "0.0=breakable;1.0=breakable;2.0=breakable;3.0=breakable;4.0=breakable",
+          "confirm_ticks": "79:player>breakable;119:player>breakable;159:player>breakable;199:player>breakable;239:player>breakable",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "79:sfx.lab_impact_t2;119:sfx.lab_impact_t2;159:sfx.lab_impact_t2;199:sfx.lab_impact_t2;239:sfx.lab_impact_t2;239:sfx.lab_sweetener_t1",
+          "sfx_count": 6,
+          "camera_cues": "79:1:;119:1:;159:1:;199:1:;239:1:",
+          "camera_magnitudes": [
+            0.01,
+            0.01,
+            0.01,
+            0.01,
+            0.02
+          ],
+          "camera_decay_ms": [
+            120,
+            120,
+            120,
+            120,
+            160
+          ],
+          "freeze_ops": "79:freeze:player:2;79:freeze:breakable:3;81:release:player:0;82:release:breakable:0;119:freeze:player:2;119:freeze:breakable:3;121:release:player:0;122:release:breakable:0;159:freeze:player:2;159:freeze:breakable:3;161:release:player:0;162:release:breakable:0;199:freeze:player:2;199:freeze:breakable:3;201:release:player:0;202:release:breakable:0;239:freeze:player:3;242:release:player:0",
+          "first_feedback_lag_ticks": 0,
+          "other_ops": ""
+        }
+      }
+    }
+  }
+}

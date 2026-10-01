@@ -1,0 +1,50 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_lunge",
+    "scriptVersion": 1,
+    "description": "近战扑击（06 第 3.6 节 melee 的目标辅助与位移段）：玩家站在木桩的 -y 侧 2 个单位处（朝 +x，与木桩方向夹 90 度），按扑击——目标辅助把朝向修正向木桩（预设转向辅助上限限幅），位移段沿朝向前扑，命中标记在位移之后落地。量辅助事件（目标、修正弧度）、位移终点与命中。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 2,
+      "y": -2
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_lunge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

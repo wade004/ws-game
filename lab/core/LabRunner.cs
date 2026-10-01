@@ -102,8 +102,12 @@ namespace Lab
             _extraRootResolver = extraRootResolver ?? LabDataSources.FromDirectory;
         }
 
-        /// <summary>该脚本实际运行的数据集（无扩展数据声明时就是 <see cref="Dataset"/>）。</summary>
-        public LabDataset DatasetFor(InputScript script)
+        /// <summary>
+        /// 该脚本实际运行的数据集（无扩展数据声明时就是 <see cref="Dataset"/>）。手感场景脚本的数据集还随格子/变体而变：
+        /// 目标选择式格子（或显式 <see cref="LabRunVariant.StripTimelines"/>）把额外根技能的 <c>timeline</c> 块剥掉，
+        /// 因此同一脚本最多有"保留 / 剥掉"两份派生数据集（各自按脚本 id + 变体键缓存，装载一次）。
+        /// </summary>
+        public LabDataset DatasetFor(InputScript script, LabScenario? cell = null, LabRunVariant? variant = null)
         {
             var meta = script.Meta;
             if (meta.ExtraDataRoots.Count == 0)
@@ -111,23 +115,30 @@ namespace Lab
                 return Dataset;
             }
 
-            if (!_scriptDatasets.TryGetValue(meta.ScriptId, out var dataset))
+            variant ??= LabRunVariant.Default;
+            var strip = meta.Feel && variant.EffectiveStrip(cell);
+            var key = meta.ScriptId + (strip ? "|strip" : string.Empty);
+            if (!_scriptDatasets.TryGetValue(key, out var dataset))
             {
-                dataset = LabDataset.Load(LabDataSources.ForScript(Dataset.Sources, meta, _extraRootResolver), Dataset.HostOptions);
-                _scriptDatasets[meta.ScriptId] = dataset;
+                dataset = LabDataset.Load(LabDataSources.ForScript(Dataset.Sources, meta, _extraRootResolver, strip), Dataset.HostOptions);
+                _scriptDatasets[key] = dataset;
             }
 
             return dataset;
         }
 
-        public LabRecording Record(InputScript script, string cell)
+        public LabRecording Record(InputScript script, string cell, LabRunVariant? variant = null)
         {
-            var dataset = DatasetFor(script);
-            return LabHost.Run(dataset.HostOptions, dataset.Catalog.GetScenario(cell), script, dataset.Catalog);
+            var scenario = Dataset.Catalog.GetScenario(cell);
+            var dataset = DatasetFor(script, scenario, variant);
+            return LabHost.Run(dataset.HostOptions, dataset.Catalog.GetScenario(cell), script, dataset.Catalog, variant);
         }
 
-        public Fingerprint Run(InputScript script, string cell) =>
-            Fingerprint.Build(Record(script, cell), Registry, DatasetFor(script).Hash);
+        public Fingerprint Run(InputScript script, string cell, LabRunVariant? variant = null)
+        {
+            var scenario = Dataset.Catalog.GetScenario(cell);
+            return Fingerprint.Build(Record(script, cell, variant), Registry, DatasetFor(script, scenario, variant).Hash);
+        }
 
         /// <summary>该脚本适用的格子：格子的脚本子集为空表示适用全部，否则脚本 id 必须在子集里。</summary>
         public IReadOnlyList<LabScenario> ApplicableCells(InputScript script)
