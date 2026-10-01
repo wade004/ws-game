@@ -271,22 +271,81 @@ namespace Tests.Foundation.Rng
             Assert.Equal(new RngHost(3UL).GetStreamState(Stream), host.GetStreamState(Stream));
         }
 
-        [Fact]
-        public void SetStreamState_AllZeroState_Characterization_StreamStaysAtZeroForever()
-        {
-            // 特征化（待设计层确认）：全零状态是 xoshiro256** 的不动点，Next() 恒为 0.0 且状态永不离开全零。
-            // SeedDerivation 会在派生时避开它，但 SetStreamState / RngStreamState.Parse 不拒绝全零状态，
-            // 一份被写坏成全零的存档会让该流之后的所有抽样静默恒为 0。是否应在 Set/Load 路径拒绝全零，属设计决定；
-            // 此用例只固定当前可观测事实。
-            var host = new RngHost(1UL);
-            host.SetStreamState(Stream, new RngStreamState(0UL, 0UL, 0UL, 0UL));
+        // 收口遗留修复 A8：全零状态是 xoshiro256** 的不动点（Next() 恒为 0 且状态永不离开全零），
+        // 一份写坏成全零的存档会让该流之后的所有抽样静默恒为 0——现全零状态在 RngStreamState 构造、
+        // 文本解析、SetStreamState（含 default 值）三处一律拒绝。
 
-            for (var i = 0; i < 20; i++)
+        [Fact]
+        public void RngStreamState_AllZeroConstructor_Throws_ArgumentException()
+        {
+            Assert.Throws<ArgumentException>(() => new RngStreamState(0UL, 0UL, 0UL, 0UL));
+        }
+
+        [Theory]
+        [InlineData(1UL, 0UL, 0UL, 0UL)]
+        [InlineData(0UL, 1UL, 0UL, 0UL)]
+        [InlineData(0UL, 0UL, 1UL, 0UL)]
+        [InlineData(0UL, 0UL, 0UL, 1UL)]
+        public void RngStreamState_AnyNonZeroWord_IsAccepted_AndRoundTripsThroughText(ulong s0, ulong s1, ulong s2, ulong s3)
+        {
+            var state = new RngStreamState(s0, s1, s2, s3);
+
+            Assert.Equal(state, RngStreamState.Parse(state.ToString()));
+        }
+
+        [Fact]
+        public void RngStreamState_AllZeroText_IsRejected_ByTryParseAndParse()
+        {
+            const string zeros = "0000000000000000-0000000000000000-0000000000000000-0000000000000000";
+
+            Assert.False(RngStreamState.TryParse(zeros, out var state));
+            Assert.Equal(default(RngStreamState), state);
+            Assert.Throws<FormatException>(() => RngStreamState.Parse(zeros));
+        }
+
+        [Fact]
+        public void SetStreamState_AllZeroDefaultValue_Throws_AndLeavesStreamUntouched()
+        {
+            var host = new RngHost(1UL);
+            var before = host.GetStreamState(Stream);
+
+            Assert.Throws<ArgumentException>(() => host.SetStreamState(Stream, default(RngStreamState)));
+
+            Assert.Equal(before, host.GetStreamState(Stream));
+            Assert.NotEqual(0.0, host.Next(Stream)); // 流仍可正常抽样
+        }
+
+        [Fact]
+        public void SetStreamState_AllZeroDefaultValue_OnUnknownStream_Throws_AndDoesNotCreateStream()
+        {
+            var host = new RngHost(1UL);
+            var fresh = new Id("rng.never_created");
+
+            Assert.Throws<ArgumentException>(() => host.SetStreamState(fresh, default(RngStreamState)));
+
+            Assert.DoesNotContain(fresh, host.Streams);
+        }
+
+        [Fact]
+        public void DerivedInitialState_IsNeverAllZero_AcrossManySeedsAndStreams()
+        {
+            // SeedDerivation 的全零回退分支已删（数学上不可达，见其注释）：这里用扫描佐证——若有任何
+            // (seed, stream) 派生出全零，RngStreamState 构造函数会抛 ArgumentException 使本用例失败。
+            var streams = new[] { new Id("rng.a"), new Id("rng.b"), new Id("rng.loot"), new Id("rng.ai") };
+            for (ulong seed = 0; seed < 512; seed++)
             {
-                Assert.Equal(0.0, host.Next(Stream));
+                var host = new RngHost(seed);
+                for (var i = 0; i < streams.Length; i++)
+                {
+                    Assert.False(host.GetStreamState(streams[i]).Equals(default(RngStreamState)));
+                }
             }
 
-            Assert.Equal(new RngStreamState(0UL, 0UL, 0UL, 0UL), host.GetStreamState(Stream));
+            foreach (var seed in new[] { ulong.MaxValue, 0x9E3779B97F4A7C15UL, 0xDEADBEEFCAFEBABEUL })
+            {
+                var host = new RngHost(seed);
+                Assert.False(host.GetStreamState(Stream).Equals(default(RngStreamState)));
+            }
         }
     }
 }

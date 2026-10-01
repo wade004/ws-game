@@ -8,6 +8,12 @@ namespace Core.Foundation.Rng
     /// 值类型、可直接相等比较；<see cref="ToString"/>/<see cref="Parse"/>/<see cref="TryParse"/>
     /// 提供稳定的十六进制文本形式，供存档系统序列化到
     /// 10_存档与持久化.md 第 2.4 节 rng 段的 <c>stream_states</c> 字段。
+    /// <para>
+    /// 判断记录（收口遗留修复 A8，拒绝全零状态）：全零是 xoshiro256** 的不动点——<c>Next()</c> 恒为 0 且状态
+    /// 永不离开全零。构造函数对四个字全为 0 抛 <see cref="ArgumentException"/>，文本解析
+    /// （<see cref="TryParse"/>/<see cref="Parse"/>）把全零文本当作非法格式。<c>default(RngStreamState)</c>
+    /// 作为值类型仍可被构造出来（全零），由 <c>IRngHost.SetStreamState</c> 的实现在入口拒绝。
+    /// </para>
     /// </summary>
     public readonly struct RngStreamState : IEquatable<RngStreamState>
     {
@@ -21,6 +27,12 @@ namespace Core.Foundation.Rng
 
         public RngStreamState(ulong s0, ulong s1, ulong s2, ulong s3)
         {
+            if ((s0 | s1 | s2 | s3) == 0UL)
+            {
+                throw new ArgumentException(
+                    "RngStreamState 不允许全零状态：全零是 xoshiro256** 的不动点（Next() 恒为 0），该流之后的抽样会静默恒为 0");
+            }
+
             S0 = s0;
             S1 = s1;
             S2 = s2;
@@ -72,6 +84,11 @@ namespace Core.Foundation.Rng
                 return false;
             }
 
+            if ((s0 | s1 | s2 | s3) == 0UL)
+            {
+                return false; // 全零状态非法，见类型判断记录。
+            }
+
             state = new RngStreamState(s0, s1, s2, s3);
             return true;
         }
@@ -107,6 +124,10 @@ namespace Core.Foundation.Rng
                 CultureInfo.InvariantCulture,
                 out value);
         }
+
+        /// <summary>四个字是否全为 0（仅 <c>default</c> 值可能满足，构造函数已拒绝全零）；供宿主在
+        /// <c>SetStreamState</c> 入口拦截 <c>default(RngStreamState)</c>。</summary>
+        internal bool IsAllZero => (S0 | S1 | S2 | S3) == 0UL;
 
         public bool Equals(RngStreamState other)
         {

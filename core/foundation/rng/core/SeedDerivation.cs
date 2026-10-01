@@ -17,9 +17,6 @@ namespace Core.Foundation.Rng
         private const ulong FnvOffsetBasis = 14695981039346656037UL;
         private const ulong FnvPrime = 1099511628211UL;
 
-        // 全零状态的兜底替换值：xoshiro256** 若初始状态全零会永远困在全零输出，需要避免。
-        private const ulong ZeroStateFallback = 0x9E3779B97F4A7C15UL;
-
         /// <summary>由 <paramref name="masterSeed"/> 与 <paramref name="stream"/> 派生该流的初始状态。</summary>
         public static RngStreamState DeriveInitialState(ulong masterSeed, Id stream)
         {
@@ -31,11 +28,12 @@ namespace Core.Foundation.Rng
             var s2 = SplitMix64(ref smState);
             var s3 = SplitMix64(ref smState);
 
-            if (s0 == 0 && s1 == 0 && s2 == 0 && s3 == 0)
-            {
-                s0 = ZeroStateFallback;
-            }
-
+            // 判断记录（收口遗留修复 A8，删除全零回退分支）：xoshiro256** 的全零状态是不动点，需要避开；但此处
+            // 数学上不可达，故不再保留"全零则替换 s0"的死分支。SplitMix64 的终结变换是 64 位上的双射且
+            // 0 ↦ 0，所以某次输出为 0 当且仅当其推进后的内部状态恰为 0；四次输出对应的内部状态是
+            // seed+g、seed+2g、seed+3g、seed+4g（g 为奇数常量，mod 2^64 下相邻两项必不相等），
+            // 四个值不可能同时为 0，因此 (s0,s1,s2,s3) 恒不全零。万一将来改了派生算法导致全零，
+            // RngStreamState 构造函数会抛 ArgumentException，不会静默产出坏流。
             return new RngStreamState(s0, s1, s2, s3);
         }
 

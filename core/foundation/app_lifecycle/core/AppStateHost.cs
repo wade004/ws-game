@@ -9,6 +9,15 @@ namespace Core.Foundation.AppLifecycle
     /// <see cref="IAppStateHost"/> 的默认实现。订阅列表在派发前复制为数组快照后再遍历，
     /// 以支持"回调执行期间取消订阅"而不影响本次正在进行的派发（与 event_bus 的
     /// <c>EventBus</c>、hook_registry 的 <c>HookRegistry</c> 同一惯例）。
+    /// <para>
+    /// 判断记录（收口遗留修复 A7）：① 订阅回调抛异常与 <c>EventBus</c> 同口径——隔离，经
+    /// <see cref="IAppLifecycleDiagnostics.Error"/> 记一条（含异常对象），其余回调照常通知，宿主状态不回滚、
+    /// 异常不再外抛给 <see cref="RequestTransition"/>/<see cref="PushSubState"/>/<see cref="PopSubState"/> 的调用方
+    /// （此前后续订阅者被跳过、异常直接穿透）。② 回调内重入迁移（回调里再 <see cref="RequestTransition"/>/
+    /// <see cref="PushSubState"/>/<see cref="PopSubState"/>）：状态/子状态栈立即落定（<see cref="GetState"/> 立即反映），
+    /// 但通知排入队列，等当前这条通知对全部订阅者派发完再按发生顺序送达——此前嵌套迁移的通知会先于外层通知
+    /// 送达排在触发重入者之后的订阅者（顺序倒置）。总线事件 <c>app.state_changed</c> 仍在迁移发生时立即发布（不入队）。
+    /// </para>
     /// </summary>
     public sealed class AppStateHost : IAppStateHost
     {
@@ -23,6 +32,11 @@ namespace Core.Foundation.AppLifecycle
         private readonly List<SubStateId> _subStateStack = new List<SubStateId>();
         private readonly List<StateChangedSubscription> _stateChangedSubscribers = new List<StateChangedSubscription>();
         private readonly List<SubStateChangedSubscription> _subStateChangedSubscribers = new List<SubStateChangedSubscription>();
+
+        /// <summary>待送达的订阅通知（按发生顺序）；<see cref="_notifying"/> 为 true 表示正在逐条送达，
+        /// 此时新入队的通知由外层送达循环接手，见类型判断记录 A7。</summary>
+        private readonly Queue<Action> _notifications = new Queue<Action>();
+        private bool _notifying;
 
         /// <summary>初始状态 <see cref="AppState.Boot"/>（见 03 第 9 节、任务书"初始状态 Boot"）。</summary>
         private AppState _state = AppState.Boot;
@@ -49,7 +63,7 @@ namespace Core.Foundation.AppLifecycle
             UpdateSubStateStackOnMainTransition(old, target);
 
             _bus.PublishImmediate(new AppStateChangedEvent(old, target));
-            RaiseStateChanged(old, target);
+            Notify(() => RaiseStateChanged(old, target));
 
             return true;
         }
@@ -87,7 +101,7 @@ namespace Core.Foundation.AppLifecycle
             }
 
             _subStateStack.Add(sub);
-            RaiseSubStateChanged(current, sub);
+            Notify(() => RaiseSubStateChanged(current, sub));
             return true;
         }
 
@@ -109,7 +123,7 @@ namespace Core.Foundation.AppLifecycle
             _subStateStack.RemoveAt(_subStateStack.Count - 1);
             var current = _subStateStack[_subStateStack.Count - 1];
 
-            RaiseSubStateChanged(old, current);
+            Notify(() => RaiseSubStateChanged(old, current));
             return true;
         }
 
@@ -164,14 +178,49 @@ namespace Core.Foundation.AppLifecycle
 
         public bool IsExitRequested { get; private set; }
 
+        /// <summary>入队一条通知并（若当前没有外层送达循环）立即按顺序送达；见类型判断记录 A7。</summary>
+        private void Notify(Action notification)
+        {
+            _notifications.Enqueue(notification);
+            if (_notifying)
+            {
+                return;
+            }
+
+            _notifying = true;
+            try
+            {
+                while (_notifications.Count > 0)
+                {
+                    _notifications.Dequeue()();
+                }
+            }
+            finally
+            {
+                _notifying = false;
+            }
+        }
+
         private void RaiseStateChanged(AppState oldState, AppState newState)
         {
             var snapshot = _stateChangedSubscribers.ToArray();
             for (var i = 0; i < snapshot.Length; i++)
             {
-                if (!snapshot[i].IsCancelled)
+                if (snapshot[i].IsCancelled)
+                {
+                    continue;
+                }
+
+                try
                 {
                     snapshot[i].Callback(oldState, newState);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Error(
+                        $"OnStateChanged 订阅者处理 \"{oldState}\" → \"{newState}\" 时抛出异常 " +
+                        $"{ex.GetType().FullName}: {ex.Message}，已跳过继续通知其它订阅者",
+                        ex);
                 }
             }
         }
@@ -181,9 +230,21 @@ namespace Core.Foundation.AppLifecycle
             var snapshot = _subStateChangedSubscribers.ToArray();
             for (var i = 0; i < snapshot.Length; i++)
             {
-                if (!snapshot[i].IsCancelled)
+                if (snapshot[i].IsCancelled)
+                {
+                    continue;
+                }
+
+                try
                 {
                     snapshot[i].Callback(oldSubState, newSubState);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Error(
+                        $"OnSubStateChanged 订阅者处理 \"{oldSubState}\" → \"{newSubState}\" 时抛出异常 " +
+                        $"{ex.GetType().FullName}: {ex.Message}，已跳过继续通知其它订阅者",
+                        ex);
                 }
             }
         }

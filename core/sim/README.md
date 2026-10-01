@@ -1537,5 +1537,8 @@ InvalidOperationException or ArgumentException or DirectoryNotFoundException)` �
 4. **`ScenarioCatalog` 的 `DataFieldException` 分支是防御性的**：真实 schema 在装载期就拦住了这些字段错误，测试里用一个
    故意放宽的 `RelaxedScenario` schema（只登记 schema 不登记规则）才能触达；`ScenarioDef`/`ArenaCellResult` 构造函数为 internal
    （`Core.Sim` 无 `InternalsVisibleTo`），只经 `ScenarioCatalog` 与真实运行间接覆盖。
+   收口补测（2026-10-01）：解析错误路径用例已落到 `tests/ScenarioCatalogErrorPathTests.cs`——用放宽的测试 schema（`kind` 为自由字符串、`player`/`opponent` 子结构不登记 `level`）让坏数据通过装载期校验，
+   覆盖缺 `kind`/`player`/`opponent`/`class_id`/`creature_id`/`runs`/`base_seed`/`max_ticks` 与 `player.level` 非数值 → `DataFieldException`（带表名/字段名）、未知 `kind` → `ArgumentOutOfRangeException`、
+   第二行解析失败时构造整体抛出（无半成品目录）；纯补测，无生产改动。
 5. **`StandardPlayerBuilder.FindLatestInstance` 的"找不回背包实例"分支在现有宿主上不可达**：`InventoryHost.AddItem` 对新槽位恒成功
    且原样记录模板/品质/词缀，按身份匹配不会落空；构造它必须改生产代码或注入返回不一致数据的宿主替身，属防御性兜底，本批不覆盖、不改。

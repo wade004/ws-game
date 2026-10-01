@@ -115,6 +115,11 @@ namespace Presentation.Assembly
         /// <see cref="NotSupportedException"/>（构造期不调用，不影响"构造成功"验收）。</summary>
         public NewGameStarter? NewGameStarter { get; set; }
 
+        /// <summary>收口遗留修复 A5：可选的"新游戏回滚"钩子（见 <c>NewGameRollback</c>）——初始存档写入失败时
+        /// <c>ShellHost.NewGame</c> 经它撤销 <see cref="NewGameStarter"/> 已创建的游戏层起始状态；默认 null
+        /// （未注入时 <c>ShellHost</c> 记一条诊断说明游戏层状态未回滚）。</summary>
+        public NewGameRollback? NewGameRollback { get; set; }
+
         /// <summary>存档摘要时间戳来源（<c>ShellHost</c> 构造参数 <c>timestampProvider</c>）。默认
         /// <c>DateTime.UtcNow</c> 的 ISO-8601 表示。</summary>
         public Func<string>? TimestampProvider { get; set; }
@@ -695,7 +700,7 @@ namespace Presentation.Assembly
             Shell = new ShellHost(
                 gameplay.AppState, sceneRouter, SaveSystem, SettingsStore, gameplay.Difficulty, InputMap, bus,
                 newGameStarter, timestampProvider, loadedMapIdResolver,
-                sharedPresentationDiagnostics);
+                sharedPresentationDiagnostics, opts.NewGameRollback);
             ShellViewModel = new ShellViewModel(Shell, SaveSystem, bus, shellMenu);
         }
 

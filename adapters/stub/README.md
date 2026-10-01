@@ -53,8 +53,7 @@ engine.FileSystem.WriteTextAtomic("save/slot1.json", "{}");
 `Tests.Adapters`。适配契约一致性套件（`adapters/conformance`）覆盖“接口约定”，本目录覆盖“桩自己的
 实现语义”（录制、计数、确定性、边界）。T-M10：`ConformanceStubTests.StubSkippedScenarios_EqualTheKnownList_NoMoreNoFewer`
 断言桩侧被一致性套件跳过的场景恰好等于已知两项（双矩形/薄墙 `FindPath` 视线剪枝），多跳或少跳都红。
-已知文档/实现不一致（未改，留待设计层）：`StubResourceLoader` 的 `DeferCallbacks` 注释与 `CompletePending`
-的实际排队语义措辞不一致，用例按实现行为断言。
+`StubResourceLoader` 的 `DeferCallbacks` 注释与实际排队语义的不一致已在收口时订正，见下一条判断记录。
 
 ## 判断记录（`StubSpatialQuery.QueryShape(Line)` 改为矩形带口径，2026-10-01，行为收紧，[ADR-0125](../../architecture/adr/0125-测试覆盖梳理第三批已知限制与行为语义拍板.md) 第三批探针缺陷修复）
 
@@ -63,3 +62,11 @@ engine.FileSystem.WriteTextAtomic("save/slot1.json", "{}");
 `ShapeGeometry.Contains`，闭区间）即命中；带半径实体另按"圆与矩形带相交"（局部坐标下圆心到带的最近点距离 <= r，同本桩
 `Rect` 口径）判定。跨实现一致性用例 `T_H12_ShapeGeometryBoundaryConsistencyTests.QueryShape_ForPointEntities_*`
 新增 `line` 一支并改为每个点对着自己的形状比对；端面用例 `ADR0125_StubSpatialQueryLineBandTests`。
+
+## 判断记录（`StubResourceLoader.DeferCallbacks` 注释订正，2026-10-01，测试覆盖第四批收口，只改注释不改行为）
+
+类型顶部注释原写"两种模式下 `Register`/`Unregister` 仍然决定最终成功还是失败"，与实现不符：延迟模式下成败由测试显式调用 `CompletePending`/`FailPending`
+裁决，**不看**登记表（未登记的资源也能被 `CompletePending` 判成功，登记过的也能被 `FailPending` 判失败；`Register`/`Unregister` 只决定默认同步模式的结果）。
+注释同时补全排队语义：待完成请求按资源 id 各一条，同一 id 已有待完成请求时再 `LoadAsync` 抛 `InvalidOperationException`，不同 id 互相独立，
+对无待完成请求的 id 调 `CompletePending`/`FailPending` 抛 `InvalidOperationException`（含同步模式）。以上均由 `tests/StubResourceLoaderTests.cs`
+既有用例钉住，行为未动。

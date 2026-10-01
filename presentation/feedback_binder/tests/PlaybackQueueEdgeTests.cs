@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Presentation.FeedbackBinder.Contracts;
+using Presentation.VfxSfx.Contracts;
 using PlaybackQueue = Presentation.FeedbackBinder.Core.PlaybackQueue;
 using Xunit;
 
@@ -182,39 +183,65 @@ namespace Tests.Presentation.FeedbackBinder
 
         // ---------------- step 抛异常 ----------------
 
+        // 收口遗留修复 A2：Sequential 下步骤抛异常——记诊断、继续后续步骤、Finished 照常触发。
         [Fact]
-        public void Update_StepThrows_ExceptionPropagates_ThrowingStepIsConsumed_RestRunOnNextUpdate()
+        public void Update_StepThrows_RecordedAsDiagnostic_RestRunInSameUpdate_FinishedFires()
         {
-            var queue = Sequential();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var queue = new PlaybackQueue(Step, diagnostics) { Mode = QueueMode.Sequential };
             var ran = new List<string>();
+            var finished = 0;
+            queue.Finished += () => finished++;
             queue.Enqueue(() => ran.Add("a"));
             queue.Enqueue(() => throw new InvalidOperationException("boom"));
             queue.Enqueue(() => ran.Add("c"));
 
-            Assert.Throws<InvalidOperationException>(() => queue.Update(Step * 3));
+            Assert.Null(Record.Exception(() => queue.Update(Step * 3)));
 
-            // 抛异常的步骤已出队、不会重试；其后的步骤仍留在队列里
-            Assert.Equal(new[] { "a" }, ran);
-            Assert.Equal(1, queue.PendingCount);
-
-            queue.Update(Step * 3);
             Assert.Equal(new[] { "a", "c" }, ran);
             Assert.Equal(0, queue.PendingCount);
+            Assert.Equal(1, finished);
+            var warning = Assert.Single(diagnostics.Warnings);
+            Assert.Contains("InvalidOperationException", warning);
+            Assert.Contains("boom", warning);
+            Assert.Same(diagnostics, queue.Diagnostics);
         }
 
         [Fact]
-        public void Skip_StepThrows_ExceptionPropagates_ThrowingStepIsConsumed_RestRunOnNextSkip()
+        public void Skip_StepThrows_RecordedAsDiagnostic_RestRun_FinishedFires()
         {
-            var queue = Sequential();
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var queue = new PlaybackQueue(Step, diagnostics) { Mode = QueueMode.Sequential };
             var ran = new List<string>();
+            var finished = 0;
+            queue.Finished += () => finished++;
             queue.Enqueue(() => throw new InvalidOperationException("boom"));
             queue.Enqueue(() => ran.Add("b"));
 
-            Assert.Throws<InvalidOperationException>(() => queue.Skip());
-            Assert.Equal(1, queue.PendingCount);
+            Assert.Null(Record.Exception(() => queue.Skip()));
 
-            queue.Skip();
+            Assert.Equal(0, queue.PendingCount);
             Assert.Equal(new[] { "b" }, ran);
+            Assert.Equal(1, finished);
+            Assert.Single(diagnostics.Warnings);
+        }
+
+        [Fact]
+        public void Update_AllStepsThrow_EachRecorded_FinishedOnce()
+        {
+            var diagnostics = new PresentationDiagnosticsRecorder();
+            var queue = new PlaybackQueue(Step, diagnostics) { Mode = QueueMode.Sequential };
+            var finished = 0;
+            queue.Finished += () => finished++;
+            for (var i = 0; i < 3; i++)
+            {
+                queue.Enqueue(() => throw new InvalidOperationException("boom"));
+            }
+
+            queue.Update(Step * 3);
+
+            Assert.Equal(3, diagnostics.Warnings.Count);
+            Assert.Equal(1, finished);
         }
 
         [Fact]
@@ -228,25 +255,24 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         /// <summary>
-        /// 现状（已钉住，待设计层确认是否为缺陷）：最后一步抛异常时，该步骤已出队但
-        /// <see cref="PlaybackQueue.Finished"/> 不会触发（RunOne 中 step() 抛出先于清空检查）；
-        /// 之后的新批次仍能正常触发 Finished。
+        /// 收口遗留修复 A2：最后一步抛异常时，该批次仍触发 <see cref="PlaybackQueue.Finished"/>
+        /// （异常不外抛，之后的新批次不受影响）——否则 PlaybackFinishedEvent 永不发出，节奏门卡死。
         /// </summary>
         [Fact]
-        public void Update_LastStepThrows_FinishedIsNotFiredForThatBatch_ButLaterBatchesStillFinish()
+        public void Update_LastStepThrows_FinishedStillFires_ForThatBatch_AndLaterBatchesStillFinish()
         {
             var queue = Sequential();
             var finished = 0;
             queue.Finished += () => finished++;
             queue.Enqueue(() => throw new InvalidOperationException("boom"));
 
-            Assert.Throws<InvalidOperationException>(() => queue.Update(Step));
+            Assert.Null(Record.Exception(() => queue.Update(Step)));
             Assert.Equal(0, queue.PendingCount);
-            Assert.Equal(0, finished);
+            Assert.Equal(1, finished);
 
             queue.Enqueue(() => { });
             queue.Update(Step * 5);
-            Assert.Equal(1, finished);
+            Assert.Equal(2, finished);
         }
 
         [Fact]

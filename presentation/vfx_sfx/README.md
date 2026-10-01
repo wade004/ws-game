@@ -363,10 +363,19 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     - **已知限制（已钉住）**：冷加载排队的 VFX 在加载完成那一刻按 `Spawn` 时刻的位置发射（冷 = `Spawn` 时刻位置，热 = 当前位置），
       到下一次 `Update` 才由 anchor/entity 跟随重新定位，即最多滞后一帧；排队期间 `Stop(占位句柄)` 取消排队、从不发射、不登记跟随。
       复现/不变量：`tests/VfxPlayerColdLoadFollowTests.cs`（socket 降级路径、Screen 路径、anchor/socket × 热/同步冷/异步冷收敛 Theory）。
-    - **待设计层确认（未改行为、未断言）**：`VfxPlayer.TrySpawnAttachedToSocket`（真 3D socket：renderer3D + modelHandleResolver）
-      不走冷加载排队，直接 `EnsureLoading` 后立即 `CreateModelInstance`，与"冷 = 热"口径不一致；本批不为其写用例，等待拍板。
     - `SfxPlayer` 变体选择走 `options.RngStream`（默认 `presentation.sfx`），不碰模拟流；`min==max` 不消耗随机数、不创建流
       （`tests/SfxVariantSelectionTests.cs`）。
+
+26. **收口遗留修复（2026-10-01，测试覆盖第四批收口）：真 3D socket 挂接路径补上冷加载排队，与其它三条路径"冷 = 热"一致（行为收紧，无公开签名变化）**：
+    `VfxPlayer.TrySpawnAttachedToSocket`（`renderer3D` + `modelHandleResolver` 均注入且宿主有 `ModelHandle`）此前不检查资源加载状态，
+    直接 `CreateModelInstance` + `AttachToSocket`——引擎侧资源尚未就绪（判断记录 25 曾把它记为"待设计层确认"，现已拍板修）。
+    现在：`resourceLoader` 已注入且资源未加载完成时，走与 world/anchor/降级 socket 同一条 `QueuePendingSpawn` 排队出口——返回占位句柄
+    （`PendingSpawnCount` +1，`Stop(占位句柄)` 可取消、取消后加载完成也不再补挂）、加载完成回调里才创建子模型并挂到挂点
+    （创建/挂接/合成句柄/生命周期登记与热路径共用 `AttachModelToSocket` 一个出口）；加载失败/超时与其它路径同口径丢弃并记诊断。
+    补挂时宿主 `ModelHandle` 按实体 id 重新经 `modelHandleResolver` 解析（排队期间宿主模型可能已销毁/重建，缓存旧句柄不可靠），
+    解析不到（实体已离场）记一条诊断并丢弃，不抛。同步加载器场景（加载在 `LoadAsync` 调用栈内完成）直接返回真实合成句柄，与热路径一致。
+    未注入 `resourceLoader` 或资源已加载时行为不变。复现/不变量：`tests/VfxPlayerSocketColdLoadTests.cs`
+    （排队/补挂/占位句柄 Stop、Stop 后永不挂接、加载失败、超时、宿主消失、冷热收敛、到期回收）。
 
 ## 不负责什么
 

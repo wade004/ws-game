@@ -9,8 +9,9 @@ namespace Tests.Foundation.AppLifecycle
     /// <see cref="AppStateHost"/> 的诊断断言与回调边界（T-M4，2026-10-01 测试覆盖第四批）：
     /// 被拒转移 / <c>PushSubState</c> 非法 / <c>PopSubState</c> 栈底 / <c>RequestExit</c> 的 Warn 诊断内容，
     /// 回调内重入 <c>RequestTransition</c>、回调抛异常后的宿主状态。
-    /// 回调异常与重入的行为是特征化（Characterization）：宿主未对订阅回调做异常隔离或重入守卫，
-    /// 这两处语义是否需要收紧已在汇报中标"待设计层确认"，此处只固定当前可观测事实。
+    /// 回调异常与重入（收口遗留修复 A7）：订阅回调抛异常与 EventBus 同口径——隔离、记 Error 诊断、
+    /// 其余回调照常；回调内重入迁移时状态立即落定，但通知按发生顺序送达（嵌套迁移的通知排在外层通知
+    /// 对全部订阅者派发完之后）。
     /// </summary>
     public sealed class AppStateHostDiagnosticsAndReentryTests
     {
@@ -237,10 +238,10 @@ namespace Tests.Foundation.AppLifecycle
         }
 
         [Fact]
-        public void Reentry_LaterSubscriberOfOuterTransition_ObservesNestedTransitionFirst()
+        public void Reentry_LaterSubscriberOfOuterTransition_ObservesTransitionsInOccurrenceOrder()
         {
-            // 特征化：订阅者 B 排在触发重入的订阅者 A 之后，会先收到嵌套的 MainMenu→Loading，
-            // 再收到外层的 Boot→MainMenu（顺序倒置）。是否需要排队后顺序派发属设计决定（待设计层确认）。
+            // 收口遗留修复 A7：订阅者 B 排在触发重入的订阅者 A 之后，按发生顺序先收到外层的 Boot→MainMenu，
+            // 再收到嵌套的 MainMenu→Loading（此前顺序倒置）。
             var (host, _) = Build(AppState.Boot);
             var seenByB = new List<(AppState Old, AppState New)>();
             var reentered = false;
@@ -257,10 +258,38 @@ namespace Tests.Foundation.AppLifecycle
 
             Assert.True(host.RequestTransition(AppState.MainMenu));
 
+            Assert.Equal(AppState.Loading, host.GetState());
             Assert.Equal(new[]
             {
-                (AppState.MainMenu, AppState.Loading),
                 (AppState.Boot, AppState.MainMenu),
+                (AppState.MainMenu, AppState.Loading),
+            }, seenByB);
+        }
+
+        [Fact]
+        public void Reentry_SubStateChangeInsideSubStateCallback_LaterSubscriberObservesOccurrenceOrder()
+        {
+            var (host, _) = Build(AppState.InWorld);
+            var seenByB = new List<(SubStateId? Old, SubStateId? New)>();
+            var reentered = false;
+
+            host.OnSubStateChanged((o, n) =>
+            {
+                if (!reentered)
+                {
+                    reentered = true;
+                    Assert.True(host.PopSubState());
+                }
+            });
+            host.OnSubStateChanged((o, n) => seenByB.Add((o, n)));
+
+            Assert.True(host.PushSubState(InWorldSubState.Combat));
+
+            Assert.Equal(SubStateId.Explore, host.CurrentSubState);
+            Assert.Equal(new (SubStateId?, SubStateId?)[]
+            {
+                (SubStateId.Explore, SubStateId.Combat),
+                (SubStateId.Combat, SubStateId.Explore),
             }, seenByB);
         }
 
@@ -279,59 +308,94 @@ namespace Tests.Foundation.AppLifecycle
         }
 
         // -----------------------------------------------------------------
-        // 回调抛异常（特征化）
+        // 回调抛异常（收口遗留修复 A7：与 EventBus 同口径——隔离、记 Error、其余回调照常）
         // -----------------------------------------------------------------
 
         [Fact]
-        public void StateChangedCallbackThrows_PropagatesToCaller_StateAlreadyChanged_LaterSubscribersSkipped()
+        public void StateChangedCallbackThrows_IsIsolated_RecordedAsError_LaterSubscribersStillNotified()
         {
             var (host, diagnostics) = Build(AppState.Boot);
             var laterCalled = false;
             host.OnStateChanged((o, n) => throw new InvalidOperationException("boom"));
             host.OnStateChanged((o, n) => laterCalled = true);
 
-            Assert.Throws<InvalidOperationException>(() => host.RequestTransition(AppState.MainMenu));
+            Assert.True(host.RequestTransition(AppState.MainMenu));
 
-            Assert.Equal(AppState.MainMenu, host.GetState()); // 状态先于通知落定，不回滚
-            Assert.False(laterCalled);                         // 后续订阅者未被通知（无异常隔离）
-            Assert.Empty(diagnostics.Errors);                  // 宿主不吞异常也不记 Error
+            Assert.Equal(AppState.MainMenu, host.GetState());
+            Assert.True(laterCalled);
+            var error = Assert.Single(diagnostics.Errors);
+            Assert.Contains("boom", error.Message);
+            Assert.IsType<InvalidOperationException>(error.Exception);
         }
 
         [Fact]
         public void StateChangedCallbackThrows_HostRemainsUsable_AndThrowingSubscriberCanBeRemoved()
         {
-            var (host, _) = Build(AppState.Boot);
+            var (host, diagnostics) = Build(AppState.Boot);
             var handle = host.OnStateChanged((o, n) => throw new InvalidOperationException("boom"));
 
-            Assert.Throws<InvalidOperationException>(() => host.RequestTransition(AppState.MainMenu));
+            Assert.True(host.RequestTransition(AppState.MainMenu));
             handle.Dispose();
 
             Assert.True(host.RequestTransition(AppState.Loading));
             Assert.Equal(AppState.Loading, host.GetState());
+            Assert.Single(diagnostics.Errors); // 订阅者移除后不再产生新的 Error。
         }
 
         [Fact]
-        public void SubStateChangedCallbackThrows_OnPush_StackAlreadyUpdated()
+        public void SubStateChangedCallbackThrows_OnPush_IsolatedAndRecorded_StackUpdated()
         {
-            var (host, _) = Build(AppState.InWorld);
+            var (host, diagnostics) = Build(AppState.InWorld);
+            var laterCalled = false;
             host.OnSubStateChanged((o, n) => throw new InvalidOperationException("boom"));
+            host.OnSubStateChanged((o, n) => laterCalled = true);
 
-            Assert.Throws<InvalidOperationException>(() => host.PushSubState(InWorldSubState.Combat));
+            Assert.True(host.PushSubState(InWorldSubState.Combat));
 
             Assert.Equal(SubStateId.Combat, host.CurrentSubState);
             Assert.Equal(2, host.SubStateStack.Count);
+            Assert.True(laterCalled);
+            Assert.Single(diagnostics.Errors);
         }
 
         [Fact]
-        public void SubStateChangedCallbackThrows_OnPop_StackAlreadyUpdated()
+        public void SubStateChangedCallbackThrows_OnPop_IsolatedAndRecorded_StackUpdated()
         {
-            var (host, _) = Build(AppState.InWorld);
+            var (host, diagnostics) = Build(AppState.InWorld);
             Assert.True(host.PushSubState(InWorldSubState.Combat));
             host.OnSubStateChanged((o, n) => throw new InvalidOperationException("boom"));
 
-            Assert.Throws<InvalidOperationException>(() => host.PopSubState());
+            Assert.True(host.PopSubState());
 
             Assert.Equal(SubStateId.Explore, host.CurrentSubState);
+            Assert.Single(diagnostics.Errors);
+        }
+
+        [Fact]
+        public void CallbackThrowsInsideNestedTransition_DoesNotBlockQueuedNotifications()
+        {
+            var (host, diagnostics) = Build(AppState.Boot);
+            var seen = new List<(AppState Old, AppState New)>();
+            var reentered = false;
+            host.OnStateChanged((o, n) =>
+            {
+                if (!reentered)
+                {
+                    reentered = true;
+                    host.RequestTransition(AppState.Loading);
+                    throw new InvalidOperationException("boom after nested");
+                }
+            });
+            host.OnStateChanged((o, n) => seen.Add((o, n)));
+
+            Assert.True(host.RequestTransition(AppState.MainMenu));
+
+            Assert.Equal(new[]
+            {
+                (AppState.Boot, AppState.MainMenu),
+                (AppState.MainMenu, AppState.Loading),
+            }, seen);
+            Assert.Single(diagnostics.Errors);
         }
 
         [Fact]

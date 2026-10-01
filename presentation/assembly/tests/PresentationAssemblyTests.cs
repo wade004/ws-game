@@ -355,7 +355,7 @@ namespace Tests.Presentation.Assembly
         [Fact]
         public void Construct_WithMinimalPresentationDataset_DoesNotThrow_AndExposesAllHosts()
         {
-            var presentation = Build(out _, out _, out _, out _);
+            var presentation = Build(out _, out var world, out var engine, out _);
 
             Assert.NotNull(presentation.DisplayInfo);
             Assert.NotNull(presentation.ViewBinder);
@@ -388,6 +388,28 @@ namespace Tests.Presentation.Assembly
             // 6 个动作条槽位来自 ui_layout_definition 数据（AddMinimalPresentationTables），
             // 不是 PresentationAssemblyOptions 的兜底默认值 8。
             Assert.Equal(6, presentation.ActionBar.SlotCount);
+
+            // 收口遗留修复 A9（T-M13 补副作用断言）：不止"不抛/非空"——构造不得产生诊断与渲染/世界副作用。
+            // ① 构造期没有任何警告：Vfx/Sfx/Feedback sink 三路诊断是各自独立的实例（互不为同一对象），均为空。
+            var diagnostics = new[]
+            {
+                presentation.VfxDiagnostics, presentation.SfxDiagnostics, presentation.FeedbackSinkDiagnostics,
+            };
+            Assert.Equal(diagnostics.Length, new System.Collections.Generic.HashSet<object>(diagnostics).Count);
+            foreach (var d in diagnostics)
+            {
+                var recorder = Assert.IsType<PresentationDiagnosticsRecorder>(d);
+                Assert.Empty(recorder.Warnings);
+            }
+
+            // ② 构造不会播放任何东西：渲染器上没有粒子，音频没有任何播放记录。
+            Assert.Empty(engine.Renderer2D.EmittedParticles);
+            Assert.Empty(engine.Audio.ActiveSfxPlaybacks);
+            Assert.Null(engine.Audio.CurrentMusic);
+
+            // ③ 外壳停在主菜单初始页，不处于加载中；构造本身不改变世界实体数（只有测试装配的玩家单位）。
+            Assert.False(presentation.Shell.IsLoading);
+            Assert.Single(world.QueryEntities(new Core.Foundation.SimLoop.EntityFilter()));
         }
 
         /// <summary>消费方反馈第六批（阻塞）验收：经 <see cref="PresentationAssembly"/> 构建出的

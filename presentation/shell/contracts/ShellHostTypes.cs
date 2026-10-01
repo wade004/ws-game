@@ -37,6 +37,21 @@ namespace Presentation.Shell
     public delegate Id NewGameStarter(Id slotId, Id difficultyId, Id? archetypeId);
 
     /// <summary>
+    /// 新游戏回滚委托（收口遗留修复 A5，可选注入）：<see cref="ShellHost.NewGame"/> 在
+    /// <see cref="NewGameStarter"/> 已返回之后、初始存档写入失败时调用，由游戏层撤销
+    /// <see cref="NewGameStarter"/> 已创建/写入的起始状态（初始玩家单位、各 <c>IPersistable</c> 的初始数据），
+    /// 使宿主状态与调用 <see cref="ShellHost.NewGame"/> 之前一致。参数与所撤销的那次
+    /// <see cref="NewGameStarter"/> 调用完全相同。
+    /// <para>
+    /// 判断记录：框架无法替游戏层撤销"起始状态"（没有可枚举/快照全部 <c>IPersistable</c> 的契约），因此只能
+    /// 提供回滚钩子；未注入时 <see cref="ShellHost.NewGame"/> 经 <see cref="ShellHost.Diagnostics"/> 记一条警告
+    /// 说明游戏层状态未回滚（不静默）。回滚委托自身抛异常同样只记诊断、不外抛（此时已在失败路径上，
+    /// 返回 false 的结论不变）。
+    /// </para>
+    /// </summary>
+    public delegate void NewGameRollback(Id slotId, Id difficultyId, Id? archetypeId);
+
+    /// <summary>
     /// 读档后取得"应加载的地图 id"的委托（见任务书"LoadGame(slotId)（ISaveSystem.Load → 读出
     /// world.current_map_id → LoadScene）"）。
     /// <para>

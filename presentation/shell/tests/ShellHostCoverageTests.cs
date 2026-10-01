@@ -9,6 +9,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
 using Core.Foundation.SaveSystem;
 using Core.Foundation.SceneRouter;
+using Core.Gameplay.Difficulty;
 using Presentation.Shell;
 using Presentation.VfxSfx.Contracts;
 using Tests.PresentationUi;
@@ -84,10 +85,12 @@ namespace Tests.PresentationShell
             public readonly List<(Id Slot, Id Difficulty, Id? Archetype)> StarterCalls = new List<(Id, Id, Id?)>();
             public Func<Id> StarterBehavior = () => StartMap;
             public int ResolverCalls;
+            public readonly List<(Id Slot, Id Difficulty, Id? Archetype)> RollbackCalls = new List<(Id, Id, Id?)>();
+            public Action? RollbackBehavior;
             public Id? ResolverResult = StartMap;
         }
 
-        private static Rig NewRig(AppStateMachineConfig? appConfig = null, IInputMapHost? inputMap = null, bool withResolver = true)
+        private static Rig NewRig(AppStateMachineConfig? appConfig = null, IInputMapHost? inputMap = null, bool withResolver = true, bool withRollback = false)
         {
             var rig = new Rig();
             rig.Bus = TestSupport.BuildEventBus();
@@ -113,7 +116,14 @@ namespace Tests.PresentationShell
                         return rig.ResolverResult ?? throw new InvalidOperationException("resolver 不应被调用");
                     }
                     : (LoadedMapIdResolver?)null,
-                rig.Diagnostics);
+                rig.Diagnostics,
+                withRollback
+                    ? (slot, difficulty, archetype) =>
+                    {
+                        rig.RollbackCalls.Add((slot, difficulty, archetype));
+                        rig.RollbackBehavior?.Invoke();
+                    }
+                    : (NewGameRollback?)null);
             Assert.True(rig.Shell.Start());
             return rig;
         }
@@ -151,18 +161,89 @@ namespace Tests.PresentationShell
             Assert.False(rig.Shell.IsLoading);
         }
 
-        /// <summary>特征化现行为（待设计层确认，见汇报）：存档写入失败时，难度已应用、<c>NewGameStarter</c> 已被调用，
-        /// 二者都没有回滚——失败路径只保证“不加载场景、不改应用状态”。</summary>
+        // 收口遗留修复 A5：存档写入失败时回滚已设置的难度，返回 false 后宿主状态与调用前逐项相等。
         [Fact]
-        public void NewGame_SaveWriteFails_DifficultyAlreadyAppliedAndStarterAlreadyCalled_NoRollback_CurrentBehavior()
+        public void NewGame_SaveWriteFails_FromFreshHost_DifficultyRolledBackToUnset()
+        {
+            var rig = NewRig();
+            Assert.Null(rig.Difficulty.CurrentTier);
+            rig.Fs.FailNextWrite();
+
+            Assert.False(rig.Shell.NewGame(Slot, Easy, null));
+
+            Assert.Null(rig.Difficulty.CurrentTier);
+            Assert.Null(rig.Difficulty.CurrentScope);
+            Assert.Null(rig.Difficulty.CurrentMapId);
+        }
+
+        [Fact]
+        public void NewGame_SaveWriteFails_AfterEarlierDifficulty_RestoresPreviousTierScopeAndMap()
+        {
+            var rig = NewRig();
+            var hard = new Id("diff.tier.hard");
+            var mapX = new Id("world.map.x");
+            rig.Difficulty.KnownTiers.Add(hard);
+            Assert.True(rig.Difficulty.Apply(hard, DifficultyScope.Map, mapX));
+            rig.Fs.FailNextWrite();
+
+            Assert.False(rig.Shell.NewGame(Slot, Easy, null));
+
+            Assert.Equal(hard, rig.Difficulty.CurrentTier);
+            Assert.Equal(DifficultyScope.Map, rig.Difficulty.CurrentScope);
+            Assert.Equal(mapX, rig.Difficulty.CurrentMapId);
+        }
+
+        [Fact]
+        public void NewGame_SaveWriteFails_WithRollbackInjected_CallsItOnceWithSameArguments_AndRestoresDifficulty()
+        {
+            var rig = NewRig(withRollback: true);
+            var archetype = new Id("arch.knight");
+            rig.Fs.FailNextWrite();
+
+            Assert.False(rig.Shell.NewGame(Slot, Easy, archetype));
+
+            Assert.Equal(rig.StarterCalls, rig.RollbackCalls);
+            Assert.Null(rig.Difficulty.CurrentTier);
+            Assert.Empty(rig.Diagnostics.Warnings);
+            Assert.Empty(rig.Router.LoadSceneCalls);
+            Assert.Equal(ShellPage.MainMenu, rig.Shell.Page);
+        }
+
+        [Fact]
+        public void NewGame_SaveWriteFails_WithoutRollbackInjected_WarnsThatStarterStateWasNotRolledBack()
         {
             var rig = NewRig();
             rig.Fs.FailNextWrite();
 
             Assert.False(rig.Shell.NewGame(Slot, Easy, null));
 
+            var warning = Assert.Single(rig.Diagnostics.Warnings);
+            Assert.Contains("NewGameRollback", warning);
+        }
+
+        [Fact]
+        public void NewGame_SaveWriteFails_RollbackThrows_RecordedAsDiagnostic_StillReturnsFalse_DifficultyStillRestored()
+        {
+            var rig = NewRig(withRollback: true);
+            rig.RollbackBehavior = () => throw new InvalidOperationException("rollback boom");
+            rig.Fs.FailNextWrite();
+
+            Assert.False(rig.Shell.NewGame(Slot, Easy, null));
+
+            Assert.Contains(rig.Diagnostics.Warnings, w => w.Contains("rollback boom"));
+            Assert.Null(rig.Difficulty.CurrentTier);
+        }
+
+        [Fact]
+        public void NewGame_Success_DoesNotRollBack_AndKeepsAppliedDifficulty()
+        {
+            var rig = NewRig(withRollback: true);
+
+            Assert.True(rig.Shell.NewGame(Slot, Easy, null));
+
+            Assert.Empty(rig.RollbackCalls);
             Assert.Equal(Easy, rig.Difficulty.CurrentTier);
-            Assert.Single(rig.StarterCalls);
+            Assert.Equal(0, rig.Difficulty.LoadCallCount);
         }
 
         [Fact]

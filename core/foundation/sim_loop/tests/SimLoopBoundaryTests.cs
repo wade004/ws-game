@@ -372,31 +372,89 @@ namespace Tests.Foundation.SimLoop
         }
 
         [Fact]
-        public void World_ReentrantTick_Characterization_InnerTickRunsToCompletion_NoGuard()
+        public void World_ReentrantTick_Throws_InvalidOperationException_OuterTickCompletesNormally()
         {
-            // 特征化（Characterization）：Tick 重入没有守卫，也没有文档化语义。当前行为：内层 Tick 完整执行
-            // （tick 计数各自递增），外层随后继续；两次 sim.tick_started 携带的 tickIndex 相同（内层结束前计数未前进）。该行为是否应改为抛 InvalidOperationException 属设计决定，
-            // 已在汇报中标"待设计层确认"；此用例只固定当前可观测事实，防止无意改动。
+            // 收口遗留修复 A6：Tick 加重入守卫。嵌套调用（阶段处理器/事件订阅者里再调 Tick）抛
+            // InvalidOperationException，外层 tick 继续正常完成（计数 +1、事件各一次、意图队列不被内层打乱）。
             var bus = SimLoopTestSupport.CreateBus();
             var world = new WorldSim(bus);
             var started = new List<long>();
+            var finished = new List<long>();
             bus.Subscribe<SimTickStartedEvent>(SimEventKeys.TickStarted, e => started.Add(e.TickIndex));
+            bus.Subscribe<SimTickFinishedEvent>(SimEventKeys.TickFinished, e => finished.Add(e.TickIndex));
 
-            var reentered = false;
+            Exception? nested = null;
+            var seenIntents = new List<Intent>();
+            var inHandler = false; // 防止修复前（无守卫）无限递归，测试本身保持可复现红而不是栈溢出。
             world.RegisterPhaseHandler(TickPhase.AiDecision,
                 new DelegatePhaseHandler((s, w) =>
                 {
-                    if (!reentered)
+                    if (inHandler)
                     {
-                        reentered = true;
+                        return;
+                    }
+
+                    inHandler = true;
+                    seenIntents.AddRange(w.CurrentIntents);
+                    try
+                    {
                         w.Tick(SimStep.Continuous(0.1));
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        nested = ex;
+                    }
+                    finally
+                    {
+                        inHandler = false;
+                    }
+                }));
+
+            var intent = new Intent(Hero, "move");
+            world.SubmitIntent(intent);
+            world.Tick(SimStep.Continuous(0.1));
+
+            Assert.NotNull(nested);
+            Assert.Equal(1, world.TickIndex);
+            Assert.Equal(new long[] { 0 }, started);
+            Assert.Equal(new long[] { 0 }, finished);
+            Assert.Equal(new[] { intent }, seenIntents);
+
+            // 外层结束后守卫已复位：下一拍正常推进（处理器里的嵌套调用同样再被拒绝一次）。
+            nested = null;
+            world.Tick(SimStep.Continuous(0.1));
+            Assert.Equal(2, world.TickIndex);
+            Assert.NotNull(nested);
+        }
+
+        [Fact]
+        public void World_TickAfterNestedTickRejected_StillAllowedOutsideAnyTick()
+        {
+            var world = new WorldSim(SimLoopTestSupport.CreateBus());
+            var inHandler = false;
+            world.RegisterPhaseHandler(TickPhase.AiDecision,
+                new DelegatePhaseHandler((s, w) =>
+                {
+                    if (inHandler)
+                    {
+                        return;
+                    }
+
+                    inHandler = true;
+                    try
+                    {
+                        Assert.Throws<InvalidOperationException>(() => w.Tick(SimStep.Continuous(0.1)));
+                    }
+                    finally
+                    {
+                        inHandler = false;
                     }
                 }));
 
             world.Tick(SimStep.Continuous(0.1));
+            world.Tick(SimStep.Continuous(0.1));
 
             Assert.Equal(2, world.TickIndex);
-            Assert.Equal(new long[] { 0, 0 }, started);
         }
 
         [Fact]

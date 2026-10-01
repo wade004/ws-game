@@ -262,15 +262,24 @@
     `ArgumentException` 而 schema 解析抛 `DataFieldException`，本条不统一，见汇报）；`vfx_sfx` 的
     `VfxSfxFromRecordTests.cs` 补 `vfx.def`/`sfx.def`/`weapon_style` 的缺字段/类型不符/非法枚举。
 
-21. **测试覆盖剩余项第四批（2026-10-01）：只补测试，无生产改动；三处现状如实登记、待设计层确认（均未改行为）**：
-    - `PlaybackQueue`：队列中**最后一步**抛异常时，该步骤已出队但 `Finished` 不触发（`RunOne` 里 `step()` 抛出先于"队列清空"检查）；
-      其余步骤不受影响，之后的新批次照常触发。已钉住：`tests/PlaybackQueueEdgeTests.cs`
-      `Update_LastStepThrows_FinishedIsNotFiredForThatBatch_ButLaterBatchesStillFinish`。
-    - `FeedbackBinder` 的 `flash` 动作在 `attach=target` 缺 `targetId` 时的警告文本不含事件键（其余 `play_vfx`/`stop_vfx`/
-      `play_sfx`/`stop_sfx` 四处都含）；用例对该动作只断言"警告 + 跳过"，不断言文本里的事件键
-      （`tests/FeedbackBinderDispatchEdgeTests.cs`）。
-    - `FloatingTextMerger.Update` 在同一次调用里同时到期的多个窗口按**逆插入顺序**派发，`FlushAll` 按插入顺序；用例只断言集合相等，
-      不断言顺序。
+21. **测试覆盖剩余项第四批（2026-10-01）：边界与异常路径补测（T-M33/T-M35 等）**：`PlaybackQueue`（非正参数、负 dt、step 抛异常、
+    step 内重入 `Enqueue`）、`FeedbackBinder` 五种 `attach=target` 缺 `targetId` 的告警、`FloatingTextMerger`（同键混投、`FlushAll`、
+    窗口边界、构造守卫）的用例见 `tests/PlaybackQueueEdgeTests.cs`、`tests/FeedbackBinderDispatchEdgeTests.cs`、`tests/FloatingTextMergerTests.cs`。
+    该批探出的三处现状不一致已在收口时修掉，见判断记录 22。
+
+22. **收口遗留修复（2026-10-01，测试覆盖第四批收口）：三处现状不一致根治**：
+    - **`PlaybackQueue` 步骤抛异常**（`core/PlaybackQueue.cs`，新增构造重载 `PlaybackQueue(double, IPresentationDiagnostics?)` 与只读属性 `Diagnostics`，
+      旧构造签名原样保留并转调；行为收紧）：`Sequential` 下某一步抛异常不再中断本次 `Update`/`Skip`，也不再让该批次吞掉 `Finished`——
+      此前最后一步抛异常时 `Finished` 永不触发，`PlaybackFinishedEvent` 因此不发出、节奏门卡死。现在异常记一条诊断
+      （含异常类型与消息）后继续后续步骤，队列清空时照常触发 `Finished`；`FeedbackBinder` 把自己的诊断出口传给队列。
+      `Immediate` 下步骤在 `Enqueue` 调用栈内同步执行、没有批次与 `Finished`，异常仍直接抛给调用方（不变）；`Finished` 订阅者抛异常仍原样外抛（不变）。
+      原来钉住"异常外抛、其余步骤留到下次"的两条用例改成新行为的断言。
+    - **`flash` 动作缺 `targetId` 的警告文本补事件键**（`FeedbackBinder.DispatchFlash` 私有方法加 `evt` 参数，无公开签名变化）：与
+      `play_vfx`/`stop_vfx`/`play_sfx`/`stop_sfx` 四处一致含事件键；用例对五种动作一律断言文本含事件键。
+    - **`FloatingTextMerger.Update` 同一次调用里多个到期窗口按插入顺序派发**（与 `FlushAll` 一致；此前倒序遍历导致反序派发；行为收紧，无签名变化）：
+      先统一推进全部窗口并挑出到期项（保持插入顺序）、从待合并列表摘除，再逐个结算。
+    复现/不变量：`tests/PlaybackQueueEdgeTests.cs`、`tests/FeedbackBinderDispatchEdgeTests.cs`、`tests/FloatingTextMergerTests.cs`
+    （`Update_MultipleWindowsDueInSameCall_DispatchInInsertionOrder_SameAsFlushAll` 等）。
 
 ## 不负责什么
 

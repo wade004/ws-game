@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Presentation.FeedbackBinder.Contracts;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.FeedbackBinder.Core
 {
@@ -11,6 +12,15 @@ namespace Presentation.FeedbackBinder.Core
     /// <see cref="QueueMode.Sequential"/> 下按到达顺序逐条缓冲，<see cref="Update"/> 按
     /// <see cref="Contracts.FeedbackOptions.SequentialStepSeconds"/>（经 <see cref="SpeedMultiplier"/>
     /// 缩放）推进节奏，队列清空（最后一步刚执行完）时触发 <see cref="Finished"/> 恰好一次。
+    /// <para>
+    /// 收口遗留修复 A2（步骤抛异常）：<see cref="QueueMode.Sequential"/> 下某一步抛异常不再中断本次
+    /// <see cref="Update"/>/<see cref="Skip"/>，也不再让该批次吞掉 <see cref="Finished"/>：异常经
+    /// <see cref="Diagnostics"/> 记一条诊断（含异常类型与消息）后继续后续步骤，队列清空时照常触发
+    /// <see cref="Finished"/>——此前最后一步抛异常会让 Finished 永不触发，进而
+    /// <c>PlaybackFinishedEvent</c> 永不发出、节奏门卡死。<see cref="QueueMode.Immediate"/> 下步骤在
+    /// <see cref="Enqueue"/> 调用栈内同步执行，没有批次也没有 Finished，异常仍直接抛给调用方（不变）。
+    /// <see cref="Finished"/> 的订阅者抛异常不属于步骤异常，仍原样外抛（不变）。
+    /// </para>
     /// </summary>
     public sealed class PlaybackQueue
     {
@@ -42,13 +52,26 @@ namespace Presentation.FeedbackBinder.Core
         public event Action? Finished;
 
         public PlaybackQueue(double stepSeconds)
+            : this(stepSeconds, null)
+        {
+        }
+
+        /// <summary>收口遗留修复 A2 新增重载：<paramref name="diagnostics"/> 接收步骤抛异常的诊断；
+        /// null 时自建一个 <see cref="PresentationDiagnosticsRecorder"/>（旧构造签名原样保留并转调）。</summary>
+        public PlaybackQueue(double stepSeconds, IPresentationDiagnostics? diagnostics)
         {
             if (stepSeconds <= 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(stepSeconds), "stepSeconds 必须为正数");
             }
             _stepSeconds = stepSeconds;
+            _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
         }
+
+        private readonly IPresentationDiagnostics _diagnostics;
+
+        /// <summary>步骤抛异常时记诊断的目标（构造期注入或默认自建）。</summary>
+        public IPresentationDiagnostics Diagnostics => _diagnostics;
 
         public int PendingCount => _pending.Count;
 
@@ -105,7 +128,15 @@ namespace Presentation.FeedbackBinder.Core
         private void RunOne()
         {
             var step = _pending.Dequeue();
-            step();
+            try
+            {
+                step();
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Warn(
+                    $"PlaybackQueue 步骤执行抛异常，已记诊断并继续后续步骤：{ex.GetType().Name}: {ex.Message}");
+            }
 
             if (_pending.Count == 0)
             {

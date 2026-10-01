@@ -210,6 +210,17 @@ namespace Core.Foundation.SimLoop
 
         public void Tick(SimStep step)
         {
+            // 判断记录（收口遗留修复 A6，Tick 重入守卫）：此前 Tick 没有重入守卫——阶段处理器/事件订阅者里再调
+            // Tick 会让内层整拍完整执行（意图队列被内层搬走、两次 sim.tick_started 携带相同 tickIndex、
+            // 计数在外层结束时才又 +1，下游全部错乱）。现嵌套调用在改动任何状态之前抛
+            // InvalidOperationException（调用方——即处理器——自己决定是否捕获；不捕获则按"阶段处理器抛异常"的既有
+            // 语义中止外层整拍）；被捕获时外层 tick 照常完整执行。守卫复用 _isTicking（try/finally 复位）。
+            if (_isTicking)
+            {
+                throw new InvalidOperationException(
+                    "WorldSim.Tick 不允许重入：当前已有一个 tick 正在执行（阶段处理器或事件订阅者内不得再调用 Tick）");
+            }
+
             var tickIndex = _tickCounter;
             var dt = step.Kind == SimStepKind.Continuous ? step.Dt : 0.0;
 

@@ -337,7 +337,13 @@ sim_loop/
 4. **`WorldSim.Tick` 阶段处理器抛异常后 `_isTicking` 卡死为 true**：此后 `Tick` 以外的"仅 Tick 外可调用"操作全部被拒。
    `Tick` 主体包进 `try/finally`，`finally` 里复位。异常本身仍原样向调用方传播（不吞）。
 
-已刻画、**待设计层确认**（本批只写特征化用例，不改行为）：
-- `WorldSim.Tick` 无重入守卫：阶段处理器内再调 `Tick` 会嵌套执行，嵌套 tick 与外层共用同一 `tickIndex`。
-- `AppStateHost` 回调抛异常不隔离（`EventBus` 订阅者异常是隔离的，二者口径不一致）；回调内重入迁移时事件送达顺序与迁移顺序不一致。
-- `RngStreamState` 全零状态被接受并且永远产出 0.0（xoshiro 类算法的退化点）；`SeedDerivation` 的"全零回退"分支数学上不可达，无法单独触发。
+已刻画的三处现状（`WorldSim.Tick` 重入、`AppStateHost` 回调异常/重入顺序、`RngStreamState` 全零）已在收口时拍板修掉，见下一节与
+`core/foundation/app_lifecycle/README.md`、`core/foundation/rng/README.md` 同日判断记录。
+
+## 判断记录（`WorldSim.Tick` 重入守卫，2026-10-01，测试覆盖第四批收口，行为收紧，无公开签名变化）
+
+此前 `Tick` 没有重入守卫：阶段处理器或事件订阅者里再调 `Tick`，内层整拍完整执行（意图队列被内层搬走、两次 `sim.tick_started`
+携带相同 `tickIndex`、计数最后才各自 +1）。现在嵌套调用在改动任何状态之前抛 `InvalidOperationException`（守卫复用 `_isTicking`，
+`try/finally` 复位）；调用方（即处理器）自行决定是否捕获——捕获则外层 tick 照常完整执行（计数 +1、`sim.tick_started`/`sim.tick_finished`
+各一次、当拍意图不被打乱），不捕获则按"阶段处理器抛异常"的既有语义中止外层整拍。复现/不变量：`tests/SimLoopBoundaryTests.cs`
+`World_ReentrantTick_Throws_InvalidOperationException_OuterTickCompletesNormally`（原特征化用例 `..._Characterization_InnerTickRunsToCompletion_NoGuard` 改写为本断言）。

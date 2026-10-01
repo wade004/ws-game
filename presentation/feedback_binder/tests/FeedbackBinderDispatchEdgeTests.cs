@@ -160,11 +160,8 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Equal(0, DispatchedBy(sink, kind));
             var warning = Assert.Single(diag.Warnings);
             Assert.Contains("没有 targetId", warning);
-            // flash 的告警文案不含事件 key（其余四种含），其余部分一致。
-            if (kind != "flash")
-            {
-                Assert.Contains(EdgeEventKey.Value, warning);
-            }
+            // 收口遗留修复 A3：五种动作的告警文案一律含事件 key（此前 flash 缺）。
+            Assert.Contains(EdgeEventKey.Value, warning);
             // 告警文案点名动作种类（play_vfx / stop_vfx / play_sfx / stop_sfx / flash）。
             Assert.Contains(kind, warning);
         }

@@ -69,6 +69,17 @@ namespace Presentation.VfxSfx.Core
             /// <summary>ADR-0121 决策 1（D1）：排队期间交给调用方的占位句柄（见
             /// <see cref="_pendingByPlaceholder"/> 判断记录），<see cref="Stop"/> 凭它取消排队。</summary>
             public ParticleHandle Placeholder;
+
+            /// <summary>收口遗留修复 A1：true 表示这是一次真 3D socket 挂接请求（见
+            /// <see cref="TrySpawnAttachedToSocket"/>），补发时走 <see cref="AttachModelToSocket"/>
+            /// （创建子模型并挂到宿主挂点）而不是 <c>EmitParticle</c>；<see cref="WorldPos"/> 不使用。</summary>
+            public bool IsSocketAttach;
+
+            /// <summary>仅 <see cref="IsSocketAttach"/> 为 true 时有意义：宿主实体与挂点 id。补发时按实体 id
+            /// 重新经 <see cref="_modelHandleResolver"/> 解析宿主 <see cref="ModelHandle"/>（排队期间宿主
+            /// 模型可能已被销毁/重建，缓存的旧句柄不可靠）。</summary>
+            public Id SocketEntityId;
+            public Id SocketId;
         }
 
         private readonly List<PendingSpawn> _pendingSpawns = new List<PendingSpawn>();
@@ -294,7 +305,9 @@ namespace Presentation.VfxSfx.Core
             return handle;
         }
 
-        private ParticleHandle? QueuePendingSpawn(Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow, VfxBlendMode blendMode)
+        private ParticleHandle? QueuePendingSpawn(
+            Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow, VfxBlendMode blendMode,
+            Id? socketEntityId = null, Id? socketId = null)
         {
             var pending = new PendingSpawn
             {
@@ -308,6 +321,9 @@ namespace Presentation.VfxSfx.Core
                 Follow = follow,
                 BlendMode = blendMode,
                 Placeholder = new ParticleHandle(_nextPlaceholder++),
+                IsSocketAttach = socketEntityId.HasValue,
+                SocketEntityId = socketEntityId ?? default,
+                SocketId = socketId ?? default,
             };
             _pendingSpawns.Add(pending);
             _pendingByPlaceholder[pending.Placeholder] = pending;
@@ -356,10 +372,28 @@ namespace Presentation.VfxSfx.Core
                     continue;
                 }
 
-                var handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters, pending.BlendMode);
-                _handleCategory[handle] = pending.Category;
-                _pool.Track(pending.Category, handle, pending.Lifetime);
-                RegisterFollow(handle, pending.Follow);
+                ParticleHandle handle;
+                if (pending.IsSocketAttach)
+                {
+                    // 收口遗留修复 A1：真 3D socket 补挂。宿主按实体 id 重新解析（排队期间可能已销毁），
+                    // 解析不到则与加载失败同口径：记诊断、丢弃，不抛。
+                    var host = _modelHandleResolver?.Invoke(pending.SocketEntityId);
+                    if (!host.HasValue)
+                    {
+                        _diagnostics.Warn(
+                            $"vfx \"{pending.VfxId}\" 的资源 \"{resourceId}\" 加载完成，但宿主实体 \"{pending.SocketEntityId}\" 已无可用 ModelHandle，丢弃这次 socket 挂接请求");
+                        continue;
+                    }
+
+                    handle = AttachModelToSocket(pending.ResourceRef, pending.Category, pending.Lifetime, host.Value, pending.SocketId);
+                }
+                else
+                {
+                    handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters, pending.BlendMode);
+                    _handleCategory[handle] = pending.Category;
+                    _pool.Track(pending.Category, handle, pending.Lifetime);
+                    RegisterFollow(handle, pending.Follow);
+                }
 
                 // ADR-0121 决策 1（D1）：调用方手里是占位句柄，补发之后把它映射到真实句柄，使
                 // Stop(占位句柄) 仍能停到这个粒子。
@@ -414,14 +448,32 @@ namespace Presentation.VfxSfx.Core
                 return null;
             }
 
+            // 收口遗留修复 A1（冷 = 热）：资源尚未加载完成时与其它三条路径一致——排队、返回占位句柄
+            // （可 Stop 取消）、加载完成后才创建子模型并挂接；此前本路径不检查加载状态，同步
+            // CreateModelInstance 一个引擎侧尚未就绪的资源。QueuePendingSpawn 同步加载器场景下可能已经
+            // 在调用栈内完成补挂并返回真实合成句柄，与热路径一致。
+            if (_resourceLoader != null && !_resourceLoader.IsLoaded(def.ResourceRef))
+            {
+                return QueuePendingSpawn(
+                    vfxId, def, default, EmptyParams, follow: null, def.BlendMode,
+                    socketEntityId: entityId, socketId: socketId);
+            }
+
             _resourceTracker?.EnsureLoading(def.ResourceRef, ResourceKind.Effect);
-            var childHandle = _renderer3D.CreateModelInstance(def.ResourceRef);
-            _renderer3D.AttachToSocket(hostHandle.Value, socketId, childHandle);
+            return AttachModelToSocket(def.ResourceRef, def.Category, def.Lifetime, hostHandle.Value, socketId);
+        }
+
+        /// <summary>创建子模型实例并挂到宿主挂点，登记合成句柄（换算规则见
+        /// <see cref="TrySpawnAttachedToSocket"/> 判断记录）与生命周期；热路径与冷加载补挂共用同一出口。</summary>
+        private ParticleHandle AttachModelToSocket(Id resourceRef, string category, double? lifetime, ModelHandle hostHandle, Id socketId)
+        {
+            var childHandle = _renderer3D!.CreateModelInstance(resourceRef);
+            _renderer3D.AttachToSocket(hostHandle, socketId, childHandle);
 
             var particleHandle = new ParticleHandle(-(childHandle.Value + 1));
             _socketModelHandles[particleHandle] = childHandle;
-            _handleCategory[particleHandle] = def.Category;
-            _pool.Track(def.Category, particleHandle, def.Lifetime);
+            _handleCategory[particleHandle] = category;
+            _pool.Track(category, particleHandle, lifetime);
             return particleHandle;
         }
 

@@ -6,11 +6,16 @@
 // 由此可以确定性地测试"资源缺失"分支。
 //
 // DeferCallbacks 模式（T1-7b2 新增，供 scene_router 测试驱动"加载中途"的中间状态）：
-// 默认 false，保持上述同步回调行为不变；置为 true 后，LoadAsync 只记下一条"待完成"请求，
-// 不立即调用 callback，也不改变 IsLoaded/GetLoadProgress——由测试显式调用 CompletePending
-// （模拟加载成功）或 FailPending（模拟加载失败）才会触发当初传入的 callback 并相应更新
-// IsLoaded/GetLoadProgress。两种模式下 Register/Unregister 仍然决定"最终会成功还是失败"，
-// DeferCallbacks 只影响"回调触发的时机"，不影响"是否登记过"的语义。
+// 默认 false，保持上述同步回调行为不变；置为 true 后，LoadAsync 只把请求排进"待完成"表
+// （按资源 id 各一条），不立即调用 callback，也不改变 IsLoaded/GetLoadProgress——由测试显式调用
+// CompletePending（判成功：标记已加载并以 success=true 触发当初的 callback）或 FailPending（判失败：
+// 以 success=false 触发，不标记已加载）才会触发。语义细节（均有 StubResourceLoaderTests 钉住）：
+//   - 延迟模式下"成功还是失败"由测试调用 CompletePending/FailPending 显式裁决，**不看** Register/Unregister——
+//     未登记的资源也可以被 CompletePending 判成功，登记过的也可以被 FailPending 判失败；
+//     Register/Unregister 只决定默认（同步）模式下的结果；
+//   - 同一资源 id 已有待完成请求时再 LoadAsync 抛 InvalidOperationException（须先 Complete/FailPending）；
+//     不同资源 id 的待完成请求互相独立；
+//   - 对没有待完成请求的 id 调 CompletePending/FailPending 抛 InvalidOperationException（含同步模式）。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -25,8 +30,9 @@ namespace Adapters.Stub
         private readonly HashSet<Id> _loaded = new HashSet<Id>();
         private readonly Dictionary<Id, LoadCallback> _pending = new Dictionary<Id, LoadCallback>();
 
-        /// <summary>测试用开关：true 时 LoadAsync 不立即回调，由 CompletePending/FailPending
-        /// 驱动（见类型顶部注释）。默认 false，保持既有同步回调行为不变。</summary>
+        /// <summary>测试用开关：true 时 LoadAsync 只把请求排进待完成表（每个资源 id 至多一条，重复 LoadAsync
+        /// 抛异常）而不回调，由 CompletePending/FailPending 显式裁决成败（不看 Register/Unregister），详见类型
+        /// 顶部注释。默认 false，保持既有同步回调行为不变。</summary>
         public bool DeferCallbacks { get; set; }
 
         /// <summary>测试用：每次 LoadAsync 调用的 (resourceId, kind)，按调用顺序追加（含重复调用，

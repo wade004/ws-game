@@ -63,3 +63,17 @@ action:Enum(6值), target_panel:Reference(ui_layout_definition)?}`，按 `ShellM
 返回置位副本。ABI 只新增：`ShellHost` 旧构造函数签名原样保留并转调新增的十一参重载（多一个
 `IPresentationDiagnostics`），旧构造函数的诊断默认自建一份 recorder。`NewGame` 的场景路由失败仍按原约定返回
 `false`，不在本条范围。
+
+## 判断记录（`NewGame` 存档写失败时回滚，2026-10-01，测试覆盖第四批收口）
+
+`NewGame` 在 `IDifficultyHost.Apply` 与 `NewGameStarter` 之后才写初始存档；写失败返回 `false`，但此前难度已切、游戏层起始状态已建，
+宿主状态与调用前不一致。现在存档写失败时回滚（行为收紧）：① 调可选的 `NewGameRollback` 委托撤销 `NewGameStarter` 的效果
+（新增委托类型，参数同被撤销的那次 `NewGameStarter` 调用；框架无法替游戏层撤销起始状态，只提供钩子，未注入则记一条诊断说明
+"游戏层状态未回滚"，不静默）；② 难度宿主恢复到 `NewGame` 之前的快照——`ShellHost` 在 `Apply` 之前经难度宿主的 `IPersistable`
+存档段（`DifficultyHost` 实现，档位/作用域/地图三项）取快照，失败时 `Load` 回去（不发事件、不走 `Apply` 判定）；宿主不是
+`IPersistable` 则记诊断。回滚自身出错只记诊断、不外抛，返回值仍为 `false`。**不回滚的情形（行为不变）**：难度未登记/不允许切换
+（`Apply` 阶段尚未改动任何状态）、`NewGameStarter` 抛异常（原样外抛）、场景加载被拒（此时初始存档已落盘）。已发出的
+`DifficultyAppliedEvent` 无法撤回。ABI 只新增：`ShellHost` 新增十二参构造重载（多一个 `NewGameRollback?`），十一参重载保留并转调；
+`PresentationAssemblyOptions.NewGameRollback` 新增可选属性并透传。复现/不变量：`tests/ShellHostCoverageTests.cs`
+（`NewGame_SaveWriteFails_*`：初始态回滚为未设置、此前已有难度时还原档位/作用域/地图、回滚委托收到相同参数、回滚抛异常、
+未注入回滚委托时的诊断；成功路径不回滚）。

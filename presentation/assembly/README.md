@@ -213,6 +213,7 @@ FeedbackOptions.HitFrameSync` 判断记录"两个落点，装配层负责保持�
 | `RenderOptions` | `null`（`RenderConventionHost` 用 `RenderOptions` 默认值构造，`DirectionIndexRemap` 恒等映射） | 缺口 8：镜头朝向与 05 §3.1 默认约定不一致时的口味配置项入口 |
 | `FeedbackQueueMode` | `null`（跟随 `gameplay.TimeModelSwitch.CurrentMode` 自动切换：离散 `Sequential`、连续 `Immediate`；显式提供时一次性设定且不再自动跟随） | 拍板 5（09 §6.4 离散回放门），见判断记录 8 |
 | `NewGameStarter` | 真正被调用时抛 `NotSupportedException`（构造期不调用，不影响"构造成功"） | 如何创建一局新游戏的起始状态是具体游戏的事，框架没有默认实现 |
+| `NewGameRollback` | null（可选）：初始存档写入失败时 `ShellHost.NewGame` 经它撤销 `NewGameStarter` 已创建的游戏层起始状态；未注入则记一条诊断说明未回滚 | 框架无法替游戏层撤销起始状态，只提供回滚钩子（难度三项状态由 `ShellHost` 经 `DifficultyHost` 的存档段快照/恢复，不需要游戏层参与） |
 | `ViewBinderOptions`/`VfxOptions`/`SfxOptions`/`CameraHostOptions`/`FeedbackOptions` | 透传各模块自己的默认值（`null`） | 各模块既有策略配置项，见各自 README |
 | `EquipmentVisualSource` | `null`（`ViewBinder.OnSaveLoaded` 不做装备外观对账，行为与改动前完全一致） | P2-08 根治（第十四轮审核 c9ff301）新增：透传给 `ViewBinder` 构造参数同名字段，供同图内继续存活的既有 View 按读档后的真实装备快照对账；装配方需传入与传给 `UnityViewFactory` 的 `equipmentVisualSource` 参数同一个 `EquipmentVisualSource` 实例，见 `presentation/view_binding/README.md` 判断记录 6、`render/README.md` 判断记录 19 |
 
@@ -637,3 +638,10 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 自动配置）、`vfx.def`/`sfx.def`/`display.weapon_style`/`feedback.binding` 时仍可完整构造并正常 `Dispose`。被其它表引用的表（如
 `feedback.floating_text_style`）缺失由数据注册表引用完整性在装配前拦截，不属装配根。真实宿主驱动的视图模型事件刷新见
 `tests/PresentationAssemblyViewModelEventTests.cs`（T-M38 装配级）。T-L17/T-L18 经拍板关闭，不做。
+
+## 判断记录（`NewGameRollback` 透传与 T-M13 构造用例补副作用断言，2026-10-01，测试覆盖第四批收口）
+
+- `PresentationAssemblyOptions.NewGameRollback`（新增可选属性，默认 null）透传给 `ShellHost` 的十二参重载，见 `presentation/shell/README.md`
+  同日判断记录；未注入时初始存档写失败只记一条"游戏层状态未回滚"诊断，不影响装配。
+- T-M13 遗留：`Construct_WithMinimalPresentationDataset_DoesNotThrow_AndExposesAllHosts` 此前只断言 27 个宿主非空；现补副作用断言——
+  Vfx/Sfx/Feedback sink 三路诊断是互相独立的实例且构造期均无警告、渲染器无粒子、音频无任何播放、外壳不在加载中、世界里只有测试装配的玩家单位。

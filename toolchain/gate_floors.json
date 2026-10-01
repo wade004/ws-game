@@ -9,30 +9,30 @@
   ],
   "suites": {
     "dotnet_test": {
-      "min_passed": 5790,
+      "min_passed": 7230,
       "max_skipped": 0,
-      "measured_passed": 6439,
+      "measured_passed": 8034,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },
     "pytest": {
-      "min_passed": 590,
+      "min_passed": 780,
       "max_skipped": 0,
-      "measured_passed": 661,
+      "measured_passed": 869,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },
     "unity_editmode": {
-      "min_passed": 80,
+      "min_passed": 160,
       "max_skipped": 0,
-      "measured_passed": 91,
+      "measured_passed": 185,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },
     "unity_playmode": {
-      "min_passed": 320,
+      "min_passed": 330,
       "max_skipped": 0,
-      "measured_passed": 362,
+      "measured_passed": 374,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     }

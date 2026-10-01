@@ -88,17 +88,34 @@ namespace Presentation.FeedbackBinder.Core
         /// 格式化并派发。</summary>
         public void Update(double dt)
         {
-            for (var i = _pending.Count - 1; i >= 0; i--)
+            // 收口遗留修复 A4：同一次调用里多个窗口到期时按插入顺序派发（与 FlushAll 一致）；此前倒序
+            // 遍历导致反序派发。先统一推进全部窗口并挑出到期项（保持插入顺序）、从 _pending 摘除，
+            // 再逐个结算——结算（派发）发生在摘除之后，派发回调里再 Offer 同键会开新窗口而不会并入
+            // 已到期项，与此前一致。
+            List<Pending>? due = null;
+            var keep = 0;
+            for (var i = 0; i < _pending.Count; i++)
             {
                 var p = _pending[i];
                 p.RemainingWindow -= dt;
                 if (p.RemainingWindow > 0)
                 {
+                    _pending[keep++] = p;
                     continue;
                 }
 
-                _pending.RemoveAt(i);
-                Flush(p);
+                (due ??= new List<Pending>()).Add(p);
+            }
+
+            if (due == null)
+            {
+                return;
+            }
+
+            _pending.RemoveRange(keep, _pending.Count - keep);
+            for (var i = 0; i < due.Count; i++)
+            {
+                Flush(due[i]);
             }
         }
 

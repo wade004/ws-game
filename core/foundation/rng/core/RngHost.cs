@@ -63,6 +63,15 @@ namespace Core.Foundation.Rng
 
         public void SetStreamState(Id stream, RngStreamState state)
         {
+            // 收口遗留修复 A8：default(RngStreamState) 是全零状态（xoshiro256** 不动点），拒绝；在改动任何
+            // 流之前拦截，已有流保持原状态，未知流不被创建。
+            if (state.IsAllZero)
+            {
+                throw new ArgumentException(
+                    "SetStreamState 不接受全零状态（default(RngStreamState)）：全零是 xoshiro256** 的不动点，该流之后的抽样会静默恒为 0",
+                    nameof(state));
+            }
+
             if (_streams.TryGetValue(stream, out var generator))
             {
                 generator.SetState(state);

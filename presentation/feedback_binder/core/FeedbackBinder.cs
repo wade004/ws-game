@@ -100,7 +100,7 @@ namespace Presentation.FeedbackBinder.Core
                 _hitFrameSyncPolicy.BatchReleased += OnHitFrameBatchReleased;
             }
 
-            _queue = new PlaybackQueue(_options.SequentialStepSeconds) { Mode = _options.QueueMode };
+            _queue = new PlaybackQueue(_options.SequentialStepSeconds, _diagnostics) { Mode = _options.QueueMode };
 
             // 判断记录（GP-PRES-03 跟进：_merger 先于 _queue.Finished 订阅构造）：下面的订阅 lambda
             // 引用了 _merger，C# 闭包按变量捕获、lambda 体延迟求值，_merger 在订阅触发（PlaybackQueue
@@ -427,7 +427,7 @@ namespace Presentation.FeedbackBinder.Core
                     break;
 
                 case FlashAction flash:
-                    DispatchFlash(flash, selfId, targetId);
+                    DispatchFlash(flash, evt, selfId, targetId);
                     break;
             }
         }
@@ -708,7 +708,7 @@ namespace Presentation.FeedbackBinder.Core
         // flash
         // ------------------------------------------------------------------
 
-        private void DispatchFlash(FlashAction action, Id selfId, Id? targetId)
+        private void DispatchFlash(FlashAction action, IEvent evt, Id selfId, Id? targetId)
         {
             Id entityId;
             if (action.Target == FeedbackAttachTarget.Source)
@@ -719,7 +719,7 @@ namespace Presentation.FeedbackBinder.Core
             {
                 if (!targetId.HasValue)
                 {
-                    _diagnostics.Warn("feedback 规则 flash：动作声明 target=target 但事件没有 targetId，跳过");
+                    _diagnostics.Warn($"feedback 规则 flash：动作声明 target=target 但事件 \"{evt.Key}\" 没有 targetId，跳过");
                     return;
                 }
                 entityId = targetId.Value;

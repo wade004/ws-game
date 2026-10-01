@@ -162,3 +162,13 @@ app_lifecycle/
 
 `kind: main` 行的 `from`/`to` 用 `Enum.TryParse` 解析，数字串（含未定义数字）会被当作 `AppState` 写进转移表。现只认
 枚举名，其余抛 `ArgumentException`（与"不是合法枚举名"同一口径）。用例 `ADR0125_AppStateNameParsingTests`。
+
+## 判断记录（`AppStateHost` 回调异常隔离与重入迁移按发生顺序送达，2026-10-01，测试覆盖第四批收口，行为收紧，无公开签名变化）
+
+此前 `OnStateChanged`/`OnSubStateChanged` 回调抛异常会直接穿透到 `RequestTransition`/`PushSubState`/`PopSubState` 的调用方并跳过排在后面的订阅者
+（`EventBus` 订阅者异常则是隔离的，口径不一致）；回调内再发起迁移时，嵌套迁移的通知先于外层通知送达排在触发重入者之后的订阅者（顺序倒置）。现在：
+① 回调异常与 `EventBus` 同口径——隔离，经 `IAppLifecycleDiagnostics.Error`（含异常对象）记一条，其余回调照常，宿主状态不回滚、异常不外抛；
+② 重入迁移时状态/子状态栈立即落定（`GetState()` 立即反映，嵌套调用照常返回 `true`），但通知排入队列，等当前这条通知对全部订阅者派发完再按发生顺序送达
+（主状态与子状态通知共用一个队列，保证相对发生顺序）。总线事件 `app.state_changed` 仍在迁移发生时立即发布（不入队）。用例
+`tests/AppStateHostDiagnosticsAndReentryTests.cs`（原钉住"异常穿透、后续订阅者被跳过""嵌套通知先于外层"的特征化用例改写为新行为断言，另补子状态重入顺序、
+嵌套迁移后回调抛异常不阻塞已入队通知）。

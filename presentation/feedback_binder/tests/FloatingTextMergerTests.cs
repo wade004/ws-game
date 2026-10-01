@@ -258,6 +258,52 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Equal(2, dispatched.Count);
         }
 
+        // 收口遗留修复 A4：同一次 Update 里多个到期窗口按插入顺序派发（与 FlushAll 一致），
+        // 此前 Update 倒序遍历导致反序派发。
+        [Fact]
+        public void Update_MultipleWindowsDueInSameCall_DispatchInInsertionOrder_SameAsFlushAll()
+        {
+            var ids = new[] { new Id("unit.a"), new Id("unit.b"), new Id("unit.c"), new Id("unit.d") };
+
+            var (viaUpdate, updateOut) = Build(window: 1.0);
+            var (viaFlushAll, flushOut) = Build(window: 1.0);
+            foreach (var id in ids)
+            {
+                viaUpdate.Offer(id, Style, 1, MergeMode.Sum);
+                viaFlushAll.Offer(id, Style, 1, MergeMode.Sum);
+            }
+
+            viaUpdate.Update(2.0);
+            viaFlushAll.FlushAll();
+
+            Assert.Equal(ids, updateOut.ConvertAll(d => d.Item1));
+            Assert.Equal(flushOut, updateOut);
+            Assert.False(viaUpdate.HasPendingMerges);
+        }
+
+        [Fact]
+        public void Update_OnlySomeWindowsDue_DispatchesDueOnesInInsertionOrder_KeepsTheRest()
+        {
+            var (merger, dispatched) = Build(window: 1.0);
+            var a = new Id("unit.a");
+            var b = new Id("unit.b");
+            var c = new Id("unit.c");
+            merger.Offer(a, Style, 1, MergeMode.Sum);
+            merger.Update(0.5);                       // a 剩 0.5
+            merger.Offer(b, Style, 1, MergeMode.Sum); // b 剩 1.0
+            merger.Offer(c, Style, 1, MergeMode.Sum); // c 剩 1.0
+
+            merger.Update(0.5); // a 到期；b、c 剩 0.5
+
+            Assert.Equal(new[] { a }, dispatched.ConvertAll(d => d.Item1));
+            Assert.True(merger.HasPendingMerges);
+
+            merger.Update(0.5); // b、c 同时到期，按插入顺序
+
+            Assert.Equal(new[] { a, b, c }, dispatched.ConvertAll(d => d.Item1));
+            Assert.False(merger.HasPendingMerges);
+        }
+
         [Fact]
         public void FlushAll_WithNothingPending_IsNoOp()
         {

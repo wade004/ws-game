@@ -29,6 +29,7 @@ namespace Presentation.Shell
         private readonly IInputMapHost _inputMap;
         private readonly IEventBus _eventBus;
         private readonly NewGameStarter _newGameStarter;
+        private readonly NewGameRollback? _newGameRollback;
 
         /// <summary>缺口 11 恢复：G1 给 <see cref="LoadResult"/> 补了 <see cref="LoadResult.CurrentMapId"/>
         /// 后，<see cref="LoadGame"/> 改读该字段，不再需要本委托作为唯一来源——保留为可选覆盖
@@ -76,7 +77,29 @@ namespace Presentation.Shell
             Func<string> timestampProvider,
             LoadedMapIdResolver? loadedMapIdResolver,
             IPresentationDiagnostics diagnostics)
+            : this(
+                appState, sceneRouter, saveSystem, settingsStore, difficulty, inputMap, eventBus, newGameStarter,
+                timestampProvider, loadedMapIdResolver, diagnostics, null)
         {
+        }
+
+        /// <summary>收口遗留修复 A5 新增重载：可注入 <see cref="NewGameRollback"/>（初始存档写入失败时撤销
+        /// <see cref="NewGameStarter"/> 的效果，见 <see cref="NewGame"/> 判断记录）。上一个重载签名原样保留并转调。</summary>
+        public ShellHost(
+            IAppStateHost appState,
+            ISceneRouter sceneRouter,
+            ISaveSystem saveSystem,
+            ISettingsStore settingsStore,
+            IDifficultyHost difficulty,
+            IInputMapHost inputMap,
+            IEventBus eventBus,
+            NewGameStarter newGameStarter,
+            Func<string> timestampProvider,
+            LoadedMapIdResolver? loadedMapIdResolver,
+            IPresentationDiagnostics diagnostics,
+            NewGameRollback? newGameRollback)
+        {
+            _newGameRollback = newGameRollback;
             Diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _appState = appState ?? throw new ArgumentNullException(nameof(appState));
             _sceneRouter = sceneRouter ?? throw new ArgumentNullException(nameof(sceneRouter));
@@ -129,8 +152,23 @@ namespace Presentation.Shell
 
         public void OpenSettings() => _mainMenuSubPage = ShellPage.Settings;
 
+        /// <summary>
+        /// 判断记录（收口遗留修复 A5，初始存档写入失败时回滚）：<see cref="IDifficultyHost.Apply"/> 与
+        /// <see cref="NewGameStarter"/> 都已改变了宿主状态，而存档写入失败后本方法返回 false——此前这两处
+        /// 改动原样残留（难度已切、游戏层起始状态已建，却没有存档也没有进图）。现改为：先快照难度宿主
+        /// （经其 <see cref="IPersistable"/> 存档段，<c>DifficultyHost</c> 实现之；这是难度三项状态
+        /// （档位/作用域/地图）的既有精确导出/恢复口径，恢复不发事件、不走 Apply 判定），写档失败时
+        /// 依次 ① 调 <see cref="NewGameRollback"/>（游戏层撤销起始状态；未注入则记警告，框架无法替游戏层
+        /// 撤销）② 把难度宿主恢复到快照（宿主不是 <see cref="IPersistable"/> 则记警告）。回滚本身出错只记
+        /// 诊断、不外抛，返回值仍为 false。不回滚的情形（行为不变）：难度未登记/不允许切换（Apply 阶段尚未
+        /// 改动任何状态）；<see cref="NewGameStarter"/> 抛异常（异常原样外抛）；场景加载被拒绝（此时初始存档
+        /// 已落盘，现状保持）。已发出的 <see cref="DifficultyAppliedEvent"/> 无法撤回。
+        /// </summary>
         public bool NewGame(Id slotId, Id difficultyId, Id? archetypeId)
         {
+            var difficultyPersistable = _difficulty as IPersistable;
+            var difficultySnapshot = difficultyPersistable?.Save();
+
             bool difficultyApplied;
             try
             {
@@ -151,6 +189,7 @@ namespace Presentation.Shell
             var saveResult = _saveSystem.Save(new SaveRequest(slotId, _timestampProvider(), difficultyId: difficultyId));
             if (!saveResult.Success)
             {
+                RollbackNewGame(slotId, difficultyId, archetypeId, difficultyPersistable, difficultySnapshot);
                 return false;
             }
 
@@ -168,6 +207,42 @@ namespace Presentation.Shell
             }
 
             return true;
+        }
+
+        private void RollbackNewGame(
+            Id slotId, Id difficultyId, Id? archetypeId, IPersistable? difficultyPersistable, JsonValue? difficultySnapshot)
+        {
+            if (_newGameRollback != null)
+            {
+                try
+                {
+                    _newGameRollback(slotId, difficultyId, archetypeId);
+                }
+                catch (Exception ex)
+                {
+                    Diagnostics.Warn($"ShellHost.NewGame：存档写入失败后 NewGameRollback 抛异常（{ex.GetType().Name}）：{ex.Message}");
+                }
+            }
+            else
+            {
+                Diagnostics.Warn(
+                    "ShellHost.NewGame：初始存档写入失败，但未注入 NewGameRollback，NewGameStarter 已创建的游戏层起始状态未回滚");
+            }
+
+            if (difficultyPersistable == null || difficultySnapshot == null)
+            {
+                Diagnostics.Warn("ShellHost.NewGame：初始存档写入失败，难度宿主不支持快照恢复（未实现 IPersistable），已应用的难度未回滚");
+                return;
+            }
+
+            try
+            {
+                difficultyPersistable.Load(difficultySnapshot);
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Warn($"ShellHost.NewGame：存档写入失败后恢复难度快照抛异常（{ex.GetType().Name}）：{ex.Message}");
+            }
         }
 
         /// <summary>

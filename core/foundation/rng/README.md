@@ -61,3 +61,13 @@ rng/
 |---|---|---|
 | 分流随机源机制、xoshiro256** 实现、状态持久化文本形式 | 是 | 无 |
 | 随机源分流粒度（全局/按系统/按对象，即游戏层用什么样的 `Id` 命名各条流） | 提供机制 | 具体流命名与用途划分（如 `"loot"`、`"ai"`、`"skill"`，或更细粒度） |
+
+## 判断记录（拒绝全零状态，2026-10-01，测试覆盖第四批收口，行为收紧）
+
+全零是 xoshiro256** 的不动点（`Next()` 恒为 0.0、状态永不离开全零），一份写坏成全零的存档会让该流之后的抽样静默恒为 0。现在：
+`RngStreamState` 构造函数对四个字全为 0 抛 `ArgumentException`（只拒全零，其余任意值照常接受，公开签名不变）；`TryParse`/`Parse` 把全零文本当作非法格式
+（`TryParse` 返回 false、`Parse` 抛 `FormatException`，存档 `rng.stream_states` 段的整体校验因此会拒绝这类存档）；`default(RngStreamState)` 仍可被值类型语义构造出来，
+由 `RngHost.SetStreamState` 在入口拦截（`ArgumentException`，已有流保持原状态、未知流不被创建）。`SeedDerivation` 的"全零则替换 `s0`"回退分支已删——数学上不可达：
+SplitMix64 终结变换是 64 位双射且 0 对应 0，某次输出为 0 当且仅当其推进后的内部状态恰为 0，四次输出对应状态为 seed+g、seed+2g、seed+3g、seed+4g（g 为奇数常量，
+相邻两项必不相等），不可能四项同时为 0；将来若改派生算法导致全零，构造函数会抛异常而不会静默产出坏流。复现/不变量：`tests/RngReferenceVectorTests.cs`
+（全零构造/文本/`default` 三处拒绝、任一字非零照常往返、派生状态扫描恒非全零）。
