@@ -588,6 +588,12 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 单元测试：`python -m unittest toolchain.tests.test_import_assets -v`（标准库 `unittest`；测试数据
 写在系统临时目录，不接触仓库内 `assets/`/`data/`），也可用 `python -m pytest toolchain/tests -q`。
 
+## 框架级假人姿势集生成器（`gen_std_dummy_poses.py`，手感设计/04 第 6.2 节）
+
+程序绘制的几何人偶姿势集（sprite 型）：序列帧 + `display.anim_set.std_dummy_biped` 数据行 + 规格文件，
+自带只读自检（`--check`）与每键一格缩略拼图（`--sheet`，只留本地）。用法、参数、键清单、帧数规则、判断记录与
+已知限制见 [`std_dummy_poses/README.md`](std_dummy_poses/README.md)；测试见 `tests/test_std_dummy_poses.py`。
+
 ## Markdown 相对链接校验（`test_markdown_relative_links.py`）
 
 `toolchain/tests/test_markdown_relative_links.py` 扫描所有由 `git ls-files` 跟踪的 `*.md`
