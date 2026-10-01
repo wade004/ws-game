@@ -149,6 +149,7 @@ def build_parts(pose: Pose, weapon: str | None) -> tuple[list[Part], tuple]:
     # 腿
     hands = {}
     ankles = {}
+    shoulders = {}
     for side, s in (("m", 1), ("o", -1)):
         hip = _add(P, Rb((s * 0.075, 0, 0)))
         th_local = _rz(s * g[f"{side}_ha"], (0, -math.cos(math.radians(g[f"{side}_hf"])), math.sin(math.radians(g[f"{side}_hf"]))))
@@ -165,6 +166,7 @@ def build_parts(pose: Pose, weapon: str | None) -> tuple[list[Part], tuple]:
     # 臂
     for side, s in (("m", 1), ("o", -1)):
         sh = _add(P, Rt((s * 0.145, 0.27, 0)))
+        shoulders[side] = sh
         sf, sa, el = g[f"{side}_sf"], g[f"{side}_sa"], g[f"{side}_el"]
         ua_local = _rz(s * sa, (0, -math.cos(math.radians(sf)), math.sin(math.radians(sf))))
         elbow = _add(sh, _mul(Rt(ua_local), C.UPPER_ARM))
@@ -191,7 +193,13 @@ def build_parts(pose: Pose, weapon: str | None) -> tuple[list[Part], tuple]:
         parts.append(Part("guard", "weapon", _box(_add(guard_c, _mul(d, -0.008)), _add(guard_c, _mul(d, 0.008)), guard_w, 0.02, tx, tz, 0.02), 125))
         blade_a, blade_b = _add(h, _mul(d, 0.05)), _add(h, _mul(d, 0.05 + length))
         parts.append(Part("blade", "weapon", _box(blade_a, blade_b, sec, sec, tx, tz, sec), 225))
-    return parts, {"ankle_m": ankles["m"], "ankle_o": ankles["o"], "hand_m": hands["m"], "hand_o": hands["o"]}
+    # 武器方向（主手武器沿它放置）与躯干/头部朝向基，供装备资产生成器按同一套姿势摆放装备零件
+    # （toolchain/std_equip_set）。纯新增键，既有调用方只取 ankle_*/hand_*。
+    wdir = Rt(_ry(g["wy"], _rz(g["wz"], (0, -math.cos(math.radians(g["wp"])), math.sin(math.radians(g["wp"]))))))
+    return parts, {"ankle_m": ankles["m"], "ankle_o": ankles["o"], "hand_m": hands["m"], "hand_o": hands["o"],
+                   "shoulder_m": shoulders["m"], "shoulder_o": shoulders["o"], "pelvis": P,
+                   "chest_lo": chest_lo, "chest_hi": chest_hi, "tx": tx, "tz": tz, "hx": hx, "hz": hz,
+                   "head_center": head_c, "weapon_dir": wdir}
 
 
 def solve_ground(pose: Pose, parts: list[Part]) -> float:
@@ -239,10 +247,21 @@ def _hull(points):
 OUTLINE = (24, 24, 24, 255)
 
 
-def render(pose: Pose, view_yaw: float, weapon: str | None, layers: str = "composite") -> Image.Image:
-    """layers: composite（全部）/ body（仅身体）/ weapon（仅武器）。"""
+def render(pose: Pose, view_yaw: float, weapon: str | None, layers: str = "composite",
+           clamp_weapon_to_ground: bool = False, item_fn=None) -> Image.Image:
+    """layers: composite（全部）/ body（仅身体）/ weapon（仅武器）/ item（仅 item_fn 产出的装备零件）。
+    clamp_weapon_to_ground：武器/装备零件低于地面（世界 y < 0）的角点压到地面高度（倒地姿势里剑躺在地上而不是
+    扎出画布底边）。只给无族状态剪辑的武器层用，持械族剪辑的输出不受影响。
+    item_fn(pose, joints) -> list[Part]：装备资产生成器（toolchain/std_equip_set）传入，产出 layer="item" 的零件，
+    地面对齐只看身体零件（装备不影响落地高度）。"""
     parts, _hands = build_parts(pose, weapon)
     dy = solve_ground(pose, parts)
+    if item_fn is not None:
+        parts = parts + item_fn(pose, _hands)
+    if clamp_weapon_to_ground:
+        floor = -dy
+        parts = [Part(p.name, p.layer, [(c[0], max(c[1], floor), c[2]) for c in p.corners], p.tone)
+                 if p.layer in ("weapon", "item") else p for p in parts]
     img = Image.new("RGBA", C.CANVAS, (0, 0, 0, 0))
     dr = ImageDraw.Draw(img)
     ref = 0.0
@@ -253,9 +272,7 @@ def render(pose: Pose, view_yaw: float, weapon: str | None, layers: str = "compo
         depth = sum(d for _q, d in pp) / len(pp)
         if p.name == "pelvis":
             ref = depth  # 明暗基准恒取骨盆深度，各层单独渲染与合成渲染的明暗一致
-        if layers == "body" and p.layer != "body":
-            continue
-        if layers == "weapon" and p.layer != "weapon":
+        if layers != "composite" and p.layer != layers:
             continue
         projected.append((depth, idx, p, pts2))
     projected.sort(key=lambda t: (t[0], t[1]))

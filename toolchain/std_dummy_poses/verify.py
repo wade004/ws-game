@@ -23,6 +23,11 @@ REQUIRED_KEYS = ["idle", "move.walk", "move.run", "attack", "hit", "death",
 RECOMMENDED_KEYS = ["idle.combat", "move.run.combat", "attack.unarmed.02", "attack.1h.02", "attack.2h.02",
                     "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup", "cast", "dodge", "jump"]
 
+# 武器层逐层剪辑清单的独立判据（不从 config 推导）：持械角色播这些无族状态键时武器层必须随身体帧走
+# （ADR-0072：缺逐层剪辑的层维持静态图，这正是要消除的遗留）。
+STATE_KEYS_WITH_WEAPON_LAYER = ["hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
+                                "death", "jump", "cast", "dodge"]
+
 _STATES = {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge"}
 _GAITS = {"walk", "run", "sprint"}
 _FAMILIES = {"unarmed", "1h", "2h", "polearm", "bow", "staff", "dual", "shield"}
@@ -119,6 +124,9 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
         if parse_key(k) is None:
             r.err(f"键不符合 04 §2.1 语法：{k}")
     r.tick("键语法与清单", len(clips))
+    for k in STATE_KEYS_WITH_WEAPON_LAYER:
+        if k in clips and C.LAYER_WEAPON not in clips[k].get("layers", []):
+            r.err(f"{k} 缺武器层（{C.LAYER_WEAPON}）逐层剪辑：持械角色播放时武器层会是静态图，不随身体帧走")
 
     # --- 数据行与规格一致 ---
     data_path = data_out / "display" / "display.anim_set.json"
@@ -155,6 +163,8 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
             if not (0.0 <= ev["time_pct"] <= 1.0):
                 r.err(f"{key} 事件 {ev['name']} time_pct 越界 {ev['time_pct']}")
         info = parse_key(key)
+        if e.get("weapon_layer_family") != c.weapon_layer_family:
+            r.err(f"{key} 规格的 weapon_layer_family={e.get('weapon_layer_family')!r} 与 config 的 {c.weapon_layer_family!r} 不一致")
         if info["state"] == "attack" and key != "dodge":
             a0, a1, hits = _ev(e, "active_start"), _ev(e, "active_end"), _ev(e, "hit")
             if len(a0) != 1 or len(a1) != 1 or not hits:
@@ -244,6 +254,14 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
     return r
 
 
+def _distinct_frames(im: Image.Image, frames: list[dict]) -> int:
+    """图集里内容互不相同的帧数（按帧矩形像素字节去重）。"""
+    seen = set()
+    for f in frames:
+        seen.add(im.crop((f["x"], f["y"], f["x"] + f["w"], f["y"] + f["h"])).tobytes())
+    return len(seen)
+
+
 def _check_clip_dir(r: Report, key: str, tag: str, d: Path, e: dict, fps: int, deep: bool) -> None:
     atlas, fj = d / "atlas.png", d / "frames.json"
     if not atlas.is_file() or not fj.is_file():
@@ -285,6 +303,21 @@ def _check_clip_dir(r: Report, key: str, tag: str, d: Path, e: dict, fps: int, d
         if "body" in tag or "整身" in tag:
             if alpha.getbbox() is None:
                 r.err(f"{key} [{tag}] 图集全透明")
+        if tag.startswith(C.LAYER_WEAPON + "/"):
+            if alpha.getbbox() is None:
+                r.err(f"{key} [{tag}] 武器层图集全透明")
+            else:
+                # 武器层随身体帧走：身体层有多于一种帧内容时，武器层也必须有多于一种（否则是"静态图重复 N 帧"）
+                body_d = d.parent / d.name.replace("__" + C.LAYER_WEAPON, "__" + C.LAYER_BODY)
+                weapon_distinct = _distinct_frames(im, frames)
+                body_distinct = None
+                if (body_d / "atlas.png").is_file():
+                    with Image.open(body_d / "atlas.png") as bim:
+                        bim.load()
+                        body_distinct = _distinct_frames(bim, _load(body_d / "frames.json").get("frames", []))
+                if body_distinct and body_distinct > 1 and weapon_distinct <= 1:
+                    r.err(f"{key} [{tag}] 武器层 {len(frames)} 帧内容完全相同（静态图），身体层有 {body_distinct} 种不同帧：武器层没有随身体帧走")
+                r.tick("武器层随帧核对")
 
 
 def contact_sheet(assets_out: Path, out_path: Path, columns: int = 8) -> Path:

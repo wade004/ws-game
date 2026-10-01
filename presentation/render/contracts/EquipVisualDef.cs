@@ -45,7 +45,18 @@ namespace Presentation.Render
 
         public Id? ModelRef { get; }
 
+        /// <summary>装备面板纸娃娃预览区使用的方向档（<c>preview_direction</c>，手感设计/08 第 4 节、ADR-0123，
+        /// 方向槽位 id 如 <c>dir.front_side_r</c>）；缺省为 null，表示取姿势集的正面档。纯新增可选字段。</summary>
+        public Id? PreviewDirection { get; }
+
         public EquipVisualDef(Id id, Id itemId, EquipVisualMode mode, Id? slotId, Id? meshRef, Id? socketId, Id? modelRef)
+            : this(id, itemId, mode, slotId, meshRef, socketId, modelRef, null)
+        {
+        }
+
+        /// <summary>带预览方向档的重载（ABI 只新增：保留七参数构造并转调本重载）。</summary>
+        public EquipVisualDef(Id id, Id itemId, EquipVisualMode mode, Id? slotId, Id? meshRef, Id? socketId, Id? modelRef,
+            Id? previewDirection)
         {
             Id = id;
             ItemId = itemId;
@@ -54,6 +65,7 @@ namespace Presentation.Render
             MeshRef = meshRef;
             SocketId = socketId;
             ModelRef = modelRef;
+            PreviewDirection = previewDirection;
         }
 
         /// <summary>从一条已加载的 <c>display.equip_visual</c> <see cref="DataRecord"/> 构造（假设记录
@@ -67,7 +79,8 @@ namespace Presentation.Render
             var meshRef = record.TryGetId("mesh_ref", out var meshVal) ? (Id?)meshVal : null;
             var socketId = record.TryGetId("socket_id", out var socketVal) ? (Id?)socketVal : null;
             var modelRef = record.TryGetId("model_ref", out var modelVal) ? (Id?)modelVal : null;
-            return new EquipVisualDef(id, itemId, mode, slotId, meshRef, socketId, modelRef);
+            var previewDirection = record.TryGetId("preview_direction", out var previewVal) ? (Id?)previewVal : null;
+            return new EquipVisualDef(id, itemId, mode, slotId, meshRef, socketId, modelRef, previewDirection);
         }
 
         private static EquipVisualMode ParseMode(DataRecord record, string value) => value switch

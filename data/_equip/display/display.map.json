@@ -1,0 +1,167 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.map.std_sword_1h",
+      "category": "item",
+      "logical_id": "item.std_sword_1h",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_sword_1h",
+      "weapon_style_ref": "display.weapon_style.sword_1h",
+      "sprite_set_id": "sprite.item.std_sword_1h",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_greatsword",
+      "category": "item",
+      "logical_id": "item.std_greatsword",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_greatsword",
+      "weapon_style_ref": "display.weapon_style.greatsword",
+      "sprite_set_id": "sprite.item.std_greatsword",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_dagger",
+      "category": "item",
+      "logical_id": "item.std_dagger",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_dagger",
+      "weapon_style_ref": "display.weapon_style.dagger",
+      "sprite_set_id": "sprite.item.std_dagger",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_bow",
+      "category": "item",
+      "logical_id": "item.std_bow",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_bow",
+      "weapon_style_ref": "display.weapon_style.bow",
+      "sprite_set_id": "sprite.item.std_bow",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_staff",
+      "category": "item",
+      "logical_id": "item.std_staff",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_staff",
+      "weapon_style_ref": "display.weapon_style.staff",
+      "sprite_set_id": "sprite.item.std_staff",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    },
+    {
+      "id": "display.map.std_chestplate",
+      "category": "item",
+      "logical_id": "item.std_chestplate",
+      "kind": "sprite",
+      "icon_id": "icon.item.std_chestplate",
+      "sprite_set_id": "sprite.item.std_chestplate",
+      "direction_count": 8,
+      "mirror_pairs": [
+        {
+          "direction_slot": "dir.front_side_l",
+          "mirror_of": "dir.front_side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.side_l",
+          "mirror_of": "dir.side_r",
+          "flip_x": true
+        },
+        {
+          "direction_slot": "dir.back_side_l",
+          "mirror_of": "dir.back_side_r",
+          "flip_x": true
+        }
+      ]
+    }
+  ]
+}

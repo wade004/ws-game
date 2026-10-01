@@ -1,0 +1,61 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    {
+      "key": "l10n.power.health.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "生命值"
+    },
+    {
+      "key": "l10n.item.slot.std_main_hand.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "主手"
+    },
+    {
+      "key": "l10n.item.slot.std_chest.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "胸部"
+    },
+    {
+      "key": "l10n.item.quality.std_common.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "普通"
+    },
+    {
+      "key": "l10n.item.quality.std_rare.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "稀有"
+    },
+    {
+      "key": "l10n.item.std_sword_1h.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位单手剑"
+    },
+    {
+      "key": "l10n.item.std_greatsword.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位双手巨剑"
+    },
+    {
+      "key": "l10n.item.std_dagger.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位匕首"
+    },
+    {
+      "key": "l10n.item.std_bow.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位弓"
+    },
+    {
+      "key": "l10n.item.std_staff.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位法杖"
+    },
+    {
+      "key": "l10n.item.std_chestplate.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "占位胸甲"
+    }
+  ]
+}

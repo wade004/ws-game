@@ -1,0 +1,96 @@
+{
+  "table": "item.template",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "item.std_sword_1h",
+      "slot": "item.slot.std_main_hand",
+      "quality": "item.quality.std_common",
+      "item_level": 1,
+      "weapon_profile": {
+        "damage_min": 5,
+        "damage_max": 8,
+        "speed": 1.5
+      },
+      "display_ref": "display.map.std_sword_1h",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_sword_1h.name",
+      "feel_weapon_ref": "feel.weapon.sword_1h",
+      "equip_sfx_ref": "sfx.std_equip"
+    },
+    {
+      "id": "item.std_greatsword",
+      "slot": "item.slot.std_main_hand",
+      "quality": "item.quality.std_rare",
+      "item_level": 5,
+      "weapon_profile": {
+        "damage_min": 9,
+        "damage_max": 16,
+        "speed": 1.5
+      },
+      "display_ref": "display.map.std_greatsword",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_greatsword.name",
+      "feel_weapon_ref": "feel.weapon.greatsword",
+      "equip_sfx_ref": "sfx.std_equip"
+    },
+    {
+      "id": "item.std_dagger",
+      "slot": "item.slot.std_main_hand",
+      "quality": "item.quality.std_common",
+      "item_level": 1,
+      "weapon_profile": {
+        "damage_min": 5,
+        "damage_max": 8,
+        "speed": 1.5
+      },
+      "display_ref": "display.map.std_dagger",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_dagger.name",
+      "feel_weapon_ref": "feel.weapon.dagger",
+      "equip_sfx_ref": "sfx.std_equip"
+    },
+    {
+      "id": "item.std_bow",
+      "slot": "item.slot.std_main_hand",
+      "quality": "item.quality.std_common",
+      "item_level": 1,
+      "weapon_profile": {
+        "damage_min": 5,
+        "damage_max": 8,
+        "speed": 1.5
+      },
+      "display_ref": "display.map.std_bow",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_bow.name",
+      "feel_weapon_ref": "feel.weapon.bow",
+      "equip_sfx_ref": "sfx.std_equip"
+    },
+    {
+      "id": "item.std_staff",
+      "slot": "item.slot.std_main_hand",
+      "quality": "item.quality.std_common",
+      "item_level": 1,
+      "weapon_profile": {
+        "damage_min": 5,
+        "damage_max": 8,
+        "speed": 1.5
+      },
+      "display_ref": "display.map.std_staff",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_staff.name",
+      "feel_weapon_ref": "feel.weapon.staff",
+      "equip_sfx_ref": "sfx.std_equip"
+    },
+    {
+      "id": "item.std_chestplate",
+      "slot": "item.slot.std_chest",
+      "quality": "item.quality.std_rare",
+      "item_level": 5,
+      "display_ref": "display.map.std_chestplate",
+      "stack_size": 1,
+      "name_key": "l10n.item.std_chestplate.name",
+      "equip_sfx_ref": "sfx.std_equip"
+    }
+  ]
+}

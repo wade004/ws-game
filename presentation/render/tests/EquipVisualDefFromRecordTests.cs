@@ -1,3 +1,4 @@
+using System.Linq;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
@@ -44,6 +45,39 @@ namespace Tests.PresentationRender
             Assert.Equal(new Id("res.model_sword"), def.ModelRef);
             Assert.Null(def.SlotId);
             Assert.Null(def.MeshRef);
+        }
+
+        [Fact]
+        public void FromRecord_PreviewDirection_ParsedWhenPresent_NullWhenAbsent()
+        {
+            var with = EquipVisualDef.FromRecord(Raw(
+                "{\"id\":\"display.equip_visual.p\",\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\"," +
+                "\"slot_id\":\"slot.main_hand\",\"mesh_ref\":\"paperdoll.item.sword\",\"preview_direction\":\"dir.front_side_r\"}"));
+            var without = EquipVisualDef.FromRecord(Raw(
+                "{\"id\":\"display.equip_visual.q\",\"item_id\":\"item.sword\",\"mode\":\"slot_mesh\"," +
+                "\"slot_id\":\"slot.main_hand\",\"mesh_ref\":\"paperdoll.item.sword\"}"));
+
+            Assert.Equal(new Id("dir.front_side_r"), with.PreviewDirection);
+            Assert.Null(without.PreviewDirection);
+        }
+
+        [Fact]
+        public void PreviewDirection_IsOptionalIdField_AndSchemaVersionUnchanged()
+        {
+            var field = DisplaySchemas.EquipVisual.Fields.Single(f => f.Name == "preview_direction");
+
+            Assert.Equal(FieldKind.Id, field.Kind);
+            Assert.False(field.Required);
+            Assert.Equal(1, DisplaySchemas.EquipVisual.CurrentSchemaVersion);
+        }
+
+        [Fact]
+        public void LegacySevenArgConstructor_StillWorks_WithNullPreviewDirection()
+        {
+            var def = new EquipVisualDef(new Id("display.equip_visual.l"), new Id("item.sword"), EquipVisualMode.SlotMesh,
+                new Id("slot.main_hand"), new Id("paperdoll.item.sword"), null, null);
+
+            Assert.Null(def.PreviewDirection);
         }
 
         [Theory]

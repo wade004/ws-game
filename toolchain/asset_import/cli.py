@@ -1,7 +1,7 @@
 """``python toolchain/import_assets.py <子命令> ...`` 的 argparse 入口。
 
 返回码约定（与 toolchain/validate_data.py 一致的分工）：
-    0 —— 成功（``check`` 子命令：无问题）。
+    0 —— 成功（``check`` 子命令：无问题；``equip`` 子命令：零错误，警告不算失败）。
     1 —— 数据/资产问题（``AssetImportError``、缺文件等）或 ``check`` 发现问题。
     2 —— 命令行参数错误。
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import check_cmd, icon_cmd, map_cmd, sfx_cmd, sprite_cmd, vfx_cmd
+from . import check_cmd, equip_cmd, icon_cmd, map_cmd, sfx_cmd, sprite_cmd, vfx_cmd
 from .common import AssetImportError, setup_utf8_streams
 
 
@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_check = sub.add_parser("check", help="assets/<dataset>/ 与 data/<dataset>/ 交叉校验")
     check_cmd.add_arguments(p_check)
     p_check.set_defaults(func=check_cmd.run)
+
+    p_equip = sub.add_parser("equip", help="装备资产包 + 界面皮肤包校验，输出装备完整性报告（手感设计/08）")
+    equip_cmd.add_arguments(p_equip)
+    p_equip.set_defaults(func=equip_cmd.run)
 
     return parser
 

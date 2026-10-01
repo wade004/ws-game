@@ -1,0 +1,63 @@
+{
+  "generator": "toolchain/gen_std_equip_set.py",
+  "doc": "architecture/手感设计/08_装备与UI资产契约.md",
+  "anim_set_id": "display.anim_set.std_dummy_biped",
+  "direction_count": 8,
+  "directions": [
+    "front",
+    "front_side_r",
+    "side_r",
+    "back_side_r",
+    "back"
+  ],
+  "fps": 20,
+  "skin_ref": "skin.default",
+  "skin_files": [
+    "drag/ghost.png",
+    "drag/target_blocked.png",
+    "drag/target_ok.png",
+    "paperdoll_preview/background.png",
+    "quality_frame/_default.png",
+    "quality_frame/std_common.png",
+    "quality_frame/std_rare.png",
+    "slot_frame/_default.png",
+    "slot_frame/_disabled.png",
+    "slot_frame/_drag_hover.png",
+    "slot_frame/_highlight.png",
+    "slot_frame/std_chest.png",
+    "slot_frame/std_main_hand.png",
+    "theme.json",
+    "tooltip/background.png",
+    "tooltip/divider.png",
+    "tooltip/row.png"
+  ],
+  "items": [
+    {
+      "item_id": "item.std_dagger",
+      "mesh_ref": "paperdoll.item.std_dagger",
+      "layer": "hand_main",
+      "family": "1h",
+      "kind": "dagger",
+      "clips": [
+        "sprite_anim.std_dummy_attack_1h",
+        "sprite_anim.std_dummy_attack_1h_02",
+        "sprite_anim.std_dummy_attack_1h_03",
+        "sprite_anim.std_dummy_cast",
+        "sprite_anim.std_dummy_death",
+        "sprite_anim.std_dummy_dodge",
+        "sprite_anim.std_dummy_hit",
+        "sprite_anim.std_dummy_hit_getup",
+        "sprite_anim.std_dummy_hit_heavy",
+        "sprite_anim.std_dummy_hit_knockback",
+        "sprite_anim.std_dummy_hit_knockdown",
+        "sprite_anim.std_dummy_hit_light",
+        "sprite_anim.std_dummy_idle_1h",
+        "sprite_anim.std_dummy_idle_combat_1h",
+        "sprite_anim.std_dummy_jump",
+        "sprite_anim.std_dummy_move_run_1h",
+        "sprite_anim.std_dummy_move_run_combat_1h",
+        "sprite_anim.std_dummy_move_walk_1h"
+      ]
+    }
+  ]
+}

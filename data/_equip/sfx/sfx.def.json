@@ -1,0 +1,60 @@
+{
+  "table": "sfx.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "sfx.swing.generic",
+      "layer": "swing",
+      "priority": 3,
+      "resource_ref": "sfx.swing_01"
+    },
+    {
+      "id": "sfx.impact.generic",
+      "layer": "impact",
+      "priority": 5,
+      "resource_ref": "sfx.hit_01"
+    },
+    {
+      "id": "sfx.swing.metal_light",
+      "layer": "swing",
+      "priority": 3,
+      "resource_ref": "sfx.swing_01"
+    },
+    {
+      "id": "sfx.impact.metal_light",
+      "layer": "impact",
+      "priority": 5,
+      "resource_ref": "sfx.hit_01"
+    },
+    {
+      "id": "sfx.swing.metal_heavy",
+      "layer": "swing",
+      "priority": 3,
+      "resource_ref": "sfx.swing_01"
+    },
+    {
+      "id": "sfx.impact.metal_heavy",
+      "layer": "impact",
+      "priority": 5,
+      "resource_ref": "sfx.hit_02"
+    },
+    {
+      "id": "sfx.swing.wood",
+      "layer": "swing",
+      "priority": 3,
+      "resource_ref": "sfx.swing_01"
+    },
+    {
+      "id": "sfx.impact.wood",
+      "layer": "impact",
+      "priority": 5,
+      "resource_ref": "sfx.hit_02"
+    },
+    {
+      "id": "sfx.std_equip",
+      "layer": "ui",
+      "priority": 1,
+      "resource_ref": "sfx.pickup_01"
+    }
+  ]
+}

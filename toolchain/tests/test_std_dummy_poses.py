@@ -69,10 +69,13 @@ def test_required_and_recommended_keys_times_all_directions(gen4):
             for layer in e["layers"]:
                 assert (clip_dir(assets, e["resource_ref"], slot, layer) / "frames.json").is_file(), (key, slot, layer)
             assert (clip_dir(assets, e["resource_ref"], slot) / "atlas.png").is_file()
-    # 武器层只出现在 1h/2h 族剪辑，且 hand_main 逐层剪辑与 body 同帧数
+    # 武器层出现在 1h/2h 族剪辑与无族的状态剪辑（hit.*/death/jump/cast/dodge），徒手 idle/move/attack 没有
+    state_keys = ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
+                  "death", "jump", "cast", "dodge")
     for key, e in clips.items():
         has = "hand_main" in e["layers"]
-        assert has == (e["family"] in ("1h", "2h")), key
+        assert has == (e["family"] in ("1h", "2h") or key in state_keys), key
+        assert has == (e["weapon_layer_family"] is not None), key
 
 
 def test_all_keys_follow_pose_key_syntax():
@@ -205,3 +208,63 @@ def test_check_flags_frame_count_mismatch(gen4, tmp_path):
     doc["frames"].pop()
     fj.write_text(json.dumps(doc), encoding="utf-8", newline="\n")
     assert any("move.run" in e and "帧数" in e for e in _errors(a, d))
+
+
+# --- 武器层逐层剪辑（遗留：hit/death/jump/cast/dodge 的武器层原是静态图）---
+
+STATE_KEYS = ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
+              "death", "jump", "cast", "dodge")
+
+
+def _frame_bytes(clip_dir_path):
+    from PIL import Image
+    doc = json.loads((clip_dir_path / "frames.json").read_text(encoding="utf-8"))
+    with Image.open(clip_dir_path / "atlas.png") as im:
+        im.load()
+        return doc, [im.crop((f["x"], f["y"], f["x"] + f["w"], f["y"] + f["h"])).tobytes() for f in doc["frames"]]
+
+
+def test_state_clips_have_weapon_layer_that_follows_body_frames(gen4):
+    """不变量：持械角色播 hit/death/jump/cast/dodge 时武器层与身体层同帧数、同逐帧时长，且武器层逐帧变化。"""
+    assets, _data, spec = gen4
+    for key in STATE_KEYS:
+        e = spec["clips"][key]
+        assert "hand_main" in e["layers"], key
+        for slot in spec["directions"]["canonical"]:
+            body_doc, body_frames = _frame_bytes(clip_dir(assets, e["resource_ref"], slot, "body"))
+            wp_doc, wp_frames = _frame_bytes(clip_dir(assets, e["resource_ref"], slot, "hand_main"))
+            assert len(wp_frames) == len(body_frames) == e["frame_count"], (key, slot)
+            assert [f["duration"] for f in wp_doc["frames"]] == [f["duration"] for f in body_doc["frames"]], (key, slot)
+            # 身体帧有变化 => 武器帧也有变化（不是同一张静态图重复）
+            assert len(set(body_frames)) > 1 and len(set(wp_frames)) > 1, (key, slot)
+
+
+def test_state_clip_weapon_layers_are_not_composited_into_body_or_whole_body_clip(gen4):
+    """不变量：整身合成与身体层仍是徒手姿势（武器只在 hand_main 层），否则无纸娃娃层的外形会凭空多一把剑。"""
+    from PIL import Image
+    assets, _data, spec = gen4
+    ref = spec["clips"]["hit"]["resource_ref"]
+    with Image.open(clip_dir(assets, ref, "side_r") / "atlas.png") as whole,             Image.open(clip_dir(assets, ref, "side_r", "body") / "atlas.png") as body:
+        assert whole.tobytes() == body.tobytes()
+
+
+def test_check_flags_static_weapon_layer_and_missing_weapon_layer(gen4, tmp_path):
+    from PIL import Image
+    a, d = _copy(gen4, tmp_path)
+    spec = gen4[2]
+    # 复现：把 hit 的武器层逐帧改成第 0 帧的重复（回到修复前"静态图"的状态）
+    wd = clip_dir(a, spec["clips"]["hit"]["resource_ref"], "side_r", "hand_main")
+    doc = json.loads((wd / "frames.json").read_text(encoding="utf-8"))
+    with Image.open(wd / "atlas.png") as im:
+        im.load()
+        f0 = doc["frames"][0]
+        first = im.crop((f0["x"], f0["y"], f0["x"] + f0["w"], f0["y"] + f0["h"]))
+        out = im.copy()
+        for f in doc["frames"]:
+            out.paste(first, (f["x"], f["y"]))
+    out.save(wd / "atlas.png")
+    assert any("hit" in e and "武器层" in e and "没有随身体帧走" in e for e in _errors(a, d))
+    # 缺武器层逐层剪辑：清单判据报错
+    b, d2 = _copy(gen4, tmp_path / "b")
+    _rewrite_spec(b, lambda s: s["clips"]["cast"].update(layers=["body"], weapon_layer_family=None))
+    assert any("cast" in e and "缺武器层" in e for e in _errors(b, d2))

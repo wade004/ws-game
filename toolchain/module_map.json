@@ -343,6 +343,18 @@
         ]
       },
       {
+        "id": "equip_dataset",
+        "label": "占位装备集数据 data/_equip（手感设计/08 的参照实现）：只被装备完整性校验与 validate_equip_data 读取；改它只需校验该数据集 + 装备完整性检查（其余 data/** 仍归共享面 T3）",
+        "globs": [
+          "data/_equip/**"
+        ],
+        "level": 1,
+        "steps": [
+          "validate_equip_data",
+          "equip_pack_check"
+        ]
+      },
+      {
         "id": "game_template",
         "label": "游戏模板：模板数据校验 + 模板冒烟（消费方演练）+ .meta 完整性",
         "globs": [
@@ -364,7 +376,8 @@
         "steps": [
           "placeholder_assets",
           "sample_import_idem",
-          "import_assets_check"
+          "import_assets_check",
+          "equip_pack_check"
         ]
       },
       {
@@ -557,6 +570,27 @@
         "data/**",
         "core/**/schema/**",
         "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "validate_equip_data",
+      "label": "validate_data.py --strict --data-root data/_equip（占位装备集数据，叠加框架根与 data/_feel，warnings 须为 0）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
+      "id": "equip_pack_check",
+      "label": "import_assets.py equip --strict-warnings（装备资产包 + 界面皮肤包完整性，占位装备集须零错误零警告）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "assets/**",
+        "toolchain/asset_import/**",
+        "toolchain/std_equip_set/**"
       ]
     },
     {

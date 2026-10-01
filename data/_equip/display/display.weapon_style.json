@@ -1,0 +1,26 @@
+{
+  "table": "display.weapon_style",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.weapon_style.sword_1h",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.greatsword",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.dagger",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.bow",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.staff",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    }
+  ]
+}

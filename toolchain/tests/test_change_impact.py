@@ -1031,3 +1031,16 @@ def test_repro_lab_dataset_and_fixtures_stay_t1_with_their_own_steps(mmap: dict)
     fixture_plan = _plan(mmap, "lab/fixtures/baselines/wall.baseline.json")
     assert fixture_plan["level"] == "T1" and "feel_lab_suite" in _run_ids(fixture_plan)
     assert "validate_lab_data" not in _run_ids(fixture_plan)
+
+
+def test_repro_equip_dataset_is_t1_with_its_own_steps(mmap: dict) -> None:
+    # 复现：data/** 一律共享面 T3，改占位装备集数据（data/_equip，手感设计/08 的参照实现）就跑全量。它只被装备完整性
+    # 校验与 validate_equip_data 读取，归 T1：只跑这两步，不跑 dotnet / 工具链 pytest；其余 data/** 仍是 T3。
+    plan = _plan(mmap, "data/_equip/item/item.template.json")
+    assert plan["level"] == "T1"
+    assert {"validate_equip_data", "equip_pack_check"} <= _run_ids(plan)
+    assert "toolchain_pytest" in _skip_ids(plan)
+    assert _plan(mmap, "data/_framework/display/display.anim_set.json")["level"] == "T3"
+    # assets/** 改动同样触发装备完整性检查（层剪辑、图标、皮肤都在 assets/_placeholder 下）。
+    assets_plan = _plan(mmap, "assets/_placeholder/ui/skin/default/theme.json")
+    assert assets_plan["level"] == "T1" and "equip_pack_check" in _run_ids(assets_plan)
