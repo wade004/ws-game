@@ -89,6 +89,38 @@ namespace Core.Gameplay.Assembly
 
         public CarriersAssembly Carriers { get; }
 
+        /// <summary>
+        /// 手感系统（手感落地 S10）：构造时传入 <see cref="CarriersFeelOptions"/> 才有，否则为 <c>null</c>（既有行为逐位不变）。
+        /// 即 <see cref="CarriersAssembly.Feel"/>。
+        /// </summary>
+        public CarriersFeelSystem? Feel => Carriers.Feel;
+
+        private static CarriersFeelOptions? ResolveFeelOptions(CarriersFeelOptions? feelOptions, ISimClockHost? clockHost)
+        {
+            if (feelOptions == null)
+            {
+                return null;
+            }
+
+            var resolved = feelOptions;
+            if (clockHost != null)
+            {
+                if (feelOptions.StepSeconds.HasValue && Math.Abs(feelOptions.StepSeconds.Value - clockHost.StepSeconds) > 1e-12)
+                {
+                    throw new ArgumentException(
+                        $"手感步长 {feelOptions.StepSeconds.Value} 与时钟宿主步长 {clockHost.StepSeconds} 不一致：毫秒到 tick 的换算必须与模拟步长相同", nameof(feelOptions));
+                }
+
+                resolved = feelOptions.WithStepSeconds(clockHost.StepSeconds);
+                if (resolved.IsDiscreteMode == null)
+                {
+                    resolved.IsDiscreteMode = () => clockHost.Mode == TimeModelMode.Discrete;
+                }
+            }
+
+            return resolved;
+        }
+
         public IAppStateHost AppState { get; }
 
         /// <summary>诊断转发跟进（架构结论见 architecture/adr/0042-诊断契约统一转发到宿主控制台.md）：
@@ -392,8 +424,9 @@ namespace Core.Gameplay.Assembly
 
         /// <summary>
         /// ADR-0051 新增构造重载：接受 <see cref="Core.Carriers.Creature.CreatureInteractOptions"/>，
-        /// 携带生物原生交互路径（消费方反馈第 2 条根治）的真正构造逻辑（ABI 门禁 G3：见上方旧签名
-        /// 构造函数判断记录，本重载是唯一新增的物理签名）。
+        /// 携带生物原生交互路径（消费方反馈第 2 条根治）（ABI 门禁 G3：见上方旧签名构造函数判断记录）。
+        /// 手感落地 S10 起本重载改为纯转发（<c>feelOptions: null</c>），真正的构造逻辑在下方末尾多一个
+        /// <see cref="CarriersFeelOptions"/> 参数的重载。
         /// </summary>
         public GameplayAssembly(
             IEventBus bus,
@@ -438,6 +471,67 @@ namespace Core.Gameplay.Assembly
             VendorOpenRequestedCallback? vendorOpenRequested,
             ProgressionOptions? progressionOptions,
             Core.Carriers.Creature.CreatureInteractOptions? creatureInteractOptions)
+            : this(bus, registry, rng, world, spatial, saveSystem, playerUnitProvider, playerFactionId,
+                navigation, spatialSyncKinds, sceneRouter, statOptions, combatOptions, skillOptions,
+                targetingOptions, aiOptions, inventoryOptions, itemOptions, creatureOptions, summonOptions,
+                gobjOptions, movementOptions, worldStateOptions, lootOptions, economyOptions, questOptions,
+                difficultyOptions, achievementOptions, areaTriggerOptions, spawnOptions, autosaveSlotId,
+                autosaveTimestampProvider, clockHost, pacingPolicy, timeModelSwitchOptions,
+                combatParticipantsResolver, deathPolicyOptions, questOwnerResolver, questDayProvider,
+                vendorOpenRequested, progressionOptions, creatureInteractOptions, feelOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// 手感落地 S10 新增构造重载：接受 <see cref="CarriersFeelOptions"/>，真正的构造逻辑在这里（ABI 门禁 G3：上面各重载保持物理签名不变，
+        /// 最长的一个纯转发并传 <c>feelOptions: null</c>，行为逐位不变）。<paramref name="feelOptions"/> 非 null 即启用手感系统：
+        /// 步长取时钟宿主的步长（显式给了不同的 <see cref="RulesFeelOptions.StepSeconds"/> 抛异常——毫秒到 tick 的换算必须与模拟步长一致），
+        /// 离散（回合制）判断取时钟宿主模式；见 <see cref="Feel"/>。
+        /// </summary>
+        public GameplayAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            ISaveSystem saveSystem,
+            Func<Id> playerUnitProvider,
+            Id playerFactionId,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            ISceneRouter? sceneRouter,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            WorldStateOptions? worldStateOptions,
+            LootOptions? lootOptions,
+            EconomyOptions? economyOptions,
+            QuestOptions? questOptions,
+            DifficultyOptions? difficultyOptions,
+            AchievementOptions? achievementOptions,
+            AreaTriggerOptions? areaTriggerOptions,
+            SpawnOptions? spawnOptions,
+            Id? autosaveSlotId,
+            Func<string>? autosaveTimestampProvider,
+            ISimClockHost? clockHost,
+            IPacingPolicy? pacingPolicy,
+            TimeModelSwitchOptions? timeModelSwitchOptions,
+            Func<Id, IReadOnlyList<Id>>? combatParticipantsResolver,
+            Core.Gameplay.Death.DeathPolicyOptions? deathPolicyOptions,
+            Func<Id, Id?>? questOwnerResolver,
+            Func<long>? questDayProvider,
+            VendorOpenRequestedCallback? vendorOpenRequested,
+            ProgressionOptions? progressionOptions,
+            Core.Carriers.Creature.CreatureInteractOptions? creatureInteractOptions,
+            CarriersFeelOptions? feelOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
@@ -580,6 +674,10 @@ namespace Core.Gameplay.Assembly
             // 这个实例的引用（同一份，不拷贝字段），必须是同一个对象才能"回填"生效。
             var resolvedCreatureInteractOptions = creatureInteractOptions ?? new Core.Carriers.Creature.CreatureInteractOptions();
 
+            // 手感落地 S10：启用手感时，步长取时钟宿主的步长（与 SimLoopOptions.StepSeconds 同一个值），离散判断取时钟宿主模式；
+            // 显式给了不同的步长直接报错——毫秒到 tick 的换算与模拟步长必须一致。传入的选项对象不被修改（浅拷贝补全）。
+            var resolvedFeelOptions = ResolveFeelOptions(feelOptions, clockHost);
+
             Carriers = new CarriersAssembly(
                 bus, registry, rng, world, spatial, navigation, resolvedSpatialSyncKinds,
                 worldFlags: WorldState, lootRoller: deferredLootRoller,
@@ -592,7 +690,8 @@ namespace Core.Gameplay.Assembly
                 discreteRoundIndexProvider: () => scheduler?.RoundIndex ?? 0,
                 discreteCurrentActorProvider: () => scheduler?.GetCurrentActor(),
                 progressionOptions: resolvedProgressionOptions,
-                creatureInteractOptions: resolvedCreatureInteractOptions);
+                creatureInteractOptions: resolvedCreatureInteractOptions,
+                feelOptions: resolvedFeelOptions);
 
             // ---------------------------------------------------------
             // 3.5) ADR-0013 离散时间模型：TurnScheduler 提前在这里构造（而不是等到第 10 步
@@ -1250,6 +1349,9 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         public void EnterMap(Id mapId, Id playerUnitId)
         {
+            // 手感落地 S10：场景切换/读档时清空输入缓冲（手感设计/01 第 2.2 节：旧场景的按键记录不得带进新场景）；未启用手感时为空操作。
+            Carriers.Feel?.InputBuffer.ClearAll();
+
             // 外部审核阻塞项 1 收口（见 architecture/落地计划/audit-20260907/followup-2026-09-07.md
             // "外部审核阻塞项处理"一节）：此前 LootHost.ReattachToWorld 只在
             // games/_template/Runtime/GameBootstrap.HandlePostLoad 里手工接了一次，框架自身的
@@ -1346,6 +1448,9 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         public LoadResult RestoreFromSlot(Id slotId)
         {
+            // 手感落地 S10：场景切换/读档时清空输入缓冲（手感设计/01 第 2.2 节：旧场景的按键记录不得带进新场景）；未启用手感时为空操作。
+            Carriers.Feel?.InputBuffer.ClearAll();
+
             // 判断记录（必须在 SaveSystem.Load 之前取"当前地图"）：SaveSystem.Load 内部会依次调用
             // 全部已注册 IPersistable 的 Load（含 world.current_map_id 段——UnitPersistable.
             // CurrentMapId 直接把玩家实体的 MapId 字段改写成存档里的地图 id），调用完成后
@@ -1422,6 +1527,9 @@ namespace Core.Gameplay.Assembly
         /// </summary>
         public void LeaveMap(Id mapId)
         {
+            // 手感落地 S10：场景切换/读档时清空输入缓冲（手感设计/01 第 2.2 节：旧场景的按键记录不得带进新场景）；未启用手感时为空操作。
+            Carriers.Feel?.InputBuffer.ClearAll();
+
             // 判断记录（先 DispatchPending 再清理）：调用方约定顺序是"world.ClearAll() → 本方法"
             // （同 SceneRouter.FinishLoading 的既有顺序）；ClearAll 只把每个实体的 entity.destroyed
             // Enqueue（不立即派发，见 IWorldSim.ClearAll 注释），若不在这里补一次 DispatchPending，

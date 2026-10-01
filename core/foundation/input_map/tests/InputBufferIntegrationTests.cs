@@ -420,6 +420,23 @@ namespace Tests.Foundation.InputMap
         }
 
         [Fact]
+        public void InputActionRows_SkillSlot_ParsesAndDefaultsToNull_AndBadTypeIsRejected()
+        {
+            var rows = "[{\"key\":\"input.action.mapped\",\"kind\":\"button\",\"default_bindings\":[\"key:m\"],\"class\":\"attack\",\"skill_slot\":\"slot_0\"},"
+                + "{\"key\":\"input.action.unmapped\",\"kind\":\"button\",\"default_bindings\":[\"key:n\"],\"class\":\"attack\"}]";
+            var (registry, report) = LoadRows(InputActionSchema.Table.Name, rows, InputActionSchema.Table);
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+
+            Assert.Equal("slot_0", ActionDefinition.FromRecord(registry.Get(InputActionSchema.Table.Name, new Id("input.action.mapped"))!).SkillSlot);
+            Assert.Null(ActionDefinition.FromRecord(registry.Get(InputActionSchema.Table.Name, new Id("input.action.unmapped"))!).SkillSlot);
+
+            var bad = "[{\"key\":\"input.action.bad\",\"kind\":\"button\",\"default_bindings\":[\"key:b\"],\"skill_slot\":3}]";
+            var (_, badReport) = LoadRows(InputActionSchema.Table.Name, bad, InputActionSchema.Table);
+            Assert.True(badReport.IsBlocking);
+            Assert.Contains(badReport.Issues, i => i.Field == "skill_slot");
+        }
+
+        [Fact]
         public void InputActionRows_WithBadNewFieldValues_AreRejectedByTheSchema()
         {
             string Rows(string extra) => "[{\"key\":\"input.action.bad\",\"kind\":\"button\",\"default_bindings\":[\"key:b\"]," + extra + "}]";

@@ -1721,3 +1721,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 6. 取消进入验证用的 `_probeOnly` 探测只覆盖施法管线自身的条件；探测通过后到真正开始之间无并发变化（同一线程同一 tick 内顺序执行），
    若开始仍失败则当前动作已被取消并记一条诊断警告（实际上不可达，保留为防御）。
 7. 没有生产用的动作时钟/输入缓冲/输入→技能映射/剪辑标记来源的装配（T9、T13）。
+
+## 手感落地 S10：技能宿主读口与移动输入通知（2026-10-02）
+
+新增 `SkillHost.IsTimelineSkill(Id)`（技能定义带 `timeline` 块）、`SkillHost.GetTimelineFeelRef(Id)`（`timeline.feel_ref`，动作层手感引用的生产来源）与 `TimelineMoveIntentTickHandler`（把 `move` 类意图接给 `NotifyMoveIntent`，口径见 `core/rules/assembly/README.md` S10 第 5 条）。均为只增不改的公共成员；装配与判断记录见 `core/rules/assembly/README.md` 与 `core/carriers/assembly/README.md` 的"手感落地 S10"两节。

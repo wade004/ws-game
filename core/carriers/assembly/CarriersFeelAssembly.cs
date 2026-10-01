@@ -1,0 +1,245 @@
+using System;
+using System.Collections.Generic;
+using Core.Carriers.Common;
+using Core.Carriers.Unit;
+using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
+using Core.Foundation.EventBus;
+using Core.Foundation.Feel;
+using Core.Foundation.InputMap;
+using Core.Foundation.SimLoop;
+using Core.Rules.Assembly;
+using Core.Rules.Common;
+
+namespace Core.Carriers.Assembly
+{
+    /// <summary>
+    /// 手感系统的装配选项（手感落地 S10）。<b>缺省不启用</b>：不把本对象传给 <see cref="CarriersAssembly"/>/<c>GameplayAssembly</c>，
+    /// 既有行为逐位不变。启用后：数据里必须有 <c>feel.*</c> 行（否则装配抛异常，不静默降级）；标定行恰有一行时可省略
+    /// <see cref="CalibrationId"/>，有多行必须指定。
+    /// </summary>
+    public sealed class CarriersFeelOptions : RulesFeelOptions
+    {
+        /// <summary>要用的 <c>feel.calibration</c> 行 id；数据里恰有一行（如框架缺省标定）时可为空，多行（如游戏自带标定 + 框架缺省）必须指定。</summary>
+        public string? CalibrationId { get; set; }
+
+        /// <summary>主手武器槽位覆盖；<c>null</c> 取武器槽（<c>is_weapon</c>）按 id 序数的第 1 个。见 <see cref="EquippedWeaponFeelProvider"/> 判断记录。</summary>
+        public Id? MainHandSlot { get; set; }
+
+        /// <summary>副手武器槽位覆盖；<c>null</c> 取武器槽按 id 序数的第 2 个。</summary>
+        public Id? OffhandSlot { get; set; }
+
+        /// <summary>除 <c>found.input_action</c> 表外，另行声明给输入缓冲的动作（游戏在代码里声明的动作集）。同 id 以后者为准。</summary>
+        public IReadOnlyList<ActionDefinition>? ExtraActions { get; set; }
+
+        /// <summary>宽限条件求值（<c>found.grace_condition</c>）；非空时装配一个 <see cref="GraceTracker"/> 并随缓冲每 tick 采样。缺省 null 即不装配。</summary>
+        public IGraceConditionEvaluator? GraceEvaluator { get; set; }
+
+        /// <summary>本地玩家的移动轴动作名（如 <c>input.action.move</c>）：<c>PresentationAssembly</c> 把本地输入映射接给缓冲时用来采集按下瞬间的方向快照；缺省 null 即不采集。</summary>
+        public string? LocalMoveActionName { get; set; }
+
+        /// <summary>剪辑根运动来源（运动层 <see cref="MotionServices.RootMotion"/>）；缺省 null。</summary>
+        public IRootMotionSource? RootMotion { get; set; }
+
+        /// <summary>自定义曲线解析（<see cref="MotionServices.Curves"/>）；缺省 null。</summary>
+        public IMotionCurveSource? Curves { get; set; }
+
+        /// <summary>目标辅助候选解析（<see cref="MotionServices.TargetAssist"/>）；缺省 null：关闭。</summary>
+        public ITargetAssistResolver? TargetAssist { get; set; }
+
+        /// <summary>运动模式规则覆盖；缺省 null 取 <see cref="MotionModeRuleSet.FromProfiles"/>（框架数据 <c>feel.motion_mode_rules</c> 的消费结果）。</summary>
+        public MotionModeRuleSet? ModeRules { get; set; }
+
+        /// <summary>返回一份步长替换为 <paramref name="stepSeconds"/> 的浅拷贝（装配根按时钟宿主步长补全，不改调用方传入的对象；<see cref="RulesFeelOptions.HitFeel"/> 等引用成员共享）。</summary>
+        public CarriersFeelOptions WithStepSeconds(double stepSeconds)
+        {
+            var copy = (CarriersFeelOptions)MemberwiseClone();
+            copy.StepSeconds = stepSeconds;
+            return copy;
+        }
+    }
+
+    /// <summary>已装配的手感系统（载体层汇总）：解析器、共用动作时钟、输入缓冲、时间线协作者、受击裁决、运动层接线。</summary>
+    public sealed class CarriersFeelSystem : IDisposable
+    {
+        private readonly List<SubscriptionHandle> _subscriptions;
+
+        /// <summary>手感装配结果（标定、档案集合、调试覆盖）。</summary>
+        public FeelSystem Feel { get; }
+
+        /// <summary>全装配唯一的解析器（动作开始/结束时自动失效缓存的包装）。</summary>
+        public IFeelResolver Resolver { get; }
+
+        /// <summary>规则层接线：动作时钟、受击裁决、时间线协作者。</summary>
+        public RulesFeelSystem Rules { get; }
+
+        /// <summary>全装配唯一的行动者动作时钟。</summary>
+        public ActorActionClock Clock => Rules.Clock;
+
+        /// <summary>输入缓冲宿主：本地输入、AI、自动战斗共用同一个入口（<see cref="InputBufferHost.Press"/>/<see cref="InputBufferHost.Submit"/>）。</summary>
+        public InputBufferHost InputBuffer { get; }
+
+        /// <summary>宽限追踪；未提供 <see cref="CarriersFeelOptions.GraceEvaluator"/> 时为 null。</summary>
+        public GraceTracker? Grace { get; }
+
+        public ActionSlotSkillBinding Binding { get; }
+
+        public BufferedActionIntentSink Sink { get; }
+
+        /// <summary>运动层服务（已赋给 <see cref="MovementHost.Motion"/>）。</summary>
+        public MotionServices Motion { get; }
+
+        /// <summary>来自选项的本地移动轴动作名；缺省 null。</summary>
+        public string? LocalMoveActionName { get; }
+
+        internal CarriersFeelSystem(
+            FeelSystem feel, IFeelResolver resolver, RulesFeelSystem rules, InputBufferHost inputBuffer, GraceTracker? grace,
+            ActionSlotSkillBinding binding, BufferedActionIntentSink sink, MotionServices motion, string? localMoveActionName,
+            List<SubscriptionHandle> subscriptions)
+        {
+            Feel = feel;
+            Resolver = resolver;
+            Rules = rules;
+            InputBuffer = inputBuffer;
+            Grace = grace;
+            Binding = binding;
+            Sink = sink;
+            Motion = motion;
+            LocalMoveActionName = localMoveActionName;
+            _subscriptions = subscriptions;
+        }
+
+        public void Dispose()
+        {
+            for (var i = 0; i < _subscriptions.Count; i++) _subscriptions[i].Dispose();
+            _subscriptions.Clear();
+            Sink.Dispose();
+            Rules.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 手感机制在生产装配里的接线（手感落地 S10）：由 <see cref="CarriersAssembly"/> 构造的最后一步调用。顺序：装配解析器（带生产提供者）→ 规则层接线
+    /// （动作时钟、受击裁决、时间线协作者、移动输入通知）→ 失效订阅 → 输入缓冲（声明动作、映射、出口、tick 步骤 1 处理器、时间线拉取口）→ 运动层。
+    /// <para>
+    /// 判断记录（单一时钟）：动作时钟只在 <see cref="HitFeelAssembly.Attach"/> 里创建一次，输入缓冲、时间线、局部顿帧、运动层的 <c>frozen</c> 叠加态读的都是它。
+    /// </para>
+    /// <para>
+    /// 判断记录（失效订阅）：装备变化、光环施加/移除使对应单位缓存失效，单位销毁时顺带清缓冲。订阅的事件经事件总线在步骤 7 派发，所以一次
+    /// 装备变化对手感的影响从当 tick 的派发之后才可见（同 tick 内更早的步骤读到旧值），与既有事件驱动模块同一口径。数据热加载（<see cref="FeelResolver.Reload"/>）
+    /// 不在本切片接线（已知局限）。
+    /// </para>
+    /// </summary>
+    public static class CarriersFeelAssembly
+    {
+        public static CarriersFeelSystem Attach(
+            CarriersAssembly carriers, IDataRegistryView registry, IEventBus bus, IWorldSim world,
+            CarriersFeelOptions options, double stepSeconds)
+        {
+            if (carriers == null) throw new ArgumentNullException(nameof(carriers));
+            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            if (bus == null) throw new ArgumentNullException(nameof(bus));
+            if (world == null) throw new ArgumentNullException(nameof(world));
+            if (options == null) throw new ArgumentNullException(nameof(options));
+
+            var rules = carriers.Rules;
+            var fields = FeelFields.Default;
+
+            var providers = new FeelProviders
+            {
+                Body = new CreatureTemplateFeelBodyProvider(world, registry),
+                Tags = new UnitTagFeelProvider(carriers.Units),
+                Equipment = new EquippedWeaponFeelProvider(carriers.Equipment, registry, options.MainHandSlot, options.OffhandSlot),
+                Action = new ActionStateFeelProvider(rules.Skill),
+                Temporary = new AuraFeelTemporaryProvider(rules.Skill.AuraQuery, registry, fields),
+            };
+
+            var assembled = FeelAssembly.Assemble(registry, new FeelAssemblyOptions
+            {
+                StepSeconds = stepSeconds,
+                CalibrationId = options.CalibrationId,
+                Providers = providers,
+                Fields = fields,
+            });
+            if (!assembled.IsAssembled)
+            {
+                throw new InvalidOperationException(
+                    "手感系统已在装配选项里启用，但没有可装配的数据：" + assembled.Reason
+                    + "。要么把 feel.* 数据（如 data/_feel 与游戏自己的标定行）加入数据根，要么不传手感装配选项。");
+            }
+
+            var feel = assembled.System!;
+            var resolver = new InvalidatingActionFeelResolver(feel.Resolver);
+            var rulesFeel = RulesFeelAssembly.Attach(rules, resolver, options, stepSeconds);
+
+            var subscriptions = new List<SubscriptionHandle>();
+
+            // ---- 输入缓冲：声明动作、映射、出口、tick 步骤 1、时间线拉取口。
+            var buffer = new InputBufferHost(bus, new InputBufferOptions
+            {
+                StepSeconds = stepSeconds,
+                Feel = resolver,
+                ActionClock = rulesFeel.Clock,
+            });
+            DeclareActions(buffer, registry, options.ExtraActions);
+
+            var binding = new ActionSlotSkillBinding(buffer, carriers.SkillBindings);
+            var sink = new BufferedActionIntentSink(
+                buffer, binding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
+            rulesFeel.Timeline.Input = buffer;
+            rulesFeel.Timeline.Binding = binding;
+
+            GraceTracker? grace = options.GraceEvaluator != null ? new GraceTracker(options.GraceEvaluator, resolver) : null;
+            InputBufferTickHandler.Register(world, buffer, sink, grace);
+
+            // ---- 失效与清理订阅。
+            subscriptions.Add(bus.Subscribe<ItemEquippedEvent>(
+                CarriersEventKeys.ItemEquipped, e => resolver.Invalidate(e.UnitId, "equipment_changed")));
+            subscriptions.Add(bus.Subscribe<ItemUnequippedEvent>(
+                CarriersEventKeys.ItemUnequipped, e => resolver.Invalidate(e.UnitId, "equipment_changed")));
+            subscriptions.Add(bus.Subscribe<AuraAppliedEvent>(
+                RulesEventKeys.AuraApplied, e => resolver.Invalidate(e.TargetId, "aura_changed")));
+            subscriptions.Add(bus.Subscribe<AuraRemovedEvent>(
+                RulesEventKeys.AuraRemoved, e => resolver.Invalidate(e.TargetId, "aura_changed")));
+            subscriptions.Add(bus.Subscribe<UnitDiedEvent>(
+                RulesEventKeys.UnitDied, e => buffer.Clear(e.UnitId)));
+            subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(
+                SimEventKeys.EntityDestroyed, e =>
+                {
+                    buffer.RemoveActor(e.EntityId);
+                    resolver.Invalidate(e.EntityId, "entity_destroyed");
+                }));
+
+            // ---- 运动层。
+            var motion = new MotionServices
+            {
+                Feel = resolver,
+                Actions = rules.Skill.ActionStateQuery,
+                RootMotion = options.RootMotion,
+                Curves = options.Curves,
+                TargetAssist = options.TargetAssist,
+                ModeRules = options.ModeRules ?? MotionModeRuleSet.FromProfiles(feel.Profiles),
+            };
+            carriers.Movement.Motion = motion;
+            MotionHitFeelWiring.Connect(carriers.Movement, rulesFeel.Clock, rulesFeel.HitFeel.Host);
+
+            return new CarriersFeelSystem(
+                feel, resolver, rulesFeel, buffer, grace, binding, sink, motion, options.LocalMoveActionName, subscriptions);
+        }
+
+        private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)
+        {
+            var definitions = new List<ActionDefinition>();
+            var tables = registry.Tables;
+            for (var i = 0; i < tables.Count; i++)
+            {
+                if (tables[i] != "found.input_action") continue;
+                foreach (var record in registry.GetAll("found.input_action")) definitions.Add(ActionDefinition.FromRecord(record));
+                break;
+            }
+
+            if (extra != null) definitions.AddRange(extra);
+            buffer.DeclareActions(definitions);
+        }
+    }
+}

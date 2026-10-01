@@ -33,7 +33,9 @@
 | `face_on_accept` | Bool | 否 | 取用成功时是否转向按下瞬间的方向快照；缺省取类别缺省（attack/skill/dodge 为真） |
 | `grace_conditions` | Array of Id | 否 | 该动作的宽限条件 id 列表（引用 `found.grace_condition`）；缺省空 = 无附加宽限条件。机制见本模块 README"宽限窗口" |
 
-新增的 7 个字段均为可选加法字段：旧数据行不写它们时，`ActionDefinition` 的行为与此前逐项相同（`Class` 为空 ⇒ 不进缓冲）。
+| `skill_slot` | String | 否 | 缓冲接受后要施放的技能所在的技能绑定槽位名（与 `SkillBindingHost` 的 slot 同名，如 `slot_0`）。缺省 = 本动作不映射技能，生产装配的缓冲出口不对它发 `cast` 意图（手感落地 S10 新增） |
+
+新增的 7 个字段（手感落地 S1）加 `skill_slot`（S10）均为可选加法字段：旧数据行不写它们时，`ActionDefinition` 的行为与此前逐项相同（`Class` 为空 ⇒ 不进缓冲）。
 
 ## 示例
 

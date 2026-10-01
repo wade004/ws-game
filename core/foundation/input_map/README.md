@@ -223,3 +223,12 @@ input_map/
 "本实现不支持枚举"而不是"没有任何动作"，调用方据此退化。未新增变化事件（声明/重绑定成功不发事件的既有
 契约不变），调用方要感知变化就重新调用。用例：`presentation/ui/tests`（`FakeInputMapHost` 覆盖）与
 `presentation/assembly/tests/PresentationAssemblyOptionsWiringTests.cs`（真实 `InputMapHost`）。
+
+## 手感落地 S10：`found.input_action.skill_slot`（2026-10-02）
+
+`found.input_action` 新增可选字段 `skill_slot`（String），`ActionDefinition.SkillSlot`/新增 13 参数构造重载（12、5 参数旧重载转发并传 `skillSlot: null`）。生产装配（`BufferedActionIntentSink`/`ActionSlotSkillBinding`，见 `core/carriers/assembly/README.md`）据此把"被缓冲接受的输入动作"翻成对应技能绑定槽位里的技能施放；L0 只提供字段与解析，不读技能绑定（不向上依赖）。
+
+本节追加的判断记录（S10 本节编号）：
+
+1. **加法字段而不是另起映射表**：动作 → 技能映射本来就是输入动作的属性，且玩家换技能绑定时"槽位"是稳定的间接层；新表要多一个装配步骤和一份一致性校验。字段缺省不写即不映射，既有数据零改动。
+2. **只存槽位名，不校验槽位是否存在**：槽位是运行时由 `SkillBindingHost.Bind` 建立的，数据层无法知道；未绑定时映射返回 false，记录留在缓冲里直到过期。

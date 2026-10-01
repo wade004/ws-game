@@ -218,6 +218,13 @@ namespace Game.Template
         public Func<long>? QuestDayProvider;
         public Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested;
 
+        /// <summary>
+        /// 手感落地 S10：手感系统装配选项（转发给 GameplayAssembly 的 <c>feelOptions</c>）。默认 null 即不启用手感，行为与此前逐位一致。
+        /// 与上面三个委托字段同一惯例：不是 Unity 可序列化类型，只能由游戏代码在 Bootstrap() 真正读取之前赋值。是属性而不是字段，
+        /// 避免被 <c>GameOptionsTests</c> 的"值字段 JsonUtility 往返"遍历误收。启用时数据根必须含 feel.* 行（如框架的 data/_feel）。
+        /// </summary>
+        public Core.Carriers.Assembly.CarriersFeelOptions? FeelOptions { get; set; }
+
         /// <summary>见字段注释：把 <see cref="HitTableConfigId"/> 转成 <see cref="CombatOptions"/>。</summary>
         internal CombatOptions BuildCombatOptions() => new CombatOptions
         {

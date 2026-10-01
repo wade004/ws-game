@@ -145,6 +145,12 @@ namespace Core.Carriers.Assembly
 
         public EntitySpatialSyncHost SpatialSync { get; }
 
+        /// <summary>
+        /// 手感系统（手感落地 S10）：构造时传入 <see cref="CarriersFeelOptions"/> 才装配，否则为 <c>null</c>（既有行为逐位不变）。
+        /// 持有全装配唯一的动作时钟、解析器、输入缓冲，见 <see cref="CarriersFeelSystem"/>。
+        /// </summary>
+        public CarriersFeelSystem? Feel { get; }
+
         /// <summary>T-N4-4 判断记录（ABI 门禁 G3，同 <see cref="Core.Rules.Assembly.RulesAssembly"/>
         /// 对应构造函数判断记录）：本仓库已发布 1.33.0 基线，直接在本构造函数已发布的参数列表末尾
         /// 追加新参数会被 <c>toolchain/abi_probe.ps1</c> 判定为破坏性变更——改用"新增重载"，本构造
@@ -238,8 +244,9 @@ namespace Core.Carriers.Assembly
 
         /// <summary>
         /// ADR-0051 新增构造重载：接受 <see cref="Core.Carriers.Creature.CreatureInteractOptions"/>，
-        /// 携带生物原生交互路径（消费方反馈第 2 条根治）的真正构造逻辑（ABI 门禁 G3：见上方旧签名
-        /// 构造函数判断记录，本重载是唯一新增的物理签名）。
+        /// 携带生物原生交互路径（消费方反馈第 2 条根治）（ABI 门禁 G3：见上方旧签名构造函数判断记录）。
+        /// 手感落地 S10 起本重载改为纯转发（<c>feelOptions: null</c>），真正的构造逻辑在下方末尾多一个
+        /// <see cref="CarriersFeelOptions"/> 参数的重载。
         /// </summary>
         public CarriersAssembly(
             IEventBus bus,
@@ -269,12 +276,73 @@ namespace Core.Carriers.Assembly
             Func<Id?>? discreteCurrentActorProvider,
             Core.Numbers.Progression.ProgressionOptions? progressionOptions,
             Core.Carriers.Creature.CreatureInteractOptions? creatureInteractOptions)
+            : this(bus, registry, rng, world, spatial, navigation, spatialSyncKinds, worldFlags, lootRoller,
+                statOptions, combatOptions, skillOptions, targetingOptions, aiOptions, inventoryOptions,
+                itemOptions, creatureOptions, summonOptions, gobjOptions, movementOptions, projectileOptions,
+                extraSchemas, discreteTurnIndexProvider, discreteRoundIndexProvider, discreteCurrentActorProvider,
+                progressionOptions, creatureInteractOptions, feelOptions: null)
+        {
+        }
+
+        /// <summary>
+        /// 手感落地 S10 新增构造重载：接受 <see cref="CarriersFeelOptions"/>，真正的构造逻辑在这里（ABI 门禁 G3：上面各重载保持物理签名不变，
+        /// 最长的一个纯转发并传 <c>feelOptions: null</c>，行为逐位不变）。
+        /// <para>
+        /// <paramref name="feelOptions"/> 非 null 即启用手感系统：把动作时钟、输入缓冲、动作时间线、局部顿帧与受击裁决、运动档案接进生产装配，
+        /// 见 <see cref="CarriersFeelAssembly"/> 与 <see cref="Feel"/>。启用时 <c>SkillOptions.ActionStepSeconds</c> 被写成手感步长
+        /// （缺省取 <paramref name="skillOptions"/> 里的值；传入的 <see cref="SkillOptions"/> 对象会被写入，调用方不应在多套装配间共享同一个对象）。
+        /// </para>
+        /// </summary>
+        public CarriersAssembly(
+            IEventBus bus,
+            IDataRegistryView registry,
+            IRngHost rng,
+            IWorldSim world,
+            ISpatialQuery spatial,
+            INavigation2D? navigation,
+            IReadOnlyDictionary<string, EntitySpatialSyncHost.KindConfig>? spatialSyncKinds,
+            IWorldFlags? worldFlags,
+            ILootRoller? lootRoller,
+            StatHostOptions? statOptions,
+            CombatOptions? combatOptions,
+            SkillOptions? skillOptions,
+            TargetingOptions? targetingOptions,
+            AiOptions? aiOptions,
+            InventoryOptions? inventoryOptions,
+            ItemOptions? itemOptions,
+            CreatureOptions? creatureOptions,
+            SummonOptions? summonOptions,
+            GobjOptions? gobjOptions,
+            MovementOptions? movementOptions,
+            ProjectileOptions? projectileOptions,
+            IReadOnlyList<IExprSchema>? extraSchemas,
+            Func<int>? discreteTurnIndexProvider,
+            Func<int>? discreteRoundIndexProvider,
+            Func<Id?>? discreteCurrentActorProvider,
+            Core.Numbers.Progression.ProgressionOptions? progressionOptions,
+            Core.Carriers.Creature.CreatureInteractOptions? creatureInteractOptions,
+            CarriersFeelOptions? feelOptions)
         {
             if (bus == null) throw new ArgumentNullException(nameof(bus));
             if (registry == null) throw new ArgumentNullException(nameof(registry));
             if (rng == null) throw new ArgumentNullException(nameof(rng));
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (spatial == null) throw new ArgumentNullException(nameof(spatial));
+
+            // 手感落地 S10：启用手感时把动作时间线的步长与手感步长绑成同一个值（时间线用 ActionStepSeconds 把毫秒换成 tick，
+            // 动作时钟随模拟 tick 前进，两者不相等动作时长就会按比例跑偏）。未启用时不碰 skillOptions，既有行为逐位不变。
+            var feelStepSeconds = 0.0;
+            if (feelOptions != null)
+            {
+                skillOptions ??= new SkillOptions();
+                feelStepSeconds = feelOptions.StepSeconds ?? skillOptions.ActionStepSeconds;
+                if (!double.IsFinite(feelStepSeconds) || feelStepSeconds <= 0)
+                {
+                    throw new ArgumentException("手感步长必须是正的有限数", nameof(feelOptions));
+                }
+
+                skillOptions.ActionStepSeconds = feelStepSeconds;
+            }
 
             // ---------------------------------------------------------
             // 0) EntitySpatialSyncHost：订阅 entity.created/entity.destroyed，按 Kind 登记/注销
@@ -533,6 +601,12 @@ namespace Core.Carriers.Assembly
             world.RegisterPhaseHandler(
                 TickPhase.TriggerEvaluation,
                 new Core.Carriers.Creature.CreatureInteractIntentTickHandler(CreatureInteractions));
+
+            // 手感落地 S10：手感系统最后接线（依赖上面全部宿主；输入缓冲处理器此时才注册到 IntentCollection，该阶段没有别的处理器）。
+            if (feelOptions != null)
+            {
+                Feel = CarriersFeelAssembly.Attach(this, registry, bus, world, feelOptions, feelStepSeconds);
+            }
         }
     }
 }
