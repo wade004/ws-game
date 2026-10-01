@@ -18,7 +18,7 @@
     "pytest": {
       "min_passed": 1000,
       "max_skipped": 0,
-      "measured_passed": 1115,
+      "measured_passed": 1113,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },
