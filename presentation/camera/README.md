@@ -20,14 +20,17 @@ camera/
     ICameraHost.cs
     CameraProfile.cs             CameraProfile / CameraBounds / ShakePreset / FromRecord（P4-2 新增数据行解析器）
     ICameraFollowTarget.cs       跟随目标位置来源（解耦 view_binding）
+    CameraFeelProfile.cs         镜头手感档案（十四个呈现型字段的不可变视图，判断记录 8）
     CameraHostOptions.cs
   core/
     CameraHost.cs                 ICameraHost 默认实现
     SimSnapshotFollowTarget.cs     ICameraFollowTarget 基于 ISimSnapshot 的实现
     DelegateFollowTarget.cs        ICameraFollowTarget 基于委托的实现
+    CameraFeelFollower.cs          手感跟随计算（前瞻/死区/阻尼，判断记录 8）
   tests/
     CameraHostTests.cs            14 个用例
     CameraProfileFromRecordTests.cs  2 个用例（P4-2 新增）
+    CameraFeelTests.cs            11 个用例（手感镜头，判断记录 8）
 ```
 
 ## 谁实现 / 谁调用
@@ -80,6 +83,20 @@ camera/
    `ICameraFollowTarget` 实现若不覆写 `TryGetPosition`，`GetPosition` 抛出的异常仍照旧向上传播（默认成员不吞异常）。
    `PresentationAssembly` 已把装配层共享诊断（即 `FeedbackSinkDiagnostics`）经该重载传给 `CameraHost`（ADR-0121 收口接线，见 `presentation/assembly/README.md`），装配路径下 `Camera.Diagnostics` 与之同一实例。
    用例：`presentation/camera/tests/CameraFollowTargetLossTests.cs`。
+
+8. **手感镜头档案（2026-10-02，手感落地第 1 波 S4；设计见 `architecture/手感设计/07` 第 2 节）：跟随滞后/前瞻/死区/阻尼/战斗缩放/镜头冲击**：
+   - **契约增量（ABI 只加法）**：`Core.Foundation.EngineAdapter.ICameraImpulse`（可选能力接口：`SupportsCameraImpulse` + `Impulse(direction, magnitude, decayMs)`，独立成新接口而不是给必需的 `ICamera` 加成员，探测写法 `camera is ICameraImpulse i && i.SupportsCameraImpulse`）；
+     `CameraFeelProfile`（十四个呈现型 `camera_*` 字段的不可变视图，`FromPresenting(PresentingFeelView)`）；`CameraFeelFollower`（纯数学，前瞻 -> 死区 -> 分轴一阶滞后）；
+     `CameraHost` 新增 `Update(alpha, dt)`、`EnableFeel`、`SetInCombat`、`InCombat`、`CombatZoomFactor`、`SupportsImpulse`、`Impulse`、`FeelFrameSeconds`、`ImpulseFallbackShakeFrequency`；既有 `Update(alpha)` 原样保留并转调。
+   - **缺省档案逐位一致**：`IsFollowNeutral`（跟随滞后、前瞻、前瞻滞后、死区宽高、两轴阻尼全为 0）时 `CameraHost` 完全旁路档案计算，沿用 `CameraProfile.FollowLerp` 直接 `ICamera.Follow`；`IsZoomNeutral`（战斗缩放倍率 = 1）时不发任何战斗缩放调用。`rpg_classic` 预设的镜头组字段全部取中性值，因此注入手感解析器但不换档案时输出序列与不注入时逐位相同（`CameraFeelTests.DefaultProfile_CameraOutputSequence_IsBitIdenticalToWithoutFeel` 用 `BitConverter.DoubleToInt64Bits` 比较 120 帧）。
+   - **单位**：`LookAhead`/死区是世界距离（身高倍数经标定换算成绝对值）；`ImpulseGain`/`ShakeCap` 是画面高度比例，取 `GetRaw`（不乘参考镜头高度）。
+   - **跟随算法**：每帧 `a(τ) = 1 - exp(-dt/τ)`（τ = 0 时 a = 1）；速度 = 目标位移 / dt，前瞻期望偏移 = 速度单位方向 × `LookAhead` 按 `LookAheadLagMs` 滞后追随（方向反转时偏移穿过零，不甩动）；死区以当前关注点为中心的矩形，目标在内不动、在外把关注点拖到"目标 - 半宽"；两轴各自按 `DampingXMs`/`DampingYMs` 一阶滞后。`FollowLagMs > 0` 时换算成 `ICamera.Follow` 的平滑参数（秒），为 0 沿用 `FollowLerp`。首帧或换目标/换档案（`Reset`）直接对齐到目标，不产生滑入瞬态。关注点最终仍按 `Bounds` 夹取。
+   - **战斗缩放**：战斗中取 `camera_combat_zoom_delta`，否则 1，按 `camera_combat_zoom_blend_ms` 线性过渡（进出对称，过渡时长 0 = 立即）；`SetZoom` 在战斗缩放期间把新基准叠上当前系数，夹到 profile 的 `[ZoomMin, ZoomMax]`。装配根订阅玩家单位的 `combat.entered`/`combat.left` 调用 `SetInCombat`。
+   - **镜头冲击**：适配层实现 `ICameraImpulse` 且 `SupportsCameraImpulse` 为真时直接转发；否则退化为 `ICamera.Shake`（强度 = 画面高度比例 × 参考镜头高度，时长 = 衰减时长，频率 = `ImpulseFallbackShakeFrequency`）并记一条去重诊断。幅度非正时忽略。合并/限频/上限截断由反馈包流水线负责（`feedback_binder/README.md` 判断记录 23），本类不二次处理。
+   - **已知局限（原文）**：
+     - 对固定步长的宿主这就是准确值，对变帧率宿主是近似（`ICameraHost.Update` 既有签名只有插值系数、没有 dt，且为 ABI 只加法不改它；旧调用点按固定 1/60 秒推进，变帧率宿主应改用 `Update(alpha, dt)`）。
+     - 引擎侧（Unity 适配层）尚未实现 `ICameraImpulse`，目前所有引擎走 `ICamera.Shake` 退化路径；真正的方向性镜头推移留给适配层后续切片。
+   用例：`presentation/camera/tests/CameraFeelTests.cs`（11 条：缺省逐位一致、非缺省输出确有不同、阻尼 = 一阶滞后公式、跟随滞后换算、死区、前瞻、前瞻滞后过零、战斗缩放线性过渡、战斗中 `SetZoom`、冲击能力转发/退化、非正幅度忽略）。
 
 ## 契约缺口
 

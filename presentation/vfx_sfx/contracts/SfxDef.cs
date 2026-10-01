@@ -49,6 +49,27 @@ namespace Presentation.VfxSfx.Contracts
             Loop = loop;
         }
 
+        /// <summary>手感音效分层（手感设计/07 第 3 节）：该行登记为哪个手感层的哪一档；未声明（普通音效行）为 null。
+        /// 与 <see cref="Layer"/>（混音分组，自由文本）正交——前者决定"手感层 + 强度档 + 材质"到本行的映射
+        /// （<see cref="Presentation.VfxSfx.Core.SfxLayerIndex"/>），后者决定混音。</summary>
+        public SfxFeelLayer? FeelLayer { get; }
+
+        /// <summary>手感强度档（1 起；仅当 <see cref="FeelLayer"/> 非 null 时有意义）。</summary>
+        public int? FeelTier { get; }
+
+        /// <summary>手感音效材质标签（如 metal_light）；未声明视为 <see cref="Presentation.VfxSfx.Core.SfxLayerIndex.GenericMaterial"/>。</summary>
+        public string? FeelMaterial { get; }
+
+        /// <summary>手感分层新增重载（ABI 只加法）：十一个参数，带 <see cref="FeelLayer"/>/<see cref="FeelTier"/>/<see cref="FeelMaterial"/>。</summary>
+        public SfxDef(Id id, string layer, int? priority, IReadOnlyList<Id>? variants, Id resourceRef, bool loop,
+            SfxFeelLayer? feelLayer, int? feelTier, string? feelMaterial)
+            : this(id, layer, priority, variants, resourceRef, loop)
+        {
+            FeelLayer = feelLayer;
+            FeelTier = feelTier;
+            FeelMaterial = feelMaterial;
+        }
+
         /// <summary>从一条已加载的 <c>sfx.def</c> <see cref="DataRecord"/> 构造（同 <see cref="VfxDef.FromRecord"/> 惯例）。
         /// ADR-0089：<c>loop</c> 为新增可选字段，未提供时按 <see cref="Loop"/> 判断记录缺省 <c>false</c>。</summary>
         public static SfxDef FromRecord(DataRecord record)
@@ -59,7 +80,21 @@ namespace Presentation.VfxSfx.Contracts
             var variants = record.TryGetIdList("variants", out var variantsVal) ? variantsVal : null;
             var resourceRef = record.GetId("resource_ref");
             var loop = record.TryGetBool("loop", out var loopVal) && loopVal;
-            return new SfxDef(id, layer, priority, variants, resourceRef, loop);
+            SfxFeelLayer? feelLayer = null;
+            if (record.TryGetString("feel_layer", out var feelLayerText))
+            {
+                if (!SfxFeelLayers.TryParse(feelLayerText, out var parsedLayer))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "feel_layer", $"未知的手感音效层：\"{feelLayerText}\"");
+                }
+                feelLayer = parsedLayer;
+            }
+
+            int? feelTier = record.TryGetInt("feel_tier", out var feelTierVal) ? (int?)feelTierVal : null;
+            var feelMaterial = record.TryGetString("feel_material", out var feelMaterialVal) ? feelMaterialVal : null;
+            return feelLayer == null && feelTier == null && feelMaterial == null
+                ? new SfxDef(id, layer, priority, variants, resourceRef, loop)
+                : new SfxDef(id, layer, priority, variants, resourceRef, loop, feelLayer, feelTier, feelMaterial);
         }
     }
 }

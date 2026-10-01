@@ -22,6 +22,9 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <summary>ADR-0089 新增第八项：停止一次此前由 <see cref="PlaySfx"/>（<c>attach</c> 非
         /// world 且对应 <c>sfx.def.loop=true</c>）播放的循环音效，见 <see cref="StopSfxAction"/>。</summary>
         StopSfx,
+
+        /// <summary>手感打击反馈包（手感设计/07 第 1 节，09 第 6.1 节固定集合第九项）。追加在末尾，既有成员的数值不变。</summary>
+        PlayImpact,
     }
 
     /// <summary>
@@ -255,6 +258,21 @@ namespace Presentation.FeedbackBinder.Contracts
 
             ProfileId = profileId;
             Target = target;
+        }
+    }
+
+    /// <summary>
+    /// <c>PlayImpact(profileId | from_feel)</c>（手感设计/07 第 1 节）：<see cref="ProfileId"/> 非 null 用显式反馈包，
+    /// 为 null 即 <c>from_feel</c>——取攻击方（缺则受击方）解析后手感表的 <c>impact_profile_ref</c>。事件字段取自触发事件
+    /// （<c>combat.hit_confirmed</c>/<c>combat.damage_dealt</c>/<c>combat.attack_avoided</c>）。
+    /// </summary>
+    public sealed class PlayImpactAction : FeedbackAction
+    {
+        public Id? ProfileId { get; }
+
+        public PlayImpactAction(Id? profileId) : base(FeedbackActionKind.PlayImpact)
+        {
+            ProfileId = profileId;
         }
     }
 }

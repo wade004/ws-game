@@ -187,6 +187,7 @@ namespace Presentation.Assembly
         {
             registry.RegisterSchema(FeedbackSchemas.Binding);
             registry.RegisterSchema(FeedbackSchemas.FloatingTextStyle);
+            registry.RegisterSchema(FeedbackSchemas.ImpactProfile);
             // 判断记录：Presentation.FeedbackBinder.Core.FeedbackRuleValidator 不是
             // IValidationRule——它的 Validate(IReadOnlyList<FeedbackRule>, IReadOnlyCollection<Id>)
             // 签名要求先把 feedback.binding 表解析成强类型 FeedbackRule 列表、并显式传入事件目录

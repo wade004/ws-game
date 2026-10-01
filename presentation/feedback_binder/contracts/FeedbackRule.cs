@@ -146,6 +146,9 @@ namespace Presentation.FeedbackBinder.Contracts
                 case "shake_camera":
                     return new ShakeCameraAction(RequireId(record, index, @params, "profile_id"));
 
+                case "play_impact":
+                    return new PlayImpactAction(OptionalId(record, index, @params, "profile_id"));
+
                 case "flash":
                     return new FlashAction(
                         RequireId(record, index, @params, "profile_id"),

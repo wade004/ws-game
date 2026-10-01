@@ -14,12 +14,12 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 - `contracts/`：`VfxAttachMode`/`VfxAttach`（判别联合）、`VfxDef`/`SfxDef`（09 §5.1/5.2 字段）、
   `IVfxPlayer`/`ISfxPlayer`、`VfxOptions`/`SfxOptions`（池容量/并发上限等策略配置项）、
   `AnchorResolver`/`EntityPositionResolver`（注入的窄契约，见下"契约缺口"）、`WeaponStyleDef`/
-  `IWeaponStyleResolver`（09 §4.4）、`IWeaponStyleSource`/`MainHandWeaponTemplateResolver`（ADR-0017
+  `IWeaponStyleResolver`（09 §4.4）、`SfxFeelLayer`/`SfxFeelLayers`（手感音效层，判断记录 27）、`IWeaponStyleSource`/`MainHandWeaponTemplateResolver`（ADR-0017
   决策 e，"实体 → 武器风格引用"前置查询，见判断记录 12）、`IPresentationDiagnostics`（本模块与
   `feedback_binder` 共用的表现层诊断出口，语义同 `Core.Foundation.Expr.IExprDiagnostics`）。
 - `core/`：`VfxPlayer`/`SfxPlayer`（默认实现）、`VfxPool`（对象池）、`DisplayInfoResolver`（09 §5.6）、
   `WeaponStyleResolver`（09 §4.4 最小实现）、`EquipmentWeaponStyleSource`（`IWeaponStyleSource` 默认
-  实现，ADR-0017 决策 e，见判断记录 12）。
+  实现，ADR-0017 决策 e，见判断记录 12）、`SfxLayerIndex`（手感音效分层索引，判断记录 27）。
 - `schema/`：`VfxSfxSchemas`——`vfx.def`/`sfx.def`/`display.weapon_style` 三张表的 `TableSchema`
   登记（与 `Core.Foundation.DisplayInfo.DisplaySchemas` 同一惯例：只登记 schema，不接入
   `data/_sample/` 真实数据集，见下"不负责什么"）。
@@ -376,6 +376,14 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     解析不到（实体已离场）记一条诊断并丢弃，不抛。同步加载器场景（加载在 `LoadAsync` 调用栈内完成）直接返回真实合成句柄，与热路径一致。
     未注入 `resourceLoader` 或资源已加载时行为不变。复现/不变量：`tests/VfxPlayerSocketColdLoadTests.cs`
     （排队/补挂/占位句柄 Stop、Stop 后永不挂接、加载失败、超时、宿主消失、冷热收敛、到期回收）。
+
+27. **手感音效分层（2026-10-02，手感落地第 1 波 S4；设计见 `architecture/手感设计/07` 第 3 节）：`sfx.def` 的 `feel_layer`/`feel_tier`/`feel_material` + `SfxLayerIndex`**：
+    - **契约增量（ABI 只加法）**：`SfxFeelLayer`（Swing/Whiff/Impact/Sweetener/Voice/Footstep）与 `SfxFeelLayers`（名字互转）；`SfxDef` 新增 `FeelLayer`/`FeelTier`/`FeelMaterial` 与九参构造重载（旧六参构造原样）；
+      `sfx.def` 表新增三个可选字段（缺省不影响旧数据，`FromRecord` 缺字段时仍走旧构造）；未知 `feel_layer` 名抛 `DataFieldException`。`feel_layer`（手感层）与既有 `layer`（混音分组，自由文本）正交。
+    - **`SfxLayerIndex`**：把声明了 `feel_layer` 的行按 `(层, 档, 材质)` 建索引；反馈包只引用"层 + 档"，材质来自武器的 `sfx_material`。回落顺序：请求档 t 从高到低，每一档先材质精确行、再同档 `generic` 行，第一个命中即返回；全部落空返回 false 并记一条去重诊断（同一 `(层, 档, 材质)` 只记一次），不抛、不静音前先找近似；请求档 <= 0 表示该层关闭，无诊断。
+      判断记录：先降材质、后降档——材质只是音色差异，档位决定"这一下打得多重"；不向高档回落，避免资产缺失时反而放大动静。同一 `(层, 档, 材质)` 多行时取 id 序第一行并记诊断。
+    - **已知局限**：样例数据（`data/_sample`）尚无带 `feel_*` 字段的 `sfx.def` 行；`sfx_max_concurrent` 由反馈包流水线按批限制（见 `feedback_binder/README.md` 判断记录 23），不在本索引内处理。
+    用例：`tests/SfxLayerIndexTests.cs`（精确命中、缺材质回落到同档通用、只向低档回落、全缺返回 false 且诊断去重、关闭层、重复行、非手感行不入索引、`FromRecord` 字段解析）。
 
 ## 不负责什么
 

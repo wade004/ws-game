@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Foundation.Expr;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Core.Rules.ExprHost;
 using Presentation.FeedbackBinder.Contracts;
@@ -62,6 +63,12 @@ namespace Presentation.FeedbackBinder.Core
         /// <see cref="ResolveHitFrameBatchToken"/>。</summary>
         private readonly Dictionary<Id, object> _hitFrameBatchTokenByAttacker = new Dictionary<Id, object>();
 
+        /// <summary>手感打击反馈包流水线（手感设计/07）；null 表示未启用（<c>play_impact</c> 动作记一条诊断并跳过，
+        /// 其余行为与改动前逐位一致）。</summary>
+        private readonly ImpactPipeline? _impact;
+
+        private bool _impactMissingReported;
+
         public FeedbackBinder(
             IEventBus bus,
             IExprHostFactory exprHosts,
@@ -75,7 +82,31 @@ namespace Presentation.FeedbackBinder.Core
             IPresentationDiagnostics? diagnostics = null,
             Func<Id, string>? textResolver = null,
             IHitFrameSource? hitFrameSource = null)
+            : this(bus, exprHosts, rules, sink, displayInfoResolver, entityLogicalIdResolver, unitAccess, options,
+                exprDiagnostics, diagnostics, textResolver, hitFrameSource, impactPipeline: null)
         {
+        }
+
+        /// <summary>手感打击反馈包新增重载（ABI 只加法；<paramref name="impactPipeline"/> 无默认值以避免与上面既有构造在
+        /// 调用点二义）：注入流水线后，本类额外订阅 <c>combat.hit_confirmed</c>（挥空计数）、<c>action.marker</c>/
+        /// <c>action.phase_changed</c>（判定窗口）、<c>feel.hitstop_started/ended</c>（顿帧表现）、<c>sim.tick_finished</c>
+        /// （同 tick 出批），并支持 <c>play_impact</c> 动作。</summary>
+        public FeedbackBinder(
+            IEventBus bus,
+            IExprHostFactory exprHosts,
+            IReadOnlyList<FeedbackRule> rules,
+            IFeedbackSink sink,
+            DisplayInfoResolver? displayInfoResolver,
+            EntityLogicalIdResolver? entityLogicalIdResolver,
+            IUnitAccess? unitAccess,
+            FeedbackOptions? options,
+            IExprDiagnostics? exprDiagnostics,
+            IPresentationDiagnostics? diagnostics,
+            Func<Id, string>? textResolver,
+            IHitFrameSource? hitFrameSource,
+            ImpactPipeline? impactPipeline)
+        {
+            _impact = impactPipeline;
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
             _exprHosts = exprHosts ?? throw new ArgumentNullException(nameof(exprHosts));
             _sink = sink ?? throw new ArgumentNullException(nameof(sink));
@@ -144,6 +175,182 @@ namespace Presentation.FeedbackBinder.Core
                 kv.Value.Sort((a, b) => string.CompareOrdinal(a.Id.Value, b.Id.Value));
                 _subscriptions.Add(_bus.Subscribe(kv.Key, OnEvent));
             }
+
+            if (_impact != null)
+            {
+                SubscribeImpact(_impact);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // 手感打击反馈包（手感设计/07）
+        // ------------------------------------------------------------------
+
+        /// <summary>流水线专用订阅：与规则订阅互不干扰（同一事件 key 可有多个订阅者）。事件携带的字段只读，
+        /// 全部经流水线处理，本类不再从事件里读任何判定型手感。</summary>
+        private void SubscribeImpact(ImpactPipeline impact)
+        {
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.CombatHitConfirmed, evt =>
+            {
+                if (ImpactHit.TryFromEvent(evt, out var hit))
+                {
+                    impact.ObserveHit(hit);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionMarker, evt =>
+            {
+                if (evt is ActionMarkerEvent marker)
+                {
+                    impact.OnActionMarker(marker.ActorId, marker.Name);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionPhaseChanged, evt =>
+            {
+                if (evt is ActionPhaseChangedEvent phase)
+                {
+                    impact.OnActionPhase(phase.ActorId, phase.Phase);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.FeelHitstopStarted, evt =>
+            {
+                if (evt is FeelHitstopStartedEvent started)
+                {
+                    impact.OnHitstopStarted(started.UnitIds, started.Ticks, started.AttackInstanceId);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.FeelHitstopEnded, evt =>
+            {
+                if (evt is FeelHitstopEndedEvent ended)
+                {
+                    impact.OnHitstopEnded(ended.UnitIds);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(SimEventKeys.TickFinished, evt =>
+            {
+                if (evt is SimTickFinishedEvent finished)
+                {
+                    impact.SetTick(finished.TickIndex);
+                }
+                FlushImpact();
+            }));
+        }
+
+        /// <summary>手感流水线（未启用时为 null），供测试与装配根读取顿帧冻结登记等只读状态。</summary>
+        public ImpactPipeline? Impact => _impact;
+
+        /// <summary>出批并把表现计划落到 sink：逐目标的闪白/特效/音效/飘字走既有播放队列（与其它动作同一节奏门），镜头提示与顿帧
+        /// 表现是时间敏感信号，直接下达不排队。任何一项失败只记诊断，不影响同批其它项。</summary>
+        private void FlushImpact()
+        {
+            if (_impact == null)
+            {
+                return;
+            }
+
+            ImpactBatch? batch;
+            try
+            {
+                batch = _impact.Flush();
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Warn($"feedback 打击反馈包流水线出批时抛出异常，已跳过本批：{ex}");
+                return;
+            }
+
+            if (batch == null)
+            {
+                return;
+            }
+
+            foreach (var plan in batch.Plans)
+            {
+                var captured = plan;
+                if (captured.FlashEntity.HasValue && captured.FlashProfile.HasValue)
+                {
+                    var entity = captured.FlashEntity.Value;
+                    var profile = captured.FlashProfile.Value;
+                    _queue.Enqueue(() => _sink.Flash(entity, profile));
+                }
+
+                if (captured.VfxId.HasValue)
+                {
+                    var vfxId = captured.VfxId.Value;
+                    var attach = captured.VfxAttach;
+                    var parameters = captured.VfxParameters;
+                    _queue.Enqueue(() => _sink.PlayVfx(vfxId, attach, parameters));
+                }
+
+                foreach (var sfx in captured.Sfx)
+                {
+                    var sfxId = sfx.SfxId;
+                    var at = captured.SfxPosition;
+                    _queue.Enqueue(() => _sink.PlaySfx(sfxId, at));
+                }
+
+                if (captured.FloatingTextStyle.HasValue && captured.FloatingTextEntity.HasValue)
+                {
+                    _merger.Offer(captured.FloatingTextEntity.Value, captured.FloatingTextStyle.Value, captured.FloatingTextAmount, _options.MergeMode);
+                }
+            }
+
+            foreach (var op in batch.Hitstops)
+            {
+                try
+                {
+                    if (op.IsStart)
+                    {
+                        _sink.FreezePresentation(op.UnitIds, op.Ticks, op.Layers);
+                    }
+                    else
+                    {
+                        _sink.ReleasePresentation(op.UnitIds);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn($"feedback 顿帧表现下达 sink 时抛出异常，已跳过这一项：{ex}");
+                }
+            }
+
+            if (batch.Camera != null)
+            {
+                try
+                {
+                    _sink.ImpactCamera(batch.Camera);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Warn($"feedback 镜头冲击下达 sink 时抛出异常，已跳过：{ex}");
+                }
+            }
+        }
+
+        private void DispatchPlayImpact(PlayImpactAction action, IEvent evt)
+        {
+            if (_impact == null)
+            {
+                if (!_impactMissingReported)
+                {
+                    _impactMissingReported = true;
+                    _diagnostics.Warn("feedback 规则使用了 play_impact，但未注入 ImpactPipeline（FeedbackBinder 的流水线构造重载），跳过该动作");
+                }
+                return;
+            }
+
+            if (!ImpactHit.TryFromEvent(evt, out var hit))
+            {
+                _diagnostics.Warn(
+                    $"feedback 规则 play_impact：事件 \"{evt.Key}\" 不是 combat.hit_confirmed/combat.damage_dealt/combat.attack_avoided，跳过");
+                return;
+            }
+
+            _impact.Offer(hit, action.ProfileId);
         }
 
         /// <summary>按 <paramref name="dt"/> 推进飘字合并窗口与 <see cref="QueueMode.Sequential"/>
@@ -153,6 +360,13 @@ namespace Presentation.FeedbackBinder.Core
             _merger.Update(dt);
             _queue.Update(dt);
             _hitFrameSyncPolicy?.Update(dt);
+
+            if (_impact != null)
+            {
+                // 没有 sim.tick_finished 的宿主（或帧内残留）也不会让同 tick 命中滞留：每帧更新时兜底出批。
+                _impact.Advance(dt);
+                FlushImpact();
+            }
         }
 
         /// <summary>供离散模式主循环/测试直接控制播放节奏（09 第 6.4 节"加速与跳过"）。</summary>
@@ -189,7 +403,8 @@ namespace Presentation.FeedbackBinder.Core
         /// </para>
         /// </summary>
         public bool HasPendingPlayback =>
-            _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback || (_hitFrameSyncPolicy?.PendingCount ?? 0) > 0;
+            _queue.PendingCount > 0 || _merger.HasPendingMerges || _sink.HasPendingPlayback || (_hitFrameSyncPolicy?.PendingCount ?? 0) > 0
+            || (_impact?.HasPending ?? false);
 
         /// <summary>H5b 根治新增（游戏侧复核发现 2）：只读诊断，转发自
         /// <see cref="HitFrameSyncPolicy.LastReleaseReason"/>——命中帧同步等待队列最近一次批次释放
@@ -420,6 +635,10 @@ namespace Presentation.FeedbackBinder.Core
 
                 case FreezeAction freeze:
                     _queue.Enqueue(() => _sink.Freeze(freeze.DurationMs));
+                    break;
+
+                case PlayImpactAction playImpact:
+                    DispatchPlayImpact(playImpact, evt);
                     break;
 
                 case ShakeCameraAction shake:

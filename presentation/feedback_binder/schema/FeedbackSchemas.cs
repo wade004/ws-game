@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.FeedbackBinder.Schema
 {
@@ -14,7 +15,7 @@ namespace Presentation.FeedbackBinder.Schema
     {
         public static readonly string[] ActionKindValues =
         {
-            "floating_text", "play_vfx", "play_sfx", "freeze", "shake_camera", "flash", "stop_vfx", "stop_sfx",
+            "floating_text", "play_vfx", "play_sfx", "freeze", "shake_camera", "flash", "stop_vfx", "stop_sfx", "play_impact",
         };
 
         public static readonly string[] FeedbackAttachTargetValues = { "source", "target", "world" };
@@ -93,6 +94,11 @@ namespace Presentation.FeedbackBinder.Schema
                     new FieldSchema("profile_id", FieldKind.Id, required: true, description: "震屏 preset id：语义 = 当前相机档（camera_profile）shake_presets 里的 preset id，字段名沿用不改（ADR-0121 第 4 条、ADR-0039）；运行期当前档没有该 preset 时记一条诊断并跳过本次震屏，不抛异常（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
                         .WithSoftReference(table: "camera_profile"),
                 }, description: "shake_camera 动作参数：{profile_id}"),
+                ["play_impact"] = ParamsCase(new[]
+                {
+                    new FieldSchema("profile_id", FieldKind.Reference, required: false, referenceTable: "feedback.impact_profile",
+                        description: "显式反馈包；缺省即 from_feel——取攻击方（缺则受击方）手感表特效组的 impact_profile_ref，再按事件的 impactClass/hitResult/isCrit/isKill 选变体（手感设计/07 第 1 节）"),
+                }, description: "play_impact 动作参数：{profile_id?}"),
                 ["flash"] = ParamsCase(new[]
                 {
                     new FieldSchema("profile_id", FieldKind.Id, required: true, description: "指向 camera_profile 中的震屏/闪光档位（消费方反馈第 30 条：登记为软引用，仅供内容工具补全/跳转）")
@@ -141,6 +147,67 @@ namespace Presentation.FeedbackBinder.Schema
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "feedback");
 
-        public static IReadOnlyList<TableSchema> All { get; } = new[] { Binding, FloatingTextStyle };
+        private static readonly string[] ImpactClassValues = { "light", "medium", "heavy", "massive" };
+        private static readonly string[] ImpactOutcomeValues = { "hit", "crit", "kill", "avoided", "whiff" };
+
+        private static FieldSchema ImpactObject(string name, string description, params FieldSchema[] fields) =>
+            new FieldSchema(name, FieldKind.Object, required: false, fields: fields, description: description);
+
+        /// <summary><c>feedback.impact_profile</c>（手感设计/07 第 1 节，打击反馈包）。判断记录：设计里的
+        /// <c>variants: Map&lt;(impactClass, outcome), ImpactVariant&gt;</c> 登记为数组，每个元素用 <c>class</c>/<c>outcome</c> 两个字段
+        /// 当复合键（键里不出现判定型字段名 <c>impact_class</c>，避免触发呈现型表的"判定型字段名"校验）；
+        /// <c>(class, outcome)</c> 不得重复由 <see cref="Presentation.FeedbackBinder.Contracts.ImpactProfile.FromRecord"/> 校验
+        /// （登记层表达不了复合键唯一）。<c>outcome</c> 比设计多一个 <c>whiff</c>（挥空）。</summary>
+        public static readonly TableSchema ImpactProfile = new TableSchema(
+            name: "feedback.impact_profile",
+            primaryKey: "id",
+            currentSchemaVersion: 1,
+            fields: new[]
+            {
+                new FieldSchema("id", FieldKind.Id, required: true, description: "feedback.impact_profile.<name>"),
+                new FieldSchema("variants", FieldKind.Array, required: true,
+                    item: new FieldSchema("<variant>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("class", FieldKind.Enum, required: true, enumValues: ImpactClassValues, description: "冲击等级（light/medium/heavy/massive）；事件里的 impactClass 缺项时回落 medium"),
+                        new FieldSchema("outcome", FieldKind.Enum, required: true, enumValues: ImpactOutcomeValues, description: "命中结局；crit/kill 缺项回落 hit，avoided/whiff 不回落（回避类不播成功命中的反馈）"),
+                        ImpactObject("flash", "闪白（09 Flash 原语）",
+                            new FieldSchema("profile_id", FieldKind.Id, required: true, description: "闪白档位 id"),
+                            new FieldSchema("target", FieldKind.Enum, required: true, enumValues: new[] { "target", "source" }, description: "闪白对象")),
+                        ImpactObject("vfx", "命中特效",
+                            new FieldSchema("vfx_id", FieldKind.Id, required: true, description: "特效 id（vfx.def）"),
+                            new FieldSchema("attach", FieldKind.Enum, required: true, enumValues: new[] { "contact", "target", "source" }, description: "挂接位置；contact 缺接触点时退回目标实体"),
+                            new FieldSchema("orient", FieldKind.Enum, required: false, enumValues: new[] { "none", "contact_normal", "world_direction" }, description: "朝向来源，缺省 none"),
+                            CurveSchema.BreakpointsField("scale_by_ratio", CurveAxis.Value, required: false,
+                                description: "按 amountRatio 缩放特效大小的曲线（x=amountRatio，y=倍率）；缺省按 intensity.ratio_curve")),
+                        new FieldSchema("sfx", FieldKind.Array, required: false,
+                            item: new FieldSchema("<sfx_layer>", FieldKind.Object, required: true, fields: new[]
+                            {
+                                new FieldSchema("layer", FieldKind.Enum, required: true, enumValues: SfxFeelLayers.Names, description: "手感音效层"),
+                                new FieldSchema("tier", FieldKind.Int, required: false, description: "强度档（1 起）；缺省取攻击方手感表对应的 sfx_*_tier"),
+                            }, description: "{layer, tier?}，映射到 sfx.def 行见 sfx.def 的 feel_layer/feel_tier/feel_material"),
+                            description: "音效层列表（只引用层与档，不引用资源）"),
+                        ImpactObject("camera", "镜头：冲击与震屏",
+                            new FieldSchema("impulse_gain", FieldKind.Number, required: false, description: "冲击增益乘数（无量纲，缺省 1）；最终幅度 = 手感表 camera_impulse_gain × 本乘数 × 强度缩放"),
+                            new FieldSchema("shake_profile", FieldKind.Id, required: false, description: "可选震屏档（当前相机档 shake_presets 的 id）"),
+                            new FieldSchema("decay_ms", FieldKind.Number, required: false, description: "冲击衰减时长（毫秒），缺省 120")),
+                        ImpactObject("floating_text", "飘字",
+                            new FieldSchema("style_id", FieldKind.Reference, required: true, referenceTable: "feedback.floating_text_style", description: "飘字样式")),
+                        ImpactObject("trail", "拖尾（框架缺省 sink 只承载不渲染）",
+                            new FieldSchema("start", FieldKind.Enum, required: true, enumValues: new[] { "active_start", "hit" }, description: "拖尾起点"),
+                            new FieldSchema("end", FieldKind.Enum, required: true, enumValues: new[] { "active_end" }, description: "拖尾终点")),
+                        ImpactObject("freeze_layers", "顿帧期间冻结的表现层（骨骼/序列帧恒冻，不用声明）",
+                            new FieldSchema("particles", FieldKind.Bool, required: false, description: "粒子是否冻结，缺省 false"),
+                            new FieldSchema("trail", FieldKind.Bool, required: false, description: "拖尾是否冻结，缺省 false")),
+                        ImpactObject("intensity", "幅度类字段缩放",
+                            CurveSchema.BreakpointsField("ratio_curve", CurveAxis.Value, required: false,
+                                description: "按 amountRatio 缩放幅度的曲线（x=amountRatio，y=倍率）；缺省不缩放"),
+                            new FieldSchema("crit_multiplier", FieldKind.Number, required: false, description: "暴击倍率，缺省 1"),
+                            new FieldSchema("kill_multiplier", FieldKind.Number, required: false, description: "击杀倍率，缺省 1")),
+                    }, description: "一个 (class, outcome) 变体"),
+                    description: "变体列表；(class, outcome) 不得重复"),
+            },
+            migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "feedback");
+
+        public static IReadOnlyList<TableSchema> All { get; } = new[] { Binding, FloatingTextStyle, ImpactProfile };
     }
 }

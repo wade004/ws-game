@@ -69,7 +69,11 @@ namespace Presentation.FeedbackBinder.Core
 
         public void FloatingText(Id entityId, Id styleId, string text) => _onFloatingText(entityId, styleId, text);
 
-        public void PlayVfx(Id vfxId, FeedbackAttachSpec attach)
+        public void PlayVfx(Id vfxId, FeedbackAttachSpec attach) => PlayVfx(vfxId, attach, null);
+
+        /// <summary>手感打击反馈包新增重载：<paramref name="parameters"/>（<c>scale</c>/<c>orient_rad</c>）原样交给
+        /// <see cref="IVfxPlayer.Spawn"/> 的参数字典，由适配层/特效实现解释。</summary>
+        public void PlayVfx(Id vfxId, FeedbackAttachSpec attach, IReadOnlyDictionary<string, double>? parameters)
         {
             var vfxAttach = ResolveVfxAttach(vfxId, attach);
             if (vfxAttach == null)
@@ -77,7 +81,7 @@ namespace Presentation.FeedbackBinder.Core
                 return;
             }
 
-            var handle = _vfxPlayer.Spawn(vfxId, vfxAttach.Value, null);
+            var handle = _vfxPlayer.Spawn(vfxId, vfxAttach.Value, parameters);
 
             // ADR-0075：只在这次播放确有实体可键（attach 不是 world）且确实产生了句柄（未被
             // vfx.def 未登记/挂接目标不可解析等原因跳过，见 IVfxPlayer.Spawn 判断记录"返回 null"）
@@ -150,6 +154,35 @@ namespace Presentation.FeedbackBinder.Core
         /// <summary>GP-09 根治：直接转发 <see cref="IVfxPlayer.PendingSpawnCount"/>/
         /// <see cref="ISfxPlayer.PendingPlayCount"/>，见 <see cref="IFeedbackSink.HasPendingPlayback"/>
         /// 判断记录。</summary>
+        /// <summary>手感镜头冲击的最终落地回调（装配根接 <c>CameraHost.Impulse</c>）：收到同 tick 合并后的
+        /// <see cref="ImpactCameraCue"/>；未设置（null）时退化为只播提示里的震屏档（既有 <see cref="ShakeCamera"/> 通道）。
+        /// 属性式注入（不动既有构造签名，ABI 只加法）。震屏档的播放始终经 <see cref="ShakeCamera"/>，由回调只负责冲击部分。</summary>
+        public Action<ImpactCameraCue>? OnImpactCamera { get; set; }
+
+        /// <summary>顿帧表现冻结/解冻的落地回调（渲染 rig/粒子宿主接入点）；null 时忽略（冻结状态仍可经
+        /// <c>ImpactPipeline.Freezes</c> 查询）。</summary>
+        public Action<IReadOnlyList<Id>, int, ImpactFreezeLayers>? OnFreezePresentation { get; set; }
+
+        public Action<IReadOnlyList<Id>>? OnReleasePresentation { get; set; }
+
+        public void ImpactCamera(ImpactCameraCue cue)
+        {
+            if (cue.Magnitude > 0)
+            {
+                OnImpactCamera?.Invoke(cue);
+            }
+
+            if (cue.ShakeProfileId.HasValue)
+            {
+                ShakeCamera(cue.ShakeProfileId.Value);
+            }
+        }
+
+        public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers) =>
+            OnFreezePresentation?.Invoke(unitIds, ticks, layers);
+
+        public void ReleasePresentation(IReadOnlyList<Id> unitIds) => OnReleasePresentation?.Invoke(unitIds);
+
         public bool HasPendingPlayback => _vfxPlayer.PendingSpawnCount > 0 || _sfxPlayer.PendingPlayCount > 0;
 
         /// <summary>N17 根治：见类型构造函数判断记录，直接转发 vfx/sfx 两路信号。</summary>

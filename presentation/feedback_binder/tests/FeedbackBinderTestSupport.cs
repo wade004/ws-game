@@ -122,6 +122,7 @@ namespace Tests.Presentation.FeedbackBinder
 
             registry.RegisterSchema(FeedbackSchemas.Binding);
             registry.RegisterSchema(FeedbackSchemas.FloatingTextStyle);
+            registry.RegisterSchema(FeedbackSchemas.ImpactProfile);
 
             var report = registry.LoadAll();
             return (registry, report);
