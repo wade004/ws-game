@@ -266,6 +266,8 @@ def _run_probe(tmp: Path, host: str | None, *, path_override: str | None = None)
     probe_dir = tmp / (f"probe_{host or 'unset'}_{'nopath' if path_override is not None else 'path'}")
     probe_dir.mkdir()
     (probe_dir / "conftest.py").write_text(CONFTEST.read_text(encoding="utf-8"), encoding="utf-8")
+    # conftest 现在还依赖同目录的 _git_env.py（git 环境隔离与配置守卫，2026-10-01 事故修复）。
+    (probe_dir / "_git_env.py").write_text((CONFTEST.parent / "_git_env.py").read_text(encoding="utf-8"), encoding="utf-8")
     (probe_dir / "test_probe.py").write_text(PROBE_TEST, encoding="utf-8")
     out = probe_dir / "out.json"
     env = {k: v for k, v in os.environ.items() if k != "WS_GAME_PS_HOST"}

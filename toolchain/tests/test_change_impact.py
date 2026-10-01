@@ -34,6 +34,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 import change_impact as ci  # noqa: E402
 import gen_module_map as gmm  # noqa: E402
+from _git_env import git_env, init_temp_repo, run_git  # noqa: E402
 from _ps_subprocess_env import clean_powershell_env  # noqa: E402
 
 PLAYMODE_TESTS_DIR = REPO_ROOT / "adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime"
@@ -784,13 +785,11 @@ def test_check_dryrun_prints_playmode_category_filter(tmp_path: Path, mmap: dict
     for name in ("change_impact.py", "_console.py", "module_map.json", "_gate_timing.ps1"):
         shutil.copy(TOOLCHAIN_DIR / name, repo / "toolchain" / name)
 
+    # 走 _git_env：钩子里继承的 GIT_DIR/GIT_INDEX_FILE 会让 init/config/add 写进真实仓库（2026-10-01 事故）。
     def git(*args: str) -> None:
-        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, text=True, encoding="utf-8", errors="replace")
-        assert r.returncode == 0, r.stderr
+        run_git(repo, *args)
 
-    git("init", "-q")
-    git("config", "user.email", "t@example.com")
-    git("config", "user.name", "T")
+    init_temp_repo(repo)
     git("add", "-A")
     git("commit", "-q", "-m", "init")
     nav = repo / "core/foundation/engine_adapter/contracts/INavigation2D.cs"
@@ -822,7 +821,7 @@ def test_check_dryrun_prints_playmode_category_filter(tmp_path: Path, mmap: dict
 
 
 def _tracked(*patterns: str) -> list[str]:
-    r = subprocess.run(["git", "ls-files", "-z", "--", *patterns], cwd=str(REPO_ROOT), capture_output=True, check=True)
+    r = subprocess.run(["git", "ls-files", "-z", "--", *patterns], cwd=str(REPO_ROOT), capture_output=True, check=True, env=git_env())
     return [p for p in r.stdout.decode("utf-8", errors="replace").split("\0") if p]
 
 
@@ -989,8 +988,8 @@ def test_module_map_check_flags_uncovered_path_category_and_ghost_rule(tmp_path:
     (repo / "adapters/widget/Runtime/A.cs").write_text("// a\n", encoding="utf-8")
     (repo / "adapters/widget/Samples").mkdir(parents=True)
     (repo / "adapters/widget/Samples/S.cs").write_text("// s\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
-    subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+    init_temp_repo(repo, identity=False)
+    run_git(repo, "add", "-A")
     data = {
         "layers": {},
         "modules": [],

@@ -40,7 +40,8 @@ for _p in (str(TOOLCHAIN_DIR), str(TESTS_DIR)):
         sys.path.insert(0, _p)
 
 import timing_report as tr  # noqa: E402
-from _ps_harness import git_env, ps_quote, run_ps_json  # noqa: E402
+from _git_env import init_temp_repo, run_git  # noqa: E402
+from _ps_harness import ps_quote, run_ps_json  # noqa: E402
 
 TIMING_PS1 = TOOLCHAIN_DIR / "_gate_timing.ps1"
 RUNNER_PS1 = TOOLCHAIN_DIR / "_gate_step_runner.ps1"
@@ -58,14 +59,10 @@ def _parse_ts(text: str) -> datetime:
 
 
 def _init_repo(path: Path, branch: str) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    env = git_env()
-    subprocess.run(["git", "init", "-q", "-b", branch], cwd=path, check=True, env=env)
-    subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=path, check=True, env=env)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True, env=env)
+    init_temp_repo(path, branch=branch)
     (path / "f.txt").write_text("x\n", encoding="utf-8")
-    subprocess.run(["git", "add", "f.txt"], cwd=path, check=True, env=env)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=path, check=True, env=env)
+    run_git(path, "add", "f.txt")
+    run_git(path, "commit", "-q", "-m", "init")
     return path
 
 

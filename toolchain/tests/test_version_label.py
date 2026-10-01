@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from _git_env import git_env, init_temp_repo, run_git
+
 TOOLCHAIN_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = TOOLCHAIN_DIR.parent
 if str(TOOLCHAIN_DIR) not in sys.path:
@@ -57,19 +59,14 @@ def test_repro_nested_slash_in_suffix_becomes_hyphen() -> None:
 
 
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True, encoding="utf-8"
-    ).stdout.strip()
+    return run_git(repo, *args).stdout.strip()
 
 
 @pytest.fixture()
 def tmp_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init", "-q", "-b", "main")
-    _git(repo, "config", "user.email", "t@example.invalid")
-    _git(repo, "config", "user.name", "t")
-    _git(repo, "config", "commit.gpgsign", "false")
+    # 走 _git_env：钩子里跑 pytest 时继承的 GIT_DIR 等变量会让这里的 init/config 写进真实仓库（2026-10-01 事故）。
+    init_temp_repo(repo, branch="main")
     (repo / "VERSION").write_text("1.92.0\n", encoding="utf-8")
     _git(repo, "add", "VERSION")
     _git(repo, "commit", "-q", "-m", "init")
@@ -82,6 +79,7 @@ def _cli(repo: Path, *extra: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        env=git_env(),
     )
 
 

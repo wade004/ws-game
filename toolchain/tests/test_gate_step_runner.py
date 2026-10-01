@@ -39,6 +39,7 @@ from pathlib import Path
 
 import pytest
 
+from _git_env import git_env, init_temp_repo, run_git
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -276,10 +277,8 @@ def git_exe() -> str:
 
 
 def _init_repo(git_exe: str, repo_dir: Path) -> None:
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run([git_exe, "init", "-q"], cwd=repo_dir, check=True)
-    subprocess.run([git_exe, "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
-    subprocess.run([git_exe, "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    # 走 _git_env：钩子里继承的 GIT_DIR/GIT_INDEX_FILE 会让 init/config/add 写进真实仓库与真实暂存区（2026-10-01 事故）。
+    init_temp_repo(repo_dir)
 
 
 # 判断记录（拼接写法，2026-09-22 提交时被主检出的 pre-commit 钩子拦下才发现）：本测试文件是
@@ -300,6 +299,7 @@ def _git_grep_banned_codename(git_exe: str, repo_dir: Path, banned_word: str) ->
         capture_output=True,
         encoding="utf-8",
         errors="replace",
+        env=git_env(),
     )
 
 
@@ -308,7 +308,7 @@ def test_git_grep_banned_codename_no_hit_on_clean_repo(tmp_path: Path, git_exe: 
     _init_repo(git_exe, repo_dir)
     (repo_dir / "check.ps1").write_text("# placeholder\n", encoding="utf-8")
     (repo_dir / "readme.md").write_text("nothing suspicious here\n", encoding="utf-8")
-    subprocess.run([git_exe, "add", "-A"], cwd=repo_dir, check=True)
+    run_git(repo_dir, "add", "-A")
 
     result = _git_grep_banned_codename(git_exe, repo_dir, _BANNED_WORD)
     assert result.returncode == 1, f"未命中时 git grep 应返回退出码 1，实际 {result.returncode}：{result.stdout}"
@@ -319,7 +319,7 @@ def test_git_grep_banned_codename_detects_tracked_file(tmp_path: Path, git_exe: 
     _init_repo(git_exe, repo_dir)
     (repo_dir / "check.ps1").write_text("# placeholder\n", encoding="utf-8")
     (repo_dir / "leaked.md").write_text(f"this file contains {_BANNED_WORD_TITLE} by mistake\n", encoding="utf-8")
-    subprocess.run([git_exe, "add", "-A"], cwd=repo_dir, check=True)
+    run_git(repo_dir, "add", "-A")
 
     result = _git_grep_banned_codename(git_exe, repo_dir, _BANNED_WORD)
     assert result.returncode == 0, f"命中受跟踪文件时 git grep 应返回退出码 0，实际 {result.returncode}"
@@ -333,7 +333,7 @@ def test_git_grep_banned_codename_ignores_untracked_file(tmp_path: Path, git_exe
     repo_dir = tmp_path / "untracked_repo"
     _init_repo(git_exe, repo_dir)
     (repo_dir / "check.ps1").write_text("# placeholder\n", encoding="utf-8")
-    subprocess.run([git_exe, "add", "-A"], cwd=repo_dir, check=True)
+    run_git(repo_dir, "add", "-A")
     # 故意不 git add：模拟构建产物/缓存目录里意外出现的文件。
     (repo_dir / "untracked_leak.txt").write_text(f"{_BANNED_WORD_TITLE} leaked but untracked\n", encoding="utf-8")
 

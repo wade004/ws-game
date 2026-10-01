@@ -59,6 +59,7 @@ from pathlib import Path
 
 import pytest
 
+from _git_env import init_temp_repo, run_git
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -90,15 +91,11 @@ def _init_git_repo(root: Path, tag_versions: list[str] | None = None) -> None:
     能不能查到指定标签，不读取仓库里的任何文件内容，用一个空仓库即可完整覆盖其逻辑，天然不会
     与真实仓库的标签互相干扰。
     """
-    root.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(
-        ["git", "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-q", "--allow-empty", "-m", "init"],
-        cwd=root,
-        check=True,
-    )
+    # 走 _git_env：钩子里继承的 GIT_DIR 等变量会让 init/commit/tag 写进真实仓库（2026-10-01 事故）。
+    init_temp_repo(root)
+    run_git(root, "commit", "-q", "--allow-empty", "-m", "init")
     for v in tag_versions or []:
-        subprocess.run(["git", "tag", f"v{v}"], cwd=root, check=True)
+        run_git(root, "tag", f"v{v}")
 
 
 def _run_guard(
@@ -202,12 +199,7 @@ def test_dryrun_suffixed_version_not_confused_with_released_tag(tmp_path: Path, 
 
 
 def _pick_existing_released_version() -> str | None:
-    result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "tag", "-l", "v*"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    result = run_git(REPO_ROOT, "tag", "-l", "v*")
     for line in result.stdout.splitlines():
         m = _RELEASED_TAG_VERSION_PATTERN.match(line.strip())
         if m:
