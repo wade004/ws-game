@@ -142,7 +142,7 @@
       "key": {
         "script": "feel_dash",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -161,8 +161,8 @@
         },
         "movement": {
           "ticks_requested": 0,
-          "path_length": 2.577086651,
-          "net_displacement": 2.577086651,
+          "path_length": 2,
+          "net_displacement": 2,
           "speed_steady": 0,
           "accel_ticks": -1,
           "stop_ticks": -1,
@@ -194,7 +194,7 @@
         },
         "performance": {
           "ticks": 60,
-          "event_count_total": 154,
+          "event_count_total": 147,
           "frames": 60,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 1,
@@ -249,13 +249,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex5,Action/Nonex3,Action/Actionx9,Action/Regularx7,Action/Nonex2,Grounded/Nonex34",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex3,Action/Actionx9,Action/Nonex9,Grounded/Nonex34",
           "speed_max": 13.333333333,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "2.577086651,0",
+          "end_position": "2,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -269,8 +269,8 @@
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "17:sfx.lab_whiff_t1",
-          "sfx_count": 1,
+          "sfx_ids": "",
+          "sfx_count": 0,
           "camera_cues": "",
           "camera_magnitudes": [],
           "camera_decay_ms": [],
@@ -420,7 +420,7 @@
       "key": {
         "script": "feel_dash",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -439,8 +439,8 @@
         },
         "movement": {
           "ticks_requested": 0,
-          "path_length": 2.577086651,
-          "net_displacement": 2.577086651,
+          "path_length": 2,
+          "net_displacement": 2,
           "speed_steady": 0,
           "accel_ticks": -1,
           "stop_ticks": -1,
@@ -472,7 +472,7 @@
         },
         "performance": {
           "ticks": 60,
-          "event_count_total": 154,
+          "event_count_total": 147,
           "frames": 60,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -527,13 +527,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex5,Action/Nonex3,Action/Actionx9,Action/Regularx7,Action/Nonex2,Grounded/Nonex34",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex3,Action/Actionx9,Action/Nonex9,Grounded/Nonex34",
           "speed_max": 13.333333333,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "2.577086651,0",
+          "end_position": "2,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -547,8 +547,8 @@
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "17:sfx.lab_whiff_t1",
-          "sfx_count": 1,
+          "sfx_ids": "",
+          "sfx_count": 0,
           "camera_cues": "",
           "camera_magnitudes": [],
           "camera_decay_ms": [],
@@ -698,7 +698,7 @@
       "key": {
         "script": "feel_dash",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -717,8 +717,8 @@
         },
         "movement": {
           "ticks_requested": 0,
-          "path_length": 2.577086651,
-          "net_displacement": 2.577086651,
+          "path_length": 2,
+          "net_displacement": 2,
           "speed_steady": 0,
           "accel_ticks": -1,
           "stop_ticks": -1,
@@ -750,7 +750,7 @@
         },
         "performance": {
           "ticks": 60,
-          "event_count_total": 154,
+          "event_count_total": 147,
           "frames": 60,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -805,13 +805,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex5,Action/Nonex3,Action/Actionx9,Action/Regularx7,Action/Nonex2,Grounded/Nonex34",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex3,Action/Actionx9,Action/Nonex9,Grounded/Nonex34",
           "speed_max": 13.333333333,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "2.577086651,0",
+          "end_position": "2,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -825,8 +825,8 @@
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "17:sfx.lab_whiff_t1",
-          "sfx_count": 1,
+          "sfx_ids": "",
+          "sfx_count": 0,
           "camera_cues": "",
           "camera_magnitudes": [],
           "camera_decay_ms": [],

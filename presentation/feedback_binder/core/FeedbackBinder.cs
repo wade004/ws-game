@@ -214,6 +214,46 @@ namespace Presentation.FeedbackBinder.Core
                 }
             }));
 
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionStarted, evt =>
+            {
+                if (evt is ActionStartedEvent started)
+                {
+                    impact.OnActionStarted(started.ActorId, started.CastInstanceId, started.IsAttack);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionFinished, evt =>
+            {
+                if (evt is ActionFinishedEvent finished)
+                {
+                    impact.OnActionEnded(finished.ActorId, finished.CastInstanceId);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionCancelled, evt =>
+            {
+                if (evt is ActionCancelledEvent cancelled)
+                {
+                    impact.OnActionEnded(cancelled.ActorId, cancelled.CastInstanceId);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionProjectileLaunched, evt =>
+            {
+                if (evt is ActionProjectileLaunchedEvent launched)
+                {
+                    impact.OnProjectileLaunched(launched.ActorId, launched.CastInstanceId);
+                }
+            }));
+
+            _subscriptions.Add(_bus.Subscribe(RulesEventKeys.ActionProjectileEnded, evt =>
+            {
+                if (evt is ActionProjectileEndedEvent ended)
+                {
+                    impact.OnProjectileEnded(ended.ActorId, ended.CastInstanceId, ended.Reason == ProjectileEndReason.Cleared);
+                }
+            }));
+
             _subscriptions.Add(_bus.Subscribe(RulesEventKeys.FeelHitstopStarted, evt =>
             {
                 if (evt is FeelHitstopStartedEvent started)

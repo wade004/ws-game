@@ -622,6 +622,60 @@ namespace Tests.Rules.Skill
             Assert.Contains(rig.Arbiter!.Inputs, i => i.Result == HitResult.Invulnerable);
         }
 
+        [Fact]
+        public void ProjectileHook_LaunchAndEnd_AreReportedAsActionEvents_WithTheLaunchingActionInstanceAndTheReason()
+        {
+            var spawner = new RecordingProjectileSpawner();
+            var rig = Create(
+                new[] { SpSkill("skill.sample_bolt", 50, 100, 50, new[] { Marker("release", 50) }, effects: new[] { Projectile() }) },
+                Shape.Cone(Vec2.Zero, 0, Math.PI / 2, 2.0), configure: b => b.ProjectileSpawner = spawner);
+            rig.H.CastInTick("skill.sample_bolt");
+            rig.RunToEnd();
+
+            var seen = new List<Core.Foundation.EventBus.IEvent>();
+            rig.H.World.Bus.Subscribe(RulesEventKeys.ActionProjectileLaunched, e => seen.Add(e));
+            rig.H.World.Bus.Subscribe(RulesEventKeys.ActionProjectileEnded, e => seen.Add(e));
+            var hook = spawner.Spawns.Single().Hook!;
+            hook.OnLaunched();
+            hook.OnEnded(ProjectileEndReason.Blocked);
+            rig.H.World.Flush();
+
+            var started = rig.H.Of<ActionStartedEvent>().Single().Event;
+            Assert.Equal(2, seen.Count);
+            var launched = Assert.IsType<ActionProjectileLaunchedEvent>(seen[0]);
+            var ended = Assert.IsType<ActionProjectileEndedEvent>(seen[1]);
+            Assert.Equal(started.CastInstanceId, launched.CastInstanceId);
+            Assert.Equal(started.CastInstanceId, ended.CastInstanceId);
+            Assert.Equal(Actor, launched.ActorId);
+            Assert.Equal(ProjectileEndReason.Blocked, ended.Reason);
+        }
+
+        [Fact]
+        public void ActionStarted_IsAttack_FollowsTheSkillContent_NotItsClass()
+        {
+            var rig = Create(
+                new[]
+                {
+                    SpSkill("skill.sample_bolt", 50, 100, 50, new[] { Marker("release", 50) }, effects: new[] { Projectile() }),
+                    SpSkill("skill.sample_cone", 50, 200, 100, new[] { HitAt(100) }),
+                    SelfSkill("skill.sample_dodge", 0, 500, 0, new[] { Marker("invuln_start", 0), Marker("invuln_end", 500) }),
+                },
+                Shape.Cone(Vec2.Zero, 0, Math.PI / 2, 2.0));
+
+            rig.H.CastInTick("skill.sample_bolt");
+            rig.RunToEnd();
+            rig.H.CastInTick("skill.sample_cone");
+            rig.RunToEnd();
+            rig.H.CastInTick("skill.sample_dodge");
+            rig.RunToEnd();
+
+            var started = rig.H.Of<ActionStartedEvent>().Select(e => e.Event).ToList();
+            Assert.Equal(3, started.Count);
+            Assert.True(started.Single(e => e.SkillId.Equals(new Id("skill.sample_bolt"))).IsAttack);
+            Assert.True(started.Single(e => e.SkillId.Equals(new Id("skill.sample_cone"))).IsAttack);
+            Assert.False(started.Single(e => e.SkillId.Equals(new Id("skill.sample_dodge"))).IsAttack);
+        }
+
         // ------------------------------------------------------------------ 目标辅助
 
         private static Core.Foundation.Common.Json.JsonObject AssistBlock(string mode = "face_only") =>

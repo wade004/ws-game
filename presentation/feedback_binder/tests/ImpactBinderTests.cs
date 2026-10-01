@@ -156,6 +156,58 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         [Fact]
+        public void NonAttackAction_ThroughBus_PlaysNoWhiff_WhileAnAttackActionStillDoes()
+        {
+            var (binder, bus, sink, _) = MakeBinder();
+            var dodge = new Id("cast.kit_dodge");
+            bus.PublishImmediate(new ActionStartedEvent(Player, new Id("skill.dodge"), dodge, 0, 20, 0, false));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, dodge, "active_start"));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, dodge, "active_end"));
+            bus.PublishImmediate(new ActionFinishedEvent(Player, dodge));
+            bus.PublishImmediate(new SimTickFinishedEvent(1));
+            Assert.DoesNotContain(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+
+            var slash = new Id("cast.kit_slash");
+            bus.PublishImmediate(new ActionStartedEvent(Player, new Id("skill.slash"), slash, 0, 30, 0, true));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, slash, "active_start"));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, slash, "active_end"));
+            bus.PublishImmediate(new SimTickFinishedEvent(2));
+            Assert.Contains(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+            binder.Dispose();
+        }
+
+        [Fact]
+        public void ProjectileAction_ThroughBus_WhiffsOnlyWhenTheProjectileEndsWithoutAContact()
+        {
+            var (binder, bus, sink, _) = MakeBinder();
+
+            // 未命中：判定相结束时不挥空，投射物到期（Expired）才挥空。
+            var miss = new Id("cast.kit_bolt_miss");
+            bus.PublishImmediate(new ActionStartedEvent(Player, new Id("skill.bolt"), miss, 0, 30, 0, true));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, miss, "active_start"));
+            bus.PublishImmediate(new ActionProjectileLaunchedEvent(Player, miss, 0));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, miss, "active_end"));
+            bus.PublishImmediate(new SimTickFinishedEvent(1));
+            Assert.DoesNotContain(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+            bus.PublishImmediate(new ActionProjectileEndedEvent(Player, miss, 0, ProjectileEndReason.Expired));
+            bus.PublishImmediate(new SimTickFinishedEvent(2));
+            Assert.Contains(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+
+            // 命中：命中确认先于结局到达，没有挥空。
+            sink.Sfx.Clear();
+            var hit = new Id("cast.kit_bolt_hit");
+            bus.PublishImmediate(new ActionStartedEvent(Player, new Id("skill.bolt"), hit, 0, 30, 0, true));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, hit, "active_start"));
+            bus.PublishImmediate(new ActionProjectileLaunchedEvent(Player, hit, 0));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, hit, "active_end"));
+            bus.PublishImmediate(HitEvent(Enemy, castInstanceId: hit));
+            bus.PublishImmediate(new ActionProjectileEndedEvent(Player, hit, 0, ProjectileEndReason.Hit));
+            bus.PublishImmediate(new SimTickFinishedEvent(3));
+            Assert.DoesNotContain(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+            binder.Dispose();
+        }
+
+        [Fact]
         public void HitstopEvents_ReachSinkAsFreezeAndRelease()
         {
             var (binder, bus, sink, pipeline) = MakeBinder();

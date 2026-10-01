@@ -32,7 +32,19 @@ namespace Core.Rules.Common
         /// <summary>蓄力比例 0～1（非蓄力动作为 0）。</summary>
         public double ChargeRatio { get; }
 
+        /// <summary>
+        /// 动作是否带攻击（含伤害类/投射物效果，或声明了 <c>hit</c>/<c>release</c> 标记）。反馈侧据此决定是否为本动作开挥空窗口
+        /// （手感设计/07 第 6 节）：闪避等不带攻击的动作没有"打空"。既有 6 参数构造（物理签名不变）取缺省真。
+        /// </summary>
+        public bool IsAttack { get; }
+
         public ActionStartedEvent(Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio)
+            : this(actorId, skillId, castInstanceId, comboIndex, durationTicks, chargeRatio, true)
+        {
+        }
+
+        public ActionStartedEvent(
+            Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio, bool isAttack)
         {
             ActorId = actorId;
             SkillId = skillId;
@@ -40,6 +52,7 @@ namespace Core.Rules.Common
             ComboIndex = comboIndex;
             DurationTicks = durationTicks;
             ChargeRatio = chargeRatio;
+            IsAttack = isAttack;
         }
     }
 
@@ -149,6 +162,51 @@ namespace Core.Rules.Common
             TargetId = targetId;
             FacingDelta = facingDelta;
             DistanceAdjust = distanceAdjust;
+        }
+    }
+
+    /// <summary><c>action.projectile_launched</c>：时间线动作发射了一发投射物（手感设计/03 第 2.5 节），反馈侧据此把挥空判定推迟到投射物结局。</summary>
+    public sealed class ActionProjectileLaunchedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionProjectileLaunched;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        /// <summary>多段技能的段序号（单段为 0）。</summary>
+        public int Segment { get; }
+
+        public ActionProjectileLaunchedEvent(Id actorId, Id castInstanceId, int segment)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            Segment = segment;
+        }
+    }
+
+    /// <summary>
+    /// <c>action.projectile_ended</c>：时间线动作发射的投射物有了结局（命中后销毁、被地形挡住、射程耗尽/到期、被清场）。
+    /// 与 <see cref="ActionProjectileLaunchedEvent"/> 一一配对；穿透命中的投射物只在最终销毁时发一次。
+    /// </summary>
+    public sealed class ActionProjectileEndedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionProjectileEnded;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        public int Segment { get; }
+
+        public ProjectileEndReason Reason { get; }
+
+        public ActionProjectileEndedEvent(Id actorId, Id castInstanceId, int segment, ProjectileEndReason reason)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            Segment = segment;
+            Reason = reason;
         }
     }
 

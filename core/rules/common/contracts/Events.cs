@@ -101,6 +101,12 @@ namespace Core.Rules.Common
         /// <summary>目标辅助生效，见 <see cref="ActionTargetAssistedEvent"/>。</summary>
         public static readonly Id ActionTargetAssisted = new Id("action.target_assisted");
 
+        /// <summary>时间线动作发射了一发投射物，见 <see cref="ActionProjectileLaunchedEvent"/>。</summary>
+        public static readonly Id ActionProjectileLaunched = new Id("action.projectile_launched");
+
+        /// <summary>时间线动作发射的投射物有了结局，见 <see cref="ActionProjectileEndedEvent"/>。</summary>
+        public static readonly Id ActionProjectileEnded = new Id("action.projectile_ended");
+
         /// <summary>一次命中的完整结论，见 <see cref="CombatHitConfirmedEvent"/>。</summary>
         public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
 

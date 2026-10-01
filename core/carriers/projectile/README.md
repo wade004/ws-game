@@ -224,4 +224,5 @@ CarriersAssembly` 装配时从 `Rules.Factions` 回填，见该类型判断记�
 - **命中流程**：每个候选目标（单位命中与 `impact_on_expiry` 的范围判定都一样）先 `BeforeHit(info, out attackInstanceId)`——返回 false 表示目标处于无敌窗口：宿主不回灌效果、不计穿透次数、投射物继续飞；
   目标仍进该发投射物的 `HitUnitIds`，同一发不会再次判定同一目标。返回 true 时把钩子给的攻击实例 id 戳进效果上下文，回灌 `on_hit_effects` 后 `AfterHit(info, attackInstanceId, results)` 交回各效果的结算结果。
 - `ProjectileHitInfo.ContactPoint` = 本 tick 飞行线段上离目标中心最近的点（`impact_on_expiry` 取到期位置）；`FlightDirection` = 本 tick 位移方向（无位移取 +X；`impact_on_expiry` 取到期位置指向目标的方向）；`PierceCount` = 命中前已计的穿透数。
-- 复现/不变量：`tests/ProjectileHitHookTests.cs`（`max_pierce_count: 2` 命中前两个目标后投射物消失；被拒绝目标不消耗穿透名额；攻击实例 id 透传；碰撞点与同一发去重；无钩子行为不变；到期范围判定也过钩子）。
+- **生命周期通知（S12）**：`IProjectileHitHook` 新增两个默认接口成员 `OnLaunched()`（`Spawn` 生成后调用一次）与 `OnEnded(ProjectileEndReason)`（每发恰好一次）；既有实现者不改也能编译与运行（物理签名只加不改，ABI 探针 OK）。结局原因：`Hit`（命中后销毁或穿透次数耗尽，穿透中的命中不算结局）、`Blocked`（被地形挡住）、`Expired`（射程耗尽/到期，含 `impact_on_expiry` 在到期位置结算之后）、`Cleared`（`ClearAll` 或世界侧实体已被清掉）。`ClearAll` 按投射物 Id 顺序通知，保证确定性。动机：反馈侧要等投射物结局才能定"打没打空"（手感设计/03 第 2.5 节）。
+- 复现/不变量：`tests/ProjectileHitHookTests.cs`（`max_pierce_count: 2` 命中前两个目标后投射物消失；被拒绝目标不消耗穿透名额；攻击实例 id 透传；碰撞点与同一发去重；无钩子行为不变；到期范围判定也过钩子；生命周期六条：发射一次、穿透耗尽 Hit、穿透中不报结局到射程尽 Expired、撞墙 Blocked、射程尽无接触 Expired、`ClearAll` 每发 Cleared 一次，以及只实现原三成员的旧钩子仍可用）。

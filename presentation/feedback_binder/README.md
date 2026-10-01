@@ -303,6 +303,12 @@
       - 顿帧只下发"冻结/解冻"通知与查询状态；渲染 rig/粒子宿主的实际暂停需宿主接 `OnFreezePresentation`。
     复现/不变量：`tests/ImpactPipelineTests.cs`（单次命中的震屏幅度/时长 tick/音效层 id、5 目标同 tick 合并 `min(max, cap)`、材质层缺失回落、挥空、顿帧、限频）、`tests/ImpactBinderTests.cs`（binder 端到端、`feedback.impact_profile` 解析、`play_impact` 规则解析、呈现/判定隔离）。
 
+24. **挥空窗口：非攻击动作不开窗、投射物等结局再定（2026-10-02，手感落地 S12，[手感设计/07](../../architecture/手感设计/07_镜头与音画反馈.md) 第 6 节）**：
+    - **非攻击动作**：`FeedbackBinder` 订阅 `action.started`，`isAttack` 为假（闪避、纯位移、纯增益）的动作实例登记进 `ImpactPipeline._nonAttackCasts`，`active_start`/Active 相不为它开窗，所以没有 `whiff` 层；`action.finished`/`action.cancelled` 清登记。没收到过 `action.started` 的动作实例按带攻击处理（旧调用方式不变）。
+    - **投射物**：`action.projectile_launched` 登记飞行中弹数（按 (行动者, 动作实例)，独立于窗口登记，release 标记可能先于相位事件）；判定相结束时若还有弹在飞，窗口只标记 `Closed` 并保留，之后到达的命中仍计入；`action.projectile_ended` 把弹数减一，最后一发结束且窗口已关、全程零接触才补播挥空（落在那一刻）；结局原因为 `Cleared` 只放弃等待、不挥空；窗口关闭之前弹就没了（极近距离撞墙）则不影响，仍在 `active_end` 正常结算。
+    - **已知限制**：多段技能同一动作实例发射的多发弹合并等待，不按段拆；一发弹"命中但伤害为零/被闪避"也算接触（和既有规则一致：命中确认含回避类结局）。
+    - 复现/不变量：`tests/ImpactPipelineTests.cs`（非攻击不开窗、旧调用方式按攻击处理、弹在飞时推迟、命中取消、多发弹等最后一发、弹先于窗口关闭而结束、清场不挥空）；`tests/ImpactBinderTests.cs`（经总线的非攻击与投射物两条）；实验室 `feel_projectile`/`feel_projectile_miss`/`feel_dash` 基线。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

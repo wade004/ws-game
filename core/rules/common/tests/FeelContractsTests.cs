@@ -50,6 +50,8 @@ namespace Tests.Rules.Common
                 new Vec2(0, 0), new Vec2(1, 0), new Vec2(1, 0), "light", 2, 3, HitReaction.Flinch);
             yield return new object[] { new ActionStartedEvent(Actor, new Id("skill.slash"), Cast, 0, 30, 0), "action.started" };
             yield return new object[] { new ActionPhaseChangedEvent(Actor, Cast, ActionPhase.Active), "action.phase_changed" };
+            yield return new object[] { new ActionProjectileLaunchedEvent(Actor, Cast, 0), "action.projectile_launched" };
+            yield return new object[] { new ActionProjectileEndedEvent(Actor, Cast, 0, ProjectileEndReason.Expired), "action.projectile_ended" };
             yield return new object[] { new ActionMarkerEvent(Actor, Cast, "hit"), "action.marker" };
             yield return new object[] { new ActionCancelledEvent(Actor, Cast, ActionCancelReason.Stagger), "action.cancelled" };
             yield return new object[] { new ActionFinishedEvent(Actor, Cast), "action.finished" };
@@ -84,6 +86,16 @@ namespace Tests.Rules.Common
             Assert.Equal(2, started.ComboIndex);
             Assert.Equal(45, started.DurationTicks);
             Assert.Equal(0.5, started.ChargeRatio);
+            // 既有 6 参数构造取缺省"带攻击"，新的 7 参数构造显式给出；反馈侧据此决定是否为动作开挥空窗口。
+            Assert.True(started.IsAttack);
+            Assert.False(new ActionStartedEvent(Actor, new Id("skill.dodge"), Cast, 0, 20, 0, false).IsAttack);
+
+            var launched = new ActionProjectileLaunchedEvent(Actor, Cast, 2);
+            Assert.Equal(2, launched.Segment);
+            Assert.Equal(Cast, launched.CastInstanceId);
+            var ended = new ActionProjectileEndedEvent(Actor, Cast, 2, ProjectileEndReason.Blocked);
+            Assert.Equal(ProjectileEndReason.Blocked, ended.Reason);
+            Assert.Equal(new[] { "Hit", "Blocked", "Expired", "Cleared" }, Enum.GetNames(typeof(ProjectileEndReason)));
 
             var marker = new ActionMarkerEvent(Actor, Cast, "hit", new Dictionary<string, string> { { "segment", "1" } });
             Assert.Equal("1", marker.Args["segment"]);

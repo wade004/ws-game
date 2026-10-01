@@ -18,6 +18,22 @@ namespace Core.Rules.Common
         void SetFacing(Id unitId, double facing);
     }
 
+    /// <summary>投射物的结局原因（<see cref="IProjectileHitHook.OnEnded"/>）。</summary>
+    public enum ProjectileEndReason
+    {
+        /// <summary>命中单位后销毁（<c>impact_on_first</c> 或穿透次数耗尽）。</summary>
+        Hit,
+
+        /// <summary>被地形挡住。</summary>
+        Blocked,
+
+        /// <summary>射程耗尽/到期（<c>impact_on_expiry</c> 在此刻结算范围效果；其余命中行为到期即未命中）。</summary>
+        Expired,
+
+        /// <summary>被清场（离开地图、世界清空）。</summary>
+        Cleared,
+    }
+
     /// <summary>投射物命中一个单位时交给 <see cref="IProjectileHitHook"/> 的上下文。</summary>
     public readonly struct ProjectileHitInfo
     {
@@ -64,5 +80,21 @@ namespace Core.Rules.Common
 
         /// <summary>命中后效果回灌完成之后调用，<paramref name="results"/> 是每个命中后效果的结算结果（按声明顺序）。</summary>
         void AfterHit(in ProjectileHitInfo info, Id attackInstanceId, IReadOnlyList<ResolveResult> results);
+
+        /// <summary>
+        /// 投射物生成之后调用一次（默认空实现，既有实现者不受影响）。时间线投射物据此发 <c>action.projectile_launched</c>。
+        /// </summary>
+        void OnLaunched()
+        {
+        }
+
+        /// <summary>
+        /// 投射物结局确定、被销毁时调用一次（默认空实现）：命中后销毁/穿透耗尽（<see cref="ProjectileEndReason.Hit"/>）、被地形挡住
+        /// （<see cref="ProjectileEndReason.Blocked"/>）、射程耗尽或到期（<see cref="ProjectileEndReason.Expired"/>）、被清场
+        /// （<see cref="ProjectileEndReason.Cleared"/>）。与 <see cref="OnLaunched"/> 一一配对。
+        /// </summary>
+        void OnEnded(ProjectileEndReason reason)
+        {
+        }
     }
 }
