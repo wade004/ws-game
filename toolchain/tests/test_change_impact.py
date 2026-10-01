@@ -222,13 +222,11 @@ def test_repro_generated_dir_is_public_surface(mmap: dict) -> None:
         "check.ps1",
         "build.ps1",
         "toolchain/change_impact.py",
-        "toolchain/tests/test_change_impact.py",
         ".gitattributes",
         "Core.sln",
         "core/foundation/Core.Foundation.csproj",
         "core/numbers/Core.Numbers.csproj",  # 层根 csproj：层级规则的 except 守住，仍归共享面
         "presentation/Presentation.Common.csproj",
-        "core/foundation/tests/Tests.Foundation.csproj",
         "adapters/unity/DiagnosticsForwarding/Adapters.Unity.DiagnosticsForwarding.csproj",
         "adapters/unity/Assets/Editor/GreyBoxSceneBuilder.cs",  # 未登记的引擎侧工作台工程内容：保守 T3
         "adapters/unity/Packages/packages-lock.json",
@@ -410,10 +408,75 @@ def test_repro_engine_runtime_code_is_t2_with_compile_category_drill_and_sync(mm
     assert ed["level"] == "T2" and {"unity_compile", "unity_editmode", "consumer_drill"} <= _run_ids(ed)
 
 
-def test_repro_diag_forwarding_project_tests_are_t1_but_csproj_is_shared(mmap: dict) -> None:
+def test_repro_diag_forwarding_project_tests_are_t1_and_test_csproj_t2_but_production_csproj_is_shared(mmap: dict) -> None:
     plan = _plan(mmap, "adapters/unity/DiagnosticsForwarding/tests/DiagnosticsHubTests.cs")
     assert plan["level"] == "T1" and plan["dotnet_test"]["projects"] == [TESTS_DIAG]
-    assert _plan(mmap, "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj")["level"] == "T3"
+    # 测试工程文件：不在任何核心层里，只跑它自己的测试工程（T2，无 ABI 探针）
+    csproj = _plan(mmap, "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj")
+    assert csproj["level"] == "T2" and csproj["dotnet_test"]["projects"] == [TESTS_DIAG]
+    assert csproj["public_layers"] == [] and "abi_probe" not in _run_ids(csproj)
+    # 生产工程文件仍是共享面 T3
+    assert _plan(mmap, "adapters/unity/DiagnosticsForwarding/Adapters.Unity.DiagnosticsForwarding.csproj")["level"] == "T3"
+
+
+def test_repro_toolchain_tests_and_floors_are_t1_toolchain_pytest_only(mmap: dict) -> None:
+    # 复现：此前 toolchain/tests/**、gate_floors.json 归共享面 T3（全量门禁）。只改 pytest 用例或下限数，只需 toolchain_pytest。
+    for path in ("toolchain/tests/test_change_impact.py", "toolchain/tests/conftest.py", "toolchain/gate_floors.json"):
+        plan = _plan(mmap, path)
+        assert plan["level"] == "T1", path
+        assert plan["dotnet_test"]["mode"] == "none" and plan["engine"]["mode"] == "none", path
+        ids = _run_ids(plan)
+        assert {"toolchain_pytest", "self_check", "module_map_check", "crlf_check"} <= ids, path
+        assert not ({"dotnet_build", "dotnet_test", "abi_probe", "sync_dll", "sim_baseline", "registry_pytest", "unity_playmode"} & ids), path
+    # 单独改私服回归用例时顺带跑它自己的隔离步骤
+    assert "registry_pytest" in _run_ids(_plan(mmap, "toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py"))
+    # toolchain/ 下其它路径仍是共享面 T3
+    for path in ("toolchain/change_impact.py", "toolchain/module_map.json", "toolchain/_gate_line_heavy.ps1", "toolchain/validator/Validator.csproj"):
+        assert _plan(mmap, path)["level"] == "T3", path
+    # 与别的 T1 改动同批仍是 T1；与 T3 路径同批仍是 T3
+    assert _plan(mmap, "toolchain/gate_floors.json", "core/foundation/event_bus/Impl.cs")["level"] == "T1"
+    assert _plan(mmap, "toolchain/tests/conftest.py", "toolchain/change_impact.py")["level"] == "T3"
+
+
+@pytest.mark.parametrize(
+    "layer,own,downstream",
+    [
+        ("foundation", "core/foundation/tests/Tests.Foundation.csproj", ["core/numbers/tests/Tests.Numbers.csproj"]),
+        ("numbers", "core/numbers/tests/Tests.Numbers.csproj", ["core/rules/tests/Tests.Rules.csproj"]),
+        ("rules", "core/rules/tests/Tests.Rules.csproj", ["core/carriers/tests/Tests.Carriers.csproj"]),
+        ("carriers", "core/carriers/tests/Tests.Carriers.csproj", ["core/gameplay/tests/Tests.Gameplay.csproj"]),
+        ("gameplay", "core/gameplay/tests/Tests.Gameplay.csproj", ["core/sim/tests/Tests.Sim.csproj", "presentation/tests/Tests.PresentationCommon.csproj"]),
+        ("sim", "core/sim/tests/Tests.Sim.csproj", []),
+        ("presentation", "presentation/tests/Tests.PresentationCommon.csproj", []),
+    ],
+)
+def test_repro_layer_test_csproj_is_layer_level_t2(mmap: dict, layer: str, own: str, downstream: list[str]) -> None:
+    # 复现：此前任何测试工程 csproj 都归共享面 T3（全量）。按该测试工程所在层的层级范围记 T2：
+    # 本层测试工程 + 下游一层 + ABI 探针 + 本层所有模块的引擎侧分类。
+    plan = _plan(mmap, own)
+    assert plan["level"] == "T2", own
+    assert plan["layers"] == [layer] and plan["public_layers"] == [layer]
+    assert plan["dotnet_test"]["mode"] == "projects"
+    assert set(plan["dotnet_test"]["projects"]) == {own, *downstream}
+    assert {"dotnet_build", "dotnet_test", "abi_probe"} <= _run_ids(plan)
+    assert plan["rules"] == ["layer_test_projects"]
+    # 同层的生产 csproj 仍是 T3
+    prod = {
+        "foundation": "core/foundation/Core.Foundation.csproj",
+        "numbers": "core/numbers/Core.Numbers.csproj",
+        "rules": "core/rules/Core.Rules.csproj",
+        "carriers": "core/carriers/Core.Carriers.csproj",
+        "gameplay": "core/gameplay/Core.Gameplay.csproj",
+        "sim": "core/sim/Core.Sim.csproj",
+        "presentation": "presentation/Presentation.Common.csproj",
+    }[layer]
+    assert _plan(mmap, prod)["level"] == "T3", prod
+
+
+def test_repro_sln_and_build_props_stay_t3_after_test_csproj_rule(mmap: dict) -> None:
+    for path in ("Core.sln", "Directory.Build.props", "adapters/stub/Adapters.Stub.csproj"):
+        plan = _plan(mmap, path)
+        assert plan["level"] == "T3" and plan["dotnet_test"]["mode"] == "solution", path
 
 
 def test_repro_game_template_is_t1_with_template_validation_and_drill(mmap: dict) -> None:
@@ -861,13 +924,49 @@ def test_invariant_path_rule_steps_projects_and_categories_exist(mmap: dict) -> 
 
 
 def test_invariant_path_rules_never_swallow_shared_surface_files(mmap: dict) -> None:
-    """路径规则的 except 守住共享面：csproj/sln/Directory.Build.props 这类文件无论落在哪条规则的目录下，都仍是 T3。"""
-    for f in _tracked("*.csproj", "*.sln", "Directory.Build.props"):
+    """路径规则的 except 守住共享面：sln/Directory.Build.props 与所有生产 csproj 无论落在哪条规则的目录下都仍是 T3；
+    只有测试工程文件（Tests.*.csproj）可以按所在层的层级范围记 T2。"""
+    for f in _tracked("*.sln", "Directory.Build.props"):
         assert _plan(mmap, f)["level"] == "T3", f
-    # 全仓库没有任何受版本管理的文件同时命中"层级规则"与 csproj
+    test_csprojs = [f for f in _tracked("*.csproj") if posixpath_name(f).startswith("Tests.")]
+    assert len(test_csprojs) >= 8
+    for f in _tracked("*.csproj"):
+        expected = "T2" if f in test_csprojs else "T3"
+        assert _plan(mmap, f)["level"] == expected, f
+    # 层级共享面规则本身不吞任何 csproj
     layer_rule = next(r for r in mmap["tier_rules"]["path_rules"] if r["id"] == "layer_shared_surface")
     for f in _tracked("*.csproj"):
         assert not (ci.any_match(layer_rule["globs"], f) and not ci.any_match(layer_rule["except"], f)), f
+
+
+def test_invariant_every_test_csproj_change_lists_its_own_test_project(mmap: dict) -> None:
+    """改任何一个测试工程文件，所列测试工程必含它自己（层级范围或显式规则二选一，不能漏跑自己）。"""
+    seen = 0
+    for f in _tracked("*.csproj"):
+        if not posixpath_name(f).startswith("Tests."):
+            continue
+        seen += 1
+        plan = _plan(mmap, f)
+        assert plan["level"] == "T2", f
+        assert f in plan["dotnet_test"]["projects"], f"{f} 的改动没有跑它自己：{plan['dotnet_test']['projects']}"
+    assert seen >= 8
+
+
+def test_invariant_every_toolchain_tests_file_runs_only_toolchain_pytest(mmap: dict) -> None:
+    """toolchain/tests 下与 gate_floors.json 的任何受版本管理文件：T1，不跑 dotnet、不跑引擎侧，除 toolchain_pytest 外
+    不带别的 pytest/重步骤（私服回归用例文件自己的隔离步骤例外）。"""
+    files = _tracked("toolchain/tests") + ["toolchain/gate_floors.json"]
+    assert len(files) > 50
+    heavy = {"dotnet_build", "dotnet_test", "abi_probe", "sim_baseline", "sync_dll", "docs_pytest", "hooks_pytest", "unity_playmode"}
+    for f in files:
+        plan = _plan(mmap, f)
+        assert plan["level"] == "T1", f
+        assert plan["dotnet_test"]["mode"] == "none" and plan["engine"]["mode"] == "none", f
+        ids = _run_ids(plan)
+        assert "toolchain_pytest" in ids, f
+        assert not (heavy & ids), f
+        if posixpath_name(f) != "test_registry_stop_pidfile_rewrite_timestamp.py":
+            assert "registry_pytest" not in ids, f
 
 
 def test_invariant_every_tracked_file_under_coverage_roots_is_registered(mmap: dict) -> None:

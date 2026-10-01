@@ -4,7 +4,7 @@
     "模块表（唯一出处，ADR-0126）：一张表两个用途——模块分工（owner）与定向门禁的选测依据（toolchain/change_impact.py 读它判级、选测试工程/步骤/引擎侧分类）。",
     "modules 段由 toolchain/gen_module_map.py 从目录结构生成（path/layer/test_namespaces 是派生字段，重新生成会刷新），owner/interaction_exceptions 是人工字段，重新生成时按模块名保留；layers/tier_rules/steps/engine 四段全是人工维护，生成脚本不碰。",
     "门禁自检（check.ps1 的『模块表覆盖所有子模块目录』一步）等价于 python toolchain/gen_module_map.py --check：目录里出现未登记的子模块、或表里登记了不存在的目录，即 FAIL。",
-    "子模块 = core/<层>/<模块>/ 与 presentation/<模块>/ 下除 bin、obj、tests、common、assembly 之外的目录；sim 层只有一个子模块（layers.sim.single_module=true，名字即层名，目录 core/sim/）。common/、assembly/ 是共享面，归 T3，不登记成子模块。",
+    "子模块 = core/<层>/<模块>/ 与 presentation/<模块>/ 下除 bin、obj、tests、common、assembly 之外的目录；sim 层只有一个子模块（layers.sim.single_module=true，名字即层名，目录 core/sim/）。common/、assembly/ 是层内共享面（记层级范围 T2，见 path_rules），不登记成子模块。",
     "tier_rules 的判级顺序见 toolchain/README.md『定向门禁』一节与 ADR-0126：先看模块公开面（contracts/schema/generated）→ 再看 *.md 与 architecture/docs（T0）→ 再看共享面（T3）→ 再看模块内部（T1）→ 未被任何规则覆盖的路径按 T3。每个路径取最高级的并集。",
     "steps 段登记 check.ps1 每个步骤的触发规则：T3 = 全部触发；T0 只跑 base_tiers 含 T0 的步骤；T1/T2 跑 base_tiers 含该级别的步骤，外加 triggers 命中改动路径的步骤（triggers 默认只看非 .md 路径，trigger_md=true 的步骤例外）；requires 为依赖步骤（被触发的步骤会把依赖一起拉进来）；engine_gated=true 的步骤只在 T3 或引擎侧有待跑分类时才跑。",
     "owner 初版统一 TBD，由设计层分配；跨层改动由上游层负责人拍板。",
@@ -283,6 +283,39 @@
         ]
       },
       {
+        "id": "layer_test_projects",
+        "label": "层级测试工程文件（core/*/tests、presentation/tests 下的 csproj）：按该测试工程所在层的层级范围记 T2（本层测试工程 + 下游一层 + ABI 探针 + 本层所有模块的引擎侧分类）；生产 csproj、sln、Directory.Build.props 仍归共享面 T3",
+        "globs": [
+          "core/*/tests/*.csproj",
+          "presentation/tests/*.csproj"
+        ],
+        "level": 2,
+        "scope": "layer"
+      },
+      {
+        "id": "diag_forwarding_test_csproj",
+        "label": "诊断转发测试工程文件：不在任何核心层里，只改它自己的编译条件，跑它自己的测试工程（T2）；诊断转发生产 csproj 仍归共享面 T3",
+        "globs": [
+          "adapters/unity/DiagnosticsForwarding/tests/*.csproj"
+        ],
+        "level": 2,
+        "dotnet_projects": [
+          "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj"
+        ]
+      },
+      {
+        "id": "toolchain_tests_and_floors",
+        "label": "工具链测试与用例数下限：只改 pytest 用例或下限数，只跑 toolchain_pytest（外加秒级自检步骤）；toolchain/ 下其它路径仍归共享面 T3",
+        "globs": [
+          "toolchain/tests/**",
+          "toolchain/gate_floors.json"
+        ],
+        "level": 1,
+        "steps": [
+          "toolchain_pytest"
+        ]
+      },
+      {
         "id": "game_template",
         "label": "游戏模板：模板数据校验 + 模板冒烟（消费方演练）+ .meta 完整性",
         "globs": [
@@ -504,7 +537,8 @@
       "label": "pytest：私服 -Stop 误判回归（隔离于并行线之外）",
       "base_tiers": [],
       "triggers": [
-        "toolchain/**"
+        "toolchain/registry/**",
+        "toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py"
       ]
     },
     {

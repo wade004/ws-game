@@ -81,7 +81,7 @@
     「版本后缀适配」切片落地后才能在 `VERSION` 文件里实际写入；落地前分支不改 `VERSION`，版本标识只
     体现在分支名。该切片落地后删除本条说明。
 - **合并前后都跑全量门禁**：合并到 `main` 之前，在分支上跑一次全量（含引擎侧）；合并之后在 `main` 上
-  再跑一次全量。两次都在 `REGRESSION_LOG.md` 追加一行。这是 §4 回归分级里全量回归的第四种
+  再跑一次全量。两次都在 `REGRESSION_LOG.md` 追加一行。这是 §4 回归分级里全量回归的第三种
   时刻；定向门禁（`check.ps1 -Changed`）只用于分支内的日常迭代，不替代合并前后的全量。
 
 ## 1c. 耗时记录（2026-10-01 项目负责人拍板，每个任务必做）
@@ -151,14 +151,14 @@
     （改动 → 影响集 T0～T3 → 只跑被触发的步骤与测试工程，规则见 ADR-0126）；引擎侧待跑的 PlayMode
     分类由判定块给出，在主检出或路径足够短的工作树里跑（见本节 MAX_PATH 条；深层 scratchpad 工作树的任务交主会话）。不要求跑 G1/G2 的全量部分。
   - **全量回归**（G1 的 `dotnet test Core.sln` 全量、`pytest toolchain/tests -q` 全量、三套数据根
-    全量校验；G2 的 `check.ps1 -Quick` 全量）只在以下四种时刻跑：① 里程碑收口；② 升级框架/依赖
-    版本之后；③ 改了生产装配入口（`*Assembly` 装配类等游戏启动实际加载的组装点）或多模块共享
-    数据（登记表 schema、跨模块契约）之后；④ 合并到 `main` 之前与之后各一次（§1b，分支约定新增的
-    第四种时刻）。
+    全量校验；G2 的 `check.ps1 -Quick` 全量）只在以下三种时刻跑：① 里程碑收口；② 升级框架/依赖
+    版本之后；③ 合并到 `main` 之前与之后各一次（§1b）。切片级一律按 `toolchain/module_map.json`
+    判级：装配层（`*Assembly` 等组装点）与层内共享面记层级范围 T2，登记表 schema 等多模块共享
+    数据与工程文件落在 T3；改了装配入口或共享数据的场景由合并前后的全量覆盖，切片内不为它们另跑全量。
   - **执行 agent 不得为"再确认一次"一类理由自行追加全量回归**：如切片跑完后仍觉得有必要跑全量，
     在汇报里写明理由，是否补跑由派单方（设计层或验收 agent）决定，不擅自执行。
-- **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。**全量部分只在上述四种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向子集。
-- **G2**：`check.ps1 -Quick` 全 PASS。**全量部分只在上述四种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向重跑，不必跑 `check.ps1 -Quick` 全量。
+- **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向子集。
+- **G2**：`check.ps1 -Quick` 全 PASS。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向重跑，不必跑 `check.ps1 -Quick` 全量。
 - **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -BaselineZip "dist\ws-game-<上一版>.zip" -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。
 - **G4**：模块 README 的"判断记录" + `CHANGELOG.md` `[Unreleased]` 段新增条目——除非派单说明本次改动由后续整合单统一写变更记录。
 - 涉及仿真相关改动，三份基线要零差异（`simrunner run --scenario all …`）。**`Added`（基线里从未
@@ -211,7 +211,7 @@
 ## 7. 复审/验收单专用
 
 - **独立验收 agent 只在里程碑收口时派一次**（对应第 4 节"回归分级"里全量回归的几种时刻之一）；
-  升级依赖、改生产装配入口/跨模块共享数据触发的全量回归由执行/复核方自行核对，不必单独派验收
+  升级依赖、合并前后触发的全量回归由执行/复核方自行核对，不必单独派验收
   agent。**文档类、登记类提交不派验收**（如只改 `architecture/` 正文、README"判断记录"、
   CHANGELOG、登记表勘误，未触碰代码/构建产物）。
 - 只读：不改任何文件、不跑任何 git 写命令。
