@@ -1340,4 +1340,4 @@ build/test 步骤）。
 | 严格字面规则（不细分） | 7 | 2 | 0 | 11 |
 
   T3 占多数的原因：近期切片大量改动共享面生产代码（`presentation/common`、`core/*/common`、`core/*/assembly`、层根文件）、适配层桩与一致性套件（表里未登记，按未知路径 T3）、工具链与流水线配置。把这些归为 T3 是宁可多跑不漏跑的取舍；若要提高定向命中率，需要把适配层桩/一致性套件登记成模块并拆分共享面，属后续工作。
-- **引擎侧只有主会话能验证**：agent 不能打开引擎；判定块里的过滤串由主会话在主检出（做完 `AGENTS.md` 约定的 DLL 同步之后）以引擎测试运行器的分类参数执行，并对账实际跑到的用例数。
+- **引擎侧过滤已实测对账（2026-10-01，路径足够短的工作树 `D:\wt\ai-transformation`，做完 `AGENTS.md` 约定的 DLL 同步之后）**：`module:shared` 单独 46 例（11 个类）；`module:ui` 27 例，`module:ui;module:shared` 合跑 73 = 27 + 46（分号串是并集，各类无重叠）；`interaction:movement_stop_blocking` 单独 11 例、恰好是 `MovementStopAndBlockingPlayModeTests`，`module:unit` 单独也是 11，二者分号合跑仍是 11（有重叠时去重，不是求和）。判定块里的过滤串在深层 scratchpad 工作树里不能跑，要到主检出或短路径工作树执行。
