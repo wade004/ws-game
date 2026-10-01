@@ -465,9 +465,9 @@ def render_text(plan: dict[str, Any]) -> str:
         lines.append(f"将跳过的步骤（{len(skip)}，{plan['level']} 未触发）：" + "、".join(s["id"] for s in skip))
     eng = plan["engine"]
     if eng["mode"] == "all":
-        lines.append("引擎侧 PlayMode：T3 全量（不过滤；agent 不能开引擎，由主会话在主检出执行）")
+        lines.append("引擎侧 PlayMode：T3 全量（不过滤；在主检出或路径足够短的工作树里由有引擎权限的任务执行；深层 scratchpad 工作树交主会话）")
     elif eng["mode"] == "filtered":
-        lines.append("引擎侧待跑 PlayMode（agent 不能开引擎，由主会话在主检出执行）：")
+        lines.append("引擎侧待跑 PlayMode（在主检出或路径足够短的工作树里由有引擎权限的任务执行；深层 scratchpad 工作树交主会话）：")
         lines.append(f"  分类过滤串：{eng['playmode_filter'] or '（无）'}")
         for ex in plan["exceptions"]:
             lines.append(f"  交互例外 {ex['id']}（模块 {ex['module']}）：{ex['engine_class']} / {ex['engine_category']}")
