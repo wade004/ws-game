@@ -31,6 +31,8 @@
 #      --no-verify（那样会绕过钩子本身，事后不可追溯；这里是钩子内部按判定结果主动放行，仍会
 #      打印说明）。分级纯函数见 toolchain/_precommit_tiering_guard.ps1，由
 #      toolchain/tests/test_precommit_tiering_guard.py 覆盖。
+#   （2026-10-01 耗时自动记录：三处 check.ps1 调用都带 -NoTiming——钩子里的运行不写 timing/，否则每次提交
+#   都会弄脏工作树；耗时只记任务里手动/显式跑的门禁。）
 #   2) 其余一切情况（含合并提交——MERGE_HEAD 存在时同样只按暂存清单判定，不特殊放行）：跑
 #      check.ps1 -Staged -SkipUnity，由 toolchain/change_impact.py 按暂存路径统一判级（T0～T3，
 #      规则与步骤触发表见 toolchain/module_map.json）。此前的 DocsOnly 档就是现在的 T0（暂存改动全
@@ -73,18 +75,18 @@ else
     case "$level" in
         T0|T1|T2)
             echo "[pre-commit] 定向门禁：暂存改动判为 $level——跑 check.ps1 -Staged -SkipUnity（只跑命中的步骤，全文日志落盘）..."
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -Staged -SkipUnity
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -Staged -SkipUnity -NoTiming
             status=$?
             ;;
         T3)
             echo "[pre-commit] 定向门禁：暂存改动判为 T3（共享面/未知路径）——跑 check.ps1 -Staged -SkipUnity -Quick（与旧 Full 档相同的快速全量）..."
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -Staged -SkipUnity -Quick
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -Staged -SkipUnity -Quick -NoTiming
             status=$?
             ;;
         *)
             echo "[pre-commit] 未取到可识别的定向级别（暂存清单为空，或判级脚本不可用；原始输出：$level），按最保守的旧 Full 档处理。"
             echo "[pre-commit] 跑 check.ps1 -SkipUnity -Quick..."
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File check.ps1 -SkipUnity -Quick -NoTiming
             status=$?
             ;;
     esac

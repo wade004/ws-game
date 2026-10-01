@@ -467,6 +467,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **数值仿真基线比对挪出 T1**：模块表步骤新增 `min_level`，仿真基线只在 T2 及以上触发；仿真自己的输入数据与基线文件（`core/sim/tests/data/**`、`core/sim/tests/baseline/**`）经 `always_triggers` 不受限制。
 - **定向模式不再把「T? 未触发」误报为环境性 SKIP**：汇总段的环境性 SKIP 判定正则把定向模式的未触发原因归入开关类；主线新增的环境矩阵 6c/6d 与 IL2CPP 三步补步骤编号并登记模块表。
 - **pytest 用例数下限上调**：`toolchain/gate_floors.json` 的 pytest `min_passed` 780 → 840（合并前全量门禁实测 934，新增定向门禁用例）。
+- **门禁耗时自动记录**：`check.ps1` 每次运行结束（通过或失败都写）把每个步骤追加到 `timing/<年月日>_<分支名去 feature/ bugfix/ 前缀>.jsonl`（main 上为 `<年月日>_main.jsonl`），字段与 `AGENTS.md` §1c 一致（task/branch/phase/step/start/end/seconds/result/note）；`phase` 定向模式记 `定向门禁`、否则 `全量门禁`，`step` 用步骤稳定 `-Id`（所有步骤调用点补齐 `-Id`，含被开关跳过的步骤），start/end 是每步真实起止时间（并行线在各自子进程里取、经结果 JSON 带回），另加一行 `_total` 记脚本总墙钟。新增 `-NoTiming`（预提交钩子与 `build.ps1 -Release` 调用时带，免得弄脏工作树）与 `-TimingTask "<一句话>"`（缺省 `check.ps1 <参数串>`）；写入失败不影响门禁结论，只在汇总末尾打一行警告。新增 `toolchain/timing_report.py`：读 `timing/*.jsonl` 按 phase、按 step 输出次数/合计/中位数/P90/最大值，支持 `--since`、`--branch`、`--phase`、`--json`，只写 stdout。
 
 ## [1.92.0] - 2026-10-01
 

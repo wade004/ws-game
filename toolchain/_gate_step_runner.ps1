@@ -82,7 +82,7 @@ function Invoke-CheckStep {
     )
 
     if ($DocsOnly -and -not $DocRelevant) {
-        Add-SkippedStep $Name "-DocsOnly（非文档相关步骤，仅纯文档改动的提交跳过）"
+        Add-SkippedStep $Name "-DocsOnly（非文档相关步骤，仅纯文档改动的提交跳过）" -Id $Id
         return
     }
 
@@ -92,24 +92,27 @@ function Invoke-CheckStep {
     if ($Id -ne "" -and $script:GateStepPlan -and $script:GateStepPlan.ContainsKey($Id)) {
         $planned = $script:GateStepPlan[$Id]
         if (-not $planned.Run) {
-            Add-SkippedStep $Name $planned.Reason
+            Add-SkippedStep $Name $planned.Reason -Id $Id
             return
         }
     }
 
     if ($FailFast) {
         if ($script:GateFailed) {
-            Add-SkippedStep $Name "上游步骤已失败（-FailFast，本线不再启动新步骤）"
+            Add-SkippedStep $Name "上游步骤已失败（-FailFast，本线不再启动新步骤）" -Id $Id
             return
         }
         if ($script:FailFastFlagPath -and (Test-Path -LiteralPath $script:FailFastFlagPath)) {
             $script:GateFailed = $true
-            Add-SkippedStep $Name "并行的另一条线已失败（-FailFast，本线不再启动新步骤）"
+            Add-SkippedStep $Name "并行的另一条线已失败（-FailFast，本线不再启动新步骤）" -Id $Id
             return
         }
     }
 
     Write-StepHeader $Name
+    # 耗时自动记录（见 toolchain/_gate_timing.ps1）：这里记下该步真实的起止时刻（并行线里各步各自
+    # 在自己的子进程里取，不是"整次起点 + 秒数"推算），随结果行一起落进汇总与 JSON。
+    $startAt = Get-Date
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $ok = $false
     $detail = ""
@@ -138,12 +141,7 @@ function Invoke-CheckStep {
             }
             $sw.Stop()
             $seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
-            $script:Results.Add([PSCustomObject]@{
-                Step    = $Name
-                Result  = "SKIP"
-                Seconds = $seconds
-                Detail  = $skipReason
-            })
+            $script:Results.Add((New-GateResultRow -Step $Name -Result "SKIP" -Seconds $seconds -Detail $skipReason -StepId $Id -Start $startAt -End (Get-Date)))
             Write-Host "[$Name] 已跳过：$skipReason" -ForegroundColor Yellow
             return
         }
@@ -166,14 +164,10 @@ function Invoke-CheckStep {
         Write-Host $detail -ForegroundColor Red
     }
     $sw.Stop()
+    $endAt = Get-Date
     $seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
 
-    $script:Results.Add([PSCustomObject]@{
-        Step    = $Name
-        Result  = if ($ok) { "PASS" } else { "FAIL" }
-        Seconds = $seconds
-        Detail  = $detail
-    })
+    $script:Results.Add((New-GateResultRow -Step $Name -Result $(if ($ok) { "PASS" } else { "FAIL" }) -Seconds $seconds -Detail $detail -StepId $Id -Start $startAt -End $endAt))
 
     if ($ok) {
         Write-Host "[$Name] 通过，用时 ${seconds}s" -ForegroundColor Green
@@ -195,15 +189,46 @@ function Invoke-CheckStep {
 }
 
 function Add-SkippedStep {
-    param([string]$Name, [string]$Reason)
+    param([string]$Name, [string]$Reason, [string]$Id = "")
     Write-StepHeader $Name
     Write-Host "已跳过：$Reason" -ForegroundColor Yellow
-    $script:Results.Add([PSCustomObject]@{
-        Step    = $Name
-        Result  = "SKIP"
-        Seconds = 0
-        Detail  = $Reason
-    })
+    $now = Get-Date
+    $script:Results.Add((New-GateResultRow -Step $Name -Result "SKIP" -Seconds 0 -Detail $Reason -StepId $Id -Start $now -End $now))
+}
+
+# 耗时自动记录：门禁结果行的统一构造器（形参叫 -StepId 而不是 -Id：toolchain/tests/test_change_impact.py 的
+# 不变量用例按正则 -Id "字面量" 扫描脚本里的步骤 Id 并与模块表对账，合成行的 Id 不是门禁步骤，不能被它扫到）。除原有 Step/Result/Seconds/Detail 四列（汇总表只打印这四列）
+# 外多三个字段——Id（步骤稳定标识，跨任务汇总用，来自 Invoke-CheckStep/Add-SkippedStep 的 -Id）、
+# Start/End（该步真实起止时刻，ISO 8601 本地时间精确到秒的字符串；用字符串而不是 DateTime，是因为
+# 结果行会经 ConvertTo-Json 落盘再读回，Windows PowerShell 5.1 把 DateTime 序列化成 "\/Date(…)\/"
+# 形态，字符串最稳）。-Start/-End 不给时取当前时刻（用于没有真实起止的合成行，如"某条线整体被跳过"）。
+function Format-GateTimestamp {
+    param([datetime]$Time)
+    return $Time.ToString("yyyy-MM-ddTHH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function New-GateResultRow {
+    param(
+        [string]$Step,
+        [string]$Result,
+        [double]$Seconds,
+        [string]$Detail = "",
+        [string]$StepId = "",
+        [Nullable[datetime]]$Start = $null,
+        [Nullable[datetime]]$End = $null
+    )
+    $now = Get-Date
+    $startAt = if ($null -ne $Start) { [datetime]$Start } else { $now }
+    $endAt = if ($null -ne $End) { [datetime]$End } else { $now }
+    return [PSCustomObject]@{
+        Step    = $Step
+        Result  = $Result
+        Seconds = $Seconds
+        Detail  = $Detail
+        Id      = $StepId
+        Start   = (Format-GateTimestamp $startAt)
+        End     = (Format-GateTimestamp $endAt)
+    }
 }
 
 # 判断记录（复盘 I-12 余项，2026-10-01）：汇总表里的 SKIP 有两类，此前混在一起不可分辨——
@@ -354,6 +379,43 @@ function Import-GatePlan {
     }
     $script:GatePlan = $plan
     $script:GateStepPlan = $map
+}
+
+# 把一条并行线落盘的结果 JSON（Write-GateResultsJson 写的）读回，并入本进程的 $script:Results。
+# 原先内联在 check.ps1 里，为了让 pytest 能直接 dot-source 本文件测"两条线 -> JSON -> 合并"整条链路
+# （耗时自动记录的 start/end 就靠这条链路从子进程带回主进程）而挪到这里，逻辑原样。结果文件缺失/为空
+# 记一行 FAIL（Id 为 <LineId>_results_missing / <LineId>_results_empty）。Id/Start/End 老格式 JSON 里没有时
+# 退化为空 Id 与"现在"，不影响门禁结论。PowerShell 7 的 ConvertFrom-Json 会把 ISO 时间串直接转成
+# DateTime，这里两种形态都接。
+function ConvertTo-GateDateTime {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetime]) { return [datetime]$Value }
+    $text = [string]$Value
+    if ($text -eq "") { return $null }
+    return [datetime]::Parse($text, [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Import-GateLineResults {
+    param([string]$JsonPath, [string]$LineLabel, [string]$LineId)
+    if (-not (Test-Path -LiteralPath $JsonPath)) {
+        $script:Results.Add((New-GateResultRow -Step "$LineLabel：结果文件缺失" -Result "FAIL" -Seconds 0 -Detail "子进程未生成 $JsonPath，可能异常退出，请查看对应 .log" -StepId "${LineId}_results_missing"))
+        return
+    }
+    $raw = Get-Content -LiteralPath $JsonPath -Raw
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        $script:Results.Add((New-GateResultRow -Step "$LineLabel：结果文件为空" -Result "FAIL" -Seconds 0 -Detail "$JsonPath 内容为空" -StepId "${LineId}_results_empty"))
+        return
+    }
+    $items = $raw | ConvertFrom-Json
+    if ($items -isnot [array]) { $items = @($items) }
+    foreach ($item in $items) {
+        $itemProps = $item.PSObject.Properties.Name
+        $itemId = if ($itemProps -contains "Id") { [string]$item.Id } else { "" }
+        $itemStart = if ($itemProps -contains "Start") { ConvertTo-GateDateTime $item.Start } else { $null }
+        $itemEnd = if ($itemProps -contains "End") { ConvertTo-GateDateTime $item.End } else { $null }
+        $script:Results.Add((New-GateResultRow -Step ([string]$item.Step) -Result ([string]$item.Result) -Seconds ([double]$item.Seconds) -Detail ([string]$item.Detail) -StepId $itemId -Start $itemStart -End $itemEnd))
+    }
 }
 
 function Write-GateResultsJson {

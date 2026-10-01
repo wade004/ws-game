@@ -1341,3 +1341,28 @@ build/test 步骤）。
 
   T3 占多数的原因：近期切片大量改动共享面生产代码（`presentation/common`、`core/*/common`、`core/*/assembly`、层根文件）、适配层桩与一致性套件（表里未登记，按未知路径 T3）、工具链与流水线配置。把这些归为 T3 是宁可多跑不漏跑的取舍；若要提高定向命中率，需要把适配层桩/一致性套件登记成模块并拆分共享面，属后续工作。
 - **引擎侧过滤已实测对账（2026-10-01，路径足够短的工作树 `D:\wt\ai-transformation`，做完 `AGENTS.md` 约定的 DLL 同步之后）**：`module:shared` 单独 46 例（11 个类）；`module:ui` 27 例，`module:ui;module:shared` 合跑 73 = 27 + 46（分号串是并集，各类无重叠）；`interaction:movement_stop_blocking` 单独 11 例、恰好是 `MovementStopAndBlockingPlayModeTests`，`module:unit` 单独也是 11，二者分号合跑仍是 11（有重叠时去重，不是求和）。判定块里的过滤串在深层 scratchpad 工作树里不能跑，要到主检出或短路径工作树执行。
+
+## �Ž���ʱ�Զ���¼��`_gate_timing.ps1` / `timing_report.py`��AGENTS.md ��1c��
+
+`check.ps1` ÿ�����н�����ͨ����ʧ�ܶ�д����ÿ������׷�ӵ��ֿ�� `timing/<������>_<��֧��ȥ feature/ bugfix/ ǰ׺>.jsonl`��main ��Ϊ `<������>_main.jsonl`����һ��һ�� JSON���ֶ��� ��1c ��ȫһ�£�`task`��`branch`��`phase`��`step`��`start`��`end`��`seconds`��`result`��`note`��
+
+| �ֶ� | ȡֵ |
+| --- | --- |
+| `phase` | ����ģʽ��`-Changed`/`-Staged`/`-Modules`��`�����Ž�`������ `ȫ���Ž�` |
+| `step` | �����ȶ� `-Id`���� `dotnet_test`��`unity_playmode`��������һ�� `_total` �ǽű���ǽ�� |
+| `start`/`end` | �ò���ʵ��ֹʱ�̣�����ʱ�䣬��ȷ���룩 |
+| `seconds` | ���� Stopwatch ������1 λС�������������Ĳ���Ϊ 0��`result=SKIP`��`note` ������ԭ�� |
+| `task` | `-TimingTask "<һ�仰>"`��ȱʡ `check.ps1 <������>` |
+
+���أ�`-NoTiming` ����д�루`.githooks/pre-commit` �� `build.ps1 -Release` �����Ž�ʱ�̶���������ÿ���ύ/������Ū�๤��������������Լ컹�ῴ�� `-dirty`����д��ʧ�ܣ�ֻ����ȡ������֧��������Ӱ���Ž����ۣ�ֻ�ڻ���ĩβ��һ�о��档
+
+ͳ�ƣ�`python toolchain/timing_report.py [--since 2026-10-01] [--branch <��>] [--phase ȫ���Ž�] [--json]`���� phase���� step ����������ϼơ���λ����P90�����ֵ��ֻд stdout��
+
+### �жϼ�¼
+
+- **start/end �ڲ�����������ȡ������"������� + ����"����**��`Invoke-CheckStep` �ڲ���ǰ���ȡһ��ϵͳʱ�䣬д������У�`Id`/`Start`/`End` �������ֶΣ����ܱ���ֻ��ӡԭ���У������������߸������Լ����ӽ�����ȡ������� JSON ���������̣�`Import-GateLineResults`���� `check.ps1` Ų�� `_gate_step_runner.ps1`���ò����� dot-source ������·������˲����ߵĲ���ʱ��������Ļ��ص���`timing_report` �ĺϼ��ǲ���������ͣ������´���ǽ�ӣ���ǽ�ӿ� `_total`��
+- **���в�����õ㶼�� `-Id`**�������������� `Add-SkippedStep` ��ǰû�� Id���ֲ��룻`toolchain/tests/test_gate_timing_log.py` �о�̬������ס"�������õ����� `-Id`"�����˻��ڼ�¼���˻���������ʾ������������ܶԲ��ϣ���
+- **phase ���ܲ��� `_total` ��**��`_total` ��ͬһ��������Ĳ������ص���һ��ӻ��ظ���������ֻ��Ϊ `(phase, _total)` һ�� step �����г���P90 �����Բ�ֵ����֤ ��λ�� �� P90 �� ���ֵ��
+- **����ģʽ�ɸɻ��ӽ���д**��������ֻ͸�� `-TimingTask`/`-NoTiming`�����Զ������е� `_total` ���������̵��ж���`change_impact.py`�����ӽ�������ʱ�䡣
+- **Windows PowerShell 5.1 �������ӣ�ʵ�⣩**��`@($List[Object])` �� "Argument types do not match"���Ž��� `$script:Results` ����������ͣ�������д�뺯��ֱ�� `foreach`��`Sort-Object` ����֤�ȶ����� start ������� `[Array]::Sort` �������Ƚϡ�
+- **��֪����**���ű���������ֹ��δ�� `Invoke-CheckStep` ��ס���쳣����ǿ�н�����ʱ��д��¼���� main �����Ž����ϲ���ȫ�����������������δ�ύ�� `timing/<����>_main.jsonl`����Ҫ���Ự���д�����ͬһ��ͬһ��֧�������׷�ӵ�ͬһ�ļ����� `task`/`start` ���֡�

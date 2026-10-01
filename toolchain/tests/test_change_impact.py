@@ -521,7 +521,7 @@ def test_check_dryrun_prints_playmode_category_filter(tmp_path: Path, mmap: dict
     repo = tmp_path / "fake_repo"
     (repo / "toolchain").mkdir(parents=True)
     shutil.copy(REPO_ROOT / "check.ps1", repo / "check.ps1")
-    for name in ("change_impact.py", "_console.py", "module_map.json"):
+    for name in ("change_impact.py", "_console.py", "module_map.json", "_gate_timing.ps1"):
         shutil.copy(TOOLCHAIN_DIR / name, repo / "toolchain" / name)
 
     def git(*args: str) -> None:

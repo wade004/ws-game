@@ -434,7 +434,7 @@ if ($ReleaseRequested) {
     # 的原行为，两者场景不同、开关默认值分开定，互不影响。
     Write-Step "check.ps1 门禁（-Release 第 5 步）"
     $checkScript = Join-Path $RepoRoot "check.ps1"
-    $checkArgs = @("-AbiStrict", "-FailFast")
+    $checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")
     & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Host "check.ps1 未通过（退出码 $LASTEXITCODE），发布流程终止" -ForegroundColor Red
