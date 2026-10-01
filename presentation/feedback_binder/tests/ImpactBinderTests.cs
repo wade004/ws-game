@@ -69,10 +69,10 @@ namespace Tests.Presentation.FeedbackBinder
             return (binder, bus, sink, pipeline);
         }
 
-        private static CombatHitConfirmedEvent HitEvent(Id target, double ratio = 1.0) =>
+        private static CombatHitConfirmedEvent HitEvent(Id target, double ratio = 1.0, Id? castInstanceId = null) =>
             new CombatHitConfirmedEvent(
                 new Id("attack.kit_1"), 0, Player, target, null, HitResult.Hit, 10, ratio, false, false,
-                new Vec2(1, 1), new Vec2(0, 1), new Vec2(1, 0), "medium", 0, 0, HitReaction.Flinch);
+                new Vec2(1, 1), new Vec2(0, 1), new Vec2(1, 0), "medium", 0, 0, HitReaction.Flinch, castInstanceId);
 
         [Fact]
         public void HitConfirmed_ThroughDefaultRule_PlaysSfxFlashAndOneMergedCameraCueAtTickEnd()
@@ -126,6 +126,30 @@ namespace Tests.Presentation.FeedbackBinder
             bus.PublishImmediate(new ActionMarkerEvent(Player, new Id("cast.kit_2"), "active_start"));
             bus.PublishImmediate(HitEvent(Enemy));
             bus.PublishImmediate(new ActionMarkerEvent(Player, new Id("cast.kit_2"), "active_end"));
+            bus.PublishImmediate(new SimTickFinishedEvent(2));
+            Assert.DoesNotContain(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+            binder.Dispose();
+        }
+
+        [Fact]
+        public void WhiffWindow_ThroughBus_IsPairedByTheCastInstanceIdOfHitConfirmed()
+        {
+            var (binder, bus, sink, _) = MakeBinder();
+            var cast1 = new Id("cast.kit_1");
+            var cast2 = new Id("cast.kit_2");
+
+            // 动作 2 的窗口里只有动作 1（上一段）的迟到命中：动作 2 挥空。
+            bus.PublishImmediate(new ActionMarkerEvent(Player, cast2, "active_start"));
+            bus.PublishImmediate(HitEvent(Enemy, castInstanceId: cast1));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, cast2, "active_end"));
+            bus.PublishImmediate(new SimTickFinishedEvent(1));
+            Assert.Contains(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
+
+            // 命中带着本动作实例 id：不挥空。
+            sink.Sfx.Clear();
+            bus.PublishImmediate(new ActionMarkerEvent(Player, cast2, "active_start"));
+            bus.PublishImmediate(HitEvent(Enemy, castInstanceId: cast2));
+            bus.PublishImmediate(new ActionMarkerEvent(Player, cast2, "active_end"));
             bus.PublishImmediate(new SimTickFinishedEvent(2));
             Assert.DoesNotContain(sink.Sfx, s => s.SfxId.Equals(new Id("sfx.whiff_t2_generic")));
             binder.Dispose();

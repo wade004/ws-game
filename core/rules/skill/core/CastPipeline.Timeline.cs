@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
 using Core.Rules.Common;
@@ -52,6 +53,48 @@ namespace Core.Rules.Skill
 
         /// <summary>动作自然结束后连招链保留的动作时钟 tick 数（档案 <c>combo_reset_ms</c> 换算，开始时快照）。</summary>
         public int ComboResetTicks;
+
+        // ---- 空间命中（手感设计/03 第 2.2 节；见 CastPipeline.TimelineHit.cs）----
+
+        /// <summary>命中路径是否已解析（首次需要时按技能数据解析一次并缓存）。</summary>
+        public bool HitPathResolved;
+
+        /// <summary>true = 空间命中；false = instant 结算（S3a 行为）。</summary>
+        public bool Spatial;
+
+        /// <summary>目标选择链的形状模板（<see cref="Spatial"/> 为真时有值）。</summary>
+        public Shape Template;
+
+        /// <summary>
+        /// 攻击实例命中集合（随动作实例存在，动作结束/取消/硬直时随 <c>ActionRun</c> 一起丢弃）：键为 (目标, 段序号)，值为命中的动作 tick。
+        /// 回避类结局（无敌）同样记入——"同一攻击实例对同一目标只判定一次"。
+        /// </summary>
+        public readonly Dictionary<(Id Target, int Segment), int> HitLedger = new Dictionary<(Id Target, int Segment), int>();
+
+        /// <summary>同一目标最近一次命中的动作 tick（<c>rehit_interval_ms</c> 的 marker 策略用）。</summary>
+        public readonly Dictionary<Id, int> LastHitTick = new Dictionary<Id, int>();
+
+        /// <summary>上一次推进结束时攻击方的位姿（<c>continuous</c> 两 tick 之间插值采样的起点）。</summary>
+        public Vec2 PrevPosition;
+
+        public double PrevFacing;
+
+        /// <summary>目标辅助挑出的目标（动作被接受时解析一次；没有目标辅助或没有候选为 null）。</summary>
+        public Id? AssistTarget;
+
+        // continuous 命中的当前推进区间（BeginContinuousSpan 每次推进开始时落定，采样与调度事件按时间顺序交错执行，
+        // 保证命中事件先于其后相位切换事件发布，反馈侧的挥空窗口不会被提前关闭）。
+        public int SpanFrom;
+        public int SpanTo;
+        public int SpanCount;
+        public int SpanNext;
+        public Vec2 SpanStartPosition;
+        public Vec2 SpanEndPosition;
+        public double SpanStartFacing;
+        public double SpanTurn;
+
+        /// <summary>声明了 <c>release</c> 标记：投射物效果在该标记处发射，<c>hit</c> 标记处只结算其余效果。</summary>
+        public bool HasReleaseMarker;
     }
 
     /// <summary>每个行动者一条的连招链状态（见 <c>CastPipeline.ApplyComboRedirect</c>）。</summary>
@@ -310,6 +353,9 @@ namespace Core.Rules.Skill
             var totalSeconds = schedule.TotalTicks * step;
             _bus.Enqueue(new SkillCastStartEvent(casterId, skillId, totalSeconds, castInstanceId));
 
+            // 目标辅助（手感设计/02 第 5 节，缺省关闭）：动作被接受时解析一次，朝向修正当场落地，辅助目标与距离缩放交给位移段快照。
+            var assist = ResolveTargetAssist(casterId, castInstanceId, def, tl, feel);
+
             var run = new ActionRun
             {
                 CastInstanceId = castInstanceId,
@@ -325,8 +371,12 @@ namespace Core.Rules.Skill
                 StartSeq = _inUpdate ? _updateSeq : _updateSeq + 1,
                 ComboResetTicks = comboResetTicks,
                 MotionState = tl.Motion.HasValue
-                    ? BuildMotionState(casterId, tl.Motion.Value, schedule, feel, context, explicitTargets)
+                    ? BuildMotionState(casterId, tl.Motion.Value, schedule, feel, context, explicitTargets, assist)
                     : (ActionMotionState?)null,
+                PrevPosition = _units.GetPosition(casterId),
+                PrevFacing = _units.GetFacing(casterId),
+                HasReleaseMarker = HasMarker(tl, "release"),
+                AssistTarget = assist.HasValue ? assist.Value.Outcome.TargetId : (Id?)null,
             };
 
             var state = new CastState
@@ -375,8 +425,15 @@ namespace Core.Rules.Skill
             }
 
             _bus.Enqueue(new ActionStartedEvent(casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio));
+            if (assist.HasValue)
+            {
+                _bus.Enqueue(new ActionTargetAssistedEvent(
+                    casterId, castInstanceId, assist.Value.Outcome.TargetId, assist.Value.Outcome.FacingDeltaDeg, assist.Value.Outcome.DistanceAdjust));
+            }
 
             // 开始 tick（动作时间 0）：tick 0 的调度事件（进入首个相位、tick 0 的标记）立即触发。
+            // 前摇为 0 的 continuous 动作：tick 0 就是判定相的第一个 tick（时间范围 (-1, 0]，只有终点采样落在判定相内）。
+            BeginContinuousSpan(casterId, run, -1, 0);
             ProcessRunEvents(casterId, state, run);
             return CastResult.Ok(castInstanceId);
         }
@@ -385,16 +442,21 @@ namespace Core.Rules.Skill
         /// 动作被接受时落定位移段快照（手感设计/02 第 4 节；运动仲裁器只消费它）：窗口取 <c>motion_start</c>/<c>motion_end</c> 标记换算后的 tick
         /// （缺失分别取动作起点/终点——校验规则已要求成对声明）；距离经标定从身高倍数换算为世界单位（无手感解析器时原样使用）；
         /// 方向在此落定（<c>facing</c> = 当前朝向；<c>input_snapshot</c> = 按下瞬间输入方向，无输入回落朝向；<c>toward_target</c> = 指向显式目标，
-        /// 无目标回落朝向）；<c>toward_target</c>/<c>charge</c> 的目标取显式目标（目标辅助的解析与距离缩放不在本切片，见 README 已知局限）。
+        /// 无目标回落朝向）；<c>toward_target</c>/<c>charge</c> 的目标取显式目标，没有显式目标时取目标辅助挑出的目标（<see cref="ResolveTargetAssist"/>）。
         /// </summary>
         private ActionMotionState BuildMotionState(
             Id casterId, ActionMotion motion, TimelineSchedule schedule, ResolvedFeel? feel, ActionCastContext context,
-            IReadOnlyList<Id> explicitTargets)
+            IReadOnlyList<Id> explicitTargets, AssistResult? assist = null)
         {
             var start = schedule.FirstTickOf("motion_start") ?? 0;
             var end = schedule.FirstTickOf("motion_end") ?? schedule.TotalTicks;
             var calibration = _timeline?.Feel?.Calibration;
             var distanceWorld = calibration != null ? calibration.ToAbsolute(FeelUnit.BodyHeights, motion.Distance) : motion.Distance;
+            if (assist.HasValue && assist.Value.Outcome.DistanceAdjust != 0.0)
+            {
+                // close_distance：位移距离缩放到判定形状恰好覆盖目标（不超过声明距离、不为负，见 TargetAssistEvaluator）。
+                distanceWorld = Math.Max(0.0, distanceWorld + assist.Value.Outcome.DistanceAdjust);
+            }
 
             var facing = _units.GetFacing(casterId);
             var direction = new Vec2(Math.Cos(facing), Math.Sin(facing));
@@ -403,6 +465,11 @@ namespace Core.Rules.Skill
             if (towardTarget && explicitTargets.Count > 0)
             {
                 targetId = explicitTargets[0];
+            }
+            else if (towardTarget && assist.HasValue)
+            {
+                // 没有显式目标时 toward_target/charge 用目标辅助挑出的目标（手感设计/02 第 5 节）。
+                targetId = assist.Value.Outcome.TargetId;
             }
 
             if (motion.Direction == ActionMotionDirection.InputSnapshot && context.Direction.HasValue && context.Direction.Value.Length > 1e-9)
@@ -493,13 +560,20 @@ namespace Core.Rules.Skill
                 return;
             }
 
+            var previousElapsed = run.Elapsed;
             run.Elapsed += delta;
             state.Remaining = Math.Max(0, (run.Schedule.TotalTicks - run.Elapsed) * _options.ActionStepSeconds);
 
+            // continuous 命中：本次推进跨过的动作时间区间 (previousElapsed, Elapsed] 内落在判定相的部分逐段采样解析
+            // （采样在 ProcessRunEvents 里与调度事件按时间顺序交错执行）。
+            BeginContinuousSpan(casterId, run, previousElapsed, run.Elapsed);
             if (!ProcessRunEvents(casterId, state, run))
             {
                 return;
             }
+
+            run.PrevPosition = _units.GetPosition(casterId);
+            run.PrevFacing = _units.GetFacing(casterId);
 
             if (run.Elapsed >= run.Schedule.TotalTicks)
             {
@@ -516,6 +590,12 @@ namespace Core.Rules.Skill
             var events = run.Schedule.Events;
             while (run.NextEvent < events.Count && events[run.NextEvent].Tick <= run.Elapsed)
             {
+                // 先把严格早于该事件的 continuous 采样做完（命中事件先于其后的相位切换/标记事件发布）。
+                if (!EvaluateSamplesBefore(casterId, state, run, events[run.NextEvent].Tick, inclusive: false))
+                {
+                    return false;
+                }
+
                 var ev = events[run.NextEvent++];
                 if (!run.ActiveEntered && ev.Tick >= run.Schedule.StartupTicks)
                 {
@@ -531,6 +611,11 @@ namespace Core.Rules.Skill
                 {
                     return false;
                 }
+            }
+
+            if (!EvaluateSamplesBefore(casterId, state, run, double.PositiveInfinity, inclusive: true))
+            {
+                return false;
             }
 
             if (!run.ActiveEntered && run.Elapsed >= run.Schedule.StartupTicks)
@@ -595,6 +680,10 @@ namespace Core.Rules.Skill
                 case "motion_end":
                     run.MotionOpen = false;
                     break;
+                case "release":
+                    _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, ev.Name, ev.Args));
+                    ReleaseProjectiles(casterId, state, run, ev);
+                    return;
             }
 
             _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, ev.Name, ev.Args));
@@ -602,16 +691,17 @@ namespace Core.Rules.Skill
 
         private void HandleHitMarker(Id casterId, CastState state, ActionRun run, TimelineEvent ev)
         {
-            if (!run.FirstHitSeen)
+            var customResolver = _timeline?.HitResolver;
+
+            // continuous 命中：hit 标记只是时间线上的记号（照发 action.marker），结算由逐 tick 采样负责；
+            // 资源的 first_hit 扣除也留到第一次真正命中时（见 EvaluateContinuous）。设置了自定义命中解析钩子时钩子接管，不走这条。
+            if (customResolver == null && run.Timeline.HitPolicy == TimelineHitPolicy.Continuous && IsSpatialHit(run))
             {
-                run.FirstHitSeen = true;
-                if (run.Timeline.CostAt == TimelineCostAt.FirstHit)
-                {
-                    // 派生 cost 标记（手感设计/01 第 3.3 节）：扣费发生在首个 hit 之前，随后的结算看到的是已扣费的资源。
-                    PayRunCost(casterId, state, run);
-                    _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, "cost", ev.Args));
-                }
+                _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, ev.Name, ev.Args));
+                return;
             }
+
+            NoteFirstHit(casterId, state, run, ev.Args);
 
             _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, ev.Name, ev.Args));
 
@@ -621,10 +711,32 @@ namespace Core.Rules.Skill
                 int.TryParse(segText, NumberStyles.Integer, CultureInfo.InvariantCulture, out segment);
             }
 
-            var resolver = _timeline?.HitResolver ?? DefaultHitResolver;
-            var settlement = new TimelineSettlement(this, casterId, run.Def, state.Targets);
+            if (customResolver == null && IsSpatialHit(run))
+            {
+                SpatialMarkerHit(casterId, state, run, segment);
+                return;
+            }
+
+            var resolver = customResolver ?? DefaultHitResolver;
+            var settlement = new TimelineSettlement(this, casterId, run, state.Targets, segment);
             resolver.ResolveHit(new TimelineHitContext(
                 casterId, run.Def, run.CastInstanceId, run.ComboIndex, segment, state.Targets, settlement));
+        }
+
+        /// <summary>首次命中：派生 <c>cost</c> 标记（<c>cost_at: first_hit</c>，手感设计/01 第 3.3 节），扣费发生在首个命中结算之前。</summary>
+        private void NoteFirstHit(Id casterId, CastState state, ActionRun run, IReadOnlyDictionary<string, string> args)
+        {
+            if (run.FirstHitSeen)
+            {
+                return;
+            }
+
+            run.FirstHitSeen = true;
+            if (run.Timeline.CostAt == TimelineCostAt.FirstHit)
+            {
+                PayRunCost(casterId, state, run);
+                _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, "cost", args));
+            }
         }
 
         private static readonly ITimelineHitResolver DefaultHitResolver = new InstantSettlementHitResolver();
@@ -634,16 +746,20 @@ namespace Core.Rules.Skill
         {
             private readonly CastPipeline _owner;
             private readonly Id _casterId;
+            private readonly ActionRun _run;
             private readonly SkillDef _def;
             private readonly IReadOnlyList<Id> _explicit;
+            private readonly int _segment;
             private IReadOnlyDictionary<Id, double>? _coefficients;
 
-            public TimelineSettlement(CastPipeline owner, Id casterId, SkillDef def, IReadOnlyList<Id> explicitTargets)
+            public TimelineSettlement(CastPipeline owner, Id casterId, ActionRun run, IReadOnlyList<Id> explicitTargets, int segment)
             {
                 _owner = owner;
                 _casterId = casterId;
-                _def = def;
+                _run = run;
+                _def = run.Def;
                 _explicit = explicitTargets;
+                _segment = segment;
             }
 
             public IReadOnlyList<Id> ResolveTargets()
@@ -673,7 +789,11 @@ namespace Core.Rules.Skill
                     return;
                 }
 
-                _owner.ExecuteEffectsOnly(_casterId, _def, live, targetCoefficients: _coefficients);
+                // 手感落地：instant 路径的时间线结算同样发 combat.hit_confirmed、做无敌前置检查（手感设计/03 第 2.3/2.4 节，
+                // 两种结算路径统一）；不做命中集合去重（调用方——自定义钩子或 instant 缺省——自己决定何时结算）。
+                _owner.SettleTimelineBatch(
+                    _casterId, _run, live, _coefficients, _segment, _owner.PoseGeometry(_casterId, closest: false),
+                    _owner.EffectSubsetFor(_run));
             }
 
             public void SettleInstant()

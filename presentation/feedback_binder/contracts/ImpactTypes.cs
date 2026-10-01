@@ -46,11 +46,28 @@ namespace Presentation.FeedbackBinder.Contracts
 
         public Vec2 WorldDirection { get; }
 
+        /// <summary>
+        /// 发起本次命中的动作/施法实例 id（<c>combat.hit_confirmed.castInstanceId</c>，时间线空间命中填入；instant 命中与
+        /// <c>combat.damage_dealt</c>/<c>combat.attack_avoided</c> 没有）。挥空窗口据此按动作实例配对。
+        /// </summary>
+        public Id? CastInstanceId { get; }
+
         public ImpactHit(
             Id sourceId, Id targetId, Id? skillId, Id? attackInstanceId, HitResult hitResult, string impactClass,
             double amount, double amountRatio, bool isCrit, bool isKill,
             Vec2? contactPoint, Vec2 contactNormal, Vec2 worldDirection)
+            : this(
+                sourceId, targetId, skillId, attackInstanceId, hitResult, impactClass, amount, amountRatio, isCrit, isKill,
+                contactPoint, contactNormal, worldDirection, null)
         {
+        }
+
+        public ImpactHit(
+            Id sourceId, Id targetId, Id? skillId, Id? attackInstanceId, HitResult hitResult, string impactClass,
+            double amount, double amountRatio, bool isCrit, bool isKill,
+            Vec2? contactPoint, Vec2 contactNormal, Vec2 worldDirection, Id? castInstanceId)
+        {
+            CastInstanceId = castInstanceId;
             SourceId = sourceId;
             TargetId = targetId;
             SkillId = skillId;
@@ -94,7 +111,7 @@ namespace Presentation.FeedbackBinder.Contracts
                     hit = new ImpactHit(
                         confirmed.SourceId, confirmed.TargetId, confirmed.SkillId, confirmed.AttackInstanceId, confirmed.HitResult,
                         confirmed.ImpactClass, confirmed.Amount, confirmed.AmountRatio, confirmed.IsCrit, confirmed.IsKill,
-                        confirmed.ContactPoint, confirmed.ContactNormal, confirmed.WorldDirection);
+                        confirmed.ContactPoint, confirmed.ContactNormal, confirmed.WorldDirection, confirmed.CastInstanceId);
                     return true;
 
                 case CombatDamageDealtEvent dealt:

@@ -41,7 +41,11 @@
 | `markers` | Array | 否 | `[{name, at_ms, args?}]`，`name` 取 `hit`（可写 `hit:<段>`）/`invuln_start`/`invuln_end`/`armor_start`/`armor_end`/`motion_start`/`motion_end`/`release`；`at_ms` 相对动作开始（不含蓄力），不得超出总时长 |
 | `cancel_windows` | Array | 否 | `[{class, open_ms, close_ms?}]`，`class` 取输入类别（`move`/`attack`/`skill`/`dodge`/`interact`/`item`/`menu`）；`close_ms` 缺省到动作结束，超出末尾截断 |
 | `combo` | Object | 否 | `{next, open_ms, close_ms}`，`next` 为同表另一条声明了 `timeline` 的技能 |
-| `hit_policy` | Enum(`marker`\|`continuous`) | 否 | 缺省 `marker`；`continuous` 只登记，运行时按 `marker` 处理并给 Warning |
+| `hit_policy` | Enum(`marker`\|`continuous`) | 否 | 缺省 `marker`（`hit` 标记处按攻击方当时位姿解析一次）；`continuous` 判定相内逐 tick 解析（需要链声明 `shape`，见下 `hit_mode`） |
+| `hit_mode` | Enum(`auto`\|`spatial`\|`instant`) | 否 | 缺省 `auto`：目标选择链声明了 `shape` 走空间命中，否则保持 instant 结算；`spatial` 强制空间命中（链必须有 `shape`）；`instant` 强制 instant 结算（不能与 `continuous` 同用） |
+| `sample_step_ms` | Number（毫秒，≥ 0） | 否 | `continuous` 的时间采样步长，缺省 0 = 一个 tick 的四分之一；采样数另取位移与转角所需的下限，任一不满足都不会让形状跳过目标 |
+| `rehit_interval_ms` | Number（毫秒，≥ 0） | 否 | 同一目标可被再次命中的最小间隔：`continuous` 按它把判定相切成段（每段每目标一次），`marker` 策略下压制间隔内的后续段；缺省 0 = 整个动作内每段只命中一次 |
+| `target_assist` | Object | 否 | 目标辅助 `{chain_ref, max_distance, max_angle_deg, mode?}`（缺省不声明即关闭）：`max_distance` 为身高倍数（标定后为世界单位），`max_angle_deg` 为度（单侧，≤ 180），`mode` 取 `face_only`（缺省）/`close_distance` |
 | `cost_at` | Enum(`commit`\|`active`\|`first_hit`) | 否 | 资源扣除时刻，缺省 `commit` |
 | `cooldown_at` | Enum(`commit`\|`active`\|`finish`) | 否 | 冷却起算时刻，缺省 `commit` |
 | `motion` | Object | 否 | 位移块 `{driver, kind, distance, curve?, direction, max_turn_deg?, blocking}`（运动仲裁切片消费，经 `ActionState.Motion`；`max_turn_deg` 缺省 180，`curve` 缺省 `linear`） |
@@ -50,8 +54,9 @@
 语义校验由 `SkillTimelineRule`（`RulesSchemaCatalog` 登记）负责，Error 检查名：`timeline_zero_duration`、`timeline_cast_time_mismatch`、
 `timeline_on_passive`、`timeline_channel_time_exclusive`、`timeline_charge_range`、`timeline_marker_{segment,out_of_range,derived,unknown,duplicate_segment}`、
 `timeline_invuln_{unpaired,order}`、`timeline_armor_{unpaired,order}`、`timeline_motion_{markers,order,charge_incomplete}`、`timeline_window_{out_of_range,order}`、
-`timeline_combo_{order,out_of_range,next_missing,next_no_timeline}`、`timeline_cost_first_hit_without_hit`；Warning：`timeline_ground_target_unsupported`、
-`timeline_marker_presentation`、`timeline_invuln_unterminated`、`timeline_armor_unterminated`、`timeline_motion_markers_without_block`、`timeline_hit_policy_continuous`、`timeline_effects_without_hit`。
+`timeline_combo_{order,out_of_range,next_missing,next_no_timeline}`、`timeline_cost_first_hit_without_hit`（`continuous` 不要求 `hit` 标记）、
+`timeline_spatial_without_shape`、`timeline_continuous_instant_conflict`、`timeline_continuous_without_shape`、`timeline_target_assist_chain_missing`（后四条的"链有无 `shape`/链是否存在"需要 `target.chain_def` 表已加载，未加载时跳过）；Warning：`timeline_ground_target_unsupported`、
+`timeline_marker_presentation`、`timeline_invuln_unterminated`、`timeline_armor_unterminated`、`timeline_motion_markers_without_block`、`timeline_effects_without_hit`（`continuous` 不报）、`timeline_target_assist_close_distance_without_motion`、`timeline_target_assist_close_distance_without_shape`。
 剪辑一致性（`TimelineClipConsistencyRule`，check `timeline_clip_missing`/`timeline_clip_mismatch`/`timeline_clip_deviation`）依赖
 `IClipMarkerSource`，尚无生产来源，未登记进目录（见 `../README.md` T9）。
 

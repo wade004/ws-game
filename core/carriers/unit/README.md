@@ -673,3 +673,11 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
    击退（`forced` 优先级高于 `staggered`）在顿帧最后一个 tick 提交，解冻后以 `ease_out` 走完公式距离。用例 `tests/HitReactionMotionTests.cs`（6 例，真实 `MovementTickHandler` 与仲裁器）：
    模式序列、输入被挡、韧性未破只冻结、致死为 `Dead`、击退距离与起点、缺省档案接线前后位置/朝向/模式逐位一致。
 4. **PlayMode**：改动涉及 `MovementHost.cs`（只加重载与接口声明，`MovementTickHandler.cs` 未改）；仍请主会话按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
+
+## 判断记录（目标辅助载体与 `IUnitFacingWriter`，2026-10-02，手感落地 S3b，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 5 节）
+
+- `ActionTargetAssistAdapter`（实现规则层 `IActionTargetAssist`）与 `TargetChainAssistResolver`（实现 `ITargetAssistResolver`）：链候选里取第一个在 `max_distance`（世界单位，时间线已按标定换算）与 `max_angle_deg`
+  内的存活目标；朝向修正与 `close_distance` 距离缩放复用运动侧纯函数 `TargetAssistEvaluator`（朝向修正不超过档案 `turn_assist_deg`，距离只缩不放大）。装配：
+  `skillHost.AttachTimelineServices(new TimelineServices { TargetAssist = new ActionTargetAssistAdapter(new TargetChainAssistResolver(targets, units), units), ... })`，不装配即没有目标辅助（缺省关闭）。
+- `WorldUnitAccess` 实现 `IUnitFacingWriter.SetFacing`：只写朝向（不经空间索引同步、不发事件），供时间线把目标辅助的朝向修正落地。该方法不在 `IUnitAccess` 上（与 `SetLevel`/`SetFaction` 同一约定：非契约的单位写操作走窄接口）。
+- 复现/不变量：`tests/ActionTargetAssistTests.cs`（候选筛选、朝向修正 `min(方位角, 档案上限)` 不越界、`close_distance` 缩放、无候选静默、`SetFacing`）。

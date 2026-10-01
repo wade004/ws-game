@@ -202,7 +202,7 @@ namespace Presentation.FeedbackBinder.Core
             {
                 if (evt is ActionMarkerEvent marker)
                 {
-                    impact.OnActionMarker(marker.ActorId, marker.Name);
+                    impact.OnActionMarker(marker.ActorId, marker.Name, marker.CastInstanceId);
                 }
             }));
 
@@ -210,7 +210,7 @@ namespace Presentation.FeedbackBinder.Core
             {
                 if (evt is ActionPhaseChangedEvent phase)
                 {
-                    impact.OnActionPhase(phase.ActorId, phase.Phase);
+                    impact.OnActionPhase(phase.ActorId, phase.Phase, phase.CastInstanceId);
                 }
             }));
 

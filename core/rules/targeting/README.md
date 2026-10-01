@@ -172,3 +172,11 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
   本模块只回答"给一条链 id 和施法者 id，解析出哪些单位"，不关心解析结果被拿去做什么。
 - 不做具体游戏内容的目标选择口味决策——"选最近的敌人"还是"选血量最低的友方"完全是
   `target.chain_def` 数据决定的，本模块只提供六个内置来源与一套注入机制。
+
+## 判断记录（`TryGetChainShape` 与 `ResolveAtPose`，2026-10-02，手感落地 S3b）
+
+- `ITargetHost.TryGetChainShape(chainId, out Shape template)`：直接读链的 `shape` 字段（形状模板：`Origin` 为零、方向/旋转为 0 的未锚定形态），链没有声明 `shape` 返回 false。时间线据此决定命中路径
+  （有形状走空间命中，没有保持 instant）并估算扫掠采样步长。默认接口成员恒返回 false，本类显式覆盖。
+- `ITargetHost.ResolveAtPose(chainId, casterId, origin, facing, currentTarget)`：与 `ResolveWithCoefficients` 复用同一条解析管线（来源 → 过滤 → 排序 → 截断 → 系数 → 空则回退），只把形状锚点与排序距离基准换成给定位姿
+  （`ResolveAtPoint` 的朝向固定为 0，本方法朝向可指定）。逐 tick 多次采样，**不发布** `targeting.resolved`。默认接口成员退化为 `ResolveWithCoefficients`（忽略给定位姿），本类显式覆盖。
+- 复现/不变量：`tests/TargetHostResolveAtPoseTests.cs`（模板形态、位姿锚定与施法者自身位姿无关、矩形随朝向旋转、与 `ResolveWithCoefficients` 在自身位姿处一致、不发布事件）。

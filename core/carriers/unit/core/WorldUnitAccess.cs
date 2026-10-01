@@ -15,7 +15,7 @@ namespace Core.Carriers.Unit
     /// 里的 <see cref="Unit"/> 实体，与 <c>core/rules/tests/Integration/WorldUnitAccess.cs</c>（该集成
     /// 测试专用的 <c>TestUnit</c> 版本）同构，本类型是它的正式对应物。
     /// </summary>
-    public sealed class WorldUnitAccess : IUnitAccess
+    public sealed class WorldUnitAccess : IUnitAccess, IUnitFacingWriter
     {
         private readonly IWorldSim _world;
         private readonly ISpatialQuery? _spatial;
@@ -145,6 +145,12 @@ namespace Core.Carriers.Unit
         }
 
         public double GetFacing(Id unitId) => Require(unitId).Facing;
+
+        /// <summary>
+        /// 写入朝向（<see cref="IUnitFacingWriter"/>，目标辅助的朝向修正落地用）。只写朝向，不经空间索引
+        /// （空间索引只管位置与半径）。
+        /// </summary>
+        public void SetFacing(Id unitId, double facing) => Require(unitId).Facing = facing;
 
         public bool IsAlive(Id unitId) => Require(unitId).Alive;
 

@@ -808,6 +808,8 @@ namespace Core.Rules.Skill
 
         public static readonly string[] TimelineSourceValues = { "data", "clip" };
         public static readonly string[] TimelineHitPolicyValues = { "marker", "continuous" };
+        public static readonly string[] TimelineHitModeValues = { "auto", "spatial", "instant" };
+        public static readonly string[] TimelineAssistModeValues = { "face_only", "close_distance" };
         public static readonly string[] TimelineCostAtValues = { "commit", "active", "first_hit" };
         public static readonly string[] TimelineCooldownAtValues = { "commit", "active", "finish" };
         public static readonly string[] TimelineActionClassValues = { "move", "attack", "skill", "dodge", "interact", "item", "menu" };
@@ -893,7 +895,28 @@ namespace Core.Rules.Skill
                 },
                 description: "连招接续窗口：{next: Id, open_ms, close_ms}（手感设计/01 第 3.6 节）"),
             new FieldSchema("hit_policy", FieldKind.Enum, required: false, enumValues: TimelineHitPolicyValues,
-                description: "marker|continuous，缺省 marker：命中解析方式（手感设计/03 第 2.2 节；continuous 由时间线命中切片消费，本切片按 marker 处理并告警）"),
+                description: "marker|continuous，缺省 marker：命中解析方式（手感设计/03 第 2.2 节）。marker 在每个 hit 标记解析一次；continuous 在判定相逐 tick 解析（两 tick 位姿之间插值采样，高速形状不漏目标）"),
+            new FieldSchema("hit_mode", FieldKind.Enum, required: false, enumValues: TimelineHitModeValues,
+                description: "auto|spatial|instant，缺省 auto：命中结算路径。auto = 目标选择链声明了 shape 则空间命中（去重、无敌前置检查、combat.hit_confirmed 含几何），没有 shape 则保持 instant 结算；spatial 强制空间命中；instant 强制 instant"),
+            new FieldSchema("sample_step_ms", FieldKind.Number, required: false,
+                    description: "continuous 命中两 tick 位姿之间的采样步长（毫秒）；缺省（0）= 一个 tick 的 1/4（手感设计/03 第 2.2 节 sample_step）。运行期还会按形状尺寸加密")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("rehit_interval_ms", FieldKind.Number, required: false,
+                    description: "多段命中的最小再命中间隔（毫秒），缺省（0）= 未声明。marker：不同段之间同一目标距上次命中不足该间隔则不再命中；continuous：判定相按该间隔切段，每段一份新的命中集合")
+                .WithRange(FieldRange.Range(min: 0)),
+            new FieldSchema("target_assist", FieldKind.Object, required: false,
+                fields: new[]
+                {
+                    new FieldSchema("chain_ref", FieldKind.Id, required: true, description: "候选解析用的目标选择链（target.chain_def）")
+                        .WithSoftReference(table: "target.chain_def"),
+                    new FieldSchema("max_distance", FieldKind.Number, required: true, description: "候选允许的最大距离（身高倍数，标定后为世界单位）")
+                        .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("max_angle_deg", FieldKind.Number, required: true, description: "候选相对朝向允许的最大角度（度，单侧）")
+                        .WithRange(FieldRange.Range(min: 0, max: 180)),
+                    new FieldSchema("mode", FieldKind.Enum, required: false, enumValues: TimelineAssistModeValues,
+                        description: "face_only|close_distance，缺省 face_only"),
+                },
+                description: "目标辅助（软锁定，手感设计/02 第 5 节，缺省不声明即关闭）：动作被接受时用链解析候选，取第一个在距离与角度内的目标；朝向修正不超过档案 turn_assist_deg，close_distance 还把位移距离缩放到判定形状恰好覆盖目标；发 action.target_assisted"),
             new FieldSchema("cost_at", FieldKind.Enum, required: false, enumValues: TimelineCostAtValues,
                 description: "commit|active|first_hit，缺省 commit：资源扣除时刻（active 为本实现在设计取值之外新增，见 skill 模块 README）"),
             new FieldSchema("cooldown_at", FieldKind.Enum, required: false, enumValues: TimelineCooldownAtValues,

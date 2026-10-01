@@ -8,7 +8,7 @@ namespace Tests.Rules.Skill
 {
     /// <summary><see cref="IUnitAccess"/> 的测试假实现：手工登记的单位状态表，不做任何空间索引/
     /// 阵营矩阵之类的真实逻辑。</summary>
-    internal sealed class FakeUnitAccess : IUnitAccess
+    internal sealed class FakeUnitAccess : IUnitAccess, IUnitFacingWriter
     {
         private readonly HashSet<Id> _units = new HashSet<Id>();
         private readonly Dictionary<Id, Vec2> _positions = new Dictionary<Id, Vec2>();
@@ -59,6 +59,8 @@ namespace Tests.Rules.Skill
         public int GetLevel(Id unitId) => _levels.TryGetValue(unitId, out var l) ? l : 1;
 
         public double GetFacing(Id unitId) => _facings.TryGetValue(unitId, out var f) ? f : 0;
+
+        public void SetFacing(Id unitId, double facing) => _facings[unitId] = facing;
 
         public bool IsAlive(Id unitId) => _alive.TryGetValue(unitId, out var a) && a;
 

@@ -1450,6 +1450,66 @@ skill/
     `core/rules/skill/tests/AuraPolarityIconRefTests.cs`（新增）。表现层路径 `auras[i].polarity`/
     `auras[i].icon_ref` 见 `presentation/ui/README.md` 对应判断记录。
 
+## 判断记录（手感落地 S3b：时间线模式的空间命中，[ADR-0114](../../../architecture/adr/0114-技能结算新增时间线模式.md)，手感设计/03 第 2 节、02 第 5 节）
+
+> 编号说明：接 S3a 的 T1～T15 续编 T16～T30，合并时主会话核对是否与别的切片重号。
+
+**范围**：`hit` 标记处与 `continuous` 逐 tick 的空间命中、攻击实例去重、无敌前置检查、`combat.hit_confirmed`（含动作实例 id）、
+`release` 标记发射投射物及其命中钩子、目标辅助。实现在 `CastPipeline.TimelineHit.cs`（新）与 `CastPipeline.Timeline.cs`；
+未声明 `timeline`、或链没有 `shape` 的技能保持 S3a 的 instant 结算（feellab `suite` 54/54 为证）。
+
+- **T16 命中路径由技能数据选择**：`timeline.hit_mode`（`auto|spatial|instant`，缺省 `auto`）。`auto` = 目标选择链（`target_shape_ref`）声明了 `shape`
+  走空间命中，否则保持 S3a 的 instant 结算；`ITargetHost.TryGetChainShape` 取形状模板（默认接口成员，默认 false = 没有形状；生产 `TargetHost` 覆盖）。
+  理由：形状本来就是链的数据，不在技能上重复声明；选择在动作开始时一次定下，运行中不变。设置了自定义 `TimelineServices.HitResolver` 时钩子接管 `hit` 标记，
+  不走内置空间命中（S3a 的约定不变）。
+- **T17 `marker` 策略**：`hit` 标记处以攻击方**当时**位姿（`ITargetHost.ResolveAtPose`，新默认接口成员：形状锚点换成给定位置与朝向、不发 `targeting.resolved`）
+  解析一次。空间命中的候选完全由链按攻击方位姿解析，施法请求的显式目标不参与（只用于位移的 `toward_target`/`charge`），否则"点选一个形状外的目标"会无视形状被打中。
+- **T18 `continuous` 策略**：判定相内每个推进 tick，沿攻击方上一次推进结束位姿到当前位姿线性插值（朝向取最短角度）逐点解析。采样数取三者最大：时间步长
+  （`sample_step_ms`，缺省 1/4 tick）、位移 ÷ (形状最窄尺寸 ÷ 2)、转角 × 覆盖深度 ÷ (形状最窄尺寸 ÷ 2)——保证任何 tick 间位移与转角都不会让形状跳过目标；单个区间上限 256
+  个采样（`MaxSamplesPerSpan`）。采样与调度事件**按时间顺序交错**执行（先做严格早于事件的采样再处理事件）：否则离开判定相的 `ActionPhaseChanged` 会先于该
+  tick 的命中事件发布，反馈侧的挥空窗口被提前关闭。动作时钟暂停（顿帧）期间动作时间不走、不采样；取消/结束后不再有任何命中。
+- **T19 攻击实例去重**：去重单位是**动作实例**（`ActionRun`）：账本键 (目标, 段)。多段 `hit:<段>` 每段每目标命中一次；同一段内重复（`continuous` 的多个采样）不重复命中。
+  `continuous` 用 `rehit_interval_ms` 把判定相按动作时间切成段（`floor((t - 判定相起点) / 间隔)`），每段每目标一次；`marker` 策略下 `rehit_interval_ms` 压制间隔内的后续段
+  （同一目标两次命中至少相隔该间隔）。账本记在动作实例上，动作结束随运行态消失。`combat.*` 事件上的 `attackInstanceId`（一批效果结算一个）与它是两个概念，沿用既有语义。
+- **T20 无敌前置检查**：只对声明了伤害类效果（`school_damage`/`weapon_damage_pct`）的结算做；目标处于 `IActionStateQuery.IsInvulnerable` 窗口 → 不进效果管线（不扣血、不顿帧、不硬直），
+  发 `combat.attack_avoided{Invulnerable}` 与 `combat.hit_confirmed{Invulnerable, amount 0}`；受击裁决仍被调用一次（纯函数，回避类结局返回无顿帧无反应）。只有治疗/光环类效果的技能不做检查、
+  不发 `hit_confirmed`（那不是"命中"，无敌的友军照常被治疗）。回避结果同样记入账本，同一段内不重复发回避事件。
+- **T21 `combat.hit_confirmed`**：字段按手感设计/03 第 2.4 节：`hitResult/amount/isCrit/isKill` 取效果结算结果（一个目标多个伤害效果时汇总：伤害求和，结局取第一个非回避结果），`amountRatio` = 伤害 ÷
+  目标最大生命（读不到生命资源时为 0），顿帧/反应/冲击等级来自 `TimelineServices.HitFeel`（`IHitFeelArbiter`，缺省 = 无顿帧无反应）。新增尾部字段 `castInstanceId`（可空，ABI 只加不改：旧 17 参构造保留）：
+  时间线命中（含投射物）填发起动作的施法实例 id，instant 命中为空。**行为变化**：S3a 的 instant 路径（链没有 `shape`）此前不发 `hit_confirmed` 也不做无敌检查，现在统一发、统一检查（手感设计/03 第 2.3 节两种路径统一）。
+- **T22 接触几何**：`marker`/instant 取目标登记位置；`continuous` 取判定形状（重新锚定后）与目标中心的最近点（目标在形状内时即目标中心）；投射物取飞行线段与目标中心的最近点（碰撞点）。法线从目标指向接触点
+  （接触点与目标中心重合时取攻击方向的反向），世界方向为攻击方到目标的单位向量（重合时取攻击方朝向）；几何字段永不为空。
+- **T23 `release` 标记与投射物**：声明了 `release` 标记的动作，`hit` 标记处只结算非投射物效果，`projectile` 效果在 `release` 处发射（`ExecuteEffectsOnly` 的 `EffectSubset`）；没有 `release` 的动作 `projectile` 仍在
+  `hit` 处与其它效果一起结算（S3a 行为）。发射时经 `IProjectileSpawner.Spawn(context, sink, IProjectileHitHook)`（新默认接口成员）交给投射物宿主一个命中钩子：命中前先问
+  `BeforeHit`（无敌 → 返回 false，宿主不回灌效果、不计穿透、投射物继续飞；目标已进该发投射物的 `HitUnitIds`，不重复判定），再把钩子给的攻击实例 id 戳进效果上下文，回灌后 `AfterHit` 交回结算结果，由时间线发 `hit_confirmed`
+  （`castInstanceId` 沿用发射动作）。攻击方之后被打断/动作结束不影响已发射的投射物。瞄准目标取显式目标 > 目标辅助目标 > 无目标（沿朝向直线）。
+- **T24 目标辅助**（手感设计/02 第 5 节）：`timeline.target_assist` 且装配了 `TimelineServices.TargetAssist`（`IActionTargetAssist`）才生效，缺省关闭。动作被接受时解析一次：朝向修正当场写入
+  （`IUnitFacingWriter`，新的窄接口，`WorldUnitAccess` 实现；不放进 `IUnitAccess`，与 `SetLevel`/`SetFaction` 同一约定），**不超过档案 `turn_assist_deg`**（没有手感解析器时上限取 0 = 不替玩家转）；
+  `close_distance` 把位移距离缩放（只缩不放大、不为负）；辅助目标在没有显式目标时作为 `toward_target`/`charge` 的目标与 `release` 的瞄准目标；发 `action.target_assisted`（在 `action.started` 之后）；没有候选静默。
+  载体层实现 `ActionTargetAssistAdapter`/`TargetChainAssistResolver`（`core/carriers/unit`）：链候选里第一个在距离与角度内的存活目标。
+- **T25 `cost_at: first_hit` 与 `continuous`**：`continuous` 没有 `hit` 标记也合法；首次真正命中时扣费并发派生 `cost` 标记（一个没打中的动作不扣费）。
+- **T26 离散模式**：`timeline` 技能在离散步仍走既有离散路径（`IsDiscreteStep` 时 `TryStartCast` 不进入时间线，S3a T1），形状在施法当时位姿解析一次、结算一次，不推进时间线；开关 `timeline` 块结果逐字节一致（`DiscreteMode_TimelineBlockIsInvisible…` 用例）。
+- **T27 反馈侧挥空窗口按动作实例配对**：`ImpactPipeline` 的挥空窗口键由行动者改为 (行动者, 动作实例)，`combat.hit_confirmed.castInstanceId` 与 `action.marker`/`action.phase_changed` 的动作实例 id 配对；没有动作实例 id 的命中（instant）计入该行动者全部打开的窗口。
+  旧的按行动者重载保留（ABI 只加不改）。
+- **T28 采样几何的依据**：形状尺寸取链 `shape` 模板（`ShapeGeometry.RebaseAt` 重新锚定、`ClosestPoint` 取最近点，均为 `core/foundation/engine_adapter` 的纯函数）；契约里取不到目标碰撞半径，目标按中心点处理。
+- **T29 装配**：`TimelineServices` 新增 `HitFeel`（`IHitFeelArbiter?`）与 `TargetAssist`（`IActionTargetAssist?`），均可空、缺省降级。**本切片没有改生产装配**（`HitFeelHost`/`ActionTargetAssistAdapter` 的接入、`HitFeelOptions.IsTimelineSkill`
+  让受击裁决宿主对时间线技能不再按 `combat.damage_dealt` 合成 instant 命中，都属生产装配切片），测试里用替身。
+- **T30 测试**：`SpatialHitTests`（形状命中、扫掠、去重、无敌、动作实例配对、投射物钩子、目标辅助、离散与确定性）、`SpatialHitValidationTests`、`TargetHostResolveAtPoseTests`（targeting）、
+  `ProjectileHitHookTests`（carriers/projectile，穿透 2 命中前两个后消失）、`ActionTargetAssistTests`（carriers/unit）、`ShapeGeometryPoseTests`（foundation）、`ImpactPipelineTests`/`ImpactBinderTests` 的挥空配对用例。
+
+**已知局限（逐条登记，随汇报转达）**：
+1. 没有 `supportsSweep` 能力接口：`continuous` 一律子采样（线性插值位姿，上限 256 个采样/区间）；形状极小而位移极大时按上限均匀采样，可能漏目标。
+2. 契约里取不到目标碰撞半径：目标按中心点判定（`continuous` 接触点 = 形状到目标中心的最近点，目标在形状内即目标中心）。
+3. 朝向修正需要 `IUnitAccess` 的实现同时实现 `IUnitFacingWriter`；没有实现时朝向不改、记一条诊断警告，`action.target_assisted` 照发。
+4. 目标辅助的 `max_distance` 单位为身高倍数（经标定换算）；没有手感解析器时按世界单位原样使用，且朝向修正上限为 0。
+5. 空间命中忽略显式目标（见 T17）。
+6. 无敌回避（`Invulnerable`）记入账本，同一动作同一段内目标不会在无敌结束后补打；跨段（`hit:<段>`/`rehit_interval_ms`）才会重新判定。
+7. `hit_confirmed` 只在声明了伤害类效果的技能上发；纯治疗/光环技能不发（见 T20）。
+8. 投射物对无敌目标"穿过去"（继续飞、不计穿透）；`impact_on_expiry` 的范围判定同样经过钩子。
+9. 同一动作多段 `hit:<段>` 在反馈侧挥空窗口合成一个窗口（S4 既有局限，T27 只解决了动作实例配对，没解决分段配对）。
+10. 生产装配未接（T29）：`TimelineServices.HitFeel`/`TargetAssist` 与 `HitFeelOptions.IsTimelineSkill` 在生产组装里没有赋值；`HitFeelHost` 的 `_killPending` 对时间线击杀的残留处理由装配切片核对。
+11. S3a 的 instant 路径行为变化（T21）：链没有 `shape` 的时间线技能现在也发 `hit_confirmed`、做无敌前置检查。
+
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支
 
 消费方反馈"连续技能位移"（`docs/消费方反馈/消费方反馈-2026-09-11-技能位移连续模式.md`）：
@@ -1712,10 +1772,10 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
   不在接口上写恒 false 转发、也不登记豁免。
 
 **已知局限（逐条登记，随汇报转达）**：
-1. `hit_policy: continuous` 只登记字段与解析，运行时按 `marker` 处理并在加载期给 Warning（`timeline_hit_policy_continuous`）。
+1. （已由 S3b 落地：`hit_policy: continuous` 逐 tick 空间命中，见下节 T18。）
 2. 地面坐标施法（`ground_target`）不进入时间线模式，仍按 `cast_time` 读条结算，`timeline` 在该路径上被忽略（加载期 Warning）。
 3. 蓄力相不播放（T11）；`charge` 只影响 `chargeRatio` 与校验。
-4. 位移（`motion`）只提供 `ActionState.Motion` 状态，不产生位移；目标辅助（`target_assist`）未实现，`toward_target`/`charge` 的目标只取施法请求的显式目标，没有显式目标时 `TargetId` 为空（运动仲裁器按兜底方向位移）。
+4. 位移（`motion`）只提供 `ActionState.Motion` 状态，不产生位移；目标辅助已由 S3b 落地（见下节 T24：没有显式目标时 `toward_target`/`charge` 取辅助目标）。
 5. 控制/受击等既有打断路径终止时间线动作时，`action.cancelled.reason` 按"施法者是否仍然有效"区分 `death`/`stagger`，
    不细分控制与受伤；与受击裁决切片的对接（`CancelAction(unit, reason)` 是公开入口）留待后续。
 6. 取消进入验证用的 `_probeOnly` 探测只覆盖施法管线自身的条件；探测通过后到真正开始之间无并发变化（同一线程同一 tick 内顺序执行），

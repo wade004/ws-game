@@ -127,7 +127,13 @@ namespace Core.Carriers.Projectile
         // IProjectileSpawner
         // -----------------------------------------------------------------
 
-        public void Spawn(EffectContext context, IEffectSink effectSink)
+        public void Spawn(EffectContext context, IEffectSink effectSink) => Spawn(context, effectSink, null);
+
+        /// <summary>
+        /// 手感落地（手感设计/03 第 2.5 节）：带命中钩子的生成重载（见 <see cref="IProjectileSpawner.Spawn(EffectContext, IEffectSink, IProjectileHitHook)"/>）。
+        /// <paramref name="hitHook"/> 为 null 时与既有两参数重载逐位一致（命中后效果的攻击实例 id 仍为 null、不调用任何钩子）。
+        /// </summary>
+        public void Spawn(EffectContext context, IEffectSink effectSink, IProjectileHitHook? hitHook)
         {
             if (effectSink == null) throw new ArgumentNullException(nameof(effectSink));
 
@@ -211,6 +217,7 @@ namespace Core.Carriers.Projectile
                 MaxPierceCount = maxPierceCount,
                 RelationPolicy = relationPolicy,
                 PierceOrder = pierceOrder,
+                HitHook = hitHook,
             };
         }
 
@@ -392,11 +399,21 @@ namespace Core.Carriers.Projectile
 
             candidates.Sort(BuildPierceComparer(state));
 
+            var travel = to - from;
+            var travelLength = travel.Length;
+            var flightDirection = travelLength > 1e-9 ? travel * (1.0 / travelLength) : new Vec2(1, 0);
+
             for (var i = 0; i < candidates.Count; i++)
             {
                 var targetId = candidates[i].Id;
                 state.HitUnitIds.Add(targetId);
-                ApplyOnHitEffects(state, targetId);
+
+                // 手感落地：带钩子的投射物在命中后效果回灌前过一遍钩子（无敌前置检查、攻击实例 id、hit_confirmed）。
+                // 被回避（返回 false）的命中不回灌效果、不计穿透、投射物继续飞行；目标已进 HitUnitIds，同一发不再重复判定。
+                if (!HitUnit(state, targetId, ClosestPointOnSegment(from, to, _units.GetPosition(targetId)), flightDirection))
+                {
+                    continue;
+                }
 
                 if (state.HitBehavior != "pierce")
                 {
@@ -431,14 +448,58 @@ namespace Core.Carriers.Projectile
                     if (!_units.Exists(candidateId) || !_units.IsAlive(candidateId)) continue;
                     if (!PassesRelationPolicy(state, candidateId)) continue; // ADR-0028：目标锁定 + 关系筛选，同一裁决优先级。
 
-                    ApplyOnHitEffects(state, candidateId);
+                    var away = _units.GetPosition(candidateId) - entity.Position;
+                    var awayLength = away.Length;
+                    var direction = awayLength > 1e-9 ? away * (1.0 / awayLength) : new Vec2(1, 0);
+                    HitUnit(state, candidateId, entity.Position, direction);
                 }
             }
 
             Destroy(entity.EntityId);
         }
 
-        private void ApplyOnHitEffects(ProjectileState state, Id targetId)
+        /// <summary>
+        /// 一次命中的回灌：有钩子时先问钩子（返回 false = 被回避，不回灌），回灌时把钩子给的攻击实例 id 戳进效果上下文，
+        /// 回灌完成后把各效果结算结果交回钩子。无钩子时与既有 <see cref="ApplyOnHitEffects"/> 路径逐位一致。
+        /// 返回 false 表示本次命中被回避（调用方不应计穿透）。
+        /// </summary>
+        private bool HitUnit(ProjectileState state, Id targetId, Vec2 contactPoint, Vec2 flightDirection)
+        {
+            var hook = state.HitHook;
+            if (hook == null)
+            {
+                ApplyOnHitEffects(state, targetId, null, null);
+                return true;
+            }
+
+            var info = new ProjectileHitInfo(state.SourceUnitId, targetId, state.SkillId, contactPoint, flightDirection, state.PierceCount);
+            if (!hook.BeforeHit(info, out var attackInstanceId))
+            {
+                return false;
+            }
+
+            var results = new List<ResolveResult>(state.OnHitEffects.Count);
+            ApplyOnHitEffects(state, targetId, attackInstanceId, results);
+            hook.AfterHit(info, attackInstanceId, results);
+            return true;
+        }
+
+        /// <summary>线段 <paramref name="from"/>→<paramref name="to"/> 上离 <paramref name="point"/> 最近的点（投射物碰撞点）。</summary>
+        private static Vec2 ClosestPointOnSegment(Vec2 from, Vec2 to, Vec2 point)
+        {
+            var seg = to - from;
+            var lengthSq = seg.SqrLength;
+            if (lengthSq < 1e-18)
+            {
+                return from;
+            }
+
+            var t = (point - from).Dot(seg) / lengthSq;
+            t = Math.Max(0.0, Math.Min(1.0, t));
+            return from + seg * t;
+        }
+
+        private void ApplyOnHitEffects(ProjectileState state, Id targetId, Id? attackInstanceId, List<ResolveResult>? results)
         {
             // T-N1-6（ADR-0030 决策 5；06 第 4.1 节）：投射物命中结算所属来源单位的类别，经
             // IUnitAccess.GetSourceKind 查询一次、本次命中产生的全部命中后效果共享同一个值（同
@@ -458,10 +519,11 @@ namespace Core.Carriers.Projectile
                     state.SourceUnitId, targetId, state.SkillId, effect.Kind, school,
                     baseValue, coefficient, effect.Params, auraInstanceId: null, isPeriodic: false,
                     canCrit: true, canMiss: canMiss, tags: state.Tags,
-                    triggerChainDepth: 0, attackInstanceId: null, groundPoint: null,
+                    triggerChainDepth: 0, attackInstanceId: attackInstanceId, groundPoint: null,
                     sourceKind: sourceKind);
 
-                state.EffectSink.ApplyEffect(context);
+                var result = state.EffectSink.ApplyEffect(context);
+                results?.Add(result);
             }
         }
 
@@ -687,6 +749,9 @@ namespace Core.Carriers.Projectile
             /// <summary>ADR-0028：已规范化的穿透命中顺序（<c>nearest</c>/<c>hostile_first</c> 之一，
             /// 见 <see cref="ResolvePierceOrder"/>）。</summary>
             public string PierceOrder = PierceOrderNearest;
+
+            /// <summary>手感落地：命中钩子（时间线 <c>release</c> 标记发射的投射物才有；null 即既有路径）。</summary>
+            public IProjectileHitHook? HitHook;
         }
     }
 }

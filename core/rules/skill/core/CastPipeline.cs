@@ -1461,11 +1461,13 @@ namespace Core.Rules.Skill
         /// 不变，只是不再由"调用哪个构造函数重载"来决定是否携带 <c>groundPoint</c>。
         /// </para>
         /// </summary>
-        private void ExecuteEffectsOnly(
+        private Id ExecuteEffectsOnly(
             Id casterId, SkillDef def, IReadOnlyList<Id> targets, int chainDepth = 0, Vec2? groundPoint = null,
-            IReadOnlyDictionary<Id, double>? targetCoefficients = null)
+            IReadOnlyDictionary<Id, double>? targetCoefficients = null,
+            Id? presetAttackInstanceId = null, EffectSubset subset = EffectSubset.All,
+            List<EffectOutcome>? outcomes = null, IProjectileHitHook? projectileHook = null)
         {
-            var attackInstanceId = NextCastInstanceId();
+            var attackInstanceId = presetAttackInstanceId ?? NextCastInstanceId();
 
             // T-N1-6（ADR-0030 决策 5；06 第 4.1 节）：本次结算所属施法者的来源类别，经
             // IUnitAccess.GetSourceKind 查询一次、本方法内全部效果 × 目标的笛卡尔积共享同一个值
@@ -1474,6 +1476,10 @@ namespace Core.Rules.Skill
 
             foreach (var effect in def.Effects)
             {
+                // 手感落地（时间线 release 标记）：投射物效果在 release 标记处发射，hit 标记处只结算其余效果。
+                if (subset == EffectSubset.NonProjectile && effect.Kind == EffectKind.Projectile) continue;
+                if (subset == EffectSubset.ProjectileOnly && effect.Kind != EffectKind.Projectile) continue;
+
                 foreach (var targetId in targets)
                 {
                     var school = ParamsX.GetIdOpt(effect.Params, "school") ?? def.School;
@@ -1495,8 +1501,51 @@ namespace Core.Rules.Skill
                         tags: def.Tags, triggerChainDepth: chainDepth, attackInstanceId: attackInstanceId,
                         groundPoint: groundPoint, sourceKind: sourceKind, targetCoefficient: targetCoefficient);
 
-                    _effects.ApplyEffect(context);
+                    if (projectileHook != null && effect.Kind == EffectKind.Projectile)
+                    {
+                        // 手感落地：把发射动作的命中钩子带外交给紧随其后的 projectile 效果（见 EffectDispatcher.AmbientProjectileHook）。
+                        _effects.AmbientProjectileHook = projectileHook;
+                    }
+
+                    ResolveResult result;
+                    try
+                    {
+                        result = _effects.ApplyEffect(context);
+                    }
+                    finally
+                    {
+                        _effects.AmbientProjectileHook = null;
+                    }
+
+                    outcomes?.Add(new EffectOutcome(targetId, effect.Kind, result));
                 }
+            }
+
+            return attackInstanceId;
+        }
+
+        /// <summary>时间线命中结算的效果子集（<c>release</c> 标记发射投射物、<c>hit</c> 标记结算其余）。</summary>
+        private enum EffectSubset
+        {
+            All,
+            NonProjectile,
+            ProjectileOnly,
+        }
+
+        /// <summary>一次效果结算的结果（目标、效果类型、结算结果），供时间线命中汇总成 <c>combat.hit_confirmed</c>。</summary>
+        private readonly struct EffectOutcome
+        {
+            public Id TargetId { get; }
+
+            public EffectKind Kind { get; }
+
+            public ResolveResult Result { get; }
+
+            public EffectOutcome(Id targetId, EffectKind kind, ResolveResult result)
+            {
+                TargetId = targetId;
+                Kind = kind;
+                Result = result;
             }
         }
 

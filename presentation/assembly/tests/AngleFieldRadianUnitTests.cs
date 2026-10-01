@@ -38,7 +38,12 @@ namespace Tests.Presentation.Assembly
         /// <summary>显式例外清单：字段名命中关键字、种类是 Number，但确认不是角度语义、刻意不登记
         /// Radian 的字段——"表名.字段路径" 形式。初始为空：全仓库当前没有这样的字段（见类型顶部
         /// 判断记录）。新增例外前必须先确认该字段确实不是角度语义，并在这里写明理由。</summary>
-        private static readonly HashSet<string> Exceptions = new HashSet<string>();
+        private static readonly HashSet<string> Exceptions = new HashSet<string>
+        {
+            // 手感设计/02 第 5 节固定的字段名与单位：字段名自带 _deg 后缀、值是度（与档案字段 turn_assist_deg 同一约定，
+            // 动作数据里"最大角度"按度书写便于策划阅读），不是以弧度存储的角度值，故不登记 Radian。
+            "skill.def.timeline.target_assist.max_angle_deg",
+        };
 
         [Fact]
         public void AllAngleNamedNumberFields_AreRegisteredAsRadian()

@@ -200,12 +200,34 @@ namespace Core.Rules.Common
 
         public HitReaction Reaction { get; }
 
+        /// <summary>
+        /// 发起本次命中的动作/施法实例 id（<c>action.started.castInstanceId</c> 同一个值）；时间线空间命中填入，
+        /// instant（目标选择式）命中没有动作实例，为 null。同一次动作实例的多次命中（多段、多目标）共用它，
+        /// 而 <see cref="AttackInstanceId"/> 是每次结算一个（沿用既有"一次效果结算批次一个"语义）。
+        /// 打击反馈的"挥空"窗口据此按动作实例配对，而不是按行动者配对（见 feedback_binder README）。
+        /// </summary>
+        public Id? CastInstanceId { get; }
+
         public CombatHitConfirmedEvent(
             Id attackInstanceId, int segment, Id sourceId, Id targetId, Id? skillId, HitResult hitResult,
             double amount, double amountRatio, bool isCrit, bool isKill,
             Vec2 contactPoint, Vec2 contactNormal, Vec2 worldDirection,
             string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction)
+            : this(
+                attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill,
+                contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction,
+                castInstanceId: null)
         {
+        }
+
+        public CombatHitConfirmedEvent(
+            Id attackInstanceId, int segment, Id sourceId, Id targetId, Id? skillId, HitResult hitResult,
+            double amount, double amountRatio, bool isCrit, bool isKill,
+            Vec2 contactPoint, Vec2 contactNormal, Vec2 worldDirection,
+            string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction,
+            Id? castInstanceId)
+        {
+            CastInstanceId = castInstanceId;
             AttackInstanceId = attackInstanceId;
             Segment = segment;
             SourceId = sourceId;
