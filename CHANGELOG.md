@@ -466,7 +466,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **定向模式的用例数下限**：子集运行不适用全量下限，改为失败为 0、通过至少 1、跳过数不超过上限。
 - **数值仿真基线比对挪出 T1**：模块表步骤新增 `min_level`，仿真基线只在 T2 及以上触发；仿真自己的输入数据与基线文件（`core/sim/tests/data/**`、`core/sim/tests/baseline/**`）经 `always_triggers` 不受限制。
 - **定向模式不再把「T? 未触发」误报为环境性 SKIP**：汇总段的环境性 SKIP 判定正则把定向模式的未触发原因归入开关类；主线新增的环境矩阵 6c/6d 与 IL2CPP 三步补步骤编号并登记模块表。
-- **pytest 用例数下限上调**：`toolchain/gate_floors.json` 的 pytest `min_passed` 780 → 830（实测 933，新增定向门禁用例）。
+- **pytest 用例数下限上调**：`toolchain/gate_floors.json` 的 pytest `min_passed` 780 → 840（合并前全量门禁实测 934，新增定向门禁用例）。
 
 ## [1.92.0] - 2026-10-01
 
