@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 
+from _git_env import clean_git_env, git_env  # noqa: F401  (git_env 沿用旧导入路径 _ps_harness.git_env)
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,12 +46,6 @@ def find_powershell() -> str:
 def ps_quote(value: object) -> str:
     """PowerShell 单引号字符串字面量。"""
     return "'" + str(value).replace("'", "''") + "'"
-
-
-def git_env() -> dict[str, str]:
-    """去掉 GIT_* 环境变量（例如在 git 钩子里跑 pytest 时 GIT_INDEX_FILE 会把临时仓库的 git 命令
-    指到外面的仓库）。"""
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 def run_ps_script(
@@ -74,6 +69,8 @@ def run_ps_script(
     env = clean_powershell_env(exe)
     if env is None:
         env = dict(os.environ)
+    # 脚本里再起的 git（临时仓库、git -C）同样不得继承 GIT_DIR 等变量（见 _git_env.py）。
+    env = clean_git_env(env)
     if env_extra:
         env = {**env, **env_extra}
     return subprocess.run(

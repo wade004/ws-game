@@ -40,6 +40,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from _git_env import clean_git_env
+
 
 def _is_windows_powershell_5_1(resolved_exe: str) -> bool:
     """按可执行文件名判断 resolved_exe 是 Windows PowerShell 5.1（`powershell`/`powershell.exe`）
@@ -48,19 +50,21 @@ def _is_windows_powershell_5_1(resolved_exe: str) -> bool:
     return Path(resolved_exe).stem.lower() == "powershell"
 
 
-def clean_powershell_env(resolved_exe: str) -> dict[str, str] | None:
+def clean_powershell_env(resolved_exe: str) -> dict[str, str]:
     """返回给 `subprocess.run(..., env=...)` 用的环境变量字典。
 
     - `resolved_exe` 判定为 Windows PowerShell 5.1 时：返回一份该宿主自身原生默认的
       `PSModulePath`（只含 5.1 自己的三个标准模块目录，不含调用方进程可能带的 PowerShell 7
       模块目录），其余环境变量原样继承调用方当前进程的 `os.environ`——保证子进程行为不再依赖
       "这次是从哪个 shell 里启动 pytest 的"。
-    - 判定为其它宿主（如 pwsh）时：返回 `None`，调用方应原样传给 `subprocess.run` 的 `env`
-      参数（即不覆盖，保持默认的继承行为）——目前没有复现证据表明 pwsh 目标存在同类问题，不做
-      未经验证的改动。
+    - 判定为其它宿主（如 pwsh）时：PSModulePath 不动（目前没有复现证据表明 pwsh 目标存在同类问题，
+      不做未经验证的改动），其余环境变量原样继承。
+    - 两种宿主都会去掉全部 `GIT_*` 变量（2026-10-01 事故，见 `_git_env.py`）：钩子里跑 pytest 时继承到的
+      `GIT_DIR`/`GIT_INDEX_FILE` 会让 PowerShell 脚本里再起的 git 作用到真实仓库。因此本函数现在总是
+      返回字典（不再返回 None），调用方仍可原样传给 `subprocess.run` 的 `env` 参数。
     """
     if not _is_windows_powershell_5_1(resolved_exe):
-        return None
+        return clean_git_env()
     env = dict(os.environ)
     system_root = os.environ.get("SystemRoot") or os.environ.get("SYSTEMROOT") or r"C:\Windows"
     program_files = os.environ.get("ProgramFiles") or r"C:\Program Files"
@@ -71,4 +75,4 @@ def clean_powershell_env(resolved_exe: str) -> dict[str, str] | None:
     module_dirs.append(str(Path(program_files) / "WindowsPowerShell" / "Modules"))
     module_dirs.append(str(Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "Modules"))
     env["PSModulePath"] = ";".join(module_dirs)
-    return env
+    return clean_git_env(env)

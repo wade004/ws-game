@@ -1116,9 +1116,10 @@ Windows PowerShell 5.1 的原生默认值（不含 PowerShell 7 的模块目录�
 `test_lock_writeback_repair_parity.py`、`test_powershell_scripts_ansi_safe.py`、
 `test_registry_stop_pidfile_rewrite_timestamp.py`、`test_sync_content.py` 共 10 个文件的
 13 处 `subprocess.run` 调用点统一接入 `clean_powershell_env()`，不是只修最先暴露的那一个。
-`clean_powershell_env()` 只对 Windows PowerShell 5.1 目标生效（按可执行文件名判定），pwsh
-目标原样返回 `None`（不覆盖 `env`）——目前没有复现证据表明 pwsh 目标存在同类问题，不做未经
-验证的改动。
+`clean_powershell_env()` 的 `PSModulePath` 处理只对 Windows PowerShell 5.1 目标生效（按可执行文件名判定），
+pwsh 目标的 `PSModulePath` 不动——目前没有复现证据表明 pwsh 目标存在同类问题，不做未经验证的改动
+（2026-10-01 起两种宿主都会剥掉全部 `GIT_*` 变量，因此该函数总是返回字典而不再返回 `None`，见
+下方"测试里起 git 子进程的环境隔离"一节）。
 
 **反向确认**：临时删掉 `test_abi_surface_compare.py` 里的 `env=clean_powershell_env(...)`
 参数，并把启动 pytest 的那个 pwsh 会话的 `PSModulePath` 显式设成含 PowerShell 7 MSIX 模块
@@ -1277,6 +1278,16 @@ dry-run"这条例外。
 同一模式——只定义函数、无顶层副作用，`toolchain/tests/test_dist_immutability_guard.py` 可以
 直接 dot-source 后单独测试，不需要跑完整 `build.ps1`（后者会顺带跑一大批耗时的 dotnet
 build/test 步骤）。
+
+**dist 目录校验的位置：排在 `build.ps1` 一切写盘动作之前（缺陷修复 bugfix/test-git-env-leak_20261001）**：
+此前它排在 4.1 节之后——被拦截的 `-Dist <已发布版本> -SyncContent` 仍会先 `Set-Content` 重写
+`StreamingAssets/GameFoundation/{scene,nav_mesh}/*.json` 四个共享占位文件才走到校验。门禁并行两条线里 Unity 恰好读着其中之一时
+（另起进程用 `FileShare.Read` 持有 `scene/sample_field.json` 即可稳定复现）`Set-Content` 抛 `GetContentWriterIOError`，被拦截的调用
+连"已发布版本被拒绝"的提示都没打出来（2026-10-01 合并前全量 `test_build_zip_entry_blocked_for_already_released_version` 失败，
+由 `test_git_env_isolation` 的嵌套复现多跑一遍同名用例放大）。现在校验紧跟 `$DistDirVersion` 解析之后、`$ContentOnlyMode` 判定之前，
+被拦截的调用既不写共享文件也不起 `dotnet build`；`test_dist_guard_runs_before_any_shared_file_write` 以静态顺序断言钉住
+（不用动态抢文件锁：抢锁会反过来打断并行门禁线里正常的 `build.ps1`）。同时 `test_git_env_isolation.AFFECTED_TESTS` 对本文件只取
+四条临时仓库用例——`test_build_*_entry_blocked_*` 两条直接跑真实仓库的 `build.ps1`、不起任何临时 git 仓库，不可能泄漏，不属于该复现。
 
 **测试覆盖**（`toolchain/tests/test_dist_immutability_guard.py`）：
 1. 独立函数逻辑（合成的空 git 仓库，不涉及本仓库真实标签）：版本未发布放行、版本已发布拒绝
@@ -1453,3 +1464,57 @@ build/test 步骤）。
 - **抓取不参与步骤判定**：只产生 Detail 后缀字符串，内部全部 try/catch，任何失败都只让摘要多一句"现场抓取部分失败"；`tests/test_upm_evidence.py` 里有静态用例保证 `$upmNote` 只出现在 Detail 里。
 - **建留证目录用 `[System.IO.Directory]::CreateDirectory`**：`New-Item -ItemType Directory -Force` 在父路径是同名文件时既不报错也建不出目录（实测），会让后面的写文件连环失败。
 - **已知限制**：①`upm.log` 只取 `%LOCALAPPDATA%\Unity\Editor\upm.log`（Windows 上 Unity 6 的实测位置，已核实存在）及其等价写法，其它平台/版本的位置未覆盖；②抓取发生在引擎进程退出之后，`upm.log` 若在这之前已被另一个 Unity 实例的新包管理器覆盖则抓到的是新的——`unity_processes.txt` 与 `summary.txt` 里的引擎日志片段是补充对证手段；③引擎超时被强杀（`TimedOut`）的路径不抓取；④只覆盖 Editor 批处理步骤，独立版冒烟（Player）不经包管理器；⑤`Get-UnityProcessSnapshotText` 查询 `Win32_Process`，拿不到时在文件里写失败原因，不重试；⑥PID 复用无法在测试里可控地制造，`test_pid_identity_kill.py` 用"同一 PID、身份不符"等价构造覆盖判定本身。
+
+## 测试里起 git 子进程的环境隔离（`toolchain/tests/_git_env.py`，2026-10-01 事故）
+
+**事故**：2026-10-01 19:57 在工作树里提交，预提交钩子判 T1 跑了完整 `toolchain_pytest`，之后共享的主检出 `.git/config` 被写进
+`core.bare=true`、`user.email=t@example.invalid`、`user.name=t`、`commit.gpgsign=false`，所有工作树的 git 命令都报
+`fatal: this operation must be run in a work tree`（用户手工修复）。
+
+**根因（已在一次性沙箱仓库上用模拟钩子环境复现，不是猜测）**：git 运行钩子时给钩子进程注入 `GIT_DIR`（链接工作树时为
+`<主检出>/.git/worktrees/<名>`）、`GIT_INDEX_FILE`、`GIT_PREFIX`，以及随 `git -c` 带下来的 `GIT_CONFIG_PARAMETERS`、
+`GIT_AUTHOR_*`；钩子再起的 pytest 继承了它们。测试在临时目录里 `git init`/`config`/`add`/`commit`/`tag` 时没有剥掉这些变量，命令实际作用到
+`GIT_DIR` 指的那个仓库：`git init` 在 `GIT_DIR` 已设而 `GIT_WORK_TREE` 未设时当裸库处理（写 `core.bare=true`），随后
+`git config` 写进共享 `.git/config`（链接工作树的 `git config` 默认写共享文件），`git add` 写真实暂存区，`git commit`/`git tag` 写真实分支与标签。
+沙箱实测被改的有：`config`、工作树暂存区、`refs/heads/<分支>`、`refs/tags/v1.0.0`、`refs/tags/v1.2.3`。
+
+**确认会泄漏的用例（修复前，钩子环境下逐文件实测）**：
+
+| 文件 | 用例 | 泄漏方式 |
+| --- | --- | --- |
+| `test_version_label.py` | 所有用到 `tmp_repo` 夹具的用例（`test_repro_cli_real_repo_main_feature_bugfix_release_detached`、`test_repro_cli_noncompliant_feature_branch_fails` 等） | `git init -b main`、`git config user.email/user.name/commit.gpgsign`、`add`、`commit`、`checkout -b` 全作用到真实仓库，直接复现事故的三个配置值与 `core.bare=true` |
+| `test_check_unity_meta.py` | 全部用到 `_init_repo` 的 11 条（`test_baseline_layout_has_no_issues` 起至 `test_cli_exit_code_reflects_result`） | `git init`/`config`/`add -A` 写真实配置与暂存区 |
+| `test_dist_immutability_guard.py` | `test_not_released_version_passes`、`test_released_version_blocked_with_guidance`、`test_allow_overwrite_bypasses_with_warning`、`test_dryrun_suffixed_version_not_confused_with_released_tag` | `init`、空提交、`git tag v<版本>`：真实仓库多出标签 `v1.0.0`/`v1.2.3` 与一次提交 |
+| `test_gate_step_runner.py` | `test_git_grep_banned_codename_no_hit_on_clean_repo`、`..._detects_tracked_file`、`..._ignores_untracked_file` | `init`、`config`、`add -A` |
+| `test_change_impact.py` | `test_check_dryrun_prints_playmode_category_filter`、`test_module_map_check_flags_uncovered_path_category_and_ghost_rule` | `init`、`config`、`add -A`、`commit` |
+
+`test_gate_timing_log.py`、`test_release_regression_guard.py` 修复前已经自带 `git_env()`（剥 `GIT_*`），不泄漏，现统一改走共享辅助函数。
+
+**三道防线**：① `conftest.py` 会话开始（模块导入时，早于收集）移除 `os.environ` 里全部 `GIT_*`，所有子进程（含 PowerShell 脚本里再起的 git）继承干净环境，
+确有用例需要这些变量必须自己显式设置；② `_git_env.py` 的 `git_env`/`run_git`/`init_temp_repo` 是测试起 git 子进程的唯一入口——显式干净环境 +
+`GIT_CONFIG_NOSYSTEM=1` + 指向空文件的 `GIT_CONFIG_GLOBAL`，身份写进临时仓库自己的配置，`init_temp_repo` 建完先核对 git 目录确实在目标目录下才写配置；
+③ conftest 的不变量守卫：会话开始记真实仓库共享配置（`git rev-parse --git-common-dir` 下的 `config`）的 SHA-256 与全文，会话结束再比，不一致就让整个会话失败并打印差异（只报告不还原）。
+
+用例见 `tests/test_git_env_isolation.py`：复现用例在模拟钩子环境（环境变量指向一次性沙箱仓库）里把上表的用例当子 pytest 跑并断言沙箱一个字节没变（参数化
+"conftest + 辅助函数"与"仅辅助函数（`--noconftest`）"两支），另有朴素 git 调用用例（证明防线①独立生效）与守卫用例（改了配置会话必败、打印差异、不还原；没改不吭声）；
+不变量用例覆盖"任意变量集合下 `clean_git_env` 不留 `GIT_*` 且不动其它变量"、全局/系统配置隔离、环境里带着钩子变量时辅助函数只作用于目标仓库、落点校验。
+
+### 判断记录
+
+- **剥掉全部 `GIT_*` 而不是一份定位变量清单**：清单要随 git 版本补全（`GIT_DIR`、`GIT_WORK_TREE`、`GIT_INDEX_FILE`、`GIT_OBJECT_DIRECTORY`、
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES`、`GIT_COMMON_DIR`、`GIT_PREFIX`、`GIT_CEILING_DIRECTORIES`、`GIT_NAMESPACE`、`GIT_CONFIG*`、`GIT_AUTHOR_*`、
+  `GIT_COMMITTER_*`……），漏一个就是下一次事故；测试不依赖任何 `GIT_*`，整个前缀剥掉最稳。`GIT_CONFIG_PARAMETERS`（`git -c` 的载体）与 `GIT_AUTHOR_*` 也在其中，
+  只剥定位变量会漏掉它们。
+- **守卫只比 `config`，不比暂存区/HEAD/refs**：钩子运行期间 git 自己会合法地刷新暂存区，比暂存区会误报；共享 `config` 正常情况下整个测试会话不会变，且是这次事故的
+  破坏面。暂存区/分支/标签被写属于同一根因，由防线①②挡住，不另设守卫。
+- **守卫不自动还原**：还原要先弄清被改的是什么、是谁改的；自动还原可能把别人正当写入的内容一并抹掉。
+- **`clean_powershell_env` 改为总是返回字典**：pwsh 目标以前返回 `None`（继承），现在要在继承的基础上剥 `GIT_*`，所以返回 `clean_git_env()`；没有调用方依赖 `None`（全仓库
+  28 处调用都直接传给 `env=`）。`_ps_harness.run_ps_script` 也剥。
+- **`init_temp_repo` 的落点校验是兜底，不是主防线**：万一有人绕开环境清理，`git init` 本身已经改过目标仓库的 `core.bare`，校验只拦住随后的 `config` 写入；真正的防线是
+  环境清理（防线①②）。
+- **已知限制**：①守卫在别的会话于 pytest 运行期间正当修改同一仓库共享配置（`git branch --set-upstream-to`、`git remote add`、`git worktree` 相关写入等）时会误报，以打印的差异为准人工判断；
+  ②守卫只在真实仓库在 `git rev-parse --git-common-dir` 可解析时启用（发布 zip 解出的非 git 目录里静默跳过）；
+  ③`GIT_CONFIG_GLOBAL` 需要 git 2.32 及以上，更老的 git 会忽略它，全局配置仍会被读到（本机 git 2.55；不依赖全局配置的用例不受影响）；
+  ④防线只覆盖 `toolchain/tests` 下的 pytest 会话：`check.ps1` 其它步骤、`build.ps1`、dotnet/Unity 测试里起的 git 不在本次范围；
+  ⑤没有 conftest 的运行方式（`--noconftest`、把单个测试文件拷到别处跑）下，被测脚本自己起的只读 git 仍会继承调用方的 `GIT_*`（只读，不写；测试自己起的写操作仍走辅助函数，不受影响）；
+  ⑥`gate_floors.json` 的 pytest `min_passed` 未随本次新增的 30 条用例上调，留待合并前全量实测后按既有规则抬高。

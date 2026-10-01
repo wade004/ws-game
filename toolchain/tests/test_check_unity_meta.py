@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from _git_env import init_temp_repo, run_git
+
 TOOLCHAIN_DIR = Path(__file__).resolve().parents[1]
 if str(TOOLCHAIN_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLCHAIN_DIR))
@@ -30,20 +32,13 @@ REPO_ROOT = TOOLCHAIN_DIR.parent
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
-    result = subprocess.run(
-        ["git", *args], cwd=str(repo), capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-    assert result.returncode == 0, f"git {args} 失败：{result.stderr}"
-    return result
+    # 走 _git_env 的干净环境（2026-10-01 事故：钩子里继承的 GIT_DIR/GIT_INDEX_FILE 会让这里的 git 命令写进真实仓库）。
+    return run_git(repo, *args)
 
 
 def _init_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init", "-q")
-    _git(repo, "config", "user.email", "test@example.com")
-    _git(repo, "config", "user.name", "Test")
-    return repo
+    return init_temp_repo(repo)
 
 
 def _write(repo: Path, rel_path: str, content: str = "// test\n") -> None:

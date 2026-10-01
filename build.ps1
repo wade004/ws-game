@@ -613,6 +613,22 @@ function Test-CoreAssemblyDllStale {
     return $null
 }
 
+# 发布不可变强制校验（消费方反馈第 8 条根治，见 toolchain/_dist_immutability_guard.ps1 头判断记录）：
+# -Release/-Dist/-Zip 三条入口共用 $DistRequested/$DistDirVersion（-Release 内部转译为一次 -Dist 请求，
+# 见上方"版本管理方案新增"一节，无论是否 -DryRun 都会设置 $DistRequested=$true；-Zip 前面已经校验过
+# 必须同传 -Dist/-Dist auto 或 -Release），因此只需要在这一个入口挡一次，不需要在每个开关分支各写一份。
+# 位置判断记录（缺陷修复 bugfix/test-git-env-leak_20261001）：校验放在一切写盘动作之前——dotnet build/
+# test、DLL 同步、内容同步、4.1 占位场景/导航资源（StreamingAssets/GameFoundation/{scene,nav_mesh}/*.json
+# 每次都会被重写）——被拦截的调用不得先写共享文件再报错。此前它排在 4.1 之后，被拦截的
+# `-Dist <已发布版本> -SyncContent` 仍会先 Set-Content 那几个文件：并行门禁里 Unity 正读着其中之一时，
+# Set-Content 抛 GetContentWriterIOError，被拦截的调用连"已发布版本被拒绝"的提示都没打出来
+# （toolchain/tests/test_dist_immutability_guard.py::test_dist_guard_runs_before_any_shared_file_write 钉住顺序）。
+# 仍在 `Remove-Item $DistRoot` 之前，已发布版本在这里直接终止，不会先删再报错。
+if ($DistRequested) {
+    Assert-DistVersionNotAlreadyReleased -RepoRoot $RepoRoot -VersionForPath $DistDirVersion `
+        -ArtifactDescriptions @("dist\$DistDirVersion\ 目录（打包内容）") -AllowOverwrite:$AllowOverwriteDist
+}
+
 # U2-1 判断记录："只做内容同步"的快速路径是 -SyncContent 单独传（不带 -SyncOnly）；
 # 若两者同传，-SyncOnly 的语义（跳过 build/test、仍同步 DLL）优先，内容同步照常无条件执行。
 $ContentOnlyMode = $SyncContent -and (-not $SyncOnly)
@@ -981,15 +997,6 @@ Write-Host "  已生成占位导航资源：$templateNavResourcePath（nav.templ
 # ---------------------------------------------------------------------------
 if ($DistRequested) {
     Write-Step "打分发包 dist/$DistDirVersion/"
-
-    # 发布不可变强制校验（消费方反馈第 8 条根治，见 toolchain/_dist_immutability_guard.ps1
-    # 头判断记录）：-Release/-Dist/-Zip 三条入口都会走到这个共享代码块（-Release 内部转译为一次
-    # -Dist 请求，见上方"版本管理方案新增"一节，无论是否 -DryRun 都会设置 $DistRequested=$true；
-    # -Zip 前面已经校验过必须同传 -Dist/-Dist auto 或 -Release，见文件靠前的参数校验），因此只
-    # 需要在这一个入口挡一次，不需要在每个开关分支各写一份。放在 `Remove-Item $DistRoot` 之前，
-    # 已发布版本会在这里直接终止，不会先删再报错。
-    Assert-DistVersionNotAlreadyReleased -RepoRoot $RepoRoot -VersionForPath $DistDirVersion `
-        -ArtifactDescriptions @("dist\$DistDirVersion\ 目录（打包内容）") -AllowOverwrite:$AllowOverwriteDist
 
     $DistRoot = Join-Path $RepoRoot ("dist\" + $DistDirVersion)
     if (Test-Path $DistRoot) {

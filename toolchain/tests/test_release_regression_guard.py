@@ -23,7 +23,8 @@ from pathlib import Path
 
 import pytest
 
-from _ps_harness import REPO_ROOT, git_env, ps_quote, run_ps_json
+from _git_env import git_env
+from _ps_harness import REPO_ROOT, ps_quote, run_ps_json
 
 GUARD = REPO_ROOT / "toolchain" / "_release_regression_guard.ps1"
 BUILD_SCRIPT = REPO_ROOT / "build.ps1"

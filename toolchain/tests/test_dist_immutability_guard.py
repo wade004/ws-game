@@ -59,6 +59,7 @@ from pathlib import Path
 
 import pytest
 
+from _git_env import init_temp_repo, run_git
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -90,15 +91,11 @@ def _init_git_repo(root: Path, tag_versions: list[str] | None = None) -> None:
     能不能查到指定标签，不读取仓库里的任何文件内容，用一个空仓库即可完整覆盖其逻辑，天然不会
     与真实仓库的标签互相干扰。
     """
-    root.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(
-        ["git", "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-q", "--allow-empty", "-m", "init"],
-        cwd=root,
-        check=True,
-    )
+    # 走 _git_env：钩子里继承的 GIT_DIR 等变量会让 init/commit/tag 写进真实仓库（2026-10-01 事故）。
+    init_temp_repo(root)
+    run_git(root, "commit", "-q", "--allow-empty", "-m", "init")
     for v in tag_versions or []:
-        subprocess.run(["git", "tag", f"v{v}"], cwd=root, check=True)
+        run_git(root, "tag", f"v{v}")
 
 
 def _run_guard(
@@ -202,12 +199,7 @@ def test_dryrun_suffixed_version_not_confused_with_released_tag(tmp_path: Path, 
 
 
 def _pick_existing_released_version() -> str | None:
-    result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "tag", "-l", "v*"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    result = run_git(REPO_ROOT, "tag", "-l", "v*")
     for line in result.stdout.splitlines():
         m = _RELEASED_TAG_VERSION_PATTERN.match(line.strip())
         if m:
@@ -339,6 +331,40 @@ def test_zip_and_lock_write_guarded_exactly_once() -> None:
     assert zip_lock_guard < lock_write[0], (
         "第二处 Assert-DistVersionNotAlreadyReleased 必须排在 .lock 写入之前"
     )
+
+
+def test_dist_guard_runs_before_any_shared_file_write() -> None:
+    """复现（缺陷修复 bugfix/test-git-env-leak_20261001，门禁 full-20261001 合并前全量）：被拦截的
+    `-Dist <已发布版本> -SyncContent -Zip` 此前先执行 4.1 节的 `Set-Content`（重写
+    `StreamingAssets/GameFoundation/{scene,nav_mesh}/*.json` 四个共享文件）才走到校验。门禁两条并行线里
+    Unity 恰好读着其中之一时，`Set-Content` 抛 `GetContentWriterIOError`，被拦截的调用既没打出"已发布版本被拒绝"
+    的提示、退出码也不是守卫给的——用例断言版本号出现在输出里而失败。手工复现：另起进程用 FileShare.Read 持有
+    `scene/sample_field.json`，再跑上述命令，修复前稳定在 build.ps1 的 Set-Content 处失败。
+
+    不变量：dist 目录那次校验（第一处 `Assert-DistVersionNotAlreadyReleased`）必须排在 build.ps1 里**所有**
+    写盘动作之前——dotnet build/test、DLL 同步、内容同步（`$ContentOnlyMode` 判定起）与四个占位资源
+    `Set-Content`，被拦截的调用不得先写共享文件再报错。这里用静态顺序断言而不是动态抢文件锁：
+    抢锁会反过来打断并行门禁线里正常的 build.ps1。
+    """
+    lines = _read_build_script_lines()
+    first_guard = _all_line_indices(lines, "Assert-DistVersionNotAlreadyReleased")[0]
+    # 只看代码行，不看注释里提到这些词的地方
+    code = [(i, line) for i, line in enumerate(lines) if not line.lstrip().startswith("#")]
+    first_write_markers = (
+        "$ContentOnlyMode = ",
+        "& dotnet build",
+        "Set-Content -Path $sceneResourcePath",
+        "Set-Content -Path $navResourcePath",
+        "Set-Content -Path $templateSceneResourcePath",
+        "Set-Content -Path $templateNavResourcePath",
+    )
+    for marker in first_write_markers:
+        hits = [i for i, line in code if marker in line]
+        assert hits, f"未在 build.ps1 代码行中找到：{marker}（若该写盘语句改名了，同步更新本用例的标记表）"
+        assert first_guard < hits[0], (
+            f"dist 目录校验（第 {first_guard + 1} 行）必须排在 `{marker}`（第 {hits[0] + 1} 行）之前："
+            "被拦截的调用不得先写共享文件再报错"
+        )
 
 
 def test_release_entry_reuses_shared_guarded_dist_requested_flag() -> None:

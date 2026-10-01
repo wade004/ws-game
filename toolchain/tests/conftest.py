@@ -19,6 +19,17 @@ pwsh（PowerShell 7）其次——于是在装了两个宿主的机器上，这�
 
 使用者：`toolchain/_gate_line_heavy.ps1` 的"PowerShell 脚本类 pytest 双宿主矩阵"步骤（只在全量门禁里
 跑，`-Quick`/`-SkipUnity` 下 SKIP）。
+
+第二块职责：git 环境隔离与真实仓库配置不变量守卫（缺陷修复 bugfix/test-git-env-leak_20261001，
+2026-10-01 事故，原理与三道防线见 `_git_env.py` 模块文档）：
+
+- 本模块被导入时（早于收集阶段）就把 `os.environ` 里全部 `GIT_*` 变量移除：在 git 钩子里跑 pytest 时
+  `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_PREFIX`/`GIT_CONFIG_PARAMETERS` 会被注入，测试在临时目录里起的 git 命令
+  不剥掉就会作用到真实仓库。确有用例需要这些变量时，必须在该用例里显式设置。
+- 会话开始记下真实仓库共享配置（`git rev-parse --git-common-dir` 下的 `config`）的 SHA-256 与全文，会话
+  结束再比一次；不一致让整个会话失败并打印差异，只报告、不自动还原。已知限制：如果别的会话在 pytest 运行期间
+  正当地改了同一仓库的共享配置（例如 `git branch --set-upstream-to`、`git remote add`），守卫会误报，
+  以打印出的差异为准人工判断。
 """
 
 from __future__ import annotations
@@ -26,8 +37,16 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
+
+from _git_env import ConfigFingerprint, common_config_path, strip_git_env_from_process
+
+# 必须早于任何收集期/模块级的 git 调用：先剥环境，再记配置指纹（指纹用干净环境查仓库位置）。
+_STRIPPED_GIT_VARS = strip_git_env_from_process()
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_config_guard: ConfigFingerprint | None = None
 
 _ENV_NAME = "WS_GAME_PS_HOST"
 _POWERSHELL_NAMES = {"powershell", "pwsh"}
@@ -65,6 +84,10 @@ shutil.which = _which_with_host_override
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
+    global _config_guard
+    strip_git_env_from_process()
+    config_path = common_config_path(_REPO_ROOT)
+    _config_guard = ConfigFingerprint(config_path) if config_path is not None else None
     host = _requested_host()
     if host is None:
         return
@@ -86,3 +109,26 @@ def pytest_sessionstart(session: pytest.Session) -> None:
             returncode=3,
         )
     print(f"\n[{_ENV_NAME}={host}] PowerShell 宿主 {exe}，主版本 {reported}")
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """不变量守卫：真实仓库共享 git 配置在整个测试会话里不得变化；变了就让会话失败（只报告，不还原）。"""
+    if _config_guard is None:
+        return
+    report = _config_guard.diff_against_current()
+    if report is None:
+        return
+    rule = "=" * 72
+    banner = (
+        "\n" + rule
+        + "\n[git 配置守卫] 测试会话期间真实仓库的共享 git 配置被改动了——有用例把 git 命令作用到了真实仓库。"
+        + "\n本守卫只报告、不自动还原；先查清是哪条用例（测试里起 git 子进程必须走 _git_env 辅助函数），再手工处理。\n"
+        + report
+        + "\n" + rule + "\n"
+    )
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write(banner, red=True)
+    else:
+        print(banner)
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
