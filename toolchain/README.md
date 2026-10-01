@@ -1279,6 +1279,16 @@ dry-run"这条例外。
 直接 dot-source 后单独测试，不需要跑完整 `build.ps1`（后者会顺带跑一大批耗时的 dotnet
 build/test 步骤）。
 
+**dist 目录校验的位置：排在 `build.ps1` 一切写盘动作之前（缺陷修复 bugfix/test-git-env-leak_20261001）**：
+此前它排在 4.1 节之后——被拦截的 `-Dist <已发布版本> -SyncContent` 仍会先 `Set-Content` 重写
+`StreamingAssets/GameFoundation/{scene,nav_mesh}/*.json` 四个共享占位文件才走到校验。门禁并行两条线里 Unity 恰好读着其中之一时
+（另起进程用 `FileShare.Read` 持有 `scene/sample_field.json` 即可稳定复现）`Set-Content` 抛 `GetContentWriterIOError`，被拦截的调用
+连"已发布版本被拒绝"的提示都没打出来（2026-10-01 合并前全量 `test_build_zip_entry_blocked_for_already_released_version` 失败，
+由 `test_git_env_isolation` 的嵌套复现多跑一遍同名用例放大）。现在校验紧跟 `$DistDirVersion` 解析之后、`$ContentOnlyMode` 判定之前，
+被拦截的调用既不写共享文件也不起 `dotnet build`；`test_dist_guard_runs_before_any_shared_file_write` 以静态顺序断言钉住
+（不用动态抢文件锁：抢锁会反过来打断并行门禁线里正常的 `build.ps1`）。同时 `test_git_env_isolation.AFFECTED_TESTS` 对本文件只取
+四条临时仓库用例——`test_build_*_entry_blocked_*` 两条直接跑真实仓库的 `build.ps1`、不起任何临时 git 仓库，不可能泄漏，不属于该复现。
+
 **测试覆盖**（`toolchain/tests/test_dist_immutability_guard.py`）：
 1. 独立函数逻辑（合成的空 git 仓库，不涉及本仓库真实标签）：版本未发布放行、版本已发布拒绝
    （异常信息含版本号/已发布证据/拒绝原因/正确做法/例外开关名五类关键指引）、

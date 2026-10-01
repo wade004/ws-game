@@ -9,7 +9,7 @@
 - **复现（修复前红、修复后绿）**：
   1. ``test_repro_affected_tests_do_not_write_into_hook_target_repo``：真的在模拟钩子环境（环境变量指向沙箱）
      里把事故中会泄漏的那批用例（``test_version_label``、``test_check_unity_meta``、
-     ``test_dist_immutability_guard``、``test_gate_step_runner`` 的 git grep 用例、``test_change_impact`` 的两条
+     ``test_dist_immutability_guard`` 的四条临时仓库用例、``test_gate_step_runner`` 的 git grep 用例、``test_change_impact`` 的两条
      临时仓库用例）当子 pytest 跑，断言沙箱的配置 / HEAD / 暂存区 / refs 一个字节都没变。参数化两次：
      完整（conftest 剥环境 + 辅助函数）与 ``--noconftest``（只靠辅助函数，证明防线 2 不依赖防线 1）。
   2. ``test_repro_session_strip_protects_naive_git_calls``：一个**故意不带任何防护**的朴素用例
@@ -43,7 +43,13 @@ REPO_ROOT = TESTS_DIR.parents[1]
 AFFECTED_TESTS = [
     "toolchain/tests/test_version_label.py",
     "toolchain/tests/test_check_unity_meta.py",
-    "toolchain/tests/test_dist_immutability_guard.py",
+    # 只放真会在临时仓库里起 git 的四条；同文件里 test_build_*_entry_blocked_* 两条直接跑真实仓库的 build.ps1
+    # （不起任何临时 git 仓库、不可能泄漏），嵌套再跑一遍只会与并行门禁线争用 StreamingAssets 占位文件
+    # （2026-10-01 合并前全量 GetContentWriterIOError），不属于本复现的范围。
+    "toolchain/tests/test_dist_immutability_guard.py::test_not_released_version_passes",
+    "toolchain/tests/test_dist_immutability_guard.py::test_released_version_blocked_with_guidance",
+    "toolchain/tests/test_dist_immutability_guard.py::test_allow_overwrite_bypasses_with_warning",
+    "toolchain/tests/test_dist_immutability_guard.py::test_dryrun_suffixed_version_not_confused_with_released_tag",
     "toolchain/tests/test_gate_step_runner.py::test_git_grep_banned_codename_no_hit_on_clean_repo",
     "toolchain/tests/test_gate_step_runner.py::test_git_grep_banned_codename_detects_tracked_file",
     "toolchain/tests/test_gate_step_runner.py::test_git_grep_banned_codename_ignores_untracked_file",
