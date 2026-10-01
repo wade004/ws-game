@@ -501,7 +501,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **`consumer_smoke` 私服冷启动**：私服不在运行时改用 `Start-Process` 起 `start_registry.ps1 -Detach` 并带超时等待就绪，修复 `| Out-Null` 被后台 node 进程占住管道而卡死。
 - **`added>0` 拦截判定抽函数**：门禁线的 `Added` 差异拦截从 `_gate_line_heavy.ps1` 内联正则抽成 `toolchain/_sim_added_guard.ps1` 的 `Get-SimRunnerAddedVerdict` 并单测；同时有意收紧一处——`simrunner` 退出码 0 却解析不出任何场景摘要行、或出现 `scenario=` 开头但格式不匹配的行时 FAIL（此前静默放行）。
 - **全量门禁新增两步（复盘 I-5 缩减版）**：6c 不设 `PYTHONUTF8` 重跑 `toolchain` pytest；6d 脚本类 pytest 在 Windows PowerShell 5.1 与 PowerShell 7 各跑一遍（`toolchain/tests/conftest.py` 的 `WS_GAME_PS_HOST` 开关重定向宿主，宿主缺失/版本不符直接退出，不静默降级），skipped 必须为 0。`-Quick`/`-SkipUnity` 下这两步显示为 SKIP 行。
-- **发布门禁固定 IL2CPP（I-6）**：IL2CPP 三步只进 `build.ps1 -Release`（固定 `-Il2cpp`），默认 `check.ps1`/pre-commit/CI 不跑；判断记录写入 `check.ps1` 头部。
+- **IL2CPP 保持显式开关（I-6，发布门禁不强制）**：IL2CPP 三步仍只由 `check.ps1 -Il2cpp` 开启，`build.ps1 -Release` 不强制传（构建机缺 Visual Studio C++ 工作负载与 Windows SDK，IL2CPP 构建必败；装好后再启用）；判断记录写入 `check.ps1` 头部。
 - **发布前回归记录守卫，删除 `-ReleaseSkipUnity`（I-13）**：`build.ps1 -Release` 写回版本号前校验 `REGRESSION_LOG.md` 有对应 HEAD（或其祖先且其后只改 `docs/`、`architecture/`、`*.md`）的含 Unity 全量通过记录，否则拒绝并打印原因；`-DryRun` 只警告。逻辑抽成 `toolchain/_release_regression_guard.ps1`。**`build.ps1 -Release` 的 `-ReleaseSkipUnity` 开关删除**，发布时不能再整段跳过 Unity。
 - **Perf 诊断行缺失判 FAIL（I-2）**：性能基线诊断行缺失此前只是黄色警告，现改为步骤 FAIL（`Get-PerfDiagnosticLines`，伪造 trx 夹具测试）。
 - **门禁判定逻辑抽成函数并补测试（I-8/I-12）**：Unity 结果 XML 判定、冒烟日志判定、包清单必需文件与排除项抽成 `toolchain/_gate_unity_verdicts.ps1`，经 PowerShell 子进程测试；`Resolve-UnityExe`/`Invoke-NativeAndWait`/`Test-NoResidualUnityProcess` 同补用例。

@@ -67,9 +67,9 @@
          对适配层包依赖版本号的镜像字段，UPM 打开工程时会自行核对/改写这个字段，写回步骤同步覆盖
          避免下一步门禁跑出一份未提交的改动）——这一步是本次发布"成为新的当前版本"的唯一写入点，
          `-DryRun` 时跳过，不触碰任何源码文件。
-      5. 跑一遍 `check.ps1`（全量，含 Unity 相关步骤与消费方演练，并固定传 `-Il2cpp` 额外跑 IL2CPP
-         构建与两种冒烟——复盘 I-6，发布前核心库在 AOT 下的真实可运行性必须有证据；日常 `check.ps1`
-         不跑这三步）。发布门禁没有"跳过 Unity"的开关（原先跳过 Unity 的发布开关已于测试覆盖第四批删除，
+      5. 跑一遍 `check.ps1`（全量，含 Unity 相关步骤与消费方演练；**不**强制传 `-Il2cpp`——IL2CPP
+         三步仍为显式开关，发布门禁不强制，原因：构建机缺 Visual Studio C++ 工作负载与 Windows SDK，
+         装好后再启用；复盘 I-6 的 2026-10-01 回退）。发布门禁没有"跳过 Unity"的开关（原先跳过 Unity 的发布开关已于测试覆盖第四批删除，
          复盘 I-13）。
       6. 非 `-DryRun` 时：门禁通过后立即提交 VERSION/两个 package.json/packages-lock.json/
          CHANGELOG.md 的改动（提交信息 `发布 <ver>`），并在 `dist/release-notes-<ver>.txt` 落一份
@@ -415,10 +415,11 @@ if ($ReleaseRequested) {
     # 第 5 步：全量门禁（含 Unity，没有跳过 Unity 的开关）。DryRun 同样跑——DryRun 的目的正是验证
     # "发布流水线全流程能否走通"，门禁本身不写文件，天然安全。
     #
-    # 判断记录（固定传 -Il2cpp，复盘 I-6，2026-10-01 设计层拍板）：IL2CPP 三步（IL2CPP 独立版构建 +
-    # 两种无人值守冒烟）验证核心类库在 AOT 编译下的真实可运行性，耗时分钟到十余分钟、依赖 IL2CPP 模块
-    # 与 C++ 工具链，所以日常 check.ps1 默认不跑；但发布前这是唯一一次对外承诺质量的时刻，不能留
-    # 盲区，因此只在这里固定传。
+    # 判断记录（不强制传 -Il2cpp，复盘 I-6 于 2026-10-01 回退）：IL2CPP 三步（IL2CPP 独立版构建 +
+    # 两种无人值守冒烟）仍是 check.ps1 的显式开关，发布门禁不强制。原因：构建机缺 Visual Studio C++
+    # 工作负载与 Windows SDK，IL2CPP 构建必败（此前发布里这三步一直是 SKIP，从未真正跑过；1.92.0
+    # 首次发布因强制传 -Il2cpp 在此处阻塞）。装好工具链后再启用：要跑就显式给 check.ps1 传 -Il2cpp，
+    # 或把本处改回固定传。
     #
     # 判断记录（固定传 -AbiStrict，外部审计 audit-76d16a5-20260910 PJ114-02 根治）：发布机在跑到
     # 这一步之前，第 4 步已经确保历史版本 dist/ 产物齐备（`-Release` 打包本身就要求能追溯到基线
@@ -433,7 +434,7 @@ if ($ReleaseRequested) {
     # 的原行为，两者场景不同、开关默认值分开定，互不影响。
     Write-Step "check.ps1 门禁（-Release 第 5 步）"
     $checkScript = Join-Path $RepoRoot "check.ps1"
-    $checkArgs = @("-AbiStrict", "-FailFast", "-Il2cpp")
+    $checkArgs = @("-AbiStrict", "-FailFast")
     & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Host "check.ps1 未通过（退出码 $LASTEXITCODE），发布流程终止" -ForegroundColor Red

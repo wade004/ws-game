@@ -54,6 +54,7 @@ from pathlib import Path
 
 import pytest
 
+from _latest_dist import find_latest_dist_package
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -267,14 +268,11 @@ def test_real_dist_package_regression(tmp_path: Path, shell: str) -> None:
     不把"没有产物"误判为测试失败——CI/干净 checkout 环境可能没有先跑过 build.ps1 -Release）。
     关键用例，本机 powershell/pwsh 都在时两者都跑一遍（见 shell fixture 判断记录）。
     """
-    version_file = REPO_ROOT / "VERSION"
-    if not version_file.is_file():
-        pytest.skip("找不到仓库根 VERSION 文件")
-    version = version_file.read_text(encoding="utf-8").strip()
-    zip_path = REPO_ROOT / "dist" / f"ws-game-{version}.zip"
-    lock_path = REPO_ROOT / "dist" / f"ws-game-{version}.lock"
-    if not zip_path.is_file() or not lock_path.is_file():
-        pytest.skip(f"本机没有 dist/ws-game-{version}.zip|.lock，跳过真实产物回归")
+    # 不按 VERSION 找包：发布流程先写回 VERSION 再跑门禁，此时目标版本的包尚不存在（见 _latest_dist 判断记录）。
+    found = find_latest_dist_package(REPO_ROOT / "dist")
+    if found is None:
+        pytest.skip("本机 dist/ 下没有任何成对的 ws-game-<版本>.zip|.lock，跳过真实产物回归")
+    version, zip_path, lock_path = found
 
     workspace, target, neighbor = _make_sentinel_layout(tmp_path)
     result = _run_script(

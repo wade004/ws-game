@@ -132,11 +132,11 @@
          pytest 文件在 Windows PowerShell 5.1 与 PowerShell 7 两个宿主各整批跑一遍（环境变量
          `WS_GAME_PS_HOST`，实现与宿主核对见 `toolchain/tests/conftest.py`）。两步里 skipped 一律
          FAIL。`-Quick`/`-SkipUnity` 下这两步登记为可见 SKIP，所以三种形态的总步骤数各 +2。
-       - **I-6（IL2CPP/AOT 只进发布门禁）**：IL2CPP 三步（构建 + 两种冒烟）仍然只由 `-Il2cpp` 开启，
+       - **I-6（IL2CPP/AOT）**：IL2CPP 三步（构建 + 两种冒烟）仍为显式开关，只由 `-Il2cpp` 开启，
          默认 `check.ps1`（含 pre-commit、CI、日常全量）不跑——代码现状即如此（`_gate_line_unity.ps1`
-         里 `if (-not $Il2cpp)` 分支登记三个 SKIP，`-Il2cpp` 默认 `$false`），本次只确认并登记判断；
-         新增的是 `build.ps1 -Release` 第 5 步调用本脚本时固定传 `-Il2cpp`（发布前核心库在 AOT 下
-         的真实可运行性必须有证据）。
+         里 `if (-not $Il2cpp)` 分支登记三个 SKIP，`-Il2cpp` 默认 `$false`）。**发布门禁不强制**，
+         `build.ps1 -Release` 第 5 步不传 `-Il2cpp`（2026-10-01 回退此前"发布门禁固定传"的拍板）。
+         原因：构建机缺 Visual Studio C++ 工作负载与 Windows SDK，IL2CPP 构建必败；装好后再启用。
        - **I-7（不做）**：不为 `build.ps1 -Release`/`-Dist` 全流程写自动化 dry-run 用例——脚本近两千
          行、仅 Windows、耗时长，写稳的成本高于收益；发布流程靠真实发布 + `REGRESSION_LOG.md` 登记
          + 既有的 `toolchain/_dist_immutability_guard.ps1` 等纯函数守卫的单测兜底。
@@ -232,7 +232,8 @@
     NamedBuildTarget.Standalone 的脚本后端到 IL2CPP，构建后还原，不永久修改 ProjectSettings）+
     两种无人值守冒烟（-gf-smoke / -gf-smoke-discrete），验证核心类库在 AOT 编译（无反射兜底）下
     的真实可运行性。`-SkipUnity` 时本开关不生效（-SkipUnity 已整体跳过 Unity）。`build.ps1 -Release`
-    第 5 步固定传本开关（复盘 I-6，见 .SYNOPSIS 判断记录 8)）；日常/pre-commit/CI 仍默认不跑。
+    第 5 步不传本开关（复盘 I-6 的 2026-10-01 回退，见 .SYNOPSIS 判断记录 8)：构建机缺 VS C++
+    工作负载与 Windows SDK，装好后再启用）；日常/pre-commit/CI 同样默认不跑。
 
 .PARAMETER DocsOnly
     提交前钩子分级任务新增（2026-09-22），供 `.githooks/pre-commit` 在判定本次提交暂存改动

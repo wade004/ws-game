@@ -11,7 +11,7 @@
 ``REGRESSION_LOG.md`` 钉住"现有记录行能被解析、含 Unity 与否的分类符合肉眼判断"。
 
 另有静态接线断言：``build.ps1`` 已删除 ``-ReleaseSkipUnity`` 开关、调用了守卫、``-Release`` 第 5 步
-固定传 ``-Il2cpp``。
+不强制传 ``-Il2cpp``（复盘 I-6 于 2026-10-01 回退：构建机缺 VS C++ 工作负载与 Windows SDK）。
 """
 
 from __future__ import annotations
@@ -341,7 +341,10 @@ def test_build_script_wiring_for_release_regression_gate() -> None:
     assert "ReleaseSkipUnity" not in text, "-ReleaseSkipUnity 开关及其引用必须已删除（复盘 I-13）"
     assert "_release_regression_guard.ps1" in text
     assert "Test-ReleaseRegressionRecord" in text
-    assert '$checkArgs = @("-AbiStrict", "-FailFast", "-Il2cpp")' in text, "发布门禁必须固定传 -Il2cpp（复盘 I-6）"
+    step5 = text.split("第 5 步：全量门禁")[1].split("check.ps1 未通过")[0]
+    assert '$checkArgs = @("-AbiStrict", "-FailFast")' in text, "发布门禁固定只传 -AbiStrict -FailFast"
+    assert "-Il2cpp" not in step5.split("$checkArgs =")[1].split("\n")[0], \
+        "发布门禁不得强制传 -Il2cpp（复盘 I-6 已回退：构建机缺 VS C++ 工作负载与 Windows SDK）"
     assert "-SkipUnity" not in text.split("第 5 步：全量门禁")[1].split("check.ps1 未通过")[0], \
         "发布门禁不得再有任何跳过 Unity 的传参路径"
     # 检查必须在写回版本号之前（拒绝时不污染工作树）。

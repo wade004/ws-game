@@ -232,7 +232,7 @@ powershell -File build.ps1 -Release 1.0.0 -Publish                          # �
 3. 校验 `CHANGELOG.md` 已存在 `## [X.Y.Z]` 条目（没有则报错，提示先补齐变更记录）。
    另校验 `REGRESSION_LOG.md` 里有对应当前 `HEAD` 的"含 Unity 全量通过"记录（记录的提交就是 `HEAD`，或是其祖先且其后只改了 `docs/`、`architecture/`、`*.md`；结果列须以"通过"开头并含"含 Unity"或"PlayMode N/N"字样），没有则拒绝发布并打印原因——先在有 Unity 的机器上对当前提交跑 `check.ps1` 全量并登记一行；`-DryRun` 只警告不拦。发布不再有"跳过 Unity"的开关。
 4. 把版本号写回 `VERSION`、两个 `package.json` 与 `adapters/unity/Packages/packages-lock.json`（`com.gamefoundation.game-template` 条目下对适配层包依赖版本号的 UPM 镜像字段；`-DryRun` 时跳过这一步，不触碰任何源码文件）。
-5. 跑一遍 `check.ps1`（全量，固定传 `-AbiStrict -FailFast -Il2cpp`：含 Unity 相关步骤，并额外跑 IL2CPP 构建与两种冒烟；日常 `check.ps1` 不跑 IL2CPP 三步）。
+5. 跑一遍 `check.ps1`（全量，固定传 `-AbiStrict -FailFast`：含 Unity 相关步骤；IL2CPP 三步仍是显式 `-Il2cpp` 开关，发布门禁不强制——构建机缺 Visual Studio C++ 工作负载与 Windows SDK，装好后再启用）。
 6. 非 `-DryRun` 时：门禁通过后立即提交 `VERSION`/两个 `package.json`/`packages-lock.json`/`CHANGELOG.md`（提交信息 `发布 <ver>`）——先于下一步打包，使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净。
 7. 打包 `dist/<ver>/`、`dist/ws-game-<ver>.zip`（zip 内顶层目录 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、`git_commit`、六个核心 DLL 的 sha256）；非 `-DryRun` 时打包完成后自检 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足则报错退出（此时提交已产生但未打标签，按打印的提示 `git reset --soft` 回退后修复重跑）；自检通过后打带注释标签 `v<ver>`（标签信息取 `CHANGELOG.md` 该版本条目正文），并打印后续需要人工/设计层执行的两条命令：
 
