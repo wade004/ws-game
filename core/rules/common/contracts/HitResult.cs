@@ -29,5 +29,13 @@ namespace Core.Rules.Common
         /// 的既有布尔字段与本枚举值语义等价，互为佐证，不是新引入的判定条件），不会作为步骤 1
         /// "判定"的六分支结果出现在 <see cref="Core.Rules.Combat.HitTableConfig"/> 里。</summary>
         Immune,
+
+        /// <summary>
+        /// 手感设计/03 第 2.3 节（ADR-0114）：目标处于无敌窗口（<c>IActionStateQuery.IsInvulnerable</c> 为真）时，
+        /// 结算管线在九步之前前置判为回避，经 <c>combat.attack_avoided</c> 发布，不进入命中表。
+        /// 追加到枚举末尾（ABI 只加法，既有成员数值不变）；<c>combat.attack_avoided.hitResult</c> 的取值集合
+        /// 由此扩为 Miss/Dodge/Parry/Immune/Invulnerable。本枚举值由时间线命中切片产生，S0 只定义契约。
+        /// </summary>
+        Invulnerable,
     }
 }

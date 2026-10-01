@@ -192,7 +192,7 @@ namespace Presentation.Assembly
         {
             "found", "prog", "stat", "arch", "fac", "skill", "combat", "ai", "target",
             "item", "creature", "gobj", "loot", "quest", "dialog", "encounter", "diff",
-            "achv", "econ", "world", "spawn", "area", "display", "vfx", "sfx", "l10n", "input",
+            "achv", "econ", "world", "spawn", "area", "display", "vfx", "sfx", "l10n", "input", "feel",
         };
 
         /// <summary>递归深度上限，防御自引用 schema（<see cref="FieldSchema.Item"/>/

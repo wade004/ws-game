@@ -12,6 +12,9 @@ namespace Core.Foundation.InputMap
     {
         public static readonly Id ActionTriggered = new Id("input.action_triggered");
         public static readonly Id RebindConflict = new Id("input.rebind_conflict");
+
+        /// <summary>手感设计/01 第 3.7 节：缓冲记录未被执行即离开缓冲，见 <see cref="InputBufferDroppedEvent"/>。</summary>
+        public static readonly Id BufferDropped = new Id("input.buffer_dropped");
     }
 
     /// <summary>
@@ -52,6 +55,32 @@ namespace Core.Foundation.InputMap
         {
             ActionName = actionName;
             Binding = binding;
+        }
+    }
+
+    /// <summary>
+    /// <c>input.buffer_dropped</c>（手感设计/01 第 2.2/3.7 节）：缓冲记录未被执行即离开缓冲时发出，
+    /// 每条记录至多一次。字段与 <c>found.event_catalog</c> 登记一致：actorId、actionId、reason、reasonCode。
+    /// </summary>
+    public sealed class InputBufferDroppedEvent : IEvent
+    {
+        public Id Key => InputMapEventKeys.BufferDropped;
+
+        public Id ActorId { get; }
+
+        public Id ActionId { get; }
+
+        public BufferDropReason Reason { get; }
+
+        /// <summary><see cref="BufferDropReason.Rejected"/> 时的管线拒绝原因码（如 <c>NOT_ENOUGH_RESOURCE</c>），其它原因为 null。</summary>
+        public string? ReasonCode { get; }
+
+        public InputBufferDroppedEvent(Id actorId, Id actionId, BufferDropReason reason, string? reasonCode = null)
+        {
+            ActorId = actorId;
+            ActionId = actionId;
+            Reason = reason;
+            ReasonCode = reasonCode;
         }
     }
 }

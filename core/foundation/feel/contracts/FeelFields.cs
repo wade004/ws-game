@@ -1,0 +1,293 @@
+using System.Collections.Generic;
+using Core.Foundation.DataRegistry;
+
+namespace Core.Foundation.Feel
+{
+    /// <summary>
+    /// 框架手感字段名常量（<see cref="FeelFields.Default"/> 登记的全部字段；手感设计/05 第 3.1 节七个分组、
+    /// 01 第 4 节输入/动作组、02 第 2/7 节移动组、03 第 3/4 节受击组、07 第 2/3 节镜头与音频组、05 第 3.1 节特效组、
+    /// 08 第 4 节武器资产字段）。消费方按名读取，不手写字符串字面量。
+    /// </summary>
+    public static class FeelFieldNames
+    {
+        // 输入（判定型）
+        public const string BufferMs = "buffer_ms";
+        public const string BufferSlots = "buffer_slots";
+        public const string GraceMs = "grace_ms";
+        public const string HoldThresholdMs = "hold_threshold_ms";
+        public const string DeadZone = "dead_zone";
+        public const string ResponseCurve = "response_curve";
+        public const string SmoothingMs = "smoothing_ms";
+
+        // 移动（判定型）
+        public const string AccelMs = "accel_ms";
+        public const string DecelMs = "decel_ms";
+        public const string AccelCurve = "accel_curve";
+        public const string BrakeCurve = "brake_curve";
+        public const string ReversePolicy = "reverse_policy";
+        public const string TurnRateDegS = "turn_rate_deg_s";
+        public const string WalkSpeedRatio = "walk_speed_ratio";
+        public const string SprintSpeedRatio = "sprint_speed_ratio";
+        public const string ActionMoveSpeedRatio = "action_move_speed_ratio";
+        public const string ActionTurnLock = "action_turn_lock";
+        public const string KeepMomentumOnActionEnd = "keep_momentum_on_action_end";
+        public const string ArrivalDecel = "arrival_decel";
+        public const string WallSlide = "wall_slide";
+        public const string ApplyToPathFollowing = "apply_to_path_following";
+        public const string KnockbackResistanceStat = "knockback_resistance_stat";
+
+        // 移动（呈现型：步态阈值、步幅、启停混合、倾斜）
+        public const string IdleMaxRatio = "idle_max_ratio";
+        public const string WalkMaxRatio = "walk_max_ratio";
+        public const string SprintMinRatio = "sprint_min_ratio";
+        public const string GaitHysteresisRatio = "gait_hysteresis_ratio";
+        public const string StrideScale = "stride_scale";
+        public const string StartBlendMs = "start_blend_ms";
+        public const string StopBlendMs = "stop_blend_ms";
+        public const string LeanDegPerAccel = "lean_deg_per_accel";
+
+        // 动作（判定型）
+        public const string PhaseScaleStartup = "phase_scale.startup";
+        public const string PhaseScaleActive = "phase_scale.active";
+        public const string PhaseScaleRecovery = "phase_scale.recovery";
+        public const string CancelWindowScale = "cancel_window_scale";
+        public const string ComboWindowScale = "combo_window_scale";
+        public const string ComboResetMs = "combo_reset_ms";
+        public const string TurnAssistDeg = "turn_assist_deg";
+        public const string MinActionMs = "min_action_ms";
+        public const string StopDistance = "stop_distance";
+
+        // 受击（判定型）
+        public const string ImpactClass = "impact_class";
+        public const string AttackerHitstopMs = "attacker_hitstop_ms";
+        public const string TargetHitstopMs = "target_hitstop_ms";
+        public const string HitstopCapMs = "hitstop_cap_ms";
+        public const string AttackerHitstopCapMs = "attacker_hitstop_cap_ms";
+        public const string HitStunMs = "hit_stun_ms";
+        public const string StaggerPower = "stagger_power";
+        public const string KnockbackDistance = "knockback_distance";
+        public const string DownedMs = "downed_ms";
+        public const string ReactionCap = "reaction_cap";
+        public const string KillHitstopScale = "kill_hitstop_scale";
+
+        // 镜头（呈现型；07 第 2 节，加 camera_ 前缀与输入组的 dead_zone 区分）
+        public const string CameraFollowLagMs = "camera_follow_lag_ms";
+        public const string CameraLookAhead = "camera_look_ahead";
+        public const string CameraLookAheadLagMs = "camera_look_ahead_lag_ms";
+        public const string CameraDeadZoneWidth = "camera_dead_zone_width";
+        public const string CameraDeadZoneHeight = "camera_dead_zone_height";
+        public const string CameraDampingXMs = "camera_damping_x_ms";
+        public const string CameraDampingYMs = "camera_damping_y_ms";
+        public const string CameraCombatZoomDelta = "camera_combat_zoom_delta";
+        public const string CameraCombatZoomBlendMs = "camera_combat_zoom_blend_ms";
+        public const string CameraImpulseGain = "camera_impulse_gain";
+        public const string CameraImpulseMinIntervalMs = "camera_impulse_min_interval_ms";
+        public const string CameraShakeCap = "camera_shake_cap";
+        public const string CameraDistanceAttenuation = "camera_distance_attenuation";
+        public const string CameraUserIntensitySetting = "camera_user_intensity_setting";
+
+        // 特效（呈现型）
+        public const string ImpactProfileRef = "impact_profile_ref";
+        public const string TrailEnabled = "trail_enabled";
+        public const string AfterimageEnabled = "afterimage_enabled";
+        public const string TrailRef = "trail_ref";
+        public const string ImpactVfxScale = "impact_vfx_scale";
+
+        // 音频（呈现型）
+        public const string SfxSwingTier = "sfx_swing_tier";
+        public const string SfxWhiffTier = "sfx_whiff_tier";
+        public const string SfxImpactTier = "sfx_impact_tier";
+        public const string SfxSweetenerTier = "sfx_sweetener_tier";
+        public const string SfxFootstepTier = "sfx_footstep_tier";
+        public const string SfxMaterial = "sfx_material";
+        public const string SfxMaxConcurrent = "sfx_max_concurrent";
+    }
+
+    /// <summary>
+    /// 框架默认手感字段登记（<see cref="Default"/>）。字段集合取自手感设计 01～03、05、07、08 各文档的字段表；
+    /// 范围是限幅与校验依据，不是推荐值（推荐值在 <c>feel.preset</c> 行里）。
+    /// <para>
+    /// 判断记录：
+    /// </para>
+    /// <para>
+    /// 1) 镜头组字段全部加 <c>camera_</c> 前缀——07 第 2 节 <c>camera_profile</c> 的 <c>dead_zone</c>（呈现型，镜头）与
+    /// 01 第 4 节输入组的 <c>dead_zone</c>（判定型，手柄轴死区）同名，而同一张登记表里字段名必须全局唯一（一个字段只属于
+    /// 一边），因此镜头一侧改名；输入组沿用 01 的名字。
+    /// </para>
+    /// <para>
+    /// 2) 合成来源：05 第 3.4 节点名的字段按点名归类（加减速、转向、步幅、<c>hit_stun_ms</c>、脚步层 → 角色为主；
+    /// 分相倍率、取消窗口、<c>impact_class</c>、顿帧、击退、命中/挥空层 → 武器为主；<c>action_move_speed_ratio</c>、
+    /// <c>action_turn_lock</c> → 攻击期间武器临时覆盖）；点名之外的字段：输入组、<c>combo_reset_ms</c>、
+    /// <c>turn_assist_deg</c>、<c>min_action_ms</c>、两个顿帧上限、<c>downed_ms</c>、<c>reaction_cap</c>、镜头组（除冲击增益）
+    /// 描述的是行动者自身的操控/承受属性，归角色为主；<c>stagger_power</c>、<c>kill_hitstop_scale</c>、
+    /// <c>stop_distance</c>、<c>camera_impulse_gain</c>、特效与命中/挥空/增味音效描述的是"这把武器打出去的东西"，归武器为主。
+    /// </para>
+    /// <para>
+    /// 3) <c>impact_vfx_scale</c> 是本登记补的数值型特效字段：05 第 3.1 节特效组只列了反馈包引用与拖尾/残影开关
+    /// （布尔与引用只允许 <c>set</c>），而 05 第 3.4 节要求副手武器以 add/multiply 叠加"音效增味、特效"，没有数值型特效字段
+    /// 就无法表达副手的特效叠加，故补一个特效强度倍率，标 <c>offhand_stackable</c>。
+    /// </para>
+    /// </summary>
+    public static class FeelFields
+    {
+        private const FeelOpSet SetMulAdd = FeelOpSet.Set | FeelOpSet.Multiply | FeelOpSet.Add;
+        private const FeelOpSet SetOnly = FeelOpSet.Set;
+
+        private static readonly IReadOnlyList<string> ImpactClassValues = new[] { "light", "medium", "heavy", "massive" };
+        private static readonly IReadOnlyList<string> ReactionCapValues = new[] { "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
+        private static readonly IReadOnlyList<string> ReversePolicyValues = new[] { "instant", "through_zero" };
+
+        /// <summary>框架默认登记（不可变，登记顺序即遍历顺序）。</summary>
+        public static FeelFieldSet Default { get; } = Build();
+
+        private static FeelFieldDef Num(
+            string name, FeelGroup group, FeelHalf half, FeelUnit unit, FeelComposition comp,
+            double min, double max, string desc, FeelOpSet ops = SetMulAdd, bool optional = false, bool offhand = false,
+            string? attr = null)
+            => new FeelFieldDef(name, FeelFieldKind.Number, new FeelFieldMeta(half, group, ops, comp, unit, offhand),
+                desc, min, max, optional: optional, attributeBackedReason: attr);
+
+        private static FeelFieldDef IntF(
+            string name, FeelGroup group, FeelHalf half, FeelUnit unit, FeelComposition comp,
+            double min, double max, string desc, FeelOpSet ops = SetMulAdd, bool optional = false, bool offhand = false)
+            => new FeelFieldDef(name, FeelFieldKind.Int, new FeelFieldMeta(half, group, ops, comp, unit, offhand),
+                desc, min, max, optional: optional);
+
+        private static FeelFieldDef Bool(string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc)
+            => new FeelFieldDef(name, FeelFieldKind.Bool, new FeelFieldMeta(half, group, SetOnly, comp), desc);
+
+        private static FeelFieldDef Enum(
+            string name, FeelGroup group, FeelHalf half, FeelComposition comp, IReadOnlyList<string> values, string desc)
+            => new FeelFieldDef(name, FeelFieldKind.Enum, new FeelFieldMeta(half, group, SetOnly, comp), desc, enumValues: values);
+
+        private static FeelFieldDef Text(
+            string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc, bool optional = false)
+            => new FeelFieldDef(name, FeelFieldKind.Text, new FeelFieldMeta(half, group, SetOnly, comp), desc, optional: optional);
+
+        private static FeelFieldDef IdF(
+            string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc, string? softRef, bool optional = true)
+            => new FeelFieldDef(name, FeelFieldKind.Id, new FeelFieldMeta(half, group, SetOnly, comp), desc,
+                optional: optional, softReferenceTable: softRef);
+
+        private const string SpeedAttr = "移动速度已由属性系统承载（基础移速属性），光环改速度走属性，不经手感修饰";
+        private const string HasteAttr = "动作速率由急速属性承载，光环改动作快慢走属性，不经手感修饰";
+
+        private static FeelFieldSet Build()
+        {
+            const FeelHalf J = FeelHalf.Judging;
+            const FeelHalf P = FeelHalf.Presenting;
+            const FeelComposition C = FeelComposition.CharacterPrimary;
+            const FeelComposition W = FeelComposition.WeaponPrimary;
+            const FeelComposition A = FeelComposition.AttackOverride;
+            const FeelUnit Ms = FeelUnit.Milliseconds;
+            const FeelUnit BodyH = FeelUnit.BodyHeights;
+            const FeelUnit Ratio = FeelUnit.Ratio;
+            const FeelUnit SpeedRatio = FeelUnit.BaseSpeedRatio;
+            const FeelUnit Tier = FeelUnit.IntensityTier;
+            const FeelGroup In = FeelGroup.Input;
+            const FeelGroup Mv = FeelGroup.Movement;
+            const FeelGroup Ac = FeelGroup.Action;
+            const FeelGroup Re = FeelGroup.Reaction;
+            const FeelGroup Cam = FeelGroup.Camera;
+            const FeelGroup Fx = FeelGroup.Effects;
+            const FeelGroup Au = FeelGroup.Audio;
+
+            var fields = new List<FeelFieldDef>
+            {
+                // ---------- 输入（01 第 4 节，判定型）----------
+                Num(FeelFieldNames.BufferMs, In, J, Ms, C, 0, 1000, "动作类输入的缓冲窗口；0 表示不缓冲（只在按下当 tick 有效）"),
+                IntF(FeelFieldNames.BufferSlots, In, J, FeelUnit.Count, C, 1, 8, "缓冲槽位数"),
+                Num(FeelFieldNames.GraceMs, In, J, Ms, C, 0, 500, "宽限窗口：前置条件刚失效后仍视为满足的时长"),
+                Num(FeelFieldNames.HoldThresholdMs, In, J, Ms, C, 0, 5000, "缺省按住阈值；缺省（无值）表示动作不区分点按与按住", optional: true),
+                Num(FeelFieldNames.DeadZone, In, J, Ratio, C, 0, 0.9, "轴死区（仅手柄；键盘数字输入无死区）"),
+                Text(FeelFieldNames.ResponseCurve, In, J, C, "轴响应曲线：linear、expo 或 custom:<curve_id>"),
+                Num(FeelFieldNames.SmoothingMs, In, J, Ms, C, 0, 500, "轴幅值平滑时长（只作用于幅值，方向变化即时生效）"),
+
+                // ---------- 移动（02 第 2 节，判定型）----------
+                Num(FeelFieldNames.AccelMs, Mv, J, Ms, C, 0, 3000, "从静止达到目标速度的时间；0 即瞬时达速"),
+                Num(FeelFieldNames.DecelMs, Mv, J, Ms, C, 0, 3000, "从目标速度到停止的时间；0 即瞬时停止"),
+                Text(FeelFieldNames.AccelCurve, Mv, J, C, "加速曲线引用：linear 或曲线形态登记的曲线 id"),
+                Text(FeelFieldNames.BrakeCurve, Mv, J, C, "制动曲线引用：linear 或曲线形态登记的曲线 id"),
+                Enum(FeelFieldNames.ReversePolicy, Mv, J, C, ReversePolicyValues, "反向输入：instant 立即反向（保留速率），through_zero 先减速到零再加速"),
+                Num(FeelFieldNames.TurnRateDegS, Mv, J, FeelUnit.DegreesPerSecond, C, 0, 7200, "朝向转向速率（度/秒）；0 即瞬时转向"),
+                Num(FeelFieldNames.WalkSpeedRatio, Mv, J, SpeedRatio, C, 0.05, 2, "walk 模式的目标速度相对基础移速的倍数", attr: SpeedAttr),
+                Num(FeelFieldNames.SprintSpeedRatio, Mv, J, SpeedRatio, C, 1, 4, "冲刺（可选步态）目标速度相对基础移速的倍数；缺省（无值）表示无冲刺", optional: true, attr: SpeedAttr),
+                Num(FeelFieldNames.ActionMoveSpeedRatio, Mv, J, SpeedRatio, A, 0, 2, "动作进行中允许的移动速度倍率（0 即定身）；攻击期间武器临时覆盖，动作结束自动撤回"),
+                Bool(FeelFieldNames.ActionTurnLock, Mv, J, A, "动作进行中锁朝向；攻击期间武器临时覆盖，动作结束自动撤回"),
+                Bool(FeelFieldNames.KeepMomentumOnActionEnd, Mv, J, C, "动作结束时保留残余速度（真）还是清零（假）"),
+                Bool(FeelFieldNames.ArrivalDecel, Mv, J, C, "路径跟随到达终点前按 decel_ms 减速"),
+                Bool(FeelFieldNames.WallSlide, Mv, J, C, "位移被阻挡截断时沿墙滑动（真），而不是整体停下（假）"),
+                Bool(FeelFieldNames.ApplyToPathFollowing, Mv, J, C, "运动档案是否也作用于目标类移动（AI/点击移动）；假则目标类移动保持瞬时达速"),
+                IdF(FeelFieldNames.KnockbackResistanceStat, Mv, J, C, "读哪个属性作为击退抗性（0～1）；缺省（无值）视为 0", "stat.definition"),
+
+                // ---------- 移动（02 第 7 节，呈现型）----------
+                Num(FeelFieldNames.IdleMaxRatio, Mv, P, SpeedRatio, C, 0, 0.5, "步态 idle 上界：速度/基础移速低于它为 idle"),
+                Num(FeelFieldNames.WalkMaxRatio, Mv, P, SpeedRatio, C, 0.1, 2, "步态 walk 上界：低于它为 walk，其余为 run"),
+                Num(FeelFieldNames.SprintMinRatio, Mv, P, SpeedRatio, C, 1, 4, "步态 sprint 下界（声明了冲刺时）；缺省（无值）表示无 sprint 步态", optional: true),
+                Num(FeelFieldNames.GaitHysteresisRatio, Mv, P, SpeedRatio, C, 0, 0.5, "步态阈值滞回，避免在阈值附近抖动"),
+                Num(FeelFieldNames.StrideScale, Mv, P, Ratio, C, 0.1, 4, "步幅缩放：动画播放速率匹配实际地面速度时的倍率"),
+                Num(FeelFieldNames.StartBlendMs, Mv, P, Ms, C, 0, 1000, "起步混合时长"),
+                Num(FeelFieldNames.StopBlendMs, Mv, P, Ms, C, 0, 1000, "急停混合时长"),
+                Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度对应的倾斜角度上限（度）"),
+
+                // ---------- 动作（01 第 4 节，判定型）----------
+                Num(FeelFieldNames.PhaseScaleStartup, Ac, J, Ratio, W, 0.1, 10, "时间线前摇倍率", attr: HasteAttr),
+                Num(FeelFieldNames.PhaseScaleActive, Ac, J, Ratio, W, 0.1, 10, "时间线判定相倍率", attr: HasteAttr),
+                Num(FeelFieldNames.PhaseScaleRecovery, Ac, J, Ratio, W, 0.1, 10, "时间线后摇倍率", attr: HasteAttr),
+                Num(FeelFieldNames.CancelWindowScale, Ac, J, Ratio, W, 0, 10, "取消窗口长度倍率"),
+                Num(FeelFieldNames.ComboWindowScale, Ac, J, Ratio, W, 0, 10, "连招窗口倍率"),
+                Num(FeelFieldNames.ComboResetMs, Ac, J, Ms, C, 0, 10000, "连招链重置：进入待机超过该时长后重置"),
+                Num(FeelFieldNames.TurnAssistDeg, Ac, J, FeelUnit.Degrees, C, 0, 180, "接受动作时朝向对齐的最大转角（度）"),
+                Num(FeelFieldNames.MinActionMs, Ac, J, Ms, C, 0, 2000, "速率重映射的动作时长下限"),
+                Num(FeelFieldNames.StopDistance, Ac, J, BodyH, W, 0, 5, "冲向目标类位移到达目标身前的停止距离"),
+
+                // ---------- 受击（03 第 3/4 节，判定型）----------
+                Enum(FeelFieldNames.ImpactClass, Re, J, W, ImpactClassValues, "冲击等级，反馈包与受击裁决的公共输入"),
+                Num(FeelFieldNames.AttackerHitstopMs, Re, J, Ms, W, 0, 500, "攻击方顿帧时长"),
+                Num(FeelFieldNames.TargetHitstopMs, Re, J, Ms, W, 0, 500, "受击方顿帧时长"),
+                Num(FeelFieldNames.HitstopCapMs, Re, J, Ms, C, 0, 1000, "受击方顿帧上限（嵌套取大后限幅）"),
+                Num(FeelFieldNames.AttackerHitstopCapMs, Re, J, Ms, C, 0, 1000, "攻击方顿帧上限（群体命中取最大后限幅）"),
+                Num(FeelFieldNames.HitStunMs, Re, J, Ms, C, 0, 3000, "硬直时长（受击方体型为主）"),
+                Num(FeelFieldNames.StaggerPower, Re, J, FeelUnit.None, W, 0, 1000, "硬直强度：与目标韧性比较，不高于韧性时只播受击动画不打断"),
+                Num(FeelFieldNames.KnockbackDistance, Re, J, BodyH, W, 0, 5, "击退距离"),
+                Num(FeelFieldNames.DownedMs, Re, J, Ms, C, 0, 10000, "倒地时长"),
+                Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
+                Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),
+
+                // ---------- 镜头（07 第 2 节，呈现型）----------
+                Num(FeelFieldNames.CameraFollowLagMs, Cam, P, Ms, C, 0, 2000, "镜头跟随滞后"),
+                Num(FeelFieldNames.CameraLookAhead, Cam, P, BodyH, C, 0, 10, "沿速度方向的前瞻距离"),
+                Num(FeelFieldNames.CameraLookAheadLagMs, Cam, P, Ms, C, 0, 2000, "前瞻点自身的滞后，避免反转时甩动"),
+                Num(FeelFieldNames.CameraDeadZoneWidth, Cam, P, BodyH, C, 0, 10, "死区宽：目标在死区内镜头不动"),
+                Num(FeelFieldNames.CameraDeadZoneHeight, Cam, P, BodyH, C, 0, 10, "死区高"),
+                Num(FeelFieldNames.CameraDampingXMs, Cam, P, Ms, C, 0, 2000, "水平轴阻尼"),
+                Num(FeelFieldNames.CameraDampingYMs, Cam, P, Ms, C, 0, 2000, "垂直轴阻尼"),
+                Num(FeelFieldNames.CameraCombatZoomDelta, Cam, P, Ratio, C, 0.25, 4, "进入战斗的缩放变化倍率"),
+                Num(FeelFieldNames.CameraCombatZoomBlendMs, Cam, P, Ms, C, 0, 3000, "进出战斗缩放的过渡时长"),
+                Num(FeelFieldNames.CameraImpulseGain, Cam, P, FeelUnit.ScreenHeightRatio, W, 0, 0.2, "镜头冲击基准幅度（画面高度比例）"),
+                Num(FeelFieldNames.CameraImpulseMinIntervalMs, Cam, P, Ms, C, 0, 2000, "镜头冲击合并的最小间隔"),
+                Num(FeelFieldNames.CameraShakeCap, Cam, P, FeelUnit.ScreenHeightRatio, C, 0, 0.5, "震屏与冲击叠加后的上限（画面高度比例）"),
+                Text(FeelFieldNames.CameraDistanceAttenuation, Cam, P, C, "命中点到跟随目标的距离衰减曲线引用：linear 或曲线 id"),
+                Text(FeelFieldNames.CameraUserIntensitySetting, Cam, P, C, "玩家可调整体强度开关的设置项引用", optional: true),
+
+                // ---------- 特效（05 第 3.1 节、08 第 4 节，呈现型）----------
+                IdF(FeelFieldNames.ImpactProfileRef, Fx, P, W, "打击反馈包引用（feedback.impact_profile），再按 impact_class 与命中结局选变体；缺省（无值）表示无反馈包", "feedback.impact_profile"),
+                Bool(FeelFieldNames.TrailEnabled, Fx, P, W, "拖尾开关"),
+                Bool(FeelFieldNames.AfterimageEnabled, Fx, P, W, "残影开关"),
+                IdF(FeelFieldNames.TrailRef, Fx, P, W, "武器拖尾定义的 id（可选；目标表由表现层登记，此处不做存在性检查）", softRef: null),
+                Num(FeelFieldNames.ImpactVfxScale, Fx, P, Ratio, W, 0, 4, "命中特效强度倍率；副手武器可叠加", offhand: true),
+
+                // ---------- 音频（07 第 3 节，呈现型）----------
+                IntF(FeelFieldNames.SfxSwingTier, Au, P, Tier, W, 0, 5, "挥动层强度档"),
+                IntF(FeelFieldNames.SfxWhiffTier, Au, P, Tier, W, 0, 5, "挥空层强度档"),
+                IntF(FeelFieldNames.SfxImpactTier, Au, P, Tier, W, 0, 5, "命中层强度档"),
+                IntF(FeelFieldNames.SfxSweetenerTier, Au, P, Tier, W, 0, 5, "增味层强度档；副手武器可叠加", offhand: true),
+                IntF(FeelFieldNames.SfxFootstepTier, Au, P, Tier, C, 0, 5, "脚步层强度档（材质由地图区域标签决定）"),
+                Text(FeelFieldNames.SfxMaterial, Au, P, W, "武器音效材质标签（swing/impact 层映射到 sfx 表行），缺省 generic"),
+                IntF(FeelFieldNames.SfxMaxConcurrent, Au, P, FeelUnit.Count, C, 1, 32, "同时发声上限"),
+            };
+
+            return new FeelFieldSet(fields);
+        }
+    }
+}

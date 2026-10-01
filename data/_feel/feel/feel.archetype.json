@@ -1,0 +1,101 @@
+{
+  "table": "feel.archetype",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.archetype.light",
+      "description": "轻体量 × 中步幅 × 中敏捷：起停快、转向快、受击硬直长、被击退远。试调起点。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "body_mass": "light",
+      "stride": "medium",
+      "agility": "medium",
+      "attack_weight": "light",
+      "writes": [
+        {
+          "field": "accel_ms",
+          "op": "multiply",
+          "value": 0.8
+        },
+        {
+          "field": "decel_ms",
+          "op": "multiply",
+          "value": 0.8
+        },
+        {
+          "field": "turn_rate_deg_s",
+          "op": "multiply",
+          "value": 1.2
+        },
+        {
+          "field": "hit_stun_ms",
+          "op": "multiply",
+          "value": 1.2
+        },
+        {
+          "field": "knockback_distance",
+          "op": "multiply",
+          "value": 1.3
+        },
+        {
+          "field": "stride_scale",
+          "op": "multiply",
+          "value": 0.9
+        }
+      ]
+    },
+    {
+      "id": "feel.archetype.medium",
+      "description": "中体量 × 中步幅 × 中敏捷：与基础预设一致，不写差异。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "body_mass": "medium",
+      "stride": "medium",
+      "agility": "medium",
+      "attack_weight": "medium",
+      "writes": []
+    },
+    {
+      "id": "feel.archetype.heavy",
+      "description": "重体量 × 中步幅 × 中敏捷：起停慢、转向慢、受击硬直短、不易被击退。试调起点。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "body_mass": "heavy",
+      "stride": "medium",
+      "agility": "medium",
+      "attack_weight": "heavy",
+      "writes": [
+        {
+          "field": "accel_ms",
+          "op": "multiply",
+          "value": 1.4
+        },
+        {
+          "field": "decel_ms",
+          "op": "multiply",
+          "value": 1.3
+        },
+        {
+          "field": "turn_rate_deg_s",
+          "op": "multiply",
+          "value": 0.7
+        },
+        {
+          "field": "hit_stun_ms",
+          "op": "multiply",
+          "value": 0.8
+        },
+        {
+          "field": "knockback_distance",
+          "op": "multiply",
+          "value": 0.6
+        },
+        {
+          "field": "stride_scale",
+          "op": "multiply",
+          "value": 1.1
+        }
+      ]
+    }
+  ]
+}

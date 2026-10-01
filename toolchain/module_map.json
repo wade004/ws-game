@@ -829,6 +829,17 @@
       "interaction_exceptions": []
     },
     {
+      "name": "feel",
+      "layer": "foundation",
+      "path": "core/foundation/feel/",
+      "test_namespaces": [
+        "Tests.Foundation.Feel"
+      ],
+      "engine_category": "module:feel",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
       "name": "hook_registry",
       "layer": "foundation",
       "path": "core/foundation/hook_registry/",

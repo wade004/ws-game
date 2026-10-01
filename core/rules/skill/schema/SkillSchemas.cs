@@ -938,6 +938,12 @@ namespace Core.Rules.Skill
                 new FieldSchema("max_stacks", FieldKind.Int, required: false, description: "缺省 1"),
                 new FieldSchema("stack_category", FieldKind.Id, required: false, description: "叠加冲突检测用类别"),
                 new FieldSchema("dispel_type", FieldKind.Id, required: false, description: "供 dispel 效果按类别筛选"),
+                // 手感体系（手感设计/05 第 6 节，ADR-0118）新增：光环携带的手感修饰（解析第 7 层条目，
+                // 以光环实例 id 为键；光环移除即删除该条目并失效重算）。纯新增可选字段，不升
+                // currentSchemaVersion。已由属性系统承载的手感字段（移动速度、急速）不得用本字段重复表达
+                // （校验检查 feel_modifier_attribute_duplicate）。
+                Core.Foundation.Feel.FeelSchemas.WriteArray("feel_modifiers",
+                    "手感修饰 [{field, op, value}, ...]（手感解析第 7 层）；只用于没有对应属性的手感字段，字段与操作取值见手感字段登记"),
                 new FieldSchema("effects", FieldKind.Array, required: true, item: AuraEffectsItemSchema,
                     description: "[{kind: String, params: Object}, ...]，kind 取值见 06 第 3.3 节"),
             }).WithOwnership(SchemaLayer.Rules, "skill").WithTimeScope(TimeScope.Combat);

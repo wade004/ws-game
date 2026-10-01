@@ -137,6 +137,10 @@ namespace Core.Rules.Assembly
             // 但此前两个模块只提供内存默认构造入口，未与 DataRegistry 对接。
             registry.RegisterSchema(FoundGameStateSchema.Table);
             registry.RegisterSchema(FoundHookSchema.Table);
+
+            // 手感体系（ADR-0118）：feel 数据域八张表 + 三条校验规则。没有任何 feel.* 行时规则静默，
+            // 既有数据校验结果不变（见 core/foundation/feel/README.md 装配规则）。
+            Core.Foundation.Feel.FeelSchemas.RegisterAll(registry);
         }
 
         private static void RegisterL1Schemas(IDataRegistry registry)

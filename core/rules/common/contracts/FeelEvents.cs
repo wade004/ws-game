@@ -1,0 +1,305 @@
+using System.Collections.Generic;
+using Core.Foundation.Common;
+using Core.Foundation.EventBus;
+using Core.Foundation.Expr;
+
+namespace Core.Rules.Common
+{
+    // 手感体系新增事件（手感设计/01 第 3.7 节、02 第 5 节、03 第 2.4/3/7 节；ADR-0114/0115/0117）。
+    // 全部登记在 found.event_catalog，key 常量在 RulesEventKeys。本文件只定义契约（事件类型），
+    // 发布方由后续切片（动作时间线、时间线命中、顿帧、受击裁决）实现。
+    //
+    // 判断记录：时间线动作的施法实例 id 与攻击实例 id 都用 Id（沿 CombatDamageDealtEvent.AttackInstanceId 既有惯例）。
+    // action.marker 的 args 用字符串映射承载，数值参数以不变文化的文本给出，避免事件载荷依赖异构值类型。
+    // 这些事件不实现 ITriggerChainEvent：手感事件不作为 Proc 触发源（需要时由后续 ADR 追加，加法兼容）。
+
+    /// <summary><c>action.started</c>：时间线开始推进（与 <c>skill.cast_start</c> 同批发出）。</summary>
+    public sealed class ActionStartedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionStarted;
+
+        public Id ActorId { get; }
+
+        public Id SkillId { get; }
+
+        public Id CastInstanceId { get; }
+
+        public int ComboIndex { get; }
+
+        /// <summary>动作总时长（tick，三相之和，已含速率重映射）。</summary>
+        public int DurationTicks { get; }
+
+        /// <summary>蓄力比例 0～1（非蓄力动作为 0）。</summary>
+        public double ChargeRatio { get; }
+
+        public ActionStartedEvent(Id actorId, Id skillId, Id castInstanceId, int comboIndex, int durationTicks, double chargeRatio)
+        {
+            ActorId = actorId;
+            SkillId = skillId;
+            CastInstanceId = castInstanceId;
+            ComboIndex = comboIndex;
+            DurationTicks = durationTicks;
+            ChargeRatio = chargeRatio;
+        }
+    }
+
+    /// <summary><c>action.phase_changed</c>：相位切换。</summary>
+    public sealed class ActionPhaseChangedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionPhaseChanged;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        public ActionPhase Phase { get; }
+
+        public ActionPhaseChangedEvent(Id actorId, Id castInstanceId, ActionPhase phase)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            Phase = phase;
+        }
+    }
+
+    /// <summary><c>action.marker</c>：判定类时间标记到达（<c>hit</c>、<c>release</c>、<c>invuln_start</c> 等）。</summary>
+    public sealed class ActionMarkerEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionMarker;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        /// <summary>标记名（手感设计/01 第 3.3 节）。</summary>
+        public string Name { get; }
+
+        /// <summary>标记参数（如 <c>segment</c>），无参数为空映射。</summary>
+        public IReadOnlyDictionary<string, string> Args { get; }
+
+        public ActionMarkerEvent(Id actorId, Id castInstanceId, string name, IReadOnlyDictionary<string, string>? args = null)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            Name = name;
+            Args = args ?? new Dictionary<string, string>();
+        }
+    }
+
+    /// <summary><c>action.cancelled</c>：动作未自然结束即终止。</summary>
+    public sealed class ActionCancelledEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionCancelled;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        public ActionCancelReason Reason { get; }
+
+        /// <summary><see cref="ActionCancelReason.CancelInto"/> 时接续的新技能，其它原因为 null。</summary>
+        public Id? NextSkillId { get; }
+
+        public ActionCancelledEvent(Id actorId, Id castInstanceId, ActionCancelReason reason, Id? nextSkillId = null)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            Reason = reason;
+            NextSkillId = nextSkillId;
+        }
+    }
+
+    /// <summary><c>action.finished</c>：后摇自然结束（与 <c>skill.cast_success</c> 同批）。</summary>
+    public sealed class ActionFinishedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionFinished;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        public ActionFinishedEvent(Id actorId, Id castInstanceId)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+        }
+    }
+
+    /// <summary><c>action.target_assisted</c>：目标辅助生效（手感设计/02 第 5 节），没有候选时不发。</summary>
+    public sealed class ActionTargetAssistedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.ActionTargetAssisted;
+
+        public Id ActorId { get; }
+
+        public Id CastInstanceId { get; }
+
+        public Id TargetId { get; }
+
+        /// <summary>朝向修正量（度，带符号）。</summary>
+        public double FacingDelta { get; }
+
+        /// <summary>位移距离修正量（世界单位，<c>close_distance</c> 模式；<c>face_only</c> 为 0）。</summary>
+        public double DistanceAdjust { get; }
+
+        public ActionTargetAssistedEvent(Id actorId, Id castInstanceId, Id targetId, double facingDelta, double distanceAdjust)
+        {
+            ActorId = actorId;
+            CastInstanceId = castInstanceId;
+            TargetId = targetId;
+            FacingDelta = facingDelta;
+            DistanceAdjust = distanceAdjust;
+        }
+    }
+
+    /// <summary>
+    /// <c>combat.hit_confirmed</c>（手感设计/03 第 2.4 节）：一次命中的完整结论，两种结算模式统一发出，紧随同一批次的
+    /// <c>combat.damage_dealt</c>/<c>combat.attack_avoided</c> 之后。回避类结局也发（<c>Amount = 0</c>、<c>Reaction = None</c>）。
+    /// 几何字段（接触点、法线、世界方向）永不为空（无接触几何时由适配层给出替代值）。
+    /// </summary>
+    public sealed class CombatHitConfirmedEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => RulesEventKeys.CombatHitConfirmed;
+
+        public Id AttackInstanceId { get; }
+
+        /// <summary>多段技能的段序号（单段为 0）。</summary>
+        public int Segment { get; }
+
+        public Id SourceId { get; }
+
+        public Id TargetId { get; }
+
+        public Id? SkillId { get; }
+
+        public HitResult HitResult { get; }
+
+        public double Amount { get; }
+
+        /// <summary><c>Amount</c> / 目标最大生命，供反馈强度缩放。</summary>
+        public double AmountRatio { get; }
+
+        public bool IsCrit { get; }
+
+        public bool IsKill { get; }
+
+        public Vec2 ContactPoint { get; }
+
+        /// <summary>从目标中心指向接触点的单位向量。</summary>
+        public Vec2 ContactNormal { get; }
+
+        /// <summary>攻击方到目标的单位向量（击退方向）。</summary>
+        public Vec2 WorldDirection { get; }
+
+        /// <summary>冲击等级（<c>light|medium|heavy|massive</c>，可扩），来自解析后手感表受击组。</summary>
+        public string ImpactClass { get; }
+
+        public int AttackerHitStopTicks { get; }
+
+        public int TargetHitStopTicks { get; }
+
+        public HitReaction Reaction { get; }
+
+        public CombatHitConfirmedEvent(
+            Id attackInstanceId, int segment, Id sourceId, Id targetId, Id? skillId, HitResult hitResult,
+            double amount, double amountRatio, bool isCrit, bool isKill,
+            Vec2 contactPoint, Vec2 contactNormal, Vec2 worldDirection,
+            string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction)
+        {
+            AttackInstanceId = attackInstanceId;
+            Segment = segment;
+            SourceId = sourceId;
+            TargetId = targetId;
+            SkillId = skillId;
+            HitResult = hitResult;
+            Amount = amount;
+            AmountRatio = amountRatio;
+            IsCrit = isCrit;
+            IsKill = isKill;
+            ContactPoint = contactPoint;
+            ContactNormal = contactNormal;
+            WorldDirection = worldDirection;
+            ImpactClass = impactClass;
+            AttackerHitStopTicks = attackerHitStopTicks;
+            TargetHitStopTicks = targetHitStopTicks;
+            Reaction = reaction;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "targetId": value = ExprValue.OfId(TargetId); return true;
+                case "skillId" when SkillId.HasValue: value = ExprValue.OfId(SkillId.Value); return true;
+                case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
+                case "amount": value = ExprValue.OfNumber(Amount); return true;
+                case "amountRatio": value = ExprValue.OfNumber(AmountRatio); return true;
+                case "isCrit": value = ExprValue.OfBool(IsCrit); return true;
+                case "isKill": value = ExprValue.OfBool(IsKill); return true;
+                case "impactClass": value = ExprValue.OfString(ImpactClass); return true;
+                case "reaction": value = ExprValue.OfString(Reaction.ToString()); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary><c>combat.reaction_applied</c>：受击裁决落地（<see cref="HitReaction.None"/> 不发）。</summary>
+    public sealed class CombatReactionAppliedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatReactionApplied;
+
+        public Id TargetId { get; }
+
+        public HitReaction Reaction { get; }
+
+        public Id SourceId { get; }
+
+        public Id AttackInstanceId { get; }
+
+        /// <summary>反应持续时长（tick）：硬直为 <c>hit_stun_ms</c> 换算值，倒地含 <c>downed_ms</c>。</summary>
+        public int DurationTicks { get; }
+
+        public CombatReactionAppliedEvent(Id targetId, HitReaction reaction, Id sourceId, Id attackInstanceId, int durationTicks)
+        {
+            TargetId = targetId;
+            Reaction = reaction;
+            SourceId = sourceId;
+            AttackInstanceId = attackInstanceId;
+            DurationTicks = durationTicks;
+        }
+    }
+
+    /// <summary><c>feel.hitstop_started</c>：局部顿帧施加（冻结行动者动作时钟）。</summary>
+    public sealed class FeelHitstopStartedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.FeelHitstopStarted;
+
+        /// <summary>被冻结的单位（攻击方与受击方）。</summary>
+        public IReadOnlyList<Id> UnitIds { get; }
+
+        public int Ticks { get; }
+
+        public Id AttackInstanceId { get; }
+
+        public FeelHitstopStartedEvent(IReadOnlyList<Id> unitIds, int ticks, Id attackInstanceId)
+        {
+            UnitIds = unitIds;
+            Ticks = ticks;
+            AttackInstanceId = attackInstanceId;
+        }
+    }
+
+    /// <summary><c>feel.hitstop_ended</c>：顿帧解冻或强制释放。</summary>
+    public sealed class FeelHitstopEndedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.FeelHitstopEnded;
+
+        public IReadOnlyList<Id> UnitIds { get; }
+
+        public FeelHitstopEndedEvent(IReadOnlyList<Id> unitIds)
+        {
+            UnitIds = unitIds;
+        }
+    }
+}

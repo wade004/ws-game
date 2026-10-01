@@ -76,6 +76,12 @@ namespace Core.Carriers.Creature
                 new FieldSchema("display_ref", FieldKind.Id, required: true,
                     description: "指向 display.map 的显示资源（消费方反馈第 29 条：登记为软引用，仅供内容工具补全/跳转）")
                     .WithSoftReference(table: "display.map"),
+                // 手感体系（手感设计/05 第 2 节，ADR-0118）新增：体型原型与角色手感行引用。纯新增可选
+                // 字段，不升 currentSchemaVersion、不需要迁移函数；缺省缺失（该生物不引用任何手感行）。
+                new FieldSchema("feel_archetype_ref", FieldKind.Reference, required: false, referenceTable: "feel.archetype",
+                    description: "体型原型（手感解析第 2 层）：指向 feel.archetype 的行；缺省没有体型层差异"),
+                new FieldSchema("feel_ref", FieldKind.Reference, required: false, referenceTable: "feel.character",
+                    description: "角色/怪物手感覆盖（手感解析第 5 层）：指向 feel.character 的行；缺省没有角色层差异"),
                 new FieldSchema("immunities", FieldKind.IdList, required: false,
                     description: "免疫的学派/效果类型/控制类别")
                     .WithFreeIds("混合词汇（学派/效果类型/控制类别），不指向单一已登记表的既有记录"),
