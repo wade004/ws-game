@@ -146,5 +146,171 @@ namespace Tests.Presentation.FeedbackBinder
             merger.FlushAll();
             Assert.False(merger.HasPendingMerges);
         }
+
+        // -----------------------------------------------------------------
+        // T-M35（测试覆盖剩余项第四批）：同键混投 / FlushAll / 窗口边界 / 构造守卫
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Offer_SameKeyMixedModes_FirstOfferDecidesMode_LaterModeIgnored()
+        {
+            var (merger, dispatched) = Build(window: 1.0);
+
+            merger.Offer(Entity, Style, 7, MergeMode.Fold);
+            merger.Offer(Entity, Style, 9, MergeMode.Sum); // 同键后到的模式不生效
+
+            merger.Update(1.1);
+
+            var single = Assert.Single(dispatched);
+            Assert.Equal("7 x2", single.Item3);
+        }
+
+        [Fact]
+        public void Offer_SameEntityDifferentStyles_AreSeparateWindows()
+        {
+            var (merger, dispatched) = Build(window: 1.0);
+            var other = new Id("feedback.style.crit");
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.Offer(Entity, other, 4, MergeMode.Sum);
+            merger.Update(1.1);
+
+            Assert.Equal(2, dispatched.Count);
+            Assert.Contains(dispatched, d => d.Item2.Equals(Style) && d.Item3 == "10");
+            Assert.Contains(dispatched, d => d.Item2.Equals(other) && d.Item3 == "4");
+        }
+
+        [Fact]
+        public void Update_ExactlyWindowLength_Flushes()
+        {
+            const double window = 0.5;
+            var (merger, dispatched) = Build(window);
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.Update(window); // RemainingWindow == 0 视为到期
+
+            Assert.Single(dispatched);
+            Assert.False(merger.HasPendingMerges);
+        }
+
+        [Fact]
+        public void Window_IsFixedFromFirstOffer_LaterOffersDoNotExtendIt()
+        {
+            const double window = 1.0;
+            var (merger, dispatched) = Build(window);
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.Update(window * 0.75);
+            merger.Offer(Entity, Style, 5, MergeMode.Sum); // 若延长窗口，下一步不会到期
+            Assert.Empty(dispatched);
+            merger.Update(window * 0.25);
+
+            var single = Assert.Single(dispatched);
+            Assert.Equal("15", single.Item3);
+        }
+
+        [Fact]
+        public void Offer_AfterWindowExpired_StartsANewWindow()
+        {
+            var (merger, dispatched) = Build(window: 0.5);
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.Update(0.6);
+            merger.Offer(Entity, Style, 3, MergeMode.Sum);
+            merger.Update(0.6);
+
+            Assert.Equal(2, dispatched.Count);
+            Assert.Equal("10", dispatched[0].Item3);
+            Assert.Equal("3", dispatched[1].Item3);
+        }
+
+        [Fact]
+        public void Update_SeveralWindowsExpireInOneCall_AllFlushed_NoneLeft()
+        {
+            var (merger, dispatched) = Build(window: 0.5);
+            merger.Offer(Entity, Style, 1, MergeMode.Sum);
+            merger.Offer(new Id("unit.bear"), Style, 2, MergeMode.Sum);
+            merger.Offer(new Id("unit.boar"), Style, 3, MergeMode.Sum);
+
+            merger.Update(0.6);
+
+            Assert.Equal(3, dispatched.Count);
+            Assert.False(merger.HasPendingMerges);
+        }
+
+        [Fact]
+        public void FlushAll_DispatchesEveryOpenWindow_ClearsPending_AndLaterUpdateDoesNotRedispatch()
+        {
+            var (merger, dispatched) = Build(window: 5.0);
+            var bear = new Id("unit.bear");
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.Offer(Entity, Style, 5, MergeMode.Sum);
+            merger.Offer(bear, Style, 4, MergeMode.Fold);
+
+            merger.FlushAll();
+
+            Assert.Equal(2, dispatched.Count);
+            Assert.Contains(dispatched, d => d.Item1.Equals(Entity) && d.Item3 == "15");
+            Assert.Contains(dispatched, d => d.Item1.Equals(bear) && d.Item3 == "4 x1");
+            Assert.False(merger.HasPendingMerges);
+
+            merger.Update(100.0);
+            Assert.Equal(2, dispatched.Count);
+        }
+
+        [Fact]
+        public void FlushAll_WithNothingPending_IsNoOp()
+        {
+            var (merger, dispatched) = Build(window: 1.0);
+
+            merger.FlushAll();
+
+            Assert.Empty(dispatched);
+        }
+
+        [Fact]
+        public void Offer_FoldWithSingleHit_ShowsFirstAmountTimesOne()
+        {
+            var (merger, dispatched) = Build(window: 1.0);
+
+            merger.Offer(Entity, Style, 12, MergeMode.Fold);
+            merger.Update(1.1);
+
+            Assert.Equal("12 x1", Assert.Single(dispatched).Item3);
+        }
+
+        [Fact]
+        public void Offer_NegativeWindow_BehavesLikeNoWindow_DispatchesImmediately()
+        {
+            var (merger, dispatched) = Build(window: -1.0);
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.Offer(Entity, Style, 5, MergeMode.Sum);
+
+            Assert.Equal(2, dispatched.Count);
+            Assert.False(merger.HasPendingMerges);
+        }
+
+        [Fact]
+        public void OfferImmediate_DoesNotDisturbAnOpenWindowForTheSameKey()
+        {
+            var (merger, dispatched) = Build(window: 1.0);
+
+            merger.Offer(Entity, Style, 10, MergeMode.Sum);
+            merger.OfferImmediate(Entity, Style, "Dodge");
+            Assert.Single(dispatched);
+            Assert.True(merger.HasPendingMerges);
+
+            merger.Update(1.1);
+            Assert.Equal(2, dispatched.Count);
+            Assert.Equal("10", dispatched[1].Item3);
+        }
+
+        [Fact]
+        public void Constructor_NullDelegates_Throw()
+        {
+            Assert.Throws<System.ArgumentNullException>(() => new FloatingTextMerger(1.0, null!, (_, __, ___) => { }));
+            Assert.Throws<System.ArgumentNullException>(() => new FloatingTextMerger(1.0, v => v.ToString("0"), null!));
+        }
     }
 }

@@ -21,6 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 测试覆盖第四批 T-M34：vfx_sfx 内部类型 VfxPool（internal sealed）需要独立测试；只向测试程序集
+         开放内部可见性，不改任何公开签名（InternalsVisibleTo 不进 ABI 探针）。 -->
+    <InternalsVisibleTo Include="Tests.PresentationCommon" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../core/gameplay/Core.Gameplay.csproj" />
   </ItemGroup>
 

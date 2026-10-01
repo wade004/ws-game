@@ -355,6 +355,19 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       复现/不变量：`tests/AudioLayerVolumeHostTests.cs`、`tests/SfxPlayerTests.cs` 的 NaN/Infinity、裁剪 Theory、
       未知层无残留键、`Save` 失败诊断各例。
 
+25. **测试覆盖剩余项第四批（2026-10-01）：生产工程文件加 `InternalsVisibleTo`，只向测试程序集开放；冷加载 3D socket 路径与"排队期间位置冻结"口径如实登记**：
+    - `presentation/Presentation.Common.csproj` 新增 `<InternalsVisibleTo Include="Tests.PresentationCommon" />`，
+      原因：`VfxPool`（`internal sealed`）的"超容量淘汰剩余时间最短者、并列取插入最早、永久项视为无穷、容量 ≤ 0 不限、
+      剩余 ≤ 0 到期"这些规则此前只能经 `VfxPlayer` 间接覆盖，无法对池本身做边界断言（T-M34）。没有任何公开签名变化，
+      不进 ABI 探针；复现/不变量：`tests/VfxPoolTests.cs`。
+    - **已知限制（已钉住）**：冷加载排队的 VFX 在加载完成那一刻按 `Spawn` 时刻的位置发射（冷 = `Spawn` 时刻位置，热 = 当前位置），
+      到下一次 `Update` 才由 anchor/entity 跟随重新定位，即最多滞后一帧；排队期间 `Stop(占位句柄)` 取消排队、从不发射、不登记跟随。
+      复现/不变量：`tests/VfxPlayerColdLoadFollowTests.cs`（socket 降级路径、Screen 路径、anchor/socket × 热/同步冷/异步冷收敛 Theory）。
+    - **待设计层确认（未改行为、未断言）**：`VfxPlayer.TrySpawnAttachedToSocket`（真 3D socket：renderer3D + modelHandleResolver）
+      不走冷加载排队，直接 `EnsureLoading` 后立即 `CreateModelInstance`，与"冷 = 热"口径不一致；本批不为其写用例，等待拍板。
+    - `SfxPlayer` 变体选择走 `options.RngStream`（默认 `presentation.sfx`），不碰模拟流；`min==max` 不消耗随机数、不创建流
+      （`tests/SfxVariantSelectionTests.cs`）。
+
 ## 不负责什么
 
 - `data/_sample/` 现已有真实示例数据（`data/_sample/vfx/vfx.def.json`，含 ADR-0074 的

@@ -310,6 +310,194 @@ namespace Tests.PresentationViewBinding
             Assert.Empty(received);
         }
 
+        // -----------------------------------------------------------------
+        // T-M42（测试覆盖剩余项第四批）：瞬移阈值边界（> 而非 >=）、读档后位置突变、事件字段契约、
+        // 实体解析的退化路径。期望值由 TeleportDistanceMultiplier 与步幅距离算出，不写裸数。
+        // -----------------------------------------------------------------
+
+        /// <summary>阈值边界：单次位移恰为 8×步幅距离不算瞬移（判定是严格大于），按整除发
+        /// floor(delta / stride) = 倍数 条，累计余数为 0；位移比阈值大一个浮点最小量才被钳制成一条。</summary>
+        [Fact]
+        public void DisplacementExactlyAtTeleportThreshold_IsNotClamped_JustAboveIsClampedToOne()
+        {
+            var (_, world, bus, display) = Build();
+            var templateId = new Id("creature.boundary");
+            const double strideDistance = 1.0;
+            display.Register(templateId, strideDistance);
+            var threshold = strideDistance * StrideEmitter.TeleportDistanceMultiplier;
+
+            // 恰等于阈值。
+            var atId = SpawnUnit(world, new Id("unit.boundary_at"), templateId, Vec2.Zero);
+            var received = Listen(bus);
+            bus.Enqueue(new UnitMovedEvent(atId, Vec2.Zero));
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(atId, new Vec2(threshold, 0)));
+            bus.DispatchPending();
+
+            var expectedAtThreshold = (int)System.Math.Floor(threshold / strideDistance);
+            Assert.Equal(expectedAtThreshold, received.Count);
+            Assert.Equal((int)StrideEmitter.TeleportDistanceMultiplier, received.Count);
+
+            // 比阈值大一个浮点最小量：被钳制，只发一条。
+            received.Clear();
+            var aboveId = SpawnUnit(world, new Id("unit.boundary_above"), templateId, Vec2.Zero);
+            bus.Enqueue(new UnitMovedEvent(aboveId, Vec2.Zero));
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(aboveId, new Vec2(System.Math.BitIncrement(threshold), 0)));
+            bus.DispatchPending();
+
+            Assert.Equal(aboveId, Assert.Single(received).UnitId);
+        }
+
+        /// <summary>读档路径：SceneRouter 读档会 <c>world.ClearAll()</c>（逐实体 EntityDestroyed）再重建实体。
+        /// 读档后同 id 实体出现在远离读档前的位置，首个 <c>unit.moved</c> 只建立新基准，不得按读档前的位置算位移
+        /// 而虚发步幅事件；此后正常行走照常累计。</summary>
+        [Fact]
+        public void AfterWorldClearAllAndRestoreAtFarPosition_NoSpuriousStride_ThenNormalWalkingAccumulates()
+        {
+            var (_, world, bus, display) = Build();
+            var unitId = new Id("unit.restored");
+            var templateId = new Id("creature.restored");
+            const double strideDistance = 2.0;
+            SpawnUnit(world, unitId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero));
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(strideDistance * 0.75, 0))); // 带着一段未满的累计读档
+            bus.DispatchPending();
+            Assert.Empty(received);
+
+            // 读档：清空世界（经 EntityDestroyed 通知），再把实体放到远离原位置的存档坐标。
+            world.ClearAll();
+            bus.DispatchPending();
+            var restoredAt = new Vec2(strideDistance * StrideEmitter.TeleportDistanceMultiplier * 50, 7);
+            SpawnUnit(world, unitId, templateId, restoredAt);
+
+            bus.Enqueue(new UnitMovedEvent(unitId, restoredAt));
+            bus.DispatchPending();
+            Assert.Empty(received);
+
+            // 从读档位置正常走一个步幅：恰好一条，且不含旧累计（旧累计 0.75 若残留会提前触发）。
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(restoredAt.X + strideDistance * 0.5, restoredAt.Y)));
+            bus.DispatchPending();
+            Assert.Empty(received);
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(restoredAt.X + strideDistance, restoredAt.Y)));
+            bus.DispatchPending();
+            Assert.Single(received);
+        }
+
+        /// <summary>契约：<see cref="UnitStrideCompletedEvent.TryGetField"/> 只暴露 <c>unitId</c>；
+        /// <c>position</c>（Vec2 复合类型，Expr 无对应类型）与未知字段名一律返回 false，事件 key 固定。</summary>
+        [Fact]
+        public void UnitStrideCompletedEvent_TryGetField_ExposesUnitIdOnly_PositionIsFalse()
+        {
+            var unitId = new Id("unit.contract");
+            var position = new Vec2(3, 4);
+            var evt = new UnitStrideCompletedEvent(unitId, position);
+
+            Assert.Equal(ViewBindingEventKeys.UnitStrideCompleted, evt.Key);
+            Assert.True(evt.TryGetField("unitId", out var value));
+            Assert.Equal(unitId, value.AsId);
+            Assert.False(evt.TryGetField("position", out _));
+            Assert.False(evt.TryGetField("Position", out _));
+            Assert.False(evt.TryGetField("nonexistent", out _));
+            Assert.Equal(position, evt.Position);
+        }
+
+        /// <summary>每条步幅事件携带触发它的那次 <c>unit.moved</c> 的位置；一次位移跨越多个步幅时，
+        /// 全部事件都带同一个（最终）位置。</summary>
+        [Fact]
+        public void StrideEvents_CarryThePositionOfTheTriggeringMove()
+        {
+            var (_, world, bus, display) = Build();
+            var unitId = new Id("unit.pos_carrier");
+            var templateId = new Id("creature.pos_carrier");
+            const double strideDistance = 1.0;
+            SpawnUnit(world, unitId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero));
+            bus.DispatchPending();
+            var destination = new Vec2(strideDistance * 3, 0);
+            bus.Enqueue(new UnitMovedEvent(unitId, destination));
+            bus.DispatchPending();
+
+            Assert.Equal((int)System.Math.Floor(destination.X / strideDistance), received.Count);
+            Assert.All(received, e => Assert.Equal(destination, e.Position));
+        }
+
+        /// <summary>原地不动（位移为 0）的 <c>unit.moved</c> 不发事件、不改变累计。</summary>
+        [Fact]
+        public void ZeroDisplacementMove_EmitsNothing_AndKeepsAccumulation()
+        {
+            var (_, world, bus, display) = Build();
+            var unitId = new Id("unit.idle");
+            var templateId = new Id("creature.idle");
+            const double strideDistance = 4.0;
+            SpawnUnit(world, unitId, templateId, Vec2.Zero);
+            display.Register(templateId, strideDistance);
+            var received = Listen(bus);
+
+            bus.Enqueue(new UnitMovedEvent(unitId, Vec2.Zero));
+            bus.DispatchPending();
+            var half = new Vec2(strideDistance * 0.5, 0);
+            bus.Enqueue(new UnitMovedEvent(unitId, half));
+            bus.DispatchPending();
+            bus.Enqueue(new UnitMovedEvent(unitId, half)); // 原地
+            bus.DispatchPending();
+            Assert.Empty(received);
+
+            // 累计仍是 0.5 个步幅：再走 0.5 个恰好触发一次。
+            bus.Enqueue(new UnitMovedEvent(unitId, new Vec2(strideDistance, 0)));
+            bus.DispatchPending();
+            Assert.Single(received);
+        }
+
+        /// <summary>实体解析退化：世界里没有该实体时，用 <c>unitId</c> 本身作为 display.map 的逻辑 id
+        /// （<c>entity?.TemplateId ?? unitId</c>）；有实体但 TemplateId 为空同样退回 <c>unitId</c>。</summary>
+        [Fact]
+        public void StrideDistanceResolution_FallsBackToUnitId_WhenEntityMissingOrTemplateIdNull()
+        {
+            var (_, world, bus, display) = Build();
+            const double strideDistance = 1.0;
+            var ghostId = new Id("unit.ghost_not_in_world");
+            var noTemplateId = new Id("unit.no_template");
+            display.Register(ghostId, strideDistance);
+            display.Register(noTemplateId, strideDistance);
+            world.AddEntity(new PlayerUnit(noTemplateId, new Id(MapId), new Id("fac.player"), new Id("arch.sample")));
+            var received = Listen(bus);
+
+            foreach (var id in new[] { ghostId, noTemplateId })
+            {
+                bus.Enqueue(new UnitMovedEvent(id, Vec2.Zero));
+                bus.DispatchPending();
+                bus.Enqueue(new UnitMovedEvent(id, new Vec2(strideDistance, 0)));
+                bus.DispatchPending();
+            }
+
+            Assert.Equal(2, received.Count);
+            Assert.Contains(received, e => e.UnitId.Equals(ghostId));
+            Assert.Contains(received, e => e.UnitId.Equals(noTemplateId));
+        }
+
+        /// <summary>构造守卫：任一依赖为 null 都抛 ArgumentNullException。</summary>
+        [Fact]
+        public void Constructor_NullArguments_Throw()
+        {
+            var bus = new EventBus(
+                EventCatalog.FromDefinitions(System.Array.Empty<EventDefinition>()),
+                new EventBusOptions { StrictCatalog = false });
+            var world = new WorldSim(bus);
+            var display = new FakeDisplayInfoRegistry();
+
+            Assert.Throws<System.ArgumentNullException>(() => new StrideEmitter(null!, display, bus));
+            Assert.Throws<System.ArgumentNullException>(() => new StrideEmitter(world, null!, bus));
+            Assert.Throws<System.ArgumentNullException>(() => new StrideEmitter(world, display, null!));
+        }
+
         /// <summary>最小可运行 <see cref="IDisplayInfoRegistry"/> 假实现，只承载
         /// <see cref="StrideEmitter"/> 实际用到的 <see cref="Lookup"/>，其余成员本套件不会触达。</summary>
         private sealed class FakeDisplayInfoRegistry : IDisplayInfoRegistry

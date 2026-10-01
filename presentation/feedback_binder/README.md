@@ -262,6 +262,16 @@
     `ArgumentException` 而 schema 解析抛 `DataFieldException`，本条不统一，见汇报）；`vfx_sfx` 的
     `VfxSfxFromRecordTests.cs` 补 `vfx.def`/`sfx.def`/`weapon_style` 的缺字段/类型不符/非法枚举。
 
+21. **测试覆盖剩余项第四批（2026-10-01）：只补测试，无生产改动；三处现状如实登记、待设计层确认（均未改行为）**：
+    - `PlaybackQueue`：队列中**最后一步**抛异常时，该步骤已出队但 `Finished` 不触发（`RunOne` 里 `step()` 抛出先于"队列清空"检查）；
+      其余步骤不受影响，之后的新批次照常触发。已钉住：`tests/PlaybackQueueEdgeTests.cs`
+      `Update_LastStepThrows_FinishedIsNotFiredForThatBatch_ButLaterBatchesStillFinish`。
+    - `FeedbackBinder` 的 `flash` 动作在 `attach=target` 缺 `targetId` 时的警告文本不含事件键（其余 `play_vfx`/`stop_vfx`/
+      `play_sfx`/`stop_sfx` 四处都含）；用例对该动作只断言"警告 + 跳过"，不断言文本里的事件键
+      （`tests/FeedbackBinderDispatchEdgeTests.cs`）。
+    - `FloatingTextMerger.Update` 在同一次调用里同时到期的多个窗口按**逆插入顺序**派发，`FlushAll` 按插入顺序；用例只断言集合相等，
+      不断言顺序。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行
