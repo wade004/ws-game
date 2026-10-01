@@ -1,0 +1,58 @@
+{
+  "formatVersion": 1,
+  "meta": {
+    "scriptId": "move_small_axis",
+    "scriptVersion": 1,
+    "description": "小幅轴值：低于宿主阈值（忽略）、略高于阈值、半推杆，各 20 个 tick，量死区/阈值与速度是否随轴模长变化。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 50,
+    "frameRateCap": 60,
+    "durationTicks": 70,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": []
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.005,
+        "y": 0
+      }
+    },
+    {
+      "tick": 10,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.05,
+        "y": 0
+      }
+    },
+    {
+      "tick": 30,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.5,
+        "y": 0
+      }
+    },
+    {
+      "tick": 50,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

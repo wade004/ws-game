@@ -31,6 +31,11 @@ namespace Core.Sim
         {
             registry.RegisterSchema(SimSchemas.Anchor);
             registry.RegisterSchema(SimSchemas.Scenario);
+            // 手感实验室三张表（lab.scenario/lab.arena/lab.dummy_set），声明见 LabSchemas 类型注释判断记录
+            // "为何 schema 声明放在 core/sim"。
+            registry.RegisterSchema(LabSchemas.Scenario);
+            registry.RegisterSchema(LabSchemas.Arena);
+            registry.RegisterSchema(LabSchemas.DummySet);
             registry.RegisterValidationRule(new SimAnchorValidationRule());
             registry.RegisterValidationRule(new SimScenarioValidationRule());
             registry.RegisterValidationRule(new SimGrowthOpponentAmbiguityValidationRule());

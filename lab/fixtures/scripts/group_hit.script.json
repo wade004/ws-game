@@ -1,0 +1,74 @@
+{
+  "formatVersion": 1,
+  "meta": {
+    "scriptId": "group_hit",
+    "scriptVersion": 1,
+    "description": "群体命中：站在 7 个群体单位前，技能 1 扫击三次（含一次冷却内失败）直到全部倒下，再补一刀普攻（无目标），量多目标结算与去重。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 50,
+    "frameRateCap": 60,
+    "durationTicks": 150,
+    "playerStart": {
+      "x": 0,
+      "y": 6
+    },
+    "dummyGroups": [
+      "swarm"
+    ]
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.skill_1",
+      "kind": "press"
+    },
+    {
+      "tick": 1,
+      "action": "input.action.skill_1",
+      "kind": "release"
+    },
+    {
+      "tick": 25,
+      "action": "input.action.skill_1",
+      "kind": "press"
+    },
+    {
+      "tick": 26,
+      "action": "input.action.skill_1",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.skill_1",
+      "kind": "press"
+    },
+    {
+      "tick": 61,
+      "action": "input.action.skill_1",
+      "kind": "release"
+    },
+    {
+      "tick": 110,
+      "action": "input.action.skill_1",
+      "kind": "press"
+    },
+    {
+      "tick": 111,
+      "action": "input.action.skill_1",
+      "kind": "release"
+    },
+    {
+      "tick": 130,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 131,
+      "action": "input.action.attack",
+      "kind": "release"
+    }
+  ]
+}

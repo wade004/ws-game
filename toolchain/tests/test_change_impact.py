@@ -321,9 +321,9 @@ def test_repro_layer_root_file_is_layer_level_t2(mmap: dict) -> None:
         ("core/foundation/common/contracts/Id.cs", ["foundation", "numbers"]),
         ("core/rules/assembly/RulesAssembly.cs", ["rules", "carriers"]),
         ("core/foundation/LayerMarker.cs", ["foundation", "numbers"]),
-        ("presentation/common/core/ResourceReferenceTracker.cs", ["presentation"]),
-        ("presentation/assembly/PresentationAssembly.cs", ["presentation"]),
-        ("presentation/LayerMarker.cs", ["presentation"]),
+        ("presentation/common/core/ResourceReferenceTracker.cs", ["presentation", "lab"]),
+        ("presentation/assembly/PresentationAssembly.cs", ["presentation", "lab"]),
+        ("presentation/LayerMarker.cs", ["presentation", "lab"]),
     ],
 )
 def test_repro_layer_shared_surface_runs_own_layer_plus_one_downstream(mmap: dict, path: str, layers: list[str]) -> None:
@@ -447,8 +447,9 @@ def test_repro_toolchain_tests_and_floors_are_t1_toolchain_pytest_only(mmap: dic
         ("rules", "core/rules/tests/Tests.Rules.csproj", ["core/carriers/tests/Tests.Carriers.csproj"]),
         ("carriers", "core/carriers/tests/Tests.Carriers.csproj", ["core/gameplay/tests/Tests.Gameplay.csproj"]),
         ("gameplay", "core/gameplay/tests/Tests.Gameplay.csproj", ["core/sim/tests/Tests.Sim.csproj", "presentation/tests/Tests.PresentationCommon.csproj"]),
-        ("sim", "core/sim/tests/Tests.Sim.csproj", []),
-        ("presentation", "presentation/tests/Tests.PresentationCommon.csproj", []),
+        ("sim", "core/sim/tests/Tests.Sim.csproj", ["lab/tests/Tests.Lab.csproj"]),
+        ("presentation", "presentation/tests/Tests.PresentationCommon.csproj", ["lab/tests/Tests.Lab.csproj"]),
+        ("lab", "lab/tests/Tests.Lab.csproj", []),
     ],
 )
 def test_repro_layer_test_csproj_is_layer_level_t2(mmap: dict, layer: str, own: str, downstream: list[str]) -> None:
@@ -470,6 +471,7 @@ def test_repro_layer_test_csproj_is_layer_level_t2(mmap: dict, layer: str, own: 
         "gameplay": "core/gameplay/Core.Gameplay.csproj",
         "sim": "core/sim/Core.Sim.csproj",
         "presentation": "presentation/Presentation.Common.csproj",
+        "lab": "lab/Lab.Kernel.csproj",
     }[layer]
     assert _plan(mmap, prod)["level"] == "T3", prod
 
@@ -1014,3 +1016,18 @@ def test_module_map_check_flags_uncovered_path_category_and_ghost_rule(tmp_path:
     msgs = " | ".join(gmm.check_path_rules(repo, bad))
     for needle in ("no_such_step", "module:nope", "x/none.csproj", "level"):
         assert needle in msgs, msgs
+
+
+def test_repro_lab_dataset_and_fixtures_stay_t1_with_their_own_steps(mmap: dict) -> None:
+    # 复现：data/** 一律共享面 T3，改一行实验室数据集就跑全量。data/_lab 只被实验室内核与命令行读取，
+    # 归 T1：只跑实验室测试工程 + 实验室数据集校验 + 指纹基线比对，其余 data/** 仍是 T3。
+    plan = _plan(mmap, "data/_lab/lab/lab.scenario.json")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"]["projects"] == ["lab/tests/Tests.Lab.csproj"]
+    assert {"validate_lab_data", "feel_lab_suite", "dotnet_test"} <= _run_ids(plan)
+    assert "toolchain_pytest" in _skip_ids(plan)
+    assert _plan(mmap, "data/_framework/lab/lab.scenario.json")["level"] == "T3"
+    # 不变量：改基线夹具（lab/ 模块内部）同样触发指纹基线比对；校验步骤只看数据。
+    fixture_plan = _plan(mmap, "lab/fixtures/baselines/wall.baseline.json")
+    assert fixture_plan["level"] == "T1" and "feel_lab_suite" in _run_ids(fixture_plan)
+    assert "validate_lab_data" not in _run_ids(fixture_plan)

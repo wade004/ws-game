@@ -1,0 +1,9 @@
+{
+  "table": "fac.faction",
+  "schema_version": 1,
+  "rows": [
+    { "id": "fac.player", "name_key": "l10n.faction.player.name", "default_reaction": "friendly" },
+    { "id": "fac.lab_hostile", "name_key": "l10n.faction.lab_hostile.name", "default_reaction": "neutral" },
+    { "id": "fac.lab_neutral", "name_key": "l10n.faction.lab_neutral.name", "default_reaction": "neutral" }
+  ]
+}

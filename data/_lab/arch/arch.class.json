@@ -1,0 +1,15 @@
+{
+  "table": "arch.class",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.class.lab_hero",
+      "name_key": "l10n.arch.lab_hero.name",
+      "primary_stat": "stat.lab_power",
+      "base_stats": { "stat.lab_power": 10, "stat.stamina": 100 },
+      "power_types": ["arch.power.health"],
+      "skill_book_ref": "skill.book.lab_hero",
+      "level_curve_ref": "prog.curve.lab_default"
+    }
+  ]
+}

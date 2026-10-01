@@ -1,0 +1,27 @@
+{
+  "table": "l10n.text",
+  "schema_version": 1,
+  "rows": [
+    { "key": "l10n.stat.lab_power.name", "locale": "l10n.locale.zh_cn", "text": "力量" },
+    { "key": "l10n.stat.stamina.name", "locale": "l10n.locale.zh_cn", "text": "耐力" },
+    { "key": "l10n.stat.attack_power.name", "locale": "l10n.locale.zh_cn", "text": "攻击强度" },
+    { "key": "l10n.stat.move_speed.name", "locale": "l10n.locale.zh_cn", "text": "移动速度" },
+    { "key": "l10n.arch.lab_hero.name", "locale": "l10n.locale.zh_cn", "text": "实验室英雄" },
+    { "key": "l10n.power.health.name", "locale": "l10n.locale.zh_cn", "text": "生命值" },
+    { "key": "l10n.diff.lab_normal.name", "locale": "l10n.locale.zh_cn", "text": "普通" },
+    { "key": "l10n.faction.player.name", "locale": "l10n.locale.zh_cn", "text": "玩家阵营" },
+    { "key": "l10n.faction.lab_hostile.name", "locale": "l10n.locale.zh_cn", "text": "实验室敌对阵营" },
+    { "key": "l10n.faction.lab_neutral.name", "locale": "l10n.locale.zh_cn", "text": "实验室中立阵营" },
+    { "key": "l10n.creature.tier.lab_normal.name", "locale": "l10n.locale.zh_cn", "text": "普通" },
+    { "key": "l10n.creature.tier.lab_elite.name", "locale": "l10n.locale.zh_cn", "text": "精英" },
+    { "key": "l10n.creature.tier.lab_stake.name", "locale": "l10n.locale.zh_cn", "text": "木桩档" },
+    { "key": "l10n.creature.tier.lab_swarm.name", "locale": "l10n.locale.zh_cn", "text": "群体档" },
+    { "key": "l10n.creature.tier.lab_obstacle.name", "locale": "l10n.locale.zh_cn", "text": "障碍档" },
+    { "key": "l10n.creature.lab_stake.name", "locale": "l10n.locale.zh_cn", "text": "不死木桩" },
+    { "key": "l10n.creature.lab_mob.name", "locale": "l10n.locale.zh_cn", "text": "普通怪" },
+    { "key": "l10n.creature.lab_elite.name", "locale": "l10n.locale.zh_cn", "text": "精英怪" },
+    { "key": "l10n.creature.lab_swarm_unit.name", "locale": "l10n.locale.zh_cn", "text": "群体单位" },
+    { "key": "l10n.creature.lab_patrol.name", "locale": "l10n.locale.zh_cn", "text": "巡逻靶" },
+    { "key": "l10n.creature.lab_breakable.name", "locale": "l10n.locale.zh_cn", "text": "可破坏障碍" }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "table": "stat.definition",
+  "schema_version": 2,
+  "rows": [
+    {
+      "id": "stat.lab_power",
+      "name_key": "l10n.stat.lab_power.name",
+      "category": "primary",
+      "group": "primary"
+    },
+    {
+      "id": "stat.stamina",
+      "name_key": "l10n.stat.stamina.name",
+      "category": "primary",
+      "group": "primary"
+    },
+    {
+      "id": "stat.attack_power",
+      "name_key": "l10n.stat.attack_power.name",
+      "category": "derived",
+      "group": "secondary",
+      "derived_from": [
+        { "stat": "stat.lab_power", "coefficient": 1.0 }
+      ]
+    },
+    {
+      "id": "stat.move_speed",
+      "name_key": "l10n.stat.move_speed.name",
+      "category": "misc",
+      "group": "secondary",
+      "default_base": 5
+    }
+  ]
+}

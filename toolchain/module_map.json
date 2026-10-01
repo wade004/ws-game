@@ -57,14 +57,25 @@
     "sim": {
       "path": "core/sim/",
       "test_project": "core/sim/tests/Tests.Sim.csproj",
-      "downstream": [],
+      "downstream": [
+        "lab"
+      ],
       "single_module": true,
       "owner": "TBD"
     },
     "presentation": {
       "path": "presentation/",
       "test_project": "presentation/tests/Tests.PresentationCommon.csproj",
+      "downstream": [
+        "lab"
+      ],
+      "owner": "TBD"
+    },
+    "lab": {
+      "path": "lab/",
+      "test_project": "lab/tests/Tests.Lab.csproj",
       "downstream": [],
+      "single_module": true,
       "owner": "TBD"
     }
   },
@@ -287,7 +298,8 @@
         "label": "层级测试工程文件（core/*/tests、presentation/tests 下的 csproj）：按该测试工程所在层的层级范围记 T2（本层测试工程 + 下游一层 + ABI 探针 + 本层所有模块的引擎侧分类）；生产 csproj、sln、Directory.Build.props 仍归共享面 T3",
         "globs": [
           "core/*/tests/*.csproj",
-          "presentation/tests/*.csproj"
+          "presentation/tests/*.csproj",
+          "lab/tests/*.csproj"
         ],
         "level": 2,
         "scope": "layer"
@@ -313,6 +325,21 @@
         "level": 1,
         "steps": [
           "toolchain_pytest"
+        ]
+      },
+      {
+        "id": "lab_dataset",
+        "label": "手感实验室数据集 data/_lab：只被实验室内核/命令行与 validate_lab_data 读取，不进合并根与任何游戏根；改它只需校验该数据集 + 实验室测试工程 + 指纹基线比对（其余 data/** 仍归共享面 T3）",
+        "globs": [
+          "data/_lab/**"
+        ],
+        "level": 1,
+        "dotnet_projects": [
+          "lab/tests/Tests.Lab.csproj"
+        ],
+        "steps": [
+          "validate_lab_data",
+          "feel_lab_suite"
         ]
       },
       {
@@ -523,6 +550,16 @@
       ]
     },
     {
+      "id": "validate_lab_data",
+      "label": "validate_data.py --strict --data-root data/_lab（手感实验室数据集，warnings 须为 0）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
       "id": "crlf_check",
       "label": "工作树文本文件无 CR",
       "base_tiers": [
@@ -663,6 +700,25 @@
       "always_triggers": [
         "core/sim/tests/data/**",
         "core/sim/tests/baseline/**"
+      ]
+    },
+    {
+      "id": "feel_lab_suite",
+      "label": "手感实验室指纹基线比对（toolchain/feellab suite：全部标准脚本 x 6 格子）",
+      "base_tiers": [],
+      "triggers": [
+        "core/**",
+        "data/**",
+        "adapters/stub/**",
+        "presentation/**",
+        "lab/**"
+      ],
+      "requires": [
+        "dotnet_build"
+      ],
+      "min_level": 2,
+      "always_triggers": [
+        "lab/fixtures/**"
       ]
     },
     {
@@ -1246,7 +1302,6 @@
       "layer": "presentation",
       "path": "presentation/camera/",
       "test_namespaces": [
-        "Tests.Presentation.Camera",
         "Tests.PresentationCamera"
       ],
       "engine_category": "module:camera",
@@ -1318,6 +1373,17 @@
         "Tests.PresentationViewBinding"
       ],
       "engine_category": "module:view_binding",
+      "owner": "TBD",
+      "interaction_exceptions": []
+    },
+    {
+      "name": "lab",
+      "layer": "lab",
+      "path": "lab/",
+      "test_namespaces": [
+        "Tests.Lab"
+      ],
+      "engine_category": "module:lab",
       "owner": "TBD",
       "interaction_exceptions": []
     }

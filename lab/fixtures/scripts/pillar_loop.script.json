@@ -1,0 +1,85 @@
+{
+  "formatVersion": 1,
+  "meta": {
+    "scriptId": "pillar_loop",
+    "scriptVersion": 1,
+    "description": "绕柱：围着 (5..7,5..7) 的柱子绕一个方圈，再向上、向右顶柱子，量绕行无抖动与顶柱受阻。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 50,
+    "frameRateCap": 60,
+    "durationTicks": 270,
+    "playerStart": {
+      "x": 2,
+      "y": 4
+    },
+    "dummyGroups": []
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 60,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "tick": 100,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": -1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 160,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": -1
+      }
+    },
+    {
+      "tick": 200,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "tick": 220,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 260,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

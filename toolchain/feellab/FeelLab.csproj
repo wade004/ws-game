@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>FeelLab</AssemblyName>
+    <RootNamespace>Toolchain.FeelLab</RootNamespace>
+  </PropertyGroup>
+
+  <!-- 判断记录（工程惯例，见 toolchain/simrunner/SimRunner.csproj）：命令行入口依赖实验室内核 Lab.Kernel
+       （经其既有 ProjectReference 链传递可见 Core.Sim/Adapters.Stub/Presentation.Common 等）。
+       与 SimRunner/Validator 不同，本工具不提供 lib/ 预编译回退分支，也不进 dist/UPM 发行包：实验室是框架仓库内的
+       验收设施（手感体系回归网），不随分发包发给游戏；游戏仓库要跑自己的实验室时直接引用内核工程（内核是
+       netstandard2.1，与核心库同目标框架），不经本命令行。 -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\lab\Lab.Kernel.csproj" />
+  </ItemGroup>
+
+</Project>
