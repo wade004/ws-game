@@ -185,8 +185,20 @@ namespace Tests.Foundation.Feel
             return dir.FullName;
         }
 
-        /// <summary>框架手感数据目录（<c>data/_feel/feel</c>）里的全部表 JSON。</summary>
+        /// <summary>
+        /// 框架手感数据目录（<c>data/_feel/feel</c>）里的预设/原型/武器/运动模式规则表 JSON。<b>不含</b>框架缺省标定表
+        /// （<c>feel.calibration</c>，S1 起 <c>data/_feel</c> 自带一行缺省标定，见 <see cref="FrameworkFeelTablesWithOwnCalibration"/>）：
+        /// 这里的集合让测试自己拼标定（测试标定 A/B、缺标定、多行标定等场景），保持 S0 起的用例语义不变。
+        /// </summary>
         public static List<(string Table, string Json)> FrameworkFeelTables()
+        {
+            var all = FrameworkFeelTablesWithOwnCalibration();
+            all.RemoveAll(t => t.Table == "feel.calibration");
+            return all;
+        }
+
+        /// <summary>框架手感数据目录里的全部表 JSON，含框架自带的缺省标定表。</summary>
+        public static List<(string Table, string Json)> FrameworkFeelTablesWithOwnCalibration()
         {
             var dir = Path.Combine(FindRepoRoot(), "data", "_feel", "feel");
             var result = new List<(string, string)>();

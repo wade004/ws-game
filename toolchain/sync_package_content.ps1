@@ -221,6 +221,11 @@ function Sync-Tree {
 Write-Step "同步 Data~/data/_framework -> $DestDir\data\_framework"
 Sync-Tree -SourceDir (Join-Path $dataDir "data\_framework") -TargetDir (Join-Path $DestDir "data\_framework") -Label "data/_framework"
 
+# 手感落地 S1：data/_feel（手感档案/预设/缺省标定）与 data/_framework 同属分发的框架级数据，同样镜像进 StreamingAssets。
+# 旧版本包没有 Data~/data/_feel 时 Sync-Tree 只提示并跳过，不报错。
+Write-Step "同步 Data~/data/_feel -> $DestDir\data\_feel"
+Sync-Tree -SourceDir (Join-Path $dataDir "data\_feel") -TargetDir (Join-Path $DestDir "data\_feel") -Label "data/_feel"
+
 Write-Step "同步 Data~/assets/_placeholder -> $DestDir\assets\_placeholder"
 Sync-Tree -SourceDir (Join-Path $dataDir "assets\_placeholder") -TargetDir (Join-Path $DestDir "assets\_placeholder") -Label "assets/_placeholder"
 

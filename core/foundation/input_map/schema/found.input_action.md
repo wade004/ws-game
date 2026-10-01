@@ -25,6 +25,15 @@
 | `default_bindings` | Array of String | 是 | 默认绑定字符串数组，语法见本模块 `README.md`"绑定字符串小语法"；数组内多条绑定之间是"或"关系 |
 | `rebind_group` | String | 否 | 重绑分组，缺省视为 `"default"`；同组内的绑定互相独占（见 03 第 7 节"冲突检测"） |
 | `description` | String | 否 | 说明文字 |
+| `class` | Enum（`move`\|`attack`\|`skill`\|`dodge`\|`interact`\|`item`\|`menu`） | 否 | 动作类别（手感设计/01 第 2.1 节）。**缺省 = 不进输入缓冲**（既有动作行为完全不变）；仅 `kind=button` 且声明了类别（非 `move`）的动作入缓冲。同类别的缓冲记录互相覆盖 |
+| `buffer_ms` | Number（0..1000，毫秒） | 否 | 该动作自己的缓冲窗口；缺省取行动者手感档案输入组的 `buffer_ms`。0 = 只在按下当 tick 有效。毫秒经 `FeelCalibration` 按模拟步长换算为 tick |
+| `priority` | Int | 否 | 缓冲替换/取用优先级（大者优先）；缺省取类别缺省：dodge 40 > attack/skill 30 > item 20 > interact 10 > 其余 0 |
+| `hold_threshold_ms` | Number（>0，毫秒） | 否 | 按住阈值；声明后按下先成为"按住待定"（不可消费），抬起时按持续时长判点按/按住。缺省：attack/skill 类取档案的 `hold_threshold_ms`（若有），其余类别不区分按住 |
+| `repeat_policy` | Enum（`refresh`\|`ignore`） | 否 | 同一动作在槽内未过期时再次按下：`refresh`（缺省）刷新过期时刻与方向快照；`ignore` 保持原记录 |
+| `face_on_accept` | Bool | 否 | 取用成功时是否转向按下瞬间的方向快照；缺省取类别缺省（attack/skill/dodge 为真） |
+| `grace_conditions` | Array of Id | 否 | 该动作的宽限条件 id 列表（引用 `found.grace_condition`）；缺省空 = 无附加宽限条件。机制见本模块 README"宽限窗口" |
+
+新增的 7 个字段均为可选加法字段：旧数据行不写它们时，`ActionDefinition` 的行为与此前逐项相同（`Class` 为空 ⇒ 不进缓冲）。
 
 ## 示例
 

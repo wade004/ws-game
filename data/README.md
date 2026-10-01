@@ -7,7 +7,7 @@
 ```
 data/_framework/<domain>/<table>.json   框架级数据表（随分发包 dist/<version>/data/_framework/ 一起发给游戏）
 data/_sample/<domain>/<table>.json      示例数据（仅供本仓库 DataRegistry 冒烟测试与校验器自测使用）
-data/_feel/feel/<table>.json            框架自带的手感数据（预设、体型原型、武器原型、运动模式规则，试调起点，实验性）；不进 _framework，因为任何含 feel.* 行的数据根都必须配一行标定（feel.calibration，每款游戏自己的），见 core/foundation/feel/README.md 判断记录 4/5
+data/_feel/feel/<table>.json            框架自带的手感数据（预设、体型原型、武器原型、运动模式规则，试调起点，实验性），含一行缺省标定 feel.calibration.framework_default（使 _feel 能单独过校验；真实游戏写自己的标定行并在装配时用 CalibrationId 指定）；随分发包 dist/<version>/data/_feel/ 一起发出，与 _framework 并列作为框架根；不并进 _framework 是因为含 feel.* 行的数据根都得配标定行，见 core/foundation/feel/README.md 判断记录 4/5
 data/<game>/<domain>/<table>.json       具体游戏的数据（放各自游戏仓库自己的 data/<game>/ 下，本框架仓库不含）
 ```
 

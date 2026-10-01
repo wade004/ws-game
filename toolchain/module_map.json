@@ -560,6 +560,16 @@
       ]
     },
     {
+      "id": "validate_feel_data",
+      "label": "validate_data.py --strict --data-root data/_feel（手感框架数据集，含缺省标定行，errors/warnings 须为 0）",
+      "base_tiers": [],
+      "triggers": [
+        "data/**",
+        "core/**/schema/**",
+        "presentation/**/schema/**"
+      ]
+    },
+    {
       "id": "crlf_check",
       "label": "工作树文本文件无 CR",
       "base_tiers": [

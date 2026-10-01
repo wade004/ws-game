@@ -46,14 +46,25 @@ input_map/
     IInputMapHost.cs           IInputMapHost
     InputActionSchema.cs       found.input_action 的 TableSchema
     InputMapOptions.cs         InputMapOptions（GamepadIndex）
+    ActionClass.cs / InputRepeatPolicy.cs / ActionClassDefaults.cs   动作类别、重复策略、类别缺省（优先级/转向/是否缓冲）
+    BufferedIntent.cs          BufferedIntent、BufferHoldState、BufferDropReason、InputBufferDroppedEvent 相关
+    IInputBufferQuery.cs       缓冲查询/取用接口（动作层在取消窗口里调用）
+    IInputEdgeSink.cs          按钮边沿汇点（InputMapHost → 缓冲）
+    IBufferedIntentSink.cs     tick 处理器的反向接口（动作层决定"此刻接不接受"）
+    IGraceQuery.cs / GraceConditionSchema.cs   宽限窗口查询、条件求值接口、found.grace_condition 表
   core/
     InputMapHost.cs             IInputMapHost 默认实现
     InMemoryInputMapDiagnostics.cs
+    InputBufferHost.cs          每行动者输入缓冲（槽、覆盖/优先级、按住/点按、重复策略、过期、清空）
+    InputBufferTickHandler.cs   tick 步骤 1 处理器（缓冲推进 + 宽限采样 + 可选的推送式取用）
+    GraceTracker.cs             宽限窗口追踪
   schema/
     found.input_action.md       字段说明、登记表判断记录
+    found.grace_condition.md    宽限条件登记表
   tests/
     BindingParserTests.cs
     InputMapHostTests.cs
+    InputBufferTests.cs / InputBufferIntegrationTests.cs / InputBufferTestSupport.cs
 ```
 
 ## 设计要点与判断记录
@@ -154,6 +165,43 @@ input_map/
 | 绑定解析、重绑定、冲突检测、导出/导入的实现机制 | 是 | 具体动作集内容与默认绑定（`found.input_action` 数据行） |
 | `found.input_action` 表字段定义与 `FromRecord` 加载入口 | 是 | 具体游戏的动作数据 |
 | `input.action_triggered`/`input.rebind_conflict` 事件 | 是 | 订阅这些事件做具体呈现（如设置界面提示冲突） |
+
+## 手感落地 S1：输入缓冲与宽限窗口（手感设计/01 第 2 节，ADR-0115，2026-10-02）
+
+**数据**：`found.input_action` 新增 7 个可选加法字段（`class`/`buffer_ms`/`priority`/`hold_threshold_ms`/`repeat_policy`/
+`face_on_accept`/`grace_conditions`，见 `schema/found.input_action.md`）与登记表 `found.grace_condition`。**缺省 = 不进缓冲**：
+旧行不写 `class` 时 `ActionDefinition.IsBuffered` 为假，`InputMapHost` 行为与此前逐项相同（有边沿汇点才多做一次逐事件求值）。
+`ActionDefinition` 旧 5 参构造保留，新增 12 参构造（ABI 只新增）。
+
+**运行时**（`core/InputBufferHost.cs`，实现 `IInputBufferQuery` 与 `IInputEdgeSink`）：
+- 来源：`InputMapHost.SetEdgeSink(buffer)` 后，每个 `Button` 动作的按下/抬起边沿按到达顺序递交（同批次内"按下又抬起"不丢，仍是一次点按）；
+  `BindLocalInput(map, actorId, moveActionName)` 把本地输入绑到某个行动者并在按下瞬间截取移动轴方向快照。网络/AI 来源直接 `Press/Release/Submit`。
+- 入槽规则（01 第 2.2 节）：同动作在槽内未过期 ⇒ 按 `repeat_policy` 刷新或忽略；同类别互相覆盖；槽满时高优先级替换最低者（`Replaced`），否则新意图被丢（`Full`）。
+- 取用：`TryPeek`/`TryConsume(actor, accepts, out intent)`——动作层在取消窗口里传入"当前能否接受"谓词，按优先级降序、同级按先后顺序取第一条可接受记录。
+- 过期：行动者动作时钟（`IActorActionClockQuery`，顿帧期间不流逝；没有时钟时退化为模拟 tick）。`ExpiresAt = 入槽读数 + buffer_ms 换算的 tick`，读数 `>` 它即过期，
+  发 `InputBufferDroppedEvent`（`Expired`）。`buffer_ms = 0` 只在按下当 tick 有效。`HoldPending`（按下未抬起）不过期，窗口从抬起算。
+- 丢弃原因（`BufferDropReason`）：`Replaced`/`Full`/`Expired`/`Cleared`/`Rejected`；`ReportRejected(actor, action, code, timeSolvable)` 由施法管线报告：
+  "时间可解"（`ACTION_LOCKED`/`GCD_ACTIVE`/`ON_COOLDOWN`）保留记录继续等，其它原因丢弃并发 `Rejected`（带原因码）。
+- 接线：`InputBufferTickHandler.Register(world, buffer, sink, grace)` 挂在步骤 1（输入采集阶段，先于步骤 3 施法管线）：推进缓冲、采样宽限，若给了
+  `IBufferedIntentSink`，对每个行动者的待消费记录问"能接受吗"，接受则 `AppendCurrentIntent` 并消费。离散步（`Discrete`）只清空缓冲，不做别的。
+  动作时间线切片不用推送式，直接在取消窗口里调 `IInputBufferQuery.TryConsume`。
+
+**宽限窗口**（`core/GraceTracker.cs`，`IGraceQuery`）：每个模拟 tick 对登记的（行动者, 条件）求值并记最近为真的 tick；条件当前为真，或最近为真距今 `<= grace_ms`（手感档案输入组，
+换算为 tick）即满足。机制不预置条件；求值经 `IGraceConditionEvaluator`（宿主在行动者上下文里求 `found.grace_condition.expr`）。
+
+### 判断记录
+
+1. **缓冲过期用行动者动作时钟，宽限用模拟 tick**：缓冲描述"玩家这次按键还有效多久"，顿帧中玩家的意图不该白白流逝（00 第 5 节）；宽限描述世界状态（目标是否在射程）的新鲜度，世界不因某个行动者顿帧而停。
+2. **验收逻辑留给上层，L0 只提供"拉取"接口**：能否接受依赖动作状态/取消窗口/技能映射（规则层知识），L0 不能向上依赖，所以 `IInputBufferQuery` 暴露带谓词的 `TryConsume`，推送式 tick 处理器经反向接口 `IBufferedIntentSink` 让规则层决定。
+3. **`class` 缺省为空 ⇒ 不缓冲**：保证不写新字段的既有数据、既有游戏输入行为完全不变；打开缓冲是数据层逐动作的显式选择。
+4. **点按/按住判定的 tick 精度**：阈值换算为 tick 后比较"按下到抬起的动作时钟差"；同批次内按下又抬起视为 0 tick 点按。
+
+### 已知限制（逐条交代给设计层）
+
+- 缓冲与宽限的 tick 处理器只在**连续步**工作；离散步清空缓冲（离散模式的"输入缓冲"语义留给后续切片，01 第 6 节未定义）。
+- `GraceTracker` 不内置 Expr 求值：`IGraceConditionEvaluator` 的具体实现（行动者上下文里求值）由规则层/宿主接线，本切片只给机制与接口。
+- `face_on_accept`（转向）只在记录里携带并经 `BufferedIntent.FaceOnAccept` 暴露，实际转向由取用方（动作层）执行。
+- 网络/回放来源的缓冲同步与回滚不在本切片范围。
 
 ## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
 

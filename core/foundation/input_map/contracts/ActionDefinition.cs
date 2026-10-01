@@ -29,12 +29,72 @@ namespace Core.Foundation.InputMap
 
         public string? Description { get; }
 
+        /// <summary>
+        /// 动作类别（手感设计/01 第 2.1 节 <c>class</c>）：取消窗口、优先级、连招都按类别工作。
+        /// <para>
+        /// 判断记录：设计文档把 <c>class</c> 列为必填，但既有数据（<c>data/_framework</c> 的 14 行、游戏层既有动作集）没有这个字段，
+        /// "缺省值让现有输入行为完全不变"要求既有数据零改动合法，因此本字段在 schema 里可选；<b>未声明类别的动作不经输入缓冲</b>
+        /// （<c>null</c>，行为与此前逐位一致），声明了非 <see cref="ActionClass.Move"/> 类别的按钮动作才入缓冲。
+        /// </para>
+        /// </summary>
+        public ActionClass? Class { get; }
+
+        /// <summary>动作级缓冲窗口（毫秒）；<c>null</c> 取手感档案输入组 <c>buffer_ms</c>（无手感档案时取 0，即不缓冲）。0 表示不缓冲。</summary>
+        public double? BufferMs { get; }
+
+        /// <summary>显式优先级；<c>null</c> 取类别缺省（<see cref="ActionClassDefaults.Priority"/>）。</summary>
+        public int? Priority { get; }
+
+        /// <summary>按住阈值（毫秒）：声明后区分点按与按住（蓄力类动作）；<c>null</c> 表示本动作自己不声明（档案缺省按住阈值仍可对 attack/skill 类生效）。</summary>
+        public double? HoldThresholdMs { get; }
+
+        /// <summary>同一动作在缓冲未过期时再次按下：刷新（缺省）或忽略。</summary>
+        public InputRepeatPolicy RepeatPolicy { get; }
+
+        /// <summary>显式的"接受时朝向对齐"；<c>null</c> 取类别缺省（<see cref="ActionClassDefaults.FaceOnAccept"/>）。</summary>
+        public bool? FaceOnAccept { get; }
+
+        /// <summary>宽限窗口适用的条件名（<c>found.grace_condition</c> 的 key，手感设计/01 第 2.4 节）；缺省为空。</summary>
+        public IReadOnlyList<Id> GraceConditions { get; }
+
+        /// <summary>生效优先级：显式值，否则类别缺省；未声明类别的动作为 0。</summary>
+        public int EffectivePriority => Priority ?? (Class.HasValue ? ActionClassDefaults.Priority(Class.Value) : 0);
+
+        /// <summary>生效的接受时朝向对齐：显式值，否则类别缺省；未声明类别的动作为 false。</summary>
+        public bool EffectiveFaceOnAccept => FaceOnAccept ?? (Class.HasValue && ActionClassDefaults.FaceOnAccept(Class.Value));
+
+        /// <summary>该动作是否经输入缓冲：必须是按钮型动作且声明了非 <see cref="ActionClass.Move"/> 的类别。</summary>
+        public bool IsBuffered => Kind == ActionKind.Button && Class.HasValue && ActionClassDefaults.IsBuffered(Class.Value);
+
         public ActionDefinition(
             Id actionId,
             ActionKind kind,
             IReadOnlyList<string> defaultBindings,
             string rebindGroup = "default",
             string? description = null)
+            : this(actionId, kind, defaultBindings, rebindGroup, description,
+                actionClass: null, bufferMs: null, priority: null, holdThresholdMs: null,
+                repeatPolicy: InputRepeatPolicy.Refresh, faceOnAccept: null, graceConditions: null)
+        {
+        }
+
+        /// <summary>
+        /// 带手感字段的构造（手感设计/01 第 2.1 节，纯加法重载；上面的五参数构造原样保留并转调本重载，各手感字段取缺省）。
+        /// 这里不带默认值，避免与五参数构造的"只传 3～5 个参数"调用点产生重载二义性。
+        /// </summary>
+        public ActionDefinition(
+            Id actionId,
+            ActionKind kind,
+            IReadOnlyList<string> defaultBindings,
+            string rebindGroup,
+            string? description,
+            ActionClass? actionClass,
+            double? bufferMs,
+            int? priority,
+            double? holdThresholdMs,
+            InputRepeatPolicy repeatPolicy,
+            bool? faceOnAccept,
+            IReadOnlyList<Id>? graceConditions)
         {
             if (defaultBindings == null || defaultBindings.Count == 0)
             {
@@ -45,11 +105,27 @@ namespace Core.Foundation.InputMap
                 throw new ArgumentException($"动作 \"{actionId}\" 的 RebindGroup 不能为空", nameof(rebindGroup));
             }
 
+            if (bufferMs.HasValue && !(bufferMs.Value >= 0))
+            {
+                throw new ArgumentException($"动作 \"{actionId}\" 的 BufferMs 必须是非负数", nameof(bufferMs));
+            }
+            if (holdThresholdMs.HasValue && !(holdThresholdMs.Value > 0))
+            {
+                throw new ArgumentException($"动作 \"{actionId}\" 的 HoldThresholdMs 必须是正数", nameof(holdThresholdMs));
+            }
+
             ActionId = actionId;
             Kind = kind;
             DefaultBindings = defaultBindings;
             RebindGroup = rebindGroup;
             Description = description;
+            Class = actionClass;
+            BufferMs = bufferMs;
+            Priority = priority;
+            HoldThresholdMs = holdThresholdMs;
+            RepeatPolicy = repeatPolicy;
+            FaceOnAccept = faceOnAccept;
+            GraceConditions = graceConditions ?? Array.Empty<Id>();
         }
 
         /// <summary>
@@ -85,7 +161,51 @@ namespace Core.Foundation.InputMap
             var rebindGroup = record.TryGetString("rebind_group", out var rg) ? rg : "default";
             var description = record.TryGetString("description", out var d) ? d : null;
 
-            return new ActionDefinition(actionId, kind, bindings, rebindGroup, description);
+            ActionClass? actionClass = null;
+            if (record.TryGetString("class", out var classText))
+            {
+                actionClass = ParseClass(record, classText);
+            }
+
+            double? bufferMs = record.TryGetNumber("buffer_ms", out var bm) ? bm : (double?)null;
+            int? priority = record.TryGetInt("priority", out var pr) ? checked((int)pr) : (int?)null;
+            double? holdMs = record.TryGetNumber("hold_threshold_ms", out var hm) ? hm : (double?)null;
+
+            var repeat = InputRepeatPolicy.Refresh;
+            if (record.TryGetString("repeat_policy", out var repeatText))
+            {
+                switch (repeatText)
+                {
+                    case "refresh": repeat = InputRepeatPolicy.Refresh; break;
+                    case "ignore": repeat = InputRepeatPolicy.Ignore; break;
+                    default:
+                        throw new DataFieldException(record.Table.Name, record.Key, "repeat_policy",
+                            $"取值 \"{repeatText}\" 不是合法枚举（refresh|ignore）");
+                }
+            }
+
+            bool? faceOnAccept = record.TryGetBool("face_on_accept", out var fa) ? fa : (bool?)null;
+            IReadOnlyList<Id>? graceConditions = record.TryGetIdList("grace_conditions", out var gc) ? gc : null;
+
+            return new ActionDefinition(actionId, kind, bindings, rebindGroup, description,
+                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions);
+        }
+
+        private static ActionClass ParseClass(DataRecord record, string classText)
+        {
+            switch (classText)
+            {
+                case "move": return ActionClass.Move;
+                case "attack": return ActionClass.Attack;
+                case "skill": return ActionClass.Skill;
+                case "dodge": return ActionClass.Dodge;
+                case "interact": return ActionClass.Interact;
+                case "item": return ActionClass.Item;
+                case "menu": return ActionClass.Menu;
+                default:
+                    throw new DataFieldException(record.Table.Name, record.Key, "class",
+                        $"取值 \"{classText}\" 不是合法枚举（move|attack|skill|dodge|interact|item|menu）");
+            }
         }
 
         private static ActionKind ParseKind(DataRecord record, string kindText)

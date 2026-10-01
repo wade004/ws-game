@@ -78,5 +78,14 @@ namespace Core.Foundation.InputMap
         /// </para>
         /// </summary>
         IReadOnlyList<string>? GetDeclaredActionNames() => null;
+
+        /// <summary>
+        /// 登记按钮边沿接收端（手感设计/01 第 1 节，输入缓冲据此区分点按与按住）；传 null 取消。C# 8 默认接口成员（ABI 只新增）：
+        /// 默认实现什么都不做（"本实现不产出边沿"）；<see cref="InputMapHost"/> 覆盖为真实登记。未登记接收端时 <see cref="Update"/>
+        /// 的行为与此前逐位一致（不做任何边沿记录）。
+        /// </summary>
+        void SetEdgeSink(IInputEdgeSink? sink)
+        {
+        }
     }
 }

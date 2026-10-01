@@ -321,11 +321,40 @@ namespace Tests.Foundation.Feel
         }
 
         [Fact]
+        public void FrameworkFeelData_AssemblesAlone_WithItsOwnDefaultCalibration()
+        {
+            var (registry, report) = Load(FrameworkFeelTablesWithOwnCalibration());
+            Assert.Equal(0, report.ErrorCount);
+
+            var result = FeelAssembly.Assemble(registry, new FeelAssemblyOptions());
+
+            Assert.True(result.IsAssembled);
+            var system = result.System!;
+            Assert.Equal("feel.calibration.framework_default", system.Calibration.Id);
+            Assert.Equal("feel.preset.arpg_responsive", system.Calibration.BasePresetId);
+            // 缺省标定的毫秒换算依据是装配缺省步长 1/60 秒：预设缓冲窗口 120 ms 换算出的 tick 数由规则算出，不写死裸数。
+            var expectedTicks = FeelCalibration.MillisecondsToTicks(120, 1.0 / 60.0);
+            Assert.Equal(expectedTicks, system.Resolver.Resolve(Unit1).Judging.GetTicks("buffer_ms"));
+            // 参考身高 1：身高倍数单位的绝对值等于相对值（框架缺省“1 世界单位 = 1 个身高”）。
+            Assert.Equal(0.15 * system.Calibration.ReferenceHeight, system.Resolver.Resolve(Unit1).Judging.GetNumber("knockback_distance"), 9);
+        }
+
+        [Fact]
+        public void FrameworkFeelData_CarriesExactlyOneCalibrationRow_WhichGameRowsMustOverrideByCalibrationId()
+        {
+            var calibrations = FrameworkFeelTablesWithOwnCalibration().Where(t => t.Table == "feel.calibration").ToList();
+            Assert.Single(calibrations);
+            Assert.Equal(1, CountOccurrences(calibrations[0].Json, "\"id\": \"feel.calibration."));
+        }
+
+        [Fact]
         public void DefaultDataRootsAndTemplate_ContainNoCalibrationRows()
         {
+            // S1 起框架手感数据根 data/_feel 自带一行缺省标定（使其可单独校验与装配），不再列入“不含标定行”的清单；
+            // 默认数据根与新游戏模板仍然不带——没有手感数据的游戏不会被迫提供标定。
             var root = FindRepoRoot();
             var scanned = 0;
-            foreach (var dir in new[] { Path.Combine(root, "data", "_framework"), Path.Combine(root, "data", "_feel"), Path.Combine(root, "games", "_template") })
+            foreach (var dir in new[] { Path.Combine(root, "data", "_framework"), Path.Combine(root, "games", "_template") })
             {
                 Assert.True(Directory.Exists(dir), dir);
                 foreach (var file in Directory.GetFiles(dir, "*.json", SearchOption.AllDirectories))

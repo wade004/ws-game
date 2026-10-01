@@ -10,6 +10,7 @@
 ```
 Data~/
   data/_framework/            框架级数据表（found.event_catalog、found.input_action 等）
+  data/_feel/                 手感框架数据（预设、体型原型、武器原型、运动模式规则、缺省标定行；与 _framework 并列的框架根）
   assets/_placeholder/        通用占位资产包（精灵、特效、音效、音乐、地图分层图、字体等源素材）
   assets/textmesh_pro_essentials/   TextMesh Pro 运行期必需资源（TMP_Settings.asset、SDF 着色器等）
 package.json
@@ -50,6 +51,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File toolchain\sync_package_conte
 版本号或内容哈希拼在 `@` 后面，不假设具体后缀），取其 `Data~/` 内容，按哈希比较增量同步到：
 
 - `Data~/data/_framework` → `<工程根>/Assets/StreamingAssets/GameFoundation/data/_framework`
+- `Data~/data/_feel` → `<工程根>/Assets/StreamingAssets/GameFoundation/data/_feel`
 - `Data~/assets/_placeholder` → `<工程根>/Assets/StreamingAssets/GameFoundation/assets/_placeholder`
   （整体镜像，保留原始子目录名）
 - `Data~/assets/_placeholder/{sprites,sfx,vfx}` → `<工程根>/Assets/StreamingAssets/

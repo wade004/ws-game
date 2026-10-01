@@ -115,6 +115,8 @@ namespace Core.Rules.Assembly
             registry.RegisterSchema(L10nSchemas.Locale);
             registry.RegisterSchema(L10nSchemas.Text);
             registry.RegisterSchema(InputActionSchema.Table);
+            // 手感设计/01 第 2.4 节（手感落地第 1 波 S1）：宽限条件声明表，框架默认数据根不带任何行。
+            registry.RegisterSchema(GraceConditionSchema.Table);
             registry.RegisterSchema(DisplaySchemas.Map);
             registry.RegisterSchema(DisplaySchemas.AnimSet);
             registry.RegisterSchema(DisplaySchemas.EquipVisual);

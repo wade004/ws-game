@@ -49,7 +49,10 @@ REQUIRED = {
         "Tools~/simrunner/Directory.Build.props",
     ],
     HEADLESS_PKG: ["Lib~/Core.Sim.dll"],
-    DATA_PKG: [],
+    DATA_PKG: [
+        "Data~/data/_feel/feel/feel.calibration.json",
+        "Data~/data/_feel/feel/feel.preset.json",
+    ],
 }
 
 
@@ -91,13 +94,13 @@ def verdicts(tmp_path_factory: pytest.TempPathFactory) -> dict:
     add("empty_listing:unity", UNITY_PKG, [])
     add("empty_listing:data", DATA_PKG, [])
     for segment in ("__pycache__", "bin", "obj", "storage"):
-        add(f"forbidden:{segment}", DATA_PKG, ["package.json", f"Data~/{segment}/x.bin"])
-    add("forbidden_backslash_path", DATA_PKG, ["package.json", "Data~\\obj\\x.dll"])
+        add(f"forbidden:{segment}", DATA_PKG, _full_listing(DATA_PKG) + [f"Data~/{segment}/x.bin"])
+    add("forbidden_backslash_path", DATA_PKG, _full_listing(DATA_PKG) + ["Data~\\obj\\x.dll"])
     add("exempt:validator_bin", TOOLCHAIN_PKG, _full_listing(TOOLCHAIN_PKG))
     add("exempt:simrunner_bin_only_for_those", TOOLCHAIN_PKG,
         _full_listing(TOOLCHAIN_PKG) + ["pkg/Tools~/other/bin/x.dll"])
     add("two_forbidden_segments_reported_once_each", DATA_PKG,
-        ["a/bin/x", "b/bin/y", "c/obj/z"])
+        _full_listing(DATA_PKG) + ["a/bin/x", "b/bin/y", "c/obj/z"])
     # 必需文件按"路径以该后缀结尾"匹配：前缀目录不同也算齐；文件名只是子串则不算。
     add("suffix_match_other_prefix", HEADLESS_PKG, ["whatever/deep/Lib~/Core.Sim.dll"])
     add("substring_is_not_suffix", HEADLESS_PKG, ["Lib~/Core.Sim.dll.meta"])
@@ -219,8 +222,9 @@ def test_unity_pkg_missing_message_cites_the_audit_item(verdicts: dict) -> None:
 def test_empty_listing_reports_missing_for_packages_with_requirements(verdicts: dict) -> None:
     unity = verdicts["manifest"]["empty_listing:unity"]
     assert len(unity) == 1 and "缺失" in unity[0]
-    # framework-data 没有必需文件清单：空清单本身不报问题（版本号一致性由调用方另查）。
-    assert verdicts["manifest"]["empty_listing:data"] == []
+    # framework-data 的必需文件是 data/_feel 手感框架数据（S1 发版打包断言）：空清单报缺失。
+    data = verdicts["manifest"]["empty_listing:data"]
+    assert len(data) == 1 and "缺失" in data[0] and "data/_feel" in data[0], data
 
 
 @pytest.mark.parametrize("segment", ["__pycache__", "bin", "obj", "storage"])
