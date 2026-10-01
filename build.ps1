@@ -90,6 +90,8 @@
          与 `gh release create v<ver> ...`）；若版本号的 MAJOR 或 MINOR 段发生了变化（而不仅是
          PATCH 递增），额外打印建议的维护分支创建命令 `git branch release/X.Y.x vX.Y.0`（见仓库根
          README.md"维护分支与 PATCH 发布流程"一节）。
+      9. 非 `-DryRun` 且以上全部成功后，尽力而为地运行 `toolchain/prune_dist.ps1 -Apply` 给 `dist/` 瘦身
+         （保留当前与上一版本、ABI 基线 zip、全部 lock/release-notes；失败只警告，不影响发布结果与退出码）。
 
 .PARAMETER DryRun
     仅与 `-Release` 同传有效。跑完上面第 1～3、5 步的全部校验，以及第 7 步里"打包"这一半（打包
@@ -1922,6 +1924,23 @@ if ($DistRequested) {
                     Pop-Location
                 }
                 Write-Host "  -Publish 完成：已推送并创建 GitHub Release $tagName"
+            }
+
+            # 发版后自动瘦身 dist/（尽力而为）：发布已全部成功（门禁、打包、标签、可选的私服/GitHub
+            # 发布都已完成），此时清掉历史版本的大产物，只留当前版本与上一版本（默认 -KeepVersions 2）
+            # 以及 ABI 基线 zip、所有 lock/release-notes，规则见 toolchain/prune_dist.ps1 文件头。
+            # 判断记录：整体包在 try/catch 里、失败只警告——瘦身是磁盘卫生，不是发布的一部分，绝不能
+            # 让已经打好标签的发布因此失败或改变退出码（本脚本末尾固定 exit 0）；用子进程 powershell
+            # 调用，脚本内部的 exit 1 / 未捕获异常都只影响子进程。-DryRun 发布不走到这里。
+            try {
+                Write-Step "-Release：发版后 dist/ 瘦身（toolchain/prune_dist.ps1 -Apply，尽力而为）"
+                $pruneScript = Join-Path $RepoRoot "toolchain\prune_dist.ps1"
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $pruneScript -RepoRoot $RepoRoot -Apply
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "dist 瘦身未完全成功（prune_dist.ps1 退出码 $LASTEXITCODE），不影响本次发布；可稍后手动运行 pwsh toolchain\prune_dist.ps1 -Apply"
+                }
+            } catch {
+                Write-Warning "dist 瘦身出错（不影响本次发布）：$($_.Exception.Message)"
             }
         } elseif ($ReleaseRequested -and $DryRun) {
             Write-Host ""

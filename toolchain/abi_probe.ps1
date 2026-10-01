@@ -33,6 +33,11 @@
     直接指定基线发行包 zip 路径，跳过 `-BaselineVersion` 到 `dist/ws-game-<ver>.zip` 的默认解析
     （供 CI 或非标准 dist 布局场景使用）。
 
+    不传时的默认解析：先找 `<仓库根>\dist\ws-game-<基线版本>.zip`；找不到、且仓库根是链接工作树时，
+    回落到主工作树（`git rev-parse --git-common-dir` 的父目录）的 `dist\ws-game-<基线版本>.zip`，并在
+    输出里打印"来自主工作树"。工作树里因此不需要（也不得）复制 `dist`。两处都没有时行为不变，见
+    `-SkipIfBaselineMissing`。`dist/` 瘦身（`toolchain/prune_dist.ps1`）会保留本基线版本的 zip。
+
 .PARAMETER OutDir
     本次探针的全部中间产物（解出的旧 DLL、consumer 编译输出、表面 dump/compare 报告、summary.txt）
     落地目录。
@@ -161,11 +166,21 @@ if ([string]::IsNullOrWhiteSpace($BaselineVersion)) {
     throw "基线版本号为空（-BaselineVersion 或 abi_probe_baseline.txt 内容）"
 }
 
+$baselineFromMainWorktree = $false
 if ([string]::IsNullOrWhiteSpace($BaselineZip)) {
-    $BaselineZip = Join-Path $RepoRoot ("dist\ws-game-" + $BaselineVersion + ".zip")
+    # 默认解析：本工作树 dist 没有、且本目录是链接工作树时回落到主检出的 dist（见
+    # toolchain/_abi_baseline_resolve.ps1 判断记录）。显式传 -BaselineZip 时不经过这里。
+    . (Join-Path $PSScriptRoot "_abi_baseline_resolve.ps1")
+    $resolvedBaseline = Resolve-AbiBaselineZip -RepoRoot $RepoRoot -BaselineVersion $BaselineVersion
+    $BaselineZip = $resolvedBaseline.Path
+    $baselineFromMainWorktree = $resolvedBaseline.FromMainWorktree
 }
 
-Write-ProbeLine "基线版本=$BaselineVersion 基线 zip=$BaselineZip"
+if ($baselineFromMainWorktree) {
+    Write-ProbeLine "基线版本=$BaselineVersion 基线 zip=$BaselineZip（来自主工作树）"
+} else {
+    Write-ProbeLine "基线版本=$BaselineVersion 基线 zip=$BaselineZip"
+}
 
 if (-not (Test-Path -LiteralPath $BaselineZip)) {
     $msg = "基线发行包不存在：$BaselineZip（dist/ 是本机构建缓存，.gitignore 排除，未必存在于本机）"

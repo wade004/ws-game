@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pytest
 
-from _latest_dist import find_latest_dist_package
+from _latest_dist import find_latest_dist_package, resolve_dist_dir
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -114,7 +114,7 @@ def test_lock_generated_from_real_zip_matches_published_lock(tmp_path: Path) -> 
     的 dist/ws-game-<VERSION>.lock 逐字段一致（任务书 pytest 验收要求原文）。
     """
     # 不按 VERSION 找包：发布流程先写回 VERSION 再跑门禁，此时目标版本的包尚不存在（见 _latest_dist 判断记录）。
-    found = find_latest_dist_package(REPO_ROOT / "dist")
+    found = find_latest_dist_package(resolve_dist_dir(REPO_ROOT))
     if found is None:
         pytest.skip("本机 dist/ 下没有任何成对的 ws-game-<版本>.zip|.lock，跳过真实产物回归")
     version, zip_path, real_lock_path = found
