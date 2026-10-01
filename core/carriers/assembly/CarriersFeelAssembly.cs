@@ -44,7 +44,10 @@ namespace Core.Carriers.Assembly
         /// <summary>自定义曲线解析（<see cref="MotionServices.Curves"/>）；缺省 null。</summary>
         public IMotionCurveSource? Curves { get; set; }
 
-        /// <summary>目标辅助候选解析（<see cref="MotionServices.TargetAssist"/>）；缺省 null：关闭。</summary>
+        /// <summary>
+        /// 目标辅助候选解析：赋给运动层 <see cref="MotionServices.TargetAssist"/>，同时是时间线 <c>target_assist</c> 的候选来源。
+        /// 缺省 null：运动层目标辅助关闭；时间线侧缺省用 <see cref="TargetChainAssistResolver"/>（目标选择链），但技能不声明 <c>target_assist</c> 就不生效。
+        /// </summary>
         public ITargetAssistResolver? TargetAssist { get; set; }
 
         /// <summary>运动模式规则覆盖；缺省 null 取 <see cref="MotionModeRuleSet.FromProfiles"/>（框架数据 <c>feel.motion_mode_rules</c> 的消费结果）。</summary>
@@ -188,6 +191,11 @@ namespace Core.Carriers.Assembly
                 buffer, binding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
             rulesFeel.Timeline.Input = buffer;
             rulesFeel.Timeline.Binding = binding;
+
+            // 时间线目标辅助（S11）：候选解析缺省取目标选择链（同一个 TargetHost、同一个 WorldUnitAccess——后者同时是 IUnitFacingWriter，
+            // 朝向修正才能落地）；游戏层有自己的软锁定实现时经 CarriersFeelOptions.TargetAssist 覆盖。只有技能声明了 timeline.target_assist 才生效。
+            rulesFeel.Timeline.TargetAssist = new ActionTargetAssistAdapter(
+                options.TargetAssist ?? new TargetChainAssistResolver(rules.Targeting, carriers.Units), carriers.Units);
 
             GraceTracker? grace = options.GraceEvaluator != null ? new GraceTracker(options.GraceEvaluator, resolver) : null;
             InputBufferTickHandler.Register(world, buffer, sink, grace);

@@ -806,6 +806,27 @@ namespace Tests.Rules.Combat
         }
 
         [Fact]
+        public void InstantMode_KillMarkLeftByATimelineKill_IsConsumed_SoALaterInstantHitInTheSameTickIsNotAKill()
+        {
+            // 复现：时间线技能击杀 → unit.died 先于致死那一击的 combat.damage_dealt 入队，instant 适配对时间线技能直接返回，
+            // 旧实现不消费击杀标记，标记残留到下一个 tick 起点，同一 tick 内（如复活后）对同一单位的 instant 命中被误判为击杀（顿帧放大、反应 Death）。
+            var other = new Id("skill.hf_other_instant");
+            var fx = Build(configure: o => o.IsTimelineSkill = id => id == Skill);
+            var confirmed = new List<CombatHitConfirmedEvent>();
+            fx.Bus.Subscribe<CombatHitConfirmedEvent>(RulesEventKeys.CombatHitConfirmed, e => confirmed.Add(e));
+
+            fx.Bus.Enqueue(new UnitDiedEvent(Target, Attacker));
+            fx.Bus.Enqueue(new CombatDamageDealtEvent(Attacker, Target, CombatTestSupport.SchoolPhysical, 10, false, HitResult.Hit, 0, null, Skill));
+            fx.Bus.Enqueue(new CombatDamageDealtEvent(Attacker, Target, CombatTestSupport.SchoolPhysical, 10, false, HitResult.Hit, 0, null, other));
+            fx.Tick();
+
+            // 时间线技能那一条被适配器跳过（hit_confirmed 由时间线路径发），只剩 instant 技能的一条，且不是击杀。
+            var only = Assert.Single(confirmed);
+            Assert.Equal(other, only.SkillId);
+            Assert.False(only.IsKill);
+        }
+
+        [Fact]
         public void DefaultProfile_HitstopIsZeroAndArbitrationChangesNothing()
         {
             var fx = Build(profile: false);

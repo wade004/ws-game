@@ -28,10 +28,10 @@ namespace Core.Rules.Assembly
         public Func<bool>? IsDiscreteMode { get; set; }
 
         /// <summary>
-        /// 时间线 <c>hit</c> 标记的命中解析钩子（空间命中切片的实现）。<b>缺省 null 即沿用 instant 结算</b>
-        /// （<see cref="InstantSettlementHitResolver"/>），此时时间线技能的命中同样经 <c>combat.damage_dealt</c> 由受击裁决的 instant 适配器合成
-        /// <c>combat.hit_confirmed</c>；非空时视该钩子自己发 <c>combat.hit_confirmed</c>，装配把
-        /// <c>HitFeelOptions.IsTimelineSkill</c> 接到 <see cref="SkillHost.IsTimelineSkill"/>，避免同一次命中重复合成。
+        /// 时间线 <c>hit</c> 标记的命中解析钩子（自定义实现）。<b>缺省 null 即由施法管线按技能数据选内建路径</b>（链声明 <c>shape</c> 走空间命中，
+        /// 否则 instant 式结算），两种内建路径与自定义钩子的命中都由时间线路径自己发一条 <c>combat.hit_confirmed</c>（含顿帧/受击裁决字段，
+        /// 由装配接入的 <see cref="TimelineServices.HitFeel"/> 填写）；装配无条件把 <c>HitFeelOptions.IsTimelineSkill</c> 接到
+        /// <see cref="SkillHost.IsTimelineSkill"/>，受击裁决的 instant 适配器只处理非时间线技能，避免同一次命中重复确认。
         /// </summary>
         public ITimelineHitResolver? TimelineHitResolver { get; set; }
     }
@@ -99,7 +99,9 @@ namespace Core.Rules.Assembly
                 hitOptions.IsDiscreteMode = options.IsDiscreteMode;
             }
 
-            if (hitOptions.IsTimelineSkill == null && options.TimelineHitResolver != null)
+            // 时间线技能的命中（缺省空间命中、链无 shape 的 instant 结算、自定义钩子、投射物命中钩子）都由时间线路径自己发一条
+            // combat.hit_confirmed 并做无敌前置检查，所以无条件让受击裁决的 instant 适配器放过时间线技能（S11 订正 S10 判断记录 4）。
+            if (hitOptions.IsTimelineSkill == null)
             {
                 var skill = rules.Skill;
                 hitOptions.IsTimelineSkill = skillId => skillId.HasValue && skill.IsTimelineSkill(skillId.Value);
@@ -114,6 +116,7 @@ namespace Core.Rules.Assembly
                 Clock = hitFeel.Clock,
                 Feel = resolver,
                 HitResolver = options.TimelineHitResolver,
+                HitFeel = hitFeel.Host,
             };
             rules.Skill.AttachTimelineServices(timeline);
 

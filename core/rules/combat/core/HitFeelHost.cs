@@ -264,8 +264,20 @@ namespace Core.Rules.Combat
         {
             if (!Active || !_options.InstantModeConfirmations) return;
             // 光环周期伤害（既无技能 id 也无攻击实例 id）不是一次"命中"：不顿帧、不裁决。
-            if (!e.SkillId.HasValue && !e.AttackInstanceId.HasValue) return;
-            if (_options.IsTimelineSkill != null && _options.IsTimelineSkill(e.SkillId)) return;
+            if (!e.SkillId.HasValue && !e.AttackInstanceId.HasValue)
+            {
+                // 周期伤害的致死那一击：同样消费掉 unit.died 留下的击杀标记，不留到 tick 末（该单位本 tick 内若复活再被 instant 命中不能被误判为击杀）。
+                _killPending.Remove(e.TargetId);
+                return;
+            }
+
+            if (_options.IsTimelineSkill != null && _options.IsTimelineSkill(e.SkillId))
+            {
+                // 时间线技能的击杀由时间线路径自己判（IsAlive）并发 combat.hit_confirmed；这里只消费 unit.died 留下的击杀标记（S11）。
+                _killPending.Remove(e.TargetId);
+                return;
+            }
+
             PublishInstantConfirmation(e.SourceId, e.TargetId, e.SkillId, e.AttackInstanceId, e.HitResult, e.Amount, e.IsCrit);
         }
 

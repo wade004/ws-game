@@ -1507,7 +1507,7 @@ skill/
 7. `hit_confirmed` 只在声明了伤害类效果的技能上发；纯治疗/光环技能不发（见 T20）。
 8. 投射物对无敌目标"穿过去"（继续飞、不计穿透）；`impact_on_expiry` 的范围判定同样经过钩子。
 9. 同一动作多段 `hit:<段>` 在反馈侧挥空窗口合成一个窗口（S4 既有局限，T27 只解决了动作实例配对，没解决分段配对）。
-10. 生产装配未接（T29）：`TimelineServices.HitFeel`/`TargetAssist` 与 `HitFeelOptions.IsTimelineSkill` 在生产组装里没有赋值；`HitFeelHost` 的 `_killPending` 对时间线击杀的残留处理由装配切片核对。
+10. 生产装配未接（T29）：`TimelineServices.HitFeel`/`TargetAssist` 与 `HitFeelOptions.IsTimelineSkill` 在生产组装里没有赋值；`HitFeelHost` 的 `_killPending` 对时间线击杀的残留处理由装配切片核对。**S11 已接**：三项装配与 `_killPending` 残留修复见 `core/rules/assembly/README.md` 与 `core/carriers/assembly/README.md` 的 S11 节。
 11. S3a 的 instant 路径行为变化（T21）：链没有 `shape` 的时间线技能现在也发 `hit_confirmed`、做无敌前置检查。
 
 ## ADR-0026《技能位移的连续模式》：`move` 效果原语的 `motion: continuous` 分支

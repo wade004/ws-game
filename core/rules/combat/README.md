@@ -680,3 +680,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 
 测试：`tests/HitFeelHostTests.cs`（46 例，全部以档案毫秒与 `FeelCalibration.MillisecondsToTicks` 算期望：双方冻结 tick 数、三目标取大并限幅、嵌套取大不累加、破韧/未破韧、硬直从顿帧结束起算、
 霸体、致死、`reaction_cap` 矩阵、倒地、回避类、击退距离与提交时刻、真实 `CombatHost` 的 instant 适配、缺省档案无副作用、离散模式、释放保证、确定性、事件键登记）。
+
+## 判断记录（`HitFeelHost` 击杀标记残留，2026-10-02，手感落地 S11）
+
+时间线技能的致死伤害事件被 `HitFeelOptions.IsTimelineSkill` 早退时，旧实现不消费 `unit.died` 留下的击杀标记（`_killPending`），标记残留到下一个 tick 起点；周期伤害的早退分支同理。现在两个早退分支都消费该目标的标记（时间线击杀的 `isKill` 由时间线路径自己按 `IsAlive` 判，不依赖标记）。用例 `HitFeelHostTests.InstantMode_KillMarkLeftByATimelineKill_IsConsumed_SoALaterInstantHitInTheSameTickIsNotAKill`。接线与重复确认的订正见 `core/rules/assembly/README.md` S11 节。
