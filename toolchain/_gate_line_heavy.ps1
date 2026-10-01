@@ -169,7 +169,7 @@ try {
     #     形状下 `exit` 透传等），原样搬入。
     # -----------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "ABI 探针（toolchain/abi_probe.ps1）" "-Quick"
+        Add-SkippedStep "ABI 探针（toolchain/abi_probe.ps1）" "-Quick" -Id "abi_probe"
     } else {
         Invoke-CheckStep "ABI 探针（toolchain/abi_probe.ps1）" -Id "abi_probe" {
             $abiProbeScript = Join-Path $RepoRoot "toolchain\abi_probe.ps1"
@@ -200,7 +200,7 @@ try {
     # 5. 占位资产生成器一致性检查（-Quick 跳过：需要 Pillow 且逐张比较占位图，不是秒级步骤）
     # -----------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "python toolchain/gen_placeholder_assets.py --check" "-Quick"
+        Add-SkippedStep "python toolchain/gen_placeholder_assets.py --check" "-Quick" -Id "placeholder_assets"
     } else {
         Invoke-CheckStep "python toolchain/gen_placeholder_assets.py --check" -Id "placeholder_assets" {
             Push-Location $RepoRoot
@@ -216,7 +216,7 @@ try {
     # 5d. 样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）——判断记录同原 check.ps1。
     # -----------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" "-Quick"
+        Add-SkippedStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" "-Quick" -Id "sample_import_idem"
     } else {
         Invoke-CheckStep "样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）" -Id "sample_import_idem" {
             Push-Location $RepoRoot
@@ -281,7 +281,7 @@ try {
     #    与阶段一的串行调用重复跑两遍。
     # -----------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick"
+        Add-SkippedStep "python -m pytest toolchain/tests -q" "-Quick" -Id "toolchain_pytest"
     } else {
         # 用例数下限（复盘 I-2）：加 --junitxml 产出机器可读结果，读 tests/failures/errors/skipped
         # 与 toolchain/gate_floors.json 的 pytest 登记比较（判断记录见 toolchain/_gate_test_floors.ps1）。
@@ -318,7 +318,7 @@ try {
     #     差异等）同原 check.ps1，原样搬入。
     # -----------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "数值仿真基线比对（toolchain/simrunner）" "-Quick"
+        Add-SkippedStep "数值仿真基线比对（toolchain/simrunner）" "-Quick" -Id "sim_baseline"
     } else {
         Invoke-CheckStep "数值仿真基线比对（toolchain/simrunner）" -Id "sim_baseline" {
             $simOutDir = Join-Path $ArtifactsPath "sim_out"
@@ -433,7 +433,7 @@ try {
     $matrixSkipReason = if ($Quick) { "-Quick" } elseif ($SkipUnity) { "-SkipUnity（环境矩阵只在全量门禁里跑，CI 的 -SkipUnity 形态不含）" } else { "" }
 
     if ($matrixSkipReason -ne "") {
-        Add-SkippedStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" $matrixSkipReason
+        Add-SkippedStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" $matrixSkipReason -Id "pytest_env_matrix_utf8"
     } else {
         $noUtf8Junit = Join-Path $ArtifactsPath "pytest_junit_noutf8.xml"
         Invoke-CheckStep "python -m pytest toolchain/tests -q（环境矩阵 6c：不设 PYTHONUTF8）" -Id "pytest_env_matrix_utf8" {
@@ -466,7 +466,7 @@ try {
     }
 
     if ($matrixSkipReason -ne "") {
-        Add-SkippedStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" $matrixSkipReason
+        Add-SkippedStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" $matrixSkipReason -Id "pytest_env_matrix_pshost"
     } else {
         Invoke-CheckStep "python -m pytest（环境矩阵 6d：PowerShell 脚本类用例在 5.1 与 7 两个宿主各跑一遍）" -Id "pytest_env_matrix_pshost" {
             $testsDir = Join-Path $RepoRoot "toolchain\tests"
@@ -521,12 +521,7 @@ try {
     # 因为每个真正的检查都已经包在 Invoke-CheckStep 里；这里只防"本脚本自身的胶水代码"，如
     # dot-source 失败、路径拼接异常），记一行 FAIL，保证本线仍会正常落盘 JSON、不会让主进程
     # 的 Wait-Job 永远等到一个没有输出结果文件的僵死状态。
-    $script:Results.Add([PSCustomObject]@{
-        Step    = "非 Unity 重步骤线：子进程异常"
-        Result  = "FAIL"
-        Seconds = 0
-        Detail  = $_.Exception.Message
-    })
+    $script:Results.Add((New-GateResultRow -Step "非 Unity 重步骤线：子进程异常" -Result "FAIL" -Seconds 0 -Detail $_.Exception.Message -StepId "line_heavy_error"))
 } finally {
     Write-GateResultsJson -Path $ResultsJsonPath
     if ($TranscriptPath -ne "") {

@@ -236,7 +236,7 @@ def test_two_lines_run_concurrently(ps_exe: str, tmp_path: Path) -> None:
 
     script = (
         f'& "{ps_exe}" -NoProfile -ExecutionPolicy Bypass -File "{CHECK_SCRIPT}" '
-        f'-DocsOnly -ArtifactsPath "{artifacts_path}" '
+        f'-DocsOnly -NoTiming -ArtifactsPath "{artifacts_path}" '
         f'-InjectMockSleepHeavySeconds {sleep_seconds} -InjectMockSleepUnitySeconds {sleep_seconds} '
         '*>&1 | Out-String'
     )

@@ -74,7 +74,7 @@ try {
     #    是迁移前 check.ps1 的既有语义，本次只搬运位置、不改判定条件。
     # -------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick"
+        Add-SkippedStep "build.ps1 -SkipTests（同步 DLL）" "-Quick" -Id "sync_dll"
     } else {
         Invoke-CheckStep "build.ps1 -SkipTests（同步 DLL）" -Id "sync_dll" {
             $buildScript = Join-Path $RepoRoot "build.ps1"
@@ -88,7 +88,7 @@ try {
     #     存在性）——判断记录同原 check.ps1，原样搬入。
     # -------------------------------------------------------------------
     if ($Quick) {
-        Add-SkippedStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick"
+        Add-SkippedStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" "-Quick" -Id "pkg_manifest"
     } else {
         Invoke-CheckStep "包清单一致性（四个 npm 包版本号 + npm pack --dry-run 排除规则）" -Id "pkg_manifest" {
             $versionPath = Join-Path $RepoRoot "VERSION"
@@ -171,18 +171,18 @@ try {
         $playModeCategoryFilter = [string]$script:GatePlan.engine.playmode_filter
     }
     if ($SkipUnity) {
-        Add-SkippedStep "Unity 编译检查" "-SkipUnity"
-        Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
+        Add-SkippedStep "Unity 编译检查" "-SkipUnity" -Id "unity_compile"
+        Add-SkippedStep "Unity EditMode 测试" "-SkipUnity" -Id "unity_editmode"
         if ($playModeCategoryFilter -ne "") {
-            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑，由主会话执行：-testCategory '$playModeCategoryFilter'）"
+            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑，由主会话执行：-testCategory '$playModeCategoryFilter'）" -Id "unity_playmode"
         } elseif ($script:GatePlan -and [string]$script:GatePlan.engine.mode -eq "all" -and [string]$script:GatePlan.level -ne "T3") {
-            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑全部 PlayMode，由主会话执行：路径规则要求不过滤）"
+            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑全部 PlayMode，由主会话执行：路径规则要求不过滤）" -Id "unity_playmode"
         } else {
-            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
+            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity" -Id "unity_playmode"
         }
-        Add-SkippedStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" "-SkipUnity"
-        Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity"
-        Add-SkippedStep "消费方演练" "-SkipUnity"
+        Add-SkippedStep "独立版构建 + -gf-smoke 冒烟（连续模式默认流程）" "-SkipUnity" -Id "unity_build_smoke"
+        Add-SkippedStep "独立版 -gf-smoke-discrete 冒烟（离散模式链路）" "-SkipUnity" -Id "unity_smoke_discrete"
+        Add-SkippedStep "消费方演练" "-SkipUnity" -Id "consumer_drill"
     } else {
         Test-UnityWorkingTreePathLength -RepoRoot $RepoRoot
 
@@ -367,9 +367,9 @@ try {
         }
 
         if (-not $Il2cpp) {
-            Add-SkippedStep "IL2CPP 独立版构建" "未传 -Il2cpp"
-            Add-SkippedStep "IL2CPP 独立版 -gf-smoke 冒烟" "未传 -Il2cpp"
-            Add-SkippedStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" "未传 -Il2cpp"
+            Add-SkippedStep "IL2CPP 独立版构建" "未传 -Il2cpp" -Id "il2cpp_build"
+            Add-SkippedStep "IL2CPP 独立版 -gf-smoke 冒烟" "未传 -Il2cpp" -Id "il2cpp_smoke"
+            Add-SkippedStep "IL2CPP 独立版 -gf-smoke-discrete 冒烟" "未传 -Il2cpp" -Id "il2cpp_smoke_discrete"
         } else {
             $il2cppOutDir = Join-Path $UnityOutDir "il2cpp"
             if (-not (Test-Path $il2cppOutDir)) {
@@ -461,7 +461,7 @@ try {
         }
 
         if ($SkipConsumer) {
-            Add-SkippedStep "消费方演练" "-SkipConsumer"
+            Add-SkippedStep "消费方演练" "-SkipConsumer" -Id "consumer_drill"
         } else {
             Invoke-CheckStep "消费方演练（toolchain/consumer_smoke.ps1）" -Id "consumer_drill" {
                 $consumerScript = Join-Path $RepoRoot "toolchain\consumer_smoke.ps1"
@@ -475,12 +475,7 @@ try {
         }
     }
 } catch {
-    $script:Results.Add([PSCustomObject]@{
-        Step    = "Unity 串行线：子进程异常"
-        Result  = "FAIL"
-        Seconds = 0
-        Detail  = $_.Exception.Message
-    })
+    $script:Results.Add((New-GateResultRow -Step "Unity 串行线：子进程异常" -Result "FAIL" -Seconds 0 -Detail $_.Exception.Message -StepId "line_unity_error"))
 } finally {
     Write-GateResultsJson -Path $ResultsJsonPath
     if ($TranscriptPath -ne "") {

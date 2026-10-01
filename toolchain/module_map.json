@@ -422,6 +422,17 @@
       "triggers": []
     },
     {
+      "id": "branch_name",
+      "label": "分支名规范",
+      "base_tiers": [
+        "T0",
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "triggers": []
+    },
+    {
       "id": "module_map_check",
       "label": "模块表覆盖所有子模块目录",
       "base_tiers": [

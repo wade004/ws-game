@@ -166,6 +166,22 @@
        汇总表、首个失败步骤的最后 30 行。引擎侧待跑的 PlayMode 分类过滤串在「本次判定」里单独列出——
        这块在主检出或路径足够短的工作树里执行（深层 scratchpad 工作树交主会话）。判定失败（参数错、git 出错）直接退出码 1，
        不退回全量。
+    10) **耗时自动记录（AGENTS.md 1c，2026-10-01）**：每次运行结束（通过或失败都写）把每个步骤追加到
+       `timing/<年月日>_<分支名去 feature/ bugfix/ 前缀>.jsonl`（main 上为 `<年月日>_main.jsonl`），字段
+       task/branch/phase/step/start/end/seconds/result/note，phase 定向模式记 `定向门禁`、否则 `全量门禁`，
+       step 用步骤稳定 `-Id`，另加一行 step=`_total`（脚本总墙钟）。start/end 在 `Invoke-CheckStep` 里每步
+       前后各取一次系统时间（并行线在各自子进程里取，经 JSON 带回），不是整次起点 + 秒数。实现在
+       `toolchain/_gate_timing.ps1`，统计用 `toolchain/timing_report.py`；`-NoTiming` 跳过（预提交钩子与
+       `build.ps1 -Release` 调用时带——否则每次提交/发布都弄脏工作树，发布打包自检会看到 -dirty）；
+       写入失败不影响门禁结论，只在汇总末尾打一行警告。定向模式由干活子进程写（父进程只传 `-TimingTask`
+       与 `-NoTiming`），所以 `_total` 不含父进程的判定与启动时间。
+
+.PARAMETER NoTiming
+    跳过耗时自动记录（见 .SYNOPSIS 判断记录 10)）。`.githooks/pre-commit` 与 `build.ps1 -Release` 调用门禁时
+    固定带本开关。
+
+.PARAMETER TimingTask
+    耗时记录里 `task` 字段的一句话；缺省为 `check.ps1 <参数串>`（参数串取自本次显式传的参数，内部参数不进）。
 
 .PARAMETER SkipUnity
     跳过 Unity 相关四步（编译检查、EditMode、PlayMode、独立版构建 + 冒烟）与消费方演练；只跑
@@ -320,6 +336,11 @@ param(
     [switch]$Staged,
     [string[]]$Modules = @(),
     [switch]$DryRun,
+    # 耗时自动记录（见 .SYNOPSIS 判断记录 10)）：默认每次运行结束把逐步耗时追加进 timing/；-NoTiming 跳过
+    # （预提交钩子与 build.ps1 -Release 调用时带本开关，免得每次提交/发布都弄脏工作树）；-TimingTask 是
+    # 任务一句话，缺省为 "check.ps1 <参数串>"。
+    [switch]$NoTiming,
+    [string]$TimingTask = "",
     # 以下两个是定向模式父进程调用自己的内部开关，不是给人用的：-TargetedInner 表示"我就是干活的子进程，
     # 不要再套一层日志分流"，-PlanFile 是父进程写好的判定 JSON。
     [switch]$TargetedInner,
@@ -344,6 +365,32 @@ if ($Quick -or $DocsOnly) {
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = $PSScriptRoot
+
+# 耗时自动记录：脚本总起点与默认任务描述。必须在定向父进程分支之前取，父进程把算好的任务描述经
+# -TimingTask 传给干活的子进程，让两边记同一句话。
+$script:TimingScriptStart = Get-Date
+. (Join-Path $RepoRoot "toolchain\_gate_timing.ps1")
+if ($TimingTask -eq "") {
+    $TimingTask = Get-GateTimingDefaultTask -BoundParameters $PSBoundParameters
+}
+
+# 版本标签（ADR-0127，AGENTS.md §1b）：由 toolchain/version_label.py 按当前分支自动推导（feature/bugfix 分支
+# `<VERSION>_<名>`，main `<VERSION>_release`），不写进 VERSION。开头打印、汇总末尾再打印一次；同时经环境变量
+# WsGameVersionLabel 传给本进程启动的 dotnet 构建（Directory.Build.props 据此写程序集信息版本）。
+# 推导失败（无 python/无 git）只提示，不影响门禁判定——"分支名规范"步骤会单独把关。
+$VersionLabel = ""
+try {
+    $labelOut = & python (Join-Path $RepoRoot "toolchain\version_label.py") "--repo-root" $RepoRoot
+    if ($LASTEXITCODE -eq 0 -and $labelOut) { $VersionLabel = ([string]@($labelOut)[0]).Trim() }
+} catch {
+    $VersionLabel = ""
+}
+if ($VersionLabel -ne "") {
+    $env:WsGameVersionLabel = $VersionLabel
+    Write-Host "版本标签：$VersionLabel" -ForegroundColor Cyan
+} else {
+    Write-Host "版本标签：（推导失败：需要 python 与 git 可用）" -ForegroundColor Yellow
+}
 
 if ($ArtifactsPath -eq "") {
     $ArtifactsPath = Join-Path $RepoRoot "bin\_check_artifacts"
@@ -407,8 +454,9 @@ if ($TargetedMode -and -not $TargetedInner) {
         New-Item -ItemType Directory -Force -Path $fullLogDir | Out-Null
     }
     $innerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath,
-        "-TargetedInner", "-PlanFile", $planPath, "-ArtifactsPath", $ArtifactsPath, "-Configuration", $Configuration)
-    foreach ($sw in @("SkipUnity", "SkipSmoke", "SkipConsumer", "Quick", "DocsOnly", "AbiStrict", "Il2cpp", "FailFast")) {
+        "-TargetedInner", "-PlanFile", $planPath, "-ArtifactsPath", $ArtifactsPath, "-Configuration", $Configuration,
+        "-TimingTask", $TimingTask)
+    foreach ($sw in @("SkipUnity", "SkipSmoke", "SkipConsumer", "Quick", "DocsOnly", "AbiStrict", "Il2cpp", "FailFast", "NoTiming")) {
         if ((Get-Variable -Name $sw -ValueOnly)) { $innerArgs += "-$sw" }
     }
     if ($UnityExe -ne "") { $innerArgs += @("-UnityExe", $UnityExe) }
@@ -675,6 +723,21 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-loc
 }
 
 # -----------------------------------------------------------------------------
+# 3a. 分支名规范（ADR-0127，AGENTS.md §1b）：feature/、bugfix/ 前缀的分支必须形如
+#     `feature|bugfix/<小写英文数字连字符>_<八位年月日>`；main、release/X.Y.x、游离 HEAD 不判定。
+#     纯 Python、毫秒级，所有模式都跑（含 -DocsOnly）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "分支名规范（python toolchain/version_label.py --check-branch-name，ADR-0127）" -DocRelevant -Id "branch_name" {
+    $branchOut = & python (Join-Path $RepoRoot "toolchain\version_label.py") "--repo-root" $RepoRoot "--check-branch-name"
+    $branchExit = $LASTEXITCODE
+    $branchText = (@($branchOut) -join " ").Trim()
+    if ($branchExit -ne 0) {
+        Write-Host $branchText -ForegroundColor Red
+    }
+    [PSCustomObject]@{ Ok = ($branchExit -eq 0); Detail = $branchText }
+}
+
+# -----------------------------------------------------------------------------
 # 3b. 模块表自检（ADR-0126）：toolchain/module_map.json 必须覆盖所有子模块目录——出现未登记的子模块目录
 #     或表里登记了不存在的目录即 FAIL（定向门禁按这张表选测，表漂移会让"该跑的测试没被选中"）。
 #     纯 Python、毫秒级，所有模式（全量/-Quick/定向）都跑；-DocsOnly 下不跑（改文档不会增删子模块目录）。
@@ -853,7 +916,7 @@ Invoke-CheckStep "Unity .meta 完整性检查（不依赖 Unity，toolchain/chec
 #     Invoke-CheckStep 通用短路逻辑自动 SKIP（未标 -DocRelevant）。
 # -----------------------------------------------------------------------------
 if ($Quick) {
-    Add-SkippedStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外）" "-Quick"
+    Add-SkippedStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外）" "-Quick" -Id "registry_pytest"
 } else {
     Invoke-CheckStep "python -m pytest toolchain/tests/test_registry_stop_pidfile_rewrite_timestamp.py -q（隔离于并行线之外，见 .SYNOPSIS 判断记录 6)）" -Id "registry_pytest" {
         $prevPythonUtf8 = $env:PYTHONUTF8
@@ -934,8 +997,8 @@ if ($FailFast -and $script:GateFailed) {
     Write-Host ""
     Write-Host "==== 非 Unity 重步骤线 / Unity 串行线 ====" -ForegroundColor Cyan
     Write-Host "已跳过：前置的快速检查步骤已失败（-FailFast），两条并行线均不再启动。" -ForegroundColor Yellow
-    $script:Results.Add([PSCustomObject]@{ Step = "非 Unity 重步骤线（整体）"; Result = "SKIP"; Seconds = 0; Detail = "前置快速检查失败（-FailFast），本线未启动" })
-    $script:Results.Add([PSCustomObject]@{ Step = "Unity 串行线（整体）"; Result = "SKIP"; Seconds = 0; Detail = "前置快速检查失败（-FailFast），本线未启动" })
+    $script:Results.Add((New-GateResultRow -Step "非 Unity 重步骤线（整体）" -Result "SKIP" -Seconds 0 -Detail "前置快速检查失败（-FailFast），本线未启动" -StepId "line_heavy"))
+    $script:Results.Add((New-GateResultRow -Step "Unity 串行线（整体）" -Result "SKIP" -Seconds 0 -Detail "前置快速检查失败（-FailFast），本线未启动" -StepId "line_unity"))
 } else {
     $heavyScript = Join-Path $RepoRoot "toolchain\_gate_line_heavy.ps1"
     $unityScript = Join-Path $RepoRoot "toolchain\_gate_line_unity.ps1"
@@ -994,12 +1057,7 @@ if ($FailFast -and $script:GateFailed) {
     foreach ($j in @($jobHeavy, $jobUnity)) {
         if ($j.State -eq "Failed") {
             $jobErr = (Receive-Job -Job $j -ErrorAction SilentlyContinue 2>&1 | Out-String)
-            $script:Results.Add([PSCustomObject]@{
-                Step    = "$($j.Name)：后台作业本身异常终止"
-                Result  = "FAIL"
-                Seconds = 0
-                Detail  = "Job State=$($j.State)；$jobErr"
-            })
+            $script:Results.Add((New-GateResultRow -Step "$($j.Name)：后台作业本身异常终止" -Result "FAIL" -Seconds 0 -Detail "Job State=$($j.State)；$jobErr" -StepId "$($j.Name)_job_failed"))
         } else {
             Receive-Job -Job $j -ErrorAction SilentlyContinue | Out-Null
         }
@@ -1017,47 +1075,15 @@ if ($FailFast -and $script:GateFailed) {
         Get-Content -LiteralPath $unityLog | Write-Host
     }
 
-    function Import-GateLineResults {
-        param([string]$JsonPath, [string]$LineLabel)
-        if (-not (Test-Path -LiteralPath $JsonPath)) {
-            $script:Results.Add([PSCustomObject]@{
-                Step    = "$LineLabel：结果文件缺失"
-                Result  = "FAIL"
-                Seconds = 0
-                Detail  = "子进程未生成 $JsonPath，可能异常退出，请查看对应 .log"
-            })
-            return
-        }
-        $raw = Get-Content -LiteralPath $JsonPath -Raw
-        if ([string]::IsNullOrWhiteSpace($raw)) {
-            $script:Results.Add([PSCustomObject]@{
-                Step    = "$LineLabel：结果文件为空"
-                Result  = "FAIL"
-                Seconds = 0
-                Detail  = "$JsonPath 内容为空"
-            })
-            return
-        }
-        $items = $raw | ConvertFrom-Json
-        if ($items -isnot [array]) { $items = @($items) }
-        foreach ($item in $items) {
-            $script:Results.Add([PSCustomObject]@{
-                Step    = [string]$item.Step
-                Result  = [string]$item.Result
-                Seconds = [double]$item.Seconds
-                Detail  = [string]$item.Detail
-            })
-        }
-    }
-
-    Import-GateLineResults -JsonPath $heavyResultsJson -LineLabel "非 Unity 重步骤线"
-    Import-GateLineResults -JsonPath $unityResultsJson -LineLabel "Unity 串行线"
+    Import-GateLineResults -JsonPath $heavyResultsJson -LineLabel "非 Unity 重步骤线" -LineId "line_heavy"
+    Import-GateLineResults -JsonPath $unityResultsJson -LineLabel "Unity 串行线" -LineId "line_unity"
 }
 
 # -----------------------------------------------------------------------------
 # 汇总
 # -----------------------------------------------------------------------------
 $OverallStopwatch.Stop()
+$overallEnd = Get-Date
 $overallSeconds = [Math]::Round($OverallStopwatch.Elapsed.TotalSeconds, 1)
 
 Write-Host ""
@@ -1100,6 +1126,24 @@ if ($failed.Count -gt 0) {
 } else {
     Write-Host "门禁通过：全部 $($script:Results.Count) 步（步骤耗时求和 ${totalSeconds}s，脚本总墙钟 ${overallSeconds}s）。" -ForegroundColor Green
     $exitCode = 0
+}
+if ($VersionLabel -ne "") {
+    Write-Host "版本标签：$VersionLabel" -ForegroundColor Cyan
+} else {
+    Write-Host "版本标签：（推导失败：需要 python 与 git 可用）" -ForegroundColor Yellow
+}
+
+# 耗时自动记录（判断记录 10)）：通过/失败都写；写入失败不影响门禁结论，只在汇总末尾打一行警告。
+if (-not $NoTiming) {
+    $timingPhase = if ($TargetedMode) { "定向门禁" } else { "全量门禁" }
+    $timingResult = if ($exitCode -eq 0) { "PASS" } else { "FAIL" }
+    $timingError = Write-GateTimingFromRun -RepoRoot $RepoRoot -Results $script:Results -Task $TimingTask `
+        -Phase $timingPhase -TotalStart $script:TimingScriptStart -TotalEnd $overallEnd `
+        -TotalSeconds $overallSeconds -TotalResult $timingResult `
+        -TotalNote "parallel_wall=${parallelSeconds}s; env_skips=$($envSkips.Count)"
+    if ($timingError) {
+        Write-Host "警告：耗时记录写入 timing/ 失败（$timingError），不影响本次门禁结论。" -ForegroundColor Yellow
+    }
 }
 
 if ($script:TranscriptStarted) {

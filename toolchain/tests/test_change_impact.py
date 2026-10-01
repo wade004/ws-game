@@ -94,8 +94,8 @@ def test_glob_semantics(pattern: str, path: str, expected: bool) -> None:
 def test_repro_t0_docs_only_runs_exactly_the_docs_subset(mmap: dict) -> None:
     plan = _plan(mmap, "architecture/00_架构总则.md", "docs/复盘/x.png", "core/foundation/event_bus/README.md", "CHANGELOG.md")
     assert plan["level"] == "T0"
-    # 与现有 DocsOnly 档完全等价：门禁自检 + 两道禁用词 + 版本一致性 + 文档 pytest 子集
-    assert _run_ids(plan) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "docs_pytest"}
+    # 与现有 DocsOnly 档完全等价：门禁自检 + 两道禁用词 + 版本一致性 + 分支名规范 + 文档 pytest 子集
+    assert _run_ids(plan) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "branch_name", "docs_pytest"}
     assert plan["dotnet_test"]["mode"] == "none"
     assert plan["engine"]["mode"] == "none"
 
@@ -105,7 +105,7 @@ def test_repro_timing_log_is_t0_not_unknown(mmap: dict) -> None:
     # 一次改动夹带耗时记录就让切片级门禁退化为全量。它是统计原始数据，与文档同属 T0。
     plan = _plan(mmap, "timing/20261001_ai-transformation_20261001.jsonl")
     assert plan["level"] == "T0"
-    assert _run_ids(plan) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "docs_pytest"}
+    assert _run_ids(plan) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "branch_name", "docs_pytest"}
     # 夹带一个 T1 改动时只升到 T1，不升到 T3
     plan2 = _plan(mmap, "timing/x.jsonl", "core/foundation/event_bus/core/EventBus.cs")
     assert plan2["level"] == "T1"
@@ -499,7 +499,7 @@ def test_repro_assets_is_t1_with_placeholder_and_sample_import_checks(mmap: dict
 def test_repro_github_workflows_are_t0_hooks_and_gitignore_are_t1_hooks_pytest(mmap: dict) -> None:
     gh = _plan(mmap, ".github/workflows/ci.yml")
     assert gh["level"] == "T0"
-    assert _run_ids(gh) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "docs_pytest"}
+    assert _run_ids(gh) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "branch_name", "docs_pytest"}
     for path in (".githooks/pre-commit", ".gitignore"):
         plan = _plan(mmap, path)
         assert plan["level"] == "T1", path
@@ -781,7 +781,7 @@ def test_check_dryrun_prints_playmode_category_filter(tmp_path: Path, mmap: dict
     repo = tmp_path / "fake_repo"
     (repo / "toolchain").mkdir(parents=True)
     shutil.copy(REPO_ROOT / "check.ps1", repo / "check.ps1")
-    for name in ("change_impact.py", "_console.py", "module_map.json"):
+    for name in ("change_impact.py", "_console.py", "module_map.json", "_gate_timing.ps1"):
         shutil.copy(TOOLCHAIN_DIR / name, repo / "toolchain" / name)
 
     def git(*args: str) -> None:

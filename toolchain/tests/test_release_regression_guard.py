@@ -342,7 +342,7 @@ def test_build_script_wiring_for_release_regression_gate() -> None:
     assert "_release_regression_guard.ps1" in text
     assert "Test-ReleaseRegressionRecord" in text
     step5 = text.split("第 5 步：全量门禁")[1].split("check.ps1 未通过")[0]
-    assert '$checkArgs = @("-AbiStrict", "-FailFast")' in text, "发布门禁固定只传 -AbiStrict -FailFast"
+    assert '$checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")' in text, "发布门禁固定只传 -AbiStrict -FailFast -NoTiming（-NoTiming：门禁不得写 timing/ 弄脏工作树，否则打包自检看到 -dirty）"
     assert "-Il2cpp" not in step5.split("$checkArgs =")[1].split("\n")[0], \
         "发布门禁不得强制传 -Il2cpp（复盘 I-6 已回退：构建机缺 VS C++ 工作负载与 Windows SDK）"
     assert "-SkipUnity" not in text.split("第 5 步：全量门禁")[1].split("check.ps1 未通过")[0], \

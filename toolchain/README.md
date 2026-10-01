@@ -1386,3 +1386,49 @@ build/test 步骤）。
 
   仍是 T3 的 10 次按原因分组：7 次改了门禁脚本或工具链自身（`check.ps1`、`build.ps1`、`toolchain/**` 里的脚本/模块表/判定脚本，其中 1 次同时有桩生产代码）；1 次改 `.gitattributes`；1 次发布提交；1 次改生产工程文件（`Presentation.Common.csproj`）。门禁与构建配置留在 T3 是设计决定（改它们影响所有步骤）。当前规则比第一版多出来的 4 次来自：测试工程文件按层级范围记 T2（2 次）、`toolchain/tests/**` 与 `gate_floors.json` 记 T1（2 次）。
 - **引擎侧过滤已实测对账（2026-10-01，路径足够短的工作树 `D:\wt\ai-transformation`，做完 `AGENTS.md` 约定的 DLL 同步之后）**：`module:shared` 单独 46 例（11 个类）；`module:ui` 27 例，`module:ui;module:shared` 合跑 73 = 27 + 46（分号串是并集，各类无重叠）；`interaction:movement_stop_blocking` 单独 11 例、恰好是 `MovementStopAndBlockingPlayModeTests`，`module:unit` 单独也是 11，二者分号合跑仍是 11（有重叠时去重，不是求和）。判定块里的过滤串在深层 scratchpad 工作树里不能跑，要到主检出或短路径工作树执行。
+
+## 门禁耗时自动记录（`_gate_timing.ps1` / `timing_report.py`，AGENTS.md §1c）
+
+`check.ps1` 每次运行结束（通过或失败都写）把每个步骤追加到仓库根 `timing/<年月日>_<分支名去 feature/ bugfix/ 前缀>.jsonl`（main 上为 `<年月日>_main.jsonl`），一行一条 JSON，字段与 §1c 完全一致：`task`、`branch`、`phase`、`step`、`start`、`end`、`seconds`、`result`、`note`。
+
+| 字段 | 取值 |
+| --- | --- |
+| `phase` | 定向模式（`-Changed`/`-Staged`/`-Modules`）`定向门禁`，否则 `全量门禁` |
+| `step` | 步骤稳定 `-Id`（如 `dotnet_test`、`unity_playmode`）；另有一行 `_total` 记脚本总墙钟 |
+| `start`/`end` | 该步真实起止时刻（本地时间，精确到秒） |
+| `seconds` | 步骤 Stopwatch 秒数（1 位小数）；被跳过的步骤为 0，`result=SKIP`，`note` 是跳过原因 |
+| `task` | `-TimingTask "<一句话>"`，缺省 `check.ps1 <参数串>` |
+
+开关：`-NoTiming` 跳过写入（`.githooks/pre-commit` 与 `build.ps1 -Release` 调用门禁时固定带，否则每次提交/发布都弄脏工作树，发布打包自检还会看到 `-dirty`）。写入失败（只读、取不到分支……）不影响门禁结论，只在汇总末尾打一行警告。
+
+统计：`python toolchain/timing_report.py [--since 2026-10-01] [--branch <名>] [--phase 全量门禁] [--json]`，按 phase、按 step 输出次数、合计、中位数、P90、最大值，只写 stdout。
+
+### 判断记录
+
+- **start/end 在步骤运行器里取，不是"整次起点 + 秒数"推算**：`Invoke-CheckStep` 在步骤前后各取一次系统时间，写进结果行（`Id`/`Start`/`End` 三个新字段，汇总表仍只打印原四列）；两条并行线各自在自己的子进程里取，经结果 JSON 带回主进程（`Import-GateLineResults`，从 `check.ps1` 挪进 `_gate_step_runner.ps1`，让测试能 dot-source 整条链路）。因此并行线的步骤时间区间真的会重叠，`timing_report` 的合计是步骤秒数求和（并行下大于墙钟），墙钟看 `_total`。
+- **所有步骤调用点都带 `-Id`**：被开关跳过的 `Add-SkippedStep` 此前没有 Id，现补齐；`toolchain/tests/test_gate_timing_log.py` 有静态用例卡住"新增调用点忘了 `-Id`"（忘了会在记录里退化成中文显示名，跨任务汇总对不上）。
+- **phase 汇总不含 `_total` 行**：`_total` 与同一次运行里的步骤行重叠，一起加会重复计数；它只作为 `(phase, _total)` 一个 step 单独列出。P90 用线性插值，保证 中位数 ≤ P90 ≤ 最大值。
+- **定向模式由干活子进程写**：父进程只透传 `-TimingTask`/`-NoTiming`，所以定向运行的 `_total` 不含父进程的判定（`change_impact.py`）与子进程启动时间。
+- **Windows PowerShell 5.1 的两个坑（实测）**：`@($List[Object])` 抛 "Argument types do not match"（门禁的 `$script:Results` 就是这个类型），所以写入函数直接 `foreach`；`Sort-Object` 不保证稳定，按 start 排序改用 `[Array]::Sort` 配序数比较。
+- **已知限制**：脚本非正常终止（未被 `Invoke-CheckStep` 接住的异常、被强行结束）时不写记录；在 main 上跑门禁（合并后全量）会在主检出产生未提交的 `timing/<日期>_main.jsonl`，按 `AGENTS.md` §1b 末条由下一条要合并的分支带入；同一天同一分支多次运行追加到同一文件，靠 `task`/`start` 区分。
+
+## 版本标签与分支名规范（`version_label.py`，ADR-0127）
+
+`python toolchain/version_label.py` 按当前分支推导版本标签并打印；`--check-branch-name` 检查分支名规范（不合规退出码 1，输出以 `FAIL` 开头）。`--branch`、`--version`、`--repo-root` 可显式指定，供测试与演示。
+
+| 当前分支 | 版本标签 |
+| --- | --- |
+| `feature/<名>`、`bugfix/<名>` | `<VERSION>_<名>`，例 `1.92.0_gate-timing-autolog_20261001` |
+| `main` | `<VERSION>_release`（发布后 `VERSION` 升级，标签随之变化） |
+| 其它（`release/X.Y.x` 等） | `<VERSION>_<分支名，/ 换成 ->`，例 `1.92.0_release-1.90.x` |
+| 游离 HEAD | `<VERSION>_detached-<短提交号>` |
+
+落点：`check.ps1` 开头与汇总末尾各打印一行"版本标签：…"，并新增门禁步骤"分支名规范"（`feature/`、`bugfix/` 前缀的分支必须形如 `<前缀>/<小写英文数字连字符>_<八位有效年月日>`，其它分支不判定）；`check.ps1` 与 `build.ps1` 把标签放进环境变量 `WsGameVersionLabel`，`Directory.Build.props` 据此设置 `InformationalVersion`（未设置时回退为 `VERSION` 内容，AssemblyVersion/FileVersion 不动）；`build.ps1 -Release` 的发布说明首行写 `<新版本>_release`（构造函数 `_release_notes.ps1`），本次发布构建的信息版本同样是它。
+
+### 判断记录
+
+- **标签不进 `VERSION`/包版本/发布标签/发布包名/变更日志标题/ABI 基线**：包管理器只接受语义化版本，下划线后缀会让发布失败；改成 `-xxx` 预发布后缀又会让版本排序低于正式版。用户规定的格式因此只做成"自动推导的展示标识"，合并时 `VERSION` 也不会冲突（决定理由见 ADR-0127）。
+- **没有新增运行期公开接口**：仓库里没有对外暴露框架版本号的公开成员（现有"版本"成员都是存档/数据表版本），ABI 只新增原则下不为此加接口，只写程序集信息版本。
+- **`IncludeSourceRevisionInInformationalVersion` 关闭**：避免 SDK 在标签后再追加提交哈希，使读出的产品版本就是标签本身。
+- **分支名规范只判 `feature/`、`bugfix/`**：主干上的合并后全量门禁、发布维护分支与游离 HEAD 不应被它挡住；不合规名字的标签仍照推导，失败信息单独给出（非 ASCII 名字会同时给出转义形式，避免控制台代码页不一致时看不清）。
+- **已知限制**：①`build.ps1 -Release -DryRun` 不写发布说明文件（发布说明只在非 DryRun 的提交步骤里生成），首行格式由 `_release_notes.ps1` 的用例直接覆盖；②标签经环境变量传给构建，非 ASCII 分支名在非 UTF-8 代码页下可能被改写——这种名字本来就会被门禁判失败；③直接在命令行手工构建（不经 `check.ps1`/`build.ps1`）时信息版本是 `VERSION` 内容而非带后缀的标签。

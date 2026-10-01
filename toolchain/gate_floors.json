@@ -16,9 +16,9 @@
       "measured_at": "2026-10-01"
     },
     "pytest": {
-      "min_passed": 840,
+      "min_passed": 930,
       "max_skipped": 0,
-      "measured_passed": 934,
+      "measured_passed": 1036,
       "measured_skipped": 0,
       "measured_at": "2026-10-01"
     },
