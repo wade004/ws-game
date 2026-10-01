@@ -25,7 +25,7 @@
 
 不负责什么：
 
-- 不实现输入缓冲、动作时间线、运动仲裁、局部顿帧、受击裁决、反馈绑定——这些消费解析结果，由后续切片实现。
+- 不实现输入缓冲、动作时间线、运动仲裁、局部顿帧、受击裁决、反馈绑定——这些消费解析结果，各在自己的模块（`input_map`、`rules/skill`、`carriers/unit`、`rules/combat`、`presentation/feedback_binder`）。
 - 不读单位模板（`creature.template`/`item.template`）：提供者的实现由上层装配方写，本模块只定义读什么。
 - 不含任何具体游戏的数值：框架自带两个预设与少量原型/武器是**试调起点**（`maturity=experimental`），
   不是已验证值；标定行属于游戏层，框架默认数据与新游戏模板都不带。
@@ -71,11 +71,11 @@
    都不带标定行，所以框架自带的预设数据放在独立目录 `data/_feel/`（见 5），由需要手感的游戏显式合入，
    不会让没有手感的游戏被迫写标定。
 5. **框架手感数据的位置**：`data/_feel/feel/` 下四张表（预设、原型、武器、运动模式规则），不放进 `data/_framework`
-   （放进去会让所有游戏的框架数据根含 `feel.*` 行而被迫提供标定）。**校验方式**：`data/_feel` 单独校验会因缺标定行而报
-   `feel_calibration_missing`（预期行为），要与测试标定行（`core/foundation/feel/tests/data`，单行标定）一起校验：
-   `python toolchain/validate_data.py --strict --data-root data/_framework --data-root data/_sample --data-root data/_feel --data-root core/foundation/feel/tests/data`
-   （零错误零警告）；本模块的测试用同一份标定行加载并校验框架手感数据。独立目录下的数据**尚未接入**发布包装脚本，
-   游戏要用需自行把该目录当作一个数据根合入（已知限制）。
+   （放进去会让所有游戏的框架数据根含 `feel.*` 行而被迫提供标定）。**校验方式**：`data/_feel` 自带一行缺省标定
+   `feel.calibration.framework_default`（试调起点，真实游戏写自己的标定行并在装配时用 `CalibrationId` 指定），所以可以单独校验：
+   `python toolchain/validate_data.py --strict --data-root data/_feel`（零错误零警告，门禁步骤 `validate_feel_data`）；
+   本模块的测试用 `core/foundation/feel/tests/data` 的单行测试标定行覆盖"有手感数据而标定缺项/多行"等路径。该目录随分发包
+   `dist/<version>/data/_feel/` 一起发出，与 `data/_framework` 并列作为框架根，游戏要用把它当作一个数据根合入即可。
 6. **相对量单位与标定**：身高倍数 × 参考身高；基础移速倍数与秒级基础移速 × 基础移速；画面高度比例 × 参考镜头高度；
    毫秒按模拟步长换算 tick（四舍五入、远离零取整，非零至少 1，零保持 0）。步长来自装配参数而不是标定表（标定是游戏层
    常量，步长是模拟的固定步长，二者来源不同）。毫秒换算先做 9 位小数预舍入，避免 25 ms ÷ 16.667 ms 这类恰在 .5 边界上的
@@ -98,8 +98,8 @@
     但进行中动作的快照（`BeginAction` 返回的独立结果，以施法实例 id 为键）不变，下一次动作才看到新数据。
 13. **第 7 层临时状态精确恢复**：临时状态每次从基础层重新计算，不做"反向乘除"，所以光环加上再移除后每个字段与此前**逐位相等**
     （性质由测试覆盖）。
-14. **`found.input_action` 新增字段未做**：手感设计/01 第 2.1 节要求给输入动作表加 `class`/`buffer_ms` 等字段，本切片只落地
-    `ActionClass` 枚举与缓冲记录契约，输入动作表本身的字段扩展留给输入缓冲切片。
+14. **输入动作表的字段扩展不在本模块**：手感设计/01 第 2.1 节的 `class`/`buffer_ms` 等字段属于 `found.input_action`，
+    本模块只落地 `ActionClass` 枚举与缓冲记录契约；字段与缓冲实现见 `core/foundation/input_map/README.md`。
 
 ## 基础架构提供 / 游戏层提供
 
