@@ -464,6 +464,9 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **提交前钩子改走定向判级**：钩子对非发布提交调用 `check.ps1 -Staged -SkipUnity`，原 DocsOnly 档即 T0；T3 额外带 `-Quick`（与旧 Full 档等价）；暂存为空或判级失败退回旧 Full 档。
 - **引擎侧 PlayMode 用例带模块分类**：`adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/` 下所有用例类加 `[Category("module:<模块名>")]`（归属不明的为 `module:shared`），移动阻挡用例另带交互例外分类；只改既有文件。分类过滤的实际效果待主会话在引擎侧对账。
 - **定向模式的用例数下限**：子集运行不适用全量下限，改为失败为 0、通过至少 1、跳过数不超过上限。
+- **数值仿真基线比对挪出 T1**：模块表步骤新增 `min_level`，仿真基线只在 T2 及以上触发；仿真自己的输入数据与基线文件（`core/sim/tests/data/**`、`core/sim/tests/baseline/**`）经 `always_triggers` 不受限制。
+- **定向模式不再把「T? 未触发」误报为环境性 SKIP**：汇总段的环境性 SKIP 判定正则把定向模式的未触发原因归入开关类；主线新增的环境矩阵 6c/6d 与 IL2CPP 三步补步骤编号并登记模块表。
+- **pytest 用例数下限上调**：`toolchain/gate_floors.json` 的 pytest `min_passed` 780 → 830（实测 933，新增定向门禁用例）。
 
 ## [1.92.0] - 2026-10-01
 
