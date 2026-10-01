@@ -3,7 +3,7 @@ using Core.Foundation.EventBus;
 using Presentation.Camera.Schema;
 using Xunit;
 
-namespace Tests.Presentation.Camera
+namespace Tests.PresentationCamera
 {
     /// <summary>
     /// ADR-0019 / F1c：<see cref="CameraSchemas.Profile"/> 的 <c>bounds</c>/<c>shake_presets</c>

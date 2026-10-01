@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Presentation.Ui
@@ -36,8 +37,12 @@ namespace Presentation.Ui
     /// </summary>
     public static class UiPathParser
     {
+        // 判断记录（T-M39 复现修复）：① 下标用 [0-9] 而不是 \d——\d 默认匹配全部 Unicode 十进制数字（阿拉伯-印度
+        // 数字、全角数字等），它们能过正则却过不了 int 解析；② 结尾用 \z 而不是 $——$ 会匹配末尾换行之前，
+        // "player.level\n" 曾被静默当作合法路径；③ 数值解析用 TryParse，超出 int 范围（"[2147483648]"）按语法非法
+        // 处理——TryParse 对任何输入都不抛异常，非法恒返回 false。
         private static readonly Regex SegmentRegex = new Regex(
-            "^([a-z][a-z0-9_]*)(\\[(\\d+)\\])?$",
+            "^([a-z][a-z0-9_]*)(\\[([0-9]+)\\])?\\z",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         /// <summary>解析失败（空串、空段、段格式非法）返回 false，<paramref name="segments"/> 为空列表。</summary>
@@ -60,7 +65,17 @@ namespace Presentation.Ui
                 }
 
                 var name = m.Groups[1].Value;
-                int? index = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : (int?)null;
+                int? index = null;
+                if (m.Groups[3].Success)
+                {
+                    if (!int.TryParse(m.Groups[3].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
+                    {
+                        return false;
+                    }
+
+                    index = parsed;
+                }
+
                 list.Add(new UiPathSegment(name, index));
             }
 

@@ -619,3 +619,21 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 `Warnings` 列表（消息文本各自带来源上下文：相机跟随目标丢失 / `ShellHost.LoadGame` / `shake_camera`），不再有"某子系统
 `Warnings` 只含自己产生的消息"的隔离性。调用方经 `CameraHostOptions`/自建 `CameraHost` 时不受影响。用例：
 `tests/SharedDiagnosticsWiringTests.cs`（同一实例断言 + 相机丢失目标 / 读档路由失败各一条落在共享诊断上）。
+
+## 判断记录（`Dispose` 逐子系统隔离，2026-10-01，测试覆盖剩余项 T-M41 拍板）
+
+`PresentationAssembly.Dispose()` 原为顺序调用、无隔离：任一子系统（或装配根自己的某条订阅句柄）释放时抛异常，排在它之后的
+全部子系统不再释放、其订阅泄漏。复现（修前红）：`tests/PresentationAssemblyDisposeIsolationTests.cs` 用会抛的订阅句柄做替身
+（`ThrowingDisposeEventBus`：指定归属类型的句柄先真正退订再抛 `InvalidOperationException`），让 `ViewBinder` 抛，修前
+`StrideEmitter`/`CameraHost`/`FeedbackBinder`/十一个视图模型/`ShellHost` 等 16 个归属类型的订阅全部残留。
+修复语义：每个释放步骤单独 try/catch；抛出时向 `FeedbackSinkDiagnostics`（装配层共享诊断，见上一条）记一条
+`PresentationAssembly.Dispose：子系统 <属性名> 释放时抛出 <异常类型>：<消息>`；继续释放其余；全部释放完后**重抛第一个异常**
+（释放顺序里的第一个，`ExceptionDispatchInfo` 保留原堆栈）。`_disposed` 在入口即置位，抛出后再次 `Dispose` 仍是空操作、
+不重复记诊断。只改行为、不改公开签名。已知边界：隔离粒度是"装配根的一个子系统"，子系统自己内部多个句柄的释放是否互相隔离
+由该子系统自己负责（本次不改）。
+
+构造期失败路径补测（`tests/PresentationAssemblyConstructionFailureTests.cs`，仅测试）：十一个必填构造参数分别传 null 抛
+`ArgumentNullException` 且 `ParamName` 指向该参数；数据集缺 `shell_menu_definition`（菜单退化为空）、`camera_profile`（相机不
+自动配置）、`vfx.def`/`sfx.def`/`display.weapon_style`/`feedback.binding` 时仍可完整构造并正常 `Dispose`。被其它表引用的表（如
+`feedback.floating_text_style`）缺失由数据注册表引用完整性在装配前拦截，不属装配根。真实宿主驱动的视图模型事件刷新见
+`tests/PresentationAssemblyViewModelEventTests.cs`（T-M38 装配级）。T-L17/T-L18 经拍板关闭，不做。

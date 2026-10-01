@@ -239,9 +239,17 @@ namespace Tests.PresentationUi
         /// </summary>
         public readonly Dictionary<Id, Id> TemplatesByInstance = new Dictionary<Id, Id>();
 
+        /// <summary>T-M37：非 null 时 <see cref="Equip"/> 记录调用后返回该原因的失败结果（不改装备栏），
+        /// 供 <c>UiIntents.Equip</c> 失败路径用例；默认 null = 恒成功（既有用例不受影响）。</summary>
+        public EquipFailureReason? FailEquipWith;
+
         public EquipResult Equip(Id unitId, Id instanceId, Id slot)
         {
             EquipCalls.Add((unitId, instanceId, slot));
+            if (FailEquipWith.HasValue)
+            {
+                return EquipResult.Fail(FailEquipWith.Value);
+            }
             var replaced = _equipped.TryGetValue((unitId, slot), out var old) ? (ItemInstanceRef?)old : null;
             _equipped[(unitId, slot)] = new ItemInstanceRef(instanceId);
             return EquipResult.Ok(replaced);
@@ -307,8 +315,20 @@ namespace Tests.PresentationUi
 
         public QuestState GetState(Id unitId, Id questId) => _states.TryGetValue(questId, out var s) ? s : QuestState.Unavailable;
 
+        /// <summary>T-M37：置 true 时 <see cref="Accept"/>/<see cref="TurnIn(Id,Id,out QuestTurnInFailure)"/>
+        /// 返回 false 且不改任何状态（模拟宿主拒绝），供 <c>UiIntents.AcceptQuest/TurnInQuest</c> 失败路径用例；
+        /// 默认 false = 恒成功（既有用例不受影响）。</summary>
+        public bool RefuseAccept;
+
+        public bool RefuseTurnIn;
+
         public bool Accept(Id unitId, Id questId)
         {
+            if (RefuseAccept)
+            {
+                return false;
+            }
+
             _states[questId] = QuestState.Active;
             if (!_objectiveCounts.ContainsKey(questId)) _objectiveCounts[questId] = new List<int> { 0 };
             AcceptedQuests.Add(questId);
@@ -329,6 +349,12 @@ namespace Tests.PresentationUi
 
         public bool TurnIn(Id unitId, Id questId, out QuestTurnInFailure failure)
         {
+            if (RefuseTurnIn)
+            {
+                failure = QuestTurnInFailure.NotReady;
+                return false;
+            }
+
             _states[questId] = QuestState.TurnedIn;
             TurnedInQuests.Add(questId);
             failure = QuestTurnInFailure.None;

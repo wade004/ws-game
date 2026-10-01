@@ -801,30 +801,50 @@ namespace Presentation.Assembly
             }
             _disposed = true;
 
+            // T-M41 拍板：逐子系统隔离。单个子系统（或装配根自己的某条订阅）释放时抛异常，不阻断其余释放：
+            // 记一条诊断（FeedbackSinkDiagnostics，宿主控制台转发器已轮询它）、继续释放，最后重抛第一个异常。
+            // 判断记录见 presentation/assembly/README.md“Dispose 逐子系统隔离”。
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo? first = null;
+            void Release(string name, Action release)
+            {
+                try
+                {
+                    release();
+                }
+                catch (Exception ex)
+                {
+                    first ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+                    FeedbackSinkDiagnostics.Warn(
+                        "PresentationAssembly.Dispose：子系统 " + name + " 释放时抛出 " + ex.GetType().Name + "：" + ex.Message);
+                }
+            }
+
             foreach (var sub in _subscriptions)
             {
-                sub.Dispose();
+                Release("事件订阅", sub.Dispose);
             }
             _subscriptions.Clear();
 
-            ViewBinder.Dispose();
-            Stride.Dispose();
-            MapLayers.Dispose();
-            Camera.Dispose();
-            Feedback.Dispose();
-            Shell.Dispose();
-            ShellViewModel.Dispose();
-            Hud.Dispose();
-            ActionBar.Dispose();
-            Inventory.Dispose();
-            QuestLog.Dispose();
-            DialogView.Dispose();
-            SkillBook.Dispose();
-            CharacterStats.Dispose();
-            Shop.Dispose();
-            Settings.Dispose();
-            SaveSlots.Dispose();
-            PauseMenu.Dispose();
+            Release(nameof(ViewBinder), ViewBinder.Dispose);
+            Release(nameof(Stride), Stride.Dispose);
+            Release(nameof(MapLayers), MapLayers.Dispose);
+            Release(nameof(Camera), Camera.Dispose);
+            Release(nameof(Feedback), Feedback.Dispose);
+            Release(nameof(Shell), Shell.Dispose);
+            Release(nameof(ShellViewModel), ShellViewModel.Dispose);
+            Release(nameof(Hud), Hud.Dispose);
+            Release(nameof(ActionBar), ActionBar.Dispose);
+            Release(nameof(Inventory), Inventory.Dispose);
+            Release(nameof(QuestLog), QuestLog.Dispose);
+            Release(nameof(DialogView), DialogView.Dispose);
+            Release(nameof(SkillBook), SkillBook.Dispose);
+            Release(nameof(CharacterStats), CharacterStats.Dispose);
+            Release(nameof(Shop), Shop.Dispose);
+            Release(nameof(Settings), Settings.Dispose);
+            Release(nameof(SaveSlots), SaveSlots.Dispose);
+            Release(nameof(PauseMenu), PauseMenu.Dispose);
+
+            first?.Throw();
         }
     }
 }

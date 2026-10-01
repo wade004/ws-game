@@ -274,7 +274,8 @@ namespace Tests.Presentation.Assembly
             out GameplayAssembly gameplay, out WorldSim world, out StubEngine engine, out IEventBus bus,
             PresentationAssemblyOptions? options = null, IViewFactory? viewFactory = null,
             bool withResourceLoader = false, System.Action<InMemoryDataSource>? extraTables = null,
-            IEventBus? busOverride = null, IHitFrameSource? hitFrameSource = null, bool discreteTimeModel = false)
+            IEventBus? busOverride = null, IHitFrameSource? hitFrameSource = null, bool discreteTimeModel = false,
+            string[]? omitTables = null, string? nullArgument = null)
         {
             // busOverride：生产装配接线探针用（装配选项/Dispose 完整性用例），传入包装过的总线以观测订阅；
             // 默认 null，既有全部调用方行为逐字节不变。
@@ -303,7 +304,7 @@ namespace Tests.Presentation.Assembly
 
             var registryOptions = PresentationSchemaCatalog.CreateOptions();
             registryOptions.FailOnUnknownTable = false;
-            var registry = new DataRegistry(source, bus, registryOptions);
+            var registry = new DataRegistry(omitTables == null ? source : new OmittingDataSource(source, omitTables), bus, registryOptions);
             PresentationSchemaCatalog.RegisterAll(registry);
             var report = registry.LoadAll();
             Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
@@ -339,9 +340,14 @@ namespace Tests.Presentation.Assembly
             // GP-PRES-04 收口：默认仍不传（withResourceLoader=false），保持既有测试行为逐字节不变；
             // 需要断言"首次引用触发 LoadAsync"的用例显式传 true，拿到 engine.ResourceLoader
             // （StubResourceLoader，可观察 LoadRequests）。
+            // nullArgument：T-M41 构造期失败路径用例——把指定名字的必填构造参数换成 null，其余照常；默认 null 行为不变。
+            T Pick<T>(string name, T value) where T : class => name == nullArgument ? null! : value;
             return new PresentationAssembly(
-                gameplay, world, registry, bus, presentationRng, viewFactory,
-                engine.Renderer2D, engine.Camera, engine.Audio, engine.FileSystem, sceneRouter, options,
+                Pick("gameplay", gameplay), Pick("world", (IWorldSim)world), Pick("registry", (IDataRegistryView)registry),
+                Pick("bus", bus), Pick("rng", (IRngHost)presentationRng), Pick("viewFactory", viewFactory),
+                Pick("renderer2D", (IRenderer2D)engine.Renderer2D), Pick("camera", (ICamera)engine.Camera),
+                Pick("audio", (IAudio)engine.Audio), Pick("fileSystem", (IFileSystem)engine.FileSystem),
+                Pick("sceneRouter", (ISceneRouter)sceneRouter), options,
                 resourceLoader: withResourceLoader ? engine.ResourceLoader : null,
                 hitFrameSource: hitFrameSource);
         }

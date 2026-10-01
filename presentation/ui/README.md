@@ -724,3 +724,14 @@ UI 意图方法名语义，不新建第二套词汇表。
 `tests/UiLayoutSchemaTests.cs`（`ui_layout_definition` schema 正反例与 `FromRecord` 错误路径）；
 `tests/UiIntentsFailurePathTests.cs`（用真实经济/技能绑定/应用状态宿主观察失败路径：失败结果原样透传、宿主异常原样传播、
 带 `panelId` 的重载在宿主调用之前就发出 `ui.action_invoked`，即失败的点击同样可观测——此现行为被钉住）。
+
+## 判断记录（`UiPathParser.TryParse` 三处严格化，2026-10-01，测试覆盖剩余项 T-M39，先复现后修）
+
+契约：`TryParse` 对任何输入都不抛异常，非法返回 `false` 且 `segments` 为空。复现用例（`tests/UiPathParserEdgeTests.cs`，修前红）
+暴露三处违约，已修（`contracts/UiPath.cs`，仅行为、不改公开签名）：① 下标超出 `int` 范围（`[2147483648]`）原抛
+`OverflowException`，现按语法非法返回 `false`（`int.TryParse`，`NumberStyles.None` + 不变文化）；② 下标用 `\d` 会匹配
+全部 Unicode 十进制数字（阿拉伯-印度数字、全角数字），通过正则后在 `int.Parse` 处抛 `FormatException`，现改 `[0-9]` 只认 ASCII；
+③ 段正则结尾 `$` 会匹配末尾换行之前，`"player.level
+"` 曾被静默当合法路径，现改 `\z`。下标最大值 `int.MaxValue` 与前导零
+（`[007]` = 7）仍合法。同批补测（仅测试）：`tests/UiIntentsCoverageTests.cs`（T-M37，18 个带 `panelId` 的重载逐个、失败结果、
+无事件总线降级）、`tests/ViewModelEventTriggerTests.cs`（T-M38，11 个视图模型的订阅键集合与逐键刷新）。
