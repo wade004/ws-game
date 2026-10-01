@@ -380,6 +380,9 @@ namespace Game.Template
                 autosaveTimestampProvider: null,
                 clockHost: clockHost,
                 pacingPolicy: _options.PacingWaitForPlayback ? new WaitForPlaybackPacingPolicy() : new ImmediatePacingPolicy(),
+                timeModelSwitchOptions: null,
+                combatParticipantsResolver: null,
+                deathPolicyOptions: null,
                 // 第十一方深度审核修复"第 0 步"补齐（architecture/落地计划/audit-85f1f4f-20260908，
                 // 08 号文档"装配扩展点"一节）：此前本处未转发 GameplayAssembly 已经支持的
                 // questOwnerResolver/questDayProvider/vendorOpenRequested 三个可选参数，等价于恒传
