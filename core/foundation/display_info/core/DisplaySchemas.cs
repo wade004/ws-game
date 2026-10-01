@@ -133,7 +133,13 @@ namespace Core.Foundation.DisplayInfo
                 // [0,1] 刻意不在此登记 Range：AnimSetEventsShapeRule 已把这条判定为 Warning（语义
                 // 合理性问题，FromRecord 仍能解析成功），登记 Range 会把同一违规提升为 Error，与既有
                 // 规则的严重级别产生分歧，见该规则类型判断记录"只登记警告，不阻断加载"。
-                new FieldSchema("clips", FieldKind.Object, required: true, description: "剪辑 id 到 {resource_ref, events} 的映射，见 04 第 7.1.1 节")
+                // 手感设计/04 第 7 节（ADR-0119，加法字段）：extends 继承姿势集；pose_standard 声明"本集按标准姿势清单发布"。
+                // clips 仍为必填（不放宽既有约束）：只改个别键的子集写 "clips": { ...要覆盖的键... } 即可。
+                new FieldSchema("extends", FieldKind.Reference, required: false, referenceTable: "display.anim_set",
+                    description: "父姿势集（04 第 7 节）：只声明要覆盖的键，未声明的键沿用父集；链无环、深度不限，解析时先合并再走回落链"),
+                new FieldSchema("pose_standard", FieldKind.Bool, required: false,
+                    description: "缺省 false；为 true（或 id 以 display.anim_set.std_ 开头，框架级姿势集）时按标准姿势清单（04 第 3 节）校验：必备键缺失为错误，推荐键缺失为警告"),
+                new FieldSchema("clips", FieldKind.Object, required: true, description: "剪辑 id 到 {resource_ref, events} 的映射，见 04 第 7.1.1 节；有 extends 时只需声明要覆盖的键（可为空对象）")
                     .WithMap(MapSchema.FreeKeyed(
                         "剪辑名是内容作者自行命名的剪辑标识，不要求点分 Id 格式，不指向任何已登记表（见 AnimSetDef.Clips 类型注释）",
                         new FieldSchema("<clip>", FieldKind.Object, required: true, fields: new[]

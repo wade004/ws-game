@@ -97,10 +97,24 @@ namespace Core.Foundation.DisplayInfo
         /// 变体键 <c>combat_&lt;基础键&gt;</c>（ADR-0111，见 <see cref="CombatClipKeyPrefix"/>）。</summary>
         public IReadOnlyDictionary<string, AnimClipDef> Clips { get; }
 
+        /// <summary>
+        /// 手感设计/04 第 7 节：继承的姿势集（<c>extends</c>）；null 表示不继承。<see cref="Clips"/> 在经
+        /// <see cref="FromRecord(DataRecord, IDataRegistryView)"/> 构造时已把继承链合并进来（子集声明的键覆盖父集同名键，
+        /// "同名"按规范键判定，见 <see cref="PoseKeys.Canonicalize"/>）；本属性只保留"声明了继承谁"这件事。
+        /// </summary>
+        public Id? Extends { get; }
+
         public AnimSetDef(Id id, IReadOnlyDictionary<string, AnimClipDef> clips)
+            : this(id, clips, null)
+        {
+        }
+
+        /// <summary>带继承声明的构造重载（旧构造保持原签名并转调本重载，<paramref name="extends"/> 为 null）。</summary>
+        public AnimSetDef(Id id, IReadOnlyDictionary<string, AnimClipDef> clips, Id? extends)
         {
             Id = id;
             Clips = clips ?? throw new ArgumentNullException(nameof(clips));
+            Extends = extends;
         }
 
         /// <summary>从一条已加载的 <c>display.anim_set</c> <see cref="DataRecord"/> 构造（假设记录已
@@ -110,8 +124,83 @@ namespace Core.Foundation.DisplayInfo
         public static AnimSetDef FromRecord(DataRecord record)
         {
             var id = record.GetId("id");
-            var clips = new Dictionary<string, AnimClipDef>(StringComparer.Ordinal);
+            var clips = ParseOwnClips(record);
+            Id? extends = record.TryGetId("extends", out var parentId) ? parentId : (Id?)null;
+            return new AnimSetDef(id, clips, extends);
+        }
 
+        /// <summary>
+        /// 手感设计/04 第 7 节：解析并<b>合并继承链</b>——<c>extends</c> 指向的姿势集（递归，深度不限）先进入、
+        /// 本记录声明的键逐键覆盖同名键（规范键相同即同名：子集写 <c>idle.combat</c> 覆盖父集的旧键 <c>combat_idle</c>）。
+        /// 合并后的 <see cref="Clips"/> 就是"手写等价集"，之后才走回落链。没有 <c>extends</c> 的记录结果与
+        /// <see cref="FromRecord(DataRecord)"/> 逐项一致。继承成环、指向不存在的记录抛 <see cref="DataFieldException"/>
+        /// （数据校验本应在加载期拦下，见 <see cref="AnimSetPoseRule"/>；这里不静默降级）。
+        /// </summary>
+        public static AnimSetDef FromRecord(DataRecord record, IDataRegistryView registry)
+        {
+            if (registry == null) throw new ArgumentNullException(nameof(registry));
+            var self = FromRecord(record);
+            if (self.Extends == null)
+            {
+                return self;
+            }
+
+            // 自下而上收集继承链（本记录在前），再自上而下合并。
+            var chain = new List<DataRecord> { record };
+            var visited = new HashSet<string>(StringComparer.Ordinal) { record.Key };
+            var cursor = record;
+            while (cursor.TryGetId("extends", out var parentRef))
+            {
+                var parent = registry.Get(record.Table.Name, parentRef);
+                if (parent == null)
+                {
+                    throw new DataFieldException(record.Table.Name, cursor.Key, "extends", $"继承的姿势集 \"{parentRef.Value}\" 不存在");
+                }
+                if (!visited.Add(parent.Key))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "extends", $"姿势集继承成环：{string.Join(" -> ", Keys(chain))} -> {parent.Key}");
+                }
+                chain.Add(parent);
+                cursor = parent;
+            }
+
+            var merged = new List<KeyValuePair<string, AnimClipDef>>();
+            for (var i = chain.Count - 1; i >= 0; i--)
+            {
+                var own = ParseOwnClips(chain[i]);
+                if (own.Count == 0)
+                {
+                    continue;
+                }
+
+                var overridden = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var kv in own)
+                {
+                    overridden.Add(PoseKeys.Canonicalize(kv.Key));
+                }
+                merged.RemoveAll(e => overridden.Contains(PoseKeys.Canonicalize(e.Key)));
+                foreach (var kv in own)
+                {
+                    merged.Add(kv);
+                }
+            }
+
+            var clips = new Dictionary<string, AnimClipDef>(merged.Count, StringComparer.Ordinal);
+            foreach (var kv in merged)
+            {
+                clips[kv.Key] = kv.Value;
+            }
+            return new AnimSetDef(self.Id, clips, self.Extends);
+        }
+
+        private static IEnumerable<string> Keys(List<DataRecord> records)
+        {
+            foreach (var r in records) yield return r.Key;
+        }
+
+        private static Dictionary<string, AnimClipDef> ParseOwnClips(DataRecord record)
+        {
+            var clips = new Dictionary<string, AnimClipDef>(StringComparer.Ordinal);
             if (record.TryGetObject("clips", out var clipsObj))
             {
                 foreach (var kv in clipsObj)
@@ -119,8 +208,7 @@ namespace Core.Foundation.DisplayInfo
                     clips[kv.Key] = ParseClip(record, kv.Key, kv.Value);
                 }
             }
-
-            return new AnimSetDef(id, clips);
+            return clips;
         }
 
         private static AnimClipDef ParseClip(DataRecord record, string clipName, JsonValue value)

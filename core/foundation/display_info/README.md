@@ -6,10 +6,12 @@
 [04_数据与内容管线.md](../../../architecture/04_数据与内容管线.md) 第 7.1、7.1.1、7.1.2 节）。
 本模块拥有三张表的字段说明与 schema 登记：`display.map`（外形映射，sprite/model 两种
 `kind`）、`display.anim_set`（动画集，供 model 型驱动骨骼动画）、`display.equip_visual`
-（装备外观，供 model 型换装）；提供四条校验规则（`DisplayKindFieldGroupRule`"外形类型字段组
+（装备外观，供 model 型换装）；提供五条校验规则（`DisplayKindFieldGroupRule`"外形类型字段组
 完整"、`DisplayMapCoverageRule`"外形映射存在"、`AnimSetEventsShapeRule`"动画剪辑关键帧事件形状
 合法"、`EquipVisualModeFieldGroupRule`"装备呈现字段组条件必填"，均对应 04 第 5 节校验器检查项
-清单）；提供 `IDisplayInfoRegistry` 默认实现 `DisplayInfoRegistry`，按 `logical_id` 建索引，供
+清单；`AnimSetPoseRule`"姿势集符合姿势契约"对应手感设计/04 第 3、7、8 节）；姿势维度（手感设计/04，
+ADR-0119）的键语法 `PoseKeys`、回落链解析 `PoseResolver`、标准姿势清单 `PoseChecklist` 与 `AnimSetDef`
+的 `extends` 继承合并也在本模块；提供 `IDisplayInfoRegistry` 默认实现 `DisplayInfoRegistry`，按 `logical_id` 建索引，供
 `ViewBinder`（L5）等按逻辑 id 或类别查询外形信息。
 
 依赖：`core/foundation/common`（`Id`、`Vec2`、`Common.Json` 用于解析
@@ -49,12 +51,17 @@ display_info/
     DisplayInfo.cs                DisplayInfo（FromRecord）
     IDisplayInfoRegistry.cs      IDisplayInfoRegistry
     Events.cs                    DisplayInfoEventKeys、DisplayInfoReloadedEvent
+    AnimSetDef.cs                AnimSetDef（clips/extends 解析与继承合并）、AnimClipDef
+    PoseKeys.cs                  姿势键语法（旧键 combat_<state> 等价）、PoseRequest（维度请求与回落链）
+    PoseChecklist.cs             标准姿势清单（必备/推荐/可选）与完整性报告
   core/
     DisplaySchemas.cs            Map/AnimSet/EquipVisual 三张 TableSchema
     DisplayKindFieldGroupRule.cs  "外形类型字段组完整"校验规则
     DisplayMapCoverageRule.cs     "外形映射存在"校验规则
     AnimSetEventsShapeRule.cs     "动画剪辑关键帧事件形状合法"校验规则
     EquipVisualModeFieldGroupRule.cs  "装备呈现字段组条件必填"校验规则
+    PoseResolver.cs               姿势回落链解析（纯函数）
+    AnimSetPoseRule.cs            "姿势集符合姿势契约"校验规则（键语法/extends 无环/标准清单，选入制）
     DisplayInfoRegistry.cs        IDisplayInfoRegistry 默认实现
   schema/
     README.md                    三张表字段说明（摘自 04 第 7.1、7.1.1、7.1.2 节）
@@ -65,6 +72,7 @@ display_info/
     DisplayMapCoverageRuleTests.cs
     AnimSetEventsShapeRuleTests.cs
     EquipVisualModeFieldGroupRuleTests.cs
+    PoseDimensionTests.cs         姿势维度：回落链、旧键等价、extends、标准清单、框架假人姿势集零问题
 ```
 
 ## 设计要点与判断记录
@@ -122,6 +130,14 @@ display_info/
    检查项，不在本次改动范围内。
 
 7. **ADR-0111（消费方反馈第六十一批）：`display.anim_set.clips` 的战斗姿态变体键 `combat_<状态键>` 不新增 schema 字段、不设键白名单**：`clips` 在 schema 里登记为自由键表（`FreeKeyed`），一直没有键白名单，未知键当前的处理是"原样进入 `AnimSetDef.Clips`、不报错"，声明了 `combat_*` 键即生效。`AnimSetDef` 新增常量 `CombatClipKeyPrefix`（`"combat_"`）与静态方法 `CombatClipKey(baseKey)`，前缀全仓库只在这一处定义。`AnimSetEventsShapeRule` 对变体键与基础键一视同仁地检查 `events` 形状。不加白名单的理由：白名单会让任何游戏自己扩展的状态键（如 `jump`）都被拒绝，且变体键拼错（如 `combat_idel`）在运行期表现为"没有变体、回落基础键"，属于美术资源缺失同一口径，交给资源校验而不是 schema。契约面纯加法。
+
+8. **姿势维度（手感设计/04，ADR-0119，手感落地第 1 波 S5）**——`AnimSetDef`/`PoseKeys`/`PoseResolver`/`PoseChecklist`/`AnimSetPoseRule`：
+   - **键语法单处定义**：`<state>[.<gait>][.<stance>][.<family>][.<variant>]`；旧键 `combat_<state>` 恒等于 `<state>.combat`（`PoseKeys.Canonicalize`/`TryGetLegacyAlias`），表里两种写法并存时规范写法优先。`peace` 是缺省姿态，键里省略；步态段只在 `move` 状态生成，其它状态请求里带的步态被忽略（因此"请求 attack、run、combat、greatsword、heavy"的回落链是 `attack.combat.greatsword.heavy → …greatsword → attack.combat → attack`）。武器族与变体是自由集合，单看一个键分不出 `idle.2h` 的 `2h` 是族还是变体，所以只提供"结构化请求 → 键"，不提供"键 → 维度"。
+   - **`sprint` 先按 `run` 重走一遍再去步态**（设计补漏）：04 把 `move.sprint` 列为可选并说缺项"静默回落"，而必备键只有 `move.walk/move.run`、没有无步态的 `move`——严格按"去步态 → 基础键"，缺冲刺剪辑的姿势集（含框架假人集）冲刺时解析不到任何剪辑。`PoseRequest.Chain` 对 `sprint` 请求在落到基础键前先以 `run` 代替 `sprint` 把同一串候选走一遍；其它步态与旧数据不受影响。
+   - **`extends`（加法字段）**：`Reference` 到 `display.anim_set`，`clips` 仍必填（只改个别键的子集写要覆盖的键，可为空对象）；`AnimSetDef.FromRecord(record, registry)` 沿链合并（子覆盖父，按规范键判同名，新旧写法不并存），成环/父集不存在抛 `DataFieldException`（不静默降级）；无 `extends` 的记录结果与单记录 `FromRecord` 逐项一致。校验：自引用与成环为错误（`AnimSetPoseRule`，成环由环上每条记录各报一次），父集不存在由字段引用完整性检查报告。
+   - **标准清单是选入制**：新增可选 `pose_standard: Bool`（缺省 false）；`pose_standard: true` 或 id 以 `display.anim_set.std_` 开头（框架级姿势集，04 第 6.3 节）才按清单检查——沿继承链合并后，必备键缺失为错误、推荐键缺失为警告（消息写明运行期回落到哪个键，`move.sprint` 回落到 `move.run`）、可选键静默。理由：既有姿势集（只有 7 个状态键）不声明就完全不受影响，"缺省行为不变"，且默认数据根与模板数据根要求零警告；默认严格级别下警告也会阻断加载，所以键语法警告也只对选入的集生效。
+   - **清单项的判定口径**：`attack`（每个武器族一段）按基础键 `attack` 判定，不逐族检查（族是自由集合）；`attack` 二三段按"任一键形如 `attack[.<族>].02/.03`"判定（重武器两段即止）；`wounded` 变体按"任一键以 `.wounded` 结尾"；启停过渡缺失的回落是混合（`start_blend_ms/stop_blend_ms`），不是另一个键。`toolchain/asset_import/pose_checklist.py` 是同一清单在 `import_assets.py check` 里的镜像，`toolchain/tests/test_pose_checklist.py` 对照本侧 `PoseChecklist.cs` 逐项核对。
+   - **04 第 8 节其余检查项本版不做**：标记齐全（攻击类 `active_start/active_end/hit`、走/跑 `footstep`、闪避无敌窗口）、循环连续、与 `skill.def.timeline` 一致、每循环位移容差、`sprite` 型原点/方向档数——这些依赖剪辑内容与 `skill.def.timeline` 的抄写工具，属后续切片；本规则只覆盖"键齐全与继承合法"。
 
 ## 基础架构提供 / 游戏层提供
 

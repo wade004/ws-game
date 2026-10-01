@@ -56,6 +56,8 @@
 |---|---|---|---|
 | `id` | Id | 是 | `display.anim_set.<名字>` |
 | `clips` | Map\<Id, {resource_ref: Id, events: List\<{name: String, time_pct: Number}\>}\> | 是 | 剪辑 id 到资源引用与关键帧事件列表的映射；`time_pct` 为剪辑内时间百分比（0~1），`name` 为事件名，经 `IRenderer3D.onAnimEvent` 回调。本模块登记为 `FieldKind.Object`，不逐层展开嵌套结构做类型校验，只检查"存在且是对象" |
+| `extends` | Id | 否 | 父姿势集（手感设计/04 第 7 节）；登记为 `FieldKind.Reference` 指向本表，成环由 `AnimSetPoseRule` 报错 |
+| `pose_standard` | Bool | 否 | 缺省 false；为 true 或 id 以 `display.anim_set.std_` 开头时按标准姿势清单校验（必备键缺失为错误、推荐键缺失为警告） |
 
 ## `display.equip_visual`（04 第 7.1.2 节）
 

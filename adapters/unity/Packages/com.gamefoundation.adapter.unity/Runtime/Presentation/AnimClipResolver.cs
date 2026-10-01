@@ -37,6 +37,14 @@
 //      同一剪辑，因此没有任何 combat_* 键的外形进出战与 1.89.0 逐帧一致。
 //   5) model 型（没有序列帧播放器）没有异步内容登记这一步，变体剪辑恒视为就绪，切换即时生效；
 //      由 rig 播放器按剪辑名现查现用，找不到该名字的剪辑时的表现由 rig 决定，本类型不介入。
+//
+// 手感设计/04（ADR-0119）：姿势维度。默认剪辑的解析从"战斗变体键 -> 普通键"两级扩成姿势回落链
+// （Core.Foundation.DisplayInfo.PoseResolver：去变体 -> 去武器族 -> 去姿态 -> 去步态 -> 基础键），旧键 combat_<state>
+// 与 <state>.combat 等价（PoseKeys）。步态/武器族/变体来自可选的 IPoseContextSource（构造重载第 7 个参数）；没有来源时
+// 请求只有"状态 + 战斗姿态"两维，解析出的剪辑与改动前逐位一致（回落链此时恰好是 [变体键, 普通键]，就绪探针仍只对
+// 非基础键咨询，已在播的那一条视为就绪）。来源的 ContextChanged 与姿态变化走同一个 Refresh 出口：只对运动态重新解析，
+// 与最近播放的剪辑不同才切换，瞬态不被打断。武器风格/技能覆盖剪辑（AutoAttackAnim/CastAnimOverride）优先级仍最高，
+// 不经姿势解析；武器族维度补齐的是待机/移动/受击等没有覆盖剪辑的状态。
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
@@ -80,6 +88,7 @@ namespace Adapter.Unity.Presentation
         private readonly IReadOnlyDictionary<Id, WeaponStyleDef>? _weaponStyles;
         private readonly IWeaponStyleSource? _weaponStyleSource;
         private readonly Func<Id, Id, bool>? _isClipReady;
+        private readonly IPoseContextSource? _poseContext;
 
         // ADR-0111：每个实体最近一次经本类型实际播放的剪辑 id——姿态变化时用它判断"新姿态解析出的剪辑与
         // 正在播的是否相同"（相同则不重播）。实体销毁/重生时由 Forget 清理。
@@ -122,6 +131,23 @@ namespace Adapter.Unity.Presentation
             IWeaponStyleSource? weaponStyleSource,
             IReadOnlyDictionary<Id, WeaponStyleDef>? weaponStyles,
             Func<Id, Id, bool>? isClipReady)
+            : this(stateMachine, defaultClipsForEntity, playClip, weaponStyleSource, weaponStyles, isClipReady, null)
+        {
+        }
+
+        /// <summary>
+        /// 手感设计/04：带姿势上下文来源的构造重载（旧构造保持原签名转调本重载，<paramref name="poseContext"/> 为 null）。
+        /// 非空时默认剪辑按 <c>状态 + 步态 + 战斗姿态 + 武器族 + 变体</c> 走姿势回落链解析，来源的
+        /// <see cref="IPoseContextSource.ContextChanged"/> 触发运动态的 <see cref="Refresh"/>。
+        /// </summary>
+        public AnimClipResolver(
+            AnimStateMachine stateMachine,
+            Func<Id, IReadOnlyDictionary<string, Id>?> defaultClipsForEntity,
+            Action<Id, Id, bool, double> playClip,
+            IWeaponStyleSource? weaponStyleSource,
+            IReadOnlyDictionary<Id, WeaponStyleDef>? weaponStyles,
+            Func<Id, Id, bool>? isClipReady,
+            IPoseContextSource? poseContext)
         {
             _stateMachine = stateMachine ?? throw new ArgumentNullException(nameof(stateMachine));
             _defaultClipsForEntity = defaultClipsForEntity ?? throw new ArgumentNullException(nameof(defaultClipsForEntity));
@@ -129,6 +155,7 @@ namespace Adapter.Unity.Presentation
             _weaponStyleSource = weaponStyleSource;
             _weaponStyles = weaponStyles;
             _isClipReady = isClipReady;
+            _poseContext = poseContext;
 
             _stateMachine.StateChangedWithSkill += OnStateChangedWithSkill;
             // H5b 根治（游戏侧复核发现 2）：AnimStateMachine.StateRetriggered（同状态重入，见其类型
@@ -138,7 +165,13 @@ namespace Adapter.Unity.Presentation
             // PlayResolvedClip，不重复实现一遍查表逻辑。
             _stateMachine.StateRetriggered += OnStateRetriggered;
             _stateMachine.CombatStanceChanged += OnCombatStanceChanged;
+            if (_poseContext != null)
+            {
+                _poseContext.ContextChanged += OnPoseContextChanged;
+            }
         }
+
+        private void OnPoseContextChanged(Id entityId) => Refresh(entityId);
 
         private void OnStateChangedWithSkill(Id entityId, AnimState from, AnimState to, Id? triggerSkillId) =>
             PlayResolvedClip(entityId, to, triggerSkillId);
@@ -280,18 +313,34 @@ namespace Adapter.Unity.Presentation
         /// <see cref="PlayResolvedClip"/>）。</summary>
         private Id? ResolveDefaultClip(Id entityId, AnimState state, IReadOnlyDictionary<string, Id> table, bool allowVariant)
         {
-            if (allowVariant && _stateMachine.IsInCombatStance(entityId)
-                && table.TryGetValue(CombatStateKey(state), out var variant)
-                && (_isClipReady == null
-                    // 已经在播这条变体：重探测（换向/换装）期间就绪探针可能暂时为 false，不能因此把正在
-                    // 播的变体踢回普通键（会闪一下 idle）——已经在播就视为就绪。
-                    || (_lastPlayedClip.TryGetValue(entityId, out var playing) && playing.Equals(variant))
-                    || _isClipReady(entityId, variant)))
+            var stateKey = StateKey(state);
+            PoseRequest request;
+            if (!allowVariant)
             {
-                return variant;
+                request = PoseRequest.Base(stateKey);
+            }
+            else
+            {
+                var combat = _stateMachine.IsInCombatStance(entityId);
+                request = _poseContext != null
+                    ? _poseContext.GetContext(entityId).ToRequest(stateKey, combat)
+                    : new PoseRequest(stateKey, stance: combat ? PoseKeys.StanceCombat : null);
             }
 
-            return table.TryGetValue(StateKey(state), out var fallback) ? fallback : (Id?)null;
+            // 就绪探针只对非基础键咨询（PoseResolver 保证）。已经在播这条剪辑：重探测（换向/换装）期间就绪探针可能
+            // 暂时为 false，不能因此把正在播的剪辑踢回更低一级（会闪一下 idle）——已经在播就视为就绪。
+            Func<string, bool>? usable = null;
+            if (_isClipReady != null)
+            {
+                usable = tableKey =>
+                {
+                    var clip = table[tableKey];
+                    return (_lastPlayedClip.TryGetValue(entityId, out var playing) && playing.Equals(clip))
+                        || _isClipReady(entityId, clip);
+                };
+            }
+
+            return PoseResolver.TryResolve(request, table, out var resolved, out _, usable) ? resolved : (Id?)null;
         }
 
         private void PlayAndRecord(Id entityId, Id clipId, bool loop)
@@ -305,6 +354,10 @@ namespace Adapter.Unity.Presentation
             _stateMachine.StateChangedWithSkill -= OnStateChangedWithSkill;
             _stateMachine.StateRetriggered -= OnStateRetriggered;
             _stateMachine.CombatStanceChanged -= OnCombatStanceChanged;
+            if (_poseContext != null)
+            {
+                _poseContext.ContextChanged -= OnPoseContextChanged;
+            }
         }
     }
 }

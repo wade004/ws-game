@@ -92,7 +92,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from . import directions
+from . import directions, pose_checklist
 from .common import (
     DIRECTION_SLOT_ID_PREFIX,
     AssetImportError,
@@ -182,6 +182,12 @@ CHECK_DISPLAY_ANIM_EQUIP_LAYER_FILE_MISSING = "display_anim_equip_layer_file_mis
 # 针对这类遗留前缀的具体磁盘布局实现专门检查，只做"路径是否存在"的最小核对，如实报告不掩盖。
 CHECK_DISPLAY_ANIM_ASSET_MISSING = "display_anim_asset_missing"
 
+# 手感设计/04（ADR-0119）：姿势集检查——extends 继承合法、标准姿势清单（选入制，见 pose_checklist 模块 docstring）。
+CHECK_ANIM_SET_EXTENDS_INVALID = "anim_set_extends_invalid"
+CHECK_ANIM_SET_KEY_SYNTAX = "anim_set_key_syntax"
+CHECK_ANIM_SET_POSE_REQUIRED_MISSING = "anim_set_pose_required_missing"
+CHECK_ANIM_SET_POSE_RECOMMENDED_MISSING = "anim_set_pose_recommended_missing"
+
 CHECK_NAMES: tuple[str, ...] = (
     CHECK_SPRITE_SET_ID_MISSING,
     CHECK_SPRITE_SET_ID_FORMAT_INVALID,
@@ -216,6 +222,10 @@ CHECK_NAMES: tuple[str, ...] = (
     CHECK_DISPLAY_ANIM_PAPERDOLL_FILE_MISSING,
     CHECK_DISPLAY_ANIM_EQUIP_LAYER_FILE_MISSING,
     CHECK_DISPLAY_ANIM_ASSET_MISSING,
+    CHECK_ANIM_SET_EXTENDS_INVALID,
+    CHECK_ANIM_SET_KEY_SYNTAX,
+    CHECK_ANIM_SET_POSE_REQUIRED_MISSING,
+    CHECK_ANIM_SET_POSE_RECOMMENDED_MISSING,
 )
 
 
@@ -748,8 +758,51 @@ def _check_display_anim_ref(
             ))
 
 
-def _check_anim_set_row(row: dict, assets_root: Path, dataset: str, problems: list[CheckIssue]) -> None:
+def _check_anim_set_pose(row: dict, rows_by_id: dict[str, dict], problems: list[CheckIssue]) -> None:
+    """手感设计/04 第 3、7、8 节：extends 合法 + 标准姿势清单（选入制）。与 C# ``AnimSetPoseRule`` 同口径。"""
     row_id = row.get("id", "?")
+    keys, extends_problem = pose_checklist.merged_keys(row, rows_by_id)
+    if extends_problem:
+        problems.append(CheckIssue(
+            severity=SEVERITY_ERROR, table="display.anim_set", record_key=row_id,
+            check=CHECK_ANIM_SET_EXTENDS_INVALID, field_path="extends", message=extends_problem,
+        ))
+        return  # 继承有问题时合并结果不可信，不再叠加清单检查
+
+    if not pose_checklist.applies_to(row_id, bool(row.get("pose_standard", False))):
+        return
+
+    for clip_name in (row.get("clips") or {}):
+        if not pose_checklist.is_well_formed(clip_name):
+            problems.append(CheckIssue(
+                severity=SEVERITY_WARNING, table="display.anim_set", record_key=row_id,
+                check=CHECK_ANIM_SET_KEY_SYNTAX, field_path=f"clips[{clip_name}]",
+                message=f"剪辑键 \"{clip_name}\" 不符合姿势键语法（点分小写字母/数字/下划线，见 04 第 2.1 节）",
+            ))
+
+    report = pose_checklist.evaluate(keys)
+    for finding in report[pose_checklist.TIER_REQUIRED]:
+        problems.append(CheckIssue(
+            severity=SEVERITY_ERROR, table="display.anim_set", record_key=row_id,
+            check=CHECK_ANIM_SET_POSE_REQUIRED_MISSING, field_path="clips", message=finding.describe(),
+        ))
+    for finding in report[pose_checklist.TIER_RECOMMENDED]:
+        problems.append(CheckIssue(
+            severity=SEVERITY_WARNING, table="display.anim_set", record_key=row_id,
+            check=CHECK_ANIM_SET_POSE_RECOMMENDED_MISSING, field_path="clips", message=finding.describe(),
+        ))
+
+
+def _check_anim_set_row(
+    row: dict,
+    assets_root: Path,
+    dataset: str,
+    problems: list[CheckIssue],
+    rows_by_id: Optional[dict[str, dict]] = None,
+) -> None:
+    row_id = row.get("id", "?")
+    # 手感设计/04：姿势集检查（继承合法 + 标准姿势清单）。rows_by_id 缺省时只含本行自己（单行调用方不受影响）。
+    _check_anim_set_pose(row, rows_by_id if rows_by_id is not None else {row_id: row}, problems)
     clips = row.get("clips", {})
     for clip_name, clip in clips.items():
         resource_ref = clip.get("resource_ref") if isinstance(clip, dict) else None
@@ -870,8 +923,9 @@ def run(args: argparse.Namespace) -> int:
 
     if "display_anim" in only:
         anim_set_rows = _load_rows(data_root / args.dataset / "display" / "display.anim_set.json")
+        anim_set_by_id = {r.get("id", "?"): r for r in anim_set_rows}
         for row in anim_set_rows:
-            _check_anim_set_row(row, assets_root, args.dataset, problems)
+            _check_anim_set_row(row, assets_root, args.dataset, problems, anim_set_by_id)
 
         weapon_style_rows = _load_rows(data_root / args.dataset / "display" / "display.weapon_style.json")
         for row in weapon_style_rows:

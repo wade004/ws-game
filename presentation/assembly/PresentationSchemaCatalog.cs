@@ -169,6 +169,8 @@ namespace Presentation.Assembly
             // ADR-0017 决策 c：display.anim_set.clips[*].events 形状校验（无构造依赖，同
             // DisplayKindFieldGroupRule 一并注册）。
             registry.RegisterValidationRule(new AnimSetEventsShapeRule());
+            // 手感设计/04（ADR-0119）：姿势键语法、extends 无环、标准姿势清单（选入制，见该规则类型注释）。
+            registry.RegisterValidationRule(new AnimSetPoseRule());
             // 消费方反馈第 63 条：display.equip_visual.mode 条件必填字段组校验（无构造依赖，同
             // DisplayKindFieldGroupRule/AnimSetEventsShapeRule 一并注册）。
             registry.RegisterValidationRule(new EquipVisualModeFieldGroupRule());

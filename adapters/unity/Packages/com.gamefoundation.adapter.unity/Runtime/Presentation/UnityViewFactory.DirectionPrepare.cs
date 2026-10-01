@@ -366,10 +366,13 @@ namespace Adapter.Unity.Presentation
         }
 
         /// <summary>提交所需的状态键（ADR-0112 A1）：运动态 <c>idle</c>/<c>move</c> 及其声明了的战斗变体键，加上实体
-        /// 此刻所处状态的键（<paramref name="currentStateKey"/>）。</summary>
+        /// 此刻所处状态的键（<paramref name="currentStateKey"/>）。手感设计/04（ADR-0119）姿势维度键（<c>move.run</c>、
+        /// <c>idle.combat.2h</c> 等，首段为 <c>idle</c>/<c>move</c>）同属运动态，一并算在内——步态/武器族一变，换向后立刻要用它们。</summary>
         private static bool IsCommitCriticalStateKey(string stateKey, string? currentStateKey) =>
             stateKey == "idle" || stateKey == "move"
             || stateKey == AnimSetDef.CombatClipKey("idle") || stateKey == AnimSetDef.CombatClipKey("move")
+            || (stateKey.IndexOf(PoseKeys.Separator) >= 0
+                && (PoseKeys.StateOf(stateKey) == "idle" || PoseKeys.StateOf(stateKey) == "move"))
             || (currentStateKey != null && stateKey == currentStateKey);
 
         /// <summary>播放器此刻正在播的默认状态剪辑对应的状态键；播放的不是默认状态剪辑（覆盖剪辑/无）时为 <c>null</c>。</summary>

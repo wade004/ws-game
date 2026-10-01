@@ -26,7 +26,11 @@ render/
     IProceduralAnim.cs           程序动画八原语契约 + 各原语参数结构（09 §4.1）
     IFrameAnimPlayer.cs          序列帧播放器契约（09 §4.5，勘误扩展 onAnimEvent）
     FrameAnimClip.cs             引擎无关序列帧剪辑元数据（帧数/帧率/关键帧标记，09 勘误新增字段）
+    PoseContext.cs               LocomotionGait 步态枚举 + PoseContext（步态/武器族/变体，手感设计/04 第 2 节）
+    IPoseContextSource.cs        姿势上下文来源契约（只读查询 + ContextChanged 通知）
   core/
+    GaitDeriver.cs              GaitThresholds（读呈现型手感视图的步态阈值）+ GaitDeriver（带滞回的步态派生，手感设计/02 第 7 节）
+    PoseSelector.cs             IPoseContextSource 的框架实现：按实体喂速度/武器族/变体，上下文变化时通知
     MapLayerHost.cs             ADR-0080：地图分层图（ground/decal/overlay）建/销驱动，接入 PresentationAssembly.MapLayers
     RenderLayers.cs            六层的整数层号常量
     RenderOptions.cs             口味配置项（方向档位数、PixelsPerUnit、HitFrameSync 策略、
@@ -435,6 +439,13 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     `EnsureLayerImage(Id, bool)`（经追踪器预取静态层图并记录结论）。层静态图的加载完成回调统一记录结论，
     只有属于当前已显示层集合的资源才转发给 rig 重新应用。
     测试：`adapters/unity/.../Tests/Runtime/DirectionSwitchAtomic{Repro,Invariant}Tests.cs`。
+
+30. **手感设计/02 第 7 节 + 04 第 2 节（手感落地第 1 波 S5）：步态派生与姿势上下文**——`GaitDeriver`/`GaitThresholds`/`PoseSelector`/`PoseContext`/`IPoseContextSource`。
+    - **纯呈现**：只读速度与 `PresentingFeelView`（呈现型视图，读不到判定型字段），不回写判定；步态阈值读**标定前的相对值**（`GetRaw`，`idle_max_ratio` 等是"基础移速倍数"，标定后的绝对值是世界速度），字段未设置/没有手感数据时用 02 第 7 节缺省（0.05 / 0.6 / 无冲刺 / 滞回 0.05）。速度比 = `|velocity| / 该实体的基础移速属性`，由调用方给（运动切片 S2 导出档案后，调用方换成档案值即可，本类型不依赖其导出形式）。
+    - **滞回口径（02 没规定落在阈值哪一侧，本版拍板）**：升档在阈值处（与 02 表格无滞回条件逐字一致），降档在"阈值 减 滞回宽度"处。从静止起步/匀速运动与无滞回结果相同，只在阈值附近来回抖动时不闪；一次越过多个阈值（急加速）在一次 `Update` 内逐档收敛；首次观测用无滞回的 `Seed` 定档；手感重算（视图版本号变）后下一次观测读新阈值，冲刺阈值被撤销时正在冲刺的实体落回 run。
+    - **`move` 状态下步态为 Idle**（动画状态机判定在动、速度却低于 `idle_max_ratio`，如被推着蹭动）按最慢的 `walk` 取姿势，不用无步态的基础 `move`；其它状态忽略步态。
+    - **`AnimClipResolver`（adapters/unity）接入**：新增可选构造重载参数 `IPoseContextSource`；默认剪辑解析改走 `PoseResolver`（回落链 去变体→去武器族→去姿态→去步态→基础键），**没有来源时请求只有"状态 + 战斗姿态"两维，回落链恰好是 `[<state>.combat, <state>]`，与改动前的两级查表逐位一致**（核心层有随机子集的等价用例）；就绪探针只对非基础键咨询、已在播的剪辑视为就绪（同 ADR-0111）。来源的 `ContextChanged` 与姿态变化走同一个 `Refresh` 出口。武器风格/技能覆盖剪辑（`AutoAttackAnim`/`CastAnimOverride`）优先级仍最高，不经姿势解析——"武器覆盖收编进 family 维"的含义是：武器族补齐覆盖剪辑够不到的状态（待机/移动/受击），不取代覆盖剪辑。`UnityViewFactory.AnimStateKeysFor` 把外形声明的、首段为七个基础状态键之一的维度键（如 `move.run`、`idle.combat.2h`）纳入登记/探测键表，`IsCommitCriticalStateKey` 把首段为 `idle/move` 的维度键算作换向提交所需键；没有维度键的外形键表与改动前逐项一致。
+    - **本版没有接到引擎的帧循环**：`PoseSelector.Observe` 需要每实体每帧的速度比，视图层目前没有这路输入（视图只有 `SyncPose(pos, facing, height)`，速度需要差分或运动状态的只读速度查询，后者是运动切片 S2 的导出），因此框架装配（`UnityViewFactory`）本版不构造 `PoseSelector`；游戏或后续切片构造它并传给 `AnimClipResolver` 即可生效。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）
