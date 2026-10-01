@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
-  "script": "feel_elite_flinch",
+  "script": "feel_projectile_miss",
   "cells": {
     "2d_targeted": {
       "key": {
-        "script": "feel_elite_flinch",
+        "script": "feel_projectile_miss",
         "scriptVersion": 1,
-        "dataset": "ac4242389fde5ddb",
+        "dataset": "0329a0897c11e3c5",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -43,38 +43,38 @@
         },
         "attack": {
           "casts_submitted": 0,
-          "cast_success": 2,
-          "cast_failed": 0,
-          "cast_failed_reasons": "",
-          "attack_instances": 2,
-          "damage_events": 2,
-          "damage_total": 30,
-          "targets_hit": 2,
+          "cast_success": 0,
+          "cast_failed": 2,
+          "cast_failed_reasons": "NoValidTarget:2",
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
           "kills": 0,
           "settle_ticks": [],
           "settle_ticks_max": -1,
-          "hits_per_instance_max": 1,
+          "hits_per_instance_max": 0,
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 120,
-          "event_count_total": 267,
-          "frames": 120,
+          "ticks": 300,
+          "event_count_total": 613,
+          "frames": 300,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
-          "press_ticks": "21:lab_a_skill",
-          "slot_visible_ticks": "21:lab_a_skill",
+          "press_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "slot_visible_ticks": "",
           "consume_ticks": "",
           "accept_latency_ticks": [],
           "accept_latency_max": -1,
-          "drop_events": "",
-          "drop_counts": "",
+          "drop_events": "5:lab_a_attack:Rejected;150:lab_a_skill:Rejected",
+          "drop_counts": "Rejected:2",
           "expire_ticks": "",
-          "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 1
+          "max_slot_occupancy": 0,
+          "slot_occupied_ticks": 0
         },
         "actiontl": {
           "starts": "",
@@ -99,15 +99,15 @@
           "presentation_frozen_at_end": 0
         },
         "reaction": {
-          "hit_results": "Hit:2",
-          "reaction_counts": "Flinch:1;None:1",
-          "reactions": "29:elite:Flinch:0",
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
           "staggered_ticks": "",
           "kills": 0,
-          "hit_classes": "medium,medium"
+          "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex120",
+          "mode_sequence": "Grounded/Nonex300",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -118,29 +118,29 @@
           "target_track": ""
         },
         "spatialhit": {
-          "hit_confirmed": 2,
+          "hit_confirmed": 0,
           "avoided": 0,
-          "hit_sets": "0.0=player,elite",
-          "confirm_ticks": "0:elite>player;29:player>elite",
+          "hit_sets": "",
+          "confirm_ticks": "",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "0:sfx.lab_impact_t2;29:sfx.lab_impact_t2",
-          "sfx_count": 2,
+          "sfx_ids": "",
+          "sfx_count": 0,
           "camera_cues": "",
           "camera_magnitudes": [],
           "camera_decay_ms": [],
           "freeze_ops": "",
-          "first_feedback_lag_ticks": 0,
+          "first_feedback_lag_ticks": -1,
           "other_ops": ""
         }
       }
     },
     "2d_action": {
       "key": {
-        "script": "feel_elite_flinch",
+        "script": "feel_projectile_miss",
         "scriptVersion": 1,
         "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
@@ -182,29 +182,30 @@
           "cast_success": 2,
           "cast_failed": 0,
           "cast_failed_reasons": "",
-          "attack_instances": 1,
-          "damage_events": 1,
-          "damage_total": 20,
-          "targets_hit": 1,
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
           "kills": 0,
           "settle_ticks": [],
           "settle_ticks_max": -1,
-          "hits_per_instance_max": 1,
+          "hits_per_instance_max": 0,
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 120,
-          "event_count_total": 283,
-          "frames": 120,
+          "ticks": 300,
+          "event_count_total": 630,
+          "frames": 300,
           "frame_ms_p50": 0.1,
-          "frame_ms_p95": 1,
-          "alloc_bytes_per_frame_p95": 16384
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 8192
         },
         "inputbuf": {
-          "press_ticks": "21:lab_a_skill",
-          "slot_visible_ticks": "21:lab_a_skill",
-          "consume_ticks": "21:skill.lab_a_bolt",
+          "press_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "slot_visible_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "consume_ticks": "5:skill.lab_a_projectile;150:skill.lab_a_bolt",
           "accept_latency_ticks": [
+            0,
             0
           ],
           "accept_latency_max": 0,
@@ -212,45 +213,46 @@
           "drop_counts": "",
           "expire_ticks": "",
           "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 1
+          "slot_occupied_ticks": 2
         },
         "actiontl": {
-          "starts": "elite@0:skill.lab_a_elite_swing#0;player@21:skill.lab_a_bolt#0",
-          "phase_ticks": "elite:skill.lab_a_elite_swing:startup=18/active=6/recovery=21;player:skill.lab_a_bolt:startup=9/active=3/recovery=17",
+          "starts": "player@5:skill.lab_a_projectile#0;player@150:skill.lab_a_bolt#0",
+          "phase_ticks": "player:skill.lab_a_projectile:startup=9/active=3/recovery=15;player:skill.lab_a_bolt:startup=9/active=3/recovery=15",
           "action_total_ticks": [
-            45,
-            29
+            27,
+            27
           ],
-          "markers": "elite@0:armor_start;elite@18:hit;elite@24:armor_end;player@30:hit",
+          "markers": "player@14:release;player@14:hit;player@159:hit",
           "cancels": "",
-          "finishes": "elite@45;player@50",
+          "finishes": "player@32;player@177",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
+            0,
             0
           ],
           "target_assists": "",
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "38:player:2;38:elite:3",
-          "started_ticks_player": 2,
-          "frozen_ticks_player": 2,
-          "frozen_ticks_targets": "elite=3",
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
           "nested_starts": 0,
           "unended_at_end": 0,
           "presentation_frozen_at_end": 0
         },
         "reaction": {
-          "hit_results": "Hit:1",
-          "reaction_counts": "Flinch:1",
-          "reactions": "38:elite:Flinch:0",
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
           "staggered_ticks": "",
           "kills": 0,
-          "hit_classes": "medium"
+          "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex21,Action/Nonex18,Frozen/Nonex2,Action/Nonex9,Grounded/Nonex70",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex27,Grounded/Nonex118,Action/Nonex27,Grounded/Nonex123",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -261,35 +263,31 @@
           "target_track": ""
         },
         "spatialhit": {
-          "hit_confirmed": 1,
+          "hit_confirmed": 0,
           "avoided": 0,
-          "hit_sets": "0.0=elite",
-          "confirm_ticks": "38:player>elite",
+          "hit_sets": "",
+          "confirm_ticks": "",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "24:sfx.lab_whiff_t1;38:sfx.lab_impact_t2",
+          "sfx_ids": "49:sfx.lab_whiff_t1;162:sfx.lab_whiff_t1",
           "sfx_count": 2,
-          "camera_cues": "38:1:",
-          "camera_magnitudes": [
-            0.01
-          ],
-          "camera_decay_ms": [
-            120
-          ],
-          "freeze_ops": "38:freeze:player:2;38:freeze:elite:3;40:release:player:0;41:release:elite:0",
-          "first_feedback_lag_ticks": 0,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": -1,
           "other_ops": ""
         }
       }
     },
     "2_5d_targeted": {
       "key": {
-        "script": "feel_elite_flinch",
+        "script": "feel_projectile_miss",
         "scriptVersion": 1,
-        "dataset": "ac4242389fde5ddb",
+        "dataset": "0329a0897c11e3c5",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -326,38 +324,38 @@
         },
         "attack": {
           "casts_submitted": 0,
-          "cast_success": 2,
-          "cast_failed": 0,
-          "cast_failed_reasons": "",
-          "attack_instances": 2,
-          "damage_events": 2,
-          "damage_total": 30,
-          "targets_hit": 2,
+          "cast_success": 0,
+          "cast_failed": 2,
+          "cast_failed_reasons": "NoValidTarget:2",
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
           "kills": 0,
           "settle_ticks": [],
           "settle_ticks_max": -1,
-          "hits_per_instance_max": 1,
+          "hits_per_instance_max": 0,
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 120,
-          "event_count_total": 267,
-          "frames": 120,
+          "ticks": 300,
+          "event_count_total": 613,
+          "frames": 300,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
-          "press_ticks": "21:lab_a_skill",
-          "slot_visible_ticks": "21:lab_a_skill",
+          "press_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "slot_visible_ticks": "",
           "consume_ticks": "",
           "accept_latency_ticks": [],
           "accept_latency_max": -1,
-          "drop_events": "",
-          "drop_counts": "",
+          "drop_events": "5:lab_a_attack:Rejected;150:lab_a_skill:Rejected",
+          "drop_counts": "Rejected:2",
           "expire_ticks": "",
-          "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 1
+          "max_slot_occupancy": 0,
+          "slot_occupied_ticks": 0
         },
         "actiontl": {
           "starts": "",
@@ -382,15 +380,15 @@
           "presentation_frozen_at_end": 0
         },
         "reaction": {
-          "hit_results": "Hit:2",
-          "reaction_counts": "Flinch:1;None:1",
-          "reactions": "29:elite:Flinch:0",
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
           "staggered_ticks": "",
           "kills": 0,
-          "hit_classes": "medium,medium"
+          "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex120",
+          "mode_sequence": "Grounded/Nonex300",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -401,29 +399,29 @@
           "target_track": ""
         },
         "spatialhit": {
-          "hit_confirmed": 2,
+          "hit_confirmed": 0,
           "avoided": 0,
-          "hit_sets": "0.0=player,elite",
-          "confirm_ticks": "0:elite>player;29:player>elite",
+          "hit_sets": "",
+          "confirm_ticks": "",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "0:sfx.lab_impact_t2;29:sfx.lab_impact_t2",
-          "sfx_count": 2,
+          "sfx_ids": "",
+          "sfx_count": 0,
           "camera_cues": "",
           "camera_magnitudes": [],
           "camera_decay_ms": [],
           "freeze_ops": "",
-          "first_feedback_lag_ticks": 0,
+          "first_feedback_lag_ticks": -1,
           "other_ops": ""
         }
       }
     },
     "2_5d_action": {
       "key": {
-        "script": "feel_elite_flinch",
+        "script": "feel_projectile_miss",
         "scriptVersion": 1,
         "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
@@ -465,29 +463,30 @@
           "cast_success": 2,
           "cast_failed": 0,
           "cast_failed_reasons": "",
-          "attack_instances": 1,
-          "damage_events": 1,
-          "damage_total": 20,
-          "targets_hit": 1,
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
           "kills": 0,
           "settle_ticks": [],
           "settle_ticks_max": -1,
-          "hits_per_instance_max": 1,
+          "hits_per_instance_max": 0,
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 120,
-          "event_count_total": 283,
-          "frames": 120,
+          "ticks": 300,
+          "event_count_total": 630,
+          "frames": 300,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 16384
+          "alloc_bytes_per_frame_p95": 8192
         },
         "inputbuf": {
-          "press_ticks": "21:lab_a_skill",
-          "slot_visible_ticks": "21:lab_a_skill",
-          "consume_ticks": "21:skill.lab_a_bolt",
+          "press_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "slot_visible_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "consume_ticks": "5:skill.lab_a_projectile;150:skill.lab_a_bolt",
           "accept_latency_ticks": [
+            0,
             0
           ],
           "accept_latency_max": 0,
@@ -495,45 +494,46 @@
           "drop_counts": "",
           "expire_ticks": "",
           "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 1
+          "slot_occupied_ticks": 2
         },
         "actiontl": {
-          "starts": "elite@0:skill.lab_a_elite_swing#0;player@21:skill.lab_a_bolt#0",
-          "phase_ticks": "elite:skill.lab_a_elite_swing:startup=18/active=6/recovery=21;player:skill.lab_a_bolt:startup=9/active=3/recovery=17",
+          "starts": "player@5:skill.lab_a_projectile#0;player@150:skill.lab_a_bolt#0",
+          "phase_ticks": "player:skill.lab_a_projectile:startup=9/active=3/recovery=15;player:skill.lab_a_bolt:startup=9/active=3/recovery=15",
           "action_total_ticks": [
-            45,
-            29
+            27,
+            27
           ],
-          "markers": "elite@0:armor_start;elite@18:hit;elite@24:armor_end;player@30:hit",
+          "markers": "player@14:release;player@14:hit;player@159:hit",
           "cancels": "",
-          "finishes": "elite@45;player@50",
+          "finishes": "player@32;player@177",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
+            0,
             0
           ],
           "target_assists": "",
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "38:player:2;38:elite:3",
-          "started_ticks_player": 2,
-          "frozen_ticks_player": 2,
-          "frozen_ticks_targets": "elite=3",
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
           "nested_starts": 0,
           "unended_at_end": 0,
           "presentation_frozen_at_end": 0
         },
         "reaction": {
-          "hit_results": "Hit:1",
-          "reaction_counts": "Flinch:1",
-          "reactions": "38:elite:Flinch:0",
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
           "staggered_ticks": "",
           "kills": 0,
-          "hit_classes": "medium"
+          "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex21,Action/Nonex18,Frozen/Nonex2,Action/Nonex9,Grounded/Nonex70",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex27,Grounded/Nonex118,Action/Nonex27,Grounded/Nonex123",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -544,35 +544,31 @@
           "target_track": ""
         },
         "spatialhit": {
-          "hit_confirmed": 1,
+          "hit_confirmed": 0,
           "avoided": 0,
-          "hit_sets": "0.0=elite",
-          "confirm_ticks": "38:player>elite",
+          "hit_sets": "",
+          "confirm_ticks": "",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "24:sfx.lab_whiff_t1;38:sfx.lab_impact_t2",
+          "sfx_ids": "49:sfx.lab_whiff_t1;162:sfx.lab_whiff_t1",
           "sfx_count": 2,
-          "camera_cues": "38:1:",
-          "camera_magnitudes": [
-            0.01
-          ],
-          "camera_decay_ms": [
-            120
-          ],
-          "freeze_ops": "38:freeze:player:2;38:freeze:elite:3;40:release:player:0;41:release:elite:0",
-          "first_feedback_lag_ticks": 0,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": -1,
           "other_ops": ""
         }
       }
     },
     "3d_targeted": {
       "key": {
-        "script": "feel_elite_flinch",
+        "script": "feel_projectile_miss",
         "scriptVersion": 1,
-        "dataset": "ac4242389fde5ddb",
+        "dataset": "0329a0897c11e3c5",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -609,38 +605,38 @@
         },
         "attack": {
           "casts_submitted": 0,
-          "cast_success": 2,
-          "cast_failed": 0,
-          "cast_failed_reasons": "",
-          "attack_instances": 2,
-          "damage_events": 2,
-          "damage_total": 30,
-          "targets_hit": 2,
+          "cast_success": 0,
+          "cast_failed": 2,
+          "cast_failed_reasons": "NoValidTarget:2",
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
           "kills": 0,
           "settle_ticks": [],
           "settle_ticks_max": -1,
-          "hits_per_instance_max": 1,
+          "hits_per_instance_max": 0,
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 120,
-          "event_count_total": 267,
-          "frames": 120,
+          "ticks": 300,
+          "event_count_total": 613,
+          "frames": 300,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
-          "press_ticks": "21:lab_a_skill",
-          "slot_visible_ticks": "21:lab_a_skill",
+          "press_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "slot_visible_ticks": "",
           "consume_ticks": "",
           "accept_latency_ticks": [],
           "accept_latency_max": -1,
-          "drop_events": "",
-          "drop_counts": "",
+          "drop_events": "5:lab_a_attack:Rejected;150:lab_a_skill:Rejected",
+          "drop_counts": "Rejected:2",
           "expire_ticks": "",
-          "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 1
+          "max_slot_occupancy": 0,
+          "slot_occupied_ticks": 0
         },
         "actiontl": {
           "starts": "",
@@ -665,15 +661,15 @@
           "presentation_frozen_at_end": 0
         },
         "reaction": {
-          "hit_results": "Hit:2",
-          "reaction_counts": "Flinch:1;None:1",
-          "reactions": "29:elite:Flinch:0",
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
           "staggered_ticks": "",
           "kills": 0,
-          "hit_classes": "medium,medium"
+          "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex120",
+          "mode_sequence": "Grounded/Nonex300",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -684,29 +680,29 @@
           "target_track": ""
         },
         "spatialhit": {
-          "hit_confirmed": 2,
+          "hit_confirmed": 0,
           "avoided": 0,
-          "hit_sets": "0.0=player,elite",
-          "confirm_ticks": "0:elite>player;29:player>elite",
+          "hit_sets": "",
+          "confirm_ticks": "",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "0:sfx.lab_impact_t2;29:sfx.lab_impact_t2",
-          "sfx_count": 2,
+          "sfx_ids": "",
+          "sfx_count": 0,
           "camera_cues": "",
           "camera_magnitudes": [],
           "camera_decay_ms": [],
           "freeze_ops": "",
-          "first_feedback_lag_ticks": 0,
+          "first_feedback_lag_ticks": -1,
           "other_ops": ""
         }
       }
     },
     "3d_action": {
       "key": {
-        "script": "feel_elite_flinch",
+        "script": "feel_projectile_miss",
         "scriptVersion": 1,
         "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
@@ -748,29 +744,30 @@
           "cast_success": 2,
           "cast_failed": 0,
           "cast_failed_reasons": "",
-          "attack_instances": 1,
-          "damage_events": 1,
-          "damage_total": 20,
-          "targets_hit": 1,
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
           "kills": 0,
           "settle_ticks": [],
           "settle_ticks_max": -1,
-          "hits_per_instance_max": 1,
+          "hits_per_instance_max": 0,
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 120,
-          "event_count_total": 283,
-          "frames": 120,
+          "ticks": 300,
+          "event_count_total": 630,
+          "frames": 300,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 16384
+          "alloc_bytes_per_frame_p95": 8192
         },
         "inputbuf": {
-          "press_ticks": "21:lab_a_skill",
-          "slot_visible_ticks": "21:lab_a_skill",
-          "consume_ticks": "21:skill.lab_a_bolt",
+          "press_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "slot_visible_ticks": "5:lab_a_attack;150:lab_a_skill",
+          "consume_ticks": "5:skill.lab_a_projectile;150:skill.lab_a_bolt",
           "accept_latency_ticks": [
+            0,
             0
           ],
           "accept_latency_max": 0,
@@ -778,45 +775,46 @@
           "drop_counts": "",
           "expire_ticks": "",
           "max_slot_occupancy": 1,
-          "slot_occupied_ticks": 1
+          "slot_occupied_ticks": 2
         },
         "actiontl": {
-          "starts": "elite@0:skill.lab_a_elite_swing#0;player@21:skill.lab_a_bolt#0",
-          "phase_ticks": "elite:skill.lab_a_elite_swing:startup=18/active=6/recovery=21;player:skill.lab_a_bolt:startup=9/active=3/recovery=17",
+          "starts": "player@5:skill.lab_a_projectile#0;player@150:skill.lab_a_bolt#0",
+          "phase_ticks": "player:skill.lab_a_projectile:startup=9/active=3/recovery=15;player:skill.lab_a_bolt:startup=9/active=3/recovery=15",
           "action_total_ticks": [
-            45,
-            29
+            27,
+            27
           ],
-          "markers": "elite@0:armor_start;elite@18:hit;elite@24:armor_end;player@30:hit",
+          "markers": "player@14:release;player@14:hit;player@159:hit",
           "cancels": "",
-          "finishes": "elite@45;player@50",
+          "finishes": "player@32;player@177",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
+            0,
             0
           ],
           "target_assists": "",
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "38:player:2;38:elite:3",
-          "started_ticks_player": 2,
-          "frozen_ticks_player": 2,
-          "frozen_ticks_targets": "elite=3",
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
           "nested_starts": 0,
           "unended_at_end": 0,
           "presentation_frozen_at_end": 0
         },
         "reaction": {
-          "hit_results": "Hit:1",
-          "reaction_counts": "Flinch:1",
-          "reactions": "38:elite:Flinch:0",
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
           "staggered_ticks": "",
           "kills": 0,
-          "hit_classes": "medium"
+          "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex21,Action/Nonex18,Frozen/Nonex2,Action/Nonex9,Grounded/Nonex70",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex27,Grounded/Nonex118,Action/Nonex27,Grounded/Nonex123",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -827,26 +825,22 @@
           "target_track": ""
         },
         "spatialhit": {
-          "hit_confirmed": 1,
+          "hit_confirmed": 0,
           "avoided": 0,
-          "hit_sets": "0.0=elite",
-          "confirm_ticks": "38:player>elite",
+          "hit_sets": "",
+          "confirm_ticks": "",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "24:sfx.lab_whiff_t1;38:sfx.lab_impact_t2",
+          "sfx_ids": "49:sfx.lab_whiff_t1;162:sfx.lab_whiff_t1",
           "sfx_count": 2,
-          "camera_cues": "38:1:",
-          "camera_magnitudes": [
-            0.01
-          ],
-          "camera_decay_ms": [
-            120
-          ],
-          "freeze_ops": "38:freeze:player:2;38:freeze:elite:3;40:release:player:0;41:release:elite:0",
-          "first_feedback_lag_ticks": 0,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": -1,
           "other_ops": ""
         }
       }

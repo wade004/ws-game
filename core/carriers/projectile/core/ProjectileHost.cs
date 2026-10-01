@@ -120,7 +120,25 @@ namespace Core.Carriers.Projectile
         /// </summary>
         public void ClearAll()
         {
+            // 带命中钩子的投射物（时间线动作发射的）在清场时补一次结局通知（Cleared），反馈侧才不会为它们永远等一个不会来的结局。
+            // 按 Id 序数遍历保证确定性；先清簿记再通知，钩子里的任何回调看到的都是"已无存活投射物"。
+            List<IProjectileHitHook>? hooks = null;
+            if (_states.Count > 0)
+            {
+                var ids = new List<Id>(_states.Keys);
+                ids.Sort();
+                for (var i = 0; i < ids.Count; i++)
+                {
+                    var hook = _states[ids[i]].HitHook;
+                    if (hook == null) continue;
+                    hooks ??= new List<IProjectileHitHook>();
+                    hooks.Add(hook);
+                }
+            }
+
             _states.Clear();
+            if (hooks == null) return;
+            for (var i = 0; i < hooks.Count; i++) hooks[i].OnEnded(ProjectileEndReason.Cleared);
         }
 
         // -----------------------------------------------------------------
@@ -219,6 +237,8 @@ namespace Core.Carriers.Projectile
                 PierceOrder = pierceOrder,
                 HitHook = hitHook,
             };
+
+            hitHook?.OnLaunched();
         }
 
         // -----------------------------------------------------------------
@@ -249,6 +269,7 @@ namespace Core.Carriers.Projectile
                 if (!(_world.GetEntity(id) is ProjectileEntity entity))
                 {
                     _states.Remove(id);
+                    state.HitHook?.OnEnded(ProjectileEndReason.Cleared); // 世界侧实体已被清掉（IWorldSim.ClearAll 等）。
                     continue;
                 }
 
@@ -333,7 +354,7 @@ namespace Core.Carriers.Projectile
             if (wallHit.HasValue)
             {
                 entity.Position = wallHit.Value;
-                Destroy(entity.EntityId); // 撞墙：无命中后效果。
+                Destroy(entity.EntityId, ProjectileEndReason.Blocked); // 撞墙：无命中后效果。
                 return;
             }
 
@@ -417,14 +438,14 @@ namespace Core.Carriers.Projectile
 
                 if (state.HitBehavior != "pierce")
                 {
-                    Destroy(entity.EntityId);
+                    Destroy(entity.EntityId, ProjectileEndReason.Hit);
                     return true;
                 }
 
                 state.PierceCount++;
                 if (state.MaxPierceCount.HasValue && state.PierceCount >= state.MaxPierceCount.Value)
                 {
-                    Destroy(entity.EntityId);
+                    Destroy(entity.EntityId, ProjectileEndReason.Hit);
                     return true;
                 }
             }
@@ -455,7 +476,7 @@ namespace Core.Carriers.Projectile
                 }
             }
 
-            Destroy(entity.EntityId);
+            Destroy(entity.EntityId, ProjectileEndReason.Expired);
         }
 
         /// <summary>
@@ -527,9 +548,15 @@ namespace Core.Carriers.Projectile
             }
         }
 
-        private void Destroy(Id entityId)
+        /// <summary>销毁一发投射物；带命中钩子的先通知钩子结局（<see cref="IProjectileHitHook.OnEnded"/>，每发恰好一次）。</summary>
+        private void Destroy(Id entityId, ProjectileEndReason reason)
         {
-            _states.Remove(entityId);
+            if (_states.TryGetValue(entityId, out var state))
+            {
+                _states.Remove(entityId);
+                state.HitHook?.OnEnded(reason);
+            }
+
             _world.MarkForDestruction(entityId);
         }
 

@@ -1,0 +1,59 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_projectile_miss",
+    "scriptVersion": 1,
+    "description": "投射物挥空（S12，06 第 3.6 节 projectile 的补充）：场上没有靶子。释放标记发射的投射物沿朝向直飞、在竞技场直墙前被挡住，没有任何接触，挥空提示必须等投射物结局（被挡住）才出，而不是在判定相结束时就出（此时投射物还在飞）；只有命中标记的 bolt 没有目标就没有发射，没有东西在飞，挥空仍在判定相结束时判定。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_projectile",
+      "lab_a.skill": "skill.lab_a_bolt"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 150,
+      "action": "input.action.lab_a_skill",
+      "kind": "press"
+    },
+    {
+      "tick": 151,
+      "action": "input.action.lab_a_skill",
+      "kind": "release"
+    }
+  ]
+}

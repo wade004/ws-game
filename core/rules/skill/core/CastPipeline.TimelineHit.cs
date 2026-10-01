@@ -332,6 +332,28 @@ namespace Core.Rules.Skill
             return false;
         }
 
+        /// <summary>
+        /// 动作是否带攻击（<c>action.started.isAttack</c>）：含伤害类或投射物效果，或声明了 <c>hit</c>/<c>release</c> 标记。
+        /// 反馈侧只为带攻击的动作开挥空窗口——闪避、位移、纯增益动作没有"打空"（手感设计/07 第 6 节）。
+        /// </summary>
+        private static bool IsAttackAction(SkillDef def, TimelineDef tl)
+        {
+            if (HasAttackEffect(def, EffectSubset.All) || HasProjectileEffect(def))
+            {
+                return true;
+            }
+
+            foreach (var marker in tl.Markers)
+            {
+                if (marker.Name == "hit" || marker.Name == "release")
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool HasAttackEffect(SkillDef def, EffectSubset subset)
         {
             foreach (var effect in def.Effects)
@@ -593,6 +615,14 @@ namespace Core.Rules.Skill
                 _castInstanceId = castInstanceId;
                 _segment = segment;
             }
+
+            /// <summary>投射物生成：发 <c>action.projectile_launched</c>（反馈侧据此把挥空判定推迟到投射物结局）。</summary>
+            public void OnLaunched() =>
+                _owner._bus.Enqueue(new ActionProjectileLaunchedEvent(_casterId, _castInstanceId, _segment));
+
+            /// <summary>投射物结局确定：发 <c>action.projectile_ended</c>，与 <see cref="OnLaunched"/> 一一配对。</summary>
+            public void OnEnded(ProjectileEndReason reason) =>
+                _owner._bus.Enqueue(new ActionProjectileEndedEvent(_casterId, _castInstanceId, _segment, reason));
 
             public bool BeforeHit(in ProjectileHitInfo info, out Id attackInstanceId)
             {

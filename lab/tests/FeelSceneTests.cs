@@ -62,13 +62,22 @@ namespace Tests.Lab
             return ((JsonNumber)row["base_speed"]).Value;
         }
 
+        /// <summary>格子标定的参考身高（身高倍数 → 世界单位的换算系数）。</summary>
+        private static double CalibrationReferenceHeight(string cell)
+        {
+            var preset = LabTestSupport.Runner.Dataset.Catalog.GetScenario(cell).DefaultPreset;
+            var id = "feel.calibration.lab_" + preset.Substring("feel.preset.".Length);
+            var row = FeelRules.Row(System.IO.Path.Combine("data", "_lab_action", "feel", "feel.calibration.json"), id);
+            return ((JsonNumber)row["reference_height"]).Value;
+        }
+
         // ---------- 基线、双跑、帧率 ----------
 
         [Fact]
         public void FeelScripts_AreVersion3_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(19, scripts.Count);
+            Assert.Equal(20, scripts.Count);
             foreach (var s in scripts)
             {
                 Assert.Equal(InputScript.FeelFormatVersion, s.EffectiveFormatVersion);
@@ -281,14 +290,14 @@ namespace Tests.Lab
         // ---------- dash ----------
 
         [Fact]
-        public void Dash_SpeedIsDistanceOverMotionWindow_InvulnerabilityMarkersFollowTimeline_AndCoastsAfterTheSegment()
+        public void Dash_SpeedIsDistanceOverMotionWindow_EndsExactlyAtTheDeclaredDistance_AndPlaysNoWhiff()
         {
             const string skill = "skill.lab_a_dodge";
             var fp = FeelFp.Of("feel_dash", Action);
-            var p = FeelRules.ForCell(Action);
             var press = Press("feel_dash", DodgeAction);
 
-            var distance = ((JsonNumber)((JsonObject)FeelRules.Timeline(skill)["motion"])["distance"]).Value;
+            // 声明距离是身高倍数，世界距离 = 倍数 × 标定参考身高。
+            var distance = ((JsonNumber)((JsonObject)FeelRules.Timeline(skill)["motion"])["distance"]).Value * CalibrationReferenceHeight(Action);
             var startTick = press + T(FeelRules.MarkerMs(skill, "motion_start"));
             var endTick = press + T(FeelRules.MarkerMs(skill, "motion_end"));
             var segmentTicks = endTick - startTick;
@@ -298,17 +307,18 @@ namespace Tests.Lab
             Assert.Contains($"player@{press + T(FeelRules.MarkerMs(skill, "invuln_start"))}:invuln_start", markers);
             Assert.Contains($"player@{press + T(FeelRules.MarkerMs(skill, "invuln_end"))}:invuln_end", markers);
 
-            // 位移段：来源 Action 恰好 segmentTicks 个 tick；之后按减速规则滑行一小段（来源回到 Regular），终点超出声明距离，
-            // 滑行距离不超过"末速度 × 减速 tick 数 × 步长"（线性制动的上界）。
+            // 位移段：来源 Action 恰好 segmentTicks 个 tick。S12：窗口结束时末速度清零（keep_momentum_on_motion_end 缺省假），
+            // 后摇里不再滑行，终点 = 声明距离换算后的世界距离。
             Assert.Contains($"Action/Actionx{segmentTicks}", fp.Text("motion.mode_sequence"));
+            Assert.DoesNotContain("Action/Regular", fp.Text("motion.mode_sequence"));
             var endX = double.Parse(fp.Text("motion.end_position").Split(',')[0], CultureInfo.InvariantCulture);
-            var coast = endX - distance;
-            var speed = fp.Num("motion.speed_max");
-            Assert.True(coast > 0 && coast <= speed * p.Ticks("decel_ms") * FeelRules.StepSeconds + 1e-9, $"滑行距离 {coast}");
+            Assert.Equal(distance, endX, 6);
 
-            // 非攻击技能没有命中：没有命中确认、没有顿帧。
+            // 非攻击技能没有命中：没有命中确认、没有顿帧；S12：没有攻击效果也没有命中标记的动作不发挥空提示。
             Assert.Equal(0.0, fp.Num("spatialhit.hit_confirmed"));
             Assert.Equal(string.Empty, fp.Text("hitstop.started"));
+            Assert.Equal(string.Empty, fp.Text("presentation.sfx_ids"));
+            Assert.Equal(0.0, fp.Num("presentation.sfx_count"));
         }
 
         // ---------- projectile（含 S11 缺口修复的运行时凭据） ----------
@@ -344,6 +354,55 @@ namespace Tests.Lab
             // 命中带来的顿帧 / 反应与近战同规则。
             Assert.Equal(2 * p.Ticks("attacker_hitstop_ms") + 0.0, fp.Num("hitstop.started_ticks_player"));
             Assert.Equal("Stagger:2".Replace("Stagger", ReactionFor(p.S("impact_class"))), fp.Text("reaction.reaction_counts"));
+        }
+
+        [Fact]
+        public void Projectile_WhiffWaitsForTheProjectileOutcome_AHitMeansNoWhiffAtAll_AndAMissWhiffsWhenTheProjectileEnds()
+        {
+            const string releaseSkill = "skill.lab_a_projectile";
+            const string boltSkill = "skill.lab_a_bolt";
+            var effect = (JsonObject)((JsonObject)((JsonArray)FeelRules.Skill(releaseSkill)["effects"])[0])["params"];
+            var speed = ((JsonNumber)effect["speed"]).Value;
+
+            // 命中：两次施放的投射物都命中了木桩，没有任何挥空提示音（此前判定相一结束、投射物还在飞就出了挥空提示）。
+            var hit = FeelFp.Of("feel_projectile", Action);
+            Assert.DoesNotContain(hit.Items("presentation.sfx_ids"), i => i.Contains("whiff", StringComparison.Ordinal));
+
+            // 未命中：场上没有靶子，投射物沿朝向直飞，在竞技场的直墙前被挡住（结局 = 被地形挡住）。挥空提示必须落在投射物结局上：
+            // 发射 tick + 飞到墙前的 tick 数（墙距 / (速度 × 步长)，发射当 tick 就推进一步），而不是判定相结束的那一刻。
+            var wallX = ((JsonNumber)((JsonObject)ArenaBlock("straight_wall")["min"])["x"]).Value;
+            var flightTicks = (int)Math.Ceiling(wallX / (speed * FeelRules.StepSeconds));
+            var miss = FeelFp.Of("feel_projectile_miss", Action);
+            var pressA = Press("feel_projectile_miss", AttackAction);
+            var pressB = Press("feel_projectile_miss", SkillAction);
+            var releaseA = pressA + T(FeelRules.MarkerMs(releaseSkill, "release"));
+            var activeEndA = pressA + T(FeelRules.TimelineMs(releaseSkill, "startup_ms") + FeelRules.TimelineMs(releaseSkill, "active_ms"));
+            var activeEndB = pressB + T(FeelRules.TimelineMs(boltSkill, "startup_ms") + FeelRules.TimelineMs(boltSkill, "active_ms"));
+            Assert.Equal(0.0, miss.Num("spatialhit.hit_confirmed"));
+            var whiffTicks = miss.Items("presentation.sfx_ids")
+                .Where(i => i.Contains("whiff", StringComparison.Ordinal)).Select(FeelFp.TickOf).ToList();
+            Assert.Equal(2, whiffTicks.Count);
+            Assert.True(whiffTicks[0] > activeEndA + 1, $"挥空提示 {whiffTicks[0]} 不应在判定相结束（{activeEndA}）附近出");
+            Assert.InRange(whiffTicks[0], releaseA + flightTicks - 1, releaseA + flightTicks + 1);
+
+            // 对照：只有 hit 标记的 bolt 在没有目标时根本没有发射投射物，没有东西在飞，挥空照旧在判定相结束时判定。
+            Assert.Equal(activeEndB, whiffTicks[1]);
+        }
+
+        /// <summary>竞技场地形里按名字取一块阻挡。</summary>
+        private static JsonObject ArenaBlock(string name)
+        {
+            var arena = FeelRules.Row(System.IO.Path.Combine("data", "_lab", "lab", "lab.arena.json"), "lab.arena.lab_arena");
+            foreach (var b in (JsonArray)arena["blocks"])
+            {
+                var o = (JsonObject)b;
+                if (((JsonString)o["name"]).Value == name)
+                {
+                    return o;
+                }
+            }
+
+            throw new InvalidOperationException($"竞技场没有阻挡 {name}");
         }
 
         // ---------- combo3 ----------

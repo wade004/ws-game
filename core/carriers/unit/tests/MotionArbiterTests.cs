@@ -1438,6 +1438,81 @@ namespace Tests.Carriers.Unit
             }
         }
 
+        /// <summary>
+        /// S12 复现（冲刺越程）：位移窗口结束后动作仍在后摇（action 模式），累计位移必须恰为声明距离——
+        /// 窗口内的末速度不得在后摇里按 decel 继续滑行（手感设计/02 第 4 节）。
+        /// </summary>
+        [Fact]
+        public void ActionMotionEnd_DefaultClearsTheResidualVelocity_SoTheTotalDisplacementIsTheDeclaredDistance()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.AccelMs, 200.0);
+            fx.Set(FeelFieldNames.DecelMs, 400.0);
+            const double distance = 2.0;
+            var motion = Lunge(distance, 0, 3, new Vec2(1, 0));
+            var recoverySpeeds = new List<double>();
+            for (var i = 0; i < 9; i++)
+            {
+                fx.Actions.State = Act(i, motion); // 动作一直进行到后摇结束，位移窗口只有 tick 0..2
+                fx.Tick();
+                if (i >= 3) recoverySpeeds.Add(fx.Mo.Speed);
+            }
+
+            Near(distance, fx.Pos.X);
+            foreach (var s in recoverySpeeds) Assert.Equal(0.0, s);
+        }
+
+        /// <summary>keep_momentum_on_motion_end = 真：末速度保留，后摇里按 decel_ms 线性制动滑行（滑行距离不超过 末速度 × 减速 tick 数 × 步长）。</summary>
+        [Fact]
+        public void ActionMotionEnd_KeepMomentum_CoastsByDecelAfterTheWindow()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.AccelMs, 200.0);
+            fx.Set(FeelFieldNames.DecelMs, 400.0);
+            fx.Set(FeelFieldNames.KeepMomentumOnMotionEnd, true);
+            const double distance = 2.0;
+            var motion = Lunge(distance, 0, 3, new Vec2(1, 0));
+            var lastWindowSpeed = 0.0;
+            var recoverySpeeds = new List<double>();
+            for (var i = 0; i < 12; i++)
+            {
+                fx.Actions.State = Act(i, motion);
+                fx.Tick();
+                if (i == 2) lastWindowSpeed = fx.Mo.Speed;
+                if (i >= 3) recoverySpeeds.Add(fx.Mo.Speed);
+            }
+
+            Assert.True(lastWindowSpeed > 0);
+            Assert.True(fx.Pos.X > distance + 1e-6);
+            var decelTicks = (int)Math.Ceiling(400.0 / (Dt * 1000.0));
+            Assert.True(fx.Pos.X <= distance + lastWindowSpeed * decelTicks * Dt + Eps);
+            Assert.True(recoverySpeeds[0] > 0 && recoverySpeeds[0] < lastWindowSpeed); // 滑行是衰减，不是突变
+            Assert.Equal(0.0, recoverySpeeds[recoverySpeeds.Count - 1]);               // 最终归零
+        }
+
+        /// <summary>窗口结束的清零不被顿帧吞掉：窗口内顿帧（动作时钟暂停）解冻后，窗口走完的那个 tick 仍然清零。</summary>
+        [Fact]
+        public void ActionMotionEnd_AFreezeInsideTheWindow_DoesNotSwallowTheClear()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.DecelMs, 400.0);
+            const double distance = 2.0;
+            var motion = Lunge(distance, 0, 4, new Vec2(1, 0));
+            var elapsed = 0;
+            for (var i = 0; i < 14; i++)
+            {
+                var frozen = i == 2 || i == 3;
+                fx.Clock.Paused = frozen;
+                fx.Actions.State = Act(elapsed, motion);
+                fx.Tick();
+                if (!frozen) elapsed++;
+            }
+
+            fx.Clock.Paused = false;
+            Near(distance, fx.Pos.X);
+            Assert.Equal(0.0, fx.Mo.Speed);
+        }
+
         // ------------------------------------------------------------------ 规则表 / 档案读取 / 纯函数
 
         [Fact]

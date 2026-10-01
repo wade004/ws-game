@@ -258,7 +258,8 @@ namespace Tests.Foundation.Data
             // 手感体系（ADR-0114/0115/0117，S0 契约）：新增 action.*（6）、combat.hit_confirmed、combat.reaction_applied、
             // feel.hitstop_started/ended、input.buffer_dropped 共 11 条，100 -> 111。
             // 手感体系换装链（手感设计/08 第 1 节）：新增 feel.weapon_changed 一条，111 -> 112。
-            Assert.Equal(112, registry.GetAll("found.event_catalog").Count);
+            // 手感体系实验室修复（手感设计/03 第 2.5 节勘误）：新增 action.projectile_launched / action.projectile_ended 两条，112 -> 114。
+            Assert.Equal(114, registry.GetAll("found.event_catalog").Count);
             // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
             Assert.Equal(14, registry.GetAll("found.input_action").Count);
 

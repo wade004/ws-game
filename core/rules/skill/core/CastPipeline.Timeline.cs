@@ -424,7 +424,8 @@ namespace Core.Rules.Skill
                 StartRunCooldown(casterId, state, run);
             }
 
-            _bus.Enqueue(new ActionStartedEvent(casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio));
+            _bus.Enqueue(new ActionStartedEvent(
+                casterId, skillId, castInstanceId, comboIndex, schedule.TotalTicks, chargeRatio, IsAttackAction(def, tl)));
             if (assist.HasValue)
             {
                 _bus.Enqueue(new ActionTargetAssistedEvent(

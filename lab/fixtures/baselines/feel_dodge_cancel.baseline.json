@@ -142,7 +142,7 @@
       "key": {
         "script": "feel_dodge_cancel",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -161,8 +161,8 @@
         },
         "movement": {
           "ticks_requested": 0,
-          "path_length": 2.577086651,
-          "net_displacement": 2.577086651,
+          "path_length": 2,
+          "net_displacement": 2,
           "speed_steady": 0,
           "accel_ticks": -1,
           "stop_ticks": -1,
@@ -194,7 +194,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 381,
+          "event_count_total": 374,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 1,
@@ -255,13 +255,13 @@
           "hit_classes": "medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex5,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex23,Action/Nonex10,Frozen/Nonex2,Action/Nonex11,Action/Actionx9,Action/Regularx7,Action/Nonex2,Grounded/Nonex49",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex23,Action/Nonex10,Frozen/Nonex2,Action/Nonex11,Action/Actionx9,Action/Nonex9,Grounded/Nonex49",
           "speed_max": 13.333333333,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "2.577086651,0",
+          "end_position": "2,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -275,8 +275,8 @@
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "14:sfx.lab_impact_t2;69:sfx.lab_impact_t2;92:sfx.lab_whiff_t1",
-          "sfx_count": 3,
+          "sfx_ids": "14:sfx.lab_impact_t2;69:sfx.lab_impact_t2",
+          "sfx_count": 2,
           "camera_cues": "14:1:;69:1:",
           "camera_magnitudes": [
             0.01,
@@ -432,7 +432,7 @@
       "key": {
         "script": "feel_dodge_cancel",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -451,8 +451,8 @@
         },
         "movement": {
           "ticks_requested": 0,
-          "path_length": 2.577086651,
-          "net_displacement": 2.577086651,
+          "path_length": 2,
+          "net_displacement": 2,
           "speed_steady": 0,
           "accel_ticks": -1,
           "stop_ticks": -1,
@@ -484,7 +484,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 381,
+          "event_count_total": 374,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -545,13 +545,13 @@
           "hit_classes": "medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex5,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex23,Action/Nonex10,Frozen/Nonex2,Action/Nonex11,Action/Actionx9,Action/Regularx7,Action/Nonex2,Grounded/Nonex49",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex23,Action/Nonex10,Frozen/Nonex2,Action/Nonex11,Action/Actionx9,Action/Nonex9,Grounded/Nonex49",
           "speed_max": 13.333333333,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "2.577086651,0",
+          "end_position": "2,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -565,8 +565,8 @@
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "14:sfx.lab_impact_t2;69:sfx.lab_impact_t2;92:sfx.lab_whiff_t1",
-          "sfx_count": 3,
+          "sfx_ids": "14:sfx.lab_impact_t2;69:sfx.lab_impact_t2",
+          "sfx_count": 2,
           "camera_cues": "14:1:;69:1:",
           "camera_magnitudes": [
             0.01,
@@ -722,7 +722,7 @@
       "key": {
         "script": "feel_dodge_cancel",
         "scriptVersion": 1,
-        "dataset": "9f95d55ac17abe23",
+        "dataset": "106fa6b0789e0838",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -741,8 +741,8 @@
         },
         "movement": {
           "ticks_requested": 0,
-          "path_length": 2.577086651,
-          "net_displacement": 2.577086651,
+          "path_length": 2,
+          "net_displacement": 2,
           "speed_steady": 0,
           "accel_ticks": -1,
           "stop_ticks": -1,
@@ -774,7 +774,7 @@
         },
         "performance": {
           "ticks": 150,
-          "event_count_total": 381,
+          "event_count_total": 374,
           "frames": 150,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -835,13 +835,13 @@
           "hit_classes": "medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex5,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex23,Action/Nonex10,Frozen/Nonex2,Action/Nonex11,Action/Actionx9,Action/Regularx7,Action/Nonex2,Grounded/Nonex49",
+          "mode_sequence": "Grounded/Nonex5,Action/Nonex10,Frozen/Nonex2,Action/Nonex20,Grounded/Nonex23,Action/Nonex10,Frozen/Nonex2,Action/Nonex11,Action/Actionx9,Action/Nonex9,Grounded/Nonex49",
           "speed_max": 13.333333333,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "2.577086651,0",
+          "end_position": "2,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -855,8 +855,8 @@
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "14:sfx.lab_impact_t2;69:sfx.lab_impact_t2;92:sfx.lab_whiff_t1",
-          "sfx_count": 3,
+          "sfx_ids": "14:sfx.lab_impact_t2;69:sfx.lab_impact_t2",
+          "sfx_count": 2,
           "camera_cues": "14:1:;69:1:",
           "camera_magnitudes": [
             0.01,

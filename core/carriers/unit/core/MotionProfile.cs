@@ -56,6 +56,13 @@ namespace Core.Carriers.Unit
 
         public bool KeepMomentumOnActionEnd { get; }
 
+        /// <summary>
+        /// 动作位移窗口结束时是否保留末速度（<c>keep_momentum_on_motion_end</c>，手感设计/02 第 4 节）：假（缺省）立即清零，
+        /// 位移距离等于声明值；真则末速度在后摇里按 <c>decel_ms</c> 滑行。与 <see cref="KeepMomentumOnActionEnd"/> 的分工：
+        /// 这里管"位移窗口结束、动作还在后摇"，那里管"整个动作结束"。
+        /// </summary>
+        public bool KeepMomentumOnMotionEnd { get; }
+
         public bool ArrivalDecel { get; }
 
         public bool WallSlide { get; }
@@ -65,11 +72,23 @@ namespace Core.Carriers.Unit
         /// <summary>击退抗性读哪个属性（0～1）；缺省（无值）为 null，视为 0。</summary>
         public string? KnockbackResistanceStat { get; }
 
+        /// <summary>既有 15 参数构造（物理签名不变，ABI 只加不改）：<see cref="KeepMomentumOnMotionEnd"/> 取缺省假。</summary>
         public MotionProfile(
             int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
             double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
             bool keepMomentumOnActionEnd, bool arrivalDecel, bool wallSlide, bool applyToPathFollowing,
             string? knockbackResistanceStat)
+            : this(
+                version, accelMs, decelMs, accelCurve, brakeCurve, reverse, turnRateDegS, walkSpeedRatio, actionMoveSpeedRatio,
+                actionTurnLock, keepMomentumOnActionEnd, false, arrivalDecel, wallSlide, applyToPathFollowing, knockbackResistanceStat)
+        {
+        }
+
+        public MotionProfile(
+            int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
+            double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
+            bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
+            bool applyToPathFollowing, string? knockbackResistanceStat)
         {
             Version = version;
             AccelMs = accelMs;
@@ -82,6 +101,7 @@ namespace Core.Carriers.Unit
             ActionMoveSpeedRatio = actionMoveSpeedRatio;
             ActionTurnLock = actionTurnLock;
             KeepMomentumOnActionEnd = keepMomentumOnActionEnd;
+            KeepMomentumOnMotionEnd = keepMomentumOnMotionEnd;
             ArrivalDecel = arrivalDecel;
             WallSlide = wallSlide;
             ApplyToPathFollowing = applyToPathFollowing;
@@ -126,6 +146,7 @@ namespace Core.Carriers.Unit
                 RawNum(view, FeelFieldNames.ActionMoveSpeedRatio),
                 Bool(view, FeelFieldNames.ActionTurnLock),
                 Bool(view, FeelFieldNames.KeepMomentumOnActionEnd),
+                OptionalBool(view, FeelFieldNames.KeepMomentumOnMotionEnd),
                 Bool(view, FeelFieldNames.ArrivalDecel),
                 Bool(view, FeelFieldNames.WallSlide),
                 Bool(view, FeelFieldNames.ApplyToPathFollowing),
@@ -157,6 +178,13 @@ namespace Core.Carriers.Unit
             var v = view.GetAbsolute(field);
             if (v.Kind != FeelValueKind.Bool) throw Missing(field);
             return v.AsBool();
+        }
+
+        /// <summary>可选布尔字段：没有值（档案没写）取假。</summary>
+        private static bool OptionalBool(JudgingFeelView view, string field)
+        {
+            var v = view.GetAbsolute(field);
+            return v.Kind == FeelValueKind.Bool && v.AsBool();
         }
 
         private static InvalidOperationException Missing(string field) =>

@@ -31,6 +31,7 @@ namespace Core.Foundation.Feel
         public const string ActionMoveSpeedRatio = "action_move_speed_ratio";
         public const string ActionTurnLock = "action_turn_lock";
         public const string KeepMomentumOnActionEnd = "keep_momentum_on_action_end";
+        public const string KeepMomentumOnMotionEnd = "keep_momentum_on_motion_end";
         public const string ArrivalDecel = "arrival_decel";
         public const string WallSlide = "wall_slide";
         public const string ApplyToPathFollowing = "apply_to_path_following";
@@ -153,8 +154,9 @@ namespace Core.Foundation.Feel
             => new FeelFieldDef(name, FeelFieldKind.Int, new FeelFieldMeta(half, group, ops, comp, unit, offhand),
                 desc, min, max, optional: optional);
 
-        private static FeelFieldDef Bool(string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc)
-            => new FeelFieldDef(name, FeelFieldKind.Bool, new FeelFieldMeta(half, group, SetOnly, comp), desc);
+        private static FeelFieldDef Bool(
+            string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc, bool optional = false)
+            => new FeelFieldDef(name, FeelFieldKind.Bool, new FeelFieldMeta(half, group, SetOnly, comp), desc, optional: optional);
 
         private static FeelFieldDef Enum(
             string name, FeelGroup group, FeelHalf half, FeelComposition comp, IReadOnlyList<string> values, string desc)
@@ -215,6 +217,8 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.ActionMoveSpeedRatio, Mv, J, SpeedRatio, A, 0, 2, "动作进行中允许的移动速度倍率（0 即定身）；攻击期间武器临时覆盖，动作结束自动撤回"),
                 Bool(FeelFieldNames.ActionTurnLock, Mv, J, A, "动作进行中锁朝向；攻击期间武器临时覆盖，动作结束自动撤回"),
                 Bool(FeelFieldNames.KeepMomentumOnActionEnd, Mv, J, C, "动作结束时保留残余速度（真）还是清零（假）"),
+                Bool(FeelFieldNames.KeepMomentumOnMotionEnd, Mv, J, C,
+                    "动作位移窗口（motion_end）结束时保留末速度并按 decel_ms 滑行（真）还是立即清零、位移距离等于声明值（假）；缺省（无值）视为假", optional: true),
                 Bool(FeelFieldNames.ArrivalDecel, Mv, J, C, "路径跟随到达终点前按 decel_ms 减速"),
                 Bool(FeelFieldNames.WallSlide, Mv, J, C, "位移被阻挡截断时沿墙滑动（真），而不是整体停下（假）"),
                 Bool(FeelFieldNames.ApplyToPathFollowing, Mv, J, C, "运动档案是否也作用于目标类移动（AI/点击移动）；假则目标类移动保持瞬时达速"),

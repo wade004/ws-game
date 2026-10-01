@@ -455,6 +455,122 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Null(rig.Pipeline.Flush());
         }
 
+        // 不带攻击的动作（闪避、位移、纯增益）没有"打空"；投射物动作的挥空要等投射物的结局（手感设计/07 第 6 节、03 第 2.5 节）。
+
+        [Fact]
+        public void Whiff_ANonAttackAction_NeverOpensAWindow_EvenThroughItsActiveWindow()
+        {
+            var rig = Make(SwordProfile());
+            var dodge = new Id("cast.kit_dodge");
+            rig.Pipeline.OnActionStarted(Player, dodge, isAttack: false);
+            rig.Pipeline.OnActionMarker(Player, "active_start", dodge);
+            rig.Pipeline.OnActionMarker(Player, "active_end", dodge);
+            rig.Pipeline.OnActionPhase(Player, ActionPhase.Active, dodge);
+            rig.Pipeline.OnActionPhase(Player, ActionPhase.Recovery, dodge);
+            Assert.Null(rig.Pipeline.Flush());
+
+            // 同一行动者随后的带攻击动作照常挥空。
+            var slash = new Id("cast.kit_slash");
+            rig.Pipeline.OnActionStarted(Player, slash, isAttack: true);
+            rig.Pipeline.OnActionMarker(Player, "active_start", slash);
+            rig.Pipeline.OnActionMarker(Player, "active_end", slash);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome);
+        }
+
+        [Fact]
+        public void Whiff_AnActionThatNeverAnnouncedItsStart_IsTreatedAsAnAttack_AsBefore()
+        {
+            var rig = Make(SwordProfile());
+            var legacy = new Id("cast.kit_legacy_start");
+            rig.Pipeline.OnActionMarker(Player, "active_start", legacy);
+            rig.Pipeline.OnActionMarker(Player, "active_end", legacy);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome);
+        }
+
+        [Fact]
+        public void Whiff_AProjectileInFlight_DefersTheDecisionToItsEnd_AMissWhiffsThen()
+        {
+            var rig = Make(SwordProfile());
+            var bolt = new Id("cast.kit_bolt");
+            rig.Pipeline.OnActionStarted(Player, bolt, isAttack: true);
+            rig.Pipeline.OnActionMarker(Player, "active_start", bolt);
+            rig.Pipeline.OnProjectileLaunched(Player, bolt);
+            rig.Pipeline.OnActionMarker(Player, "active_end", bolt);
+            Assert.Null(rig.Pipeline.Flush()); // 判定相结束了，但弹还在飞：先不挥空。
+
+            rig.Pipeline.OnProjectileEnded(Player, bolt, cleared: false);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome);
+        }
+
+        [Fact]
+        public void Whiff_AProjectileThatHitsBeforeItsEnd_MeansNoWhiffAtAll_EvenIfTheHitLandsAfterTheActiveWindow()
+        {
+            var rig = Make(SwordProfile());
+            var bolt = new Id("cast.kit_bolt_hit");
+            rig.Pipeline.OnActionMarker(Player, "active_start", bolt);
+            rig.Pipeline.OnProjectileLaunched(Player, bolt);
+            rig.Pipeline.OnActionMarker(Player, "active_end", bolt);
+            rig.Pipeline.ObserveHit(Hit(Player, Enemy1, castInstance: bolt)); // 迟到命中：窗口还留着，计数。
+            rig.Pipeline.OnProjectileEnded(Player, bolt, cleared: false);
+            var batch = rig.Pipeline.Flush();
+            Assert.True(batch == null || batch.Plans.All(plan => plan.Outcome != ImpactOutcome.Whiff));
+        }
+
+        [Fact]
+        public void Whiff_WithSeveralProjectiles_WaitsForTheLastOne_AndAnyHitCancelsTheWhiff()
+        {
+            var rig = Make(SwordProfile());
+            var volley = new Id("cast.kit_volley");
+            rig.Pipeline.OnActionMarker(Player, "active_start", volley);
+            rig.Pipeline.OnProjectileLaunched(Player, volley);
+            rig.Pipeline.OnProjectileLaunched(Player, volley);
+            rig.Pipeline.OnActionMarker(Player, "active_end", volley);
+
+            rig.Pipeline.OnProjectileEnded(Player, volley, cleared: false);
+            Assert.Null(rig.Pipeline.Flush()); // 还剩一发。
+            rig.Pipeline.OnProjectileEnded(Player, volley, cleared: false);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome);
+
+            var second = new Id("cast.kit_volley_2");
+            rig.Pipeline.OnActionMarker(Player, "active_start", second);
+            rig.Pipeline.OnProjectileLaunched(Player, second);
+            rig.Pipeline.OnProjectileLaunched(Player, second);
+            rig.Pipeline.OnActionMarker(Player, "active_end", second);
+            rig.Pipeline.ObserveHit(Hit(Player, Enemy1, castInstance: second)); // 其中一发命中了。
+            rig.Pipeline.OnProjectileEnded(Player, second, cleared: false);
+            rig.Pipeline.OnProjectileEnded(Player, second, cleared: false);
+            var batch = rig.Pipeline.Flush();
+            Assert.True(batch == null || batch.Plans.All(plan => plan.Outcome != ImpactOutcome.Whiff));
+        }
+
+        [Fact]
+        public void Whiff_AProjectileEndingBeforeTheActiveWindowCloses_LetsTheWindowCloseNormally()
+        {
+            var rig = Make(SwordProfile());
+            var bolt = new Id("cast.kit_bolt_early");
+            rig.Pipeline.OnActionMarker(Player, "active_start", bolt);
+            rig.Pipeline.OnProjectileLaunched(Player, bolt);
+            rig.Pipeline.OnProjectileEnded(Player, bolt, cleared: false); // 判定相还没结束，弹就没了（极近距离撞墙）。
+            Assert.Null(rig.Pipeline.Flush());
+            rig.Pipeline.OnActionMarker(Player, "active_end", bolt);
+            Assert.Equal(ImpactOutcome.Whiff, Assert.Single(rig.Pipeline.Flush()!.Plans).Outcome);
+        }
+
+        [Fact]
+        public void Whiff_AClearedProjectile_AbandonsTheWaitWithoutAWhiff()
+        {
+            var rig = Make(SwordProfile());
+            var bolt = new Id("cast.kit_bolt_cleared");
+            rig.Pipeline.OnActionMarker(Player, "active_start", bolt);
+            rig.Pipeline.OnProjectileLaunched(Player, bolt);
+            rig.Pipeline.OnActionMarker(Player, "active_end", bolt);
+            rig.Pipeline.OnProjectileEnded(Player, bolt, cleared: true); // 清场/换图：不是"打空"。
+            Assert.Null(rig.Pipeline.Flush());
+            // 之后迟来的结局通知（重复）被忽略，不会补发挥空。
+            rig.Pipeline.OnProjectileEnded(Player, bolt, cleared: false);
+            Assert.Null(rig.Pipeline.Flush());
+        }
+
         // ------------------------------------------------------------------ 顿帧表现
 
         [Fact]

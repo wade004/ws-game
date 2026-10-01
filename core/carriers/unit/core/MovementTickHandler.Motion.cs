@@ -77,6 +77,10 @@ namespace Core.Carriers.Unit
         private readonly List<Id> _pendingResume = new List<Id>();
         private readonly Dictionary<Id, (Id Cast, double Traveled)> _chargeTraveled = new Dictionary<Id, (Id, double)>();
 
+        // 动作位移窗口"已经开过"的单位（动作位移段胜出过至少一个 tick，窗口还没有结束）：窗口结束的那个 tick 据此一次性处理末速度
+        // （keep_momentum_on_motion_end）。不进存档，同 _chargeTraveled 的运行期簿记惯例。
+        private readonly HashSet<Id> _actionMotionLive = new HashSet<Id>();
+
         // ================================================================== 每 tick 上下文
 
         /// <summary>本 tick 是否启用运动层（连续步、已装配运动服务与判定型手感入口、dt 为正）。</summary>
@@ -143,8 +147,32 @@ namespace Core.Carriers.Unit
                 v = Vec2.Zero;
             }
 
+            // 动作位移窗口结束（窗口曾胜出过、本 tick 不再胜出：窗口走完，或动作被取消/受控/死亡等中断）：末速度按
+            // keep_momentum_on_motion_end 处理，缺省清零——位移距离等于声明值，后摇里不再滑行（手感设计/02 第 4 节）。
+            // 顿帧叠加态下动作时钟暂停、窗口不前进，标志保留到解冻后。
+            if (!t.Frozen && _actionMotionLive.Contains(id) && !ActionMotionWindowOpen(unit, t))
+            {
+                _actionMotionLive.Remove(id);
+                if (!profile.KeepMomentumOnMotionEnd)
+                {
+                    v = Vec2.Zero;
+                }
+            }
+
             t.StartVelocity = v;
             return t;
+        }
+
+        /// <summary>本 tick 动作位移段是否有资格胜出：动作带位移声明、当前 tick 落在窗口内、没有更高优先级的来源压着。</summary>
+        private static bool ActionMotionWindowOpen(Unit unit, MotionTick t)
+        {
+            if (!t.Action.HasValue || t.Dead || t.Frozen || t.Staggered || t.Rooted || unit.MovementState.Displacement.HasValue)
+            {
+                return false;
+            }
+
+            var act = t.Action.Value;
+            return act.Motion.HasValue && act.Motion.Value.IsActiveAt(act.ElapsedTicks);
         }
 
         private static MotionMode DeriveBaseMode(MotionTick t, bool forced)
@@ -694,12 +722,11 @@ namespace Core.Carriers.Unit
                 var t = GetMotionTick(unit);
                 if (t == null || !t.Action.HasValue) continue;
                 var act = t.Action.Value;
-                if (!act.Motion.HasValue) continue;
-                var m = act.Motion.Value;
-                if (!m.IsActiveAt(act.ElapsedTicks)) continue;
-                if (t.Dead || t.Frozen || t.Staggered || t.Rooted || unit.MovementState.Displacement.HasValue) continue;
+                if (!ActionMotionWindowOpen(unit, t)) continue;
+                var m = act.Motion!.Value;
 
                 t.ActionActive = true;
+                _actionMotionLive.Add(unit.EntityId);
                 ApplyActionMotion(world, unit, t, act, m, dt);
             }
         }
@@ -917,6 +944,7 @@ namespace Core.Carriers.Unit
                     _motionTicks.Remove(stale[i]);
                     _motionProfiles.Remove(stale[i]);
                     _chargeTraveled.Remove(stale[i]);
+                    _actionMotionLive.Remove(stale[i]);
                     _suspendedPaths.Remove(stale[i]);
                 }
             }

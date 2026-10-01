@@ -91,8 +91,21 @@ namespace Presentation.FeedbackBinder.Core
         private readonly IPresentationDiagnostics _diagnostics;
         private readonly List<Candidate> _group = new List<Candidate>();
         private readonly List<RawHitstop> _hitstops = new List<RawHitstop>();
-        // 挥空窗口：键 = (行动者, 动作实例)，值 = 窗口内命中数。动作实例为 null 的窗口来自没有施法实例 id 的旧调用方式（按行动者配对）。
-        private readonly Dictionary<(Id Actor, Id? Cast), int> _whiffWindows = new Dictionary<(Id Actor, Id? Cast), int>();
+        private sealed class WhiffWindow
+        {
+            /// <summary>窗口内（含判定相结束之后、投射物结局之前）收到的命中数。</summary>
+            public int Hits;
+
+            /// <summary>判定相是否已结束；结束时还有飞行中的投射物则窗口留着等它们的结局。</summary>
+            public bool Closed;
+        }
+
+        // 挥空窗口：键 = (行动者, 动作实例)。动作实例为 null 的窗口来自没有施法实例 id 的旧调用方式（按行动者配对）。
+        private readonly Dictionary<(Id Actor, Id? Cast), WhiffWindow> _whiffWindows = new Dictionary<(Id Actor, Id? Cast), WhiffWindow>();
+        // 不带攻击的动作实例（action.started.isAttack = false）：不开挥空窗口。没有收到过 action.started 的实例按带攻击处理（旧调用方式）。
+        private readonly HashSet<(Id Actor, Id Cast)> _nonAttackCasts = new HashSet<(Id Actor, Id Cast)>();
+        // 飞行中的投射物数：键 = (行动者, 动作实例)。独立于窗口登记（release 标记可能先于判定相的相位事件到达）。
+        private readonly Dictionary<(Id Actor, Id Cast), int> _inFlight = new Dictionary<(Id Actor, Id Cast), int>();
         private readonly HashSet<string> _reported = new HashSet<string>(StringComparer.Ordinal);
 
         private long _tick;
@@ -258,29 +271,80 @@ namespace Presentation.FeedbackBinder.Core
             if (hit.CastInstanceId.HasValue)
             {
                 var key = (hit.SourceId, (Id?)hit.CastInstanceId);
-                if (_whiffWindows.TryGetValue(key, out var count))
+                if (_whiffWindows.TryGetValue(key, out var window))
                 {
-                    _whiffWindows[key] = count + 1;
+                    window.Hits++;
                 }
 
                 return;
             }
 
-            List<(Id Actor, Id? Cast)>? keys = null;
             foreach (var kv in _whiffWindows)
             {
                 if (kv.Key.Actor.Equals(hit.SourceId))
                 {
-                    keys ??= new List<(Id Actor, Id? Cast)>();
-                    keys.Add(kv.Key);
+                    kv.Value.Hits++;
                 }
             }
+        }
 
-            if (keys != null)
+        /// <summary>
+        /// 动作开始（<c>action.started</c>）：<paramref name="isAttack"/> 为假的动作（闪避、位移、纯增益）不开挥空窗口——
+        /// 它们没有"打空"（手感设计/07 第 6 节）。没有调用过本方法的动作实例按带攻击处理，窗口行为与此前一致。
+        /// </summary>
+        public void OnActionStarted(Id actorId, Id castInstanceId, bool isAttack)
+        {
+            if (isAttack)
             {
-                foreach (var key in keys)
+                _nonAttackCasts.Remove((actorId, castInstanceId));
+            }
+            else
+            {
+                _nonAttackCasts.Add((actorId, castInstanceId));
+            }
+        }
+
+        /// <summary>动作结束或被取消（<c>action.finished</c>/<c>action.cancelled</c>）：清掉该实例的"不带攻击"登记。</summary>
+        public void OnActionEnded(Id actorId, Id castInstanceId) => _nonAttackCasts.Remove((actorId, castInstanceId));
+
+        /// <summary>
+        /// 动作发射了一发投射物（<c>action.projectile_launched</c>）：该动作实例的挥空判定要等这发投射物有结局才能定
+        /// （命中就不是挥空；穿透、到期、被挡住而没有任何接触才是挥空）。
+        /// </summary>
+        public void OnProjectileLaunched(Id actorId, Id castInstanceId)
+        {
+            var key = (actorId, castInstanceId);
+            _inFlight.TryGetValue(key, out var n);
+            _inFlight[key] = n + 1;
+        }
+
+        /// <summary>
+        /// 投射物有了结局（<c>action.projectile_ended</c>）。该动作实例的最后一发投射物结束、判定相早已结束且全程没有任何接触时，
+        /// 此刻补发挥空；<paramref name="cleared"/>（被清场）不算挥空，只放弃等待。命中确认总先于结局事件到达，所以
+        /// "命中后销毁"的那一发在这里看到的命中数已经是正的。
+        /// </summary>
+        public void OnProjectileEnded(Id actorId, Id castInstanceId, bool cleared)
+        {
+            var key = (actorId, castInstanceId);
+            if (!_inFlight.TryGetValue(key, out var n))
+            {
+                return; // 没有登记过的结局（发射事件早于流水线注入等），忽略。
+            }
+
+            if (n > 1)
+            {
+                _inFlight[key] = n - 1;
+                return;
+            }
+
+            _inFlight.Remove(key);
+            var windowKey = (actorId, (Id?)castInstanceId);
+            if (_whiffWindows.TryGetValue(windowKey, out var window) && window.Closed)
+            {
+                _whiffWindows.Remove(windowKey);
+                if (!cleared && window.Hits == 0 && _options.WhiffFeedback)
                 {
-                    _whiffWindows[key] = _whiffWindows[key] + 1;
+                    OfferWhiff(actorId);
                 }
             }
         }
@@ -292,7 +356,7 @@ namespace Presentation.FeedbackBinder.Core
         {
             if (name == "active_start")
             {
-                _whiffWindows[(actorId, castInstanceId)] = 0;
+                OpenWindow(actorId, castInstanceId, reset: true);
             }
             else if (name == "active_end")
             {
@@ -307,7 +371,7 @@ namespace Presentation.FeedbackBinder.Core
         {
             if (phase == ActionPhase.Active)
             {
-                if (!_whiffWindows.ContainsKey((actorId, castInstanceId))) _whiffWindows[(actorId, castInstanceId)] = 0;
+                OpenWindow(actorId, castInstanceId, reset: false);
             }
             else
             {
@@ -315,14 +379,37 @@ namespace Presentation.FeedbackBinder.Core
             }
         }
 
+        private void OpenWindow(Id actorId, Id? castInstanceId, bool reset)
+        {
+            if (castInstanceId.HasValue && _nonAttackCasts.Contains((actorId, castInstanceId.Value)))
+            {
+                return; // 不带攻击的动作没有"打空"。
+            }
+
+            var key = (actorId, castInstanceId);
+            if (reset || !_whiffWindows.ContainsKey(key))
+            {
+                _whiffWindows[key] = new WhiffWindow();
+            }
+        }
+
         private void CloseWindow(Id actorId, Id? castInstanceId)
         {
-            if (!_whiffWindows.TryGetValue((actorId, castInstanceId), out var count))
+            var key = (actorId, castInstanceId);
+            if (!_whiffWindows.TryGetValue(key, out var window) || window.Closed)
             {
                 return;
             }
-            _whiffWindows.Remove((actorId, castInstanceId));
-            if (count == 0 && _options.WhiffFeedback)
+
+            if (castInstanceId.HasValue && _inFlight.ContainsKey((actorId, castInstanceId.Value)))
+            {
+                // 还有投射物在飞：窗口留着，等它们的结局再定（OnProjectileEnded）；之后到达的命中仍计入这个窗口。
+                window.Closed = true;
+                return;
+            }
+
+            _whiffWindows.Remove(key);
+            if (window.Hits == 0 && _options.WhiffFeedback)
             {
                 OfferWhiff(actorId);
             }

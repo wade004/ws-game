@@ -674,6 +674,14 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
    模式序列、输入被挡、韧性未破只冻结、致死为 `Dead`、击退距离与起点、缺省档案接线前后位置/朝向/模式逐位一致。
 4. **PlayMode**：改动涉及 `MovementHost.cs`（只加重载与接口声明，`MovementTickHandler.cs` 未改）；仍请主会话按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
 
+## 判断记录（动作位移窗口结束时清零速度，2026-10-02，手感落地 S12，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 4 节）
+
+- **问题**：实验室冲刺脚本（`feel_dash`）声明位移 2.0，终点 x = 2.577：`motion_end` 之后动作模式里没有来源，仲裁走"常规来源 + `decel_ms` 制动"，把动作位移留下的末速度又滑出一段。设计没规定窗口末的速度处理（只有动作整体结束的 `keep_momentum_on_action_end`），按"位移距离 = 声明值"的直觉补条款。
+- **做法**：`MotionProfile` 新增可选字段 `KeepMomentumOnMotionEnd`（档案字段 `keep_momentum_on_motion_end`，缺省假，可选——没写它的预设与数据不变）。仲裁器登记"本单位处于动作位移窗口"（`_actionMotionLive`）；窗口关闭的第一个 tick（`ActionMotionWindowOpen` 为假）把速度清零，字段为真则保留，由常规来源按 `decel_ms` 衰减。清零发生在 `GetMotionTick` 里，**不在**局部顿帧冻结的 tick 上吞掉——冻结解除后的第一个 tick 补做（`MotionArbiterTests` 里"冻结不吞掉清零"一条）。
+- 影响面：只影响"带动作位移窗口且档案 `decel_ms > 0`"的动作；`decel_ms = 0` 的预设本来就瞬停，行为不变。受影响的实验室基线条目见 S12 汇报与 `lab/README.md` 判断记录 33。
+- 复现/不变量：`tests/MotionArbiterTests.cs`（缺省窗口末清零、声明保留则滑行、冻结不吞清零三条）；实验室 `FeelSceneTests` 的冲刺与扑击期望按"参考身高 × 声明距离"推出。
+- **需要主会话在有引擎的环境里补跑**：运动层核心逻辑改了，请按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组（工作树里没有引擎，没跑）。
+
 ## 判断记录（目标辅助载体与 `IUnitFacingWriter`，2026-10-02，手感落地 S3b，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 5 节）
 
 - `ActionTargetAssistAdapter`（实现规则层 `IActionTargetAssist`）与 `TargetChainAssistResolver`（实现 `ITargetAssistResolver`）：链候选里取第一个在 `max_distance`（世界单位，时间线已按标定换算）与 `max_angle_deg`
