@@ -73,6 +73,7 @@ sim_loop/
     TurnScheduler.cs               ITurnScheduler 默认实现，同时实现 IPersistable
     ImmediatePacingPolicy.cs       IPacingPolicy："不等待回放"
     WaitForPlaybackPacingPolicy.cs IPacingPolicy："等待回放"
+    ActorActionClock.cs            IActorActionClockControl 默认实现（局部顿帧的动作时钟，手感落地 S6）
   schema/
     TimeModelSchema.cs      found.time_model 的 TableSchema + TimeModelValidationRule
     README.md               found.time_model 字段说明（备查，权威定义见 04 第 3.1 节）
@@ -84,6 +85,7 @@ sim_loop/
     NotEnabledTests.cs         历史文件名沿用，现覆盖 WorldSim 处理离散步的基本契约
     TurnSchedulerTests.cs
     PacingPolicyTests.cs
+    ActorActionClockTests.cs   行动者动作时钟默认实现
     TestEntity.cs            测试用 Entity 子类
     DelegatePhaseHandler.cs  测试用 ITickPhaseHandler 适配器
     SimLoopTestSupport.cs    测试共用的 IEventBus 构造帮助方法
@@ -347,3 +349,19 @@ sim_loop/
 `try/finally` 复位）；调用方（即处理器）自行决定是否捕获——捕获则外层 tick 照常完整执行（计数 +1、`sim.tick_started`/`sim.tick_finished`
 各一次、当拍意图不被打乱），不捕获则按"阶段处理器抛异常"的既有语义中止外层整拍。复现/不变量：`tests/SimLoopBoundaryTests.cs`
 `World_ReentrantTick_Throws_InvalidOperationException_OuterTickCompletesNormally`（原特征化用例 `..._Characterization_InnerTickRunsToCompletion_NoGuard` 改写为本断言）。
+
+
+## 判断记录（行动者动作时钟 `ActorActionClock`，2026-10-02，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 局部顿帧、ADR-0117，手感落地 S6）
+
+`core/ActorActionClock.cs` 是 `IActorActionClockControl` 的默认实现：每个行动者一个动作时钟，被局部顿帧暂停；模拟时钟、冷却、光环、其它行动者照常。
+
+1. **只认两个边界信号**：`sim.tick_started`（`BeginTick`）与 `sim.tick_finished`（`EndTick`），由 `Attach(bus)` 订阅；与阶段处理器的注册顺序无关。没有世界宿主的测试手动 `Advance()`。
+2. **暂停是绝对窗口 `[From, Until)`**（tick 序号）：在 tick 内（步骤 5 结算、步骤 7 派发）施加的暂停从下一个 tick 开始，在 tick 之间施加的从下一个将要执行的 tick 开始，所以 `Pause(a, n)` 恰好冻结其后 n 个 tick，
+   与调用点无关；`IsPaused`/`RemainingPausedTicks` 恒一致（暂停中恒大于 0）。窗口到期在 `EndTick` 自动摘掉，句柄计数归零。
+3. **嵌套取大**：窗口未结束时再暂停，`From` 取小、`Until` 取大（等价于"剩余与新时长取大"），不相加；窗口结束后的暂停是全新窗口。
+4. **`ActionTicks`** = 已完成 tick 数 − 该行动者已被冻结完成的 tick 数；同一 tick 内读到的值恒等于该 tick 开始时的值。它相对时钟创建时刻计数，消费者应取差值。
+5. **tick 序号回退**（世界重建、读档）按场景卸载处理，无条件清空全部窗口。**订阅顺序约定**：时钟的 `sim.tick_finished` 订阅先于受击裁决宿主，宿主才读得到本 tick 末刚到期的冻结，
+   `core/rules/assembly/HitFeelAssembly.Attach` 保证这个顺序。
+6. **`IsDiscreteMode` 之类的模式开关不在本类**：模式切换时由调用方（受击裁决宿主响应 `sim.time_model_rescaled`）调 `ReleaseAll()`。
+
+测试：`tests/ActorActionClockTests.cs`（15 例：与 `ActorActionClockContractTests` 假实现同一组契约断言、tick 内暂停口径、`IsPaused`/`RemainingPausedTicks` 一致性、序号回退、接到 `WorldSim` 的逐 tick 冻结采样）。
