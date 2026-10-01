@@ -7,7 +7,10 @@
     "子模块 = core/<层>/<模块>/ 与 presentation/<模块>/ 下除 bin、obj、tests、common、assembly 之外的目录；sim 层只有一个子模块（layers.sim.single_module=true，名字即层名，目录 core/sim/）。common/、assembly/ 是共享面，归 T3，不登记成子模块。",
     "tier_rules 的判级顺序见 toolchain/README.md『定向门禁』一节与 ADR-0126：先看模块公开面（contracts/schema/generated）→ 再看 *.md 与 architecture/docs（T0）→ 再看共享面（T3）→ 再看模块内部（T1）→ 未被任何规则覆盖的路径按 T3。每个路径取最高级的并集。",
     "steps 段登记 check.ps1 每个步骤的触发规则：T3 = 全部触发；T0 只跑 base_tiers 含 T0 的步骤；T1/T2 跑 base_tiers 含该级别的步骤，外加 triggers 命中改动路径的步骤（triggers 默认只看非 .md 路径，trigger_md=true 的步骤例外）；requires 为依赖步骤（被触发的步骤会把依赖一起拉进来）；engine_gated=true 的步骤只在 T3 或引擎侧有待跑分类时才跑。",
-    "owner 初版统一 TBD，由设计层分配；跨层改动由上游层负责人拍板。"
+    "owner 初版统一 TBD，由设计层分配；跨层改动由上游层负责人拍板。",
+    "path_rules（tier_rules 段）：把适配层/层内共享面/资产/模板/钩子等路径类别登记成数据——每条规则 id/globs/except/level，可选 scope=layer（记到所在层：本层测试工程+下游一层+ABI 探针+本层所有模块的引擎侧分类）、dotnet_projects（显式测试工程）、engine_categories/engine_from_file/engine_all（引擎侧 PlayMode 过滤）、steps（额外要跑的步骤）、needs_dll_sync。同一路径命中多条规则取并集、级别取最高；规则命中先于共享面 shared_globs。",
+    "steps 段新增字段：needs（dotnet_projects/public_layers：基础步骤只在确有测试工程/确有层级公开面时才选）、needs_unity（引擎侧步骤，判定块单独列出）、dll_sync_gated（引擎侧有待跑分类且改动涉及核心/适配代码时才同步 DLL；纯引擎侧测试改动不同步，前提是 DLL 已与源码同步，见 AGENTS.md §4）。",
+    "coverage_roots / coverage_allow_unknown_globs（tier_rules 段）：门禁自检『模块表覆盖所有子模块目录』对新登记的路径类别的延伸——这些根目录下受 git 管理的文件不得落到『未被任何规则覆盖』（默认 T3）；确需保持 T3 的少数文件（Unity 包清单/目录 meta）登记在 coverage_allow_unknown_globs。新增适配层/模板/资产子目录而没登记规则，自检即红。"
   ],
   "layers": {
     "foundation": {
@@ -79,7 +82,8 @@
       "**/*.md",
       "architecture/**",
       "docs/**",
-      "timing/**"
+      "timing/**",
+      ".github/**"
     ],
     "shared_tests_globs": [
       "core/*/assembly/tests/**",
@@ -94,18 +98,244 @@
       "check.ps1",
       "build.ps1",
       ".gitattributes",
-      "core/*/assembly/**",
-      "core/*/common/**",
-      "presentation/assembly/**",
-      "presentation/common/**",
       "data/**",
       "adapters/stub/**",
-      "toolchain/**",
-      "adapters/unity/Packages/**/Runtime/**",
-      "core/*/*",
-      "presentation/*"
+      "toolchain/**"
     ],
-    "default_level": "T3"
+    "default_level": "T3",
+    "path_rules": [
+      {
+        "id": "layer_shared_surface",
+        "label": "层级范围：层内共享面（common/assembly）与层根文件——只被本层与下游通过本层程序集使用，记 T2：本层测试工程 + 下游一层 + ABI 探针 + 本层所有模块的引擎侧分类",
+        "globs": [
+          "core/*/common/**",
+          "core/*/assembly/**",
+          "core/*/*",
+          "presentation/common/**",
+          "presentation/assembly/**",
+          "presentation/*"
+        ],
+        "except": [
+          "**/*.csproj",
+          "**/*.sln"
+        ],
+        "level": 2,
+        "scope": "layer"
+      },
+      {
+        "id": "stub_tests",
+        "label": "桩适配层专项测试：只被 Tests.Foundation 编译（Adapters.Stub.csproj Compile Remove 了该目录）",
+        "globs": [
+          "adapters/stub/tests/**"
+        ],
+        "level": 1,
+        "dotnet_projects": [
+          "core/foundation/tests/Tests.Foundation.csproj"
+        ]
+      },
+      {
+        "id": "shared_perf_calibration",
+        "label": "Tests.Sim.csproj 用 Link 直接编译 gameplay 测试目录里的 PerfMachineCalibration.cs：该文件改动要同时跑 Tests.Gameplay 与 Tests.Sim",
+        "globs": [
+          "core/gameplay/tests/Perf/PerfMachineCalibration.cs"
+        ],
+        "level": 1,
+        "dotnet_projects": [
+          "core/gameplay/tests/Tests.Gameplay.csproj",
+          "core/sim/tests/Tests.Sim.csproj"
+        ]
+      },
+      {
+        "id": "conformance",
+        "label": "一致性套件：被 Tests.Foundation 直接编译，被引擎侧 EditMode/PlayMode 一致性用例引用（asmdef Adapters.Conformance）",
+        "globs": [
+          "adapters/conformance/**"
+        ],
+        "level": 2,
+        "dotnet_projects": [
+          "core/foundation/tests/Tests.Foundation.csproj"
+        ],
+        "engine_categories": [
+          "module:engine_adapter"
+        ],
+        "steps": [
+          "unity_compile",
+          "unity_editmode"
+        ],
+        "needs_dll_sync": true
+      },
+      {
+        "id": "unity_tests_runtime",
+        "label": "引擎侧 PlayMode 测试：只跑该文件自己标的分类（文件里没有分类标注则保守跑全部 PlayMode）；不涉及 dotnet",
+        "globs": [
+          "adapters/unity/Packages/*/Tests/Runtime/**"
+        ],
+        "level": 1,
+        "engine_from_file": true
+      },
+      {
+        "id": "unity_tests_editor",
+        "label": "引擎侧 EditMode 测试：EditMode 用例没有分类，整套 EditMode 跑；不涉及 dotnet",
+        "globs": [
+          "adapters/unity/Packages/*/Tests/Editor/**"
+        ],
+        "level": 1,
+        "steps": [
+          "unity_editmode"
+        ]
+      },
+      {
+        "id": "unity_runtime_ui_shell",
+        "label": "引擎侧运行时 Ui/Shell：Unity 编译 + 分类 ui/shell/shared + 消费方演练",
+        "globs": [
+          "adapters/unity/Packages/*/Runtime/Ui/**",
+          "adapters/unity/Packages/*/Runtime/Shell/**"
+        ],
+        "level": 2,
+        "engine_categories": [
+          "module:ui",
+          "module:shell",
+          "module:shared"
+        ],
+        "steps": [
+          "unity_compile",
+          "consumer_drill"
+        ],
+        "needs_dll_sync": true
+      },
+      {
+        "id": "unity_runtime_diagnostics",
+        "label": "引擎侧运行时 Diagnostics：Unity 编译 + 分类 shared + 消费方演练",
+        "globs": [
+          "adapters/unity/Packages/*/Runtime/Diagnostics/**"
+        ],
+        "level": 2,
+        "engine_categories": [
+          "module:shared"
+        ],
+        "steps": [
+          "unity_compile",
+          "consumer_drill"
+        ],
+        "needs_dll_sync": true
+      },
+      {
+        "id": "unity_runtime_wide",
+        "label": "引擎侧运行时其余目录（EngineAdapter/Presentation/Bootstrap/包根）：被的用例面太宽，Unity 编译 + 全部 PlayMode + 消费方演练",
+        "globs": [
+          "adapters/unity/Packages/*/Runtime/**"
+        ],
+        "except": [
+          "adapters/unity/Packages/*/Runtime/Ui/**",
+          "adapters/unity/Packages/*/Runtime/Shell/**",
+          "adapters/unity/Packages/*/Runtime/Diagnostics/**"
+        ],
+        "level": 2,
+        "engine_all": true,
+        "steps": [
+          "unity_compile",
+          "consumer_drill"
+        ],
+        "needs_dll_sync": true
+      },
+      {
+        "id": "unity_diag_forwarding_sources",
+        "label": "Unity 包里被 Adapters.Unity.DiagnosticsForwarding.csproj 按引用编译的三个源文件：另跑该转发工程的 dotnet 测试",
+        "globs": [
+          "adapters/unity/Packages/*/Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs",
+          "adapters/unity/Packages/*/Runtime/Diagnostics/DiagnosticsHub.cs",
+          "adapters/unity/Packages/*/Runtime/Diagnostics/ValidationReportFileOutlet.cs"
+        ],
+        "level": 1,
+        "dotnet_projects": [
+          "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj"
+        ]
+      },
+      {
+        "id": "unity_editor",
+        "label": "引擎侧编辑器代码：Unity 编译 + EditMode + 分类 shared + 消费方演练",
+        "globs": [
+          "adapters/unity/Packages/*/Editor/**"
+        ],
+        "level": 2,
+        "engine_categories": [
+          "module:shared"
+        ],
+        "steps": [
+          "unity_compile",
+          "unity_editmode",
+          "consumer_drill"
+        ],
+        "needs_dll_sync": true
+      },
+      {
+        "id": "diag_forwarding_tests",
+        "label": "诊断转发工程及其测试（csproj 本身仍归共享面）",
+        "globs": [
+          "adapters/unity/DiagnosticsForwarding/**"
+        ],
+        "except": [
+          "**/*.csproj"
+        ],
+        "level": 1,
+        "dotnet_projects": [
+          "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj"
+        ]
+      },
+      {
+        "id": "game_template",
+        "label": "游戏模板：模板数据校验 + 模板冒烟（消费方演练）+ .meta 完整性",
+        "globs": [
+          "games/_template/**"
+        ],
+        "level": 1,
+        "steps": [
+          "validate_template_data",
+          "consumer_drill"
+        ]
+      },
+      {
+        "id": "assets",
+        "label": "资产目录：占位资产生成器一致性 + 样例导入幂等 + 导入检查",
+        "globs": [
+          "assets/**"
+        ],
+        "level": 1,
+        "steps": [
+          "placeholder_assets",
+          "sample_import_idem",
+          "import_assets_check"
+        ]
+      },
+      {
+        "id": "git_hooks_and_ignore",
+        "label": "提交前钩子与忽略规则：门禁自检 + 钩子相关 pytest",
+        "globs": [
+          ".githooks/**",
+          ".gitignore"
+        ],
+        "level": 1,
+        "steps": [
+          "hooks_pytest"
+        ]
+      }
+    ],
+    "coverage_roots": [
+      "adapters/conformance/",
+      "adapters/unity/Packages/",
+      "adapters/unity/DiagnosticsForwarding/",
+      "games/_template/",
+      "assets/",
+      ".github/",
+      ".githooks/"
+    ],
+    "coverage_allow_unknown_globs": [
+      "adapters/unity/Packages/manifest.json",
+      "adapters/unity/Packages/packages-lock.json",
+      "adapters/unity/Packages/*/package.json",
+      "adapters/unity/Packages/*/*.meta",
+      "adapters/unity/Packages/*/Tests/*.meta"
+    ]
   },
   "engine": {
     "category_prefix": "module:",
@@ -291,13 +521,23 @@
       ]
     },
     {
+      "id": "hooks_pytest",
+      "label": "pytest：钩子相关子集（提交前分级守卫，.githooks/.gitignore 改动）",
+      "base_tiers": [],
+      "triggers": [
+        ".githooks/**",
+        ".gitignore"
+      ]
+    },
+    {
       "id": "dotnet_build",
       "label": "dotnet build Core.sln",
       "base_tiers": [
         "T1",
         "T2"
       ],
-      "triggers": []
+      "triggers": [],
+      "needs": "dotnet_projects"
     },
     {
       "id": "dotnet_test",
@@ -309,7 +549,8 @@
       "triggers": [],
       "requires": [
         "dotnet_build"
-      ]
+      ],
+      "needs": "dotnet_projects"
     },
     {
       "id": "abi_probe",
@@ -320,7 +561,8 @@
       "triggers": [],
       "requires": [
         "dotnet_build"
-      ]
+      ],
+      "needs": "public_layers"
     },
     {
       "id": "placeholder_assets",
@@ -337,7 +579,7 @@
       "base_tiers": [],
       "triggers": [
         "data/_sample/**",
-        "assets/_sample/**",
+        "assets/**",
         "toolchain/import_sample_assets.py"
       ]
     },
@@ -383,14 +625,16 @@
       "label": "build.ps1 -SkipTests（同步 DLL）",
       "base_tiers": [],
       "triggers": [],
-      "engine_gated": true
+      "dll_sync_gated": true
     },
     {
       "id": "pkg_manifest",
       "label": "包清单一致性",
       "base_tiers": [],
       "triggers": [
-        "adapters/unity/Packages/**",
+        "adapters/unity/Packages/*/Runtime/**",
+        "adapters/unity/Packages/*/Editor/**",
+        "adapters/unity/Packages/*/package.json",
         "games/_template/**",
         "toolchain/registry/**"
       ]
@@ -399,56 +643,65 @@
       "id": "unity_compile",
       "label": "Unity 编译检查",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "unity_editmode",
       "label": "Unity EditMode 测试",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "unity_playmode",
       "label": "Unity PlayMode 测试（T2 按分类过滤）",
       "base_tiers": [],
       "triggers": [],
-      "engine_gated": true
+      "engine_gated": true,
+      "needs_unity": true
     },
     {
       "id": "unity_build_smoke",
       "label": "独立版构建 + -gf-smoke 冒烟",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "unity_smoke_discrete",
       "label": "独立版 -gf-smoke-discrete 冒烟",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "il2cpp_build",
       "label": "IL2CPP 独立版构建（只在显式 -Il2cpp 时跑）",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "il2cpp_smoke",
       "label": "IL2CPP 独立版 -gf-smoke 冒烟（只在显式 -Il2cpp 时跑）",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "il2cpp_smoke_discrete",
       "label": "IL2CPP 独立版 -gf-smoke-discrete 冒烟（只在显式 -Il2cpp 时跑）",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     },
     {
       "id": "consumer_drill",
       "label": "消费方演练",
       "base_tiers": [],
-      "triggers": []
+      "triggers": [],
+      "needs_unity": true
     }
   ],
   "modules": [

@@ -9,17 +9,23 @@
 
 四级影响集（每个路径单独判级，整体取最高级；路径集合为空时判 T0 并标注 ``empty``）：
 
-- T0 文档：``*.md``（模块 schema 目录里的除外）、``architecture/**``、``docs/**``。
+- T0 文档：``*.md``（模块 schema 目录里的除外）、``architecture/**``、``docs/**``、``timing/**``、``.github/**``。
 - T1 子模块内部：模块目录下除 ``contracts``/``schema``/``generated`` 之外的内容（含该模块的 tests），
   以及层级测试工程目录 ``core/<层>/tests/**``、``presentation/tests/**``，以及共享目录（assembly/common）里
   的 ``tests/`` 子树（只影响所在层的测试工程；``tier_rules.shared_tests_globs`` 清空即退回严格口径）。
 - T2 公开面：模块的 ``contracts/``、``schema/``、``generated/``，以及模块内非测试代码里的
-  ``I*.cs`` / ``*Events.cs`` 公开类型文件。
-- T3 共享面：tier_rules.shared_globs 命中的路径（assembly/common/data/stub/工具链/引擎侧包 Runtime/
-  csproj/sln/门禁脚本/层根文件…），以及**未被任何规则覆盖的路径（保守）**。
+  ``I*.cs`` / ``*Events.cs`` 公开类型文件；层级范围（层内共享面 ``core/*/common|assembly``、
+  ``presentation/common|assembly`` 与层根文件，见 ``path_rules`` 的 ``scope=layer``）；适配层的
+  运行时/编辑器代码与一致性套件（``path_rules``）。
+- T3 共享面：tier_rules.shared_globs 命中的路径（data/stub 生产代码/工具链/csproj/sln/门禁脚本…），以及
+  **未被任何规则覆盖的路径（保守）**。
 
-判级顺序（先到先得，见 module_map.json 注释）：模块公开面 -> 文档 -> 共享面 -> 模块内部 -> 层级测试工程
--> 默认 T3。取舍（ADR-0126）：切片级只跑下游一层，剩余风险由里程碑全量兜底。
+``path_rules``（``module_map.json`` 的 ``tier_rules.path_rules``）把"路径类别 -> 级别 + 额外要跑的测试工程/
+引擎侧分类/步骤"登记成数据：同一路径命中的多条规则取并集、级别取最高；规则可带 ``except`` 排除子集
+（例如 csproj 仍归共享面）。脚本里没有任何路径常量。
+
+判级顺序（先到先得，见 module_map.json 注释）：模块公开面 -> 文档 -> 共享目录内测试 -> 路径规则 -> 共享面
+-> 模块内部 -> 层级测试工程 -> 默认 T3。取舍（ADR-0126）：切片级只跑下游一层，剩余风险由里程碑全量兜底。
 
 返回码：0 成功；2 参数/模块表/git 出错。
 """
@@ -149,6 +155,63 @@ def _find_layer_by_tests_dir(module_map: dict[str, Any], path: str) -> str | Non
 
 
 # ---------------------------------------------------------------------------
+# 路径规则（tier_rules.path_rules）
+# ---------------------------------------------------------------------------
+
+
+def _match_path_rules(rules: dict[str, Any], path: str, module_map: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for r in rules.get("path_rules", []):
+        if not any_match(r.get("globs", []), path) or any_match(r.get("except", []), path):
+            continue
+        if r.get("scope") == "layer" and _find_layer_by_path(module_map, path) is None:
+            continue
+        out.append(r)
+    return out
+
+
+def _merge_rule_effects(matched: list[dict[str, Any]], layer_scope: bool) -> dict[str, Any]:
+    eff: dict[str, Any] = {
+        "rule_ids": [r["id"] for r in matched],
+        "layer_scope": layer_scope,
+        "dotnet_projects": [],
+        "engine_categories": [],
+        "engine_from_file": False,
+        "engine_all": False,
+        "steps": [],
+        "needs_dll_sync": False,
+    }
+    for r in matched:
+        for key in ("dotnet_projects", "engine_categories", "steps"):
+            for v in r.get(key, []):
+                if v not in eff[key]:
+                    eff[key].append(v)
+        eff["engine_from_file"] = eff["engine_from_file"] or bool(r.get("engine_from_file"))
+        eff["engine_all"] = eff["engine_all"] or bool(r.get("engine_all"))
+        eff["needs_dll_sync"] = eff["needs_dll_sync"] or bool(r.get("needs_dll_sync"))
+    return eff
+
+
+_CATEGORY_RE = re.compile(r'\[Category\("([^"]+)"\)\]')
+
+
+def read_file_categories(repo_root: Path, rel_path: str) -> list[str] | None:
+    """引擎侧测试文件里标的 ``[Category("…")]`` 值（去重保序）；文件不存在返回 None。
+
+    ``.meta`` 取它所属的源文件（去掉 ``.meta`` 后缀）。
+    """
+    rel = rel_path[:-5] if rel_path.lower().endswith(".meta") else rel_path
+    f = repo_root / rel
+    if not f.is_file():
+        return None
+    try:
+        text = f.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return None
+    return list(dict.fromkeys(_CATEGORY_RE.findall(text)))
+
+
+# ---------------------------------------------------------------------------
 # 单路径判级
 # ---------------------------------------------------------------------------
 
@@ -164,13 +227,20 @@ def classify_path(path: str, module_map: dict[str, Any], _sorted: list[dict[str,
         rel = p[len(mod["path"]):]
         top = rel.split("/", 1)[0] if "/" in rel else ""
 
-    def result(level: int, rule: str, module: dict[str, Any] | None = mod, layer: str | None = None) -> dict[str, Any]:
+    def result(
+        level: int,
+        rule: str,
+        module: dict[str, Any] | None = mod,
+        layer: str | None = None,
+        effects: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return {
             "path": p,
             "level": level,
             "rule": rule,
             "module": module["name"] if module else None,
             "layer": layer if layer is not None else (module["layer"] if module else None),
+            "effects": effects or {},
         }
 
     # 1. 模块公开面目录
@@ -187,6 +257,19 @@ def classify_path(path: str, module_map: dict[str, Any], _sorted: list[dict[str,
         layer = _find_layer_by_path(module_map, p)
         if layer is not None:
             return result(1, f"共享目录内的测试代码（{hit}）", None, layer)
+    # 3b. 路径规则（tier_rules.path_rules）：多条同时命中取并集、级别取最高；scope=layer 的规则把改动
+    #     记到所在层（层级范围），找不到所在层的该规则不生效（回落到后面的共享面/未知路径 T3）。
+    matched = _match_path_rules(rules, p, module_map)
+    if matched:
+        layer_scope = any(r.get("scope") == "layer" for r in matched)
+        layer = _find_layer_by_path(module_map, p) if layer_scope else None
+        return result(
+            max(int(r["level"]) for r in matched),
+            "路径规则 " + "、".join(r["id"] for r in matched),
+            None,
+            layer,
+            _merge_rule_effects(matched, layer_scope),
+        )
     # 3. 共享面
     hit = any_match(rules.get("shared_globs", []), p)
     if hit:
@@ -251,8 +334,14 @@ def plan_from_paths(
     module_map: dict[str, Any],
     manual_modules: Iterable[str] = (),
     source: str = "",
+    repo_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """纯函数：改动路径集合 -> 判定结果（可 JSON 序列化的 dict）。"""
+    """改动路径集合 -> 判定结果（可 JSON 序列化的 dict）。
+
+    唯一的非纯部分：路径规则标 ``engine_from_file`` 的引擎侧测试文件要读 ``repo_root`` 下该文件里的
+    ``[Category]`` 标注（默认脚本所在仓库）。
+    """
+    repo_root = Path(repo_root) if repo_root is not None else TOOLCHAIN_DIR.parent
     modules_sorted = _modules_by_prefix(module_map)
     by_name = {m["name"]: m for m in module_map["modules"]}
     layers_order = list(module_map["layers"].keys())
@@ -295,13 +384,17 @@ def plan_from_paths(
     layer_hits: set[str] = set()
     public_layers: set[str] = set()
     public_modules: set[str] = set()
+    scope_layers: set[str] = set()  # path_rules scope=layer 命中的层（层级范围）
     for c in classified:
+        eff = c.get("effects") or {}
         if c["level"] in (1, 2) and c["layer"]:
             layer_hits.add(c["layer"])
         if c["level"] == 2 and c["layer"]:
             public_layers.add(c["layer"])
             if c["module"]:
                 public_modules.add(c["module"])
+        if eff.get("layer_scope") and c["layer"]:
+            scope_layers.add(c["layer"])
         if c["module"] and c["level"] >= 1:
             entry = hit_modules.setdefault(c["module"], {"name": c["module"], "layer": c["layer"], "max_level": 0, "files": 0})
             entry["max_level"] = max(entry["max_level"], c["level"])
@@ -310,64 +403,121 @@ def plan_from_paths(
     for e in modules_out:
         e["max_level"] = LEVEL_NAMES[e["max_level"]]
 
-    # 测试工程
+    # 测试工程：命中层（T2/层级范围另加下游一层）的测试工程 + 路径规则登记的显式测试工程
     test_layers: list[str] = []
+    dotnet_projects: list[str] = []
     if 1 <= level <= 2:
         want = set(layer_hits)
         for pl in public_layers:
             want.update(module_map["layers"][pl].get("downstream", []))
         test_layers = [l for l in layers_order if l in want]
-    dotnet_projects = [module_map["layers"][l]["test_project"] for l in test_layers]
+        dotnet_projects = [module_map["layers"][l]["test_project"] for l in test_layers]
+        for c in classified:
+            for proj in (c.get("effects") or {}).get("dotnet_projects", []):
+                if proj not in dotnet_projects:
+                    dotnet_projects.append(proj)
     dotnet_mode = "solution" if level == 3 else ("projects" if dotnet_projects else "none")
 
     # 交互例外
     all_paths = [c["path"] for c in classified if not c.get("manual")]
     exceptions = _exception_hits(module_map, all_paths)
 
+    notes: list[str] = []
+
     # 引擎侧待跑分类
     engine_cfg = module_map.get("engine", {})
     shared_cat = engine_cfg.get("shared_category", "module:shared")
+    cat_prefix = engine_cfg.get("category_prefix", "module:")
     categories: list[str] = []
     classes: list[str] = []
+    rule_categories: list[str] = []
+    rule_engine_all = False
+    rule_dll_sync = False
+    for c in classified:
+        eff = c.get("effects") or {}
+        rule_categories.extend(eff.get("engine_categories", []))
+        rule_engine_all = rule_engine_all or bool(eff.get("engine_all"))
+        rule_dll_sync = rule_dll_sync or bool(eff.get("needs_dll_sync"))
+        if eff.get("engine_from_file") and level < 3:
+            # 引擎侧测试文件：只跑该文件自己标的分类；文件里没有任何模块分类（辅助类/asmdef 等，被哪些
+            # 用例用到看不出来）就保守跑全部 PlayMode；文件已不存在（提交里删除）不贡献分类。
+            found = read_file_categories(repo_root, c["path"])
+            if found is None:
+                notes.append(f"{c['path']} 在工作树里不存在（已删除？），不贡献引擎侧分类")
+                continue
+            usable = [x for x in found if x.startswith(cat_prefix) or x.startswith("interaction:")]
+            if usable:
+                rule_categories.extend(usable)
+            else:
+                rule_engine_all = True
+                notes.append(f"{c['path']} 里没有模块分类标注（辅助文件/程序集定义），引擎侧保守跑全部 PlayMode")
+    engine_dll_sync = rule_dll_sync
     if level == 3:
         engine_mode = "all"
     elif level == 0:
         engine_mode = "none"
     else:
         engine_mode = "filtered"
-        if level == 2:
+        if public_modules or scope_layers:
             for name in sorted(public_modules):
-                cat = by_name[name].get("engine_category") or f"{engine_cfg.get('category_prefix', 'module:')}{name}"
+                cat = by_name[name].get("engine_category") or f"{cat_prefix}{name}"
                 categories.append(cat)
+            for m in module_map["modules"]:
+                if m["layer"] in scope_layers:
+                    categories.append(m.get("engine_category") or f"{cat_prefix}{m['name']}")
             categories.append(shared_cat)
+            engine_dll_sync = True
+        categories.extend(rule_categories)
         for ex in exceptions:
             if ex.get("engine_category"):
                 categories.append(ex["engine_category"])
+                engine_dll_sync = True
             if ex.get("engine_class"):
                 classes.append(ex["engine_class"])
         categories = list(dict.fromkeys(categories))
         classes = list(dict.fromkeys(classes))
-        if not categories and not classes:
+        if rule_engine_all:
+            engine_mode = "all"
+            categories = []
+        elif not categories and not classes:
             engine_mode = "none"
-    playmode_filter = ";".join(categories)
+    playmode_filter = ";".join(categories) if engine_mode == "filtered" else ""
 
     # 步骤选择
     steps_run: list[dict[str, str]] = []
     steps_skip: list[dict[str, str]] = []
     chosen: dict[str, str] = {}
-    engine_pending = engine_mode in ("filtered",) and bool(categories)
+    engine_pending = (engine_mode == "filtered" and bool(categories)) or (engine_mode == "all" and level < 3)
+    rule_steps: dict[str, str] = {}
+    for c in classified:
+        eff = c.get("effects") or {}
+        for sid in eff.get("steps", []):
+            rule_steps.setdefault(sid, f"路径规则 {eff['rule_ids'][0]}（{c['path']}）")
+
+    def needs_met(step: dict[str, Any]) -> bool:
+        # 步骤字段 needs：基础步骤只在确有对象时才跑（没有测试工程就不编译不跑 dotnet test；没有层级公开面就不跑 ABI 探针）
+        need = step.get("needs")
+        if need == "dotnet_projects":
+            return bool(dotnet_projects)
+        if need == "public_layers":
+            return bool(public_layers)
+        return True
+
     for step in module_map["steps"]:
         sid = step["id"]
         if level == 3:
             chosen[sid] = "T3 共享面/未知路径，全量"
             continue
-        if level_name in step.get("base_tiers", []):
+        if level_name in step.get("base_tiers", []) and needs_met(step):
             chosen[sid] = f"{level_name} 基础步骤"
             continue
         # 步骤可登记 min_level：改动级别低于它时，触发路径不生效（例：数值仿真基线比对只在 T2 及以上
         # 触发，复盘拍板 2026-10-01——T1 只动模块内部，基线十几秒与其收益不成比例，T2 改契约才值得跑）。
         # always_triggers 不受 min_level 限制：它们是该步骤自己的输入/基线文件（改了必须比对，否则漏检）。
         if level >= 1:
+            if sid in rule_steps:
+                chosen[sid] = rule_steps[sid]
+                continue
             hit = None
             if level >= int(step.get("min_level", 1)):
                 hit = _trigger_hit(step, classified)
@@ -377,7 +527,10 @@ def plan_from_paths(
                 chosen[sid] = f"触发路径 {hit}"
                 continue
             if step.get("engine_gated") and engine_pending:
-                chosen[sid] = "引擎侧有待跑分类，需先同步 DLL/再跑 PlayMode"
+                chosen[sid] = "引擎侧有待跑分类，需再跑 PlayMode"
+                continue
+            if step.get("dll_sync_gated") and engine_dll_sync and engine_pending:
+                chosen[sid] = "引擎侧有待跑分类且改动涉及核心/适配代码，需先同步 DLL"
                 continue
     # 依赖拉入
     changed = True
@@ -389,20 +542,26 @@ def plan_from_paths(
                     if dep not in chosen:
                         chosen[dep] = f"被 {step['id']} 依赖"
                         changed = True
+    needs_unity_ids = {st["id"] for st in module_map["steps"] if st.get("needs_unity")}
     for step in module_map["steps"]:
         sid = step["id"]
         if sid in chosen:
             steps_run.append({"id": sid, "label": step.get("label", sid), "reason": chosen[sid]})
         else:
             steps_skip.append({"id": sid, "label": step.get("label", sid), "reason": f"{level_name} 未触发"})
+    unity_steps = [st["id"] for st in steps_run if st["id"] in needs_unity_ids]
+    rule_ids_hit: list[str] = []
+    for c in classified:
+        for rid in (c.get("effects") or {}).get("rule_ids", []):
+            if rid not in rule_ids_hit:
+                rule_ids_hit.append(rid)
 
-    notes: list[str] = []
     if empty:
         notes.append("没有任何改动路径，按 T0 处理（只跑文档相关基础步骤）")
     unknown = [c["path"] for c in classified if c["rule"].startswith("未被任何规则覆盖")]
     if unknown:
         notes.append(f"{len(unknown)} 个路径未被任何规则覆盖，已保守判 T3")
-    if level == 2:
+    if level == 2 and public_layers:
         notes.append("T2 只跑下游一层的测试工程，更远的下游由里程碑全量兜底（ADR-0126 取舍）")
 
     return {
@@ -420,7 +579,10 @@ def plan_from_paths(
             "categories": categories,
             "classes": classes,
             "playmode_filter": playmode_filter,
+            "dll_sync": bool(engine_dll_sync and engine_pending),
+            "steps": unity_steps,
         },
+        "rules": rule_ids_hit,
         "exceptions": exceptions,
         "steps": {"run": steps_run, "skip": steps_skip},
         "reasons": [
@@ -465,7 +627,8 @@ def render_text(plan: dict[str, Any]) -> str:
         lines.append(f"将跳过的步骤（{len(skip)}，{plan['level']} 未触发）：" + "、".join(s["id"] for s in skip))
     eng = plan["engine"]
     if eng["mode"] == "all":
-        lines.append("引擎侧 PlayMode：T3 全量（不过滤；在主检出或路径足够短的工作树里由有引擎权限的任务执行；深层 scratchpad 工作树交主会话）")
+        why = "T3 全量" if plan["level"] == "T3" else f"{plan['level']} 路径规则要求跑全部 PlayMode"
+        lines.append(f"引擎侧 PlayMode：{why}（不过滤；在主检出或路径足够短的工作树里由有引擎权限的任务执行；深层 scratchpad 工作树交主会话）")
     elif eng["mode"] == "filtered":
         lines.append("引擎侧待跑 PlayMode（在主检出或路径足够短的工作树里由有引擎权限的任务执行；深层 scratchpad 工作树交主会话）：")
         lines.append(f"  分类过滤串：{eng['playmode_filter'] or '（无）'}")
@@ -473,6 +636,11 @@ def render_text(plan: dict[str, Any]) -> str:
             lines.append(f"  交互例外 {ex['id']}（模块 {ex['module']}）：{ex['engine_class']} / {ex['engine_category']}")
     else:
         lines.append("引擎侧 PlayMode：不需要")
+    if plan["level"] != "T3" and eng.get("steps"):
+        sync = "（先同步 DLL）" if eng.get("dll_sync") else ""
+        lines.append("引擎侧待跑步骤（需 Unity，-SkipUnity 下会跳过，交主检出/短路径工作树执行）：" + "、".join(eng["steps"]) + sync)
+    if plan.get("rules"):
+        lines.append("命中路径规则：" + "、".join(plan["rules"]))
     for n in plan["notes"]:
         lines.append(f"注：{n}")
     lines.append("判定理由（逐文件）：")
@@ -573,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
         manual = [m for m in args.modules.split(",") if m.strip()]
         if manual and not source:
             source = "手动指定模块"
-        plan = plan_from_paths(paths, module_map, manual, source)
+        plan = plan_from_paths(paths, module_map, manual, source, repo_root)
     except ImpactError as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2

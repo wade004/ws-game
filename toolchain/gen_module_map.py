@@ -20,6 +20,11 @@
 目录扫描优先走 ``git ls-files --cached --others --exclude-standard``（只看受版本管理或未被忽略的文件，
 构建产物目录天然排除；新建但尚未 ``git add`` 的目录也能被发现），不在 git 仓库里时退回目录遍历。
 
+``--check`` 还覆盖 ``tier_rules.path_rules``（适配层/层内共享面/资产/模板/钩子等路径类别，ADR-0126）：规则
+自身合法（id 唯一、级别、引用的测试工程/步骤/引擎分类存在）；在 git 仓库里时，每条规则至少匹配一个受版本
+管理的文件（防幽灵规则），``tier_rules.coverage_roots`` 下的文件不得落到『未被任何规则覆盖』
+（``coverage_allow_unknown_globs`` 登记的少数文件除外）——新增这些根目录下的子目录而忘了登记规则即红。
+
 返回码：0 通过/写入完成；1 ``--check`` 发现问题；2 参数或表文件本身有误。
 """
 
@@ -37,6 +42,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _console import ensure_utf8_stdio  # noqa: E402
+import change_impact as _ci  # noqa: E402
 
 TOOLCHAIN_DIR = Path(__file__).resolve().parent
 DEFAULT_MAP = TOOLCHAIN_DIR / "module_map.json"
@@ -234,6 +240,68 @@ def check_map(repo_root: Path, data: dict[str, Any]) -> list[str]:
             for wp in when:
                 if not _has_wildcard(wp) and not (repo_root / wp).exists():
                     problems.append(f"模块 {name} 的交互例外 {exc.get('id')!r} 引用的文件不存在：{wp}")
+    problems.extend(check_path_rules(repo_root, data))
+    return problems
+
+
+def check_path_rules(repo_root: Path, data: dict[str, Any]) -> list[str]:
+    """tier_rules.path_rules 与 coverage_roots 的只读自检，返回问题清单。"""
+    problems: list[str] = []
+    tr = data["tier_rules"]
+    rules = tr.get("path_rules", [])
+    step_ids = {s.get("id") for s in data["steps"]}
+    engine_cfg = data.get("engine", {})
+    known_cats = {m.get("engine_category") for m in data["modules"]}
+    known_cats.add(engine_cfg.get("shared_category", "module:shared"))
+    for m in data["modules"]:
+        for exc in m.get("interaction_exceptions", []):
+            cat = exc.get("also_run", {}).get("engine_category")
+            if cat:
+                known_cats.add(cat)
+
+    ids = [r.get("id") for r in rules]
+    for dup in sorted({i for i in ids if ids.count(i) > 1}):
+        problems.append(f"路径规则 id 重复：{dup!r}")
+    for r in rules:
+        rid = r.get("id", "?")
+        if not r.get("id") or not r.get("globs"):
+            problems.append(f"路径规则 {rid!r} 缺 id 或 globs")
+        if r.get("level") not in (1, 2):
+            problems.append(f"路径规则 {rid!r} 的 level 只能是 1 或 2（T0 走 doc_globs、T3 走 shared_globs），实际 {r.get('level')!r}")
+        if r.get("scope") not in (None, "layer"):
+            problems.append(f"路径规则 {rid!r} 的 scope 只能省略或为 'layer'，实际 {r.get('scope')!r}")
+        for proj in r.get("dotnet_projects", []):
+            if not (repo_root / proj).is_file():
+                problems.append(f"路径规则 {rid!r} 引用的测试工程不存在：{proj}")
+        for sid in r.get("steps", []):
+            if sid not in step_ids:
+                problems.append(f"路径规则 {rid!r} 引用了未登记的步骤 id：{sid!r}")
+        for cat in r.get("engine_categories", []):
+            if cat not in known_cats:
+                problems.append(f"路径规则 {rid!r} 引用了未登记的引擎侧分类：{cat!r}")
+
+    if not (repo_root / ".git").exists():
+        return problems  # 无 git 视图（单元测试里的伪仓库）：不做文件级检查
+
+    files = list_repo_files(repo_root, ["."])
+    for r in rules:
+        matched = [f for f in files if _ci.any_match(r.get("globs", []), f) and not _ci.any_match(r.get("except", []), f)]
+        if not matched:
+            problems.append(f"路径规则 {r.get('id')!r} 没有匹配任何受版本管理的文件（幽灵规则，路径改名/删除后请同步）")
+    roots = tr.get("coverage_roots", [])
+    allow = tr.get("coverage_allow_unknown_globs", [])
+    uncovered: list[str] = []
+    for f in files:
+        if not any(f.startswith(root) for root in roots):
+            continue
+        if _ci.any_match(allow, f):
+            continue
+        if _ci.classify_path(f, data)["rule"].startswith("未被任何规则覆盖"):
+            uncovered.append(f)
+    for f in uncovered[:20]:
+        problems.append(f"路径未被任何规则覆盖（默认 T3）：{f}（在 tier_rules.path_rules 补规则，或确需 T3 时登记 coverage_allow_unknown_globs）")
+    if len(uncovered) > 20:
+        problems.append(f"……另有 {len(uncovered) - 20} 个未覆盖路径")
     return problems
 
 

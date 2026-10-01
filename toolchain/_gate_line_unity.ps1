@@ -175,6 +175,8 @@ try {
         Add-SkippedStep "Unity EditMode 测试" "-SkipUnity"
         if ($playModeCategoryFilter -ne "") {
             Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑，由主会话执行：-testCategory '$playModeCategoryFilter'）"
+        } elseif ($script:GatePlan -and [string]$script:GatePlan.engine.mode -eq "all" -and [string]$script:GatePlan.level -ne "T3") {
+            Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity（引擎侧待跑全部 PlayMode，由主会话执行：路径规则要求不过滤）"
         } else {
             Add-SkippedStep "Unity PlayMode 测试" "-SkipUnity"
         }

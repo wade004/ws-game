@@ -215,21 +215,25 @@ def test_repro_generated_dir_is_public_surface(mmap: dict) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "core/gameplay/assembly/GameplayAssembly.cs",
-        "core/foundation/common/contracts/Id.cs",
-        "presentation/common/core/ResourceReferenceTracker.cs",
-        "presentation/assembly/PresentationAssembly.cs",
         "data/_framework/found/found.event_catalog.json",
         "Directory.Build.props",
         "adapters/stub/StubNavigation2D.cs",
+        "adapters/stub/LayerMarker.cs",
         "check.ps1",
         "build.ps1",
         "toolchain/change_impact.py",
-        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityNavigation2D.cs",
+        "toolchain/tests/test_change_impact.py",
         ".gitattributes",
         "Core.sln",
         "core/foundation/Core.Foundation.csproj",
-        "core/numbers/NumericGuard.cs",  # 层根文件：共享面
+        "core/numbers/Core.Numbers.csproj",  # 层根 csproj：层级规则的 except 守住，仍归共享面
+        "presentation/Presentation.Common.csproj",
+        "core/foundation/tests/Tests.Foundation.csproj",
+        "adapters/unity/DiagnosticsForwarding/Adapters.Unity.DiagnosticsForwarding.csproj",
+        "adapters/unity/Assets/Editor/GreyBoxSceneBuilder.cs",  # 未登记的引擎侧工作台工程内容：保守 T3
+        "adapters/unity/Packages/packages-lock.json",
+        "VERSION",
+        "totally/unknown/file.bin",
     ],
 )
 def test_repro_shared_surface_is_t3_and_runs_everything(mmap: dict, path: str) -> None:
@@ -247,8 +251,8 @@ def test_repro_tests_inside_shared_dirs_are_layer_t1(mmap: dict) -> None:
     assert plan["level"] == "T1"
     assert plan["modules"] == []
     assert plan["dotnet_test"]["layers"] == ["gameplay", "presentation"]
-    # 共享目录里的生产代码仍是 T3
-    assert _plan(mmap, "core/gameplay/assembly/tests/X.cs", "core/gameplay/assembly/Y.cs")["level"] == "T3"
+    # 共享目录里的生产代码是层级范围（T2），不再是 T3；测试与生产代码同改时取最高级 T2
+    assert _plan(mmap, "core/gameplay/assembly/tests/X.cs", "core/gameplay/assembly/Y.cs")["level"] == "T2"
 
 
 def test_repro_sim_tests_data_is_t1_but_triggers_sim_data_validation_and_baseline(mmap: dict) -> None:
@@ -282,6 +286,181 @@ def test_repro_empty_change_is_t0_with_note(mmap: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 复现用例：路径规则（层级范围、适配层、模板、资产、钩子……，ADR-0126 层级范围与适配层判级）
+# ---------------------------------------------------------------------------
+
+PKG = "adapters/unity/Packages/com.gamefoundation.adapter.unity"
+TESTS_FOUNDATION = "core/foundation/tests/Tests.Foundation.csproj"
+TESTS_DIAG = "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj"
+
+
+def _filter_set(plan: dict) -> set[str]:
+    return set(filter(None, plan["engine"]["playmode_filter"].split(";")))
+
+
+def test_repro_layer_root_file_is_layer_level_t2(mmap: dict) -> None:
+    # 复现：此前 core/numbers/NumericGuard.cs（层根文件）被判 T3 全量。层级范围：本层测试工程 + 下游一层 +
+    # ABI 探针 + 本层所有模块的引擎侧分类，仍记 T2。
+    plan = _plan(mmap, "core/numbers/NumericGuard.cs")
+    assert plan["level"] == "T2"
+    assert plan["dotnet_test"] == {
+        "mode": "projects",
+        "projects": ["core/numbers/tests/Tests.Numbers.csproj", "core/rules/tests/Tests.Rules.csproj"],
+        "layers": ["numbers", "rules"],
+    }
+    assert {"dotnet_build", "dotnet_test", "abi_probe", "sim_baseline", "sync_dll", "unity_playmode"} <= _run_ids(plan)
+    numbers_modules = {m["engine_category"] for m in mmap["modules"] if m["layer"] == "numbers"}
+    assert numbers_modules and _filter_set(plan) == numbers_modules | {"module:shared"}
+    assert plan["engine"]["mode"] == "filtered"
+    assert "toolchain_pytest" in _skip_ids(plan)
+
+
+@pytest.mark.parametrize(
+    "path,layers",
+    [
+        ("core/gameplay/assembly/GameplayAssembly.cs", ["gameplay", "sim", "presentation"]),
+        ("core/foundation/common/contracts/Id.cs", ["foundation", "numbers"]),
+        ("core/rules/assembly/RulesAssembly.cs", ["rules", "carriers"]),
+        ("core/foundation/LayerMarker.cs", ["foundation", "numbers"]),
+        ("presentation/common/core/ResourceReferenceTracker.cs", ["presentation"]),
+        ("presentation/assembly/PresentationAssembly.cs", ["presentation"]),
+        ("presentation/LayerMarker.cs", ["presentation"]),
+    ],
+)
+def test_repro_layer_shared_surface_runs_own_layer_plus_one_downstream(mmap: dict, path: str, layers: list[str]) -> None:
+    plan = _plan(mmap, path)
+    assert plan["level"] == "T2", path
+    assert plan["dotnet_test"]["layers"] == layers, path
+    assert "abi_probe" in _run_ids(plan)
+    assert plan["engine"]["mode"] == "filtered" and "module:shared" in _filter_set(plan)
+
+
+def test_repro_stub_tests_are_t1_foundation_tests_but_stub_code_stays_t3(mmap: dict) -> None:
+    plan = _plan(mmap, "adapters/stub/tests/StubAudioTests.cs")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"]["projects"] == [TESTS_FOUNDATION]  # 只被 Tests.Foundation 编译
+    assert plan["engine"]["mode"] == "none"
+    # 被所有测试工程引用的桩生产代码仍是共享面
+    assert _plan(mmap, "adapters/stub/StubAudio.cs")["level"] == "T3"
+
+
+def test_repro_conformance_is_t2_with_foundation_tests_and_engine_adapter_category(mmap: dict) -> None:
+    plan = _plan(mmap, "adapters/conformance/Runtime/AudioScenarios.cs")
+    assert plan["level"] == "T2"
+    assert plan["dotnet_test"]["projects"] == [TESTS_FOUNDATION]
+    assert plan["engine"]["playmode_filter"] == "module:engine_adapter"
+    assert {"unity_compile", "unity_editmode", "unity_playmode", "sync_dll", "unity_meta"} <= _run_ids(plan)
+    # 不是层级公开面：没有下游一层、没有 ABI 探针、不跑消费方演练（一致性套件不进 dist 分发包）
+    assert {"abi_probe", "consumer_drill", "sim_baseline"} <= _skip_ids(plan)
+
+
+def test_repro_engine_runtime_test_runs_only_its_own_category_without_dotnet(mmap: dict) -> None:
+    plan = _plan(mmap, f"{PKG}/Tests/Runtime/UiSuiteTests.cs")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"] == {"mode": "none", "projects": [], "layers": []}
+    assert plan["engine"]["mode"] == "filtered"
+    assert plan["engine"]["playmode_filter"] == "module:ui"
+    run = _run_ids(plan)
+    assert "unity_playmode" in run
+    # 没有 dotnet 步骤，也不同步 DLL、不做 Unity 编译/EditMode/演练
+    assert not ({"dotnet_build", "dotnet_test", "abi_probe", "sim_baseline", "sync_dll", "unity_compile", "unity_editmode", "consumer_drill"} & run)
+    assert plan["engine"]["dll_sync"] is False
+
+
+def test_repro_engine_runtime_test_with_two_categories_and_meta_and_helper(mmap: dict) -> None:
+    both = _plan(mmap, f"{PKG}/Tests/Runtime/MovementStopAndBlockingPlayModeTests.cs")
+    assert _filter_set(both) == {"interaction:movement_stop_blocking", "module:unit"}
+    # .meta 取所属源文件的分类
+    assert _plan(mmap, f"{PKG}/Tests/Runtime/UiSuiteTests.cs.meta")["engine"]["playmode_filter"] == "module:ui"
+    # 辅助类（没有任何分类标注）看不出被哪些用例用，保守跑全部 PlayMode，但仍无 dotnet
+    helper = _plan(mmap, f"{PKG}/Tests/Runtime/CombatStanceAnimFixture.cs")
+    assert helper["level"] == "T1" and helper["engine"]["mode"] == "all" and helper["engine"]["playmode_filter"] == ""
+    assert helper["dotnet_test"]["mode"] == "none"
+    # 文件已删除（回放旧提交/删除测试）：不贡献分类，不凭空要求全量
+    gone = _plan(mmap, f"{PKG}/Tests/Runtime/NoSuchTests.cs")
+    assert gone["engine"]["mode"] == "none" and any("不存在" in n for n in gone["notes"])
+
+
+def test_repro_engine_editmode_test_runs_editmode_only(mmap: dict) -> None:
+    plan = _plan(mmap, f"{PKG}/Tests/Editor/UnityClockTests.cs")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"]["mode"] == "none"
+    assert plan["engine"]["mode"] == "none"
+    assert "unity_editmode" in _run_ids(plan)
+    assert not ({"unity_playmode", "sync_dll", "dotnet_build", "consumer_drill"} & _run_ids(plan))
+
+
+def test_repro_engine_runtime_code_is_t2_with_compile_category_drill_and_sync(mmap: dict) -> None:
+    ui = _plan(mmap, f"{PKG}/Runtime/Ui/UiRoot.cs")
+    assert ui["level"] == "T2"
+    assert _filter_set(ui) == {"module:ui", "module:shell", "module:shared"}
+    assert {"unity_compile", "unity_playmode", "consumer_drill", "sync_dll", "pkg_manifest", "unity_meta"} <= _run_ids(ui)
+    assert ui["dotnet_test"]["mode"] == "none" and "abi_probe" in _skip_ids(ui)
+    # 目录面太宽的运行时代码：全部 PlayMode
+    wide = _plan(mmap, f"{PKG}/Runtime/EngineAdapter/UnityNavigation2D.cs")
+    assert wide["level"] == "T2" and wide["engine"]["mode"] == "all"
+    assert {"unity_compile", "unity_playmode", "consumer_drill", "sync_dll"} <= _run_ids(wide)
+    # 被转发测试工程按引用编译的运行时源文件：另跑该 dotnet 测试工程
+    fwd = _plan(mmap, f"{PKG}/Runtime/Diagnostics/DiagnosticsHub.cs")
+    assert fwd["dotnet_test"]["projects"] == [TESTS_DIAG]
+    assert {"dotnet_build", "dotnet_test"} <= _run_ids(fwd)
+    assert _filter_set(fwd) == {"module:shared"}
+    # 编辑器代码：EditMode + 编译
+    ed = _plan(mmap, f"{PKG}/Editor/EditorSetupTypes.cs")
+    assert ed["level"] == "T2" and {"unity_compile", "unity_editmode", "consumer_drill"} <= _run_ids(ed)
+
+
+def test_repro_diag_forwarding_project_tests_are_t1_but_csproj_is_shared(mmap: dict) -> None:
+    plan = _plan(mmap, "adapters/unity/DiagnosticsForwarding/tests/DiagnosticsHubTests.cs")
+    assert plan["level"] == "T1" and plan["dotnet_test"]["projects"] == [TESTS_DIAG]
+    assert _plan(mmap, "adapters/unity/DiagnosticsForwarding/tests/Tests.Adapters.Unity.DiagnosticsForwarding.csproj")["level"] == "T3"
+
+
+def test_repro_game_template_is_t1_with_template_validation_and_drill(mmap: dict) -> None:
+    plan = _plan(mmap, "games/_template/data/game/rules/example.json")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"]["mode"] == "none" and plan["engine"]["mode"] == "none"
+    run = _run_ids(plan)
+    assert {"validate_template_data", "consumer_drill", "unity_meta", "pkg_manifest"} <= run
+    assert not ({"dotnet_build", "dotnet_test", "validate_merged", "toolchain_pytest", "sync_dll"} & run)
+
+
+def test_repro_assets_is_t1_with_placeholder_and_sample_import_checks(mmap: dict) -> None:
+    plan = _plan(mmap, "assets/_sample/icons/a.png")
+    assert plan["level"] == "T1"
+    run = _run_ids(plan)
+    assert {"placeholder_assets", "sample_import_idem", "import_assets_check"} <= run
+    assert not ({"dotnet_build", "dotnet_test", "unity_meta", "toolchain_pytest"} & run)
+
+
+def test_repro_github_workflows_are_t0_hooks_and_gitignore_are_t1_hooks_pytest(mmap: dict) -> None:
+    gh = _plan(mmap, ".github/workflows/ci.yml")
+    assert gh["level"] == "T0"
+    assert _run_ids(gh) == {"self_check", "ban_codename", "ban_arch_terms", "version_consistency", "docs_pytest"}
+    for path in (".githooks/pre-commit", ".gitignore"):
+        plan = _plan(mmap, path)
+        assert plan["level"] == "T1", path
+        run = _run_ids(plan)
+        assert {"self_check", "hooks_pytest"} <= run, path
+        assert not ({"dotnet_build", "dotnet_test", "toolchain_pytest", "unity_playmode", "sync_dll"} & run), path
+        assert plan["dotnet_test"]["mode"] == "none" and plan["engine"]["mode"] == "none"
+
+
+def test_repro_shared_perf_calibration_file_also_runs_tests_sim(mmap: dict) -> None:
+    # 复现（用「所列测试工程含自己所在测试工程」不变量扫仓库时发现）：Tests.Sim.csproj 用 Link 直接编译
+    # core/gameplay/tests/Perf/PerfMachineCalibration.cs，该文件在 gameplay 测试工程目录里，只判 Tests.Gameplay 会漏跑 Tests.Sim。
+    plan = _plan(mmap, "core/gameplay/tests/Perf/PerfMachineCalibration.cs")
+    assert plan["level"] == "T1"
+    assert plan["dotnet_test"]["projects"] == ["core/gameplay/tests/Tests.Gameplay.csproj", "core/sim/tests/Tests.Sim.csproj"]
+
+
+def test_repro_rule_driven_t2_does_not_add_module_shared_unless_layer_or_module_scope(mmap: dict) -> None:
+    # 层级/模块公开面 T2 才附带 module:shared（归属不明的用例）；适配层规则只带自己登记的分类。
+    assert "module:shared" in _filter_set(_plan(mmap, "core/foundation/event_bus/contracts/IEventBus.cs"))
+    assert _filter_set(_plan(mmap, "adapters/conformance/Runtime/AudioScenarios.cs")) == {"module:engine_adapter"}
+
+
+# ---------------------------------------------------------------------------
 # 不变量
 # ---------------------------------------------------------------------------
 
@@ -302,6 +481,16 @@ def _path_pool(mmap: dict) -> list[str]:
         "data/_framework/x.json", "toolchain/x.py", "check.ps1", "adapters/stub/S.cs",
         "adapters/unity/Packages/p/Runtime/R.cs", "adapters/unity/Packages/p/Tests/Runtime/T.cs",
         "totally/unknown/file.bin", ".github/workflows/x.yml", "games/_template/x.cs", "assets/a.png",
+        "core/numbers/NumericGuard.cs", "core/foundation/LayerMarker.cs", "presentation/common/core/B.cs",
+        "adapters/conformance/Runtime/AudioScenarios.cs", "adapters/stub/tests/StubAudioTests.cs", "adapters/stub/StubAudio.cs",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/UiSuiteTests.cs",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Runtime/CombatStanceAnimFixture.cs",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Tests/Editor/UnityClockTests.cs",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/Ui/UiRoot.cs",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Runtime/EngineAdapter/UnityNavigation2D.cs",
+        "adapters/unity/Packages/com.gamefoundation.adapter.unity/Editor/EditorSetupTypes.cs",
+        "adapters/unity/DiagnosticsForwarding/tests/DiagnosticsHubTests.cs",
+        ".githooks/pre-commit", ".gitignore",
     ]
     for m in mmap["modules"]:
         pool.append(f"{m['path']}core/X.cs")
@@ -326,7 +515,10 @@ def test_invariant_level_is_monotonic_under_adding_paths(mmap: dict) -> None:
 
 def test_invariant_unknown_path_is_always_t3(mmap: dict) -> None:
     rng = random.Random(7)
-    unknown_dirs = ["zzz", "weird/place", "core", "presentation", "adapters/unity/Assets", "games", ".config"]
+    # presentation/<随便>/ 与 core/<随便>/<随便>/ 是"还没登记成子模块的新目录"，同样必须是 T3（层根单文件 presentation/x.cs、
+    # core/<层>/x.cs 则是层级范围的 T2，不在这里）
+    unknown_dirs = ["zzz", "weird/place", "core", "presentation/zzz_unregistered", "core/zzz_layer/zzz_unregistered", "adapters/unity/Assets",
+                    "adapters/unity/ProjectSettings", "adapters/headless", "games", ".config"]
     for _ in range(100):
         p = f"{rng.choice(unknown_dirs)}/{rng.choice('abcdef')}{rng.randint(0, 99)}.{rng.choice(['cs', 'json', 'bin', 'txt', 'png'])}"
         # core/<随机>/ 若恰好撞上已登记模块目录会被判为模块内部，这里只取确定不属于任何模块的路径
@@ -396,6 +588,11 @@ def _make_fake_repo(tmp_path: Path, mmap: dict) -> Path:
         tp = repo / layer["test_project"]
         tp.parent.mkdir(parents=True, exist_ok=True)
         tp.write_text("<Project/>", encoding="utf-8")
+    for rule in mmap["tier_rules"].get("path_rules", []):
+        for proj in rule.get("dotnet_projects", []):
+            f = repo / proj
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("<Project/>", encoding="utf-8")
     for m in mmap["modules"]:
         d = repo / m["path"] / "core"
         d.mkdir(parents=True, exist_ok=True)
@@ -554,3 +751,168 @@ def test_check_dryrun_prints_playmode_category_filter(tmp_path: Path, mmap: dict
     assert "-DryRun" in out
     # DryRun 不执行任何步骤：没有步骤日志
     assert not (repo / "bin/_check_artifacts/check_targeted.log").exists()
+
+
+# ---------------------------------------------------------------------------
+# 不变量：路径规则登记的测试工程与 csproj 的真实引用关系一致（防漏跑自己）
+# ---------------------------------------------------------------------------
+
+
+def _tracked(*patterns: str) -> list[str]:
+    r = subprocess.run(["git", "ls-files", "-z", "--", *patterns], cwd=str(REPO_ROOT), capture_output=True, check=True)
+    return [p for p in r.stdout.decode("utf-8", errors="replace").split("\0") if p]
+
+
+def _csproj_compile_facts(csproj_rel: str) -> dict:
+    """解析一个 csproj：自己所在目录、Compile Include/Remove（换算成仓库相对 glob）、ProjectReference（仓库相对路径）。"""
+    import posixpath
+    import xml.etree.ElementTree as ET
+
+    base = posixpath.dirname(csproj_rel)
+    root = ET.fromstring((REPO_ROOT / csproj_rel).read_text(encoding="utf-8-sig"))
+
+    def rel(item: str) -> str:
+        return posixpath.normpath(posixpath.join(base, item.replace("\\", "/")))
+
+    return {
+        "dir": base,
+        "include": [rel(e.attrib["Include"]) for e in root.iter("Compile") if "Include" in e.attrib],
+        "remove": [rel(e.attrib["Remove"]) for e in root.iter("Compile") if "Remove" in e.attrib],
+        "refs": [rel(e.attrib["Include"]) for e in root.iter("ProjectReference")],
+    }
+
+
+def _test_projects_compiling(cs_file: str, facts: dict[str, dict]) -> set[str]:
+    """哪些测试工程（Tests.*.csproj）会把这个 .cs 编进自己：直接编译（默认 glob/显式 Include），或经 ProjectReference
+    引用了一个用显式 Include 把该文件按引用拉进来的非测试工程（诊断转发工程的做法）。"""
+    def compiles(proj: str) -> bool:
+        f = facts[proj]
+        explicit = any(ci.glob_match(g, cs_file) for g in f["include"])
+        if explicit:
+            return True
+        default = cs_file.startswith(f["dir"] + "/") and not any(ci.glob_match(g, cs_file) for g in f["remove"])
+        return default
+
+    direct = {pr for pr in facts if posixpath_name(pr).startswith("Tests.") and compiles(pr)}
+    for proj, f in facts.items():
+        if posixpath_name(proj).startswith("Tests."):
+            continue
+        # 非测试工程：只认"显式 Include 到自己目录之外的源文件"（默认 glob 是它自己的生产源码，不属于某个测试工程）
+        if any(ci.glob_match(g, cs_file) for g in f["include"]) and not cs_file.startswith(f["dir"] + "/"):
+            for tp, tf in facts.items():
+                if posixpath_name(tp).startswith("Tests.") and proj in tf["refs"]:
+                    direct.add(tp)
+    return direct
+
+
+def posixpath_name(p: str) -> str:
+    return p.rsplit("/", 1)[-1]
+
+
+def test_invariant_judged_t1_t2_lists_every_test_project_that_compiles_the_changed_file(mmap: dict) -> None:
+    """任何被判 T1/T2 的单文件改动，所列 dotnet 测试工程都包含"把该文件编进自己"的那些测试工程。
+
+    期望值来自 csproj 的真实引用关系（Compile Include/Remove + ProjectReference），不是把模块表的输出抄回来；
+    模块表漏登记（例如 Tests.Sim.csproj 用 Link 直接编译 gameplay 测试目录里的 PerfMachineCalibration.cs）会在这里红。
+    """
+    facts = {c: _csproj_compile_facts(c) for c in _tracked("*.csproj")}
+    cs_files = _tracked("*.cs")
+    assert len(cs_files) > 1000
+    checked = 0
+    offenders: list[str] = []
+    for f in cs_files:
+        owners = _test_projects_compiling(f, facts)
+        if not owners:
+            continue
+        plan = _plan(mmap, f)
+        if plan["level"] not in ("T1", "T2"):
+            continue  # T0 不跑代码；T3 跑 Core.sln 全量（含全部测试工程）
+        checked += 1
+        missing = owners - set(plan["dotnet_test"]["projects"])
+        if missing:
+            offenders.append(f"{f} -> 漏列 {sorted(missing)}（实际列了 {plan['dotnet_test']['projects']}）")
+    assert checked > 500, "被判 T1/T2 且属于某测试工程的文件数异常少，解析是否失效？"
+    assert offenders == [], "\n".join(offenders[:20])
+
+
+def test_invariant_conformance_rule_categories_cover_playmode_files_that_reference_conformance(mmap: dict) -> None:
+    """一致性套件规则里静态登记的引擎侧分类，必须覆盖所有引用 Adapters.Conformance 的 PlayMode 测试文件的分类。"""
+    rule = next(r for r in mmap["tier_rules"]["path_rules"] if r["id"] == "conformance")
+    cats: set[str] = set()
+    users = 0
+    for f in sorted(PLAYMODE_TESTS_DIR.glob("*.cs")):
+        text = f.read_text(encoding="utf-8-sig")
+        if "Adapters.Conformance" in text:
+            users += 1
+            cats.update(_CATEGORY_ATTR.findall(text))
+    assert users >= 1, "没有 PlayMode 测试引用 Adapters.Conformance，规则里登记的分类是否已过期？"
+    assert cats <= set(rule["engine_categories"]), f"引用一致性套件的 PlayMode 用例分类 {sorted(cats)} 未被规则覆盖 {rule['engine_categories']}"
+
+
+def test_invariant_path_rule_steps_projects_and_categories_exist(mmap: dict) -> None:
+    step_ids = {s["id"] for s in mmap["steps"]}
+    known_cats = {m["engine_category"] for m in mmap["modules"]} | {mmap["engine"]["shared_category"]}
+    for r in mmap["tier_rules"]["path_rules"]:
+        assert set(r.get("steps", [])) <= step_ids, r["id"]
+        assert set(r.get("engine_categories", [])) <= known_cats, r["id"]
+        for proj in r.get("dotnet_projects", []):
+            assert (REPO_ROOT / proj).is_file(), (r["id"], proj)
+        assert r["level"] in (1, 2), r["id"]
+
+
+def test_invariant_path_rules_never_swallow_shared_surface_files(mmap: dict) -> None:
+    """路径规则的 except 守住共享面：csproj/sln/Directory.Build.props 这类文件无论落在哪条规则的目录下，都仍是 T3。"""
+    for f in _tracked("*.csproj", "*.sln", "Directory.Build.props"):
+        assert _plan(mmap, f)["level"] == "T3", f
+    # 全仓库没有任何受版本管理的文件同时命中"层级规则"与 csproj
+    layer_rule = next(r for r in mmap["tier_rules"]["path_rules"] if r["id"] == "layer_shared_surface")
+    for f in _tracked("*.csproj"):
+        assert not (ci.any_match(layer_rule["globs"], f) and not ci.any_match(layer_rule["except"], f)), f
+
+
+def test_invariant_every_tracked_file_under_coverage_roots_is_registered(mmap: dict) -> None:
+    """路径类别登记的覆盖自检：coverage_roots 下的受版本管理文件不落到「未被任何规则覆盖」（除登记的允许项）。"""
+    roots = mmap["tier_rules"]["coverage_roots"]
+    allow = mmap["tier_rules"]["coverage_allow_unknown_globs"]
+    seen = 0
+    for f in _tracked(*[r.rstrip("/") for r in roots]):
+        if ci.any_match(allow, f):
+            continue
+        seen += 1
+        assert not ci.classify_path(f, mmap)["rule"].startswith("未被任何规则覆盖"), f
+    assert seen > 300
+
+
+def test_module_map_check_flags_uncovered_path_category_and_ghost_rule(tmp_path: Path) -> None:
+    """自检扩展到新登记的路径类别：coverage_roots 下新增未登记的子目录、规则匹配不到任何文件，都要红。"""
+    repo = tmp_path / "gitrepo"
+    (repo / "adapters/widget/Runtime").mkdir(parents=True)
+    (repo / "adapters/widget/Runtime/A.cs").write_text("// a\n", encoding="utf-8")
+    (repo / "adapters/widget/Samples").mkdir(parents=True)
+    (repo / "adapters/widget/Samples/S.cs").write_text("// s\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+    data = {
+        "layers": {},
+        "modules": [],
+        "engine": {},
+        "steps": [{"id": "self_check"}],
+        "tier_rules": {
+            "path_rules": [
+                {"id": "widget_runtime", "globs": ["adapters/widget/Runtime/**"], "level": 2},
+                {"id": "ghost", "globs": ["adapters/gone/**"], "level": 1},
+            ],
+            "coverage_roots": ["adapters/widget/"],
+            "coverage_allow_unknown_globs": [],
+        },
+    }
+    problems = gmm.check_path_rules(repo, data)
+    assert any("幽灵规则" in p and "ghost" in p for p in problems), problems
+    assert any("未被任何规则覆盖" in p and "Samples/S.cs" in p for p in problems), problems
+    assert not any("Runtime/A.cs" in p for p in problems), problems
+    # 规则自身不合法：未知步骤/分类/测试工程、级别越界
+    bad = json.loads(json.dumps(data))
+    bad["tier_rules"]["path_rules"][0].update({"steps": ["no_such_step"], "engine_categories": ["module:nope"], "dotnet_projects": ["x/none.csproj"], "level": 3})
+    msgs = " | ".join(gmm.check_path_rules(repo, bad))
+    for needle in ("no_such_step", "module:nope", "x/none.csproj", "level"):
+        assert needle in msgs, msgs

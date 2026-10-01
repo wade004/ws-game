@@ -892,6 +892,28 @@ if ($DocsOnly -or $script:GateStepPlan) {
     }
 }
 
+# -----------------------------------------------------------------------------
+# 12.6 定向专用：提交前钩子与忽略规则（.githooks/**、.gitignore，ADR-0126 路径规则 git_hooks_and_ignore）
+#      只跑钩子相关的 pytest 子集——提交前分级守卫（钩子里"发布提交放行"的判定纯函数）。
+#      只在定向模式（有判定结果）下出现；全量门禁由 toolchain 全量 pytest 覆盖，不重复。
+# -----------------------------------------------------------------------------
+if ($script:GateStepPlan) {
+    Invoke-CheckStep "python -m pytest toolchain/tests/test_precommit_tiering_guard.py -q（钩子相关子集，定向）" -Id "hooks_pytest" {
+        $prevPythonUtf8 = $env:PYTHONUTF8
+        $env:PYTHONUTF8 = "1"
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @(
+                "-m", "pytest",
+                "toolchain/tests/test_precommit_tiering_guard.py",
+                "-q")
+        } finally {
+            Pop-Location
+            $env:PYTHONUTF8 = $prevPythonUtf8
+        }
+    }
+}
+
 # =============================================================================
 # 阶段二：两条线并行（见本文件顶部判断记录 3)）
 # =============================================================================

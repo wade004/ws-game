@@ -1308,10 +1308,33 @@ build/test 步骤）。
 
 取各文件最高级，**表里查不到的路径一律 T3**。
 
-- **T0**：文档（`**/*.md`、`architecture/**`、`docs/**`）。
-- **T1**：子模块内部实现 → 编译 + 该层测试工程 + 已登记的交互例外。
-- **T2**：契约（`contracts/`、`schema/`、`generated/`、`I*.cs`、`*Events.cs`）→ T1 + 向下游多看一层 + 公开面兼容探针 + 该模块所属分类的引擎侧用例。
-- **T3**：共享面（工具链、装配入口、流水线与忽略规则、层根文件等）与未知路径 → 全量。
+- **T0**：文档（`**/*.md`、`architecture/**`、`docs/**`、`timing/**`、`.github/**`）。
+- **T1**：子模块内部实现 → 编译 + 该层测试工程 + 已登记的交互例外；另见下表中登记为 T1 的路径类别。
+- **T2**：契约（`contracts/`、`schema/`、`generated/`、`I*.cs`、`*Events.cs`）→ T1 + 向下游多看一层 + 公开面兼容探针 + 该模块所属分类的引擎侧用例；**层级范围**（层内共享面与层根文件）与适配层运行时/一致性套件也记 T2。
+- **T3**：真正跨层/跨工具链的共享面（`**/*.csproj`、`**/*.sln`、`Directory.Build.props`、`data/**`、`adapters/stub` 生产代码、`check.ps1`、`build.ps1`、`toolchain/**`、`.gitattributes`）与未知路径 → 全量。
+
+#### 路径规则（`tier_rules.path_rules`，ADR-0126 决定 9、10）
+
+每条规则 = 路径类别 → 级别 + 额外要跑的测试工程/引擎侧分类/步骤；同一路径命中多条规则取并集、级别取最高；`except` 排除的文件（csproj 等）落回共享面 T3；规则命中先于共享面。判级依据是 csproj 的 `Compile Include`/`ProjectReference` 与 asmdef 引用。
+
+| 路径 | 级别 | 要跑的 |
+| --- | --- | --- |
+| `core/*/common/**`、`core/*/assembly/**`、层根文件（`core/*/*`、`presentation/*`，csproj 除外）、`presentation/common/**`、`presentation/assembly/**` | T2（层级范围） | 本层测试工程 + 下游一层 + ABI 探针 + 本层所有模块的引擎侧分类（加 `module:shared`）+ 同步 DLL |
+| `adapters/conformance/**` | T2 | `Tests.Foundation` + 分类 `module:engine_adapter` + 引擎编译 + EditMode（无 ABI、无演练、无下游） |
+| `adapters/stub/tests/**` | T1 | `Tests.Foundation`（只有它编译该目录）；桩生产代码仍 T3 |
+| `adapters/unity/Packages/*/Tests/Runtime/**` | T1 | 只跑该文件自己标注的 PlayMode 分类（无标注 → 全部 PlayMode），无 dotnet 步骤、不同步 DLL |
+| `adapters/unity/Packages/*/Tests/Editor/**` | T1 | 只跑 EditMode，无 dotnet 步骤 |
+| `adapters/unity/Packages/*/Runtime/Ui/**`、`.../Runtime/Shell/**` | T2 | 引擎编译 + 分类 `ui;shell;shared` + 消费方演练 + 同步 DLL |
+| `adapters/unity/Packages/*/Runtime/Diagnostics/**` | T2 | 引擎编译 + 分类 `shared` + 演练 + 同步 DLL；`DiagnosticsHub.cs`、`ValidationReportFileOutlet.cs`（及 `Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs`）另跑 `Tests.Adapters.Unity.DiagnosticsForwarding` |
+| `adapters/unity/Packages/*/Runtime/` 其余（`EngineAdapter`、`Presentation`、`Bootstrap`、包根） | T2 | 引擎编译 + 全部 PlayMode + 演练 + 同步 DLL |
+| `adapters/unity/Packages/*/Editor/**` | T2 | 引擎编译 + EditMode + 分类 `shared` + 演练 + 同步 DLL |
+| `adapters/unity/DiagnosticsForwarding/**`（csproj 除外） | T1 | `Tests.Adapters.Unity.DiagnosticsForwarding` |
+| `games/_template/**` | T1 | 模板数据校验 + 消费方演练（模板冒烟）+ `.meta` 完整性 + 包清单 |
+| `assets/**` | T1 | 占位资产生成器一致性 + 样例导入幂等 + 导入检查 |
+| `.githooks/**`、`.gitignore` | T1 | 门禁自检 + 钩子相关 pytest（`hooks_pytest`：提交前分级守卫） |
+| `core/gameplay/tests/Perf/PerfMachineCalibration.cs` | T1 | `Tests.Gameplay` + `Tests.Sim`（后者用 Link 直接编译它） |
+
+仍按未知路径 T3 的：`adapters/unity/Assets/**`（场景、第三方资源、编辑器脚本）、`adapters/unity/ProjectSettings/**`、`adapters/unity/Packages/` 的清单与包 `package.json`/目录 `.meta`、`adapters/headless`、`.config`、`VERSION`。
 
 ### `check.ps1` 参数
 
@@ -1327,17 +1350,22 @@ build/test 步骤）。
 ### 判断记录
 
 - **引擎分类用"且"关系的原因**：引擎测试框架的分类过滤与名称过滤同时给出时取交集，交互例外（移动阻挡用例）因此也登记为一个独立分类（`interaction:movement_stop_blocking`）标在用例类上，而不是追加类名。
-- **共享测试的细分**：`core/*/assembly/tests/**`、`core/*/common/tests/**`、`presentation/assembly/tests/**`、`presentation/common/tests/**` 只改测试、不改生产代码，按 T1 处理（对应层的测试工程）；严格按"共享面 = T3"字面执行时，回放结果见下表第二行。关掉它只需清空 `tier_rules.shared_tests_globs`。
+- **共享测试的细分**：`core/*/assembly/tests/**`、`core/*/common/tests/**`、`presentation/assembly/tests/**`、`presentation/common/tests/**` 只改测试、不改生产代码，按 T1 处理（对应层的测试工程）。关掉它只需清空 `tier_rules.shared_tests_globs`。
+- **层级范围记 T2 的原因**：层内共享面与层根文件只被本层与下游通过本层程序集使用，与"切片级只看下游一层"同一取舍，不必为它们全量；工程文件/解决方案/全局构建配置改的是所有工程的编译条件，所以留在 T3（规则里 `except` 守住，不变量用例对全仓库的 csproj/sln 逐个核对）。已知取舍：`AGENTS.md` §4 ③ 把"改了生产装配入口"列为全量时刻，判定脚本不替它拍板，该时刻是否另跑全量仍由派单方决定。
+- **引擎侧测试文件的分类取自文件自己的标注**：`Tests/Runtime/**` 下的文件，判定时读它里面的 `[Category("…")]`（`.meta` 取所属源文件）；没有标注的辅助类/程序集定义看不出被哪些用例用，保守跑全部 PlayMode；文件已不存在（提交里删除）不贡献分类。这类改动不同步核心 DLL——前提是 DLL 已与源码同步（`AGENTS.md` §4），否则测的是旧二进制。
+- **运行时目录到分类的对应是人工判断**：`Runtime/Ui`、`Runtime/Shell` 给 `ui;shell;shared`，`Runtime/Diagnostics` 给 `shared`，其余目录（`EngineAdapter`、`Presentation`、`Bootstrap`、包根）被的用例面太宽，直接跑全部 PlayMode；登记漏项由里程碑全量兜底。一致性套件规则里静态登记的分类由不变量用例核对（引用 `Adapters.Conformance` 的 PlayMode 文件的分类必须被覆盖）。
+- **"所列测试工程必含自己所在的测试工程"不变量扫出过一处漏登记**：`Tests.Sim.csproj` 用 Link 直接编译 `core/gameplay/tests/Perf/PerfMachineCalibration.cs`，该文件改动此前只判 `Tests.Gameplay`；已补规则。不变量用例按 csproj 的编译包含/工程引用逐文件重算期望，不读模块表，今后新增跨目录编译包含而忘了登记会在这里红。
+- **基础步骤的 `needs`**：`dotnet_build`/`dotnet_test` 声明 `needs: dotnet_projects`，`abi_probe` 声明 `needs: public_layers`——判定里没有测试工程/没有层级公开面时不选，所以只改引擎侧测试、模板、资产、钩子时没有任何 dotnet 步骤；`crlf_check`、`module_map_check` 这两个秒级步骤仍随 T1 基础步骤运行。
 - **步骤触发默认忽略 md 路径**：改文档不触发任何依赖代码的步骤（`trigger_md` 为真的步骤除外）。
 - **数值仿真基线比对只在 T2 及以上触发**（2026-10-01 拍板）：此前 `core/**` 任何改动（含 T1 的模块内部）都会触发，约 17 秒、占 T1 总时长的大半，而 T1 不动契约、不动公开面。实现是模块表步骤字段 `min_level: 2`（低于该级别时 `triggers` 不生效）；`core/sim/tests/data/**` 与 `core/sim/tests/baseline/**` 登记在同一步骤的 `always_triggers`（不受 `min_level` 限制）——它们是基线比对自己的输入与基线文件，改了而不比对等于漏检。已知取舍：T1 改仿真所依赖的核心模块内部实现（例如改了战斗结算内部公式却没动契约）不再在切片级比对基线，由 T2 以上与里程碑全量回归兜住。
 - **手动 `-Modules`** 一律按 T1，不会升级到 T2。
 - **子集用例数下限**：定向模式不检查全量下限（子集不可能达到），只检查失败 0 与通过 ≥ 1。
-- **回放主线最近 20 次提交**（把每次提交的改动清单喂给 `change_impact.py --commit`，2026-10-01 的主线）：
+- **回放主线最近 30 次提交**（把每次提交的改动清单喂给 `change_impact.py --commit`，基于 2026-10-01 的 `main`；合并提交按第一父提交的差异）：
 
-| 口径 | T0 | T1 | T2 | T3 |
-| --- | --- | --- | --- | --- |
-| 当前规则（含共享测试细分） | 7 | 3 | 1 | 9 |
-| 严格字面规则（不细分） | 7 | 2 | 0 | 11 |
+| 口径 | T0 | T1 | T2 | T3 | T1+T2 占全部 | T1+T2 占非 T0 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 层级范围与适配层规则落地前 | 13 | 0 | 0 | 17 | 0% | 0% |
+| 当前规则 | 13 | 1 | 2 | 14 | 10.0%（3/30） | 17.6%（3/17） |
 
-  T3 占多数的原因：近期切片大量改动共享面生产代码（`presentation/common`、`core/*/common`、`core/*/assembly`、层根文件）、适配层桩与一致性套件（表里未登记，按未知路径 T3）、工具链与流水线配置。把这些归为 T3 是宁可多跑不漏跑的取舍；若要提高定向命中率，需要把适配层桩/一致性套件登记成模块并拆分共享面，属后续工作。
+  仍是 T3 的 14 次：9 次改了门禁自身（`toolchain/**`、`check.ps1`、`build.ps1`，其中 1 次同时有桩生产代码），3 次含 `*.csproj`（`Tests.Foundation`/`Tests.Sim`/`Presentation.Common`），1 次改 `.gitattributes`，1 次是发布提交（`VERSION`、包清单等未登记路径）。这段历史恰是门禁自身的集中开发期，设计目标 80% 在这批提交上不可达：把 T3 留给门禁与构建配置是设计决定（改它们影响所有步骤）。反事实（均未采纳，仅供后续取舍）：若层根与测试工程的 `*.csproj` 也按层级范围，T1+T2 升到 6/30；再把 `toolchain/tests/**`、`toolchain/gate_floors.json` 记为只跑 `toolchain_pytest` 的 T1，升到 8/30（占非 T0 的 47%）。
 - **引擎侧过滤已实测对账（2026-10-01，路径足够短的工作树 `D:\wt\ai-transformation`，做完 `AGENTS.md` 约定的 DLL 同步之后）**：`module:shared` 单独 46 例（11 个类）；`module:ui` 27 例，`module:ui;module:shared` 合跑 73 = 27 + 46（分号串是并集，各类无重叠）；`interaction:movement_stop_blocking` 单独 11 例、恰好是 `MovementStopAndBlockingPlayModeTests`，`module:unit` 单独也是 11，二者分号合跑仍是 11（有重叠时去重，不是求和）。判定块里的过滤串在深层 scratchpad 工作树里不能跑，要到主检出或短路径工作树执行。
