@@ -285,7 +285,7 @@ namespace Core.Foundation.EventBus
         /// <summary>skill.cast_failed — 字段：casterId, skillId, reasonCode。施法管线任一步骤失败（见 06 第 8 节）。</summary>
         public static readonly Id SkillCastFailed = new Id("skill.cast_failed");
 
-        /// <summary>skill.cast_interrupted — 字段：casterId, skillId, interrupterId。读条/引导被打断（见 06 第 8 节）。</summary>
+        /// <summary>skill.cast_interrupted — 字段：casterId, skillId, interrupterId, reason。读条/引导被打断（见 06 第 8 节）。手感落地追加 reason（可空字符串）：时间线动作被取消进入时为 CANCELLED、被时间模型切换清空时为 CLEARED，其它打断原因为空（手感设计/01 第 3.7 节；ADR-0115）。</summary>
         public static readonly Id SkillCastInterrupted = new Id("skill.cast_interrupted");
 
         /// <summary>skill.cast_start — 字段：casterId, skillId, castTime。施法管线步骤 8 开始（见 06 第 8 节）。</summary>

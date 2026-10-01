@@ -94,7 +94,7 @@
     { "key": "sim.time_model_rescaled", "domain": "sim", "fields": ["factor"], "description": "R05 收边补齐（外部审计 5e779c6）：连续/离散模式切换（core/gameplay/assembly.TimeModelSwitch）时同步发出，通知技能冷却（core/rules/skill.CooldownTracker）与光环剩余时间（AuraHost）按 found.time_model.seconds_per_turn 同一系数换算，避免切换后计时单位错位；factor 语义同 SimTimers.RescaleAll" },
     { "key": "sim.turn_started", "domain": "sim", "fields": ["actorId", "roundIndex"], "description": "离散模式下 TurnScheduler 切到某行动者时触发（见 06 第 8 节）" },
     { "key": "skill.cast_failed", "domain": "skill", "fields": ["casterId", "skillId", "reasonCode"], "description": "施法管线任一步骤失败（见 06 第 8 节）" },
-    { "key": "skill.cast_interrupted", "domain": "skill", "fields": ["casterId", "skillId", "interrupterId"], "description": "读条/引导被打断（见 06 第 8 节）" },
+    { "key": "skill.cast_interrupted", "domain": "skill", "fields": ["casterId", "skillId", "interrupterId", "reason"], "description": "读条/引导被打断（见 06 第 8 节）。手感落地追加 reason（可空字符串）：时间线动作被取消进入时为 CANCELLED、被时间模型切换清空时为 CLEARED，其它打断原因为空（手感设计/01 第 3.7 节；ADR-0115）" },
     { "key": "skill.cast_start", "domain": "skill", "fields": ["casterId", "skillId", "castTime"], "description": "施法管线步骤 8 开始（见 06 第 8 节）" },
     { "key": "skill.cast_success", "domain": "skill", "fields": ["casterId", "skillId", "targets", "isInstant", "castTimeSeconds"], "description": "施法管线步骤 9 完成（见 06 第 8 节）。N19 收边补齐（外部审计 68c9bed）：新增 isInstant/castTimeSeconds 两个字段——瞬发技能的 cast_start 与本事件在同一次事件分发批次内背靠背发出，仅订阅这两个事件的消费方无法单独分辨瞬发与真正读条完成，供表现层区分处理，见 SkillCastSuccessEvent.IsInstant 判断记录" },
     { "key": "spawn.executed", "domain": "spawn", "fields": ["spawnId", "entityId"], "description": "SpawnHost.applyForMap 按刷新策略生成实体完成时触发（见 05 第 5.3 节，字段原文给出）" },

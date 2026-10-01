@@ -73,7 +73,28 @@ namespace Core.Rules.Skill
                     }
                 }
 
-                _host.CastSkill(intent.ActorId, skillId.Value, targets);
+                // 手感落地：意图可选携带按下瞬间的移动轴方向（direction: {x,y}）与蓄力按住 tick 数（held_ticks），
+                // 交给随后开始的时间线动作（动作位移方向、蓄力比例）；未携带时与此前逐位一致。
+                Vec2? direction = null;
+                if (intent.Args.TryGetValue("direction", out var dirVal) && dirVal is JsonObject dirObj
+                    && dirObj.TryGetValue("x", out var xVal) && xVal is JsonNumber xNum
+                    && dirObj.TryGetValue("y", out var yVal) && yVal is JsonNumber yNum)
+                {
+                    direction = new Vec2(xNum.Value, yNum.Value);
+                }
+
+                var heldTicks = intent.Args.TryGetValue("held_ticks", out var heldVal) && heldVal is JsonNumber heldNum
+                    ? (int)heldNum.Value
+                    : 0;
+
+                if (direction.HasValue || heldTicks > 0)
+                {
+                    _host.CastSkillWithContext(intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks));
+                }
+                else
+                {
+                    _host.CastSkill(intent.ActorId, skillId.Value, targets);
+                }
             }
 
             if (step.Kind == SimStepKind.Continuous)

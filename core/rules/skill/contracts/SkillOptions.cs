@@ -207,5 +207,12 @@ namespace Core.Rules.Skill
         /// </para>
         /// </summary>
         public double PlagueRefreshRatio { get; set; } = 0.3;
+
+        /// <summary>
+        /// 手感落地（ADR-0115）：动作时间线毫秒→tick 换算用的固定步长（秒），必须与模拟固定步长一致（通常取
+        /// <c>SimLoopOptions.StepSeconds</c>，<c>GameplayAssembly</c> 装配时回填同一个值）。默认 1/60。只影响声明了
+        /// <c>skill.def.timeline</c> 的技能，不影响任何既有技能。
+        /// </summary>
+        public double ActionStepSeconds { get; set; } = 1.0 / 60.0;
     }
 }

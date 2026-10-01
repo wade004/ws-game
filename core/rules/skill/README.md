@@ -1630,3 +1630,88 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 完成的取值变化；`core/rules/skill/tests/AuraSnapshotTests.cs`（新增）覆盖光环列表长度变化、层数/
 身份、移除后收缩、两次查询顺序一致（确定性）；`core/rules/skill/tests/AuraDefNameKeyTests.cs`
 （新增）覆盖 `name_key` 存在/缺省两种既有+新增数据行的解析行为。
+
+## 判断记录（手感落地 S3a：动作时间线状态机，[ADR-0114](../../../architecture/adr/0114-技能结算新增时间线模式.md)/[ADR-0115](../../../architecture/adr/0115-输入缓冲与动作时间线.md)，手感设计/01 第 3 节、03 第 2 节）
+
+> 编号说明：本节是并行切片追加的新章节，条目用本节内编号 T1～T14，合并后由主会话核对是否与别的切片重号。
+
+**范围**：`skill.def` 新增可选 `timeline` 块（schema、语义校验、强类型解析 `TimelineDef`）；`CastPipeline`
+（现为 `partial`，新增 `CastPipeline.Timeline.cs`）实现动作状态机并实现 `IActionStateQuery`；取消窗口/连招经
+`IInputBufferQuery` 拉取缓冲；`hit` 标记走命中解析钩子 `ITimelineHitResolver`（缺省复用 instant 结算）。
+未声明 `timeline` 的技能走原路径，与本节落地之前逐位一致（feellab `suite` 54/54 与既有 1040 个规则用例为证）。
+
+- **T1 时间线是第三种施法形态，不是读条的变体**：`CastPipeline.TryStartCast` 在步骤 5 之后、步骤 6 之前分叉——
+  `def.Timeline != null` 且非离散步时进入 `EnterTimeline`：步骤 6（目标合法性）与步骤 7（射程）**不拒绝**（没有目标不是失败，
+  目标在每个 `hit` 标记处解析，手感设计/03 第 2.1 节），步骤 8 改为时间线推进；效果只在 `hit` 标记处结算。离散步折叠为瞬发
+  （03 第 6 节）。`CastState.Run != null` 标识时间线动作，读条/引导的 `Remaining` 倒计时、法术队列、`NotifyMoved` 的"移动打断"
+  都对它旁路（移动只经 `NotifyMoveIntent` 在 `move` 类取消窗口内生效）。时间线动作进行中，对该行动者的任何 `CastSkill` 一律被拒
+  （`respects_gcd` 技能为 `ActionLocked`，`respects_gcd: false` 的非瞬发技能为 `Busy`；不排队）：排队语义由输入缓冲承担（01 第 2.3 节）。
+- **T2 推进钟与开始 tick**：相位按**行动者动作时钟**（`IActorActionClockQuery.ActionTicks`）的增量推进，顿帧暂停期间增量为 0，
+  时间线既不推进也不拉取缓冲。开始那一 tick 是动作时间 0（tick 0 的相位进入/标记在 `EnterTimeline` 内立即触发），同一 tick 的
+  `SkillHost.Update` 不推进（`ActionRun.StartSeq`）；下一 tick 起每 tick 动作时间 +1。未注入动作时钟时每次 `Update` 推进 1 tick
+  （仅供最小组合使用，没有顿帧语义）。步长取 `SkillOptions.ActionStepSeconds`（缺省 1/60，须与模拟固定步长一致，见 T13）。
+- **T3 速率重映射**（01 第 3.5 节）：系数 = `ComputeCastTime(caster, def) / def.CastTime`（复用既有 SpellMod 与急速折算，含
+  `HasteAffectsActionTime`、`MaxHastePct`、`MinActionSeconds`，不另起一套）；先乘档案 `phase_scale.*` 再乘系数；`min_action_ms`
+  下限只夹住"速率造成的缩短"（总时长取 `min(未加速总长, 下限)`，等比放大系数）。分相毫秒经 `FeelCalibration.MillisecondsToTicks`
+  （四舍五入、非零至少 1、零保持零）换算；判定标记按分相分段线性映射并夹在所属相位的 tick 范围内（不会因取整跨相）。
+  因此声明了 `timeline` 的技能 `cast_time`（秒）必须等于三相之和（毫秒，`timeline_cast_time_mismatch` Error）：它同时是急速、
+  SpellMod 与预算分析器的输入，保持单一事实来源。
+- **T4 窗口**：窗口起点跟随重映射，**长度为绝对值**（档案值 × `cancel_window_scale`/`combo_window_scale`，不随速率缩放，01 第 3.5 节）；
+  半开区间 `[open, close)`；`close_ms` 缺省或超出动作末尾截到末尾；倍率 0（经典回合制预设）长度为零、永不打开。窗口打开/关闭
+  以 `action.marker`（`cancel_open:<类别>`/`cancel_close:<类别>`/`combo_open`/`combo_close`）发出，仅供表现与实验室观察。
+- **T5 取消进入：先验证再取消**：每个推进 tick 的末尾（顿帧期间不拉）经 `IInputBufferQuery.TryConsume(actor, accepts, …)` 取用——
+  `accepts` 检查"该类别窗口此刻打开且输入动作能映射到技能"（`IActionSkillBinding`）或"attack 类 + 连招窗口打开"；接受后先以
+  `_probeOnly` 模式跑一遍 `TryStartCast`（不发任何事件、不扣费，节拍锁对"即将被取消的当前动作"放行），**验证通过才**终止当前动作
+  （`action.cancelled{CancelInto, nextSkillId}` 然后 `skill.cast_interrupted{reason: CANCELLED}`）并启动新动作，两者同一 tick；
+  验证失败则当前动作原样继续，经 `ReportRejected` 把拒绝原因交回输入缓冲（`ActionLocked`/`GcdActive`/`Busy`，以及剩余冷却
+  不超过记录剩余缓冲的 `OnCooldown` 为时间可解，记录保留重试；其余丢弃）。这样不会出现"被取消了但新动作起不来"。
+- **T6 连招**（01 第 3.6 节，本实现拍板的语义——设计文档只定了窗口与重置时长，没定"自然结束后"的行为）：
+  ① 窗口内接续：连招窗口打开期间拉到 attack 类记录，直接启动 `combo.next`，`comboIndex + 1`（不需要输入→技能映射）；
+  ② 自然结束后的接续：声明了 `combo` 的动作结束时保留连招链 `combo_reset_ms`（动作开始时快照的档案值，经标定换算 tick），期内对**链根
+  技能**的施法请求改为启动链上下一段（带递增的 `comboIndex`）；超时（动作时钟差大于重置 tick 数）回到第 1 段；
+  ③ 链在受击硬直、死亡、销毁、时间模型清空时重置；链上最后一段（无 `combo` 块）结束链。
+- **T7 `cost_at`/`cooldown_at`**：除 01 已有取值外新增 `cost_at: active`、`cooldown_at: active`（进入判定相的那一 tick）。`cost_at: first_hit`
+  在首个 `hit` 标记之前扣费并发派生 `cost` 标记（01 第 3.3 节）。`cooldown_at: finish` 在动作自然结束时起算；动作被取消/打断则在
+  终止那一刻起算（不让"取消"成为绕开冷却的手段）；被时间模型清空（`cleared`）不起算。缺省 `commit` 与既有行为一致。扣费在时间线内
+  不可再失败：资源是否足够由施法管线在开始时检查（"开始时检查、后扣费"，`cost_at: active/first_hit` 时中间资源被别处花掉，
+  扣费按既有 `DeductResources` 的夹零语义，不二次拒绝）。
+- **T8 命中钩子**：`hit` 标记到达（含多段 `hit:<段>`，段号写进 `action.marker.args.segment`，未写段号的 `hit` 按出现顺序 0、1、…）调用
+  `ITimelineHitResolver.ResolveHit(TimelineHitContext)` 一次；缺省实现 `InstantSettlementHitResolver` = `Settlement.SettleInstant()`
+  = 以 `target_shape_ref` 目标选择链解析目标（有显式目标则按显式目标过滤）后走既有效果结算。时间线命中切片（S3b）替换该钩子，
+  在其中实现空间命中、攻击实例去重与无敌前置检查；`TimelineHitContext.Settlement` 是它调用既有结算管线的出口。
+- **T9 `source: clip`**：运行期永远只读 `skill.def.timeline`（规则层不读表现域）。作者态工具 `TimelineClipImporter` 把剪辑事件
+  （`active_start/active_end` 界定判定相；`hit`/`hit:<n>`、`combo_open/close`、`cancel_open:<类>`、`invuln_*`、`motion_*`、`release` 抄写）
+  导入成时间线字段；`TimelineClipConsistencyRule(IClipMarkerSource, toleranceMs)` 比对：`source: clip` 任一偏差（超过 0.5 毫秒抄写取整误差）
+  Error，`source: data` 超过 `marker_tolerance_ms` Warning，取不到剪辑时 `clip` 为 Error、`data` 跳过。**当前数据里没有"技能 → 动画集 →
+  剪辑"的对应关系，没有生产用 `IClipMarkerSource`**，所以该规则没有登记进 `RulesSchemaCatalog`（只登记了不依赖剪辑的
+  `SkillTimelineRule`）；本切片只提供接口 `IClipMarkerSource`、内存替身 `InMemoryClipMarkerSource` 与上述工具/规则，装配方有了真实
+  来源后自行 `RegisterValidationRule`。
+- **T10 `IActionStateQuery` 与位移段快照**：本类（`CastPipeline`）实现，经 `SkillHost.ActionStateQuery` 暴露。声明了 `motion` 块的动作在
+  被接受时落定 `ActionMotionState`（类型由运动切片 S2 定义，`Core.Rules.Common.ActionMotion.cs`，本切片原样采用、不另建位移类型）并随
+  `ActionState.Motion` 提供给运动仲裁器：窗口 = `motion_start`/`motion_end` 标记换算后的 tick（`StartTick` 含、`EndTick` 不含，与
+  `ElapsedTicks` 同一时钟）；`DistanceWorld` = 身高倍数 × 标定参考身高（无手感解析器时原样使用声明值）；方向在此落定
+  （`facing` = 当前朝向；`input_snapshot` = 开始上下文里的按下瞬间方向归一，无输入回落朝向；`toward_target` = 指向显式目标，无目标回落朝向）；
+  `TargetId` = `toward_target`/`charge` 时的显式目标；`StopDistanceWorld`（仅 `charge`）= 开始快照里的 `stop_distance`。`max_turn_deg` 缺省取
+  180（不限制）。**目标辅助（`target_assist`）的解析、朝向修正与距离缩放、`action.target_assisted` 事件不在本切片**。本切片只提供状态，不驱动任何位移。
+- **T11 开始上下文**：按下瞬间的方向与蓄力按住时长经 `ActionCastContext` 随施法请求携带（`SkillHost.CastSkillWithContext`），
+  `SkillTickHandler` 的施法意图读可选参数 `direction`（`{x, y}`）与 `held_ticks`；取消进入由时间线从缓冲记录自行填入。蓄力本切片
+  只换算为 `action.started.chargeRatio`（`(按住 ms − min_ms) / (max_ms − min_ms)` 夹到 0～1），**不播放蓄力相**（`ActionPhase.Charge` 不发）。
+- **T12 `IInputBufferQuery` 取用口**：时间线需要的 `TryConsume`/`ReportRejected` 以默认接口成员追加（ABI 只加不改；缺省 = "没有缓冲"），
+  签名与输入缓冲切片（S1）同名同形，**合并时以 S1 的定义为准**。`SkillCastInterruptedEvent` 新增可空 `Reason`（新五参构造，四参构造原样保留）。
+- **T13 装配**：`SkillOptions.ActionStepSeconds`（新，缺省 1/60）须与 `SimLoopOptions.StepSeconds` 一致；`TimelineServices`
+  （Clock/Feel/Input/Binding/HitResolver，全部可空）经 `SkillHost.AttachTimelineServices` 在组装期注入，缺失时按保守缺省降级
+  （无时钟=每次 `Update` 推进 1 tick、无手感=倍率 1/窗口 1/无下限/连招重置 0）。**本切片没有改 `GameplayAssembly` 去装配这些协作者**
+  （S1 输入缓冲的生产实现、动作时钟装配、输入动作→技能映射都不属于本切片），生产路径上时间线技能目前只在上述最小组合下可用。
+- **T14 时间模型切换**：`RescaleAll`（连续⇄离散）清空进行中的时间线动作与连招链（`action.cancelled{cleared}` 与
+  `skill.cast_interrupted{reason: CLEARED}`），随后按读条/引导路径换算其余状态（03 第 6 节）。
+
+**已知局限（逐条登记，随汇报转达）**：
+1. `hit_policy: continuous` 只登记字段与解析，运行时按 `marker` 处理并在加载期给 Warning（`timeline_hit_policy_continuous`）。
+2. 地面坐标施法（`ground_target`）不进入时间线模式，仍按 `cast_time` 读条结算，`timeline` 在该路径上被忽略（加载期 Warning）。
+3. 蓄力相不播放（T11）；`charge` 只影响 `chargeRatio` 与校验。
+4. 位移（`motion`）只提供 `ActionState.Motion` 状态，不产生位移；目标辅助（`target_assist`）未实现，`toward_target`/`charge` 的目标只取施法请求的显式目标，没有显式目标时 `TargetId` 为空（运动仲裁器按兜底方向位移）。
+5. 控制/受击等既有打断路径终止时间线动作时，`action.cancelled.reason` 按"施法者是否仍然有效"区分 `death`/`stagger`，
+   不细分控制与受伤；与受击裁决切片的对接（`CancelAction(unit, reason)` 是公开入口）留待后续。
+6. 取消进入验证用的 `_probeOnly` 探测只覆盖施法管线自身的条件；探测通过后到真正开始之间无并发变化（同一线程同一 tick 内顺序执行），
+   若开始仍失败则当前动作已被取消并记一条诊断警告（实际上不可达，保留为防御）。
+7. 没有生产用的动作时钟/输入缓冲/输入→技能映射/剪辑标记来源的装配（T9、T13）。

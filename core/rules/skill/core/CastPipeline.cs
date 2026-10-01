@@ -42,7 +42,7 @@ namespace Core.Rules.Skill
     /// 派发，深度都随事件本身传播，不再依赖调用栈是否还"活着"。
     /// </para>
     /// </summary>
-    public sealed class CastPipeline
+    public sealed partial class CastPipeline
     {
         /// <summary>
         /// 第五轮外部审核相邻缺口根治（architecture/落地计划/audit-5e779c6-20260907，同
@@ -119,6 +119,10 @@ namespace Core.Rules.Skill
             /// <see cref="SkillCastSuccessEvent"/>/<see cref="SkillCastInterruptedEvent"/> 上，供消费方
             /// 关联"这一次请求"从开始到最终结果的完整生命周期。</summary>
             public Id CastInstanceId;
+
+            /// <summary>手感落地（ADR-0115）：非空表示本次施法是动作时间线（<c>skill.def.timeline</c>）的一次运行——
+            /// 由行动者动作时钟推进，不走读条/引导的 <see cref="Remaining"/> 倒计时；为 null 时与本字段落地之前逐位一致。</summary>
+            public ActionRun? Run;
         }
 
         private readonly SkillDefCache _defs;
@@ -365,7 +369,7 @@ namespace Core.Rules.Skill
                     return TryStartCast(casterId, skillId, safeTargets);
                 }
 
-                if (activeState.Remaining <= _options.QueueWindow)
+                if (activeState.Run == null && activeState.Remaining <= _options.QueueWindow)
                 {
                     // 消费方反馈 2026-09-10（施法生命周期事件缺少实例关联标识建议）根治：排队接受
                     // 本身就是"校验通过、进入排队"的时刻（见 CastState.Queued 判断记录"身份规则"），
@@ -513,6 +517,10 @@ namespace Core.Rules.Skill
                 def = overriddenDef;
             }
 
+            // 手感落地（ADR-0115，手感设计/01 第 3.6 节）：连招链仍有效（上一段已自然结束、在 combo_reset_ms 之内）时，
+            // 对链根技能的施法请求改为启动链上的下一段。只在时间线技能之间发生，非时间线技能零影响。
+            ApplyComboRedirect(casterId, ref skillId, ref def, out var comboRedirect);
+
             if (def.IsPassive)
             {
                 return Fail(casterId, skillId, CastFailureReason.PassiveSkill, presetCastInstanceId);
@@ -574,8 +582,10 @@ namespace Core.Rules.Skill
                     return Fail(casterId, skillId, CastFailureReason.GcdActive, presetCastInstanceId);
                 }
             }
-            else if (def.RespectsGcd && !isDiscreteStep && _casting.ContainsKey(casterId))
+            else if (def.RespectsGcd && !isDiscreteStep && _casting.ContainsKey(casterId)
+                && !(_cancelIntoCaster.HasValue && _cancelIntoCaster.Value == casterId))
             {
+                // 手感落地：取消进入（动作时间线）探测/启动时当前动作正要被取消，不算节拍锁。
                 return Fail(casterId, skillId, CastFailureReason.ActionLocked, presetCastInstanceId);
             }
 
@@ -588,6 +598,19 @@ namespace Core.Rules.Skill
                 {
                     return Fail(casterId, skillId, CastFailureReason.InsufficientPower, presetCastInstanceId);
                 }
+            }
+
+            // 手感落地（ADR-0115，手感设计/03 第 2.1 节）：声明了 timeline 的技能进入时间线模式——步骤 6/7 不拒绝（没有目标
+            // 不是失败，目标在每个 hit 标记处解析；射程不作为拒绝条件），步骤 8 改为动作时间线推进。离散步折叠为瞬发结算
+            // （手感设计/03 第 6 节），不进入时间线。
+            if (def.Timeline != null && !isDiscreteStep)
+            {
+                if (_probeOnly)
+                {
+                    return CastResult.Ok(new Id("skill.cast_inst_probe"));
+                }
+
+                return EnterTimeline(casterId, skillId, def, targets, modifiedCost, presetCastInstanceId, comboRedirect);
             }
 
             // 步骤 6：目标合法性
@@ -1000,10 +1023,20 @@ namespace Core.Rules.Skill
             // 避免 SkillHost.Update 内 "_pipeline.Update(dt) + AdvanceRoundTimers(dt)" 两次调用对
             // 同一个 dt 各推进一次、变成双倍衰减速度。
 
-            var casterIds = new List<Id>(_casting.Keys);
-            foreach (var casterId in casterIds)
+            // 手感落地：时间线的"开始 tick 不推进"以 Update 序号计（见 CastPipeline.Timeline.cs）。
+            _updateSeq++;
+            _inUpdate = true;
+            try
             {
-                AdvanceOne(casterId, dt);
+                var casterIds = new List<Id>(_casting.Keys);
+                foreach (var casterId in casterIds)
+                {
+                    AdvanceOne(casterId, dt);
+                }
+            }
+            finally
+            {
+                _inUpdate = false;
             }
         }
 
@@ -1048,6 +1081,13 @@ namespace Core.Rules.Skill
                 // 到达时 Interrupt 发现 _casting 已空会自然 no-op，不会重复发送。
                 _casting.Remove(casterId);
                 TerminateCast(casterId, state, casterId, null, 0);
+                return;
+            }
+
+            if (state.Run != null)
+            {
+                // 手感落地：时间线动作由行动者动作时钟推进，不参与读条/引导的 dt 倒计时。
+                AdvanceTimelineRun(casterId, state);
                 return;
             }
 
@@ -1215,7 +1255,12 @@ namespace Core.Rules.Skill
         /// 引入新事件词汇表词条的必要，<c>skill.cast_interrupted</c> 已经能准确表达"这次读条/引导
         /// 没有正常完成"。<see cref="Interrupt"/> 本身对未在读条/引导中的单位是安全 no-op，本方法
         /// 因此天然幂等，不需要额外的 <c>_casting.ContainsKey</c> 前置判断。</summary>
-        private void OnCasterDiedOrDestroyed(Id unitId) => Interrupt(unitId, unitId, null, 0);
+        private void OnCasterDiedOrDestroyed(Id unitId)
+        {
+            // 手感落地：死亡/销毁重置连招链（手感设计/01 第 3.6 节）。
+            _comboChains.Remove(unitId);
+            Interrupt(unitId, unitId, null, 0);
+        }
 
         // -----------------------------------------------------------------
         // 打断
@@ -1261,6 +1306,22 @@ namespace Core.Rules.Skill
         /// </summary>
         private void TerminateCast(Id casterId, CastState state, Id interrupterId, Id? lockSchool, double lockDuration)
         {
+            // 手感落地：既有打断路径（控制/受伤/死亡/销毁/兜底）终结时间线动作——原因按施法者是否仍然有效区分死亡与硬直。
+            // 取消进入与清空走 TerminateCastWithReason，不经这里。
+            TerminateCastWithReason(
+                casterId, state, interrupterId, lockSchool, lockDuration,
+                IsCasterStillValid(casterId) ? ActionCancelReason.Stagger : ActionCancelReason.Death, null, null);
+        }
+
+        private void TerminateCastWithReason(
+            Id casterId, CastState state, Id interrupterId, Id? lockSchool, double lockDuration,
+            ActionCancelReason runCancelReason, Id? nextSkillId, string? interruptReasonCode)
+        {
+            if (state.Run != null)
+            {
+                OnRunCancelled(casterId, state, runCancelReason, nextSkillId);
+            }
+
             if (lockSchool.HasValue)
             {
                 // CR130-03 根治（外部审计 audit-5c444f1-20260908）：lockDuration 是调用方按 authoring
@@ -1274,7 +1335,7 @@ namespace Core.Rules.Skill
 
             // 消费方反馈 2026-09-10：携带被打断的这次施法自己的 CastInstanceId（见
             // CastState.CastInstanceId 判断记录）。
-            _bus.Enqueue(new SkillCastInterruptedEvent(casterId, state.SkillId, interrupterId, state.CastInstanceId));
+            _bus.Enqueue(new SkillCastInterruptedEvent(casterId, state.SkillId, interrupterId, state.CastInstanceId, interruptReasonCode));
 
             if (state.Queued.HasValue)
             {
@@ -1293,7 +1354,9 @@ namespace Core.Rules.Skill
         /// 视为自我打断。</summary>
         public void NotifyMoved(Id unitId)
         {
-            if (_casting.TryGetValue(unitId, out var state) && (state.Def.InterruptFlags & InterruptFlags.Movement) != 0)
+            // 手感落地：时间线动作的"移动打断"只由移动输入在 move 类取消窗口内触发（NotifyMoveIntent），动作位移引起的
+            // 位置变化（冲刺、突进）不是打断，不经本入口取消时间线动作。
+            if (_casting.TryGetValue(unitId, out var state) && state.Run == null && (state.Def.InterruptFlags & InterruptFlags.Movement) != 0)
             {
                 Interrupt(unitId, unitId, null, 0);
             }
@@ -1634,6 +1697,10 @@ namespace Core.Rules.Skill
 
             _currentFactor *= factor;
 
+            // 手感落地：时间线动作按固定步长 tick 推进，不属于时间模型单位；模式切换时清空进行中的时间线动作
+            // （reason: cleared，手感设计/03 第 6 节），随后按读条/引导路径换算其余状态。
+            ClearTimelineRuns();
+
             foreach (var state in _casting.Values)
             {
                 state.Remaining *= factor;
@@ -1669,6 +1736,12 @@ namespace Core.Rules.Skill
         /// </summary>
         private CastResult Fail(Id casterId, Id skillId, CastFailureReason reason, Id? castInstanceId)
         {
+            // 手感落地：取消进入的"先验证再取消"探测不产生任何事件（探测失败时记录由输入缓冲按原因分流）。
+            if (_probeOnly)
+            {
+                return CastResult.Fail(reason);
+            }
+
             _bus.Enqueue(new SkillCastFailedEvent(casterId, skillId, reason, castInstanceId));
             return CastResult.Fail(reason);
         }
