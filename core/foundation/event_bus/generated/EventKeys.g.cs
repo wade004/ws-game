@@ -165,6 +165,9 @@ namespace Core.Foundation.EventBus
         /// <summary>feel.hitstop_started — 字段：unitIds, ticks, attackInstanceId。手感设计/03 第 3 节（ADR-0117）：局部顿帧施加，冻结 unitIds 的行动者动作时钟（不是模拟时钟、不是表现帧）；表现层据此冻结对应实体的动画时间轴。</summary>
         public static readonly Id FeelHitstopStarted = new Id("feel.hitstop_started");
 
+        /// <summary>feel.weapon_changed — 字段：unitId, previousMainRef, mainRef, offhandRef, previousFamily, family, feelVersion。手感设计/08 第 1 节换装链：单位主手武器手感引用、副手武器手感引用或武器族变化，手感解析器已失效重算（feelVersion 为重算后的新版本号）；武器引用为空表示空手。发布方为换装链装配（EquipmentFeelChain）；姿势家族、反馈变体、界面据此刷新。读档重放期间装备事件被抑制，换装链在 save.loaded 时对账并补发。</summary>
+        public static readonly Id FeelWeaponChanged = new Id("feel.weapon_changed");
+
         /// <summary>gobj.interacted — 字段：unitId, gobjInstanceId。GameObjectHost.interact 交互触发时发出（见 01 L3 模块表 gobj 行、07 第 3.6 节 interact 契约）；原名 gobj.used，2026-09-05 勘误改名为 gobj.interacted（见 07/08 第 9 节契约汇总表）；字段为建议值。</summary>
         public static readonly Id GobjInteracted = new Id("gobj.interacted");
 
@@ -397,6 +400,7 @@ namespace Core.Foundation.EventBus
             FactionRelationChanged,
             FeelHitstopEnded,
             FeelHitstopStarted,
+            FeelWeaponChanged,
             GobjInteracted,
             GobjStateChanged,
             HookInvoked,

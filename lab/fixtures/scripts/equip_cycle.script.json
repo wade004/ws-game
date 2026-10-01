@@ -1,0 +1,162 @@
+{
+  "formatVersion": 2,
+  "meta": {
+    "scriptId": "equip_cycle",
+    "scriptVersion": 1,
+    "description": "换装循环（手感设计 06 第 3.6 节 equip_cycle）：占位装备集的每件装备逐件穿戴（单手剑、大剑、匕首、弓、法杖、胸甲）、卸下主手武器、再换回单手剑，每次穿脱后打一次普攻。度量换装链每一段（武器引用、武器族、解析版本、冲击等级、顿帧、音效层、姿势键、武器表现档案、图标、外观、界面）与普攻相位 tick 的实测值，并与规则算出的期望值逐项核对。tickRate 必须是 60（动作时间线按 1/60 秒换算）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "feel.calibration.std_equip",
+    "poseSet": "display.anim_set.std_dummy_biped",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 410,
+    "playerStart": {
+      "x": 2.5,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "scene": "equip",
+    "feelCalibrationId": "feel.calibration.std_equip",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_equip"
+    ],
+    "extraDataExcludeTables": [
+      "l10n.locale"
+    ],
+    "extraDataExcludeRows": [
+      "l10n.text/key=l10n.power.health.name"
+    ],
+    "weaponAttackSkills": {
+      "feel.weapon.sword_1h": "skill.lab_equip.attack_sword_1h",
+      "feel.weapon.greatsword": "skill.lab_equip.attack_greatsword",
+      "feel.weapon.dagger": "skill.lab_equip.attack_dagger",
+      "feel.weapon.bow": "skill.lab_equip.attack_bow",
+      "feel.weapon.staff": "skill.lab_equip.attack_staff"
+    },
+    "unarmedAttackSkill": "skill.lab_equip.attack_unarmed"
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "item.std_sword_1h",
+      "kind": "equip"
+    },
+    {
+      "tick": 2,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 3,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 50,
+      "action": "item.std_greatsword",
+      "kind": "equip"
+    },
+    {
+      "tick": 52,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 53,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 100,
+      "action": "item.std_dagger",
+      "kind": "equip"
+    },
+    {
+      "tick": 102,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 103,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 150,
+      "action": "item.std_bow",
+      "kind": "equip"
+    },
+    {
+      "tick": 152,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 153,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 200,
+      "action": "item.std_staff",
+      "kind": "equip"
+    },
+    {
+      "tick": 202,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 203,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 250,
+      "action": "item.std_chestplate",
+      "kind": "equip"
+    },
+    {
+      "tick": 252,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 253,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 300,
+      "action": "item.slot.std_main_hand",
+      "kind": "unequip"
+    },
+    {
+      "tick": 302,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 303,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 350,
+      "action": "item.std_sword_1h",
+      "kind": "equip"
+    },
+    {
+      "tick": 352,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 353,
+      "action": "input.action.attack",
+      "kind": "release"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Core.Foundation.Common.Json;
 using Core.Foundation.DataRegistry;
 using Core.Foundation.EngineAdapter;
 
@@ -24,6 +25,127 @@ namespace Lab
             }
 
             return new FileSystemDataSource(new ReadOnlyDiskFileSystem(), full);
+        }
+
+        /// <summary>
+        /// 换装场景的脚本数据源：在基础数据来源之后追加脚本声明的额外根（<paramref name="resolveRoot"/> 把根路径变成数据来源），
+        /// 额外根里 <see cref="ScriptMeta.ExtraDataExcludeTables"/> 的表整表剔除，并把
+        /// <see cref="ScriptMeta.WeaponAttackSkills"/> 在内存里写成各武器行的 <c>auto_attack_timeline_ref</c>
+        /// （只活在返回的数据来源里，不动磁盘上的共享数据）。脚本没有任何扩展数据声明时原样返回基础来源。
+        /// </summary>
+        public static IReadOnlyList<IDataSource> ForScript(
+            IReadOnlyList<IDataSource> baseSources, ScriptMeta meta, Func<string, IDataSource> resolveRoot)
+        {
+            if (meta.ExtraDataRoots.Count == 0)
+            {
+                return baseSources;
+            }
+
+            var result = new List<IDataSource>(baseSources);
+            var exclude = new HashSet<string>(meta.ExtraDataExcludeTables, StringComparer.Ordinal);
+            foreach (var root in meta.ExtraDataRoots)
+            {
+                IDataSource source = resolveRoot(root);
+                if (exclude.Count > 0)
+                {
+                    source = new TableFilterDataSource(source, exclude);
+                }
+
+                if (meta.WeaponAttackSkills.Count > 0 || meta.ExtraDataExcludeRows.Count > 0)
+                {
+                    source = new TableOverlayDataSource(source, (table, text) => RewriteTable(table, text, meta));
+                }
+
+                result.Add(source);
+            }
+
+            return result;
+        }
+
+        private static string? RewriteTable(string table, string text, ScriptMeta meta)
+        {
+            var isWeapon = string.Equals(table, "feel.weapon", StringComparison.Ordinal) && meta.WeaponAttackSkills.Count > 0;
+            var dropRules = new List<KeyValuePair<string, string>>();
+            foreach (var spec in meta.ExtraDataExcludeRows)
+            {
+                var slash = spec.IndexOf('/');
+                var eq = spec.IndexOf('=');
+                if (slash <= 0 || eq <= slash + 1)
+                {
+                    throw new LabFormatException($"extraDataExcludeRows 的格式必须是 表名/字段名=字段值：{spec}");
+                }
+
+                if (string.Equals(spec.Substring(0, slash), table, StringComparison.Ordinal))
+                {
+                    dropRules.Add(new KeyValuePair<string, string>(spec.Substring(slash + 1, eq - slash - 1), spec.Substring(eq + 1)));
+                }
+            }
+
+            if (!isWeapon && dropRules.Count == 0)
+            {
+                return null;
+            }
+
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var pair in meta.WeaponAttackSkills)
+            {
+                map[pair.Key] = pair.Value;
+            }
+
+            var root = LabJson.ParseObject(text, table);
+            var rewritten = new JsonObjectBuilder();
+            for (var i = 0; i < root.Count; i++)
+            {
+                var entry = root[i];
+                if (!string.Equals(entry.Key, "rows", StringComparison.Ordinal) || !(entry.Value is JsonArray rows))
+                {
+                    rewritten.Add(entry.Key, entry.Value);
+                    continue;
+                }
+
+                var newRows = new List<JsonValue>();
+                foreach (var row in rows)
+                {
+                    if (row is JsonObject dropCandidate && MatchesAny(dropCandidate, dropRules))
+                    {
+                        continue;
+                    }
+
+                    if (!isWeapon || !(row is JsonObject rowObj) || !rowObj.TryGetValue("id", out var idValue) || !(idValue is JsonString idString)
+                        || !map.TryGetValue(idString.Value, out var skill) || rowObj.ContainsKey("auto_attack_timeline_ref"))
+                    {
+                        newRows.Add(row);
+                        continue;
+                    }
+
+                    var builder = new JsonObjectBuilder();
+                    for (var k = 0; k < rowObj.Count; k++)
+                    {
+                        builder.Add(rowObj[k].Key, rowObj[k].Value);
+                    }
+
+                    builder.Add("auto_attack_timeline_ref", LabJson.Str(skill));
+                    newRows.Add(builder.Build());
+                }
+
+                rewritten.Add(entry.Key, new JsonArray(newRows));
+            }
+
+            return LabJson.Write(rewritten.Build());
+        }
+
+        private static bool MatchesAny(JsonObject row, List<KeyValuePair<string, string>> rules)
+        {
+            foreach (var rule in rules)
+            {
+                if (row.TryGetValue(rule.Key, out var value) && value is JsonString text
+                    && string.Equals(text.Value, rule.Value, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private sealed class ReadOnlyDiskFileSystem : IFileSystem
@@ -60,6 +182,35 @@ namespace Lab
 
             public bool DeleteFile(string path) =>
                 throw new NotSupportedException("只读磁盘文件系统不修改数据目录");
+        }
+    }
+
+    /// <summary>整表剔除若干表的数据来源包装（只改 <see cref="ListTables"/>，不动被包装来源）。</summary>
+    public sealed class TableFilterDataSource : IDataSource
+    {
+        private readonly IDataSource _inner;
+        private readonly HashSet<string> _exclude;
+
+        public TableFilterDataSource(IDataSource inner, IEnumerable<string> excludeTables)
+        {
+            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            _exclude = new HashSet<string>(excludeTables ?? throw new ArgumentNullException(nameof(excludeTables)), StringComparer.Ordinal);
+        }
+
+        public string? Root => _inner.Root;
+
+        public IReadOnlyList<DataTableSource> ListTables()
+        {
+            var result = new List<DataTableSource>();
+            foreach (var table in _inner.ListTables())
+            {
+                if (!_exclude.Contains(table.TableName))
+                {
+                    result.Add(table);
+                }
+            }
+
+            return result;
         }
     }
 }

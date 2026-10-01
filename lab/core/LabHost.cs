@@ -221,10 +221,22 @@ namespace Lab
             // 表现：ViewBinder + 记录型假 View，只关心玩家那一个 View 的位姿。
             var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
             var factory = new RecordingViewFactory();
+            var displayInfo = new DisplayInfoRegistry(world.Registry, world.Bus);
             var binder = new ViewBinder(
-                world.Bus, factory, new WorldSimSnapshot(world.World), new DisplayInfoRegistry(world.Registry, world.Bus),
+                world.Bus, factory, new WorldSimSnapshot(world.World), displayInfo,
                 new ViewBinderOptions(null, directionCount));
             binder.OnEntityCreated(playerId, world.Player.Kind, world.Player.TemplateId ?? playerId);
+
+            // 换装场景（脚本 meta.scene = equip）：装出换装链的全部生产部件，脚本里的 equip/unequip 事件经它执行。
+            EquipRig? rig = null;
+            if (string.Equals(meta.Scene, "equip", StringComparison.Ordinal))
+            {
+                rig = EquipRig.Create(world, meta, step, recording, displayInfo);
+            }
+            else if (meta.Scene.Length > 0)
+            {
+                throw new LabFormatException($"脚本 {meta.ScriptId} 的 scene 未知：{meta.Scene}（目前只有 equip）");
+            }
 
             // 脚本事件按 tick 分桶；同 tick 内保持脚本里的先后顺序。
             var byTick = new Dictionary<int, List<ScriptEvent>>();
@@ -251,6 +263,25 @@ namespace Lab
             void ApplyScriptEvent(ScriptEvent e)
             {
                 recording.InjectedInputs.Add(e);
+                if (e.Kind == ScriptEventKind.Equip || e.Kind == ScriptEventKind.Unequip)
+                {
+                    if (rig == null)
+                    {
+                        throw new LabFormatException($"脚本事件 {e.Kind} 只能用在换装场景（meta.scene = equip）");
+                    }
+
+                    if (e.Kind == ScriptEventKind.Equip)
+                    {
+                        rig.Equip(tick, e.Action);
+                    }
+                    else
+                    {
+                        rig.Unequip(tick, e.Action);
+                    }
+
+                    return;
+                }
+
                 var first = FirstBinding(inputMap, e.Action);
                 switch (e.Kind)
                 {
@@ -304,9 +335,17 @@ namespace Lab
                     wasActive[binding.Key] = active;
                     if (active && !before)
                     {
-                        var args = new JsonObjectBuilder().Add("skill_id", new JsonString(binding.Value.Value)).Build();
+                        // 换装场景里普攻动作不走格子的固定绑定，而是按主手武器的 auto_attack_timeline_ref（空手回落空手普攻）解析。
+                        var castSkill = binding.Value;
+                        if (rig != null && string.Equals(binding.Key, "input.action.attack", StringComparison.Ordinal)
+                            && !rig.TryResolveAttackSkill(out castSkill))
+                        {
+                            continue;
+                        }
+
+                        var args = new JsonObjectBuilder().Add("skill_id", new JsonString(castSkill.Value)).Build();
                         world.World.SubmitIntent(new Intent(playerId, "cast", args));
-                        recording.Intents.Add(new CastIntentRecord(tick, binding.Key, binding.Value.Value));
+                        recording.Intents.Add(new CastIntentRecord(tick, binding.Key, castSkill.Value));
                     }
                 }
 
@@ -319,8 +358,12 @@ namespace Lab
 
                 while (eventCursor < world.Events.Count)
                 {
-                    RecordEvent(world.Events[eventCursor++], tick, labels, instanceOrdinals, recording);
+                    var dispatched = world.Events[eventCursor++];
+                    rig?.OnEvent(dispatched, tick);
+                    RecordEvent(dispatched, tick, labels, instanceOrdinals, recording);
                 }
+
+                rig?.EndTick();
 
                 tick++;
             }
@@ -363,6 +406,7 @@ namespace Lab
             }
 
             recording.TotalEventCount = world.Events.Count;
+            rig?.Dispose();
             binder.Dispose();
             return recording;
         }

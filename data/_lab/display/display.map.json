@@ -9,6 +9,12 @@
     { "id": "display.map.lab_elite", "category": "creature", "logical_id": "creature.lab_elite", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
     { "id": "display.map.lab_swarm_unit", "category": "creature", "logical_id": "creature.lab_swarm_unit", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
     { "id": "display.map.lab_patrol", "category": "creature", "logical_id": "creature.lab_patrol", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
-    { "id": "display.map.lab_breakable", "category": "creature", "logical_id": "creature.lab_breakable", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 }
+    { "id": "display.map.lab_breakable", "category": "creature", "logical_id": "creature.lab_breakable", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_equip_attack_sword_1h", "category": "skill", "logical_id": "skill.lab_equip.attack_sword_1h", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_equip_attack_greatsword", "category": "skill", "logical_id": "skill.lab_equip.attack_greatsword", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_equip_attack_dagger", "category": "skill", "logical_id": "skill.lab_equip.attack_dagger", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_equip_attack_bow", "category": "skill", "logical_id": "skill.lab_equip.attack_bow", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_equip_attack_staff", "category": "skill", "logical_id": "skill.lab_equip.attack_staff", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_equip_attack_unarmed", "category": "skill", "logical_id": "skill.lab_equip.attack_unarmed", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 }
   ]
 }

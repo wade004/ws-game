@@ -112,6 +112,9 @@ namespace Core.Rules.Common
 
         /// <summary>局部顿帧解除，见 <see cref="FeelHitstopEndedEvent"/>。</summary>
         public static readonly Id FeelHitstopEnded = new Id("feel.hitstop_ended");
+
+        /// <summary>武器手感引用/武器族变化（换装链），见 <see cref="FeelWeaponChangedEvent"/>。</summary>
+        public static readonly Id FeelWeaponChanged = new Id("feel.weapon_changed");
     }
 
     /// <summary>死亡复活策略（见 06 第 4.6 节表格，三值）。<see cref="UnitRespawnedEvent.Policy"/> 用本

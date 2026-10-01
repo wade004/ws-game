@@ -61,7 +61,7 @@ dotnet run --project toolchain/feellab -- list                        # 六个�
 
 ## 标准脚本与基线
 
-九个脚本（`lab/fixtures/scripts/`），每个脚本在六个格子上各一条基线，共 54 条：`move_tap`、`move_small_axis`、`reverse_180`、`diagonal`、`wall`、`pillar_loop`、`attack_while_moving`、`attack_then_stop`、`group_hit`。另有 30/60/120 帧率上限测试（`meta.frameRateCap` 三档，逻辑组必须逐字节一致）。
+十个脚本（`lab/fixtures/scripts/`），每个脚本在六个格子上各一条基线，共 60 条：`move_tap`、`move_small_axis`、`reverse_180`、`diagonal`、`wall`、`pillar_loop`、`attack_while_moving`、`attack_then_stop`、`group_hit`，以及换装场景脚本 `equip_cycle`（tickRate 60，格式版本 2，见判断记录 15～21）。另有 30/60/120 帧率上限测试（`meta.frameRateCap` 三档，逻辑组必须逐字节一致）。
 
 六个格子（`lab.scenario.*`）：`2d_targeted`、`2d_action`、`2_5d_targeted`、`2_5d_action`、`3d_targeted`、`3d_action`，空间模型均为平面世界。`space` 字段另外接受 `volume`（体积空间能力包，预留）与 `side_2d`（横版二维，预留）；这两个取值的格子在宿主上标"不可运行"并给原因，不静默跳过。
 
@@ -82,11 +82,23 @@ dotnet run --project toolchain/feellab -- list                        # 六个�
 13. **基线单文件多格子**：每个脚本一份基线文件，内含六个格子的 `{key, groups}`，比 54 个小文件更易评审且同脚本的跨格子差异在同一处可见。
 14. **脚本再生**：标准脚本是手写数据，不由程序生成；改脚本即改 `scriptVersion` 并重烘焙该脚本的基线。
 
+15. **换装场景（`equip_cycle`，手感设计/06 第 3.6 节）**：脚本 meta 的 `scene = equip` 让宿主额外装出换装链的全部生产部件（`EquipRig`：手感解析器 + `EquipmentFeelProvider`、`EquipmentFeelChain`、`WeaponActionBinding`、`PoseSelector` + `EquipmentPoseBridge`、外观/武器表现档案来源、装备面板视图模型），脚本里的 `equip`/`unequip` 事件经它执行；每次穿脱之后（该宿主固定步末尾）采集一份运行期事实快照，并记录换装后下一次普攻的相位 tick 实测值与由规则（时间线毫秒 × 解析出的相位倍率，经标定换算）算出的期望值。
+16. **脚本格式版本 2 只在用到时才写**：新增 meta 字段（`scene`、`feelCalibrationId`、`extraDataRoots`、`extraDataExcludeTables`、`extraDataExcludeRows`、`weaponAttackSkills`、`unarmedAttackSkill`）与 `equip`/`unequip` 事件；`InputScript.FormatVersion` 仍是 1，既有九个脚本序列化文本与基线逐字不变，只有换装脚本写 `formatVersion: 2`。内核读取的最高版本升到 2。
+17. **脚本级数据集**：占位装备集（`data/_equip`）与手感数据（`data/_feel`）不进实验室基础数据集（否则会改全部既有基线的数据集哈希与指纹键），而是由脚本 meta 声明 `extraDataRoots`，`LabRunner.DatasetFor(script)` 按脚本合并出独立数据集（按脚本 id 缓存）；基础数据集与既有 54 条基线不受影响。合并时与基础数据集主键重复的表/行由 `extraDataExcludeTables`/`extraDataExcludeRows` 显式剔除（目前是 `l10n.locale` 整表与 `l10n.power.health.name` 一行），不静默去重。实验室专用数据（六个换装普攻技能、自我靶链、显示映射行）放在 `data/_lab`（已有 `lab_dataset` 模块映射）。
+18. **武器 → 普攻技能映射用内存覆盖注入**：占位 `feel.weapon` 行没有 `auto_attack_timeline_ref`，脚本 meta 的 `weaponAttackSkills` 在装载时对 `feel.weapon` 表做内存改写（不动磁盘上的共享占位数据），核心代码读的仍是数据里的真实字段 `auto_attack_timeline_ref`。这是已知局限，见下。
+19. **度量组按需出现（`IConditionalMetricGroup`）**：`equip` 组只在记录带换装记录时计算；指纹比较器对"基线与实际都没有的条件组"跳过，因此既有指纹里没有这一组、既有基线逐字不变。该组度量里凡"缺失/不一致"类（`icon_missing`、`visual_missing`、`layer_fallbacks`、`ui_mismatch`、`pose_family_mismatch`、`unrefreshed_steps`、`stale_version_steps`、`attack_mismatches` 等）期望恒为 0，是"运行期检查与导入校验静态报告零差异"的运行期一侧（静态一侧见 `toolchain/tests/test_equip_runtime_zero_diff.py`）。
+20. **tickRate 必须是 60**：动作时间线按 `SkillOptions.ActionStepSeconds`（缺省 1/60）把毫秒换成 tick，而 `GameplayAssembly` 目前不把宿主步长回填进去；换装场景在 tickRate 不是 60 时显式抛 `LabFormatException`，不静默按错的步长算。
+21. **首次普攻不走 `IActionSkillBinding`**：该接口目前只在"取消进入"路径被动作管线使用，空闲状态下的第一下普攻由宿主在换装场景里经 `WeaponActionBinding.TryResolveAttackSkill` 解出技能 id，再提交 `cast` 意图。
+
 ## 已知局限
 
-- 只覆盖 06 第 3.1 节标准脚本集中九个（短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中）；三段连招、闪避取消、蓄力、被精英打断、击杀、`equip_cycle` 依赖尚未落地的机制，未做。
+- 只覆盖 06 第 3.1 节标准脚本集中十个（短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中、换装循环）；三段连招、闪避取消、蓄力、被精英打断、击杀依赖尚未落地的机制，未做。
 - 度量组只有响应、移动、攻击、性能四组；顿帧、受击、群体合并、装备解析等组随各自机制加入。
 - 无引擎宿主、无面板、无覆盖存储与 A/B；`expectations`（导出为测试时由指纹生成的期望）未实现——当前"导出为测试"产出的是脚本加基线。
 - 三种空间与呈现组合在无头宿主上只有标签与假适配器视图的差异，逻辑判定完全相同（这正是"平面格子间逻辑组指纹逐字节一致"不变量要证明的）；`camera_relative` 控制空间与体积空间格子标"不可运行"。
 - 数据表不能表达的靶子特征：可破坏障碍（动态阻挡）、精英的 `reaction_cap`/霸体/抗硬直、不死木桩的"可选韧性值"（这些需要手感数据域与受击反应机制，见 06 第 2 节）；巡逻靶保留了 AI 但没有脚本覆盖它。
 - 表现时间线只记录假适配器视图的创建与可见位移，不含动画切换、反馈动作、镜头、音效（对应机制未落地）。
+- 换装场景：`GameplayAssembly` 不回填 `SkillOptions.ActionStepSeconds`，所以换装脚本必须 tickRate 60（装置显式抛错，见判断记录 20）。
+- 换装场景：`PresentationAssembly` 没有装出 `PoseSelector`/`EquipmentPoseBridge`，姿势侧由实验室装置自己装（生产装配接线留给后续装配切片）。
+- 换装场景：图标尺寸与逐层剪辑的帧数无法在无头宿主上检查（那是导入校验静态报告的职责，两侧用 `item_facts` 对账）。
+- 换装场景：武器 → `auto_attack_timeline_ref` 的映射由脚本 meta 的内存覆盖注入（占位 `feel.weapon` 行没有该字段，见判断记录 18）。

@@ -37,6 +37,10 @@ namespace Tests.Carriers.Item
                 // RemoveModifiersBySource 触发最终值变化时会 Enqueue 一次 stat.changed。
                 new EventDefinition(Core.Numbers.StatBlock.StatBlockEventKeys.StatChanged, "stat",
                     new[] { "unitId", "stat", "oldValue", "newValue" }),
+                // 换装链（EquipmentFeelChain）发布 feel.weapon_changed、订阅 save.loaded（EquipmentFeelChainTests）。
+                new EventDefinition(RulesEventKeys.FeelWeaponChanged, "feel",
+                    new[] { "unitId", "previousMainRef", "mainRef", "offhandRef", "previousFamily", "family", "feelVersion" }),
+                new EventDefinition(Core.Foundation.SaveSystem.SaveEventKeys.SaveLoaded, "save", new[] { "slotId" }),
             });
 
             return new EventBus(catalog);
@@ -92,6 +96,9 @@ namespace Tests.Carriers.Item
             // 补充对应的 skill.def/skill.aura_def 行。
             registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.Def);
             registry.RegisterSchema(Core.Rules.Skill.SkillSchemas.AuraDef);
+            // item.template.feel_weapon_ref 是指向 feel.weapon 的引用字段；登记该表（无数据时保持空）让换装链用例能塞武器行，
+            // 既有用例不提供数据则不受影响。
+            registry.RegisterSchema(Core.Foundation.Feel.FeelSchemas.Weapon);
 
             if (rules != null)
             {
