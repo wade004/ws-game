@@ -1542,3 +1542,8 @@ InvalidOperationException or ArgumentException or DirectoryNotFoundException)` �
    第二行解析失败时构造整体抛出（无半成品目录）；纯补测，无生产改动。
 5. **`StandardPlayerBuilder.FindLatestInstance` 的"找不回背包实例"分支在现有宿主上不可达**：`InventoryHost.AddItem` 对新槽位恒成功
    且原样记录模板/品质/词缀，按身份匹配不会落空；构造它必须改生产代码或注入返回不一致数据的宿主替身，属防御性兜底，本批不覆盖、不改。
+
+## 判断记录（手感实验室数据表与导航透传，2026-10-02）
+
+1. **`lab.scenario`/`lab.arena`/`lab.dummy_set` 的 schema 声明放在本模块**（`schema/LabSchemas.cs`，由 `SimSchemaCatalog.RegisterAll` 一并注册）：这三张表与 `sim.*` 同属"仅无头宿主与内容工具读取、运行期宿主不读"的工具表，沿用本模块已有的两个接入点（`HeadlessWorldBuilder` 与校验器的 `ExtraSchemaRegistration`），校验器与独立发行包不必新增对实验室内核的引用。本模块只知道表形状，不引用 `lab/` 下的内核，保持"运行时核心程序集不反向引用实验室内核"。归属沿用 `SchemaLayer.Sim`，不新增枚举成员（域名 `lab` 已在 04 第 2.2 节登记）。
+2. **`HeadlessWorldOptions.Navigation`**：新增可选的导航接口透传（转发给 `GameplayAssembly` 既有的 `navigation` 参数；缺省 `null`，即此前恒定的"未装配导航、移动不做阻挡判定"，行为逐位不变），让实验室宿主能把竞技场阻挡登记进桩导航。只增不改，无任何既有调用方受影响。

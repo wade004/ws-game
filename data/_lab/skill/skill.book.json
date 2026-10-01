@@ -1,0 +1,13 @@
+{
+  "table": "skill.book",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.book.lab_hero",
+      "entries": [
+        { "level": 1, "skill_id": "skill.lab_slash" },
+        { "level": 1, "skill_id": "skill.lab_sweep" }
+      ]
+    }
+  ]
+}

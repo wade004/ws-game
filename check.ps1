@@ -877,6 +877,37 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root games/_
 }
 
 # -----------------------------------------------------------------------------
+# 10c. 手感实验室数据集 data/_lab 单独 validate_data.py --strict 校验（手感设计/06，实验室切片）。
+#      _lab 是框架级数据集（占位命名，不进合并根 data/_framework 与默认游戏根），只被实验室命令行/测试按
+#      "框架根 + _lab" 叠加装载；判定同模板数据根：退出码 0 且汇总行 warnings 恰为 0。秒级步骤。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_lab（手感实验室数据集单独校验，warnings 须为 0）" -Id "validate_lab_data" {
+    Push-Location $RepoRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $labDataOutput = @(& python "toolchain/validate_data.py" "--strict" "--framework-root" "data/_framework" "--data-root" "data/_lab")
+        $labDataExit = $LASTEXITCODE
+        $labDataOutput | ForEach-Object { Write-Host $_ }
+    } finally {
+        Pop-Location
+    }
+    if ($labDataExit -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "validate_data.py 退出码=$labDataExit，见上方输出" }
+    }
+    $labSummaryLines = @($labDataOutput | Where-Object { $_ -match 'errors\s+(\d+),\s*warnings\s+(\d+)' })
+    if ($labSummaryLines.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "未在输出里找到 'errors N, warnings M' 汇总行，无法确认 warnings 为 0" }
+    }
+    [void]($labSummaryLines[-1] -match 'errors\s+(\d+),\s*warnings\s+(\d+)')
+    $labErrors = [int]$Matches[1]
+    $labWarnings = [int]$Matches[2]
+    if ($labErrors -ne 0 -or $labWarnings -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "实验室数据集应为 0 error 0 warning，实际 errors=$labErrors warnings=$labWarnings" }
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "errors=0 warnings=0" }
+}
+
+# -----------------------------------------------------------------------------
 # 11. 工作树文本文件无 CR（消费方反馈 E7 根治）。
 # -----------------------------------------------------------------------------
 Invoke-CheckStep "工作树文本文件无 CR（.gitattributes 声明 eol=lf 的路径，消费方反馈 E7）" -Id "crlf_check" {

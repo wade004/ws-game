@@ -1,0 +1,12 @@
+{
+  "table": "ai.rotation",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.rotation.lab_idle",
+      "entries": [
+        { "priority": 10, "condition": "true", "skill_id": "skill.lab_slash" }
+      ]
+    }
+  ]
+}

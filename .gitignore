@@ -73,3 +73,6 @@ docs/manual/concepts/
 # timing/<日期>_main.jsonl（否则主检出变脏，挡住 build.ps1 -Release 与 git merge --ff-only）；
 # 由下一条分支用 toolchain/claim_pending_records.py 领走并入库（AGENTS.md §1b）。
 timing/_pending/
+# 手感实验室（lab/）命令行默认输出目录：指纹文件、完整记录等生成物只留本地；入库的只有 lab/fixtures/ 下的
+# 标准脚本与基线（AGENTS.md §4 生成物不入库）。
+lab/out/

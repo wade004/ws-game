@@ -1,0 +1,18 @@
+{
+  "table": "lab.arena",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.arena.lab_arena",
+      "map_ref": "world.lab_arena",
+      "blocks": [
+        { "name": "straight_wall", "kind": "wall", "min": { "x": 12, "y": -8 }, "max": { "x": 13, "y": 8 } },
+        { "name": "corridor_south", "kind": "wall", "min": { "x": -10, "y": 14 }, "max": { "x": 10, "y": 15 } },
+        { "name": "corridor_north", "kind": "wall", "min": { "x": -10, "y": 18 }, "max": { "x": 10, "y": 19 } },
+        { "name": "pillar_a", "kind": "pillar", "min": { "x": 5, "y": 5 }, "max": { "x": 7, "y": 7 } },
+        { "name": "pillar_b", "kind": "pillar", "min": { "x": -7, "y": -7 }, "max": { "x": -5, "y": -5 } }
+      ],
+      "note": "空地加直墙（x 12..13）、走廊（y 14..15 与 18..19 两道墙之间）、两根柱子；三种组合与两种结算模式共用同一张地形（ADR-0122 决策 1）。"
+    }
+  ]
+}

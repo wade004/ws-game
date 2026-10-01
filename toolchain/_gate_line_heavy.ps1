@@ -410,6 +410,46 @@ try {
             return $true
         }
     }
+
+    # -----------------------------------------------------------------------
+    # 6b'. 手感实验室指纹基线比对（toolchain/feellab suite，手感设计/06）：全部标准脚本 x 6 格子逐个与
+    #      lab/fixtures/baselines 比较。判断记录：与 sim_baseline 同样复用步骤 1 已构建的产物（FeelLab 已入
+    #      Core.sln），不另行构建；退出码契约 0=全部通过、1=有差异、3=缺基线、4=有格子不可运行，
+    #      任一非 0 即 FAIL（缺基线、不可运行都不当作放行——不静默跳过）。差异全文已由 suite 打印在
+    #      上方输出里（可读 diff），不另写文件。
+    # -----------------------------------------------------------------------
+    if ($Quick) {
+        Add-SkippedStep "手感实验室指纹基线比对（toolchain/feellab suite）" "-Quick" -Id "feel_lab_suite"
+    } else {
+        Invoke-CheckStep "手感实验室指纹基线比对（toolchain/feellab suite）" -Id "feel_lab_suite" {
+            $labDll = Join-Path $ArtifactsPath ("bin\FeelLab\" + $Configuration.ToLowerInvariant() + "\FeelLab.dll")
+            if (-not (Test-Path -LiteralPath $labDll)) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "找不到已构建的 $labDll——请确认步骤 1（dotnet build Core.sln --artifacts-path $ArtifactsPath）已成功" }
+            }
+            Push-Location $RepoRoot
+            try {
+                $ErrorActionPreference = "Continue"
+                $labOutput = @(& dotnet $labDll suite)
+                $labExit = $LASTEXITCODE
+                $labOutput | ForEach-Object { Write-Host $_ }
+            } finally {
+                Pop-Location
+            }
+            if ($labExit -ne 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "toolchain/feellab suite 退出码=$labExit（0=全部通过，1=基线有差异，2=参数错误，3=缺基线，4=有格子不可运行，5=数据/脚本内容错误；见上方逐格输出与差异全文）" }
+            }
+            # 解析纯 ASCII 的 RESULT 行（中文汇总行在系统代码页下会被 PowerShell 解码失配）；不通过就是格式漂移，不放行。
+            $labSummary = @($labOutput | Where-Object { "$_" -match '^RESULT total=(\d+) pass=(\d+) diff=(\d+) missing=(\d+) not_runnable=(\d+)' })
+            if ($labSummary.Count -eq 0) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "feellab suite 退出码=0 却没有输出 RESULT 汇总行，无法确认实际比较了多少个（脚本，格子）；通常是 toolchain/feellab/Program.cs 的汇总行格式被改动而本门禁的解析没有同步" }
+            }
+            [void]("$($labSummary[-1])" -match '^RESULT total=(\d+) pass=(\d+)')
+            if ([int]$Matches[1] -lt 1 -or [int]$Matches[1] -ne [int]$Matches[2]) {
+                return [PSCustomObject]@{ Ok = $false; Detail = "feellab suite 汇总异常：$($labSummary[-1])" }
+            }
+            [PSCustomObject]@{ Ok = $true; Detail = "$($labSummary[-1])" }
+        }
+    }
     # -----------------------------------------------------------------------
     # 6c / 6d. 工具链测试环境矩阵（测试覆盖第四批，复盘 I-5 缩减版，设计层拍板见
     #     docs/复盘/测试覆盖剩余项-2026-10-01.md 末节）。只在全量门禁（不含 -Quick、不含 -SkipUnity，

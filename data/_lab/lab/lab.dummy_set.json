@@ -1,0 +1,18 @@
+{
+  "table": "lab.dummy_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.dummy_set.lab_standard",
+      "entries": [
+        { "name": "stake", "kind": "stake", "creature_ref": "creature.lab_stake", "position": { "x": 6, "y": 0 }, "group": "stake" },
+        { "name": "swarm", "kind": "swarm", "creature_ref": "creature.lab_swarm_unit", "position": { "x": 0, "y": 8 }, "group": "swarm", "count": 7, "spacing": 1 },
+        { "name": "mob", "kind": "mob", "creature_ref": "creature.lab_mob", "position": { "x": -6, "y": 0 }, "group": "mob" },
+        { "name": "elite", "kind": "elite", "creature_ref": "creature.lab_elite", "position": { "x": -6, "y": 6 }, "group": "elite" },
+        { "name": "patrol", "kind": "patrol", "creature_ref": "creature.lab_patrol", "position": { "x": 0, "y": -8 }, "group": "patrol", "ai": true },
+        { "name": "breakable", "kind": "breakable", "creature_ref": "creature.lab_breakable", "position": { "x": 8, "y": -4 }, "group": "breakable" }
+      ],
+      "note": "六类靶子：不死木桩、普通怪、精英、群体簇（7 个）、巡逻靶（保留 AI）、可破坏障碍（近似为无 AI 的敌对低血量单位，见 lab/README.md 判断记录）。"
+    }
+  ]
+}

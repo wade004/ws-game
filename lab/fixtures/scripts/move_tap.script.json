@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "meta": {
+    "scriptId": "move_tap",
+    "scriptVersion": 1,
+    "description": "点按移动：向右按 5 个 tick 后松开，量起步延迟、起步速度与停步滑行。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 50,
+    "frameRateCap": 60,
+    "durationTicks": 40,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": []
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 5,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

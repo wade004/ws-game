@@ -1,0 +1,92 @@
+{
+  "formatVersion": 1,
+  "meta": {
+    "scriptId": "attack_while_moving",
+    "scriptVersion": 1,
+    "description": "边走边打：向右走近木桩途中按普攻与技能 1（含射程外失败与冷却内失败），量施放响应与结算时机。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 50,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ]
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 10,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 11,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 35,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 36,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 40,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 45,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 46,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 61,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 70,
+      "action": "input.action.skill_1",
+      "kind": "press"
+    },
+    {
+      "tick": 71,
+      "action": "input.action.skill_1",
+      "kind": "release"
+    }
+  ]
+}

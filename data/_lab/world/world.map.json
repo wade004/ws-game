@@ -1,0 +1,15 @@
+{
+  "table": "world.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "world.lab_arena",
+      "scene_ref": "scene.lab_arena",
+      "nav_ref": "nav.lab_arena",
+      "spawn_points": [
+        { "id": "world.lab_arena.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } }
+    }
+  ]
+}

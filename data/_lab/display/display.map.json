@@ -1,0 +1,14 @@
+{
+  "table": "display.map",
+  "schema_version": 1,
+  "rows": [
+    { "id": "display.map.lab_slash", "category": "skill", "logical_id": "skill.lab_slash", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_sweep", "category": "skill", "logical_id": "skill.lab_sweep", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_stake", "category": "creature", "logical_id": "creature.lab_stake", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_mob", "category": "creature", "logical_id": "creature.lab_mob", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_elite", "category": "creature", "logical_id": "creature.lab_elite", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_swarm_unit", "category": "creature", "logical_id": "creature.lab_swarm_unit", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_patrol", "category": "creature", "logical_id": "creature.lab_patrol", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 },
+    { "id": "display.map.lab_breakable", "category": "creature", "logical_id": "creature.lab_breakable", "kind": "sprite", "sprite_set_id": "sprite.lab_placeholder", "direction_count": 4 }
+  ]
+}

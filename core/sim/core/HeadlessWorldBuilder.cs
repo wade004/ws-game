@@ -132,6 +132,17 @@ namespace Core.Sim
         /// 转发，不改变 <c>Core.Gameplay.Loot</c> 任何既有行为。
         /// </summary>
         public Core.Gameplay.Loot.LootOptions? LootOptions { get; set; }
+
+        /// <summary>
+        /// 手感实验室（06 第 2 节）新增：转发给 <c>GameplayAssembly</c> 构造函数既有的
+        /// <c>navigation</c> 参数（该参数早已存在，本装配根此前从未使用它、恒隐式传 <c>null</c>——
+        /// 即"未装配导航，移动不做阻挡判定"）。默认 <c>null</c> 时行为与新增本属性之前逐位一致。
+        /// 实验室的贴墙/绕柱标准脚本需要导航阻挡矩形（<c>StubNavigation2D.SetBlocking</c>），因此
+        /// 由实验室宿主构造并注入同一个导航实例；本属性本身只是纯粹的传参转发，不改变
+        /// <c>Core.Carriers.Unit.MovementTickHandler</c> 任何既有行为。ABI 只新增（新增可写属性，
+        /// 不动任何既有签名）。
+        /// </summary>
+        public Core.Foundation.EngineAdapter.INavigation2D? Navigation { get; set; }
     }
 
     /// <summary>
@@ -277,6 +288,7 @@ namespace Core.Sim
                 playerUnitProvider: () => options.PlayerId,
                 playerFactionId: options.PlayerFactionId,
                 clockHost: options.EnableDiscreteTimeModel ? clock : null,
+                navigation: options.Navigation,
                 combatOptions: options.CombatOptions,
                 lootOptions: options.LootOptions);
 

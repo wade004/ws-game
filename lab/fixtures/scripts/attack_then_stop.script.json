@@ -1,0 +1,62 @@
+{
+  "formatVersion": 1,
+  "meta": {
+    "scriptId": "attack_then_stop",
+    "scriptVersion": 1,
+    "description": "打完即停：向右走 10 个 tick 后同一 tick 松杆并按普攻，量停步与出手同帧的先后，再原地补一刀。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 50,
+    "frameRateCap": 60,
+    "durationTicks": 60,
+    "playerStart": {
+      "x": 2.5,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ]
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 10,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 10,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 11,
+      "action": "input.action.attack",
+      "kind": "release"
+    },
+    {
+      "tick": 30,
+      "action": "input.action.attack",
+      "kind": "press"
+    },
+    {
+      "tick": 31,
+      "action": "input.action.attack",
+      "kind": "release"
+    }
+  ]
+}

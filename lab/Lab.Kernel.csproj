@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Lab.Kernel</AssemblyName>
+    <RootNamespace>Lab</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/tests/**" />
+  </ItemGroup>
+
+  <!-- 判断记录（依赖方向，见 lab/README.md）：实验室内核依赖无头装配根（Core.Sim，经其既有
+       ProjectReference 链传递可见 Core.Gameplay/Core.Carriers/Core.Rules/Core.Numbers/Core.Foundation）、
+       桩适配层（Adapters.Stub，StubInput/StubClock/StubNavigation2D）与表现层公共部分
+       （Presentation.Common，ViewBinder 与 IView/IViewFactory，用记录型假 View 采表现时间线）。
+       反向不成立：没有任何运行时核心程序集（Core.*、Presentation.Common、Adapters.Stub）引用本工程；
+       引擎侧宿主以后引用本内核（本内核是 netstandard2.1，与核心库同目标框架），本仓库内唯一的引用方是
+       命令行入口 toolchain/feellab 与测试工程 lab/tests。 -->
+  <ItemGroup>
+    <ProjectReference Include="../core/sim/Core.Sim.csproj" />
+    <ProjectReference Include="../adapters/stub/Adapters.Stub.csproj" />
+    <ProjectReference Include="../presentation/Presentation.Common.csproj" />
+  </ItemGroup>
+
+</Project>

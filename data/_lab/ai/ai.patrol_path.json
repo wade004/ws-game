@@ -1,0 +1,14 @@
+{
+  "table": "ai.patrol_path",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "ai.path.lab_patrol_line",
+      "points": [
+        { "x": -4, "y": -8 },
+        { "x": 4, "y": -8 }
+      ],
+      "mode": "pingpong"
+    }
+  ]
+}

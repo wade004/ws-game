@@ -1,0 +1,15 @@
+{
+  "table": "arch.power_type",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "arch.power.health",
+      "name_key": "l10n.power.health.name",
+      "max_source": { "kind": "stat", "stat": "stat.stamina" },
+      "refill_on_leave_combat": true,
+      "start_full": true,
+      "override": true,
+      "description": "Lab override of the framework fixed 100: health max follows stat.stamina so dummies get different health pools (stake huge, mob 60, elite 240); player 100."
+    }
+  ]
+}
