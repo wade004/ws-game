@@ -468,11 +468,14 @@ namespace Core.Rules.Skill
             // 挡在前面，这里只关心"有没有"）。
             Id? nameKey = record.TryGetId("name_key", out var nk) ? nk : (Id?)null;
 
+            // 手感落地（ADR-0115）：可选 timeline 块——未声明为 null，技能与本字段落地之前逐位一致。
+            TimelineDef? timeline = record.TryGetObject("timeline", out var timelineObj) ? TimelineDef.Parse(timelineObj) : null;
+
             return new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
                 respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget, useCondition,
-                nameKey);
+                nameKey, timeline);
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)

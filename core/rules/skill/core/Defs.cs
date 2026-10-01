@@ -74,6 +74,13 @@ namespace Core.Rules.Skill
         /// </summary>
         public Id? NameKey { get; }
 
+        /// <summary>
+        /// 动作时间线块（<c>skill.def.timeline</c>，手感设计/01 第 3.1 节、ADR-0115）：非空表示本技能走时间线结算模式
+        /// （按行动者动作时钟推进 <c>startup → active → recovery</c>，在标记处结算）；<c>null</c> 表示未声明，施法管线与
+        /// 本字段落地之前逐位一致（<c>cast_time</c> 内读条、结束时结算）。
+        /// </summary>
+        public TimelineDef? Timeline { get; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(
@@ -210,6 +217,24 @@ namespace Core.Rules.Skill
             AllowGroundTarget = allowGroundTarget;
             UseCondition = useCondition;
             NameKey = nameKey;
+        }
+
+        /// <summary>
+        /// 手感落地新增重载（ADR-0115）：携带 <see cref="Timeline"/>。判断记录（不是给上一个构造函数追加参数）：同上方
+        /// 各重载一致的 ABI 兼容惯例——既有构造函数追加参数会改变其物理 IL 签名；本重载二十一个参数全部不带默认值，
+        /// 与既有重载（最多 20 个参数）参数个数不重叠，互不冲突。
+        /// </summary>
+        public SkillDef(
+            Id id, Id school, bool isPassive, double range, IReadOnlyList<Id> tags,
+            double castTime, double channelTime, IReadOnlyList<(Id, double)> cost,
+            Id? cooldownCategory, double cooldownDuration, int? chargesMax, double chargesRechargeTime,
+            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags,
+            double actionCost, bool allowGroundTarget, ExprNode? useCondition, Id? nameKey, TimelineDef? timeline)
+            : this(id, school, isPassive, range, tags, castTime, channelTime, cost, cooldownCategory, cooldownDuration,
+                chargesMax, chargesRechargeTime, respectsGcd, targetShapeRef, effects, interruptFlags, actionCost,
+                allowGroundTarget, useCondition, nameKey)
+        {
+            Timeline = timeline;
         }
     }
 

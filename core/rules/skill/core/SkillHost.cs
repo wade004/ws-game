@@ -638,7 +638,8 @@ namespace Core.Rules.Skill
             // 深度复审 C-S1（2026-09-16）修复：改用 GetCastingRemaining 与 QueueWindow 比较，
             // 而不是只用 IsCasting——CastSkill 顶部在剩余时间 <= QueueWindow 时会接受新请求排队
             // （CastResult.Ok），不会以 ActionLocked 拒绝，见本方法 XML 文档判断记录。
-            var castingRemaining = _pipeline.GetCastingRemaining(unitId);
+            // 手感落地：时间线动作进行中 CastSkill 一律 ActionLocked（不排队），就绪查询与之对齐。
+            var castingRemaining = _pipeline.GetActionLockRemaining(unitId);
             var actionLocked = !_options.GcdEnabled && def.RespectsGcd && !isDiscreteStep
                 && castingRemaining.HasValue && castingRemaining.Value > _options.QueueWindow;
             if (actionLocked)
@@ -694,6 +695,39 @@ namespace Core.Rules.Skill
         /// 不在 <see cref="ISkillHost"/> 契约中（该契约由 06 第 7 节固定签名），是本模块对外的补充
         /// 公开方法。</summary>
         public void NotifyMoved(Id unitId) => _pipeline.NotifyMoved(unitId);
+
+        // -----------------------------------------------------------------
+        // 手感落地：动作时间线（ADR-0115，手感设计/01 第 3 节）
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 动作状态只读查询（手感设计/01 第 3.7 节 <see cref="IActionStateQuery"/>）：表现层、实验室与结算管线的无敌窗口前置检查
+        /// 只经它读时间线动作的状态。没有进行中的时间线动作时恒返回"无动作"。
+        /// </summary>
+        public IActionStateQuery ActionStateQuery => _pipeline;
+
+        /// <summary>
+        /// 注入动作时间线的协作者（动作时钟、手感解析器、输入缓冲、输入动作→技能映射、命中解析钩子），见 <see cref="TimelineServices"/>。
+        /// 判断记录：沿用 <see cref="DisplacementSink"/> 的组装期属性赋值惯例，不改任何构造函数的物理签名；未调用时时间线技能仍可用，
+        /// 各协作者按 <see cref="TimelineServices"/> 各成员说明的缺省降级。
+        /// </summary>
+        public void AttachTimelineServices(TimelineServices services) => _pipeline.AttachTimelineServices(services);
+
+        /// <summary>带上下文的施法请求（按下瞬间方向、蓄力按住时长），见 <see cref="CastPipeline.CastSkillWithContext"/>。</summary>
+        public CastResult CastSkillWithContext(Id casterId, Id skillId, IReadOnlyList<Id> targets, ActionCastContext context) =>
+            _pipeline.CastSkillWithContext(casterId, skillId, targets, context);
+
+        /// <summary>
+        /// 移动输入到来：时间线动作进行中且 <c>move</c> 类取消窗口此刻打开时取消该动作（手感设计/01 第 3.4 节），否则忽略。
+        /// 与 <see cref="NotifyMoved"/>（单位位置发生变化）不同——后者对时间线动作不生效。
+        /// </summary>
+        public void NotifyMoveIntent(Id unitId) => _pipeline.NotifyMoveIntent(unitId);
+
+        /// <summary>
+        /// 终止行动者进行中的时间线动作（受击硬直、死亡以外的外部终止入口，如受击裁决切片的 <c>stagger</c>）：
+        /// 发 <c>action.cancelled{reason}</c> 与 <c>skill.cast_interrupted</c>；没有时间线动作时空操作。
+        /// </summary>
+        public void CancelAction(Id unitId, ActionCancelReason reason) => _pipeline.CancelAction(unitId, reason);
 
         // -----------------------------------------------------------------
         // 已知技能 / 技能书

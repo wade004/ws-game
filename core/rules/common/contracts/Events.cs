@@ -361,11 +361,24 @@ namespace Core.Rules.Common
         /// <summary>见 <see cref="CastInstanceId"/> 判断记录：新增重载，四个参数均不带默认值，避免
         /// 与上面三参数旧构造产生重载二义性。</summary>
         public SkillCastInterruptedEvent(Id casterId, Id skillId, Id interrupterId, Id? castInstanceId)
+            : this(casterId, skillId, interrupterId, castInstanceId, reason: null)
+        {
+        }
+
+        /// <summary>
+        /// 打断原因码（手感设计/01 第 3.4 节 <c>skill.cast_interrupted{reason: CANCELLED}</c>）。只有动作时间线的"取消进入"
+        /// 填 <c>"CANCELLED"</c>；既有打断路径（控制/受伤/移动/死亡）保持 <c>null</c>，事件与此前逐位一致。
+        /// </summary>
+        public string? Reason { get; }
+
+        /// <summary>见 <see cref="Reason"/>：新增五参数重载（旧四参数/三参数构造保持不变，<see cref="Reason"/> 为 null）。</summary>
+        public SkillCastInterruptedEvent(Id casterId, Id skillId, Id interrupterId, Id? castInstanceId, string? reason)
         {
             CasterId = casterId;
             SkillId = skillId;
             InterrupterId = interrupterId;
             CastInstanceId = castInstanceId;
+            Reason = reason;
         }
 
         public bool TryGetField(string name, out ExprValue value)
@@ -376,6 +389,7 @@ namespace Core.Rules.Common
                 case "skillId": value = ExprValue.OfId(SkillId); return true;
                 case "interrupterId": value = ExprValue.OfId(InterrupterId); return true;
                 case "castInstanceId" when CastInstanceId.HasValue: value = ExprValue.OfId(CastInstanceId.Value); return true;
+                case "reason" when Reason != null: value = ExprValue.OfString(Reason); return true;
                 default: value = default; return false;
             }
         }

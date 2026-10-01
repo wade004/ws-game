@@ -215,6 +215,9 @@ namespace Core.Rules.Assembly
             registry.RegisterValidationRule(new ChargesRechargeTimeZeroWarningRule());
             registry.RegisterValidationRule(new ChargesMaxAtLeastOneRule());
 
+            // 手感落地（ADR-0115）：skill.def.timeline 块的跨字段语义校验；未声明 timeline 的行整体跳过。
+            registry.RegisterValidationRule(new SkillTimelineRule());
+
             // T-N3-5（04 第 5 节"无时间成本"、ADR-0031 决策 10）：见 SkillValidationRules.cs
             // SkillNoTimeCostWarningRule 判断记录。
             registry.RegisterValidationRule(new SkillNoTimeCostWarningRule());
