@@ -9,7 +9,7 @@
 - **代码注释或文档里写下的任何"已知限制 / 不覆盖的情形 / 边缘路径不处理"，必须逐条原样出现在汇报里**，由派单方决定是否接受；只写在注释里不汇报，等于把缺陷藏进代码（2026-09-26 第三十五批教训：冷加载路径不登记被写成注释里的"已知限制"，消费方首播即踩中）。
 - **冷加载（资源异步加载完成）路径必须与热路径行为一致**：凡改表现层/资源相关代码，"首次引用、加载尚未完成、加载完成后的迟到回填"这条路径要和同步命中缓存的路径走同一出口、同一规则，并作为不变量用例的一支；把它写成"已知限制"一律退回（第三十五、四十四批各返工一轮）。
 - **引擎侧 PlayMode 用例必须自带渲染隔离**：凡读像素、读场景对象、依赖相机取景的 PlayMode 用例，用专属 Layer + 相机 cullingMask 只看自己的对象，并在结束时还原；不得依赖套件里其它用例的清理是否完整（1.84.0 门禁：定向过滤 43/43 绿、全量 342 例里被别的用例残留场景污染而红）。
-- **核心层移动/导航改动必须跑引擎侧移动 PlayMode 定向回归**：这类"跨层交互例外"已登记进 `toolchain/module_map.json`（模块 `unit` 的 `MovementTickHandler.cs`、模块 `engine_adapter` 的导航契约 → 引擎侧 `MovementStopAndBlockingPlayModeTests`，1.84.0 门禁因漏跑返工一轮），`pwsh check.ps1 -Changed main -SkipUnity` 的"本次判定"块会列出命中的例外与待跑的引擎分类，由主会话在主检出执行。
+- **核心层移动/导航改动必须跑引擎侧移动 PlayMode 定向回归**：这类"跨层交互例外"已登记进 `toolchain/module_map.json`（模块 `unit` 的 `MovementTickHandler.cs`、模块 `engine_adapter` 的导航契约 → 引擎侧 `MovementStopAndBlockingPlayModeTests`，1.84.0 门禁因漏跑返工一轮），`pwsh check.ps1 -Changed main -SkipUnity` 的"本次判定"块会列出命中的例外与待跑的引擎分类，在主检出或路径足够短的工作树里执行。
 - **返工修复未发布版本自己引入的回归时，不往 CHANGELOG `[Unreleased]` 加条目**（从未发布的缺陷对消费方不存在）。
 - **提交用显式 pathspec**：`git commit -F <提交信息文件> -- <路径…>`（`-F` 在 `--` 之前）。禁 `git add -A`、
   `git add .`、`git commit -a`；禁 `--amend` 与任何历史改写——写错了用新提交订正。只提交本任务
@@ -62,6 +62,42 @@
   编号由执行 agent 照常写，主会话在合并后统一核对重号并重排。执行 agent 不必为此互相等待，
   但要在汇报里写明自己追加到了哪个编号。
 
+## 1b. 分支与版本约定（2026-10-01 项目负责人拍板，对所有会话、所有人生效）
+
+- **禁止直接在 `main` 上提交。** 任何改动（代码、文档、发布收口）都从 `main` 拉分支，在自己的分支上
+  提交，再合并回 `main`。主检出 `D:\workespace\ws-game` 只用于合并、跑合并后的全量门禁与发布；
+  日常改动一律在工作树分支里做。
+- **分支命名**：
+  - 需求变更：`feature/<需求名称>_<年月日>`，例 `feature/targeted-gate_20261001`。
+  - 缺陷修复：`bugfix/<缺陷名称>_<年月日>`，例 `bugfix/cold-load-attach-key_20261001`。
+  - **名称只用英文**（小写字母、数字、连字符），不含中文、不含空格；年月日为拉分支当天，八位数字。
+  - 发布维护分支沿用既有 `release/X.Y.x`（§5），不套用上面两种前缀。
+- **分支版本号**：分支可以单独设置 `VERSION`，格式 `<拉分支时 main 的版本号>_<分支名去掉 feature/ 或
+  bugfix/ 前缀>`，例 `1.91.0_targeted-gate_20261001`。合并回 `main` 后，版本号按 `main` 当前版本升级
+  （语义化版本规则，§5），格式 `<升级后版本号>_release`，例 `1.92.0_release`。
+  - 执行 agent 不改 `VERSION`（§1 既有规则不变）；分支版本号由拉分支的人设置，合并后的版本号由
+    `build.ps1 -Release` 写回。
+  - 现有版本一致性门禁、`build.ps1` 的版本解析与 npm 包版本字段只接受纯 `X.Y.Z`，带后缀的格式要等
+    「版本后缀适配」切片落地后才能在 `VERSION` 文件里实际写入；落地前分支不改 `VERSION`，版本标识只
+    体现在分支名。该切片落地后删除本条说明。
+- **合并前后都跑全量门禁**：合并到 `main` 之前，在分支上跑一次全量（含引擎侧）；合并之后在 `main` 上
+  再跑一次全量。两次都在 `REGRESSION_LOG.md` 追加一行。这是 §4 回归分级里全量回归的第四种
+  时刻；定向门禁（`check.ps1 -Changed`）只用于分支内的日常迭代，不替代合并前后的全量。
+
+## 1c. 耗时记录（2026-10-01 项目负责人拍板，每个任务必做）
+
+- **每个任务都记录每个阶段、每个步骤的耗时**，写到仓库根 `timing/` 目录，一个任务一个文件：
+  `timing/<年月日>_<分支名去前缀>.jsonl`（同一分支多次任务追加到同一文件）。
+- 每行一条 JSON，字段固定：`task`（任务一句话）、`branch`、`phase`、`step`、`start`、`end`
+  （ISO 8601 本地时间，精确到秒）、`seconds`、`result`（`PASS`/`FAIL`/`SKIP`/`DONE`）、`note`（可空）。
+- `phase` 取固定值之一：`勘察`、`设计`、`编码`、`定向门禁`、`全量门禁`、`提交`、`汇报`、`等待`
+  （等用户/等上游/排队等引擎）。`step` 自由命名但要稳定（同一动作每次同名），便于跨任务汇总。
+- 门禁运行的逐步耗时（check.ps1 汇总表里的 Seconds 列）由门禁自动追加到当前任务文件；该自动追加由
+  「耗时记录」切片落地，落地前执行 agent 把汇总表里的每步秒数手工抄成行。
+- 这个目录**入库**，是「生成物不进 git」规则的明示例外：每行只有一条短记录，是统计的原始数据。
+  日志全文仍不入库。
+- 汇报里的「实测耗时」一律引用 `timing/` 里的行，不另抄一份。
+
 ## 2. 仓库硬性规则
 
 - `architecture/00～14`、`architecture/adr/`、`数值设计/` 正文不出现任何引擎/语言/框架/工具名（`immunity` 例外）；具体技术名只允许写在 `architecture/选型/`、`architecture/落地计划/`、`toolchain/`、`adapters/`、`docs/`。
@@ -113,15 +149,16 @@
 - **回归分级（唯一口径，替换此前"每次改动跑全量"的旧条款——旧条款与本条不并存）**：
   - **日常切片**：以 `toolchain/module_map.json` 为准，切片级跑 `pwsh check.ps1 -Changed main -SkipUnity`
     （改动 → 影响集 T0～T3 → 只跑被触发的步骤与测试工程，规则见 ADR-0126）；引擎侧待跑的 PlayMode
-    分类由判定块给出，主会话执行（agent 不能开引擎）。不要求跑 G1/G2 的全量部分。
+    分类由判定块给出，在主检出或路径足够短的工作树里跑（见本节 MAX_PATH 条；深层 scratchpad 工作树的任务交主会话）。不要求跑 G1/G2 的全量部分。
   - **全量回归**（G1 的 `dotnet test Core.sln` 全量、`pytest toolchain/tests -q` 全量、三套数据根
-    全量校验；G2 的 `check.ps1 -Quick` 全量）只在以下三种时刻跑：① 里程碑收口；② 升级框架/依赖
+    全量校验；G2 的 `check.ps1 -Quick` 全量）只在以下四种时刻跑：① 里程碑收口；② 升级框架/依赖
     版本之后；③ 改了生产装配入口（`*Assembly` 装配类等游戏启动实际加载的组装点）或多模块共享
-    数据（登记表 schema、跨模块契约）之后。
+    数据（登记表 schema、跨模块契约）之后；④ 合并到 `main` 之前与之后各一次（§1b，分支约定新增的
+    第四种时刻）。
   - **执行 agent 不得为"再确认一次"一类理由自行追加全量回归**：如切片跑完后仍觉得有必要跑全量，
     在汇报里写明理由，是否补跑由派单方（设计层或验收 agent）决定，不擅自执行。
-- **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向子集。
-- **G2**：`check.ps1 -Quick` 全 PASS。**全量部分只在上述三种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向重跑，不必跑 `check.ps1 -Quick` 全量。
+- **G1**：`dotnet build` 0 警告；`dotnet test Core.sln` 全过；`python -m pytest toolchain/tests -q` 全过；三套数据根跑 `validate_data.py --strict`——默认数据根与 `games/_template/data/game` 必须 warnings 为 0，`core/sim/tests/data` 只允许已确认的探针项警告。**全量部分只在上述四种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向子集。
+- **G2**：`check.ps1 -Quick` 全 PASS。**全量部分只在上述四种时刻跑**；日常切片跑该切片自己的运行时冒烟 + 直接波及模块的定向重跑，不必跑 `check.ps1 -Quick` 全量。
 - **G3**：`dotnet build -c Release --artifacts-path X` 之后跑 `toolchain\abi_probe.ps1 -BaselineZip "dist\ws-game-<上一版>.zip" -ArtifactsPath X -OutDir <scratchpad>\abi_<task>`，要求 breaks=0。
 - **G4**：模块 README 的"判断记录" + `CHANGELOG.md` `[Unreleased]` 段新增条目——除非派单说明本次改动由后续整合单统一写变更记录。
 - 涉及仿真相关改动，三份基线要零差异（`simrunner run --scenario all …`）。**`Added`（基线里从未
@@ -173,7 +210,7 @@
 
 ## 7. 复审/验收单专用
 
-- **独立验收 agent 只在里程碑收口时派一次**（对应第 4 节"回归分级"里全量回归的三种时刻之一）；
+- **独立验收 agent 只在里程碑收口时派一次**（对应第 4 节"回归分级"里全量回归的几种时刻之一）；
   升级依赖、改生产装配入口/跨模块共享数据触发的全量回归由执行/复核方自行核对，不必单独派验收
   agent。**文档类、登记类提交不派验收**（如只改 `architecture/` 正文、README"判断记录"、
   CHANGELOG、登记表勘误，未触碰代码/构建产物）。
