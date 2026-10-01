@@ -374,6 +374,24 @@ if ($TimingTask -eq "") {
     $TimingTask = Get-GateTimingDefaultTask -BoundParameters $PSBoundParameters
 }
 
+# 版本标签（ADR-0127，AGENTS.md §1b）：由 toolchain/version_label.py 按当前分支自动推导（feature/bugfix 分支
+# `<VERSION>_<名>`，main `<VERSION>_release`），不写进 VERSION。开头打印、汇总末尾再打印一次；同时经环境变量
+# WsGameVersionLabel 传给本进程启动的 dotnet 构建（Directory.Build.props 据此写程序集信息版本）。
+# 推导失败（无 python/无 git）只提示，不影响门禁判定——"分支名规范"步骤会单独把关。
+$VersionLabel = ""
+try {
+    $labelOut = & python (Join-Path $RepoRoot "toolchain\version_label.py") "--repo-root" $RepoRoot
+    if ($LASTEXITCODE -eq 0 -and $labelOut) { $VersionLabel = ([string]@($labelOut)[0]).Trim() }
+} catch {
+    $VersionLabel = ""
+}
+if ($VersionLabel -ne "") {
+    $env:WsGameVersionLabel = $VersionLabel
+    Write-Host "版本标签：$VersionLabel" -ForegroundColor Cyan
+} else {
+    Write-Host "版本标签：（推导失败：需要 python 与 git 可用）" -ForegroundColor Yellow
+}
+
 if ($ArtifactsPath -eq "") {
     $ArtifactsPath = Join-Path $RepoRoot "bin\_check_artifacts"
 }
@@ -702,6 +720,21 @@ Invoke-CheckStep "版本一致性：VERSION、两个 package.json、packages-loc
         throw ("版本不一致：`n" + ($mismatches -join "`n"))
     }
     [PSCustomObject]@{ Ok = $true; Detail = "VERSION=$version，两个 package.json、packages-lock.json 与 CHANGELOG.md 一致" }
+}
+
+# -----------------------------------------------------------------------------
+# 3a. 分支名规范（ADR-0127，AGENTS.md §1b）：feature/、bugfix/ 前缀的分支必须形如
+#     `feature|bugfix/<小写英文数字连字符>_<八位年月日>`；main、release/X.Y.x、游离 HEAD 不判定。
+#     纯 Python、毫秒级，所有模式都跑（含 -DocsOnly）。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "分支名规范（python toolchain/version_label.py --check-branch-name，ADR-0127）" -DocRelevant -Id "branch_name" {
+    $branchOut = & python (Join-Path $RepoRoot "toolchain\version_label.py") "--repo-root" $RepoRoot "--check-branch-name"
+    $branchExit = $LASTEXITCODE
+    $branchText = (@($branchOut) -join " ").Trim()
+    if ($branchExit -ne 0) {
+        Write-Host $branchText -ForegroundColor Red
+    }
+    [PSCustomObject]@{ Ok = ($branchExit -eq 0); Detail = $branchText }
 }
 
 # -----------------------------------------------------------------------------
@@ -1071,6 +1104,11 @@ if ($failed.Count -gt 0) {
 } else {
     Write-Host "门禁通过：全部 $($script:Results.Count) 步（步骤耗时求和 ${totalSeconds}s，脚本总墙钟 ${overallSeconds}s）。" -ForegroundColor Green
     $exitCode = 0
+}
+if ($VersionLabel -ne "") {
+    Write-Host "版本标签：$VersionLabel" -ForegroundColor Cyan
+} else {
+    Write-Host "版本标签：（推导失败：需要 python 与 git 可用）" -ForegroundColor Yellow
 }
 
 # 耗时自动记录（判断记录 10)）：通过/失败都写；写入失败不影响门禁结论，只在汇总末尾打一行警告。

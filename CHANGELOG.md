@@ -468,6 +468,7 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **定向模式不再把「T? 未触发」误报为环境性 SKIP**：汇总段的环境性 SKIP 判定正则把定向模式的未触发原因归入开关类；主线新增的环境矩阵 6c/6d 与 IL2CPP 三步补步骤编号并登记模块表。
 - **pytest 用例数下限上调**：`toolchain/gate_floors.json` 的 pytest `min_passed` 780 → 840（合并前全量门禁实测 934，新增定向门禁用例）。
 - **门禁耗时自动记录**：`check.ps1` 每次运行结束（通过或失败都写）把每个步骤追加到 `timing/<年月日>_<分支名去 feature/ bugfix/ 前缀>.jsonl`（main 上为 `<年月日>_main.jsonl`），字段与 `AGENTS.md` §1c 一致（task/branch/phase/step/start/end/seconds/result/note）；`phase` 定向模式记 `定向门禁`、否则 `全量门禁`，`step` 用步骤稳定 `-Id`（所有步骤调用点补齐 `-Id`，含被开关跳过的步骤），start/end 是每步真实起止时间（并行线在各自子进程里取、经结果 JSON 带回），另加一行 `_total` 记脚本总墙钟。新增 `-NoTiming`（预提交钩子与 `build.ps1 -Release` 调用时带，免得弄脏工作树）与 `-TimingTask "<一句话>"`（缺省 `check.ps1 <参数串>`）；写入失败不影响门禁结论，只在汇总末尾打一行警告。新增 `toolchain/timing_report.py`：读 `timing/*.jsonl` 按 phase、按 step 输出次数/合计/中位数/P90/最大值，支持 `--since`、`--branch`、`--phase`、`--json`，只写 stdout。
+- **分支版本标签由工具自动推导（ADR-0127）**：落地 `AGENTS.md` §1b 的版本号格式。新增 `toolchain/version_label.py`：feature/bugfix 分支标签为 `<VERSION>_<名>`，main 为 `<VERSION>_release`，其它分支把 `/` 换成 `-`，游离 HEAD 为 `<VERSION>_detached-<短提交号>`；`--check-branch-name` 检查分支名规范。`check.ps1` 开头与汇总末尾打印"版本标签：…"，新增门禁步骤"分支名规范"（只判 feature/bugfix 分支，已登记模块表）。`Directory.Build.props` 把程序集信息版本设为标签（`check.ps1`/`build.ps1` 经环境变量传入，未传时回退 `VERSION` 内容；程序集版本与文件版本不动，ABI 不变，没有新增公开接口）。`build.ps1 -Release` 的发布说明首行写 `<新版本>_release`（`toolchain/_release_notes.ps1`）。`VERSION`、包版本、发布标签、发布包名、变更日志标题与 ABI 基线仍是纯语义化版本，版本校验逻辑不变。
 
 ## [1.92.0] - 2026-10-01
 

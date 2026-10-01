@@ -73,7 +73,8 @@
          复盘 I-13）。
       6. 非 `-DryRun` 时：门禁通过后立即提交 VERSION/两个 package.json/packages-lock.json/
          CHANGELOG.md 的改动（提交信息 `发布 <ver>`），并在 `dist/release-notes-<ver>.txt` 落一份
-         CHANGELOG.md 该版本条目正文（供 `gh release create --notes-file` 使用）——先于下一步打包，
+         CHANGELOG.md 该版本条目正文（供 `gh release create --notes-file` 使用；首行写版本标签
+         `<ver>_release`，空一行后接正文，ADR-0127）——先于下一步打包，
          使打包阶段 `git rev-parse HEAD` 就是这次发布提交本身、工作树干净，`dist/ws-game-<ver>.lock`
          与 `MANIFEST.txt` 的 `git_commit` 字段因此指向一个真实存在的发布提交而不是带 `-dirty`
          后缀的占位值（时序判断记录见脚本内该步骤注释）。
@@ -195,6 +196,24 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 # 守卫同一模式），供 toolchain/tests/test_release_regression_guard.py 单独 dot-source 测试，规则与
 # 记录行格式见该文件头。
 . (Join-Path $RepoRoot "toolchain\_release_regression_guard.ps1")
+# 判断记录（版本标签，ADR-0127）：发布说明首行写 `<新版本>_release`，构造函数独立成文件供测试直接调用。
+. (Join-Path $RepoRoot "toolchain\_release_notes.ps1")
+
+# 版本标签（ADR-0127，AGENTS.md §1b）：由 toolchain/version_label.py 按当前分支自动推导，经环境变量
+# WsGameVersionLabel 传给本脚本启动的 dotnet 构建（Directory.Build.props 据此写程序集信息版本）。
+# 不写进 VERSION、不进包版本与发布标签（那些必须是纯 X.Y.Z）。推导失败只提示，退回 VERSION 内容（Directory.Build.props 兜底）。
+# -Release 时下面会再覆盖成 `<新版本>_release`。
+$BuildVersionLabel = ""
+try {
+    $buildLabelOut = & python (Join-Path $RepoRoot "toolchain\version_label.py") "--repo-root" $RepoRoot
+    if ($LASTEXITCODE -eq 0 -and $buildLabelOut) { $BuildVersionLabel = ([string]@($buildLabelOut)[0]).Trim() }
+} catch {
+    $BuildVersionLabel = ""
+}
+if ($BuildVersionLabel -ne "") {
+    $env:WsGameVersionLabel = $BuildVersionLabel
+    Write-Host "版本标签：$BuildVersionLabel" -ForegroundColor Cyan
+}
 
 function Write-Step {
     param([string]$Message)
@@ -316,6 +335,9 @@ if ($ReleaseRequested) {
         $ReleaseBumpIsMajorOrMinor = $true
     }
     Write-Host "  版本号校验通过：$ReleaseCurrentVersion -> $Release"
+    # 版本标签（ADR-0127）：发布后的版本号格式是 `<新版本>_release`，本次发布构建的程序集信息版本与发布说明首行都用它。
+    $env:WsGameVersionLabel = "${Release}_release"
+    Write-Host "  版本标签：${Release}_release（程序集信息版本与发布说明首行；VERSION、包版本、发布标签仍是纯 $Release）"
 
     # 第 2 步：工作树必须干净（发布快照不能夹带未提交的改动）。DryRun 同样校验——DryRun 的目的是
     # 验证"整条发布流水线打完收工时工作树会是什么状态"，跳过这一步校验会让 DryRun 失去意义。
@@ -471,8 +493,8 @@ if ($ReleaseRequested) {
 
         New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot "dist") | Out-Null
         $releaseNotesPath = Join-Path $RepoRoot ("dist\release-notes-" + $Release + ".txt")
-        [System.IO.File]::WriteAllText($releaseNotesPath, $ReleaseChangelogSection, (New-Object System.Text.UTF8Encoding($false)))
-        Write-Host "  已生成 $releaseNotesPath（CHANGELOG.md [$Release] 条目正文，供 gh release create --notes-file 使用）"
+        [System.IO.File]::WriteAllText($releaseNotesPath, (New-ReleaseNotesText -Version $Release -ChangelogSection $ReleaseChangelogSection), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已生成 $releaseNotesPath（首行 ${Release}_release，其后为 CHANGELOG.md [$Release] 条目正文，供 gh release create --notes-file 使用）"
 
         Push-Location $RepoRoot
         try {
