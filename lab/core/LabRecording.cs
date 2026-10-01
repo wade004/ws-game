@@ -168,6 +168,9 @@ namespace Lab
         /// <summary>玩家出生点（<c>Ticks</c> 的第 0 步之前的位置）。</summary>
         public Vec2 StartPosition { get; set; }
 
+        /// <summary>换装场景的运行期记录（脚本 meta 的 <c>scene</c> 为 <c>equip</c> 时才有，否则为 null）。</summary>
+        public EquipRecording? Equip { get; set; }
+
         /// <summary>出场靶子清单（出场标签 → 初始位置），按出场顺序。</summary>
         public List<KeyValuePair<string, Vec2>> Dummies { get; } = new List<KeyValuePair<string, Vec2>>();
 

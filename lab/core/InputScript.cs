@@ -5,12 +5,18 @@ using Core.Foundation.Common.Json;
 
 namespace Lab
 {
-    /// <summary>脚本事件种类：按下、松开、轴值（轴值每个事件设一次并保持，直到下一个同动作的轴事件）。</summary>
+    /// <summary>
+    /// 脚本事件种类：按下、松开、轴值（轴值每个事件设一次并保持，直到下一个同动作的轴事件）；
+    /// 换装场景（<see cref="ScriptMeta.Scene"/> = <c>equip</c>，格式版本 2）另有穿上物品与卸下槽位：
+    /// <see cref="Equip"/> 的 <see cref="ScriptEvent.Action"/> 是物品模板 id，<see cref="Unequip"/> 的是装备槽位 id。
+    /// </summary>
     public enum ScriptEventKind
     {
         Press,
         Release,
         Axis,
+        Equip,
+        Unequip,
     }
 
     /// <summary>
@@ -81,6 +87,46 @@ namespace Lab
 
         /// <summary>本次出场的靶子分组标签（<c>lab.dummy_set</c> 条目的 <c>group</c>）。</summary>
         public List<string> DummyGroups { get; } = new List<string>();
+
+        /// <summary>
+        /// 场景类型（格式版本 2）：空 = 既有的移动/攻击场景；<c>equip</c> = 换装场景（装出手感解析器、换装链、
+        /// 姿势选择器与普攻映射，脚本里可用 <c>equip</c>/<c>unequip</c> 事件）。
+        /// </summary>
+        public string Scene { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 在运行入口给定的数据集之外，本脚本额外叠加的数据根（格式版本 2，相对路径按运行入口的解析器解析）。
+        /// 换装场景要叠加框架手感档案与占位装备集（<c>data/_feel</c>、<c>data/_equip</c>），既有脚本的数据集不受影响。
+        /// </summary>
+        public List<string> ExtraDataRoots { get; } = new List<string>();
+
+        /// <summary>额外数据根里要整表剔除的表名（它们与基础数据集主键重复，例如两个根各自带一行同主键的本地化语言行）。</summary>
+        public List<string> ExtraDataExcludeTables { get; } = new List<string>();
+
+        /// <summary>
+        /// 额外数据根里要剔除的单行（格式版本 2）：<c>表名/字段名=字段值</c>，例如 <c>l10n.text/key=l10n.power.health.name</c>
+        /// 剔除该表里 <c>key</c> 字段等于该值的行（它们与基础数据集主键重复，且只重复个别行，不值得整表剔除）。
+        /// </summary>
+        public List<string> ExtraDataExcludeRows { get; } = new List<string>();
+
+        /// <summary>换装场景用的手感标定行 id（<c>feel.calibration.*</c>）；数据里有多行标定时必须指定。</summary>
+        public string FeelCalibrationId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 武器手感行 id → 普通攻击时间线技能 id（格式版本 2）。运行入口把它在内存里写成各武器行的
+        /// <c>auto_attack_timeline_ref</c>（占位装备集的武器行没有声明该字段，实验室不改共享数据），
+        /// 运行时普攻映射读的仍是数据契约字段本身。保持声明顺序。
+        /// </summary>
+        public List<KeyValuePair<string, string>> WeaponAttackSkills { get; } = new List<KeyValuePair<string, string>>();
+
+        /// <summary>空手（主手没有武器行或武器行没声明普攻时间线）时的普通攻击技能 id。</summary>
+        public string UnarmedAttackSkill { get; set; } = string.Empty;
+
+        /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
+        public bool UsesExtendedFormat =>
+            Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
+            || FeelCalibrationId.Length > 0
+            || WeaponAttackSkills.Count > 0 || UnarmedAttackSkill.Length > 0;
     }
 
     /// <summary>
@@ -89,8 +135,39 @@ namespace Lab
     /// </summary>
     public sealed class InputScript
     {
-        /// <summary>文件格式版本；格式不兼容变更时递增，读取方拒绝未知的更高版本。</summary>
+        /// <summary>基础文件格式版本（既有脚本一律是它，序列化也保持写它）；格式不兼容变更时递增，读取方拒绝未知的更高版本。</summary>
         public const int FormatVersion = 1;
+
+        /// <summary>
+        /// 换装场景扩展格式版本：只加不改——新增 meta 字段与 <c>equip</c>/<c>unequip</c> 事件。只有脚本真的用到扩展字段
+        /// （<see cref="ScriptMeta.UsesExtendedFormat"/> 或含换装事件）才写这个版本，其余脚本的序列化文本与扩展之前逐字相同。
+        /// </summary>
+        public const int ExtendedFormatVersion = 2;
+
+        /// <summary>本内核读取的最高格式版本。</summary>
+        public const int MaxSupportedFormatVersion = ExtendedFormatVersion;
+
+        /// <summary>该脚本序列化时写的格式版本。</summary>
+        public int EffectiveFormatVersion
+        {
+            get
+            {
+                if (Meta.UsesExtendedFormat)
+                {
+                    return ExtendedFormatVersion;
+                }
+
+                foreach (var e in Events)
+                {
+                    if (e.Kind == ScriptEventKind.Equip || e.Kind == ScriptEventKind.Unequip)
+                    {
+                        return ExtendedFormatVersion;
+                    }
+                }
+
+                return FormatVersion;
+            }
+        }
 
         public ScriptMeta Meta { get; }
 
@@ -106,9 +183,9 @@ namespace Lab
         {
             var root = LabJson.ParseObject(text, what);
             var format = root.TryGetValue("formatVersion", out var f) && f is JsonNumber fn ? (int)fn.Value : 1;
-            if (format > FormatVersion)
+            if (format > MaxSupportedFormatVersion)
             {
-                throw new LabFormatException($"{what} 的 formatVersion={format} 高于本内核支持的 {FormatVersion}");
+                throw new LabFormatException($"{what} 的 formatVersion={format} 高于本内核支持的 {MaxSupportedFormatVersion}");
             }
 
             var metaObj = LabJson.RequireObject(root, "meta", what);
@@ -140,6 +217,24 @@ namespace Lab
                 }
             }
 
+            meta.Scene = LabJson.OptionalString(metaObj, "scene", what + ".meta") ?? string.Empty;
+            meta.FeelCalibrationId = LabJson.OptionalString(metaObj, "feelCalibrationId", what + ".meta") ?? string.Empty;
+            meta.UnarmedAttackSkill = LabJson.OptionalString(metaObj, "unarmedAttackSkill", what + ".meta") ?? string.Empty;
+            ReadStrings(metaObj, "extraDataRoots", meta.ExtraDataRoots, what + ".meta");
+            ReadStrings(metaObj, "extraDataExcludeTables", meta.ExtraDataExcludeTables, what + ".meta");
+            ReadStrings(metaObj, "extraDataExcludeRows", meta.ExtraDataExcludeRows, what + ".meta");
+            if (metaObj.TryGetValue("weaponAttackSkills", out var was) && was is JsonObject wasObj)
+            {
+                for (var i = 0; i < wasObj.Count; i++)
+                {
+                    meta.WeaponAttackSkills.Add(new KeyValuePair<string, string>(
+                        wasObj[i].Key,
+                        wasObj[i].Value is JsonString ws
+                            ? ws.Value
+                            : throw new LabFormatException($"{what}.meta.weaponAttackSkills.{wasObj[i].Key} 必须是字符串")));
+                }
+            }
+
             if (meta.TickRate <= 0 || meta.FrameRateCap <= 0 || meta.DurationTicks <= 0)
             {
                 throw new LabFormatException($"{what}.meta 的 tickRate/frameRateCap/durationTicks 必须为正");
@@ -162,7 +257,9 @@ namespace Lab
                     case "press": kind = ScriptEventKind.Press; break;
                     case "release": kind = ScriptEventKind.Release; break;
                     case "axis": kind = ScriptEventKind.Axis; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis）");
+                    case "equip": kind = ScriptEventKind.Equip; break;
+                    case "unequip": kind = ScriptEventKind.Unequip; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip）");
                 }
 
                 var value = Vec2.Zero;
@@ -179,6 +276,31 @@ namespace Lab
             return new InputScript(meta, events);
         }
 
+        private static void ReadStrings(JsonObject obj, string key, List<string> into, string what)
+        {
+            if (!obj.TryGetValue(key, out var value) || !(value is JsonArray array))
+            {
+                return;
+            }
+
+            foreach (var item in array)
+            {
+                into.Add(item is JsonString str ? str.Value : throw new LabFormatException($"{what}.{key} 的元素必须是字符串"));
+            }
+        }
+
+        private static string KindText(ScriptEventKind kind)
+        {
+            switch (kind)
+            {
+                case ScriptEventKind.Press: return "press";
+                case ScriptEventKind.Release: return "release";
+                case ScriptEventKind.Axis: return "axis";
+                case ScriptEventKind.Equip: return "equip";
+                default: return "unequip";
+            }
+        }
+
         public string ToJson()
         {
             var meta = new JsonObjectBuilder()
@@ -193,8 +315,26 @@ namespace Lab
                 .Add("frameRateCap", LabJson.Num(Meta.FrameRateCap))
                 .Add("durationTicks", LabJson.Num(Meta.DurationTicks))
                 .Add("playerStart", LabJson.Vec(Meta.PlayerStart))
-                .Add("dummyGroups", new JsonArray(Meta.DummyGroups.ConvertAll(g => (JsonValue)LabJson.Str(g))))
-                .Build();
+                .Add("dummyGroups", new JsonArray(Meta.DummyGroups.ConvertAll(g => (JsonValue)LabJson.Str(g))));
+            if (Meta.UsesExtendedFormat)
+            {
+                // 扩展字段只在用到时才写，既有脚本的序列化文本因此与扩展之前逐字相同。
+                meta.Add("scene", LabJson.Str(Meta.Scene))
+                    .Add("feelCalibrationId", LabJson.Str(Meta.FeelCalibrationId))
+                    .Add("extraDataRoots", new JsonArray(Meta.ExtraDataRoots.ConvertAll(g => (JsonValue)LabJson.Str(g))))
+                    .Add("extraDataExcludeTables", new JsonArray(Meta.ExtraDataExcludeTables.ConvertAll(g => (JsonValue)LabJson.Str(g))))
+                    .Add("extraDataExcludeRows", new JsonArray(Meta.ExtraDataExcludeRows.ConvertAll(g => (JsonValue)LabJson.Str(g))));
+                var attackSkills = new JsonObjectBuilder();
+                foreach (var pair in Meta.WeaponAttackSkills)
+                {
+                    attackSkills.Add(pair.Key, LabJson.Str(pair.Value));
+                }
+
+                meta.Add("weaponAttackSkills", attackSkills.Build())
+                    .Add("unarmedAttackSkill", LabJson.Str(Meta.UnarmedAttackSkill));
+            }
+
+            var metaValue = meta.Build();
 
             var events = new List<JsonValue>();
             foreach (var e in Events)
@@ -202,7 +342,7 @@ namespace Lab
                 var b = new JsonObjectBuilder()
                     .Add("tick", LabJson.Num(e.Tick))
                     .Add("action", LabJson.Str(e.Action))
-                    .Add("kind", LabJson.Str(e.Kind == ScriptEventKind.Press ? "press" : e.Kind == ScriptEventKind.Release ? "release" : "axis"));
+                    .Add("kind", LabJson.Str(KindText(e.Kind)));
                 if (e.Kind == ScriptEventKind.Axis)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
@@ -217,8 +357,8 @@ namespace Lab
             }
 
             var root = new JsonObjectBuilder()
-                .Add("formatVersion", LabJson.Num(FormatVersion))
-                .Add("meta", meta)
+                .Add("formatVersion", LabJson.Num(EffectiveFormatVersion))
+                .Add("meta", metaValue)
                 .Add("events", new JsonArray(events))
                 .Build();
             return LabJson.Write(root);

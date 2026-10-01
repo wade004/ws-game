@@ -232,6 +232,12 @@ namespace Lab
             {
                 if (!baseline.Groups.TryGetValue(group.Name, out var bgv) || !(bgv is JsonObject bg))
                 {
+                    if (group is IConditionalMetricGroup && !actual.Groups.ContainsKey(group.Name))
+                    {
+                        // 条件组：基线与实际都没有它（该运行不适用），不是"新增组"。
+                        continue;
+                    }
+
                     diff.Warnings.Add($"度量组 {group.Name} 不在基线里（新增组：用 --update-baseline 扩充基线后才参与比较）");
                     continue;
                 }

@@ -41,6 +41,84 @@
           }
         }
       ]
+    },
+    {
+      "id": "skill.lab_equip.attack_sword_1h",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0.38,
+      "respects_gcd": false,
+      "cooldown_duration": 0,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": { "startup_ms": 110, "active_ms": 80, "recovery_ms": 190 },
+      "note": "换装场景普攻时间线（节奏取自对应武器的 feel.weapon.timeline_reference，equip_cycle 脚本的 weaponAttackSkills 把它挂到武器的 auto_attack_timeline_ref；无武器的空手普攻是 attack_unarmed）。"
+    },
+    {
+      "id": "skill.lab_equip.attack_greatsword",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0.56,
+      "respects_gcd": false,
+      "cooldown_duration": 0,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": { "startup_ms": 170, "active_ms": 100, "recovery_ms": 290 },
+      "note": "换装场景普攻时间线（节奏取自对应武器的 feel.weapon.timeline_reference，equip_cycle 脚本的 weaponAttackSkills 把它挂到武器的 auto_attack_timeline_ref；无武器的空手普攻是 attack_unarmed）。"
+    },
+    {
+      "id": "skill.lab_equip.attack_dagger",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0.25,
+      "respects_gcd": false,
+      "cooldown_duration": 0,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": { "startup_ms": 70, "active_ms": 60, "recovery_ms": 120 },
+      "note": "换装场景普攻时间线（节奏取自对应武器的 feel.weapon.timeline_reference，equip_cycle 脚本的 weaponAttackSkills 把它挂到武器的 auto_attack_timeline_ref；无武器的空手普攻是 attack_unarmed）。"
+    },
+    {
+      "id": "skill.lab_equip.attack_bow",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0.38,
+      "respects_gcd": false,
+      "cooldown_duration": 0,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": { "startup_ms": 160, "active_ms": 40, "recovery_ms": 180 },
+      "note": "换装场景普攻时间线（节奏取自对应武器的 feel.weapon.timeline_reference，equip_cycle 脚本的 weaponAttackSkills 把它挂到武器的 auto_attack_timeline_ref；无武器的空手普攻是 attack_unarmed）。"
+    },
+    {
+      "id": "skill.lab_equip.attack_staff",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0.47,
+      "respects_gcd": false,
+      "cooldown_duration": 0,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": { "startup_ms": 140, "active_ms": 90, "recovery_ms": 240 },
+      "note": "换装场景普攻时间线（节奏取自对应武器的 feel.weapon.timeline_reference，equip_cycle 脚本的 weaponAttackSkills 把它挂到武器的 auto_attack_timeline_ref；无武器的空手普攻是 attack_unarmed）。"
+    },
+    {
+      "id": "skill.lab_equip.attack_unarmed",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 0,
+      "cast_time": 0.3,
+      "respects_gcd": false,
+      "cooldown_duration": 0,
+      "target_shape_ref": "target.chain.lab_equip_self",
+      "effects": [],
+      "timeline": { "startup_ms": 90, "active_ms": 60, "recovery_ms": 150 },
+      "note": "换装场景普攻时间线（节奏取自对应武器的 feel.weapon.timeline_reference，equip_cycle 脚本的 weaponAttackSkills 把它挂到武器的 auto_attack_timeline_ref；无武器的空手普攻是 attack_unarmed）。"
     }
   ]
 }

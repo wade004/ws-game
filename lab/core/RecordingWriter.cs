@@ -9,6 +9,64 @@ namespace Lab
     /// </summary>
     public static class RecordingWriter
     {
+        private static JsonValue EquipJson(EquipRecording equip)
+        {
+            var steps = new List<JsonValue>();
+            foreach (var s in equip.Steps)
+            {
+                steps.Add(new JsonObjectBuilder()
+                    .Add("tick", LabJson.Num(s.Tick))
+                    .Add("op", LabJson.Str(s.Op))
+                    .Add("arg", LabJson.Str(s.Arg))
+                    .Add("ok", LabJson.Bool(s.Ok))
+                    .Add("slot", LabJson.Str(s.Slot))
+                    .Add("isWeapon", LabJson.Bool(s.IsWeapon))
+                    .Add("main", LabJson.Str(s.MainRef))
+                    .Add("offhand", LabJson.Str(s.OffhandRef))
+                    .Add("family", LabJson.Str(s.Family))
+                    .Add("weaponChanged", LabJson.Bool(s.WeaponChanged))
+                    .Add("weaponChangedEvents", LabJson.Num(s.WeaponChangedEvents))
+                    .Add("feelVersionDelta", LabJson.Num(s.FeelVersionDelta))
+                    .Add("impactClass", LabJson.Str(s.ImpactClass))
+                    .Add("attackerHitstopTicks", LabJson.Num(s.AttackerHitstopTicks))
+                    .Add("targetHitstopTicks", LabJson.Num(s.TargetHitstopTicks))
+                    .Add("sfxMaterial", LabJson.Str(s.SfxMaterial))
+                    .Add("swingSfx", LabJson.Str(s.SwingSfx))
+                    .Add("impactSfx", LabJson.Str(s.ImpactSfx))
+                    .Add("poseFamily", LabJson.Str(s.PoseFamily))
+                    .Add("idleKey", LabJson.Str(s.IdleKey))
+                    .Add("attackKey", LabJson.Str(s.AttackKey))
+                    .Add("weaponStyle", LabJson.Str(s.WeaponStyle))
+                    .Add("icon", LabJson.Str(s.Icon))
+                    .Add("visual", LabJson.Str(s.Visual))
+                    .Add("uiSlots", LabJson.Str(s.UiSlots))
+                    .Add("hostSlots", LabJson.Str(s.HostSlots))
+                    .Build());
+            }
+
+            var actions = new List<JsonValue>();
+            foreach (var a in equip.Actions)
+            {
+                actions.Add(new JsonObjectBuilder()
+                    .Add("startTick", LabJson.Num(a.StartTick))
+                    .Add("skill", LabJson.Str(a.Skill))
+                    .Add("main", LabJson.Str(a.MainRef))
+                    .Add("durationTicks", LabJson.Num(a.DurationTicks))
+                    .Add("activeAt", LabJson.Num(a.ActiveAt))
+                    .Add("recoveryAt", LabJson.Num(a.RecoveryAt))
+                    .Add("finishedAt", LabJson.Num(a.FinishedAt))
+                    .Add("expectedTicks", LabJson.Str($"{a.ExpectedStartup}/{a.ExpectedActive}/{a.ExpectedRecovery}"))
+                    .Add("referenceMismatches", LabJson.Num(a.ReferenceMismatches))
+                    .Build());
+            }
+
+            return new JsonObjectBuilder()
+                .Add("stepSeconds", LabJson.Num(equip.StepSeconds))
+                .Add("steps", new JsonArray(steps))
+                .Add("actions", new JsonArray(actions))
+                .Build();
+        }
+
         public static string ToJson(LabRecording recording)
         {
             var ticks = new List<JsonValue>();
@@ -77,17 +135,22 @@ namespace Lab
                 dummies.Add(new JsonObjectBuilder().Add("name", LabJson.Str(d.Key)).Add("pos", LabJson.Vec(d.Value)).Build());
             }
 
+            var logic = new JsonObjectBuilder()
+                .Add("ticks", new JsonArray(ticks))
+                .Add("intents", new JsonArray(intents))
+                .Add("events", new JsonArray(events));
+            if (recording.Equip != null)
+            {
+                logic.Add("equip", EquipJson(recording.Equip));
+            }
+
             return LabJson.Write(new JsonObjectBuilder()
                 .Add("script", LabJson.Str(recording.Script.Meta.ScriptId))
                 .Add("cell", LabJson.Str(recording.Cell.Cell))
                 .Add("stepSeconds", LabJson.Num(recording.StepSeconds))
                 .Add("start", LabJson.Vec(recording.StartPosition))
                 .Add("dummies", new JsonArray(dummies))
-                .Add("logic", new JsonObjectBuilder()
-                    .Add("ticks", new JsonArray(ticks))
-                    .Add("intents", new JsonArray(intents))
-                    .Add("events", new JsonArray(events))
-                    .Build())
+                .Add("logic", logic.Build())
                 .Add("presentation", new JsonObjectBuilder().Add("frames", new JsonArray(frames)).Build())
                 .Add("realTime", real)
                 .Build());

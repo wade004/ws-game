@@ -17,6 +17,11 @@
       "filters": ["relation:hostile", "alive"],
       "sort_by": { "key": "distance", "direction": "asc" },
       "max_targets": 8
+    },
+    {
+      "id": "target.chain.lab_equip_self",
+      "source": "self",
+      "max_targets": 1
     }
   ]
 }

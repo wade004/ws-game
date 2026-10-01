@@ -136,7 +136,7 @@ namespace Toolchain.FeelLab
                 return ExitNotRunnable;
             }
 
-            var fingerprint = Fingerprint.Build(recording, runner.Registry, runner.Dataset.Hash);
+            var fingerprint = Fingerprint.Build(recording, runner.Registry, runner.DatasetFor(script).Hash);
             var outDir = o.Get("out") ?? Path.Combine("lab", "out");
             Directory.CreateDirectory(outDir);
             var fpPath = Path.Combine(outDir, $"{script.Meta.ScriptId}.{cell}.fingerprint.json");

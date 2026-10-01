@@ -95,6 +95,15 @@ namespace Lab
         void Compute(LabRecording recording, MetricSink sink);
     }
 
+    /// <summary>
+    /// 条件度量组：只对部分运行适用（例如只有换装场景的记录才有换装数据）。不适用的运行里该组整体不出现在指纹中；
+    /// 比较时，基线与实际都没有该组即视为双方都不适用，不报"新增组"，因此给不适用的既有脚本新增条件组不改它们的基线。
+    /// </summary>
+    public interface IConditionalMetricGroup : IMetricGroup
+    {
+        bool AppliesTo(LabRecording recording);
+    }
+
     /// <summary>度量产出接收器：校验名字属于声明并保持声明顺序（指纹键序固定）。</summary>
     public sealed class MetricSink
     {
@@ -208,6 +217,11 @@ namespace Lab
             var builder = new JsonObjectBuilder();
             foreach (var group in _groups)
             {
+                if (group is IConditionalMetricGroup conditional && !conditional.AppliesTo(recording))
+                {
+                    continue;
+                }
+
                 var sink = new MetricSink(group.Specs);
                 group.Compute(recording, sink);
                 builder.Add(group.Name, sink.Build(group.Name));
@@ -216,12 +230,13 @@ namespace Lab
             return builder.Build();
         }
 
-        /// <summary>内置四组：响应、移动、攻击、性能（06 第 3.1 节本期落地的四组）。</summary>
+        /// <summary>内置四组：响应、移动、攻击、性能（06 第 3.1 节本期落地的四组），加条件组：换装解析（仅换装场景）。</summary>
         public static MetricRegistry CreateDefault() =>
             new MetricRegistry()
                 .Register(new ResponseMetricGroup())
                 .Register(new MovementMetricGroup())
                 .Register(new AttackMetricGroup())
-                .Register(new PerformanceMetricGroup());
+                .Register(new PerformanceMetricGroup())
+                .Register(new EquipMetricGroup());
     }
 }

@@ -1037,3 +1037,13 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 `core/carriers/assembly/tests/CarriersAssemblyTests.cs`
 （`Equipment_GetEquippedTemplateId_ViaIEquipmentHostInterface_ReturnsTemplateId_AndClearsOnUnequip`，
 经真实 `CarriersAssembly` 生产装配入口验证，不是模块自己的测试夹具）。
+
+## 判断记录（换装链：`EquipmentFeelProvider`/`EquipmentFeelChain`/`WeaponActionBinding`，手感设计/08 第 1 节，2026-10-02）
+
+- **`EquipmentFeelProvider`（`IFeelEquipmentProvider` 默认实现）**：主手/副手 = 已装备的武器槽（`item.slot_definition.is_weapon`）按槽位 id 序数序的第一个/第二个，与 `GetWeaponBaseDamage` 既有口径一致，不另起一套；武器槽里的模板没有 `feel_weapon_ref` 视为"无手感武器"（返回 null）。无缓存，每次读装备宿主。
+- **`EquipmentFeelChain`**：订阅 `item.equipped`/`item.unequipped`，对账 `(主手引用, 副手引用, 主手武器族)` 三元组，变了才 `Invalidate` 并立即 `GetVersion`（版本在同一调用里递增）、再 `Enqueue` 发 `feel.weapon_changed`；换护甲/饰品不失效、不发事件。武器族来自 `FeelWeaponCatalog`（`feel.weapon.family`，`FeelRow` 不含该字段）。
+- **事件用 `Enqueue`**：订阅者新入队的事件在同一次 `DispatchPending` 里派发，所以换装那一 tick 末尾解析版本、武器族、姿势家族都已更新（测试断言只调一次 `DispatchPending`）。
+- **读档冷路径**：`SaveSystem.Load` 在事件抑制作用域内重放装备，装备事件到不了本链；链另订阅 `save.loaded`：先 `InvalidateAll`，再对账全部已跟踪单位与构造时给的 `knownUnits`，走与热路径同一个 `Sync`，因此读档前后武器不同同样发 `feel.weapon_changed`。
+- **未跟踪单位初值 = 空手无族**：首次穿武器会发事件，首次只穿护甲不会；链创建之前就有装备的单位靠 `knownUnits`/手动 `Sync` 覆盖。
+- **`WeaponActionBinding`（`IActionSkillBinding` 实现）**：只映射 attack 类；主手武器的 `auto_attack_timeline_ref`，否则空手普攻，都没有则不映射。每次读最新装备，不依赖换装链是否已对账。
+- **新增事件 `feel.weapon_changed`**（`found.event_catalog` 新行，规则层契约 `FeelWeaponChangedEvent`）；本模块没有改任何既有契约成员，也没有触碰 `GameplayAssembly`/`RulesAssembly`/`CarriersAssembly`——换装链的生产装配接线留给装配切片。

@@ -302,4 +302,43 @@ namespace Core.Rules.Common
             UnitIds = unitIds;
         }
     }
+    /// <summary>
+    /// <c>feel.weapon_changed</c>（手感设计/08 第 1 节换装链）：单位的主手武器手感引用、副手武器手感引用或武器族发生变化，
+    /// 且手感解析器已失效重算（<see cref="FeelVersion"/> 是重算后的新版本号）。发布方是换装链装配
+    /// （<c>Core.Carriers.Item.EquipmentFeelChain</c>）；订阅方按需刷新姿势家族、反馈变体、界面。
+    /// 武器引用为 null 表示该手空手。
+    /// </summary>
+    public sealed class FeelWeaponChangedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.FeelWeaponChanged;
+
+        public Id UnitId { get; }
+
+        public string? PreviousMainRef { get; }
+
+        public string? MainRef { get; }
+
+        public string? OffhandRef { get; }
+
+        /// <summary>变化前的武器族（空手为 null）。</summary>
+        public string? PreviousFamily { get; }
+
+        /// <summary>变化后的武器族（空手或武器行没有族为 null）。</summary>
+        public string? Family { get; }
+
+        /// <summary>重算后的手感解析版本号。</summary>
+        public int FeelVersion { get; }
+
+        public FeelWeaponChangedEvent(
+            Id unitId, string? previousMainRef, string? mainRef, string? offhandRef, string? previousFamily, string? family, int feelVersion)
+        {
+            UnitId = unitId;
+            PreviousMainRef = previousMainRef;
+            MainRef = mainRef;
+            OffhandRef = offhandRef;
+            PreviousFamily = previousFamily;
+            Family = family;
+            FeelVersion = feelVersion;
+        }
+    }
 }

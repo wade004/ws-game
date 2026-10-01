@@ -29,12 +29,13 @@ namespace Tests.Lab
                 var again = InputScript.Parse(text).ToJson();
                 Assert.Equal(text, again);
                 Assert.Equal(1, script.Meta.ScriptVersion);
-                Assert.Equal(50, script.Meta.TickRate);
+                // 换装脚本（格式版本 2）按动作时间线的 1/60 秒换算，固定 60；其余标准脚本仍是 50。
+                Assert.Equal(script.Meta.Scene == "equip" ? 60 : 50, script.Meta.TickRate);
             }
         }
 
         [Fact]
-        public void StandardScriptSet_HasTheNineScripts()
+        public void StandardScriptSet_HasTheTenScripts()
         {
             var ids = new List<string>();
             foreach (var s in LabTestSupport.StandardScripts())
@@ -45,8 +46,8 @@ namespace Tests.Lab
             Assert.Equal(
                 new[]
                 {
-                    "attack_then_stop", "attack_while_moving", "diagonal", "group_hit", "move_small_axis", "move_tap",
-                    "pillar_loop", "reverse_180", "wall",
+                    "attack_then_stop", "attack_while_moving", "diagonal", "equip_cycle", "group_hit", "move_small_axis",
+                    "move_tap", "pillar_loop", "reverse_180", "wall",
                 },
                 ids);
         }
@@ -195,7 +196,7 @@ namespace Tests.Lab
         public void AllStandardScripts_OnAllSixCells_MatchCommittedBaselines()
         {
             var results = LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir);
-            Assert.Equal(9 * 6, results.Count);
+            Assert.Equal(10 * 6, results.Count);
             var failures = new StringBuilder();
             foreach (var r in results)
             {

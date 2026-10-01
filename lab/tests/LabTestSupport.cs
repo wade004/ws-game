@@ -56,7 +56,7 @@ namespace Tests.Lab
                 }
             }
 
-            return new LabRunner(LabDataset.Load(sources));
+            return new LabRunner(LabDataset.Load(sources), null, rel => LabDataSources.FromDirectory(Path.Combine(root, rel)));
         }
 
         public static List<InputScript> StandardScripts() => LabFixtures.LoadScripts(FixturesDir);
