@@ -18,7 +18,9 @@
     （见下方取值处判断记录）。显式传入时接受 X.Y.Z 或 X.Y.Z-dryrun 两种形式。
 
 .PARAMETER WorkDir
-    消费方工程的落地目录。默认落在本次会话 scratchpad 下的 consumer_smoke\（不进仓库、不提交）；
+    消费方工程的落地目录。默认 `<TEMP>\gf_consumer_smoke_<8 位哈希>`，哈希由本仓库根的绝对路径派生
+    （主检出与每个工作树各自一份，互不清空；见 _unity_smoke_wait_scope_guard.ps1 的
+    Get-ConsumerSmokeDefaultWorkDir），不进仓库、不提交；显式传入则以传入值为准。
     每次运行都会先清空重建，模拟"全新工程"这一前提，不复用上一次运行的残留状态。
 
 .PARAMETER UnityExe
@@ -98,6 +100,8 @@ $ErrorActionPreference = "Stop"
 # Wait-NoResidualUnityProcess 的"从命令行判断是否需要等待"纯逻辑抽在这里，见该函数上方判断记录
 # 与 _unity_smoke_wait_scope_guard.ps1 文件头注释。
 . (Join-Path $PSScriptRoot "_unity_smoke_wait_scope_guard.ps1")
+# 包管理器子进程中途消失（"IPC stream failed to read"）的失败现场抓取，见该文件头判断记录。
+. (Join-Path $PSScriptRoot "_upm_evidence.ps1")
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VersionFilePath = Join-Path $RepoRoot "VERSION"
@@ -122,8 +126,12 @@ if ($DistVersion -notmatch '^\d+\.\d+\.\d+(-dryrun)?$') {
     exit 1
 }
 
+# 判断记录（2026-10-01，默认工作目录按检出隔离）：此前所有检出共用 `<TEMP>\gf_consumer_smoke`，
+# 主检出与各工作树的演练会互相清空对方的工程、互相把对方的 Unity 进程当成要等的残留。现在默认
+# 目录由仓库根派生（`<TEMP>\gf_consumer_smoke_<仓库根归一化路径的 SHA-256 前 8 位>`，见
+# _unity_smoke_wait_scope_guard.ps1 的 Get-ConsumerSmokeDefaultWorkDir），显式 -WorkDir 仍然优先。
 if ($WorkDir -eq "") {
-    $WorkDir = Join-Path $env:TEMP "gf_consumer_smoke"
+    $WorkDir = Get-ConsumerSmokeDefaultWorkDir -RepoRoot $RepoRoot -TempRoot $env:TEMP
 }
 
 if ($ArtifactsPath -eq "") {
@@ -133,6 +141,8 @@ if (-not (Test-Path $ArtifactsPath)) {
     New-Item -ItemType Directory -Force -Path $ArtifactsPath | Out-Null
 }
 $LogFile = Join-Path $ArtifactsPath "consumer_smoke.log"
+# 包管理器失败现场的存放目录（门禁产物目录下，bin/ 被 .gitignore 覆盖，不入库）。
+$UpmEvidenceRoot = Join-Path $ArtifactsPath "upm_evidence"
 
 # 判断记录（P07 根治之二）见本文件头 .NOTES："check.ps1 全量门禁下失败现场丢失"一节——本脚本
 # 从这里开始把全部控制台输出（Write-Host/Write-Output 均含）额外落盘到 $LogFile，独立于调用方
@@ -567,9 +577,10 @@ Invoke-Step "首次批处理编译（包解析 + 0 编译错误）" {
     if (Test-Path $log) {
         $errorLines = Select-String -Path $log -Pattern "error CS" -SimpleMatch:$false -ErrorAction SilentlyContinue
     }
+    $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_01_compile"
     [PSCustomObject]@{
         Ok = ($proc.ExitCode -eq 0) -and ($errorLines.Count -eq 0)
-        Detail = "Unity 退出码 $($proc.ExitCode)，error CS 命中 $($errorLines.Count) 处，见 $log"
+        Detail = "Unity 退出码 $($proc.ExitCode)，error CS 命中 $($errorLines.Count) 处，见 $log$upmNote"
     }
 }
 
@@ -590,9 +601,10 @@ Invoke-Step "用场景构建器生成 Shell + Map 场景" {
     }
     $shellScene = Join-Path $ConsumerProjectDir "Assets\Framework\Scenes\GameTemplateShell.unity"
     $mapScene = Join-Path $ConsumerProjectDir "Assets\Framework\Scenes\GameTemplateMap.unity"
+    $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_02_scene_builder"
     [PSCustomObject]@{
         Ok = ($proc.ExitCode -eq 0) -and (Test-Path $shellScene) -and (Test-Path $mapScene)
-        Detail = "Unity 退出码 $($proc.ExitCode)，Shell 场景存在=$(Test-Path $shellScene)，Map 场景存在=$(Test-Path $mapScene)，见 $log"
+        Detail = "Unity 退出码 $($proc.ExitCode)，Shell 场景存在=$(Test-Path $shellScene)，Map 场景存在=$(Test-Path $mapScene)，见 $log$upmNote"
     }
 }
 
@@ -614,14 +626,16 @@ Invoke-Step "模板 PlayMode 测试（-testFilter Game.Template.Tests）" {
     if ($proc.TimedOut) {
         return [PSCustomObject]@{ Ok = $false; Detail = "PlayMode 测试超过 600s 未完成，见 $log" }
     }
+    # 引擎非零退出且日志含包管理器 IPC 断流签名时留证（只追加 Detail 后缀，不改判定）。
+    $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_03_playmode"
     if (-not (Test-Path $resultsXml)) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml，Unity 退出码 $($proc.ExitCode)，见 $log" }
+        return [PSCustomObject]@{ Ok = $false; Detail = "未生成结果 XML：$resultsXml，Unity 退出码 $($proc.ExitCode)，见 $log$upmNote" }
     }
     [xml]$xml = Get-Content -Path $resultsXml -Raw
     $root = $xml.DocumentElement
     [PSCustomObject]@{
         Ok = ($root.result -eq "Passed")
-        Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)"
+        Detail = "total=$($root.total) passed=$($root.passed) failed=$($root.failed)$upmNote"
     }
 }
 
@@ -657,9 +671,10 @@ $buildOk = Invoke-Step "构建独立版" {
     if ($proc.TimedOut) {
         return [PSCustomObject]@{ Ok = $false; Detail = "独立版构建超过 600s 未完成，见 $log" }
     }
+    $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_04_build"
     [PSCustomObject]@{
         Ok = ($proc.ExitCode -eq 0) -and (Test-Path $exePath)
-        Detail = "Unity 构建退出码 $($proc.ExitCode)，DevelopmentBuild=$($DevelopmentBuild.IsPresent)，产物存在=$(Test-Path $exePath)，见 $log"
+        Detail = "Unity 构建退出码 $($proc.ExitCode)，DevelopmentBuild=$($DevelopmentBuild.IsPresent)，产物存在=$(Test-Path $exePath)，见 $log$upmNote"
     }
 }
 
@@ -922,14 +937,15 @@ public static class AdditiveMaterialRegistryProbe
         return [PSCustomObject]@{ Ok = $false; Detail = "registry 安装形态探针超过 600s 未完成，见 $probeLog" }
     }
 
+    $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $probeLog -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_05_registry_probe"
     $resultPath = Join-Path $probeProjectDir "registry_probe_result.txt"
     if (-not (Test-Path $resultPath)) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)，未生成探针结果文件，见 $probeLog" }
+        return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)，未生成探针结果文件，见 $probeLog$upmNote" }
     }
     $resultText = (Get-Content -Path $resultPath -Raw).Trim()
     [PSCustomObject]@{
         Ok = $resultText.StartsWith("RESULT=PASS")
-        Detail = "$resultText（Unity 退出码 $($proc.ExitCode)，见 $probeLog）"
+        Detail = "$resultText（Unity 退出码 $($proc.ExitCode)，见 $probeLog）$upmNote"
     }
 }
 

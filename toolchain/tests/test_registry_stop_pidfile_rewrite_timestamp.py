@@ -31,7 +31,10 @@ T1 产生于本次调用 `Start-Process` 之后，早于或约等于真正监听
    这一真实触发路径，再验证修复后 `-Status`/`-Stop` 都不再误判、`-Stop` 能把仍在监听的真实进程
    干净停掉、端口释放、PID 文件与元数据文件都被清理。用临时目录里的最小配置（storage/htpasswd
    都指向 `tmp_path`，避免污染仓库内 `toolchain/registry/` 下的真实 storage/htpasswd）与随机空闲
-   端口，不影响仓库内任何真实私服实例；无论断言是否通过都在 `finally` 里尽力强杀残留进程。
+   端口，不影响仓库内任何真实私服实例（verdaccio 日志经 `-LogDir` 写进临时目录，不覆盖
+`toolchain/registry/verdaccio.out.log`）；无论断言是否通过都在 `finally` 里尽力清理残留进程，但只
+结束"映像名 + 启动时间仍与当初记录一致"的那个进程（`_pid_identity.py`），已退出或 PID 被复用给
+无关进程时一律不动。
    Windows-only（依赖 `Start-Process`/`Get-NetTCPConnection`/`Win32_Process`），且要求本机已经
    `npm ci` 过 `toolchain/registry/node_modules`（不在测试里现跑 `npm ci`，避免引入网络依赖）；
    条件不满足时跳过并说明原因。
@@ -58,6 +61,7 @@ from pathlib import Path
 
 import pytest
 
+from _pid_identity import ProcessIdentity, kill_if_same_process, probe_process, snapshot_process_identity
 from _ps_subprocess_env import clean_powershell_env
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -244,24 +248,6 @@ def _process_alive(pid: str, powershell: str) -> bool:
     return "ALIVE" in result.stdout
 
 
-def _kill_pid_best_effort(pid: str, powershell: str) -> None:
-    try:
-        subprocess.run(
-            [
-                powershell,
-                "-NoProfile",
-                "-Command",
-                f"Stop-Process -Id {pid} -Force -Confirm:$false -ErrorAction SilentlyContinue",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=clean_powershell_env(powershell),
-        )
-    except Exception:
-        pass
-
-
 @pytest.mark.skipif(sys.platform != "win32", reason="依赖 Windows 的 Start-Process/Get-NetTCPConnection")
 def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
     """连续两次 -Detach（第二次因端口已被占用而触发重写分支）后，-Status/-Stop 都不应把仍在监听的
@@ -307,9 +293,13 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
         "-Listen", listen,
         "-PidFile", str(pid_file),
         "-SkipInstall",
+        # verdaccio 的 stdout/stderr 日志写进临时目录，不覆盖 toolchain/registry/ 下本机真实私服实例的
+        # verdaccio.out.log / verdaccio.err.log（2026-10-01：此前测试每次都会把它们覆盖掉）。
+        "-LogDir", str(tmp_path),
     ]
 
     first_pid = ""
+    first_identity: ProcessIdentity | None = None
     try:
         # 第一次 -Detach：正常起一个真正监听端口的实例，不应触发重写分支。
         result1 = _run(["-Detach"] + common_args, powershell, timeout=60, tmp_path=tmp_path, tag="detach1")
@@ -320,6 +310,10 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
         assert pid_file.is_file(), "第一次 -Detach 后 PID 文件未生成"
         first_pid = pid_file.read_text(encoding="utf-8-sig").strip()
         assert _process_alive(first_pid, powershell), f"第一次 -Detach 拉起的 PID {first_pid} 未存活"
+        # 马上记下进程身份（映像名 + 启动时间）：之后的存活核对与 finally 里的清理都按身份而不是裸 PID，
+        # 避免 PID 被 Windows 复用后误判或误杀无关进程（见 _pid_identity.py 文件头）。
+        first_identity = snapshot_process_identity(first_pid, powershell)
+        assert first_identity is not None, f"读不到第一次 -Detach 拉起的 PID {first_pid} 的进程身份"
         # 决定性断言：ASCII 标记不受控制台/子进程代码页影响，任何解码方案下都不会被解成乱码而
         # 误判——不依赖上面中文文案断言是否解码正确。
         assert PID_FILE_WRITTEN_MARKER in result1.stdout, (
@@ -384,13 +378,16 @@ def test_detach_twice_then_stop_succeeds(tmp_path: Path) -> None:
 
         assert not pid_file.exists(), "-Stop 成功后 PID 文件应被清理"
         assert not meta_file.exists(), "-Stop 成功后元数据文件应被清理"
-        assert not _process_alive(first_pid, powershell), f"PID {first_pid} 在 -Stop 后仍存活"
+        # 按身份核对而不是裸 PID：PID 即便被复用给无关进程也不会误判为"仍存活"。
+        assert probe_process(first_identity, powershell) != "SAME", f"PID {first_pid} 在 -Stop 后仍存活"
 
         # 端口应已释放。
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1)
             result = s.connect_ex(("127.0.0.1", port))
             assert result != 0, f"端口 {port} 在 -Stop 后仍可连接，未真正释放"
+        # -LogDir 生效：日志落在临时目录而不是脚本目录。
+        assert (tmp_path / "verdaccio.out.log").is_file(), "-LogDir 指定的临时目录里应有 verdaccio.out.log"
     finally:
-        if first_pid:
-            _kill_pid_best_effort(first_pid, powershell)
+        # 只结束"仍是当初那个进程"的 PID：已退出（GONE）或被复用给别的进程（MISMATCH）都不动。
+        kill_if_same_process(first_identity, powershell)

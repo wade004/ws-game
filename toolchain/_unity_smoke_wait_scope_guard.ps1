@@ -90,6 +90,29 @@ function Get-ProjectPathFromCommandLine {
     return $match.Groups['bare'].Value
 }
 
+# 消费方演练默认工作目录（2026-10-01，bugfix/upm-evidence-stale-pid）：此前所有检出共用同一个
+# `<TEMP>\gf_consumer_smoke`，不同工作树/主检出同时或先后跑演练会互相清空对方的工程（每次运行前
+# 整目录重建）、互相把对方的 Unity 进程算作"要等的残留"。改为按仓库根派生：仓库根绝对路径经
+# ConvertTo-NormalizedFsPath 归一（大小写不敏感、去引号与结尾分隔符、正斜杠归一）后取 SHA-256 前 8 位
+# 十六进制，拼成 `<TempRoot>\gf_consumer_smoke_<8 位哈希>`。同一仓库根每次结果稳定，不同仓库根碰撞
+# 概率可忽略；显式 -WorkDir 仍然优先（由调用方决定，不经本函数）。8 位而不是更长：工作目录下的
+# Unity 工程路径较深，名称每多一个字符都在吃 Windows 路径长度余量。
+function Get-ConsumerSmokeDefaultWorkDir {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$TempRoot
+    )
+    $normalized = ConvertTo-NormalizedFsPath -Path $RepoRoot
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($normalized))
+    } finally {
+        $sha.Dispose()
+    }
+    $hex = -join ($bytes | Select-Object -First 4 | ForEach-Object { $_.ToString("x2") })
+    return (Join-Path $TempRoot ("gf_consumer_smoke_" + $hex))
+}
+
 # 主入口：三态返回值——
 #   "Wait"    ：-projectPath 落在本仓库根或本脚本工作目录之下（等）。
 #   "NoWait"  ：-projectPath 明确落在上述两处之外（别的工程，不等）。

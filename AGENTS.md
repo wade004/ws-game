@@ -203,6 +203,7 @@
   后重新激活；④ 移除许可后重新添加。已核实的相关事实：`check.ps1` 的 Unity 步骤只会因显式传
   `-SkipUnity`/`-Quick` 而 SKIP，许可失败会表现为 FAIL 而不是静默跳过；`check.ps1` 开跑前会
   检测同工程残留的 `Unity.exe` 进程并直接中止，因此跑门禁前不要在 Hub 里开着同一工程。
+- 引擎步骤几秒内退出、日志含 `IPC stream failed to read`（包管理器子进程中途消失）时，重跑一次，通过则在 `REGRESSION_LOG.md` 登记为环境性失败，并附上步骤 Detail 里自动抓取的现场摘要（`包管理器子进程退出码=…；现场已存 <路径>`，落在 `bin/_check_artifacts/upm_evidence/`）。
 - PowerShell 工具前台跑 `-Release` 超过 600s 会被"转入后台继续运行"而非杀死，退出通知后再核对结果即可，不必视为失败。
 - 后台任务的 output 文件含 stderr 全量（如 npm notice 上千行），不要 `Read` 整个文件，交子 agent `Grep`；管道过滤用 `Select-String '门禁通过|门禁失败| FAIL '`。
 - 同一 minor 出补丁版时 `release/X.Y.x` 已存在，用非强制快进：先本地 `git push . <hash>:refs/heads/release/X.Y.x` 再 `git push origin <hash>:refs/heads/release/X.Y.x`，不用 `-f`。

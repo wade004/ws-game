@@ -33,6 +33,10 @@
     进程 PID（可能与 PID 文件不一致，见下方判断记录）。只读，不改变任何状态。传 -Status 时忽略
     -ConfigPath/-SkipInstall。
 
+.PARAMETER LogDir
+    -Detach 模式下 verdaccio.out.log / verdaccio.err.log 的落盘目录，默认本目录（.gitignore 已忽略）。
+    自动化测试传一个临时目录，避免覆盖本机真实私服实例正在写的日志（2026-10-01 新增）。
+
 .PARAMETER SkipInstall
     跳过 `npm ci`（本目录 node_modules 已经安装过、且 package.json/package-lock.json 未变化时可用，
     加快重复调用）。默认每次都跑一遍 `npm ci`，保证依赖版本与 package.json 锁定的一致。
@@ -110,7 +114,8 @@ param(
     [string]$PidFile = "",
     [switch]$Stop,
     [switch]$Status,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [string]$LogDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -118,6 +123,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 if ($ConfigPath -eq "") { $ConfigPath = Join-Path $ScriptDir "config.yaml" }
 if ($PidFile -eq "") { $PidFile = Join-Path $ScriptDir "verdaccio.pid" }
+if ($LogDir -eq "") { $LogDir = $ScriptDir }
 
 function Write-Step {
     param([string]$Message)
@@ -442,8 +448,11 @@ if (-not (Test-Path $verdaccioBin)) {
 if ($Detach) {
     Write-Step "后台启动 Verdaccio（--listen $Listen）"
 
-    $stdoutLog = Join-Path $ScriptDir "verdaccio.out.log"
-    $stderrLog = Join-Path $ScriptDir "verdaccio.err.log"
+    if (-not (Test-Path -LiteralPath $LogDir)) {
+        New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    }
+    $stdoutLog = Join-Path $LogDir "verdaccio.out.log"
+    $stderrLog = Join-Path $LogDir "verdaccio.err.log"
 
     $proc = Start-Process -FilePath "node" `
         -ArgumentList @($verdaccioBin, "--config", $ConfigPath, "--listen", $Listen) `

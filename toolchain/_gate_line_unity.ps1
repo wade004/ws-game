@@ -54,6 +54,11 @@ $script:FailFastFlagPath = if ($FailFastFlagPath -ne "") { $FailFastFlagPath } e
 . (Join-Path $RepoRoot "toolchain\_unity_path_length_guard.ps1")
 # 第四批（复盘 I-8 余项）：结果 XML / 冒烟日志 / 包清单三处判定逻辑抽成纯函数，见该文件头。
 . (Join-Path $RepoRoot "toolchain\_gate_unity_verdicts.ps1")
+# 包管理器子进程中途消失（"IPC stream failed to read"）的失败现场抓取，见该文件头判断记录：引擎步骤退出码
+# 非零且日志含该签名时，把 upm.log 等现场存进 $UpmEvidenceRoot（bin/ 下，被 .gitignore 覆盖）并给 Detail
+# 追加一行摘要，只追加后缀、不参与 Ok 判定。
+. (Join-Path $RepoRoot "toolchain\_upm_evidence.ps1")
+$UpmEvidenceRoot = Join-Path $ArtifactsPath "upm_evidence"
 Import-GatePlan -Path $PlanFile
 
 try {
@@ -197,9 +202,10 @@ try {
                 "-projectPath", $unityProjectPath,
                 "-logFile", $log
             )
+            $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "gate_unity_compile"
             [PSCustomObject]@{
                 Ok     = ($proc.ExitCode -eq 0)
-                Detail = "Unity 退出码 $($proc.ExitCode)"
+                Detail = "Unity 退出码 $($proc.ExitCode)$upmNote"
             }
         }
 
@@ -215,7 +221,8 @@ try {
                 "-logFile", $log
             )
             if ($proc.ExitCode -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
+                $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "gate_unity_editmode"
+                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)$upmNote" }
             }
             # 结果 XML 判定抽成 Get-UnityTestRunVerdict（toolchain/_gate_unity_verdicts.ps1，第四批 I-8 余项）。
             $verdict = Get-UnityTestRunVerdict -ResultsXml $resultsXml
@@ -261,7 +268,8 @@ try {
             }
             $proc = Invoke-NativeAndWait -Exe $resolvedUnityExe -ArgList $playModeArgs
             if ($proc.ExitCode -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)" }
+                $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "gate_unity_playmode"
+                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 退出码 $($proc.ExitCode)$upmNote" }
             }
             # 结果 XML 判定抽成 Get-UnityTestRunVerdict（toolchain/_gate_unity_verdicts.ps1，第四批 I-8 余项）。
             $verdict = Get-UnityTestRunVerdict -ResultsXml $resultsXml
@@ -300,7 +308,8 @@ try {
                 "-logFile", $buildLog
             )
             if ($buildProc.ExitCode -ne 0) {
-                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)" }
+                $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $buildLog -EngineExitCode $buildProc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "gate_unity_build"
+                return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)$upmNote" }
             }
             if (-not (Test-Path $exePath)) {
                 return [PSCustomObject]@{ Ok = $false; Detail = "未生成独立版产物：$exePath" }
@@ -393,7 +402,8 @@ try {
                     $env:GF_IL2CPP_OUTPUT_PATH = $prevEnv
                 }
                 if ($buildProc.ExitCode -ne 0) {
-                    return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)，见 $buildLog" }
+                    $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $buildLog -EngineExitCode $buildProc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "gate_il2cpp_build"
+                    return [PSCustomObject]@{ Ok = $false; Detail = "Unity 构建退出码 $($buildProc.ExitCode)，见 $buildLog$upmNote" }
                 }
                 if (-not (Test-Path $il2cppExePath)) {
                     return [PSCustomObject]@{ Ok = $false; Detail = "未生成 IL2CPP 独立版产物：$il2cppExePath" }
@@ -465,12 +475,19 @@ try {
         } else {
             Invoke-CheckStep "消费方演练（toolchain/consumer_smoke.ps1）" -Id "consumer_drill" {
                 $consumerScript = Join-Path $RepoRoot "toolchain\consumer_smoke.ps1"
-                $consumerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $consumerScript)
+                # 落盘记录与包管理器失败现场都放进本线的 $ArtifactsPath（与其余引擎步骤同一处）。
+                $consumerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $consumerScript, "-ArtifactsPath", $ArtifactsPath)
                 if ($UnityExe -ne "") {
                     $consumerArgs += @("-UnityExe", $resolvedUnityExe)
                 }
                 & powershell @consumerArgs | Out-Null
-                return ($LASTEXITCODE -eq 0)
+                $consumerOk = ($LASTEXITCODE -eq 0)
+                if ($consumerOk) {
+                    return $true
+                }
+                # 子进程输出被吞掉了，失败时把演练里各引擎子步骤留的包管理器现场摘要（若有）并进 Detail。
+                $upmNote = Get-UpmEvidenceSummaryFromLog -LogPath (Join-Path $ArtifactsPath "consumer_smoke.log")
+                return [PSCustomObject]@{ Ok = $false; Detail = "消费方演练失败，完整记录见 $(Join-Path $ArtifactsPath 'consumer_smoke.log')$upmNote" }
             }
         }
     }
