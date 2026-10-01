@@ -46,6 +46,30 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <c>Presentation.VfxSfx.Contracts.ISfxPlayer.StopAttached</c>。</summary>
         void StopSfx(Id sfxId, FeedbackAttachSpec attach) { }
 
+        /// <summary>手感打击反馈包新增（手感设计/07 第 1 节）：带特效参数（<c>scale</c> 大小倍率、可选 <c>orient_rad</c> 朝向弧度）的
+        /// 播放重载。默认接口成员，默认体转调旧 <see cref="PlayVfx(Id, FeedbackAttachSpec)"/>、忽略参数（ABI 只加法，既有实现方不需要改代码）；
+        /// <c>CompositeFeedbackSink</c> 显式覆盖，参数原样交给 <c>IVfxPlayer.Spawn</c>。</summary>
+        void PlayVfx(Id vfxId, FeedbackAttachSpec attach, System.Collections.Generic.IReadOnlyDictionary<string, double>? parameters) =>
+            PlayVfx(vfxId, attach);
+
+        /// <summary>手感打击反馈包新增：同一 tick 合并后的镜头提示（见 <see cref="ImpactCameraCue"/>）。默认体只播提示里的震屏档
+        /// （转调 <see cref="ShakeCamera"/>），不理解镜头冲击的旧实现方因此仍有震屏；<c>CompositeFeedbackSink</c> 覆盖为
+        /// 经 <c>OnImpactCamera</c> 回调落到镜头冲击。</summary>
+        void ImpactCamera(ImpactCameraCue cue)
+        {
+            if (cue.ShakeProfileId.HasValue)
+            {
+                ShakeCamera(cue.ShakeProfileId.Value);
+            }
+        }
+
+        /// <summary>手感顿帧表现新增（手感设计/07 第 5 节）：<paramref name="unitIds"/> 的动画时间轴进入冻结，持续
+        /// <paramref name="ticks"/> 个 tick（以 <see cref="ReleasePresentation"/> 为准解冻）。默认空操作（ABI 只加法）。</summary>
+        void FreezePresentation(System.Collections.Generic.IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers) { }
+
+        /// <summary>手感顿帧表现新增：解冻（<c>feel.hitstop_ended</c>），从冻结点继续。默认空操作。</summary>
+        void ReleasePresentation(System.Collections.Generic.IReadOnlyList<Id> unitIds) { }
+
         void Freeze(double durationMs);
 
         void ShakeCamera(Id profileId);

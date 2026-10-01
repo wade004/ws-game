@@ -40,6 +40,33 @@ namespace Presentation.Camera
         /// 下一次丢失重新记一条。</summary>
         private bool _targetLostReported;
 
+        // ------------------------------------------------------------------
+        // 手感镜头（手感设计/07 第 2 节）：全部是可选增量，未 EnableFeel 时本类行为与改动前逐位一致。
+        // ------------------------------------------------------------------
+
+        /// <summary><see cref="EnableFeel"/> 注入的"实体 id → 镜头手感档案"来源；null 表示未启用手感镜头。</summary>
+        private Func<Id, CameraFeelProfile?>? _feelSource;
+
+        private readonly CameraFeelFollower _feelFollower = new CameraFeelFollower();
+        private double _shakeReferenceHeight = 1.0;
+        private bool _impulseFallbackReported;
+
+        /// <summary>战斗缩放：基准缩放（Configure/SetZoom 设定的值，夹取后）、当前战斗缩放系数（1 = 无战斗缩放）、
+        /// 上一次实际下发给适配层的系数、是否处于战斗中。</summary>
+        private double _baseZoom = 1.0;
+        private double _zoomFactor = 1.0;
+        private double _appliedZoomFactor = 1.0;
+        private bool _inCombat;
+
+        /// <summary>未显式给出 dt 的 <see cref="Update(double)"/> 用的帧间隔（秒）。判断记录：<see cref="ICameraHost.Update"/>
+        /// 既有签名只有插值系数 alpha、没有 dt，且为 ABI 只加法不改它；手感镜头需要 dt 时由调用方改用
+        /// <see cref="Update(double, double)"/>，旧调用点（三个生产装配入口）保持不变时按固定 1/60 秒推进——
+        /// 对固定步长的宿主这就是准确值，对变帧率宿主是近似（已知局限，写在 camera/README.md）。</summary>
+        public double FeelFrameSeconds { get; set; } = 1.0 / 60.0;
+
+        /// <summary>退化为 <see cref="ICamera.Shake"/> 时使用的震屏频率（Hz）。</summary>
+        public double ImpulseFallbackShakeFrequency { get; set; } = 30.0;
+
         public CameraHost(
             ICamera camera,
             ICameraFollowTarget followTarget,
@@ -113,7 +140,11 @@ namespace Presentation.Camera
             _currentProfile = profile;
 
             _camera.Configure(profile.PitchDegrees, profile.YawDegrees, new ZoomRange(profile.ZoomMin, profile.ZoomMax));
+            _baseZoom = profile.ZoomDefault;
             _camera.SetZoom(profile.ZoomDefault);
+            _appliedZoomFactor = 1.0;
+            _zoomFactor = 1.0;
+            _feelFollower.Reset();
         }
 
         public void Follow(Id entityId)
@@ -121,14 +152,32 @@ namespace Presentation.Camera
             _followEntityId = entityId;
             _lastFollowPosition = null;
             _targetLostReported = false;
+            _feelFollower.Reset();
         }
 
-        public void Update(double alpha)
+        public void Update(double alpha) => Update(alpha, FeelFrameSeconds);
+
+        /// <summary>带帧间隔的更新（手感镜头需要 dt：前瞻速度估计与一阶滞后系数）。<paramref name="dt"/> 是本帧秒数。
+        /// 未 <see cref="EnableFeel"/>、或跟随实体的档案 <see cref="CameraFeelProfile.IsFollowNeutral"/> 时，
+        /// 跟随调用与 <see cref="Update(double)"/> 改动前逐位一致（<c>ICamera.Follow(pos, FollowLerp)</c>）。</summary>
+        public void Update(double alpha, double dt)
         {
             if (_currentProfile == null || _followEntityId == null)
             {
                 return;
             }
+
+            CameraFeelProfile? feel = null;
+            if (_feelSource != null)
+            {
+                feel = _feelSource(_followEntityId.Value);
+            }
+            var useFeelFollow = feel != null && !feel.IsFollowNeutral;
+            if (!useFeelFollow)
+            {
+                _feelFollower.Reset();
+            }
+            var smoothing = useFeelFollow ? CameraFeelFollower.SmoothingFor(feel!, _currentProfile.FollowLerp) : _currentProfile.FollowLerp;
 
             // ADR-0121 第 6 条（D6）：目标以"可能不存在"为契约。目标缺失时保持上一位置（继续向最后一次
             // 有效位置 Follow，相机收敛并停在那里；从未取到过位置则不动）、每次丢失只记一条诊断（多帧不
@@ -145,9 +194,10 @@ namespace Presentation.Camera
 
                 if (_lastFollowPosition.HasValue)
                 {
-                    _camera.Follow(_lastFollowPosition.Value, _currentProfile.FollowLerp);
+                    _camera.Follow(_lastFollowPosition.Value, smoothing);
                 }
 
+                UpdateCombatZoom(feel, dt);
                 return;
             }
 
@@ -158,8 +208,125 @@ namespace Presentation.Camera
                 pos = _currentProfile.Bounds.Value.Clamp(pos);
             }
 
+            if (useFeelFollow)
+            {
+                pos = _feelFollower.Step(pos, dt, feel!);
+                if (_currentProfile.Bounds.HasValue)
+                {
+                    pos = _currentProfile.Bounds.Value.Clamp(pos);
+                }
+            }
+
             _lastFollowPosition = pos;
-            _camera.Follow(pos, _currentProfile.FollowLerp);
+            _camera.Follow(pos, smoothing);
+            UpdateCombatZoom(feel, dt);
+        }
+
+        /// <summary>
+        /// 启用手感镜头（手感设计/07 第 2 节）：<paramref name="feelSource"/> 按实体 id 给出镜头手感档案（装配根接
+        /// <see cref="CameraFeelProfile.FromPresenting"/>）；<paramref name="shakeReferenceHeight"/> 是镜头冲击退化为
+        /// <see cref="ICamera.Shake"/> 时"画面高度比例 → 震屏强度"的换算系数（取手感标定的参考镜头高度）。
+        /// 传 null 关闭手感镜头，回到改动前的行为。
+        /// </summary>
+        public void EnableFeel(Func<Id, CameraFeelProfile?>? feelSource, double shakeReferenceHeight = 1.0)
+        {
+            if (!(shakeReferenceHeight > 0) || double.IsInfinity(shakeReferenceHeight))
+            {
+                throw new ArgumentOutOfRangeException(nameof(shakeReferenceHeight), "必须是正的有限数");
+            }
+
+            _feelSource = feelSource;
+            _shakeReferenceHeight = shakeReferenceHeight;
+            _feelFollower.Reset();
+        }
+
+        /// <summary>进入/离开战斗（战斗缩放的目标：战斗中取 <c>camera_combat_zoom_delta</c>，否则 1）。装配根订阅
+        /// <c>combat.entered</c>/<c>combat.left</c> 调用；档案战斗缩放中性（倍率 1）时无任何可见效果。</summary>
+        public void SetInCombat(bool inCombat) => _inCombat = inCombat;
+
+        /// <summary>当前是否处于战斗（<see cref="SetInCombat"/> 最近一次的值）。</summary>
+        public bool InCombat => _inCombat;
+
+        /// <summary>当前战斗缩放系数（1 = 无）。</summary>
+        public double CombatZoomFactor => _zoomFactor;
+
+        /// <summary>适配层是否真正支持镜头冲击能力（<see cref="ICameraImpulse"/>）。</summary>
+        public bool SupportsImpulse => _camera is ICameraImpulse impulse && impulse.SupportsCameraImpulse;
+
+        /// <summary>
+        /// 镜头冲击：沿 <paramref name="direction"/>（单位方向，零向量 = 无方向）把镜头推开 <paramref name="magnitude"/>（画面高度比例）
+        /// 并在 <paramref name="decayMs"/> 内衰减回零。适配层支持 <see cref="ICameraImpulse"/> 时直接转发；不支持时退化为
+        /// <see cref="ICamera.Shake"/>（强度 = 比例 × <c>shakeReferenceHeight</c>、时长 = 衰减时长、频率 =
+        /// <see cref="ImpulseFallbackShakeFrequency"/>）并记一条去重诊断（手感设计/05 第 7 节降级）。幅度非正时忽略。
+        /// 合并、限频、上限截断由调用方（反馈包流水线）负责，本方法不再二次处理。
+        /// </summary>
+        public void Impulse(Vec2 direction, double magnitude, double decayMs)
+        {
+            if (!(magnitude > 0))
+            {
+                return;
+            }
+
+            var decay = decayMs > 1 ? decayMs : 1;
+            if (_camera is ICameraImpulse impulse && impulse.SupportsCameraImpulse)
+            {
+                impulse.Impulse(direction, magnitude, decay);
+                return;
+            }
+
+            if (!_impulseFallbackReported)
+            {
+                _impulseFallbackReported = true;
+                _diagnostics.Warn(
+                    "镜头冲击：适配层不支持 ICameraImpulse（supportsCameraImpulse 为假），退化为 ICamera.Shake" +
+                    "（强度 = 画面高度比例 × 参考镜头高度；仅首次记录，之后同样退化）");
+            }
+
+            _camera.Shake(magnitude * _shakeReferenceHeight, decay / 1000.0, ImpulseFallbackShakeFrequency);
+        }
+
+        private void UpdateCombatZoom(CameraFeelProfile? feel, double dt)
+        {
+            if (_currentProfile == null)
+            {
+                return;
+            }
+
+            var delta = feel != null && !feel.IsZoomNeutral ? feel.CombatZoomDelta : 1.0;
+            var target = _inCombat ? delta : 1.0;
+            if (_zoomFactor == target)
+            {
+                return;
+            }
+
+            var blendMs = feel?.CombatZoomBlendMs ?? 0.0;
+            if (blendMs <= 0 || !(dt > 0))
+            {
+                _zoomFactor = target;
+            }
+            else
+            {
+                // 线性过渡：每毫秒移动 |战斗倍率 - 1| / 过渡毫秒数，到达目标即停（进出对称）。
+                var span = Math.Abs(feel!.CombatZoomDelta - 1.0);
+                var step = span * (dt * 1000.0) / blendMs;
+                _zoomFactor = _zoomFactor < target ? Math.Min(target, _zoomFactor + step) : Math.Max(target, _zoomFactor - step);
+            }
+
+            ApplyZoom();
+        }
+
+        private void ApplyZoom()
+        {
+            if (_currentProfile == null)
+            {
+                return;
+            }
+
+            var zoom = _zoomFactor == 1.0
+                ? _baseZoom
+                : Math.Clamp(_baseZoom * _zoomFactor, _currentProfile.ZoomMin, _currentProfile.ZoomMax);
+            _appliedZoomFactor = _zoomFactor;
+            _camera.SetZoom(zoom);
         }
 
         public void SetZoom(double zoom)
@@ -170,7 +337,15 @@ namespace Presentation.Camera
             }
 
             var clamped = Math.Clamp(zoom, _currentProfile.ZoomMin, _currentProfile.ZoomMax);
-            _camera.SetZoom(clamped);
+            _baseZoom = clamped;
+            if (_appliedZoomFactor == 1.0)
+            {
+                _camera.SetZoom(clamped);
+            }
+            else
+            {
+                _camera.SetZoom(Math.Clamp(clamped * _appliedZoomFactor, _currentProfile.ZoomMin, _currentProfile.ZoomMax));
+            }
         }
 
         public void Shake(Id shakePresetId)

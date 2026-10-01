@@ -17,12 +17,13 @@
   `FeedbackAttachSpec`、`IFeedbackSink`、`FeedbackOptions`（新增 `HitFrameSync`/
   `HitFrameSyncTimeoutSeconds`）、`MergeMode`/`QueueMode`、`FloatingTextStyleDef`、
   `PlaybackFinishedEvent`（见下"并行协调"）、`EntityLogicalIdResolver`（可选扩展点，见"契约缺口"）、
-  `IHitFrameSource`（ADR-0017 决策 d，见判断记录 14）。
+  `IHitFrameSource`（ADR-0017 决策 d，见判断记录 14）；手感打击反馈包（判断记录 23）：`ImpactProfile`（`ImpactProfile.cs`）、
+  `ImpactHit`/`ImpactFeel`/`ImpactOptions`/`ImpactPlan`/`ImpactBatch` 等（`ImpactTypes.cs`）。
 - `core/`：`FeedbackBinder`（主体）、`PlaybackQueue`、`FloatingTextMerger`、
   `CompositeFeedbackSink`（默认 `IFeedbackSink` 实现，vfx/sfx 转给 `Presentation.VfxSfx`）、
   `FeedbackRuleValidator`、`HitFrameSyncPolicy`（命中帧等待队列）、`CharacterRigHitFrameSource`
-  （`IHitFrameSource` 默认实现，见判断记录 14）。
-- `schema/`：`FeedbackSchemas`——`feedback.binding`/`feedback.floating_text_style` 的
+  （`IHitFrameSource` 默认实现，见判断记录 14）、`ImpactPipeline`/`ImpactFreezeRegistry`/`PresentingImpactFeelSource`（判断记录 23）。
+- `schema/`：`FeedbackSchemas`——`feedback.binding`/`feedback.floating_text_style`/`feedback.impact_profile` 的
   `TableSchema` 登记（不接入 `data/_sample/`，同 `vfx_sfx` 模块惯例）。
 - `tests/`：见验收测试列表。
 
@@ -280,6 +281,27 @@
       先统一推进全部窗口并挑出到期项（保持插入顺序）、从待合并列表摘除，再逐个结算。
     复现/不变量：`tests/PlaybackQueueEdgeTests.cs`、`tests/FeedbackBinderDispatchEdgeTests.cs`、`tests/FloatingTextMergerTests.cs`
     （`Update_MultipleWindowsDueInSameCall_DispatchInInsertionOrder_SameAsFlushAll` 等）。
+
+23. **手感打击反馈包（2026-10-02，手感落地第 1 波 S4；设计见 `architecture/手感设计/07`、ADR-0113/0117）：`play_impact` 动作 + `ImpactPipeline`**：
+    - **契约增量（ABI 只加法）**：`FeedbackActionKind.PlayImpact`（枚举末尾追加）+ `PlayImpactAction(Id? ProfileId)`；`feedback.binding` 的 `play_impact` 变体（`profile_id` 可选，引用 `feedback.impact_profile`）；
+      新表 `feedback.impact_profile`（`ImpactProfile`，行内 `variants[]`，键为 `(class, outcome)`）；`IFeedbackSink` 新增四个默认接口成员（`PlayVfx(..., parameters)`、`ImpactCamera`、`FreezePresentation`、`ReleasePresentation`，旧 sink 不改也能编译）；
+      `FeedbackBinder` 新增十三参构造重载（`impactPipeline`），旧构造转调且 `impactPipeline: null` 时行为与改动前逐位一致；`CompositeFeedbackSink` 加三个可设回调属性。
+    - **字段名**：表里用 `class`/`outcome`，不用判定型字段名（`impact_class` 等）——`FeelHalfIsolationRule` 会把判定型字段名当作 `feedback.*` 表键报错。`impact_class` 本身是判定型字段，表现层读不到，由事件（`combat.hit_confirmed`/伤害/回避事件）携带，经 `ImpactHit` 传入。
+    - **数据流**：`combat.hit_confirmed` 经 `ObserveHit`（挥空窗口记接触）；即时模式下沿用既有伤害/回避事件触发 `Offer`（同一命中不重复入组）；`sim.tick_finished` 触发 `Flush` 并给流水线时钟；`action.marker`/`action.phase_changed` 驱动挥空窗口；`feel.hitstop_started/ended` 驱动顿帧表现。
+      逐目标闪白/粒子/音效/飘字走既有 `PlaybackQueue`；顿帧与镜头冲击不入队，直接下发 sink。
+    - **同 tick 组合并**：同一 tick 内多目标命中先逐个解析，镜头冲击幅度取各命中（已乘玩家强度）的最大值，再按镜头拥有者的 `camera_shake_cap` 截断：`Magnitude = min(max, cap)`（`cap = 0` 即无冲击，与 `rpg_classic` 中性预设一致）；方向取幅度加权和后归一；`impulse_min_interval_ms` 内的后续批整批丢弃镜头内容。
+      幅度基数取攻击方（武器）的 `camera_impulse_gain`，上限/最小间隔/玩家强度取镜头拥有者（`CameraOwnerResolver`，缺省是镜头跟随的实体）的手感。
+    - **强度与限数**：`ImpactIntensity` 的比例系数 × 结局系数（暴击/击杀放大）乘到镜头幅度与粒子缩放，未声明时全为 1。音效限数：本批前 `min(MaxImpactsPerTick, 攻击方 sfx_max_concurrent)` 个命中播音效（`sfx_max_concurrent` 在此是"每批并发上限"，不是跨 tick 活跃声部计数，同层活跃并发仍由 `SfxPlayer` 层名额负责）；`MaxVfxPerTick` 缺省 0 = 不限粒子数。回避/挥空结局强制不播 `impact` 音效层。
+    - **呈现型字段读取**：`PresentingImpactFeelSource` 只读呈现型视图；`ScreenHeightRatio` 字段取 `GetRaw`（不乘参考镜头高度，比例随缩放由镜头实现换算），`BodyHeights` 字段取 `GetNumber`；震屏回落用 `FeelCalibration.ReferenceCameraHeight`。
+    - **挥空**：`WhiffFeedback`（缺省开）。攻击者的 `active_start`..`active_end`（或判定相进出）窗口内没有任何接触（含被回避），窗口结束时发挥空反馈（`whiff` 变体，缺省内置计划只播挥空层 sfx）。已知局限：`combat.hit_confirmed` 带的是攻击实例 id，`action.marker` 带的是施法实例 id，两者不是同一个 id，所以按攻击者在判定窗口内的命中数配对，同一动作内多段判定合成一个窗口，窗口内只要有任何一次接触就不算挥空。
+    - **顿帧表现**：`ImpactFreezeRegistry` 记录被冻结单位与冻结层（`Freezes`，可查询）；`feel.hitstop_started` 经 `FreezePresentation` 通知 sink，`feel.hitstop_ended` 经 `ReleasePresentation` 解冻。`PresentationAssemblyOptions.OnFreezePresentation/OnReleasePresentation` 是渲染 rig/粒子宿主的接入点，缺省忽略（冻结状态仍可经 `Feedback.Impact.Freezes` 查询）。
+    - **装配**：`PresentationAssemblyOptions.FeelResolver` 为 null（缺省）时全部手感呈现关闭，装配与改动前逐位一致；非 null 时构造流水线、`SfxLayerIndex`（见 `vfx_sfx/README.md` 判断记录 27）并启用手感镜头（见 `camera/README.md` 判断记录 8）。调用方显式给的 `ImpactOptions` 字段原样保留，装配只补空缺。
+    - **不变量**：呈现型反馈与镜头档案不改判定型视图/逻辑指纹（`ImpactBinderTests.PresentingProfiles_NeverChangeJudgingFeel_...`；端到端由 feellab 套件 54/54 无差异背书）。
+    - **已知局限（原文）**：
+      - 同一动作内多段判定（多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空。
+      - 三个生产装配入口尚未传入 `FeelResolver`（本切片只提供可选接线，缺省关闭）；`data/_sample` 尚无 `feedback.impact_profile` 示例行。
+      - 顿帧只下发"冻结/解冻"通知与查询状态；渲染 rig/粒子宿主的实际暂停需宿主接 `OnFreezePresentation`。
+    复现/不变量：`tests/ImpactPipelineTests.cs`（单次命中的震屏幅度/时长 tick/音效层 id、5 目标同 tick 合并 `min(max, cap)`、材质层缺失回落、挥空、顿帧、限频）、`tests/ImpactBinderTests.cs`（binder 端到端、`feedback.impact_profile` 解析、`play_impact` 规则解析、呈现/判定隔离）。
 
 ## 不负责什么
 

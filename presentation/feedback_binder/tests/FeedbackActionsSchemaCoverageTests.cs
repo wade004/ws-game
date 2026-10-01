@@ -18,8 +18,8 @@ namespace Tests.Presentation.FeedbackBinder
         {
             var registered = FeedbackSchemas.ActionsItemSchema.Variants!.Cases.Keys.ToHashSet();
             Assert.Equal(FeedbackSchemas.ActionKindValues.ToHashSet(), registered);
-            // ADR-0089 新增第八项 StopSfx。
-            Assert.Equal(8, System.Enum.GetValues(typeof(FeedbackActionKind)).Length);
+            // ADR-0089 新增第八项 StopSfx；手感打击反馈包新增第九项 PlayImpact。
+            Assert.Equal(9, System.Enum.GetValues(typeof(FeedbackActionKind)).Length);
         }
 
         [Fact]

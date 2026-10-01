@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
+using Presentation.VfxSfx.Contracts;
 
 namespace Presentation.VfxSfx.Schema
 {
@@ -53,6 +54,12 @@ namespace Presentation.VfxSfx.Schema
                     .WithAllowedRefCategories("sfx"),
                 new FieldSchema("loop", FieldKind.Bool, required: false,
                     description: "循环播放，缺省 false；见 ADR-0089（进入态起播、离开态由 feedback.binding 的 stop_sfx 停播）"),
+                new FieldSchema("feel_layer", FieldKind.Enum, required: false, enumValues: SfxFeelLayers.Names,
+                    description: "手感音效层（swing/whiff/impact/sweetener/voice/footstep，手感设计/07 第 3 节）：声明后本行登记为该层的一档，反馈包按 (层, 档, 材质) 映射到本行；与 layer（混音分组）正交，未声明为普通音效行"),
+                new FieldSchema("feel_tier", FieldKind.Int, required: false,
+                    description: "手感强度档（1 起），仅声明 feel_layer 时有意义；缺省 1"),
+                new FieldSchema("feel_material", FieldKind.String, required: false,
+                    description: "手感音效材质标签（如 metal_light），缺省 generic；找不到精确材质时回落到同档 generic 行"),
             },
             migrations: Array.Empty<TableMigration>()).WithOwnership(SchemaLayer.Presentation, "sfx");
 

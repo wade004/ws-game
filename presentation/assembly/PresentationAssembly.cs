@@ -6,6 +6,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
+using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
 using Core.Foundation.Localization;
 using Core.Foundation.Rng;
@@ -140,6 +141,23 @@ namespace Presentation.Assembly
         public SfxOptions? SfxOptions { get; set; }
         public CameraHostOptions? CameraHostOptions { get; set; }
         public FeedbackOptions? FeedbackOptions { get; set; }
+
+        /// <summary>手感解析器（手感设计/05，<c>Core.Foundation.Feel.IFeelResolver</c>）：注入后启用呈现型手感——镜头手感档案
+        /// （跟随滞后/前瞻/死区/阻尼/战斗缩放）、打击反馈包流水线（<c>play_impact</c> 动作、挥空、顿帧表现、镜头冲击合并）与
+        /// 手感音效分层。默认 null：全部手感呈现关闭，装配行为与未引入手感时逐位一致。表现层只经呈现型视图读取手感。</summary>
+        public IFeelResolver? FeelResolver { get; set; }
+
+        /// <summary>打击反馈包流水线可选项（见 <see cref="ImpactOptions"/>）；仅 <see cref="FeelResolver"/> 非 null 时生效。
+        /// 装配根只补空缺字段（<c>FeelSource</c>/<c>ProfileResolver</c>/<c>SfxLayers</c>/<c>CameraOwnerResolver</c>/
+        /// <c>PositionResolver</c>/<c>ReferenceHeight</c>），调用方显式给出的字段原样保留。</summary>
+        public ImpactOptions? ImpactOptions { get; set; }
+
+        /// <summary>顿帧表现冻结回调（<c>feel.hitstop_started</c> 的呈现侧落地，手感设计/07 第 5 节）：渲染 rig/粒子宿主接入点；
+        /// 默认 null（忽略，冻结状态仍可经 <c>Feedback.Impact.Freezes</c> 查询）。</summary>
+        public Action<IReadOnlyList<Id>, int, ImpactFreezeLayers>? OnFreezePresentation { get; set; }
+
+        /// <summary>顿帧表现解冻回调（<c>feel.hitstop_ended</c>）。</summary>
+        public Action<IReadOnlyList<Id>>? OnReleasePresentation { get; set; }
 
         /// <summary>拍板 5（离散回放门）：显式指定时一次性设定 <see cref="Presentation.FeedbackBinder.Core.FeedbackBinder.Queue"/>
         /// 的 <see cref="QueueMode"/>，且本装配根不再跟随 <c>gameplay.TimeModelSwitch</c> 自动切换
@@ -437,6 +455,24 @@ namespace Presentation.Assembly
                 }
             }
 
+            // 手感镜头（手感设计/07 第 2 节）：注入手感解析器才启用。档案经呈现型视图读取；战斗缩放跟随玩家单位的
+            // combat.entered/combat.left；缺省档案（rpg_classic 一类中性值）下 CameraHost 旁路，行为与改动前逐位一致。
+            if (opts.FeelResolver != null)
+            {
+                var feelForCamera = opts.FeelResolver;
+                Camera.EnableFeel(
+                    id => CameraFeelProfile.FromPresenting(feelForCamera.ResolvePresenting(id)),
+                    feelForCamera.Calibration.ReferenceCameraHeight);
+                _subscriptions.Add(bus.Subscribe<CombatEnteredEvent>(RulesEventKeys.CombatEntered, e =>
+                {
+                    if (e.UnitId.Equals(_playerId)) Camera.SetInCombat(true);
+                }));
+                _subscriptions.Add(bus.Subscribe<CombatLeftEvent>(RulesEventKeys.CombatLeft, e =>
+                {
+                    if (e.UnitId.Equals(_playerId)) Camera.SetInCombat(false);
+                }));
+            }
+
             // ---------------------------------------------------------
             // 2) vfx_sfx：从 vfx.def/sfx.def/display.weapon_style 建目录，构造播放器。entityPosition
             //    用只读快照兜底（09 第 5.3 节判断记录"缺省用实体位置"）；AnchorResolver 接
@@ -507,6 +543,27 @@ namespace Presentation.Assembly
             // 诊断要落在 FeedbackSinkDiagnostics 上——该 recorder 已在相机装配处提前建好（见
             // sharedPresentationDiagnostics），同时传给下面的 CompositeFeedbackSink。
             var feedbackSinkDiagnostics = sharedPresentationDiagnostics;
+            // 手感打击反馈包流水线（手感设计/07 第 1/4/5/6 节）：注入手感解析器才构造；音效分层索引取
+            // sfx.def 里声明了 feel_layer 的行，反馈包取 feedback.impact_profile 表。
+            ImpactPipeline? impactPipeline = null;
+            if (opts.FeelResolver != null)
+            {
+                var feel = opts.FeelResolver;
+                var impactProfiles = registry.GetAll(Presentation.FeedbackBinder.Schema.FeedbackSchemas.ImpactProfile.Name)
+                    .Select(ImpactProfile.FromRecord).ToDictionary(p => p.Id);
+                var impactOptions = opts.ImpactOptions ?? new ImpactOptions();
+                impactOptions.FeelSource ??= new PresentingImpactFeelSource(feel);
+                impactOptions.ProfileResolver ??= id => impactProfiles.TryGetValue(id, out var profile) ? profile : null;
+                impactOptions.SfxLayers ??= new SfxLayerIndex(sfxCatalog.Values, sharedPresentationDiagnostics);
+                impactOptions.CameraOwnerResolver ??= () => Camera.FollowEntityId;
+                impactOptions.PositionResolver ??= id => entityPositionResolver(id);
+                if (opts.ImpactOptions == null)
+                {
+                    impactOptions.ReferenceHeight = feel.Calibration.ReferenceHeight;
+                }
+                impactPipeline = new ImpactPipeline(impactOptions, sharedPresentationDiagnostics);
+            }
+
             var feedbackSink = new CompositeFeedbackSink(
                 vfxPlayer, sfxPlayer,
                 onFloatingText: opts.OnFloatingText ?? ((_, __, ___) => { }),
@@ -527,12 +584,20 @@ namespace Presentation.Assembly
             // 一份 PresentationDiagnosticsRecorder"这一改动前行为不变），这里只是把已经默认构造好的
             // 实例转发出去。
             FeedbackSinkDiagnostics = feedbackSink.Diagnostics;
+            if (impactPipeline != null)
+            {
+                feedbackSink.OnImpactCamera = cue => Camera.Impulse(cue.Direction, cue.Magnitude, cue.DecayMs);
+                feedbackSink.OnFreezePresentation = opts.OnFreezePresentation;
+                feedbackSink.OnReleasePresentation = opts.OnReleasePresentation;
+            }
 
             Feedback = new FeedbackBinderCore(
                 bus, gameplay.ExprHostFactory, feedbackRules, feedbackSink,
                 displayInfoResolver: VfxSfxDisplayInfoResolver, entityLogicalIdResolver: null,
                 unitAccess: gameplay.Carriers.Units, options: opts.FeedbackOptions,
-                textResolver: key => L10n.Text(key), hitFrameSource: hitFrameSource);
+                exprDiagnostics: null, diagnostics: null,
+                textResolver: key => L10n.Text(key), hitFrameSource: hitFrameSource,
+                impactPipeline: impactPipeline);
 
             // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：
             // Feedback（播放队列 Queue 随之就绪）已构造完成，把"当前是否存在尚未回放完的表现动作"
