@@ -21,6 +21,7 @@ using Core.Carriers.Common;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class CombatStanceAnimReproTests : CombatStanceAnimFixtureBase
     {
         [UnityTest]

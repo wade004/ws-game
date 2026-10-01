@@ -23,6 +23,7 @@ using Debug = UnityEngine.Debug;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityResourceLoaderMainThreadBudgetTests : PlayModeTestBase
     {
         private string? _tempRoot;

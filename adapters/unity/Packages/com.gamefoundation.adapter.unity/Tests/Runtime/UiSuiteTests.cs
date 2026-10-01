@@ -23,6 +23,7 @@ using UnityEngine.UI;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:ui")]
     public sealed class UiSuiteTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";

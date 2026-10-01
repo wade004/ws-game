@@ -83,6 +83,7 @@ namespace Adapter.Unity.Tests.Runtime
         public void Skip(string reason) => NUnit.Framework.Assert.Ignore(reason);
     }
 
+    [Category("module:engine_adapter")]
     public sealed class ConformanceUnityTests : PlayModeTestBase
     {
         /// <summary>推进一次"时钟/帧"：真实等待 <paramref name="seconds"/> 秒的不缩放真实时间

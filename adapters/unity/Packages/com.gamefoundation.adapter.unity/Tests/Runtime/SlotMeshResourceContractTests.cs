@@ -23,6 +23,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class SlotMeshResourceContractTests : PlayModeTestBase
     {
         private static readonly Id PlaceholderModelId = new Id("model.placeholder_biped");

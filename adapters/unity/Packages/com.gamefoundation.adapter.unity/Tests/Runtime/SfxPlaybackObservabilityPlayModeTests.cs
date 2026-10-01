@@ -55,6 +55,7 @@ using FeedbackBinderCore = Presentation.FeedbackBinder.Core.FeedbackBinder;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:vfx_sfx")]
     public sealed class SfxPlaybackObservabilityPlayModeTests : PlayModeTestBase
     {
         private const string PlayerFactionId = "fac.player";

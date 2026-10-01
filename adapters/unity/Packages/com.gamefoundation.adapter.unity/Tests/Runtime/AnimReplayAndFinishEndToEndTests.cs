@@ -45,6 +45,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class AnimReplayAndFinishEndToEndTests : PlayModeTestBase
     {
         private GameObject? _go;

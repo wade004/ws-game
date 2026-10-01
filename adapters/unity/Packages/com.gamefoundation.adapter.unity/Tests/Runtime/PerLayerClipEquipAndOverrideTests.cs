@@ -83,6 +83,7 @@ namespace Adapter.Unity.Tests.Runtime
         public TableSchema? GetSchema(string table) => null;
     }
 
+    [Category("module:render")]
     public sealed class PerLayerClipEquipAndOverrideTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;

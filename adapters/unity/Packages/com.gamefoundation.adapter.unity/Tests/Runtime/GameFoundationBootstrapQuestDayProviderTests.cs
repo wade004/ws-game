@@ -41,6 +41,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:quest")]
     public sealed class GameFoundationBootstrapQuestDayProviderTests : PlayModeTestBase
     {
         private static readonly Id QuestId = new Id("quest.g11_qdp_daily_sample");

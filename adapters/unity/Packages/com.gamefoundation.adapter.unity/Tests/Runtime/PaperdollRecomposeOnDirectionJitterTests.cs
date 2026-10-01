@@ -65,6 +65,7 @@ namespace Adapter.Unity.Tests.Runtime
         public TableSchema? GetSchema(string table) => null;
     }
 
+    [Category("module:render")]
     public sealed class PaperdollRecomposeOnDirectionJitterTests : PlayModeTestBase
     {
         private const string DisplayMapIdValue = "display.map.test_hero_0099";

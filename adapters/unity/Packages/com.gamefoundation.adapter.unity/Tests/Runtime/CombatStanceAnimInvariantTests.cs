@@ -35,6 +35,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class CombatStanceAnimInvariantTests : CombatStanceAnimFixtureBase
     {
         private Id WriteArt(string? meshRef, string clipName, string dir, string layerName)

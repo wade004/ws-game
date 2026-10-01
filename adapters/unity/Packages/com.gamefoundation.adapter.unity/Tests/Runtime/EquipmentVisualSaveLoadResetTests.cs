@@ -60,6 +60,7 @@ using RealSaveSystem = Core.Foundation.SaveSystem.SaveSystem;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class EquipmentVisualSaveLoadResetTests : PlayModeTestBase
     {
         private const string SwordTemplateId = "item.sample_model_sword";

@@ -16,6 +16,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class VerticalSliceTests : PlayModeTestBase
     {
         private const string SceneName = "Shell";

@@ -22,6 +22,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:vfx_sfx")]
     public sealed class SfxEngineReportedFinishPlayModeTests : PlayModeTestBase
     {
         private static readonly Id HighFirst = new Id("sfx.adr0105_high_first");

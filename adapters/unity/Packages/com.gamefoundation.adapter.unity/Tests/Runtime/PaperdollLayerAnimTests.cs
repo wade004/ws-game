@@ -37,6 +37,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class PaperdollLayerAnimTests : PlayModeTestBase
     {
         private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");

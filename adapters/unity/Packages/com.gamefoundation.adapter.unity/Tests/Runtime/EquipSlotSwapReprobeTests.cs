@@ -40,6 +40,7 @@ using DisplayInfo = Core.Foundation.DisplayInfo.DisplayInfo;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class EquipSlotSwapReprobeTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;

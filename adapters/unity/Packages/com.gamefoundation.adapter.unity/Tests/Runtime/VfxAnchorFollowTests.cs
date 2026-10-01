@@ -17,6 +17,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:vfx_sfx")]
     public sealed class VfxAnchorFollowTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;

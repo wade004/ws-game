@@ -27,6 +27,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class ModelViewTests : PlayModeTestBase
     {
         private static readonly Id ModelHeroLogicalId = new Id("creature.sample_model_hero");

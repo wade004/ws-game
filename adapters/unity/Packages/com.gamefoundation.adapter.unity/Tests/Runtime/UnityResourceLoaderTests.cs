@@ -9,6 +9,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityResourceLoaderTests : PlayModeTestBase
     {
         private UnityResourceLoader _loader = null!;

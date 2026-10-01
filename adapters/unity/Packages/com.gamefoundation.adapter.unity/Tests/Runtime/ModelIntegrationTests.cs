@@ -59,6 +59,7 @@ namespace Adapter.Unity.Tests.Runtime
         public void Flash(Id entityId, Id profileId) => FlashCount++;
     }
 
+    [Category("module:shared")]
     public sealed class ModelIntegrationTests : PlayModeTestBase
     {
         private static readonly Id ModelHeroLogicalId = new Id("creature.sample_model_hero");

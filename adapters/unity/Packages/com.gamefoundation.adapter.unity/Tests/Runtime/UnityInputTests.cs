@@ -5,6 +5,7 @@ using NUnit.Framework;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:engine_adapter")]
     public sealed class UnityInputTests : PlayModeTestBase
     {
         private UnityInput _input = null!;

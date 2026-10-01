@@ -64,6 +64,7 @@ using UnityEngine.TestTools;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:shared")]
     public sealed class DiscreteCombatTests : PlayModeTestBase
     {
         /// <summary>GP-PRES-09 收口新增：复刻 <c>Adapter.Unity.Ui.Panels.HudPanel.ShortId</c>（私有，

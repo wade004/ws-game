@@ -67,6 +67,7 @@ namespace Adapter.Unity.Tests.Runtime
         }
     }
 
+    [Category("module:render")]
     public sealed class UnityViewFactoryDefaultAnimationTests : PlayModeTestBase
     {
         private GameObject _rootGo = null!;

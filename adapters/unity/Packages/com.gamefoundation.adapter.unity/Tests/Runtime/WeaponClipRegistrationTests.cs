@@ -38,6 +38,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.Tests.Runtime
 {
+    [Category("module:render")]
     public sealed class WeaponClipRegistrationTests : PlayModeTestBase
     {
         private static readonly Id SpriteHeroLogicalId = new Id("creature.sample_hero");
