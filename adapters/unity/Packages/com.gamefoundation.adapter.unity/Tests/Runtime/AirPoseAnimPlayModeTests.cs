@@ -26,6 +26,7 @@ using UnityEngine;
 namespace Adapter.Unity.Tests.Runtime
 {
     [Category("module:render")]
+    [Category("interaction:air_pose")]
     public sealed class AirPoseAnimPlayModeTests : PlayModeTestBase
     {
         private static readonly Id Entity = new Id("unit.air_pose_pm");

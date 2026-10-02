@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
-  "script": "space.terrain",
+  "script": "space.nav_detour",
   "cells": {
     "2d_targeted": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "5522336fb50d6133",
+        "dataset": "2a4cac32a2f5c2b7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -17,24 +17,24 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 16.666666667,
-          "net_displacement": 16.666666667,
-          "speed_steady": 5,
-          "accel_ticks": 0,
+          "ticks_requested": 0,
+          "path_length": 12,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
           "partial_step_ticks": 0,
           "blocked_ticks": 0,
@@ -57,12 +57,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 606,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 991,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -107,13 +107,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx200",
+          "mode_sequence": "Grounded/Regularx144,Grounded/Nonex276",
           "speed_max": 5,
-          "ticks_to_full_speed": 0,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "19.466666667,0",
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -135,37 +135,14 @@
           "freeze_ops": "",
           "first_feedback_lag_ticks": -1,
           "other_ops": ""
-        },
-        "space": {
-          "model": "plane",
-          "vertical_axis": 0,
-          "gravity": 0,
-          "jump_height": 0,
-          "jump_requests": 1,
-          "jumps_started": 0,
-          "jumps_refused": 1,
-          "jump_start_ticks": [],
-          "jump_flight_steps": [],
-          "player_apex": 0,
-          "player_apex_tick": -1,
-          "player_airborne_ticks": 0,
-          "player_landing_ticks": [],
-          "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
-          "declared_dummy_heights": "",
-          "dummy_apexes": "",
-          "dummy_off_ground_ticks": "",
-          "dummy_landing_ticks": "",
-          "hit_height_gaps": [],
-          "hit_height_gap_max": -1
         }
       }
     },
     "2d_action": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "17bfabd1df1d3aca",
+        "dataset": "02d786a6295b01e2",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -176,29 +153,29 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 8.240740741,
-          "net_displacement": 8.240740741,
-          "speed_steady": 2.5,
-          "accel_ticks": 5,
+          "ticks_requested": 0,
+          "path_length": 12,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
-          "partial_step_ticks": 5,
+          "partial_step_ticks": 0,
           "blocked_ticks": 0,
-          "obstructed_speed_fraction": 0.277777778,
-          "obstructed_jitter_ticks": 2
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
         },
         "attack": {
           "casts_submitted": 0,
@@ -216,12 +193,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 606,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 994,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -266,13 +243,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx200",
-          "speed_max": 2.5,
-          "ticks_to_full_speed": 5,
+          "mode_sequence": "Grounded/Regularx147,Grounded/Nonex273",
+          "speed_max": 5,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "11.040740741,0",
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -294,37 +271,14 @@
           "freeze_ops": "",
           "first_feedback_lag_ticks": -1,
           "other_ops": ""
-        },
-        "space": {
-          "model": "plane",
-          "vertical_axis": 0,
-          "gravity": 0,
-          "jump_height": 0,
-          "jump_requests": 1,
-          "jumps_started": 0,
-          "jumps_refused": 1,
-          "jump_start_ticks": [],
-          "jump_flight_steps": [],
-          "player_apex": 0,
-          "player_apex_tick": -1,
-          "player_airborne_ticks": 0,
-          "player_landing_ticks": [],
-          "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
-          "declared_dummy_heights": "",
-          "dummy_apexes": "",
-          "dummy_off_ground_ticks": "",
-          "dummy_landing_ticks": "",
-          "hit_height_gaps": [],
-          "hit_height_gap_max": -1
         }
       }
     },
     "2_5d_targeted": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "5522336fb50d6133",
+        "dataset": "2a4cac32a2f5c2b7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -335,24 +289,24 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 16.666666667,
-          "net_displacement": 16.666666667,
-          "speed_steady": 5,
-          "accel_ticks": 0,
+          "ticks_requested": 0,
+          "path_length": 12,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
           "partial_step_ticks": 0,
           "blocked_ticks": 0,
@@ -375,12 +329,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 606,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 991,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -425,13 +379,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx200",
+          "mode_sequence": "Grounded/Regularx144,Grounded/Nonex276",
           "speed_max": 5,
-          "ticks_to_full_speed": 0,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "19.466666667,0",
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -453,37 +407,14 @@
           "freeze_ops": "",
           "first_feedback_lag_ticks": -1,
           "other_ops": ""
-        },
-        "space": {
-          "model": "plane",
-          "vertical_axis": 0,
-          "gravity": 0,
-          "jump_height": 0,
-          "jump_requests": 1,
-          "jumps_started": 0,
-          "jumps_refused": 1,
-          "jump_start_ticks": [],
-          "jump_flight_steps": [],
-          "player_apex": 0,
-          "player_apex_tick": -1,
-          "player_airborne_ticks": 0,
-          "player_landing_ticks": [],
-          "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
-          "declared_dummy_heights": "",
-          "dummy_apexes": "",
-          "dummy_off_ground_ticks": "",
-          "dummy_landing_ticks": "",
-          "hit_height_gaps": [],
-          "hit_height_gap_max": -1
         }
       }
     },
     "2_5d_action": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "17bfabd1df1d3aca",
+        "dataset": "02d786a6295b01e2",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -494,183 +425,24 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 8.240740741,
-          "net_displacement": 8.240740741,
-          "speed_steady": 2.5,
-          "accel_ticks": 5,
+          "ticks_requested": 0,
+          "path_length": 12,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
-          "sub_threshold_ticks": 0,
-          "partial_step_ticks": 5,
-          "blocked_ticks": 0,
-          "obstructed_speed_fraction": 0.277777778,
-          "obstructed_jitter_ticks": 2
-        },
-        "attack": {
-          "casts_submitted": 0,
-          "cast_success": 0,
-          "cast_failed": 0,
-          "cast_failed_reasons": "",
-          "attack_instances": 0,
-          "damage_events": 0,
-          "damage_total": 0,
-          "targets_hit": 0,
-          "kills": 0,
-          "settle_ticks": [],
-          "settle_ticks_max": -1,
-          "hits_per_instance_max": 0,
-          "dedupe_violations": 0
-        },
-        "performance": {
-          "ticks": 200,
-          "event_count_total": 606,
-          "frames": 200,
-          "frame_ms_p50": 0.1,
-          "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
-        },
-        "inputbuf": {
-          "press_ticks": "",
-          "slot_visible_ticks": "",
-          "consume_ticks": "",
-          "accept_latency_ticks": [],
-          "accept_latency_max": -1,
-          "drop_events": "",
-          "drop_counts": "",
-          "expire_ticks": "",
-          "max_slot_occupancy": 0,
-          "slot_occupied_ticks": 0
-        },
-        "actiontl": {
-          "starts": "",
-          "phase_ticks": "",
-          "action_total_ticks": [],
-          "markers": "",
-          "cancels": "",
-          "finishes": "",
-          "combo_chain": "",
-          "combo_segments": 0,
-          "charge_ratios": [],
-          "target_assists": "",
-          "unfinished_at_end": 0
-        },
-        "hitstop": {
-          "started": "",
-          "started_ticks_player": 0,
-          "frozen_ticks_player": 0,
-          "frozen_ticks_targets": "",
-          "nested_starts": 0,
-          "unended_at_end": 0,
-          "presentation_frozen_at_end": 0
-        },
-        "reaction": {
-          "hit_results": "",
-          "reaction_counts": "",
-          "reactions": "",
-          "staggered_ticks": "",
-          "kills": 0,
-          "hit_classes": ""
-        },
-        "motion": {
-          "mode_sequence": "Grounded/Regularx200",
-          "speed_max": 2.5,
-          "ticks_to_full_speed": 5,
-          "ticks_to_stop": -1,
-          "turn_ticks": -1,
-          "facing_final": 0,
-          "end_position": "11.040740741,0",
-          "blocking_updates": "",
-          "target_track": ""
-        },
-        "spatialhit": {
-          "hit_confirmed": 0,
-          "avoided": 0,
-          "hit_sets": "",
-          "confirm_ticks": "",
-          "duplicate_confirmations": 0,
-          "unconfirmed_damage": 0,
-          "confirmed_without_damage": 0
-        },
-        "presentation": {
-          "sfx_ids": "",
-          "sfx_count": 0,
-          "camera_cues": "",
-          "camera_magnitudes": [],
-          "camera_decay_ms": [],
-          "freeze_ops": "",
-          "first_feedback_lag_ticks": -1,
-          "other_ops": ""
-        },
-        "space": {
-          "model": "plane",
-          "vertical_axis": 0,
-          "gravity": 0,
-          "jump_height": 0,
-          "jump_requests": 1,
-          "jumps_started": 0,
-          "jumps_refused": 1,
-          "jump_start_ticks": [],
-          "jump_flight_steps": [],
-          "player_apex": 0,
-          "player_apex_tick": -1,
-          "player_airborne_ticks": 0,
-          "player_landing_ticks": [],
-          "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
-          "declared_dummy_heights": "",
-          "dummy_apexes": "",
-          "dummy_off_ground_ticks": "",
-          "dummy_landing_ticks": "",
-          "hit_height_gaps": [],
-          "hit_height_gap_max": -1
-        }
-      }
-    },
-    "3d_targeted": {
-      "key": {
-        "script": "space.terrain",
-        "scriptVersion": 1,
-        "dataset": "5522336fb50d6133",
-        "preset": "feel.preset.rpg_classic",
-        "calibrationVersion": "none",
-        "poseSet": "none",
-        "adapters": "headless+stub",
-        "cell": "3d_targeted",
-        "tickRate": 60,
-        "frameRateCap": 60
-      },
-      "groups": {
-        "response": {
-          "move_response_ticks": 0,
-          "cast_response_ticks": [],
-          "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
-        },
-        "movement": {
-          "ticks_requested": 200,
-          "path_length": 16.666666667,
-          "net_displacement": 16.666666667,
-          "speed_steady": 5,
-          "accel_ticks": 0,
-          "stop_ticks": -1,
-          "stop_distance": -1,
-          "reverse_ticks": -1,
-          "reversal_count": 0,
-          "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
           "partial_step_ticks": 0,
           "blocked_ticks": 0,
@@ -693,12 +465,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 606,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 994,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -743,13 +515,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx200",
+          "mode_sequence": "Grounded/Regularx147,Grounded/Nonex273",
           "speed_max": 5,
-          "ticks_to_full_speed": 0,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "19.466666667,0",
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -771,37 +543,150 @@
           "freeze_ops": "",
           "first_feedback_lag_ticks": -1,
           "other_ops": ""
+        }
+      }
+    },
+    "3d_targeted": {
+      "key": {
+        "script": "space.nav_detour",
+        "scriptVersion": 1,
+        "dataset": "2a4cac32a2f5c2b7",
+        "preset": "feel.preset.rpg_classic",
+        "calibrationVersion": "none",
+        "poseSet": "none",
+        "adapters": "headless+stub",
+        "cell": "3d_targeted",
+        "tickRate": 60,
+        "frameRateCap": 60
+      },
+      "groups": {
+        "response": {
+          "move_response_ticks": -1,
+          "cast_response_ticks": [],
+          "cast_response_ticks_max": -1,
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
-        "space": {
-          "model": "plane",
-          "vertical_axis": 0,
-          "gravity": 0,
-          "jump_height": 0,
-          "jump_requests": 1,
-          "jumps_started": 0,
-          "jumps_refused": 1,
-          "jump_start_ticks": [],
-          "jump_flight_steps": [],
-          "player_apex": 0,
-          "player_apex_tick": -1,
-          "player_airborne_ticks": 0,
-          "player_landing_ticks": [],
-          "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
-          "declared_dummy_heights": "",
-          "dummy_apexes": "",
-          "dummy_off_ground_ticks": "",
-          "dummy_landing_ticks": "",
-          "hit_height_gaps": [],
-          "hit_height_gap_max": -1
+        "movement": {
+          "ticks_requested": 0,
+          "path_length": 12,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
+          "stop_ticks": -1,
+          "stop_distance": -1,
+          "reverse_ticks": -1,
+          "reversal_count": 0,
+          "diag_speed_ratio": -1,
+          "min_axis_magnitude_moved": -1,
+          "sub_threshold_ticks": 0,
+          "partial_step_ticks": 0,
+          "blocked_ticks": 0,
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
+        },
+        "attack": {
+          "casts_submitted": 0,
+          "cast_success": 0,
+          "cast_failed": 0,
+          "cast_failed_reasons": "",
+          "attack_instances": 0,
+          "damage_events": 0,
+          "damage_total": 0,
+          "targets_hit": 0,
+          "kills": 0,
+          "settle_ticks": [],
+          "settle_ticks_max": -1,
+          "hits_per_instance_max": 0,
+          "dedupe_violations": 0
+        },
+        "performance": {
+          "ticks": 420,
+          "event_count_total": 991,
+          "frames": 420,
+          "frame_ms_p50": 0.1,
+          "frame_ms_p95": 0.1,
+          "alloc_bytes_per_frame_p95": 4096
+        },
+        "inputbuf": {
+          "press_ticks": "",
+          "slot_visible_ticks": "",
+          "consume_ticks": "",
+          "accept_latency_ticks": [],
+          "accept_latency_max": -1,
+          "drop_events": "",
+          "drop_counts": "",
+          "expire_ticks": "",
+          "max_slot_occupancy": 0,
+          "slot_occupied_ticks": 0
+        },
+        "actiontl": {
+          "starts": "",
+          "phase_ticks": "",
+          "action_total_ticks": [],
+          "markers": "",
+          "cancels": "",
+          "finishes": "",
+          "combo_chain": "",
+          "combo_segments": 0,
+          "charge_ratios": [],
+          "target_assists": "",
+          "unfinished_at_end": 0
+        },
+        "hitstop": {
+          "started": "",
+          "started_ticks_player": 0,
+          "frozen_ticks_player": 0,
+          "frozen_ticks_targets": "",
+          "nested_starts": 0,
+          "unended_at_end": 0,
+          "presentation_frozen_at_end": 0
+        },
+        "reaction": {
+          "hit_results": "",
+          "reaction_counts": "",
+          "reactions": "",
+          "staggered_ticks": "",
+          "kills": 0,
+          "hit_classes": ""
+        },
+        "motion": {
+          "mode_sequence": "Grounded/Regularx144,Grounded/Nonex276",
+          "speed_max": 5,
+          "ticks_to_full_speed": -1,
+          "ticks_to_stop": -1,
+          "turn_ticks": -1,
+          "facing_final": 0,
+          "end_position": "14,0",
+          "blocking_updates": "",
+          "target_track": ""
+        },
+        "spatialhit": {
+          "hit_confirmed": 0,
+          "avoided": 0,
+          "hit_sets": "",
+          "confirm_ticks": "",
+          "duplicate_confirmations": 0,
+          "unconfirmed_damage": 0,
+          "confirmed_without_damage": 0
+        },
+        "presentation": {
+          "sfx_ids": "",
+          "sfx_count": 0,
+          "camera_cues": "",
+          "camera_magnitudes": [],
+          "camera_decay_ms": [],
+          "freeze_ops": "",
+          "first_feedback_lag_ticks": -1,
+          "other_ops": ""
         }
       }
     },
     "3d_action": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "17bfabd1df1d3aca",
+        "dataset": "02d786a6295b01e2",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -812,29 +697,29 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 8.240740741,
-          "net_displacement": 8.240740741,
-          "speed_steady": 2.5,
-          "accel_ticks": 5,
+          "ticks_requested": 0,
+          "path_length": 12,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
-          "partial_step_ticks": 5,
+          "partial_step_ticks": 0,
           "blocked_ticks": 0,
-          "obstructed_speed_fraction": 0.277777778,
-          "obstructed_jitter_ticks": 2
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
         },
         "attack": {
           "casts_submitted": 0,
@@ -852,12 +737,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 606,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 994,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -902,13 +787,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx200",
-          "speed_max": 2.5,
-          "ticks_to_full_speed": 5,
+          "mode_sequence": "Grounded/Regularx147,Grounded/Nonex273",
+          "speed_max": 5,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
           "facing_final": 0,
-          "end_position": "11.040740741,0",
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -930,37 +815,14 @@
           "freeze_ops": "",
           "first_feedback_lag_ticks": -1,
           "other_ops": ""
-        },
-        "space": {
-          "model": "plane",
-          "vertical_axis": 0,
-          "gravity": 0,
-          "jump_height": 0,
-          "jump_requests": 1,
-          "jumps_started": 0,
-          "jumps_refused": 1,
-          "jump_start_ticks": [],
-          "jump_flight_steps": [],
-          "player_apex": 0,
-          "player_apex_tick": -1,
-          "player_airborne_ticks": 0,
-          "player_landing_ticks": [],
-          "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
-          "declared_dummy_heights": "",
-          "dummy_apexes": "",
-          "dummy_off_ground_ticks": "",
-          "dummy_landing_ticks": "",
-          "hit_height_gaps": [],
-          "hit_height_gap_max": -1
         }
       }
     },
     "side_2d_targeted": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "5522336fb50d6133",
+        "dataset": "2a4cac32a2f5c2b7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -971,29 +833,29 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
           "visible_move_frames": -1,
           "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 6.19,
-          "net_displacement": 6.19,
-          "speed_steady": 5,
-          "accel_ticks": 0,
+          "ticks_requested": 0,
+          "path_length": 14.098560197,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
-          "partial_step_ticks": 1,
-          "blocked_ticks": 125,
-          "obstructed_speed_fraction": 0.002222222,
-          "obstructed_jitter_ticks": 1
+          "partial_step_ticks": 0,
+          "blocked_ticks": 0,
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
         },
         "attack": {
           "casts_submitted": 0,
@@ -1011,11 +873,11 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 481,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 1017,
+          "frames": 420,
           "frame_ms_p50": 0.1,
-          "frame_ms_p95": 1,
+          "frame_ms_p95": 0.1,
           "alloc_bytes_per_frame_p95": 8192
         },
         "inputbuf": {
@@ -1061,13 +923,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx75,Grounded/Nonex125",
-          "speed_max": 5,
-          "ticks_to_full_speed": 0,
+          "mode_sequence": "Grounded/Regularx170,Grounded/Nonex250",
+          "speed_max": 5.409988634,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
-          "facing_final": 0,
-          "end_position": "8.99,0",
+          "facing_final": 0.648331989,
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -1095,21 +957,17 @@
           "vertical_axis": 1,
           "gravity": 30,
           "jump_height": 1.5,
-          "jump_requests": 1,
-          "jumps_started": 1,
+          "jump_requests": 0,
+          "jumps_started": 0,
           "jumps_refused": 0,
-          "jump_start_ticks": [
-            10
-          ],
-          "jump_flight_steps": [
-            -1
-          ],
-          "player_apex": 1.2,
-          "player_apex_tick": 16,
-          "player_airborne_ticks": 198,
+          "jump_start_ticks": [],
+          "jump_flight_steps": [],
+          "player_apex": 0,
+          "player_apex_tick": -1,
+          "player_airborne_ticks": 0,
           "player_landing_ticks": [],
           "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
+          "max_depth_drift": 3.125,
           "declared_dummy_heights": "",
           "dummy_apexes": "",
           "dummy_off_ground_ticks": "",
@@ -1121,32 +979,42 @@
           "options": "-;-;0.5;1;0",
           "air_jump_starts": 0,
           "air_jump_refusals": 0,
-          "airborne_ticks": 20,
-          "ground_step_max": 0.083333333,
-          "air_step_mean": 0.083333333,
-          "air_ground_ratio": 1,
-          "landing_heights": [
-            0.4
-          ],
-          "ground_height_max": 1.1475,
-          "ground_height_final": 1.1475,
-          "airborne_height_max": 1.2,
-          "ceiling_clamp_ticks": [
-            16
-          ],
-          "move_blocked_ticks": 125,
-          "final_x": 8.99,
+          "airborne_ticks": 0,
+          "ground_step_max": -1,
+          "air_step_mean": -1,
+          "air_ground_ratio": -1,
+          "landing_heights": [],
+          "ground_height_max": 0,
+          "ground_height_final": 0,
+          "airborne_height_max": 0,
+          "ceiling_clamp_ticks": [],
+          "move_blocked_ticks": 0,
+          "final_x": 14,
           "air_phases": "",
           "air_pose_requests": "",
           "air_pose_fallbacks": 0
+        },
+        "space_nav": {
+          "move_requests": 1,
+          "move_failed": 0,
+          "move_failures": "",
+          "move_stops": "",
+          "terrain_blocked_stops": 0,
+          "terrain_swaps": 0,
+          "arrived": 1,
+          "final_dist_to_target": 0,
+          "travelled": 14.015226863,
+          "detour_ratio": 1.174426062,
+          "max_abs_y": 3.125,
+          "final_y": 0
         }
       }
     },
     "side_2d_action": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "17bfabd1df1d3aca",
+        "dataset": "02d786a6295b01e2",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1157,29 +1025,29 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
           "visible_move_frames": -1,
           "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 6.199074074,
-          "net_displacement": 6.199074074,
-          "speed_steady": 2.5,
-          "accel_ticks": 5,
+          "ticks_requested": 0,
+          "path_length": 14.09255466,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
-          "partial_step_ticks": 5,
-          "blocked_ticks": 49,
-          "obstructed_speed_fraction": 0.010893246,
-          "obstructed_jitter_ticks": 2
+          "partial_step_ticks": 0,
+          "blocked_ticks": 0,
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
         },
         "attack": {
           "casts_submitted": 0,
@@ -1197,9 +1065,9 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 557,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 1019,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
           "alloc_bytes_per_frame_p95": 8192
@@ -1247,13 +1115,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx151,Grounded/Nonex49",
-          "speed_max": 2.5,
-          "ticks_to_full_speed": 5,
+          "mode_sequence": "Grounded/Regularx172,Grounded/Nonex248",
+          "speed_max": 5,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
-          "facing_final": 0,
-          "end_position": "8.999074074,0",
+          "facing_final": 0.648331989,
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -1281,21 +1149,17 @@
           "vertical_axis": 1,
           "gravity": 30,
           "jump_height": 1.5,
-          "jump_requests": 1,
-          "jumps_started": 1,
+          "jump_requests": 0,
+          "jumps_started": 0,
           "jumps_refused": 0,
-          "jump_start_ticks": [
-            10
-          ],
-          "jump_flight_steps": [
-            -1
-          ],
-          "player_apex": 1.2,
-          "player_apex_tick": 16,
-          "player_airborne_ticks": 193,
+          "jump_start_ticks": [],
+          "jump_flight_steps": [],
+          "player_apex": 0,
+          "player_apex_tick": -1,
+          "player_airborne_ticks": 0,
           "player_landing_ticks": [],
           "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
+          "max_depth_drift": 3.125,
           "declared_dummy_heights": "",
           "dummy_apexes": "",
           "dummy_off_ground_ticks": "",
@@ -1307,32 +1171,42 @@
           "options": "-;-;0.5;1;0",
           "air_jump_starts": 0,
           "air_jump_refusals": 0,
-          "airborne_ticks": 20,
-          "ground_step_max": 0.041666667,
-          "air_step_mean": 0.041666667,
-          "air_ground_ratio": 1,
-          "landing_heights": [
-            0.4
-          ],
-          "ground_height_max": 1.149768519,
-          "ground_height_final": 1.149768519,
-          "airborne_height_max": 1.2,
-          "ceiling_clamp_ticks": [
-            16
-          ],
-          "move_blocked_ticks": 49,
-          "final_x": 8.999074074,
+          "airborne_ticks": 0,
+          "ground_step_max": -1,
+          "air_step_mean": -1,
+          "air_ground_ratio": -1,
+          "landing_heights": [],
+          "ground_height_max": 0,
+          "ground_height_final": 0,
+          "airborne_height_max": 0,
+          "ceiling_clamp_ticks": [],
+          "move_blocked_ticks": 0,
+          "final_x": 14,
           "air_phases": "",
           "air_pose_requests": "",
           "air_pose_fallbacks": 0
+        },
+        "space_nav": {
+          "move_requests": 1,
+          "move_failed": 0,
+          "move_failures": "",
+          "move_stops": "",
+          "terrain_blocked_stops": 0,
+          "terrain_swaps": 0,
+          "arrived": 1,
+          "final_dist_to_target": 0,
+          "travelled": 14.077122561,
+          "detour_ratio": 1.174296925,
+          "max_abs_y": 3.125,
+          "final_y": 0
         }
       }
     },
     "volume_targeted": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "5522336fb50d6133",
+        "dataset": "2a4cac32a2f5c2b7",
         "preset": "feel.preset.rpg_classic",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1343,29 +1217,29 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 6.19,
-          "net_displacement": 6.19,
-          "speed_steady": 5,
-          "accel_ticks": 0,
+          "ticks_requested": 0,
+          "path_length": 14.098560197,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
-          "partial_step_ticks": 1,
-          "blocked_ticks": 125,
-          "obstructed_speed_fraction": 0.002222222,
-          "obstructed_jitter_ticks": 1
+          "partial_step_ticks": 0,
+          "blocked_ticks": 0,
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
         },
         "attack": {
           "casts_submitted": 0,
@@ -1383,12 +1257,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 481,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 1017,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -1433,13 +1307,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx75,Grounded/Nonex125",
-          "speed_max": 5,
-          "ticks_to_full_speed": 0,
+          "mode_sequence": "Grounded/Regularx170,Grounded/Nonex250",
+          "speed_max": 5.409988634,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
-          "facing_final": 0,
-          "end_position": "8.99,0",
+          "facing_final": 0.648331989,
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -1467,21 +1341,17 @@
           "vertical_axis": 1,
           "gravity": 20,
           "jump_height": 2,
-          "jump_requests": 1,
-          "jumps_started": 1,
+          "jump_requests": 0,
+          "jumps_started": 0,
           "jumps_refused": 0,
-          "jump_start_ticks": [
-            10
-          ],
-          "jump_flight_steps": [
-            -1
-          ],
-          "player_apex": 1.2,
-          "player_apex_tick": 16,
-          "player_airborne_ticks": 198,
+          "jump_start_ticks": [],
+          "jump_flight_steps": [],
+          "player_apex": 0,
+          "player_apex_tick": -1,
+          "player_airborne_ticks": 0,
           "player_landing_ticks": [],
           "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
+          "max_depth_drift": 3.125,
           "declared_dummy_heights": "",
           "dummy_apexes": "",
           "dummy_off_ground_ticks": "",
@@ -1493,32 +1363,42 @@
           "options": "-;-;0.5;1;0",
           "air_jump_starts": 0,
           "air_jump_refusals": 0,
-          "airborne_ticks": 23,
-          "ground_step_max": 0.083333333,
-          "air_step_mean": 0.083333333,
-          "air_ground_ratio": 1,
-          "landing_heights": [
-            0.4
-          ],
-          "ground_height_max": 1.1475,
-          "ground_height_final": 1.1475,
-          "airborne_height_max": 1.2,
-          "ceiling_clamp_ticks": [
-            16
-          ],
-          "move_blocked_ticks": 125,
-          "final_x": 8.99,
+          "airborne_ticks": 0,
+          "ground_step_max": -1,
+          "air_step_mean": -1,
+          "air_ground_ratio": -1,
+          "landing_heights": [],
+          "ground_height_max": 0,
+          "ground_height_final": 0,
+          "airborne_height_max": 0,
+          "ceiling_clamp_ticks": [],
+          "move_blocked_ticks": 0,
+          "final_x": 14,
           "air_phases": "",
           "air_pose_requests": "",
           "air_pose_fallbacks": 0
+        },
+        "space_nav": {
+          "move_requests": 1,
+          "move_failed": 0,
+          "move_failures": "",
+          "move_stops": "",
+          "terrain_blocked_stops": 0,
+          "terrain_swaps": 0,
+          "arrived": 1,
+          "final_dist_to_target": 0,
+          "travelled": 14.015226863,
+          "detour_ratio": 1.174426062,
+          "max_abs_y": 3.125,
+          "final_y": 0
         }
       }
     },
     "volume_action": {
       "key": {
-        "script": "space.terrain",
+        "script": "space.nav_detour",
         "scriptVersion": 1,
-        "dataset": "17bfabd1df1d3aca",
+        "dataset": "02d786a6295b01e2",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1529,29 +1409,29 @@
       },
       "groups": {
         "response": {
-          "move_response_ticks": 0,
+          "move_response_ticks": -1,
           "cast_response_ticks": [],
           "cast_response_ticks_max": -1,
-          "visible_move_frames": 1,
-          "visible_move_ms": 16.666666667
+          "visible_move_frames": -1,
+          "visible_move_ms": -1
         },
         "movement": {
-          "ticks_requested": 200,
-          "path_length": 6.199074074,
-          "net_displacement": 6.199074074,
-          "speed_steady": 2.5,
-          "accel_ticks": 5,
+          "ticks_requested": 0,
+          "path_length": 14.09255466,
+          "net_displacement": 12,
+          "speed_steady": 0,
+          "accel_ticks": -1,
           "stop_ticks": -1,
           "stop_distance": -1,
           "reverse_ticks": -1,
           "reversal_count": 0,
           "diag_speed_ratio": -1,
-          "min_axis_magnitude_moved": 1,
+          "min_axis_magnitude_moved": -1,
           "sub_threshold_ticks": 0,
-          "partial_step_ticks": 5,
-          "blocked_ticks": 49,
-          "obstructed_speed_fraction": 0.010893246,
-          "obstructed_jitter_ticks": 2
+          "partial_step_ticks": 0,
+          "blocked_ticks": 0,
+          "obstructed_speed_fraction": -1,
+          "obstructed_jitter_ticks": 0
         },
         "attack": {
           "casts_submitted": 0,
@@ -1569,12 +1449,12 @@
           "dedupe_violations": 0
         },
         "performance": {
-          "ticks": 200,
-          "event_count_total": 557,
-          "frames": 200,
+          "ticks": 420,
+          "event_count_total": 1019,
+          "frames": 420,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
-          "alloc_bytes_per_frame_p95": 8192
+          "alloc_bytes_per_frame_p95": 4096
         },
         "inputbuf": {
           "press_ticks": "",
@@ -1619,13 +1499,13 @@
           "hit_classes": ""
         },
         "motion": {
-          "mode_sequence": "Grounded/Regularx151,Grounded/Nonex49",
-          "speed_max": 2.5,
-          "ticks_to_full_speed": 5,
+          "mode_sequence": "Grounded/Regularx172,Grounded/Nonex248",
+          "speed_max": 5,
+          "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
           "turn_ticks": -1,
-          "facing_final": 0,
-          "end_position": "8.999074074,0",
+          "facing_final": 0.648331989,
+          "end_position": "14,0",
           "blocking_updates": "",
           "target_track": ""
         },
@@ -1653,21 +1533,17 @@
           "vertical_axis": 1,
           "gravity": 20,
           "jump_height": 2,
-          "jump_requests": 1,
-          "jumps_started": 1,
+          "jump_requests": 0,
+          "jumps_started": 0,
           "jumps_refused": 0,
-          "jump_start_ticks": [
-            10
-          ],
-          "jump_flight_steps": [
-            -1
-          ],
-          "player_apex": 1.2,
-          "player_apex_tick": 16,
-          "player_airborne_ticks": 193,
+          "jump_start_ticks": [],
+          "jump_flight_steps": [],
+          "player_apex": 0,
+          "player_apex_tick": -1,
+          "player_airborne_ticks": 0,
           "player_landing_ticks": [],
           "depth_inputs_dropped": 0,
-          "max_depth_drift": 0,
+          "max_depth_drift": 3.125,
           "declared_dummy_heights": "",
           "dummy_apexes": "",
           "dummy_off_ground_ticks": "",
@@ -1679,24 +1555,34 @@
           "options": "-;-;0.5;1;0",
           "air_jump_starts": 0,
           "air_jump_refusals": 0,
-          "airborne_ticks": 23,
-          "ground_step_max": 0.041666667,
-          "air_step_mean": 0.041666667,
-          "air_ground_ratio": 1,
-          "landing_heights": [
-            0.4
-          ],
-          "ground_height_max": 1.149768519,
-          "ground_height_final": 1.149768519,
-          "airborne_height_max": 1.2,
-          "ceiling_clamp_ticks": [
-            16
-          ],
-          "move_blocked_ticks": 49,
-          "final_x": 8.999074074,
+          "airborne_ticks": 0,
+          "ground_step_max": -1,
+          "air_step_mean": -1,
+          "air_ground_ratio": -1,
+          "landing_heights": [],
+          "ground_height_max": 0,
+          "ground_height_final": 0,
+          "airborne_height_max": 0,
+          "ceiling_clamp_ticks": [],
+          "move_blocked_ticks": 0,
+          "final_x": 14,
           "air_phases": "",
           "air_pose_requests": "",
           "air_pose_fallbacks": 0
+        },
+        "space_nav": {
+          "move_requests": 1,
+          "move_failed": 0,
+          "move_failures": "",
+          "move_stops": "",
+          "terrain_blocked_stops": 0,
+          "terrain_swaps": 0,
+          "arrived": 1,
+          "final_dist_to_target": 0,
+          "travelled": 14.077122561,
+          "detour_ratio": 1.174296925,
+          "max_abs_y": 3.125,
+          "final_y": 0
         }
       }
     }

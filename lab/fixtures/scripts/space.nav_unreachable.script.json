@@ -1,0 +1,101 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.nav_unreachable",
+    "scriptVersion": 1,
+    "description": "空间扩展·寻路无路（M4-W1a）：目标在 x 6..10 那块高 2 的平台顶上（台阶 0.5，爬不上去）。第 0 tick 点击 (8,0)：寻路失败（NoPath）、原地不动；第 30 tick 再点击平台另一侧的 (14,0)：照常绕过去到达。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 480,
+    "playerStart": {
+      "x": 2,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_steps"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.lab_move_to",
+      "kind": "move_to",
+      "value": {
+        "x": 8,
+        "y": 0
+      }
+    },
+    {
+      "tick": 30,
+      "action": "input.action.lab_move_to",
+      "kind": "move_to",
+      "value": {
+        "x": 14,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "unreachable_target_fails",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.move_failed",
+      "op": "eq",
+      "value": 1,
+      "note": "平台顶上的目标走不到：寻路失败一次，不是走过去再被台阶顶住。"
+    },
+    {
+      "id": "never_blocked_by_the_step",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.terrain_blocked_stops",
+      "op": "eq",
+      "value": 0,
+      "note": "没有以 TerrainBlocked 结束的移动。"
+    },
+    {
+      "id": "next_request_still_works",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.arrived",
+      "op": "eq",
+      "value": 1,
+      "note": "失败之后的下一次点击照常到达。"
+    }
+  ]
+}

@@ -613,7 +613,7 @@ namespace Core.Carriers.Unit
             IReadOnlyList<Vec2>? path = snapping
                 ? FindPointTargetPath(unit, from, target)
                 : _navigation != null
-                    ? _navigation.FindPath(unit.MapId, from, target)
+                    ? PlanPath(unit, from, target)
                     : new List<Vec2> { from, target };
 
             if (path == null)
@@ -678,13 +678,16 @@ namespace Core.Carriers.Unit
             var nav = _navigation!;
             var radius = _options.UnwalkableTargetSnapRadius;
 
-            if (!nav.TryFindNearestReachable(unit.MapId, from, requested, radius, out var reachable))
+            Vec2 reachable;
+            if (TerrainPlanning
+                ? !nav.TryFindNearestReachable(unit.MapId, from, requested, radius, _vertical, out reachable)
+                : !nav.TryFindNearestReachable(unit.MapId, from, requested, radius, out reachable))
             {
                 return null;
             }
 
             var resolved = reachable;
-            var path = nav.FindPath(unit.MapId, from, reachable);
+            var path = PlanPath(unit, from, reachable);
 
             if (path == null && _options.UnwalkableTargetCandidates > 1)
             {
@@ -700,7 +703,7 @@ namespace Core.Carriers.Unit
                         continue; // 已经试过。
                     }
 
-                    path = nav.FindPath(unit.MapId, from, candidates[i]);
+                    path = PlanPath(unit, from, candidates[i]);
                     if (path != null)
                     {
                         resolved = candidates[i];
@@ -927,7 +930,7 @@ namespace Core.Carriers.Unit
                 var standoffPoint = targetPos - toTarget * (stopRange / distance);
 
                 var newPath = _navigation != null
-                    ? _navigation.FindPath(unit.MapId, unit.Position, standoffPoint)
+                    ? PlanPath(unit, unit.Position, standoffPoint)
                     : new List<Vec2> { unit.Position, standoffPoint };
 
                 // ADR-0102（修订 ADR-0097 决策 5）：直接回退点失败时，先在目标周围的停止距离圆上
@@ -1002,6 +1005,7 @@ namespace Core.Carriers.Unit
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
             var trail = volumeRadius > 0.0 ? new PathTrail(pos, path, index) : null; // 位移折线（成对撞停按折线逐段求接触）。
             if (trail != null) trail.Profile = stepProfile;
+            var terrainPoly = trail != null ? trail.Points : (TerrainPlanning ? new List<Vec2> { pos } : null); // 台阶阻挡按实际走的折线逐段扫掠。
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1013,7 +1017,7 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     index++;
-                    trail?.Add(pos, index);
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                     continue;
                 }
 
@@ -1026,10 +1030,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
-                            trail?.AddPoly(volume.Poly!, index);
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
-                                trail?.Add(detour, index);
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1042,7 +1046,7 @@ namespace Core.Carriers.Unit
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
                     index++;
-                    trail?.Add(pos, index);
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
                 else
                 {
@@ -1054,10 +1058,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
-                            trail?.AddPoly(volume.Poly!, index);
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
-                                trail?.Add(detour, index);
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1069,12 +1073,12 @@ namespace Core.Carriers.Unit
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
-                    trail?.Add(pos, index);
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
             }
 
             // 地形台阶阻挡（同 ContinuePathCore）：追击不因台阶结束（目标可能走开、台阶可能被跳过），只把本 tick 位移截断在台阶前。
-            ClampPathMoveByTerrain(unit, startPos, ref pos);
+            ClampPathMoveByTerrain(unit, terrainPoly, trail, ref pos);
 
             if (mt != null)
             {
@@ -1134,7 +1138,7 @@ namespace Core.Carriers.Unit
 
             foreach (var candidatePoint in StandoffCandidates.Enumerate(targetPos, directionToApproacher, stopRange, candidates))
             {
-                var candidatePath = _navigation!.FindPath(unit.MapId, unit.Position, candidatePoint);
+                var candidatePath = PlanPath(unit, unit.Position, candidatePoint);
                 if (candidatePath != null)
                 {
                     path = candidatePath;
@@ -1698,6 +1702,7 @@ namespace Core.Carriers.Unit
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
             var trail = volumeRadius > 0.0 ? new PathTrail(pos, path, index) : null; // 位移折线（成对撞停按折线逐段求接触）。
             if (trail != null) trail.Profile = stepProfile;
+            var terrainPoly = trail != null ? trail.Points : (TerrainPlanning ? new List<Vec2> { pos } : null); // 台阶阻挡按实际走的折线逐段扫掠。
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1709,7 +1714,7 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     index++;
-                    trail?.Add(pos, index);
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                     continue;
                 }
 
@@ -1722,10 +1727,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
-                            trail?.AddPoly(volume.Poly!, index);
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
-                                trail?.Add(detour, index);
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1738,7 +1743,7 @@ namespace Core.Carriers.Unit
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
                     index++;
-                    trail?.Add(pos, index);
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
                 else
                 {
@@ -1750,10 +1755,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
-                            trail?.AddPoly(volume.Poly!, index);
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
-                                trail?.Add(detour, index);
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1765,13 +1770,13 @@ namespace Core.Carriers.Unit
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
-                    trail?.Add(pos, index);
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
             }
 
             // 地形台阶阻挡（ADR-0130 追加决定）：路径是导航算的、不知道台阶，这里把本 tick 的位移按台阶截断；被挡住后路径作废（台阶不会自己消失），
             // 与方向移动的"贴着阻挡停住"同口径，只是路径跟随以 MoveStopReason.TerrainBlocked 结束。
-            var terrainBlocked = ClampPathMoveByTerrain(unit, startPos, ref pos);
+            var terrainBlocked = ClampPathMoveByTerrain(unit, terrainPoly, trail, ref pos);
 
             if (mt != null)
             {
@@ -1887,7 +1892,8 @@ namespace Core.Carriers.Unit
         /// <paramref name="unit"/> 剩余路段（从当前实际位置到 <see cref="MovementState.PathIndex"/>
         /// 之后的每个路点依次相连）逐段调用 <see cref="Core.Foundation.EngineAdapter.INavigation2D.Raycast"/>
         /// ——与 <see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/> 共用同一套阻挡判定
-        /// （见该接口第 1.8 节勘误）。全程无阻挡：只把 <see cref="MovementState.NavVersion"/> 更新为
+        /// （见该接口第 1.8 节勘误）；声明了地形台阶阻挡时每段另外问地形约束（<see cref="VerticalMotionHost.FirstStepBlock"/>，
+        /// 与寻路、移动阻挡同一条滑窗规则），被台阶挡住的路段同样算受阻、触发重新规划。全程无阻挡：只把 <see cref="MovementState.NavVersion"/> 更新为
         /// <paramref name="currentVersion"/>（标记"已按这个版本验证过"），路径/索引不变——比
         /// <see cref="Core.Carriers.Unit.BlockingChangePolicy.Replan"/> 更省一次寻路开销。任意一段受阻：
         /// 委托 <see cref="ReplanPath"/> 对剩余目标重新整体寻路。</summary>
@@ -1901,7 +1907,8 @@ namespace Core.Carriers.Unit
             var segStart = unit.Position;
             for (var i = index; i < path.Count; i++)
             {
-                if (_navigation!.Raycast(unit.MapId, segStart, path[i]) != null)
+                if (_navigation!.Raycast(unit.MapId, segStart, path[i]) != null ||
+                    (TerrainPlanning && _vertical!.FirstStepBlock(unit.MapId, segStart, path[i]).HasValue))
                 {
                     blocked = true;
                     break;
@@ -1947,7 +1954,7 @@ namespace Core.Carriers.Unit
 
             var newPath = snapping
                 ? FindPointTargetPath(unit, from, target)
-                : _navigation!.FindPath(unit.MapId, from, target);
+                : PlanPath(unit, from, target);
             if (newPath == null)
             {
                 // 判断记录（不应重复触发失败回调；NavVersion 前移已收拢进 HandlePathFailure）：
@@ -2113,30 +2120,93 @@ namespace Core.Carriers.Unit
             return new NavRayHit(terrain.Value, _vertical.TerrainBlockNormal(unit, terrain.Value, to - from));
         }
 
+        /// <summary>声明了竖直轴地形台阶阻挡：寻路、路径校验按地形约束进行（<see cref="VerticalMotionHost"/> 即约束）。</summary>
+        private bool TerrainPlanning => _vertical != null && _vertical.StepBlockingActive;
+
         /// <summary>
-        /// 路径跟随/追击一步的地形台阶裁决：把本 tick 从 <paramref name="start"/> 走到 <paramref name="pos"/> 的位移按台阶阻挡截断
-        /// （回退一个 <see cref="MovementOptions.ArrivalEpsilon"/>，与方向移动同口径）。返回是否被截断；没有启用台阶阻挡恒返回 false 且不改 <paramref name="pos"/>。
+        /// 单位的路径规划唯一入口：声明了地形台阶阻挡时带着地形约束走 <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>
+        /// （直线被台阶挡住就绕行，绕不过去返回 null，不再规划出穿台阶的路再被截断），否则就是 <c>FindPath(mapId, from, to)</c>（逐位不变）。
         /// </summary>
-        private bool ClampPathMoveByTerrain(Unit unit, Vec2 start, ref Vec2 pos)
+        private IReadOnlyList<Vec2>? PlanPath(Unit unit, Vec2 from, Vec2 to) =>
+            TerrainPlanning
+                ? _navigation!.FindPath(unit.MapId, from, to, _vertical)
+                : _navigation!.FindPath(unit.MapId, from, to);
+
+        /// <summary>折线上追加一个点：有体积轨迹时记进轨迹（<paramref name="poly"/> 就是轨迹的点表），否则只记进台阶扫掠用的折线。</summary>
+        private static void NotePolyPoint(PathTrail? trail, List<Vec2>? poly, Vec2 point, int indexAfter)
         {
-            if (_vertical == null || !_vertical.StepBlockingActive || pos.Equals(start))
+            if (trail != null)
+            {
+                trail.Add(point, indexAfter);
+            }
+            else
+            {
+                poly?.Add(point);
+            }
+        }
+
+        /// <summary>折线上追加一段体积裁决给出的折线（首点是当前位置，不重复记）。</summary>
+        private static void NotePolyPoly(PathTrail? trail, List<Vec2>? poly, Vec2[] points, int indexAfter)
+        {
+            if (trail != null)
+            {
+                trail.AddPoly(points, indexAfter);
+            }
+            else if (poly != null)
+            {
+                for (var k = 1; k < points.Length; k++)
+                {
+                    poly.Add(points[k]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 路径跟随/追击一步的地形台阶裁决：把本 tick 单位<b>实际走的折线</b>（经过的每个路点、体积裁决的折线与绕行点，而不是起终点的弦）
+        /// 逐段按台阶阻挡扫掠，第一段被挡住的就把位移截断在那里（回退一个 <see cref="MovementOptions.ArrivalEpsilon"/>，与方向移动同口径），
+        /// 拐过路点的那一 tick 因此不会漏掉折线上的台阶、也不会把弦上的台阶误当成实际路线上的。有体积轨迹时同时把轨迹截到停点，
+        /// 阶段 B 的成对撞停看到的就是实际走的折线。返回是否被截断；没有启用台阶阻挡恒返回 false 且不改 <paramref name="pos"/>。
+        /// </summary>
+        private bool ClampPathMoveByTerrain(Unit unit, List<Vec2>? polyline, PathTrail? trail, ref Vec2 pos)
+        {
+            if (!TerrainPlanning || polyline == null || polyline.Count < 2)
             {
                 return false;
             }
 
-            var hit = _vertical.TerrainBlockPoint(unit, start, pos);
-            if (!hit.HasValue)
+            for (var k = 1; k < polyline.Count; k++)
             {
-                return false;
+                var a = polyline[k - 1];
+                var b = polyline[k];
+                if (a.Equals(b))
+                {
+                    continue;
+                }
+
+                var hit = _vertical!.TerrainBlockPoint(unit, a, b);
+                if (!hit.HasValue)
+                {
+                    continue;
+                }
+
+                var travel = b - a;
+                var travelLength = travel.Length;
+                var hitDistance = (hit.Value - a).Length;
+                var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
+                var keep = hitDistance - pullBack;
+                pos = travelLength <= 1e-12 ? a : a + travel * (keep / travelLength);
+                if (trail != null)
+                {
+                    var indexAfter = trail.Index[k - 1];
+                    trail.Points.RemoveRange(k, trail.Points.Count - k);
+                    trail.Index.RemoveRange(k - 1, trail.Index.Count - (k - 1));
+                    trail.Add(pos, indexAfter);
+                }
+
+                return true;
             }
 
-            var travel = pos - start;
-            var travelLength = travel.Length;
-            var hitDistance = (hit.Value - start).Length;
-            var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
-            var keep = hitDistance - pullBack;
-            pos = travelLength <= 1e-12 ? start : start + travel * (keep / travelLength);
-            return true;
+            return false;
         }
 
         /// <summary>声明了竖直轴地形台阶阻挡却没有装配导航时垫底的空旷场地：处处可走、两点直线路径、没有阻挡。</summary>
@@ -2150,6 +2220,28 @@ namespace Core.Carriers.Unit
 
             public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) =>
                 (to - from).Length <= 1e-6 ? new List<Vec2> { from } : new List<Vec2> { from, to };
+
+            // 地形感知寻路（声明了台阶阻挡时）：空旷场地没有阻挡矩形，只有台阶；与测试桩、引擎网格共用同一个规划器。
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+            {
+                if ((to - from).Length <= 1e-6) return new List<Vec2> { from };
+                if (terrain == null) return new List<Vec2> { from, to };
+                return TerrainStepPathPlanner.FindPath(null, mapId, from, to, _ => true, (a, b) => true, (a, b) => true, terrain);
+            }
+
+            public bool TryFindNearestReachable(
+                Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+            {
+                if (terrain == null)
+                {
+                    reachable = point;
+                    return true;
+                }
+
+                var layout = TerrainStepPathPlanner.ReachableLayoutFor(null, from, point, maxRadius);
+                return TerrainStepPathPlanner.TryFindNearestReachable(
+                    layout, from, point, maxRadius, _ => true, c => FindPath(mapId, from, c, terrain) != null, out reachable);
+            }
 
             public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => null;
 

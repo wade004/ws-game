@@ -144,3 +144,7 @@ engine_adapter/
 ## `ITerrainHeight2D`：地面与天花板高度（2026-10-03，M4-V，ADR-0130 追加决定）
 
 新增接口 `ITerrainHeight2D { GetGroundHeight(mapId, point); GetCeilingHeight(mapId, point) }`（后者默认 +inf）与缺省实现 `FlatTerrainHeight2D.Instance`（地面 0、没有天花板）。核心层用它做落地高度、天花板夹取、斜坡贴地与台阶阻挡（`VerticalAxisOptions.Terrain`，缺省 null）。实现：核心层数据版 `MapTerrainHeights`（读 `world.map.terrain`，无头宿主/实验室用）、Unity 物理射线版 `UnityTerrainHeight2D`（可选启用）。接口是只读纯查询，同一输入同一输出。
+
+## 地形感知寻路与 `ITerrainStepConstraint`（2026-10-03，M4-W1a，ADR-0130 追加决定）
+
+`INavigation2D` 追加两个**默认接口成员**（只加不改，既有实现无需改动、二进制兼容）：`FindPath(mapId, from, to, ITerrainStepConstraint? constraint)` 与 `TryFindNearestReachable(mapId, from, point, maxRadius, constraint, out reachable)`（参数同旧版加约束）。`ITerrainStepConstraint.FirstStepBlock(mapId, from, to)` 返回贴地行走者沿 from→to 第一个被台阶挡住的点（没有返回 null；**有向**：上台阶被挡不等于下台阶被挡）；实现者是核心层 `VerticalMotionHost`。默认实现：对旧 `FindPath` 的结果逐段验证约束，有一段被挡就返回 `null`（"没有网格的第三方实现不假装能绕行，也不静默忽略地形"）；`constraint == null` 时与旧重载完全一致。有网格的实现（测试桩 `StubNavigation2D`、Unity `UnityNavigation2D`、核心层 `OpenFieldNavigation`）覆盖它们，共用同一份规划器 `TerrainStepPathPlanner`（八邻接 A*，被台阶挡住的有向边不可通行、不切角、开放表按 `(f, 节点序号)` 排序、直线通畅时直接 `[from, to]`、视线剪枝，端点所在格心被阻挡盖住时用 8 邻格里与端点直连不受阻的格心做多源接合；绕行搜索窗口 = 两端点包围盒外扩 `max(4, 距离/2)` 加网格边距 2，超窗判无路，规划器不知道地形的全局范围，详见 `core/carriers/unit/README.md` 的判断记录）。台阶规则本身（滑窗 + 二分到 1e-10）在 `TerrainStepMath`，移动阻挡、寻路与路径校验共用。测试：`tests/TerrainAwareNavigationTests.cs`。

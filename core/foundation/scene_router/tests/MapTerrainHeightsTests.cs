@@ -93,6 +93,7 @@ namespace Tests.Foundation.SceneRouter
             var registry = new Core.Foundation.DataRegistry.DataRegistry(
                 source, new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false }));
             registry.RegisterSchema(WorldMapSchema.Table);
+            registry.RegisterValidationRule(new WorldMapTerrainValidationRule());
             return registry.LoadAll();
         }
 

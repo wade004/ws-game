@@ -64,6 +64,9 @@ namespace Tests.Lab
         private static double ShapeHeight(string chainId) =>
             FixtureRow("target/target.chain_def.json", chainId).GetProperty("shape").GetProperty("height").GetDouble();
 
+        /// <summary>适用十个格子的空间脚本数（脚本总数断言；其它处按动态数量）：6 个空间语义（M3-E1）+ 6 个空间扩展（ADR-0130 追加决定）+ 8 个空中战斗（M4-W1b）+ 9 个地形与导航（M4-W1a）。</summary>
+        private const int SpaceScriptCount = 29;
+
         // ---------- 格子与脚本适用性 ----------
 
         [Fact]
@@ -71,7 +74,7 @@ namespace Tests.Lab
         {
             var runner = LabTestSupport.Runner;
             var spaceScripts = LabTestSupport.SpaceScripts();
-            Assert.Equal(20, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）+ 八个空中战斗脚本（M4-W1b）
+            Assert.Equal(SpaceScriptCount, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）+ 八个空中战斗脚本（M4-W1b）+ 九个地形与导航脚本（M4-W1a）
             foreach (var script in spaceScripts)
             {
                 var cells = runner.ApplicableCells(script);

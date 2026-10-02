@@ -601,6 +601,75 @@ namespace Adapter.Unity.EngineAdapter
             return false;
         }
 
+        /// <summary>
+        /// 地形感知寻路（M4-W1a，ADR-0130 追加决定"寻路感知台阶"；契约见
+        /// <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>）。端点契约同 <see cref="FindPath(Id, Vec2, Vec2)"/>；
+        /// <paramref name="terrain"/> 为 null 即它本身（逐位不变）。声明了地形约束时在 <see cref="TerrainStepPathPlanner"/>（与测试桩同一个规划器）
+        /// 的网格上规划：线段不穿阻挡矩形内部（与 <see cref="Raycast"/> 同一判定）、也不被地形台阶挡住；视线剪枝用更严格的"连擦角也算接触"判定。
+        /// 判断记录：地形规划不复用本类型缓存的阻挡主网格（地形台阶让"同一格相邻"不再等于"可通行"，连通分量标号失效），
+        /// 每次请求按端点包围盒 + 绕行余量现算一张局部网格，开销与一次 A* 同量级；没有地形约束的请求仍走原有的缓存网格路径。
+        /// </summary>
+        public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+        {
+            if (terrain == null)
+            {
+                return FindPath(mapId, from, to);
+            }
+
+            if (!IsWalkable(mapId, from) || !IsWalkable(mapId, to))
+            {
+                return null;
+            }
+
+            var dx = to.X - from.X;
+            var dy = to.Y - from.Y;
+            if (dx * dx + dy * dy <= ZeroLengthThreshold * ZeroLengthThreshold)
+            {
+                return new List<Vec2> { from };
+            }
+
+            return TerrainStepPathPlanner.FindPath(
+                BlockingList(mapId), mapId, from, to,
+                p => IsWalkable(mapId, p),
+                (a, b) => !SegmentBlocked(mapId, a, b),
+                (a, b) => SegmentHasClearContact(mapId, a, b),
+                terrain,
+                SmoothPaths);
+        }
+
+        /// <summary>地形感知的最近连通可走点（契约方法）：候选与排序同无地形版本（同一个 <see cref="NearestWalkableSearch.CollectOnGrid"/>），连通 = 地形感知 <see cref="FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/> 能走通。</summary>
+        public bool TryFindNearestReachable(
+            Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+        {
+            if (terrain == null)
+            {
+                return TryFindNearestReachable(mapId, from, point, maxRadius, out reachable);
+            }
+
+            var layout = TerrainStepPathPlanner.ReachableLayoutFor(BlockingList(mapId), from, point, maxRadius);
+            return TerrainStepPathPlanner.TryFindNearestReachable(
+                layout, from, point, maxRadius,
+                p => IsWalkable(mapId, p),
+                p => FindPath(mapId, from, p, terrain) != null,
+                out reachable);
+        }
+
+        private IReadOnlyList<Core.Foundation.Common.Rect>? BlockingList(Id mapId)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var rects))
+            {
+                return null;
+            }
+
+            var list = new List<Core.Foundation.Common.Rect>(rects.Count);
+            foreach (var r in rects)
+            {
+                list.Add(new Core.Foundation.Common.Rect(r.Min, r.Max));
+            }
+
+            return list;
+        }
+
         /// <summary><see cref="TryFindNearestReachable"/> 里"标号预筛通过但 <see cref="FindPath"/> 不认"的候选最多排除
         /// 几次（预期为 0；只有比格子更薄的阻挡、端点接合失败等边角才会触发）。</summary>
         private const int MaxReachableVerifyAttempts = 16;

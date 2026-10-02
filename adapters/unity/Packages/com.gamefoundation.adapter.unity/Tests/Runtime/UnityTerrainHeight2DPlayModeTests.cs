@@ -6,7 +6,9 @@
 //   二、斜坡：旋转的盒子，地面高度 = 上表面直线方程在该点的值；
 //   三、天花板：CeilingMask 选中的碰撞体底面高度；没配 CeilingMask / 头顶无物 = +inf；
 //   四、与核心竖直运动服务联动：被抛起的单位落在平台上表面（而不是 0）、撞天花板后速度清零且不越过；
-//   五、按地图 id 的掩码钩子：不同地图看到不同地面。
+//   五、按地图 id 的掩码钩子：不同地图看到不同地面；
+//   六、按地图 id 隔离（M4-W1a）：两张地图的碰撞体在世界坐标上完全重叠，各自读到自己的地面/天花板、互不串——
+//      a. 每张地图一个 PhysicsScene（BindMap）；b. 同一物理场景里每张地图一个根物体（BindMapRoot）；c. StrictMaps 下未绑定的地图看不到地形。
 //
 // 判断记录（地面与天花板各用一个专属 Layer，同 CombatStanceAnimFixture 的"项目 TagManager 里 8~31 全部未使用"）：
 // 本类型只创建没有渲染器的碰撞体，不涉及渲染隔离；用 Layer 29/30 把本套件的碰撞体与其它用例（默认层）隔开，
@@ -21,6 +23,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
 using Vec2 = Core.Foundation.Common.Vec2;
@@ -28,6 +31,7 @@ using Vec2 = Core.Foundation.Common.Vec2;
 namespace Adapter.Unity.Tests.Runtime
 {
     [Category("module:unit")]
+    [Category("interaction:vertical_terrain")]
     public sealed class UnityTerrainHeight2DPlayModeTests : PlayModeTestBase
     {
         private const int GroundLayer = 29;
@@ -37,9 +41,17 @@ namespace Adapter.Unity.Tests.Runtime
 
         private readonly List<GameObject> _created = new List<GameObject>();
 
+        private readonly List<Scene> _scenes = new List<Scene>();
+
         [TearDown]
         public void DestroyColliders()
         {
+            foreach (var scene in _scenes)
+            {
+                if (scene.IsValid()) SceneManager.UnloadSceneAsync(scene);
+            }
+            _scenes.Clear();
+
             foreach (var go in _created)
             {
                 if (go != null) UnityEngine.Object.DestroyImmediate(go);
@@ -218,6 +230,119 @@ namespace Adapter.Unity.Tests.Runtime
 
             Assert.AreEqual(2.0, terrain.GetGroundHeight(visible, new Vec2(7, 0)), Tolerance);
             Assert.AreEqual(0.0, terrain.GetGroundHeight(hidden, new Vec2(7, 0)), "该地图的掩码选不中任何碰撞体：地面 0");
+        }
+
+        // ---------- 六、按地图 id 隔离（M4-W1a） ----------
+
+        private static readonly Id MapOne = new Id("map.iso_one");
+        private static readonly Id MapTwo = new Id("map.iso_two");
+
+        /// <summary>在 <paramref name="parent"/>（可空）之下造一个盒子碰撞体；位置先设后加碰撞体，保证物理世界立即登记。</summary>
+        private GameObject BoxUnder(string name, Transform? parent, int layer, Vector3 center, Vector3 size)
+        {
+            var go = new GameObject(name) { layer = layer };
+            if (parent != null) go.transform.SetParent(parent, false);
+            go.transform.position = center;
+            go.AddComponent<BoxCollider>().size = size;
+            _created.Add(go);
+            return go;
+        }
+
+        private Scene NewPhysicsScene(string name)
+        {
+            var scene = SceneManager.CreateScene(name, new CreateSceneParameters(LocalPhysicsMode.Physics3D));
+            _scenes.Add(scene);
+            return scene;
+        }
+
+        private GameObject BoxInScene(Scene scene, string name, int layer, Vector3 center, Vector3 size)
+        {
+            var go = new GameObject(name) { layer = layer };
+            SceneManager.MoveGameObjectToScene(go, scene);
+            go.transform.position = center;
+            go.AddComponent<BoxCollider>().size = size;
+            _created.Add(go);
+            return go;
+        }
+
+        [UnityTest]
+        public IEnumerator PerMapPhysicsScene_TwoOverlappingMaps_EachSeeOnlyTheirOwnGroundAndCeiling()
+        {
+            var sceneOne = NewPhysicsScene("iso_one");
+            var sceneTwo = NewPhysicsScene("iso_two");
+            // 同一 (x, z) 处：地图一的平台上表面 2、地图二的平台上表面 5；地图二另有顶棚（底面 9）。
+            BoxInScene(sceneOne, "one_platform", GroundLayer, new Vector3(7.5f, 1f, 0f), new Vector3(5f, 2f, 10f));
+            BoxInScene(sceneTwo, "two_platform", GroundLayer, new Vector3(7.5f, 2.5f, 0f), new Vector3(5f, 5f, 10f));
+            BoxInScene(sceneTwo, "two_roof", CeilingLayer, new Vector3(7.5f, 10f, 0f), new Vector3(5f, 2f, 10f));
+            yield return Settle();
+
+            var terrain = Terrain();
+            terrain.CeilingMask = 1 << CeilingLayer;
+            terrain.BindMap(MapOne, sceneOne.GetPhysicsScene());
+            terrain.BindMap(MapTwo, sceneTwo.GetPhysicsScene());
+
+            var p = new Vec2(7, 0);
+            Assert.AreEqual(2.0, terrain.GetGroundHeight(MapOne, p), Tolerance, "地图一读到自己的平台，不受地图二更高的平台影响");
+            Assert.AreEqual(5.0, terrain.GetGroundHeight(MapTwo, p), Tolerance, "地图二读到自己的平台");
+            Assert.IsTrue(double.IsPositiveInfinity(terrain.GetCeilingHeight(MapOne, p)), "地图二的顶棚不属于地图一");
+            Assert.AreEqual(9.0, terrain.GetCeilingHeight(MapTwo, p), Tolerance);
+
+            // 解除绑定后回到全局规则（默认物理场景里没有这些碰撞体）：地面 0。
+            terrain.UnbindMap(MapOne);
+            Assert.AreEqual(0.0, terrain.GetGroundHeight(MapOne, p), Tolerance);
+        }
+
+        [UnityTest]
+        public IEnumerator PerMapRoot_TwoMapsInOneScene_EachSeeOnlyCollidersUnderTheirOwnRoot()
+        {
+            var rootOne = new GameObject("iso_root_one");
+            var rootTwo = new GameObject("iso_root_two");
+            _created.Add(rootOne);
+            _created.Add(rootTwo);
+            BoxUnder("one_platform", rootOne.transform, GroundLayer, new Vector3(7.5f, 1f, 0f), new Vector3(5f, 2f, 10f));
+            BoxUnder("two_platform", rootTwo.transform, GroundLayer, new Vector3(7.5f, 2.5f, 0f), new Vector3(5f, 5f, 10f)); // 上表面 5，更高
+            yield return Settle();
+
+            var terrain = Terrain();
+            terrain.BindMapRoot(MapOne, rootOne.transform);
+            terrain.BindMapRoot(MapTwo, rootTwo.transform);
+
+            var p = new Vec2(7, 0);
+            Assert.AreEqual(2.0, terrain.GetGroundHeight(MapOne, p), Tolerance, "地图二的平台更高、先被射线命中，但不属于地图一的根：被穿过");
+            Assert.AreEqual(5.0, terrain.GetGroundHeight(MapTwo, p), Tolerance);
+            Assert.AreEqual(0.0, terrain.GetGroundHeight(MapOne, new Vec2(2, 0)), "根之下没有碰撞体的位置：地面 0");
+
+            // 不绑定的地图（非严格）：沿用全局掩码，读到最高的那个（与 1.95.0 一致）。
+            Assert.AreEqual(5.0, terrain.GetGroundHeight(new Id("map.iso_unbound"), p), Tolerance);
+        }
+
+        [UnityTest]
+        public IEnumerator StrictMaps_AMapWithoutAnyBinding_SeesNoTerrain()
+        {
+            var root = new GameObject("iso_root_strict");
+            _created.Add(root);
+            BoxUnder("platform", root.transform, GroundLayer, new Vector3(7.5f, 1f, 0f), new Vector3(5f, 2f, 10f));
+            yield return Settle();
+
+            var terrain = Terrain();
+            terrain.StrictMaps = true;
+            terrain.BindMapRoot(MapOne, root.transform);
+            var p = new Vec2(7, 0);
+            Assert.AreEqual(2.0, terrain.GetGroundHeight(MapOne, p), Tolerance);
+            Assert.AreEqual(0.0, terrain.GetGroundHeight(MapTwo, p), "严格模式：没有任何绑定的地图看不到别的地图的碰撞体");
+        }
+
+        [UnityTest]
+        public IEnumerator PerMapRoot_DestroyedRoot_MeansNoTerrainForThatMap()
+        {
+            var root = new GameObject("iso_root_gone");
+            BoxUnder("platform", root.transform, GroundLayer, new Vector3(7.5f, 1f, 0f), new Vector3(5f, 2f, 10f));
+            yield return Settle();
+            var terrain = Terrain();
+            terrain.BindMapRoot(MapOne, root.transform);
+            Assert.AreEqual(2.0, terrain.GetGroundHeight(MapOne, new Vec2(7, 0)), Tolerance);
+            UnityEngine.Object.DestroyImmediate(root);
+            Assert.AreEqual(0.0, terrain.GetGroundHeight(MapOne, new Vec2(7, 0)));
         }
     }
 }

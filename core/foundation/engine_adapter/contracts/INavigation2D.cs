@@ -251,5 +251,65 @@ namespace Core.Foundation.EngineAdapter
             reachable = default;
             return false;
         }
+
+        /// <summary>
+        /// 地形感知的寻路（ADR-0130 追加决定"寻路感知台阶"，可选能力）：在 <see cref="FindPath(Id, Vec2, Vec2)"/> 的全部契约之上，
+        /// 再要求返回路径的每一段都不被地形台阶/陡坡挡住（<see cref="ITerrainStepConstraint.FirstStepBlock"/> 对每段返回 <c>null</c>），
+        /// 并且<b>在台阶之间规划绕行</b>：直线被台阶挡住时绕过去，不是截断；绕不过去（台阶把目标整个隔开）返回 <c>null</c>。
+        /// <paramref name="terrain"/> 为 <c>null</c> 时就是 <see cref="FindPath(Id, Vec2, Vec2)"/>（逐位不变）。
+        /// <para>
+        /// 默认实现（ABI 只加不改，没有覆盖本成员的实现无需改动）：对 <see cref="FindPath(Id, Vec2, Vec2)"/> 的结果逐段验证约束，
+        /// 有一段被台阶挡住就返回 <c>null</c>——不静默忽略地形，也不假装能绕行（默认实现没有网格，无从规划）。
+        /// 能规划绕行的实现（测试桩、网格实现）覆盖本成员，可直接用 <see cref="TerrainStepPathPlanner"/>。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+        {
+            var path = FindPath(mapId, from, to);
+            if (path == null || terrain == null)
+            {
+                return path;
+            }
+
+            for (var i = 0; i + 1 < path.Count; i++)
+            {
+                if (terrain.FirstStepBlock(mapId, path[i], path[i + 1]).HasValue)
+                {
+                    return null;
+                }
+            }
+
+            return path;
+        }
+
+        /// <summary>
+        /// 地形感知的 <see cref="TryFindNearestReachable(Id, Vec2, Vec2, double, out Vec2)"/>：返回点必满足
+        /// <c>FindPath(mapId, from, reachable, terrain) != null</c>。<paramref name="terrain"/> 为 <c>null</c> 时就是无地形版本（逐位不变）。
+        /// 默认实现同无地形版本的近似（取最近的 <see cref="NearestWalkableSearch.ReachableProbeLimit"/> 个可走候选逐个试探地形感知的 <see cref="FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>）；
+        /// 网格实现应按自己的格子精确搜索。
+        /// </summary>
+        bool TryFindNearestReachable(
+            Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+        {
+            if (terrain == null)
+            {
+                return TryFindNearestReachable(mapId, from, point, maxRadius, out reachable);
+            }
+
+            var candidates = new List<Vec2>();
+            FindNearestWalkableCandidates(
+                mapId, point, maxRadius, from, NearestWalkableSearch.ReachableProbeLimit, candidates);
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                if (FindPath(mapId, from, candidates[i], terrain) != null)
+                {
+                    reachable = candidates[i];
+                    return true;
+                }
+            }
+
+            reachable = default;
+            return false;
+        }
     }
 }

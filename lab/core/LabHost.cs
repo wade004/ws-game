@@ -256,6 +256,7 @@ namespace Lab
             Core.Rules.Skill.SkillOptions? skillOptions = null;
             var gravity = 0.0;
             var jumpHeight = 0.0;
+            MapTerrainHeights? mapTerrain = null;
             if (vertical)
             {
                 var verticalOptions = new VerticalAxisOptions();
@@ -275,9 +276,11 @@ namespace Lab
                     verticalOptions.AirControl = spaceExt.AirControl;
                     verticalOptions.MaxAirJumps = spaceExt.MaxAirJumps;
                     verticalOptions.StepHeight = spaceExt.StepHeight;
+                    verticalOptions.FallHeight = spaceExt.FallHeight;
                     if (spaceExt.Terrain)
                     {
-                        verticalOptions.Terrain = new MapTerrainHeights(BuildProbe(options).Registry);
+                        mapTerrain = new MapTerrainHeights(BuildProbe(options).Registry);
+                        verticalOptions.Terrain = mapTerrain;
                     }
 
                     if (spaceExt.SpatialRange || spaceExt.SpatialRangeHitWindow)
@@ -386,6 +389,15 @@ namespace Lab
                     if (spaceExt.AirCombat)
                     {
                         space.AirCombat = new AirCombatRecording();
+                    }
+
+                    foreach (var scripted in script.Events)
+                    {
+                        if (scripted.Kind == ScriptEventKind.MoveTo || scripted.Kind == ScriptEventKind.TerrainSwap)
+                        {
+                            space.Ext.Nav = new SpaceNavRecording();
+                            break;
+                        }
                     }
                 }
             }
@@ -608,6 +620,26 @@ namespace Lab
             var dummyMoves = new Dictionary<string, Vec2>(StringComparer.Ordinal);
             var eventCursor = 0;
             var tick = 0;
+            var navRecording = space?.Ext?.Nav;
+            if (navRecording != null)
+            {
+                var movementHost = world.Gameplay.Carriers.Movement;
+                movementHost.OnMoveFailedDetailed += (u, _, _, reason) =>
+                {
+                    if (u.Equals(playerId))
+                    {
+                        navRecording.Failures.Add(tick.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + reason);
+                    }
+                };
+                movementHost.OnMoveStopped += (u, _, reason) =>
+                {
+                    if (u.Equals(playerId))
+                    {
+                        navRecording.Stops.Add(tick.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + reason);
+                    }
+                };
+            }
+
             var duration = meta.DurationTicks;
             var frame = 0;
 
@@ -634,6 +666,37 @@ namespace Lab
                         }
                     }
 
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.MoveTo)
+                {
+                    // 点击移动：宿主级请求（见 ScriptEventKind.MoveTo），直接提交点目标移动请求；
+                    // 带竖直轴的空间语义脚本另记录请求（度量组 space_nav），平面格子照常移动、没有记录。
+                    navRecording?.Targets.Add(e.Value);
+                    navRecording?.TargetTicks.Add(tick);
+                    world.Gameplay.Carriers.Movement.Request(MoveRequest.ToTarget(playerId, e.Value));
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.TerrainSwap)
+                {
+                    // 地形热切换：把本次运行地图的地形整体换成指定 world.map 行的 terrain，再重建导航网格（阻挡版本 +1）。
+                    if (spaceExt == null || !spaceExt.Terrain)
+                    {
+                        throw new LabFormatException("脚本事件 terrain_swap 需要空间语义脚本声明 spaceExt.terrain");
+                    }
+
+                    if (mapTerrain == null || navRecording == null)
+                    {
+                        return; // 平面格子没有竖直轴：地形被忽略（与 space.terrain 同口径）。
+                    }
+
+                    var swapRecord = BuildProbe(options).Registry.Get("world.map", e.Action)
+                        ?? throw new LabFormatException($"脚本 terrain_swap 的 world.map 行不存在：{e.Action}");
+                    mapTerrain.SetShapes(arena.MapId, MapTerrainHeights.ShapesFromRecord(swapRecord) ?? Array.Empty<ITerrainShape>());
+                    nav.BuildNavMesh(arena.MapId);
+                    navRecording.TerrainSwaps++;
                     return;
                 }
 

@@ -1059,7 +1059,20 @@
       ],
       "engine_category": "module:scene_router",
       "owner": "TBD",
-      "interaction_exceptions": []
+      "interaction_exceptions": [
+        {
+          "id": "vertical_terrain",
+          "when_paths": [
+            "core/foundation/scene_router/contracts/MapTerrainHeights.cs",
+            "core/foundation/scene_router/contracts/TerrainShapes.cs"
+          ],
+          "also_run": {
+            "engine_class": "UnityTerrainHeight2DPlayModeTests",
+            "engine_category": "interaction:vertical_terrain"
+          },
+          "why": "地形数据版与引擎物理射线版实现同一 ITerrainHeight2D，竖直运动服务对两者的联动在 UnityTerrainHeight2DPlayModeTests 里冒烟（M4-W1a）"
+        }
+      ]
     },
     {
       "name": "sim_loop",
@@ -1259,6 +1272,17 @@
             "engine_category": "interaction:movement_stop_blocking"
           },
           "why": "移动 tick 的『同一 tick 两遍循环、阻挡版本重验』交互只有引擎侧 MovementStopAndBlockingPlayModeTests 覆盖（1.84.0 门禁因漏跑返工一轮，原文字规则见 AGENTS.md 旧 §0，现迁入本表）"
+        },
+        {
+          "id": "vertical_terrain",
+          "when_paths": [
+            "core/carriers/unit/core/VerticalMotionHost.cs"
+          ],
+          "also_run": {
+            "engine_class": "UnityTerrainHeight2DPlayModeTests",
+            "engine_category": "interaction:vertical_terrain"
+          },
+          "why": "竖直运动服务与地形高度查询（落地/台阶/斜坡/按地图隔离）的交互只有引擎侧 UnityTerrainHeight2DPlayModeTests 用真实物理射线覆盖（M4-V/M4-W1a）"
         }
       ]
     },
@@ -1439,7 +1463,20 @@
       ],
       "engine_category": "module:render",
       "owner": "TBD",
-      "interaction_exceptions": []
+      "interaction_exceptions": [
+        {
+          "id": "air_pose",
+          "when_paths": [
+            "presentation/render/core/PoseSelector.cs",
+            "presentation/render/core/AnimStateMachine.cs"
+          ],
+          "also_run": {
+            "engine_class": "AirPoseAnimPlayModeTests",
+            "engine_category": "interaction:air_pose"
+          },
+          "why": "空中姿势请求键与回落链在引擎侧 AnimClipResolver 的解析只有 AirPoseAnimPlayModeTests 覆盖（M4-V 补登记，当时漏登记导致 test_every_playmode_test_file_has_a_module_category 失败）"
+        }
+      ]
     },
     {
       "name": "shell",
