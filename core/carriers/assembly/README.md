@@ -273,3 +273,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 用例见 `core/gameplay/assembly/tests/FeelGraceCompleteTests.cs`（五项各带"量从 X 变到 Y"的复现与不变量，边界由 `grace_ms` 换算规则算出）、`core/foundation/input_map/tests/GraceRemainingAndRegistrationTests.cs`、`core/foundation/feel/tests/FeelCalibrationHotSwapTests.cs`，以及 `presentation/camera/tests/CameraFeelTests.cs`、`presentation/feedback_binder/tests/ImpactPipelineTests.cs` 里的实时参考高度用例。
 
 已知限制：地面施法的宽限条件须由游戏声明得能表达"落点/目标刚才还够得着"（框架不为地面坐标自动推导可达条件）；缺省 Expr 求值器的目标来源取自动攻击目标（游戏有自己的目标概念时经 `GraceTargetResolver` 提供）；单位很多时自动登记会给每个单位建一份空缓冲（可经 `AutoRegisterGraceActors = false` 关闭）。
+
+## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
+
+只做加法：`CarriersAssembly` 在 `MovementOptions.Vertical` 非空时创建 `VerticalMotionHost`、挂 `VerticalMotionTickHandler`（紧随 `MovementTickHandler`，同在 `MovementAndNavigation` 阶段）并暴露只读属性 `VerticalMotion`；`CarriersFeelAssembly` 在打通受击裁决与运动层之后，`VerticalMotion` 是 `ILaunchSink` 时把它接到 `HitFeelHost.Launch`（没有竖直轴时不接，档案里的 `launch_height` 被忽略）。`HeadlessWorldBuilder` 新增 `MovementOptions`/`TargetingOptions` 透传属性（缺省 null，原路径不变）。判断记录与已知局限见 unit README、targeting README、combat README 的 M3-E1 节。

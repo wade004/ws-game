@@ -1,0 +1,67 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "space.jump",
+    "scriptVersion": 1,
+    "description": "空间语义·跳跃（手感设计/06 第 10 节勘误 9）：无靶子，第 10 tick 按跳跃，第 15 tick 空中再按（不允许二段跳，被拒绝），第 100 tick 落地后再跳。横版/体积格子量起跳 tick、整段飞行步数（由重力与跳跃顶点算出）、顶点高度与 tick、落地 tick；平面格子没有竖直轴，三次请求全被拒绝。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 180,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space",
+    "learnSkills": [],
+    "skillSlots": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 10,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 11,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 15,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 16,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 100,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 101,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    }
+  ]
+}

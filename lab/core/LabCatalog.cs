@@ -62,7 +62,10 @@ namespace Lab
 
         public bool KeepAi { get; }
 
-        public LabDummy(string name, string kind, Id creatureId, Vec2 position, string group, int count, double spacing, bool keepAi)
+        /// <summary>出生脚下高度（世界单位，缺省 0）；只在有竖直轴的格子（side_2d/volume）生效。</summary>
+        public double Height { get; }
+
+        public LabDummy(string name, string kind, Id creatureId, Vec2 position, string group, int count, double spacing, bool keepAi, double height = 0.0)
         {
             Name = name;
             Kind = kind;
@@ -72,6 +75,7 @@ namespace Lab
             Count = count;
             Spacing = spacing;
             KeepAi = keepAi;
+            Height = height;
         }
     }
 
@@ -129,11 +133,24 @@ namespace Lab
         /// <summary>输入动作 id → 技能 id（按键序，保证遍历稳定）。</summary>
         public IReadOnlyList<KeyValuePair<string, Id>> SkillBindings { get; }
 
+        /// <summary>重力加速度（世界单位/秒²）；数据没写为 <c>null</c>（vertical 空间取 <see cref="Core.Carriers.Unit.VerticalAxisOptions"/> 缺省）。</summary>
+        public double? Gravity { get; }
+
+        /// <summary>玩家跳跃顶点高度（世界单位）；数据没写为 <c>null</c>。</summary>
+        public double? JumpHeight { get; }
+
+        /// <summary>该格子的空间模型是否带竖直轴（<c>side_2d</c>、<c>volume</c>）；<c>plane</c> 为否。</summary>
+        public bool HasVerticalAxis => IsVerticalSpace(Space);
+
+        public static bool IsVerticalSpace(string space) =>
+            string.Equals(space, "side_2d", StringComparison.Ordinal) || string.Equals(space, "volume", StringComparison.Ordinal);
+
         public LabScenario(
             Id id, string cell, string space, string form, string cameraMode, string controlSpace, string facing,
             string hitShape, string defaultPreset, IReadOnlyList<string> defaultWeapons, Id dummySetId,
             IReadOnlyList<string> scriptSubset, IReadOnlyList<string> requiredCapabilities, Id arenaId,
-            string settlement, IReadOnlyList<KeyValuePair<string, Id>> skillBindings)
+            string settlement, IReadOnlyList<KeyValuePair<string, Id>> skillBindings,
+            double? gravity = null, double? jumpHeight = null)
         {
             Id = id;
             Cell = cell;
@@ -151,21 +168,18 @@ namespace Lab
             ArenaId = arenaId;
             Settlement = settlement;
             SkillBindings = skillBindings;
+            Gravity = gravity;
+            JumpHeight = jumpHeight;
         }
 
         /// <summary>
         /// 该格子在给定能力集合上的可运行状态（06 第 1.2 节"可运行 / 不可运行（缺能力 X）"显式状态）：
-        /// <see cref="Space"/> 不是平面世界（<c>volume</c>/<c>side_2d</c> 为预留）与缺少必需适配能力都标"不可运行"并给出原因，
-        /// 不静默跳过。
+        /// 缺少必需适配能力标"不可运行"并给出原因，不静默跳过。三个空间取值（<c>plane</c>/<c>side_2d</c>/<c>volume</c>）在无头宿主上
+        /// 都有真实语义，不再有"预留"（手感设计/06 第 10 节勘误 9）；空间语义靠核心层的竖直轴能力实现，不是宿主能力，所以不进能力集合。
         /// </summary>
         public CellRunnability CheckRunnable(IReadOnlyCollection<string> availableCapabilities)
         {
             var reasons = new List<string>();
-            if (!string.Equals(Space, "plane", StringComparison.Ordinal))
-            {
-                reasons.Add($"空间模型 {Space} 为预留（需导航与空间查询契约扩展，见 ADR-0122 决策 3）");
-            }
-
             foreach (var cap in RequiredCapabilities)
             {
                 var has = false;
@@ -234,6 +248,13 @@ namespace Lab
             return result;
         }
 
+        /// <summary>数据集里是否有该格子（短名或完整 id）。</summary>
+        public bool HasScenario(string cellOrId)
+        {
+            var id = cellOrId.StartsWith(ScenarioPrefix, StringComparison.Ordinal) ? cellOrId : ScenarioPrefix + cellOrId;
+            return _registry.Get("lab.scenario", id) != null;
+        }
+
         /// <summary>按短名（如 <c>2d_targeted</c>）或完整 id 取格子。</summary>
         public LabScenario GetScenario(string cellOrId)
         {
@@ -270,6 +291,7 @@ namespace Lab
                 var count = o.TryGetValue("count", out var c) && c is JsonNumber cn ? (int)cn.Value : 1;
                 var spacing = o.TryGetValue("spacing", out var s) && s is JsonNumber sn ? sn.Value : 1.0;
                 var ai = o.TryGetValue("ai", out var a) && a is JsonBool ab && ab.Value;
+                var height = o.TryGetValue("height", out var hv) && hv is JsonNumber hn ? hn.Value : 0.0;
                 entries.Add(new LabDummy(
                     LabJson.RequireString(o, "name", id.Value),
                     LabJson.RequireString(o, "kind", id.Value),
@@ -278,7 +300,8 @@ namespace Lab
                     LabJson.RequireString(o, "group", id.Value),
                     count,
                     spacing,
-                    ai));
+                    ai,
+                    height));
             }
 
             return new LabDummySet(id, entries);
@@ -316,7 +339,9 @@ namespace Lab
                 StringArray(record, "required_capabilities"),
                 record.GetId("arena"),
                 record.GetString("settlement"),
-                bindings);
+                bindings,
+                record.TryGetNumber("gravity", out var gravity) ? gravity : (double?)null,
+                record.TryGetNumber("jump_height", out var jumpHeight) ? jumpHeight : (double?)null);
         }
 
         private static IReadOnlyList<string> IdStrings(DataRecord record, string field)

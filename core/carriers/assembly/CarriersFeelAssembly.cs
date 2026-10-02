@@ -329,6 +329,12 @@ namespace Core.Carriers.Assembly
             carriers.Movement.Motion = motion;
             MotionHitFeelWiring.Connect(carriers.Movement, rulesFeel.Clock, rulesFeel.HitFeel.Host);
 
+            // 击飞口（竖直轴能力包）：世界装配了竖直运动服务（MovementOptions.Vertical 非空）才接，平面世界保持为空，击飞静默不发生。
+            if (carriers.VerticalMotion is Core.Rules.Common.ILaunchSink launchSink)
+            {
+                rulesFeel.HitFeel.Host.Launch = launchSink;
+            }
+
             var system = new CarriersFeelSystem(
                 feel, resolver, rulesFeel, buffer, grace, slotBinding, actionBinding, weaponChain, sink, motion, options.LocalMoveActionName, subscriptions,
                 graceEvaluator);

@@ -46,7 +46,7 @@ namespace Core.Sim
                 new FieldSchema("id", FieldKind.Id, required: true,
                     description: "lab.scenario.<组合>_<模式>，如 lab.scenario.2d_targeted"),
                 new FieldSchema("space", FieldKind.Enum, required: true, enumValues: SpaceValues,
-                    description: "空间模型：plane=平面世界（当前唯一可运行）；volume=体积空间能力包（reserved，需导航与空间查询契约扩展）；side_2d=横版二维（侧视+重力轴，reserved）"),
+                    description: "空间模型：plane=平面俯视世界（无竖直运动轴，高度只是表现参数）；side_2d=横版二维（侧视 + 重力轴：重力下的跳跃/击飞/落地，命中形状带高度窗口，深度轴被控制空间锁死）；volume=体积空间（高度维：重力、命中形状高度窗口、含高度差的三维距离，深度轴自由）。后两者要求世界装配竖直轴（手感设计/06 第 10 节勘误 9）"),
                 new FieldSchema("form", FieldKind.Enum, required: true, enumValues: FormValues,
                     description: "外形：sprite=精灵；model=模型。只影响呈现，无头宿主读取但不据此改变判定"),
                 new FieldSchema("camera_mode", FieldKind.Enum, required: true, enumValues: CameraModeValues,
@@ -82,6 +82,12 @@ namespace Core.Sim
                         "键是输入动作 id（found.input_action 的 key，登记表主键字段名与内容表不同，不走引用校验）",
                         new FieldSchema("<skill>", FieldKind.Reference, required: true, referenceTable: "skill.def",
                             description: "动作按下时施放的技能"))),
+                new FieldSchema("gravity", FieldKind.Number, required: false,
+                    description: "（扩展字段）重力加速度（世界单位/秒²）；只对 side_2d/volume 有意义，缺省 30；plane 忽略")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                new FieldSchema("jump_height", FieldKind.Number, required: false,
+                    description: "（扩展字段）玩家跳跃的顶点高度（世界单位，从脚下起算）；只对 side_2d/volume 有意义，缺省 1.5；plane 忽略")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
                 new FieldSchema("note", FieldKind.String, required: false,
                     description: "内容作者说明原文，可选"),
             }).WithOwnership(SchemaLayer.Sim, "lab");
@@ -139,6 +145,9 @@ namespace Core.Sim
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("ai", FieldKind.Bool, required: false,
                     description: "是否保留模板自带 AI 注册，缺省 false（实验室默认关闭 AI，保证指纹可复现）"),
+                new FieldSchema("height", FieldKind.Number, required: false,
+                    description: "出生脚下高度（世界单位，飘浮怪/悬空靶），缺省 0；静态高度，不受重力；只在 side_2d/volume 格子生效，plane 忽略（平面世界没有竖直轴）")
+                    .WithRange(FieldRange.Range(min: 0)),
             });
 
         public static readonly TableSchema DummySet = new TableSchema(

@@ -1,0 +1,72 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "space.hit_window",
+    "scriptVersion": 1,
+    "description": "空间语义·命中形状高度窗口：两个靶子平面位置都在锥形内，一个在地面、一个悬空 2 个单位；玩家在地面挥一次，再起跳在顶点附近挥一次。平面格子忽略高度，两次都打中两个；横版/体积格子只打中与玩家高度差不超过形状高度（1）的靶子。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "ground",
+      "high"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_sp_slash"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 40,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 41,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 50,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 51,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

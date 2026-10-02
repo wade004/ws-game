@@ -150,6 +150,19 @@ namespace Core.Sim
         /// （如 <c>data/_feel</c>）。ABI 只新增（新增可写属性，不动任何既有签名）。
         /// </summary>
         public Core.Carriers.Assembly.CarriersFeelOptions? FeelOptions { get; set; }
+
+        /// <summary>
+        /// 手感实验室空间格子（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）新增：转发给 <c>GameplayAssembly</c>
+        /// 既有的 <c>movementOptions</c> 参数（该参数早已存在，本装配根此前恒隐式传 <c>null</c>）。默认 <c>null</c> 时行为与新增本属性之前逐位一致；
+        /// 实验室借它传入带 <c>Vertical</c>（竖直轴）的 <c>MovementOptions</c>。纯传参转发。ABI 只新增。
+        /// </summary>
+        public Core.Carriers.Unit.MovementOptions? MovementOptions { get; set; }
+
+        /// <summary>
+        /// 同 <see cref="MovementOptions"/>：转发给 <c>GameplayAssembly</c> 既有的 <c>targetingOptions</c> 参数。默认 <c>null</c> 时行为不变；
+        /// 实验室借它打开命中形状的高度判定与三维距离。纯传参转发。ABI 只新增。
+        /// </summary>
+        public Core.Rules.Targeting.TargetingOptions? TargetingOptions { get; set; }
     }
 
     /// <summary>
@@ -315,14 +328,14 @@ namespace Core.Sim
                 statOptions: null,
                 combatOptions: options.CombatOptions,
                 skillOptions: null,
-                targetingOptions: null,
+                targetingOptions: options.TargetingOptions,
                 aiOptions: null,
                 inventoryOptions: null,
                 itemOptions: null,
                 creatureOptions: null,
                 summonOptions: null,
                 gobjOptions: null,
-                movementOptions: null,
+                movementOptions: options.MovementOptions,
                 worldStateOptions: null,
                 lootOptions: options.LootOptions,
                 economyOptions: null,

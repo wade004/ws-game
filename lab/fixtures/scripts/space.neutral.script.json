@@ -1,0 +1,61 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "space.neutral",
+    "scriptVersion": 1,
+    "description": "空间语义·无空间刺激对照：只在地面挥两次打木桩，没有跳跃、没有悬空靶、没有深度输入。横版/体积格子除 space 组外的逻辑组必须与平面格子逐字节一致（跨格子不变量 space_semantics_only）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_sp_slash"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 45,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 46,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

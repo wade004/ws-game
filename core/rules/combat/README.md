@@ -684,3 +684,10 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 ## 判断记录（`HitFeelHost` 击杀标记残留，2026-10-02，手感落地 S11）
 
 时间线技能的致死伤害事件被 `HitFeelOptions.IsTimelineSkill` 早退时，旧实现不消费 `unit.died` 留下的击杀标记（`_killPending`），标记残留到下一个 tick 起点；周期伤害的早退分支同理。现在两个早退分支都消费该目标的标记（时间线击杀的 `isKill` 由时间线路径自己按 `IsAlive` 判，不依赖标记）。用例 `HitFeelHostTests.InstantMode_KillMarkLeftByATimelineKill_IsConsumed_SoALaterInstantHitInTheSameTickIsNotAKill`。接线与重复确认的订正见 `core/rules/assembly/README.md` S11 节。
+
+## 判断记录（击飞：`launch_height` 与 `ILaunchSink`，2026-10-02，M3-E1，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 4 节、06 第 10 节勘误 9）
+
+1. **字段**：手感档案新增可选判定型数值字段 `launch_height`（体型倍数，0..10，缺省无值 = 不击飞；`FeelFieldNames.LaunchHeight`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
+2. **口径**：反应达到 `knockback`/`knockdown` 时，击飞顶点高度（世界单位）= 攻击方 `launch_height`（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一张倍率表、同一个抗性读数）；与击退同一提交时机（目标顿帧结束那个 tick）。击飞与击退互相独立：`knockback_distance` 为 0 也击飞，`launch_height` 缺省则只击退（`SubmitKnockback` 只在距离 > 0 时提交击退、顶点 > 0 时提交击飞，旧行为不变）。
+3. **提交口**：`rules/common` 新增 `ILaunchSink.BeginLaunch(unitId, apexHeightWorld)`；`HitFeelHost.Launch` 缺省 null（不接就不击飞）。实现是单位载体层的 `VerticalMotionHost`（见 unit README），由 `CarriersFeelAssembly` 在装配了竖直轴时接上。
+4. **已知局限**：击飞顶点不看目标体型（`launch_height` 已是体型倍数，标定参考身高统一换算）；击飞中的目标仍按硬直/倒地走既有流程，不因腾空改变反应时长；没有"空中受击"的专属反应与"落地事件"（落地只体现在高度回到 0，实验室以度量记录落地 tick）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。

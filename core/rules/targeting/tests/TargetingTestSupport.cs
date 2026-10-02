@@ -101,6 +101,7 @@ namespace Tests.Rules.Targeting
             public int Level = 1;
             public double Facing;
             public bool Alive = true;
+            public double Height;
             // 显式初始化为 null（而非仅声明）以避免 CS0649："字段从未被赋值"——本模块测试用不
             // 到内容模板 id，GetTemplateId 恒返回 null，但显式赋值能让意图更清楚。
             public Id? TemplateId = null;
@@ -139,6 +140,14 @@ namespace Tests.Rules.Targeting
         {
             _entries[unitId.Value].Position = position;
         }
+
+        /// <summary>设置单位脚下高度（竖直轴能力包的测试用；缺省 0）。</summary>
+        public void SetHeight(Id unitId, double height)
+        {
+            _entries[unitId.Value].Height = height;
+        }
+
+        public double GetHeightOffset(Id unitId) => _entries[unitId.Value].Height;
 
         public bool Exists(Id unitId) => _entries.ContainsKey(unitId.Value);
 

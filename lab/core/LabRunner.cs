@@ -127,16 +127,23 @@ namespace Lab
             return dataset;
         }
 
+        /// <summary>
+        /// 解析格子：先在基础数据集里找（六个平面格子与既有脚本，行为不变）；找不到再到脚本自己的派生数据集里找——空间格子
+        /// （<c>side_2d_*</c>/<c>volume_*</c>）的行放在脚本声明的额外数据根里，不进基础数据集（否则所有既有基线的数据集哈希都会变）。
+        /// </summary>
+        private LabScenario ScenarioFor(InputScript script, string cell) =>
+            Dataset.Catalog.HasScenario(cell) ? Dataset.Catalog.GetScenario(cell) : DatasetFor(script).Catalog.GetScenario(cell);
+
         public LabRecording Record(InputScript script, string cell, LabRunVariant? variant = null)
         {
-            var scenario = Dataset.Catalog.GetScenario(cell);
+            var scenario = ScenarioFor(script, cell);
             var dataset = DatasetFor(script, scenario, variant);
             return LabHost.Run(dataset.HostOptions, dataset.Catalog.GetScenario(cell), script, dataset.Catalog, variant);
         }
 
         public Fingerprint Run(InputScript script, string cell, LabRunVariant? variant = null)
         {
-            var scenario = Dataset.Catalog.GetScenario(cell);
+            var scenario = ScenarioFor(script, cell);
             return Fingerprint.Build(Record(script, cell, variant), Registry, DatasetFor(script, scenario, variant).Hash);
         }
 

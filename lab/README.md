@@ -32,7 +32,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 公共参数：`--framework-root`（默认 `data/_framework`）、`--data-root`（可重复，默认 `data/_lab`）；数据根可指向任何游戏自己的数据集（实验室场景的数据由 `_lab` 提供，游戏数据根可叠加或替换）。
 
-退出码：`0` 全部通过；`1` 基线有差异（逐条可读 diff 打印在标准输出）；`2` 参数错误；`3` 缺基线；`4` 有格子不可运行（预留空间模型或缺能力，不静默跳过）；`5` 数据或脚本内容错误。同时出现多种情况时优先级为差异 > 缺基线 > 不可运行。
+退出码：`0` 全部通过；`1` 基线有差异（逐条可读 diff 打印在标准输出）；`2` 参数错误；`3` 缺基线；`4` 有格子不可运行（缺适配层能力，不静默跳过）；`5` 数据或脚本内容错误。同时出现多种情况时优先级为差异 > 缺基线 > 不可运行。
 
 `suite` 末尾除中文汇总行外另输出一行纯 ASCII 的 `RESULT total=<n> pass=<n> diff=<n> missing=<n> not_runnable=<n>`，供门禁解析（门禁按系统代码页解码标准输出，中文行会失配）。
 
@@ -87,7 +87,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 **手感场景脚本**（`meta.feel = true`，格式版本 3，tickRate 60，S7b 新增十九个、S12 新增一个、M2-C 新增一个、M3-A 新增一个，各六格共 132 条基线，合计 192 条；判断记录 22～35）：`feel_melee`、`feel_lunge`（近战与目标辅助/扑击位移）、`feel_dash`（冲刺）、`feel_projectile`（投射物：release 标记与只有 hit 标记两种形态）、`feel_projectile_miss`（S12：投射物没命中任何单位，被竞技场的直墙挡住，挥空提示出现在弹被挡住的那一刻）、`feel_combo3`（三连击）、`feel_dodge_cancel`（闪避取消）、`feel_buffer_lead`（输入缓冲提前量边界）、`feel_charge`（蓄力）、`feel_elite_armor`（精英霸体窗口内受击）、`feel_elite_flinch`（霸体窗口后按精英反应上限封顶）、`feel_interrupt`（普通靶被打断）、`feel_kill`（击杀放大顿帧）、`feel_group_hit`（同 tick 多目标顿帧取最大值并受上限约束）、`feel_patrol`（巡逻靶）、`feel_breakable`（可破坏障碍，动态阻挡）、`feel_motion_accel_decel`、`feel_motion_turn`、`feel_motion_wall`、`feel_motion_wall_slant`（起步刹停、转向、撞墙、斜撞墙贴墙滑行）、`feel_unit_block`（M2-C：单位间体积阻挡，走进木桩被挡在体积边界、闪避同样被挡；判断记录 34）、`feel_unit_separate`（M3-A，出生重叠的玩家与木桩按速率被推开，判断记录 35）。期望值全部在 `lab/tests/FeelSceneTests.cs` 里由预设字段 × 毫秒换算 × 受击裁决规则推出（读数辅助见 `FeelRules.cs`），用例里没有裸数。
 
-六个格子（`lab.scenario.*`）：`2d_targeted`、`2d_action`、`2_5d_targeted`、`2_5d_action`、`3d_targeted`、`3d_action`，空间模型均为平面世界。`space` 字段另外接受 `volume`（体积空间能力包，预留）与 `side_2d`（横版二维，预留）；这两个取值的格子在宿主上标"不可运行"并给原因，不静默跳过。
+六个格子（`lab.scenario.*`）：`2d_targeted`、`2d_action`、`2_5d_targeted`、`2_5d_action`、`3d_targeted`、`3d_action`，空间模型均为平面世界。`space` 字段另外接受 `side_2d`（横版二维）与 `volume`（体积空间），两者装配竖直轴、在无头宿主上可运行（判断记录 35）；它们的格子行 `side_2d_targeted/action`、`volume_targeted/action` 放在空间脚本的额外数据根 `lab/fixtures/data/space/`，只适用 `space.*` 脚本（脚本子集），不进基础数据集。
 
 ## 判断记录
 
@@ -128,6 +128,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 (1) `planar_combos_logic_equal`：同脚本、同结算模式，2D / 2.5D / 3D 三个平面组合的逻辑类度量逐项一致（每脚本 2 种结算 × 2 次比较）；
 (2) `action_stripped_equals_targeted`：动作式格子在变体 `{剥 timeline, 预设换成目标选择式缺省}` 下与同组合目标选择式格子逻辑一致（每脚本 3 个组合；只换一半都不等，`ActionStrippedInvariant_IsNotVacuous_…` 锁住它不是空判）；
 (3) `feel_assembly_transparent_under_classic`：目标选择式格子里手感装配开着与旧路径（变体 `FeelOff`，按钮边沿直接施放）在世界结局度量（移动、命中、伤害、击杀）上一致——经典预设下手感装配是透明的；提交/结算时序类度量按构造不同，不在比较范围（这是自拟的第三条，目的是防"手感装配本身在经典预设下改了行为"）。
+(4) `space_semantics_only`（判断记录 35）：空间格子（`side_2d`/`volume`）按 `plane` 运行后逻辑组与同结算模式平面格子一致；无空间刺激的运行里除 `space` 组外一致——"同一脚本在不同 space 下逻辑组的差异只来自空间语义"。只对适用空间格子的脚本（`space.*`）出现。
 **表现类度量组不参与跨格子比较**，每个格子各自一份基线（06 第 1.1 节不变量 3；`PresentationGroup_IsPerCell_…` 验证动作式与目标选择式的表现组确实不同）。
 运行方式：不是 `suite` 的一部分（`suite` 只做基线比较），单独 `dotnet run --project toolchain/feellab -- invariants`，同时随 `Tests.Lab` 进门禁。
 
@@ -152,6 +153,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 33. **S12 实验室修复（冲刺越程、非攻击动作挥空、投射物挥空时机）**：三条观察各先写复现用例（`lab/tests/FeelSceneTests.cs`，修复前失败），再改生产代码，实验室只是把问题测出来的凭据。(1) 冲刺越程：动作位移窗口结束后速度清零（运动档案新增可选字段 `keep_momentum_on_motion_end`，缺省假；手感设计/02 第 4 节），`feel_dash` 终点 x 由 2.577 变为声明的 2.0，`feel_lunge`、`feel_dodge_cancel`、`feel_buffer_lead` 同理；期望值 = 标定参考身高 × 动作声明的位移距离。(2) 非攻击动作不开挥空窗口：`action.started` 新增 `isAttack`，反馈流水线不为非攻击动作开窗（手感设计/07 第 6 节）。(3) 投射物动作的挥空等投射物结局：新增事件 `action.projectile_launched`/`action.projectile_ended`，判定相结束时弹还在飞则窗口留着，命中（含迟到命中）取消挥空，到期/被挡才补播（手感设计/03 第 2.5 节）；`feel_projectile_miss` 是未命中形态的基线，期望的挥空 tick = 弹被挡住的 tick。基线只更新了这三处修复正是意图的条目（逐条清单在 S12 汇报里），原有 60 条基线与 S7b 其余脚本的基线一字未动。
 
 34. **M2-C 单位间体积阻挡脚本 `feel_unit_block`**：玩家（-1.5, 0）按住 +x 走向木桩（2, 0），第 90 tick 松手，第 100 tick 按闪避；预设 `feel.preset.unit_block`（继承 `arpg_responsive`，`unit_body_radius` 0.4 身高）与标定 `lab_unit_block`（参考身高 1.0）放在独立数据根 `lab/fixtures/data/unit_block/`，经该脚本 `meta.extraDataRoots` 叠加（不进 `data/_feel`/`data/_lab_action`，否则既有脚本的数据集哈希会变，同判断记录 17/23）。脚本钉死预设（`meta.presetId`），所以六格都按体积预设跑（目标选择式格子同样被挡）；`feelCalibrationId` 留空由 `lab_<预设短名>` 推出，运行变体换预设（如 `unit_block_pass`、`arpg_responsive`）时标定行随之换。实测：玩家停在 x = 1.1990740740740742（体积边界 1.2 减一个到达容差内），中心距在每个 tick 都不小于半径之和 0.8，闪避不改变位置；换成 `unit_block_pass`（`dodge_through_units`）闪避穿过木桩，换成 `arpg_responsive`（不声明体积）一路走进木桩。期望值在 `FeelSceneTests` 里由预设半径 × 标定参考身高算出。**`LabInvariants` 为钉死预设的脚本做了两处调整**（既有脚本不受影响，其条目数不变）：动作式剥离不变量的"目标选择式格子"比较对象的预设取脚本钉死的预设而不是格子缺省预设；手感装配透明性不变量（"换成 `rpg_classic` 后装配透明"）不适用于钉死了预设的脚本，跳过（它的预设是脚本自己的主张）；`CrossCellInvariantTests` 的条数断言相应改为只统计未钉预设的手感脚本。
+35. **空间语义（M3-E1，手感设计/06 第 10 节勘误 9）**：`space` 三个取值在无头宿主上不再只有标签差异。核心层新增竖直轴能力（单位载体 `MovementOptions.Vertical` + `VerticalMotionHost`、目标链 `shape.height` + `TargetingOptions.VerticalHit/SpatialDistance`、受击裁决 `launch_height` → `ILaunchSink`），都是加法、缺省关闭，实验室只是按格子的 `space` 打开它们，没有自建平行机制。宿主口径：`plane` 不装配任何空间能力（跳跃请求被拒绝并计数、靶子声明的高度被忽略、击飞不生效，行为与此前一致）；`side_2d` 装配竖直轴 + 命中高度窗口，并把摇杆的竖直分量当"深度"丢掉计数；`volume` 装配竖直轴 + 命中高度窗口 + 三维最近距离，深度自由。格子行可选 `gravity`、`jump_height`（缺省 30、1.5；两个横版格子取缺省，两个体积格子取 20、2 以便区分），靶子条目可选 `height`（静态出生高度，不受重力）；脚本里 `input.action.lab_jump` 的按下沿是宿主级跳跃请求（不进输入映射与缓冲）。度量组 `space` 是条件组（`IConditionalMetricGroup`：格子带竖直轴、脚本含跳跃事件或靶子声明了高度时才出现），既有脚本在平面格子上没有它，既有基线逐字不变（suite 186 条原有基线全部通过）。命中高度差取伤害 tick 的前一个 tick 末尾的高度（核心 tick 里技能管线早于竖直积分）。数据放 `lab/fixtures/data/space/`（格子行、靶子集、两条目标链、两个技能、击飞预设 `space_launch` 与标定 `lab_space_launch`），由六个 `space.*` 脚本经 `meta.extraDataRoots` 叠加（与判断记录 17/23/34 同理）；脚本 id 带点是因为格子的 `script_subset` 是 Id 列表（点分 id 语法），基线文件名随之是 `space.<名>.baseline.json`。每个空间脚本十个格子各一份基线。**新增跨格子不变量** `space_semantics_only`（`LabInvariants.CheckSpaceSemantics`）：空间格子按 `plane` 运行（变体 `SpaceOverride`）后逻辑组与同结算模式平面格子逐字节一致；运行里空间语义从未被触发时（对照脚本 `space.neutral`）空间格子除 `space` 组外与平面格子一致。实测（`SpaceSemanticsTests` 里期望由重力/顶点/`launch_height`/倍率算出）：横版格子跳跃整段飞行 38 步（g=30、H=1.5：ceil(2·v0/(g·dt))）、体积格子 54 步（g=20、H=2）；命中高度窗口下平面格子每次挥击打中两个靶，竖直格子只打中高度差不超过形状高度 1 的那个；击飞木桩顶点 1.2（`launch_height`）、横版 34 步落地、体积 42 步落地；横版深度偏移 0（丢弃 2 个竖直输入）而体积 2（目标选择式）/ 0.926（动作式，动作式预设的走路速度比不同）；最近目标平面/横版选悬空的近靶，体积选地面的远靶。`LabTestSupport.FeelScripts()` 不含 `space.*` 脚本（它们是十个格子，由 `SpaceSemanticsTests` 验收），`SpaceScripts()` 取它们。
 
 35. **M3-A 单位推开脚本 `feel_unit_separate`**：同判断记录 34 的钉死预设 `feel.preset.unit_block`，玩家出生在 (1.7, 0)，与木桩 (2, 0) 体积重叠（半径之和 0.8、中心距 0.3），全程没有输入。两个单位按 `unit_separation_speed_ratio` 缺省 0.5 分摊深度，玩家每 tick 位移不超过 比例 × 标定基础移速 × 步长，累计位移不超过分摊的一半深度；足够长之后中心距恰为半径之和（实测玩家停在 x = 1.45，木桩被推到 2.25）。对照预设 `feel.preset.unit_separate_off`（比例 0）放在独立数据根 `lab/fixtures/data/unit_separate/`（与 `unit_block` 数据根同理不进共享数据根，否则既有脚本数据集哈希会变），脚本通过 `meta.extraDataRoots` 叠加两个根；测试用运行变体换成该预设，玩家原地不动。路径跟随与追击的局部绕行、推人在实验室里没有可观测的玩家侧轨迹（记录里只有靶子的出生位置、脚本只有轴输入），只由 `MotionArbiterTests.UnitVolumeLimits` 覆盖。新增后 `suite` 共 192 格（原 186）、跨格子不变量 284 条（原 277），既有基线一字未改。
 
@@ -161,7 +163,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 - 标准脚本集：06 第 3.1 节的短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中、换装循环（十个旧脚本）加 S7b 的十九个与 S12 的一个手感脚本；"被精英打断"拆成了霸体窗口内（`feel_elite_armor`）、窗口后按反应上限封顶（`feel_elite_flinch`）与普通靶被打断（`feel_interrupt`）三种，因为精英的 `reaction_cap = flinch` 本身不会被打断。
 - 度量组：响应、移动、攻击、性能四个常驻组，换装与七个手感组为条件组（装备解析、手感场景）。
 - 无引擎宿主、无面板、无覆盖存储与 A/B；`expectations`（导出为测试时由指纹生成的期望）未实现——当前"导出为测试"产出的是脚本加基线。
-- 三种空间与呈现组合在无头宿主上只有标签与假适配器视图的差异，逻辑判定完全相同（这正是"平面格子间逻辑组指纹逐字节一致"不变量要证明的）；`camera_relative` 控制空间与体积空间格子标"不可运行"。
+- 三个平面组合（2D / 2.5D / 3D）在无头宿主上只有标签与假适配器视图的差异，逻辑判定完全相同（这正是"平面格子间逻辑组指纹逐字节一致"不变量要证明的）；`camera_relative` 控制空间与第三人称镜头的换算不在无头宿主上证明。竖直轴空间（`side_2d`/`volume`）有真实语义，见判断记录 35 与其已知局限。
 - 数据表不能表达的靶子特征：不死木桩的"可选韧性值"（韧性 `poise` 按受击裁决读取，木桩没有声明）；旧靶子集的可破坏障碍仍是近似（判断记录 10）。
 - 表现时间线是反馈流水线出批给假 sink 的指令，不含动画切换、真实音频与镜头平滑（那是引擎适配器的职责）；是否需要引擎 PlayMode 见下一条。
 - **无头宿主不能证明的东西**：真实渲染帧（动画事件对齐、镜头插值、粒子）、真实输入设备的轴/按键抖动与延迟、真实时钟下的帧耗时；这些仍需要引擎 PlayMode 的实验室宿主（06 第 4 节引擎宿主，本仓库未提供）。M1 竖切前核心逻辑侧的手感行为（输入缓冲、动作时间线、顿帧、受击反应、运动、空间命中、反馈指令）已被指纹钉住，引擎 PlayMode 只需要验证"适配器把逻辑指令画对"。
@@ -174,3 +176,4 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 - 换装场景：实验室换装装置自带一套手感装配、换装链与姿势选择器，不经生产装配的手感装配（生产装配开启手感时由 `PresentationAssembly` 装出 `PoseSelector`/`EquipmentPoseBridge`，载体层手感装配装出换装链，见 `presentation/assembly/README.md`、`core/carriers/assembly/README.md`）；保持自带是为了既有换装基线逐字不变。生产链路由 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs` 经真实装配单独验证。
 - 换装场景：图标尺寸与逐层剪辑的帧数无法在无头宿主上检查（那是导入校验静态报告的职责，两侧用 `item_facts` 对账）。
 - 换装场景：武器 → `auto_attack_timeline_ref` 的映射由脚本 meta 的内存覆盖注入（占位 `feel.weapon` 行没有该字段，见判断记录 18）。
+- 空间语义（判断记录 35）：施法射程检查仍是平面距离（技能管线判定，竖直方向不参与）；击飞中的目标不做空中控制、不被地形阻挡竖直运动（地面恒为 0，没有斜坡与台阶）；没有空中攻击/空中受击的专属反应与动画；击飞期间再次被击飞按"重新抛起（起点为当前高度）"处理；命中高度窗口用命中判定那一刻施法者的脚下高度，锚点恒在施法者脚下（没有向上/向下偏置）；横版深度锁只作用在移动输入，不限制被击退的方向；实验室里只有玩家会起跳，靶子只会被击飞，没有靶子主动跳跃的脚本事件；`volume` 格子的 `camera_relative` 控制空间与第三人称镜头不在无头宿主上证明（宿主不读呈现字段）。

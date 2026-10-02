@@ -1,0 +1,114 @@
+{
+  "table": "lab.scenario",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.scenario.side_2d_targeted",
+      "space": "side_2d",
+      "form": "sprite",
+      "camera_mode": "fixed_pitch",
+      "control_space": "world",
+      "facing": "flip",
+      "hit_shape": "shape_2d",
+      "default_preset": "feel.preset.rpg_classic",
+      "dummy_set": "lab.dummy_set.lab_space",
+      "arena": "lab.arena.lab_arena",
+      "settlement": "targeted",
+      "skill_bindings": {
+        "input.action.attack": "skill.lab_sp_slash"
+      },
+      "gravity": 30,
+      "jump_height": 1.5,
+      "script_subset": [
+        "space.depth_lock",
+        "space.hit_window",
+        "space.jump",
+        "space.launch",
+        "space.neutral",
+        "space.pick_3d"
+      ],
+      "note": "横版二维目标选择式：竖直轴（重力 30、跳跃顶点 1.5）、命中形状高度窗口、深度锁；最近目标仍按平面距离。只对空间脚本适用。"
+    },
+    {
+      "id": "lab.scenario.side_2d_action",
+      "space": "side_2d",
+      "form": "sprite",
+      "camera_mode": "fixed_pitch",
+      "control_space": "world",
+      "facing": "flip",
+      "hit_shape": "shape_2d",
+      "default_preset": "feel.preset.arpg_responsive",
+      "dummy_set": "lab.dummy_set.lab_space",
+      "arena": "lab.arena.lab_arena",
+      "settlement": "action",
+      "skill_bindings": {
+        "input.action.attack": "skill.lab_sp_slash"
+      },
+      "gravity": 30,
+      "jump_height": 1.5,
+      "script_subset": [
+        "space.depth_lock",
+        "space.hit_window",
+        "space.jump",
+        "space.launch",
+        "space.neutral",
+        "space.pick_3d"
+      ],
+      "note": "横版二维动作式：同 side_2d_targeted，技能带 timeline 与动作式预设。"
+    },
+    {
+      "id": "lab.scenario.volume_targeted",
+      "space": "volume",
+      "form": "model",
+      "camera_mode": "third_person",
+      "control_space": "camera_relative",
+      "facing": "continuous",
+      "hit_shape": "volume",
+      "default_preset": "feel.preset.rpg_classic",
+      "dummy_set": "lab.dummy_set.lab_space",
+      "arena": "lab.arena.lab_arena",
+      "settlement": "targeted",
+      "skill_bindings": {
+        "input.action.attack": "skill.lab_sp_slash"
+      },
+      "gravity": 20,
+      "jump_height": 2,
+      "script_subset": [
+        "space.depth_lock",
+        "space.hit_window",
+        "space.jump",
+        "space.launch",
+        "space.neutral",
+        "space.pick_3d"
+      ],
+      "note": "体积空间目标选择式：竖直轴（重力 20、跳跃顶点 2）、命中形状高度窗口、含高度差的三维距离；深度轴自由。只对空间脚本适用。"
+    },
+    {
+      "id": "lab.scenario.volume_action",
+      "space": "volume",
+      "form": "model",
+      "camera_mode": "third_person",
+      "control_space": "camera_relative",
+      "facing": "continuous",
+      "hit_shape": "volume",
+      "default_preset": "feel.preset.arpg_responsive",
+      "dummy_set": "lab.dummy_set.lab_space",
+      "arena": "lab.arena.lab_arena",
+      "settlement": "action",
+      "skill_bindings": {
+        "input.action.attack": "skill.lab_sp_slash"
+      },
+      "gravity": 20,
+      "jump_height": 2,
+      "script_subset": [
+        "space.depth_lock",
+        "space.hit_window",
+        "space.jump",
+        "space.launch",
+        "space.neutral",
+        "space.pick_3d"
+      ],
+      "note": "体积空间动作式：同 volume_targeted，技能带 timeline 与动作式预设。"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.space_launch",
+      "description": "实验室空间击飞预设：响应型动作预设（arpg_responsive）加重击（impact_class heavy、stagger_power 3）与击飞高度 1.2 身高；只被脚本 space_launch 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 1.2
+      }
+    }
+  ]
+}

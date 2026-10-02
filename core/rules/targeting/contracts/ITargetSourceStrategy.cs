@@ -67,6 +67,31 @@ namespace Core.Rules.Targeting
         /// grid_snap.cell_size</c>）；<see cref="GridSnapPolicy"/> 为 null 时本字段无意义。</summary>
         public double? GridSnapCellSize { get; }
 
+        /// <summary>
+        /// 锚点（<see cref="Origin"/>）的脚下高度（世界单位）；<see cref="TargetHost"/> 在体积空间能力包开启时回填，缺省 0（平面世界）。
+        /// 可写属性而不是构造参数（ABI 只新增，不动既有构造函数签名）。
+        /// </summary>
+        public double OriginHeight { get; set; }
+
+        /// <summary>
+        /// 距离是否含高度差（<see cref="TargetingOptions.SpatialDistance"/>）：为 <c>true</c> 时 <see cref="DistanceTo"/> 返回三维欧氏距离，
+        /// 否则只算平面距离（缺省，逐位等于改动之前的 <c>Vec2.Distance</c>）。
+        /// </summary>
+        public bool SpatialDistance { get; set; }
+
+        /// <summary>候选单位到锚点的距离：平面距离，<see cref="SpatialDistance"/> 开启时含高度差（三维距离）。内置策略的"最近"判定一律走它。</summary>
+        public double DistanceTo(Id unitId)
+        {
+            var planar = Vec2.Distance(Origin, Units.GetPosition(unitId));
+            if (!SpatialDistance)
+            {
+                return planar;
+            }
+
+            var dh = Units.GetHeightOffset(unitId) - OriginHeight;
+            return Math.Sqrt(planar * planar + dh * dh);
+        }
+
         public TargetContext(
             Id casterId,
             Id? currentTarget,

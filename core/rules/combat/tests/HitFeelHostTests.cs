@@ -66,6 +66,15 @@ namespace Tests.Rules.Combat
                 Calls.Add((Now(), unitId, direction, distanceWorld, durationSeconds));
         }
 
+        private sealed class RecordingLaunch : ILaunchSink
+        {
+            public readonly List<(long Tick, Id Unit, double Apex)> Calls = new List<(long, Id, double)>();
+
+            public Func<long> Now = () => 0;
+
+            public void BeginLaunch(Id unitId, double apexHeightWorld) => Calls.Add((Now(), unitId, apexHeightWorld));
+        }
+
         private sealed class RecordingInterrupt : IStaggerInterruptSink
         {
             public readonly List<(Id Unit, Id Source)> Calls = new List<(Id, Id)>();
@@ -83,6 +92,7 @@ namespace Tests.Rules.Combat
             public CombatHost Combat = null!;
             public FakeActions Actions = new FakeActions();
             public RecordingKnockback Knock = new RecordingKnockback();
+            public RecordingLaunch Launch = new RecordingLaunch();
             public RecordingInterrupt Interrupts = new RecordingInterrupt();
             public HitFeelOptions Options = new HitFeelOptions();
             public long TickNo;
@@ -239,6 +249,8 @@ namespace Tests.Rules.Combat
             fx.Sys.Host.AddInterruptSink(fx.Interrupts);
             fx.Knock.Now = () => fx.TickNo;
             fx.Sys.Host.Knockback = fx.Knock;
+            fx.Launch.Now = () => fx.TickNo;
+            fx.Sys.Host.Launch = fx.Launch;
 
             bus.Subscribe<FeelHitstopStartedEvent>(RulesEventKeys.FeelHitstopStarted, e => { fx.Started.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:started:{string.Join("+", e.UnitIds)}:{e.Ticks}"); });
             bus.Subscribe<FeelHitstopEndedEvent>(RulesEventKeys.FeelHitstopEnded, e => { fx.Ended.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:ended:{string.Join("+", e.UnitIds)}"); });
@@ -733,6 +745,70 @@ namespace Tests.Rules.Combat
             fx.Bus.Enqueue(new UnitDiedEvent(Target, Attacker));
             fx.Run(20);
             Assert.Empty(fx.Knock.Calls);
+        }
+
+        // ------------------------------------------------------------------ 击飞（竖直轴能力包，手感设计/06 第 10 节勘误 9）
+
+        [Fact]
+        public void Launch_ApexFollowsLaunchHeightResistanceAndImpactMultiplier_AndIsSubmittedWithTheKnockback()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.KnockbackDistance, 0.5);
+            fx.Set(FeelFieldNames.LaunchHeight, 1.2);
+            fx.Set(FeelFieldNames.KnockbackResistanceStat, CombatTestSupport.StatBlockValue.Value);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatBlockValue, 0.25);
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight));
+            var expectedApex = baseHeight * (1.0 - 0.25) * fx.Options.KnockbackImpactMultipliers["heavy"];
+            var hitstop = Ticks(Ms(fx, Target, FeelFieldNames.TargetHitstopMs));
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + hitstop + 3);
+
+            var call = fx.Launch.Calls.Single();
+            Assert.Equal(Target, call.Unit);
+            Assert.Equal(expectedApex, call.Apex, 9);
+            // 与击退同一提交时机（目标顿帧结束那个 tick）。
+            Assert.Equal(hitstop, call.Tick);
+            Assert.Equal(fx.Knock.Calls.Single().Tick, call.Tick);
+        }
+
+        [Fact]
+        public void Launch_DefaultsToNoLaunch_AndLowReactionsNeverLaunch_KnockbackUnchanged()
+        {
+            // 不变量：缺省（档案没有 launch_height）不击飞，击退行为与引入击飞前一致；档案声明了击飞但反应没到击退（medium → stagger）也不击飞。
+            var heavy = Build();
+            heavy.Set(FeelFieldNames.ImpactClass, "heavy");
+            heavy.Set(FeelFieldNames.KnockbackDistance, 0.5);
+            heavy.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            heavy.Hit(Attacker, Target);
+            heavy.Run(20);
+            Assert.Empty(heavy.Launch.Calls);
+            Assert.Single(heavy.Knock.Calls);
+
+            var medium = Build();
+            medium.Set(FeelFieldNames.ImpactClass, "medium");
+            medium.Set(FeelFieldNames.LaunchHeight, 1.2);
+            medium.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            medium.Hit(Attacker, Target);
+            medium.Run(20);
+            Assert.Empty(medium.Launch.Calls);
+        }
+
+        [Fact]
+        public void Launch_IsIndependentOfKnockbackDistance()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.KnockbackDistance, 0);
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Hit(Attacker, Target);
+            fx.Run(20);
+            Assert.Empty(fx.Knock.Calls);
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight));
+            Assert.Equal(baseHeight * fx.Options.KnockbackImpactMultipliers["heavy"], fx.Launch.Calls.Single().Apex, 9);
         }
 
         // ------------------------------------------------------------------ instant（目标选择式）适配：真实 CombatHost

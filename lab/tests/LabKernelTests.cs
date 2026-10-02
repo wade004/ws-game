@@ -347,7 +347,7 @@ namespace Tests.Lab
         }
 
         [Fact]
-        public void ReservedSpaceAndMissingCapability_AreReportedAsNotRunnable_NotSilentlySkipped()
+        public void SpaceModelsAreRunnable_AndOnlyMissingCapabilityIsReportedAsNotRunnable_NotSilentlySkipped()
         {
             var tweaked = LabTestSupport.CreateRunner((table, text) =>
             {
@@ -356,7 +356,7 @@ namespace Tests.Lab
                     return null;
                 }
 
-                // 第一个格子改成预留的体积空间；第二个格子声明缺失的适配层能力。
+                // 第一个格子改成体积空间（06 第 10 节勘误 9：不再是预留，可运行）；第二个格子声明缺失的适配层能力。
                 var first = text.IndexOf("\"space\": \"plane\"", StringComparison.Ordinal);
                 var rewritten = text.Substring(0, first) + "\"space\": \"volume\"" + text.Substring(first + "\"space\": \"plane\"".Length);
                 var marker = "\"hit_shape\": \"shape_2d\",";
@@ -366,20 +366,23 @@ namespace Tests.Lab
             });
 
             var cells = tweaked.Dataset.Catalog.Scenarios();
-            var volume = cells[0].CheckRunnable(LabHost.AvailableCapabilities);
-            Assert.False(volume.Runnable);
-            Assert.Contains("volume", volume.ToString());
+            Assert.Equal("volume", cells[0].Space);
+            Assert.True(cells[0].CheckRunnable(LabHost.AvailableCapabilities).Runnable);
             var missing = cells[1].CheckRunnable(LabHost.AvailableCapabilities);
             Assert.False(missing.Runnable);
             Assert.Contains("supportsVolumeSweep", missing.ToString());
 
             var script = LabTestSupport.Script("move_tap");
-            Assert.Throws<LabCellNotRunnableException>(() => tweaked.Run(script, "2d_targeted"));
+            Assert.Throws<LabCellNotRunnableException>(() => tweaked.Run(script, "2d_action"));
+            // 体积格子可运行：Run 不抛，且装配了竖直轴（指纹里出现 space 组，平面基线没有它）。
+            Assert.True(tweaked.Run(script, "2d_targeted").Groups.ContainsKey("space"));
 
-            // 套件里也显式标成"不可运行"，不静默跳过、不当作通过。
+            // 套件里缺能力的格子显式标成"不可运行"，不静默跳过、不当作通过；改成体积空间的格子可运行，其余格子照常通过
+            // （体积格子多出 space 组：基线里没有它按"新增度量组"给警告而不是差异，既有基线因此不动）。
             var results = LabSuite.Check(tweaked, LabTestSupport.FixturesDir, onlyScript: "move_tap");
-            Assert.Equal(2, results.FindAll(r => r.Status == CellStatus.NotRunnable).Count);
-            Assert.Equal(4, results.FindAll(r => r.Status == CellStatus.Pass).Count);
+            Assert.Single(results.FindAll(r => r.Status == CellStatus.NotRunnable));
+            Assert.Equal(5, results.FindAll(r => r.Status == CellStatus.Pass).Count);
+            Assert.Contains(results.Find(r => r.Cell == "2d_targeted")!.Diff!.Warnings, w => w.Contains("space"));
         }
 
         // ---------- 靶子 ----------

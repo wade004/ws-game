@@ -53,6 +53,7 @@ namespace Core.Rules.Combat
             public bool KnockbackPending;
             public Vec2 KnockbackDirection;
             public double KnockbackDistance;
+            public double LaunchApex;
         }
 
         private readonly IEventBus _bus;
@@ -80,6 +81,12 @@ namespace Core.Rules.Combat
 
         /// <summary>击退执行口（运动层）。缺省 null——硬直照常，只是不位移。</summary>
         public IKnockbackSink? Knockback { get; set; }
+
+        /// <summary>
+        /// 击飞执行口（竖直运动服务）。缺省 null——平面世界没有竖直轴，击飞静默不发生（硬直与击退照常）。
+        /// 只有攻击方档案声明了 <c>launch_height</c> 且大于 0、反应达到 <c>knockback</c>/<c>knockdown</c> 时才提交。
+        /// </summary>
+        public ILaunchSink? Launch { get; set; }
 
         /// <summary>总开关；假时全部入口静默。</summary>
         public bool Enabled { get; set; } = true;
@@ -426,6 +433,17 @@ namespace Core.Rules.Combat
                 }
             }
 
+            // 击飞（竖直轴能力包）：与击退同一触发条件、同一提交时机（顿帧结束后）；不依赖击退距离，只看 launch_height。
+            if ((reaction == HitReaction.Knockback || reaction == HitReaction.Knockdown) && Launch != null)
+            {
+                var apex = ComputeLaunchApex(e, tgt);
+                if (apex > 0.0)
+                {
+                    rec.KnockbackPending = true;
+                    rec.LaunchApex = apex;
+                }
+            }
+
             _bus.Enqueue(new CombatReactionAppliedEvent(e.TargetId, reaction, e.SourceId, e.AttackInstanceId, duration));
         }
 
@@ -437,6 +455,17 @@ namespace Core.Rules.Combat
             var resistance = ReadKnockbackResistance(e.TargetId, target);
             var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
             return baseDistance * (1.0 - resistance) * multiplier;
+        }
+
+        /// <summary>击飞顶点高度（世界单位）= 攻击方 <c>launch_height</c>（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一套）；未声明为 0。</summary>
+        private double ComputeLaunchApex(CombatHitConfirmedEvent e, JudgingFeelView target)
+        {
+            if (!_units.Exists(e.SourceId)) return 0.0;
+            var atk = _feel.ResolveJudging(e.SourceId);
+            if (!atk.TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight) || baseHeight <= 0.0) return 0.0;
+            var resistance = ReadKnockbackResistance(e.TargetId, target);
+            var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
+            return baseHeight * (1.0 - resistance) * multiplier;
         }
 
         private double ReadKnockbackResistance(Id targetId, JudgingFeelView target)
@@ -611,8 +640,18 @@ namespace Core.Rules.Combat
         private void SubmitKnockback(Id unit, StaggerRec rec)
         {
             rec.KnockbackPending = false;
-            if (Knockback == null || !_units.Exists(unit) || !_units.IsAlive(unit)) return;
-            Knockback.BeginKnockback(unit, rec.KnockbackDirection, rec.KnockbackDistance, _options.KnockbackDurationSeconds);
+            var apex = rec.LaunchApex;
+            rec.LaunchApex = 0.0;
+            if (!_units.Exists(unit) || !_units.IsAlive(unit)) return;
+            if (Knockback != null && rec.KnockbackDistance > 0.0)
+            {
+                Knockback.BeginKnockback(unit, rec.KnockbackDirection, rec.KnockbackDistance, _options.KnockbackDurationSeconds);
+            }
+
+            if (Launch != null && apex > 0.0)
+            {
+                Launch.BeginLaunch(unit, apex);
+            }
         }
 
         // ================================================================== 释放保证

@@ -1,0 +1,60 @@
+{
+  "table": "skill.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.lab_sp_slash",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.5,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_sp_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [{ "stat": "stat.attack_power", "coefficient": 1.0 }],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 250,
+        "markers": [{ "name": "hit", "at_ms": 150 }]
+      },
+      "note": "空间实验近战挥击：同 lab_a_slash 的时间线（前摇 150/判定 100/后摇 250），目标链带高度窗口（锥形，高度 1）。"
+    },
+    {
+      "id": "skill.lab_sp_pick",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.5,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_sp_pick",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [{ "stat": "stat.attack_power", "coefficient": 1.0 }],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 100,
+        "recovery_ms": 250,
+        "markers": [{ "name": "hit", "at_ms": 150 }]
+      },
+      "note": "空间实验取最近：目标链是圆形（半径 3、高度 5）取最近 1 个——体积空间按三维距离，平面与横版按平面距离。"
+    }
+  ]
+}
