@@ -355,6 +355,25 @@ namespace Core.Carriers.Unit
                     }
                 }
 
+                // 单位体积阻挡（手感设计/02 第 9 节）：本单位声明了 unit_body_radius 才进入；阻挡后沿 wall_slide 的口径滑开或停下。
+                if (candidate && profile.UnitBodyRadius > 0.0)
+                {
+                    var volume = ClipByUnitVolumes(unit, profile.UnitBodyRadius, from, newPos, profile.WallSlide);
+                    if (volume.Blocked)
+                    {
+                        blocked = true;
+                        newPos = volume.End;
+                        slid = volume.Slid;
+                        slideNormal = volume.Normal;
+                        slideSecondBlocked = volume.SecondBlocked;
+                        slideSecondNormal = volume.SecondNormal;
+                        if ((newPos - from).Length <= ZeroLengthEpsilon)
+                        {
+                            candidate = false;
+                        }
+                    }
+                }
+
                 if (candidate && IsBlockedByUnit(unit.EntityId, newPos))
                 {
                     candidate = false;
@@ -584,6 +603,7 @@ namespace Core.Carriers.Unit
             var delta = disp.Target - disp.Origin;
             var to = reaches ? disp.Target : disp.Origin + delta * fraction;
             var from = unit.Position;
+            var volumeRadius = t.Profile.UnitBodyRadius;
 
             if (_navigation != null)
             {
@@ -603,9 +623,29 @@ namespace Core.Carriers.Unit
                         var back = travelLen > ZeroLengthEpsilon
                             ? new Vec2(travel.X / travelLen, travel.Y / travelLen) * pullBack
                             : Vec2.Zero;
-                        WriteDisplacementPosition(unit, hit.Value - back);
+                        var stopPos = hit.Value - back;
+                        if (volumeRadius > 0.0)
+                        {
+                            // 地形截断点之前若先撞上别的单位体积，停在体积前（单位体积阻挡，手感设计/02 第 9 节）。
+                            stopPos = ClipByUnitVolumes(unit, volumeRadius, from, stopPos, false).End;
+                        }
+
+                        WriteDisplacementPosition(unit, stopPos);
                     }
 
+                    EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
+                    return;
+                }
+            }
+
+            if (volumeRadius > 0.0)
+            {
+                // 受控位移（击退/冲锋）同样被单位体积挡住：受阻按位移自带的 blocking 策略（Stop 停在体积前，Revert 退回起点），
+                // 以 DisplacementBlocked 结束；不推开被撞单位。
+                var volume = ClipByUnitVolumes(unit, volumeRadius, from, to, false);
+                if (volume.Blocked)
+                {
+                    WriteDisplacementPosition(unit, disp.Blocking == DisplacementBlockingPolicy.Revert ? disp.Origin : volume.End);
                     EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
                     return;
                 }
@@ -831,6 +871,23 @@ namespace Core.Carriers.Unit
                     if ((newPos - from).Length <= ZeroLengthEpsilon || !_navigation.IsWalkable(unit.MapId, newPos))
                     {
                         candidate = false;
+                    }
+                }
+
+                // 单位体积阻挡：闪避类位移（dash/step_back）在档案声明 dodge_through_units 时穿过体积；其余位移（lunge/charge 等）恒被挡，
+                // 受阻按动作声明的 blocking（stop 停在体积前，slide 沿体积切向滑开）。
+                var volumeRadius = t.Profile.UnitBodyRadius;
+                if (candidate && volumeRadius > 0.0 &&
+                    !(t.Profile.DodgeThroughUnits && (decl.Kind == ActionMotionKind.Dash || decl.Kind == ActionMotionKind.StepBack)))
+                {
+                    var volume = ClipByUnitVolumes(unit, volumeRadius, from, newPos, decl.Blocking == ActionMotionBlocking.Slide);
+                    if (volume.Blocked)
+                    {
+                        newPos = volume.End;
+                        if ((newPos - from).Length <= ZeroLengthEpsilon)
+                        {
+                            candidate = false;
+                        }
                     }
                 }
 

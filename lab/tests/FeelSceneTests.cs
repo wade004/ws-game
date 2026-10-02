@@ -77,7 +77,7 @@ namespace Tests.Lab
         public void FeelScripts_AreVersion3_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(20, scripts.Count);
+            Assert.Equal(21, scripts.Count);
             foreach (var s in scripts)
             {
                 Assert.Equal(InputScript.FeelFormatVersion, s.EffectiveFormatVersion);
@@ -842,6 +842,87 @@ namespace Tests.Lab
             var endSlant = slant.Text("motion.end_position").Split(',');
             Assert.InRange(double.Parse(endSlant[0], CultureInfo.InvariantCulture), wallX - 0.2, wallX);
             Assert.True(double.Parse(endSlant[1], CultureInfo.InvariantCulture) > 1.0);
+        }
+
+        // ---------- 单位间体积阻挡（手感设计/02 第 9 节） ----------
+
+        private const string UnitBlockScript = "feel_unit_block";
+        private const string UnitBlockPreset = "feel.preset.unit_block";
+        private static readonly string UnitBlockDataDir = System.IO.Path.Combine("lab", "fixtures", "data", "unit_block", "feel");
+
+        /// <summary>两个单位的体积半径之和（世界单位）：预设里的半径（身高倍数）× 标定参考身高 × 2（玩家与木桩共用同一份档案）。</summary>
+        private static double UnitBlockSumRadius()
+        {
+            var preset = FeelRules.Row(System.IO.Path.Combine(UnitBlockDataDir, "feel.preset.json"), UnitBlockPreset);
+            var radius = ((JsonNumber)((JsonObject)preset["values"])["unit_body_radius"]).Value;
+            var calibration = FeelRules.Row(System.IO.Path.Combine(UnitBlockDataDir, "feel.calibration.json"), "feel.calibration.lab_unit_block");
+            return 2.0 * radius * ((JsonNumber)calibration["reference_height"]).Value;
+        }
+
+        private static (double MinGap, Vec2 End, Vec2 Stake, LabRecording Record) UnitBlockRun(string cell, LabRunVariant? variant = null)
+        {
+            var record = LabTestSupport.Runner.Record(LabTestSupport.Script(UnitBlockScript), cell, variant);
+            Assert.Single(record.Dummies);
+            var stake = record.Dummies[0].Value;
+            var min = double.MaxValue;
+            foreach (var tick in record.Ticks)
+            {
+                min = Math.Min(min, (tick.Position - stake).Length);
+            }
+
+            return (min, record.Ticks[record.Ticks.Count - 1].Position, stake, record);
+        }
+
+        [Theory]
+        [InlineData("2d_action")]
+        [InlineData("2d_targeted")]
+        [InlineData("3d_action")]
+        public void UnitBlock_WalkingIntoTheStake_StopsAtTheVolumeBoundary_AndTheDashIsStoppedByItToo(string cell)
+        {
+            var sum = UnitBlockSumRadius();
+            var pull = new Core.Carriers.Unit.MovementOptions().ArrivalEpsilon;
+            var run = UnitBlockRun(cell);
+
+            // 不变量：任意 tick 玩家与木桩的中心距不小于半径之和；复现：玩家停在木桩体积边界前（差一个到达容差）。
+            Assert.True(run.MinGap >= sum - 1e-9, $"最小中心距 {run.MinGap:R} 小于半径之和 {sum}");
+            var boundary = run.Stake.X - sum;
+            Assert.InRange(run.End.X, boundary - pull, boundary);
+            Assert.Equal(0.0, run.End.Y);
+
+            // 贴着体积继续推：松开前的最后几个 tick 位置不再变化（不蠕动）。
+            var release = Events(UnitBlockScript, "input.action.move", ScriptEventKind.Axis)[1].Tick;
+            var held = run.Record.Ticks[release - 1].Position;
+            Assert.Equal(run.Record.Ticks[release - 20].Position, held);
+
+            // 闪避（dash，blocking: stop）从体积边界出发，仍被体积挡住：按下之后位置不变。
+            var press = Press(UnitBlockScript, DodgeAction);
+            Assert.Equal(held, run.Record.Ticks[press - 1].Position);
+            Assert.Equal(held, run.End);
+        }
+
+        [Fact]
+        public void UnitBlock_DodgeThroughUnits_LetsTheDashPassTheStake_AndWithoutAVolumeTheWalkDoesToo()
+        {
+            var sum = UnitBlockSumRadius();
+            var blocked = UnitBlockRun("2d_action");
+
+            // dodge_through_units：同一脚本，只换预设（运行变体）——闪避穿过木桩，净位移 = 声明距离 × 参考身高；
+            // 地形之外没有别的阻挡，所以终点 = 被挡位置 + 声明距离。
+            var pass = UnitBlockRun("2d_action", new LabRunVariant { PresetId = "feel.preset.unit_block_pass" });
+            var skill = "skill.lab_a_dodge";
+            var distance = ((JsonNumber)((JsonObject)FeelRules.Timeline(skill)["motion"])["distance"]).Value;
+            var calibration = FeelRules.Row(System.IO.Path.Combine(UnitBlockDataDir, "feel.calibration.json"), "feel.calibration.lab_unit_block_pass");
+            var expectedEnd = blocked.End.X + distance * ((JsonNumber)calibration["reference_height"]).Value;
+            Assert.Equal(expectedEnd, pass.End.X, 6);
+            Assert.True(pass.End.X > pass.Stake.X);
+            Assert.True(pass.MinGap < sum, "穿过：闪避途中确实进入过木桩的体积");
+            var release = Events(UnitBlockScript, "input.action.move", ScriptEventKind.Axis)[1].Tick;
+            Assert.True(pass.Record.Ticks[release - 1].Position.X <= pass.Stake.X - sum + 1e-9, "行走段（闪避之前）仍被挡在体积之外");
+
+            // 档案没声明体积（缺省的动作式预设）：玩家一路走进木桩所在位置——体积阻挡是可选开启的。
+            var off = UnitBlockRun("2d_action", new LabRunVariant { PresetId = "feel.preset.arpg_responsive" });
+            Assert.True(off.MinGap < sum, $"没有声明体积时玩家应能走进木桩的体积（最小中心距 {off.MinGap:R}）");
+            Assert.True(off.End.X > off.Stake.X);
         }
     }
 }

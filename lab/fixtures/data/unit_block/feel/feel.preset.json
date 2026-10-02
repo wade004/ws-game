@@ -1,0 +1,26 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.unit_block",
+      "description": "实验室单位体积阻挡预设：响应型动作预设（arpg_responsive）加单位体积半径 0.4 身高；闪避被体积阻挡。只被脚本 feel_unit_block 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "unit_body_radius": 0.4
+      }
+    },
+    {
+      "id": "feel.preset.unit_block_pass",
+      "description": "同 unit_block，但闪避类动作位移（dash/step_back）穿过其他单位的体积；供测试以运行变体选用。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.unit_block",
+      "values": {
+        "dodge_through_units": true
+      }
+    }
+  ]
+}

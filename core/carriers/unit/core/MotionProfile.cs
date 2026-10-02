@@ -72,6 +72,15 @@ namespace Core.Carriers.Unit
         /// <summary>击退抗性读哪个属性（0～1）；缺省（无值）为 null，视为 0。</summary>
         public string? KnockbackResistanceStat { get; }
 
+        /// <summary>
+        /// 单位体积半径（世界单位，<c>unit_body_radius</c> 经标定换算；手感设计/02 第 9 节）：大于 0 即该单位参与单位间体积阻挡，
+        /// 缺省 0 表示无体积（不阻挡也不被阻挡，与未开启该能力时逐位一致）。
+        /// </summary>
+        public double UnitBodyRadius { get; }
+
+        /// <summary>闪避类动作位移（<c>dash</c>/<c>step_back</c>）穿过其他单位的体积（<c>dodge_through_units</c>，缺省假）。</summary>
+        public bool DodgeThroughUnits { get; }
+
         /// <summary>既有 15 参数构造（物理签名不变，ABI 只加不改）：<see cref="KeepMomentumOnMotionEnd"/> 取缺省假。</summary>
         public MotionProfile(
             int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
@@ -84,11 +93,24 @@ namespace Core.Carriers.Unit
         {
         }
 
+        /// <summary>既有 16 参数构造（物理签名不变，ABI 只加不改）：体积字段取缺省（无体积、闪避不穿人）。</summary>
         public MotionProfile(
             int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
             double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
             bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
             bool applyToPathFollowing, string? knockbackResistanceStat)
+            : this(
+                version, accelMs, decelMs, accelCurve, brakeCurve, reverse, turnRateDegS, walkSpeedRatio, actionMoveSpeedRatio,
+                actionTurnLock, keepMomentumOnActionEnd, keepMomentumOnMotionEnd, arrivalDecel, wallSlide, applyToPathFollowing,
+                knockbackResistanceStat, 0.0, false)
+        {
+        }
+
+        public MotionProfile(
+            int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
+            double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
+            bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
+            bool applyToPathFollowing, string? knockbackResistanceStat, double unitBodyRadius, bool dodgeThroughUnits)
         {
             Version = version;
             AccelMs = accelMs;
@@ -106,6 +128,8 @@ namespace Core.Carriers.Unit
             WallSlide = wallSlide;
             ApplyToPathFollowing = applyToPathFollowing;
             KnockbackResistanceStat = knockbackResistanceStat;
+            UnitBodyRadius = unitBodyRadius > 0.0 ? unitBodyRadius : 0.0;
+            DodgeThroughUnits = dodgeThroughUnits;
         }
 
         /// <summary>
@@ -150,7 +174,9 @@ namespace Core.Carriers.Unit
                 Bool(view, FeelFieldNames.ArrivalDecel),
                 Bool(view, FeelFieldNames.WallSlide),
                 Bool(view, FeelFieldNames.ApplyToPathFollowing),
-                resist);
+                resist,
+                OptionalNum(view, FeelFieldNames.UnitBodyRadius),
+                OptionalBool(view, FeelFieldNames.DodgeThroughUnits));
         }
 
         private static double Num(JudgingFeelView view, string field)
@@ -185,6 +211,13 @@ namespace Core.Carriers.Unit
         {
             var v = view.GetAbsolute(field);
             return v.Kind == FeelValueKind.Bool && v.AsBool();
+        }
+
+        /// <summary>可选数值字段（标定后的绝对值）：没有值（档案没写）取 0。</summary>
+        private static double OptionalNum(JudgingFeelView view, string field)
+        {
+            var v = view.GetAbsolute(field);
+            return v.Kind == FeelValueKind.Number ? v.AsNumber() : 0.0;
         }
 
         private static InvalidOperationException Missing(string field) =>

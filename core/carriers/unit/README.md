@@ -689,3 +689,25 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
   `skillHost.AttachTimelineServices(new TimelineServices { TargetAssist = new ActionTargetAssistAdapter(new TargetChainAssistResolver(targets, units), units), ... })`，不装配即没有目标辅助（缺省关闭）。
 - `WorldUnitAccess` 实现 `IUnitFacingWriter.SetFacing`：只写朝向（不经空间索引同步、不发事件），供时间线把目标辅助的朝向修正落地。该方法不在 `IUnitAccess` 上（与 `SetLevel`/`SetFaction` 同一约定：非契约的单位写操作走窄接口）。
 - 复现/不变量：`tests/ActionTargetAssistTests.cs`（候选筛选、朝向修正 `min(方位角, 档案上限)` 不越界、`close_distance` 缩放、无候选静默、`SetFacing`）。
+
+## 判断记录（单位间体积阻挡，2026-10-02，M2-C，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 3.5 节、ADR-0116 勘误；手感设计未写清的规则由本切片拍板）
+
+新增 `core/MovementTickHandler.UnitVolume.cs`（`MovementTickHandler` 的又一个 partial）与运动档案两个可选字段（`unit_body_radius`、`dodge_through_units`，`FeelFields.cs` / `MotionProfile.cs`，`MotionProfile` 加 18 参数构造函数，旧 15/16 参数构造函数保留并转发，ABI 只加）。
+
+1. **开关**：只有运动层启用且**本单位**档案 `unit_body_radius > 0` 才进入任何体积分支；既有预设、`LegacyEquivalent`、未声明的单位逐位不变（`MotionArbiterTests.UnitVolume` 里"未声明 = 对方在别处"一条按逐位相等断言）。旧的全局 `MovementOptions.UnitBlocking`（终点判定、`unit_block` 标签、固定半径）一字未动，二者独立。
+2. **成对语义**：半径取各自的档案；两方都 > 0 才互相阻挡，只有一方声明则穿过（一条测试钉住）。
+3. **连续扫掠 + 回退**：线段对圆求首次进入，回退一个 `ArrivalEpsilon`（与墙体同约定，保证下一 tick 不从圆里起步，所以撞停后不蠕动）；撞停位置 = 对方位置 − 半径之和 − 回退量之内。起点已在体积内时只拦"让距离变近"，允许走开；末尾守卫保证结果不比起点更深。
+4. **来源覆盖**：`regular`（输入位移，`wall_slide` 决定停下或沿切向滑一段）、`action`（动作位移，`blocking: slide` 滑开 / `stop` 停下；`dash`/`step_back` 在 `dodge_through_units` 为真时穿过，`lunge` 等永不穿过）、`forced`（击退：被挡即 `DisplacementBlocked` 收场，不滑）、方向/点/追击意图的路径跟随（停下，开 `wall_slide` 时滑开）、追击（有效停步距离取声明值与"半径之和 + 2 个到达容差"的较大者）。
+5. **为什么穿过只给冲刺/后撤、不给扑击**：闪避的语义就是无敌位移穿过敌人，扑击是追击型位移，穿过木桩会让"扑到敌人面前"失去意义；用字段而非硬编码，是游戏仍可自己决定（只对 `dash`/`step_back`，其它种类要穿过需新增字段）。
+6. **滑开细节**：切向那段仍过地形 `Raycast` 与 `IsWalkable`、再做一次扫掠（忽略刚撞的那个单位），最多一次不递归。
+
+**已知限制（如实记录）**：
+- 不做"推开重叠单位"：出生重叠或穿过式冲刺落进体积内时，只拦让距离变近的位移，允许走开，不强制推出。
+- 路径跟随与追击不绕单位寻路：撞到单位体积就停（开 `wall_slide` 时沿切向滑一段），不重规划。
+- 同一 tick 里先撞墙滑动又撞单位体积时，单位扫掠对切向段用直线近似。
+- 受控位移（击退）不滑，被挡住的单位不会被推动。
+- 单位按顺序处理，一个单位只看得到别人**当前**的位置（先走的单位先占位）。
+- 死亡单位不阻挡；离散步（回合制）不受影响。
+- 体积半径随运动档案走：全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
+- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（边界停止期望由半径与步长算出、6 个随机种子的"从不重叠"不变量并断言确实发生过碰撞、冲刺高速不隧穿、冲刺穿过、滑开、追击、击退、死亡不阻挡）；实验室脚本 `feel_unit_block`（`lab/README.md` 判断记录 34）。
+- **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。

@@ -36,6 +36,8 @@ namespace Core.Foundation.Feel
         public const string WallSlide = "wall_slide";
         public const string ApplyToPathFollowing = "apply_to_path_following";
         public const string KnockbackResistanceStat = "knockback_resistance_stat";
+        public const string UnitBodyRadius = "unit_body_radius";
+        public const string DodgeThroughUnits = "dodge_through_units";
 
         // 移动（呈现型：步态阈值、步幅、启停混合、倾斜）
         public const string IdleMaxRatio = "idle_max_ratio";
@@ -223,6 +225,12 @@ namespace Core.Foundation.Feel
                 Bool(FeelFieldNames.WallSlide, Mv, J, C, "位移被阻挡截断时沿墙滑动（真），而不是整体停下（假）"),
                 Bool(FeelFieldNames.ApplyToPathFollowing, Mv, J, C, "运动档案是否也作用于目标类移动（AI/点击移动）；假则目标类移动保持瞬时达速"),
                 IdF(FeelFieldNames.KnockbackResistanceStat, Mv, J, C, "读哪个属性作为击退抗性（0～1）；缺省（无值）视为 0", "stat.definition"),
+                Num(FeelFieldNames.UnitBodyRadius, Mv, J, BodyH, C, 0, 2,
+                    "单位体积半径（身高倍数）：声明（大于 0）即参与单位间体积阻挡，两个单位中心距不小于半径之和；缺省（无值）= 无体积，不阻挡也不被阻挡",
+                    ops: SetOnly, optional: true),
+                Bool(FeelFieldNames.DodgeThroughUnits, Mv, J, C,
+                    "闪避类动作位移（kind 为 dash/step_back）是否穿过其他单位的体积（真；地形仍阻挡），其余位移不受影响；缺省（无值）视为假，即闪避也被体积阻挡；只在声明了 unit_body_radius 时有意义",
+                    optional: true),
 
                 // ---------- 移动（02 第 7 节，呈现型）----------
                 Num(FeelFieldNames.IdleMaxRatio, Mv, P, SpeedRatio, C, 0, 0.5, "步态 idle 上界：速度/基础移速低于它为 idle"),

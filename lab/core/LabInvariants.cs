@@ -74,7 +74,8 @@ namespace Lab
             {
                 results.AddRange(CheckPlanarCombos(runner, script));
                 results.AddRange(CheckActionStripped(runner, script));
-                if (script.Meta.Feel)
+                // 手感装配透明性只对"经典预设"成立：脚本钉死了非缺省预设（体积阻挡等本身就改变行为的档案）不在比较范围。
+                if (script.Meta.Feel && string.IsNullOrEmpty(script.Meta.PresetId))
                 {
                     results.AddRange(CheckFeelTransparent(runner, script));
                 }
@@ -113,12 +114,14 @@ namespace Lab
             foreach (var combo in Combos)
             {
                 var targeted = runner.Dataset.Catalog.GetScenario(combo + "_targeted");
-                var variant = new LabRunVariant { StripTimelines = true, PresetId = targeted.DefaultPreset };
+                // 脚本把预设钉死（meta.presetId 非空）时两种结算模式用的本来就是同一个预设：变体不再换预设，只剥 timeline。
+                var pinned = !string.IsNullOrEmpty(script.Meta.PresetId);
+                var variant = new LabRunVariant { StripTimelines = true, PresetId = pinned ? null : targeted.DefaultPreset };
                 var actionStripped = runner.Run(script, combo + "_action", variant);
                 var reference = runner.Run(script, combo + "_targeted");
                 results.Add(new InvariantResult(
                     ActionStrippedEqualsTargeted, script.Meta.ScriptId,
-                    combo + "_action[strip timelines, " + targeted.DefaultPreset + "] == " + combo + "_targeted",
+                    combo + "_action[strip timelines, " + (pinned ? script.Meta.PresetId : targeted.DefaultPreset) + "] == " + combo + "_targeted",
                     DiffLogic(runner.Registry, reference, actionStripped, null)));
             }
 

@@ -1,0 +1,69 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_unit_block",
+    "scriptVersion": 1,
+    "description": "单位间体积阻挡（手感设计/02 第 9 节）：预设钉死为 unit_block（声明单位体积半径），玩家从 (-1.5,0) 向 +x 走向木桩（x=2）——停在体积边界前，贴着继续推也不蠕动；松开后按闪避，位移段（dash，blocking: stop）同样被木桩体积挡住。量终点位置与被挡 tick、位移段来源序列。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.unit_block",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 150,
+    "playerStart": {
+      "x": -1.5,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/unit_block"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 90,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 100,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 101,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ]
+}

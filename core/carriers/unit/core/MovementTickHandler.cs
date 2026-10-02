@@ -841,10 +841,23 @@ namespace Core.Carriers.Unit
                 unit.Facing = isDiscrete ? Math.Atan2(toTarget.Y, toTarget.X) : MotionFacing(unit, Math.Atan2(toTarget.Y, toTarget.X));
             }
 
+            // 单位体积阻挡（手感设计/02 第 9 节）：双方都声明了体积时，停止距离不得小于体积半径之和（再留两个到达容差），
+            // 否则追击者永远被目标的体积挡在停止距离之外、始终处于"靠近中"。任一方没有体积时 stopRange 就是 chase.StopRange 本身。
+            var stopRange = chase.StopRange;
+            var selfVolume = SelfVolumeRadius(unit);
+            if (selfVolume > 0.0)
+            {
+                var targetVolume = VolumeRadiusOf(target.EntityId);
+                if (targetVolume > 0.0)
+                {
+                    stopRange = Math.Max(stopRange, selfVolume + targetVolume + 2.0 * _options.ArrivalEpsilon);
+                }
+            }
+
             var wasApproaching = state.Mode != MoveMode.Idle;
             var shouldStop = wasApproaching
-                ? distance <= chase.StopRange
-                : distance <= chase.StopRange + _options.FollowResumeSlack;
+                ? distance <= stopRange
+                : distance <= stopRange + _options.FollowResumeSlack;
 
             if (shouldStop)
             {
@@ -884,7 +897,7 @@ namespace Core.Carriers.Unit
                 // 重新规划这一刻的 (targetPos - unit.Position) 计算——距离恒 > StopRange（本方法已经
                 // 在上面 shouldStop 分支短路了距离 ≤ StopRange + FollowResumeSlack 的情形，能走到这里
                 // 说明 distance > StopRange + FollowResumeSlack > StopRange，方向向量恒非零）。
-                var standoffPoint = targetPos - toTarget * (chase.StopRange / distance);
+                var standoffPoint = targetPos - toTarget * (stopRange / distance);
 
                 var newPath = _navigation != null
                     ? _navigation.FindPath(unit.MapId, unit.Position, standoffPoint)
@@ -895,7 +908,7 @@ namespace Core.Carriers.Unit
                 // 判断记录）；_navigation == null 时直接回退点已经是无条件成功的直线路径（见上面
                 // newPath 的三元表达式），走不到这里，故只在 _navigation != null 时才需要采样。
                 if (newPath == null && _navigation != null && _options.ChaseStandoffCandidates > 1 &&
-                    TryFindStandoffCandidatePath(unit, targetPos, chase.StopRange, out var candidatePath))
+                    TryFindStandoffCandidatePath(unit, targetPos, stopRange, out var candidatePath))
                 {
                     newPath = candidatePath;
                 }
@@ -955,6 +968,10 @@ namespace Core.Carriers.Unit
             var index = pathIndex;
             var lastFacing = unit.Facing;
 
+            // 单位体积阻挡（手感设计/02 第 9 节）：未启用运动层或本单位没有声明体积时为 0，下面的体积分支不进入，循环与既有逐字一致。
+            var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
+            var volumeSlide = mt != null && mt.Profile.WallSlide;
+
             while (remaining > 0 && index < path.Count)
             {
                 var waypoint = path[index];
@@ -970,6 +987,17 @@ namespace Core.Carriers.Unit
 
                 if (dist <= remaining)
                 {
+                    if (volumeRadius > 0.0)
+                    {
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, waypoint, volumeSlide);
+                        if (volume.Blocked)
+                        {
+                            pos = volume.End;
+                            lastFacing = SegmentFacing(path, index);
+                            break;
+                        }
+                    }
+
                     pos = waypoint;
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
@@ -978,6 +1006,17 @@ namespace Core.Carriers.Unit
                 else
                 {
                     var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
+                    if (volumeRadius > 0.0)
+                    {
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, pos + dir * remaining, volumeSlide);
+                        if (volume.Blocked)
+                        {
+                            pos = volume.End;
+                            lastFacing = SegmentFacing(path, index);
+                            break;
+                        }
+                    }
+
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
@@ -1253,6 +1292,8 @@ namespace Core.Carriers.Unit
             var pos = callStartPos;
             var remaining = budget;
             var traveledFromCallStart = 0.0;
+            // 单位体积阻挡（手感设计/02 第 9 节）：未启用运动层或本单位没有声明体积时为 0，下面两处体积分支不进入。
+            var volumeRadius = SelfVolumeRadius(unit);
 
             while (remaining > 0)
             {
@@ -1286,9 +1327,26 @@ namespace Core.Carriers.Unit
                             // Stop：停在阻挡前最后可通行采样点（判断记录见上方 callStartPos 声明处）。
                             var hitDistanceFromCallStart = traveledFromCallStart + (hit.Value - pos).Length;
                             var pullBack = Math.Min(hitDistanceFromCallStart, _options.ArrivalEpsilon);
-                            WriteDisplacementPosition(unit, hit.Value - dir * pullBack);
+                            var stopPos = hit.Value - dir * pullBack;
+                            if (volumeRadius > 0.0)
+                            {
+                                stopPos = ClipByUnitVolumes(unit, volumeRadius, pos, stopPos, false).End;
+                            }
+
+                            WriteDisplacementPosition(unit, stopPos);
                         }
 
+                        EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
+                        return;
+                    }
+                }
+
+                if (volumeRadius > 0.0)
+                {
+                    var volume = ClipByUnitVolumes(unit, volumeRadius, pos, candidate, false);
+                    if (volume.Blocked)
+                    {
+                        WriteDisplacementPosition(unit, disp.Blocking == DisplacementBlockingPolicy.Revert ? disp.Origin : volume.End);
                         EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
                         return;
                     }
@@ -1537,6 +1595,10 @@ namespace Core.Carriers.Unit
             var startPos = pos;
             var lastFacing = unit.Facing;
 
+            // 单位体积阻挡（手感设计/02 第 9 节）：未启用运动层或本单位没有声明体积时为 0，下面的体积分支不进入，循环与既有逐字一致。
+            var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
+            var volumeSlide = mt != null && mt.Profile.WallSlide;
+
             while (remaining > 0 && index < path.Count)
             {
                 var waypoint = path[index];
@@ -1552,6 +1614,17 @@ namespace Core.Carriers.Unit
 
                 if (dist <= remaining)
                 {
+                    if (volumeRadius > 0.0)
+                    {
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, waypoint, volumeSlide);
+                        if (volume.Blocked)
+                        {
+                            pos = volume.End;
+                            lastFacing = SegmentFacing(path, index);
+                            break;
+                        }
+                    }
+
                     pos = waypoint;
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
@@ -1560,6 +1633,17 @@ namespace Core.Carriers.Unit
                 else
                 {
                     var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
+                    if (volumeRadius > 0.0)
+                    {
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, pos + dir * remaining, volumeSlide);
+                        if (volume.Blocked)
+                        {
+                            pos = volume.End;
+                            lastFacing = SegmentFacing(path, index);
+                            break;
+                        }
+                    }
+
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;

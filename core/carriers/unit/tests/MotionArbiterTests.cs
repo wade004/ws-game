@@ -21,7 +21,7 @@ using Xunit;
 
 namespace Tests.Carriers.Unit
 {
-    public class MotionArbiterTests
+    public partial class MotionArbiterTests
     {
         private static readonly Id MapId = new Id("map.test");
         private static readonly Id FactionId = new Id("fac.player");
@@ -43,7 +43,10 @@ namespace Tests.Carriers.Unit
         {
             public ActionState? State;
 
-            public ActionState? Current(Id unitId) => State;
+            /// <summary>非空时只有该单位处于这个动作里（多单位用例里别的单位不跟着做同一个动作）；缺省所有单位共享。</summary>
+            public Id? Owner;
+
+            public ActionState? Current(Id unitId) => Owner.HasValue && !Owner.Value.Equals(unitId) ? null : State;
 
             public bool IsCancelOpen(Id unitId, ActionClass actionClass) => false;
 

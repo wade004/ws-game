@@ -32,8 +32,8 @@ namespace Tests.Lab
 
             Assert.True(failures.Length == 0, "跨格子不变量不成立：\n" + failures);
 
-            // 条数：平面组合每脚本 2 种结算 × 2 次比较；动作式剥离每脚本 3 个组合；手感装配透明性每个手感脚本 3 个组合。
-            var feelCount = scripts.Count(s => s.Meta.Feel);
+            // 条数：平面组合每脚本 2 种结算 × 2 次比较；动作式剥离每脚本 3 个组合；手感装配透明性每个手感脚本 3 个组合（钉死了预设的脚本除外：它的预设是脚本自己的主张，换预设变体没有意义）。
+            var feelCount = scripts.Count(s => s.Meta.Feel && string.IsNullOrEmpty(s.Meta.PresetId));
             Assert.Equal(scripts.Count * 4, results.Count(r => r.Invariant == LabInvariants.PlanarCombos));
             Assert.Equal(scripts.Count * 3, results.Count(r => r.Invariant == LabInvariants.ActionStrippedEqualsTargeted));
             Assert.Equal(feelCount * 3, results.Count(r => r.Invariant == LabInvariants.FeelAssemblyIsTransparentUnderClassic));
