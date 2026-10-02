@@ -12,6 +12,10 @@ namespace Lab
     /// 手感场景（<see cref="ScriptMeta.Feel"/>，格式版本 3）另有 <see cref="Cast"/>：<see cref="ScriptEvent.Actor"/> 指明的靶子
     /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）；<see cref="ClearProjectiles"/>（同为格式版本 3）
     /// 是"清场"：所有在飞的投射物以 Cleared 结局收场（<see cref="ScriptEvent.Action"/> 只作标签，惯例写 <c>projectiles</c>）。
+    /// 空中战斗（手感落地 M4-W1b，同为格式版本 3）另有靶子的主动行为：<see cref="Jump"/>（<see cref="ScriptEvent.Actor"/> 指明的靶子起跳，
+    /// 走与玩家同一个竖直运动服务的 <c>Jump</c>）与 <see cref="Move"/>（该靶子按 <see cref="ScriptEvent.Value"/> 方向持续提交移动请求，
+    /// 与轴事件同口径"设一次并保持"，零向量即停；腾空时受空中控制比例约束，被击飞中的靶子因此也能做空中位移）。
+    /// 两者的 <see cref="ScriptEvent.Action"/> 只作标签，必须带 <see cref="ScriptEvent.Actor"/>。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -22,6 +26,8 @@ namespace Lab
         Unequip,
         Cast,
         ClearProjectiles,
+        Jump,
+        Move,
     }
 
     /// <summary>
@@ -201,6 +207,34 @@ namespace Lab
 
         /// <summary>合成姿势里玩家的武器族（空 = 不指定）。</summary>
         public string PoseFamily { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 命中窗口的射程门（<c>SkillOptions.SpatialRangeHitWindow</c>，M4-W1b）：带 timeline 的动作式结算在命中窗口每次结算时再校验射程
+        /// （口径随 <see cref="SpatialRange"/>）；缺省假。
+        /// </summary>
+        public bool SpatialRangeHitWindow { get; set; }
+
+        /// <summary>受控位移（击退、扑击）也锁深度（<c>MovementOptions.DepthLockControlledMotion</c>，M4-W1b）；缺省假。</summary>
+        public bool DepthLockControlledMotion { get; set; }
+
+        /// <summary>
+        /// 空中战斗记录开关（M4-W1b）：真时装配竖直轴的 <c>EmitLandedEvent</c>、并给本次运行记<c>air_combat</c> 度量组需要的逐步采样
+        /// （靶子的竖直速度/硬直、落地事件、靶子的主动跳跃与空中移动）；缺省假——既有脚本的度量集合与指纹逐字不变。
+        /// </summary>
+        public bool AirCombat { get; set; }
+
+        /// <summary>
+        /// 空中姿势装置改读真实姿势集数据（<c>display.anim_set.*</c> 行，含 <c>extends</c> 继承链合并）而不是合成键表；非空时 <see cref="PoseKeys"/> 被忽略。
+        /// 数据里还没有空中键（<c>jump.rise/fall/land</c>、<c>hit.air</c>、<c>attack.air*</c>）时请求沿固定回落链落到既有的通用键，
+        /// 空中键资产合入后请求直接命中（结果在 <c>space_ext.air_pose_requests</c> 里体现）。
+        /// </summary>
+        public string PoseAnimSet { get; set; } = string.Empty;
+
+        /// <summary>合成/真实姿势里玩家的游戏层变体（<c>wounded</c> 等；空 = 不指定），进空中键的变体维度。</summary>
+        public string PoseVariant { get; set; } = string.Empty;
+
+        /// <summary>姿势请求按战斗姿态解析（空中键带 <c>.combat</c> 段）。</summary>
+        public bool PoseCombat { get; set; }
     }
 
     /// <summary>
@@ -405,11 +439,13 @@ namespace Lab
                     case "unequip": kind = ScriptEventKind.Unequip; break;
                     case "cast": kind = ScriptEventKind.Cast; break;
                     case "clear_projectiles": kind = ScriptEventKind.ClearProjectiles; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles）");
+                    case "jump": kind = ScriptEventKind.Jump; break;
+                    case "move": kind = ScriptEventKind.Move; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|jump|move）");
                 }
 
                 var value = Vec2.Zero;
-                if (kind == ScriptEventKind.Axis)
+                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.Move)
                 {
                     value = LabJson.ReadVec(
                         eo.TryGetValue("value", out var v) ? v : JsonNull.Instance, what + ".events[].value");
@@ -417,6 +453,11 @@ namespace Lab
 
                 double? ts = eo.TryGetValue("realTs", out var t) && t is JsonNumber tn ? tn.Value : (double?)null;
                 var actor = LabJson.OptionalString(eo, "actor", what + ".events[]") ?? string.Empty;
+                if ((kind == ScriptEventKind.Jump || kind == ScriptEventKind.Move) && actor.Length == 0)
+                {
+                    throw new LabFormatException($"{what}.events[] 的 {kindText} 事件必须带 actor（靶子的出场标签；玩家的跳跃用动作 input.action.lab_jump 的按下事件）");
+                }
+
                 events.Add(new ScriptEvent(tick, action, kind, value, ts, actor));
             }
 
@@ -449,6 +490,8 @@ namespace Lab
                 case ScriptEventKind.Equip: return "equip";
                 case ScriptEventKind.Cast: return "cast";
                 case ScriptEventKind.ClearProjectiles: return "clear_projectiles";
+                case ScriptEventKind.Jump: return "jump";
+                case ScriptEventKind.Move: return "move";
                 default: return "unequip";
             }
         }
@@ -473,6 +516,12 @@ namespace Lab
 
             ext.Terrain = obj.TryGetValue("terrain", out var tr) && tr is JsonBool trb && trb.Value;
             ext.SpatialRange = obj.TryGetValue("spatialRange", out var sr) && sr is JsonBool srb && srb.Value;
+            ext.SpatialRangeHitWindow = obj.TryGetValue("spatialRangeHitWindow", out var srw) && srw is JsonBool srwb && srwb.Value;
+            ext.DepthLockControlledMotion = obj.TryGetValue("depthLockControlledMotion", out var dlc) && dlc is JsonBool dlcb && dlcb.Value;
+            ext.AirCombat = obj.TryGetValue("airCombat", out var ac2) && ac2 is JsonBool ac2b && ac2b.Value;
+            ext.PoseAnimSet = LabJson.OptionalString(obj, "poseAnimSet", what) ?? string.Empty;
+            ext.PoseVariant = LabJson.OptionalString(obj, "poseVariant", what) ?? string.Empty;
+            ext.PoseCombat = obj.TryGetValue("poseCombat", out var pc) && pc is JsonBool pcb && pcb.Value;
             ext.ArenaId = LabJson.OptionalString(obj, "arena", what) ?? string.Empty;
             ext.PoseFamily = LabJson.OptionalString(obj, "poseFamily", what) ?? string.Empty;
             ReadStrings(obj, "poseKeys", ext.PoseKeys, what);
@@ -516,6 +565,12 @@ namespace Lab
                     if (ext.StepHeight.HasValue) extBuilder.Add("stepHeight", LabJson.Num(ext.StepHeight.Value));
                     if (ext.Terrain) extBuilder.Add("terrain", LabJson.Bool(true));
                     if (ext.SpatialRange) extBuilder.Add("spatialRange", LabJson.Bool(true));
+                    if (ext.SpatialRangeHitWindow) extBuilder.Add("spatialRangeHitWindow", LabJson.Bool(true));
+                    if (ext.DepthLockControlledMotion) extBuilder.Add("depthLockControlledMotion", LabJson.Bool(true));
+                    if (ext.AirCombat) extBuilder.Add("airCombat", LabJson.Bool(true));
+                    if (ext.PoseAnimSet.Length > 0) extBuilder.Add("poseAnimSet", LabJson.Str(ext.PoseAnimSet));
+                    if (ext.PoseVariant.Length > 0) extBuilder.Add("poseVariant", LabJson.Str(ext.PoseVariant));
+                    if (ext.PoseCombat) extBuilder.Add("poseCombat", LabJson.Bool(true));
                     if (ext.ArenaId.Length > 0) extBuilder.Add("arena", LabJson.Str(ext.ArenaId));
                     if (ext.PoseKeys.Count > 0) extBuilder.Add("poseKeys", new JsonArray(ext.PoseKeys.ConvertAll(g => (JsonValue)LabJson.Str(g))));
                     if (ext.PoseFamily.Length > 0) extBuilder.Add("poseFamily", LabJson.Str(ext.PoseFamily));
@@ -554,7 +609,7 @@ namespace Lab
                     .Add("tick", LabJson.Num(e.Tick))
                     .Add("action", LabJson.Str(e.Action))
                     .Add("kind", LabJson.Str(KindText(e.Kind)));
-                if (e.Kind == ScriptEventKind.Axis)
+                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.Move)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
                 }

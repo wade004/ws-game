@@ -99,6 +99,39 @@ namespace Presentation.Render
             }
         }
 
+        /// <summary>
+        /// 带变体维度的空中姿势请求（手感落地 M4-W1b）：规则同 <see cref="TryGetAirRequest(string, out AirPoseRequest)"/>，
+        /// 但请求额外带姿态（<paramref name="inCombat"/> 为真生成 <c>.combat</c>）、武器族与变体（<c>jump.rise.combat</c>、<c>hit.air.wounded</c>、
+        /// <c>attack.air.combat.sword</c>），回落链按 <see cref="AirPoseRequest.Chain"/>（先去变体，再去武器族，再去姿态，最后固定尾链）。
+        /// 武器族在本重载里对跳跃与受击同样生效（两参数重载只对攻击生效，保持旧行为）。
+        /// </summary>
+        public bool TryGetAirRequest(string stateKey, bool inCombat, out AirPoseRequest request)
+        {
+            request = default;
+            if (Air == AirPhase.None) return false;
+            var stance = inCombat ? PoseKeys.StanceCombat : null;
+            switch (stateKey)
+            {
+                case "jump":
+                    request = AirPoseRequest.Jump(
+                        Air == AirPhase.Rise ? AirPoseRequest.PhaseRise
+                        : Air == AirPhase.Fall ? AirPoseRequest.PhaseFall
+                        : AirPoseRequest.PhaseLand,
+                        stance, Family, Variant);
+                    return true;
+                case "hit":
+                    if (!IsAirborne) return false;
+                    request = AirPoseRequest.HitAir(stance, Family, Variant);
+                    return true;
+                case "attack":
+                    if (!IsAirborne) return false;
+                    request = AirPoseRequest.AttackAir(Family, stance, Variant);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>无任何额外维度。</summary>
         public static PoseContext Empty => default;
 

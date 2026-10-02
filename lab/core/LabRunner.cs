@@ -134,6 +134,17 @@ namespace Lab
         private LabScenario ScenarioFor(InputScript script, string cell) =>
             Dataset.Catalog.HasScenario(cell) ? Dataset.Catalog.GetScenario(cell) : DatasetFor(script).Catalog.GetScenario(cell);
 
+        /// <summary>
+        /// 公开的格子解析（手感落地 M4-W1b，修 <c>feellab run</c> 不支持竖直格）：规则同内部解析——先基础数据集，再脚本自己的派生数据集
+        /// （空间格子 <c>side_2d_*</c>/<c>volume_*</c> 的行在脚本声明的额外数据根里）。命令行与期望判定里"按格子短名取格子"一律经它，
+        /// 不再直接读 <see cref="Dataset"/> 的目录。
+        /// </summary>
+        public LabScenario ResolveScenario(InputScript script, string cell) => ScenarioFor(script, cell);
+
+        /// <summary>用一份已有的记录建指纹（数据集哈希取该脚本在该格子上实际运行的数据集）；命令行 <c>run</c> 要同时出记录与指纹时用。</summary>
+        public Fingerprint FingerprintOf(InputScript script, string cell, LabRecording recording, LabRunVariant? variant = null) =>
+            Fingerprint.Build(recording, Registry, DatasetFor(script, ScenarioFor(script, cell), variant).Hash);
+
         public LabRecording Record(InputScript script, string cell, LabRunVariant? variant = null)
         {
             var scenario = ScenarioFor(script, cell);
@@ -448,7 +459,7 @@ namespace Lab
                     return cached;
                 }
 
-                var scenario = runner.Dataset.Catalog.GetScenario(other);
+                var scenario = runner.ResolveScenario(script, other);
                 var runnability = scenario.CheckRunnable(LabHost.AvailableCapabilities);
                 if (!runnability.Runnable)
                 {

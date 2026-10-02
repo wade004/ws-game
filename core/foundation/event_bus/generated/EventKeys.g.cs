@@ -339,6 +339,9 @@ namespace Core.Foundation.EventBus
         /// <summary>unit.faction_changed — 字段：unitId, oldFactionId, newFactionId。ADR-0088（消费方第三十三批反馈2）：运行期改变单位阵营的框架入口（core/carriers/unit.WorldUnitAccess.SetFaction）写入新阵营后触发（旧值与新值相同不触发）；仇恨系统订阅本事件清理不再敌对的仇恨表条目，不做缓存、现场用 IFactionMatrix 判定。</summary>
         public static readonly Id UnitFactionChanged = new Id("unit.faction_changed");
 
+        /// <summary>unit.landed — 字段：unitId, height, airSeconds, impactSpeed。手感设计/03 第 4 节（手感落地 M4-W1b，竖直轴能力包）：单位的一次飞行（跳跃、击飞、离开平台下落）结束、落回地面时由竖直运动服务发出；height 是落地后的脚下高度（落点的地面高度，平地为 0），airSeconds 是本次离地以来的累计空中时间（秒，空中被再次抛起不清零），impactSpeed 是落地瞬间的下落速度（世界单位/秒，非负）；没有装配竖直轴、或竖直轴选项 EmitLandedEvent 缺省（假）时不发本事件。</summary>
+        public static readonly Id UnitLanded = new Id("unit.landed");
+
         /// <summary>unit.moved — 字段：unitId, position。单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值。</summary>
         public static readonly Id UnitMoved = new Id("unit.moved");
 
@@ -470,6 +473,7 @@ namespace Core.Foundation.EventBus
             UiPanelOpened,
             UnitDied,
             UnitFactionChanged,
+            UnitLanded,
             UnitMoved,
             UnitRespawned,
             UnitSkillBindingChanged,

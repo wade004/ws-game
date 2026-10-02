@@ -149,6 +149,11 @@ namespace Tests.Rules.Targeting
 
         public double GetHeightOffset(Id unitId) => _entries[unitId.Value].Height;
 
+        /// <summary>地面高度函数（地形能力的替身；缺省 null = 0，与默认接口成员一致）。</summary>
+        public Func<Vec2, double>? Ground { get; set; }
+
+        public double GetGroundHeightAt(Id referenceUnitId, Vec2 point) => Ground != null ? Ground(point) : 0.0;
+
         public bool Exists(Id unitId) => _entries.ContainsKey(unitId.Value);
 
         public IReadOnlyList<Id> AllUnits

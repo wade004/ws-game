@@ -29,6 +29,7 @@ namespace Core.Carriers.Common
         public static readonly Id SummonExpired = new Id("summon.expired");
 
         public static readonly Id UnitMoved = new Id("unit.moved");
+        public static readonly Id UnitLanded = new Id("unit.landed");
         public static readonly Id UnitStateChanged = new Id("unit.state_changed");
         public static readonly Id UnitSkillBindingChanged = new Id("unit.skill_binding_changed");
     }
@@ -450,6 +451,44 @@ namespace Core.Carriers.Common
             switch (name)
             {
                 case "unitId": value = ExprValue.OfId(UnitId); return true;
+                default: value = default; return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 单位落地（<c>unit.landed</c>，手感落地 M4-W1b）：竖直运动服务（<c>VerticalMotionHost</c>，竖直轴能力包）里一次飞行结束时发，
+    /// 跳跃、击飞、离开平台下落都算。<see cref="Height"/> 是落地后的脚下高度（落点的地面高度，平地为 0），<see cref="AirSeconds"/> 是本次离地以来的累计空中时间（秒；
+    /// 空中被再次抛起或二段跳不清零），<see cref="ImpactSpeed"/> 是落地瞬间的下落速度（世界单位/秒，非负）。没有装配竖直轴、或竖直轴选项 <c>EmitLandedEvent</c> 缺省（假）的世界不发。
+    /// </summary>
+    public sealed class UnitLandedEvent : IEvent, IExprReadableEvent
+    {
+        public Id Key => CarriersEventKeys.UnitLanded;
+
+        public Id UnitId { get; }
+
+        public double Height { get; }
+
+        public double AirSeconds { get; }
+
+        public double ImpactSpeed { get; }
+
+        public UnitLandedEvent(Id unitId, double height, double airSeconds, double impactSpeed)
+        {
+            UnitId = unitId;
+            Height = height;
+            AirSeconds = airSeconds;
+            ImpactSpeed = impactSpeed;
+        }
+
+        public bool TryGetField(string name, out ExprValue value)
+        {
+            switch (name)
+            {
+                case "unitId": value = ExprValue.OfId(UnitId); return true;
+                case "height": value = ExprValue.OfNumber(Height); return true;
+                case "airSeconds": value = ExprValue.OfNumber(AirSeconds); return true;
+                case "impactSpeed": value = ExprValue.OfNumber(ImpactSpeed); return true;
                 default: value = default; return false;
             }
         }

@@ -37,6 +37,66 @@
       "reference_zoom": 1.0,
       "pixels_per_unit": 32.0,
       "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_air_combo",
+      "description": "实验室标定（M4-W1b）：基础预设 feel.preset.space_air_combo；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.space_air_combo",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_launch_scale",
+      "description": "实验室标定（M4-W1b）：基础预设 feel.preset.space_launch_scale；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.space_launch_scale",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_air_reaction",
+      "description": "实验室标定（M4-W1b）：基础预设 feel.preset.space_air_reaction；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.space_air_reaction",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_knockback",
+      "description": "实验室标定（M4-W1b）：基础预设 feel.preset.space_knockback；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.space_knockback",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_air_pose",
+      "description": "实验室标定（M4-W1b）：基础预设 feel.preset.space_air_pose；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.space_air_pose",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
     }
   ]
 }

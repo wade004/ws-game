@@ -248,7 +248,8 @@ namespace Lab
                 .Register(new PoiseMetricGroup())
                 .Register(new PresentationTimelineMetricGroup())
                 .Register(new SpaceMetricGroup())
-                .Register(new SpaceExtMetricGroup());
+                .Register(new SpaceExtMetricGroup())
+                .Register(new AirCombatMetricGroup());
 
         /// <summary>默认注册表加引擎宿主度量组（<see cref="EngineMetricGroup"/>，条件组）。无头宿主的指纹仍用 <see cref="CreateDefault"/>，指纹与基线不变。</summary>
         public static MetricRegistry CreateWithEngine() => CreateDefault().Register(new EngineMetricGroup());

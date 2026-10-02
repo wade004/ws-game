@@ -1,0 +1,105 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.depth_knockback",
+    "scriptVersion": 1,
+    "description": "空间扩展·受控位移的深度锁（手感落地 M4-W1b）：预设 space_knockback（重击、击退 1 身高、不击飞），木桩站在深度偏移 0.4 的位置，玩家刺它一下——击退方向带深度分量。横版二维（深度锁）格子里受控位移也被锁：木桩只沿横向被击退，深度偏移为 0；体积空间格子深度自由，木桩沿击退方向（含深度）位移。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_knockback",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 80,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "ground"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_jab"
+    },
+    "spaceExt": {
+      "depthLockControlledMotion": true,
+      "airCombat": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "side_depth_locked",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action"
+      ],
+      "metric": "air_combat.dummy_depth_drift_max",
+      "op": "approx",
+      "value": 0,
+      "tolerance": 1e-09,
+      "note": "深度锁下击退不产生深度位移。"
+    },
+    {
+      "id": "side_pushed_full_distance_laterally",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action"
+      ],
+      "metric": "air_combat.dummy_displacement_x_max",
+      "op": "approx",
+      "value": 1.0,
+      "tolerance": 1e-06,
+      "note": "击退距离 1 身高保持，全部落在横向。"
+    },
+    {
+      "id": "volume_depth_free",
+      "cells": [
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_depth_drift_max",
+      "op": "gt",
+      "value": 0.1,
+      "note": "体积空间深度自由：击退沿提交方向，含深度分量。"
+    },
+    {
+      "id": "knockback_happened",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Knockback:1",
+      "note": "被击退一次。"
+    }
+  ]
+}

@@ -1822,4 +1822,10 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 
 ## 手感落地 M4-V：三维施法射程（2026-10-03，ADR-0130 追加决定）
 
-`SkillOptions.SpatialRange`（缺省 false）：打开后步骤 7 的射程检查与地面坐标施法的射程检查（`ValidateGroundPoint`）按含高度差的三维距离（`CastPipeline.RangeDistance`：施法者与目标的脚下高度差经 `IUnitAccess.GetHeightOffset` 读取）；关闭时就是平面距离，与此前逐位一致。地面坐标施法的落点高度取 0（地面坐标没有高度，即使声明了地形能力）。只影响"目标已解析"之后的射程判定——带 `timeline` 的动作式结算由命中窗口几何决定命中，不做这一步，所以三维射程只对目标选择式结算有可观测差异。`HeadlessWorldOptions.SkillOptions` 新增透传（缺省 null，原路径不变）。测试：`tests/CastRangeSpatialTests.cs`（平面距离内/三维距离外失败于射程、关闭时不变、地面坐标施法、高度读口缺省）。
+`SkillOptions.SpatialRange`（缺省 false）：打开后步骤 7 的射程检查与地面坐标施法的射程检查（`ValidateGroundPoint`）按含高度差的三维距离（`CastPipeline.RangeDistance`：施法者与目标的脚下高度差经 `IUnitAccess.GetHeightOffset` 读取）；关闭时就是平面距离，与此前逐位一致。地面坐标施法的落点高度原先取 0（M4-W1b 起改读落点的地面高度，见下一节）。只影响"目标已解析"之后的射程判定——带 `timeline` 的动作式结算的射程门由 M4-W1b 的 `SpatialRangeHitWindow` 可选打开（见下一节，缺省仍由命中窗口几何单独决定）。`HeadlessWorldOptions.SkillOptions` 新增透传（缺省 null，原路径不变）。测试：`tests/CastRangeSpatialTests.cs`（平面距离内/三维距离外失败于射程、关闭时不变、地面坐标施法、高度读口缺省）。
+
+## 手感落地 M4-W1b：地面坐标落点高度与命中窗口射程门（2026-10-03，ADR-0130 追加决定）
+
+1. **地面坐标施法的落点高度读地形（原局限"落点高度取 0"）**：`IUnitAccess.GetGroundHeightAt(referenceUnitId, point)`（默认接口成员，恒 0，既有实现与测试假实现不变）返回落点的地面高度；`WorldUnitAccess` 在装配了竖直轴地形能力（`VerticalAxisOptions.Terrain`，`CarriersAssembly` 回填 `WorldUnitAccess.Terrain`）时覆盖它。`CastPipeline.RangeDistance` 对地面坐标（目标为 null）用它代替 0，`TargetHost.ResolveAtPoint` 的 `originHeight`（命中高度窗口的锚点）同样取它。没有地形能力时 `GetGroundHeightAt` 恒 0，两处逐位不变。落点在高台上、施法者在地面时，三维射程与高度窗口因此按真实高差判定。
+2. **动作式结算的射程门（原局限"动作式结算不做射程判定"）**：`SkillOptions.SpatialRangeHitWindow`（缺省 false）。打开后，带 `timeline` 的技能在命中窗口每次结算时（`hit` 标记空间命中、`continuous` 逐 tick 采样、`instant` 结算与自定义命中钩子）对 `range > 0` 的技能额外要求"施法者当时位置到目标的距离 ≤ `range`"才算命中，距离口径同 `SpatialRange`（它为真含高度差，为假平面距离）；不满足的候选被排除，**不是施法失败**——动作已经出手，只是这一击没选中它。投射物按自己的射程飞行，不受影响。理由：目标选择式在施法瞬间校验射程，动作式的"施法瞬间"没有目标；把门放在每次命中结算上，让两种结算方式在"谁被命中"上可观测地一致，同时缺省关闭保住既有行为（动作式技能的 `range` 过去只是目标链形状的补充）。
+3. **复现与不变量**：`tests/CastRangeSpatialTests.cs`（落点高度读地形、无地形能力恒 0）、`tests/SpatialRangeHitWindowTests.cs`（门关闭与 1.95.0 一致、打开后超射程候选被排除/走近后命中、三维 vs 平面口径、instant 结算路径、`range = 0` 不限）；实验室脚本 `space.range_action`（四个竖直格：目标选择式远处出手被拒、动作式远处出手不命中，走近后两种方式都命中一次，期望值由技能 `range` 与靶子声明高度算出）。

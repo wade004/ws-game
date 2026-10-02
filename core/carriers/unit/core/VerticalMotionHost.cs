@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Common;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
+using Core.Foundation.EventBus;
 using Core.Foundation.SimLoop;
 
 namespace Core.Carriers.Unit
@@ -32,6 +34,9 @@ namespace Core.Carriers.Unit
             public double InitialSpeed;
             public double Elapsed;
 
+            /// <summary>本次离地以来累计的空中时间（秒）：重新抛起（再次击飞、空中跳跃、天花板反弹不清零）沿用，落地事件据此报告空中时长。</summary>
+            public double AirTime;
+
             /// <summary>本次离地以来已用掉的空中跳跃次数（地面起跳不计）。</summary>
             public int AirJumps;
         }
@@ -48,6 +53,7 @@ namespace Core.Carriers.Unit
 
         private readonly IWorldSim _world;
         private readonly VerticalAxisOptions _options;
+        private readonly IEventBus? _bus;
         private readonly Dictionary<Id, Flight> _flights = new Dictionary<Id, Flight>();
         private readonly Dictionary<Id, Walker> _walkers = new Dictionary<Id, Walker>();
         private readonly List<Id> _scratch = new List<Id>();
@@ -57,6 +63,16 @@ namespace Core.Carriers.Unit
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _options.Validate();
+        }
+
+        /// <summary>
+        /// 带事件总线的构造（手感落地 M4-W1b）：<see cref="VerticalAxisOptions.EmitLandedEvent"/> 为真时，单位落地发 <c>unit.landed</c>
+        /// （<see cref="UnitLandedEvent"/>：落地高度、空中时长、落地时下落速度）。不带总线的重载、或选项缺省（假）都不发事件（旧调用方行为不变）。
+        /// </summary>
+        public VerticalMotionHost(IWorldSim world, VerticalAxisOptions options, IEventBus bus)
+            : this(world, options)
+        {
+            _bus = bus ?? throw new ArgumentNullException(nameof(bus));
         }
 
         /// <summary>当前在空中的单位数（诊断用）。</summary>
@@ -155,6 +171,61 @@ namespace Core.Carriers.Unit
             StartFlight(unitId, unit, speed);
         }
 
+        /// <summary>
+        /// 带绝对高度上限的击飞（<see cref="Core.Rules.Common.ILaunchSink.BeginLaunch(Id, double, Core.Rules.Common.LaunchStackMode, double, double)"/>，
+        /// 手感档案 <c>launch_height_cap</c>）：在叠加语义与叠加上限之外，把击飞后的初速再限制到"从当前脚下高度升到 <paramref name="heightCapWorld"/>
+        /// 所需的初速"以内（高度上限是世界高度，同 <see cref="Unit.HeightOffset"/>）；脚下已不低于上限时初速限制为 0——地面单位不被抛起（无事发生），
+        /// 空中单位停止上升、从当前高度起下落（叠加后仍向下的速度保持）。<paramref name="heightCapWorld"/> 非正时与 4 参数重载完全一致。
+        /// </summary>
+        public void BeginLaunch(
+            Id unitId, double apexHeightWorld, Core.Rules.Common.LaunchStackMode stack, double stackCapApexWorld, double heightCapWorld)
+        {
+            if (!(heightCapWorld > 0.0) || double.IsInfinity(heightCapWorld))
+            {
+                BeginLaunch(unitId, apexHeightWorld, stack, stackCapApexWorld);
+                return;
+            }
+
+            if (!(apexHeightWorld > 0.0) || double.IsInfinity(apexHeightWorld))
+            {
+                throw new ArgumentOutOfRangeException(nameof(apexHeightWorld), apexHeightWorld, "顶点高度必须为正的有限数");
+            }
+
+            if (!(_world.GetEntity(unitId) is Unit unit) || !unit.Alive)
+            {
+                return;
+            }
+
+            var airborne = _flights.TryGetValue(unitId, out var flight);
+            var speed = Math.Sqrt(2.0 * _options.Gravity * apexHeightWorld);
+            if (stack == Core.Rules.Common.LaunchStackMode.Add && airborne)
+            {
+                speed += flight!.InitialSpeed - _options.Gravity * flight.Elapsed;
+                if (stackCapApexWorld > 0.0 && !double.IsInfinity(stackCapApexWorld))
+                {
+                    var stackCap = Math.Sqrt(2.0 * _options.Gravity * stackCapApexWorld);
+                    if (speed > stackCap)
+                    {
+                        speed = stackCap;
+                    }
+                }
+            }
+
+            var room = heightCapWorld - unit.HeightOffset;
+            var allowed = room > 0.0 ? Math.Sqrt(2.0 * _options.Gravity * room) : 0.0;
+            if (speed > allowed)
+            {
+                speed = allowed;
+            }
+
+            if (speed <= 0.0 && !airborne)
+            {
+                return;
+            }
+
+            StartFlight(unitId, unit, speed);
+        }
+
         public bool Jump(Id unitId)
         {
             var airborne = _flights.TryGetValue(unitId, out var existing);
@@ -182,8 +253,18 @@ namespace Core.Carriers.Unit
         /// </summary>
         private void StartFlight(Id unitId, Unit unit, double initialSpeed)
         {
-            var airJumps = _flights.TryGetValue(unitId, out var old) ? old.AirJumps : 0;
-            _flights[unitId] = new Flight { StartHeight = unit.HeightOffset, InitialSpeed = initialSpeed, Elapsed = 0.0, AirJumps = airJumps };
+            var airJumps = 0;
+            var airTime = 0.0;
+            if (_flights.TryGetValue(unitId, out var old))
+            {
+                airJumps = old.AirJumps;
+                airTime = old.AirTime;
+            }
+
+            _flights[unitId] = new Flight
+            {
+                StartHeight = unit.HeightOffset, InitialSpeed = initialSpeed, Elapsed = 0.0, AirJumps = airJumps, AirTime = airTime,
+            };
             if (_walkers.TryGetValue(unitId, out var walker))
             {
                 walker.Grounded = false;
@@ -230,6 +311,7 @@ namespace Core.Carriers.Unit
                 }
 
                 flight.Elapsed += dt;
+                flight.AirTime += dt;
                 var t = flight.Elapsed;
                 var h = flight.StartHeight + flight.InitialSpeed * t - 0.5 * _options.Gravity * t * t;
                 var ground = terrain != null ? terrain.GetGroundHeight(unit.MapId, unit.Position) : 0.0;
@@ -238,6 +320,11 @@ namespace Core.Carriers.Unit
                     unit.HeightOffset = ground;
                     _flights.Remove(id);
                     MarkGrounded(id, unit);
+                    if (_bus != null && _options.EmitLandedEvent)
+                    {
+                        _bus.Enqueue(new UnitLandedEvent(id, ground, flight.AirTime, -(flight.InitialSpeed - _options.Gravity * t)));
+                    }
+
                     continue;
                 }
 

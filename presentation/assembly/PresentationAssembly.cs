@@ -421,7 +421,11 @@ namespace Presentation.Assembly
                 var verticalMotion = gameplay.Carriers.VerticalMotion;
                 if (verticalMotion != null)
                 {
-                    _airFeeder = new AirPoseFeeder(bus, verticalMotion, Pose);
+                    // 落地保持时长读单位的 land_hold_ms（手感落地 M4-W1b）；固定步长取手感系统的（显式注入的解析器是 FeelResolver 时取它自己的），都拿不到就保持缺省 8 个 tick。
+                    var stepSeconds = (feelResolver as FeelResolver)?.StepSeconds ?? gameplay.Feel?.Feel.StepSeconds ?? 0.0;
+                    _airFeeder = stepSeconds > 0.0
+                        ? new AirPoseFeeder(bus, verticalMotion, Pose, feelResolver, stepSeconds)
+                        : new AirPoseFeeder(bus, verticalMotion, Pose);
                 }
                 (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
             }

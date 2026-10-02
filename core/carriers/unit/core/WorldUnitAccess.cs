@@ -179,6 +179,19 @@ namespace Core.Carriers.Unit
             _world.GetEntity(unitId) is Unit unit ? unit.HeightOffset : 0.0;
 
         /// <summary>
+        /// 地形高度查询（手感落地 M4-W1b；装配期由 <c>CarriersAssembly</c> 在竖直轴声明了 <see cref="VerticalAxisOptions.Terrain"/> 时回填，缺省 null）：
+        /// 为 null 时 <see cref="GetGroundHeightAt"/> 恒为 0（与引入之前逐位一致）。
+        /// </summary>
+        public Core.Foundation.EngineAdapter.ITerrainHeight2D? Terrain { get; set; }
+
+        /// <summary>
+        /// 覆盖 <see cref="IUnitAccess.GetGroundHeightAt"/> 的默认接口实现：声明了地形高度能力时返回该点（<paramref name="referenceUnitId"/> 所在地图上）的地面高度，
+        /// 否则 0；参照单位不存在时同样返回 0（调用方是射程/命中窗口判定，不抛）。
+        /// </summary>
+        public double GetGroundHeightAt(Id referenceUnitId, Vec2 point) =>
+            Terrain != null && _world.GetEntity(referenceUnitId) is Unit unit ? Terrain.GetGroundHeight(unit.MapId, point) : 0.0;
+
+        /// <summary>
         /// T-N1-6：覆盖 <see cref="IUnitAccess.GetSourceKind"/> 的默认接口实现（默认返回
         /// <see cref="SourceKind.Unknown"/>）——复用既有"单位是玩家还是生物"的判定依据
         /// <see cref="Entity.Kind"/>（<see cref="PlayerUnit.Kind"/> 恒为 <see cref="EntityKinds.Player"/>、

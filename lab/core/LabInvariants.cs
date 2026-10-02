@@ -186,9 +186,21 @@ namespace Lab
             return results;
         }
 
-        /// <summary>一次运行里空间语义是否被触发过：有人离过地、声明过靶子高度、起过跳或丢过深度输入。没有 space 组（没有任何空间相关记录）算未触发。</summary>
+        /// <summary>
+        /// 一次运行里空间语义是否被触发过：有人离过地、声明过靶子高度、起过跳或丢过深度输入。没有 space 组（没有任何空间相关记录）算未触发。
+        /// <para>
+        /// 判断记录（空中战斗，手感落地 M4-W1b）：指纹带 <c>air_combat</c> 组（脚本声明 <c>meta.spaceExt.airCombat</c> 才有）一律算触发——
+        /// 声明本身就是"这个脚本演示空间战斗语义"（击飞/空中受击/受控位移的深度锁/靶子主动跳跃），其中受控位移的深度锁这类刺激在 space 组里没有对应度量，
+        /// 不能靠 space 组的数值判定。
+        /// </para>
+        /// </summary>
         public static bool SpaceWasExercised(Fingerprint fingerprint)
         {
+            if (fingerprint.Groups.TryGetValue("air_combat", out var airGroup) && airGroup is JsonObject)
+            {
+                return true;
+            }
+
             if (!fingerprint.Groups.TryGetValue("space", out var group) || !(group is JsonObject space))
             {
                 return false;

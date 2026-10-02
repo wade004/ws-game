@@ -65,6 +65,11 @@ namespace Tests.Rules.Skill
 
         public double GetHeightOffset(Id unitId) => _heights.TryGetValue(unitId, out var h) ? h : 0.0;
 
+        /// <summary>地面高度函数（地形能力的替身；缺省 null = 0，与默认接口成员一致）。</summary>
+        public Func<Vec2, double>? Ground { get; set; }
+
+        public double GetGroundHeightAt(Id referenceUnitId, Vec2 point) => Ground != null ? Ground(point) : 0.0;
+
         public Id GetFaction(Id unitId) => _factions.TryGetValue(unitId, out var f) ? f : default;
 
         public int GetLevel(Id unitId) => _levels.TryGetValue(unitId, out var l) ? l : 1;

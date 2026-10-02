@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Foundation.Feel;
 using Core.Foundation.SimLoop;
 
 namespace Presentation.Render
@@ -14,7 +15,9 @@ namespace Presentation.Render
     /// <c>attack.air[.&lt;family&gt;]</c>）与回落链由 <c>PoseResolver</c> 完成，本类型只提供阶段。
     /// <para>
     /// 铁律遵守：纯呈现——只读 <see cref="IVerticalMotion"/>，不回写任何判定状态。
-    /// 判断记录：落地保持窗口是纯呈现常量（默认 8 个 tick），不进手感档案——它只决定"落地姿势播多久"，不影响任何判定。
+    /// 判断记录（手感落地 M4-W1b 改）：落地保持窗口的缺省仍是呈现常量 8 个 tick；带手感解析器的构造重载下，单位落地的那一刻读它的呈现型字段
+    /// <c>land_hold_ms</c>（毫秒，可选；声明了就按固定步长换算成 tick——非零至少 1，0 = 不播落地姿势），没声明沿用缺省 8——
+    /// 所以不同单位/武器/体型的落地硬度可以由数据配置，且不影响任何判定（它只决定"落地姿势播多久"）。
     /// </para>
     /// </summary>
     public sealed class AirPoseFeeder : IDisposable
@@ -24,6 +27,8 @@ namespace Presentation.Render
         private readonly IVerticalMotion _motion;
         private readonly PoseSelector _selector;
         private readonly int _landHoldTicks;
+        private readonly IFeelPresentingSource? _feel;
+        private readonly double _stepSeconds;
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
         private readonly HashSet<Id> _inAir = new HashSet<Id>();
         private readonly Dictionary<Id, int> _landing = new Dictionary<Id, int>();
@@ -42,6 +47,31 @@ namespace Presentation.Render
                 _inAir.Remove(e.EntityId);
                 _landing.Remove(e.EntityId);
             }));
+        }
+
+        /// <summary>
+        /// 带手感解析器的构造（手感落地 M4-W1b）：落地保持时长由单位的 <c>land_hold_ms</c>（呈现型，可选）决定，没声明取 <paramref name="landHoldTicks"/>
+        /// （缺省 <see cref="DefaultLandHoldTicks"/>）。<paramref name="stepSeconds"/> 是固定步长（秒），毫秒换算 tick 用。
+        /// </summary>
+        public AirPoseFeeder(
+            IEventBus bus, IVerticalMotion motion, PoseSelector selector, IFeelPresentingSource feel, double stepSeconds,
+            int landHoldTicks = DefaultLandHoldTicks)
+            : this(bus, motion, selector, landHoldTicks)
+        {
+            _feel = feel ?? throw new ArgumentNullException(nameof(feel));
+            if (!(stepSeconds > 0.0)) throw new ArgumentOutOfRangeException(nameof(stepSeconds));
+            _stepSeconds = stepSeconds;
+        }
+
+        /// <summary>该单位此刻的落地保持 tick 数（诊断与测试用）：声明了 <c>land_hold_ms</c> 取其换算值，否则取构造时的缺省。</summary>
+        public int LandHoldTicksFor(Id unitId)
+        {
+            if (_feel == null) return _landHoldTicks;
+            if (_feel.ResolvePresenting(unitId).TryGetNumber(FeelFieldNames.LandHoldMs, out var ms))
+            {
+                return ms <= 0.0 ? 0 : FeelCalibration.MillisecondsToTicks(ms, _stepSeconds);
+            }
+            return _landHoldTicks;
         }
 
         /// <summary>当前在观测的腾空 + 落地保持单位数（诊断与测试用）。</summary>
@@ -93,9 +123,10 @@ namespace Presentation.Render
             {
                 var id = _scratch[i];
                 _inAir.Remove(id);
-                if (_landHoldTicks > 0)
+                var hold = LandHoldTicksFor(id);
+                if (hold > 0)
                 {
-                    _landing[id] = _landHoldTicks;
+                    _landing[id] = hold;
                     _selector.SetAirPhase(id, AirPhase.Land);
                 }
                 else

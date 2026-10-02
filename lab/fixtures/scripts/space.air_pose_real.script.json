@@ -1,0 +1,127 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.air_pose_real",
+    "scriptVersion": 1,
+    "description": "空间扩展·真实姿势集的空中姿势（手感落地 M4-W1b）：空中姿势装置改读真实数据行 display.anim_set.std_dummy_biped（含继承链合并），玩家持单手武器（族 1h）、战斗姿态、变体 wounded，起跳、空中出手、打中空中的木桩。预设 space_air_pose 声明 land_hold_ms = 100，落地姿势保持 6 个 tick（缺省 8）。该姿势集当前还没有空中键（jump.rise/fall/land、hit.air、attack.air*）：请求沿固定回落链先去变体、再去武器族、再去姿态，最后落到既有的通用键（jump、hit.launch、attack.1h），回落深度 > 0；空中键资产合入数据后同一份脚本的请求会直接命中，度量随数据变化。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_air_pose",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 140,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_slash"
+    },
+    "spaceExt": {
+      "poseAnimSet": "display.anim_set.std_dummy_biped",
+      "poseFamily": "1h",
+      "poseCombat": true,
+      "poseVariant": "wounded"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 6,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 7,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 38,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 39,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "rise_request_carries_variant_dims",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "jump.rise.combat.1h.wounded->",
+      "note": "起跳姿势请求带姿态/武器族/变体维度（先去变体、再去族、再去姿态的回落链从最具体的键开始）。"
+    },
+    {
+      "id": "attack_air_request_carries_variant_dims",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "attack.air.combat.1h.wounded->",
+      "note": "空中出手的请求同样带全部维度。"
+    },
+    {
+      "id": "land_hold_100ms_side",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action"
+      ],
+      "metric": "space_ext.air_phases",
+      "op": "contains",
+      "value": "land:43-48;",
+      "note": "land_hold_ms = 100：落地阶段保持 6 个 tick（缺省 8 个）。"
+    },
+    {
+      "id": "land_hold_100ms_volume",
+      "cells": [
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_phases",
+      "op": "contains",
+      "value": "land:59-64;",
+      "note": "同上（体积格子滞空更久，落地在第 59 个 tick）。"
+    }
+  ]
+}

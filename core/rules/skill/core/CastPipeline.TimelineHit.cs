@@ -281,6 +281,11 @@ namespace Core.Rules.Skill
                     continue;
                 }
 
+                if (!WithinHitWindowRange(casterId, run.Def, geo.Position, target))
+                {
+                    continue;
+                }
+
                 if (run.HitLedger.ContainsKey((target, segment)))
                 {
                     continue;
@@ -313,6 +318,19 @@ namespace Core.Rules.Skill
 
         private static readonly IReadOnlyDictionary<string, string> EmptyArgs = new Dictionary<string, string>();
 
+        /// <summary>
+        /// 命中窗口的射程门（<see cref="SkillOptions.SpatialRangeHitWindow"/>）：选项关闭（缺省）或技能 <c>range</c> 为 0（不限）恒通过；
+        /// 否则要求施法者在 <paramref name="casterPos"/> 时到目标的距离（<see cref="SkillOptions.SpatialRange"/> 决定含不含高度差）不超过技能射程。
+        /// </summary>
+        private bool WithinHitWindowRange(Id casterId, SkillDef def, Vec2 casterPos, Id target)
+        {
+            if (!_options.SpatialRangeHitWindow || def.Range <= 0)
+            {
+                return true;
+            }
+
+            return RangeDistance(casterId, casterPos, _units.GetPosition(target), target) <= def.Range;
+        }
         private static bool IsAttackKind(EffectKind kind) => kind == EffectKind.SchoolDamage || kind == EffectKind.WeaponDamagePct;
 
         private static bool IsAvoidedResult(HitResult result) =>

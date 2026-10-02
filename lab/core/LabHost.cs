@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using Adapters.Stub;
 using Core.Carriers.Assembly;
+using Core.Carriers.Common;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -279,15 +280,26 @@ namespace Lab
                         verticalOptions.Terrain = new MapTerrainHeights(BuildProbe(options).Registry);
                     }
 
-                    if (spaceExt.SpatialRange)
+                    if (spaceExt.SpatialRange || spaceExt.SpatialRangeHitWindow)
                     {
-                        skillOptions = new Core.Rules.Skill.SkillOptions { SpatialRange = true };
+                        skillOptions = new Core.Rules.Skill.SkillOptions
+                        {
+                            SpatialRange = spaceExt.SpatialRange,
+                            SpatialRangeHitWindow = spaceExt.SpatialRangeHitWindow,
+                        };
                     }
+
+                    // 空中战斗（M4-W1b）：落地事件只在脚本声明 airCombat 时打开（缺省关，既有脚本的事件流逐位不变）。
+                    verticalOptions.EmitLandedEvent = spaceExt.AirCombat;
                 }
 
                 gravity = verticalOptions.Gravity;
                 jumpHeight = verticalOptions.JumpHeight;
-                movementOptions = new MovementOptions { Vertical = verticalOptions };
+                movementOptions = new MovementOptions
+                {
+                    Vertical = verticalOptions,
+                    DepthLockControlledMotion = spaceExt != null && spaceExt.DepthLockControlledMotion && depthLocked,
+                };
                 targetingOptions = new Core.Rules.Targeting.TargetingOptions
                 {
                     VerticalHit = true,
@@ -371,6 +383,10 @@ namespace Lab
                 if (vertical && spaceExt != null)
                 {
                     space.Ext = new SpaceExtRecording(spaceExt);
+                    if (spaceExt.AirCombat)
+                    {
+                        space.AirCombat = new AirCombatRecording();
+                    }
                 }
             }
 
@@ -405,6 +421,7 @@ namespace Lab
 
                     if (space != null)
                     {
+                        space.AirCombat?.Register(label);
                         space.DummyHeights[label] = new List<double>();
                         if (dummy.Height > 0.0)
                         {
@@ -460,11 +477,12 @@ namespace Lab
 
             // 空中姿势装置（脚本声明了合成姿势键表且格子带竖直轴时）。
             AirPoseRig? airPose = null;
-            if (space?.Ext != null && spaceExt!.PoseKeys.Count > 0)
+            if (space?.Ext != null && (spaceExt!.PoseKeys.Count > 0 || spaceExt.PoseAnimSet.Length > 0))
             {
                 airPose = new AirPoseRig(
                     world.Bus, world.Gameplay.Carriers.VerticalMotion!, spaceExt, space.Ext, playerId,
-                    id => labels.TryGetValue(id, out var l) ? l : id.Value);
+                    id => labels.TryGetValue(id, out var l) ? l : id.Value, world.Registry,
+                    world.Gameplay.Feel?.Resolver, world.Gameplay.Feel?.Feel.StepSeconds ?? 0.0);
             }
 
             // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
@@ -587,6 +605,7 @@ namespace Lab
                 feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee);
             }
 
+            var dummyMoves = new Dictionary<string, Vec2>(StringComparer.Ordinal);
             var eventCursor = 0;
             var tick = 0;
             var duration = meta.DurationTicks;
@@ -619,6 +638,32 @@ namespace Lab
                 }
 
                 recording.InjectedInputs.Add(e);
+                if (e.Kind == ScriptEventKind.Jump || e.Kind == ScriptEventKind.Move)
+                {
+                    // 靶子的主动行为（M4-W1b）：起跳走与玩家同一个竖直运动服务；移动设一次并保持（零向量即停），每步提交移动请求。
+                    if (!dummyByLabel.TryGetValue(e.Actor, out var actor))
+                    {
+                        throw new LabFormatException($"脚本 {e.Kind} 事件的行动者 {e.Actor} 不在本次出场的靶子里");
+                    }
+
+                    if (e.Kind == ScriptEventKind.Jump)
+                    {
+                        var accepted = vertical && world.Gameplay.Carriers.VerticalMotion!.Jump(actor);
+                        var counts = accepted ? space?.AirCombat?.DummyJumpsAccepted : space?.AirCombat?.DummyJumpsRefused;
+                        if (counts != null)
+                        {
+                            counts[e.Actor] = counts.TryGetValue(e.Actor, out var n) ? n + 1 : 1;
+                        }
+                    }
+                    else
+                    {
+                        // 横版二维：与玩家的轴输入同一规则，深度被锁死，丢掉竖直分量。
+                        dummyMoves[e.Actor] = new Vec2(e.Value.X, depthLocked ? 0.0 : e.Value.Y);
+                    }
+
+                    return;
+                }
+
                 if (e.Kind == ScriptEventKind.Equip || e.Kind == ScriptEventKind.Unequip)
                 {
                     if (rig == null)
@@ -719,6 +764,14 @@ namespace Lab
                     world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(playerId, axis));
                 }
 
+                foreach (var move in dummyMoves)
+                {
+                    if (move.Value.SqrLength > 0.0001 && dummyByLabel.TryGetValue(move.Key, out var mover))
+                    {
+                        world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(mover, move.Value));
+                    }
+                }
+
                 foreach (var binding in bindings)
                 {
                     var active = inputMap.IsActionActive(binding.Key);
@@ -770,6 +823,22 @@ namespace Lab
                         space.Ext.PlayerVerticalSpeeds.Add(motion.GetVerticalSpeed(playerId));
                         space.Ext.PlayerMoveRequested.Add(moveRequested);
                     }
+
+                    if (space.AirCombat != null)
+                    {
+                        var motion = world.Gameplay.Carriers.VerticalMotion!;
+                        var hitFeel = world.Gameplay.Feel?.Rules.HitFeel.Host;
+                        foreach (var pair in dummyUnits)
+                        {
+                            var sampled = world.World.GetEntity(pair.Value) as Unit;
+                            space.AirCombat.DummyAirborne[pair.Key].Add(motion.IsAirborne(pair.Value));
+                            space.AirCombat.DummySpeeds[pair.Key].Add(motion.GetVerticalSpeed(pair.Value));
+                            space.AirCombat.DummyStaggered[pair.Key].Add(hitFeel != null && hitFeel.IsStaggered(pair.Value));
+                            space.AirCombat.DummyPositions[pair.Key].Add(sampled != null ? sampled.Position : Vec2.Zero);
+                            space.AirCombat.DummyMoveActive[pair.Key].Add(
+                                dummyMoves.TryGetValue(pair.Key, out var activeMove) && activeMove.SqrLength > 0.0001);
+                        }
+                    }
                 }
 
                 recording.Ticks.Add(new TickSample(
@@ -783,6 +852,13 @@ namespace Lab
                     airPose?.OnEvent(dispatched, tick);
                     feelRig?.OnEvent(dispatched, tick);
                     RecordEvent(dispatched, tick, labels, instanceOrdinals, recording);
+                    if (dispatched is UnitLandedEvent landed && space?.AirCombat != null)
+                    {
+                        space.AirCombat.Landed.Add(new LandedRecord(
+                            tick, labels.TryGetValue(landed.UnitId, out var landedLabel) ? landedLabel : landed.UnitId.Value,
+                            landed.Height, landed.AirSeconds, landed.ImpactSpeed));
+                    }
+
                     if (dispatched is UnitDiedEvent died && dynamicBlocks.Count > 0)
                     {
                         for (var b = 0; b < dynamicBlocks.Count; b++)

@@ -9,6 +9,7 @@ using Core.Carriers.Assembly;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
+using Core.Foundation.Feel;
 using Core.Foundation.Rng;
 using Core.Foundation.SaveSystem;
 using Core.Foundation.SceneRouter;
@@ -33,6 +34,7 @@ namespace Tests.Presentation.Assembly
 
         private void Build(bool vertical, double gravity = 24.0)
         {
+            _presentation?.Dispose();
             var fs = new StubFileSystem();
             CopyDisk(fs, "data/_framework");
             CopyDisk(fs, "data/_feel");
@@ -104,6 +106,36 @@ namespace Tests.Presentation.Assembly
             }
 
             Assert.Equal(AirPhase.None, phases[landTick - 1 + AirPoseFeeder.DefaultLandHoldTicks]);
+        }
+
+        private int LandWindowTicks(double v0 = 6.1, double g = 24.0)
+        {
+            Assert.True(_world.Gameplay.Carriers.VerticalMotion!.Launch(PlayerId, v0));
+            var landTick = (int)Math.Ceiling(2.0 * v0 / g / Dt - 1e-9);
+            var window = 0;
+            for (var tick = 1; tick <= landTick + 40; tick++)
+            {
+                _world.Gameplay.Advance(Dt);
+                if (tick >= landTick && Phase() == AirPhase.Land) window++;
+            }
+
+            return window;
+        }
+
+        [Fact]
+        public void LandHoldMs_DeclaredInTheProfile_SetsTheLandWindow_AndAbsentKeepsTheDefault()
+        {
+            // 复现（M4-W1b）：land_hold_ms=100ms 按固定步长换算 tick 数（期望由 MillisecondsToTicks 算出）；没声明时仍是缺省 8；0 = 不播落地姿势。
+            Build(vertical: true);
+            Assert.Equal(AirPoseFeeder.DefaultLandHoldTicks, LandWindowTicks());
+
+            Build(vertical: true);
+            _world.Gameplay.Feel!.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.LandHoldMs, FeelOp.Set, FeelValue.Of(100.0)));
+            Assert.Equal(FeelCalibration.MillisecondsToTicks(100.0, Dt), LandWindowTicks());
+
+            Build(vertical: true);
+            _world.Gameplay.Feel!.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.LandHoldMs, FeelOp.Set, FeelValue.Of(0.0)));
+            Assert.Equal(0, LandWindowTicks());
         }
 
         [Fact]

@@ -690,7 +690,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 1. **字段**：手感档案新增可选判定型数值字段 `launch_height`（体型倍数，0..10，缺省无值 = 不击飞；`FeelFieldNames.LaunchHeight`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
 2. **口径**：反应达到 `knockback`/`knockdown` 时，击飞顶点高度（世界单位）= 攻击方 `launch_height`（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一张倍率表、同一个抗性读数）；与击退同一提交时机（目标顿帧结束那个 tick）。击飞与击退互相独立：`knockback_distance` 为 0 也击飞，`launch_height` 缺省则只击退（`SubmitKnockback` 只在距离 > 0 时提交击退、顶点 > 0 时提交击飞，旧行为不变）。
 3. **提交口**：`rules/common` 新增 `ILaunchSink.BeginLaunch(unitId, apexHeightWorld)`；`HitFeelHost.Launch` 缺省 null（不接就不击飞）。实现是单位载体层的 `VerticalMotionHost`（见 unit README），由 `CarriersFeelAssembly` 在装配了竖直轴时接上。
-4. **已知局限**：击飞顶点不看目标体型（`launch_height` 已是体型倍数，标定参考身高统一换算）；击飞中的目标仍按硬直/倒地走既有流程，不因腾空改变反应时长；没有"落地事件"（落地只体现在高度回到地面高度，实验室以度量记录落地 tick）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
+4. **原已知局限的处理（M4-W1b 全部解除或定案，见本文「判断记录（空战二期…）」节）**：击飞顶点不看目标体型 → 新增受击方可选字段 `launch_body_scale`（第 5 条）；击飞中的目标不因腾空改变反应时长 → 定案为缺省不改，要"撑到落地"由可选字段 `air_stun_until_land` 开启（第 6 条）；没有落地事件 → 新增 `unit.landed`（第 7 条）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
 
 ## 判断记录（动态韧性：`poise_damage` 与韧性池，2026-10-02，M4-L，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)）
 
@@ -705,7 +705,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 1. **字段（均为可选判定型字段，缺省无值 = 与改动前逐位一致）**：`air_hit_reaction`（枚举 `same|none|flinch|stagger_light|stagger|knockback|knockdown`，攻击方档案）、`launch_stack`（`restart|add`）、`launch_stack_cap`（体型倍数，0..20，缺省无上限）；注册在 `FeelFields`。
 2. **空中受击反应**：目标此刻在空中（`HitFeelHost.Airborne`，`IAirborneQuery`，`CarriersFeelAssembly` 在竖直运动服务是 `IAirborneQuery` 时接线）且攻击方声明了 `air_hit_reaction`（非 `same`）时，在韧性/冲击等级映射之后、`reaction_cap` 封顶之前把反应替换成该值；不改 `Death`。没有竖直轴时没有空中单位，字段被忽略。
 3. **击飞叠加**：`launch_stack = add` 时 `SubmitKnockback` 以 `LaunchStackMode.Add` 与上限调 `BeginLaunch`；缺省仍是重新起算。
-4. **已知局限**：`air_hit_reaction` 按攻击方档案取值，目标侧没有对应的"空中受击抗性"；叠加上限封的是叠加后的初速（即相对起算高度的顶点），不封绝对高度。测试：`tests/HitFeelHostTests.cs` 的 `AirHitReaction_*`、`LaunchStack_*`。
+4. **原已知局限的处理（M4-W1b，见「判断记录（空战二期…）」节）**：目标侧没有"空中受击抗性" → 新增受击方可选字段 `air_reaction_cap`（第 3 条），并让 `air_hit_reaction` 的声明来源合成攻击方与受击方（第 2 条）；叠加上限只封初速、不封绝对高度 → 新增可选字段 `launch_height_cap`（第 4 条，与 `launch_stack_cap` 可同时声明）。测试：`tests/HitFeelHostTests.cs` 的 `AirHitReaction_*`、`LaunchStack_*`。
 
 ## 判断记录（动态韧性的三项可选扩展，2026-10-03，M4-W3，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)）
 
@@ -716,3 +716,14 @@ M4-L 判断记录第 5 条留下的三项局限逐项实现，全部可选、缺
 3. **`poise_damage` 按冲击等级缩放 `HitFeelOptions.PoiseDamageImpactMultipliers`**：冲击等级 → 倍率，口径同 `KnockbackImpactMultipliers`（表里没有的等级取 1，**缺省空表不缩放**）。命中声明的 `poise_damage` 乘以攻击方 `impact_class` 的倍率后才从池里扣，`combat.poise_changed` 的 `Damage` 报告乘后的有效值（所以记账不变量 `after = max(0, before - damage)` 仍成立）。只作用于动态韧性，静态韧性规则不读它；倍率表的数值由游戏填（试调起点，未经试玩）。
 4. **字段**：`FeelFieldNames.PoiseRecoverMode`、`PoiseBreakResetMs` 是手感字段表里新增的可选字段（判定型，目标侧），不改既有字段。
 5. **测试**：`tests/HitFeelHostTests.cs` 七条（每项一条复现加不变量）：`PoiseRecoverMode_OutOfCombat_SuspendsDelayAndRegenWhileInCombat_ThenCountsTheDelayFromTheLeaveTick`（战斗中过去远超延迟的时间池子不动；脱战后第 n 个 tick 的有效韧性 = min(容量, 损失后 + 每 tick 回复 × max(0, n - 延迟 tick))，逐 tick 由规则算出，回满那一 tick 恰发一次回满事件）、`PoiseRecoverMode_DelayAndNoCombatQuery_IgnoreCombatState_AndAHitRestartsTheDelayAfterLeaving`（`delay` 模式与没有战斗状态查询时口径不变；脱战回复中再挨一击延迟重新计、已回复部分保留）、`PoiseBreakReset_RefillsTheWholePoolOnceAfterTheDelay_AndTheShelterReturns`（到点恰在破韧后 `poise_break_reset_ms` 的 tick 数一次回满，回满后重新被挡）、`PoiseBreakReset_IsNotExtendedByLaterHits_IgnoresCombatState_AndRearmsOnTheNextBreak`（已空池子上的命中不顺延、不受战斗状态影响、下一次破韧重新起算）、`PoiseDamageImpactMultipliers_ScaleThePoolDrain_ByTheAttackersImpactClass`（有效伤害 = 声明伤害 × 倍率逐击由规则算出，空表/未列等级不缩放）、`PoiseDamageImpactMultipliers_KeepTheAccountingConsistent_AcrossHitSequences`（记账 `after = max(0, before - damage)` 恒成立、池恒在 [0, 容量]）、`PoiseDynamicsFields_AreOptional_AndTheModeVocabularyMatches`（字段可选、模式取值表与规则一致）。装配接线见 `core/gameplay/assembly/tests/FeelWiringEndToEndTests.cs`。实验室：`feel_poise_ooc`、`feel_poise_break_reset`、`feel_poise_impact_scale` 三个脚本（见 `lab/README.md` 判断记录 47）。
+
+## 判断记录（空战二期：空中反应上限、击飞高度上限、体型缩放、空中硬直撑到落地，2026-10-03，M4-W1b，ADR-0130 追加决定）
+
+1. **字段（全部可选，缺省无值 = 与改动前逐位一致；注册在 `FeelFields`）**：`air_reaction_cap`（枚举，同 `reaction_cap` 的取值，受击方判定型）、`launch_height_cap`（数值 0..20，体型倍数 → 标定后世界高度，攻击方与受击方档案都可声明）、`launch_body_scale`（数值 0..10，比例，受击方）、`air_stun_until_land`（布尔，受击方）、`land_hold_ms`（数值 0..2000，毫秒，呈现型，见 presentation README）。`feel` README 里"均为攻击方判定型字段"的旧表述已订正：`air_hit_reaction` 两侧都可声明，其余新字段按上面标注的方。
+2. **`air_hit_reaction` 的声明来源合成（原局限"目标侧没有对应抗性"）**：目标在空中时，攻击方档案声明了（非 `same`）就用攻击方的（"这一类攻击打中空中目标时的反应"），否则取受击方档案的声明（"该单位在空中被命中时的反应"）；两侧都没有声明原样不变。理由：攻击方声明是武器/技能的语义（挑空追击类），受击方声明是体型原型的语义（巨型怪空中也不怕击飞），两者都有真实需求，攻击方优先因为它更具体。无竖直轴时没有空中单位，两个字段都被忽略。
+3. **`air_reaction_cap`（目标侧空中抗性）**：目标此刻腾空且声明了该字段时，反应在 `reaction_cap` 之外再受它封顶，取两者较低；排在 `air_hit_reaction` 替换与 `reaction_cap` 之后，`Death` 不受影响。与攻击方 `air_hit_reaction` 的组合：先替换再封顶（替换成 `knockdown` 而目标 `air_reaction_cap = flinch` 则落到 `flinch`）。
+4. **`launch_height_cap`（绝对高度上限，原局限"叠加上限不封绝对高度"）**：击飞（含叠加）之后脚下高度的最高点不超过该值（世界高度，与 `launch_stack_cap` 的区别：后者封叠加后的初速、即相对起算高度的顶点，本字段封绝对高度，二者同时声明时两道都生效）。两侧都声明取较小者。接口：`ILaunchSink` 新增默认接口成员 `BeginLaunch(unitId, apex, stack, stackCap, heightCap)`（默认实现忽略上限、退化为 4 参数重载，既有实现不改）；`VerticalMotionHost` 覆盖它：初速限制为"从当前脚下高度升到上限所需的初速"，脚下已不低于上限时初速限制为 0——地面单位不被抛起，空中单位停止上升后下落。宿主只在上限有效（> 0）时才走 5 参数重载，缺省路径与 4 参数调用逐位一致。
+5. **`launch_body_scale`（击飞体型缩放，原局限"击飞顶点不看目标体型"）**：受击方声明了才乘到击飞顶点上（击飞顶点 = 攻击方 `launch_height` × (1 − 击退抗性) × 冲击等级倍率 × 本字段）；缺省不缩放，0 = 不可被击飞。理由：体型差异本来就能写在受击方档案里，不新增体型属性；缺省不缩放因为 `launch_height` 已是身高倍数、标定统一换算，大多数单位不需要二次缩放。
+6. **`air_stun_until_land`（空中硬直撑到落地）**：受击方声明为真时，硬直类反应时长到点后若目标仍在空中，硬直保持到落地之后的那一个 tick 才结束（不推进已过时长，免得把空中硬直误判成倒地）；每次登记/刷新硬直时按受击方当时的档案取值。缺省（假）与 1.95.0 一致：硬直按时长结束，与是否在空中无关——原局限"不因腾空改变反应时长"据此定案为缺省不改、可选开启。
+7. **落地事件 `unit.landed`（原局限"没有落地事件"）**：见 unit README 的同名节（事件由竖直运动服务发出，载荷 `unitId, height, airSeconds, impactSpeed`；`VerticalAxisOptions.EmitLandedEvent` 缺省关）。
+8. **复现与不变量**：`tests/HitFeelHostTests.cs` 的 `AirReactionCap_*`（目标侧封顶取较低、地面不受限、与攻击方替换组合）、`AirHitReaction_*` 两侧声明合成、`LaunchHeightCap_*`（顶点封在绝对高度、两侧取较小、与叠加上限同时生效、缺省不变）、`LaunchBodyScale_*`、`AirStunUntilLand_*`（硬直在落地后结束、缺省按时长结束）；实验室脚本 `space.air_combo`（三连击高度封顶 + 硬直撑到落地 + 一次落地事件）、`space.launch_body_scale`、`space.air_reaction`，期望由预设值与标定参考身高算出。

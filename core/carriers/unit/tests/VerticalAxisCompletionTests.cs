@@ -38,9 +38,11 @@ namespace Tests.Carriers.Unit
             public MovementTickHandler Handler = null!;
             public FakeStatHost Stats = null!;
             public List<(Id Unit, MoveStopReason Reason)> Stops = new List<(Id, MoveStopReason)>();
+            public List<UnitLandedEvent> Landed = new List<UnitLandedEvent>();
         }
 
-        private static Fx Build(Action<VerticalAxisOptions>? configure = null, IReadOnlyList<TerrainRegion>? regions = null, double moveSpeed = 10.0)
+        private static Fx Build(Action<VerticalAxisOptions>? configure = null, IReadOnlyList<TerrainRegion>? regions = null, double moveSpeed = 10.0,
+            Action<MovementOptions>? configureMovement = null)
         {
             var bus = new EventBus(EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
             var world = new WorldSim(bus);
@@ -61,9 +63,10 @@ namespace Tests.Carriers.Unit
             stats.SetBase(HeroId, new MovementOptions().MoveSpeedStat, moveSpeed);
             var movement = new MovementHost(world);
             var movementOptions = new MovementOptions { Vertical = options };
+            configureMovement?.Invoke(movementOptions);
             var handler = new MovementTickHandler(units, stats, new FakeAuraQuery(), movement, bus, null, movementOptions);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
-            var vertical = new VerticalMotionHost(world, options);
+            var vertical = new VerticalMotionHost(world, options, bus);
             handler.VerticalAxis = vertical;
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new VerticalMotionTickHandler(vertical));
 
@@ -73,6 +76,7 @@ namespace Tests.Carriers.Unit
                 Terrain = terrain, Movement = movement, Handler = handler, Stats = stats,
             };
             movement.OnMoveStopped += (u, _, r) => fx.Stops.Add((u, r));
+            bus.Subscribe<UnitLandedEvent>(CarriersEventKeys.UnitLanded, e => fx.Landed.Add(e));
             return fx;
         }
 
@@ -558,6 +562,154 @@ namespace Tests.Carriers.Unit
             fx.Vertical.BeginLaunch(HeroId, 0.5, LaunchStackMode.Add, 0.0);
             Assert.Equal(fall + Math.Sqrt(2 * g * 0.5), fx.Vertical.GetVerticalSpeed(HeroId), 9);
         }
+
+        // ================================================================== 手感落地 M4-W1b：绝对高度上限、落地事件、深度锁
+
+        [Fact]
+        public void LaunchHeightCap_ClampsTheApex_ToTheCapHeight()
+        {
+            // 复现：顶点 4.0 的击飞带 2.0 的绝对上限——实际最高点 = 上限；不带上限则是 4.0。期望由抛体公式 v^2 = 2·g·h 算出。
+            const double g = 24;
+            var capped = Build(o => o.Gravity = g);
+            capped.Vertical.BeginLaunch(HeroId, 4.0, LaunchStackMode.Restart, 0.0, 2.0);
+            Assert.Equal(Math.Sqrt(2 * g * 2.0), capped.Vertical.GetVerticalSpeed(HeroId), 9);
+
+            var peak = 0.0;
+            for (var i = 0; i < 600 && capped.Vertical.IsAirborne(HeroId); i++)
+            {
+                capped.Vertical.Advance(Dt);
+                peak = Math.Max(peak, capped.Hero.HeightOffset);
+            }
+
+            Assert.InRange(peak, 2.0 - 0.05, 2.0 + 1e-9); // 离散步长下的最高采样点不超过上限
+
+            // 不变量：上限 ≤ 0 与 4 参数重载逐位一致（"不设上限"）。
+            var a = Build(o => o.Gravity = g);
+            var b = Build(o => o.Gravity = g);
+            a.Vertical.BeginLaunch(HeroId, 4.0, LaunchStackMode.Restart, 0.0);
+            b.Vertical.BeginLaunch(HeroId, 4.0, LaunchStackMode.Restart, 0.0, 0.0);
+            Assert.Equal(a.Vertical.GetVerticalSpeed(HeroId), b.Vertical.GetVerticalSpeed(HeroId));
+        }
+
+        [Fact]
+        public void LaunchHeightCap_InTheAir_CountsTheCurrentHeightAndStackedSpeed()
+        {
+            const double g = 24;
+            var fx = Build(o => o.Gravity = g);
+            fx.Vertical.LaunchToApex(HeroId, 1.0);
+            for (var i = 0; i < 6; i++) fx.Vertical.Advance(Dt);
+            var h0 = fx.Hero.HeightOffset;
+            // 叠加 + 上限 3.0：叠加后的初速若超过"从当前高度升到 3.0"所需，被限制。
+            fx.Vertical.BeginLaunch(HeroId, 5.0, LaunchStackMode.Add, 0.0, 3.0);
+            Assert.Equal(Math.Sqrt(2 * g * (3.0 - h0)), fx.Vertical.GetVerticalSpeed(HeroId), 9);
+
+            // 不变量：脚下已不低于上限时初速限制为 0——停止上升、从当前高度起下落（不会往上加速）。
+            var high = Build(o => o.Gravity = g);
+            high.Vertical.LaunchToApex(HeroId, 4.0);
+            for (var i = 0; i < 12; i++) high.Vertical.Advance(Dt);
+            Assert.True(high.Hero.HeightOffset > 1.0);
+            high.Vertical.BeginLaunch(HeroId, 2.0, LaunchStackMode.Add, 0.0, 1.0);
+            Assert.Equal(0.0, high.Vertical.GetVerticalSpeed(HeroId), 9);
+        }
+
+        [Fact]
+        public void UnitLanded_ReportsGroundHeight_AirTime_AndImpactSpeed()
+        {
+            // 复现：击飞后落回地面发一次 unit.landed；空中时长≈抛体滞空时间 2v/g，落地下落速度 ≈ v（地面起跳对称）。
+            const double g = 24;
+            var fx = Build(o => { o.Gravity = g; o.EmitLandedEvent = true; });
+            fx.Vertical.LaunchToApex(HeroId, 2.0);
+            var v0 = fx.Vertical.GetVerticalSpeed(HeroId);
+            for (var i = 0; i < 600 && fx.Vertical.IsAirborne(HeroId); i++) fx.World.Tick(SimStep.Continuous(Dt));
+            Assert.False(fx.Vertical.IsAirborne(HeroId));
+
+            var landed = Assert.Single(fx.Landed);
+            Assert.Equal(HeroId, landed.UnitId);
+            Assert.Equal(0.0, landed.Height);
+            Assert.Equal(2 * v0 / g, landed.AirSeconds, 1); // 离散步长误差在一个步长内
+            Assert.True(Math.Abs(landed.AirSeconds - 2 * v0 / g) <= Dt + 1e-9);
+            Assert.True(landed.ImpactSpeed >= v0 - 1e-9 && landed.ImpactSpeed <= v0 + g * Dt + 1e-9);
+        }
+
+        [Fact]
+        public void UnitLanded_RelaunchKeepsAccumulatingAirTime_AndTerrainGivesTheLandingHeight()
+        {
+            // 不变量：空中被再次击飞（Restart）不清零空中时间——落地事件报"本次离地以来"的总滞空；落点是台地时落地高度 = 台地高度。
+            const double g = 24;
+            var regions = new List<TerrainRegion> { new TerrainRegion(new Vec2(-5, -5), new Vec2(5, 5), ground: 0.5) };
+            var fx = Build(o => { o.Gravity = g; o.EmitLandedEvent = true; }, regions);
+            fx.Hero.HeightOffset = 0.5;
+            fx.Vertical.LaunchToApex(HeroId, 1.0);
+            for (var i = 0; i < 10; i++) fx.World.Tick(SimStep.Continuous(Dt));
+            var before = 10 * Dt;
+            fx.Vertical.BeginLaunch(HeroId, 1.0);
+            for (var i = 0; i < 600 && fx.Vertical.IsAirborne(HeroId); i++) fx.World.Tick(SimStep.Continuous(Dt));
+
+            var landed = Assert.Single(fx.Landed); // 再次击飞不产生第二次落地
+            Assert.Equal(0.5, landed.Height, 9);
+            Assert.True(landed.AirSeconds > before + Math.Sqrt(2 * 1.0 / g) * 2 - 2 * Dt);
+
+            // 不变量：选项缺省（EmitLandedEvent=false）不发事件，事件流与引入之前逐位一致。
+            var quiet = Build(o => o.Gravity = g);
+            quiet.Vertical.LaunchToApex(HeroId, 1.0);
+            for (var i = 0; i < 600 && quiet.Vertical.IsAirborne(HeroId); i++) quiet.World.Tick(SimStep.Continuous(Dt));
+            Assert.False(quiet.Vertical.IsAirborne(HeroId));
+            Assert.Empty(quiet.Landed);
+        }
+
+        [Fact]
+        public void DepthLock_Knockback_KeepsDistanceButOnlyAlongTheHorizontalAxis()
+        {
+            // 复现：击退方向 (3,4)/5、距离 5——不锁深度时到 (3,4)；锁深度后保持距离 5、只沿 +x：到 (5,0)。
+            var free = Build();
+            free.World.SubmitIntent(new Intent(HeroId, "move_displace", KnockArgs(3, 4, true)));
+            free.World.Tick(SimStep.Continuous(10.0));
+            Assert.Equal(3.0, free.Hero.Position.X, 6);
+            Assert.Equal(4.0, free.Hero.Position.Y, 6);
+
+            var locked = Build(configureMovement: m => m.DepthLockControlledMotion = true);
+            locked.World.SubmitIntent(new Intent(HeroId, "move_displace", KnockArgs(3, 4, true)));
+            locked.World.Tick(SimStep.Continuous(10.0));
+            Assert.Equal(5.0, locked.Hero.Position.X, 6);
+            Assert.Equal(0.0, locked.Hero.Position.Y, 6);
+
+            // 不变量：向 -x 击退保持符号；纯深度方向的击退（横向分量为 0）不位移。
+            var left = Build(configureMovement: m => m.DepthLockControlledMotion = true);
+            left.World.SubmitIntent(new Intent(HeroId, "move_displace", KnockArgs(-3, 4, true)));
+            left.World.Tick(SimStep.Continuous(10.0));
+            Assert.Equal(-5.0, left.Hero.Position.X, 6);
+            Assert.Equal(0.0, left.Hero.Position.Y, 6);
+
+            var depthOnly = Build(configureMovement: m => m.DepthLockControlledMotion = true);
+            depthOnly.World.SubmitIntent(new Intent(HeroId, "move_displace", KnockArgs(0, 4, true)));
+            depthOnly.World.Tick(SimStep.Continuous(10.0));
+            Assert.Equal(0.0, depthOnly.Hero.Position.X, 9);
+            Assert.Equal(0.0, depthOnly.Hero.Position.Y, 9);
+        }
+
+        [Fact]
+        public void DepthLock_OrdinaryDisplacement_DropsTheDepthComponentOfTheTarget()
+        {
+            var locked = Build(configureMovement: m => m.DepthLockControlledMotion = true);
+            locked.World.SubmitIntent(new Intent(HeroId, "move_displace", KnockArgs(3, 4, false)));
+            locked.World.Tick(SimStep.Continuous(10.0));
+            Assert.Equal(3.0, locked.Hero.Position.X, 6); // 扑击：横向照常到位，深度分量丢弃
+            Assert.Equal(0.0, locked.Hero.Position.Y, 6);
+
+            // 不变量：默认不锁，同一位移到 (3,4)。
+            var free = Build();
+            free.World.SubmitIntent(new Intent(HeroId, "move_displace", KnockArgs(3, 4, false)));
+            free.World.Tick(SimStep.Continuous(10.0));
+            Assert.Equal(4.0, free.Hero.Position.Y, 6);
+        }
+
+        private static JsonObject KnockArgs(double tx, double ty, bool knockback) => new JsonObjectBuilder()
+            .Add("originX", new JsonNumber(0)).Add("originY", new JsonNumber(0))
+            .Add("targetX", new JsonNumber(tx)).Add("targetY", new JsonNumber(ty))
+            .Add("speed", new JsonNumber(50.0))
+            .Add("knockback", (knockback ? JsonBool.True : JsonBool.False))
+            .Add("sampleStep", new JsonNumber(0))
+            .Build();
 
         // ================================================================== 腾空查询 / 默认成员
 

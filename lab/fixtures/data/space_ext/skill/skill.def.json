@@ -112,6 +112,43 @@
         ]
       },
       "note": "空间扩展实验取最近：目标链是圆形（半径 3、高度 5）取最近 1 个；射程 3，三维施法射程打开时按含高度差的距离判射程。"
+    },
+    {
+      "id": "skill.lab_spx_jab",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.26,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_spx_arc_tall",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 60,
+        "recovery_ms": 100,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ]
+      },
+      "note": "空间扩展实验快刺（M4-W1b）：同 lab_spx_slash 的目标链，时间线缩短到 260 毫秒（出手 100、命中 100、收招 100），让动作式格子里两次按键之间第一个时间线已经结束——不再被第一次动作吞掉，能演示重复击飞与空中连击。"
     }
   ]
 }

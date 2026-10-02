@@ -112,5 +112,26 @@ namespace Tests.Rules.Skill
             var ok = planar.Host.CastSkillAtGround(CasterId, new Id("skill.sample_bolt"), new GroundCastRequest(new Vec2(3, 0)));
             Assert.NotEqual(CastFailureReason.OutOfRange, ok.Reason);
         }
+
+        [Fact]
+        public void GroundCast_LandingHeightIsTheGroundHeightAtThePoint_WhenTerrainIsPresent()
+        {
+            // 复现（M4-W1b）：施法者在 4.5 高，落点所在台地高 4.5——落点高度取地面高度时三维距离 = 平面 3（通过）；
+            // 没有地形能力（落点高度恒 0）时三维 5.41 > 5 失败。期望由距离公式算出。
+            var terrain = Build(spatial: true, range: 5, casterHeight: 4.5, targetHeight: 0, ground: true);
+            terrain.Units.Ground = p => p.X >= 2.0 ? 4.5 : 0.0;
+            var ok = terrain.Host.CastSkillAtGround(CasterId, new Id("skill.sample_bolt"), new GroundCastRequest(new Vec2(3, 0)));
+            Assert.NotEqual(CastFailureReason.OutOfRange, ok.Reason);
+
+            var flat = Build(spatial: true, range: 5, casterHeight: 4.5, targetHeight: 0, ground: true);
+            var failed = flat.Host.CastSkillAtGround(CasterId, new Id("skill.sample_bolt"), new GroundCastRequest(new Vec2(3, 0)));
+            Assert.Equal(CastFailureReason.OutOfRange, failed.Reason);
+
+            // 不变量：平面射程（SpatialRange 关）与地面高度无关。
+            var planar = Build(spatial: false, range: 5, casterHeight: 0, targetHeight: 0, ground: true);
+            planar.Units.Ground = _ => 100.0;
+            Assert.NotEqual(CastFailureReason.OutOfRange,
+                planar.Host.CastSkillAtGround(CasterId, new Id("skill.sample_bolt"), new GroundCastRequest(new Vec2(3, 0))).Reason);
+        }
     }
 }
