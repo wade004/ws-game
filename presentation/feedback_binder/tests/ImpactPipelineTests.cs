@@ -372,6 +372,47 @@ namespace Tests.Presentation.FeedbackBinder
             Assert.Equal(Gain * attenuation.Evaluate(5.0), cue.Magnitude, 12);
         }
 
+        /// <summary>
+        /// 复现用例（手感落地 M3-B）：参考身高取实时来源——来源值从 2 变为 5 后，同一次命中的"距离（身高倍数）"从 10/2 = 5 变为 10/5 = 2，
+        /// 衰减曲线上的取值从 0.5 变为 0.8，镜头冲击幅度随之变化；不设来源时只用 <c>ReferenceHeight</c>（与此前逐位一致）。
+        /// </summary>
+        [Fact]
+        public void DistanceAttenuation_ReferenceHeightSource_IsReadLiveAndOverridesTheFixedValue()
+        {
+            var attenuation = new PiecewiseCurve(new[] { new CurvePoint(0, 1.0), new CurvePoint(10, 0.0) });
+            var reference = 2.0;
+            double Magnitude(Func<double>? source)
+            {
+                var kit = new ImpactTestKit()
+                    .WithWeapon(Player, "feel.weapon.kit_sword",
+                        Set(FeelFieldNames.CameraImpulseGain, Gain), Set(FeelFieldNames.ImpactProfileRef, ProfileId.Value))
+                    .WithCharacter(Player, "feel.character.kit_player",
+                        Set(FeelFieldNames.CameraShakeCap, 0.2), Set(FeelFieldNames.CameraDistanceAttenuation, "curve.kit_falloff"));
+                var options = new ImpactOptions
+                {
+                    FeelSource = new PresentingImpactFeelSource(kit.Build()),
+                    ProfileResolver = _ => SwordProfile(),
+                    CameraOwnerResolver = () => Player,
+                    PositionResolver = id => id.Equals(Player) ? new Vec2(0, 0) : new Vec2(10, 0),
+                    CurveResolver = name => name == "curve.kit_falloff" ? attenuation : null,
+                    ReferenceHeight = 99.0,
+                    ReferenceHeightSource = source,
+                    StepSeconds = StepSeconds,
+                };
+                var pipeline = new ImpactPipeline(options);
+                pipeline.Offer(Hit(Player, Enemy1, contact: new Vec2(10, 0)), null);
+                return pipeline.Flush()!.Camera!.Magnitude;
+            }
+
+            Assert.Equal(Gain * attenuation.Evaluate(10.0 / 2.0), Magnitude(() => reference), 12);
+            reference = 5.0;
+            Assert.Equal(Gain * attenuation.Evaluate(10.0 / 5.0), Magnitude(() => reference), 12);
+            Assert.NotEqual(Magnitude(() => 2.0), Magnitude(() => 5.0));
+
+            // 不变量：不设来源时只看固定值（99 个世界单位的身高下距离 10 ≈ 0.1 个身高）。
+            Assert.Equal(Gain * attenuation.Evaluate(10.0 / 99.0), Magnitude(null), 12);
+        }
+
         // ------------------------------------------------------------------ 挥空
 
         [Fact]

@@ -170,6 +170,64 @@ namespace Core.Rules.Skill
         /// <summary>本次施法请求携带的宽限条件名（带宽限条件的 CastSkillWithContext 设置，调用结束清空）。</summary>
         private IReadOnlyList<Id>? _graceConditions;
 
+        /// <summary>
+        /// 手感落地 M3-B（手感设计/01 第 2.4 节）：排队中的施法进入队列那一刻记下的宽限快照。<see cref="Conditions"/> 是发起请求的输入动作声明的条件名；
+        /// <see cref="CoversStep7"/> 为真表示"进入队列时这些条件全部满足、且至少一个仅靠宽限满足"，此时宽限窗口剩余多少个 tick 已在那一刻算定，
+        /// 按行动者动作时钟记成绝对到期读数 <see cref="ExpiresAtActionTick"/>（含）——顿帧期间动作时钟不走，窗口随之暂停。
+        /// 出队执行时快照与实时宽限查询取并集：实时查询仍满足（例如条件又成立了）或快照未过期，步骤 7 都放行；两者都不满足则按原规则拒绝。
+        /// </summary>
+        private sealed class GraceSnapshot
+        {
+            public readonly IReadOnlyList<Id> Conditions;
+            public readonly bool CoversStep7;
+            public readonly long ExpiresAtActionTick;
+
+            public GraceSnapshot(IReadOnlyList<Id> conditions, bool coversStep7, long expiresAtActionTick)
+            {
+                Conditions = conditions;
+                CoversStep7 = coversStep7;
+                ExpiresAtActionTick = expiresAtActionTick;
+            }
+        }
+
+        /// <summary>出队执行的排队请求带着的宽限快照（只在 <see cref="FinishCast"/> 续跑排队请求期间非空，结束清空）。</summary>
+        private GraceSnapshot? _graceSnapshot;
+
+        /// <summary>
+        /// 为正要进入队列的请求记宽限快照：本次请求没有携带宽限条件、或没有宽限查询时返回 null（排队行为与此前逐位一致）。
+        /// </summary>
+        private GraceSnapshot? CaptureGraceSnapshot(Id casterId)
+        {
+            var conditions = _graceConditions;
+            var grace = _timeline?.Grace;
+            if (conditions == null || grace == null)
+            {
+                return null;
+            }
+
+            var covers = false;
+            long expires = 0;
+            if (grace.AreAllSatisfied(casterId, conditions))
+            {
+                var remaining = int.MaxValue;
+                for (var i = 0; i < conditions.Count; i++)
+                {
+                    if (grace.IsInGrace(casterId, conditions[i]))
+                    {
+                        covers = true;
+                        remaining = Math.Min(remaining, grace.RemainingGraceTicks(casterId, conditions[i]));
+                    }
+                }
+
+                if (covers)
+                {
+                    expires = ActionNow(casterId) + remaining;
+                }
+            }
+
+            return new GraceSnapshot(conditions, covers, expires);
+        }
+
         /// <summary>true 时 TryStartCast 在步骤 8 之前返回、Fail 不发事件（取消进入的"先验证再取消"探测，见 TryStartCancelInto）。</summary>
         private bool _probeOnly;
 
@@ -222,7 +280,19 @@ namespace Core.Rules.Skill
         {
             var conditions = _graceConditions;
             var grace = _timeline?.Grace;
-            if (conditions == null || grace == null || !grace.AreAllSatisfied(casterId, conditions))
+            if (conditions == null || grace == null)
+            {
+                return false;
+            }
+
+            // 手感落地 M3-B：排队请求出队执行时，进入队列那一刻记下的快照仍在动作时钟窗口内则放行（与实时查询取并集）。
+            var snapshot = _graceSnapshot;
+            if (snapshot != null && snapshot.CoversStep7 && ActionNow(casterId) <= snapshot.ExpiresAtActionTick)
+            {
+                return true;
+            }
+
+            if (!grace.AreAllSatisfied(casterId, conditions))
             {
                 return false;
             }

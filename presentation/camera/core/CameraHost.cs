@@ -49,6 +49,7 @@ namespace Presentation.Camera
 
         private readonly CameraFeelFollower _feelFollower = new CameraFeelFollower();
         private double _shakeReferenceHeight = 1.0;
+        private Func<double>? _shakeReferenceHeightSource;
         private bool _impulseFallbackReported;
 
         /// <summary>战斗缩放：基准缩放（Configure/SetZoom 设定的值，夹取后）、当前战斗缩放系数（1 = 无战斗缩放）、
@@ -237,7 +238,28 @@ namespace Presentation.Camera
 
             _feelSource = feelSource;
             _shakeReferenceHeight = shakeReferenceHeight;
+            _shakeReferenceHeightSource = null;
             _feelFollower.Reset();
+        }
+
+        /// <summary>
+        /// 启用手感镜头，震屏换算系数取实时来源（手感落地 M3-B）：每次镜头冲击退化为 <see cref="ICamera.Shake"/> 时读一次
+        /// <paramref name="shakeReferenceHeightSource"/>（装配根接手感标定的参考镜头高度，标定行热加载后立即生效）。来源返回非正数或非有限数时本次回落到 1。
+        /// </summary>
+        public void EnableFeel(Func<Id, CameraFeelProfile?>? feelSource, Func<double> shakeReferenceHeightSource)
+        {
+            if (shakeReferenceHeightSource == null) throw new ArgumentNullException(nameof(shakeReferenceHeightSource));
+            _feelSource = feelSource;
+            _shakeReferenceHeight = 1.0;
+            _shakeReferenceHeightSource = shakeReferenceHeightSource;
+            _feelFollower.Reset();
+        }
+
+        private double CurrentShakeReferenceHeight()
+        {
+            if (_shakeReferenceHeightSource == null) return _shakeReferenceHeight;
+            var value = _shakeReferenceHeightSource();
+            return value > 0 && !double.IsInfinity(value) ? value : 1.0;
         }
 
         /// <summary>进入/离开战斗（战斗缩放的目标：战斗中取 <c>camera_combat_zoom_delta</c>，否则 1）。装配根订阅
@@ -282,7 +304,7 @@ namespace Presentation.Camera
                     "（强度 = 画面高度比例 × 参考镜头高度；仅首次记录，之后同样退化）");
             }
 
-            _camera.Shake(magnitude * _shakeReferenceHeight, decay / 1000.0, ImpulseFallbackShakeFrequency);
+            _camera.Shake(magnitude * CurrentShakeReferenceHeight(), decay / 1000.0, ImpulseFallbackShakeFrequency);
         }
 
         private void UpdateCombatZoom(CameraFeelProfile? feel, double dt)

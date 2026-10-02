@@ -97,6 +97,14 @@ namespace Core.Rules.Skill
             /// <see cref="SkillCastFailedEvent"/>。</summary>
             public (Id SkillId, IReadOnlyList<Id> Targets, Id CastInstanceId)? Queued;
 
+            /// <summary>手感落地 M3-B（手感设计/01 第 2.4 节）：排队请求进入队列那一刻的宽限快照（随 <see cref="Queued"/> 一起写入、覆盖、清空）。
+            /// 排队请求没有携带宽限条件（或没有宽限查询）时为 null，与此前逐位一致。</summary>
+            public GraceSnapshot? QueuedGrace;
+
+            /// <summary>手感落地 M3-B：本次地面坐标读条/引导在请求时是靠宽限才通过射程/视线判断的——效果落地时的再校验同样放宽射程/视线
+            /// （见 <see cref="GroundCastRequest.GraceConditions"/>）。普通请求恒为 false。</summary>
+            public bool GroundGraceCovered;
+
             /// <summary>
             /// ADR-0027《地面坐标施法请求》补充：非空表示本次读条/引导来自
             /// <see cref="CastSkillAtGround"/>（地面坐标施法请求），<see cref="Targets"/> 恒为空列表，
@@ -386,6 +394,8 @@ namespace Core.Rules.Skill
                     }
 
                     activeState.Queued = (skillId, safeTargets, queuedInstanceId);
+                    // 手感落地 M3-B：排队请求保留宽限上下文——进入队列这一刻按动作时钟记下快照，出队执行时按快照判定（见 GraceSnapshot）。
+                    activeState.QueuedGrace = CaptureGraceSnapshot(casterId);
                     return CastResult.Ok(queuedInstanceId);
                 }
 
@@ -492,7 +502,17 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.Busy);
             }
 
-            return TryStartCastAtGround(casterId, skillId, request);
+            // 手感落地 M3-B（手感设计/01 第 2.4 节）：请求携带的宽限条件与对单位施法同一口径，步骤 7' 射程/视线本应拒绝时由施法管线按宽限窗口放行；
+            // 没有携带（含全部既有调用方）时 _graceConditions 保持 null，行为逐位不变。
+            _graceConditions = request.GraceConditions.Count > 0 ? request.GraceConditions : null;
+            try
+            {
+                return TryStartCastAtGround(casterId, skillId, request);
+            }
+            finally
+            {
+                _graceConditions = null;
+            }
         }
 
         /// <summary>见 <see cref="CastState.Queued"/>/<see cref="CastSkill"/> 判断记录"身份规则"：
@@ -878,6 +898,15 @@ namespace Core.Rules.Skill
 
             // 步骤 6'/7'：地面坐标射程/视线/可行走。
             var invalidReason = ValidateGroundPoint(casterId, def, request.Point);
+            var graceCovered = false;
+            if ((invalidReason == CastFailureReason.OutOfRange || invalidReason == CastFailureReason.GroundTargetNoLineOfSight)
+                && _graceConditions != null && GraceCoversStep7(casterId))
+            {
+                // 手感落地 M3-B：射程/视线被宽限放行；可行走校验等其它判断照常（放宽后重判一次，仍有拒绝原因则照常拒绝）。
+                graceCovered = true;
+                invalidReason = ValidateGroundPoint(casterId, def, request.Point, graceCovered: true);
+            }
+
             if (invalidReason.HasValue)
             {
                 return Fail(casterId, skillId, invalidReason.Value);
@@ -893,7 +922,7 @@ namespace Core.Rules.Skill
                 }
             }
 
-            return EnterGroundCastOrChannel(casterId, skillId, def, request, modifiedCost);
+            return EnterGroundCastOrChannel(casterId, skillId, def, request, modifiedCost, graceCovered);
         }
 
         /// <summary>
@@ -905,9 +934,10 @@ namespace Core.Rules.Skill
         /// <see cref="ApplyGroundEffectsIfValid"/>（释放时再校验一次，见该方法判断记录）共用同一套
         /// 判定逻辑，不允许两处出现不一致的裁决口径。
         /// </summary>
-        private CastFailureReason? ValidateGroundPoint(Id casterId, SkillDef def, Vec2 point)
+        private CastFailureReason? ValidateGroundPoint(Id casterId, SkillDef def, Vec2 point, bool graceCovered = false)
         {
-            if (def.Range > 0)
+            // graceCovered（手感落地 M3-B）：请求被宽限放行时射程/视线不再作为拒绝条件；可行走校验与射程无关，照常。
+            if (def.Range > 0 && !graceCovered)
             {
                 var casterPos = _units.GetPosition(casterId);
                 if (Vec2.Distance(casterPos, point) > def.Range)
@@ -934,7 +964,8 @@ namespace Core.Rules.Skill
         }
 
         private CastResult EnterGroundCastOrChannel(
-            Id casterId, Id skillId, SkillDef def, GroundCastRequest request, IReadOnlyList<(Id, double)> modifiedCost)
+            Id casterId, Id skillId, SkillDef def, GroundCastRequest request, IReadOnlyList<(Id, double)> modifiedCost,
+            bool graceCovered = false)
         {
             var castInstanceId = NextCastInstanceId();
             var castTime = ComputeCastTime(casterId, def) * _currentFactor;
@@ -952,7 +983,7 @@ namespace Core.Rules.Skill
                 // 瞬发：步骤 8 立即完成，直接执行步骤 9。
                 DeductResources(casterId, def.Id, modifiedCost);
                 StartCooldownAndGcd(casterId, def);
-                var hitTargets = ApplyGroundEffectsIfValid(casterId, def, request, out var appliedPoint);
+                var hitTargets = ApplyGroundEffectsIfValid(casterId, def, request, out var appliedPoint, graceCovered);
                 _bus.Enqueue(new SkillCastSuccessEvent(
                     casterId, skillId, hitTargets, isInstant: true, castTimeSeconds: 0,
                     castInstanceId: castInstanceId, groundPoint: appliedPoint ?? request.Point));
@@ -972,6 +1003,7 @@ namespace Core.Rules.Skill
                 Def = def,
                 Targets = Array.Empty<Id>(),
                 GroundRequest = request,
+                GroundGraceCovered = graceCovered,
                 IsChannel = isChannel,
                 Remaining = isChannel ? channelTime : castTime,
                 TickInterval = isChannel ? ComputeChannelTickInterval(def) * _currentFactor : 0,
@@ -998,13 +1030,13 @@ namespace Core.Rules.Skill
         /// 本身完成"同一惯例——静默跳过这一次效果落地，只记一条诊断，cast 生命周期事件仍然正常收尾。
         /// </summary>
         private IReadOnlyList<Id> ApplyGroundEffectsIfValid(
-            Id casterId, SkillDef def, GroundCastRequest request, out Vec2? appliedPoint)
+            Id casterId, SkillDef def, GroundCastRequest request, out Vec2? appliedPoint, bool graceCovered = false)
         {
             var point = request.SnapshotPolicy == GroundCastSnapshotPolicy.AtRelease && request.Sampler != null
                 ? request.Sampler()
                 : request.Point;
 
-            if (ValidateGroundPoint(casterId, def, point).HasValue)
+            if (ValidateGroundPoint(casterId, def, point, graceCovered).HasValue)
             {
                 appliedPoint = null;
                 _diagnostics.Warn(
@@ -1116,7 +1148,7 @@ namespace Core.Rules.Skill
                     // 不是只在引导开始或结束时各算一次）。
                     if (state.GroundRequest != null)
                     {
-                        ApplyGroundEffectsIfValid(casterId, state.Def, state.GroundRequest, out _);
+                        ApplyGroundEffectsIfValid(casterId, state.Def, state.GroundRequest, out _, state.GroundGraceCovered);
                     }
                     else
                     {
@@ -1173,7 +1205,7 @@ namespace Core.Rules.Skill
                 {
                     DeductResources(casterId, state.Def.Id, state.ModifiedCost);
                     StartCooldownAndGcd(casterId, state.Def);
-                    hitTargets = ApplyGroundEffectsIfValid(casterId, state.Def, state.GroundRequest, out appliedPoint);
+                    hitTargets = ApplyGroundEffectsIfValid(casterId, state.Def, state.GroundRequest, out appliedPoint, state.GroundGraceCovered);
                 }
 
                 // N19/消费方反馈 2026-09-10 同款惯例：见下方 else 分支同一段注释。ADR-0027：Targets
@@ -1211,7 +1243,19 @@ namespace Core.Rules.Skill
                 // 消费方反馈 2026-09-10：排队请求续跑——传入它排队时已经分配的 CastInstanceId
                 // （见 CastState.Queued/TryStartCast 判断记录），不重新分配。
                 var (queuedSkill, queuedTargets, queuedInstanceId) = state.Queued.Value;
-                TryStartCast(casterId, queuedSkill, queuedTargets, queuedInstanceId);
+                // 手感落地 M3-B：出队执行按进入队列时的宽限快照判定（窗口按动作时钟计算，过期则按原规则拒绝）。
+                var queuedGrace = state.QueuedGrace;
+                _graceConditions = queuedGrace?.Conditions;
+                _graceSnapshot = queuedGrace;
+                try
+                {
+                    TryStartCast(casterId, queuedSkill, queuedTargets, queuedInstanceId);
+                }
+                finally
+                {
+                    _graceConditions = null;
+                    _graceSnapshot = null;
+                }
             }
         }
 

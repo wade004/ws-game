@@ -199,7 +199,7 @@ input_map/
 ### 已知限制（逐条交代给设计层）
 
 - 缓冲与宽限的 tick 处理器只在**连续步**工作；离散步清空缓冲（离散模式的"输入缓冲"语义留给后续切片，01 第 6 节未定义）。
-- `GraceTracker` 不内置 Expr 求值：`IGraceConditionEvaluator` 的具体实现（行动者上下文里求值）由规则层/宿主接线，本切片只给机制与接口。
+- `GraceTracker` 不内置 Expr 求值（L0 不依赖表达式层）：`IGraceConditionEvaluator` 由上层提供，生产装配缺省用 `ExprGraceConditionEvaluator`（`core/carriers/assembly/`，M3-B），游戏可经 `CarriersFeelOptions.GraceEvaluator` 覆盖。
 - `face_on_accept`（转向）只在记录里携带并经 `BufferedIntent.FaceOnAccept` 暴露，实际转向由取用方（动作层）执行。
 - 网络/回放来源的缓冲同步与回滚不在本切片范围。
 
@@ -235,4 +235,8 @@ input_map/
 
 ## 手感落地 M2-B：宽限条件名并集与本地行动者（2026-10-02）
 
-`InputBufferHost` 新增只读 `GraceConditionNames`（所有已声明缓冲动作的 `grace_conditions` 并集，序数序、去重，`DeclareActions` 后重建）与 `LocalActorId`（`BindLocalInput` 绑定的本地行动者）；`InputBufferTickHandler` 据此在步骤 1 对本地行动者与全部有缓冲的行动者登记并采样宽限条件（此前 `GraceTracker` 在生产里从未登记行动者，宽限查询恒为"没有记录"）。判断记录：**本地行动者在第一次按键之前就开始采样**，否则"条件刚失效"的第一次按键没有历史；非本地行动者要有过缓冲记录才进入采样（已知限制：其第一次按键可能早于采样）。
+`InputBufferHost` 新增只读 `GraceConditionNames`（所有已声明缓冲动作的 `grace_conditions` 并集，序数序、去重，`DeclareActions` 后重建）与 `LocalActorId`（`BindLocalInput` 绑定的本地行动者）；`InputBufferTickHandler` 据此在步骤 1 对本地行动者与全部有缓冲的行动者登记并采样宽限条件（此前 `GraceTracker` 在生产里从未登记行动者，宽限查询恒为"没有记录"）。判断记录：**本地行动者在第一次按键之前就开始采样**，否则"条件刚失效"的第一次按键没有历史；非本地行动者经 `RegisterActor`（M3-B，见下节）登记后同样从登记起采样。
+
+## 手感落地 M3-B：行动者登记与宽限剩余量（2026-10-02）
+
+`InputBufferHost.RegisterActor(actorId)`（幂等，建立空缓冲，不产生任何缓冲记录）与 `IsActorRegistered`：非本地行动者不必等到第一次按键才进入宽限采样，生产装配对世界里的 `player`/`creature` 实体自动调用（`CarriersFeelOptions.AutoRegisterGraceActors`，缺省 true），"条件刚失效"的第一次按键同样有历史。`IGraceQuery.RemainingGraceTicks(actorId, conditionId)`（接口缺省成员）：条件当前为真返回 `int.MaxValue`，已失效但在窗口内返回剩余 tick 数（&gt;= 0），不满足返回 -1；`IsSatisfied` 恒等于"剩余量 &gt;= 0"，`IsInGrace` 恒等于"0 &lt;= 剩余量 &lt; `int.MaxValue`"；缺省实现只依赖旧成员（窗口内保守返回 0），旧的第三方查询对象不必改。施法管线用它给排队中的施法记宽限快照（见 `core/rules/skill/README.md` M3-B）。

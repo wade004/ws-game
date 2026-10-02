@@ -240,6 +240,12 @@ namespace Presentation.FeedbackBinder.Contracts
         /// <summary>参考身高（世界单位），距离衰减曲线横轴"身高倍数"换算用；缺省 1。</summary>
         public double ReferenceHeight { get; set; } = 1.0;
 
+        /// <summary>
+        /// 参考身高的实时来源（手感落地 M3-B）：非空时每次换算都读它，优先于 <see cref="ReferenceHeight"/>——装配根接手感标定，标定行热加载后换算随之更新，
+        /// 不必重建流水线。缺省 null：只用 <see cref="ReferenceHeight"/>（与此前逐位一致）。
+        /// </summary>
+        public Func<double>? ReferenceHeightSource { get; set; }
+
         /// <summary>是否启用挥空反馈（判定相结束零命中播 whiff）；缺省 true。</summary>
         public bool WhiffFeedback { get; set; } = true;
     }

@@ -108,6 +108,16 @@ namespace Core.Foundation.InputMap
             return last >= 0 && last < _now && _now - last <= GraceTicks(actorId);
         }
 
+        public int RemainingGraceTicks(Id actorId, Id conditionId)
+        {
+            var last = LastTrueTick(actorId, conditionId);
+            if (last < 0) return -1;
+            if (last >= _now) return int.MaxValue;
+            var left = GraceTicks(actorId) - (_now - last);
+            if (left < 0) return -1;
+            return left > int.MaxValue - 1 ? int.MaxValue - 1 : (int)left;
+        }
+
         public bool AreAllSatisfied(Id actorId, IReadOnlyList<Id> conditionIds)
         {
             if (conditionIds == null) throw new ArgumentNullException(nameof(conditionIds));

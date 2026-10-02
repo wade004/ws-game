@@ -251,6 +251,16 @@ namespace Core.Foundation.InputMap
             Release(actorId, actionId);
         }
 
+        /// <summary>
+        /// 登记行动者（手感落地 M3-B）：建立其（空）缓冲，使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已建缓冲的行动者采样）。
+        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配对世界里的单位（出生与装配时已有的）自动调用本方法。
+        /// 幂等；之后 <see cref="RemoveActor"/> 与销毁清理照旧。
+        /// </summary>
+        public void RegisterActor(Id actorId) => GetOrCreate(actorId);
+
+        /// <summary>行动者是否已登记（或已因按键建立过缓冲）。</summary>
+        public bool IsActorRegistered(Id actorId) => _actors.ContainsKey(actorId);
+
         private ActorBuffer GetOrCreate(Id actorId)
         {
             if (!_actors.TryGetValue(actorId, out var buffer))

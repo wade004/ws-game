@@ -112,6 +112,6 @@
 
 ## 手感落地 M2-B：热加载入口与层数叠加（2026-10-02）
 
-- **`FeelSystem.TryReload(IDataRegistryView)` -> `FeelReloadResult`（新增）**：重读 `feel.*` 表，要求新数据仍有 `feel.*` 行、本系统的标定行与其基础预设仍在、`FeelProfileChecker.Check` 无问题，才 `FeelResolver.Reload` 换入（`Profiles` 随之指向新集合）；否则拒绝并保持当前档案，原因与校验问题写在结果里（不抛异常、不换入半份数据）。**标定不热换**：标定行取值变化时档案照常换入，结果标 `CalibrationChanged`，重启后生效。
+- **`FeelSystem.TryReload(IDataRegistryView)` -> `FeelReloadResult`（新增）**：重读 `feel.*` 表，要求新数据仍有 `feel.*` 行、本系统的标定行与其基础预设仍在、`FeelProfileChecker.Check` 无问题，才 `FeelResolver.Reload` 换入（`Profiles` 随之指向新集合）；否则拒绝并保持当前档案，原因与校验问题写在结果里（不抛异常、不换入半份数据）。**标定同样热换**（M3-B）：新数据里本系统标定行取值变化时，档案与新标定一并换入（`FeelResolver.Reload(profiles, calibration)`，`FeelSystem.Calibration` 随之指向新标定），结果标 `CalibrationChanged` 但 `Applied` 为真、不再要求重启：此后每次解析与下一个动作的开始快照按新标定换算，进行中的动作沿用其开始时的快照；新标定指定的基础预设不存在时整次拒绝。标定只参与相对量到绝对量的换算与基础预设选择，毫秒到 tick 只取决于模拟步长，所以标定变化不改变任何 tick 数。
 - **`FeelWeaponCatalog.Reload()`（新增）**：整体重读 `feel.weapon` 行；已被持有的 `FeelWeaponInfo` 是不可变快照。
 - **`FeelTemporaryEntry.Stacks`**：第 7 层数值 `multiply`/`add` 按层数逐次叠加，`set` 与列表操作幂等（见 `core/rules/assembly/README.md` M2-B 节）。

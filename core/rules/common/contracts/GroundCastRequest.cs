@@ -96,6 +96,15 @@ namespace Core.Rules.Common
         /// </summary>
         public Func<Vec2>? Sampler { get; }
 
+        /// <summary>
+        /// 发起这次施法的输入动作声明的宽限条件名（<c>found.input_action.grace_conditions</c>，手感设计/01 第 2.4 节，手感落地 M3-B），与对单位施法
+        /// （<c>SkillHost.CastSkillWithContext</c> 的 <c>graceConditions</c>）同一口径：射程与视线（<see cref="CastFailureReason.OutOfRange"/>/
+        /// <see cref="CastFailureReason.GroundTargetNoLineOfSight"/>）本应拒绝时，若这些条件全部满足且至少一个仅靠宽限满足，则视为满足；落点不可行走
+        /// （<see cref="CastFailureReason.GroundTargetUnreachable"/>）、冷却、资源等其它判断不受影响。缺省（空）与此前逐位一致。
+        /// 请求被宽限放行时，效果落地那一刻的射程/视线再校验同样放行（只放宽"接受"，不因读条期间宽限过期而把已接受的施法在落地时作废）。
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<Id> GraceConditions { get; private set; } = Array.Empty<Id>();
+
         public GroundCastRequest(
             Vec2 point,
             GroundCastSource source = GroundCastSource.Explicit,
@@ -108,6 +117,20 @@ namespace Core.Rules.Common
             RequestedAtTick = requestedAtTick;
             SnapshotPolicy = snapshotPolicy;
             Sampler = sampler;
+        }
+
+        /// <summary>返回一份携带 <paramref name="graceConditions"/> 的副本（其余字段原样；本对象不变）。传 null 或空列表得到不带宽限条件的副本。</summary>
+        public GroundCastRequest WithGraceConditions(System.Collections.Generic.IReadOnlyList<Id>? graceConditions)
+        {
+            var copy = new GroundCastRequest(Point, Source, RequestedAtTick, SnapshotPolicy, Sampler);
+            if (graceConditions != null && graceConditions.Count > 0)
+            {
+                var list = new Id[graceConditions.Count];
+                for (var i = 0; i < list.Length; i++) list[i] = graceConditions[i];
+                copy.GraceConditions = list;
+            }
+
+            return copy;
         }
     }
 }

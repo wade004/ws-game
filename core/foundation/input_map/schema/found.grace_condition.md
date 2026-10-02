@@ -13,7 +13,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `key` | Id | 是 | 条件 id，如 `input.grace.target_in_range` |
-| `expr` | Expr | 是 | 条件表达式，在行动者上下文里求值（求值由宿主经 `IGraceConditionEvaluator` 提供） |
+| `expr` | Expr | 是 | 条件表达式，在行动者上下文里求值：生产装配缺省用框架的 `ExprGraceConditionEvaluator`（`self` 分组即行动者，`target` 分组为行动者当前目标），游戏不写代码即可使用；也可经 `CarriersFeelOptions.GraceEvaluator` 覆盖 |
 | `description` | String | 否 | 说明文字 |
 
 宽限时长不在本表：取行动者手感档案输入组的 `grace_ms`（`FeelCalibration` 按模拟步长换算为 tick）。机制、时间基准与限制见
