@@ -77,7 +77,7 @@ namespace Tests.Lab
         public void FeelScripts_AreVersion3_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(21, scripts.Count);
+            Assert.Equal(22, scripts.Count);
             foreach (var s in scripts)
             {
                 Assert.Equal(InputScript.FeelFormatVersion, s.EffectiveFormatVersion);
@@ -923,6 +923,55 @@ namespace Tests.Lab
             var off = UnitBlockRun("2d_action", new LabRunVariant { PresetId = "feel.preset.arpg_responsive" });
             Assert.True(off.MinGap < sum, $"没有声明体积时玩家应能走进木桩的体积（最小中心距 {off.MinGap:R}）");
             Assert.True(off.End.X > off.Stake.X);
+        }
+        // ---------- 单位间体积推开（手感设计/02 第 9 节，ADR-0128 追加决定） ----------
+
+        private const string UnitSeparateScript = "feel_unit_separate";
+        [Theory]
+        [InlineData("2d_action")]
+        [InlineData("2d_targeted")]
+        [InlineData("3d_action")]
+        public void UnitSeparate_BornOverlapping_AreSeparatedAtTheDeclaredRate_AndNeverBeyondTheBoundary(string cell)
+        {
+            var record = LabTestSupport.Runner.Record(LabTestSupport.Script(UnitSeparateScript), cell);
+            var stake = record.Dummies[0].Value; // 木桩出生位置（记录里只有出生位置；木桩同样被推开，沿连线方向与玩家对称）
+            var sum = UnitBlockSumRadius();
+            var player0 = LabTestSupport.Script(UnitSeparateScript).Meta.PlayerStart;
+            var startGap = (player0 - stake).Length;
+            Assert.True(startGap < sum, "场景前提：出生就重叠");
+
+            // 每 tick 分离速率上限 = 缺省倍数 × 基础移速（标定）× 步长；两个单位同倍数同移速，各自分担一半深度。
+            var calibration = FeelRules.Row(System.IO.Path.Combine(UnitBlockDataDir, "feel.calibration.json"), "feel.calibration.lab_unit_block");
+            var cap = Core.Carriers.Unit.MotionProfile.DefaultSeparationSpeedRatio * ((JsonNumber)calibration["base_speed"]).Value * record.StepSeconds;
+            var previous = startGap;
+            for (var k = 0; k < record.Ticks.Count; k++)
+            {
+                var moved = (player0 - record.Ticks[k].Position).Length;
+                // 不变量：玩家每 tick 的累计位移不超过 (k+1) × cap，也不超过分担的一半深度（不过度分离、不越过体积边界）。
+                Assert.True(moved <= (k + 1) * cap + 1e-9, $"tick {k}：累计位移 {moved:R} 超过速率上限");
+                Assert.True(moved <= (sum - startGap) / 2.0 + 1e-9, $"tick {k}：累计位移 {moved:R} 超过分担的深度");
+                var gap = startGap + 2.0 * moved; // 沿连线对称分离：中心距 = 起始距离 + 双方累计位移
+                Assert.True(gap >= previous - 1e-9);
+                previous = gap;
+            }
+
+            // 复现：足够长的时间后，两个单位被推到恰好不重叠（中心距 = 半径之和）。
+            var end = record.Ticks[record.Ticks.Count - 1].Position;
+            Assert.Equal(sum, startGap + 2.0 * (player0 - end).Length, 6);
+            Assert.Equal(0.0, end.Y);
+        }
+
+        [Fact]
+        public void UnitSeparate_ZeroRate_KeepsThePlayerWhereItWasBorn()
+        {
+            var off = LabTestSupport.Runner.Record(
+                LabTestSupport.Script(UnitSeparateScript), "2d_action", new LabRunVariant { PresetId = "feel.preset.unit_separate_off" });
+            var start = LabTestSupport.Script(UnitSeparateScript).Meta.PlayerStart;
+            foreach (var tick in off.Ticks)
+            {
+                Assert.Equal(start.X, tick.Position.X);
+                Assert.Equal(start.Y, tick.Position.Y);
+            }
         }
     }
 }

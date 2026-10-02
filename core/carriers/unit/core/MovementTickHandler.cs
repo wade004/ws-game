@@ -971,6 +971,7 @@ namespace Core.Carriers.Unit
             // 单位体积阻挡（手感设计/02 第 9 节）：未启用运动层或本单位没有声明体积时为 0，下面的体积分支不进入，循环与既有逐字一致。
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
+            var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
 
             while (remaining > 0 && index < path.Count)
             {
@@ -989,10 +990,16 @@ namespace Core.Carriers.Unit
                 {
                     if (volumeRadius > 0.0)
                     {
-                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, waypoint, volumeSlide);
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, waypoint, volumeSlide && !volumeAvoid);
                         if (volume.Blocked)
                         {
+                            var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
+                            {
+                                pos = detour;
+                            }
+
                             lastFacing = SegmentFacing(path, index);
                             break;
                         }
@@ -1008,10 +1015,16 @@ namespace Core.Carriers.Unit
                     var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
                     if (volumeRadius > 0.0)
                     {
-                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, pos + dir * remaining, volumeSlide);
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, pos + dir * remaining, volumeSlide && !volumeAvoid);
                         if (volume.Blocked)
                         {
+                            var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
+                            {
+                                pos = detour;
+                            }
+
                             lastFacing = SegmentFacing(path, index);
                             break;
                         }
@@ -1330,7 +1343,9 @@ namespace Core.Carriers.Unit
                             var stopPos = hit.Value - dir * pullBack;
                             if (volumeRadius > 0.0)
                             {
-                                stopPos = ClipByUnitVolumes(unit, volumeRadius, pos, stopPos, false).End;
+                                var stopClip = ClipByUnitVolumes(unit, volumeRadius, pos, stopPos, false);
+                                stopPos = stopClip.End;
+                                QueueForcedPush(unit, GetMotionTick(unit)!.Profile, stopClip, disp);
                             }
 
                             WriteDisplacementPosition(unit, stopPos);
@@ -1347,6 +1362,7 @@ namespace Core.Carriers.Unit
                     if (volume.Blocked)
                     {
                         WriteDisplacementPosition(unit, disp.Blocking == DisplacementBlockingPolicy.Revert ? disp.Origin : volume.End);
+                        QueueForcedPush(unit, GetMotionTick(unit)!.Profile, volume, disp);
                         EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
                         return;
                     }
@@ -1598,6 +1614,7 @@ namespace Core.Carriers.Unit
             // 单位体积阻挡（手感设计/02 第 9 节）：未启用运动层或本单位没有声明体积时为 0，下面的体积分支不进入，循环与既有逐字一致。
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
+            var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1616,10 +1633,16 @@ namespace Core.Carriers.Unit
                 {
                     if (volumeRadius > 0.0)
                     {
-                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, waypoint, volumeSlide);
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, waypoint, volumeSlide && !volumeAvoid);
                         if (volume.Blocked)
                         {
+                            var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
+                            {
+                                pos = detour;
+                            }
+
                             lastFacing = SegmentFacing(path, index);
                             break;
                         }
@@ -1635,10 +1658,16 @@ namespace Core.Carriers.Unit
                     var dir = new Vec2(toWaypoint.X / dist, toWaypoint.Y / dist);
                     if (volumeRadius > 0.0)
                     {
-                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, pos + dir * remaining, volumeSlide);
+                        var volume = ClipByUnitVolumes(unit, volumeRadius, pos, pos + dir * remaining, volumeSlide && !volumeAvoid);
                         if (volume.Blocked)
                         {
+                            var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
+                            {
+                                pos = detour;
+                            }
+
                             lastFacing = SegmentFacing(path, index);
                             break;
                         }
@@ -1910,8 +1939,18 @@ namespace Core.Carriers.Unit
             return speed > 0 ? speed : _options.DefaultSpeed;
         }
 
-        private void EnqueueMoved(Id unitId, Vec2 position) =>
+        private void EnqueueMoved(Id unitId, Vec2 position)
+        {
+            // 单位体积阻挡：本 tick 有体积的单位的位置要等 tick 末的成对裁决（UnitVolumeResolve）才定稿，
+            // unit.moved 因此延迟到那时、以最终位置发出（按单位 id 顺序）；没有体积的单位照旧立即入队。
+            if (_motionOn && VolumeSnapshotCurrent && _volumeById.ContainsKey(unitId))
+            {
+                _movedDeferredSet.Add(unitId);
+                return;
+            }
+
             _bus.Enqueue(new UnitMovedEvent(unitId, position));
+        }
 
         /// <summary><c>unit.state_changed</c> 在 <see cref="MoveMode"/> 变化时发出（见任务书拍板，
         /// <c>OldState</c>/<c>NewState</c> 用 <see cref="MoveMode"/> 名称，见

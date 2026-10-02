@@ -50,7 +50,7 @@ Tools~/
     labroot/                    自包含的实验室根（工作目录）：data/_framework、data/_feel、data/_lab、
                                 data/_lab_action、data/_equip、lab/fixtures（标准脚本与基线）。用法：
                                 `cd Tools~/feellab/labroot` 后 `dotnet ../bin/FeelLab.dll suite`（应输出
-                                `RESULT total=186 pass=186 diff=0 ...`，与框架基线一致）；在自己的数据上
+                                `RESULT total=192 pass=192 diff=0 ...`，与框架基线一致）；在自己的数据上
                                 校准手感时加 `--data-root <你的数据根>`。框架数据与手感数据在
                                 com.gamefoundation.framework-data 包里也有一份，这里再放一份是为了不要求
                                 同时装两个包（约 85 KB）。命令与参数全文见框架仓库 `lab/README.md`

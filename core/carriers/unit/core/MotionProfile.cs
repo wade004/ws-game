@@ -1,5 +1,6 @@
 using System;
 using Core.Foundation.Feel;
+using Core.Rules.Common;
 
 namespace Core.Carriers.Unit
 {
@@ -78,8 +79,65 @@ namespace Core.Carriers.Unit
         /// </summary>
         public double UnitBodyRadius { get; }
 
-        /// <summary>闪避类动作位移（<c>dash</c>/<c>step_back</c>）穿过其他单位的体积（<c>dodge_through_units</c>，缺省假）。</summary>
+        /// <summary>
+        /// 动作位移穿过其他单位的体积的总开关（<c>dodge_through_units</c>，缺省假）；开启后具体哪些动作位移种类穿过由
+        /// <see cref="PassesThroughKind"/>（<c>pass_through_motion_kinds</c>）决定，缺省 <c>dash</c>/<c>step_back</c>。
+        /// </summary>
         public bool DodgeThroughUnits { get; }
+
+        /// <summary>未写 <c>unit_separation_speed_ratio</c> 时的缺省分离速率（基础移速倍数）。</summary>
+        public const double DefaultSeparationSpeedRatio = 0.5;
+
+        /// <summary>未写 <c>forced_push_ratio</c> 时的缺省转移比例。</summary>
+        public const double DefaultForcedPushRatio = 0.5;
+
+        /// <summary>未写 <c>pass_through_motion_kinds</c> 时的缺省穿过种类（等价于此前写死的 dash、step_back）。</summary>
+        public const string DefaultPassThroughKinds = "dash,step_back";
+
+        /// <summary>
+        /// 重叠分离速率（<c>unit_separation_speed_ratio</c>，基础移速的倍数，缺省 <see cref="DefaultSeparationSpeedRatio"/>）：本单位与别的有体积单位
+        /// 重叠时每 tick 被推开的速率上限 = 倍数 × 该单位的移动速度属性；0 表示本单位不被推开（别的单位承担全部分离）。
+        /// 只在声明了 <c>unit_body_radius</c> 时有意义。
+        /// </summary>
+        public double UnitSeparationSpeedRatio { get; }
+
+        /// <summary>路径跟随与追击遇到别的单位的体积时局部绕行（<c>path_avoid_units</c>，缺省真）；假则撞到即停（开 <c>wall_slide</c> 时沿切向滑一段）。</summary>
+        public bool AvoidUnitsOnPaths { get; }
+
+        /// <summary>受控位移（击退）被别的单位体积挡住时把剩余位移转移给被撞单位（<c>forced_push_units</c>，缺省假：被挡即停，不推人）。</summary>
+        public bool ForcedPushUnits { get; }
+
+        /// <summary>转移比例（<c>forced_push_ratio</c>，0～1，缺省 <see cref="DefaultForcedPushRatio"/>）：被撞单位获得的位移 = 撞停时剩余位移 × 比例 ×（1 − 被撞单位的击退抗性）。</summary>
+        public double ForcedPushRatio { get; }
+
+        private readonly int _passKindMask;
+
+        /// <summary>动作位移种类 <paramref name="kind"/> 是否在 <c>pass_through_motion_kinds</c> 声明的穿过集合内（还需 <see cref="DodgeThroughUnits"/> 为真才真正穿过）。</summary>
+        public bool PassesThroughKind(ActionMotionKind kind) => (_passKindMask & (1 << (int)kind)) != 0;
+
+        /// <summary>解析 <c>pass_through_motion_kinds</c> 的逗号分隔文本为种类掩码；出现未知种类名抛异常并给出字段名。</summary>
+        public static int ParsePassKinds(string text)
+        {
+            var mask = 0;
+            if (string.IsNullOrWhiteSpace(text)) return mask;
+            foreach (var raw in text.Split(','))
+            {
+                var name = raw.Trim();
+                if (name.Length == 0) continue;
+                switch (name)
+                {
+                    case "lunge": mask |= 1 << (int)ActionMotionKind.Lunge; break;
+                    case "dash": mask |= 1 << (int)ActionMotionKind.Dash; break;
+                    case "step_back": mask |= 1 << (int)ActionMotionKind.StepBack; break;
+                    case "charge": mask |= 1 << (int)ActionMotionKind.Charge; break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"手感字段 \"{FeelFieldNames.PassThroughMotionKinds}\" 含未知动作位移种类 \"{name}\"（合法取值 lunge|dash|step_back|charge，逗号分隔）");
+                }
+            }
+
+            return mask;
+        }
 
         /// <summary>既有 15 参数构造（物理签名不变，ABI 只加不改）：<see cref="KeepMomentumOnMotionEnd"/> 取缺省假。</summary>
         public MotionProfile(
@@ -106,11 +164,30 @@ namespace Core.Carriers.Unit
         {
         }
 
+        /// <summary>既有 18 参数构造（物理签名不变，ABI 只加不改）：分离/绕行/推人/穿过种类取缺省。</summary>
         public MotionProfile(
             int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
             double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
             bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
             bool applyToPathFollowing, string? knockbackResistanceStat, double unitBodyRadius, bool dodgeThroughUnits)
+            : this(
+                version, accelMs, decelMs, accelCurve, brakeCurve, reverse, turnRateDegS, walkSpeedRatio, actionMoveSpeedRatio,
+                actionTurnLock, keepMomentumOnActionEnd, keepMomentumOnMotionEnd, arrivalDecel, wallSlide, applyToPathFollowing,
+                knockbackResistanceStat, unitBodyRadius, dodgeThroughUnits,
+                DefaultSeparationSpeedRatio, true, false, DefaultForcedPushRatio, ParsePassKinds(DefaultPassThroughKinds))
+        {
+        }
+
+        /// <summary>
+        /// 完整构造：在 18 参数构造之上给出单位体积的解除限制字段（重叠分离、路径绕行、受控位移推人、穿过种类掩码；
+        /// 掩码由 <see cref="ParsePassKinds"/> 生成）。
+        /// </summary>
+        public MotionProfile(
+            int version, double accelMs, double decelMs, string accelCurve, string brakeCurve, ReversePolicy reverse,
+            double turnRateDegS, double walkSpeedRatio, double actionMoveSpeedRatio, bool actionTurnLock,
+            bool keepMomentumOnActionEnd, bool keepMomentumOnMotionEnd, bool arrivalDecel, bool wallSlide,
+            bool applyToPathFollowing, string? knockbackResistanceStat, double unitBodyRadius, bool dodgeThroughUnits,
+            double unitSeparationSpeedRatio, bool avoidUnitsOnPaths, bool forcedPushUnits, double forcedPushRatio, int passKindMask)
         {
             Version = version;
             AccelMs = accelMs;
@@ -130,6 +207,11 @@ namespace Core.Carriers.Unit
             KnockbackResistanceStat = knockbackResistanceStat;
             UnitBodyRadius = unitBodyRadius > 0.0 ? unitBodyRadius : 0.0;
             DodgeThroughUnits = dodgeThroughUnits;
+            UnitSeparationSpeedRatio = unitSeparationSpeedRatio > 0.0 ? unitSeparationSpeedRatio : 0.0;
+            AvoidUnitsOnPaths = avoidUnitsOnPaths;
+            ForcedPushUnits = forcedPushUnits;
+            ForcedPushRatio = forcedPushRatio < 0.0 ? 0.0 : (forcedPushRatio > 1.0 ? 1.0 : forcedPushRatio);
+            _passKindMask = passKindMask;
         }
 
         /// <summary>
@@ -176,7 +258,12 @@ namespace Core.Carriers.Unit
                 Bool(view, FeelFieldNames.ApplyToPathFollowing),
                 resist,
                 OptionalNum(view, FeelFieldNames.UnitBodyRadius),
-                OptionalBool(view, FeelFieldNames.DodgeThroughUnits));
+                OptionalBool(view, FeelFieldNames.DodgeThroughUnits),
+                OptionalRaw(view, FeelFieldNames.UnitSeparationSpeedRatio, DefaultSeparationSpeedRatio),
+                OptionalBool(view, FeelFieldNames.PathAvoidUnits, true),
+                OptionalBool(view, FeelFieldNames.ForcedPushUnits),
+                OptionalRaw(view, FeelFieldNames.ForcedPushRatio, DefaultForcedPushRatio),
+                ParsePassKinds(OptionalText(view, FeelFieldNames.PassThroughMotionKinds, DefaultPassThroughKinds)));
         }
 
         private static double Num(JudgingFeelView view, string field)
@@ -206,11 +293,25 @@ namespace Core.Carriers.Unit
             return v.AsBool();
         }
 
-        /// <summary>可选布尔字段：没有值（档案没写）取假。</summary>
-        private static bool OptionalBool(JudgingFeelView view, string field)
+        /// <summary>可选布尔字段：没有值（档案没写）取 <paramref name="absent"/>（缺省假）。</summary>
+        private static bool OptionalBool(JudgingFeelView view, string field, bool absent = false)
         {
             var v = view.GetAbsolute(field);
-            return v.Kind == FeelValueKind.Bool && v.AsBool();
+            return v.Kind == FeelValueKind.Bool ? v.AsBool() : absent;
+        }
+
+        /// <summary>可选相对数值字段（标定前的倍数）：没有值取 <paramref name="absent"/>。</summary>
+        private static double OptionalRaw(JudgingFeelView view, string field, double absent)
+        {
+            var v = view.GetRaw(field);
+            return v.Kind == FeelValueKind.Number ? v.AsNumber() : absent;
+        }
+
+        /// <summary>可选文本字段：没有值取 <paramref name="absent"/>。</summary>
+        private static string OptionalText(JudgingFeelView view, string field, string absent)
+        {
+            var v = view.GetAbsolute(field);
+            return v.Kind == FeelValueKind.Text ? v.AsText() : absent;
         }
 
         /// <summary>可选数值字段（标定后的绝对值）：没有值（档案没写）取 0。</summary>

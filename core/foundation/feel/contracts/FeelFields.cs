@@ -38,6 +38,11 @@ namespace Core.Foundation.Feel
         public const string KnockbackResistanceStat = "knockback_resistance_stat";
         public const string UnitBodyRadius = "unit_body_radius";
         public const string DodgeThroughUnits = "dodge_through_units";
+        public const string UnitSeparationSpeedRatio = "unit_separation_speed_ratio";
+        public const string PathAvoidUnits = "path_avoid_units";
+        public const string ForcedPushUnits = "forced_push_units";
+        public const string ForcedPushRatio = "forced_push_ratio";
+        public const string PassThroughMotionKinds = "pass_through_motion_kinds";
 
         // 移动（呈现型：步态阈值、步幅、启停混合、倾斜）
         public const string IdleMaxRatio = "idle_max_ratio";
@@ -229,8 +234,23 @@ namespace Core.Foundation.Feel
                     "单位体积半径（身高倍数）：声明（大于 0）即参与单位间体积阻挡，两个单位中心距不小于半径之和；缺省（无值）= 无体积，不阻挡也不被阻挡",
                     ops: SetOnly, optional: true),
                 Bool(FeelFieldNames.DodgeThroughUnits, Mv, J, C,
-                    "闪避类动作位移（kind 为 dash/step_back）是否穿过其他单位的体积（真；地形仍阻挡），其余位移不受影响；缺省（无值）视为假，即闪避也被体积阻挡；只在声明了 unit_body_radius 时有意义",
+                    "动作位移是否穿过其他单位的体积的总开关（真；地形仍阻挡）；具体哪些位移种类穿过由 pass_through_motion_kinds 决定（缺省 dash、step_back）；缺省（无值）视为假，即动作位移也被体积阻挡；只在声明了 unit_body_radius 时有意义",
                     optional: true),
+                Text(FeelFieldNames.PassThroughMotionKinds, Mv, J, C,
+                    "dodge_through_units 为真时穿过体积的动作位移种类，逗号分隔，取值 lunge|dash|step_back|charge；缺省（无值）= dash,step_back（与此前写死的行为一致）",
+                    optional: true),
+                Num(FeelFieldNames.UnitSeparationSpeedRatio, Mv, J, SpeedRatio, C, 0, 4,
+                    "重叠分离速率（基础移速倍数）：本单位与别的有体积单位重叠时每 tick 被推开的速率上限 = 倍数 × 移动速度属性，0 表示本单位不被推开；缺省（无值）取 0.5；只在声明了 unit_body_radius 时有意义",
+                    ops: SetOnly, optional: true),
+                Bool(FeelFieldNames.PathAvoidUnits, Mv, J, C,
+                    "路径跟随与追击遇到别的单位的体积时局部绕行（真）还是撞到即停（假，开 wall_slide 时沿切向滑一段）；缺省（无值）视为真；只在声明了 unit_body_radius 时有意义",
+                    optional: true),
+                Bool(FeelFieldNames.ForcedPushUnits, Mv, J, C,
+                    "受控位移（击退）被别的单位体积挡住时，把剩余位移按 forced_push_ratio 转移给被撞单位（真）；缺省（无值）视为假：被挡即停、不推人；只在声明了 unit_body_radius 时有意义",
+                    optional: true),
+                Num(FeelFieldNames.ForcedPushRatio, Mv, J, Ratio, C, 0, 1,
+                    "forced_push_units 为真时的转移比例：被撞单位获得的位移 = 撞停时剩余位移 × 比例 ×（1 − 被撞单位的击退抗性）；缺省（无值）取 0.5",
+                    ops: SetOnly, optional: true),
 
                 // ---------- 移动（02 第 7 节，呈现型）----------
                 Num(FeelFieldNames.IdleMaxRatio, Mv, P, SpeedRatio, C, 0, 0.5, "步态 idle 上界：速度/基础移速低于它为 idle"),

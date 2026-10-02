@@ -173,6 +173,7 @@ namespace Tests.Carriers.Unit
         public void UnitVolume_Regular_StartingInsideTheOverlap_OnlyBlocksMovingCloser()
         {
             var fx = BuildVolumes(new Vec2(1.0, 0), wallSlide: false);
+            fx.Set(FeelFieldNames.UnitSeparationSpeedRatio, 0.0); // 关掉重叠分离：这里只验"拦让距离变近的位移、放行走开"
             fx.Move(1, 0);
             fx.Tick();
             Assert.Equal(0.0, fx.Pos.X); // 朝圆心走被拒
@@ -345,6 +346,7 @@ namespace Tests.Carriers.Unit
         public void UnitVolume_PathFollowing_StopsInFrontOfTheUnit_AndSlidesAroundItWhenWallSlideIsOn()
         {
             var stop = BuildVolumes(new Vec2(5.0, 0));
+            stop.Set(FeelFieldNames.PathAvoidUnits, false); // 关掉绕行：撞到即停
             stop.MoveTo(10, 0);
             for (var tick = 0; tick < 60; tick++)
             {
@@ -356,6 +358,7 @@ namespace Tests.Carriers.Unit
             Assert.NotNull(stop.Player.MovementState.CurrentPath); // 路径还在，没有被吞掉
 
             var slide = BuildVolumes(new Vec2(5.0, 0.5), wallSlide: true);
+            slide.Set(FeelFieldNames.PathAvoidUnits, false);
             slide.MoveTo(10, 0);
             for (var tick = 0; tick < 80; tick++)
             {
