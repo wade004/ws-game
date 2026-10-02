@@ -87,8 +87,19 @@ jobs:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
     steps:
+      # 判断记录（完整历史与标签，2026-10-02，CI 运行 36964876322 / 36915403742 等 pytest 阶段 6 失败 + 5 跳过
+      # 的根因之一）：actions/checkout 默认只拉一个提交、不带标签（fetch-depth: 1），而 toolchain/tests 里有
+      # 两类用例按本机完整仓库的口径写：(1) test_ref_conventions.py 的三条"与重构前格式对齐"用例用
+      # `git show <历史提交>:<路径>` 读重构前的 map_cmd.py/common.py，浅克隆里没有该对象，报 "invalid object
+      # name"；(2) test_dist_immutability_guard.py 的两条 build.ps1 入口接线用例取"仓库里真实的 vX.Y.Z 标签"
+      # 作为已发布版本，浅克隆没有任何标签就 pytest.skip，而门禁 pytest 的 max_skipped=0（gate_floors.json，
+      # 环境性 skip 判 FAIL）。本机恒有完整历史与标签，CI 补齐同一环境，不改用例、不放宽下限。仓库 pack 约
+      # 45 MB，全量拉取是秒级。
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup .NET 8.0.x
         uses: actions/setup-dotnet@v4
@@ -164,6 +175,64 @@ jobs:
             Write-Host "::warning::Failed to download ABI baseline release package v$version ($zipName). The ABI surface diff step will show SKIP for this run, not a real pass. See toolchain/abi_probe.ps1 -SkipIfBaselineMissing."
           } else {
             Write-Host "Downloaded $zipName into dist/"
+          }
+          exit 0
+
+      # 判断记录（真实发布包回归用例的输入，2026-10-02，CI pytest 5 个跳过里的 3 个）：
+      # test_lock_writeback_repair_parity.py 与 test_get_framework_path_boundary.py 里的"真实产物回归"用例
+      # 取 dist/ 里版本最大、zip 与 lock 成对齐全的发布包（toolchain/tests/_latest_dist.py）；全新 checkout
+      # 的 dist/ 没有任何成对的包（上面只下载了 ABI 基线的 zip，没有 lock，且基线 1.12.0 是早期布局，
+      # 不是这批用例要验证的"当前布局"），用例 skip，而 pytest 的 max_skipped=0 把环境性 skip 判 FAIL。
+      # 与上面 ABI 基线同一做法：从本仓库 GitHub Release 取最新一个 zip+lock 齐全的发布包落到 dist/，
+      # 按版本号做 actions/cache 缓存。下载失败只留 warning、不让本步骤崩溃——此时那几条用例会 skip，
+      # 由 pytest 步骤的 skip 上限如实判 FAIL，不悄悄放过。run: 正文只用纯 ASCII（理由见上）。
+      - name: Resolve latest published release package
+        id: latest_pkg
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $picked = ""
+          $tags = @(gh release list --limit 10 --json tagName --jq ".[].tagName")
+          foreach ($t in $tags) {
+            $v = ([string]$t).Trim().TrimStart("v")
+            if ($v -notmatch '^\d+\.\d+\.\d+$') { continue }
+            $names = @(gh release view $t --json assets --jq ".assets[].name")
+            if (($names -contains "ws-game-$v.zip") -and ($names -contains "ws-game-$v.lock")) { $picked = $v; break }
+          }
+          if ($picked -eq "") {
+            Write-Host "::warning::No GitHub Release with both ws-game-<ver>.zip and ws-game-<ver>.lock found; real-artifact pytest cases will skip and the pytest skip cap will fail the run."
+          } else {
+            Write-Host "Latest published package: $picked"
+          }
+          "version=$picked" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Cache latest published release package
+        id: latest_pkg_cache
+        if: steps.latest_pkg.outputs.version != ''
+        uses: actions/cache@v4
+        with:
+          path: |
+            dist/ws-game-${{ steps.latest_pkg.outputs.version }}.zip
+            dist/ws-game-${{ steps.latest_pkg.outputs.version }}.lock
+          key: release-pkg-${{ steps.latest_pkg.outputs.version }}
+
+      - name: Download latest published release package
+        if: steps.latest_pkg.outputs.version != '' && steps.latest_pkg_cache.outputs.cache-hit != 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = "Continue"
+          $version = "${{ steps.latest_pkg.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          gh release download "v$version" -p "ws-game-$version.zip" -p "ws-game-$version.lock" -D dist --clobber
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::Failed to download release package v$version into dist/. Real-artifact pytest cases will skip and the pytest skip cap will fail the run."
+          } else {
+            Write-Host "Downloaded ws-game-$version.zip and .lock into dist/"
           }
           exit 0
 

@@ -52,7 +52,7 @@ name: Release
 # 的 DLL，等于把新构建批次的 lock 配到旧构建批次的 zip 上，二者不是同一次构建产物却被当作一套发布。
 # 根治：本步骤（"Check for existing release assets"）新增——只要 Release 已有
 # `ws-game-<ver>.zip`，就下载这一份 zip，读取其内 `MANIFEST.txt` 记录的 `git_commit`，与当前
-# checkout（即这个 tag 指向的提交）的 `git rev-parse --short HEAD` 比对；不一致直接 exit 1 阻断，
+# checkout（即这个 tag 指向的提交）的完整 sha 做前缀比对（见下面"提交号比对按完整 sha 前缀"）；不一致直接 exit 1 阻断，
 # 不允许在一个"声称是这个 tag、实际是另一个提交"的 zip 基础上做任何事。commit 一致时，若还有 lock
 # 或 .tgz 缺失，由新增的 "Repair missing assets from existing zip" 步骤直接从这份已验证 zip 里
 # 提取六个 DLL 重新计算 sha256 生成 lock、或直接把 zip 内 `packages/*.tgz` 四个内嵌包原样抽出
@@ -83,6 +83,19 @@ name: Release
 # 附件存在（不论 zip 是否存在），都会下载并解析其 JSON 里的 `git_commit` 字段，与当前 checkout
 # 的提交比对，不一致同样阻断——防止 lock 记录的哈希其实来自另一个提交、却被当作当前 tag 的产物
 # 保留。
+#
+# 判断记录（提交号比对按完整 sha 前缀 + zip 条目不分路径分隔符，2026-10-02，v1.92.0 运行 36811895996 与
+# v1.93.0 运行 36964875468 的两处不同根因）：上面 zip/lock 两处 `git_commit` 校验原先是
+# `git rev-parse --short HEAD` 的字符串全等比较。`--short` 的位数取决于仓库对象数：发布机（完整仓库）
+# 写进 MANIFEST/lock 的是 8 位（`b7ac4dc3`），托管运行器浅克隆只有 7 位（`b7ac4dc`），v1.93.0 因此报
+# "built from commit b7ac4dc3, but tag points at b7ac4dc"。改为取 `git rev-parse HEAD` 完整 sha，记录值
+# 至少 7 位十六进制且是它的前缀才算一致（`toolchain/_lock_writeback.ps1` 的 `Test-WsGameCommitMatch`，
+# 比对只此一处，`toolchain/tests/test_release_commit_match.py` 覆盖 7/8/40 位与不一致/过短/dirty 后缀）。
+# v1.92.0 则死在更前面一步：本机 1.92.0 发布包的条目分隔符是正斜杠（`ws-game-1.92.0/MANIFEST.txt`），而
+# 本文件用反斜杠字面量精确匹配条目名，报 "has no MANIFEST.txt at expected path"；同一类写法也在"缺附件
+# 修复"的 .tgz 抽取处。改为 `Get-WsGameZipEntry`（两侧归一为正斜杠再比，与 `_lock_writeback.ps1` 内
+# 既有的取条目函数同一口径）。结果上，v1.92.0/v1.93.0 的 Release 只有本机上传的 zip/lock/samples/两个
+# 脚本，四个 .tgz 一直没补上（本工作流是唯一从已验证 zip 抽 .tgz 上传的地方，而它每次都在本步骤被拦下）。
 #
 # 判断记录（run: 脚本正文必须是纯 ASCII，2026-09-07 新增）：推送标签 v1.0.0 触发的运行
 # （run 34094116412）在 "Resolve version from tag" 步骤失败，报
@@ -303,7 +316,12 @@ jobs:
           $lockName = "ws-game-$version.lock"
           $zipExists = $existingNames -contains $zipName
           $lockExists = $existingNames -contains $lockName
-          $currentCommit = (git rev-parse --short HEAD).Trim()
+          # Full 40-char sha of the commit this tag points at. The recorded git_commit values (zip
+          # MANIFEST.txt, lock) are abbreviated by the release machine and may be 8 chars where a
+          # shallow CI clone abbreviates to 7, so they are matched as a prefix of the full sha
+          # (Test-WsGameCommitMatch) instead of by string equality.
+          . "toolchain\_lock_writeback.ps1"
+          $currentCommit = (git rev-parse HEAD).Trim()
 
           if ($zipExists) {
             $downloadDir = Join-Path $env:RUNNER_TEMP "gf_existing_zip"
@@ -317,7 +335,7 @@ jobs:
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             $zipTopLevelName = "ws-game-$version"
             $zr = [System.IO.Compression.ZipFile]::OpenRead($existingZipPath)
-            $manifestEntry = $zr.Entries | Where-Object { $_.FullName -eq "$zipTopLevelName\MANIFEST.txt" }
+            $manifestEntry = Get-WsGameZipEntry -ZipReader $zr -EntryPath "$zipTopLevelName\MANIFEST.txt"
             if (-not $manifestEntry) {
               $zr.Dispose()
               Write-Host "Existing $zipName has no MANIFEST.txt at expected path $zipTopLevelName\MANIFEST.txt; cannot verify git_commit. Blocking."
@@ -333,7 +351,7 @@ jobs:
               exit 1
             }
             $zipCommit = $mc.Groups[1].Value
-            if ($zipCommit -ne $currentCommit) {
+            if (-not (Test-WsGameCommitMatch -Recorded $zipCommit -FullSha $currentCommit)) {
               Write-Host "Existing $zipName was built from commit $zipCommit, but tag $tag points at $currentCommit. Refusing to reuse or rebuild-mix; investigate manually."
               exit 1
             }
@@ -356,7 +374,7 @@ jobs:
               Write-Host "Existing $lockName has no git_commit field. Blocking."
               exit 1
             }
-            if ($lockCommit -ne $currentCommit) {
+            if (-not (Test-WsGameCommitMatch -Recorded $lockCommit -FullSha $currentCommit)) {
               Write-Host "Existing $lockName was built from commit $lockCommit, but tag $tag points at $currentCommit. Refusing to treat it as part of this batch; investigate manually."
               exit 1
             }
@@ -502,7 +520,7 @@ jobs:
             } elseif ($m -like "*.tgz") {
               $tgzName = Split-Path $m -Leaf
               $entryPath = "$zipTopLevelName\packages\$tgzName"
-              $entry = $zr.Entries | Where-Object { $_.FullName -eq $entryPath }
+              $entry = Get-WsGameZipEntry -ZipReader $zr -EntryPath $entryPath
               if (-not $entry) {
                 Write-Host "Missing tgz entry in zip: $entryPath"
                 exit 1

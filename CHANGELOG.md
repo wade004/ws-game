@@ -458,6 +458,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 修复
+
+- **Release 工作流四个 `.tgz` 一直没补上 GitHub Release（两个不同根因）**：`.github/workflows/release.yml`"Check for existing release assets"一步在 v1.92.0、v1.93.0 都 exit 1。v1.93.0：zip/lock 的 `git_commit` 是发布机 `git rev-parse --short` 的 8 位（`b7ac4dc3`），托管运行器浅克隆的 `--short` 只有 7 位（`b7ac4dc`），字符串全等比较误判"提交不一致"；改为对完整 sha 做前缀比对（`toolchain/_lock_writeback.ps1` 新增 `Test-WsGameCommitMatch`，记录值至少 7 位十六进制且是完整 sha 的前缀）。v1.92.0：1.92.0 发布包的 zip 条目分隔符是正斜杠、1.93.0 是反斜杠，workflow 用反斜杠字面量精确匹配 `MANIFEST.txt`/`packages/*.tgz` 条目，报"no MANIFEST.txt at expected path"；改为分隔符无关的 `Get-WsGameZipEntry`。新增 `toolchain/tests/test_release_commit_match.py`。
+- **CI 工作流（`check.ps1 -SkipUnity`）pytest 阶段 7 失败 + 5 跳过**：托管运行器的环境与本机不同、而用例按本机写——`ci.yml` 的 checkout 改 `fetch-depth: 0` + `fetch-tags: true`（补齐 `test_ref_conventions.py` 三条要 `git show` 历史提交的用例，以及 `test_dist_immutability_guard.py` 两条要真实 `vX.Y.Z` 标签的用例）；新增"下载最新已发布 zip+lock 到 `dist/`"三步（带版本号缓存，补齐 `test_lock_writeback_repair_parity.py`/`test_get_framework_path_boundary.py` 的三条真实产物用例）；`test_unity_path_length_guard.py` 的"短根路径"用例不再用 pytest `tmp_path`（托管运行器上 108 字符）；`test_gate_step_runner.py::test_two_lines_run_concurrently` 改读汇总表"并行阶段墙钟"而不是含运行器固定开销的外层总墙钟。不放宽 `gate_floors.json` 的 skip 上限、不批量 skip。
+
 ## [1.93.0] - 2026-10-02
 
 本版主题是手感体系落地（设计见 `architecture/手感设计/` 与 ADR-0113～0123，上一版已入库设计文档集）：输入缓冲、动作时间线、空间命中、运动仲裁、局部顿帧与受击裁决、打击反馈、姿势维度、换装链路与手感实验室。**所有机制默认不开启**：不写任何新增字段、不给装配入口传 `CarriersFeelOptions`（`GameplayAssembly` 的 `feelOptions`、`HeadlessWorldOptions.FeelOptions`、`PresentationAssemblyOptions.FeelResolver` 均缺省 null）时，既有游戏的移动、结算、事件序列、表现输出与此前逐位一致（运行时凭据：关闭手感与"启用且 `rpg_classic` 预设、无时间线技能、无带类别输入动作"两个世界逐 tick 位置/运动模式/事件序列逐位一致；`feellab suite` 180/180 与既有各模块用例为证）。公开签名只新增（新增重载、默认接口成员、可选字段、新类型），旧签名原样保留。接入与迁移说明见本版末尾"接入与迁移说明"小节。

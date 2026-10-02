@@ -1598,3 +1598,17 @@ build/test 步骤）。
 7. **已知限制**：①回落只对 `git worktree add` 建出的链接工作树有效，独立克隆没有"主工作树"，缺基线仍按原有 SKIP/FAIL 处理；②`prune_dist.ps1` 只认上述文件名形态，
    其它条目（例如打标签失败时残留的 `tag-message-<ver>.txt`）一律"未识别，已保留"，需要人工清理；③"当前版本"取自 `VERSION` 文件，在 `VERSION` 低于 `dist/` 中某些版本的维护分支上运行时，
    高于当前版本的条目一律不动、不会被当作历史产物删除。
+
+## CI / Release 工作流与本机环境口径对齐（2026-10-02）
+
+背景：GitHub 上 CI 工作流（`check.ps1 -SkipUnity`）至少自 2026-09-30 起每次红灯（pytest `6 failed, 5 skipped`，门禁的 skip 上限为 0；b7ac4dc3 那次多一条耗时断言共 7 failed），Release 工作流至少自 v1.85.0 起每次红灯，v1.92.0、v1.93.0 的 GitHub Release 上只有本机上传的 zip/lock/samples/两个脚本，四个 `.tgz` 一直缺。
+
+**判断记录**
+
+1. **Release：提交号按完整 sha 前缀比对**（`_lock_writeback.ps1` 的 `Test-WsGameCommitMatch`，`release.yml` zip 与 lock 两处共用）。MANIFEST/lock 的 `git_commit` 是发布机完整仓库的 `git rev-parse --short`（对象多了自动加长到 8 位），托管运行器浅克隆只有 7 位，`--short` 位数不是可对齐的约定。规则：记录值至少 7 位十六进制、且是当前提交完整 40 位 sha 的前缀（不分大小写）；过短、带 `-dirty` 之类后缀、空值、比完整 sha 还长一律判不一致。
+2. **Release：zip 条目查找不分路径分隔符**（`Get-WsGameZipEntry`）。本机 1.92.0 包条目是 `ws-game-1.92.0/MANIFEST.txt`，1.93.0 是 `ws-game-1.93.0\MANIFEST.txt`，`Compress-Archive` 在不同 PowerShell 版本下写法不同；v1.92.0 的 Release 运行死在这里（早于上一条），"缺附件修复"的 `.tgz` 抽取处同类写法一并改。`_lock_writeback.ps1` 内既有的取条目函数早已按此口径归一。
+3. **v1.85.0～v1.91.0 的 Release 运行是第三种失败**：GitHub 上当时没有对应 Release，走"全部缺失 -> 全量重建"路径，`build.ps1 -Dist` 的发布不可变守卫看到标签已存在而拒绝（`_dist_immutability_guard.ps1`）。这条路径在 tag 触发的运行里天然走不通，本次**未改**——要不要让 tag 触发的运行改成"只补 `.tgz`"或放行守卫，是设计层决定。
+4. **CI：把运行器补成与本机同口径，不放宽 skip 上限**。浅克隆没有历史与标签 -> `test_ref_conventions.py` 三条（`git show e8b48aa1/97052ac6`）失败，`test_dist_immutability_guard.py` 两条无标签 skip：`ci.yml` checkout 改 `fetch-depth: 0` + `fetch-tags: true`。`dist/` 没有成对的 zip+lock（只下了 ABI 基线 zip，基线 1.12.0 是早期布局）-> 三条真实产物用例 skip：新增三步从 GitHub Release 取最新一个 zip+lock 齐全的发布包落到 `dist/`（`actions/cache` 按版本号缓存，下载失败只留 warning，用例 skip 由 pytest 步骤的 `max_skipped=0` 如实判 FAIL）。本机复现方法：对主检出做 `git clone --depth 1 --no-local file:///<主检出>`、删掉全部标签、`dist/` 只放基线 zip，跑 `pytest -rs` 得到与 CI 完全相同的 5 个跳过 + 3 个失败；补齐历史/标签/最新 zip+lock 后 0 跳过 0 失败。
+5. **CI：`test_unity_path_length_guard.py` 短根路径前提不依赖 pytest `tmp_path`**。托管运行器上 `tmp_path` 是 `C:\Users\runneradmin\AppData\Local\Temp\pytest-of-runneradmin\pytest-1\<用例名>0`，加 `\short` 共 108 字符，已超过"深根"下限 98，前提自己不成立。改为系统临时目录（不够短退到盘符根）下建 `gfpl_` 前缀短目录，长度由夹具核对，仍不够短明确失败。复现：把 `TEMP` 指到 80 字符深的目录，旧用例三条失败、新用例通过。
+6. **CI：并行性用例读"并行阶段墙钟"**。`test_two_lines_run_concurrently` 原先断言外层总墙钟 < 40s + 25s 固定余量；托管运行器上固定开销（两次子进程启动、前置步骤、doc-pytest 子集）约 29s（本机 8～9s），同一次运行里并行阶段自己只用 41.5s，外层 70.8s 被顶过阈值。固定余量吸收不了环境量；改读门禁汇总表 `（并行阶段墙钟：…）` 行（check.ps1 对并行阶段单独计的实际耗时），阈值与串行预期下限不变，外层总墙钟只作诊断输出。
+7. **已知限制**：①CI 现在依赖 GitHub Release 上存在 zip+lock 齐全的发布包；全新仓库或 Release 被清空时这三条用例会 skip 并让 pytest 步骤红灯（有意的，不悄悄放过）。②Release 工作流本次只修了比对与条目查找，未在 GitHub 上重跑验证（任务约束不触发远端工作流）；已用本机真实 1.92.0/1.93.0 zip 与 lock 逐项验证比对与条目查找，并解析了两个步骤的 `run:` 正文语法。
