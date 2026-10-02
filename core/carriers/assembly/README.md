@@ -223,12 +223,12 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 5. **施法被拒回报缓冲**：出口经 `skill.cast_failed` 回报 `InputBufferHost.ReportRejected`，只认"本 tick 由本出口提交的那次施法"的失败；时间可解 = `ActionLocked`/`GcdActive`/`Busy`，以及剩余冷却不超过记录剩余缓冲的 `OnCooldown`（同时间线取消进入口径），其余原因丢弃记录。
 6. **接受时朝向对齐是瞬时对齐**：`FaceOnAccept` 且有按下瞬间方向快照时，接受瞬间 `Facing = Atan2(y, x)`；不经运动层转向速率（转向速率是行走惯性，攻击起手的方向修正才是 `face_on_accept` 语义）。
 7. **主手/副手武器的定义**：数据里只有 `item.slot_definition.is_weapon`，没有主/副手概念。缺省取武器槽按槽位 id 序数排序的第 1 个为主手、第 2 个为副手（与 `EquipmentHost` 找"第一个武器槽"同一规则）；游戏槽位命名不符时用 `CarriersFeelOptions.MainHandSlot/OffhandSlot` 显式指定。
-8. **光环临时手感条目键 = 光环定义 id，层数不放大**：`AuraSnapshot` 不带光环实例 id，同一定义的多层叠加只算一条。"按层数叠乘"的手感修饰要先在 `IAuraQuery` 暴露实例 id 与层数语义，不在本切片内绕开。
+8. **光环临时手感条目键 = 光环定义 id，层数不放大**（M2-B 已改：见本文件"手感落地 M2-B"节，条目键改为光环实例 id、层数按次叠乘）：`AuraSnapshot` 不带光环实例 id，同一定义的多层叠加只算一条。
 9. **失效订阅在步骤 7 才生效**：装备变化、光环施加/移除事件经事件总线在步骤 7 派发，所以这些变化对手感的影响从当 tick 派发之后才可见（同 tick 内更早步骤读到旧值），与既有事件驱动模块同一口径。
 10. **运动层的 `MotionServices.Actions` 取技能宿主的 `ActionStateQuery`**：时间线动作进行中运动模式为 `Action`。
 11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
 
-已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线；本地玩家绑定在 `PresentationAssembly` 构造时固定；Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）未改，仍直接提交 `cast` 意图并调用不含 `feelOptions` 的可选参数构造重载。
+已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它（M2-B 已接：见 M2-B 节）；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线（M2-B 已接：见 M2-B 节）；本地玩家绑定在 `PresentationAssembly` 构造时固定；Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）未改，仍直接提交 `cast` 意图并调用不含 `feelOptions` 的可选参数构造重载。
 
 ## 手感落地 S11：时间线目标辅助接进生产装配（2026-10-02）
 
@@ -248,3 +248,14 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 5. **已知限制**：`FeelOptions` 里的手感数据热重载（`FeelResolver.Reload`）仍未接线；其余同上文既有限制。
 
 用例见 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs`（经真实 `PresentationAssembly` 与输入映射：单手剑、双手剑、空手的相位 tick 数与武器族均由数据与标定规则算出）。
+
+## 手感落地 M2-B：手感核心侧缺口（2026-10-02）
+
+六项缺口一次补齐，全部加法；缺省（不传 `feelOptions`、或传了但数据/动作不触及）与 1.93.0 逐位一致。本节编号为 M2-B 本节编号：
+
+1. **宽限窗口被施法管线消费（`found.input_action.grace_conditions`，手感设计/01 第 2.4 节）**：`BufferedActionIntentSink` 把动作声明的条件名随 `cast` 意图（`grace_conditions` 数组）带给 `SkillTickHandler`，后者经 `SkillHost.CastSkillWithContext` 新增的 5 参数重载交给 `CastPipeline`；步骤 7（射程与视线）在"动作声明的条件全部满足、且至少一个正处于宽限窗口（条件刚失效、距上次为真不超过 `grace_ms` 换算的 tick 数）"时放行。**语义决定**：宽限只放宽射程/视线检查，不放宽冷却、资源、目标合法性、动作锁等其它步骤；时间线技能本来就不走步骤 6/7（空间命中由时间线自己判），不受影响。同时补了此前缺的生产接线：`InputBufferTickHandler` 现在对本地行动者与全部有缓冲的行动者登记并采样所有已声明的宽限条件名（`InputBufferHost.GraceConditionNames/LocalActorId` 为新增只读成员），`TimelineServices.Grace` 把追踪器交给管线，单位销毁时 `GraceTracker.Unregister`。
+2. **数据热加载（ADR-0019，05 第 8 节）**：`CarriersFeelAssembly` 订阅 `data.load_completed`，调用 `FeelSystem.TryReload(registry)`（新增；重读 `feel.*`、过同一套 `FeelProfileChecker`，拒绝时保持当前档案并把原因写进 `CarriersFeelSystem.LastHotReload`），成功后：`FeelWeaponCatalog.Reload()`（动作绑定与换装链共用同一份目录）、未自带 `ModeRules` 时刷新运动模式规则、换装链 `ReconcileAll("data_reloaded")`（变化的单位照常发布 `feel.weapon_changed`）。**依赖约定**：宿主在 `DataRegistry.Reload(表)` 之后补发 `data.load_completed`（与其它宿主的开发期热加载同一惯例）；进行中动作的手感快照不变。
+3. **光环层数叠乘**：见 `core/rules/assembly/README.md` M2-B 节（`AuraSnapshot.InstanceId` 与 `FeelTemporaryEntry.Stacks`）；`AuraFeelTemporaryProvider` 条目键改为光环实例 id，并订阅 `aura.stack_changed` 使缓存失效。
+4. **换装链的单位状态口径**：`EquipmentFeelChain` 订阅 `entity.destroyed`（忘掉对账状态）与 `entity.created`（对账一次，没有武器的未跟踪单位不建记录也不发事件）。与表现侧 `EquipmentPoseBridge` 在销毁时清理姿势选择器配对：同 id 重建的单位（如换图重建的玩家）重新对账并重发 `feel.weapon_changed`，武器族补回；`save.loaded` 对账抽成公开的 `ReconcileAll(reason)`，路径不变。
+
+已知限制（逐条交代）：地面施法请求不携带宽限条件；排队中的施法丢失宽限上下文；框架不提供基于 Expr 的 `IGraceConditionEvaluator`，游戏必须经 `CarriersFeelOptions.GraceEvaluator` 提供，且非本地行动者的第一次按键可能早于采样；标定变化需重启（热加载只换档案，`FeelReloadResult.CalibrationChanged` 为真时提示）；热加载依赖宿主发布 `data.load_completed`。

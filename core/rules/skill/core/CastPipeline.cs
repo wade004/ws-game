@@ -664,21 +664,27 @@ namespace Core.Rules.Skill
             if (def.Range > 0)
             {
                 var casterPos = _units.GetPosition(casterId);
-                foreach (var targetId in resolvedTargets)
-                {
-                    if (Vec2.Distance(casterPos, _units.GetPosition(targetId)) > def.Range)
-                    {
-                        return Fail(casterId, skillId, CastFailureReason.OutOfRange, presetCastInstanceId);
-                    }
-                }
-
-                if (_spatialQuery != null)
+                // 手感落地 M2-B（手感设计/01 第 2.4 节）：输入动作声明的宽限条件刚刚失效、仍在宽限内时，步骤 7 视为满足
+                // （只放宽接受判断，随后结算的几何不变）。没有携带宽限条件的请求（含全部既有调用方）不触发这条分支。
+                var graceCovers = _graceConditions != null && GraceCoversStep7(casterId);
+                if (!graceCovers)
                 {
                     foreach (var targetId in resolvedTargets)
                     {
-                        if (!_spatialQuery.HasLineOfSight(casterPos, _units.GetPosition(targetId)))
+                        if (Vec2.Distance(casterPos, _units.GetPosition(targetId)) > def.Range)
                         {
-                            return Fail(casterId, skillId, CastFailureReason.LineOfSight, presetCastInstanceId);
+                            return Fail(casterId, skillId, CastFailureReason.OutOfRange, presetCastInstanceId);
+                        }
+                    }
+
+                    if (_spatialQuery != null)
+                    {
+                        foreach (var targetId in resolvedTargets)
+                        {
+                            if (!_spatialQuery.HasLineOfSight(casterPos, _units.GetPosition(targetId)))
+                            {
+                                return Fail(casterId, skillId, CastFailureReason.LineOfSight, presetCastInstanceId);
+                            }
                         }
                     }
                 }

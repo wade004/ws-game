@@ -276,5 +276,11 @@ namespace Core.Rules.Skill
 
         /// <summary>目标辅助入口（缺省 null：关闭，见 <see cref="IActionTargetAssist"/>）。</summary>
         public IActionTargetAssist? TargetAssist { get; set; }
+
+        /// <summary>
+        /// 宽限窗口查询（手感设计/01 第 2.4 节，M2-B 加法）：施法请求携带宽限条件名（<see cref="SkillHost.CastSkillWithContext(Id, Id, IReadOnlyList{Id}, ActionCastContext, IReadOnlyList{Id}?)"/>）
+        /// 且步骤 7（距离与视线）本应拒绝时，经它判断"条件刚刚失效、仍在宽限内"则视为满足。为空时请求携带的宽限条件被忽略，步骤 7 照常拒绝（既有行为）。
+        /// </summary>
+        public IGraceQuery? Grace { get; set; }
     }
 }

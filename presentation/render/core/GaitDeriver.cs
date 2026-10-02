@@ -142,7 +142,9 @@ namespace Presentation.Render
             {
                 if (Current == LocomotionGait.Sprint && (!t.SprintMinRatio.HasValue || speedRatio < t.SprintMinRatio.Value - h)) Current = LocomotionGait.Run;
                 else if (Current == LocomotionGait.Run && speedRatio < t.WalkMaxRatio - h) Current = LocomotionGait.Walk;
-                else if (Current == LocomotionGait.Walk && speedRatio < t.IdleMaxRatio - h) Current = LocomotionGait.Idle;
+                // 判断记录（手感落地 M2-B）：完全静止（比值 0）总是回到 idle——缺省阈值下 idle_max_ratio 与滞回宽度同为 0.05，"阈值减滞回"恰为 0，
+                // 严格小于 0 永不成立，单位停稳后会一直停在 walk。接上生产速度喂入后暴露；滞回只防抖，不应让静止的单位永远不 idle。
+                else if (Current == LocomotionGait.Walk && (speedRatio < t.IdleMaxRatio - h || speedRatio <= 0)) Current = LocomotionGait.Idle;
                 else break;
             }
 

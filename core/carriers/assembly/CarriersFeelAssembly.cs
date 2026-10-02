@@ -112,6 +112,26 @@ namespace Core.Carriers.Assembly
         /// <summary>来自选项的本地移动轴动作名；缺省 null。</summary>
         public string? LocalMoveActionName { get; }
 
+        /// <summary>最近一次数据热加载（<c>data.load_completed</c> 触发）的结果；从未发生为 null。被拒时 <see cref="FeelReloadResult.Applied"/> 为假并给出原因。</summary>
+        public FeelReloadResult? LastHotReload { get; private set; }
+
+        /// <summary>
+        /// 数据热加载（手感设计/05 第 8 节）：重读 <c>feel.*</c> 表并换入解析器（<see cref="FeelSystem.TryReload"/>）；成功后重读武器目录、刷新运动模式规则
+        /// （调用方没有自带 <see cref="CarriersFeelOptions.ModeRules"/> 时）、并让换装链对账一次——武器族、普攻引用来自新数据，变化的单位照常发布
+        /// <c>feel.weapon_changed</c>。进行中动作的手感快照不变，下一次动作才看到新数据。
+        /// </summary>
+        internal FeelReloadResult ApplyHotReload(IDataRegistryView registry, FeelWeaponCatalog catalog, bool refreshModeRules)
+        {
+            var result = Feel.TryReload(registry);
+            LastHotReload = result;
+            if (!result.Applied) return result;
+
+            catalog.Reload();
+            if (refreshModeRules) Motion.ModeRules = MotionModeRuleSet.FromProfiles(Feel.Profiles);
+            WeaponChain.ReconcileAll("data_reloaded");
+            return result;
+        }
+
         internal CarriersFeelSystem(
             FeelSystem feel, IFeelResolver resolver, RulesFeelSystem rules, InputBufferHost inputBuffer, GraceTracker? grace,
             ActionSlotSkillBinding binding, IActionSkillBinding actionBinding, EquipmentFeelChain weaponChain,
@@ -151,7 +171,7 @@ namespace Core.Carriers.Assembly
     /// <para>
     /// 判断记录（失效订阅）：装备变化、光环施加/移除使对应单位缓存失效，单位销毁时顺带清缓冲。订阅的事件经事件总线在步骤 7 派发，所以一次
     /// 装备变化对手感的影响从当 tick 的派发之后才可见（同 tick 内更早的步骤读到旧值），与既有事件驱动模块同一口径。数据热加载（<see cref="FeelResolver.Reload"/>）
-    /// 不在本切片接线（已知局限）。
+    /// 由 <c>data.load_completed</c> 订阅接线（M2-B，见 <see cref="CarriersFeelSystem.LastHotReload"/>）；标定不热换，变化需重启。
     /// </para>
     /// </summary>
     public static class CarriersFeelAssembly
@@ -209,8 +229,9 @@ namespace Core.Carriers.Assembly
 
             // 输入动作 → 技能：普通攻击动作优先取当前主手武器的普攻技能（换装后自动切换），没有则回落到 skill_slot 槽位绑定；缓冲出口与时间线取消进入共用同一份。
             var slotBinding = new ActionSlotSkillBinding(buffer, carriers.SkillBindings);
+            var weaponCatalog = new FeelWeaponCatalog(registry); // 动作绑定与换装链共用同一份目录，数据热加载时一次重读
             var actionBinding = new WeaponPreferredActionBinding(
-                new WeaponActionBinding(providers.Equipment, new FeelWeaponCatalog(registry)), slotBinding, options.AutoAttackActions);
+                new WeaponActionBinding(providers.Equipment, weaponCatalog), slotBinding, options.AutoAttackActions);
             var sink = new BufferedActionIntentSink(
                 buffer, actionBinding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
             rulesFeel.Timeline.Input = buffer;
@@ -219,7 +240,7 @@ namespace Core.Carriers.Assembly
             // 换装链：装备变化时对账武器引用与武器族，变化则发布 feel.weapon_changed（表现层姿势族、反馈变体、界面订阅它）。读档在事件抑制作用域内重放装备，
             // 链额外订阅 save.loaded 对账；已知单位取世界里的全部实体（对账只读装备宿主，没有装备的实体对账结果等于初值，不发事件）。
             var weaponChain = new EquipmentFeelChain(
-                bus, providers.Equipment, new FeelWeaponCatalog(registry), resolver,
+                bus, providers.Equipment, weaponCatalog, resolver,
                 () => world.QueryEntities(default).Select(e => e.EntityId));
 
             // 时间线目标辅助（S11）：候选解析缺省取目标选择链（同一个 TargetHost、同一个 WorldUnitAccess——后者同时是 IUnitFacingWriter，
@@ -229,6 +250,8 @@ namespace Core.Carriers.Assembly
 
             GraceTracker? grace = options.GraceEvaluator != null ? new GraceTracker(options.GraceEvaluator, resolver) : null;
             InputBufferTickHandler.Register(world, buffer, sink, grace);
+            // 手感落地 M2-B（手感设计/01 第 2.4 节）：施法管线步骤 7 经它判断"条件刚刚失效、仍在宽限内"；未提供求值器时为 null，步骤 7 照常拒绝。
+            rulesFeel.Timeline.Grace = grace;
 
             // ---- 失效与清理订阅。
             subscriptions.Add(bus.Subscribe<ItemEquippedEvent>(
@@ -239,12 +262,16 @@ namespace Core.Carriers.Assembly
                 RulesEventKeys.AuraApplied, e => resolver.Invalidate(e.TargetId, "aura_changed")));
             subscriptions.Add(bus.Subscribe<AuraRemovedEvent>(
                 RulesEventKeys.AuraRemoved, e => resolver.Invalidate(e.TargetId, "aura_changed")));
+            // 手感落地 M2-B：层数变化（叠层、掉层）使该光环的手感修饰随层数重算（手感设计/05 第 6 节）。
+            subscriptions.Add(bus.Subscribe<AuraStackChangedEvent>(
+                RulesEventKeys.AuraStackChanged, e => resolver.Invalidate(e.TargetId, "aura_changed")));
             subscriptions.Add(bus.Subscribe<UnitDiedEvent>(
                 RulesEventKeys.UnitDied, e => buffer.Clear(e.UnitId)));
             subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(
                 SimEventKeys.EntityDestroyed, e =>
                 {
                     buffer.RemoveActor(e.EntityId);
+                    grace?.Unregister(e.EntityId);
                     resolver.Invalidate(e.EntityId, "entity_destroyed");
                 }));
 
@@ -261,8 +288,14 @@ namespace Core.Carriers.Assembly
             carriers.Movement.Motion = motion;
             MotionHitFeelWiring.Connect(carriers.Movement, rulesFeel.Clock, rulesFeel.HitFeel.Host);
 
-            return new CarriersFeelSystem(
+            var system = new CarriersFeelSystem(
                 feel, resolver, rulesFeel, buffer, grace, slotBinding, actionBinding, weaponChain, sink, motion, options.LocalMoveActionName, subscriptions);
+
+            // ---- 数据热加载（手感落地 M2-B，手感设计/05 第 8 节、ADR-0019）：宿主（模板的 DataHotReload 或测试）在 DataRegistry.Reload 之后补发
+            // data.load_completed，这里据此重读 feel.* 表换入解析器。被拒时（校验有错误等）保持当前档案，原因记在 LastHotReload 上。
+            subscriptions.Add(bus.Subscribe<DataLoadCompletedEvent>(
+                DataRegistryEventKeys.LoadCompleted, _ => system.ApplyHotReload(registry, weaponCatalog, options.ModeRules == null)));
+            return system;
         }
 
         private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)

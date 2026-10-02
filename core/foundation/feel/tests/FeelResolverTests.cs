@@ -37,6 +37,52 @@ namespace Tests.Foundation.Feel
             Assert.Equal(new[] { "set", "multiply", "add" }, chain);
         }
 
+        /// <summary>
+        /// 复现用例（手感落地 M2-B，05 第 6 节）：第 7 层条目携带层数 n——数值 multiply 连乘 n 次、add 累加 n 次、set 不随层数变化。
+        /// 基础 100：×2 叠 3 层 = 800（此前恒为 200）；+10 叠 3 层 = 130（此前恒为 110）；层数 1 与不带层数的旧构造逐位一致。
+        /// </summary>
+        [Fact]
+        public void TemporaryEntry_Stacks_RepeatMultiplyAndAdd_ButNotSet()
+        {
+            var state = new FakeState();
+            var resolver = Make(SmallProfiles(), state);
+            var baseline = resolver.Resolve(Unit1).GetRaw(AccMs).AsNumber();
+            Assert.Equal(100.0, baseline);
+
+            state.Temp.Add(new FeelTemporaryEntry("aura.mul", new[] { Mul(AccMs, 2) }, 3));
+            resolver.Invalidate(Unit1, "aura applied");
+            Assert.Equal(baseline * 2 * 2 * 2, resolver.Resolve(Unit1).GetRaw(AccMs).AsNumber());
+
+            state.Temp.Clear();
+            state.Temp.Add(new FeelTemporaryEntry("aura.add", new[] { Add(AccMs, 10) }, 3));
+            resolver.Invalidate(Unit1, "aura applied");
+            Assert.Equal(baseline + 10 + 10 + 10, resolver.Resolve(Unit1).GetRaw(AccMs).AsNumber());
+
+            state.Temp.Clear();
+            state.Temp.Add(new FeelTemporaryEntry("aura.set", new[] { Set(AccMs, 50) }, 3));
+            resolver.Invalidate(Unit1, "aura applied");
+            Assert.Equal(50.0, resolver.Resolve(Unit1).GetRaw(AccMs).AsNumber());
+
+            // 不变量：层数 1 / 旧构造（无层数）/ 层数小于 1，三者结果逐位一致。
+            var results = new List<double>();
+            foreach (var entry in new[]
+            {
+                new FeelTemporaryEntry("aura.x", new[] { Mul(AccMs, 1.5), Add(AccMs, 7) }),
+                new FeelTemporaryEntry("aura.x", new[] { Mul(AccMs, 1.5), Add(AccMs, 7) }, 1),
+                new FeelTemporaryEntry("aura.x", new[] { Mul(AccMs, 1.5), Add(AccMs, 7) }, 0),
+            })
+            {
+                state.Temp.Clear();
+                state.Temp.Add(entry);
+                resolver.Invalidate(Unit1, "aura applied");
+                results.Add(resolver.Resolve(Unit1).GetRaw(AccMs).AsNumber());
+            }
+
+            Assert.Equal(baseline * 1.5 + 7, results[0]);
+            Assert.Equal(results[0], results[1]);
+            Assert.Equal(results[0], results[2]);
+        }
+
         [Fact]
         public void EightLayers_ApplyInOrder_AndProvenanceRecordsEachLayer()
         {

@@ -5,6 +5,7 @@ using Core.Foundation.Common;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.SaveSystem;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
 namespace Core.Carriers.Item
@@ -80,6 +81,10 @@ namespace Core.Carriers.Item
             _subscriptions.Add(bus.Subscribe<ItemEquippedEvent>(CarriersEventKeys.ItemEquipped, e => Sync(e.UnitId)));
             _subscriptions.Add(bus.Subscribe<ItemUnequippedEvent>(CarriersEventKeys.ItemUnequipped, e => Sync(e.UnitId)));
             _subscriptions.Add(bus.Subscribe(SaveEventKeys.SaveLoaded, _ => OnSaveLoaded()));
+            // 手感落地 M2-B（单位状态口径）：单位销毁时忘掉它的对账状态，单位（含同 id 重建的单位，如换图重建的玩家）创建时对账一次。
+            // 否则同 id 重建后装备未变、对账结果等于旧状态，不会重发 feel.weapon_changed，而表现侧（姿势选择器）已在销毁时忘掉武器族。
+            _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, e => _states.Remove(e.EntityId)));
+            _subscriptions.Add(bus.Subscribe<EntityCreatedEvent>(SimEventKeys.EntityCreated, e => Sync(e.EntityId)));
         }
 
         /// <summary>已跟踪单位的当前武器族（未跟踪或空手为 null）。</summary>
@@ -95,7 +100,14 @@ namespace Core.Carriers.Item
             var offhand = _equipment.GetOffhandWeaponRef(unitId);
             var family = main != null && _catalog.TryGet(main, out var info) && info.Family.Length > 0 ? info.Family : null;
             var current = new State(main, offhand, family);
-            var previous = _states.TryGetValue(unitId, out var known) ? known : default;
+            var tracked = _states.TryGetValue(unitId, out var known);
+            var previous = tracked ? known : default;
+            // 没有武器的未跟踪单位等同于初值：不为它建记录（实体创建时对账会对每个实体走到这里）。
+            if (!tracked && current.Equals(previous))
+            {
+                return false;
+            }
+
             _states[unitId] = current;
             if (current.Equals(previous))
             {
@@ -108,9 +120,15 @@ namespace Core.Carriers.Item
             return true;
         }
 
-        private void OnSaveLoaded()
+        private void OnSaveLoaded() => ReconcileAll("save_loaded");
+
+        /// <summary>
+        /// 使解析器缓存整体失效并对账全部已跟踪单位与 <c>knownUnits</c>（手感落地 M2-B 公开：读档 <c>save.loaded</c> 与数据热加载后
+        /// 武器族可能变化共用这一条路径）；变化的单位照常发布 <c>feel.weapon_changed</c>。
+        /// </summary>
+        public void ReconcileAll(string reason)
         {
-            _resolver.InvalidateAll("save_loaded");
+            _resolver.InvalidateAll(reason);
             var units = new HashSet<Id>(_states.Keys);
             if (_knownUnits != null)
             {

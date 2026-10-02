@@ -330,11 +330,12 @@ namespace Presentation.Assembly
         /// 手感落地 M1 补缺：姿势上下文选择器（武器族、步态、变体；手感设计/04 第 2 节）。<b>只在手感启用时装配</b>
         /// （<c>gameplay.Feel</c> 非空，或 <see cref="PresentationAssemblyOptions.FeelResolver"/> 显式注入），否则为 <c>null</c>、行为与此前逐位一致。
         /// 武器族由换装链发布的 <c>feel.weapon_changed</c> 经 <see cref="EquipmentPoseBridge"/> 写入；视图工厂若实现 <see cref="IPoseContextReceiver"/>，
-        /// 构造早期即收到本实例（Unity 工厂据此解析武器族姿势）。步态维度由调用方喂速度（<see cref="PoseSelector.Observe"/>）。
+        /// 构造早期即收到本实例（Unity 工厂据此解析武器族姿势）。步态维度由 <see cref="PoseGaitFeeder"/> 按运动状态的速度比喂入（<see cref="PoseSelector.Observe"/>）。
         /// </summary>
         public PoseSelector? Pose { get; }
 
         private readonly EquipmentPoseBridge? _poseBridge;
+        private readonly PoseGaitFeeder? _gaitFeeder;
         private readonly Id _playerId;
         private bool _disposed;
 
@@ -413,6 +414,8 @@ namespace Presentation.Assembly
             {
                 Pose = new PoseSelector();
                 _poseBridge = new EquipmentPoseBridge(bus, Pose);
+                // 手感落地 M2-B：步态由运动状态的速度比派生并喂给选择器（此前无人调用 Observe，移动姿势恒按 walk 解析）。
+                _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver);
                 (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
             }
 
@@ -923,6 +926,10 @@ namespace Presentation.Assembly
             if (_poseBridge != null)
             {
                 Release(nameof(EquipmentPoseBridge), _poseBridge.Dispose);
+            }
+            if (_gaitFeeder != null)
+            {
+                Release(nameof(PoseGaitFeeder), _gaitFeeder.Dispose);
             }
             Release(nameof(ViewBinder), ViewBinder.Dispose);
             Release(nameof(Stride), Stride.Dispose);

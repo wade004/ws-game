@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EventBus;
+using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 
 namespace Presentation.Render
@@ -31,6 +32,10 @@ namespace Presentation.Render
             _selector = selector ?? throw new ArgumentNullException(nameof(selector));
             _subscriptions.Add(bus.Subscribe<FeelWeaponChangedEvent>(
                 RulesEventKeys.FeelWeaponChanged, e => _selector.SetFamily(e.UnitId, e.Family)));
+            // 手感落地 M2-B：单位销毁时清理它在姿势选择器里的记账（含武器族），与换装链（EquipmentFeelChain）同一口径——
+            // 链在销毁时忘掉对账状态、创建时重新对账并重发 feel.weapon_changed，同 id 重建的单位因此能把武器族补回来。
+            _subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(
+                SimEventKeys.EntityDestroyed, e => _selector.Forget(e.EntityId)));
         }
 
         public void Dispose()

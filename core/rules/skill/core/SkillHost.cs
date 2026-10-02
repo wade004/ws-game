@@ -717,6 +717,11 @@ namespace Core.Rules.Skill
         public CastResult CastSkillWithContext(Id casterId, Id skillId, IReadOnlyList<Id> targets, ActionCastContext context) =>
             _pipeline.CastSkillWithContext(casterId, skillId, targets, context);
 
+        /// <summary>带宽限条件的施法请求（手感设计/01 第 2.4 节，M2-B 加法），见 <see cref="CastPipeline.CastSkillWithContext(Id, Id, IReadOnlyList{Id}, ActionCastContext, IReadOnlyList{Id}?)"/>。</summary>
+        public CastResult CastSkillWithContext(
+            Id casterId, Id skillId, IReadOnlyList<Id> targets, ActionCastContext context, IReadOnlyList<Id>? graceConditions) =>
+            _pipeline.CastSkillWithContext(casterId, skillId, targets, context, graceConditions);
+
         /// <summary>
         /// 移动输入到来：时间线动作进行中且 <c>move</c> 类取消窗口此刻打开时取消该动作（手感设计/01 第 3.4 节），否则忽略。
         /// 与 <see cref="NotifyMoved"/>（单位位置发生变化）不同——后者对时间线动作不生效。

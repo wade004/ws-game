@@ -167,6 +167,9 @@ namespace Core.Rules.Skill
         private readonly Dictionary<Id, ComboChain> _comboChains = new Dictionary<Id, ComboChain>();
         private PendingStart? _pendingStart;
 
+        /// <summary>本次施法请求携带的宽限条件名（带宽限条件的 CastSkillWithContext 设置，调用结束清空）。</summary>
+        private IReadOnlyList<Id>? _graceConditions;
+
         /// <summary>true 时 TryStartCast 在步骤 8 之前返回、Fail 不发事件（取消进入的"先验证再取消"探测，见 TryStartCancelInto）。</summary>
         private bool _probeOnly;
 
@@ -186,9 +189,20 @@ namespace Core.Rules.Skill
         /// 带上下文的施法请求（按下瞬间方向、蓄力按住时长）：与 <see cref="CastSkill"/> 完全一致，只是把上下文交给随后
         /// 开始的时间线动作；非时间线技能忽略上下文。
         /// </summary>
-        public CastResult CastSkillWithContext(Id casterId, Id skillId, IReadOnlyList<Id> targets, ActionCastContext context)
+        public CastResult CastSkillWithContext(Id casterId, Id skillId, IReadOnlyList<Id> targets, ActionCastContext context) =>
+            CastSkillWithContext(casterId, skillId, targets, context, null);
+
+        /// <summary>
+        /// 带宽限条件的施法请求（手感设计/01 第 2.4 节）：<paramref name="graceConditions"/> 是发起这次施法的输入动作声明的宽限条件名
+        /// （<c>found.input_action.grace_conditions</c>）。非时间线技能的步骤 7（距离与视线）本应拒绝时，若这些条件全部满足
+        /// （<see cref="IGraceQuery.AreAllSatisfied"/>）且至少有一个"当前为假、仅因宽限而满足"，则视为满足；其余步骤不受影响。
+        /// 为空或没有宽限查询（<see cref="TimelineServices.Grace"/>）时与四参数重载完全一致。
+        /// </summary>
+        public CastResult CastSkillWithContext(
+            Id casterId, Id skillId, IReadOnlyList<Id> targets, ActionCastContext context, IReadOnlyList<Id>? graceConditions)
         {
             _pendingStart = new PendingStart(false, 0, default, context);
+            _graceConditions = graceConditions != null && graceConditions.Count > 0 ? graceConditions : null;
             try
             {
                 return CastSkill(casterId, skillId, targets);
@@ -196,7 +210,32 @@ namespace Core.Rules.Skill
             finally
             {
                 _pendingStart = null;
+                _graceConditions = null;
             }
+        }
+
+        /// <summary>
+        /// 步骤 7 的宽限判定（手感设计/01 第 2.4 节）：本次施法携带的宽限条件全部满足、且至少一个仅靠宽限满足（当前为假）时为 true。
+        /// 条件当前全为真却仍被步骤 7 拒绝，说明这些条件与被拒的几何无关，不放行。
+        /// </summary>
+        private bool GraceCoversStep7(Id casterId)
+        {
+            var conditions = _graceConditions;
+            var grace = _timeline?.Grace;
+            if (conditions == null || grace == null || !grace.AreAllSatisfied(casterId, conditions))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < conditions.Count; i++)
+            {
+                if (grace.IsInGrace(casterId, conditions[i]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // -----------------------------------------------------------------

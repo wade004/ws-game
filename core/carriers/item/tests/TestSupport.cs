@@ -41,6 +41,9 @@ namespace Tests.Carriers.Item
                 new EventDefinition(RulesEventKeys.FeelWeaponChanged, "feel",
                     new[] { "unitId", "previousMainRef", "mainRef", "offhandRef", "previousFamily", "family", "feelVersion" }),
                 new EventDefinition(Core.Foundation.SaveSystem.SaveEventKeys.SaveLoaded, "save", new[] { "slotId" }),
+                // 换装链单位状态口径（手感落地 M2-B）：订阅实体创建/销毁（EquipmentFeelChainTests 里 Enqueue 这两个事件）。
+                new EventDefinition(Core.Foundation.SimLoop.SimEventKeys.EntityCreated, "sim", new[] { "entityId", "kind", "displayId" }),
+                new EventDefinition(Core.Foundation.SimLoop.SimEventKeys.EntityDestroyed, "sim", new[] { "entityId" }),
             });
 
             return new EventBus(catalog);

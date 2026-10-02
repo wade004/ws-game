@@ -59,11 +59,22 @@ namespace Core.Foundation.Feel
     public sealed class FeelWeaponCatalog
     {
         private readonly Dictionary<string, FeelWeaponInfo> _byRef = new Dictionary<string, FeelWeaponInfo>(StringComparer.Ordinal);
+        private readonly IDataRegistryView _registry;
 
         public FeelWeaponCatalog(IDataRegistryView registry)
         {
-            if (registry == null) throw new ArgumentNullException(nameof(registry));
-            if (!registry.TryGetAll(FeelTables.Weapon, out var records))
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+            Reload();
+        }
+
+        /// <summary>
+        /// 数据热加载后重读全部 <c>feel.weapon</c> 行（手感落地 M2-B）：整体替换目录内容；表不存在视为空目录。
+        /// 已经持有 <see cref="FeelWeaponInfo"/> 的调用方拿到的是旧行的不可变快照，不受影响。
+        /// </summary>
+        public void Reload()
+        {
+            _byRef.Clear();
+            if (!_registry.TryGetAll(FeelTables.Weapon, out var records))
             {
                 return;
             }

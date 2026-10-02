@@ -288,7 +288,10 @@ namespace Core.Foundation.Feel
                 sorted.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
                 for (var i = 0; i < sorted.Count; i++)
                 {
-                    for (var k = 0; k < sorted[i].Writes.Count; k++) layer.Add(new SourcedWrite(sorted[i].Key, sorted[i].Writes[k]));
+                    for (var k = 0; k < sorted[i].Writes.Count; k++)
+                    {
+                        layer.Add(new SourcedWrite(sorted[i].Key, StackWrite(sorted[i].Writes[k], sorted[i].Stacks)));
+                    }
                 }
             }
             Flush(work, FeelLayer.Temporary, layer);
@@ -396,6 +399,20 @@ namespace Core.Foundation.Feel
                 }
                 layer.Add(new SourcedWrite(row.Id, w));
             }
+        }
+
+        /// <summary>
+        /// 条目层数叠加（手感设计/05 第 6 节，M2-B）：数值 <c>multiply</c> 连乘 n 次（逐次相乘，不用 <c>Math.Pow</c>，保证确定性），数值 <c>add</c> 累加 n 次
+        /// （同样逐次累加）；<c>set</c> 与列表操作幂等，原样返回。层数为 1 时原样返回（既有行为逐位不变）。
+        /// </summary>
+        private static FeelWrite StackWrite(FeelWrite write, int stacks)
+        {
+            if (stacks <= 1 || write.Value.Kind != FeelValueKind.Number) return write;
+            if (write.Op != FeelOp.Multiply && write.Op != FeelOp.Add) return write;
+            var unit = write.Value.AsNumber();
+            var total = write.Op == FeelOp.Multiply ? 1.0 : 0.0;
+            for (var i = 0; i < stacks; i++) total = write.Op == FeelOp.Multiply ? total * unit : total + unit;
+            return new FeelWrite(write.Field, write.Op, FeelValue.Of(total));
         }
 
         private void Flush(Work work, FeelLayer layerNumber, List<SourcedWrite> layer)
