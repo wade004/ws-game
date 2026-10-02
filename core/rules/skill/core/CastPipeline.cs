@@ -691,7 +691,7 @@ namespace Core.Rules.Skill
                 {
                     foreach (var targetId in resolvedTargets)
                     {
-                        if (Vec2.Distance(casterPos, _units.GetPosition(targetId)) > def.Range)
+                        if (RangeDistance(casterId, casterPos, _units.GetPosition(targetId), targetId) > def.Range)
                         {
                             return Fail(casterId, skillId, CastFailureReason.OutOfRange, presetCastInstanceId);
                         }
@@ -926,6 +926,22 @@ namespace Core.Rules.Skill
         }
 
         /// <summary>
+        /// 射程检查用的距离：缺省（<see cref="SkillOptions.SpatialRange"/> 关）就是平面距离，与此前逐位一致；开启时含高度差
+        /// （目标为 null 表示地面坐标，落点高度取地面 0）。
+        /// </summary>
+        private double RangeDistance(Id casterId, Vec2 casterPos, Vec2 targetPos, Id? targetId)
+        {
+            var planar = Vec2.Distance(casterPos, targetPos);
+            if (!_options.SpatialRange)
+            {
+                return planar;
+            }
+
+            var dh = (targetId.HasValue ? _units.GetHeightOffset(targetId.Value) : 0.0) - _units.GetHeightOffset(casterId);
+            return Math.Sqrt(planar * planar + dh * dh);
+        }
+
+        /// <summary>
         /// 地面坐标专属校验：射程/视线仅当 <c>def.Range &gt; 0</c> 时生效（<c>0</c> 表示无限制，见
         /// 06 第 3.1 节、<see cref="TryStartCast"/> 步骤 7 同一惯例）；可行走校验与射程无关，只要
         /// 注入了 <see cref="_navigation"/> 且该施法者能取得地图 id（<see cref="IUnitAccess.GetMapId"/>）
@@ -940,7 +956,7 @@ namespace Core.Rules.Skill
             if (def.Range > 0 && !graceCovered)
             {
                 var casterPos = _units.GetPosition(casterId);
-                if (Vec2.Distance(casterPos, point) > def.Range)
+                if (RangeDistance(casterId, casterPos, point, null) > def.Range)
                 {
                     return CastFailureReason.OutOfRange;
                 }

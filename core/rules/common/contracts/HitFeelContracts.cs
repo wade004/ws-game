@@ -123,6 +123,36 @@ namespace Core.Rules.Common
     {
         /// <summary>把单位抛起，使其升到脚下起再升高 <paramref name="apexHeightWorld"/>（世界单位，正数）的顶点后落回地面。</summary>
         void BeginLaunch(Id unitId, double apexHeightWorld);
+
+        /// <summary>
+        /// 带叠加语义的击飞（ADR-0130 追加决定"击飞叠加"，手感档案 <c>launch_stack</c>/<c>launch_stack_cap</c>）：
+        /// <paramref name="stack"/> 为 <see cref="LaunchStackMode.Restart"/> 与 <see cref="BeginLaunch(Id, double)"/> 完全一致（缺省）；
+        /// 为 <see cref="LaunchStackMode.Add"/> 且单位已在空中时，把这次击飞的初速<b>叠加到当前竖直速度上</b>（下落中被击飞先抵消下落速度），
+        /// <paramref name="stackCapApexWorld"/>（&gt; 0 时）把叠加后的向上初速限制在"升到该顶点高度所需的初速"以内。
+        /// 默认接口成员：忽略叠加语义，退化为 <see cref="BeginLaunch(Id, double)"/>（既有实现无需改动）。
+        /// </summary>
+        void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld) =>
+            BeginLaunch(unitId, apexHeightWorld);
+    }
+
+    /// <summary>
+    /// 腾空查询（竖直运动服务实现；ADR-0130 追加决定"腾空受击"）：受击裁决据此决定是否应用 <c>air_hit_reaction</c>。
+    /// 缺省不接——一律视为在地面，行为与 1.95.0 一致。
+    /// </summary>
+    public interface IAirborneQuery
+    {
+        /// <summary>该单位此刻是否在空中。</summary>
+        bool IsAirborne(Id unitId);
+    }
+
+    /// <summary>击飞叠加方式（手感档案 <c>launch_stack</c>）。</summary>
+    public enum LaunchStackMode
+    {
+        /// <summary>重新抛起：起点为当前高度、初速由本次顶点高度重算，不叠加速度（缺省，1.95.0 行为）。</summary>
+        Restart = 0,
+
+        /// <summary>叠加：本次击飞的初速加在当前竖直速度上，可选上限。</summary>
+        Add = 1,
     }
 
     /// <summary>

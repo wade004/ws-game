@@ -2433,6 +2433,11 @@ namespace Adapter.Unity.Presentation
 
             // ADR-0111：探针以闭包传入、每次调用读取 CombatProbe 当前值（未赋值时恒为非战斗）。
             _animStateMachine = new AnimStateMachine(_bus!, entityId => CombatProbe?.Invoke(entityId) ?? false);
+            // ADR-0130 追加决定（空中姿势）：姿势上下文带空中阶段时，状态机据此进出 Jump（没有 AirPoseFeeder 喂阶段时无任何影响）。
+            if (_poseContext != null)
+            {
+                _animStateMachine.AttachAirPhaseSource(_poseContext, subscribe: false); // 来源上只留解析器那一个订阅，由它驱动 ApplyAirPhase
+            }
             _animClipResolver = new AnimClipResolver(
                 _animStateMachine,
                 defaultClipsForEntity: entityId => _animClipsByEntity.TryGetValue(entityId, out var clips) ? clips : null,

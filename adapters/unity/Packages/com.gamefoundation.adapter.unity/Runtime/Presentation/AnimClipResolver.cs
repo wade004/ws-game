@@ -171,7 +171,12 @@ namespace Adapter.Unity.Presentation
             }
         }
 
-        private void OnPoseContextChanged(Id entityId) => Refresh(entityId);
+        private void OnPoseContextChanged(Id entityId)
+        {
+            // 空中阶段：先让状态机进出 Jump（状态机没挂空中阶段来源时无操作），再按当前状态重新解析剪辑。
+            _stateMachine.ApplyAirPhase(entityId);
+            Refresh(entityId);
+        }
 
         private void OnStateChangedWithSkill(Id entityId, AnimState from, AnimState to, Id? triggerSkillId) =>
             PlayResolvedClip(entityId, to, triggerSkillId);
@@ -192,7 +197,9 @@ namespace Adapter.Unity.Presentation
         public void Refresh(Id entityId)
         {
             var state = _stateMachine.GetState(entityId);
-            if (state != AnimState.Idle && state != AnimState.Move)
+            // ADR-0130 追加决定（空中姿势）：Jump 状态下空中阶段（rise/fall/land）变化时也重新解析——每个阶段是不同剪辑。
+            var airJump = state == AnimState.Jump && _poseContext != null && _poseContext.GetContext(entityId).Air != AirPhase.None;
+            if (state != AnimState.Idle && state != AnimState.Move && !airJump)
             {
                 return;
             }
@@ -315,6 +322,26 @@ namespace Adapter.Unity.Presentation
         {
             var stateKey = StateKey(state);
             PoseRequest request;
+
+            // ADR-0130 追加决定（空中姿势）：有空中阶段时 jump/hit/attack 走固定回落链
+            // （jump.rise|fall|land -> jump -> idle；hit.air -> hit.launch -> hit；attack.air[.族] -> attack.air -> attack[.族] -> attack）。
+            // 没有空中阶段（没接 AirPoseFeeder 或在地面）时不进本分支，解析与改动前逐位一致。
+            if (allowVariant && _poseContext != null && _poseContext.GetContext(entityId).TryGetAirRequest(stateKey, out var airRequest))
+            {
+                Func<string, bool>? airUsable = null;
+                if (_isClipReady != null)
+                {
+                    airUsable = tableKey =>
+                    {
+                        var clip = table[tableKey];
+                        return (_lastPlayedClip.TryGetValue(entityId, out var playing) && playing.Equals(clip))
+                            || _isClipReady(entityId, clip);
+                    };
+                }
+
+                return PoseResolver.TryResolve(airRequest, table, out var airResolved, out _, airUsable) ? airResolved : (Id?)null;
+            }
+
             if (!allowVariant)
             {
                 request = PoseRequest.Base(stateKey);

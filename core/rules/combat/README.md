@@ -690,4 +690,11 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 1. **字段**：手感档案新增可选判定型数值字段 `launch_height`（体型倍数，0..10，缺省无值 = 不击飞；`FeelFieldNames.LaunchHeight`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
 2. **口径**：反应达到 `knockback`/`knockdown` 时，击飞顶点高度（世界单位）= 攻击方 `launch_height`（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一张倍率表、同一个抗性读数）；与击退同一提交时机（目标顿帧结束那个 tick）。击飞与击退互相独立：`knockback_distance` 为 0 也击飞，`launch_height` 缺省则只击退（`SubmitKnockback` 只在距离 > 0 时提交击退、顶点 > 0 时提交击飞，旧行为不变）。
 3. **提交口**：`rules/common` 新增 `ILaunchSink.BeginLaunch(unitId, apexHeightWorld)`；`HitFeelHost.Launch` 缺省 null（不接就不击飞）。实现是单位载体层的 `VerticalMotionHost`（见 unit README），由 `CarriersFeelAssembly` 在装配了竖直轴时接上。
-4. **已知局限**：击飞顶点不看目标体型（`launch_height` 已是体型倍数，标定参考身高统一换算）；击飞中的目标仍按硬直/倒地走既有流程，不因腾空改变反应时长；没有"空中受击"的专属反应与"落地事件"（落地只体现在高度回到 0，实验室以度量记录落地 tick）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
+4. **已知局限**：击飞顶点不看目标体型（`launch_height` 已是体型倍数，标定参考身高统一换算）；击飞中的目标仍按硬直/倒地走既有流程，不因腾空改变反应时长；没有"落地事件"（落地只体现在高度回到地面高度，实验室以度量记录落地 tick）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
+
+## 判断记录（空中受击反应与击飞叠加，2026-10-03，M4-V，ADR-0130 追加决定）
+
+1. **字段（均为可选判定型字段，缺省无值 = 与改动前逐位一致）**：`air_hit_reaction`（枚举 `same|none|flinch|stagger_light|stagger|knockback|knockdown`，攻击方档案）、`launch_stack`（`restart|add`）、`launch_stack_cap`（体型倍数，0..20，缺省无上限）；注册在 `FeelFields`。
+2. **空中受击反应**：目标此刻在空中（`HitFeelHost.Airborne`，`IAirborneQuery`，`CarriersFeelAssembly` 在竖直运动服务是 `IAirborneQuery` 时接线）且攻击方声明了 `air_hit_reaction`（非 `same`）时，在韧性/冲击等级映射之后、`reaction_cap` 封顶之前把反应替换成该值；不改 `Death`。没有竖直轴时没有空中单位，字段被忽略。
+3. **击飞叠加**：`launch_stack = add` 时 `SubmitKnockback` 以 `LaunchStackMode.Add` 与上限调 `BeginLaunch`；缺省仍是重新起算。
+4. **已知局限**：`air_hit_reaction` 按攻击方档案取值，目标侧没有对应的"空中受击抗性"；叠加上限封的是叠加后的初速（即相对起算高度的顶点），不封绝对高度。测试：`tests/HitFeelHostTests.cs` 的 `AirHitReaction_*`、`LaunchStack_*`。

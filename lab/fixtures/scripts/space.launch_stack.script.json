@@ -1,0 +1,78 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.launch_stack",
+    "scriptVersion": 1,
+    "description": "空间扩展·击飞叠加（ADR-0130 追加决定）：预设 space_launch_stack（击飞高度 1.2 身高、launch_stack = add、上限 2 身高）。玩家连挥两下，第二下打中仍在空中的木桩：第二下发生在木桩仍在上升时：叠加模式在当前竖直速度上叠加初速，被上限封住——顶点 = 起算时的高度 + 上限 2；对照变体（预设 space_launch_restart，launch_stack = restart）以新初速重新起算——顶点 = 起算时的高度 + 1.2。动作式格子里第二下被第一下的时间线吞掉，只演示一次击飞。平面格子没有竖直轴，木桩只被击退。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_launch_stack",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 140,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_slash"
+    },
+    "spaceExt": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 14,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 15,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "two_launches_in_targeted_cells",
+      "cells": [
+        "side_2d_targeted",
+        "volume_targeted",
+        "2d_targeted",
+        "2_5d_targeted",
+        "3d_targeted"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Knockback:2",
+      "note": "目标选择式：两下都是击退（击飞由叠加模式决定高度，不改变反应）。"
+    }
+  ]
+}

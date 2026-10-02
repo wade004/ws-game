@@ -51,6 +51,12 @@ namespace Lab
         /// <summary>每个靶子的逐步脚下高度（出场标签 → 序列）。</summary>
         public SortedDictionary<string, List<double>> DummyHeights { get; } = new SortedDictionary<string, List<double>>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// 竖直轴能力包补完的扩展记录（脚本声明了 <see cref="ScriptSpaceOptions"/> 且格子带竖直轴时才有；否则为 null，度量组 <c>space_ext</c>
+        /// 不出现）。
+        /// </summary>
+        public SpaceExtRecording? Ext { get; set; }
+
         public SpaceRecording(string model, bool verticalAxis, double gravity, double jumpHeight, bool depthLocked)
         {
             Model = model;
@@ -58,6 +64,70 @@ namespace Lab
             Gravity = gravity;
             JumpHeight = jumpHeight;
             DepthLocked = depthLocked;
+        }
+    }
+
+    /// <summary>一次空中姿势请求的解析记录（脚本声明了合成姿势键表才有）。</summary>
+    public sealed class AirPoseRecord
+    {
+        public int Tick { get; }
+
+        /// <summary>请求来源：<c>phase</c>（玩家跳跃阶段）、<c>hit</c>（目标受击）、<c>attack</c>（玩家出手）。</summary>
+        public string Kind { get; }
+
+        public string Entity { get; }
+
+        /// <summary>最具体的请求键（链头）。</summary>
+        public string Requested { get; }
+
+        /// <summary>实际取到的键；链上无一命中为空串。</summary>
+        public string Resolved { get; }
+
+        /// <summary>回落深度（0 = 链头命中）。</summary>
+        public int Depth { get; }
+
+        public AirPoseRecord(int tick, string kind, string entity, string requested, string resolved, int depth)
+        {
+            Tick = tick;
+            Kind = kind;
+            Entity = entity;
+            Requested = requested;
+            Resolved = resolved;
+            Depth = depth;
+        }
+    }
+
+    /// <summary>
+    /// 空间语义扩展记录（ADR-0130 追加决定：空中控制/多段跳、地形、空中姿势）。采样口径同 <see cref="SpaceRecording"/>：每个宿主固定步末尾一份。
+    /// </summary>
+    public sealed class SpaceExtRecording
+    {
+        public ScriptSpaceOptions Options { get; }
+
+        /// <summary>每个固定步末尾玩家是否腾空（竖直运动服务口径，不是"高度大于 0"）。</summary>
+        public List<bool> PlayerAirborne { get; } = new List<bool>();
+
+        /// <summary>每个固定步末尾玩家的竖直速度。</summary>
+        public List<double> PlayerVerticalSpeeds { get; } = new List<double>();
+
+        /// <summary>每个固定步玩家是否提交了移动请求。</summary>
+        public List<bool> PlayerMoveRequested { get; } = new List<bool>();
+
+        /// <summary>每个固定步末尾玩家的空中阶段（<c>rise</c>/<c>fall</c>/<c>land</c>；没有为空串；没装姿势装置时全空）。</summary>
+        public List<string> PlayerAirPhases { get; } = new List<string>();
+
+        /// <summary>被接受的跳跃里请求发生时玩家已腾空的次数（空中跳跃）。</summary>
+        public int AirJumpStarts { get; set; }
+
+        /// <summary>请求发生时玩家已腾空、被拒绝的跳跃请求数。</summary>
+        public int AirJumpRefusals { get; set; }
+
+        /// <summary>空中姿势解析记录（按发生顺序）。</summary>
+        public List<AirPoseRecord> AirPoses { get; } = new List<AirPoseRecord>();
+
+        public SpaceExtRecording(ScriptSpaceOptions options)
+        {
+            Options = options;
         }
     }
 }

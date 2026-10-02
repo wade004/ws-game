@@ -214,5 +214,13 @@ namespace Core.Rules.Skill
         /// <c>skill.def.timeline</c> 的技能，不影响任何既有技能。
         /// </summary>
         public double ActionStepSeconds { get; set; } = 1.0 / 60.0;
+
+        /// <summary>
+        /// 施法射程是否用含高度差的三维距离（体积空间，ADR-0130 追加决定"三维射程"）：<c>false</c>（缺省）= 射程检查只比平面距离
+        /// （与 1.95.0 逐位一致）；<c>true</c> = 射程检查用 <c>sqrt(平面距离² + 高度差²)</c>，高度差取施法者与目标脚下高度
+        /// （<c>IUnitAccess.GetHeightOffset</c>）之差，地面坐标施法的落点高度取地面 0。只影响 <c>range &gt; 0</c> 的技能的射程检查，
+        /// 不影响视线、目标选择的"最近"排序（那是 <c>TargetingOptions.SpatialDistance</c>）。
+        /// </summary>
+        public bool SpatialRange { get; set; }
     }
 }

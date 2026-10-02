@@ -28,6 +28,7 @@ namespace Presentation.Render
             public int FeelVersion = -1;
             public string? Family;
             public string? Variant;
+            public AirPhase Air;
             public PoseContext Published;
         }
 
@@ -82,6 +83,15 @@ namespace Presentation.Render
             Publish(entityId, e);
         }
 
+        /// <summary>设置空中阶段（由 <see cref="AirPoseFeeder"/> 按竖直运动喂入；<see cref="AirPhase.None"/> 清除）。</summary>
+        public void SetAirPhase(Id entityId, AirPhase phase)
+        {
+            if (phase == AirPhase.None && !_entries.ContainsKey(entityId)) return;
+            var e = GetOrAdd(entityId);
+            e.Air = phase;
+            Publish(entityId, e);
+        }
+
         /// <summary>实体销毁/重生时清理其记账。</summary>
         public void Forget(Id entityId) => _entries.Remove(entityId);
 
@@ -97,7 +107,7 @@ namespace Presentation.Render
 
         private void Publish(Id entityId, Entry e)
         {
-            var now = new PoseContext(e.Gait.Current, e.Family, e.Variant);
+            var now = new PoseContext(e.Gait.Current, e.Family, e.Variant, e.Air);
             if (now.Equals(e.Published))
             {
                 return;

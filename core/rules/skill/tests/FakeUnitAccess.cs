@@ -54,6 +54,17 @@ namespace Tests.Rules.Skill
 
         public void SetPosition(Id unitId, Vec2 position) => _positions[unitId] = position;
 
+        private readonly Dictionary<Id, double> _heights = new Dictionary<Id, double>();
+
+        /// <summary>登记单位脚下高度（体积空间，供 <see cref="GetHeightOffset"/>）；未登记为 0。</summary>
+        public FakeUnitAccess SetHeight(Id unitId, double height)
+        {
+            _heights[unitId] = height;
+            return this;
+        }
+
+        public double GetHeightOffset(Id unitId) => _heights.TryGetValue(unitId, out var h) ? h : 0.0;
+
         public Id GetFaction(Id unitId) => _factions.TryGetValue(unitId, out var f) ? f : default;
 
         public int GetLevel(Id unitId) => _levels.TryGetValue(unitId, out var l) ? l : 1;

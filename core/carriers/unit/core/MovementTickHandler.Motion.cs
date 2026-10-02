@@ -306,6 +306,7 @@ namespace Core.Carriers.Unit
             {
                 var ratio = RatioFor(t, mode);
                 target = ratio == 1.0 ? baseSpeed : baseSpeed * ratio;
+                target = AirScaled(unit, target);
             }
 
             MotionMath.StepRegular(
@@ -336,13 +337,13 @@ namespace Core.Carriers.Unit
                     Vec2? hit;
                     if (profile.WallSlide)
                     {
-                        var withNormal = _navigation.RaycastWithNormal(unit.MapId, from, newPos);
+                        var withNormal = NavRaycastWithNormal(unit, from, newPos);
                         hit = withNormal?.Point;
                         hitNormal = withNormal?.Normal ?? Vec2.Zero;
                     }
                     else
                     {
-                        hit = _navigation.Raycast(unit.MapId, from, newPos);
+                        hit = NavRaycast(unit, from, newPos);
                     }
 
                     if (hit.HasValue)
@@ -475,7 +476,7 @@ namespace Core.Carriers.Unit
             if (slideLen <= ZeroLengthEpsilon) return false;
 
             var p2 = p1 + slide;
-            var hit2 = _navigation.RaycastWithNormal(unit.MapId, p1, p2);
+            var hit2 = NavRaycastWithNormal(unit, p1, p2);
             if (hit2.HasValue)
             {
                 var d2 = (hit2.Value.Point - p1).Length;
@@ -509,14 +510,14 @@ namespace Core.Carriers.Unit
             integrated = false;
             if (t == null || !t.Profile.ApplyToPathFollowing)
             {
-                return ResolveSpeed(unit.EntityId) * dt;
+                return AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt;
             }
 
             var profile = t.Profile;
             var baseSpeed = MotionBaseSpeed(unit, t);
             var accepts = _mot!.ModeRules.AcceptsInput(t.BaseMode, profile);
             var ratio = RatioFor(t, mode);
-            var target = !accepts ? 0.0 : (ratio == 1.0 ? baseSpeed : baseSpeed * ratio);
+            var target = !accepts ? 0.0 : AirScaled(unit, ratio == 1.0 ? baseSpeed : baseSpeed * ratio);
             if (profile.ArrivalDecel && target > 0.0)
             {
                 var remainingLength = 0.0;
@@ -625,7 +626,7 @@ namespace Core.Carriers.Unit
 
             if (_navigation != null)
             {
-                var hit = _navigation.Raycast(unit.MapId, from, to);
+                var hit = NavRaycast(unit, from, to);
                 if (hit.HasValue)
                 {
                     if (disp.Blocking == DisplacementBlockingPolicy.Revert)
@@ -869,13 +870,13 @@ namespace Core.Carriers.Unit
                     Vec2? hit;
                     if (slideBlocking)
                     {
-                        var withNormal = _navigation.RaycastWithNormal(unit.MapId, from, newPos);
+                        var withNormal = NavRaycastWithNormal(unit, from, newPos);
                         hit = withNormal?.Point;
                         hitNormal = withNormal?.Normal ?? Vec2.Zero;
                     }
                     else
                     {
-                        hit = _navigation.Raycast(unit.MapId, from, newPos);
+                        hit = NavRaycast(unit, from, newPos);
                     }
 
                     if (hit.HasValue)

@@ -1,0 +1,118 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.range_3d",
+    "scriptVersion": 1,
+    "description": "空间扩展·三维施法射程（ADR-0130 追加决定）：取最近技能射程 3、目标链圆形半径 3 高度 5；唯一的木桩平面位置 2.5、悬空 2.5（平面射程内、三维距离 3.54 超出射程）。三维射程打开时竖直格子（横版/体积）施法失败于射程，玩家向前走到 x=1.4（三维距离 2.9 在射程内）再施法成功；平面格子不装配竖直轴，两次都按平面距离成功。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "far_high"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_pick"
+    },
+    "spaceExt": {
+      "spatialRange": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 10,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 40,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 70,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 71,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "spatial_range_rejects_the_far_cast",
+      "cells": [
+        "side_2d_targeted",
+        "volume_targeted"
+      ],
+      "metric": "attack.cast_failed_reasons",
+      "op": "eq",
+      "value": "OutOfRange:1",
+      "note": "三维距离 3.54 超出射程 3：第一次施法失败于射程。"
+    },
+    {
+      "id": "in_range_after_walking_forward",
+      "cells": [
+        "side_2d_targeted",
+        "volume_targeted"
+      ],
+      "metric": "attack.cast_success",
+      "op": "eq",
+      "value": 1,
+      "note": "走到 x=1.4 后三维距离 2.9 在射程内：第二次施法成功。"
+    },
+    {
+      "id": "plane_range_is_planar",
+      "cells": [
+        "2d_targeted",
+        "2_5d_targeted",
+        "3d_targeted"
+      ],
+      "metric": "attack.cast_success",
+      "op": "eq",
+      "value": 2,
+      "note": "平面格子按平面距离（2.5）判射程：两次都成功。"
+    }
+  ]
+}

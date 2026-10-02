@@ -405,10 +405,12 @@ namespace Core.Rules.Targeting
             }
 
             var limit = chain.ShapeHeight.Value;
+            // 窗口中心 = 锚点脚下高度 + 形状自身的竖直偏移（缺省 0，与此前"以锚点为中心"逐位一致：x + 0.0 == x）。
+            var center = anchorHeight + chain.ShapeHeightOffset;
             var kept = new List<Id>(candidates.Count);
             foreach (var id in candidates)
             {
-                if (Math.Abs(_units.GetHeightOffset(id) - anchorHeight) <= limit)
+                if (Math.Abs(_units.GetHeightOffset(id) - center) <= limit)
                 {
                     kept.Add(id);
                 }

@@ -209,3 +209,7 @@ scene_router/
 接口本身不暴露这个引用，不同实例时 `ScenePostLoad` 钩子（跨图读档完成通知的补发点）永远不会触发，
 读档一直挂起且没有任何异常/诊断。新增这个属性纯粹是为了让 `AttachSceneRouter` 能在装配期做一次
 `ReferenceEquals` 比对；本模块自身的加载流程、事件时序不受影响。
+
+## 判断记录（`world.map.terrain` 与 `MapTerrainHeights`，2026-10-03，M4-V，ADR-0130 追加决定）
+
+`world.map` 新增可选字段 `terrain`：高度区域清单 `{min, max, ground?, slope?, ceiling?}`（轴对齐矩形；地面高度 = `ground + slope.x·(x−min.x) + slope.y·(y−min.y)`；`ceiling` 为绝对高度），后声明的盖住先声明的；区域之外与未声明该字段的地图地面 0、没有天花板。`MapTerrainHeights`（`ITerrainHeight2D` 的数据实现，`scene_router/contracts`）读登记表里全部 `world.map` 行的 `terrain`，查询是 O(区域数) 的纯函数，确定性成立；`VerticalAxisOptions.Terrain` 指向它才生效（否则字段被忽略）。更复杂的地形用引擎侧物理射线实现同一接口。测试：`tests/MapTerrainHeightsTests.cs`。

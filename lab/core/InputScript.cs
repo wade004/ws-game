@@ -146,14 +146,55 @@ namespace Lab
         /// <summary>覆盖格子缺省的靶子集 id（<c>lab.dummy_set</c>，手感场景，格式版本 3）；空取格子的靶子集。</summary>
         public string DummySetId { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 竖直轴能力包补完的运行选项（<c>spaceExt</c> 块，格式版本 3；空间语义脚本用，缺省 null = 全部取 1.95.0 的缺省行为）。
+        /// 只对装配竖直轴的格子生效（<c>side_2d</c>/<c>volume</c>）；平面格子忽略它，因此跨格子不变量不受影响。
+        /// </summary>
+        public ScriptSpaceOptions? SpaceExt { get; set; }
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
-        public bool UsesFeelFormat => Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0;
+        public bool UsesFeelFormat => Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
             Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
             || FeelCalibrationId.Length > 0
             || WeaponAttackSkills.Count > 0 || UnarmedAttackSkill.Length > 0;
+    }
+
+    /// <summary>
+    /// 脚本的竖直轴能力包补完选项（<c>meta.spaceExt</c>，ADR-0130 追加决定）：这些都是核心层的可选能力，实验室只是按脚本声明打开它们，
+    /// 不自建平行机制。击飞叠加（<c>launch_stack</c>/<c>launch_stack_cap</c>）、空中受击反应（<c>air_hit_reaction</c>）、目标链形状竖直偏移
+    /// （<c>height_offset</c>）本来就在数据里（预设/目标链），不需要宿主选项；这里只放必须由宿主装配期传入的东西。
+    /// </summary>
+    public sealed class ScriptSpaceOptions
+    {
+        /// <summary>空中水平控制比例（<c>VerticalAxisOptions.AirControl</c>）；null = 不限制（1.95.0 行为）。</summary>
+        public double? AirControl { get; set; }
+
+        /// <summary>空中跳跃次数上限（<c>VerticalAxisOptions.MaxAirJumps</c>）；null = 沿用 <c>AllowAirJump</c>。</summary>
+        public int? MaxAirJumps { get; set; }
+
+        /// <summary>台阶高度（<c>VerticalAxisOptions.StepHeight</c>）；null = 不做台阶阻挡。</summary>
+        public double? StepHeight { get; set; }
+
+        /// <summary>是否装配场景数据的高度场（<c>world.map.terrain</c>，经 <c>MapTerrainHeights</c> 读取）。</summary>
+        public bool Terrain { get; set; }
+
+        /// <summary>施法射程是否取三维距离（<c>SkillOptions.SpatialRange</c>）。</summary>
+        public bool SpatialRange { get; set; }
+
+        /// <summary>覆盖格子缺省的地形 id（<c>lab.arena</c>）；空取格子的地形。</summary>
+        public string ArenaId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 合成姿势集的键表（非空时宿主装出空中姿势装置：姿势选择器 + 空中阶段喂入器，并按固定回落链解析 <c>jump.*</c>/<c>hit.air</c>/<c>attack.air</c>
+        /// 请求）；空 = 不装。
+        /// </summary>
+        public List<string> PoseKeys { get; } = new List<string>();
+
+        /// <summary>合成姿势里玩家的武器族（空 = 不指定）。</summary>
+        public string PoseFamily { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -293,6 +334,11 @@ namespace Lab
             meta.FeelCalibrationId = LabJson.OptionalString(metaObj, "feelCalibrationId", what + ".meta") ?? string.Empty;
             meta.UnarmedAttackSkill = LabJson.OptionalString(metaObj, "unarmedAttackSkill", what + ".meta") ?? string.Empty;
             meta.DummySetId = LabJson.OptionalString(metaObj, "dummySet", what + ".meta") ?? string.Empty;
+            if (metaObj.TryGetValue("spaceExt", out var spaceExtValue) && spaceExtValue is JsonObject spaceExtObj)
+            {
+                meta.SpaceExt = ReadSpaceExt(spaceExtObj, what + ".meta.spaceExt");
+            }
+
             meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
             ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
             if (metaObj.TryGetValue("skillSlots", out var slots) && slots is JsonObject slotsObj)
@@ -394,6 +440,32 @@ namespace Lab
             }
         }
 
+        private static ScriptSpaceOptions ReadSpaceExt(JsonObject obj, string what)
+        {
+            var ext = new ScriptSpaceOptions();
+            if (obj.TryGetValue("airControl", out var ac) && !(ac is JsonNull))
+            {
+                ext.AirControl = ac is JsonNumber acn ? acn.Value : throw new LabFormatException($"{what}.airControl 必须是数值");
+            }
+
+            if (obj.TryGetValue("maxAirJumps", out var mj) && !(mj is JsonNull))
+            {
+                ext.MaxAirJumps = mj is JsonNumber mjn && mjn.TryGetInt64(out var mjl) ? (int)mjl : throw new LabFormatException($"{what}.maxAirJumps 必须是整数");
+            }
+
+            if (obj.TryGetValue("stepHeight", out var sh) && !(sh is JsonNull))
+            {
+                ext.StepHeight = sh is JsonNumber shn ? shn.Value : throw new LabFormatException($"{what}.stepHeight 必须是数值");
+            }
+
+            ext.Terrain = obj.TryGetValue("terrain", out var tr) && tr is JsonBool trb && trb.Value;
+            ext.SpatialRange = obj.TryGetValue("spatialRange", out var sr) && sr is JsonBool srb && srb.Value;
+            ext.ArenaId = LabJson.OptionalString(obj, "arena", what) ?? string.Empty;
+            ext.PoseFamily = LabJson.OptionalString(obj, "poseFamily", what) ?? string.Empty;
+            ReadStrings(obj, "poseKeys", ext.PoseKeys, what);
+            return ext;
+        }
+
         public string ToJson()
         {
             var meta = new JsonObjectBuilder()
@@ -422,6 +494,20 @@ namespace Lab
                 }
 
                 meta.Add("skillSlots", slotBuilder.Build());
+                if (Meta.SpaceExt != null)
+                {
+                    var ext = Meta.SpaceExt;
+                    var extBuilder = new JsonObjectBuilder();
+                    if (ext.AirControl.HasValue) extBuilder.Add("airControl", LabJson.Num(ext.AirControl.Value));
+                    if (ext.MaxAirJumps.HasValue) extBuilder.Add("maxAirJumps", LabJson.Num(ext.MaxAirJumps.Value));
+                    if (ext.StepHeight.HasValue) extBuilder.Add("stepHeight", LabJson.Num(ext.StepHeight.Value));
+                    if (ext.Terrain) extBuilder.Add("terrain", LabJson.Bool(true));
+                    if (ext.SpatialRange) extBuilder.Add("spatialRange", LabJson.Bool(true));
+                    if (ext.ArenaId.Length > 0) extBuilder.Add("arena", LabJson.Str(ext.ArenaId));
+                    if (ext.PoseKeys.Count > 0) extBuilder.Add("poseKeys", new JsonArray(ext.PoseKeys.ConvertAll(g => (JsonValue)LabJson.Str(g))));
+                    if (ext.PoseFamily.Length > 0) extBuilder.Add("poseFamily", LabJson.Str(ext.PoseFamily));
+                    meta.Add("spaceExt", extBuilder.Build());
+                }
             }
 
             if (Meta.UsesExtendedFormat)

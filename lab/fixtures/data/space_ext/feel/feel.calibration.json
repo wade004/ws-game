@@ -1,0 +1,42 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.calibration.lab_space_air_hit",
+      "description": "实验室空中受击标定：基础预设 feel.preset.space_air_hit；参考身高 1、基础移速 5，其余同动作式格子标定。",
+      "base_preset": "feel.preset.space_air_hit",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_launch_stack",
+      "description": "实验室击飞叠加标定：基础预设 feel.preset.space_launch_stack；参考身高 1、基础移速 5。",
+      "base_preset": "feel.preset.space_launch_stack",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_space_launch_restart",
+      "description": "实验室击飞叠加对照标定：基础预设 feel.preset.space_launch_restart；参考身高 1、基础移速 5。",
+      "base_preset": "feel.preset.space_launch_restart",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    }
+  ]
+}

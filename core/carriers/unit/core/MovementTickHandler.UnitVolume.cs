@@ -361,7 +361,7 @@ namespace Core.Carriers.Unit
                             if (_navigation != null && (p2 - p1).Length > ZeroLengthEpsilon)
                             {
                                 // 切向那一段同样要过地形裁决（滑开不能滑进墙里）。
-                                var wallHit = _navigation.Raycast(unit.MapId, p1, p2);
+                                var wallHit = NavRaycast(unit, p1, p2);
                                 if (wallHit.HasValue)
                                 {
                                     var wallDistance = (wallHit.Value - p1).Length;
@@ -469,7 +469,7 @@ namespace Core.Carriers.Unit
 
             if (_navigation != null && length > ZeroLengthEpsilon)
             {
-                var wallHit = _navigation.Raycast(unit.MapId, pos, p2);
+                var wallHit = NavRaycast(unit, pos, p2);
                 if (wallHit.HasValue)
                 {
                     var wallDistance = (wallHit.Value - pos).Length;

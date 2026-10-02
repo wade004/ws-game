@@ -335,6 +335,12 @@ namespace Core.Carriers.Assembly
                 rulesFeel.HitFeel.Host.Launch = launchSink;
             }
 
+            // 腾空查询（腾空受击反应 air_hit_reaction）：同样只在有竖直运动服务时接。
+            if (carriers.VerticalMotion is Core.Rules.Common.IAirborneQuery airborneQuery)
+            {
+                rulesFeel.HitFeel.Host.Airborne = airborneQuery;
+            }
+
             var system = new CarriersFeelSystem(
                 feel, resolver, rulesFeel, buffer, grace, slotBinding, actionBinding, weaponChain, sink, motion, options.LocalMoveActionName, subscriptions,
                 graceEvaluator);

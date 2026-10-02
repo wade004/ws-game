@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.SimLoop;
 
 namespace Core.Carriers.Unit
@@ -23,18 +24,32 @@ namespace Core.Carriers.Unit
     /// 竖直运动是连续时间模型的概念，回合制没有"下落过程"。
     /// </para>
     /// </summary>
-    public sealed class VerticalMotionHost : IVerticalMotion, Core.Rules.Common.ILaunchSink
+    public sealed class VerticalMotionHost : IVerticalMotion, Core.Rules.Common.ILaunchSink, Core.Rules.Common.IAirborneQuery
     {
         private sealed class Flight
         {
             public double StartHeight;
             public double InitialSpeed;
             public double Elapsed;
+
+            /// <summary>本次离地以来已用掉的空中跳跃次数（地面起跳不计）。</summary>
+            public int AirJumps;
         }
+
+        /// <summary>地形能力装配后逐单位的"贴地"簿记：上一次观测的位置与是否贴着地面（只在 <see cref="VerticalAxisOptions.Terrain"/> 非空时使用）。</summary>
+        private sealed class Walker
+        {
+            public Vec2 LastPosition;
+            public bool Grounded;
+        }
+
+        /// <summary>脚下与地面的距离不超过它视为"贴着地面"（浮点容差，不是口味配置）。</summary>
+        private const double GroundEpsilon = 1e-6;
 
         private readonly IWorldSim _world;
         private readonly VerticalAxisOptions _options;
         private readonly Dictionary<Id, Flight> _flights = new Dictionary<Id, Flight>();
+        private readonly Dictionary<Id, Walker> _walkers = new Dictionary<Id, Walker>();
         private readonly List<Id> _scratch = new List<Id>();
 
         public VerticalMotionHost(IWorldSim world, VerticalAxisOptions options)
@@ -47,10 +62,32 @@ namespace Core.Carriers.Unit
         /// <summary>当前在空中的单位数（诊断用）。</summary>
         public int AirborneCount => _flights.Count;
 
+        /// <summary>是否声明了地形高度能力（<see cref="VerticalAxisOptions.Terrain"/> 非空）。</summary>
+        public bool TerrainActive => _options.Terrain != null;
+
+        /// <summary>是否启用台阶/坡度阻挡（声明了地形与 <see cref="VerticalAxisOptions.StepHeight"/>）。</summary>
+        public bool StepBlockingActive => _options.Terrain != null && _options.StepHeight.HasValue;
+
         public bool IsAirborne(Id unitId) => _flights.ContainsKey(unitId);
 
         public double GetVerticalSpeed(Id unitId) =>
             _flights.TryGetValue(unitId, out var f) ? f.InitialSpeed - _options.Gravity * f.Elapsed : 0.0;
+
+        public System.Collections.Generic.IReadOnlyList<Id> AirborneUnits()
+        {
+            var list = new System.Collections.Generic.List<Id>(_flights.Keys);
+            list.Sort();
+            return list;
+        }
+
+        public int AirJumpsUsed(Id unitId) => _flights.TryGetValue(unitId, out var f) ? f.AirJumps : 0;
+
+        public double GetAirControl(Id unitId) =>
+            _options.AirControl.HasValue && _flights.ContainsKey(unitId) ? _options.AirControl.Value : 1.0;
+
+        /// <summary>该点的地面高度（没有地形能力时恒为 0）。</summary>
+        public double GroundHeightAt(Id mapId, Vec2 point) =>
+            _options.Terrain != null ? _options.Terrain.GetGroundHeight(mapId, point) : 0.0;
 
         public bool Launch(Id unitId, double initialSpeed)
         {
@@ -64,7 +101,7 @@ namespace Core.Carriers.Unit
                 return false;
             }
 
-            _flights[unitId] = new Flight { StartHeight = unit.HeightOffset, InitialSpeed = initialSpeed, Elapsed = 0.0 };
+            StartFlight(unitId, unit, initialSpeed);
             return true;
         }
 
@@ -81,24 +118,103 @@ namespace Core.Carriers.Unit
         /// <summary><see cref="Core.Rules.Common.ILaunchSink"/>：受击裁决的击飞，转 <see cref="LaunchToApex"/>。</summary>
         public void BeginLaunch(Id unitId, double apexHeightWorld) => LaunchToApex(unitId, apexHeightWorld);
 
-        public bool Jump(Id unitId)
+        /// <summary>
+        /// 带叠加语义的击飞（<see cref="Core.Rules.Common.ILaunchSink.BeginLaunch(Id, double, Core.Rules.Common.LaunchStackMode, double)"/>）：
+        /// 叠加且单位已在空中时，新初速 = 当前竖直速度 + 本次击飞初速（<c>sqrt(2·g·H)</c>），起点为当前高度；有上限（<paramref name="stackCapApexWorld"/> &gt; 0）
+        /// 时把结果限制在"升到该顶点高度所需初速"以内。叠加后初速可以仍为负（下落速度被部分抵消），照常从当前高度继续抛体。
+        /// 其余情形（重新抛起、单位在地面）与 <see cref="BeginLaunch(Id, double)"/> 一致。
+        /// </summary>
+        public void BeginLaunch(Id unitId, double apexHeightWorld, Core.Rules.Common.LaunchStackMode stack, double stackCapApexWorld)
         {
-            if (_flights.ContainsKey(unitId) && !_options.AllowAirJump)
+            if (stack != Core.Rules.Common.LaunchStackMode.Add || !_flights.TryGetValue(unitId, out var flight))
             {
-                return false;
+                BeginLaunch(unitId, apexHeightWorld);
+                return;
             }
 
-            return LaunchToApex(unitId, _options.JumpHeight);
-        }
+            if (!(apexHeightWorld > 0.0) || double.IsInfinity(apexHeightWorld))
+            {
+                throw new ArgumentOutOfRangeException(nameof(apexHeightWorld), apexHeightWorld, "顶点高度必须为正的有限数");
+            }
 
-        /// <summary>推进一步：对每个在空中的单位按累计飞行时间重算高度，落地的写 0 并结束飞行。</summary>
-        public void Advance(double dt)
-        {
-            if (_flights.Count == 0 || !(dt > 0.0))
+            if (!(_world.GetEntity(unitId) is Unit unit) || !unit.Alive)
             {
                 return;
             }
 
+            var speed = flight.InitialSpeed - _options.Gravity * flight.Elapsed + Math.Sqrt(2.0 * _options.Gravity * apexHeightWorld);
+            if (stackCapApexWorld > 0.0 && !double.IsInfinity(stackCapApexWorld))
+            {
+                var cap = Math.Sqrt(2.0 * _options.Gravity * stackCapApexWorld);
+                if (speed > cap)
+                {
+                    speed = cap;
+                }
+            }
+
+            StartFlight(unitId, unit, speed);
+        }
+
+        public bool Jump(Id unitId)
+        {
+            var airborne = _flights.TryGetValue(unitId, out var existing);
+            if (airborne && !AirJumpAllowed(existing!.AirJumps))
+            {
+                return false;
+            }
+
+            var airJumps = airborne ? existing!.AirJumps + 1 : 0;
+            if (!LaunchToApex(unitId, _options.JumpHeight))
+            {
+                return false;
+            }
+
+            _flights[unitId].AirJumps = airJumps;
+            return true;
+        }
+
+        private bool AirJumpAllowed(int used) =>
+            _options.MaxAirJumps.HasValue ? used < _options.MaxAirJumps.Value : _options.AllowAirJump;
+
+        /// <summary>
+        /// 以 <paramref name="initialSpeed"/>（可为 0 或负：离开平台的下落、叠加后仍向下）从单位当前高度开始一次飞行；已在空中则替换，
+        /// 空中跳跃计数沿用（被击飞不重置计数，也不会白送一次空中跳跃）。
+        /// </summary>
+        private void StartFlight(Id unitId, Unit unit, double initialSpeed)
+        {
+            var airJumps = _flights.TryGetValue(unitId, out var old) ? old.AirJumps : 0;
+            _flights[unitId] = new Flight { StartHeight = unit.HeightOffset, InitialSpeed = initialSpeed, Elapsed = 0.0, AirJumps = airJumps };
+            if (_walkers.TryGetValue(unitId, out var walker))
+            {
+                walker.Grounded = false;
+            }
+        }
+
+        /// <summary>
+        /// 推进一步：对每个在空中的单位按累计飞行时间重算高度，落地（脚下高度不高于该点地面）的写地面高度并结束飞行；
+        /// 上升中碰到天花板的竖直速度清零、从天花板高度起开始下落；声明了地形能力时再让贴地行走的单位贴合地面。
+        /// </summary>
+        public void Advance(double dt)
+        {
+            if (!(dt > 0.0))
+            {
+                return;
+            }
+
+            if (_flights.Count > 0)
+            {
+                AdvanceFlights(dt);
+            }
+
+            if (_options.Terrain != null)
+            {
+                FollowGround();
+            }
+        }
+
+        private void AdvanceFlights(double dt)
+        {
+            var terrain = _options.Terrain;
             _scratch.Clear();
             _scratch.AddRange(_flights.Keys);
             _scratch.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
@@ -109,22 +225,211 @@ namespace Core.Carriers.Unit
                 if (!(_world.GetEntity(id) is Unit unit))
                 {
                     _flights.Remove(id);
+                    _walkers.Remove(id);
                     continue;
                 }
 
                 flight.Elapsed += dt;
                 var t = flight.Elapsed;
                 var h = flight.StartHeight + flight.InitialSpeed * t - 0.5 * _options.Gravity * t * t;
-                if (h <= 0.0)
+                var ground = terrain != null ? terrain.GetGroundHeight(unit.MapId, unit.Position) : 0.0;
+                if (h <= ground)
                 {
-                    unit.HeightOffset = 0.0;
+                    unit.HeightOffset = ground;
                     _flights.Remove(id);
+                    MarkGrounded(id, unit);
+                    continue;
                 }
-                else
+
+                if (terrain != null)
                 {
-                    unit.HeightOffset = h;
+                    var ceiling = terrain.GetCeilingHeight(unit.MapId, unit.Position);
+                    var rising = flight.InitialSpeed - _options.Gravity * t > 0.0;
+                    if (rising && h >= ceiling && unit.HeightOffset < ceiling)
+                    {
+                        // 撞天花板：竖直速度清零，从天花板高度起开始下落（初速 0 的抛体）。
+                        unit.HeightOffset = ceiling;
+                        flight.StartHeight = ceiling;
+                        flight.InitialSpeed = 0.0;
+                        flight.Elapsed = 0.0;
+                        continue;
+                    }
+                }
+
+                unit.HeightOffset = h;
+            }
+        }
+
+        private void MarkGrounded(Id id, Unit unit)
+        {
+            if (_options.Terrain == null)
+            {
+                return;
+            }
+
+            _walkers[id] = new Walker { LastPosition = unit.Position, Grounded = true };
+        }
+
+        /// <summary>
+        /// 贴地行走（声明了地形能力才运行）：对每个不在空中的单位（按 Id 序）——首次观测时脚下低于地面的抬到地面、记下"是否贴地"；
+        /// 之后位置变化过且贴地的单位：新地面比脚下低超过 <see cref="VerticalAxisOptions.StepHeight"/> 时离地下落（初速 0 的抛体），
+        /// 否则脚下高度写成新位置的地面高度（上坡、下坡、小台阶）；悬空靶（脚下高于地面、从未贴地）保持静态高度，只在被地面顶到时抬起。
+        /// </summary>
+        private void FollowGround()
+        {
+            var terrain = _options.Terrain!;
+            var units = _world.QueryEntities(new EntityFilter(predicate: e => e is Unit));
+            for (var i = 0; i < units.Count; i++)
+            {
+                var unit = (Unit)units[i];
+                var id = unit.EntityId;
+                if (_flights.ContainsKey(id))
+                {
+                    continue;
+                }
+
+                var ground = terrain.GetGroundHeight(unit.MapId, unit.Position);
+                if (!_walkers.TryGetValue(id, out var walker))
+                {
+                    if (unit.HeightOffset < ground)
+                    {
+                        unit.HeightOffset = ground;
+                    }
+
+                    _walkers[id] = new Walker { LastPosition = unit.Position, Grounded = unit.HeightOffset - ground <= GroundEpsilon };
+                    continue;
+                }
+
+                if (unit.Position.Equals(walker.LastPosition))
+                {
+                    continue;
+                }
+
+                walker.LastPosition = unit.Position;
+                if (!walker.Grounded)
+                {
+                    if (unit.HeightOffset < ground)
+                    {
+                        unit.HeightOffset = ground;
+                    }
+
+                    continue;
+                }
+
+                var drop = unit.HeightOffset - ground;
+                if (_options.StepHeight.HasValue && drop > _options.StepHeight.Value)
+                {
+                    StartFlight(id, unit, 0.0);
+                    continue;
+                }
+
+                unit.HeightOffset = ground;
+            }
+
+            // 已销毁实体的簿记。
+            if (_walkers.Count > units.Count)
+            {
+                _scratch.Clear();
+                foreach (var key in _walkers.Keys)
+                {
+                    if (_world.GetEntity(key) == null)
+                    {
+                        _scratch.Add(key);
+                    }
+                }
+
+                for (var i = 0; i < _scratch.Count; i++)
+                {
+                    _walkers.Remove(_scratch[i]);
                 }
             }
+        }
+
+        // ------------------------------------------------------------------ 台阶 / 坡度阻挡（移动系统的地形阻挡出口）
+
+        /// <summary>
+        /// 沿线段 <paramref name="from"/> → <paramref name="to"/> 找第一个被地形台阶/坡度挡住的点；没有挡住（或没有启用台阶阻挡）返回 <c>null</c>。
+        /// 判定规则见 <see cref="VerticalAxisOptions.StepHeight"/>：按 <see cref="VerticalAxisOptions.StepSampleDistance"/> 取采样点，
+        /// 贴地单位比较相邻采样点的地面高度差、空中单位比较前方地面与当前脚下高度之差，超过台阶高度即挡；
+        /// 在挡住的那一段内二分到台阶边缘，因此返回的点就是台阶面所在位置（与导航阻挡的 <c>Raycast</c> 同口径，调用方照常回退一个到达容差）。
+        /// </summary>
+        public Vec2? TerrainBlockPoint(Unit unit, Vec2 from, Vec2 to)
+        {
+            if (!StepBlockingActive)
+            {
+                return null;
+            }
+
+            var terrain = _options.Terrain!;
+            var step = _options.StepHeight!.Value;
+            var delta = to - from;
+            var length = delta.Length;
+            if (length <= 1e-12)
+            {
+                return null;
+            }
+
+            var mapId = unit.MapId;
+            var airborne = _flights.ContainsKey(unit.EntityId);
+            var foot = unit.HeightOffset;
+            var samples = (int)Math.Ceiling(length / _options.StepSampleDistance);
+            if (samples < 1)
+            {
+                samples = 1;
+            }
+
+            var prev = from;
+            var prevGround = terrain.GetGroundHeight(mapId, from);
+            for (var i = 1; i <= samples; i++)
+            {
+                var p = i == samples ? to : from + delta * ((double)i / samples);
+                var g = terrain.GetGroundHeight(mapId, p);
+                var reference = airborne ? foot : prevGround;
+                if (g - reference > step)
+                {
+                    var lo = prev;
+                    var hi = p;
+                    for (var k = 0; k < 24; k++)
+                    {
+                        var mid = new Vec2((lo.X + hi.X) * 0.5, (lo.Y + hi.Y) * 0.5);
+                        if (terrain.GetGroundHeight(mapId, mid) - reference > step)
+                        {
+                            hi = mid;
+                        }
+                        else
+                        {
+                            lo = mid;
+                        }
+                    }
+
+                    return hi;
+                }
+
+                prev = p;
+                prevGround = g;
+            }
+
+            return null;
+        }
+
+        /// <summary>地形阻挡点 <paramref name="at"/> 处的表面法线（指向"低处"一侧，供贴墙滑动）：取地面高度梯度的反方向，梯度为零时取移动方向的反方向。</summary>
+        public Vec2 TerrainBlockNormal(Unit unit, Vec2 at, Vec2 moveDirection)
+        {
+            var terrain = _options.Terrain;
+            if (terrain != null)
+            {
+                var e = _options.StepSampleDistance * 0.5;
+                var gx = terrain.GetGroundHeight(unit.MapId, new Vec2(at.X + e, at.Y)) - terrain.GetGroundHeight(unit.MapId, new Vec2(at.X - e, at.Y));
+                var gy = terrain.GetGroundHeight(unit.MapId, new Vec2(at.X, at.Y + e)) - terrain.GetGroundHeight(unit.MapId, new Vec2(at.X, at.Y - e));
+                var len = Math.Sqrt(gx * gx + gy * gy);
+                if (len > 1e-12)
+                {
+                    return new Vec2(-gx / len, -gy / len);
+                }
+            }
+
+            var dl = moveDirection.Length;
+            return dl > 1e-12 ? new Vec2(-moveDirection.X / dl, -moveDirection.Y / dl) : Vec2.Zero;
         }
     }
 

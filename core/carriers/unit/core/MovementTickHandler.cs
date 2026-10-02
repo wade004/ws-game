@@ -40,6 +40,18 @@ namespace Core.Carriers.Unit
         private readonly MovementOptions _options;
         private readonly IExprDiagnostics _diagnostics;
         private readonly ISpatialQuery? _spatial;
+        private VerticalMotionHost? _vertical;
+
+        /// <summary>
+        /// 竖直轴服务（装配期由 <c>CarriersAssembly</c> 在 <see cref="MovementOptions.Vertical"/> 非空时回填；缺省 null = 没有竖直轴）：
+        /// 提供空中横向控制倍率（<see cref="VerticalAxisOptions.AirControl"/>）与地形台阶/坡度阻挡（<see cref="VerticalAxisOptions.StepHeight"/>）。
+        /// 为 null 时本类型的全部行为与引入本属性之前逐位一致。
+        /// </summary>
+        public VerticalMotionHost? VerticalAxis
+        {
+            get => _vertical;
+            set => _vertical = value;
+        }
 
         public MovementTickHandler(
             IUnitAccess units,
@@ -57,8 +69,10 @@ namespace Core.Carriers.Unit
             _auras = auras ?? throw new ArgumentNullException(nameof(auras));
             _movementHost = movementHost ?? throw new ArgumentNullException(nameof(movementHost));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
-            _navigation = navigation;
             _options = options ?? new MovementOptions();
+            // 竖直轴地形台阶阻挡（ADR-0130 追加决定）：声明了地形与台阶高度、却没有装配导航时，用"空旷场地"导航垫底，
+            // 让台阶阻挡与导航阻挡走同一套 Raycast 出口（空旷场地：处处可走、直线路径、没有阻挡，与没有导航时的直线兜底一致）。
+            _navigation = navigation ?? (_options.Vertical?.Terrain != null && _options.Vertical.StepHeight.HasValue ? new OpenFieldNavigation() : null);
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
             // spatial 是新增可选依赖（加固任务：MovementOptions.UnitBlocking 落地）——放在参数列表
             // 末尾而不是插在 navigation 之前，是为了不破坏既有按位置传参的调用点（见本模块 tests）。
@@ -960,7 +974,7 @@ namespace Core.Carriers.Unit
 
             var integrated = false;
             var budget = mt == null
-                ? ResolveSpeed(unit.EntityId) * dt
+                ? AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt
                 : MotionPathBudget(unit, mt, chase.Mode, path, pathIndex, dt, out integrated);
             var remaining = budget;
             var pos = unit.Position;
@@ -1035,6 +1049,9 @@ namespace Core.Carriers.Unit
                     remaining = 0;
                 }
             }
+
+            // 地形台阶阻挡（同 ContinuePathCore）：追击不因台阶结束（目标可能走开、台阶可能被跳过），只把本 tick 位移截断在台阶前。
+            ClampPathMoveByTerrain(unit, startPos, ref pos);
 
             if (mt != null)
             {
@@ -1328,7 +1345,7 @@ namespace Core.Carriers.Unit
 
                 if (_navigation != null)
                 {
-                    var hit = _navigation.Raycast(unit.MapId, pos, candidate);
+                    var hit = NavRaycast(unit, pos, candidate);
                     if (hit.HasValue)
                     {
                         if (disp.Blocking == DisplacementBlockingPolicy.Revert)
@@ -1528,14 +1545,20 @@ namespace Core.Carriers.Unit
                 return;
             }
 
+            // 空中控制比例为 0：空中不接受方向输入（水平位置保持；运动层启用时上面的积分器已按目标速度 0 处理）。
+            if (AirMovementSuppressed(unit))
+            {
+                return;
+            }
+
             var normalized = new Vec2(direction.X / length, direction.Y / length);
-            var speed = ResolveSpeed(unit.EntityId);
+            var speed = AirScaled(unit, ResolveSpeed(unit.EntityId));
             var from = unit.Position;
             var newPos = from + normalized * (speed * dt);
 
             if (_navigation != null)
             {
-                var hit = _navigation.Raycast(unit.MapId, from, newPos);
+                var hit = NavRaycast(unit, from, newPos);
                 if (hit.HasValue)
                 {
                     var hitDistance = (hit.Value - from).Length;
@@ -1604,7 +1627,7 @@ namespace Core.Carriers.Unit
 
             var integrated = false;
             var budget = mt == null
-                ? ResolveSpeed(unit.EntityId) * dt
+                ? AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt
                 : MotionPathBudget(unit, mt, state.Mode, path, index, dt, out integrated);
             var remaining = budget;
             var pos = unit.Position;
@@ -1679,6 +1702,10 @@ namespace Core.Carriers.Unit
                 }
             }
 
+            // 地形台阶阻挡（ADR-0130 追加决定）：路径是导航算的、不知道台阶，这里把本 tick 的位移按台阶截断；被挡住后路径作废（台阶不会自己消失），
+            // 与方向移动的"贴着阻挡停住"同口径，只是路径跟随以 MoveStopReason.TerrainBlocked 结束。
+            var terrainBlocked = ClampPathMoveByTerrain(unit, startPos, ref pos);
+
             if (mt != null)
             {
                 MotionRecordPath(unit, mt, startPos, pos, index >= path.Count, integrated, budget / dt, dt);
@@ -1714,6 +1741,14 @@ namespace Core.Carriers.Unit
             }
 
             var oldMode = state.Mode;
+            if (terrainBlocked)
+            {
+                unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
+                RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
+                _movementHost.RaiseMoveStopped(unit.EntityId, pos, MoveStopReason.TerrainBlocked);
+                return;
+            }
+
             if (index >= path.Count)
             {
                 unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
@@ -1937,6 +1972,149 @@ namespace Core.Carriers.Unit
         {
             var speed = _stats.GetStat(unitId, _options.MoveSpeedStat);
             return speed > 0 ? speed : _options.DefaultSpeed;
+        }
+
+        /// <summary>
+        /// 空中横向控制（ADR-0130 追加决定，<see cref="VerticalAxisOptions.AirControl"/>）：单位在空中时把自愿移动的速度（或速度目标）乘以声明的倍率；
+        /// 没有竖直轴、没有声明倍率、单位在地面时原样返回（不做乘法，缺省路径逐位不变）。
+        /// </summary>
+        private double AirScaled(Unit unit, double speed)
+        {
+            if (_vertical == null)
+            {
+                return speed;
+            }
+
+            var factor = _vertical.GetAirControl(unit.EntityId);
+            return factor == 1.0 ? speed : speed * factor;
+        }
+
+        /// <summary>单位在空中且空中控制比例为 0（空中不接受移动输入）。</summary>
+        private bool AirMovementSuppressed(Unit unit) =>
+            _vertical != null && _vertical.GetAirControl(unit.EntityId) <= 0.0;
+
+        /// <summary>
+        /// 导航阻挡与地形台阶阻挡的合并出口（ADR-0130 追加决定）：先问导航 <c>Raycast</c>，再问竖直轴的台阶/坡度判定，取离起点近的那个；
+        /// 没有竖直轴或没有启用台阶阻挡时就是导航 <c>Raycast</c> 本身（逐位不变）。移动系统里所有"沿线段找第一个阻挡点"的调用都走本方法。
+        /// </summary>
+        private Vec2? NavRaycast(Unit unit, Vec2 from, Vec2 to)
+        {
+            var hit = _navigation!.Raycast(unit.MapId, from, to);
+            if (_vertical == null || !_vertical.StepBlockingActive)
+            {
+                return hit;
+            }
+
+            var terrain = _vertical.TerrainBlockPoint(unit, from, to);
+            if (!terrain.HasValue)
+            {
+                return hit;
+            }
+
+            if (hit.HasValue && (hit.Value - from).Length <= (terrain.Value - from).Length)
+            {
+                return hit;
+            }
+
+            return terrain;
+        }
+
+        /// <summary><see cref="NavRaycast"/> 的带法线版本（贴墙滑动用）；地形阻挡点的法线由 <see cref="VerticalMotionHost.TerrainBlockNormal"/> 给出。</summary>
+        private NavRayHit? NavRaycastWithNormal(Unit unit, Vec2 from, Vec2 to)
+        {
+            var hit = _navigation!.RaycastWithNormal(unit.MapId, from, to);
+            if (_vertical == null || !_vertical.StepBlockingActive)
+            {
+                return hit;
+            }
+
+            var terrain = _vertical.TerrainBlockPoint(unit, from, to);
+            if (!terrain.HasValue)
+            {
+                return hit;
+            }
+
+            if (hit.HasValue && (hit.Value.Point - from).Length <= (terrain.Value - from).Length)
+            {
+                return hit;
+            }
+
+            return new NavRayHit(terrain.Value, _vertical.TerrainBlockNormal(unit, terrain.Value, to - from));
+        }
+
+        /// <summary>
+        /// 路径跟随/追击一步的地形台阶裁决：把本 tick 从 <paramref name="start"/> 走到 <paramref name="pos"/> 的位移按台阶阻挡截断
+        /// （回退一个 <see cref="MovementOptions.ArrivalEpsilon"/>，与方向移动同口径）。返回是否被截断；没有启用台阶阻挡恒返回 false 且不改 <paramref name="pos"/>。
+        /// </summary>
+        private bool ClampPathMoveByTerrain(Unit unit, Vec2 start, ref Vec2 pos)
+        {
+            if (_vertical == null || !_vertical.StepBlockingActive || pos.Equals(start))
+            {
+                return false;
+            }
+
+            var hit = _vertical.TerrainBlockPoint(unit, start, pos);
+            if (!hit.HasValue)
+            {
+                return false;
+            }
+
+            var travel = pos - start;
+            var travelLength = travel.Length;
+            var hitDistance = (hit.Value - start).Length;
+            var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
+            var keep = hitDistance - pullBack;
+            pos = travelLength <= 1e-12 ? start : start + travel * (keep / travelLength);
+            return true;
+        }
+
+        /// <summary>声明了竖直轴地形台阶阻挡却没有装配导航时垫底的空旷场地：处处可走、两点直线路径、没有阻挡。</summary>
+        private sealed class OpenFieldNavigation : INavigation2D
+        {
+            public void BuildNavMesh(Id mapId)
+            {
+            }
+
+            public bool IsWalkable(Id mapId, Vec2 point) => true;
+
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) =>
+                (to - from).Length <= 1e-6 ? new List<Vec2> { from } : new List<Vec2> { from, to };
+
+            public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => null;
+
+            public void SetBlocking(Id mapId, IReadOnlyList<Rect> rects)
+            {
+            }
+
+            public void Clear(Id mapId)
+            {
+            }
+
+            // 默认接口成员显式覆盖（处处可走、没有阻挡）：查询点本身就是最近可走点。
+            public NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to) => null;
+
+            public int GetBlockingVersion(Id mapId) => 0;
+
+            public bool TryFindNearestWalkable(Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, out Vec2 walkable)
+            {
+                walkable = point;
+                return true;
+            }
+
+            public int FindNearestWalkableCandidates(
+                Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, int maxCount, List<Vec2> results)
+            {
+                results.Clear();
+                if (maxCount <= 0) return 0;
+                results.Add(point);
+                return 1;
+            }
+
+            public bool TryFindNearestReachable(Id mapId, Vec2 from, Vec2 point, double maxRadius, out Vec2 reachable)
+            {
+                reachable = point;
+                return true;
+            }
         }
 
         private void EnqueueMoved(Id unitId, Vec2 position)

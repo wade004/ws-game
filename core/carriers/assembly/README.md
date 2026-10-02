@@ -277,3 +277,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 ## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
 
 只做加法：`CarriersAssembly` 在 `MovementOptions.Vertical` 非空时创建 `VerticalMotionHost`、挂 `VerticalMotionTickHandler`（紧随 `MovementTickHandler`，同在 `MovementAndNavigation` 阶段）并暴露只读属性 `VerticalMotion`；`CarriersFeelAssembly` 在打通受击裁决与运动层之后，`VerticalMotion` 是 `ILaunchSink` 时把它接到 `HitFeelHost.Launch`（没有竖直轴时不接，档案里的 `launch_height` 被忽略）。`HeadlessWorldBuilder` 新增 `MovementOptions`/`TargetingOptions` 透传属性（缺省 null，原路径不变）。判断记录与已知局限见 unit README、targeting README、combat README 的 M3-E1 节。
+
+## 竖直轴能力包补完：装配接线（2026-10-03，M4-V）
+
+只做加法：`CarriersAssembly` 把竖直运动服务交给 `MovementTickHandler.VerticalAxis`（空中控制缩放、地形台阶阻挡经它读取；没有竖直轴时为 null，路径不变）；`CarriersFeelAssembly` 在 `VerticalMotion` 是 `IAirborneQuery` 时把它接到 `HitFeelHost.Airborne`（空中受击反应的判据）。`HeadlessWorldBuilder` 新增 `SkillOptions` 透传属性（缺省 null）。判断记录见 unit/combat/skill README 的同名补完节。

@@ -133,3 +133,7 @@ engine_adapter/
   （circle 取位置；cone/line 方向取朝向；rect 旋转取朝向）。时间线 `continuous` 命中沿攻击方位姿移动形状时用。
 - `ClosestPoint(Shape shape, Vec2 point)`：形状区域内离 `point` 最近的点（点在形状内返回其自身；circle/rect/line/cone 四种）。时间线命中给接触点用；契约里取不到目标碰撞半径，目标按中心点处理。
 - 复现/不变量：`tests/ShapeGeometryPoseTests.cs`（重新锚定后的查询等于模板在局部坐标里的查询；`ClosestPoint` 在形状内、形状内点映射到自身、不存在更近的形状内采样点）。
+
+## `ITerrainHeight2D`：地面与天花板高度（2026-10-03，M4-V，ADR-0130 追加决定）
+
+新增接口 `ITerrainHeight2D { GetGroundHeight(mapId, point); GetCeilingHeight(mapId, point) }`（后者默认 +inf）与缺省实现 `FlatTerrainHeight2D.Instance`（地面 0、没有天花板）。核心层用它做落地高度、天花板夹取、斜坡贴地与台阶阻挡（`VerticalAxisOptions.Terrain`，缺省 null）。实现：核心层数据版 `MapTerrainHeights`（读 `world.map.terrain`，无头宿主/实验室用）、Unity 物理射线版 `UnityTerrainHeight2D`（可选启用）。接口是只读纯查询，同一输入同一输出。

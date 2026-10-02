@@ -1,0 +1,20 @@
+{
+  "table": "world.map",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "world.lab_terrain",
+      "scene_ref": "scene.lab_terrain",
+      "nav_ref": "nav.lab_terrain",
+      "spawn_points": [
+        { "id": "world.lab_terrain.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": 3, "y": -5 }, "max": { "x": 6, "y": 5 }, "ground": 0.4, "ceiling": 1.2 },
+        { "min": { "x": 6, "y": -5 }, "max": { "x": 9, "y": 5 }, "ground": 0.4, "slope": { "x": 0.25, "y": 0 } },
+        { "min": { "x": 9, "y": -5 }, "max": { "x": 12, "y": 5 }, "ground": 3 }
+      ]
+    }
+  ]
+}

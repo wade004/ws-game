@@ -404,7 +404,7 @@ namespace Tests.Lab
             foreach (var script in withExpectations)
             {
                 var results = LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId);
-                Assert.Equal(6, results.Count);
+                Assert.Equal(LabTestSupport.Runner.ApplicableCells(script).Count, results.Count); // 空间脚本适用十个格子，其余六个
                 foreach (var r in results)
                 {
                     Assert.True(r.Status == CellStatus.Pass, $"{r.Script} @ {r.Cell}：{string.Join("；", r.Expectations.Where(e => !e.Ok).Select(e => e.ToString()))}");

@@ -10,6 +10,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
+using Core.Foundation.SceneRouter;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Core.Sim;
@@ -129,7 +130,8 @@ namespace Lab
         private static HeadlessWorldOptions CreateWorldOptions(
             LabHostOptions options, Id mapId, Vec2 start, double stepSeconds, StubNavigation2D? navigation,
             CarriersFeelOptions? feelOptions = null, MovementOptions? movementOptions = null,
-            Core.Rules.Targeting.TargetingOptions? targetingOptions = null)
+            Core.Rules.Targeting.TargetingOptions? targetingOptions = null,
+            Core.Rules.Skill.SkillOptions? skillOptions = null)
         {
             return new HeadlessWorldOptions
             {
@@ -148,6 +150,7 @@ namespace Lab
                 FeelOptions = feelOptions,
                 MovementOptions = movementOptions,
                 TargetingOptions = targetingOptions,
+                SkillOptions = skillOptions,
             };
         }
 
@@ -192,7 +195,9 @@ namespace Lab
 
             // 先用探针世界读出格子关联的地形与靶子集（它们在数据里，格子才知道地图 id）。
             catalog ??= new LabCatalog(BuildProbe(options).Registry);
-            var arena = catalog.GetArena(cell.ArenaId);
+            // 脚本可覆盖格子缺省的地形（竖直轴能力包补完的地形脚本带数据高度场；平面格子同样用它，保证跨格子不变量的比较口径一致）。
+            var spaceExt = meta.SpaceExt;
+            var arena = catalog.GetArena(spaceExt != null && spaceExt.ArenaId.Length > 0 ? new Id(spaceExt.ArenaId) : cell.ArenaId);
             var dummySet = catalog.GetDummySet(meta.DummySetId.Length > 0 ? new Id(meta.DummySetId) : cell.DummySetId);
 
             // 手感场景：预设与标定；FeelOff 变体让同一脚本在旧路径上跑（不装手感系统）。
@@ -211,6 +216,7 @@ namespace Lab
             var depthLocked = string.Equals(spaceModel, "side_2d", StringComparison.Ordinal);
             MovementOptions? movementOptions = null;
             Core.Rules.Targeting.TargetingOptions? targetingOptions = null;
+            Core.Rules.Skill.SkillOptions? skillOptions = null;
             var gravity = 0.0;
             var jumpHeight = 0.0;
             if (vertical)
@@ -224,6 +230,23 @@ namespace Lab
                 if (cell.JumpHeight.HasValue)
                 {
                     verticalOptions.JumpHeight = cell.JumpHeight.Value;
+                }
+
+                if (spaceExt != null)
+                {
+                    // 竖直轴能力包补完（ADR-0130 追加决定）：核心层的可选能力，缺省全关；脚本声明了才打开。
+                    verticalOptions.AirControl = spaceExt.AirControl;
+                    verticalOptions.MaxAirJumps = spaceExt.MaxAirJumps;
+                    verticalOptions.StepHeight = spaceExt.StepHeight;
+                    if (spaceExt.Terrain)
+                    {
+                        verticalOptions.Terrain = new MapTerrainHeights(BuildProbe(options).Registry);
+                    }
+
+                    if (spaceExt.SpatialRange)
+                    {
+                        skillOptions = new Core.Rules.Skill.SkillOptions { SpatialRange = true };
+                    }
                 }
 
                 gravity = verticalOptions.Gravity;
@@ -246,7 +269,7 @@ namespace Lab
 
             var dynamicBlocks = new List<KeyValuePair<Id, Rect>>();
             var world = HeadlessWorldBuilder.Build(CreateWorldOptions(
-                options, arena.MapId, meta.PlayerStart, step, nav, feelOptions, movementOptions, targetingOptions));
+                options, arena.MapId, meta.PlayerStart, step, nav, feelOptions, movementOptions, targetingOptions, skillOptions));
             var playerId = world.Player.EntityId;
             var recording = new LabRecording(script, cell, step) { StartPosition = meta.PlayerStart };
 
@@ -309,6 +332,10 @@ namespace Lab
             {
                 space = new SpaceRecording(spaceModel, vertical, gravity, jumpHeight, depthLocked);
                 recording.Space = space;
+                if (vertical && spaceExt != null)
+                {
+                    space.Ext = new SpaceExtRecording(spaceExt);
+                }
             }
 
             foreach (var dummy in dummySet.Entries)
@@ -398,6 +425,15 @@ namespace Lab
                 }
 
                 nav.SetBlocking(arena.MapId, all);
+            }
+
+            // 空中姿势装置（脚本声明了合成姿势键表且格子带竖直轴时）。
+            AirPoseRig? airPose = null;
+            if (space?.Ext != null && spaceExt!.PoseKeys.Count > 0)
+            {
+                airPose = new AirPoseRig(
+                    world.Bus, world.Gameplay.Carriers.VerticalMotion!, spaceExt, space.Ext, playerId,
+                    id => labels.TryGetValue(id, out var l) ? l : id.Value);
             }
 
             // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
@@ -519,9 +555,18 @@ namespace Lab
                     if (e.Kind == ScriptEventKind.Press)
                     {
                         space!.JumpRequests++;
+                        var wasAirborne = vertical && world.Gameplay.Carriers.VerticalMotion!.IsAirborne(playerId);
                         if (vertical && world.Gameplay.Carriers.VerticalMotion!.Jump(playerId))
                         {
                             space.JumpStartTicks.Add(tick);
+                            if (wasAirborne && space.Ext != null)
+                            {
+                                space.Ext.AirJumpStarts++;
+                            }
+                        }
+                        else if (wasAirborne && space.Ext != null)
+                        {
+                            space.Ext.AirJumpRefusals++;
                         }
                     }
 
@@ -658,6 +703,14 @@ namespace Lab
                     {
                         space.DummyHeights[pair.Key].Add(world.World.GetEntity(pair.Value) is Unit sampled ? sampled.HeightOffset : 0.0);
                     }
+
+                    if (space.Ext != null)
+                    {
+                        var motion = world.Gameplay.Carriers.VerticalMotion!;
+                        space.Ext.PlayerAirborne.Add(motion.IsAirborne(playerId));
+                        space.Ext.PlayerVerticalSpeeds.Add(motion.GetVerticalSpeed(playerId));
+                        space.Ext.PlayerMoveRequested.Add(moveRequested);
+                    }
                 }
 
                 recording.Ticks.Add(new TickSample(
@@ -668,6 +721,7 @@ namespace Lab
                 {
                     var dispatched = world.Events[eventCursor++];
                     rig?.OnEvent(dispatched, tick);
+                    airPose?.OnEvent(dispatched, tick);
                     feelRig?.OnEvent(dispatched, tick);
                     RecordEvent(dispatched, tick, labels, instanceOrdinals, recording);
                     if (dispatched is UnitDiedEvent died && dynamicBlocks.Count > 0)
@@ -696,6 +750,7 @@ namespace Lab
                 }
 
                 rig?.EndTick();
+                airPose?.EndTick(tick, dummyByLabel.Values);
                 feelRig?.EndTick(tick);
 
                 tick++;
@@ -740,6 +795,7 @@ namespace Lab
 
             recording.TotalEventCount = world.Events.Count;
             feelRig?.Dispose();
+            airPose?.Dispose();
             rig?.Dispose();
             binder.Dispose();
             return recording;

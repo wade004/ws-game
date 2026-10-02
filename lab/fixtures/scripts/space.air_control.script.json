@@ -1,0 +1,149 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.air_control",
+    "scriptVersion": 1,
+    "description": "空间扩展·空中控制与多段跳（ADR-0130 追加决定）：无靶子，玩家持续向右走；第 40 tick 起跳，第 55 tick 空中再跳（空中跳跃上限 1，被接受），第 65 tick 空中第三次跳（用尽，被拒绝）。竖直格子量空中水平位移相对地面的比例（由空中控制比例 0.5 算出）、空中跳跃的接受与拒绝数；平面格子没有竖直轴，三次请求全被拒绝。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "airControl": 0.5,
+      "maxAirJumps": 1
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 40,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 41,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 55,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 56,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 65,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 66,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "air_ratio_is_the_air_control",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_ground_ratio",
+      "op": "approx",
+      "value": 0.5,
+      "tolerance": 1e-06,
+      "note": "空中水平位移占地面稳态位移的比例 = 空中控制比例（脚本声明 0.5）。"
+    },
+    {
+      "id": "one_air_jump_accepted",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_jump_starts",
+      "op": "eq",
+      "value": 1,
+      "note": "空中跳跃上限 1：第 55 tick 的空中跳被接受。"
+    },
+    {
+      "id": "air_jump_budget_spent",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_jump_refusals",
+      "op": "eq",
+      "value": 1,
+      "note": "第 65 tick 的第三次起跳（空中第二次）被拒绝。"
+    },
+    {
+      "id": "two_jumps_started",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space.jumps_started",
+      "op": "eq",
+      "value": 2
+    },
+    {
+      "id": "plane_has_no_vertical_axis",
+      "cells": [
+        "2d_targeted",
+        "2d_action",
+        "2_5d_targeted",
+        "2_5d_action",
+        "3d_targeted",
+        "3d_action"
+      ],
+      "metric": "space.jumps_started",
+      "op": "eq",
+      "value": 0,
+      "note": "平面格子没有竖直轴，三次跳跃请求全被拒绝。"
+    }
+  ]
+}

@@ -54,6 +54,8 @@ namespace Core.Rules.Combat
             public Vec2 KnockbackDirection;
             public double KnockbackDistance;
             public double LaunchApex;
+            public LaunchStackMode LaunchStack;
+            public double LaunchStackCap;
         }
 
         private readonly IEventBus _bus;
@@ -87,6 +89,11 @@ namespace Core.Rules.Combat
         /// 只有攻击方档案声明了 <c>launch_height</c> 且大于 0、反应达到 <c>knockback</c>/<c>knockdown</c> 时才提交。
         /// </summary>
         public ILaunchSink? Launch { get; set; }
+
+        /// <summary>
+        /// 腾空查询（竖直运动服务）。缺省 null——一律视为在地面，<c>air_hit_reaction</c> 不生效（与 1.95.0 一致）。
+        /// </summary>
+        public IAirborneQuery? Airborne { get; set; }
 
         /// <summary>总开关；假时全部入口静默。</summary>
         public bool Enabled { get; set; } = true;
@@ -199,6 +206,7 @@ namespace Core.Rules.Combat
             {
                 var power = atk.GetNumber(FeelFieldNames.StaggerPower);
                 reaction = power <= ReadPoise(input.TargetId) ? HitReaction.Flinch : MapImpact(impact);
+                reaction = ApplyAirHit(reaction, input.TargetId, tgt);
                 reaction = ApplyCap(reaction, tgt.GetText(FeelFieldNames.ReactionCap));
             }
 
@@ -235,6 +243,28 @@ namespace Core.Rules.Combat
 
         private HitReaction MapImpact(string impactClass) =>
             _options.ImpactReactions.TryGetValue(impactClass, out var reaction) ? reaction : _options.UnknownImpactReaction;
+
+        /// <summary>
+        /// 腾空受击：目标在空中、档案声明了 <c>air_hit_reaction</c>（非 same）时，把已算出的反应整体替换为该值（之后仍过 <c>reaction_cap</c>）。
+        /// 无声明、地面受击、没有腾空查询时原样返回。
+        /// </summary>
+        private HitReaction ApplyAirHit(HitReaction reaction, Id targetId, JudgingFeelView target)
+        {
+            if (Airborne == null) return reaction;
+            var v = target.GetAbsolute(FeelFieldNames.AirHitReaction);
+            if (v.IsNone) return reaction;
+            if (!Airborne.IsAirborne(targetId)) return reaction;
+            switch (v.AsText())
+            {
+                case "none": return HitReaction.None;
+                case "flinch": return HitReaction.Flinch;
+                case "stagger_light": return HitReaction.StaggerLight;
+                case "stagger": return HitReaction.Stagger;
+                case "knockback": return HitReaction.Knockback;
+                case "knockdown": return HitReaction.Knockdown;
+                default: return reaction; // same
+            }
+        }
 
         private static HitReaction ApplyCap(HitReaction reaction, string cap)
         {
@@ -441,6 +471,7 @@ namespace Core.Rules.Combat
                 {
                     rec.KnockbackPending = true;
                     rec.LaunchApex = apex;
+                    ReadLaunchStack(e, out rec.LaunchStack, out rec.LaunchStackCap);
                 }
             }
 
@@ -466,6 +497,19 @@ namespace Core.Rules.Combat
             var resistance = ReadKnockbackResistance(e.TargetId, target);
             var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
             return baseHeight * (1.0 - resistance) * multiplier;
+        }
+
+        /// <summary>击飞叠加方式与上限（攻击方档案 <c>launch_stack</c>/<c>launch_stack_cap</c>）；未声明为 restart、无上限。</summary>
+        private void ReadLaunchStack(CombatHitConfirmedEvent e, out LaunchStackMode mode, out double cap)
+        {
+            mode = LaunchStackMode.Restart;
+            cap = 0.0;
+            if (!_units.Exists(e.SourceId)) return;
+            var atk = _feel.ResolveJudging(e.SourceId);
+            var m = atk.GetAbsolute(FeelFieldNames.LaunchStack);
+            if (m.IsNone || m.AsText() != "add") return;
+            mode = LaunchStackMode.Add;
+            if (atk.TryGetNumber(FeelFieldNames.LaunchStackCap, out var c) && c > 0.0) cap = c;
         }
 
         private double ReadKnockbackResistance(Id targetId, JudgingFeelView target)
@@ -641,7 +685,11 @@ namespace Core.Rules.Combat
         {
             rec.KnockbackPending = false;
             var apex = rec.LaunchApex;
+            var stack = rec.LaunchStack;
+            var stackCap = rec.LaunchStackCap;
             rec.LaunchApex = 0.0;
+            rec.LaunchStack = LaunchStackMode.Restart;
+            rec.LaunchStackCap = 0.0;
             if (!_units.Exists(unit) || !_units.IsAlive(unit)) return;
             if (Knockback != null && rec.KnockbackDistance > 0.0)
             {
@@ -650,7 +698,7 @@ namespace Core.Rules.Combat
 
             if (Launch != null && apex > 0.0)
             {
-                Launch.BeginLaunch(unit, apex);
+                Launch.BeginLaunch(unit, apex, stack, stackCap);
             }
         }
 

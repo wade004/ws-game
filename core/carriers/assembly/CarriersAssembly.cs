@@ -598,6 +598,8 @@ namespace Core.Carriers.Assembly
             {
                 var verticalHost = new VerticalMotionHost(world, resolvedMovementOptions.Vertical);
                 VerticalMotion = verticalHost;
+                // 空中横向控制与地形台阶阻挡由移动系统读竖直轴服务（ADR-0130 追加决定）；没有竖直轴时该属性保持 null，移动系统逐位不变。
+                movementTickHandler.VerticalAxis = verticalHost;
                 world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new VerticalMotionTickHandler(verticalHost));
             }
 
