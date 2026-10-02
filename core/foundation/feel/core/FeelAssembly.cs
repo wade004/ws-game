@@ -30,13 +30,13 @@ namespace Core.Foundation.Feel
         /// <summary>新档案是否已换入解析器。</summary>
         public bool Applied { get; }
 
-        /// <summary>未换入的原因，或已换入时的补充说明（如标定变化需重启）；无话可说为空串。</summary>
+        /// <summary>未换入的原因，或已换入时的补充说明（如标定行变化已一并换入）；无话可说为空串。</summary>
         public string Reason { get; }
 
         /// <summary>档案校验问题（拒绝原因是校验失败时非空）。</summary>
         public IReadOnlyList<FeelCheckIssue> Issues { get; }
 
-        /// <summary>已换入时：新数据里本系统标定行的取值与装配时不同（标定在运行期不热换，该变化要重启才生效）。</summary>
+        /// <summary>已换入时：新数据里本系统标定行的取值与此前不同——新标定已一并换入（手感落地 M3-B 起不再要求重启）：进行中的动作保持原快照，下一个动作按新标定换算。</summary>
         public bool CalibrationChanged { get; }
 
         /// <summary>截至本次的成功热加载累计次数（本次已换入时含本次）。</summary>
@@ -59,7 +59,8 @@ namespace Core.Foundation.Feel
 
         public FeelResolver Resolver { get; }
 
-        public FeelCalibration Calibration { get; }
+        /// <summary>当前生效的标定（热加载成功且标定行取值变化时指向新标定，见 <see cref="TryReload"/>）。</summary>
+        public FeelCalibration Calibration { get; private set; }
 
         /// <summary>当前生效的档案集合（热加载成功后指向新集合）。</summary>
         public FeelProfileSet Profiles { get; private set; }
@@ -84,8 +85,9 @@ namespace Core.Foundation.Feel
         /// <para>
         /// 判断记录：新数据没有任何 <c>feel.*</c> 行、缺本系统的标定行或其基础预设、档案校验有错误时<b>拒绝</b>并保持当前档案
         /// （返回的 <see cref="FeelReloadResult.Reason"/>/<see cref="FeelReloadResult.Issues"/> 给出原因），不抛异常、不换入半份数据。
-        /// 标定（<see cref="FeelCalibration"/>）装配后不可变，运行期不热换：新数据里标定行取值变化时档案照常换入，并在结果里标
-        /// <see cref="FeelReloadResult.CalibrationChanged"/>，要重启才生效。
+        /// 标定（<see cref="FeelCalibration"/>）同样热换（手感落地 M3-B）：新数据里本系统标定行取值变化时，档案与新标定一并换入
+        /// （<see cref="FeelResolver.Reload(FeelProfileSet, FeelCalibration)"/>），结果里仍标 <see cref="FeelReloadResult.CalibrationChanged"/> 供宿主提示，但不再要求重启——
+        /// 进行中的动作保持开始时的快照（旧标定下的结果），下一个动作按新标定换算。
         /// </para>
         /// </summary>
         public FeelReloadResult TryReload(IDataRegistryView view)
@@ -109,10 +111,10 @@ namespace Core.Foundation.Feel
                     false, $"热加载拒绝：标定行 \"{Calibration.Id}\" 不存在或字段不完整，保持当前档案", null, false, _reloadGeneration);
             }
 
-            if (next.GetPreset(Calibration.BasePresetId) == null)
+            if (next.GetPreset(calibration.BasePresetId) == null)
             {
                 return new FeelReloadResult(
-                    false, $"热加载拒绝：基础预设 \"{Calibration.BasePresetId}\" 不存在，保持当前档案", null, false, _reloadGeneration);
+                    false, $"热加载拒绝：基础预设 \"{calibration.BasePresetId}\" 不存在，保持当前档案", null, false, _reloadGeneration);
             }
 
             var issues = FeelProfileChecker.Check(next);
@@ -121,12 +123,13 @@ namespace Core.Foundation.Feel
                 return new FeelReloadResult(false, $"热加载拒绝：档案校验有 {issues.Count} 个错误，保持当前档案", issues, false, _reloadGeneration);
             }
 
-            Resolver.Reload(next);
-            Profiles = next;
-            _reloadGeneration++;
             var changed = !SameCalibration(calibration, Calibration);
+            Resolver.Reload(next, calibration);
+            Profiles = next;
+            Calibration = calibration;
+            _reloadGeneration++;
             return new FeelReloadResult(
-                true, changed ? "标定行取值与装配时不同：标定运行期不热换，重启后生效" : string.Empty, null, changed, _reloadGeneration);
+                true, changed ? "标定行取值与此前不同：新标定已换入，进行中的动作保持原快照，下一个动作按新标定换算" : string.Empty, null, changed, _reloadGeneration);
         }
 
         private static bool SameCalibration(FeelCalibration a, FeelCalibration b) =>

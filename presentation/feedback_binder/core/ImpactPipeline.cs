@@ -238,7 +238,8 @@ namespace Presentation.FeedbackBinder.Core
                 return 1.0;
             }
 
-            var bodyHeights = Vec2.Distance(ownerPos.Value, hitPos.Value) / (_options.ReferenceHeight > 0 ? _options.ReferenceHeight : 1.0);
+            var referenceHeight = _options.ReferenceHeightSource != null ? _options.ReferenceHeightSource() : _options.ReferenceHeight;
+            var bodyHeights = Vec2.Distance(ownerPos.Value, hitPos.Value) / (referenceHeight > 0 ? referenceHeight : 1.0);
             var factor = curve.Evaluate(bodyHeights);
             return factor > 0 ? factor : 0.0;
         }

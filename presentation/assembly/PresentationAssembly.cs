@@ -485,9 +485,10 @@ namespace Presentation.Assembly
             if (feelResolver != null)
             {
                 var feelForCamera = feelResolver;
+                // 手感落地 M3-B：参考镜头高度读实时标定（手感数据热加载换了标定行后，镜头冲击的震屏换算随之更新）。
                 Camera.EnableFeel(
                     id => CameraFeelProfile.FromPresenting(feelForCamera.ResolvePresenting(id)),
-                    feelForCamera.Calibration.ReferenceCameraHeight);
+                    () => feelForCamera.Calibration.ReferenceCameraHeight);
                 _subscriptions.Add(bus.Subscribe<CombatEnteredEvent>(RulesEventKeys.CombatEntered, e =>
                 {
                     if (e.UnitId.Equals(_playerId)) Camera.SetInCombat(true);
@@ -585,6 +586,7 @@ namespace Presentation.Assembly
                 if (opts.ImpactOptions == null)
                 {
                     impactOptions.ReferenceHeight = feel.Calibration.ReferenceHeight;
+                    impactOptions.ReferenceHeightSource = () => feel.Calibration.ReferenceHeight; // 手感落地 M3-B：标定热换后实时跟随
                 }
                 impactPipeline = new ImpactPipeline(impactOptions, sharedPresentationDiagnostics);
             }

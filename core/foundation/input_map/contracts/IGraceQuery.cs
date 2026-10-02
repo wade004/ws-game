@@ -32,5 +32,20 @@ namespace Core.Foundation.InputMap
 
         /// <summary><paramref name="conditionIds"/> 全部满足（空列表恒为 true，即没有宽限条件时无约束）。</summary>
         bool AreAllSatisfied(Id actorId, IReadOnlyList<Id> conditionIds);
+
+        /// <summary>
+        /// 条件在"不再成立"的前提下还能被宽限满足多少个 tick（手感落地 M3-B，排队中的施法记宽限快照用）：从此刻起再过 <c>e</c> 个 tick，
+        /// 条件仍被视为满足当且仅当 <c>e &lt;= 返回值</c>。条件当前为真返回 <see cref="int.MaxValue"/>（还没有开始失效）；已失效但仍在宽限内返回剩余 tick 数（&gt;= 0）；
+        /// 不满足（含从未成立）返回 -1。
+        /// <para>
+        /// 默认实现只依赖 <see cref="IsSatisfied"/>/<see cref="IsInGrace"/>：在宽限内保守地返回 0（本 tick 之后不再保证），因此只实现旧三个成员的第三方查询对象
+        /// 不会因为多出这个成员而编译失败或行为改变；<see cref="GraceTracker"/> 覆盖它给出精确值。
+        /// </para>
+        /// </summary>
+        int RemainingGraceTicks(Id actorId, Id conditionId)
+        {
+            if (!IsSatisfied(actorId, conditionId)) return -1;
+            return IsInGrace(actorId, conditionId) ? 0 : int.MaxValue;
+        }
     }
 }

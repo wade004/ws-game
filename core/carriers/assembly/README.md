@@ -228,7 +228,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 10. **运动层的 `MotionServices.Actions` 取技能宿主的 `ActionStateQuery`**：时间线动作进行中运动模式为 `Action`。
 11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
 
-已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它（M2-B 已接：见 M2-B 节）；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线（M2-B 已接：见 M2-B 节）；本地玩家绑定在 `PresentationAssembly` 构造时固定。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
+已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；本地玩家绑定在 `PresentationAssembly` 构造时固定。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
 
 ## 手感落地 S11：时间线目标辅助接进生产装配（2026-10-02）
 
@@ -245,7 +245,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 2. **"普攻"的识别（设计层待确认）**：缺省所有类别为 `attack` 的动作都跟随武器；游戏另有自带 `skill_slot` 的攻击类动作（重击、蓄力等）时会被武器抢走，须用新增选项 `CarriersFeelOptions.AutoAttackActions` 点名真正的普攻动作，其余攻击类动作始终走槽位绑定。理由：框架无法从数据区分"普攻"与"另一个攻击键"，缺省取最常见情形（一个攻击键）并留出显式开关。
 3. **换装链在生产装配里构造**：已知单位集合取世界全部实体（`save.loaded` 时按此对账）；`CarriersFeelSystem.WeaponChain` 暴露它，`Dispose` 一并释放。此前生产装配从不构造这条链，`feel.weapon_changed` 只在实验室里发布。
 4. **向后兼容**：旧构造函数、`Binding`（槽位绑定）属性与 `BufferedActionIntentSink` 的旧构造重载均保留；不启用手感时一行不装配。
-5. **已知限制**：`FeelOptions` 里的手感数据热重载（`FeelResolver.Reload`）仍未接线；其余同上文既有限制。
+5. **已知限制**：同上文既有限制（手感数据热重载已在 M2-B 接线，标定热换在 M3-B 接入）。
 
 用例见 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs`（经真实 `PresentationAssembly` 与输入映射：单手剑、双手剑、空手的相位 tick 数与武器族均由数据与标定规则算出）。
 
@@ -258,4 +258,18 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 3. **光环层数叠乘**：见 `core/rules/assembly/README.md` M2-B 节（`AuraSnapshot.InstanceId` 与 `FeelTemporaryEntry.Stacks`）；`AuraFeelTemporaryProvider` 条目键改为光环实例 id，并订阅 `aura.stack_changed` 使缓存失效。
 4. **换装链的单位状态口径**：`EquipmentFeelChain` 订阅 `entity.destroyed`（忘掉对账状态）与 `entity.created`（对账一次，没有武器的未跟踪单位不建记录也不发事件）。与表现侧 `EquipmentPoseBridge` 在销毁时清理姿势选择器配对：同 id 重建的单位（如换图重建的玩家）重新对账并重发 `feel.weapon_changed`，武器族补回；`save.loaded` 对账抽成公开的 `ReconcileAll(reason)`，路径不变。
 
-已知限制（逐条交代）：地面施法请求不携带宽限条件；排队中的施法丢失宽限上下文；框架不提供基于 Expr 的 `IGraceConditionEvaluator`，游戏必须经 `CarriersFeelOptions.GraceEvaluator` 提供，且非本地行动者的第一次按键可能早于采样；标定变化需重启（热加载只换档案，`FeelReloadResult.CalibrationChanged` 为真时提示）；热加载依赖宿主发布 `data.load_completed`。
+已知限制（逐条交代）：热加载依赖宿主发布 `data.load_completed`（M2-B 起的约定，M3-B 后宽限条件表与标定行变化同样走这一条）。其余 M2-B 时代的限制已在 M3-B 全部解除，见下节。
+
+## 手感落地 M3-B：宽限窗口与手感热重载的已知限制全部解除（2026-10-02）
+
+五项一次补齐，全部加法；缺省（没有动作声明宽限条件、标定行不变、没有地面施法携带宽限条件）与 1.94.0 逐位一致（feellab `suite` 186/186、`invariants` 277/277，基线未改）。本节编号为 M3-B 本节编号：
+
+1. **地面施法携带宽限条件**：`GroundCastRequest.WithGraceConditions(conditions)` 返回带条件名的副本（新增成员，既有构造不变）；`CastPipeline.CastSkillAtGround` 的步骤 7'（射程与视线）与对单位施法同一口径——条件全部满足且至少一个正处于宽限窗口时放行。**语义决定**：只放宽射程与视线，落点不可行走、冷却、资源等照常；条件"当前仍为真"时宽限不参与（条件为真是游戏对"现在可达"的声明，射程外的落点仍按落点自己的几何被拒），所以地面施法的宽限条件应表达"施法点/目标刚才还够得着"，而不是与落点无关的世界状态。请求被宽限放行后，效果落地（瞬发、读条完成、引导每个周期）的射程/视线再校验同样放行——只放宽"接受"，不因读条期间窗口过期把已接受的施法作废。
+2. **排队中的施法保留宽限上下文**：对带宽限条件的请求，进入施法队列那一刻记宽限快照（`CastPipeline` 内部 `GraceSnapshot`：条件名、是否靠宽限覆盖步骤 7、窗口剩余 tick 按行动者动作时钟折成绝对到期读数）；出队执行时快照在窗口内即放行（与实时宽限查询取并集），过期则按原规则拒绝（`OutOfRange`）。**动作时钟计窗**：顿帧期间动作时钟不走，快照随之暂停——排队后顿帧的施法出队时仍在窗口内。`IGraceQuery.RemainingGraceTicks` 是为此新增的接口缺省成员（默认实现保守：不满足 -1、条件为真 `int.MaxValue`、窗口内返回 0），`GraceTracker` 覆盖给出精确值，旧第三方实现不必改。没有携带宽限条件的排队请求不记快照，行为不变。
+3. **框架缺省的 Expr 宽限求值（游戏不写代码）**：新增 `ExprGraceConditionEvaluator`（`core/carriers/assembly/`）：`found.grace_condition` 每行 `expr` 在行动者上下文里求值（`self` 分组即行动者，经 `RulesAssembly.ExprHostFactory`/`ExprSchema`，`target` 分组绑定 `CarriersFeelOptions.GraceTargetResolver`，缺省取自动攻击的当前目标 `AutoAttackHost.GetTarget`，没有则不绑定）。`CarriersFeelOptions.GraceEvaluator` 仍可覆盖；不再需要提供也能用，`CarriersFeelSystem.Grace` 恒装配（没有动作声明宽限条件时不采样任何东西）。数据形态不变（`found.grace_condition` 的 `key`/`expr`/`description`，手感设计/01 第 2.4 节原定）——不需要新增字段。**注意**：没有绑定目标时 `self.distance_to_target` 取表达式宿主的缺省值 0（并记宿主诊断），"目标在射程内"一类条件在无目标时应写成 `enemies.nearest_distance <= N` 或让游戏提供目标解析委托。求值器热加载：`data.load_completed` 后重读 `found.grace_condition` 换入；新表达式写坏（数据校验不过）时保留旧条件并把原因记入 `ExprGraceConditionEvaluator.LastReloadError`。
+4. **非本地行动者从登记起采样**：新增 `InputBufferHost.RegisterActor(actorId)`（幂等；建立空缓冲，`InputBufferTickHandler` 对全部有缓冲的行动者采样）与 `IsActorRegistered`。生产装配对世界里的 `player`/`creature` 实体（装配时已有的与之后出生的，订阅 `entity.created`）自动登记，第一次按键之前就有宽限历史；`CarriersFeelOptions.AutoRegisterGraceActors = false` 关闭（单位很多、只有本地玩家用宽限时），关闭后由游戏在按键前自行 `RegisterActor`。
+5. **标定热更换**：`FeelSystem.TryReload` 在新数据的标定行取值变化时把档案与新标定一并换入（`FeelResolver.Reload(profiles, calibration)` 新增重载，旧重载转调）：此后每次解析与下一个动作的开始快照按新标定换算，进行中的动作快照保持旧标定下的结果（"进行中的动作沿用其开始时的快照"）；`FeelReloadResult.CalibrationChanged` 仍报告变化，但 `Applied` 为真、不再要求重启。新标定指定的基础预设不存在时整次热加载被拒绝、保持当前档案与标定。**换算范围**：标定只参与 `ToAbsolute`（参考身高、基础移速、参考镜头高度）与基础预设选择；毫秒到 tick 的换算只取决于模拟步长（不在标定行里，见 `data/_feel/feel/feel.calibration.json` 说明），所以标定变化不改变任何 tick 数。表现层消费方改读实时标定：`CameraHost.EnableFeel(source, Func<double>)` 与 `ImpactOptions.ReferenceHeightSource`（均为新增，旧固定值入口不变），`PresentationAssembly` 传入读 `feel.Calibration` 的实时委托。
+
+用例见 `core/gameplay/assembly/tests/FeelGraceCompleteTests.cs`（五项各带"量从 X 变到 Y"的复现与不变量，边界由 `grace_ms` 换算规则算出）、`core/foundation/input_map/tests/GraceRemainingAndRegistrationTests.cs`、`core/foundation/feel/tests/FeelCalibrationHotSwapTests.cs`，以及 `presentation/camera/tests/CameraFeelTests.cs`、`presentation/feedback_binder/tests/ImpactPipelineTests.cs` 里的实时参考高度用例。
+
+已知限制：地面施法的宽限条件须由游戏声明得能表达"落点/目标刚才还够得着"（框架不为地面坐标自动推导可达条件）；缺省 Expr 求值器的目标来源取自动攻击目标（游戏有自己的目标概念时经 `GraceTargetResolver` 提供）；单位很多时自动登记会给每个单位建一份空缓冲（可经 `AutoRegisterGraceActors = false` 关闭）。

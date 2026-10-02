@@ -205,7 +205,8 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   `-NoFeel` 不带；找不到 `_feel` 目录时与以前一样只带框架根），所以含 `feel.*` 行的游戏数据能整体过
   `-Strict`。
 - **热重载监视**：监视目录除框架根、游戏根外，同步包含手感根与 `ExtraFrameworkDatasetRoots`。
-  `FeelResolver` 本身的数据重载（`Reload`）尚未接线，改手感数据表后需要重启进程才对手感解析生效。
+  手感数据的重载已接线（`CarriersFeelAssembly` 订阅 `data.load_completed`，宽限条件表与标定行变化同样热换，
+  进行中的动作沿用开始时的快照，下一个动作按新数据解析），改手感数据表后不需要重启进程。
 - **打包**：`build.ps1` 把 `data/_feel` 同步进 StreamingAssets，并随分发包、`com.gamefoundation.framework-data`
   的 `Data~/data/_feel` 一起发出。消费方把它同步进自己工程的 `Assets/StreamingAssets/GameFoundation/data/_feel`，做法与 `data/_framework` 相同：zip 通道手工拷贝 `packages/ws-game-<ver>/data/_feel`（消费方演练 `toolchain/consumer_smoke.ps1` 同步内容数据集一步已照此做），私服通道由 `sync_package_content.ps1` 一并同步。
 - **武器与姿势**：开启手感后表现层装配出姿势选择器与换装姿势桥，Unity 视图工厂把它交给动画剪辑解析器，

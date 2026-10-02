@@ -33,7 +33,7 @@ namespace Core.Foundation.Feel
         private const string ResolverSource = "resolver";
 
         private readonly FeelFieldSet _fields;
-        private readonly FeelCalibration _calibration;
+        private FeelCalibration _calibration;
         private readonly double _stepSeconds;
         private readonly FeelProviders _providers;
         private FeelProfileSet _profiles;
@@ -44,6 +44,7 @@ namespace Core.Foundation.Feel
 
         public FeelFieldSet Fields => _fields;
 
+        /// <summary>当前使用的标定（热加载 <see cref="Reload(FeelProfileSet, FeelCalibration)"/> 后为新标定；已挂在施法实例上的快照不受影响）。</summary>
         public FeelCalibration Calibration => _calibration;
 
         /// <summary>模拟固定步长（秒）。</summary>
@@ -104,15 +105,24 @@ namespace Core.Foundation.Feel
         /// 热加载：换入新的档案集合并使全部缓存失效。已挂在施法实例上的快照不受影响
         /// （手感设计/05 第 8 节"正在进行的动作沿用其开始时的快照"）。新集合必须仍含标定指定的基础预设。
         /// </summary>
-        public void Reload(FeelProfileSet profiles)
+        public void Reload(FeelProfileSet profiles) => Reload(profiles, _calibration);
+
+        /// <summary>
+        /// 热加载并同时换入新标定（手感落地 M3-B）：标定行取值变化（参考身高、基础移速、参考镜头高度、基础预设……）时，之后的每次解析（含下一个动作的开始快照）按新标定换算；
+        /// 已挂在施法实例上的快照保持原标定下的结果（"进行中的动作沿用其开始时的快照"，手感设计/05 第 8 节）。
+        /// 新档案集合必须含<b>新</b>标定指定的基础预设。毫秒 → tick 只由模拟步长决定（不在标定表里），所以标定变化不改变任何 tick 换算。
+        /// </summary>
+        public void Reload(FeelProfileSet profiles, FeelCalibration calibration)
         {
             if (profiles == null) throw new ArgumentNullException(nameof(profiles));
+            if (calibration == null) throw new ArgumentNullException(nameof(calibration));
             if (!ReferenceEquals(profiles.Fields, _fields)) throw new ArgumentException("热加载不能更换字段登记", nameof(profiles));
-            if (profiles.GetPreset(_calibration.BasePresetId) == null)
+            if (profiles.GetPreset(calibration.BasePresetId) == null)
             {
-                throw new ArgumentException($"新档案集合缺少标定指定的基础预设 \"{_calibration.BasePresetId}\"", nameof(profiles));
+                throw new ArgumentException($"新档案集合缺少标定指定的基础预设 \"{calibration.BasePresetId}\"", nameof(profiles));
             }
             _profiles = profiles;
+            _calibration = calibration;
             _cache.Clear();
         }
 

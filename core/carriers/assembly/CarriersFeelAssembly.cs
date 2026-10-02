@@ -42,8 +42,24 @@ namespace Core.Carriers.Assembly
         /// <summary>除 <c>found.input_action</c> 表外，另行声明给输入缓冲的动作（游戏在代码里声明的动作集）。同 id 以后者为准。</summary>
         public IReadOnlyList<ActionDefinition>? ExtraActions { get; set; }
 
-        /// <summary>宽限条件求值（<c>found.grace_condition</c>）；非空时装配一个 <see cref="GraceTracker"/> 并随缓冲每 tick 采样。缺省 null 即不装配。</summary>
+        /// <summary>
+        /// 宽限条件求值（<c>found.grace_condition</c>）覆盖。缺省 null：装配框架提供的基于 Expr 的 <see cref="ExprGraceConditionEvaluator"/>——
+        /// 游戏只在数据里声明条件名与表达式即可使用，不写代码（手感落地 M3-B）；游戏有自己的求值方式时经本属性覆盖。
+        /// </summary>
         public IGraceConditionEvaluator? GraceEvaluator { get; set; }
+
+        /// <summary>
+        /// 缺省 Expr 求值器的"行动者当前目标"解析（<c>target</c> 分组与 <c>self.distance_to_target</c> 的绑定对象）；缺省 null 取自动攻击的当前目标
+        /// （<c>AutoAttackHost.GetTarget</c>），没有则不绑定目标。只在没有覆盖 <see cref="GraceEvaluator"/> 时使用。
+        /// </summary>
+        public Func<Id, Id?>? GraceTargetResolver { get; set; }
+
+        /// <summary>
+        /// 是否让世界里的单位（<c>player</c>/<c>creature</c>，装配时已有的与之后出生的）自动登记到输入缓冲，使宽限条件从登记起就逐 tick 采样
+        /// （手感落地 M3-B：非本地行动者的第一次按键不再可能早于采样）。缺省 true；单位很多、且只有本地玩家使用宽限时可关掉，非本地行动者由游戏在按键前自行
+        /// 调用 <see cref="InputBufferHost.RegisterActor"/>。没有任何输入动作声明宽限条件时采样为空，登记本身不产生开销以外的行为。
+        /// </summary>
+        public bool AutoRegisterGraceActors { get; set; } = true;
 
         /// <summary>本地玩家的移动轴动作名（如 <c>input.action.move</c>）：<c>PresentationAssembly</c> 把本地输入映射接给缓冲时用来采集按下瞬间的方向快照；缺省 null 即不采集。</summary>
         public string? LocalMoveActionName { get; set; }
@@ -92,8 +108,11 @@ namespace Core.Carriers.Assembly
         /// <summary>输入缓冲宿主：本地输入、AI、自动战斗共用同一个入口（<see cref="InputBufferHost.Press"/>/<see cref="InputBufferHost.Submit"/>）。</summary>
         public InputBufferHost InputBuffer { get; }
 
-        /// <summary>宽限追踪；未提供 <see cref="CarriersFeelOptions.GraceEvaluator"/> 时为 null。</summary>
+        /// <summary>宽限追踪（手感落地 M3-B 起恒装配：求值器缺省为 <see cref="ExprGraceConditionEvaluator"/>，没有输入动作声明宽限条件时不采样任何东西）。</summary>
         public GraceTracker? Grace { get; }
+
+        /// <summary>宽限条件求值器：<see cref="CarriersFeelOptions.GraceEvaluator"/> 的覆盖，缺省为框架的 <see cref="ExprGraceConditionEvaluator"/>。</summary>
+        public IGraceConditionEvaluator? GraceEvaluator { get; private set; }
 
         /// <summary>技能槽位绑定（<c>skill_slot</c> → 技能绑定宿主）；是 <see cref="ActionBinding"/> 的回落来源。</summary>
         public ActionSlotSkillBinding Binding { get; }
@@ -122,6 +141,9 @@ namespace Core.Carriers.Assembly
         /// </summary>
         internal FeelReloadResult ApplyHotReload(IDataRegistryView registry, FeelWeaponCatalog catalog, bool refreshModeRules)
         {
+            // 宽限条件表（found.grace_condition）与手感档案各自独立：档案被拒绝不影响条件表换入，反之亦然（新表达式写坏时 Expr 求值器自己保持旧条件）。
+            (GraceEvaluator as ExprGraceConditionEvaluator)?.Reload(registry);
+
             var result = Feel.TryReload(registry);
             LastHotReload = result;
             if (!result.Applied) return result;
@@ -136,8 +158,9 @@ namespace Core.Carriers.Assembly
             FeelSystem feel, IFeelResolver resolver, RulesFeelSystem rules, InputBufferHost inputBuffer, GraceTracker? grace,
             ActionSlotSkillBinding binding, IActionSkillBinding actionBinding, EquipmentFeelChain weaponChain,
             BufferedActionIntentSink sink, MotionServices motion, string? localMoveActionName,
-            List<SubscriptionHandle> subscriptions)
+            List<SubscriptionHandle> subscriptions, IGraceConditionEvaluator? graceEvaluator = null)
         {
+            GraceEvaluator = graceEvaluator;
             Feel = feel;
             Resolver = resolver;
             Rules = rules;
@@ -170,8 +193,8 @@ namespace Core.Carriers.Assembly
     /// </para>
     /// <para>
     /// 判断记录（失效订阅）：装备变化、光环施加/移除使对应单位缓存失效，单位销毁时顺带清缓冲。订阅的事件经事件总线在步骤 7 派发，所以一次
-    /// 装备变化对手感的影响从当 tick 的派发之后才可见（同 tick 内更早的步骤读到旧值），与既有事件驱动模块同一口径。数据热加载（<see cref="FeelResolver.Reload"/>）
-    /// 由 <c>data.load_completed</c> 订阅接线（M2-B，见 <see cref="CarriersFeelSystem.LastHotReload"/>）；标定不热换，变化需重启。
+    /// 装备变化对手感的影响从当 tick 的派发之后才可见（同 tick 内更早的步骤读到旧值），与既有事件驱动模块同一口径。数据热加载（<see cref="FeelResolver.Reload(FeelProfileSet)"/>）
+    /// 由 <c>data.load_completed</c> 订阅接线（M2-B，见 <see cref="CarriersFeelSystem.LastHotReload"/>）；标定行变化同样热换（M3-B）：进行中的动作保持原快照，下一个动作用新标定。
     /// </para>
     /// </summary>
     public static class CarriersFeelAssembly
@@ -248,9 +271,12 @@ namespace Core.Carriers.Assembly
             rulesFeel.Timeline.TargetAssist = new ActionTargetAssistAdapter(
                 options.TargetAssist ?? new TargetChainAssistResolver(rules.Targeting, carriers.Units), carriers.Units);
 
-            GraceTracker? grace = options.GraceEvaluator != null ? new GraceTracker(options.GraceEvaluator, resolver) : null;
+            // 手感落地 M3-B：求值器缺省为框架的 Expr 求值（found.grace_condition 的 expr 在行动者上下文里求值），游戏不写代码；options.GraceEvaluator 仍可覆盖。
+            var graceEvaluator = options.GraceEvaluator ?? new ExprGraceConditionEvaluator(
+                registry, rules.ExprHostFactory, rules.ExprSchema, options.GraceTargetResolver ?? (id => rules.AutoAttack.GetTarget(id)));
+            var grace = new GraceTracker(graceEvaluator, resolver);
             InputBufferTickHandler.Register(world, buffer, sink, grace);
-            // 手感落地 M2-B（手感设计/01 第 2.4 节）：施法管线步骤 7 经它判断"条件刚刚失效、仍在宽限内"；未提供求值器时为 null，步骤 7 照常拒绝。
+            // 手感落地 M2-B（手感设计/01 第 2.4 节）：施法管线步骤 7 经它判断"条件刚刚失效、仍在宽限内"。
             rulesFeel.Timeline.Grace = grace;
 
             // ---- 失效与清理订阅。
@@ -267,6 +293,21 @@ namespace Core.Carriers.Assembly
                 RulesEventKeys.AuraStackChanged, e => resolver.Invalidate(e.TargetId, "aura_changed")));
             subscriptions.Add(bus.Subscribe<UnitDiedEvent>(
                 RulesEventKeys.UnitDied, e => buffer.Clear(e.UnitId)));
+            // 手感落地 M3-B：单位从登记起就开始采样宽限条件（装配时已有的单位现在登记，之后出生的在 entity.created 派发时登记），第一次按键之前就有历史可查。
+            if (options.AutoRegisterGraceActors)
+            {
+                foreach (var entity in world.QueryEntities(default))
+                {
+                    if (IsGraceActorKind(entity.Kind)) buffer.RegisterActor(entity.EntityId);
+                }
+
+                subscriptions.Add(bus.Subscribe<EntityCreatedEvent>(
+                    SimEventKeys.EntityCreated, e =>
+                    {
+                        if (IsGraceActorKind(e.Kind)) buffer.RegisterActor(e.EntityId);
+                    }));
+            }
+
             subscriptions.Add(bus.Subscribe<EntityDestroyedEvent>(
                 SimEventKeys.EntityDestroyed, e =>
                 {
@@ -289,7 +330,8 @@ namespace Core.Carriers.Assembly
             MotionHitFeelWiring.Connect(carriers.Movement, rulesFeel.Clock, rulesFeel.HitFeel.Host);
 
             var system = new CarriersFeelSystem(
-                feel, resolver, rulesFeel, buffer, grace, slotBinding, actionBinding, weaponChain, sink, motion, options.LocalMoveActionName, subscriptions);
+                feel, resolver, rulesFeel, buffer, grace, slotBinding, actionBinding, weaponChain, sink, motion, options.LocalMoveActionName, subscriptions,
+                graceEvaluator);
 
             // ---- 数据热加载（手感落地 M2-B，手感设计/05 第 8 节、ADR-0019）：宿主（模板的 DataHotReload 或测试）在 DataRegistry.Reload 之后补发
             // data.load_completed，这里据此重读 feel.* 表换入解析器。被拒时（校验有错误等）保持当前档案，原因记在 LastHotReload 上。
@@ -297,6 +339,8 @@ namespace Core.Carriers.Assembly
                 DataRegistryEventKeys.LoadCompleted, _ => system.ApplyHotReload(registry, weaponCatalog, options.ModeRules == null)));
             return system;
         }
+
+        private static bool IsGraceActorKind(string kind) => kind == EntityKinds.Player || kind == EntityKinds.Creature;
 
         private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)
         {

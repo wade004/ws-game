@@ -326,6 +326,36 @@ namespace Tests.PresentationCamera
             Assert.Single(diagnostics.Warnings, w => w.Contains("ICameraImpulse"));
         }
 
+        /// <summary>
+        /// 复现用例（手感落地 M3-B）：震屏退化的参考镜头高度取实时来源——来源值从 10 变为 20 后，同一冲击的震屏强度从 0.02 × 10 变为 0.02 × 20，不必重建镜头宿主；
+        /// 来源给出非正数时本次回落到 1；旧重载（固定值）逐位不变。
+        /// </summary>
+        [Fact]
+        public void Impulse_FallbackShake_ReadsTheLiveReferenceHeightSource()
+        {
+            var camera = new FeelRecordingCamera { SupportsCameraImpulse = false };
+            var host = new CameraHost(camera, new ScriptedTarget());
+            var reference = 10.0;
+            host.EnableFeel(null, () => reference);
+
+            host.Impulse(new Vec2(1, 0), 0.02, 120);
+            reference = 20.0;
+            host.Impulse(new Vec2(1, 0), 0.02, 120);
+            reference = 0.0;
+            host.Impulse(new Vec2(1, 0), 0.02, 120);
+
+            Assert.Equal(3, camera.Shakes.Count);
+            Assert.Equal(0.02 * 10.0, camera.Shakes[0].Intensity, 12);
+            Assert.Equal(0.02 * 20.0, camera.Shakes[1].Intensity, 12);
+            Assert.Equal(0.02 * 1.0, camera.Shakes[2].Intensity, 12);
+
+            var fixedCamera = new FeelRecordingCamera { SupportsCameraImpulse = false };
+            var fixedHost = new CameraHost(fixedCamera, new ScriptedTarget());
+            fixedHost.EnableFeel(null, shakeReferenceHeight: 10.0);
+            fixedHost.Impulse(new Vec2(1, 0), 0.02, 120);
+            Assert.Equal(camera.Shakes[0].Intensity, fixedCamera.Shakes[0].Intensity);
+        }
+
         [Fact]
         public void Impulse_NonPositiveMagnitude_IsIgnored()
         {
