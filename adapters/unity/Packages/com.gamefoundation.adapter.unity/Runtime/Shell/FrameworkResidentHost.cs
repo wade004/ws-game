@@ -186,6 +186,17 @@ namespace Adapter.Unity.Shell
         /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
         public global::Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested { get; set; }
 
+        /// <summary>手感落地 M2-A：手感系统装配选项（转发给 <see cref="GameplayAssembly"/> 的 <c>feelOptions</c>，同
+        /// <c>Adapter.Unity.Bootstrap.GameFoundationBootstrap.FeelOptions</c> 与 <c>games/_template.GameOptions.FeelOptions</c>）。
+        /// 默认 <c>null</c> 即不启用手感，行为与此前逐位一致。本类型有 <see cref="Ensure"/> 单例守卫，同 <see cref="QuestOwnerResolver"/>：
+        /// 必须在 <see cref="Ensure"/> 第一次被调用之前设到场景里预先摆放好的实例上（或另建未激活 GameObject、<c>AddComponent</c> 后立即赋值再激活）。
+        /// 启用时自动把 <see cref="FeelDatasetRoot"/> 接进数据加载顺序；凡被输入缓冲声明了类别的动作不再由本类型直接提交 <c>cast</c> 意图
+        /// （见 <see cref="HandleFixedInput"/>）。</summary>
+        public global::Core.Carriers.Assembly.CarriersFeelOptions? FeelOptions { get; set; }
+
+        /// <summary>手感框架数据根（随内容根同步的 <c>data/_feel</c>）。</summary>
+        public const string FeelDatasetRoot = "data/_feel";
+
         public bool BootstrapFailed { get; private set; }
 
         /// <summary>W3b 新增：本次 <see cref="OnFrameTick"/> 内某个表现步骤抛出的异常次数累计
@@ -320,7 +331,14 @@ namespace Adapter.Unity.Shell
             // PRES-118-SFX 契约测试专用（见 ForceSfxMissingResourceOverlayForTest 判断记录）：两个
             // 测试专用叠加互不依赖，都为 false 时下面列表恰好等于改动前的 { frameworkSource, source }
             // 两元素数组，零行为变化。
-            var sourceList = new List<IDataSource> { frameworkSource, source };
+            var sourceList = new List<IDataSource> { frameworkSource };
+            // 手感落地 M2-A：开启 FeelOptions 时框架手感数据根排在框架根之后、游戏根之前（同模板的加载顺序）；不开启时列表不变。
+            if (FeelOptions != null)
+            {
+                sourceList.Add(new FileSystemDataSource(contentFs, FeelDatasetRoot));
+            }
+
+            sourceList.Add(source);
             if (ForceDiscreteCombatForSmoke)
             {
                 sourceList.Add(BuildDiscreteOverlaySource());
@@ -375,18 +393,49 @@ namespace Adapter.Unity.Shell
                 ? new WaitForPlaybackPacingPolicy()
                 : new ImmediatePacingPolicy();
 
+            // 手感落地 M2-A：手感装配选项只在最长的构造重载里（前面的可选参数重载保持物理签名不变），所以改走最长重载，
+            // 未列出的参数显式传 null——与此前经可选参数重载时的缺省（全为 null）逐一相同；FeelOptions 缺省 null 即不启用手感，行为不变。
             var gameplay = new GameplayAssembly(
                 _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
+                spatialSyncKinds: null,
+                sceneRouter: null,
+                statOptions: null,
+                combatOptions: null,
+                skillOptions: null,
+                targetingOptions: null,
+                aiOptions: null,
+                inventoryOptions: null,
+                itemOptions: null,
+                creatureOptions: null,
+                summonOptions: null,
+                gobjOptions: null,
+                movementOptions: null,
+                worldStateOptions: null,
+                lootOptions: null,
+                economyOptions: null,
+                questOptions: null,
+                difficultyOptions: null,
+                achievementOptions: null,
+                areaTriggerOptions: null,
+                spawnOptions: null,
+                autosaveSlotId: null,
+                autosaveTimestampProvider: null,
                 clockHost: clockHost,
                 pacingPolicy: pacingPolicy,
+                timeModelSwitchOptions: null,
+                combatParticipantsResolver: null,
+                deathPolicyOptions: null,
                 // 第十一方深度审核修复：透传 QuestOwnerResolver/QuestDayProvider/VendorOpenRequested
                 // 三个公开属性（见各自判断记录），默认 null，不改变既有行为。
                 questOwnerResolver: QuestOwnerResolver,
                 questDayProvider: QuestDayProvider,
-                vendorOpenRequested: VendorOpenRequested);
+                vendorOpenRequested: VendorOpenRequested,
+                progressionOptions: null,
+                creatureInteractOptions: null,
+                feelOptions: FeelOptions);
             Gameplay = gameplay;
 
             _player = new PlayerUnit(PlayerId, new Id(SampleMapId), factionId, _classId)
@@ -853,9 +902,22 @@ namespace Adapter.Unity.Shell
                 Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(PlayerId, moveAxis));
             }
 
-            HandleButtonRisingEdge(ActionAttack, () => CastSkill(new Id(AttackSkillId)));
-            HandleButtonRisingEdge(ActionSkill1, () => CastSkill(new Id(Skill1Id)));
+            // 手感落地 M2-A：开启手感且该动作被输入缓冲声明了类别（found.input_action.class）时，按钮边沿已由 PresentationAssembly
+            // 接给缓冲，施法只经缓冲出口（BufferedActionIntentSink）提交——这里不再直接提交 cast，否则同一次按键会施法两次。
+            // 手感关闭、或动作没有被缓冲声明（数据里没写类别）时保持直接提交，路径与此前一致。
+            HandleButtonRisingEdge(ActionAttack, () =>
+            {
+                if (!IsBufferedAction(ActionAttack)) CastSkill(new Id(AttackSkillId));
+            });
+            HandleButtonRisingEdge(ActionSkill1, () =>
+            {
+                if (!IsBufferedAction(ActionSkill1)) CastSkill(new Id(Skill1Id));
+            });
         }
+
+        /// <summary>该输入动作是否由手感输入缓冲接管（手感已装配且动作被缓冲声明了类别）。</summary>
+        private bool IsBufferedAction(string actionName) =>
+            Gameplay.Feel != null && Gameplay.Feel.InputBuffer.IsBuffered(new Id(actionName));
 
         private void HandleButtonRisingEdge(string actionName, Action onTriggered)
         {

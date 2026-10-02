@@ -95,8 +95,14 @@ camera/
    - **镜头冲击**：适配层实现 `ICameraImpulse` 且 `SupportsCameraImpulse` 为真时直接转发；否则退化为 `ICamera.Shake`（强度 = 画面高度比例 × 参考镜头高度，时长 = 衰减时长，频率 = `ImpulseFallbackShakeFrequency`）并记一条去重诊断。幅度非正时忽略。合并/限频/上限截断由反馈包流水线负责（`feedback_binder/README.md` 判断记录 23），本类不二次处理。
    - **已知局限（原文）**：
      - 对固定步长的宿主这就是准确值，对变帧率宿主是近似（`ICameraHost.Update` 既有签名只有插值系数、没有 dt，且为 ABI 只加法不改它；旧调用点按固定 1/60 秒推进，变帧率宿主应改用 `Update(alpha, dt)`）。
-     - 引擎侧（Unity 适配层）尚未实现 `ICameraImpulse`，目前所有引擎走 `ICamera.Shake` 退化路径；真正的方向性镜头推移留给适配层后续切片。
+     - （已解决，见判断记录 9）Unity 适配层 `UnityCamera` 已实现 `ICameraImpulse`。
    用例：`presentation/camera/tests/CameraFeelTests.cs`（11 条：缺省逐位一致、非缺省输出确有不同、阻尼 = 一阶滞后公式、跟随滞后换算、死区、前瞻、前瞻滞后过零、战斗缩放线性过渡、战斗中 `SetZoom`、冲击能力转发/退化、非正幅度忽略）。
+
+9. **引擎侧镜头冲击：`UnityCamera` 实现 `ICameraImpulse`（2026-10-02，手感落地 M2-A，手感设计/07 第 2/5 节）**：
+   - `UnityCamera` 恒声明 `SupportsCameraImpulse`，`CameraHost.Impulse` 因此直接转发，不再退化为 `Shake`；`PlayImpact` 触发的镜头冲量（`feedback_binder` 判断记录 23 的 `ImpactCameraCue`）在引擎里是真正的方向性推移。
+   - **单位与几何**：`magnitude` 是画面高度比例，位移峰值 = `magnitude × 2 × orthographicSize`（按触发那一刻的缩放换算）；沿 `direction` 推开，位移从峰值线性衰减回零，历时 `decayMs`；零方向取各向同性（Perlin 噪声采样的二维偏移，幅度同样线性衰减）。多次冲击位移向量相加（合并、限频、上限截断由反馈包流水线负责）；冲击位移单独维护，最终写回的是 `基准 + 震屏 + 冲击`，不污染跟随基准。幅度非正、衰减非正的调用忽略。
+   - 取舍：不复用 `Shake` 的随机抖动实现——`Shake` 没有方向、强度单位也不同（世界距离），硬套会让"沿命中方向推一下"变成随机晃；冲击是独立的第二路偏移。
+   - 复现/不变量：`UnityCameraTests.Impulse_Directional_PeakOffsetIsMagnitudeTimesScreenHeight_ThenDecaysToZero`（峰值 = 幅度 × 画面高度、线性衰减单调不增、过期回零）、`..._ZeroDirection_UsesIsotropicOffsetWithinPeak_AndInvalidArgumentsAreIgnored`、`..._DoesNotDisturbFollowBase_AfterItEnds`；端到端见 `HitFrameSyncEndToEndTests.FeelEngine_Hit_TriggersEngineCameraImpulse_MagnitudeFromProfile`（命中 → 引擎相机的冲量幅度 = `min(基础增益 × 变体增益, 震屏上限)`）。
 
 ## 契约缺口
 

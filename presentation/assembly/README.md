@@ -652,3 +652,9 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 
 - **视图工厂接收姿势上下文来源**：视图工厂先于 `PresentationAssembly` 构造，无法用构造参数传入姿势选择器，新增可选接口 `Presentation.Render.IPoseContextReceiver`（`SetPoseContextSource`）。工厂实现了它就在装配时收到来源；没实现则忽略，不改 `IViewFactory`。Unity 适配层的 `UnityViewFactory` 实现它，并在构建 `AnimClipResolver` 时把来源传入既有的姿势上下文重载；解析器已经构建后再设置会抛 `InvalidOperationException`（不静默忽略）。
 - **已知限制**：生产装配不给 `PoseSelector.Observe` 喂步态，步态恒为空闲，移动解析为 `walk`（姿势集没有该键时回落基础键 `move`）。`PoseSelector` 不在单位销毁时清理其武器族记录，与换装链的单位状态口径一致（玩家实体随换图重建，而换装链对未变化的状态不重发事件，清理反而会丢武器族）。
+
+## 判断记录（顿帧冻结默认落到 rig，手感落地 M2-A，2026-10-02）
+
+- `PresentationAssemblyOptions.OnFreezePresentation/OnReleasePresentation` 此前缺省忽略（只能经 `Feedback.Impact.Freezes` 查询）；现在装配根默认先把冻结/解冻落到名单里各单位视图的 `IPresentationFreezable` rig（私有方法 `SetRigsFrozen`），再调用调用方显式给的回调。没有视图、视图不持有 rig、rig 不实现能力接口的单位静默跳过；名单外单位不受影响。仅在手感打击反馈包流水线存在时（`FeelResolver` 非空）才有冻结事件，手感关闭时装配与此前逐位一致。
+- 取舍：默认接线而不是要求每个宿主自己写回调——否则引擎宿主与无头宿主各写一遍，且漏接时顿帧只剩"状态可查询、画面没停"。代价：显式回调不再是冻结的唯一出口，需要完全自管冻结的宿主应让自己的 rig 不实现 `IPresentationFreezable`。
+- 复现/不变量：`tests/FeelRigFreezeWiringTests.cs`（见 `presentation/feedback_binder/README.md` 判断记录 25）。

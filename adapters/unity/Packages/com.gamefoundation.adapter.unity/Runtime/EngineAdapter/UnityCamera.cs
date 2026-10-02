@@ -13,15 +13,43 @@
 // height 参数按与 IRenderer2D.SetTransform 一致的换算方向，直接作为世界 Y 方向的附加偏移量
 // （等效于"抬高的物体在画面上更靠上"）。
 // zoom 直接映射为正交相机的 orthographicSize（世界单位可视半高），zoomRange 即其合法区间。
+//
+// 判断记录（镜头冲击 ICameraImpulse，手感落地 M2-A，手感设计/07 第 2 节、05 第 7 节）：本类型同时实现可选能力接口
+// ICameraImpulse 且恒声明支持，表现层 CameraHost.Impulse 因此直接转发，不再退化为 Shake。
+//   - 幅度单位：magnitude 是"画面高度比例"，实际位移 = magnitude × 画面可视高度（2 × orthographicSize，按触发那一刻的缩放换算，
+//     不跨投影直接复用世界距离）。
+//   - 方向与衰减：镜头沿 direction（世界平面单位方向）被推开，位移从峰值线性衰减回零，历时 decayMs；多次冲击的位移按向量相加
+//     （合并、限频、上限截断由反馈包流水线负责，本类型不二次处理）；零方向表示无方向，取各向同性——按 Perlin 噪声采样的二维偏移，
+//     幅度同样线性衰减（同 Shake 的噪声做法，纯表现、不回流逻辑层）。
+//   - 与 Shake 独立叠加：冲击位移单独维护（_impulseOffset），每帧最终写回 Transform 的值是
+//     _basePosition + _shakeOffset + _impulseOffset，不污染跟随基准位置（同 _basePosition 判断记录的理由）。
+//   - 位移的落地时刻：Tick(dt) 先把全部冲击推进 dt 再求和，所以 Tick(0) 得到的就是刚触发时的峰值位移（测试据此确定性取峰值）。
 using System;
+using System.Collections.Generic;
 using Core.Foundation.Common;
 using Core.Foundation.EngineAdapter;
 using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityCamera : ICamera
+    public sealed class UnityCamera : ICamera, ICameraImpulse
     {
+        private struct ImpulseState
+        {
+            public Vector2 Direction;
+            public bool Isotropic;
+            public float PeakWorld;
+            public double DurationSeconds;
+            public double Elapsed;
+        }
+
+        /// <summary>零方向冲击的各向同性噪声采样频率（次/秒）。</summary>
+        private const double ImpulseIsotropicFrequency = 30.0;
+        private const float ImpulseNoiseSeedX = 71.3f;
+        private const float ImpulseNoiseSeedY = 113.9f;
+
+        private readonly List<ImpulseState> _impulses = new List<ImpulseState>();
+        private Vector3 _impulseOffset;
         private readonly Camera _camera;
 
         private double _pitchDegrees;
@@ -133,6 +161,43 @@ namespace Adapter.Unity.EngineAdapter
             _shakeElapsed = 0;
         }
 
+        /// <summary><see cref="ICameraImpulse.SupportsCameraImpulse"/>：本实现恒支持（见类型顶部判断记录）。</summary>
+        public bool SupportsCameraImpulse => true;
+
+        /// <summary>迄今收到的有效冲击次数（幅度为正者；测试/诊断用）。</summary>
+        public int ImpulseCount { get; private set; }
+
+        /// <summary>最近一次有效冲击的参数（方向、幅度[画面高度比例]、衰减毫秒）；尚无时为 null（测试/诊断用）。</summary>
+        public (Vec2 Direction, double Magnitude, double DecayMs)? LastImpulse { get; private set; }
+
+        /// <summary>当前冲击叠加的世界位移（XY；测试/诊断用，<see cref="Tick"/> 之后更新）。</summary>
+        public Vector2 CurrentImpulseOffset => new Vector2(_impulseOffset.x, _impulseOffset.y);
+
+        /// <summary><see cref="ICameraImpulse.Impulse"/>：见类型顶部判断记录。幅度非正或衰减非正的调用忽略（不计数）。</summary>
+        public void Impulse(Vec2 direction, double magnitude, double decayMs)
+        {
+            if (!(magnitude > 0) || !(decayMs > 0))
+            {
+                return;
+            }
+
+            var sqr = direction.X * direction.X + direction.Y * direction.Y;
+            var isotropic = !(sqr > 1e-12);
+            var dir = isotropic ? Vector2.zero : new Vector2((float)(direction.X / Math.Sqrt(sqr)), (float)(direction.Y / Math.Sqrt(sqr)));
+            // 画面可视高度 = 2 × 正交半高（世界单位）；按触发时刻的缩放换算。
+            var peakWorld = (float)(magnitude * 2.0 * _camera.orthographicSize);
+            _impulses.Add(new ImpulseState
+            {
+                Direction = dir,
+                Isotropic = isotropic,
+                PeakWorld = peakWorld,
+                DurationSeconds = decayMs / 1000.0,
+                Elapsed = 0.0,
+            });
+            ImpulseCount++;
+            LastImpulse = (direction, magnitude, decayMs);
+        }
+
         /// <summary>由 UnityEngineHost.Update 每帧调用：推进跟随平滑与震屏偏移，
         /// 并把最终结果写入相机 Transform。震屏用 Perlin 噪声按 frequency 采样生成偏移
         /// （见 <see cref="Shake"/> 判断记录）——纯表现层抖动，不回流进逻辑层，不违反
@@ -168,7 +233,34 @@ namespace Adapter.Unity.EngineAdapter
                 }
             }
 
-            _camera.transform.position = _basePosition + _shakeOffset;
+            var impulseSum = Vector3.zero;
+            for (var i = _impulses.Count - 1; i >= 0; i--)
+            {
+                var impulse = _impulses[i];
+                impulse.Elapsed += deltaSeconds;
+                if (impulse.Elapsed >= impulse.DurationSeconds)
+                {
+                    _impulses.RemoveAt(i);
+                    continue;
+                }
+
+                _impulses[i] = impulse;
+                var falloff = (float)(1.0 - impulse.Elapsed / impulse.DurationSeconds);
+                if (impulse.Isotropic)
+                {
+                    var sampleT = (float)(impulse.Elapsed * ImpulseIsotropicFrequency);
+                    var nx = Mathf.PerlinNoise(ImpulseNoiseSeedX, sampleT) * 2f - 1f;
+                    var ny = Mathf.PerlinNoise(ImpulseNoiseSeedY, sampleT) * 2f - 1f;
+                    impulseSum += new Vector3(nx, ny, 0f) * (impulse.PeakWorld * falloff);
+                }
+                else
+                {
+                    impulseSum += new Vector3(impulse.Direction.x, impulse.Direction.y, 0f) * (impulse.PeakWorld * falloff);
+                }
+            }
+
+            _impulseOffset = impulseSum;
+            _camera.transform.position = _basePosition + _shakeOffset + _impulseOffset;
         }
 
         /// <summary>测试/诊断用：当前配置值。</summary>

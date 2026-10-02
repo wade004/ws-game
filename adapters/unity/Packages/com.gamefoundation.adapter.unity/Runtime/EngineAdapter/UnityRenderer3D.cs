@@ -213,6 +213,11 @@ namespace Adapter.Unity.EngineAdapter
             /// 宽容策略）。null 表示尚未调用过 <see cref="PlayAnim"/>。</summary>
             public (Id ClipId, bool Loop, double Speed, double BlendSeconds)? LastPlayAnimCall;
 
+            /// <summary>手感落地 M2-A（顿帧表现冻结）：最近一次 <see cref="SetAnimSpeed"/> 设定的播放速率，且其后没有新的
+            /// <see cref="PlayAnim"/>（新播放自带速率，清空本字段）。<see cref="AttachVisual"/> 原地替换视觉内容后重放最近一次
+            /// <see cref="PlayAnim"/> 时优先用本值：冻结（速率 0）期间资源才加载完成的冷路径，新内容也保持冻结，与热路径同一规则。</summary>
+            public double? AnimSpeedOverride;
+
             /// <summary>PR130-05 新增：已登记的槽位网格覆盖（<see cref="SetSlotMesh"/>），原地替换视觉
             /// 内容后据此逐条重放。</summary>
             public readonly Dictionary<Id, Id?> SlotMeshes = new Dictionary<Id, Id?>();
@@ -501,7 +506,7 @@ namespace Adapter.Unity.EngineAdapter
             if (instance.LastPlayAnimCall.HasValue)
             {
                 var call = instance.LastPlayAnimCall.Value;
-                PlayAnimOnInstance(instance, call.ClipId, call.Loop, call.Speed, call.BlendSeconds);
+                PlayAnimOnInstance(instance, call.ClipId, call.Loop, instance.AnimSpeedOverride ?? call.Speed, call.BlendSeconds);
             }
 
             // PR140-02 根治：新挂点就位后，把暂存的 socket 子实例逐条挂回去；找不到同名挂点时保持
@@ -598,6 +603,7 @@ namespace Adapter.Unity.EngineAdapter
         {
             var instance = EnsureAlive(handle);
             instance.LastPlayAnimCall = (clipId, loop, speed, blendSeconds); // PR130-05：供原地替换后重放。
+            instance.AnimSpeedOverride = null; // 新播放自带速率（手感落地 M2-A，见 ModelInstance.AnimSpeedOverride）。
             PlayAnimOnInstance(instance, clipId, loop, speed, blendSeconds);
         }
 
@@ -894,6 +900,7 @@ namespace Adapter.Unity.EngineAdapter
         public void SetAnimSpeed(ModelHandle handle, double speed)
         {
             var instance = EnsureAlive(handle);
+            instance.AnimSpeedOverride = speed;
             if (instance.Animator != null)
             {
                 instance.Animator.speed = (float)speed;

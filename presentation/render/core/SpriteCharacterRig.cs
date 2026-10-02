@@ -68,7 +68,7 @@ namespace Presentation.Render
     /// 只读属性暴露供调用方/测试读取，是比新增构造重载更小的改动面。
     /// </para>
     /// </summary>
-    public sealed class SpriteCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim
+    public sealed class SpriteCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim, IPresentationFreezable
     {
         private readonly IRenderer2D _renderer;
         private readonly SpriteHandle _handle;
@@ -164,6 +164,13 @@ namespace Presentation.Render
         public void AttachFrameAnimPlayer(IFrameAnimPlayer player)
         {
             _frameAnimPlayer = player ?? throw new ArgumentNullException(nameof(player));
+
+            // 手感落地 M2-A（冷路径与热路径同一出口）：播放器晚于 rig 接上时（引擎侧组件要等精灵根节点建好才能挂），
+            // 若此刻本 rig 正处在顿帧冻结，新接上的播放器也立即进入暂停，不会在冻结期间自己跑起来。
+            if (_frozen)
+            {
+                _frameAnimPlayer.SetPaused(true);
+            }
 
             if (_hitFrameSyncStrategy == HitFrameSyncStrategy.AnimKeyframeDriven)
             {
@@ -263,6 +270,28 @@ namespace Presentation.Render
         public void MarkDestroyed() => _destroyed = true;
 
         public void Update(double dt) => _sequencer.Update(dt);
+
+        // --------------------------------------------------------------
+        // IPresentationFreezable（手感落地 M2-A，手感设计/07 第 5 节）：序列帧播放器暂停 + 程序动画原语时间轴冻结（闪白不冻，拖尾按 freezeTrail）。
+        // --------------------------------------------------------------
+
+        private bool _frozen;
+
+        public bool IsPresentationFrozen => _frozen;
+
+        public void FreezePresentation(bool freezeTrail)
+        {
+            _frozen = true;
+            _sequencer.SetFrozen(true, freezeTrail);
+            _frameAnimPlayer?.SetPaused(true);
+        }
+
+        public void UnfreezePresentation()
+        {
+            _frozen = false;
+            _sequencer.SetFrozen(false);
+            _frameAnimPlayer?.SetPaused(false);
+        }
 
         // --------------------------------------------------------------
         // IProceduralAnim：除 Flash 外全部直接转发内部 ProceduralAnimSequencer（见类型注释判断记录）。

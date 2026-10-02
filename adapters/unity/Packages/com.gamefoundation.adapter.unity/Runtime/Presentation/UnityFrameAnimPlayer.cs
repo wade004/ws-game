@@ -92,10 +92,29 @@ namespace Adapter.Unity.Presentation
                 {
                     _inner = new FrameAnimPlayer(_clipMetaById);
                     _inner.FrameChanged += OnFrameChanged;
+                    _inner.SetPaused(_paused);
                 }
                 return _inner;
             }
         }
+
+        // 手感落地 M2-A（顿帧表现冻结，手感设计/07 第 5 节）：暂停标志存在本组件上而不是只转发给内部播放器——内部播放器是懒创建的，
+        // 暂停期间才第一次 Play 的剪辑（含异步加载完成后才首次播放的冷路径）创建出来时仍按当前暂停状态启动，与热路径同一出口。
+        private bool _paused;
+
+        /// <summary>见 <see cref="IFrameAnimPlayer.IsPaused"/>。</summary>
+        public bool IsPaused => _paused;
+
+        /// <summary>见 <see cref="IFrameAnimPlayer.SetPaused"/>：暂停期间帧下标、关键帧与播放完成回调都不推进，恢复后从暂停点继续。</summary>
+        public void SetPaused(bool paused)
+        {
+            _paused = paused;
+            _inner?.SetPaused(paused);
+        }
+
+        /// <summary>按 <paramref name="deltaSeconds"/> 推进内部播放器（暂停时内部播放器自己忽略）；<see cref="Update"/> 以 <see cref="Time.deltaTime"/> 调用，
+        /// 测试经此确定性地推进，不依赖真实帧时间。</summary>
+        internal void Advance(double deltaSeconds) => _inner?.Update(deltaSeconds);
 
         /// <summary>登记一个剪辑：<paramref name="frames"/> 长度即帧数，<paramref name="frameRate"/>
         /// 播放帧率（帧/秒），<paramref name="keyframes"/> 关键帧标记（见
@@ -277,7 +296,7 @@ namespace Adapter.Unity.Presentation
 
         private void Update()
         {
-            _inner?.Update(Time.deltaTime);
+            Advance(Time.deltaTime);
         }
     }
 }

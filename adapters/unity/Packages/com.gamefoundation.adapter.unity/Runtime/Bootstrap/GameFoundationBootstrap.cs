@@ -220,6 +220,17 @@ namespace Adapter.Unity.Bootstrap
         /// <summary>见 <see cref="QuestOwnerResolver"/> 判断记录。</summary>
         public global::Core.Gameplay.Dialog.VendorOpenRequestedCallback? VendorOpenRequested { get; set; }
 
+        /// <summary>手感落地 M2-A：手感系统装配选项（转发给 <see cref="GameplayAssembly"/> 的 <c>feelOptions</c>，同
+        /// <c>games/_template.GameOptions.FeelOptions</c> 的落点）。默认 <c>null</c> 即不启用手感，行为与此前逐位一致。
+        /// 与 <see cref="QuestOwnerResolver"/> 同一惯例：只能在 <see cref="Awake"/> 真正读取之前赋值（未激活 GameObject 上
+        /// <c>AddComponent</c> 后赋值再激活）。启用时自动把框架手感数据根 <see cref="FeelDatasetRoot"/> 接进数据加载顺序（框架根之后、
+        /// 游戏根之前，与模板同序）；本地输入的按钮边沿由 <c>PresentationAssembly</c> 接给输入缓冲，凡被缓冲声明了类别的动作
+        /// （<c>found.input_action.class</c>）不再由本类型直接提交 <c>cast</c> 意图（见 <see cref="HandleFixedInput"/>）。</summary>
+        public global::Core.Carriers.Assembly.CarriersFeelOptions? FeelOptions { get; set; }
+
+        /// <summary>手感框架数据根（随内容根同步的 <c>data/_feel</c>，同 <c>games/_template.GameOptions.FeelDatasetRoot</c>）。</summary>
+        public const string FeelDatasetRoot = "data/_feel";
+
         /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真（见 <see cref="BuildWorld"/>）；
         /// 为真时不注册 <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经
         /// <c>Debug.LogError</c> 过具体原因。</summary>
@@ -299,10 +310,21 @@ namespace Adapter.Unity.Bootstrap
             PresentationSchemaCatalog.RegisterAll(registry);
             // H4 收官新增：_extraDatasetRoot 非空时叠加为第三根（见该字段判断记录），留空时行为
             // 与此前完全一致（只有 frameworkSource + source 两根）。
-            var sources = string.IsNullOrEmpty(_extraDatasetRoot)
-                ? new IDataSource[] { frameworkSource, source }
-                : new IDataSource[] { frameworkSource, source, new FileSystemDataSource(contentFs, _extraDatasetRoot) };
-            var report = registry.LoadAll(sources);
+            // 手感落地 M2-A：开启 FeelOptions 时框架手感数据根排在框架根之后、游戏根之前（同模板的加载顺序）；
+            // 不开启时列表恰好等于此前的两/三元素数组，数据来源逐位不变。
+            var sourceList = new List<IDataSource> { frameworkSource };
+            if (FeelOptions != null)
+            {
+                sourceList.Add(new FileSystemDataSource(contentFs, FeelDatasetRoot));
+            }
+
+            sourceList.Add(source);
+            if (!string.IsNullOrEmpty(_extraDatasetRoot))
+            {
+                sourceList.Add(new FileSystemDataSource(contentFs, _extraDatasetRoot));
+            }
+
+            var report = registry.LoadAll(sourceList);
 
             // ADR-0047 运行期校验报告落盘出口：与 games/_template/Runtime/GameBootstrap.cs 同款接线
             // ——选项未设置时 WriteIfConfigured 直接跳过；通过/阻断两种结果都写，放在下面 IsBlocking
@@ -360,18 +382,49 @@ namespace Adapter.Unity.Bootstrap
                 ? new WaitForPlaybackPacingPolicy()
                 : new ImmediatePacingPolicy();
 
+            // 手感落地 M2-A：手感装配选项只在最长的构造重载里（前面的可选参数重载保持物理签名不变），所以改走最长重载，
+            // 未列出的参数显式传 null——与此前经可选参数重载时的缺省（全为 null）逐一相同；FeelOptions 缺省 null 即不启用手感，行为不变。
             var gameplay = new GameplayAssembly(
                 _bus, registry, rng, world, _host.SpatialQuery, saveSystem,
                 playerUnitProvider: () => PlayerId,
                 playerFactionId: factionId,
                 navigation: _host.Navigation2D,
+                spatialSyncKinds: null,
+                sceneRouter: null,
+                statOptions: null,
+                combatOptions: null,
+                skillOptions: null,
+                targetingOptions: null,
+                aiOptions: null,
+                inventoryOptions: null,
+                itemOptions: null,
+                creatureOptions: null,
+                summonOptions: null,
+                gobjOptions: null,
+                movementOptions: null,
+                worldStateOptions: null,
+                lootOptions: null,
+                economyOptions: null,
+                questOptions: null,
+                difficultyOptions: null,
+                achievementOptions: null,
+                areaTriggerOptions: null,
+                spawnOptions: null,
+                autosaveSlotId: null,
+                autosaveTimestampProvider: null,
                 clockHost: clockHost,
                 pacingPolicy: pacingPolicy,
+                timeModelSwitchOptions: null,
+                combatParticipantsResolver: null,
+                deathPolicyOptions: null,
                 // 第十一方深度审核修复：透传 QuestOwnerResolver/QuestDayProvider/VendorOpenRequested
                 // 三个公开属性（见各自判断记录），默认 null，不改变既有行为。
                 questOwnerResolver: QuestOwnerResolver,
                 questDayProvider: QuestDayProvider,
-                vendorOpenRequested: VendorOpenRequested);
+                vendorOpenRequested: VendorOpenRequested,
+                progressionOptions: null,
+                creatureInteractOptions: null,
+                feelOptions: FeelOptions);
             Gameplay = gameplay;
 
             var player = new PlayerUnit(PlayerId, mapId, factionId, classId)
@@ -744,10 +797,23 @@ namespace Adapter.Unity.Bootstrap
                 Gameplay!.Carriers.Movement.Request(MoveRequest.InDirection(PlayerId, moveAxis));
             }
 
-            HandleButtonRisingEdge(ActionAttack, () => CastSkill(new Id(_attackSkillId)));
-            HandleButtonRisingEdge(ActionSkill1, () => CastSkill(new Id(_skill1Id)));
+            // 手感落地 M2-A：开启手感且该动作被输入缓冲声明了类别（found.input_action.class）时，按钮边沿已由 PresentationAssembly
+            // 接给缓冲，施法只经缓冲出口（BufferedActionIntentSink）提交——这里不再直接提交 cast，否则同一次按键会施法两次。
+            // 手感关闭、或动作没有被缓冲声明（数据里没写类别）时保持直接提交，路径与此前一致。
+            HandleButtonRisingEdge(ActionAttack, () =>
+            {
+                if (!IsBufferedAction(ActionAttack)) CastSkill(new Id(_attackSkillId));
+            });
+            HandleButtonRisingEdge(ActionSkill1, () =>
+            {
+                if (!IsBufferedAction(ActionSkill1)) CastSkill(new Id(_skill1Id));
+            });
             HandleButtonRisingEdge(ActionInteract, Interact);
         }
+
+        /// <summary>该输入动作是否由手感输入缓冲接管（手感已装配且动作被缓冲声明了类别）。</summary>
+        private bool IsBufferedAction(string actionName) =>
+            Gameplay!.Feel != null && Gameplay.Feel.InputBuffer.IsBuffered(new Id(actionName));
 
         private void HandleButtonRisingEdge(string actionName, Action onTriggered)
         {

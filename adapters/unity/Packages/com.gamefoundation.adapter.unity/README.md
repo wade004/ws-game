@@ -335,6 +335,19 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
    （可选注入 `IResourceLoader`），`UnitySpriteView` 此前自行实现的
    `_requestedLoads`/`RequestLoads` 已删除，改由基类统一负责。
 
+### 手感落地 M2-A：引擎侧手感生产接线（2026-10-02）
+
+游戏打开 `FeelOptions` 后，手感全链路在引擎里真实生效，不只在无头宿主里。逐项（均为加法，不开手感时与此前逐位一致）：
+
+1. **装配入口走最长重载并透传 `FeelOptions`**：`GameFoundationBootstrap`、`FrameworkResidentHost` 新增公开属性 `FeelOptions`（缺省 null = 不启用）与常量 `FeelDatasetRoot = "data/_feel"`；开启时数据源顺序为框架根 → 手感根 → 游戏根（与游戏模板同一顺序）。`GameplayAssembly` 改走最长构造重载（未列出的参数显式传 null，与此前经可选参数重载的缺省逐一相同）。`games/_template/Runtime/GameBootstrap.cs` 早已如此，不需要改。
+2. **开手感时引擎不再直接提交施法意图**：`HandleFixedInput` 里"攻击/技能 1"边沿按**动作**判断——该动作已被输入缓冲声明了类别（`Gameplay.Feel.InputBuffer.IsBuffered`）才跳过直接 `CastSkill`，施法只经缓冲出口，避免一次按键施法两次；数据里没写 `class` 的动作仍走直接提交。取舍：不是"开手感就一刀切关掉"——存量游戏打开手感但没给每个按钮声明类别时，不能因此丢掉普攻。
+3. **`UnityCamera` 实现 `ICameraImpulse`**：见 `presentation/camera/README.md` 判断记录 9。
+4. **渲染 rig 接顿帧冻结**：`UnityFrameAnimPlayer` 暂停（标志存在组件上，内部播放器懒创建也按暂停启动）；`UnityRenderer3D` 的 `AnimSpeedOverride` 让冻结期间资源后到的原地替换也保持冻结；sprite/model 两类 rig 的能力接口与幂等语义见 `presentation/render/README.md` 判断记录 31；装配层默认接线见 `presentation/assembly/README.md`。
+5. **剪辑标记来源（clip marker）：不实现**。设计 01 第 3.2 节、04 第 5 节规定运行时判定只读 `skill.def.timeline`；剪辑事件作为标记来源只发生在**创作期**由导入工具拷进数据，表现层读剪辑只用于表现标记。运行时让动画剪辑事件进入判定会让判定依赖引擎动画时序，与"判定只看数据"冲突，因此不加开关、不加缺省关的实现。
+6. **开发期热重载**：游戏模板的 `DataHotReload` 在 `DataRegistry.Reload(表)` 之后补发 `data.load_completed`（并监视开手感时自动加入的框架手感根），手感数据热加载的订阅（核心装配，手感落地 M2-B）据此换入新档案；本包自带的两个引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）是灰盒/常驻脚手架，没有热重载组件，未改。引擎侧"改 `feel.preset` 字段并热重载 → 单位读到新值"的 PlayMode 用例依赖 M2-B 的核心订阅，本分支没有该订阅、不能通过，因此未入库（门禁不允许 skip），待 M2-B 合入后补（放 `games/_template/Tests/Runtime/ContentSourceRootOverridePlayModeTests`，复用其内容根覆盖拷贝与 `DataHotReload.ProcessPendingChanges`）。
+7. **已知限制**：`GameFoundationBootstrap` 自带的普攻技能 id 与输入动作 id 仍由其序列化字段和 `found.input_action` 决定，手感开启后要让普攻走缓冲，数据里需给对应动作写 `class` 与 `skill_slot`（见 `architecture/13_新游戏接入指南.md` 第 9 节）；粒子宿主的暂停不随顿帧冻结（只冻 rig）。
+8. **复现/不变量（引擎 PlayMode，经 `-runTests` 门禁）**：`HitFrameSyncEndToEndTests.FeelEngine_*`（真实 `GameFoundationBootstrap`：按键 → 只施法一次；命中 → 攻击方 model rig 与被击方 sprite rig 冻结 tick 数等于顿帧档案换算值、旁观单位不冻结；命中 → 引擎相机冲量幅度来自档案；不开手感同场景走原直接施法路径、不冻结不冲量）、`UnityCameraTests.Impulse_*`、`UnityRenderer3DTests.SetAnimSpeed_Zero_*`。测试数据在每条用例里写临时目录经 `_extraDatasetRoot` 叠加，不新增仓库数据文件（Unity 导入范围内新文件需要 .meta）。
+
 ## 判断记录索引
 
 详细判断记录写在各实现文件顶部注释里，此处只列索引：

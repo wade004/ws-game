@@ -42,6 +42,14 @@ namespace Presentation.Render
             _clips = clips ?? throw new ArgumentNullException(nameof(clips));
         }
 
+        private bool _paused;
+
+        /// <summary>手感落地 M2-A：见 <see cref="IFrameAnimPlayer.IsPaused"/>。</summary>
+        public bool IsPaused => _paused;
+
+        /// <summary>手感落地 M2-A：见 <see cref="IFrameAnimPlayer.SetPaused"/>。暂停期间 <see cref="Update"/> 不推进，其余状态（当前剪辑、已走过的时间）原样保留。</summary>
+        public void SetPaused(bool paused) => _paused = paused;
+
         public int CurrentFrame => _lastFrame < 0 ? 0 : _lastFrame;
 
         public Id? CurrentClipId => _current?.ClipId;
@@ -144,7 +152,7 @@ namespace Presentation.Render
         /// </summary>
         public void Update(double dt)
         {
-            if (_current == null || dt <= 0)
+            if (_current == null || dt <= 0 || _paused)
             {
                 return;
             }
