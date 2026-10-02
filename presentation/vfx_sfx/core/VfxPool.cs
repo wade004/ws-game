@@ -27,6 +27,9 @@ namespace Presentation.VfxSfx.Core
             public ParticleHandle Handle;
             public double RemainingLifetime;
             public long InsertionSeq;
+
+            /// <summary>手感落地 M3-C：顿帧冻结期间暂停该实例的 lifetime 倒计时（见 <see cref="VfxPool.SetHeld"/>）。</summary>
+            public bool Held;
         }
 
         private readonly Dictionary<string, List<Entry>> _byCategory = new Dictionary<string, List<Entry>>(StringComparer.Ordinal);
@@ -82,6 +85,23 @@ namespace Presentation.VfxSfx.Core
             }
         }
 
+        /// <summary>手感落地 M3-C：暂停/恢复某个句柄的 lifetime 倒计时（顿帧期间被暂停的粒子不能在冻结中途因 lifetime 到期被回收，
+        /// 否则"结束恢复"恢复的是一个已经消失的特效）。句柄不在池里（已停止/未登记）静默忽略；幂等。</summary>
+        public void SetHeld(ParticleHandle handle, bool held)
+        {
+            foreach (var list in _byCategory.Values)
+            {
+                for (var i = 0; i < list.Count; i++)
+                {
+                    if (list[i].Handle.Equals(handle))
+                    {
+                        list[i].Held = held;
+                        return;
+                    }
+                }
+            }
+        }
+
         /// <summary>按 <paramref name="dt"/> 推进全部实例的剩余存活时间；到期的调用 <see cref="_stop"/> 回收。</summary>
         public void Update(double dt)
         {
@@ -90,7 +110,7 @@ namespace Presentation.VfxSfx.Core
                 for (var i = list.Count - 1; i >= 0; i--)
                 {
                     var entry = list[i];
-                    if (double.IsPositiveInfinity(entry.RemainingLifetime))
+                    if (entry.Held || double.IsPositiveInfinity(entry.RemainingLifetime))
                     {
                         continue;
                     }

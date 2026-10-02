@@ -25,6 +25,7 @@ namespace Adapter.Unity.EngineAdapter
         private int _frameIndex;
         private double _elapsedInFrame;
         private bool _playing;
+        private bool _paused;
         private SpriteRenderer? _renderer;
 
         /// <summary>ADR-0074 新增：本实例的 <see cref="SpriteRenderer"/> 刚创建时 Unity 自动指派的
@@ -82,6 +83,8 @@ namespace Adapter.Unity.EngineAdapter
             _frameIndex = 0;
             _elapsedInFrame = 0;
             _playing = frames.Length > 0;
+            _paused = false;
+            PlayedSeconds = 0;
 
             ApplyBlendMode(blendMode);
 
@@ -163,15 +166,26 @@ namespace Adapter.Unity.EngineAdapter
         public void StopImmediately()
         {
             _playing = false;
+            _paused = false;
         }
+
+        /// <summary>手感落地 M3-C：顿帧冻结期间暂停/恢复序列帧推进（幂等；暂停时帧下标与帧内计时都保持，恢复后从暂停点继续）。
+        /// 每次 <see cref="Play(Sprite[], double[], bool, VfxBlendMode)"/> 与 <see cref="StopImmediately"/> 清掉暂停标志（对象池复用不继承上一次的暂停状态）。</summary>
+        public void SetPaused(bool paused) => _paused = paused;
+
+        public bool IsPaused => _paused;
+
+        /// <summary>累计推进的播放时间（秒，每次 Play 清零；暂停期间不增长），供测试/诊断观察"暂停期间时间轴确实没推进"。</summary>
+        public double PlayedSeconds { get; private set; }
 
         private void Update()
         {
-            if (!_playing || _frames.Length == 0)
+            if (!_playing || _paused || _frames.Length == 0)
             {
                 return;
             }
 
+            PlayedSeconds += Time.deltaTime;
             _elapsedInFrame += Time.deltaTime;
             var currentDuration = _durations[_frameIndex] > 0 ? _durations[_frameIndex] : 0.05;
 

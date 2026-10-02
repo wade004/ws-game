@@ -69,7 +69,7 @@ using UnityEngine.Rendering;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityRenderer2D : IRenderer2D, global::Presentation.VfxSfx.Contracts.IParticleRepositioner
+    public sealed class UnityRenderer2D : IRenderer2D, global::Presentation.VfxSfx.Contracts.IParticleRepositioner, global::Presentation.VfxSfx.Contracts.IParticleFreezer
     {
         // 判断记录（数值范围）：Unity 的 SpriteRenderer/SortingGroup.sortingOrder 虽然公开签名是
         // int，但实测其可用取值范围被限制在 short 区间（-32768..32767，超出会按 16 位回绕，
@@ -994,6 +994,53 @@ namespace Adapter.Unity.EngineAdapter
             {
                 ps.transform.position = new Vector3((float)position.X, (float)position.Y, 0f);
             }
+        }
+
+        /// <summary>手感落地 M3-C：<see cref="Presentation.VfxSfx.Contracts.IParticleFreezer"/> 实现（顿帧期间暂停被冻结单位名下的特效，见该接口注释）。
+        /// 序列帧特效暂停其 <see cref="EffectSequencePlayer"/> 的推进；内建通用粒子回退路径暂停 <see cref="ParticleSystem"/>（<c>Pause(true)</c>）、
+        /// 恢复时仅在其确处于暂停态才 <c>Play(true)</c>（从暂停点继续，不重放）。句柄已停止/不存在时静默忽略。</summary>
+        public void SetParticlePaused(ParticleHandle handle, bool paused)
+        {
+            if (_sequencePlayers.TryGetValue(handle.Value, out var player))
+            {
+                player.SetPaused(paused);
+                return;
+            }
+
+            if (_particles.TryGetValue(handle.Value, out var ps))
+            {
+                if (paused)
+                {
+                    ps.Pause(withChildren: true);
+                }
+                else if (ps.isPaused)
+                {
+                    ps.Play(withChildren: true);
+                }
+            }
+        }
+
+        /// <summary>诊断/测试用（不属于 <see cref="IRenderer2D"/> 契约）：粒子实例当前是否处于暂停；句柄不存在返回 false。</summary>
+        public bool IsParticlePaused(ParticleHandle handle)
+        {
+            if (_sequencePlayers.TryGetValue(handle.Value, out var player))
+            {
+                return player.IsPaused;
+            }
+
+            return _particles.TryGetValue(handle.Value, out var ps) && ps.isPaused;
+        }
+
+        /// <summary>诊断/测试用：粒子实例已推进的播放时间（秒）；序列帧特效取其累计播放时间，内建粒子取 <see cref="ParticleSystem.time"/>；句柄不存在返回 null。
+        /// 暂停期间该值不增长。</summary>
+        public double? GetParticlePlayedSeconds(ParticleHandle handle)
+        {
+            if (_sequencePlayers.TryGetValue(handle.Value, out var player))
+            {
+                return player.PlayedSeconds;
+            }
+
+            return _particles.TryGetValue(handle.Value, out var ps) ? ps.time : (double?)null;
         }
 
         private void ApplySortingOrders(SpriteInstance instance)

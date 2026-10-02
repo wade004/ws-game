@@ -197,6 +197,20 @@ namespace Adapter.Unity.Shell
         /// <summary>手感框架数据根（随内容根同步的 <c>data/_feel</c>）。</summary>
         public const string FeelDatasetRoot = "data/_feel";
 
+        /// <summary>手感落地 M3-C：开发期数据热重载开关（缺省 false = 不挂载，行为与此前逐位一致），语义同
+        /// <c>Adapter.Unity.Bootstrap.GameFoundationBootstrap.EnableDataHotReload</c>。本类型有 <see cref="Ensure"/> 单例守卫，同
+        /// <see cref="FeelOptions"/>：必须在 <see cref="Ensure"/> 第一次被调用之前设到场景里预先摆放好的实例上（或在 Inspector 勾选）。</summary>
+        public bool EnableDataHotReload
+        {
+            get => _enableDataHotReload;
+            set => _enableDataHotReload = value;
+        }
+
+        [SerializeField] private bool _enableDataHotReload = false;
+
+        /// <summary>开启 <see cref="EnableDataHotReload"/> 且数据加载成功后挂载的热重载组件；未开启为 null。</summary>
+        public Adapter.Unity.Bootstrap.BootstrapDataHotReload? HotReload { get; private set; }
+
         public bool BootstrapFailed { get; private set; }
 
         /// <summary>W3b 新增：本次 <see cref="OnFrameTick"/> 内某个表现步骤抛出的异常次数累计
@@ -364,6 +378,20 @@ namespace Adapter.Unity.Shell
                 // 是遗漏。人类可读文本内容不变。
                 Debug.LogWarning("[FrameworkResidentHost] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
                 return;
+            }
+
+            // 手感落地 M3-C：开发期数据热重载（缺省关闭，见 EnableDataHotReload）。监视目录与上面 sourceList 的数据来源同一套相对内容根解析。
+            if (_enableDataHotReload)
+            {
+                var watchRelativeRoots = new List<string> { "data/_framework" };
+                if (FeelOptions != null)
+                {
+                    watchRelativeRoots.Add(FeelDatasetRoot);
+                }
+
+                watchRelativeRoots.Add("data/_sample");
+                HotReload = Adapter.Unity.Bootstrap.BootstrapDataHotReload.Attach(
+                    gameObject, registry, _bus, contentFs.GetContentRootDir(), watchRelativeRoots, validationReportFilePath);
             }
 
             PreWarmSfxResources(registry);

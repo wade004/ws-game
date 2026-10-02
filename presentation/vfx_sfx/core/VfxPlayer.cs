@@ -14,7 +14,7 @@ namespace Presentation.VfxSfx.Core
     /// 时以 <see cref="ResourceKind.Effect"/> 触发一次 <see cref="IResourceLoader.LoadAsync"/>
     /// （ADR-0016 决策 5、6："谁首次引用谁加载"，见 <see cref="Presentation.Common.ResourceReferenceTracker"/>）。
     /// </summary>
-    public sealed class VfxPlayer : IVfxPlayer
+    public sealed class VfxPlayer : IVfxPlayer, IVfxFreezable
     {
         private readonly IRenderer2D _renderer2D;
         private readonly ICamera _camera;
@@ -53,6 +53,10 @@ namespace Presentation.VfxSfx.Core
             /// 入队时就登记（那时还没有句柄）。null 表示这次播放不需要跟随（world/screen 模式，或
             /// <see cref="_particleRepositioner"/> 未装配）。</summary>
             public FollowTarget? Follow;
+
+            /// <summary>手感落地 M3-C：本次播放的宿主单位（anchor/socket 挂接的实体，world/screen 为 null），补发时据此登记
+            /// <see cref="_ownerByHandle"/> 并按宿主当前冻结状态决定是否暂停起播（冷路径与热路径同一出口）。</summary>
+            public Id? Owner;
 
             /// <summary>判断记录（同步加载器场景，如测试用 <c>StubResourceLoader</c>——
             /// <c>DeferCallbacks=false</c> 时 <c>LoadAsync</c> 在调用当下就同步触发回调，或真实引擎
@@ -171,6 +175,17 @@ namespace Presentation.VfxSfx.Core
         /// （句柄自然播完/被 <see cref="Stop"/>）一并摘除，不会残留悬空条目。</summary>
         private readonly Dictionary<ParticleHandle, FollowTarget> _followTargets = new Dictionary<ParticleHandle, FollowTarget>();
 
+        /// <summary>手感落地 M3-C：引擎适配层可选的粒子暂停能力（见 <see cref="IParticleFreezer"/>），未装配为 null——此时 2D 粒子
+        /// 不随顿帧暂停（也不冻结其 lifetime，避免"没停住却永不过期"），socket 真挂接的子模型仍经 <see cref="IRenderer3D.SetAnimSpeed"/> 暂停。</summary>
+        private readonly IParticleFreezer? _particleFreezer;
+
+        /// <summary>手感落地 M3-C：活动实例 → 宿主单位（只登记 anchor/socket 挂接的实例；句柄含 2D 粒子与 socket 合成句柄），
+        /// 随 <see cref="StopInternal"/> 摘除，不残留。</summary>
+        private readonly Dictionary<ParticleHandle, Id> _ownerByHandle = new Dictionary<ParticleHandle, Id>();
+
+        /// <summary>手感落地 M3-C：当前处于特效冻结中的宿主单位集合（见 <see cref="IVfxFreezable"/>）。</summary>
+        private readonly HashSet<Id> _frozenOwners = new HashSet<Id>();
+
         /// <summary><paramref name="resourceLoader"/> 可选：未注入时不主动触发任何资源加载
         /// （沿用注入前的行为，供不接 <see cref="IResourceLoader"/> 的最小测试/集成场景使用）。
         /// <paramref name="renderer3D"/>/<paramref name="modelHandleResolver"/> 可选（缺口 13，见
@@ -200,6 +215,7 @@ namespace Presentation.VfxSfx.Core
             _renderer3D = renderer3D;
             _modelHandleResolver = modelHandleResolver;
             _particleRepositioner = renderer2D as IParticleRepositioner;
+            _particleFreezer = renderer2D as IParticleFreezer;
         }
 
         /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：对外
@@ -266,6 +282,9 @@ namespace Presentation.VfxSfx.Core
                     _ => (FollowTarget?)null,
                 };
 
+            // 手感落地 M3-C：宿主单位 = anchor/socket 挂接的实体（world/screen 没有宿主，永不随顿帧暂停，见 IVfxFreezable 判断记录）。
+            Id? owner = def.AttachMode == VfxAttachMode.Anchor || def.AttachMode == VfxAttachMode.Socket ? at.EntityId : null;
+
             // 外部审核阻塞项 4 收口（首次特效加载边界，见 architecture/落地计划/audit-20260907/
             // followup-2026-09-07.md"外部审核阻塞项处理"一节）：此前本方法只调用
             // ResourceReferenceTracker.EnsureLoading（fire-and-forget，见该类型注释"不关心加载
@@ -286,7 +305,7 @@ namespace Presentation.VfxSfx.Core
                 // OnResourceLoadCompleted 才发生，见该方法判断记录；同步加载器（测试桩/引擎缓存
                 // 命中）则可能已经在 QueuePendingSpawn 内部就完成了整个"加载 -> 补播放"，此时直接
                 // 返回那次同步产生的真实句柄，不退化调用方体验。
-                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow, def.BlendMode);
+                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow, def.BlendMode, owner: owner);
             }
 
             // 判断记录（不再调用 _resourceTracker?.EnsureLoading）：走到这里说明
@@ -302,12 +321,13 @@ namespace Presentation.VfxSfx.Core
             _handleCategory[handle] = def.Category;
             _pool.Track(def.Category, handle, def.Lifetime);
             RegisterFollow(handle, follow);
+            RegisterOwner(handle, owner);
             return handle;
         }
 
         private ParticleHandle? QueuePendingSpawn(
             Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow, VfxBlendMode blendMode,
-            Id? socketEntityId = null, Id? socketId = null)
+            Id? socketEntityId = null, Id? socketId = null, Id? owner = null)
         {
             var pending = new PendingSpawn
             {
@@ -319,6 +339,7 @@ namespace Presentation.VfxSfx.Core
                 Parameters = parameters,
                 TimeoutRemaining = _options.FirstLoadTimeoutSeconds,
                 Follow = follow,
+                Owner = owner,
                 BlendMode = blendMode,
                 Placeholder = new ParticleHandle(_nextPlaceholder++),
                 IsSocketAttach = socketEntityId.HasValue,
@@ -385,7 +406,7 @@ namespace Presentation.VfxSfx.Core
                         continue;
                     }
 
-                    handle = AttachModelToSocket(pending.ResourceRef, pending.Category, pending.Lifetime, host.Value, pending.SocketId);
+                    handle = AttachModelToSocket(pending.ResourceRef, pending.Category, pending.Lifetime, host.Value, pending.SocketId, pending.Owner);
                 }
                 else
                 {
@@ -393,6 +414,7 @@ namespace Presentation.VfxSfx.Core
                     _handleCategory[handle] = pending.Category;
                     _pool.Track(pending.Category, handle, pending.Lifetime);
                     RegisterFollow(handle, pending.Follow);
+                    RegisterOwner(handle, pending.Owner);
                 }
 
                 // ADR-0121 决策 1（D1）：调用方手里是占位句柄，补发之后把它映射到真实句柄，使
@@ -456,16 +478,16 @@ namespace Presentation.VfxSfx.Core
             {
                 return QueuePendingSpawn(
                     vfxId, def, default, EmptyParams, follow: null, def.BlendMode,
-                    socketEntityId: entityId, socketId: socketId);
+                    socketEntityId: entityId, socketId: socketId, owner: entityId);
             }
 
             _resourceTracker?.EnsureLoading(def.ResourceRef, ResourceKind.Effect);
-            return AttachModelToSocket(def.ResourceRef, def.Category, def.Lifetime, hostHandle.Value, socketId);
+            return AttachModelToSocket(def.ResourceRef, def.Category, def.Lifetime, hostHandle.Value, socketId, entityId);
         }
 
         /// <summary>创建子模型实例并挂到宿主挂点，登记合成句柄（换算规则见
         /// <see cref="TrySpawnAttachedToSocket"/> 判断记录）与生命周期；热路径与冷加载补挂共用同一出口。</summary>
-        private ParticleHandle AttachModelToSocket(Id resourceRef, string category, double? lifetime, ModelHandle hostHandle, Id socketId)
+        private ParticleHandle AttachModelToSocket(Id resourceRef, string category, double? lifetime, ModelHandle hostHandle, Id socketId, Id? owner)
         {
             var childHandle = _renderer3D!.CreateModelInstance(resourceRef);
             _renderer3D.AttachToSocket(hostHandle, socketId, childHandle);
@@ -474,6 +496,7 @@ namespace Presentation.VfxSfx.Core
             _socketModelHandles[particleHandle] = childHandle;
             _handleCategory[particleHandle] = category;
             _pool.Track(category, particleHandle, lifetime);
+            RegisterOwner(particleHandle, owner);
             return particleHandle;
         }
 
@@ -634,6 +657,7 @@ namespace Presentation.VfxSfx.Core
         {
             var wasAlive = _handleCategory.Remove(handle);
             _followTargets.Remove(handle);
+            _ownerByHandle.Remove(handle);
             if (_placeholderByReal.TryGetValue(handle, out var placeholder))
             {
                 _placeholderByReal.Remove(handle);
@@ -652,6 +676,62 @@ namespace Presentation.VfxSfx.Core
             {
                 _renderer2D.StopParticle(handle);
             }
+        }
+
+        /// <summary>手感落地 M3-C：登记实例的宿主单位；宿主此刻已处于冻结中（顿帧期间才播出/冷加载补发的特效）则立即暂停起播——
+        /// 与热路径同一出口，冷路径不另写一套。<paramref name="owner"/> 为 null（world/screen 挂接）不登记。</summary>
+        private void RegisterOwner(ParticleHandle handle, Id? owner)
+        {
+            if (!owner.HasValue)
+            {
+                return;
+            }
+
+            _ownerByHandle[handle] = owner.Value;
+            if (_frozenOwners.Contains(owner.Value))
+            {
+                ApplyPaused(handle, true);
+            }
+        }
+
+        public void SetOwnerFrozen(Id ownerEntityId, bool frozen)
+        {
+            var changed = frozen ? _frozenOwners.Add(ownerEntityId) : _frozenOwners.Remove(ownerEntityId);
+            if (!changed)
+            {
+                return; // 幂等：已是目标状态。
+            }
+
+            foreach (var kv in _ownerByHandle)
+            {
+                if (kv.Value.Equals(ownerEntityId))
+                {
+                    ApplyPaused(kv.Key, frozen);
+                }
+            }
+        }
+
+        public bool IsOwnerFrozen(Id ownerEntityId) => _frozenOwners.Contains(ownerEntityId);
+
+        /// <summary>暂停/恢复一个活动实例：socket 真挂接的子模型走 <see cref="IRenderer3D.SetAnimSpeed"/>（0 / 1），2D 粒子走
+        /// <see cref="IParticleFreezer"/>；同时停住/恢复 <see cref="_pool"/> 里的 lifetime 倒计时。引擎侧没有对应能力时静默跳过（不冻结 lifetime）。
+        /// 判断记录：socket 子模型恢复速率取 1——特效子模型由 <see cref="AttachModelToSocket"/> 新建，本类型从不给它设过别的动画速率。</summary>
+        private void ApplyPaused(ParticleHandle handle, bool paused)
+        {
+            if (_socketModelHandles.TryGetValue(handle, out var modelHandle))
+            {
+                _renderer3D!.SetAnimSpeed(modelHandle, paused ? 0.0 : 1.0);
+                _pool.SetHeld(handle, paused);
+                return;
+            }
+
+            if (_particleFreezer == null)
+            {
+                return;
+            }
+
+            _particleFreezer.SetParticlePaused(handle, paused);
+            _pool.SetHeld(handle, paused);
         }
 
         private Vec2? ResolveAnchor(Id vfxId, VfxAttach at)

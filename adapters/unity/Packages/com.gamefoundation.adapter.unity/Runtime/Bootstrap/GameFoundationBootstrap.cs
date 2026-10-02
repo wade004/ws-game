@@ -231,6 +231,21 @@ namespace Adapter.Unity.Bootstrap
         /// <summary>手感框架数据根（随内容根同步的 <c>data/_feel</c>，同 <c>games/_template.GameOptions.FeelDatasetRoot</c>）。</summary>
         public const string FeelDatasetRoot = "data/_feel";
 
+        /// <summary>手感落地 M3-C：开发期数据热重载开关（缺省 false = 不挂载，行为与此前逐位一致）。为真且数据加载成功后，本类型挂一个
+        /// <see cref="BootstrapDataHotReload"/> 监视各数据根（框架根、开手感时的手感根、示例数据根、叠加根），表文件变更后 <c>DataRegistry.Reload</c>
+        /// 并补发 <c>data.load_completed</c>，手感数据随之热更换（见 <c>CarriersFeelSystem.LastHotReload</c>）。仅在编辑器或 Development Build 下有实际效果。
+        /// 与 <see cref="FeelOptions"/> 同一惯例：只能在 <see cref="Awake"/> 真正读取之前赋值（或在 Inspector 勾选）。</summary>
+        public bool EnableDataHotReload
+        {
+            get => _enableDataHotReload;
+            set => _enableDataHotReload = value;
+        }
+
+        [SerializeField] private bool _enableDataHotReload = false;
+
+        /// <summary>开启 <see cref="EnableDataHotReload"/> 且数据加载成功后挂载的热重载组件；未开启为 null。供测试/工具手动驱动 <c>ProcessPendingChanges</c>。</summary>
+        public BootstrapDataHotReload? HotReload { get; private set; }
+
         /// <summary>数据集加载/世界装配阶段出现阻断性错误时为真（见 <see cref="BuildWorld"/>）；
         /// 为真时不注册 <see cref="OnFixedStep"/>/<see cref="OnFrameTick"/>，已经
         /// <c>Debug.LogError</c> 过具体原因。</summary>
@@ -347,6 +362,25 @@ namespace Adapter.Unity.Bootstrap
                 // DataValidationFailedEvent.Issues（ADR-0046）。
                 Debug.LogWarning("[GameFoundationBootstrap] 数据集校验未通过，已停止：" + string.Join("; ", report.Issues));
                 return;
+            }
+
+            // 手感落地 M3-C：开发期数据热重载（缺省关闭，见 EnableDataHotReload）。监视目录与上面 sourceList 的数据来源同一套相对内容根解析。
+            if (_enableDataHotReload)
+            {
+                var watchRelativeRoots = new List<string> { _frameworkDatasetRoot };
+                if (FeelOptions != null)
+                {
+                    watchRelativeRoots.Add(FeelDatasetRoot);
+                }
+
+                watchRelativeRoots.Add(_datasetRoot);
+                if (!string.IsNullOrEmpty(_extraDatasetRoot))
+                {
+                    watchRelativeRoots.Add(_extraDatasetRoot);
+                }
+
+                HotReload = BootstrapDataHotReload.Attach(
+                    gameObject, registry, _bus, contentFs.GetContentRootDir(), watchRelativeRoots, validationReportFilePath);
             }
 
             // ---------------------------------------------------------

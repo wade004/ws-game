@@ -315,6 +315,8 @@
     - 取舍：接线放在 `PresentationAssembly`（宿主无关）而不是 Unity 适配层——无头宿主与引擎宿主共享同一条路径，引擎侧只需让自己的 rig 实现能力接口。
     - 复现/不变量：`presentation/assembly/tests/FeelRigFreezeWiringTests.cs`（经生产装配：攻击方/被击方 rig 冻结的 tick 数 = 顿帧档案毫秒按标定步长换算值、旁观单位 0、冻结为连续一段且结束后无残留；不开手感时同场景任何 rig 都不冻结；命中 → 镜头冲量幅度来自反馈包与手感解析）。
 
+26. **顿帧的层声明取最近出批命中的 `freeze_layers`（2026-10-02，手感落地 M3-C，缺陷修复）**：`feel.hitstop_started` 由判定型宿主在 tick 末落地并以排队事件发出，到达 `ImpactPipeline` 时命中自己的打击计划通常已在**前一次出批**里下发过；原 `LayersFor` 只在同批计划里找相关命中，生产链路里恒找不到，`freeze_layers.particles/trail` 一直是缺省假（判断记录 25 的单测把命中与顿帧塞进同一批，没暴露）。修法：流水线保留最近 3 次出批的命中（`_recentHits`，按出批代数淘汰，更老的丢弃——不无限保留，免得把很久以前的反馈包套到无关的顿帧上），`LayersFor` 在"最近出批命中 + 本批计划"里按原相关性规则（同攻击实例，或命中的攻击方/被击方在顿帧名单里）取并集。行为收紧：此前声明了 `freeze_layers` 的反馈包在生产里不起作用，现在起作用；没声明的反馈包（含框架全部缺省数据）行为不变。复现/不变量：`tests/ImpactPipelineTests.cs`（`HitstopArrivingInLaterBatch_UsesFreezeLayersOfTheEarlierFlushedHit`、`HitstopFarAfterTheHit_DoesNotInheritStaleFreezeLayers`）与 `presentation/assembly/tests/FeelRigFreezeWiringTests.cs` 的经生产装配用例。
+
 ## 不负责什么
 
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys`/`ISimSnapshot` 等）——见上"并行

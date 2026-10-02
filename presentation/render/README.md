@@ -452,7 +452,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     - **冻结是幂等的布尔开关**：重复冻结/解冻无副作用，与 `feel.hitstop_started/ended` 的集合语义同口径（同一单位被多次命中延长时没有"冻结计数"要配平）。冻结时：序列帧播放器暂停（帧下标、关键帧、完成回调都不推进，恢复后从暂停点继续）；`ProceduralAnimSequencer` 的位移/缩放/回弹时间轴停住，**闪白不冻**（命中反馈要在顿帧里亮着并按自己的时间衰减），拖尾按 `freezeTrail`（即 `ImpactFreezeLayers.Trail`）；model rig 把动画速率写 0、解冻时写回最近一次请求的速率（冻结期间 `PlayClip` 换剪辑，剪辑照换、速率仍为 0，解冻后用新剪辑自己请求的速率）。
     - **冷路径同热路径**：冻结期间才附上的序列帧播放器（`AttachFrameAnimPlayer`）按当前冻结状态启动；适配层 `UnityFrameAnimPlayer` 的暂停标志存在组件上（内部播放器懒创建，暂停期间才首次 `Play` 的剪辑也按暂停启动）；`UnityRenderer3D` 记 `AnimSpeedOverride`，资源后到时的原地替换视觉内容重放 `PlayAnim` 也保持冻结速率，新的 `PlayAnim` 自带速率并清掉它。
     - **接线**：`PresentationAssembly` 默认把 `OnFreezePresentation/OnReleasePresentation` 落到被击/攻击单位视图的 rig（见 `presentation/assembly/README.md`）；不在名单里的单位不受影响。
-    - **已知限制**：冻结只作用于 rig 自己持有的时间轴（动画、程序动画原语）。粒子宿主的暂停与引擎自己的物理/粒子系统不在本接口范围，仍靠 `OnFreezePresentation` 回调自行接入；没有实现 `IPresentationFreezable` 的自定义 rig 被静默跳过。
+    - **范围**：本接口只管 rig 自己持有的时间轴（动画、程序动画原语）；没有实现 `IPresentationFreezable` 的自定义 rig 被静默跳过。粒子/特效不在 rig 里，由特效播放器按宿主单位承接（手感落地 M3-C 已解除原"粒子宿主不随顿帧冻结"的限制，见 `presentation/vfx_sfx/README.md` 判断记录 28）。
     - 复现/不变量：`tests/PresentationFreezeTests.cs`（暂停与恢复的帧下标等价于从未暂停的参考播放器、冻结期间关键帧/完成回调推迟、序列器冻结后闪白照常衰减、sprite/model rig 冻结/解冻幂等与冷路径、无暂停能力的旧播放器静默跳过）；引擎侧 `UnityRenderer3DTests.SetAnimSpeed_Zero_FreezesAnimator_ColdSwapKeepsItFrozen_...`。
 
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
