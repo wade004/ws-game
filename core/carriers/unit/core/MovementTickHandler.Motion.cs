@@ -328,6 +328,7 @@ namespace Core.Carriers.Unit
                 var slideSecondNormal = Vec2.Zero;
                 var candidate = true;
                 Vec2? wallVia = null; // 撞墙后沿墙滑动时位移实际走的折线拐点（体积扫掠逐段精确裁决）。
+                Vec2[]? volumePoly = null; // 体积裁决命中后实际走的折线（成对撞停按折线逐段求接触）。
 
                 if (_navigation != null)
                 {
@@ -380,6 +381,7 @@ namespace Core.Carriers.Unit
                     if (volume.Blocked)
                     {
                         blocked = true;
+                        volumePoly = volume.Poly;
                         newPos = volume.End;
                         slid = volume.Slid;
                         slideNormal = volume.Normal;
@@ -402,6 +404,7 @@ namespace Core.Carriers.Unit
                 if (candidate)
                 {
                     _units.SetPosition(unit.EntityId, newPos);
+                    NoteMotionTrail(unit, from, newPos, wallVia, volumePoly);
                     EnqueueMoved(unit.EntityId, newPos);
                     moved = true;
                 }
@@ -826,7 +829,8 @@ namespace Core.Carriers.Unit
                 var toward = decl.Kind == ActionMotionKind.Charge || decl.Direction == ActionMotionDirection.TowardTarget;
                 if (toward && m.TargetId.HasValue && world.GetEntity(m.TargetId.Value) is Unit target && target.Alive)
                 {
-                    var toTarget = target.Position - from;
+                    // 有体积的单位朝目标位移读目标 tick 起点的位置（顺序无关）；没有体积的单位读目标此刻的位置（既有行为）。
+                    var toTarget = ObservedTargetPosition(unit, target) - from;
                     var dist = toTarget.Length;
                     if (dist > ZeroLengthEpsilon)
                     {
@@ -862,6 +866,7 @@ namespace Core.Carriers.Unit
                 var newPos = from + dir * step;
                 var candidate = true;
                 Vec2? wallVia = null;
+                Vec2[]? volumePoly = null;
                 if (_navigation != null)
                 {
                     var slideBlocking = decl.Blocking == ActionMotionBlocking.Slide;
@@ -911,6 +916,7 @@ namespace Core.Carriers.Unit
                     var volume = ClipPathByUnitVolumes(unit, volumeRadius, from, newPos, wallVia, decl.Blocking == ActionMotionBlocking.Slide);
                     if (volume.Blocked)
                     {
+                        volumePoly = volume.Poly;
                         newPos = volume.End;
                         if ((newPos - from).Length <= ZeroLengthEpsilon)
                         {
@@ -927,6 +933,7 @@ namespace Core.Carriers.Unit
                 if (candidate)
                 {
                     _units.SetPosition(unit.EntityId, newPos);
+                    NoteMotionTrail(unit, from, newPos, wallVia, volumePoly);
                     EnqueueMoved(unit.EntityId, newPos);
                     movedVec = newPos - from;
                 }
