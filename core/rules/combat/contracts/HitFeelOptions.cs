@@ -55,6 +55,14 @@ namespace Core.Rules.Combat
         };
 
         /// <summary>
+        /// 冲击等级 → 动态韧性伤害倍率（手感落地 M4-W3，口径同 <see cref="KnockbackImpactMultipliers"/>：表里没有的等级取 1）。命中声明的 <c>poise_damage</c> 乘以
+        /// 攻击方 <c>impact_class</c> 对应的倍率后才从目标的韧性池里扣（<c>combat.poise_changed</c> 的 <c>Damage</c> 报告乘后的有效值）。
+        /// <b>缺省空表——不缩放，与此前逐位一致</b>；游戏要"重击更削韧"时自己填表，例如与击退同一组 light 0.5 / medium 0.75 / heavy 1 / massive 1.5（试调起点，未经试玩）。
+        /// 只作用于动态韧性（命中声明了 <c>poise_damage</c> 的路径），静态韧性规则不读它。
+        /// </summary>
+        public IReadOnlyDictionary<string, double> PoiseDamageImpactMultipliers { get; set; } = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        /// <summary>
         /// 冲击等级 → 受击反应（手感设计/03 第 4 节：light → stagger_light；medium → stagger；heavy → knockback；massive → knockdown）。
         /// 冲击等级可扩，表里没有的等级取 <see cref="UnknownImpactReaction"/>。
         /// </summary>

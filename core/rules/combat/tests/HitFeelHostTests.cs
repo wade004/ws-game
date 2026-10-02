@@ -1411,6 +1411,311 @@ namespace Tests.Rules.Combat
             Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverDelayMs).Optional);
         }
 
+        // ------------------------------------------------------------------ 动态韧性的三项可选补充（手感落地 M4-W3）
+
+        private static (Fx Fx, double Damage, double Max) BuildPoise(Action<HitFeelOptions> configure)
+        {
+            var fx = Build(configure: configure);
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            var damage = Math.Max(power, 1.0);
+            var max = 3.0 * damage;
+            fx.Set(FeelFieldNames.PoiseDamage, damage);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, max);
+            fx.C.Stats.SetBase(Target2, CombatTestSupport.StatArmor, 0);
+            return (fx, damage, max);
+        }
+
+        /// <summary>把目标打进"战斗中"：返回可变的战斗中单位集合，宿主据此判断脱战（装配根接的是 CombatHost.IsInCombat，这里用集合精确控制进出）。</summary>
+        private static HashSet<Id> WireCombatState(Fx fx)
+        {
+            var inCombat = new HashSet<Id>();
+            fx.Host.InCombat = id => inCombat.Contains(id);
+            return inCombat;
+        }
+
+        /// <summary>
+        /// 复现用例（脱战回复）：目标 <c>poise_recover_mode = out_of_combat</c>，被削掉一击后一直处于战斗中——此前口径（只有"延迟 + 速率"）下池子在延迟过后照常回复
+        /// （战斗中的有效韧性 X → X + 回复量）；现在战斗中延迟计时与回复都暂停（X → X，不论过去多久）；脱战之后才开始计延迟：脱战后第 n 个 tick 的有效韧性
+        /// = min(容量, X + 每 tick 回复量 × max(0, n − 延迟 tick 数))，逐 tick 由规则算出；回满那一 tick 恰好发一次 <c>combat.poise_recovered</c>。
+        /// </summary>
+        [Fact]
+        public void PoiseRecoverMode_OutOfCombat_SuspendsDelayAndRegenWhileInCombat_ThenCountsTheDelayFromTheLeaveTick()
+        {
+            var (fx, damage, max) = BuildPoise();
+            var inCombat = WireCombatState(fx);
+            const double delayMs = 200.0;
+            var perSecond = max; // 脱战后 1 秒回满
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, perSecond);
+            fx.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            var probe = WatchPoise(fx);
+            var delayTicks = Ticks(delayMs);
+            var perTick = perSecond * Dt;
+
+            inCombat.Add(Target);
+            fx.Hit(Attacker, Target);
+            var afterHit = max - damage;
+            Assert.Equal(afterHit, fx.Host.CurrentPoise(Target), 9);
+
+            // 战斗中：过去远超延迟的时间，池子纹丝不动。
+            fx.Run(delayTicks * 5 + 10);
+            Assert.Equal(afterHit, fx.Host.CurrentPoise(Target), 9);
+            Assert.Empty(probe.Recovered);
+
+            // 脱战：延迟从脱战那一刻起算（战斗中没有消耗过任何延迟）。
+            inCombat.Remove(Target);
+            long leaveTick = fx.TickNo;
+            var refillAfter = delayTicks + (int)Math.Ceiling((max - afterHit) / perTick - 1e-9);
+            for (var n = 1; n <= refillAfter + 3; n++)
+            {
+                fx.Run(1);
+                var expected = Math.Min(max, afterHit + perTick * Math.Max(0, n - delayTicks));
+                Assert.Equal(expected, fx.Host.CurrentPoise(Target), 6);
+            }
+
+            var recovered = probe.Recovered.Single();
+            Assert.Equal(leaveTick + refillAfter - 1, recovered.Tick);
+            Assert.Equal(max, recovered.E.Poise, 9);
+        }
+
+        /// <summary>
+        /// 不变量：回复模式缺省（delay）或显式 <c>delay</c> 时，战斗状态不参与——处于战斗中的目标照常在延迟后回复（与此前逐位一致）；
+        /// 声明了 <c>out_of_combat</c> 但没有接战斗状态查询时视为一直脱战（不会卡死）；战斗中又挨一击，脱战后重新计延迟（每次动态命中重新计）。
+        /// </summary>
+        [Fact]
+        public void PoiseRecoverMode_DelayAndNoCombatQuery_IgnoreCombatState_AndAHitRestartsTheDelayAfterLeaving()
+        {
+            foreach (var mode in new[] { string.Empty, "delay" })
+            {
+                var (fx, damage, max) = BuildPoise();
+                var inCombat = WireCombatState(fx);
+                fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 100);
+                fx.Set(FeelFieldNames.PoiseRecoverPerS, max);
+                if (mode.Length > 0) fx.Set(FeelFieldNames.PoiseRecoverMode, mode);
+                inCombat.Add(Target);
+                fx.Hit(Attacker, Target);
+                fx.Run(Ticks(100) + 3);
+                Assert.True(fx.Host.CurrentPoise(Target) > max - damage, $"mode='{mode}'：战斗中也应在延迟后回复");
+            }
+
+            var (fx2, damage2, max2) = BuildPoise();
+            fx2.Set(FeelFieldNames.PoiseRecoverDelayMs, 100);
+            fx2.Set(FeelFieldNames.PoiseRecoverPerS, max2);
+            fx2.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            Assert.Null(fx2.Host.InCombat);
+            fx2.Hit(Attacker, Target);
+            fx2.Run(Ticks(100) + 3);
+            Assert.True(fx2.Host.CurrentPoise(Target) > max2 - damage2, "没有战斗状态查询：视为一直脱战，口径同 delay");
+
+            // 脱战回复期间再挨一击：延迟重新计，已回复的部分保留（不是回到命中前）。
+            var (fx3, damage3, max3) = BuildPoise();
+            var combat3 = WireCombatState(fx3);
+            const double delayMs = 200.0;
+            fx3.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx3.Set(FeelFieldNames.PoiseRecoverPerS, max3);
+            fx3.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            var delayTicks = Ticks(delayMs);
+            fx3.Hit(Attacker, Target);
+            fx3.Run(delayTicks + 2); // 脱战（集合里没有它）：延迟过后已回复一点
+            var partial = fx3.Host.CurrentPoise(Target);
+            Assert.True(partial > max3 - damage3);
+            combat3.Add(Target);
+            fx3.Hit(Attacker, Target);
+            var afterSecond = fx3.Host.CurrentPoise(Target);
+            Assert.Equal(partial - damage3, afterSecond, 6);
+            combat3.Remove(Target);
+            fx3.Run(delayTicks);
+            Assert.Equal(afterSecond, fx3.Host.CurrentPoise(Target), 9); // 重新计的延迟里没有回复
+            fx3.Run(1);
+            Assert.True(fx3.Host.CurrentPoise(Target) > afterSecond);
+        }
+
+        /// <summary>
+        /// 复现用例（破韧后自动回满）：只有 <c>poise_break_reset_ms</c>、没有回复速率。此前破韧的池子永远是 0（有效韧性 0 → 0，后续命中同样不被挡）；
+        /// 现在破韧之后经过 <c>ceil(poise_break_reset_ms / 步长)</c> 个 tick 一次回满（0 → 容量），恰好发一次 <c>combat.poise_recovered</c>，回满前一直是 0；
+        /// 回满之后重新能挡（Flinch）。
+        /// </summary>
+        [Fact]
+        public void PoiseBreakReset_RefillsTheWholePoolOnceAfterTheDelay_AndTheShelterReturns()
+        {
+            var (fx, damage, max) = BuildPoise();
+            const double resetMs = 500.0;
+            fx.Set(FeelFieldNames.PoiseBreakResetMs, resetMs);
+            var probe = WatchPoise(fx);
+            var resetTicks = Ticks(resetMs);
+
+            long breakTick = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                breakTick = fx.TickNo;
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            Assert.True(probe.Changed.Last().E.Broken);
+            // 破韧后的第 e 个 tick（e 从 1 起）：e 未到 resetTicks 时池子是 0；到点的那个 tick 回满。
+            for (var e = 1; e <= resetTicks + 5; e++)
+            {
+                if (e > 1) fx.Run(1);
+                var expected = e >= resetTicks ? max : 0.0;
+                Assert.Equal(expected, fx.Host.CurrentPoise(Target), 9);
+            }
+
+            var recovered = probe.Recovered.Single();
+            Assert.Equal(breakTick + resetTicks - 1, recovered.Tick);
+            Assert.Equal(max, recovered.E.Poise, 9);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(HitReaction.Flinch, fx.Reactions[fx.Reactions.Count - 1].E.Reaction);
+            Assert.Equal(max - damage, fx.Host.CurrentPoise(Target), 9);
+        }
+
+        /// <summary>
+        /// 不变量：回满计时从"破韧"那一击起算，池子已空时的后续命中不顺延它；不受回复模式/战斗状态影响（战斗中照样回满）；
+        /// 回满后再次破韧重新起算；没声明 <c>poise_break_reset_ms</c> 时不自动回满（既有行为）。
+        /// </summary>
+        [Fact]
+        public void PoiseBreakReset_IsNotExtendedByLaterHits_IgnoresCombatState_AndRearmsOnTheNextBreak()
+        {
+            var (fx, _, max) = BuildPoise();
+            var inCombat = WireCombatState(fx);
+            const double resetMs = 400.0;
+            fx.Set(FeelFieldNames.PoiseBreakResetMs, resetMs);
+            fx.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, 1.0); // 有速率但战斗中不回复：回满只能来自破韧回满
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 0);
+            var probe = WatchPoise(fx);
+            var resetTicks = Ticks(resetMs);
+            inCombat.Add(Target);
+
+            long breakTick = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                breakTick = fx.TickNo;
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            // 池子已空，计时进行到一半时再挨一击：不顺延。
+            fx.Run(resetTicks / 2 - 3);
+            fx.Hit(Attacker, Target);
+            fx.Run(resetTicks - (int)(fx.TickNo - breakTick) + 1);
+            var first = probe.Recovered.Single();
+            Assert.Equal(breakTick + resetTicks - 1, first.Tick);
+            Assert.Equal(max, fx.Host.CurrentPoise(Target), 9);
+
+            // 回满后再次打穿：重新起算。
+            long secondBreak = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                secondBreak = fx.TickNo;
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            Assert.Equal(0.0, fx.Host.CurrentPoise(Target), 9);
+            fx.Run(resetTicks);
+            Assert.Equal(2, probe.Recovered.Count);
+            Assert.Equal(secondBreak + resetTicks - 1, probe.Recovered[1].Tick);
+
+            // 没声明：不自动回满。
+            var (fx2, _, _) = BuildPoise();
+            fx2.Hit(Attacker, Target);
+            fx2.Hit(Attacker, Target);
+            fx2.Hit(Attacker, Target);
+            fx2.Run(1);
+            fx2.Run(600);
+            Assert.Equal(0.0, fx2.Host.CurrentPoise(Target), 9);
+        }
+
+        /// <summary>
+        /// 复现用例（冲击等级倍率）：攻击方 <c>impact_class = medium</c>、声明 <c>poise_damage = D</c>，游戏填了 <c>PoiseDamageImpactMultipliers[medium] = m</c>。
+        /// 此前（没有这张表）每击扣 D（池子 3D → 2D）；现在每击扣 D × m（3D → 3D − D·m），<c>combat.poise_changed</c> 的伤害字段报告乘后的有效值，
+        /// m = 1.5 时第二击就打穿（容量 3D：3D → 1.5D → 0）。表里没有的等级取 1；空表（缺省）与此前逐位一致；静态韧性（命中不声明 <c>poise_damage</c>）不读这张表。
+        /// </summary>
+        [Fact]
+        public void PoiseDamageImpactMultipliers_ScaleThePoolDrain_ByTheAttackersImpactClass()
+        {
+            const double multiplier = 1.5;
+            var (fx, damage, max) = BuildPoise(o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["medium"] = multiplier });
+            var probe = WatchPoise(fx);
+            var full = FullReaction(fx);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(max - damage * multiplier, fx.Host.CurrentPoise(Target), 9);
+            Assert.Equal(damage * multiplier, probe.Changed.Single().E.Damage, 9);
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(0.0, fx.Host.CurrentPoise(Target), 9); // 3D → 1.5D → 0：第二击破韧
+            Assert.True(probe.Changed[1].E.Broken);
+            Assert.Equal(new[] { HitReaction.Flinch, full }, fx.Reactions.Select(r => r.E.Reaction).ToArray());
+
+            // 对照：空表（缺省）每击扣 D，容量 3D 要三击才破。
+            var (plain, _, _) = BuildPoise();
+            var plainProbe = WatchPoise(plain);
+            plain.Hit(Attacker, Target);
+            plain.Run(1);
+            Assert.Equal(max - damage, plain.Host.CurrentPoise(Target), 9);
+            Assert.Equal(damage, plainProbe.Changed.Single().E.Damage, 9);
+
+            // 表里没有该等级：取 1。
+            var (other, _, _) = BuildPoise(o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["massive"] = 4.0 });
+            other.Hit(Attacker, Target);
+            other.Run(1);
+            Assert.Equal(max - damage, other.Host.CurrentPoise(Target), 9);
+
+            // 静态韧性：命中不声明 poise_damage，表不起作用（池不被碰、没有 poise_changed）。
+            var staticFx = Build(configure: o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["medium"] = 9.0 });
+            var power = Ms(staticFx, Attacker, FeelFieldNames.StaggerPower);
+            staticFx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, power);
+            var staticProbe = WatchPoise(staticFx);
+            staticFx.Hit(Attacker, Target);
+            staticFx.Run(1);
+            Assert.Empty(staticProbe.Changed);
+            Assert.Equal(power, staticFx.Host.CurrentPoise(Target), 9);
+            Assert.Equal(HitReaction.Flinch, staticFx.Reactions.Single().E.Reaction);
+        }
+
+        /// <summary>不变量：每击伤害乘倍率后池子仍恒在 [0, 容量]，每条 <c>poise_changed</c> 自洽（<c>after = max(0, before − 伤害)</c>，伤害即乘后的有效值）。</summary>
+        [Fact]
+        public void PoiseDamageImpactMultipliers_KeepTheAccountingConsistent_AcrossHitSequences()
+        {
+            foreach (var m in new[] { 0.5, 1.0, 2.5 })
+            {
+                var (fx, damage, max) = BuildPoise(o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["medium"] = m });
+                fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 50);
+                fx.Set(FeelFieldNames.PoiseRecoverPerS, damage);
+                var probe = WatchPoise(fx);
+                foreach (var gap in new[] { 1, 0, 4, 20, 1, 1, 1 })
+                {
+                    fx.Hit(Attacker, Target);
+                    fx.Run(gap);
+                    Assert.InRange(fx.Host.CurrentPoise(Target), 0.0, max + 1e-9);
+                }
+
+                foreach (var c in probe.Changed)
+                {
+                    Assert.Equal(damage * m, c.E.Damage, 9);
+                    Assert.Equal(Math.Max(0.0, c.E.Before - c.E.Damage), c.E.After, 9);
+                    Assert.Equal(c.E.Before > 0.0 && c.E.After <= 0.0, c.E.Broken);
+                }
+            }
+        }
+
+        [Fact]
+        public void PoiseDynamicsFields_AreOptional_AndTheModeVocabularyMatches()
+        {
+            var fx = Build();
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Target).GetAbsolute(FeelFieldNames.PoiseRecoverMode).IsNone);
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.PoiseBreakResetMs, out _));
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverMode).Optional);
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseBreakResetMs).Optional);
+            Assert.Equal(new[] { "delay", "out_of_combat" }, FeelFields.Default.Get(FeelFieldNames.PoiseRecoverMode).EnumValues!.ToArray());
+            Assert.Empty(new HitFeelOptions().PoiseDamageImpactMultipliers); // 缺省空表：不缩放
+        }
+
         [Fact]
         public void EventKeys_AreRegisteredInTheFrameworkCatalog()
         {

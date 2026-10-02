@@ -154,6 +154,18 @@ namespace Lab
             };
         }
 
+        /// <summary>脚本声明了 <c>poiseImpactScale</c> 时的受击裁决选项：只填动态韧性的冲击等级倍率表，其余取缺省（手感落地 M4-W3）。</summary>
+        private static Core.Rules.Combat.HitFeelOptions PoiseImpactHitFeel(ScriptMeta meta)
+        {
+            var table = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var pair in meta.PoiseImpactScale)
+            {
+                table[pair.Key] = pair.Value;
+            }
+
+            return new Core.Rules.Combat.HitFeelOptions { PoiseDamageImpactMultipliers = table };
+        }
+
         /// <summary>
         /// 手感场景用的标定行 id：脚本显式给了就用它；否则按预设短名取 <c>feel.calibration.lab_&lt;短名&gt;</c>
         /// （如 <c>feel.preset.arpg_responsive</c> → <c>feel.calibration.lab_arpg_responsive</c>，实验室动作式数据根里每个预设一行）。
@@ -219,7 +231,12 @@ namespace Lab
             // 但不走输入缓冲与反馈流水线（没有 FeelRecording，指纹里不出现手感条件度量组，既有换装基线不变）。
             var equipScene = string.Equals(meta.Scene, "equip", StringComparison.Ordinal);
             var feelOptions = feelOn
-                ? new CarriersFeelOptions { CalibrationId = calibrationId, LocalMoveActionName = options.MoveAction }
+                ? new CarriersFeelOptions
+                {
+                    CalibrationId = calibrationId,
+                    LocalMoveActionName = options.MoveAction,
+                    HitFeel = meta.PoiseImpactScale.Count > 0 ? PoiseImpactHitFeel(meta) : null,
+                }
                 : equipScene
                     ? new CarriersFeelOptions
                     {

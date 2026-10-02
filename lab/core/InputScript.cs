@@ -151,8 +151,15 @@ namespace Lab
         /// </summary>
         public ScriptSpaceOptions? SpaceExt { get; set; }
 
+        /// <summary>
+        /// 动态韧性伤害的冲击等级倍率表（<c>poiseImpactScale</c>，手感落地 M4-W3，格式版本 3；缺省空 = 不缩放）：
+        /// 经 <c>HitFeelOptions.PoiseDamageImpactMultipliers</c> 传给手感装配，核心层的可选能力，实验室只是按脚本声明打开它。
+        /// </summary>
+        public List<KeyValuePair<string, double>> PoiseImpactScale { get; } = new List<KeyValuePair<string, double>>();
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
-        public bool UsesFeelFormat => Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null;
+        public bool UsesFeelFormat =>
+            Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
@@ -338,6 +345,16 @@ namespace Lab
                 meta.SpaceExt = ReadSpaceExt(spaceExtObj, what + ".meta.spaceExt");
             }
 
+            if (metaObj.TryGetValue("poiseImpactScale", out var scaleValue) && scaleValue is JsonObject scaleObj)
+            {
+                for (var i = 0; i < scaleObj.Count; i++)
+                {
+                    meta.PoiseImpactScale.Add(new KeyValuePair<string, double>(
+                        scaleObj[i].Key,
+                        scaleObj[i].Value is JsonNumber scaleNum ? scaleNum.Value : throw new LabFormatException($"{what}.meta.poiseImpactScale.{scaleObj[i].Key} 必须是数值")));
+                }
+            }
+
             meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
             ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
             if (metaObj.TryGetValue("skillSlots", out var slots) && slots is JsonObject slotsObj)
@@ -503,6 +520,17 @@ namespace Lab
                     if (ext.PoseKeys.Count > 0) extBuilder.Add("poseKeys", new JsonArray(ext.PoseKeys.ConvertAll(g => (JsonValue)LabJson.Str(g))));
                     if (ext.PoseFamily.Length > 0) extBuilder.Add("poseFamily", LabJson.Str(ext.PoseFamily));
                     meta.Add("spaceExt", extBuilder.Build());
+                }
+
+                if (Meta.PoiseImpactScale.Count > 0)
+                {
+                    var scaleBuilder = new JsonObjectBuilder();
+                    foreach (var pair in Meta.PoiseImpactScale)
+                    {
+                        scaleBuilder.Add(pair.Key, LabJson.Num(pair.Value));
+                    }
+
+                    meta.Add("poiseImpactScale", scaleBuilder.Build());
                 }
             }
 

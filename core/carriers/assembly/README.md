@@ -272,7 +272,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 
 用例见 `core/gameplay/assembly/tests/FeelGraceCompleteTests.cs`（五项各带"量从 X 变到 Y"的复现与不变量，边界由 `grace_ms` 换算规则算出）、`core/foundation/input_map/tests/GraceRemainingAndRegistrationTests.cs`、`core/foundation/feel/tests/FeelCalibrationHotSwapTests.cs`，以及 `presentation/camera/tests/CameraFeelTests.cs`、`presentation/feedback_binder/tests/ImpactPipelineTests.cs` 里的实时参考高度用例。
 
-已知限制：地面施法的宽限条件须由游戏声明得能表达"落点/目标刚才还够得着"（框架不为地面坐标自动推导可达条件，可直接引用框架内置的 `input.grace.builtin_aim_*`，见 M4-G 节）。
+地面施法的宽限条件："落点/目标刚才还够得着"由框架内置条件直接表达（`input.grace.builtin_aim_in_range` / `..._line_of_sight` / `..._reachable`，见 M4-G 节），游戏在动作的 `grace_conditions` 里引用即可，不需要自己声明（M4-W3 起这不再算限制）。
 
 ## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
 
@@ -293,7 +293,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 
 用例见 `core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（各项"量从 X 变到 Y"的复现与不变量）与 `core/foundation/input_map/tests/GraceAimTests.cs`。
 
-已知限制：链式解析出来的目标（连锁技能的后续目标）不记为瞄点；瞄点只对携带宽限条件的施法请求记录；`InputBufferHost.RegisterActor` 被游戏显式调用时仍按调用分配缓冲；无头世界的视线查询恒为畅通（`StubSpatialQuery`），真实障碍物下的视线只能在带真实空间服务的世界里验证。
+M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节没有遗留限制。
 
 ## 手感落地 M4-L：换装版本的单一失效源（2026-10-02）
 
@@ -302,3 +302,11 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 ## 竖直轴能力包补完：装配接线（2026-10-03，M4-V）
 
 只做加法：`CarriersAssembly` 把竖直运动服务交给 `MovementTickHandler.VerticalAxis`（空中控制缩放、地形台阶阻挡经它读取；没有竖直轴时为 null，路径不变）；`CarriersFeelAssembly` 在 `VerticalMotion` 是 `IAirborneQuery` 时把它接到 `HitFeelHost.Airborne`（空中受击反应的判据）。`HeadlessWorldBuilder` 新增 `SkillOptions` 透传属性（缺省 null）。判断记录见 unit/combat/skill README 的同名补完节。
+
+## 手感落地 M4-W3：宽限的链式瞄点、无头世界视线与惰性登记收口（2026-10-03）
+
+1. **链式解析的目标记为瞄点**：见 `core/foundation/input_map/README.md` M4-W3 节第 1 条（`CastPipeline` 在目标链解析之后经同一个 `NoteGraceAim` 出口上报）。
+2. **瞄点只对携带宽限条件的请求记录是设计决定**：见同一节第 2 条（宽限是声明式的，不声明就不产生副作用）。
+3. **显式 `RegisterActor` 惰性分配**：见同一节第 3 条；生产装配的自动登记口径不变（`AutoRegisterGraceActors`、"没有声明就不登记"）。
+4. **无头世界的视线（可选，缺省关闭）**：`HeadlessWorldOptions.NavigationLineOfSight`（缺省 false）为真时，`StubSpatialQuery.HasLineOfSight` 取自 `Navigation` 的阻挡判定（`StubSpatialQuery.UseNavigationLineOfSight(navigation, mapId)`：`navigation.Raycast(...)` 非空即被遮挡，`INavigation2D.Raycast` 契约本就写明视线受阻即其返回值非空；静态地形阻挡与运行期动态阻挡 `SetBlocking`/`AddBlocking`/`RemoveBlocking` 都在每次查询时读取、立刻生效）。**缺省关闭的理由**：打开后隔墙施法会因步骤 7 的视线检查失败（`NoLineOfSight`），带阻挡的既有脚本与基线会因此变化；视线只是需要验证遮挡的测试/脚本按需打开的能力，同 `SpatialRange` 等空间能力的做法（核心层可选、缺省关）。为真而没有提供 `Navigation` 时装配抛 `ArgumentException`（没有阻挡数据可依据，不静默当作畅通）。测试用它验证内置视线条件（`FeelGraceBuiltinTests`：`NavigationLineOfSight_SeesTheWall_AndTheDefaultStaysUnblocked`、`BuiltinLineOfSight_GraceCoversAWallThatJustAppeared_OnlyInsideTheWindow`、`NavigationLineOfSight_WithoutANavigation_FailsLoudly`——墙刚出现时宽限在窗口内放行、窗口外按真实遮挡拒绝；缺省世界视线仍畅通）。实验室没有依赖视线的脚本，也不打开它（打开会让带竖墙/阻挡的既有脚本基线变化），所以实验室不使用；引擎侧 `UnitySpatialQuery.HasLineOfSight` 本来就接到导航遮挡判定（见其类型注释），无头与引擎的口径一致。
+5. **接线**：`RulesFeelAssembly` 把受击裁决宿主的战斗状态查询接到 `CombatHost.IsInCombat`（韧性回复模式 `out_of_combat` 用，见 combat README M4-W3 节）；`FeelWiringEndToEndTests.PoiseRecoverMode_OutOfCombatReadsTheCombatHostsStateThroughTheProductionWiring` 钉死生产装配的接线（被通知战斗事件后为真、战斗宿主判定脱战后为假）。

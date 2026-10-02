@@ -166,6 +166,138 @@ namespace Tests.Lab
             Assert.False(FeelFp.Of("feel_combo3", Action).Has("poise"));
         }
 
+        // ------------------------------------------------------------------ M4-W3：动态韧性的三项可选扩展（脚本 + 数据根 poise_ext）
+
+        private static readonly string[] ActionCells = { "2d_action", "2_5d_action", "3d_action" };
+
+        private static JsonObject ExtCharacter(string id) =>
+            FeelRules.Row(Path.Combine("lab", "fixtures", "data", "poise_ext", "feel", "feel.character.json"), id);
+
+        private static double CharacterNumber(string id, string field) => Number(ExtCharacter(id), field);
+
+        private static string CharacterText(string id, string field)
+        {
+            foreach (var w in (JsonArray)ExtCharacter(id)["writes"])
+            {
+                var o = (JsonObject)w;
+                if (((JsonString)o["field"]).Value == field)
+                {
+                    return ((JsonString)o["value"]).Value;
+                }
+            }
+
+            throw new InvalidOperationException($"{id} 没有写 {field}");
+        }
+
+        [Fact]
+        public void PoiseRecoverModeOutOfCombat_InCombatTheDelayAndRegenAreSuspended_WhereDelayModeWouldAlreadyHaveRecovered()
+        {
+            const string script = "feel_poise_ooc";
+            var rule = Rules();
+            Assert.Equal("out_of_combat", CharacterText("feel.character.lab_poise_ooc", "poise_recover_mode"));
+            var delayTicks = FeelRules.T(CharacterNumber("feel.character.lab_poise_ooc", "poise_recover_delay_ms"));
+            var perTick = CharacterNumber("feel.character.lab_poise_ooc", "poise_recover_per_s") * FeelRules.StepSeconds;
+            foreach (var cell in ActionCells)
+            {
+                var fp = FeelFp.Of(script, cell);
+                var hitTicks = HitTicks(fp);
+                Assert.Equal(2, hitTicks.Count);
+
+                // 前提（场景有区分度）：两击的间隔足以让 delay 模式的池子回满——否则"战斗中没回复"证明不了什么。
+                var refillTicks = delayTicks + (int)Math.Ceiling(rule.Damage / perTick - 1e-9);
+                Assert.True(hitTicks[1] - hitTicks[0] > refillTicks, $"{cell}：间隔 {hitTicks[1] - hitTicks[0]} 不足以让 delay 模式回满（{refillTicks}）");
+
+                // 战斗状态一直持续（玩家是存活的敌对仇恨来源、在交战范围内）：第 2 击落在第 1 击之后的池子上，没有任何回复，池子被打空。
+                var first = Math.Max(0.0, rule.Max - rule.Damage);
+                var second = Math.Max(0.0, first - rule.Damage);
+                var changes = fp.Items("poise.changes");
+                Assert.Equal(
+                    new[]
+                    {
+                        FormattableString.Invariant($"{hitTicks[0]}:stake_ooc:{Fmt(rule.Max)}>{Fmt(first)}"),
+                        FormattableString.Invariant($"{hitTicks[1]}:stake_ooc:{Fmt(first)}>{Fmt(second)}{(first > 0.0 && second <= 0.0 ? "!" : string.Empty)}"),
+                    },
+                    changes);
+                Assert.Empty(fp.Items("poise.recoveries"));
+                Assert.Equal(0.0, fp.Num("poise.accounting_mismatch"));
+                Assert.Equal(0.0, fp.Num("poise.out_of_range"));
+            }
+
+            // 对照（不变量）：同样容量/伤害/延迟/速率的 delay 模式木桩（feel_poise_dynamic 的 stake_resilient）在同样量级的间隔下确实回满过。
+            Assert.NotEmpty(FeelFp.Of("feel_poise_dynamic", "2d_action").Items("poise.recoveries"));
+        }
+
+        [Fact]
+        public void PoiseBreakReset_RefillsOneResetIntervalAfterTheBreak_AndAnEmptyPoolHitDoesNotPostponeIt()
+        {
+            const string script = "feel_poise_break_reset";
+            var rule = Rules();
+            var resetTicks = FeelRules.T(CharacterNumber("feel.character.lab_poise_reset", "poise_break_reset_ms"));
+            foreach (var cell in ActionCells)
+            {
+                var fp = FeelFp.Of(script, cell);
+                var hitTicks = HitTicks(fp);
+                Assert.Equal(4, hitTicks.Count);
+                var changes = fp.Items("poise.changes");
+
+                // 第 2 击破韧（2>0）起算；第 3 击落在已空池子上；回满恰在破韧后 resetTicks 个 tick（不被第 3 击顺延）；第 4 击在回满之后。
+                var first = Math.Max(0.0, rule.Max - rule.Damage);
+                var second = Math.Max(0.0, first - rule.Damage);
+                Assert.True(first > 0.0 && second <= 0.0, "前提：第 2 击破韧");
+                Assert.Equal(FormattableString.Invariant($"{hitTicks[1]}:stake_reset:{Fmt(first)}>{Fmt(second)}!"), changes[1]);
+                Assert.Equal(FormattableString.Invariant($"{hitTicks[2]}:stake_reset:{Fmt(second)}>{Fmt(second)}"), changes[2]);
+                var refillTick = hitTicks[1] + resetTicks;
+                Assert.True(hitTicks[2] < refillTick && refillTick < hitTicks[3], "前提：第 3 击在回满之前、第 4 击在回满之后");
+                Assert.Equal(new[] { refillTick }, fp.Items("poise.recoveries").Select(FeelFp.TickOf).ToArray());
+
+                // 回满之后第 4 击落在满池子上、被挡成 Flinch；没有速率回复声明，若没有定时回满池子会一直是空的。
+                Assert.Equal(FormattableString.Invariant($"{hitTicks[3]}:stake_reset:{Fmt(rule.Max)}>{Fmt(first)}"), changes[3]);
+                Assert.Equal(1.0, fp.Num("poise.breaks"));
+                Assert.Equal("Flinch:2;Stagger:2", fp.Text("reaction.reaction_counts"));
+                Assert.Equal(0.0, fp.Num("poise.accounting_mismatch"));
+                Assert.Equal(0.0, fp.Num("poise.out_of_range"));
+            }
+        }
+
+        [Fact]
+        public void PoiseDamageImpactScale_EachHitCostsTheDeclaredDamageTimesTheImpactMultiplier_AndDefaultStaysUnscaled()
+        {
+            const string script = "feel_poise_impact_scale";
+            var rule = Rules();
+            var meta = LabTestSupport.Script(script).Meta;
+            foreach (var cell in ActionCells)
+            {
+                var impact = FeelRules.ForCell(cell).S("impact_class");
+                var multiplier = meta.PoiseImpactScale.Single(p => p.Key == impact).Value;
+                Assert.NotEqual(1.0, multiplier);
+                var effective = rule.Damage * multiplier;
+
+                var fp = FeelFp.Of(script, cell);
+                var hitTicks = HitTicks(fp);
+                var expected = new List<string>();
+                var pool = rule.Max;
+                var breaks = 0;
+                foreach (var tick in hitTicks)
+                {
+                    var after = Math.Max(0.0, pool - effective);
+                    var broken = pool > 0.0 && after <= 0.0;
+                    breaks += broken ? 1 : 0;
+                    expected.Add(FormattableString.Invariant($"{tick}:stake_resilient:{Fmt(pool)}>{Fmt(after)}{(broken ? "!" : string.Empty)}"));
+                    pool = after;
+                }
+
+                Assert.Equal(expected, fp.Items("poise.changes"));
+                Assert.Equal((double)breaks, fp.Num("poise.breaks"));
+                Assert.Equal(0.0, fp.Num("poise.accounting_mismatch"));
+                Assert.Equal(0.0, fp.Num("poise.out_of_range"));
+                // 与不缩放的对照：不缩放时破韧所需击数是 容量 / 声明伤害，缩放后更多。
+                Assert.True(Math.Ceiling(rule.Max / effective) > Math.Ceiling(rule.Max / rule.Damage));
+            }
+
+            // 缺省（脚本不声明缩放表）不缩放：既有动态韧性脚本不声明 poiseImpactScale。
+            Assert.Empty(LabTestSupport.Script("feel_poise_dynamic").Meta.PoiseImpactScale);
+        }
+
         private static string FullReaction()
         {
             // 完整反应 = 冲击等级映射（脚本里的击打都是 medium → Stagger，生产缺省映射表）。

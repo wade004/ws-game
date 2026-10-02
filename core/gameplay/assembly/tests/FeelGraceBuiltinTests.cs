@@ -162,7 +162,8 @@ namespace Tests.Gameplay.Assembly
 
         /// <param name="options">手感装配选项；缺省使用框架缺省的 Expr 宽限求值（不设置 GraceEvaluator、GraceTargetResolver）。</param>
         /// <param name="withGraceActions">动作集是否声明宽限条件（false = 没有任何动作声明宽限条件）。</param>
-        private static Rig Build(CarriersFeelOptions? options = null, bool withGraceActions = true)
+        /// <param name="configure">在装配前改无头世界选项（例如打开导航视线）；缺省不改。</param>
+        private static Rig Build(CarriersFeelOptions? options = null, bool withGraceActions = true, Action<HeadlessWorldOptions>? configure = null)
         {
             var fs = new StubFileSystem();
             var repoRoot = FindRepoRoot();
@@ -175,7 +176,7 @@ namespace Tests.Gameplay.Assembly
 
             options ??= new CarriersFeelOptions();
             options.CalibrationId = FrameworkCalibration;
-            var world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
+            var worldOptions = new HeadlessWorldOptions
             {
                 DataSources = new List<IDataSource>
                 {
@@ -195,7 +196,9 @@ namespace Tests.Gameplay.Assembly
                 StepSeconds = Dt,
                 EnableDiscreteTimeModel = true,
                 FeelOptions = options,
-            });
+            };
+            configure?.Invoke(worldOptions);
+            var world = HeadlessWorldBuilder.Build(worldOptions);
             Assert.False(world.LoadReport.IsBlocking, string.Join("\n", world.LoadReport.Issues));
             Assert.Equal(0, world.LoadReport.ErrorCount);
 
@@ -582,6 +585,219 @@ namespace Tests.Gameplay.Assembly
             Assert.True(Evaluator(rig).UsesAim(TargetNear));
         }
 
+        // ------------------------------------------------------------------ 2b. 链解析出来的目标同样是瞄点（M4-W3）
+
+        private static CastResult CastByChain(Rig rig, Id[] conditions) =>
+            rig.Skills.CastSkillWithContext(PlayerId, SlashSkill, Array.Empty<Id>(), new ActionCastContext(null, 0), conditions);
+
+        /// <summary>
+        /// 复现用例：请求不携带目标，由技能自己的目标链解析出 A（在射程内，被接受）。此前链解析出的目标不记为瞄点（当前瞄点 None），
+        /// A 离开射程后窗口内再施法一律 OutOfRange（历史只来自"缺省目标"，这里没有）；现在链解析出的首个目标按同一归属规则记为瞄点（None → A），窗口内被接受（0 → 1）。
+        /// 不带条件的对照一律被拒。边界由规则算出：1 &lt;= 距最近一次为真的 tick 数 &lt;= grace_ticks（窗口过后瞄点作废、历史清零）。
+        /// </summary>
+        [Fact]
+        public void AChainResolvedTarget_IsRecordedAsTheAim_AndGivesTheWindowForThatTarget()
+        {
+            var graceTicks = GraceTicks(Build());
+            var accepted = 0;
+            var rejected = 0;
+            for (var wait = 0; wait <= graceTicks + 3; wait++)
+            {
+                var rig = Build();
+                var (a, unitA) = Spawn(rig, new Vec2(1.5, 0));
+                rig.Run(2);
+                Assert.Equal(GraceAim.None, rig.Feel.Grace!.CurrentAim(PlayerId));
+
+                Assert.True(CastByChain(rig, InRangeConditions).Success, "A 在射程内，目标链解析出 A，首次施法被接受");
+                Assert.Equal(GraceAim.OfTarget(a, 3), rig.Feel.Grace.CurrentAim(PlayerId));
+                rig.Run(2);
+                MoveOut(rig, a, unitA);
+                rig.Run(wait);
+
+                var lastTrue = rig.Feel.Grace.LastTrueTick(PlayerId, BuiltinInRange);
+                var delta = rig.Feel.Grace.CurrentTick - lastTrue;
+                var inWindow = lastTrue >= 0 && delta >= 1 && delta <= graceTicks;
+
+                var plain = rig.Skills.CastSkillWithContext(PlayerId, SlashSkill, Array.Empty<Id>(), new ActionCastContext(null, 0));
+                Assert.False(plain.Success);
+                Assert.Equal(CastFailureReason.OutOfRange, plain.Reason);
+
+                var graced = CastByChain(rig, InRangeConditions);
+                if (inWindow)
+                {
+                    Assert.True(graced.Success, $"wait={wait} delta={delta} grace={graceTicks}：窗口内应被接受");
+                    accepted++;
+                }
+                else
+                {
+                    Assert.False(graced.Success, $"wait={wait} delta={delta} grace={graceTicks}：窗口外应被拒");
+                    Assert.Equal(CastFailureReason.OutOfRange, graced.Reason);
+                    rejected++;
+                }
+            }
+
+            Assert.True(accepted > 0 && rejected > 0);
+        }
+
+        /// <summary>
+        /// 不变量（瞄点属于携带宽限条件的请求，M4-W3 设计决定）：不携带宽限条件的施法（普通施法、别的单位目标）既不改瞄点、也不动依赖目标的条件的历史——
+        /// 对 A 的带条件施法之后，对 B 的无条件施法前后：当前瞄点仍是 A（值与寿命都不变）、内置条件的最近为真 tick 不变；
+        /// 此前口径与现在一致（无条件请求从不上报瞄点），本用例把"没有宽限条件的行为与引入宽限前逐位一致"钉成可观测量。
+        /// </summary>
+        [Fact]
+        public void ACastWithoutGraceConditions_NeverTouchesTheAimOrTheHistory()
+        {
+            var rig = Build();
+            var (a, _) = Spawn(rig, new Vec2(1.5, 0));
+            var (b, _) = Spawn(rig, new Vec2(1.5, 1.0));
+            rig.Run(2);
+            Assert.True(CastAt(rig, a, InRangeConditions).Success);
+            var aimBefore = rig.Feel.Grace!.CurrentAim(PlayerId);
+            var historyBefore = rig.Feel.Grace.LastTrueTick(PlayerId, BuiltinInRange);
+            Assert.Equal(GraceAim.OfTarget(a, 3), aimBefore);
+            Assert.True(historyBefore >= 0);
+
+            var plain = rig.Skills.CastSkillWithContext(PlayerId, SlashSkill, new[] { b }, new ActionCastContext(null, 0));
+            Assert.True(plain.Success);
+            Assert.Equal(aimBefore, rig.Feel.Grace.CurrentAim(PlayerId));
+            Assert.Equal(historyBefore, rig.Feel.Grace.LastTrueTick(PlayerId, BuiltinInRange));
+        }
+
+        /// <summary>
+        /// 不变量（历史属于瞄点）：链解析出的目标换成另一个单位（B）时，依赖目标的条件历史作废——不拿 A 刚才够得着的记录放行对 B 的施法：
+        /// A 够得着后离开，B 出现在射程外但比 A 更近（目标链改选 B），窗口内带条件的链施法被拒（OutOfRange）；对照（没有 B）窗口内被接受。
+        /// </summary>
+        [Fact]
+        public void AChainResolvedTargetThatChanges_DropsTheOldTargetsHistory()
+        {
+            bool RunCase(bool withOtherTarget)
+            {
+                var rig = Build();
+                var (a, unitA) = Spawn(rig, new Vec2(1.5, 0));
+                rig.Run(2);
+                Assert.True(CastByChain(rig, InRangeConditions).Success);
+                rig.Run(1);
+                MoveOut(rig, a, unitA); // A 在 (10,0)
+                if (withOtherTarget)
+                {
+                    Spawn(rig, new Vec2(9, 0)); // 比 A 近但仍在射程 3 外：目标链改选它
+                }
+
+                rig.Run(1);
+                var result = CastByChain(rig, InRangeConditions);
+                if (!result.Success) Assert.Equal(CastFailureReason.OutOfRange, result.Reason);
+                return result.Success;
+            }
+
+            Assert.True(RunCase(false), "对照：目标链仍解析出 A，窗口内被接受");
+            Assert.False(RunCase(true), "目标链改选了 B：A 的历史不属于 B，被拒");
+        }
+
+        // ------------------------------------------------------------------ 2c. 无头世界的导航视线（M4-W3）
+
+        private static readonly Rect Wall = new Rect(new Vec2(0.9, -1.0), new Vec2(1.1, 1.0));
+        private static readonly Id[] LineOfSightConditions = { BuiltinLineOfSight };
+
+        private static Rig BuildWithNavigation(bool navigationLineOfSight, out StubNavigation2D nav)
+        {
+            var navigation = new StubNavigation2D();
+            nav = navigation;
+            return Build(configure: o =>
+            {
+                o.Navigation = navigation;
+                o.NavigationLineOfSight = navigationLineOfSight;
+            });
+        }
+
+        /// <summary>
+        /// 复现用例：目标在射程内，但与施法者之间立着一堵墙（导航静态阻挡）。缺省装配（不开 <c>NavigationLineOfSight</c>）视线恒畅通——隔墙施法成功（与此前逐位一致）；
+        /// 打开后视线取自导航阻挡：同一次施法以 LineOfSight 被拒（成功 → 失败），内置视线条件的求值由真变假；墙被移除（动态阻挡）后视线恢复、施法成功。
+        /// </summary>
+        [Fact]
+        public void NavigationLineOfSight_SeesTheWall_AndTheDefaultStaysUnblocked()
+        {
+            var open = BuildWithNavigation(false, out var openNav);
+            openNav.SetBlocking(MapId, new[] { Wall });
+            var (openTarget, _) = Spawn(open, new Vec2(2, 0));
+            open.Run(2);
+            Assert.True(open.World.Spatial.HasLineOfSight(new Vec2(0, 0), new Vec2(2, 0)), "缺省：视线恒畅通");
+            Assert.True(CastAt(open, openTarget, Array.Empty<Id>()).Success, "缺省：隔墙施法成功");
+
+            var rig = BuildWithNavigation(true, out var nav);
+            nav.SetBlocking(MapId, new[] { Wall });
+            var (target, _) = Spawn(rig, new Vec2(2, 0));
+            rig.Run(2);
+            Assert.False(rig.World.Spatial.HasLineOfSight(rig.PlayerPosition, new Vec2(2, 0)), "打开后：被墙挡住");
+            Assert.True(rig.World.Spatial.HasLineOfSight(rig.PlayerPosition, new Vec2(0, 2)), "没有穿墙的连线仍畅通");
+
+            var blocked = CastAt(rig, target, Array.Empty<Id>());
+            Assert.False(blocked.Success);
+            Assert.Equal(CastFailureReason.LineOfSight, blocked.Reason);
+            Assert.False(Evaluator(rig).Evaluate(PlayerId, BuiltinLineOfSight, GraceAim.OfTarget(target, 3)));
+
+            nav.SetBlocking(MapId, Array.Empty<Rect>()); // 墙被拆掉（运行期动态阻挡）
+            Assert.True(Evaluator(rig).Evaluate(PlayerId, BuiltinLineOfSight, GraceAim.OfTarget(target, 3)));
+            Assert.True(CastAt(rig, target, Array.Empty<Id>()).Success);
+
+            nav.AddBlocking(MapId, Wall); // 增量登记同样立刻生效
+            Assert.False(rig.World.Spatial.HasLineOfSight(rig.PlayerPosition, new Vec2(2, 0)));
+        }
+
+        /// <summary>
+        /// 复现用例（宽限的视线条件在无头下验证真实遮挡）：视线畅通时对 A 施法（内置视线条件为真，瞄点 = A），随后墙立起来挡住视线；窗口内再对 A 施法：
+        /// 不带条件的一律以 LineOfSight 被拒，带内置视线条件的被接受（0 → 1）；窗口过后被拒。边界：1 &lt;= 距最近一次为真的 tick 数 &lt;= grace_ticks。
+        /// </summary>
+        [Fact]
+        public void BuiltinLineOfSight_GraceCoversAWallThatJustAppeared_OnlyInsideTheWindow()
+        {
+            var graceTicks = GraceTicks(Build());
+            var covered = 0;
+            var notCovered = 0;
+            for (var wait = 0; wait <= graceTicks + 3; wait++)
+            {
+                var rig = BuildWithNavigation(true, out var nav);
+                var (target, _) = Spawn(rig, new Vec2(2, 0));
+                rig.Feel.Grace!.Register(PlayerId, new[] { BuiltinLineOfSight });
+                rig.Run(2);
+
+                Assert.True(CastAt(rig, target, LineOfSightConditions).Success, "视线畅通，首次施法被接受");
+                rig.Run(1);
+                nav.AddBlocking(MapId, Wall);
+                rig.Run(wait);
+
+                var last = rig.Feel.Grace.LastTrueTick(PlayerId, BuiltinLineOfSight);
+                var delta = rig.Feel.Grace.CurrentTick - last;
+                var inWindow = last >= 0 && delta >= 1 && delta <= graceTicks;
+
+                var plain = CastAt(rig, target, Array.Empty<Id>());
+                Assert.False(plain.Success);
+                Assert.Equal(CastFailureReason.LineOfSight, plain.Reason);
+
+                var graced = CastAt(rig, target, LineOfSightConditions);
+                if (inWindow)
+                {
+                    Assert.True(graced.Success, $"wait={wait} delta={delta} grace={graceTicks}：窗口内应被接受");
+                    covered++;
+                }
+                else
+                {
+                    Assert.False(graced.Success, $"wait={wait} delta={delta} grace={graceTicks}：窗口外应被拒");
+                    Assert.Equal(CastFailureReason.LineOfSight, graced.Reason);
+                    notCovered++;
+                }
+            }
+
+            Assert.True(covered > 0 && notCovered > 0);
+        }
+
+        /// <summary>不变量：打开导航视线却没有提供导航时，装配直接报错（没有阻挡数据可依据，不静默当作畅通）。</summary>
+        [Fact]
+        public void NavigationLineOfSight_WithoutANavigation_FailsLoudly()
+        {
+            var ex = Assert.Throws<ArgumentException>(() => Build(configure: o => o.NavigationLineOfSight = true));
+            Assert.Contains("Navigation", ex.Message);
+        }
+
         // ------------------------------------------------------------------ 3. 惰性分配
 
         private const int CreatureCount = 24;
@@ -596,7 +812,8 @@ namespace Tests.Gameplay.Assembly
 
         /// <summary>
         /// 复现用例：没有任何动作声明宽限条件时，世界里 N 个生物自动登记。1.95.0 的自动登记给每个单位建一份空缓冲（等价于对每个生物调用 <c>RegisterActor</c>：缓冲分配数 N）；
-        /// 现在惰性分配：没有宽限条件可采样就不建（分配数 N → 0），单位未登记、也没有宽限历史。
+        /// 现在惰性分配：没有宽限条件可采样就不登记（单位未登记、分配数 N → 0）。M4-W3 起<b>显式</b> <c>RegisterActor</c> 同样惰性：登记只记 id，缓冲等第一次真有边沿才建
+        /// （对同样 N 个生物显式登记后，分配数仍是 0，而不是 N）；"显式登记即可采样"的语义不变（已登记、出现在 <c>ActorIds</c>）。
         /// </summary>
         [Fact]
         public void NoDeclaredGraceConditions_AllocatesNoBuffersForTheWorldsUnits()
@@ -606,28 +823,32 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(0, rig.Feel.InputBuffer.ActorBuffersAllocated);
             Assert.Empty(rig.Feel.InputBuffer.ActorIds);
 
-            // 对照：1.95.0 的自动登记等价于对每个生物显式登记——每个生物一份缓冲。
+            // 对照：1.95.0 的自动登记等价于对每个生物显式登记——当时每个生物一份缓冲；现在显式登记也只记 id。
             var legacy = RigWithCreatures(CreatureCount, withGraceActions: false);
             var creatures = legacy.World.World.QueryEntities(default).Where(e => e.Kind == EntityKinds.Creature).Select(e => e.EntityId).ToList();
             Assert.Equal(CreatureCount, creatures.Count);
             foreach (var id in creatures) legacy.Feel.InputBuffer.RegisterActor(id);
-            Assert.Equal(CreatureCount, legacy.Feel.InputBuffer.ActorBuffersAllocated);
+            Assert.Equal(0, legacy.Feel.InputBuffer.ActorBuffersAllocated);
+            Assert.Equal(CreatureCount, legacy.Feel.InputBuffer.ActorIds.Count);
+            legacy.Run(3); // 已登记但没有缓冲的行动者经过逐 tick 的缓冲维护不出错
 
             Assert.False(rig.Feel.InputBuffer.IsActorRegistered(creatures[0]));
+            Assert.True(legacy.Feel.InputBuffer.IsActorRegistered(creatures[0]));
         }
 
         /// <summary>
-        /// 不变量（需要采样时才建）：有动作声明宽限条件时，每个单位（生物与玩家）在装配/出生时登记并建缓冲，分配数等于单位数，采样从登记起；
-        /// 之后出生的生物在出生时建一份（分配数 +1）。
+        /// 不变量（需要采样时才登记、有边沿时才建缓冲）：有动作声明宽限条件时，每个单位（生物与玩家）在装配/出生时登记，采样从登记起；
+        /// 缓冲对象一个都不建（分配数 0），玩家按下一次键才建自己的一份（0 → 1）；之后出生的生物在出生时登记。
         /// </summary>
         [Fact]
-        public void DeclaredGraceConditions_AllocateOneBufferPerUnit_AndSamplingStartsAtRegistration()
+        public void DeclaredGraceConditions_RegisterEveryUnit_AndSamplingStartsAtRegistration_ButBuffersWaitForAnEdge()
         {
             var rig = RigWithCreatures(CreatureCount, withGraceActions: true);
             var eligible = rig.World.World.QueryEntities(default)
                 .Count(e => e.Kind == EntityKinds.Creature || e.Kind == EntityKinds.Player);
             Assert.Equal(CreatureCount + 1, eligible);
-            Assert.Equal(eligible, rig.Feel.InputBuffer.ActorBuffersAllocated);
+            Assert.Equal(eligible, rig.Feel.InputBuffer.ActorIds.Count);
+            Assert.Equal(0, rig.Feel.InputBuffer.ActorBuffersAllocated);
 
             rig.Run(3);
             var tracker = rig.Feel.Grace!;
@@ -636,16 +857,20 @@ namespace Tests.Gameplay.Assembly
                 Assert.Equal(tracker.CurrentTick, tracker.LastTrueTick(entity.EntityId, Always));
             }
 
-            var before = rig.Feel.InputBuffer.ActorBuffersAllocated;
+            Assert.Equal(0, rig.Feel.InputBuffer.ActorBuffersAllocated);
+            rig.Tap("l"); // 玩家第一次有边沿：建自己的缓冲
+            rig.Run(2);
+            Assert.Equal(1, rig.Feel.InputBuffer.ActorBuffersAllocated);
+
             var late = Spawn(rig, new Vec2(-9, -9)).Id;
             rig.Run(1);
             Assert.True(rig.Feel.InputBuffer.IsActorRegistered(late));
-            Assert.Equal(before + 1, rig.Feel.InputBuffer.ActorBuffersAllocated);
+            Assert.Equal(1, rig.Feel.InputBuffer.ActorBuffersAllocated);
         }
 
         /// <summary>
         /// 不变量（条件声明出现的那一刻补登记）：开始没有宽限条件（分配 0），之后游戏经 <c>DeclareActions</c> 声明了带宽限条件的动作——
-        /// 已有单位此刻才建缓冲（分配 0 → N+1）并开始采样；此前出生的生物没有被漏掉；之后出生的生物出生时即登记。
+        /// 已有单位此刻才登记（已登记 0 → N+1，缓冲分配数仍为 0）并开始采样；此前出生的生物没有被漏掉；之后出生的生物出生时即登记。
         /// </summary>
         [Fact]
         public void GraceConditionsDeclaredLater_RegisterTheExistingUnitsThen()
@@ -665,7 +890,8 @@ namespace Tests.Gameplay.Assembly
             Assert.Contains(Always, rig.Feel.InputBuffer.GraceConditionNames);
 
             var expected = creatures.Count + 1 + 1; // 24 个生物 + 之后出生的 1 个 + 玩家
-            Assert.Equal(expected, rig.Feel.InputBuffer.ActorBuffersAllocated);
+            Assert.Equal(expected, rig.Feel.InputBuffer.ActorIds.Count);
+            Assert.Equal(0, rig.Feel.InputBuffer.ActorBuffersAllocated); // 登记只记 id，缓冲等边沿
             Assert.True(rig.Feel.InputBuffer.IsActorRegistered(unlogged));
             rig.Run(2);
             Assert.Equal(rig.Feel.Grace!.CurrentTick, rig.Feel.Grace.LastTrueTick(creatures[0], Always));
@@ -685,7 +911,8 @@ namespace Tests.Gameplay.Assembly
 
             var creature = rig.World.World.QueryEntities(default).First(e => e.Kind == EntityKinds.Creature).EntityId;
             rig.Feel.InputBuffer.RegisterActor(creature);
-            Assert.Equal(1, rig.Feel.InputBuffer.ActorBuffersAllocated);
+            Assert.True(rig.Feel.InputBuffer.IsActorRegistered(creature));
+            Assert.Equal(0, rig.Feel.InputBuffer.ActorBuffersAllocated); // 显式登记也惰性：只记 id，不建缓冲
             rig.Run(2);
             Assert.Equal(rig.Feel.Grace!.CurrentTick, rig.Feel.Grace.LastTrueTick(creature, Always));
         }

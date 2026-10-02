@@ -1,0 +1,32 @@
+{
+  "table": "lab.dummy_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.dummy_set.lab_poise_ext",
+      "entries": [
+        {
+          "name": "stake_ooc",
+          "kind": "stake",
+          "creature_ref": "creature.lab_poise_ooc",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake_ooc"
+        },
+        {
+          "name": "stake_reset",
+          "kind": "stake",
+          "creature_ref": "creature.lab_poise_reset",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake_reset"
+        }
+      ],
+      "note": "动态韧性扩展靶子集（M4-W3）：脱战才回复的木桩与破韧后定时回满的木桩，都在近战扇形内。"
+    }
+  ]
+}

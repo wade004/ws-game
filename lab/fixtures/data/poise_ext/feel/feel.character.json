@@ -1,0 +1,42 @@
+{
+  "table": "feel.character",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.character.lab_poise_ooc",
+      "description": "脱战才回复韧性的木桩（M4-W3）：回复模式 out_of_combat，最近一次韧性伤害后等 300 毫秒（脱战之后才开始计），再以每秒 4 点回复。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "poise_recover_mode",
+          "op": "set",
+          "value": "out_of_combat"
+        },
+        {
+          "field": "poise_recover_delay_ms",
+          "op": "set",
+          "value": 300
+        },
+        {
+          "field": "poise_recover_per_s",
+          "op": "set",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": "feel.character.lab_poise_reset",
+      "description": "破韧后定时回满的木桩（M4-W3）：不做速率回复，破韧 1000 毫秒后韧性池一次回满。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "poise_break_reset_ms",
+          "op": "set",
+          "value": 1000
+        }
+      ]
+    }
+  ]
+}

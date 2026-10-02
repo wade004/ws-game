@@ -67,6 +67,7 @@ namespace Core.Foundation.InputMap
         private readonly Dictionary<Id, ActionDefinition> _definitions = new Dictionary<Id, ActionDefinition>();
         private readonly Dictionary<Id, ActorBuffer> _actors = new Dictionary<Id, ActorBuffer>();
         private readonly List<Id> _actorOrder = new List<Id>();
+        private readonly HashSet<Id> _known = new HashSet<Id>();
 
         private readonly List<Id> _graceConditionNames = new List<Id>();
 
@@ -174,8 +175,9 @@ namespace Core.Foundation.InputMap
         public event Action? GraceConditionsDeclared;
 
         /// <summary>
-        /// 已建立的行动者缓冲累计个数（含之后被 <see cref="RemoveActor"/> 清掉的）：度量缓冲分配用。没有任何动作声明宽限条件时，生产装配的单位自动登记
-        /// 不建缓冲，该数字保持不变；声明了宽限条件的游戏里每个被登记的单位建一份（手感落地 M4-G）。
+        /// 已建立的行动者缓冲累计个数（含之后被 <see cref="RemoveActor"/> 清掉的）：度量缓冲分配用。缓冲只在行动者第一次真有边沿
+        /// （<see cref="Press"/>/<see cref="Release"/>/<see cref="Submit"/>）时才建——<see cref="RegisterActor"/>（含显式调用与生产装配的单位自动登记）只记 id、不建缓冲，
+        /// 所以登记再多的单位，没人按键时该数字保持不变（手感落地 M4-G、M4-W3）。
         /// </summary>
         public long ActorBuffersAllocated => _actorBuffersAllocated;
 
@@ -290,29 +292,38 @@ namespace Core.Foundation.InputMap
         }
 
         /// <summary>
-        /// 登记行动者（手感落地 M3-B）：建立其（空）缓冲，使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已建缓冲的行动者采样）。
-        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配在有动作声明宽限条件时对世界里的单位（出生与装配时已有的）自动调用本方法，
-        /// 没有任何动作声明宽限条件时不调用（惰性分配，手感落地 M4-G；之后条件声明出现时由 <see cref="GraceConditionsDeclared"/> 补登记）。
+        /// 登记行动者（手感落地 M3-B）：使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已登记的行动者采样）。
+        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配在有动作声明宽限条件时对世界里的单位（出生与装配时已有的）自动调用本方法。
+        /// <para>
+        /// 判断记录（惰性分配，手感落地 M4-G、M4-W3）：登记只记下行动者 id（宽限采样不需要缓冲槽），缓冲对象（槽位与待入槽边沿）等到第一次真的有边沿到达
+        /// （<see cref="Press"/>/<see cref="Release"/>/<see cref="Submit"/>）才建，所以显式调用 N 次的代价是 N 个 id 记录、<see cref="ActorBuffersAllocated"/> 不动。
+        /// "显式登记即可采样"的语义不变：<see cref="IsActorRegistered"/> 为真、<see cref="ActorIds"/> 含该行动者（登记顺序与此前建缓冲的顺序一致）。
+        /// </para>
         /// 幂等；之后 <see cref="RemoveActor"/> 与销毁清理照旧。
         /// </summary>
-        public void RegisterActor(Id actorId) => GetOrCreate(actorId);
+        public void RegisterActor(Id actorId) => Know(actorId);
 
-        /// <summary>行动者是否已登记（或已因按键建立过缓冲）。</summary>
-        public bool IsActorRegistered(Id actorId) => _actors.ContainsKey(actorId);
+        /// <summary>行动者是否已登记（显式 <see cref="RegisterActor"/>，或已因按键建立过缓冲）。</summary>
+        public bool IsActorRegistered(Id actorId) => _known.Contains(actorId);
+
+        private void Know(Id actorId)
+        {
+            if (_known.Add(actorId)) _actorOrder.Add(actorId);
+        }
 
         private ActorBuffer GetOrCreate(Id actorId)
         {
+            Know(actorId);
             if (!_actors.TryGetValue(actorId, out var buffer))
             {
                 buffer = new ActorBuffer();
                 _actorBuffersAllocated++;
                 _actors.Add(actorId, buffer);
-                _actorOrder.Add(actorId);
             }
             return buffer;
         }
 
-        /// <summary>已建立过缓冲的行动者（按首次出现顺序的新快照）。</summary>
+        /// <summary>已登记的行动者（显式登记或已建立过缓冲；按首次出现顺序的新快照）。</summary>
         public IReadOnlyList<Id> ActorIds => _actorOrder.ToArray();
 
         // -----------------------------------------------------------------
@@ -329,7 +340,7 @@ namespace Core.Foundation.InputMap
             for (var a = 0; a < _actorOrder.Count; a++)
             {
                 var actorId = _actorOrder[a];
-                var buffer = _actors[actorId];
+                if (!_actors.TryGetValue(actorId, out var buffer)) continue;
                 var now = ActionNow(actorId);
 
                 buffer.Slots.RemoveAll(r => r.Consumed);
@@ -609,7 +620,8 @@ namespace Core.Foundation.InputMap
         public void RemoveActor(Id actorId)
         {
             Clear(actorId);
-            if (_actors.Remove(actorId)) _actorOrder.Remove(actorId);
+            _actors.Remove(actorId);
+            if (_known.Remove(actorId)) _actorOrder.Remove(actorId);
             if (_localActor.HasValue && _localActor.Value.Equals(actorId)) _localActor = null;
         }
 

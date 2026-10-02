@@ -76,6 +76,8 @@ namespace Core.Foundation.Feel
         public const string PoiseDamage = "poise_damage";
         public const string PoiseRecoverPerS = "poise_recover_per_s";
         public const string PoiseRecoverDelayMs = "poise_recover_delay_ms";
+        public const string PoiseRecoverMode = "poise_recover_mode";
+        public const string PoiseBreakResetMs = "poise_break_reset_ms";
         public const string KnockbackDistance = "knockback_distance";
         public const string LaunchHeight = "launch_height";
         public const string DownedMs = "downed_ms";
@@ -151,6 +153,7 @@ namespace Core.Foundation.Feel
         private static readonly IReadOnlyList<string> ImpactClassValues = new[] { "light", "medium", "heavy", "massive" };
         private static readonly IReadOnlyList<string> AirHitReactionValues = new[] { "same", "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
         private static readonly IReadOnlyList<string> LaunchStackValues = new[] { "restart", "add" };
+        private static readonly IReadOnlyList<string> PoiseRecoverModeValues = new[] { "delay", "out_of_combat" };
         private static readonly IReadOnlyList<string> ReactionCapValues = new[] { "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
         private static readonly IReadOnlyList<string> ReversePolicyValues = new[] { "instant", "through_zero" };
 
@@ -297,6 +300,12 @@ namespace Core.Foundation.Feel
                     "韧性回复速率（每秒，目标侧）：被动态韧性命中过的目标在 poise_recover_delay_ms 内没再受动态韧性伤害后，每秒回复这么多韧性直到满；缺省（无值）表示不回复", optional: true),
                 Num(FeelFieldNames.PoiseRecoverDelayMs, Re, J, Ms, C, 0, 10000,
                     "韧性回复延迟（目标侧）：最近一次动态韧性伤害之后等待多久才开始回复；缺省（无值）按 0", optional: true),
+                Enum(FeelFieldNames.PoiseRecoverMode, Re, J, C, PoiseRecoverModeValues,
+                    "韧性回复模式（手感落地 M4-W3，目标侧）：delay（缺省）= 最近一次动态韧性伤害后等 poise_recover_delay_ms 再回复；" +
+                    "out_of_combat = 目标处于战斗中时回复与延迟计时都暂停，脱战后才开始延迟计时并回复（脱战判定取战斗宿主的进出战状态）；缺省（无值）= delay",
+                    optional: true),
+                Num(FeelFieldNames.PoiseBreakResetMs, Re, J, Ms, C, 0, 60000,
+                    "破韧后自动回满延迟（手感落地 M4-W3，目标侧）：韧性被打到 0（破韧）之后过这么久把韧性池一次回满，不受回复速率、回复模式与期间再受击影响；缺省（无值）= 不自动回满", optional: true),
                 Num(FeelFieldNames.KnockbackDistance, Re, J, BodyH, W, 0, 5, "击退距离"),
                 Num(FeelFieldNames.LaunchHeight, Re, J, BodyH, W, 0, 10,
                     "击飞高度：knockback/knockdown 反应把目标抛起的顶点高度（目标脚下再升高多少）；只在世界有竖直轴（体积空间 / 横版二维能力包）时生效，" +

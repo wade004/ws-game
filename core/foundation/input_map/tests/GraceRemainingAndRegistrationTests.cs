@@ -159,5 +159,72 @@ namespace Tests.Foundation.InputMap
             Assert.Equal(2, tracker.LastTrueTick(registered, cond));
             Assert.Equal(-1, tracker.LastTrueTick(unregistered, cond));
         }
+
+        /// <summary>
+        /// 复现用例（手感落地 M4-W3，显式登记惰性分配）：对 N 个行动者显式 <c>RegisterActor</c>——此前每个建一份缓冲（<c>ActorBuffersAllocated</c> 0 → N），
+        /// 现在只记 id（保持 0）；已登记、出现在 <c>ActorIds</c>（"显式登记即可采样"的语义不变，登记顺序即遍历顺序）；经过逐 tick 的缓冲维护不出错；
+        /// 第一次真有边沿（按下）才为那一个行动者建缓冲（0 → 1），其余仍不建；按下之后与此前一样入槽、可被取用。
+        /// </summary>
+        [Fact]
+        public void RegisterActor_IsLazy_RecordsOnlyTheId_AndTheBufferIsBuiltAtTheFirstEdge()
+        {
+            const int count = 12;
+            var attack = Def("input.action.attack", ActionClass.Attack);
+            var rig = new BufferRig(new[] { attack }, "feel.preset.arpg_responsive");
+            var actors = Enumerable.Range(0, count).Select(i => new Id("unit.npc" + i)).ToList();
+
+            foreach (var id in actors) rig.Buffer.RegisterActor(id);
+            foreach (var id in actors) rig.Buffer.RegisterActor(id); // 幂等
+
+            Assert.Equal(0, rig.Buffer.ActorBuffersAllocated);
+            Assert.Equal(actors, rig.Buffer.ActorIds.ToList());
+            Assert.All(actors, id => Assert.True(rig.Buffer.IsActorRegistered(id)));
+
+            rig.Step();
+            rig.Step();
+            Assert.Equal(0, rig.Buffer.ActorBuffersAllocated);
+
+            var pressed = actors[5];
+            rig.Step(arrivals: () => rig.Buffer.Press(pressed, attack.ActionId));
+            Assert.Equal(1, rig.Buffer.ActorBuffersAllocated);
+            Assert.Equal(actors, rig.Buffer.ActorIds.ToList()); // 登记顺序不变
+            Assert.Single(rig.Buffer.Snapshot(pressed));
+            Assert.Empty(rig.Buffer.Snapshot(actors[0]));
+
+            // 未登记的行动者第一次按键：登记与建缓冲同时发生（与此前一致，排在登记者之后）。
+            var stranger = new Id("unit.stranger");
+            rig.Step(arrivals: () => rig.Buffer.Press(stranger, attack.ActionId));
+            Assert.Equal(2, rig.Buffer.ActorBuffersAllocated);
+            Assert.True(rig.Buffer.IsActorRegistered(stranger));
+            Assert.Equal(stranger, rig.Buffer.ActorIds.Last());
+        }
+
+        /// <summary>
+        /// 不变量：只登记没建缓冲的行动者，<c>RemoveActor</c> 一样清掉登记（已登记 → 未登记）、不触发缓冲丢弃事件、之后可再登记；
+        /// <c>ClearAll</c>/<c>Clear</c> 对没有缓冲的登记者是无操作。登记不改变 <c>ActorIds</c> 的去重与顺序。
+        /// </summary>
+        [Fact]
+        public void RemoveAndClear_TreatARegisteredActorWithoutABuffer_AsHavingNothingToDrop()
+        {
+            var attack = Def("input.action.attack", ActionClass.Attack);
+            var rig = new BufferRig(new[] { attack }, "feel.preset.arpg_responsive");
+            var a = new Id("unit.a");
+            var b = new Id("unit.b");
+            rig.Buffer.RegisterActor(a);
+            rig.Buffer.RegisterActor(b);
+
+            rig.Buffer.Clear(a);
+            rig.Buffer.ClearAll();
+            rig.Buffer.RemoveActor(a);
+
+            Assert.False(rig.Buffer.IsActorRegistered(a));
+            Assert.True(rig.Buffer.IsActorRegistered(b));
+            Assert.Equal(new[] { b }, rig.Buffer.ActorIds.ToArray());
+            Assert.Empty(rig.Drops);
+            Assert.Equal(0, rig.Buffer.ActorBuffersAllocated);
+
+            rig.Buffer.RegisterActor(a);
+            Assert.Equal(new[] { b, a }, rig.Buffer.ActorIds.ToArray());
+        }
     }
 }

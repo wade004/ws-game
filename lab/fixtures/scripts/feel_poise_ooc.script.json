@@ -1,0 +1,120 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_poise_ooc",
+    "scriptVersion": 1,
+    "description": "脱战才回复的韧性（M4-W3）：木桩 stake_ooc 容量 4、削韧击每击扣 2，回复模式 out_of_combat（延迟 300 毫秒、每秒回复 4 点）。第 1 击 4>2 被挡成 Flinch；之后战斗状态一直持续（玩家就在 2 个单位外、仍是存活的敌对仇恨来源，不会脱战），池子纹丝不动，所以第 2 击仍落在 2 上，2>0 破韧给出完整反应；对照 delay 模式的 feel_poise_dynamic，同样的间隔下池子早已回复。脱战之后才开始计延迟并回满的边沿由核心层用例覆盖（实验室里玩家不可能离开 30 单位的交战范围）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 560,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_ooc"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_poise_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_poise_chip"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/poise_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 120,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 121,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "poise_accounting_is_consistent",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.accounting_mismatch",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "poise_stays_in_bounds",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.out_of_range",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "ooc_pool_does_not_recover_in_combat",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.recoveries",
+      "op": "eq",
+      "value": "",
+      "note": "战斗中延迟计时与回复都暂停：整段脚本没有回满事件。"
+    },
+    {
+      "id": "second_hit_breaks_instead_of_being_sheltered",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.breaks",
+      "op": "eq",
+      "value": 1,
+      "note": "delay 模式下第 2 击落在已回复的池子上会再被挡成 Flinch；out_of_combat 战斗中池子没动，第 2 击 2>0 破韧。"
+    },
+    {
+      "id": "one_flinch_one_full_reaction",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:1;Stagger:1"
+    }
+  ]
+}

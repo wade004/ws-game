@@ -1,0 +1,130 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_poise_impact_scale",
+    "scriptVersion": 1,
+    "description": "动态韧性伤害按冲击等级缩放（M4-W3）：脚本声明 poiseImpactScale 把 medium 倍率设为 0.5（缺省不缩放），削韧击声明伤害 2、实际每击扣 1。容量 4 的木桩 stake_resilient 逐击 4>3>2>1>0：第 4 击才破韧（不缩放时第 2 击就破韧），前三击池子仍 > 0 都被挡成 Flinch。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 200,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_resilient"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_poise_chip"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": "",
+    "poiseImpactScale": {
+      "medium": 0.5
+    }
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 34,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 35,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 63,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 64,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 92,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 93,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "poise_accounting_is_consistent",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.accounting_mismatch",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "poise_stays_in_bounds",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.out_of_range",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "scaled_damage_needs_four_hits_to_break",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.breaks",
+      "op": "eq",
+      "value": 1,
+      "note": "每击实际扣 声明伤害 × 倍率 = 1，容量 4 要四击才打空。"
+    },
+    {
+      "id": "three_sheltered_then_one_break",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:3;Stagger:1"
+    }
+  ]
+}

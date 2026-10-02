@@ -28,7 +28,6 @@ using Vec2 = Core.Foundation.Common.Vec2;
 namespace Adapter.Unity.Tests.Runtime
 {
     [Category("module:unit")]
-    [Category("interaction:vertical_terrain")]
     public sealed class UnityTerrainHeight2DPlayModeTests : PlayModeTestBase
     {
         private const int GroundLayer = 29;
