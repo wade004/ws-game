@@ -272,8 +272,25 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 
 用例见 `core/gameplay/assembly/tests/FeelGraceCompleteTests.cs`（五项各带"量从 X 变到 Y"的复现与不变量，边界由 `grace_ms` 换算规则算出）、`core/foundation/input_map/tests/GraceRemainingAndRegistrationTests.cs`、`core/foundation/feel/tests/FeelCalibrationHotSwapTests.cs`，以及 `presentation/camera/tests/CameraFeelTests.cs`、`presentation/feedback_binder/tests/ImpactPipelineTests.cs` 里的实时参考高度用例。
 
-已知限制：地面施法的宽限条件须由游戏声明得能表达"落点/目标刚才还够得着"（框架不为地面坐标自动推导可达条件）；缺省 Expr 求值器的目标来源取自动攻击目标（游戏有自己的目标概念时经 `GraceTargetResolver` 提供）；单位很多时自动登记会给每个单位建一份空缓冲（可经 `AutoRegisterGraceActors = false` 关闭）。
+已知限制：地面施法的宽限条件须由游戏声明得能表达"落点/目标刚才还够得着"（框架不为地面坐标自动推导可达条件，可直接引用框架内置的 `input.grace.builtin_aim_*`，见 M4-G 节）。
 
 ## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
 
 只做加法：`CarriersAssembly` 在 `MovementOptions.Vertical` 非空时创建 `VerticalMotionHost`、挂 `VerticalMotionTickHandler`（紧随 `MovementTickHandler`，同在 `MovementAndNavigation` 阶段）并暴露只读属性 `VerticalMotion`；`CarriersFeelAssembly` 在打通受击裁决与运动层之后，`VerticalMotion` 是 `ILaunchSink` 时把它接到 `HitFeelHost.Launch`（没有竖直轴时不接，档案里的 `launch_height` 被忽略）。`HeadlessWorldBuilder` 新增 `MovementOptions`/`TargetingOptions` 透传属性（缺省 null，原路径不变）。判断记录与已知局限见 unit README、targeting README、combat README 的 M3-E1 节。
+
+## 手感落地 M4-G：宽限的施法瞄点、框架内置条件与惰性登记（2026-10-03）
+
+1. **框架内置宽限条件**：`data/_framework/found/found.grace_condition.json` 三行（`input.grace.builtin_aim_in_range` / `..._line_of_sight` / `..._reachable`），表达式读 `event.aim_*`（`GraceAimContext`：`has_aim`、`aim_distance`、`aim_range`、`aim_in_range`、`aim_line_of_sight`、`aim_is_ground`，字段惰性计算）。游戏在动作的 `grace_conditions` 里直接引用；不引用则不采样，行为与引入前逐位一致。
+2. **缺省求值器优先用施法携带的目标**：`target` 分组的来源优先级为：`CarriersFeelOptions.GraceTargetResolver`（给出非空即用，且游戏提供了覆盖后不再回落到自动攻击目标）-> 本次施法请求携带的单位目标 -> 自动攻击的当前目标。地面施法的瞄点是落点（`aim_is_ground`），`target` 不绑定。新增构造重载 `ExprGraceConditionEvaluator(registry, hosts, schema, targetResolver, fallbackTarget, aimServices)`，旧构造原样保留并转调。
+3. **射程来源**：请求自己带的技能射程优先（`SkillHost.GetSkillRange` 新增）；输入动作路径下取引用该条件的动作绑定技能的射程，多个动作共用一条条件时取最小正射程。
+4. **缓冲惰性分配**：没有任何动作声明宽限条件时，生产装配不给世界里的单位建缓冲；条件由空变非空（`InputBufferHost.GraceConditionsDeclared`，含数据热加载）时才补登记已有单位，之后出生的单位在 `entity.created`（下一个 tick 派发）时登记。`AutoRegisterGraceActors = false` 仍整体关闭。
+
+判断记录（本节编号）：
+
+1. **瞄点只改变"依赖目标"的条件的归属**：见 `core/foundation/input_map/README.md` M4-G 节。
+2. **用 `event` 分组承载瞄点上下文而不新增分组**：Expr 分组固定为九个，`event` 本就是"触发事件字段"的分组，`FullExprSchema` 对 `event.*` 宽松放行，不改 schema、不增加接口。
+3. **共用条件取最小正射程**：宁严勿松，避免一个射程短的动作借用另一个射程长的动作的历史。
+
+用例见 `core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（各项"量从 X 变到 Y"的复现与不变量）与 `core/foundation/input_map/tests/GraceAimTests.cs`。
+
+已知限制：链式解析出来的目标（连锁技能的后续目标）不记为瞄点；瞄点只对携带宽限条件的施法请求记录；`InputBufferHost.RegisterActor` 被游戏显式调用时仍按调用分配缓冲；无头世界的视线查询恒为畅通（`StubSpatialQuery`），真实障碍物下的视线只能在带真实空间服务的世界里验证。

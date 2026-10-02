@@ -70,6 +70,7 @@ namespace Core.Foundation.InputMap
 
         private readonly List<Id> _graceConditionNames = new List<Id>();
 
+        private long _actorBuffersAllocated;
         private long _tick = -1;
         private Id? _localActor;
         private Func<Vec2?>? _directionProbe;
@@ -161,14 +162,51 @@ namespace Core.Foundation.InputMap
                 }
             }
 
+            var hadGraceConditions = _graceConditionNames.Count > 0;
             RebuildGraceConditionNames();
+            if (!hadGraceConditions && _graceConditionNames.Count > 0) GraceConditionsDeclared?.Invoke();
         }
+
+        /// <summary>
+        /// 宽限条件名并集从"空"变为"非空"时触发（<see cref="DeclareActions"/> 之后）：此前没有任何动作声明宽限条件，上层按需登记行动者的代码（生产装配的单位自动登记）
+        /// 因此一直没有登记，此刻才需要为已有的行动者补登记（手感落地 M4-G：缓冲惰性分配，没有宽限条件时不为任何单位建缓冲）。
+        /// </summary>
+        public event Action? GraceConditionsDeclared;
+
+        /// <summary>
+        /// 已建立的行动者缓冲累计个数（含之后被 <see cref="RemoveActor"/> 清掉的）：度量缓冲分配用。没有任何动作声明宽限条件时，生产装配的单位自动登记
+        /// 不建缓冲，该数字保持不变；声明了宽限条件的游戏里每个被登记的单位建一份（手感落地 M4-G）。
+        /// </summary>
+        public long ActorBuffersAllocated => _actorBuffersAllocated;
 
         /// <summary>
         /// 已声明的缓冲动作的宽限条件名并集（序数序、去重）：宽限追踪（<see cref="GraceTracker"/>）据此对每个有缓冲的行动者采样
         /// （手感落地 M2-B，手感设计/01 第 2.4 节）。没有动作声明宽限条件时为空。
         /// </summary>
         public IReadOnlyList<Id> GraceConditionNames => _graceConditionNames;
+
+        /// <summary>
+        /// 声明了宽限条件 <paramref name="conditionId"/> 的缓冲动作 id（序数序）：框架内置宽限条件据此找到"这个条件服务于哪些动作"，
+        /// 进而取动作绑定技能的射程（手感落地 M4-G）。没有动作引用该条件时为空。
+        /// </summary>
+        public IReadOnlyList<Id> ActionsWithGraceCondition(Id conditionId)
+        {
+            var result = new List<Id>();
+            foreach (var def in _definitions.Values)
+            {
+                for (var i = 0; i < def.GraceConditions.Count; i++)
+                {
+                    if (def.GraceConditions[i].Equals(conditionId))
+                    {
+                        result.Add(def.ActionId);
+                        break;
+                    }
+                }
+            }
+
+            result.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            return result;
+        }
 
         /// <summary><see cref="BindLocalInput"/> 绑定的本地行动者；未绑定（或已销毁）为 null。宽限追踪据此在玩家第一次按键之前就开始采样。</summary>
         public Id? LocalActorId => _localActor;
@@ -253,7 +291,8 @@ namespace Core.Foundation.InputMap
 
         /// <summary>
         /// 登记行动者（手感落地 M3-B）：建立其（空）缓冲，使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已建缓冲的行动者采样）。
-        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配对世界里的单位（出生与装配时已有的）自动调用本方法。
+        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配在有动作声明宽限条件时对世界里的单位（出生与装配时已有的）自动调用本方法，
+        /// 没有任何动作声明宽限条件时不调用（惰性分配，手感落地 M4-G；之后条件声明出现时由 <see cref="GraceConditionsDeclared"/> 补登记）。
         /// 幂等；之后 <see cref="RemoveActor"/> 与销毁清理照旧。
         /// </summary>
         public void RegisterActor(Id actorId) => GetOrCreate(actorId);
@@ -266,6 +305,7 @@ namespace Core.Foundation.InputMap
             if (!_actors.TryGetValue(actorId, out var buffer))
             {
                 buffer = new ActorBuffer();
+                _actorBuffersAllocated++;
                 _actors.Add(actorId, buffer);
                 _actorOrder.Add(actorId);
             }

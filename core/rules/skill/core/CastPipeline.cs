@@ -507,6 +507,8 @@ namespace Core.Rules.Skill
             _graceConditions = request.GraceConditions.Count > 0 ? request.GraceConditions : null;
             try
             {
+                // 手感落地 M4-G：地面落点是这次施法的瞄点，宽限条件优先以它求值（框架内置的"落点够得着"条件据此工作）。
+                NoteGraceAim(casterId, skillId, null, request.Point);
                 return TryStartCastAtGround(casterId, skillId, request);
             }
             finally

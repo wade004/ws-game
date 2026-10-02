@@ -499,6 +499,13 @@ namespace Core.Rules.Skill
             _defs.TryGetSkillDef(skillId, out var def) ? def.NameKey : null;
 
         /// <summary>
+        /// 技能的射程（<c>skill.def.range</c>，世界单位；0 表示没有射程限制/作用于自身）；未知技能返回 0。手感落地 M4-G 加法：
+        /// 宽限的框架内置条件"目标/落点够得着"按输入动作绑定的技能射程求值。
+        /// </summary>
+        public double GetSkillRange(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) ? def.Range : 0;
+
+        /// <summary>
         /// 消费方反馈（2026-09-11"冷却充能与公共冷却缺少统一只读查询接口"，见
         /// docs/消费方反馈/消费方反馈-2026-09-11-冷却充能只读查询.md）：<see cref="ISkillHost"/>
         /// 默认降级实现的显式覆盖——直接从 <see cref="_cooldowns"/>/<see cref="_spellMods"/>/
