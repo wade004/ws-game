@@ -458,9 +458,11 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
-### 新增
+## [1.93.0] - 2026-10-02
 
-本版主题是手感体系落地（设计见 `architecture/手感设计/` 与 ADR-0113～0123，上一版已入库设计文档集）：输入缓冲、动作时间线、空间命中、运动仲裁、局部顿帧与受击裁决、打击反馈、姿势维度、换装链路与手感实验室。**所有机制默认不开启**：不写任何新增字段、不给装配入口传 `CarriersFeelOptions`（`GameplayAssembly` 的 `feelOptions`、`HeadlessWorldOptions.FeelOptions`、`PresentationAssemblyOptions.FeelResolver` 均缺省 null）时，既有游戏的移动、结算、事件序列、表现输出与此前逐位一致（运行时凭据：关闭手感与"启用且 `rpg_classic` 预设、无时间线技能、无带类别输入动作"两个世界逐 tick 位置/运动模式/事件序列逐位一致；`feellab suite` 180/180 与既有各模块用例为证）。公开签名只新增（新增重载、默认接口成员、可选字段、新类型），旧签名原样保留。
+本版主题是手感体系落地（设计见 `architecture/手感设计/` 与 ADR-0113～0123，上一版已入库设计文档集）：输入缓冲、动作时间线、空间命中、运动仲裁、局部顿帧与受击裁决、打击反馈、姿势维度、换装链路与手感实验室。**所有机制默认不开启**：不写任何新增字段、不给装配入口传 `CarriersFeelOptions`（`GameplayAssembly` 的 `feelOptions`、`HeadlessWorldOptions.FeelOptions`、`PresentationAssemblyOptions.FeelResolver` 均缺省 null）时，既有游戏的移动、结算、事件序列、表现输出与此前逐位一致（运行时凭据：关闭手感与"启用且 `rpg_classic` 预设、无时间线技能、无带类别输入动作"两个世界逐 tick 位置/运动模式/事件序列逐位一致；`feellab suite` 180/180 与既有各模块用例为证）。公开签名只新增（新增重载、默认接口成员、可选字段、新类型），旧签名原样保留。接入与迁移说明见本版末尾"接入与迁移说明"小节。
+
+### 新增
 
 - **手感档案与分层解析（ADR-0113/0118）**：新增数据域 `feel`（八张表：`feel.preset`/`feel.archetype`/`feel.weapon`/`feel.character`/`feel.action`/`feel.calibration`/`feel.motion_mode_rules`/`feel.tag_map`），新模块 `core/foundation/feel`：字段登记 `FeelFields.Default`（名字、类型、范围、判定型/呈现型半属、分组、允许的覆盖操作、合成来源、单位）、八层覆盖解析器 `FeelResolver`（预设 → 体型原型 → 标签映射 → 武器 → 角色 → 动作 → 临时状态 → 调试；层内 `set → multiply → add → remove`，限幅记录、按单位缓存、版本号、字段溯源、标定换算与动作开始快照）、判定型/呈现型两个只读视图（读另一半抛 `FeelHalfViolationException`）、九项静态检查与三条注册表规则、装配（没有 `feel.*` 数据即不装配；有数据而无标定装配失败）。`data/_feel` 是框架自带手感数据（两个预设、体型原型、武器原型、运动模式规则，实验性试调起点，含缺省标定行 `feel.calibration.framework_default`，可单独校验），随 `dist/<ver>/data/_feel`、框架数据包与 `StreamingAssets` 同步一起发出，与 `data/_framework` 并列作为框架根；真实游戏写自己的标定行并在装配时用 `CalibrationId` 指定。`FieldSchema` 新增可选 `Feel` 元数据（只设一次）。新增可选数据字段（各表 schema 版本不升，旧数据零改动合法）：`creature.template.feel_archetype_ref`/`feel_ref`、`item.template.feel_weapon_ref`、`skill.aura_def.feel_modifiers`。
 - **输入缓冲与宽限（ADR-0115，手感设计/01）**：`found.input_action` 新增可选字段 `class`/`buffer_ms`/`priority`/`hold_threshold_ms`/`repeat_policy`/`face_on_accept`/`grace_conditions`/`skill_slot`，新增登记表 `found.grace_condition`；`InputBufferHost`（每行动者缓冲槽：同类别覆盖、高优先级替换、点按/按住、重复策略、过期、清空）、`GraceTracker`（宽限窗口）、`InputBufferTickHandler`（步骤 1）、拉取接口 `IInputBufferQuery`（带"能否接受"谓词的 `TryConsume`/`ReportRejected`，默认接口成员）与反向接口 `IBufferedIntentSink`。缓冲过期按行动者动作时钟计（顿帧期间不流逝），宽限按模拟 tick。`class` 缺省为空即不缓冲，旧输入行为不变；离散步只清空缓冲。`ActionDefinition` 旧 5 参构造保留。新增事件 `input.buffer_dropped`（原因 `Replaced`/`Full`/`Expired`/`Cleared`/`Rejected`）。
@@ -498,6 +500,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 ### 修复
 
 - **持续的移动意图不再卡住受控位移**（ADR-0026 遗留缺陷，缺省路径，不依赖手感）：受控位移（`charge`/`leap`/`knockback`）进行中，若同一单位每个 tick 都提交 `move`/`move_to_unit` 意图（方向、目标点、追击），意图被位移拒绝后该单位被记入"本 tick 已处理"，位移续推被跳过，位移每次只走一步便停住。现在这种单位不再被记入已处理，位移逐 tick 走完；被控制（`IsLocked`）的单位仍按位移自己的控制规则处理。行为变化仅对"位移期间持续提交移动意图"的调用方可见（此前位移被卡住即缺陷）。复现用例 `C10a_ControlledDisplacementTests.MoveIntentEveryTick_DoesNotStallAControlledDisplacement`。
+
+### 接入与迁移说明
+
+- **不开手感：什么都不用做，行为与 1.92.0 逐位一致。** 不在数据里写任何手感新增字段（`found.input_action` 的 `class` 等、`skill.def.timeline`、`creature.template.feel_*`、`item.template.feel_weapon_ref`、`display.map.preview_direction` 等均为可选字段）、不给装配入口传 `CarriersFeelOptions`（`GameOptions.FeelOptions` 缺省 `null`），移动、结算、事件序列与表现输出都不变；各表 schema 版本不升，旧数据零改动合法。唯一对缺省路径可见的行为变化是上面"修复"小节的"持续的移动意图不再卡住受控位移"（此前位移被卡住即缺陷）。
+- **公开签名只增不改，旧编译的消费方不必重编。** 新增的都是重载、默认接口成员（`INavigation2D.RaycastWithNormal`、`IFeedbackSink` 四个新成员、`IInputBufferQuery` 等）、可选字段与新类型；`CarriersAssembly`/`GameplayAssembly` 的新最长重载以外，既有构造签名物理不变。需要留意两处追加：`HitResult` 末尾追加枚举成员 `Invulnerable`（`combat.attack_avoided.hitResult` 取值集合相应扩充，对该枚举做穷举 `switch` 的代码补一个分支即可）；`FeedbackActionKind` 末尾追加 `PlayImpact`。
+- **开启手感**：按 [`architecture/13_新游戏接入指南.md`](architecture/13_新游戏接入指南.md) 第 9 节"手感接入"的六步走——① 给 `GameOptions.FeelOptions` 赋值（模板装配根自动接上分发包的框架手感数据根 `data/_feel`）；② 写自己的 `feel.calibration` 标定行并经 `CalibrationId` 指定（游戏自带标定行后数据里有两行，必须显式填，否则装配报错而不是悄悄选一行）；③ 在 `found.input_action` 上声明 `class`/`buffer_ms`/`skill_slot`；④ 给技能写 `timeline` 块（命中形状写在技能的 `target_shape_ref` 指向的目标选择链上）；⑤ 补装备资产包并写 `feel.weapon` 行；⑥ 验收与调参。启用而数据里没有 `feel.*` 行会抛 `InvalidOperationException`，不静默降级；`validate.ps1` 默认带上手感数据根（`-NoFeel` 可关闭）。自己直接构造 `CarriersAssembly`/`GameplayAssembly` 的调用方需改走带 `feelOptions` 的最长重载（可选参数重载不会自动带上它）；`SkillOptions.ActionStepSeconds` 须与模拟固定步长一致。
+- **已知限制（不影响缺省关闭的行为）**：生产装配不喂步态，移动恒为 `walk`（姿势集缺该键时回落到基础键 `move`）；手感数据热重载未接线（开发期改手感数据后需重启）；姿势选择器按单位记下的武器族在单位销毁时不清理（与换装链自身的单位状态口径一致）；手感实验室内核与实验室数据集（`lab/`、`data/_lab*`、`toolchain/feellab`）只在框架源码仓库提供、不随发布产物分发，只消费发布产物的游戏暂时无法自己跑第 6 步的实验室验收；`INavigation2D.RaycastWithNormal` 默认实现在桩与 Unity 导航实现之外的导航实现上用轴向探测近似法线。
+- **框架侧工具链变化（消费方通常无需操作）**：`dist/` 发版后自动瘦身（`build.ps1 -Release` 成功打标签后调用 `toolchain/prune_dist.ps1 -Apply`，保留当前与上一版本、ABI 基线 zip、全部 lock/release-notes；历史版本按标签 `build.ps1 -Dist <ver>` 重建）；ABI 探针在链接工作树里缺基线时回落主检出的 `dist`，工作树里不得复制 `dist`；新增门禁步骤见"门禁"小节。
+- **发布前全量凭据**：main 合并后 `check.ps1` 全量含 Unity 43 步全过，`dotnet test` 8804/8804、`pytest toolchain/tests` 1217/1217、EditMode 188/188、PlayMode 377/377、`feellab suite` 180/180、数值仿真三份基线零差异、ABI 探针 `RESULT=OK`、消费方演练 PASS（详见 `REGRESSION_LOG.md`）。
 
 ## [1.92.0] - 2026-10-01
 
