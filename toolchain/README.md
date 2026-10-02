@@ -291,6 +291,17 @@ workflows/ci.yml` 不需要改动）、随 `build.ps1 -Dist`/`-Release` 打包�
 对应位置）补齐 `Core.Sim.dll`/`Adapters.Stub.dll` 两个此前缺失的 DLL（判断记录 10 缺口消除）。
 详见 `build.ps1` 对应各节判断记录、`core/sim/README.md`"T-N6-7 判断记录"。
 
+## `toolchain/feellab`（手感实验室无头宿主命令行，手感落地 M2-D 起随发布产物分发）
+
+`toolchain/feellab/FeelLab.csproj`（`net8.0` 控制台项目，已加入 `Core.sln`）：命令（`run`/`suite`/`export-test`/`list`/
+`invariants`）、参数与基线更新流程见 `lab/README.md`。分发方式与 `simrunner` 同一治理：源码树存在时 `ProjectReference`
+内核 `lab/Lab.Kernel.csproj`，独立发行包里改引用 `lib/` 下 9 个预编译 DLL；`build.ps1 -Dist`/`-Release` 把预编译产物
+（`bin/`+`lib/`+空 `Directory.Build.props`）补进 `dist/<ver>/toolchain/feellab/` 与 `com.gamefoundation.toolchain` 包
+`Tools~/feellab/`，实验室数据集 `data/_lab`、`data/_lab_action`、占位装备集 `data/_equip` 与夹具 `lab/fixtures` 按仓库同路径
+进 dist 根（dist 根即实验室根），私服包另在 `Tools~/feellab/labroot/` 放自包含的实验室根；MANIFEST 增 `[feellab]` 段。
+`toolchain/consumer_smoke.ps1` 有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`（验证"只消费发布产物
+的游戏能自己跑实验室"）；`check.ps1` 的 pkg_manifest 步骤要求 toolchain 包清单里有预编译命令行与实验室根的代表文件。
+
 ## 生成事件常量（gen_event_constants.py）
 
 读取事件词汇登记表 `data/_sample/found/found.event_catalog.json`，为每一行生成一个

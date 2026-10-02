@@ -5,15 +5,61 @@
     <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>FeelLab</AssemblyName>
     <RootNamespace>Toolchain.FeelLab</RootNamespace>
+    <!-- 仓库根 Directory.Build.props 已开启；独立发行包里被空的 Directory.Build.props 挡住后需要自己声明，否则 string? 注解报 CS8632 警告。 -->
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- 判断记录（工程惯例，见 toolchain/simrunner/SimRunner.csproj）：命令行入口依赖实验室内核 Lab.Kernel
-       （经其既有 ProjectReference 链传递可见 Core.Sim/Adapters.Stub/Presentation.Common 等）。
-       与 SimRunner/Validator 不同，本工具不提供 lib/ 预编译回退分支，也不进 dist/UPM 发行包：实验室是框架仓库内的
-       验收设施（手感体系回归网），不随分发包发给游戏；游戏仓库要跑自己的实验室时直接引用内核工程（内核是
-       netstandard2.1，与核心库同目标框架），不经本命令行。 -->
-  <ItemGroup>
+  <!-- 判断记录（工程惯例，见 toolchain/simrunner/SimRunner.csproj 与 toolchain/validator/Validator.csproj）：
+       命令行入口依赖实验室内核 Lab.Kernel（经其既有 ProjectReference 链传递可见 Core.Sim/Adapters.Stub/
+       Presentation.Common 等）。实验室随发布产物分发（本文件此前写"不进 dist/UPM 发行包"，已作废）：
+       源码仓库内（本文件与 lab/ 同处一棵 git 工作树）用 ProjectReference；独立发行包内（dist ZIP、
+       com.gamefoundation.toolchain 包 Tools~/feellab/）没有 lab/ 与 core/ 源码，改引用 lib/ 下的预编译 DLL，
+       与 SimRunner 同一治理方式。lib/ 里放 9 个 DLL：编译期直接触碰的 Lab.Kernel、Core.Sim、Core.Foundation，
+       加上运行期传递依赖的 Core.Numbers/Core.Rules/Core.Carriers/Core.Gameplay/Adapters.Stub/Presentation.Common
+       （<Reference> 不会自动拷贝"引用的程序集自身又引用的程序集"，缺一个就会在执行到对应路径时抛
+       FileNotFoundException，见 SimRunner.csproj 的 T-N6-7 判断记录）。实际交付给消费方直接执行的是
+       预编译的 bin/FeelLab.dll（build.ps1 打包时整份拷入），lib/ 回退分支只服务"想自己重新编译命令行入口"的场景。 -->
+  <ItemGroup Condition="Exists('..\..\lab\Lab.Kernel.csproj')">
     <ProjectReference Include="..\..\lab\Lab.Kernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\lab\Lab.Kernel.csproj')">
+    <Reference Include="Lab.Kernel">
+      <HintPath>lib\Lab.Kernel.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Sim">
+      <HintPath>lib\Core.Sim.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Adapters.Stub">
+      <HintPath>lib\Adapters.Stub.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Presentation.Common">
+      <HintPath>lib\Presentation.Common.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Foundation">
+      <HintPath>lib\Core.Foundation.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Numbers">
+      <HintPath>lib\Core.Numbers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Rules">
+      <HintPath>lib\Core.Rules.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Carriers">
+      <HintPath>lib\Core.Carriers.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Core.Gameplay">
+      <HintPath>lib\Core.Gameplay.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

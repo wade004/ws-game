@@ -46,11 +46,12 @@ function Test-SmokeLogText {
 #
 # 判断记录：
 # 1) 排除名单：路径段命中 __pycache__/bin/obj/storage 即问题；唯一例外是预编译工具产物
-#    `validator/bin/`、`simrunner/bin/`（toolchain 包 Tools~/ 下随包分发的 Validator.dll /
-#    SimRunner.dll 就放在那里，见 build.ps1 打包判断记录）。
+#    `validator/bin/`、`simrunner/bin/`、`feellab/bin/`（toolchain 包 Tools~/ 下随包分发的 Validator.dll /
+#    SimRunner.dll / FeelLab.dll 就放在那里，见 build.ps1 打包判断记录）。
 # 2) 必需文件清单按包分流，缺一个就报一个问题，文案沿用抽取前的版本（含审计/反馈编号，便于从门禁
 #    输出直接追溯来由）：adapter.unity 要有 model/anim 占位资产与生成器（PJ130-02）；toolchain 要有
-#    预编译 validator（消费方反馈 E1）与 simrunner（T-N6-7）及各自的隔离用 Directory.Build.props；
+#    预编译 validator（消费方反馈 E1）、simrunner（T-N6-7）、feellab（手感实验室，M2-D，另含自包含实验室根
+#    Tools~/feellab/labroot/ 的代表文件）及各自的隔离用 Directory.Build.props；
 #    adapter.headless 要有 Lib~/Core.Sim.dll（T-N6-7）。必需文件按"路径以该后缀结尾"匹配（-like），
 #    与抽取前一致。
 function Get-PackageManifestProblems {
@@ -64,7 +65,7 @@ function Get-PackageManifestProblems {
     $hitSegments = New-Object System.Collections.Generic.HashSet[string]
     foreach ($rawPath in $EntryPaths) {
         $normalized = $rawPath -replace '\\', '/'
-        if ($normalized -match '(^|/)(validator|simrunner)/bin/') {
+        if ($normalized -match '(^|/)(validator|simrunner|feellab)/bin/') {
             continue
         }
         $segments = $rawPath -split '[\\/]'
@@ -115,6 +116,20 @@ function Get-PackageManifestProblems {
             "Tools~/simrunner/Directory.Build.props"))
         if ($missingSimRunner.Count -gt 0) {
             $problems += ("$PackageName：npm pack --dry-run 文件清单缺失预编译 simrunner 或隔离用 Directory.Build.props（T-N6-7）：" + ($missingSimRunner -join ", "))
+        }
+        # 手感实验室随发布产物分发（M2-D）：预编译命令行 + 隔离用 Directory.Build.props + 自包含实验室根
+        # （框架数据、手感数据、实验室数据集、实验室动作数据、标准脚本与基线夹具各至少一个代表文件）。
+        $missingFeelLab = @(Get-MissingSuffixes -Suffixes @(
+            "Tools~/feellab/bin/FeelLab.dll",
+            "Tools~/feellab/bin/Lab.Kernel.dll",
+            "Tools~/feellab/Directory.Build.props",
+            "Tools~/feellab/labroot/data/_feel/feel/feel.calibration.json",
+            "Tools~/feellab/labroot/data/_lab/lab/lab.scenario.json",
+            "Tools~/feellab/labroot/data/_equip/item/item.template.json",
+            "Tools~/feellab/labroot/lab/fixtures/scripts/feel_kill.script.json",
+            "Tools~/feellab/labroot/lab/fixtures/baselines/feel_kill.baseline.json"))
+        if ($missingFeelLab.Count -gt 0) {
+            $problems += ("$PackageName：npm pack --dry-run 文件清单缺失预编译 feellab、隔离用 Directory.Build.props 或自包含实验室根（M2-D）：" + ($missingFeelLab -join ", "))
         }
     }
 
