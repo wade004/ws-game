@@ -199,7 +199,16 @@ namespace Lab
     /// <summary>指纹比较器：按注册表里每个度量声明的类别与允差逐项判定。</summary>
     public static class FingerprintComparer
     {
-        public static FingerprintDiff Compare(Fingerprint baseline, Fingerprint actual, MetricRegistry registry)
+        public static FingerprintDiff Compare(Fingerprint baseline, Fingerprint actual, MetricRegistry registry) =>
+            Compare(baseline, actual, registry, includeRealTime: true);
+
+        /// <summary>
+        /// 同上，另可不比较实时类度量（<paramref name="includeRealTime"/> 为 false）：实时类依赖真实时钟与分配计数，只是"不超过基线若干倍"的上限检查，
+        /// 机器满载时偶发越限；确定性比较（逻辑类逐字节、表现类按允差）的用例用它把墙钟排除在判定之外——被排除的只有声明为实时类的度量，
+        /// 逻辑类与表现类的任何差异、键不一致、度量缺失与未知度量仍然报告。实时上限本身由默认重载（<paramref name="includeRealTime"/> 为 true）与
+        /// <c>suite</c> 命令行检查。
+        /// </summary>
+        public static FingerprintDiff Compare(Fingerprint baseline, Fingerprint actual, MetricRegistry registry, bool includeRealTime)
         {
             var diff = new FingerprintDiff();
 
@@ -248,6 +257,11 @@ namespace Lab
 
                 foreach (var spec in group.Specs)
                 {
+                    if (!includeRealTime && spec.Class == MetricClass.RealTime)
+                    {
+                        continue;
+                    }
+
                     var full = group.Name + "." + spec.Name;
                     var inBase = bg.TryGetValue(spec.Name, out var bv);
                     var inAct = ag.TryGetValue(spec.Name, out var av);

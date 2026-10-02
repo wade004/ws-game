@@ -344,7 +344,15 @@ namespace Lab
     /// <summary>套件：全部标准脚本 × 其适用格子，逐个与基线比较；也提供更新基线与"导出为测试"。</summary>
     public static class LabSuite
     {
-        public static List<CellResult> Check(LabRunner runner, string fixturesDir, string? onlyScript = null, string? onlyCell = null)
+        public static List<CellResult> Check(LabRunner runner, string fixturesDir, string? onlyScript = null, string? onlyCell = null) =>
+            Check(runner, fixturesDir, onlyScript, onlyCell, includeRealTime: true);
+
+        /// <summary>
+        /// 同上，另可把实时类度量（帧耗时、每帧分配）排除出基线比较（<paramref name="includeRealTime"/> 为 false，见
+        /// <see cref="FingerprintComparer.Compare(Fingerprint, Fingerprint, MetricRegistry, bool)"/>）：用于只关心确定性结果的自动化用例，
+        /// 满载机器上的墙钟抖动不应让它们变红；命令行 <c>suite</c> 保持默认（含实时上限）。
+        /// </summary>
+        public static List<CellResult> Check(LabRunner runner, string fixturesDir, string? onlyScript, string? onlyCell, bool includeRealTime)
         {
             var results = new List<CellResult>();
             foreach (var script in LabFixtures.LoadScripts(fixturesDir))
@@ -387,7 +395,7 @@ namespace Lab
                         continue;
                     }
 
-                    var diff = FingerprintComparer.Compare(baseline, actual, runner.Registry);
+                    var diff = FingerprintComparer.Compare(baseline, actual, runner.Registry, includeRealTime);
                     var failed = false;
                     foreach (var e in expectations)
                     {

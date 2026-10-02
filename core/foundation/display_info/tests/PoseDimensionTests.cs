@@ -488,6 +488,68 @@ namespace Tests.Foundation.DisplayInfo
             }
         }
 
+        /// <summary>
+        /// 空中键走固定尾链（手感落地 M4-W5 核对）：框架假人集（序列帧版与骨骼版两行）里每个空中请求第一个候选就命中自己的键；
+        /// 键被抽掉时按 <c>hit.air → hit.launch → hit</c>、<c>jump.rise|fall → jump → idle</c>、<c>jump.land → idle</c>、
+        /// <c>attack.air.&lt;族&gt; → attack.air → attack.&lt;族&gt; → attack</c> 逐级回落——尤其 <c>hit.air</c> 缺失时先落到 <c>hit.launch</c>，
+        /// 不是通用"逐段去尾"链会给出的 <c>hit</c>（复现：同一张表下 <see cref="PoseRequest"/> 通用链从 <c>hit.air</c> 直接去尾到 <c>hit</c>）。
+        /// </summary>
+        [Theory]
+        [InlineData("display.anim_set.std_dummy_biped")]
+        [InlineData("display.anim_set.std_dummy_biped_model")]
+        public void StdDummyBiped_AirRequests_UseTheFixedTailChain_NotTheGenericDropLastSegmentChain(string rowId)
+        {
+            var path = Path.Combine(FindRepoRoot(), "data", "_framework", "display", "display.anim_set.json");
+            var source = new InMemoryDataSource();
+            source.Add("display.anim_set", File.ReadAllText(path, Encoding.UTF8));
+            var registry = new Core.Foundation.DataRegistry.DataRegistry(source, DisplayInfoTestSupport.CreateBus());
+            foreach (var schema in DisplaySchemas.All) registry.RegisterSchema(schema);
+            registry.RegisterValidationRule(new AnimSetPoseRule());
+            registry.RegisterValidationRule(new AnimSetEventsShapeRule());
+            Assert.False(registry.LoadAll().IsBlocking);
+            var keys = new HashSet<string>(AnimSetDef.FromRecord(registry.Get("display.anim_set", rowId)!, registry).Clips.Keys, StringComparer.Ordinal);
+
+            var families = new string?[] { null, "unarmed", "1h", "2h", "polearm", "bow", "staff", "dual", "shield" };
+            var requests = new List<AirPoseRequest>
+            {
+                AirPoseRequest.Jump("rise"), AirPoseRequest.Jump("fall"), AirPoseRequest.Jump("land"), AirPoseRequest.HitAir(),
+            };
+            foreach (var family in families) requests.Add(AirPoseRequest.AttackAir(family));
+
+            // 键齐全：每个请求第一个候选就命中（不回落），命中的键就是请求的最具体键。
+            foreach (var request in requests)
+            {
+                var resolution = PoseResolver.Resolve(request, keys.Contains);
+                Assert.True(resolution.Found, request.ToString());
+                Assert.Equal(0, resolution.FallbackDepth);
+                Assert.Equal(request.FullKey(), resolution.CanonicalKey);
+            }
+
+            // 逐级抽键：期望值由链顺序算出（固定尾链），不写死下一个键的名字以外的数。
+            string Without(AirPoseRequest request, params string[] drop)
+            {
+                var left = new HashSet<string>(keys, StringComparer.Ordinal);
+                foreach (var d in drop) left.Remove(d);
+                return PoseResolver.Resolve(request, left.Contains).CanonicalKey;
+            }
+
+            Assert.Equal("hit.launch", Without(AirPoseRequest.HitAir(), "hit.air"));
+            Assert.Equal("hit", Without(AirPoseRequest.HitAir(), "hit.air", "hit.launch"));
+            Assert.Equal("jump", Without(AirPoseRequest.Jump("rise"), "jump.rise"));
+            Assert.Equal("jump", Without(AirPoseRequest.Jump("fall"), "jump.fall"));
+            Assert.Equal("idle", Without(AirPoseRequest.Jump("rise"), "jump.rise", "jump"));
+            Assert.Equal("idle", Without(AirPoseRequest.Jump("land"), "jump.land"));       // land 不经 jump
+            Assert.Equal("attack.air", Without(AirPoseRequest.AttackAir("2h"), "attack.air.2h"));
+            Assert.Equal("attack.2h", Without(AirPoseRequest.AttackAir("2h"), "attack.air.2h", "attack.air"));
+            Assert.Equal("attack", Without(AirPoseRequest.AttackAir("2h"), "attack.air.2h", "attack.air", "attack.2h"));
+
+            // 复现：通用链（PoseRequest.Chain 逐段去尾）对同一个缺失给出的是 hit，而空中请求给出的是 hit.launch。
+            var leftGeneric = new HashSet<string>(keys, StringComparer.Ordinal);
+            leftGeneric.Remove("hit.air");
+            Assert.Equal("hit", PoseResolver.FallbackTargetOf("hit.air", leftGeneric.Contains));
+            Assert.Equal("hit.launch", Without(AirPoseRequest.HitAir(), "hit.air"));
+        }
+
         // ------------------------------------------------------------------ 辅助
 
         private static Dictionary<string, string> Table(params string[] keys) =>

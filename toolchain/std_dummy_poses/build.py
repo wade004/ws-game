@@ -168,7 +168,7 @@ def build_spec(direction_count: int, fps: int, composite_dirs: bool) -> dict:
         "clips": spec_clips,
         # 体量档（M4-D）：主档 = 中体量 = 主集，其余档逐档一组、覆盖全部键（含别名键）；偏移表见 config.MASS_TIERS
         "mass_tiers": {"main": C.MASS_MAIN_TIER, "tiers": {m: dict(v) for m, v in C.MASS_TIERS.items()},
-                       "react_cap": C.MASS_REACT_CAP, "composite_direction_variants": False},
+                       "react_cap": C.MASS_REACT_CAP, "composite_direction_variants": composite_dirs},
         "mass_groups": mass_groups,
     }
 
@@ -273,11 +273,10 @@ def generate(assets_out: Path, data_out: Path, direction_count: int = C.DEFAULT_
     slot_yaw = C.slot_yaw_deg(direction_count)
     slots = C.canonical_slots(direction_count)
     n_dirs = _write_clip_set(assets_out, list(clips.values()), slots, slot_yaw, fps, composite_dirs)
-    # 体量组（M4-D）：每档全部键。体积取舍：整身合成只出默认朝向（front），不出方向合成变体（ADR-0093 的可选件）；
-    # 身体层 / 武器层逐层剪辑照旧全方向（装备拼装与层叠渲染只用逐层剪辑）。
+    # 体量组（M4-D 起每档全部键；M4-W5 起整身合成同样出各方向变体，与主集同一开关）：体积估算与取舍见 README 判断记录 11。
     n_mass = 0
     for m in C.MASS_TIERS:
-        n_mass += _write_clip_set(assets_out, C.mass_clip_defs(m), slots, slot_yaw, fps, False)
+        n_mass += _write_clip_set(assets_out, C.mass_clip_defs(m), slots, slot_yaw, fps, composite_dirs)
     _write_json(assets_out / SPEC_FILE, spec)
     data_path = write_data_file(data_out, spec)
     n_res = sum(1 for c in clips.values() if not c.alias_of)

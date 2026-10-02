@@ -292,8 +292,8 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
     # 四元数：单位长、半球连续；关节角限
     for b, seq in rots.items():
         limit = C.BONE_ROT_LIMITS_DEG.get(b)
-        if b == "hips" and key not in C.BONE_ROT_HIPS_TUMBLE_KEYS:
-            limit = C.HIPS_ROT_LIMIT_DEG       # 髋大角度只给击飞翻滚类键（整身 bp 俯仰），其余键髋只绕竖轴转几度
+        if b == "hips":
+            limit = C.hips_rot_limit_deg(key)  # 髋大角度只给整身俯仰类键（翻滚一整圈、躺平放平到 88 度），其余键髋只绕竖轴转几度
         for i, q in enumerate(seq):
             norm = math.sqrt(sum(x * x for x in q))
             if abs(norm - 1.0) > 1e-4:
@@ -321,6 +321,10 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
         for name, (lo, hi) in C.SOURCE_ANGLE_LIMITS.items():
             if not (lo - 1e-6 <= pose[name] <= hi + 1e-6):
                 r.err(f"{tag} t={t}ms 源关节角 {name}={pose[name]:.1f} 超出范围 [{lo}, {hi}]")
+        if key not in C.BP_KEYS and abs(pose["bp"]) > 1e-9:
+            r.err(f"{tag} t={t}ms 整身俯仰 bp={pose['bp']:.1f} 只允许翻滚类、躺平类与重受击/击退键使用（{', '.join(C.BP_KEYS)}）")
+        if key in C.BP_RECOIL_KEYS and not (-C.BP_RECOIL_LIMIT_DEG - 1e-6 <= pose["bp"] <= 1e-9):
+            r.err(f"{tag} t={t}ms 重受击/击退的整身俯仰 bp={pose['bp']:.1f} 应在 [-{C.BP_RECOIL_LIMIT_DEG}, 0]（只后仰、不前翻）")
         parts, joints = build_parts(pose, None)
         rot_i = {b: seq[i] for b, seq in rots.items()}
         hips = (pose["px"], SC.REST_HIP_Y + pose["py"], pose["pz"])

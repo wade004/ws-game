@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Core.Foundation.DataRegistry;
 using Lab;
+using Xunit;
 
 namespace Tests.Lab
 {
@@ -57,6 +60,48 @@ namespace Tests.Lab
             }
 
             return new LabRunner(LabDataset.Load(sources), null, rel => LabDataSources.FromDirectory(Path.Combine(root, rel)));
+        }
+
+        /// <summary>
+        /// 对夹具基线做确定性比较：逻辑类与表现类逐项判定，实时类（帧耗时、每帧分配，依赖真实时钟）排除在外——
+        /// 满载机器上的墙钟抖动不应让"基线是否一致"这类用例变红；实时上限由 <c>suite</c> 命令行与
+        /// <c>LabKernelTests.Comparer_RealTimeMetrics_AreCeilingChecksNotByteComparisons</c> 单独把关。
+        /// </summary>
+        public static List<CellResult> CheckDeterministic(LabRunner runner, string fixturesDir, string? onlyScript = null, string? onlyCell = null) =>
+            LabSuite.Check(runner, fixturesDir, onlyScript, onlyCell, includeRealTime: false);
+
+        /// <summary>未通过格子的人读报告：状态、消息、基线差异明细与没过的期望；全部通过时为空串。</summary>
+        public static string DescribeFailures(IEnumerable<CellResult> results)
+        {
+            var sb = new StringBuilder();
+            foreach (var r in results.Where(x => x.Status != CellStatus.Pass))
+            {
+                sb.Append(r.Script).Append(" @ ").Append(r.Cell).Append(' ').Append(r.Status);
+                if (r.Message.Length > 0)
+                {
+                    sb.Append("：").Append(r.Message);
+                }
+
+                sb.Append("\n");
+                if (r.Diff != null)
+                {
+                    sb.Append(r.Diff.Format());
+                }
+
+                foreach (var e in r.Expectations.Where(x => !x.Ok))
+                {
+                    sb.Append("  期望未过 ").Append(e).Append("\n");
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>断言全部格子通过；失败时消息带每个未通过格子的差异明细（不只是状态）。</summary>
+        public static void AssertAllPass(IEnumerable<CellResult> results, string what)
+        {
+            var failures = DescribeFailures(results);
+            Assert.True(failures.Length == 0, what + "：\n" + failures);
         }
 
         /// <summary>夹具目录里全部脚本（旧标准脚本 + 手感场景脚本）。</summary>

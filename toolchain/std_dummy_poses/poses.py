@@ -249,13 +249,27 @@ def _hit_pose(base: Pose, k: float) -> Pose:
     return scale_pose(base, h, k)
 
 
-LYING_BACK = make_pose(t_pitch=-88, h_pitch=-4, m_sf=-12, o_sf=-12, m_sa=20, o_sa=20, m_el=12, o_el=12,
-                       m_hf=86, o_hf=82, m_kn=6, o_kn=10)
-LYING_BACK_SETTLE = _with(LYING_BACK, m_sa=32, o_sa=34, m_hf=80, o_hf=76, m_kn=14, o_kn=12, h_pitch=-8)
+#: 躺平姿势用整身俯仰 bp（M4-W5）：整个身体绕骨盆放平（bp = -88 仰面、+88 俯卧），躯干与大腿相对骨盆只剩人体范围内的小角度
+#: （躯干俯仰 t_pitch 不再 ±88、髋前屈/后伸不再借"腿绕髋整体后摆"表达躺平）。肢体参数 = 此前躺姿的世界朝向减去 bp 后的残量，
+#: 所以画面与此前的躺姿近似，区别是骨盆块随身体放平、关节角回到人体范围（model 型骨骼的躯干/大腿局部旋转随之只剩十几度）。
+LYING_BACK = make_pose(bp=-88, t_pitch=0, h_pitch=-4, m_sf=-12, o_sf=-12, m_sa=20, o_sa=20, m_el=12, o_el=12,
+                       m_hf=-2, o_hf=-6, m_kn=6, o_kn=10)
+LYING_BACK_SETTLE = _with(LYING_BACK, m_sa=32, o_sa=34, m_hf=-8, o_hf=-12, m_kn=14, o_kn=12, h_pitch=-8)
 CROUCH = make_pose(t_pitch=-30, m_hf=75, o_hf=70, m_kn=95, o_kn=95, m_sf=30, o_sf=30, m_el=40, o_el=40)
-LYING_FRONT = make_pose(t_pitch=88, h_pitch=-30, m_sf=170, o_sf=170, m_sa=14, o_sa=14, m_el=12, o_el=12,
-                        m_hf=-85, o_hf=-82, m_kn=5, o_kn=8)
-LYING_FRONT_SETTLE = _with(LYING_FRONT, m_sa=26, o_sa=26, h_pitch=-34, m_hf=-80, o_hf=-78)
+LYING_FRONT = make_pose(bp=88, t_pitch=0, h_pitch=-30, m_sf=170, o_sf=170, m_sa=14, o_sa=14, m_el=12, o_el=12,
+                        m_hf=3, o_hf=6, m_kn=5, o_kn=8)
+LYING_FRONT_SETTLE = _with(LYING_FRONT, m_sa=26, o_sa=26, h_pitch=-34, m_hf=8, o_hf=10)
+
+#: 倒地/死亡/击飞起手与重受击/击退的肢体强度上限（base -> 受击姿势的外推倍数）：1.5 时肩后伸约 60 度、髋后伸约 26 度，不越人体范围；
+#: 轻体量（反应倍率 > 1）也夹到它，重体量照倍率变小。
+FALL_REACT_CAP = 1.5
+#: 重受击/击退（M4-W6）：肢体外推强度（体量倍率前）压在人体范围内——主集 1.3 / 1.4 倍，轻体量乘 1.15 后夹到 FALL_REACT_CAP（肩后伸 -57 度、
+#: 髋后伸 -26 度，不越肩 -65 / 髋 -46 的限）；"被打得往后一仰"的幅度由整身俯仰 bp（绕骨盆，度，负 = 向后仰，随体量反应倍率缩放）表达，
+#: 与 W5 躺平姿势、击飞起手同一思路，不再靠肩/髋角外推到人体范围之外（此前 2.2 倍外推时肩后伸到 -125 度）。
+RECOIL_LIMB_STRENGTH = {"hit.heavy": 1.3, "hit.knockback": 1.4}
+RECOIL_PELVIS_TILT = {"hit.heavy": -12.0, "hit.knockback": -24.0}
+#: 击飞起手的骨盆后仰（度，随体量反应倍率缩放）：被击中的瞬间整个身体先向后仰，再在滞空段放平到躺姿。
+LAUNCH_PELVIS_TILT = -30.0
 
 
 def _react(clip: C.ClipDef, strength: float) -> float:
@@ -263,10 +277,25 @@ def _react(clip: C.ClipDef, strength: float) -> float:
     return min(strength * C.mass_react(clip), C.MASS_REACT_CAP) if clip.mass else strength
 
 
+def _fall_start(clip: C.ClipDef, tilt: float = 0.0) -> Pose:
+    """倒地类剪辑（knockdown/death/launch）的起手受击姿势：强度 FALL_REACT_CAP（按体量反应倍率缩放，但不越上限），可带骨盆后仰 tilt。"""
+    k = min(FALL_REACT_CAP * (C.mass_react(clip) if clip.mass else 1.0), FALL_REACT_CAP)
+    p = _hit_pose(combat(None), k)
+    if tilt:
+        p["bp"] = tilt * (C.mass_react(clip) if clip.mass else 1.0)
+    return p
+
+
 def pose_hit(clip: C.ClipDef, t_ms: float) -> Pose:
     base = combat(None)
     strength = _react(clip, {"hit": 1.0, "hit.light": 0.55, "hit.heavy": 1.5, "hit.knockback": 2.2}[clip.key])
+    tilt = RECOIL_PELVIS_TILT.get(clip.key, 0.0)
+    if tilt:
+        # 重受击/击退：肢体强度压在人体范围内，剩下的"后仰"用整身俯仰 bp 表达（随体量反应倍率缩放）。
+        strength = min(_react(clip, RECOIL_LIMB_STRENGTH[clip.key]), FALL_REACT_CAP)
     hp = _hit_pose(base, strength)
+    if tilt:
+        hp["bp"] = tilt * C.mass_react(clip)
     (_, imp), (_, rec) = clip.phases
     if t_ms < imp:
         p = mix_pose(base, hp, ease_out(t_ms / imp))
@@ -280,7 +309,7 @@ def pose_hit(clip: C.ClipDef, t_ms: float) -> Pose:
 
 def pose_knockdown(clip: C.ClipDef, t_ms: float) -> Pose:
     (_, fall), (_, lie) = clip.phases
-    start = _hit_pose(combat(None), _react(clip, 1.5))
+    start = _fall_start(clip)
     if t_ms < fall:
         return mix_pose(start, LYING_BACK, ease_in(t_ms / fall))
     return mix_pose(LYING_BACK, LYING_BACK_SETTLE, smooth((t_ms - fall) / lie))
@@ -295,7 +324,7 @@ def pose_getup(clip: C.ClipDef, t_ms: float) -> Pose:
 
 def pose_death(clip: C.ClipDef, t_ms: float) -> Pose:
     (_, fall), (_, lie) = clip.phases
-    start = _hit_pose(combat(None), _react(clip, 1.5))
+    start = _fall_start(clip)
     if t_ms < fall:
         return mix_pose(start, LYING_FRONT, ease_in(t_ms / fall))
     return mix_pose(LYING_FRONT, LYING_FRONT_SETTLE, smooth((t_ms - fall) / lie))
@@ -399,7 +428,7 @@ def pose_launch(clip: C.ClipDef, t_ms: float) -> Pose:
     """抛飞：重击后仰 -> 滞空（抬升弧线，身体放平）-> 落地滑入躺姿（之后接 hit.getup 从躺姿起身）。"""
     (_, imp), (_, air), (_, land) = clip.phases
     base = combat(None)
-    start = _hit_pose(base, _react(clip, 2.4))
+    start = _fall_start(clip, LAUNCH_PELVIS_TILT)
     if t_ms < imp:
         return mix_pose(base, start, ease_out(t_ms / imp))
     if t_ms < imp + air:

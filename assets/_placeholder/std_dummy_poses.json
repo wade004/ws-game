@@ -1360,7 +1360,7 @@
       "phases": [
         {
           "name": "windup",
-          "ms": 250
+          "ms": 150
         },
         {
           "name": "release",
@@ -1368,13 +1368,13 @@
         },
         {
           "name": "recovery",
-          "ms": 250
+          "ms": 350
         }
       ],
       "frames_per_phase": [
-        5,
+        3,
         2,
-        5
+        7
       ],
       "frame_count": 12,
       "total_ms": 600,
@@ -1386,7 +1386,7 @@
       "events": [
         {
           "name": "release",
-          "time_pct": 0.4167
+          "time_pct": 0.25
         }
       ]
     },
@@ -4964,6 +4964,84 @@
           "time_pct": 0.0
         }
       ]
+    },
+    "cast.quick": {
+      "resource_ref": "sprite_anim.std_dummy_cast_quick",
+      "tier": "optional",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 100
+        },
+        {
+          "name": "release",
+          "ms": 100
+        },
+        {
+          "name": "recovery",
+          "ms": 400
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        2,
+        8
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": [
+        {
+          "name": "release",
+          "time_pct": 0.1667
+        }
+      ],
+      "variant": "quick"
+    },
+    "cast.heavy": {
+      "resource_ref": "sprite_anim.std_dummy_cast_heavy",
+      "tier": "optional",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 300
+        },
+        {
+          "name": "release",
+          "ms": 100
+        },
+        {
+          "name": "recovery",
+          "ms": 200
+        }
+      ],
+      "frames_per_phase": [
+        6,
+        2,
+        4
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": [
+        {
+          "name": "release",
+          "time_pct": 0.5
+        }
+      ],
+      "variant": "heavy"
     }
   },
   "mass_tiers": {
@@ -4987,7 +5065,7 @@
       }
     },
     "react_cap": 2.4,
-    "composite_direction_variants": false
+    "composite_direction_variants": true
   },
   "mass_groups": [
     {
@@ -6294,7 +6372,7 @@
           "phases": [
             {
               "name": "windup",
-              "ms": 250
+              "ms": 150
             },
             {
               "name": "release",
@@ -6302,13 +6380,13 @@
             },
             {
               "name": "recovery",
-              "ms": 250
+              "ms": 350
             }
           ],
           "frames_per_phase": [
-            5,
+            3,
             2,
-            5
+            7
           ],
           "frame_count": 12,
           "total_ms": 600,
@@ -6320,7 +6398,7 @@
           "events": [
             {
               "name": "release",
-              "time_pct": 0.4167
+              "time_pct": 0.25
             }
           ]
         },
@@ -9898,6 +9976,84 @@
               "time_pct": 0.0
             }
           ]
+        },
+        "cast.quick": {
+          "resource_ref": "sprite_anim.std_dummy_light_cast_quick",
+          "tier": "optional",
+          "family": null,
+          "loop": false,
+          "phases": [
+            {
+              "name": "windup",
+              "ms": 100
+            },
+            {
+              "name": "release",
+              "ms": 100
+            },
+            {
+              "name": "recovery",
+              "ms": 400
+            }
+          ],
+          "frames_per_phase": [
+            2,
+            2,
+            8
+          ],
+          "frame_count": 12,
+          "total_ms": 600,
+          "layers": [
+            "body",
+            "hand_main"
+          ],
+          "weapon_layer_family": "1h",
+          "events": [
+            {
+              "name": "release",
+              "time_pct": 0.1667
+            }
+          ],
+          "variant": "quick"
+        },
+        "cast.heavy": {
+          "resource_ref": "sprite_anim.std_dummy_light_cast_heavy",
+          "tier": "optional",
+          "family": null,
+          "loop": false,
+          "phases": [
+            {
+              "name": "windup",
+              "ms": 300
+            },
+            {
+              "name": "release",
+              "ms": 100
+            },
+            {
+              "name": "recovery",
+              "ms": 200
+            }
+          ],
+          "frames_per_phase": [
+            6,
+            2,
+            4
+          ],
+          "frame_count": 12,
+          "total_ms": 600,
+          "layers": [
+            "body",
+            "hand_main"
+          ],
+          "weapon_layer_family": "1h",
+          "events": [
+            {
+              "name": "release",
+              "time_pct": 0.5
+            }
+          ],
+          "variant": "heavy"
         }
       }
     },
@@ -11205,7 +11361,7 @@
           "phases": [
             {
               "name": "windup",
-              "ms": 250
+              "ms": 150
             },
             {
               "name": "release",
@@ -11213,13 +11369,13 @@
             },
             {
               "name": "recovery",
-              "ms": 250
+              "ms": 350
             }
           ],
           "frames_per_phase": [
-            5,
+            3,
             2,
-            5
+            7
           ],
           "frame_count": 12,
           "total_ms": 600,
@@ -11231,7 +11387,7 @@
           "events": [
             {
               "name": "release",
-              "time_pct": 0.4167
+              "time_pct": 0.25
             }
           ]
         },
@@ -14809,6 +14965,84 @@
               "time_pct": 0.0
             }
           ]
+        },
+        "cast.quick": {
+          "resource_ref": "sprite_anim.std_dummy_heavy_cast_quick",
+          "tier": "optional",
+          "family": null,
+          "loop": false,
+          "phases": [
+            {
+              "name": "windup",
+              "ms": 100
+            },
+            {
+              "name": "release",
+              "ms": 100
+            },
+            {
+              "name": "recovery",
+              "ms": 400
+            }
+          ],
+          "frames_per_phase": [
+            2,
+            2,
+            8
+          ],
+          "frame_count": 12,
+          "total_ms": 600,
+          "layers": [
+            "body",
+            "hand_main"
+          ],
+          "weapon_layer_family": "1h",
+          "events": [
+            {
+              "name": "release",
+              "time_pct": 0.1667
+            }
+          ],
+          "variant": "quick"
+        },
+        "cast.heavy": {
+          "resource_ref": "sprite_anim.std_dummy_heavy_cast_heavy",
+          "tier": "optional",
+          "family": null,
+          "loop": false,
+          "phases": [
+            {
+              "name": "windup",
+              "ms": 300
+            },
+            {
+              "name": "release",
+              "ms": 100
+            },
+            {
+              "name": "recovery",
+              "ms": 200
+            }
+          ],
+          "frames_per_phase": [
+            6,
+            2,
+            4
+          ],
+          "frame_count": 12,
+          "total_ms": 600,
+          "layers": [
+            "body",
+            "hand_main"
+          ],
+          "weapon_layer_family": "1h",
+          "events": [
+            {
+              "name": "release",
+              "time_pct": 0.5
+            }
+          ],
+          "variant": "heavy"
         }
       }
     }

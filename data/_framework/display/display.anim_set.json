@@ -37,7 +37,7 @@
         "hit.getup": { "resource_ref": "sprite_anim.std_dummy_hit_getup", "events": [] },
         "death": { "resource_ref": "sprite_anim.std_dummy_death", "events": [] },
         "jump": { "resource_ref": "sprite_anim.std_dummy_jump", "events": [] },
-        "cast": { "resource_ref": "sprite_anim.std_dummy_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
+        "cast": { "resource_ref": "sprite_anim.std_dummy_cast", "events": [{ "name": "release", "time_pct": 0.25 }] },
         "dodge": { "resource_ref": "sprite_anim.std_dummy_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] },
         "move.walk.combat": { "resource_ref": "sprite_anim.std_dummy_move_walk_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "move.sprint": { "resource_ref": "sprite_anim.std_dummy_move_sprint", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
@@ -132,7 +132,9 @@
         "hit.block.shield": { "resource_ref": "sprite_anim.std_dummy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "sprite_anim.std_dummy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "sprite_anim.std_dummy_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "sprite_anim.std_dummy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "sprite_anim.std_dummy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -171,7 +173,7 @@
         "hit.getup": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_getup", "events": [] },
         "death": { "resource_ref": "sprite_anim.std_dummy_heavy_death", "events": [] },
         "jump": { "resource_ref": "sprite_anim.std_dummy_heavy_jump", "events": [] },
-        "cast": { "resource_ref": "sprite_anim.std_dummy_heavy_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
+        "cast": { "resource_ref": "sprite_anim.std_dummy_heavy_cast", "events": [{ "name": "release", "time_pct": 0.25 }] },
         "dodge": { "resource_ref": "sprite_anim.std_dummy_heavy_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] },
         "move.walk.combat": { "resource_ref": "sprite_anim.std_dummy_heavy_move_walk_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "move.sprint": { "resource_ref": "sprite_anim.std_dummy_heavy_move_sprint", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
@@ -266,7 +268,9 @@
         "hit.block.shield": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "sprite_anim.std_dummy_heavy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "sprite_anim.std_dummy_heavy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "sprite_anim.std_dummy_heavy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -305,7 +309,7 @@
         "hit.getup": { "resource_ref": "sprite_anim.std_dummy_light_hit_getup", "events": [] },
         "death": { "resource_ref": "sprite_anim.std_dummy_light_death", "events": [] },
         "jump": { "resource_ref": "sprite_anim.std_dummy_light_jump", "events": [] },
-        "cast": { "resource_ref": "sprite_anim.std_dummy_light_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
+        "cast": { "resource_ref": "sprite_anim.std_dummy_light_cast", "events": [{ "name": "release", "time_pct": 0.25 }] },
         "dodge": { "resource_ref": "sprite_anim.std_dummy_light_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] },
         "move.walk.combat": { "resource_ref": "sprite_anim.std_dummy_light_move_walk_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "move.sprint": { "resource_ref": "sprite_anim.std_dummy_light_move_sprint", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
@@ -400,7 +404,9 @@
         "hit.block.shield": { "resource_ref": "sprite_anim.std_dummy_light_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "sprite_anim.std_dummy_light_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "sprite_anim.std_dummy_light_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "sprite_anim.std_dummy_light_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "sprite_anim.std_dummy_light_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -444,7 +450,7 @@
         "hit.getup": { "resource_ref": "anim.std_dummy_hit_getup", "events": [], "blend_ms": 120 },
         "death": { "resource_ref": "anim.std_dummy_death", "events": [], "blend_ms": 80 },
         "jump": { "resource_ref": "anim.std_dummy_jump", "events": [], "blend_ms": 100 },
-        "cast": { "resource_ref": "anim.std_dummy_cast", "events": [{ "name": "release", "time_pct": 0.4167 }], "blend_ms": 60 },
+        "cast": { "resource_ref": "anim.std_dummy_cast", "events": [{ "name": "release", "time_pct": 0.25 }], "blend_ms": 60 },
         "dodge": { "resource_ref": "anim.std_dummy_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }], "blend_ms": 40 },
         "move.walk.combat": { "resource_ref": "anim.std_dummy_move_walk_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }], "blend_ms": 100 },
         "move.sprint": { "resource_ref": "anim.std_dummy_move_sprint", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }], "blend_ms": 100 },
@@ -539,7 +545,9 @@
         "hit.block.shield": { "resource_ref": "anim.std_dummy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }], "blend_ms": 20 },
         "stunned.sway": { "resource_ref": "anim.std_dummy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }], "blend_ms": 100 },
         "hit.launch.tumble": { "resource_ref": "anim.std_dummy_hit_launch_tumble", "events": [], "blend_ms": 40 },
-        "hit.launch.land": { "resource_ref": "anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }], "blend_ms": 40 }
+        "hit.launch.land": { "resource_ref": "anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }], "blend_ms": 40 },
+        "cast.quick": { "resource_ref": "anim.std_dummy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }], "blend_ms": 60 },
+        "cast.heavy": { "resource_ref": "anim.std_dummy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }], "blend_ms": 60 }
       },
       "blends": [
         { "from": "jump.rise", "to": "jump.fall", "blend_ms": 60 },
@@ -602,7 +610,7 @@
         "hit.getup": { "resource_ref": "anim.std_dummy_heavy_hit_getup", "events": [] },
         "death": { "resource_ref": "anim.std_dummy_heavy_death", "events": [] },
         "jump": { "resource_ref": "anim.std_dummy_heavy_jump", "events": [] },
-        "cast": { "resource_ref": "anim.std_dummy_heavy_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
+        "cast": { "resource_ref": "anim.std_dummy_heavy_cast", "events": [{ "name": "release", "time_pct": 0.25 }] },
         "dodge": { "resource_ref": "anim.std_dummy_heavy_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] },
         "move.walk.combat": { "resource_ref": "anim.std_dummy_heavy_move_walk_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "move.sprint": { "resource_ref": "anim.std_dummy_heavy_move_sprint", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
@@ -697,7 +705,9 @@
         "hit.block.shield": { "resource_ref": "anim.std_dummy_heavy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "anim.std_dummy_heavy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "anim.std_dummy_heavy_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "anim.std_dummy_heavy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "anim.std_dummy_heavy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -736,7 +746,7 @@
         "hit.getup": { "resource_ref": "anim.std_dummy_light_hit_getup", "events": [] },
         "death": { "resource_ref": "anim.std_dummy_light_death", "events": [] },
         "jump": { "resource_ref": "anim.std_dummy_light_jump", "events": [] },
-        "cast": { "resource_ref": "anim.std_dummy_light_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
+        "cast": { "resource_ref": "anim.std_dummy_light_cast", "events": [{ "name": "release", "time_pct": 0.25 }] },
         "dodge": { "resource_ref": "anim.std_dummy_light_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] },
         "move.walk.combat": { "resource_ref": "anim.std_dummy_light_move_walk_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "move.sprint": { "resource_ref": "anim.std_dummy_light_move_sprint", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
@@ -831,7 +841,9 @@
         "hit.block.shield": { "resource_ref": "anim.std_dummy_light_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "anim.std_dummy_light_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "anim.std_dummy_light_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "anim.std_dummy_light_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "anim.std_dummy_light_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
