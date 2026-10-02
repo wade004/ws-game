@@ -75,6 +75,19 @@ namespace Tests.Lab
             File.Copy(LabFixtures.BaselinePath(LabTestSupport.FixturesDir, scriptId), target);
         }
 
+        /// <summary>
+        /// 把基线副本里实时类度量（帧耗时、每帧分配）的上限放到远超任何真实值：本文件的套件用例验证的是"期望判定如何影响格子状态"，
+        /// 不是性能上限；实时类度量依赖真实时钟，在满载机器上偶发越过 50 毫秒下限会让格子无关地变成有差异。
+        /// 实时上限本身的行为由 LabKernelTests.Comparer_RealTimeMetrics_AreCeilingChecksNotByteComparisons 单独覆盖。
+        /// </summary>
+        private static void RelaxRealTimeCeilings(string baselinePath)
+        {
+            var text = File.ReadAllText(baselinePath);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "\"(frame_ms_p50|frame_ms_p95)\": [0-9.eE+-]+", "\"$1\": 1000000");
+            text = System.Text.RegularExpressions.Regex.Replace(text, "\"alloc_bytes_per_frame_p95\": [0-9.eE+-]+", "\"alloc_bytes_per_frame_p95\": 1000000000");
+            File.WriteAllText(baselinePath, text, new UTF8Encoding(false));
+        }
+
         private static void WriteScript(InputScript script, string fixtures)
         {
             var path = LabFixtures.ScriptPath(fixtures, script.Meta.ScriptId);
@@ -363,12 +376,13 @@ namespace Tests.Lab
             var fixtures = Fixtures("suite_fail");
             var kill = LabTestSupport.Script("feel_kill");
             CopyBaseline("feel_kill", fixtures);
+            RelaxRealTimeCeilings(LabFixtures.BaselinePath(fixtures, "feel_kill"));
 
             // 通过的期望：格子仍是 Pass，且结果里带着期望判定。
             WriteScript(kill.WithExpectations(new[] { Op("kills", "attack.kills", ExpectOp.Eq, 1) }), fixtures);
             var ok = LabSuite.Check(LabTestSupport.Runner, fixtures, "feel_kill", "2d_action");
             Assert.Single(ok);
-            Assert.Equal(CellStatus.Pass, ok[0].Status);
+            Assert.True(ok[0].Status == CellStatus.Pass, "期望：Pass；实际：" + ok[0].Status + "\n" + (ok[0].Diff?.Format() ?? "<无差异对象>"));
             Assert.Single(ok[0].Expectations);
             Assert.Equal(0, ok[0].ExpectationFailures);
 

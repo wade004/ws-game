@@ -89,7 +89,7 @@ namespace Lab
     /// 的写入口）；"引擎侧表现驱动不回流逻辑"由跨宿主逻辑组逐字节一致来证明。缺省（不传扩展）时行为与引入前逐位一致。
     /// </para>
     /// <para>调用顺序：<see cref="OnAttach"/> → <see cref="WrapViewFactory"/> → 取 <see cref="FeedbackTee"/> → <see cref="OnReady"/>（循环之前）→
-    /// 每固定步 <see cref="ConvertMoveAxis"/>（脚本轴事件）/<see cref="OnFixedStepEnd"/> → 每帧 <see cref="OnFrame"/> → <see cref="OnFinished"/>。</para>
+    /// 每固定步 <see cref="OnMoveAxis"/>（脚本轴事件）/<see cref="OnFixedStepEnd"/> → 每帧 <see cref="OnFrame"/> → <see cref="OnFinished"/>。</para>
     /// </summary>
     public abstract class LabHostExtension
     {
@@ -110,8 +110,24 @@ namespace Lab
         {
         }
 
-        /// <summary>脚本轴事件的设备轴值 → 注入桩摇杆的轴值（相机相对输入的转换点）。缺省原样返回。</summary>
-        public virtual Vec2 ConvertMoveAxis(Vec2 deviceAxis, int tick) => deviceAxis;
+        /// <summary>
+        /// 相机朝向查询（框架原生相机相对控制空间的来源，<c>InputMapOptions.CameraOrientation</c>）：非 null 且控制空间为 <c>camera_relative</c> 时，
+        /// 宿主把移动动作声明成 <c>camera_relative</c>，由输入映射按相机偏航换算轴值——宿主与扩展都不再自己换算。缺省 null：
+        /// 本宿主不证明相机相对输入，格子按 <c>world</c> 跑（无头宿主的既有行为）。在 <see cref="OnAttach"/> 之后读取。
+        /// </summary>
+        public virtual Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation => null;
+
+        /// <summary>覆盖格子声明的控制空间（<c>world</c> 或 <c>camera_relative</c>）；缺省 null 取格子自己声明的值。在 <see cref="OnAttach"/> 之后读取。</summary>
+        public virtual string? ControlSpaceOverride => null;
+
+        /// <summary>
+        /// 脚本轴事件所在的固定步里、输入映射更新之后：<paramref name="stick"/> 是注入桩摇杆的设备轴（横版深度锁丢掉竖直分量之后），
+        /// <paramref name="mapped"/> 是输入映射给出的移动轴（<c>camera_relative</c> 时已按相机偏航换算成世界方向）。只读观测点，
+        /// 不得改世界；相机相对输入的核对据此做。
+        /// </summary>
+        public virtual void OnMoveAxis(int tick, Vec2 stick, Vec2 mapped)
+        {
+        }
 
         /// <summary>该固定步全部逻辑与记录完成之后（<c>tick</c> 是刚完成的步序号）。</summary>
         public virtual void OnFixedStepEnd(int tick)
@@ -187,11 +203,45 @@ namespace Lab
             foreach (var item in _items) item.OnReady(context);
         }
 
-        public override Vec2 ConvertMoveAxis(Vec2 deviceAxis, int tick)
+        /// <summary>第一个提供相机朝向查询的成员（没有则 null）。</summary>
+        public override Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation
         {
-            var current = deviceAxis;
-            foreach (var item in _items) current = item.ConvertMoveAxis(current, tick);
-            return current;
+            get
+            {
+                foreach (var item in _items)
+                {
+                    var found = item.CameraOrientation;
+                    if (found != null)
+                    {
+                        return found;
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        /// <summary>第一个给出控制空间覆盖的成员（没有则 null）。</summary>
+        public override string? ControlSpaceOverride
+        {
+            get
+            {
+                foreach (var item in _items)
+                {
+                    var found = item.ControlSpaceOverride;
+                    if (found != null)
+                    {
+                        return found;
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        public override void OnMoveAxis(int tick, Vec2 stick, Vec2 mapped)
+        {
+            foreach (var item in _items) item.OnMoveAxis(tick, stick, mapped);
         }
 
         public override void OnFixedStepEnd(int tick)

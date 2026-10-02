@@ -107,6 +107,24 @@ namespace Adapter.Unity.Tests.LabHost
         }
 
         [Test]
+        public void HitAlignment_PairedSampleLag_EqualsTheClipReleaseMinusTheLogicMarkerOffset_ProvingItIsPoseDataNotPairing()
+        {
+            // 根因核对（M4-W4 第 5 项）：施法技能走 cast 剪辑，其 release 关键帧在剪辑里的时刻是姿势集数据；逻辑命中标记在技能时间线里的偏移是技能数据。
+            // 两者不等就表现为恒定的对齐误差——这是数据口径差，不是宿主的配对/时基问题。规则：误差 = 剪辑 release 时刻 − 标记相对施法起点的偏移（帧量化内）。
+            var script = LabHostTestSupport.Script("feel_melee");
+            var run = Host.Run(script, "2d_action");
+            var step = 1.0 / 60.0;
+            var frame = 1.0 / script.Meta.FrameRateCap;
+            var events = run.Recording.Feel!.Events;
+            var start = events.First(e => e.Kind == "action_started" && e.Actor == "player").Tick;
+            var marker = events.First(e => e.Kind == "action_marker" && e.Actor == "player" && (e.Detail == "hit" || e.Detail == "hit_frame") && e.Tick >= start).Tick;
+            var sample = run.Engine.HitAlignments.First(h => h.Actor == "player" && h.LogicTick == marker);
+            Assert.IsTrue(sample.Present, "前置条件：第一次施法的逻辑命中配上了引擎事件");
+            var expectedLagMs = (CastReleaseSeconds() - (marker - start) * step) * 1000.0;
+            Assert.AreEqual(expectedLagMs, sample.ErrorMilliseconds, 3 * frame * 1000.0, "对齐误差 = 剪辑 release 时刻 − 逻辑标记偏移（数据口径差，不是配对错误）");
+        }
+
+        [Test]
         public void HitAlignment_ModelPlane_SamplesMatchLogicMarkers_AndMissingMetricIsConsistent()
         {
             var script = LabHostTestSupport.Script("feel_combo3");
@@ -224,6 +242,50 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.Less(Num(run, "frame_ms_p95"), 250.0, "引擎侧每帧驱动耗时的 95 分位应在一个量级合理的上限内（真实时钟，只做粗上限）");
         }
 
+        // ───────── GPU 帧耗时（M4-W4） ─────────
+
+        private static string Str(EngineLabRun run, string metric) =>
+            ((Core.Foundation.Common.Json.JsonString)((Core.Foundation.Common.Json.JsonObject)run.Fingerprint.Groups["engine"])[metric]).Value;
+
+        [Test]
+        public void GpuFrameTime_StatusMetricIsAlwaysPresent_AndFollowsTheGraphicsDevice()
+        {
+            // 复现 + 不变量：有图形设备（且支持回读）时每个驱动的帧一个 GPU 耗时样本、分位数按规则折算；没有（批处理无图形模式）时度量照样在场——
+            // 状态标 unavailable、数值是 -1 哨兵、原因写进记录——不是缺失。关掉选项同样标不可用。任一情形逻辑都与无头宿主一致。
+            var script = LabHostTestSupport.Script("feel_melee");
+            var run = Host.Run(script, "2d_action");
+            var hasDevice = SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null && SystemInfo.supportsAsyncGPUReadback;
+            Assert.AreEqual(0, run.Engine.Errors.Count, string.Join(" | ", run.Engine.Errors));
+            Assert.AreEqual(hasDevice ? "available" : "unavailable", Str(run, "gpu_frame_status"), "状态应与图形设备是否可用一致：" + run.Engine.GpuUnavailableReason);
+            if (hasDevice)
+            {
+                Assert.IsTrue(run.Engine.GpuAvailable);
+                Assert.AreEqual(run.Engine.FramesDriven, run.Engine.GpuFrameMilliseconds.Count, "每个驱动的帧一个 GPU 耗时样本");
+                Assert.IsTrue(run.Engine.GpuFrameMilliseconds.All(ms => ms > 0.0), "GPU 完成耗时为正");
+                var sorted = run.Engine.GpuFrameMilliseconds.OrderBy(x => x).ToList();
+                Assert.AreEqual(sorted[(int)Math.Ceiling(0.5 * sorted.Count) - 1], Num(run, "gpu_ms_p50"), 1e-9);
+                Assert.AreEqual(sorted[(int)Math.Ceiling(0.95 * sorted.Count) - 1], Num(run, "gpu_ms_p95"), 1e-9);
+                Assert.AreEqual(sorted[sorted.Count - 1], Num(run, "gpu_ms_max"), 1e-9);
+            }
+            else
+            {
+                Assert.IsFalse(run.Engine.GpuAvailable);
+                Assert.AreEqual(0, run.Engine.GpuFrameMilliseconds.Count);
+                Assert.IsNotEmpty(run.Engine.GpuUnavailableReason, "不可用必须写明原因");
+                foreach (var name in new[] { "gpu_ms_p50", "gpu_ms_p95", "gpu_ms_max" })
+                {
+                    Assert.AreEqual(-1.0, Num(run, name), 0.0, name + "：不可用时是 -1 哨兵值（度量在场，不缺失）");
+                }
+            }
+
+            var off = Host.Run(script, "2d_action", new EngineLabOptions { GpuTiming = false });
+            Assert.AreEqual("unavailable", Str(off, "gpu_frame_status"), "关掉 GpuTiming 始终标不可用");
+            Assert.AreEqual(-1.0, Num(off, "gpu_ms_p95"), 0.0);
+            StringAssert.Contains("GpuTiming", off.Engine.GpuUnavailableReason);
+            Assert.AreEqual(run.LogicProjection, off.LogicProjection, "GPU 计时（渲染到离屏纹理）不得改变逻辑");
+            Assert.AreEqual(Host.RunHeadlessLogic(script, "2d_action"), run.LogicProjection, "与无头宿主逻辑一致");
+        }
+
         // ───────── 三个平面组合 ─────────
 
         [Test]
@@ -252,35 +314,58 @@ namespace Adapter.Unity.Tests.LabHost
 
         // ───────── 相机相对输入 ─────────
 
-        private sealed class AxisRotation : LabHostExtension
+        /// <summary>无头参照：提供固定偏航的朝向并要求 camera_relative（原生换算），用来和真实舞台相机的引擎运行比逻辑结果。</summary>
+        private sealed class FixedYawReference : LabHostExtension
         {
-            private readonly double _yawRadians;
+            private readonly Orientation _orientation;
 
-            public AxisRotation(double yawRadians)
+            public FixedYawReference(double yawRadians)
             {
-                _yawRadians = yawRadians;
+                _orientation = new Orientation(yawRadians);
             }
 
-            public override Vec2 ConvertMoveAxis(Vec2 deviceAxis, int tick) => ControlSpace.CameraRelativeToWorld(deviceAxis, _yawRadians);
+            public override Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation => _orientation;
+
+            public override string? ControlSpaceOverride => ControlSpace.CameraRelative;
+
+            private sealed class Orientation : Core.Foundation.EngineAdapter.ICameraOrientation
+            {
+                public Orientation(double yaw) => YawRadians = yaw;
+
+                public double YawRadians { get; }
+            }
         }
 
         [Test]
-        public void CameraRelative_RealCameraAxesGiveTheRightWorldDirection_ForEveryYaw()
+        public void CameraRelative_NativeConversionMatchesTheRealCameraAxes_ForEveryYawAndPitch()
         {
+            // 复现 + 不变量：移动动作按框架原生 camera_relative 声明，输入映射按舞台相机的真实偏航换算；三向检验（真实相机右/上轴、偏航公式、
+            // 回到屏幕）对每个偏航、每个俯仰（含透视）都在量化误差之内。期望方向由规则（相机轴、旋转公式）算出。
             var script = LabHostTestSupport.Script("diagonal");
-            foreach (var yaw in new[] { 0.0, 30.0, 90.0, 180.0, -45.0, 137.5 })
+            foreach (var pitch in new double?[] { null, 30.0, 60.0 })
             {
-                var options = new EngineLabOptions { ControlSpaceOverride = ControlSpace.CameraRelative, CameraYawDegrees = yaw };
-                var run = Host.Run(script, "3d_targeted", options);
-                Assert.Greater(run.Engine.Controls.Count, 0, $"yaw={yaw}：前置条件——脚本里应有摇杆输入");
-                Assert.LessOrEqual(Num(run, "control_max_error_deg"), 0.01, $"yaw={yaw}：真实相机轴给出的世界方向与偏航公式的最大夹角（度）");
-                Assert.LessOrEqual(Num(run, "control_max_screen_error_deg"), 0.01, $"yaw={yaw}：世界方向经真实相机投影回屏幕与摇杆方向的最大夹角（度）");
+                foreach (var yaw in new[] { 0.0, 30.0, 90.0, 180.0, -45.0, 137.5 })
+                {
+                    var options = new EngineLabOptions
+                    {
+                        ControlSpaceOverride = ControlSpace.CameraRelative,
+                        CameraYawDegrees = yaw,
+                        CameraPitchDegrees = pitch,
+                        CameraPerspective = pitch.HasValue,
+                    };
+                    var tag = $"yaw={yaw} pitch={(pitch.HasValue ? pitch.Value.ToString() : "无")}";
+                    var run = Host.Run(script, "3d_targeted", options);
+                    Assert.AreEqual(0, run.Engine.Errors.Count, tag + "：" + string.Join(" | ", run.Engine.Errors));
+                    Assert.Greater(run.Engine.Controls.Count, 0, $"{tag}：前置条件——脚本里应有摇杆输入");
+                    Assert.LessOrEqual(Num(run, "control_max_error_deg"), 0.01, $"{tag}：原生换算结果与真实相机轴/偏航公式的最大夹角（度）");
+                    Assert.LessOrEqual(Num(run, "control_max_screen_error_deg"), 0.05, $"{tag}：世界方向经真实相机（含俯仰与透视）投影回屏幕与摇杆方向的最大夹角（度）");
 
-                // 世界移动方向：玩家实际位移 = 无转换位移按偏航旋转（同一脚本、预先旋转摇杆的无头运行）。
-                var reference = Host.HeadlessRunner.Record(script, "3d_targeted", null, new AxisRotation(yaw * Math.PI / 180.0));
-                var last = run.Recording.Ticks.Count - 1;
-                Assert.AreEqual(reference.Ticks[last].Position.X, run.Recording.Ticks[last].Position.X, 1e-3, $"yaw={yaw}：终点 X");
-                Assert.AreEqual(reference.Ticks[last].Position.Y, run.Recording.Ticks[last].Position.Y, 1e-3, $"yaw={yaw}：终点 Y");
+                    // 世界移动方向：玩家实际位移 = 同偏航的无头原生换算（相同的框架实现，真实相机只提供偏航）。
+                    var reference = Host.HeadlessRunner.Record(script, "3d_targeted", null, new FixedYawReference(yaw * Math.PI / 180.0));
+                    var last = run.Recording.Ticks.Count - 1;
+                    Assert.AreEqual(reference.Ticks[last].Position.X, run.Recording.Ticks[last].Position.X, 1e-3, $"{tag}：终点 X");
+                    Assert.AreEqual(reference.Ticks[last].Position.Y, run.Recording.Ticks[last].Position.Y, 1e-3, $"{tag}：终点 Y");
+                }
             }
         }
 
@@ -294,6 +379,21 @@ namespace Adapter.Unity.Tests.LabHost
             var world = Host.Run(script, "3d_targeted", new EngineLabOptions { CameraYawDegrees = 90.0 });
             Assert.AreEqual(headless, world.LogicProjection, "世界控制空间下相机偏航不得改变逻辑输入");
             Assert.AreEqual(0, world.Engine.Controls.Count, "世界控制空间不做转换，不产生转换样本");
+            var pitched = Host.Run(script, "3d_targeted", new EngineLabOptions { CameraPitchDegrees = 50.0, CameraPerspective = true });
+            Assert.AreEqual(headless, pitched.LogicProjection, "俯仰与透视只改相机姿态，不得改变逻辑");
+        }
+
+        [Test]
+        public void CameraRelative_StageFailureFallsBackToTheOptionYaw_SoLogicDoesNotFork()
+        {
+            // 不变量：舞台装配失败（隔离层非法）时，相机朝向退回选项偏航，逻辑与装配成功时逐字节一致（引擎侧失败不得改变逻辑）。
+            var script = LabHostTestSupport.Script("diagonal");
+            var good = Host.Run(script, "3d_targeted", new EngineLabOptions { ControlSpaceOverride = ControlSpace.CameraRelative, CameraYawDegrees = 70.0 });
+            var broken = Host.Run(
+                script, "3d_targeted",
+                new EngineLabOptions { ControlSpaceOverride = ControlSpace.CameraRelative, CameraYawDegrees = 70.0, IsolationLayer = 99 });
+            Assert.Greater(broken.Engine.Errors.Count, 0);
+            Assert.AreEqual(good.LogicProjection, broken.LogicProjection);
         }
 
         // ───────── 输入噪声记录与回放 ─────────
@@ -481,11 +581,11 @@ namespace Adapter.Unity.Tests.LabHost
 
             var icons = audits.Where(a => a.Layer.StartsWith("icon:", StringComparison.Ordinal)).ToList();
             Assert.Greater(icons.Count, 0);
-            var assetsRoot = Path.Combine(Application.streamingAssetsPath, "GameFoundation", "assets");
+            Assert.IsTrue(icons.All(i => !i.Mismatch), "图标经适配器资源加载器的 icon 路径加载：占位美术里的图标都应加载得到（缺失会标不一致）");
             foreach (var icon in icons.Where(i => !i.Mismatch))
             {
-                var relative = AssetRefConventions.IconFile(new Id(icon.Resource)).Replace('/', Path.DirectorySeparatorChar);
-                var file = Directory.GetDirectories(assetsRoot).Select(d => Path.Combine(d, relative)).First(File.Exists);
+                // 文件位置由适配器自己的路径规则给出（宿主不再自己找文件、自己解码）。
+                var file = UnityResourceLoader.ResolvePath(new Id(icon.Resource), ResourceKind.Image);
                 var size = PngSize(file);
                 Assert.AreEqual(size.W, icon.Width, icon.Resource + "：引擎解码的图标宽应等于 PNG 文件头声明的宽");
                 Assert.AreEqual(size.H, icon.Height, icon.Resource + "：引擎解码的图标高应等于 PNG 文件头声明的高");

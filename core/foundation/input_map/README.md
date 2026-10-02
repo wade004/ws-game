@@ -262,3 +262,11 @@ M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
 2. **瞄点只对携带宽限条件的请求记录（设计决定，不是遗漏）**：瞄点是"这次施法请求自己的目标"，只被宽限条件的求值读取；不携带宽限条件的请求没有任何读取方，记录它只会让一次无关的普通施法（例如对另一个单位的普攻）改写行动者的瞄点、作废依赖目标的条件历史，让"没有声明宽限的游戏"的行为与引入宽限前不再逐位一致。理由与"没有声明就不采样"同一条原则：宽限是声明式的，不声明就不产生任何副作用。不变量：`FeelGraceBuiltinTests.ACastWithoutGraceConditions_NeverTouchesTheAimOrTheHistory`（对 A 的带条件施法之后，对 B 的无条件施法前后瞄点与最近为真 tick 都不变）。
 3. **显式 `RegisterActor` 同样惰性分配（实现）**：`RegisterActor` 只把行动者 id 记入"已登记"集合（`IsActorRegistered`、`ActorIds` 的口径不变，顺序仍是登记顺序），缓冲对象等到该行动者第一次真有边沿（`Press`/`Release`/`Submit`）才建；`BeginTick` 对没有缓冲的已登记行动者跳过。"显式登记即可采样"语义不变（宽限追踪按已登记行动者采样，不依赖缓冲槽）。因此显式登记 N 个单位 `ActorBuffersAllocated` 仍为 0。`RemoveActor` 同时清登记与缓冲。用例：`GraceRemainingAndRegistrationTests` 的两条惰性登记用例、`FeelGraceBuiltinTests` 的分配数用例（重写为新语义：登记的 id 都在记录里、缓冲只在首个边沿分配）。
 4. **无头世界视线（实现，可选）**：见 `core/carriers/assembly/README.md` M4-W3 节（`HeadlessWorldOptions.NavigationLineOfSight`）。
+
+## 手感落地 M4-W4：相机相对控制空间（2026-10-03）
+
+- **`InputControlSpace`**（`contracts/InputControlSpace.cs`）：`World`（缺省）与 `CameraRelative` 两个取值常量与 `IsValid`。`ActionDefinition` 新增可选字段 `ControlSpace`（`found.input_action` 字段 `control_space`，缺省 `world`；新增 14 参构造与 `WithControlSpace`，旧构造保留），只对 `Axis2D` 动作有意义。
+- **`InputMapOptions.CameraOrientation`**（`ICameraOrientation`，`core/foundation/engine_adapter/contracts`）：可选相机朝向查询，只有 `YawRadians`（逆时针为正，0 = 屏幕上方是世界 +Y）。声明了 `camera_relative` 动作却没配朝向查询，`DeclareActionSet` 抛 `InvalidOperationException`（不静默当成偏航 0）。
+- **换算**：每次 `Update`，`camera_relative` 的 `Axis2D` 动作的轴值 `(x, y)` 旋转成世界方向 `x·右 + y·上`（右 = (cos, sin)，上 = (−sin, cos)），模长不变；偏航恰为 0 时逐位恒等。不声明控制空间的动作、没有配朝向查询的宿主与引入前逐位一致。
+- **判断记录**：①朝向走独立的可选接口，不往必选的 `ICamera` 加成员（同 `ICameraImpulse`）；`StubCamera`、`UnityCamera` 都实现它，`PresentationAssembly` 只在相机实现了该接口时给输入映射配朝向。②相机相对输入只依赖偏航：相机俯仰绕右轴转，右轴恒在世界平面上，"屏幕上方"的世界平面投影恒为 (−sin, cos)，所以不需要俯仰。③第三人称游戏的俯仰角、透视由相机适配器自己提供（`UnityCamera` 的 `ApplyPitch`/`Perspective`），输入映射不感知。
+- **用例**：`core/foundation/input_map/tests/CameraRelativeControlSpaceTests.cs`（复现：按偏航旋转与期望公式一致；不变量：缺省 world 逐位不变、偏航 0 逐位恒等、没配朝向查询声明期报错、每次更新取样偏航而非声明时取样、取值非法与非 Axis2D 动作声明相机相对被拒绝、`WithControlSpace` 复制其余全部字段、登记表字段往返）。

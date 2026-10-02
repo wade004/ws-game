@@ -174,5 +174,119 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(3f, _cameraGo.transform.position.x, 0.01f);
             Assert.AreEqual(4f, _cameraGo.transform.position.y, 0.01f);
         }
+
+        // ───────── 偏航朝向、俯仰与透视（M4-W4） ─────────
+
+        [Test]
+        public void Orientation_Default_IsBitIdenticalToTheOrthographicTopDownCamera()
+        {
+            // 不变量：不声明偏航/俯仰/透视时，Configure 记下的偏航与俯仰不作用到相机（与引入这些可选能力之前逐位一致），朝向查询如实报 0。
+            _camera.Configure(55, 30, new ZoomRange(1, 10));
+            _camera.SetZoom(5);
+            _camera.Tick(0.016);
+            Assert.IsTrue(_cameraGo.GetComponent<Camera>().orthographic);
+            Assert.AreEqual(Quaternion.identity, _cameraGo.transform.rotation);
+            Assert.AreEqual(new Vector3(0f, 0f, -10f), _cameraGo.transform.position);
+            Assert.AreEqual(0.0, _camera.YawRadians, 0.0, "没打开偏航开关，相机物理上没有转：朝向查询报 0");
+            Assert.AreEqual(0.0, _camera.EffectivePitchDegrees, 0.0);
+            Assert.AreEqual(5f, _camera.VisibleHalfHeight, 1e-6f);
+        }
+
+        [Test]
+        public void Orientation_YawRadiansFollowsTheRealCameraAxes_WhenYawRotationIsOn()
+        {
+            // 复现：打开偏航后，ICameraOrientation.YawRadians 等于配置偏航，且相机的真实右轴/上轴在世界平面上就是 (cos, sin)/(-sin, cos)。
+            _camera.Configure(0, 37, new ZoomRange(1, 10));
+            _camera.ApplyYawRotation = true;
+            var yaw = 37.0 * System.Math.PI / 180.0;
+            Assert.AreEqual(yaw, _camera.YawRadians, 1e-9);
+            var tr = _cameraGo.transform;
+            Assert.AreEqual(System.Math.Cos(yaw), tr.right.x, 1e-5);
+            Assert.AreEqual(System.Math.Sin(yaw), tr.right.y, 1e-5);
+            Assert.AreEqual(-System.Math.Sin(yaw), tr.up.x, 1e-5);
+            Assert.AreEqual(System.Math.Cos(yaw), tr.up.y, 1e-5);
+            _camera.ApplyYawRotation = false;
+            Assert.AreEqual(0.0, _camera.YawRadians, 0.0);
+            Assert.AreEqual(Quaternion.identity, _cameraGo.transform.rotation, "关闭偏航开关恢复恒等朝向");
+        }
+
+        [Test]
+        public void Pitch_SquashesTheGroundScreenUpDirectionByCosinePitch_AndKeepsTheRightAxis()
+        {
+            // 复现：俯仰 p 下，地面上沿"屏幕上"方向相隔 d 的两点，在正交投影的屏幕上相距 d·cos(p)·像素密度；沿右方向仍是 d·像素密度（规则算期望）。
+            foreach (var pitch in new[] { 0.0, 30.0, 60.0, 80.0 })
+            {
+                _camera.Configure(pitch, 0, new ZoomRange(1, 10));
+                _camera.SetZoom(5);
+                _camera.ApplyPitch = true;
+                Assert.AreEqual(pitch, _camera.EffectivePitchDegrees, 1e-9);
+                var origin = _camera.WorldToScreen(new Vec2(0, 0), 0);
+                var up = _camera.WorldToScreen(new Vec2(0, 1), 0);
+                var right = _camera.WorldToScreen(new Vec2(1, 0), 0);
+                var unitRight = right.X - origin.X;
+                Assert.Greater(unitRight, 0.0, $"pitch={pitch}：前置条件——相机有像素尺寸");
+                Assert.AreEqual(unitRight * System.Math.Cos(pitch * System.Math.PI / 180.0), up.Y - origin.Y, 1e-3 * unitRight, $"pitch={pitch}：屏幕上方向被压扁 cos(俯仰) 倍");
+                Assert.AreEqual(0.0, up.X - origin.X, 1e-3 * unitRight, $"pitch={pitch}：竖直方向不产生横向屏幕位移");
+                Assert.AreEqual(0.0, right.Y - origin.Y, 1e-3 * unitRight, $"pitch={pitch}：右方向不产生纵向屏幕位移");
+                Assert.AreEqual(0.0, _camera.YawRadians, 0.0, $"pitch={pitch}：俯仰不改变偏航朝向");
+            }
+        }
+
+        [Test]
+        public void Pitch_ClampsToTheLegalRange_AndOffMeansUpright()
+        {
+            _camera.Configure(120, 0, new ZoomRange(1, 10));
+            _camera.ApplyPitch = true;
+            Assert.AreEqual(89.0, _camera.EffectivePitchDegrees, 1e-9, "俯仰上限 89（避免视线与地面平行）");
+            _camera.Configure(-20, 0, new ZoomRange(1, 10));
+            Assert.AreEqual(0.0, _camera.EffectivePitchDegrees, 1e-9, "负俯仰夹到 0（正俯视）");
+            _camera.ApplyPitch = false;
+            Assert.AreEqual(Quaternion.identity, _cameraGo.transform.rotation, "关闭俯仰开关恢复恒等朝向");
+            Assert.AreEqual(new Vector3(0f, 0f, -10f), _cameraGo.transform.position, "关闭俯仰开关恢复基准位置");
+        }
+
+        [Test]
+        public void Perspective_ZoomIsTheGroundHalfHeightAtTheFocus_AndScreenToWorldRoundTripsWithPitchAndYaw()
+        {
+            // 复现：透视下缩放仍是"焦点处地面可视半高"——焦点上方 zoom 处的地面点恰好在屏幕上沿；俯仰+偏航+透视下屏幕/世界往返一致。
+            var unityCamera = _cameraGo.GetComponent<Camera>();
+            _camera.Configure(0, 0, new ZoomRange(1, 10));
+            _camera.SetZoom(4);
+            _camera.Perspective = true;
+            Assert.IsFalse(unityCamera.orthographic);
+            Assert.AreEqual(4f, _camera.VisibleHalfHeight, 1e-6f);
+            var origin = _camera.WorldToScreen(new Vec2(0, 0), 0);
+            var top = _camera.WorldToScreen(new Vec2(0, 4), 0);
+            Assert.AreEqual(unityCamera.pixelHeight / 2.0, top.Y - origin.Y, 0.5, "焦点上方 zoom 处的地面点在屏幕上沿（透视距离 = zoom / tan(视场角/2)）");
+
+            _camera.Configure(50, 25, new ZoomRange(1, 10));
+            _camera.ApplyPitch = true;
+            _camera.ApplyYawRotation = true;
+            foreach (var point in new[] { new Vec2(0, 0), new Vec2(1.5, -0.7), new Vec2(-2, 1) })
+            {
+                var back = _camera.ScreenToWorld(_camera.WorldToScreen(point, 0));
+                Assert.IsNotNull(back, point.ToString());
+                Assert.AreEqual(point.X, back!.Value.X, 0.02);
+                Assert.AreEqual(point.Y, back.Value.Y, 0.02);
+            }
+
+            _camera.Perspective = false;
+            Assert.IsTrue(unityCamera.orthographic, "关闭透视回到正交");
+        }
+
+        [Test]
+        public void Perspective_ImpulsePeakFollowsTheGroundHalfHeight_NotTheProjectionHeight()
+        {
+            // 不变量：镜头冲击幅度按"画面高度比例"计，高度取 VisibleHalfHeight——正交与透视同一语义（峰值 = 幅度 × 2 × 半高）。
+            _camera.Configure(40, 0, new ZoomRange(1, 10));
+            _camera.SetZoom(6);
+            _camera.ApplyPitch = true;
+            _camera.Perspective = true;
+            _camera.Impulse(new Vec2(1, 0), 0.05, 100);
+            _camera.Tick(0.0);
+            Assert.AreEqual(0.05 * 2.0 * 6.0, _camera.CurrentImpulseOffset.magnitude, 1e-4);
+            _camera.Tick(1.0);
+            Assert.AreEqual(0.0, _camera.CurrentImpulseOffset.magnitude, 1e-6);
+        }
     }
 }

@@ -90,6 +90,13 @@ namespace Core.Foundation.InputMap
                     throw new InvalidOperationException($"动作 \"{name}\" 已被其它动作集声明过，动作名必须跨动作集唯一");
                 }
 
+                if (def.ControlSpace == InputControlSpace.CameraRelative && _options.CameraOrientation == null)
+                {
+                    throw new InvalidOperationException(
+                        $"动作 \"{name}\" 声明了 {InputControlSpace.CameraRelative} 控制空间，但输入映射宿主没有配相机朝向查询（InputMapOptions.CameraOrientation）；"
+                        + "不静默当成偏航 0");
+                }
+
                 var bindings = new List<string>(def.DefaultBindings);
                 var state = new ActionState
                 {
@@ -303,6 +310,11 @@ namespace Core.Foundation.InputMap
                         break;
                     case ActionKind.Axis2D:
                         state.CachedAxis = EvaluateAxis2D(state.ParsedBindings, input);
+                        if (state.Definition.ControlSpace == InputControlSpace.CameraRelative)
+                        {
+                            state.CachedAxis = RotateByCameraYaw(state.CachedAxis, _options.CameraOrientation!.YawRadians);
+                        }
+
                         break;
                 }
             }
@@ -317,6 +329,17 @@ namespace Core.Foundation.InputMap
                     edgeSink.OnButtonEdge(delivery[i].Key, delivery[i].Value);
                 }
             }
+        }
+
+        /// <summary>
+        /// 相机相对：摇杆轴值（x 向右、y 向上）经相机偏航旋转成世界平面方向 <c>x·右 + y·上</c>（右 = (cos yaw, sin yaw)，上 = (−sin yaw, cos yaw)），
+        /// 模长不变。偏航恰为 0 时结果与输入逐位相同。
+        /// </summary>
+        private static Vec2 RotateByCameraYaw(Vec2 axis, double yawRadians)
+        {
+            var c = Math.Cos(yawRadians);
+            var s = Math.Sin(yawRadians);
+            return new Vec2(axis.X * c - axis.Y * s, axis.X * s + axis.Y * c);
         }
 
         private bool EvaluateDigital(List<ParsedBinding> bindings)
