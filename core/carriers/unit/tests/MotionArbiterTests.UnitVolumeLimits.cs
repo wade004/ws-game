@@ -385,10 +385,14 @@ namespace Tests.Carriers.Unit
             public MovementHost Host = null!;
             public FakeActions Actions = null!;
             public List<string> Names = null!;
+            public MovementTickHandler Handler = null!;
+            public EventBus Bus = null!;
+            public FeelSystem Feel = null!;
         }
 
         private static Crowd BuildCrowd(
-            IReadOnlyList<string> creationOrder, IReadOnlyDictionary<string, Vec2> start, Core.Foundation.EngineAdapter.INavigation2D? nav = null)
+            IReadOnlyList<string> creationOrder, IReadOnlyDictionary<string, Vec2> start, Core.Foundation.EngineAdapter.INavigation2D? nav = null,
+            Action<FeelSystem>? configureFeel = null)
         {
             var bus = new EventBus(
                 EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
@@ -411,6 +415,8 @@ namespace Tests.Carriers.Unit
             {
                 feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.WallSlide, FeelOp.Set, FeelValue.Of(true)));
             }
+
+            configureFeel?.Invoke(feel);
             var actions = new FakeActions();
             host.Motion = new MotionServices
             {
@@ -420,9 +426,13 @@ namespace Tests.Carriers.Unit
                 Stagger = new FakeStagger(),
                 RootMotion = new FakeRootMotion(),
             };
-            world.RegisterPhaseHandler(
-                TickPhase.MovementAndNavigation, new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, nav, opts));
-            return new Crowd { World = world, Units = units, Host = host, Actions = actions, Names = creationOrder.ToList() };
+            var handler = new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, nav, opts);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+            return new Crowd
+            {
+                World = world, Units = units, Host = host, Actions = actions, Names = creationOrder.ToList(), Handler = handler, Bus = bus,
+                Feel = feel,
+            };
         }
 
         private static uint Hash(string name, int k)
@@ -474,10 +484,26 @@ namespace Tests.Carriers.Unit
         /// 跑一遍人群场景：六个单位聚在一起（出生重叠）、有的随机转向、有的走向远点、第 15 tick 两个单位被击退；
         /// <paramref name="permSeed"/> 决定"创建单位的顺序"与"每个 tick 提交意图的顺序"（0 = 原顺序）。返回每 tick 每个单位位置的逐位表示。
         /// </summary>
-        private static (List<long[]> Track, double MinGapAfterFirstSeparation, int Contacts) RunCrowd(uint permSeed)
+        private static (List<long[]> Track, double MinGapAfterFirstSeparation, int Contacts, List<string> Events, int MaxPasses) RunCrowd(
+            uint permSeed, Action<Crowd>? configure = null)
         {
             var order = permSeed == 0 ? CrowdNames.ToList() : Shuffled(CrowdNames, permSeed);
             var crowd = BuildCrowd(order, CrowdStart());
+            configure?.Invoke(crowd);
+            var events = new List<string>();
+            var maxPasses = 0;
+            crowd.Bus.Subscribe(CarriersEventKeys.UnitMoved, ev =>
+            {
+                var m = (UnitMovedEvent)ev;
+                events.Add($"moved {m.UnitId} {BitConverter.DoubleToInt64Bits(m.Position.X)} {BitConverter.DoubleToInt64Bits(m.Position.Y)}");
+            });
+            crowd.Bus.Subscribe(CarriersEventKeys.UnitStateChanged, ev =>
+            {
+                var m = (UnitStateChangedEvent)ev;
+                events.Add($"state {m.UnitId} {m.OldState}>{m.NewState}");
+            });
+            crowd.Host.OnMoveStopped += (id, pos, reason) =>
+                events.Add($"stop {id} {reason} {BitConverter.DoubleToInt64Bits(pos.X)} {BitConverter.DoubleToInt64Bits(pos.Y)}");
             var ids = CrowdNames.ToDictionary(n => n, n => new Id(n));
             var track = new List<long[]>();
             var prevGaps = new Dictionary<(string, string), double>();
@@ -516,6 +542,8 @@ namespace Tests.Carriers.Unit
                 }
 
                 crowd.World.Tick(SimStep.Continuous(Dt));
+                maxPasses = Math.Max(maxPasses, crowd.Handler.LastVolumePassCount);
+                events.Add($"-- tick {tick}");
 
                 var row = new long[CrowdNames.Length * 2];
                 for (var k = 0; k < CrowdNames.Length; k++)
@@ -547,7 +575,7 @@ namespace Tests.Carriers.Unit
                 }
             }
 
-            return (track, minGap, contacts);
+            return (track, minGap, contacts, events, maxPasses);
         }
 
         [Fact]

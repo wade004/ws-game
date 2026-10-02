@@ -72,6 +72,12 @@ namespace Core.Carriers.Unit
 
             public int TrailStartIndex;
 
+            /// <summary>
+            /// 轨迹开头连续吃掉的"零长度路点"（路点就在当前位置，到达容差内直接过）之后的路径下标；-1 = 没有。被拉回到起点时路径进度回到它，而不是回到
+            /// 这些路点之前（否则单位会"倒着走回"一个本来就站在上面的路点）。
+            /// </summary>
+            public int BaseIndex = -1;
+
             /// <summary>路径跟随本 tick 走到终点（状态已写成到达/Idle）时，被拉回后恢复用的"未到达"状态模板（下标待填）与到达事件在发件箱里的位置。</summary>
             public MovementState? UnarriveTemplate;
 
@@ -925,8 +931,27 @@ namespace Core.Carriers.Unit
             }
 
             NoteProfile(unit.EntityId, trail.Profile);
+            VolumeBody? indexBody = null;
+            var hasBody = VolumeSnapshotCurrent && _volumeById.TryGetValue(unit.EntityId, out indexBody);
             for (var k = 1; k < trail.Points.Count; k++)
             {
+                if (hasBody && trail.Points[k - 1].Equals(trail.Points[k]) && trail.Index[k - 1] >= 0)
+                {
+                    // 零长度的边（路点就在脚下）不进轨迹，但它吃掉的路点要计入路径进度：并进上一条真实边的"走完下标"，没有上一条就记为起点下标。
+                    var index = trail.Index[k - 1];
+                    var edges = indexBody!.TrailIndex;
+                    if (edges != null && edges.Count > 0)
+                    {
+                        edges[edges.Count - 1] = Math.Max(edges[edges.Count - 1], index);
+                    }
+                    else
+                    {
+                        indexBody.BaseIndex = Math.Max(indexBody.BaseIndex, index);
+                    }
+
+                    continue;
+                }
+
                 NoteTrail(unit.EntityId, trail.Points[k - 1], trail.Points[k], trail.Index[k - 1]);
             }
 

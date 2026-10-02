@@ -130,6 +130,10 @@ namespace Core.Carriers.Unit
             public Vec2[] Pts = Array.Empty<Vec2>();
             public double[] Cum = Array.Empty<double>();
             public int[]? LegIndex;
+
+            /// <summary>轨迹开头吃掉零长度路点之后的路径下标（-1 = 没有），见 <see cref="VolumeBody.BaseIndex"/>。</summary>
+            public int BaseIndex = -1;
+
             public double Length;
 
             /// <summary>折线来自阶段 A 的记录（每条边都经过地形裁决）；为假时是起终点的弦，缩短后必须重新验证可走。</summary>
@@ -245,12 +249,14 @@ namespace Core.Carriers.Unit
                     return new Trajectory
                     {
                         Pts = pts.ToArray(), Cum = cum.ToArray(), LegIndex = idx.ToArray(), Length = cum[cum.Count - 1], Exact = true,
-                        Prof = b.ProfileMixed ? null : b.Profile,
+                        Prof = b.ProfileMixed ? null : b.Profile, BaseIndex = b.BaseIndex,
                     };
                 }
             }
 
-            return Trajectory.Chord(b.Start, b.Final);
+            var chord = Trajectory.Chord(b.Start, b.Final);
+            chord.BaseIndex = b.BaseIndex;
+            return chord;
         }
 
         /// <summary>幽灵（穿过式位移）落点修正与成对裁决互相迭代的最大轮数（落点变化 → 别人的裁决变化 → 落点再校验）。</summary>
@@ -419,11 +425,11 @@ namespace Core.Carriers.Unit
         {
             if (traj.LegIndex == null)
             {
-                return -1;
+                return traj.BaseIndex;
             }
 
             var arc = scale * traj.Length;
-            var result = -1;
+            var result = traj.BaseIndex;
             for (var k = 0; k < traj.Legs; k++)
             {
                 if (traj.Cum[k + 1] <= arc + 1e-12)

@@ -8,8 +8,9 @@ namespace Core.Carriers.Unit
     /// 穿过式动作位移（"幽灵"，档案 <c>dodge_through_units</c> + <c>pass_through_motion_kinds</c>）的落点修正（M4-W2，ADR-0128 追加决定）。
     /// <para>
     /// 幽灵在位移窗口内仍可穿过别的单位（阶段 A 不拦、阶段 B 不撞停、不参与重叠分离）；但窗口的最后一个 tick（<see cref="MotionTick.PassThroughEnds"/>）
-    /// 它不得终止在别的单位体积里：终点按"就近可行位置"修正——候选是各个被压着的体积圆（半径之和 + 一个到达容差）上离终点最近的点（径向投影），
-    /// 以及两个体积圆的交点（夹在两个单位之间时），取不落进任何单位体积（含另一个幽灵的终点）、且可走的、离原终点最近的那个候选。
+    /// 它不得终止在别的单位体积里：终点按"就近可行位置"修正——候选是各个被压着的体积圆（半径之和 + 一个到达容差）上离终点最近的点（径向投影）、
+    /// 圆周上均分的 24 个采样点（径向投影落在墙里时找别的可走位置），以及两个体积圆的交点（夹在两个单位之间时），
+    /// 取不落进任何单位体积（含另一个幽灵的终点）、且可走的、离原终点最近的那个候选。
     /// 别的单位（非幽灵）的成对裁决在窗口内每个 tick 都把幽灵的最终位置当作静止的体积（<see cref="ResolveMovedPairs"/>），落点修正后对新落点重算，
     /// 两者迭代到不再变化（<see cref="GhostRounds"/> 轮封顶；封顶仍重叠的由随后的重叠分离兜底，幽灵最后一个 tick 参与分离）。
     /// </para>
@@ -17,6 +18,9 @@ namespace Core.Carriers.Unit
     public sealed partial class MovementTickHandler
     {
         private const int GhostNeighborCap = 32;
+
+        /// <summary>每个被压着的体积圆上取的候选点个数（均分圆周，第 0 个恰是径向投影）；径向投影不可走（墙）时靠它找到别的可走位置。</summary>
+        private const int GhostAngleSamples = 24;
 
         /// <summary>
         /// 幽灵 <paramref name="gi"/>（快照下标）的终点 <c>pos[gi]</c> 落进别的体积时，求就近可行落点 <paramref name="result"/>；终点本来就在体积外、
@@ -101,7 +105,14 @@ namespace Core.Carriers.Unit
                     dir = bl > 1e-12 ? new Vec2(back.X / bl, back.Y / bl) : new Vec2(1.0, 0.0);
                 }
 
-                candidates.Add(centers[k] + dir * (sums[k] + eps));
+                var ring = sums[k] + eps;
+                candidates.Add(centers[k] + dir * ring);
+                var baseAngle = Math.Atan2(dir.Y, dir.X);
+                for (var j = 1; j < GhostAngleSamples; j++)
+                {
+                    var angle = baseAngle + j * (2.0 * Math.PI / GhostAngleSamples);
+                    candidates.Add(centers[k] + new Vec2(Math.Cos(angle), Math.Sin(angle)) * ring);
+                }
             }
 
             for (var k = 0; k < count; k++)
