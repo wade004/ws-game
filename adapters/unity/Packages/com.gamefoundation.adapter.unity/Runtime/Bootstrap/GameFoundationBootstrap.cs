@@ -275,6 +275,10 @@ namespace Adapter.Unity.Bootstrap
         /// <summary>见文件顶部"判断记录 1"：固定步/帧回调改经 <see cref="Core.Foundation.EngineAdapter.IClock"/>
         /// 注册，本类型持有返回的句柄，<see cref="OnDestroy"/> 里显式退订。</summary>
         private Core.Foundation.Common.SubscriptionHandle? _fixedStepHandle;
+
+        // NF2：渲染帧插值系数，同 FrameworkResidentHost（见 RenderInterpolationClock 判断记录）。
+        private Core.Foundation.SimLoop.ISimClockHost? _simClockHost;
+        private readonly RenderInterpolationClock _renderAlpha = new RenderInterpolationClock();
         private Core.Foundation.Common.SubscriptionHandle? _frameHandle;
 
         private void Awake()
@@ -412,6 +416,7 @@ namespace Adapter.Unity.Bootstrap
             // 恢复真实解析，与 games/_template/Runtime/GameBootstrap.cs 同款默认值。
             var clockHost = new Core.Foundation.SimLoop.SimClockHost(
                 world, new Core.Foundation.SimLoop.SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
+            _simClockHost = clockHost;
             IPacingPolicy pacingPolicy = _pacingWaitForPlayback
                 ? new WaitForPlaybackPacingPolicy()
                 : new ImmediatePacingPolicy();
@@ -821,6 +826,7 @@ namespace Adapter.Unity.Bootstrap
             HandleFixedInput();
 
             Gameplay.Advance(stepSeconds);
+            _renderAlpha.NoteAdvance(Time.timeAsDouble);
         }
 
         private void HandleFixedInput()
@@ -891,7 +897,8 @@ namespace Adapter.Unity.Bootstrap
         /// <para>
         /// 判断记录（拍板 12，表现层异常隔离；拍板 5/DECISIONS 收口，删除"零事件兜底短路"）：两条
         /// 判断记录与 <see cref="Adapter.Unity.Shell.FrameworkResidentHost.OnFrameTick"/> 完全同款，
-        /// 见该方法源码判断记录，不重复展开。<c>_interpAccumulator</c> 字段已删除，改读
+        /// 见该方法源码判断记录，不重复展开。<c>_interpAccumulator</c> 字段已删除，连续模式的
+        /// 渲染帧插值系数由 <c>RenderInterpolationClock</c> 按引擎时间计算（NF2，见其判断记录），离散模式沿用
         /// <c>Gameplay.InterpolationAlpha</c>（拍板 9）。
         /// </para>
         /// </summary>
@@ -902,7 +909,10 @@ namespace Adapter.Unity.Bootstrap
                 return;
             }
 
-            var alpha = Mathf.Clamp01((float)Gameplay!.InterpolationAlpha);
+            var alpha = Mathf.Clamp01((float)_renderAlpha.Evaluate(
+                Time.timeAsDouble, Time.fixedDeltaTime,
+                _simClockHost != null && _simClockHost.Mode == Core.Foundation.SimLoop.TimeModelMode.Continuous,
+                Gameplay!.InterpolationAlpha));
 
             // 顿帧只暂停表现层插值/相机，不影响固定步里的逻辑推进（见 FreezeFrameReceiver 顶部
             // 判断记录）。
@@ -927,7 +937,7 @@ namespace Adapter.Unity.Bootstrap
             // 拍板 5/DECISIONS 收口：原 H4"零事件步"兜底短路已删除，见
             // FrameworkResidentHost.OnFrameTick 同款判断记录（playback_finished 现只经
             // PlaybackQueue.Finished 正常发出）。根治修复（W5c）：该判断记录里记录的"零事件步骤
-            // 永久卡住"已知局限已在 core/gameplay/assembly.GameplayAssembly.SetPendingPlaybackProbe
+            // 永久卡住"的缺口已在 core/gameplay/assembly.GameplayAssembly.SetPendingPlaybackProbe
             // / Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy.HasPendingPlayback 探针 +
             // presentation/assembly.PresentationAssembly 自动接线三处结构性根治，详见该判断记录。
 

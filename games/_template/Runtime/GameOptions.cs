@@ -177,6 +177,12 @@ namespace Game.Template
         // 已接线，见 BuildMovementOptions()；05 §3.6 碰撞层规划落地）。
         public bool UnitBlockEnabled = false;
 
+        // NF2：寻路失败/阻挡变化时的移动处理策略 —— MovementOptions.PathFailurePolicy / BlockingChangePolicy
+        // （W9 导航与移动公共接口补齐新增，见 CHANGELOG [1.10.0]）。默认值即框架默认（KeepOldPath / Replan），
+        // 见 BuildMovementOptions()。
+        public Core.Carriers.Unit.PathFailurePolicy PathFailurePolicy = Core.Carriers.Unit.PathFailurePolicy.KeepOldPath;
+        public Core.Carriers.Unit.BlockingChangePolicy BlockingChangePolicy = Core.Carriers.Unit.BlockingChangePolicy.Replan;
+
         // 13 §4 第 21 行：地面掉落物是否随存档持久化 —— LootOptions.PersistDropped。
         public bool PersistDroppedLoot = true;
 
@@ -287,6 +293,8 @@ namespace Game.Template
             // 05 §3.6 碰撞层规划落地，见该字段判断记录）。UnitBlockRadius 沿用 MovementOptions 自身
             // 默认值 0.5，本模板暂不额外暴露口味项，游戏层如需调整直接改 GameOptions 或绕过本方法。
             UnitBlocking = UnitBlockEnabled,
+            PathFailurePolicy = PathFailurePolicy,
+            BlockingChangePolicy = BlockingChangePolicy,
         };
 
         internal Core.Gameplay.Loot.LootOptions BuildLootOptions() => new Core.Gameplay.Loot.LootOptions

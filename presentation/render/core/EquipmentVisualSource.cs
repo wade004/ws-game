@@ -78,7 +78,7 @@ namespace Presentation.Render
         /// 保证后续真正的 <c>item.unequipped</c> 事件仍能正常反查）、并按模板 id 查 <see
         /// cref="_catalogByTemplateId"/> 直接把结果写进 <see cref="_visualByItemInstanceId"/>——不依赖
         /// <c>item.added</c> 是否曾经为这个实例触发过（<c>InventoryHost.InjectInstance</c> 不发
-        /// <c>item.added</c> 这条已知缺口因此被绕开：本方法直接从查询结果拿模板 id，不经过
+        /// <c>item.added</c> 这一特性因此被绕开：本方法直接从查询结果拿模板 id，不经过
         /// <c>item.added</c> 这一跳）。
         /// <para>
         /// 返回值供调用方（<c>UnityViewFactory.CreateView</c>）针对新创建的 View 逐条合成

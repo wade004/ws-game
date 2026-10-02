@@ -390,7 +390,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 
 25. **ADR-0093（消费方反馈第三十九批）：默认挂接的动画剪辑随朝向变化重新探测，取代判断记录（见
     [ADR-0072](../../architecture/adr/0072-纸娃娃层逐层播放剪辑.md)）里"只在实体挂接时刻按当时
-    朝向探测一次，运行期朝向改变不会重新探测"这条已知限制**——`SpriteViewBase.SyncPose` 解析出的
+    朝向探测一次，运行期朝向改变不会重新探测"这条边界**——`SpriteViewBase.SyncPose` 解析出的
     方向槽位与上一次不同时，新增受保护可覆写方法 `OnDirectionSlotChanged(Id newSlotId)`（默认空
     实现，ABI 加法，早于本次改动的子类不受影响）同步触发一次；引擎适配层的具体视图实现把它转发为
     对外事件，供负责挂接默认动画的一方订阅并按新方向裸档位名重新走一遍 ADR-0072 决策 1 既有的候选
@@ -409,7 +409,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     ABI 加法）。引擎适配层的具体视图实现把它转发为对外事件，供负责逐层动画写回的一方订阅：命中
     逐层动画的层立即按播放器当前帧号重新写回一次，不必等下一次自然推进——修复"重合成把当前播放
     帧临时覆盖成静态图，要等下一帧才纠正回来"的可见闪回，覆盖方向变化、装备变化、首次引用的
-    资源异步加载完成三条路径（定稿时遗漏第三条，已在同分支的后续提交收口，不再是已知限制）。
+    资源异步加载完成三条路径。
     完整推导见 [ADR-0099](../../architecture/adr/0099-纸娃娃层只在方向槽位变化时重合成.md)。
 
 27. **ADR-0104（消费方反馈第五十二批）：`TieBreakComparer` 由"建议"改为规则，`IRenderer2D` 新增

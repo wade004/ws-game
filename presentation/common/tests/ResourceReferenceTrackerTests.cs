@@ -196,5 +196,14 @@ namespace Tests.PresentationCommon
             Assert.True(loader.IsLoaded(id));
             Assert.Single(loader.LoadRequests.FindAll(r => r.ResourceId.Equals(id)));
         }
+
+        /// <summary>NF2：构造函数对空 loader 立即抛 <see cref="System.ArgumentNullException"/>（而不是推迟到首次
+        /// <c>EnsureLoading</c> 才抛 NullReferenceException），参数名指向 loader。</summary>
+        [Fact]
+        public void Constructor_NullLoader_ThrowsArgumentNullExceptionImmediately()
+        {
+            var ex = Assert.Throws<System.ArgumentNullException>(() => new ResourceReferenceTracker(null!));
+            Assert.Equal("loader", ex.ParamName);
+        }
     }
 }

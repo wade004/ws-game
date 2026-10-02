@@ -377,8 +377,8 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
     `SpriteRigDiagnosticsPump` 路径覆盖（判断记录 10 已述，未走构造期注入模式）——不存在第七个
     未覆盖来源。`presentation/ui` 的 `IUiDiagnostics`（`UiDataSource` 持有）是另一套独立契约（自己的
     接口/默认实现，未实现 `IPresentationDiagnostics`，仿 `Core.Rules.Skill.ISkillDiagnostics`
-    惯例），不在本条转发基础设施的接线范围内，接入需要先决定是否要合并两套诊断契约，这是设计取舍、
-    不是同类小改动，留待设计层另行拍板，不在本次任务范围内顺手接上。
+    惯例），不在本条转发基础设施的接线范围内（`IUiDiagnostics` 由后述 `DiagnosticsHubComposition` 接上，
+    不合并两套诊断契约）。
 
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 

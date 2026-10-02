@@ -242,5 +242,46 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.IsNotNull(source);
             Assert.IsFalse(source!.loop);
         }
+
+        // -----------------------------------------------------------------
+        // NF2：Sfx 总线音量变化对已经在播的音效实时生效（此前只影响之后新播放的）。
+        // -----------------------------------------------------------------
+
+        [Test]
+        public void SetBusVolume_Sfx_AppliesToAlreadyPlayingSfx_BaseTimesBus()
+        {
+            // 复现：播放时总线 1.0，之后把总线改到 0.25，在播音效的最终音量应从 base*1.0 变为 base*0.25
+            // （改动前停在 base*1.0）。期望值由规则（调用方音量 × 总线音量）算出。
+            const double baseVolume = 0.8;
+            const double newBus = 0.25;
+            var handle = _audio.PlaySfx(new Id("sfx.nf2_bus_live"), baseVolume, 1.0, null, loop: true);
+            var source = _audio.GetSfxSourceForHandle(handle)!;
+            var before = source.volume;
+
+            _audio.SetBusVolume(AudioBus.Sfx, newBus);
+
+            Assert.AreEqual((float)(baseVolume * 1.0), before, 1e-6f);
+            Assert.AreEqual((float)(baseVolume * newBus), source.volume, 1e-6f);
+        }
+
+        [Test]
+        public void SetBusVolume_Sfx_ThenNewPlay_UsesNewBus_AndOtherBusesDoNotTouchPlayingSfx()
+        {
+            // 不变量：非 Sfx 总线不改在播音效；总线改后新播放仍按 调用方音量 × 当前总线。
+            var first = _audio.PlaySfx(new Id("sfx.nf2_bus_a"), 0.5, 1.0, null);
+            var firstSource = _audio.GetSfxSourceForHandle(first)!;
+            var untouched = firstSource.volume;
+
+            _audio.SetBusVolume(AudioBus.Music, 0.1);
+            var afterMusicBus = firstSource.volume;
+
+            _audio.SetBusVolume(AudioBus.Sfx, 0.5);
+            var second = _audio.PlaySfx(new Id("sfx.nf2_bus_b"), 0.6, 1.0, null);
+            var secondSource = _audio.GetSfxSourceForHandle(second)!;
+
+            Assert.AreEqual(untouched, afterMusicBus, 1e-6f);
+            Assert.AreEqual((float)(0.6 * 0.5), secondSource.volume, 1e-6f);
+            Assert.AreEqual((float)(0.5 * 0.5), firstSource.volume, 1e-6f);
+        }
     }
 }

@@ -119,7 +119,7 @@ namespace Presentation.VfxSfx.Core
             /// 返回真实句柄时才登记，冷加载（真实引擎音频解码永远异步，见
             /// <c>UnityResourceLoader.LoadAsync</c> 判断记录"音频解码"）首播必然走这条排队路径，
             /// 键从未登记过，<see cref="StopAttached"/> 永远查不到、循环音效停不下来，见 ADR-0089
-            /// "后果/已知限制"节 2026-09-26 追加。</summary>
+            /// "后果"节 2026-09-26 追加。</summary>
             public Id? AttachEntityId;
 
             /// <summary>缺陷修复（2026-09-26）：见 <see cref="StopAttached"/> 判断记录"Pending 态：
@@ -162,6 +162,28 @@ namespace Presentation.VfxSfx.Core
             SfxOptions? options = null,
             IPresentationDiagnostics? diagnostics = null,
             IResourceLoader? resourceLoader = null)
+            : this(audio, rng, catalog, options, diagnostics, resourceLoader, (EntityPositionResolver?)null)
+        {
+        }
+
+        /// <summary>NF2：带实体存活探测的新重载（旧签名原样保留并转调本重载，<paramref name="entityPositionResolver"/>
+        /// 为 null 时行为与旧构造逐位一致）。<paramref name="entityPositionResolver"/> 与
+        /// <see cref="VfxPlayer"/> 的同名参数同一委托、同一约定：返回 null 表示实体已不存在/不可见。
+        /// 判断记录（循环音效随实体销毁而停）：经 <see cref="PlayAttached"/> 登记的循环音效
+        /// （<see cref="_activeByAttachKey"/>，含仍在排队等冷加载的 Pending 态）在每次 <see cref="Update"/>
+        /// 里按实体存活探测复核一遍，探测返回 null 的实体名下的全部 attach 键走 <see cref="StopAttached"/>
+        /// 同一条停止路径（Handle 态 <c>IAudio.StopSfx</c> 并摘键，Pending 态取消排队）。不新建"实体销毁"事件
+        /// 监听：与 <see cref="VfxPlayer"/> 跟随实例"逐帧解析失败即结束"同一机制同一口径，这样不依赖
+        /// 销毁信号与本播放器的订阅先后，也覆盖"移除信号到达前实体已销毁"的场景。内容侧显式
+        /// <c>stop_sfx</c> 仍照常有效，先到先停，后到的查不到键静默忽略。</summary>
+        public SfxPlayer(
+            IAudio audio,
+            IRngHost rng,
+            IReadOnlyDictionary<Id, SfxDef> catalog,
+            SfxOptions? options,
+            IPresentationDiagnostics? diagnostics,
+            IResourceLoader? resourceLoader,
+            EntityPositionResolver? entityPositionResolver)
         {
             _audio = audio ?? throw new ArgumentNullException(nameof(audio));
             _rng = rng ?? throw new ArgumentNullException(nameof(rng));
@@ -169,7 +191,10 @@ namespace Presentation.VfxSfx.Core
             _options = options ?? new SfxOptions();
             _diagnostics = diagnostics ?? new PresentationDiagnosticsRecorder();
             _resourceLoader = resourceLoader;
+            _entityPositionResolver = entityPositionResolver;
         }
+
+        private readonly EntityPositionResolver? _entityPositionResolver;
 
         /// <summary>诊断转发到引擎控制台跟进（presentation/assembly/README.md 判断记录 10）：见
         /// <see cref="Presentation.VfxSfx.Core.VfxPlayer.Diagnostics"/> 同款判断记录——ABI 只新增只读
@@ -427,6 +452,7 @@ namespace Presentation.VfxSfx.Core
             }
 
             SweepTimedOutPendingPlays();
+            StopAttachedOfDestroyedEntities();
 
             // ADR-0105：逐帧也按引擎回报/保留时长释放已播完的一次性音效记账，与 TryMakeRoom 计数
             // 前的释放共用同一出口（ReleaseFinishedOneShots）。遍历顺序不影响结果（只摘记账，不产生
@@ -434,6 +460,36 @@ namespace Presentation.VfxSfx.Core
             foreach (var list in _activeByLayer.Values)
             {
                 ReleaseFinishedOneShots(list);
+            }
+        }
+
+        /// <summary>NF2：见带 <c>entityPositionResolver</c> 的构造重载判断记录。未装配探测或没有任何 attach 键时
+        /// 立即返回（缺省路径零开销、行为不变）。先收集再停止（<see cref="StopAttached"/> 会改字典）；
+        /// 收集顺序取字典枚举顺序但只用于"停止集合"，每个键独立停止，结果与顺序无关。</summary>
+        private void StopAttachedOfDestroyedEntities()
+        {
+            if (_entityPositionResolver == null || _activeByAttachKey.Count == 0)
+            {
+                return;
+            }
+
+            List<(Id SfxId, Id EntityId)>? lost = null;
+            foreach (var key in _activeByAttachKey.Keys)
+            {
+                if (!_entityPositionResolver(key.EntityId).HasValue)
+                {
+                    (lost ??= new List<(Id, Id)>()).Add(key);
+                }
+            }
+
+            if (lost == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < lost.Count; i++)
+            {
+                StopAttached(lost[i].SfxId, lost[i].EntityId);
             }
         }
 
@@ -477,7 +533,7 @@ namespace Presentation.VfxSfx.Core
         }
 
         /// <summary>ADR-0089：见 <see cref="ISfxPlayer.StopAttached"/> 判断记录。缺陷修复
-        /// （2026-09-26）新增 Pending 态处理：见类型顶部"后果/已知限制"追加。</summary>
+        /// （2026-09-26）新增 Pending 态处理：见 ADR-0089"后果"节 2026-09-26 追加。</summary>
         public void StopAttached(Id sfxId, Id entityId)
         {
             var key = (sfxId, entityId);

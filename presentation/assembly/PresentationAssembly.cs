@@ -537,7 +537,7 @@ namespace Presentation.Assembly
                 renderer2D, camera, vfxCatalog, opts.VfxOptions, anchorResolver: ViewBinder.GetAnchorWorldPosition,
                 entityPositionResolver: entityPositionResolver, resourceLoader: resourceLoader,
                 renderer3D: renderer3D, modelHandleResolver: modelHandleResolver);
-            var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, resourceLoader: resourceLoader);
+            var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, null, resourceLoader, entityPositionResolver);
             Vfx = vfxPlayer;
             Sfx = sfxPlayer;
             // 诊断转发到引擎控制台跟进（判断记录 10）：见 VfxDiagnostics/SfxDiagnostics 属性注释——

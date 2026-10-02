@@ -68,46 +68,17 @@ unit.<id>.stat.<statId>
 `core/gameplay/economy/README.md` 判断记录 15）——与 `EconomyHost.Buy` 实际扣款出自同一条价格
 解析路径。
 
-## 已知契约缺口
+## 契约边界与判断记录
 
-（已解决，ADR-0050，2026-09-20）此前"`SkillHost.GetKnownSkills` 不在 `ISkillHost` 契约上（是具体类
-`Core.Rules.Skill.SkillHost` 的公开方法）"——`ISkillHost` 现已补 `GetKnownSkills`/`Knows`/
-`LearnSkill`/`LearnFromBook` 四个默认接口成员（见 `core/rules/common/README.md` 判断记录 11）；
-`SkillHostSkillBookQuery` 已新增接受 `ISkillHost` 的构造函数重载。本模块仍保留窄接口
-`ISkillBookQuery` + 适配器 `SkillHostSkillBookQuery`（UI 侧仍不需要 `ISkillHost` 其余大部分成员，
-窄接口收敛依赖的价值不因宿主契约补齐而消失），测试仍可用内存 Fake 替代。
-
-（已解决，缺口 4）此前"没有宿主契约暴露'动作条槽位 → 技能 id'绑定查询"——G1 补了
-`Core.Carriers.Unit.ISkillBindingHost`（`player.skill_bindings` 运行期查询/写入），
-`ActionBarViewModel` 已改用它替代 `Func<int, Id?>` 注入委托；`UiIntents` 新增
-`BindActionBarSlot`/`UnbindActionBarSlot` 作为技能书面板拖放/点击绑定的意图入口。
-
-（已解决，缺口 12）此前"分层音效音量没有专门的音量宿主契约"——`presentation/vfx_sfx` 已补
-`IAudioLayerVolumeHost`（层清单 = `sfx.def.layer` 去重 + `music`，读写经 `IAudio`/`ISfxPlayer`
-落地并经 `ISettingsStore` 持久化），`SettingsViewModel`/`UiIntents` 已改用它，删除此前的
-`Func<string, double>`/`Action<string, double>` 注入回调。
-
-（ADR-0019 F1c 判断记录）`ui_layout_definition.fields` 不登记子结构：不是简单的 Map（键为
-`stat_id`/锚点名一类同构键值），而是"具体布局参数，结构由引擎适配层/具体游戏约定"的完全不透明
-JSON blob（见 `UiLayoutDefinition.Fields` 类型注释"本模块只透传"）——本模块自己唯一会读的逻辑
-相关项是顶层 `slots`（已登记为 `FieldKind.Int`），`fields` 保持"存在且是对象"。
-
-（P4-2 已修补，不再是契约缺口）`IDialogHost` 原先没有对称于 `GetStoryView` 的 `GetGossipView` 只读
-查询，`DialogViewModel` 的 gossip 视图需要打开菜单的调用方手动灌入；`IDialogHost.GetGossipView`
-现已补上，`DialogViewModel.Refresh` 与 `Story` 同一惯例直接查询，`SetGossipView` 仅保留供尚未升级
-的既有调用方兼容使用（见 `DialogViewModel` 类型注释）。
-
-（已解决，拍板 7）此前"商店 UI 单元无视图模型/面板，只有 `UiIntents.Buy`/`UiIntents.Sell`"——补
-`ShopViewModel`（见上"十一个视图模型"一节）+ `UiPanel.Shop` 第 11 值 + `ui_layout_definition`
-schema/示例行同步扩枚举；09 第 7.1 节勘误已补 changelog 说明技能书/角色属性/存档槽/暂停菜单为
-实现级单元（无专属数据表，纯查询/意图组合，见该文档）。
-
-（已解决，技术债 17，2026-09-06 收口）回合顺序条/行动点显示/"结束回合"按钮三个离散模式界面单元
-（09 第 7.1 节）此前只有引擎侧 `TurnStatusPanel` 一份实现（不经 `UiPanelHost` 登记，直接读
-`GameplayAssembly`、经 `UiIntents` 转发意图），本模块十个视图模型均不认识 `TurnScheduler`。现已
-迁入 `HudViewModel`（可选注入 `Core.Foundation.SimLoop.TurnScheduler`/`IAppStateHost`/等待输入
-子态，见该类型判断记录），引擎侧 `HudPanel` 只做渲染与键盘轮询，`TurnStatusPanel` 已删除；
-01 L5 `ui` 行与 09 第 7.1 节的例外注记已同步撤销；台账见落地计划"已知未解决缺口"第 17 条。
+- **窄接口 `ISkillBookQuery` + 适配器 `SkillHostSkillBookQuery`（ADR-0050）**：`ISkillHost` 已有
+  `GetKnownSkills`/`Knows`/`LearnSkill`/`LearnFromBook`，适配器同时提供接受 `ISkillHost` 的构造重载；本模块仍保留
+  窄接口——UI 侧不需要 `ISkillHost` 其余大部分成员，窄接口收敛依赖的价值不因宿主契约补齐而消失，测试仍可用内存
+  Fake 替代。
+- **`ui_layout_definition.fields` 不登记子结构（ADR-0019 F1c）**：它不是同构键值的 Map，而是"具体布局参数，结构
+  由引擎适配层/具体游戏约定"的完全不透明 JSON blob（`UiLayoutDefinition.Fields` 只透传）；本模块自己唯一会读的
+  是顶层 `slots`（`FieldKind.Int`），`fields` 只校验"存在且是对象"。
+- **`DialogViewModel.SetGossipView` 保留**：`IDialogHost.GetGossipView` 已补，`Refresh` 与 `Story` 同一惯例直接
+  查询；`SetGossipView` 仅供尚未升级的既有调用方兼容使用（见 `DialogViewModel` 类型注释）。
 
 **UI-111-01 根治（第十三轮审核 6739f50，2026-09-09）**：
 `architecture/落地计划/audit-6739f50-20260909/AUDIT_REPORT.md`，复现见
@@ -137,7 +108,7 @@ PresentationAssemblyTests.cs` 新增 `Shop_SaveLoadedEvent_RefreshesOpenShelf_No
 [ADR-0092](../../architecture/adr/0092-玩家主动放弃任务意图.md)）
 
 背景与契约层决策见 ADR-0092、`core/gameplay/quest/README.md` 判断记录 24（新增
-`IQuestHost.Abandon`，与既有 `Fail` 的语义差异、已知限制均在该处登记），本条只记表现层落地要点。
+`IQuestHost.Abandon`，与既有 `Fail` 的语义差异均在该处登记），本条只记表现层落地要点。
 
 **`UiIntents`**：新增 `AbandonQuest(questId)`/`AbandonQuest(panelId, questId)` 两个重载，形状与
 错误处理完全比照既有 `TurnInQuest` 一对重载——不带 `panelId` 的重载直接转发 `IQuestHost.Abandon`

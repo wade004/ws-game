@@ -284,7 +284,7 @@ namespace Presentation.FeedbackBinder.Core
         /// <c>action.marker</c>/<c>action.phase_changed</c> 的施法实例 id 是同一个值）：带动作实例 id 的命中只计入同一动作实例的窗口，
         /// 上一段连招的迟到命中不会误计入下一段、投射物在动作结束后命中也不会污染别的窗口。没有动作实例 id 的命中
         /// （instant 的 <c>combat.damage_dealt</c>/<c>combat.attack_avoided</c>、旧的按行动者调用方式）计入该行动者全部打开的窗口。
-        /// 同一动作内多段判定（多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空——已知局限，写在 feedback_binder/README.md。
+        /// 同一动作内多段判定（多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空——设计决定，理由见 feedback_binder/README.md 判断记录 23。
         /// </summary>
         public void ObserveHit(ImpactHit hit)
         {

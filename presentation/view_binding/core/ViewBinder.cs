@@ -272,7 +272,7 @@ namespace Presentation.ViewBinding
         {
             // ADR-0121 第 5 条（D5）：view.Destroy 失败只记一条诊断，绑定表与位置缓存无论如何都清理——
             // 此前 Destroy 抛异常会让 _views.Remove 等清理步骤被跳过，绑定表残留（OnSaveLoaded 旧注释
-            // "需人工核查"的已知限制，现已消除）。本方法因此不再向调用方（事件订阅、OnSaveLoaded 循环）
+            // "需人工核查"的缺口，现已消除）。本方法因此不再向调用方（事件订阅、OnSaveLoaded 循环）
             // 传播视图异常，其余实体的销毁不受影响（11 章 §4 表现层异常不影响 tick）。
             if (_views.TryGetValue(entityId, out var view))
             {

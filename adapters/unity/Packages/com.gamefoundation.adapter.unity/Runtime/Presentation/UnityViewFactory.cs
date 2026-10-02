@@ -6,7 +6,7 @@
 // DOC-111-04 更新：此前本记录声称"ViewBinder/CameraHost 不支持退订"，已过期，见下）：
 // presentation/view_binding/core/ViewBinder.cs 现已实现 IDisposable（构造期保存全部订阅句柄，
 // Dispose 时统一退订，见该类型判断记录），GameFoundationBootstrap.OnDestroy 也会先调用
-// Presentation.Dispose() 完成退订；"ViewBinder 不支持退订"已不是 presentation/ 的已知缺口，
+// Presentation.Dispose() 完成退订；"ViewBinder 不支持退订"不再是缺口，
 // 这部分不再需要引擎侧代为兜底。DestroyAllCreatedViews 仍然保留，因为它解决的是另一件事——
 // 事件退订（停止继续响应）与销毁已创建的 View 实体（回收其占用的引擎资源）是两个独立职责：
 // ViewBinder.Dispose 退订后，此前已经创建好的 View（其 Sprite 实例挂在 DontDestroyOnLoad 的
@@ -74,8 +74,12 @@ namespace Adapter.Unity.Presentation
         /// <see cref="AnimClipResolver"/> 查表查不到变体键时自然回落普通键。所有按默认键遍历的接线点（默认
         /// 剪辑登记、逐层探测、换向重探测、换装/合成层变化重探测、逐层缓存重登记）一律经本方法取键表，
         /// 键表定义只有这一处；没有变体键的外形返回的恰好就是 <see cref="DefaultAnimStateKeys"/>，与改动前
-        /// 逐项一致。<paramref name="animSet"/> 为 null（该外形没有 anim_set 行）同样只返回基础键。</summary>
-        private static IReadOnlyList<string> AnimStateKeysFor(Core.Foundation.DisplayInfo.AnimSetDef? animSet)
+        /// 逐项一致。<paramref name="animSet"/> 为 null（该外形没有 anim_set 行）同样只返回基础键。
+        /// <para>NF2：外形声明了无后缀的 <c>jump</c> 键时它也进键表（紧跟基础键之后）。此前只有带后缀的 <c>jump.*</c> 与
+        /// <c>combat_jump</c> 能进键表，无后缀的 <c>jump</c> 永远不登记——空中阶段键 <c>jump.rise|fall</c> 缺失时回落链的
+        /// 下一站 <c>jump</c> 在表里查不到，直接掉到 <c>idle</c>（<c>jump.land</c> 本就回落 <c>idle</c>）；游戏自己
+        /// <c>RequestOverride(Jump)</c> 也什么都不播。没声明 <c>jump</c> 的外形得到的键表与改动前逐项一致。</para></summary>
+        internal static IReadOnlyList<string> AnimStateKeysFor(Core.Foundation.DisplayInfo.AnimSetDef? animSet)
         {
             if (animSet == null)
             {
@@ -83,6 +87,12 @@ namespace Adapter.Unity.Presentation
             }
 
             List<string>? keys = null;
+            var plainJump = AnimClipResolver.StateKey(AnimState.Jump);
+            if (animSet.Clips.ContainsKey(plainJump))
+            {
+                keys = new List<string>(DefaultAnimStateKeys) { plainJump };
+            }
+
             var states = (AnimState[])Enum.GetValues(typeof(AnimState));
             for (var i = 0; i < states.Length; i++)
             {
@@ -852,6 +862,11 @@ namespace Adapter.Unity.Presentation
             // 完成（只加载、不改显示），有结论才当帧提交，见 UnityViewFactory.DirectionPrepare.cs 顶部判断记录。
             view.DirectionPreparer = (facing, slotId, flipX) => PrepareDirectionForView(entityId, facing, slotId);
 
+            // NF2：没有纸娃娃层的外形，初始方向（挂接期默认朝向的槽位）的整身方向变体在挂接时就探测一次——此前只有
+            // 方向发生变化才探测，初始方向永远只用无方向段的 resource_ref，随外形带 "<ref>__<初始方向>" 美术时要等
+            // 第一次换向（换走再换回）才生效。
+            ProbeInitialDirectionWholeBody(entityId);
+
             // GP-02 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：此前默认
             // 工厂只接了 StateChanged -> Play 这一半（见 AnimClipResolver），播放完成后从不回头通知
             // AnimStateMachine——Hit/Attack/Cast 这类瞬态状态优先级锁只能靠
@@ -1403,6 +1418,36 @@ namespace Adapter.Unity.Presentation
                     ProbeLayerClipTier(unityLoader, candidates, tierIndex + 1, spriteSetId, onResolved, onExhausted);
                 }
             });
+        }
+
+        /// <summary>NF2：挂接时对初始方向做一次整身方向变体探测（候选规则、缓存、登记与 <see cref="ReprobeWholeBodyClipForDirection"/>
+        /// 完全一致，换向重探测命中同一份 (实体, 方向) 缓存）。判断记录：只对没有纸娃娃层的外形生效
+        /// （<c>ActivePerLayerByState == null</c>，整身路线是唯一的视觉内容）；纸娃娃层外形的初始方向由挂接期逐层探测
+        /// 负责，逐层全部耗尽时的整身方向变体沿用既有路径。不改 <c>LastDirBareName</c>、不计入
+        /// <see cref="DirectionAwareReprobeCountForTests"/>——这不是一次"方向变化"。没有 anim_set、加载器不是真实
+        /// <c>UnityResourceLoader</c> 时静默跳过（与 <see cref="ReprobeDirectionAwareAnimation"/> 同一惯例）。</summary>
+        private void ProbeInitialDirectionWholeBody(Id entityId)
+        {
+            if (!_directionAwareAnimByEntity.TryGetValue(entityId, out var ctx)
+                || ctx.AnimSet == null || ctx.ActivePerLayerByState != null || ctx.Info.Sprite == null
+                || !(_resourceLoader is Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader))
+            {
+                return;
+            }
+
+            var dirBareName = InitialDirBareName(ctx.Info.Sprite);
+            var spriteSetId = Id.Parse(ctx.Info.Sprite.SpriteSetId);
+            var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+            for (var i = 0; i < stateKeys.Count; i++)
+            {
+                var stateKey = stateKeys[i];
+                if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+
+                ReprobeWholeBodyClipForDirection(entityId, dirBareName, stateKey, stateClipId, clipDef, ctx.Player, unityLoader, spriteSetId);
+            }
         }
 
         /// <summary>

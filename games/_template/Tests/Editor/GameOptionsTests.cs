@@ -70,6 +70,8 @@ namespace Game.Template.EditorTests
             var frameworkMovement = new Core.Carriers.Unit.MovementOptions();
             Assert.AreEqual(frameworkMovement.DiscreteTurnEquivalentSeconds, movement.DiscreteTurnEquivalentSeconds);
             Assert.AreEqual(frameworkMovement.UnitBlocking, movement.UnitBlocking);
+            Assert.AreEqual(frameworkMovement.PathFailurePolicy, movement.PathFailurePolicy);
+            Assert.AreEqual(frameworkMovement.BlockingChangePolicy, movement.BlockingChangePolicy);
 
             Assert.AreEqual(new Core.Gameplay.Loot.LootOptions().PersistDropped,
                 Build<Core.Gameplay.Loot.LootOptions>(options, "BuildLootOptions").PersistDropped);
@@ -141,6 +143,8 @@ namespace Game.Template.EditorTests
                 TargetingDefaultRadius = new TargetingOptions().DefaultRadius + 3.5,
                 DiscreteTurnEquivalentSeconds = new Core.Carriers.Unit.MovementOptions().DiscreteTurnEquivalentSeconds + 0.5,
                 UnitBlockEnabled = true,
+                PathFailurePolicy = Core.Carriers.Unit.PathFailurePolicy.Stop,
+                BlockingChangePolicy = Core.Carriers.Unit.BlockingChangePolicy.Revalidate,
                 PersistDroppedLoot = false,
                 DirectionCount = new RenderOptions().DirectionCount / 2,
                 HitFrameSyncEnabled = true,
@@ -162,6 +166,10 @@ namespace Game.Template.EditorTests
             var movement = Build<Core.Carriers.Unit.MovementOptions>(o, "BuildMovementOptions");
             Assert.AreEqual(o.DiscreteTurnEquivalentSeconds, movement.DiscreteTurnEquivalentSeconds);
             Assert.IsTrue(movement.UnitBlocking);
+            Assert.AreEqual(o.PathFailurePolicy, movement.PathFailurePolicy);
+            Assert.AreEqual(o.BlockingChangePolicy, movement.BlockingChangePolicy);
+            Assert.AreNotEqual(new Core.Carriers.Unit.MovementOptions().PathFailurePolicy, movement.PathFailurePolicy);
+            Assert.AreNotEqual(new Core.Carriers.Unit.MovementOptions().BlockingChangePolicy, movement.BlockingChangePolicy);
 
             Assert.IsFalse(Build<Core.Gameplay.Loot.LootOptions>(o, "BuildLootOptions").PersistDropped);
 
