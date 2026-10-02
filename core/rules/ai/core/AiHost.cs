@@ -160,6 +160,14 @@ namespace Core.Rules.Ai
             _bus.Subscribe<EntityDestroyedEvent>(SimEventKeys.EntityDestroyed, evt => _states.Remove(evt.EntityId.Value));
         }
 
+        /// <summary>
+        /// 地形台阶约束（手感落地 M4-W1a 补丁，可选）：<c>null</c>（缺省）= 取路点用不带地形的 <c>FindPath(mapId, from, to)</c>（与引入之前逐位一致）；
+        /// 非空时 <see cref="ComputeDirection"/> 改用带约束的 <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/> 重载，
+        /// 与移动层（<c>MovementTickHandler.PlanPath</c>）同一口径——直线被台阶挡住时第一个路点已经是绕行方向，不会顶在台阶前。
+        /// 由 <c>CarriersAssembly</c> 在装配了竖直轴且启用台阶阻挡（有地形高度与台阶高度）时赋值竖直运动服务；没有地形的世界保持 <c>null</c>。
+        /// </summary>
+        public ITerrainStepConstraint? TerrainStepConstraint { get; set; }
+
         /// <summary>全部已注册单位，按 <see cref="Id"/> 序数排序（供 <see cref="AiTickHandler"/>
         /// 确定性遍历）。</summary>
         public IReadOnlyList<Id> RegisteredUnitIds
@@ -812,7 +820,10 @@ namespace Core.Rules.Ai
 
             if (_navigation != null && mapId.HasValue)
             {
-                var path = _navigation.FindPath(mapId.Value, from, to);
+                var terrain = TerrainStepConstraint;
+                var path = terrain != null
+                    ? _navigation.FindPath(mapId.Value, from, to, terrain)
+                    : _navigation.FindPath(mapId.Value, from, to);
                 if (path != null && path.Count >= 2)
                 {
                     return Normalize(path[1] - from);
