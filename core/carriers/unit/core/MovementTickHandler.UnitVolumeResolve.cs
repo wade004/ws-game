@@ -110,6 +110,7 @@ namespace Core.Carriers.Unit
             }
 
             ResolveMovedPairs();
+            CapturePassOutcome();
             ResolveSeparation(dt);
             ApplyPendingPushes(world);
             FlushMovedEvents();
@@ -132,7 +133,30 @@ namespace Core.Carriers.Unit
             /// <summary>折线来自阶段 A 的记录（每条边都经过地形裁决）；为假时是起终点的弦，缩短后必须重新验证可走。</summary>
             public bool Exact;
 
+            /// <summary>本 tick 的速度剖面（弧长占比随时间的分布）；null = 沿折线匀速。</summary>
+            public SpeedProfile? Prof;
+
             public int Legs => Pts.Length - 1;
+
+            public double RateMax => Prof == null ? 1.0 : Prof.MaxRate;
+
+            /// <summary>放慢到占比 <paramref name="scale"/> 后，时刻 <paramref name="t"/> 的位置：折线上弧长占比 <c>scale × u(t)</c> 处。</summary>
+            public Vec2 AtTime(double scale, double t) => At(scale * (Prof == null ? t : Prof.U(t)));
+
+            /// <summary>放慢到占比 <paramref name="scale"/> 后，时刻 <paramref name="t"/> 的速度向量（每单位 t）。</summary>
+            public Vec2 VelocityAtTime(double scale, double t)
+            {
+                if (Legs <= 0 || !(scale > 0.0))
+                {
+                    return Vec2.Zero;
+                }
+
+                var u = Prof == null ? t : Prof.U(t);
+                var rate = Prof == null ? 1.0 : Prof.Rate(t);
+                var k = Legs == 1 ? 0 : LegAtArc(scale * u * Length);
+                var len = Cum[k + 1] - Cum[k];
+                return (Pts[k + 1] - Pts[k]) * (scale * rate * (Length / len));
+            }
 
             public static Trajectory Still(Vec2 at) => new Trajectory { Pts = new[] { at }, Cum = new[] { 0.0 } };
 
@@ -219,6 +243,7 @@ namespace Core.Carriers.Unit
                     return new Trajectory
                     {
                         Pts = pts.ToArray(), Cum = cum.ToArray(), LegIndex = idx.ToArray(), Length = cum[cum.Count - 1], Exact = true,
+                        Prof = b.ProfileMixed ? null : b.Profile,
                     };
                 }
             }
@@ -278,7 +303,9 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            SolveContactScales(trajs, scale, pairs, (index, s) => ValidTruncation(trajs[index], index, s));
+            var pullNormal = new Vec2[n];
+            var hasPull = new bool[n];
+            SolveContactScales(trajs, scale, pairs, (index, s) => ValidTruncation(trajs[index], index, s), pullNormal, hasPull);
             for (var k = 0; k < participants.Count; k++)
             {
                 var i = participants[k];
@@ -291,6 +318,8 @@ namespace Core.Carriers.Unit
                 var p = trajs[i].At(scale[i]);
                 b.Scale = scale[i];
                 b.PulledBack = true;
+                b.PullNormal = pullNormal[i];
+                b.HasPullNormal = hasPull[i];
                 b.Final = p;
                 b.RestoreIndex = IndexAtScale(trajs[i], scale[i]);
                 _units.SetPosition(b.Id, p);
@@ -542,6 +571,11 @@ namespace Core.Carriers.Unit
         /// </summary>
         private static Contact FirstContact(Trajectory ti, double si, Trajectory tj, double sj, double limit)
         {
+            if (ti.Prof != null || tj.Prof != null)
+            {
+                return FirstContactProfiled(ti, si, tj, sj, limit);
+            }
+
             const double tol = 1e-9;
             var result = new Contact();
             var f0 = ti.Pts[0] - tj.Pts[0];
@@ -692,7 +726,8 @@ namespace Core.Carriers.Unit
         /// <paramref name="valid"/> 非空时，比例被缩短的单位的新位置必须通过它，否则该单位退回起点。
         /// </summary>
         private void SolveContactScales(
-            Trajectory[] trajs, double[] scale, List<(int I, int J)> pairs, Func<int, double, bool>? valid)
+            Trajectory[] trajs, double[] scale, List<(int I, int J)> pairs, Func<int, double, bool>? valid,
+            Vec2[]? pullNormal = null, bool[]? hasPull = null)
         {
             const double approachTolerance = 1e-9;
             var eps = _options.ArrivalEpsilon;
@@ -717,9 +752,10 @@ namespace Core.Carriers.Unit
                     var lineLength = line.Length;
                     var approachI = 0.0;
                     var approachJ = 0.0;
+                    var normal = Vec2.Zero;
                     if (lineLength > 1e-12)
                     {
-                        var normal = new Vec2(line.X / lineLength, line.Y / lineLength);
+                        normal = new Vec2(line.X / lineLength, line.Y / lineLength);
                         approachI = contact.Vi.Dot(normal);
                         approachJ = -contact.Vj.Dot(normal);
                     }
@@ -732,16 +768,31 @@ namespace Core.Carriers.Unit
                         var yielder = yielderIsFirst ? i : j;
                         var other = yielderIsFirst ? j : i;
                         var s = YieldScale(trajs[yielder], scale[yielder], trajs[other], scale[other], sum, yielderIsFirst);
-                        if (s < next[yielder]) next[yielder] = s;
+                        if (s < next[yielder])
+                        {
+                            next[yielder] = s;
+                            // 法线从对方指向让路者（让路者是 i 时对方在 +normal 一侧，所以取 −normal）。
+                            NotePull(pullNormal, hasPull, yielder, yielderIsFirst ? normal * -1.0 : normal, lineLength > 1e-12);
+                        }
+
                         continue;
                     }
 
                     var tau = contact.Tau - eps * contact.Dt / Math.Sqrt(contact.RelSq);
                     if (tau < 0.0) tau = 0.0;
-                    var si = scale[i] * tau;
-                    var sj = scale[j] * tau;
-                    if (si < next[i]) next[i] = si;
-                    if (sj < next[j]) next[j] = sj;
+                    var si = scale[i] * (trajs[i].Prof == null ? tau : trajs[i].Prof!.U(tau));
+                    var sj = scale[j] * (trajs[j].Prof == null ? tau : trajs[j].Prof!.U(tau));
+                    if (si < next[i])
+                    {
+                        next[i] = si;
+                        NotePull(pullNormal, hasPull, i, normal * -1.0, lineLength > 1e-12);
+                    }
+
+                    if (sj < next[j])
+                    {
+                        next[j] = sj;
+                        NotePull(pullNormal, hasPull, j, normal, lineLength > 1e-12);
+                    }
                 }
 
                 if (!any)
@@ -756,6 +807,7 @@ namespace Core.Carriers.Unit
                         if (next[k] < scale[k] && !valid(k, next[k]))
                         {
                             next[k] = 0.0;
+                            NotePull(pullNormal, hasPull, k, Vec2.Zero, false);
                         }
                     }
                 }
@@ -775,6 +827,8 @@ namespace Core.Carriers.Unit
                     {
                         next[i] = 0.0;
                         next[j] = 0.0;
+                        NotePull(pullNormal, hasPull, i, Vec2.Zero, false);
+                        NotePull(pullNormal, hasPull, j, Vec2.Zero, false);
                         any = true;
                     }
                 }
@@ -788,40 +842,98 @@ namespace Core.Carriers.Unit
             }
         }
 
-        /// <summary>
-        /// 收集"位移包络可能相交"的单位对（<c>|pos_i − pos_j| ≤ reach_i + reach_j</c>），i &lt; j、按 (i, j) 排序：先按 x 排序再扫描，
-        /// 单位多时不是 O(n²)。<paramref name="idx"/> 是参与者的快照下标。
-        /// </summary>
-        private static void CollectNearPairs(List<int> idx, Vec2[] pos, double[] reach, List<(int I, int J)> result)
+        private static void NotePull(Vec2[]? normals, bool[]? has, int index, Vec2 normal, bool valid)
         {
-            var order = idx.ToArray();
-            Array.Sort(order, (p, q) =>
+            if (normals == null || has == null)
             {
-                var c = pos[p].X.CompareTo(pos[q].X);
-                return c != 0 ? c : p.CompareTo(q);
-            });
-            var maxReach = 0.0;
-            for (var k = 0; k < order.Length; k++)
-            {
-                if (reach[order[k]] > maxReach) maxReach = reach[order[k]];
+                return;
             }
 
-            for (var x = 0; x < order.Length; x++)
+            normals[index] = normal;
+            has[index] = valid;
+        }
+
+        /// <summary>
+        /// 收集"位移包络可能相交"的单位对（<c>|pos_i − pos_j| ≤ reach_i + reach_j</c>），i &lt; j、按 (i, j) 排序。<paramref name="idx"/> 是参与者的快照下标。
+        /// 宽相：包络半径不大于"中位数的两倍"的单位按均匀网格取 3×3 邻格（格边长 = 该上限的两倍），包络特别大的少数单位（冲刺、位移很远）
+        /// 逐个与全部参与者比较——两条路径用的是同一个判定式 <c>delta·delta ≤ lim²</c>，所以结果集合与暴力两两比较完全相同（再按 (i, j) 排序，
+        /// 顺序也相同）；<see cref="VolumeBroadPhaseBruteForce"/> 打开时直接暴力两两比较，作为测试的对照基准。
+        /// </summary>
+        private void CollectNearPairs(List<int> idx, Vec2[] pos, double[] reach, List<(int I, int J)> result)
+        {
+            var count = idx.Count;
+            if (VolumeBroadPhaseBruteForce || count <= 16)
             {
-                var i = order[x];
-                for (var y = x + 1; y < order.Length; y++)
+                for (var x = 0; x < count; x++)
                 {
-                    var j = order[y];
-                    if (pos[j].X - pos[i].X > reach[i] + maxReach)
+                    for (var y = x + 1; y < count; y++)
                     {
-                        break;
+                        AddIfNear(idx[x], idx[y], pos, reach, result);
+                    }
+                }
+            }
+            else
+            {
+                var sorted = new double[count];
+                for (var k = 0; k < count; k++) sorted[k] = reach[idx[k]];
+                Array.Sort(sorted);
+                var limit = 2.0 * Math.Max(sorted[count / 2], 1e-6);
+                var cell = 2.0 * limit;
+                var small = new List<int>(count);
+                var large = new List<int>();
+                for (var k = 0; k < count; k++)
+                {
+                    (reach[idx[k]] <= limit ? small : large).Add(k);
+                }
+
+                var cells = new Dictionary<long, List<int>>();
+                for (var k = 0; k < small.Count; k++)
+                {
+                    var p = pos[idx[small[k]]];
+                    var key = GridKey(CellOf(p.X, cell), CellOf(p.Y, cell));
+                    if (!cells.TryGetValue(key, out var list))
+                    {
+                        list = new List<int>(4);
+                        cells[key] = list;
                     }
 
-                    var lim = reach[i] + reach[j];
-                    var delta = pos[i] - pos[j];
-                    if (delta.Dot(delta) <= lim * lim)
+                    list.Add(small[k]); // 参与者序号（idx 里的位置）。
+                }
+
+                for (var k = 0; k < small.Count; k++)
+                {
+                    var ordI = small[k];
+                    var p = pos[idx[ordI]];
+                    var cx = CellOf(p.X, cell);
+                    var cy = CellOf(p.Y, cell);
+                    for (var dx = -1; dx <= 1; dx++)
                     {
-                        result.Add(i < j ? (i, j) : (j, i));
+                        for (var dy = -1; dy <= 1; dy++)
+                        {
+                            if (!cells.TryGetValue(GridKey(cx + dx, cy + dy), out var list))
+                            {
+                                continue;
+                            }
+
+                            for (var m = 0; m < list.Count; m++)
+                            {
+                                if (list[m] > ordI)
+                                {
+                                    AddIfNear(idx[ordI], idx[list[m]], pos, reach, result);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (var k = 0; k < large.Count; k++)
+                {
+                    var ordL = large[k];
+                    for (var m = 0; m < count; m++)
+                    {
+                        if (m == ordL) continue;
+                        if (reach[idx[m]] > limit && m < ordL) continue; // 两个都"大"的对只记一次。
+                        AddIfNear(idx[ordL], idx[m], pos, reach, result);
                     }
                 }
             }
@@ -831,6 +943,22 @@ namespace Core.Carriers.Unit
                 var c = p.I.CompareTo(q.I);
                 return c != 0 ? c : p.J.CompareTo(q.J);
             });
+        }
+
+        private static int CellOf(double v, double cell)
+        {
+            var c = Math.Floor(v / cell);
+            return c > int.MaxValue / 2 ? int.MaxValue / 2 : (c < int.MinValue / 2 ? int.MinValue / 2 : (int)c);
+        }
+
+        private static void AddIfNear(int i, int j, Vec2[] pos, double[] reach, List<(int I, int J)> result)
+        {
+            var lim = reach[i] + reach[j];
+            var delta = pos[i] - pos[j];
+            if (delta.Dot(delta) <= lim * lim)
+            {
+                result.Add(i < j ? (i, j) : (j, i));
+            }
         }
 
         // ------------------------------------------------------------------ 受控位移推人
@@ -974,7 +1102,7 @@ namespace Core.Carriers.Unit
                 var position = _units.GetPosition(id);
                 if (!position.Equals(body.Start))
                 {
-                    _bus.Enqueue(new UnitMovedEvent(id, position));
+                    EmitBus(new UnitMovedEvent(id, position));
                 }
             }
 
@@ -1010,7 +1138,7 @@ namespace Core.Carriers.Unit
                 var (id, _, reason) = stops[i];
                 if (_units.Exists(id))
                 {
-                    _movementHost.RaiseMoveStopped(id, _units.GetPosition(id), reason);
+                    EmitMoveStopped(id, _units.GetPosition(id), reason);
                 }
             }
         }
