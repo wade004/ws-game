@@ -11,7 +11,11 @@ namespace Lab
     /// <see cref="Equip"/> 的 <see cref="ScriptEvent.Action"/> 是物品模板 id，<see cref="Unequip"/> 的是装备槽位 id；
     /// 手感场景（<see cref="ScriptMeta.Feel"/>，格式版本 3）另有 <see cref="Cast"/>：<see cref="ScriptEvent.Actor"/> 指明的靶子
     /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）；<see cref="ClearProjectiles"/>（同为格式版本 3）
-    /// 是"清场"：所有在飞的投射物以 Cleared 结局收场（<see cref="ScriptEvent.Action"/> 只作标签，惯例写 <c>projectiles</c>）。
+    /// 是"清场"：所有在飞的投射物以 Cleared 结局收场（<see cref="ScriptEvent.Action"/> 只作标签，惯例写 <c>projectiles</c>）；
+    /// 空间语义脚本（<see cref="ScriptMeta.SpaceExt"/>，M4-W1a）另有 <see cref="MoveTo"/>（玩家点击移动：<see cref="ScriptEvent.Value"/> 是目标点，
+    /// 与跳跃一样是宿主级请求，直接提交 <c>MoveRequest.ToTarget</c>，不经输入映射——点击移动在引擎侧本来就是点目标意图而不是输入动作）与
+    /// <see cref="TerrainSwap"/>（地形热切换：<see cref="ScriptEvent.Action"/> 是 <c>world.map</c> 行 id，把本次运行地图的地形整体换成该行的 <c>terrain</c>，
+    /// 并像关卡流送那样重建导航网格——导航阻挡版本 +1，触发移动系统对在途路径的重新校验）。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -22,6 +26,8 @@ namespace Lab
         Unequip,
         Cast,
         ClearProjectiles,
+        MoveTo,
+        TerrainSwap,
     }
 
     /// <summary>
@@ -176,6 +182,9 @@ namespace Lab
 
         /// <summary>台阶高度（<c>VerticalAxisOptions.StepHeight</c>）；null = 不做台阶阻挡。</summary>
         public double? StepHeight { get; set; }
+
+        /// <summary>下落落差阈值（<c>VerticalAxisOptions.FallHeight</c>，M4-W1a）；null = 取台阶高度（再缺省取台阶采样间隔）。</summary>
+        public double? FallHeight { get; set; }
 
         /// <summary>是否装配场景数据的高度场（<c>world.map.terrain</c>，经 <c>MapTerrainHeights</c> 读取）。</summary>
         public bool Terrain { get; set; }
@@ -388,11 +397,13 @@ namespace Lab
                     case "unequip": kind = ScriptEventKind.Unequip; break;
                     case "cast": kind = ScriptEventKind.Cast; break;
                     case "clear_projectiles": kind = ScriptEventKind.ClearProjectiles; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles）");
+                    case "move_to": kind = ScriptEventKind.MoveTo; break;
+                    case "terrain_swap": kind = ScriptEventKind.TerrainSwap; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|move_to|terrain_swap）");
                 }
 
                 var value = Vec2.Zero;
-                if (kind == ScriptEventKind.Axis)
+                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.MoveTo)
                 {
                     value = LabJson.ReadVec(
                         eo.TryGetValue("value", out var v) ? v : JsonNull.Instance, what + ".events[].value");
@@ -432,6 +443,8 @@ namespace Lab
                 case ScriptEventKind.Equip: return "equip";
                 case ScriptEventKind.Cast: return "cast";
                 case ScriptEventKind.ClearProjectiles: return "clear_projectiles";
+                case ScriptEventKind.MoveTo: return "move_to";
+                case ScriptEventKind.TerrainSwap: return "terrain_swap";
                 default: return "unequip";
             }
         }
@@ -452,6 +465,11 @@ namespace Lab
             if (obj.TryGetValue("stepHeight", out var sh) && !(sh is JsonNull))
             {
                 ext.StepHeight = sh is JsonNumber shn ? shn.Value : throw new LabFormatException($"{what}.stepHeight 必须是数值");
+            }
+
+            if (obj.TryGetValue("fallHeight", out var fh) && !(fh is JsonNull))
+            {
+                ext.FallHeight = fh is JsonNumber fhn ? fhn.Value : throw new LabFormatException($"{what}.fallHeight 必须是数值");
             }
 
             ext.Terrain = obj.TryGetValue("terrain", out var tr) && tr is JsonBool trb && trb.Value;
@@ -497,6 +515,7 @@ namespace Lab
                     if (ext.AirControl.HasValue) extBuilder.Add("airControl", LabJson.Num(ext.AirControl.Value));
                     if (ext.MaxAirJumps.HasValue) extBuilder.Add("maxAirJumps", LabJson.Num(ext.MaxAirJumps.Value));
                     if (ext.StepHeight.HasValue) extBuilder.Add("stepHeight", LabJson.Num(ext.StepHeight.Value));
+                    if (ext.FallHeight.HasValue) extBuilder.Add("fallHeight", LabJson.Num(ext.FallHeight.Value));
                     if (ext.Terrain) extBuilder.Add("terrain", LabJson.Bool(true));
                     if (ext.SpatialRange) extBuilder.Add("spatialRange", LabJson.Bool(true));
                     if (ext.ArenaId.Length > 0) extBuilder.Add("arena", LabJson.Str(ext.ArenaId));
@@ -526,7 +545,7 @@ namespace Lab
                     .Add("tick", LabJson.Num(e.Tick))
                     .Add("action", LabJson.Str(e.Action))
                     .Add("kind", LabJson.Str(KindText(e.Kind)));
-                if (e.Kind == ScriptEventKind.Axis)
+                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.MoveTo)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
                 }

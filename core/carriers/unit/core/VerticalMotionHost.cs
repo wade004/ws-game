@@ -24,7 +24,7 @@ namespace Core.Carriers.Unit
     /// 竖直运动是连续时间模型的概念，回合制没有"下落过程"。
     /// </para>
     /// </summary>
-    public sealed class VerticalMotionHost : IVerticalMotion, Core.Rules.Common.ILaunchSink, Core.Rules.Common.IAirborneQuery
+    public sealed class VerticalMotionHost : IVerticalMotion, Core.Rules.Common.ILaunchSink, Core.Rules.Common.IAirborneQuery, ITerrainStepConstraint
     {
         private sealed class Flight
         {
@@ -233,7 +233,9 @@ namespace Core.Carriers.Unit
                 var t = flight.Elapsed;
                 var h = flight.StartHeight + flight.InitialSpeed * t - 0.5 * _options.Gravity * t * t;
                 var ground = terrain != null ? terrain.GetGroundHeight(unit.MapId, unit.Position) : 0.0;
-                if (h <= ground)
+                // 落地只发生在下落（竖直速度 ≤ 0）时：上升中飞进不超过台阶高度的更高地面（平台边缘）不算落地，继续上升；
+                // 到达顶点或开始下落之后才落到那块地面上。没有地形能力时地面恒为 0，h ≤ 0 必然已在下落，沿用旧判定（逐位不变）。
+                if (h <= ground && (terrain == null || flight.InitialSpeed - _options.Gravity * t <= 0.0))
                 {
                     unit.HeightOffset = ground;
                     _flights.Remove(id);
@@ -272,8 +274,8 @@ namespace Core.Carriers.Unit
 
         /// <summary>
         /// 贴地行走（声明了地形能力才运行）：对每个不在空中的单位（按 Id 序）——首次观测时脚下低于地面的抬到地面、记下"是否贴地"；
-        /// 之后位置变化过且贴地的单位：新地面比脚下低超过 <see cref="VerticalAxisOptions.StepHeight"/> 时离地下落（初速 0 的抛体），
-        /// 否则脚下高度写成新位置的地面高度（上坡、下坡、小台阶）；悬空靶（脚下高于地面、从未贴地）保持静态高度，只在被地面顶到时抬起。
+        /// 之后位置变化过且贴地的单位：本 tick 走过的线段上出现悬崖（<see cref="TerrainStepMath.FirstDrop"/>，阈值见
+        /// <see cref="FallThreshold"/>）时离地下落（初速 0 的抛体），否则脚下高度写成新位置的地面高度（上坡、缓下坡、小台阶）；悬空靶（脚下高于地面、从未贴地）保持静态高度，只在被地面顶到时抬起。
         /// </summary>
         private void FollowGround()
         {
@@ -305,6 +307,7 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
+                var previous = walker.LastPosition;
                 walker.LastPosition = unit.Position;
                 if (!walker.Grounded)
                 {
@@ -316,8 +319,10 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                var drop = unit.HeightOffset - ground;
-                if (_options.StepHeight.HasValue && drop > _options.StepHeight.Value)
+                // 走出平台边缘：无论有没有声明台阶高度，只要本 tick 走过的线段上地面在一个窗口内下降超过下落阈值（悬崖），单位就离地下落
+                // （从当前脚下高度起、初速 0 的抛体）；缓坡贴着地面走下。台阶高度只决定"能不能走上去"。
+                if (unit.HeightOffset - ground > GroundEpsilon &&
+                    TerrainStepMath.FirstDrop(terrain, unit.MapId, previous, unit.Position, FallThreshold, _options.StepSampleDistance).HasValue)
                 {
                     StartFlight(id, unit, 0.0);
                     continue;
@@ -347,11 +352,16 @@ namespace Core.Carriers.Unit
 
         // ------------------------------------------------------------------ 台阶 / 坡度阻挡（移动系统的地形阻挡出口）
 
+        /// <summary>离地下落的落差阈值（<see cref="VerticalAxisOptions.FallHeight"/>，缺省取台阶高度、再缺省取采样间距即 45° 坡）。</summary>
+        public double FallThreshold =>
+            _options.FallHeight ?? _options.StepHeight ?? _options.StepSampleDistance;
+
         /// <summary>
         /// 沿线段 <paramref name="from"/> → <paramref name="to"/> 找第一个被地形台阶/坡度挡住的点；没有挡住（或没有启用台阶阻挡）返回 <c>null</c>。
-        /// 判定规则见 <see cref="VerticalAxisOptions.StepHeight"/>：按 <see cref="VerticalAxisOptions.StepSampleDistance"/> 取采样点，
-        /// 贴地单位比较相邻采样点的地面高度差、空中单位比较前方地面与当前脚下高度之差，超过台阶高度即挡；
-        /// 在挡住的那一段内二分到台阶边缘，因此返回的点就是台阶面所在位置（与导航阻挡的 <c>Raycast</c> 同口径，调用方照常回退一个到达容差）。
+        /// 判定规则是 <see cref="TerrainStepMath"/> 的滑窗规则（见 <see cref="VerticalAxisOptions.StepHeight"/>）：贴地单位在一个
+        /// <see cref="VerticalAxisOptions.StepSampleDistance"/> 窗口内地面升高超过台阶高度即挡，空中单位比较前方地面与当前脚下高度之差；
+        /// 返回的点就是台阶边缘/坡脚之后的转换点（二分求精到 <see cref="TerrainStepMath.RefineTolerance"/>），与线段起点、采样格对齐无关
+        /// （与导航阻挡的 <c>Raycast</c> 同口径，调用方照常回退一个到达容差）。
         /// </summary>
         public Vec2? TerrainBlockPoint(Unit unit, Vec2 from, Vec2 to)
         {
@@ -362,55 +372,19 @@ namespace Core.Carriers.Unit
 
             var terrain = _options.Terrain!;
             var step = _options.StepHeight!.Value;
-            var delta = to - from;
-            var length = delta.Length;
-            if (length <= 1e-12)
-            {
-                return null;
-            }
-
-            var mapId = unit.MapId;
-            var airborne = _flights.ContainsKey(unit.EntityId);
-            var foot = unit.HeightOffset;
-            var samples = (int)Math.Ceiling(length / _options.StepSampleDistance);
-            if (samples < 1)
-            {
-                samples = 1;
-            }
-
-            var prev = from;
-            var prevGround = terrain.GetGroundHeight(mapId, from);
-            for (var i = 1; i <= samples; i++)
-            {
-                var p = i == samples ? to : from + delta * ((double)i / samples);
-                var g = terrain.GetGroundHeight(mapId, p);
-                var reference = airborne ? foot : prevGround;
-                if (g - reference > step)
-                {
-                    var lo = prev;
-                    var hi = p;
-                    for (var k = 0; k < 24; k++)
-                    {
-                        var mid = new Vec2((lo.X + hi.X) * 0.5, (lo.Y + hi.Y) * 0.5);
-                        if (terrain.GetGroundHeight(mapId, mid) - reference > step)
-                        {
-                            hi = mid;
-                        }
-                        else
-                        {
-                            lo = mid;
-                        }
-                    }
-
-                    return hi;
-                }
-
-                prev = p;
-                prevGround = g;
-            }
-
-            return null;
+            return _flights.ContainsKey(unit.EntityId)
+                ? TerrainStepMath.FirstRiseBlockFromFoot(terrain, unit.MapId, from, to, step, _options.StepSampleDistance, unit.HeightOffset)
+                : TerrainStepMath.FirstRiseBlock(terrain, unit.MapId, from, to, step, _options.StepSampleDistance);
         }
+
+        /// <summary>
+        /// <see cref="ITerrainStepConstraint"/>：贴地行走者沿线段第一个被台阶挡住的点（导航规划用，与实际移动阻挡同一条滑窗规则；
+        /// 空中单位的参照随时间变化，规划一律按贴地行走者）。没有启用台阶阻挡返回 <c>null</c>。
+        /// </summary>
+        public Vec2? FirstStepBlock(Id mapId, Vec2 from, Vec2 to) =>
+            StepBlockingActive
+                ? TerrainStepMath.FirstRiseBlock(_options.Terrain!, mapId, from, to, _options.StepHeight!.Value, _options.StepSampleDistance)
+                : (Vec2?)null;
 
         /// <summary>地形阻挡点 <paramref name="at"/> 处的表面法线（指向"低处"一侧，供贴墙滑动）：取地面高度梯度的反方向，梯度为零时取移动方向的反方向。</summary>
         public Vec2 TerrainBlockNormal(Unit unit, Vec2 at, Vec2 moveDirection)

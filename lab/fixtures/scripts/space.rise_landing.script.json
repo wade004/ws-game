@@ -1,0 +1,91 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.rise_landing",
+    "scriptVersion": 1,
+    "description": "空间扩展·上升中不落地（M4-W1a）：x 3..8 有一块高 0.3（不高于台阶 0.5）的平台。玩家站在平台边缘外 x=2.995，向右走的同时起跳：起跳后头两步里水平越过平台边缘，脚下高度（约 0.15、0.30）低于平台面——落地判定只在下落（竖直速度不大于 0）时发生，所以继续上升、越过顶点后才落在平台上（落地高度 0.3），而不是一进平台就被判落地。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 2.995,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_rise"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 0,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 1,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "lands_on_the_platform_top",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.landing_heights",
+      "at": 0,
+      "op": "approx",
+      "value": 0.3,
+      "tolerance": 1e-06,
+      "note": "落在平台面（0.3）。"
+    },
+    {
+      "id": "lands_after_the_apex",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.airborne_ticks",
+      "op": "ge",
+      "value": 34,
+      "note": "腾空时间不短于\"越过顶点再落回 0.3\"的抛体时间（约 36 步），不是进平台边缘那一刻就落地。"
+    }
+  ]
+}

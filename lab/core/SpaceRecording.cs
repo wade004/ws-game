@@ -125,9 +125,34 @@ namespace Lab
         /// <summary>空中姿势解析记录（按发生顺序）。</summary>
         public List<AirPoseRecord> AirPoses { get; } = new List<AirPoseRecord>();
 
+        /// <summary>
+        /// 寻路与地形热切换的运行期记录（脚本含 <c>move_to</c>/<c>terrain_swap</c> 事件时才有；否则为 null，度量组 <c>space_nav</c> 不出现，
+        /// 既有空间扩展脚本的指纹逐字不变）。
+        /// </summary>
+        public SpaceNavRecording? Nav { get; set; }
+
         public SpaceExtRecording(ScriptSpaceOptions options)
         {
             Options = options;
         }
+    }
+
+    /// <summary>点击移动与地形热切换的运行期事实（M4-W1a）：移动请求、失败（<c>MoveFailedDetailed</c>）、停止原因（<c>MoveStopped</c>）、地形切换次数。</summary>
+    public sealed class SpaceNavRecording
+    {
+        /// <summary>脚本里的 <c>move_to</c> 请求目标（按发生顺序）。</summary>
+        public List<Core.Foundation.Common.Vec2> Targets { get; } = new List<Core.Foundation.Common.Vec2>();
+
+        /// <summary>每个目标请求发生的宿主固定步序号。</summary>
+        public List<int> TargetTicks { get; } = new List<int>();
+
+        /// <summary>移动失败（寻路失败等）：tick:原因。</summary>
+        public List<string> Failures { get; } = new List<string>();
+
+        /// <summary>移动停止：tick:原因。</summary>
+        public List<string> Stops { get; } = new List<string>();
+
+        /// <summary>地形热切换的次数。</summary>
+        public int TerrainSwaps { get; set; }
     }
 }

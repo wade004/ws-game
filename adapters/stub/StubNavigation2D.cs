@@ -370,6 +370,73 @@ namespace Adapters.Stub
             return false;
         }
 
+        /// <summary>
+        /// ADR-0130 追加决定"寻路感知台阶"：地形感知寻路（契约方法，见 <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>）。
+        /// 端点契约同 <see cref="FindPath(Id, Vec2, Vec2)"/>；<paramref name="terrain"/> 为 null 即它本身。否则在与 <see cref="FindNearestWalkableCandidates"/>
+        /// 同一份虚拟格子上用 <see cref="TerrainStepPathPlanner"/> 规划（不穿阻挡矩形、不穿地形台阶），本桩因此对地形也能绕行；
+        /// 直线通畅（阻挡与地形都不挡）时仍是 <c>[from, to]</c>。
+        /// </summary>
+        public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+        {
+            if (terrain == null)
+            {
+                return FindPath(mapId, from, to);
+            }
+
+            if (!IsWalkable(mapId, from) || !IsWalkable(mapId, to))
+            {
+                return null;
+            }
+
+            if ((to - from).Length <= ZeroLengthEpsilon)
+            {
+                return new List<Vec2> { from };
+            }
+
+            _blockingRects.TryGetValue(mapId, out var rects);
+            var rectList = ToRects(rects);
+            return TerrainStepPathPlanner.FindPath(
+                rectList, mapId, from, to,
+                p => IsWalkable(mapId, p),
+                (a, b) => !SegmentBlocked(mapId, a, b),
+                (a, b) => !SegmentBlocked(mapId, a, b),
+                terrain);
+        }
+
+        /// <summary>地形感知的最近连通可走点（契约方法）：候选与排序同无地形版本，连通 = 地形感知的 <see cref="FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/> 能走通。</summary>
+        public bool TryFindNearestReachable(
+            Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+        {
+            if (terrain == null)
+            {
+                return TryFindNearestReachable(mapId, from, point, maxRadius, out reachable);
+            }
+
+            _blockingRects.TryGetValue(mapId, out var rects);
+            var layout = TerrainStepPathPlanner.ReachableLayoutFor(ToRects(rects), from, point, maxRadius);
+            return TerrainStepPathPlanner.TryFindNearestReachable(
+                layout, from, point, maxRadius,
+                p => IsWalkable(mapId, p),
+                p => FindPath(mapId, from, p, terrain) != null,
+                out reachable);
+        }
+
+        private static IReadOnlyList<Rect>? ToRects(List<BlockingRect>? rects)
+        {
+            if (rects == null)
+            {
+                return null;
+            }
+
+            var list = new List<Rect>(rects.Count);
+            foreach (var r in rects)
+            {
+                list.Add(new Rect(r.Min, r.Max));
+            }
+
+            return list;
+        }
+
         private void BumpBlockingVersion(Id mapId) =>
             _blockingVersions[mapId] = (_blockingVersions.TryGetValue(mapId, out var v) ? v : 0) + 1;
     }

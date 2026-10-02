@@ -1,0 +1,92 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.exact_stop",
+    "scriptVersion": 1,
+    "description": "空间扩展·阻挡停点精确（M4-W1a）：x ≥ 10.03 有一堵高 2 的墙（台阶 0.5，边缘位置不与 0.1 的采样间隔对齐）。玩家在 (2,0) 持续向右走（途中先踏上 x 5..7 的一级高 0.3 的矮台阶）：停在墙边缘前一个到达容差（0.01）之内——位置落在 [10.02, 10.03) 区间，不越过墙，也不再像此前那样最多短一个采样步（0.1）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 400,
+    "playerStart": {
+      "x": 2,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_wall"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "never_crosses_the_wall",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.final_x",
+      "op": "lt",
+      "value": 10.03,
+      "note": "不越过墙边缘 10.03。"
+    },
+    {
+      "id": "stops_within_the_arrival_epsilon_of_the_edge",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.final_x",
+      "op": "gt",
+      "value": 10.0199999,
+      "note": "停在边缘前一个到达容差（0.01）之内：[10.02, 10.03)；此前阻挡点按采样步近似，最多短 0.1。"
+    },
+    {
+      "id": "pushing_is_blocked",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.move_blocked_ticks",
+      "op": "ge",
+      "value": 1,
+      "note": "持续顶着墙。"
+    }
+  ]
+}

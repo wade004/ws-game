@@ -3,6 +3,8 @@ using System;
 using System.Reflection;
 using Adapter.Unity.EngineAdapter;
 using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
+using Core.Foundation.SceneRouter;
 using NUnit.Framework;
 
 namespace Adapter.Unity.Tests.Editor
@@ -535,6 +537,83 @@ namespace Adapter.Unity.Tests.Editor
                 Assert.IsFalse(SegmentPassesThroughPoint(path[i], path[i + 1], sharedCorner),
                     $"剪枝后第 {i} 段不应贴着共享墙角 {sharedCorner} 抄近路");
             }
+        }
+
+        // ---------------------------------------------------------------- M4-W1a：地形感知寻路（ADR-0130 追加决定"寻路感知台阶"）
+
+        private sealed class StepConstraint : ITerrainStepConstraint
+        {
+            private readonly MapTerrainHeights _terrain;
+
+            public StepConstraint(MapTerrainHeights terrain) => _terrain = terrain;
+
+            public Vec2? FirstStepBlock(Id mapId, Vec2 from, Vec2 to) =>
+                TerrainStepMath.FirstRiseBlock(_terrain, mapId, from, to, 0.5, 0.1);
+        }
+
+        private static MapTerrainHeights Steps(Id map)
+        {
+            var t = new MapTerrainHeights();
+            t.SetRegions(map, new[] { new TerrainRegion(new Vec2(10, -3), new Vec2(20, 3), ground: 2.0) });
+            return t;
+        }
+
+        [Test]
+        public void FindPath_WithTerrain_DetoursAroundAStepHigherThanStepHeight_AndEverySegmentIsClearOfBothBlockersAndSteps()
+        {
+            var map = new Id("map.test_terrain_detour");
+            var terrain = Steps(map);
+            var constraint = new StepConstraint(terrain);
+            _nav.SetBlocking(map, new[] { new Rect(new Vec2(4, 6), new Vec2(6, 8)) });
+            _nav.BuildNavMesh(map);
+
+            var from = new Vec2(0, 0);
+            var to = new Vec2(25, 0);
+            Assert.IsNotNull(constraint.FirstStepBlock(map, from, to), "前置条件：直线被台阶挡住");
+
+            var path = _nav.FindPath(map, from, to, constraint);
+            Assert.IsNotNull(path);
+            Assert.AreEqual(from, path![0]);
+            Assert.AreEqual(to, path[path.Count - 1]);
+            Assert.GreaterOrEqual(path.Count, 3);
+            for (var i = 0; i < path.Count - 1; i++)
+            {
+                Assert.IsNull(constraint.FirstStepBlock(map, path[i], path[i + 1]), $"第 {i} 段不应被台阶挡住");
+                Assert.IsNull(_nav.Raycast(map, path[i], path[i + 1]), $"第 {i} 段不应穿过阻挡矩形");
+            }
+
+            Assert.Greater(PathLength(path), Vec2.Distance(from, to));
+        }
+
+        [Test]
+        public void FindPath_WithTerrain_TargetOnAnUnclimbableStep_IsNull_AndNullTerrainIsBitIdenticalToTheOldOverload()
+        {
+            var map = new Id("map.test_terrain_unreachable");
+            var constraint = new StepConstraint(Steps(map));
+            _nav.BuildNavMesh(map);
+
+            Assert.IsNull(_nav.FindPath(map, new Vec2(0, 0), new Vec2(15, 0), constraint));
+
+            var old = _nav.FindPath(map, new Vec2(0, 0), new Vec2(25, 0))!;
+            var viaNull = _nav.FindPath(map, new Vec2(0, 0), new Vec2(25, 0), null)!;
+            Assert.AreEqual(old.Count, viaNull.Count);
+            for (var i = 0; i < old.Count; i++) Assert.AreEqual(old[i], viaNull[i]);
+        }
+
+        [Test]
+        public void TryFindNearestReachable_WithTerrain_ReturnsAGroundPointFromWhichTheTerrainAwarePathExists()
+        {
+            var map = new Id("map.test_terrain_reachable");
+            var terrain = Steps(map);
+            var constraint = new StepConstraint(terrain);
+            _nav.BuildNavMesh(map);
+
+            var from = new Vec2(0, 0);
+            var click = new Vec2(15, 0);
+            Assert.IsTrue(_nav.TryFindNearestReachable(map, from, click, 8.0, constraint, out var reachable));
+            Assert.IsNotNull(_nav.FindPath(map, from, reachable, constraint));
+            Assert.AreEqual(0.0, terrain.GetGroundHeight(map, reachable), "应落在台阶旁的地面上");
+            Assert.LessOrEqual(Vec2.Distance(click, reachable), 3.5);
         }
     }
 }

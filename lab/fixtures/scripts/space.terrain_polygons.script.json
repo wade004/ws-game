@@ -1,0 +1,94 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.terrain_polygons",
+    "scriptVersion": 1,
+    "description": "空间扩展·凸多边形地形（M4-W1a）：x 10..18 的七边形平面（高 0.4，沿 x 每单位升 0.1，原点 (10,0)；七边形中间另有后声明的小方块平台，见 space.terrain_overlay）。玩家在 (8,0) 点击移动到 (17,0)：先走上七边形（落差 0.4 不超过台阶 0.5），再沿斜面爬升，停在 x≈17 处，高度 0.4+0.1×7=1.1。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 8,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_polys"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.lab_move_to",
+      "kind": "move_to",
+      "value": {
+        "x": 17,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "climbs_to_the_slope_top",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ground_height_max",
+      "op": "approx",
+      "value": 1.1,
+      "tolerance": 0.002,
+      "note": "整个行程里的最高处就是终点斜面高度 1.1（小方块平台只有 1.0）。"
+    },
+    {
+      "id": "follows_the_polygon_slope",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ground_height_final",
+      "op": "approx",
+      "value": 1.1,
+      "tolerance": 0.002,
+      "note": "七边形斜面 x≈17 处 0.4+0.1×7。"
+    },
+    {
+      "id": "arrives",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.arrived",
+      "op": "eq",
+      "value": 1,
+      "note": "到达。"
+    }
+  ]
+}

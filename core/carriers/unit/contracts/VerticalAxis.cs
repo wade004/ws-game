@@ -52,15 +52,25 @@ namespace Core.Carriers.Unit
         /// <summary>
         /// 台阶高度上限（世界单位，必须为正；ADR-0130 追加决定，需要 <see cref="Terrain"/>）：<c>null</c>（缺省）= 不阻挡，单位总是被抬到
         /// 前方地面高度。非空时：<b>前方地面高出脚下超过本值视为阻挡</b>（移动被挡，走与导航地形阻挡同一出口——方向移动按
-        /// <c>Raycast</c> 截断并贴着阻挡停住、受控位移按阻挡策略结束、路径跟随以 <c>MoveStopReason.TerrainBlocked</c> 结束）；
-        /// 地面骤降超过本值时单位离地下落（从当前高度起、初速 0 的抛体），不超过时贴地走下。
-        /// 判定对相邻采样点（间距 <see cref="StepSampleDistance"/>）的地面高度差逐段进行，因此它同时给出可走坡度上限
-        /// （斜率 &gt; <c>StepHeight / StepSampleDistance</c> 的坡走不上去）；空中的单位比较的是前方地面与自己当前脚下高度之差。
+        /// <c>Raycast</c> 截断并贴着阻挡停住、受控位移按阻挡策略结束、路径跟随以 <c>MoveStopReason.TerrainBlocked</c> 结束；
+        /// 寻路本身也避开这些台阶，见 <see cref="ITerrainStepConstraint"/>）。判定是滑窗规则（<see cref="StepSampleDistance"/>）：
+        /// 地面在一个窗口长度内升高超过本值即挡，因此它同时给出可走坡度上限（斜率 &gt; <c>StepHeight / StepSampleDistance</c> 的坡走不上去）；
+        /// 空中的单位比较的是前方地面与自己当前脚下高度之差。本值只决定"能不能走上去"：走出平台边缘是否下落由
+        /// <see cref="FallHeight"/> 决定，与是否声明本值无关。
         /// </summary>
         public double? StepHeight { get; set; }
 
-        /// <summary>台阶/坡度判定沿移动线段的采样间距（世界单位，必须为正有限数）。默认 0.1；只在 <see cref="StepHeight"/> 非空时被读取。</summary>
+        /// <summary>台阶/坡度判定的窗口长度（世界单位，必须为正有限数）：地面在一个窗口内升高超过 <see cref="StepHeight"/> 即挡
+        /// （滑窗规则，见 <c>TerrainStepMath</c>），也是走出平台边缘的悬崖判定窗口，同时是地形台阶特征的分辨率。默认 0.1。</summary>
         public double StepSampleDistance { get; set; } = 0.1;
+
+        /// <summary>
+        /// 走出平台边缘离地下落的落差阈值（世界单位，必须为正有限数；ADR-0130 追加决定，需要 <see cref="Terrain"/>）：贴地行走的单位本 tick 走过的线段上，
+        /// 地面在一个 <see cref="StepSampleDistance"/> 窗口内下降超过它即视为悬崖，单位离地下落（从当前脚下高度起、初速 0 的抛体）；
+        /// 缓下坡贴着地面走下。<c>null</c>（缺省）= 取 <see cref="StepHeight"/>，再缺省取 <see cref="StepSampleDistance"/>（即比 45° 更陡的下坡算悬崖）。
+        /// 无论是否声明 <see cref="StepHeight"/>，走出平台都会下落——台阶高度只决定"能不能走上去"。
+        /// </summary>
+        public double? FallHeight { get; set; }
 
         /// <summary>校验取值，非法时抛 <see cref="ArgumentOutOfRangeException"/>（装配期调用，不静默夹取）。</summary>
         public void Validate()
@@ -93,6 +103,11 @@ namespace Core.Carriers.Unit
             if (!(StepSampleDistance > 0.0) || double.IsInfinity(StepSampleDistance))
             {
                 throw new ArgumentOutOfRangeException(nameof(StepSampleDistance), StepSampleDistance, "台阶采样间距必须为正的有限数");
+            }
+
+            if (FallHeight.HasValue && !(FallHeight.Value > 0.0 && !double.IsInfinity(FallHeight.Value)))
+            {
+                throw new ArgumentOutOfRangeException(nameof(FallHeight), FallHeight.Value, "下落落差阈值必须为正的有限数");
             }
         }
     }

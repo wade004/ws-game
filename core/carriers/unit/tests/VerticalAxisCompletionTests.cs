@@ -351,15 +351,17 @@ namespace Tests.Carriers.Unit
         }
 
         [Fact]
-        public void Terrain_WalkingOffALedgeWithoutStepHeight_SnapsToTheGround()
+        public void Terrain_WalkingOffALedgeWithoutStepHeight_StartsAZeroSpeedFall()
         {
+            // M4-W1a（限制 5）：step_height 只决定能否走上去；走下台地无论是否设置它都从台地高度开始下落（不再瞬间贴地）。
             var fx = Build(null, new[] { Platform(-100, 5, 3.0) });
             fx.Hero.Position = new Vec2(2, 0);
             fx.Vertical.Advance(Dt);
             fx.Hero.Position = new Vec2(6, 0);
             fx.Vertical.Advance(Dt);
-            Assert.False(fx.Vertical.IsAirborne(HeroId));
-            Assert.Equal(0.0, fx.Hero.HeightOffset);
+            Assert.True(fx.Vertical.IsAirborne(HeroId));
+            Assert.Equal(3.0, fx.Hero.HeightOffset);
+            Assert.Equal(0.0, fx.Vertical.GetVerticalSpeed(HeroId));
         }
 
         [Fact]
@@ -432,9 +434,13 @@ namespace Tests.Carriers.Unit
         [Fact]
         public void StepBlocking_PathFollow_EndsWithTerrainBlockedAndClearsThePath()
         {
-            var fx = Build(o => o.StepHeight = 0.5, new[] { Wall(10, 2.0) }, moveSpeed: 10.0);
+            // M4-W1a：台阶在规划时已知则寻路直接判无路（见 TerrainAwareNavigationTests）；本用例锁住"规划之后地形才变"的兜底：
+            // 路径按空地形规划，行走途中台阶出现，移动阻挡仍把单位截在台阶前并以 TerrainBlocked 结束。
+            var fx = Build(o => o.StepHeight = 0.5, new[] { Platform(-100, 100, 0.0) }, moveSpeed: 10.0);
             fx.Vertical.Advance(Dt);
             fx.World.SubmitIntent(new Intent(HeroId, "move", Target(20, 0)));
+            fx.World.Tick(SimStep.Continuous(0.1));
+            fx.Terrain.SetRegions(MapId, new[] { Platform(-100, 100, 0.0), Wall(10, 2.0) });
             for (var i = 0; i < 40; i++) fx.World.Tick(SimStep.Continuous(0.1));
 
             Assert.True(fx.Hero.Position.X < 10.0);

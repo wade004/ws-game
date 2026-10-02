@@ -1,0 +1,93 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.terrain_hills",
+    "scriptVersion": 1,
+    "description": "空间扩展·高度场地形（M4-W1a）：x 4..9、y -2..2 的规则网格高度场（格宽 1），沿 y=0 的一行结点高度依次是 0、0.3、0.6、0.3、0.6、0.2，格内双线性插值。玩家在 (2,0) 点击移动到 (6.5,0)：脚下高度跟着地面走，停在 x≈6.5 处的插值高度 0.45（结点 6→7 之间 0.6→0.3 的中点）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 2,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_hills"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.lab_move_to",
+      "kind": "move_to",
+      "value": {
+        "x": 6.5,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "follows_the_interpolated_ground",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ground_height_final",
+      "op": "approx",
+      "value": 0.45,
+      "tolerance": 0.005,
+      "note": "x=6.5 处的双线性插值高度（0.6 与 0.3 的中点）。"
+    },
+    {
+      "id": "passes_the_hump",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ground_height_max",
+      "op": "ge",
+      "value": 0.5,
+      "note": "途中经过结点 x=6 的 0.6 附近。"
+    },
+    {
+      "id": "arrives",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.arrived",
+      "op": "eq",
+      "value": 1,
+      "note": "到达。"
+    }
+  ]
+}

@@ -15,6 +15,111 @@
         { "min": { "x": 6, "y": -5 }, "max": { "x": 9, "y": 5 }, "ground": 0.4, "slope": { "x": 0.25, "y": 0 } },
         { "min": { "x": 9, "y": -5 }, "max": { "x": 12, "y": 5 }, "ground": 3 }
       ]
+    },
+    {
+      "id": "world.lab_nav_steps",
+      "scene_ref": "scene.lab_nav_steps",
+      "nav_ref": "nav.lab_nav_steps",
+      "spawn_points": [
+        { "id": "world.lab_nav_steps.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "min": { "x": 6, "y": -3 }, "max": { "x": 10, "y": 3 }, "ground": 2 }
+      ]
+    },
+    {
+      "id": "world.lab_nav_flat",
+      "scene_ref": "scene.lab_nav_flat",
+      "nav_ref": "nav.lab_nav_flat",
+      "spawn_points": [
+        { "id": "world.lab_nav_flat.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 }
+      ]
+    },
+    {
+      "id": "world.lab_nav_walled",
+      "scene_ref": "scene.lab_nav_walled",
+      "nav_ref": "nav.lab_nav_walled",
+      "spawn_points": [
+        { "id": "world.lab_nav_walled.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "min": { "x": 10, "y": -3 }, "max": { "x": 14, "y": 3 }, "ground": 2 }
+      ]
+    },
+    {
+      "id": "world.lab_nav_rise",
+      "scene_ref": "scene.lab_nav_rise",
+      "nav_ref": "nav.lab_nav_rise",
+      "spawn_points": [
+        { "id": "world.lab_nav_rise.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "min": { "x": 3, "y": -5 }, "max": { "x": 8, "y": 5 }, "ground": 0.3 }
+      ]
+    },
+    {
+      "id": "world.lab_nav_ledge",
+      "scene_ref": "scene.lab_nav_ledge",
+      "nav_ref": "nav.lab_nav_ledge",
+      "spawn_points": [
+        { "id": "world.lab_nav_ledge.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "min": { "x": -5, "y": -5 }, "max": { "x": 5, "y": 5 }, "ground": 3 }
+      ]
+    },
+    {
+      "id": "world.lab_nav_wall",
+      "scene_ref": "scene.lab_nav_wall",
+      "nav_ref": "nav.lab_nav_wall",
+      "spawn_points": [
+        { "id": "world.lab_nav_wall.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "min": { "x": 5, "y": -5 }, "max": { "x": 7, "y": 5 }, "ground": 0.3 },
+        { "min": { "x": 10.03, "y": -5 }, "max": { "x": 50, "y": 5 }, "ground": 2 }
+      ]
+    },
+    {
+      "id": "world.lab_nav_hills",
+      "scene_ref": "scene.lab_nav_hills",
+      "nav_ref": "nav.lab_nav_hills",
+      "spawn_points": [
+        { "id": "world.lab_nav_hills.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "shape": "heightfield", "min": { "x": 4, "y": -2 }, "cell": 1, "heights": [[0,0,0,0,0,0],[0,0.2,0.2,0.1,0.2,0],[0,0.3,0.6,0.3,0.6,0.2],[0,0.2,0.2,0.1,0.2,0],[0,0,0,0,0,0]] }
+      ]
+    },
+    {
+      "id": "world.lab_nav_polys",
+      "scene_ref": "scene.lab_nav_polys",
+      "nav_ref": "nav.lab_nav_polys",
+      "spawn_points": [
+        { "id": "world.lab_nav_polys.spawn.default", "position": { "x": 0, "y": 0 }, "facing": 0 }
+      ],
+      "image_transform": { "pixels_per_unit": 32, "origin_px": { "x": 0, "y": 0 } },
+      "terrain": [
+        { "min": { "x": -50, "y": -50 }, "max": { "x": 60, "y": 50 }, "ground": 0 },
+        { "shape": "polygon", "points": [ { "x": 10, "y": -1 }, { "x": 12, "y": -3 }, { "x": 16, "y": -3 }, { "x": 18, "y": 0 }, { "x": 16, "y": 3 }, { "x": 12, "y": 3 }, { "x": 10, "y": 1 } ], "ground": 0.4, "slope": { "x": 0.1, "y": 0 }, "origin": { "x": 10, "y": 0 } },
+        { "shape": "polygon", "points": [ { "x": 13, "y": -1 }, { "x": 14, "y": -1 }, { "x": 14, "y": 1 }, { "x": 13, "y": 1 } ], "ground": 1.0 }
+      ]
     }
   ]
 }

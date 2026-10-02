@@ -1,0 +1,80 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.terrain_overlay",
+    "scriptVersion": 1,
+    "description": "空间扩展·后声明覆盖先声明（M4-W1a）：x 10..18 的七边形平面（高 0.4、沿 x 每单位升 0.1）上，后声明了 x 13..14、y -1..1 的小方块平台（高 1.0）。玩家在 (8,0) 点击移动到小方块中间的 (13.5,0)：脚下高度是后声明的小方块高度 1.0，而不是七边形在该点的 0.75。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 8,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_polys"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.lab_move_to",
+      "kind": "move_to",
+      "value": {
+        "x": 13.5,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "later_declaration_wins",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ground_height_final",
+      "op": "approx",
+      "value": 1.0,
+      "tolerance": 1e-06,
+      "note": "小方块平台（1.0）盖住七边形（此处 0.75）。"
+    },
+    {
+      "id": "arrives",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.arrived",
+      "op": "eq",
+      "value": 1,
+      "note": "到达。"
+    }
+  ]
+}

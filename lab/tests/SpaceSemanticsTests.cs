@@ -64,6 +64,9 @@ namespace Tests.Lab
         private static double ShapeHeight(string chainId) =>
             FixtureRow("target/target.chain_def.json", chainId).GetProperty("shape").GetProperty("height").GetDouble();
 
+        /// <summary>适用十个格子的空间脚本数：6 个空间语义（M3-E1）+ 6 个空间扩展（ADR-0130 追加决定）+ 9 个地形与导航（M4-W1a）。</summary>
+        private const int SpaceScriptCount = 21;
+
         // ---------- 格子与脚本适用性 ----------
 
         [Fact]
@@ -71,7 +74,7 @@ namespace Tests.Lab
         {
             var runner = LabTestSupport.Runner;
             var spaceScripts = LabTestSupport.SpaceScripts();
-            Assert.Equal(12, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）
+            Assert.Equal(SpaceScriptCount, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）+ 九个地形与导航脚本（M4-W1a）
             foreach (var script in spaceScripts)
             {
                 var cells = runner.ApplicableCells(script);
@@ -373,8 +376,8 @@ namespace Tests.Lab
 
             var results = LabInvariants.Check(runner, LabTestSupport.SpaceScripts());
             Assert.All(results, r => Assert.True(r.Ok, r.ToString()));
-            // 12 个空间脚本 × 4 个竖直格子各一次"按平面运行"；无刺激对照脚本再各一次"除 space 组外一致"。
-            Assert.Equal(12 * 4 + 4, results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
+            // 空间脚本 × 4 个竖直格子各一次"按平面运行"；无刺激对照脚本再各一次"除 space 组外一致"。
+            Assert.Equal(SpaceScriptCount * 4 + 4, results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
         }
 
         [Fact]
@@ -386,7 +389,7 @@ namespace Tests.Lab
                 results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
-            Assert.Equal(12 * 10, results.Count);
+            Assert.Equal(SpaceScriptCount * 10, results.Count);
             Assert.All(results, r => Assert.True(r.Status == CellStatus.Pass, r.Script + " @ " + r.Cell + " " + r.Message));
         }
     }
