@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from pathlib import Path
 
@@ -44,12 +43,7 @@ def effective_pose(clip: SC.ClipDef, t_ms: float) -> dict:
         v = p[name]
         if v < lo or v > hi:
             p = dict(p, **{name: min(hi, max(lo, v))})
-    if clip.mass:
-        # 体量组（config.MASS_PROFILES）：只加静态站姿偏移；偏移后的肩/髋外展与躯干/头角度仍受 SOURCE_ANGLE_LIMITS 自检。
-        prof = C.MASS_PROFILES[clip.mass]
-        p = dict(p, t_pitch=p["t_pitch"] + prof["t_pitch"], h_pitch=p["h_pitch"] + prof["h_pitch"],
-                 m_sa=p["m_sa"] + prof["sa"], o_sa=p["o_sa"] + prof["sa"],
-                 m_ha=p["m_ha"] + prof["ha"], o_ha=p["o_ha"] + prof["ha"])
+    # 体量组的偏移（SC.MASS_TIERS）已由 pose_at 施加（M4-D 起两版同一处）；偏移后的角度仍受 SOURCE_ANGLE_LIMITS 自检。
     return p
 
 
@@ -103,12 +97,11 @@ def build_skeleton() -> dict:
 
 
 def mass_clip_defs(mass: str) -> list[SC.ClipDef]:
-    """体量组的剪辑定义：取主集同键的定义，加上体量标记（别名键的目标同样指向组内剪辑，键名不变）。"""
-    base = {c.key: c for c in SC.build_clip_defs()}
-    return [dataclasses.replace(base[k], mass=mass) for k in C.MASS_KEYS]
+    """体量组的剪辑定义：主集**全部**键（含别名键，别名目标同样指向组内剪辑，键名不变）各加体量标记（M4-D：覆盖全部键）。"""
+    return SC.mass_clip_defs(mass)
 
 
-def clip_entry(c: SC.ClipDef, fps: int) -> dict:
+def clip_entry(c: SC.ClipDef, fps: int, with_blend: bool = False) -> dict:
     entry: dict = {
         "key": c.key,
         "resource_ref": C.clip_resource_ref(c.key, c.alias_of, c.mass),
@@ -121,6 +114,9 @@ def clip_entry(c: SC.ClipDef, fps: int) -> dict:
         "total_ms": c.total_ms,
         "events": clip_events(c),
     }
+    if with_blend:
+        # 切入该键的交叉淡入时长（数据行 blend_ms，M4-D）；只写在主集行，体量组按键继承
+        entry["blend_ms"] = SC.blend_ms_for(c)
     if c.alias_of:
         entry["alias_of"] = c.alias_of
     else:
@@ -139,9 +135,9 @@ def clip_entry(c: SC.ClipDef, fps: int) -> dict:
 
 
 def build_spec(fps: int = C.FPS) -> dict:
-    clips = [clip_entry(c, fps) for c in SC.build_clip_defs()]
+    clips = [clip_entry(c, fps, with_blend=True) for c in SC.build_clip_defs()]
     mass_groups = [{"id": C.mass_anim_set_id(m), "mass": m, "extends": C.ANIM_SET_ID,
-                    "clips": [clip_entry(c, fps) for c in mass_clip_defs(m)]} for m in C.MASS_GROUPS]
+                    "clips": [clip_entry(c, fps) for c in mass_clip_defs(m)]} for m in SC.MASS_TIERS]
     return {
         "generator": "toolchain/gen_std_dummy_model_clips.py",
         "doc": "architecture/手感设计/04_姿势与动画契约.md 第 6.1 节",
@@ -160,10 +156,13 @@ def build_spec(fps: int = C.FPS) -> dict:
             "convention": C.CONVENTION,
             "bone_rot_limits_deg": C.BONE_ROT_LIMITS_DEG,
             "engine_event_aliases": C.ENGINE_EVENT_ALIASES,
-            "mass_profiles_deg": C.MASS_PROFILES,
+            "mass_profiles_deg": C.mass_profiles(),
+            "mass_tiers": {"main": SC.MASS_MAIN_TIER, "tiers": {m: dict(v) for m, v in SC.MASS_TIERS.items()},
+                           "react_cap": SC.MASS_REACT_CAP},
         },
         "skeleton": build_skeleton(),
         "clips": clips,
+        "blends": [{"from": a, "to": b, "blend_ms": ms} for a, b, ms in SC.BLEND_PAIRS],
         "mass_groups": mass_groups,
     }
 
@@ -219,16 +218,28 @@ def write_spec(assets_out: Path, spec: dict) -> Path:
     return path
 
 
+def _row_clip(e: dict) -> dict:
+    out = {"resource_ref": e["resource_ref"], "events": e["events"]}
+    if "blend_ms" in e:
+        out["blend_ms"] = e["blend_ms"]
+    return out
+
+
 def build_data_row(spec: dict) -> dict:
-    return {"id": spec["anim_set_id"],
-            "clips": {e["key"]: {"resource_ref": e["resource_ref"], "events": e["events"]} for e in spec["clips"]}}
+    row = {"id": spec["anim_set_id"], "clips": {e["key"]: _row_clip(e) for e in spec["clips"]}}
+    if spec.get("blends"):
+        row["blends"] = [dict(b) for b in spec["blends"]]
+    return row
 
 
 def build_mass_data_rows(spec: dict) -> list[dict]:
-    """体量组数据行：``extends`` 主集，只声明覆盖键（04 §7）。"""
-    return [{"id": g["id"], "extends": g["extends"],
-             "clips": {e["key"]: {"resource_ref": e["resource_ref"], "events": e["events"]} for e in g["clips"]}}
-            for g in spec["mass_groups"]]
+    """体量档数据行：中体量（主档）= 主集本身，给空覆盖行；其余档 ``extends`` 主集，覆盖全部键（04 §7）。
+    切入混合时长（blend_ms / blends）只在主集行声明，体量组按键继承（同键同值，不重复）。"""
+    main = spec["anim_set_id"]
+    rows = [{"id": f"{main}_{spec['params']['mass_tiers']['main']}", "extends": main, "clips": {}}]
+    rows += [{"id": g["id"], "extends": g["extends"], "clips": {e["key"]: _row_clip(e) for e in g["clips"]}}
+             for g in spec["mass_groups"]]
+    return rows
 
 
 def write_data_file(data_out: Path, spec: dict) -> Path:

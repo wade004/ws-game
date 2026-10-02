@@ -100,10 +100,10 @@ def test_sprint_missing_falls_back_to_run_in_report():
 def test_std_dummy_biped_has_zero_pose_issues():
     path = REPO / "data" / "_framework" / "display" / "display.anim_set.json"
     rows = json.loads(path.read_text(encoding="utf-8"))["rows"]
-    # sprite 型与 model 型两版并列（手感设计/04 第 10 节），model 型另有轻/重体量两组 extends 偏移行；全部必须零姿势问题
-    assert sorted(r["id"] for r in rows) == sorted([
-        "display.anim_set.std_dummy_biped", "display.anim_set.std_dummy_biped_model",
-        "display.anim_set.std_dummy_biped_model_light", "display.anim_set.std_dummy_biped_model_heavy"])
+    # sprite 型与 model 型两版并列（手感设计/04 第 10 节），两版都有 medium（空 extends 行）、light、heavy 三个体量行；全部必须零姿势问题
+    assert sorted(r["id"] for r in rows) == sorted(
+        base + suffix for base in ("display.anim_set.std_dummy_biped", "display.anim_set.std_dummy_biped_model")
+        for suffix in ("", "_medium", "_light", "_heavy"))
     assert _run(rows) == []
     for row in rows:
         if "extends" not in row:        # extends 行要靠同表的主集行合并，单独校验没有意义

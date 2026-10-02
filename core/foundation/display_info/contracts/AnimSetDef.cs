@@ -56,10 +56,22 @@ namespace Core.Foundation.DisplayInfo
         /// 未声明 <c>events</c> 字段时为空列表。</summary>
         public IReadOnlyList<AnimClipEventSpec> Events { get; }
 
+        /// <summary>手感落地 M4-D（04 第 10 节）：切入本剪辑时的交叉淡入时长（毫秒，数据行 <c>clips[*].blend_ms</c>）；
+        /// null = 数据没有声明（调用方用自己的默认，<c>ModelCharacterRig</c> 取 <c>DefaultBlendSeconds</c>）；0 = 硬切。
+        /// 只对 model 型的骨骼剪辑有意义（sprite 型帧序列播放器不做交叉淡入，忽略它）。</summary>
+        public double? BlendMs { get; }
+
         public AnimClipDef(Id resourceRef, IReadOnlyList<AnimClipEventSpec>? events = null)
+            : this(resourceRef, events, null)
+        {
+        }
+
+        /// <summary>带混合时长的构造重载（旧构造保持原签名并转调本重载，<paramref name="blendMs"/> 为 null）。</summary>
+        public AnimClipDef(Id resourceRef, IReadOnlyList<AnimClipEventSpec>? events, double? blendMs)
         {
             ResourceRef = resourceRef;
             Events = events ?? Array.Empty<AnimClipEventSpec>();
+            BlendMs = blendMs;
         }
     }
 
@@ -75,7 +87,7 @@ namespace Core.Foundation.DisplayInfo
     /// 再自行解析一遍同一段 JSON。
     /// </para>
     /// </summary>
-    public sealed class AnimSetDef
+    public sealed class AnimSetDef : IAnimBlendSource
     {
         /// <summary>
         /// ADR-0111：战斗姿态变体剪辑键的前缀。处于战斗姿态时，动画状态 <c>&lt;key&gt;</c>（
@@ -104,6 +116,15 @@ namespace Core.Foundation.DisplayInfo
         /// </summary>
         public Id? Extends { get; }
 
+        /// <summary>手感落地 M4-D（04 第 10 节）：每对键的切入混合时长声明（数据行 <c>blends: [{from, to, blend_ms}]</c>），
+        /// 经 <see cref="FromRecord(DataRecord, IDataRegistryView)"/> 构造时已合并继承链（子集声明的同一对覆盖父集；
+        /// 键按规范键判同对）；空列表 = 没有声明。键是 <see cref="Clips"/> 里的剪辑键，换算成资源引用见
+        /// <see cref="TryGetBlendSeconds"/>。</summary>
+        public IReadOnlyList<AnimBlendPair> Blends { get; }
+
+        private Dictionary<(Id, Id), double>? _pairMs;
+        private Dictionary<Id, double>? _clipMs;
+
         public AnimSetDef(Id id, IReadOnlyDictionary<string, AnimClipDef> clips)
             : this(id, clips, null)
         {
@@ -111,10 +132,75 @@ namespace Core.Foundation.DisplayInfo
 
         /// <summary>带继承声明的构造重载（旧构造保持原签名并转调本重载，<paramref name="extends"/> 为 null）。</summary>
         public AnimSetDef(Id id, IReadOnlyDictionary<string, AnimClipDef> clips, Id? extends)
+            : this(id, clips, extends, null)
+        {
+        }
+
+        /// <summary>带每对键混合时长声明的构造重载（M4-D；旧构造转调本重载，<paramref name="blends"/> 为 null = 无声明）。</summary>
+        public AnimSetDef(Id id, IReadOnlyDictionary<string, AnimClipDef> clips, Id? extends, IReadOnlyList<AnimBlendPair>? blends)
         {
             Id = id;
             Clips = clips ?? throw new ArgumentNullException(nameof(clips));
             Extends = extends;
+            Blends = blends ?? Array.Empty<AnimBlendPair>();
+        }
+
+        /// <summary>
+        /// <see cref="IAnimBlendSource"/>：从剪辑 <paramref name="fromClip"/>（null = 此前没有播放过剪辑）切到
+        /// <paramref name="toClip"/> 的交叉淡入时长（秒）。优先级：每对键（<see cref="Blends"/>）&gt; 目标剪辑的逐键
+        /// <see cref="AnimClipDef.BlendMs"/> &gt; 没有声明（返回 false，调用方用默认）。键在 <see cref="Clips"/> 里找不到的
+        /// 悬空声明被忽略（由校验规则报警告）；同一资源被多个键引用（别名）时共用同一个值，同资源多值取键名序最前者。
+        /// </summary>
+        public bool TryGetBlendSeconds(Id? fromClip, Id toClip, out double seconds)
+        {
+            EnsureBlendTables();
+            if (fromClip.HasValue && _pairMs!.TryGetValue((fromClip.Value, toClip), out var pairMs))
+            {
+                seconds = pairMs / 1000.0;
+                return true;
+            }
+            if (_clipMs!.TryGetValue(toClip, out var clipMs))
+            {
+                seconds = clipMs / 1000.0;
+                return true;
+            }
+            seconds = 0.0;
+            return false;
+        }
+
+        private void EnsureBlendTables()
+        {
+            if (_pairMs != null && _clipMs != null)
+            {
+                return;
+            }
+
+            var keys = new List<string>(Clips.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            var clipMs = new Dictionary<Id, double>();
+            var byCanonical = new Dictionary<string, Id>(StringComparer.Ordinal);
+            foreach (var key in keys)
+            {
+                var def = Clips[key];
+                byCanonical[PoseKeys.Canonicalize(key)] = def.ResourceRef;
+                if (def.BlendMs.HasValue && !clipMs.ContainsKey(def.ResourceRef))
+                {
+                    clipMs[def.ResourceRef] = def.BlendMs.Value;
+                }
+            }
+
+            var pairMs = new Dictionary<(Id, Id), double>();
+            foreach (var pair in Blends)
+            {
+                if (byCanonical.TryGetValue(PoseKeys.Canonicalize(pair.FromKey), out var fromRef)
+                    && byCanonical.TryGetValue(PoseKeys.Canonicalize(pair.ToKey), out var toRef))
+                {
+                    pairMs[(fromRef, toRef)] = pair.BlendMs;
+                }
+            }
+
+            _clipMs = clipMs;
+            _pairMs = pairMs;
         }
 
         /// <summary>从一条已加载的 <c>display.anim_set</c> <see cref="DataRecord"/> 构造（假设记录已
@@ -126,7 +212,7 @@ namespace Core.Foundation.DisplayInfo
             var id = record.GetId("id");
             var clips = ParseOwnClips(record);
             Id? extends = record.TryGetId("extends", out var parentId) ? parentId : (Id?)null;
-            return new AnimSetDef(id, clips, extends);
+            return new AnimSetDef(id, clips, extends, ParseOwnBlends(record));
         }
 
         /// <summary>
@@ -178,10 +264,25 @@ namespace Core.Foundation.DisplayInfo
                 {
                     overridden.Add(PoseKeys.Canonicalize(kv.Key));
                 }
+                // M4-D：子集覆盖同名键时，子集没有声明 blend_ms 就沿用被覆盖键的 blend_ms（体量组换了资源引用，切入混合时长不必重复声明）。
+                var inheritedBlend = new Dictionary<string, double>(StringComparer.Ordinal);
+                foreach (var e in merged)
+                {
+                    var canonical = PoseKeys.Canonicalize(e.Key);
+                    if (e.Value.BlendMs.HasValue && overridden.Contains(canonical))
+                    {
+                        inheritedBlend[canonical] = e.Value.BlendMs.Value;
+                    }
+                }
                 merged.RemoveAll(e => overridden.Contains(PoseKeys.Canonicalize(e.Key)));
                 foreach (var kv in own)
                 {
-                    merged.Add(kv);
+                    var def = kv.Value;
+                    if (!def.BlendMs.HasValue && inheritedBlend.TryGetValue(PoseKeys.Canonicalize(kv.Key), out var inherited))
+                    {
+                        def = new AnimClipDef(def.ResourceRef, def.Events, inherited);
+                    }
+                    merged.Add(new KeyValuePair<string, AnimClipDef>(kv.Key, def));
                 }
             }
 
@@ -190,7 +291,43 @@ namespace Core.Foundation.DisplayInfo
             {
                 clips[kv.Key] = kv.Value;
             }
-            return new AnimSetDef(self.Id, clips, self.Extends);
+
+            // 每对键混合时长：自上而下合并，子集声明的同一对（规范键）覆盖父集。
+            var blends = new List<AnimBlendPair>();
+            for (var i = chain.Count - 1; i >= 0; i--)
+            {
+                foreach (var pair in ParseOwnBlends(chain[i]))
+                {
+                    var from = PoseKeys.Canonicalize(pair.FromKey);
+                    var to = PoseKeys.Canonicalize(pair.ToKey);
+                    blends.RemoveAll(b => PoseKeys.Canonicalize(b.FromKey) == from && PoseKeys.Canonicalize(b.ToKey) == to);
+                    blends.Add(pair);
+                }
+            }
+            return new AnimSetDef(self.Id, clips, self.Extends, blends);
+        }
+
+        private static List<AnimBlendPair> ParseOwnBlends(DataRecord record)
+        {
+            var result = new List<AnimBlendPair>();
+            if (!record.TryGetArray("blends", out var arr))
+            {
+                return result;
+            }
+
+            for (var i = 0; i < arr.Count; i++)
+            {
+                if (!(arr[i] is JsonObject o)
+                    || !o.TryGetValue("from", out var fromVal) || !(fromVal is JsonString fromStr) || string.IsNullOrEmpty(fromStr.Value)
+                    || !o.TryGetValue("to", out var toVal) || !(toVal is JsonString toStr) || string.IsNullOrEmpty(toStr.Value)
+                    || !o.TryGetValue("blend_ms", out var msVal) || !(msVal is JsonNumber msNum) || msNum.Value < 0.0)
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "blends",
+                        $"blends 第 {i} 项必须是 {{from: 非空 String, to: 非空 String, blend_ms: 非负 Number}}");
+                }
+                result.Add(new AnimBlendPair(fromStr.Value, toStr.Value, msNum.Value));
+            }
+            return result;
         }
 
         private static IEnumerable<string> Keys(List<DataRecord> records)
@@ -245,7 +382,17 @@ namespace Core.Foundation.DisplayInfo
                 }
             }
 
-            return new AnimClipDef(resourceRef, events);
+            double? blendMs = null;
+            if (clipObj.TryGetValue("blend_ms", out var blendVal) && !(blendVal is JsonNull))
+            {
+                if (!(blendVal is JsonNumber blendNum) || blendNum.Value < 0.0)
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "clips", $"剪辑 \"{clipName}\" 的 blend_ms 必须是非负数字（毫秒）");
+                }
+                blendMs = blendNum.Value;
+            }
+
+            return new AnimClipDef(resourceRef, events, blendMs);
         }
     }
 }

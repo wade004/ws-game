@@ -161,10 +161,11 @@ class PoseKey:
     stance: Optional[str]
     family: Optional[str]
     variant: Optional[str]
+    air: bool = False   # 空中攻击子状态 ``attack.air[.<族>]``（手感落地 M4-D）：``air`` 不是武器族，也不是变体
 
     def base(self) -> tuple:
-        """去掉武器族维度后的键：(状态, 步态, 姿态, 变体)。"""
-        return (self.state, self.gait, self.stance, self.variant)
+        """去掉武器族维度后的键：(状态, 步态, 姿态, 变体, 是否空中)。"""
+        return (self.state, self.gait, self.stance, self.variant, self.air)
 
 
 def parse_pose_key(key: str) -> PoseKey:
@@ -176,24 +177,35 @@ def parse_pose_key(key: str) -> PoseKey:
     state = segs[0]
     i = 1
     gait = stance = family = variant = None
+    air = False
+    if state == "attack" and i < len(segs) and segs[i] == "air":
+        air = True
+        i += 1
     if state == "move" and i < len(segs) and segs[i] in GAITS:
         gait = segs[i]
         i += 1
     if i < len(segs) and segs[i] in STANCES:
         stance = segs[i]
         i += 1
+    if state == "hit" and i + 1 < len(segs) and segs[i] == "block":
+        # 格挡受击 ``hit.block[.<族>]``（M4-D）：``block`` 是变体，其后的族段仍是武器族（盾族有自己的剪辑）
+        variant = "block"
+        i += 1
+        if i < len(segs):
+            family = segs[i]
+            i += 1
     if state in FAMILY_STATES and i < len(segs) and not segs[i].isdigit():
         family = segs[i]
         i += 1
     if i < len(segs):
         variant = ".".join(segs[i:])
-    return PoseKey(state, gait, stance, family, variant)
+    return PoseKey(state, gait, stance, family, variant, air)
 
 
 def pose_key_tier(key: str) -> str:
     """04 第 3 节：必备 = ``idle/move.walk/move.run/attack(每族一段)/hit/death``，其余推荐。"""
     pk = parse_pose_key(key)
-    if pk.variant is not None:
+    if pk.variant is not None or pk.air:
         return TIER_RECOMMENDED
     base = ".".join(x for x in (pk.state, pk.gait, pk.stance) if x)
     return TIER_REQUIRED if base in REQUIRED_BASES else TIER_RECOMMENDED

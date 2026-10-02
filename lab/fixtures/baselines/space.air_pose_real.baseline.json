@@ -6,7 +6,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "9d8ce3bef26dd3c1",
+        "dataset": "b5caa351da2f36a4",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -174,7 +174,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "067c75dd755e0a4b",
+        "dataset": "2dc6032bb41050ef",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -351,7 +351,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "9d8ce3bef26dd3c1",
+        "dataset": "b5caa351da2f36a4",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -519,7 +519,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "067c75dd755e0a4b",
+        "dataset": "2dc6032bb41050ef",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -696,7 +696,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "9d8ce3bef26dd3c1",
+        "dataset": "b5caa351da2f36a4",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -864,7 +864,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "067c75dd755e0a4b",
+        "dataset": "2dc6032bb41050ef",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1041,7 +1041,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "9d8ce3bef26dd3c1",
+        "dataset": "b5caa351da2f36a4",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1227,8 +1227,8 @@
           "move_blocked_ticks": 0,
           "final_x": 0,
           "air_phases": "rise:6-23;fall:24-42;land:43-48;",
-          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump@4;8:attack:player:attack.air.combat.1h.wounded->attack.1h@4;24:phase:player:jump.fall.combat.1h.wounded->jump@4;38:hit:stake:hit.air->hit.launch@1;38:attack:player:attack.air.combat.1h.wounded->attack.1h@4;43:phase:player:jump.land.combat.1h.wounded->idle@4;",
-          "air_pose_fallbacks": 6
+          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump.rise@3;8:attack:player:attack.air.combat.1h.wounded->attack.air@3;24:phase:player:jump.fall.combat.1h.wounded->jump.fall@3;38:hit:stake:hit.air->hit.air@0;38:attack:player:attack.air.combat.1h.wounded->attack.air@3;43:phase:player:jump.land.combat.1h.wounded->jump.land@3;",
+          "air_pose_fallbacks": 5
         }
       }
     },
@@ -1236,7 +1236,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "067c75dd755e0a4b",
+        "dataset": "2dc6032bb41050ef",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1431,8 +1431,8 @@
           "move_blocked_ticks": 0,
           "final_x": 0,
           "air_phases": "rise:6-23;fall:24-42;land:43-48;",
-          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump@4;24:phase:player:jump.fall.combat.1h.wounded->jump@4;40:attack:player:attack.air.combat.1h.wounded->attack.1h@4;43:phase:player:jump.land.combat.1h.wounded->idle@4;50:hit:stake:hit.air->hit.launch@1;",
-          "air_pose_fallbacks": 5
+          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump.rise@3;24:phase:player:jump.fall.combat.1h.wounded->jump.fall@3;40:attack:player:attack.air.combat.1h.wounded->attack.air@3;43:phase:player:jump.land.combat.1h.wounded->jump.land@3;50:hit:stake:hit.air->hit.air@0;",
+          "air_pose_fallbacks": 4
         }
       }
     },
@@ -1440,7 +1440,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "9d8ce3bef26dd3c1",
+        "dataset": "b5caa351da2f36a4",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1626,8 +1626,8 @@
           "move_blocked_ticks": 0,
           "final_x": 0,
           "air_phases": "rise:6-31;fall:32-58;land:59-64;",
-          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump@4;8:attack:player:attack.air.combat.1h.wounded->attack.1h@4;32:phase:player:jump.fall.combat.1h.wounded->jump@4;38:hit:stake:hit.air->hit.launch@1;38:attack:player:attack.air.combat.1h.wounded->attack.1h@4;59:phase:player:jump.land.combat.1h.wounded->idle@4;",
-          "air_pose_fallbacks": 6
+          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump.rise@3;8:attack:player:attack.air.combat.1h.wounded->attack.air@3;32:phase:player:jump.fall.combat.1h.wounded->jump.fall@3;38:hit:stake:hit.air->hit.air@0;38:attack:player:attack.air.combat.1h.wounded->attack.air@3;59:phase:player:jump.land.combat.1h.wounded->jump.land@3;",
+          "air_pose_fallbacks": 5
         }
       }
     },
@@ -1635,7 +1635,7 @@
       "key": {
         "script": "space.air_pose_real",
         "scriptVersion": 1,
-        "dataset": "067c75dd755e0a4b",
+        "dataset": "2dc6032bb41050ef",
         "preset": "feel.preset.space_air_pose",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -1690,7 +1690,7 @@
           "event_count_total": 341,
           "frames": 140,
           "frame_ms_p50": 0.1,
-          "frame_ms_p95": 0.1,
+          "frame_ms_p95": 1,
           "alloc_bytes_per_frame_p95": 32768
         },
         "inputbuf": {
@@ -1830,8 +1830,8 @@
           "move_blocked_ticks": 0,
           "final_x": 0,
           "air_phases": "rise:6-31;fall:32-58;land:59-64;",
-          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump@4;32:phase:player:jump.fall.combat.1h.wounded->jump@4;40:attack:player:attack.air.combat.1h.wounded->attack.1h@4;50:hit:stake:hit.air->hit.launch@1;59:phase:player:jump.land.combat.1h.wounded->idle@4;",
-          "air_pose_fallbacks": 5
+          "air_pose_requests": "6:phase:player:jump.rise.combat.1h.wounded->jump.rise@3;32:phase:player:jump.fall.combat.1h.wounded->jump.fall@3;40:attack:player:attack.air.combat.1h.wounded->attack.air@3;50:hit:stake:hit.air->hit.air@0;59:phase:player:jump.land.combat.1h.wounded->jump.land@3;",
+          "air_pose_fallbacks": 4
         }
       }
     }

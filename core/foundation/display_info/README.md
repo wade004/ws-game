@@ -139,6 +139,14 @@ display_info/
    - **清单项的判定口径**：`attack`（每个武器族一段）按基础键 `attack` 判定，不逐族检查（族是自由集合）；`attack` 二三段按"任一键形如 `attack[.<族>].02/.03`"判定（重武器两段即止）；`wounded` 变体按"任一键以 `.wounded` 结尾"；启停过渡缺失的回落是混合（`start_blend_ms/stop_blend_ms`），不是另一个键。`toolchain/asset_import/pose_checklist.py` 是同一清单在 `import_assets.py check` 里的镜像，`toolchain/tests/test_pose_checklist.py` 对照本侧 `PoseChecklist.cs` 逐项核对。
    - **04 第 8 节其余检查项本版不做**：标记齐全（攻击类 `active_start/active_end/hit`、走/跑 `footstep`、闪避无敌窗口）、循环连续、与 `skill.def.timeline` 一致、每循环位移容差、`sprite` 型原点/方向档数——这些依赖剪辑内容与 `skill.def.timeline` 的抄写工具，属后续切片；本规则只覆盖"键齐全与继承合法"。
 
+9. **过渡混合 `blend_ms` / `blends`（手感落地 M4-D，手感设计/04 第 10 节第 10 条）**——加法字段，不升 schema 版本：
+   - **字段**：`display.anim_set.clips.<键>.blend_ms`（Number，0..2000 毫秒，可选）= 切入本剪辑的交叉淡入时长；行级 `blends`（`[{from, to, blend_ms}]`，可选）= 每对键声明，`from`/`to` 是本行合并后 `clips` 里的剪辑**键**（不是资源引用）。契约面：`AnimClipDef.BlendMs`（`double?`，新三参构造，旧构造保留）、`AnimSetDef.Blends`、`AnimSetDef.TryGetBlendSeconds(Id? from, Id to, out double seconds)`（实现新接口 `IAnimBlendSource`）、`AnimBlendPair`。
+   - **优先级与"缺省"语义**：每对键 > 目标剪辑逐键 > 没有声明（`TryGetBlendSeconds` 返回 false，由调用方用自己的默认）。显式 0 返回 true 且为 0（硬切），与"未声明"可区分；这与"缺省 = 0 即时切换"的直觉不同——因为引擎适配层此前一直是固定 0.15 秒，把缺省改成 0 会让所有未声明的既有数据行行为变化，所以缺省保持 0.15 秒（逐位一致），0 必须显式写。
+   - **键 → 资源引用在 `AnimSetDef` 内换算**：运行期播放器只知道资源引用，所以 `TryGetBlendSeconds` 按合并后的 `clips` 把键换成引用再查；体量组行继承主集的 `blends` 时因此自然换算成组内自己的引用，体量组数据行不需要重复声明。
+   - **`extends` 合并**（`FromRecord(record, registry)`）：子集覆盖同名键而没有写 `blend_ms` 则沿用被覆盖键的值；`blends` 沿链合并，子集同一对（按规范键判同）覆盖父集。单记录解析（不带登记表）只取自己这一行。形状错误（`blends` 不是对象数组、缺字段、非数值）抛 `DataFieldException`，不静默丢弃。
+   - **`AnimSetBlendRule`（Warning）**：`blends` 引用了合并后 `clips` 里不存在的键（`anim_set_blend_dangling`）或同一对重复（`anim_set_blend_duplicate`）。选 Warning 而不是 Error：悬空的对在运行期被忽略、回落到逐键值/默认，不影响播放；范围与类型错误由 schema 的字段类型与 `Range`（0..2000）报 Error。规则登记在 `PresentationSchemaCatalog`（装配层共享文件，只加一行）。
+   - **只对 `model` 型骨骼剪辑生效**：`ModelCharacterRig.AnimBlendSource`（可空，装配层 `UnityViewFactory.AttachDefaultModelAnimation` 把解析好的姿势集挂上）在 `PlayClip` 时按"上一个剪辑 -> 本剪辑"取值，不挂 = `DefaultBlendSeconds`（0.15 秒），与此前逐位一致；序列帧播放器不做交叉淡入，字段对它无效。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |

@@ -2640,7 +2640,12 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            var clips = RegisterDefaultModelClips(info, view.EngineHandle);
+            var clips = RegisterDefaultModelClips(info, view.EngineHandle, out var animSet);
+            // 手感落地 M4-D（04 第 10 节）：切换剪辑的交叉淡入时长按该实体姿势集的 blend_ms/blends 取值（没有声明的剪辑仍取默认 0.15 秒）。
+            if (animSet != null && view.Rig is ModelCharacterRig modelRig)
+            {
+                modelRig.AnimBlendSource = animSet;
+            }
             _modelViewsByEntity[entityId] = view;
             _animClipsByEntity[entityId] = clips;
 
@@ -2674,8 +2679,14 @@ namespace Adapter.Unity.Presentation
         /// <see cref="RegisterModelClipEvents"/>）。数据集没有该 <c>_dataRegistry</c>、查不到该行，或
         /// 该行没有声明 <c>clips</c> 字段时返回空表——不抛异常，同表现层一贯宽容策略；查不到某个具体
         /// 状态时 <see cref="AnimClipResolver"/> 自然跳过那一次状态切换的播放，不特殊处理。</summary>
-        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle)
+        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle) =>
+            RegisterDefaultModelClips(info, handle, out _);
+
+        /// <summary>同上，另经 <paramref name="animSet"/> 返回合并继承链后的姿势集（M4-D：供挂接混合时长来源；查不到数据时为 null）。</summary>
+        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(
+            Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle, out Core.Foundation.DisplayInfo.AnimSetDef? animSet)
         {
+            animSet = null;
             var result = new Dictionary<string, Id>(StringComparer.Ordinal);
             if (_dataRegistry == null || info.Model == null)
             {
@@ -2688,7 +2699,7 @@ namespace Adapter.Unity.Presentation
                 return result;
             }
 
-            var animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, _dataRegistry);
+            animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, _dataRegistry);
             foreach (var kv in animSet.Clips)
             {
                 result[kv.Key] = kv.Value.ResourceRef;

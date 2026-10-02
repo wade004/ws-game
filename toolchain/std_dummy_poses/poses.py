@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 
 from . import config as C
-from .skeleton import Pose, make_pose, mix_pose, scale_pose
+from .skeleton import Pose, build_parts, make_pose, mix_pose, scale_pose, solve_ground
 
 
 def smooth(u: float) -> float:
@@ -258,9 +258,14 @@ LYING_FRONT = make_pose(t_pitch=88, h_pitch=-30, m_sf=170, o_sf=170, m_sa=14, o_
 LYING_FRONT_SETTLE = _with(LYING_FRONT, m_sa=26, o_sa=26, h_pitch=-34, m_hf=-80, o_hf=-78)
 
 
+def _react(clip: C.ClipDef, strength: float) -> float:
+    """受击强度按体量档的反应倍率缩放（主集不变；上限 MASS_REACT_CAP，肩角不越 model 型的关节角限）。"""
+    return min(strength * C.mass_react(clip), C.MASS_REACT_CAP) if clip.mass else strength
+
+
 def pose_hit(clip: C.ClipDef, t_ms: float) -> Pose:
     base = combat(None)
-    strength = {"hit": 1.0, "hit.light": 0.55, "hit.heavy": 1.5, "hit.knockback": 2.2}[clip.key]
+    strength = _react(clip, {"hit": 1.0, "hit.light": 0.55, "hit.heavy": 1.5, "hit.knockback": 2.2}[clip.key])
     hp = _hit_pose(base, strength)
     (_, imp), (_, rec) = clip.phases
     if t_ms < imp:
@@ -275,7 +280,7 @@ def pose_hit(clip: C.ClipDef, t_ms: float) -> Pose:
 
 def pose_knockdown(clip: C.ClipDef, t_ms: float) -> Pose:
     (_, fall), (_, lie) = clip.phases
-    start = _hit_pose(combat(None), 1.5)
+    start = _hit_pose(combat(None), _react(clip, 1.5))
     if t_ms < fall:
         return mix_pose(start, LYING_BACK, ease_in(t_ms / fall))
     return mix_pose(LYING_BACK, LYING_BACK_SETTLE, smooth((t_ms - fall) / lie))
@@ -290,7 +295,7 @@ def pose_getup(clip: C.ClipDef, t_ms: float) -> Pose:
 
 def pose_death(clip: C.ClipDef, t_ms: float) -> Pose:
     (_, fall), (_, lie) = clip.phases
-    start = _hit_pose(combat(None), 1.5)
+    start = _hit_pose(combat(None), _react(clip, 1.5))
     if t_ms < fall:
         return mix_pose(start, LYING_FRONT, ease_in(t_ms / fall))
     return mix_pose(LYING_FRONT, LYING_FRONT_SETTLE, smooth((t_ms - fall) / lie))
@@ -314,7 +319,7 @@ def pose_jump(clip: C.ClipDef, t_ms: float) -> Pose:
         if u > 0.6:
             p = mix_pose(tuck, _with(base, m_hf=14, m_kn=20, o_hf=10, o_kn=16, m_sf=60, o_sf=60),
                          smooth((u - 0.6) / 0.4))
-        p["lift"] = 0.34 * math.sin(math.pi * u)
+        p["lift"] = 0.34 * math.sin(math.pi * u) * C.mass_air(clip)
         return p
     u = (t_ms - tk - air) / ld
     land = _with(base, m_hf=40, m_kn=75, o_hf=35, o_kn=70, t_pitch=20, m_sf=20, o_sf=20)
@@ -349,10 +354,16 @@ def pose_dodge(clip: C.ClipDef, t_ms: float) -> Pose:
 # 手感落地 M3-D 追加：启停过渡、抛飞、眩晕、格挡
 # --------------------------------------------------------------------------
 
+def _wsfx(clip: C.ClipDef) -> str:
+    """启停过渡的相邻循环剪辑键后缀：带伤变体的过渡接带伤的待机/奔跑（首尾姿势与它们衔接）。"""
+    return ".wounded" if clip.variant == "wounded" else ""
+
+
 def pose_move_start(clip: C.ClipDef, t_ms: float) -> Pose:
     """起步：从待机（循环起点）前倾迈出第一步，终点 = move.run 循环起点（接触姿势），首尾与前后循环剪辑衔接。"""
     u = t_ms / clip.total_ms
-    a, b = pose_idle(C.clip_by_key("idle"), 0.0), pose_loco(C.clip_by_key("move.run"), 0.0)
+    w = _wsfx(clip)
+    a, b = pose_idle(C.clip_by_key("idle" + w), 0.0), pose_loco(C.clip_by_key("move.run" + w), 0.0)
     p = mix_pose(a, b, smooth(u))
     p["t_pitch"] += 8.0 * math.sin(math.pi * u)
     p["lift"] = 0.02 * math.sin(math.pi * u)
@@ -362,7 +373,8 @@ def pose_move_start(clip: C.ClipDef, t_ms: float) -> Pose:
 def pose_move_stop(clip: C.ClipDef, t_ms: float) -> Pose:
     """急停：从奔跑接触姿势刹车后仰，站稳回到待机起点。"""
     u = t_ms / clip.total_ms
-    a, b = pose_loco(C.clip_by_key("move.run"), 0.0), pose_idle(C.clip_by_key("idle"), 0.0)
+    w = _wsfx(clip)
+    a, b = pose_loco(C.clip_by_key("move.run" + w), 0.0), pose_idle(C.clip_by_key("idle" + w), 0.0)
     p = mix_pose(a, b, smooth(u))
     k = math.sin(math.pi * u)
     p["t_pitch"] -= 12.0 * k
@@ -374,7 +386,7 @@ def pose_move_stop(clip: C.ClipDef, t_ms: float) -> Pose:
 def pose_move_pivot(clip: C.ClipDef, t_ms: float) -> Pose:
     """急转（方向反转）：奔跑接触姿势 -> 滑步屈膝后仰拧身 -> 回到奔跑接触姿势。"""
     u = t_ms / clip.total_ms
-    run0 = pose_loco(C.clip_by_key("move.run"), 0.0)
+    run0 = pose_loco(C.clip_by_key("move.run" + _wsfx(clip)), 0.0)
     skid = _with(run0, m_hf=32, o_hf=-34, m_kn=48, o_kn=42, t_pitch=-10, t_yaw=0, h_yaw=-28, t_roll=-6,
                  m_sf=-10, o_sf=60, m_el=60, o_el=60)
     k = math.sin(math.pi * u)
@@ -387,13 +399,13 @@ def pose_launch(clip: C.ClipDef, t_ms: float) -> Pose:
     """抛飞：重击后仰 -> 滞空（抬升弧线，身体放平）-> 落地滑入躺姿（之后接 hit.getup 从躺姿起身）。"""
     (_, imp), (_, air), (_, land) = clip.phases
     base = combat(None)
-    start = _hit_pose(base, 2.4)
+    start = _hit_pose(base, _react(clip, 2.4))
     if t_ms < imp:
         return mix_pose(base, start, ease_out(t_ms / imp))
     if t_ms < imp + air:
         u = (t_ms - imp) / air
         p = mix_pose(start, LYING_BACK, smooth(u))
-        p["lift"] = 0.45 * math.sin(math.pi * u)
+        p["lift"] = 0.45 * math.sin(math.pi * u) * C.mass_air(clip)
         return p
     return mix_pose(LYING_BACK, LYING_BACK_SETTLE, smooth((t_ms - imp - air) / land))
 
@@ -425,6 +437,134 @@ def pose_block(clip: C.ClipDef, t_ms: float) -> Pose:
     return p
 
 
+# --------------------------------------------------------------------------
+# 手感落地 M4-D 追加：空中姿势、格挡受击、眩晕摇晃、击飞翻滚与落地缓冲
+# --------------------------------------------------------------------------
+
+def _fall_pose(phi: float) -> Pose:
+    """下落姿势（jump.fall 的循环取样，也是 hit.air / jump.land / attack.air 收尾的衔接点）：展臂、下肢自然下垂略晃。"""
+    s, c = math.sin(2 * math.pi * phi), math.cos(2 * math.pi * phi)
+    return _with(peace(None), m_hf=14 + 5 * s, m_kn=24 + 6 * c, o_hf=8 - 5 * s, o_kn=20 - 6 * c, m_sf=72 + 8 * s,
+                 o_sf=76 - 8 * s, m_sa=46 + 5 * c, o_sa=48 - 5 * c, m_el=28 + 6 * c, o_el=30 - 6 * c,
+                 t_pitch=-3 + 1.5 * s, h_pitch=-5)
+
+
+def pose_jump_rise(clip: C.ClipDef, t_ms: float) -> Pose:
+    """上升：下肢收起、双臂上扬，轻微起伏的循环保持姿势（滞空时长由逻辑竖直轴决定，剪辑不带抬升曲线）。"""
+    phi = (t_ms / clip.total_ms) % 1.0
+    s, c = math.sin(2 * math.pi * phi), math.cos(2 * math.pi * phi)
+    return _with(peace(None), m_hf=40 + 4 * s, m_kn=68 + 5 * c, o_hf=20 - 4 * s, o_kn=50 - 5 * c, m_sf=122 + 7 * s,
+                 o_sf=116 - 7 * s, m_sa=22 + 4 * c, o_sa=24 - 4 * c, m_el=34, o_el=40, t_pitch=4 + 1.2 * s, h_pitch=-4)
+
+
+def pose_jump_fall(clip: C.ClipDef, t_ms: float) -> Pose:
+    return _fall_pose((t_ms / clip.total_ms) % 1.0)
+
+
+def pose_jump_land(clip: C.ClipDef, t_ms: float) -> Pose:
+    """落地：从下落姿势吸收冲击（深蹲前倾）-> 起身回到站姿。起点 = jump.fall 起点姿势。"""
+    (_, imp), (_, rec) = clip.phases
+    base = peace(None)
+    absorb = _with(base, m_hf=48, m_kn=88, o_hf=44, o_kn=84, t_pitch=26, m_sf=24, o_sf=24, m_el=40, o_el=40, h_pitch=-8)
+    if t_ms < imp:
+        return mix_pose(_fall_pose(0.0), absorb, ease_out(t_ms / imp))
+    return mix_pose(absorb, base, smooth((t_ms - imp) / rec))
+
+
+def pose_hit_air(clip: C.ClipDef, t_ms: float) -> Pose:
+    """空中受击：下落姿势后仰、双臂甩开、下肢拖后（幅度随体量反应倍率），再回到下落姿势（接 jump.fall 循环）。"""
+    (_, imp), (_, rec) = clip.phases
+    start = _fall_pose(0.0)
+    hit = _with(start, t_pitch=-24, h_pitch=-22, m_sf=-8, o_sf=-12, m_sa=54, o_sa=54, m_el=20, o_el=24,
+                m_hf=-12, m_kn=40, o_hf=-20, o_kn=24, t_roll=8)
+    target = scale_pose(start, hit, C.mass_react(clip))
+    if t_ms < imp:
+        return mix_pose(start, target, ease_out(t_ms / imp))
+    return mix_pose(target, start, smooth((t_ms - imp) / rec))
+
+
+_AIR_ATTACK_LEGS = (dict(m_hf=30, m_kn=58, o_hf=14, o_kn=42), dict(m_hf=36, m_kn=64, o_hf=20, o_kn=50),
+                    dict(m_hf=48, m_kn=28, o_hf=-8, o_kn=34))
+
+
+def pose_attack_air(clip: C.ClipDef, t_ms: float) -> Pose:
+    """空中攻击：同族地面第一段的上身关键姿势，下肢换成收起（前摇收得更紧、判定相蹬出）。"""
+    keys = tuple(_with(k, **legs) for k, legs in zip(attack_keys(clip.family, 1), _AIR_ATTACK_LEGS))
+    return three_phase(clip, t_ms, keys)
+
+
+def pose_hit_block(clip: C.ClipDef, t_ms: float) -> Pose:
+    """格挡受击：从格挡持握后仰、屈膝撑住，再以阻尼余弦抖动（包络 (1-u)^2，两个半周期）收回持握——末帧 = block 循环起点。"""
+    (_, imp), (_, rec) = clip.phases
+    hold = pose_block(C.clip_by_key("block.shield" if clip.family == "shield" else "block"), 0.0)
+    recoil = _with(hold, t_pitch=hold["t_pitch"] - 9, h_pitch=hold["h_pitch"] - 6, m_sf=hold["m_sf"] - 14,
+                   o_sf=hold["o_sf"] - 10, m_kn=hold["m_kn"] + 10, o_kn=hold["o_kn"] + 8, m_hf=hold["m_hf"] - 4)
+    target = scale_pose(hold, recoil, C.mass_react(clip))
+    if t_ms < imp:
+        return mix_pose(hold, target, ease_out(t_ms / imp))
+    u = (t_ms - imp) / rec
+    return mix_pose(hold, target, (1.0 - u) ** 2 * math.cos(2 * math.pi * 2.5 * u))
+
+
+def pose_stunned_sway(clip: C.ClipDef, t_ms: float) -> Pose:
+    """眩晕摇晃（循环）：躯干大幅侧倾、头部画圈、双膝交替屈伸（踉跄落脚）、双臂松垂反向摆动、重心左右漂移。"""
+    phi = (t_ms / clip.total_ms) % 1.0
+    sn, cs = math.sin(2 * math.pi * phi), math.cos(2 * math.pi * phi)
+    sn2 = math.sin(4 * math.pi * phi)
+    p = make_pose(m_hf=7 * sn, o_hf=-7 * sn, m_kn=22 + 12 * max(0.0, sn), o_kn=22 + 12 * max(0.0, -sn),
+                  m_sf=14 + 18 * cs, o_sf=14 - 18 * cs, m_sa=26 + 6 * sn, o_sa=26 - 6 * sn, m_el=30, o_el=28)
+    p["t_roll"] = 11.0 * sn
+    p["t_pitch"] = 8.0 + 4.0 * sn2
+    p["h_pitch"] = 14.0 + 7.0 * cs
+    p["h_yaw"] = 26.0 * math.sin(2 * math.pi * phi + 0.8)
+    p["px"] = 0.03 * sn
+    return p
+
+
+#: 击飞翻滚的蜷身姿势（抱膝）与骨盆抬升（绕骨盆翻转时身体最低点仍在地面之上）。
+_TUMBLE_CURL = dict(t_pitch=34, h_pitch=22, m_hf=72, m_kn=104, o_hf=64, o_kn=98, m_sf=62, o_sf=58, m_sa=14, o_sa=14,
+                    m_el=104, o_el=98)
+TUMBLE_LIFT = 0.10
+
+
+def _tumble_pose(phi: float) -> Pose:
+    p = make_pose(**_TUMBLE_CURL)
+    p["bp"] = -360.0 * phi
+    p["ground"] = 0.0
+    p["lift"] = TUMBLE_LIFT
+    return p
+
+
+def pose_launch_tumble(clip: C.ClipDef, t_ms: float) -> Pose:
+    """击飞翻滚（循环）：蜷身向后翻转一整圈（整身俯仰 bp 0 -> -360 度，绕骨盆；不接地求解，骨盆定高）。"""
+    return _tumble_pose((t_ms / clip.total_ms) % 1.0)
+
+
+def _lying_contact_lift() -> float:
+    """躺姿（LYING_BACK）着地求解的偏移 = 骨盆在躺姿触地时的抬升：翻滚落地的第一相用它从空中抬升收到触地，与第二相（着地求解）连续。"""
+    parts, _j = build_parts(LYING_BACK, None)
+    return solve_ground(LYING_BACK, parts)
+
+
+def pose_launch_land(clip: C.ClipDef, t_ms: float) -> Pose:
+    """击飞落地缓冲：蜷身下坠触地（impact，不接地求解，骨盆抬升收到触地值）-> 弹起一下（bounce）-> 滑入躺姿（settle，终点 = hit.getup 起点）。"""
+    (_, imp), (_, bnc), (_, stl) = clip.phases
+    if t_ms < imp:
+        e = ease_in(t_ms / imp)
+        p = mix_pose(_tumble_pose(0.0), LYING_BACK, e)
+        p["ground"] = 0.0
+        p["lift"] = TUMBLE_LIFT + (_lying_contact_lift() - TUMBLE_LIFT) * e
+        return p
+    if t_ms < imp + bnc:
+        u = (t_ms - imp) / bnc
+        p = dict(LYING_BACK)
+        p["lift"] = 0.07 * math.sin(math.pi * u)
+        p["m_sf"] = LYING_BACK["m_sf"] + 14.0 * math.sin(math.pi * u)
+        p["o_sf"] = LYING_BACK["o_sf"] + 14.0 * math.sin(math.pi * u)
+        return p
+    return mix_pose(LYING_BACK, LYING_BACK_SETTLE, smooth((t_ms - imp - bnc) / stl))
+
+
 _DISPATCH = {
     "move_start": pose_move_start, "move_stop": pose_move_stop, "move_pivot": pose_move_pivot,
     "hit.launch": pose_launch, "stunned": pose_stunned, "block": pose_block, "sprint": pose_loco,
@@ -432,8 +572,20 @@ _DISPATCH = {
     "hit": pose_hit, "hit.light": pose_hit, "hit.heavy": pose_hit, "hit.knockback": pose_hit,
     "hit.knockdown": pose_knockdown, "hit.getup": pose_getup, "death": pose_death,
     "jump": pose_jump, "cast": pose_cast, "dodge": pose_dodge,
+    "jump_rise": pose_jump_rise, "jump_fall": pose_jump_fall, "jump_land": pose_jump_land, "hit_air": pose_hit_air,
+    "attack_air": pose_attack_air, "hit_block": pose_hit_block, "stunned_sway": pose_stunned_sway,
+    "launch_tumble": pose_launch_tumble, "launch_land": pose_launch_land,
 }
 
 
+def apply_mass(clip: C.ClipDef, pose: Pose) -> Pose:
+    """体量档的静态站姿偏移（config.MASS_TIERS）：躯干/头俯仰、肩/髋外展，左右同号。主集（mass=None）不调用，输出与此前逐位一致。"""
+    prof = C.MASS_TIERS[clip.mass]
+    return dict(pose, t_pitch=pose["t_pitch"] + prof["t_pitch"], h_pitch=pose["h_pitch"] + prof["h_pitch"],
+                m_sa=pose["m_sa"] + prof["sa"], o_sa=pose["o_sa"] + prof["sa"],
+                m_ha=pose["m_ha"] + prof["ha"], o_ha=pose["o_ha"] + prof["ha"])
+
+
 def pose_at(clip: C.ClipDef, t_ms: float) -> Pose:
-    return _DISPATCH[clip.pose_id](clip, t_ms)
+    p = _DISPATCH[clip.pose_id](clip, t_ms)
+    return apply_mass(clip, p) if clip.mass else p
