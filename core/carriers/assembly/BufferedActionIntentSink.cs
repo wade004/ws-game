@@ -180,6 +180,15 @@ namespace Core.Carriers.Assembly
             var held = record.HoldState == BufferHoldState.HoldReleased ? record.HeldTicks : 0;
             if (held > 0) args.Add("held_ticks", new JsonNumber(held));
 
+            // 手感落地 M2-B（手感设计/01 第 2.4 节）：输入动作声明的宽限条件名随意图交给施法管线（步骤 7 在宽限窗口内放行）。
+            var graceConditions = _buffer.GetDefinition(record.ActionId)?.GraceConditions;
+            if (graceConditions != null && graceConditions.Count > 0)
+            {
+                var names = new List<JsonValue>(graceConditions.Count);
+                for (var i = 0; i < graceConditions.Count; i++) names.Add(new JsonString(graceConditions[i].Value));
+                args.Add("grace_conditions", new JsonArray(names));
+            }
+
             intent = new Intent(actorId, "cast", args.Build());
             _pending[actorId] = new Pending(record.ActionId, skillId, _buffer.CurrentTick);
             return true;

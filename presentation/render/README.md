@@ -457,3 +457,5 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
   判断记录 9。
 
 - **换装姿势桥 `EquipmentPoseBridge`（2026-10-02，手感设计/08 第 1 节）**：订阅 `feel.weapon_changed`，把事件携带的武器族设进 `PoseSelector.SetFamily`（空手事件携带 null 即清除）。桥而不是让 `PoseSelector` 自己订阅：`PoseSelector` 的契约是"不订阅事件、不持有逻辑层写入能力"，事件到武器族这一步单独放在装配层可选择性接入的小类里；桥只读事件，不回头查装备宿主或手感表。`PresentationAssembly` 目前没有装出 `PoseSelector`/`EquipmentPoseBridge`（生产装配接线留给后续装配切片，实验室装置自己装）。
+
+- **步态喂入 `PoseGaitFeeder` 与单位销毁清理（M2-B，2026-10-02）**：见 `presentation/assembly/README.md` M2-B 节。上文"`PresentationAssembly` 目前没有装出 `PoseSelector`/`EquipmentPoseBridge`"在 M1 收口时已不成立（`PresentationAssembly.Pose` 在手感启用时装配）；`EquipmentPoseBridge` 现在也订阅 `entity.destroyed` 清理选择器记账。

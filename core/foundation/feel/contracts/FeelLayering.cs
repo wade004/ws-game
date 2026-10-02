@@ -150,11 +150,24 @@ namespace Core.Foundation.Feel
 
         public IReadOnlyList<FeelWrite> Writes { get; }
 
+        /// <summary>
+        /// 条目的层数（光环实例层数；手感落地 M2-B 加法，缺省 1）：解析时数值字段的 <c>multiply</c> 按层数连乘（值的 n 次方）、<c>add</c> 按层数累加
+        /// （值乘 n）；<c>set</c> 与列表操作幂等，不随层数变化。
+        /// </summary>
+        public int Stacks { get; }
+
         public FeelTemporaryEntry(string key, IReadOnlyList<FeelWrite> writes)
+            : this(key, writes, 1)
+        {
+        }
+
+        /// <summary>手感落地 M2-B 新增重载：携带层数（小于 1 视为 1）。</summary>
+        public FeelTemporaryEntry(string key, IReadOnlyList<FeelWrite> writes, int stacks)
         {
             if (string.IsNullOrEmpty(key)) throw new ArgumentException("条目键不能为空", nameof(key));
             Key = key;
             Writes = writes ?? throw new ArgumentNullException(nameof(writes));
+            Stacks = stacks < 1 ? 1 : stacks;
         }
     }
 }

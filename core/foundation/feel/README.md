@@ -109,3 +109,9 @@
 | 预设、体型原型、武器原型、运动模式规则（试调起点） | 是（`data/_feel/`，实验性） | 自己的预设/原型/武器/角色/动作/标签映射行，以及试玩后把 `maturity` 升为 `validated` |
 | 标定行（参考身高、基础移速、基础预设、镜头参考高度等） | 否（结构与校验由框架给出） | 是，每款游戏一行；缺失则装配失败 |
 | 提供者接口的实现（体型原型、标签、装备、动作状态、临时状态） | 否（只定义接口） | 上层装配方按自己的实体与装备模型实现 |
+
+## 手感落地 M2-B：热加载入口与层数叠加（2026-10-02）
+
+- **`FeelSystem.TryReload(IDataRegistryView)` -> `FeelReloadResult`（新增）**：重读 `feel.*` 表，要求新数据仍有 `feel.*` 行、本系统的标定行与其基础预设仍在、`FeelProfileChecker.Check` 无问题，才 `FeelResolver.Reload` 换入（`Profiles` 随之指向新集合）；否则拒绝并保持当前档案，原因与校验问题写在结果里（不抛异常、不换入半份数据）。**标定不热换**：标定行取值变化时档案照常换入，结果标 `CalibrationChanged`，重启后生效。
+- **`FeelWeaponCatalog.Reload()`（新增）**：整体重读 `feel.weapon` 行；已被持有的 `FeelWeaponInfo` 是不可变快照。
+- **`FeelTemporaryEntry.Stacks`**：第 7 层数值 `multiply`/`add` 按层数逐次叠加，`set` 与列表操作幂等（见 `core/rules/assembly/README.md` M2-B 节）。

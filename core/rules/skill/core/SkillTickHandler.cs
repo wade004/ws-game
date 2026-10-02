@@ -87,7 +87,26 @@ namespace Core.Rules.Skill
                     ? (int)heldNum.Value
                     : 0;
 
-                if (direction.HasValue || heldTicks > 0)
+                // 手感落地 M2-B（手感设计/01 第 2.4 节）：意图可选携带发起它的输入动作声明的宽限条件名（grace_conditions: [Id]），
+                // 步骤 7 本应拒绝时由施法管线按宽限窗口放行；未携带时与此前逐位一致。
+                List<Id>? graceConditions = null;
+                if (intent.Args.TryGetValue("grace_conditions", out var graceVal) && graceVal is JsonArray graceArr)
+                {
+                    for (var i = 0; i < graceArr.Count; i++)
+                    {
+                        if (graceArr[i] is JsonString graceStr)
+                        {
+                            (graceConditions ??= new List<Id>()).Add(new Id(graceStr.Value));
+                        }
+                    }
+                }
+
+                if (graceConditions != null)
+                {
+                    _host.CastSkillWithContext(
+                        intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks), graceConditions);
+                }
+                else if (direction.HasValue || heldTicks > 0)
                 {
                     _host.CastSkillWithContext(intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks));
                 }

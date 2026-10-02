@@ -61,6 +61,13 @@ namespace Core.Rules.Common
         /// </summary>
         public Id? IconRef { get; }
 
+        /// <summary>
+        /// 光环实例 id（<c>AuraHost</c> 的实例键；手感落地 M2-B 加法，手感设计/05 第 6 节"以光环实例 id 为键"）：同一个单位身上同一 <c>aura_def</c>
+        /// 在 <c>AllowMultiSourceTiming</c> 下可有多个实例，每个实例各自有层数。<c>null</c> 表示该查询实现不暴露实例 id（旧实现、测试假实现），
+        /// 消费方回落到按定义 id 区分。层数见 <see cref="Stacks"/>。
+        /// </summary>
+        public Id? InstanceId { get; }
+
         public AuraSnapshot(Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey)
         {
             AuraDefId = auraDefId;
@@ -90,6 +97,16 @@ namespace Core.Rules.Common
             NameKey = nameKey;
             Polarity = polarity;
             IconRef = iconRef;
+        }
+
+        /// <summary>
+        /// 手感落地 M2-B 新增重载（ABI 只新增，既有 5、7 参数构造原样保留）：额外携带光环实例 id（<see cref="InstanceId"/>）。
+        /// </summary>
+        public AuraSnapshot(
+            Id auraDefId, int stacks, double? remaining, double? total, Id? nameKey, AuraPolarity polarity, Id? iconRef, Id? instanceId)
+            : this(auraDefId, stacks, remaining, total, nameKey, polarity, iconRef)
+        {
+            InstanceId = instanceId;
         }
     }
 }

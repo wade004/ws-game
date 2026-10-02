@@ -139,8 +139,9 @@ namespace Core.Carriers.Assembly
     /// <summary>
     /// 临时状态：读单位身上光环定义（<c>skill.aura_def</c>）的 <c>feel_modifiers</c>（第 7 层）。
     /// <para>
-    /// 判断记录（条目键与层数）：<see cref="AuraSnapshot"/> 不带光环实例 id，条目键用光环定义 id，同一定义的多层叠加只算一条（层数不放大写入）。
-    /// 需要"按层数叠乘"的手感修饰留给后续——要先在 <c>IAuraQuery</c> 暴露实例 id 与层数语义，不在本切片内绕开。
+    /// 判断记录（条目键与层数，M2-B）：条目键取光环实例 id（<see cref="AuraSnapshot.InstanceId"/>，手感设计/05 第 6 节），每个实例一条；
+    /// 层数取 <see cref="AuraSnapshot.Stacks"/> 带进 <see cref="FeelTemporaryEntry.Stacks"/>，解析器对数值 <c>multiply</c> 连乘、<c>add</c> 累加（<c>set</c> 幂等）。
+    /// 查询实现不暴露实例 id 时（旧实现、测试假实现）回落到光环定义 id 为键、同一定义只算一条。层数变化经 <c>aura.stack_changed</c> 失效重算。
     /// </para>
     /// </summary>
     public sealed class AuraFeelTemporaryProvider : IFeelTemporaryProvider
@@ -166,12 +167,14 @@ namespace Core.Carriers.Assembly
             for (var i = 0; i < snapshots.Count; i++)
             {
                 var defId = snapshots[i].AuraDefId;
-                if (!seen.Add(defId)) continue;
+                // 条目键 = 光环实例 id（手感设计/05 第 6 节）；查询实现不暴露实例 id 时回落到定义 id（同一定义只算一条，层数仍按快照层数）。
+                var key = snapshots[i].InstanceId ?? defId;
+                if (!seen.Add(key)) continue;
                 var record = _registry.Get("skill.aura_def", defId);
                 if (record == null) continue;
                 var writes = FeelWriteParser.ParseWrites(record.Raw, "feel_modifiers", _fields);
                 if (writes.Count == 0) continue;
-                (entries ??= new List<FeelTemporaryEntry>()).Add(new FeelTemporaryEntry(defId.Value, writes));
+                (entries ??= new List<FeelTemporaryEntry>()).Add(new FeelTemporaryEntry(key.Value, writes, snapshots[i].Stacks));
             }
 
             return entries ?? (IReadOnlyList<FeelTemporaryEntry>)Array.Empty<FeelTemporaryEntry>();

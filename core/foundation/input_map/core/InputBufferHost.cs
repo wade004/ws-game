@@ -68,6 +68,8 @@ namespace Core.Foundation.InputMap
         private readonly Dictionary<Id, ActorBuffer> _actors = new Dictionary<Id, ActorBuffer>();
         private readonly List<Id> _actorOrder = new List<Id>();
 
+        private readonly List<Id> _graceConditionNames = new List<Id>();
+
         private long _tick = -1;
         private Id? _localActor;
         private Func<Vec2?>? _directionProbe;
@@ -158,6 +160,31 @@ namespace Core.Foundation.InputMap
                     _definitions.Remove(def.ActionId);
                 }
             }
+
+            RebuildGraceConditionNames();
+        }
+
+        /// <summary>
+        /// 已声明的缓冲动作的宽限条件名并集（序数序、去重）：宽限追踪（<see cref="GraceTracker"/>）据此对每个有缓冲的行动者采样
+        /// （手感落地 M2-B，手感设计/01 第 2.4 节）。没有动作声明宽限条件时为空。
+        /// </summary>
+        public IReadOnlyList<Id> GraceConditionNames => _graceConditionNames;
+
+        /// <summary><see cref="BindLocalInput"/> 绑定的本地行动者；未绑定（或已销毁）为 null。宽限追踪据此在玩家第一次按键之前就开始采样。</summary>
+        public Id? LocalActorId => _localActor;
+
+        private void RebuildGraceConditionNames()
+        {
+            _graceConditionNames.Clear();
+            foreach (var def in _definitions.Values)
+            {
+                for (var i = 0; i < def.GraceConditions.Count; i++)
+                {
+                    if (!_graceConditionNames.Contains(def.GraceConditions[i])) _graceConditionNames.Add(def.GraceConditions[i]);
+                }
+            }
+
+            _graceConditionNames.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
         }
 
         /// <summary>动作是否经缓冲。</summary>

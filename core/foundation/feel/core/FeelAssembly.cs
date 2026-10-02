@@ -21,14 +21,48 @@ namespace Core.Foundation.Feel
         }
     }
 
+    /// <summary>
+    /// 一次数据热加载的结果（<see cref="FeelSystem.TryReload"/>，手感设计/05 第 8 节）。拒绝时保持当前档案不变，原因与校验问题写在本对象里，
+    /// 不静默吞掉（开发期改坏了表要让改表的人看得见）。
+    /// </summary>
+    public sealed class FeelReloadResult
+    {
+        /// <summary>新档案是否已换入解析器。</summary>
+        public bool Applied { get; }
+
+        /// <summary>未换入的原因，或已换入时的补充说明（如标定变化需重启）；无话可说为空串。</summary>
+        public string Reason { get; }
+
+        /// <summary>档案校验问题（拒绝原因是校验失败时非空）。</summary>
+        public IReadOnlyList<FeelCheckIssue> Issues { get; }
+
+        /// <summary>已换入时：新数据里本系统标定行的取值与装配时不同（标定在运行期不热换，该变化要重启才生效）。</summary>
+        public bool CalibrationChanged { get; }
+
+        /// <summary>截至本次的成功热加载累计次数（本次已换入时含本次）。</summary>
+        public int Generation { get; }
+
+        internal FeelReloadResult(bool applied, string reason, IReadOnlyList<FeelCheckIssue>? issues, bool calibrationChanged, int generation)
+        {
+            Applied = applied;
+            Reason = reason;
+            Issues = issues ?? Array.Empty<FeelCheckIssue>();
+            CalibrationChanged = calibrationChanged;
+            Generation = generation;
+        }
+    }
+
     /// <summary>已装配的手感系统：解析器、标定、档案集合、调试覆盖层。</summary>
     public sealed class FeelSystem
     {
+        private int _reloadGeneration;
+
         public FeelResolver Resolver { get; }
 
         public FeelCalibration Calibration { get; }
 
-        public FeelProfileSet Profiles { get; }
+        /// <summary>当前生效的档案集合（热加载成功后指向新集合）。</summary>
+        public FeelProfileSet Profiles { get; private set; }
 
         /// <summary>装配根创建的调试覆盖层；调用方自带调试提供者时为 null。</summary>
         public FeelDebugOverrides? DebugOverrides { get; }
@@ -43,6 +77,63 @@ namespace Core.Foundation.Feel
             DebugOverrides = debug;
             StepSeconds = stepSeconds;
         }
+
+        /// <summary>
+        /// 开发期数据热加载（手感设计/05 第 8 节，ADR-0019）：从数据视图重新读出 <c>feel.*</c> 表，通过与装配时同一套静态校验后换入解析器
+        /// （<see cref="FeelResolver.Reload"/>：清全部单位缓存、版本号下一次解析时递增；进行中动作的快照不变，下一次动作才看到新数据）。
+        /// <para>
+        /// 判断记录：新数据没有任何 <c>feel.*</c> 行、缺本系统的标定行或其基础预设、档案校验有错误时<b>拒绝</b>并保持当前档案
+        /// （返回的 <see cref="FeelReloadResult.Reason"/>/<see cref="FeelReloadResult.Issues"/> 给出原因），不抛异常、不换入半份数据。
+        /// 标定（<see cref="FeelCalibration"/>）装配后不可变，运行期不热换：新数据里标定行取值变化时档案照常换入，并在结果里标
+        /// <see cref="FeelReloadResult.CalibrationChanged"/>，要重启才生效。
+        /// </para>
+        /// </summary>
+        public FeelReloadResult TryReload(IDataRegistryView view)
+        {
+            if (view == null) throw new ArgumentNullException(nameof(view));
+            var next = FeelProfileSet.FromRegistry(view, Profiles.Fields);
+            if (!next.HasAnyData)
+            {
+                return new FeelReloadResult(false, "热加载拒绝：数据里没有任何 feel.* 行，保持当前档案", null, false, _reloadGeneration);
+            }
+
+            FeelCalibration? calibration = null;
+            for (var i = 0; i < next.Calibrations.Count; i++)
+            {
+                if (next.Calibrations[i].Id == Calibration.Id) calibration = next.Calibrations[i];
+            }
+
+            if (calibration == null)
+            {
+                return new FeelReloadResult(
+                    false, $"热加载拒绝：标定行 \"{Calibration.Id}\" 不存在或字段不完整，保持当前档案", null, false, _reloadGeneration);
+            }
+
+            if (next.GetPreset(Calibration.BasePresetId) == null)
+            {
+                return new FeelReloadResult(
+                    false, $"热加载拒绝：基础预设 \"{Calibration.BasePresetId}\" 不存在，保持当前档案", null, false, _reloadGeneration);
+            }
+
+            var issues = FeelProfileChecker.Check(next);
+            if (issues.Count > 0)
+            {
+                return new FeelReloadResult(false, $"热加载拒绝：档案校验有 {issues.Count} 个错误，保持当前档案", issues, false, _reloadGeneration);
+            }
+
+            Resolver.Reload(next);
+            Profiles = next;
+            _reloadGeneration++;
+            var changed = !SameCalibration(calibration, Calibration);
+            return new FeelReloadResult(
+                true, changed ? "标定行取值与装配时不同：标定运行期不热换，重启后生效" : string.Empty, null, changed, _reloadGeneration);
+        }
+
+        private static bool SameCalibration(FeelCalibration a, FeelCalibration b) =>
+            a.BasePresetId == b.BasePresetId && a.ReferenceHeight.Equals(b.ReferenceHeight) && a.BaseSpeed.Equals(b.BaseSpeed)
+            && a.AnimationFps.Equals(b.AnimationFps) && a.ReferenceCameraHeight.Equals(b.ReferenceCameraHeight)
+            && a.ReferenceZoom.Equals(b.ReferenceZoom) && a.PixelsPerUnit.Equals(b.PixelsPerUnit)
+            && a.MarkerToleranceMs.Equals(b.MarkerToleranceMs);
     }
 
     /// <summary>装配结果：未装配（没有手感数据）或已装配。</summary>

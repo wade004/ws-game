@@ -388,3 +388,11 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 3. **`HitFeelHost._killPending` 的残留**（S3b 已知局限第 10 条交代给本切片核对）：`unit.died` 先于致死那一击的 `combat.damage_dealt` 入队，instant 适配器靠"已见 `unit.died`"判击杀并在合成时消费标记；时间线技能的伤害事件被 `IsTimelineSkill` 早退时旧实现不消费，标记残留到下一个 tick 起点，同一 tick 内（如击杀后复活再被 instant 命中）对该单位的 instant 命中会被误判为击杀（顿帧放大、反应 Death）。修法：时间线早退分支与周期伤害早退分支都消费标记（时间线击杀的 `isKill` 由时间线路径自己按 `IsAlive` 判，不依赖标记）。用例 `HitFeelHostTests.InstantMode_KillMarkLeftByATimelineKill_IsConsumed_...`。
 
 运行时验证（`FeelWiringEndToEndTests`，经 `HeadlessWorldBuilder` 生产装配）：`EachHit_ProducesExactlyOneConfirmation_AndOneHitstopEvaluation`（空间命中时间线 / 链无 `shape` 时间线 / instant 三条路径各一次命中 → 恰好 1 条 `combat.hit_confirmed`、1 条伤害事件、2 条 `feel.hitstop_started`（两侧顿帧毫秒不同，按档案毫秒经 `MillisecondsToTicks` 算期望）），`ShapedTimelineSkill_..._HitsOnlyTargetsInsideTheCone`（扇形外目标不被命中、血量不变），`TargetAssist_*`。
+
+## 手感落地 M2-B：光环层数叠乘与宽限窗口的规则层部分（2026-10-02）
+
+- **`AuraSnapshot.InstanceId`（新增只读属性与 8 参数构造重载，既有 5、7 参数构造原样保留）**：`AuraHost.GetActiveAuraSnapshots` 填入光环实例 id，层数已在 `Stacks`。**为什么不在 `IAuraQuery` 加新成员**：快照本来就是查询的返回值，加字段不碰接口、不触发 `InterfaceDefaultMemberForwarding` 门禁，旧的查询实现/测试假实现不填（`null`）时消费方回落到按定义 id 区分。
+- **`FeelTemporaryEntry.Stacks`（新增，缺省 1；3 参数构造重载，旧 2 参数构造委托）**：`FeelResolver` 第 7 层把数值 `multiply` 逐次连乘 n 次、`add` 逐次累加 n 次（不用 `Math.Pow`，保证确定性），`set` 与列表操作幂等；层数 1 时原样不变。**判断记录**：叠乘取"重复 n 次同一次写入"，与 provenance 里的单次写入对得上；整数/范围字段在叠加后仍走既有的夹取。
+- **条目键 = 光环实例 id**（手感设计/05 第 6 节原文），同一定义的多个实例（`AllowMultiSourceTiming`）各自带层数；查询实现不暴露实例 id 时回落到定义 id。
+- **规则层的宽限消费**：`TimelineServices.Grace`（`IGraceQuery?`）、`CastPipeline` 步骤 7 的 `GraceCoversStep7`、`SkillHost`/`CastPipeline` 的 `CastSkillWithContext` 5 参数重载（旧 4 参数转发）、`SkillTickHandler` 解析 `cast` 意图的可选 `grace_conditions` 字符串数组。语义与限制见 `core/carriers/assembly/README.md` M2-B 节。
+- **武器 `phase_scale` 作用于时间线各相（05/08 层叠与标定）**：审查结论——武器行的 `phase_scale.*` 写入本就经解析器第 4 层进入进入时间线时的快照并缩放各相，生产路径不缺代码；缺的是用"时间线毫秒 × 倍率 × 标定"独立算期望的回归（M1 用例只拿解析器自己的输出对比）。M2-B 加了用例 `FeelCoreGapsTests.WeaponPhaseScale_*`（占位武器数据不带倍率，数据未改）。

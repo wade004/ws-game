@@ -56,11 +56,24 @@ namespace Core.Foundation.InputMap
             }
 
             _host.BeginTick();
-            _grace?.Sample(_host.CurrentTick);
+            var actors = _host.ActorIds;
+            if (_grace != null)
+            {
+                // 手感落地 M2-B：有宽限条件声明时，对每个有缓冲的行动者（以及本地绑定的行动者——第一次按键之前就要开始采样）
+                // 登记全部宽限条件名再采样；Register 对重复登记无效果。
+                var names = _host.GraceConditionNames;
+                if (names.Count > 0)
+                {
+                    var local = _host.LocalActorId;
+                    if (local.HasValue) _grace.Register(local.Value, names);
+                    for (var i = 0; i < actors.Count; i++) _grace.Register(actors[i], names);
+                }
+
+                _grace.Sample(_host.CurrentTick);
+            }
 
             if (_sink == null) return;
 
-            var actors = _host.ActorIds;
             for (var i = 0; i < actors.Count; i++)
             {
                 var actorId = actors[i];

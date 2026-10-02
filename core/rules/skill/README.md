@@ -1801,3 +1801,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 ## 手感落地 S10：技能宿主读口与移动输入通知（2026-10-02）
 
 新增 `SkillHost.IsTimelineSkill(Id)`（技能定义带 `timeline` 块）、`SkillHost.GetTimelineFeelRef(Id)`（`timeline.feel_ref`，动作层手感引用的生产来源）与 `TimelineMoveIntentTickHandler`（把 `move` 类意图接给 `NotifyMoveIntent`，口径见 `core/rules/assembly/README.md` S10 第 5 条）。均为只增不改的公共成员；装配与判断记录见 `core/rules/assembly/README.md` 与 `core/carriers/assembly/README.md` 的"手感落地 S10"两节。
+
+## 手感落地 M2-B：施法管线消费宽限窗口（2026-10-02）
+
+`CastPipeline.CastSkillWithContext` 新增 5 参数重载（末位 `IReadOnlyList<Id>? graceConditions`，旧 4 参数原样转发传 `null`），`SkillHost` 同步新增；`TimelineServices.Grace` 提供 `IGraceQuery`。步骤 7 的射程与视线检查在"条件全部满足且至少一个处于宽限窗口"时放行（`GraceCoversStep7`，字段在施法期间设置、`finally` 清理，不跨施法泄漏）。只放宽步骤 7；时间线技能本就跳过步骤 6/7。装配与限制见 `core/carriers/assembly/README.md` M2-B 节。

@@ -651,4 +651,10 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 `PresentationAssembly` 在手感开启时（`opts.FeelResolver` 或 `gameplay.Feel.Resolver` 非空）装配 `PoseSelector`（属性 `Pose`）与 `EquipmentPoseBridge`；手感关闭时 `Pose` 为 null，不装配、行为与以前一致。
 
 - **视图工厂接收姿势上下文来源**：视图工厂先于 `PresentationAssembly` 构造，无法用构造参数传入姿势选择器，新增可选接口 `Presentation.Render.IPoseContextReceiver`（`SetPoseContextSource`）。工厂实现了它就在装配时收到来源；没实现则忽略，不改 `IViewFactory`。Unity 适配层的 `UnityViewFactory` 实现它，并在构建 `AnimClipResolver` 时把来源传入既有的姿势上下文重载；解析器已经构建后再设置会抛 `InvalidOperationException`（不静默忽略）。
-- **已知限制**：生产装配不给 `PoseSelector.Observe` 喂步态，步态恒为空闲，移动解析为 `walk`（姿势集没有该键时回落基础键 `move`）。`PoseSelector` 不在单位销毁时清理其武器族记录，与换装链的单位状态口径一致（玩家实体随换图重建，而换装链对未变化的状态不重发事件，清理反而会丢武器族）。
+- **（已由 M2-B 解除，见下一节）** 原已知限制：生产装配不给 `PoseSelector.Observe` 喂步态，步态恒为空闲，移动解析为 `walk`（姿势集没有该键时回落基础键 `move`）；`PoseSelector` 不在单位销毁时清理其武器族记录。
+
+## 手感落地 M2-B：步态喂入与单位销毁清理（2026-10-02）
+
+- **`PoseGaitFeeder`（`presentation/render/core`，装配在 `PresentationAssembly` 里 `Pose` 之后；手感启用时才有）**：订阅 `unit.moved` 把单位登记为"活跃"，每个 `sim.tick_finished` 对活跃单位按 `Unit.MovementState.Motion.SpeedRatio`（速度 / 该单位自己的基础移速）调用 `PoseSelector.Observe`（阈值与滞回取该单位呈现型手感视图，缺字段用缺省），比值降到 0 且观测过一次后移出。移动姿势因此按 idle/walk/run/sprint 解析；姿势集缺步态剪辑时的回落（sprint->run->去步态->基础键）仍由 `PoseResolver` 沿回落链完成，本类不重复实现。**判断记录**：只观测"动过的"单位，从未移动过的单位不进选择器（上下文保持缺省，与未启用手感逐位一致，也不为静止单位每 tick 白算）；速度取运动学的 `SpeedRatio` 而不是视图位移差分（位移差分在瞬移、读档定位时算出虚假高速）。**共享代码改动（加法）**：`PresentationAssembly` 新增一个私有字段、一处构造接线与 `Dispose` 里的一次释放；运动代码未动（只读 `Motion.SpeedRatio`）。
+- **`GaitDeriver` 边界修正**：缺省阈值下 `idle_max_ratio` 与 `gait_hysteresis_ratio` 同为 0.05，"阈值减滞回"恰为 0，严格小于 0 永不成立——单位停稳后步态会一直停在 walk。接上生产速度喂入后暴露；修法是完全静止（比值 <= 0）总是回到 idle，滞回带内（0 < 比值 < 0.05）仍保持 walk。回归用例 `PoseGaitTests.Update_FullyStopped_AlwaysDropsToIdle_EvenWhenIdleMaxEqualsHysteresis`。
+- **单位销毁时清理武器族**：`EquipmentPoseBridge` 订阅 `entity.destroyed` -> `PoseSelector.Forget`。此前不清理的理由（"换装链对未变化的状态不重发事件，清理反而会丢武器族"）已不成立：换装链现在销毁时忘掉对账状态、创建时重新对账并重发（见 `core/carriers/assembly/README.md` M2-B 节第 4 条）。

@@ -8,6 +8,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
 using Core.Foundation.SaveSystem;
+using Core.Foundation.SimLoop;
 using Core.Numbers.StatBlock;
 using Core.Rules.Common;
 using Core.Rules.Skill;
@@ -358,6 +359,39 @@ namespace Tests.Carriers.Item
             f.Bus.Enqueue(new SaveLoadedEvent(new Id("save.slot_fc")));
             f.Bus.DispatchPending();
 
+            Assert.Empty(f.Changes);
+        }
+
+        /// <summary>
+        /// 复现用例（手感落地 M2-B 单位状态口径）：已装备武器的单位销毁后对账状态被忘掉，同 id 重建（entity.created）时重新对账并再发一次
+        /// <c>feel.weapon_changed</c>（空手 -> 武器，上一武器族空）；此前销毁后状态残留，重建后"装备没变"不重发，表现侧已清掉的武器族补不回来。
+        /// 不变量：没有武器的单位创建时不留记录、不发事件。
+        /// </summary>
+        [Fact]
+        public void Chain_UnitDestroyedThenRecreated_ReconcilesAndRepublishesTheWeapon()
+        {
+            var f = Build();
+            Wear(f, "item.fc_sword", MainSlot);
+            Assert.Single(f.Changes);
+            f.Changes.Clear();
+
+            f.Bus.Enqueue(new EntityDestroyedEvent(Player));
+            f.Bus.DispatchPending();
+            Assert.Empty(f.Changes); // 销毁本身不发事件
+
+            f.Bus.Enqueue(new EntityCreatedEvent(Player, "unit", new Id("display.fc_player")));
+            f.Bus.DispatchPending();
+
+            Assert.Single(f.Changes);
+            Assert.Null(f.Changes[0].PreviousMainRef);
+            Assert.Null(f.Changes[0].PreviousFamily);
+            Assert.Equal("feel.weapon.fc_sword", f.Changes[0].MainRef);
+            Assert.Equal("1h", f.Changes[0].Family);
+
+            // 不变量：空手单位创建时不发事件。
+            f.Changes.Clear();
+            f.Bus.Enqueue(new EntityCreatedEvent(new Id("unit.fc_other"), "unit", new Id("display.fc_other")));
+            f.Bus.DispatchPending();
             Assert.Empty(f.Changes);
         }
 

@@ -172,6 +172,21 @@ namespace Tests.PresentationRender
             Assert.Equal(LocomotionGait.Run, d.Update(2.0));
         }
 
+        /// <summary>
+        /// 复现用例（手感落地 M2-B）：缺省阈值下 idle_max_ratio 与滞回宽度同为 0.05，"阈值减滞回"恰为 0；速度比从 walk 档降到 0 时步态从 walk 变为 idle
+        /// （此前严格小于 0 永不成立，停稳后一直停在 walk）。不变量：低速但未停（0.03，仍在滞回带内）保持 walk，不抖动。
+        /// </summary>
+        [Fact]
+        public void Update_FullyStopped_AlwaysDropsToIdle_EvenWhenIdleMaxEqualsHysteresis()
+        {
+            var t = GaitThresholds.Default;
+            Assert.Equal(t.IdleMaxRatio, t.Hysteresis); // 复现前提：缺省阈值下两者相等
+            var d = new GaitDeriver(t);
+            Assert.Equal(LocomotionGait.Walk, d.Update(t.IdleMaxRatio + 0.1));
+            Assert.Equal(LocomotionGait.Walk, d.Update(t.IdleMaxRatio * 0.6)); // 滞回带内保持
+            Assert.Equal(LocomotionGait.Idle, d.Update(0.0));
+        }
+
         [Fact]
         public void Update_SpeedAndBaseSpeedOverload_UsesRatio()
         {
