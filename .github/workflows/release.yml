@@ -8,81 +8,39 @@ name: Release
 # （`check.ps1 -SkipUnity -Quick`）作为"这个 tag 指向的提交没有被后续意外改动"的一层兜底交叉
 # 验证，不代表这是本次发布唯一的质量门槛。
 #
-# 判断记录（为什么打包用 `build.ps1 -SyncOnly -Dist <ver> -Zip` 而不是 `-Release`）：`-Release`
-# 会做版本号写回校验、`git commit`、`git tag` 等只应该在本机执行一次的操作；tag 已经在本机打好并
-# 推送到这里触发本工作流，此时仓库内的 VERSION/package.json 已经是发布版本号本身（tag 指向的提交
-# 就是 `-Release` 提交的那一个），本工作流只需要"基于当前已构建产物重新打一份 zip + lock 上传为
-# Release 附件"，对应 build.ps1 新增的独立开关 `-Zip`（不做版本号校验/提交/打标签，见其
-# .PARAMETER Zip 说明）；`-SyncOnly` 跳过 dotnet build/test（前面 check.ps1 -Quick 已经跑过一遍
-# dotnet build/test），只做 DLL 同步 + 内容同步 + 打包，加快本工作流耗时。
+# 判断记录（附件策略：本机已验证产物优先，工作流不构建 zip/lock/tgz，2026-10-02 合并改写，取代此前
+# 分散的五段"打包/重建/混批"判断记录）：本机 `build.ps1 -Release` 产出的 zip/lock/tgz 已在含 Unity 的
+# 完整门禁下验证过，且若传了 `-Publish -PublishRegistry` 还已发到私服、被下游游戏仓库的 `ws-game.lock`
+# 锁定。DLL 是确定性构建（Core.sln 各工程 Deterministic/ContinuousIntegrationBuild），但确定性构建仍把
+# 源码绝对路径编进调试信息，托管运行器的 checkout 路径（如 `D:\a\ws-game\ws-game`）与本机不同，同样的
+# 源码在两处构建出的 DLL 字节、sha256 不同。因此本工作流从不在托管运行器上构建任何发布产物（没有
+# `build.ps1` 打包步骤）：重建出来的会是同一版本号的第二套字节，与 Release 上已有附件或私服包混批、
+# 对不上下游据以锁定的哈希，且无法证明同源。本工作流只做三件事——
+#   1. 对刚推送的标签重跑快速门禁（`check.ps1 -SkipUnity -Quick`）交叉验证"标签指向的提交没被后续意外
+#      改动"（`-Release` 第 5 步的完整门禁在本机已跑过）。
+#   2. 用 `gh release view` 核对该标签对应 Release 的附件是否齐全（共九件：zip、lock、samples zip、四个
+#      `com.gamefoundation.*-<ver>.tgz`、`get_framework.ps1`、`_hash.ps1`）。处置结论由纯函数
+#      `Get-WsGameReleaseAssetsPlan`（`toolchain/_release_assets_plan.ps1`，
+#      `toolchain/tests/test_release_assets_plan.py` 覆盖）给出：齐全 -> 跳过；zip 在、其余有缺 -> 从这份
+#      已验证 zip 里抽取/重算补齐；zip 缺失 -> 明确失败并打印人工指引（见下一段）。
+#   3. zip 在时，先下载它读 `MANIFEST.txt` 的 `git_commit`、lock 在时读其 JSON 的 `git_commit`，与当前
+#      checkout（标签指向的提交）的完整 sha 做前缀比对，不一致直接 exit 1，不在一个"声称是这个标签、
+#      实际是另一个提交"的产物上做任何事。缺失的附件只上传缺的那几个，已有附件不覆盖。
+# "Repair missing assets from existing zip" 步骤不调用 `build.ps1`、不触发任何构建：lock 由
+# `New-WsGameLockObjectFromZip` 从 zip 里的 DLL 重算哈希，四个 .tgz 从 zip 内 `packages/` 原样抽出，字节
+# 与 zip 同源；samples zip 只含纯文本/资源源文件，可安全从 checkout 重新压缩，但若既有 lock 带
+# `samples.sha256` 则重建物哈希必须与之一致，否则阻断。
 #
-# 判断记录（Release 附件的产生与上传时机，2026-09-07 改写）：原判断记录认为"托管运行器重新打包
-# 上传同名附件会直接覆盖，两条路径幂等收敛到同一份内容"——这个结论不成立，已废弃。真正原因：
-# build.ps1 打包时把六个核心 DLL 的 sha256 写进 `dist/ws-game-<ver>.lock`，而 DLL 是确定性构建
-# （见 Core.sln 各工程 Deterministic/ContinuousIntegrationBuild 设置），确定性构建仍然会把源码的
-# 绝对路径编码进调试信息，托管运行器的 checkout 路径（如 `D:\a\ws-game\ws-game`）与本机开发路径
-# 不同，导致同样的源码在两处构建出的 DLL 字节不同、sha256 不同。本机 `build.ps1 -Release` 产出的
-# zip/lock 已经在含 Unity 的完整门禁（EditMode/PlayMode/独立版构建/两种冒烟/消费方演练全过）下
-# 验证过，且若传了 `-Publish -PublishRegistry` 还已经发布到私服、被下游游戏仓库的 `ws-game.lock`
-# 锁定为依赖——此时若本工作流用托管运行器重新构建的 DLL 覆盖同名 Release 附件，会让 GitHub
-# Release 上的 `.lock` 与私服包的哈希不一致，下游用 zip 快照通道拉取时的哈希校验会与私服通道的
-# 结果对不上，制造混淆。因此改为"本机已验证的产物优先"：打包前先用 `gh release view` 检查该 tag
-# 对应的 Release 是否已经有 `ws-game-<ver>.zip`（即本机 `-Publish` 已经上传过）；已有则跳过本工作流
-# 的打包与上传，只打印说明，不覆盖；没有（说明本机只打了 tag、没传 `-Publish`，例如设计层要求
-# 先只推 tag、人工确认后再决定是否发布 Release）才走原有的 `-SyncOnly -Dist -Zip` + 上传路径，
-# 作为"tag 一推送就自动出 Release"的兜底。
-#
-# 判断记录（附件存在性检查改为核对完整附件集合，2026-09-07 改写）：外部审核（第五轮）指出原
-# "Check for existing release assets" 步骤只检查 `ws-game-<ver>.zip` 是否存在，命中就整体跳过
-# 打包与上传；但一次发布应有六个附件（zip、lock、四个 `com.gamefoundation.*-<ver>.tgz` 私服包），
-# 只查 zip 会漏判"zip 已传、其余附件缺失"（例如本机 `-Release -Publish` 中途失败、或历史 Release
-# 只手工补传了部分附件）的情况，遗漏的附件永远不会被本工作流补上。改为对六个附件逐一核对：
-# 全部存在 -> 跳过打包与上传；一个都不存在 -> 等价于原有 fallback，全量打包上传；只缺部分 ->
-# 仍然要跑一次 build.ps1 打包（`-SyncOnly -Dist -Zip` 一次性产出全部六个文件，机制上不支持只重建
-# 其中几个），但上传步骤只把缺失的那几个文件路径交给 `files:`，已经存在的附件不会被托管运行器
-# 重建的版本覆盖——"本机已验证产物优先"的原则不变，见上一段判断记录（确定性构建在不同 checkout
-# 路径下产出不同字节）。
-#
-# 判断记录（缺附件 fallback 根治为"从已验证 zip 抽取"而不是"新构建混配"，2026-09-08，见
-# audit-5c444f1-20260908/AUDIT_REPORT.md PJ130-01）：上一条判断记录只解决
-# "全部缺失 vs 部分缺失"的上传范围问题，没有解决"部分缺失时怎么补"——原逻辑一律调用
-# `build.ps1 -SkipTests` + `-SyncOnly -Dist -Zip` 在托管运行器上重新构建，即使已有 zip 存在、只是
-# lock 或某个 .tgz 缺失。这与上一条判断记录本身的结论矛盾：托管运行器的 checkout 路径与本机不同，
-# 确定性构建产出的六个 DLL 字节、sha256 都会不同；重新构建出的 lock 记录的哈希对不上已存在 zip 里
-# 的 DLL，等于把新构建批次的 lock 配到旧构建批次的 zip 上，二者不是同一次构建产物却被当作一套发布。
-# 根治：本步骤（"Check for existing release assets"）新增——只要 Release 已有
-# `ws-game-<ver>.zip`，就下载这一份 zip，读取其内 `MANIFEST.txt` 记录的 `git_commit`，与当前
-# checkout（即这个 tag 指向的提交）的完整 sha 做前缀比对（见下面"提交号比对按完整 sha 前缀"）；不一致直接 exit 1 阻断，
-# 不允许在一个"声称是这个 tag、实际是另一个提交"的 zip 基础上做任何事。commit 一致时，若还有 lock
-# 或 .tgz 缺失，由新增的 "Repair missing assets from existing zip" 步骤直接从这份已验证 zip 里
-# 提取六个 DLL 重新计算 sha256 生成 lock、或直接把 zip 内 `packages/*.tgz` 四个内嵌包原样抽出
-# 落到 dist/ 对应路径——不调用 build.ps1、不触发任何新构建，补的内容与 zip 里的字节保证同源。
-# 只有 zip 本身也缺失（Release 里连 zip 都没有，说明本机还没有对这个 tag 打过包）才继续走原有的
-# 全量 `build.ps1 -SkipTests` + `-SyncOnly -Dist -Zip` 全量重建路径——此时没有旧 zip 可复用，
-# 六个文件本来就要一起从头产出，不存在"新旧批次混配"的风险。下面两个 build.ps1 步骤的 `if:`
-# 因此从只判断 `skip != 'true'` 收紧为额外要求 `zip_missing == 'true'`。
-#
-#
-# 判断记录（zip 缺失分支收紧为阻断而非全量重建混批，2026-09-08，见
-# audit-c86bfa9-20260908/AUDIT_REPORT.md PJ140-02）：上一条判断记录
-# （"缺附件 fallback 根治为'从已验证 zip 抽取'"）只覆盖了"zip 存在、其余附件缺失"这一支——
-# 从已验证 zip 里原样抽字节，保证补的内容与 zip 同源。但另一支"zip 本身缺失、lock/tgz 中至少
-# 一个仍在"没有被覆盖：原逻辑一律当作"没有旧包可复用"，直接触发 build.ps1 全量重建；托管运行器
-# 与本机 checkout 路径不同，确定性构建产出的六个 DLL 字节、sha256 都会不同（见上面"本机已验证
-# 产物优先"判断记录），新构建出的 zip 因此与仍然留存的旧 lock/tgz 不是同一批产物——而上传步骤
-# 只上传本次缺失的文件（新 zip），旧 lock/tgz 原样保留，最终 Release 上出现"新 zip + 旧附件"的
-# 混批，且没有任何机制能证明两者同源。根治：本步骤新增判定——zip 缺失时，只要 lock 或任一 .tgz
-# 仍然存在，就无法证明重建出的 zip 与它们属于同一批构建，直接 exit 1 阻断，并打印指引（本机用
-# `build.ps1 -SyncOnly -Dist <ver> -Zip` 针对这个 tag 指向的提交重新打一份 zip 后手动补传，或者
-# 删除该 tag 下的全部既有附件后重新触发本工作流，让它一次性全量重建六件套）——但“同一个 tag 指向
-# 的提交 + 跑了 SyncOnly”本身不能当作“与既有附件同批”的证明：确定性构建的产物字节随本机 checkout
-# 路径变化（见上面“本机已验证产物优先”判断记录），手动补传前必须核对新产出的 zip/lock/四个 .tgz
-# 与仍保留的既有附件之间整套字节/哈希互相一致（例如新 lock 记录的六个 DLL sha256 是否与新 zip 里
-# 的 DLL 字节一致、是否与仍保留的旧 .tgz 内容一致），核对不一致就不得混用；只有六个附件全部
-# 缺失（没有任何旧产物可能与新构建混批）才继续走原有的全量重建路径。另外，只要 lock 已作为既有
-# 附件存在（不论 zip 是否存在），都会下载并解析其 JSON 里的 `git_commit` 字段，与当前 checkout
-# 的提交比对，不一致同样阻断——防止 lock 记录的哈希其实来自另一个提交、却被当作当前 tag 的产物
-# 保留。
+# 判断记录（zip 缺失一律明确失败，不再全量重建，2026-10-02，v1.85.0～v1.91.0 的 Release 运行红灯）：
+# 旧路径在"Release 上一个附件都没有"时调 `build.ps1 -SyncOnly -Dist <ver> -Zip` 全量重建，但 tag 触发的
+# 运行检出的就是标签提交本身，`build.ps1` 的发布不可变守卫（`toolchain/_dist_immutability_guard.ps1`）
+# 看到标签已存在而拒绝写产物，运行在最后一步红灯、日志只有一句"拒绝覆盖已发布版本"。修法二选一：(A) 改
+# 守卫放行"从标签提交原样重建"；(B) 提前明确失败并给人工指引。选 B：不可变发布要求同一版本号只有一套
+# 字节，而上一段已述托管运行器重建必然是另一套字节，放行重建只是换个名义制造第二套；A 还要放宽发布
+# 不可变的唯一强制点，风险远大于收益。B 只动工作流，守卫不改。代价：只推标签而本机没上传 Release 附件
+# 时不再自动出 Release，而是红灯并告知怎么做（本机 `build.ps1 -Release` 末尾打印的
+# `gh release create` 命令是 Release 附件的唯一来源）。zip 缺失但 lock/tgz 仍在（混批）同样阻断，
+# 指引文案不同（Reason 为 MixedBatch / NoVerifiedAssets）。
 #
 # 判断记录（提交号比对按完整 sha 前缀 + zip 条目不分路径分隔符，2026-10-02，v1.92.0 运行 36811895996 与
 # v1.93.0 运行 36964875468 的两处不同根因）：上面 zip/lock 两处 `git_commit` 校验原先是
@@ -151,7 +109,7 @@ jobs:
         # dotnet/npm 构建步骤——与下面的 zip/lock/tgz（确定性构建产物，字节随 checkout 路径变化，
         # 见文件头"本机已验证产物优先"一整套判断记录）性质完全不同，同一个 commit checkout 出来的
         # 这两个文件在任何机器上都是逐字节相同的，没有"托管运行器重建出不同字节"的风险，不需要走
-        # 下面那一整套"是否已存在/是否需要从 zip 抽取/是否需要全量重建"的批次一致性判定。这里在
+        # 下面那一整套"是否已存在/是否需要从 zip 抽取/是否阻断"的批次一致性判定。这里在
         # 最前面无条件拷贝一份到 dist/，后面按普通附件走"缺失才上传"逻辑即可。
         run: |
           $ErrorActionPreference = "Continue"
@@ -173,9 +131,8 @@ jobs:
           cache-dependency-path: toolchain/requirements.txt
 
       - name: Setup Node.js 20.x
-        # 私服交付通道新增：build.ps1 -Dist（本工作流下面 -SyncOnly -Dist -Zip 步骤隐含调用）
-        # 现在无论如何都会额外 npm pack 出四个私服包的 .tgz（见 build.ps1 "5.15" 判断记录），
-        # 需要 node/npm；显式 setup-node 固定版本，不依赖托管运行器预装的版本浮动。
+        # check.ps1 的包清单类步骤与相关 pytest 用例可能调用 node/npm；显式 setup-node 固定版本，
+        # 不依赖托管运行器预装的版本浮动（本工作流自身不再打包，不再有 build.ps1 步骤）。
         uses: actions/setup-node@v4
         with:
           node-version: "20.x"
@@ -194,8 +151,8 @@ jobs:
       - name: Resolve version from tag
         id: version
         shell: powershell
-        # 判断记录：tag 名固定形如 "vX.Y.Z"，去掉前导 "v" 就是 build.ps1 -Dist/-Zip 需要的纯
-        # 版本号；同时校验一遍格式，格式不对直接失败，不静默用一个错误版本号继续打包。
+        # 判断记录：tag 名固定形如 "vX.Y.Z"，去掉前导 "v" 就是附件文件名里的纯版本号；
+        # 同时校验一遍格式，格式不对直接失败，不静默用一个错误版本号继续。
         # workflow_dispatch 手动触发时用输入的 tag，push 触发时用 github.ref_name；见文件头
         # "run: 脚本正文必须是纯 ASCII" 判断记录，本步骤提示文案改用英文。
         run: |
@@ -244,32 +201,21 @@ jobs:
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        # 判断记录：见文件头"附件存在性检查改为核对完整附件集合"、"缺附件 fallback 根治为'从已
-        # 验证 zip 抽取'"与"zip 缺失分支收紧为阻断而非全量重建混批"三条说明。用
-        # gh release view --json assets 查该 tag 对应 Release 的既有附件列表，与完整附件集合
-        # （zip、lock、四个 .tgz）逐一比对：全部存在才跳过打包与上传；否则只把缺失的文件路径放进
-        # 下面上传步骤的 files 列表，已存在的附件不会被覆盖。若 zip 本身已存在（无论是否还缺其它
-        # 附件），先下载这份 zip 校验其 MANIFEST.txt 里的 git_commit 与当前 checkout 的提交一致，
-        # 不一致直接阻断。若 lock 已存在（无论 zip 是否存在），同样下载并校验其 JSON 里的
-        # git_commit 字段与当前提交一致，不一致直接阻断。若 zip 缺失但 lock 或任一 .tgz 仍存在，
-        # 无法证明重建出的 zip 与它们同批，直接阻断并打印指引，不再触发全量重建；只有六个附件
-        # 全部缺失才继续走全量重建路径。
-        # 判断记录（四包修正，F3）：ADR-0018 决策 3 新增第四个私服包
-        # com.gamefoundation.adapter.headless（无头适配层交付，见 build.ps1 "5.15" 节、
-        # toolchain/registry/registry.json、check.ps1"包清单一致性"步骤 $packageNames 四项）。
-        # 本工作流此前按"三个 .tgz/五个附件"编写，是 F2 落地时的已知限制（见 ADR-0018 F2
-        # 提交历史）；现补齐为四个 .tgz/六个附件（zip、lock、四个 tgz），下面"从已验证 zip 抽附件"
-        # 逻辑（Repair missing assets from existing zip 步骤）按 tgz 文件名通配处理，不需要为
-        # 第四个包单独加分支，新增本包后自动覆盖。
+        # 判断记录：见文件头"附件策略"与"zip 缺失一律明确失败"两段。用 gh release view --json assets
+        # 查该 tag 对应 Release 的既有附件列表，与完整附件集合（九件，见下面 $requiredNames）逐一比对，
+        # 处置结论（Skip / Repair / Blocked）由 Get-WsGameReleaseAssetsPlan 给出。zip 已存在时先下载校验
+        # 其 MANIFEST.txt 的 git_commit，lock 已存在时校验其 git_commit，与当前 checkout 的提交不一致
+        # 直接阻断（与是否还缺其它附件无关）；缺失的文件路径放进下面上传步骤的 files 列表，已存在的
+        # 附件不会被覆盖。
+        # 判断记录（四包，F3）：ADR-0018 决策 3 新增第四个私服包 com.gamefoundation.adapter.headless
+        # （见 toolchain/registry/registry.json、check.ps1"包清单一致性"步骤 $packageNames 四项）；
+        # "Repair missing assets from existing zip" 步骤按 tgz 文件名通配处理，新增包后自动覆盖。
         # 判断记录（消费方反馈 E2/E4 根治，2026-09-10，见
-        # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2/E4）：新增三项必需附件——
-        # get_framework.ps1、_hash.ps1（固定文件名，不带版本号，上一步已无条件拷到 dist/，纯
-        # 源文件，任何 commit 下都是确定性的，见该步骤判断记录）、ws-game-$version-samples.zip
-        # （E4 新增的验收数据集独立包，build.ps1 -Dist/-Release/-Zip 同一次打包新增产出）。get_
-        # framework.ps1/_hash.ps1 不参与"zip 缺失、其它构建产物已存在 -> 阻断，防止混批"这条判定
-        # （见下面 $batchSensitiveNames）——它们永远可以安全地从当前 checkout 重新拷贝一份，不存在
-        # "与旧构建产物字节不一致"的风险，不应该因为它们碰巧已经是 Release 附件就把一次本该顺利
-        # 进行的全量重建挡住。
+        # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2/E4）：get_framework.ps1、_hash.ps1（固定文件名，
+        # 不带版本号，上一步已无条件拷到 dist/，纯源文件，任何 commit 下都是确定性的）与
+        # ws-game-$version-samples.zip（验收数据集独立包）是必需附件。get_framework.ps1/_hash.ps1 不算
+        # "批次敏感"附件（见 toolchain/_release_assets_plan.ps1 的 PlainSourceNames），永远可以安全地从当前
+        # checkout 重新拷贝，不因它们碰巧已是 Release 附件而改变 zip 缺失时的结论。
         # 判断记录（run: 正文必须是纯 ASCII，见文件头判断记录）：本步骤 run: 正文里原本内联的这些
         # 中文说明已移到这里（YAML # 注释，不受该限制），run: 正文只保留英文提示文案。
         run: |
@@ -299,16 +245,13 @@ jobs:
             "get_framework.ps1" = "dist/get_framework.ps1"
             "_hash.ps1" = "dist/_hash.ps1"
           }
-          # get_framework.ps1/_hash.ps1 are plain source files (see step above); excluded from the
-          # mixed-batch check below since they can always be safely re-copied from checkout.
-          $batchSensitiveNames = @($requiredNames | Where-Object { $_ -ne "get_framework.ps1" -and $_ -ne "_hash.ps1" })
 
           $json = gh release view $tag --json assets 2>$null
           $existingNames = @()
           if ($LASTEXITCODE -eq 0 -and $json) {
             $existingNames = @(($json | ConvertFrom-Json).assets | ForEach-Object { $_.name })
           } else {
-            Write-Host "Release $tag not found yet (gh release view exit code $LASTEXITCODE). Treating all required assets as missing."
+            Write-Host "Release $tag not found yet (gh release view exit code $LASTEXITCODE). Treating all required assets as missing (this blocks, it never triggers a rebuild)."
           }
 
           $missingNames = @($requiredNames | Where-Object { $existingNames -notcontains $_ })
@@ -381,27 +324,19 @@ jobs:
             Write-Host "Existing $lockName commit verified: $lockCommit matches tag $tag."
           }
 
-          if ($missingNames.Count -eq 0) {
-            Write-Host "Release $tag already has all required assets ($($requiredNames -join ', ')). Skipping rebuild-and-upload to avoid overwriting verified artifacts with a hosted-runner rebuild (see file header note on deterministic-build path hashes)."
+          # Decision is a pure function in toolchain/_release_assets_plan.ps1 (see its notes for why
+          # an all-missing release is a hard failure here instead of a hosted rebuild).
+          . "toolchain\_release_assets_plan.ps1"
+          $plan = Get-WsGameReleaseAssetsPlan -Tag $tag -Version $version -ExistingNames $existingNames -RequiredNames $requiredNames
+          foreach ($line in $plan.Message) { Write-Host $line }
+          if ($plan.Action -eq "Blocked") {
+            Write-Host "Release asset check failed ($($plan.Reason)); see guidance above."
+            exit 1
+          }
+          if ($plan.Action -eq "Skip") {
             "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            "zip_missing=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           } else {
-            $zipMissing = $missingNames -contains $zipName
-            Write-Host "Release $tag is missing: $($missingNames -join ', ')."
-            if ($zipMissing) {
-              $otherPresent = @($existingNames | Where-Object { $batchSensitiveNames -contains $_ -and $_ -ne $zipName })
-              if ($otherPresent.Count -gt 0) {
-                Write-Host "BLOCKED: the zip ($zipName) is missing, but other release assets already exist: $($otherPresent -join ', ')."
-                Write-Host "A hosted-runner rebuild would produce a new zip with different DLL bytes/hashes than a local build (deterministic builds encode the checkout path; see file header note), so there is no way to prove the existing assets belong to the same batch as a freshly rebuilt zip."
-                Write-Host "Guidance: (1) on your own machine, run 'build.ps1 -SyncOnly -Dist $version -Zip' against the exact commit this tag points at, then upload the resulting zip to this release manually alongside the existing assets; OR (2) delete ALL existing assets on release $tag and re-run this workflow so it performs a single full rebuild of all six files together."
-                exit 1
-              }
-              Write-Host "All required assets are missing; will do a full rebuild via build.ps1 (no prior assets exist, so there is no mixed-batch risk)."
-            } else {
-              Write-Host "The zip exists and its commit matches the tag; will repair the missing assets by extracting from the existing zip instead of rebuilding on the hosted runner."
-            }
             "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            "zip_missing=$(if ($zipMissing) { 'true' } else { 'false' })" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
 
           $missingPaths = @($missingNames | ForEach-Object { $requiredPaths[$_] })
@@ -430,7 +365,7 @@ jobs:
         # self-contained get_framework.ps1 assets" 步骤已经无条件拷贝到位，这里直接跳过。
         # 判断记录（run: 正文必须是纯 ASCII，见文件头判断记录）：本步骤 run: 正文里原本内联的中文
         # 说明已移到这里（YAML # 注释，不受该限制），run: 正文只保留英文提示文案。
-        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing != 'true'
+        if: steps.assets.outputs.skip != 'true'
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -536,56 +471,6 @@ jobs:
           }
           $zr.Dispose()
 
-      - name: build.ps1 -SkipTests (produce default-location DLLs for packaging)
-        # 判断记录（P01 根治，2026-09-07）：check.ps1 -Quick 的 "dotnet build" 步骤固定带
-        # `--artifacts-path`（见 check.ps1 .PARAMETER ArtifactsPath 说明及其对
-        # `dotnet build/test` 的调用），这是 dotnet SDK 的统一产物布局（unified artifacts output），
-        # 产物落在 `<artifacts-path>/bin/<project>/<pivot>/` 下，不是 build.ps1 打包步骤固定读取的
-        # 传统逐工程目录 `core/*/bin/$Configuration/netstandard2.1/*.dll`（见 build.ps1 第 545 行
-        # `$asm.Dir + "\bin\$Configuration\netstandard2.1\..."`）。check.ps1 全量模式第 9 步
-        # （"build.ps1 -SkipTests（同步 DLL）"）本来就是靠再跑一次不带 --artifacts-path 的
-        # `dotnet build` 来补齐这批传统路径产物，但该步骤在 `-Quick` 下被跳过（-Quick 的设计前提
-        # 是"这一步只有 Unity 相关步骤需要"，当时没有考虑到 release.yml 的打包 fallback 同样依赖
-        # 这批传统路径 DLL）。因此这里在 `-SyncOnly -Dist -Zip` 之前显式补跑一次
-        # `build.ps1 -SkipTests`（不带 -SyncOnly，走完整 `dotnet build` 分支，跳过 `dotnet test`——
-        # 测试已经被上面的 check.ps1 -Quick 覆盖过一遍，不重复跑），产出传统路径 DLL 并同步进
-        # Unity 适配层包的 Runtime/Plugins/Core/，下面 `-SyncOnly` 步骤（第 3 步 DLL 同步）才能找到
-        # 源文件。这条路径与 check.ps1 全量模式第 9 步是同一段逻辑、同一个根因修法，只是移到
-        # release.yml 里显式补一次，而不是放宽 -Quick 本身的跳过范围（-Quick 仍然只覆盖
-        # dotnet/python 校验、不隐含"顺带把 DLL 摆到打包需要的位置"这个语义，避免以后有人在别的
-        # -Quick 调用点意外依赖这个副作用）。判断记录（2026-09-08 收紧）：见文件头"缺附件 fallback
-        # 根治为'从已验证 zip 抽取'"——只有 zip 本身也缺失才需要这条全量重建路径，zip 存在时改由
-        # 上面 "Repair missing assets from existing zip" 步骤直接从 zip 里抽取，不再触发本步骤。
-        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing == 'true'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Continue"
-          powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -SkipTests
-          exit $LASTEXITCODE
-
-      - name: Restore dotnet tools (docfx for the API reference manual)
-        # 判断记录（API 参考手册，ADR-0124）：下一步 `build.ps1 -SyncOnly -Dist -Zip` 默认会调用
-        # docs/manual/build.ps1 生成手册并打进 dist/<ver>/manual/ 与 zip；docfx 由仓库根
-        # .config/dotnet-tools.json 声明（本地工具清单），需要先 `dotnet tool restore`。手册脚本自己
-        # 也会恢复一次，这里单列一步是为了恢复失败（NuGet 源不可达）时在日志里一眼定位到这一步，而不是
-        # 淹没在打包输出里；与下一步同一个 if 条件。
-        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing == 'true'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Continue"
-          dotnet tool restore
-          exit $LASTEXITCODE
-
-      - name: build.ps1 -SyncOnly -Dist <version> -Zip
-        # 判断记录（2026-09-08 收紧）：同上一步骤，仅 zip 缺失才需要重建；zip 存在时的缺件由抽取
-        # 步骤补齐。
-        if: steps.assets.outputs.skip != 'true' && steps.assets.outputs.zip_missing == 'true'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Continue"
-          powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -SyncOnly -Dist "${{ steps.version.outputs.version }}" -Zip
-          exit $LASTEXITCODE
-
       - name: Upload Release assets
         if: steps.assets.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
@@ -594,19 +479,17 @@ jobs:
           # 判断记录（只上传 assets 步骤算出的缺失文件，不再固定列出全部六个）：见上面 "Check for
           # existing release assets" 步骤——files 现在来自 steps.assets.outputs.missing_files
           # （每行一个 dist 相对路径），只包含本次核对时缺失的附件；已经存在于 Release 的附件不在
-          # 列表里，softprops/action-gh-release 不会碰它们，也就不会被托管运行器重建的版本覆盖
-          # （"本机已验证产物优先"，见文件头判断记录）。当六个附件全部缺失时，missing_files 等于
-          # 全量清单，效果等同于原来固定列出三行的 fallback 路径。
+          # 列表里，softprops/action-gh-release 不会碰它们（"本机已验证产物优先"，见文件头判断
+          # 记录）。本步骤只在 zip 已存在（Repair 结论）时到达：zip 缺失一律在上一步阻断，不会上传。
           files: ${{ steps.assets.outputs.missing_files }}
           # 判断记录（四个 .tgz 只作为 Release 附件、不在这里发到任何注册表）：私服（Verdaccio）
           # 只服务内网/本机场景，托管运行器既没有、也不应该配置一个可公网访问的私服地址；发布到
           # 注册表是本机 `build.ps1 -Release -Publish -PublishRegistry` 的职责（见该开关说明），
-          # 本工作流只把本机同一套打包逻辑重新产出的四个 .tgz 一并作为 GitHub Release 附件上传，
+          # 本工作流只把从已验证 zip 内原样抽出的四个 .tgz 一并作为 GitHub Release 附件上传，
           # 方便没有私服访问权限的场景也能拿到这四个包（手动 `npm install <tgz 路径>` 或
           # `npm publish <tgz 路径> --registry <自己的私服>`）。
-          # 判断记录：不传 body/generate_release_notes——若 Release 已由本机 `-Release -Publish`
-          # 创建（已带标题与 CHANGELOG.md 摘录的说明文本），这里只追加/覆盖附件，不覆盖已有说明；
-          # 若 Release 尚不存在，本步骤会新建一个，说明文本留空由后续人工在 GitHub 网页补充，
-          # 也可以直接照 CHANGELOG.md 对应版本条目复制——不在本工作流里重新生成一份，避免与本机
-          # `-Release` 生成的 dist/release-notes-<ver>.txt 出现两份措辞不一致的发布说明。
+          # 判断记录：不传 body/generate_release_notes——Release 已由本机 `-Release -Publish` 创建
+          # （已带标题与 CHANGELOG.md 摘录的说明文本；本步骤只在 zip 已存在时到达，Release 必已存在），
+          # 这里只追加附件，不覆盖已有说明，避免与本机 `-Release` 生成的 dist/release-notes-<ver>.txt
+          # 出现两份措辞不一致的发布说明。
           fail_on_unmatched_files: true

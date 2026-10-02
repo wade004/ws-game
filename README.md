@@ -187,7 +187,7 @@ CRLF；实测方法见 `.gitattributes` 对应例外条目上方判断记录）�
 
 `.github/workflows/ci.yml`：`push` 到 `main` 与任意 `pull_request` 时，在 `windows-latest` 运行器上跑 `check.ps1 -SkipUnity`（安装 .NET 8.0.x SDK 与 Python 3.12 + `toolchain/requirements.txt` 后执行；缓存 NuGet 包与 pip 依赖），并把控制台输出与门禁产物日志上传为 artifact。CI 不跑 Unity 相关四步与消费方演练——托管运行器既没有装 Unity，也无法激活个人版 Unity 授权，这部分职责仍由本机全量 `check.ps1`（含可选的 `-Il2cpp`）承担，见上一节。
 
-`.github/workflows/release.yml`：推送形如 `v*` 的标签时触发（也支持 `workflow_dispatch` 手动指定 `tag` 输入重跑，用于对已推送的标签重新验证本工作流本身），跑一遍快速门禁（`check.ps1 -SkipUnity -Quick`，作为标签指向的提交未被意外改动的交叉验证——完整门禁已经在本机 `build.ps1 -Release` 第 5 步跑过）。附件策略是"本机已验证的产物优先"：先用 `gh release view` 查该标签对应 Release 是否已经有 `ws-game-<version>.zip`（即本机 `build.ps1 -Release -Publish` 已经上传过、且已在含 Unity 的完整门禁下验证过）——已有则跳过打包与上传，不覆盖（托管运行器重新构建的 DLL 因确定性构建仍嵌入 checkout 路径而哈希不同，覆盖会让 Release 附件与私服包不一致）；没有（例如只推了 tag、未传 `-Publish`）才用 `build.ps1 -SyncOnly -Dist <标签去掉 v 前缀> -Zip` 重新打包出 `dist/ws-game-<version>.zip`/`.lock` 并上传为该标签对应 GitHub Release 的附件（Release 不存在则新建），作为兜底路径。
+`.github/workflows/release.yml`：推送形如 `v*` 的标签时触发（也支持 `workflow_dispatch` 手动指定 `tag` 输入重跑，用于对已推送的标签重新验证本工作流本身），跑一遍快速门禁（`check.ps1 -SkipUnity -Quick`，作为标签指向的提交未被意外改动的交叉验证——完整门禁已经在本机 `build.ps1 -Release` 第 5 步跑过）。附件策略是"本机已验证的产物优先"：先用 `gh release view` 查该标签对应 Release 是否已经有 `ws-game-<version>.zip`（即本机 `build.ps1 -Release -Publish` 已经上传过、且已在含 Unity 的完整门禁下验证过）——已有则跳过打包与上传，不覆盖（托管运行器重新构建的 DLL 因确定性构建仍嵌入 checkout 路径而哈希不同，覆盖会让 Release 附件与私服包不一致）；zip 在而其它附件有缺则从这份已验证 zip 里抽取/重算补齐（不构建）；zip 缺失（例如只推了 tag、本机未上传 Release 附件）则**明确失败并打印人工指引**——工作流不在托管运行器上重建任何发布产物（重建出的是同一版本号的第二套字节，且 tag 触发的运行里 `build.ps1` 的发布不可变守卫也会拒绝），Release 附件的唯一来源是本机 `build.ps1 -Release` 末尾打印的 `gh release create` 命令，补传后可用 `workflow_dispatch` 重跑验证。判定见 `toolchain/_release_assets_plan.ps1`。
 
 ## 提交前钩子（`.githooks/`）
 
