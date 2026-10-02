@@ -139,12 +139,13 @@ SOURCE_ANGLE_LIMITS = {
     "t_pitch": (-95.0, 95.0), "t_roll": (-30.0, 30.0), "t_yaw": (-60.0, 60.0),   # 躯干
     "h_pitch": (-60.0, 60.0), "h_yaw": (-60.0, 60.0),     # 头
     "wp": (0.0, 230.0), "wy": (-90.0, 90.0), "wz": (-60.0, 60.0),  # 武器相对躯干
+    "bp": (-400.0, 400.0),                                # 整身俯仰（M4-D 击飞翻滚，一整圈 + 余量）
 }
 
 #: 规格里实际写出的骨骼局部旋转量（四元数转轴角后的旋转角，度）上限：对每根旋转骨骼的每个关键帧检查。
 #: 肘/膝是单轴铰链，旋转角恒等于屈曲角，故上限同 SOURCE_ANGLE_LIMITS；其它骨骼取包络加余量。
 BONE_ROT_LIMITS_DEG = {
-    "hips": 5.0,
+    "hips": 180.0,       # 只有击飞翻滚类键（BONE_ROT_HIPS_TUMBLE_KEYS）允许髋大角度（整身 bp 俯仰）；其它键 <= HIPS_ROT_LIMIT_DEG
     "spine": 100.0,
     "head": 60.0,
     "upper_arm_r": 195.0, "upper_arm_l": 195.0,
@@ -154,6 +155,10 @@ BONE_ROT_LIMITS_DEG = {
     "foot_r": 150.0, "foot_l": 150.0,
     "socket.main_hand": 200.0,
 }
+
+#: 髋旋转（绕竖轴的 yaw，度）在非翻滚键里的上限（原 5 度）；翻滚类键（整身俯仰 bp）不受此限，仅受 BONE_ROT_LIMITS_DEG["hips"]。
+HIPS_ROT_LIMIT_DEG = 5.0
+BONE_ROT_HIPS_TUMBLE_KEYS = ("hit.launch.tumble", "hit.launch.land")
 
 #: 引擎侧事件别名：04 §5 的命中标记叫 ``hit``，而 model 型角色外壳（ModelCharacterRig）识别的命中帧事件名是 ``hit_frame``
 #: （ADR-0017）。数据行只写 04 的名字（与 sprite 版同源）；烘进 .anim 的事件在每条 ``hit`` 旁边同时刻再放一条别名事件，
@@ -169,21 +174,18 @@ FK_TOLERANCE_BH = 1e-4   # 正向运动学还原出的关节位置与 sprite 版
 # 体量组（04 §6.1 / §7、05 §9"标准骨骼三组（对应三体量）"）
 # --------------------------------------------------------------------------
 
-#: 轻/重两组：继承中体量主集（``extends``，04 §7），只覆盖"体量会让站姿变形"的键——待机与徒手/战斗姿态的走、跑、冲刺；
-#: 其余键（受击、攻击、各武器族移动、变体……）沿用主集，所以数据行很小、资产增量只有这几份剪辑。
+#: 体量档（手感落地 M4-D 起声明在 sprite 版 ``std_dummy_poses.config.MASS_TIERS``，两版同源，本模块不持有副本）：
+#: 非主档（轻/重……）各一组，覆盖**全部**键（含别名键），``extends`` 主集（中体量，04 §7）；数据行 ``_medium`` 为空覆盖行。
 #: 步幅轴（短/中/长）**不出资产**：02 §7 的播放速率 = 实际速度 ÷ (剪辑每循环位移 ÷ 时长)，步幅由运行期 ``stride_scale`` 匹配，
-#: 与体量正交；因此本组剪辑的时长、帧数、每步位移与中体量完全一致（只改站姿），步幅核对沿用同一条判据。
-MASS_GROUPS = ("light", "heavy")
-#: 体量组覆盖的键（均在主集里存在；``move.sprint.combat`` 在组内是 ``move.sprint`` 的别名，同主集口径）。
-MASS_KEYS = ("idle", "idle.combat", "move.walk", "move.run", "move.sprint", "move.walk.combat", "move.run.combat",
-             "move.sprint.combat")
-#: 站姿偏移（度，自拟 experimental）：躯干前倾/后仰、头反向补偿保持视线、肩/髋外展（正=向外，左右同号即对称）。
-#: 重：前倾、肩髋外展（宽站姿、手臂离身）；轻：微后仰、肩髋内收（窄站姿、手臂贴身）。只改静态站姿，不改摆动幅度，
-#: 所以接触姿势脚间距（= 每步位移）不变，步幅核对原样通过。
-MASS_PROFILES = {
-    "light": {"t_pitch": -2.0, "h_pitch": 1.5, "sa": -3.0, "ha": -1.5},
-    "heavy": {"t_pitch": 6.0, "h_pitch": -4.0, "sa": 8.0, "ha": 5.0},
-}
+#: 与体量正交；因此各档剪辑的时长、帧数、每步位移与主集完全一致（只改站姿与受击反应幅度）。
+#: M3-D 时期体量组覆盖的 8 个键（均在主集里存在）：它们在两档里的剪辑字节必须与 M3-D 逐字节一致（只追加不改既有，测试固定其哈希）。
+LEGACY_MASS_KEYS = ("idle", "idle.combat", "move.walk", "move.run", "move.sprint", "move.walk.combat", "move.run.combat",
+                    "move.sprint.combat")
+
+
+def mass_profiles() -> dict:
+    """静态站姿偏移的四个量（度；M3-D 的口径，规格 params.mass_profiles_deg 仍按这四个量写出）。完整档表（含 react/air）见 SC.MASS_TIERS。"""
+    return {m: {k: v[k] for k in ("t_pitch", "h_pitch", "sa", "ha")} for m, v in SC.MASS_TIERS.items()}
 
 
 def mass_anim_set_id(mass: str) -> str:

@@ -171,6 +171,8 @@ namespace Presentation.Assembly
             registry.RegisterValidationRule(new AnimSetEventsShapeRule());
             // 手感设计/04（ADR-0119）：姿势键语法、extends 无环、标准姿势清单（选入制，见该规则类型注释）。
             registry.RegisterValidationRule(new AnimSetPoseRule());
+            // 手感落地 M4-D（04 第 10 节）：display.anim_set.blends 的 from/to 必须指向本行合并后 clips 里的键（悬空/重复报警告）。
+            registry.RegisterValidationRule(new AnimSetBlendRule());
             // 消费方反馈第 63 条：display.equip_visual.mode 条件必填字段组校验（无构造依赖，同
             // DisplayKindFieldGroupRule/AnimSetEventsShapeRule 一并注册）。
             registry.RegisterValidationRule(new EquipVisualModeFieldGroupRule());

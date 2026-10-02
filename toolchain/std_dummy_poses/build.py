@@ -99,39 +99,47 @@ def clip_events(clip: C.ClipDef) -> list[dict]:
     return [{"name": n, "time_pct": event_pct(ms, total)} for n, ms in C.events_for(clip)]
 
 
+def clip_entry(c: C.ClipDef, fps: int) -> dict:
+    """规格里一个剪辑键的条目（主集与体量组同一写法）。"""
+    plan = C.phase_frame_plan(c, fps)
+    entry = {
+        "resource_ref": c.resource_ref,
+        "tier": c.tier,
+        "family": c.family,
+        "loop": c.loop,
+        "phases": [{"name": n, "ms": ms} for n, ms in c.phases],
+        "frames_per_phase": [n for _n, n, _d in plan],
+        "frame_count": sum(n for _n, n, _d in plan),
+        "total_ms": c.total_ms,
+        "layers": [C.LAYER_BODY] + ([C.LAYER_WEAPON] if c.weapon_layer_family else []),
+        "weapon_layer_family": c.weapon_layer_family,
+        "events": clip_events(c),
+    }
+    if c.alias_of:
+        entry["alias_of"] = c.alias_of
+    if c.gait:
+        step = C.step_displacement_bh(c.gait, c.stride_factor)
+        entry["step_displacement_bh"] = round(step, 4)
+        entry["cycle_displacement_bh"] = round(step * 2, 4)
+    # 手感落地 M3-D 追加字段：只在新键上出现（既有键的规格条目逐字节不变）
+    if c.variant:
+        entry["variant"] = c.variant
+    if c.transition:
+        entry["transition"] = c.transition
+    if c.stride_factor != 1.0:
+        entry["stride_factor"] = c.stride_factor
+    if c.air:
+        entry["air"] = True
+    return entry
+
+
 def build_spec(direction_count: int, fps: int, composite_dirs: bool) -> dict:
     clips = C.build_clip_defs()
     slots = C.canonical_slots(direction_count)
-    spec_clips = {}
-    for c in clips:
-        plan = C.phase_frame_plan(c, fps)
-        entry = {
-            "resource_ref": c.resource_ref,
-            "tier": c.tier,
-            "family": c.family,
-            "loop": c.loop,
-            "phases": [{"name": n, "ms": ms} for n, ms in c.phases],
-            "frames_per_phase": [n for _n, n, _d in plan],
-            "frame_count": sum(n for _n, n, _d in plan),
-            "total_ms": c.total_ms,
-            "layers": [C.LAYER_BODY] + ([C.LAYER_WEAPON] if c.weapon_layer_family else []),
-            "weapon_layer_family": c.weapon_layer_family,
-            "events": clip_events(c),
-        }
-        if c.alias_of:
-            entry["alias_of"] = c.alias_of
-        if c.gait:
-            step = C.step_displacement_bh(c.gait, c.stride_factor)
-            entry["step_displacement_bh"] = round(step, 4)
-            entry["cycle_displacement_bh"] = round(step * 2, 4)
-        # 手感落地 M3-D 追加字段：只在新键上出现（既有键的规格条目逐字节不变）
-        if c.variant:
-            entry["variant"] = c.variant
-        if c.transition:
-            entry["transition"] = c.transition
-        if c.stride_factor != 1.0:
-            entry["stride_factor"] = c.stride_factor
-        spec_clips[c.key] = entry
+    spec_clips = {c.key: clip_entry(c, fps) for c in clips}
+    anim_set_id = f"display.anim_set.{C.ANIM_SET_NAME}"
+    mass_groups = [{"id": C.mass_anim_set_id(anim_set_id, m), "mass": m, "extends": anim_set_id,
+                    "clips": {c.key: clip_entry(c, fps) for c in C.mass_clip_defs(m)}} for m in C.MASS_TIERS]
     return {
         "generator": "toolchain/gen_std_dummy_poses.py",
         "doc": "architecture/手感设计/04_姿势与动画契约.md 第 6.2 节",
@@ -158,14 +166,30 @@ def build_spec(direction_count: int, fps: int, composite_dirs: bool) -> dict:
             "mirror_pairs": C.mirror_pairs(direction_count),
         },
         "clips": spec_clips,
+        # 体量档（M4-D）：主档 = 中体量 = 主集，其余档逐档一组、覆盖全部键（含别名键）；偏移表见 config.MASS_TIERS
+        "mass_tiers": {"main": C.MASS_MAIN_TIER, "tiers": {m: dict(v) for m, v in C.MASS_TIERS.items()},
+                       "react_cap": C.MASS_REACT_CAP, "composite_direction_variants": False},
+        "mass_groups": mass_groups,
     }
 
 
+def _clip_row_entry(e: dict) -> dict:
+    return {"resource_ref": e["resource_ref"], "events": e["events"]}
+
+
 def build_data_row(spec: dict) -> dict:
-    clips = {}
-    for key, e in spec["clips"].items():
-        clips[key] = {"resource_ref": e["resource_ref"], "events": e["events"]}
-    return {"id": spec["anim_set_id"], "clips": clips}
+    return {"id": spec["anim_set_id"], "clips": {k: _clip_row_entry(e) for k, e in spec["clips"].items()}}
+
+
+def build_mass_data_rows(spec: dict) -> list[dict]:
+    """体量档数据行：主档（中）= 主集本身，给一个空覆盖行（``extends`` 主集、无 ``clips``），使三档对游戏同形；
+    其余档逐档一行，覆盖全部键（含别名键），``extends`` 主集（04 §7）。"""
+    main = spec["anim_set_id"]
+    rows = [{"id": C.mass_anim_set_id(main, spec["mass_tiers"]["main"]), "extends": main, "clips": {}}]
+    for g in spec["mass_groups"]:
+        rows.append({"id": g["id"], "extends": g["extends"],
+                     "clips": {k: _clip_row_entry(e) for k, e in g["clips"].items()}})
+    return rows
 
 
 def _render_anim_set_file(rows: list[dict]) -> str:
@@ -182,8 +206,19 @@ def _render_anim_set_file(rows: list[dict]) -> str:
                            for e in val["events"])
             ev = f"[{ev}]" if ev else "[]"
             comma = "," if i < len(items) - 1 else ""
-            lines.append(f'        {json.dumps(key)}: {{ "resource_ref": {json.dumps(val["resource_ref"])}, "events": {ev} }}{comma}')
-        lines += ['      }', '    }' + ("," if r < len(rows) - 1 else "")]
+            blend = f', "blend_ms": {json.dumps(val["blend_ms"])}' if "blend_ms" in val else ""
+            lines.append(f'        {json.dumps(key)}: {{ "resource_ref": {json.dumps(val["resource_ref"])}, "events": {ev}{blend} }}{comma}')
+        blends = row.get("blends")
+        if blends:
+            lines += ['      },', '      "blends": [']
+            for i, b in enumerate(blends):
+                comma = "," if i < len(blends) - 1 else ""
+                lines.append('        { "from": %s, "to": %s, "blend_ms": %s }%s'
+                             % (json.dumps(b["from"]), json.dumps(b["to"]), json.dumps(b["blend_ms"]), comma))
+            lines.append('      ]')
+        else:
+            lines.append('      }')
+        lines.append('    }' + ("," if r < len(rows) - 1 else ""))
     lines += ['  ]', '}']
     return "\n".join(lines) + "\n"
 
@@ -191,13 +226,13 @@ def _render_anim_set_file(rows: list[dict]) -> str:
 def write_anim_set_rows(data_out: Path, new_rows: list[dict]) -> Path:
     """把 ``new_rows`` 并入 display.anim_set.json：同 id 的行替换，别的行原样保留，按 id 排序输出（确定性）。
 
-    sprite 型与 model 型两个生成器各写自己的一行到同一个文件，互不覆盖对方；已有行若带 id/clips 之外的字段则拒绝改写
+    sprite 型与 model 型两个生成器各写自己的一行到同一个文件，互不覆盖对方；已有行若带 id/extends/clips/blends 之外的字段则拒绝改写
     （本写法不认识那些字段，改写会丢数据）。"""
     path = data_out / "display" / "display.anim_set.json"
     rows: dict[str, dict] = {}
     if path.is_file():
         for row in json.loads(path.read_text(encoding="utf-8")).get("rows", []):
-            extra = set(row) - {"id", "extends", "clips"}
+            extra = set(row) - {"id", "extends", "clips", "blends"}
             if extra:
                 raise ValueError(f"{path} 里的行 {row.get('id')} 带有本写法不认识的字段 {sorted(extra)}，拒绝改写")
             rows[row["id"]] = row
@@ -210,7 +245,7 @@ def write_anim_set_rows(data_out: Path, new_rows: list[dict]) -> Path:
 
 def write_data_file(data_out: Path, spec: dict) -> Path:
     """sprite 版数据行并入 display.anim_set.json（见 write_anim_set_rows）。"""
-    return write_anim_set_rows(data_out, [build_data_row(spec)])
+    return write_anim_set_rows(data_out, [build_data_row(spec)] + build_mass_data_rows(spec))
 
 
 def clean_outputs(assets_out: Path) -> int:
@@ -237,8 +272,24 @@ def generate(assets_out: Path, data_out: Path, direction_count: int = C.DEFAULT_
     clips = {c.key: c for c in C.build_clip_defs()}
     slot_yaw = C.slot_yaw_deg(direction_count)
     slots = C.canonical_slots(direction_count)
+    n_dirs = _write_clip_set(assets_out, list(clips.values()), slots, slot_yaw, fps, composite_dirs)
+    # 体量组（M4-D）：每档全部键。体积取舍：整身合成只出默认朝向（front），不出方向合成变体（ADR-0093 的可选件）；
+    # 身体层 / 武器层逐层剪辑照旧全方向（装备拼装与层叠渲染只用逐层剪辑）。
+    n_mass = 0
+    for m in C.MASS_TIERS:
+        n_mass += _write_clip_set(assets_out, C.mass_clip_defs(m), slots, slot_yaw, fps, False)
+    _write_json(assets_out / SPEC_FILE, spec)
+    data_path = write_data_file(data_out, spec)
+    n_res = sum(1 for c in clips.values() if not c.alias_of)
+    log(f"生成完成：{len(clips)} 个剪辑键（{n_res} 份资源）+ {len(C.MASS_TIERS)} 个体量组（各 {n_res} 份资源），"
+        f"{n_dirs + n_mass} 个资源目录（体量组 {n_mass}），方向档 {direction_count}（canonical {len(slots)} 档），fps={fps}")
+    log(f"规格：{(assets_out / SPEC_FILE).as_posix()}；数据行：{data_path.as_posix()}")
+    return spec
+
+
+def _write_clip_set(assets_out: Path, clips: list, slots: list, slot_yaw: dict, fps: int, composite_dirs: bool) -> int:
     n_dirs = 0
-    for key, c in clips.items():
+    for c in clips:
         if c.alias_of:
             continue
         times = frame_times(c, fps)
@@ -265,9 +316,4 @@ def generate(assets_out: Path, data_out: Path, direction_count: int = C.DEFAULT_
                       for p in wposes]
                 _write_clip(clip_dir(assets_out, c.resource_ref, slot, C.LAYER_WEAPON), wp, durations_s, c.loop, fps)
                 n_dirs += 1
-    _write_json(assets_out / SPEC_FILE, spec)
-    data_path = write_data_file(data_out, spec)
-    log(f"生成完成：{len(clips)} 个剪辑键（{sum(1 for c in clips.values() if not c.alias_of)} 份资源），"
-        f"{n_dirs} 个资源目录，方向档 {direction_count}（canonical {len(slots)} 档），fps={fps}")
-    log(f"规格：{(assets_out / SPEC_FILE).as_posix()}；数据行：{data_path.as_posix()}")
-    return spec
+    return n_dirs

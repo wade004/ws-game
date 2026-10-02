@@ -1,7 +1,8 @@
 #nullable enable
 // StdDummyModelClipsPlayModeTests：框架级 model 型假人姿势集（手感设计/04 第 6.1 节、ADR-0119；
 // toolchain/gen_std_dummy_model_clips.py + Editor/GenerateStdDummyModelAssets.cs 产出的预制体 model.std_dummy_biped、
-// 108 份 .anim（主集 94 份 + 轻/重体量组各 7 份）、数据行 display.anim_set.std_dummy_biped_model 及其 extends 体量组行）的引擎侧验收；
+// 数据行 display.anim_set.std_dummy_biped_model 及其 extends 体量组行 medium/light/heavy，剪辑数量以规格为准）的引擎侧验收；
+// 手感落地 M4-D 起：体量组（轻/重）覆盖全部键，medium 行 = 主集（空 extends 行）；数据行带逐键 blend_ms 与每对键 blends；
 // 文件末尾另有 sprite 型假人集的命中帧关键帧验收（StdDummySpriteHitFramePlayModeTests）。
 //
 // 验收对象（全部读运行时可观测量，期望值由规则/数据算出，不写死裸数）：
@@ -10,7 +11,8 @@
 //   三、命名事件在 04 规定的时刻触发：命中点 = 起手 + 判定相/2（起手与判定相取自手感武器档 feel.weapon 的 timeline_reference，
 //       即 05 第 9 节标定），其余事件取规格 time_pct × 时长；带参标记 cancel_open:dodge 经 RaiseAnimEvent 换算成合法 Id；
 //   四、骨骼路径与预制体一致：把剪辑采样到预制体实例上，每根骨骼的局部旋转/髋位置等于规格里的关键帧值；
-//   五、数据行的每个键都能被引擎播放（控制器里有该状态、剪辑能经 IResourceLoader 取到且时长与规格一致）。
+//   五、数据行的每个键都能被引擎播放（控制器里有该状态、剪辑能经 IResourceLoader 取到且时长与规格一致）；
+//   六、（M4-D）新增键（空中键/细节键/带伤全覆盖）可解析并播放、体量组按 extends 继承、切剪辑的 blend_ms 交叉淡入时长实测。
 //
 // 判断记录（手动步进 Animator，不依赖帧率）：用 Animator.Update(dt) 在同步用例里按固定 5 ms 步长推进，事件回调里读累计时间；
 // 事件触发在跨过时刻的那一步内，所以观测值落在 (期望, 期望 + dt] ——容差取两个步长（含淡入第一步的相位误差）。不使用 Time.captureFramerate
@@ -195,7 +197,7 @@ namespace Adapter.Unity.Tests.Runtime
             // 主集行 + 体量组行（extends 主集）都登记：体量组行靠 AnimSetDef.FromRecord 按 extends 到登记表里取主集合并。
             var dataRegistry = new FakeAnimSetAndWeaponStyleRegistry();
             var schema = new TableSchema("display.anim_set", "id", 1, Array.Empty<FieldSchema>());
-            foreach (var rowId in new[] { AnimSetIdValue, AnimSetIdValue + "_light", AnimSetIdValue + "_heavy" })
+            foreach (var rowId in new[] { AnimSetIdValue, AnimSetIdValue + "_medium", AnimSetIdValue + "_light", AnimSetIdValue + "_heavy" })
             {
                 dataRegistry.Add("display.anim_set", new DataRecord(schema, rowId, new Id(rowId), AnimSetRowById(rowId)));
             }
@@ -403,7 +405,7 @@ namespace Adapter.Unity.Tests.Runtime
 
         [TestCase("light")]
         [TestCase("heavy")]
-        public void MassGroupRow_OverridesPostureKeysAndInheritsEverythingElseFromMainSet(string mass)
+        public void MassGroupRow_CoversEveryKeyWithItsOwnClips_AndPlaysThem(string mass)
         {
             var rowId = AnimSetIdValue + "_" + mass;
             using var fx = Build(rowId);
@@ -420,13 +422,33 @@ namespace Adapter.Unity.Tests.Runtime
             EnterState(fx, AnimState.Move);
             AssertPlays(fx, "move.run", $"{mass} 体量奔跑", rowId);
 
-            // 体量组行没有声明的键沿 extends 取主集：单手攻击、受击
+            // M4-D：体量组覆盖全部键——单手攻击、受击也是组内自己的剪辑，不再沿 extends 取主集
             fx.Selector.SetFamily(fx.Entity, "1h");
             EnterState(fx, AnimState.Attack);
-            AssertPlays(fx, "attack.1h", $"{mass} 体量单手攻击（继承主集）", rowId);
-            Assert.AreEqual(RowResourceRef("attack.1h"), ResolveRef(rowId, "attack.1h"));
+            AssertPlays(fx, "attack.1h", $"{mass} 体量单手攻击", rowId);
+            Assert.AreEqual($"anim.std_dummy_{mass}_attack_1h", ResolveRef(rowId, "attack.1h"));
+            Assert.AreNotEqual(RowResourceRef("attack.1h"), ResolveRef(rowId, "attack.1h"));
             EnterState(fx, AnimState.Hit);
-            AssertPlays(fx, "hit", $"{mass} 体量受击（继承主集）", rowId);
+            AssertPlays(fx, "hit", $"{mass} 体量受击", rowId);
+            Assert.AreNotEqual(RowResourceRef("hit"), ResolveRef(rowId, "hit"));
+        }
+
+        [Test]
+        public void MediumTierRow_IsTheMainSetByEmptyExtends_EveryKeyInherits()
+        {
+            var rowId = AnimSetIdValue + "_medium";
+            var own = (JsonObject)AnimSetRowById(rowId)["clips"];
+            Assert.AreEqual(0, own.Count, "medium 行是主集的空 extends 行：不声明任何键");
+            Assert.AreEqual(AnimSetIdValue, ((JsonString)AnimSetRowById(rowId)["extends"]).Value);
+
+            using var fx = Build(rowId);
+            foreach (var kv in (JsonObject)AnimSetRow()["clips"])
+            {
+                Assert.AreEqual(RowResourceRef(kv.Key), ResolveRef(rowId, kv.Key), $"medium 体量 {kv.Key} 应沿 extends 取主集的剪辑");
+            }
+            EnterState(fx, AnimState.Move);
+            EnterState(fx, AnimState.Idle);
+            AssertPlays(fx, "idle", "medium 体量待机（= 主集）", rowId);
         }
 
         // ---------------- 三、命名事件触发时刻 ----------------
@@ -679,7 +701,253 @@ namespace Adapter.Unity.Tests.Runtime
                     n++;
                 }
             }
-            Assert.AreEqual(2 * 8, n, "轻/重两个体量组各 8 个键（7 份剪辑 + 1 个冲刺别名）");
+            Assert.AreEqual(2 * LoadSpec().clips.Length, n, "轻/重两个体量组各覆盖主集的全部键（M4-D：体量组不再只覆盖姿态键）");
+        }
+
+        // ---------------- 六、手感落地 M4-D：新增键 / 体量组继承 / blend_ms 交叉淡入 ----------------
+
+        private static readonly string[] AirKeys =
+        {
+            "jump.rise", "jump.fall", "jump.land", "hit.air",
+            "attack.air", "attack.air.unarmed", "attack.air.1h", "attack.air.2h", "attack.air.polearm",
+            "attack.air.bow", "attack.air.staff", "attack.air.dual", "attack.air.shield",
+        };
+
+        private static readonly string[] DetailKeys = { "hit.block", "hit.block.shield", "stunned.sway", "hit.launch.tumble", "hit.launch.land" };
+
+        private static readonly string[] WoundedMoveKeys =
+        {
+            "move.sprint.wounded", "move.sprint.combat.wounded", "move.walk.combat.wounded", "move.run.combat.wounded",
+            "move.start.wounded", "move.stop.wounded", "move.pivot.wounded",
+        };
+
+        private static IEnumerable<string> NewKeys()
+        {
+            foreach (var k in AirKeys) { yield return k; }
+            foreach (var k in DetailKeys) { yield return k; }
+            foreach (var k in WoundedMoveKeys) { yield return k; }
+        }
+
+        [Test]
+        public void NewKeys_ResolveAndPlay_InMainSetAndEveryTier()
+        {
+            var rows = new[] { AnimSetIdValue, AnimSetIdValue + "_medium", AnimSetIdValue + "_light", AnimSetIdValue + "_heavy" };
+            using var fx = Build();
+            var n = 0;
+            foreach (var key in NewKeys())
+            {
+                var spec = Array.Find(LoadSpec().clips, c => c.key == key);
+                Assert.IsNotNull(spec, $"规格里应有新增键 {key}");
+                foreach (var rowId in rows)
+                {
+                    var resourceRef = ResolveRef(rowId, key);
+                    Assert.IsTrue(fx.Host.ResourceLoader.TryLoadAnimationClipSync(new Id(resourceRef), out var clip), $"{rowId}/{key}：{resourceRef} 应能经 IResourceLoader 取到剪辑");
+                    fx.Host.Renderer3D.PlayAnim(fx.Handle, new Id(resourceRef), loop: false, speed: 1.0, blendSeconds: 0.0);
+                    Assert.AreEqual(StateNameOf(resourceRef), PlayingState(fx.Animator, new[] { StateNameOf(resourceRef) }),
+                        $"{rowId}/{key}：控制器里应当有状态 {StateNameOf(resourceRef)} 且确实在播放");
+                    if (string.IsNullOrEmpty(spec!.alias_of))
+                    {
+                        Assert.AreEqual(spec.total_ms / 1000f, clip.length, 1e-3f, $"{rowId}/{key} 时长应等于规格 total_ms（体量组不改时长）");
+                    }
+                    n++;
+                }
+            }
+            Assert.AreEqual(CountOf(NewKeys()) * rows.Length, n);
+        }
+
+        private static int CountOf(IEnumerable<string> keys)
+        {
+            var c = 0;
+            foreach (var _ in keys) { c++; }
+            return c;
+        }
+
+        [Test]
+        public void NewKeys_TierGroupsCarryTheirOwnClips_MediumInheritsMain()
+        {
+            foreach (var key in NewKeys())
+            {
+                var main = ResolveRef(AnimSetIdValue, key);
+                Assert.AreEqual(main, ResolveRef(AnimSetIdValue + "_medium", key), $"{key}：medium = 主集");
+                foreach (var mass in new[] { "light", "heavy" })
+                {
+                    var tier = ResolveRef(AnimSetIdValue + "_" + mass, key);
+                    Assert.AreNotEqual(main, tier, $"{key}：{mass} 体量应有自己的剪辑");
+                    Assert.IsTrue(tier.StartsWith($"anim.std_dummy_{mass}_", StringComparison.Ordinal), $"{key}：{mass} 体量资源引用应带体量前缀，实际 {tier}");
+                }
+            }
+        }
+
+        [Test]
+        public void WoundedVariantAndAirKeys_ResolveThroughTheSelector()
+        {
+            var ctx = new ScriptedContext();
+            using var fx = Build(contextSource: ctx);
+            EnterState(fx, AnimState.Move);
+
+            ctx.Set(fx.Entity, new PoseContext(LocomotionGait.Sprint, null, "wounded"));
+            AssertPlays(fx, "move.sprint.wounded", "带伤冲刺");
+            ctx.Set(fx.Entity, new PoseContext(LocomotionGait.Walk, null, "wounded"));
+            AssertPlays(fx, "move.walk.wounded", "带伤走（既有键）");
+            Assert.AreNotEqual(RowResourceRef("move.sprint"), RowResourceRef("move.sprint.wounded"), "带伤冲刺是独立剪辑");
+        }
+
+        // ---- blend_ms 交叉淡入实测 ----
+
+        private const float BlendStep = 0.002f;
+
+        /// <summary>从 <paramref name="fromRef"/> 切到 <paramref name="toRef"/>（经 ModelCharacterRig.PlayClip，即生产路径），
+        /// 手动步进 Animator 直到离开过渡，返回过渡持续的秒数（含最后一步的相位，误差 &lt;= 一个步长）。</summary>
+        private static double MeasureCrossFade(Fx fx, Id fromRef, Id toRef, out bool sawTransition)
+        {
+            var rig = (ModelCharacterRig)fx.View.Rig;
+            rig.PlayClip(fromRef, loop: true, speed: 1.0);
+            fx.Animator.Update(1.0f);                       // 先充分进入起点剪辑（走完它自己的进入过渡）
+            Assert.IsFalse(fx.Animator.IsInTransition(0), "起点剪辑应已稳定播放");
+            rig.PlayClip(toRef, loop: true, speed: 1.0);
+
+            sawTransition = false;
+            var elapsed = 0.0;
+            for (var i = 0; i < 2000; i++)
+            {
+                fx.Animator.Update(BlendStep);
+                elapsed += BlendStep;
+                if (fx.Animator.IsInTransition(0))
+                {
+                    sawTransition = true;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            return elapsed;
+        }
+
+        private static double RowBlendMs(string rowId, string key)
+        {
+            var clips = (JsonObject)AnimSetRowById(rowId)["clips"];
+            var entry = clips.ContainsKey(key) ? (JsonObject)clips[key] : (JsonObject)((JsonObject)AnimSetRow()["clips"])[key];
+            return ((JsonNumber)entry["blend_ms"]).Value;
+        }
+
+        private static List<(string From, string To, double Ms)> RowPairs()
+        {
+            var list = new List<(string, string, double)>();
+            foreach (var v in (JsonArray)AnimSetRow()["blends"])
+            {
+                var o = (JsonObject)v;
+                list.Add((((JsonString)o["from"]).Value, ((JsonString)o["to"]).Value, ((JsonNumber)o["blend_ms"]).Value));
+            }
+            return list;
+        }
+
+        private static void AssertDuration(double expectedMs, double measuredSeconds, bool saw, string context)
+        {
+            Debug.Log($"[blend-smoke] {context}：声明 {expectedMs:F0} 毫秒，实测 {measuredSeconds * 1000:F1} 毫秒");
+            if (expectedMs > 0)
+            {
+                Assert.IsTrue(saw, $"{context}：声明 {expectedMs} 毫秒的交叉淡入应当真的进入过渡");
+            }
+            Assert.AreEqual(expectedMs / 1000.0, measuredSeconds, 2.5 * BlendStep + 1e-4,
+                $"{context}：交叉淡入时长应等于数据声明的 {expectedMs} 毫秒（实测 {measuredSeconds * 1000:F1} 毫秒）");
+        }
+
+        [Test]
+        public void BlendMs_PerPairDeclaration_ControlsMeasuredCrossFade()
+        {
+            using var fx = Build();
+            Assert.IsNotNull(((ModelCharacterRig)fx.View.Rig).AnimBlendSource, "装配层应把姿势集挂给 ModelCharacterRig.AnimBlendSource");
+            var measured = 0;
+            foreach (var (from, to, ms) in RowPairs())
+            {
+                var fromRef = RowResourceRef(from);
+                Assert.IsTrue(fx.Host.ResourceLoader.TryLoadAnimationClipSync(new Id(fromRef), out var fromClip));
+                if (fromClip.length * 1000f < ms + 100f)
+                {
+                    continue; // 起点剪辑比过渡还短，循环播放下起点会重复，不适合量过渡时长
+                }
+                var seconds = MeasureCrossFade(fx, new Id(fromRef), new Id(RowResourceRef(to)), out var saw);
+                AssertDuration(ms, seconds, saw, $"{from} -> {to}（每对键声明）");
+                measured++;
+            }
+            Assert.GreaterOrEqual(measured, 5, "至少应当实测到 5 对键的交叉淡入");
+        }
+
+        [Test]
+        public void BlendMs_PerKeyDeclaration_AppliesWhenNoPairDeclared_AndPairBeatsPerKey()
+        {
+            using var fx = Build();
+            var pairs = RowPairs();
+
+            // 逐键：idle -> move.run 没有对声明，取目标键 move.run 的 blend_ms
+            Assert.IsFalse(pairs.Exists(p => p.From == "idle" && p.To == "move.run"), "前提：idle -> move.run 没有对声明");
+            var perKey = RowBlendMs(AnimSetIdValue, "move.run");
+            var s1 = MeasureCrossFade(fx, new Id(RowResourceRef("idle")), new Id(RowResourceRef("move.run")), out var saw1);
+            AssertDuration(perKey, s1, saw1, "idle -> move.run（逐键 blend_ms）");
+
+            // 每对键压过逐键：hit.getup -> idle 声明了对值，且与 idle 的逐键值不同
+            var pair = pairs.Find(p => p.From == "hit.getup" && p.To == "idle");
+            Assert.IsNotNull(pair.From, "前提：hit.getup -> idle 有对声明");
+            Assert.AreNotEqual(RowBlendMs(AnimSetIdValue, "idle"), pair.Ms, "前提：对值与目标逐键值不同才能区分优先级");
+            var s2 = MeasureCrossFade(fx, new Id(RowResourceRef("hit.getup")), new Id(RowResourceRef("idle")), out var saw2);
+            AssertDuration(pair.Ms, s2, saw2, "hit.getup -> idle（每对键 > 逐键）");
+        }
+
+        [Test]
+        public void BlendMs_Undeclared_KeepsDefaultCrossFade_AndExplicitZeroIsHardCut()
+        {
+            using var fx = Build();
+            var rig = (ModelCharacterRig)fx.View.Rig;
+            var from = new Id(RowResourceRef("idle"));
+            var to = new Id(RowResourceRef("move.run"));
+
+            // 缺省（不挂数据）= 此前的固定默认 0.15 秒
+            rig.AnimBlendSource = null;
+            var s0 = MeasureCrossFade(fx, from, to, out var saw0);
+            AssertDuration(ModelCharacterRig.DefaultBlendSeconds * 1000.0, s0, saw0, "未挂 AnimBlendSource（缺省）");
+
+            // 显式 0 = 硬切：一步之内离开过渡
+            rig.AnimBlendSource = new FixedBlend(0.0);
+            var sHard = MeasureCrossFade(fx, from, to, out _);
+            Assert.LessOrEqual(sHard, BlendStep + 1e-4, $"显式 0 应硬切（实测 {sHard * 1000:F1} 毫秒）");
+            Assert.AreEqual(StateNameOf(RowResourceRef("move.run")),
+                PlayingState(fx.Animator, new[] { StateNameOf(RowResourceRef("move.run")) }), "硬切后直接在目标状态");
+        }
+
+        private sealed class FixedBlend : IAnimBlendSource
+        {
+            private readonly double _seconds;
+
+            public FixedBlend(double seconds) { _seconds = seconds; }
+
+            public bool TryGetBlendSeconds(Id? fromClip, Id toClip, out double seconds)
+            {
+                seconds = _seconds;
+                return true;
+            }
+        }
+
+        [TestCase("light")]
+        [TestCase("heavy")]
+        public void BlendMs_TierGroupInheritsMainSetDeclarations(string mass)
+        {
+            var rowId = AnimSetIdValue + "_" + mass;
+            using var fx = Build(rowId);
+            Assert.IsNotNull(((ModelCharacterRig)fx.View.Rig).AnimBlendSource);
+            var pair = RowPairs().Find(p => p.From == "hit.getup" && p.To == "idle");
+            Assert.IsNotNull(pair.From);
+
+            // 体量组行自己不声明 blend_ms/blends，沿 extends 取主集；切换用的是组内自己的剪辑（资源引用带体量前缀）
+            var from = ResolveRef(rowId, "hit.getup");
+            var to = ResolveRef(rowId, "idle");
+            Assert.IsTrue(from.StartsWith($"anim.std_dummy_{mass}_", StringComparison.Ordinal));
+            var seconds = MeasureCrossFade(fx, new Id(from), new Id(to), out var saw);
+            AssertDuration(pair.Ms, seconds, saw, $"{mass} 体量 hit.getup -> idle（继承主集的每对键声明）");
+
+            var perKey = RowBlendMs(AnimSetIdValue, "move.run");
+            var s2 = MeasureCrossFade(fx, new Id(ResolveRef(rowId, "idle")), new Id(ResolveRef(rowId, "move.run")), out var saw2);
+            AssertDuration(perKey, s2, saw2, $"{mass} 体量 idle -> move.run（继承主集的逐键 blend_ms）");
         }
     }
 
