@@ -253,3 +253,11 @@ input_map/
 3. **缓冲惰性分配**：`RegisterActor` 公开行为不变（显式调用仍分配）；生产装配只在已有动作声明宽限条件时才对世界里的单位登记，没有声明时一个缓冲都不建（单位数 N -> 分配 0）；之后条件被声明（热加载）时再补登记已有单位。
 
 用例：`core/foundation/input_map/tests/GraceAimTests.cs`（瞄点优先于缺省目标、历史归属瞄点、窗口边界随 `grace_ms`、旧求值器不受影响）、`core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（内置条件、缺省目标回落、缓冲分配数）。
+
+## 手感落地 M4-W4：相机相对控制空间（2026-10-03）
+
+- **`InputControlSpace`**（`contracts/InputControlSpace.cs`）：`World`（缺省）与 `CameraRelative` 两个取值常量与 `IsValid`。`ActionDefinition` 新增可选字段 `ControlSpace`（`found.input_action` 字段 `control_space`，缺省 `world`；新增 14 参构造与 `WithControlSpace`，旧构造保留），只对 `Axis2D` 动作有意义。
+- **`InputMapOptions.CameraOrientation`**（`ICameraOrientation`，`core/foundation/engine_adapter/contracts`）：可选相机朝向查询，只有 `YawRadians`（逆时针为正，0 = 屏幕上方是世界 +Y）。声明了 `camera_relative` 动作却没配朝向查询，`DeclareActionSet` 抛 `InvalidOperationException`（不静默当成偏航 0）。
+- **换算**：每次 `Update`，`camera_relative` 的 `Axis2D` 动作的轴值 `(x, y)` 旋转成世界方向 `x·右 + y·上`（右 = (cos, sin)，上 = (−sin, cos)），模长不变；偏航恰为 0 时逐位恒等。不声明控制空间的动作、没有配朝向查询的宿主与引入前逐位一致。
+- **判断记录**：①朝向走独立的可选接口，不往必选的 `ICamera` 加成员（同 `ICameraImpulse`）；`StubCamera`、`UnityCamera` 都实现它，`PresentationAssembly` 只在相机实现了该接口时给输入映射配朝向。②相机相对输入只依赖偏航：相机俯仰绕右轴转，右轴恒在世界平面上，"屏幕上方"的世界平面投影恒为 (−sin, cos)，所以不需要俯仰。③第三人称游戏的俯仰角、透视由相机适配器自己提供（`UnityCamera` 的 `ApplyPitch`/`Perspective`），输入映射不感知。
+- **用例**：`core/foundation/input_map/tests/CameraRelativeControlSpaceTests.cs`（复现：按偏航旋转与期望公式一致；不变量：缺省 world 逐位不变、偏航 0 逐位恒等、没配朝向查询声明期报错、每次更新取样偏航而非声明时取样、取值非法与非 Axis2D 动作声明相机相对被拒绝、`WithControlSpace` 复制其余全部字段、登记表字段往返）。

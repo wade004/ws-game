@@ -705,7 +705,12 @@ namespace Presentation.Assembly
             //    L4 宿主，见 README 判断记录；L10nHost 已提前到上一步构造，见缺口 7 判断记录）；
             //    UiDataSource 接三个路径 provider；十个视图模型逐一构造。
             // ---------------------------------------------------------
-            var inputMapHost = new Core.Foundation.InputMap.InputMapHost(bus);
+            // 相机相对控制空间（found.input_action.control_space = camera_relative）：相机实现了可选的 ICameraOrientation 时把它交给输入映射，
+            // 否则不配（null，输入映射与此前逐位一致；此时声明 camera_relative 的动作在声明动作集时报错）。
+            var inputMapOptions = camera is ICameraOrientation cameraOrientation
+                ? new Core.Foundation.InputMap.InputMapOptions { CameraOrientation = cameraOrientation }
+                : null;
+            var inputMapHost = new Core.Foundation.InputMap.InputMapHost(bus, inputMapOptions);
             InputMap = inputMapHost;
             // 手感落地 S10：手感系统已装配时，把本地输入的按钮边沿接给输入缓冲（本地玩家单位为行动者，按下瞬间以
             // CarriersFeelOptions.LocalMoveActionName 指定的轴采方向快照）；未装配手感时不接，输入行为逐位不变。

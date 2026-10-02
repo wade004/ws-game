@@ -2,7 +2,7 @@
 // EquipLayerAudit：换装场景在引擎宿主上的资源核对（手感设计/06 第 3.6 节 + 第 4 节）。
 //
 // 无头宿主只能核对"外形数据的引用字段"，证明不了美术资源真的加载出来、尺寸与帧数对得上；本核对在换装脚本跑完之后，对每一次穿戴步骤：
-//   图标   ：按资源引用约定（AssetRefConventions.IconFile）在内容根下找到图标文件，用引擎解码，宽高必须大于 0 且与本次核对里其余图标的众数尺寸一致；
+//   图标   ：经适配器的资源加载器按资源引用约定（icon 类别路径，AssetRefConventions.IconFile）加载，宽高必须大于 0 且与本次核对里其余图标的众数尺寸一致；
 //   逐层剪辑：该装备图层（纸娃娃层，如 hand_main）在当前姿势族的待机/攻击剪辑下，每个朝向都经真实资源加载器加载，帧数与帧尺寸必须与同剪辑同朝向的身体层一致。
 // 判断记录（数据对账不在这里）：静态导入校验报告与运行期核对两侧用 item_facts 对账是数据侧的事；本类只负责渲染侧——"实际加载出来的是什么"。
 using System;
@@ -23,13 +23,13 @@ namespace Adapter.Unity.LabHost
 
         public static void Run(EquipRecording equip, LabHostContext ctx, EngineRecording rec, UnityResourceLoader loader, Action pump)
         {
-            AuditIcons(equip, rec);
+            AuditIcons(equip, rec, loader, pump);
             AuditLayerClips(equip, ctx, rec, loader, pump);
         }
 
-        private static void AuditIcons(EquipRecording equip, EngineRecording rec)
+        private static void AuditIcons(EquipRecording equip, EngineRecording rec, UnityResourceLoader loader, Action pump)
         {
-            var found = new List<(string Item, string Icon, string Path, int W, int H)>();
+            var found = new List<(string Item, string Icon, int W, int H)>();
             var missing = new List<(string Item, string Icon)>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var step in equip.Steps)
@@ -39,23 +39,27 @@ namespace Adapter.Unity.LabHost
                     continue;
                 }
 
-                var path = FindIconFile(step.Icon);
-                if (path == null)
+                // 图标经适配器自己的资源加载器加载（UnityResourceLoader 的 icon 类别路径，M4-W4），与界面真实走的是同一条路径：
+                // 宿主不再自己找文件、自己解码。形状不合约定的 id（IconFile 抛 FormatException）与加载失败都记为缺失。
+                var id = new Id(step.Icon);
+                var ok = false;
+                try
+                {
+                    loader.LoadAsync(id, ResourceKind.Image, (rid, success) => ok = success);
+                    pump();
+                }
+                catch (FormatException)
+                {
+                    ok = false;
+                }
+
+                if (!ok || !loader.TryGetSprite(id, out var sprite) || sprite == null)
                 {
                     missing.Add((step.Arg, step.Icon));
                     continue;
                 }
 
-                var texture = new Texture2D(2, 2);
-                try
-                {
-                    var ok = ImageConversion.LoadImage(texture, File.ReadAllBytes(path));
-                    found.Add((step.Arg, step.Icon, path, ok ? texture.width : 0, ok ? texture.height : 0));
-                }
-                finally
-                {
-                    UnityEngine.Object.DestroyImmediate(texture);
-                }
+                found.Add((step.Arg, step.Icon, Mathf.RoundToInt(sprite.rect.width), Mathf.RoundToInt(sprite.rect.height)));
             }
 
             var modal = ModalSize(found);
@@ -71,7 +75,7 @@ namespace Adapter.Unity.LabHost
             }
         }
 
-        private static (int W, int H) ModalSize(List<(string Item, string Icon, string Path, int W, int H)> items)
+        private static (int W, int H) ModalSize(List<(string Item, string Icon, int W, int H)> items)
         {
             var counts = new Dictionary<(int, int), int>();
             var best = (0, 0);
@@ -89,30 +93,6 @@ namespace Adapter.Unity.LabHost
             }
 
             return best;
-        }
-
-        /// <summary>图标资源 id → 内容根下的真实文件：在 StreamingAssets/GameFoundation/assets 的每个数据集子目录里按约定相对路径找。</summary>
-        private static string? FindIconFile(string iconId)
-        {
-            var relative = AssetRefConventions.IconFile(new Id(iconId)).Replace('/', Path.DirectorySeparatorChar);
-            var assetsRoot = Path.Combine(Application.streamingAssetsPath, "GameFoundation", "assets");
-            if (!Directory.Exists(assetsRoot))
-            {
-                return null;
-            }
-
-            var roots = new List<string>(Directory.GetDirectories(assetsRoot));
-            roots.Sort(StringComparer.Ordinal);
-            foreach (var root in roots)
-            {
-                var candidate = Path.Combine(root, relative);
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
         }
 
         private static void AuditLayerClips(

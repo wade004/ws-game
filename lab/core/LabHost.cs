@@ -450,27 +450,6 @@ namespace Lab
                     id => labels.TryGetValue(id, out var l) ? l : id.Value);
             }
 
-            // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
-            var input = new StubInput();
-            var inputMap = new InputMapHost(world.Bus);
-            var definitions = new List<ActionDefinition>();
-            foreach (var record in world.Registry.GetAll("found.input_action"))
-            {
-                definitions.Add(ActionDefinition.FromRecord(record));
-            }
-
-            inputMap.DeclareActionSet(new Id("actionset.lab_input_action"), definitions);
-            if (!inputMap.Rebind(options.MoveAction, "pad_stick:left"))
-            {
-                throw new LabFormatException($"移动动作 {options.MoveAction} 无法重绑到左摇杆");
-            }
-
-            // 手感场景：本地输入的按钮边沿接给输入缓冲（与 PresentationAssembly 的接线同一个调用）。
-            if (feelOn)
-            {
-                world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
-            }
-
             // 表现：ViewBinder + 记录型假 View，只关心玩家那一个 View 的位姿。
             var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
             var factory = new RecordingViewFactory();
@@ -485,6 +464,45 @@ namespace Lab
                     world, cell, script, recording, step, frameDt, playerId, labels, dummyUnits, displayInfo, feelOn);
                 extension.OnAttach(hostContext);
                 viewFactory = extension.WrapViewFactory(factory, hostContext);
+            }
+
+            // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
+            // 控制空间（06 第 4 节第 3 点）：格子（或扩展的覆盖）声明 camera_relative 且扩展提供了相机朝向查询时，移动动作按框架原生的
+            // camera_relative 控制空间声明，轴值由输入映射按相机偏航换算成世界方向（不再有宿主层自己的换算）；没有相机朝向查询的宿主
+            // （无头宿主）不证明这条路径，按 world 跑，行为与此前逐位一致。扩展显式覆盖了控制空间却不提供朝向查询是装配错误，直接报错。
+            var controlSpace = extension?.ControlSpaceOverride ?? cell.ControlSpace;
+            var orientation = extension?.CameraOrientation;
+            var cameraRelative = string.Equals(controlSpace, ControlSpace.CameraRelative, StringComparison.Ordinal);
+            if (cameraRelative && orientation == null && extension?.ControlSpaceOverride != null)
+            {
+                throw new LabFormatException("宿主扩展要求 camera_relative 控制空间，但没有提供相机朝向查询（LabHostExtension.CameraOrientation）");
+            }
+
+            var nativeCameraRelative = cameraRelative && orientation != null;
+            var input = new StubInput();
+            var inputMap = new InputMapHost(world.Bus, nativeCameraRelative ? new InputMapOptions { CameraOrientation = orientation } : null);
+            var definitions = new List<ActionDefinition>();
+            foreach (var record in world.Registry.GetAll("found.input_action"))
+            {
+                var definition = ActionDefinition.FromRecord(record);
+                if (nativeCameraRelative && string.Equals(definition.ActionId.Value, options.MoveAction, StringComparison.Ordinal))
+                {
+                    definition = definition.WithControlSpace(InputControlSpace.CameraRelative);
+                }
+
+                definitions.Add(definition);
+            }
+
+            inputMap.DeclareActionSet(new Id("actionset.lab_input_action"), definitions);
+            if (!inputMap.Rebind(options.MoveAction, "pad_stick:left"))
+            {
+                throw new LabFormatException($"移动动作 {options.MoveAction} 无法重绑到左摇杆");
+            }
+
+            // 手感场景：本地输入的按钮边沿接给输入缓冲（与 PresentationAssembly 的接线同一个调用）。
+            if (feelOn)
+            {
+                world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
             }
 
             var binder = new ViewBinder(
@@ -574,6 +592,8 @@ namespace Lab
             var tick = 0;
             var duration = meta.DurationTicks;
             var frame = 0;
+            var axisEventTick = -1;
+            var injectedStick = Vec2.Zero;
 
             void ApplyScriptEvent(ScriptEvent e)
             {
@@ -657,8 +677,10 @@ namespace Lab
                         }
 
                         var stick = first.Substring("pad_stick:".Length);
-                        // 扩展点的轴转换（相机相对输入等）发生在设备轴 → 逻辑输入的边界上；缺省不转换（原值）。
-                        var axisValue = extension == null ? e.Value : extension.ConvertMoveAxis(e.Value, tick);
+                        // 设备轴原样注入桩摇杆；相机相对的换算由输入映射按控制空间原生完成（见上方输入装配）。
+                        var axisValue = e.Value;
+                        axisEventTick = tick;
+                        injectedStick = new Vec2(axisValue.X, depthLocked ? 0.0 : axisValue.Y);
                         input.SetAxis(0, stick + "x", axisValue.X);
                         // 横版二维：控制空间把摇杆竖直分量留给"向上/向下"，不是深度——深度轴被锁死，丢掉该分量并计数（不静默）。
                         if (depthLocked && Math.Abs(axisValue.Y) > 0.0)
@@ -696,6 +718,12 @@ namespace Lab
                 inputMap.Update(input);
 
                 var axis = inputMap.GetActionAxis(options.MoveAction);
+                if (axisEventTick == tick)
+                {
+                    // 本步有脚本轴事件：把"设备轴 → 输入映射给出的移动轴"交给扩展观测（相机相对输入的核对点）；只读。
+                    extension?.OnMoveAxis(tick, injectedStick, axis);
+                }
+
                 var moveRequested = axis.SqrLength > 0.0001;
                 if (moveRequested)
                 {

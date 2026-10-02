@@ -144,3 +144,7 @@ engine_adapter/
 ## `ITerrainHeight2D`：地面与天花板高度（2026-10-03，M4-V，ADR-0130 追加决定）
 
 新增接口 `ITerrainHeight2D { GetGroundHeight(mapId, point); GetCeilingHeight(mapId, point) }`（后者默认 +inf）与缺省实现 `FlatTerrainHeight2D.Instance`（地面 0、没有天花板）。核心层用它做落地高度、天花板夹取、斜坡贴地与台阶阻挡（`VerticalAxisOptions.Terrain`，缺省 null）。实现：核心层数据版 `MapTerrainHeights`（读 `world.map.terrain`，无头宿主/实验室用）、Unity 物理射线版 `UnityTerrainHeight2D`（可选启用）。接口是只读纯查询，同一输入同一输出。
+
+## 可选能力接口 `ICameraOrientation`（M4-W4，2026-10-03）
+
+`core/foundation/engine_adapter/contracts/ICameraOrientation.cs`：相机朝向查询，只有 `double YawRadians`（相机在世界平面上的偏航，逆时针为正，0 = 屏幕上方是世界 +Y；右轴 (cos, sin)、上轴 (−sin, cos)）。独立成可选接口（探测写法 `camera is ICameraOrientation`），不给必选的 `ICamera` 加成员，旧相机实现与第三方实现不受影响；用途是输入映射的相机相对控制空间（`core/foundation/input_map/README.md` M4-W4 一节）。`StubCamera`（`YawDegrees` 换算）与 `UnityCamera` 实现它。

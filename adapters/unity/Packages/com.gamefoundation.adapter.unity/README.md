@@ -361,10 +361,10 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 
 1. **程序集与目录**：`Runtime/LabHost/`（`Adapter.Unity.LabHost`，`autoReferenced` 为假，引用 `Adapter.Unity` 与预编译的 `Lab.Kernel`/`Core.Sim`/`Adapters.Stub` 等；这些库由 `build.ps1` 第 3b 步同步到被忽略的 `Runtime/Plugins/Lab/`）、`Editor/LabHost/`（编辑器窗口，`GameFoundation/手感实验室`，需 Play Mode）、`Tests/Runtime/LabHost/`（PlayMode）、`Tests/Editor/LabHost/`（EditMode）。
 2. **舞台 `EngineLabStage`**：是 `LabHostExtension`，把内核宿主的视图工厂换成真实 `UnityViewFactory`（命中帧同步 `AnimKeyframeDriven`），反馈流水线分流给真实 `VfxPlayer`/`SfxPlayer`/`UnityCamera`/`UnityRenderer2D/3D`/`UnityAudio`；舞台根物体放专用层并隔离其它相机；组件自己的 `Update` 全部关掉，由舞台按模拟时间推进帧动画（`UnityFrameAnimPlayer.Advance`）、特效序列（`UnityRenderer2D.AdvanceSequencePlayers`）、动画器与相机，快放慢放批处理下结果可复现。
-3. **适配器侧新增（只增不改，缺省行为不变）**：`EffectSequencePlayer.Advance(float)`（internal）、`UnityRenderer2D.AdvanceSequencePlayers(float)`（internal）、`UnityFrameAnimPlayer.AdvancedSeconds`（internal，累计推进量）、`UnityCamera.ApplyYawRotation`（公开可选开关，缺省关）、`Runtime/AssemblyInfo.cs` 对宿主程序集的 `InternalsVisibleTo`。
+3. **适配器侧新增（只增不改，缺省行为不变）**：`UnityFrameAnimPlayer.AdvancedSeconds`（公开，累计推进量）、`UnityCamera.ApplyYawRotation`（公开可选开关，缺省关）、`Runtime/AssemblyInfo.cs` 对宿主程序集的 `InternalsVisibleTo`（宿主驱动资源加载器、音频、镜头、模型的内部 `Tick`）；M4-H 当时的内部推进入口已由 M4-W4 换成公开的可注入时间源，见下节。
 4. **引擎侧失败不改变逻辑**：舞台里的任何异常记入 `EngineRecording.Errors`（度量 `engine_errors`），引擎视图创建失败时该实体退回内核的假视图。
 5. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`EngineLabHostCrossHostTests`（全部手感场景脚本逐字节比较引擎宿主与无头宿主的逻辑组指纹；格子由环境变量 `GF_LAB_CELLS` 选，缺省 `2d_action`，`*` 为全部；`GF_LAB_MAX_RUNS` 限制组合数）、`EngineLabHostMechanismTests`（命中帧对齐、镜头冲量曲线、顿帧冻结与旁观/对照、帧耗时分布、三个平面组合、`camera_relative` 三向检验、输入噪声记录回放、引擎失败、渲染隔离、冷热加载一致、期望清单在引擎宿主上判定、换装图标与逐层剪辑核对及其反例）。EditMode：`LabPanelModelTests`（覆盖存储的写入、校验、持久化、A/B 与源数据不变）。
-6. **已知局限**：见 `lab/README.md`「已知局限」（真机手测没做、帧耗时只含 CPU 侧、命中对齐的数据现状、相机相对输入的宿主层换算）。
+6. **已知局限**：见 `lab/README.md`「已知局限」（目前只剩命中对齐的姿势集数据现状；真机手测已改为游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现）。
 
 ## 判断记录索引
 
@@ -1603,3 +1603,13 @@ GameBootstrap.cs` 同样两根合并（`data/_framework` + 游戏自己的 `data
 {GreyBoxSceneBuilder,ShellSceneBuilder}.cs` 的相机/`EventSystem`/占位地面搭建手法（因这两个类型
 是工作台专属脚本、不在任何 asmdef 包里，无法被独立包引用，只能复制适配，见该文件顶部判断记录），
 一键生成"Shell + 首张地图"两个场景。详见 `games/_template/README.md`。
+
+### 手感落地 M4-W4：引擎侧残留收口（2026-10-03）
+
+设计与判断见 `lab/README.md` 判断记录 47～51。适配器侧全部是只增不改的可选能力，缺省行为与此前逐位一致。
+
+1. **`UnityCamera`**：实现 `ICameraOrientation`（`YawRadians` 如实报告相机在世界平面上的真实偏航；`ApplyYawRotation` 没打开时为 0）；新增可选 `ApplyPitch`（固定俯仰，`Configure` 的 `pitchDegrees`，0 = 正俯视、夹在 [0, 89]）、`Perspective`/`FieldOfViewDegrees`（透视投影，缩放仍是焦点处地面可视半高）、`EffectivePitchDegrees`、`VisibleHalfHeight`。渲染物仍躺在世界平面上，不做精灵站立。
+2. **帧时间源**：`IFrameTimeSource`/`ManualFrameTimeSource`（`Runtime/EngineAdapter/FrameTimeSource.cs`）；`UnityFrameAnimPlayer.TimeSource`/`Step()`、`EffectSequencePlayer.TimeSource`/`Step()`、`UnityRenderer2D.EffectTimeSource`/`StepEffects()`。不设置时取 `Time.deltaTime`。
+3. **图标加载路径**：`UnityResourceLoader.ResolvePath` 对 `icon` 类别的图片资源转发 `AssetRefConventions.IconFile`；`toolchain/resource_layout_map.json` 新增 `icons` 映射（同步到 `StreamingAssets/GameFoundation/icons`）。
+4. **GPU 帧耗时探针**（`Runtime/LabHost/GpuFrameProbe.cs`，仅实验室引擎宿主）：渲染到离屏纹理并等回读完成；`-nographics` 下不可用。
+5. **复现/不变量（PlayMode）**：`UnityCameraTests`（缺省逐位恒等、偏航朝向与真实相机轴一致、俯仰压扁 cos(俯仰)、透视半高、冲击峰值按 `VisibleHalfHeight`）、`AnimationLayerTests`（两个播放器的时间源与缺省 `Time.deltaTime`）、`UnityResourceLoaderTests`（图标路径与加载）、`EngineLabHostMechanismTests`（原生相机相对输入对每个偏航与俯仰、GPU 状态度量、命中对齐根因）。

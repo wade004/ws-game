@@ -112,9 +112,9 @@ namespace Adapter.Unity.Presentation
             _inner?.SetPaused(paused);
         }
 
-        /// <summary>按 <paramref name="deltaSeconds"/> 推进内部播放器（暂停时内部播放器自己忽略）；<see cref="Update"/> 以 <see cref="Time.deltaTime"/> 调用，
-        /// 测试经此确定性地推进，不依赖真实帧时间。</summary>
-        internal void Advance(double deltaSeconds)
+        /// <summary>按 <paramref name="deltaSeconds"/> 推进内部播放器（暂停时内部播放器自己忽略）；只由 <see cref="Step"/> 调用
+        /// （M4-W4：此前是给实验室宿主与测试用的内部入口，现在统一走公开的 <see cref="Step"/> 加可注入的 <see cref="TimeSource"/>）。</summary>
+        private void Advance(double deltaSeconds)
         {
             if (_inner == null)
             {
@@ -130,8 +130,20 @@ namespace Adapter.Unity.Presentation
             _inner.Update(deltaSeconds);
         }
 
-        /// <summary>累计推进的播放时间（秒；暂停期间与没有在播剪辑时不增长），供实验室引擎宿主观测"顿帧期间 rig 的动画时间确实没推进"。</summary>
-        internal double AdvancedSeconds { get; private set; }
+        /// <summary>累计推进的播放时间（秒；暂停期间与没有在播剪辑时不增长），供观测"顿帧期间 rig 的动画时间确实没推进"（实验室引擎宿主用）。</summary>
+        public double AdvancedSeconds { get; private set; }
+
+        /// <summary>
+        /// 可选的帧时间源（M4-W4，见 <see cref="Adapter.Unity.EngineAdapter.IFrameTimeSource"/>）：<c>null</c>（缺省）时每帧用 <see cref="Time.deltaTime"/>，
+        /// 行为与引入前逐位一致；设置后每次推进取该时间源的帧时长。
+        /// </summary>
+        public Adapter.Unity.EngineAdapter.IFrameTimeSource? TimeSource { get; set; }
+
+        /// <summary>
+        /// 推进一步：步长取 <see cref="TimeSource"/>，没设置则取 <see cref="Time.deltaTime"/>（<see cref="Update"/> 每帧就是调用它）。
+        /// 同步驱动方（一次调用里跑完整段模拟、不让出 Unity 播放循环）逐帧调用它。
+        /// </summary>
+        public void Step() => Advance(TimeSource == null ? Time.deltaTime : TimeSource.DeltaSeconds);
 
         /// <summary>登记一个剪辑：<paramref name="frames"/> 长度即帧数，<paramref name="frameRate"/>
         /// 播放帧率（帧/秒），<paramref name="keyframes"/> 关键帧标记（见
@@ -313,7 +325,7 @@ namespace Adapter.Unity.Presentation
 
         private void Update()
         {
-            Advance(Time.deltaTime);
+            Step();
         }
     }
 }

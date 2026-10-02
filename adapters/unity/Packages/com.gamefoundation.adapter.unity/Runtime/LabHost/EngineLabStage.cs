@@ -8,8 +8,9 @@
 // 判断记录（引擎侧失败不得改变逻辑）：视图工厂包装一律先走内核的记录型假视图、再走引擎视图；引擎视图创建/同步/事件的任何异常都被吞掉并记入
 // EngineRecording.Errors（度量 engine_errors），始终返回内核的记录视图——否则玩家的位姿帧记录会变，逻辑指纹与无头宿主分叉。
 //
-// 判断记录（模拟时间，不用墙钟）：帧动画播放器、特效序列播放器、动画器、镜头都由本舞台按"帧长"手动推进（这些组件自己的 Update 在舞台里被关掉），
-// 所以对齐误差与镜头曲线是确定的；只有每帧驱动耗时是真实时钟。
+// 判断记录（模拟时间，不用墙钟）：帧动画播放器、特效序列播放器、动画器、镜头都由本舞台按"帧长"手动推进（这些组件自己的 Update 在舞台里被关掉）；
+// 帧动画播放器与特效序列播放器的步长经适配器公开的可注入时间源（IFrameTimeSource，M4-W4）给出，舞台只调公开的 Step()，不再碰内部推进入口。
+// 所以对齐误差与镜头曲线是确定的；只有每帧驱动耗时与 GPU 帧耗时是真实时钟。
 //
 // 判断记录（渲染隔离）：舞台的全部物体放在专用层（EngineLabOptions.IsolationLayer），舞台相机只渲染这一层，并在舞台存续期间把这一层
 // 从场内其它相机的剔除遮罩里摘掉；Dispose 时原样恢复遮罩并销毁全部物体。
@@ -85,6 +86,11 @@ namespace Adapter.Unity.LabHost
         private double _pumpMs;
         private bool _cameraRelative;
         private double _yawRadians;
+        private double _pitchDegrees;
+        private readonly ManualFrameTimeSource _clock = new ManualFrameTimeSource();
+        private GpuFrameProbe? _gpu;
+        private double _gpuMs;
+        private FallbackOrientation? _fallbackOrientation;
 
         public EngineLabStage(EngineLabOptions? options = null)
         {
@@ -115,6 +121,10 @@ namespace Adapter.Unity.LabHost
             var control = _options.ControlSpaceOverride ?? context.Cell.ControlSpace;
             _cameraRelative = string.Equals(control, ControlSpace.CameraRelative, StringComparison.Ordinal);
             _yawRadians = _options.CameraYawDegrees * Math.PI / 180.0;
+            _fallbackOrientation = new FallbackOrientation(_yawRadians);
+            var honorCell = _options.HonorCellCameraMode
+                && string.Equals(context.Cell.CameraMode, "fixed_pitch", StringComparison.Ordinal);
+            _pitchDegrees = _options.CameraPitchDegrees ?? (honorCell ? _options.FixedPitchDegrees : 0.0);
 
             try
             {
@@ -132,37 +142,59 @@ namespace Adapter.Unity.LabHost
 
         public override IFeedbackSink? FeedbackTee => _broken ? null : _sink;
 
-        public override Vec2 ConvertMoveAxis(Vec2 deviceAxis, int tick)
+        /// <summary>
+        /// 相机朝向查询（框架原生相机相对控制空间的来源）：舞台相机装配成功时是真实的 <see cref="UnityCamera"/>（偏航来自它真正的相机朝向）；
+        /// 舞台装配失败（引擎侧失败不得改变逻辑）时退回按选项偏航的纯数值朝向，使逻辑与装配成功时一致。
+        /// </summary>
+        public override ICameraOrientation? CameraOrientation => _unityCamera != null && !_broken ? _unityCamera : _fallbackOrientation;
+
+        public override string? ControlSpaceOverride => _options.ControlSpaceOverride;
+
+        /// <summary>
+        /// 相机相对输入的三向检验（框架原生换算由输入映射完成，宿主不再换算）：<paramref name="mapped"/> 是输入映射按相机偏航给出的世界方向，
+        /// 本方法检验它与 ① 真实相机的右/上轴算出的期望方向 ② 偏航公式 一致（轴向误差），以及 ③ 世界方向经真实相机视图矩阵回到屏幕后与摇杆方向一致
+        /// （屏幕误差；俯仰把屏幕"上"方向压扁 cos(俯仰) 倍，检验前先除回去）。
+        /// </summary>
+        public override void OnMoveAxis(int tick, Vec2 stick, Vec2 mapped)
         {
-            if (!_cameraRelative || _broken || _camera == null)
+            if (!_cameraRelative || _broken || _camera == null || _unityCamera == null)
             {
-                return deviceAxis;
+                return;
             }
 
             try
             {
-                var tr = _camera.transform;
-                var right = new Vec2(tr.right.x, tr.right.y);
-                var up = new Vec2(tr.up.x, tr.up.y);
-                var world = ControlSpace.ExpectedFromAxes(deviceAxis, right, up);
-                if (Math.Abs(deviceAxis.X) + Math.Abs(deviceAxis.Y) > 1e-9)
+                if (Math.Abs(stick.X) + Math.Abs(stick.Y) <= 1e-9)
                 {
-                    // 三路核对：真实相机轴给出的世界方向 ←→ 偏航公式；以及世界方向经真实相机的视图矩阵回到屏幕后与摇杆方向。
-                    var analytic = ControlSpace.CameraRelativeToWorld(deviceAxis, _yawRadians);
-                    var axesError = ControlSpace.AngleDegrees(world, analytic);
-                    var cameraSpace = _camera.worldToCameraMatrix.MultiplyVector(new Vector3((float)world.X, (float)world.Y, 0f));
-                    var screen = new Vec2(cameraSpace.x, cameraSpace.y);
-                    var screenError = ControlSpace.AngleDegrees(screen, deviceAxis);
-                    _rec.Controls.Add(new ControlSample(tick, deviceAxis, _options.CameraYawDegrees, world, axesError, screenError));
+                    return;
                 }
 
-                return world;
+                var tr = _camera.transform;
+                var right = new Vec2(tr.right.x, tr.right.y);
+                var upXy = new Vec2(tr.up.x, tr.up.y);
+                var upLength = Math.Sqrt(upXy.X * upXy.X + upXy.Y * upXy.Y);
+                var up = upLength > 1e-9 ? new Vec2(upXy.X / upLength, upXy.Y / upLength) : upXy;
+                var expected = ControlSpace.ExpectedFromAxes(stick, right, up);
+                var analytic = ControlSpace.CameraRelativeToWorld(stick, _unityCamera.YawRadians);
+                var axesError = Math.Max(ControlSpace.AngleDegrees(mapped, expected), ControlSpace.AngleDegrees(mapped, analytic));
+                var cameraSpace = _camera.worldToCameraMatrix.MultiplyVector(new Vector3((float)mapped.X, (float)mapped.Y, 0f));
+                var squash = Math.Max(1e-6, Math.Cos(_unityCamera.EffectivePitchDegrees * Math.PI / 180.0));
+                var screen = new Vec2(cameraSpace.x, cameraSpace.y / squash);
+                var screenError = ControlSpace.AngleDegrees(screen, stick);
+                _rec.Controls.Add(new ControlSample(tick, stick, _options.CameraYawDegrees, mapped, axesError, screenError));
             }
             catch (Exception ex)
             {
-                Fail("相机相对转换失败：" + ex.Message);
-                return deviceAxis;
+                Fail("相机相对核对失败：" + ex.Message);
             }
+        }
+
+        /// <summary>舞台装配失败时的朝向来源：只有选项里的偏航。</summary>
+        private sealed class FallbackOrientation : ICameraOrientation
+        {
+            public FallbackOrientation(double yawRadians) => YawRadians = yawRadians;
+
+            public double YawRadians { get; }
         }
 
         public override void OnFixedStepEnd(int tick)
@@ -208,6 +240,7 @@ namespace Adapter.Unity.LabHost
             }
 
             _pumpMs = 0;
+            _gpuMs = 0;
             _frameWatch.Restart();
             try
             {
@@ -219,7 +252,8 @@ namespace Adapter.Unity.LabHost
             }
 
             _frameWatch.Stop();
-            _rec.FrameMilliseconds.Add(Math.Max(0.0, _frameWatch.Elapsed.TotalMilliseconds - _pumpMs));
+            // GPU 渲染与等待的耗时单独记（gpu_ms_*），不计入每帧驱动耗时（frame_ms_* 保持"引擎侧驱动 CPU 耗时"的口径不变）。
+            _rec.FrameMilliseconds.Add(Math.Max(0.0, _frameWatch.Elapsed.TotalMilliseconds - _pumpMs - _gpuMs));
         }
 
         public override void OnFinished(LabRecording recording)
@@ -266,8 +300,24 @@ namespace Adapter.Unity.LabHost
             _camera.depth = -100;
             _camera.targetTexture = null;
             _unityCamera = new UnityCamera(_camera);
-            _unityCamera.Configure(0.0, _options.CameraYawDegrees, new ZoomRange(1.0, 20.0));
+            var honorCell = _options.HonorCellCameraMode
+                && string.Equals(ctx.Cell.CameraMode, "fixed_pitch", StringComparison.Ordinal);
+            _unityCamera.Configure(_pitchDegrees, _options.CameraYawDegrees, new ZoomRange(1.0, 20.0));
             _unityCamera.ApplyYawRotation = Math.Abs(_options.CameraYawDegrees) > 1e-12;
+            // 俯仰与透视是显式声明才生效的可选能力（M4-W4）：选项里不给俯仰且没有按格子相机模式取用，相机仍是原来的正交俯视。
+            _unityCamera.FieldOfViewDegrees = _options.CameraFieldOfViewDegrees;
+            _unityCamera.ApplyPitch = _pitchDegrees > 1e-12;
+            _unityCamera.Perspective = _options.CameraPerspective ?? honorCell;
+            if (_options.GpuTiming)
+            {
+                _gpu = new GpuFrameProbe(_camera);
+                _rec.GpuAvailable = _gpu.Available;
+                _rec.GpuUnavailableReason = _gpu.UnavailableReason;
+            }
+            else
+            {
+                _rec.GpuUnavailableReason = "选项 GpuTiming 关闭";
+            }
 
             foreach (var other in Camera.allCameras)
             {
@@ -282,6 +332,7 @@ namespace Adapter.Unity.LabHost
 
             _loader = UnityEngineHost.Ensure().ResourceLoader;
             _r2d = new UnityRenderer2D(_root.transform, _loader);
+            _r2d.EffectTimeSource = _clock;
             _r3d = new UnityRenderer3D(_root.transform, _loader);
             _audio = new UnityAudio(_root.transform, _loader);
 
@@ -304,7 +355,10 @@ namespace Adapter.Unity.LabHost
                 [ProbeVfxId] = new VfxDef(ProbeVfxId, "combat", VfxAttachMode.Anchor, null, ProbeResourceId),
             };
             var sfxCatalog = new Dictionary<Id, SfxDef>();
-            foreach (var row in LabFeedbackCatalog.SfxRows(ctx.World.Registry))
+            // 手感音效表只在手感装配开着时存在（数据集没有带 feel_layer 的 sfx.def 行时 SfxRows 直接报错）：手感关着（目标选择式格子、换装脚本等）
+            // 打击反馈流水线不存在，音效目录留空即可，舞台的其余部分（视图、相机、图标核对）照常装配。
+            IEnumerable<SfxDef> sfxRows = ctx.FeelOn ? LabFeedbackCatalog.SfxRows(ctx.World.Registry) : new List<SfxDef>();
+            foreach (var row in sfxRows)
             {
                 var isSwing = row.FeelLayer == SfxFeelLayer.Swing || row.FeelLayer == SfxFeelLayer.Whiff;
                 sfxCatalog[row.Id] = new SfxDef(
@@ -445,6 +499,7 @@ namespace Adapter.Unity.LabHost
                         if (entry.Player != null)
                         {
                             entry.Player.enabled = false;
+                            entry.Player.TimeSource = _clock;
                             // 精灵 rig 直接订阅帧动画播放器的关键帧：命中帧（攻击剪辑）或施放点 release（读条施法剪辑——手感场景的技能走的是 cast 剪辑，
                             // 数据里 cast 剪辑的关键帧是 release 而不是 hit_frame）。两者都是"逻辑命中标记在动画里的对应点"。
                             var hitEntity = entityId;
@@ -514,7 +569,7 @@ namespace Adapter.Unity.LabHost
 
             var directional = cue.Direction.X * cue.Direction.X + cue.Direction.Y * cue.Direction.Y > 1e-12;
             var trace = new CameraImpulseTrace(
-                _lastTick + 1, cue.Magnitude, cue.DecayMs, cue.Magnitude * 2.0 * _camera.orthographicSize, directional);
+                _lastTick + 1, cue.Magnitude, cue.DecayMs, cue.Magnitude * 2.0 * _unityCamera.VisibleHalfHeight, directional);
             var overlapped = false;
             foreach (var other in _activeImpulses)
             {
@@ -732,10 +787,33 @@ namespace Adapter.Unity.LabHost
 
         // ───────── 每帧驱动 ─────────
 
+        /// <summary>GPU 帧耗时采样：把舞台相机真实渲染一帧并等 GPU 完成（见 <see cref="GpuFrameProbe"/>）；没有图形设备时什么也不做（记录里标不可用）。</summary>
+        private void SampleGpu()
+        {
+            if (_gpu == null || !_gpu.Available)
+            {
+                return;
+            }
+
+            if (_gpu.TryMeasure(out var ms))
+            {
+                _rec.GpuFrameMilliseconds.Add(ms);
+                _gpuMs += ms;
+            }
+            else
+            {
+                // 渲染/回读失败：整次运行改标不可用（部分帧有数、部分帧没有的 GPU 分位数没有意义）。
+                _rec.GpuAvailable = false;
+                _rec.GpuUnavailableReason = _gpu.UnavailableReason;
+                _rec.GpuFrameMilliseconds.Clear();
+            }
+        }
+
         private void DriveFrame(int frame, double dt)
         {
             _simNow = (frame + 1) * dt;
             var dtF = (float)dt;
+            _clock.SetDelta(dt);
 
             // 帧动画与动画器：按模拟时间推进（组件自己的 Update 已被关掉）。
             foreach (var pair in _entries)
@@ -743,7 +821,7 @@ namespace Adapter.Unity.LabHost
                 var entry = pair.Value;
                 if (entry.Player != null)
                 {
-                    entry.Player.Advance(dt);
+                    entry.Player.Step();
                 }
                 else if (entry.Animator != null)
                 {
@@ -759,7 +837,7 @@ namespace Adapter.Unity.LabHost
                 }
             }
 
-            _r2d?.AdvanceSequencePlayers(dtF);
+            _r2d?.StepEffects();
             _vfx?.Update(dt);
             _sfx?.Update(dt);
             _audio?.Tick(dt);
@@ -782,6 +860,8 @@ namespace Adapter.Unity.LabHost
                     }
                 }
             }
+
+            SampleGpu();
 
             foreach (var pair in _entries)
             {
@@ -943,6 +1023,8 @@ namespace Adapter.Unity.LabHost
             }
             finally
             {
+                _gpu?.Dispose();
+                _gpu = null;
                 foreach (var saved in _savedMasks)
                 {
                     if (saved.Key != null)
