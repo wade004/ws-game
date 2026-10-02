@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass
 
@@ -64,12 +65,23 @@ REFERENCE_BASE_SPEED_BH_PER_S = 2.0
 #: 来源：02 §2 运动档案 walk_speed_ratio 缺省 0.45；run 以基础移速（比值 1.0）。
 WALK_SPEED_RATIO = 0.45
 RUN_SPEED_RATIO = 1.0
+#: 冲刺（可选步态 move.sprint，04 §3）：02 §2 的 sprint_speed_ratio 没有缺省值（可选倍率，合法范围 1～4），自拟 1.5（experimental）。
+SPRINT_SPEED_RATIO = 1.5
 
 # 参考时长（ms）。04 §4 举例：走 1000、跑 600；其余自拟。
 DUR_IDLE = 1200
 DUR_IDLE_COMBAT = 1000
 DUR_WALK = 1000
 DUR_RUN = 600
+#: 冲刺循环时长（自拟）：每步位移 = 2.0 × 1.5 × 0.45 / 2 = 0.675 身高，腿摆幅 ≈ 44.7 度。
+DUR_SPRINT = 450
+#: 受击后的状态与可选键时长（自拟，experimental）。
+DUR_STUNNED = 1200
+DUR_BLOCK = 800
+DUR_WOUNDED_IDLE = 1400
+DUR_WOUNDED_IDLE_COMBAT = 1200
+#: 带伤变体（wounded）的每步位移相对标称值的倍率（自拟）：蹒跚的步幅更短，腿摆幅按此反推。
+WOUNDED_STRIDE_FACTOR = 0.7
 
 #: 三相（windup, active, recovery）起点。1h/2h 第一段取自 05 §9（110/80/190 与 170/100/290）；
 #: 无 05 来源的取值全部自拟（unarmed = 1h × 0.85 取整到 5 ms；后续段见 attack_phases）。
@@ -77,13 +89,21 @@ PHASES_SEG1 = {
     "unarmed": (95, 70, 160),   # 自拟：1h × 0.85
     "1h": (110, 80, 190),       # 05 §9 单手剑
     "2h": (170, 100, 290),      # 05 §9 巨剑
+    # 手感落地 M3-D 追加的武器族（05 §9 没有给数，全部自拟 experimental：与相邻族同量级，按"越重越慢"排序）。
+    "polearm": (130, 90, 250),  # 自拟：介于 1h 与 2h 之间，直刺前摇短、后摇长
+    "staff": (150, 90, 260),    # 自拟：略慢于长柄
+    "bow": (300, 60, 180),      # 自拟：拉弓前摇长、放箭判定相极短（20 fps 下 1 帧）
+    "dual": (80, 60, 140),      # 自拟：双持最快，约 1h × 0.75
+    "shield": (140, 80, 240),   # 自拟：盾击，前摇与后摇都偏长
 }
 #: 第 3 段（收尾）相对第 1 段的倍率：windup、active、recovery（自拟）。
 FINISHER_SCALE = (1.2, 1.25, 1.3)
 #: 闪避取消起点（动作进度）。来源：05 §9（单手剑 0.65 / 巨剑 0.75）；unarmed 自拟取 0.65。
-CANCEL_DODGE_PROGRESS = {"unarmed": 0.65, "1h": 0.65, "2h": 0.75}
+CANCEL_DODGE_PROGRESS = {"unarmed": 0.65, "1h": 0.65, "2h": 0.75,
+                         "polearm": 0.7, "staff": 0.7, "bow": 0.6, "dual": 0.6, "shield": 0.75}  # 新增族自拟
 #: 各武器族的攻击段数（04 §3：每个武器族至少一段；任务书要求各 1~3 段）。
-ATTACK_SEGMENTS = {"unarmed": 3, "1h": 3, "2h": 2}
+ATTACK_SEGMENTS = {"unarmed": 3, "1h": 3, "2h": 2,
+                   "polearm": 2, "staff": 2, "bow": 1, "dual": 3, "shield": 1}  # 新增族自拟：重武器两段，远程与盾击一段
 
 #: 非循环剪辑相位（名称, ms）。自拟（04 §4 只给了轻攻击 450 ms 的举例量级）。
 PHASES_OTHER = {
@@ -97,11 +117,24 @@ PHASES_OTHER = {
     "jump": (("takeoff", 120), ("air", 360), ("land", 120)),
     "cast": (("windup", 250), ("release", 100), ("recovery", 250)),
     "dodge": (("start", 60), ("motion", 240), ("recover", 100)),
+    # 手感落地 M3-D 追加（自拟）：抛飞 = 冲击 + 滞空（抬升弧线）+ 落地（滑入躺姿，之后接 hit.getup）。
+    "hit.launch": (("impact", 100), ("air", 450), ("land", 250)),
+}
+#: 启停过渡剪辑（04 §3 可选）的相（自拟）：起步 = 前倾 + 迈出第一步，进入 move.run 的循环起点；急停 = 刹车 + 站稳，
+#: 回到 idle 起点；急转 = 滑步 + 拧身，回到 move.run 的循环起点。
+TRANSITION_PHASES = {
+    "move.start": (("lean", 100), ("step", 200)),
+    "move.stop": (("brake", 150), ("settle", 150)),
+    "move.pivot": (("skid", 150), ("turn", 150)),
 }
 #: 闪避无敌窗口：motion 相起点起 180 ms（自拟）。
 DODGE_INVULN_MS = 180
 
-FAMILIES_WITH_WEAPON = ("1h", "2h")
+#: 手感落地 M3-D 补齐的武器族（04 §2 的族清单里除 unarmed/1h/2h 之外的全部）。
+EXTRA_FAMILIES = ("polearm", "bow", "staff", "dual", "shield")
+FAMILIES_WITH_WEAPON = ("1h", "2h") + EXTRA_FAMILIES
+#: 双手（或副手也持物）的族：走/跑时主手与副手的手臂姿势都固定在持握姿势上（不随步摆臂）；弓只有主手持弓，副手自由。
+OFFHAND_HELD_FAMILIES = ("2h", "polearm", "staff", "dual", "shield")
 #: 无武器族的状态剪辑（hit.*/death/jump/cast/dodge）也要给武器层（hand_main）出逐层剪辑，使持械角色播这些键时
 #: 武器随身体帧走（ADR-0072：缺逐层剪辑的层维持静态图）。这些剪辑不分族，武器层统一画占位单手剑（假人只提供
 #: 一把占位武器；游戏装备美术按 ADR-0100 候选命名覆盖）。整身合成与身体层仍是徒手姿势。
@@ -109,9 +142,12 @@ WEAPON_LAYER_DEFAULT_FAMILY = "1h"
 #: 状态剪辑里武器相对躯干的俯仰角（度）：90 = 剑身沿躯干朝向水平前指（与战斗站姿 wp=100 接近）。默认 0 会让
 #: 剑尖竖直向下，落地蹲姿/倒地时扎出画布底边（自检会报裁切）；wp=40（和平持握）在落地蹲姿时仍擦到底边。
 STATE_CLIP_WEAPON_PITCH = 90.0
-STATE_CLIPS_WITH_WEAPON_LAYER = ("hit", "death", "jump", "cast", "dodge")
-WEAPON_LENGTH = {"1h": 0.38, "2h": 0.58}
-WEAPON_SECTION = {"1h": 0.024, "2h": 0.034}
+STATE_CLIPS_WITH_WEAPON_LAYER = ("hit", "death", "jump", "cast", "dodge", "stunned", "block")
+WEAPON_LENGTH = {"1h": 0.38, "2h": 0.58,
+                 # 新增族（自拟）：长柄向前最远 0.65（手到尖），向后留 0.25 的柄尾，使侧视直刺不裁切画布；
+                 # 法杖同理；弓是上下对称的弓臂（半长）；双持主手短剑、副手匕首沿前臂；盾族主手短剑 + 前臂盾牌。
+                 "polearm": 0.93, "staff": 0.75, "bow": 0.30, "dual": 0.34, "shield": 0.32}
+WEAPON_SECTION = {"1h": 0.024, "2h": 0.034, "polearm": 0.02, "staff": 0.022, "bow": 0.015, "dual": 0.022, "shield": 0.022}
 
 # --------------------------------------------------------------------------
 # 方向档
@@ -173,6 +209,11 @@ class ClipDef:
     gait: str | None = None
     combat: bool = False
     alias_of: str | None = None  # 非 None：不单独出资源，复用目标键的资源（如 attack -> attack.unarmed）
+    # 手感落地 M3-D 追加字段（缺省值 = 既有剪辑的取值，既有剪辑的行为与产物不变）
+    variant: str | None = None       # 04 §2 变体维度（wounded 等）；攻击段号与 hit 后缀不算变体
+    transition: str | None = None    # 启停过渡剪辑（start/stop/pivot，04 §3），非循环、不是状态
+    stride_factor: float = 1.0       # 每步位移相对该步态标称值的倍率（带伤蹒跚 < 1）
+    mass: str | None = None          # 体量组（model 型 light/heavy 组剪辑；sprite 版恒为 None，姿势函数不读它）
 
     @property
     def stem(self) -> str:
@@ -249,7 +290,77 @@ def build_clip_defs() -> list[ClipDef]:
     clips.append(ClipDef("jump", "jump", "jump", None, False, PHASES_OTHER["jump"], "recommended"))
     clips.append(ClipDef("cast", "cast", "cast", None, False, PHASES_OTHER["cast"], "recommended"))
     clips.append(ClipDef("dodge", "attack", "dodge", None, False, PHASES_OTHER["dodge"], "recommended"))
+    # ---- 手感落地 M3-D 追加：以下条目只追加在末尾，既有键的位置与内容不变 ----
+    clips += _m3d_clips()
     return clips
+
+
+_CLIPS_CACHE: dict[str, ClipDef] = {}
+
+
+def clip_by_key(key: str) -> ClipDef:
+    """按键取剪辑定义（姿势函数里引用基础剪辑 idle/move.run 的循环起点姿势用，结果缓存）。"""
+    if not _CLIPS_CACHE:
+        _CLIPS_CACHE.update({c.key: c for c in build_clip_defs()})
+    return _CLIPS_CACHE[key]
+
+
+def _alias(target: ClipDef, key: str, combat: bool = False) -> ClipDef:
+    """别名键：不单独出资源，复用目标键的资源（数据行里指向同一个 resource_ref），其余字段照抄目标。"""
+    return dataclasses.replace(target, key=key, alias_of=target.key, combat=combat)
+
+
+def _m3d_clips() -> list[ClipDef]:
+    """04 §3 可选键补齐 + 04 §2 武器族补齐（polearm/bow/staff/dual/shield）。
+
+    冲刺的战斗姿态版（move.sprint[.combat].<族>）取别名：冲刺是全速奔跑，战斗与和平姿态不分（自拟，省一半资源）；
+    和平姿态版是真实剪辑。判据：运行期回落链先走完带 sprint 段的候选再用 run 代替（04 §2.2 判断记录），所以只要声明
+    了 move.sprint 就必须同时声明各族与战斗姿态的 sprint 键，否则持械冲刺会先落到徒手冲刺剪辑。"""
+    out: list[ClipDef] = []
+    walk_combat = ClipDef("move.walk.combat", "move", "walk", None, True, (("loop", DUR_WALK),), "optional",
+                          gait="walk", combat=True)
+    sprint = ClipDef("move.sprint", "move", "sprint", None, True, (("loop", DUR_SPRINT),), "optional", gait="sprint")
+    out += [walk_combat, sprint, _alias(sprint, "move.sprint.combat", combat=True)]
+    for name, transition in (("move.start", "start"), ("move.stop", "stop"), ("move.pivot", "pivot")):
+        out.append(ClipDef(name, "move", "move_" + transition, None, False, TRANSITION_PHASES[name], "optional",
+                           transition=transition))
+    out.append(ClipDef("hit.launch", "hit", "hit.launch", None, False, PHASES_OTHER["hit.launch"], "optional"))
+    out.append(ClipDef("stunned", "stunned", "stunned", None, True, (("loop", DUR_STUNNED),), "optional"))
+    out.append(ClipDef("block", "block", "block", None, True, (("loop", DUR_BLOCK),), "optional"))
+    # 带伤变体（04 §3 可选"wounded 变体"）：变体是回落链最先被去掉的维度，所以只有"请求带变体且键表里有同族同姿态的
+    # 变体键"才会命中；这里出徒手基础族的待机/走/跑，持械族的带伤变体由游戏按需用 extends 补（README 已知限制）。
+    out.append(ClipDef("idle.wounded", "idle", "idle", None, True, (("loop", DUR_WOUNDED_IDLE),), "optional",
+                       variant="wounded"))
+    out.append(ClipDef("idle.combat.wounded", "idle", "idle", None, True, (("loop", DUR_WOUNDED_IDLE_COMBAT),),
+                       "optional", combat=True, variant="wounded"))
+    out.append(ClipDef("move.walk.wounded", "move", "walk", None, True, (("loop", DUR_WALK),), "optional",
+                       gait="walk", variant="wounded", stride_factor=WOUNDED_STRIDE_FACTOR))
+    out.append(ClipDef("move.run.wounded", "move", "run", None, True, (("loop", DUR_RUN),), "optional",
+                       gait="run", variant="wounded", stride_factor=WOUNDED_STRIDE_FACTOR))
+    # 既有族 1h/2h：补战斗姿态的走（move.walk.combat 声明后，战斗中持械走路不能回落到徒手的 move.walk.combat）与冲刺。
+    for fam in ("1h", "2h"):
+        out.append(ClipDef(f"move.walk.combat.{fam}", "move", "walk", fam, True, (("loop", DUR_WALK),), "optional",
+                           gait="walk", combat=True))
+        spf = ClipDef(f"move.sprint.{fam}", "move", "sprint", fam, True, (("loop", DUR_SPRINT),), "optional", gait="sprint")
+        out += [spf, _alias(spf, f"move.sprint.combat.{fam}", combat=True)]
+    # 新增武器族：与 1h/2h 同口径（待机、战斗待机、走、跑、战斗跑、攻击各段）+ 战斗走与冲刺。
+    for fam in EXTRA_FAMILIES:
+        out.append(ClipDef(f"idle.{fam}", "idle", "idle", fam, True, (("loop", DUR_IDLE),), "recommended"))
+        out.append(ClipDef(f"idle.combat.{fam}", "idle", "idle", fam, True, (("loop", DUR_IDLE_COMBAT),),
+                           "recommended", combat=True))
+        out.append(ClipDef(f"move.walk.{fam}", "move", "walk", fam, True, (("loop", DUR_WALK),), "recommended", gait="walk"))
+        out.append(ClipDef(f"move.run.{fam}", "move", "run", fam, True, (("loop", DUR_RUN),), "recommended", gait="run"))
+        out.append(ClipDef(f"move.run.combat.{fam}", "move", "run", fam, True, (("loop", DUR_RUN),), "recommended",
+                           gait="run", combat=True))
+        out.append(ClipDef(f"move.walk.combat.{fam}", "move", "walk", fam, True, (("loop", DUR_WALK),), "optional",
+                           gait="walk", combat=True))
+        spf = ClipDef(f"move.sprint.{fam}", "move", "sprint", fam, True, (("loop", DUR_SPRINT),), "optional", gait="sprint")
+        out += [spf, _alias(spf, f"move.sprint.combat.{fam}", combat=True)]
+        for seg in range(1, ATTACK_SEGMENTS[fam] + 1):
+            out.append(ClipDef(attack_key(fam, seg), "attack", "attack", fam, False, attack_phases(fam, seg),
+                               "required" if seg == 1 else "recommended", segment=seg))
+    out.append(ClipDef("block.shield", "block", "block", "shield", True, (("loop", DUR_BLOCK),), "optional"))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -259,8 +370,11 @@ def build_clip_defs() -> list[ClipDef]:
 def events_for(clip: ClipDef) -> list[tuple[str, float]]:
     total = clip.total_ms
     ev: list[tuple[str, float]] = []
-    if clip.state == "move":
-        # 走/跑：两次脚触地，接触姿势是循环起点，另一脚在半周期。
+    if clip.transition:
+        # 启停过渡：各一次脚触地（起步第二段中点迈出的脚、急停刹车末、急转滑步末），不是循环剪辑，不要求每循环位移。
+        ev.append(("footstep", {"start": 0.65, "stop": 0.5, "pivot": 0.5}[clip.transition] * total))
+    elif clip.state == "move":
+        # 走/跑/冲刺：两次脚触地，接触姿势是循环起点，另一脚在半周期。
         ev += [("footstep", 0.0), ("footstep", total / 2.0)]
     elif clip.pose_id == "attack":
         w, a, _r = (ms for _, ms in clip.phases)
@@ -270,6 +384,12 @@ def events_for(clip: ClipDef) -> list[tuple[str, float]]:
             r = clip.phases[2][1]
             ev += [("combo_open", float(w + a)), ("combo_close", w + a + 0.8 * r)]
         ev.append(("cancel_open:dodge", CANCEL_DODGE_PROGRESS[clip.family] * total))
+        if clip.family == "bow":
+            # 弓的放箭点（04 §5 `release`：远程类投射物发射）= 判定相中点，与 hit 同刻（弓的命中点就是放箭点）。
+            ev.append(("release", w + a / 2.0))
+        # 命中帧别名（手感落地 M3-D）：角色外壳（sprite 型与 model 型）识别的命中帧事件名是 hit_frame（ADR-0017），
+        # 04 §5 的 hit 是判定侧标记名；两者同刻同源，追加在该剪辑事件表末尾（既有事件的内容与顺序不变）。
+        ev.append(("hit_frame", w + a / 2.0))
     elif clip.key == "cast":
         ev.append(("release", float(clip.phases[0][1])))
     elif clip.key == "dodge":
@@ -292,8 +412,12 @@ def phase_frame_plan(clip: ClipDef, fps: int = FPS) -> list[tuple[str, int, floa
     return [(name, frames_per_phase(ms, fps), ms / frames_per_phase(ms, fps)) for name, ms in clip.phases]
 
 
-def step_displacement_bh(gait: str) -> float:
-    """每步位移（身高倍数）= 标称速度 × 剪辑时长 / 2（每循环两步）。"""
-    ratio = WALK_SPEED_RATIO if gait == "walk" else RUN_SPEED_RATIO
-    dur = (DUR_WALK if gait == "walk" else DUR_RUN) / 1000.0
-    return REFERENCE_BASE_SPEED_BH_PER_S * ratio * dur / 2.0
+GAIT_SPEED_RATIO = {"walk": WALK_SPEED_RATIO, "run": RUN_SPEED_RATIO, "sprint": SPRINT_SPEED_RATIO}
+GAIT_DURATION_MS = {"walk": DUR_WALK, "run": DUR_RUN, "sprint": DUR_SPRINT}
+
+
+def step_displacement_bh(gait: str, factor: float = 1.0) -> float:
+    """每步位移（身高倍数）= 标称速度 × 剪辑时长 / 2（每循环两步）× 该剪辑的步幅倍率（缺省 1，带伤变体 < 1）。"""
+    ratio = GAIT_SPEED_RATIO[gait]
+    dur = GAIT_DURATION_MS[gait] / 1000.0
+    return REFERENCE_BASE_SPEED_BH_PER_S * ratio * dur / 2.0 * factor

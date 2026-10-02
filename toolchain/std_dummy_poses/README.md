@@ -32,7 +32,7 @@ python toolchain/gen_std_dummy_poses.py --check [--sheet <缩略拼图.png>]    
 所有可调数与来源都集中在 [`config.py`](config.py)（身高像素、画布、帧率、参考时长、三相、位移、方向档、事件规则），
 改完重新生成即可，没有第二处副本。
 
-## 键清单（34 个键，33 份资源）
+## 键清单（103 个键，94 份资源）
 
 键名按 04 第 2.1 节语法 `<状态>[.<步态>][.<姿态>][.<武器族>][.<变体>]`。
 
@@ -43,9 +43,12 @@ python toolchain/gen_std_dummy_poses.py --check [--sheet <缩略拼图.png>]    
 | 攻击 | 徒手 `attack.unarmed`、`.02`、`.03`；单手 `attack.1h`、`.02`、`.03`；双手 `attack.2h`、`.02`；基础键 `attack`（别名，复用 `attack.unarmed` 的资源） |
 | 受击 | `hit`、`hit.light`、`hit.heavy`、`hit.knockback`、`hit.knockdown`、`hit.getup` |
 | 其它 | `death`、`jump`、`cast`、`dodge` |
+| 可选键 | 冲刺 `move.sprint`（及 `.combat`、各族）、启停过渡 `move.start`／`move.stop`／`move.pivot`、击飞 `hit.launch`、眩晕 `stunned`（循环）、格挡 `block`（循环）、带伤变体 `idle.wounded`／`idle.combat.wounded`／`move.walk.wounded`／`move.run.wounded` |
+| 新武器族 | `polearm`、`bow`、`staff`、`dual`、`shield` 各一套待机（`idle.<族>`、`idle.combat.<族>`）、走/跑/战斗走/战斗跑/冲刺（`move.*.<族>`）与攻击（`attack.<族>`；长柄、法杖、双持有 `.02`，双持另有 `.03`；弓只一段并带 `release` 事件；盾牌另有 `block.shield`）；`1h`/`2h` 族补 `move.walk.combat.<族>`、`move.sprint.<族>`、`move.sprint.combat.<族>` |
+| 战斗/冲刺别名 | `move.walk.combat`（别名到 `move.walk`）、各族战斗冲刺 `move.sprint.combat.*`（别名到对应族冲刺）：键回落链先去变体、族、站姿、步态，最后冲刺才退回奔跑，所以每个族的冲刺键必须登记 |
 
 04 第 3 节必备键（`idle`、`move.walk`、`move.run`、`attack`、`hit`、`death`，及每族一段攻击）与推荐键（上表其余键）全覆盖；
-可选键（`move.sprint`、启停过渡、`hit.launch`、`stunned`、`block`、`wounded` 变体）本版不出，运行期静默回落。
+可选键全部出齐（见上表），其中 `wounded` 变体只覆盖待机与走/跑（04 第 3 节只要求这几个）。每个攻击剪辑的事件表末尾追加一条与 `hit` 同时刻的 `hit_frame` 事件（既有事件不动），运行期按事件时间百分比换算出关键帧下标，序列帧播放器据此触发 `hit_frame`，与 model 型的命中帧事件同名同时刻。
 徒手是基础键本身（`idle`/`move.*` 无武器族后缀即徒手），不另出 `idle.unarmed`。
 
 方向档：每个键 × 全部 canonical 档（8 方向 = `front`、`front_side_r`、`side_r`、`back_side_r`、`back`），
@@ -124,4 +127,5 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
 - 假人的 `idle`/`move` 手臂与武器姿势是手调关键姿势，未保证"双手握持时副手恰好落在剑柄上"（2h 族副手只是靠近）。
 - 每循环位移依赖自拟的参考基础移速 2.0 身高/秒（见上）；未做"脚是否打滑"的像素级验证，只验证接触姿势两脚间距。
 - 左侧档位不落盘，依赖运行期水平翻转（14 第 2.1 节镜像规则）；主手因此在镜像档位出现在另一侧。
-- 可选键（`move.sprint`、启停过渡、`hit.launch`、`stunned`、`block`、`wounded` 变体）与 `polearm`/`bow`/`staff`/`dual`/`shield` 族本版不出。
+- 体量轴（轻/重）与步幅轴不出序列帧版：步幅是运行期播放速率，体量只改站姿，由骨骼版的两组偏移姿势集表达（见 model 型生成器说明），序列帧版的体量差异靠换姿势集。
+- 新增五个族的武器层统一画占位形体（长柄、弓、法杖、双持、盾牌），不随族做细节，装备美术按 ADR-0100 覆盖。

@@ -39,6 +39,25 @@ def _with(base: Pose, **kw) -> Pose:
 # 持握与站姿
 # --------------------------------------------------------------------------
 
+#: 手感落地 M3-D 追加武器族的持握姿势（相对 peace/combat 的基础站姿的覆盖量；自拟，占位级）。
+#: 长柄/法杖：主手握柄，和平姿态竖持在身侧（柄尖朝上），战斗姿态双手斜举向前；弓：主手持弓、副手自由，
+#: 和平姿态弓下垂身侧，战斗姿态弓臂前伸；双持：双手各持一把，副手匕首沿前臂；盾族：主手短剑 + 副手前臂盾牌。
+_EXTRA_PEACE = {
+    "polearm": dict(m_sf=20, m_sa=8, m_el=40, wp=180),
+    "staff": dict(m_sf=24, m_sa=8, m_el=34, wp=180),
+    "bow": dict(m_sf=24, m_sa=8, m_el=42, wp=165),
+    "dual": dict(m_sf=22, m_sa=8, m_el=55, wp=40, o_sf=22, o_sa=8, o_el=55),
+    "shield": dict(m_sf=22, m_sa=8, m_el=55, wp=40, o_sf=40, o_sa=14, o_el=95),
+}
+_EXTRA_COMBAT = {
+    "polearm": dict(m_sf=40, m_sa=-4, m_el=85, o_sf=62, o_sa=-14, o_el=70, wp=105),
+    "staff": dict(m_sf=44, m_sa=-4, m_el=85, o_sf=60, o_sa=-14, o_el=72, wp=112),
+    "bow": dict(m_sf=85, m_sa=-6, m_el=12, o_sf=52, o_sa=-4, o_el=118, wp=172),
+    "dual": dict(m_sf=55, m_sa=6, m_el=75, o_sf=55, o_sa=6, o_el=75, wp=95),
+    "shield": dict(m_sf=55, m_sa=6, m_el=75, o_sf=68, o_sa=2, o_el=100, wp=95),
+}
+
+
 def peace(fam: str | None) -> Pose:
     """非战斗站姿（腿直立）。"""
     p = make_pose(m_sf=4, m_sa=6, m_el=12, o_sf=-4, o_sa=6, o_el=12)
@@ -46,6 +65,8 @@ def peace(fam: str | None) -> Pose:
         p = _with(p, m_sf=22, m_sa=8, m_el=55, wp=40)
     elif fam == "2h":
         p = _with(p, m_sf=40, m_sa=-8, m_el=105, o_sf=32, o_sa=-28, o_el=100, wp=190)
+    elif fam in _EXTRA_PEACE:
+        p = _with(p, **_EXTRA_PEACE[fam])
     return p
 
 
@@ -59,6 +80,8 @@ def combat(fam: str | None) -> Pose:
         p = _with(p, m_sf=55, m_sa=6, m_el=70, o_sf=35, o_sa=20, o_el=100, wp=100)
     elif fam == "2h":
         p = _with(p, m_sf=50, m_sa=-5, m_el=85, o_sf=48, o_sa=-20, o_el=92, wp=135)
+    elif fam in _EXTRA_COMBAT:
+        p = _with(p, **_EXTRA_COMBAT[fam])
     return p
 
 
@@ -84,7 +107,20 @@ def pose_idle(clip: C.ClipDef, t_ms: float) -> Pose:
     if clip.family not in C.FAMILIES_WITH_WEAPON:
         p["m_sf"] += 1.5 * b
         p["o_sf"] -= 1.5 * b
+    if clip.variant == "wounded":
+        _hunch(p, base, b)
     return p
+
+
+def _hunch(p: Pose, base: Pose, b: float) -> None:
+    """带伤变体（wounded）：躯干前弓、头低、膝更弯，副手按在腹部（原地修改）。"""
+    p["t_pitch"] += 14.0
+    p["h_pitch"] += 8.0
+    p["m_kn"] += 8.0
+    p["o_kn"] += 8.0
+    p["o_sf"] = 30.0 + 2.0 * b
+    p["o_sa"] = -6.0
+    p["o_el"] = 105.0
 
 
 def pose_loco(clip: C.ClipDef, t_ms: float) -> Pose:
@@ -92,22 +128,23 @@ def pose_loco(clip: C.ClipDef, t_ms: float) -> Pose:
     phi = (t_ms / clip.total_ms) % 1.0
     cs = math.cos(2 * math.pi * phi)
     sn = math.sin(2 * math.pi * phi)
-    step = C.step_displacement_bh(gait)
+    step = C.step_displacement_bh(gait, clip.stride_factor)
     amp = math.degrees(math.asin(step / (2.0 * C.LEG_LENGTH)))
-    run = gait == "run"
-    k_swing = 95.0 if run else 40.0
-    k_stance = 12.0 if run else 4.0
+    sprint = gait == "sprint"
+    run = gait == "run" or sprint     # 冲刺沿用奔跑的姿势结构，幅度更大
+    k_swing = (105.0 if sprint else 95.0) if run else 40.0
+    k_stance = (14.0 if sprint else 12.0) if run else 4.0
     base = _base_for(clip)
     p = dict(base)
     p["m_hf"] = amp * cs
     p["o_hf"] = -amp * cs
     p["m_kn"] = k_stance + k_swing * max(0.0, -sn)
     p["o_kn"] = k_stance + k_swing * max(0.0, sn)
-    p["t_pitch"] = (10.0 if run else 3.0) + (4.0 if clip.combat else 0.0)
-    p["t_yaw"] = (9.0 if run else 5.0) * cs
-    swing = 55.0 if run else 22.0
+    p["t_pitch"] = ((16.0 if sprint else 10.0) if run else 3.0) + (4.0 if clip.combat else 0.0)
+    p["t_yaw"] = ((11.0 if sprint else 9.0) if run else 5.0) * cs
+    swing = (62.0 if sprint else 55.0) if run else 22.0
     held_main = clip.family in C.FAMILIES_WITH_WEAPON
-    held_off = clip.family == "2h"
+    held_off = clip.family in C.OFFHAND_HELD_FAMILIES
     if clip.combat:
         swing *= 0.35
     if not held_main:
@@ -117,7 +154,10 @@ def pose_loco(clip: C.ClipDef, t_ms: float) -> Pose:
         p["o_sf"] = base["o_sf"] + swing * cs
         p["o_el"] = (85.0 if run else 15.0) if not clip.combat else base["o_el"]
     if run:
-        p["lift"] = 0.035 * abs(sn)
+        p["lift"] = (0.05 if sprint else 0.035) * abs(sn)
+    if clip.variant == "wounded":
+        _hunch(p, base, 0.0)
+        p["t_pitch"] += 4.0 * sn
     return p
 
 
@@ -145,12 +185,44 @@ def attack_keys(fam: str, seg: int) -> tuple[Pose, Pose, Pose]:
                 _with(s, m_sf=80, m_sa=20, m_el=15, wp=90, wy=-55, t_yaw=-35, t_pitch=10)
         return s, _with(s, m_sf=35, m_el=140, wp=95, t_yaw=20, t_pitch=0, m_hf=8), \
             _with(s, m_sf=92, m_el=3, wp=92, t_yaw=-20, t_pitch=20, m_hf=42, m_kn=30, o_hf=-24, o_kn=10)
-    # 2h
-    if seg == 1:
-        return s, _with(s, m_sf=165, o_sf=165, m_el=45, o_el=45, wp=215, t_pitch=-8), \
-            _with(s, m_sf=62, o_sf=62, m_el=10, o_el=10, wp=82, t_pitch=18, m_hf=34, m_kn=28, o_hf=-20)
-    return s, _with(s, m_sf=88, o_sf=88, m_sa=50, o_sa=-10, m_el=30, o_el=30, wp=90, wy=70, t_yaw=40), \
-        _with(s, m_sf=88, o_sf=88, m_sa=15, o_sa=-15, m_el=15, o_el=15, wp=90, wy=-60, t_yaw=-40, t_pitch=8)
+    if fam == "2h":
+        if seg == 1:
+            return s, _with(s, m_sf=165, o_sf=165, m_el=45, o_el=45, wp=215, t_pitch=-8), \
+                _with(s, m_sf=62, o_sf=62, m_el=10, o_el=10, wp=82, t_pitch=18, m_hf=34, m_kn=28, o_hf=-20)
+        return s, _with(s, m_sf=88, o_sf=88, m_sa=50, o_sa=-10, m_el=30, o_el=30, wp=90, wy=70, t_yaw=40), \
+            _with(s, m_sf=88, o_sf=88, m_sa=15, o_sa=-15, m_el=15, o_el=15, wp=90, wy=-60, t_yaw=-40, t_pitch=8)
+    return _extra_attack_keys(fam, seg, s)
+
+
+def _extra_attack_keys(fam: str, seg: int, s: Pose) -> tuple[Pose, Pose, Pose]:
+    """手感落地 M3-D 追加武器族的攻击关键姿势（前摇终点、判定相终点；自拟，占位级）。"""
+    if fam == "polearm":
+        if seg == 1:   # 直刺：双手收回腰侧 -> 向前突出，躯干前压
+            return s, _with(s, m_sf=22, o_sf=30, m_el=105, o_el=95, wp=100, t_yaw=18, t_pitch=0), \
+                _with(s, m_sf=86, o_sf=82, m_el=14, o_el=22, wp=90, t_yaw=-14, t_pitch=16, m_hf=32, m_kn=22, o_hf=-22)
+        return s, _with(s, m_sf=80, o_sf=84, m_sa=48, o_sa=-8, m_el=30, o_el=36, wp=92, wy=70, t_yaw=38), \
+            _with(s, m_sf=86, o_sf=84, m_sa=14, o_sa=-14, m_el=16, o_el=22, wp=92, wy=-58, t_yaw=-38, t_pitch=8)
+    if fam == "staff":
+        if seg == 1:   # 过顶下劈
+            return s, _with(s, m_sf=150, o_sf=140, m_el=50, o_el=60, wp=200, t_pitch=-8), \
+                _with(s, m_sf=64, o_sf=70, m_el=14, o_el=26, wp=68, t_pitch=18, m_hf=30, m_kn=26, o_hf=-20)
+        return s, _with(s, m_sf=84, o_sf=86, m_sa=44, o_sa=-6, m_el=32, o_el=38, wp=88, wy=66, t_yaw=36), \
+            _with(s, m_sf=84, o_sf=84, m_sa=14, o_sa=-14, m_el=18, o_el=26, wp=88, wy=-56, t_yaw=-36, t_pitch=8)
+    if fam == "bow":   # 拉弦 -> 放箭：主手前伸持弓不动，副手拉到下颌再向后弹开
+        return s, _with(s, o_sf=74, o_sa=-16, o_el=150, t_yaw=-8), \
+            _with(s, o_sf=50, o_sa=-34, o_el=140, t_yaw=-12, t_pitch=4)
+    if fam == "dual":
+        if seg == 1:   # 右手斩
+            return s, _with(s, m_sf=140, m_el=60, wp=160, t_yaw=22, t_pitch=0), \
+                _with(s, m_sf=70, m_sa=22, m_el=14, wp=70, t_yaw=-26, t_pitch=18, m_hf=28, m_kn=22, o_hf=-20)
+        if seg == 2:   # 左手斩
+            return s, _with(s, o_sf=140, o_el=60, t_yaw=-22, t_pitch=0), \
+                _with(s, o_sf=70, o_sa=22, o_el=14, t_yaw=26, t_pitch=18, m_hf=-18, o_hf=28, o_kn=22)
+        return s, _with(s, m_sf=120, o_sf=120, m_sa=-6, o_sa=-6, m_el=60, o_el=60, wp=150, t_pitch=-6), \
+            _with(s, m_sf=84, o_sf=84, m_sa=-14, o_sa=-14, m_el=12, o_el=12, wp=80, t_pitch=22, m_hf=40, m_kn=30, o_hf=-24)
+    # shield：盾击——盾收回胸前 -> 盾牌向前顶出，主手短剑收在身后
+    return s, _with(s, o_sf=42, o_sa=10, o_el=125, m_sf=40, m_el=100, wp=100, t_yaw=-16, t_pitch=0), \
+        _with(s, o_sf=92, o_sa=0, o_el=18, m_sf=40, m_el=100, wp=100, t_yaw=12, t_pitch=18, m_hf=30, m_kn=20, o_hf=-22)
 
 
 def three_phase(clip: C.ClipDef, t_ms: float, keys: tuple[Pose, Pose, Pose]) -> Pose:
@@ -273,7 +345,89 @@ def pose_dodge(clip: C.ClipDef, t_ms: float) -> Pose:
     return mix_pose(dash, base, smooth((t_ms - st - mo) / rc))
 
 
+# --------------------------------------------------------------------------
+# 手感落地 M3-D 追加：启停过渡、抛飞、眩晕、格挡
+# --------------------------------------------------------------------------
+
+def pose_move_start(clip: C.ClipDef, t_ms: float) -> Pose:
+    """起步：从待机（循环起点）前倾迈出第一步，终点 = move.run 循环起点（接触姿势），首尾与前后循环剪辑衔接。"""
+    u = t_ms / clip.total_ms
+    a, b = pose_idle(C.clip_by_key("idle"), 0.0), pose_loco(C.clip_by_key("move.run"), 0.0)
+    p = mix_pose(a, b, smooth(u))
+    p["t_pitch"] += 8.0 * math.sin(math.pi * u)
+    p["lift"] = 0.02 * math.sin(math.pi * u)
+    return p
+
+
+def pose_move_stop(clip: C.ClipDef, t_ms: float) -> Pose:
+    """急停：从奔跑接触姿势刹车后仰，站稳回到待机起点。"""
+    u = t_ms / clip.total_ms
+    a, b = pose_loco(C.clip_by_key("move.run"), 0.0), pose_idle(C.clip_by_key("idle"), 0.0)
+    p = mix_pose(a, b, smooth(u))
+    k = math.sin(math.pi * u)
+    p["t_pitch"] -= 12.0 * k
+    p["m_kn"] += 22.0 * k
+    p["o_kn"] += 22.0 * k
+    return p
+
+
+def pose_move_pivot(clip: C.ClipDef, t_ms: float) -> Pose:
+    """急转（方向反转）：奔跑接触姿势 -> 滑步屈膝后仰拧身 -> 回到奔跑接触姿势。"""
+    u = t_ms / clip.total_ms
+    run0 = pose_loco(C.clip_by_key("move.run"), 0.0)
+    skid = _with(run0, m_hf=32, o_hf=-34, m_kn=48, o_kn=42, t_pitch=-10, t_yaw=0, h_yaw=-28, t_roll=-6,
+                 m_sf=-10, o_sf=60, m_el=60, o_el=60)
+    k = math.sin(math.pi * u)
+    p = mix_pose(run0, skid, smooth(k))
+    p["t_yaw"] = run0["t_yaw"] + 38.0 * k
+    return p
+
+
+def pose_launch(clip: C.ClipDef, t_ms: float) -> Pose:
+    """抛飞：重击后仰 -> 滞空（抬升弧线，身体放平）-> 落地滑入躺姿（之后接 hit.getup 从躺姿起身）。"""
+    (_, imp), (_, air), (_, land) = clip.phases
+    base = combat(None)
+    start = _hit_pose(base, 2.4)
+    if t_ms < imp:
+        return mix_pose(base, start, ease_out(t_ms / imp))
+    if t_ms < imp + air:
+        u = (t_ms - imp) / air
+        p = mix_pose(start, LYING_BACK, smooth(u))
+        p["lift"] = 0.45 * math.sin(math.pi * u)
+        return p
+    return mix_pose(LYING_BACK, LYING_BACK_SETTLE, smooth((t_ms - imp - air) / land))
+
+
+def pose_stunned(clip: C.ClipDef, t_ms: float) -> Pose:
+    """眩晕：站立晃动（躯干侧倾与头部画圈，循环），双臂松垂。"""
+    phi = (t_ms / clip.total_ms) % 1.0
+    sn, cs = math.sin(2 * math.pi * phi), math.cos(2 * math.pi * phi)
+    p = make_pose(m_sf=12, o_sf=10, m_sa=22, o_sa=22, m_el=28, o_el=24, m_hf=6, o_hf=-4,
+                  m_kn=18 + 4 * sn, o_kn=16 - 4 * sn)
+    p["t_roll"] = 7.0 * sn
+    p["t_pitch"] = 9.0 + 3.0 * cs
+    p["h_pitch"] = 12.0 + 6.0 * cs
+    p["h_yaw"] = 16.0 * sn
+    return p
+
+
+def pose_block(clip: C.ClipDef, t_ms: float) -> Pose:
+    """格挡：蹲稳，双前臂交叉举在身前（盾族：盾牌举在脸前、主手短剑收后），轻微受力颤动（循环）。"""
+    phi = (t_ms / clip.total_ms) % 1.0
+    sn = math.sin(2 * math.pi * phi)
+    if clip.family == "shield":
+        p = _with(combat("shield"), o_sf=84, o_sa=2, o_el=105, m_sf=40, m_el=100, wp=100, t_pitch=10, m_kn=34, o_kn=30)
+    else:
+        p = _with(combat(None), m_sf=76, m_sa=-14, m_el=128, o_sf=76, o_sa=-14, o_el=128, t_pitch=10, m_kn=34, o_kn=30)
+    p["t_pitch"] += 0.8 * sn
+    p["m_kn"] += 1.5 * sn
+    p["o_kn"] += 1.5 * sn
+    return p
+
+
 _DISPATCH = {
+    "move_start": pose_move_start, "move_stop": pose_move_stop, "move_pivot": pose_move_pivot,
+    "hit.launch": pose_launch, "stunned": pose_stunned, "block": pose_block, "sprint": pose_loco,
     "idle": pose_idle, "walk": pose_loco, "run": pose_loco, "attack": pose_attack,
     "hit": pose_hit, "hit.light": pose_hit, "hit.heavy": pose_hit, "hit.knockback": pose_hit,
     "hit.knockdown": pose_knockdown, "hit.getup": pose_getup, "death": pose_death,

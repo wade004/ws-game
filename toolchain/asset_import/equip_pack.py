@@ -99,7 +99,7 @@ ICON_MAX_SIDE = 512
 GAITS = ("walk", "run", "sprint")
 STANCES = ("peace", "combat")
 # 带武器族维度的状态（04 第 2 节：武器族主要服务运动态、待机与攻击）。
-FAMILY_STATES = ("idle", "move", "attack")
+FAMILY_STATES = ("idle", "move", "attack", "block")
 REQUIRED_BASES = ("idle", "move.walk", "move.run", "hit", "death", "attack")
 
 TIER_REQUIRED = "required"

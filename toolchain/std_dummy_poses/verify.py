@@ -19,19 +19,29 @@ from .skeleton import POSE_KEYS, build_parts
 
 # 04 §3 清单的独立判据（不从 config 推导，避免"自己验自己"）：
 REQUIRED_KEYS = ["idle", "move.walk", "move.run", "attack", "hit", "death",
-                 "attack.unarmed", "attack.1h", "attack.2h"]
+                 "attack.unarmed", "attack.1h", "attack.2h",
+                 "attack.polearm", "attack.bow", "attack.staff", "attack.dual", "attack.shield"]
 RECOMMENDED_KEYS = ["idle.combat", "move.run.combat", "attack.unarmed.02", "attack.1h.02", "attack.2h.02",
-                    "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup", "cast", "dodge", "jump"]
+                    "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup", "cast", "dodge", "jump",
+                    "attack.polearm.02", "attack.staff.02", "attack.dual.02"]
+# 04 §3 可选键（独立判据）：04 说"缺项静默回落"，但框架假人集声明"出齐"，所以本集缺任一项都按错误报。
+OPTIONAL_KEYS = ["move.sprint", "move.walk.combat", "move.start", "move.stop", "move.pivot", "hit.launch",
+                 "stunned", "block", "idle.wounded", "move.walk.wounded"]
+# 04 §2 武器族清单里 1h/2h 之外的全部族，每族都要有的键口径（与 1h/2h 同口径 + 战斗走与冲刺）。
+FAMILY_KEY_BASES = ["idle", "idle.combat", "move.walk", "move.run", "move.run.combat", "move.walk.combat", "move.sprint"]
+ALL_FAMILIES = ["1h", "2h", "polearm", "bow", "staff", "dual", "shield"]
 
 # 武器层逐层剪辑清单的独立判据（不从 config 推导）：持械角色播这些无族状态键时武器层必须随身体帧走
 # （ADR-0072：缺逐层剪辑的层维持静态图，这正是要消除的遗留）。
 STATE_KEYS_WITH_WEAPON_LAYER = ["hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
-                                "death", "jump", "cast", "dodge"]
+                                "death", "jump", "cast", "dodge", "hit.launch", "stunned", "block"]
 
-_STATES = {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge"}
+_STATES = {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge", "stunned", "block"}
 _GAITS = {"walk", "run", "sprint"}
 _FAMILIES = {"unarmed", "1h", "2h", "polearm", "bow", "staff", "dual", "shield"}
-_HIT_SUFFIX = {"light", "heavy", "knockback", "knockdown", "getup"}
+_HIT_SUFFIX = {"light", "heavy", "knockback", "knockdown", "getup", "launch"}
+_TRANSITIONS = {"start", "stop", "pivot"}
+_VARIANTS = {"wounded"}
 
 
 def parse_key(key: str) -> dict | None:
@@ -44,6 +54,9 @@ def parse_key(key: str) -> dict | None:
     if parts[0] == "hit" and rest and rest[0] in _HIT_SUFFIX:
         out["variant"] = rest[0]
         rest = rest[1:]
+    if parts[0] == "move" and rest and rest[0] in _TRANSITIONS:
+        out["variant"] = rest[0]       # 启停过渡剪辑（04 §3）：move.start/stop/pivot，不带其它维度
+        return out if len(rest) == 1 else None
     if parts[0] == "move" and rest and rest[0] in _GAITS:
         out["gait"] = rest[0]
         rest = rest[1:]
@@ -53,7 +66,7 @@ def parse_key(key: str) -> dict | None:
     if rest and rest[0] in _FAMILIES:
         out["family"] = rest[0]
         rest = rest[1:]
-    if rest and re.fullmatch(r"\d\d", rest[0]):
+    if rest and (re.fullmatch(r"\d\d", rest[0]) or rest[0] in _VARIANTS):
         out["variant"] = rest[0]
         rest = rest[1:]
     return out if not rest else None
@@ -120,6 +133,17 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
     for k in RECOMMENDED_KEYS:
         if k not in clips:
             r.warn(f"推荐键缺失：{k}")
+    for k in OPTIONAL_KEYS:
+        if k not in clips:
+            r.err(f"可选键缺失（本集声明出齐）：{k}")
+    for fam in ALL_FAMILIES:
+        for base in FAMILY_KEY_BASES:
+            k = f"{base}.{fam}"
+            if k not in clips:
+                r.err(f"武器族 {fam} 缺键：{k}")
+        for k in (f"attack.{fam}", f"move.sprint.combat.{fam}"):
+            if k not in clips:
+                r.err(f"武器族 {fam} 缺键：{k}")
     for k in clips:
         if parse_key(k) is None:
             r.err(f"键不符合 04 §2.1 语法：{k}")
@@ -171,6 +195,11 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
                 r.err(f"{key} 攻击类缺 active_start/active_end/hit")
             elif not (a0[0] < a1[0]) or any(not (a0[0] <= h <= a1[0]) for h in hits):
                 r.err(f"{key} hit 不在判定相内：active=[{a0[0]},{a1[0]}] hit={hits}")
+            hf = _ev(e, "hit_frame")
+            if sorted(hf) != sorted(hits):
+                r.err(f"{key} 命中帧事件 hit_frame {hf} 与 hit {hits} 不同刻（角色外壳按 hit_frame 同步命中帧，ADR-0017）")
+            if e["family"] == "bow" and sorted(_ev(e, "release")) != sorted(hits):
+                r.err(f"{key} 弓的 release 应与 hit 同刻（放箭点）")
             w, a, rr = (p["ms"] for p in e["phases"])
             exp = {"active_start": event_pct(w, total), "active_end": event_pct(w + a, total)}
             if (a0 and abs(a0[0] - exp["active_start"]) > 1e-4) or (a1 and abs(a1[0] - exp["active_end"]) > 1e-4):
@@ -179,12 +208,22 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
             if fam in C.PHASES_SEG1 and e["phases"][0]["ms"] and key == C.attack_key(fam, 1):
                 if tuple(p["ms"] for p in e["phases"]) != C.PHASES_SEG1[fam]:
                     r.err(f"{key} 三相与配置起点不一致")
-        if info["state"] == "move" and info["gait"] in ("walk", "run"):
+        if info["state"] == "move" and info["gait"] in ("walk", "run", "sprint"):
             fs = _ev(e, "footstep")
             if len(fs) < 2:
                 r.err(f"{key} 缺 footstep（至少 2 次/循环）")
             if "step_displacement_bh" not in e:
                 r.err(f"{key} 缺每步位移")
+        if c.transition:
+            # 启停过渡：非循环、至少一次脚触地；首尾姿势与前后相邻的循环剪辑衔接（起点/终点姿势完全相同）
+            if e["loop"] or not _ev(e, "footstep"):
+                r.err(f"{key} 过渡剪辑应为非循环且有 footstep")
+            idle0, run0 = pose_at(C.clip_by_key("idle"), 0.0), pose_at(C.clip_by_key("move.run"), 0.0)
+            want_a, want_b = {"start": (idle0, run0), "stop": (run0, idle0), "pivot": (run0, run0)}[c.transition]
+            for tag, got, want in (("起点", pose_at(c, 0.0), want_a), ("终点", pose_at(c, float(total)), want_b)):
+                dm = max(abs(got[k] - want[k]) for k in POSE_KEYS)
+                if dm > 1e-6:
+                    r.err(f"{key} {tag}姿势与相邻循环剪辑不衔接（最大差 {dm:.6f}）")
         if key == "dodge":
             s0, s1 = _ev(e, "invuln_start"), _ev(e, "invuln_end")
             if len(s0) != 1 or len(s1) != 1 or not (0.0 <= s0[0] < s1[0] <= 1.0):
@@ -199,11 +238,11 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
             if dmax > 1e-6:
                 r.err(f"{key} 循环首尾姿势不连续（最大差 {dmax:.6f}）")
             r.tick("循环连续")
-        if info["state"] == "move" and info["gait"] in ("walk", "run") and not c.combat and c.family is None:
-            # 接触姿势两脚前后间距 ≈ 标称每步位移（容差 5%）
+        if info["state"] == "move" and info["gait"] in ("walk", "run", "sprint") and not c.combat and c.family is None:
+            # 接触姿势两脚前后间距 ≈ 标称每步位移（容差 5%；带伤变体按其步幅倍率）
             _parts, j = build_parts(pose_at(c, 0.0), None)
             sep = abs(j["ankle_m"][2] - j["ankle_o"][2])
-            step = C.step_displacement_bh(info["gait"])
+            step = C.step_displacement_bh(info["gait"], c.stride_factor)
             if abs(sep - step) > 0.05 * step:
                 r.err(f"{key} 接触姿势脚间距 {sep:.3f} 与每步位移 {step:.3f} 偏差超 5%")
             r.tick("步幅核对")
@@ -211,7 +250,9 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
     # --- 文件与图像 ---
     for key, e in clips.items():
         if e.get("alias_of"):
-            if e["resource_ref"] != clips[e["alias_of"]]["resource_ref"]:
+            if e["alias_of"] not in clips:
+                r.err(f"{key} 别名目标 {e['alias_of']} 不在规格里")
+            elif e["resource_ref"] != clips[e["alias_of"]]["resource_ref"]:
                 r.err(f"{key} 别名资源引用与目标不一致")
             continue
         ref = e["resource_ref"]

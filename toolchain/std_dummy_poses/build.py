@@ -121,9 +121,16 @@ def build_spec(direction_count: int, fps: int, composite_dirs: bool) -> dict:
         if c.alias_of:
             entry["alias_of"] = c.alias_of
         if c.gait:
-            step = C.step_displacement_bh(c.gait)
+            step = C.step_displacement_bh(c.gait, c.stride_factor)
             entry["step_displacement_bh"] = round(step, 4)
             entry["cycle_displacement_bh"] = round(step * 2, 4)
+        # 手感落地 M3-D 追加字段：只在新键上出现（既有键的规格条目逐字节不变）
+        if c.variant:
+            entry["variant"] = c.variant
+        if c.transition:
+            entry["transition"] = c.transition
+        if c.stride_factor != 1.0:
+            entry["stride_factor"] = c.stride_factor
         spec_clips[c.key] = entry
     return {
         "generator": "toolchain/gen_std_dummy_poses.py",
@@ -142,6 +149,7 @@ def build_spec(direction_count: int, fps: int, composite_dirs: bool) -> dict:
             "reference_base_speed_body_heights_per_s": C.REFERENCE_BASE_SPEED_BH_PER_S,
             "walk_speed_ratio": C.WALK_SPEED_RATIO,
             "run_speed_ratio": C.RUN_SPEED_RATIO,
+            "sprint_speed_ratio": C.SPRINT_SPEED_RATIO,
             "frame_count_rule": "每相 max(1, floor(ms*fps/1000+0.5))；相内帧时长均分（相边界与三相毫秒数精确对齐）",
         },
         "directions": {
@@ -161,10 +169,13 @@ def build_data_row(spec: dict) -> dict:
 
 
 def _render_anim_set_file(rows: list[dict]) -> str:
-    """display.anim_set.json：外层 2 空格缩进，每个剪辑一行（与 data/_sample 同风格，字段顺序按 schema：id, clips）。"""
+    """display.anim_set.json：外层 2 空格缩进，每个剪辑一行（与 data/_sample 同风格，字段顺序按 schema：id, [extends], clips）。"""
     lines = ['{', '  "table": "display.anim_set",', '  "schema_version": 1,', '  "rows": [']
     for r, row in enumerate(rows):
-        lines += ['    {', f'      "id": {json.dumps(row["id"])},', '      "clips": {']
+        lines += ['    {', f'      "id": {json.dumps(row["id"])},']
+        if row.get("extends"):
+            lines.append(f'      "extends": {json.dumps(row["extends"])},')
+        lines.append('      "clips": {')
         items = list(row["clips"].items())
         for i, (key, val) in enumerate(items):
             ev = ", ".join('{ "name": %s, "time_pct": %s }' % (json.dumps(e["name"]), json.dumps(e["time_pct"]))
@@ -186,7 +197,7 @@ def write_anim_set_rows(data_out: Path, new_rows: list[dict]) -> Path:
     rows: dict[str, dict] = {}
     if path.is_file():
         for row in json.loads(path.read_text(encoding="utf-8")).get("rows", []):
-            extra = set(row) - {"id", "clips"}
+            extra = set(row) - {"id", "extends", "clips"}
             if extra:
                 raise ValueError(f"{path} 里的行 {row.get('id')} 带有本写法不认识的字段 {sorted(extra)}，拒绝改写")
             rows[row["id"]] = row

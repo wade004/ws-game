@@ -20,7 +20,7 @@ adapters/unity/
                                    -executeMethod ...GeneratePlaceholderModelAssets.GenerateAndExit
       GenerateStdDummyModelAssets.cs  手感设计/04 第 10 节：按规格
                                    assets/_placeholder/std_dummy_model_clips.json 生成假人骨骼预制体
-                                   std_dummy_biped、控制器与 33 份 std_dummy_*.anim（菜单
+                                   std_dummy_biped、控制器与 108 份 std_dummy_*.anim（含轻/重体量组 14 份；控制器手写、fileID 取散列、.meta guid 稳定，两次生成逐字节一致；菜单
                                    GameFoundation/Generate Std Dummy Model Assets，或
                                    -executeMethod ...GenerateStdDummyModelAssets.GenerateAndExit；
                                    用法见 toolchain/std_dummy_model_clips/README.md）

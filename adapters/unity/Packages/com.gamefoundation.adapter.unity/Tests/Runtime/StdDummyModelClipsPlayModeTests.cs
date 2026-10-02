@@ -1,7 +1,8 @@
 #nullable enable
 // StdDummyModelClipsPlayModeTests：框架级 model 型假人姿势集（手感设计/04 第 6.1 节、ADR-0119；
 // toolchain/gen_std_dummy_model_clips.py + Editor/GenerateStdDummyModelAssets.cs 产出的预制体 model.std_dummy_biped、
-// 33 份 .anim、数据行 display.anim_set.std_dummy_biped_model）的引擎侧验收。
+// 108 份 .anim（主集 94 份 + 轻/重体量组各 7 份）、数据行 display.anim_set.std_dummy_biped_model 及其 extends 体量组行）的引擎侧验收；
+// 文件末尾另有 sprite 型假人集的命中帧关键帧验收（StdDummySpriteHitFramePlayModeTests）。
 //
 // 验收对象（全部读运行时可观测量，期望值由规则/数据算出，不写死裸数）：
 //   一、model 型单位按姿势键播放剪辑：状态 + 步态 + 武器族 -> 04 第 2.1 节键 -> 数据行 resource_ref -> Animator 正在播放的状态；
@@ -32,6 +33,7 @@ using NUnit.Framework;
 using Presentation.Common;
 using Presentation.Render;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 using DisplayInfo = Core.Foundation.DisplayInfo.DisplayInfo;
 
@@ -45,7 +47,8 @@ namespace Adapter.Unity.Tests.Runtime
         private const float StepSeconds = 0.005f;
 
         // ---------------- 规格（JsonUtility 形状，只声明用到的字段）----------------
-        [Serializable] private class Spec { public SkeletonSpec skeleton = new SkeletonSpec(); public ClipSpec[] clips = Array.Empty<ClipSpec>(); }
+        [Serializable] private class Spec { public SkeletonSpec skeleton = new SkeletonSpec(); public ClipSpec[] clips = Array.Empty<ClipSpec>(); public MassGroupSpec[] mass_groups = Array.Empty<MassGroupSpec>(); }
+        [Serializable] private class MassGroupSpec { public string id = ""; public string mass = ""; public ClipSpec[] clips = Array.Empty<ClipSpec>(); }
         [Serializable] private class SkeletonSpec { public string root = ""; }
         [Serializable] private class EventSpec { public string name = ""; public float time_pct; }
         [Serializable] private class TrackSpec { public string path = ""; public float[] rot = Array.Empty<float>(); public float[] pos = Array.Empty<float>(); }
@@ -90,6 +93,25 @@ namespace Adapter.Unity.Tests.Runtime
         private static JsonObject AnimSetRow() =>
             s_animSetRow ??= FindRow("data/_framework/display/display.anim_set.json", r => ((JsonString)r["id"]).Value == AnimSetIdValue);
 
+        private static JsonObject AnimSetRowById(string id) =>
+            FindRow("data/_framework/display/display.anim_set.json", r => ((JsonString)r["id"]).Value == id);
+
+        /// <summary>主集 + 全部体量组的剪辑（体量组条目按各自 state 名区分，key 与主集同名）。</summary>
+        private static IEnumerable<ClipSpec> EveryClipIncludingMassGroups()
+        {
+            foreach (var c in LoadSpec().clips)
+            {
+                yield return c;
+            }
+            foreach (var g in LoadSpec().mass_groups)
+            {
+                foreach (var c in g.clips)
+                {
+                    yield return c;
+                }
+            }
+        }
+
         private static string RowResourceRef(string key) =>
             ((JsonString)((JsonObject)((JsonObject)AnimSetRow()["clips"])[key])["resource_ref"]).Value;
 
@@ -130,7 +152,24 @@ namespace Adapter.Unity.Tests.Runtime
             }
         }
 
-        private static Fx Build()
+        /// <summary>步态/武器族/变体由用例脚本直接给定的姿势上下文来源（PoseSelector 在没有手感视图时不会派生冲刺档，
+        /// 冲刺步态用本替身直接指定）。</summary>
+        private sealed class ScriptedContext : IPoseContextSource
+        {
+            public PoseContext Current;
+
+            public event Action<Id>? ContextChanged;
+
+            public PoseContext GetContext(Id entityId) => Current;
+
+            public void Set(Id entityId, PoseContext context)
+            {
+                Current = context;
+                ContextChanged?.Invoke(entityId);
+            }
+        }
+
+        private static Fx Build(string animSetId = AnimSetIdValue, IPoseContextSource? contextSource = null)
         {
             var host = UnityEngineHost.Ensure();
             var definitions = new List<EventDefinition>();
@@ -149,19 +188,23 @@ namespace Adapter.Unity.Tests.Runtime
                 iconId: null, vfxId: null, sfxId: null, scale: 1.0,
                 shadow: Core.Foundation.DisplayInfo.ShadowMode.None, sortOffset: 0.0, weaponStyleRef: null,
                 sprite: null,
-                model: new ModelInfo(new Id(ModelIdValue), new Id(AnimSetIdValue), sockets: new[] { new Id("socket.main_hand") }));
+                model: new ModelInfo(new Id(ModelIdValue), new Id(animSetId), sockets: new[] { new Id("socket.main_hand") }));
             var displayInfoRegistry = new FakeDisplayInfoRegistryForAnim();
             displayInfoRegistry.Add(info);
 
+            // 主集行 + 体量组行（extends 主集）都登记：体量组行靠 AnimSetDef.FromRecord 按 extends 到登记表里取主集合并。
             var dataRegistry = new FakeAnimSetAndWeaponStyleRegistry();
             var schema = new TableSchema("display.anim_set", "id", 1, Array.Empty<FieldSchema>());
-            dataRegistry.Add("display.anim_set", new DataRecord(schema, AnimSetIdValue, new Id(AnimSetIdValue), AnimSetRow()));
+            foreach (var rowId in new[] { AnimSetIdValue, AnimSetIdValue + "_light", AnimSetIdValue + "_heavy" })
+            {
+                dataRegistry.Add("display.anim_set", new DataRecord(schema, rowId, new Id(rowId), AnimSetRowById(rowId)));
+            }
 
             var factory = new UnityViewFactory(
                 host.Renderer2D, new RenderConventionHost(), displayInfoRegistry, host.ResourceLoader,
                 bus: bus, dataRegistry: dataRegistry, renderer3D: host.Renderer3D);
             var selector = new PoseSelector();
-            factory.SetPoseContextSource(selector);
+            factory.SetPoseContextSource(contextSource ?? selector);
 
             var entity = new Id("unit.std_dummy_model_test_" + Guid.NewGuid().ToString("N"));
             var view = (UnityModelView)factory.CreateView(ViewKind.Unit, logicalId, entity);
@@ -192,13 +235,25 @@ namespace Adapter.Unity.Tests.Runtime
 
         private static IEnumerable<string> AllStateNames()
         {
-            foreach (var c in LoadSpec().clips)
+            foreach (var c in EveryClipIncludingMassGroups())
             {
                 if (string.IsNullOrEmpty(c.alias_of))
                 {
                     yield return c.state;
                 }
             }
+        }
+
+        /// <summary>某姿势集行里键 <paramref name="key"/> 的 resource_ref：行自己声明了就取行内的（体量组覆盖键），
+        /// 没声明就沿 extends 取主集的（04 第 7 节：只声明要覆盖的键，其余沿用模板）。</summary>
+        private static string ResolveRef(string rowId, string key)
+        {
+            var clips = (JsonObject)AnimSetRowById(rowId)["clips"];
+            if (clips.ContainsKey(key))
+            {
+                return ((JsonString)((JsonObject)clips[key])["resource_ref"]).Value;
+            }
+            return RowResourceRef(key);
         }
 
         /// <summary>进入 <paramref name="state"/>：运动态（Idle/Move）只接受 unit.state_changed（RequestOverride 会拒绝，见
@@ -219,9 +274,9 @@ namespace Adapter.Unity.Tests.Runtime
             }
         }
 
-        private static void AssertPlays(Fx fx, string expectedKey, string context)
+        private static void AssertPlays(Fx fx, string expectedKey, string context, string rowId = AnimSetIdValue)
         {
-            var expectedState = StateNameOf(RowResourceRef(expectedKey));
+            var expectedState = StateNameOf(ResolveRef(rowId, expectedKey));
             var playing = PlayingState(fx.Animator, AllStateNames());
             Assert.AreEqual(expectedState, playing,
                 $"{context}：应当按姿势键 \"{expectedKey}\" 播放（数据行 resource_ref -> Animator 状态 \"{expectedState}\"），实际正在播放 \"{playing ?? "(非假人集状态)"}\"");
@@ -240,6 +295,21 @@ namespace Adapter.Unity.Tests.Runtime
         [TestCase(AnimState.Attack, null, "1h", null)]
         [TestCase(AnimState.Attack, null, "2h", null)]
         [TestCase(AnimState.Attack, null, null, null)]
+        [TestCase(AnimState.Idle, null, "polearm", null)]
+        [TestCase(AnimState.Idle, null, "bow", null)]
+        [TestCase(AnimState.Idle, null, "staff", null)]
+        [TestCase(AnimState.Idle, null, "dual", null)]
+        [TestCase(AnimState.Idle, null, "shield", null)]
+        [TestCase(AnimState.Move, "walk", "polearm", 0.45)]
+        [TestCase(AnimState.Move, "run", "bow", 1.0)]
+        [TestCase(AnimState.Move, "run", "staff", 1.0)]
+        [TestCase(AnimState.Move, "run", "dual", 1.0)]
+        [TestCase(AnimState.Move, "run", "shield", 1.0)]
+        [TestCase(AnimState.Attack, null, "polearm", null)]
+        [TestCase(AnimState.Attack, null, "bow", null)]
+        [TestCase(AnimState.Attack, null, "staff", null)]
+        [TestCase(AnimState.Attack, null, "dual", null)]
+        [TestCase(AnimState.Attack, null, "shield", null)]
         [TestCase(AnimState.Hit, null, null, null)]
         [TestCase(AnimState.Death, null, null, null)]
         public void PoseKey_PlaysMatchingClipState(AnimState state, string? gait, string? family, double? speedRatio)
@@ -284,6 +354,79 @@ namespace Adapter.Unity.Tests.Runtime
 
             fx.Selector.SetFamily(fx.Entity, null);
             AssertPlays(fx, "move.run", "卸下武器后奔跑");
+        }
+
+        // ---------------- 二补、可选键：冲刺 / 带伤变体 / 体量组 ----------------
+
+        [Test]
+        public void SprintGait_PlaysSprintClipAndFamilySprintVariants_ThenBackToRun()
+        {
+            var ctx = new ScriptedContext();
+            using var fx = Build(contextSource: ctx);
+            EnterState(fx, AnimState.Move);
+
+            ctx.Set(fx.Entity, new PoseContext(LocomotionGait.Sprint));
+            AssertPlays(fx, "move.sprint", "冲刺（无武器族）");
+            foreach (var family in new[] { "1h", "2h", "polearm", "bow", "staff", "dual", "shield" })
+            {
+                ctx.Set(fx.Entity, new PoseContext(LocomotionGait.Sprint, family));
+                AssertPlays(fx, "move.sprint." + family, $"冲刺（武器族 {family}）");
+            }
+
+            ctx.Set(fx.Entity, new PoseContext(LocomotionGait.Run));
+            AssertPlays(fx, "move.run", "冲刺回到跑步");
+            Assert.AreNotEqual(StateNameOf(RowResourceRef("move.sprint")), StateNameOf(RowResourceRef("move.run")), "冲刺与跑步是两份剪辑");
+        }
+
+        [Test]
+        public void WoundedVariant_PlaysWoundedClips_AndDropsVariantWhenFamilyKeyHasNoWoundedVersion()
+        {
+            using var fx = Build();
+            fx.Selector.SetVariant(fx.Entity, "wounded");
+            AssertPlays(fx, "idle.wounded", "带伤待机");
+
+            fx.Selector.Observe(fx.Entity, 0.45);
+            EnterState(fx, AnimState.Move);
+            AssertPlays(fx, "move.walk.wounded", "带伤走");
+
+            fx.Selector.Observe(fx.Entity, 1.0);
+            AssertPlays(fx, "move.run.wounded", "带伤跑");
+
+            // 回落链先去变体：没有 move.run.1h.wounded，应落到 move.run.1h（04 第 2.2 节）
+            fx.Selector.SetFamily(fx.Entity, "1h");
+            AssertPlays(fx, "move.run.1h", "带伤 + 单手武器奔跑");
+
+            fx.Selector.SetFamily(fx.Entity, null);
+            fx.Selector.SetVariant(fx.Entity, null);
+            AssertPlays(fx, "move.run", "清除变体后奔跑");
+        }
+
+        [TestCase("light")]
+        [TestCase("heavy")]
+        public void MassGroupRow_OverridesPostureKeysAndInheritsEverythingElseFromMainSet(string mass)
+        {
+            var rowId = AnimSetIdValue + "_" + mass;
+            using var fx = Build(rowId);
+
+            // 控制器默认状态是主集待机；体量组的待机要在单位进入待机状态后才由解析器按合并后的数据行播放
+            // 单位创建时已处于待机（Idle -> Idle 不触发切换），先走一步 Move 再回 Idle 才会让解析器按体量组行取待机。
+            EnterState(fx, AnimState.Move);
+            EnterState(fx, AnimState.Idle);
+            AssertPlays(fx, "idle", $"{mass} 体量待机", rowId);
+            Assert.AreEqual($"anim.std_dummy_{mass}_idle", ResolveRef(rowId, "idle"), "待机应取体量组自己的剪辑");
+            Assert.AreNotEqual(RowResourceRef("idle"), ResolveRef(rowId, "idle"));
+
+            fx.Selector.Observe(fx.Entity, 1.0);
+            EnterState(fx, AnimState.Move);
+            AssertPlays(fx, "move.run", $"{mass} 体量奔跑", rowId);
+
+            // 体量组行没有声明的键沿 extends 取主集：单手攻击、受击
+            fx.Selector.SetFamily(fx.Entity, "1h");
+            EnterState(fx, AnimState.Attack);
+            AssertPlays(fx, "attack.1h", $"{mass} 体量单手攻击（继承主集）", rowId);
+            Assert.AreEqual(RowResourceRef("attack.1h"), ResolveRef(rowId, "attack.1h"));
+            EnterState(fx, AnimState.Hit);
+            AssertPlays(fx, "hit", $"{mass} 体量受击（继承主集）", rowId);
         }
 
         // ---------------- 三、命名事件触发时刻 ----------------
@@ -355,6 +498,13 @@ namespace Adapter.Unity.Tests.Runtime
         [TestCase("attack.1h")]
         [TestCase("attack.1h.02")]
         [TestCase("attack.2h")]
+        [TestCase("attack.polearm")]
+        [TestCase("attack.polearm.02")]
+        [TestCase("attack.bow")]
+        [TestCase("attack.staff")]
+        [TestCase("attack.dual")]
+        [TestCase("attack.dual.03")]
+        [TestCase("attack.shield")]
         [TestCase("dodge")]
         [TestCase("cast")]
         public void ClipEvents_AllFireOnceAtSpecTime_IncludingParameterizedMarker(string clipKey)
@@ -376,6 +526,25 @@ namespace Adapter.Unity.Tests.Runtime
                 checkedEvents++;
             }
             Assert.Greater(checkedEvents, 0, $"{clipKey} 应当至少核对到一个事件");
+        }
+
+        [Test]
+        public void EveryAttackClip_HitFrameEventFiresExactlyOnce_AtSameMomentAsHit()
+        {
+            using var fx = Build();
+            var n = 0;
+            foreach (var c in LoadSpec().clips)
+            {
+                if (!string.IsNullOrEmpty(c.alias_of) || !c.key.StartsWith("attack.", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                var rec = PlayAndRecord(fx, c.key);
+                var hitFrameAt = TimeOfId(rec, ModelCharacterRig.HitFrameEventId.Value);   // 恰好一次（TimeOfId 内断言）
+                Assert.AreEqual(TimeOf(rec, "hit"), hitFrameAt, 1e-4f, $"{c.key}：hit_frame 应与 04 第 5 节 hit 同刻");
+                n++;
+            }
+            Assert.Greater(n, 10, "应当核对到全部攻击剪辑（含五个新武器族）");
         }
 
         [Test]
@@ -416,7 +585,7 @@ namespace Adapter.Unity.Tests.Runtime
                 Assert.IsNotNull(animator);
                 var root = animator!.gameObject;
                 var checkedClips = 0;
-                foreach (var c in LoadSpec().clips)
+                foreach (var c in EveryClipIncludingMassGroups())
                 {
                     if (!string.IsNullOrEmpty(c.alias_of))
                     {
@@ -481,6 +650,181 @@ namespace Adapter.Unity.Tests.Runtime
                 fx.Host.Renderer3D.PlayAnim(fx.Handle, new Id(resourceRef), loop: false, speed: 1.0, blendSeconds: 0.0);
                 var playing = PlayingState(fx.Animator, new[] { StateNameOf(resourceRef) });
                 Assert.AreEqual(StateNameOf(resourceRef), playing, $"{key}：控制器里应当有状态 {StateNameOf(resourceRef)} 且 PlayAnim 后确实在播放");
+            }
+        }
+
+        [Test]
+        public void EveryMassGroupRowKey_ResolvesToPlayableOwnClipWithSpecDuration()
+        {
+            using var fx = Build();
+            var n = 0;
+            foreach (var g in LoadSpec().mass_groups)
+            {
+                var rowClips = (JsonObject)AnimSetRowById(g.id)["clips"];
+                var rowKeyCount = 0;
+                foreach (var _ in rowClips)
+                {
+                    rowKeyCount++;
+                }
+                Assert.AreEqual(g.clips.Length, rowKeyCount, $"{g.id} 数据行键数应当等于规格里的体量组剪辑数");
+                foreach (var spec in g.clips)
+                {
+                    var resourceRef = ResolveRef(g.id, spec.key);
+                    Assert.AreEqual(spec.resource_ref, resourceRef, $"{g.id}/{spec.key} 数据行与规格的资源引用应一致");
+                    Assert.IsTrue(fx.Host.ResourceLoader.TryLoadAnimationClipSync(new Id(resourceRef), out var clip), $"{g.id}/{spec.key}：{resourceRef} 应能经 IResourceLoader 取到剪辑");
+                    Assert.AreEqual(spec.total_ms / 1000f, clip.length, 1e-3f, $"{g.id}/{spec.key} 剪辑时长应等于规格 total_ms（体量组不改时长）");
+                    fx.Host.Renderer3D.PlayAnim(fx.Handle, new Id(resourceRef), loop: false, speed: 1.0, blendSeconds: 0.0);
+                    Assert.AreEqual(StateNameOf(resourceRef), PlayingState(fx.Animator, new[] { StateNameOf(resourceRef) }),
+                        $"{g.id}/{spec.key}：控制器里应当有状态 {StateNameOf(resourceRef)}");
+                    n++;
+                }
+            }
+            Assert.AreEqual(2 * 8, n, "轻/重两个体量组各 8 个键（7 份剪辑 + 1 个冲刺别名）");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // sprite 型假人集的命中帧关键帧验收（手感落地 M3-D）：数据行里每个攻击剪辑的 hit_frame 事件，经引擎侧换算后得到的帧下标
+    // 必须落在该剪辑判定相的帧范围内，且序列帧播放器按这个下标恰好触发一次 FrameAnimClip.HitFrameMarker（"hit_frame"，
+    // 与 model 型 ModelCharacterRig 识别的同名事件一致）。用仓库里的真实序列帧资源（assets/_placeholder 指向的隔离根目录）。
+    //
+    // 判断记录（经反射调用 UnityViewFactory.ComputeKeyframes）：它是工厂内部私有的纯函数，生产路径对每个登记的剪辑都用它把
+    // 数据行 events 换算成关键帧表；用例要验的正是"生产换算的结果"，复刻一份公式会变成自己验自己。反射只取这一个静态方法，
+    // 签名变了用例会在第一行失败并指出，不会静默通过。
+    // ------------------------------------------------------------------------------------------------------------
+    [Category("module:render")]
+    public sealed class StdDummySpriteHitFramePlayModeTests : PlayModeTestBase
+    {
+        private const string SpriteAnimSetId = "display.anim_set.std_dummy_biped";
+
+        private bool _overridden;
+
+        [SetUp]
+        public void SetUp()
+        {
+            // 仓库的占位资产根；RootDirOverrideForTests 是 internal 静态字段，测试程序集已获可见性，用例结束必须还原。
+            UnityResourceLoader.RootDirOverrideForTests = Path.Combine(
+                Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..")), "assets", "_placeholder");
+            _overridden = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            if (_overridden)
+            {
+                UnityResourceLoader.RootDirOverrideForTests = null;
+                _overridden = false;
+            }
+        }
+
+        private static string RepoRoot => Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+
+        private static JsonObject ReadJson(string relative) => (JsonObject)JsonReader.Parse(File.ReadAllText(Path.Combine(RepoRoot, relative)));
+
+        private static AnimSetDef LoadSpriteAnimSet()
+        {
+            var doc = ReadJson("data/_framework/display/display.anim_set.json");
+            JsonObject? row = null;
+            foreach (var v in (JsonArray)doc["rows"])
+            {
+                var r = (JsonObject)v;
+                if (((JsonString)r["id"]).Value == SpriteAnimSetId)
+                {
+                    row = r;
+                }
+            }
+            Assert.IsNotNull(row, $"数据文件里应有 {SpriteAnimSetId} 行");
+            var schema = new TableSchema("display.anim_set", "id", 1, Array.Empty<FieldSchema>());
+            return AnimSetDef.FromRecord(new DataRecord(schema, SpriteAnimSetId, new Id(SpriteAnimSetId), row!));
+        }
+
+        private static IReadOnlyDictionary<string, int>? ComputeKeyframes(AnimClipDef clip, int frameCount)
+        {
+            var method = typeof(UnityViewFactory).GetMethod("ComputeKeyframes",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(method, "UnityViewFactory.ComputeKeyframes 应存在（私有静态：数据行 events -> 帧下标关键帧表）");
+            return (IReadOnlyDictionary<string, int>?)method!.Invoke(null, new object[] { clip.Events, frameCount });
+        }
+
+        private static readonly string[] SpriteAttackKeys =
+        {
+            "attack.unarmed", "attack.1h", "attack.1h.02", "attack.2h", "attack.polearm", "attack.bow", "attack.staff",
+            "attack.dual", "attack.shield",
+        };
+
+        [UnityTest]
+        public System.Collections.IEnumerator AttackClip_HitFrameKeyframeLiesInActivePhase_AndPlayerFiresItOnce(
+            [ValueSource(nameof(SpriteAttackKeys))] string key)
+        {
+            var set = LoadSpriteAnimSet();
+            Assert.IsTrue(set.Clips.TryGetValue(key, out var clipDef), $"{key} 应在 sprite 数据行里");
+            var resourceId = clipDef!.ResourceRef;
+
+            var spec = ReadJson("assets/_placeholder/std_dummy_poses.json");
+            var specClip = (JsonObject)((JsonObject)spec["clips"])[key];
+            var perPhase = (JsonArray)specClip["frames_per_phase"];
+            var windupFrames = (int)((JsonNumber)perPhase[0]).Value;
+            var activeFrames = (int)((JsonNumber)perPhase[1]).Value;
+            var frameCount = (int)((JsonNumber)specClip["frame_count"]).Value;
+
+            var loader = new UnityResourceLoader();
+            var loaded = false;
+            loader.LoadAsync(resourceId, ResourceKind.Effect, (_, ok) =>
+            {
+                Assert.IsTrue(ok, $"{resourceId} 应能从 assets/_placeholder 加载");
+                loaded = true;
+            });
+            var deadline = Time.realtimeSinceStartup + 10f;
+            while (!loaded && Time.realtimeSinceStartup < deadline)
+            {
+                loader.Tick();
+                yield return null;
+            }
+            Assert.IsTrue(loaded, $"{resourceId} 加载超时");
+            Assert.IsTrue(loader.TryGetEffect(resourceId, out var effect));
+            Assert.AreEqual(frameCount, effect.Frames.Length, $"{key} 序列帧数应等于规格帧数");
+
+            var keyframes = ComputeKeyframes(clipDef, effect.Frames.Length);
+            Assert.IsNotNull(keyframes, $"{key} 的数据行应有事件，换算出关键帧表");
+            Assert.IsTrue(keyframes!.TryGetValue(FrameAnimClip.HitFrameMarker, out var hitIndex),
+                $"{key}：数据行事件里应有 {FrameAnimClip.HitFrameMarker}，换算后进关键帧表（sprite 型命中帧同步）");
+            Assert.GreaterOrEqual(hitIndex, windupFrames, $"{key} 命中帧下标 {hitIndex} 不应早于判定相首帧（前摇 {windupFrames} 帧）");
+            Assert.Less(hitIndex, windupFrames + activeFrames, $"{key} 命中帧下标 {hitIndex} 应落在判定相内（{activeFrames} 帧）");
+
+            var go = new GameObject("StdDummySpriteHitFramePlayer");
+            try
+            {
+                var renderer = go.AddComponent<SpriteRenderer>();
+                var player = go.AddComponent<UnityFrameAnimPlayer>();
+                var clipId = new Id("anim.std_dummy_hit_frame_probe");
+                player.RegisterClipFromEffect(clipId, effect, keyframes);
+                var fired = 0;
+                Sprite? spriteAtHit = null;
+                player.OnAnimEvent(marker =>
+                {
+                    if (marker == FrameAnimClip.HitFrameMarker)
+                    {
+                        fired++;
+                        spriteAtHit = renderer.sprite;
+                    }
+                });
+                var completed = false;
+                player.OnComplete(() => completed = true);
+                player.Play(clipId, loop: false, speed: 1.0);
+
+                var until = Time.realtimeSinceStartup + 10f;
+                while (!completed && Time.realtimeSinceStartup < until)
+                {
+                    yield return null;
+                }
+                Assert.IsTrue(completed, $"{key} 非循环剪辑应自然播完");
+                Assert.AreEqual(1, fired, $"{key} 命中帧标记应恰好触发一次");
+                Assert.AreSame(effect.Frames[hitIndex].Sprite, spriteAtHit, $"{key} 命中帧事件触发时显示的应是第 {hitIndex} 帧");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(go);
             }
         }
     }

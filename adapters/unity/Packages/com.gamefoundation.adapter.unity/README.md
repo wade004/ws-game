@@ -1161,10 +1161,10 @@ AnimRoot 隐藏；
 
 ### 占位模型资产
 
-> 另有一套带 17 根骨骼的假人骨骼预制体 `models/std_dummy_biped` 与 33 份骨骼剪辑 `anim_clips/std_dummy_*`
-> （数据行 `display.anim_set.std_dummy_biped_model`），由 `GenerateStdDummyModelAssets` 按规格生成，用法与限制见
+> 另有一套带 17 根骨骼的假人骨骼预制体 `models/std_dummy_biped` 与 108 份骨骼剪辑 `anim_clips/std_dummy_*`
+> （数据行 `display.anim_set.std_dummy_biped_model` 及体量组 `_light`／`_heavy`，后者 `extends` 主集），由 `GenerateStdDummyModelAssets` 按规格生成，用法与限制见
 > `toolchain/std_dummy_model_clips/README.md`；`RaiseAnimEvent` 把带参数的事件名里的冒号换成点再解析 `Id`
-> （`cancel_open:dodge` → `anim_event.cancel_open.dodge`），非法事件名丢弃不抛异常。下面描述的是更早的胶囊体占位资产。
+> （`cancel_open:dodge` → `anim_event.cancel_open.dodge`），非法事件名丢弃不抛异常；sprite 型序列帧与 model 型都识别命中帧事件 `hit_frame`（PlayMode 用例 `StdDummyModelClipsPlayModeTests` 覆盖两版）。下面描述的是更早的胶囊体占位资产。
 
 `Assets/Editor/GeneratePlaceholderModelAssets.cs`（`Adapter.Unity.EditorTools` 命名空间，编辑器
 菜单 `GameFoundation/Generate Placeholder Model Assets`，或

@@ -390,6 +390,7 @@
         "level": 1,
         "steps": [
           "placeholder_assets",
+          "std_dummy_poses",
           "std_dummy_model_clips",
           "sample_import_idem",
           "import_assets_check",
@@ -723,6 +724,18 @@
       "triggers": [
         "assets/**",
         "toolchain/gen_placeholder_assets.py"
+      ]
+    },
+    {
+      "id": "std_dummy_poses",
+      "label": "gen_std_dummy_poses.py --check（sprite 型假人姿势集：规格/数据行/帧资源一致性）",
+      "base_tiers": [],
+      "triggers": [
+        "assets/_placeholder/std_dummy_poses.json",
+        "assets/_placeholder/sprite_anim/std_dummy_*/**",
+        "data/_framework/display/display.anim_set.json",
+        "toolchain/gen_std_dummy_poses.py",
+        "toolchain/std_dummy_poses/**"
       ]
     },
     {

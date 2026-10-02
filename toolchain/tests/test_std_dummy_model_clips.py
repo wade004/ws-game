@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -30,6 +31,11 @@ from std_dummy_model_clips.verify import REQUIRED_KEYS, RECOMMENDED_KEYS, verify
 from std_dummy_poses import config as SC  # noqa: E402
 
 REPO_ROOT = TOOLCHAIN_DIR.parent
+#: 手感落地 M3-D 之前已入库的 34 个键的模型剪辑条目（时间、轨迹、内嵌事件等）摘要：既有键逐字节不变（只追加）。
+LEGACY_CLIPS_SHA256 = "5748f15e2e32037104db8ceabeeb83caf536484983cd0af491f9c73a0127e423"
+LEGACY_CLIP_COUNT = 34
+#: 既有动画控制器 .meta 的 guid：重新生成必须沿用。
+CONTROLLER_GUID = "da377b4a4ff6d3649a389b3bdb6b5e5b"
 SPEC_REL = Path("assets") / "_placeholder" / C.SPEC_FILE
 UNITY_RES = REPO_ROOT / "adapters" / "unity" / C.UNITY_RESOURCES
 
@@ -77,7 +83,7 @@ def test_committed_tree_passes_self_check_including_engine_assets():
     rep = verify(REPO_ROOT / "assets" / "_placeholder", REPO_ROOT / "data" / "_framework", REPO_ROOT / "adapters" / "unity")
     assert rep.errors == []
     assert rep.warnings == []
-    assert rep.counts.get("引擎资产核对", 0) == 33
+    assert rep.counts.get("引擎资产核对", 0) == 108   # 主集 94 份 + 轻/重体量组各 7 份
     assert rep.counts.get("预制体路径核对", 0) == 1
 
 
@@ -129,11 +135,14 @@ def test_required_and_recommended_keys_present_and_key_set_is_sprite_key_set():
 
 def test_weapon_family_variants_exist_for_locomotion_and_attack():
     keys = {c["key"] for c in _repo_spec()["clips"]}
-    for fam in ("1h", "2h"):
-        for base in ("idle", "idle.combat", "move.walk", "move.run", "move.run.combat"):
+    for fam in ("1h", "2h", "polearm", "bow", "staff", "dual", "shield"):
+        for base in ("idle", "idle.combat", "move.walk", "move.run", "move.run.combat", "move.walk.combat", "move.sprint"):
             assert f"{base}.{fam}" in keys
-    for fam in ("unarmed", "1h", "2h"):
+    for fam in ("unarmed", "1h", "2h", "polearm", "bow", "staff", "dual", "shield"):
         assert f"attack.{fam}" in keys
+    for k in ("move.sprint", "move.start", "move.stop", "move.pivot", "hit.launch", "stunned", "block",
+              "idle.wounded", "idle.combat.wounded", "move.walk.wounded", "move.run.wounded"):
+        assert k in keys
     for k in ("hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup"):
         assert k in keys
 
@@ -173,6 +182,8 @@ def test_hit_marker_has_engine_alias_at_same_time_in_baked_events():
             assert e["time_pct"] in baked[e["name"]]
             if e["name"] == "hit":
                 assert baked["hit_frame"] == baked["hit"], c["key"]
+                # 数据行事件自带 hit_frame（sprite 版同源）时不重复烘：每个攻击剪辑恰一条
+                assert len(baked["hit_frame"]) == 1, c["key"]
         assert ("hit_frame" in baked) == ("hit" in baked)
 
 
@@ -225,7 +236,7 @@ def test_hinge_joints_never_hyperextend_and_all_bone_angles_within_limits():
             name = next(n for n, _p, _r in C.BONES if C.bone_path(n) == t["path"])
             limit = C.BONE_ROT_LIMITS_DEG[name]
             for i in range(0, len(t["rot"]), 4):
-                assert rig.quat_angle_deg(tuple(t["rot"][i:i + 4])) <= limit + 1e-6, (c["key"], name)
+                assert rig.quat_angle_deg(tuple(t["rot"][i:i + 4])) <= limit + 1e-3, (c["key"], name)  # 四元数保留 6 位小数的舍入余量
     defs = [d for d in SC.build_clip_defs() if not d.alias_of]
     for d in defs:
         for t in key_times_ms(d, SC.FPS):
@@ -464,3 +475,146 @@ def test_check_flags_missing_clip_asset_and_controller_state(tree, unity_copy):
     (clips / "std_dummy_death.anim").unlink()
     errs = _engine_errors(tree, unity_copy)
     assert _has(errs, "death 缺剪辑资产 std_dummy_death.anim")
+
+
+# --------------------------------------------------------------------------
+# 手感落地 M3-D：既有键只追加、可选键/五个新族的骨骼剪辑、体量组（extends）、确定性控制器
+# --------------------------------------------------------------------------
+
+def test_legacy_clips_unchanged_and_appended_only():
+    """不变量：既有 34 个键的模型剪辑（时间、轨迹、内嵌事件）逐字节不变，新键只追加在其后；骨骼不变。"""
+    spec = _repo_spec()
+    clips = spec["clips"]
+    assert len(clips) > LEGACY_CLIP_COUNT
+    fields = ("resource_ref", "state", "alias_of", "times_ms", "tracks", "anim_events", "total_ms", "frame_count", "loop",
+              "phases", "tier", "family")
+    rows = [[c["key"], {k: c[k] for k in fields if k in c}] for c in clips[:LEGACY_CLIP_COUNT]]
+    blob = json.dumps(rows, sort_keys=True, ensure_ascii=False)
+    assert hashlib.sha256(blob.encode()).hexdigest() == LEGACY_CLIPS_SHA256
+
+
+def test_new_keys_have_tracks_for_every_rotation_bone_and_hips_position():
+    spec = _repo_spec()
+    for c in spec["clips"]:
+        if "alias_of" in c:
+            continue
+        paths_rot = {t["path"] for t in c["tracks"] if "rot" in t}
+        assert paths_rot == {C.bone_path(b) for b in C.ROT_BONES}, c["key"]
+        assert [t["path"] for t in c["tracks"] if "pos" in t] == [C.bone_path("hips")], c["key"]
+
+
+def test_sprint_start_stop_launch_stunned_block_and_wounded_motion_is_recognizable():
+    spec = _repo_spec()
+
+    def series(key, bone):
+        t = next(t for t in _clip(spec, key)["tracks"] if t["path"] == C.bone_path(bone))
+        return [tuple(t["rot"][i:i + 4]) for i in range(0, len(t["rot"]), 4)]
+
+    def swing(key, bone="thigh_r"):
+        q = series(key, bone)
+        return max(math.degrees(2 * math.acos(min(1.0, abs(rig.quat_dot(q[0], x))))) for x in q)
+
+    # 冲刺的迈步幅度大于跑；带伤的小于基础
+    assert swing("move.sprint") > swing("move.run") > swing("move.walk")
+    assert swing("move.walk.wounded") < swing("move.walk") or swing("move.run.wounded") < swing("move.run")
+    # 启动：起点接近待机、终点接近跑起点（躯干前倾增大）；急停相反
+    assert rig.quat_dot(series("move.start", "spine")[0], series("idle", "spine")[0]) > 0.999
+    assert rig.quat_dot(series("move.stop", "spine")[-1], series("idle", "spine")[0]) > 0.999
+    # 击飞：髋位置抬离地面（空中），随后落地；眩晕与格挡是循环
+    pos = next(t for t in _clip(spec, "hit.launch")["tracks"] if "pos" in t)["pos"]
+    ys = pos[1::3]
+    assert max(ys) > min(ys) + 0.2
+    assert _clip(spec, "stunned")["loop"] and _clip(spec, "block")["loop"]
+
+
+def test_mass_groups_light_and_heavy_extend_main_set_and_only_change_posture():
+    spec = _repo_spec()
+    groups = {g["mass"]: g for g in spec["mass_groups"]}
+    assert list(groups) == ["light", "heavy"]
+    main = {c["key"]: c for c in spec["clips"]}
+    for mass, g in groups.items():
+        assert g["id"] == f"{C.ANIM_SET_ID}_{mass}" and g["extends"] == C.ANIM_SET_ID
+        assert {e["key"] for e in g["clips"]} == set(C.MASS_KEYS)
+        for e in g["clips"]:
+            m = main[e["key"]]
+            # 步幅轴不出资产：时长、帧数、事件、每步位移与中体量一致；只有站姿（轨迹）不同
+            for f in ("total_ms", "frame_count", "loop", "phases", "events", "frames_per_phase"):
+                assert e[f] == m[f], (mass, e["key"], f)
+            assert e["resource_ref"] != m["resource_ref"]
+            if "alias_of" in e:
+                assert e["alias_of"] == m["alias_of"] == "move.sprint"
+                assert e["resource_ref"] == next(x for x in g["clips"] if x["key"] == "move.sprint")["resource_ref"]
+            else:
+                assert e["state"] == f"std_dummy_{mass}_{e['key'].replace('.', '_')}"
+                assert e["tracks"] != m["tracks"]
+    # 躯干前倾：重 > 中 > 轻（绕 +X 正向旋转 = 四元数 x 分量）
+    def spine_x(c):
+        return next(t for t in c["tracks"] if t["path"].endswith("/spine"))["rot"][0]
+    for key in ("idle", "move.walk", "move.run"):
+        light = next(e for e in groups["light"]["clips"] if e["key"] == key)
+        heavy = next(e for e in groups["heavy"]["clips"] if e["key"] == key)
+        assert spine_x(heavy) > spine_x(main[key]) > spine_x(light), key
+
+
+def test_mass_group_rows_in_shared_data_file_are_small_extends_rows():
+    doc = json.loads((REPO_ROOT / "data" / "_framework" / "display" / "display.anim_set.json").read_text(encoding="utf-8"))
+    rows = {r["id"]: r for r in doc["rows"]}
+    main = rows[C.ANIM_SET_ID]
+    assert "extends" not in main
+    for mass in ("light", "heavy"):
+        row = rows[f"{C.ANIM_SET_ID}_{mass}"]
+        assert row["extends"] == C.ANIM_SET_ID
+        assert set(row["clips"]) == set(C.MASS_KEYS) and len(row["clips"]) < len(main["clips"]) / 5
+        for k, v in row["clips"].items():
+            assert v["resource_ref"].startswith(f"anim.std_dummy_{mass}_") or v["resource_ref"] == row["clips"]["move.sprint"]["resource_ref"]
+
+
+def test_check_flags_mass_group_defects(tree):
+    assets, data = tree
+
+    def bad(s):
+        g = next(x for x in s["mass_groups"] if x["mass"] == "heavy")
+        e = next(x for x in g["clips"] if x["key"] == "move.walk")
+        e["total_ms"] += 100                       # 体量组不得改时长
+        light = next(x for x in s["mass_groups"] if x["mass"] == "light")
+        light["extends"] = "display.anim_set.nope"  # 必须继承主集
+
+    _mutate_spec(assets, bad)
+    errs = _errors(*tree)
+    assert _has(errs, "体量组 heavy/move.walk 的 total_ms 与主集不一致") or _has(errs, "heavy/move.walk 的 total_ms")
+    assert _has(errs, "体量组 light 的 id/extends 不符合约定")
+
+
+def test_check_flags_mass_group_row_missing_extends_in_data(tree):
+    assets, data = tree
+    path = data / "display" / "display.anim_set.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    row = next(r for r in doc["rows"] if r["id"] == f"{C.ANIM_SET_ID}_heavy")
+    del row["extends"]
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    assert _has(_errors(*tree), "体量组行")
+
+
+def test_controller_is_deterministic_state_ids_and_guid_is_stable(unity_copy):
+    """复现 + 不变量：控制器状态 fileID 取状态名的确定性公式（Unity 自己分配的是随机数，两次生成会抖动），.meta guid 沿用既有值。"""
+    ctrl = unity_copy / C.UNITY_RESOURCES / C.CONTROLLER_REL
+    text = ctrl.read_text(encoding="utf-8")
+    ids = dict((name.strip(), int(fid)) for fid, name in re.findall(
+        r"^--- !u!1102 &(-?\d+)[^\n]*\n(?:(?!^---).*\n)*?\s+m_Name:\s*(.*)$", text, flags=re.M))
+    assert len(ids) == 108
+    for name, fid in ids.items():
+        assert fid == C.controller_state_file_id(name), name
+    assert len(set(ids.values())) == len(ids)
+    assert C.controller_relay_file_id("std_dummy_idle") != C.controller_state_file_id("std_dummy_idle")
+    meta = Path(str(ctrl) + ".meta").read_text(encoding="utf-8")
+    assert f"guid: {CONTROLLER_GUID}" in meta
+
+
+def test_check_flags_non_deterministic_controller_state_id(tree, unity_copy):
+    ctrl = unity_copy / C.UNITY_RESOURCES / C.CONTROLLER_REL
+    text = ctrl.read_text(encoding="utf-8")
+    fid = C.controller_state_file_id("std_dummy_idle")
+    assert f"&{fid}\n" in text
+    ctrl.write_text(text.replace(f"&{fid}\n", "&1234567890123\n").replace(f"fileID: {fid}}}", "fileID: 1234567890123}"),
+                    encoding="utf-8", newline="\n")
+    assert _has(_engine_errors(tree, unity_copy), "std_dummy_idle 的 fileID 不是确定性公式的值")

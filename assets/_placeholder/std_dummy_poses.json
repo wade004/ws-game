@@ -24,6 +24,7 @@
     "reference_base_speed_body_heights_per_s": 2.0,
     "walk_speed_ratio": 0.45,
     "run_speed_ratio": 1.0,
+    "sprint_speed_ratio": 1.5,
     "frame_count_rule": "每相 max(1, floor(ms*fps/1000+0.5))；相内帧时长均分（相边界与三相毫秒数精确对齐）"
   },
   "directions": {
@@ -561,6 +562,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.4
         }
       ]
     },
@@ -626,6 +631,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.4
         }
       ]
     },
@@ -683,6 +692,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3855
         }
       ]
     },
@@ -749,6 +762,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3947
         }
       ]
     },
@@ -815,6 +832,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3947
         }
       ]
     },
@@ -873,6 +894,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3789
         }
       ]
     },
@@ -939,6 +964,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.75
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3929
         }
       ]
     },
@@ -997,6 +1026,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.75
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3929
         }
       ]
     },
@@ -1062,6 +1095,10 @@
         {
           "name": "cancel_open:dodge",
           "time_pct": 0.65
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.4
         }
       ],
       "alias_of": "attack.unarmed"
@@ -1402,6 +1439,2483 @@
           "time_pct": 0.75
         }
       ]
+    },
+    "move.walk.combat": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.start": {
+      "resource_ref": "sprite_anim.std_dummy_move_start",
+      "tier": "optional",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "lean",
+          "ms": 100
+        },
+        {
+          "name": "step",
+          "ms": 200
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        4
+      ],
+      "frame_count": 6,
+      "total_ms": 300,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.65
+        }
+      ],
+      "transition": "start"
+    },
+    "move.stop": {
+      "resource_ref": "sprite_anim.std_dummy_move_stop",
+      "tier": "optional",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "brake",
+          "ms": 150
+        },
+        {
+          "name": "settle",
+          "ms": 150
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 300,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "transition": "stop"
+    },
+    "move.pivot": {
+      "resource_ref": "sprite_anim.std_dummy_move_pivot",
+      "tier": "optional",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "skid",
+          "ms": 150
+        },
+        {
+          "name": "turn",
+          "ms": 150
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 300,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "transition": "pivot"
+    },
+    "hit.launch": {
+      "resource_ref": "sprite_anim.std_dummy_hit_launch",
+      "tier": "optional",
+      "family": null,
+      "loop": false,
+      "phases": [
+        {
+          "name": "impact",
+          "ms": 100
+        },
+        {
+          "name": "air",
+          "ms": 450
+        },
+        {
+          "name": "land",
+          "ms": 250
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        9,
+        5
+      ],
+      "frame_count": 16,
+      "total_ms": 800,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": [
+        {
+          "name": "impact",
+          "time_pct": 0.0
+        }
+      ]
+    },
+    "stunned": {
+      "resource_ref": "sprite_anim.std_dummy_stunned",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": []
+    },
+    "block": {
+      "resource_ref": "sprite_anim.std_dummy_block",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 800
+        }
+      ],
+      "frames_per_phase": [
+        16
+      ],
+      "frame_count": 16,
+      "total_ms": 800,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": []
+    },
+    "idle.wounded": {
+      "resource_ref": "sprite_anim.std_dummy_idle_wounded",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1400
+        }
+      ],
+      "frames_per_phase": [
+        28
+      ],
+      "frame_count": 28,
+      "total_ms": 1400,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [],
+      "variant": "wounded"
+    },
+    "idle.combat.wounded": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_wounded",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [],
+      "variant": "wounded"
+    },
+    "move.walk.wounded": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_wounded",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.315,
+      "cycle_displacement_bh": 0.63,
+      "variant": "wounded",
+      "stride_factor": 0.7
+    },
+    "move.run.wounded": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_wounded",
+      "tier": "optional",
+      "family": null,
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body"
+      ],
+      "weapon_layer_family": null,
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.42,
+      "cycle_displacement_bh": 0.84,
+      "variant": "wounded",
+      "stride_factor": 0.7
+    },
+    "move.walk.combat.1h": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_1h",
+      "tier": "optional",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.1h": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_1h",
+      "tier": "optional",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.1h": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_1h",
+      "tier": "optional",
+      "family": "1h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "1h",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.1h",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.walk.combat.2h": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_2h",
+      "tier": "optional",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "2h",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.2h": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_2h",
+      "tier": "optional",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "2h",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.2h": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_2h",
+      "tier": "optional",
+      "family": "2h",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "2h",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.2h",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "idle.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_idle_polearm",
+      "tier": "recommended",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": []
+    },
+    "idle.combat.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_polearm",
+      "tier": "recommended",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": []
+    },
+    "move.walk.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_polearm",
+      "tier": "recommended",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_polearm",
+      "tier": "recommended",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_polearm",
+      "tier": "recommended",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.walk.combat.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_polearm",
+      "tier": "optional",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_polearm",
+      "tier": "optional",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_polearm",
+      "tier": "optional",
+      "family": "polearm",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.polearm",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "attack.polearm": {
+      "resource_ref": "sprite_anim.std_dummy_attack_polearm",
+      "tier": "required",
+      "family": "polearm",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 130
+        },
+        {
+          "name": "active",
+          "ms": 90
+        },
+        {
+          "name": "recovery",
+          "ms": 250
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        5
+      ],
+      "frame_count": 10,
+      "total_ms": 470,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2766
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3723
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4681
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2766
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4681
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.4681
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.8936
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.7
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3723
+        }
+      ]
+    },
+    "attack.polearm.02": {
+      "resource_ref": "sprite_anim.std_dummy_attack_polearm_02",
+      "tier": "recommended",
+      "family": "polearm",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 130
+        },
+        {
+          "name": "active",
+          "ms": 90
+        },
+        {
+          "name": "recovery",
+          "ms": 250
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        5
+      ],
+      "frame_count": 10,
+      "total_ms": 470,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "polearm",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2766
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3723
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4681
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2766
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4681
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.7
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3723
+        }
+      ]
+    },
+    "idle.bow": {
+      "resource_ref": "sprite_anim.std_dummy_idle_bow",
+      "tier": "recommended",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": []
+    },
+    "idle.combat.bow": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_bow",
+      "tier": "recommended",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": []
+    },
+    "move.walk.bow": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_bow",
+      "tier": "recommended",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.bow": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_bow",
+      "tier": "recommended",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.bow": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_bow",
+      "tier": "recommended",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.walk.combat.bow": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_bow",
+      "tier": "optional",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.bow": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_bow",
+      "tier": "optional",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.bow": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_bow",
+      "tier": "optional",
+      "family": "bow",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.bow",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "attack.bow": {
+      "resource_ref": "sprite_anim.std_dummy_attack_bow",
+      "tier": "required",
+      "family": "bow",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 300
+        },
+        {
+          "name": "active",
+          "ms": 60
+        },
+        {
+          "name": "recovery",
+          "ms": 180
+        }
+      ],
+      "frames_per_phase": [
+        6,
+        1,
+        4
+      ],
+      "frame_count": 11,
+      "total_ms": 540,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "bow",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.5556
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.6111
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.6667
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.5556
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.6667
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.6
+        },
+        {
+          "name": "release",
+          "time_pct": 0.6111
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.6111
+        }
+      ]
+    },
+    "idle.staff": {
+      "resource_ref": "sprite_anim.std_dummy_idle_staff",
+      "tier": "recommended",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": []
+    },
+    "idle.combat.staff": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_staff",
+      "tier": "recommended",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": []
+    },
+    "move.walk.staff": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_staff",
+      "tier": "recommended",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.staff": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_staff",
+      "tier": "recommended",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.staff": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_staff",
+      "tier": "recommended",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.walk.combat.staff": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_staff",
+      "tier": "optional",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.staff": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_staff",
+      "tier": "optional",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.staff": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_staff",
+      "tier": "optional",
+      "family": "staff",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.staff",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "attack.staff": {
+      "resource_ref": "sprite_anim.std_dummy_attack_staff",
+      "tier": "required",
+      "family": "staff",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 150
+        },
+        {
+          "name": "active",
+          "ms": 90
+        },
+        {
+          "name": "recovery",
+          "ms": 260
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        5
+      ],
+      "frame_count": 10,
+      "total_ms": 500,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.3
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.39
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.48
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.3
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.48
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.48
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.896
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.7
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.39
+        }
+      ]
+    },
+    "attack.staff.02": {
+      "resource_ref": "sprite_anim.std_dummy_attack_staff_02",
+      "tier": "recommended",
+      "family": "staff",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 150
+        },
+        {
+          "name": "active",
+          "ms": 90
+        },
+        {
+          "name": "recovery",
+          "ms": 260
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        5
+      ],
+      "frame_count": 10,
+      "total_ms": 500,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "staff",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.3
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.39
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.48
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.3
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.48
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.7
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.39
+        }
+      ]
+    },
+    "idle.dual": {
+      "resource_ref": "sprite_anim.std_dummy_idle_dual",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": []
+    },
+    "idle.combat.dual": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_dual",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": []
+    },
+    "move.walk.dual": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_dual",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.dual": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_dual",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.dual": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_dual",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.walk.combat.dual": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_dual",
+      "tier": "optional",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.dual": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_dual",
+      "tier": "optional",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.dual": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_dual",
+      "tier": "optional",
+      "family": "dual",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.dual",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "attack.dual": {
+      "resource_ref": "sprite_anim.std_dummy_attack_dual",
+      "tier": "required",
+      "family": "dual",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 80
+        },
+        {
+          "name": "active",
+          "ms": 60
+        },
+        {
+          "name": "recovery",
+          "ms": 140
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        1,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 280,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2857
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3929
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2857
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.6
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3929
+        }
+      ]
+    },
+    "attack.dual.02": {
+      "resource_ref": "sprite_anim.std_dummy_attack_dual_02",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 80
+        },
+        {
+          "name": "active",
+          "ms": 60
+        },
+        {
+          "name": "recovery",
+          "ms": 140
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        1,
+        3
+      ],
+      "frame_count": 6,
+      "total_ms": 280,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2857
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3929
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2857
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_open",
+          "time_pct": 0.5
+        },
+        {
+          "name": "combo_close",
+          "time_pct": 0.9
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.6
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3929
+        }
+      ]
+    },
+    "attack.dual.03": {
+      "resource_ref": "sprite_anim.std_dummy_attack_dual_03",
+      "tier": "recommended",
+      "family": "dual",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 95
+        },
+        {
+          "name": "active",
+          "ms": 75
+        },
+        {
+          "name": "recovery",
+          "ms": 180
+        }
+      ],
+      "frames_per_phase": [
+        2,
+        2,
+        4
+      ],
+      "frame_count": 8,
+      "total_ms": 350,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "dual",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.2714
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3786
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4857
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.2714
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4857
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.6
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3786
+        }
+      ]
+    },
+    "idle.shield": {
+      "resource_ref": "sprite_anim.std_dummy_idle_shield",
+      "tier": "recommended",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1200
+        }
+      ],
+      "frames_per_phase": [
+        24
+      ],
+      "frame_count": 24,
+      "total_ms": 1200,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": []
+    },
+    "idle.combat.shield": {
+      "resource_ref": "sprite_anim.std_dummy_idle_combat_shield",
+      "tier": "recommended",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": []
+    },
+    "move.walk.shield": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_shield",
+      "tier": "recommended",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.run.shield": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_shield",
+      "tier": "recommended",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.run.combat.shield": {
+      "resource_ref": "sprite_anim.std_dummy_move_run_combat_shield",
+      "tier": "recommended",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 600
+        }
+      ],
+      "frames_per_phase": [
+        12
+      ],
+      "frame_count": 12,
+      "total_ms": 600,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.6,
+      "cycle_displacement_bh": 1.2
+    },
+    "move.walk.combat.shield": {
+      "resource_ref": "sprite_anim.std_dummy_move_walk_combat_shield",
+      "tier": "optional",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 1000
+        }
+      ],
+      "frames_per_phase": [
+        20
+      ],
+      "frame_count": 20,
+      "total_ms": 1000,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.45,
+      "cycle_displacement_bh": 0.9
+    },
+    "move.sprint.shield": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_shield",
+      "tier": "optional",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "move.sprint.combat.shield": {
+      "resource_ref": "sprite_anim.std_dummy_move_sprint_shield",
+      "tier": "optional",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 450
+        }
+      ],
+      "frames_per_phase": [
+        9
+      ],
+      "frame_count": 9,
+      "total_ms": 450,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "footstep",
+          "time_pct": 0.0
+        },
+        {
+          "name": "footstep",
+          "time_pct": 0.5
+        }
+      ],
+      "alias_of": "move.sprint.shield",
+      "step_displacement_bh": 0.675,
+      "cycle_displacement_bh": 1.35
+    },
+    "attack.shield": {
+      "resource_ref": "sprite_anim.std_dummy_attack_shield",
+      "tier": "required",
+      "family": "shield",
+      "loop": false,
+      "phases": [
+        {
+          "name": "windup",
+          "ms": 140
+        },
+        {
+          "name": "active",
+          "ms": 80
+        },
+        {
+          "name": "recovery",
+          "ms": 240
+        }
+      ],
+      "frames_per_phase": [
+        3,
+        2,
+        5
+      ],
+      "frame_count": 10,
+      "total_ms": 460,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": [
+        {
+          "name": "active_start",
+          "time_pct": 0.3043
+        },
+        {
+          "name": "hit",
+          "time_pct": 0.3913
+        },
+        {
+          "name": "active_end",
+          "time_pct": 0.4783
+        },
+        {
+          "name": "trail_start",
+          "time_pct": 0.3043
+        },
+        {
+          "name": "trail_end",
+          "time_pct": 0.4783
+        },
+        {
+          "name": "cancel_open:dodge",
+          "time_pct": 0.75
+        },
+        {
+          "name": "hit_frame",
+          "time_pct": 0.3913
+        }
+      ]
+    },
+    "block.shield": {
+      "resource_ref": "sprite_anim.std_dummy_block_shield",
+      "tier": "optional",
+      "family": "shield",
+      "loop": true,
+      "phases": [
+        {
+          "name": "loop",
+          "ms": 800
+        }
+      ],
+      "frames_per_phase": [
+        16
+      ],
+      "frame_count": 16,
+      "total_ms": 800,
+      "layers": [
+        "body",
+        "hand_main"
+      ],
+      "weapon_layer_family": "shield",
+      "events": []
     }
   }
 }

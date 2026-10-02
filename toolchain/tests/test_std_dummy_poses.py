@@ -27,6 +27,20 @@ from std_dummy_poses.verify import REQUIRED_KEYS, parse_key, verify  # noqa: E40
 
 REPO_ROOT = TOOLCHAIN_DIR.parent
 
+#: 04 §2 武器族清单里持械的全部族（独立于 config 的字面清单）。
+WEAPON_FAMILIES = ("1h", "2h", "polearm", "bow", "staff", "dual", "shield")
+NEW_FAMILIES = ("polearm", "bow", "staff", "dual", "shield")
+#: 手感落地 M3-D 之前已入库的 34 个键（顺序即规格里的顺序）：本次只追加，既有键的规格条目不变。
+LEGACY_KEYS = [
+    "idle", "idle.combat", "move.walk", "move.run", "move.run.combat", "idle.1h", "idle.combat.1h", "move.walk.1h",
+    "move.run.1h", "move.run.combat.1h", "idle.2h", "idle.combat.2h", "move.walk.2h", "move.run.2h",
+    "move.run.combat.2h", "attack.unarmed", "attack.unarmed.02", "attack.unarmed.03", "attack.1h", "attack.1h.02",
+    "attack.1h.03", "attack.2h", "attack.2h.02", "attack", "hit", "hit.light", "hit.heavy", "hit.knockback",
+    "hit.knockdown", "hit.getup", "death", "jump", "cast", "dodge",
+]
+#: 既有 34 个键的规格条目（不含新增的 hit_frame 事件）的摘要，取自追加前的入库版本。
+LEGACY_ENTRIES_SHA256 = "e044cc9b56dbb855a9112f47b1d764bedfb4a4f1179ffd2588a6b2b69a9561e2"
+
 
 @pytest.fixture(scope="module")
 def gen4(tmp_path_factory):
@@ -69,12 +83,12 @@ def test_required_and_recommended_keys_times_all_directions(gen4):
             for layer in e["layers"]:
                 assert (clip_dir(assets, e["resource_ref"], slot, layer) / "frames.json").is_file(), (key, slot, layer)
             assert (clip_dir(assets, e["resource_ref"], slot) / "atlas.png").is_file()
-    # 武器层出现在 1h/2h 族剪辑与无族的状态剪辑（hit.*/death/jump/cast/dodge），徒手 idle/move/attack 没有
+    # 武器层出现在持械族剪辑与无族的状态剪辑（hit.*/death/jump/cast/dodge/stunned/block），徒手 idle/move/attack 没有
     state_keys = ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
-                  "death", "jump", "cast", "dodge")
+                  "death", "jump", "cast", "dodge", "hit.launch", "stunned", "block")
     for key, e in clips.items():
         has = "hand_main" in e["layers"]
-        assert has == (e["family"] in ("1h", "2h") or key in state_keys), key
+        assert has == (e["family"] in WEAPON_FAMILIES or key in state_keys), key
         assert has == (e["weapon_layer_family"] is not None), key
 
 
@@ -82,7 +96,7 @@ def test_all_keys_follow_pose_key_syntax():
     for c in C.build_clip_defs():
         info = parse_key(c.key)
         assert info is not None, c.key
-        assert info["state"] in {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge"}
+        assert info["state"] in {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge", "stunned", "block"}
 
 
 def test_phases_match_feel_05_section9_starting_points(gen4):
@@ -213,7 +227,7 @@ def test_check_flags_frame_count_mismatch(gen4, tmp_path):
 # --- 武器层逐层剪辑（遗留：hit/death/jump/cast/dodge 的武器层原是静态图）---
 
 STATE_KEYS = ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
-              "death", "jump", "cast", "dodge")
+              "death", "jump", "cast", "dodge", "hit.launch", "stunned", "block")
 
 
 def _frame_bytes(clip_dir_path):
@@ -268,3 +282,116 @@ def test_check_flags_static_weapon_layer_and_missing_weapon_layer(gen4, tmp_path
     b, d2 = _copy(gen4, tmp_path / "b")
     _rewrite_spec(b, lambda s: s["clips"]["cast"].update(layers=["body"], weapon_layer_family=None))
     assert any("cast" in e and "缺武器层" in e for e in _errors(b, d2))
+
+
+# --- 手感落地 M3-D：可选键、五个新武器族、变体、hit_frame、既有键只追加 ---
+
+def test_legacy_keys_are_append_only_and_entries_unchanged(gen4):
+    """不变量：既有 34 个键仍在最前且顺序不变，条目（除新增的 hit_frame 事件外）逐字段不变。"""
+    clips = gen4[2]["clips"]
+    keys = list(clips)
+    assert keys[:len(LEGACY_KEYS)] == LEGACY_KEYS
+    assert len(keys) > len(LEGACY_KEYS)
+    fields = ("resource_ref", "tier", "family", "loop", "phases", "frames_per_phase", "frame_count", "total_ms", "events",
+              "layers", "weapon_layer_family", "alias_of", "step_displacement_bh", "cycle_displacement_bh")
+    rows = []
+    for k in LEGACY_KEYS:
+        e = {f: clips[k][f] for f in fields if f in clips[k]}
+        e["events"] = [x for x in e["events"] if x["name"] != "hit_frame"]
+        rows.append([k, e])
+    blob = json.dumps(rows, sort_keys=True, ensure_ascii=False)
+    assert hashlib.sha256(blob.encode()).hexdigest() == LEGACY_ENTRIES_SHA256
+
+
+def test_optional_keys_present_with_declared_semantics(gen4):
+    clips = gen4[2]["clips"]
+    for k in ("move.sprint", "move.walk.combat", "move.start", "move.stop", "move.pivot", "hit.launch", "stunned", "block",
+              "idle.wounded", "idle.combat.wounded", "move.walk.wounded", "move.run.wounded"):
+        assert k in clips, k
+    # 启停过渡：非循环、各一次脚触地；带伤变体是循环剪辑，周期不短于基础键（蹒跚更慢）
+    for k in ("move.start", "move.stop", "move.pivot"):
+        assert clips[k]["loop"] is False and clips[k]["transition"] == k.split(".")[1]
+        assert [x["name"] for x in clips[k]["events"]] == ["footstep"]
+    assert clips["stunned"]["loop"] is True and clips["block"]["loop"] is True
+    assert clips["hit.launch"]["loop"] is False
+    assert [x["name"] for x in clips["hit.launch"]["events"]] == ["impact"]
+    for k, base in (("idle.wounded", "idle"), ("idle.combat.wounded", "idle.combat"),
+                    ("move.walk.wounded", "move.walk"), ("move.run.wounded", "move.run")):
+        assert clips[k]["variant"] == "wounded"
+        assert clips[k]["loop"] is True and clips[k]["total_ms"] >= clips[base]["total_ms"]
+
+
+def test_sprint_is_faster_than_run_and_combat_sprint_aliases_peace_sprint(gen4):
+    clips = gen4[2]["clips"]
+    spr, run = clips["move.sprint"], clips["move.run"]
+    # 每步位移 = 参考基础移速 × 冲刺倍率 × 周期 / 2（与走/跑同一公式）；冲刺周期更短、每步位移更大
+    want = C.REFERENCE_BASE_SPEED_BH_PER_S * C.SPRINT_SPEED_RATIO * spr["total_ms"] / 1000.0 / 2.0
+    assert spr["step_displacement_bh"] == pytest.approx(want, abs=1e-3)
+    assert spr["total_ms"] < run["total_ms"] and spr["step_displacement_bh"] > run["step_displacement_bh"]
+    assert [x["time_pct"] for x in spr["events"] if x["name"] == "footstep"] == [0.0, 0.5]
+    # 回落链：冲刺请求先走完带 sprint 的候选才会改用 run，所以每个战斗姿态/武器族的 sprint 键都必须存在（别名复用和平姿态剪辑）
+    assert clips["move.sprint.combat"]["alias_of"] == "move.sprint"
+    for fam in WEAPON_FAMILIES:
+        assert clips[f"move.sprint.combat.{fam}"]["alias_of"] == f"move.sprint.{fam}"
+        assert clips[f"move.sprint.{fam}"]["family"] == fam and "alias_of" not in clips[f"move.sprint.{fam}"]
+
+
+def test_wounded_stride_is_shorter_than_base(gen4):
+    clips = gen4[2]["clips"]
+    for g in ("walk", "run"):
+        w, b = clips[f"move.{g}.wounded"], clips[f"move.{g}"]
+        assert w["stride_factor"] < 1.0
+        assert w["step_displacement_bh"] == pytest.approx(b["step_displacement_bh"] * w["stride_factor"], abs=1e-3)
+
+
+def test_five_new_weapon_families_follow_1h_2h_convention(gen4):
+    clips = gen4[2]["clips"]
+    for fam in NEW_FAMILIES:
+        for base in ("idle", "idle.combat", "move.walk", "move.run", "move.run.combat", "move.walk.combat", "move.sprint"):
+            e = clips[f"{base}.{fam}"]
+            assert e["family"] == fam and "hand_main" in e["layers"], (fam, base)
+        atk = clips[f"attack.{fam}"]
+        assert atk["family"] == fam and tuple(p["ms"] for p in atk["phases"]) == C.PHASES_SEG1[fam]
+        names = [x["name"] for x in atk["events"]]
+        for need in ("active_start", "hit", "active_end", "hit_frame", "cancel_open:dodge"):
+            assert need in names, (fam, need)
+    # 弓：放箭点 release 与 hit 同刻
+    bow = clips["attack.bow"]["events"]
+    assert [x["time_pct"] for x in bow if x["name"] == "release"] == [x["time_pct"] for x in bow if x["name"] == "hit"]
+    # 连招：长柄/法杖/双持有多段，弓/盾单段
+    assert "attack.polearm.02" in clips and "attack.staff.02" in clips and "attack.dual.03" in clips
+    assert "attack.bow.02" not in clips and "attack.shield.02" not in clips
+
+
+def test_hit_frame_event_same_time_as_hit_on_every_attack_clip_and_data_row(gen4):
+    """不变量：每个攻击剪辑恰有一条 hit_frame，与 hit 同刻；数据行里同样带它（引擎按数据行事件名换算命中帧关键帧）。"""
+    _assets, data, spec = gen4
+    doc = json.loads((data / "display" / "display.anim_set.json").read_text(encoding="utf-8"))
+    row = next(r for r in doc["rows"] if r["id"] == "display.anim_set.std_dummy_biped")
+    n = 0
+    for key, e in spec["clips"].items():
+        info = parse_key(key)
+        if e.get("alias_of") or info["state"] != "attack":
+            continue
+        hits = [x["time_pct"] for x in e["events"] if x["name"] == "hit"]
+        hf = [x["time_pct"] for x in e["events"] if x["name"] == "hit_frame"]
+        assert len(hits) == 1 and hf == hits, key
+        assert [x for x in row["clips"][key]["events"] if x["name"] == "hit_frame"] == [{"name": "hit_frame", "time_pct": hits[0]}]
+        n += 1
+    assert n == 17  # 徒手3 + 1h 3 + 2h 2 + 长柄2 + 弓1 + 法杖2 + 双持3 + 盾1
+
+
+def test_check_flags_missing_hit_frame_and_missing_family_key(gen4, tmp_path):
+    a, d = _copy(gen4, tmp_path)
+    _rewrite_spec(a, lambda s: s["clips"]["attack.bow"].update(
+        events=[e for e in s["clips"]["attack.bow"]["events"] if e["name"] != "hit_frame"]))
+    assert any("attack.bow" in e and "hit_frame" in e for e in _errors(a, d))
+    b, d2 = _copy(gen4, tmp_path / "b")
+    _rewrite_spec(b, lambda s: s["clips"].pop("move.sprint.polearm"))
+    assert any("武器族 polearm 缺键：move.sprint.polearm" in e for e in _errors(b, d2))
+
+
+def test_check_flags_missing_optional_key(gen4, tmp_path):
+    a, d = _copy(gen4, tmp_path)
+    _rewrite_spec(a, lambda s: s["clips"].pop("hit.launch"))
+    assert any("可选键缺失" in e and "hit.launch" in e for e in _errors(a, d))

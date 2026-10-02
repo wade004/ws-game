@@ -130,7 +130,7 @@ HINGE_CLAMP = {"m_el": (0.0, 150.0), "o_el": (0.0, 150.0), "m_kn": (0.0, 150.0),
 #: 防止姿势函数被改出越界动作。肘/膝是解剖硬限；其余按"假人全部姿势的包络再留余量"拍——肩/髋的后伸下限比人体范围宽，
 #: 因为受击后飞 / 倒地姿势用"腿绕髋整体后摆"表达躺平（骨盆没有俯仰自由度），见 README 已知限制。
 SOURCE_ANGLE_LIMITS = {
-    "m_sf": (-120.0, 185.0), "o_sf": (-120.0, 185.0),     # 肩前屈（躯干系，向前上举为正）
+    "m_sf": (-130.0, 185.0), "o_sf": (-130.0, 185.0),     # 肩前屈（躯干系，向前上举为正；击飞姿势双臂后甩到 -125）
     "m_sa": (-30.0, 70.0), "o_sa": (-45.0, 70.0),         # 肩外展
     "m_el": (0.0, 150.0), "o_el": (0.0, 150.0),           # 肘屈：不允许反向过伸
     "m_hf": (-95.0, 100.0), "o_hf": (-95.0, 100.0),       # 髋前屈
@@ -165,13 +165,38 @@ TIME_TOLERANCE_MS = 1e-3
 FK_TOLERANCE_BH = 1e-4   # 正向运动学还原出的关节位置与 sprite 版关节位置的容差（身高倍数）
 
 
-def clip_state_name(key: str) -> str:
-    """Animator 状态名 = 剪辑资产名 = sprite 版同一 stem（std_dummy_<键点号换下划线>）。"""
-    return SC.STEM_PREFIX + key.replace(".", "_")
+# --------------------------------------------------------------------------
+# 体量组（04 §6.1 / §7、05 §9"标准骨骼三组（对应三体量）"）
+# --------------------------------------------------------------------------
+
+#: 轻/重两组：继承中体量主集（``extends``，04 §7），只覆盖"体量会让站姿变形"的键——待机与徒手/战斗姿态的走、跑、冲刺；
+#: 其余键（受击、攻击、各武器族移动、变体……）沿用主集，所以数据行很小、资产增量只有这几份剪辑。
+#: 步幅轴（短/中/长）**不出资产**：02 §7 的播放速率 = 实际速度 ÷ (剪辑每循环位移 ÷ 时长)，步幅由运行期 ``stride_scale`` 匹配，
+#: 与体量正交；因此本组剪辑的时长、帧数、每步位移与中体量完全一致（只改站姿），步幅核对沿用同一条判据。
+MASS_GROUPS = ("light", "heavy")
+#: 体量组覆盖的键（均在主集里存在；``move.sprint.combat`` 在组内是 ``move.sprint`` 的别名，同主集口径）。
+MASS_KEYS = ("idle", "idle.combat", "move.walk", "move.run", "move.sprint", "move.walk.combat", "move.run.combat",
+             "move.sprint.combat")
+#: 站姿偏移（度，自拟 experimental）：躯干前倾/后仰、头反向补偿保持视线、肩/髋外展（正=向外，左右同号即对称）。
+#: 重：前倾、肩髋外展（宽站姿、手臂离身）；轻：微后仰、肩髋内收（窄站姿、手臂贴身）。只改静态站姿，不改摆动幅度，
+#: 所以接触姿势脚间距（= 每步位移）不变，步幅核对原样通过。
+MASS_PROFILES = {
+    "light": {"t_pitch": -2.0, "h_pitch": 1.5, "sa": -3.0, "ha": -1.5},
+    "heavy": {"t_pitch": 6.0, "h_pitch": -4.0, "sa": 8.0, "ha": 5.0},
+}
 
 
-def clip_resource_ref(key: str, alias_of: str | None = None) -> str:
-    return f"{REF_CATEGORY}.{clip_state_name(alias_of or key)}"
+def mass_anim_set_id(mass: str) -> str:
+    return f"{ANIM_SET_ID}_{mass}"
+
+
+def clip_state_name(key: str, mass: str | None = None) -> str:
+    """Animator 状态名 = 剪辑资产名 = sprite 版同一 stem（std_dummy_<键点号换下划线>）；体量组在 std_dummy_ 后插 <体量>_。"""
+    return SC.STEM_PREFIX + (f"{mass}_" if mass else "") + key.replace(".", "_")
+
+
+def clip_resource_ref(key: str, alias_of: str | None = None, mass: str | None = None) -> str:
+    return f"{REF_CATEGORY}.{clip_state_name(alias_of or key, mass)}"
 
 
 def bone_path(name: str) -> str:
@@ -181,3 +206,29 @@ def bone_path(name: str) -> str:
     while parents[parts[-1]] is not None:
         parts.append(parents[parts[-1]])
     return "/".join(reversed(parts))
+
+
+# --------------------------------------------------------------------------
+# 动画控制器的确定性 id（编辑器生成脚本与自检共用同一公式）
+# --------------------------------------------------------------------------
+
+_FNV_OFFSET = 0xCBF29CE484222325
+_FNV_PRIME = 0x100000001B3
+_MASK64 = (1 << 64) - 1
+
+
+def _fnv1a_signed64(text: str) -> int:
+    h = _FNV_OFFSET
+    for b in text.encode("utf-8"):
+        h = ((h ^ b) * _FNV_PRIME) & _MASK64
+    return h - (1 << 64) if h >= (1 << 63) else h
+
+
+def controller_state_file_id(state: str) -> int:
+    """动画控制器里状态子资产的 fileID：状态名的 FNV-1a 64（有符号），不随生成次数变化（Unity 自己分配的是随机数）。"""
+    return _fnv1a_signed64(f"{MODEL_NAME}.controller/state/{state}")
+
+
+def controller_relay_file_id(state: str) -> int:
+    """状态上挂的 AnimStateFinishRelay 行为子资产的 fileID（同上公式，不同前缀）。"""
+    return _fnv1a_signed64(f"{MODEL_NAME}.controller/relay/{state}")
