@@ -159,7 +159,7 @@ Unity.exe -batchmode -nographics -quit -projectPath <你的 Unity 工程>
 ### 获取验收样例数据集（消费方反馈第 67 条，2026-09-19）
 
 框架的**主分发产物**（`ws-game-<ver>.zip`，即 `get_framework.ps1` 不带 `-WithSamples` 时拉到的
-那份）只带 `data/_framework`，不带 `data/_sample`/`assets/_sample`——那两棵目录是框架仓库自测/
+那份）只带 `data/_framework` 与手感框架数据 `data/_feel`，不带 `data/_sample`/`assets/_sample`——那两棵目录是框架仓库自测/
 冒烟用的示例数据，不代表任何真实游戏内容，不随主 zip 分发（见框架仓库根 `data/README.md`"目录
 结构"一节）。想要一份现成的、已知合法的样例数据/资源来跑一遍验收演练（例如按
 [13_新游戏接入指南.md](../../architecture/13_新游戏接入指南.md) 第 7 节"跑验收"核对数据加载/校验
@@ -186,6 +186,31 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   通**——`-WithSamples` 只对 zip 快照通道有意义，传给 `-FromRegistry` 时会被忽略。私服通道下想要
   验收样例数据集，需要额外单独跑一次 zip 通道的 `-WithSamples`（哪怕平时按包依赖方式消费框架的
   其余内容），框架目前没有让私服通道本身携带样例数据的计划。
+
+## 手感开关与数据根
+
+手感系统缺省关闭（`GameOptions.FeelOptions == null`），关闭时本模板的装配、数据加载、校验与热重载
+与不引入手感完全一致。给 `GameOptions.FeelOptions` 赋一个 `CarriersFeelOptions`（通常
+`new CarriersFeelOptions { CalibrationId = "<游戏自己的标定行 id>" }`）即开启，开启后：
+
+- **框架手感数据根自动加载**：`GameBootstrap` 把分发包里的 `data/_feel`（预设、体型原型、武器原型、
+  运动模式规则，加一行 `feel.calibration.framework_default` 缺省标定）接到数据加载顺序里，完整顺序为
+  "框架根 `data/_framework` → 手感根 `data/_feel`（仅开启手感时）→ `GameOptions.ExtraFrameworkDatasetRoots`
+  各项 → 游戏根"，后者覆盖前者，行为同其它数据根。`ExtraFrameworkDatasetRoots` 缺省为空数组，留给游戏
+  另外叠加的框架级数据根（相对 StreamingAssets 内容根的路径，去重、跳过空串）；不开手感时也生效。
+- **标定行**：游戏自己写 `feel.calibration` 行放在游戏数据根里，并把行 id 填进
+  `CarriersFeelOptions.CalibrationId`；数据里同时有框架缺省标定与游戏标定两行时不填会在装配时报错
+  （不静默选一行）。
+- **校验**：`validate.ps1` 默认把框架根旁边的 `_feel` 一并作为数据根（`-FeelRoot <路径>` 指定、
+  `-NoFeel` 不带；找不到 `_feel` 目录时与以前一样只带框架根），所以含 `feel.*` 行的游戏数据能整体过
+  `-Strict`。
+- **热重载监视**：监视目录除框架根、游戏根外，同步包含手感根与 `ExtraFrameworkDatasetRoots`。
+  `FeelResolver` 本身的数据重载（`Reload`）尚未接线，改手感数据表后需要重启进程才对手感解析生效。
+- **打包**：`build.ps1` 把 `data/_feel` 同步进 StreamingAssets，并随分发包、`com.gamefoundation.framework-data`
+  的 `Data~/data/_feel` 一起发出。消费方把它同步进自己工程的 `Assets/StreamingAssets/GameFoundation/data/_feel`，做法与 `data/_framework` 相同：zip 通道手工拷贝 `packages/ws-game-<ver>/data/_feel`（消费方演练 `toolchain/consumer_smoke.ps1` 同步内容数据集一步已照此做），私服通道由 `sync_package_content.ps1` 一并同步。
+- **武器与姿势**：开启手感后表现层装配出姿势选择器与换装姿势桥，Unity 视图工厂把它交给动画剪辑解析器，
+  武器族变化后待机/跑步/攻击姿势键随之回落；没开手感时这条链不装配。接入步骤全文见
+  [13_新游戏接入指南.md](../../architecture/13_新游戏接入指南.md) 第 9 节"手感接入"。
 
 ## 开发期数据热重载
 

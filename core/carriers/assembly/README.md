@@ -236,3 +236,15 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 
 1. **候选解析缺省用目标选择链，`CarriersFeelOptions.TargetAssist` 可覆盖（游戏层软锁定）**：同一个选项同时是运动层 `MotionServices.TargetAssist` 与时间线 `target_assist` 的候选来源，覆盖时两处一致；没有覆盖时运动层仍为 null（缺省关闭、与 S10 一致），时间线侧装配缺省解析器——但只有技能数据声明了 `timeline.target_assist` 才生效，没声明的技能行为与未装配时逐位一致（用例 `TargetAssist_NotDeclaredBySkill_LeavesFacingAlone`）。
 2. **`IUnitFacingWriter` 由生产 `WorldUnitAccess` 提供**：`CarriersAssembly` 构造 `RulesAssembly` 时传入的 `IUnitAccess` 就是 `WorldUnitAccess`（同时实现 `IUnitFacingWriter`），`CastPipeline` 持有的是同一个对象，朝向修正可落地；用例 `TargetAssist_DeclaredBySkill_TurnsTheActorByTheProfileCap_ThroughProductionAssembly` 断言朝向写入量等于 min(候选夹角, 档案 `turn_assist_deg`)。
+
+## 手感落地 M1 收口：武器优先的普攻绑定与换装链接进生产装配（2026-10-02）
+
+`CarriersFeelAssembly.Attach` 补两件此前只有实验室装置自己搭的东西：武器优先的动作绑定，与换装链 `EquipmentFeelChain`（发布 `feel.weapon_changed`，姿势桥订阅它）。
+
+1. **普攻跟随武器，空手回落槽位绑定**：新增 `WeaponPreferredActionBinding`（`IActionSkillBinding`）。类别为 `attack` 的输入动作先取主手武器 `feel.weapon.auto_attack_timeline_ref` 对应的技能（`WeaponActionBinding.TryResolveAttackSkill`），武器没声明或空手时回落 `ActionSlotSkillBinding`（`skill_slot` 槽位绑定）。该绑定同时交给缓冲入口 `BufferedActionIntentSink` 与时间线协作者 `Binding`（取消进入路径），空闲首击与连段衔接口径一致。没有单独的"空手普攻技能"选项：空手普攻就是槽位绑定的那个技能。
+2. **"普攻"的识别（设计层待确认）**：缺省所有类别为 `attack` 的动作都跟随武器；游戏另有自带 `skill_slot` 的攻击类动作（重击、蓄力等）时会被武器抢走，须用新增选项 `CarriersFeelOptions.AutoAttackActions` 点名真正的普攻动作，其余攻击类动作始终走槽位绑定。理由：框架无法从数据区分"普攻"与"另一个攻击键"，缺省取最常见情形（一个攻击键）并留出显式开关。
+3. **换装链在生产装配里构造**：已知单位集合取世界全部实体（`save.loaded` 时按此对账）；`CarriersFeelSystem.WeaponChain` 暴露它，`Dispose` 一并释放。此前生产装配从不构造这条链，`feel.weapon_changed` 只在实验室里发布。
+4. **向后兼容**：旧构造函数、`Binding`（槽位绑定）属性与 `BufferedActionIntentSink` 的旧构造重载均保留；不启用手感时一行不装配。
+5. **已知限制**：`FeelOptions` 里的手感数据热重载（`FeelResolver.Reload`）仍未接线；其余同上文既有限制。
+
+用例见 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs`（经真实 `PresentationAssembly` 与输入映射：单手剑、双手剑、空手的相位 tick 数与武器族均由数据与标定规则算出）。

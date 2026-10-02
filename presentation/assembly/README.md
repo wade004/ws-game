@@ -645,3 +645,10 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
   同日判断记录；未注入时初始存档写失败只记一条"游戏层状态未回滚"诊断，不影响装配。
 - T-M13 遗留：`Construct_WithMinimalPresentationDataset_DoesNotThrow_AndExposesAllHosts` 此前只断言 27 个宿主非空；现补副作用断言——
   Vfx/Sfx/Feedback sink 三路诊断是互相独立的实例且构造期均无警告、渲染器无粒子、音频无任何播放、外壳不在加载中、世界里只有测试装配的玩家单位。
+
+## 判断记录（姿势选择器与换装姿势桥进生产装配，2026-10-02，手感落地 M1 收口）
+
+`PresentationAssembly` 在手感开启时（`opts.FeelResolver` 或 `gameplay.Feel.Resolver` 非空）装配 `PoseSelector`（属性 `Pose`）与 `EquipmentPoseBridge`；手感关闭时 `Pose` 为 null，不装配、行为与以前一致。
+
+- **视图工厂接收姿势上下文来源**：视图工厂先于 `PresentationAssembly` 构造，无法用构造参数传入姿势选择器，新增可选接口 `Presentation.Render.IPoseContextReceiver`（`SetPoseContextSource`）。工厂实现了它就在装配时收到来源；没实现则忽略，不改 `IViewFactory`。Unity 适配层的 `UnityViewFactory` 实现它，并在构建 `AnimClipResolver` 时把来源传入既有的姿势上下文重载；解析器已经构建后再设置会抛 `InvalidOperationException`（不静默忽略）。
+- **已知限制**：生产装配不给 `PoseSelector.Observe` 喂步态，步态恒为空闲，移动解析为 `walk`（姿势集没有该键时回落基础键 `move`）。`PoseSelector` 不在单位销毁时清理其武器族记录，与换装链的单位状态口径一致（玩家实体随换图重建，而换装链对未变化的状态不重发事件，清理反而会丢武器族）。

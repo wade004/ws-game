@@ -275,6 +275,7 @@ namespace Game.Template.EditorTests
                 GlobalCooldownDuration = 2.25,
                 DeathPolicy = RespawnPolicy.ReloadSave,
                 EquipmentSlotIds = new[] { "item.slot.a", "item.slot.b" },
+                ExtraFrameworkDatasetRoots = new[] { "data/_extra_a", "data/_extra_b" },
                 EnableDataHotReload = false,
                 FeedbackMergeWindowSeconds = 0.5,
             };
@@ -304,6 +305,41 @@ namespace Game.Template.EditorTests
                     }
                 }
             }
+        }
+
+        // ------------------------------------------------------------------
+        // ⑤ 手感落地 M1 补缺：额外框架数据根（开启 FeelOptions 时自动含 data/_feel）
+        // ------------------------------------------------------------------
+
+        [Test]
+        public void ExtraFrameworkDatasetRoots_DefaultIsEmpty_WhenFeelDisabled()
+        {
+            var options = new GameOptions();
+            Assert.IsNull(options.FeelOptions);
+            Assert.IsEmpty(Build<System.Collections.Generic.IReadOnlyList<string>>(options, "BuildExtraFrameworkDatasetRoots"),
+                "不开手感、不配额外根时数据来源必须与此前一致（只有框架根与游戏根）");
+        }
+
+        [Test]
+        public void ExtraFrameworkDatasetRoots_FeelEnabled_AutomaticallyIncludesFeelRoot_BeforeExtras_WithoutDuplicates()
+        {
+            var options = new GameOptions
+            {
+                FeelOptions = new Core.Carriers.Assembly.CarriersFeelOptions(),
+                ExtraFrameworkDatasetRoots = new[] { "data/_extra_pack", GameOptions.FeelDatasetRoot, "", "data/_extra_pack" },
+            };
+
+            var roots = Build<System.Collections.Generic.IReadOnlyList<string>>(options, "BuildExtraFrameworkDatasetRoots");
+            CollectionAssert.AreEqual(new[] { GameOptions.FeelDatasetRoot, "data/_extra_pack" }, roots.ToArray(),
+                "顺序：手感根在前、额外根按声明顺序在后，空串与重复项被忽略");
+        }
+
+        [Test]
+        public void ExtraFrameworkDatasetRoots_FeelDisabled_StillHonoursExplicitExtras()
+        {
+            var options = new GameOptions { ExtraFrameworkDatasetRoots = new[] { "data/_extra_pack" } };
+            var roots = Build<System.Collections.Generic.IReadOnlyList<string>>(options, "BuildExtraFrameworkDatasetRoots");
+            CollectionAssert.AreEqual(new[] { "data/_extra_pack" }, roots.ToArray());
         }
     }
 }

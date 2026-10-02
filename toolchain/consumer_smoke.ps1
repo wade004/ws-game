@@ -514,6 +514,9 @@ EditorBuildSettings:
 Invoke-Step "同步内容数据集 + TextMeshPro 运行期资源到消费方工程" {
     $streamingRoot = Join-Path $ConsumerProjectDir "Assets\StreamingAssets\GameFoundation"
     $c1 = Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_framework") -DestDir (Join-Path $streamingRoot "data\_framework")
+    # 手感接入补缺（M1 收口）：分发包里的 data/_feel 是与 data/_framework 并列的框架根；模板在 GameOptions.FeelOptions 开启时
+    # 自动把它接进数据加载顺序，消费方照模板 README"手感开关与数据根"一节把它同步进 StreamingAssets，与 data/_framework 同一约定。
+    $c6 = Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_feel") -DestDir (Join-Path $streamingRoot "data\_feel")
     $c2 = Copy-TreeMirror -SourceDir (Join-Path $ConsumerPackageStagingDir "data\game") -DestDir (Join-Path $streamingRoot "data\game")
 
     $tmpDest = Join-Path $ConsumerProjectDir "Assets\TextMesh Pro"
@@ -554,8 +557,8 @@ Invoke-Step "同步内容数据集 + TextMeshPro 运行期资源到消费方工�
     $c5 = 2
 
     [PSCustomObject]@{
-        Ok = ($c1 -gt 0) -and ($c2 -gt 0) -and ($c3 -gt 0) -and ($c4 -gt 0) -and ($c5 -eq 2)
-        Detail = "data/_framework=$c1 files, data/game=$c2 files, TMP essentials=$c3 files, fonts=$c4 files, scene/nav placeholders=$c5 files"
+        Ok = ($c1 -gt 0) -and ($c2 -gt 0) -and ($c3 -gt 0) -and ($c4 -gt 0) -and ($c5 -eq 2) -and ($c6 -gt 0)
+        Detail = "data/_framework=$c1 files, data/_feel=$c6 files, data/game=$c2 files, TMP essentials=$c3 files, fonts=$c4 files, scene/nav placeholders=$c5 files"
     }
 }
 

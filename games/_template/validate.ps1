@@ -11,6 +11,15 @@
     dist/<version>/data/_framework，其次开发期直接指向框架仓库的 data/_framework）；找不到时
     报错并提示显式传参。
 
+.PARAMETER FeelRoot
+    框架手感数据根（分发包 data\_feel：手感档案/预设/缺省标定行/武器原型），默认取框架级数据表目录的同级 _feel
+    目录（存在才用）。与 GameBootstrap 的数据来源顺序一致：框架根 -> 手感根 -> 本游戏根。游戏开启
+    GameOptions.FeelOptions 时运行期会自动加载同一个手感根，校验时也必须带上，否则游戏自己的 feel.* 行
+    （标定、武器、档案引用）会因找不到框架手感数据而报引用错误。不想带手感根时用 -NoFeel。
+
+.PARAMETER NoFeel
+    不把手感根并入校验（游戏不开手感，且不想让手感数据参与校验）。
+
 .PARAMETER DataRoot
     本游戏数据目录，默认 .\data\game（复制模板改名后同步改这里的默认值）。
 
@@ -25,6 +34,8 @@
 #>
 param(
     [string]$FrameworkRoot = "",
+    [string]$FeelRoot = "",
+    [switch]$NoFeel,
     [string]$DataRoot = "",
     [string]$ValidateDataScript = "",
     [string]$PythonExe = "python",
@@ -81,16 +92,36 @@ if ($FrameworkRoot -eq "") {
     }
 }
 
+# 手感根：默认取框架级数据表目录的同级 _feel（分发包 data/_framework 与 data/_feel 并列；框架仓库同理）。
+if (-not $NoFeel -and $FeelRoot -eq "") {
+    $feelCandidate = Join-Path (Split-Path -Parent $FrameworkRoot) "_feel"
+    if (Test-Path $feelCandidate) {
+        $FeelRoot = (Resolve-Path $feelCandidate).Path
+    }
+}
+if ($NoFeel) {
+    $FeelRoot = ""
+}
+if ($FeelRoot -ne "" -and -not (Test-Path $FeelRoot)) {
+    Write-Host "手感数据根不存在：$FeelRoot" -ForegroundColor Red
+    exit 2
+}
+
 if (-not (Test-Path $DataRoot)) {
     Write-Host "本游戏数据目录不存在：$DataRoot（复制模板改名后请同步 -DataRoot 默认值）" -ForegroundColor Red
     exit 2
 }
 
 Write-Host "框架级数据表：$FrameworkRoot"
+if ($FeelRoot -ne "") {
+    Write-Host "框架手感数据：$FeelRoot"
+}
 Write-Host "本游戏数据：  $DataRoot"
 Write-Host ""
 
-$pythonArgs = @($ValidateDataScript, "--framework-root", $FrameworkRoot, "--data-root", $DataRoot)
+$pythonArgs = @($ValidateDataScript, "--framework-root", $FrameworkRoot)
+if ($FeelRoot -ne "") { $pythonArgs += @("--data-root", $FeelRoot) }
+$pythonArgs += @("--data-root", $DataRoot)
 if ($SkipDotnet) { $pythonArgs += "--skip-dotnet" }
 if ($Strict) { $pythonArgs += "--strict" }
 

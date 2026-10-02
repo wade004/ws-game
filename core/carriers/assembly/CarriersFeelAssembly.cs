@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Carriers.Common;
+using Core.Carriers.Item;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.DataRegistry;
@@ -10,6 +12,7 @@ using Core.Foundation.InputMap;
 using Core.Foundation.SimLoop;
 using Core.Rules.Assembly;
 using Core.Rules.Common;
+using Core.Rules.Skill;
 
 namespace Core.Carriers.Assembly
 {
@@ -28,6 +31,13 @@ namespace Core.Carriers.Assembly
 
         /// <summary>副手武器槽位覆盖；<c>null</c> 取武器槽按 id 序数的第 2 个。</summary>
         public Id? OffhandSlot { get; set; }
+
+        /// <summary>
+        /// 被视为"普通攻击"的输入动作 id：这些动作的缓冲记录优先取单位当前主手武器的 <c>feel.weapon.auto_attack_timeline_ref</c> 技能，
+        /// 武器没声明（或空手）时回落到 <c>skill_slot</c> 槽位绑定（<see cref="WeaponPreferredActionBinding"/>）。缺省 null = 所有类别为 <c>attack</c> 的动作；
+        /// 游戏另有蓄力、重击等自带 <c>skill_slot</c> 的攻击类动作时，在这里只列出普攻动作，其余攻击类动作始终走槽位绑定。
+        /// </summary>
+        public IReadOnlyList<Id>? AutoAttackActions { get; set; }
 
         /// <summary>除 <c>found.input_action</c> 表外，另行声明给输入缓冲的动作（游戏在代码里声明的动作集）。同 id 以后者为准。</summary>
         public IReadOnlyList<ActionDefinition>? ExtraActions { get; set; }
@@ -85,7 +95,14 @@ namespace Core.Carriers.Assembly
         /// <summary>宽限追踪；未提供 <see cref="CarriersFeelOptions.GraceEvaluator"/> 时为 null。</summary>
         public GraceTracker? Grace { get; }
 
+        /// <summary>技能槽位绑定（<c>skill_slot</c> → 技能绑定宿主）；是 <see cref="ActionBinding"/> 的回落来源。</summary>
         public ActionSlotSkillBinding Binding { get; }
+
+        /// <summary>生产装配实际使用的输入动作 → 技能映射（武器优先、槽位回落，缓冲出口与时间线取消进入共用这一份）。</summary>
+        public IActionSkillBinding ActionBinding { get; }
+
+        /// <summary>换装链：装备变化 → 对账主手/副手武器手感引用与武器族 → 手感解析器失效 → 发布 <c>feel.weapon_changed</c>（姿势族据此刷新）。</summary>
+        public EquipmentFeelChain WeaponChain { get; }
 
         public BufferedActionIntentSink Sink { get; }
 
@@ -97,7 +114,8 @@ namespace Core.Carriers.Assembly
 
         internal CarriersFeelSystem(
             FeelSystem feel, IFeelResolver resolver, RulesFeelSystem rules, InputBufferHost inputBuffer, GraceTracker? grace,
-            ActionSlotSkillBinding binding, BufferedActionIntentSink sink, MotionServices motion, string? localMoveActionName,
+            ActionSlotSkillBinding binding, IActionSkillBinding actionBinding, EquipmentFeelChain weaponChain,
+            BufferedActionIntentSink sink, MotionServices motion, string? localMoveActionName,
             List<SubscriptionHandle> subscriptions)
         {
             Feel = feel;
@@ -106,6 +124,8 @@ namespace Core.Carriers.Assembly
             InputBuffer = inputBuffer;
             Grace = grace;
             Binding = binding;
+            ActionBinding = actionBinding;
+            WeaponChain = weaponChain;
             Sink = sink;
             Motion = motion;
             LocalMoveActionName = localMoveActionName;
@@ -116,6 +136,7 @@ namespace Core.Carriers.Assembly
         {
             for (var i = 0; i < _subscriptions.Count; i++) _subscriptions[i].Dispose();
             _subscriptions.Clear();
+            WeaponChain.Dispose();
             Sink.Dispose();
             Rules.Dispose();
         }
@@ -186,11 +207,20 @@ namespace Core.Carriers.Assembly
             });
             DeclareActions(buffer, registry, options.ExtraActions);
 
-            var binding = new ActionSlotSkillBinding(buffer, carriers.SkillBindings);
+            // 输入动作 → 技能：普通攻击动作优先取当前主手武器的普攻技能（换装后自动切换），没有则回落到 skill_slot 槽位绑定；缓冲出口与时间线取消进入共用同一份。
+            var slotBinding = new ActionSlotSkillBinding(buffer, carriers.SkillBindings);
+            var actionBinding = new WeaponPreferredActionBinding(
+                new WeaponActionBinding(providers.Equipment, new FeelWeaponCatalog(registry)), slotBinding, options.AutoAttackActions);
             var sink = new BufferedActionIntentSink(
-                buffer, binding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
+                buffer, actionBinding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
             rulesFeel.Timeline.Input = buffer;
-            rulesFeel.Timeline.Binding = binding;
+            rulesFeel.Timeline.Binding = actionBinding;
+
+            // 换装链：装备变化时对账武器引用与武器族，变化则发布 feel.weapon_changed（表现层姿势族、反馈变体、界面订阅它）。读档在事件抑制作用域内重放装备，
+            // 链额外订阅 save.loaded 对账；已知单位取世界里的全部实体（对账只读装备宿主，没有装备的实体对账结果等于初值，不发事件）。
+            var weaponChain = new EquipmentFeelChain(
+                bus, providers.Equipment, new FeelWeaponCatalog(registry), resolver,
+                () => world.QueryEntities(default).Select(e => e.EntityId));
 
             // 时间线目标辅助（S11）：候选解析缺省取目标选择链（同一个 TargetHost、同一个 WorldUnitAccess——后者同时是 IUnitFacingWriter，
             // 朝向修正才能落地）；游戏层有自己的软锁定实现时经 CarriersFeelOptions.TargetAssist 覆盖。只有技能声明了 timeline.target_assist 才生效。
@@ -232,7 +262,7 @@ namespace Core.Carriers.Assembly
             MotionHitFeelWiring.Connect(carriers.Movement, rulesFeel.Clock, rulesFeel.HitFeel.Host);
 
             return new CarriersFeelSystem(
-                feel, resolver, rulesFeel, buffer, grace, binding, sink, motion, options.LocalMoveActionName, subscriptions);
+                feel, resolver, rulesFeel, buffer, grace, slotBinding, actionBinding, weaponChain, sink, motion, options.LocalMoveActionName, subscriptions);
         }
 
         private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)

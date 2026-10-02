@@ -207,5 +207,28 @@ namespace Game.Template.Tests
             Assert.AreEqual(0, bootstrap.Presentation.Sfx.PendingPlayCount,
                 "OnFrameTick 应逐帧驱动 Sfx.Update，第二次播放的 pending 应在超时后自动清零，不需要测试代码显式调用 Update");
         }
+
+        /// <summary>手感落地 M1 补缺（独立验收 G1/G8）：模板开启 <see cref="GameOptions.FeelOptions"/> 后，数据来源自动含框架的 <c>data/_feel</c>
+        /// （不手工配数据根）：零阻断错误、手感系统装配成功（装配期缺 feel.* 数据会抛出并使 BootstrapFailed 为真）、表现层姿势选择器装出；
+        /// 不开启手感时（<c>GameBootstrap_NewGame_*</c> 等既有用例）数据来源与行为不变。</summary>
+        [UnityTest]
+        public IEnumerator GameBootstrap_FeelEnabled_AutomaticallyLoadsFrameworkFeelData_AndAssemblesFeelSystem()
+        {
+            var bootstrap = BuildInactiveBootstrap();
+            bootstrap.Options.FeelOptions = new Core.Carriers.Assembly.CarriersFeelOptions
+            {
+                CalibrationId = "feel.calibration.framework_default",
+            };
+            bootstrap.gameObject.SetActive(true);
+
+            Assert.IsFalse(bootstrap.BootstrapFailed, "开启手感后 GameBootstrap 不应装配失败（data/_feel 应已自动并入数据来源）");
+            Assert.IsNotNull(bootstrap.LoadReport);
+            Assert.AreEqual(0, bootstrap.LoadReport!.ErrorCount, string.Join("; ", bootstrap.LoadReport.Issues));
+            Assert.IsNotNull(bootstrap.Gameplay.Feel, "手感系统应已装配");
+            Assert.Contains("feel.calibration", System.Linq.Enumerable.ToList(bootstrap.Registry.Tables),
+                "框架手感数据表应在数据注册表里（来自自动加入的 data/_feel 根）");
+            Assert.IsNotNull(bootstrap.Presentation.Pose, "手感启用时表现层应装配姿势选择器");
+            yield return null;
+        }
     }
 }

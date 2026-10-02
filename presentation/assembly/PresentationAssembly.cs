@@ -326,6 +326,15 @@ namespace Presentation.Assembly
 
         public ShellViewModel ShellViewModel { get; }
 
+        /// <summary>
+        /// 手感落地 M1 补缺：姿势上下文选择器（武器族、步态、变体；手感设计/04 第 2 节）。<b>只在手感启用时装配</b>
+        /// （<c>gameplay.Feel</c> 非空，或 <see cref="PresentationAssemblyOptions.FeelResolver"/> 显式注入），否则为 <c>null</c>、行为与此前逐位一致。
+        /// 武器族由换装链发布的 <c>feel.weapon_changed</c> 经 <see cref="EquipmentPoseBridge"/> 写入；视图工厂若实现 <see cref="IPoseContextReceiver"/>，
+        /// 构造早期即收到本实例（Unity 工厂据此解析武器族姿势）。步态维度由调用方喂速度（<see cref="PoseSelector.Observe"/>）。
+        /// </summary>
+        public PoseSelector? Pose { get; }
+
+        private readonly EquipmentPoseBridge? _poseBridge;
         private readonly Id _playerId;
         private bool _disposed;
 
@@ -397,6 +406,15 @@ namespace Presentation.Assembly
             // 手感落地 S10：显式注入的手感解析器优先；否则取游戏层装配出的手感系统的解析器（全装配唯一的那一个）。
             // 两者都没有时为 null，全部手感呈现关闭，装配行为与未引入手感时逐位一致。
             var feelResolver = opts.FeelResolver ?? gameplay.Feel?.Resolver;
+
+            // 手感落地 M1 补缺（手感设计/08 第 1 节换装链的表现端）：手感启用时装配姿势选择器与换装姿势桥，并把选择器交给实现了
+            // IPoseContextReceiver 的视图工厂（要在任何视图创建之前，故放在最前）；手感未启用时一概不装。
+            if (feelResolver != null)
+            {
+                Pose = new PoseSelector();
+                _poseBridge = new EquipmentPoseBridge(bus, Pose);
+                (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
+            }
 
             // 缺口 12：SettingsStore 提前到最前面构造（原在第 4 步 ui 小节内），本装配根第 2 步
             // vfx_sfx 小节构造 AudioLayerVolumeHost 时就需要用到同一个 ISettingsStore 实例。
@@ -902,6 +920,10 @@ namespace Presentation.Assembly
             }
             _subscriptions.Clear();
 
+            if (_poseBridge != null)
+            {
+                Release(nameof(EquipmentPoseBridge), _poseBridge.Dispose);
+            }
             Release(nameof(ViewBinder), ViewBinder.Dispose);
             Release(nameof(Stride), Stride.Dispose);
             Release(nameof(MapLayers), MapLayers.Dispose);

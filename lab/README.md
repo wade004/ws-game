@@ -81,7 +81,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 1. **内核位置与分层**：独立顶层目录 `lab/`，登记为 `module_map.json` 的 `lab` 层（单模块，同 `sim` 层），位于 `sim` 与 `presentation` 之下游。依赖方向：`Lab.Kernel` → `Core.Sim`（装配根与桩适配层）、`Adapters.Stub`、`Presentation.Common`；任何运行时核心程序集（`Core.*`、`Presentation.*`）都不引用它——内核引擎无关、不被运行时核心程序集反向引用。不放进 `core/sim`：`sim` 是可被装配与分发的仿真骨架，实验室是验收设施，且需要表现层公共部分，放进去会让 `core/sim` 新增对表现层的依赖（两者现在是 `gameplay` 之下的并列下游）。不放进 `presentation/`：它依赖装配根与桩适配层，反过来会让表现层依赖 `sim`。因此 `sim` 与 `presentation` 的 `downstream` 都登记了 `lab`，上游公开面变化会选中 `Tests.Lab`。
 2. **schema 声明放在 `core/sim/schema/LabSchemas.cs`**：与 `sim.*` 同属"仅无头宿主与内容工具读取"的工具表，沿用 `SimSchemaCatalog.RegisterAll` 这一个入口，校验器与独立发行包不用新增对内核的引用；`core/sim` 只知道表形状，不引用内核。
-3. **相对 06 第 1.1 节结构的扩展字段**：`lab.scenario` 增加 `arena`（地形引用）、`settlement`（`targeted|action` 显式取值）、`skill_bindings`（输入动作到技能），无头宿主跑起来必需，不改既有字段语义。`default_preset`/`default_weapons` 指向的 `feel.*` 域尚未落地，登记为自由 id（只作标签，不校验存在性）。
+3. **相对 06 第 1.1 节结构的扩展字段**：`lab.scenario` 增加 `arena`（地形引用）、`settlement`（`targeted|action` 显式取值）、`skill_bindings`（输入动作到技能），无头宿主跑起来必需，不改既有字段语义。`default_preset`/`default_weapons` 指向手感数据域（`feel.preset`、`feel.weapon`），但表本身登记为自由 id（只作标签，不校验存在性）：标签与手感装配解耦，脚本实际用的预设与武器由脚本 meta 与数据根决定。
 4. **`HeadlessWorldOptions.Navigation`**：`HeadlessWorldBuilder` 新增导航接口透传选项（缺省行为不变），让宿主能把竞技场阻挡登记进桩导航；只增不改。
 5. **动作式格子 = 目标选择式 + `timeline` + 手感预设**：不带手感装配的旧标准脚本（十个）没有 `timeline` 数据，三个动作式格子行为与对应的目标选择式格子一致（测试 `ActionCells_BehaveLikeTargetedCells_ForScriptsWithoutFeelAssembly` 锁住这一点，十个旧脚本的六格基线逐字不变）。手感场景脚本（判断记录 22）里两者的差别正是 `timeline`（含连招/取消/蓄力/标记/位移）加预设（`default_preset`：动作式 `arpg_responsive`、目标选择式 `rpg_classic`）——跨格子不变量 2（判断记录 25）把这句话证明成运行期事实。
 6. **移动绑定到摇杆**：宿主把 `input.action.move` 重绑到手柄左摇杆轴。输入映射层对摇杆不做死区、不单位化；因此被测的是宿主循环阈值（模长平方大于 0.0001 才提交移动请求）与移动层对输入的单位化。移动请求每 tick 重提交。
@@ -100,7 +100,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 18. **武器 → 普攻技能映射用内存覆盖注入**：占位 `feel.weapon` 行没有 `auto_attack_timeline_ref`，脚本 meta 的 `weaponAttackSkills` 在装载时对 `feel.weapon` 表做内存改写（不动磁盘上的共享占位数据），核心代码读的仍是数据里的真实字段 `auto_attack_timeline_ref`。这是已知局限，见下。
 19. **度量组按需出现（`IConditionalMetricGroup`）**：`equip` 组只在记录带换装记录时计算；指纹比较器对"基线与实际都没有的条件组"跳过，因此既有指纹里没有这一组、既有基线逐字不变。该组度量里凡"缺失/不一致"类（`icon_missing`、`visual_missing`、`layer_fallbacks`、`ui_mismatch`、`pose_family_mismatch`、`unrefreshed_steps`、`stale_version_steps`、`attack_mismatches` 等）期望恒为 0，是"运行期检查与导入校验静态报告零差异"的运行期一侧（静态一侧见 `toolchain/tests/test_equip_runtime_zero_diff.py`）。
 20. **tickRate 必须是 60**：动作时间线按 `SkillOptions.ActionStepSeconds`（缺省 1/60）把毫秒换成 tick，而 `GameplayAssembly` 目前不把宿主步长回填进去；换装场景在 tickRate 不是 60 时显式抛 `LabFormatException`，不静默按错的步长算。
-21. **首次普攻不走 `IActionSkillBinding`**：该接口目前只在"取消进入"路径被动作管线使用，空闲状态下的第一下普攻由宿主在换装场景里经 `WeaponActionBinding.TryResolveAttackSkill` 解出技能 id，再提交 `cast` 意图。
+21. **首次普攻不走 `IActionSkillBinding`**：该接口目前只在"取消进入"路径被动作管线使用，空闲状态下的第一下普攻由宿主在换装场景里经 `WeaponActionBinding.TryResolveAttackSkill` 解出技能 id，再提交 `cast` 意图。这只描述实验室换装装置；生产装配的输入缓冲入口已用武器优先的绑定（武器 `auto_attack_timeline_ref`，没有时回落槽位绑定），首次普攻也走它。
 22. **手感场景脚本（`meta.feel`，格式版本 3）经生产装配运行**：`feel = true` 的脚本让宿主在 `HeadlessWorldOptions.FeelOptions`（`CarriersFeelOptions`：标定行 id、本地移动动作名）上走生产装配——输入缓冲、动作时钟、`HitFeelHost`、目标辅助、运动层全部是生产实现，不是替身；
 本地输入经 `InputBuffer.BindLocalInput` 进缓冲，技能槽位经 `SkillBindings.Bind` 绑定（`found.input_action` 行声明动作类别、缓冲时长与槽位 id，脚本 `skillSlots` 声明槽位到技能，`learnSkills` 追加玩家要学的技能）。
 预设取脚本 `presetId`，空则取格子缺省；标定行取 `feelCalibrationId`，空则按 `feel.calibration.lab_<预设短名>` 推出（`LabHost.CalibrationFor`）。没有声明 `feel` 的旧脚本走原路径，序列化与指纹逐字不变（版本 3 字段只在用到时才写，同判断记录 16）。
@@ -156,6 +156,6 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 - **观察 3（非攻击技能的挥空提示，S12 已修）**：原先 `feel_dash` 里无命中标记的闪避结束时也出挥空提示音。现在非攻击动作（`action.started.isAttack` 为假）不开挥空窗口。
 - **观察 4（位移穿过靶子）**：`feel_lunge` 的扑击位移 `blocking: stop` 只对地形阻挡生效，玩家会穿过木桩（靶子不是阻挡），终点超过木桩位置；单位间体积阻挡不在当前运动层范围内（S12 之后扑击的净位移恰为声明距离 1.5，穿过靶子的现象不变）。
 - 换装场景：`GameplayAssembly` 不回填 `SkillOptions.ActionStepSeconds`，所以换装脚本必须 tickRate 60（装置显式抛错，见判断记录 20）。
-- 换装场景：`PresentationAssembly` 没有装出 `PoseSelector`/`EquipmentPoseBridge`，姿势侧由实验室装置自己装（生产装配接线留给后续装配切片）。
+- 换装场景：实验室换装装置自带一套手感装配、换装链与姿势选择器，不经生产装配的手感装配（生产装配开启手感时由 `PresentationAssembly` 装出 `PoseSelector`/`EquipmentPoseBridge`，载体层手感装配装出换装链，见 `presentation/assembly/README.md`、`core/carriers/assembly/README.md`）；保持自带是为了既有换装基线逐字不变。生产链路由 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs` 经真实装配单独验证。
 - 换装场景：图标尺寸与逐层剪辑的帧数无法在无头宿主上检查（那是导入校验静态报告的职责，两侧用 `item_facts` 对账）。
 - 换装场景：武器 → `auto_attack_timeline_ref` 的映射由脚本 meta 的内存覆盖注入（占位 `feel.weapon` 行没有该字段，见判断记录 18）。

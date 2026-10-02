@@ -276,7 +276,16 @@ namespace Game.Template
             // PRES-118-SFX 契约测试专用（见 ForceSfxMissingResourceOverlayForTest 判断记录）：默认
             // false 时下面列表恰好等于改动前的 { frameworkSource, gameSource } 两元素数组，零行为
             // 变化。
-            var sourceList = new System.Collections.Generic.List<IDataSource> { frameworkSource, gameSource };
+            // 手感落地 M1 补缺：额外框架数据根（开启 FeelOptions 时自动含 data/_feel，另见 GameOptions.ExtraFrameworkDatasetRoots）排在框架根之后、
+            // 游戏根之前；没有额外根时列表恰好等于改动前的 { frameworkSource, gameSource }。
+            var extraFrameworkRoots = _options.BuildExtraFrameworkDatasetRoots();
+            var sourceList = new System.Collections.Generic.List<IDataSource> { frameworkSource };
+            foreach (var extraRoot in extraFrameworkRoots)
+            {
+                sourceList.Add(new FileSystemDataSource(contentFs, extraRoot));
+            }
+
+            sourceList.Add(gameSource);
             if (ForceSfxMissingResourceOverlayForTest)
             {
                 sourceList.Add(BuildSfxMissingResourceOverlaySource());
@@ -321,11 +330,17 @@ namespace Game.Template
             if (_options.EnableDataHotReload)
             {
                 var contentRoot = contentFs.GetContentRootDir();
-                var watchRoots = new[]
+                var watchRootList = new System.Collections.Generic.List<string>
                 {
                     System.IO.Path.Combine(contentRoot, _frameworkDatasetRoot),
-                    System.IO.Path.Combine(contentRoot, _gameDatasetRoot),
                 };
+                foreach (var extraRoot in extraFrameworkRoots)
+                {
+                    watchRootList.Add(System.IO.Path.Combine(contentRoot, extraRoot));
+                }
+
+                watchRootList.Add(System.IO.Path.Combine(contentRoot, _gameDatasetRoot));
+                var watchRoots = watchRootList.ToArray();
                 var hotReload = gameObject.AddComponent<DataHotReload>();
                 // ADR-0047：把本次已解析的落盘路径原样传给热重载组件，两者共用同一个目标文件/序号
                 // 计数（见 ValidationReportFileOutlet 按路径分别计数的判断记录），不需要热重载组件

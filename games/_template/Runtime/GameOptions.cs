@@ -225,6 +225,42 @@ namespace Game.Template
         /// </summary>
         public Core.Carriers.Assembly.CarriersFeelOptions? FeelOptions { get; set; }
 
+        /// <summary>手感框架数据根（框架分发包的 <c>data/_feel</c>：手感档案、预设、缺省标定行、武器原型，随 Adapter.Unity 包同步进内容根）。</summary>
+        public const string FeelDatasetRoot = "data/_feel";
+
+        /// <summary>
+        /// 手感落地 M1 补缺：额外的框架级数据根（相对内容根，与 <c>GameBootstrap</c> 的 <c>_frameworkDatasetRoot</c> 同一套解析规则），
+        /// 与框架根、游戏根一起按顺序合并加载（顺序：框架根 → <see cref="FeelDatasetRoot"/>（仅在 <see cref="FeelOptions"/> 非空时自动加入）→ 本字段各项 → 游戏根）。
+        /// 缺省空数组：不开手感、不配本字段时数据来源与此前逐位一致。游戏需要框架之外的共享数据包（如自己的另一套装备资产包）时在这里追加。
+        /// </summary>
+        public string[] ExtraFrameworkDatasetRoots = Array.Empty<string>();
+
+        /// <summary>
+        /// 按上面的顺序算出本次要加载的额外框架数据根（去重、跳过空串）：开启手感（<see cref="FeelOptions"/> 非空）时第一项是 <see cref="FeelDatasetRoot"/>，
+        /// 游戏无需再手工配；不开启手感且没配 <see cref="ExtraFrameworkDatasetRoots"/> 时为空。
+        /// </summary>
+        internal IReadOnlyList<string> BuildExtraFrameworkDatasetRoots()
+        {
+            var roots = new List<string>();
+            if (FeelOptions != null)
+            {
+                roots.Add(FeelDatasetRoot);
+            }
+
+            if (ExtraFrameworkDatasetRoots != null)
+            {
+                foreach (var root in ExtraFrameworkDatasetRoots)
+                {
+                    if (!string.IsNullOrEmpty(root) && !roots.Contains(root))
+                    {
+                        roots.Add(root);
+                    }
+                }
+            }
+
+            return roots;
+        }
+
         /// <summary>见字段注释：把 <see cref="HitTableConfigId"/> 转成 <see cref="CombatOptions"/>。</summary>
         internal CombatOptions BuildCombatOptions() => new CombatOptions
         {

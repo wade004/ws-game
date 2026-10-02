@@ -113,5 +113,46 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(AnimState.Jump, machine.GetState(entityId),
                 "经公开属性拿到的实例调用 RequestOverride 后状态应确实变化");
         }
+
+        /// <summary>手感落地 M1 补缺：只记录订阅者个数的姿势上下文来源——<see cref="AnimClipResolver"/> 构造时订阅 <c>ContextChanged</c>，
+        /// 订阅个数是"工厂确实把来源传给了解析器"的可观测证据。</summary>
+        private sealed class CountingPoseContextSource : IPoseContextSource
+        {
+            private System.Action<Id>? _handlers;
+            public int Subscribers;
+
+            public PoseContext GetContext(Id entityId) => PoseContext.Empty;
+
+            public event System.Action<Id>? ContextChanged
+            {
+                add { _handlers += value; Subscribers++; }
+                remove { _handlers -= value; Subscribers--; }
+            }
+        }
+
+        /// <summary>手感落地 M1 补缺：工厂经 <see cref="IPoseContextReceiver"/> 收到的来源，在懒构造 <see cref="AnimClipResolver"/> 时传给它
+        /// （解析器订阅 <c>ContextChanged</c>）；解析器构造之后改绑不同来源显式抛出，同一来源重复交付幂等；从未交付来源时不订阅（手感未启用，行为不变）。</summary>
+        [Test]
+        public void PoseContextSource_IsPassedToAnimClipResolver_AndRebindingAfterConstructionThrows()
+        {
+            var (bus, info, entityId, displayInfo) = BuildFixture();
+            var withSource = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo, _resourceLoader, bus: bus, dataRegistry: null);
+            var source = new CountingPoseContextSource();
+            ((IPoseContextReceiver)withSource).SetPoseContextSource(source);
+            Assert.AreEqual(0, source.Subscribers, "解析器是懒构造的：交付来源本身不触发订阅");
+
+            withSource.CreateView(ViewKind.Unit, info.LogicalId, entityId);
+            Assert.AreEqual(1, source.Subscribers, "懒构造 AnimClipResolver 时应带上姿势上下文来源并订阅其 ContextChanged");
+
+            withSource.SetPoseContextSource(source);
+            Assert.AreEqual(1, source.Subscribers, "同一来源重复交付是幂等的");
+            Assert.Throws<System.InvalidOperationException>(() => withSource.SetPoseContextSource(new CountingPoseContextSource()),
+                "解析器构造之后改绑另一个来源必须显式报错，不得静默忽略");
+
+            var (bus2, info2, entityId2, displayInfo2) = BuildFixture();
+            var withoutSource = new UnityViewFactory(_renderer, new RenderConventionHost(), displayInfo2, _resourceLoader, bus: bus2, dataRegistry: null);
+            withoutSource.CreateView(ViewKind.Unit, info2.LogicalId, entityId2);
+            Assert.IsNotNull(withoutSource.AnimStateMachine, "未交付来源时照常构造解析器（手感未启用，行为不变）");
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Carriers.Item;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -38,6 +39,50 @@ namespace Core.Carriers.Assembly
     }
 
     /// <summary>
+    /// 武器优先的输入动作 → 技能映射（手感设计/08 第 1 节换装链的"主手武器 → 判定"一段在生产装配里的落点）：普通攻击输入动作
+    /// 优先取单位当前主手武器声明的普攻技能（<c>feel.weapon.auto_attack_timeline_ref</c>，经 <see cref="WeaponActionBinding"/>），
+    /// 武器没声明、空手、或不是普通攻击动作时回落到 <see cref="ActionSlotSkillBinding"/>（<c>skill_slot</c> → 技能绑定槽位）。
+    /// 因此换武器后普攻（以及它的姿势族）自动切换，游戏不必在换装时重绑槽位，也不必写换装代码。
+    /// <para>
+    /// 判断记录（哪些动作算"普通攻击"）：缺省所有类别为 <see cref="ActionClass.Attack"/> 的输入动作（同 <see cref="WeaponActionBinding"/>
+    /// 契约注释的口径）；游戏有第二个攻击类动作（蓄力、重击等，自带 <c>skill_slot</c>）时用 <see cref="CarriersFeelOptions.AutoAttackActions"/>
+    /// 点名只有哪几个动作是普攻，其余攻击类动作始终走槽位绑定，不被武器普攻劫持。
+    /// </para>
+    /// <para>
+    /// 判断记录（不带空手技能）：本类内部的武器映射不带"空手普攻技能"，空手时回落到槽位绑定——空手普攻就是游戏给普攻槽位绑的那个技能，
+    /// 不另造一个只服务于本类的配置项。
+    /// </para>
+    /// </summary>
+    public sealed class WeaponPreferredActionBinding : IActionSkillBinding
+    {
+        private readonly WeaponActionBinding _weapon;
+        private readonly IActionSkillBinding _fallback;
+        private readonly HashSet<Id>? _autoAttackActions;
+
+        /// <param name="weapon">武器普攻映射（构造时不带空手技能）。</param>
+        /// <param name="fallback">武器没有给出技能时的回落映射（通常是 <see cref="ActionSlotSkillBinding"/>）。</param>
+        /// <param name="autoAttackActions">被视为普通攻击的动作 id；<c>null</c> = 所有攻击类动作。</param>
+        public WeaponPreferredActionBinding(WeaponActionBinding weapon, IActionSkillBinding fallback, IEnumerable<Id>? autoAttackActions = null)
+        {
+            _weapon = weapon ?? throw new ArgumentNullException(nameof(weapon));
+            _fallback = fallback ?? throw new ArgumentNullException(nameof(fallback));
+            _autoAttackActions = autoAttackActions == null ? null : new HashSet<Id>(autoAttackActions);
+        }
+
+        public bool TryResolveSkill(Id actorId, BufferedIntent intent, out Id skillId)
+        {
+            if (intent.Class == ActionClass.Attack
+                && (_autoAttackActions == null || _autoAttackActions.Contains(intent.ActionId))
+                && _weapon.TryResolveAttackSkill(actorId, out skillId))
+            {
+                return true;
+            }
+
+            return _fallback.TryResolveSkill(actorId, intent, out skillId);
+        }
+    }
+
+    /// <summary>
     /// 输入缓冲在 tick 步骤 1 的生产出口（<see cref="IBufferedIntentSink"/>）：缓冲记录能被接受时，把它翻成一条 <c>cast</c> 意图
     /// （步骤 3 的 <see cref="SkillTickHandler"/> 消费）；施法管线随后若拒绝，经 <c>skill.cast_failed</c> 回报缓冲
     /// （<see cref="InputBufferHost.ReportRejected"/>，手感设计/01 第 2.3 节第 4 点：时间可解的原因保留记录到过期，其余原因丢弃）。
@@ -65,7 +110,7 @@ namespace Core.Carriers.Assembly
     public sealed class BufferedActionIntentSink : IBufferedIntentSink, IDisposable
     {
         private readonly InputBufferHost _buffer;
-        private readonly ActionSlotSkillBinding _binding;
+        private readonly IActionSkillBinding _binding;
         private readonly SkillHost _skill;
         private readonly IWorldSim _world;
         private readonly IHitReactionQuery? _reactions;
@@ -89,6 +134,14 @@ namespace Core.Carriers.Assembly
 
         public BufferedActionIntentSink(
             InputBufferHost buffer, ActionSlotSkillBinding binding, SkillHost skill, IWorldSim world, IEventBus bus,
+            IHitReactionQuery? reactions, double stepSeconds)
+            : this(buffer, (IActionSkillBinding)binding, skill, world, bus, reactions, stepSeconds)
+        {
+        }
+
+        /// <summary>手感落地 M1 补缺：映射来源改为任意 <see cref="IActionSkillBinding"/>（生产装配传 <see cref="WeaponPreferredActionBinding"/>）；上面的构造原样保留并转调本重载。</summary>
+        public BufferedActionIntentSink(
+            InputBufferHost buffer, IActionSkillBinding binding, SkillHost skill, IWorldSim world, IEventBus bus,
             IHitReactionQuery? reactions, double stepSeconds)
         {
             _buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));

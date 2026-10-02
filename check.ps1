@@ -638,6 +638,13 @@ Invoke-CheckStep "禁用词扫描：architecture 正文不出现引擎/语言/�
     if (Test-Path $adrDir) {
         $targets += Get-ChildItem -Path $adrDir -Filter "*.md" -File -ErrorAction SilentlyContinue
     }
+    # 手感设计/、数值设计/ 同属 architecture 正文（AGENTS.md 第 2 节硬规则点名 数值设计/），一并扫描（递归，含子目录）。
+    foreach ($designDirName in @("手感设计", "数值设计")) {
+        $designDir = Join-Path $RepoRoot ("architecture\" + $designDirName)
+        if (Test-Path $designDir) {
+            $targets += Get-ChildItem -Path $designDir -Filter "*.md" -File -Recurse -ErrorAction SilentlyContinue
+        }
+    }
 
     $unityPattern = "(?<![A-Za-z])unity(?![A-Za-z])"
     $plainWords = @("c#", "csharp", "\.net", "xunit", "python", "powershell")

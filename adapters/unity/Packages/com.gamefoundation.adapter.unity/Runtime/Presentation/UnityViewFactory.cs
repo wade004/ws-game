@@ -60,7 +60,7 @@ namespace Adapter.Unity.Presentation
         public void Destroy() => IsAlive = false;
     }
 
-    public sealed partial class UnityViewFactory : IViewFactory
+    public sealed partial class UnityViewFactory : IViewFactory, IPoseContextReceiver
     {
         /// <summary>动画状态机驱动到剪辑的六个状态名，见 <see cref="AnimClipResolver.StateKey"/>；
         /// 逐一登记默认剪辑（真实 <c>display.anim_set</c> 或单帧退化），使
@@ -123,6 +123,35 @@ namespace Adapter.Unity.Presentation
         /// 时初始战斗姿态恒为非战斗（读档/重生/进入视野时已在战中的单位要靠它才有正确初始姿态，见
         /// <see cref="AnimStateMachine.Track"/>）。</summary>
         public Func<Id, bool>? CombatProbe { get; set; }
+
+        /// <summary>手感落地 M1 补缺：姿势上下文来源（武器族、步态、变体；手感设计/04 第 2 节），由 <c>PresentationAssembly</c> 在手感启用时经
+        /// <see cref="IPoseContextReceiver"/> 在构造早期交付（早于任何视图创建）。非空时，全局单例 <see cref="AnimClipResolver"/>
+        /// 懒构造时带上它：运动态默认剪辑按 状态 + 步态 + 战斗姿态 + 武器族 + 变体 走姿势回落链解析，来源的上下文变化触发运动态重新解析，
+        /// 换装后待机/移动姿势随武器族切换；为 null（手感未启用）时与此前逐位一致。</summary>
+        private IPoseContextSource? _poseContext;
+
+        /// <summary><see cref="IPoseContextReceiver"/>：必须在全局单例 <see cref="AnimClipResolver"/> 构造之前交付；之后再交付一个不同的来源会显式抛出
+        /// <see cref="InvalidOperationException"/>（已构造的解析器不会改绑，静默忽略会让武器族姿势永远不生效）。同一个来源重复交付视为幂等。</summary>
+        public void SetPoseContextSource(IPoseContextSource source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            if (ReferenceEquals(_poseContext, source))
+            {
+                return;
+            }
+
+            if (_animClipResolver != null)
+            {
+                throw new InvalidOperationException(
+                    "UnityViewFactory 的动画解析器已经构造，无法再改绑姿势上下文来源；请在创建任何视图之前（装配根构造 PresentationAssembly 时）交付。");
+            }
+
+            _poseContext = source;
+        }
 
         /// <summary>ADR-0111：默认剪辑（六个基础状态 + 声明了的战斗姿态变体）的逐层探测在途计数——
         /// (实体, 状态 clipId) -> 尚未结束的 <see cref="ProbeComposedLayersSequential"/> 数量。变体剪辑要等
@@ -2431,7 +2460,8 @@ namespace Adapter.Unity.Presentation
                 },
                 weaponStyleSource: _weaponStyleSource,
                 weaponStyles: ResolveWeaponStyleCatalog(),
-                isClipReady: IsStateClipReady);
+                isClipReady: IsStateClipReady,
+                poseContext: _poseContext);
         }
 
         /// <summary>W6-B 新增：懒解析一次 <c>display.weapon_style</c> 全表（见 <see cref="AnimClipResolver"/>
