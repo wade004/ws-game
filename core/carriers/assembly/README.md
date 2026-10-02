@@ -228,7 +228,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 10. **运动层的 `MotionServices.Actions` 取技能宿主的 `ActionStateQuery`**：时间线动作进行中运动模式为 `Action`。
 11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
 
-已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它（M2-B 已接：见 M2-B 节）；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线（M2-B 已接：见 M2-B 节）；本地玩家绑定在 `PresentationAssembly` 构造时固定；Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）未改，仍直接提交 `cast` 意图并调用不含 `feelOptions` 的可选参数构造重载。
+已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；宽限窗口（grace）本切片只装配追踪与每 tick 采样，施法管线不消费它（M2-B 已接：见 M2-B 节）；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；数据热加载未接线（M2-B 已接：见 M2-B 节）；本地玩家绑定在 `PresentationAssembly` 构造时固定。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
 
 ## 手感落地 S11：时间线目标辅助接进生产装配（2026-10-02）
 

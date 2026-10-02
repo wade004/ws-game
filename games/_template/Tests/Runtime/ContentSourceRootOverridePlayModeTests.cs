@@ -55,13 +55,14 @@ namespace Game.Template.Tests
             }
         }
 
-        private GameBootstrap BuildIsolatedBootstrap()
+        private GameBootstrap BuildIsolatedBootstrap(Action<GameBootstrap>? configureBeforeAwake = null)
         {
             CleanupStaleGameBootstrap();
 
             var go = new GameObject("ContentSourceRootOverrideTest_GameBootstrap");
             go.SetActive(false); // 推迟 Awake：环境变量必须先设置好，见调用方。
             var bootstrap = go.AddComponent<GameBootstrap>();
+            configureBeforeAwake?.Invoke(bootstrap); // 手感落地 M2-A：需要在 Awake 前改 GameOptions（如打开 FeelOptions）的用例用。
             _go = go;
             go.SetActive(true); // 触发 Awake -> Bootstrap()，此时环境变量已经生效。
             return bootstrap;
@@ -150,6 +151,68 @@ namespace Game.Template.Tests
             }
 
             yield return null;
+        }
+
+        /// <summary>
+        /// 手感落地 M2-A：开发期热重载对手感数据同样生效——开手感、运行中改框架手感根里 <c>feel.preset</c> 的一个字段，
+        /// <see cref="DataHotReload"/> 在 Reload 之后补发 <c>data.load_completed</c>，核心装配据此换入新档案，单位读到新值。
+        /// 期望值由编辑本身算出（旧值 + 增量），不写死裸数。
+        /// 判断记录：手感档案的热加载订阅在核心装配里（<c>CarriersFeelSystem</c> 订阅 <c>data.load_completed</c> 换入新档案，手感落地 M2-B），
+        /// 本用例经由真实的 <c>DataHotReload</c> 与引擎引导走完整链路验证。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator GameBootstrap_FeelOn_HotReloadOfFeelPreset_UnitReadsNewValue_AndLoadCompletedIsPublished()
+        {
+            var overrideRoot = CopyDefaultContentRootToTemp();
+            try
+            {
+                Environment.SetEnvironmentVariable(ContentSourceRootOverride.EnvironmentVariable, overrideRoot);
+                var bootstrap = BuildIsolatedBootstrap(b =>
+                    b.Options.FeelOptions = new Core.Carriers.Assembly.CarriersFeelOptions { CalibrationId = "feel.calibration.framework_default" });
+
+                Assert.IsFalse(bootstrap.BootstrapFailed, "开手感的内容根覆盖装配不应失败");
+                var feel = bootstrap.Gameplay!.Feel;
+                Assert.IsNotNull(feel, "开手感：玩法装配应带手感系统");
+                var hotReload = bootstrap.GetComponent<DataHotReload>();
+                Assert.IsNotNull(hotReload, "EnableDataHotReload 默认 true，应挂载 DataHotReload 组件");
+
+                // 数据加载完成事件计数（热重载 Reload 之后由 DataHotReload 补发，见该类型判断记录"事件发出"）。
+                var loadCompleted = 0;
+                var bus = (Core.Foundation.EventBus.IEventBus)typeof(GameBootstrap)
+                    .GetField("_bus", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(bootstrap)!;
+                bus.Subscribe(Core.Foundation.DataRegistry.DataRegistryEventKeys.LoadCompleted, _ => loadCompleted++);
+
+                var field = Core.Foundation.Feel.FeelFieldNames.BufferMs;
+                var before = feel!.Resolver.ResolveJudging(bootstrap.PlayerId).GetNumber(field);
+                var expected = before + 80;
+
+                // 改框架手感根（监视目录）里 arpg_responsive 档（框架缺省标定的基础档，文件里第一行）的 buffer_ms。
+                var presetPath = Path.Combine(overrideRoot, GameOptions.FeelDatasetRoot.Replace('/', Path.DirectorySeparatorChar), "feel", "feel.preset.json");
+                var original = File.ReadAllText(presetPath);
+                // 只改第一处（文件里第一个 buffer_ms 属于 arpg_responsive 档，框架缺省标定的基础档）。
+                var edited = new System.Text.RegularExpressions.Regex(@"""buffer_ms""\s*:\s*[0-9.]+").Replace(
+                    original, "\"buffer_ms\": " + expected.ToString(System.Globalization.CultureInfo.InvariantCulture), 1);
+                Assert.AreNotEqual(original, edited, "测试前置条件：手感预设文件应被改写");
+                File.WriteAllText(presetPath, edited);
+
+                var deadline = Time.realtimeSinceStartup + 10f;
+                var after = before;
+                while (Time.realtimeSinceStartup < deadline)
+                {
+                    yield return null;
+                    hotReload.ProcessPendingChanges();
+                    after = feel.Resolver.ResolveJudging(bootstrap.PlayerId).GetNumber(field);
+                    if (after != before) break;
+                }
+
+                Debug.Log($"[HotReloadFeel] buffer_ms before={before} expected={expected} after={after} loadCompleted={loadCompleted}");
+                Assert.AreEqual(expected, after, 1e-9, "热重载后单位应读到新的缓冲窗口毫秒（不重启）");
+                Assert.GreaterOrEqual(loadCompleted, 1, "DataHotReload 应在 Reload 之后发布 data.load_completed（手感热加载依赖它）");
+            }
+            finally
+            {
+                try { Directory.Delete(overrideRoot, recursive: true); } catch { /* 尽力而为的清理 */ }
+            }
         }
     }
 }
