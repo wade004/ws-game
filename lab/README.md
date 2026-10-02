@@ -48,7 +48,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 | 私服包 `com.gamefoundation.toolchain` | `Tools~/feellab/labroot/`（自包含：上面六棵树各一份） | `Tools~/feellab/bin/FeelLab.dll` |
 | 自己的数据 | 在上面任一实验室根里加 `--data-root <你的数据根>`（叠加在 `_lab` 之后；`--framework-root` 指向你用的框架数据） | 同上 |
 
-例（zip 解压后）：`cd ws-game-<版本>` 后 `dotnet toolchain/feellab/bin/FeelLab.dll suite`，应与框架基线一致（`RESULT total=282 pass=282 ...`；脚本带期望清单时，它前面另有一行 `RESULT expectations total=110 pass=110 fail=0`）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
+例（zip 解压后）：`cd ws-game-<版本>` 后 `dotnet toolchain/feellab/bin/FeelLab.dll suite`，应与框架基线一致（汇总行 `RESULT total=<n> pass=<n> diff=0 missing=0 ...`，`total` 是格子数，`pass` 应等于 `total`；脚本带期望清单时，它前面另有一行 `RESULT expectations total=<n> pass=<n> fail=0`；各数字以 `FeelLab suite` 当次输出为准，随脚本与格子增删变化，拆分口径见本文「数量口径」）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
 
 ### 基线更新流程（有意提交，不允许静默通过）
 
