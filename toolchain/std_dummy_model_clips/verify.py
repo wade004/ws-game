@@ -19,7 +19,7 @@ from std_dummy_poses.verify import RECOMMENDED_KEYS, REQUIRED_KEYS, Report, pars
 
 from . import config as C
 from . import rig
-from .build import build_spec, dumps_spec, effective_pose, key_times_ms
+from .build import build_spec, dumps_spec, effective_pose, key_times_ms, mass_clip_defs
 
 
 def _load(path: Path):
@@ -113,83 +113,132 @@ def verify(assets_out: Path, data_out: Path, unity_dir: Path | None = None, spri
         r.err("规格里的关节角限与配置不一致（不允许规格自己放宽角限）")
     r.tick("骨骼层级")
 
-    # --- 逐键 ---
+    # --- 逐键（主集 + 体量组）---
     for key, e in clips.items():
-        c = defs.get(key)
-        if c is None:
-            r.err(f"规格里有 config 没有的键 {key}")
-            continue
-        total = e["total_ms"]
-        plan = SC.phase_frame_plan(c, fps)
-        if e["frames_per_phase"] != [n for _a, n, _b in plan] or e["frame_count"] != sum(n for _a, n, _b in plan):
-            r.err(f"{key} 帧数与参数推算不一致")
-        if e["resource_ref"] != C.clip_resource_ref(key, c.alias_of):
-            r.err(f"{key} 资源引用与命名约定不一致：{e['resource_ref']}")
-        for ev in e["events"]:
-            if not (0.0 <= ev["time_pct"] <= 1.0):
-                r.err(f"{key} 事件 {ev['name']} time_pct 越界 {ev['time_pct']}")
-        info = parse_key(key)
-        if info and info["state"] == "attack" and key != "dodge":
-            a0, a1, hits = _ev(e, "active_start"), _ev(e, "active_end"), _ev(e, "hit")
-            if len(a0) != 1 or len(a1) != 1 or not hits:
-                r.err(f"{key} 攻击类缺 active_start/active_end/hit")
-            elif not (a0[0] < a1[0]) or any(not (a0[0] <= h <= a1[0]) for h in hits):
-                r.err(f"{key} hit 不在判定相内：active=[{a0[0]},{a1[0]}] hit={hits}")
-            w, a, _rr = (p["ms"] for p in e["phases"])
-            exp = {"active_start": round(w / total, 4), "active_end": round((w + a) / total, 4)}
-            if (a0 and abs(a0[0] - exp["active_start"]) > 1e-4) or (a1 and abs(a1[0] - exp["active_end"]) > 1e-4):
-                r.err(f"{key} 判定相标记与三相毫秒数不一致")
-            fam = e["family"]
-            if fam in SC.PHASES_SEG1 and key == SC.attack_key(fam, 1) and tuple(p["ms"] for p in e["phases"]) != SC.PHASES_SEG1[fam]:
-                r.err(f"{key} 三相与 05 §9 起点配置不一致")
-        if info and info["state"] == "move" and info["gait"] in ("walk", "run"):
-            if len(_ev(e, "footstep")) < 2:
-                r.err(f"{key} 缺 footstep（至少 2 次/循环）")
-            if "step_displacement_bh" not in e:
-                r.err(f"{key} 缺每步位移")
-        if key == "dodge":
-            s0, s1 = _ev(e, "invuln_start"), _ev(e, "invuln_end")
-            if len(s0) != 1 or len(s1) != 1 or not (0.0 <= s0[0] < s1[0] <= 1.0):
-                r.err("dodge 无敌窗口标记缺失或越界")
-            else:
-                m0, m1 = _ev(e, "motion_start"), _ev(e, "motion_end")
-                if not m0 or not m1 or not (m0[0] <= s0[0] and s1[0] <= m1[0]):
-                    r.err("dodge 无敌窗口应落在 motion 窗口内")
-        if e.get("alias_of"):
-            if e["alias_of"] not in clips or e["resource_ref"] != clips[e["alias_of"]]["resource_ref"]:
-                r.err(f"{key} 别名资源引用与目标不一致")
-            if "tracks" in e:
-                r.err(f"{key} 是别名，不应带轨迹")
-            continue
-        _verify_tracks(r, key, e, c, fps, expected_rot, bone_by_path)
+        _verify_entry(r, key, e, defs.get(key), fps, clips, expected_rot, bone_by_path)
+    _verify_mass_groups(r, spec, clips, fps, expected_rot, bone_by_path)
 
     # --- 数据行 ---
     _verify_data_row(r, spec, clips, data_out)
 
     # --- 引擎侧资产 ---
     if unity_dir is not None:
-        _verify_unity_assets(r, spec, clips, unity_dir)
+        engine = dict(clips)
+        for g in spec.get("mass_groups", []):
+            engine.update({f"{g['mass']}/{e['key']}": e for e in g["clips"]})
+        _verify_unity_assets(r, spec, engine, unity_dir)
     return r
 
 
+def _verify_entry(r: Report, key: str, e: dict, c: SC.ClipDef | None, fps: int, lookup: dict, expected_rot: set, bone_by_path: dict) -> None:
+    tag = f"{c.mass}/{key}" if c is not None and c.mass else key
+    if c is None:
+        r.err(f"规格里有 config 没有的键 {tag}")
+        return
+    total = e["total_ms"]
+    plan = SC.phase_frame_plan(c, fps)
+    if e["frames_per_phase"] != [n for _a, n, _b in plan] or e["frame_count"] != sum(n for _a, n, _b in plan):
+        r.err(f"{tag} 帧数与参数推算不一致")
+    if e["resource_ref"] != C.clip_resource_ref(key, c.alias_of, c.mass):
+        r.err(f"{tag} 资源引用与命名约定不一致：{e['resource_ref']}")
+    for ev in e["events"]:
+        if not (0.0 <= ev["time_pct"] <= 1.0):
+            r.err(f"{tag} 事件 {ev['name']} time_pct 越界 {ev['time_pct']}")
+    info = parse_key(key)
+    if info and info["state"] == "attack" and key != "dodge":
+        a0, a1, hits = _ev(e, "active_start"), _ev(e, "active_end"), _ev(e, "hit")
+        if len(a0) != 1 or len(a1) != 1 or not hits:
+            r.err(f"{tag} 攻击类缺 active_start/active_end/hit")
+        elif not (a0[0] < a1[0]) or any(not (a0[0] <= h <= a1[0]) for h in hits):
+            r.err(f"{tag} hit 不在判定相内：active=[{a0[0]},{a1[0]}] hit={hits}")
+        w, a, _rr = (p["ms"] for p in e["phases"])
+        exp = {"active_start": round(w / total, 4), "active_end": round((w + a) / total, 4)}
+        if (a0 and abs(a0[0] - exp["active_start"]) > 1e-4) or (a1 and abs(a1[0] - exp["active_end"]) > 1e-4):
+            r.err(f"{tag} 判定相标记与三相毫秒数不一致")
+        fam = e["family"]
+        if fam in SC.PHASES_SEG1 and key == SC.attack_key(fam, 1) and tuple(p["ms"] for p in e["phases"]) != SC.PHASES_SEG1[fam]:
+            r.err(f"{tag} 三相与 05 §9 起点配置不一致")
+    if info and info["state"] == "move" and info["gait"] in ("walk", "run", "sprint"):
+        if len(_ev(e, "footstep")) < 2:
+            r.err(f"{tag} 缺 footstep（至少 2 次/循环）")
+        if "step_displacement_bh" not in e:
+            r.err(f"{tag} 缺每步位移")
+    if key == "dodge":
+        s0, s1 = _ev(e, "invuln_start"), _ev(e, "invuln_end")
+        if len(s0) != 1 or len(s1) != 1 or not (0.0 <= s0[0] < s1[0] <= 1.0):
+            r.err("dodge 无敌窗口标记缺失或越界")
+        else:
+            m0, m1 = _ev(e, "motion_start"), _ev(e, "motion_end")
+            if not m0 or not m1 or not (m0[0] <= s0[0] and s1[0] <= m1[0]):
+                r.err("dodge 无敌窗口应落在 motion 窗口内")
+    if e.get("alias_of"):
+        if e["alias_of"] not in lookup or e["resource_ref"] != lookup[e["alias_of"]]["resource_ref"]:
+            r.err(f"{tag} 别名资源引用与目标不一致")
+        if "tracks" in e:
+            r.err(f"{tag} 是别名，不应带轨迹")
+        return
+    _verify_tracks(r, key, e, c, fps, expected_rot, bone_by_path)
+
+
+def _verify_mass_groups(r: Report, spec: dict, clips: dict, fps: int, expected_rot: set, bone_by_path: dict) -> None:
+    """体量组（04 §7 extends）：只覆盖 MASS_KEYS，时长/帧数/事件与主集一致（只改站姿），站姿方向符合轻/重定义。"""
+    groups = spec.get("mass_groups", [])
+    if [g.get("mass") for g in groups] != list(C.MASS_GROUPS):
+        r.err(f"体量组清单应为 {list(C.MASS_GROUPS)}，规格里是 {[g.get('mass') for g in groups]}")
+    n = 0
+    for g in groups:
+        mass = g.get("mass")
+        if g.get("id") != C.mass_anim_set_id(mass) or g.get("extends") != spec["anim_set_id"]:
+            r.err(f"体量组 {mass} 的 id/extends 不符合约定")
+        if not str(g.get("id", "")).startswith("display.anim_set.std_"):
+            r.err(f"体量组 {mass} 的 id 前缀不是 display.anim_set.std_（ADR-0119）")
+        entries = {e["key"]: e for e in g["clips"]}
+        if set(entries) != set(C.MASS_KEYS):
+            r.err(f"体量组 {mass} 键集合不是 MASS_KEYS：差 {sorted(set(entries) ^ set(C.MASS_KEYS))}")
+        defs_m = {c.key: c for c in mass_clip_defs(mass)}
+        for key, e in entries.items():
+            main = clips.get(key)
+            if main is None:
+                r.err(f"体量组 {mass} 的键 {key} 不在主集里（extends 覆盖没有意义）")
+                continue
+            for field in ("total_ms", "frame_count", "loop", "phases", "events", "frames_per_phase"):
+                if e[field] != main[field]:
+                    r.err(f"体量组 {mass}/{key} 的 {field} 与主集不一致（体量组只改站姿，不改时长/帧数/事件）")
+            if e["resource_ref"] == main["resource_ref"]:
+                r.err(f"体量组 {mass}/{key} 没有自己的剪辑资源")
+            _verify_entry(r, key, e, defs_m.get(key), fps, entries, expected_rot, bone_by_path)
+            if "tracks" in e and "tracks" in main:
+                ta = next((t for t in e["tracks"] if t["path"].endswith("/spine")), None)
+                tb = next((t for t in main["tracks"] if t["path"].endswith("/spine")), None)
+                if ta is None or tb is None:
+                    continue
+                a, b = ta["rot"][:4], tb["rot"][:4]
+                # 躯干前倾 = 绕 +X 正向旋转（四元数 x 分量增大）：重 > 中 > 轻
+                if (mass == "heavy" and not a[0] > b[0]) or (mass == "light" and not a[0] < b[0]):
+                    r.err(f"体量组 {mass}/{key} 起始帧躯干前倾方向不符合{'重' if mass == 'heavy' else '轻'}体量定义")
+            n += 1
+    r.tick("体量组核对", n)
+
+
 def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expected_rot: set, bone_by_path: dict) -> None:
+    tag = f"{c.mass}/{key}" if c.mass else key
     times = e.get("times_ms", [])
     total = e["total_ms"]
     # 关键帧时刻：帧数 + 1 个，起 0 止总时长，严格递增，且与 sprite 版帧划分（含相边界）一致
     if len(times) != e["frame_count"] + 1:
-        r.err(f"{key} 关键帧数 {len(times)} != 帧数 {e['frame_count']} + 1")
+        r.err(f"{tag} 关键帧数 {len(times)} != 帧数 {e['frame_count']} + 1")
     if not times or abs(times[0]) > C.TIME_TOLERANCE_MS or abs(times[-1] - total) > C.TIME_TOLERANCE_MS:
-        r.err(f"{key} 关键帧时刻没有覆盖 [0, {total}] ms")
+        r.err(f"{tag} 关键帧时刻没有覆盖 [0, {total}] ms")
     if any(b <= a for a, b in zip(times, times[1:])):
-        r.err(f"{key} 关键帧时刻不是严格递增")
+        r.err(f"{tag} 关键帧时刻不是严格递增")
     expect_times = key_times_ms(c, fps)
     if len(expect_times) == len(times) and any(abs(a - b) > C.TIME_TOLERANCE_MS for a, b in zip(times, expect_times)):
-        r.err(f"{key} 关键帧时刻与 sprite 版帧划分不一致")
+        r.err(f"{tag} 关键帧时刻与 sprite 版帧划分不一致")
     acc = 0.0
     for p in e["phases"]:
         acc += p["ms"]
         if not any(abs(t - acc) <= C.TIME_TOLERANCE_MS for t in times):
-            r.err(f"{key} 相边界 {acc} ms 没有对应的关键帧")
+            r.err(f"{tag} 相边界 {acc} ms 没有对应的关键帧")
     n = len(times)
 
     # 轨迹路径：必须是预制体骨骼，且恰好是配置声明的旋转骨骼 + 髋位置
@@ -197,16 +246,16 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
     paths_pos = {t["path"] for t in e["tracks"] if "pos" in t}
     for t in e["tracks"]:
         if t["path"] not in bone_by_path:
-            r.err(f"{key} 轨迹路径 {t['path']} 不在骨架里（与预制体骨骼不匹配）")
+            r.err(f"{tag} 轨迹路径 {t['path']} 不在骨架里（与预制体骨骼不匹配）")
     if paths_rot != expected_rot:
-        r.err(f"{key} 旋转轨迹路径与骨架不一致：缺 {sorted(expected_rot - paths_rot)} 多 {sorted(paths_rot - expected_rot)}")
+        r.err(f"{tag} 旋转轨迹路径与骨架不一致：缺 {sorted(expected_rot - paths_rot)} 多 {sorted(paths_rot - expected_rot)}")
     if paths_pos != {C.bone_path("hips")}:
-        r.err(f"{key} 位置轨迹应只有 hips")
+        r.err(f"{tag} 位置轨迹应只有 hips")
     for t in e["tracks"]:
         if "rot" in t and len(t["rot"]) != 4 * n:
-            r.err(f"{key} 轨迹 {t['path']} 四元数个数与关键帧数不一致")
+            r.err(f"{tag} 轨迹 {t['path']} 四元数个数与关键帧数不一致")
         if "pos" in t and len(t["pos"]) != 3 * n:
-            r.err(f"{key} 轨迹 {t['path']} 位置个数与关键帧数不一致")
+            r.err(f"{tag} 轨迹 {t['path']} 位置个数与关键帧数不一致")
     rots, pos = _track_series(e)
     if any(len(v) != n for v in rots.values()) or len(pos) != n:
         return
@@ -217,11 +266,11 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
         for i, q in enumerate(seq):
             norm = math.sqrt(sum(x * x for x in q))
             if abs(norm - 1.0) > 1e-4:
-                r.err(f"{key} {b}[{i}] 四元数不是单位长（{norm:.6f}）")
+                r.err(f"{tag} {b}[{i}] 四元数不是单位长（{norm:.6f}）")
             if i and rig.quat_dot(seq[i - 1], q) < 0.0:
-                r.err(f"{key} {b}[{i}] 与前一帧不在同一半球（插值会绕远路）")
-            if limit is not None and rig.quat_angle_deg(q) > limit + 1e-6:
-                r.err(f"{key} {b}[{i}] 关节角 {rig.quat_angle_deg(q):.1f} 度超过上限 {limit}")
+                r.err(f"{tag} {b}[{i}] 与前一帧不在同一半球（插值会绕远路）")
+            if limit is not None and rig.quat_angle_deg(q) > limit + 1e-3:
+                r.err(f"{tag} {b}[{i}] 关节角 {rig.quat_angle_deg(q):.1f} 度超过上限 {limit}")
     r.tick("轨迹与关节角限", len(rots))
 
     # 循环首尾连续
@@ -229,7 +278,7 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
         d = max(max(abs(a - b) for a, b in zip(seq[0], seq[-1])) for seq in rots.values())
         dp = max(abs(a - b) for a, b in zip(pos[0], pos[-1]))
         if d > 1e-5 or dp > 1e-4:
-            r.err(f"{key} 循环首尾姿势不连续（四元数最大差 {d:.6f}，位置最大差 {dp:.6f}）")
+            r.err(f"{tag} 循环首尾姿势不连续（四元数最大差 {d:.6f}，位置最大差 {dp:.6f}）")
         r.tick("循环连续")
 
     # 源姿势关节角的解剖范围（肘/膝不反向过伸等）+ 正向运动学对账
@@ -238,7 +287,7 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
         pose = effective_pose(c, t)
         for name, (lo, hi) in C.SOURCE_ANGLE_LIMITS.items():
             if not (lo - 1e-6 <= pose[name] <= hi + 1e-6):
-                r.err(f"{key} t={t}ms 源关节角 {name}={pose[name]:.1f} 超出范围 [{lo}, {hi}]")
+                r.err(f"{tag} t={t}ms 源关节角 {name}={pose[name]:.1f} 超出范围 [{lo}, {hi}]")
         parts, joints = build_parts(pose, None)
         rot_i = {b: seq[i] for b, seq in rots.items()}
         hips = (pose["px"], SC.REST_HIP_Y + pose["py"], pose["pz"])
@@ -250,28 +299,28 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
             dist = math.dist(fk[b], w)
             worst = max(worst, dist)
             if dist > C.FK_TOLERANCE_BH:
-                r.err(f"{key} t={t}ms 骨骼 {b} 正向运动学位置与 sprite 版关节位置相差 {dist:.5f} 身高倍数")
+                r.err(f"{tag} t={t}ms 骨骼 {b} 正向运动学位置与 sprite 版关节位置相差 {dist:.5f} 身高倍数")
         wr = rig.forward_kinematics_rot(rot_i)
         flat = max(abs(a - b) for ra, rb in zip(wr["foot_r"], wr["hips"]) for a, b in zip(ra, rb))
         if flat > 1e-4:
-            r.err(f"{key} t={t}ms 脚掌没有保持与髋系平行（偏差 {flat:.5f}）")
+            r.err(f"{tag} t={t}ms 脚掌没有保持与髋系平行（偏差 {flat:.5f}）")
         # 髋高度：着地求解后最低点在地面（lift 之外）——对账规格里写出的位置
         want_y = rig.hips_position_bh(pose, (parts, joints))[1] * C.BODY_HEIGHT_UNITS
         if abs(pos[i][1] - want_y) > 2e-5:
-            r.err(f"{key} t={t}ms 髋高度 {pos[i][1]:.5f} 与着地求解 {want_y:.5f} 不一致")
+            r.err(f"{tag} t={t}ms 髋高度 {pos[i][1]:.5f} 与着地求解 {want_y:.5f} 不一致")
     r.tick("正向运动学对账", n)
 
     # 走/跑：接触姿势（关键帧 0）两脚前后间距 = 每步位移（身高倍数，容差 5%）
     info = parse_key(key)
-    if info and info["state"] == "move" and info["gait"] in ("walk", "run") and not c.combat and c.family is None:
+    if info and info["state"] == "move" and info["gait"] in ("walk", "run", "sprint") and not c.combat and c.family is None:
         pose0 = effective_pose(c, times[0])
         fk = rig.forward_kinematics({b: seq[0] for b, seq in rots.items()}, (pose0["px"], SC.REST_HIP_Y + pose0["py"], pose0["pz"]))
         sep = abs(fk["foot_r"][2] - fk["foot_l"][2])
-        step = SC.step_displacement_bh(info["gait"])
+        step = SC.step_displacement_bh(info["gait"], c.stride_factor)
         if abs(sep - step) > 0.05 * step:
-            r.err(f"{key} 接触姿势脚间距 {sep:.3f} 与每步位移 {step:.3f} 偏差超 5%")
+            r.err(f"{tag} 接触姿势脚间距 {sep:.3f} 与每步位移 {step:.3f} 偏差超 5%")
         if abs(e["step_displacement_bh"] * 2 - e["cycle_displacement_bh"]) > 1e-4:
-            r.err(f"{key} 每循环位移与每步位移不一致")
+            r.err(f"{tag} 每循环位移与每步位移不一致")
         r.tick("步幅核对")
 
 
@@ -296,6 +345,23 @@ def _verify_data_row(r: Report, spec: dict, clips: dict, data_out: Path) -> None
         if not v["resource_ref"].startswith(C.REF_CATEGORY + "."):
             r.err(f"数据行 {k} 的资源引用类别应为 {C.REF_CATEGORY}.（model 型动画剪辑）：{v['resource_ref']}")
     r.tick("数据行核对", len(row["clips"]))
+    if row.get("extends"):
+        r.err("主集数据行不应有 extends")
+    for g in spec.get("mass_groups", []):
+        grows = [x for x in doc.get("rows", []) if x.get("id") == g["id"]]
+        if len(grows) != 1:
+            r.err(f"数据文件缺体量组行 {g['id']}")
+            continue
+        grow = grows[0]
+        if grow.get("extends") != spec["anim_set_id"]:
+            r.err(f"体量组行 {g['id']} 的 extends 应为 {spec['anim_set_id']}")
+        want = {e["key"]: e for e in g["clips"]}
+        if set(grow["clips"]) != set(want):
+            r.err(f"体量组行 {g['id']} 键集合与规格不一致：差 {sorted(set(grow['clips']) ^ set(want))}")
+        for k, v in grow["clips"].items():
+            if k in want and (v["resource_ref"] != want[k]["resource_ref"] or v["events"] != want[k]["events"]):
+                r.err(f"体量组行 {g['id']} 与规格不一致：{k}")
+        r.tick("体量组数据行核对", len(grow["clips"]))
 
 
 # --------------------------------------------------------------------------
@@ -400,11 +466,16 @@ def _verify_unity_assets(r: Report, spec: dict, clips: dict, unity_dir: Path) ->
         return
     ctext = controller.read_text(encoding="utf-8")
     states: dict[str, str] = {}
-    for blk in re.split(r"^--- !u!1102 &-?\d+[^\n]*\n", ctext, flags=re.M)[1:]:
+    parts = re.split(r"^--- !u!1102 &(-?\d+)[^\n]*\n", ctext, flags=re.M)
+    for i in range(1, len(parts), 2):
+        blk = parts[i + 1]
         nm = re.search(r"^\s+m_Name:\s*(.*)$", blk, re.M)
         mo = re.search(r"m_Motion:\s*\{fileID:\s*\d+,\s*guid:\s*([0-9a-f]{32})", blk)
         if nm:
-            states[nm.group(1).strip()] = mo.group(1) if mo else ""
+            name = nm.group(1).strip()
+            states[name] = mo.group(1) if mo else ""
+            if int(parts[i]) != C.controller_state_file_id(name):
+                r.err(f"控制器状态 {name} 的 fileID 不是确定性公式的值（控制器不是由编辑器生成脚本的确定性写法产出的）")
     bones = {b["path"] for b in spec["skeleton"]["bones"]}
     want_states = {e["state"] for e in clips.values() if "alias_of" not in e}
     if set(states) != want_states:

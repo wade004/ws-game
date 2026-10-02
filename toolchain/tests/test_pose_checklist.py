@@ -100,11 +100,14 @@ def test_sprint_missing_falls_back_to_run_in_report():
 def test_std_dummy_biped_has_zero_pose_issues():
     path = REPO / "data" / "_framework" / "display" / "display.anim_set.json"
     rows = json.loads(path.read_text(encoding="utf-8"))["rows"]
-    # sprite 型与 model 型两版并列（手感设计/04 第 10 节），都必须零姿势问题
-    assert [r["id"] for r in rows] == ["display.anim_set.std_dummy_biped", "display.anim_set.std_dummy_biped_model"]
+    # sprite 型与 model 型两版并列（手感设计/04 第 10 节），model 型另有轻/重体量两组 extends 偏移行；全部必须零姿势问题
+    assert sorted(r["id"] for r in rows) == sorted([
+        "display.anim_set.std_dummy_biped", "display.anim_set.std_dummy_biped_model",
+        "display.anim_set.std_dummy_biped_model_light", "display.anim_set.std_dummy_biped_model_heavy"])
     assert _run(rows) == []
     for row in rows:
-        assert _run([row]) == []
+        if "extends" not in row:        # extends 行要靠同表的主集行合并，单独校验没有意义
+            assert _run([row]) == []
 
 
 def test_python_checklist_matches_csharp_source_of_truth():

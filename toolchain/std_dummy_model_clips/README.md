@@ -31,9 +31,9 @@ python toolchain/gen_std_dummy_model_clips.py --check --no-unity   # 只验规�
 | 文件 | 说明 |
 |---|---|
 | `assets/_placeholder/std_dummy_model_clips.json` | 规格（唯一机器可读来源）：骨架、方块可视件、逐剪辑关键帧（旋转四元数、髋位置）、数据行事件、烘进剪辑的事件 |
-| `data/_framework/display/display.anim_set.json` 里 `display.anim_set.std_dummy_biped_model` 一行 | 34 个键 → `anim.std_dummy_<键点号换下划线>`，事件与序列帧版同源（别名键 `attack` 复用 `attack.unarmed`） |
+| `data/_framework/display/display.anim_set.json` 里 `display.anim_set.std_dummy_biped_model` 一行 | 103 个键 → `anim.std_dummy_<键点号换下划线>`，事件与序列帧版同源（别名键如 `attack`、各族战斗冲刺复用对应剪辑）；另有 `_light`／`_heavy` 两行体量组（`extends` 主集，各 8 个键） |
 | `adapters/unity/Assets/Resources/GameFoundation/models/std_dummy_biped.{prefab,controller}` | 模型资源与动画控制器（每份剪辑一个状态，状态名 = 剪辑名，预置完成事件中继） |
-| `adapters/unity/Assets/Resources/GameFoundation/anim_clips/std_dummy_*.anim` | 33 份剪辑资产（别名键不单独出） |
+| `adapters/unity/Assets/Resources/GameFoundation/anim_clips/std_dummy_*.anim` | 108 份剪辑资产（主集 94 份 + 体量组 14 份，别名键不单独出） |
 
 ## 骨骼与约定
 
@@ -47,7 +47,7 @@ python toolchain/gen_std_dummy_model_clips.py --check --no-unity   # 只验规�
 
 关键帧取在序列帧版帧边界上（相内帧均分，相边界与三相毫秒数精确对齐），含终点：关键帧数 = 帧数 + 1；循环剪辑终点 = 起点。
 引擎逐段线性插值。命名事件（04 第 5 节）逐键写进数据行，同时烘进剪辑资产（`functionName=OnAnimEvent`，字符串参数=事件名）；
-烘进的事件里每个 `hit` 旁多一条同刻 `hit_frame`（角色外壳识别的命中帧事件名，见 04 第 10 节勘误）。
+烘进的事件里每个 `hit` 旁保证有一条同刻 `hit_frame`（数据行事件已带则不重复；角色外壳识别的命中帧事件名，见 04 第 10 节勘误）。
 
 ## 自检（`--check`；也是生成后的自动步骤，被 `toolchain/tests/test_std_dummy_model_clips.py` 覆盖，登记在门禁 `std_dummy_model_clips` 步骤）
 
@@ -71,16 +71,19 @@ python toolchain/gen_std_dummy_model_clips.py --check --no-unity   # 只验规�
 5. **关键帧在序列帧版帧边界、线性插值**：与序列帧版逐帧一一对应；不另做曲线拟合。代价是关键帧数比手 K 动画密（20 帧/秒），换来可逐帧对账与确定性。
 6. **铰链关节（肘、膝）取样时夹在 [0,150] 度**：序列帧版受击/倒地姿势的肘角会到负值（二维剪影里看不出），骨骼上就是手臂反折；只在骨骼版夹紧，不改序列帧版姿势函数（它已发布，改动会让已入库序列帧产物整体变化）。
 7. **命中事件别名 `hit_frame`**：数据行事件只写 04 第 5 节的 `hit`（与序列帧版同源），角色外壳（ADR-0017）识别的是 `hit_frame`；在烘进剪辑的事件里同刻多放一条别名，使命中帧同步在 model 型单位上真实落在判定相中点。
-8. **只出一组中等体量标称步幅**：04 第 7 节把体量差异表达为"选哪套姿势集"，首版与序列帧版一样只出一组；各体量/步幅组按需增补，不预铺。
+8. **体量轴落两组偏移姿势集，步幅轴参数化**：步幅就是运行期播放速率（02 第 7 节），不出独立资产；体量只改站姿（躯干前倾、重心、四肢开合），不改时长、帧数、事件、每步位移，所以做成数据行 `display.anim_set.std_dummy_biped_model_light`／`_heavy`，用 `extends` 继承主集，只声明待机、战斗待机、走、跑、冲刺（含冲刺别名）8 个键、7 份独立剪辑；站姿偏移按 `mass_profiles_deg` 关节角表叠加在主集同一姿势上。选择独立资产全套会让资产体积乘 3，且无新信息。
 9. **四元数保 6 位小数、位置保 5 位**：规格体积（约 300 KB）与跨平台浮点末位差异的折中；自检用的容差（1e-4 身高）远大于舍入误差。
-10. **控制器每次重新生成会换 guid，剪辑与预制体不换**：控制器状态是子资产，原地增量容易残留孤儿状态，所以删除重建；剪辑与预制体原地覆盖，.meta 稳定。
+10. **控制器由生成脚本手写 YAML、`.meta` guid 稳定**：控制器的状态与中继行为的 fileID 取状态名的 FNV-1a 64 位散列（有符号），资产里的剪辑引用 guid 取自 `AssetPathToGUID`，控制器的 `.meta` 只写一次、之后原样保留；因此重复生成两次逐字节一致。自检校验每个状态的 fileID 等于公式值（回归：之前由引擎自己分配随机 fileID，每次生成都抖）。
+11. **既有剪辑只追加不改**：既有 33 份 `.anim`（对应首版 34 个键）与预制体字节不变；预制体 fileID 是引擎随机分配的，所以只在结构（层级、组件、控制器引用）真的变化时才重写（`Equivalent` 判等），否则跳过。
+12. **`genericBindings` 靠临时预制体烘进剪辑**：引擎只在"带 Animator 与控制器的预制体存盘"时把 `genericBindings` 写进剪辑，单独生成剪辑得到的是缺绑定的剪辑；生成脚本因此先把全部剪辑挂到一个临时预制体上存盘，再删除临时预制体（`_bake_scratch*` 不留）。
+13. **冲刺键别名**：战斗站姿的冲刺键 `move.sprint.combat*` 别名到无站姿的冲刺剪辑（不另出资源），因为键回落链在冲刺键耗尽前不退回奔跑，每个族的冲刺键都得登记。
+14. **弓的 `release`**：弓攻击在 `hit` 同刻另放 `release`（放箭点）；数据行事件里已有 `hit_frame`（序列帧版同样写），骨骼版烘 `hit_frame` 别名时按"同名同时刻已存在则不重复"去重。
 
 ## 已知限制
 
-- 只出一组中等体量、标称步幅的姿势集；04 第 6.1 节的"轻/中/重体量 × 短/中/长步幅"其余各组本版不出。
+- 体量轴只有轻、重两组偏移姿势集（仅待机与移动站姿，攻击、受击等沿主集）；步幅轴靠运行期播放速率，不另出资产。
 - 占位模型只有方块可视件，没有蒙皮、没有材质区分（左右、主副手同色）；块体厚度与序列帧版零件的厚度不完全相同，着地高度取自序列帧版零件的包络，不做像素级贴地验证。
 - 肩、髋后伸的角限比人体范围宽：受击后飞与倒地姿势用"腿绕髋整体后摆"表达躺平（骨盆没有俯仰自由度），极值帧（`hit.knockback`、`death`）上肢姿势因肘/膝夹紧比序列帧版更直。
 - 骨骼剪辑不带根运动：每循环位移只写在规格里（与 `display.map.stride_distance` 配合），髋位置曲线是相对原点的原地姿势位置。
 - 动画控制器的状态之间没有过渡连线，切换由 `PlayAnim` 的交叉淡入驱动；完成事件靠每个状态预置的中继行为。
-- 序列帧版同样只写 `hit` 事件，其命中帧关键帧名（`hit_frame`）缺口不在本次范围；`hit_frame` 别名只给 model 型。
-- 可选键（`move.sprint`、启停过渡、`hit.launch`、`stunned`、`block`、`wounded` 变体）与 `polearm`/`bow`/`staff`/`dual`/`shield` 族本版不出（同序列帧版）。
+- 新增五个族的武器块是方块占位，不做细节；格挡、眩晕、击飞是关键姿势插值的占位动作，不含物理。

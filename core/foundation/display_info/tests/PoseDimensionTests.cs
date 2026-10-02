@@ -476,10 +476,16 @@ namespace Tests.Foundation.DisplayInfo
             // 解析抽查：2h 武器族跑步战斗姿态命中 move.run.combat.2h；
             PoseResolver.TryResolve(new PoseRequest("move", "run", "combat", "2h"), def.Clips, out _, out var r1);
             Assert.Equal("move.run.combat.2h", r1.CanonicalKey);
-            // 假人集没有 move.sprint 系列：冲刺（战斗、2h）先试完带 sprint 的候选，再按 run 重走，命中 move.run.combat.2h。
+            // 假人集现已带 move.sprint 系列（含各族与战斗站姿）：冲刺（战斗、2h）第一个候选就命中，不再退回奔跑；
+            // 其余族（长柄、弓、法杖、双持、盾牌）同样直接命中自己的冲刺键。
             PoseResolver.TryResolve(new PoseRequest("move", "sprint", "combat", "2h"), def.Clips, out _, out var r2);
             Assert.Equal("move.sprint.combat.2h", r2.Tried[0]);
-            Assert.Equal("move.run.combat.2h", r2.CanonicalKey);
+            Assert.Equal("move.sprint.combat.2h", r2.CanonicalKey);
+            foreach (var family in new[] { "polearm", "bow", "staff", "dual", "shield" })
+            {
+                PoseResolver.TryResolve(new PoseRequest("move", "sprint", "combat", family), def.Clips, out _, out var rf);
+                Assert.Equal("move.sprint.combat." + family, rf.CanonicalKey);
+            }
         }
 
         // ------------------------------------------------------------------ 辅助

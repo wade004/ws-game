@@ -298,7 +298,7 @@ def test_weapon_style_and_feel_weapon_must_share_id(real_tables, tmp_path):
 
 def test_family_without_pose_keys_warns_and_skips_per_key_requirement(real_tables, tmp_path):
     t = _only_item(real_tables, SWORD)
-    t["feel.weapon"] = [dict(r, family="polearm") if r["id"] == "feel.weapon.sword_1h" else r for r in t["feel.weapon"]]
+    t["feel.weapon"] = [dict(r, family="whip") if r["id"] == "feel.weapon.sword_1h" else r for r in t["feel.weapon"]]
     assets = _sword_assets(tmp_path)
     shutil.rmtree(assets / "sprite_anim" / "item_std_sword_1h__std_dummy_idle_1h__front__hand_main")  # 不逐键要求
     report = _run(t, assets)
@@ -347,7 +347,10 @@ def test_direction_count_four_needs_only_four_direction_canonicals(real_tables, 
     t = _only_item(real_tables, SWORD)
     t["display.equip_visual"] = [{k: v for k, v in r.items() if k != "preview_direction"} for r in t["display.equip_visual"]]
     r4 = _run(t, _sword_assets(tmp_path), direction_count=4)     # front/side_r/back 都有，4 方向更宽松
-    assert _checks(r4, "error") == [] and r4.items[0].clip_slots == 18 * 3
+    assert _checks(r4, "error") == []
+    # 层剪辑槽 = 键数 × 方向档数：4 方向只要 3 个 canonical 档（front/side_r/back），默认 8 方向要 5 个；键数由姿势集推，不写死
+    r8 = _run(t, _sword_assets(tmp_path))
+    assert r4.items[0].clip_slots * 5 == r8.items[0].clip_slots * 3
 
 
 def test_model_slot_and_socket_naming():

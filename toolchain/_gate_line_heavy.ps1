@@ -213,6 +213,24 @@ try {
     }
 
     # -----------------------------------------------------------------------
+    # 5b+. sprite 型假人姿势集一致性检查（手感设计/04 第 6.2 节）：只读自检——必备/推荐键、事件、帧数、方向档命名、
+    #      步幅、武器层随帧、资源目录与规格对账。需要 Pillow（读帧图尺寸），与 placeholder_assets 同样 -Quick 跳过
+    #      （约 13 秒，不是秒级步骤）；model 型版本（下一步 5c）是纯文本解析，不受 -Quick 跳过。
+    # -----------------------------------------------------------------------
+    if ($Quick) {
+        Add-SkippedStep "python toolchain/gen_std_dummy_poses.py --check" "-Quick" -Id "std_dummy_poses"
+    } else {
+        Invoke-CheckStep "python toolchain/gen_std_dummy_poses.py --check" -Id "std_dummy_poses" {
+            Push-Location $RepoRoot
+            try {
+                Test-NativeExitCode "python" @("toolchain/gen_std_dummy_poses.py", "--check")
+            } finally {
+                Pop-Location
+            }
+        }
+    }
+
+    # -----------------------------------------------------------------------
     # 5c. model 型假人姿势集（骨骼剪辑）一致性检查（手感设计/04 第 6.1 节）：只读自检——规格对账、必备键/事件/帧数、
     #     骨骼路径与关节角限、与 sprite 版同源、数据行，以及已入库的引擎侧预制体/控制器/.anim 与规格一致
     #     （解析 YAML 文本，不启动 Unity）。纯 Python、秒级，不需要 Pillow，因此不受 -Quick 跳过。

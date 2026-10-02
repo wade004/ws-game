@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -43,6 +44,12 @@ def effective_pose(clip: SC.ClipDef, t_ms: float) -> dict:
         v = p[name]
         if v < lo or v > hi:
             p = dict(p, **{name: min(hi, max(lo, v))})
+    if clip.mass:
+        # 体量组（config.MASS_PROFILES）：只加静态站姿偏移；偏移后的肩/髋外展与躯干/头角度仍受 SOURCE_ANGLE_LIMITS 自检。
+        prof = C.MASS_PROFILES[clip.mass]
+        p = dict(p, t_pitch=p["t_pitch"] + prof["t_pitch"], h_pitch=p["h_pitch"] + prof["h_pitch"],
+                 m_sa=p["m_sa"] + prof["sa"], o_sa=p["o_sa"] + prof["sa"],
+                 m_ha=p["m_ha"] + prof["ha"], o_ha=p["o_ha"] + prof["ha"])
     return p
 
 
@@ -51,7 +58,8 @@ def anim_events(events: list[dict]) -> list[dict]:
     out = [dict(e) for e in events]
     for e in events:
         alias = C.ENGINE_EVENT_ALIASES.get(e["name"])
-        if alias:
+        # 数据行事件自己已带别名事件（同名同时刻，手感落地 M3-D 起 sprite 版同源写入 hit_frame）时不重复烘。
+        if alias and not any(x["name"] == alias and abs(x["time_pct"] - e["time_pct"]) < 1e-9 for x in events):
             out.append({"name": alias, "time_pct": e["time_pct"]})
     return out
 
@@ -94,36 +102,46 @@ def build_skeleton() -> dict:
             "position_bones": [C.bone_path("hips")]}
 
 
+def mass_clip_defs(mass: str) -> list[SC.ClipDef]:
+    """体量组的剪辑定义：取主集同键的定义，加上体量标记（别名键的目标同样指向组内剪辑，键名不变）。"""
+    base = {c.key: c for c in SC.build_clip_defs()}
+    return [dataclasses.replace(base[k], mass=mass) for k in C.MASS_KEYS]
+
+
+def clip_entry(c: SC.ClipDef, fps: int) -> dict:
+    entry: dict = {
+        "key": c.key,
+        "resource_ref": C.clip_resource_ref(c.key, c.alias_of, c.mass),
+        "tier": c.tier,
+        "family": c.family,
+        "loop": c.loop,
+        "phases": [{"name": n, "ms": ms} for n, ms in c.phases],
+        "frames_per_phase": [n for _a, n, _d in SC.phase_frame_plan(c, fps)],
+        "frame_count": sum(n for _a, n, _d in SC.phase_frame_plan(c, fps)),
+        "total_ms": c.total_ms,
+        "events": clip_events(c),
+    }
+    if c.alias_of:
+        entry["alias_of"] = c.alias_of
+    else:
+        times = key_times_ms(c, fps)
+        entry["state"] = C.clip_state_name(c.key, c.mass)
+        entry["weapon_layer_family"] = c.weapon_layer_family
+        entry["anim_events"] = anim_events(entry["events"])
+        entry["times_ms"] = times
+        entry["tracks"] = clip_tracks(c, times)
+    if c.gait:
+        step = SC.step_displacement_bh(c.gait, c.stride_factor)
+        entry["step_displacement_bh"] = round(step, 4)
+        entry["cycle_displacement_bh"] = round(step * 2, 4)
+        entry["cycle_displacement_units"] = round(step * 2 * C.BODY_HEIGHT_UNITS, 4)
+    return entry
+
+
 def build_spec(fps: int = C.FPS) -> dict:
-    clips = []
-    for c in SC.build_clip_defs():
-        entry: dict = {
-            "key": c.key,
-            "resource_ref": C.clip_resource_ref(c.key, c.alias_of),
-            "tier": c.tier,
-            "family": c.family,
-            "loop": c.loop,
-            "phases": [{"name": n, "ms": ms} for n, ms in c.phases],
-            "frames_per_phase": [n for _a, n, _d in SC.phase_frame_plan(c, fps)],
-            "frame_count": sum(n for _a, n, _d in SC.phase_frame_plan(c, fps)),
-            "total_ms": c.total_ms,
-            "events": clip_events(c),
-        }
-        if c.alias_of:
-            entry["alias_of"] = c.alias_of
-        else:
-            times = key_times_ms(c, fps)
-            entry["state"] = C.clip_state_name(c.key)
-            entry["weapon_layer_family"] = c.weapon_layer_family
-            entry["anim_events"] = anim_events(entry["events"])
-            entry["times_ms"] = times
-            entry["tracks"] = clip_tracks(c, times)
-        if c.gait:
-            step = SC.step_displacement_bh(c.gait)
-            entry["step_displacement_bh"] = round(step, 4)
-            entry["cycle_displacement_bh"] = round(step * 2, 4)
-            entry["cycle_displacement_units"] = round(step * 2 * C.BODY_HEIGHT_UNITS, 4)
-        clips.append(entry)
+    clips = [clip_entry(c, fps) for c in SC.build_clip_defs()]
+    mass_groups = [{"id": C.mass_anim_set_id(m), "mass": m, "extends": C.ANIM_SET_ID,
+                    "clips": [clip_entry(c, fps) for c in mass_clip_defs(m)]} for m in C.MASS_GROUPS]
     return {
         "generator": "toolchain/gen_std_dummy_model_clips.py",
         "doc": "architecture/手感设计/04_姿势与动画契约.md 第 6.1 节",
@@ -137,13 +155,16 @@ def build_spec(fps: int = C.FPS) -> dict:
             "reference_base_speed_body_heights_per_s": SC.REFERENCE_BASE_SPEED_BH_PER_S,
             "walk_speed_ratio": SC.WALK_SPEED_RATIO,
             "run_speed_ratio": SC.RUN_SPEED_RATIO,
+            "sprint_speed_ratio": SC.SPRINT_SPEED_RATIO,
             "frame_count_rule": "每相 max(1, floor(ms*fps/1000+0.5))；相内帧均分；关键帧取在帧边界上且含终点（关键帧数 = 帧数 + 1），与 sprite 版同一帧划分",
             "convention": C.CONVENTION,
             "bone_rot_limits_deg": C.BONE_ROT_LIMITS_DEG,
             "engine_event_aliases": C.ENGINE_EVENT_ALIASES,
+            "mass_profiles_deg": C.MASS_PROFILES,
         },
         "skeleton": build_skeleton(),
         "clips": clips,
+        "mass_groups": mass_groups,
     }
 
 
@@ -203,9 +224,16 @@ def build_data_row(spec: dict) -> dict:
             "clips": {e["key"]: {"resource_ref": e["resource_ref"], "events": e["events"]} for e in spec["clips"]}}
 
 
+def build_mass_data_rows(spec: dict) -> list[dict]:
+    """体量组数据行：``extends`` 主集，只声明覆盖键（04 §7）。"""
+    return [{"id": g["id"], "extends": g["extends"],
+             "clips": {e["key"]: {"resource_ref": e["resource_ref"], "events": e["events"]} for e in g["clips"]}}
+            for g in spec["mass_groups"]]
+
+
 def write_data_file(data_out: Path, spec: dict) -> Path:
-    """把本行并入 display.anim_set.json（与 sprite 版同一个文件，按 id 排序，不动别的行）。"""
-    return write_anim_set_rows(data_out, [build_data_row(spec)])
+    """把本行与体量组行并入 display.anim_set.json（与 sprite 版同一个文件，按 id 排序，不动别的行）。"""
+    return write_anim_set_rows(data_out, [build_data_row(spec)] + build_mass_data_rows(spec))
 
 
 def generate(assets_out: Path, data_out: Path, fps: int = C.FPS, log=print) -> dict:
@@ -213,7 +241,8 @@ def generate(assets_out: Path, data_out: Path, fps: int = C.FPS, log=print) -> d
     spec_path = write_spec(assets_out, spec)
     data_path = write_data_file(data_out, spec)
     n_assets = sum(1 for e in spec["clips"] if "alias_of" not in e)
-    log(f"生成完成：{len(spec['clips'])} 个剪辑键（{n_assets} 份剪辑资产），骨骼 {len(spec['skeleton']['bones'])} 根，fps={fps}")
+    n_mass = sum(1 for g in spec["mass_groups"] for e in g["clips"] if "alias_of" not in e)
+    log(f"生成完成：{len(spec['clips'])} 个剪辑键（{n_assets} 份剪辑资产）+ {len(spec['mass_groups'])} 个体量组（{n_mass} 份剪辑资产），骨骼 {len(spec['skeleton']['bones'])} 根，fps={fps}")
     log(f"规格：{spec_path.as_posix()}；数据行：{data_path.as_posix()}")
     log("引擎侧资产（预制体/控制器/.anim）由编辑器生成脚本按规格生成："
         "Unity -batchmode -executeMethod Adapter.Unity.EditorTools.GenerateStdDummyModelAssets.GenerateAndExit")
