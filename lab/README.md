@@ -38,6 +38,18 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 门禁：`feel_lab_suite` 步骤（`toolchain/_gate_line_heavy.ps1`）跑 `suite` 要求退出码 0；`validate_lab_data` 步骤（`check.ps1`）要求 `data/_lab` 校验 0 error 0 warning，`validate_lab_action_data` 步骤同样要求 `data/_lab_action`（叠加框架根、`data/_lab`、`data/_feel`）0 error 0 warning。跨格子不变量随 `Tests.Lab`（`CrossCellInvariantTests.AllInvariants_HoldForEveryScript`）进门禁；`invariants` 命令末行另输出纯 ASCII 的 `RESULT invariants total=<n> pass=<n> fail=<n>`，有不一致时退出码 1。
 
+### 随发布产物分发（只消费发布产物的游戏怎么跑）
+
+实验室随发布产物分发（手感设计/06 第 8 节第 2 步：游戏用实验室在自己的数据上校准手感）。三个形态，布局都与仓库同路径，命令行用法与上面一致（把 `dotnet run --project toolchain/feellab --` 换成 `dotnet <FeelLab.dll 路径>`）：
+
+| 形态 | 实验室根（工作目录） | 命令行 |
+|---|---|---|
+| 发布 zip / `dist/<版本>/` | `dist/<版本>/` 本身（含 `data/_framework`、`data/_feel`、`data/_lab`、`data/_lab_action`、`data/_equip`、`lab/fixtures`） | `toolchain/feellab/bin/FeelLab.dll`（预编译，另带 `lib/` 与空 `Directory.Build.props`，同 simrunner） |
+| 私服包 `com.gamefoundation.toolchain` | `Tools~/feellab/labroot/`（自包含：上面六棵树各一份） | `Tools~/feellab/bin/FeelLab.dll` |
+| 自己的数据 | 在上面任一实验室根里加 `--data-root <你的数据根>`（叠加在 `_lab` 之后；`--framework-root` 指向你用的框架数据） | 同上 |
+
+例（zip 解压后）：`cd ws-game-<版本>` 后 `dotnet toolchain/feellab/bin/FeelLab.dll suite`，应与框架基线一致（`RESULT total=180 pass=180 ...`）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
+
 ### 基线更新流程（有意提交，不允许静默通过）
 
 1. 改了会改变行为的东西（移动、结算、数据）后，`suite` 会红并打印差异。
@@ -90,7 +102,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 9. **真实时间度量分桶**：毫秒按 10 倍量级、分配字节按 2 倍量级分桶后才入基线，比较只做上限检查，基线不随机器抖动。
 10. **可破坏障碍**：基础靶子集（`lab.dummy_set.lab_standard`，旧脚本用）里的 `breakable` 仍近似为无 AI 的敌对低血量单位（没有动态阻挡）。手感场景用自己的靶子集（`lab.dummy_set.lab_action`）里的 `breakable`：靶子 `kind = breakable`，出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 `INavigation2D.SetBlocking` 批量替换去掉，导航阻挡版本随之递增（`GetBlockingVersion`，手感设计 06 第 10 节勘误 4：动态阻挡用既有导航接口，不另造机制）；`feel_breakable` 的 `motion.blocking_updates` 记下变更 tick。
 11. **确定性**：命中表随机项在实验室数据里关闭；靶子默认不带 AI（`ai: true` 才保留）；不死木桩用 `power_floors` 的最低保留线实现"吃伤害不死"。
-12. **不进分发包**：`toolchain/feellab` 不提供 `lib/` 预编译回退，也不进 dist/UPM 发行包；实验室是框架仓库内的验收设施，游戏仓库跑自己的实验室时直接引用内核工程。
+12. **随发布产物分发**（M2-D 取代此前"不进分发包"的决定，理由：06 第 8 节第 2 步要求游戏用实验室在自己的数据上校准手感，只消费发布产物的游戏不能依赖"框架一侧代跑"）：`toolchain/feellab` 与 SimRunner 同一治理方式——`FeelLab.csproj` 在源码树存在时 `ProjectReference` 内核，不存在时改引用 `lib/` 下 9 个预编译 DLL（内核 + Core.Sim + Adapters.Stub + 六个核心 DLL）；`build.ps1` 把预编译产物拷进 `dist/<版本>/toolchain/feellab/{bin,lib}`（含空 `Directory.Build.props`，MANIFEST 新增 `[feellab]` 段记 `FeelLab.dll`/`Lab.Kernel.dll` 的 sha256；lock 不扩字段，同 SimRunner），并把 `data/_lab`、`data/_lab_action`、`data/_equip`、`lab/fixtures` 按仓库同路径拷进 dist 根（`equip_cycle` 脚本声明了 `data/_equip` 作额外数据根，缺它 suite 抛"数据根目录不存在"，所以一并分发）。私服包落点是 `com.gamefoundation.toolchain`（命令行与预编译产物本来就在它的 `Tools~/` 里），另在 `Tools~/feellab/labroot/` 放一份自包含的实验室根（含 `data/_framework`、`data/_feel` 各一份，约 85 KB），让它不依赖同时装 framework-data 包；实验室数据不进 framework-data 包、不同步进游戏的 StreamingAssets（验收设施数据，不是运行期框架数据）。游戏仓库也仍可直接引用内核工程（内核是 netstandard2.1，与核心库同目标框架）。
 13. **基线单文件多格子**：每个脚本一份基线文件，内含六个格子的 `{key, groups}`，比 54 个小文件更易评审且同脚本的跨格子差异在同一处可见。
 14. **脚本再生**：标准脚本是手写数据，不由程序生成；改脚本即改 `scriptVersion` 并重烘焙该脚本的基线。
 

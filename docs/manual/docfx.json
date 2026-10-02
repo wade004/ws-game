@@ -7,6 +7,7 @@
           "files": [
             "core/*/Core.*.csproj",
             "presentation/Presentation.Common.csproj",
+            "lab/Lab.Kernel.csproj",
             "adapters/stub/Adapters.Stub.csproj",
             "adapters/unity/DiagnosticsForwarding/Adapters.Unity.DiagnosticsForwarding.csproj"
           ]

@@ -1,12 +1,12 @@
 # com.gamefoundation.toolchain
 
-跨游戏的数据校验/资产导入 Python 工具链 + 数值仿真命令行入口（simrunner，T-N6-7），随版本号
-发布，内容与框架仓库根 `toolchain/` 一致（不含 `toolchain/registry/` 自身——私服运行时不需要
-随游戏侧分发；也不含 `__pycache__/`、`.venv/`、`toolchain/validator/bin|obj`、
-`toolchain/simrunner/bin|obj`——分别是编译缓存、虚拟环境、.NET 构建产物，见 `build.ps1` 打包
-这三个包时的排除规则；`validator/bin/`、`simrunner/bin/` 两处预编译产物由 `build.ps1` 打包时
-单独补齐，见下方包内布局一节，不是通配符排除规则的例外，只是"先整体排除、再针对这两个精确
-路径单独放回"）。
+跨游戏的数据校验/资产导入 Python 工具链 + 数值仿真命令行入口（simrunner，T-N6-7）+ 手感实验室命令行入口
+（feellab，手感落地 M2-D），随版本号发布，内容与框架仓库根 `toolchain/` 一致（不含 `toolchain/registry/`
+自身——私服运行时不需要随游戏侧分发；也不含 `__pycache__/`、`.venv/`、`toolchain/validator/bin|obj`、
+`toolchain/simrunner/bin|obj`、`toolchain/feellab/bin|obj`——分别是编译缓存、虚拟环境、.NET 构建产物，见
+`build.ps1` 打包这三个包时的排除规则；`validator/bin/`、`simrunner/bin/`、`feellab/bin/` 三处预编译产物由
+`build.ps1` 打包时单独补齐，见下方包内布局一节，不是通配符排除规则的例外，只是"先整体排除、再针对这几个
+精确路径单独放回"）。
 
 ## 包内布局
 
@@ -40,6 +40,20 @@ Tools~/
                                 Core.Carriers/Core.Gameplay——不需要 Presentation.Common；+
                                 Core.Sim/Adapters.Stub），SimRunner.csproj 同款 <Reference
                                 HintPath> 回退分支
+  feellab/                     手感实验室无头宿主命令行入口源码（Program.cs、FeelLab.csproj；手感设计/06 第 8
+                                节第 2 步"用实验室在自己的数据上校准手感"）
+    bin/                        预编译产物（FeelLab.dll + Lab.Kernel.dll + 全部依赖 DLL），供直接
+                                `dotnet Tools~/feellab/bin/FeelLab.dll suite` 执行
+    lib/                        九个 DLL（Lab.Kernel、Core.Sim、Adapters.Stub 与六个核心 DLL），
+                                FeelLab.csproj 同款 <Reference HintPath> 回退分支；另有空
+                                Directory.Build.props（在 feellab/ 下，不在 bin/ 里）
+    labroot/                    自包含的实验室根（工作目录）：data/_framework、data/_feel、data/_lab、
+                                data/_lab_action、data/_equip、lab/fixtures（标准脚本与基线）。用法：
+                                `cd Tools~/feellab/labroot` 后 `dotnet ../bin/FeelLab.dll suite`（应输出
+                                `RESULT total=180 pass=180 diff=0 ...`，与框架基线一致）；在自己的数据上
+                                校准手感时加 `--data-root <你的数据根>`。框架数据与手感数据在
+                                com.gamefoundation.framework-data 包里也有一份，这里再放一份是为了不要求
+                                同时装两个包（约 85 KB）。命令与参数全文见框架仓库 `lab/README.md`
   requirements.txt / requirements-optional.txt
   install_hooks.ps1
   _console.py

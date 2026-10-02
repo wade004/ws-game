@@ -563,6 +563,77 @@ Invoke-Step "同步内容数据集 + TextMeshPro 运行期资源到消费方工�
 }
 
 # -----------------------------------------------------------------------------
+# 5b) 手感实验室随发布产物分发的消费方验收（手感落地 M2-D；06 第 8 节第 2 步"用实验室在自己的数据上校准手感"）：
+#     只消费发布产物的游戏要能自己跑实验室。这一步在消费方工作目录里搭一个"实验室根"（工作目录下同时有
+#     data/_framework、data/_feel、data/_lab、data/_lab_action、data/_equip、lab/fixtures——脚本里的 extraDataRoots 与默认夹具目录
+#     都按工作目录相对解析），框架数据与手感数据取自上一步已经同步进消费方工程的那两份（消费方自己的副本，
+#     不回头读仓库），实验室数据集、占位装备集与夹具取自 dist 快照，然后用 dist 里的预编译命令行
+#     `dist\<版本>\toolchain\feellab\bin\FeelLab.dll` 跑 `suite`（全部标准脚本 x 六个格子对基线）与 `invariants`
+#     （跨格子不变量）：二者都必须退出码 0 且 RESULT 行无差异。命令行不需要 Unity，只需要 dotnet 运行时；
+#     实验室根放在 ConsumerProject 之外（WorkDir\feellab_root），不会被 Unity 当 Assets 导入。
+#     判断记录：跑完整 suite 而不是子集——全量约几秒（数据与脚本都很小），子集反而要多维护一份过滤约定；
+#     不跑 `--update-baseline`、不写 lab/out 以外的任何东西（suite 只读基线）。
+# -----------------------------------------------------------------------------
+Invoke-Step "手感实验室（dist 内 feellab 预编译命令行）在消费方工作目录跑 suite + invariants" {
+    $feelLabDll = Join-Path $DistRoot "toolchain\feellab\bin\FeelLab.dll"
+    if (-not (Test-Path $feelLabDll)) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "分发包里没有预编译的手感实验室命令行：$feelLabDll" }
+    }
+    $streamingRoot = Join-Path $ConsumerProjectDir "Assets\StreamingAssets\GameFoundation"
+    $labRoot = Join-Path $WorkDir "feellab_root"
+    $copied = 0
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_framework") -DestDir (Join-Path $labRoot "data\_framework")
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_feel") -DestDir (Join-Path $labRoot "data\_feel")
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_lab") -DestDir (Join-Path $labRoot "data\_lab")
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_lab_action") -DestDir (Join-Path $labRoot "data\_lab_action")
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_equip") -DestDir (Join-Path $labRoot "data\_equip")
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "lab\fixtures") -DestDir (Join-Path $labRoot "lab\fixtures")
+    foreach ($needed in @("data\_framework", "data\_feel", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures\scripts", "lab\fixtures\baselines")) {
+        if (-not (Test-Path (Join-Path $labRoot $needed))) {
+            return [PSCustomObject]@{ Ok = $false; Detail = "实验室根缺少 $needed（分发包或消费方数据目录不完整）" }
+        }
+    }
+
+    $logPath = Join-Path $UnityLogDir "feellab.log"
+    $summaries = @()
+    $allOk = $true
+    $previousErrorAction = $ErrorActionPreference
+    Push-Location $labRoot
+    try {
+        foreach ($command in @("suite", "invariants")) {
+            # PS 5.1 下 $ErrorActionPreference=Stop 时，合并 stderr（2>&1）的原生命令一旦写 stderr 就会被当成终止错误；
+            # 命令行出错时（退出码非 0）恰恰会写 stderr，这里临时放宽，让失败走下面的退出码/RESULT 判定并带上输出末尾。
+            $ErrorActionPreference = "Continue"
+            $text = (& dotnet $feelLabDll $command 2>&1 | Out-String)
+            $exitCode = $LASTEXITCODE
+            $ErrorActionPreference = $previousErrorAction
+            Add-Content -Path $logPath -Value ("==== feellab " + $command + "（退出码 " + $exitCode + "）====`r`n" + $text) -Encoding UTF8
+            if ($command -eq "suite") {
+                $m = [regex]::Match($text, 'RESULT total=(\d+) pass=(\d+) diff=(\d+) missing=(\d+) not_runnable=(\d+)')
+                $good = $m.Success -and ($m.Groups[1].Value -ne "0") -and ($m.Groups[1].Value -eq $m.Groups[2].Value) `
+                    -and ($m.Groups[3].Value -eq "0") -and ($m.Groups[4].Value -eq "0") -and ($m.Groups[5].Value -eq "0")
+                $summaries += $(if ($m.Success) { "suite " + $m.Value } else { "suite 未找到 RESULT 行" })
+            } else {
+                $m = [regex]::Match($text, 'RESULT invariants total=(\d+) pass=(\d+) fail=(\d+)')
+                $good = $m.Success -and ($m.Groups[1].Value -ne "0") -and ($m.Groups[1].Value -eq $m.Groups[2].Value) -and ($m.Groups[3].Value -eq "0")
+                $summaries += $(if ($m.Success) { "invariants " + $m.Value } else { "invariants 未找到 RESULT 行" })
+            }
+            if (($exitCode -ne 0) -or (-not $good)) {
+                $allOk = $false
+                Write-Host ("feellab " + $command + " 未通过（退出码 " + $exitCode + "），输出末尾：") -ForegroundColor Red
+                Write-Host (($text -split "`r?`n" | Select-Object -Last 15) -join "`n")
+            }
+        }
+    } finally {
+        Pop-Location
+    }
+    [PSCustomObject]@{
+        Ok = $allOk
+        Detail = (($summaries -join "；") + "；实验室根=" + $labRoot + "（拷入 $copied 个文件），日志 " + $logPath)
+    }
+}
+
+# -----------------------------------------------------------------------------
 # 6) 首次批处理编译（解析新包依赖 + 首次 Library 导入，正常耗时较长）：0 编译错误。
 # -----------------------------------------------------------------------------
 Invoke-Step "首次批处理编译（包解析 + 0 编译错误）" {

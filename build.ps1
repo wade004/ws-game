@@ -1073,8 +1073,21 @@ if ($DistRequested) {
     # 手感落地 S1（收 S0 遗留 (b)）：data/_feel 是手感框架级数据集（档案/预设/标定缺省行），与 data/_framework
     # 同属"框架数据、游戏根之外"，消费方装载时与 data/_framework 并列作为框架根；此前它没进发版打包，
     # 导致 dist 里的游戏根拿不到手感档案。打包方式与 data/_framework 完全相同（整树拷贝、
-    # 同样进 framework-data 包 Data~/、MANIFEST 计数与 data_schemas 清单）。data/_lab（实验室内部数据）仍不分发。
+    # 同样进 framework-data 包 Data~/、MANIFEST 计数与 data_schemas 清单）。
     $dataFeelFileCount = Copy-DistDir -SourceRelative "data\_feel" -DestName "data\_feel"
+    # 手感实验室随发布产物分发（原"data/_lab 不分发"作废，06 第 8 节第 2 步：游戏用实验室在自己的数据上校准手感）：
+    # 实验室数据集 data/_lab、data/_lab_action、占位装备集 data/_equip 与标准脚本/基线夹具 lab/fixtures 按"与仓库同路径"整树拷进 dist 根，
+    # 于是 dist/<ver>/ 本身就是一个完整的"实验室根"（含 data/_framework、data/_feel）：在该目录下直接
+    # `dotnet toolchain/feellab/bin/FeelLab.dll suite` 即可，与仓库根里跑 `dotnet run --project toolchain/feellab -- suite`
+    # 的相对路径约定一致（脚本里的 extraDataRoots、默认夹具目录都是相对工作目录解析的）。
+    # 这四棵树不进 framework-data 包（那是运行期框架数据，实验室数据是验收设施用的）；com.gamefoundation.toolchain 包
+    # 另按自包含的 Tools~/feellab/labroot/ 布局组装，见下方 5.15 节。
+    $dataLabFileCount = Copy-DistDir -SourceRelative "data\_lab" -DestName "data\_lab"
+    $dataLabActionFileCount = Copy-DistDir -SourceRelative "data\_lab_action" -DestName "data\_lab_action"
+    # data/_equip（框架级占位装备集，toolchain/gen_std_equip_set.py 生成）：标准脚本 equip_cycle 把它声明为额外数据根，
+    # 实验室跑 suite 必须能读到；同样只作为实验室根的一部分分发，不进 framework-data 包、不同步进 StreamingAssets。
+    $dataEquipFileCount = Copy-DistDir -SourceRelative "data\_equip" -DestName "data\_equip"
+    $labFixturesFileCount = Copy-DistDir -SourceRelative "lab\fixtures" -DestName "lab\fixtures"
 
     # 消费方演练任务新增（toolchain/consumer_smoke.ps1 实跑暴露的 dist 缺口，见该脚本判断记录）：
     # TextMeshPro 是 games/_template 主菜单 UI（TemplateShellUi 经 UnityUISurface.DrawText）的运行期
@@ -1441,6 +1454,72 @@ if ($DistRequested) {
     Write-Host ("  已补齐 {0} 个 bin 文件 + 7 个 lib DLL -> dist\{1}\toolchain\simrunner\（SimRunner.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distSimRunnerBinDir -File).Count, $DistDirVersion, $simRunnerAssemblyShaMap["SimRunner.dll"])
 
     # -------------------------------------------------------------------
+    # 5.0585 手感实验室随发布产物分发（手感落地 M2-D；architecture/手感设计/06 第 8 节第 2 步、13 第 9 节第 6 步）：
+    #      `toolchain/feellab`（FeelLab.csproj，实验室无头宿主命令行）此前不进 dist，只消费发布产物的游戏跑不了
+    #      "用实验室在自己的数据上校准手感"。照 5.058 simrunner 的惯例补两样：
+    #      a) 预编译产物 `bin/`：Core.sln 第 1 步 `dotnet build` 已把 FeelLab 连同它引用的全部程序集
+    #         （Lab.Kernel、Core.Sim、Adapters.Stub、Presentation.Common 与五个核心 DLL）构建到
+    #         `toolchain\feellab\bin\$Configuration\<tfm>\`，整份拷进 dist 的 `toolchain\feellab\bin\`，
+    #         供直接 `dotnet toolchain/feellab/bin/FeelLab.dll <命令>` 执行（不触发 MSBuild、不受消费方仓库的
+    #         Directory.Build.props 影响）；
+    #      b) `lib/` 与空 `Directory.Build.props`：FeelLab.csproj 在"源码树不存在"时改引用 lib/ 下 9 个预编译 DLL
+    #         （Lab.Kernel + Core.Sim + Adapters.Stub + 六个核心 DLL，见该 csproj 判断记录），同 simrunner 的
+    #         治理方式；空 Directory.Build.props 挡住消费方仓库根同名文件被隐式继承。
+    #      本节必须排在下方 5.15"打四个 npm 包"之前（toolchain 包内容取自这里已补齐的 dist\<ver>\toolchain\）。
+    #      lock 文件不扩 feellab 字段：同 SimRunner，lock 只记核心/无头/validator 三类 DLL 的 sha256；FeelLab/Lab.Kernel 的
+    #      sha256 记进 MANIFEST.txt 的 [feellab] 段（见 5.5 节之后的清单生成）。
+    # -------------------------------------------------------------------
+    Write-Step "补齐 dist\$DistDirVersion\toolchain\feellab\{bin,lib}\ + 空 Directory.Build.props（手感实验室命令行入口随构建产物分发）"
+    $srcFeelLabBinParent = Join-Path $RepoRoot "toolchain\feellab\bin\$Configuration"
+    if (-not (Test-Path $srcFeelLabBinParent)) {
+        Write-Host "打分发包失败：找不到 $srcFeelLabBinParent（-SyncOnly 要求 FeelLab 项目已完整构建过一次，请先不带 -SyncOnly 跑一次完整构建）" -ForegroundColor Red
+        exit 1
+    }
+    $srcFeelLabTfmDirs = @(Get-ChildItem -Path $srcFeelLabBinParent -Directory)
+    if ($srcFeelLabTfmDirs.Count -ne 1) {
+        Write-Host ("打分发包失败：$srcFeelLabBinParent 下应恰好有 1 个目标框架目录，实际 {0} 个" -f $srcFeelLabTfmDirs.Count) -ForegroundColor Red
+        exit 1
+    }
+    $srcFeelLabTfmDir = $srcFeelLabTfmDirs[0].FullName
+    $srcFeelLabDllPath = Join-Path $srcFeelLabTfmDir "FeelLab.dll"
+    if (-not (Test-Path $srcFeelLabDllPath)) {
+        Write-Host "打分发包失败：找不到 $srcFeelLabDllPath（FeelLab 项目构建产物缺失）" -ForegroundColor Red
+        exit 1
+    }
+    $srcLabKernelDllPath = Join-Path $RepoRoot ("lab\bin\$Configuration\netstandard2.1\Lab.Kernel.dll")
+    if (-not (Test-Path $srcLabKernelDllPath)) {
+        Write-Host "打分发包失败：找不到 $srcLabKernelDllPath（Lab.Kernel 构建产物缺失，无法为 toolchain/feellab/lib 补齐实验室内核）" -ForegroundColor Red
+        exit 1
+    }
+    $distFeelLabBinDir = Join-Path $DistRoot "toolchain\feellab\bin"
+    New-Item -ItemType Directory -Force -Path $distFeelLabBinDir | Out-Null
+    Get-ChildItem -Path $srcFeelLabTfmDir -File | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $distFeelLabBinDir $_.Name) -Force
+    }
+    $feelLabAssemblyShaMap = [ordered]@{
+        "FeelLab.dll" = (Get-Sha256FileHash -Path (Join-Path $distFeelLabBinDir "FeelLab.dll"))
+        "Lab.Kernel.dll" = (Get-Sha256FileHash -Path (Join-Path $distFeelLabBinDir "Lab.Kernel.dll"))
+    }
+
+    $distFeelLabLibDir = Join-Path $DistRoot "toolchain\feellab\lib"
+    New-Item -ItemType Directory -Force -Path $distFeelLabLibDir | Out-Null
+    foreach ($asm in $CoreAssemblies) {
+        $srcDllForFeelLabLib = Join-Path $distAdapterPluginsCoreDir ($asm.Name + ".dll")
+        if (-not (Test-Path $srcDllForFeelLabLib)) {
+            Write-Host "打分发包失败：找不到 $srcDllForFeelLabLib（无法为 toolchain/feellab/lib 补齐核心 DLL）" -ForegroundColor Red
+            exit 1
+        }
+        Copy-Item -Path $srcDllForFeelLabLib -Destination (Join-Path $distFeelLabLibDir ($asm.Name + ".dll")) -Force
+    }
+    Copy-Item -Path $srcSimDllForValidatorLib -Destination (Join-Path $distFeelLabLibDir "Core.Sim.dll") -Force
+    Copy-Item -Path $srcStubDllForValidatorLib -Destination (Join-Path $distFeelLabLibDir "Adapters.Stub.dll") -Force
+    Copy-Item -Path $srcLabKernelDllPath -Destination (Join-Path $distFeelLabLibDir "Lab.Kernel.dll") -Force
+
+    $distFeelLabDbpPath = Join-Path $DistRoot "toolchain\feellab\Directory.Build.props"
+    [System.IO.File]::WriteAllText($distFeelLabDbpPath, $dbpContent, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host ("  已补齐 {0} 个 bin 文件 + 9 个 lib DLL -> dist\{1}\toolchain\feellab\（FeelLab.dll sha256={2}）+ 空 Directory.Build.props" -f (Get-ChildItem -Path $distFeelLabBinDir -File).Count, $DistDirVersion, $feelLabAssemblyShaMap["FeelLab.dll"])
+
+    # -------------------------------------------------------------------
     # 5.1 版本可追溯任务新增：把解析出的版本号写回 dist 内两个 package.json
     #     （含 games/_template 对适配层包的依赖版本号），保持"单一版本源"——
     #     源码仓库里的两个 package.json 已经在提交时同步改成当前 VERSION，这里
@@ -1529,7 +1608,20 @@ if ($DistRequested) {
     Copy-Item -Path (Join-Path $toolchainManifestDir "README.md") -Destination (Join-Path $pkgToolDir "README.md") -Force
     Set-PackageJsonVersionInline -JsonPath (Join-Path $pkgToolDir "package.json") -Version $ResolvedDistVersion
     Copy-Item -Path (Join-Path $DistRoot "toolchain") -Destination (Join-Path $pkgToolDir "Tools~") -Recurse -Force
-    Write-Host "  已组装 $pkgToolDir"
+    # 手感实验室（M2-D）：toolchain 包是实验室的家（命令行与预编译产物本来就在上面整份拷进的 Tools~/feellab/ 里）。
+    # 实验室跑 suite 需要一个"实验室根"：工作目录下同时有 data/_framework、data/_feel、data/_lab、data/_lab_action、
+    # data/_equip 与 lab/fixtures（脚本里的 extraDataRoots、默认夹具目录都按工作目录相对解析）。framework-data 包只带
+    # data/_framework 与 data/_feel，且消费方未必装了它，所以这里把六棵树一并放进 Tools~/feellab/labroot/，
+    # 让本包自包含：`cd Tools~/feellab/labroot; dotnet ../bin/FeelLab.dll suite`。框架数据在两个包里各有一份
+    # （共约 85 KB），换来"不要求同时装两个包"；内容来自同一份 dist 树，版本必然一致。
+    $pkgFeelLabRoot = Join-Path $pkgToolDir "Tools~\feellab\labroot"
+    New-Item -ItemType Directory -Force -Path $pkgFeelLabRoot | Out-Null
+    foreach ($labRootPart in @("data\_framework", "data\_feel", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures")) {
+        $labRootPartDst = Join-Path $pkgFeelLabRoot $labRootPart
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $labRootPartDst) | Out-Null
+        Copy-Item -Path (Join-Path $DistRoot $labRootPart) -Destination $labRootPartDst -Recurse -Force
+    }
+    Write-Host "  已组装 $pkgToolDir（含 Tools~/feellab/labroot/ 自包含实验室根）"
 
     # 包 4：com.gamefoundation.adapter.headless（ADR-0018 决策 3 新增，无头适配层交付；T-N6-7
     # 扩容纳入 Core.Sim.dll，ADR-0035 决策 1/5）——package.json/README.md 同上取自
@@ -1660,6 +1752,10 @@ if ($DistRequested) {
         "assets/_placeholder: $assetsFileCount files",
         "data/_framework: $dataFrameworkFileCount files",
         "data/_feel: $dataFeelFileCount files",
+        "data/_lab: $dataLabFileCount files",
+        "data/_lab_action: $dataLabActionFileCount files",
+        "data/_equip: $dataEquipFileCount files",
+        "lab/fixtures: $labFixturesFileCount files",
         "assets/textmesh_pro_essentials: $tmpEssentialsFileCount files",
         $(if ($SkipManualEffective) { "manual: (skipped)" } else { "manual: $manualFileCount files" }),
         "",
@@ -1680,7 +1776,11 @@ if ($DistRequested) {
         ("  Validator.dll: sha256=" + $validatorAssemblyShaMap["Validator.dll"]),
         "",
         "[simrunner]",
-        ("  SimRunner.dll: sha256=" + $simRunnerAssemblyShaMap["SimRunner.dll"])
+        ("  SimRunner.dll: sha256=" + $simRunnerAssemblyShaMap["SimRunner.dll"]),
+        "",
+        "[feellab]",
+        ("  FeelLab.dll: sha256=" + $feelLabAssemblyShaMap["FeelLab.dll"]),
+        ("  Lab.Kernel.dll: sha256=" + $feelLabAssemblyShaMap["Lab.Kernel.dll"])
     )
 
     Set-Content -Path $manifestPath -Value $manifestLines -Encoding utf8

@@ -186,6 +186,26 @@ def _build_scenarios(root: Path) -> list[dict]:
         (UNITY_FULL, old, "2026-10-01"), (UNITY_FULL, new, "2026-10-01")])}, "code+log")
     scenario("m_code_after_every_record", repo, False, "full-20261001-02")
 
+    # N. 记录是祖先，其后只有回归记录行 + timing/*.jsonl 耗时记录（文档与登记分支自己的耗时行）-> 放行。
+    repo = _new_repo(root, "n_ancestor_timing_only")
+    tested = _commit(repo, {"core/a.cs": "class A {}"}, "tested")
+    _commit(repo, {
+        "REGRESSION_LOG.md": _log([(UNITY_FULL, tested, "2026-10-01")]),
+        "timing/20261002_main.jsonl": "{}\n",
+        "timing/20261002_docs-only_20261002.jsonl": "{}\n",
+    }, "log row + timing rows")
+    scenario("n_ancestor_then_log_and_timing_rows", repo, True, "只改了文档类文件")
+
+    # O. 记录是祖先，其后除 timing/*.jsonl 外还有一个 jsonl 数据文件（不在 timing/ 下）-> 拒绝，原因点名该文件。
+    repo = _new_repo(root, "o_timing_plus_other_jsonl")
+    tested = _commit(repo, {"core/a.cs": "class A {}"}, "tested")
+    _commit(repo, {
+        "REGRESSION_LOG.md": _log([(UNITY_FULL, tested, "2026-10-01")]),
+        "timing/20261002_main.jsonl": "{}\n",
+        "data/rows.jsonl": "{}\n",
+    }, "timing + stray jsonl")
+    scenario("o_timing_rows_plus_stray_jsonl", repo, False, "data/rows.jsonl")
+
     return scenarios
 
 
@@ -215,7 +235,7 @@ $out | ConvertTo-Json -Depth 4 | Out-File -LiteralPath $ResultPath -Encoding utf
     "d_code_changed_after_record", "e_docs_plus_data_file", "f_records_without_unity",
     "g_failed_result_is_not_a_pass", "h_log_file_missing", "h2_no_rows", "i_unknown_sha",
     "j_record_on_other_branch", "k_sha_cell_with_extra_words", "l_newest_row_unusable_older_row_ok",
-    "m_code_after_every_record",
+    "m_code_after_every_record", "n_ancestor_then_log_and_timing_rows", "o_timing_rows_plus_stray_jsonl",
 ])
 def test_scenario_verdict_matches_expectation(verdicts: dict, name: str) -> None:
     scenario = verdicts["__scenarios__"][name]
@@ -267,10 +287,10 @@ $out["real_rows"] = @($rows | ForEach-Object {{
     [ordered]@{{ runId = $_.RunId; shas = @($_.Shas); unity = [bool](Test-RegressionRowIsUnityFull -ResultText $_.Result) }}
 }})
 $out["docs_only"] = [ordered]@{{}}
-foreach ($path in @("docs/a.txt", "architecture/x/y.json", "README.md", "adapters/unity/Packages/p/README.md", "adapters/x/README.md.meta", "CHANGELOG.md", "REGRESSION_LOG.md", "docs\\win\\path.png")) {{
+foreach ($path in @("docs/a.txt", "architecture/x/y.json", "README.md", "adapters/unity/Packages/p/README.md", "adapters/x/README.md.meta", "CHANGELOG.md", "REGRESSION_LOG.md", "docs\\win\\path.png", "timing/20261002_main.jsonl", "timing\\20261002_x_20261002.jsonl")) {{
     $out.docs_only[$path] = [bool](Test-DocsOnlyPath -Path $path)
 }}
-foreach ($path in @("core/a.cs", "data/x.json", "toolchain/x.py", "build.ps1", "check.ps1", "documents/a.txt", "architecture_notes.txt", "adapters/unity/Assets/Editor/X.cs.meta")) {{
+foreach ($path in @("core/a.cs", "data/x.json", "toolchain/x.py", "build.ps1", "check.ps1", "documents/a.txt", "architecture_notes.txt", "adapters/unity/Assets/Editor/X.cs.meta", "data/rows.jsonl", "timing/tool.py", "toolchain/timing/a.jsonl", "mytiming/a.jsonl")) {{
     $out.docs_only[$path] = [bool](Test-DocsOnlyPath -Path $path)
 }}
 $out | ConvertTo-Json -Depth 5 | Out-File -LiteralPath $ResultPath -Encoding utf8
@@ -318,6 +338,8 @@ def test_real_regression_log_rows_parse_and_known_rows_classify_correctly(classi
     ("CHANGELOG.md", True),
     ("REGRESSION_LOG.md", True),
     ("docs\\win\\path.png", True),
+    ("timing/20261002_main.jsonl", True),
+    ("timing\\20261002_x_20261002.jsonl", True),
     ("core/a.cs", False),
     ("data/x.json", False),
     ("toolchain/x.py", False),
@@ -326,6 +348,10 @@ def test_real_regression_log_rows_parse_and_known_rows_classify_correctly(classi
     ("documents/a.txt", False),
     ("architecture_notes.txt", False),
     ("adapters/unity/Assets/Editor/X.cs.meta", False),
+    ("data/rows.jsonl", False),
+    ("timing/tool.py", False),
+    ("toolchain/timing/a.jsonl", False),
+    ("mytiming/a.jsonl", False),
 ])
 def test_docs_only_path_classification(classification: dict, path: str, expected: bool) -> None:
     table = classification["docs_only"]
