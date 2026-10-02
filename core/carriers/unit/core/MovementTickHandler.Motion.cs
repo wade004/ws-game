@@ -51,6 +51,13 @@ namespace Core.Carriers.Unit
             public Vec2 Desired;
             public MotionSource Source;
             public bool ForcedThisTick;
+
+            /// <summary>本 tick 开始时的路径与下标（体积裁决把位移缩短时退回路径下标用）。</summary>
+            public IReadOnlyList<Vec2>? StartPath;
+            public int StartPathIndex;
+
+            /// <summary>本 tick 的动作位移穿过了别的单位的体积（不参与体积的成对撞停与重叠分离）。</summary>
+            public bool PassedThroughUnits;
         }
 
         private readonly struct SuspendedPath
@@ -137,6 +144,15 @@ namespace Core.Carriers.Unit
             t.Desired = Vec2.Zero;
             t.Source = MotionSource.None;
             t.BaseMode = DeriveBaseMode(t, t.ForcedAtStart);
+            t.StartPath = unit.MovementState.CurrentPath;
+            t.StartPathIndex = unit.MovementState.PathIndex;
+            t.PassedThroughUnits = false;
+
+            // 单位体积阻挡：第一个有体积的单位被处理前取下本 tick 的快照（别的有体积单位此刻都还没写位置）。
+            if (profile.UnitBodyRadius > 0.0)
+            {
+                EnsureVolumeSnapshot();
+            }
 
             // 模式切换时的速度：退出规则明确写"no"的模式清零动量（grounded/dead 的"none"不清零，
             // 所以从 grounded 进入 action 时保留速度，随后按 action 倍率减速）；顿帧叠加态下底层模式不变，速度保留。
@@ -311,6 +327,7 @@ namespace Core.Carriers.Unit
                 var slideSecondBlocked = false;
                 var slideSecondNormal = Vec2.Zero;
                 var candidate = true;
+                Vec2? wallVia = null; // 撞墙后沿墙滑动时位移实际走的折线拐点（体积扫掠逐段精确裁决）。
 
                 if (_navigation != null)
                 {
@@ -342,6 +359,7 @@ namespace Core.Carriers.Unit
                             newPos = slidPos;
                             slid = true;
                             slideNormal = hitNormal;
+                            wallVia = from + dir * (hitDistance - pullBack);
                         }
                     }
 
@@ -358,7 +376,7 @@ namespace Core.Carriers.Unit
                 // 单位体积阻挡（手感设计/02 第 9 节）：本单位声明了 unit_body_radius 才进入；阻挡后沿 wall_slide 的口径滑开或停下。
                 if (candidate && profile.UnitBodyRadius > 0.0)
                 {
-                    var volume = ClipByUnitVolumes(unit, profile.UnitBodyRadius, from, newPos, profile.WallSlide);
+                    var volume = ClipPathByUnitVolumes(unit, profile.UnitBodyRadius, from, newPos, wallVia, profile.WallSlide);
                     if (volume.Blocked)
                     {
                         blocked = true;
@@ -627,7 +645,9 @@ namespace Core.Carriers.Unit
                         if (volumeRadius > 0.0)
                         {
                             // 地形截断点之前若先撞上别的单位体积，停在体积前（单位体积阻挡，手感设计/02 第 9 节）。
-                            stopPos = ClipByUnitVolumes(unit, volumeRadius, from, stopPos, false).End;
+                            var stopClip = ClipByUnitVolumes(unit, volumeRadius, from, stopPos, false);
+                            stopPos = stopClip.End;
+                            QueueForcedPush(unit, t.Profile, stopClip, disp);
                         }
 
                         WriteDisplacementPosition(unit, stopPos);
@@ -646,6 +666,7 @@ namespace Core.Carriers.Unit
                 if (volume.Blocked)
                 {
                     WriteDisplacementPosition(unit, disp.Blocking == DisplacementBlockingPolicy.Revert ? disp.Origin : volume.End);
+                    QueueForcedPush(unit, t.Profile, volume, disp);
                     EndDisplacement(unit, MoveStopReason.DisplacementBlocked);
                     return;
                 }
@@ -840,6 +861,7 @@ namespace Core.Carriers.Unit
             {
                 var newPos = from + dir * step;
                 var candidate = true;
+                Vec2? wallVia = null;
                 if (_navigation != null)
                 {
                     var slideBlocking = decl.Blocking == ActionMotionBlocking.Slide;
@@ -865,6 +887,7 @@ namespace Core.Carriers.Unit
                             TrySlide(unit, from, dir, step, hitDistance, pullBack, hitNormal, out var slidPos, out _, out _))
                         {
                             newPos = slidPos;
+                            wallVia = from + dir * (hitDistance - pullBack);
                         }
                     }
 
@@ -874,13 +897,18 @@ namespace Core.Carriers.Unit
                     }
                 }
 
-                // 单位体积阻挡：闪避类位移（dash/step_back）在档案声明 dodge_through_units 时穿过体积；其余位移（lunge/charge 等）恒被挡，
-                // 受阻按动作声明的 blocking（stop 停在体积前，slide 沿体积切向滑开）。
+                // 单位体积阻挡：档案声明 dodge_through_units 且位移种类在 pass_through_motion_kinds 里（缺省 dash、step_back）时穿过体积；
+                // 其余位移恒被挡，受阻按动作声明的 blocking（stop 停在体积前，slide 沿体积切向滑开）。
                 var volumeRadius = t.Profile.UnitBodyRadius;
-                if (candidate && volumeRadius > 0.0 &&
-                    !(t.Profile.DodgeThroughUnits && (decl.Kind == ActionMotionKind.Dash || decl.Kind == ActionMotionKind.StepBack)))
+                var passesThrough = t.Profile.DodgeThroughUnits && t.Profile.PassesThroughKind(decl.Kind);
+                if (candidate && volumeRadius > 0.0 && passesThrough)
                 {
-                    var volume = ClipByUnitVolumes(unit, volumeRadius, from, newPos, decl.Blocking == ActionMotionBlocking.Slide);
+                    t.PassedThroughUnits = true;
+                }
+
+                if (candidate && volumeRadius > 0.0 && !passesThrough)
+                {
+                    var volume = ClipPathByUnitVolumes(unit, volumeRadius, from, newPos, wallVia, decl.Blocking == ActionMotionBlocking.Slide);
                     if (volume.Blocked)
                     {
                         newPos = volume.End;
@@ -980,12 +1008,23 @@ namespace Core.Carriers.Unit
                 var source = t.Frozen || t.Dead ? MotionSource.None : t.Source;
                 var baseSpeed = double.IsNaN(t.BaseSpeed) ? t.Prev.BaseSpeed : t.BaseSpeed;
                 var kin = new MotionKinematics(velocity, t.Frozen ? t.Prev.DesiredDirection : t.Desired, mode, baseMode, source, baseSpeed);
+
+                // 单位体积阻挡：有体积的单位的运动学状态等阶段 B（成对撞停可能缩短它的位移）算完再写。
+                if (VolumeSnapshotCurrent && _volumeById.ContainsKey(unit.EntityId))
+                {
+                    _deferredKin.Add(new DeferredKin(unit, t, kin));
+                    continue;
+                }
+
                 var cur = unit.MovementState.Motion;
                 if (!SameKinematics(cur, kin))
                 {
                     unit.MovementState = unit.MovementState.WithMotion(kin);
                 }
             }
+
+            ResolveUnitVolumes(world, dt);
+            WriteDeferredKin();
 
             // 已销毁单位的残留条目清理（条目数远超在场单位时才扫一遍）。
             if (_motionTicks.Count > unitCount + 64)

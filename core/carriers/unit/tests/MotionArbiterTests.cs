@@ -103,6 +103,7 @@ namespace Tests.Carriers.Unit
             public FakeStagger Stagger = new FakeStagger();
             public FakeRootMotion Root = new FakeRootMotion();
             public List<(MoveStopReason Reason, Vec2 Pos)> Stops = new List<(MoveStopReason, Vec2)>();
+            public List<UnitMovedEvent> Moved = new List<UnitMovedEvent>();
 
             public Vec2 Pos => Units.GetPosition(HeroId);
 
@@ -205,6 +206,7 @@ namespace Tests.Carriers.Unit
             {
                 if (id.Equals(HeroId)) fx.Stops.Add((reason, pos));
             };
+            bus.Subscribe(CarriersEventKeys.UnitMoved, e => fx.Moved.Add((UnitMovedEvent)e));
 
             fx.Feel = AssembleFeel(basePreset);
             if (motion)

@@ -1,0 +1,16 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.unit_separate_off",
+      "description": "实验室单位推开对照预设：同 unit_block，但 unit_separation_speed_ratio 为 0（不推开重叠单位）；供测试以运行变体选用。只被脚本 feel_unit_separate 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.unit_block",
+      "values": {
+        "unit_separation_speed_ratio": 0
+      }
+    }
+  ]
+}

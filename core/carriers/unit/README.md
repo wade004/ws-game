@@ -690,24 +690,30 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 - `WorldUnitAccess` 实现 `IUnitFacingWriter.SetFacing`：只写朝向（不经空间索引同步、不发事件），供时间线把目标辅助的朝向修正落地。该方法不在 `IUnitAccess` 上（与 `SetLevel`/`SetFaction` 同一约定：非契约的单位写操作走窄接口）。
 - 复现/不变量：`tests/ActionTargetAssistTests.cs`（候选筛选、朝向修正 `min(方位角, 档案上限)` 不越界、`close_distance` 缩放、无候选静默、`SetFacing`）。
 
-## 判断记录（单位间体积阻挡，2026-10-02，M2-C，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 3.5 节、ADR-0116 勘误；手感设计未写清的规则由本切片拍板）
+## 判断记录（单位间体积阻挡，2026-10-02，M2-C 起步、M3-A 补完，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 3.5 节、[ADR-0128](../../../architecture/adr/0128-单位间体积阻挡.md)；手感设计未写清的规则由切片拍板）
 
-新增 `core/MovementTickHandler.UnitVolume.cs`（`MovementTickHandler` 的又一个 partial）与运动档案两个可选字段（`unit_body_radius`、`dodge_through_units`，`FeelFields.cs` / `MotionProfile.cs`，`MotionProfile` 加 18 参数构造函数，旧 15/16 参数构造函数保留并转发，ABI 只加）。
+`core/MovementTickHandler.UnitVolume.cs`（快照、扫掠、折线扫掠、局部绕行）与 `core/MovementTickHandler.UnitVolumeResolve.cs`（tick 末的成对裁决、分离、强制位移推人、`unit.moved` 延后发出）是 `MovementTickHandler` 的两个 partial。运动档案可选字段：`unit_body_radius`、`dodge_through_units`（总开关）、`pass_through_motion_kinds`、`unit_separation_speed_ratio`、`path_avoid_units`、`forced_push_units`、`forced_push_ratio`（`FeelFields.cs` / `MotionProfile.cs`；`MotionProfile` 现有 18 与 23 参数两个构造函数，旧构造函数保留并转发，ABI 只加）。
 
 1. **开关**：只有运动层启用且**本单位**档案 `unit_body_radius > 0` 才进入任何体积分支；既有预设、`LegacyEquivalent`、未声明的单位逐位不变（`MotionArbiterTests.UnitVolume` 里"未声明 = 对方在别处"一条按逐位相等断言）。旧的全局 `MovementOptions.UnitBlocking`（终点判定、`unit_block` 标签、固定半径）一字未动，二者独立。
-2. **成对语义**：半径取各自的档案；两方都 > 0 才互相阻挡，只有一方声明则穿过（一条测试钉住）。
-3. **连续扫掠 + 回退**：线段对圆求首次进入，回退一个 `ArrivalEpsilon`（与墙体同约定，保证下一 tick 不从圆里起步，所以撞停后不蠕动）；撞停位置 = 对方位置 − 半径之和 − 回退量之内。起点已在体积内时只拦"让距离变近"，允许走开；末尾守卫保证结果不比起点更深。
-4. **来源覆盖**：`regular`（输入位移，`wall_slide` 决定停下或沿切向滑一段）、`action`（动作位移，`blocking: slide` 滑开 / `stop` 停下；`dash`/`step_back` 在 `dodge_through_units` 为真时穿过，`lunge` 等永不穿过）、`forced`（击退：被挡即 `DisplacementBlocked` 收场，不滑）、方向/点/追击意图的路径跟随（停下，开 `wall_slide` 时滑开）、追击（有效停步距离取声明值与"半径之和 + 2 个到达容差"的较大者）。
-5. **为什么穿过只给冲刺/后撤、不给扑击**：闪避的语义就是无敌位移穿过敌人，扑击是追击型位移，穿过木桩会让"扑到敌人面前"失去意义；用字段而非硬编码，是游戏仍可自己决定（只对 `dash`/`step_back`，其它种类要穿过需新增字段）。
-6. **滑开细节**：切向那段仍过地形 `Raycast` 与 `IsWalkable`、再做一次扫掠（忽略刚撞的那个单位），最多一次不递归。
+2. **成对语义**：半径取各自的档案；两方都 > 0 才互相阻挡，只有一方声明则穿过。
+3. **快照 + 顺序无关**：tick 内第一个有体积的单位创建运动 tick 时，按单位 id 排序拍一份快照（id、半径、起点位置、分离比例）；单位自己的扫掠与守卫只读快照里别人的起点位置，所以处理顺序不影响结果。位置写入仍然即时（`SetPosition`），`unit.moved` 对有体积的单位延后到 tick 末按 id 顺序、带最终位置发出，运动学写入同样延后到 `WriteDeferredKin`。
+4. **tick 末成对裁决**（`ResolveUnitVolumes`，`FinishMotionTick` 末尾）：先对"本 tick 都动过的"成对单位用相对运动二次方程求接触比例，取各单位涉及的最小缩放，Jacobi 迭代 16 次，仍不收敛则归零；缩短后的位移必须仍过地形，否则回到起点（回到起点的单位速度清零，路径下标只在路径对象未变时恢复）。然后做分离：权重 = `unit_separation_speed_ratio`（缺省 0.5）× 基础移速，被冻结/定身/死亡/处于受控位移中的单位权重为 0，每个单位的推出量不超过权重 × 步长，先过地形裁决再过同一个成对接触求解；最后处理待执行的强制推人，再按 id 顺序发出延后的 `unit.moved`。穿过式动作位移（幽灵）本 tick 不参与成对接触与分离。
+5. **连续扫掠 + 回退**：线段（折线则逐段）对圆求首次进入，回退一个 `ArrivalEpsilon`（与墙体同约定，保证下一 tick 不从圆里起步，所以撞停后不蠕动）；撞停位置 = 对方位置 − 半径之和 − 回退量之内。起点已在体积内时只拦"让距离变近"，允许走开；末尾守卫保证结果不比起点更深。
+6. **来源覆盖**：`regular`（输入位移，`wall_slide` 决定停下或沿切向滑一段）、`action`（`blocking: slide` 滑开 / `stop` 停下；穿过 = `dodge_through_units` 总开关 AND 位移种类在 `pass_through_motion_kinds` 里，缺省 `dash,step_back`，名字不认识在读档案时抛 `InvalidOperationException` 并带字段名）、`forced`（被挡 `DisplacementBlocked` 收场，不滑；`forced_push_units` 为真时见 8）、路径跟随与追击（`path_avoid_units` 缺省真，局部绕行见 7；追击有效停步距离取声明值与"半径之和 + 2 个到达容差"的较大者）。
+7. **局部绕行**（`TryAvoidUnits`）：被体积挡住后，沿"目标方向去掉沿（被撞单位中心 → 本单位）法向分量"的切向以本 tick 剩余预算走；正对着撞上（切向分量为零）取法向逆时针垂线，这时才再试另一侧，否则目标方向偏向的一侧被挡死就停（换侧会在窄道里来回弹，测试钉住）。目标点落在挡路单位的体积里（加 2 个到达容差）不绕。绕行步仍过别的单位的扫掠和地形裁决。选局部绕行而不是重规划：导航契约已冻结，确定且便宜。
+8. **强制位移推人**（`QueueForcedPush` / `ApplyPendingPushes`）：被推单位档案 `forced_push_units` 为真，策略不是回退，位移是停下类，则记下一条待推：向量 = 剩余距离 × `forced_push_ratio` ×（1 − 被推单位击退抗性，`MotionKnockback.ReadResistance`）沿"停下位置 → 被推单位中心"。tick 末按（目标 id、推人者 id）排序、同目标向量相加；已在受控位移中的目标跳过；被推单位从下一 tick 起得到一个新的强制位移，沿用推人者的曲线（时长按比例缩放）或速度。
+9. **折线精确扫掠**（`ClipPathByUnitVolumes(unit, r, from, to, via, slide)`）：先撞墙再滑动的位移按"起点 → 拐点（起点 + 方向 × (撞墙距离 − 回退量)）→ 终点"逐段扫掠，不再用起终点直线近似。
+10. **为什么穿过只给冲刺/后撤、不给扑击**：闪避的语义是无敌位移穿过敌人，扑击是追击型位移；种类集合由数据声明，游戏自己决定。
 
 **已知限制（如实记录）**：
-- 不做"推开重叠单位"：出生重叠或穿过式冲刺落进体积内时，只拦让距离变近的位移，允许走开，不强制推出。
-- 路径跟随与追击不绕单位寻路：撞到单位体积就停（开 `wall_slide` 时沿切向滑一段），不重规划。
-- 同一 tick 里先撞墙滑动又撞单位体积时，单位扫掠对切向段用直线近似。
-- 受控位移（击退）不滑，被挡住的单位不会被推动。
-- 单位按顺序处理，一个单位只看得到别人**当前**的位置（先走的单位先占位）。
-- 死亡单位不阻挡；离散步（回合制）不受影响。
-- 体积半径随运动档案走：全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
-- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（边界停止期望由半径与步长算出、6 个随机种子的"从不重叠"不变量并断言确实发生过碰撞、冲刺高速不隧穿、冲刺穿过、滑开、追击、击退、死亡不阻挡）；实验室脚本 `feel_unit_block`（`lab/README.md` 判断记录 34）。
+- 成对阻挡看到的是别人 tick 起点的位置，所以跟在另一个单位后面走的单位最多滞后一个 tick。
+- 成对裁决对滑动或折线位移用起点到终点的弦，保守，可能略微多缩短一点，并经地形校验。
+- 某个单位在同一 tick 到达路径终点或受控位移结束、同时又与别的单位成对碰撞时，停下/到达事件里的位置是成对裁决之前的位置，到达状态已经记录。
+- 被成对裁决拉回的单位速度清零；路径下标只有在路径对象未变时才恢复。
+- 追击与扑向目标读取目标的当前位置，这是体积裁决之外既有的顺序依赖。
+- 成对检测每 tick `O(n log n + k)`。
+- 被推单位的位移从下一 tick 起。
+- 未知的 `pass_through_motion_kinds` 名字在读档案时抛异常。
+- 死亡单位不阻挡；离散步（回合制）不受影响；体积半径随运动档案走，全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
+- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）与 `tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、35）。
 - **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。

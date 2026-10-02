@@ -1,0 +1,18 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.calibration.lab_unit_separate_off",
+      "description": "实验室单位推开对照标定：基础预设 feel.preset.unit_separate_off；参考身高 1、基础移速 5，其余同 lab_unit_block。",
+      "base_preset": "feel.preset.unit_separate_off",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    }
+  ]
+}

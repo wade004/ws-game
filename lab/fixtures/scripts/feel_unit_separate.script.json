@@ -1,0 +1,39 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_unit_separate",
+    "scriptVersion": 1,
+    "description": "单位间体积推开（手感设计/02 第 9 节，ADR-0128）：预设钉死为 unit_block，玩家出生在 (1.7, 0)，与木桩（2, 0）的体积重叠（半径之和 0.8、中心距 0.3），全程没有输入。两个单位按 unit_separation_speed_ratio 缺省值分担重叠深度，每 tick 各自位移不超过 比例 × 移速 × 步长，到半径之和为止、不过度分离。量玩家的终点位置与每 tick 的位移。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.unit_block",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 1.7,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/unit_block",
+      "lab/fixtures/data/unit_separate"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": []
+}
