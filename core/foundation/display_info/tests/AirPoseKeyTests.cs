@@ -58,6 +58,68 @@ namespace Tests.Foundation.DisplayInfo
             }
         }
 
+        // ---------- 变体维度（手感落地 M4-W1b） ----------
+
+        [Fact]
+        public void VariantDimensions_AppendInGroundOrder_AndDropVariantThenFamilyThenStance()
+        {
+            // 复现：姿态/武器族/变体的空中键按 stance → family → variant 拼，链先去变体、再去武器族、再去姿态，末尾是固定尾链。
+            Assert.Equal(
+                new[] { "attack.air.combat.sword.wounded", "attack.air.combat.sword", "attack.air.combat", "attack.air", "attack.sword", "attack" },
+                AirPoseRequest.AttackAir("sword", "combat", "wounded").Chain());
+            Assert.Equal(
+                new[] { "jump.rise.combat.2h.wounded", "jump.rise.combat.2h", "jump.rise.combat", "jump.rise", "jump", "idle" },
+                AirPoseRequest.Jump("rise", "combat", "2h", "wounded").Chain());
+            Assert.Equal(
+                new[] { "hit.air.wounded", "hit.air", "hit.launch", "hit" },
+                AirPoseRequest.HitAir(null, null, "wounded").Chain());
+            Assert.Equal(new[] { "jump.land.combat", "jump.land", "idle" }, AirPoseRequest.Jump("land", "combat", null, null).Chain());
+        }
+
+        [Fact]
+        public void VariantDimensions_PeaceStanceAndEmptyValuesAreOmitted_SoOldRequestsKeepTheirChain()
+        {
+            // 不变量：不带维度 / peace / 空串的请求链与旧约定逐位一致。
+            Assert.Equal(AirPoseRequest.Jump("rise").Chain(), AirPoseRequest.Jump("rise", "peace", "", "").Chain());
+            Assert.Equal(AirPoseRequest.HitAir().Chain(), AirPoseRequest.HitAir("peace", null, null).Chain());
+            Assert.Equal(AirPoseRequest.AttackAir("greatsword").Chain(), AirPoseRequest.AttackAir("greatsword", "peace", null).Chain());
+            Assert.Equal(AirPoseRequest.AttackAir("greatsword"), AirPoseRequest.AttackAir("greatsword", null, null));
+            Assert.NotEqual(AirPoseRequest.HitAir(), AirPoseRequest.HitAir("combat", null, null));
+        }
+
+        [Fact]
+        public void VariantDimensions_ResolveToTheMostSpecificPresentKey_AndFallBackOneDimensionAtATime()
+        {
+            var keys = new[] { "idle", "jump", "jump.rise", "jump.rise.combat", "jump.rise.wounded", "jump.rise.combat.wounded" };
+            var full = AirPoseRequest.Jump("rise", "combat", null, "wounded");
+            Assert.Equal("jump.rise.combat.wounded", Resolve(full, keys).CanonicalKey);
+
+            // 缺最具体键：先去变体，落到 jump.rise.combat（不是 jump.rise.wounded——变体先于姿态被去掉）。
+            var withoutFull = keys.Where(k => k != "jump.rise.combat.wounded").ToArray();
+            var depth1 = Resolve(full, withoutFull);
+            Assert.Equal("jump.rise.combat", depth1.CanonicalKey);
+            Assert.Equal(1, depth1.FallbackDepth);
+
+            // 再缺姿态键：落到 jump.rise；全缺落到 jump，再到 idle。
+            Assert.Equal("jump.rise", Resolve(full, "idle", "jump", "jump.rise").CanonicalKey);
+            Assert.Equal("jump", Resolve(full, "idle", "jump").CanonicalKey);
+            Assert.Equal("idle", Resolve(full, "idle").CanonicalKey);
+        }
+
+        [Fact]
+        public void VariantDimensions_AllKeysStayWellFormed()
+        {
+            var requests = new[]
+            {
+                AirPoseRequest.Jump("rise", "combat", "2h", "wounded"), AirPoseRequest.Jump("land", "combat", null, "carrying"),
+                AirPoseRequest.HitAir("combat", "sword", "wounded"), AirPoseRequest.AttackAir("sword", "combat", "mounted"),
+            };
+            foreach (var key in requests.SelectMany(r => r.Chain()))
+            {
+                Assert.True(PoseKeys.IsWellFormed(key), key);
+            }
+        }
+
         // ---------- 键存在：命中最具体的 ----------
 
         [Theory]

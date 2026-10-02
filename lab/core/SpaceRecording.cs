@@ -57,6 +57,11 @@ namespace Lab
         /// </summary>
         public SpaceExtRecording? Ext { get; set; }
 
+        /// <summary>
+        /// 空中战斗记录（手感落地 M4-W1b；脚本 <c>meta.spaceExt.airCombat</c> 为真且格子带竖直轴时才有，否则 null，度量组 <c>air_combat</c> 不出现）。
+        /// </summary>
+        public AirCombatRecording? AirCombat { get; set; }
+
         public SpaceRecording(string model, bool verticalAxis, double gravity, double jumpHeight, bool depthLocked)
         {
             Model = model;

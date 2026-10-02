@@ -323,10 +323,12 @@ namespace Adapter.Unity.Presentation
             var stateKey = StateKey(state);
             PoseRequest request;
 
-            // ADR-0130 追加决定（空中姿势）：有空中阶段时 jump/hit/attack 走固定回落链
-            // （jump.rise|fall|land -> jump -> idle；hit.air -> hit.launch -> hit；attack.air[.族] -> attack.air -> attack[.族] -> attack）。
+            // ADR-0130 追加决定（空中姿势）：有空中阶段时 jump/hit/attack 走空中回落链
+            // （jump.rise|fall|land -> jump -> idle；hit.air -> hit.launch -> hit；attack.air[.族] -> attack.air -> attack[.族] -> attack），
+            // M4-W1b 起空中键带姿态/武器族/变体维度（jump.rise.combat、hit.air.wounded …，先去变体、再去武器族、再去姿态）。
             // 没有空中阶段（没接 AirPoseFeeder 或在地面）时不进本分支，解析与改动前逐位一致。
-            if (allowVariant && _poseContext != null && _poseContext.GetContext(entityId).TryGetAirRequest(stateKey, out var airRequest))
+            if (allowVariant && _poseContext != null
+                && _poseContext.GetContext(entityId).TryGetAirRequest(stateKey, _stateMachine.IsInCombatStance(entityId), out var airRequest))
             {
                 Func<string, bool>? airUsable = null;
                 if (_isClipReady != null)

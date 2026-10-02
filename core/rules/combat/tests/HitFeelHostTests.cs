@@ -79,12 +79,24 @@ namespace Tests.Rules.Combat
             {
                 Calls.Add((Now(), unitId, apexHeightWorld));
                 Stacks.Add((LaunchStackMode.Restart, 0.0));
+                HeightCaps.Add(0.0);
             }
 
             public void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld)
             {
                 Calls.Add((Now(), unitId, apexHeightWorld));
                 Stacks.Add((stack, stackCapApexWorld));
+                HeightCaps.Add(0.0);
+            }
+
+            /// <summary>与 <see cref="Calls"/> 一一对应的绝对高度上限（没带上限的重载记为 0）。</summary>
+            public readonly List<double> HeightCaps = new List<double>();
+
+            public void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld, double heightCapWorld)
+            {
+                Calls.Add((Now(), unitId, apexHeightWorld));
+                Stacks.Add((stack, stackCapApexWorld));
+                HeightCaps.Add(heightCapWorld);
             }
         }
 
@@ -988,6 +1000,167 @@ namespace Tests.Rules.Combat
                 Assert.Equal(LaunchStackMode.Restart, stack);
                 Assert.Equal(0.0, cap);
             }
+        }
+
+        // ------------------------------------------------------------------ 手感落地 M4-W1b：目标侧空中反应、高度上限、体型缩放、硬直持续到落地
+
+        private static Fx AirFx(string impact = "heavy")
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, impact);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Airborne.Air.Add(Target);
+            return fx;
+        }
+
+        private static void SetUnitField(Fx fx, Id unit, string field, string value) =>
+            fx.Feel.DebugOverrides!.SetUnit(unit, new FeelWrite(field, FeelOp.Set, FeelValue.Of(value)));
+
+        private static void SetUnitField(Fx fx, Id unit, string field, double value) =>
+            fx.Feel.DebugOverrides!.SetUnit(unit, new FeelWrite(field, FeelOp.Set, FeelValue.Of(value)));
+
+        [Fact]
+        public void AirHitReaction_TargetSideDeclaration_AppliesWhenTheAttackerDeclaresNothing()
+        {
+            // 复现：只有受击方档案声明 air_hit_reaction=flinch（攻击方没有）——空中受击也被替换；地面不受影响。
+            var air = AirFx();
+            SetUnitField(air, Target, FeelFieldNames.AirHitReaction, "flinch");
+            air.Hit(Attacker, Target);
+            air.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(air));
+
+            var ground = Build();
+            ground.Set(FeelFieldNames.ImpactClass, "heavy");
+            ground.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            SetUnitField(ground, Target, FeelFieldNames.AirHitReaction, "flinch");
+            ground.Hit(Attacker, Target);
+            ground.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(ground));
+        }
+
+        [Fact]
+        public void AirHitReaction_AttackerDeclarationWinsOverTheTargets_SameFallsThroughToTheTarget()
+        {
+            // 不变量：攻击方声明了非 same 的值就以它为准；攻击方 same/缺省才看受击方。
+            var win = AirFx();
+            SetUnitField(win, Attacker, FeelFieldNames.AirHitReaction, "none");
+            SetUnitField(win, Target, FeelFieldNames.AirHitReaction, "flinch");
+            win.Hit(Attacker, Target);
+            win.Run(3);
+            Assert.True(win.Reactions.Count == 0 || ReactionOf(win) == HitReaction.None); // 攻击方的 none 赢过受击方的 flinch
+
+            var fall = AirFx();
+            SetUnitField(fall, Attacker, FeelFieldNames.AirHitReaction, "same");
+            SetUnitField(fall, Target, FeelFieldNames.AirHitReaction, "flinch");
+            fall.Hit(Attacker, Target);
+            fall.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(fall));
+        }
+
+        [Fact]
+        public void AirReactionCap_LimitsOnlyAirborneHits_AndComposesWithReactionCap()
+        {
+            // 复现：reaction_cap=knockdown（不封顶）、air_reaction_cap=stagger：空中 heavy 被限成 stagger；地面仍是 knockback。
+            var air = AirFx();
+            air.Set(FeelFieldNames.AirReactionCap, "stagger");
+            air.Hit(Attacker, Target);
+            air.Run(3);
+            Assert.Equal(HitReaction.Stagger, ReactionOf(air));
+
+            var ground = Build();
+            ground.Set(FeelFieldNames.ImpactClass, "heavy");
+            ground.Set(FeelFieldNames.AirReactionCap, "stagger");
+            ground.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            ground.Hit(Attacker, Target);
+            ground.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(ground));
+
+            // 不变量：与 reaction_cap 叠加取较低者（reaction_cap=flinch 更低时以它为准）。
+            var both = AirFx();
+            both.Set(FeelFieldNames.ReactionCap, "flinch");
+            both.Set(FeelFieldNames.AirReactionCap, "stagger");
+            both.Hit(Attacker, Target);
+            both.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(both));
+
+            // 不变量：死亡不受它影响。
+            var kill = AirFx();
+            kill.Set(FeelFieldNames.AirReactionCap, "none");
+            kill.Hit(Attacker, Target, kill: true);
+            kill.Run(3);
+            Assert.Equal(HitReaction.Death, ReactionOf(kill));
+        }
+
+        [Fact]
+        public void LaunchHeightCap_IsForwardedCalibrated_MinOfAttackerAndTarget_AbsentMeansZero()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.Set(FeelFieldNames.LaunchHeightCap, 2.0);
+            SetUnitField(fx, Target, FeelFieldNames.LaunchHeightCap, 1.5);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.LaunchHeightCap, out var targetWorld));
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchHeightCap, out var attackerWorld));
+            Assert.True(targetWorld < attackerWorld);
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+            Assert.Equal(targetWorld, fx.Launch.HeightCaps.Single(), 9); // 两侧都声明取较小者，且是标定后的世界单位
+
+            var none = Build();
+            none.Set(FeelFieldNames.ImpactClass, "heavy");
+            none.Set(FeelFieldNames.LaunchHeight, 1.0);
+            none.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            none.Hit(Attacker, Target);
+            none.Run(30);
+            Assert.Equal(0.0, none.Launch.HeightCaps.Single()); // 不变量：没声明 = 走 4 参数重载（与引入之前一致）
+        }
+
+        [Fact]
+        public void LaunchBodyScale_ScalesTheApexOnlyWhenDeclared()
+        {
+            var plain = Build();
+            plain.Set(FeelFieldNames.ImpactClass, "heavy");
+            plain.Set(FeelFieldNames.LaunchHeight, 1.0);
+            plain.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            plain.Hit(Attacker, Target);
+            plain.Run(30);
+            var baseApex = plain.Launch.Calls.Single().Apex;
+
+            var scaled = Build();
+            scaled.Set(FeelFieldNames.ImpactClass, "heavy");
+            scaled.Set(FeelFieldNames.LaunchHeight, 1.0);
+            SetUnitField(scaled, Target, FeelFieldNames.LaunchBodyScale, 0.5);
+            scaled.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            scaled.Hit(Attacker, Target);
+            scaled.Run(30);
+            Assert.Equal(baseApex * 0.5, scaled.Launch.Calls.Single().Apex, 9);
+        }
+
+        [Fact]
+        public void AirStunUntilLand_HoldsTheStaggerPastItsDuration_UntilTheTargetLands()
+        {
+            // 复现：空中受击 stagger（230ms 档）；声明 air_stun_until_land 后，时长到点仍在空中 → 一直硬直；落地后下一个 tick 结束。
+            var hold = Build();
+            hold.Set(FeelFieldNames.ImpactClass, "medium");
+            hold.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.AirStunUntilLand, FeelOp.Set, FeelValue.Of(true)));
+            hold.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            hold.Airborne.Air.Add(Target);
+            hold.Hit(Attacker, Target);
+            hold.Run(60);
+            Assert.True(hold.Host.IsStaggered(Target));
+            hold.Airborne.Air.Remove(Target);
+            hold.Run(2);
+            Assert.False(hold.Host.IsStaggered(Target));
+
+            // 不变量：缺省不声明时按时长结束，与是否在空中无关（与引入之前一致）。
+            var plain = Build();
+            plain.Set(FeelFieldNames.ImpactClass, "medium");
+            plain.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            plain.Airborne.Air.Add(Target);
+            plain.Hit(Attacker, Target);
+            plain.Run(60);
+            Assert.False(plain.Host.IsStaggered(Target));
         }
 
         // ------------------------------------------------------------------ instant（目标选择式）适配：真实 CombatHost

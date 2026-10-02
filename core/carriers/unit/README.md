@@ -729,7 +729,7 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 3. **解析式积分**：每步按累计飞行时间代入 `h0 + v0·t − g·t²/2`（不做欧拉累加，帧长不均匀时没有积分漂移），`h ≤ 0` 落地、落地步写 0；每步按单位 Id 序数遍历，已销毁实体静默丢弃其飞行状态；离散步（回合制）不推进（竖直运动是连续时间模型的概念）。`LaunchToApex(h)` 的初速 = `sqrt(2·g·h)`，落地步数 = `ceil(2·v0/(g·dt))`（测试里按此公式算期望）。
 4. **二段跳**：`Jump` 在空中默认被拒绝（返回 false，调用方计数，不静默吞掉）；`AllowAirJump` 为真时从当前高度重新抛起（起点高度 = 当前高度，不叠加速度）。再次 `Launch` 同理。
 5. **读口**：`IUnitAccess.GetHeightOffset`（默认接口成员，恒 0；`WorldUnitAccess` 覆盖为读 `Unit.HeightOffset`，未知单位返回 0）。
-6. **已知局限**：`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。
+6. **已知局限**（"没有落地事件"一项 M4-W1b 已解除，见本文「判断记录（空战二期…）」节）：`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。
 
 ## 判断记录（竖直轴能力包补完，2026-10-03，M4-V，ADR-0130 追加决定）
 
@@ -741,3 +741,10 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 4. **击飞叠加**：`ILaunchSink.BeginLaunch(unit, apex, LaunchStackMode, cap)`（默认接口重载，缺省转调旧签名）；`Add` 模式下新初速 = 当前竖直速度 + `sqrt(2·g·H)`，有上限（`cap` > 0）时夹到 `sqrt(2·g·cap)`；`Restart`（缺省）仍是以新初速从当前高度重新起算。在下落中叠加可能比重启还低，这是叠加语义本身。
 5. **空中单位查询**：`VerticalMotionHost` 同时实现 `Core.Rules.Common.IAirborneQuery`（受击裁决判断"目标是否在空中"）与 `IVerticalMotion.AirborneUnits()`（按 Id 序的腾空单位，呈现层的空中阶段喂入器用）。
 6. **已知局限**：`FindPath` 不感知台阶——穿过台阶的路径被截断并以 `TerrainBlocked` 结束，不做绕行规划；`Revalidate`（仅导航的路径有效性复核）未改；路径段按弦近似；上升中的飞行落到不超过台阶高度的更高地面时直接落地；台阶阻挡点按取样距离逼近，停点离台阶脚最多差一个取样步；Unity 物理射线实现不区分地图 id（只能用掩码钩子区分）。测试：`tests/VerticalAxisCompletionTests.cs`（空中跳跃上限、空中控制缩放、地形落地/天花板/斜坡/悬崖下落、台阶阻挡（方向/路径/位移三条出口）、`TerrainBlockPoint`、击飞叠加与上限、`AirborneUnits`、默认接口成员、选项校验）。
+
+## 判断记录（空战二期：落地事件、击飞高度上限、受控位移深度锁，2026-10-03，M4-W1b，ADR-0130 追加决定）
+
+1. **落地事件 `unit.landed`**：`VerticalMotionHost` 一次飞行结束（跳跃、击飞、离开平台下落）时发 `UnitLandedEvent`（`unitId, height, airSeconds, impactSpeed`；`height` = 落点的地面高度，`airSeconds` = 本次离地以来的累计空中时间——再次击飞、空中跳跃、天花板反弹不清零，`impactSpeed` = 落地瞬间下落速度、非负）。`VerticalAxisOptions.EmitLandedEvent` 缺省 false：事件流与引入之前逐位一致（既有重放、事件计数类基线不受影响）；`CarriersAssembly` 把总线传给竖直运动服务。理由：落地事件是新增事件，若缺省发出会改变所有带竖直轴的既有运行的事件总数——可选开启比让所有基线重生成稳妥。事件目录行 `unit.landed` 与 `EventKeys.g.cs` 已登记（目录总数 117）。
+2. **`BeginLaunch` 的绝对高度上限**：`ILaunchSink` 默认接口成员 5 参数重载，`VerticalMotionHost` 覆盖（语义见 combat README 空战二期第 4 条）；`heightCap` 非正或无穷时与 4 参数重载完全一致。
+3. **受控位移的深度锁（原局限"横版深度锁只作用在移动输入，不限制被击退的方向"）**：`MovementOptions.DepthLockControlledMotion`（缺省 false，与 1.95.0 逐位一致：深度锁只在宿主输入层，受控位移按提交的方向走）。为真时 `MovementTickHandler.BeginDisplacement` 约束受控位移只沿横向：**击退**保持距离、方向取提交方向横向分量的符号（横向分量为 0，即攻击方恰在同一横坐标时没有横向可推，本次击退不位移）；**其它受控位移**（技能位移的冲锋/扑击/闪避位移）丢弃目标点的深度分量（落点横坐标不变、深度保持起点）。体积推人转移的位移沿撞人者的位移方向因此随之受约束；单位间重叠分离是穿插修正、不是受控位移，不受本选项约束。深度轴取平面的竖直分量（Y）。理由：深度锁是世界性质（横版二维没有深度），宿主应用它时受控位移也不该漂出平面；缺省关因为"深度锁"一直只是输入层约定，改成缺省开会改变既有横版基线。
+4. **复现与不变量**：`tests/VerticalAxisCompletionTests.cs`（落地事件载荷与空中时长累计、缺省不发、`BeginLaunch` 高度上限的地面/空中/叠加三种情形、深度锁下击退只走横向距离保持/横向分量为 0 不位移/技能位移丢深度、缺省不锁）；实验室 `space.dummy_air`（靶子起跳与空中移动，落地事件）、`space.depth_knockback` 与对照 `space.depth_knockback_free`。

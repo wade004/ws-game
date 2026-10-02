@@ -185,6 +185,27 @@ namespace Adapter.Unity.Tests.Runtime
             }
         }
 
+        // ---------- 二点五、变体维度（手感落地 M4-W1b）：战斗姿态 / 变体进空中键，按"先去变体、再去武器族、再去姿态"回落 ----------
+
+        [Test]
+        public void AirKeys_CarryCombatStanceAndVariant_AndFallBackOneDimensionAtATime()
+        {
+            using var rig = new Rig("idle", "jump", "jump.rise", "jump.rise.combat", "jump.rise.combat.wounded");
+            rig.Bus.PublishImmediate(new CombatEnteredEvent(Entity));
+            rig.Selector.SetVariant(Entity, "wounded");
+            rig.Selector.SetAirPhase(Entity, AirPhase.Rise);
+            Assert.AreEqual(new Id("clip.jump.rise.combat.wounded"), rig.Last, "战斗 + 变体：最具体的键");
+
+            rig.Selector.SetVariant(Entity, null);
+            rig.Selector.SetAirPhase(Entity, AirPhase.None);
+            rig.Selector.SetAirPhase(Entity, AirPhase.Rise);
+            Assert.AreEqual(new Id("clip.jump.rise.combat"), rig.Last, "没有变体：去变体");
+
+            using var peace = new Rig("idle", "jump", "jump.rise", "jump.rise.combat");
+            peace.Selector.SetAirPhase(Entity, AirPhase.Rise);
+            Assert.AreEqual(new Id("clip.jump.rise"), peace.Last, "和平姿态：不带 .combat（与改动前一致）");
+        }
+
         // ---------- 三、不变量：没有空中阶段 ----------
 
         [Test]

@@ -922,6 +922,22 @@ namespace Core.Rules.Skill
             public void SettleOn(IReadOnlyList<Id> targets)
             {
                 var live = _owner.FilterDestroyedTargets(targets);
+                if (live.Count > 0 && _owner._options.SpatialRangeHitWindow && _def.Range > 0)
+                {
+                    // 命中窗口的射程门（SkillOptions.SpatialRangeHitWindow）：instant 结算与自定义命中钩子的结算同样受它约束。
+                    var casterPos = _owner._units.GetPosition(_casterId);
+                    var inRange = new List<Id>(live.Count);
+                    for (var i = 0; i < live.Count; i++)
+                    {
+                        if (_owner.WithinHitWindowRange(_casterId, _def, casterPos, live[i]))
+                        {
+                            inRange.Add(live[i]);
+                        }
+                    }
+
+                    live = inRange;
+                }
+
                 if (live.Count == 0)
                 {
                     return;

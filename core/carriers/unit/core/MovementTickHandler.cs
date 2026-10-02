@@ -1225,6 +1225,22 @@ namespace Core.Carriers.Unit
                 return false;
             }
 
+            if (_options.DepthLockControlledMotion)
+            {
+                // 深度锁（MovementOptions.DepthLockControlledMotion）：受控位移只沿横向。击退保持距离、沿提交方向横向分量的符号；
+                // 其它位移丢弃目标点的深度分量。处理在零距离判断之前，横向分量为 0 的击退因此落进下面的"零距离 no-op"。
+                var depthVector = target - origin;
+                if (IsKnockback(intent))
+                {
+                    var horizontal = Math.Abs(depthVector.X) > ZeroLengthEpsilon ? Math.Sign(depthVector.X) * depthVector.Length : 0.0;
+                    target = new Vec2(origin.X + horizontal, origin.Y);
+                }
+                else
+                {
+                    target = new Vec2(target.X, origin.Y);
+                }
+            }
+
             if (speed <= 0 || (target - origin).Length <= ZeroLengthEpsilon)
             {
                 // 无效速度或零距离：no-op，不建立位移状态、不产生任何事件（同 BeginPathTo 判断记录

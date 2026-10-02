@@ -135,6 +135,14 @@ namespace Core.Rules.Common
         /// </summary>
         void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld) =>
             BeginLaunch(unitId, apexHeightWorld);
+
+        /// <summary>
+        /// 带绝对高度上限的击飞（手感落地 M4-W1b，手感档案 <c>launch_height_cap</c>）：<paramref name="heightCapWorld"/>（&gt; 0 时）是击飞（含叠加）之后
+        /// 单位脚下高度的最高点上限（世界高度，与 <see cref="Core.Rules.Common.IUnitAccess.GetHeightOffset"/> 同一坐标），在叠加上限之外再封一道；
+        /// 0 表示不设。默认接口成员：忽略高度上限，退化为 4 参数重载（既有实现无需改动）。
+        /// </summary>
+        void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld, double heightCapWorld) =>
+            BeginLaunch(unitId, apexHeightWorld, stack, stackCapApexWorld);
     }
 
     /// <summary>

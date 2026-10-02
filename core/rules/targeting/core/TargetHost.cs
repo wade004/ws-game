@@ -248,7 +248,10 @@ namespace Core.Rules.Targeting
         /// 避免消费方误将其与既有 <c>Resolve</c> 调用一次一事件的既有惯例混淆。
         /// </summary>
         public IReadOnlyList<Id> ResolveAtPoint(Id chainId, Id casterId, Vec2 point) =>
-            ProjectTargets(ResolveChainWithCoefficients(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0, originHeight: 0.0));
+            ProjectTargets(ResolveChainWithCoefficients(
+                chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0,
+                // 落点高度 = 落点的地面高度（M4-W1b：有地形高度能力时不再恒为 0；没有地形能力时 GetGroundHeightAt 恒 0，逐位不变）。
+                originHeight: _units.GetGroundHeightAt(casterId, point)));
 
         /// <summary>
         /// T-N3-8 判断记录：本方法取代改动前的 <c>ResolveChain</c>，是 <see cref="Resolve(Id, Id, Id?)"/>/

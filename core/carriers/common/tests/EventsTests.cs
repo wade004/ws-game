@@ -21,6 +21,7 @@ namespace Tests.Carriers.Common
             Assert.Equal("summon.created", CarriersEventKeys.SummonCreated.Value);
             Assert.Equal("summon.expired", CarriersEventKeys.SummonExpired.Value);
             Assert.Equal("unit.moved", CarriersEventKeys.UnitMoved.Value);
+            Assert.Equal("unit.landed", CarriersEventKeys.UnitLanded.Value);
             Assert.Equal("unit.state_changed", CarriersEventKeys.UnitStateChanged.Value);
         }
 
@@ -147,6 +148,23 @@ namespace Tests.Carriers.Common
             Assert.True(evt.TryGetField("unitId", out _));
             Assert.False(evt.TryGetField("position", out _));
             Assert.Equal(new Vec2(1, 2), evt.Position);
+        }
+
+        [Fact]
+        public void UnitLandedEvent_ExposesHeightAirTimeAndImpactSpeedToExpressions()
+        {
+            var evt = new UnitLandedEvent(new Id("unit.hero"), 0.5, 1.25, 7.0);
+
+            Assert.Equal(CarriersEventKeys.UnitLanded, evt.Key);
+            Assert.True(evt.TryGetField("unitId", out var unit));
+            Assert.Equal(ExprValue.OfId(new Id("unit.hero")), unit);
+            Assert.True(evt.TryGetField("height", out var h));
+            Assert.Equal(0.5, h.AsNumber);
+            Assert.True(evt.TryGetField("airSeconds", out var t));
+            Assert.Equal(1.25, t.AsNumber);
+            Assert.True(evt.TryGetField("impactSpeed", out var v));
+            Assert.Equal(7.0, v.AsNumber);
+            Assert.False(evt.TryGetField("nope", out _));
         }
 
         [Fact]

@@ -141,8 +141,8 @@ namespace Toolchain.FeelLab
                 return ExitNotRunnable;
             }
 
-            var fingerprint = Fingerprint.Build(
-                recording, runner.Registry, runner.DatasetFor(script, runner.Dataset.Catalog.GetScenario(cell)).Hash);
+            // 格子经脚本解析（空间格子在脚本声明的额外数据根里，不在基础数据集的目录里）。
+            var fingerprint = runner.FingerprintOf(script, cell, recording);
             var outDir = o.Get("out") ?? Path.Combine("lab", "out");
             Directory.CreateDirectory(outDir);
             var fpPath = Path.Combine(outDir, $"{script.Meta.ScriptId}.{cell}.fingerprint.json");

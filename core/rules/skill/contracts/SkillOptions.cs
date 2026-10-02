@@ -254,5 +254,14 @@ namespace Core.Rules.Skill
         /// 不影响视线、目标选择的"最近"排序（那是 <c>TargetingOptions.SpatialDistance</c>）。
         /// </summary>
         public bool SpatialRange { get; set; }
+
+        /// <summary>
+        /// 命中窗口的射程门（手感落地 M4-W1b，ADR-0130 追加决定"动作式三维射程"）：<c>false</c>（缺省）= 带 <c>timeline</c> 的动作式结算只由命中窗口几何
+        /// （目标链形状加高度窗口）决定谁被命中，不看技能的 <c>range</c>（与 1.95.0 逐位一致）；<c>true</c> = 命中窗口每次结算时，
+        /// <c>range &gt; 0</c> 的技能额外要求"施法者当时位置到目标的距离不超过 <c>range</c>"才算命中，不满足的候选被排除（不是施法失败——动作已经出手）。
+        /// 距离口径同 <see cref="SpatialRange"/>：它为真时含高度差的三维距离，为假时平面距离。作用于空间命中（<c>hit</c> 标记与 <c>continuous</c> 逐 tick 采样）
+        /// 和 instant 结算的时间线命中；投射物按自己的射程飞行，不受本选项影响。
+        /// </summary>
+        public bool SpatialRangeHitWindow { get; set; }
     }
 }

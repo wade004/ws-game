@@ -51,6 +51,7 @@ namespace Core.Foundation.Feel
         public const string GaitHysteresisRatio = "gait_hysteresis_ratio";
         public const string StrideScale = "stride_scale";
         public const string StartBlendMs = "start_blend_ms";
+        public const string LandHoldMs = "land_hold_ms";
         public const string StopBlendMs = "stop_blend_ms";
         public const string LeanDegPerAccel = "lean_deg_per_accel";
 
@@ -83,6 +84,10 @@ namespace Core.Foundation.Feel
         public const string AirHitReaction = "air_hit_reaction";
         public const string LaunchStack = "launch_stack";
         public const string LaunchStackCap = "launch_stack_cap";
+        public const string LaunchHeightCap = "launch_height_cap";
+        public const string LaunchBodyScale = "launch_body_scale";
+        public const string AirReactionCap = "air_reaction_cap";
+        public const string AirStunUntilLand = "air_stun_until_land";
         public const string KillHitstopScale = "kill_hitstop_scale";
 
         // 镜头（呈现型；07 第 2 节，加 camera_ 前缀与输入组的 dead_zone 区分）
@@ -267,6 +272,8 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.SprintMinRatio, Mv, P, SpeedRatio, C, 1, 4, "步态 sprint 下界（声明了冲刺时）；缺省（无值）表示无 sprint 步态", optional: true),
                 Num(FeelFieldNames.GaitHysteresisRatio, Mv, P, SpeedRatio, C, 0, 0.5, "步态阈值滞回，避免在阈值附近抖动"),
                 Num(FeelFieldNames.StrideScale, Mv, P, Ratio, C, 0.1, 4, "步幅缩放：动画播放速率匹配实际地面速度时的倍率"),
+                Num(FeelFieldNames.LandHoldMs, Mv, P, Ms, C, 0, 2000,
+                    "落地姿势保持时长（手感落地 M4-W1b）：单位落地后空中阶段的落地相（jump.land）保持多久；缺省（无值）取呈现层默认 8 个 tick，0 = 不播落地姿势", optional: true),
                 Num(FeelFieldNames.StartBlendMs, Mv, P, Ms, C, 0, 1000, "起步混合时长"),
                 Num(FeelFieldNames.StopBlendMs, Mv, P, Ms, C, 0, 1000, "急停混合时长"),
                 Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度对应的倾斜角度上限（度）"),
@@ -309,6 +316,17 @@ namespace Core.Foundation.Feel
                 Enum(FeelFieldNames.AirHitReaction, Re, J, C, AirHitReactionValues,
                     "腾空受击反应（受击方档案）：目标在空中被命中时，把（韧性与冲击等级映射得出的）反应替换为该值，之后仍受 reaction_cap 限制；" +
                     "same 或缺省（无值）= 与地面受击一致；死亡与霸体不受影响；只在世界有竖直轴时生效", optional: true),
+                Num(FeelFieldNames.LaunchHeightCap, Re, J, BodyH, C, 0, 20,
+                    "击飞绝对高度上限（手感落地 M4-W1b，攻击方与受击方档案都可声明，取较小者）：击飞（含叠加）之后脚下高度的最高点不超过该值（身高倍数，标定后是世界单位；" +
+                    "与 launch_stack_cap 的区别：后者封叠加后的初速，本字段封世界高度，二者可同时声明）；缺省（无值）表示不设绝对上限", optional: true),
+                Num(FeelFieldNames.LaunchBodyScale, Re, J, Ratio, C, 0, 10,
+                    "击飞体型缩放（手感落地 M4-W1b，受击方档案，体型原型层可写）：击飞顶点 × 本字段；缺省（无值）= 1 即不缩放，0 = 不可被击飞", optional: true),
+                Enum(FeelFieldNames.AirReactionCap, Re, J, C, ReactionCapValues,
+                    "空中受击反应上限（手感落地 M4-W1b，受击方档案）：目标在空中被命中时，反应在 reaction_cap 之外再受它限制（取两者较低）；缺省（无值）表示空中不另设上限",
+                    optional: true),
+                Bool(FeelFieldNames.AirStunUntilLand, Re, J, C,
+                    "空中硬直持续到落地（手感落地 M4-W1b，受击方档案）：真时，硬直类反应的时长到点后若目标仍在空中，则硬直保持到落地那一刻才结束；缺省（无值）视为假（硬直按时长结束，与是否在空中无关）",
+                    optional: true),
                 Num(FeelFieldNames.DownedMs, Re, J, Ms, C, 0, 10000, "倒地时长"),
                 Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
                 Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),

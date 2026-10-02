@@ -83,6 +83,46 @@ namespace Tests.PresentationRender
         }
 
         [Fact]
+        public void Context_VariantOverload_CarriesStanceFamilyAndVariantIntoTheAirKeys()
+        {
+            // 复现（M4-W1b）：战斗姿态 + 武器族 + 变体都进空中键；回落链先去变体、再去武器族、再去姿态。
+            var ctx = new PoseContext(LocomotionGait.Idle, "sword", "wounded", AirPhase.Fall);
+            Assert.True(ctx.TryGetAirRequest("jump", true, out var jump));
+            Assert.Equal("jump.fall.combat.sword.wounded", jump.FullKey());
+            Assert.True(ctx.TryGetAirRequest("hit", true, out var hit));
+            Assert.Equal("hit.air.combat.sword.wounded", hit.FullKey());
+            Assert.True(ctx.TryGetAirRequest("attack", true, out var attack));
+            Assert.Equal("attack.air.combat.sword.wounded", attack.FullKey());
+
+            Assert.True(ctx.TryGetAirRequest("attack", false, out var peace));
+            Assert.Equal("attack.air.sword.wounded", peace.FullKey()); // 和平姿态省略 .combat
+
+            // 不变量：落地窗口里 hit/attack 仍不走空中键；非空中状态不产生请求；Land 阶段的 jump 带维度。
+            var landing = new PoseContext(LocomotionGait.Idle, "sword", "wounded", AirPhase.Land);
+            Assert.False(landing.TryGetAirRequest("hit", true, out _));
+            Assert.True(landing.TryGetAirRequest("jump", true, out var land));
+            Assert.Equal("jump.land.combat.sword.wounded", land.FullKey());
+            Assert.False(ctx.TryGetAirRequest("idle", true, out _));
+        }
+
+        [Fact]
+        public void Context_VariantOverload_WithoutDimensionsMatchesTheTwoArgumentOverload()
+        {
+            // 不变量：没有姿态/武器族/变体时两个重载给出相同的请求。
+            foreach (var phase in new[] { AirPhase.Rise, AirPhase.Fall, AirPhase.Land })
+            {
+                var ctx = new PoseContext(LocomotionGait.Idle, null, null, phase);
+                foreach (var state in new[] { "jump", "hit", "attack", "idle" })
+                {
+                    var a = ctx.TryGetAirRequest(state, out var r1);
+                    var b = ctx.TryGetAirRequest(state, false, out var r2);
+                    Assert.Equal(a, b);
+                    Assert.Equal(r1, r2);
+                }
+            }
+        }
+
+        [Fact]
         public void Context_AirPhaseParticipatesInEquality()
         {
             var a = new PoseContext(LocomotionGait.Walk, "1h", null, AirPhase.Rise);

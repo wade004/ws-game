@@ -243,7 +243,7 @@ namespace Tests.Rules.Skill
             string id, double startupMs, double activeMs, double recoveryMs, IEnumerable<JsonValue> markers,
             string? hitPolicy = null, double rehitMs = 0, double sampleStepMs = 0, string? hitMode = null,
             JsonObject? targetAssist = null, JsonObject? motion = null, IEnumerable<JsonValue>? effects = null,
-            string? costAt = null, double cost = 0, string chain = "target.chain.sample")
+            string? costAt = null, double cost = 0, string chain = "target.chain.sample", double range = 0)
         {
             var timeline = new List<(string, JsonValue)>
             {
@@ -263,7 +263,7 @@ namespace Tests.Rules.Skill
                 ("id", J.S(id)),
                 ("school", J.S("skill.school_sample")),
                 ("kind", J.S("active")),
-                ("range", J.N(0)),
+                ("range", J.N(range)),
                 ("cast_time", J.N((startupMs + activeMs + recoveryMs) / 1000.0)),
                 ("respects_gcd", J.B(true)),
                 ("cooldown_duration", J.N(0)),

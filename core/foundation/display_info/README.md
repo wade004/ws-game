@@ -152,4 +152,4 @@ display_info/
 
 ## 空中姿势键 `AirPoseRequest`（2026-10-03，M4-V，ADR-0130 追加决定）
 
-与 `PoseRequest` 并列的结构化请求，键与回落链是固定约定：`jump.rise|jump.fall → jump → idle`、`jump.land → idle`、`hit.air → hit.launch → hit`、`attack.air.<family> → attack.air → attack.<family> → attack`（无武器族时 `attack.air → attack`）。空中键不带姿态/步态/变体维度；链末端（`idle`/`hit`/`attack`）恒作为兜底，不咨询可用性探针。`PoseResolver` 新增 `Resolve(AirPoseRequest, …)`/`TryResolve<T>(AirPoseRequest, …)`，内部与既有解析共用同一个 `ResolveChain`（既有请求的结果逐位不变）。测试：`tests/AirPoseKeyTests.cs`（键存在直接取到、缺失沿链回落、各链末端兜底、武器族与无族、非法阶段）。
+与 `PoseRequest` 并列的结构化请求，空中基础键与固定尾链是约定：`jump.rise|jump.fall → jump → idle`、`jump.land → idle`、`hit.air → hit.launch → hit`、`attack.air → attack.<family> → attack`（无武器族时 `attack.air → attack`）。**M4-W1b 起空中键可带姿态/武器族/变体维度**（`[.combat][.<family>][.<variant>]`，例 `jump.rise.combat`、`hit.air.wounded`），回落链 = 带维度的空中键逐段去尾（先去变体、再去武器族、再去姿态）后接上面的固定尾链；不带维度的请求（旧调用方）链与改动前逐位一致，`attack.air.<family>` 里的武器族就是这里的武器族维度。链末端（`idle`/`hit`/`attack`）恒作为兜底，不咨询可用性探针。`PoseResolver` 新增 `Resolve(AirPoseRequest, …)`/`TryResolve<T>(AirPoseRequest, …)`，内部与既有解析共用同一个 `ResolveChain`（既有请求的结果逐位不变）。测试：`tests/AirPoseKeyTests.cs`（键存在直接取到、缺失沿链回落、各链末端兜底、武器族与无族、非法阶段）。

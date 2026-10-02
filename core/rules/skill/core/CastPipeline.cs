@@ -929,7 +929,7 @@ namespace Core.Rules.Skill
 
         /// <summary>
         /// 射程检查用的距离：缺省（<see cref="SkillOptions.SpatialRange"/> 关）就是平面距离，与此前逐位一致；开启时含高度差
-        /// （目标为 null 表示地面坐标，落点高度取地面 0）。
+        /// （目标为 null 表示地面坐标，落点高度取落点的地面高度——没有地形高度能力时为 0）。
         /// </summary>
         private double RangeDistance(Id casterId, Vec2 casterPos, Vec2 targetPos, Id? targetId)
         {
@@ -939,7 +939,8 @@ namespace Core.Rules.Skill
                 return planar;
             }
 
-            var dh = (targetId.HasValue ? _units.GetHeightOffset(targetId.Value) : 0.0) - _units.GetHeightOffset(casterId);
+            // 地面坐标（targetId 为 null）的落点高度取落点的地面高度（M4-W1b：有地形高度能力时不再恒为 0；没有地形能力时 GetGroundHeightAt 恒 0，逐位不变）。
+            var dh = (targetId.HasValue ? _units.GetHeightOffset(targetId.Value) : _units.GetGroundHeightAt(casterId, targetPos)) - _units.GetHeightOffset(casterId);
             return Math.Sqrt(planar * planar + dh * dh);
         }
 

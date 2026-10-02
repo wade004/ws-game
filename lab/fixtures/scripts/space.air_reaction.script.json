@@ -1,0 +1,129 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.air_reaction",
+    "scriptVersion": 1,
+    "description": "空间扩展·空中受击反应上限（手感落地 M4-W1b）：预设 space_air_reaction（重击、击飞 2 身高、受击方 air_reaction_cap = flinch），玩家刺木桩三下。第一下打地面上的木桩（reaction_cap 不封顶，重击 = 击退并击飞），后两下打空中的木桩：反应被 air_reaction_cap 压到 flinch，不再击飞——所以全程只被抛起一次。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_air_reaction",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 160,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_jab"
+    },
+    "spaceExt": {
+      "airCombat": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 26,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 27,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 44,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 45,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "air_hits_capped_to_flinch",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:2;Knockback:1",
+      "note": "第一下打地面（击退并击飞），后两下打空中：air_reaction_cap = flinch 把反应压到 Flinch。"
+    },
+    {
+      "id": "launched_once",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_launches_max",
+      "op": "eq",
+      "value": 1,
+      "note": "空中反应被封顶后不再击飞：全程只被抛起一次。"
+    },
+    {
+      "id": "no_stacked_apex",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_peak_max",
+      "op": "approx",
+      "value": 2.0,
+      "tolerance": 0.005,
+      "note": "顶点就是第一次击飞的 2 身高，没有被叠加抬高。"
+    },
+    {
+      "id": "one_landing",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.landed_count",
+      "op": "eq",
+      "value": 1,
+      "note": "只落地一次。"
+    }
+  ]
+}

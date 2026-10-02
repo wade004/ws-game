@@ -59,6 +59,13 @@ namespace Core.Carriers.Unit
         /// </summary>
         public double? StepHeight { get; set; }
 
+        /// <summary>
+        /// 落地时是否发 <c>unit.landed</c> 事件（<see cref="Core.Carriers.Common.UnitLandedEvent"/>，手感落地 M4-W1b）：<c>false</c>（缺省）= 不发，
+        /// 事件流与引入之前逐位一致（重放/事件计数类的既有检查不受影响）；<c>true</c> = 每次飞行结束（跳跃、击飞、离开平台下落）发一条，带落地高度、
+        /// 本次离地以来的空中时长与落地时的下落速度。
+        /// </summary>
+        public bool EmitLandedEvent { get; set; }
+
         /// <summary>台阶/坡度判定沿移动线段的采样间距（世界单位，必须为正有限数）。默认 0.1；只在 <see cref="StepHeight"/> 非空时被读取。</summary>
         public double StepSampleDistance { get; set; } = 0.1;
 

@@ -596,8 +596,10 @@ namespace Core.Carriers.Assembly
             // 紧随 MovementTickHandler 之后注册到同一阶段（先水平位移、再竖直积分）。缺省 null 不装配、不注册，行为逐位不变。
             if (resolvedMovementOptions.Vertical != null)
             {
-                var verticalHost = new VerticalMotionHost(world, resolvedMovementOptions.Vertical);
+                var verticalHost = new VerticalMotionHost(world, resolvedMovementOptions.Vertical, bus);
                 VerticalMotion = verticalHost;
+                // 地形高度能力同时给单位访问口（地面坐标施法的落点高度、命中高度窗口的锚点读它）；没声明地形时保持 null。
+                Units.Terrain = resolvedMovementOptions.Vertical.Terrain;
                 // 空中横向控制与地形台阶阻挡由移动系统读竖直轴服务（ADR-0130 追加决定）；没有竖直轴时该属性保持 null，移动系统逐位不变。
                 movementTickHandler.VerticalAxis = verticalHost;
                 world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new VerticalMotionTickHandler(verticalHost));

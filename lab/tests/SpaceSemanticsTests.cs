@@ -71,7 +71,7 @@ namespace Tests.Lab
         {
             var runner = LabTestSupport.Runner;
             var spaceScripts = LabTestSupport.SpaceScripts();
-            Assert.Equal(12, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）
+            Assert.Equal(20, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）+ 八个空中战斗脚本（M4-W1b）
             foreach (var script in spaceScripts)
             {
                 var cells = runner.ApplicableCells(script);
@@ -373,8 +373,8 @@ namespace Tests.Lab
 
             var results = LabInvariants.Check(runner, LabTestSupport.SpaceScripts());
             Assert.All(results, r => Assert.True(r.Ok, r.ToString()));
-            // 12 个空间脚本 × 4 个竖直格子各一次"按平面运行"；无刺激对照脚本再各一次"除 space 组外一致"。
-            Assert.Equal(12 * 4 + 4, results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
+            // 全部空间脚本 × 4 个竖直格子各一次"按平面运行"；无刺激对照脚本再各一次"除 space 组外一致"。
+            Assert.Equal(LabTestSupport.SpaceScripts().Count * 4 + 4, results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
         }
 
         [Fact]
@@ -386,7 +386,7 @@ namespace Tests.Lab
                 results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
-            Assert.Equal(12 * 10, results.Count);
+            Assert.Equal(LabTestSupport.SpaceScripts().Count * 10, results.Count);
             Assert.All(results, r => Assert.True(r.Status == CellStatus.Pass, r.Script + " @ " + r.Cell + " " + r.Message));
         }
     }

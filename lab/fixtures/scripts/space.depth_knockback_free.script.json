@@ -1,0 +1,80 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.depth_knockback_free",
+    "scriptVersion": 1,
+    "description": "空间扩展·受控位移的深度锁（缺省关）的对照（手感落地 M4-W1b）：同 space.depth_knockback 的预设与站位，但不打开 depthLockControlledMotion——这是 1.95.0 以来的缺省行为：横版二维里深度锁只在输入层，击退仍沿提交方向（含深度分量）位移，所以木桩的深度偏移不为 0。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_knockback",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 80,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "ground"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_jab"
+    },
+    "spaceExt": {
+      "airCombat": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "side_depth_drifts_by_default",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action"
+      ],
+      "metric": "air_combat.dummy_depth_drift_max",
+      "op": "gt",
+      "value": 0.1,
+      "note": "缺省不锁：横版二维里击退也带深度分量（1.95.0 行为）。"
+    },
+    {
+      "id": "knockback_happened",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Knockback:1",
+      "note": "被击退一次。"
+    }
+  ]
+}

@@ -41,6 +41,70 @@
         "launch_height": 1.2,
         "launch_stack": "restart"
       }
+    },
+    {
+      "id": "feel.preset.space_air_combo",
+      "description": "实验室空中连击预设（M4-W1b）：重击、击飞高度 1.2 身高、launch_stack = add（空中再被击飞时在当前竖直速度上叠加，叠加上限 4 身高）、launch_height_cap = 1.8（击飞后脚下高度的绝对上限 1.8 身高）、air_stun_until_land = true（空中硬直撑到落地）。只被脚本 space.air_combo 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 1.2,
+        "launch_stack": "add",
+        "launch_stack_cap": 4,
+        "launch_height_cap": 1.8,
+        "air_stun_until_land": true
+      }
+    },
+    {
+      "id": "feel.preset.space_launch_scale",
+      "description": "实验室击飞体型缩放预设（M4-W1b）：重击、击飞高度 1.2 身高、launch_body_scale = 0.5（受击方体型缩放：击飞顶点乘 0.5）。只被脚本 space.launch_body_scale 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 1.2,
+        "launch_body_scale": 0.5
+      }
+    },
+    {
+      "id": "feel.preset.space_air_reaction",
+      "description": "实验室空中受击反应上限预设（M4-W1b）：重击、击飞高度 2 身高（滞空够长，后两下都打在空中）、air_reaction_cap = flinch（受击方在空中被命中时反应最高只到 flinch，之后不再被击飞）。只被脚本 space.air_reaction 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 2.0,
+        "air_reaction_cap": "flinch"
+      }
+    },
+    {
+      "id": "feel.preset.space_knockback",
+      "description": "实验室受控位移深度锁预设（M4-W1b）：重击（击退）、不击飞、击退距离 1 身高。只被脚本 space.depth_knockback 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "knockback_distance": 1.0
+      }
+    },
+    {
+      "id": "feel.preset.space_air_pose",
+      "description": "实验室空中姿势预设（M4-W1b）：空中受击预设加 land_hold_ms = 100（落地姿势保持 100 毫秒，缺省是 8 个 tick）。只被脚本 space.air_pose_real 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.space_air_hit",
+      "values": {
+        "land_hold_ms": 100
+      }
     }
   ]
 }

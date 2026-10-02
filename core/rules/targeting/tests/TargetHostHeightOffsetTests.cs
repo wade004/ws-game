@@ -115,5 +115,35 @@ namespace Tests.Rules.Targeting
             Assert.Equal(all, Resolve(fx, "off_up4"));
             Assert.Equal(all, Resolve(fx, "off_far"));
         }
+
+        // ------------------------------------------------------------------ 地面坐标施法的锚点高度（手感落地 M4-W1b）
+
+        private static string[] ResolveAt(TargetHostTests.Fixture fx, string chain, Vec2 point) =>
+            fx.Host.ResolveAtPoint(new Id("target.chain." + chain), Caster, point).Select(i => i.Value.Substring("unit.".Length)).ToArray();
+
+        [Fact]
+        public void ResolveAtPoint_WindowCentersOnTheGroundHeightAtThePoint_NotZero()
+        {
+            // 复现：落点所在台地高 4.0——窗口中心取地面高度 4.0 选中 "high"；没有地形能力（地面高度恒 0）时选中的是 ground/half/edge。
+            var fx = Build(new TargetingOptions { VerticalHit = true });
+            Assert.Equal(new[] { "ground", "half", "edge" }, ResolveAt(fx, "off_none", new Vec2(0, 0)));
+
+            fx.Units.Ground = _ => 4.0;
+            Assert.Equal(new[] { "high" }, ResolveAt(fx, "off_none", new Vec2(0, 0)));
+        }
+
+        [Fact]
+        public void ResolveAtPoint_GroundHeightComposesWithShapeOffset_AndIsInertWhenVerticalHitIsOff()
+        {
+            var fx = Build(new TargetingOptions { VerticalHit = true });
+            fx.Units.Ground = _ => 3.0;
+            Assert.Equal(Expected(3.0), ResolveAt(fx, "off_none", new Vec2(0, 0)));
+            Assert.Equal(Expected(3.0 - 1.0), ResolveAt(fx, "off_down1", new Vec2(0, 0))); // 形状偏移叠加在地面高度上
+
+            // 不变量：VerticalHit 关闭时地面高度无影响。
+            var flat = Build(options: null);
+            flat.Units.Ground = _ => 50.0;
+            Assert.Equal(Dummies.OrderBy(d => d.Pos.X).Select(d => d.Name).ToArray(), ResolveAt(flat, "off_none", new Vec2(0, 0)));
+        }
     }
 }

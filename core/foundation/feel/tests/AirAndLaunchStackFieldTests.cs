@@ -25,6 +25,32 @@ namespace Tests.Foundation.Feel
         }
 
         [Fact]
+        public void AirCombatFields_AreRegistered_AsOptionalWithTheDocumentedHalfUnitAndRange()
+        {
+            // 手感落地 M4-W1b：launch_height_cap / launch_body_scale / air_reaction_cap / air_stun_until_land（判定型受击组）与 land_hold_ms（呈现型运动组）。
+            foreach (var name in new[] { FeelFieldNames.LaunchHeightCap, FeelFieldNames.LaunchBodyScale, FeelFieldNames.AirReactionCap, FeelFieldNames.AirStunUntilLand })
+            {
+                Assert.True(FeelFields.Default.TryGet(name, out var def), name);
+                Assert.True(def.Optional, name);
+                Assert.Equal(FeelHalf.Judging, def.Half);
+                Assert.Equal(FeelGroup.Reaction, def.Meta.Group);
+            }
+
+            FeelFields.Default.TryGet(FeelFieldNames.LaunchHeightCap, out var cap);
+            Assert.Equal(FeelUnit.BodyHeights, cap.Unit);
+            FeelFields.Default.TryGet(FeelFieldNames.LaunchBodyScale, out var scale);
+            Assert.Equal(FeelUnit.Ratio, scale.Unit);
+            FeelFields.Default.TryGet(FeelFieldNames.AirReactionCap, out var airCap);
+            FeelFields.Default.TryGet(FeelFieldNames.ReactionCap, out var groundCap);
+            Assert.Equal(groundCap.EnumValues!.ToArray(), airCap.EnumValues!.ToArray()); // 与 reaction_cap 同一词表
+
+            Assert.True(FeelFields.Default.TryGet(FeelFieldNames.LandHoldMs, out var hold));
+            Assert.True(hold.Optional);
+            Assert.Equal(FeelHalf.Presenting, hold.Half);
+            Assert.Equal(FeelUnit.Milliseconds, hold.Unit);
+        }
+
+        [Fact]
         public void EnumValues_MatchTheDocumentedVocabulary()
         {
             FeelFields.Default.TryGet(FeelFieldNames.AirHitReaction, out var air);

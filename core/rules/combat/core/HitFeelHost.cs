@@ -56,6 +56,12 @@ namespace Core.Rules.Combat
             public double LaunchApex;
             public LaunchStackMode LaunchStack;
             public double LaunchStackCap;
+
+            /// <summary>击飞绝对高度上限（世界高度，0 = 不设；<c>launch_height_cap</c>）。</summary>
+            public double LaunchHeightCap;
+
+            /// <summary>空中硬直持续到落地（目标侧 <c>air_stun_until_land</c> 在硬直登记时的取值）。</summary>
+            public bool UntilLand;
         }
 
         private readonly IEventBus _bus;
@@ -225,8 +231,9 @@ namespace Core.Rules.Combat
                     reaction = power <= maxPoise ? HitReaction.Flinch : MapImpact(impact);
                 }
 
-                reaction = ApplyAirHit(reaction, input.TargetId, tgt);
+                reaction = ApplyAirHit(reaction, input.TargetId, atk, tgt);
                 reaction = ApplyCap(reaction, tgt.GetText(FeelFieldNames.ReactionCap));
+                reaction = ApplyAirCap(reaction, input.TargetId, tgt);
             }
 
             return new HitFeelOutcome(impact, attackerTicks, targetTicks, reaction, ReactionDuration(reaction, tgt));
@@ -305,13 +312,15 @@ namespace Core.Rules.Combat
             _options.ImpactReactions.TryGetValue(impactClass, out var reaction) ? reaction : _options.UnknownImpactReaction;
 
         /// <summary>
-        /// 腾空受击：目标在空中、档案声明了 <c>air_hit_reaction</c>（非 same）时，把已算出的反应整体替换为该值（之后仍过 <c>reaction_cap</c>）。
-        /// 无声明、地面受击、没有腾空查询时原样返回。
+        /// 腾空受击：目标在空中、<c>air_hit_reaction</c> 有生效的声明（非 same）时，把已算出的反应整体替换为该值（之后仍过 <c>reaction_cap</c>
+        /// 与 <c>air_reaction_cap</c>）。<b>声明来源合成</b>（手感落地 M4-W1b）：攻击方档案声明了（非 same）就用攻击方的（"这一类攻击打中空中目标时的反应"），
+        /// 否则取受击方档案的声明（"该单位在空中被命中时的反应"）；两侧都没有声明、地面受击、没有腾空查询时原样返回。
         /// </summary>
-        private HitReaction ApplyAirHit(HitReaction reaction, Id targetId, JudgingFeelView target)
+        private HitReaction ApplyAirHit(HitReaction reaction, Id targetId, JudgingFeelView attacker, JudgingFeelView target)
         {
             if (Airborne == null) return reaction;
-            var v = target.GetAbsolute(FeelFieldNames.AirHitReaction);
+            var v = attacker.GetAbsolute(FeelFieldNames.AirHitReaction);
+            if (v.IsNone || v.AsText() == "same") v = target.GetAbsolute(FeelFieldNames.AirHitReaction);
             if (v.IsNone) return reaction;
             if (!Airborne.IsAirborne(targetId)) return reaction;
             switch (v.AsText())
@@ -324,6 +333,19 @@ namespace Core.Rules.Combat
                 case "knockdown": return HitReaction.Knockdown;
                 default: return reaction; // same
             }
+        }
+
+        /// <summary>
+        /// 空中受击反应上限（手感落地 M4-W1b，受击方 <c>air_reaction_cap</c>）：只在目标此刻腾空且声明了该字段时，把反应再限制到该上限
+        /// （与 <c>reaction_cap</c> 叠加取较低者）；死亡不受影响（调用方已排除）。
+        /// </summary>
+        private HitReaction ApplyAirCap(HitReaction reaction, Id targetId, JudgingFeelView target)
+        {
+            if (Airborne == null) return reaction;
+            var v = target.GetAbsolute(FeelFieldNames.AirReactionCap);
+            if (v.IsNone) return reaction;
+            if (!Airborne.IsAirborne(targetId)) return reaction;
+            return ApplyCap(reaction, v.AsText());
         }
 
         private static HitReaction ApplyCap(HitReaction reaction, string cap)
@@ -532,7 +554,15 @@ namespace Core.Rules.Combat
                     rec.KnockbackPending = true;
                     rec.LaunchApex = apex;
                     ReadLaunchStack(e, out rec.LaunchStack, out rec.LaunchStackCap);
+                    rec.LaunchHeightCap = ReadLaunchHeightCap(e, tgt);
                 }
+            }
+
+            // 空中硬直持续到落地（目标侧 air_stun_until_land）：硬直时长到点后目标仍在空中则保持到落地。每次登记/刷新硬直时按受击方当时的档案取值。
+            if (Airborne != null)
+            {
+                var untilLand = tgt.GetAbsolute(FeelFieldNames.AirStunUntilLand);
+                rec.UntilLand = !untilLand.IsNone && untilLand.AsBool();
             }
 
             _bus.Enqueue(new CombatReactionAppliedEvent(e.TargetId, reaction, e.SourceId, e.AttackInstanceId, duration));
@@ -556,7 +586,26 @@ namespace Core.Rules.Combat
             if (!atk.TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight) || baseHeight <= 0.0) return 0.0;
             var resistance = ReadKnockbackResistance(e.TargetId, target);
             var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
-            return baseHeight * (1.0 - resistance) * multiplier;
+            var apex = baseHeight * (1.0 - resistance) * multiplier;
+            // 体型缩放（手感落地 M4-W1b，受击方 launch_body_scale）：声明了才乘；缺省不动（逐位不变）。
+            if (target.TryGetNumber(FeelFieldNames.LaunchBodyScale, out var bodyScale)) apex *= bodyScale;
+            return apex;
+        }
+
+        /// <summary>
+        /// 击飞绝对高度上限（<c>launch_height_cap</c>，标定后世界高度）：攻击方与受击方档案都可声明，两侧都声明时取较小者；都没有为 0（不设）。
+        /// </summary>
+        private double ReadLaunchHeightCap(CombatHitConfirmedEvent e, JudgingFeelView target)
+        {
+            var cap = 0.0;
+            if (_units.Exists(e.SourceId))
+            {
+                var atk = _feel.ResolveJudging(e.SourceId);
+                if (atk.TryGetNumber(FeelFieldNames.LaunchHeightCap, out var a) && a > 0.0) cap = a;
+            }
+
+            if (target.TryGetNumber(FeelFieldNames.LaunchHeightCap, out var t) && t > 0.0 && (cap <= 0.0 || t < cap)) cap = t;
+            return cap;
         }
 
         /// <summary>击飞叠加方式与上限（攻击方档案 <c>launch_stack</c>/<c>launch_stack_cap</c>）；未声明为 restart、无上限。</summary>
@@ -631,6 +680,8 @@ namespace Core.Rules.Combat
 
                 if (rec.Remaining <= 0)
                 {
+                    // 空中硬直持续到落地：时长到点仍在空中则保持（不再推进已过时长，免得把空中的硬直误判成倒地）；落地后的这个 tick 才结束。
+                    if (rec.UntilLand && Airborne != null && Airborne.IsAirborne(unit)) continue;
                     (finished ??= new List<Id>()).Add(unit);
                     continue;
                 }
@@ -778,9 +829,11 @@ namespace Core.Rules.Combat
             var apex = rec.LaunchApex;
             var stack = rec.LaunchStack;
             var stackCap = rec.LaunchStackCap;
+            var heightCap = rec.LaunchHeightCap;
             rec.LaunchApex = 0.0;
             rec.LaunchStack = LaunchStackMode.Restart;
             rec.LaunchStackCap = 0.0;
+            rec.LaunchHeightCap = 0.0;
             if (!_units.Exists(unit) || !_units.IsAlive(unit)) return;
             if (Knockback != null && rec.KnockbackDistance > 0.0)
             {
@@ -789,7 +842,14 @@ namespace Core.Rules.Combat
 
             if (Launch != null && apex > 0.0)
             {
-                Launch.BeginLaunch(unit, apex, stack, stackCap);
+                if (heightCap > 0.0)
+                {
+                    Launch.BeginLaunch(unit, apex, stack, stackCap, heightCap);
+                }
+                else
+                {
+                    Launch.BeginLaunch(unit, apex, stack, stackCap);
+                }
             }
         }
 
