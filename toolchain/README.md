@@ -1551,31 +1551,50 @@ build/test 步骤）。
   ⑤没有 conftest 的运行方式（`--noconftest`、把单个测试文件拷到别处跑）下，被测脚本自己起的只读 git 仍会继承调用方的 `GIT_*`（只读，不写；测试自己起的写操作仍走辅助函数，不受影响）；
   ⑥`gate_floors.json` 的 pytest `min_passed` 未随本次新增的 30 条用例上调，留待合并前全量实测后按既有规则抬高。
 
-## `dist/` ������ ABI ���߻��䣨`prune_dist.ps1`��`_abi_baseline_resolve.ps1`��2026-10-02��
+## `dist/` 瘦身与 ABI 基线回落（`prune_dist.ps1`、`_abi_baseline_resolve.ps1`，2026-10-02）
 
-������`dist/` �� `.gitignore` �ı����������棬��ǰֻ�������������Լ 12.4 GB��433 ����Ŀ�������лỰ�����ӹ����������Ž�ʱ��
-`abi_probe.ps1` ֻ�� `<������>\dist` �Ҳ������ߣ��������ǰ����� `dist` ���ƽ�ÿ����������ÿ��Լ 12.5 GB����
+背景：`dist/` 是 `.gitignore` 排除的本机构建缓存，此前只增不减，主检出累积到约 12.4 GB（433 个条目）；并行会话在链接工作树里跑门禁时，
+`abi_probe.ps1` 只看 `<工作树>\dist` 找不到 ABI 基线，有人于是把整个 `dist` 复制进每个工作树（每份约 12.5 GB）。
 
-**�жϼ�¼**
+**入口**
 
-1. **��������**��`prune_dist.ps1` �ļ�ͷΪ׼����������ǰ `VERSION` + �������µ���ʽ�汾��`-KeepVersions`��Ĭ�� 2����
-   `<ver>/`���� zip��samples zip������ `.lock` / `release-notes-*.txt` ����С���Ƿ�����¼�������� `-dryrun` ����ɾ���Ž�ÿ���ش򣩣�
-   �ϲ�����̬�ġ����ڵ�ǰ�汾�Ĳ��������ɣ����ѷ���˽��/GitHub Release���������� `dist/`�����ɱ䷢��������"�ѷ���"�� `git tag`������ `dist/`
-   ����û���ļ�����������ʷ���ﲻ������������С���ʷ�汾��Ҫʱ�����ǩ�� `build.ps1 -Dist <ver>` �ؽ����ؽ� zip �� sha ����֤��
-   ���� `.lock` ��ͬ��`.lock` ������¼����
-2. **���Ᵽ�� ABI ���� zip������������һ����**��`abi_probe_baseline.txt` ��¼�İ汾����ǰ 1.12.0������������棩�� `ws-game-<���߰汾>.zip`��
-   `build.ps1 -Release` �̶��� `-AbiStrict`������ȱʧ���÷��� FAIL��`test_real_baseline_end_to_end_via_abi_probe` �ڻ���ȱʧʱ skip��
-   ײ�Ž��� skip ���� 0��ֻ�� zip�������ð汾Ŀ¼�� samples ����Լ 50 MB����
-3. **��ȫ**��ֻ�� `<RepoRoot>\dist` ��һ�㰴��̬������`dist` ��������ɾ��Ŀ�������ڲ��κ�һ�����ؽ����㼴�ܾ�������������������Ԥ�졢��ɾ�κζ�������
-   ��ɾ·��������������� `dist\` ֮�¡����� `-Apply` ֻ���嵥��
-4. **�Զ�����**��`build.ps1 -Release`���� `-DryRun`��ȫ���ɹ��������ǩ������ѡ��˽��/GitHub ������֮�����ӽ��̵��� `prune_dist.ps1 -Apply`��
-   ���� try/catch��ʧ��ֻ���棬���ķ���������˳��루�ű�ĩβ�̶� `exit 0`����
-5. **���߻���**��`abi_probe.ps1` Ĭ�Ͻ����������� `dist` �Ҳ������ұ�Ŀ¼�����ӹ�������`git rev-parse --git-dir` �� `--git-common-dir`��ʱ�����䵽
-   `--git-common-dir` ��Ŀ¼�������������� `dist\ws-game-<���߰汾>.zip`�������"������������"����ʽ `-BaselineZip` ���䣻������û������ԭ����
-   SKIP���˳��� 3��/`-AbiStrict` FAIL����ֵʱ��ʱժ�� `GIT_DIR` �ȹ���ע��������� `Env:` ������ɾ������PowerShell 7 ��
-   `SetEnvironmentVariable(��, $null)` ���ÿմ�������ɾ������ `GIT_DIR` ���� git ��������`check.ps1` �� ABI ���豾�����л����Ƿ���ڣ�ֱ�ӵ�̽�룬
-   ����Ķ���pytest ����ʵ dist ����������`test_get_framework_path_boundary`��`test_lock_writeback_repair_parity`��`test_real_baseline_end_to_end_via_abi_probe`��
-   �� `_latest_dist.resolve_dist_dir` / `locate_dist_file` ͬ�ھ����䣬���ӹ������ﲻ���� `dist/` ȱʧ�� skip��
-6. **��֪����**���ٻ���ֻ�����ӹ�������`git worktree add` �����ģ���������¡û��"��������"���ȱ������ SKIP����`prune_dist.ps1` ������ `dist/` ��
-   �ϲ�����̬����Ŀ�����;ʧ�ܲ����� `tag-message-<ver>.txt`����ֻ��������г������˹��壻�������� `VERSION` �ļ���"��ǰ�汾"���� `VERSION`
-   ���� `dist/` ��ĳЩ�汾��ά����֧������ʱ�����ڵ�ǰ�汾����Ŀһ�ɲ���������ɾ����
+- `pwsh toolchain\prune_dist.ps1 [-RepoRoot <仓库根>] [-KeepVersions <n>] [-Apply]`：不传 `-Apply` 只打印清单（分类汇总、待删合计、保留清单、未识别清单、删除清单），什么都不删；
+  传 `-Apply` 才删。`-KeepVersions` 默认 2（含当前版本，不小于 1）；`-RepoRoot` 默认脚本所在仓库根，工作树里没有 `dist\`，清理主检出时指向 `D:\workespace\ws-game`。
+  退出码：0 正常；1 拒绝（重解析点、`VERSION` 无效、删除失败等）。
+- `build.ps1 -Release`（非 `-DryRun`）在门禁、打包、打标签与可选的私服/GitHub 发布全部成功之后，用子进程调用 `prune_dist.ps1 -Apply`（发布流水线第 9 步）。
+- `abi_probe.ps1` 默认基线解析（不传 `-BaselineZip` 时）：先找 `<仓库根>\dist\ws-game-<基线版本>.zip`，没有且本目录是链接工作树时回落到主检出的 `dist\`
+  （实现是 `_abi_baseline_resolve.ps1` 的 `Resolve-AbiBaselineZip`/`Get-MainWorktreeRoot`），回落命中时输出标"（来自主工作树）"。
+
+**保留规则**（`prune_dist.ps1` 文件头为准，按序判定；只在 `<RepoRoot>\dist` 这一层、按下列形态操作：目录 `<ver>\`，文件 `ws-game-<ver>.zip`、
+`ws-game-<ver>-samples.zip`、`ws-game-<ver>.lock`、`release-notes-<ver>.txt`，以及它们带 `-dryrun` 后缀的形态）：
+
+1. 保留版本 = `VERSION` 里的当前版本 + `dist/` 里按语义化版本排序紧邻其下的正式版本，合计 `-KeepVersions` 个；保留版本的 `<ver>\`、主 zip、samples zip 全留。
+   "正式版本"指有非 dryrun 的 `<ver>\` 目录或 `ws-game-<ver>.zip` 的版本。
+2. 所有版本的 `.lock` 与 `release-notes-*.txt` 一律保留（体积很小，是发布记录）。
+3. 所有带 `-dryrun` 的目录与文件一律删除（含当前版本的，门禁每次会重打）。
+4. 非保留版本的 `<ver>\`、主 zip、samples zip 删除，但有两类例外一并保留：ABI 基线版本（`toolchain/abi_probe_baseline.txt`，当前 1.12.0）的**主 zip**（只留 zip，不留目录与
+   samples 包），以及版本号高于当前 `VERSION` 的条目。
+5. 认不出形态的条目不动，输出里单列"未识别，已保留"。
+
+**判断记录**
+
+1. **宁少删勿多删**：保留规则在任务书基础上额外保留 ABI 基线 zip 与高于当前版本的条目。前者因为 `build.ps1 -Release` 固定带 `-AbiStrict`，基线 zip 缺失会让发布 FAIL，
+   `test_real_baseline_end_to_end_via_abi_probe` 在基线缺失时 skip、而门禁的 pytest skip 上限为 0；后者覆盖发布中途残留与维护分支上 `VERSION` 低于 `main` 的场景。
+2. **历史产物可重建、`.lock` 只作记录**：消费方走私服或 GitHub Release，不读本机 `dist/`；不可变发布守卫判定"已发布"靠 `git tag`，不靠 `dist/` 下有没有文件，
+   所以删历史产物既不影响消费方也不会让守卫误放行。历史版本要时检出对应标签、运行 `build.ps1 -Dist <ver>` 重建（要连 zip/lock 重打加 `-Zip`，已发布版本需 `-AllowOverwriteDist`）；
+   重建出的 zip 的 sha 不保证与当年 `.lock` 一致（打包时间戳、压缩实现不保证逐字节相同），所以 `.lock` 不能用来校验重建产物。
+3. **安全**：`dist` 本身是重解析点（junction/symlink）、待删条目自身或其内部任何一层含重解析点，一律拒绝并整次不删任何东西；每个待删条目解析后的完整路径必须仍在 `<RepoRoot>\dist\` 之下；
+   待删条目有无法枚举的内容同样拒绝。大小在删除前实测并求和，"已释放"按删除前实测字节数计。
+4. **自动瘦身不影响发布结果**：发布流水线里的调用整体包在 try/catch，失败（含 `prune_dist.ps1` 非零退出码）只警告，不改变已打好标签的发布与脚本退出码（脚本末尾固定 `exit 0`）；
+   用子进程 `powershell` 调用，脚本内部的 `exit 1`/未捕获异常只影响子进程。`-DryRun` 不走到这一步。
+5. **基线回落**：主检出根取自 `git rev-parse --path-format=absolute --git-common-dir` 的父目录；`--git-dir` 与 `--git-common-dir` 相同说明本目录就是主检出（或普通克隆），不回落。
+   求值时临时摘掉 `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR`/`GIT_PREFIX`（预提交钩子里会继承到，使 git 的答案指向钩子的仓库），并用 `Env:` 驱动器删除而不是
+   `SetEnvironmentVariable(…, $null)`（PowerShell 7 下后者把变量置成空串，空的 `GIT_DIR` 会让 git 报 not a git repository）；任何一步失败返回 `$null`，调用方按"本工作树没有基线"的既有路径处理，
+   不新增失败模式。显式 `-BaselineZip` 不经过回落；两处都没有时行为不变（`-SkipIfBaselineMissing` 为 SKIP、退出码 3，`-AbiStrict` 为 FAIL）。`check.ps1` 的 ABI 步骤不判断基线是否存在，直接调探针，无需改动。
+   pytest 里读真实 dist 产物的用例（`test_get_framework_path_boundary`、`test_lock_writeback_repair_parity`、`test_real_baseline_end_to_end_via_abi_probe`）改走
+   `_latest_dist.resolve_dist_dir`/`locate_dist_file`，口径相同，链接工作树里不再因 `dist/` 缺失而 skip。
+6. **测试**：`tests/test_prune_dist.py`（先列清单后执行、`-KeepVersions` 与基线 zip 保留、重解析点拒绝且不删任何东西）、`tests/test_abi_baseline_fallback.py`
+   （真实 git 仓库 + 真实链接工作树：回落命中、本地优先、两处都没有、主检出不回落、Python 侧同口径辅助函数）。
+7. **已知限制**：①回落只对 `git worktree add` 建出的链接工作树有效，独立克隆没有"主工作树"，缺基线仍按原有 SKIP/FAIL 处理；②`prune_dist.ps1` 只认上述文件名形态，
+   其它条目（例如打标签失败时残留的 `tag-message-<ver>.txt`）一律"未识别，已保留"，需要人工清理；③"当前版本"取自 `VERSION` 文件，在 `VERSION` 低于 `dist/` 中某些版本的维护分支上运行时，
+   高于当前版本的条目一律不动、不会被当作历史产物删除。
