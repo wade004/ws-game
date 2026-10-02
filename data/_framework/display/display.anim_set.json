@@ -132,7 +132,9 @@
         "hit.block.shield": { "resource_ref": "sprite_anim.std_dummy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "sprite_anim.std_dummy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "sprite_anim.std_dummy_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "sprite_anim.std_dummy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "sprite_anim.std_dummy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -266,7 +268,9 @@
         "hit.block.shield": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "sprite_anim.std_dummy_heavy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "sprite_anim.std_dummy_heavy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "sprite_anim.std_dummy_heavy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -400,7 +404,9 @@
         "hit.block.shield": { "resource_ref": "sprite_anim.std_dummy_light_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "sprite_anim.std_dummy_light_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "sprite_anim.std_dummy_light_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "sprite_anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "sprite_anim.std_dummy_light_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "sprite_anim.std_dummy_light_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -539,7 +545,9 @@
         "hit.block.shield": { "resource_ref": "anim.std_dummy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }], "blend_ms": 20 },
         "stunned.sway": { "resource_ref": "anim.std_dummy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }], "blend_ms": 100 },
         "hit.launch.tumble": { "resource_ref": "anim.std_dummy_hit_launch_tumble", "events": [], "blend_ms": 40 },
-        "hit.launch.land": { "resource_ref": "anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }], "blend_ms": 40 }
+        "hit.launch.land": { "resource_ref": "anim.std_dummy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }], "blend_ms": 40 },
+        "cast.quick": { "resource_ref": "anim.std_dummy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }], "blend_ms": 60 },
+        "cast.heavy": { "resource_ref": "anim.std_dummy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }], "blend_ms": 60 }
       },
       "blends": [
         { "from": "jump.rise", "to": "jump.fall", "blend_ms": 60 },
@@ -697,7 +705,9 @@
         "hit.block.shield": { "resource_ref": "anim.std_dummy_heavy_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "anim.std_dummy_heavy_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "anim.std_dummy_heavy_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "anim.std_dummy_heavy_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "anim.std_dummy_heavy_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "anim.std_dummy_heavy_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {
@@ -831,7 +841,9 @@
         "hit.block.shield": { "resource_ref": "anim.std_dummy_light_hit_block_shield", "events": [{ "name": "impact", "time_pct": 0.0 }] },
         "stunned.sway": { "resource_ref": "anim.std_dummy_light_stunned_sway", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
         "hit.launch.tumble": { "resource_ref": "anim.std_dummy_light_hit_launch_tumble", "events": [] },
-        "hit.launch.land": { "resource_ref": "anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] }
+        "hit.launch.land": { "resource_ref": "anim.std_dummy_light_hit_launch_land", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "cast.quick": { "resource_ref": "anim.std_dummy_light_cast_quick", "events": [{ "name": "release", "time_pct": 0.1667 }] },
+        "cast.heavy": { "resource_ref": "anim.std_dummy_light_cast_heavy", "events": [{ "name": "release", "time_pct": 0.5 }] }
       }
     },
     {

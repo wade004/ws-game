@@ -186,7 +186,7 @@ namespace Presentation.Render
                     }
                 }
 
-                var swappedFrame = ClampFrame((int)(_elapsedSeconds * _current.FrameRate), totalFrames);
+                var swappedFrame = ClampFrame(FrameIndexAt(_elapsedSeconds, _current.FrameRate), totalFrames);
                 SetFrame(swappedFrame, forceNotify: true);
                 return;
             }
@@ -202,7 +202,7 @@ namespace Presentation.Render
                 if (_loop)
                 {
                     _elapsedSeconds %= durationSeconds;
-                    var wrappedFrame = ClampFrame((int)(_elapsedSeconds * _current.FrameRate), totalFrames);
+                    var wrappedFrame = ClampFrame(FrameIndexAt(_elapsedSeconds, _current.FrameRate), totalFrames);
                     for (var f = 0; f <= wrappedFrame; f++)
                     {
                         SetFrame(f);
@@ -216,12 +216,23 @@ namespace Presentation.Render
                 return;
             }
 
-            var frame = ClampFrame((int)(_elapsedSeconds * _current.FrameRate), totalFrames);
+            var frame = ClampFrame(FrameIndexAt(_elapsedSeconds, _current.FrameRate), totalFrames);
             for (var f = _lastFrame + 1; f <= frame; f++)
             {
                 SetFrame(f);
             }
         }
+
+        /// <summary>
+        /// 已播放时间对应的帧下标 = <c>floor(时间 × 帧率)</c>，对累加舍入误差留一个极小的容差。逐帧累加 <c>1/60</c> 秒六次得到
+        /// <c>0.09999999999999999</c> 而不是 <c>0.1</c>，直接截断会让 20 帧每秒的剪辑在恰好踩到整帧边界的时刻（100、200 毫秒……）晚一个宿主帧才翻到下一帧，
+        /// 落在该边界上的关键帧事件随之晚一帧触发（实验室命中对位里，100 毫秒命中点的技能因此在命中同帧开始的攻方顿帧里丢了事件）。
+        /// 容差 1e-9 帧远小于任何真实的帧时长，不会让帧提前翻动。
+        /// </summary>
+        private static int FrameIndexAt(double elapsedSeconds, double frameRate) =>
+            (int)Math.Floor(elapsedSeconds * frameRate + FrameBoundaryEpsilon);
+
+        private const double FrameBoundaryEpsilon = 1e-9;
 
         private static int ClampFrame(int frame, int totalFrames) => frame >= totalFrames ? totalFrames - 1 : frame;
 

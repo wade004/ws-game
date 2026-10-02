@@ -124,6 +124,11 @@ PHASES_OTHER = {
     # （100 ms 的连段技能也在 150 之前出手），引擎侧命中帧事件不能早于逻辑命中，所以施放点 release 取 150 ms 而不是 250；
     # 总时长 600 ms 与帧数 12 不变（前摇/后摇的帧数 3/2/7 与此前 5/2/5 之和相同）。
     "cast": (("windup", 150), ("release", 100), ("recovery", 350)),
+    # 施法释放点变体（M4-W6）：手感实验室的技能命中标记有 100 / 150 / 300 ms 三档，默认 cast 对齐 150；100 ms 的连段/突进技能用 cast.quick，
+    # 300 ms 的重击（精英重挥）用 cast.heavy，由 display.weapon_style 的 cast_anim_override 把技能指到对应剪辑。总时长 600 ms、帧数 12 与 cast 相同
+    # （quick 2/2/8 帧、heavy 6/2/4 帧），释放点 release = 前摇结束时刻 = 100 / 300 ms，都落在 20 fps 的帧边界上（量化误差 0）。
+    "cast.quick": (("windup", 100), ("release", 100), ("recovery", 400)),
+    "cast.heavy": (("windup", 300), ("release", 100), ("recovery", 200)),
     "dodge": (("start", 60), ("motion", 240), ("recover", 100)),
     # 手感落地 M3-D 追加（自拟）：抛飞 = 冲击 + 滞空（抬升弧线）+ 落地（滑入躺姿，之后接 hit.getup）。
     "hit.launch": (("impact", 100), ("air", 450), ("land", 250)),
@@ -316,6 +321,8 @@ def build_clip_defs() -> list[ClipDef]:
     clips += _m3d_clips()
     # ---- 手感落地 M4-D 追加：同样只追加在末尾 ----
     clips += _m4d_clips()
+    # ---- 手感落地 M4-W6 追加：施法释放点变体 ----
+    clips += _m6_clips()
     return clips
 
 
@@ -387,6 +394,13 @@ def _m3d_clips() -> list[ClipDef]:
     return out
 
 
+def _m6_clips() -> list[ClipDef]:
+    """手感落地 M4-W6 追加：施法释放点变体 ``cast.quick``（释放 100 ms）、``cast.heavy``（释放 300 ms）。optional 档；回落链去掉变体段后落到 ``cast``。
+    与 ``cast`` 同一姿势函数（pose_id cast），只是相位分配不同；既有键一个字节都不动。"""
+    return [ClipDef("cast.quick", "cast", "cast", None, False, PHASES_OTHER["cast.quick"], "optional", variant="quick"),
+            ClipDef("cast.heavy", "cast", "cast", None, False, PHASES_OTHER["cast.heavy"], "optional", variant="heavy")]
+
+
 def _m4d_clips() -> list[ClipDef]:
     """手感落地 M4-D 追加的键（全部 optional 档，自拟 experimental）。
 
@@ -456,7 +470,7 @@ def events_for(clip: ClipDef) -> list[tuple[str, float]]:
         # 命中帧别名（手感落地 M3-D）：角色外壳（sprite 型与 model 型）识别的命中帧事件名是 hit_frame（ADR-0017），
         # 04 §5 的 hit 是判定侧标记名；两者同刻同源，追加在该剪辑事件表末尾（既有事件的内容与顺序不变）。
         ev.append(("hit_frame", w + a / 2.0))
-    elif clip.key == "cast":
+    elif clip.state == "cast":      # cast 与它的释放点变体 cast.quick / cast.heavy：release = 前摇结束
         ev.append(("release", float(clip.phases[0][1])))
     elif clip.key == "dodge":
         start = clip.phases[0][1]

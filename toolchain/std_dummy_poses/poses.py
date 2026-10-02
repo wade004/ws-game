@@ -260,9 +260,14 @@ LYING_FRONT = make_pose(bp=88, t_pitch=0, h_pitch=-30, m_sf=170, o_sf=170, m_sa=
                         m_hf=3, o_hf=6, m_kn=5, o_kn=8)
 LYING_FRONT_SETTLE = _with(LYING_FRONT, m_sa=26, o_sa=26, h_pitch=-34, m_hf=8, o_hf=10)
 
-#: 倒地/死亡/击飞起手的受击强度上限（base -> 受击姿势的外推倍数）：1.5 时肩后伸约 60 度、髋后伸约 26 度，不越人体范围；
-#: 轻体量（反应倍率 > 1）也夹到它，重体量照倍率变小。主集的 hit.heavy/hit.knockback 另有更大的外推（字节不变，见 model 版 config.SOURCE_ANGLE_EXEMPT）。
+#: 倒地/死亡/击飞起手与重受击/击退的肢体强度上限（base -> 受击姿势的外推倍数）：1.5 时肩后伸约 60 度、髋后伸约 26 度，不越人体范围；
+#: 轻体量（反应倍率 > 1）也夹到它，重体量照倍率变小。
 FALL_REACT_CAP = 1.5
+#: 重受击/击退（M4-W6）：肢体外推强度（体量倍率前）压在人体范围内——主集 1.3 / 1.4 倍，轻体量乘 1.15 后夹到 FALL_REACT_CAP（肩后伸 -57 度、
+#: 髋后伸 -26 度，不越肩 -65 / 髋 -46 的限）；"被打得往后一仰"的幅度由整身俯仰 bp（绕骨盆，度，负 = 向后仰，随体量反应倍率缩放）表达，
+#: 与 W5 躺平姿势、击飞起手同一思路，不再靠肩/髋角外推到人体范围之外（此前 2.2 倍外推时肩后伸到 -125 度）。
+RECOIL_LIMB_STRENGTH = {"hit.heavy": 1.3, "hit.knockback": 1.4}
+RECOIL_PELVIS_TILT = {"hit.heavy": -12.0, "hit.knockback": -24.0}
 #: 击飞起手的骨盆后仰（度，随体量反应倍率缩放）：被击中的瞬间整个身体先向后仰，再在滞空段放平到躺姿。
 LAUNCH_PELVIS_TILT = -30.0
 
@@ -284,7 +289,13 @@ def _fall_start(clip: C.ClipDef, tilt: float = 0.0) -> Pose:
 def pose_hit(clip: C.ClipDef, t_ms: float) -> Pose:
     base = combat(None)
     strength = _react(clip, {"hit": 1.0, "hit.light": 0.55, "hit.heavy": 1.5, "hit.knockback": 2.2}[clip.key])
+    tilt = RECOIL_PELVIS_TILT.get(clip.key, 0.0)
+    if tilt:
+        # 重受击/击退：肢体强度压在人体范围内，剩下的"后仰"用整身俯仰 bp 表达（随体量反应倍率缩放）。
+        strength = min(_react(clip, RECOIL_LIMB_STRENGTH[clip.key]), FALL_REACT_CAP)
     hp = _hit_pose(base, strength)
+    if tilt:
+        hp["bp"] = tilt * C.mass_react(clip)
     (_, imp), (_, rec) = clip.phases
     if t_ms < imp:
         p = mix_pose(base, hp, ease_out(t_ms / imp))

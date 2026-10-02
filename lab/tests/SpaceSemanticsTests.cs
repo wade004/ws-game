@@ -386,11 +386,11 @@ namespace Tests.Lab
             var results = new List<CellResult>();
             foreach (var script in LabTestSupport.SpaceScripts())
             {
-                results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
+                results.AddRange(LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
             Assert.Equal(LabTestSupport.SpaceScripts().Count * 10, results.Count);
-            Assert.All(results, r => Assert.True(r.Status == CellStatus.Pass, r.Script + " @ " + r.Cell + " " + r.Message));
+            LabTestSupport.AssertAllPass(results, "空间脚本基线比较失败");
         }
     }
 }

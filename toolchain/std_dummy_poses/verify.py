@@ -33,6 +33,7 @@ ALL_FAMILIES = ["1h", "2h", "polearm", "bow", "staff", "dual", "shield"]
 # 手感落地 M4-D 追加的键（独立判据）：空中键、格挡受击/眩晕摇晃/击飞翻滚落地、带伤变体覆盖全部移动与战斗移动键。
 AIR_KEYS = ["jump.rise", "jump.fall", "jump.land", "hit.air", "attack.air"] + \
     [f"attack.air.{f}" for f in ["unarmed"] + ALL_FAMILIES]
+CAST_VARIANT_KEYS = {"cast.quick": 100.0, "cast.heavy": 300.0}   # 施法释放点变体（M4-W6，独立判据）：键 -> 释放点 ms
 DETAIL_KEYS = ["hit.block", "hit.block.shield", "stunned.sway", "hit.launch.tumble", "hit.launch.land"]
 WOUNDED_KEYS = ["idle.wounded", "idle.combat.wounded", "move.walk.wounded", "move.run.wounded",
                 "move.walk.combat.wounded", "move.run.combat.wounded", "move.sprint.wounded",
@@ -51,7 +52,7 @@ _CIRCULAR = {"bp": 360.0}
 STATE_KEYS_WITH_WEAPON_LAYER = ["hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
                                 "death", "jump", "cast", "dodge", "hit.launch", "stunned", "block",
                                 "jump.rise", "jump.fall", "jump.land", "hit.air", "hit.block", "hit.block.shield",
-                                "stunned.sway", "hit.launch.tumble", "hit.launch.land"]
+                                "stunned.sway", "hit.launch.tumble", "hit.launch.land", "cast.quick", "cast.heavy"]
 
 _STATES = {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge", "stunned", "block"}
 _JUMP_SUB = {"rise", "fall", "land"}
@@ -60,7 +61,7 @@ _GAITS = {"walk", "run", "sprint"}
 _FAMILIES = {"unarmed", "1h", "2h", "polearm", "bow", "staff", "dual", "shield"}
 _HIT_SUFFIX = {"light", "heavy", "knockback", "knockdown", "getup", "launch", "air", "block"}
 _TRANSITIONS = {"start", "stop", "pivot"}
-_VARIANTS = {"wounded"}
+_VARIANTS = {"wounded", "quick", "heavy"}   # quick/heavy：施法释放点变体（M4-W6，只用于 cast）
 
 
 def parse_key(key: str) -> dict | None:
@@ -177,6 +178,9 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
     for k in AIR_KEYS + DETAIL_KEYS + WOUNDED_KEYS:
         if k not in clips:
             r.err(f"M4-D 键缺失（本集声明出齐）：{k}")
+    for k in CAST_VARIANT_KEYS:
+        if k not in clips:
+            r.err(f"M4-W6 键缺失（施法释放点变体）：{k}")
     for fam in ALL_FAMILIES:
         for base in FAMILY_KEY_BASES:
             k = f"{base}.{fam}"
@@ -263,6 +267,14 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
             if fam in C.PHASES_SEG1 and e["phases"][0]["ms"] and key == C.attack_key(fam, 1):
                 if tuple(p["ms"] for p in e["phases"]) != C.PHASES_SEG1[fam]:
                     r.err(f"{key} 三相与配置起点不一致")
+        if info["state"] == "cast":
+            # 施法（cast 与释放点变体）：恰一个 release，落在前摇结束处；变体的释放点毫秒数 = 独立判据；总时长与帧数与 cast 一致
+            rel = _ev(e, "release")
+            want_ms = CAST_VARIANT_KEYS.get(key, e["phases"][0]["ms"])
+            if len(rel) != 1 or abs(rel[0] * total - want_ms) > 0.05:
+                r.err(f"{key} 施放点 release 应恰有一个且在 {want_ms} ms：实际 {[x * total for x in rel]}")
+            if key in CAST_VARIANT_KEYS and (total != clips["cast"]["total_ms"] or e["frame_count"] != clips["cast"]["frame_count"]):
+                r.err(f"{key} 总时长/帧数应与 cast 一致（{clips['cast']['total_ms']} ms / {clips['cast']['frame_count']} 帧）")
         if info["state"] == "move" and info["gait"] in ("walk", "run", "sprint"):
             fs = _ev(e, "footstep")
             if len(fs) < 2:

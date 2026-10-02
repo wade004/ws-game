@@ -417,11 +417,11 @@ namespace Tests.Lab
             Assert.Contains(withExpectations, s => s.Expectations.Any(e => e.Subject.At.HasValue || e.Subject.Agg.Length > 0));
             foreach (var script in withExpectations)
             {
-                var results = LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId);
+                var results = LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId);
                 Assert.Equal(LabTestSupport.Runner.ApplicableCells(script).Count, results.Count); // 空间脚本适用十个格子，其余六个
                 foreach (var r in results)
                 {
-                    Assert.True(r.Status == CellStatus.Pass, $"{r.Script} @ {r.Cell}：{string.Join("；", r.Expectations.Where(e => !e.Ok).Select(e => e.ToString()))}");
+                    LabTestSupport.AssertAllPass(new[] { r }, "期望与基线比较失败");
                     Assert.True(r.Expectations.Count > 0 || script.Expectations.All(e => e.Cells.Count > 0 && !e.Cells.Contains(r.Cell)));
                 }
             }
@@ -542,9 +542,9 @@ namespace Tests.Lab
             Assert.NotEmpty(exported.Expectations);
 
             // 导出的夹具（脚本带期望 + 基线）在套件里全部通过，期望清单逐格判定过。
-            var results = LabSuite.Check(runner, fixtures, "feel_melee");
+            var results = LabSuite.Check(runner, fixtures, "feel_melee", null, includeRealTime: false);
             Assert.Equal(6, results.Count);
-            Assert.All(results, r => Assert.Equal(CellStatus.Pass, r.Status));
+            LabTestSupport.AssertAllPass(results, "导出的夹具应全部通过");
             Assert.All(results, r => Assert.True(r.Expectations.Count > 0));
 
             // 可编辑：改动一条导出的期望（把精确值改错），套件就以清晰诊断指出这一条。

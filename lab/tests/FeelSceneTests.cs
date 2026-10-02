@@ -97,24 +97,11 @@ namespace Tests.Lab
             var results = new List<CellResult>();
             foreach (var script in LabTestSupport.FeelScripts())
             {
-                results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
+                results.AddRange(LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
             Assert.Equal(LabTestSupport.FeelScripts().Count * 6, results.Count);
-            var failures = new StringBuilder();
-            foreach (var r in results)
-            {
-                if (r.Status != CellStatus.Pass)
-                {
-                    failures.Append(r.Script).Append(" @ ").Append(r.Cell).Append(' ').Append(r.Status).Append('\n');
-                    if (r.Diff != null)
-                    {
-                        failures.Append(r.Diff.Format());
-                    }
-                }
-            }
-
-            Assert.True(failures.Length == 0, "基线比较失败：\n" + failures);
+            LabTestSupport.AssertAllPass(results, "基线比较失败");
         }
 
         [Fact]

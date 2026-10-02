@@ -140,28 +140,16 @@ SOURCE_ANGLE_LIMITS = {
     "t_pitch": (-50.0, 60.0), "t_roll": (-30.0, 30.0), "t_yaw": (-60.0, 60.0),   # 躯干
     "h_pitch": (-60.0, 60.0), "h_yaw": (-60.0, 60.0),     # 头
     "wp": (0.0, 230.0), "wy": (-90.0, 90.0), "wz": (-60.0, 60.0),  # 武器相对躯干
-    "bp": (-400.0, 400.0),                                # 整身俯仰（击飞翻滚一整圈 + 余量；非翻滚类键另受 BP_KEYS 约束）
-}
-
-#: 风格化受击键的角限放宽（逐键声明，不放宽全局）：``hit.heavy``、``hit.knockback`` 的受击姿势是对站姿向受击姿势的外推
-#: （强度 1.5 / 2.2 倍，轻体量再乘反应倍率），肩后甩与髋后伸因此超出人体范围；它们已被下游引用、字节不变（M4-W5 只放开倒地、
-#: 死亡、击飞、起身四个键的躺平姿势），所以写成显式例外：键 -> {参数: (下限, 上限)}，只覆盖列出的参数。体量组沿用同键例外。
-SOURCE_ANGLE_EXEMPT = {
-    "hit.heavy": {"m_sf": (-80.0, 185.0), "o_sf": (-80.0, 185.0)},
-    "hit.knockback": {"m_sf": (-126.0, 185.0), "o_sf": (-126.0, 185.0), "m_hf": (-52.0, 100.0), "o_hf": (-52.0, 100.0)},
+    "bp": (-400.0, 400.0),                                # 整身俯仰（击飞翻滚一整圈 + 余量；只有 BP_KEYS 里的键可非零，重受击/击退另限 [-BP_RECOIL_LIMIT_DEG, 0]）
 }
 
 #: 允许非零整身俯仰 bp 的键：击飞翻滚类（一整圈）与躺平类（仰卧 -88 / 俯卧 +88，击飞起手后仰）。其余键 bp 恒为 0。
 BP_TUMBLE_KEYS = ("hit.launch.tumble", "hit.launch.land")
 BP_LYING_KEYS = ("hit.launch", "hit.knockdown", "hit.getup", "death")
-BP_KEYS = BP_TUMBLE_KEYS + BP_LYING_KEYS
-
-
-def source_angle_limits(key: str) -> dict:
-    """某个键适用的源关节角限：全局表 + 该键的风格化例外。"""
-    out = dict(SOURCE_ANGLE_LIMITS)
-    out.update(SOURCE_ANGLE_EXEMPT.get(key, {}))
-    return out
+#: 重受击/击退（M4-W6）：肩、髋、躯干全在人体范围内，"往后一仰"的幅度由整身后仰 bp 表达（绕骨盆，度，只后仰不前翻）。
+BP_RECOIL_KEYS = ("hit.heavy", "hit.knockback")
+BP_RECOIL_LIMIT_DEG = 35.0
+BP_KEYS = BP_TUMBLE_KEYS + BP_LYING_KEYS + BP_RECOIL_KEYS
 
 
 #: 规格里实际写出的骨骼局部旋转量（四元数转轴角后的旋转角，度）上限：对每根旋转骨骼的每个关键帧检查。
@@ -192,6 +180,8 @@ def hips_rot_limit_deg(key: str) -> float:
         return BONE_ROT_LIMITS_DEG["hips"]
     if key in BP_LYING_KEYS:
         return HIPS_LYING_LIMIT_DEG
+    if key in BP_RECOIL_KEYS:
+        return BP_RECOIL_LIMIT_DEG
     return HIPS_ROT_LIMIT_DEG
 
 

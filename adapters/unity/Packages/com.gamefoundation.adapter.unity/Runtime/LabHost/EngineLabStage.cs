@@ -347,7 +347,7 @@ namespace Adapter.Unity.LabHost
             _hitSource.HitFrameReached += OnEngineHitFrame;
             _unityFactory = new UnityViewFactory(
                 _r2d, new RenderConventionHost(renderOptions), _display, _loader, ctx.World.Bus, ctx.World.Registry, _r3d,
-                _hitSource, null, renderOptions);
+                _hitSource, new LabWeaponStyleSource(ctx.World.Registry, ctx.Cell.Form), renderOptions);
 
             // 特效与音效：目录由实验室内核的手感音效表（LabFeedbackCatalog）与一个宿主自有的探针特效组成，资源引用换成占位美术里真实存在的文件。
             var vfxCatalog = new Dictionary<Id, VfxDef>
@@ -1117,6 +1117,27 @@ namespace Adapter.Unity.LabHost
                     _stage.Fail("引擎视图 " + what + " 失败：" + ex.Message);
                 }
             }
+        }
+
+        // ───────── 武器风格（施法剪辑覆盖） ─────────
+
+        /// <summary>
+        /// 实验室的武器风格来源：数据集里有 <c>display.weapon_style.lab_&lt;外形&gt;</c> 行（<c>lab_sprite</c> / <c>lab_model</c>，值前缀随外形不同）时，
+        /// 所有实体都套用它；没有这一行（数据集不声明）时返回 null，剪辑解析退回默认剪辑表，与没有武器风格来源时逐位一致。
+        /// 该行只声明 <c>cast_anim_override</c>（按技能 id 把命中点在 100 / 300 ms 的实验室技能指向 <c>cast.quick</c> / <c>cast.heavy</c> 剪辑，
+        /// 让引擎侧释放事件对上逻辑命中标记）；实验室没有普攻挥击事件，<c>auto_attack_anim</c> 只是必填字段，不会被播放。
+        /// </summary>
+        private sealed class LabWeaponStyleSource : IWeaponStyleSource
+        {
+            private readonly Id? _row;
+
+            public LabWeaponStyleSource(Core.Foundation.DataRegistry.IDataRegistryView registry, string form)
+            {
+                var id = new Id("display.weapon_style.lab_" + (string.Equals(form, "model", StringComparison.Ordinal) ? "model" : "sprite"));
+                _row = registry.Get("display.weapon_style", id) != null ? id : (Id?)null;
+            }
+
+            public Id? GetWeaponStyleRef(Id entityId) => _row;
         }
 
         // ───────── 合成外形登记 ─────────

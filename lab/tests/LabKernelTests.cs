@@ -200,24 +200,11 @@ namespace Tests.Lab
             var results = new List<CellResult>();
             foreach (var script in LabTestSupport.StandardScripts())
             {
-                results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
+                results.AddRange(LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
             Assert.Equal(11 * 6, results.Count);
-            var failures = new StringBuilder();
-            foreach (var r in results)
-            {
-                if (r.Status != CellStatus.Pass)
-                {
-                    failures.Append(r.Script).Append(" @ ").Append(r.Cell).Append(' ').Append(r.Status).Append('\n');
-                    if (r.Diff != null)
-                    {
-                        failures.Append(r.Diff.Format());
-                    }
-                }
-            }
-
-            Assert.True(failures.Length == 0, "基线比较失败：\n" + failures);
+            LabTestSupport.AssertAllPass(results, "基线比较失败");
         }
 
         [Fact]
@@ -255,10 +242,18 @@ namespace Tests.Lab
             // 键里的数据集哈希变化只是警告，真正的判定看度量差异。
             Assert.Contains(result.Diff.Warnings, w => w.Contains("key.dataset"));
 
+            // 失败报告带差异明细（度量名、基线值、实际值），不只是"某格子失败"：整份基线比较类用例都经它出报告。
+            var described = LabTestSupport.DescribeFailures(results);
+            Assert.Contains("move_tap @ 2d_targeted Diff", described);
+            Assert.Contains("movement.path_length", described);
+            Assert.Contains("基线 0.5 -> 实际 0.6", described);
+            Assert.Equal(string.Empty, LabTestSupport.DescribeFailures(new List<CellResult>()));
+
             // 不留任何改动：改写只活在内存里，磁盘上的基线与数据都没动；用未改动的数据再比一次回到通过。
             Assert.Equal(before, File.ReadAllBytes(baselinePath));
-            var clean = LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, onlyScript: "move_tap", onlyCell: "2d_targeted");
-            Assert.Equal(CellStatus.Pass, Assert.Single(clean).Status);
+            var clean = LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, onlyScript: "move_tap", onlyCell: "2d_targeted");
+            Assert.Single(clean);
+            LabTestSupport.AssertAllPass(clean, "未改动的数据应回到通过");
         }
 
         [Fact]
@@ -291,6 +286,36 @@ namespace Tests.Lab
                 fp.ToJson(), "\"frame_ms_p95\": [0-9.eE+-]+", "\"frame_ms_p95\": 5000"));
             var slow = FingerprintComparer.Compare(fp, slowActual, runner.Registry);
             Assert.Contains(slow.Entries, e => e.Name == "performance.frame_ms_p95");
+        }
+
+        [Fact]
+        public void Comparer_ExcludingRealTime_IgnoresOnlyRealTimeMetrics_SoLoadCannotFlipADeterministicComparison()
+        {
+            var runner = LabTestSupport.Runner;
+            var fp = runner.Run(LabTestSupport.Script("move_tap"), "2d_targeted");
+
+            // 复现（满载机器上的样子）：实际的帧耗时、每帧分配远超上限——默认比较报差异，确定性比较（排除实时类）不报。
+            var loaded = Fingerprint.Parse(System.Text.RegularExpressions.Regex.Replace(System.Text.RegularExpressions.Regex.Replace(
+                fp.ToJson(), "\"frame_ms_p50\": [0-9.eE+-]+", "\"frame_ms_p50\": 5000"),
+                "\"alloc_bytes_per_frame_p95\": [0-9.eE+-]+", "\"alloc_bytes_per_frame_p95\": 900000000"));
+            var withRealTime = FingerprintComparer.Compare(fp, loaded, runner.Registry);
+            Assert.Contains(withRealTime.Entries, e => e.Name == "performance.frame_ms_p50");
+            Assert.Contains(withRealTime.Entries, e => e.Name == "performance.alloc_bytes_per_frame_p95");
+            var deterministic = FingerprintComparer.Compare(fp, loaded, runner.Registry, includeRealTime: false);
+            Assert.True(deterministic.Ok, deterministic.Format());
+
+            // 不变量：排除的只有实时类。逻辑类（tick 总数）、表现类（帧数）的差异、键不一致，在确定性比较里照常报告。
+            var logicChanged = Fingerprint.Parse(System.Text.RegularExpressions.Regex.Replace(
+                fp.ToJson(), "\"ticks\": [0-9.eE+-]+", "\"ticks\": 99999"));
+            Assert.Contains(
+                FingerprintComparer.Compare(fp, logicChanged, runner.Registry, includeRealTime: false).Entries, e => e.Name == "performance.ticks");
+            var presentationChanged = Fingerprint.Parse(System.Text.RegularExpressions.Regex.Replace(
+                fp.ToJson(), "\"frames\": [0-9.eE+-]+", "\"frames\": 99999"));
+            Assert.Contains(
+                FingerprintComparer.Compare(fp, presentationChanged, runner.Registry, includeRealTime: false).Entries, e => e.Name == "performance.frames");
+            var otherCell = runner.Run(LabTestSupport.Script("move_tap"), "3d_targeted");
+            Assert.Contains(
+                FingerprintComparer.Compare(otherCell, fp, runner.Registry, includeRealTime: false).Entries, e => e.Name == "key.cell");
         }
 
         // ---------- 度量组可扩展 ----------
@@ -380,9 +405,11 @@ namespace Tests.Lab
 
             // 套件里缺能力的格子显式标成"不可运行"，不静默跳过、不当作通过；改成体积空间的格子可运行，其余格子照常通过
             // （体积格子多出 space 组：基线里没有它按"新增度量组"给警告而不是差异，既有基线因此不动）。
-            var results = LabSuite.Check(tweaked, LabTestSupport.FixturesDir, onlyScript: "move_tap");
+            var results = LabTestSupport.CheckDeterministic(tweaked, LabTestSupport.FixturesDir, onlyScript: "move_tap");
             Assert.Single(results.FindAll(r => r.Status == CellStatus.NotRunnable));
-            Assert.Equal(5, results.FindAll(r => r.Status == CellStatus.Pass).Count);
+            var passed = results.FindAll(r => r.Status == CellStatus.Pass).Count;
+            Assert.True(passed == 5, "期望 5 个格子通过；实际 " + passed + "：\n"
+                + LabTestSupport.DescribeFailures(results.FindAll(r => r.Status != CellStatus.NotRunnable)));
             Assert.Contains(results.Find(r => r.Cell == "2d_targeted")!.Diff!.Warnings, w => w.Contains("space"));
         }
 

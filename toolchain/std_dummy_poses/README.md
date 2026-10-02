@@ -138,14 +138,18 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
 
 14. **躺姿五键用整身俯仰 `bp` 重绘**（M4-W5，04 第 10 节第 3 条）：`hit.launch`、`hit.knockdown`、`hit.getup`、`death`、`hit.launch.land` 的躺平段此前靠"腿绕髋整体后摆"、肩/髋被迫超出人体范围；
     现在用 M4-D 已有的 `bp`（整身绕骨盆俯仰，仰卧 -88、俯卧 +88，后倒起手按体量反应缩放）放平，肩/髋/躯干回到人体范围（`LYING_BACK`/`LYING_FRONT` 及其落稳姿势在 `poses.py`）。
-    `hit.launch.land` 与 `hit.getup` 共用躺姿（落地末姿势 = 起身起姿势），所以随之重绘：改的是五个键而不是四个。键名、时长、事件（名与时刻）、帧数不变，其余 124 个键的规格条目与图像字节不变
-    （含体量组，缺省 `bp = 0` 走旧计算路径，逐位一致）。`hit.heavy`、`hit.knockback` 因字节锁保留旧的肩/髋角限，登记在骨骼版 `SOURCE_ANGLE_EXEMPT`（骨骼版判断记录 18）。
-15. **`cast` 的 `release` 在 150 ms，残余偏差是设计判定**（M4-W5）：`cast` 总时长 600 ms、12 帧不变，相位改为 windup 150 / release 100 / recovery 350（原 250/100/250），`release` 事件 `time_pct` 0.4167 → 0.25。
+    `hit.launch.land` 与 `hit.getup` 共用躺姿（落地末姿势 = 起身起姿势），所以随之重绘：改的是五个键而不是四个。键名、时长、事件（名与时刻）、帧数不变，其余键（除 M4-W6 重绘的 `hit.heavy`、`hit.knockback`）的规格条目与图像字节不变
+    （含体量组，缺省 `bp = 0` 走旧计算路径，逐位一致）。`hit.heavy`、`hit.knockback` 在 M4-W6 重绘到人体范围（判断记录 16），不再有任何角限豁免。
+15. **`cast` 的 `release` 在 150 ms**（M4-W5）：`cast` 总时长 600 ms、12 帧不变，相位改为 windup 150 / release 100 / recovery 350（原 250/100/250），`release` 事件 `time_pct` 0.4167 → 0.25。
     理由：实验室技能（`data/_lab_action`）命中标记最常见是 150 ms（slash、combo3、slam、charge、bolt、projectile），改一个 `cast` 剪辑比改十多个技能时间线（技能时间线是 feellab 基线的输入）影响面小得多，
-    且 `cast` 只被表现层读。结果：起手 150 ms 的技能动画命中点与逻辑命中标记逐毫秒相等（`feel_melee` 的 150 ms 滞后消除，`feel_combo3` 三段全部配得上）；
-    起手 100 ms 的技能（combo1/2、poise_chip、lunge）动画晚 50 ms（引擎事件不早于逻辑命中，配得上，只是有 50 ms 滞后）；`elite_swing`（起手 300 ms 的长预警）引擎事件早于逻辑命中，在单一 `cast` 剪辑下配不上。
-    **这是判定而不是缺口**：一个共用剪辑只能有一个释放点，再逐技能对齐就是逐技能剪辑（武器族 `CastAnimOverride` 的职责），属数据设计而非假人的责任；对齐检查（宿主命中配对）是 M4-W4 的宿主逻辑，本切片只负责数据。
-    自检 `test_m4w5_every_lab_skill_hit_marker_is_not_later_than_cast_release_and_slash_matches_exactly` 把这个范围锁住：除 `elite_swing` 外所有用 `cast` 动画的实验室技能命中标记不晚于 `release`。
+    且 `cast` 只被表现层读。起手 150 ms 的技能动画命中点与逻辑命中标记逐毫秒相等；起手 100 ms 与 300 ms 的技能由判断记录 17 的施放点变体对齐（武器风格 `cast_anim_override`）。
+16. **重受击、击退的极值帧重绘到人体范围**（M4-W6）：`hit.heavy`、`hit.knockback` 此前用 2.2 倍外推表达强后仰（肩后伸 -125 度），靠骨骼版每键豁免表保留旧限。M4-W6 放开这两个键的字节锁：
+    限肢外推倍率降为 1.3 / 1.4（`RECOIL_LIMB_STRENGTH`，并受 `FALL_REACT_CAP` 约束），后仰由骨盆整身俯仰 `bp` 补足（`RECOIL_PELVIS_TILT`：重受击 -12 度、击退 -24 度，乘体量反应倍率，轻体量更大、重体量更小）。
+    键名、时长、事件、帧数不变；轻/重体量组、装备层与方向变体随生成器同步重出；豁免表与取限函数一并删除（骨骼版判断记录 18、21）。
+17. **施放点变体 `cast.quick`、`cast.heavy`**（M4-W6）：总时长 600 ms、12 帧与 `cast` 相同，相位 windup 100 / release 100 / recovery 400 与 windup 300 / release 100 / recovery 200，`release` 事件落在前摇结束处
+    （100 ms、300 ms），可选档（`optional`），带武器层（随装备族换层），轻/重体量组各带同名键。游戏把技能指到变体的方式是武器风格 `display.weapon_style.cast_anim_override`（技能 id 到剪辑资源引用），
+    回退链 `cast.<变体>` → `cast`，没声明覆盖的游戏逐位不变；实验室用 `data/_lab_action/display/display.weapon_style.json` 把起手 100 ms 的 combo1/combo2/poise_chip/lunge/spx_jab 指向 `cast.quick`、起手 300 ms 的 elite_swing 指向 `cast.heavy`。
+    自检检查两个变体的 `release` 时刻（容差 0.05 ms）、总时长与帧数同 `cast`。
 
 ## 已知限制
 

@@ -31,15 +31,15 @@ namespace Adapter.Unity.Tests.LabHost
         // ───────── 动画命中帧与逻辑命中 tick 对齐 ─────────
 
         /// <summary>数据里 cast 剪辑的 release 关键帧在剪辑内的时刻（秒）：<c>round(time_pct × (帧数 − 1)) / 帧率</c>，帧率取首帧时长的倒数（与适配器登记剪辑同一规则）。</summary>
-        private static double CastReleaseSeconds()
+        private static double CastReleaseSeconds(string clip = "sprite_anim.std_dummy_cast")
         {
             var root = EngineLabHost.LocateRepoRoot();
             var animSet = File.ReadAllText(Path.Combine(root, "data", "_framework", "display", "display.anim_set.json"));
             var pct = double.Parse(
-                Regex.Match(animSet, @"sprite_anim\.std_dummy_cast""[^\]]*?""release""[^}]*?""time_pct""\s*:\s*([0-9.]+)").Groups[1].Value,
+                Regex.Match(animSet, Regex.Escape(clip) + @"""[^\]]*?""release""[^}]*?""time_pct""\s*:\s*([0-9.]+)").Groups[1].Value,
                 System.Globalization.CultureInfo.InvariantCulture);
-            var frames = FramesJson("sprite_anim.std_dummy_cast__front__body");
-            var text = File.ReadAllText(Path.Combine(root, "assets", "_placeholder", "sprite_anim", "std_dummy_cast__front__body", "frames.json"));
+            var frames = FramesJson(clip + "__front__body");
+            var text = File.ReadAllText(Path.Combine(root, "assets", "_placeholder", "sprite_anim", clip.Substring("sprite_anim.".Length) + "__front__body", "frames.json"));
             var duration = double.Parse(
                 Regex.Match(text, @"""duration""\s*:\s*([0-9.]+)").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
             var index = (int)Math.Round(pct * (frames.Frames - 1), MidpointRounding.AwayFromZero);
@@ -49,7 +49,8 @@ namespace Adapter.Unity.Tests.LabHost
         [Test]
         public void HitAlignment_SpritePlane_EngineEventTimeEqualsCastStartPlusTheClipKeyframe_AndCutClipsAreReportedMissing()
         {
-            var release = CastReleaseSeconds();
+            var cast = CastReleaseSeconds();
+            var quick = CastReleaseSeconds("sprite_anim.std_dummy_cast_quick");
             foreach (var scriptId in new[] { "feel_melee", "feel_combo3" })
             {
                 foreach (var cell in new[] { "2d_action", "2_5d_action" })
@@ -63,14 +64,17 @@ namespace Adapter.Unity.Tests.LabHost
                     Assert.Greater(markers.Count, 0, scriptId + "@" + cell + "：前置条件——脚本里应有逻辑命中标记");
                     Assert.AreEqual(markers.Count, run.Engine.HitAlignments.Count, "对齐样本数应等于逻辑命中标记数");
 
-                    var starts = events.Where(e => e.Kind == "action_started" && e.Actor == "player").Select(e => e.Tick).ToList();
+                    var startEvents = events.Where(e => e.Kind == "action_started" && e.Actor == "player").ToList();
+                    var starts = startEvents.Select(e => e.Tick).ToList();
+                    // 每次施法播放的剪辑：实验室武器风格把 combo1/combo2 指到 cast.quick，其余用 cast（M4-W6）。
+                    var releases = startEvents.Select(e => e.SkillId == "skill.lab_a_combo1" || e.SkillId == "skill.lab_a_combo2" ? quick : cast).ToList();
                     var finishes = events.Where(e => e.Kind == "action_finished" && e.Actor == "player").Select(e => e.Tick).ToList();
                     var expectedPresent = 0;
                     var ambiguous = 0;
-                    var detail = string.Join(",", starts) + " | " + string.Join(",", finishes) + " | release=" + release;
+                    var detail = string.Join(",", starts) + " | " + string.Join(",", finishes) + " | release=" + string.Join(",", releases);
                     for (var i = 0; i < starts.Count; i++)
                     {
-                        var expectedRelease = starts[i] * step + release;
+                        var expectedRelease = starts[i] * step + releases[i];
                         // 读条剪辑被切断：下一次施法开始，或这次施法的逻辑动作结束（cast 状态随施法收尾回落）。
                         var endTicks = new List<int>();
                         if (i + 1 < starts.Count) endTicks.Add(starts[i + 1]);
@@ -93,8 +97,9 @@ namespace Adapter.Unity.Tests.LabHost
                     for (var k = 0; k < present.Count; k++)
                     {
                         var sample = present[k];
-                        var start = starts.Last(t => t * step <= sample.EngineSeconds + 1e-9);
-                        var expected = start * step + release;
+                        var startIndex = starts.FindLastIndex(t => t * step <= sample.EngineSeconds + 1e-9);
+                        var start = starts[startIndex];
+                        var expected = start * step + releases[startIndex];
                         // 引擎事件不可能早于"施法起点 + 剪辑里关键帧的时刻"；从待机进入的第一次施法，误差只来自帧量化。
                         Assert.GreaterOrEqual(sample.EngineSeconds, expected - frame, scriptId + "@" + cell + "：引擎事件不应早于施法起点加关键帧时刻");
                         if (k == 0 && starts.Count > 0 && start == starts[0])
@@ -135,30 +140,100 @@ namespace Adapter.Unity.Tests.LabHost
         }
 
         /// <summary>
-        /// M4-W5 复现：此前 <c>feel_melee</c> 的动画命中点比逻辑命中标记晚 150 毫秒，<c>feel_combo3</c> 三次命中只配上最后一次（前两段读条剪辑在到达 250 毫秒的
-        /// release 之前就被下一段切走），模型平面的占位 cast 剪辑没有任何 hit_frame、命中对齐恒缺失。根因在数据：cast 剪辑的 release 比技能命中标记晚。
-        /// 不变量：cast 的 release 在 150 毫秒后，三个位面的 <c>feel_melee</c>、<c>feel_combo3</c> 全部命中都配得上，引擎事件不早于逻辑命中，
-        /// 且滞后不超过 "release 与最早技能命中标记（100 毫秒）之差" 再加帧量化。
+        /// 覆盖全部实验室技能命中标记的脚本（每个有命中标记的实验室技能至少被其中一个脚本施放）：
+        /// 150 毫秒档（slash、combo3、charge、projectile、projectile_short、bolt、slam）、100 毫秒档（combo1、combo2、poise_chip、lunge、space_ext 的 jab）、
+        /// 300 毫秒档（elite_swing，由精英怪自己施放）。
+        /// </summary>
+        private static readonly string[] LabSkillScripts =
+        {
+            "feel_melee", "feel_combo3", "feel_poise_dynamic", "feel_lunge", "feel_charge", "feel_projectile",
+            "feel_projectile_expire", "feel_group_hit", "feel_elite_armor", "space.air_combo", "space.air_hit", "space.height_offset", "space.range_action",
+        };
+
+        /// <summary>逐命中样本归到施放它的技能：同一施放者最近一次 <c>action_started</c> 的技能 id。</summary>
+        private static List<(string Skill, HitAlignSample Sample)> HitsBySkill(EngineLabRun run)
+        {
+            var events = run.Recording.Feel!.Events;
+            var result = new List<(string, HitAlignSample)>();
+            foreach (var sample in run.Engine.HitAlignments)
+            {
+                var started = events.LastOrDefault(e => e.Kind == "action_started" && e.Actor == sample.Actor && e.Tick <= sample.LogicTick);
+                Assert.IsNotNull(started, "前置条件：每个命中样本前都有同一施放者的 action_started（" + sample.Actor + " tick " + sample.LogicTick + "）");
+                result.Add((started!.SkillId, sample));
+            }
+
+            return result;
+        }
+
+        /// <summary>数据里带 hit 命中标记的实验室技能（动作式技能库 + space_ext 的 jab），与其时间线上的标记偏移（毫秒）。</summary>
+        private static Dictionary<string, int> LabSkillHitMarkers()
+        {
+            var root = EngineLabHost.LocateRepoRoot();
+            var result = new Dictionary<string, int>();
+            foreach (var path in new[]
+            {
+                Path.Combine(root, "data", "_lab_action", "skill", "skill.def.json"),
+                Path.Combine(root, "lab", "fixtures", "data", "space_ext", "skill", "skill.def.json"),
+            })
+            {
+                var doc = (Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(File.ReadAllText(path));
+                foreach (var row in (Core.Foundation.Common.Json.JsonArray)doc["rows"])
+                {
+                    var obj = (Core.Foundation.Common.Json.JsonObject)row;
+                    var timeline = (Core.Foundation.Common.Json.JsonObject)obj["timeline"];
+                    foreach (var marker in (Core.Foundation.Common.Json.JsonArray)timeline["markers"])
+                    {
+                        var m = (Core.Foundation.Common.Json.JsonObject)marker;
+                        if (((Core.Foundation.Common.Json.JsonString)m["name"]).Value == "hit")
+                        {
+                            result[((Core.Foundation.Common.Json.JsonString)obj["id"]).Value] = (int)((Core.Foundation.Common.Json.JsonNumber)m["at_ms"]).Value;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// M4-W6 不变量：每个实验室技能的命中都和它的释放事件配上（精灵位面与模型位面），引擎事件不早于逻辑命中，滞后不超过帧量化。
+        /// 此前（M4-W5）施放点只有 150 毫秒一档，100 毫秒的连段/突进/破韧技能晚 50 毫秒，300 毫秒的精英重挥早 150 毫秒（早于逻辑命中，被判定为"已知设计判定"）；
+        /// 现在施放点变体（<c>cast.quick</c> / <c>cast.heavy</c>）经 <c>display.weapon_style.lab_*</c> 的 <c>cast_anim_override</c> 把这些技能指到释放点与命中标记同刻的剪辑。
+        /// 额外断言：每个有命中标记的实验室技能都被某个脚本施放过（覆盖不靠假设）。
         /// </summary>
         [Test]
-        public void HitAlignment_AfterTheCastReleaseMovesTo150ms_EveryHitIsPairedOnSpriteAndModelPlanes_WithinTheDeclaredLag()
+        public void HitAlignment_EveryLabSkillHit_IsPairedOnSpriteAndModelPlanes_NeverEarlierThanTheLogicMarker_WithinOneFrame()
         {
-            foreach (var scriptId in new[] { "feel_melee", "feel_combo3" })
+            var covered = new HashSet<string>();
+            foreach (var scriptId in LabSkillScripts)
             {
-                foreach (var cell in new[] { "2d_action", "2_5d_action", "3d_action" })
+                foreach (var cell in new[] { "2d_action", "3d_action" })
                 {
                     var script = LabHostTestSupport.Script(scriptId);
                     var run = Host.Run(script, cell);
                     var frameMs = 1000.0 / script.Meta.FrameRateCap;
-                    Assert.Greater(run.Engine.HitAlignments.Count, 0, scriptId + "@" + cell);
+                    var stepMs = 1000.0 / script.Meta.TickRate;
                     Assert.AreEqual(0.0, Num(run, "hit_align_missing"), scriptId + "@" + cell + "：全部逻辑命中都应配上引擎命中帧事件");
-                    foreach (var sample in run.Engine.HitAlignments)
+                    foreach (var (skill, sample) in HitsBySkill(run))
                     {
-                        Assert.IsTrue(sample.Present, scriptId + "@" + cell + " tick " + sample.LogicTick);
-                        Assert.GreaterOrEqual(sample.ErrorMilliseconds, -frameMs - 1e-6, scriptId + "@" + cell + "：引擎事件不应早于逻辑命中");
-                        Assert.LessOrEqual(sample.ErrorMilliseconds, 50.0 + 3 * frameMs, scriptId + "@" + cell + " tick " + sample.LogicTick + "：滞后超出声明范围");
+                        covered.Add(skill);
+                        var where = scriptId + "@" + cell + " " + skill + " tick " + sample.LogicTick;
+                        Assert.IsTrue(sample.Present, where);
+                        Assert.GreaterOrEqual(sample.ErrorMilliseconds, -1e-6, where + "：引擎事件不应早于逻辑命中");
+                        // 模型位面的 Animator 事件在下一次动画求值时才派发；命中时刻施放者已被顿帧冻结（rig 速度 0），事件要等冻结结束才发出，
+                        // 所以滞后 = 一帧量化 + 施放者这次命中的顿帧时长。精灵位面的关键帧与命中同帧触发，不受顿帧影响。
+                        var frozenMs = cell == "3d_action"
+                            ? run.Engine.Freezes.Where(f => f.Unit == sample.Actor && f.StartTick >= sample.LogicTick - 1 && f.StartTick <= sample.LogicTick + 2).Sum(f => f.Ticks) * stepMs
+                            : 0.0;
+                        Assert.LessOrEqual(sample.ErrorMilliseconds, frameMs + stepMs + frozenMs + 1e-6,
+                            where + "：滞后应在一帧量化（加上模型位面里施放者的顿帧时长 " + frozenMs.ToString("F1") + " 毫秒）之内");
                     }
                 }
+            }
+
+            foreach (var skill in LabSkillHitMarkers().Keys)
+            {
+                CollectionAssert.Contains(covered, skill, "没有脚本覆盖实验室技能 " + skill + "：命中对位不变量对它没有证明力");
             }
         }
 

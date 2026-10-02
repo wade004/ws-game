@@ -32,10 +32,10 @@ from std_dummy_poses import config as SC  # noqa: E402
 
 REPO_ROOT = TOOLCHAIN_DIR.parent
 #: 手感落地 M3-D 之前已入库的 34 个键的模型剪辑条目（时间、轨迹、内嵌事件等）摘要：既有键逐字节不变（只追加）。
-LEGACY_CLIPS_SHA256 = "78c98811059b1df6922ddd0c915c5544b603464ab14d42a0de8e5b893e09618c"
+LEGACY_CLIPS_SHA256 = "3f5fdde92c6a18f4887a29324349bb2597dfa2d38c920fc667398171fb365181"
 LEGACY_CLIP_COUNT = 34
 #: 手感落地 M4-D 之前已入库的 103 个键（主集）与 16 条体量组条目（轻/重各 8 键）的模型剪辑摘要（取自 1.95.0 入库版本）：只追加不改。
-LEGACY103_CLIPS_SHA256 = "1c4b43ecb0b720b954dc170fabb5094e92174435e415e7c7e5b80b952c285bca"
+LEGACY103_CLIPS_SHA256 = "d5c481f5cffe55fa45b0eaa0b4cdf01793c6f4ae8d0a75aa0a101a70e764133c"
 LEGACY103_COUNT = 103
 LEGACY_MASS_ENTRIES_SHA256 = "7b4a4308cde5b6c9d1ff452b3058cf5951c5d24f600b6f4ebf9c19bd3d91f457"
 #: M4-W5 起不在上述两个逐字节摘要里的 6 个键：四个躺姿键（hit.launch / hit.knockdown / hit.getup / death）与击飞落地（hit.launch.land，
@@ -43,9 +43,14 @@ LEGACY_MASS_ENTRIES_SHA256 = "7b4a4308cde5b6c9d1ff452b3058cf5951c5d24f600b6f4ebf
 #: 由 LEGACY_POSTURE_STRUCT_SHA256 逐字节锁定（cast 的结构另见 test_cast_*）。
 M4W5_CHANGED_KEYS = frozenset({"cast", "death", "hit.getup", "hit.knockdown", "hit.launch", "hit.launch.land"})
 M4W5_POSTURE_KEYS = M4W5_CHANGED_KEYS - {"cast"}
+#: M4-W6 起再放开字节锁的两个键：重受击与击退的极值帧重绘到人体范围（后仰改用整身俯仰 bp）；结构（键名、时间、事件、帧数）同样由
+#: LEGACY_POSTURE_STRUCT_SHA256 逐字节锁定（该摘要取自放开字节锁之前的入库版本，重绘后逐位相同）。
+M4W6_RECOIL_KEYS = frozenset({"hit.heavy", "hit.knockback"})
+M4W6_UNLOCKED_KEYS = M4W5_CHANGED_KEYS | M4W6_RECOIL_KEYS
+M4W6_POSTURE_KEYS = M4W5_POSTURE_KEYS | M4W6_RECOIL_KEYS
 _STRUCT_FIELDS = ("key", "resource_ref", "state", "alias_of", "times_ms", "total_ms", "frame_count", "loop", "phases", "tier",
                   "family", "anim_events")
-LEGACY_POSTURE_STRUCT_SHA256 = "bb99dfe60e210a986a21913c671c43c04a53312b7401db2992f90b26fcd34122"
+LEGACY_POSTURE_STRUCT_SHA256 = "8a21fcbe56bce6a4252ddfbc09f7745aff1aa54f9cd793a7041167d6f281a632"
 _CLIP_FIELDS = ("resource_ref", "state", "alias_of", "times_ms", "tracks", "anim_events", "total_ms", "frame_count", "loop",
                 "phases", "tier", "family")
 #: 既有动画控制器 .meta 的 guid：重新生成必须沿用。
@@ -510,7 +515,7 @@ def test_legacy_clips_unchanged_and_appended_only():
     fields = ("resource_ref", "state", "alias_of", "times_ms", "tracks", "anim_events", "total_ms", "frame_count", "loop",
               "phases", "tier", "family")
     rows = [[c["key"], {k: c[k] for k in fields if k in c}] for c in clips[:LEGACY_CLIP_COUNT]
-            if c["key"] not in M4W5_CHANGED_KEYS]
+            if c["key"] not in M4W6_UNLOCKED_KEYS]
     blob = json.dumps(rows, sort_keys=True, ensure_ascii=False)
     assert hashlib.sha256(blob.encode()).hexdigest() == LEGACY_CLIPS_SHA256
 
@@ -593,9 +598,9 @@ def test_legacy_mass_group_entries_unchanged():
 def test_legacy_103_main_clips_unchanged_and_appended_only():
     spec = _repo_spec()
     clips = spec["clips"]
-    assert len(clips) == 128
+    assert len(clips) == 130
     rows = [[c["key"], {f: c[f] for f in _CLIP_FIELDS if f in c}] for c in clips[:LEGACY103_COUNT]
-            if c["key"] not in M4W5_CHANGED_KEYS]
+            if c["key"] not in M4W6_UNLOCKED_KEYS]
     assert hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == LEGACY103_CLIPS_SHA256
 
 
@@ -688,7 +693,7 @@ def test_m4d_keys_present_with_tracks_and_every_non_tumble_key_keeps_hips_within
     """复现：整身翻滚需要髋大角度。不变量：只有翻滚类两个键的髋旋转可大于 5 度，其余键（含全部体量组）不变。"""
     spec = _repo_spec()
     keys = {c["key"] for c in spec["clips"]}
-    assert set(M4D_KEYS) <= keys and len(keys) == 128
+    assert set(M4D_KEYS) <= keys and len(keys) == 130
     allc = list(spec["clips"]) + [c for g in spec["mass_groups"] for c in g["clips"]]
     for c in allc:
         if "alias_of" in c:
@@ -698,6 +703,9 @@ def test_m4d_keys_present_with_tracks_and_every_non_tumble_key_keeps_hips_within
             continue
         if c["key"] in C.BP_LYING_KEYS:   # M4-W5：躺姿四键整身放平，髋旋转不超过躺姿上限
             assert mx <= C.HIPS_LYING_LIMIT_DEG + 1e-3, (c["key"], mx)
+            continue
+        if c["key"] in C.BP_RECOIL_KEYS:  # M4-W6：重受击/击退的后仰由骨盆整身俯仰表达，髋旋转不超过后仰上限
+            assert mx <= C.BP_RECOIL_LIMIT_DEG + 1e-3, (c["key"], mx)
             continue
         assert mx <= C.HIPS_ROT_LIMIT_DEG + 1e-3, (c["key"], mx)
     tb = _clip(spec, "hit.launch.tumble")
@@ -783,23 +791,23 @@ def test_mass_tiers_are_data_declared_model_side_follows(monkeypatch):
 
 
 def test_m4w5_lying_pose_keys_keep_names_times_events_and_frame_counts_in_main_and_mass_groups():
-    """M4-W5 不变量：躺姿四键 + 击飞落地只重绘轨迹：键名、时间轴、时长、帧数、内嵌事件在主集与轻/重体量组里逐字节不变。"""
+    """M4-W5/W6 不变量：躺姿四键 + 击飞落地（W5）与重受击/击退（W6）只重绘轨迹：键名、时间轴、时长、帧数、内嵌事件在主集与轻/重体量组里逐字节不变。"""
     spec = _repo_spec()
     rows = []
     for c in spec["clips"]:
-        if c["key"] in M4W5_POSTURE_KEYS:
+        if c["key"] in M4W6_POSTURE_KEYS:
             rows.append([c["key"], {f: c[f] for f in _STRUCT_FIELDS if f in c}])
     for g in spec["mass_groups"]:
         for c in g["clips"]:
-            if c["key"] in M4W5_POSTURE_KEYS:
+            if c["key"] in M4W6_POSTURE_KEYS:
                 rows.append([g["mass"] + "/" + c["key"], {f: c[f] for f in _STRUCT_FIELDS if f in c}])
-    assert len(rows) == len(M4W5_POSTURE_KEYS) * 3
+    assert len(rows) == len(M4W6_POSTURE_KEYS) * 3
     assert hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == LEGACY_POSTURE_STRUCT_SHA256
 
 
-def test_m4w5_bp_is_used_only_by_lying_and_tumble_keys_and_lying_poses_are_laid_down():
-    """M4-W5 不变量：整身俯仰 bp 只出现在 C.BP_KEYS（躺姿 + 翻滚），其余键（含各体量组）恒为 0；躺姿四键的躺平段确实放平（|bp| >= 85 度）。"""
-    assert set(C.BP_KEYS) == set(C.BP_LYING_KEYS) | set(C.BP_TUMBLE_KEYS)
+def test_m4w5_bp_is_used_only_by_lying_tumble_and_recoil_keys_and_lying_poses_are_laid_down():
+    """M4-W5/W6 不变量：整身俯仰 bp 只出现在 C.BP_KEYS（躺姿 + 翻滚 + 重受击/击退），其余键（含各体量组）恒为 0；躺姿四键的躺平段确实放平（|bp| >= 85 度）。"""
+    assert set(C.BP_KEYS) == set(C.BP_LYING_KEYS) | set(C.BP_TUMBLE_KEYS) | set(C.BP_RECOIL_KEYS)
     for mass in (None, "light", "heavy"):
         defs = mass_clip_defs(mass) if mass else SC.build_clip_defs()
         for c in defs:
@@ -810,17 +818,57 @@ def test_m4w5_bp_is_used_only_by_lying_and_tumble_keys_and_lying_poses_are_laid_
                 assert max(bps) >= 85.0, (mass, c.key)
 
 
-def test_m4w5_lying_pose_limits_are_human_range_and_exemptions_are_not_dead():
-    """M4-W5 不变量：肩/髋/躯干源角度上限收紧到人体范围；放宽只允许 SOURCE_ANGLE_EXEMPT 里登记的键且必须真的超出基线上限。"""
+def test_m4w5_lying_pose_limits_are_human_range_and_no_per_key_exemption_exists():
+    """M4-W5/W6 不变量：肩/髋/躯干源角度上限收紧到人体范围；每键豁免表已删除（W6 起 hit.heavy/hit.knockback 也在全局限内），
+    任何键的角限都是同一张全局表。"""
     base = C.SOURCE_ANGLE_LIMITS
     assert base["m_sf"][0] >= -70 and base["m_sf"][1] <= 190
     assert base["m_hf"][0] >= -50 and base["m_hf"][1] <= 105
     assert base["t_pitch"][0] >= -55 and base["t_pitch"][1] <= 65
-    for key in C.BP_LYING_KEYS:
-        assert C.source_angle_limits(key) == base or key not in C.SOURCE_ANGLE_EXEMPT
-    for key, table in C.SOURCE_ANGLE_EXEMPT.items():
-        assert key not in C.BP_LYING_KEYS, key           # 躺姿键不得靠豁免过关
-        for param, (lo, hi) in table.items():
-            blo, bhi = base[param]
-            assert lo < blo or hi > bhi, (key, param)   # 豁免项必须真的放宽了基线
+    assert not hasattr(C, "SOURCE_ANGLE_EXEMPT") and not hasattr(C, "source_angle_limits")
+    assert base["bp"] == (-400.0, 400.0)      # 整身俯仰另受 BP_KEYS 约束，不是每键放宽
 
+
+def test_m4w6_recoil_keys_are_repainted_inside_human_range_with_a_pelvis_lean_in_main_and_mass_groups():
+    """复现：此前 hit.heavy / hit.knockback 靠 2.2 倍外推表达后仰，肩后伸到 -125 度、髋后伸 -51 度（登记在每键豁免表里）。
+    不变量：全部体量里两个键的每一帧肩/髋/躯干在全局限内（不借豁免）；后仰由整身俯仰 bp 表达：只后仰（bp <= 0），主集击退 >= 20 度、重受击 >= 10 度，
+    量随体量反应倍率变（轻 > 中 > 重），且不超过 BP_RECOIL_LIMIT_DEG；髋骨骼旋转不超过该上限。"""
+    base = C.SOURCE_ANGLE_LIMITS
+    peak = {}
+    for mass in (None, "light", "heavy"):
+        defs = mass_clip_defs(mass) if mass else SC.build_clip_defs()
+        for c in defs:
+            if c.key not in C.BP_RECOIL_KEYS:
+                continue
+            worst = 0.0
+            for t in key_times_ms(c, SC.FPS):
+                pose = effective_pose(c, t)
+                for name, (lo, hi) in base.items():
+                    assert lo - 1e-6 <= pose[name] <= hi + 1e-6, (mass, c.key, t, name, pose[name])
+                assert -C.BP_RECOIL_LIMIT_DEG - 1e-6 <= pose["bp"] <= 1e-9, (mass, c.key, t, pose["bp"])
+                worst = max(worst, -pose["bp"])
+            peak[(mass, c.key)] = worst
+    assert peak[(None, "hit.heavy")] >= 10.0 and peak[(None, "hit.knockback")] >= 20.0
+    for key in C.BP_RECOIL_KEYS:
+        assert peak[("light", key)] > peak[(None, key)] > peak[("heavy", key)], key
+    spec = _repo_spec()
+    for key in C.BP_RECOIL_KEYS:
+        assert max(_hips_angles(_clip(spec, key))) <= C.BP_RECOIL_LIMIT_DEG + 1e-3
+
+
+def test_m4w6_cast_release_variants_exist_in_main_and_mass_groups_with_release_at_the_declared_time():
+    """M4-W6：cast.quick（释放 100 ms）、cast.heavy（释放 300 ms）：总时长 600 ms、帧数 12 与 cast 相同；内嵌事件 release 与别名 hit_frame 同刻、
+    且恰在前摇结束处；轻/重体量组各自带同名键（资产不同、事件相同）。"""
+    spec = _repo_spec()
+    cast = _clip(spec, "cast")
+    for key, want_ms in (("cast", 150.0), ("cast.quick", 100.0), ("cast.heavy", 300.0)):
+        c = _clip(spec, key)
+        assert c["total_ms"] == cast["total_ms"] == 600 and c["frame_count"] == cast["frame_count"] == 12, key
+        assert c["state"] == "std_dummy_" + key.replace(".", "_") and c["tier"] == ("recommended" if key == "cast" else "optional")
+        assert c["phases"][0]["ms"] == want_ms
+        for owner in [c] + [next(x for x in g["clips"] if x["key"] == key) for g in spec["mass_groups"]]:
+            assert owner["total_ms"] == 600 and owner["frame_count"] == 12
+            rel = [e for e in owner["anim_events"] if e["name"] == "release"]
+            hit = [e for e in owner["anim_events"] if e["name"] == "hit_frame"]
+            assert len(rel) == 1 and len(hit) == 1 and rel[0]["time_pct"] == hit[0]["time_pct"], (key, rel, hit)
+            assert abs(rel[0]["time_pct"] * 600 - want_ms) < 0.05, (key, rel)
