@@ -125,9 +125,16 @@ namespace Core.Carriers.Unit
         /// </summary>
         private static bool DisplacementOutranksIntent(Unit unit) => unit.MovementState.Displacement.HasValue;
 
-        public void Execute(SimStep step, IWorldSim world)
+        /// <summary>
+        /// 一遍完整的移动处理（本 tick 的全部意图与续推）。有声明了体积的单位时由 <see cref="Execute"/> 视情况重放若干遍（见 VolumePasses 文件头），
+        /// 其余情况恰好是一遍，与改动前的 <c>Execute</c> 一字不差。
+        /// </summary>
+        private void ExecutePass(SimStep step, IWorldSim world)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
+
+            _passOutcome.Reset();
+            _volSensitive = false;
 
             // 离散步下"移动与导航"按该行动者的每回合移动预算结算位移，而非按连续时间的速度积分
             // （见 03 第 4.2 节步骤 4、ADR-0013 决策 6）：复用同一套"速度 × 时间"位移公式，只是
@@ -418,7 +425,7 @@ namespace Core.Carriers.Unit
                 RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
             }
 
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+            EmitMoveStopped(unit.EntityId, unit.Position, reason);
         }
 
         /// <summary>寻路失败的统一处理（<see cref="BeginPathTo"/> 建路失败、<see cref="ReplanPath"/>
@@ -468,8 +475,8 @@ namespace Core.Carriers.Unit
         /// </summary>
         private bool HandlePathFailure(Unit unit, Vec2 from, Vec2 to, MoveFailReason reason)
         {
-            _movementHost.RaiseMoveFailed(unit.EntityId, from, to);
-            _movementHost.RaiseMoveFailedDetailed(unit.EntityId, from, to, reason);
+            EmitMoveFailed(unit.EntityId, from, to);
+            EmitMoveFailedDetailed(unit.EntityId, from, to, reason);
 
             if (_options.PathFailurePolicy == PathFailurePolicy.Stop)
             {
@@ -633,7 +640,7 @@ namespace Core.Carriers.Unit
 
             if (hadPath)
             {
-                _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
+                EmitMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
             }
 
             ContinuePathCore(unit, dt, isDiscrete);
@@ -703,7 +710,7 @@ namespace Core.Carriers.Unit
 
             if (path != null && !resolved.Equals(requested))
             {
-                _movementHost.RaiseMoveTargetAdjusted(unit.EntityId, requested, resolved);
+                EmitMoveTargetAdjusted(unit.EntityId, requested, resolved);
             }
 
             return path;
@@ -780,7 +787,7 @@ namespace Core.Carriers.Unit
 
             if (hadPrevious)
             {
-                _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
+                EmitMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
             }
 
             AdvanceChase(unit, world, dt, isDiscrete, priorModeOverride: oldState.Mode);
@@ -958,8 +965,8 @@ namespace Core.Carriers.Unit
                     // <see cref="BeginChase"/> 同样会先进入本方法评估）。事件的 <c>to</c> 参数用目标
                     // 单位的当前位置（不是内部计算出的停止点 <c>standoffPoint</c>）——对消费方而言，
                     // "追这个目标失败了"比"到某个内部计算出的坐标失败了"更有意义。
-                    _movementHost.RaiseMoveFailed(unit.EntityId, unit.Position, targetPos);
-                    _movementHost.RaiseMoveFailedDetailed(unit.EntityId, unit.Position, targetPos, MoveFailReason.NoPath);
+                    EmitMoveFailed(unit.EntityId, unit.Position, targetPos);
+                    EmitMoveFailedDetailed(unit.EntityId, unit.Position, targetPos, MoveFailReason.NoPath);
                     unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
                     RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
                     return;
@@ -979,9 +986,10 @@ namespace Core.Carriers.Unit
             }
 
             var integrated = false;
+            SpeedProfile? stepProfile = null;
             var budget = mt == null
                 ? AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt
-                : MotionPathBudget(unit, mt, chase.Mode, path, pathIndex, dt, out integrated);
+                : MotionPathBudget(unit, mt, chase.Mode, path, pathIndex, dt, out integrated, out stepProfile);
             var remaining = budget;
             var pos = unit.Position;
             var startPos = pos;
@@ -992,7 +1000,8 @@ namespace Core.Carriers.Unit
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
-            var trail = volumeRadius > 0.0 ? new PathTrail(pos) : null; // 位移折线（成对撞停按折线逐段求接触）。
+            var trail = volumeRadius > 0.0 ? new PathTrail(pos, path, index) : null; // 位移折线（成对撞停按折线逐段求接触）。
+            if (trail != null) trail.Profile = stepProfile;
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1146,7 +1155,7 @@ namespace Core.Carriers.Unit
         {
             unit.MovementState = new MovementState(null, MoveMode.Idle, unit.MovementState.MovementLocked, 0);
             RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, MoveStopReason.ChaseTargetLost);
+            EmitMoveStopped(unit.EntityId, unit.Position, MoveStopReason.ChaseTargetLost);
         }
 
         /// <summary><see cref="MovementHost.Request"/>（<see cref="MoveRequest.ToUnit"/>）组装的
@@ -1446,7 +1455,7 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+            EmitMoveStopped(unit.EntityId, unit.Position, reason);
         }
 
         /// <summary>受控位移专用的位置写回帮助方法：位置未变化时不写、不发事件（同
@@ -1658,9 +1667,10 @@ namespace Core.Carriers.Unit
             }
 
             var integrated = false;
+            SpeedProfile? stepProfile = null;
             var budget = mt == null
                 ? AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt
-                : MotionPathBudget(unit, mt, state.Mode, path, index, dt, out integrated);
+                : MotionPathBudget(unit, mt, state.Mode, path, index, dt, out integrated, out stepProfile);
             var remaining = budget;
             var pos = unit.Position;
             var startPos = pos;
@@ -1670,7 +1680,8 @@ namespace Core.Carriers.Unit
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
-            var trail = volumeRadius > 0.0 ? new PathTrail(pos) : null; // 位移折线（成对撞停按折线逐段求接触）。
+            var trail = volumeRadius > 0.0 ? new PathTrail(pos, path, index) : null; // 位移折线（成对撞停按折线逐段求接触）。
+            if (trail != null) trail.Profile = stepProfile;
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1786,14 +1797,17 @@ namespace Core.Carriers.Unit
             {
                 unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
                 RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
-                _movementHost.RaiseMoveStopped(unit.EntityId, pos, MoveStopReason.TerrainBlocked);
+                EmitMoveStopped(unit.EntityId, pos, MoveStopReason.TerrainBlocked);
                 return;
             }
 
             if (index >= path.Count)
             {
+                // 有体积的单位：记下"未到达"状态模板与到达事件在发件箱里的位置——阶段 B 把这个 tick 的位移缩短（被别的单位拉回）时，
+                // 到达作废：状态退回仍沿原路径的"未到达"，撤销到达事件。
+                NoteArrival(unit, state, path);
                 unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
-                RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
+                NoteArrivalEvent(unit.EntityId, RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle));
             }
             else
             {
@@ -2177,17 +2191,19 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            _bus.Enqueue(new UnitMovedEvent(unitId, position));
+            EmitBus(new UnitMovedEvent(unitId, position));
         }
 
         /// <summary><c>unit.state_changed</c> 在 <see cref="MoveMode"/> 变化时发出（见任务书拍板，
         /// <c>OldState</c>/<c>NewState</c> 用 <see cref="MoveMode"/> 名称，见
         /// <c>Core.Carriers.Common.UnitStateChangedEvent</c> 顶部判断记录）。</summary>
-        private void RaiseStateChangedIfNeeded(Id unitId, MoveMode oldMode, MoveMode newMode)
+        private int RaiseStateChangedIfNeeded(Id unitId, MoveMode oldMode, MoveMode newMode)
         {
-            if (oldMode == newMode) return;
+            if (oldMode == newMode) return -1;
 
-            _bus.Enqueue(new UnitStateChangedEvent(unitId, oldMode.ToString(), newMode.ToString()));
+            var mark = OutboxMark();
+            EmitBus(new UnitStateChangedEvent(unitId, oldMode.ToString(), newMode.ToString()));
+            return mark;
         }
 
         private static bool TryReadTarget(JsonObject args, out Vec2 target)

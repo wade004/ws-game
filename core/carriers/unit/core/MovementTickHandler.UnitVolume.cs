@@ -61,10 +61,48 @@ namespace Core.Carriers.Unit
             /// <summary>阶段 B 把位移缩短后，路径下标应回到的值（-1 = 不知道，沿用 tick 开始时的下标）。</summary>
             public int RestoreIndex = -1;
 
+            /// <summary>
+            /// 本 tick 内这个单位的"提议位移"在体积裁决之前是非零的（经过 <see cref="ClipPathByUnitVolumes"/> 的非零线段）。只由单位自己的状态、
+            /// 意图与地形决定，与别的单位被分到"会动"还是"不会动"无关——这是第二遍求解的规范起点（见 VolumePasses 文件头）。
+            /// </summary>
+            public bool Attempted;
+
+            /// <summary>轨迹里路径下标所指的那条路径（路径跟随/追击）与本 tick 开始推进时的下标；没有路径轨迹为 null。</summary>
+            public IReadOnlyList<Vec2>? TrailPath;
+
+            public int TrailStartIndex;
+
+            /// <summary>
+            /// 轨迹开头连续吃掉的"零长度路点"（路点就在当前位置，到达容差内直接过）之后的路径下标；-1 = 没有。被拉回到起点时路径进度回到它，而不是回到
+            /// 这些路点之前（否则单位会"倒着走回"一个本来就站在上面的路点）。
+            /// </summary>
+            public int BaseIndex = -1;
+
+            /// <summary>路径跟随本 tick 走到终点（状态已写成到达/Idle）时，被拉回后恢复用的"未到达"状态模板（下标待填）与到达事件在发件箱里的位置。</summary>
+            public MovementState? UnarriveTemplate;
+
+            public int ArrivalOutboxIndex = -1;
+
+            /// <summary>阶段 A 记下的本 tick 速度剖面（加减速/曲线）；null = 匀速。</summary>
+            public SpeedProfile? Profile;
+
+            /// <summary>速度剖面已经登记过（一个 tick 里只有第一个位移来源的剖面有效）；第二个来源也要写位移时标记混合，成对裁决退回匀速。</summary>
+            public bool ProfileNoted;
+
+            public bool ProfileMixed;
+
+            /// <summary>被成对裁决拉回时，决定最终比例的那次接触的法线（从对方指向本单位）；用于保留切向速度。</summary>
+            public Vec2 PullNormal;
+
+            public bool HasPullNormal;
+
             // ---- 阶段 B 草稿区 ----
             public Unit? Unit;
             public bool Active;
             public bool Ghost;
+
+            /// <summary>穿过式位移的最后一个 tick：落点必须在别的单位体积之外（见 UnitVolumeGhost）。</summary>
+            public bool GhostLanding;
             public Vec2 Delta;
             public double Scale;
             public bool PulledBack;
@@ -118,8 +156,26 @@ namespace Core.Carriers.Unit
         private readonly HashSet<Id> _intentMovers = new HashSet<Id>();
         private readonly HashSet<Id> _intentDisplacers = new HashSet<Id>();
 
-        /// <summary>本 tick 有体积的单位在 tick 开头预判会不会动的结果，供测试与实验室核对（只读）。</summary>
+        /// <summary>本 tick（最后一遍求解）里这个单位被当作"会动"（不是阶段 A 的静止障碍）与否，供测试与实验室核对（只读）。</summary>
         internal bool WasPredictedToMove(Id id) => VolumeSnapshotCurrent && _volumeById.TryGetValue(id, out var b) && b.Free;
+
+        // 本 tick 内最大的体积半径（宽相格子与扫掠膨胀量用）；EnsureVolumeSnapshot 里重算。
+        private double _maxVolumeRadius;
+
+        // 本遍求解里"分类起了作用"：某次扫掠/守卫的几何上碰到了一个单位的体积，而这个单位是否当作静止障碍决定了结果（见 VolumePasses 文件头）。
+        private bool _volSensitive;
+
+        /// <summary>
+        /// 阶段 B 的"同 tick 推人"微阶段（见 ApplyPendingPushes）：被推单位用真实的受控位移推进一个 tick，扫掠读的是别的单位已裁决完的最终位置
+        /// （<see cref="VolumeBody.Final"/>）而不是 tick 起点快照，宽相网格（按起点建的）不用，本阶段的接触不计入分类敏感性。
+        /// </summary>
+        private bool _microPhase;
+
+        private Vec2 BodyAt(VolumeBody b) => _microPhase ? b.Final : b.Start;
+
+        // 阶段 A 扫掠用的候选下标缓冲（扫掠与守卫不嵌套，各一个）。
+        private int[] _candSweep = new int[16];
+        private int[] _candGuard = new int[16];
 
         /// <summary>未启用运动层、离散步或本单位没有声明体积时返回 0。</summary>
         private double SelfVolumeRadius(Unit unit)
@@ -200,13 +256,143 @@ namespace Core.Carriers.Unit
                 _volumeById[_volumes[i].Id] = _volumes[i];
             }
 
-            // 预判"谁会动"只读 tick 开头的状态与本 tick 的意图（所有单位的移动都还没开始处理），与处理顺序无关。
+            _volSensitive = false;
+            _maxVolumeRadius = 0.0;
+            for (var i = 0; i < _volumes.Count; i++)
+            {
+                if (_volumes[i].Radius > _maxVolumeRadius) _maxVolumeRadius = _volumes[i].Radius;
+            }
+
+            BuildVolumeGrid();
+
+            // 起点分类：求解遍给定了明确的"会动"集合就用它（见 VolumePasses），否则取起点预判（只读 tick 开头的状态与本 tick 的意图，
+            // 与处理顺序无关；测试可用 VolumeStartClassifier 覆盖）。分类只是起点，最终结果由求解遍收敛决定，与起点无关。
             IndexTickIntents();
             for (var i = 0; i < _volumes.Count; i++)
             {
                 var body = _volumes[i];
-                body.Free = PredictMayMove(body.Id, ProfileOf(body.Id));
+                if (_freeForPass != null)
+                {
+                    body.Free = _freeForPass.Contains(body.Id);
+                }
+                else if (VolumeStartClassifier != null)
+                {
+                    body.Free = VolumeStartClassifier(body.Id);
+                }
+                else
+                {
+                    body.Free = PredictMayMove(body.Id, ProfileOf(body.Id));
+                }
             }
+        }
+
+        // ================================================================== 宽相（均匀网格）
+
+        /// <summary>
+        /// 诊断/测试钩子：为真时阶段 A 的扫掠与阶段 B 的近邻对收集都退回逐个线性扫描（暴力）。网格宽相只缩小候选集，不改任何算式，
+        /// 所以两种模式的结果逐位一致（测试以暴力为基准核对）；缺省 false。
+        /// </summary>
+        public bool VolumeBroadPhaseBruteForce { get; set; }
+
+        // 以 tick 起点位置（体积中心）为键的均匀网格：格边长 = 2 × 最大半径（至少一个很小的正数），每个单位恰在一个格子里。
+        private readonly Dictionary<long, List<int>> _gridCells = new Dictionary<long, List<int>>();
+        private readonly List<List<int>> _gridListPool = new List<List<int>>();
+        private double _gridCell = 1.0;
+
+        private static long GridKey(int cx, int cy) => ((long)cx << 32) ^ (uint)cy;
+
+        private int GridCoord(double v)
+        {
+            var c = Math.Floor(v / _gridCell);
+            return c > int.MaxValue / 2 ? int.MaxValue / 2 : (c < int.MinValue / 2 ? int.MinValue / 2 : (int)c);
+        }
+
+        private void BuildVolumeGrid()
+        {
+            foreach (var kv in _gridCells)
+            {
+                kv.Value.Clear();
+                _gridListPool.Add(kv.Value);
+            }
+
+            _gridCells.Clear();
+            if (_volumes.Count == 0)
+            {
+                return;
+            }
+
+            _gridCell = Math.Max(2.0 * _maxVolumeRadius, 1e-6);
+            for (var i = 0; i < _volumes.Count; i++)
+            {
+                var p = _volumes[i].Start;
+                var key = GridKey(GridCoord(p.X), GridCoord(p.Y));
+                if (!_gridCells.TryGetValue(key, out var list))
+                {
+                    if (_gridListPool.Count > 0)
+                    {
+                        list = _gridListPool[_gridListPool.Count - 1];
+                        _gridListPool.RemoveAt(_gridListPool.Count - 1);
+                    }
+                    else
+                    {
+                        list = new List<int>(4);
+                    }
+
+                    _gridCells[key] = list;
+                }
+
+                list.Add(i); // i 递增：每个格子里的下标有序。
+            }
+        }
+
+        /// <summary>
+        /// 收集"体积中心离线段 <paramref name="a"/>→<paramref name="b"/> 不超过 <paramref name="inflate"/>"的候选快照下标（升序、无重复）到 <paramref name="buffer"/>，
+        /// 返回个数。候选集是真正可能命中者的超集（按包围盒膨胀取格子），所以按下标升序逐个计算与暴力扫描逐位一致。线段太长（格子数超过单位数）或暴力钩子打开时返回全部。
+        /// </summary>
+        private int GatherVolumeCandidates(Vec2 a, Vec2 b, double inflate, ref int[] buffer)
+        {
+            var n = _volumes.Count;
+            if (buffer.Length < n)
+            {
+                buffer = new int[Math.Max(n, buffer.Length * 2)];
+            }
+
+            if (VolumeBroadPhaseBruteForce || _microPhase || n <= 8)
+            {
+                for (var i = 0; i < n; i++) buffer[i] = i;
+                return n;
+            }
+
+            var x0 = GridCoord(Math.Min(a.X, b.X) - inflate);
+            var x1 = GridCoord(Math.Max(a.X, b.X) + inflate);
+            var y0 = GridCoord(Math.Min(a.Y, b.Y) - inflate);
+            var y1 = GridCoord(Math.Max(a.Y, b.Y) + inflate);
+            var cells = ((long)x1 - x0 + 1) * ((long)y1 - y0 + 1);
+            if (cells > n)
+            {
+                for (var i = 0; i < n; i++) buffer[i] = i;
+                return n;
+            }
+
+            var count = 0;
+            for (var cx = x0; cx <= x1; cx++)
+            {
+                for (var cy = y0; cy <= y1; cy++)
+                {
+                    if (!_gridCells.TryGetValue(GridKey(cx, cy), out var list))
+                    {
+                        continue;
+                    }
+
+                    for (var k = 0; k < list.Count; k++)
+                    {
+                        buffer[count++] = list[k];
+                    }
+                }
+            }
+
+            Array.Sort(buffer, 0, count);
+            return count;
         }
 
         /// <summary>把本 tick 存活的 <c>move</c>/<c>move_to_unit</c>/<c>move_displace</c> 意图按行动者归类（被同 tick 更晚的 <c>move_stop</c> 取消的不算）。</summary>
@@ -351,11 +537,11 @@ namespace Core.Carriers.Unit
             var dir = new Vec2(d.X / len, d.Y / len);
             var best = double.MaxValue;
             var found = false;
-            for (var i = 0; i < _volumes.Count; i++)
+            var candidates = GatherVolumeCandidates(from, to, selfRadius + _maxVolumeRadius, ref _candSweep);
+            for (var k = 0; k < candidates; k++)
             {
-                var entry = _volumes[i];
-                // 会动的单位这一 tick 不是阶段 A 的静止障碍（见 VolumeBody.Free）：与它的接触留给阶段 B 按最终位置求解。
-                if (entry.Free || entry.Id.Equals(unit.EntityId) || (ignore.HasValue && entry.Id.Equals(ignore.Value)))
+                var entry = _volumes[_candSweep[k]];
+                if (entry.Id.Equals(unit.EntityId) || (ignore.HasValue && entry.Id.Equals(ignore.Value)))
                 {
                     continue;
                 }
@@ -365,7 +551,7 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                var center = entry.Start;
+                var center = BodyAt(entry);
                 var sum = selfRadius + entry.Radius;
                 var f = from - center;
                 var c = f.Dot(f) - sum * sum;
@@ -406,7 +592,17 @@ namespace Core.Carriers.Unit
                     n = new Vec2((hitPoint.X - center.X) / sum, (hitPoint.Y - center.Y) / sum);
                 }
 
-                // 同距离命中保留 id 更小的那个（快照按 id 排序、严格小于才替换）：结果不依赖单位处理顺序。
+                // 几何上碰到了这个单位：它算不算静止障碍决定了结果（求解遍据此判断分类是否起作用）。会动的单位这一遍不是阶段 A 的静止障碍
+                // （见 VolumeBody.Free）：与它的接触留给阶段 B 按最终位置求解。
+                if (entry.Free)
+                {
+                    _volSensitive |= !_microPhase;
+                    continue;
+                }
+
+                _volSensitive |= !_microPhase;
+
+                // 同距离命中保留 id 更小的那个（快照按 id 排序、候选按下标升序、严格小于才替换）：结果不依赖单位处理顺序。
                 if (s < best)
                 {
                     best = s;
@@ -428,10 +624,11 @@ namespace Core.Carriers.Unit
         private bool ViolatesVolumes(Unit unit, double selfRadius, Vec2 from, Vec2 end)
         {
             const double tolerance = 1e-9;
-            for (var i = 0; i < _volumes.Count; i++)
+            var candidates = GatherVolumeCandidates(end, end, selfRadius + _maxVolumeRadius, ref _candGuard);
+            for (var k = 0; k < candidates; k++)
             {
-                var entry = _volumes[i];
-                if (entry.Free || entry.Id.Equals(unit.EntityId))
+                var entry = _volumes[_candGuard[k]];
+                if (entry.Id.Equals(unit.EntityId))
                 {
                     continue;
                 }
@@ -441,7 +638,7 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                var center = entry.Start;
+                var center = BodyAt(entry);
                 var sum = selfRadius + entry.Radius;
                 var endDist = (end - center).Length;
                 if (endDist >= sum - tolerance)
@@ -453,6 +650,12 @@ namespace Core.Carriers.Unit
                 if (startDist < sum && endDist >= startDist - tolerance)
                 {
                     continue; // 起点本来就在里面，这次没有更深。
+                }
+
+                _volSensitive |= !_microPhase;
+                if (entry.Free)
+                {
+                    continue; // 会动的单位这一遍不是静止障碍（同 SweepVolumes）。
                 }
 
                 return true;
@@ -485,6 +688,13 @@ namespace Core.Carriers.Unit
             if (_volumes.Count == 0)
             {
                 return clip;
+            }
+
+            // 记下"这个单位在体积裁决之前提议了非零位移"：只由它自己的状态、意图与地形决定，与别的单位被怎样分类无关。
+            var proposed = via.HasValue ? (via.Value - from).Length + (to - via.Value).Length : (to - from).Length;
+            if (proposed > ZeroLengthEpsilon && _volumeById.TryGetValue(unit.EntityId, out var attemptBody))
+            {
+                attemptBody.Attempted = true;
             }
 
             var legStart = from;
@@ -646,15 +856,55 @@ namespace Core.Carriers.Unit
             }
         }
 
+        /// <summary>
+        /// 登记本 tick 位移的速度剖面（<c>null</c> = 匀速）：必须在这个来源写第一条边之前调用。一个 tick 里只有"单一来源写了全部边"的剖面可信，
+        /// 第二个来源（或登记之前就已有边）使剖面作废（<see cref="VolumeBody.ProfileMixed"/>，成对裁决退回匀速）。
+        /// </summary>
+        private void NoteProfile(Id id, SpeedProfile? profile)
+        {
+            if (!VolumeSnapshotCurrent || !_volumeById.TryGetValue(id, out var body))
+            {
+                return;
+            }
+
+            if (body.ProfileNoted || (body.Trail != null && body.Trail.Count > 1))
+            {
+                body.ProfileMixed = true;
+                return;
+            }
+
+            body.ProfileNoted = true;
+            body.Profile = profile;
+        }
+
+        /// <summary>登记"这个单位提议了非零位移"（穿过式位移不经体积裁决，在这里补记；见 <see cref="VolumeBody.Attempted"/>）。</summary>
+        private void NoteAttempt(Id id, Vec2 from, Vec2 to)
+        {
+            if (VolumeSnapshotCurrent && _volumeById.TryGetValue(id, out var body) && (to - from).Length > ZeroLengthEpsilon)
+            {
+                body.Attempted = true;
+            }
+        }
+
         /// <summary>路径跟随/追击一个 tick 里的推进轨迹（折线点与每条边走完时的路径下标）；只在本单位有体积时创建。</summary>
         private sealed class PathTrail
         {
             public readonly List<Vec2> Points;
             public readonly List<int> Index = new List<int>();
 
-            public PathTrail(Vec2 start)
+            /// <summary>轨迹里下标所指的路径与本 tick 开始推进时的下标（路径可能是本 tick 刚建的新路径，下标从 0 起）。</summary>
+            public readonly IReadOnlyList<Vec2> Path;
+
+            public readonly int StartIndex;
+
+            /// <summary>本 tick 路径推进的速度剖面（来自运动层的速度积分，null = 匀速）。</summary>
+            public SpeedProfile? Profile;
+
+            public PathTrail(Vec2 start, IReadOnlyList<Vec2> path, int startIndex)
             {
                 Points = new List<Vec2> { start };
+                Path = path;
+                StartIndex = startIndex;
             }
 
             public void Add(Vec2 to, int indexAfter)
@@ -680,9 +930,54 @@ namespace Core.Carriers.Unit
                 return;
             }
 
+            NoteProfile(unit.EntityId, trail.Profile);
+            VolumeBody? indexBody = null;
+            var hasBody = VolumeSnapshotCurrent && _volumeById.TryGetValue(unit.EntityId, out indexBody);
             for (var k = 1; k < trail.Points.Count; k++)
             {
+                if (hasBody && trail.Points[k - 1].Equals(trail.Points[k]) && trail.Index[k - 1] >= 0)
+                {
+                    // 零长度的边（路点就在脚下）不进轨迹，但它吃掉的路点要计入路径进度：并进上一条真实边的"走完下标"，没有上一条就记为起点下标。
+                    var index = trail.Index[k - 1];
+                    var edges = indexBody!.TrailIndex;
+                    if (edges != null && edges.Count > 0)
+                    {
+                        edges[edges.Count - 1] = Math.Max(edges[edges.Count - 1], index);
+                    }
+                    else
+                    {
+                        indexBody.BaseIndex = Math.Max(indexBody.BaseIndex, index);
+                    }
+
+                    continue;
+                }
+
                 NoteTrail(unit.EntityId, trail.Points[k - 1], trail.Points[k], trail.Index[k - 1]);
+            }
+
+            if (VolumeSnapshotCurrent && _volumeById.TryGetValue(unit.EntityId, out var body))
+            {
+                body.TrailPath = trail.Path;
+                body.TrailStartIndex = trail.StartIndex;
+            }
+        }
+
+        /// <summary>路径跟随本 tick 走到终点：记下"未到达"状态模板（路径与原状态，下标待填），阶段 B 把位移缩短时据此取消到达。</summary>
+        private void NoteArrival(Unit unit, MovementState state, IReadOnlyList<Vec2> path)
+        {
+            if (VolumeSnapshotCurrent && _volumeById.TryGetValue(unit.EntityId, out var body))
+            {
+                body.UnarriveTemplate = new MovementState(
+                    path, state.Mode, state.MovementLocked, 0, state.NavVersion, null, null, state.RequestedTarget);
+            }
+        }
+
+        /// <summary>记下到达事件（模式变 Idle 的 <c>unit.state_changed</c>）在发件箱里的位置，供取消到达时撤销。</summary>
+        private void NoteArrivalEvent(Id unitId, int outboxIndex)
+        {
+            if (VolumeSnapshotCurrent && _volumeById.TryGetValue(unitId, out var body))
+            {
+                body.ArrivalOutboxIndex = outboxIndex;
             }
         }
 
@@ -709,7 +1004,7 @@ namespace Core.Carriers.Unit
                 return false;
             }
 
-            var center = hitBody.Start;
+            var center = BodyAt(hitBody);
             var sum = selfRadius + hitBody.Radius;
             if ((goal - center).Length < sum + 2.0 * _options.ArrivalEpsilon)
             {

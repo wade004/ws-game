@@ -58,6 +58,9 @@ namespace Core.Carriers.Unit
 
             /// <summary>本 tick 的动作位移穿过了别的单位的体积（不参与体积的成对撞停与重叠分离）。</summary>
             public bool PassedThroughUnits;
+
+            /// <summary>本 tick 是动作位移窗口的最后一个 tick（下一 tick 窗口关闭）：穿过式位移的终点必须落在别的单位体积之外（见 UnitVolumeGhost）。</summary>
+            public bool PassThroughEnds;
         }
 
         private readonly struct SuspendedPath
@@ -147,6 +150,7 @@ namespace Core.Carriers.Unit
             t.StartPath = unit.MovementState.CurrentPath;
             t.StartPathIndex = unit.MovementState.PathIndex;
             t.PassedThroughUnits = false;
+            t.PassThroughEnds = false;
 
             // 单位体积阻挡：第一个有体积的单位被处理前取下本 tick 的快照（别的有体积单位此刻都还没写位置）。
             if (profile.UnitBodyRadius > 0.0)
@@ -405,6 +409,16 @@ namespace Core.Carriers.Unit
                 if (candidate)
                 {
                     _units.SetPosition(unit.EntityId, newPos);
+                    if (profile.UnitBodyRadius > 0.0 && VolumeSnapshotCurrent)
+                    {
+                        var current = t.StartVelocity.Length;
+                        var brakeToZero = (steer.X == 0.0 && steer.Y == 0.0) ||
+                                          (profile.Reverse == ReversePolicy.ThroughZero && current > 0.0 &&
+                                           t.StartVelocity.Dot(steer) < 0.0);
+                        NoteProfile(
+                            unit.EntityId, IntegratedSpeedProfile(t, current, brakeToZero ? 0.0 : target, baseSpeed, speed, dt));
+                    }
+
                     NoteMotionTrail(unit, from, newPos, wallVia, volumePoly);
                     EnqueueMoved(unit.EntityId, newPos);
                     moved = true;
@@ -508,9 +522,11 @@ namespace Core.Carriers.Unit
         /// <c>属性速度 × dt</c>。<paramref name="t"/> 为 null 表示未启用。
         /// </summary>
         private double MotionPathBudget(
-            Unit unit, MotionTick? t, MoveMode mode, IReadOnlyList<Vec2> path, int index, double dt, out bool integrated)
+            Unit unit, MotionTick? t, MoveMode mode, IReadOnlyList<Vec2> path, int index, double dt, out bool integrated,
+            out SpeedProfile? stepProfile)
         {
             integrated = false;
+            stepProfile = null;
             if (t == null || !t.Profile.ApplyToPathFollowing)
             {
                 return AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt;
@@ -537,6 +553,11 @@ namespace Core.Carriers.Unit
             var speed = MotionMath.ApproachSpeed(
                 t.StartVelocity.Length, target, baseSpeed, profile, dt, _mot.Curves);
             integrated = true;
+            if (profile.UnitBodyRadius > 0.0)
+            {
+                stepProfile = IntegratedSpeedProfile(t, t.StartVelocity.Length, target, baseSpeed, speed, dt);
+            }
+
             return speed * dt;
         }
 
@@ -626,6 +647,11 @@ namespace Core.Carriers.Unit
             var to = reaches ? disp.Target : disp.Origin + delta * fraction;
             var from = unit.Position;
             var volumeRadius = t.Profile.UnitBodyRadius;
+            if (volumeRadius > 0.0)
+            {
+                var progress0 = disp.DurationSeconds > 0.0 ? Math.Min(1.0, disp.ElapsedSeconds / disp.DurationSeconds) : 0.0;
+                NoteProfile(unit.EntityId, SpeedProfile.OfCurve(disp.Curve!, progress0, progress, _mot.Curves));
+            }
 
             if (_navigation != null)
             {
@@ -702,7 +728,7 @@ namespace Core.Carriers.Unit
             if (unit.MovementState.Displacement.HasValue)
             {
                 if (!IsKnockback(intent) || _options.KnockbackStack == KnockbackStackPolicy.Ignore) return false;
-                _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, MoveStopReason.Replaced);
+                EmitMoveStopped(unit.EntityId, unit.Position, MoveStopReason.Replaced);
             }
 
             return true;
@@ -802,6 +828,7 @@ namespace Core.Carriers.Unit
             var from = unit.Position;
             var dir = m.Direction;
             double step;
+            SpeedProfile? stepProfile = null;
             var source = MotionSource.Action;
 
             if (decl.Driver == ActionMotionDriver.RootMotion)
@@ -814,7 +841,7 @@ namespace Core.Carriers.Unit
                         "不静默改为代码驱动（手感设计/02 第 4 节）");
                 }
 
-                var delta = src.ConsumeRootMotionDelta(unit.EntityId);
+                var delta = ConsumeRootMotion(src, unit.EntityId);
                 step = delta.Length;
                 if (step > 0.0) dir = new Vec2(delta.X / step, delta.Y / step);
                 source = MotionSource.RootMotion;
@@ -826,6 +853,10 @@ namespace Core.Carriers.Unit
                 var p1 = (double)(act.ElapsedTicks + 1 - m.StartTick) / len;
                 step = m.DistanceWorld *
                        (MotionMath.EvalCurve(decl.Curve, p1, _mot!.Curves) - MotionMath.EvalCurve(decl.Curve, p0, _mot.Curves));
+                if (t.Profile.UnitBodyRadius > 0.0)
+                {
+                    stepProfile = SpeedProfile.OfCurve(decl.Curve, p0, p1, _mot.Curves);
+                }
 
                 var toward = decl.Kind == ActionMotionKind.Charge || decl.Direction == ActionMotionDirection.TowardTarget;
                 if (toward && m.TargetId.HasValue && world.GetEntity(m.TargetId.Value) is Unit target && target.Alive)
@@ -910,6 +941,8 @@ namespace Core.Carriers.Unit
                 if (candidate && volumeRadius > 0.0 && passesThrough)
                 {
                     t.PassedThroughUnits = true;
+                    t.PassThroughEnds = !m.IsActiveAt(act.ElapsedTicks + 1);
+                    NoteAttempt(unit.EntityId, from, newPos);
                 }
 
                 if (candidate && volumeRadius > 0.0 && !passesThrough)
@@ -934,6 +967,11 @@ namespace Core.Carriers.Unit
                 if (candidate)
                 {
                     _units.SetPosition(unit.EntityId, newPos);
+                    if (volumeRadius > 0.0)
+                    {
+                        NoteProfile(unit.EntityId, stepProfile);
+                    }
+
                     NoteMotionTrail(unit, from, newPos, wallVia, volumePoly);
                     EnqueueMoved(unit.EntityId, newPos);
                     movedVec = newPos - from;
