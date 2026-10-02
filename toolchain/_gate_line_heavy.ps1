@@ -213,6 +213,20 @@ try {
     }
 
     # -----------------------------------------------------------------------
+    # 5c. model 型假人姿势集（骨骼剪辑）一致性检查（手感设计/04 第 6.1 节）：只读自检——规格对账、必备键/事件/帧数、
+    #     骨骼路径与关节角限、与 sprite 版同源、数据行，以及已入库的引擎侧预制体/控制器/.anim 与规格一致
+    #     （解析 YAML 文本，不启动 Unity）。纯 Python、秒级，不需要 Pillow，因此不受 -Quick 跳过。
+    # -----------------------------------------------------------------------
+    Invoke-CheckStep "python toolchain/gen_std_dummy_model_clips.py --check" -Id "std_dummy_model_clips" {
+        Push-Location $RepoRoot
+        try {
+            Test-NativeExitCode "python" @("toolchain/gen_std_dummy_model_clips.py", "--check")
+        } finally {
+            Pop-Location
+        }
+    }
+
+    # -----------------------------------------------------------------------
     # 5d. 样例导入幂等性门禁（重跑 import_sample_assets.py 应零 diff）——判断记录同原 check.ps1。
     # -----------------------------------------------------------------------
     if ($Quick) {

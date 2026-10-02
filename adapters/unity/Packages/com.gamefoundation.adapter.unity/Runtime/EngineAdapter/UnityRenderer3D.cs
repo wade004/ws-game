@@ -940,7 +940,15 @@ namespace Adapter.Unity.EngineAdapter
                 return;
             }
 
-            var eventId = new Id(AnimEventDomainPrefix + eventName);
+            // 带参标记（04 §5 `cancel_open:dodge`、`fx:<id>`）的冒号后缀换成点分段：Id 格式不允许冒号，
+            // 直接拼接会在 Id 构造处抛异常、把整次 AnimationEvent 回调打断；`cancel_open:dodge` 因此换算成
+            // `anim_event.cancel_open.dodge`。其余仍不合法的名字（大写等）静默丢弃，不抛——动画事件是表现事件，
+            // 一个写错的事件名不应阻断动画播放（与本类型对表现资源缺失的一贯宽容立场一致）。
+            if (!Id.TryParse(AnimEventDomainPrefix + eventName.Replace(':', '.'), out var eventId))
+            {
+                return;
+            }
+
             var handle = new ModelHandle(handleValue);
 
             // 快照后再遍历：回调内部可能触发 OnAnimEvent/退订，直接遍历原列表会在枚举期间修改集合。

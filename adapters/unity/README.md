@@ -18,6 +18,12 @@ adapters/unity/
                                    包 README"model 型外形"一节），菜单
                                    GameFoundation/Generate Placeholder Model Assets，或
                                    -executeMethod ...GeneratePlaceholderModelAssets.GenerateAndExit
+      GenerateStdDummyModelAssets.cs  手感设计/04 第 10 节：按规格
+                                   assets/_placeholder/std_dummy_model_clips.json 生成假人骨骼预制体
+                                   std_dummy_biped、控制器与 33 份 std_dummy_*.anim（菜单
+                                   GameFoundation/Generate Std Dummy Model Assets，或
+                                   -executeMethod ...GenerateStdDummyModelAssets.GenerateAndExit；
+                                   用法见 toolchain/std_dummy_model_clips/README.md）
     Resources/GameFoundation/    W6-B 新增：model/anim_clips 占位资产（由上面的脚本生成并提交），
                                  UnityRenderer3D/UnityViewFactory 经 Resources.Load 消费，见包 README
                                  "资源 id → 路径规则"

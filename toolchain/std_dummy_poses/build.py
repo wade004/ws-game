@@ -160,23 +160,46 @@ def build_data_row(spec: dict) -> dict:
     return {"id": spec["anim_set_id"], "clips": clips}
 
 
-def write_data_file(data_out: Path, spec: dict) -> Path:
+def _render_anim_set_file(rows: list[dict]) -> str:
     """display.anim_set.json：外层 2 空格缩进，每个剪辑一行（与 data/_sample 同风格，字段顺序按 schema：id, clips）。"""
-    row = build_data_row(spec)
-    lines = ['{', '  "table": "display.anim_set",', '  "schema_version": 1,', '  "rows": [', '    {',
-             f'      "id": {json.dumps(row["id"])},', '      "clips": {']
-    items = list(row["clips"].items())
-    for i, (key, val) in enumerate(items):
-        ev = ", ".join('{ "name": %s, "time_pct": %s }' % (json.dumps(e["name"]), json.dumps(e["time_pct"]))
-                       for e in val["events"])
-        ev = f"[{ev}]" if ev else "[]"
-        comma = "," if i < len(items) - 1 else ""
-        lines.append(f'        {json.dumps(key)}: {{ "resource_ref": {json.dumps(val["resource_ref"])}, "events": {ev} }}{comma}')
-    lines += ['      }', '    }', '  ]', '}']
+    lines = ['{', '  "table": "display.anim_set",', '  "schema_version": 1,', '  "rows": [']
+    for r, row in enumerate(rows):
+        lines += ['    {', f'      "id": {json.dumps(row["id"])},', '      "clips": {']
+        items = list(row["clips"].items())
+        for i, (key, val) in enumerate(items):
+            ev = ", ".join('{ "name": %s, "time_pct": %s }' % (json.dumps(e["name"]), json.dumps(e["time_pct"]))
+                           for e in val["events"])
+            ev = f"[{ev}]" if ev else "[]"
+            comma = "," if i < len(items) - 1 else ""
+            lines.append(f'        {json.dumps(key)}: {{ "resource_ref": {json.dumps(val["resource_ref"])}, "events": {ev} }}{comma}')
+        lines += ['      }', '    }' + ("," if r < len(rows) - 1 else "")]
+    lines += ['  ]', '}']
+    return "\n".join(lines) + "\n"
+
+
+def write_anim_set_rows(data_out: Path, new_rows: list[dict]) -> Path:
+    """把 ``new_rows`` 并入 display.anim_set.json：同 id 的行替换，别的行原样保留，按 id 排序输出（确定性）。
+
+    sprite 型与 model 型两个生成器各写自己的一行到同一个文件，互不覆盖对方；已有行若带 id/clips 之外的字段则拒绝改写
+    （本写法不认识那些字段，改写会丢数据）。"""
     path = data_out / "display" / "display.anim_set.json"
+    rows: dict[str, dict] = {}
+    if path.is_file():
+        for row in json.loads(path.read_text(encoding="utf-8")).get("rows", []):
+            extra = set(row) - {"id", "clips"}
+            if extra:
+                raise ValueError(f"{path} 里的行 {row.get('id')} 带有本写法不认识的字段 {sorted(extra)}，拒绝改写")
+            rows[row["id"]] = row
+    for row in new_rows:
+        rows[row["id"]] = row
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    path.write_text(_render_anim_set_file([rows[k] for k in sorted(rows)]), encoding="utf-8", newline="\n")
     return path
+
+
+def write_data_file(data_out: Path, spec: dict) -> Path:
+    """sprite 版数据行并入 display.anim_set.json（见 write_anim_set_rows）。"""
+    return write_anim_set_rows(data_out, [build_data_row(spec)])
 
 
 def clean_outputs(assets_out: Path) -> int:
