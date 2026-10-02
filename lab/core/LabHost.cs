@@ -176,7 +176,16 @@ namespace Lab
 
         /// <summary>跑一份脚本在一个格子上的完整过程并返回三条时间线的记录。</summary>
         public static LabRecording Run(
-            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog = null, LabRunVariant? variant = null)
+            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog = null, LabRunVariant? variant = null) =>
+            Run(options, cell, script, catalog, variant, null);
+
+        /// <summary>
+        /// 同 <see cref="Run(LabHostOptions, LabScenario, InputScript, LabCatalog?, LabRunVariant?)"/>，另带宿主扩展点（引擎宿主、调试覆盖应用等，
+        /// 见 <see cref="LabHostExtension"/>）；<paramref name="extension"/> 为 null 时与无扩展版本逐位一致。
+        /// </summary>
+        public static LabRecording Run(
+            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog, LabRunVariant? variant,
+            LabHostExtension? extension)
         {
             variant ??= LabRunVariant.Default;
             if (options == null) throw new ArgumentNullException(nameof(options));
@@ -466,8 +475,20 @@ namespace Lab
             var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
             var factory = new RecordingViewFactory();
             var displayInfo = new DisplayInfoRegistry(world.Registry, world.Bus);
+            var frameDt = 1.0 / meta.FrameRateCap;
+            LabHostContext? hostContext = null;
+            IViewFactory viewFactory = factory;
+            if (extension != null)
+            {
+                // 扩展点接入（引擎宿主）：此时世界、靶子、外形登记与出场标签都已就绪，视图工厂尚未创建。
+                hostContext = new LabHostContext(
+                    world, cell, script, recording, step, frameDt, playerId, labels, dummyUnits, displayInfo, feelOn);
+                extension.OnAttach(hostContext);
+                viewFactory = extension.WrapViewFactory(factory, hostContext);
+            }
+
             var binder = new ViewBinder(
-                world.Bus, factory, new WorldSimSnapshot(world.World), displayInfo,
+                world.Bus, viewFactory, new WorldSimSnapshot(world.World), displayInfo,
                 new ViewBinderOptions(null, directionCount));
             binder.OnEntityCreated(playerId, world.Player.Kind, world.Player.TemplateId ?? playerId);
 
@@ -546,13 +567,12 @@ namespace Lab
 
                     return n;
                 };
-                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits);
+                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee);
             }
 
             var eventCursor = 0;
             var tick = 0;
             var duration = meta.DurationTicks;
-            var frameDt = 1.0 / meta.FrameRateCap;
             var frame = 0;
 
             void ApplyScriptEvent(ScriptEvent e)
@@ -637,14 +657,16 @@ namespace Lab
                         }
 
                         var stick = first.Substring("pad_stick:".Length);
-                        input.SetAxis(0, stick + "x", e.Value.X);
+                        // 扩展点的轴转换（相机相对输入等）发生在设备轴 → 逻辑输入的边界上；缺省不转换（原值）。
+                        var axisValue = extension == null ? e.Value : extension.ConvertMoveAxis(e.Value, tick);
+                        input.SetAxis(0, stick + "x", axisValue.X);
                         // 横版二维：控制空间把摇杆竖直分量留给"向上/向下"，不是深度——深度轴被锁死，丢掉该分量并计数（不静默）。
-                        if (depthLocked && Math.Abs(e.Value.Y) > 0.0)
+                        if (depthLocked && Math.Abs(axisValue.Y) > 0.0)
                         {
                             space!.DepthInputsDropped++;
                         }
 
-                        input.SetAxis(0, stick + "y", depthLocked ? 0.0 : e.Value.Y);
+                        input.SetAxis(0, stick + "y", depthLocked ? 0.0 : axisValue.Y);
                         break;
                     case ScriptEventKind.Press:
                         input.Press(KeyOf(first, e.Action));
@@ -773,6 +795,7 @@ namespace Lab
                 rig?.EndTick();
                 airPose?.EndTick(tick, dummyByLabel.Values);
                 feelRig?.EndTick(tick);
+                extension?.OnFixedStepEnd(tick);
 
                 tick++;
             }
@@ -788,12 +811,14 @@ namespace Lab
                     : new FrameSample(
                         frame, frame * frameDt, tick, alpha, true, view.Position, view.Facing.RawRadians,
                         continuous ? 0 : view.Facing.Index, continuous ? 0 : view.Facing.DirectionCount));
+                extension?.OnFrame(frame, alpha, dt);
                 frame++;
             }
 
             var clock = new StubClock();
             clock.RequestFixedStep(step, OnFixedStep);
             clock.OnFrame(OnFrame);
+            extension?.OnReady(hostContext!);
 
             // 真实时间采样：每次帧推进（含其中触发的全部固定步与表现同步）一个样本。
             var watch = new Stopwatch();
@@ -815,6 +840,7 @@ namespace Lab
             }
 
             recording.TotalEventCount = world.Events.Count;
+            extension?.OnFinished(recording);
             feelRig?.Dispose();
             airPose?.Dispose();
             rig?.Dispose();

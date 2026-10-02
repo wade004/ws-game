@@ -6,3 +6,5 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Adapter.Unity.Tests.Editor")]
 [assembly: InternalsVisibleTo("Adapter.Unity.Tests.Runtime")]
+// 实验室引擎宿主（可选组件，见 Runtime/LabHost）按模拟时间驱动动画播放器、镜头与特效，需要这几个内部推进入口。
+[assembly: InternalsVisibleTo("Adapter.Unity.LabHost")]

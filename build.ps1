@@ -726,6 +726,52 @@ if (-not $ContentOnlyMode) {
 }
 
 # ---------------------------------------------------------------------------
+# 3b. 同步引擎实验室宿主的可选 DLL 到 Runtime/Plugins/Lab/（哈希不同才拷贝）
+#     判断记录（实验室引擎宿主，手感设计/06 第 4 节）：引擎宿主复用实验室内核（Lab.Kernel）的脚本、格子、度量与指纹定义，
+#     所以内核及其两个直接依赖（Core.Sim、Adapters.Stub）要给 Unity 端的可选程序集 Adapter.Unity.LabHost 引用。
+#     它们另放 Plugins/Lab/、不进 Plugins/Core/：Plugins/Core/ 的"恰好六个"核对是核心 DLL 的发布契约，
+#     实验室宿主是可选组件，不改变那个数量；不用引擎宿主的游戏不引用 Adapter.Unity.LabHost，这三个 DLL 对它无影响。
+# ---------------------------------------------------------------------------
+if (-not $ContentOnlyMode) {
+    Write-Step "同步实验室宿主可选 DLL 到 Runtime/Plugins/Lab/（哈希不同才拷贝）"
+    $PluginsLabDir = Join-Path $RepoRoot "adapters\unity\Packages\com.gamefoundation.adapter.unity\Runtime\Plugins\Lab"
+    if (-not (Test-Path $PluginsLabDir)) {
+        New-Item -ItemType Directory -Force -Path $PluginsLabDir | Out-Null
+    }
+
+    $LabHostAssemblies = @(
+        @{ Name = "Lab.Kernel"; Dir = "lab" },
+        @{ Name = "Core.Sim"; Dir = "core\sim" },
+        @{ Name = "Adapters.Stub"; Dir = "adapters\stub" }
+    )
+    foreach ($asm in $LabHostAssemblies) {
+        $srcPath = Join-Path $RepoRoot ($asm.Dir + "\bin\$Configuration\netstandard2.1\" + $asm.Name + ".dll")
+        if (-not (Test-Path $srcPath)) {
+            Write-Host "找不到构建产物：$srcPath" -ForegroundColor Red
+            if ($SyncOnly) {
+                Write-Host "（-SyncOnly 要求产物已存在，请先不带 --artifacts-path 构建一次 Core.sln）" -ForegroundColor Red
+            }
+            exit 1
+        }
+
+        $staleInfo = Test-CoreAssemblyDllStale -RepoRoot $RepoRoot -Asm $asm -SourcePath $srcPath
+        if ($staleInfo) {
+            $ageStr = "{0:N1}" -f $staleInfo.DiffSeconds
+            Write-Host "构建产物陈旧：$($asm.Name).dll 落后于它自己的源码 $ageStr 秒（先不带 --artifacts-path 构建一次 Core.sln，再 -SyncOnly）" -ForegroundColor Red
+            exit 1
+        }
+
+        $destPath = Join-Path $PluginsLabDir ($asm.Name + ".dll")
+        $changed = Copy-IfChanged -SourcePath $srcPath -DestPath $destPath
+        if ($changed) {
+            Write-Host ("  [同步] {0}.dll" -f $asm.Name)
+        } else {
+            Write-Host ("  [跳过] {0}.dll（内容未变化）" -f $asm.Name)
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # 4. 内容数据集同步（U2-1 新增，见 -SyncContent 参数说明；数据目录框架/游戏分层任务追加
 #    data/_framework 同步）：
 #      data/_framework          -> Assets/StreamingAssets/GameFoundation/data/_framework

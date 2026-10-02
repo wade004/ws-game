@@ -1,0 +1,524 @@
+#nullable enable
+// EngineLabHostMechanismTests：引擎宿主逐项机制的复现与不变量（手感设计/06 第 4 节）。
+// 每项机制一条复现用例（真实适配器上观测到的量，期望值由规则算出，不写裸数）+ 一条不变量用例。
+// 渲染隔离：舞台自己用专用层与相机剔除遮罩，并在销毁时恢复（IsolationRestoresOtherCameras 用例直接证明）。
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using Adapter.Unity.EngineAdapter;
+using Adapter.Unity.LabHost;
+using Core.Foundation.Common;
+using Core.Foundation.EngineAdapter;
+using Lab;
+using NUnit.Framework;
+using UnityEngine;
+
+namespace Adapter.Unity.Tests.LabHost
+{
+    [Category("module:lab")]
+    public sealed class EngineLabHostMechanismTests
+    {
+        private static EngineLabHost Host => LabHostTestSupport.Host;
+
+        private static string LogicOf(Fingerprint fingerprint) =>
+            fingerprint.Project(Host.HeadlessRunner.Registry, MetricClass.Logic);
+
+        private static double Num(EngineLabRun run, string metric) =>
+            ((Core.Foundation.Common.Json.JsonNumber)((Core.Foundation.Common.Json.JsonObject)run.Fingerprint.Groups["engine"])[metric]).Value;
+
+        // ───────── 动画命中帧与逻辑命中 tick 对齐 ─────────
+
+        /// <summary>数据里 cast 剪辑的 release 关键帧在剪辑内的时刻（秒）：<c>round(time_pct × (帧数 − 1)) / 帧率</c>，帧率取首帧时长的倒数（与适配器登记剪辑同一规则）。</summary>
+        private static double CastReleaseSeconds()
+        {
+            var root = EngineLabHost.LocateRepoRoot();
+            var animSet = File.ReadAllText(Path.Combine(root, "data", "_framework", "display", "display.anim_set.json"));
+            var pct = double.Parse(
+                Regex.Match(animSet, @"sprite_anim\.std_dummy_cast""[^\]]*?""release""[^}]*?""time_pct""\s*:\s*([0-9.]+)").Groups[1].Value,
+                System.Globalization.CultureInfo.InvariantCulture);
+            var frames = FramesJson("sprite_anim.std_dummy_cast__front__body");
+            var text = File.ReadAllText(Path.Combine(root, "assets", "_placeholder", "sprite_anim", "std_dummy_cast__front__body", "frames.json"));
+            var duration = double.Parse(
+                Regex.Match(text, @"""duration""\s*:\s*([0-9.]+)").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            var index = (int)Math.Round(pct * (frames.Frames - 1), MidpointRounding.AwayFromZero);
+            return index * duration;
+        }
+
+        [Test]
+        public void HitAlignment_SpritePlane_EngineEventTimeEqualsCastStartPlusTheClipKeyframe_AndCutClipsAreReportedMissing()
+        {
+            var release = CastReleaseSeconds();
+            foreach (var scriptId in new[] { "feel_melee", "feel_combo3" })
+            {
+                foreach (var cell in new[] { "2d_action", "2_5d_action" })
+                {
+                    var script = LabHostTestSupport.Script(scriptId);
+                    var run = Host.Run(script, cell);
+                    var frame = 1.0 / script.Meta.FrameRateCap;
+                    var step = 1.0 / 60.0;
+                    var events = run.Recording.Feel!.Events;
+                    var markers = events.Where(e => e.Kind == "action_marker" && (e.Detail == "hit" || e.Detail == "hit_frame")).ToList();
+                    Assert.Greater(markers.Count, 0, scriptId + "@" + cell + "：前置条件——脚本里应有逻辑命中标记");
+                    Assert.AreEqual(markers.Count, run.Engine.HitAlignments.Count, "对齐样本数应等于逻辑命中标记数");
+
+                    var starts = events.Where(e => e.Kind == "action_started" && e.Actor == "player").Select(e => e.Tick).ToList();
+                    var finishes = events.Where(e => e.Kind == "action_finished" && e.Actor == "player").Select(e => e.Tick).ToList();
+                    var expectedPresent = 0;
+                    var ambiguous = 0;
+                    var detail = string.Join(",", starts) + " | " + string.Join(",", finishes) + " | release=" + release;
+                    for (var i = 0; i < starts.Count; i++)
+                    {
+                        var expectedRelease = starts[i] * step + release;
+                        // 读条剪辑被切断：下一次施法开始，或这次施法的逻辑动作结束（cast 状态随施法收尾回落）。
+                        var endTicks = new List<int>();
+                        if (i + 1 < starts.Count) endTicks.Add(starts[i + 1]);
+                        endTicks.AddRange(finishes.Where(t => t > starts[i]).Take(1));
+                        var gap = endTicks.Count > 0 ? endTicks.Min() * step - expectedRelease : double.PositiveInfinity;
+                        if (Math.Abs(gap) <= 3 * frame)
+                        {
+                            ambiguous++; // 切断时刻与施放点相差在帧量化之内，谁先到不由规则决定
+                        }
+                        else if (gap > 0)
+                        {
+                            expectedPresent++;
+                        }
+                    }
+
+                    var present = run.Engine.HitAlignments.Where(h => h.Present).ToList();
+                    Assert.GreaterOrEqual(present.Count, expectedPresent, scriptId + "@" + cell + "：读条剪辑到得了施放点的次数 = 配上引擎事件的逻辑命中数（被切断的剪辑算缺失）。起点|终点|release：" + detail);
+                    Assert.LessOrEqual(present.Count, expectedPresent + ambiguous, scriptId + "@" + cell + "：到不了施放点的剪辑不应配上引擎事件。" + detail);
+                    Assert.AreEqual(markers.Count - present.Count, (int)Num(run, "hit_align_missing"));
+                    for (var k = 0; k < present.Count; k++)
+                    {
+                        var sample = present[k];
+                        var start = starts.Last(t => t * step <= sample.EngineSeconds + 1e-9);
+                        var expected = start * step + release;
+                        // 引擎事件不可能早于"施法起点 + 剪辑里关键帧的时刻"；从待机进入的第一次施法，误差只来自帧量化。
+                        Assert.GreaterOrEqual(sample.EngineSeconds, expected - frame, scriptId + "@" + cell + "：引擎事件不应早于施法起点加关键帧时刻");
+                        if (k == 0 && starts.Count > 0 && start == starts[0])
+                        {
+                            Assert.AreEqual(expected, sample.EngineSeconds, 3 * frame, scriptId + "@" + cell + "：第一次施法的引擎事件时刻应等于施法起点加剪辑关键帧时刻（误差为帧量化）");
+                        }
+                    }
+                }
+            }
+        }
+
+        [Test]
+        public void HitAlignment_ModelPlane_SamplesMatchLogicMarkers_AndMissingMetricIsConsistent()
+        {
+            var script = LabHostTestSupport.Script("feel_combo3");
+            var run = Host.Run(script, "3d_action");
+            var markers = run.Recording.Feel!.Events.Count(e => e.Kind == "action_marker" && (e.Detail == "hit" || e.Detail == "hit_frame"));
+            Assert.AreEqual(markers, run.Engine.HitAlignments.Count);
+            Assert.AreEqual(run.Engine.HitAlignments.Count(h => !h.Present), (int)Num(run, "hit_align_missing"), "缺失度量应等于没配上引擎事件的样本数");
+        }
+
+        // ───────── 镜头冲量插值曲线 ─────────
+
+        [Test]
+        public void CameraImpulse_CurveFollowsTheDeclaredLinearDecay_ForEveryFeedbackCue()
+        {
+            var script = LabHostTestSupport.Script("feel_combo3");
+            var run = Host.Run(script, "2d_action");
+            var cues = run.Recording.Feel!.Presentation.Where(p => p.Kind == "camera").ToList();
+            Assert.Greater(cues.Count, 0, "前置条件：脚本应触发镜头冲量");
+            Assert.AreEqual(cues.Count, run.Engine.CameraImpulses.Count, "引擎相机收到的冲量数应等于反馈指令里的镜头冲量数");
+            for (var i = 0; i < cues.Count; i++)
+            {
+                var trace = run.Engine.CameraImpulses[i];
+                Assert.AreEqual(cues[i].Value, trace.Magnitude, 1e-9, "幅度来自反馈包");
+                Assert.AreEqual(cues[i].Value2, trace.DecayMs, 1e-9, "衰减时长来自反馈包");
+                Assert.AreEqual(trace.PeakOffset, trace.Curve[0].Value, 1e-6, "t=0 的实测位移应等于 幅度×画面可视高度");
+                Assert.IsFalse(trace.Truncated, "示例脚本的冲量间隔长于衰减时长，不应相互截断");
+                Assert.LessOrEqual(trace.MaxLinearDeviation(), 1e-3, "实测曲线与线性衰减的偏差应在度量允差内");
+                Assert.AreEqual(0.0, trace.Curve[trace.Curve.Count - 1].Value, 1e-6, "衰减结束后相机残余位移为 0");
+            }
+
+            Assert.AreEqual(1.0, Num(run, "camera_impulse_monotone"));
+        }
+
+        [Test]
+        public void CameraImpulse_NeverFabricated_WhenTheFeelPipelineIsOff()
+        {
+            var script = LabHostTestSupport.Script("feel_combo3");
+            var run = Host.Run(script, "2d_action", null, null, new LabRunVariant { FeelOff = true });
+            Assert.AreEqual(0, run.Recording.Feel?.Presentation.Count(p => p.Kind == "camera") ?? 0, "前置条件：关掉手感装配后没有镜头冲量指令");
+            Assert.AreEqual(0, run.Engine.CameraImpulses.Count, "没有反馈指令，引擎相机就不应有冲量曲线");
+            Assert.AreEqual(0, run.Engine.Freezes.Count, "没有反馈指令，也不应有顿帧冻结观测");
+        }
+
+        [Test]
+        public void CameraImpulse_OverlappingImpulses_AreMarkedTruncated_AndNeverCountedAsCleanCurves()
+        {
+            var script = LabHostTestSupport.Script("feel_group_hit");
+            var run = Host.Run(script, "2d_action");
+            // 不变量：被截断的曲线不进入单调/线性偏差统计，所以偏差度量不会因叠加而被误报。
+            Assert.LessOrEqual(Num(run, "camera_impulse_curve_dev"), 1e-3);
+            foreach (var trace in run.Engine.CameraImpulses.Where(t => t.Truncated))
+            {
+                Assert.IsTrue(run.Engine.CameraImpulses.Any(o => o != trace && o.Tick <= trace.Tick + 1 + (int)(trace.DecayMs / 1000.0 * 60) + 1),
+                    "被标记截断的曲线前后应有另一条尚在衰减的冲量");
+            }
+        }
+
+        // ───────── 顿帧期间 rig 与粒子冻结 ─────────
+
+        [Test]
+        public void Freeze_FrozenRigAndParticleDoNotAdvance_WhileBystanderRigAndControlParticleDo()
+        {
+            foreach (var cell in new[] { "2d_action", "3d_action" })
+            {
+                var script = LabHostTestSupport.Script("feel_group_hit");
+                var run = Host.Run(script, cell);
+                var freezes = run.Engine.Freezes;
+                Assert.Greater(freezes.Count, 0, cell + "：前置条件——脚本应触发顿帧");
+                foreach (var freeze in freezes)
+                {
+                    Assert.AreEqual(0.0, freeze.RigAdvanceSeconds, 1e-9, cell + "：被冻结单位 " + freeze.Unit + " 的 rig 动画时间不应推进");
+                    if (!double.IsNaN(freeze.ParticleAdvanceSeconds))
+                    {
+                        Assert.AreEqual(0.0, freeze.ParticleAdvanceSeconds, 1e-9, cell + "：被冻结单位名下的粒子播放时间不应推进");
+                    }
+                }
+
+                Assert.IsTrue(freezes.Any(f => !double.IsNaN(f.ParticleAdvanceSeconds)), cell + "：至少有一次冻结观测到了探针粒子（粒子冻结确实被检验过）");
+                // 对照：同一区间里没被冻结的旁观 rig 与旁观粒子照常推进——证明"冻结的零推进"不是因为测量本身看不到推进。
+                var bystanders = freezes.Where(f => !double.IsNaN(f.BystanderAdvanceSeconds)).ToList();
+                Assert.IsNotEmpty(bystanders, cell + "：脚本里有旁观单位，应有旁观 rig 观测");
+                Assert.IsTrue(bystanders.Any(f => f.BystanderAdvanceSeconds > 0.0), cell + "：旁观 rig 在冻结区间里应推进");
+                var controls = freezes.Where(f => !double.IsNaN(f.ParticleControlAdvanceSeconds)).ToList();
+                Assert.IsTrue(controls.Any(f => f.ParticleControlAdvanceSeconds > 0.0), cell + "：对照粒子在冻结区间里应推进");
+            }
+        }
+
+        [Test]
+        public void Freeze_ProbeParticlesAreHostOwned_AndTurningThemOffNeverChangesLogicOrFreezeCount()
+        {
+            var script = LabHostTestSupport.Script("feel_group_hit");
+            var with = Host.Run(script, "2d_action");
+            var without = Host.Run(script, "2d_action", new EngineLabOptions { ProbeParticles = false });
+            Assert.AreEqual(with.LogicProjection, without.LogicProjection, "探针粒子只是引擎侧观测件，不得影响逻辑");
+            Assert.AreEqual(with.Engine.Freezes.Count, without.Engine.Freezes.Count, "冻结次数不依赖探针粒子");
+            Assert.IsTrue(without.Engine.Freezes.All(f => double.IsNaN(f.ParticleAdvanceSeconds)), "关掉探针后没有粒子观测");
+        }
+
+        // ───────── 每帧耗时分布 ─────────
+
+        [Test]
+        public void FrameTime_OneSamplePerDrivenFrame_AndThePercentilesFollowTheRule()
+        {
+            var script = LabHostTestSupport.Script("feel_melee");
+            var run = Host.Run(script, "2d_action");
+            Assert.AreEqual(run.Recording.Frames.Count, run.Engine.FramesDriven, "驱动的帧数应等于内核记录的帧数");
+            Assert.AreEqual(run.Engine.FramesDriven, run.Engine.FrameMilliseconds.Count, "每个驱动的帧一个耗时样本");
+            Assert.IsTrue(run.Engine.FrameMilliseconds.All(ms => ms >= 0.0), "耗时不为负");
+            var sorted = run.Engine.FrameMilliseconds.OrderBy(x => x).ToList();
+            Assert.AreEqual(sorted[(int)Math.Ceiling(0.5 * sorted.Count) - 1], Num(run, "frame_ms_p50"), 1e-9);
+            Assert.AreEqual(sorted[(int)Math.Ceiling(0.95 * sorted.Count) - 1], Num(run, "frame_ms_p95"), 1e-9);
+            Assert.AreEqual(sorted[sorted.Count - 1], Num(run, "frame_ms_max"), 1e-9);
+            Assert.LessOrEqual(Num(run, "frame_ms_p50"), Num(run, "frame_ms_p95"));
+            Assert.LessOrEqual(Num(run, "frame_ms_p95"), Num(run, "frame_ms_max"));
+            Assert.Less(Num(run, "frame_ms_p95"), 250.0, "引擎侧每帧驱动耗时的 95 分位应在一个量级合理的上限内（真实时钟，只做粗上限）");
+        }
+
+        // ───────── 三个平面组合 ─────────
+
+        [Test]
+        public void ThreePlanes_EachRunsItsOwnPresentation_AndLogicFingerprintsAreIdentical()
+        {
+            var script = LabHostTestSupport.Script("feel_melee");
+            var expected = new Dictionary<string, (string Plane, string Rig)>
+            {
+                ["2d_action"] = ("2d", "sprite"),
+                ["2_5d_action"] = ("2_5d", "sprite"),
+                ["3d_action"] = ("3d", "model"),
+            };
+            string? reference = null;
+            foreach (var pair in expected)
+            {
+                var run = Host.Run(script, pair.Key);
+                Assert.AreEqual(pair.Value.Plane, run.Engine.Plane, pair.Key);
+                Assert.AreEqual(pair.Value.Rig, run.Engine.RigKind, pair.Key + "：玩家 rig 种类由格子的外形决定");
+                Assert.AreEqual(0, run.Engine.Errors.Count, pair.Key + "：" + string.Join(" | ", run.Engine.Errors));
+                Assert.AreEqual(Host.RunHeadlessLogic(script, pair.Key), run.LogicProjection, pair.Key + "：与同格子无头宿主逻辑一致");
+                reference ??= run.LogicProjection;
+                // 逻辑文本含格子名之外的全部逻辑度量；三个平面格子在该脚本上的逻辑判定必须相同。
+                Assert.AreEqual(reference, run.LogicProjection, pair.Key + "：三个平面组合的逻辑组指纹逐字节一致");
+            }
+        }
+
+        // ───────── 相机相对输入 ─────────
+
+        private sealed class AxisRotation : LabHostExtension
+        {
+            private readonly double _yawRadians;
+
+            public AxisRotation(double yawRadians)
+            {
+                _yawRadians = yawRadians;
+            }
+
+            public override Vec2 ConvertMoveAxis(Vec2 deviceAxis, int tick) => ControlSpace.CameraRelativeToWorld(deviceAxis, _yawRadians);
+        }
+
+        [Test]
+        public void CameraRelative_RealCameraAxesGiveTheRightWorldDirection_ForEveryYaw()
+        {
+            var script = LabHostTestSupport.Script("diagonal");
+            foreach (var yaw in new[] { 0.0, 30.0, 90.0, 180.0, -45.0, 137.5 })
+            {
+                var options = new EngineLabOptions { ControlSpaceOverride = ControlSpace.CameraRelative, CameraYawDegrees = yaw };
+                var run = Host.Run(script, "3d_targeted", options);
+                Assert.Greater(run.Engine.Controls.Count, 0, $"yaw={yaw}：前置条件——脚本里应有摇杆输入");
+                Assert.LessOrEqual(Num(run, "control_max_error_deg"), 0.01, $"yaw={yaw}：真实相机轴给出的世界方向与偏航公式的最大夹角（度）");
+                Assert.LessOrEqual(Num(run, "control_max_screen_error_deg"), 0.01, $"yaw={yaw}：世界方向经真实相机投影回屏幕与摇杆方向的最大夹角（度）");
+
+                // 世界移动方向：玩家实际位移 = 无转换位移按偏航旋转（同一脚本、预先旋转摇杆的无头运行）。
+                var reference = Host.HeadlessRunner.Record(script, "3d_targeted", null, new AxisRotation(yaw * Math.PI / 180.0));
+                var last = run.Recording.Ticks.Count - 1;
+                Assert.AreEqual(reference.Ticks[last].Position.X, run.Recording.Ticks[last].Position.X, 1e-3, $"yaw={yaw}：终点 X");
+                Assert.AreEqual(reference.Ticks[last].Position.Y, run.Recording.Ticks[last].Position.Y, 1e-3, $"yaw={yaw}：终点 Y");
+            }
+        }
+
+        [Test]
+        public void CameraRelative_ZeroYawIsIdentity_AndWorldControlSpaceIsNeverConverted()
+        {
+            var script = LabHostTestSupport.Script("diagonal");
+            var headless = Host.RunHeadlessLogic(script, "3d_targeted");
+            var zero = Host.Run(script, "3d_targeted", new EngineLabOptions { ControlSpaceOverride = ControlSpace.CameraRelative, CameraYawDegrees = 0.0 });
+            Assert.AreEqual(headless, zero.LogicProjection, "偏航 0 的相机相对转换是恒等变换，逻辑与世界控制空间逐字节一致");
+            var world = Host.Run(script, "3d_targeted", new EngineLabOptions { CameraYawDegrees = 90.0 });
+            Assert.AreEqual(headless, world.LogicProjection, "世界控制空间下相机偏航不得改变逻辑输入");
+            Assert.AreEqual(0, world.Engine.Controls.Count, "世界控制空间不做转换，不产生转换样本");
+        }
+
+        // ───────── 输入噪声记录与回放 ─────────
+
+        [Test]
+        public void InputNoise_LatencyDelaysTheLogicResponseByExactlyTheLatency_AndReplayReproducesIt()
+        {
+            var script = LabHostTestSupport.Script("move_tap");
+            var plain = Host.Run(script, "2d_targeted");
+            var firstBase = plain.Recording.Ticks.First(t => t.MoveRequested).Tick;
+            var noise = new InputNoiseModel(5UL, 4, 0);
+            var noisy = Host.Run(script, "2d_targeted", new EngineLabOptions { Noise = noise });
+            Assert.AreEqual(firstBase + 4, noisy.Recording.Ticks.First(t => t.MoveRequested).Tick, "纯延迟噪声使逻辑响应恰好晚延迟的 tick 数");
+            Assert.AreEqual(noise.Id, noisy.Engine.InputNoise, "引擎记录里带噪声模型标签");
+            Assert.IsNotNull(noisy.NoiseRecord);
+
+            var replay = Host.Run(script, "2d_targeted", new EngineLabOptions { NoiseReplay = noisy.NoiseRecord });
+            Assert.AreEqual(noisy.LogicProjection, replay.LogicProjection, "按记录回放得到逐字节相同的逻辑指纹");
+            Assert.AreEqual(Host.RunHeadlessLogic(noisy.EffectiveScript, "2d_targeted"), noisy.LogicProjection, "带噪脚本在无头宿主上的逻辑与引擎宿主一致");
+        }
+
+        // ───────── 引擎侧失败不改变逻辑 ─────────
+
+        [Test]
+        public void EngineFailure_IsRecordedAsAMetric_AndNeverChangesTheLogicFingerprint()
+        {
+            var script = LabHostTestSupport.Script("feel_melee");
+            var broken = Host.Run(script, "2d_action", new EngineLabOptions { IsolationLayer = 99 });
+            Assert.Greater(broken.Engine.Errors.Count, 0, "无效的隔离层应让舞台装配失败并被记录");
+            Assert.Greater(Num(broken, "engine_errors"), 0.0, "失败折成 engine_errors 度量");
+            Assert.AreEqual(Host.RunHeadlessLogic(script, "2d_action"), broken.LogicProjection, "引擎侧失败不得改变逻辑组指纹");
+        }
+
+        // ───────── 渲染隔离 ─────────
+
+        private sealed class MaskProbe : LabHostExtension
+        {
+            public readonly List<string> Violations = new List<string>();
+            public int Frames;
+            private readonly Camera _other;
+            private readonly int _layer;
+
+            public MaskProbe(Camera other, int layer)
+            {
+                _other = other;
+                _layer = layer;
+            }
+
+            public override void OnFrame(int frame, double alpha, double frameSeconds)
+            {
+                Frames++;
+                if ((_other.cullingMask & (1 << _layer)) != 0)
+                {
+                    Violations.Add("frame " + frame + "：场内其它相机仍会渲染隔离层");
+                }
+
+                var root = GameObject.Find("EngineLabStage");
+                if (root == null || root.layer != _layer)
+                {
+                    Violations.Add("frame " + frame + "：舞台根物体不在隔离层");
+                }
+            }
+        }
+
+        [Test]
+        public void Isolation_StageHidesItsLayerFromOtherCameras_AndRestoresEverythingAfterwards()
+        {
+            var layer = 29;
+            var go = new GameObject("IsolationOtherCamera");
+            try
+            {
+                var other = go.AddComponent<Camera>();
+                other.cullingMask = -1;
+                var probe = new MaskProbe(other, layer);
+                var stage = new EngineLabStage(new EngineLabOptions { IsolationLayer = layer });
+                try
+                {
+                    var script = LabHostTestSupport.Script("feel_melee");
+                    Host.Runner.Record(script, "2d_action", null, new CompositeLabHostExtension(stage, probe));
+                    Assert.Greater(probe.Frames, 0);
+                    Assert.IsEmpty(probe.Violations, string.Join("\n", probe.Violations));
+                    Assert.AreEqual(1 << layer, stage.StageCamera!.cullingMask, "舞台相机只渲染隔离层");
+                }
+                finally
+                {
+                    stage.Dispose();
+                }
+
+                Assert.AreEqual(-1, other.cullingMask, "销毁后场内其它相机的剔除遮罩应恢复原值");
+                Assert.IsNull(GameObject.Find("EngineLabStage"), "销毁后舞台物体应清除干净");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(go);
+            }
+        }
+
+        // ───────── 冷热加载路径一致 ─────────
+
+        [Test]
+        public void ColdLoadPath_GivesTheSameFreezeAndImpulseObservationsAsTheHotPath()
+        {
+            var script = LabHostTestSupport.Script("feel_group_hit");
+            var hot = Host.Run(script, "2d_action");
+            var loader = UnityEngineHost.Ensure().ResourceLoader;
+            loader.Unload(EngineLabStage.ProbeResourceId);
+            loader.Unload(EngineLabStage.SwingSfxResource);
+            loader.Unload(EngineLabStage.ImpactSfxResource);
+            var cold = Host.Run(script, "2d_action");
+            Assert.AreEqual(hot.Engine.Freezes.Count, cold.Engine.Freezes.Count);
+            for (var i = 0; i < hot.Engine.Freezes.Count; i++)
+            {
+                Assert.AreEqual(hot.Engine.Freezes[i].ParticleAdvanceSeconds, cold.Engine.Freezes[i].ParticleAdvanceSeconds, 1e-9, "冻结 " + i);
+                Assert.AreEqual(hot.Engine.Freezes[i].RigAdvanceSeconds, cold.Engine.Freezes[i].RigAdvanceSeconds, 1e-9, "冻结 " + i);
+            }
+
+            Assert.AreEqual(hot.Engine.CameraImpulses.Count, cold.Engine.CameraImpulses.Count);
+            Assert.AreEqual(hot.LogicProjection, cold.LogicProjection);
+        }
+
+        // ───────── 脚本期望清单在引擎宿主上判定 ─────────
+
+        [Test]
+        public void Expectations_JudgedOnTheEngineHost_AgreeWithTheHeadlessJudgement()
+        {
+            var filter = LabHostTestSupport.CellFilter();
+            var judged = 0;
+            foreach (var script in Host.LoadScripts().Where(s => s.Expectations.Count > 0))
+            {
+                foreach (var cell in Host.RunnableCells(script))
+                {
+                    if (filter != null && !filter.Contains(cell))
+                    {
+                        continue;
+                    }
+
+                    var run = Host.Run(script, cell);
+                    var onEngine = Host.JudgeExpectations(run);
+                    var headlessFingerprint = Host.RunHeadless(script, cell);
+                    var onHeadless = LabSuite.EvaluateExpectations(
+                        Host.HeadlessRunner, script, cell, headlessFingerprint, new Dictionary<string, Fingerprint>(StringComparer.Ordinal));
+                    Assert.AreEqual(onHeadless.Count, onEngine.Count, script.Meta.ScriptId + "@" + cell);
+                    for (var i = 0; i < onEngine.Count; i++)
+                    {
+                        Assert.AreEqual(onHeadless[i].Status, onEngine[i].Status, script.Meta.ScriptId + "@" + cell + " " + onEngine[i].Expectation.Id);
+                    }
+
+                    judged += onEngine.Count;
+                }
+            }
+
+            Assert.Greater(judged, 0, "至少应判定过一条期望");
+        }
+
+        // ───────── 换装场景：图标与逐层剪辑 ─────────
+
+        private static (int W, int H) PngSize(string path)
+        {
+            using var stream = File.OpenRead(path);
+            var header = new byte[24];
+            Assert.AreEqual(24, stream.Read(header, 0, 24));
+            int Be(int o) => (header[o] << 24) | (header[o + 1] << 16) | (header[o + 2] << 8) | header[o + 3];
+            return (Be(16), Be(20));
+        }
+
+        private static (int Frames, int W, int H) FramesJson(string reference)
+        {
+            var path = Path.Combine(Application.streamingAssetsPath, "GameFoundation",
+                AssetRefConventions.SpriteAnimFramesFile(new Id(reference)).Replace('/', Path.DirectorySeparatorChar));
+            var text = File.ReadAllText(path);
+            var frames = Regex.Matches(text, "\"index\"\\s*:").Count;
+            var w = int.Parse(Regex.Match(text, "\"frame_w\"\\s*:\\s*(\\d+)").Groups[1].Value);
+            var h = int.Parse(Regex.Match(text, "\"frame_h\"\\s*:\\s*(\\d+)").Groups[1].Value);
+            return (frames, w, h);
+        }
+
+        [Test]
+        public void EquipAudit_LoadedIconsAndLayerClips_MatchTheirFilesOnDisk()
+        {
+            var script = LabHostTestSupport.Script("equip_cycle");
+            var run = Host.Run(script, "2d_action");
+            var audits = run.Engine.LayerAudits;
+            Assert.Greater(audits.Count, 0, "换装脚本应产生图层/图标核对样本");
+            Assert.AreEqual(audits.Count, (int)Num(run, "layer_audit_count"));
+
+            var icons = audits.Where(a => a.Layer.StartsWith("icon:", StringComparison.Ordinal)).ToList();
+            Assert.Greater(icons.Count, 0);
+            var assetsRoot = Path.Combine(Application.streamingAssetsPath, "GameFoundation", "assets");
+            foreach (var icon in icons.Where(i => !i.Mismatch))
+            {
+                var relative = AssetRefConventions.IconFile(new Id(icon.Resource)).Replace('/', Path.DirectorySeparatorChar);
+                var file = Directory.GetDirectories(assetsRoot).Select(d => Path.Combine(d, relative)).First(File.Exists);
+                var size = PngSize(file);
+                Assert.AreEqual(size.W, icon.Width, icon.Resource + "：引擎解码的图标宽应等于 PNG 文件头声明的宽");
+                Assert.AreEqual(size.H, icon.Height, icon.Resource + "：引擎解码的图标高应等于 PNG 文件头声明的高");
+            }
+
+            foreach (var layer in audits.Where(a => !a.Layer.StartsWith("icon:", StringComparison.Ordinal) && !a.Mismatch))
+            {
+                var expected = FramesJson(layer.Resource);
+                Assert.AreEqual(expected.Frames, layer.FrameCount, layer.Resource + "：实际加载的帧数应等于 frames.json 声明的帧数");
+                Assert.AreEqual(expected.W, layer.Width, layer.Resource + "：实际加载的帧宽");
+                Assert.AreEqual(expected.H, layer.Height, layer.Resource + "：实际加载的帧高");
+            }
+
+            Assert.AreEqual(audits.Count(a => a.Mismatch), (int)Num(run, "layer_audit_mismatch"), "不一致数度量应等于样本里标不一致的个数");
+        }
+
+        [Test]
+        public void EquipAudit_FlagsMissingClipsAndFrameCountMismatches_AndPassesMatchingPairs()
+        {
+            var loader = UnityEngineHost.Ensure().ResourceLoader;
+            void Pump() => EngineLabStage.PumpLoader(loader, 5000);
+            const string body = "sprite_anim.std_dummy_attack_2h__front__body";
+            var same = EquipLayerAudit.CompareClips(loader, Pump, "player", "same", body, body);
+            Assert.IsFalse(same.Mismatch, "同一剪辑与自身对照应一致");
+            Assert.Greater(same.FrameCount, 0);
+
+            var missing = EquipLayerAudit.CompareClips(loader, Pump, "player", "missing", "sprite_anim.no_such_clip__front__hand_main", body);
+            Assert.IsTrue(missing.Mismatch, "图层剪辑加载不出来必须标不一致");
+            Assert.AreEqual(0, missing.FrameCount);
+
+            var other = EquipLayerAudit.CompareClips(loader, Pump, "player", "other", "sprite_anim.std_dummy_idle__front__body", body);
+            Assert.AreNotEqual(FramesJson("sprite_anim.std_dummy_idle__front__body").Frames, FramesJson(body).Frames, "前置条件：两条剪辑帧数不同");
+            Assert.IsTrue(other.Mismatch, "帧数与参照不一致必须标不一致");
+        }
+    }
+}

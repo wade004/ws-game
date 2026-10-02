@@ -1020,6 +1020,25 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>实验室引擎宿主用（不属于 <see cref="IRenderer2D"/> 契约）：按模拟时间推进全部序列帧特效一步（暂停的特效自己忽略）；
+        /// 平时由各特效组件的 Update 以真实帧时间推进，宿主在同步运行里不经过 Update，故需要这个确定性入口。</summary>
+        internal void AdvanceSequencePlayers(float deltaTime)
+        {
+            if (_sequencePlayers.Count == 0)
+            {
+                return;
+            }
+
+            var snapshot = new List<EffectSequencePlayer>(_sequencePlayers.Values);
+            for (var i = 0; i < snapshot.Count; i++)
+            {
+                if (snapshot[i] != null)
+                {
+                    snapshot[i].Advance(deltaTime);
+                }
+            }
+        }
+
         /// <summary>诊断/测试用（不属于 <see cref="IRenderer2D"/> 契约）：粒子实例当前是否处于暂停；句柄不存在返回 false。</summary>
         public bool IsParticlePaused(ParticleHandle handle)
         {

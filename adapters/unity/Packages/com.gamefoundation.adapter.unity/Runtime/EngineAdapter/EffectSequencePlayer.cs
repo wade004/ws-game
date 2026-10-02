@@ -178,15 +178,18 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>累计推进的播放时间（秒，每次 Play 清零；暂停期间不增长），供测试/诊断观察"暂停期间时间轴确实没推进"。</summary>
         public double PlayedSeconds { get; private set; }
 
-        private void Update()
+        private void Update() => Advance(Time.deltaTime);
+
+        /// <summary>按 <paramref name="deltaTime"/> 推进一步（<see cref="Update"/> 以 <see cref="Time.deltaTime"/> 调用；实验室引擎宿主按模拟时间确定性地推进，不依赖真实帧时间）。</summary>
+        internal void Advance(float deltaTime)
         {
             if (!_playing || _paused || _frames.Length == 0)
             {
                 return;
             }
 
-            PlayedSeconds += Time.deltaTime;
-            _elapsedInFrame += Time.deltaTime;
+            PlayedSeconds += deltaTime;
+            _elapsedInFrame += deltaTime;
             var currentDuration = _durations[_frameIndex] > 0 ? _durations[_frameIndex] : 0.05;
 
             while (_elapsedInFrame >= currentDuration)

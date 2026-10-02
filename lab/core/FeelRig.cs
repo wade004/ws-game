@@ -42,7 +42,7 @@ namespace Lab
 
         public FeelRig(
             HeadlessWorld world, FeelRecording record, Dictionary<Id, string> labels, Func<Id?, int> ordinal, double step,
-            IEnumerable<KeyValuePair<string, Id>> targets)
+            IEnumerable<KeyValuePair<string, Id>> targets, IFeedbackSink? tee = null)
         {
             _world = world;
             _record = record;
@@ -58,7 +58,7 @@ namespace Lab
                 return;
             }
 
-            var recordingSink = new RecordingSink(this);
+            var recordingSink = new RecordingSink(this, tee);
             var profile = LabImpactProfile.Load(world.Registry);
             var options = new ImpactOptions
             {
@@ -236,34 +236,70 @@ namespace Lab
         private sealed class RecordingSink : IFeedbackSink
         {
             private readonly FeelRig _rig;
+            private readonly IFeedbackSink? _tee;
 
-            public RecordingSink(FeelRig rig)
+            public RecordingSink(FeelRig rig, IFeedbackSink? tee)
             {
                 _rig = rig;
+                _tee = tee;
             }
 
             private void Add(string kind, string text, double value = 0, double value2 = 0, int count = 0) =>
                 _rig._record.Presentation.Add(new FeelPresentationRecord(_rig._tick, kind, text, value, value2, count));
 
-            public void FloatingText(Id entityId, Id styleId, string text) => Add("text", styleId.Value);
+            public void FloatingText(Id entityId, Id styleId, string text)
+            {
+                Add("text", styleId.Value);
+                _tee?.FloatingText(entityId, styleId, text);
+            }
 
-            public void PlayVfx(Id vfxId, FeedbackAttachSpec attach) => Add("vfx", vfxId.Value);
+            public void PlayVfx(Id vfxId, FeedbackAttachSpec attach)
+            {
+                Add("vfx", vfxId.Value);
+                _tee?.PlayVfx(vfxId, attach);
+            }
 
-            public void PlaySfx(Id sfxId, Vec2? at) => Add("sfx", sfxId.Value);
+            public void PlaySfx(Id sfxId, Vec2? at)
+            {
+                Add("sfx", sfxId.Value);
+                _tee?.PlaySfx(sfxId, at);
+            }
 
-            public void Freeze(double durationMs) => Add("freeze_ms", string.Empty, durationMs);
+            public void Freeze(double durationMs)
+            {
+                Add("freeze_ms", string.Empty, durationMs);
+                _tee?.Freeze(durationMs);
+            }
 
-            public void ShakeCamera(Id profileId) => Add("shake", profileId.Value);
+            public void ShakeCamera(Id profileId)
+            {
+                Add("shake", profileId.Value);
+                _tee?.ShakeCamera(profileId);
+            }
 
-            public void Flash(Id entityId, Id profileId) => Add("flash", _rig.Label(entityId));
+            public void Flash(Id entityId, Id profileId)
+            {
+                Add("flash", _rig.Label(entityId));
+                _tee?.Flash(entityId, profileId);
+            }
 
-            public void ImpactCamera(ImpactCameraCue cue) =>
+            public void ImpactCamera(ImpactCameraCue cue)
+            {
                 Add("camera", cue.ShakeProfileId?.Value ?? string.Empty, cue.Magnitude, cue.DecayMs, cue.HitCount);
+                _tee?.ImpactCamera(cue);
+            }
 
-            public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers) =>
+            public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers)
+            {
                 Add("freeze", _rig.Labels(unitIds), ticks);
+                _tee?.FreezePresentation(unitIds, ticks, layers);
+            }
 
-            public void ReleasePresentation(IReadOnlyList<Id> unitIds) => Add("release", _rig.Labels(unitIds));
+            public void ReleasePresentation(IReadOnlyList<Id> unitIds)
+            {
+                Add("release", _rig.Labels(unitIds));
+                _tee?.ReleasePresentation(unitIds);
+            }
 
             public bool HasPendingPlayback => false;
 
@@ -287,6 +323,14 @@ namespace Lab
     {
         public static readonly Id ProfileId = new Id("feedback.impact_profile.lab_default");
 
+        /// <summary>
+        /// 顿帧期间冻结的表现层：骨骼/序列帧恒冻，粒子也冻（引擎宿主据此验证"顿帧期间被冻结单位名下的粒子停推进"）。
+        /// 判断记录：该声明只经反馈 sink 的 <c>FreezePresentation</c> 的 layers 参数传出，记录型假 sink 不记它，
+        /// 因此无头宿主的表现时间线与指纹不受影响；它由实验室在读入数据档案后统一覆写到每个变体上
+        /// （不放进数据行，免得改动 <c>data/_lab_action</c> 的数据集哈希、进而改动全部既有基线）。
+        /// </summary>
+        private static readonly ImpactFreezeLayers LabFreezeLayers = new ImpactFreezeLayers(true, false);
+
         public static ImpactProfile Load(IDataRegistry registry)
         {
             var record = registry.Get("feedback.impact_profile", ProfileId);
@@ -296,7 +340,15 @@ namespace Lab
                     "手感场景需要实验室冲击档案行 " + ProfileId.Value + "（表 feedback.impact_profile，随 data/_lab_action）；数据根里没有它。");
             }
 
-            return ImpactProfile.FromRecord(record);
+            var loaded = ImpactProfile.FromRecord(record);
+            var variants = new List<ImpactVariant>(loaded.Variants.Count);
+            foreach (var v in loaded.Variants)
+            {
+                variants.Add(new ImpactVariant(
+                    v.ImpactClass, v.Outcome, v.Flash, v.Vfx, v.Sfx, v.Camera, v.FloatingTextStyle, v.Trail, LabFreezeLayers, v.Intensity));
+            }
+
+            return new ImpactProfile(loaded.Id, variants);
         }
 
         public static IEnumerable<SfxDef> LoadSfxRows(IDataRegistry registry)
@@ -324,5 +376,17 @@ namespace Lab
 
             return rows;
         }
+    }
+
+    /// <summary>
+    /// 实验室的打击反馈包目录（只读出口）：引擎宿主据此在引擎侧装出同一个反馈包与手感音效目录，不另写一份。
+    /// </summary>
+    public static class LabFeedbackCatalog
+    {
+        public static Id ProfileId => LabImpactProfile.ProfileId;
+
+        public static ImpactProfile BuildProfile(IDataRegistry registry) => LabImpactProfile.Load(registry);
+
+        public static IEnumerable<SfxDef> SfxRows(IDataRegistry registry) => LabImpactProfile.LoadSfxRows(registry);
     }
 }
