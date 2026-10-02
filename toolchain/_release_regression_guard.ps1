@@ -12,7 +12,8 @@ docs/复盘/测试覆盖剩余项-2026-10-01.md 末节"拍板"）。
   1. 就是当前 HEAD；
   2. 是 HEAD 的祖先，且从该祖先到 HEAD 之间改动的所有文件都是文档类路径（见
      `Test-DocsOnlyPath`：`docs/`、`architecture/` 下任意文件，任意位置的 `*.md`（含 CHANGELOG.md、
-     REGRESSION_LOG.md）及其 `.meta`）——也就是"记录之后只追加了文档/回归记录行"。
+     REGRESSION_LOG.md）及其 `.meta`，以及 `timing/` 下的 `*.jsonl` 耗时记录）——也就是"记录之后只追加了
+     文档/回归记录行/耗时记录行"。
 
 判断记录：
 1) 记录行格式沿用 REGRESSION_LOG.md 既有的四列表格（run_id | 结果 | 提交 sha | 日期），不新增列、
@@ -40,6 +41,10 @@ function Test-DocsOnlyPath {
     $p = ($Path -replace '\\', '/').TrimStart('/')
     if ($p.StartsWith("docs/") -or $p.StartsWith("architecture/")) { return $true }
     if ($p.EndsWith(".md") -or $p.EndsWith(".md.meta")) { return $true }
+    # 登记数据：门禁（check.ps1）自动写入的耗时记录 timing/*.jsonl（AGENTS.md 第 1c 节）。文档与登记分支提交自己的
+    # 耗时行时不应让发布守卫把它当成"记录之后改了代码"而拒绝（AGENTS.md 第 1b 节末条）。只认 timing/ 下的 .jsonl，
+    # 其它位置的同后缀文件（如数据、夹具里的 jsonl）仍算非文档。
+    if ($p.StartsWith("timing/") -and $p.EndsWith(".jsonl")) { return $true }
     return $false
 }
 
