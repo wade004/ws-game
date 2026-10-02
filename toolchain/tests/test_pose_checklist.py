@@ -100,8 +100,11 @@ def test_sprint_missing_falls_back_to_run_in_report():
 def test_std_dummy_biped_has_zero_pose_issues():
     path = REPO / "data" / "_framework" / "display" / "display.anim_set.json"
     rows = json.loads(path.read_text(encoding="utf-8"))["rows"]
-    assert [r["id"] for r in rows] == ["display.anim_set.std_dummy_biped"]
+    # sprite 型与 model 型两版并列（手感设计/04 第 10 节），都必须零姿势问题
+    assert [r["id"] for r in rows] == ["display.anim_set.std_dummy_biped", "display.anim_set.std_dummy_biped_model"]
     assert _run(rows) == []
+    for row in rows:
+        assert _run([row]) == []
 
 
 def test_python_checklist_matches_csharp_source_of_truth():

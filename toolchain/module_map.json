@@ -390,6 +390,7 @@
         "level": 1,
         "steps": [
           "placeholder_assets",
+          "std_dummy_model_clips",
           "sample_import_idem",
           "import_assets_check",
           "equip_pack_check"
@@ -722,6 +723,22 @@
       "triggers": [
         "assets/**",
         "toolchain/gen_placeholder_assets.py"
+      ]
+    },
+    {
+      "id": "std_dummy_model_clips",
+      "label": "gen_std_dummy_model_clips.py --check（model 型假人姿势集：规格/数据行/引擎资产一致性）",
+      "base_tiers": [],
+      "triggers": [
+        "assets/_placeholder/std_dummy_model_clips.json",
+        "assets/_placeholder/std_dummy_poses.json",
+        "data/_framework/display/display.anim_set.json",
+        "toolchain/gen_std_dummy_model_clips.py",
+        "toolchain/std_dummy_model_clips/**",
+        "toolchain/std_dummy_poses/**",
+        "adapters/unity/Assets/Resources/GameFoundation/models/std_dummy_biped.*",
+        "adapters/unity/Assets/Resources/GameFoundation/anim_clips/std_dummy_*",
+        "adapters/unity/Assets/Editor/GenerateStdDummyModelAssets.cs"
       ]
     },
     {

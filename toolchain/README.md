@@ -614,6 +614,14 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 自带只读自检（`--check`）与每键一格缩略拼图（`--sheet`，只留本地）。用法、参数、键清单、帧数规则、判断记录与
 已知限制见 [`std_dummy_poses/README.md`](std_dummy_poses/README.md)；测试见 `tests/test_std_dummy_poses.py`。
 
+## 框架级假人姿势集生成器 model 型（`gen_std_dummy_model_clips.py`，手感设计/04 第 6.2、10 节）
+
+同一姿势集的骨骼剪辑版：与 sprite 版共用键清单、事件与姿势函数（引用不复制），产出规格
+`assets/_placeholder/std_dummy_model_clips.json` 与 `display.anim_set.std_dummy_biped_model` 数据行；引擎侧
+预制体/控制器/剪辑资产由 `adapters/unity/Assets/Editor/GenerateStdDummyModelAssets.cs` 按规格生成。自检
+（`--check`，含引擎资产 YAML 核对）登记在门禁步骤 `std_dummy_model_clips`。用法、判断记录与已知限制见
+[`std_dummy_model_clips/README.md`](std_dummy_model_clips/README.md)；测试见 `tests/test_std_dummy_model_clips.py`。
+
 ## 框架级占位装备集生成器（`gen_std_equip_set.py`，手感设计/06 第 2 节、08）
 
 单手剑/双手巨剑/匕首/弓/法杖/胸甲各一个完整装备资产包（图标 + 纸娃娃静态层图 + 逐层剪辑 + 外观/武器表现/手感/音效材质数据行

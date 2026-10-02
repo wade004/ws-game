@@ -40,6 +40,45 @@
         "cast": { "resource_ref": "sprite_anim.std_dummy_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
         "dodge": { "resource_ref": "sprite_anim.std_dummy_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] }
       }
+    },
+    {
+      "id": "display.anim_set.std_dummy_biped_model",
+      "clips": {
+        "idle": { "resource_ref": "anim.std_dummy_idle", "events": [] },
+        "idle.combat": { "resource_ref": "anim.std_dummy_idle_combat", "events": [] },
+        "move.walk": { "resource_ref": "anim.std_dummy_move_walk", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "move.run": { "resource_ref": "anim.std_dummy_move_run", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "move.run.combat": { "resource_ref": "anim.std_dummy_move_run_combat", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "idle.1h": { "resource_ref": "anim.std_dummy_idle_1h", "events": [] },
+        "idle.combat.1h": { "resource_ref": "anim.std_dummy_idle_combat_1h", "events": [] },
+        "move.walk.1h": { "resource_ref": "anim.std_dummy_move_walk_1h", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "move.run.1h": { "resource_ref": "anim.std_dummy_move_run_1h", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "move.run.combat.1h": { "resource_ref": "anim.std_dummy_move_run_combat_1h", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "idle.2h": { "resource_ref": "anim.std_dummy_idle_2h", "events": [] },
+        "idle.combat.2h": { "resource_ref": "anim.std_dummy_idle_combat_2h", "events": [] },
+        "move.walk.2h": { "resource_ref": "anim.std_dummy_move_walk_2h", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "move.run.2h": { "resource_ref": "anim.std_dummy_move_run_2h", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "move.run.combat.2h": { "resource_ref": "anim.std_dummy_move_run_combat_2h", "events": [{ "name": "footstep", "time_pct": 0.0 }, { "name": "footstep", "time_pct": 0.5 }] },
+        "attack.unarmed": { "resource_ref": "anim.std_dummy_attack_unarmed", "events": [{ "name": "active_start", "time_pct": 0.2923 }, { "name": "hit", "time_pct": 0.4 }, { "name": "active_end", "time_pct": 0.5077 }, { "name": "trail_start", "time_pct": 0.2923 }, { "name": "trail_end", "time_pct": 0.5077 }, { "name": "combo_open", "time_pct": 0.5077 }, { "name": "combo_close", "time_pct": 0.9015 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "attack.unarmed.02": { "resource_ref": "anim.std_dummy_attack_unarmed_02", "events": [{ "name": "active_start", "time_pct": 0.2923 }, { "name": "hit", "time_pct": 0.4 }, { "name": "active_end", "time_pct": 0.5077 }, { "name": "trail_start", "time_pct": 0.2923 }, { "name": "trail_end", "time_pct": 0.5077 }, { "name": "combo_open", "time_pct": 0.5077 }, { "name": "combo_close", "time_pct": 0.9015 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "attack.unarmed.03": { "resource_ref": "anim.std_dummy_attack_unarmed_03", "events": [{ "name": "active_start", "time_pct": 0.2771 }, { "name": "hit", "time_pct": 0.3855 }, { "name": "active_end", "time_pct": 0.494 }, { "name": "trail_start", "time_pct": 0.2771 }, { "name": "trail_end", "time_pct": 0.494 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "attack.1h": { "resource_ref": "anim.std_dummy_attack_1h", "events": [{ "name": "active_start", "time_pct": 0.2895 }, { "name": "hit", "time_pct": 0.3947 }, { "name": "active_end", "time_pct": 0.5 }, { "name": "trail_start", "time_pct": 0.2895 }, { "name": "trail_end", "time_pct": 0.5 }, { "name": "combo_open", "time_pct": 0.5 }, { "name": "combo_close", "time_pct": 0.9 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "attack.1h.02": { "resource_ref": "anim.std_dummy_attack_1h_02", "events": [{ "name": "active_start", "time_pct": 0.2895 }, { "name": "hit", "time_pct": 0.3947 }, { "name": "active_end", "time_pct": 0.5 }, { "name": "trail_start", "time_pct": 0.2895 }, { "name": "trail_end", "time_pct": 0.5 }, { "name": "combo_open", "time_pct": 0.5 }, { "name": "combo_close", "time_pct": 0.9 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "attack.1h.03": { "resource_ref": "anim.std_dummy_attack_1h_03", "events": [{ "name": "active_start", "time_pct": 0.2737 }, { "name": "hit", "time_pct": 0.3789 }, { "name": "active_end", "time_pct": 0.4842 }, { "name": "trail_start", "time_pct": 0.2737 }, { "name": "trail_end", "time_pct": 0.4842 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "attack.2h": { "resource_ref": "anim.std_dummy_attack_2h", "events": [{ "name": "active_start", "time_pct": 0.3036 }, { "name": "hit", "time_pct": 0.3929 }, { "name": "active_end", "time_pct": 0.4821 }, { "name": "trail_start", "time_pct": 0.3036 }, { "name": "trail_end", "time_pct": 0.4821 }, { "name": "combo_open", "time_pct": 0.4821 }, { "name": "combo_close", "time_pct": 0.8964 }, { "name": "cancel_open:dodge", "time_pct": 0.75 }] },
+        "attack.2h.02": { "resource_ref": "anim.std_dummy_attack_2h_02", "events": [{ "name": "active_start", "time_pct": 0.3036 }, { "name": "hit", "time_pct": 0.3929 }, { "name": "active_end", "time_pct": 0.4821 }, { "name": "trail_start", "time_pct": 0.3036 }, { "name": "trail_end", "time_pct": 0.4821 }, { "name": "cancel_open:dodge", "time_pct": 0.75 }] },
+        "attack": { "resource_ref": "anim.std_dummy_attack_unarmed", "events": [{ "name": "active_start", "time_pct": 0.2923 }, { "name": "hit", "time_pct": 0.4 }, { "name": "active_end", "time_pct": 0.5077 }, { "name": "trail_start", "time_pct": 0.2923 }, { "name": "trail_end", "time_pct": 0.5077 }, { "name": "combo_open", "time_pct": 0.5077 }, { "name": "combo_close", "time_pct": 0.9015 }, { "name": "cancel_open:dodge", "time_pct": 0.65 }] },
+        "hit": { "resource_ref": "anim.std_dummy_hit", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "hit.light": { "resource_ref": "anim.std_dummy_hit_light", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "hit.heavy": { "resource_ref": "anim.std_dummy_hit_heavy", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "hit.knockback": { "resource_ref": "anim.std_dummy_hit_knockback", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "hit.knockdown": { "resource_ref": "anim.std_dummy_hit_knockdown", "events": [{ "name": "impact", "time_pct": 0.0 }] },
+        "hit.getup": { "resource_ref": "anim.std_dummy_hit_getup", "events": [] },
+        "death": { "resource_ref": "anim.std_dummy_death", "events": [] },
+        "jump": { "resource_ref": "anim.std_dummy_jump", "events": [] },
+        "cast": { "resource_ref": "anim.std_dummy_cast", "events": [{ "name": "release", "time_pct": 0.4167 }] },
+        "dodge": { "resource_ref": "anim.std_dummy_dodge", "events": [{ "name": "motion_start", "time_pct": 0.15 }, { "name": "invuln_start", "time_pct": 0.15 }, { "name": "invuln_end", "time_pct": 0.6 }, { "name": "motion_end", "time_pct": 0.75 }] }
+      }
     }
   ]
 }
