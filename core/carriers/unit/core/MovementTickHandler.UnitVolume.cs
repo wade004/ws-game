@@ -94,6 +94,9 @@ namespace Core.Carriers.Unit
             public Unit? Unit;
             public bool Active;
             public bool Ghost;
+
+            /// <summary>穿过式位移的最后一个 tick：落点必须在别的单位体积之外（见 UnitVolumeGhost）。</summary>
+            public bool GhostLanding;
             public Vec2 Delta;
             public double Scale;
             public bool PulledBack;
@@ -155,6 +158,14 @@ namespace Core.Carriers.Unit
 
         // 本遍求解里"分类起了作用"：某次扫掠/守卫的几何上碰到了一个单位的体积，而这个单位是否当作静止障碍决定了结果（见 VolumePasses 文件头）。
         private bool _volSensitive;
+
+        /// <summary>
+        /// 阶段 B 的"同 tick 推人"微阶段（见 ApplyPendingPushes）：被推单位用真实的受控位移推进一个 tick，扫掠读的是别的单位已裁决完的最终位置
+        /// （<see cref="VolumeBody.Final"/>）而不是 tick 起点快照，宽相网格（按起点建的）不用，本阶段的接触不计入分类敏感性。
+        /// </summary>
+        private bool _microPhase;
+
+        private Vec2 BodyAt(VolumeBody b) => _microPhase ? b.Final : b.Start;
 
         // 阶段 A 扫掠用的候选下标缓冲（扫掠与守卫不嵌套，各一个）。
         private int[] _candSweep = new int[16];
@@ -340,7 +351,7 @@ namespace Core.Carriers.Unit
                 buffer = new int[Math.Max(n, buffer.Length * 2)];
             }
 
-            if (VolumeBroadPhaseBruteForce || n <= 8)
+            if (VolumeBroadPhaseBruteForce || _microPhase || n <= 8)
             {
                 for (var i = 0; i < n; i++) buffer[i] = i;
                 return n;
@@ -534,7 +545,7 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                var center = entry.Start;
+                var center = BodyAt(entry);
                 var sum = selfRadius + entry.Radius;
                 var f = from - center;
                 var c = f.Dot(f) - sum * sum;
@@ -579,11 +590,11 @@ namespace Core.Carriers.Unit
                 // （见 VolumeBody.Free）：与它的接触留给阶段 B 按最终位置求解。
                 if (entry.Free)
                 {
-                    _volSensitive = true;
+                    _volSensitive |= !_microPhase;
                     continue;
                 }
 
-                _volSensitive = true;
+                _volSensitive |= !_microPhase;
 
                 // 同距离命中保留 id 更小的那个（快照按 id 排序、候选按下标升序、严格小于才替换）：结果不依赖单位处理顺序。
                 if (s < best)
@@ -621,7 +632,7 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                var center = entry.Start;
+                var center = BodyAt(entry);
                 var sum = selfRadius + entry.Radius;
                 var endDist = (end - center).Length;
                 if (endDist >= sum - tolerance)
@@ -635,7 +646,7 @@ namespace Core.Carriers.Unit
                     continue; // 起点本来就在里面，这次没有更深。
                 }
 
-                _volSensitive = true;
+                _volSensitive |= !_microPhase;
                 if (entry.Free)
                 {
                     continue; // 会动的单位这一遍不是静止障碍（同 SweepVolumes）。
@@ -968,7 +979,7 @@ namespace Core.Carriers.Unit
                 return false;
             }
 
-            var center = hitBody.Start;
+            var center = BodyAt(hitBody);
             var sum = selfRadius + hitBody.Radius;
             if ((goal - center).Length < sum + 2.0 * _options.ArrivalEpsilon)
             {

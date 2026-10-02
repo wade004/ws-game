@@ -97,6 +97,7 @@ namespace Core.Carriers.Unit
                 body.Unit = unit;
                 body.Active = unit != null && !world.IsPendingDestruction(body.Id) && unit.Alive;
                 body.Ghost = false;
+                body.GhostLanding = false;
                 body.PulledBack = false;
                 body.Scale = 1.0;
                 var current = body.Active ? unit!.Position : body.Start;
@@ -106,13 +107,14 @@ namespace Core.Carriers.Unit
                 {
                     var t = GetMotionTick(unit!);
                     body.Ghost = t != null && t.PassedThroughUnits;
+                    body.GhostLanding = body.Ghost && t!.PassThroughEnds;
                 }
             }
 
             ResolveMovedPairs();
             CapturePassOutcome();
             ResolveSeparation(dt);
-            ApplyPendingPushes(world);
+            ApplyPendingPushes(world, dt);
             FlushMovedEvents();
             FlushDeferredStops();
         }
@@ -251,20 +253,37 @@ namespace Core.Carriers.Unit
             return Trajectory.Chord(b.Start, b.Final);
         }
 
+        /// <summary>幽灵（穿过式位移）落点修正与成对裁决互相迭代的最大轮数（落点变化 → 别人的裁决变化 → 落点再校验）。</summary>
+        private const int GhostRounds = 4;
+
         private void ResolveMovedPairs()
         {
             var n = _volumes.Count;
             var participants = new List<int>();
             var trajs = new Trajectory[n];
+            var proposal = new Vec2[n];
+            var ghostPos = new Vec2[n];
             var anyMover = false;
+            var anyLanding = false;
             for (var i = 0; i < n; i++)
             {
                 var b = _volumes[i];
-                if (b.Active && !b.Ghost)
+                proposal[i] = b.Final;
+                ghostPos[i] = b.Final;
+                if (b.Active)
                 {
                     participants.Add(i);
-                    trajs[i] = BuildTrajectory(b);
-                    anyMover |= trajs[i].Length > 0.0;
+                    if (b.Ghost)
+                    {
+                        // 幽灵本 tick 穿过别人：自己的位移不参与撞停；但别人的成对裁决看得到它的最终位置（当作静止的体积）。
+                        trajs[i] = Trajectory.Still(b.Final);
+                        anyLanding |= b.GhostLanding;
+                    }
+                    else
+                    {
+                        trajs[i] = BuildTrajectory(b);
+                        anyMover |= trajs[i].Length > 0.0;
+                    }
                 }
                 else
                 {
@@ -272,7 +291,7 @@ namespace Core.Carriers.Unit
                 }
             }
 
-            if (!anyMover || participants.Count < 2)
+            if ((!anyMover && !anyLanding) || participants.Count < 2)
             {
                 return;
             }
@@ -280,41 +299,109 @@ namespace Core.Carriers.Unit
             var a = new Vec2[n];
             var reach = new double[n];
             var scale = new double[n];
-            for (var i = 0; i < n; i++)
-            {
-                a[i] = _volumes[i].Start;
-                reach[i] = _volumes[i].Radius + trajs[i].Length;
-                scale[i] = 1.0;
-            }
-
+            var pullNormal = new Vec2[n];
+            var hasPull = new bool[n];
+            var finals = new Vec2[n];
             var near = new List<(int I, int J)>();
-            CollectNearPairs(participants, a, reach, near);
             var pairs = new List<(int I, int J)>();
-            for (var k = 0; k < near.Count; k++)
+            for (var round = 0; round <= GhostRounds; round++)
             {
-                if (trajs[near[k].I].Length > 0.0 || trajs[near[k].J].Length > 0.0)
+                for (var i = 0; i < n; i++)
                 {
-                    pairs.Add(near[k]);
+                    var b = _volumes[i];
+                    if (b.Active && b.Ghost)
+                    {
+                        trajs[i] = Trajectory.Still(ghostPos[i]);
+                        a[i] = ghostPos[i];
+                    }
+                    else
+                    {
+                        a[i] = b.Start;
+                    }
+
+                    reach[i] = b.Radius + trajs[i].Length;
+                    scale[i] = 1.0;
+                    hasPull[i] = false;
+                }
+
+                near.Clear();
+                pairs.Clear();
+                CollectNearPairs(participants, a, reach, near);
+                for (var k = 0; k < near.Count; k++)
+                {
+                    if (trajs[near[k].I].Length > 0.0 || trajs[near[k].J].Length > 0.0)
+                    {
+                        pairs.Add(near[k]);
+                    }
+                }
+
+                if (pairs.Count > 0)
+                {
+                    SolveContactScales(
+                        trajs, scale, pairs, (index, s) => trajs[index].Legs <= 0 || ValidTruncation(trajs[index], index, s),
+                        pullNormal, hasPull);
+                }
+
+                for (var i = 0; i < n; i++)
+                {
+                    var b = _volumes[i];
+                    finals[i] = b.Active && b.Ghost
+                        ? ghostPos[i]
+                        : (b.Active && scale[i] < 1.0 && trajs[i].Legs > 0 ? trajs[i].At(scale[i]) : (b.Active ? proposal[i] : b.Start));
+                }
+
+                if (!anyLanding)
+                {
+                    break;
+                }
+
+                // 幽灵落点修正：窗口最后一个 tick 的幽灵不得终止在别的单位体积里（别人的最终位置已定），就近挪到可行位置；
+                // 落点变了，别人的成对裁决要对新落点重算（下一轮）。按快照下标顺序逐个修正，结果与处理顺序无关。
+                var changed = false;
+                for (var k = 0; k < participants.Count; k++)
+                {
+                    var i = participants[k];
+                    var b = _volumes[i];
+                    if (!(b.Ghost && b.GhostLanding))
+                    {
+                        continue;
+                    }
+
+                    if (TryRelocateGhost(i, finals, out var landing) && !landing.Equals(ghostPos[i]))
+                    {
+                        ghostPos[i] = landing;
+                        finals[i] = landing;
+                        changed = true;
+                    }
+                }
+
+                if (!changed)
+                {
+                    break;
                 }
             }
 
-            if (pairs.Count == 0)
-            {
-                return;
-            }
-
-            var pullNormal = new Vec2[n];
-            var hasPull = new bool[n];
-            SolveContactScales(trajs, scale, pairs, (index, s) => ValidTruncation(trajs[index], index, s), pullNormal, hasPull);
             for (var k = 0; k < participants.Count; k++)
             {
                 var i = participants[k];
+                var b = _volumes[i];
+                if (b.Ghost)
+                {
+                    if (!ghostPos[i].Equals(proposal[i]))
+                    {
+                        b.Final = ghostPos[i];
+                        _units.SetPosition(b.Id, ghostPos[i]);
+                        _movedDeferredSet.Add(b.Id);
+                    }
+
+                    continue;
+                }
+
                 if (scale[i] >= 1.0)
                 {
                     continue;
                 }
 
-                var b = _volumes[i];
                 var p = trajs[i].At(scale[i]);
                 b.Scale = scale[i];
                 b.PulledBack = true;
@@ -385,7 +472,7 @@ namespace Core.Carriers.Unit
             for (var i = 0; i < n; i++)
             {
                 var b = _volumes[i];
-                if (b.Active && !b.Ghost)
+                if (b.Active && (!b.Ghost || b.GhostLanding))
                 {
                     participants.Add(i);
                 }
@@ -980,7 +1067,7 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            var toTarget = body.Start - volume.End;
+            var toTarget = BodyAt(body) - volume.End;
             var distance = toTarget.Length;
             if (distance <= ZeroLengthEpsilon)
             {
@@ -1001,29 +1088,109 @@ namespace Core.Carriers.Unit
                 disp.DurationSeconds, disp.SampleStep));
         }
 
-        private void ApplyPendingPushes(IWorldSim world)
+        /// <summary>同 tick 推人的连锁轮数上限（被推的单位又把别人推出去，每轮一批）；超出的推人退回"下一 tick 起推进"。</summary>
+        private const int PushRounds = 8;
+
+        /// <summary>
+        /// 受控位移推人在<b>同一 tick</b> 生效：被推单位（同一目标的多个推人先按向量和合并）开一段受控位移后，立刻用真实的受控位移推进（
+        /// <see cref="AdvanceDisplacement"/>，地形、体积、到达/受阻事件与下一 tick 起的推进同一套代码）走完这个 tick 的位移——不再等到下一 tick。
+        /// 一轮里所有被推单位互相是"会动的"（不当静止障碍），对别的单位按它们已裁决完的最终位置扫掠（<see cref="_microPhase"/>），所以一轮的结果
+        /// 与被推单位的处理顺序无关；被推单位之间在一轮结束后按它们这个 tick 的位移弦做一次成对接触求解（<see cref="SolveContactScales"/>，
+        /// 与阶段 B 主体同一个求解器），互相撞上的缩短位移、结束位移（受阻）。被推单位自己的位移被体积挡住又触发推人时进入下一轮（连锁，
+        /// <see cref="PushRounds"/> 轮封顶，余下的退回下一 tick 起推进）。
+        /// </summary>
+        private void ApplyPendingPushes(IWorldSim world, double dt)
         {
-            if (_pendingPushes.Count == 0)
+            for (var round = 0; round < PushRounds && _pendingPushes.Count > 0; round++)
             {
-                return;
+                var batch = new List<PendingPush>(_pendingPushes);
+                _pendingPushes.Clear();
+                var targets = AggregatePushes(world, batch);
+                if (targets.Count == 0)
+                {
+                    continue;
+                }
+
+                var pushed = new List<(Unit Unit, VolumeBody? Body, Vec2 Before)>();
+                var free = new HashSet<Id>();
+                for (var k = 0; k < targets.Count; k++)
+                {
+                    var (unit, sum, length, best) = targets[k];
+                    BeginPushedDisplacement(unit, sum, length, best);
+                    _volumeById.TryGetValue(unit.EntityId, out var body);
+                    pushed.Add((unit, body, unit.Position));
+                    free.Add(unit.EntityId);
+                }
+
+                if (!VolumeSnapshotCurrent)
+                {
+                    continue; // 本 tick 没有体积快照（理论上不会发生，推人只来自体积裁决）：只开了位移，下一 tick 起推进。
+                }
+
+                var wasFree = new bool[_volumes.Count];
+                for (var i = 0; i < _volumes.Count; i++)
+                {
+                    wasFree[i] = _volumes[i].Free;
+                    _volumes[i].Free = free.Contains(_volumes[i].Id);
+                }
+
+                _microPhase = true;
+                try
+                {
+                    for (var k = 0; k < pushed.Count; k++)
+                    {
+                        AdvanceDisplacement(pushed[k].Unit, dt, false);
+                        if (pushed[k].Body != null)
+                        {
+                            pushed[k].Body!.Final = pushed[k].Unit.Position;
+                        }
+                    }
+
+                    ResolvePushedPairs(pushed);
+                }
+                finally
+                {
+                    _microPhase = false;
+                    for (var i = 0; i < _volumes.Count; i++)
+                    {
+                        _volumes[i].Free = wasFree[i];
+                    }
+                }
             }
 
-            _pendingPushes.Sort((p, q) =>
+            if (_pendingPushes.Count > 0)
+            {
+                // 连锁超出轮数上限：余下的推人只开位移（下一 tick 起推进）。
+                var rest = new List<PendingPush>(_pendingPushes);
+                _pendingPushes.Clear();
+                var targets = AggregatePushes(world, rest);
+                for (var k = 0; k < targets.Count; k++)
+                {
+                    BeginPushedDisplacement(targets[k].Unit, targets[k].Sum, targets[k].Length, targets[k].Best);
+                }
+            }
+        }
+
+        /// <summary>同一目标的多个推人合并成向量和（按目标 id、推人者 id 排序，顺序无关）；已死亡、销毁、正在受控位移的目标不被推。</summary>
+        private List<(Unit Unit, Vec2 Sum, double Length, PendingPush Best)> AggregatePushes(IWorldSim world, List<PendingPush> batch)
+        {
+            var result = new List<(Unit, Vec2, double, PendingPush)>();
+            batch.Sort((p, q) =>
             {
                 var c = p.Target.CompareTo(q.Target);
                 return c != 0 ? c : p.Pusher.CompareTo(q.Pusher);
             });
 
             var i = 0;
-            while (i < _pendingPushes.Count)
+            while (i < batch.Count)
             {
-                var target = _pendingPushes[i].Target;
+                var target = batch[i].Target;
                 var sum = Vec2.Zero;
-                var best = _pendingPushes[i];
+                var best = batch[i];
                 var j = i;
-                while (j < _pendingPushes.Count && _pendingPushes[j].Target.Equals(target))
+                while (j < batch.Count && batch[j].Target.Equals(target))
                 {
-                    var push = _pendingPushes[j];
+                    var push = batch[j];
                     sum = sum + push.Vector;
                     if (push.Vector.Length > best.Vector.Length)
                     {
@@ -1046,10 +1213,102 @@ namespace Core.Carriers.Unit
                     continue;
                 }
 
-                BeginPushedDisplacement(unit, sum, length, best);
+                result.Add((unit, sum, length, best));
             }
 
-            _pendingPushes.Clear();
+            return result;
+        }
+
+        /// <summary>
+        /// 一轮推人之后，被推单位这个 tick 的位移弦（推之前 → 推之后）与全体单位的最终位置做成对接触求解：被推单位之间相互撞上（或撞上
+        /// 位移前没有被扫掠算到的单位）时按同一比例缩短、结束受控位移（受阻，位置是缩短后的位置）。
+        /// </summary>
+        private void ResolvePushedPairs(List<(Unit Unit, VolumeBody? Body, Vec2 Before)> pushed)
+        {
+            var n = _volumes.Count;
+            var trajs = new Trajectory[n];
+            var participants = new List<int>();
+            var movers = new bool[n];
+            var a = new Vec2[n];
+            var reach = new double[n];
+            var scale = new double[n];
+            var any = false;
+            for (var i = 0; i < n; i++)
+            {
+                var b = _volumes[i];
+                trajs[i] = Trajectory.Still(b.Active ? b.Final : b.Start);
+                if (b.Active)
+                {
+                    participants.Add(i);
+                }
+            }
+
+            for (var k = 0; k < pushed.Count; k++)
+            {
+                var body = pushed[k].Body;
+                if (body == null || !body.Active)
+                {
+                    continue;
+                }
+
+                var chord = Trajectory.Chord(pushed[k].Before, body.Final);
+                if (chord.Length > 0.0)
+                {
+                    trajs[body.Index] = chord;
+                    movers[body.Index] = true;
+                    any = true;
+                }
+            }
+
+            if (!any)
+            {
+                return;
+            }
+
+            for (var i = 0; i < n; i++)
+            {
+                a[i] = trajs[i].Pts[0];
+                reach[i] = _volumes[i].Radius + trajs[i].Length;
+                scale[i] = 1.0;
+            }
+
+            var near = new List<(int I, int J)>();
+            CollectNearPairs(participants, a, reach, near);
+            var pairs = new List<(int I, int J)>();
+            for (var k = 0; k < near.Count; k++)
+            {
+                if (movers[near[k].I] || movers[near[k].J])
+                {
+                    pairs.Add(near[k]);
+                }
+            }
+
+            if (pairs.Count == 0)
+            {
+                return;
+            }
+
+            SolveContactScales(
+                trajs, scale, pairs,
+                (index, s) => !movers[index] || _navigation == null || _volumes[index].Unit == null ||
+                              _navigation.IsWalkable(_volumes[index].Unit!.MapId, trajs[index].At(s)));
+            for (var k = 0; k < pushed.Count; k++)
+            {
+                var body = pushed[k].Body;
+                if (body == null || !movers[body.Index] || !(scale[body.Index] < 1.0))
+                {
+                    continue;
+                }
+
+                var p = trajs[body.Index].At(scale[body.Index]);
+                body.Final = p;
+                _units.SetPosition(body.Id, p);
+                _movedDeferredSet.Add(body.Id);
+                if (pushed[k].Unit.MovementState.Displacement.HasValue)
+                {
+                    EndDisplacement(pushed[k].Unit, MoveStopReason.DisplacementBlocked);
+                }
+            }
         }
 
         /// <summary>
@@ -1144,8 +1403,8 @@ namespace Core.Carriers.Unit
         }
 
         /// <summary>
-        /// 写运动学状态：被阶段 B 缩短位移的单位速度归零（撞停），仍在沿路径走的单位路径下标退回本 tick 开始的位置
-        /// （路径与 tick 开始时是同一条才退——新建的路径没有"之前"）。
+        /// 写运动学状态：被阶段 B 缩短位移的单位保留沿接触面的切向速度（法向分量清零；没有法线可用时整体清零），仍在沿路径走的单位
+        /// 路径进度回到被缩短后的位置（<see cref="RestorePathProgress"/>）。
         /// </summary>
         private void WriteDeferredKin()
         {
@@ -1156,17 +1415,18 @@ namespace Core.Carriers.Unit
                 var kin = item.Kin;
                 if (_volumeById.TryGetValue(unit.EntityId, out var body) && body.PulledBack)
                 {
-                    kin = new MotionKinematics(Vec2.Zero, kin.DesiredDirection, kin.Mode, kin.BaseMode, kin.Source, kin.BaseSpeed);
-                    var state = unit.MovementState;
-                    // 路径下标退到"缩短后的位置之前最后走完的路点"（阶段 A 记下了每条边走完时的下标）；没有记录时退回 tick 开始时的下标。
-                    var restoreIndex = body.RestoreIndex >= item.Tick.StartPathIndex ? body.RestoreIndex : item.Tick.StartPathIndex;
-                    if (state.CurrentPath != null && ReferenceEquals(state.CurrentPath, item.Tick.StartPath) &&
-                        state.PathIndex > restoreIndex && !state.Displacement.HasValue)
+                    var velocity = Vec2.Zero;
+                    if (body.HasPullNormal)
                     {
-                        unit.MovementState = new MovementState(
-                            state.CurrentPath, state.Mode, state.MovementLocked, restoreIndex, state.NavVersion,
-                            null, state.Chase, state.RequestedTarget, state.Motion);
+                        // 撞上的法线方向（从对方指向本单位）：速度朝向对方的分量清零，沿接触面的切向分量保留（贴着对方滑过去，不是撞停归零）。
+                        var into = kin.Velocity.Dot(body.PullNormal);
+                        velocity = into < 0.0
+                            ? new Vec2(kin.Velocity.X - body.PullNormal.X * into, kin.Velocity.Y - body.PullNormal.Y * into)
+                            : kin.Velocity;
                     }
+
+                    kin = new MotionKinematics(velocity, kin.DesiredDirection, kin.Mode, kin.BaseMode, kin.Source, kin.BaseSpeed);
+                    RestorePathProgress(unit, item.Tick, body);
                 }
 
                 if (!SameKinematics(unit.MovementState.Motion, kin))
@@ -1176,6 +1436,57 @@ namespace Core.Carriers.Unit
             }
 
             _deferredKin.Clear();
+        }
+
+        /// <summary>
+        /// 路径进度回到被缩短后的位置：阶段 A 记下了轨迹里每条边走完时的路径下标与路径对象本身（<see cref="VolumeBody.TrailPath"/>），
+        /// 所以不依赖"路径与 tick 开始时是同一条"——本 tick 新建的路径、替换过的路径一样退回到被缩短位置之前最后走完的路点。
+        /// 本 tick 走到终点（状态已写成到达/Idle）而被拉回时，到达作废：状态退回仍沿原路径走的"未到达"，撤销到达事件。
+        /// 追击把走完的路径清空时同样把路径接回（追击目标与状态不变）。
+        /// </summary>
+        private void RestorePathProgress(Unit unit, MotionTick tick, VolumeBody body)
+        {
+            var trailPath = body.TrailPath;
+            var state = unit.MovementState;
+            if (trailPath == null || state.Displacement.HasValue)
+            {
+                return;
+            }
+
+            var restoreIndex = body.RestoreIndex >= body.TrailStartIndex ? body.RestoreIndex : body.TrailStartIndex;
+            if (restoreIndex >= trailPath.Count)
+            {
+                return; // 缩短后仍走完了全部路点（容差内）：到达有效。
+            }
+
+            if (state.CurrentPath != null)
+            {
+                if (ReferenceEquals(state.CurrentPath, trailPath) && state.PathIndex > restoreIndex)
+                {
+                    unit.MovementState = new MovementState(
+                        state.CurrentPath, state.Mode, state.MovementLocked, restoreIndex, state.NavVersion,
+                        null, state.Chase, state.RequestedTarget, state.Motion);
+                }
+
+                return;
+            }
+
+            if (state.Chase.HasValue)
+            {
+                unit.MovementState = new MovementState(
+                    trailPath, state.Mode, state.MovementLocked, restoreIndex, state.NavVersion,
+                    null, state.Chase, state.RequestedTarget, state.Motion);
+                return;
+            }
+
+            var template = body.UnarriveTemplate;
+            if (template.HasValue && ReferenceEquals(template.Value.CurrentPath, trailPath))
+            {
+                var t = template.Value;
+                unit.MovementState = new MovementState(
+                    t.CurrentPath, t.Mode, state.MovementLocked, restoreIndex, t.NavVersion, null, null, t.RequestedTarget, state.Motion);
+                OutboxCancel(body.ArrivalOutboxIndex);
+            }
         }
     }
 }

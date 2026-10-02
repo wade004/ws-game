@@ -130,31 +130,32 @@ namespace Tests.Carriers.Unit
         }
 
         [Fact]
-        public void Separation_TheBodiesLeftByAPassThroughDash_ArePushedOutAfterTheWindow_NotDuring()
+        public void Separation_TheBodiesLeftByAnInterruptedPassThroughDash_ArePushedOutAfterTheWindow_NotDuring()
         {
-            // 冲刺 6.5，假人在 6.0（半径之和 2）：落点在假人体积里，深度 1.5。
+            // 冲刺 6.5 分 4 个 tick（每 tick 1.625），假人在 6.0（半径之和 2）：第 3 个 tick 之后英雄在 4.875，落在假人体积里，深度 0.875。
+            // 窗口被打断（第 4 个 tick 起没有动作）时落点没有经过"窗口最后一个 tick 的落点修正"，由重叠分离接管：窗口内不分离、窗口后才推出。
             var fx = BuildVolumes(new Vec2(6.0, 0));
             fx.Set(FeelFieldNames.DodgeThroughUnits, true);
             SetUnitField(fx, DummyId, FeelFieldNames.UnitSeparationSpeedRatio, FeelValue.Of(0.0)); // 假人不被推，英雄一个人出来
-            var motion = Lunge(6.5, 0, 2, new Vec2(1, 0), kind: ActionMotionKind.Dash);
+            var motion = Lunge(6.5, 0, 4, new Vec2(1, 0), kind: ActionMotionKind.Dash);
             var dummyAt = fx.Units.GetPosition(DummyId);
             var gaps = new List<double>();
             for (var i = 0; i < 20; i++)
             {
-                fx.Actions.State = i < 4 ? Act(i, motion) : (ActionState?)null;
+                fx.Actions.State = i < 3 ? Act(i, motion) : (ActionState?)null;
                 fx.Tick();
                 gaps.Add(GapToDummy(fx));
                 Assert.Equal(dummyAt, fx.Units.GetPosition(DummyId));
             }
 
-            // 窗口内（前两个 tick）幽灵穿过、没有被分离干扰：窗口结束时中心距就是穿过后的落点距离，之后才被推开。
-            Near(0.5, gaps[1], 1e-9);
-            var firstOutside = gaps.FindIndex(2, g => g >= SumRadius - 1e-9);
-            Assert.True(firstOutside > 2, "窗口之后才开始被推出体积（落在体积里的那几个 tick 里中心距逐步变大）");
-            Assert.True(gaps[2] > gaps[1] + 1e-9, "窗口结束后的第一个 tick 就开始分离");
+            // 窗口内（前三个 tick）幽灵穿过、没有被分离干扰：窗口中断时中心距就是穿过后的落点距离，之后才被推开。
+            Near(6.0 - 6.5 * 3.0 / 4.0, gaps[2], 1e-9);
+            var firstOutside = gaps.FindIndex(3, g => g >= SumRadius - 1e-9);
+            Assert.True(firstOutside > 3, "窗口之后才开始被推出体积（落在体积里的那几个 tick 里中心距逐步变大）");
+            Assert.True(gaps[3] > gaps[2] + 1e-9, "窗口结束后的第一个 tick 就开始分离");
             Assert.True(gaps[gaps.Count - 1] >= SumRadius - 1e-9, $"最终分开：{gaps[gaps.Count - 1]:R}");
-            for (var k = 3; k < gaps.Count; k++) Assert.True(gaps[k] >= gaps[k - 1] - 1e-9);
-            Assert.True(fx.Pos.X > 6.0, "英雄从假人另一侧出来（沿连线方向被推出）");
+            for (var k = 4; k < gaps.Count; k++) Assert.True(gaps[k] >= gaps[k - 1] - 1e-9);
+            Assert.True(fx.Pos.X < 6.0, "英雄从假人这一侧被推出（沿连线方向，本来就在这一侧）");
         }
 
         // ================================================================== 2 路径跟随与追击绕行
