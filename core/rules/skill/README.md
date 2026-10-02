@@ -1814,7 +1814,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 
 ## 手感落地 M4-G：施法瞄点上报与技能射程查询（2026-10-03）
 
-`CastPipeline` 对携带宽限条件的施法请求（对单位 `CastSkillWithContext` 的 `targets[0]`、地面 `CastSkillAtGround` 的落点）在步骤 7 之前向宽限查询对象（若实现 `IGraceAimSink`）报告瞄点与技能射程；没有携带宽限条件的请求不上报，行为不变。新增 `SkillHost.GetSkillRange(skillId)`（技能定义的射程，未知技能为 0）。装配与语义见 `core/carriers/assembly/README.md` M4-G 节。
+`CastPipeline` 对携带宽限条件的施法请求（对单位 `CastSkillWithContext` 的 `targets[0]`、地面 `CastSkillAtGround` 的落点；M4-W3 起还包括请求没带目标、由目标链解析出来的 `resolvedTargets[0]`）在步骤 7 之前向宽限查询对象（若实现 `IGraceAimSink`）报告瞄点与技能射程；没有携带宽限条件的请求不上报，行为不变（这是设计决定：瞄点属于携带宽限条件的请求，见 `core/foundation/input_map/README.md` M4-W3 节第 2 条）。新增 `SkillHost.GetSkillRange(skillId)`（技能定义的射程，未知技能为 0）。装配与语义见 `core/carriers/assembly/README.md` M4-G 节。
 
 ## 手感落地 M4-L：`ActionStepSeconds` 由装配回填
 

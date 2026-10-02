@@ -250,6 +250,15 @@ input_map/
 
 1. **瞄点只作用于依赖目标的条件**：`UsesAim` 为真的条件，历史按瞄点归属——瞄点换成另一个单位/另一个落点，该条件的历史清零并以新瞄点即刻探测一次；与瞄点无关的条件（如 `enemies.nearest_distance`）历史不受影响。理由：同一份"最近为真"历史混用不同目标会让"目标 A 刚在射程内"放行对目标 B 的施法，这是与设计相悖的误放行。
 2. **瞄点等于缺省目标（自动攻击目标）时不算换瞄点**：沿用此前以缺省目标采样积累的历史，缺省行为不变。瞄点的寿命取 `max(1, grace_ticks)` 个 tick，过期回落到缺省目标，所以历史只在窗口内有意义。
-3. **缓冲惰性分配**：`RegisterActor` 公开行为不变（显式调用仍分配）；生产装配只在已有动作声明宽限条件时才对世界里的单位登记，没有声明时一个缓冲都不建（单位数 N -> 分配 0）；之后条件被声明（热加载）时再补登记已有单位。
+3. **缓冲惰性分配**：生产装配只在已有动作声明宽限条件时才对世界里的单位登记，没有声明时一个单位都不登记（单位数 N -> 登记 0、缓冲 0）；之后条件被声明（热加载）时再补登记已有单位。显式 `RegisterActor` 的惰性语义见下方 M4-W3 节第 3 条。
 
 用例：`core/foundation/input_map/tests/GraceAimTests.cs`（瞄点优先于缺省目标、历史归属瞄点、窗口边界随 `grace_ms`、旧求值器不受影响）、`core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（内置条件、缺省目标回落、缓冲分配数）。
+
+## 手感落地 M4-W3：宽限瞄点与登记的收口（2026-10-03）
+
+M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
+
+1. **链式解析出来的目标也记为瞄点（实现）**：`CastPipeline` 在目标链解析出目标之后（请求没带目标、步骤 7 之前）按同一个记录出口 `NoteGraceAim` 报告 `resolvedTargets[0]`——与带显式目标的请求同一套归属规则（换了瞄点依赖目标的条件历史作废，等于缺省目标或上一个瞄点则历史保留）。此前连锁技能/自动选敌的施法只能用缺省目标的历史。复现与不变量：`FeelGraceBuiltinTests.AChainResolvedTarget_IsRecordedAsTheAim_AndGivesTheWindowForThatTarget`（窗口边界 1..grace_ticks 由 `grace_ms` 换算规则算出）、`AChainResolvedTargetThatChanges_DropsTheOldTargetsHistory`。
+2. **瞄点只对携带宽限条件的请求记录（设计决定，不是遗漏）**：瞄点是"这次施法请求自己的目标"，只被宽限条件的求值读取；不携带宽限条件的请求没有任何读取方，记录它只会让一次无关的普通施法（例如对另一个单位的普攻）改写行动者的瞄点、作废依赖目标的条件历史，让"没有声明宽限的游戏"的行为与引入宽限前不再逐位一致。理由与"没有声明就不采样"同一条原则：宽限是声明式的，不声明就不产生任何副作用。不变量：`FeelGraceBuiltinTests.ACastWithoutGraceConditions_NeverTouchesTheAimOrTheHistory`（对 A 的带条件施法之后，对 B 的无条件施法前后瞄点与最近为真 tick 都不变）。
+3. **显式 `RegisterActor` 同样惰性分配（实现）**：`RegisterActor` 只把行动者 id 记入"已登记"集合（`IsActorRegistered`、`ActorIds` 的口径不变，顺序仍是登记顺序），缓冲对象等到该行动者第一次真有边沿（`Press`/`Release`/`Submit`）才建；`BeginTick` 对没有缓冲的已登记行动者跳过。"显式登记即可采样"语义不变（宽限追踪按已登记行动者采样，不依赖缓冲槽）。因此显式登记 N 个单位 `ActorBuffersAllocated` 仍为 0。`RemoveActor` 同时清登记与缓冲。用例：`GraceRemainingAndRegistrationTests` 的两条惰性登记用例、`FeelGraceBuiltinTests` 的分配数用例（重写为新语义：登记的 id 都在记录里、缓冲只在首个边沿分配）。
+4. **无头世界视线（实现，可选）**：见 `core/carriers/assembly/README.md` M4-W3 节（`HeadlessWorldOptions.NavigationLineOfSight`）。

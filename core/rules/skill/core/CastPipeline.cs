@@ -682,6 +682,14 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.NoValidTarget, presetCastInstanceId);
             }
 
+            // 手感落地 M4-W3：请求没有携带目标、由技能自己的目标链解析出目标时，链解析出的首个目标同样是这次施法的瞄点——与请求携带目标
+            // （CastSkillWithContext 在入口记瞄点）同一个记录出口、同一套归属规则：换了瞄点依赖目标的宽限条件历史作废，等于缺省目标/上一个瞄点则历史保留。
+            // 必须在步骤 7 的宽限判定之前记，使条件历史与本次施法对齐；没有携带宽限条件的请求（含全部既有调用方）不记，行为不变。
+            if (_graceConditions != null && targets.Count == 0)
+            {
+                NoteGraceAim(casterId, skillId, resolvedTargets[0], null);
+            }
+
             // 步骤 7：距离与视线（Range == 0 表示无限制/作用于自身，见 06 第 3.1 节）
             if (def.Range > 0)
             {

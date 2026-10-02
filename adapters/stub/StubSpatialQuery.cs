@@ -143,8 +143,29 @@ namespace Adapters.Stub
             return closest == null ? (Id?)null : closest.Id;
         }
 
-        /// <summary>桩实现默认视线永不受阻；如需模拟遮挡，可在测试子类中覆盖或另行扩展。</summary>
-        public bool HasLineOfSight(Vec2 from, Vec2 to) => true;
+        private Func<Vec2, Vec2, bool>? _lineOfSightBlocker;
+
+        /// <summary>
+        /// 桩实现默认视线永不受阻（没有注入遮挡判定时恒为 <c>true</c>，既有行为逐位不变）；注入了遮挡判定（<see cref="SetLineOfSightBlocker"/>、
+        /// <see cref="UseNavigationLineOfSight"/>）后，两点连线被遮挡即无视线。
+        /// </summary>
+        public bool HasLineOfSight(Vec2 from, Vec2 to) => _lineOfSightBlocker == null || !_lineOfSightBlocker(from, to);
+
+        /// <summary>
+        /// 非契约方法（同 <c>UnitySpatialQuery.SetLineOfSightBlocker</c>）：注入"两点间是否有遮挡"的判定函数；传 <c>null</c> 恢复"视线永不受阻"。
+        /// </summary>
+        public void SetLineOfSightBlocker(Func<Vec2, Vec2, bool>? blocker) => _lineOfSightBlocker = blocker;
+
+        /// <summary>
+        /// 手感落地 M4-W3：视线遮挡取自导航的阻挡判定——<c>navigation.Raycast(mapId, from, to)</c> 返回非空即被遮挡
+        /// （<see cref="INavigation2D.Raycast"/> 契约本就写明"视线是否受阻即 Raycast 返回值是否非空"）。导航在每次查询时读取当前阻挡集合，
+        /// 所以静态地形阻挡与运行期登记的动态阻挡（<c>SetBlocking</c>/<c>AddBlocking</c>/<c>RemoveBlocking</c>）都立刻生效。
+        /// </summary>
+        public void UseNavigationLineOfSight(INavigation2D navigation, Id mapId)
+        {
+            if (navigation == null) throw new ArgumentNullException(nameof(navigation));
+            _lineOfSightBlocker = (from, to) => navigation.Raycast(mapId, from, to).HasValue;
+        }
 
         private IEnumerable<Entry> Filtered(QueryFilter filter)
         {

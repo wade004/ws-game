@@ -698,7 +698,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 2. **口径**（`HitFeelHost.EvaluateDynamicPoise`）：命中的攻击方声明了 `poise_damage > 0` 且目标韧性属性 > 0 时走韧性池，否则走静态规则（`stagger_power ≤ 韧性属性` → Flinch，逐位不变）。池容量 = 韧性属性值，已损失量记在宿主里；击前有效韧性 `before = max(0, 容量 − 已损失)`，扣后 `after = max(0, before − poise_damage)`；`after > 0` 且 `stagger_power ≤ before` 才 Flinch，否则按冲击等级映射再受 `reaction_cap` 封顶；`before > 0` 且 `after = 0` 是破韧（`broken`），池子已空的后续命中同样不被挡。霸体（不碰池）与击杀（Death 优先，不碰池）排在韧性之前。
 3. **回复**：`AdvancePoiseRecovery` 在每个 tick 开头（先于全部阶段处理器）推进：先耗尽 `poise_recover_delay_ms`（每次动态命中重新计），再每 tick 回复 `poise_recover_per_s × 步长`；回满的那个 tick 发 `combat.poise_recovered` 并删档；没声明速率不回复；单位死亡/销毁/时间模型重标（`ReleaseUnit`/`ReleaseAll`）清档。回复速率与延迟在命中那一刻取目标当时的手感解析值（之后改档案对已建档的池不追溯）。
 4. **契约注释**：`IHitFeelArbiter.Evaluate` 原写"纯函数式"，现改为"仅动态韧性命中会写状态（扣池）"，每次真实命中恰好调用一次（时间线路径 `CastPipeline.TimelineHit` 与 instant 适配 `PublishInstantConfirmation` 各一处），仍满足。`HitFeelHost.CurrentPoise(unitId)` 提供只读查询。
-5. **已知局限**：回复口径只有"最近一次动态韧性伤害后的延迟 + 速率"一种，没有按战斗状态（脱战）回复；破韧后没有"一次破韧后池子自动回满"的重置策略（回复靠速率）；`poise_damage` 不随冲击等级缩放。测试：`tests/HitFeelHostTests.cs` 的 `DynamicPoise_*`（逐击扣减与反应、静态路径不被碰、没有韧性属性不建池、延迟与速率逐 tick 推演并只发一次回满、延迟内再挨一击重新计时、池恒在 [0, 容量] 且记账自洽、霸体/击杀/释放、字段可选）。
+5. **三项扩展已在 M4-W3 实现（见本文件末尾的 M4-W3 节），本条没有遗留局限**：回复模式（脱战才回复）、破韧后定时回满、`poise_damage` 按冲击等级缩放，都是可选扩展，缺省全部等价此前行为。测试：`tests/HitFeelHostTests.cs` 的 `DynamicPoise_*`（逐击扣减与反应、静态路径不被碰、没有韧性属性不建池、延迟与速率逐 tick 推演并只发一次回满、延迟内再挨一击重新计时、池恒在 [0, 容量] 且记账自洽、霸体/击杀/释放、字段可选）。
 
 ## 判断记录（空中受击反应与击飞叠加，2026-10-03，M4-V，ADR-0130 追加决定）
 
@@ -706,3 +706,13 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 2. **空中受击反应**：目标此刻在空中（`HitFeelHost.Airborne`，`IAirborneQuery`，`CarriersFeelAssembly` 在竖直运动服务是 `IAirborneQuery` 时接线）且攻击方声明了 `air_hit_reaction`（非 `same`）时，在韧性/冲击等级映射之后、`reaction_cap` 封顶之前把反应替换成该值；不改 `Death`。没有竖直轴时没有空中单位，字段被忽略。
 3. **击飞叠加**：`launch_stack = add` 时 `SubmitKnockback` 以 `LaunchStackMode.Add` 与上限调 `BeginLaunch`；缺省仍是重新起算。
 4. **已知局限**：`air_hit_reaction` 按攻击方档案取值，目标侧没有对应的"空中受击抗性"；叠加上限封的是叠加后的初速（即相对起算高度的顶点），不封绝对高度。测试：`tests/HitFeelHostTests.cs` 的 `AirHitReaction_*`、`LaunchStack_*`。
+
+## 判断记录（动态韧性的三项可选扩展，2026-10-03，M4-W3，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)）
+
+M4-L 判断记录第 5 条留下的三项局限逐项实现，全部可选、缺省等价此前行为（逐位一致：不声明新字段、不填新选项，裁决与回复的每个 tick 都与此前相同）：
+
+1. **回复模式 `poise_recover_mode`（目标侧，`delay`｜`out_of_combat`，缺省 `delay`）**：`out_of_combat` 时目标处于战斗中的 tick，延迟计时与速率回复都暂停；脱战之后才开始计 `poise_recover_delay_ms`、再按速率回复，所以延迟从脱战那一刻起算（战斗中没有消耗过延迟）。"战斗中"复用框架已有的战斗状态：`HitFeelHost.InCombat`（`Func<Id,bool>`）由 `RulesFeelAssembly` 接到 `CombatHost.IsInCombat`（进战由战斗事件通知，脱战沿用 `CombatOptions.LeaveCombatDelay` 与交战范围判定，不另造一套）。没有接战斗状态查询时（`InCombat` 为 null）视为一直脱战，回复口径同 `delay`，不会因为声明了该模式而永不回复。模式取命中那一刻目标侧的值（同回复延迟与速率的口径）。
+2. **破韧后定时回满 `poise_break_reset_ms`（目标侧，毫秒，0..60000，缺省不声明 = 不重置）**：声明后，目标被打破韧（正数打到 0）起算，到点把已损失量一次清零并发 `combat.poise_recovered`，不看速率回复与回复模式，也不受期间再受击影响；已空池子上的后续命中不是新的破韧，不顺延计时。可与速率回复并存（先到点者生效，回满即删档）。
+3. **`poise_damage` 按冲击等级缩放 `HitFeelOptions.PoiseDamageImpactMultipliers`**：冲击等级 → 倍率，口径同 `KnockbackImpactMultipliers`（表里没有的等级取 1，**缺省空表不缩放**）。命中声明的 `poise_damage` 乘以攻击方 `impact_class` 的倍率后才从池里扣，`combat.poise_changed` 的 `Damage` 报告乘后的有效值（所以记账不变量 `after = max(0, before - damage)` 仍成立）。只作用于动态韧性，静态韧性规则不读它；倍率表的数值由游戏填（试调起点，未经试玩）。
+4. **字段**：`FeelFieldNames.PoiseRecoverMode`、`PoiseBreakResetMs` 是手感字段表里新增的可选字段（判定型，目标侧），不改既有字段。
+5. **测试**：`tests/HitFeelHostTests.cs` 七条（每项一条复现加不变量）：`PoiseRecoverMode_OutOfCombat_SuspendsDelayAndRegenWhileInCombat_ThenCountsTheDelayFromTheLeaveTick`（战斗中过去远超延迟的时间池子不动；脱战后第 n 个 tick 的有效韧性 = min(容量, 损失后 + 每 tick 回复 × max(0, n - 延迟 tick))，逐 tick 由规则算出，回满那一 tick 恰发一次回满事件）、`PoiseRecoverMode_DelayAndNoCombatQuery_IgnoreCombatState_AndAHitRestartsTheDelayAfterLeaving`（`delay` 模式与没有战斗状态查询时口径不变；脱战回复中再挨一击延迟重新计、已回复部分保留）、`PoiseBreakReset_RefillsTheWholePoolOnceAfterTheDelay_AndTheShelterReturns`（到点恰在破韧后 `poise_break_reset_ms` 的 tick 数一次回满，回满后重新被挡）、`PoiseBreakReset_IsNotExtendedByLaterHits_IgnoresCombatState_AndRearmsOnTheNextBreak`（已空池子上的命中不顺延、不受战斗状态影响、下一次破韧重新起算）、`PoiseDamageImpactMultipliers_ScaleThePoolDrain_ByTheAttackersImpactClass`（有效伤害 = 声明伤害 × 倍率逐击由规则算出，空表/未列等级不缩放）、`PoiseDamageImpactMultipliers_KeepTheAccountingConsistent_AcrossHitSequences`（记账 `after = max(0, before - damage)` 恒成立、池恒在 [0, 容量]）、`PoiseDynamicsFields_AreOptional_AndTheModeVocabularyMatches`（字段可选、模式取值表与规则一致）。装配接线见 `core/gameplay/assembly/tests/FeelWiringEndToEndTests.cs`。实验室：`feel_poise_ooc`、`feel_poise_break_reset`、`feel_poise_impact_scale` 三个脚本（见 `lab/README.md` 判断记录 45）。

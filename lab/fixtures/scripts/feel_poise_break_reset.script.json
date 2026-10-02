@@ -1,0 +1,129 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_poise_break_reset",
+    "scriptVersion": 1,
+    "description": "破韧后定时回满（M4-W3）：木桩 stake_reset 容量 4、不声明速率回复，poise_break_reset_ms 1000 毫秒。第 1 击 4>2 被挡；第 2 击 2>0 破韧并起算回满；第 3 击落在已空池子上（0>0，不是新的破韧，不顺延计时）；1 秒到点池子一次回满；第 4 击 4>2 又被挡成 Flinch（没有定时回满，池子会一直是空的、第 4 击就是完整反应）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_reset"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_poise_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_poise_chip"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/poise_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 29,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 30,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 54,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 55,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 150,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 151,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "poise_accounting_is_consistent",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.accounting_mismatch",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "poise_stays_in_bounds",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.out_of_range",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "one_break_one_refill",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.breaks",
+      "op": "eq",
+      "value": 1,
+      "note": "只有第 2 击是破韧；第 3 击打在已空池子上不算新的破韧。"
+    },
+    {
+      "id": "fourth_hit_is_sheltered_again",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:2;Stagger:2",
+      "note": "池子回满之后第 4 击重新被挡成 Flinch（首击也是 Flinch）；破韧与池子已空的两击给出完整反应。"
+    }
+  ]
+}

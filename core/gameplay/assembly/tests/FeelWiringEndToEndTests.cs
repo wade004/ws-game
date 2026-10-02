@@ -337,6 +337,32 @@ namespace Tests.Gameplay.Assembly
             Assert.Equal(targetTicks, targetAdvance.Count(x => x.Delta == 0));
         }
 
+        /// <summary>
+        /// 手感落地 M4-W3 接线：韧性回复模式 out_of_combat 的"脱战"判定读的就是战斗宿主的进出战状态（生产装配根接线，不是测试里手工塞的回调）。
+        /// 复现：装配后受击裁决宿主的战斗状态查询是接上的；单位被通知战斗事件后为真，战斗宿主判定脱战后为假——与 <c>CombatHost.IsInCombat</c> 逐刻一致。
+        /// </summary>
+        [Fact]
+        public void PoiseRecoverMode_OutOfCombatReadsTheCombatHostsStateThroughTheProductionWiring()
+        {
+            var rig = Build(feel: true);
+            var target = SpawnDummy(rig, StakeTemplate, new Vec2(1.5, 0));
+            var combat = rig.World.Gameplay.Carriers.Rules.Combat;
+            var query = rig.Feel.Rules.HitFeel.Host.InCombat;
+            Assert.NotNull(query);
+
+            Assert.False(query!(target));
+            Assert.Equal(combat.IsInCombat(target), query(target));
+
+            combat.NotifyCombatEvent(target);
+            Assert.True(combat.IsInCombat(target));
+            Assert.True(query(target));
+
+            // 没有存活的敌对仇恨来源：静默一段时间（超过离战延迟）后战斗宿主判定脱战，查询随之为假。
+            combat.Update(1000.0);
+            Assert.False(combat.IsInCombat(target));
+            Assert.False(query(target));
+        }
+
         [Fact]
         public void PoiseBreak_TargetMotionGoesFrozenThenStaggeredThenGrounded()
         {

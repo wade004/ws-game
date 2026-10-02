@@ -111,6 +111,10 @@ namespace Core.Rules.Assembly
                 rules.Bus, rules.Units, resolver, rules.Stats, stepSeconds, hitOptions, rules.Powers,
                 rules.Skill.ActionStateQuery, rules.Skill.AuraQuery, rules.Skill);
 
+            // 手感落地 M4-W3：韧性回复模式 out_of_combat 的脱战判定复用战斗宿主的进出战状态（CombatHost.IsInCombat）。
+            var combatHost = rules.Combat;
+            hitFeel.Host.InCombat = unitId => combatHost.IsInCombat(unitId);
+
             var timeline = new TimelineServices
             {
                 Clock = hitFeel.Clock,

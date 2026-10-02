@@ -77,6 +77,12 @@ namespace Core.Rules.Combat
             public double Lost;
             public int DelayRemaining;
             public double RecoverPerTick;
+
+            /// <summary>回复模式为 out_of_combat（目标侧 <c>poise_recover_mode</c>，命中那一刻取值）：处于战斗中时延迟计时与回复都暂停。</summary>
+            public bool OutOfCombatOnly;
+
+            /// <summary>破韧后自动回满的剩余 tick 数；&lt; 0 表示没有待执行的回满（<c>poise_break_reset_ms</c> 没声明，或还没破韧）。</summary>
+            public int BreakResetRemaining = -1;
         }
 
         private readonly SortedDictionary<Id, PoiseRec> _poise = new SortedDictionary<Id, PoiseRec>();
@@ -103,6 +109,12 @@ namespace Core.Rules.Combat
         /// 腾空查询（竖直运动服务）。缺省 null——一律视为在地面，<c>air_hit_reaction</c> 不生效（与 1.95.0 一致）。
         /// </summary>
         public IAirborneQuery? Airborne { get; set; }
+
+        /// <summary>
+        /// 战斗状态查询（手感落地 M4-W3，装配根接 <c>CombatHost.IsInCombat</c>）：目标侧 <c>poise_recover_mode = out_of_combat</c> 的韧性回复据此判断"脱战"。
+        /// 缺省 null——视为一直不在战斗中（等价于不暂停，回复口径同 <c>delay</c>），没有战斗宿主的装配不会因为声明了该模式而卡死。
+        /// </summary>
+        public Func<Id, bool>? InCombat { get; set; }
 
         /// <summary>总开关；假时全部入口静默。</summary>
         public bool Enabled { get; set; } = true;
@@ -217,7 +229,7 @@ namespace Core.Rules.Combat
                 var maxPoise = ReadPoise(input.TargetId);
                 if (atk.TryGetNumber(FeelFieldNames.PoiseDamage, out var poiseDamage) && poiseDamage > 0.0 && maxPoise > 0.0)
                 {
-                    reaction = EvaluateDynamicPoise(input, tgt, impact, power, maxPoise, poiseDamage);
+                    reaction = EvaluateDynamicPoise(input, tgt, impact, power, maxPoise, poiseDamage * PoiseImpactMultiplier(impact));
                 }
                 else
                 {
@@ -262,9 +274,24 @@ namespace Core.Rules.Combat
             rec.DelayRemaining = Ticks(delayMs);
             var perSecond = target.TryGetNumber(FeelFieldNames.PoiseRecoverPerS, out var r) ? r : 0.0;
             rec.RecoverPerTick = perSecond > 0.0 ? perSecond * _stepSeconds : 0.0;
+            var mode = target.GetAbsolute(FeelFieldNames.PoiseRecoverMode);
+            rec.OutOfCombatOnly = !mode.IsNone && mode.AsText() == "out_of_combat";
+            if (broken)
+            {
+                // 破韧才（重新）起算自动回满：已空池子上的后续命中不是新的破韧，不顺延计时。
+                rec.BreakResetRemaining = target.TryGetNumber(FeelFieldNames.PoiseBreakResetMs, out var resetMs) ? Ticks(resetMs) : -1;
+            }
+
             _bus.Enqueue(new CombatPoiseChangedEvent(input.TargetId, input.AttackerId, before, after, maxPoise, poiseDamage, broken));
             return sheltered ? HitReaction.Flinch : MapImpact(impact);
         }
+
+        /// <summary>
+        /// 动态韧性的冲击等级倍率（手感落地 M4-W3，<see cref="HitFeelOptions.PoiseDamageImpactMultipliers"/>，口径同击退的冲击等级倍率表）：
+        /// 表里没有该等级（含空表，缺省）取 1，即不缩放。
+        /// </summary>
+        private double PoiseImpactMultiplier(string impactClass) =>
+            _options.PoiseDamageImpactMultipliers.TryGetValue(impactClass, out var m) ? m : 1.0;
 
         /// <summary>目标此刻的有效韧性（动态韧性：容量减已损失量；没有动态损失记录等于容量）。供查询与测试。</summary>
         public double CurrentPoise(Id targetId)
@@ -646,8 +673,14 @@ namespace Core.Rules.Combat
         }
 
         /// <summary>
-        /// 动态韧性回复：每 tick（先于全部阶段处理器）推进——先耗尽回复延迟，再按每 tick 回复量减少已损失量；损失归零那一 tick 发
-        /// <c>combat.poise_recovered</c> 并删档。没声明 <c>poise_recover_per_s</c> 的目标不回复（档案一直留着，直到单位释放）。
+        /// 动态韧性回复：每 tick（先于全部阶段处理器）推进。
+        /// <list type="number">
+        /// <item>破韧后自动回满（<c>poise_break_reset_ms</c>）：破韧起算的计时到点，把已损失量一次清零并发 <c>combat.poise_recovered</c>，
+        /// 不看回复速率、回复模式，也不受期间再受击影响。</item>
+        /// <item>速率回复：先耗尽 <c>poise_recover_delay_ms</c>（每次动态命中重新计），再每 tick 回复 <c>poise_recover_per_s × 步长</c>；损失归零那一 tick 发
+        /// <c>combat.poise_recovered</c> 并删档。回复模式 <c>out_of_combat</c> 时，目标处于战斗中的 tick 延迟计时与回复都暂停（脱战后才开始计延迟）。
+        /// 没声明 <c>poise_recover_per_s</c> 的目标不做速率回复（档案一直留着，直到回满或单位释放）。</item>
+        /// </list>
         /// </summary>
         private void AdvancePoiseRecovery()
         {
@@ -656,7 +689,15 @@ namespace Core.Rules.Combat
             foreach (var pair in _poise)
             {
                 var rec = pair.Value;
+                if (rec.BreakResetRemaining >= 0 && --rec.BreakResetRemaining <= 0)
+                {
+                    rec.Lost = 0.0;
+                    (recovered ??= new List<Id>()).Add(pair.Key);
+                    continue;
+                }
+
                 if (rec.Lost <= 0.0 || rec.RecoverPerTick <= 0.0) continue;
+                if (rec.OutOfCombatOnly && InCombat != null && InCombat(pair.Key)) continue;
                 if (rec.DelayRemaining > 0)
                 {
                     rec.DelayRemaining--;
