@@ -177,6 +177,41 @@ function New-WsGameLockObjectFromZip {
         -SamplesSha256 $SamplesSha256
 }
 
+# 判断记录（提交号比对按完整 sha 前缀，2026-10-02，Release 工作流 v1.93.0 运行 36964875468 失败的根因）：
+# MANIFEST.txt / lock 的 `git_commit` 是发布机（本机完整仓库）`git rev-parse --short` 的结果——对象
+# 多了会自动加长到 8 位（如 `b7ac4dc3`）；而 CI 浅克隆的 `git rev-parse --short HEAD` 只给 7 位
+# （`b7ac4dc`），字符串全等比较（-ne）必然误判"提交不一致"并阻断发布。`--short` 的位数取决于仓库
+# 对象数，两台机器天然不同，不是可以靠约定对齐的量。改为：取当前提交的完整 40 位 sha，记录值只要是
+# 至少 7 位的十六进制、且是该完整 sha 的前缀（不分大小写）即判一致。长度下限 7 是 git 默认缩写下限，
+# 更短的记录值碰撞概率过高，不接受；带 `-dirty` 之类后缀的记录值含非十六进制字符，按不一致处理（发布
+# 守卫本就不允许 dirty 提交入包）。比对只在本函数一处实现，release.yml 里 zip 与 lock 两处都调用它。
+function Test-WsGameCommitMatch {
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Recorded,
+        [Parameter(Mandatory = $true)][string]$FullSha
+    )
+    if ([string]::IsNullOrEmpty($Recorded)) { return $false }
+    if ($Recorded.Length -lt 7) { return $false }
+    if ($Recorded -notmatch '^[0-9a-fA-F]+$') { return $false }
+    if ($FullSha -notmatch '^[0-9a-fA-F]{40}$') { return $false }
+    return $FullSha.StartsWith($Recorded, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+# 判断记录（zip 条目查找不区分路径分隔符，2026-10-02，Release 工作流 v1.92.0 运行 36811895996 失败的根因）：
+# `ZipArchiveEntry.FullName` 原样透传 central directory 里存的分隔符，不同 PowerShell 版本的
+# `Compress-Archive` 写出的 zip 不一样：本地 1.92.0 发布包的条目是 `ws-game-1.92.0/MANIFEST.txt`
+# （正斜杠），1.93.0 是 `ws-game-1.93.0\MANIFEST.txt`（反斜杠）。release.yml"附件存在性检查"与"缺附件
+# 修复"两步原先用反斜杠字面量做 `-eq` 精确匹配，遇到正斜杠 zip 就报"no MANIFEST.txt ... Blocking"。
+# 与上面 `Get-WsGameZipEntrySha256` 同一口径：两侧都归一为正斜杠再比，返回条目本身（找不到返回 $null）。
+function Get-WsGameZipEntry {
+    param(
+        [Parameter(Mandatory = $true)]$ZipReader,
+        [Parameter(Mandatory = $true)][string]$EntryPath
+    )
+    $normalizedTarget = $EntryPath.Replace('\', '/')
+    return ($ZipReader.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq $normalizedTarget } | Select-Object -First 1)
+}
+
 # 判断记录：`ConvertTo-Json -Depth 5` 与 `[System.IO.File]::WriteAllText` + 无 BOM 的
 # `UTF8Encoding($false)` 均照搬自 build.ps1 此前内联的写出逻辑——PowerShell 5.1 的
 # `ConvertTo-Json`/`Out-File` 默认行为会带 BOM 或 `\r\n` 行尾，锁文件是纯 JSON 数据文件（不在

@@ -33,6 +33,7 @@ dot-source 复用；同时新增 `-FailFast` 开关（同进程内"本线已失�
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -257,10 +258,25 @@ def test_two_lines_run_concurrently(ps_exe: str, tmp_path: Path) -> None:
 
     assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
     assert concurrent_threshold < serial_expected_floor, "测试常量本身矛盾：并行判定阈值应严格小于串行预期下限"
-    assert elapsed < concurrent_threshold, (
-        f"两条线耗时应明显小于两段模拟耗时之和（串行预期 >= {serial_expected_floor}s），"
-        f"实测 {elapsed:.1f}s（判定阈值 {concurrent_threshold}s），怀疑两条线其实是串行跑的。"
-        f"stdout 摘要：{result.stdout[-2000:]}"
+
+    # 判断记录（2026-10-02，CI 运行 36964876322 实测 70.8s > 65s 误报串行）：上面说的"固定开销"
+    # （两次子进程启动 + dot-source + -DocsOnly 仍要跑的前置步骤 + doc-pytest 子集）在本机约 8~9s，托管运行器
+    # （windows-latest，2 核、冷磁盘）上实测约 29s——同一次运行里并行阶段自己只用了 41.5s（两段各睡 40s），
+    # 并行是真的，只是外层整体墙钟被运行器上的固定开销顶过了"40s + 25s 余量"。固定开销属于环境量，用固定
+    # 余量去吸收它必然在更慢的机器上再次误报；被测的性质是"两条线并行"，门禁汇总表恰有一行
+    # "（并行阶段墙钟：…）"，是 check.ps1 对并行阶段本身单独计的实际耗时（不含子进程启动与前置步骤）。判定改读
+    # 这一行：并行 ≈ max(两段) ≈ sleep_seconds，串行 ≈ 两段之和 >= serial_expected_floor；阈值与串行预期下限
+    # 不变（sleep_seconds + 25s / 2 * sleep_seconds）。外层总墙钟 `elapsed` 只保留为诊断输出，不再参与判定。
+    m = re.search(r"并行阶段墙钟[^\r\n]*?INFO\s+([0-9]+(?:[.,][0-9]+)?)", result.stdout)
+    assert m is not None, f"汇总表里找不到'并行阶段墙钟'行，无法判定并行性。stdout 摘要：{result.stdout[-2000:]}"
+    parallel_wall = float(m.group(1).replace(",", "."))
+    assert parallel_wall >= sleep_seconds, (
+        f"并行阶段墙钟 {parallel_wall}s 小于单段模拟耗时 {sleep_seconds}s，模拟睡眠没有真的生效，本用例失去意义"
+    )
+    assert parallel_wall < concurrent_threshold, (
+        f"两条线并行阶段耗时应明显小于两段模拟耗时之和（串行预期 >= {serial_expected_floor}s），"
+        f"实测并行阶段 {parallel_wall:.1f}s（判定阈值 {concurrent_threshold}s；外层总墙钟 {elapsed:.1f}s），"
+        f"怀疑两条线其实是串行跑的。stdout 摘要：{result.stdout[-2000:]}"
     )
 
 

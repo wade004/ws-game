@@ -46,6 +46,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -168,9 +170,41 @@ def _run_guard(ps_exe: str, repo_root: Path) -> subprocess.CompletedProcess[str]
     )
 
 
+@pytest.fixture()
+def short_base_dir() -> Iterator[Path]:
+    """给"短根路径"用例一个确定够短的基目录，不依赖 pytest 的 ``tmp_path``。
+
+    判断记录（2026-10-02，CI 运行 36964876322 等三条参数化用例失败的根因）：用例前提是"根路径本身短于
+    ``_MIN_DEEP_REPO_ROOT_LEN``（98）"，原先用 ``tmp_path / "short"``。托管运行器上 ``tmp_path`` 是
+    ``C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-runneradmin\\pytest-1\\<用例名>0\\short``，
+    108 字符，前提自己就不成立（本机用户名短、TEMP 浅所以恒过）。pytest 的 ``tmp_path`` 长度含用户名、
+    用例名与会话序号，不是可控量，所以"短根"改为在系统临时目录（不够短再退到盘符根）下自己建一个短前缀
+    目录，长度由本夹具核对，仍然不够短就明确失败（不 skip：这是在判断宿主环境根本不具备本用例的前提）。
+    "深根"用例不受影响——它本来就把根路径撑到目标长度，且已有 ``floor_len`` 守卫。
+    """
+    last_tried = ""
+    for base in (Path(tempfile.gettempdir()), Path(Path(tempfile.gettempdir()).anchor)):
+        try:
+            created = Path(tempfile.mkdtemp(prefix="gfpl_", dir=str(base)))
+        except OSError:
+            continue
+        last_tried = str(created / "short")
+        if len(last_tried) < _MIN_DEEP_REPO_ROOT_LEN:
+            try:
+                yield created
+            finally:
+                shutil.rmtree(created, ignore_errors=True)
+            return
+        shutil.rmtree(created, ignore_errors=True)
+    pytest.fail(
+        f"宿主上找不到足够短的可写基目录来建'短根路径'夹具（需要 < {_MIN_DEEP_REPO_ROOT_LEN} 字符，"
+        f"最后一次尝试 {last_tried!r}）"
+    )
+
+
 @pytest.mark.parametrize("populated_dirs", _POPULATED_DIR_SCENARIOS)
-def test_short_repo_root_passes(tmp_path: Path, ps_exe: str, populated_dirs: list[Path]) -> None:
-    repo_root = tmp_path / "short"
+def test_short_repo_root_passes(short_base_dir: Path, ps_exe: str, populated_dirs: list[Path]) -> None:
+    repo_root = short_base_dir / "short"
     _populate_roots(repo_root, populated_dirs)
     assert len(str(repo_root)) < _MIN_DEEP_REPO_ROOT_LEN, "本用例前提是根路径本身足够短，不应该已经触发守卫"
 
