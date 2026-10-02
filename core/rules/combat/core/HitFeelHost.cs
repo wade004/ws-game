@@ -69,6 +69,15 @@ namespace Core.Rules.Combat
         private readonly List<IStaggerInterruptSink> _interruptSinks = new List<IStaggerInterruptSink>();
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
 
+        /// <summary>动态韧性：目标已损失的韧性量与回复进度（只对被"声明了 poise_damage"的命中打过的目标建档）。</summary>
+        private sealed class PoiseRec
+        {
+            public double Lost;
+            public int DelayRemaining;
+            public double RecoverPerTick;
+        }
+
+        private readonly SortedDictionary<Id, PoiseRec> _poise = new SortedDictionary<Id, PoiseRec>();
         private readonly List<BatchEntry> _batch = new List<BatchEntry>();
         private readonly SortedSet<Id> _frozen = new SortedSet<Id>();
 
@@ -198,11 +207,62 @@ namespace Core.Rules.Combat
             else
             {
                 var power = atk.GetNumber(FeelFieldNames.StaggerPower);
-                reaction = power <= ReadPoise(input.TargetId) ? HitReaction.Flinch : MapImpact(impact);
+                var maxPoise = ReadPoise(input.TargetId);
+                if (atk.TryGetNumber(FeelFieldNames.PoiseDamage, out var poiseDamage) && poiseDamage > 0.0 && maxPoise > 0.0)
+                {
+                    reaction = EvaluateDynamicPoise(input, tgt, impact, power, maxPoise, poiseDamage);
+                }
+                else
+                {
+                    // 静态韧性（缺省，既有行为逐位不变）：命中没声明 poise_damage、或目标没有韧性属性。
+                    reaction = power <= maxPoise ? HitReaction.Flinch : MapImpact(impact);
+                }
+
                 reaction = ApplyCap(reaction, tgt.GetText(FeelFieldNames.ReactionCap));
             }
 
             return new HitFeelOutcome(impact, attackerTicks, targetTicks, reaction, ReactionDuration(reaction, tgt));
+        }
+
+        /// <summary>
+        /// 动态韧性（手感落地 M4-L）：目标有一个韧性池（容量 = 韧性属性，已损失量 <c>Lost</c>），命中声明的 <c>poise_damage</c> 从池里扣。
+        /// 有效韧性 <c>before = max(0, 容量 − Lost)</c>，扣后 <c>after = max(0, before − poise_damage)</c>。
+        /// 规则：<c>after &gt; 0</c> 且 <c>stagger_power ≤ before</c> 才被韧性挡成 Flinch（沿用静态规则的"硬直强度与韧性比较"，
+        /// 再加"这一击没把韧性打穿"）；否则按冲击等级映射出完整反应——其中 <c>before &gt; 0 &amp;&amp; after == 0</c> 是破韧（发
+        /// <c>combat.poise_changed</c> 带 <c>Broken</c>），<c>before == 0</c>（已破、尚未回复）的后续命中同样不被挡。
+        /// 本方法是 <see cref="Evaluate"/> 里唯一写状态的地方（每次真实命中恰好调用一次，见 <see cref="IHitFeelArbiter"/> 的约定说明）：
+        /// 记下新的损失量、重置回复延迟，并发 <c>combat.poise_changed</c>。
+        /// </summary>
+        private HitReaction EvaluateDynamicPoise(
+            in HitFeelInput input, JudgingFeelView target, string impact, double power, double maxPoise, double poiseDamage)
+        {
+            _poise.TryGetValue(input.TargetId, out var rec);
+            var lost = rec != null ? rec.Lost : 0.0;
+            var before = Math.Max(0.0, maxPoise - lost);
+            var after = Math.Max(0.0, before - poiseDamage);
+            var broken = before > 0.0 && after <= 0.0;
+            var sheltered = after > 0.0 && power <= before;
+
+            if (rec == null)
+            {
+                rec = new PoiseRec();
+                _poise[input.TargetId] = rec;
+            }
+
+            rec.Lost = maxPoise - after;
+            var delayMs = target.TryGetNumber(FeelFieldNames.PoiseRecoverDelayMs, out var d) ? d : 0.0;
+            rec.DelayRemaining = Ticks(delayMs);
+            var perSecond = target.TryGetNumber(FeelFieldNames.PoiseRecoverPerS, out var r) ? r : 0.0;
+            rec.RecoverPerTick = perSecond > 0.0 ? perSecond * _stepSeconds : 0.0;
+            _bus.Enqueue(new CombatPoiseChangedEvent(input.TargetId, input.AttackerId, before, after, maxPoise, poiseDamage, broken));
+            return sheltered ? HitReaction.Flinch : MapImpact(impact);
+        }
+
+        /// <summary>目标此刻的有效韧性（动态韧性：容量减已损失量；没有动态损失记录等于容量）。供查询与测试。</summary>
+        public double CurrentPoise(Id targetId)
+        {
+            var max = ReadPoise(targetId);
+            return _poise.TryGetValue(targetId, out var rec) ? Math.Max(0.0, max - rec.Lost) : max;
         }
 
         private static bool IsAvoided(HitResult result) =>
@@ -503,6 +563,7 @@ namespace Core.Rules.Combat
         private void OnTickStarted()
         {
             _killPending.Clear();
+            AdvancePoiseRecovery();
             if (_staggers.Count == 0) return;
             List<Id>? finished = null;
             foreach (var pair in _staggers)
@@ -537,6 +598,36 @@ namespace Core.Rules.Combat
             if (finished != null)
             {
                 for (var i = 0; i < finished.Count; i++) _staggers.Remove(finished[i]);
+            }
+        }
+
+        /// <summary>
+        /// 动态韧性回复：每 tick（先于全部阶段处理器）推进——先耗尽回复延迟，再按每 tick 回复量减少已损失量；损失归零那一 tick 发
+        /// <c>combat.poise_recovered</c> 并删档。没声明 <c>poise_recover_per_s</c> 的目标不回复（档案一直留着，直到单位释放）。
+        /// </summary>
+        private void AdvancePoiseRecovery()
+        {
+            if (_poise.Count == 0) return;
+            List<Id>? recovered = null;
+            foreach (var pair in _poise)
+            {
+                var rec = pair.Value;
+                if (rec.Lost <= 0.0 || rec.RecoverPerTick <= 0.0) continue;
+                if (rec.DelayRemaining > 0)
+                {
+                    rec.DelayRemaining--;
+                    continue;
+                }
+
+                rec.Lost -= rec.RecoverPerTick;
+                if (rec.Lost <= 1e-9) (recovered ??= new List<Id>()).Add(pair.Key);
+            }
+
+            if (recovered == null) return;
+            for (var i = 0; i < recovered.Count; i++)
+            {
+                _poise.Remove(recovered[i]);
+                _bus.Enqueue(new CombatPoiseRecoveredEvent(recovered[i], ReadPoise(recovered[i])));
             }
         }
 
@@ -664,6 +755,7 @@ namespace Core.Rules.Combat
         {
             _clock.ReleaseAll(unitId);
             _staggers.Remove(unitId);
+            _poise.Remove(unitId);
             if (_frozen.Remove(unitId)) _bus.Enqueue(new FeelHitstopEndedEvent(new[] { unitId }));
         }
 
@@ -672,6 +764,7 @@ namespace Core.Rules.Combat
         {
             _clock.ReleaseAll();
             _staggers.Clear();
+            _poise.Clear();
             _batch.Clear();
             if (_frozen.Count == 0) return;
             var ended = new List<Id>(_frozen);

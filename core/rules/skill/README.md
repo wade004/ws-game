@@ -1811,3 +1811,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 1. **地面施法**：`GroundCastRequest.WithGraceConditions(conditions)` 返回携带条件名的副本；`CastSkillAtGround` 在 `finally` 清理的 `_graceConditions` 字段里带着它进入 `TryStartCastAtGround`，步骤 7'（射程 `OutOfRange`、视线 `GroundTargetNoLineOfSight`）本应拒绝时按同一个 `GraceCoversStep7` 判定放行，放宽后重判一次（落点不可行走等其它拒绝原因仍然拒绝）。`CastState.GroundGraceCovered` 记下"本次是靠宽限放行的"，读条完成/引导每个周期的 `ApplyGroundEffectsIfValid` 再校验同样放宽射程与视线——只放宽接受，不让已接受的施法在落地时因窗口过期作废。条件"当前仍为真"时宽限不参与（`GraceCoversStep7` 要求至少一个条件处于宽限窗口）。
 2. **排队施法**：进入队列时（`CastSkill` 排队分支）对带宽限条件的请求调用 `CaptureGraceSnapshot`：记条件名、`CoversStep7`（全部满足且至少一个在窗口内）与窗口到期读数 `ExpiresAtActionTick = ActionNow(施法者) + min(各窗口内条件的 RemainingGraceTicks)`，存在 `CastState.QueuedGrace`；`FinishCast` 出队执行时把快照连同条件名放进 `_graceConditions`/`_graceSnapshot`（`finally` 清理），`GraceCoversStep7` 先看快照是否仍在动作时钟窗口内（`ActionNow <= ExpiresAtActionTick`，顿帧期间动作时钟不走所以窗口暂停），再回落实时宽限查询（两者取并集）；都不满足按原规则以 `OutOfRange` 拒绝。没有携带宽限条件（含全部既有调用方）时快照为 null，排队行为逐位不变。**调用相位**：快照基准是施法者的动作时钟读数，在步骤内（意图经施法出口发起）调用与追踪器采样相位一致；在两个固定步之间由外部直接调用时动作时钟读数比采样 tick 超前一个 tick。
 3. 装配与限制见 `core/carriers/assembly/README.md` M3-B 节。
+
+## 手感落地 M4-L：`ActionStepSeconds` 由装配回填
+
+`SkillOptions.ActionStepSeconds` 现在在调用方没有显式赋值时由 `GameplayAssembly`/`HeadlessWorldBuilder` 按宿主时钟步长回填（`ApplyHostStepSeconds`，`ActionStepSecondsIsExplicit` 区分显式值）；T13 要求的"须与模拟固定步长一致"因此对装配路径自动成立，细节见 `core/gameplay/assembly/README.md`。

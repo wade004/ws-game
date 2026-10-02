@@ -74,7 +74,9 @@ namespace Core.Rules.Common
     }
 
     /// <summary>
-    /// 受击裁决入口（手感设计/03 第 4 节）：纯函数式（读手感表与目标韧性属性、霸体状态，不写任何状态）。
+    /// 受击裁决入口（手感设计/03 第 4 节）：读手感表与目标韧性属性、霸体状态；除一处例外外不写状态——例外是动态韧性
+    /// （手感落地 M4-L）：命中的攻击方档案声明了 <c>poise_damage</c> 时，裁决会扣减目标的韧性池（因此每次真实命中只应调用一次，
+    /// 两条调用路径都满足）；不声明 <c>poise_damage</c> 的命中仍是纯读取。
     /// 空间命中切片发 <c>combat.hit_confirmed</c> 前经它取 <see cref="HitFeelOutcome"/>；目标选择式（instant）命中由
     /// 受击裁决宿主自己接 <c>combat.damage_dealt</c> 调用它。
     /// </summary>

@@ -41,6 +41,22 @@
       "power_floors": {
         "arch.power.health": 1
       }
+    },
+    {
+      "id": "creature.lab_a_resilient",
+      "name_key": "l10n.creature.lab_stake.name",
+      "level": 1,
+      "tier": "creature.tier.lab_a_resilient",
+      "base_stats": {
+        "stat.stamina": 100000,
+        "stat.poise": 4
+      },
+      "faction_id": "fac.lab_hostile",
+      "display_ref": "display.map.lab_stake",
+      "feel_ref": "feel.character.lab_a_resilient",
+      "power_floors": {
+        "arch.power.health": 1
+      }
     }
   ]
 }

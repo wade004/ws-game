@@ -277,3 +277,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 ## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
 
 只做加法：`CarriersAssembly` 在 `MovementOptions.Vertical` 非空时创建 `VerticalMotionHost`、挂 `VerticalMotionTickHandler`（紧随 `MovementTickHandler`，同在 `MovementAndNavigation` 阶段）并暴露只读属性 `VerticalMotion`；`CarriersFeelAssembly` 在打通受击裁决与运动层之后，`VerticalMotion` 是 `ILaunchSink` 时把它接到 `HitFeelHost.Launch`（没有竖直轴时不接，档案里的 `launch_height` 被忽略）。`HeadlessWorldBuilder` 新增 `MovementOptions`/`TargetingOptions` 透传属性（缺省 null，原路径不变）。判断记录与已知局限见 unit README、targeting README、combat README 的 M3-E1 节。
+
+## 手感落地 M4-L：换装版本的单一失效源（2026-10-02）
+
+`CarriersFeelAssembly` 不再订阅 `item.equipped`/`item.unequipped` 对每次穿脱无差别 `Invalidate("equipment_changed")`。根因：换装链（`EquipmentFeelChain`）按"主手/副手武器引用与武器族是否变化"对账并自己失效（设计上换护甲、换饰品不影响手感解析，手感设计/08 第 1 节），装配里那两条订阅与它叠加——武器变化版本号 +2，穿胸甲也 +1（实验室换装场景改走生产装配后 `equip.feel_version_deltas` 暴露，见 `lab/README.md` 判断记录 21）。现在换装链是装备相关解析失效的唯一来源；光环层数变化、实体销毁等其它失效源不变。装备带来的光环（套装加成）经 `aura.applied` 照常失效。

@@ -1004,6 +1004,234 @@ namespace Tests.Rules.Combat
             Assert.Equal(first, Run());
         }
 
+        // ------------------------------------------------------------------ 动态韧性（手感落地 M4-L）
+
+        private sealed class PoiseProbe
+        {
+            public readonly List<(long Tick, CombatPoiseChangedEvent E)> Changed = new List<(long, CombatPoiseChangedEvent)>();
+            public readonly List<(long Tick, CombatPoiseRecoveredEvent E)> Recovered = new List<(long, CombatPoiseRecoveredEvent)>();
+        }
+
+        private static PoiseProbe WatchPoise(Fx fx)
+        {
+            var probe = new PoiseProbe();
+            fx.Bus.Subscribe<CombatPoiseChangedEvent>(RulesEventKeys.CombatPoiseChanged, e => probe.Changed.Add((fx.TickNo, e)));
+            fx.Bus.Subscribe<CombatPoiseRecoveredEvent>(RulesEventKeys.CombatPoiseRecovered, e => probe.Recovered.Add((fx.TickNo, e)));
+            return probe;
+        }
+
+        /// <summary>
+        /// 夹具：韧性容量 = 3 × 每击韧性伤害（至少够挡两击），强度不高于任何击前韧性（强度取档案值，每击伤害取强度与 1 之大者）。
+        /// 对照靶 Target2 的韧性属性为 0——动态韧性对没有韧性的目标不生效，走静态规则，用它拿"完整反应"的期望值。
+        /// </summary>
+        private static (Fx Fx, double Damage, double Max) BuildPoise()
+        {
+            var fx = Build();
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            var damage = Math.Max(power, 1.0);
+            var max = 3.0 * damage;
+            fx.Set(FeelFieldNames.PoiseDamage, damage);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, max);
+            fx.C.Stats.SetBase(Target2, CombatTestSupport.StatArmor, 0);
+            return (fx, damage, max);
+        }
+
+        private static HitReaction FullReaction(Fx fx) => fx.Host.Evaluate(new HitFeelInput(Attacker, Target2, HitResult.Hit, 10.0, false)).Reaction;
+
+        [Fact]
+        public void DynamicPoise_EachHitDrainsThePool_TheShelterEndsExactlyWhenThePoolReachesZero()
+        {
+            var (fx, damage, max) = BuildPoise();
+            var probe = WatchPoise(fx);
+            var full = FullReaction(fx);
+            Assert.NotEqual(HitReaction.Flinch, full);
+
+            var reactions = new List<HitReaction>();
+            var expectedPool = max;
+            for (var hit = 0; hit < 5; hit++)
+            {
+                var before = expectedPool;
+                expectedPool = Math.Max(0.0, expectedPool - damage);
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+                reactions.Add(fx.Reactions[fx.Reactions.Count - 1].E.Reaction);
+                Assert.Equal(expectedPool, fx.Host.CurrentPoise(Target), 9);
+                var changed = probe.Changed[probe.Changed.Count - 1].E;
+                Assert.Equal(before, changed.Before, 9);
+                Assert.Equal(expectedPool, changed.After, 9);
+                Assert.Equal(max, changed.Max, 9);
+                Assert.Equal(before > 0.0 && expectedPool <= 0.0, changed.Broken);
+            }
+
+            // 容量 = 3 次伤害：前两击被挡成 Flinch，第三击打穿（破韧）给出完整反应，之后池子是 0 的命中同样不被挡。
+            Assert.Equal(new[] { HitReaction.Flinch, HitReaction.Flinch, full, full, full }, reactions);
+            Assert.Equal(new[] { false, false, true, false, false }, probe.Changed.Select(c => c.E.Broken).ToArray());
+        }
+
+        [Fact]
+        public void DynamicPoise_AHitThatDoesNotDeclarePoiseDamage_IsStaticAndNeverTouchesThePool()
+        {
+            var fx = Build();
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, power); // 静态韧性 = 强度：不高于韧性 → Flinch
+            var probe = WatchPoise(fx);
+
+            for (var i = 0; i < 4; i++)
+            {
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            Assert.All(fx.Reactions, r => Assert.Equal(HitReaction.Flinch, r.E.Reaction));
+            Assert.Empty(probe.Changed);
+            Assert.Empty(probe.Recovered);
+            Assert.Equal(power, fx.Host.CurrentPoise(Target), 9);
+        }
+
+        [Fact]
+        public void DynamicPoise_NoPoiseAttributeMeansNoPool_TheStaticRuleApplies()
+        {
+            var (fx, _, _) = BuildPoise();
+            var probe = WatchPoise(fx);
+            fx.Hit(Attacker, Target2);
+            fx.Run(1);
+            Assert.Empty(probe.Changed);
+            Assert.Equal(FullReaction(fx), fx.Reactions.Single().E.Reaction);
+        }
+
+        [Fact]
+        public void DynamicPoise_RecoversAfterTheDelayAtTheDeclaredRate_AndAnnouncesTheRefillOnce()
+        {
+            var (fx, damage, max) = BuildPoise();
+            var probe = WatchPoise(fx);
+            const double delayMs = 300.0;
+            var perSecond = max; // 回满需要 1 秒
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, perSecond);
+            var delayTicks = Ticks(delayMs);
+            var perTick = perSecond * Dt;
+
+            long breakTick = 0;
+            for (var i = 0; i < 3; i++) // 打穿
+            {
+                breakTick = fx.TickNo; // 裁决发生在这一击之后的第一个 tick 开始之前
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            // 裁决之后经过的 tick 数 e：e 从 1 起（刚跑完的这个 tick 就是第 1 个）；延迟耗尽后每 tick 回复 perTick。
+            var refillAt = delayTicks + (int)Math.Ceiling(max / perTick - 1e-9);
+            for (var e = 1; e <= refillAt + 5; e++)
+            {
+                if (e > 1) fx.Run(1);
+                var expected = Math.Min(max, perTick * Math.Max(0, e - delayTicks));
+                Assert.Equal(expected, fx.Host.CurrentPoise(Target), 6);
+            }
+
+            // 回满那一 tick 发一次 poise_recovered，之后没有重复。
+            var recovered = probe.Recovered.Single();
+            Assert.Equal(breakTick + refillAt - 1, recovered.Tick);
+            Assert.Equal(max, recovered.E.Poise, 9);
+            // 回满之后重新能挡：下一击又是 Flinch。
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(HitReaction.Flinch, fx.Reactions[fx.Reactions.Count - 1].E.Reaction);
+            Assert.Equal(max - damage, fx.Host.CurrentPoise(Target), 9);
+        }
+
+        [Fact]
+        public void DynamicPoise_AHitInsideTheDelayRestartsTheDelay_AndWithoutARateThePoolNeverRecovers()
+        {
+            var (fx, _, max) = BuildPoise();
+            const double delayMs = 300.0;
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, max);
+            var delayTicks = Ticks(delayMs);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(delayTicks - 2);
+            fx.Hit(Attacker, Target); // 延迟结束前再挨一击：延迟重新计
+            fx.Run(1);
+            var afterSecond = fx.Host.CurrentPoise(Target);
+            fx.Run(delayTicks - 1);
+            Assert.Equal(afterSecond, fx.Host.CurrentPoise(Target), 9); // 重新计的延迟里没有回复
+            fx.Run(1);
+            Assert.True(fx.Host.CurrentPoise(Target) > afterSecond);
+
+            // 没声明回复速率的目标：永不回复。
+            var (fx2, damage, max2) = BuildPoise();
+            fx2.Hit(Attacker, Target);
+            fx2.Run(600);
+            Assert.Equal(max2 - damage, fx2.Host.CurrentPoise(Target), 9);
+        }
+
+        [Fact]
+        public void DynamicPoise_PoolStaysInsideZeroAndMax_AcrossArbitraryHitAndRecoverySequences()
+        {
+            foreach (var pattern in new[] { new[] { 1, 0, 0, 5, 40 }, new[] { 1, 1, 1, 1, 1, 1, 30 }, new[] { 3, 17, 2, 90, 1, 1 } })
+            {
+                var (fx, damage, max) = BuildPoise();
+                fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 100);
+                fx.Set(FeelFieldNames.PoiseRecoverPerS, damage);
+                var probe = WatchPoise(fx);
+                foreach (var gap in pattern)
+                {
+                    fx.Hit(Attacker, Target);
+                    fx.Run(gap);
+                    var pool = fx.Host.CurrentPoise(Target);
+                    Assert.InRange(pool, 0.0, max + 1e-9);
+                }
+
+                // 每条 changed 记录自洽：after = max(0, before − 伤害)；破韧恰好是 before > 0 且 after = 0。
+                foreach (var c in probe.Changed)
+                {
+                    Assert.Equal(Math.Max(0.0, c.E.Before - damage), c.E.After, 9);
+                    Assert.Equal(c.E.Before > 0.0 && c.E.After <= 0.0, c.E.Broken);
+                    Assert.InRange(c.E.Before, 0.0, max + 1e-9);
+                }
+            }
+        }
+
+        [Fact]
+        public void DynamicPoise_SuperArmorAndKillsNeverTouchThePool_AndReleasingTheUnitResetsIt()
+        {
+            var fx = Build(useActions: true);
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            var damage = Math.Max(power, 1.0);
+            fx.Set(FeelFieldNames.PoiseDamage, damage);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 3.0 * damage);
+            var probe = WatchPoise(fx);
+
+            fx.Actions.SuperArmor = true; // 霸体：不走韧性（不扣池、不发事件）
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            fx.Actions.SuperArmor = false;
+            Assert.Empty(probe.Changed);
+            Assert.Equal(3.0 * damage, fx.Host.CurrentPoise(Target), 9);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Single(probe.Changed);
+            Assert.Equal(2.0 * damage, fx.Host.CurrentPoise(Target), 9);
+
+            fx.Hit(Attacker, Target, kill: true); // 击杀：Death 优先，不扣池
+            fx.Run(1);
+            Assert.Single(probe.Changed);
+            Assert.Equal(3.0 * damage, fx.Host.CurrentPoise(Target), 9); // 死亡释放了该单位的池
+        }
+
+        [Fact]
+        public void DynamicPoise_FieldsAreOptionalAndDefaultToTheOldBehavior()
+        {
+            var fx = Build();
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.PoiseDamage, out _));
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.PoiseRecoverPerS, out _));
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.PoiseRecoverDelayMs, out _));
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseDamage).Optional);
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverPerS).Optional);
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverDelayMs).Optional);
+        }
+
         [Fact]
         public void EventKeys_AreRegisteredInTheFrameworkCatalog()
         {
@@ -1012,6 +1240,7 @@ namespace Tests.Rules.Combat
             {
                 RulesEventKeys.CombatHitConfirmed, RulesEventKeys.CombatReactionApplied,
                 RulesEventKeys.FeelHitstopStarted, RulesEventKeys.FeelHitstopEnded,
+                RulesEventKeys.CombatPoiseChanged, RulesEventKeys.CombatPoiseRecovered,
             })
             {
                 Assert.Contains("\"" + key.Value + "\"", catalog);

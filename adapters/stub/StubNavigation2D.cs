@@ -229,6 +229,55 @@ namespace Adapters.Stub
             BumpBlockingVersion(mapId);
         }
 
+        /// <summary>契约方法（增量阻挡，M4-L）：当前登记的动态阻挡快照（登记顺序）；从未登记过的地图返回空列表（不是 null——本桩支持增量）。</summary>
+        public IReadOnlyList<Rect> GetBlocking(Id mapId)
+        {
+            var result = new List<Rect>();
+            if (_blockingRects.TryGetValue(mapId, out var rects))
+            {
+                foreach (var rect in rects)
+                {
+                    result.Add(new Rect(rect.Min, rect.Max));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>契约方法（增量阻挡）：追加一块动态阻挡，版本号恰好递增一次（同一次 <see cref="SetBlocking"/>）；不动其余登记。</summary>
+        public void AddBlocking(Id mapId, Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                list = new List<BlockingRect>();
+                _blockingRects[mapId] = list;
+            }
+
+            list.Add(new BlockingRect(rect.Min, rect.Max));
+            BumpBlockingVersion(mapId);
+        }
+
+        /// <summary>契约方法（增量阻挡）：按矩形值移除登记顺序里第一份匹配项；没有匹配返回 false 且版本号不变。</summary>
+        public bool RemoveBlocking(Id mapId, Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Min.Equals(rect.Min) && list[i].Max.Equals(rect.Max))
+                {
+                    list.RemoveAt(i);
+                    BumpBlockingVersion(mapId);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>契约方法：清空某地图的全部动态阻挡登记。</summary>
         public void Clear(Id mapId)
         {

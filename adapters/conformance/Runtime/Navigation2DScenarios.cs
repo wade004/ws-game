@@ -22,6 +22,7 @@ namespace Adapters.Conformance
             new ConformanceScenario<INavigation2D>("FindPath_终点落在阻挡矩形内部时返回null", FindPath_UnwalkableEndpoint_ReturnsNull),
             new ConformanceScenario<INavigation2D>("FindPath_双矩形拐角工况_每段Raycast均不受阻", FindPath_DoubleRectCorner_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("GetBlockingVersion_SetBlocking与BuildNavMesh与Clear均递增", GetBlockingVersion_IncrementsOnChanges),
+            new ConformanceScenario<INavigation2D>("AddBlocking与RemoveBlocking_增量登记与移除只动这一块_版本各递增一次", IncrementalBlocking_AddsAndRemovesOneRect_VersionBumpsOnceEach),
             new ConformanceScenario<INavigation2D>("RaycastWithNormal_命中点与Raycast逐位相同_法线为穿入面的单位外法线", RaycastWithNormal_PointMatchesRaycast_NormalIsEnteredFaceOutwardNormal),
             new ConformanceScenario<INavigation2D>("FindPath_端点格中心受阻但端点与直线均可通行_每段Raycast均不受阻", FindPath_EndpointCellCenterBlocked_EverySegmentRaycastNull),
             new ConformanceScenario<INavigation2D>("FindPath_薄墙窄于采样间距存在绕路_每段Raycast均不受阻", FindPath_ThinWallNarrowerThanSampling_EverySegmentRaycastNull),
@@ -550,6 +551,44 @@ namespace Adapters.Conformance
 
             var otherMap = new Id("map.conformance_blocking_version_other");
             assert.Equal(0, nav.GetBlockingVersion(otherMap), "从未变动过的另一张地图版本号应为 0");
+            yield break;
+        }
+
+        /// <summary>核心侧 <c>INavigation2D.AddBlocking/RemoveBlocking</c> 增量契约（M4-L）：只动这一块矩形，其余登记原样保留；
+        /// 每次有效的增/删让版本号变化，移除不存在的矩形返回 false 且版本号不变；
+        /// 版本追踪不支持（<c>GetBlockingVersion</c> 恒为 0）的实现，版本断言跳过，其余断言照常。</summary>
+        private static IEnumerator IncrementalBlocking_AddsAndRemovesOneRect_VersionBumpsOnceEach(INavigation2D nav, IConformanceAssert assert, ConformanceContext ctx)
+        {
+            var map = new Id("map.conformance_incremental_blocking");
+            var a = new Rect(new Vec2(0, 0), new Vec2(1, 1));
+            var b = new Rect(new Vec2(4, 0), new Vec2(5, 1));
+            var inA = new Vec2(0.5, 0.5);
+            var inB = new Vec2(4.5, 0.5);
+
+            nav.SetBlocking(map, new[] { a });
+            var v0 = nav.GetBlockingVersion(map);
+            nav.AddBlocking(map, b);
+            var v1 = nav.GetBlockingVersion(map);
+            assert.False(nav.IsWalkable(map, inA), "增量追加 b 之后 a 仍然阻挡");
+            assert.False(nav.IsWalkable(map, inB), "增量追加的 b 内不可行走");
+
+            var removedMissing = nav.RemoveBlocking(map, new Rect(new Vec2(8, 8), new Vec2(9, 9)));
+            assert.False(removedMissing, "移除不存在的矩形返回 false");
+            var v2 = nav.GetBlockingVersion(map);
+
+            assert.True(nav.RemoveBlocking(map, a), "移除已登记的 a 返回 true");
+            var v3 = nav.GetBlockingVersion(map);
+            assert.True(nav.IsWalkable(map, inA), "移除 a 之后 a 内恢复可行走");
+            assert.False(nav.IsWalkable(map, inB), "移除 a 不影响 b");
+
+            if (v0 != 0)
+            {
+                assert.True(v1 != v0, "AddBlocking 让版本号变化");
+                assert.True(v2 == v1, "移除不存在的矩形不改版本号");
+                assert.True(v3 != v2, "RemoveBlocking 让版本号变化");
+            }
+
+            nav.Clear(map);
             yield break;
         }
     }

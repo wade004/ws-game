@@ -113,6 +113,30 @@
       "kind": "sprite",
       "sprite_set_id": "sprite.lab_placeholder",
       "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_poise_chip",
+      "category": "skill",
+      "logical_id": "skill.lab_a_poise_chip",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_projectile_short",
+      "category": "skill",
+      "logical_id": "skill.lab_a_projectile_short",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
+    },
+    {
+      "id": "display.map.lab_a_resilient",
+      "category": "creature",
+      "logical_id": "creature.lab_a_resilient",
+      "kind": "sprite",
+      "sprite_set_id": "sprite.lab_placeholder",
+      "direction_count": 4
     }
   ]
 }

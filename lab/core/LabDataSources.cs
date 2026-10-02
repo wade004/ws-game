@@ -28,10 +28,9 @@ namespace Lab
         }
 
         /// <summary>
-        /// 换装场景的脚本数据源：在基础数据来源之后追加脚本声明的额外根（<paramref name="resolveRoot"/> 把根路径变成数据来源），
-        /// 额外根里 <see cref="ScriptMeta.ExtraDataExcludeTables"/> 的表整表剔除，并把
-        /// <see cref="ScriptMeta.WeaponAttackSkills"/> 在内存里写成各武器行的 <c>auto_attack_timeline_ref</c>
-        /// （只活在返回的数据来源里，不动磁盘上的共享数据）。脚本没有任何扩展数据声明时原样返回基础来源。
+        /// 脚本级数据源：在基础数据来源之后追加脚本声明的额外根（<paramref name="resolveRoot"/> 把根路径变成数据来源），
+        /// 额外根里 <see cref="ScriptMeta.ExtraDataExcludeTables"/> 的表整表剔除、<see cref="ScriptMeta.ExtraDataExcludeRows"/> 的行剔除。
+        /// 脚本没有任何扩展数据声明时原样返回基础来源。武器 → 普攻时间线的映射是数据（<c>feel.weapon.auto_attack_timeline_ref</c>），不在这里改写。
         /// </summary>
         public static IReadOnlyList<IDataSource> ForScript(
             IReadOnlyList<IDataSource> baseSources, ScriptMeta meta, Func<string, IDataSource> resolveRoot, bool stripTimelines = false)
@@ -51,7 +50,7 @@ namespace Lab
                     source = new TableFilterDataSource(source, exclude);
                 }
 
-                if (meta.WeaponAttackSkills.Count > 0 || meta.ExtraDataExcludeRows.Count > 0)
+                if (meta.ExtraDataExcludeRows.Count > 0)
                 {
                     source = new TableOverlayDataSource(source, (table, text) => RewriteTable(table, text, meta));
                 }
@@ -122,7 +121,6 @@ namespace Lab
 
         private static string? RewriteTable(string table, string text, ScriptMeta meta)
         {
-            var isWeapon = string.Equals(table, "feel.weapon", StringComparison.Ordinal) && meta.WeaponAttackSkills.Count > 0;
             var dropRules = new List<KeyValuePair<string, string>>();
             foreach (var spec in meta.ExtraDataExcludeRows)
             {
@@ -139,15 +137,9 @@ namespace Lab
                 }
             }
 
-            if (!isWeapon && dropRules.Count == 0)
+            if (dropRules.Count == 0)
             {
                 return null;
-            }
-
-            var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var pair in meta.WeaponAttackSkills)
-            {
-                map[pair.Key] = pair.Value;
             }
 
             var root = LabJson.ParseObject(text, table);
@@ -169,21 +161,7 @@ namespace Lab
                         continue;
                     }
 
-                    if (!isWeapon || !(row is JsonObject rowObj) || !rowObj.TryGetValue("id", out var idValue) || !(idValue is JsonString idString)
-                        || !map.TryGetValue(idString.Value, out var skill) || rowObj.ContainsKey("auto_attack_timeline_ref"))
-                    {
-                        newRows.Add(row);
-                        continue;
-                    }
-
-                    var builder = new JsonObjectBuilder();
-                    for (var k = 0; k < rowObj.Count; k++)
-                    {
-                        builder.Add(rowObj[k].Key, rowObj[k].Value);
-                    }
-
-                    builder.Add("auto_attack_timeline_ref", LabJson.Str(skill));
-                    newRows.Add(builder.Build());
+                    newRows.Add(row);
                 }
 
                 rewritten.Add(entry.Key, new JsonArray(newRows));

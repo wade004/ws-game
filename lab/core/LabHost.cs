@@ -69,7 +69,7 @@ namespace Lab
     /// 输入映射的按钮边沿经 <c>InputBufferHost.BindLocalInput</c> 进输入缓冲，由生产装配的 tick 步骤 1 处理器消费并施放
     /// （宿主不再自己提交施放意图）；每步末尾（事件派发之后）采缓冲槽与运动层状态并让反馈流水线兜底出批；
     /// 靶子（含 AI 巡逻靶）的位置每步同步进空间索引（引擎侧由物理空间查询适配器做）。可破坏障碍是真正的动态阻挡：
-    /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.SetBlocking</c> 批量替换去掉，
+    /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.RemoveBlocking</c> 增量移除，
     /// 阻挡版本号随之递增（06 第 10 节勘误 4 的收口）。动态阻挡由靶子数据声明（<c>block_half_extent</c>，<c>breakable</c> 缺省 0.5），
     /// 不限手感场景：基础靶子集里的可破坏障碍同样是真阻挡；阻挡变更另记一条 <c>blocking_changed</c> 逻辑事件。
     /// 靶子可选声明韧性（<c>poise</c>）：出场后写进韧性属性，受击裁决读它。
@@ -200,9 +200,19 @@ namespace Lab
             var feelOn = feelScene && !variant.FeelOff;
             var effectivePreset = variant.PresetId ?? (string.IsNullOrEmpty(meta.PresetId) ? cell.DefaultPreset : meta.PresetId);
             var calibrationId = feelScene ? CalibrationFor(meta, effectivePreset) : string.Empty;
+
+            // 换装场景（meta.scene = equip）也经生产装配开启手感系统（换装链、武器优先的普攻映射、时间线协作者都取生产实例），
+            // 但不走输入缓冲与反馈流水线（没有 FeelRecording，指纹里不出现手感条件度量组，既有换装基线不变）。
+            var equipScene = string.Equals(meta.Scene, "equip", StringComparison.Ordinal);
             var feelOptions = feelOn
                 ? new CarriersFeelOptions { CalibrationId = calibrationId, LocalMoveActionName = options.MoveAction }
-                : null;
+                : equipScene
+                    ? new CarriersFeelOptions
+                    {
+                        CalibrationId = meta.FeelCalibrationId.Length > 0 ? meta.FeelCalibrationId : null,
+                        LocalMoveActionName = options.MoveAction,
+                    }
+                    : null;
 
             // 空间语义（06 第 10 节勘误 9）：plane 不装配任何空间能力（行为与引入前逐位一致）；side_2d/volume 装配竖直轴（重力下的跳跃/击飞/落地）
             // 并打开命中形状的高度窗口；volume 另外把"最近"改成含高度差的三维距离；side_2d 额外锁深度（输入的竖直分量不是深度）。
@@ -389,15 +399,10 @@ namespace Lab
                 }
             }
 
-            if (dynamicBlocks.Count > 0)
+            // 可破坏障碍的占位矩形经增量接口逐块登记（INavigation2D.AddBlocking，M4-L；此前整批重发全部矩形）。
+            foreach (var block in dynamicBlocks)
             {
-                var all = new List<Rect>(rects);
-                foreach (var block in dynamicBlocks)
-                {
-                    all.Add(block.Value);
-                }
-
-                nav.SetBlocking(arena.MapId, all);
+                nav.AddBlocking(arena.MapId, block.Value);
             }
 
             // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
@@ -416,7 +421,10 @@ namespace Lab
             }
 
             // 手感场景：本地输入的按钮边沿接给输入缓冲（与 PresentationAssembly 的接线同一个调用）。
-            world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
+            if (feelOn)
+            {
+                world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
+            }
 
             // 表现：ViewBinder + 记录型假 View，只关心玩家那一个 View 的位姿。
             var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
@@ -429,7 +437,7 @@ namespace Lab
 
             // 换装场景（脚本 meta.scene = equip）：装出换装链的全部生产部件，脚本里的 equip/unequip 事件经它执行。
             EquipRig? rig = null;
-            if (string.Equals(meta.Scene, "equip", StringComparison.Ordinal))
+            if (equipScene)
             {
                 rig = EquipRig.Create(world, meta, step, recording, displayInfo);
             }
@@ -548,6 +556,18 @@ namespace Lab
                     return;
                 }
 
+                if (e.Kind == ScriptEventKind.ClearProjectiles)
+                {
+                    // 清场（地图切换/场景重置的投射物收尾）：先让簿记以 Cleared 结局通知钩子，再把世界里的投射物实体清掉。
+                    world.Gameplay.Carriers.Projectiles.ClearAll();
+                    foreach (var entity in world.World.QueryEntities(new EntityFilter(kind: EntityKinds.Projectile)))
+                    {
+                        world.World.MarkForDestruction(entity.EntityId);
+                    }
+
+                    return;
+                }
+
                 if (e.Kind == ScriptEventKind.Cast)
                 {
                     if (!dummyByLabel.TryGetValue(e.Actor, out var caster))
@@ -625,7 +645,7 @@ namespace Lab
                         // 换装场景里普攻动作不走格子的固定绑定，而是按主手武器的 auto_attack_timeline_ref（空手回落空手普攻）解析。
                         var castSkill = binding.Value;
                         if (rig != null && string.Equals(binding.Key, "input.action.attack", StringComparison.Ordinal)
-                            && !rig.TryResolveAttackSkill(out castSkill))
+                            && !rig.TryResolveAttackSkill(binding.Key, tick, out castSkill))
                         {
                             continue;
                         }
@@ -676,19 +696,20 @@ namespace Lab
                         {
                             if (dynamicBlocks[b].Key.Equals(died.UnitId))
                             {
+                                var removedRect = dynamicBlocks[b].Value;
                                 dynamicBlocks.RemoveAt(b);
-                                var remaining = new List<Rect>(rects);
-                                foreach (var block in dynamicBlocks)
+                                // 增量移除：只拿掉这一块，其余登记原样保留（INavigation2D.RemoveBlocking，M4-L）。
+                                if (!nav.RemoveBlocking(arena.MapId, removedRect))
                                 {
-                                    remaining.Add(block.Value);
+                                    throw new InvalidOperationException($"可破坏障碍 {labels[died.UnitId]} 的阻挡矩形不在导航登记里，增量移除失败");
                                 }
 
-                                nav.SetBlocking(arena.MapId, remaining);
+                                var remainingCount = rects.Count + dynamicBlocks.Count;
                                 var blockingVersion = nav.GetBlockingVersion(arena.MapId);
                                 recording.Events.Add(new LogicEventRecord(
-                                    tick, "blocking_changed", string.Empty, labels[died.UnitId], string.Empty, 0, remaining.Count,
+                                    tick, "blocking_changed", string.Empty, labels[died.UnitId], string.Empty, 0, remainingCount,
                                     "v" + blockingVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remaining.Count, blockingVersion);
+                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remainingCount, blockingVersion);
                                 break;
                             }
                         }

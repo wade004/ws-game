@@ -212,7 +212,39 @@ namespace Core.Rules.Skill
         /// 手感落地（ADR-0115）：动作时间线毫秒→tick 换算用的固定步长（秒），必须与模拟固定步长一致（通常取
         /// <c>SimLoopOptions.StepSeconds</c>，<c>GameplayAssembly</c> 装配时回填同一个值）。默认 1/60。只影响声明了
         /// <c>skill.def.timeline</c> 的技能，不影响任何既有技能。
+        /// <para>
+        /// 显式赋值过（<see cref="ActionStepSecondsIsExplicit"/> 为真）的值装配根不会改写；从未赋值时 <c>GameplayAssembly</c> 经
+        /// <see cref="ApplyHostStepSeconds"/> 把时钟宿主步长回填进来（不再要求调用方手动把两个值写成一致）。
+        /// </para>
         /// </summary>
-        public double ActionStepSeconds { get; set; } = 1.0 / 60.0;
+        public double ActionStepSeconds
+        {
+            get => _actionStepSeconds;
+            set
+            {
+                _actionStepSeconds = value;
+                ActionStepSecondsIsExplicit = true;
+            }
+        }
+
+        private double _actionStepSeconds = 1.0 / 60.0;
+
+        /// <summary><see cref="ActionStepSeconds"/> 是否被显式赋值过（装配根回填不算显式）。</summary>
+        public bool ActionStepSecondsIsExplicit { get; private set; }
+
+        /// <summary>
+        /// 装配根回填：<see cref="ActionStepSeconds"/> 从未显式赋值时取宿主模拟固定步长，返回是否发生了回填；显式赋值过或步长非法时不改动。
+        /// 回填不把它标成显式（同一个选项对象被多套装配先后使用时，每套都按各自的宿主步长回填）。
+        /// </summary>
+        public bool ApplyHostStepSeconds(double hostStepSeconds)
+        {
+            if (ActionStepSecondsIsExplicit || !double.IsFinite(hostStepSeconds) || hostStepSeconds <= 0)
+            {
+                return false;
+            }
+
+            _actionStepSeconds = hostStepSeconds;
+            return true;
+        }
     }
 }

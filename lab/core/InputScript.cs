@@ -10,7 +10,8 @@ namespace Lab
     /// 换装场景（<see cref="ScriptMeta.Scene"/> = <c>equip</c>，格式版本 2）另有穿上物品与卸下槽位：
     /// <see cref="Equip"/> 的 <see cref="ScriptEvent.Action"/> 是物品模板 id，<see cref="Unequip"/> 的是装备槽位 id；
     /// 手感场景（<see cref="ScriptMeta.Feel"/>，格式版本 3）另有 <see cref="Cast"/>：<see cref="ScriptEvent.Actor"/> 指明的靶子
-    /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）。
+    /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）；<see cref="ClearProjectiles"/>（同为格式版本 3）
+    /// 是"清场"：所有在飞的投射物以 Cleared 结局收场（<see cref="ScriptEvent.Action"/> 只作标签，惯例写 <c>projectiles</c>）。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -20,6 +21,7 @@ namespace Lab
         Equip,
         Unequip,
         Cast,
+        ClearProjectiles,
     }
 
     /// <summary>
@@ -120,13 +122,10 @@ namespace Lab
         public string FeelCalibrationId { get; set; } = string.Empty;
 
         /// <summary>
-        /// 武器手感行 id → 普通攻击时间线技能 id（格式版本 2）。运行入口把它在内存里写成各武器行的
-        /// <c>auto_attack_timeline_ref</c>（占位装备集的武器行没有声明该字段，实验室不改共享数据），
-        /// 运行时普攻映射读的仍是数据契约字段本身。保持声明顺序。
+        /// 空手（主手没有武器行或武器行没声明普攻时间线）时的普通攻击技能 id（格式版本 2）：宿主把它绑到普攻输入动作声明的技能槽位
+        /// （<c>found.input_action.skill_slot</c>），生产装配的武器优先映射在武器没有声明 <c>auto_attack_timeline_ref</c> 时回落到这个槽位绑定。
+        /// 武器 → 普攻时间线的映射本身是数据（<c>feel.weapon.auto_attack_timeline_ref</c>），脚本不再声明。
         /// </summary>
-        public List<KeyValuePair<string, string>> WeaponAttackSkills { get; } = new List<KeyValuePair<string, string>>();
-
-        /// <summary>空手（主手没有武器行或武器行没声明普攻时间线）时的普通攻击技能 id。</summary>
         public string UnarmedAttackSkill { get; set; } = string.Empty;
 
         /// <summary>
@@ -153,7 +152,7 @@ namespace Lab
         public bool UsesExtendedFormat =>
             Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
             || FeelCalibrationId.Length > 0
-            || WeaponAttackSkills.Count > 0 || UnarmedAttackSkill.Length > 0;
+            || UnarmedAttackSkill.Length > 0;
     }
 
     /// <summary>
@@ -203,7 +202,7 @@ namespace Lab
 
                 foreach (var e in Events)
                 {
-                    if (e.Kind == ScriptEventKind.Cast || e.Actor.Length > 0)
+                    if (e.Kind == ScriptEventKind.Cast || e.Kind == ScriptEventKind.ClearProjectiles || e.Actor.Length > 0)
                     {
                         return FeelFormatVersion;
                     }
@@ -310,16 +309,11 @@ namespace Lab
             ReadStrings(metaObj, "extraDataRoots", meta.ExtraDataRoots, what + ".meta");
             ReadStrings(metaObj, "extraDataExcludeTables", meta.ExtraDataExcludeTables, what + ".meta");
             ReadStrings(metaObj, "extraDataExcludeRows", meta.ExtraDataExcludeRows, what + ".meta");
-            if (metaObj.TryGetValue("weaponAttackSkills", out var was) && was is JsonObject wasObj)
+            if (metaObj.TryGetValue("weaponAttackSkills", out var was) && was is JsonObject wasObj && wasObj.Count > 0)
             {
-                for (var i = 0; i < wasObj.Count; i++)
-                {
-                    meta.WeaponAttackSkills.Add(new KeyValuePair<string, string>(
-                        wasObj[i].Key,
-                        wasObj[i].Value is JsonString ws
-                            ? ws.Value
-                            : throw new LabFormatException($"{what}.meta.weaponAttackSkills.{wasObj[i].Key} 必须是字符串")));
-                }
+                // 旧版本脚本用它在内存里改写武器行；现在武器 → 普攻时间线是数据（feel.weapon.auto_attack_timeline_ref），不再接受脚本声明。
+                throw new LabFormatException(
+                    $"{what}.meta.weaponAttackSkills 已移除：武器的普攻时间线请写进 feel.weapon 行的 auto_attack_timeline_ref（数据根里用 override 行覆盖占位武器行）");
             }
 
             if (meta.TickRate <= 0 || meta.FrameRateCap <= 0 || meta.DurationTicks <= 0)
@@ -347,7 +341,8 @@ namespace Lab
                     case "equip": kind = ScriptEventKind.Equip; break;
                     case "unequip": kind = ScriptEventKind.Unequip; break;
                     case "cast": kind = ScriptEventKind.Cast; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast）");
+                    case "clear_projectiles": kind = ScriptEventKind.ClearProjectiles; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles）");
                 }
 
                 var value = Vec2.Zero;
@@ -390,6 +385,7 @@ namespace Lab
                 case ScriptEventKind.Axis: return "axis";
                 case ScriptEventKind.Equip: return "equip";
                 case ScriptEventKind.Cast: return "cast";
+                case ScriptEventKind.ClearProjectiles: return "clear_projectiles";
                 default: return "unequip";
             }
         }
@@ -432,14 +428,7 @@ namespace Lab
                     .Add("extraDataRoots", new JsonArray(Meta.ExtraDataRoots.ConvertAll(g => (JsonValue)LabJson.Str(g))))
                     .Add("extraDataExcludeTables", new JsonArray(Meta.ExtraDataExcludeTables.ConvertAll(g => (JsonValue)LabJson.Str(g))))
                     .Add("extraDataExcludeRows", new JsonArray(Meta.ExtraDataExcludeRows.ConvertAll(g => (JsonValue)LabJson.Str(g))));
-                var attackSkills = new JsonObjectBuilder();
-                foreach (var pair in Meta.WeaponAttackSkills)
-                {
-                    attackSkills.Add(pair.Key, LabJson.Str(pair.Value));
-                }
-
-                meta.Add("weaponAttackSkills", attackSkills.Build())
-                    .Add("unarmedAttackSkill", LabJson.Str(Meta.UnarmedAttackSkill));
+                meta.Add("unarmedAttackSkill", LabJson.Str(Meta.UnarmedAttackSkill));
             }
 
             var metaValue = meta.Build();

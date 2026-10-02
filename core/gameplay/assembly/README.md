@@ -520,3 +520,9 @@ SceneRouter`（新增 `Hooks` 只读属性，见 `core/foundation/scene_router/R
 3. **换图/读档/离开地图清输入缓冲**：`EnterMap`/`RestoreFromSlot`/`LeaveMap` 里 `Carriers.Feel?.InputBuffer.ClearAll()`，避免上一张图里按下的记录在新图里被接受。不清动作时钟（时钟是模拟时间的一部分，不属于地图状态）。
 4. **本地行动者绑定固定在表现层装配时**：`BindLocalInput` 在 `PresentationAssembly` 构造时用 `PlayerUnitProvider()` 的结果绑定；玩家单位 id 在会话中途变化（换主角）不会重绑，已知限制。
 5. **未启用手感时的不变量**：`FeelWiringEndToEndTests` 里"关闭手感"与"启用且预设 `rpg_classic`、无时间线技能、无带类别输入动作"两个世界跑同一脚本，逐 tick 位置/运动模式/事件序列逐位一致；启用方多出的只有观测事件 `combat.hit_confirmed`/`feel.hitstop_*`/`combat.reaction_applied`，其取值在 `rpg_classic` 下是中性值（顿帧 0、反应 None）。这些额外事件是"启用手感"的观测面，不算行为差异。
+
+## 手感落地 M4-L：`SkillOptions.ActionStepSeconds` 回填宿主步长（2026-10-02）
+
+1. **问题**：动作时间线按 `SkillOptions.ActionStepSeconds`（缺省 1/60）把毫秒折成 tick，而装配此前不把时钟宿主的步长回填进去，非 60 Hz 的宿主得由调用方手工保证两者一致（实验室换装场景因此只能 tickRate 60）。
+2. **做法**：`SkillOptions` 新增 `ActionStepSecondsIsExplicit`（只读，赋过 `ActionStepSeconds` 即真）与 `ApplyHostStepSeconds(double)`（只在未显式赋值时回填，显式值保持不变）；`GameplayAssembly` 在带时钟宿主（`ISimClockHost`）的构造路径里调用它，`HeadlessWorldBuilder` 按 `HeadlessWorldOptions.StepSeconds` 同样回填。不带时钟宿主的最小组合路径、以及显式设置过选项的调用方，行为不变；缺省 1/60 的宿主结果逐位不变。
+3. **验证**：实验室 `equip_cycle_tick30`（30 Hz 宿主，相位 tick 数 = 毫秒 × 倍率 ÷ 30 Hz 步长）。

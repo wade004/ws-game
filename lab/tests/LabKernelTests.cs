@@ -29,13 +29,14 @@ namespace Tests.Lab
                 var again = InputScript.Parse(text).ToJson();
                 Assert.Equal(text, again);
                 Assert.Equal(1, script.Meta.ScriptVersion);
-                // 换装脚本（格式版本 2）按动作时间线的 1/60 秒换算，固定 60；其余标准脚本仍是 50。
-                Assert.Equal(script.Meta.Scene == "equip" ? 60 : 50, script.Meta.TickRate);
+                // 换装脚本（格式版本 2）：60 Hz 的 equip_cycle，加 M4-L 的 30 Hz 对照 equip_cycle_tick30（动作时间线按宿主步长换算，不再要求 60）；其余标准脚本仍是 50。
+                var expectedRate = script.Meta.Scene != "equip" ? 50 : (script.Meta.ScriptId == "equip_cycle_tick30" ? 30 : 60);
+                Assert.Equal(expectedRate, script.Meta.TickRate);
             }
         }
 
         [Fact]
-        public void StandardScriptSet_HasTheTenScripts()
+        public void StandardScriptSet_HasTheElevenScripts()
         {
             var ids = new List<string>();
             foreach (var s in LabTestSupport.StandardScripts())
@@ -46,7 +47,7 @@ namespace Tests.Lab
             Assert.Equal(
                 new[]
                 {
-                    "attack_then_stop", "attack_while_moving", "diagonal", "equip_cycle", "group_hit", "move_small_axis",
+                    "attack_then_stop", "attack_while_moving", "diagonal", "equip_cycle", "equip_cycle_tick30", "group_hit", "move_small_axis",
                     "move_tap", "pillar_loop", "reverse_180", "wall",
                 },
                 ids);
@@ -202,7 +203,7 @@ namespace Tests.Lab
                 results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
-            Assert.Equal(10 * 6, results.Count);
+            Assert.Equal(11 * 6, results.Count);
             var failures = new StringBuilder();
             foreach (var r in results)
             {

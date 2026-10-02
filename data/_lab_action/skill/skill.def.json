@@ -169,6 +169,44 @@
       "note": "三段连招第 3 段（终结，重）：动作层手感行放大顿帧与冲击等级。"
     },
     {
+      "id": "skill.lab_a_poise_chip",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.4,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 200,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ],
+        "feel_ref": "feel.action.lab_a_poise_chip"
+      },
+      "note": "削韧击（M4-L）：与连招第 1 段同一时间线，没有连招；命中声明 poise_damage，用于动态韧性脚本。"
+    },
+    {
       "id": "skill.lab_a_dodge",
       "school": "school.physical",
       "kind": "active",
@@ -301,6 +339,58 @@
         ]
       },
       "note": "投射物（release 标记发射）：命中伤害写在 on_hit_effects。"
+    },
+    {
+      "id": "skill.lab_a_projectile_short",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 30,
+      "cast_time": 0.45,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_nearest_enemy",
+      "effects": [
+        {
+          "kind": "projectile",
+          "params": {
+            "travel_mode": "straight",
+            "hit_behavior": "impact_on_first",
+            "speed": 20,
+            "max_range": 6,
+            "on_hit_effects": [
+              {
+                "kind": "school_damage",
+                "params": {
+                  "base_value": 10,
+                  "scaling": [
+                    {
+                      "stat": "stat.attack_power",
+                      "coefficient": 1.0
+                    }
+                  ],
+                  "school": "school.physical"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 150,
+        "active_ms": 50,
+        "recovery_ms": 250,
+        "markers": [
+          {
+            "name": "release",
+            "at_ms": 150
+          },
+          {
+            "name": "hit",
+            "at_ms": 150
+          }
+        ]
+      },
+      "note": "短射程投射物（release 标记发射）：射程 6 在到达竞技场直墙（x=12）之前耗尽，结局是到期（Expired）而不是被挡住；用于脚本级覆盖到期结局的挥空时机。"
     },
     {
       "id": "skill.lab_a_bolt",
