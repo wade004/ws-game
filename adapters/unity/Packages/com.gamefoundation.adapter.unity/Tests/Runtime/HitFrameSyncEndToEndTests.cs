@@ -50,6 +50,9 @@
 // 判断记录（逐 tick 观测挂在 sim.tick_finished 上）：冻结/解冻都在固定步末尾的事件派发里落到 rig，观测点放在同一个派发里
 // （订阅晚于视图绑定与反馈绑定，必然在它们之后执行），不依赖 WaitForFixedUpdate 与引导固定步的相对次序。
 // 判断记录（命中随机性）：示例数据的命中表可能让一次普攻未命中；用例最多重试 5 次，取第一次真正命中的那一轮作观测窗口。
+// 手感落地 M3-C（已知限制解除）：FeelEngine_*Particle*/FeelEngine_*HotReload* 用例——顿帧期间被冻结单位名下（anchor 挂接）的粒子/特效按反馈包
+// freeze_layers.particles 暂停（引擎 UnityRenderer2D 的 IParticleFreezer：序列帧播放器停推进/粒子系统 Pause），旁观单位的不暂停；
+// 引导开 EnableDataHotReload 后改手感预设文件，单位在不重启下读到新值。
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -60,6 +63,8 @@ using Adapter.Unity.Bootstrap;
 using Adapter.Unity.EngineAdapter;
 using Core.Carriers.Assembly;
 using Core.Foundation.Common;
+using Core.Foundation.DataRegistry;
+using Core.Foundation.EngineAdapter;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
@@ -68,6 +73,7 @@ using Core.Rules.Common;
 using NUnit.Framework;
 using Presentation.FeedbackBinder.Core;
 using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -281,6 +287,7 @@ namespace Adapter.Unity.Tests.Runtime
         private const string FeelCalibrationId = "feel.calibration.framework_default";
         private const string FeelSwingSkillId = "skill.m2a_swing";
         private const string FeelImpactProfileId = "feedback.impact_profile.m2a";
+        private const string FeelFreezeProfileId = "feedback.impact_profile.m3c_freeze";
         private const double FeelProfileImpulseGain = 0.5;
         private const double FeelProfileDecayMs = 120;
         private const string AttackActionId = "input.action.attack";
@@ -300,7 +307,7 @@ namespace Adapter.Unity.Tests.Runtime
         }
 
         /// <summary>把本组用例的游戏侧数据写进临时目录并返回其绝对路径（见文件顶部判断记录）。</summary>
-        private string WriteFeelOverlay()
+        private string WriteFeelOverlay(bool presetOverride = false)
         {
             var dir = Path.Combine(Application.temporaryCachePath, "feel_m2a_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(dir, "skill"));
@@ -316,16 +323,48 @@ namespace Adapter.Unity.Tests.Runtime
             File.WriteAllText(Path.Combine(dir, "feedback", "feedback.impact_profile.json"),
                 "{\"table\":\"feedback.impact_profile\",\"schema_version\":1,\"rows\":[{\"id\":\"" + FeelImpactProfileId + "\",\"variants\":[" +
                 "{\"class\":\"medium\",\"outcome\":\"hit\",\"camera\":{\"impulse_gain\":" + FeelProfileImpulseGain.ToString(inv) +
-                ",\"decay_ms\":" + FeelProfileDecayMs.ToString(inv) + "}}]}]}");
+                ",\"decay_ms\":" + FeelProfileDecayMs.ToString(inv) + "}}]}," +
+                // 手感落地 M3-C：粒子层冻结的反馈包（freeze_layers.particles 为真）；上一行那个包没写 freeze_layers，缺省只冻骨骼/序列帧。
+                "{\"id\":\"" + FeelFreezeProfileId + "\",\"variants\":[" +
+                "{\"class\":\"medium\",\"outcome\":\"hit\",\"freeze_layers\":{\"particles\":true}}]}]}");
             File.WriteAllText(Path.Combine(dir, "feedback", "feedback.binding.json"),
                 "{\"table\":\"feedback.binding\",\"schema_version\":1,\"rows\":[{\"id\":\"feedback.m2a_impact\",\"event\":\"combat.hit_confirmed\"," +
                 "\"actions\":[{\"kind\":\"play_impact\",\"params\":{}}]}]}");
+            if (presetOverride)
+            {
+                Directory.CreateDirectory(Path.Combine(dir, "feel"));
+                File.WriteAllText(Path.Combine(dir, "feel", "feel.preset.json"), BuildBasePresetOverrideRow());
+            }
+
             _feelOverlayDir = dir;
             return dir;
         }
 
+        /// <summary>手感落地 M3-C：热重载用例的叠加数据——把框架手感根里基础档（<c>feel.preset</c> 第一行，框架缺省标定的基础档）原样复制成一行带 <c>override: true</c>
+        /// 的同主键行写进叠加根（DataRegistry 的跨根覆盖语义：后加载根里声明覆盖的同主键行整行替换前层），这样运行中改叠加根里的这一个文件就能热换基础档，
+        /// 不必复制整个内容根。复制不改任何字段值，所以未改动前单位读到的值与框架根完全一致。</summary>
+        private static string BuildBasePresetOverrideRow()
+        {
+            var contentRoot = new UnityFileSystem(readOnlyContentMode: true).GetContentRootDir();
+            var basePath = Path.Combine(contentRoot, "data", "_feel", "feel", "feel.preset.json");
+            Assert.IsTrue(File.Exists(basePath), "框架手感预设表应已随内容根同步：" + basePath);
+            var text = File.ReadAllText(basePath);
+            var start = text.IndexOf('{', text.IndexOf("\"rows\"", StringComparison.Ordinal));
+            var depth = 0;
+            var end = -1;
+            for (var i = start; i < text.Length; i++)
+            {
+                if (text[i] == '{') depth++;
+                else if (text[i] == '}' && --depth == 0) { end = i; break; }
+            }
+
+            Assert.Greater(end, start, "应能截出 feel.preset 的第一行");
+            var row = "{\"override\":true," + text.Substring(start + 1, end - start);
+            return "{\"table\":\"feel.preset\",\"schema_version\":1,\"rows\":[" + row + "]}";
+        }
+
         /// <summary>独立引导（玩家 model 外形 + 临时叠加数据根）；<paramref name="feelOn"/> 为真时打开 FeelOptions。</summary>
-        private GameFoundationBootstrap BuildFeelBootstrap(bool feelOn)
+        private GameFoundationBootstrap BuildFeelBootstrap(bool feelOn, bool hotReload = false, bool presetOverride = false)
         {
             CleanupStaleSharedCompositionRoots();
 
@@ -334,11 +373,13 @@ namespace Adapter.Unity.Tests.Runtime
             var bootstrap = go.AddComponent<GameFoundationBootstrap>();
             var type = typeof(GameFoundationBootstrap);
             type.GetField("_playerTemplateId", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(bootstrap, "creature.sample_model_hero");
-            type.GetField("_extraDatasetRoot", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(bootstrap, WriteFeelOverlay());
+            type.GetField("_extraDatasetRoot", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(bootstrap, WriteFeelOverlay(presetOverride));
             if (feelOn)
             {
                 bootstrap.FeelOptions = new CarriersFeelOptions { CalibrationId = FeelCalibrationId };
             }
+
+            bootstrap.EnableDataHotReload = hotReload;
 
             _go = go;
             go.SetActive(true);
@@ -546,6 +587,188 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(expected, last.Magnitude, 1e-9, "冲量幅度应来自档案：min(增益 × 变体增益, 上限)");
             Assert.AreEqual(FeelProfileDecayMs, last.DecayMs, 1e-9);
             Assert.LessOrEqual(last.Magnitude, cap + 1e-12, "不变量：幅度不超过震屏上限");
+        }
+
+        /// <summary>预加载持续特效资源（走热路径，Spawn 直接返回真实句柄），并给每个单位挂一个 anchor 持续特效。</summary>
+        private IEnumerator AttachBurnEffects(GameFoundationBootstrap bootstrap, FeelScene scene, Dictionary<Id, ParticleHandle> handles)
+        {
+            var host = UnityEngineHost.Ensure();
+            var resource = new Id("vfx.sample_burn"); // data/_sample/vfx/vfx.def.json：anchor 挂接、无 lifetime、序列帧循环播放
+            if (!host.ResourceLoader.IsLoaded(resource))
+            {
+                host.ResourceLoader.LoadAsync(resource, ResourceKind.Effect, (_, __) => { });
+                var guard = 300;
+                while (!host.ResourceLoader.IsLoaded(resource) && guard-- > 0) yield return null;
+            }
+
+            Assert.IsTrue(host.ResourceLoader.IsLoaded(resource), "占位持续特效资源应能在有限帧内加载完成");
+            foreach (var unit in new[] { scene.Player, scene.Target, scene.Bystander })
+            {
+                var handle = bootstrap.Presentation!.Vfx.Spawn(resource, VfxAttach.Anchor(unit, new Id("anchor.m3c_chest")), null);
+                Assert.IsTrue(handle.HasValue, "持续特效应能挂到单位 " + unit);
+                handles[unit] = handle!.Value;
+            }
+        }
+
+        /// <summary>顿帧期间逐 tick 观测每个粒子的暂停状态与已推进的播放时间（挂在 sim.tick_finished 上，与 rig 观测同一观测点）。</summary>
+        private static void ObserveParticles(
+            GameFoundationBootstrap bootstrap, Dictionary<Id, ParticleHandle> handles,
+            Dictionary<Id, List<bool>> paused, Dictionary<Id, List<double>> played)
+        {
+            var renderer2D = UnityEngineHost.Ensure().Renderer2D;
+            foreach (var unit in handles.Keys)
+            {
+                paused[unit] = new List<bool>();
+                played[unit] = new List<double>();
+            }
+
+            RequireInternalBus(bootstrap).Subscribe<SimTickFinishedEvent>(SimEventKeys.TickFinished, _ =>
+            {
+                foreach (var pair in handles)
+                {
+                    paused[pair.Key].Add(renderer2D.IsParticlePaused(pair.Value));
+                    played[pair.Key].Add(renderer2D.GetParticlePlayedSeconds(pair.Value) ?? double.NaN);
+                }
+            });
+        }
+
+        [UnityTest]
+        public IEnumerator FeelEngine_Hit_ParticleFreezeLayer_PausesOwnedParticlesByProfileTicks_BystanderUnaffected()
+        {
+            var bootstrap = BuildFeelBootstrap(feelOn: true);
+            var scene = new FeelScene();
+            yield return SetUpFeelScene(bootstrap, scene);
+            DeclareBufferedAttack(bootstrap);
+            Assert.IsNull(bootstrap.HotReload, "缺省不开热重载：不挂热重载组件");
+
+            var feel = bootstrap.Gameplay!.Feel!;
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.AttackerHitstopMs, FeelOp.Set, FeelValue.Of(50)));
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.TargetHitstopMs, FeelOp.Set, FeelValue.Of(110)));
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.ImpactProfileRef, FeelOp.Set, FeelValue.Of(FeelFreezeProfileId)));
+            var judging = feel.Resolver.ResolveJudging(scene.Player);
+            var step = Time.fixedDeltaTime;
+            var attackerTicks = FeelCalibration.MillisecondsToTicks(judging.GetNumber(FeelFieldNames.AttackerHitstopMs), step);
+            var targetTicks = FeelCalibration.MillisecondsToTicks(judging.GetNumber(FeelFieldNames.TargetHitstopMs), step);
+            Assert.IsTrue(attackerTicks > 0 && targetTicks > 0 && attackerTicks != targetTicks);
+
+            var handles = new Dictionary<Id, ParticleHandle>();
+            yield return AttachBurnEffects(bootstrap, scene, handles);
+            var paused = new Dictionary<Id, List<bool>>();
+            var played = new Dictionary<Id, List<double>>();
+            ObserveParticles(bootstrap, handles, paused, played);
+
+            yield return AttackUntilHit(scene);
+            // 粒子观测不随 AttackUntilHit 的 ClearObservations 清理：命中那一轮的顿帧是唯一的暂停段（未命中的轮次没有顿帧、不产生暂停），下面只数暂停 tick。
+
+            var renderer2D = UnityEngineHost.Ensure().Renderer2D;
+            Assert.AreEqual(attackerTicks, paused[scene.Player].Count(f => f), "攻击方名下的持续特效暂停的 tick 数 = 攻击方顿帧档案换算值");
+            Assert.AreEqual(targetTicks, paused[scene.Target].Count(f => f), "被击方名下的持续特效暂停的 tick 数 = 被击方顿帧档案换算值");
+            Assert.AreEqual(0, paused[scene.Bystander].Count(f => f), "旁观单位的特效不暂停");
+
+            // 不变量一：暂停期间时间轴确实没推进（序列帧累计播放时间在这一段里不增长）；旁观单位的特效整个观测窗口里持续推进。
+            foreach (var unit in new[] { scene.Player, scene.Target })
+            {
+                var trace = paused[unit];
+                var first = trace.IndexOf(true);
+                Assert.GreaterOrEqual(first, 0);
+                Assert.AreEqual(trace.Count(f => f), trace.Skip(first).TakeWhile(f => f).Count(), "暂停应为连续一段");
+                var last = first + trace.Count(f => f) - 1;
+                Assert.AreEqual(played[unit][first], played[unit][last], 1e-9, "暂停期间 " + unit + " 名下特效的播放时间不应增长");
+                Assert.IsFalse(renderer2D.IsParticlePaused(handles[unit]), "顿帧结束后特效应已恢复");
+            }
+
+            Assert.Greater(played[scene.Bystander].Last(), played[scene.Bystander].First(), "旁观单位的特效应持续推进");
+
+            // 不变量二：被暂停的特效实例没有因此消失（暂停不等于销毁，结束后还能继续）。
+            foreach (var handle in handles.Values)
+            {
+                Assert.IsTrue(renderer2D.GetParticlePlayedSeconds(handle).HasValue, "特效实例仍在");
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator FeelEngine_Hit_ParticleLayerNotDeclared_RigFreezesButParticlesKeepRunning()
+        {
+            // 反馈包没声明 freeze_layers（缺省只冻骨骼/序列帧）：rig 照冻，粒子照常推进。
+            var bootstrap = BuildFeelBootstrap(feelOn: true);
+            var scene = new FeelScene();
+            yield return SetUpFeelScene(bootstrap, scene);
+            DeclareBufferedAttack(bootstrap);
+            var feel = bootstrap.Gameplay!.Feel!;
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.TargetHitstopMs, FeelOp.Set, FeelValue.Of(110)));
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.ImpactProfileRef, FeelOp.Set, FeelValue.Of(FeelImpactProfileId)));
+
+            var handles = new Dictionary<Id, ParticleHandle>();
+            yield return AttachBurnEffects(bootstrap, scene, handles);
+            var paused = new Dictionary<Id, List<bool>>();
+            var played = new Dictionary<Id, List<double>>();
+            ObserveParticles(bootstrap, handles, paused, played);
+
+            yield return AttackUntilHit(scene);
+
+            Assert.Greater(scene.Frozen[scene.Target].Count(f => f), 0, "rig 照常被冻结");
+            foreach (var unit in handles.Keys)
+            {
+                Assert.AreEqual(0, paused[unit].Count(f => f), "没声明 freeze_layers.particles 时单位 " + unit + " 名下特效不应暂停");
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator FeelEngine_DataHotReload_FeelPresetEdit_UnitReadsNewValue_AndLoadCompletedPublished()
+        {
+            var bootstrap = BuildFeelBootstrap(feelOn: true, hotReload: true, presetOverride: true);
+            Assert.IsFalse(bootstrap.BootstrapFailed, "开手感 + 开热重载的引导装配不应失败");
+            var hot = bootstrap.HotReload;
+            Assert.IsNotNull(hot, "EnableDataHotReload 为真且数据加载成功后应挂载热重载组件");
+            var feel = bootstrap.Gameplay!.Feel;
+            Assert.IsNotNull(feel, "开手感：玩法装配应带手感系统");
+
+            var loadCompleted = 0;
+            RequireInternalBus(bootstrap).Subscribe(DataRegistryEventKeys.LoadCompleted, _ => loadCompleted++);
+
+            var field = FeelFieldNames.BufferMs;
+            var before = feel!.Resolver.ResolveJudging(bootstrap.PlayerId).GetNumber(field);
+            var expected = before + 80; // 期望值由编辑本身算出（旧值 + 增量），不写死裸数
+
+            var presetPath = Path.Combine(_feelOverlayDir!, "feel", "feel.preset.json");
+            var original = File.ReadAllText(presetPath);
+            var edited = new System.Text.RegularExpressions.Regex("\"buffer_ms\"\\s*:\\s*[0-9.]+").Replace(
+                original, "\"buffer_ms\": " + expected.ToString(System.Globalization.CultureInfo.InvariantCulture), 1);
+            Assert.AreNotEqual(original, edited, "测试前置条件：叠加根里的手感预设文件应被改写");
+            File.WriteAllText(presetPath, edited);
+
+            var deadline = Time.realtimeSinceStartup + 10f;
+            var after = before;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+                hot!.ProcessPendingChanges();
+                after = feel.Resolver.ResolveJudging(bootstrap.PlayerId).GetNumber(field);
+                if (after != before) break;
+            }
+
+            Assert.AreEqual(expected, after, 1e-9, "热重载后单位应读到新的缓冲窗口毫秒（不重启）");
+            Assert.GreaterOrEqual(loadCompleted, 1, "热重载应在 Reload 之后发布 data.load_completed（手感热加载依赖它）");
+            Assert.GreaterOrEqual(hot!.ReloadCount, 1);
+        }
+
+        [UnityTest]
+        public IEnumerator FeelEngine_DataHotReload_NotEnabled_NoComponent_EditIsNotPickedUp()
+        {
+            // 缺省关闭：不挂组件，改文件后手感数据保持装配时的值（热重载是开发期显式打开的能力）。
+            var bootstrap = BuildFeelBootstrap(feelOn: true, hotReload: false, presetOverride: true);
+            Assert.IsFalse(bootstrap.BootstrapFailed);
+            Assert.IsNull(bootstrap.HotReload);
+            Assert.IsNull(bootstrap.GetComponent<Adapter.Unity.Bootstrap.BootstrapDataHotReload>());
+
+            var feel = bootstrap.Gameplay!.Feel!;
+            var before = feel.Resolver.ResolveJudging(bootstrap.PlayerId).GetNumber(FeelFieldNames.BufferMs);
+            var presetPath = Path.Combine(_feelOverlayDir!, "feel", "feel.preset.json");
+            File.WriteAllText(presetPath, File.ReadAllText(presetPath).Replace("\"buffer_ms\": ", "\"buffer_ms\": 9"));
+
+            for (var i = 0; i < 30; i++) yield return null;
+
+            Assert.AreEqual(before, feel.Resolver.ResolveJudging(bootstrap.PlayerId).GetNumber(FeelFieldNames.BufferMs), 1e-9, "不开热重载时编辑文件不应改变已装配的数据");
         }
 
         [UnityTest]

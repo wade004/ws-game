@@ -1,6 +1,8 @@
 // FeelRigFreezeWiringTests：手感落地 M2-A——命中顿帧经生产装配（HeadlessWorldBuilder → GameplayAssembly → PresentationAssembly）后，
 // 落到各单位视图的渲染 rig（sprite 与 model 两类）：攻击方/被击方 rig 的"表现冻结"持续的 tick 数 = 顿帧档案毫秒按标定步长换算的值，
 // 不在名单里的旁观单位不冻结；手感关闭时同一场景不产生任何冻结。期望值全部由手感解析出的档案毫秒与标定 tick 率算出，不写死裸数。
+// 手感落地 M3-C 追加：反馈包 freeze_layers.particles 为真时，被冻结单位名下（anchor 挂接）的特效/粒子同步暂停、旁观单位与 world 挂接的命中闪光不暂停；
+// 为假（缺省）时 rig 照冻而粒子照常推进。期望 tick 数同样由顿帧档案毫秒按标定步长算出。
 // 注：本测试不依赖任何引擎；引擎侧（Unity）同样的链路由 Adapter.Unity.Tests.Runtime 的 FeelEngineWiringTests 另行覆盖。
 using System;
 using System.Collections.Generic;
@@ -22,6 +24,7 @@ using Core.Sim;
 using Presentation.Assembly;
 using Presentation.Common;
 using Presentation.Render;
+using Presentation.VfxSfx.Contracts;
 using Xunit;
 
 namespace Tests.Presentation.Assembly
@@ -59,8 +62,25 @@ namespace Tests.Presentation.Assembly
         private const string ProfileId = "feedback.impact_profile.m2a";
         private const string ImpactProfileJson = @"{
   ""table"": ""feedback.impact_profile"", ""schema_version"": 1,
-  ""rows"": [ { ""id"": ""feedback.impact_profile.m2a"", ""variants"": [
-    { ""class"": ""medium"", ""outcome"": ""hit"", ""camera"": { ""impulse_gain"": 0.5, ""decay_ms"": 120 } } ] } ]
+  ""rows"": [
+    { ""id"": ""feedback.impact_profile.m2a"", ""variants"": [
+      { ""class"": ""medium"", ""outcome"": ""hit"", ""camera"": { ""impulse_gain"": 0.5, ""decay_ms"": 120 } } ] },
+    { ""id"": ""feedback.impact_profile.m3c_freeze"", ""variants"": [
+      { ""class"": ""medium"", ""outcome"": ""hit"", ""vfx"": { ""vfx_id"": ""vfx.m3c_flash"", ""attach"": ""target"" },
+        ""freeze_layers"": { ""particles"": true } } ] } ]
+}";
+
+        // M3-C：粒子层冻结的反馈包——freeze_layers.particles 为真；变体里带一个 world 挂接（target 实体位置）的命中闪光，用来证明
+        // "命中闪光不冻、挂在单位身上的持续特效冻"。
+        private const string FreezeProfileId = "feedback.impact_profile.m3c_freeze";
+        private static readonly Id AuraVfxId = new Id("vfx.m3c_aura");
+        private static readonly Id FlashVfxId = new Id("vfx.m3c_flash");
+        private static readonly Id AuraAnchor = new Id("anchor.m3c_chest");
+        private const string VfxDefJson = @"{
+  ""table"": ""vfx.def"", ""schema_version"": 1,
+  ""rows"": [
+    { ""id"": ""vfx.m3c_aura"", ""category"": ""buff"", ""attach_mode"": ""anchor"", ""resource_ref"": ""vfx.m3c_aura"" },
+    { ""id"": ""vfx.m3c_flash"", ""category"": ""impact"", ""attach_mode"": ""world"", ""resource_ref"": ""vfx.m3c_flash"" } ]
 }";
 
         // 命中确认事件 → 播放打击反馈包（生产数据的写法：游戏的反馈规则里挂 play_impact，档案引用来自手感字段）。
@@ -142,6 +162,7 @@ namespace Tests.Presentation.Assembly
         private readonly PresentationAssembly _presentation;
         private readonly RigViewFactory _factory = new RigViewFactory();
         private readonly ImpulseRecordingCamera _camera = new ImpulseRecordingCamera();
+        private readonly Tests.Presentation.VfxSfx.FreezeCapableStubRenderer2D _particles = new Tests.Presentation.VfxSfx.FreezeCapableStubRenderer2D();
         private readonly StubInput _input = new StubInput();
         private readonly List<IEvent> _log = new List<IEvent>();
         private int _cursor;
@@ -157,6 +178,7 @@ namespace Tests.Presentation.Assembly
             fs.WriteTextAtomic("test/_m2a/skill/skill.def.json", SkillJson);
             fs.WriteTextAtomic("test/_m2a/found/found.input_action.json", ActionJson);
             fs.WriteTextAtomic("test/_m2a/feedback/feedback.impact_profile.json", ImpactProfileJson);
+            fs.WriteTextAtomic("test/_m2a/vfx/vfx.def.json", VfxDefJson);
             fs.WriteTextAtomic("test/_m2a/feedback/feedback.binding.json", ImpactBindingJson);
 
             _world = HeadlessWorldBuilder.Build(new HeadlessWorldOptions
@@ -187,7 +209,7 @@ namespace Tests.Presentation.Assembly
                 _world.Registry, engine.ResourceLoader, _world.Gameplay.AppState, _world.World, _world.Gameplay.Hooks, _world.Bus);
             _presentation = new PresentationAssembly(
                 _world.Gameplay, _world.World, _world.Registry, _world.Bus, new RngHost(2),
-                _factory, engine.Renderer2D, _camera, engine.Audio, engine.FileSystem, sceneRouter);
+                _factory, _particles, _camera, engine.Audio, engine.FileSystem, sceneRouter);
 
             var definitions = new List<ActionDefinition>();
             foreach (var record in _world.Registry.GetAll("found.input_action")) definitions.Add(ActionDefinition.FromRecord(record));
@@ -325,6 +347,118 @@ namespace Tests.Presentation.Assembly
             // 不变量：方向是单位向量或零向量，幅度不超过上限。
             Assert.True(impulse.Direction.Length < 1e-9 || Math.Abs(impulse.Direction.Length - 1.0) < 1e-9);
             Assert.True(impulse.Magnitude <= cap + 1e-12);
+        }
+
+        /// <summary>给 <paramref name="owners"/> 各挂一个 anchor 持续特效，返回单位 → 粒子句柄。</summary>
+        private Dictionary<Id, ParticleHandle> AttachAuras(IEnumerable<Id> owners)
+        {
+            var handles = new Dictionary<Id, ParticleHandle>();
+            foreach (var owner in owners)
+            {
+                var handle = _presentation.Vfx.Spawn(AuraVfxId, VfxAttach.Anchor(owner, AuraAnchor), null);
+                Assert.True(handle.HasValue, "持续特效应能挂到单位 " + owner + "（锚点解析退回实体位置）");
+                handles[owner] = handle!.Value;
+            }
+
+            return handles;
+        }
+
+        /// <summary>跑 <paramref name="ticks"/> 个固定步，逐 tick 记录各粒子是否处于暂停。</summary>
+        private Dictionary<ParticleHandle, List<bool>> ObserveParticles(IEnumerable<ParticleHandle> handles, int ticks)
+        {
+            var traces = handles.ToDictionary(h => h, _ => new List<bool>());
+            for (var i = 0; i < ticks; i++)
+            {
+                Step();
+                foreach (var pair in traces) pair.Value.Add(_particles.IsPaused(pair.Key));
+            }
+
+            return traces;
+        }
+
+        [Fact]
+        public void Hit_ParticleFreezeLayer_PausesOwnedParticlesByProfileTicks_FlashAndBystanderUnaffected()
+        {
+            var target = SpawnDummy(new Vec2(1.5, 0));
+            var bystander = SpawnDummy(new Vec2(60, 60));
+            Step();
+            var auras = AttachAuras(new[] { PlayerId, target, bystander });
+
+            var feel = _world.Gameplay.Feel!;
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.AttackerHitstopMs, FeelOp.Set, FeelValue.Of(50)));
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.TargetHitstopMs, FeelOp.Set, FeelValue.Of(110)));
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.ImpactProfileRef, FeelOp.Set, FeelValue.Of(FreezeProfileId)));
+            var judging = feel.Resolver.ResolveJudging(PlayerId);
+            var attackerTicks = Ticks(judging.GetNumber(FeelFieldNames.AttackerHitstopMs));
+            var targetTicks = Ticks(judging.GetNumber(FeelFieldNames.TargetHitstopMs));
+            Assert.True(attackerTicks > 0 && targetTicks > 0 && attackerTicks != targetTicks);
+
+            _input.Press("j");
+            Step();
+            _input.Release("j");
+            var traces = ObserveParticles(auras.Values, Ticks(100 + 60 + 240) + 20);
+
+            var hit = _log.OfType<CombatHitConfirmedEvent>().Single();
+            Assert.Equal(attackerTicks, hit.AttackerHitStopTicks);
+            Assert.Equal(targetTicks, hit.TargetHitStopTicks);
+            Assert.Equal(attackerTicks, traces[auras[PlayerId]].Count(f => f));
+            Assert.Equal(targetTicks, traces[auras[target]].Count(f => f));
+            Assert.Equal(0, traces[auras[bystander]].Count(f => f));
+
+            // 命中闪光（world 挂接，没有宿主单位）确实播出了，且从未被暂停——"命中闪光不冻、持续特效冻"。
+            var flashes = _particles.EffectOf.Where(kv => kv.Value.Equals(new Id("vfx.m3c_flash"))).Select(kv => new ParticleHandle(kv.Key)).ToList();
+            Assert.NotEmpty(flashes);
+            Assert.All(flashes, f => Assert.False(_particles.IsPaused(f)));
+
+            // 不变量：每段暂停连续、结束后全部恢复，被冻结与旁观的特效实例都还在（暂停不等于销毁）。
+            foreach (var unit in new[] { PlayerId, target })
+            {
+                var t = traces[auras[unit]];
+                var first = t.IndexOf(true);
+                Assert.True(first >= 0);
+                Assert.Equal(t.Count(f => f), t.Skip(first).TakeWhile(f => f).Count());
+            }
+
+            foreach (var handle in auras.Values)
+            {
+                Assert.False(_particles.IsPaused(handle), "顿帧结束后特效应已恢复");
+                Assert.True(_particles.IsAlive(handle));
+            }
+
+            Assert.False(_presentation.Vfx is IVfxFreezable freezable
+                ? freezable.IsOwnerFrozen(target) || freezable.IsOwnerFrozen(PlayerId)
+                : true, "顿帧结束后宿主单位不应残留特效冻结标记");
+        }
+
+        [Fact]
+        public void Hit_ParticlesLayerOff_RigsFreezeButParticlesKeepRunning()
+        {
+            // 反馈包没写 freeze_layers（缺省只冻骨骼/序列帧）：rig 照冻，持续特效照常推进（07 第 7 节第 5 条后半）。
+            var target = SpawnDummy(new Vec2(1.5, 0));
+            Step();
+            var auras = AttachAuras(new[] { PlayerId, target });
+
+            var feel = _world.Gameplay.Feel!;
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.TargetHitstopMs, FeelOp.Set, FeelValue.Of(110)));
+            feel.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.ImpactProfileRef, FeelOp.Set, FeelValue.Of(ProfileId)));
+            var targetTicks = Ticks(feel.Resolver.ResolveJudging(PlayerId).GetNumber(FeelFieldNames.TargetHitstopMs));
+            Assert.True(targetTicks > 0);
+
+            _input.Press("j");
+            Step();
+            _input.Release("j");
+            var frozenRigTicks = 0;
+            var pausedParticleTicks = 0;
+            for (var i = 0; i < Ticks(100 + 60 + 240) + 20; i++)
+            {
+                Step();
+                if (_factory.Rigs[target].IsPresentationFrozen) frozenRigTicks++;
+                if (_particles.IsPaused(auras[target])) pausedParticleTicks++;
+            }
+
+            Assert.Equal(targetTicks, frozenRigTicks);
+            Assert.Equal(0, pausedParticleTicks);
+            Assert.Equal(0, _particles.PauseCallCount);
         }
 
         [Fact]

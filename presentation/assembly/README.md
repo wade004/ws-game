@@ -664,3 +664,10 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 - `PresentationAssemblyOptions.OnFreezePresentation/OnReleasePresentation` 此前缺省忽略（只能经 `Feedback.Impact.Freezes` 查询）；现在装配根默认先把冻结/解冻落到名单里各单位视图的 `IPresentationFreezable` rig（私有方法 `SetRigsFrozen`），再调用调用方显式给的回调。没有视图、视图不持有 rig、rig 不实现能力接口的单位静默跳过；名单外单位不受影响。仅在手感打击反馈包流水线存在时（`FeelResolver` 非空）才有冻结事件，手感关闭时装配与此前逐位一致。
 - 取舍：默认接线而不是要求每个宿主自己写回调——否则引擎宿主与无头宿主各写一遍，且漏接时顿帧只剩"状态可查询、画面没停"。代价：显式回调不再是冻结的唯一出口，需要完全自管冻结的宿主应让自己的 rig 不实现 `IPresentationFreezable`。
 - 复现/不变量：`tests/FeelRigFreezeWiringTests.cs`（见 `presentation/feedback_binder/README.md` 判断记录 25）。
+
+## 手感落地 M3-C：顿帧同时冻结粒子/特效（2026-10-02）
+
+- 顿帧冻结的默认接线在 rig 之外再接一路：`OnFreezePresentation` 里除 `SetRigsFrozen` 外，当反馈包 `freeze_layers.particles` 为真时调用 `SetParticlesFrozen`，把名单里各单位名下的特效交给 `Vfx`（`IVfxFreezable`，框架自带 `VfxPlayer` 实现）暂停；`OnReleasePresentation` 恒调用解冻（幂等）。`Vfx` 不实现该能力（消费方自写）时静默跳过；`freeze_layers.particles` 缺省为假，此时粒子照常推进，与此前逐位一致。
+- **名单语义同 rig**：只暂停 `feel.hitstop_started` 名单里单位名下的特效；"名下"= 以该单位为宿主 anchor/socket 挂接的特效（见 `presentation/vfx_sfx/README.md` 判断记录 28）。同一冻结区间内再次发起始（延长）只会累加冻结，不会因后来那个反馈包的 `particles` 为假而提前恢复，直到 `feel.hitstop_ended` 统一解冻。
+- **本次一并修了反馈包层声明在生产链路里从不生效的缺陷**：`feel.hitstop_started` 是 tick 末由判定型宿主排队发出，到达时命中自己的打击计划通常已在前一次出批里下发，原 `ImpactPipeline.LayersFor` 只看同批计划，`freeze_layers.particles/trail` 在生产里恒为缺省（单测把命中与顿帧塞进同一批才没暴露）。修法与取舍见 `presentation/feedback_binder/README.md` 判断记录 26。
+- 复现/不变量：`tests/FeelRigFreezeWiringTests.cs` 新增两例（经生产装配：声明 `particles` 的反馈包下，攻击方/被击方名下特效暂停的 tick 数 = 顿帧档案换算值、旁观单位 0、world 挂接的命中闪光从不暂停、暂停连续且结束后无残留；未声明时 rig 照冻、特效 0 次暂停）。

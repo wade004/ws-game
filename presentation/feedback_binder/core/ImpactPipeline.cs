@@ -91,6 +91,30 @@ namespace Presentation.FeedbackBinder.Core
         private readonly IPresentationDiagnostics _diagnostics;
         private readonly List<Candidate> _group = new List<Candidate>();
         private readonly List<RawHitstop> _hitstops = new List<RawHitstop>();
+
+        /// <summary>手感落地 M3-C：已出批命中的冻结层声明（反馈包 <c>freeze_layers</c>），供稍后才到达的 <c>feel.hitstop_started</c> 解析层。
+        /// 判断记录：顿帧是在 tick 末由判定型宿主落地并以排队事件发出的（<c>HitFeelHost.FlushHitstop</c>），到达时命中自己的打击计划通常已在
+        /// 前一次出批里下发过，所以只看"同批计划"（此前的做法）几乎总是找不到相关命中、层声明恒为缺省——<c>freeze_layers.particles/trail</c>
+        /// 在生产链路里从未生效（单测把命中与顿帧塞进同一批才看不出来）。保留最近 <see cref="RecentGenerations"/> 次出批的命中供匹配，
+        /// 更老的丢弃（顿帧最多滞后一两次出批；不无限保留，免得把很久以前的反馈包套到无关的顿帧上）。</summary>
+        private readonly List<RecentHit> _recentHits = new List<RecentHit>();
+        private int _generation;
+        private const int RecentGenerations = 3;
+
+        private readonly struct RecentHit
+        {
+            public readonly int Generation;
+            public readonly ImpactHit Hit;
+            public readonly ImpactFreezeLayers Layers;
+
+            public RecentHit(int generation, ImpactHit hit, ImpactFreezeLayers layers)
+            {
+                Generation = generation;
+                Hit = hit;
+                Layers = layers;
+            }
+        }
+
         private sealed class WhiffWindow
         {
             /// <summary>窗口内（含判定相结束之后、投射物结局之前）收到的命中数。</summary>
@@ -517,11 +541,13 @@ namespace Presentation.FeedbackBinder.Core
             var camera = BuildCamera(group, out var dropped);
 
             var ops = new List<ImpactHitstopOp>(rawHitstops.Count);
+            _generation++;
+            _recentHits.RemoveAll(r => _generation - r.Generation > RecentGenerations);
             foreach (var raw in rawHitstops)
             {
                 if (raw.IsStart)
                 {
-                    var layers = LayersFor(raw, plans);
+                    var layers = LayersFor(raw, plans, _recentHits);
                     Freezes.Freeze(raw.UnitIds, layers);
                     ops.Add(new ImpactHitstopOp(true, raw.UnitIds, raw.Ticks, layers));
                 }
@@ -532,25 +558,37 @@ namespace Presentation.FeedbackBinder.Core
                 }
             }
 
+            // 本批命中登记进"最近命中"，供之后到达的顿帧解析层（本批自己的顿帧上面已经同时看过 plans 了）。
+            foreach (var plan in plans)
+            {
+                if (plan.Hit != null)
+                {
+                    _recentHits.Add(new RecentHit(_generation, plan.Hit, plan.Variant.FreezeLayers));
+                }
+            }
+
             return new ImpactBatch(plans, camera, dropped, ops);
         }
 
-        private static ImpactFreezeLayers LayersFor(RawHitstop op, List<ImpactPlan> plans)
+        private static ImpactFreezeLayers LayersFor(RawHitstop op, List<ImpactPlan> plans, List<RecentHit> recent)
         {
             var particles = false;
             var trail = false;
             var found = false;
-            foreach (var plan in plans)
+
+            void Consider(ImpactHit? hit, ImpactFreezeLayers layers)
             {
-                var hit = plan.Hit;
-                if (hit == null) continue;
+                if (hit == null) return;
                 var related = (hit.AttackInstanceId.HasValue && hit.AttackInstanceId.Value.Equals(op.AttackInstanceId))
                     || Contains(op.UnitIds, hit.SourceId) || Contains(op.UnitIds, hit.TargetId);
-                if (!related) continue;
+                if (!related) return;
                 found = true;
-                particles |= plan.Variant.FreezeLayers.Particles;
-                trail |= plan.Variant.FreezeLayers.Trail;
+                particles |= layers.Particles;
+                trail |= layers.Trail;
             }
+
+            for (var i = 0; i < recent.Count; i++) Consider(recent[i].Hit, recent[i].Layers);
+            foreach (var plan in plans) Consider(plan.Hit, plan.Variant.FreezeLayers);
             return found ? new ImpactFreezeLayers(particles, trail) : ImpactFreezeLayers.Default;
         }
 

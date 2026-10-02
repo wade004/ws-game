@@ -600,6 +600,47 @@ namespace Tests.Presentation.FeedbackBinder
         }
 
         [Fact]
+        public void HitstopArrivingInLaterBatch_UsesFreezeLayersOfTheEarlierFlushedHit()
+        {
+            // 手感落地 M3-C 复现：生产顺序是命中先出批、顿帧（tick 末由判定型宿主排队发出）到达得更晚；此前只看同批计划，层声明恒为缺省。
+            var rig = Make(SwordProfile(freeze: new ImpactFreezeLayers(particles: true, trail: true)));
+            var attackId = new Id("attack.kit_lag");
+            rig.Pipeline.Offer(Hit(Player, Enemy1, attackInstance: attackId), null);
+            var first = rig.Pipeline.Flush()!;
+            Assert.Empty(first.Hitstops); // 命中这一批里还没有顿帧
+
+            rig.Pipeline.OnHitstopStarted(new[] { Player, Enemy1 }, 4, attackId);
+            var op = Assert.Single(rig.Pipeline.Flush()!.Hitstops);
+
+            Assert.True(op.Layers.Particles, "顿帧应取到先前已出批的命中所属反馈包的 freeze_layers.particles");
+            Assert.True(op.Layers.Trail);
+            Assert.True(rig.Pipeline.Freezes.TryGetLayers(Enemy1, out var registered));
+            Assert.Equal(op.Layers, registered);
+        }
+
+        [Fact]
+        public void HitstopFarAfterTheHit_DoesNotInheritStaleFreezeLayers()
+        {
+            // 不变量：只保留最近几次出批的命中——很久以前的反馈包不能套到无关的顿帧上。
+            var rig = Make(SwordProfile(freeze: new ImpactFreezeLayers(particles: true, trail: false)));
+            var attackId = new Id("attack.kit_stale");
+            rig.Pipeline.Offer(Hit(Player, Enemy1, attackInstance: attackId), null);
+            rig.Pipeline.Flush();
+
+            var other = new Id("unit.kit_other");
+            for (var i = 0; i < 4; i++)
+            {
+                rig.Pipeline.OnHitstopEnded(new[] { other }); // 不带命中的出批：只推进出批代数
+                rig.Pipeline.Flush();
+            }
+
+            rig.Pipeline.OnHitstopStarted(new[] { Player, Enemy1 }, 4, attackId);
+            var op = Assert.Single(rig.Pipeline.Flush()!.Hitstops);
+
+            Assert.Equal(ImpactFreezeLayers.Default, op.Layers);
+        }
+
+        [Fact]
         public void HitstopWithoutMatchingImpact_DefaultsToSkeletonOnly()
         {
             var rig = Make(SwordProfile());

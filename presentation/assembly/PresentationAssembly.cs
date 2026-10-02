@@ -617,11 +617,19 @@ namespace Presentation.Assembly
                 feedbackSink.OnFreezePresentation = (unitIds, ticks, layers) =>
                 {
                     SetRigsFrozen(unitIds, true, layers.Trail);
+                    // 手感落地 M3-C：反馈包 freeze_layers.particles 为真时，挂在这些单位身上的特效（anchor/socket 挂接）一并暂停；
+                    // 为假（缺省）时粒子照常推进。同一冻结区间内再次发起始（延长）只会累加冻结、不会因新包的 particles 为假而提前恢复。
+                    if (layers.Particles)
+                    {
+                        SetParticlesFrozen(unitIds, true);
+                    }
+
                     opts.OnFreezePresentation?.Invoke(unitIds, ticks, layers);
                 };
                 feedbackSink.OnReleasePresentation = unitIds =>
                 {
                     SetRigsFrozen(unitIds, false, false);
+                    SetParticlesFrozen(unitIds, false);
                     opts.OnReleasePresentation?.Invoke(unitIds);
                 };
             }
@@ -829,6 +837,22 @@ namespace Presentation.Assembly
                 {
                     freezable.UnfreezePresentation();
                 }
+            }
+        }
+
+        /// <summary>手感落地 M3-C（手感设计/07 第 5 节）：把顿帧的粒子/特效冻结落到 <paramref name="unitIds"/> 名下的特效实例
+        /// （<see cref="IVfxFreezable"/>，只有以这些单位为宿主 anchor/socket 挂接的实例）。播放器不实现该能力（消费方自写）时静默跳过；
+        /// 名单外单位的特效不受影响。冻结/解冻是幂等开关。</summary>
+        private void SetParticlesFrozen(IReadOnlyList<Id> unitIds, bool frozen)
+        {
+            if (!(Vfx is IVfxFreezable freezable))
+            {
+                return;
+            }
+
+            for (var i = 0; i < unitIds.Count; i++)
+            {
+                freezable.SetOwnerFrozen(unitIds[i], frozen);
             }
         }
 
