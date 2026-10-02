@@ -69,15 +69,20 @@ namespace Tests.Rules.Skill
             _slots.Add(new Slot { Intent = new BufferedIntent(actionId, cls, now, now + validTicks, priority, direction, hold, heldTicks, consumed: false) });
         }
 
+        public IReadOnlyList<Id> PendingActions => _slots.Where(s => !s.Consumed && !s.Dropped).Select(s => s.Intent.ActionId).ToList();
+
         public int Pending => _slots.Count(s => !s.Consumed && !s.Dropped);
 
         public IReadOnlyList<BufferedIntent> Snapshot(Id actorId) => _slots.Where(s => !s.Dropped).Select(s => s.Intent).ToList();
 
-        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, out BufferedIntent consumed)
+        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, out BufferedIntent consumed) =>
+            TryConsume(actorId, accepts, null, out consumed);
+
+        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, Func<BufferedIntent, bool>? skip, out BufferedIntent consumed)
         {
             var now = _clock.ActionTicks(actorId);
             var candidate = _slots
-                .Where(s => !s.Consumed && !s.Dropped && s.Intent.ExpiresAtActionTime >= now)
+                .Where(s => !s.Consumed && !s.Dropped && s.Intent.ExpiresAtActionTime >= now && (skip == null || !skip(s.Intent)))
                 .OrderByDescending(s => s.Intent.Priority)
                 .ThenBy(s => s.Intent.SubmittedTick)
                 .FirstOrDefault();

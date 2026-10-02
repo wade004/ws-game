@@ -1072,7 +1072,7 @@ namespace Adapter.Unity.Shell
             if (!Freeze.IsFrozen)
             {
                 RunPresentationStep(() => Presentation.ViewBinder.SyncAll(alpha));
-                RunPresentationStep(() => Presentation.Camera.Update(alpha));
+                RunPresentationStep(() => Presentation.Camera.Update(alpha, unscaledDelta));
             }
 
             // W3b 新增（拍板 6，八个程序动画原语可视化）：推进每个仍存活的 sprite 型 View 持有的

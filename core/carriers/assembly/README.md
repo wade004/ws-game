@@ -228,7 +228,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 10. **运动层的 `MotionServices.Actions` 取技能宿主的 `ActionStateQuery`**：时间线动作进行中运动模式为 `Action`。
 11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
 
-已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；本地玩家绑定在 `PresentationAssembly` 构造时固定。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
+M4 清扫（取代本段原"已知限制"四项）：①未映射 `skill_slot` 的已声明类别动作不再挡路：`BufferedActionIntentSink` 实现 `IBufferedIntentSink.CanHandle`（没有技能映射的记录为假），缓冲出口与时间线取消窗口的拉取都先把这类记录剔出候选，它们留在缓冲里直到自己的窗口过期（供游戏自己的消费者取用，不被丢弃）；②时间线在取消窗口里拉取的记录同样做接受时朝向对齐（记录要求对齐且带按下瞬间方向快照时，在取消进入被接受的那一刻对齐，与缓冲出口同口径）；③设计决定：没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`——理由：运行时判定只读 `skill.def.timeline`（手感设计/01 第 3.2 节、04 第 5 节），剪辑事件只在创作期由导入工具拷进数据，让动画剪辑事件进入判定会让判定依赖引擎动画时序；④设计决定：本地玩家绑定在 `PresentationAssembly` 构造时固定——理由：HUD、动作栏、任务、对话、技能书、相机与输入绑定共用同一个构造期玩家 id（`PlayerUnitProvider` 构造时取一次），只让手感部分跟着换会与这些视图不一致，切换被控角色 = 重建表现装配。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
 
 ## 手感落地 S11：时间线目标辅助接进生产装配（2026-10-02）
 
@@ -245,8 +245,6 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 2. **"普攻"的识别（设计层待确认）**：缺省所有类别为 `attack` 的动作都跟随武器；游戏另有自带 `skill_slot` 的攻击类动作（重击、蓄力等）时会被武器抢走，须用新增选项 `CarriersFeelOptions.AutoAttackActions` 点名真正的普攻动作，其余攻击类动作始终走槽位绑定。理由：框架无法从数据区分"普攻"与"另一个攻击键"，缺省取最常见情形（一个攻击键）并留出显式开关。
 3. **换装链在生产装配里构造**：已知单位集合取世界全部实体（`save.loaded` 时按此对账）；`CarriersFeelSystem.WeaponChain` 暴露它，`Dispose` 一并释放。此前生产装配从不构造这条链，`feel.weapon_changed` 只在实验室里发布。
 4. **向后兼容**：旧构造函数、`Binding`（槽位绑定）属性与 `BufferedActionIntentSink` 的旧构造重载均保留；不启用手感时一行不装配。
-5. **已知限制**：同上文既有限制（手感数据热重载已在 M2-B 接线，标定热换在 M3-B 接入）。
-
 用例见 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs`（经真实 `PresentationAssembly` 与输入映射：单手剑、双手剑、空手的相位 tick 数与武器族均由数据与标定规则算出）。
 
 ## 手感落地 M2-B：手感核心侧缺口（2026-10-02）
@@ -258,7 +256,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 3. **光环层数叠乘**：见 `core/rules/assembly/README.md` M2-B 节（`AuraSnapshot.InstanceId` 与 `FeelTemporaryEntry.Stacks`）；`AuraFeelTemporaryProvider` 条目键改为光环实例 id，并订阅 `aura.stack_changed` 使缓存失效。
 4. **换装链的单位状态口径**：`EquipmentFeelChain` 订阅 `entity.destroyed`（忘掉对账状态）与 `entity.created`（对账一次，没有武器的未跟踪单位不建记录也不发事件）。与表现侧 `EquipmentPoseBridge` 在销毁时清理姿势选择器配对：同 id 重建的单位（如换图重建的玩家）重新对账并重发 `feel.weapon_changed`，武器族补回；`save.loaded` 对账抽成公开的 `ReconcileAll(reason)`，路径不变。
 
-已知限制（逐条交代）：热加载依赖宿主发布 `data.load_completed`（M2-B 起的约定，M3-B 后宽限条件表与标定行变化同样走这一条）。其余 M2-B 时代的限制已在 M3-B 全部解除，见下节。
+设计决定（M4 清扫，由"已知限制"改写）：热加载依赖宿主发布 `data.load_completed`（M2-B 起的约定，M3-B 后宽限条件表与标定行变化同样走这一条）。理由：数据注册表的重载入口不属于手感模块，由重载它的宿主在成功后补发完成事件是全仓开发期热加载的统一惯例（订阅方不轮询文件）。其余 M2-B 时代的限制已在 M3-B 全部解除，见下节。
 
 ## 手感落地 M3-B：宽限窗口与手感热重载的已知限制全部解除（2026-10-02）
 

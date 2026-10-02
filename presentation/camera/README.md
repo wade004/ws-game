@@ -93,10 +93,9 @@ camera/
    - **跟随算法**：每帧 `a(τ) = 1 - exp(-dt/τ)`（τ = 0 时 a = 1）；速度 = 目标位移 / dt，前瞻期望偏移 = 速度单位方向 × `LookAhead` 按 `LookAheadLagMs` 滞后追随（方向反转时偏移穿过零，不甩动）；死区以当前关注点为中心的矩形，目标在内不动、在外把关注点拖到"目标 - 半宽"；两轴各自按 `DampingXMs`/`DampingYMs` 一阶滞后。`FollowLagMs > 0` 时换算成 `ICamera.Follow` 的平滑参数（秒），为 0 沿用 `FollowLerp`。首帧或换目标/换档案（`Reset`）直接对齐到目标，不产生滑入瞬态。关注点最终仍按 `Bounds` 夹取。
    - **战斗缩放**：战斗中取 `camera_combat_zoom_delta`，否则 1，按 `camera_combat_zoom_blend_ms` 线性过渡（进出对称，过渡时长 0 = 立即）；`SetZoom` 在战斗缩放期间把新基准叠上当前系数，夹到 profile 的 `[ZoomMin, ZoomMax]`。装配根订阅玩家单位的 `combat.entered`/`combat.left` 调用 `SetInCombat`。
    - **镜头冲击**：适配层实现 `ICameraImpulse` 且 `SupportsCameraImpulse` 为真时直接转发；否则退化为 `ICamera.Shake`（强度 = 画面高度比例 × 参考镜头高度，时长 = 衰减时长，频率 = `ImpulseFallbackShakeFrequency`）并记一条去重诊断。幅度非正时忽略。合并/限频/上限截断由反馈包流水线负责（`feedback_binder/README.md` 判断记录 23），本类不二次处理。
-   - **已知局限（原文）**：
-     - 对固定步长的宿主这就是准确值，对变帧率宿主是近似（`ICameraHost.Update` 既有签名只有插值系数、没有 dt，且为 ABI 只加法不改它；旧调用点按固定 1/60 秒推进，变帧率宿主应改用 `Update(alpha, dt)`）。
-     - （已解决，见判断记录 9）Unity 适配层 `UnityCamera` 已实现 `ICameraImpulse`。
-   用例：`presentation/camera/tests/CameraFeelTests.cs`（11 条：缺省逐位一致、非缺省输出确有不同、阻尼 = 一阶滞后公式、跟随滞后换算、死区、前瞻、前瞻滞后过零、战斗缩放线性过渡、战斗中 `SetZoom`、冲击能力转发/退化、非正幅度忽略）。
+   - **帧间隔口径（M4 清扫，取代"对变帧率宿主是近似"这条已知局限）**：三个生产引导的表现步——`GameFoundationBootstrap`、`FrameworkResidentHost`（Unity 适配层）与 `games/_template/Runtime/GameBootstrap`——改调 `Update(alpha, unscaledDelta)`，阻尼、前瞻与死区按真实帧间隔算，收敛速度不随帧率变化；`ICameraHost.Update(alpha)` 既有签名（ABI 只加法不改）原样保留，按固定 1/60 秒推进，对固定步长的宿主这就是准确值，直接调它的外部宿主应改用 `Update(alpha, dt)`。理由：镜头是表现层，用真实（未缩放）时间而不是逻辑步长，才与顿帧、慢动作期间的画面一致；缺省档案旁路档案计算，不受影响。引擎接线只在 Unity 编译与既有 PlayMode 冒烟里覆盖，没有专门的变帧率 PlayMode 用例（真机帧率波动下的镜头观感属引擎宿主实验室验收清单的"相机冲击与回落"一项）。
+     - 镜头冲击能力：Unity 适配层 `UnityCamera` 已实现 `ICameraImpulse`（见判断记录 9）。
+   用例：`presentation/camera/tests/CameraFeelTests.cs`（13 条，含按真实帧间隔时收敛与帧率无关 `Damping_WithTheTrueFrameSeconds_ConvergenceDoesNotDependOnTheFrameRate`（30/60/120/144 fps 的 Theory）、旧签名在 120 fps 宿主上按 1/60 推进的对照 `LegacyUpdateWithoutFrameSeconds_AtA120FpsHost_ConvergesTwiceAsFastAsTheWallClockSays`；原 11 条：缺省逐位一致、非缺省输出确有不同、阻尼 = 一阶滞后公式、跟随滞后换算、死区、前瞻、前瞻滞后过零、战斗缩放线性过渡、战斗中 `SetZoom`、冲击能力转发/退化、非正幅度忽略）。
 
 9. **引擎侧镜头冲击：`UnityCamera` 实现 `ICameraImpulse`（2026-10-02，手感落地 M2-A，手感设计/07 第 2/5 节）**：
    - `UnityCamera` 恒声明 `SupportsCameraImpulse`，`CameraHost.Impulse` 因此直接转发，不再退化为 `Shake`；`PlayImpact` 触发的镜头冲量（`feedback_binder` 判断记录 23 的 `ImpactCameraCue`）在引擎里是真正的方向性推移。

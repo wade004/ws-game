@@ -849,8 +849,17 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("max_ms", FieldKind.Number, required: true, description: "蓄力上限（毫秒），> min_ms")
                         .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("value_scale", FieldKind.Object, required: false,
+                        fields: new[]
+                        {
+                            new FieldSchema("min", FieldKind.Number, required: true, description: "蓄力比例为 0 时的效果值倍率")
+                                .WithRange(FieldRange.Range(min: 0)),
+                            new FieldSchema("max", FieldKind.Number, required: true, description: "蓄力比例为 1 时的效果值倍率")
+                                .WithRange(FieldRange.Range(min: 0)),
+                        },
+                        description: "效果值随蓄力比例线性缩放：倍率 = min + (max-min) × 蓄力比例；乘在伤害/治疗类效果值上（含投射物命中后效果）；缺省不缩放"),
                 },
-                description: "蓄力声明（仅 hold 类动作）：{min_ms, max_ms}；蓄力比例 (held-min)/(max-min) 随动作开始事件给出"),
+                description: "蓄力声明（仅 hold 类动作）：{min_ms, max_ms[, value_scale]}；蓄力比例 (held-min)/(max-min) 随动作开始事件给出"),
             new FieldSchema("startup_ms", FieldKind.Number, required: true, description: "前摇（毫秒）")
                 .WithRange(FieldRange.Range(min: 0)),
             new FieldSchema("active_ms", FieldKind.Number, required: true, description: "判定相（毫秒）")
@@ -896,6 +905,8 @@ namespace Core.Rules.Skill
                 description: "连招接续窗口：{next: Id, open_ms, close_ms}（手感设计/01 第 3.6 节）"),
             new FieldSchema("hit_policy", FieldKind.Enum, required: false, enumValues: TimelineHitPolicyValues,
                 description: "marker|continuous，缺省 marker：命中解析方式（手感设计/03 第 2.2 节）。marker 在每个 hit 标记解析一次；continuous 在判定相逐 tick 解析（两 tick 位姿之间插值采样，高速形状不漏目标）"),
+            new FieldSchema("is_attack", FieldKind.Bool, required: false,
+                description: "显式声明动作是否带攻击（action.started.isAttack），缺省按技能内容推断（含伤害类/投射物效果，或有 hit/release 标记即为真）；写 false 使反馈侧不为该动作开挥空窗口（如发射治疗投射物），写 true 强制开"),
             new FieldSchema("hit_mode", FieldKind.Enum, required: false, enumValues: TimelineHitModeValues,
                 description: "auto|spatial|instant，缺省 auto：命中结算路径。auto = 目标选择链声明了 shape 则空间命中（去重、无敌前置检查、combat.hit_confirmed 含几何），没有 shape 则保持 instant 结算；spatial 强制空间命中；instant 强制 instant"),
             new FieldSchema("sample_step_ms", FieldKind.Number, required: false,

@@ -36,7 +36,8 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `source` | Enum(`data`\|`clip`) | 否 | 作者态权威来源，缺省 `data`；`clip` 时校验器要求与剪辑标记一致（运行期永远只读本块） |
-| `charge` | Object | 否 | `{min_ms, max_ms}` 蓄力范围（`max_ms > min_ms`），只换算 `action.started.chargeRatio` |
+| `charge` | Object | 否 | `{min_ms, max_ms[, value_scale]}` 蓄力范围（`max_ms > min_ms`），换算 `action.started.chargeRatio`；可选 `value_scale: {min, max}`（均 ≥ 0）声明效果值倍率 = `min + (max − min) × 蓄力比例`，乘在伤害/治疗类效果值上（含投射物命中后效果），缺省不缩放 |
+| `is_attack` | Bool | 否 | 显式声明动作是否带攻击（`action.started.isAttack`），缺省按技能内容推断（含伤害类/投射物效果，或有 `hit`/`release` 标记即为真）；`false` 使反馈侧不为该动作开挥空窗口 |
 | `startup_ms` / `active_ms` / `recovery_ms` | Number（毫秒，≥ 0） | 是 | 三相时长；三相之和必须等于 `cast_time × 1000` |
 | `markers` | Array | 否 | `[{name, at_ms, args?}]`，`name` 取 `hit`（可写 `hit:<段>`）/`invuln_start`/`invuln_end`/`armor_start`/`armor_end`/`motion_start`/`motion_end`/`release`；`at_ms` 相对动作开始（不含蓄力），不得超出总时长 |
 | `cancel_windows` | Array | 否 | `[{class, open_ms, close_ms?}]`，`class` 取输入类别（`move`/`attack`/`skill`/`dodge`/`interact`/`item`/`menu`）；`close_ms` 缺省到动作结束，超出末尾截断 |

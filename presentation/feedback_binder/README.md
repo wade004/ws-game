@@ -293,20 +293,20 @@
       幅度基数取攻击方（武器）的 `camera_impulse_gain`，上限/最小间隔/玩家强度取镜头拥有者（`CameraOwnerResolver`，缺省是镜头跟随的实体）的手感。
     - **强度与限数**：`ImpactIntensity` 的比例系数 × 结局系数（暴击/击杀放大）乘到镜头幅度与粒子缩放，未声明时全为 1。音效限数：本批前 `min(MaxImpactsPerTick, 攻击方 sfx_max_concurrent)` 个命中播音效（`sfx_max_concurrent` 在此是"每批并发上限"，不是跨 tick 活跃声部计数，同层活跃并发仍由 `SfxPlayer` 层名额负责）；`MaxVfxPerTick` 缺省 0 = 不限粒子数。回避/挥空结局强制不播 `impact` 音效层。
     - **呈现型字段读取**：`PresentingImpactFeelSource` 只读呈现型视图；`ScreenHeightRatio` 字段取 `GetRaw`（不乘参考镜头高度，比例随缩放由镜头实现换算），`BodyHeights` 字段取 `GetNumber`；震屏回落用 `FeelCalibration.ReferenceCameraHeight`。
-    - **挥空**：`WhiffFeedback`（缺省开）。攻击者的 `active_start`..`active_end`（或判定相进出）窗口内没有任何接触（含被回避），窗口结束时发挥空反馈（`whiff` 变体，缺省内置计划只播挥空层 sfx）。窗口按 (行动者, 动作实例) 配对（手感落地 S3b）：`combat.hit_confirmed.castInstanceId` 与 `action.marker`/`action.phase_changed` 的施法实例 id 是同一个值，带动作实例 id 的命中只计入同一动作实例的窗口（上一段连招的迟到命中、动作结束后才命中的投射物不会污染别的窗口）；没有动作实例 id 的命中（instant 路径的 `combat.damage_dealt`/`combat.attack_avoided`）计入该行动者全部打开的窗口。已知局限：同一动作内多段判定合成一个窗口，窗口内只要有任何一次接触就不算挥空。
+    - **挥空**：`WhiffFeedback`（缺省开）。攻击者的 `active_start`..`active_end`（或判定相进出）窗口内没有任何接触（含被回避），窗口结束时发挥空反馈（`whiff` 变体，缺省内置计划只播挥空层 sfx）。窗口按 (行动者, 动作实例) 配对（手感落地 S3b）：`combat.hit_confirmed.castInstanceId` 与 `action.marker`/`action.phase_changed` 的施法实例 id 是同一个值，带动作实例 id 的命中只计入同一动作实例的窗口（上一段连招的迟到命中、动作结束后才命中的投射物不会污染别的窗口）；没有动作实例 id 的命中（instant 路径的 `combat.damage_dealt`/`combat.attack_avoided`）计入该行动者全部打开的窗口。决定：窗口按动作实例而不按段——同一动作内多段判定（多个 `hit` 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空（理由见下方"设计决定"）。
     - **顿帧表现**：`ImpactFreezeRegistry` 记录被冻结单位与冻结层（`Freezes`，可查询）；`feel.hitstop_started` 经 `FreezePresentation` 通知 sink，`feel.hitstop_ended` 经 `ReleasePresentation` 解冻。`PresentationAssemblyOptions.OnFreezePresentation/OnReleasePresentation` 是渲染 rig/粒子宿主的接入点，缺省忽略（冻结状态仍可经 `Feedback.Impact.Freezes` 查询）。
     - **装配**：`PresentationAssemblyOptions.FeelResolver` 为 null（缺省）时全部手感呈现关闭，装配与改动前逐位一致；非 null 时构造流水线、`SfxLayerIndex`（见 `vfx_sfx/README.md` 判断记录 27）并启用手感镜头（见 `camera/README.md` 判断记录 8）。调用方显式给的 `ImpactOptions` 字段原样保留，装配只补空缺。
     - **不变量**：呈现型反馈与镜头档案不改判定型视图/逻辑指纹（`ImpactBinderTests.PresentingProfiles_NeverChangeJudgingFeel_...`；端到端由 feellab 套件 54/54 无差异背书）。
-    - **已知局限（原文）**：
-      - 同一动作内多段判定（多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空。
-      - 三个生产装配入口尚未传入 `FeelResolver`（本切片只提供可选接线，缺省关闭）；`data/_sample` 尚无 `feedback.impact_profile` 示例行。（装配入口一条已解决：`GameplayAssembly` 开手感时 `PresentationAssembly` 自动取 `gameplay.Feel.Resolver`，引擎侧引导见适配层 README 手感落地 M2-A 一节。）
-      - 顿帧只下发"冻结/解冻"通知与查询状态；渲染 rig/粒子宿主的实际暂停需宿主接 `OnFreezePresentation`。（rig 一条已解决：见判断记录 25；粒子宿主的暂停仍需宿主自行接入。）
+    - **设计决定（M4 清扫，取代本条原"已知局限"三项）**：
+      - 挥空窗口按动作实例、不按段：同一动作内多段判定（多个 `hit` 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空。理由：手感设计/07 第 6 节把挥空定义为"本攻击实例命中数为零"，它回答"这一挥是否完全打空"；按段拆会让命中了前两段的连击在第三段落空时报"打空"，与该定义不符。
+      - 手感呈现缺省关闭、生产入口自动接线：`PresentationAssemblyOptions.FeelResolver` 为 null 时全部关闭；`GameplayAssembly` 开手感时 `PresentationAssembly` 自动取 `gameplay.Feel.Resolver`，引擎侧引导见适配层 README 手感落地 M2-A 一节。`feedback.impact_profile` 的示例行在实验室样例根 `data/_lab_action/feedback/`，不进通用 `data/_sample`（理由：通用样例不带手感字段，不开手感的消费方看到的样例与手感无关）。
+      - 顿帧表现经 `OnFreezePresentation`/`OnReleasePresentation` 下发：渲染 rig 的暂停见判断记录 25，粒子的暂停由 `IParticleFreezer` 或兜底装饰器承担（`vfx_sfx/README.md` 判断记录 30）；本流水线只下发"冻结/解冻"通知与查询状态，不直接操作渲染对象（表现域的出口都经 sink，保持无引擎依赖）。
     复现/不变量：`tests/ImpactPipelineTests.cs`（单次命中的震屏幅度/时长 tick/音效层 id、5 目标同 tick 合并 `min(max, cap)`、材质层缺失回落、挥空、顿帧、限频）、`tests/ImpactBinderTests.cs`（binder 端到端、`feedback.impact_profile` 解析、`play_impact` 规则解析、呈现/判定隔离）。
 
 24. **挥空窗口：非攻击动作不开窗、投射物等结局再定（2026-10-02，手感落地 S12，[手感设计/07](../../architecture/手感设计/07_镜头与音画反馈.md) 第 6 节）**：
     - **非攻击动作**：`FeedbackBinder` 订阅 `action.started`，`isAttack` 为假（闪避、纯位移、纯增益）的动作实例登记进 `ImpactPipeline._nonAttackCasts`，`active_start`/Active 相不为它开窗，所以没有 `whiff` 层；`action.finished`/`action.cancelled` 清登记。没收到过 `action.started` 的动作实例按带攻击处理（旧调用方式不变）。
     - **投射物**：`action.projectile_launched` 登记飞行中弹数（按 (行动者, 动作实例)，独立于窗口登记，release 标记可能先于相位事件）；判定相结束时若还有弹在飞，窗口只标记 `Closed` 并保留，之后到达的命中仍计入；`action.projectile_ended` 把弹数减一，最后一发结束且窗口已关、全程零接触才补播挥空（落在那一刻）；结局原因为 `Cleared` 只放弃等待、不挥空；窗口关闭之前弹就没了（极近距离撞墙）则不影响，仍在 `active_end` 正常结算。
-    - **已知限制**：多段技能同一动作实例发射的多发弹合并等待，不按段拆；一发弹"命中但伤害为零/被闪避"也算接触（和既有规则一致：命中确认含回避类结局）。
+    - **设计决定**：多段技能同一动作实例发射的多发弹合并等待、不按段拆（同上"挥空窗口按动作实例"，理由同）；一发弹"命中但伤害为零/被闪避"也算接触（和既有规则一致：命中确认含回避类结局，"被闪避"与"打空"是两种不同的可感知信号）。
     - 复现/不变量：`tests/ImpactPipelineTests.cs`（非攻击不开窗、旧调用方式按攻击处理、弹在飞时推迟、命中取消、多发弹等最后一发、弹先于窗口关闭而结束、清场不挥空）；`tests/ImpactBinderTests.cs`（经总线的非攻击与投射物两条）；实验室 `feel_projectile`/`feel_projectile_miss`/`feel_dash` 基线。
 
 25. **顿帧冻结落到渲染 rig（2026-10-02，手感落地 M2-A，手感设计/07 第 5 节）**：

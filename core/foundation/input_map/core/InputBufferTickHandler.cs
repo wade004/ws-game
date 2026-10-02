@@ -29,12 +29,16 @@ namespace Core.Foundation.InputMap
         private readonly InputBufferHost _host;
         private readonly IBufferedIntentSink? _sink;
         private readonly GraceTracker? _grace;
+        private readonly Func<BufferedIntent, bool>? _skipUnhandled;
+        private Id _skipActor;
 
         public InputBufferTickHandler(InputBufferHost host, IBufferedIntentSink? sink = null, GraceTracker? grace = null)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _sink = sink;
             _grace = grace;
+            // 永远接不了的记录（IBufferedIntentSink.CanHandle 为假）不挡次优先级候选；委托只建一次，当前行动者经字段传入。
+            if (sink != null) _skipUnhandled = record => !sink.CanHandle(_skipActor, record);
         }
 
         /// <summary>登记到世界的 <see cref="TickPhase.IntentCollection"/> 阶段（应在其它步骤 1 处理器之前登记，使缓冲先于它们工作）。</summary>
@@ -77,11 +81,12 @@ namespace Core.Foundation.InputMap
             for (var i = 0; i < actors.Count; i++)
             {
                 var actorId = actors[i];
-                if (!_host.TryPeek(actorId, out var top)) continue;
+                _skipActor = actorId;
+                if (!_host.TryPeek(actorId, _skipUnhandled, out var top)) continue;
                 if (!_sink.TryAccept(actorId, top, out var intent)) continue;
 
                 // 候选在 TryPeek 与 TryConsume 之间没有变化，取用到的就是刚才询问过的那一条。
-                if (_host.TryConsume(actorId, null, out _))
+                if (_host.TryConsume(actorId, null, _skipUnhandled, out _))
                 {
                     world.AppendCurrentIntent(intent);
                 }

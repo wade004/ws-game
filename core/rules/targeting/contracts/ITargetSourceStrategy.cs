@@ -79,6 +79,15 @@ namespace Core.Rules.Targeting
         /// </summary>
         public bool SpatialDistance { get; set; }
 
+        /// <summary>
+        /// 目标命中半径来源（<see cref="Core.Rules.Targeting.TargetingOptions.TargetRadius"/>，缺省 null = 只按目标中心判定）；
+        /// <see cref="TargetHost"/> 在 <c>MaxTargetRadius</c> 为正时回填。内置形状来源据此把"形状擦到目标身体"也算命中。
+        /// </summary>
+        public System.Func<Id, double>? TargetRadius { get; set; }
+
+        /// <summary><see cref="TargetRadius"/> 的上界（世界单位），形状查询据此外扩做广相位；缺省 0。</summary>
+        public double MaxTargetRadius { get; set; }
+
         /// <summary>候选单位到锚点的距离：平面距离，<see cref="SpatialDistance"/> 开启时含高度差（三维距离）。内置策略的"最近"判定一律走它。</summary>
         public double DistanceTo(Id unitId)
         {

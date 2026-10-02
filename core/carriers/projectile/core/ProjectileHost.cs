@@ -528,6 +528,9 @@ namespace Core.Carriers.Projectile
             // 描述的既有边界情形）时按 SourceKind.Unknown 处理，不抛异常。
             var sourceKind = _units.GetSourceKind(state.SourceUnitId);
 
+            // 命中钩子带来的效果值倍率（时间线蓄力动作的 charge.value_scale，见 IProjectileHitHook.ValueScale）；无钩子/缺省恒 1，值逐位不变。
+            var valueScale = state.HitHook?.ValueScale ?? 1.0;
+
             for (var i = 0; i < state.OnHitEffects.Count; i++)
             {
                 var effect = state.OnHitEffects[i];
@@ -541,7 +544,7 @@ namespace Core.Carriers.Projectile
                     baseValue, coefficient, effect.Params, auraInstanceId: null, isPeriodic: false,
                     canCrit: true, canMiss: canMiss, tags: state.Tags,
                     triggerChainDepth: 0, attackInstanceId: attackInstanceId, groundPoint: null,
-                    sourceKind: sourceKind);
+                    sourceKind: sourceKind, targetCoefficient: valueScale);
 
                 var result = state.EffectSink.ApplyEffect(context);
                 results?.Add(result);

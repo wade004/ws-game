@@ -63,5 +63,20 @@ namespace Core.Foundation.InputMap
         /// 之后即可被取用（手感设计/01 第 3.3 节）。返回是否找到并转换了记录。默认实现恒为 false。
         /// </summary>
         bool CompleteHold(Id actorId, Id actionId, int heldTicks) => false;
+
+        /// <summary>
+        /// 同 <see cref="TryPeek(Id, out BufferedIntent)"/>，但先把 <paramref name="skip"/> 判为真的记录从候选里剔除（手感落地 M4 清扫）：
+        /// 用来跳过"永远接不了"的记录（动作没有映射到任何技能），使它们不在过期前挡住次优先级候选；<paramref name="skip"/> 为 null 等价于
+        /// 无参版本。默认实现忽略 <paramref name="skip"/>，退回无参版本。
+        /// </summary>
+        bool TryPeek(Id actorId, Func<BufferedIntent, bool>? skip, out BufferedIntent intent) => TryPeek(actorId, out intent);
+
+        /// <summary>
+        /// 同 <see cref="TryConsume(Id, Func{BufferedIntent, bool}, out BufferedIntent)"/>，但候选先剔除 <paramref name="skip"/> 判为真的记录
+        /// （见 <see cref="TryPeek(Id, Func{BufferedIntent, bool}, out BufferedIntent)"/>）；<paramref name="accepts"/> 只检查剔除后排在最前的
+        /// 那一条。默认实现忽略 <paramref name="skip"/>，退回三参版本。
+        /// </summary>
+        bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, Func<BufferedIntent, bool>? skip, out BufferedIntent consumed) =>
+            TryConsume(actorId, accepts, out consumed);
     }
 }

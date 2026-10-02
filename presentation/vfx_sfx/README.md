@@ -355,14 +355,15 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       复现/不变量：`tests/AudioLayerVolumeHostTests.cs`、`tests/SfxPlayerTests.cs` 的 NaN/Infinity、裁剪 Theory、
       未知层无残留键、`Save` 失败诊断各例。
 
-25. **测试覆盖剩余项第四批（2026-10-01）：生产工程文件加 `InternalsVisibleTo`，只向测试程序集开放；冷加载 3D socket 路径与"排队期间位置冻结"口径如实登记**：
+25. **测试覆盖剩余项第四批（2026-10-01）：生产工程文件加 `InternalsVisibleTo`，只向测试程序集开放；冷加载 3D socket 路径如实登记；冷加载排队 VFX 的发射位置口径见本条第三项（M4 清扫改为与热路径同位）**：
     - `presentation/Presentation.Common.csproj` 新增 `<InternalsVisibleTo Include="Tests.PresentationCommon" />`，
       原因：`VfxPool`（`internal sealed`）的"超容量淘汰剩余时间最短者、并列取插入最早、永久项视为无穷、容量 ≤ 0 不限、
       剩余 ≤ 0 到期"这些规则此前只能经 `VfxPlayer` 间接覆盖，无法对池本身做边界断言（T-M34）。没有任何公开签名变化，
       不进 ABI 探针；复现/不变量：`tests/VfxPoolTests.cs`。
-    - **已知限制（已钉住）**：冷加载排队的 VFX 在加载完成那一刻按 `Spawn` 时刻的位置发射（冷 = `Spawn` 时刻位置，热 = 当前位置），
-      到下一次 `Update` 才由 anchor/entity 跟随重新定位，即最多滞后一帧；排队期间 `Stop(占位句柄)` 取消排队、从不发射、不登记跟随。
-      复现/不变量：`tests/VfxPlayerColdLoadFollowTests.cs`（socket 降级路径、Screen 路径、anchor/socket × 热/同步冷/异步冷收敛 Theory）。
+    - **冷加载与热路径同位发射（M4 清扫，取代"冷加载排队的 VFX 最多滞后一帧"这条已知限制）**：冷加载排队的 VFX 在加载完成那一刻重新取 anchor/socket 宿主的**当前**位置发射，与热路径（资源已缓存、`Spawn` 当场发射）同一口径；
+      宿主已不在（单位销毁、锚点缺失）时回落到 `Spawn` 时刻的位置；没有 `IParticleRepositioner` 的适配层不登记跟随，行为不变；排队期间 `Stop(占位句柄)` 取消排队、从不发射、不登记跟随。
+      理由：此前冷路径用 `Spawn` 时刻位置、热路径用当前位置，加载耗时越长两者差越大，要到下一次 `Update` 才追上；`VfxPlayer` 的冷/热两条路径必须逐位同口径（AGENTS 硬约束）。
+      复现/不变量：`tests/VfxPlayerColdLoadFollowTests.cs`（宿主在排队期间移动：发射位置由 `Spawn` 时刻位置变为加载完成时的宿主位置；宿主已销毁回落 `Spawn` 位置；socket 降级路径、Screen 路径、anchor/socket × 热/同步冷/异步冷收敛 Theory）。
     - `SfxPlayer` 变体选择走 `options.RngStream`（默认 `presentation.sfx`），不碰模拟流；`min==max` 不消耗随机数、不创建流
       （`tests/SfxVariantSelectionTests.cs`）。
 
@@ -382,7 +383,7 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       `sfx.def` 表新增三个可选字段（缺省不影响旧数据，`FromRecord` 缺字段时仍走旧构造）；未知 `feel_layer` 名抛 `DataFieldException`。`feel_layer`（手感层）与既有 `layer`（混音分组，自由文本）正交。
     - **`SfxLayerIndex`**：把声明了 `feel_layer` 的行按 `(层, 档, 材质)` 建索引；反馈包只引用"层 + 档"，材质来自武器的 `sfx_material`。回落顺序：请求档 t 从高到低，每一档先材质精确行、再同档 `generic` 行，第一个命中即返回；全部落空返回 false 并记一条去重诊断（同一 `(层, 档, 材质)` 只记一次），不抛、不静音前先找近似；请求档 <= 0 表示该层关闭，无诊断。
       判断记录：先降材质、后降档——材质只是音色差异，档位决定"这一下打得多重"；不向高档回落，避免资产缺失时反而放大动静。同一 `(层, 档, 材质)` 多行时取 id 序第一行并记诊断。
-    - **已知局限**：样例数据（`data/_sample`）尚无带 `feel_*` 字段的 `sfx.def` 行；`sfx_max_concurrent` 由反馈包流水线按批限制（见 `feedback_binder/README.md` 判断记录 23），不在本索引内处理。
+    - **样例数据与并发限制的归属（M4 清扫，设计决定）**：带 `feel_*` 字段的 `sfx.def` 样例行与手感反馈包样例集中在实验室样例根 `data/_lab_action`（与场景脚本、基线成套核对），通用样例根 `data/_sample` 保持不带手感字段——不开手感的消费方看到的样例与手感无关；`sfx_max_concurrent` 由反馈包流水线按批限制（见 `feedback_binder/README.md` 判断记录 23），不在本索引内处理，因为索引只回答"层 + 档 + 材质 → 哪一行"，并发是出批时的运行态量。
     用例：`tests/SfxLayerIndexTests.cs`（精确命中、缺材质回落到同档通用、只向低档回落、全缺返回 false 且诊断去重、关闭层、重复行、非手感行不入索引、`FromRecord` 字段解析）。
 
 28. **顿帧期间按宿主单位暂停特效（2026-10-02，手感落地 M3-C；设计见 `architecture/手感设计/07` 第 5 节）**：
@@ -412,5 +413,5 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     - **随附适配层**：Unity 适配层 `UnityRenderer2D` 实现 `IParticleFreezer`（M3-C）。无头桩 `StubRenderer2D` 在 `adapters/stub`，该程序集对 `presentation` 层零依赖，不能直接实现表现层的可选接口（层次约束，不是遗漏）；无头/测试组合改用 `ParticleFreezeFallbackRenderer2D.Wrap(new StubRenderer2D())`，得到的就是一个实现了 `IParticleFreezer` 的无头渲染器。
     - **兜底装饰器**：`ParticleFreezeFallbackRenderer2D`（`Presentation.VfxSfx.Core`）是一个 `IRenderer2D` 装饰器，只用契约里已有的 `EmitParticle`/`StopParticle`，自己实现 `IParticleFreezer`。`ParticleFreezeFallbackRenderer2D.Wrap(inner)` 返回：`inner` 已实现 `IParticleFreezer` 时原样返回（不叠第二层）；否则返回装饰器，`inner` 实现 `IParticleRepositioner` 时返回同时实现它的子类 `RepositioningParticleFreezeFallbackRenderer2D`（位置更新透传，暂停期间只记录、恢复时按最新位置重发），使 `VfxPlayer` 对"可选能力"的探测结果与不包装时一致。装饰器给 `VfxPlayer` 的是它自己分配的虚拟句柄（暂停再恢复会换真实句柄，虚拟句柄不变；对不认识的句柄静默忽略，不转发给被包装者）。
     - **两种暂停方式**：宿主在 `ParticleFreezeFallbackOptions.SetTimeScale`（暂停以 0、恢复以 1 调用，参数是被包装适配层自己的句柄）里接上自己的时间缩放口（例如引擎粒子系统的模拟速度）时优先用它——粒子留在画面上、停在原处，恢复后从停住的那一帧继续，不消失、不重播；没有给出时用"停止并在恢复时按原特效、原参数、原混合模式在最近已知位置重新发射"。
-    - **剩余边界（已知限制，逐字）**：没有时间缩放口时，暂停 = 停止真实粒子（画面上消失），恢复 = 重新发射。循环类特效（拖尾、光环、灼烧：挂在单位身上的持续特效，这正是冻结的主要对象）恢复后无缝接上，只是顿帧期间看不见；非循环特效恢复后从头重播一遍（存活计时仍从冻结点继续，所以只播剩余时长）——纯契约原语（发射/停止）里没有"读出已播进度"，无法精确续播。这是原语集合决定的边界：要画面精确停在原处，适配层应实现 `IParticleFreezer`，或给 `SetTimeScale`。
+    - **兜底暂停的精度边界（设计决定，M4 清扫由"已知限制"改写）**：兜底装饰器不追求画面精确停在原处——没有时间缩放口时，暂停 = 停止真实粒子（画面上消失），恢复 = 重新发射。循环类特效（拖尾、光环、灼烧：挂在单位身上的持续特效，这正是冻结的主要对象）恢复后无缝接上，只是顿帧期间看不见；非循环特效恢复后从头重播一遍（存活计时仍从冻结点继续，所以只播剩余时长）。理由：契约原语（发射/停止）里没有"读出已播进度"，为一个只服务无头/无冻结口适配层的兜底去扩 `IRenderer2D` 契约不划算；要画面精确停在原处，适配层实现 `IParticleFreezer`（Unity 适配层已实现），或给 `SetTimeScale`。
     - 用例：`tests/ParticleFreezeFallbackRenderer2DTests.cs`——复现：既有 `StubRenderer2D` 上冻结单位的特效对画面毫无影响（冻结期间画面上粒子数 1 -> 1），包一层之后冻结期间 1 -> 0、解冻后 0 -> 1（同特效、同参数、同位置）；时间缩放口路径粒子不消失（1 -> 1，口收到 0 与 1）；虚拟句柄跨暂停稳定、存活计时仍从冻结点继续；已实现 `IParticleFreezer` 的适配层不叠第二层；`IParticleRepositioner` 探测结果与不包装时一致、暂停期间的位置更新在恢复时生效；已停止/未知句柄静默忽略且不误停其它粒子。

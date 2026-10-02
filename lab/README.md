@@ -178,7 +178,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 31. **S11 缺口修复（时间线投射物命中确认）**：见 `core/rules/skill/README.md` T31。实验室侧的凭据是度量 `spatialhit.unconfirmed_damage`（有伤害无确认，恒 0）、`duplicate_confirmations`（恒 0）、`confirmed_without_damage`（恒 0）三个不变量计数，任何脚本违反都会让基线比较红；`feel_projectile` 覆盖 release 标记与只有 hit 标记两种形态。
 
-32. **如实记录、不在本切片处理的观察**（见已知局限）：冲刺结束后的滑行、投射物挥空提示先于命中、非攻击技能的挥空提示、位移穿过靶子。其中前三条已在 S12 修复（判断记录 33），第四条仍在。
+32. **如实记录、不在本切片处理的观察**：冲刺结束后的滑行、投射物挥空提示先于命中、非攻击技能的挥空提示、位移穿过靶子。其中前三条已在 S12 修复（判断记录 33），第四条的决定见判断记录 60。
 33. **S12 实验室修复（冲刺越程、非攻击动作挥空、投射物挥空时机）**：三条观察各先写复现用例（`lab/tests/FeelSceneTests.cs`，修复前失败），再改生产代码，实验室只是把问题测出来的凭据。(1) 冲刺越程：动作位移窗口结束后速度清零（运动档案新增可选字段 `keep_momentum_on_motion_end`，缺省假；手感设计/02 第 4 节），`feel_dash` 终点 x 由 2.577 变为声明的 2.0，`feel_lunge`、`feel_dodge_cancel`、`feel_buffer_lead` 同理；期望值 = 标定参考身高 × 动作声明的位移距离。(2) 非攻击动作不开挥空窗口：`action.started` 新增 `isAttack`，反馈流水线不为非攻击动作开窗（手感设计/07 第 6 节）。(3) 投射物动作的挥空等投射物结局：新增事件 `action.projectile_launched`/`action.projectile_ended`，判定相结束时弹还在飞则窗口留着，命中（含迟到命中）取消挥空，到期/被挡才补播（手感设计/03 第 2.5 节）；`feel_projectile_miss` 是未命中形态的基线，期望的挥空 tick = 弹被挡住的 tick。基线只更新了这三处修复正是意图的条目（逐条清单在 S12 汇报里），原有 60 条基线与 S7b 其余脚本的基线一字未动。
 
 34. **M2-C 单位间体积阻挡脚本 `feel_unit_block`**：玩家（-1.5, 0）按住 +x 走向木桩（2, 0），第 90 tick 松手，第 100 tick 按闪避；预设 `feel.preset.unit_block`（继承 `arpg_responsive`，`unit_body_radius` 0.4 身高）与标定 `lab_unit_block`（参考身高 1.0）放在独立数据根 `lab/fixtures/data/unit_block/`，经该脚本 `meta.extraDataRoots` 叠加（不进 `data/_feel`/`data/_lab_action`，否则既有脚本的数据集哈希会变，同判断记录 17/23）。脚本钉死预设（`meta.presetId`），所以六格都按体积预设跑（目标选择式格子同样被挡）；`feelCalibrationId` 留空由 `lab_<预设短名>` 推出，运行变体换预设（如 `unit_block_pass`、`arpg_responsive`）时标定行随之换。实测：玩家停在 x = 1.1990740740740742（体积边界 1.2 减一个到达容差内），中心距在每个 tick 都不小于半径之和 0.8，闪避不改变位置；换成 `unit_block_pass`（`dodge_through_units`）闪避穿过木桩，换成 `arpg_responsive`（不声明体积）一路走进木桩。期望值在 `FeelSceneTests` 里由预设半径 × 标定参考身高算出。**`LabInvariants` 为钉死预设的脚本做了两处调整**（既有脚本不受影响，其条目数不变）：动作式剥离不变量的"目标选择式格子"比较对象的预设取脚本钉死的预设而不是格子缺省预设；手感装配透明性不变量（"换成 `rpg_classic` 后装配透明"）不适用于钉死了预设的脚本，跳过（它的预设是脚本自己的主张）；`CrossCellInvariantTests` 的条数断言相应改为只统计未钉预设的手感脚本。
@@ -211,6 +211,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 57. **序列帧播放器的帧边界浮点（M4-W6，核心修复）**：`FrameAnimPlayer` 用 `(int)(已播秒数 × 帧率)` 求当前帧，累加多个浮点步长恰好落在帧边界时会因舍入差落在边界之下，使落在该帧的关键帧晚一个宿主帧触发。改为 `FrameIndexAt = floor(已播秒数 × 帧率 + 1e-9)`（`FrameBoundaryEpsilon`），三处取帧点统一；新增 `FrameAnimPlayerTests` 用例锁住"累加步长恰好落在帧边界时关键帧在该步触发"。逻辑指纹不受影响（播放器只在表现层）。
 58. **整份基线比较不依赖墙钟（M4-W6）**：`SpaceSemanticsTests.SpaceBaselines_ArePresentForAllTenCells_AndMatch` 间歇变红的根因是基线比较把实时类度量（`frame_ms_p50`/`frame_ms_p95`/`alloc_bytes_per_frame_p95`，倍率上限，依赖真实时钟）也算进了"是否一致"，满载机器上帧耗时偶尔越过倍率上限，且失败消息对 `Diff` 格子是空的。修法：`FingerprintComparer.Compare` 新增 `includeRealTime` 重载、`LabSuite.Check` 同样，测试用 `LabTestSupport.CheckDeterministic` 排除实时类（逻辑类、表现类、键不一致照常判），失败时 `AssertAllPass` 带每个格子的差异明细；`FeelSceneTests`、`LabKernelTests`、`SpaceSemanticsTests`、`ExpectationTests` 的整份基线比较一并改走这条路径。实时上限仍由命令行 `suite` 与 `Comparer_RealTimeMetrics_AreCeilingChecksNotByteComparisons` 单独把关；新增用例 `Comparer_ExcludingRealTime_IgnoresOnlyRealTimeMetrics_SoLoadCannotFlipADeterministicComparison` 复现满载并锁住"排除的只有实时类"。
 59. **`auto_attack_anim` 是必填字段（M4-W6）**：`display.weapon_style` 行要求带 `auto_attack_anim`，而实验室技能全是读条技能（`cast_time > 0`）、走施放状态与覆盖表，普通攻击状态没有任何技能会进。实验室两行把它写成 `std_dummy_attack_unarmed`（假人的徒手攻击剪辑），在实验室里不会被播放，只是满足必填。
+60. **已知局限清扫（M4）的两条设计决定**：①位移穿过靶子：`feel_lunge` 的扑击位移 `blocking: stop` 只对地形阻挡生效，靶子默认不是阻挡，该脚本与既有预设不变；决定：单位间体积阻挡保持"预设声明 `unit_body_radius` 才开启"（脚本 `feel_unit_block`，判断记录 34），不改缺省。理由：缺省开启会改变所有未声明体积的既有预设与基线（缺省不变是手感体系的总约束），需要的游戏在自己的预设里声明一个字段即可。②挥空窗口按动作实例、不按段：多段技能（多个 `hit` 标记）与多发弹在反馈侧各合成一个窗口，窗口内任何一次接触都不算挥空；决定：保持。理由：手感设计/07 第 6 节把挥空定义为"本攻击实例命中数为零"，挥空反馈回答的是"这一挥是否完全打空"，按段拆会让命中了前两段的连击在第三段落空时报"打空"，与该定义不符。冲刺滑行、投射物挥空时机、非攻击动作挥空三条观察已在 S12 修复（判断记录 33），不再登记。
 
 ### 真机手测验收清单（给游戏团队）
 
@@ -223,8 +224,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 5. **记录格式**（一行一个观察，表格或 CSV 皆可）：`日期 | 试玩者 | 设备 | 场景脚本 | 轮次 | 观察项 | 评分 | 现象（一句话） | 复现步骤 | 对应度量或覆盖集（没有填无） | 判定`。判定只有三种：`通过`、`需调参`（写明要调的手感字段，用覆盖存储做 A/B 对比后再入档案）、`阻塞`（框架或引擎行为异常，附复现脚本，按上游反馈流程提交）。
 6. **验收结论**：全部观察项均值不低于 3 分、没有 `阻塞`、`需调参` 项都已用覆盖集 A/B 验证并回写数据后，才算通过；结论与表格一起存进游戏自己的仓库，不进框架仓库。
 
-## 已知局限
-
+## 范围与现状（设计决定）
 
 - 标准脚本集：06 第 3.1 节的短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中、换装循环（十个旧脚本）加 S7b 的十九个、S12 的一个、M2-C 的一个（`feel_unit_block`）、M3-A 的一个（`feel_unit_separate`）与 M3-E2 的一个（`feel_stake_poise`）手感脚本（共二十三个），再加 M3-E1 的六个空间语义脚本（`space.*`，见判断记录 35）；"被精英打断"拆成了霸体窗口内（`feel_elite_armor`）、窗口后按反应上限封顶（`feel_elite_flinch`）与普通靶被打断（`feel_interrupt`）三种，因为精英的 `reaction_cap = flinch` 本身不会被打断。
 - 度量组：响应、移动、攻击、性能四个常驻组，换装与七个手感组为条件组（装备解析、手感场景）。
@@ -233,9 +233,5 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 - 靶子数据已能表达可破坏障碍（`block_half_extent`，动态阻挡经增量接口，判断记录 42）与木桩韧性：`poise` 写缺省的 `stat.poise` 属性（游戏改了 `HitFeelOptions.PoiseStat` 要在自己的数据里按同一属性写），动态变化（伤害削减、回复延迟与速率）由攻击/角色手感字段声明（判断记录 41）；回复口径、破韧后定时回满与按冲击等级缩放韧性伤害都是可选扩展（判断记录 47），缺省沿用"最近一次韧性伤害后的延迟 + 速率"。
 - 无头宿主的表现时间线是反馈流水线出批给假 sink 的指令，不含动画切换、真实音频与镜头平滑；这些由引擎宿主观测（判断记录 46）。
 - **命中帧对齐的数据状态（M4-W5 起，M4-W6 收尾）**：手感场景的技能走读条剪辑，数据里它的关键帧是 `release`；精灵平面识别 `release` 或 `hit_frame`，模型平面由骨骼剪辑把 `release` 烘成 `hit_frame` 别名事件（04 第 10 节）。`cast` 的 `release` 在 150 毫秒（起手 150 毫秒的技能与逻辑命中标记逐毫秒对齐）；起手 100 毫秒（combo1、combo2、poise_chip、lunge、space_ext 的 jab）与 300 毫秒（elite_swing）的技能经武器风格 `display.weapon_style.lab_*` 的 `cast_anim_override` 指到施放点变体 `cast.quick`（release 100 毫秒）与 `cast.heavy`（release 300 毫秒），见判断记录 55。每个实验室技能的命中都配得上引擎事件，且不早于逻辑命中：精灵平面滞后为 0，模型平面滞后是一帧量化加施放者这次命中的顿帧时长（Animator 事件在下一次动画求值时派发，那时施放者已被冻结），宿主与数据两份测试都按这个口径锁住。指标仍如实量出。
-- **观察 1（冲刺滑行，S12 已修）**：原先冲刺位移窗口结束后玩家仍按"从末速度线性制动"滑行一小段（`feel_dash` 终点 x 2.577，声明 2.0）。现在位移窗口结束速度清零，终点恰为声明距离；需要滑行的动作在档案里声明 `keep_momentum_on_motion_end`（见判断记录 33）。
-- **观察 2（投射物挥空提示先于命中，S12 已修）**：原先 `feel_projectile` 发射 tick + 3 出挥空提示音，+5 才命中。现在挥空等投射物结局：命中则不挥空，没命中到被挡/到期那一刻才挥空（`feel_projectile_miss`）。到期与清场两种结局原因已有脚本级覆盖（`feel_projectile_expire`、`feel_projectile_clear`，判断记录 43）。**已知限制**：多段技能同一动作实例里先后发射的弹按动作实例合并等待（不按段拆）。
-- **观察 3（非攻击技能的挥空提示，S12 已修）**：原先 `feel_dash` 里无命中标记的闪避结束时也出挥空提示音。现在非攻击动作（`action.started.isAttack` 为假）不开挥空窗口。
-- **观察 4（位移穿过靶子，M2-C 已提供可选开启的体积阻挡）**：`feel_lunge` 的扑击位移 `blocking: stop` 只对地形阻挡生效，玩家会穿过木桩（靶子不是阻挡），终点超过木桩位置，该脚本与既有预设不变。需要的预设声明 `unit_body_radius` 即可开启单位间体积阻挡（脚本 `feel_unit_block`，判断记录 34）。
 - 换装场景：`item_facts` 与导入静态报告的**数据可核验部分**已对账（槽位、是否武器、族、外观模式、层、资源集、图标路径，见判断记录 44）；图标像素尺寸与逐层剪辑的帧数要读图片与图集文件，无头宿主不读资产文件，仍只在导入校验静态报告（`equip_pack` 的 `equip_icon_size_invalid`、`equip_layer_clip_missing` 等检查）一侧；它们在真实渲染下的呈现（图标是否画对、逐层剪辑是否播对）属于引擎宿主实验室（M4-H）。
 - 空间语义（判断记录 35、45）：命中高度窗口用命中判定那一刻施法者的脚下高度（锚点在施法者脚下，可由目标链形状的 `height_offset` 整体上下偏置）；横版深度锁缺省只作用在移动输入，受控位移的深度锁由脚本选项 `depthLockControlledMotion` 可选打开（判断记录 48）；（原"靶子没有主动跳跃/移动的脚本事件"已由判断记录 48 解除）；`volume` 格子的 `camera_relative` 控制空间与第三人称镜头不在无头宿主上证明（无头宿主不提供相机朝向，按 `world` 跑；引擎宿主证明它们，判断记录 50）；击飞中的靶子不做空中控制（击飞中的靶子被硬直锁住，不是实验室缺口；靶子的主动跳跃与空中移动见判断记录 48）。空间扩展（判断记录 45）：三维射程缺省只作用于目标选择式结算（技能管线步骤 7 的"目标已解析"之后），动作式格子上的射程门由脚本选项 `spatialRangeHitWindow` 可选打开（判断记录 48）；地形数据支持矩形、凸多边形与高度场三种形状（判断记录 49），更复杂的地形由引擎侧物理射线实现（`UnityTerrainHeight2D`）覆盖；寻路、路径校验、台阶阻挡点与落地规则的细节见 `core/carriers/unit/README.md` 的"判断记录（地形与导航二期）"；空中姿势装置默认用合成键表，可选改读真实姿势集行（判断记录 48），都只回答"请求哪个键、链上命中哪个、回落几级"，不播放真实剪辑（真实剪辑的请求与回落由引擎 PlayMode 冒烟覆盖）。

@@ -196,12 +196,12 @@ input_map/
 3. **`class` 缺省为空 ⇒ 不缓冲**：保证不写新字段的既有数据、既有游戏输入行为完全不变；打开缓冲是数据层逐动作的显式选择。
 4. **点按/按住判定的 tick 精度**：阈值换算为 tick 后比较"按下到抬起的动作时钟差"；同批次内按下又抬起视为 0 tick 点按。
 
-### 已知限制（逐条交代给设计层）
+### 范围与边界（设计决定，M4 清扫由"已知限制"改写）
 
-- 缓冲与宽限的 tick 处理器只在**连续步**工作；离散步清空缓冲（离散模式的"输入缓冲"语义留给后续切片，01 第 6 节未定义）。
-- `GraceTracker` 不内置 Expr 求值（L0 不依赖表达式层）：`IGraceConditionEvaluator` 由上层提供，生产装配缺省用 `ExprGraceConditionEvaluator`（`core/carriers/assembly/`，M3-B），游戏可经 `CarriersFeelOptions.GraceEvaluator` 覆盖。
-- `face_on_accept`（转向）只在记录里携带并经 `BufferedIntent.FaceOnAccept` 暴露，实际转向由取用方（动作层）执行。
-- 网络/回放来源的缓冲同步与回滚不在本切片范围。
+- 缓冲与宽限的 tick 处理器只在**连续步**工作；离散步清空缓冲。理由：缓冲窗口以毫秒计、依赖动作时钟的连续推进，手感设计/01 第 3 节的清空规则明文规定"切到离散模式"缓冲整体清空；回合制没有"提前输入"的概念，输入在该回合被取走。
+- `GraceTracker` 不内置 Expr 求值：`IGraceConditionEvaluator` 由上层提供，生产装配缺省用 `ExprGraceConditionEvaluator`（`core/carriers/assembly/`，M3-B），游戏可经 `CarriersFeelOptions.GraceEvaluator` 覆盖。理由：L0 不能依赖表达式层（层次约束）。
+- `face_on_accept`（转向）只在记录里携带并经 `BufferedIntent.FaceOnAccept` 暴露，实际转向由取用方（动作层）执行：缓冲出口 `BufferedActionIntentSink` 与时间线在取消窗口里的拉取（M4 清扫补齐）都在接受那一刻对齐朝向。理由：转向要写单位朝向，是规则/载体层的职责，L0 不持有单位。
+- 缓冲不单独做网络同步与回滚：框架不含网络层；回放走"记录输入再重放"（实验室的输入记录与回放），缓冲状态由重放的输入序列重新算出，不作为独立状态同步。联机游戏的预测与回滚由游戏自己的网络层在输入层之上处理。
 
 ## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
 
@@ -270,3 +270,9 @@ M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
 - **换算**：每次 `Update`，`camera_relative` 的 `Axis2D` 动作的轴值 `(x, y)` 旋转成世界方向 `x·右 + y·上`（右 = (cos, sin)，上 = (−sin, cos)），模长不变；偏航恰为 0 时逐位恒等。不声明控制空间的动作、没有配朝向查询的宿主与引入前逐位一致。
 - **判断记录**：①朝向走独立的可选接口，不往必选的 `ICamera` 加成员（同 `ICameraImpulse`）；`StubCamera`、`UnityCamera` 都实现它，`PresentationAssembly` 只在相机实现了该接口时给输入映射配朝向。②相机相对输入只依赖偏航：相机俯仰绕右轴转，右轴恒在世界平面上，"屏幕上方"的世界平面投影恒为 (−sin, cos)，所以不需要俯仰。③第三人称游戏的俯仰角、透视由相机适配器自己提供（`UnityCamera` 的 `ApplyPitch`/`Perspective`），输入映射不感知。
 - **用例**：`core/foundation/input_map/tests/CameraRelativeControlSpaceTests.cs`（复现：按偏航旋转与期望公式一致；不变量：缺省 world 逐位不变、偏航 0 逐位恒等、没配朝向查询声明期报错、每次更新取样偏航而非声明时取样、取值非法与非 Axis2D 动作声明相机相对被拒绝、`WithControlSpace` 复制其余全部字段、登记表字段往返）。
+
+## 判断记录（永远接不了的记录不挡路，2026-10-03，M4 清扫）
+
+1. **契约（只加不改）**：`IBufferedIntentSink.CanHandle(actorId, record)`（默认接口成员，缺省真）、`IInputBufferQuery.TryPeek(actorId, skip, out)` 与 `TryConsume(actorId, accepts, skip, out)`（默认实现忽略 `skip`，退回无 `skip` 版本）；`InputBufferHost` 覆盖：候选排序前先把 `skip` 判真的记录剔除，`accepts` 只检查剔除后排在最前的那一条。
+2. **口径**：优先级语义不变（取最前一条、此刻不能接受就等到过期）；只有出口声明"永远接不了"（`CanHandle` 为假，例如动作没有映射到任何技能）的记录被剔出候选，它们不被消费也不被丢弃，留在缓冲里直到自己的窗口过期，供游戏自己的消费者用无 `skip` 的 `TryPeek`/`TryConsume` 取用。`InputBufferTickHandler` 对每个行动者把 `CanHandle` 当 `skip` 谓词传入。
+3. **理由**：此前一条未映射的高优先级记录会在过期前挡住优先级更低的可接受记录（例如绑了闪避键却没配闪避技能，攻击被挡住）；"此刻不能接受"（冷却、动作锁）与"永远接不了"是两回事，前者按设计等待、后者不该占着队首。测试：`tests/InputBufferUnhandledSkipTests.cs`。

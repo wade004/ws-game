@@ -909,7 +909,7 @@ namespace Adapter.Unity.Bootstrap
             if (!Freeze!.IsFrozen)
             {
                 RunPresentationStep(() => Presentation.ViewBinder.SyncAll(alpha));
-                RunPresentationStep(() => Presentation.Camera.Update(alpha));
+                RunPresentationStep(() => Presentation.Camera.Update(alpha, unscaledDelta));
             }
 
             // GP-03 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：同

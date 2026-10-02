@@ -346,7 +346,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 4. **渲染 rig 接顿帧冻结**：`UnityFrameAnimPlayer` 暂停（标志存在组件上，内部播放器懒创建也按暂停启动）；`UnityRenderer3D` 的 `AnimSpeedOverride` 让冻结期间资源后到的原地替换也保持冻结；sprite/model 两类 rig 的能力接口与幂等语义见 `presentation/render/README.md` 判断记录 31；装配层默认接线见 `presentation/assembly/README.md`。
 5. **剪辑标记来源（clip marker）：不实现**。设计 01 第 3.2 节、04 第 5 节规定运行时判定只读 `skill.def.timeline`；剪辑事件作为标记来源只发生在**创作期**由导入工具拷进数据，表现层读剪辑只用于表现标记。运行时让动画剪辑事件进入判定会让判定依赖引擎动画时序，与"判定只看数据"冲突，因此不加开关、不加缺省关的实现。
 6. **开发期热重载**：游戏模板的 `DataHotReload` 在 `DataRegistry.Reload(表)` 之后补发 `data.load_completed`（并监视开手感时自动加入的框架手感根），手感数据热加载的订阅（核心装配，手感落地 M2-B）据此换入新档案；本包自带的两个引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）原先没有热重载组件，已在手感落地 M3-C 补上（缺省关闭，见下节）。引擎侧用例 `ContentSourceRootOverridePlayModeTests.GameBootstrap_FeelOn_HotReloadOfFeelPreset_UnitReadsNewValue_AndLoadCompletedIsPublished`（游戏模板 PlayMode）：开手感、运行中改框架手感根里 `feel.preset` 基础档的 `buffer_ms`（旧值 + 增量）并经 `DataHotReload.ProcessPendingChanges` 热重载，断言单位解析到的缓冲窗口毫秒等于该期望值、且 `data.load_completed` 至少发出一次。
-7. **已知限制**：`GameFoundationBootstrap` 自带的普攻技能 id 与输入动作 id 仍由其序列化字段和 `found.input_action` 决定，手感开启后要让普攻走缓冲，数据里需给对应动作写 `class` 与 `skill_slot`（见 `architecture/13_新游戏接入指南.md` 第 9 节）。（原"粒子宿主的暂停不随顿帧冻结（只冻 rig）"的限制已在手感落地 M3-C 解除，见下节。）
+7. **设计决定（M4 清扫，由"已知限制"改写）**：`GameFoundationBootstrap` 自带的普攻技能 id 与输入动作 id 仍由其序列化字段和 `found.input_action` 决定；手感开启后要让普攻走缓冲，数据里给对应动作写 `class` 与 `skill_slot`（见 `architecture/13_新游戏接入指南.md` 第 9 节）。理由：输入动作 → 技能的映射是游戏数据（`found.input_action` 表），不在引导里写死另一份；引导只负责把序列化的普攻 id 交给装配，开手感与否由数据决定走缓冲还是直接施法。（原"粒子宿主的暂停不随顿帧冻结（只冻 rig）"的限制已在手感落地 M3-C 解除，见下节。）
 8. **复现/不变量（引擎 PlayMode，经 `-runTests` 门禁）**：`HitFrameSyncEndToEndTests.FeelEngine_*`（真实 `GameFoundationBootstrap`：按键 → 只施法一次；命中 → 攻击方 model rig 与被击方 sprite rig 冻结 tick 数等于顿帧档案换算值、旁观单位不冻结；命中 → 引擎相机冲量幅度来自档案；不开手感同场景走原直接施法路径、不冻结不冲量）、`UnityCameraTests.Impulse_*`、`UnityRenderer3DTests.SetAnimSpeed_Zero_*`。测试数据在每条用例里写临时目录经 `_extraDatasetRoot` 叠加，不新增仓库数据文件（Unity 导入范围内新文件需要 .meta）。
 
 ### 手感落地 M3-C：引擎侧已知限制解除（2026-10-02）
@@ -364,7 +364,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 3. **适配器侧新增（只增不改，缺省行为不变）**：`UnityFrameAnimPlayer.AdvancedSeconds`（公开，累计推进量）、`UnityCamera.ApplyYawRotation`（公开可选开关，缺省关）、`Runtime/AssemblyInfo.cs` 对宿主程序集的 `InternalsVisibleTo`（宿主驱动资源加载器、音频、镜头、模型的内部 `Tick`）；M4-H 当时的内部推进入口已由 M4-W4 换成公开的可注入时间源，见下节。
 4. **引擎侧失败不改变逻辑**：舞台里的任何异常记入 `EngineRecording.Errors`（度量 `engine_errors`），引擎视图创建失败时该实体退回内核的假视图。
 5. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`EngineLabHostCrossHostTests`（全部手感场景脚本逐字节比较引擎宿主与无头宿主的逻辑组指纹；格子由环境变量 `GF_LAB_CELLS` 选，缺省 `2d_action`，`*` 为全部；`GF_LAB_MAX_RUNS` 限制组合数）、`EngineLabHostMechanismTests`（命中帧对齐、镜头冲量曲线、顿帧冻结与旁观/对照、帧耗时分布、三个平面组合、`camera_relative` 三向检验、输入噪声记录回放、引擎失败、渲染隔离、冷热加载一致、期望清单在引擎宿主上判定、换装图标与逐层剪辑核对及其反例）。EditMode：`LabPanelModelTests`（覆盖存储的写入、校验、持久化、A/B 与源数据不变）。
-6. **已知局限**：见 `lab/README.md`「已知局限」（目前只剩命中对齐的姿势集数据现状；真机手测已改为游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现）。
+6. **已知局限**：已清零。手感相关的限制在 M4 全部解除或转为判断记录（见 `lab/README.md` 判断记录 54、60 与「范围与现状（设计决定）」）；真机手测是游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现，命中对齐已由姿势集数据对齐（手感设计/04 第 10 节第 10 条）。
 
 ## 判断记录索引
 

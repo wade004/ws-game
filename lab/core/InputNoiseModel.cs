@@ -68,7 +68,7 @@ namespace Lab
     /// 用来在没有真机的情况下注入"真实输入设备的抖动与延迟"。
     /// <para>
     /// 判断记录（合成噪声，不是真机测量）：模型只能注入人为设定的抖动分布，不能替代真机实测；真机的延迟与抖动分布仍未测量
-    /// （见 <c>lab/README.md</c> 已知局限）。随机源是内核自带的确定性 xorshift（不用 <see cref="Random"/>，保证跨运行时与跨平台
+    /// （见 <c>lab/README.md</c> 判断记录 54）。随机源是内核自带的确定性 xorshift（不用 <see cref="Random"/>，保证跨运行时与跨平台
     /// 同种子同结果），所以一份种子就是一份可复现的"录音"；<see cref="Apply"/> 同时给出 <see cref="InputNoiseRecord"/>，<see cref="Replay"/> 用它还原。
     /// </para>
     /// <para>
