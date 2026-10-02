@@ -1600,7 +1600,7 @@ build/test 步骤）。
 1. **宁少删勿多删**：保留规则在任务书基础上额外保留 ABI 基线 zip 与高于当前版本的条目。前者因为 `build.ps1 -Release` 固定带 `-AbiStrict`，基线 zip 缺失会让发布 FAIL，
    `test_real_baseline_end_to_end_via_abi_probe` 在基线缺失时 skip、而门禁的 pytest skip 上限为 0；后者覆盖发布中途残留与维护分支上 `VERSION` 低于 `main` 的场景。
 2. **历史产物可重建、`.lock` 只作记录**：消费方走私服或 GitHub Release，不读本机 `dist/`；不可变发布守卫判定"已发布"靠 `git tag`，不靠 `dist/` 下有没有文件，
-   所以删历史产物既不影响消费方也不会让守卫误放行。历史版本要时检出对应标签、运行 `build.ps1 -Dist <ver>` 重建（要连 zip/lock 重打加 `-Zip`，已发布版本需 `-AllowOverwriteDist`）；
+   所以删历史产物既不影响消费方也不会让守卫误放行。历史版本要时检出对应标签、运行 `build.ps1 -Dist <ver>` 重建 `dist/<ver>/` 目录：该版本的 `v<ver>` 标签已存在，发布不可变守卫会拒绝，所以**哪怕不加 `-Zip` 也必须带 `-AllowOverwriteDist`**（该开关只是跳过守卫并打印将被覆盖的产物清单，本身不删不改任何东西）；`-Zip` 是另一回事——它才会重写 `dist/ws-game-<ver>.zip`、`.lock`、`-samples.zip`，覆盖本机上同名的原件（ABI 基线版本的 zip 是 `abi_probe` 的输入，不要对它加 `-Zip`），只为查阅历史内容时不需要加；
    重建出的 zip 的 sha 不保证与当年 `.lock` 一致（打包时间戳、压缩实现不保证逐字节相同），所以 `.lock` 不能用来校验重建产物。
 3. **安全**：`dist` 本身是重解析点（junction/symlink）、待删条目自身或其内部任何一层含重解析点，一律拒绝并整次不删任何东西；每个待删条目解析后的完整路径必须仍在 `<RepoRoot>\dist\` 之下；
    待删条目有无法枚举的内容同样拒绝。大小在删除前实测并求和，"已释放"按删除前实测字节数计。

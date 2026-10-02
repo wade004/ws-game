@@ -45,7 +45,9 @@
     删除失败等）。
 
     历史版本怎么重建：检出对应标签（`git worktree add D:\wt\<name> v<ver>`，或在维护分支上），
-    运行 `build.ps1 -Dist <ver>`（要连 zip/lock 一起重打则加 `-Zip`；已发布版本需 `-AllowOverwriteDist`）。
+    运行 `build.ps1 -Dist <ver>` 重建 `dist/<ver>/` 目录：`v<ver>` 标签已存在，发布不可变守卫会拒绝，所以哪怕不加 `-Zip`
+    也必须带 `-AllowOverwriteDist`（该开关只跳过守卫并打印将被覆盖的产物清单）；`-Zip` 才会重写 zip/lock/samples zip，覆盖
+    本机同名原件（ABI 基线版本的 zip 不要重打），只为查阅历史内容时不需要。
     注意：重建出的 zip 的 sha 不保证与当年发布时的 `.lock` 相同（打包时间戳、压缩实现等不保证逐字节
     一致），所以 `.lock` 仅作发布记录，不能用来校验重建出的 zip。
 

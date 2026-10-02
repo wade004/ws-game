@@ -715,7 +715,7 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 - 被推单位的位移从下一 tick 起。
 - 未知的 `pass_through_motion_kinds` 名字在读档案时抛异常。
 - 死亡单位不阻挡；离散步（回合制）不受影响；体积半径随运动档案走，全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
-- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）与 `tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、35）。
+- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）与 `tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、36）。
 - **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
 
 ## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
