@@ -1,0 +1,52 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "space.pick_3d",
+    "scriptVersion": 1,
+    "description": "空间语义·三维距离：两个靶子平面距离不同、高度也不同——近的悬空 2 个单位（平面距离 1.5），远的在地面（平面距离 2）。目标链取最近：平面与横版二维按平面距离选悬空的那个，体积空间按含高度差的三维距离选地面的那个。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "near_high",
+      "far_ground"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_sp_pick"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

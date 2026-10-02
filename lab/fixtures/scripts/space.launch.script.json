@@ -1,0 +1,51 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "space.launch",
+    "scriptVersion": 1,
+    "description": "空间语义·击飞：预设钉死为 space_launch（重击、击飞高度 1.2 身高）；玩家挥一次打中木桩，受击反应达到击退，木桩被抛起再落地。横版/体积格子量木桩顶点高度（由 launch_height 与冲击等级倍率算出）与落地 tick（由重力与初速算出）；平面格子没有竖直轴，木桩只被击退。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_launch",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 120,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_sp_slash"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

@@ -180,3 +180,11 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
 - `ITargetHost.ResolveAtPose(chainId, casterId, origin, facing, currentTarget)`：与 `ResolveWithCoefficients` 复用同一条解析管线（来源 → 过滤 → 排序 → 截断 → 系数 → 空则回退），只把形状锚点与排序距离基准换成给定位姿
   （`ResolveAtPoint` 的朝向固定为 0，本方法朝向可指定）。逐 tick 多次采样，**不发布** `targeting.resolved`。默认接口成员退化为 `ResolveWithCoefficients`（忽略给定位姿），本类显式覆盖。
 - 复现/不变量：`tests/TargetHostResolveAtPoseTests.cs`（模板形态、位姿锚定与施法者自身位姿无关、矩形随朝向旋转、与 `ResolveWithCoefficients` 在自身位姿处一致、不发布事件）。
+
+## 判断记录（命中形状高度窗口与三维距离，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
+
+1. **数据**：四种形状（circle/cone/line/rect）都可选 `height`（正数、有限，世界单位）；`TargetChainDef.ShapeHeight` 为空表示竖直方向不设限（无限高的柱体）。非正数/非数值抛 `DataFieldException`（字段 `shape.height`），schema 同步声明范围。
+2. **两个选项，缺省都关**：`TargetingOptions.VerticalHit` 打开后，链声明了高度才过滤——候选脚下高度与锚点高度之差的绝对值 ≤ `height` 才保留（边缘含）；过滤发生在来源收集之后、过滤器之前，空间查询本身仍是平面的。`TargetingOptions.SpatialDistance` 打开后 `sort_by.distance` 与 `nearest_in_shape` 的"最近"按三维欧氏距离（`TargetContext.DistanceTo`）。两者都关时路径与改动之前逐位一致（不读高度）。
+3. **锚点高度**：普通解析取施法者当前脚下高度；`ResolveAtPoint`（地面坐标施法）取地面 0，不取施法者高度。`ResolveAtPose` 同普通解析（施法者高度）。
+4. **读口**：`IUnitAccess.GetHeightOffset`（默认接口成员，见 unit README）；既有测试假实现不必改。
+5. **已知局限**：施法射程检查仍是平面距离（射程由技能管线判定，竖直方向不参与）；锚点恒在施法者脚下，形状没有向上/向下偏置；`GridSnap` 吸附仍只按平面格子中心判定；没有 `shape` 的链没有高度窗口（`shape.height` 是形状的属性）。测试：`tests/TargetHostVerticalTests.cs`（窗口复现与施法者高度跟随、`ResolveAtPoint` 锚点、缺省关闭与链未声明高度的不变量、三维距离最近与排序、`shape.height` 解析与非法值）。

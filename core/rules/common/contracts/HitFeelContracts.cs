@@ -114,6 +114,18 @@ namespace Core.Rules.Common
     }
 
     /// <summary>
+    /// 击飞提交口（手感设计/03 第 4 节、06 第 10 节勘误 9）：受击裁决在 <c>knockback</c>/<c>knockdown</c> 反应上按攻击方
+    /// <c>launch_height</c>（标定后世界单位，已含目标击退抗性与冲击等级倍率）算出顶点高度，由竖直运动服务把目标抛起
+    /// （<c>Core.Carriers.Unit.VerticalMotionHost</c> 实现本接口）。没有竖直轴的世界（平面）里没有实现方——受击裁决的 <c>Launch</c> 为空，
+    /// 击飞静默不发生（与击退口缺省为空同一惯例），行为与引入本接口之前逐位一致。
+    /// </summary>
+    public interface ILaunchSink
+    {
+        /// <summary>把单位抛起，使其升到脚下起再升高 <paramref name="apexHeightWorld"/>（世界单位，正数）的顶点后落回地面。</summary>
+        void BeginLaunch(Id unitId, double apexHeightWorld);
+    }
+
+    /// <summary>
     /// 硬直打断口（手感设计/03 第 4 节）：受击裁决落地一个硬直类反应时调用，实现方终止目标进行中的动作。
     /// 时间线动作的实现方发 <c>action.cancelled{reason: Stagger}</c> 与 <c>skill.cast_interrupted</c>；读条类（instant）
     /// 的实现方打断读条/引导。可注册多个实现，互不影响；没有进行中的动作时实现方静默。

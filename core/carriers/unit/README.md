@@ -711,3 +711,12 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 - 体积半径随运动档案走：全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
 - 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（边界停止期望由半径与步长算出、6 个随机种子的"从不重叠"不变量并断言确实发生过碰撞、冲刺高速不隧穿、冲刺穿过、滑开、追击、击退、死亡不阻挡）；实验室脚本 `feel_unit_block`（`lab/README.md` 判断记录 34）。
 - **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
+
+## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
+
+1. **只是加法、缺省关闭**：`MovementOptions.Vertical`（`VerticalAxisOptions`：`Gravity` 缺省 30 世界单位/秒²、`JumpHeight` 缺省 1.5、`AllowAirJump` 缺省假）为空时不装配，行为与引入之前逐位一致；非空时装配 `VerticalMotionHost`（实现 `IVerticalMotion` 与 `Core.Rules.Common.ILaunchSink`）并在 `MovementAndNavigation` 阶段紧随 `MovementTickHandler` 挂 `VerticalMotionTickHandler`；`CarriersAssembly.VerticalMotion` 暴露服务。
+2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度恒为 0（地面就是 0，没有斜坡与台阶）。
+3. **解析式积分**：每步按累计飞行时间代入 `h0 + v0·t − g·t²/2`（不做欧拉累加，帧长不均匀时没有积分漂移），`h ≤ 0` 落地、落地步写 0；每步按单位 Id 序数遍历，已销毁实体静默丢弃其飞行状态；离散步（回合制）不推进（竖直运动是连续时间模型的概念）。`LaunchToApex(h)` 的初速 = `sqrt(2·g·h)`，落地步数 = `ceil(2·v0/(g·dt))`（测试里按此公式算期望）。
+4. **二段跳**：`Jump` 在空中默认被拒绝（返回 false，调用方计数，不静默吞掉）；`AllowAirJump` 为真时从当前高度重新抛起（起点高度 = 当前高度，不叠加速度）。再次 `Launch` 同理。
+5. **读口**：`IUnitAccess.GetHeightOffset`（默认接口成员，恒 0；`WorldUnitAccess` 覆盖为读 `Unit.HeightOffset`，未知单位返回 0）。
+6. **已知局限**：不做空中控制（空中仍按普通移动处理，输入没有空中衰减）；不被地形阻挡竖直运动（没有天花板、斜坡、台阶）；没有空中攻击/空中受击的专属反应；击飞中再次击飞按"重新抛起"处理，不叠加速度；`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。

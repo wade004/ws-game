@@ -230,7 +230,7 @@ namespace Lab
             return builder.Build();
         }
 
-        /// <summary>内置四组：响应、移动、攻击、性能（06 第 3.1 节本期落地的四组），加条件组：换装解析（仅换装场景）。</summary>
+        /// <summary>内置四组：响应、移动、攻击、性能（06 第 3.1 节本期落地的四组），加条件组：换装解析（仅换装场景）、手感七组、空间语义（仅带竖直轴的格子/跳跃脚本/靶子声明了高度的运行）。</summary>
         public static MetricRegistry CreateDefault() =>
             new MetricRegistry()
                 .Register(new ResponseMetricGroup())
@@ -244,6 +244,7 @@ namespace Lab
                 .Register(new HitReactionMetricGroup())
                 .Register(new MotionMetricGroup())
                 .Register(new SpatialHitMetricGroup())
-                .Register(new PresentationTimelineMetricGroup());
+                .Register(new PresentationTimelineMetricGroup())
+                .Register(new SpaceMetricGroup());
     }
 }

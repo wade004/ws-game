@@ -69,6 +69,7 @@ namespace Core.Foundation.Feel
         public const string HitStunMs = "hit_stun_ms";
         public const string StaggerPower = "stagger_power";
         public const string KnockbackDistance = "knockback_distance";
+        public const string LaunchHeight = "launch_height";
         public const string DownedMs = "downed_ms";
         public const string ReactionCap = "reaction_cap";
         public const string KillHitstopScale = "kill_hitstop_scale";
@@ -262,6 +263,9 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.HitStunMs, Re, J, Ms, C, 0, 3000, "硬直时长（受击方体型为主）"),
                 Num(FeelFieldNames.StaggerPower, Re, J, FeelUnit.None, W, 0, 1000, "硬直强度：与目标韧性比较，不高于韧性时只播受击动画不打断"),
                 Num(FeelFieldNames.KnockbackDistance, Re, J, BodyH, W, 0, 5, "击退距离"),
+                Num(FeelFieldNames.LaunchHeight, Re, J, BodyH, W, 0, 10,
+                    "击飞高度：knockback/knockdown 反应把目标抛起的顶点高度（目标脚下再升高多少）；只在世界有竖直轴（体积空间 / 横版二维能力包）时生效，" +
+                    "平面世界忽略；缺省（无值）表示不击飞", optional: true),
                 Num(FeelFieldNames.DownedMs, Re, J, Ms, C, 0, 10000, "倒地时长"),
                 Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
                 Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),

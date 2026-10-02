@@ -89,6 +89,12 @@ namespace Core.Carriers.Assembly
         /// <c>Core.Rules.Assembly.RulesAssembly.CombatOptions</c> 判断记录）。</summary>
         public MovementOptions MovementOptions { get; }
 
+        /// <summary>
+        /// 竖直运动服务（跳跃、击飞，驱动 <c>Unit.HeightOffset</c>）；<see cref="MovementOptions.Vertical"/> 为 <c>null</c>（缺省，
+        /// 平面世界）时为 <c>null</c>。见 <see cref="VerticalMotionHost"/>。
+        /// </summary>
+        public IVerticalMotion? VerticalMotion { get; private set; }
+
         /// <summary>缺口 4：技能槽位绑定宿主（见 <see cref="ISkillBindingHost"/>）。</summary>
         public SkillBindingHost SkillBindings { get; }
 
@@ -585,6 +591,15 @@ namespace Core.Carriers.Assembly
                 Units, Rules.Stats, Rules.Skill.AuraQuery, Movement, bus, navigation, resolvedMovementOptions,
                 spatial: spatial);
             world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, movementTickHandler);
+
+            // 竖直轴（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）：只在 MovementOptions.Vertical 非 null 时装配，
+            // 紧随 MovementTickHandler 之后注册到同一阶段（先水平位移、再竖直积分）。缺省 null 不装配、不注册，行为逐位不变。
+            if (resolvedMovementOptions.Vertical != null)
+            {
+                var verticalHost = new VerticalMotionHost(world, resolvedMovementOptions.Vertical);
+                VerticalMotion = verticalHost;
+                world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, new VerticalMotionTickHandler(verticalHost));
+            }
 
             // 投射物飞行推进：紧随 MovementTickHandler 之后注册到同一阶段，见
             // ProjectileTickHandler 判断记录"挂载阶段：移动步之后、战斗结算步之前"。

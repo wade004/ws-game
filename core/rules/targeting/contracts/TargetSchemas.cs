@@ -24,7 +24,7 @@ namespace Core.Rules.Targeting
         /// <c>GetNumber</c> 对缺失字段一律返回 0（不抛异常），四个数值子字段均登记为非必填。</summary>
         public static readonly FieldSchema ShapeSchema = new FieldSchema(
             "shape", FieldKind.Object, required: false, variants: BuildShapeVariants(),
-            description: "{kind: circle|cone|line|rect, radius?, angle?, length?, width?}；" +
+            description: "{kind: circle|cone|line|rect, radius?, angle?, length?, width?, height?}；" +
                 "origin/direction/rotation 不在数据里声明，由 TargetHost 在解析时按施法者当前坐标/朝向" +
                 "重新锚定（见 schema/README.md 判断记录）。");
 
@@ -35,15 +35,19 @@ namespace Core.Rules.Targeting
                 .WithUnit(FieldUnit.Radian);
             var length = new FieldSchema("length", FieldKind.Number, required: false, description: "缺省 0");
             var width = new FieldSchema("width", FieldKind.Number, required: false, description: "缺省 0");
+            var height = new FieldSchema("height", FieldKind.Number, required: false,
+                description: "形状的竖直范围（世界单位，必须为正）：命中判定的高度窗口半宽，候选与施法者脚下高度之差不超过它才算在形状内；" +
+                    "只在 TargetingOptions.VerticalHit 开启时生效（体积空间 / 横版二维能力包），平面世界忽略；缺省不设限")
+                .WithRange(FieldRange.Range(min: 0, minExclusive: true));
 
             var cases = new Dictionary<string, IReadOnlyList<FieldSchema>>(System.StringComparer.Ordinal)
             {
-                ["circle"] = new[] { radius },
-                ["cone"] = new[] { angle, radius },
-                ["line"] = new[] { length, width },
+                ["circle"] = new[] { radius, height },
+                ["cone"] = new[] { angle, radius, height },
+                ["line"] = new[] { length, width, height },
                 // 判断记录：rect 复用 line 的 length/width 命名（换算成 halfExtents，见
                 // TargetChainDef.ParseShape 该分支注释），不是独立字段集。
-                ["rect"] = new[] { length, width },
+                ["rect"] = new[] { length, width, height },
             };
             return new VariantSchema("kind", cases);
         }

@@ -75,6 +75,12 @@ namespace Lab
     /// </summary>
     public static class LabHost
     {
+        /// <summary>
+        /// 跳跃输入动作（脚本 <c>press</c> 事件的动作 id）。宿主在该动作的按下沿向竖直运动服务提交跳跃（等价引擎侧宿主"跳跃键 → 跳跃请求"），
+        /// 不经输入映射与输入缓冲（跳跃不是技能，不进缓冲槽，不污染输入缓冲度量）。世界没有竖直轴（<c>plane</c>）时请求被拒绝并计数，不静默吞掉。
+        /// </summary>
+        public const string JumpAction = "input.action.lab_jump";
+
         /// <summary>桩适配层在本宿主上提供的能力集合（空：桩没有自由视角、体积扫掠等能力）。</summary>
         public static IReadOnlyCollection<string> AvailableCapabilities { get; } = Array.Empty<string>();
 
@@ -117,7 +123,8 @@ namespace Lab
 
         private static HeadlessWorldOptions CreateWorldOptions(
             LabHostOptions options, Id mapId, Vec2 start, double stepSeconds, StubNavigation2D? navigation,
-            CarriersFeelOptions? feelOptions = null)
+            CarriersFeelOptions? feelOptions = null, MovementOptions? movementOptions = null,
+            Core.Rules.Targeting.TargetingOptions? targetingOptions = null)
         {
             return new HeadlessWorldOptions
             {
@@ -134,6 +141,8 @@ namespace Lab
                 EnableDiscreteTimeModel = true,
                 Navigation = navigation,
                 FeelOptions = feelOptions,
+                MovementOptions = movementOptions,
+                TargetingOptions = targetingOptions,
             };
         }
 
@@ -190,6 +199,38 @@ namespace Lab
                 ? new CarriersFeelOptions { CalibrationId = calibrationId, LocalMoveActionName = options.MoveAction }
                 : null;
 
+            // 空间语义（06 第 10 节勘误 9）：plane 不装配任何空间能力（行为与引入前逐位一致）；side_2d/volume 装配竖直轴（重力下的跳跃/击飞/落地）
+            // 并打开命中形状的高度窗口；volume 另外把"最近"改成含高度差的三维距离；side_2d 额外锁深度（输入的竖直分量不是深度）。
+            var spaceModel = variant.SpaceOverride ?? cell.Space;
+            var vertical = LabScenario.IsVerticalSpace(spaceModel);
+            var depthLocked = string.Equals(spaceModel, "side_2d", StringComparison.Ordinal);
+            MovementOptions? movementOptions = null;
+            Core.Rules.Targeting.TargetingOptions? targetingOptions = null;
+            var gravity = 0.0;
+            var jumpHeight = 0.0;
+            if (vertical)
+            {
+                var verticalOptions = new VerticalAxisOptions();
+                if (cell.Gravity.HasValue)
+                {
+                    verticalOptions.Gravity = cell.Gravity.Value;
+                }
+
+                if (cell.JumpHeight.HasValue)
+                {
+                    verticalOptions.JumpHeight = cell.JumpHeight.Value;
+                }
+
+                gravity = verticalOptions.Gravity;
+                jumpHeight = verticalOptions.JumpHeight;
+                movementOptions = new MovementOptions { Vertical = verticalOptions };
+                targetingOptions = new Core.Rules.Targeting.TargetingOptions
+                {
+                    VerticalHit = true,
+                    SpatialDistance = string.Equals(spaceModel, "volume", StringComparison.Ordinal),
+                };
+            }
+
             var rects = new List<Rect>(arena.Blocks.Count);
             foreach (var block in arena.Blocks)
             {
@@ -199,7 +240,8 @@ namespace Lab
             nav.SetBlocking(arena.MapId, rects);
 
             var dynamicBlocks = new List<KeyValuePair<Id, Rect>>();
-            var world = HeadlessWorldBuilder.Build(CreateWorldOptions(options, arena.MapId, meta.PlayerStart, step, nav, feelOptions));
+            var world = HeadlessWorldBuilder.Build(CreateWorldOptions(
+                options, arena.MapId, meta.PlayerStart, step, nav, feelOptions, movementOptions, targetingOptions));
             var playerId = world.Player.EntityId;
             var recording = new LabRecording(script, cell, step) { StartPosition = meta.PlayerStart };
 
@@ -235,6 +277,35 @@ namespace Lab
             var dummyUnits = new List<KeyValuePair<string, Id>>();
             var dummyByLabel = new Dictionary<string, Id>(StringComparer.Ordinal);
             var wanted = new HashSet<string>(meta.DummyGroups, StringComparer.Ordinal);
+
+            // 空间记录：格子带竖直轴、脚本有跳跃事件或本次出场的靶子声明了出生高度时才建（否则为 null，既有脚本的指纹不出现 space 组）。
+            var scriptHasJump = false;
+            foreach (var scripted in script.Events)
+            {
+                if (string.Equals(scripted.Action, JumpAction, StringComparison.Ordinal))
+                {
+                    scriptHasJump = true;
+                    break;
+                }
+            }
+
+            var dummiesHaveHeight = false;
+            foreach (var declared in dummySet.Entries)
+            {
+                if (declared.Height > 0.0 && wanted.Contains(declared.Group))
+                {
+                    dummiesHaveHeight = true;
+                    break;
+                }
+            }
+
+            SpaceRecording? space = null;
+            if (vertical || scriptHasJump || dummiesHaveHeight)
+            {
+                space = new SpaceRecording(spaceModel, vertical, gravity, jumpHeight, depthLocked);
+                recording.Space = space;
+            }
+
             foreach (var dummy in dummySet.Entries)
             {
                 if (!wanted.Contains(dummy.Group))
@@ -260,6 +331,20 @@ namespace Lab
                             {
                                 ai.UnregisterUnit(id);
                                 break;
+                            }
+                        }
+                    }
+
+                    if (space != null)
+                    {
+                        space.DummyHeights[label] = new List<double>();
+                        if (dummy.Height > 0.0)
+                        {
+                            space.DeclaredDummyHeights.Add(new KeyValuePair<string, double>(label, dummy.Height));
+                            if (vertical && world.World.GetEntity(id) is Unit floating)
+                            {
+                                // 飘浮怪/悬空靶：静态出生高度，不受重力（只有被抛起的单位才进入竖直积分）。平面世界忽略。
+                                floating.HeightOffset = dummy.Height;
                             }
                         }
                     }
@@ -401,6 +486,21 @@ namespace Lab
 
             void ApplyScriptEvent(ScriptEvent e)
             {
+                if (string.Equals(e.Action, JumpAction, StringComparison.Ordinal))
+                {
+                    // 跳跃：宿主级请求，不经输入映射/缓冲（见 JumpAction）。只有按下沿算请求；抬起忽略。
+                    if (e.Kind == ScriptEventKind.Press)
+                    {
+                        space!.JumpRequests++;
+                        if (vertical && world.Gameplay.Carriers.VerticalMotion!.Jump(playerId))
+                        {
+                            space.JumpStartTicks.Add(tick);
+                        }
+                    }
+
+                    return;
+                }
+
                 recording.InjectedInputs.Add(e);
                 if (e.Kind == ScriptEventKind.Equip || e.Kind == ScriptEventKind.Unequip)
                 {
@@ -446,7 +546,13 @@ namespace Lab
 
                         var stick = first.Substring("pad_stick:".Length);
                         input.SetAxis(0, stick + "x", e.Value.X);
-                        input.SetAxis(0, stick + "y", e.Value.Y);
+                        // 横版二维：控制空间把摇杆竖直分量留给"向上/向下"，不是深度——深度轴被锁死，丢掉该分量并计数（不静默）。
+                        if (depthLocked && Math.Abs(e.Value.Y) > 0.0)
+                        {
+                            space!.DepthInputsDropped++;
+                        }
+
+                        input.SetAxis(0, stick + "y", depthLocked ? 0.0 : e.Value.Y);
                         break;
                     case ScriptEventKind.Press:
                         input.Press(KeyOf(first, e.Action));
@@ -514,6 +620,16 @@ namespace Lab
                         {
                             world.Spatial.UpdatePosition(dummyUnit.Value, moved.Position);
                         }
+                    }
+                }
+
+                if (space != null)
+                {
+                    space.PlayerHeights.Add(world.Player.HeightOffset);
+                    space.PlayerDepths.Add(world.Player.Position.Y);
+                    foreach (var pair in dummyUnits)
+                    {
+                        space.DummyHeights[pair.Key].Add(world.World.GetEntity(pair.Value) is Unit sampled ? sampled.HeightOffset : 0.0);
                     }
                 }
 

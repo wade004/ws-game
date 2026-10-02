@@ -64,6 +64,13 @@ namespace Core.Rules.Targeting
         /// </summary>
         public EngineShape? Shape { get; }
 
+        /// <summary>
+        /// 形状的竖直范围（<c>shape.height</c>，世界单位，必须为正）：命中判定的高度窗口半宽——候选脚下高度与锚点（施法者）脚下高度
+        /// 之差的绝对值不超过它才算在形状内。<b>只在 <see cref="TargetingOptions.VerticalHit"/> 开启时生效</b>（体积空间 / 横版二维能力包，
+        /// 手感设计/06 第 10 节勘误 9）；平面世界里恒被忽略，既有链与既有行为逐位不变。链未声明时为 <c>null</c>，竖直方向不设限（无限高的柱体）。
+        /// </summary>
+        public double? ShapeHeight { get; }
+
         /// <summary>Expr 文本或内置过滤简写组成的列表，按声明顺序全部通过（AND）才保留候选
         /// （判断记录见 targeting/README.md：与 <c>SkillFilter.Matches</c> 三维度取 OR 不同——
         /// 这里的每一项都是调用方显式列出的独立条件，语义上是"同时满足"而不是"任一即可"）。</summary>
@@ -91,6 +98,7 @@ namespace Core.Rules.Targeting
             Id = record.GetId("id");
             Source = record.GetString("source");
             Shape = record.TryGetObject("shape", out var shapeObj) ? (EngineShape?)ParseShape(record, shapeObj) : null;
+            ShapeHeight = Shape.HasValue ? ParseShapeHeight(record, shapeObj) : null;
             Filters = record.TryGetArray("filters", out var filtersArr) ? ParseFilters(record, filtersArr) : Array.Empty<string>();
             SortBy = record.TryGetObject("sort_by", out var sortObj) ? (TargetSortSpec?)ParseSortBy(record, sortObj) : null;
 
@@ -169,6 +177,21 @@ namespace Core.Rules.Targeting
                     throw new DataFieldException(record.Table.Name, record.Key, "shape.kind",
                         $"非法取值 \"{kindStr.Value}\"，只允许 circle|cone|line|rect");
             }
+        }
+
+        private static double? ParseShapeHeight(DataRecord record, JsonObject obj)
+        {
+            if (!obj.TryGetValue("height", out var value))
+            {
+                return null;
+            }
+
+            if (!(value is JsonNumber number) || !(number.Value > 0.0) || double.IsInfinity(number.Value))
+            {
+                throw new DataFieldException(record.Table.Name, record.Key, "shape.height", "必须为正的有限数");
+            }
+
+            return number.Value;
         }
 
         private static IReadOnlyList<string> ParseFilters(DataRecord record, JsonArray arr)

@@ -259,3 +259,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 4. **换装链的单位状态口径**：`EquipmentFeelChain` 订阅 `entity.destroyed`（忘掉对账状态）与 `entity.created`（对账一次，没有武器的未跟踪单位不建记录也不发事件）。与表现侧 `EquipmentPoseBridge` 在销毁时清理姿势选择器配对：同 id 重建的单位（如换图重建的玩家）重新对账并重发 `feel.weapon_changed`，武器族补回；`save.loaded` 对账抽成公开的 `ReconcileAll(reason)`，路径不变。
 
 已知限制（逐条交代）：地面施法请求不携带宽限条件；排队中的施法丢失宽限上下文；框架不提供基于 Expr 的 `IGraceConditionEvaluator`，游戏必须经 `CarriersFeelOptions.GraceEvaluator` 提供，且非本地行动者的第一次按键可能早于采样；标定变化需重启（热加载只换档案，`FeelReloadResult.CalibrationChanged` 为真时提示）；热加载依赖宿主发布 `data.load_completed`。
+
+## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
+
+只做加法：`CarriersAssembly` 在 `MovementOptions.Vertical` 非空时创建 `VerticalMotionHost`、挂 `VerticalMotionTickHandler`（紧随 `MovementTickHandler`，同在 `MovementAndNavigation` 阶段）并暴露只读属性 `VerticalMotion`；`CarriersFeelAssembly` 在打通受击裁决与运动层之后，`VerticalMotion` 是 `ILaunchSink` 时把它接到 `HitFeelHost.Launch`（没有竖直轴时不接，档案里的 `launch_height` 被忽略）。`HeadlessWorldBuilder` 新增 `MovementOptions`/`TargetingOptions` 透传属性（缺省 null，原路径不变）。判断记录与已知局限见 unit README、targeting README、combat README 的 M3-E1 节。

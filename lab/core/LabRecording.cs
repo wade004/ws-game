@@ -174,6 +174,9 @@ namespace Lab
         /// <summary>手感场景的运行期记录（脚本 meta 的 <c>feel</c> 为真时才有，否则为 null）。</summary>
         public FeelRecording? Feel { get; set; }
 
+        /// <summary>空间语义的运行期记录（格子带竖直轴、脚本含跳跃事件或靶子声明了出生高度时才有，否则为 null）；见 <see cref="SpaceRecording"/>。</summary>
+        public SpaceRecording? Space { get; set; }
+
         /// <summary>出场靶子清单（出场标签 → 初始位置），按出场顺序。</summary>
         public List<KeyValuePair<string, Vec2>> Dummies { get; } = new List<KeyValuePair<string, Vec2>>();
 

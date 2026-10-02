@@ -37,6 +37,11 @@ namespace Tests.Lab
             Assert.Equal(scripts.Count * 4, results.Count(r => r.Invariant == LabInvariants.PlanarCombos));
             Assert.Equal(scripts.Count * 3, results.Count(r => r.Invariant == LabInvariants.ActionStrippedEqualsTargeted));
             Assert.Equal(feelCount * 3, results.Count(r => r.Invariant == LabInvariants.FeelAssemblyIsTransparentUnderClassic));
+            // 空间语义不变量只对有竖直轴格子的脚本（space.*）出现：每个竖直格子一次"按平面运行"，没有空间刺激的脚本再多一次"除 space 组外一致"
+            // （逐脚本明细见 SpaceSemanticsTests）；既有脚本一条也没有。
+            Assert.Equal(
+                LabTestSupport.SpaceScripts().Count * 4 + 4,
+                results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
         }
 
         [Fact]

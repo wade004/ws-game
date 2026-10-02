@@ -95,5 +95,13 @@ namespace Core.Rules.Common
         /// </para>
         /// </summary>
         SourceKind GetSourceKind(Id unitId) => SourceKind.Unknown;
+
+        /// <summary>
+        /// 脚下高度（<c>Unit.HeightOffset</c>，世界单位，地面为 0）。体积空间 / 横版二维能力包的命中形状高度判定与三维距离
+        /// 读取它（<c>TargetingOptions.VerticalHit</c>/<c>SpatialDistance</c>）；平面世界里恒为 0。
+        /// 用 C#8 默认接口方法（恒返回 0）而不是必须实现的抽象成员：同 <see cref="GetMapId"/> 惯例，既有测试假实现不必跟着改，
+        /// 行为等价于引入之前（没人读它）。真正接入的实现（<c>core/carriers/unit.WorldUnitAccess</c>）override 返回真实值。
+        /// </summary>
+        double GetHeightOffset(Id unitId) => 0.0;
     }
 }

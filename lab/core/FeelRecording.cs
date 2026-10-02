@@ -164,6 +164,13 @@ namespace Lab
 
         public bool FeelOff { get; set; }
 
+        /// <summary>
+        /// 覆盖格子声明的空间模型（<c>plane</c>/<c>side_2d</c>/<c>volume</c>）。跨格子不变量用它证明"空间格子与平面格子的差异只来自空间语义"：
+        /// 把 <c>side_2d</c>/<c>volume</c> 格子按 <c>plane</c> 运行（不装配竖直轴、不锁深度、不开命中高度窗口）后，逻辑组必须等于同结算模式的平面格子。
+        /// 不影响数据集（<see cref="DatasetKey"/> 不含它）。
+        /// </summary>
+        public string? SpaceOverride { get; set; }
+
         /// <summary>数据集缓存键的一部分（只含影响数据集内容的字段）。</summary>
         public string DatasetKey(LabScenario? cell)
         {

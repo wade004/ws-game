@@ -66,6 +66,21 @@ namespace Core.Rules.Targeting
         /// <c>Core.Gameplay.Assembly.GameplayAssembly</c> 按战斗时间模型回填（惯例同
         /// <c>Core.Carriers.Unit.MovementOptions.GridSnapCellSize</c> 判断记录）。</summary>
         public double? GridSnapCellSize { get; set; }
+
+        /// <summary>
+        /// 命中形状的高度判定（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）：为 <c>true</c> 时，链声明了
+        /// <see cref="TargetChainDef.ShapeHeight"/>（<c>shape.height</c>）则候选必须同时满足"脚下高度与施法者脚下高度之差的绝对值
+        /// 不超过该高度"才保留（形状按竖直方向拉成一个柱体，空间查询本身仍是平面的，过滤发生在来源收集之后）；未声明高度的链竖直方向不设限。
+        /// 默认 <c>false</c>：高度被忽略，行为与引入本字段之前逐位一致（平面世界）。
+        /// </summary>
+        public bool VerticalHit { get; set; }
+
+        /// <summary>
+        /// 距离是否含高度差：为 <c>true</c> 时 <c>sort_by.distance</c> 与 <c>nearest_in_shape</c> 的"最近"按三维欧氏距离判定
+        /// （体积空间）；默认 <c>false</c>，只算平面距离（平面世界与横版二维——横版里深度轴不存在）。
+        /// 不影响施法射程检查（射程由技能管线判定，仍是平面距离，见 targeting README 已知局限）。
+        /// </summary>
+        public bool SpatialDistance { get; set; }
     }
 
     /// <summary>
@@ -233,7 +248,7 @@ namespace Core.Rules.Targeting
         /// 避免消费方误将其与既有 <c>Resolve</c> 调用一次一事件的既有惯例混淆。
         /// </summary>
         public IReadOnlyList<Id> ResolveAtPoint(Id chainId, Id casterId, Vec2 point) =>
-            ProjectTargets(ResolveChainWithCoefficients(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0));
+            ProjectTargets(ResolveChainWithCoefficients(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0, originHeight: 0.0));
 
         /// <summary>
         /// T-N3-8 判断记录：本方法取代改动前的 <c>ResolveChain</c>，是 <see cref="Resolve(Id, Id, Id?)"/>/
@@ -244,7 +259,7 @@ namespace Core.Rules.Targeting
         /// 的候选收集/过滤/排序逻辑逐字节共享，不会出现"新增系数入口另起一套排序实现"的分歧风险。
         /// </summary>
         private TargetResolution ResolveChainWithCoefficients(
-            Id chainId, Id casterId, Id? currentTarget, Vec2 origin, double facing, int depth)
+            Id chainId, Id casterId, Id? currentTarget, Vec2 origin, double facing, int depth, double? originHeight = null)
         {
             if (depth > _options.MaxFallbackDepth)
             {
@@ -263,18 +278,27 @@ namespace Core.Rules.Targeting
             // 保持 null，BuiltinTargetStrategies 据此回退到未吸附的既有查询路径（见
             // TargetingOptions.IsDiscreteStep/GridSnapCellSize 判断记录）。
             var effectiveCellSize = (_options.IsDiscreteStep?.Invoke() ?? false) ? _options.GridSnapCellSize : null;
+            // 体积空间 / 横版二维能力包：锚点脚下高度（缺省取施法者当前高度；地面坐标施法由调用方传 0）。两个开关都关（缺省）时
+            // 不读高度，平面世界路径与改动之前逐位一致。
+            var heightAware = _options.VerticalHit || _options.SpatialDistance;
+            var anchorHeight = heightAware ? originHeight ?? _units.GetHeightOffset(casterId) : 0.0;
             var ctx = new TargetContext(
                 casterId, currentTarget, shape, origin, _units, _spatial, _factions, _powers, _threat,
                 gridSnapPolicy: effectiveCellSize.HasValue ? _options.GridSnapPolicy : null,
-                gridSnapCellSize: effectiveCellSize);
+                gridSnapCellSize: effectiveCellSize)
+            {
+                OriginHeight = anchorHeight,
+                SpatialDistance = _options.SpatialDistance,
+            };
 
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();
+            candidates = ApplyVerticalWindow(chain, anchorHeight, candidates);
             candidates = ApplyFilters(chain, casterId, candidates);
-            candidates = ApplySort(chain, casterId, origin, candidates);
+            candidates = ApplySort(chain, casterId, origin, candidates, anchorHeight);
 
             if (candidates.Count == 0 && chain.Fallback.HasValue)
             {
-                return ResolveChainWithCoefficients(chain.Fallback.Value, casterId, currentTarget, origin, facing, depth + 1);
+                return ResolveChainWithCoefficients(chain.Fallback.Value, casterId, currentTarget, origin, facing, depth + 1, originHeight);
             }
 
             return ApplyOverflowPolicy(candidates, chain.MaxTargets, chain.OverflowPolicy);
@@ -369,7 +393,32 @@ namespace Core.Rules.Targeting
             return ExprEvaluator.EvaluateBool(node, host, diagnostics);
         }
 
-        private IReadOnlyList<Id> ApplySort(TargetChainDef chain, Id casterId, Vec2 origin, IReadOnlyList<Id> candidates)
+        /// <summary>
+        /// 命中形状的高度判定（见 <see cref="TargetingOptions.VerticalHit"/>）：链声明了 <c>shape.height</c> 时，只保留脚下高度与锚点高度之差
+        /// 不超过该高度的候选；施法者自己（高度差恒 0）不受影响。<c>VerticalHit</c> 关闭或链未声明高度时原样返回。
+        /// </summary>
+        private IReadOnlyList<Id> ApplyVerticalWindow(TargetChainDef chain, double anchorHeight, IReadOnlyList<Id> candidates)
+        {
+            if (!_options.VerticalHit || !chain.ShapeHeight.HasValue || candidates.Count == 0)
+            {
+                return candidates;
+            }
+
+            var limit = chain.ShapeHeight.Value;
+            var kept = new List<Id>(candidates.Count);
+            foreach (var id in candidates)
+            {
+                if (Math.Abs(_units.GetHeightOffset(id) - anchorHeight) <= limit)
+                {
+                    kept.Add(id);
+                }
+            }
+
+            return kept;
+        }
+
+        private IReadOnlyList<Id> ApplySort(
+            TargetChainDef chain, Id casterId, Vec2 origin, IReadOnlyList<Id> candidates, double anchorHeight = 0.0)
         {
             if (chain.SortBy == null || candidates.Count <= 1)
             {
@@ -378,7 +427,7 @@ namespace Core.Rules.Targeting
 
             var spec = chain.SortBy.Value;
             var keyed = candidates
-                .Select(id => (Id: id, Key: SortKeyValue(spec.Key, casterId, origin, id)))
+                .Select(id => (Id: id, Key: SortKeyValue(spec.Key, casterId, origin, id, anchorHeight)))
                 .ToList();
 
             var ordered = spec.Direction == SortDirection.Asc
@@ -389,12 +438,21 @@ namespace Core.Rules.Targeting
             return ordered.ThenBy(x => x.Id).Select(x => x.Id).ToList();
         }
 
-        private double SortKeyValue(TargetSortKey key, Id casterId, Vec2 origin, Id candidateId)
+        private double SortKeyValue(TargetSortKey key, Id casterId, Vec2 origin, Id candidateId, double anchorHeight)
         {
             switch (key)
             {
                 case TargetSortKey.Distance:
-                    return Vec2.Distance(origin, _units.GetPosition(candidateId));
+                {
+                    var planar = Vec2.Distance(origin, _units.GetPosition(candidateId));
+                    if (!_options.SpatialDistance)
+                    {
+                        return planar;
+                    }
+
+                    var dh = _units.GetHeightOffset(candidateId) - anchorHeight;
+                    return Math.Sqrt(planar * planar + dh * dh);
+                }
 
                 case TargetSortKey.HpPct:
                 {

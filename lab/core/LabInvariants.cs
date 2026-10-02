@@ -41,6 +41,10 @@ namespace Lab
     /// 逻辑组与同组合的目标选择式格子逐字节一致——证明"动作式 = 目标选择式 + timeline + 手感预设"，没有别的差别。</item>
     /// <item><see cref="FeelAssemblyIsTransparentUnderClassic"/>：目标选择式格子（经典预设、无 timeline）下，手感装配开启与旧路径（不装配）
     /// 在世界结局度量（移动、命中结算）上一致——证明手感装配在经典预设下是透明的。</item>
+    /// <item><see cref="SpaceSemanticsOnly"/>：带竖直轴的空间格子（<c>side_2d</c>/<c>volume</c>）与同结算模式的平面格子之间，逻辑组的差异<b>只来自空间语义</b>——
+    /// ① 把空间格子按 <c>plane</c> 运行（变体 <see cref="LabRunVariant.SpaceOverride"/>：不装配竖直轴、不锁深度、不开命中高度窗口与三维距离）后，
+    /// 逻辑组与平面格子逐字节一致；② 一次运行里空间语义从未被触发（玩家与靶子全程在地面、没有声明高度、没有丢弃深度输入）时，
+    /// 空间格子除 <c>space</c> 组外的逻辑组与平面格子逐字节一致。</item>
     /// </list>
     /// 逻辑组 = 度量类别为 <see cref="MetricClass.Logic"/> 的全部度量（按注册表声明）；实时类（墙钟/分配）与表现类不参与。
     /// 运行方式：<c>feellab invariants</c>（见 <c>toolchain/feellab</c>）或测试 <c>Tests.Lab.CrossCellInvariantTests</c>。
@@ -52,6 +56,8 @@ namespace Lab
         public const string ActionStrippedEqualsTargeted = "action_stripped_equals_targeted";
 
         public const string FeelAssemblyIsTransparentUnderClassic = "feel_assembly_transparent_under_classic";
+
+        public const string SpaceSemanticsOnly = "space_semantics_only";
 
         private static readonly string[] Combos = { "2d", "2_5d", "3d" };
 
@@ -79,6 +85,8 @@ namespace Lab
                 {
                     results.AddRange(CheckFeelTransparent(runner, script));
                 }
+
+                results.AddRange(CheckSpaceSemantics(runner, script));
             }
 
             return results;
@@ -145,12 +153,68 @@ namespace Lab
             return results;
         }
 
+        /// <summary>
+        /// 空间语义不变量：对脚本适用的每个带竖直轴的格子，与同结算模式的平面格子（<c>2d_&lt;结算&gt;</c>）比较（口径见 <see cref="SpaceSemanticsOnly"/>）。
+        /// 脚本没有适用的竖直轴格子（既有脚本）时返回空。
+        /// </summary>
+        public static List<InvariantResult> CheckSpaceSemantics(LabRunner runner, InputScript script)
+        {
+            var results = new List<InvariantResult>();
+            foreach (var cell in runner.ApplicableCells(script))
+            {
+                if (!cell.HasVerticalAxis)
+                {
+                    continue;
+                }
+
+                var planarName = "2d_" + cell.Settlement;
+                var planar = runner.Run(script, planarName);
+                var asPlane = runner.Run(script, cell.Cell, new LabRunVariant { SpaceOverride = "plane" });
+                results.Add(new InvariantResult(
+                    SpaceSemanticsOnly, script.Meta.ScriptId, cell.Cell + "[space=plane] == " + planarName,
+                    DiffLogic(runner.Registry, planar, asPlane, null)));
+
+                var actual = runner.Run(script, cell.Cell);
+                if (!SpaceWasExercised(actual))
+                {
+                    results.Add(new InvariantResult(
+                        SpaceSemanticsOnly, script.Meta.ScriptId, cell.Cell + " == " + planarName + " (no space stimulus, except space group)",
+                        DiffLogic(runner.Registry, planar, actual, null, "space")));
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>一次运行里空间语义是否被触发过：有人离过地、声明过靶子高度、起过跳或丢过深度输入。没有 space 组（没有任何空间相关记录）算未触发。</summary>
+        public static bool SpaceWasExercised(Fingerprint fingerprint)
+        {
+            if (!fingerprint.Groups.TryGetValue("space", out var group) || !(group is JsonObject space))
+            {
+                return false;
+            }
+
+            double Number(string name) => space.TryGetValue(name, out var v) && v is JsonNumber n ? n.Value : 0.0;
+            string Text(string name) => space.TryGetValue(name, out var v) && v is JsonString t ? t.Value : string.Empty;
+            return Number("player_apex") > 0.0 || Number("jumps_started") > 0.0 || Number("depth_inputs_dropped") > 0.0
+                || Number("max_depth_drift") > 0.0 || Text("declared_dummy_heights").Length > 0 || Text("dummy_apexes").Length > 0;
+        }
+
         /// <summary>两份指纹的逻辑类度量逐项比较（<paramref name="only"/> 非空时只看其中列出的 <c>组.度量</c>）；返回不一致项。</summary>
-        public static List<string> DiffLogic(MetricRegistry registry, Fingerprint left, Fingerprint right, ISet<string>? only)
+        public static List<string> DiffLogic(MetricRegistry registry, Fingerprint left, Fingerprint right, ISet<string>? only) =>
+            DiffLogic(registry, left, right, only, null);
+
+        /// <summary>同上，另可整组排除（<paramref name="excludeGroup"/>：该组两侧都不比较，包括"一侧没有该组"）。</summary>
+        public static List<string> DiffLogic(MetricRegistry registry, Fingerprint left, Fingerprint right, ISet<string>? only, string? excludeGroup)
         {
             var differences = new List<string>();
             foreach (var group in registry.Groups)
             {
+                if (excludeGroup != null && string.Equals(group.Name, excludeGroup, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 var leftGroup = left.Groups.TryGetValue(group.Name, out var lg) ? lg as JsonObject : null;
                 var rightGroup = right.Groups.TryGetValue(group.Name, out var rg) ? rg as JsonObject : null;
                 if ((leftGroup == null) != (rightGroup == null))

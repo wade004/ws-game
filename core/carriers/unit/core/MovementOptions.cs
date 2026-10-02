@@ -321,5 +321,12 @@ namespace Core.Carriers.Unit
         /// 游戏级口味配置（设计文档只规定曲线形态，没有给时长字段）。
         /// </summary>
         public double KnockbackDurationSeconds { get; set; } = 0.2;
+
+        /// <summary>
+        /// 竖直轴（体积空间 / 横版二维能力包，手感设计/06 第 10 节勘误 9）：非 <c>null</c> 时装配期额外挂载
+        /// <see cref="VerticalMotionHost"/>（重力下的跳跃与击飞，驱动 <see cref="Unit.HeightOffset"/>）并登记其 tick 处理器；
+        /// 默认 <c>null</c> = 世界没有竖直运动轴，行为与本属性引入之前逐位一致。
+        /// </summary>
+        public VerticalAxisOptions? Vertical { get; set; }
     }
 }

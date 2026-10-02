@@ -121,7 +121,7 @@ namespace Core.Rules.Targeting
                 var shape = ctx.Shape!.Value;
                 var raw = QueryShape(ctx, shape, ExcludeTriggerOnly);
                 return raw
-                    .Select(id => (Id: id, Dist: Vec2.Distance(ctx.Origin, ctx.Units.GetPosition(id))))
+                    .Select(id => (Id: id, Dist: ctx.DistanceTo(id)))
                     .OrderBy(x => x.Dist)
                     .ThenBy(x => x.Id)
                     .Select(x => x.Id)

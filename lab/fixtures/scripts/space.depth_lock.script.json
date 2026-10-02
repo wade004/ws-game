@@ -1,0 +1,64 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "space.depth_lock",
+    "scriptVersion": 1,
+    "description": "空间语义·深度锁：玩家向 +x 走的同时带竖直轴分量（先 +y 再 -y）。横版二维把竖直分量丢掉并计数（深度不动）；平面与体积保留它，玩家 y 偏移出生点。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space",
+    "learnSkills": [],
+    "skillSlots": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.6,
+        "y": 0.8
+      }
+    },
+    {
+      "tick": 30,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0.6,
+        "y": -0.8
+      }
+    },
+    {
+      "tick": 60,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

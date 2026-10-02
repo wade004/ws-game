@@ -65,8 +65,16 @@ namespace Tests.Lab
         /// <summary>旧标准脚本（十个，不开手感装配）：既有基线与既有测试的口径。</summary>
         public static List<InputScript> StandardScripts() => AllScripts().FindAll(s => !s.Meta.Feel);
 
-        /// <summary>手感场景脚本（<c>meta.feel</c> 为真，格式版本 3）。</summary>
-        public static List<InputScript> FeelScripts() => AllScripts().FindAll(s => s.Meta.Feel);
+        /// <summary>空间语义脚本的 id 前缀（手感设计/06 第 10 节勘误 9）：这些脚本除六个平面格子外还适用四个空间格子，由 <c>SpaceSemanticsTests</c> 专门验收。</summary>
+        public const string SpaceScriptPrefix = "space.";
+
+        /// <summary>手感场景脚本（<c>meta.feel</c> 为真，格式版本 3），不含空间语义脚本（它们的格子集合是十个，见 <see cref="SpaceScripts"/>）。</summary>
+        public static List<InputScript> FeelScripts() =>
+            AllScripts().FindAll(s => s.Meta.Feel && !s.Meta.ScriptId.StartsWith(SpaceScriptPrefix, StringComparison.Ordinal));
+
+        /// <summary>空间语义脚本（<c>space.*</c>，手感场景脚本的一支，适用六个平面格子 + 四个空间格子）。</summary>
+        public static List<InputScript> SpaceScripts() =>
+            AllScripts().FindAll(s => s.Meta.ScriptId.StartsWith(SpaceScriptPrefix, StringComparison.Ordinal));
 
         /// <summary>按 JSON 往返复制一份脚本（保留全部元信息），再改帧率上限。</summary>
         public static InputScript CloneWithFrameRate(InputScript script, int frameRateCap)

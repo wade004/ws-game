@@ -172,6 +172,13 @@ namespace Core.Carriers.Unit
         public Id? GetMapId(Id unitId) => Require(unitId).MapId;
 
         /// <summary>
+        /// 覆盖 <see cref="IUnitAccess.GetHeightOffset"/> 的默认接口实现：读 <see cref="Unit.HeightOffset"/>。单位不存在返回 0
+        /// （同 <see cref="GetSourceKind"/> 的"未知单位不抛"口径：调用方是命中过滤，候选可能在同一 tick 被销毁）。
+        /// </summary>
+        public double GetHeightOffset(Id unitId) =>
+            _world.GetEntity(unitId) is Unit unit ? unit.HeightOffset : 0.0;
+
+        /// <summary>
         /// T-N1-6：覆盖 <see cref="IUnitAccess.GetSourceKind"/> 的默认接口实现（默认返回
         /// <see cref="SourceKind.Unknown"/>）——复用既有"单位是玩家还是生物"的判定依据
         /// <see cref="Entity.Kind"/>（<see cref="PlayerUnit.Kind"/> 恒为 <see cref="EntityKinds.Player"/>、
