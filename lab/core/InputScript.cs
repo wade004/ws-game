@@ -177,14 +177,25 @@ namespace Lab
         /// </summary>
         public const int FeelFormatVersion = 3;
 
+        /// <summary>
+        /// 期望清单格式版本：在手感场景格式之上再加顶层 <c>expectations</c> 数组（手感设计 06 第 3.1 节）。只有脚本带期望才写本版本，
+        /// 其余脚本的序列化文本与加入期望之前逐字相同；版本 1～3 的旧脚本照常读取（没有期望清单）。
+        /// </summary>
+        public const int ExpectFormatVersion = 4;
+
         /// <summary>本内核读取的最高格式版本。</summary>
-        public const int MaxSupportedFormatVersion = FeelFormatVersion;
+        public const int MaxSupportedFormatVersion = ExpectFormatVersion;
 
         /// <summary>该脚本序列化时写的格式版本。</summary>
         public int EffectiveFormatVersion
         {
             get
             {
+                if (Expectations.Count > 0)
+                {
+                    return ExpectFormatVersion;
+                }
+
                 if (Meta.UsesFeelFormat)
                 {
                     return FeelFormatVersion;
@@ -219,11 +230,26 @@ namespace Lab
 
         public IReadOnlyList<ScriptEvent> Events { get; }
 
+        /// <summary>
+        /// 期望清单（06 第 3.1 节 <c>expectations</c>，格式版本 4）：对度量在若干格子上的断言，套件与运行命令按它判定；
+        /// 没有期望时为空清单。期望不属于脚本的行为身份——增删期望不改 <see cref="ScriptMeta.ScriptVersion"/>，也不影响基线。
+        /// </summary>
+        public IReadOnlyList<Expectation> Expectations { get; }
+
         public InputScript(ScriptMeta meta, IReadOnlyList<ScriptEvent> events)
+            : this(meta, events, Array.Empty<Expectation>())
+        {
+        }
+
+        public InputScript(ScriptMeta meta, IReadOnlyList<ScriptEvent> events, IReadOnlyList<Expectation> expectations)
         {
             Meta = meta ?? throw new ArgumentNullException(nameof(meta));
             Events = events ?? throw new ArgumentNullException(nameof(events));
+            Expectations = expectations ?? throw new ArgumentNullException(nameof(expectations));
         }
+
+        /// <summary>同一份脚本换一份期望清单（"导出为测试"写回期望用）。</summary>
+        public InputScript WithExpectations(IReadOnlyList<Expectation> expectations) => new InputScript(Meta, Events, expectations);
 
         public static InputScript Parse(string text, string what = "输入脚本")
         {
@@ -336,7 +362,10 @@ namespace Lab
                 events.Add(new ScriptEvent(tick, action, kind, value, ts, actor));
             }
 
-            return new InputScript(meta, events);
+            var expectations = root.TryGetValue("expectations", out var ex) && !(ex is JsonNull)
+                ? Expectation.ParseList(ex as JsonArray ?? throw new LabFormatException($"{what}.expectations 必须是数组"), what + ".expectations")
+                : new List<Expectation>();
+            return new InputScript(meta, events, expectations);
         }
 
         private static void ReadStrings(JsonObject obj, string key, List<string> into, string what)
@@ -440,12 +469,22 @@ namespace Lab
                 events.Add(b.Build());
             }
 
-            var root = new JsonObjectBuilder()
+            var rootBuilder = new JsonObjectBuilder()
                 .Add("formatVersion", LabJson.Num(EffectiveFormatVersion))
                 .Add("meta", metaValue)
-                .Add("events", new JsonArray(events))
-                .Build();
-            return LabJson.Write(root);
+                .Add("events", new JsonArray(events));
+            if (Expectations.Count > 0)
+            {
+                var expected = new List<JsonValue>();
+                foreach (var e in Expectations)
+                {
+                    expected.Add(e.ToJson());
+                }
+
+                rootBuilder.Add("expectations", new JsonArray(expected));
+            }
+
+            return LabJson.Write(rootBuilder.Build());
         }
     }
 

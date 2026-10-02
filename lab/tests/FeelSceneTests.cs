@@ -74,14 +74,16 @@ namespace Tests.Lab
         // ---------- 基线、双跑、帧率 ----------
 
         [Fact]
-        public void FeelScripts_AreVersion3_RoundTrip_AndRunAt60Hz()
+        public void FeelScripts_AreVersion3_OrVersion4WhenTheyCarryExpectations_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(22, scripts.Count);
+            Assert.Equal(23, scripts.Count);
             foreach (var s in scripts)
             {
-                Assert.Equal(InputScript.FeelFormatVersion, s.EffectiveFormatVersion);
-                Assert.Contains("\"formatVersion\": 3", s.ToJson());
+                // 手感场景格式是版本 3；脚本带期望清单（06 第 3.1 节）时按"用到的最高特性"写版本 4。
+                var version = s.Expectations.Count > 0 ? InputScript.ExpectFormatVersion : InputScript.FeelFormatVersion;
+                Assert.Equal(version, s.EffectiveFormatVersion);
+                Assert.Contains("\"formatVersion\": " + version, s.ToJson());
                 Assert.Equal(s.ToJson(), InputScript.Parse(s.ToJson()).ToJson());
                 // 动作时间线按 1/60 秒换算：手感脚本固定 60 Hz（同换装脚本）。
                 Assert.Equal(60, s.Meta.TickRate);

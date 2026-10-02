@@ -8,7 +8,8 @@
       "level": 1,
       "tier": "creature.tier.lab_a_frail",
       "base_stats": {
-        "stat.stamina": 10
+        "stat.stamina": 10,
+        "stat.poise": 0
       },
       "faction_id": "fac.lab_hostile",
       "display_ref": "display.map.lab_a_frail"

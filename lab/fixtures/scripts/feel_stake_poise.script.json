@@ -1,0 +1,105 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_stake_poise",
+    "scriptVersion": 1,
+    "description": "靶子韧性（06 第 2 节不死木桩可选韧性）：韧性木桩 stake_tough 声明 poise = 1，三段连招依次命中；攻击的硬直强度不高于韧性的两击只播受击动画（Flinch），强度更高的终结击仍按冲击等级击退。量三击的受击反应与顿帧。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 130,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_tough"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [
+      "skill.lab_a_combo2",
+      "skill.lab_a_combo3"
+    ],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_combo1"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 19,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 20,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 34,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 35,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "stake_never_dies",
+      "metric": "reaction.kills",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "poise_absorbs_light_hits",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:2;Knockback:1",
+      "note": "韧性 1 吃掉强度 1 的两击（只 Flinch），强度 2 的终结击照常击退。"
+    },
+    {
+      "id": "classic_preset_ignores_poise",
+      "cells": [
+        "2d_targeted",
+        "2_5d_targeted",
+        "3d_targeted"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "None:3",
+      "note": "经典预设不装受击裁决，韧性不改变目标选择式格子的结果。"
+    }
+  ]
+}

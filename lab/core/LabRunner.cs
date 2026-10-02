@@ -196,13 +196,37 @@ namespace Lab
 
         public string Message { get; }
 
-        public CellResult(string script, string cell, CellStatus status, FingerprintDiff? diff, string message)
+        /// <summary>脚本期望清单在该格子上的逐条判定（脚本没有期望、或该格子不可运行时为空）。</summary>
+        public IReadOnlyList<ExpectationResult> Expectations { get; }
+
+        /// <summary>期望里没有通过的条数（失败或无法判定）。</summary>
+        public int ExpectationFailures
+        {
+            get
+            {
+                var n = 0;
+                foreach (var e in Expectations)
+                {
+                    if (!e.Ok)
+                    {
+                        n++;
+                    }
+                }
+
+                return n;
+            }
+        }
+
+        public CellResult(
+            string script, string cell, CellStatus status, FingerprintDiff? diff, string message,
+            IReadOnlyList<ExpectationResult>? expectations = null)
         {
             Script = script;
             Cell = cell;
             Status = status;
             Diff = diff;
             Message = message;
+            Expectations = expectations ?? Array.Empty<ExpectationResult>();
         }
     }
 
@@ -298,7 +322,9 @@ namespace Lab
                     continue;
                 }
 
+                ValidateExpectations(runner, script);
                 var baselinePath = LabFixtures.BaselinePath(fixturesDir, script.Meta.ScriptId);
+                var fingerprints = new Dictionary<string, Fingerprint>(StringComparer.Ordinal);
                 Dictionary<string, Fingerprint>? baselines = null;
                 if (File.Exists(baselinePath))
                 {
@@ -319,22 +345,92 @@ namespace Lab
                         continue;
                     }
 
+                    var actual = runner.Run(script, cell.Cell);
+                    var expectations = EvaluateExpectations(runner, script, cell.Cell, actual, fingerprints);
                     if (baselines == null || !baselines.TryGetValue(cell.Cell, out var baseline))
                     {
                         results.Add(new CellResult(
                             script.Meta.ScriptId, cell.Cell, CellStatus.BaselineMissing, null,
-                            $"没有基线（{baselinePath} 里无格子 {cell.Cell}）"));
+                            $"没有基线（{baselinePath} 里无格子 {cell.Cell}）", expectations));
                         continue;
                     }
 
-                    var actual = runner.Run(script, cell.Cell);
                     var diff = FingerprintComparer.Compare(baseline, actual, runner.Registry);
+                    var failed = false;
+                    foreach (var e in expectations)
+                    {
+                        failed |= !e.Ok;
+                    }
+
+                    // 基线有差异或期望没全过，该格子都算"有差异"（套件退出码 1、汇总行 diff 计数）；明细分别打印。
                     results.Add(new CellResult(
-                        script.Meta.ScriptId, cell.Cell, diff.Ok ? CellStatus.Pass : CellStatus.Diff, diff, string.Empty));
+                        script.Meta.ScriptId, cell.Cell, diff.Ok && !failed ? CellStatus.Pass : CellStatus.Diff, diff, string.Empty, expectations));
                 }
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// 静态检查脚本期望清单引用的度量组、度量与格子都存在（不跑模拟）；有问题抛 <see cref="LabFormatException"/>
+        /// （脚本内容错误，命令行退出码 5）：拼错的度量名或格子名不能让期望悄悄失效。
+        /// </summary>
+        public static void ValidateExpectations(LabRunner runner, InputScript script)
+        {
+            if (script.Expectations.Count == 0)
+            {
+                return;
+            }
+
+            var cells = new List<string>();
+            foreach (var scenario in runner.DatasetFor(script).Catalog.Scenarios())
+            {
+                cells.Add(scenario.Cell);
+            }
+
+            var problems = ExpectationEvaluator.Validate(script.Expectations, runner.Registry, cells);
+            if (problems.Count > 0)
+            {
+                throw new LabFormatException(
+                    $"脚本 {script.Meta.ScriptId} 的期望清单有 {problems.Count} 处引用无效：" + Environment.NewLine + "  "
+                    + string.Join(Environment.NewLine + "  ", problems));
+            }
+        }
+
+        /// <summary>
+        /// 判定脚本期望清单在一个格子上的结果：相对关系引用的另一个格子按需运行并缓存（<paramref name="cache"/> 按格子短名存指纹，
+        /// 调用方在一个脚本的各格子之间共用同一份缓存，免得重复跑）；另一个格子不存在或不可运行时那条期望记为无法判定。
+        /// 期望引用的度量组/度量/格子不存在时，同样逐条给出"无法判定"，不抛异常。
+        /// </summary>
+        public static List<ExpectationResult> EvaluateExpectations(
+            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache)
+        {
+            if (script.Expectations.Count == 0)
+            {
+                return new List<ExpectationResult>();
+            }
+
+            cache[cell] = actual;
+            Fingerprint FingerprintOf(string other)
+            {
+                if (cache.TryGetValue(other, out var cached))
+                {
+                    return cached;
+                }
+
+                var scenario = runner.Dataset.Catalog.GetScenario(other);
+                var runnability = scenario.CheckRunnable(LabHost.AvailableCapabilities);
+                if (!runnability.Runnable)
+                {
+                    throw new LabFormatException(runnability.ToString());
+                }
+
+                var fingerprint = runner.Run(script, other);
+                cache[other] = fingerprint;
+                return fingerprint;
+            }
+
+            return ExpectationEvaluator.Evaluate(script.Expectations, cell, actual, runner.Registry, FingerprintOf);
         }
 
         /// <summary>重新跑全部适用且可运行的格子，把指纹写成基线文件（覆盖）。返回写出的文件路径。</summary>
@@ -355,21 +451,43 @@ namespace Lab
         }
 
         /// <summary>
-        /// "导出为测试"（06 第 2 节）：把脚本与其在各格子上的指纹落成夹具（脚本文件 + 基线文件）。
+        /// "导出为测试"（06 第 3.5 节）：把脚本与其在各格子上的指纹落成夹具——脚本文件（带由指纹生成的期望清单）与基线文件。
         /// 脚本按规范 JSON 重写（键序固定、换行统一），因此手写脚本与回放导入脚本入库形态一致。
+        /// 期望清单的生成规则见 <see cref="ExpectationExporter"/>；脚本里已有的手写期望（id 不以 <see cref="Expectation.AutoPrefix"/> 开头）
+        /// 原样保留在前，之前自动生成的期望整体换成这次新生成的。<paramref name="expect"/> 为空时用缺省取舍，
+        /// <paramref name="writeExpectations"/> 为假则不改脚本里的期望（只写脚本与基线）。
         /// </summary>
-        public static List<string> ExportAsTest(LabRunner runner, InputScript script, string fixturesDir, string? onlyCell = null)
+        public static List<string> ExportAsTest(
+            LabRunner runner, InputScript script, string fixturesDir, string? onlyCell = null,
+            ExpectationExportOptions? expect = null, bool writeExpectations = true)
         {
             var written = new List<string>();
+            var cells = RunCells(runner, script, onlyCell);
+            var exported = script;
+            if (writeExpectations)
+            {
+                var merged = new List<Expectation>();
+                foreach (var e in script.Expectations)
+                {
+                    if (!e.Id.StartsWith(Expectation.AutoPrefix, StringComparison.Ordinal))
+                    {
+                        merged.Add(e);
+                    }
+                }
+
+                merged.AddRange(ExpectationExporter.FromFingerprints(cells, runner.Registry, expect));
+                exported = script.WithExpectations(merged);
+            }
+
             var scriptPath = LabFixtures.ScriptPath(fixturesDir, script.Meta.ScriptId);
             Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
-            File.WriteAllText(scriptPath, script.ToJson(), new UTF8Encoding(false));
+            File.WriteAllText(scriptPath, exported.ToJson(), new UTF8Encoding(false));
             written.Add(scriptPath);
-            written.Add(WriteBaseline(runner, fixturesDir, script, onlyCell));
+            written.Add(WriteBaseline(fixturesDir, script, cells));
             return written;
         }
 
-        private static string WriteBaseline(LabRunner runner, string fixturesDir, InputScript script, string? onlyCell)
+        private static List<KeyValuePair<string, Fingerprint>> RunCells(LabRunner runner, InputScript script, string? onlyCell)
         {
             var cells = new List<KeyValuePair<string, Fingerprint>>();
             foreach (var cell in runner.ApplicableCells(script))
@@ -387,10 +505,18 @@ namespace Lab
                 cells.Add(new KeyValuePair<string, Fingerprint>(cell.Cell, runner.Run(script, cell.Cell)));
             }
 
+            return cells;
+        }
+
+        private static string WriteBaseline(string fixturesDir, InputScript script, List<KeyValuePair<string, Fingerprint>> cells)
+        {
             var path = LabFixtures.BaselinePath(fixturesDir, script.Meta.ScriptId);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, LabFixtures.SerializeBaseline(script.Meta.ScriptId, cells), new UTF8Encoding(false));
             return path;
         }
+
+        private static string WriteBaseline(LabRunner runner, string fixturesDir, InputScript script, string? onlyCell) =>
+            WriteBaseline(fixturesDir, script, RunCells(runner, script, onlyCell));
     }
 }

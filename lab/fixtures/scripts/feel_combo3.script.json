@@ -1,5 +1,5 @@
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "meta": {
     "scriptId": "feel_combo3",
     "scriptVersion": 1,
@@ -68,6 +68,77 @@
       "tick": 35,
       "action": "input.action.lab_a_attack",
       "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "three_hits",
+      "metric": "attack.damage_events",
+      "op": "eq",
+      "value": 3
+    },
+    {
+      "id": "combo_chain_in_action_cells",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "actiontl.combo_chain",
+      "op": "eq",
+      "value": "skill.lab_a_combo1>skill.lab_a_combo2>skill.lab_a_combo3"
+    },
+    {
+      "id": "three_segments",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "actiontl.action_total_ticks",
+      "agg": "len",
+      "op": "eq",
+      "value": 3,
+      "note": "聚合示例：动作总 tick 数组有三项。"
+    },
+    {
+      "id": "finisher_is_longest",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "actiontl.action_total_ticks",
+      "at": -1,
+      "op": "gt",
+      "versus": {
+        "metric": "actiontl.action_total_ticks",
+        "at": 0
+      },
+      "note": "下标示例：终结击比首击长（同一度量内的相对关系）。"
+    },
+    {
+      "id": "finisher_knocks_back",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "contains",
+      "value": "Knockback:1"
+    },
+    {
+      "id": "action_freezes_longer_than_targeted",
+      "cells": [
+        "2d_action"
+      ],
+      "metric": "hitstop.started_ticks_player",
+      "op": "gt",
+      "versus": {
+        "cell": "2d_targeted",
+        "metric": "hitstop.started_ticks_player"
+      }
     }
   ]
 }

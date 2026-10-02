@@ -1,0 +1,13 @@
+{
+  "table": "stat.definition",
+  "schema_version": 2,
+  "rows": [
+    {
+      "id": "stat.poise",
+      "name_key": "l10n.stat.poise.name",
+      "category": "misc",
+      "group": "secondary",
+      "default_base": 0
+    }
+  ]
+}

@@ -31,6 +31,11 @@
       "key": "l10n.creature.lab_a_patrol.name",
       "locale": "l10n.locale.zh_cn",
       "text": "动作式巡逻靶"
+    },
+    {
+      "key": "l10n.stat.poise.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "韧性"
     }
   ]
 }

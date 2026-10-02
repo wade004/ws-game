@@ -65,8 +65,28 @@ namespace Lab
         /// <summary>出生脚下高度（世界单位，缺省 0）；只在有竖直轴的格子（side_2d/volume）生效。</summary>
         public double Height { get; }
 
-        public LabDummy(string name, string kind, Id creatureId, Vec2 position, string group, int count, double spacing, bool keepAi, double height = 0.0)
+        /// <summary>数据里声明的阻挡半边长（<c>block_half_extent</c>）；没声明为空。</summary>
+        public double? DeclaredBlockHalfExtent { get; }
+
+        /// <summary>
+        /// 该靶子作为动态阻挡的占位半边长：数据声明了就用声明值；<c>kind = breakable</c> 没声明时缺省
+        /// <see cref="DefaultBreakableHalfExtent"/>；其余没声明为空（不挡路）。
+        /// </summary>
+        public double? BlockHalfExtent =>
+            DeclaredBlockHalfExtent ?? (string.Equals(Kind, "breakable", StringComparison.Ordinal) ? DefaultBreakableHalfExtent : (double?)null);
+
+        /// <summary>数据里声明的韧性值（<c>poise</c>）；没声明为空（韧性按 0）。</summary>
+        public double? Poise { get; }
+
+        /// <summary>可破坏障碍不声明 <c>block_half_extent</c> 时的缺省占位半边长。</summary>
+        public const double DefaultBreakableHalfExtent = 0.5;
+
+        public LabDummy(
+            string name, string kind, Id creatureId, Vec2 position, string group, int count, double spacing, bool keepAi,
+            double height = 0.0, double? blockHalfExtent = null, double? poise = null)
         {
+            DeclaredBlockHalfExtent = blockHalfExtent;
+            Poise = poise;
             Name = name;
             Kind = kind;
             CreatureId = creatureId;
@@ -301,7 +321,9 @@ namespace Lab
                     count,
                     spacing,
                     ai,
-                    height));
+                    height,
+                    o.TryGetValue("block_half_extent", out var bh) && bh is JsonNumber bhn ? bhn.Value : (double?)null,
+                    o.TryGetValue("poise", out var pz) && pz is JsonNumber pzn ? pzn.Value : (double?)null));
             }
 
             return new LabDummySet(id, entries);

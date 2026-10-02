@@ -12,7 +12,7 @@ namespace Toolchain.FeelLab
     /// <list type="bullet">
     /// <item><c>run</c>：数据根 + 格子 + 脚本 → 指纹文件（可选同时写完整记录、与基线比较）；</item>
     /// <item><c>suite</c>：全部标准脚本 × 适用格子逐个与基线比较（<c>--update-baseline</c> 重写基线）；</item>
-    /// <item><c>export-test</c>：脚本 + 指纹 → 夹具（脚本文件 + 基线文件）；</item>
+    /// <item><c>export-test</c>：脚本 + 指纹 → 夹具（脚本文件带由指纹生成的期望清单 + 基线文件）；</item>
     /// <item><c>list</c>：列出格子及其在无头宿主上的可运行状态；</item>
     /// <item><c>invariants</c>：跨格子不变量（ADR-0122 决定 4）：平面组合逻辑组一致、动作式（剥 timeline + 经典预设）= 目标选择式、
     /// 经典预设下手感装配透明；不比较基线，不改任何文件。</item>
@@ -20,7 +20,8 @@ namespace Toolchain.FeelLab
     /// <para>
     /// 退出码：0 全部通过；1 至少一个格子基线比较有差异；2 命令行参数错误；3 缺基线（无差异但有格子没有基线）；
     /// 4 有格子不可运行（预留空间模型或缺能力，不静默跳过）；5 数据/脚本内容错误（装配失败、文件格式非法）。
-    /// 同时出现多种情况时取优先级：差异（1）&gt; 缺基线（3）&gt; 不可运行（4）。
+    /// 同时出现多种情况时取优先级：差异（1）&gt; 缺基线（3）&gt; 不可运行（4）。脚本期望清单没有全过（失败或无法判定）同样算差异（退出码 1）；
+    /// 期望引用了不存在的度量组、度量或格子属于脚本内容错误（退出码 5）。
     /// </para>
     /// <para>
     /// 判断记录（输出落点）：指纹与记录默认写到 <c>lab/out/</c>（已被 <c>.gitignore</c> 忽略）；入库的只有
@@ -154,10 +155,11 @@ namespace Toolchain.FeelLab
                 Console.WriteLine($"记录：{recPath}");
             }
 
+            var expectFailed = RunExpectations(runner, script, cell, fingerprint);
             var fixtures = o.Get("baseline");
             if (fixtures == null)
             {
-                return ExitOk;
+                return expectFailed ? ExitDiff : ExitOk;
             }
 
             var baselinePath = LabFixtures.BaselinePath(fixtures, script.Meta.ScriptId);
@@ -177,7 +179,31 @@ namespace Toolchain.FeelLab
             var diff = FingerprintComparer.Compare(baseline, fingerprint, runner.Registry);
             Console.Write(diff.Format());
             Console.WriteLine(diff.Ok ? "基线比较：通过" : "基线比较：有差异");
-            return diff.Ok ? ExitOk : ExitDiff;
+            return diff.Ok && !expectFailed ? ExitOk : ExitDiff;
+        }
+
+        /// <summary>按脚本期望清单判定一个格子的指纹并打印逐条结果；返回是否有没通过的。脚本没有期望时静默返回假。</summary>
+        private static bool RunExpectations(LabRunner runner, InputScript script, string cell, Fingerprint fingerprint)
+        {
+            if (script.Expectations.Count == 0)
+            {
+                return false;
+            }
+
+            LabSuite.ValidateExpectations(runner, script);
+            var results = LabSuite.EvaluateExpectations(runner, script, cell, fingerprint, new Dictionary<string, Fingerprint>(StringComparer.Ordinal));
+            var failed = 0;
+            foreach (var r in results)
+            {
+                if (!r.Ok)
+                {
+                    failed++;
+                    Console.WriteLine("  " + r);
+                }
+            }
+
+            Console.WriteLine(failed == 0 ? $"期望：{results.Count} 条全部通过" : $"期望：{results.Count} 条，失败 {failed} 条");
+            return failed > 0;
         }
 
         private static int Suite(Options o)
@@ -205,22 +231,27 @@ namespace Toolchain.FeelLab
             }
 
             int pass = 0, diff = 0, missing = 0, notRunnable = 0;
+            int expectTotal = 0, expectFail = 0;
             foreach (var r in results)
             {
+                expectTotal += r.Expectations.Count;
+                expectFail += r.ExpectationFailures;
                 switch (r.Status)
                 {
                     case CellStatus.Pass:
                         pass++;
-                        Console.WriteLine($"通过   {r.Script} @ {r.Cell}");
+                        Console.WriteLine($"通过   {r.Script} @ {r.Cell}" + (r.Expectations.Count > 0 ? $"（期望 {r.Expectations.Count} 条全过）" : string.Empty));
                         break;
                     case CellStatus.Diff:
                         diff++;
                         Console.WriteLine($"差异   {r.Script} @ {r.Cell}");
                         Console.Write(r.Diff!.Format());
+                        WriteExpectationFailures(r);
                         break;
                     case CellStatus.BaselineMissing:
                         missing++;
                         Console.WriteLine($"缺基线 {r.Script} @ {r.Cell}：{r.Message}");
+                        WriteExpectationFailures(r);
                         break;
                     default:
                         notRunnable++;
@@ -230,6 +261,11 @@ namespace Toolchain.FeelLab
             }
 
             Console.WriteLine($"合计 {results.Count}：通过 {pass}，差异 {diff}，缺基线 {missing}，不可运行 {notRunnable}");
+            if (expectTotal > 0)
+            {
+                Console.WriteLine($"期望清单：共 {expectTotal} 条判定，失败 {expectFail} 条");
+                Console.WriteLine($"RESULT expectations total={expectTotal} pass={expectTotal - expectFail} fail={expectFail}");
+            }
 
             // 判断记录：门禁（PowerShell）按系统代码页解码本进程的标准输出，中文汇总行会失配；
             // 另输出一行纯 ASCII 的机器可读汇总，格式变动须同步 toolchain/_gate_line_heavy.ps1 的 feel_lab_suite 解析。
@@ -247,13 +283,37 @@ namespace Toolchain.FeelLab
             return notRunnable > 0 ? ExitNotRunnable : ExitOk;
         }
 
+        private static void WriteExpectationFailures(CellResult r)
+        {
+            foreach (var e in r.Expectations)
+            {
+                if (!e.Ok)
+                {
+                    Console.WriteLine("  " + e);
+                }
+            }
+        }
+
         private static int ExportTest(Options o)
         {
             var scriptPath = o.Require("script");
             var fixtures = o.Get("fixtures") ?? Path.Combine("lab", "fixtures");
             var runner = CreateRunner(o);
             var script = InputScript.Parse(File.ReadAllText(scriptPath, Encoding.UTF8), scriptPath);
-            foreach (var path in LabSuite.ExportAsTest(runner, script, fixtures, o.Get("cell")))
+            var expect = new ExpectationExportOptions { IncludeRealTime = o.Has("expect-realtime") };
+            var groups = o.Get("expect-groups");
+            if (groups != null)
+            {
+                foreach (var g in groups.Split(','))
+                {
+                    if (g.Trim().Length > 0)
+                    {
+                        expect.Groups.Add(g.Trim());
+                    }
+                }
+            }
+
+            foreach (var path in LabSuite.ExportAsTest(runner, script, fixtures, o.Get("cell"), expect, !o.Has("no-expect")))
             {
                 Console.WriteLine($"已写夹具：{path}");
             }
@@ -342,7 +402,7 @@ namespace Toolchain.FeelLab
         {
             private static readonly HashSet<string> Flags = new HashSet<string>(StringComparer.Ordinal)
             {
-                "record", "update-baseline",
+                "record", "update-baseline", "no-expect", "expect-realtime",
             };
 
             private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);
