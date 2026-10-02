@@ -911,6 +911,7 @@ namespace Adapter.Unity.EngineAdapter
                 player.gameObject.SetActive(true);
                 player.Play(frames, durations, effect.Loop, blendMode);
                 _sequencePlayers[handle] = player;
+                player.TimeSource = _effectTimeSource;
 
                 return new ParticleHandle(handle);
             }
@@ -1020,9 +1021,33 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
-        /// <summary>实验室引擎宿主用（不属于 <see cref="IRenderer2D"/> 契约）：按模拟时间推进全部序列帧特效一步（暂停的特效自己忽略）；
-        /// 平时由各特效组件的 Update 以真实帧时间推进，宿主在同步运行里不经过 Update，故需要这个确定性入口。</summary>
-        internal void AdvanceSequencePlayers(float deltaTime)
+        private IFrameTimeSource? _effectTimeSource;
+
+        /// <summary>
+        /// 可选的序列帧特效时间源（不属于 <see cref="IRenderer2D"/> 契约，M4-W4）：<c>null</c>（缺省）时各特效组件每帧用 <c>Time.deltaTime</c>，行为与引入前
+        /// 逐位一致；设置后对已有与此后新建的全部序列帧特效生效（它们每次推进取该时间源的帧时长）。
+        /// </summary>
+        public IFrameTimeSource? EffectTimeSource
+        {
+            get => _effectTimeSource;
+            set
+            {
+                _effectTimeSource = value;
+                foreach (var player in _sequencePlayers.Values)
+                {
+                    if (player != null)
+                    {
+                        player.TimeSource = value;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 按 <see cref="EffectTimeSource"/>（没设置则 <c>Time.deltaTime</c>）把全部序列帧特效推进一步（暂停的特效自己忽略）。平时由各特效组件的
+        /// Update 逐帧推进；同步驱动方（一次调用里跑完整段模拟、不让出 Unity 播放循环）逐帧调用它。
+        /// </summary>
+        public void StepEffects()
         {
             if (_sequencePlayers.Count == 0)
             {
@@ -1034,7 +1059,7 @@ namespace Adapter.Unity.EngineAdapter
             {
                 if (snapshot[i] != null)
                 {
-                    snapshot[i].Advance(deltaTime);
+                    snapshot[i].Step();
                 }
             }
         }

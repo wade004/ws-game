@@ -2016,6 +2016,16 @@ namespace Adapter.Unity.EngineAdapter
                 return Path.Combine(RootDir, relativePath);
             }
 
+            // M4-W4：界面图标（display.map.icon_id、装备/技能图标）。此前 icon.* 的 id 落进下面的通用规则被当成 sprites/<name>.png，
+            // 那个扁平文件从不存在，图标没有加载路径；现在按资源引用约定 AssetRefConventions.IconFile 解析到 icons/<类别>/<名>.png
+            // （build.ps1 经 resource_layout_map.json 的 icons 映射把 assets/<数据集>/icons 同步到 StreamingAssets/GameFoundation/icons）。
+            // 形状不满足 icon.<类别>.<名> 的 id 由 IconFile 抛 FormatException（数据错误不静默回退到一个必然找不到的路径）。
+            if (kind == ResourceKind.Image && IsIconCategory(resourceId.Value))
+            {
+                var iconPath = AssetRefConventions.IconFile(resourceId).Replace('/', Path.DirectorySeparatorChar);
+                return Path.Combine(RootDir, iconPath);
+            }
+
             var name = StripCategoryPrefix(resourceId.Value);
             switch (kind)
             {
@@ -2057,6 +2067,9 @@ namespace Adapter.Unity.EngineAdapter
         }
 
         private static bool IsLayerCategory(string resourceRefId) => CategoryPrefixOf(resourceRefId) == "layer";
+
+        /// <summary>M4-W4：判断 <c>ResourceKind.Image</c> 资源引用 id 是否为 <c>icon</c> 类别（界面图标，见 <see cref="ResolvePath"/> 判断记录）。</summary>
+        private static bool IsIconCategory(string resourceRefId) => CategoryPrefixOf(resourceRefId) == "icon";
 
         /// <summary>ADR-0038 适配层接线新增：判断 <c>ResourceKind.Image</c> 资源引用 id 是否为
         /// <c>paperdoll</c> 类别（<c>display.equip_visual.mesh_ref</c> 的 sprite 型取值，ADR-0038

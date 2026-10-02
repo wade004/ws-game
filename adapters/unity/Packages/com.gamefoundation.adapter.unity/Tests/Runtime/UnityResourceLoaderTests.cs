@@ -78,6 +78,62 @@ namespace Adapter.Unity.Tests.Runtime
             StringAssert.Contains("creature_sample_wolf.png", path);
         }
 
+        /// <summary>M4-W4：界面图标（icon.&lt;类别&gt;.&lt;名&gt;）有了加载路径。此前 icon.* 落进通用规则被当成 sprites/&lt;name&gt;.png（扁平文件，从不存在）。
+        /// 现在 ResolvePath 转发 AssetRefConventions.IconFile：icons/&lt;类别&gt;/&lt;名&gt;.png，期望值由该约定方法算出（不手写路径）。</summary>
+        [Test]
+        public void ResolvePath_IconCategory_ForwardsToAssetRefConventionsIconFile()
+        {
+            foreach (var iconId in new[] { "icon.item.std_sword_1h", "icon.creature.sample_beast", "icon.skill.sample_strike" })
+            {
+                var path = UnityResourceLoader.ResolvePath(new Id(iconId), ResourceKind.Image);
+                var expected = AssetRefConventions.IconFile(new Id(iconId)).Replace('/', System.IO.Path.DirectorySeparatorChar);
+                StringAssert.EndsWith(expected, path, iconId);
+                StringAssert.DoesNotContain("sprites", path, iconId + "：图标不再落进通用的 sprites 子目录");
+            }
+        }
+
+        [Test]
+        public void ResolvePath_IconCategory_MalformedIdIsADataError_NotASilentFallback()
+        {
+            Assert.Throws<System.FormatException>(
+                () => UnityResourceLoader.ResolvePath(new Id("icon.lonely"), ResourceKind.Image),
+                "不满足 icon.<类别>.<名> 的 id 由 IconFile 抛 FormatException，不静默回退到一个必然找不到的路径");
+        }
+
+        [Test]
+        public void ResolvePath_NonIconImageCategories_AreUnchangedByTheIconBranch()
+        {
+            // 不变量：图标分支只认 icon 类别；sprite 类别与带前缀的其它类别路径与引入图标分支之前逐位一致。
+            StringAssert.EndsWith(
+                System.IO.Path.Combine("sprites", "creature_sample_wolf.png"),
+                UnityResourceLoader.ResolvePath(new Id("sprite.creature.sample_wolf"), ResourceKind.Image));
+            StringAssert.EndsWith(
+                System.IO.Path.Combine("paperdoll", "item_sample_hero_hat_test.png"),
+                UnityResourceLoader.ResolvePath(new Id("paperdoll.item.sample_hero_hat_test"), ResourceKind.Image));
+        }
+
+        [UnityTest]
+        public IEnumerator LoadAsync_IconResource_LoadsThePlaceholderIconThroughTheIconPath()
+        {
+            var iconId = new Id("icon.item.std_sword_1h");
+            var path = UnityResourceLoader.ResolvePath(iconId, ResourceKind.Image);
+            Assert.IsTrue(System.IO.File.Exists(path), "前置条件：占位美术的图标经 resource_layout_map 的 icons 映射同步到了加载器路径：" + path);
+            bool? success = null;
+            _loader.LoadAsync(iconId, ResourceKind.Image, (id, ok) => success = ok);
+            var timeout = 5f;
+            while (success == null && timeout > 0f)
+            {
+                _loader.Tick();
+                yield return null;
+                timeout -= 0.02f;
+            }
+
+            Assert.IsTrue(success.GetValueOrDefault(), "图标经加载器加载应成功");
+            Assert.IsTrue(_loader.TryGetSprite(iconId, out var sprite) && sprite != null);
+            Assert.Greater(sprite.rect.width, 0f);
+            Assert.Greater(sprite.rect.height, 0f);
+        }
+
         [Test]
         public void ResolvePath_LayerCategory_ResolvesNestedDirectionLayerPath()
         {

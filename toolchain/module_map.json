@@ -958,6 +958,17 @@
             "engine_category": "interaction:movement_stop_blocking"
           },
           "why": "导航契约变化会改变移动 tick 的阻挡/停止语义，必须跑同一条引擎侧移动 PlayMode 回归（原文字规则：改到 MovementTickHandler.cs、导航契约或其实现）；导航契约的实现（adapters/stub、引擎侧包 Runtime）属 T3，全量已覆盖"
+        },
+        {
+          "id": "vertical_terrain",
+          "when_paths": [
+            "core/foundation/engine_adapter/contracts/ITerrainHeight2D.cs"
+          ],
+          "also_run": {
+            "engine_class": "UnityTerrainHeight2DPlayModeTests",
+            "engine_category": "interaction:vertical_terrain"
+          },
+          "why": "地面高度契约变化会改变竖直轴地形阻挡语义，必须跑物理射线实现的引擎侧 PlayMode 冒烟（ADR-0130 追加决定）"
         }
       ]
     },
@@ -1468,13 +1479,14 @@
           "id": "air_pose",
           "when_paths": [
             "presentation/render/core/PoseSelector.cs",
-            "presentation/render/core/AnimStateMachine.cs"
+            "presentation/render/core/AnimStateMachine.cs",
+            "presentation/render/core/AirPoseFeeder.cs"
           ],
           "also_run": {
             "engine_class": "AirPoseAnimPlayModeTests",
             "engine_category": "interaction:air_pose"
           },
-          "why": "空中姿势请求键与回落链在引擎侧 AnimClipResolver 的解析只有 AirPoseAnimPlayModeTests 覆盖（M4-V 补登记，当时漏登记导致 test_every_playmode_test_file_has_a_module_category 失败）"
+          "why": "空中姿势请求键、回落链与请求馈送逻辑（PoseSelector/AnimStateMachine/AirPoseFeeder）在引擎侧 AnimClipResolver 的解析只有 AirPoseAnimPlayModeTests 覆盖，必须跑同一条引擎侧空中姿势 PlayMode 冒烟（M4-V 补登记；M4-W4 追加 AirPoseFeeder，ADR-0130 追加决定）"
         }
       ]
     },

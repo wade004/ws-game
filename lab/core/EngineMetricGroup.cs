@@ -47,6 +47,10 @@ namespace Lab
             MetricSpec.RatioCeiling("frame_ms_p50", MetricClass.RealTime, 10, 50, "引擎侧每帧驱动耗时中位数，毫秒（10 倍数量级桶上界）"),
             MetricSpec.RatioCeiling("frame_ms_p95", MetricClass.RealTime, 10, 50, "引擎侧每帧驱动耗时 95 分位，毫秒"),
             MetricSpec.RatioCeiling("frame_ms_max", MetricClass.RealTime, 10, 200, "引擎侧每帧驱动耗时最大值，毫秒"),
+            MetricSpec.Exact("gpu_frame_status", MetricClass.RealTime, "GPU 帧耗时是否取得到：available / unavailable（没有图形设备的环境，如批处理无图形模式，为 unavailable，原因见引擎记录）"),
+            MetricSpec.RatioCeiling("gpu_ms_p50", MetricClass.RealTime, 10, 50, "引擎侧每帧 GPU 完成耗时中位数，毫秒（unavailable 时为 -1）"),
+            MetricSpec.RatioCeiling("gpu_ms_p95", MetricClass.RealTime, 10, 50, "引擎侧每帧 GPU 完成耗时 95 分位，毫秒（unavailable 时为 -1）"),
+            MetricSpec.RatioCeiling("gpu_ms_max", MetricClass.RealTime, 10, 200, "引擎侧每帧 GPU 完成耗时最大值，毫秒（unavailable 时为 -1）"),
         };
 
         public string Name => "engine";
@@ -177,6 +181,14 @@ namespace Lab
             sink.Add("frame_ms_p50", Percentile(engine.FrameMilliseconds, 0.50));
             sink.Add("frame_ms_p95", Percentile(engine.FrameMilliseconds, 0.95));
             sink.Add("frame_ms_max", Percentile(engine.FrameMilliseconds, 1.0));
+
+            // GPU 帧耗时：没取到（没有图形设备等）时状态为 unavailable、数值为 -1 的哨兵值——度量始终在场（"不可用"是被记下来的状态，不是缺失），
+            // 哨兵值不超过任何倍率上限，不会让基线比较误报。
+            var gpu = engine.GpuAvailable && engine.GpuFrameMilliseconds.Count > 0;
+            sink.Add("gpu_frame_status", gpu ? "available" : "unavailable");
+            sink.Add("gpu_ms_p50", gpu ? Percentile(engine.GpuFrameMilliseconds, 0.50) : -1.0);
+            sink.Add("gpu_ms_p95", gpu ? Percentile(engine.GpuFrameMilliseconds, 0.95) : -1.0);
+            sink.Add("gpu_ms_max", gpu ? Percentile(engine.GpuFrameMilliseconds, 1.0) : -1.0);
         }
 
         /// <summary>最近秩分位数（样本为空返回 0）。</summary>

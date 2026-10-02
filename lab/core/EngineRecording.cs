@@ -36,6 +36,18 @@ namespace Lab
         /// <summary>引擎侧驱动的帧数。</summary>
         public int FramesDriven { get; set; }
 
+        /// <summary>
+        /// GPU 帧耗时是否取得到（M4-W4）：引擎宿主在有图形设备的环境里把舞台相机真实渲染一帧并等 GPU 完成，逐帧计时；没有图形设备
+        /// （批处理无图形模式等）或图形接口不支持回读时为 false，原因写在 <see cref="GpuUnavailableReason"/>。
+        /// </summary>
+        public bool GpuAvailable { get; set; }
+
+        /// <summary>GPU 帧耗时不可用的原因（人读文本；<see cref="GpuAvailable"/> 为真时为空）。</summary>
+        public string GpuUnavailableReason { get; set; } = string.Empty;
+
+        /// <summary>引擎侧每帧 GPU 完成耗时（毫秒；真实时钟，只在 <see cref="GpuAvailable"/> 时有样本）。</summary>
+        public List<double> GpuFrameMilliseconds { get; } = new List<double>();
+
         public List<ControlSample> Controls { get; } = new List<ControlSample>();
 
         public List<LayerAuditSample> LayerAudits { get; } = new List<LayerAuditSample>();

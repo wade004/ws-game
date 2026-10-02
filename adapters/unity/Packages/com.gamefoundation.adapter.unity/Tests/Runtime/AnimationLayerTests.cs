@@ -438,6 +438,122 @@ namespace Adapter.Unity.Tests.Runtime
             var eulerZ = root!.transform.localRotation.eulerAngles.z;
             Assert.AreEqual(90f, eulerZ, 2f, "Topple 播完后应停留在倒地角度（默认 90 度）并保持，不回弹");
         }
+
+        // ------------------------------------------------------------------
+        // 可注入帧时间源（M4-W4）：UnityFrameAnimPlayer / EffectSequencePlayer 的 TimeSource 与公开 Step()。
+        // ------------------------------------------------------------------
+
+        [Test]
+        public void FrameTimeSource_ManualSource_ClampsNegativeAndNaNToZero()
+        {
+            var source = new ManualFrameTimeSource();
+            Assert.AreEqual(0.0, source.DeltaSeconds, 0.0);
+            source.SetDelta(0.025);
+            Assert.AreEqual(0.025, source.DeltaSeconds, 0.0);
+            source.SetDelta(-1.0);
+            Assert.AreEqual(0.0, source.DeltaSeconds, 0.0, "负帧时长当作 0，不把动画倒着推");
+            source.SetDelta(double.NaN);
+            Assert.AreEqual(0.0, source.DeltaSeconds, 0.0);
+        }
+
+        [Test]
+        public void FrameAnimPlayer_DefaultStep_UsesTimeDeltaTime()
+        {
+            var go = new GameObject("Player");
+            var player = go.AddComponent<UnityFrameAnimPlayer>();
+            player.RegisterClip(new Id("anim.test_clip"), new[] { MakeSprite(Color.red), MakeSprite(Color.blue) }, frameRate: 10.0);
+            player.Play(new Id("anim.test_clip"), loop: true, speed: 1.0);
+            var before = player.AdvancedSeconds;
+            player.Step();
+            Assert.AreEqual(Time.deltaTime, player.AdvancedSeconds - before, 1e-6, "缺省（没有时间源）的一步取 Time.deltaTime，与引入时间源之前逐位一致");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void FrameAnimPlayer_TimeSource_StepAdvancesBySourceDelta_AndPauseIgnoresIt()
+        {
+            var go = new GameObject("Player");
+            var player = go.AddComponent<UnityFrameAnimPlayer>();
+            player.RegisterClip(new Id("anim.test_clip"), new[] { MakeSprite(Color.red), MakeSprite(Color.blue) }, frameRate: 10.0);
+            var clock = new ManualFrameTimeSource();
+            player.TimeSource = clock;
+            player.Play(new Id("anim.test_clip"), loop: false, speed: 1.0);
+
+            // 一步等于源给的帧时长；累计 0.11 秒（≥ 一帧 0.1 秒）后切到第 1 帧，规则算期望。
+            clock.SetDelta(0.05);
+            player.Step();
+            Assert.AreEqual(0.05, player.AdvancedSeconds, 1e-9);
+            Assert.AreEqual(0, player.CurrentFrame, "0.05 秒还没到第 1 帧（每帧 0.1 秒）");
+            clock.SetDelta(0.06);
+            player.Step();
+            Assert.AreEqual(0.11, player.AdvancedSeconds, 1e-9);
+            Assert.AreEqual(1, player.CurrentFrame, "累计 0.11 秒应进入第 1 帧");
+
+            player.SetPaused(true);
+            clock.SetDelta(0.5);
+            player.Step();
+            Assert.AreEqual(0.11, player.AdvancedSeconds, 1e-9, "暂停期间不推进");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void EffectSequencePlayer_TimeSource_StepAdvancesBySourceDelta_AndPauseIgnoresIt()
+        {
+            var go = new GameObject("Effect");
+            var player = go.AddComponent<EffectSequencePlayer>();
+            var frames = new[] { MakeSprite(Color.red), MakeSprite(Color.green), MakeSprite(Color.blue) };
+            var finished = 0;
+            player.OnFinished += () => finished++;
+            var clock = new ManualFrameTimeSource();
+            player.TimeSource = clock;
+            player.Play(frames, new[] { 0.1, 0.1, 0.1 }, loop: false);
+            var renderer = go.GetComponent<SpriteRenderer>();
+
+            clock.SetDelta(0.04);
+            player.Step();
+            Assert.AreEqual(0.04, player.PlayedSeconds, 1e-6);
+            Assert.AreEqual(frames[0], renderer.sprite);
+
+            clock.SetDelta(0.07);
+            player.Step();
+            Assert.AreEqual(0.11, player.PlayedSeconds, 1e-6);
+            Assert.AreEqual(frames[1], renderer.sprite, "累计 0.11 秒应进入第 1 帧");
+
+            player.SetPaused(true);
+            clock.SetDelta(1.0);
+            player.Step();
+            Assert.AreEqual(0.11, player.PlayedSeconds, 1e-6, "暂停的特效忽略推进");
+            Assert.AreEqual(0, finished);
+
+            player.SetPaused(false);
+            clock.SetDelta(0.3);
+            player.Step();
+            Assert.AreEqual(1, finished, "播放完最后一帧后触发一次 OnFinished");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void EffectSequencePlayer_DefaultStep_UsesTimeDeltaTime()
+        {
+            var go = new GameObject("Effect");
+            var player = go.AddComponent<EffectSequencePlayer>();
+            player.Play(new[] { MakeSprite(Color.red), MakeSprite(Color.blue) }, new[] { 10.0, 10.0 }, loop: true);
+            var before = player.PlayedSeconds;
+            player.Step();
+            Assert.AreEqual(Time.deltaTime, player.PlayedSeconds - before, 1e-6, "没有时间源时一步取 Time.deltaTime（与引入前逐位一致）");
+            Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void UnityRenderer2D_EffectTimeSource_AppliesToExistingAndFutureSequencePlayers_AndStepEffectsUsesIt()
+        {
+            _renderer.EffectTimeSource = new ManualFrameTimeSource();
+            Assert.IsNotNull(_renderer.EffectTimeSource);
+            _renderer.StepEffects(); // 没有任何特效在播：不应抛异常
+            _renderer.EffectTimeSource = null;
+            Assert.IsNull(_renderer.EffectTimeSource);
+        }
+
     }
 
     /// <summary>本文件专用的最小 sprite 型 <see cref="Core.Foundation.DisplayInfo.DisplayInfo"/> 构造

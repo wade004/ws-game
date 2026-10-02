@@ -13,7 +13,7 @@ using Xunit;
 namespace Tests.Lab
 {
     /// <summary>
-    /// 引擎宿主在内核侧的部件（06 第 4 节）：宿主扩展点、相机相对输入转换、输入噪声模型、覆盖存储与 A/B、引擎度量组。
+    /// 引擎宿主在内核侧的部件（06 第 4 节）：宿主扩展点、相机相对输入（框架原生控制空间）、输入噪声模型、覆盖存储与 A/B、引擎度量组。
     /// 每个机制一条复现用例（机制真的起作用）加一条不变量用例（缺省与旁路不改变既有行为）；期望值由规则算出，不写死裸数。
     /// 引擎宿主本身（Unity 适配层里的实现）的用例在 Unity 的 PlayMode 测试里。
     /// </summary>
@@ -86,16 +86,48 @@ namespace Tests.Lab
             }
         }
 
+        private sealed class FixedYaw : Core.Foundation.EngineAdapter.ICameraOrientation
+        {
+            public FixedYaw(double yaw)
+            {
+                YawRadians = yaw;
+            }
+
+            public double YawRadians { get; }
+        }
+
+        /// <summary>提供固定偏航的相机朝向查询并要求 camera_relative：换算由框架的输入映射原生完成，扩展只给朝向、只读观测核对点。</summary>
         private sealed class AxisRotateExtension : LabHostExtension
         {
-            private readonly double _yaw;
+            private readonly FixedYaw _orientation;
+
+            public readonly List<(int Tick, Vec2 Stick, Vec2 Mapped)> Axes = new List<(int, Vec2, Vec2)>();
 
             public AxisRotateExtension(double yaw)
             {
-                _yaw = yaw;
+                _orientation = new FixedYaw(yaw);
             }
 
-            public override Vec2 ConvertMoveAxis(Vec2 deviceAxis, int tick) => ControlSpace.CameraRelativeToWorld(deviceAxis, _yaw);
+            public override Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation => _orientation;
+
+            public override string? ControlSpaceOverride => ControlSpace.CameraRelative;
+
+            public override void OnMoveAxis(int tick, Vec2 stick, Vec2 mapped) => Axes.Add((tick, stick, mapped));
+        }
+
+        /// <summary>只提供朝向、不覆盖控制空间：格子自己声明 world 时轴值不能被换算。</summary>
+        private sealed class OrientationOnlyExtension : LabHostExtension
+        {
+            public readonly List<(int Tick, Vec2 Stick, Vec2 Mapped)> Axes = new List<(int, Vec2, Vec2)>();
+
+            public override Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation { get; } = new FixedYaw(1.0);
+
+            public override void OnMoveAxis(int tick, Vec2 stick, Vec2 mapped) => Axes.Add((tick, stick, mapped));
+        }
+
+        private sealed class OverrideWithoutOrientationExtension : LabHostExtension
+        {
+            public override string? ControlSpaceOverride => ControlSpace.CameraRelative;
         }
 
         private static string LogicOf(LabRunner runner, Fingerprint fp) => fp.Project(runner.Registry, MetricClass.Logic);
@@ -165,9 +197,10 @@ namespace Tests.Lab
         }
 
         [Fact]
-        public void ConvertMoveAxis_IsLive_AndIdentityByDefault()
+        public void NativeCameraRelative_IsLive_AndIdentityByDefault()
         {
-            // 复现：脚本里一个朝 +X 的摇杆，经 90 度偏航转换后，玩家最终位置沿 +Y（不再沿 +X）；缺省转换（恒等）与无扩展一致。
+            // 复现：脚本里一个朝 +X 的摇杆，经 90 度偏航的原生相机相对控制空间换算后，玩家最终位置沿 +Y（不再沿 +X）；
+            // 不声明相机相对（计数扩展）与无扩展一致。
             var runner = LabTestSupport.Runner;
             var script = LabTestSupport.Script("move_tap");
             var plain = runner.Record(script, "2d_targeted");
@@ -188,6 +221,52 @@ namespace Tests.Lab
             var expected = ControlSpace.CameraRelativeToWorld(displacementPlain, Math.PI / 2.0);
             Assert.Equal(expected.X, displacementRotated.X, 6);
             Assert.Equal(expected.Y, displacementRotated.Y, 6);
+        }
+
+        [Fact]
+        public void NativeCameraRelative_ObservationPoint_ReportsDeviceStickAndTheInputMapsWorldAxis()
+        {
+            // 复现：每个脚本轴事件的固定步里，观测点给出"设备轴"与"输入映射的移动轴"，后者 = 前者按偏航旋转（规则算期望，不写死裸数）。
+            var runner = LabTestSupport.Runner;
+            var script = LabTestSupport.Script("move_tap");
+            var yaw = 40.0 * Math.PI / 180.0;
+            var ext = new AxisRotateExtension(yaw);
+            runner.Record(script, "2d_targeted", null, ext);
+            Assert.NotEmpty(ext.Axes);
+            foreach (var sample in ext.Axes)
+            {
+                var expected = ControlSpace.CameraRelativeToWorld(sample.Stick, yaw);
+                Assert.Equal(expected.X, sample.Mapped.X, 9);
+                Assert.Equal(expected.Y, sample.Mapped.Y, 9);
+            }
+        }
+
+        [Fact]
+        public void NativeCameraRelative_WorldCellWithOnlyAnOrientation_IsNeverConverted()
+        {
+            // 不变量：格子声明 world、扩展没有覆盖时，即使扩展提供了朝向，移动轴也原样等于设备轴，逻辑与无扩展逐位一致。
+            var runner = LabTestSupport.Runner;
+            var script = LabTestSupport.Script("move_tap");
+            var ext = new OrientationOnlyExtension();
+            var withExt = runner.Record(script, "2d_targeted", null, ext);
+            var plain = runner.Record(script, "2d_targeted");
+            Assert.NotEmpty(ext.Axes);
+            foreach (var sample in ext.Axes)
+            {
+                Assert.Equal(sample.Stick, sample.Mapped);
+            }
+
+            Assert.Equal(plain.Ticks[plain.Ticks.Count - 1].Position, withExt.Ticks[withExt.Ticks.Count - 1].Position);
+        }
+
+        [Fact]
+        public void NativeCameraRelative_OverrideWithoutAnOrientationQuery_IsAnAssemblyError()
+        {
+            var runner = LabTestSupport.Runner;
+            var script = LabTestSupport.Script("move_tap");
+            var ex = Assert.Throws<LabFormatException>(() =>
+                runner.Record(script, "2d_targeted", null, new OverrideWithoutOrientationExtension()));
+            Assert.Contains("CameraOrientation", ex.Message);
         }
 
         // ------------------------------------------------------------------
@@ -558,6 +637,44 @@ namespace Tests.Lab
             Assert.Equal(3.0, Num("frame_ms_p50"));
             Assert.Equal(100.0, Num("frame_ms_p95"));
             Assert.Equal(100.0, Num("frame_ms_max"));
+        }
+
+        [Fact]
+        public void EngineMetricGroup_GpuFrameTime_AvailableFoldsByRule_AndUnavailableIsAMarkedSentinelNotAMissingMetric()
+        {
+            // 复现：取得到 GPU 样本时 gpu_ms_* 按最近秩分位数折算、状态 available；
+            // 不变量：没取到（默认记录、或标不可用却带了样本）时度量照样在场——状态 unavailable、数值 -1 哨兵——而不是缺失。
+            var registry = MetricRegistry.CreateWithEngine();
+            var recording = EmptyRecording();
+            var engine = new EngineRecording { Plane = "2d", RigKind = "sprite", GpuAvailable = true };
+            engine.GpuFrameMilliseconds.AddRange(new[] { 2.0, 1.0, 4.0, 3.0, 50.0 });
+            recording.Engine = engine;
+            var built = (JsonObject)registry.Compute(recording)["engine"];
+            double Num(JsonObject o, string key) => ((JsonNumber)o[key]).Value;
+            Assert.Equal("available", ((JsonString)built["gpu_frame_status"]).Value);
+            Assert.Equal(3.0, Num(built, "gpu_ms_p50"));
+            Assert.Equal(50.0, Num(built, "gpu_ms_p95"));
+            Assert.Equal(50.0, Num(built, "gpu_ms_max"));
+
+            foreach (var unavailable in new[] { new EngineRecording { Plane = "2d", RigKind = "sprite" }, MarkedUnavailableWithSamples() })
+            {
+                var rec = EmptyRecording();
+                rec.Engine = unavailable;
+                var folded = (JsonObject)registry.Compute(rec)["engine"];
+                Assert.Equal("unavailable", ((JsonString)folded["gpu_frame_status"]).Value);
+                foreach (var name in new[] { "gpu_ms_p50", "gpu_ms_p95", "gpu_ms_max" })
+                {
+                    Assert.True(folded.ContainsKey(name), name + "：不可用时度量也必须在场");
+                    Assert.Equal(-1.0, Num(folded, name));
+                }
+            }
+        }
+
+        private static EngineRecording MarkedUnavailableWithSamples()
+        {
+            var engine = new EngineRecording { Plane = "2d", RigKind = "sprite", GpuAvailable = false, GpuUnavailableReason = "图形设备为 Null" };
+            engine.GpuFrameMilliseconds.Add(5.0);
+            return engine;
         }
 
         [Fact]

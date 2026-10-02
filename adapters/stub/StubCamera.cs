@@ -10,7 +10,7 @@ using Core.Foundation.EngineAdapter;
 namespace Adapters.Stub
 {
     /// <summary><see cref="ICamera"/> 的最小桩实现：只记录调用与保存最近一次配置，不做真实投影，供测试断言镜头参数被设置成了什么。</summary>
-    public sealed class StubCamera : ICamera
+    public sealed class StubCamera : ICamera, ICameraOrientation
     {
         /// <summary>是否已调用过 <c>Configure</c>。</summary>
         public bool Configured { get; private set; }
@@ -18,6 +18,8 @@ namespace Adapters.Stub
         public double PitchDegrees { get; private set; }
         /// <summary>最近一次 <c>Configure</c> 设置的朝向角（度）。</summary>
         public double YawDegrees { get; private set; }
+        /// <summary><see cref="ICameraOrientation"/>：最近一次 <c>Configure</c> 设置的朝向角换成弧度（桩的投影不转，偏航只是如实报告配置值，供相机相对输入的测试用；未配置时为 0）。</summary>
+        public double YawRadians => YawDegrees * System.Math.PI / 180.0;
         /// <summary>最近一次 <c>Configure</c> 设置的缩放区间。</summary>
         public ZoomRange ZoomRange { get; private set; }
 
