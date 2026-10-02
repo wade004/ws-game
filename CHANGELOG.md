@@ -458,6 +458,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.94.0] - 2026-10-02
+
 本段汇集手感落地 M2（1.93.0 之后的手感生产接线与缺口补齐）与 CI/Release 工作流修复。**所有 M2 机制缺省不开启**：不开手感（`FeelOptions`/`feelOptions` 为空）、不在运动档案里写 `unit_body_radius`，行为与 1.93.0 逐位一致（`feellab suite` 与 `invariants` 基线未改既有条目）。
 
 ### 新增
