@@ -1,5 +1,5 @@
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "meta": {
     "scriptId": "feel_elite_flinch",
     "scriptVersion": 1,
@@ -51,6 +51,20 @@
       "tick": 22,
       "action": "input.action.lab_a_skill",
       "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "elite_survives",
+      "metric": "attack.kills",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "flinch_after_armor",
+      "metric": "reaction.reaction_counts",
+      "op": "contains",
+      "value": "Flinch:1"
     }
   ]
 }

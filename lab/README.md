@@ -25,7 +25,7 @@ dotnet run --project toolchain/feellab -- suite                       # 全部�
 dotnet run --project toolchain/feellab -- suite --script wall --cell 2d_targeted
 dotnet run --project toolchain/feellab -- suite --update-baseline     # 有意重写基线（见下）
 dotnet run --project toolchain/feellab -- run --script lab/fixtures/scripts/wall.script.json --cell 3d_action [--record] [--baseline lab/fixtures]
-dotnet run --project toolchain/feellab -- export-test --script <脚本文件> [--fixtures lab/fixtures] [--cell <格子>]
+dotnet run --project toolchain/feellab -- export-test --script <脚本文件> [--fixtures lab/fixtures] [--cell <格子>] [--no-expect] [--expect-groups <组,组>] [--expect-realtime]
 dotnet run --project toolchain/feellab -- list                        # 六个格子在无头宿主上的可运行状态
 dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子不变量（ADR-0122 决定 4，见判断记录 25），不比较基线、不改文件
 ```
@@ -48,14 +48,36 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 | 私服包 `com.gamefoundation.toolchain` | `Tools~/feellab/labroot/`（自包含：上面六棵树各一份） | `Tools~/feellab/bin/FeelLab.dll` |
 | 自己的数据 | 在上面任一实验室根里加 `--data-root <你的数据根>`（叠加在 `_lab` 之后；`--framework-root` 指向你用的框架数据） | 同上 |
 
-例（zip 解压后）：`cd ws-game-<版本>` 后 `dotnet toolchain/feellab/bin/FeelLab.dll suite`，应与框架基线一致（`RESULT total=186 pass=186 ...`）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
+例（zip 解压后）：`cd ws-game-<版本>` 后 `dotnet toolchain/feellab/bin/FeelLab.dll suite`，应与框架基线一致（`RESULT total=192 pass=192 ...`）；不一致说明你改了框架数据或标定。只需要 dotnet 运行时，不需要 Unity。消费方演练（`toolchain/consumer_smoke.ps1`）有一步在消费方工作目录里用 dist 里的预编译命令行跑 `suite` 与 `invariants`，门禁里随每次全量验证。
 
 ### 基线更新流程（有意提交，不允许静默通过）
 
 1. 改了会改变行为的东西（移动、结算、数据）后，`suite` 会红并打印差异。
 2. 确认差异是预期引入的，运行 `suite --update-baseline`，把脚本/基线改动与行为改动放同一提交，提交信息注明"更新手感基线及原因"。
 3. 差异出乎意料时先定位，不要用重烘焙掩盖。
-4. 标准脚本由 `export-test` 写入（脚本 + 基线）；脚本文件的 `scriptVersion` 变了，旧基线会被比较器拒绝（避免新脚本对着旧基线比较）。
+4. 标准脚本由 `export-test` 写入（脚本 + 基线 + 由指纹生成的期望清单，见下节）；脚本文件的 `scriptVersion` 变了，旧基线会被比较器拒绝（避免新脚本对着旧基线比较）。增删期望清单不属于行为变化，不改 `scriptVersion`，基线不受影响。
+5. 数据集哈希只在基线比较有差异时才作为警告打印；改了实验室数据（`data/_lab`、`data/_lab_action`）而指纹度量没变时，基线文件里记的哈希会滞后，下一次有意重烘焙时一并刷新即可（不影响通过与否）。
+
+### 脚本期望清单（`expectations`，手感设计 06 第 3.1、3.5 节）
+
+输入脚本顶层可带 `expectations` 数组（脚本格式版本 4；版本 1～3 的旧脚本照常读取，没有期望的脚本序列化文本逐字不变）。基线守的是"整份指纹逐项不变"，期望清单守的是"人写下来的意图"：某度量在某些格子上的上下界、相等、近似、相对关系。期望随 `suite` 与 `run` 一起判定：任何一条没通过（失败或无法判定），该格子算"有差异"（`suite` 退出码 1、汇总行 `diff` 计数），逐条诊断紧跟在格子行下面；`suite` 另输出一行纯 ASCII 的 `RESULT expectations total=<n> pass=<n> fail=<n>`。
+
+```
+{"id": "freeze_longer", "cells": ["2d_action"], "metric": "hitstop.started_ticks_player", "op": "gt",
+ "versus": {"cell": "2d_targeted", "metric": "hitstop.started_ticks_player", "scale": 1, "offset": 0}, "note": "..."}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `id` | 期望标识，脚本内唯一；缺省按序号取 `#n`。`auto.` 开头的是"导出为测试"自动生成的 |
+| `cell` / `cells` | 适用的格子（短名，如 `2d_action`）；缺省或 `*` 为脚本适用的全部格子 |
+| `metric`、`at`、`agg` | 度量 `组.度量`；数组度量可取下标 `at`（负数从末尾数）或聚合 `agg`（`len`/`sum`/`min`/`max`/`first`/`last`），二者不同时给 |
+| `op` | `eq`、`ne`、`lt`、`le`、`gt`、`ge`、`between`（`min`/`max` 闭区间，可只给一端）、`approx`（`value` ± `tolerance`，缺省 1e-6）、`in`（`value` 是候选数组）、`contains`（文本含子串 / 数组含元素） |
+| `value` / `versus` | 比较的另一端：字面值，或另一个度量 `versus: {cell?, metric, at?, agg?, scale?, offset?}`，按 `other × scale + offset` 换算；`versus.cell` 缺省同格子，给另一个格子即跨格子相对关系（按需运行并缓存该格子） |
+
+诊断（中文）：`[<id>] <格子> <度量>：要求 <运算> <对照>，实际 <值>（差 ±n）`；无法判定的（度量或度量组不存在、条件度量组在该运行里没有、类型不符、下标越界、对照格子不存在或不可运行）记为"期望无法判定"并给原因，不当作通过。引用了不存在的度量组、度量或格子（拼写错误）是脚本内容错误（退出码 5，列出该组已有的度量名），不让期望悄悄失效；未知字段与重复 id 在解析时就被拒绝。
+
+**导出为测试产出期望**（`export-test`，`ExpectationExporter`）：逻辑类度量精确（数值 `eq`、文本与数组逐字 `eq`），表现类数值 `approx` 带度量声明的绝对允差，真实时间类（`--expect-realtime` 才导出）`le` 倍率上限（同比较器的规则）；空值（空文本、空数组、`-1` 哨兵）与超过 160 字符的长序列不导出（完整序列由基线逐字守着，期望只放人能编辑的断言）。各格子取值相同的度量合并成一条不带 `cells` 的期望，取值随格子不同的按取值分组写 `cells`。`--expect-groups attack,hitstop` 只导出指定组，`--no-expect` 不动脚本里的期望。再次导出只重生成 `auto.` 开头的，手写的期望原样保留在前。
 
 ### 新增度量组
 
@@ -85,7 +107,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 十个脚本（`lab/fixtures/scripts/`），每个脚本在六个格子上各一条基线，共 60 条：`move_tap`、`move_small_axis`、`reverse_180`、`diagonal`、`wall`、`pillar_loop`、`attack_while_moving`、`attack_then_stop`、`group_hit`，以及换装场景脚本 `equip_cycle`（tickRate 60，格式版本 2，见判断记录 15～21）。另有 30/60/120 帧率上限测试（`meta.frameRateCap` 三档，逻辑组必须逐字节一致）。
 
-**手感场景脚本**（`meta.feel = true`，格式版本 3，tickRate 60，S7b 新增十九个、S12 新增一个、M2-C 新增一个，各六格共 126 条基线，合计 186 条；判断记录 22～33）：`feel_melee`、`feel_lunge`（近战与目标辅助/扑击位移）、`feel_dash`（冲刺）、`feel_projectile`（投射物：release 标记与只有 hit 标记两种形态）、`feel_projectile_miss`（S12：投射物没命中任何单位，被竞技场的直墙挡住，挥空提示出现在弹被挡住的那一刻）、`feel_combo3`（三连击）、`feel_dodge_cancel`（闪避取消）、`feel_buffer_lead`（输入缓冲提前量边界）、`feel_charge`（蓄力）、`feel_elite_armor`（精英霸体窗口内受击）、`feel_elite_flinch`（霸体窗口后按精英反应上限封顶）、`feel_interrupt`（普通靶被打断）、`feel_kill`（击杀放大顿帧）、`feel_group_hit`（同 tick 多目标顿帧取最大值并受上限约束）、`feel_patrol`（巡逻靶）、`feel_breakable`（可破坏障碍，动态阻挡）、`feel_motion_accel_decel`、`feel_motion_turn`、`feel_motion_wall`、`feel_motion_wall_slant`（起步刹停、转向、撞墙、斜撞墙贴墙滑行）、`feel_unit_block`（M2-C：单位间体积阻挡，走进木桩被挡在体积边界、闪避同样被挡；判断记录 34）。期望值全部在 `lab/tests/FeelSceneTests.cs` 里由预设字段 × 毫秒换算 × 受击裁决规则推出（读数辅助见 `FeelRules.cs`），用例里没有裸数。
+**手感场景脚本**（`meta.feel = true`，格式版本 3，tickRate 60，S7b 新增十九个、S12 新增一个、M2-C 新增一个、M3-E2 新增一个，各六格共 132 条基线，合计 192 条；判断记录 22～33）：`feel_melee`、`feel_lunge`（近战与目标辅助/扑击位移）、`feel_dash`（冲刺）、`feel_projectile`（投射物：release 标记与只有 hit 标记两种形态）、`feel_projectile_miss`（S12：投射物没命中任何单位，被竞技场的直墙挡住，挥空提示出现在弹被挡住的那一刻）、`feel_combo3`（三连击）、`feel_dodge_cancel`（闪避取消）、`feel_buffer_lead`（输入缓冲提前量边界）、`feel_charge`（蓄力）、`feel_elite_armor`（精英霸体窗口内受击）、`feel_elite_flinch`（霸体窗口后按精英反应上限封顶）、`feel_interrupt`（普通靶被打断）、`feel_kill`（击杀放大顿帧）、`feel_group_hit`（同 tick 多目标顿帧取最大值并受上限约束）、`feel_patrol`（巡逻靶）、`feel_breakable`（可破坏障碍，动态阻挡）、`feel_motion_accel_decel`、`feel_motion_turn`、`feel_motion_wall`、`feel_motion_wall_slant`（起步刹停、转向、撞墙、斜撞墙贴墙滑行）、`feel_unit_block`（M2-C：单位间体积阻挡，走进木桩被挡在体积边界、闪避同样被挡；判断记录 34）、`feel_stake_poise`（M3-E2：靶子韧性，判断记录 38）。期望值全部在 `lab/tests/FeelSceneTests.cs` 里由预设字段 × 毫秒换算 × 受击裁决规则推出（读数辅助见 `FeelRules.cs`），用例里没有裸数。
 
 六个格子（`lab.scenario.*`）：`2d_targeted`、`2d_action`、`2_5d_targeted`、`2_5d_action`、`3d_targeted`、`3d_action`，空间模型均为平面世界。`space` 字段另外接受 `volume`（体积空间能力包，预留）与 `side_2d`（横版二维，预留）；这两个取值的格子在宿主上标"不可运行"并给原因，不静默跳过。
 
@@ -100,7 +122,7 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 7. **空间查询位置同步**：桩空间查询的位置不随世界自动更新，宿主在每次推进后手工同步一遍（靶子位置同样）。
 8. **视图插值 alpha 恒为 0**：宿主按整步推进，视图绑定器的插值因子为 0，表现层位置比逻辑滞后一个 tick（60 帧上限下首次可见位移帧数为 2）。这是当前如实量到的行为，不是实验室引入的偏差。
 9. **真实时间度量分桶**：毫秒按 10 倍量级、分配字节按 2 倍量级分桶后才入基线，比较只做上限检查，基线不随机器抖动。
-10. **可破坏障碍**：基础靶子集（`lab.dummy_set.lab_standard`，旧脚本用）里的 `breakable` 仍近似为无 AI 的敌对低血量单位（没有动态阻挡）。手感场景用自己的靶子集（`lab.dummy_set.lab_action`）里的 `breakable`：靶子 `kind = breakable`，出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 `INavigation2D.SetBlocking` 批量替换去掉，导航阻挡版本随之递增（`GetBlockingVersion`，手感设计 06 第 10 节勘误 4：动态阻挡用既有导航接口，不另造机制）；`feel_breakable` 的 `motion.blocking_updates` 记下变更 tick。
+10. **可破坏障碍（真表达，M3-E2 取代此前的近似）**：靶子条目声明 `block_half_extent`（`lab.dummy_set` 的可选字段）即动态阻挡，`kind = breakable` 不声明时缺省 0.5，其它 kind 声明了同样生效、不声明就不挡路。宿主在地形阻挡之外追加以出生点为中心的占位矩形，被打死后经 `INavigation2D.SetBlocking` 批量替换去掉，导航阻挡版本随之递增（`GetBlockingVersion`；手感设计 06 第 10 节勘误 4：动态阻挡用既有导航接口，不另造机制，核心层不需要新增能力）。不再限手感场景：基础靶子集（`lab.dummy_set.lab_standard`，旧脚本用）与手感靶子集（`lab_action`）里的 `breakable` 都显式声明了 `block_half_extent: 0.5`；任何场景里阻挡变更都另记一条 `blocking_changed` 逻辑事件（`LabRecording.Events`，来源空、目标为障碍标签、数量为剩余阻挡数、`Detail` 为 `v<阻挡版本>`），手感场景仍由 `feel_breakable` 的 `motion.blocking_updates` 度量守（基线不变）。旧脚本里没有选 `breakable` 分组的，指纹与基线逐字不变。
 11. **确定性**：命中表随机项在实验室数据里关闭；靶子默认不带 AI（`ai: true` 才保留）；不死木桩用 `power_floors` 的最低保留线实现"吃伤害不死"。
 12. **随发布产物分发**（M2-D 取代此前"不进分发包"的决定，理由：06 第 8 节第 2 步要求游戏用实验室在自己的数据上校准手感，只消费发布产物的游戏不能依赖"框架一侧代跑"）：`toolchain/feellab` 与 SimRunner 同一治理方式——`FeelLab.csproj` 在源码树存在时 `ProjectReference` 内核，不存在时改引用 `lib/` 下 9 个预编译 DLL（内核 + Core.Sim + Adapters.Stub + 六个核心 DLL）；`build.ps1` 把预编译产物拷进 `dist/<版本>/toolchain/feellab/{bin,lib}`（含空 `Directory.Build.props`，MANIFEST 新增 `[feellab]` 段记 `FeelLab.dll`/`Lab.Kernel.dll` 的 sha256；lock 不扩字段，同 SimRunner），并把 `data/_lab`、`data/_lab_action`、`data/_equip`、`lab/fixtures` 按仓库同路径拷进 dist 根（`equip_cycle` 脚本声明了 `data/_equip` 作额外数据根，缺它 suite 抛"数据根目录不存在"，所以一并分发）。私服包落点是 `com.gamefoundation.toolchain`（命令行与预编译产物本来就在它的 `Tools~/` 里），另在 `Tools~/feellab/labroot/` 放一份自包含的实验室根（含 `data/_framework`、`data/_feel` 各一份，约 85 KB），让它不依赖同时装 framework-data 包；实验室数据不进 framework-data 包、不同步进游戏的 StreamingAssets（验收设施数据，不是运行期框架数据）。游戏仓库也仍可直接引用内核工程（内核是 netstandard2.1，与核心库同目标框架）。
 13. **基线单文件多格子**：每个脚本一份基线文件，内含六个格子的 `{key, groups}`，比 54 个小文件更易评审且同脚本的跨格子差异在同一处可见。
@@ -153,14 +175,19 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 
 34. **M2-C 单位间体积阻挡脚本 `feel_unit_block`**：玩家（-1.5, 0）按住 +x 走向木桩（2, 0），第 90 tick 松手，第 100 tick 按闪避；预设 `feel.preset.unit_block`（继承 `arpg_responsive`，`unit_body_radius` 0.4 身高）与标定 `lab_unit_block`（参考身高 1.0）放在独立数据根 `lab/fixtures/data/unit_block/`，经该脚本 `meta.extraDataRoots` 叠加（不进 `data/_feel`/`data/_lab_action`，否则既有脚本的数据集哈希会变，同判断记录 17/23）。脚本钉死预设（`meta.presetId`），所以六格都按体积预设跑（目标选择式格子同样被挡）；`feelCalibrationId` 留空由 `lab_<预设短名>` 推出，运行变体换预设（如 `unit_block_pass`、`arpg_responsive`）时标定行随之换。实测：玩家停在 x = 1.1990740740740742（体积边界 1.2 减一个到达容差内），中心距在每个 tick 都不小于半径之和 0.8，闪避不改变位置；换成 `unit_block_pass`（`dodge_through_units`）闪避穿过木桩，换成 `arpg_responsive`（不声明体积）一路走进木桩。期望值在 `FeelSceneTests` 里由预设半径 × 标定参考身高算出。**`LabInvariants` 为钉死预设的脚本做了两处调整**（既有脚本不受影响，其条目数不变）：动作式剥离不变量的"目标选择式格子"比较对象的预设取脚本钉死的预设而不是格子缺省预设；手感装配透明性不变量（"换成 `rpg_classic` 后装配透明"）不适用于钉死了预设的脚本，跳过（它的预设是脚本自己的主张）；`CrossCellInvariantTests` 的条数断言相应改为只统计未钉预设的手感脚本。
 
+35. **脚本期望清单（M3-E2，手感设计 06 第 3.1 节）**：`InputScript.Expectations`，格式版本 4（`ExpectFormatVersion`），只有带期望的脚本才写版本 4，其余脚本的序列化文本与基线逐字不变，版本 1～3 照常读取；`MaxSupportedFormatVersion` 升到 4。实现在 `lab/core/Expectations.cs`：`Expectation`（格式、解析、规范写出）、`ExpectationEvaluator`（运行期判定与诊断）、`ExpectationExporter`（导出生成）。判断：期望不属于脚本行为身份——增删期望不改 `scriptVersion`、不改指纹键与度量；期望判定与基线比较各自独立，任一不通过该格子都算 `Diff`（沿用 `CellStatus.Diff`，不新增枚举成员，`suite` 汇总行 `RESULT total=… diff=…` 格式不变，门禁解析不动），期望自己的汇总另起一行 `RESULT expectations …`；未知字段、重复 id、拼错的度量组/度量/格子都不静默忽略（解析期或套件开跑前抛 `LabFormatException`，退出码 5），运行期取不到值的记为 `Error` 而非通过；`eq` 对数值用 1e-9（度量本身已规整到 9 位小数）、对文本与数组按规范文本逐字；跨格子相对关系按需运行对照格子并在同一脚本内缓存。
+36. **导出为测试产出期望（M3-E2，06 第 3.5 节）**：`LabSuite.ExportAsTest(runner, script, dir, onlyCell, expect, writeExpectations)` 在写脚本与基线之外，由各格子指纹生成期望清单（规则与取舍见上文「脚本期望清单」一节）。判断：导出的期望自动 id 以 `auto.` 为前缀，再导出只替换这一类、手写的保留（否则一次重导出就会丢掉人写的断言）；合并规则按取值分桶（取值全一致不带 `cells`），这样清单短、可编辑；实时类默认不导出（随机器抖动，基线按量级分桶已守着）；不变量测试对每个入库脚本的每个适用格子证明"导出的期望在同一次运行上必然全部通过"。
+37. **靶子数据声明（M3-E2，06 第 2 节）**：`lab.dummy_set` 条目新增两个可选字段——`block_half_extent`（判断记录 10）与 `poise`（判断记录 38），声明在 `core/sim/schema/LabSchemas.cs`，类型化读取在 `LabCatalog`（`LabDummy.DeclaredBlockHalfExtent`/`BlockHalfExtent`/`Poise`），旧构造保留（只增不改）。缺省不声明即与此前逐位一致。
+38. **不死木桩可选韧性（M3-E2）**：靶子条目声明 `poise`（≥ 0），宿主在靶子出场后用 `StatHost.SetBase` 写进 `stat.poise`（受击裁决读取的缺省韧性属性，`HitFeelOptions.PoiseStat`），裁决规则不变：攻击的 `stagger_power` ≤ 韧性只 `Flinch`，否则按冲击等级映射再受 `reaction_cap` 封顶。`stat.poise` 的属性定义放在 `data/_lab_action/stat/stat.definition.json`（与判断记录 23 同理不碰 `data/_lab`），声明了 `poise` 而数据集里没有该属性定义时宿主抛 `LabFormatException` 并指明缺什么，不静默忽略；写属性会让总线多一条 `StatChanged` 事件，只影响声明了韧性的脚本的 `performance.event_count_total`。新增靶子 `stake_tough`（`lab_action` 靶子集，`poise = 1`，对应预设的普通击强度 1、终结击强度 2）与脚本 `feel_stake_poise`（三段连招打韧性木桩：前两击 Flinch、终结击 Knockback；目标选择式格子经典预设不装受击裁决，反应恒为 None，韧性不改变它）。
+
 ## 已知局限
 
 
-- 标准脚本集：06 第 3.1 节的短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中、换装循环（十个旧脚本）加 S7b 的十九个与 S12 的一个手感脚本；"被精英打断"拆成了霸体窗口内（`feel_elite_armor`）、窗口后按反应上限封顶（`feel_elite_flinch`）与普通靶被打断（`feel_interrupt`）三种，因为精英的 `reaction_cap = flinch` 本身不会被打断。
+- 标准脚本集：06 第 3.1 节的短按、小幅轴、反转、斜向、贴墙、绕柱、边走边打、打完即停、群体命中、换装循环（十个旧脚本）加 S7b 的十九个、S12 的一个、M2-C 的一个与 M3-E2 的一个（`feel_stake_poise`）手感脚本；"被精英打断"拆成了霸体窗口内（`feel_elite_armor`）、窗口后按反应上限封顶（`feel_elite_flinch`）与普通靶被打断（`feel_interrupt`）三种，因为精英的 `reaction_cap = flinch` 本身不会被打断。
 - 度量组：响应、移动、攻击、性能四个常驻组，换装与七个手感组为条件组（装备解析、手感场景）。
-- 无引擎宿主、无面板、无覆盖存储与 A/B；`expectations`（导出为测试时由指纹生成的期望）未实现——当前"导出为测试"产出的是脚本加基线。
+- 无引擎宿主、无面板、无覆盖存储与 A/B；`expectations` 与"导出为测试"产出期望已实现（判断记录 35、36）。期望只在 `suite`、`run` 里判定（引擎宿主与面板未提供）；导出不导长序列文本与实时类（见「脚本期望清单」），生成的期望只是起点，由人编辑。
 - 三种空间与呈现组合在无头宿主上只有标签与假适配器视图的差异，逻辑判定完全相同（这正是"平面格子间逻辑组指纹逐字节一致"不变量要证明的）；`camera_relative` 控制空间与体积空间格子标"不可运行"。
-- 数据表不能表达的靶子特征：不死木桩的"可选韧性值"（韧性 `poise` 按受击裁决读取，木桩没有声明）；旧靶子集的可破坏障碍仍是近似（判断记录 10）。
+- 靶子数据已能表达可破坏障碍（`block_half_extent`）与木桩韧性（`poise`）；韧性只读缺省的 `stat.poise` 属性（游戏改了 `HitFeelOptions.PoiseStat` 要在自己的数据里按同一属性写），伤害削减韧性、脱战回复这类韧性动态变化不在实验室数据表达范围内。动态阻挡是整批替换（导航契约语义），一次死亡重发全部阻挡矩形，靶子很多时开销随阻挡数线性增长；目前一张图只有一个障碍，不构成问题。
 - 表现时间线是反馈流水线出批给假 sink 的指令，不含动画切换、真实音频与镜头平滑（那是引擎适配器的职责）；是否需要引擎 PlayMode 见下一条。
 - **无头宿主不能证明的东西**：真实渲染帧（动画事件对齐、镜头插值、粒子）、真实输入设备的轴/按键抖动与延迟、真实时钟下的帧耗时；这些仍需要引擎 PlayMode 的实验室宿主（06 第 4 节引擎宿主，本仓库未提供）。M1 竖切前核心逻辑侧的手感行为（输入缓冲、动作时间线、顿帧、受击反应、运动、空间命中、反馈指令）已被指纹钉住，引擎 PlayMode 只需要验证"适配器把逻辑指令画对"。
 - 实验室冲击档案与 sfx 行是内核内置的（判断记录 27），游戏仓库跑自己的实验室时用自己的档案。

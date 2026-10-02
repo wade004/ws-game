@@ -1,5 +1,5 @@
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "meta": {
     "scriptId": "feel_kill",
     "scriptVersion": 1,
@@ -45,6 +45,64 @@
       "tick": 6,
       "action": "input.action.lab_a_attack",
       "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "kill_exactly_once",
+      "metric": "attack.kills",
+      "op": "eq",
+      "value": 1,
+      "note": "一击击杀，只计一次击杀。"
+    },
+    {
+      "id": "single_blow",
+      "metric": "attack.damage_events",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "death_reaction",
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Death:1"
+    },
+    {
+      "id": "action_cells_freeze_attacker",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "hitstop.started_ticks_player",
+      "op": "ge",
+      "value": 1,
+      "note": "动作式击杀放大顿帧：攻击方至少冻结 1 tick。"
+    },
+    {
+      "id": "targeted_cells_no_freeze",
+      "cells": [
+        "2d_targeted",
+        "2_5d_targeted",
+        "3d_targeted"
+      ],
+      "metric": "hitstop.started_ticks_player",
+      "op": "eq",
+      "value": 0,
+      "note": "目标选择式（经典预设）没有顿帧。"
+    },
+    {
+      "id": "action_freezes_longer_than_targeted",
+      "cells": [
+        "2d_action"
+      ],
+      "metric": "hitstop.started_ticks_player",
+      "op": "gt",
+      "versus": {
+        "cell": "2d_targeted",
+        "metric": "hitstop.started_ticks_player"
+      },
+      "note": "跨格子相对关系：同一脚本动作式比目标选择式冻得久。"
     }
   ]
 }

@@ -124,7 +124,7 @@ namespace Core.Sim
                 new FieldSchema("name", FieldKind.String, required: true,
                     description: "靶子名，同一靶子集内唯一"),
                 new FieldSchema("kind", FieldKind.Enum, required: true, enumValues: DummyKindValues,
-                    description: "stake=不死木桩；mob=普通怪；elite=精英；swarm=群体簇（一键刷 count 个）；patrol=巡逻靶；breakable=可破坏障碍"),
+                    description: "stake=不死木桩（可选 poise 韧性）；mob=普通怪；elite=精英；swarm=群体簇（一键刷 count 个）；patrol=巡逻靶；breakable=可破坏障碍（动态阻挡，见 block_half_extent）"),
                 new FieldSchema("creature_ref", FieldKind.Reference, required: true, referenceTable: "creature.template",
                     description: "靶子的生物模板"),
                 new FieldSchema("position", FieldKind.Vec2, required: true,
@@ -139,6 +139,14 @@ namespace Core.Sim
                     .WithRange(FieldRange.Range(min: 0)),
                 new FieldSchema("ai", FieldKind.Bool, required: false,
                     description: "是否保留模板自带 AI 注册，缺省 false（实验室默认关闭 AI，保证指纹可复现）"),
+                new FieldSchema("block_half_extent", FieldKind.Number, required: false,
+                    description: "（可破坏障碍）声明该靶子同时是动态阻挡：出生时在地形阻挡之外追加一块以出生点为中心、半边长为该值的轴对齐矩形，"
+                        + "被打死时经导航接口批量替换去掉（阻挡版本号递增）。kind = breakable 不声明时缺省 0.5；其它 kind 声明了就同样生效，不声明就不挡路")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                new FieldSchema("poise", FieldKind.Number, required: false,
+                    description: "（韧性）靶子的韧性值，开手感的场景里出场后写进该单位的韧性属性（受击裁决：攻击的硬直强度不高于它时只播受击动画不打断）；"
+                        + "缺省不声明，等价韧性为 0（所有命中按冲击等级映射反应）")
+                    .WithRange(FieldRange.Range(min: 0)),
             });
 
         public static readonly TableSchema DummySet = new TableSchema(

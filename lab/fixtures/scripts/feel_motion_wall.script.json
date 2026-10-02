@@ -1,5 +1,5 @@
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "meta": {
     "scriptId": "feel_motion_wall",
     "scriptVersion": 1,
@@ -49,6 +49,22 @@
         "x": 0,
         "y": 0
       }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "hits_the_wall",
+      "metric": "movement.blocked_ticks",
+      "op": "ge",
+      "value": 1
+    },
+    {
+      "id": "slides_not_stalls",
+      "metric": "movement.obstructed_speed_fraction",
+      "op": "between",
+      "min": 0,
+      "max": 0.2,
+      "note": "贴墙时的速度占比有上界（上下界示例）。"
     }
   ]
 }

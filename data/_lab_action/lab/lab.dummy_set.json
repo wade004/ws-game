@@ -16,6 +16,17 @@
           "group": "stake"
         },
         {
+          "name": "stake_tough",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake_tough",
+          "poise": 1
+        },
+        {
           "name": "mob",
           "kind": "mob",
           "creature_ref": "creature.lab_mob",
@@ -94,10 +105,11 @@
             "x": 2,
             "y": 0
           },
-          "group": "breakable"
+          "group": "breakable",
+          "block_half_extent": 0.5
         }
       ],
-      "note": "动作式实验室靶子集：全部靶子贴近玩家出生点（原点，朝向 +x），落在 2.5 单位的近战扇形内；精英在 x=3 面朝玩家，巡逻靶沿 x=2 往返，可破坏障碍同时是动态阻挡。"
+      "note": "动作式实验室靶子集：全部靶子贴近玩家出生点（原点，朝向 +x），落在 2.5 单位的近战扇形内；精英在 x=3 面朝玩家，巡逻靶沿 x=2 往返，可破坏障碍声明 block_half_extent 同时是动态阻挡；韧性木桩 stake_tough 声明 poise。"
     }
   ]
 }

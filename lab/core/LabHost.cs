@@ -70,11 +70,16 @@ namespace Lab
     /// （宿主不再自己提交施放意图）；每步末尾（事件派发之后）采缓冲槽与运动层状态并让反馈流水线兜底出批；
     /// 靶子（含 AI 巡逻靶）的位置每步同步进空间索引（引擎侧由物理空间查询适配器做）。可破坏障碍是真正的动态阻挡：
     /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.SetBlocking</c> 批量替换去掉，
-    /// 阻挡版本号随之递增（06 第 10 节勘误 4 的收口）。
+    /// 阻挡版本号随之递增（06 第 10 节勘误 4 的收口）。动态阻挡由靶子数据声明（<c>block_half_extent</c>，<c>breakable</c> 缺省 0.5），
+    /// 不限手感场景：基础靶子集里的可破坏障碍同样是真阻挡；阻挡变更另记一条 <c>blocking_changed</c> 逻辑事件。
+    /// 靶子可选声明韧性（<c>poise</c>）：出场后写进韧性属性，受击裁决读它。
     /// </para>
     /// </summary>
     public static class LabHost
     {
+        /// <summary>靶子的韧性值写进的属性 id（与受击裁决读取的缺省韧性属性一致，<c>HitFeelOptions.PoiseStat</c> 缺省值）。</summary>
+        public const string PoiseStatId = "stat.poise";
+
         /// <summary>桩适配层在本宿主上提供的能力集合（空：桩没有自由视角、体积扫掠等能力）。</summary>
         public static IReadOnlyCollection<string> AvailableCapabilities { get; } = Array.Empty<string>();
 
@@ -268,11 +273,33 @@ namespace Lab
                     recording.Dummies.Add(new KeyValuePair<string, Vec2>(label, pos));
                     dummyUnits.Add(new KeyValuePair<string, Id>(label, id));
                     dummyByLabel[label] = id;
-                    if (feelScene && string.Equals(dummy.Kind, "breakable", StringComparison.Ordinal))
+                    if (dummy.BlockHalfExtent is double half)
                     {
-                        // 可破坏障碍是动态阻挡：占位矩形随地形阻挡一起生效，被打死后移除（见类型判断记录）。
+                        // 可破坏障碍（数据声明 block_half_extent，或 kind = breakable 取缺省）是动态阻挡：占位矩形随地形阻挡一起生效，
+                        // 被打死后移除（见类型判断记录）；任何场景都生效，不限手感场景。
                         dynamicBlocks.Add(new KeyValuePair<Id, Rect>(
-                            id, new Rect(new Vec2(pos.X - 0.5, pos.Y - 0.5), new Vec2(pos.X + 0.5, pos.Y + 0.5))));
+                            id, new Rect(new Vec2(pos.X - half, pos.Y - half), new Vec2(pos.X + half, pos.Y + half))));
+                    }
+
+                    if (dummy.Poise is double poise)
+                    {
+                        // 靶子声明的韧性值写进该单位的韧性属性（受击裁决读它；缺省不声明即韧性 0，行为与不支持韧性时一致）。
+                        var stats = world.Gameplay.Carriers.Rules.Stats;
+                        var poiseStat = new Id(PoiseStatId);
+                        if (!stats.IsRegistered(id))
+                        {
+                            throw new LabFormatException($"靶子 {dummy.Name} 声明了 poise，但单位未注册属性（无法写韧性）");
+                        }
+
+                        try
+                        {
+                            stats.SetBase(id, poiseStat, poise);
+                        }
+                        catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
+                        {
+                            throw new LabFormatException(
+                                $"靶子 {dummy.Name} 声明了 poise，但数据集里没有属性 {PoiseStatId} 的定义（{ex.Message}）；手感场景请叠加声明它的数据根（如 data/_lab_action）");
+                        }
                     }
                 }
             }
@@ -541,7 +568,11 @@ namespace Lab
                                 }
 
                                 nav.SetBlocking(arena.MapId, remaining);
-                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remaining.Count, nav.GetBlockingVersion(arena.MapId));
+                                var blockingVersion = nav.GetBlockingVersion(arena.MapId);
+                                recording.Events.Add(new LogicEventRecord(
+                                    tick, "blocking_changed", string.Empty, labels[died.UnitId], string.Empty, 0, remaining.Count,
+                                    "v" + blockingVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remaining.Count, blockingVersion);
                                 break;
                             }
                         }

@@ -1,5 +1,5 @@
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "meta": {
     "scriptId": "feel_breakable",
     "scriptVersion": 1,
@@ -121,6 +121,28 @@
         "x": 0,
         "y": 0
       }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "break_exactly_once",
+      "metric": "attack.kills",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "player_was_blocked",
+      "metric": "movement.blocked_ticks",
+      "op": "ge",
+      "value": 1,
+      "note": "击碎之前玩家确实被障碍挡住过。"
+    },
+    {
+      "id": "blocking_replaced_once",
+      "metric": "motion.blocking_updates",
+      "op": "contains",
+      "value": ":5/3",
+      "note": "阻挡只更新一次：5 块阻挡（地形五块，障碍已移除），导航阻挡版本 3（地形、地形加障碍、移除障碍三次整批替换）。"
     }
   ]
 }
