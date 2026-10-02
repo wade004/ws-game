@@ -105,6 +105,30 @@ namespace Adapter.Unity.EngineAdapter
             SetZoom(_zoom); // 重新夹紧到新的 zoomRange
         }
 
+        private bool _applyYawRotation;
+
+        /// <summary>
+        /// 可选能力（默认关闭，关闭时行为与引入前逐位一致）：打开后 <see cref="Configure"/> 记下的 <c>yawDegrees</c> 会真正作用到相机朝向——
+        /// 相机绕视线轴（世界 Z 轴）逆时针转过该角度，使相机的右轴在世界平面上是 (cos yaw, sin yaw)、上轴是 (−sin yaw, cos yaw)。
+        /// 判断记录（为什么只做偏航）：2D 渲染管线不支持透视俯角（见类型顶部判断记录），本相机仍是正交投影；相机相对输入（第三人称）
+        /// 只依赖相机在世界平面上的朝向，偏航足以让实验室宿主用真实相机的轴与屏幕投影去验证"摇杆 × 相机偏航 → 世界方向"。
+        /// 带俯角的透视相机（<c>fixed_pitch</c>）本类型仍未实现，是已知缺口。
+        /// </summary>
+        public bool ApplyYawRotation
+        {
+            get => _applyYawRotation;
+            set
+            {
+                if (_applyYawRotation == value)
+                {
+                    return;
+                }
+
+                _applyYawRotation = value;
+                _camera.transform.rotation = value ? Quaternion.Euler(0f, 0f, (float)_yawDegrees) : Quaternion.identity;
+            }
+        }
+
         public void Follow(Vec2 planePos, double smoothing)
         {
             _following = true;
@@ -260,6 +284,11 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             _impulseOffset = impulseSum;
+            if (_applyYawRotation)
+            {
+                _camera.transform.rotation = Quaternion.Euler(0f, 0f, (float)_yawDegrees);
+            }
+
             _camera.transform.position = _basePosition + _shakeOffset + _impulseOffset;
         }
 

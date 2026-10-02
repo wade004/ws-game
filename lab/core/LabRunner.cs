@@ -147,6 +147,27 @@ namespace Lab
             return Fingerprint.Build(Record(script, cell, variant), Registry, DatasetFor(script, scenario, variant).Hash);
         }
 
+        /// <summary>
+        /// 带宿主扩展点的记录（引擎宿主、调试覆盖；见 <see cref="LabHostExtension"/>）；<paramref name="extension"/> 为 null 等同无扩展版本。
+        /// </summary>
+        public LabRecording Record(InputScript script, string cell, LabRunVariant? variant, LabHostExtension? extension)
+        {
+            var scenario = ScenarioFor(script, cell);
+            var dataset = DatasetFor(script, scenario, variant);
+            return LabHost.Run(dataset.HostOptions, dataset.Catalog.GetScenario(cell), script, dataset.Catalog, variant, extension);
+        }
+
+        /// <summary>带宿主扩展点的指纹（用本运行器的注册表折算度量）。</summary>
+        public Fingerprint Run(InputScript script, string cell, LabRunVariant? variant, LabHostExtension? extension)
+        {
+            var scenario = ScenarioFor(script, cell);
+            return Fingerprint.Build(Record(script, cell, variant, extension), Registry, DatasetFor(script, scenario, variant).Hash);
+        }
+
+        /// <summary>数据集内容哈希（该脚本在该格子/变体下实际运行的数据集）。</summary>
+        public string DatasetHashFor(InputScript script, string cell, LabRunVariant? variant = null) =>
+            DatasetFor(script, ScenarioFor(script, cell), variant).Hash;
+
         /// <summary>该脚本适用的格子：格子的脚本子集为空表示适用全部，否则脚本 id 必须在子集里。</summary>
         public IReadOnlyList<LabScenario> ApplicableCells(InputScript script)
         {
@@ -403,7 +424,16 @@ namespace Lab
         /// 期望引用的度量组/度量/格子不存在时，同样逐条给出"无法判定"，不抛异常。
         /// </summary>
         public static List<ExpectationResult> EvaluateExpectations(
-            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache)
+            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache) =>
+            EvaluateExpectations(runner, script, cell, actual, cache, null);
+
+        /// <summary>
+        /// 同上，另允许调用方给出"相对关系引用的另一个格子怎么跑"（<paramref name="runOther"/>，引擎宿主用它在引擎宿主上跑对照格子）；
+        /// 为 null 时用 <paramref name="runner"/> 的无头宿主。可运行性检查不变。
+        /// </summary>
+        public static List<ExpectationResult> EvaluateExpectations(
+            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache,
+            Func<string, Fingerprint>? runOther)
         {
             if (script.Expectations.Count == 0)
             {
@@ -425,7 +455,7 @@ namespace Lab
                     throw new LabFormatException(runnability.ToString());
                 }
 
-                var fingerprint = runner.Run(script, other);
+                var fingerprint = runOther != null ? runOther(other) : runner.Run(script, other);
                 cache[other] = fingerprint;
                 return fingerprint;
             }

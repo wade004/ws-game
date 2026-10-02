@@ -114,7 +114,24 @@ namespace Adapter.Unity.Presentation
 
         /// <summary>按 <paramref name="deltaSeconds"/> 推进内部播放器（暂停时内部播放器自己忽略）；<see cref="Update"/> 以 <see cref="Time.deltaTime"/> 调用，
         /// 测试经此确定性地推进，不依赖真实帧时间。</summary>
-        internal void Advance(double deltaSeconds) => _inner?.Update(deltaSeconds);
+        internal void Advance(double deltaSeconds)
+        {
+            if (_inner == null)
+            {
+                return;
+            }
+
+            // 实验室引擎宿主观测用：只记"确实在播放且未暂停"的推进量（暂停期间内部播放器忽略推进，这里同样不计）。
+            if (!_paused && _inner.CurrentClipId.HasValue)
+            {
+                AdvancedSeconds += deltaSeconds;
+            }
+
+            _inner.Update(deltaSeconds);
+        }
+
+        /// <summary>累计推进的播放时间（秒；暂停期间与没有在播剪辑时不增长），供实验室引擎宿主观测"顿帧期间 rig 的动画时间确实没推进"。</summary>
+        internal double AdvancedSeconds { get; private set; }
 
         /// <summary>登记一个剪辑：<paramref name="frames"/> 长度即帧数，<paramref name="frameRate"/>
         /// 播放帧率（帧/秒），<paramref name="keyframes"/> 关键帧标记（见

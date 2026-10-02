@@ -1,0 +1,26 @@
+{
+    "name": "Adapter.Unity.LabHost",
+    "rootNamespace": "Adapter.Unity.LabHost",
+    "references": [
+        "Adapter.Unity"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Core.Foundation.dll",
+        "Core.Numbers.dll",
+        "Core.Rules.dll",
+        "Core.Carriers.dll",
+        "Core.Gameplay.dll",
+        "Presentation.Common.dll",
+        "Adapters.Stub.dll",
+        "Core.Sim.dll",
+        "Lab.Kernel.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
