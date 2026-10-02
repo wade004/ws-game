@@ -340,7 +340,7 @@ def verify(assets_out: Path, data_out: Path, deep_images: bool = True) -> Report
         for g in spec.get("mass_groups", []):
             for key, e in g["clips"].items():
                 if not e.get("alias_of"):
-                    expected.update(d.name for _t, d in _group_dirs(assets_out, e, slots))
+                    expected.update(d.name for _t, d in _group_dirs(assets_out, e, slots, _mass_composite(spec)))
         for d in root.iterdir():
             if d.is_dir() and d.name.startswith(C.STEM_PREFIX) and d.name not in expected:
                 r.warn(f"清单外残留目录：{d.name}")
@@ -377,10 +377,17 @@ def _lowest_y(pose: dict, family: str | None = None) -> float:
     return low + solve_ground(pose, parts)
 
 
-def _group_dirs(assets_out: Path, e: dict, slots: list[str]):
-    """体量组一个剪辑键应有的资源目录：整身默认朝向 + 各 canonical 方向的逐层剪辑（不含整身方向合成变体）。"""
+def _mass_composite(spec: dict) -> bool:
+    """体量组是否写整身方向变体（M4-W5 起与主集同一开关 params.composite_direction_variants；规格 mass_tiers 里同值留痕，两处不一致报错）。"""
+    return bool(spec["params"]["composite_direction_variants"])
+
+
+def _group_dirs(assets_out: Path, e: dict, slots: list[str], composite: bool):
+    """体量组一个剪辑键应有的资源目录：整身默认朝向 + 各 canonical 方向的整身方向变体（composite 时）与逐层剪辑。"""
     out = [("整身", clip_dir(assets_out, e["resource_ref"]))]
     for slot in slots:
+        if composite:
+            out.append((f"整身/{slot}", clip_dir(assets_out, e["resource_ref"], slot)))
         for layer in e["layers"]:
             out.append((f"{layer}/{slot}", clip_dir(assets_out, e["resource_ref"], slot, layer)))
     return out
@@ -477,6 +484,8 @@ def _verify_mass_tiers(r: Report, spec: dict, doc: dict, assets_out: Path, fps: 
             r.err(f"体量档缺 {t}（至少轻/中/重三档）")
     if [g["mass"] for g in groups] != list(mt["tiers"]):
         r.err("mass_groups 与 mass_tiers.tiers 的档不一致")
+    if bool(mt.get("composite_direction_variants")) != _mass_composite(spec):
+        r.err("mass_tiers.composite_direction_variants 应与 params.composite_direction_variants 一致（体量组与主集同一开关）")
     med = rows.get(C.mass_anim_set_id(main_id, mt["main"]))
     if med is None or med.get("extends") != main_id or med.get("clips"):
         r.err(f"中体量行（{mt['main']}）应为 extends 主集的空覆盖行")
@@ -503,7 +512,7 @@ def _verify_mass_tiers(r: Report, spec: dict, doc: dict, assets_out: Path, fps: 
                 r.err(f"{g['id']} {k} 数据行与规格不一致")
             if e.get("alias_of"):
                 continue
-            for tag, d in _group_dirs(assets_out, e, slots):
+            for tag, d in _group_dirs(assets_out, e, slots, _mass_composite(spec)):
                 _check_clip_dir(r, f"{g['mass']}:{k}", tag, d, e, fps, deep)
             # 与主集有差异：同键同方向的身体层图集字节不同
             a = clip_dir(assets_out, e["resource_ref"], slots[0], C.LAYER_BODY) / "atlas.png"

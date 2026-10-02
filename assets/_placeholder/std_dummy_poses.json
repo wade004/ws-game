@@ -1360,7 +1360,7 @@
       "phases": [
         {
           "name": "windup",
-          "ms": 250
+          "ms": 150
         },
         {
           "name": "release",
@@ -1368,13 +1368,13 @@
         },
         {
           "name": "recovery",
-          "ms": 250
+          "ms": 350
         }
       ],
       "frames_per_phase": [
-        5,
+        3,
         2,
-        5
+        7
       ],
       "frame_count": 12,
       "total_ms": 600,
@@ -1386,7 +1386,7 @@
       "events": [
         {
           "name": "release",
-          "time_pct": 0.4167
+          "time_pct": 0.25
         }
       ]
     },
@@ -4987,7 +4987,7 @@
       }
     },
     "react_cap": 2.4,
-    "composite_direction_variants": false
+    "composite_direction_variants": true
   },
   "mass_groups": [
     {
@@ -6294,7 +6294,7 @@
           "phases": [
             {
               "name": "windup",
-              "ms": 250
+              "ms": 150
             },
             {
               "name": "release",
@@ -6302,13 +6302,13 @@
             },
             {
               "name": "recovery",
-              "ms": 250
+              "ms": 350
             }
           ],
           "frames_per_phase": [
-            5,
+            3,
             2,
-            5
+            7
           ],
           "frame_count": 12,
           "total_ms": 600,
@@ -6320,7 +6320,7 @@
           "events": [
             {
               "name": "release",
-              "time_pct": 0.4167
+              "time_pct": 0.25
             }
           ]
         },
@@ -11205,7 +11205,7 @@
           "phases": [
             {
               "name": "windup",
-              "ms": 250
+              "ms": 150
             },
             {
               "name": "release",
@@ -11213,13 +11213,13 @@
             },
             {
               "name": "recovery",
-              "ms": 250
+              "ms": 350
             }
           ],
           "frames_per_phase": [
-            5,
+            3,
             2,
-            5
+            7
           ],
           "frame_count": 12,
           "total_ms": 600,
@@ -11231,7 +11231,7 @@
           "events": [
             {
               "name": "release",
-              "time_pct": 0.4167
+              "time_pct": 0.25
             }
           ]
         },

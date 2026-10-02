@@ -120,7 +120,10 @@ PHASES_OTHER = {
     "hit.getup": (("rise", 600),),
     "death": (("fall", 400), ("lie", 500)),
     "jump": (("takeoff", 120), ("air", 360), ("land", 120)),
-    "cast": (("windup", 250), ("release", 100), ("recovery", 250)),
+    # 施法：前摇取 150 ms（M4-W5 起；此前 250）。理由：手感实验室的动作式技能经读条剪辑 cast 播放，其时间线 hit 标记典型值为 150 ms
+    # （100 ms 的连段技能也在 150 之前出手），引擎侧命中帧事件不能早于逻辑命中，所以施放点 release 取 150 ms 而不是 250；
+    # 总时长 600 ms 与帧数 12 不变（前摇/后摇的帧数 3/2/7 与此前 5/2/5 之和相同）。
+    "cast": (("windup", 150), ("release", 100), ("recovery", 350)),
     "dodge": (("start", 60), ("motion", 240), ("recover", 100)),
     # 手感落地 M3-D 追加（自拟）：抛飞 = 冲击 + 滞空（抬升弧线）+ 落地（滑入躺姿，之后接 hit.getup）。
     "hit.launch": (("impact", 100), ("air", 450), ("land", 250)),

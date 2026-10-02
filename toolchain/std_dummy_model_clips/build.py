@@ -53,7 +53,7 @@ def anim_events(events: list[dict]) -> list[dict]:
     for e in events:
         alias = C.ENGINE_EVENT_ALIASES.get(e["name"])
         # 数据行事件自己已带别名事件（同名同时刻，手感落地 M3-D 起 sprite 版同源写入 hit_frame）时不重复烘。
-        if alias and not any(x["name"] == alias and abs(x["time_pct"] - e["time_pct"]) < 1e-9 for x in events):
+        if alias and not any(x["name"] == alias and abs(x["time_pct"] - e["time_pct"]) < 1e-9 for x in out):
             out.append({"name": alias, "time_pct": e["time_pct"]})
     return out
 

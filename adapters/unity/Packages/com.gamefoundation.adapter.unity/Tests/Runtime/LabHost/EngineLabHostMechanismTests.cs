@@ -116,6 +116,34 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.AreEqual(run.Engine.HitAlignments.Count(h => !h.Present), (int)Num(run, "hit_align_missing"), "缺失度量应等于没配上引擎事件的样本数");
         }
 
+        /// <summary>
+        /// M4-W5 复现：此前 <c>feel_melee</c> 的动画命中点比逻辑命中标记晚 150 毫秒，<c>feel_combo3</c> 三次命中只配上最后一次（前两段读条剪辑在到达 250 毫秒的
+        /// release 之前就被下一段切走），模型平面的占位 cast 剪辑没有任何 hit_frame、命中对齐恒缺失。根因在数据：cast 剪辑的 release 比技能命中标记晚。
+        /// 不变量：cast 的 release 在 150 毫秒后，三个位面的 <c>feel_melee</c>、<c>feel_combo3</c> 全部命中都配得上，引擎事件不早于逻辑命中，
+        /// 且滞后不超过 "release 与最早技能命中标记（100 毫秒）之差" 再加帧量化。
+        /// </summary>
+        [Test]
+        public void HitAlignment_AfterTheCastReleaseMovesTo150ms_EveryHitIsPairedOnSpriteAndModelPlanes_WithinTheDeclaredLag()
+        {
+            foreach (var scriptId in new[] { "feel_melee", "feel_combo3" })
+            {
+                foreach (var cell in new[] { "2d_action", "2_5d_action", "3d_action" })
+                {
+                    var script = LabHostTestSupport.Script(scriptId);
+                    var run = Host.Run(script, cell);
+                    var frameMs = 1000.0 / script.Meta.FrameRateCap;
+                    Assert.Greater(run.Engine.HitAlignments.Count, 0, scriptId + "@" + cell);
+                    Assert.AreEqual(0.0, Num(run, "hit_align_missing"), scriptId + "@" + cell + "：全部逻辑命中都应配上引擎命中帧事件");
+                    foreach (var sample in run.Engine.HitAlignments)
+                    {
+                        Assert.IsTrue(sample.Present, scriptId + "@" + cell + " tick " + sample.LogicTick);
+                        Assert.GreaterOrEqual(sample.ErrorMilliseconds, -frameMs - 1e-6, scriptId + "@" + cell + "：引擎事件不应早于逻辑命中");
+                        Assert.LessOrEqual(sample.ErrorMilliseconds, 50.0 + 3 * frameMs, scriptId + "@" + cell + " tick " + sample.LogicTick + "：滞后超出声明范围");
+                    }
+                }
+            }
+        }
+
         // ───────── 镜头冲量插值曲线 ─────────
 
         [Test]
