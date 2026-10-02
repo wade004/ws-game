@@ -31,6 +31,7 @@
           "core/**/README.md",
           "data/**/README.md",
           "games/**/README.md",
+          "lab/**/README.md",
           "presentation/**/README.md",
           "toolchain/**/README.md",
           "architecture/**/*.md"
