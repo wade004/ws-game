@@ -382,10 +382,12 @@ namespace Tests.Carriers.Unit
             public WorldSim World = null!;
             public WorldUnitAccess Units = null!;
             public MovementHost Host = null!;
+            public FakeActions Actions = null!;
             public List<string> Names = null!;
         }
 
-        private static Crowd BuildCrowd(IReadOnlyList<string> creationOrder, IReadOnlyDictionary<string, Vec2> start)
+        private static Crowd BuildCrowd(
+            IReadOnlyList<string> creationOrder, IReadOnlyDictionary<string, Vec2> start, Core.Foundation.EngineAdapter.INavigation2D? nav = null)
         {
             var bus = new EventBus(
                 EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
@@ -404,17 +406,22 @@ namespace Tests.Carriers.Unit
             var feel = AssembleFeel();
             feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.UnitBodyRadius, FeelOp.Set, FeelValue.Of(BodyRel)));
             feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.ForcedPushUnits, FeelOp.Set, FeelValue.Of(true)));
+            if (nav != null)
+            {
+                feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.WallSlide, FeelOp.Set, FeelValue.Of(true)));
+            }
+            var actions = new FakeActions();
             host.Motion = new MotionServices
             {
                 Feel = feel.Resolver,
-                Actions = new FakeActions(),
+                Actions = actions,
                 ActionClock = new FakeClock(),
                 Stagger = new FakeStagger(),
                 RootMotion = new FakeRootMotion(),
             };
             world.RegisterPhaseHandler(
-                TickPhase.MovementAndNavigation, new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, null, opts));
-            return new Crowd { World = world, Units = units, Host = host, Names = creationOrder.ToList() };
+                TickPhase.MovementAndNavigation, new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, nav, opts));
+            return new Crowd { World = world, Units = units, Host = host, Actions = actions, Names = creationOrder.ToList() };
         }
 
         private static uint Hash(string name, int k)

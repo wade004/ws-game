@@ -142,6 +142,11 @@ namespace Core.Carriers.Unit
                 }
             }
 
+            // 单位体积阻挡：登记本 tick 的世界与意图，供 tick 开头预判"谁会动"读取（只读，处理顺序无关）。
+            _tickWorld = world;
+            _tickIntents = intents;
+            _tickLastStop = lastStopIndex;
+
             // 第一遍 A：处理 move_stop 意图（先于 move，同一单位同一 tick 内多条 move_stop 只需按其中
             // 一条处理一次——落地效果只取决于"处理时的当前状态"，重复处理是幂等的，这里用
             // processedStop 去重只是避免重复调用 ApplyStop 做多余工作，不影响结果正确性）。
@@ -833,7 +838,8 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            var targetPos = target.Position;
+            // 有体积的追击者读目标 tick 起点的位置（顺序无关）；没有体积的追击者读目标此刻的位置（既有行为）。
+            var targetPos = ObservedTargetPosition(unit, target);
             var toTarget = targetPos - unit.Position;
             var distance = toTarget.Length;
             if (distance > ZeroLengthEpsilon)
@@ -972,6 +978,7 @@ namespace Core.Carriers.Unit
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
+            var trail = volumeRadius > 0.0 ? new PathTrail(pos) : null; // 位移折线（成对撞停按折线逐段求接触）。
 
             while (remaining > 0 && index < path.Count)
             {
@@ -983,6 +990,7 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     index++;
+                    trail?.Add(pos, index);
                     continue;
                 }
 
@@ -995,8 +1003,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            trail?.AddPoly(volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                trail?.Add(detour, index);
                                 pos = detour;
                             }
 
@@ -1009,6 +1019,7 @@ namespace Core.Carriers.Unit
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
                     index++;
+                    trail?.Add(pos, index);
                 }
                 else
                 {
@@ -1020,8 +1031,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            trail?.AddPoly(volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                trail?.Add(detour, index);
                                 pos = detour;
                             }
 
@@ -1033,6 +1046,7 @@ namespace Core.Carriers.Unit
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
+                    trail?.Add(pos, index);
                 }
             }
 
@@ -1059,6 +1073,7 @@ namespace Core.Carriers.Unit
 
                 pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
                 _units.SetPosition(unit.EntityId, pos);
+                CommitPathTrail(unit, trail);
                 unit.Facing = mt == null ? lastFacing : MotionFacing(unit, lastFacing);
                 EnqueueMoved(unit.EntityId, pos);
             }
@@ -1397,8 +1412,24 @@ namespace Core.Carriers.Unit
             var oldMode = state.Mode;
             unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null);
             RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+            RaiseDisplacementStopped(unit, reason);
             MotionEndDisplacement(unit, reason);
+        }
+
+        /// <summary>
+        /// 受控位移结束的停止事件出口：有体积的单位的到达/受阻事件延后到 tick 末的成对裁决之后、带最终位置发出
+        /// （<see cref="FlushDeferredStops"/>，与 <c>unit.moved</c> 延后的口径一致）；其余情况立即发出，位置是当前位置。
+        /// </summary>
+        private void RaiseDisplacementStopped(Unit unit, MoveStopReason reason)
+        {
+            if (_motionOn && VolumeSnapshotCurrent && _volumeById.ContainsKey(unit.EntityId) &&
+                (reason == MoveStopReason.DisplacementArrived || reason == MoveStopReason.DisplacementBlocked))
+            {
+                _deferredStops.Add((unit.EntityId, reason));
+                return;
+            }
+
+            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
         }
 
         /// <summary>受控位移专用的位置写回帮助方法：位置未变化时不写、不发事件（同
@@ -1441,6 +1472,7 @@ namespace Core.Carriers.Unit
             }
 
             _units.SetPosition(unit.EntityId, newPos);
+            NoteTrail(unit.EntityId, from, newPos, -1);
             EnqueueMoved(unit.EntityId, newPos);
         }
 
@@ -1615,6 +1647,7 @@ namespace Core.Carriers.Unit
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
+            var trail = volumeRadius > 0.0 ? new PathTrail(pos) : null; // 位移折线（成对撞停按折线逐段求接触）。
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1626,6 +1659,7 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     index++;
+                    trail?.Add(pos, index);
                     continue;
                 }
 
@@ -1638,8 +1672,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            trail?.AddPoly(volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                trail?.Add(detour, index);
                                 pos = detour;
                             }
 
@@ -1652,6 +1688,7 @@ namespace Core.Carriers.Unit
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
                     index++;
+                    trail?.Add(pos, index);
                 }
                 else
                 {
@@ -1663,8 +1700,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            trail?.AddPoly(volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                trail?.Add(detour, index);
                                 pos = detour;
                             }
 
@@ -1676,6 +1715,7 @@ namespace Core.Carriers.Unit
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
+                    trail?.Add(pos, index);
                 }
             }
 
@@ -1709,6 +1749,7 @@ namespace Core.Carriers.Unit
                 pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
 
                 _units.SetPosition(unit.EntityId, pos);
+                CommitPathTrail(unit, trail);
                 unit.Facing = mt == null ? lastFacing : MotionFacing(unit, lastFacing);
                 EnqueueMoved(unit.EntityId, pos);
             }
