@@ -455,8 +455,57 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   未设置落盘路径时依然不产生任何文件。编辑器交付后可以删除原有解析该行日志文本判定表名的路径，
   改读落盘 JSON 的 `table` 字段。详见下方"[Unreleased]"正文与
   [ADR-0055](architecture/adr/0055-运行期校验报告落盘出口补表名字段.md)。
+- **手感落地 M4（[Unreleased]）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文。详见下方 `[Unreleased]` 正文。
 
 ## [Unreleased]
+
+本段汇集手感落地 M4（1.95.0 之后）：体积阻挡精确化与三期、宽限瞄点与冻结兜底、实验室无头补完与动态韧性、竖直轴能力包补完与二期（地形、导航、空中战斗）、实验室引擎宿主与引擎侧残余、框架级假人姿势集三期。**不开手感、不声明 `unit_body_radius`、不配置 `MovementOptions.Vertical`、不声明本段新增的任何可选字段时，行为与 1.95.0 逐位一致**；有行为变化的几处见下方"变更"与"接入与迁移说明（M4）"。公开签名只增不改（新增的是默认接口成员、可选属性、重载与新类型，旧签名物理保留）。
+
+### 新增
+
+- **动态韧性池（M4-L，M4-W3 扩展，[ADR-0131](architecture/adr/0131-动态韧性池与回复扩展.md)，手感设计/03 第 4 节）**：攻击方档案可选字段 `poise_damage`（每击韧性伤害），目标侧可选字段 `poise_recover_per_s`、`poise_recover_delay_ms`（回复速率与延迟）、`poise_recover_mode`（`delay`｜`out_of_combat`，缺省 `delay`；后者脱战才回复，复用战斗状态）、`poise_break_reset_ms`（破韧后定时回满，0..60000，缺省不重置），`HitFeelOptions.PoiseDamageImpactMultipliers`（`poise_damage` 按冲击等级缩放）；新事件 `combat.poise_changed`、`combat.poise_recovered`。不声明 `poise_damage` 时逐位保持原有静态韧性规则。
+- **导航增量阻挡（M4-L，[ADR-0132](architecture/adr/0132-导航增量阻挡.md)）**：`INavigation2D` 新增默认接口成员 `AddBlocking`、`RemoveBlocking`、`GetBlocking`，阻挡版本号每次有效变化恰好加一；没有覆盖这些成员也不暴露当前集合的实现在调用增量成员时抛 `NotSupportedException`（不静默丢阻挡）。桩导航与 Unity 导航都已覆盖，可破坏障碍由此增量替换而不是整批重设。
+- **宽限窗口的施法瞄点与框架内置条件（M4-G，M4-W3 收口，[ADR-0133](architecture/adr/0133-宽限窗口的施法瞄点.md)，手感设计/01 第 2.4 节）**：新增 `GraceAim`、`IGraceAimSink`；`IGraceConditionEvaluator` 新增接口缺省成员（带瞄点的三参 `Evaluate`、`UsesAim`、`DefaultAimTarget`），旧的第三方求值器不必改。缺省 Expr 求值器的目标来源优先级为游戏覆盖、施法请求携带的目标或落点、自动攻击目标；表达式新增 `event.aim_*` 上下文（`has_aim`、`aim_distance`、`aim_range`、`aim_in_range`、`aim_line_of_sight`、`aim_is_ground`，惰性计算）。依赖瞄点的条件按瞄点归属历史，瞄点换了历史清零，杜绝"对 A 的宽限放行对 B"。目标链解析出的目标同样记为瞄点；瞄点只对携带宽限条件的请求记录。框架数据新增 `found.grace_condition` 三行内置条件（`input.grace.builtin_aim_in_range`、`builtin_aim_line_of_sight`、`builtin_aim_reachable`），不被引用则没有任何效果。生产装配对单位的输入缓冲惰性分配（没有动作声明宽限条件就不建缓冲，之后声明时补登记），`InputBufferHost.RegisterActor` 同样惰性。无头世界新增可选 `HeadlessWorldOptions.NavigationLineOfSight`（缺省关）。
+- **顿帧冻结的通用兜底（M4-G、M4-W3，[ADR-0129](architecture/adr/0129-顿帧冻结特效与粒子的可选能力接口.md) M4 增补，手感设计/07 第 5 节）**：`freeze_layers.particles` 为真时被冻结单位名下特效的存活时长恒停住，不再取决于适配层是否实现 `IParticleFreezer`；新增 `ParticleFreezeFallbackRenderer2D`（二维渲染契约的装饰器，给没有粒子暂停原语的适配层通用兜底，宿主给时间缩放口时粒子停在原处，否则暂停等于停止、恢复等于按原参数重发；无头桩经 `Wrap` 获得）。
+- **单位体积阻挡精确化与三期（M4-B、M4-W2，[ADR-0128](architecture/adr/0128-单位间体积阻挡.md) M4 增补，手感设计/02 第 3.5 节）**：1.95.0 留下的四条限制解除。①跟随者不再滞后一个 tick，会动的单位之间在 tick 末按最终位置求解；②成对撞停按单位实际走的折线逐段求接触；③位移到达与受阻事件对有体积的单位延后到成对裁决之后、带最终位置发出；④追击与朝目标的动作位移读目标的 tick 起点快照。三期：求解改为"可重放的求解遍"，按实际是否移动分类并迭代到收敛（上限 12 遍），预判只是加速提示，结果与预判无关；接触时刻按速度剖面求解（匀速仍走解析式，逐位不变）；穿过式位移的终点不落在别人体积里（24 个圆周采样点、最多 4 轮），别的单位避让它的最终位置；被拉回的单位保留沿接触面的切向速度、路径进度不倒退；受控位移推人同 tick 生效（连锁最多 8 轮）；位移扫掠与近邻对收集改用均匀网格宽相，与暴力两两比较逐位一致。全部只在 `unit_body_radius > 0` 时生效。
+- **竖直轴能力包补完（M4-V，[ADR-0130](architecture/adr/0130-竖直轴能力包.md) M4 增补，手感设计/06 第 10 节勘误 9）**：全部可选、缺省关闭。①空中水平控制比例（`VerticalAxisOptions.AirControl`，缺省 null = 不限制）与空中跳跃次数（`MaxAirJumps`）；②地形：`ITerrainHeight2D` 与 `world.map.terrain` 数据，地面与天花板高度、落地高度、天花板清零上升速度、斜坡贴地、`StepHeight` 台阶阻挡（经共享阻挡出口，停止原因 `MoveStopReason.TerrainBlocked`）；③空中受击反应 `air_hit_reaction` 与空中姿势键（`jump.rise`、`jump.fall`、`jump.land`、`hit.air`、`attack.air[.<族>]` 及固定回落链，`AirPoseFeeder` 派生空中阶段）；④击飞叠加 `launch_stack`（`restart`｜`add`）与 `launch_stack_cap`；⑤目标链形状 `height_offset`；⑥可选三维施法射程 `SkillOptions.SpatialRange`。
+- **地形与导航二期（M4-W1a，ADR-0130 M4 增补）**：台阶规则改为滑窗（阻挡点与停点二分到 1e-10，停点精确）；`INavigation2D.FindPath`、`TryFindNearestReachable` 新增带 `ITerrainStepConstraint` 的默认接口重载，共享规划器 `TerrainStepPathPlanner` 由桩导航、Unity 导航与开阔场地导航共用，目标被台阶整个隔开时报 `NoPath`；路径校验看地形，路径分段按折线精确扫掠；单向平台落地条件加竖直速度不大于 0（上升中穿过更高平台不落地）；走出台地边缘下落由 `VerticalAxisOptions.FallHeight` 决定；地形形状支持矩形、凸多边形与高度场同表（后声明覆盖先声明，`WorldMapTerrainValidationRule` 校验）；`AiHost.TerrainStepConstraint`（缺省 null）让 AI 转向感知台阶；Unity 适配新增 `UnityTerrainHeight2D`（物理射线实现，按物理场景与地图根隔离，`BindMap`、`BindMapRoot`、`StrictMaps`）与地形感知的 `UnityNavigation2D`。
+- **空中战斗与空中姿势维度（M4-W1b，ADR-0130 M4 增补）**：手感档案新增可选字段 `air_reaction_cap`（空中反应上限）、`launch_height_cap`（击飞绝对高度上限）、`launch_body_scale`（按体型缩放击飞）、`air_stun_until_land`（空中硬直撑到落地）、`land_hold_ms`（落地保持毫秒）；新事件 `unit.landed`（`VerticalAxisOptions.EmitLandedEvent`，缺省关）；`MovementOptions.DepthLockControlledMotion`（受控位移也受深度锁，缺省关）；`SkillOptions.SpatialRangeHitWindow`（动作式结算命中窗口的射程门，缺省关）；地面坐标施法的落点高度读地形（`IUnitAccess.GetGroundHeightAt`）；`ILaunchSink.BeginLaunch` 新增带高度上限的默认接口重载（既有实现不必改）；空中姿势键可带姿态、武器族、变体维度并按维度前缀逐段回落。
+- **实验室引擎宿主（M4-H、M4-W4，[ADR-0134](architecture/adr/0134-实验室引擎宿主.md)，手感设计/06 第 4 节）**：同一个运行入口加扩展钩子 `LabHostExtension`（不是第二套循环），逻辑组指纹与无头宿主逐字节一致（新增跨宿主不变量）；引擎侧失败隔离进记录；条件度量组 `engine`（命中帧对齐、镜头冲量曲线、顿帧期间 rig 与粒子推进量、CPU 与 GPU 帧耗时、相机相对输入误差、换装图层核对、引擎失败数）；覆盖存储 `OverrideStore` 与 A/B 对比（源数据一字不动）；输入噪声模型与回放；编辑器面板 `GameFoundation/手感实验室`（面板逻辑在纯逻辑的 `LabPanelModel`）；Unity 包新增可选程序集 `Adapter.Unity.LabHost`（不自动引用、不进玩家构建）。GPU 帧耗时只在有图形设备的环境取得，取不到时度量照样在场、状态标 `unavailable`、数值取哨兵 -1。
+- **相机相对控制空间与相机俯仰/透视（M4-W4，[ADR-0135](architecture/adr/0135-相机相对控制空间与可选相机俯仰透视.md)）**：`found.input_action` 新增可选字段 `control_space`（`world` 缺省｜`camera_relative`），新增可选能力接口 `ICameraOrientation`（只有偏航角），`InputMapOptions.CameraOrientation` 提供朝向来源；声明了 `camera_relative` 却没有朝向来源是声明期错误。`UnityCamera` 新增可选能力 `ApplyPitch`（固定俯仰，[0, 89] 度）与 `Perspective`/`FieldOfViewDegrees`（透视，缺省 40 度），显式声明才生效，缺省保持正交俯视。
+- **可注入帧时间源（M4-W4，[ADR-0136](architecture/adr/0136-可注入帧时间源.md)）**：新增 `IFrameTimeSource` 与 `ManualFrameTimeSource`；`UnityFrameAnimPlayer`、`EffectSequencePlayer` 新增公开可选属性 `TimeSource` 与公开 `Step()`，`UnityRenderer2D.EffectTimeSource`/`StepEffects()` 对全部序列帧特效生效；不设置则每帧取引擎帧间隔，行为逐位不变。M4-H 的内部推进入口已删除。
+- **图标加载路径（M4-W4）**：`UnityResourceLoader` 对 `icon` 类别资源引用走 `icons/<类别>/<名>.png` 约定；`toolchain/resource_layout_map.json` 新增 `icons` 映射，占位美术与样例美术的图标同步到 `StreamingAssets/GameFoundation/icons`。
+- **姿势切换交叉淡入时长数据化（M4-D，[ADR-0137](architecture/adr/0137-姿势切换交叉淡入时长数据化.md)，手感设计/04 第 10 节第 10 条）**：`display.anim_set` 加法字段 `blend_ms`（每个剪辑条目，0..2000）与行级 `blends`（`[{from, to, blend_ms}]`）；优先级每对键 > 逐键 > 缺省 0.15 秒，显式 0 = 硬切；只对 `model` 型骨骼剪辑生效；沿 `extends` 合并。
+- **框架级假人姿势集三期（M4-D，手感设计/04 第 10 节第 7、10 条）**：键清单由 103 键增至 128 键（117 份独立剪辑）：空中键（`jump.rise`、`jump.fall`、`jump.land`、`hit.air`、`attack.air` 与八个武器族）、带伤变体覆盖全部移动与战斗移动键、细节键（`hit.block`、`hit.block.shield`、`stunned.sway`、`hit.launch.tumble`、`hit.launch.land`）；体量三档由数据声明（中档 = 主集），轻、重体量组覆盖主集全部键，序列帧版同样有体量组；五个新武器族改为程序化低多边形形体。**既有键的骨骼剪辑与身体层字节不变，只追加。**不做根运动与布娃娃（位移权威在逻辑层）。
+
+### 变更
+
+- **体积阻挡的三处行为变化（只影响声明了 `unit_body_radius` 的单位）**：①`unit.moved` 与位移到达、受阻事件现在延后到成对裁决之后、带最终位置发出（M4-B）；②穿过式位移（冲刺、后撤等）的窗口最后一个 tick，终点若落在别人体积里会被修正到就近可行位置，此前允许在窗口后才被推出（M4-W2）；③受控位移（击退、技能位移）推人由"下一 tick 起生效"改为同 tick 生效，被拉回的单位保留切向速度（M4-W2）。
+- **顿帧冻结特效的存活时长**：`freeze_layers.particles` 为真且适配层没有实现 `IParticleFreezer` 时，此前粒子既不暂停也不停表，现在存活时长倒计时恒停住（解冻后从冻结点继续）；层开关为假（缺省）时一切不变。
+- **宽限的目标来源**：缺省 Expr 求值器在施法请求带单位目标时取该目标（此前只取自动攻击目标）；声明了依赖 `target` 的宽限条件并发出带不同目标的请求，行为按新优先级。没有动作声明 `grace_conditions` 的游戏不受影响。
+- **单向平台落地条件**：装配了竖直轴时落地要求竖直速度不大于 0；上升中穿过更高平台的单位不再提前落地。停点精确化使台阶前停点从 9.000000003 变为 9（3e-9 量级），只影响装配了台阶阻挡的世界。
+- **动作时间步长回填**：生产装配与无头世界按宿主步长回填 `SkillOptions.ActionStepSeconds`（M4-L），非 60 Hz 宿主上动作时间线的相位 tick 数现在随宿主步长换算；60 Hz 宿主不变。
+- **装配对穿脱装备的失效**：去掉装配对穿脱装备的无差别 `equipment_changed` 失效（M4-L，换装场景改走生产装配后暴露的重复失效），换装后不再多做一次无谓重算；结果不变。
+- **实验室**：武器到普攻技能映射改为数据覆盖行，移除内存覆盖 `WeaponAttackSkills`；冲击档案与音效行从内核搬进实验室数据集（`data/_lab_action`）。`feellab run` 支持竖直格子。
+
+### 接入与迁移说明（M4）
+
+- **不开手感、不声明新字段：什么都不用做，行为与 1.95.0 逐位一致。**旧编译的消费方不必重编。实验室既有基线随各切片逐步扩充，既有脚本除 `space.terrain` 外基线逐位不变（该脚本因停点精确化重写，仅此一个）。
+- **声明了 `unit_body_radius` 的游戏**：留意上面"变更"里的三处行为变化；依赖"位移事件在 tick 中途按处理顺序发出"或"穿过式位移可以停在别人体积里"的订阅方与脚本需要同步。
+- **自写 `IGraceConditionEvaluator`、`ILaunchSink`、`INavigation2D`、`ICamera` 的游戏**：这些接口只增加了默认成员或独立的可选接口，既有实现不必改；要用增量阻挡、带瞄点的宽限、空中击飞上限或相机相对控制，再按需覆盖对应成员或实现可选接口（`ICameraOrientation`）。自写 `INavigation2D` 若要调增量阻挡，须覆盖 `AddBlocking`/`RemoveBlocking` 或暴露 `GetBlocking`，否则调用抛 `NotSupportedException`。
+- **开启竖直轴的可选能力**：地形数据写在 `world.map.terrain`，空中控制与空中跳跃经 `VerticalAxisOptions`；空中姿势键在姿势集里没有对应剪辑时沿回落链落到通用键，不报错。
+- **使用相机相对控制**：在二维轴动作上声明 `control_space: camera_relative`，并确保相机实现了 `ICameraOrientation`（Unity 适配的 `UnityCamera` 已实现）；无头宿主不提供朝向，该格按 `world` 运行。
+- **使用框架假人姿势集的游戏**：键清单只追加、既有键不变；`display.anim_set` 的新字段 `blend_ms`/`blends` 没声明时缺省仍是 0.15 秒交叉淡入。轻、重体量组覆盖主集全部键，序列帧版体量组只写正面合成图与身体层、武器层，不写按方向拆分的整身方向变体，用整身剪辑的外形在体量组下不随朝向换图。
+- **依赖实验室内部的工具**：`LabHostExtension` 的 `ConvertMoveAxis` 已由 `CameraOrientation`、`ControlSpaceOverride`、`OnMoveAxis` 取代；引擎宿主的内部推进入口已删除，改用公开的时间源与 `Step()`。
+
+### 资产与实验室规模（M4）
+
+- **资产体积**：框架 `assets/` 合计由 5165 个文件、30.85 MB 增至 11179 个文件、49.51 MB（序列帧占位美术 `assets/_placeholder/sprite_anim/` 由 4898 个文件、12.45 MB 增至 10912 个文件、28.38 MB；Unity 适配内的骨骼剪辑资源 `anim_clips/` 由 226 个文件、9.37 MB 增至 712 个文件、29.31 MB）。序列帧占位美术新增文件 6014 个、约 15.78 MB（轻体量组 6.33 MB、重体量组 6.59 MB、主集新键 1.68 MB、装备集派生约 1.17 MB），既有文件改写 495 个、约 2.13 MB（五个新武器族的武器层与合成图）。发布包体积随之增加。
+- **实验室**（本段合并后 `feellab` 实测，数字随脚本增删变化，以命令输出为准）：标准脚本 69 个（十一个旧脚本、二十九个手感脚本、二十九个空间脚本）；`suite` 530 格、`RESULT total=530 pass=530 diff=0 missing=0`；期望清单 `RESULT expectations total=484 pass=484 fail=0`；`invariants` `RESULT invariants total=741 pass=741 fail=0`。相比 1.95.0 的 258 格、98 条期望、379 条不变量，增量全部来自新增脚本（动态韧性、投射物到期与清场、空间扩展、空中战斗、地形与导航等）。发布包随附的实验室数据与夹具同步更新，消费方按 `dotnet toolchain/feellab/bin/FeelLab.dll suite` 应得与上面同口径的汇总行。
+
+### M4-W5/W6（假人姿势残余与命中对位，条目待合并后核对）
+
+- **假人姿势集残余与命中帧对齐（M4-W5、M4-W6）**：假人姿势集的躺平类姿势残余（手感设计/04 第 10 节第 3 条所记）与命中帧对齐（技能读条剪辑的 `release` 关键帧与技能时间线命中标记的时刻对位，度量见引擎宿主的命中帧对齐）正在合并；具体键、字节变化与数值待合并后核对再补，本条只记范围。
 
 ## [1.95.0] - 2026-10-02
 
