@@ -43,7 +43,7 @@ namespace Presentation.Render
     /// 这是已知简化，等价于"View 尚未同步过第一次姿态之前不渲染放置变化"。
     /// </para>
     /// </summary>
-    public sealed class ModelCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim, IModelHandleProvider, IDisposable
+    public sealed class ModelCharacterRig : ICharacterRig, IHitFrameEmitter, IProceduralAnim, IModelHandleProvider, IPresentationFreezable, IDisposable
     {
         /// <summary>命中帧事件 id（09 第 4.3 节 <c>anim_keyframe_driven</c> 策略 model 型一侧：经
         /// <see cref="IRenderer3D.OnAnimEvent"/> 触发）。<c>display.anim_set.clips[*].events</c>（04
@@ -144,8 +144,46 @@ namespace Presentation.Render
 
         public void SetAnimState(AnimState state) => CurrentAnimState = state;
 
-        public void PlayClip(Id clipId, bool loop = false, double speed = 1.0) =>
-            _renderer.PlayAnim(_handle, clipId, loop, speed, DefaultBlendSeconds);
+        public void PlayClip(Id clipId, bool loop = false, double speed = 1.0)
+        {
+            // 手感落地 M2-A：顿帧冻结期间换剪辑照常换，但播放速率保持 0（冻结），记下请求速率供解冻时恢复。
+            _requestedClipSpeed = speed;
+            _renderer.PlayAnim(_handle, clipId, loop, _frozen ? 0.0 : speed, DefaultBlendSeconds);
+        }
+
+        // --------------------------------------------------------------
+        // IPresentationFreezable（手感落地 M2-A，手感设计/07 第 5 节）：骨骼动画经 IRenderer3D.SetAnimSpeed(0) 冻结 + 程序动画原语时间轴冻结
+        // （闪白不冻，拖尾按 freezeTrail）。解冻把速率恢复为最近一次请求的速率（缺省 1），从冻结点继续。
+        // --------------------------------------------------------------
+
+        private bool _frozen;
+        private double _requestedClipSpeed = 1.0;
+
+        public bool IsPresentationFrozen => _frozen;
+
+        public void FreezePresentation(bool freezeTrail)
+        {
+            _sequencer.SetFrozen(true, freezeTrail);
+            if (_frozen)
+            {
+                return;
+            }
+
+            _frozen = true;
+            _renderer.SetAnimSpeed(_handle, 0.0);
+        }
+
+        public void UnfreezePresentation()
+        {
+            _sequencer.SetFrozen(false);
+            if (!_frozen)
+            {
+                return;
+            }
+
+            _frozen = false;
+            _renderer.SetAnimSpeed(_handle, _requestedClipSpeed);
+        }
 
         /// <summary>见类型注释判断记录：model 型没有可返回精确偏移的挂点数据，仅确认
         /// <paramref name="anchorId"/>（去掉域前缀后的裸名字，如 <c>"anchor.hand_main"</c> → 查

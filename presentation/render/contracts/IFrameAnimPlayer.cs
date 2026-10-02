@@ -50,5 +50,19 @@ namespace Presentation.Render
         /// </para>
         /// </summary>
         SubscriptionHandle OnFrameChanged(Action<int> callback) => new SubscriptionHandle(() => { });
+
+        /// <summary>
+        /// 手感落地 M2-A（顿帧表现冻结，手感设计/07 第 5 节）：是否处于暂停。暂停期间时间轴不推进（帧下标、关键帧、播放完成回调都不触发），
+        /// 恢复后从暂停点继续；暂停期间调用 <see cref="Play"/> 照常换上新剪辑（停在第 0 帧，随恢复开始推进）。
+        /// <para>
+        /// 判断记录（ABI-additive 默认接口成员，同 <see cref="OnFrameChanged"/> 的做法）：既有实现（未重写本成员）恒报告"未暂停"、
+        /// <see cref="SetPaused"/> 为空操作，等价于"该实现不支持暂停"，调用方（rig 的顿帧冻结）据此只能冻结自己能冻结的部分，不报错。
+        /// 框架自带两个实现（<see cref="Presentation.Render.FrameAnimPlayer"/>、Unity 的 <c>UnityFrameAnimPlayer</c>）都真正支持。
+        /// </para>
+        /// </summary>
+        bool IsPaused => false;
+
+        /// <summary>设置暂停状态（幂等），见 <see cref="IsPaused"/>。</summary>
+        void SetPaused(bool paused) { }
     }
 }

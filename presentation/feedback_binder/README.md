@@ -299,8 +299,8 @@
     - **不变量**：呈现型反馈与镜头档案不改判定型视图/逻辑指纹（`ImpactBinderTests.PresentingProfiles_NeverChangeJudgingFeel_...`；端到端由 feellab 套件 54/54 无差异背书）。
     - **已知局限（原文）**：
       - 同一动作内多段判定（多个 hit 标记）合成一个窗口，窗口内只要有任何一次接触就不算挥空。
-      - 三个生产装配入口尚未传入 `FeelResolver`（本切片只提供可选接线，缺省关闭）；`data/_sample` 尚无 `feedback.impact_profile` 示例行。
-      - 顿帧只下发"冻结/解冻"通知与查询状态；渲染 rig/粒子宿主的实际暂停需宿主接 `OnFreezePresentation`。
+      - 三个生产装配入口尚未传入 `FeelResolver`（本切片只提供可选接线，缺省关闭）；`data/_sample` 尚无 `feedback.impact_profile` 示例行。（装配入口一条已解决：`GameplayAssembly` 开手感时 `PresentationAssembly` 自动取 `gameplay.Feel.Resolver`，引擎侧引导见适配层 README 手感落地 M2-A 一节。）
+      - 顿帧只下发"冻结/解冻"通知与查询状态；渲染 rig/粒子宿主的实际暂停需宿主接 `OnFreezePresentation`。（rig 一条已解决：见判断记录 25；粒子宿主的暂停仍需宿主自行接入。）
     复现/不变量：`tests/ImpactPipelineTests.cs`（单次命中的震屏幅度/时长 tick/音效层 id、5 目标同 tick 合并 `min(max, cap)`、材质层缺失回落、挥空、顿帧、限频）、`tests/ImpactBinderTests.cs`（binder 端到端、`feedback.impact_profile` 解析、`play_impact` 规则解析、呈现/判定隔离）。
 
 24. **挥空窗口：非攻击动作不开窗、投射物等结局再定（2026-10-02，手感落地 S12，[手感设计/07](../../architecture/手感设计/07_镜头与音画反馈.md) 第 6 节）**：
@@ -308,6 +308,12 @@
     - **投射物**：`action.projectile_launched` 登记飞行中弹数（按 (行动者, 动作实例)，独立于窗口登记，release 标记可能先于相位事件）；判定相结束时若还有弹在飞，窗口只标记 `Closed` 并保留，之后到达的命中仍计入；`action.projectile_ended` 把弹数减一，最后一发结束且窗口已关、全程零接触才补播挥空（落在那一刻）；结局原因为 `Cleared` 只放弃等待、不挥空；窗口关闭之前弹就没了（极近距离撞墙）则不影响，仍在 `active_end` 正常结算。
     - **已知限制**：多段技能同一动作实例发射的多发弹合并等待，不按段拆；一发弹"命中但伤害为零/被闪避"也算接触（和既有规则一致：命中确认含回避类结局）。
     - 复现/不变量：`tests/ImpactPipelineTests.cs`（非攻击不开窗、旧调用方式按攻击处理、弹在飞时推迟、命中取消、多发弹等最后一发、弹先于窗口关闭而结束、清场不挥空）；`tests/ImpactBinderTests.cs`（经总线的非攻击与投射物两条）；实验室 `feel_projectile`/`feel_projectile_miss`/`feel_dash` 基线。
+
+25. **顿帧冻结落到渲染 rig（2026-10-02，手感落地 M2-A，手感设计/07 第 5 节）**：
+    - `PresentationAssembly` 在装配 `CompositeFeedbackSink` 时把 `OnFreezePresentation/OnReleasePresentation` 默认接到 `ViewBinder` 里被冻结单位的视图 rig（`IHasCharacterRig.Rig` 实现 `IPresentationFreezable` 才冻，见 `presentation/render/README.md` 判断记录 31），冻结层里的 `Trail` 决定拖尾是否一并冻；调用方显式给的回调在 rig 冻结之后照常调用（粒子宿主等额外接入点不受影响）。
+    - **名单语义**：只冻 `feel.hitstop_started` 名单里的单位（命中的攻击方与被击方），其余单位不受影响；解冻按 `feel.hitstop_ended` 名单。冻结是幂等开关，同一单位被延长的顿帧不需要配平冻结计数。
+    - 取舍：接线放在 `PresentationAssembly`（宿主无关）而不是 Unity 适配层——无头宿主与引擎宿主共享同一条路径，引擎侧只需让自己的 rig 实现能力接口。
+    - 复现/不变量：`presentation/assembly/tests/FeelRigFreezeWiringTests.cs`（经生产装配：攻击方/被击方 rig 冻结的 tick 数 = 顿帧档案毫秒按标定步长换算值、旁观单位 0、冻结为连续一段且结束后无残留；不开手感时同场景任何 rig 都不冻结；命中 → 镜头冲量幅度来自反馈包与手感解析）。
 
 ## 不负责什么
 

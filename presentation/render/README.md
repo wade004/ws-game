@@ -447,6 +447,14 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     - **`AnimClipResolver`（adapters/unity）接入**：新增可选构造重载参数 `IPoseContextSource`；默认剪辑解析改走 `PoseResolver`（回落链 去变体→去武器族→去姿态→去步态→基础键），**没有来源时请求只有"状态 + 战斗姿态"两维，回落链恰好是 `[<state>.combat, <state>]`，与改动前的两级查表逐位一致**（核心层有随机子集的等价用例）；就绪探针只对非基础键咨询、已在播的剪辑视为就绪（同 ADR-0111）。来源的 `ContextChanged` 与姿态变化走同一个 `Refresh` 出口。武器风格/技能覆盖剪辑（`AutoAttackAnim`/`CastAnimOverride`）优先级仍最高，不经姿势解析——"武器覆盖收编进 family 维"的含义是：武器族补齐覆盖剪辑够不到的状态（待机/移动/受击），不取代覆盖剪辑。`UnityViewFactory.AnimStateKeysFor` 把外形声明的、首段为七个基础状态键之一的维度键（如 `move.run`、`idle.combat.2h`）纳入登记/探测键表，`IsCommitCriticalStateKey` 把首段为 `idle/move` 的维度键算作换向提交所需键；没有维度键的外形键表与改动前逐项一致。
     - **本版没有接到引擎的帧循环**：`PoseSelector.Observe` 需要每实体每帧的速度比，视图层目前没有这路输入（视图只有 `SyncPose(pos, facing, height)`，速度需要差分或运动状态的只读速度查询，后者是运动切片 S2 的导出），因此框架装配（`UnityViewFactory`）本版不构造 `PoseSelector`；游戏或后续切片构造它并传给 `AnimClipResolver` 即可生效。
 
+31. **顿帧表现冻结：rig 的可选能力 `IPresentationFreezable`（2026-10-02，手感落地 M2-A，[手感设计/07](../../architecture/手感设计/07_镜头与音画反馈.md) 第 5 节）**：
+    - **契约增量（ABI 只加法）**：新增可选接口 `IPresentationFreezable`（`IsPresentationFrozen`、`FreezePresentation(freezeTrail)`、`UnfreezePresentation()`），`SpriteCharacterRig`/`ModelCharacterRig` 实现；`IFrameAnimPlayer` 新增带缺省实现的 `IsPaused`/`SetPaused`（旧实现不实现也能编译，等价于不暂停）。`ICharacterRig` 一个成员都没加。
+    - **冻结是幂等的布尔开关**：重复冻结/解冻无副作用，与 `feel.hitstop_started/ended` 的集合语义同口径（同一单位被多次命中延长时没有"冻结计数"要配平）。冻结时：序列帧播放器暂停（帧下标、关键帧、完成回调都不推进，恢复后从暂停点继续）；`ProceduralAnimSequencer` 的位移/缩放/回弹时间轴停住，**闪白不冻**（命中反馈要在顿帧里亮着并按自己的时间衰减），拖尾按 `freezeTrail`（即 `ImpactFreezeLayers.Trail`）；model rig 把动画速率写 0、解冻时写回最近一次请求的速率（冻结期间 `PlayClip` 换剪辑，剪辑照换、速率仍为 0，解冻后用新剪辑自己请求的速率）。
+    - **冷路径同热路径**：冻结期间才附上的序列帧播放器（`AttachFrameAnimPlayer`）按当前冻结状态启动；适配层 `UnityFrameAnimPlayer` 的暂停标志存在组件上（内部播放器懒创建，暂停期间才首次 `Play` 的剪辑也按暂停启动）；`UnityRenderer3D` 记 `AnimSpeedOverride`，资源后到时的原地替换视觉内容重放 `PlayAnim` 也保持冻结速率，新的 `PlayAnim` 自带速率并清掉它。
+    - **接线**：`PresentationAssembly` 默认把 `OnFreezePresentation/OnReleasePresentation` 落到被击/攻击单位视图的 rig（见 `presentation/assembly/README.md`）；不在名单里的单位不受影响。
+    - **已知限制**：冻结只作用于 rig 自己持有的时间轴（动画、程序动画原语）。粒子宿主的暂停与引擎自己的物理/粒子系统不在本接口范围，仍靠 `OnFreezePresentation` 回调自行接入；没有实现 `IPresentationFreezable` 的自定义 rig 被静默跳过。
+    - 复现/不变量：`tests/PresentationFreezeTests.cs`（暂停与恢复的帧下标等价于从未暂停的参考播放器、冻结期间关键帧/完成回调推迟、序列器冻结后闪白照常衰减、sprite/model rig 冻结/解冻幂等与冷路径、无暂停能力的旧播放器静默跳过）；引擎侧 `UnityRenderer3DTests.SetAnimSpeed_Zero_FreezesAnimator_ColdSwapKeepsItFrozen_...`。
+
 - 方向槽位到具体量化索引的对应关系是本模块的默认约定，非拍板内容，见判断记录 1。
 （原"裸档位名与 `Id` 格式之间需要一道前缀转换"契约缺口已解决，见判断记录 2。）
 - `AnimStateMachine` 的 `jump` 状态没有事件驱动来源（06 事件词汇表当前无 `unit.jumped`/

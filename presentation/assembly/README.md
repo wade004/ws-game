@@ -658,3 +658,9 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 - **`PoseGaitFeeder`（`presentation/render/core`，装配在 `PresentationAssembly` 里 `Pose` 之后；手感启用时才有）**：订阅 `unit.moved` 把单位登记为"活跃"，每个 `sim.tick_finished` 对活跃单位按 `Unit.MovementState.Motion.SpeedRatio`（速度 / 该单位自己的基础移速）调用 `PoseSelector.Observe`（阈值与滞回取该单位呈现型手感视图，缺字段用缺省），比值降到 0 且观测过一次后移出。移动姿势因此按 idle/walk/run/sprint 解析；姿势集缺步态剪辑时的回落（sprint->run->去步态->基础键）仍由 `PoseResolver` 沿回落链完成，本类不重复实现。**判断记录**：只观测"动过的"单位，从未移动过的单位不进选择器（上下文保持缺省，与未启用手感逐位一致，也不为静止单位每 tick 白算）；速度取运动学的 `SpeedRatio` 而不是视图位移差分（位移差分在瞬移、读档定位时算出虚假高速）。**共享代码改动（加法）**：`PresentationAssembly` 新增一个私有字段、一处构造接线与 `Dispose` 里的一次释放；运动代码未动（只读 `Motion.SpeedRatio`）。
 - **`GaitDeriver` 边界修正**：缺省阈值下 `idle_max_ratio` 与 `gait_hysteresis_ratio` 同为 0.05，"阈值减滞回"恰为 0，严格小于 0 永不成立——单位停稳后步态会一直停在 walk。接上生产速度喂入后暴露；修法是完全静止（比值 <= 0）总是回到 idle，滞回带内（0 < 比值 < 0.05）仍保持 walk。回归用例 `PoseGaitTests.Update_FullyStopped_AlwaysDropsToIdle_EvenWhenIdleMaxEqualsHysteresis`。
 - **单位销毁时清理武器族**：`EquipmentPoseBridge` 订阅 `entity.destroyed` -> `PoseSelector.Forget`。此前不清理的理由（"换装链对未变化的状态不重发事件，清理反而会丢武器族"）已不成立：换装链现在销毁时忘掉对账状态、创建时重新对账并重发（见 `core/carriers/assembly/README.md` M2-B 节第 4 条）。
+
+## 判断记录（顿帧冻结默认落到 rig，手感落地 M2-A，2026-10-02）
+
+- `PresentationAssemblyOptions.OnFreezePresentation/OnReleasePresentation` 此前缺省忽略（只能经 `Feedback.Impact.Freezes` 查询）；现在装配根默认先把冻结/解冻落到名单里各单位视图的 `IPresentationFreezable` rig（私有方法 `SetRigsFrozen`），再调用调用方显式给的回调。没有视图、视图不持有 rig、rig 不实现能力接口的单位静默跳过；名单外单位不受影响。仅在手感打击反馈包流水线存在时（`FeelResolver` 非空）才有冻结事件，手感关闭时装配与此前逐位一致。
+- 取舍：默认接线而不是要求每个宿主自己写回调——否则引擎宿主与无头宿主各写一遍，且漏接时顿帧只剩"状态可查询、画面没停"。代价：显式回调不再是冻结的唯一出口，需要完全自管冻结的宿主应让自己的 rig 不实现 `IPresentationFreezable`。
+- 复现/不变量：`tests/FeelRigFreezeWiringTests.cs`（见 `presentation/feedback_binder/README.md` 判断记录 25）。

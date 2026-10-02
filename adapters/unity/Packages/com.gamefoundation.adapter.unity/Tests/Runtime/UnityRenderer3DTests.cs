@@ -467,5 +467,40 @@ namespace Adapter.Unity.Tests.Runtime
 
             _renderer.DestroyModelInstance(handle);
         }
+        // ------------------------------------------------------------------
+        // 手感落地 M2-A：顿帧表现冻结——model rig 经 SetAnimSpeed(0) 冻结动画，冷路径（资源后到、原地替换视觉内容）同一规则。
+        // ------------------------------------------------------------------
+
+        [Test]
+        public void SetAnimSpeed_Zero_FreezesAnimator_ColdSwapKeepsItFrozen_NewPlayAnimRestoresRequestedSpeed()
+        {
+            var handle = _renderer.CreateModelInstance(PlaceholderModelId);
+            Animator? Anim() => _renderer.GetModelVisualRoot(handle)!.GetComponentInChildren<Animator>(true);
+
+            var clip = new Id("anim.idle");
+            _renderer.PlayAnim(handle, clip, loop: true, speed: 1.5, blendSeconds: 0);
+            Assert.IsNotNull(Anim(), "占位内容应当带 Animator");
+            Assert.AreEqual(1.5f, Anim()!.speed, 1e-4f);
+
+            // 热路径：冻结 -> 速率 0。
+            _renderer.SetAnimSpeed(handle, 0.0);
+            Assert.AreEqual(0f, Anim()!.speed, 1e-6f);
+
+            // 冷路径：冻结期间资源才加载完成（原地替换视觉内容并重放最近一次 PlayAnim）：新内容的 Animator 也必须保持冻结，
+            // 不能因重放用了 PlayAnim 当时的速率 1.5 而悄悄解冻（与热路径同一规则）。
+            var realPrefab = Resources.Load<GameObject>("GameFoundation/models/placeholder_biped");
+            Assert.IsNotNull(realPrefab, "测试前置条件：占位预制体资产应当存在");
+            _renderer.CompleteAsyncModelSwapForTest(handle, UnityEngine.Object.Instantiate(realPrefab));
+            Assert.AreEqual(0f, Anim()!.speed, 1e-6f, "冻结期间原地替换后的新内容应保持冻结");
+
+            // 解冻：由 rig 把最近一次请求的速率写回（SetAnimSpeed）；之后新的 PlayAnim 自带速率，不再被冻结覆盖值影响。
+            _renderer.SetAnimSpeed(handle, 1.5);
+            Assert.AreEqual(1.5f, Anim()!.speed, 1e-4f);
+            _renderer.SetAnimSpeed(handle, 0.0);
+            _renderer.PlayAnim(handle, clip, loop: true, speed: 2.0, blendSeconds: 0);
+            Assert.AreEqual(2.0f, Anim()!.speed, 1e-4f, "新的 PlayAnim 自带速率，覆盖此前的冻结覆盖值");
+
+            _renderer.DestroyModelInstance(handle);
+        }
     }
 }

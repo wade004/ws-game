@@ -612,8 +612,18 @@ namespace Presentation.Assembly
             if (impactPipeline != null)
             {
                 feedbackSink.OnImpactCamera = cue => Camera.Impulse(cue.Direction, cue.Magnitude, cue.DecayMs);
-                feedbackSink.OnFreezePresentation = opts.OnFreezePresentation;
-                feedbackSink.OnReleasePresentation = opts.OnReleasePresentation;
+                // 手感落地 M2-A（手感设计/07 第 5 节）：顿帧表现冻结默认落到被冻结单位的渲染 rig（sprite/model 两类都实现
+                // IPresentationFreezable），其它单位不受影响；调用方显式给的回调在 rig 冻结之后照常调用（用于粒子宿主等额外接入点）。
+                feedbackSink.OnFreezePresentation = (unitIds, ticks, layers) =>
+                {
+                    SetRigsFrozen(unitIds, true, layers.Trail);
+                    opts.OnFreezePresentation?.Invoke(unitIds, ticks, layers);
+                };
+                feedbackSink.OnReleasePresentation = unitIds =>
+                {
+                    SetRigsFrozen(unitIds, false, false);
+                    opts.OnReleasePresentation?.Invoke(unitIds);
+                };
             }
 
             Feedback = new FeedbackBinderCore(
@@ -795,6 +805,31 @@ namespace Presentation.Assembly
                 newGameStarter, timestampProvider, loadedMapIdResolver,
                 sharedPresentationDiagnostics, opts.NewGameRollback);
             ShellViewModel = new ShellViewModel(Shell, SaveSystem, bus, shellMenu);
+        }
+
+        /// <summary>手感落地 M2-A（手感设计/07 第 5 节）：把顿帧冻结/解冻落到 <paramref name="unitIds"/> 各自视图的渲染 rig。
+        /// 没有视图、视图不持有 rig、或 rig 不实现 <see cref="IPresentationFreezable"/> 的单位静默跳过（同表现层一贯宽容策略）；
+        /// 不在名单里的单位不受影响。冻结/解冻是幂等开关，重复通知无副作用。</summary>
+        private void SetRigsFrozen(IReadOnlyList<Id> unitIds, bool frozen, bool freezeTrail)
+        {
+            for (var i = 0; i < unitIds.Count; i++)
+            {
+                if (!ViewBinder.TryGetView(unitIds[i], out var view)
+                    || !(view is IHasCharacterRig hasRig)
+                    || !(hasRig.Rig is IPresentationFreezable freezable))
+                {
+                    continue;
+                }
+
+                if (frozen)
+                {
+                    freezable.FreezePresentation(freezeTrail);
+                }
+                else
+                {
+                    freezable.UnfreezePresentation();
+                }
+            }
         }
 
         /// <summary>ADR-0121 第 4 条（D4）：<c>shake_camera</c> 动作的 <c>profile_id</c> 语义 = 当前相机档

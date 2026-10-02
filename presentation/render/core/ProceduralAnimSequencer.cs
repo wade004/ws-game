@@ -93,6 +93,19 @@ namespace Presentation.Render
         /// 定格在目标值那一次采样，见类型注释）。</summary>
         public void Update(double dt)
         {
+            if (_frozen)
+            {
+                // 顿帧表现冻结（手感落地 M2-A，手感设计/07 第 5 节）：动画原语的时间轴停住；闪白参数时间轴与动画时间轴分开，
+                // 继续推进（冻结中的实体仍可被闪白）；拖尾按反馈包 freeze_layers.trail 决定，缺省不冻。
+                Advance(ref _flash, dt);
+                if (!_freezeTrail)
+                {
+                    Advance(ref _trail, dt);
+                }
+
+                return;
+            }
+
             Advance(ref _move, dt);
             Advance(ref _rotate, dt);
             Advance(ref _scale, dt);
@@ -101,6 +114,23 @@ namespace Presentation.Render
             Advance(ref _stagger, dt);
             Advance(ref _topple, dt);
             Advance(ref _fade, dt);
+        }
+
+        private bool _frozen;
+        private bool _freezeTrail;
+
+        /// <summary>顿帧表现冻结中（见 <see cref="SetFrozen"/>）。</summary>
+        public bool IsFrozen => _frozen;
+
+        /// <summary>
+        /// 手感落地 M2-A：设置顿帧表现冻结（幂等）。冻结期间 <see cref="Update"/> 只推进闪白（与动画时间轴分开）与——
+        /// <paramref name="freezeTrail"/> 为假时——拖尾，其余原语的时间轴停住、不触发采样与完成回调；解冻后从冻结点继续。
+        /// 解冻时 <paramref name="freezeTrail"/> 被忽略。冻结期间新触发的原语照常登记（起始采样即时发出），只是推进被推迟到解冻。
+        /// </summary>
+        public void SetFrozen(bool frozen, bool freezeTrail = false)
+        {
+            _frozen = frozen;
+            _freezeTrail = frozen && freezeTrail;
         }
 
         /// <summary>清空全部在播放的原语实例，不触发任何回调（用于 View 销毁/回收时的静默清理，避免
