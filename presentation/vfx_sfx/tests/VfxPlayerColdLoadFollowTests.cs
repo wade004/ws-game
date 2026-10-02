@@ -4,9 +4,11 @@
 //   1. attach_mode=socket（降级为 world）与 screen 的冷加载：排队、补发、Stop 取消；
 //   2. 冷加载补发之后，anchor / 降级 socket 的跟随登记与热路径一致（下一次 Update 起每帧重新解析、
 //      目标丢失时结束）；screen 不跟随；
-//   3. 冷加载排队时位置冻结：位置在 Spawn 调用当下解析（冷、热同一时刻），排队期间目标移动不会
-//      改变补发位置；补发后的第一次 Update 起与热路径收敛到同一位置。
-// 期望值由规则算出：补发位置 = Spawn 时刻解析结果；Update 之后位置 = 目标当前解析结果。
+//   3. 冷 = 热的补发位置（M4 清扫，取代旧口径"补发位置 = Spawn 时刻位置、最多滞后一帧"）：anchor / 降级 socket 在
+//      "播出那一刻"解析宿主当前位置——热路径播出那一刻就是 Spawn 调用当下，冷路径播出那一刻是加载完成回调；
+//      world / screen 的位置是请求那一刻定下的固定世界点，补发不重算。解析不到（宿主已离场）退回 Spawn 时刻位置，
+//      下一次 Update 起按"目标丢失"结束。
+// 期望值由规则算出：补发位置 = 补发那一刻目标解析器给出的位置；Update 之后位置 = 目标当前解析结果。
 using System.Collections.Generic;
 using Adapters.Stub;
 using Core.Foundation.Common;
@@ -94,7 +96,7 @@ namespace Tests.Presentation.VfxSfx
         // -----------------------------------------------------------------
 
         [Fact]
-        public void ColdLoad_SocketDowngraded_QueuesWithUsableHandle_EmitsAtSpawnTimePosition_ThenFollowsEntity()
+        public void ColdLoad_SocketDowngraded_QueuesWithUsableHandle_EmitsAtCurrentPosition_ThenFollowsEntity()
         {
             var rig = new Rig { EntityPos = new Vec2(1, 1) };
             rig.Loader.DeferCallbacks = true;
@@ -106,7 +108,7 @@ namespace Tests.Presentation.VfxSfx
             Assert.Equal(1, rig.Player.PendingSpawnCount);
             Assert.Empty(rig.Renderer.ParticlePositions);
 
-            // 排队期间宿主实体移动：补发位置仍是 Spawn 时刻的解析结果（冻结），不是补发时刻的位置。
+            // 排队期间宿主实体移动：补发位置是补发那一刻的宿主位置（与热路径"播出那一刻取当前位置"一致），不是 Spawn 时刻的旧位置。
             var laterPos = new Vec2(spawnPos.X + 3, spawnPos.Y + 4);
             rig.EntityPos = laterPos;
             rig.Player.Update(0.016); // 排队期间的 Update 不得登记/触发任何重定位。
@@ -115,7 +117,9 @@ namespace Tests.Presentation.VfxSfx
             rig.Loader.CompletePending(SocketRes);
 
             Assert.Equal(0, rig.Player.PendingSpawnCount);
-            Assert.Equal(spawnPos, rig.OnlyParticlePosition());
+            Assert.NotEqual(spawnPos, laterPos);
+            Assert.Equal(laterPos, rig.OnlyParticlePosition());
+            Assert.Equal(0, rig.Renderer.SetParticlePositionCallCount); // 第一帧就在对的位置，不靠随后的跟随刷新纠正。
 
             // 补发之后下一次 Update 起与热路径一致：每帧跟随实体当前位置。
             rig.Player.Update(0.016);
@@ -281,9 +285,9 @@ namespace Tests.Presentation.VfxSfx
             }
         }
 
-        /// <summary>不变量：不论热路径、同步命中的冷路径还是真正异步的冷路径，目标在 Spawn 之后移动，
-        /// 补发（如有）之后再经过一次 Update，粒子都收敛到目标当前位置；目标丢失后都被结束且不再有
-        /// 重定位调用。冷异步路径中间一帧（补发当下）按设计停在 Spawn 时刻位置。</summary>
+        /// <summary>不变量：不论热路径、同步命中的冷路径还是真正异步的冷路径，粒子播出那一刻的位置都等于那一刻目标的位置
+        /// （热 = Spawn 当下，冷异步 = 加载完成当下，此时目标已在 Spawn 之后移动）；之后再经过一次 Update，三条路径收敛到
+        /// 目标当前位置；目标丢失后都被结束且不再有重定位调用。</summary>
         [Theory]
         [MemberData(nameof(ModePathMatrix))]
         public void SpawnThenMoveThenUpdate_ConvergesToCurrentTarget_AcrossHotAndColdPaths(string mode, string path)
@@ -310,8 +314,9 @@ namespace Tests.Presentation.VfxSfx
                 Assert.Equal(1, rig.Player.PendingSpawnCount);
                 Assert.Empty(rig.Renderer.ParticlePositions);
                 rig.Loader.CompletePending(resource);
-                // 冻结：补发位置是 Spawn 时刻的解析结果。
-                Assert.Equal(spawnPos, rig.OnlyParticlePosition());
+                // 冷 = 热：补发那一刻就在目标当前位置（此前停在 Spawn 时刻位置、滞后一帧）。
+                Assert.Equal(moved, rig.OnlyParticlePosition());
+                Assert.Equal(0, rig.Renderer.SetParticlePositionCallCount);
             }
             else
             {
@@ -336,7 +341,7 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
-        public void ColdLoad_Anchor_TargetLostWhilePending_StillEmitsAtSpawnPosition_ThenEndsOnNextUpdate()
+        public void ColdLoad_Anchor_TargetLostWhilePending_FallsBackToSpawnPosition_ThenEndsOnNextUpdate()
         {
             var rig = new Rig { AnchorPos = new Vec2(3, 3) };
             rig.Loader.DeferCallbacks = true;
@@ -347,7 +352,7 @@ namespace Tests.Presentation.VfxSfx
             rig.Alive = false; // 排队期间宿主实体销毁。
             rig.Loader.CompletePending(AnchorRes);
 
-            // 补发位置是 Spawn 时刻的解析结果；跟随登记与热路径一致，于是下一次 Update 起按
+            // 宿主已离场、解析不到当前位置：退回 Spawn 时刻的解析结果；跟随登记与热路径一致，于是下一次 Update 起按
             // "目标丢失 → 结束"处理，不留悬空静止实例。
             Assert.Equal(spawnPos, rig.OnlyParticlePosition());
             rig.Player.Update(0.016);
@@ -355,7 +360,7 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
-        public void ColdLoad_Anchor_TwoQueuedRequests_EachFrozenAtOwnSpawnPosition_ThenEachFollowsOwnTarget()
+        public void ColdLoad_Anchor_TwoQueuedRequests_EachEmitsAtOwnCurrentPosition_ThenEachFollowsOwnTarget()
         {
             // 第二个目标：另一个实体 Rival（同一锚点 id），独立位置。
             var renderer = new FollowCapableStubRenderer2D();
@@ -371,8 +376,6 @@ namespace Tests.Presentation.VfxSfx
                 anchorResolver: (e, a) => positions.TryGetValue(e, out var p) ? p : (Vec2?)null,
                 resourceLoader: loader);
 
-            var heroSpawn = positions[Hero];
-            var rivalSpawn = positions[Rival];
             Assert.NotNull(player.Spawn(AnchorVfx, VfxAttach.Anchor(Hero, HandAnchor), null));
             Assert.NotNull(player.Spawn(AnchorVfx, VfxAttach.Anchor(Rival, HandAnchor), null));
             Assert.Equal(2, player.PendingSpawnCount);
@@ -382,11 +385,11 @@ namespace Tests.Presentation.VfxSfx
             positions[Rival] = new Vec2(-10, -10);
             loader.CompletePending(AnchorRes);
 
-            // 补发后两个粒子各自停在各自 Spawn 时刻的位置（集合比较：补发顺序不是契约）。
+            // 补发后两个粒子各自在各自宿主的当前位置（集合比较：补发顺序不是契约）。
             var afterLoad = new List<Vec2>(renderer.ParticlePositions.Values);
             Assert.Equal(2, afterLoad.Count);
-            Assert.Contains(heroSpawn, afterLoad);
-            Assert.Contains(rivalSpawn, afterLoad);
+            Assert.Contains(positions[Hero], afterLoad);
+            Assert.Contains(positions[Rival], afterLoad);
 
             player.Update(0.016);
 
@@ -397,9 +400,10 @@ namespace Tests.Presentation.VfxSfx
         }
 
         [Fact]
-        public void ColdLoad_WithoutRepositioner_EmitsAtSpawnPosition_AndStaysThere()
+        public void ColdLoad_WithoutRepositioner_EmitsAtCurrentHostPosition_AndStaysThere()
         {
-            // 未装配 IParticleRepositioner 的渲染器：冷加载补发后与热路径一样"生成后静止"，不抛异常。
+            // 未装配 IParticleRepositioner 的渲染器：冷加载补发后与热路径一样"生成后静止"，不抛异常；
+            // 补发位置仍取补发那一刻的宿主位置（位置来源与是否装配重定位器无关）。
             var renderer = new StubRenderer2D();
             var loader = new StubResourceLoader { DeferCallbacks = true };
             loader.Register(SocketRes);
@@ -408,16 +412,16 @@ namespace Tests.Presentation.VfxSfx
                 renderer, new StubCamera(), BuildCatalog(),
                 entityPositionResolver: e => entityPos, resourceLoader: loader);
 
-            var spawnPos = entityPos;
             var handle = player.Spawn(SocketVfx, VfxAttach.Socket(Hero, HandSocket), null);
             Assert.NotNull(handle);
-            entityPos = new Vec2(40, 40);
+            var currentPos = new Vec2(40, 40);
+            entityPos = currentPos;
             loader.CompletePending(SocketRes);
 
             Assert.Null(Record.Exception(() => player.Update(0.016)));
 
             var emitted = Assert.Single(renderer.EmittedParticles);
-            Assert.Equal(spawnPos, emitted.Value.Position);
+            Assert.Equal(currentPos, emitted.Value.Position);
         }
     }
 }

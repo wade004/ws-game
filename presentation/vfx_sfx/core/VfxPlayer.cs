@@ -58,6 +58,12 @@ namespace Presentation.VfxSfx.Core
             /// <see cref="_ownerByHandle"/> 并按宿主当前冻结状态决定是否暂停起播（冷路径与热路径同一出口）。</summary>
             public Id? Owner;
 
+            /// <summary>冷加载补发位置来源（M4 清扫）：anchor/降级 socket 挂接的位置来源（与 <see cref="Follow"/> 同一份目标，但不受
+            /// <see cref="_particleRepositioner"/> 是否装配影响）。补发那一刻按它重新解析实体当前位置，与热路径"播出那一刻取当前位置"一致；
+            /// 解析不到（实体已离场）时退回 <see cref="WorldPos"/>（下一次 <see cref="Update"/> 的跟随刷新会按"目标丢失"结束它）。
+            /// world/screen 挂接为 null：它们的位置是请求那一刻定下的固定世界点，补发时不再重算。</summary>
+            public FollowTarget? PositionSource;
+
             /// <summary>判断记录（同步加载器场景，如测试用 <c>StubResourceLoader</c>——
             /// <c>DeferCallbacks=false</c> 时 <c>LoadAsync</c> 在调用当下就同步触发回调，或真实引擎
             /// 对已缓存资源的同步命中路径）：<see cref="QueuePendingSpawn"/> 调用
@@ -273,14 +279,13 @@ namespace Presentation.VfxSfx.Core
             // Socket 模式走到这里说明 TrySpawnAttachedToSocket 未命中（真挂接已在上面直接 return），
             // 按 FollowKind.EntityPosition 退而求其次跟随宿主实体本身。_particleRepositioner 未装配
             // 时恒为 null，不产生任何记账（见 RegisterFollow）。
-            FollowTarget? follow = _particleRepositioner == null
-                ? (FollowTarget?)null
-                : def.AttachMode switch
-                {
-                    VfxAttachMode.Anchor => new FollowTarget(FollowKind.Anchor, at.EntityId!.Value, at.PointId!.Value),
-                    VfxAttachMode.Socket => new FollowTarget(FollowKind.EntityPosition, at.EntityId!.Value, default),
-                    _ => (FollowTarget?)null,
-                };
+            FollowTarget? positionSource = def.AttachMode switch
+            {
+                VfxAttachMode.Anchor => new FollowTarget(FollowKind.Anchor, at.EntityId!.Value, at.PointId!.Value),
+                VfxAttachMode.Socket => new FollowTarget(FollowKind.EntityPosition, at.EntityId!.Value, default),
+                _ => (FollowTarget?)null,
+            };
+            FollowTarget? follow = _particleRepositioner == null ? (FollowTarget?)null : positionSource;
 
             // 手感落地 M3-C：宿主单位 = anchor/socket 挂接的实体（world/screen 没有宿主，永不随顿帧暂停，见 IVfxFreezable 判断记录）。
             Id? owner = def.AttachMode == VfxAttachMode.Anchor || def.AttachMode == VfxAttachMode.Socket ? at.EntityId : null;
@@ -305,7 +310,7 @@ namespace Presentation.VfxSfx.Core
                 // OnResourceLoadCompleted 才发生，见该方法判断记录；同步加载器（测试桩/引擎缓存
                 // 命中）则可能已经在 QueuePendingSpawn 内部就完成了整个"加载 -> 补播放"，此时直接
                 // 返回那次同步产生的真实句柄，不退化调用方体验。
-                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow, def.BlendMode, owner: owner);
+                return QueuePendingSpawn(vfxId, def, worldPos.Value, emitParams, follow, def.BlendMode, owner: owner, positionSource: positionSource);
             }
 
             // 判断记录（不再调用 _resourceTracker?.EnsureLoading）：走到这里说明
@@ -327,7 +332,7 @@ namespace Presentation.VfxSfx.Core
 
         private ParticleHandle? QueuePendingSpawn(
             Id vfxId, VfxDef def, Vec2 worldPos, IReadOnlyDictionary<string, double> parameters, FollowTarget? follow, VfxBlendMode blendMode,
-            Id? socketEntityId = null, Id? socketId = null, Id? owner = null)
+            Id? socketEntityId = null, Id? socketId = null, Id? owner = null, FollowTarget? positionSource = null)
         {
             var pending = new PendingSpawn
             {
@@ -340,6 +345,7 @@ namespace Presentation.VfxSfx.Core
                 TimeoutRemaining = _options.FirstLoadTimeoutSeconds,
                 Follow = follow,
                 Owner = owner,
+                PositionSource = positionSource,
                 BlendMode = blendMode,
                 Placeholder = new ParticleHandle(_nextPlaceholder++),
                 IsSocketAttach = socketEntityId.HasValue,
@@ -410,7 +416,15 @@ namespace Presentation.VfxSfx.Core
                 }
                 else
                 {
-                    handle = _renderer2D.EmitParticle(pending.ResourceRef, pending.WorldPos, pending.Parameters, pending.BlendMode);
+                    // 冷 = 热（M4 清扫，取代"补发位置 = Spawn 时刻位置、最多滞后一帧"的旧口径）：anchor/降级 socket 挂接在补发这一刻
+                    // 重新解析宿主当前位置，与热路径"播出那一刻取当前位置"一致；world/screen 的固定世界点不重算。
+                    var emitPos = pending.WorldPos;
+                    if (pending.PositionSource.HasValue && TryResolveFollowPosition(pending.PositionSource.Value, out var currentPos))
+                    {
+                        emitPos = currentPos;
+                    }
+
+                    handle = _renderer2D.EmitParticle(pending.ResourceRef, emitPos, pending.Parameters, pending.BlendMode);
                     _handleCategory[handle] = pending.Category;
                     _pool.Track(pending.Category, handle, pending.Lifetime);
                     RegisterFollow(handle, pending.Follow);
@@ -606,13 +620,9 @@ namespace Presentation.VfxSfx.Core
                 var handle = kv.Key;
                 var target = kv.Value;
 
-                Vec2? pos = target.Kind == FollowKind.Anchor
-                    ? _anchorResolver?.Invoke(target.EntityId, target.PointId) ?? _entityPositionResolver?.Invoke(target.EntityId)
-                    : _entityPositionResolver?.Invoke(target.EntityId);
-
-                if (pos.HasValue)
+                if (TryResolveFollowPosition(target, out var pos))
                 {
-                    _particleRepositioner!.SetParticlePosition(handle, pos.Value);
+                    _particleRepositioner!.SetParticlePosition(handle, pos);
                 }
                 else
                 {
@@ -629,6 +639,17 @@ namespace Presentation.VfxSfx.Core
             {
                 Stop(lost[i]);
             }
+        }
+
+        /// <summary>解析跟随目标当前的世界位置：锚点模式先问锚点解析器、再退到实体位置，实体位置模式只问实体位置解析器；
+        /// 解析不到返回 false。逐帧跟随刷新与冷加载补发共用这一个出口（冷 = 热）。</summary>
+        private bool TryResolveFollowPosition(FollowTarget target, out Vec2 position)
+        {
+            Vec2? pos = target.Kind == FollowKind.Anchor
+                ? _anchorResolver?.Invoke(target.EntityId, target.PointId) ?? _entityPositionResolver?.Invoke(target.EntityId)
+                : _entityPositionResolver?.Invoke(target.EntityId);
+            position = pos ?? default;
+            return pos.HasValue;
         }
 
         /// <summary>见 <see cref="_followTargets"/> 判断记录：<paramref name="follow"/> 为 null（

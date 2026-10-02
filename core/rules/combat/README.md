@@ -675,8 +675,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 10. **离散时间模型**：`HitFeelOptions.IsDiscreteMode` 为真时 `Evaluate` 返回无结果、事件全部忽略（顿帧与硬直在回合制下不生效，手感设计/00 第 7 节）。
 11. **契约新增（只加不改）**：`rules/common` 的 `HitFeelInput`/`HitFeelOutcome`/`IHitFeelArbiter`/`IHitReactionQuery`/`IKnockbackSink`/`IStaggerInterruptSink`；
     `IActionStateQuery.IsSuperArmor(Id)` 默认接口成员（缺省 false，时间线实现方覆盖）；`HitFeelOptions`；`HitFeelHost`；`core/rules/assembly` 的 `HitFeelSystem`/`HitFeelAssembly`/`SkillHostStaggerInterruptSink`。
-12. **已知局限**：① 光环类霸体（`SuperArmorAuraDef` 经 `IAuraQuery.HasAura`）没有独立用例，只由 `IsSuperArmor` 路径覆盖；② instant 适配对同一技能内多个伤害效果各算一次命中（嵌套取大不累加，
-    结果等价，但 `combat.reaction_applied` 会多发）；③ 空间命中、`combat.hit_confirmed` 的几何字段与动作时间线的霸体窗口由后续切片（S3b/S3a）提供，本切片的测试用替身发射器。
+12. **原已知局限的处理（M4 清扫）**：① 光环类霸体（`SuperArmorAuraDef` 经 `IAuraQuery.HasAura`）的独立用例已补：`HitFeelHostTests.SuperArmor_FromAura_NeverEntersStagger_ButStillTakesTheTargetHitstop_RemovalRestoresNormalRuling`（光环在 → 不进硬直但照常吃目标顿帧，光环移除 → 恢复正常裁决）与 `SuperArmor_AuraDefNotDeclaredInOptions_AuraPresenceIsIgnored`（选项没声明光环定义时光环存在被忽略）；② 设计决定：instant 适配对同一技能内多个伤害效果各算一次命中（顿帧批次嵌套取大不累加，结果等价，但 `combat.reaction_applied` 会按伤害事件多发，同一攻击实例的多条共享 `attackInstanceId`）——理由：instant 路径是目标选择式战斗的旧结算，"命中"的单位就是一个伤害事件，把同一实例的多个伤害效果并成一次命中要先定"命中"的口径（周期跳、扩展伤害是否算），那是时间线路径（每个目标每个标记一条确认）负责的设计问题，不在 instant 适配里另造一套；需要按实例去重的消费方用 `attackInstanceId` 去重；③ 空间命中、`combat.hit_confirmed` 的几何字段与动作时间线的霸体窗口已由 S3b/S3a 提供，不再是缺口。
 
 测试：`tests/HitFeelHostTests.cs`（46 例，全部以档案毫秒与 `FeelCalibration.MillisecondsToTicks` 算期望：双方冻结 tick 数、三目标取大并限幅、嵌套取大不累加、破韧/未破韧、硬直从顿帧结束起算、
 霸体、致死、`reaction_cap` 矩阵、倒地、回避类、击退距离与提交时刻、真实 `CombatHost` 的 instant 适配、缺省档案无副作用、离散模式、释放保证、确定性、事件键登记）。

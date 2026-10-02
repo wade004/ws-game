@@ -82,6 +82,12 @@ namespace Core.Rules.Common
         void AfterHit(in ProjectileHitInfo info, Id attackInstanceId, IReadOnlyList<ResolveResult> results);
 
         /// <summary>
+        /// 命中后效果的值倍率（默认 1，M4 清扫）：时间线蓄力动作发射的投射物带 <c>charge.value_scale</c> 按蓄力比例算出的倍率，宿主在命中后
+        /// 效果回灌时把它写进 <see cref="EffectContext.TargetCoefficient"/>（伤害/治疗值乘它）。缺省 1 与改动前逐位一致。
+        /// </summary>
+        double ValueScale => 1.0;
+
+        /// <summary>
         /// 投射物生成之后调用一次（默认空实现，既有实现者不受影响）。时间线投射物据此发 <c>action.projectile_launched</c>。
         /// </summary>
         void OnLaunched()

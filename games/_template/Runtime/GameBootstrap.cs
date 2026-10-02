@@ -749,7 +749,7 @@ namespace Game.Template
             if (!Freeze.IsFrozen)
             {
                 Presentation.ViewBinder.SyncAll(alpha);
-                Presentation.Camera.Update(alpha);
+                Presentation.Camera.Update(alpha, unscaledDelta);
             }
 
             // GP-10 根治：同 FrameworkResidentHost.OnFrameTick 同款判断记录（拍板 6）——推进每个

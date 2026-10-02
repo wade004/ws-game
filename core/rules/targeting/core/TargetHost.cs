@@ -81,6 +81,20 @@ namespace Core.Rules.Targeting
         /// 不影响施法射程检查（射程由技能管线判定，仍是平面距离，见 targeting README 已知局限）。
         /// </summary>
         public bool SpatialDistance { get; set; }
+
+        /// <summary>
+        /// 目标命中半径的来源（手感落地 M4 清扫，手感设计/03 第 2.4 节"形状与目标碰撞半径"）：返回单位的命中半径（世界单位，≤ 0 视为点）。
+        /// 非 null 且 <see cref="MaxTargetRadius"/> &gt; 0 时，<c>nearest_in_shape</c>/<c>all_in_shape</c> 的形状查询除了"目标中心落在形状内"，
+        /// 也命中"形状到目标中心的最近距离不超过该目标半径"的单位（半径内擦到身体算命中）；<c>continuous</c> 命中的接触点仍取形状上离目标中心最近的点（命中时它必然落在目标身体内，即形状与碰撞半径的交点）。
+        /// 默认 null：只按目标中心判定，行为与引入本选项之前逐位一致。来源由游戏供给（例如按体型数据或手感档案的 <c>unit_body_radius</c> 换算）。
+        /// </summary>
+        public Func<Id, double>? TargetRadius { get; set; }
+
+        /// <summary>
+        /// <see cref="TargetRadius"/> 的上界（世界单位）：形状查询按它外扩一圈做"宁可多、不可少"的广相位，再对每个候选按自己的半径精确重判。
+        /// 缺省 0 = 不启用目标半径；必须不小于 <see cref="TargetRadius"/> 实际返回的最大值，否则半径更大的单位可能漏判。
+        /// </summary>
+        public double MaxTargetRadius { get; set; }
     }
 
     /// <summary>
@@ -292,6 +306,8 @@ namespace Core.Rules.Targeting
             {
                 OriginHeight = anchorHeight,
                 SpatialDistance = _options.SpatialDistance,
+                TargetRadius = _options.MaxTargetRadius > 0.0 ? _options.TargetRadius : null,
+                MaxTargetRadius = _options.MaxTargetRadius,
             };
 
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();

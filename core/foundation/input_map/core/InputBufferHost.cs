@@ -487,9 +487,11 @@ namespace Core.Foundation.InputMap
             return result;
         }
 
-        public bool TryPeek(Id actorId, out BufferedIntent intent)
+        public bool TryPeek(Id actorId, out BufferedIntent intent) => TryPeek(actorId, null, out intent);
+
+        public bool TryPeek(Id actorId, Func<BufferedIntent, bool>? skip, out BufferedIntent intent)
         {
-            var record = FindCandidate(actorId, out _);
+            var record = FindCandidate(actorId, skip, out _);
             if (record == null)
             {
                 intent = default;
@@ -499,9 +501,12 @@ namespace Core.Foundation.InputMap
             return true;
         }
 
-        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, out BufferedIntent consumed)
+        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, out BufferedIntent consumed) =>
+            TryConsume(actorId, accepts, null, out consumed);
+
+        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, Func<BufferedIntent, bool>? skip, out BufferedIntent consumed)
         {
-            var record = FindCandidate(actorId, out var buffer);
+            var record = FindCandidate(actorId, skip, out var buffer);
             if (record == null || buffer == null || (accepts != null && !accepts(record.ToIntent())))
             {
                 consumed = default;
@@ -514,7 +519,7 @@ namespace Core.Foundation.InputMap
             return true;
         }
 
-        private Record? FindCandidate(Id actorId, out ActorBuffer? buffer)
+        private Record? FindCandidate(Id actorId, Func<BufferedIntent, bool>? skip, out ActorBuffer? buffer)
         {
             buffer = null;
             if (!_actors.TryGetValue(actorId, out var found)) return null;
@@ -529,6 +534,7 @@ namespace Core.Foundation.InputMap
             {
                 var r = found.Slots[i];
                 if (r.Consumed || r.Hold == BufferHoldState.HoldPending || now > r.ExpiresAt) continue;
+                if (skip != null && skip(r.ToIntent())) continue; // 永远接不了的记录不参与排序（见 IBufferedIntentSink.CanHandle）
                 if (best == null || r.Priority > best.Priority || (r.Priority == best.Priority && r.SubmittedTick < best.SubmittedTick))
                 {
                     best = r;

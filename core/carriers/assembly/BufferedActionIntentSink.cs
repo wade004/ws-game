@@ -99,12 +99,12 @@ namespace Core.Carriers.Assembly
     /// <para>
     /// 判断记录（接受时朝向对齐）：记录 <see cref="BufferedIntent.FaceOnAccept"/> 为真且带按下瞬间方向快照时，在接受瞬间把行动者朝向直接对齐到该方向
     /// （<c>Atan2(y, x)</c>，与运动层同一朝向约定）；没有轴输入保持当前朝向。是瞬时对齐，不经运动层的转向速率——转向速率是行走时的
-    /// 惯性，攻击起手的方向修正才是 <c>face_on_accept</c> 的语义。时间线自己在取消窗口里拉取的记录不经本出口，不做对齐（已知局限）。
+    /// 惯性，攻击起手的方向修正才是 <c>face_on_accept</c> 的语义。时间线自己在取消窗口里拉取的记录不经本出口，由技能管线在取消进入接受的那一刻做同样的瞬时对齐（M4 清扫）。
     /// </para>
     /// <para>
-    /// 判断记录（未映射技能的动作）：声明了类别但没有 <c>skill_slot</c>（或槽位没有绑定）的动作，本出口返回 false，记录留在缓冲里直到过期，
-    /// 供游戏自己的消费者取用；若它恰好是该行动者最前的候选，会挡住优先级更低的候选直到它过期（缓冲只取最前一条，已知局限）。
-    /// 游戏应给每个声明了类别的动作配 <c>skill_slot</c>，或不给它声明类别。
+    /// 判断记录（未映射技能的动作，M4 清扫）：声明了类别但没有 <c>skill_slot</c>（或槽位没有绑定）的动作，本出口经 <see cref="CanHandle"/> 声明"永远接不了"：
+    /// 记录留在缓冲里直到过期（供游戏自己的消费者取用），但不再参与最前候选的排序——不会在过期前挡住优先级更低、本出口接得了的候选。
+    /// "此刻不能接受"（动作锁、硬直、冷却）与此不同：仍由 <see cref="TryAccept"/> 返回 false，次优先级记录照旧不让位。
     /// </para>
     /// </summary>
     public sealed class BufferedActionIntentSink : IBufferedIntentSink, IDisposable
@@ -153,6 +153,9 @@ namespace Core.Carriers.Assembly
             _stepSeconds = stepSeconds;
             _failedSubscription = bus.Subscribe<SkillCastFailedEvent>(RulesEventKeys.SkillCastFailed, OnCastFailed);
         }
+
+        /// <summary>永远接不了：映射来源给不出技能（动作没有 <c>skill_slot</c>、槽位没有绑定，武器也没声明）。处理器据此跳过它、改问下一条候选。</summary>
+        public bool CanHandle(Id actorId, BufferedIntent record) => _binding.TryResolveSkill(actorId, record, out _);
 
         public bool TryAccept(Id actorId, BufferedIntent record, out Intent intent)
         {

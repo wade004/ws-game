@@ -541,6 +541,56 @@ namespace Tests.Rules.Combat
         }
 
         [Fact]
+        public void SuperArmor_FromAura_NeverEntersStagger_ButStillTakesTheTargetHitstop_RemovalRestoresNormalRuling()
+        {
+            // 光环类霸体（HitFeelOptions.SuperArmorAuraDef 经 IAuraQuery.HasAura）：此前只由 IsSuperArmor 路径间接覆盖，没有独立用例。
+            var armorAura = new Id("aura.sample_super_armor");
+            var fx = Build(configure: o => o.SuperArmorAuraDef = armorAura);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0); // 韧性远低于强度：若不是霸体必破韧
+            var targetTicks = Ticks(Ms(fx, Target, FeelFieldNames.TargetHitstopMs));
+
+            // 没带光环：同样的命中照常破韧（对照，证明下面的霸体来自光环而不是夹具）。
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target) > 0);
+
+            // 带光环：不进硬直、不击退、不打断，但目标顿帧照吃（量由档案换算：targetTicks）。
+            fx = Build(configure: o => o.SuperArmorAuraDef = armorAura);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.C.Auras.SetAura(Target, armorAura);
+            fx.Hit(Attacker, Target);
+            fx.Tick();
+            Assert.Equal(targetTicks, fx.FrozenOver(Target, 40));
+            Assert.Equal(0, fx.StaggeredCount(Target));
+            Assert.Empty(fx.Reactions);
+            Assert.Empty(fx.Interrupts.Calls);
+            Assert.Empty(fx.Knock.Calls);
+
+            // 别的单位没带光环：不沾光（旁观对照）。
+            fx.Hit(Attacker, Target2);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target2) > 0);
+
+            // 光环移除后同样的命中恢复正常裁决。
+            fx.C.Auras.SetAura(Target, armorAura, present: false);
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target) > 0);
+        }
+
+        [Fact]
+        public void SuperArmor_AuraDefNotDeclaredInOptions_AuraPresenceIsIgnored()
+        {
+            var fx = Build();
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.C.Auras.SetAura(Target, new Id("aura.sample_super_armor"));
+            var targetTicks = Ticks(Ms(fx, Target, FeelFieldNames.TargetHitstopMs));
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target) > 0);
+        }
+
+        [Fact]
         public void SuperArmor_FromRealTimelineWindow_InsideNoStaggerButTargetHitstop_OutsideStaggers()
         {
             // 联动不变量：真实 CastPipeline（armor_start/armor_end 时间线标记）作为 IActionStateQuery 接给受击裁决。

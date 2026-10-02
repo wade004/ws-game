@@ -100,11 +100,58 @@ namespace Core.Rules.Targeting
         {
             if (!ctx.GridSnapCellSize.HasValue)
             {
-                return ctx.Spatial.QueryShape(shape, filter);
+                return AddBodyRadiusHits(ctx, shape, filter, ctx.Spatial.QueryShape(shape, filter));
             }
 
             return GridSnapShapeQuery.QueryShapeAtCellCenters(
                 ctx.Spatial, shape, filter, ctx.Units.GetPosition, ctx.GridSnapPolicy!, ctx.GridSnapCellSize.Value);
+        }
+
+        /// <summary>
+        /// 目标命中半径（<see cref="TargetContext.TargetRadius"/>，M4 清扫）：在"目标中心落在形状内"的原始结果之后，追加"形状到目标中心的最近距离不超过该目标半径"
+        /// 的单位——先用外扩 <see cref="TargetContext.MaxTargetRadius"/> 的形状取一批宁多勿少的候选，再按各自半径精确重判，追加项按 Id 序排在原始结果之后（确定性）。
+        /// 没有配置半径来源时原样返回（逐位不变）；格子吸附路径不参与（格子中心采样本来就以格为单位）。
+        /// </summary>
+        private static IReadOnlyList<Id> AddBodyRadiusHits(TargetContext ctx, Shape shape, QueryFilter filter, IReadOnlyList<Id> raw)
+        {
+            var radiusOf = ctx.TargetRadius;
+            if (radiusOf == null || ctx.MaxTargetRadius <= 0.0)
+            {
+                return raw;
+            }
+
+            var seen = new HashSet<Id>(raw);
+            var extra = new List<Id>();
+            foreach (var id in ctx.Spatial.QueryShape(shape.Expand(ctx.MaxTargetRadius), filter))
+            {
+                if (seen.Contains(id) || id.Equals(ctx.CasterId))
+                {
+                    continue;
+                }
+
+                var radius = radiusOf(id);
+                if (radius <= 0.0)
+                {
+                    continue;
+                }
+
+                var position = ctx.Units.GetPosition(id);
+                if ((ShapeGeometry.ClosestPoint(shape, position) - position).Length <= radius + 1e-12)
+                {
+                    extra.Add(id);
+                }
+            }
+
+            if (extra.Count == 0)
+            {
+                return raw;
+            }
+
+            extra.Sort();
+            var merged = new List<Id>(raw.Count + extra.Count);
+            merged.AddRange(raw);
+            merged.AddRange(extra);
+            return merged;
         }
 
         private sealed class NearestInShapeStrategy : ITargetSourceStrategy

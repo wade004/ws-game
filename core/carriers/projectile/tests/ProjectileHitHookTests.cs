@@ -272,6 +272,51 @@ namespace Tests.Carriers.Projectile
             Assert.Equal(1, hook.BeforeCount);
         }
 
+        private sealed class ScaledHook : IProjectileHitHook
+        {
+            public double Scale;
+
+            public double ValueScale => Scale;
+
+            public bool BeforeHit(in ProjectileHitInfo info, out Id attackInstanceId)
+            {
+                attackInstanceId = new Id("atk.scaled");
+                return true;
+            }
+
+            public void AfterHit(in ProjectileHitInfo info, Id attackInstanceId, IReadOnlyList<ResolveResult> results)
+            {
+            }
+        }
+
+        [Fact]
+        public void HookValueScale_IsCarriedOnTheOnHitEffectContext_AsTargetCoefficient()
+        {
+            // 手感落地 M4 清扫：蓄力动作发射的投射物，命中后效果带钩子给出的效果值倍率（量：1 → 钩子倍率）。
+            const double scale = 2.5;
+            var (w, targets) = Setup(1);
+            w.Host.Spawn(Context(targets[0]), w.Sink, new ScaledHook { Scale = scale });
+
+            w.Host.Advance(1.0);
+
+            var applied = Assert.Single(w.Sink.Applied);
+            Assert.Equal(scale, applied.TargetCoefficient, 9);
+        }
+
+        [Fact]
+        public void HookWithoutValueScale_AndNoHook_KeepCoefficientAtOne()
+        {
+            // 不变量：缺省倍率（旧钩子/无钩子）下 TargetCoefficient 仍为 1，行为与改动前一致。
+            var (w, targets) = Setup(2);
+            w.Host.Spawn(Context(targets[0]), w.Sink, new LegacyHook());
+            w.Host.Spawn(Context(targets[1]), w.Sink);
+
+            w.Host.Advance(1.0);
+
+            Assert.NotEmpty(w.Sink.Applied);
+            Assert.All(w.Sink.Applied, c => Assert.Equal(1.0, c.TargetCoefficient, 9));
+        }
+
         private sealed class LegacyHook : IProjectileHitHook
         {
             public int BeforeCount;
