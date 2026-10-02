@@ -455,11 +455,13 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   未设置落盘路径时依然不产生任何文件。编辑器交付后可以删除原有解析该行日志文本判定表名的路径，
   改读落盘 JSON 的 `table` 字段。详见下方"[Unreleased]"正文与
   [ADR-0055](architecture/adr/0055-运行期校验报告落盘出口补表名字段.md)。
-- **手感落地 M4（[Unreleased]）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文。详见下方 `[Unreleased]` 正文。
+- **手感落地 M4（[Unreleased]）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[Unreleased]` 正文。
 
 ## [Unreleased]
 
-本段汇集手感落地 M4（1.95.0 之后）：体积阻挡精确化与三期、宽限瞄点与冻结兜底、实验室无头补完与动态韧性、竖直轴能力包补完与二期（地形、导航、空中战斗）、实验室引擎宿主与引擎侧残余、框架级假人姿势集三期。**不开手感、不声明 `unit_body_radius`、不配置 `MovementOptions.Vertical`、不声明本段新增的任何可选字段时，行为与 1.95.0 逐位一致**；有行为变化的几处见下方"变更"与"接入与迁移说明（M4）"。公开签名只增不改（新增的是默认接口成员、可选属性、重载与新类型，旧签名物理保留）。
+本段汇集手感落地 M4（1.95.0 之后）：体积阻挡精确化与三期、宽限瞄点与冻结兜底、实验室无头补完与动态韧性、竖直轴能力包补完与二期（地形、导航、空中战斗）、实验室引擎宿主与引擎侧残余、框架级假人姿势集三期与残余收尾（躺姿重绘、施放点变体与命中对位）、手感相关已知限制的最终清扫。**不开手感、不声明 `unit_body_radius`、不配置 `MovementOptions.Vertical`、不声明本段新增的任何可选字段时，行为与 1.95.0 逐位一致**；有行为变化的几处见下方"变更"与"接入与迁移说明（M4）"。公开签名只增不改（新增的是默认接口成员、可选属性、重载与新类型，旧签名物理保留）。
+
+**1.95.0 条目与 `lab/README.md` 里登记的手感相关已知限制，到本段为止已全部解除或转为判断记录**：真能力缺口在 M4 各切片与最终清扫里落地为能力（见下方新增与变更），合理的边界改写为各模块 README 与 [ADR-0138](architecture/adr/0138-手感已知限制清扫的数据与契约决定.md) 里的设计决定（决定 + 理由）；历史版本条目按惯例原样保留、不回头改写。
 
 ### 新增
 
@@ -476,7 +478,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **可注入帧时间源（M4-W4，[ADR-0136](architecture/adr/0136-可注入帧时间源.md)）**：新增 `IFrameTimeSource` 与 `ManualFrameTimeSource`；`UnityFrameAnimPlayer`、`EffectSequencePlayer` 新增公开可选属性 `TimeSource` 与公开 `Step()`，`UnityRenderer2D.EffectTimeSource`/`StepEffects()` 对全部序列帧特效生效；不设置则每帧取引擎帧间隔，行为逐位不变。M4-H 的内部推进入口已删除。
 - **图标加载路径（M4-W4）**：`UnityResourceLoader` 对 `icon` 类别资源引用走 `icons/<类别>/<名>.png` 约定；`toolchain/resource_layout_map.json` 新增 `icons` 映射，占位美术与样例美术的图标同步到 `StreamingAssets/GameFoundation/icons`。
 - **姿势切换交叉淡入时长数据化（M4-D，[ADR-0137](architecture/adr/0137-姿势切换交叉淡入时长数据化.md)，手感设计/04 第 10 节第 10 条）**：`display.anim_set` 加法字段 `blend_ms`（每个剪辑条目，0..2000）与行级 `blends`（`[{from, to, blend_ms}]`）；优先级每对键 > 逐键 > 缺省 0.15 秒，显式 0 = 硬切；只对 `model` 型骨骼剪辑生效；沿 `extends` 合并。
-- **框架级假人姿势集三期（M4-D，手感设计/04 第 10 节第 7、10 条）**：键清单由 103 键增至 128 键（117 份独立剪辑）：空中键（`jump.rise`、`jump.fall`、`jump.land`、`hit.air`、`attack.air` 与八个武器族）、带伤变体覆盖全部移动与战斗移动键、细节键（`hit.block`、`hit.block.shield`、`stunned.sway`、`hit.launch.tumble`、`hit.launch.land`）；体量三档由数据声明（中档 = 主集），轻、重体量组覆盖主集全部键，序列帧版同样有体量组；五个新武器族改为程序化低多边形形体。**既有键的骨骼剪辑与身体层字节不变，只追加。**不做根运动与布娃娃（位移权威在逻辑层）。
+- **框架级假人姿势集三期（M4-D，手感设计/04 第 10 节第 7、10 条）**：键清单由 103 键增至 128 键（117 份独立剪辑）：空中键（`jump.rise`、`jump.fall`、`jump.land`、`hit.air`、`attack.air` 与八个武器族）、带伤变体覆盖全部移动与战斗移动键、细节键（`hit.block`、`hit.block.shield`、`stunned.sway`、`hit.launch.tumble`、`hit.launch.land`）；体量三档由数据声明（中档 = 主集），轻、重体量组覆盖主集全部键，序列帧版同样有体量组；五个新武器族改为程序化低多边形形体。**除下一条 M4-W5/W6 重绘的躺姿与重受击键外，既有键的骨骼剪辑与身体层字节不变，只追加。**不做根运动与布娃娃（位移权威在逻辑层）。
+
+- **假人姿势集残余收尾（M4-W5、M4-W6，手感设计/04 第 10 节第 3、4、7、10 条）**：①躺姿五键（`hit.launch`、`hit.knockdown`、`hit.getup`、`death`，加与起身同躺姿的 `hit.launch.land`）改用骨盆整身俯仰重绘，肩、髋、躯干角限收紧到人体范围；M4-W6 把 `hit.heavy`、`hit.knockback` 也从"字节锁"里放开并重绘到人体范围（后仰用整身俯仰表达），骨骼版的角限例外表（`SOURCE_ANGLE_EXEMPT`）随之删除；键名、时长、事件、帧数不变，其余键的规格与图像字节不变；两版、体量组、装备集同步。②体量组（轻、重）补整身方向变体，全部键都出（不退化为只出移动与待机键）：新增 2340 个序列帧文件、约 8.2 MB（轻约 4.0 MB、重约 4.2 MB），低于 20 MB 的上限；用整身剪辑的外形在体量组下因此也随朝向换图。③动画控制器没有过渡连线，交叉淡入由运行期按数据（[ADR-0137](architecture/adr/0137-姿势切换交叉淡入时长数据化.md)）驱动，控制器与资源标识不变，生成仍确定性、重复生成逐字节一致。④`cast` 的释放点由 250 毫秒移到 150 毫秒（相位 150/100/350，总时长 600 毫秒与帧数 12 不变），`release` 同时作 `hit_frame` 别名事件（模型版 `cast` 此前没有 `hit_frame`），与实验室多数技能的命中标记（150 毫秒）逐毫秒对齐；不改技能时间线，实验室基线不变。
+- **施放点变体 `cast.quick` / `cast.heavy`（M4-W6，手感设计/04 第 10 节第 10 条）**：可选姿势键 `cast.quick`（`release` 在 100 毫秒）与 `cast.heavy`（`release` 在 300 毫秒），总时长与帧数同 `cast`，两版与体量组同键同事件；游戏用武器风格 `display.weapon_style` 的既有字段 `cast_anim_override`（技能 id 到剪辑资源引用）把技能指到变体，回退链为 `cast.<变体>` 到 `cast`，没有声明覆盖的游戏不变。实验室数据 `data/_lab_action/display/display.weapon_style.json` 用它把起手 100 毫秒（combo1、combo2、poise_chip、lunge、空间扩展的 jab）与 300 毫秒（精英重击）的技能指到变体，结果每个实验室技能的命中标记都等于它所播放施放剪辑的 `release` 时刻。W6 新增文件共 325 个、约 1.16 MB（序列帧图像 312 个，含主集、体量组与装备集派生的变体剪辑；骨骼剪辑 6 个及其 6 个 `.meta`；数据行文件 1 个）。
+- **蓄力效果值倍率（M4 清扫，[ADR-0138](architecture/adr/0138-手感已知限制清扫的数据与契约决定.md) 决策 1、2，手感设计/01 第 3.3 节）**：`timeline.charge` 新增可选 `value_scale: {min, max}`（均不小于 0），伤害与治疗类效果值乘倍率 `min + (max − min) × 蓄力比例`（蓄力比例夹到 0～1），经既有的 `EffectContext.TargetCoefficient` 生效；`release` 标记发射的投射物经新增的默认接口成员 `IProjectileHitHook.ValueScale`（缺省 1）把倍率带到命中后效果。不声明不缩放。蓄力相就是动作开始之前输入缓冲里 `hold_pending` 记录存续的那段，动作在抬起或到上限时才开始，不发 `charge` 相位事件（枚举成员保留）。
+- **`timeline.is_attack`（M4 清扫）**：技能时间线新增可选布尔字段，显式声明动作是否带攻击（`action.started.isAttack`），缺省按技能内容推断；对友方的治疗类投射物写 `false`，反馈侧就不为它开挥空窗口。
+- **缓冲出口"能否处理"（M4 清扫，ADR-0138 决策 3，核心输入映射判断记录）**：`IBufferedIntentSink` 新增默认接口成员 `CanHandle(actorId, record)`（缺省真），`IInputBufferQuery` 新增带跳过谓词的 `TryPeek`/`TryConsume` 重载（默认实现忽略谓词）；只有出口声明"永远接不了"（例如输入动作没有技能映射）的记录被剔出候选，它们留在缓冲里直到自己的窗口过期，不再在过期前挡住优先级更低的可接受记录；"此刻不能接受"（冷却、动作锁）仍按优先级等待。生产装配的 `BufferedActionIntentSink` 与时间线取消窗口的拉取都按此剔除未映射记录。
+- **取消进入时的朝向对齐（M4 清扫）**：时间线在取消窗口里拉取的记录被接受时，若记录要求对齐（`FaceOnAccept`）且带按下瞬间的方向快照，就在取消进入被接受的那一刻把朝向对齐到该方向（需要 `IUnitFacingWriter`，没有时记诊断警告），与缓冲出口同一口径。
+- **目标命中半径（M4 清扫，ADR-0138 决策 4，手感设计/03 第 2.4 节）**：`TargetingOptions.TargetRadius`（`Func<Id, double>?`，单位命中半径，世界单位）与 `MaxTargetRadius`（广相位上界，必须不小于实际最大半径），缺省关闭。开启后 `nearest_in_shape`/`all_in_shape` 在"中心落在形状内"的结果之后，追加"形状到目标中心的最近点距离不超过该目标半径"的单位（先按上界外扩取候选，再逐个精确重判，追加项按 Id 序）；时间线空间命中（标记与持续命中的逐 tick 采样）经同一条形状查询，自动按半径判定。半径来源由游戏给（体型数据，或手感档案 `unit_body_radius` 的换算）。
 
 ### 变更
 
@@ -487,6 +497,17 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **动作时间步长回填**：生产装配与无头世界按宿主步长回填 `SkillOptions.ActionStepSeconds`（M4-L），非 60 Hz 宿主上动作时间线的相位 tick 数现在随宿主步长换算；60 Hz 宿主不变。
 - **装配对穿脱装备的失效**：去掉装配对穿脱装备的无差别 `equipment_changed` 失效（M4-L，换装场景改走生产装配后暴露的重复失效），换装后不再多做一次无谓重算；结果不变。
 - **实验室**：武器到普攻技能映射改为数据覆盖行，移除内存覆盖 `WeaponAttackSkills`；冲击档案与音效行从内核搬进实验室数据集（`data/_lab_action`）。`feellab run` 支持竖直格子。
+- **镜头阻尼按真实帧间隔（M4 清扫，ADR-0138 决策 10）**：三个生产引导（Unity 适配层的 `GameFoundationBootstrap`、`FrameworkResidentHost`，以及游戏模板 `GameBootstrap`）改调 `Update(alpha, unscaledDelta)`，镜头的阻尼、前瞻与死区按真实（不受时间缩放影响的）帧间隔计算，收敛速度不再随帧率变化。`ICameraHost.Update(alpha)` 既有签名原样保留（按固定 1/60 秒推进，对固定步长宿主就是准确值）。不开镜头手感档案（缺省）时旁路档案计算，不受影响；自己直接调旧入口的外部宿主改用带帧间隔的重载。
+- **冷加载特效的发射位置（M4 清扫）**：冷加载排队的特效在加载完成那一刻重新取锚点/挂点宿主的当前位置发射，与资源已缓存的热路径同口径（此前用 `Spawn` 时刻位置，加载越慢差越大）；宿主已不在时回落到 `Spawn` 时刻位置；排队期间 `Stop(占位句柄)` 取消排队、从不发射。
+- **未映射记录不再挡路、取消进入对齐朝向**：见上方"缓冲出口能否处理"与"取消进入时的朝向对齐"。只影响"动作声明了输入类别却没有技能映射"，或记录要求对齐朝向且带方向快照的游戏；其余行为与 1.95.0 逐位一致。
+- **重受击与击退的骨骼剪辑字节变化（M4-W6）**：`hit.heavy`、`hit.knockback` 的极值帧放开字节锁并重绘，引用框架标准假人姿势集的游戏会看到这两个键的剪辑资源与序列帧图像字节变化（键名、时长、事件、帧数不变）。躺姿五键同样重绘（M4-W5）。
+
+### 修复
+
+- **覆盖剪辑的事件缺口（M4-W6，Unity 适配层）**：`UnityViewFactory` 登记武器风格覆盖剪辑时一律传空事件表，覆盖剪辑播放时序列帧位面没有 `release`/`hit_frame`，宿主命中对齐数不到。新增 `OverrideClipEvents`：在实体所用 `display.anim_set` 合并继承链后的剪辑里按资源引用反查事件，探测、重探测、缓存命中重登记、整身方向变体（热路径与冷加载）与非方向路径都经它。
+- **序列帧播放器的帧边界浮点（M4-W6，`FrameAnimPlayer`）**：求当前帧改为 `FrameIndexAt = floor(已播秒数 × 帧率 + 1e-9)`，累加多个浮点步长恰好落在帧边界时不再因舍入落在边界之下、使关键帧晚一个宿主帧触发；逻辑指纹不受影响（播放器只在表现层）。
+- **实验室整份基线比较不再依赖墙钟（M4-W6）**：`FingerprintComparer.Compare` 与 `LabSuite.Check` 新增 `includeRealTime` 重载，测试辅助 `LabTestSupport.CheckDeterministic` 排除实时类度量（帧耗时与每帧分配的倍率上限），此前满载机器上间歇变红；实时类上限仍由命令行 `suite` 强制。
+- **光环霸体补测（M4 清扫）**：`SuperArmorAuraDef` 经光环查询的霸体补了独立用例（光环在 → 不进硬直但照常吃目标顿帧，光环移除 → 恢复正常裁决；选项没声明光环定义时光环存在被忽略），原"已知局限"解除。
 
 ### 接入与迁移说明（M4）
 
@@ -495,17 +516,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **自写 `IGraceConditionEvaluator`、`ILaunchSink`、`INavigation2D`、`ICamera` 的游戏**：这些接口只增加了默认成员或独立的可选接口，既有实现不必改；要用增量阻挡、带瞄点的宽限、空中击飞上限或相机相对控制，再按需覆盖对应成员或实现可选接口（`ICameraOrientation`）。自写 `INavigation2D` 若要调增量阻挡，须覆盖 `AddBlocking`/`RemoveBlocking` 或暴露 `GetBlocking`，否则调用抛 `NotSupportedException`。
 - **开启竖直轴的可选能力**：地形数据写在 `world.map.terrain`，空中控制与空中跳跃经 `VerticalAxisOptions`；空中姿势键在姿势集里没有对应剪辑时沿回落链落到通用键，不报错。
 - **使用相机相对控制**：在二维轴动作上声明 `control_space: camera_relative`，并确保相机实现了 `ICameraOrientation`（Unity 适配的 `UnityCamera` 已实现）；无头宿主不提供朝向，该格按 `world` 运行。
-- **使用框架假人姿势集的游戏**：键清单只追加、既有键不变；`display.anim_set` 的新字段 `blend_ms`/`blends` 没声明时缺省仍是 0.15 秒交叉淡入。轻、重体量组覆盖主集全部键，序列帧版体量组只写正面合成图与身体层、武器层，不写按方向拆分的整身方向变体，用整身剪辑的外形在体量组下不随朝向换图。
+- **使用框架假人姿势集的游戏**：键清单只追加、既有键不变；`display.anim_set` 的新字段 `blend_ms`/`blends` 没声明时缺省仍是 0.15 秒交叉淡入。轻、重体量组覆盖主集全部键，序列帧版体量组同样写整身方向变体（M4-W5），用整身剪辑的外形在体量组下也随朝向换图；`hit.heavy`、`hit.knockback` 与躺姿五键的剪辑字节有变（见上方"变更"），`cast` 的释放点移到 150 毫秒；`cast.quick`/`cast.heavy` 是可选键，没声明 `cast_anim_override` 的游戏不受影响。
 - **依赖实验室内部的工具**：`LabHostExtension` 的 `ConvertMoveAxis` 已由 `CameraOrientation`、`ControlSpaceOverride`、`OnMoveAxis` 取代；引擎宿主的内部推进入口已删除，改用公开的时间源与 `Step()`。
+
+- **自写 `IBufferedIntentSink`、`IInputBufferQuery`、`IProjectileHitHook` 的游戏**：这三个接口只新增了默认成员（`CanHandle`、带跳过谓词的 `TryPeek`/`TryConsume`、`ValueScale`），既有实现原样工作、不必重编；自写缓冲出口若要让"永远接不了"的记录不挡路，覆盖 `CanHandle`，自写输入缓冲查询要支持跳过则覆盖带谓词的重载。不声明 `charge.value_scale`、不配置 `TargetingOptions.TargetRadius`、不写 `is_attack` 时这几条都与 1.95.0 逐位一致。
+- **自己驱动 `ICameraHost.Update(alpha)` 的外部宿主**：旧入口按固定 1/60 秒推进，变帧率宿主上阻尼收敛速度随帧率变化；改调 `Update(alpha, dt)` 并传真实（未缩放）帧间隔即可。三个生产引导已改。
+- **使用蓄力的游戏**：效果值倍率写在时间线的 `charge.value_scale`（旧设计文稿里"蓄力比例暴露给表达式"的写法不被承认）；蓄力期间没有动作实例，表现层读输入缓冲的只读快照取按住时长。
 
 ### 资产与实验室规模（M4）
 
-- **资产体积**：框架 `assets/` 合计由 5165 个文件、30.85 MB 增至 11179 个文件、49.51 MB（序列帧占位美术 `assets/_placeholder/sprite_anim/` 由 4898 个文件、12.45 MB 增至 10912 个文件、28.38 MB；Unity 适配内的骨骼剪辑资源 `anim_clips/` 由 226 个文件、9.37 MB 增至 712 个文件、29.31 MB）。序列帧占位美术新增文件 6014 个、约 15.78 MB（轻体量组 6.33 MB、重体量组 6.59 MB、主集新键 1.68 MB、装备集派生约 1.17 MB），既有文件改写 495 个、约 2.13 MB（五个新武器族的武器层与合成图）。发布包体积随之增加。
+- **资产体积**（按 M4 收口后的文件系统重新统计，`assets/` 与 Unity 适配内 `anim_clips/` 均为入库文件）：框架 `assets/` 合计由 5165 个文件、30.85 MB 增至 13831 个文件、58.40 MB（序列帧占位美术 `assets/_placeholder/sprite_anim/` 由 4898 个文件、12.45 MB 增至 13564 个文件、37.21 MB；Unity 适配内的骨骼剪辑资源 `anim_clips/` 由 226 个文件、9.37 MB 增至 724 个文件、30.56 MB）。序列帧占位美术净增 8666 个文件：M4-D 新增 6014 个、约 15.78 MB（轻体量组 6.33 MB、重体量组 6.59 MB、主集新键 1.68 MB、装备集派生约 1.17 MB），M4-W5 体量组整身方向变体新增 2340 个、约 8.2 MB（轻约 4.0 MB、重约 4.2 MB），M4-W6 施放点变体新增 312 个；M4-D 既有文件改写 495 个、约 2.13 MB（五个新武器族的武器层与合成图），M4-W5/W6 另改写躺姿与重受击、击退键的图像字节（文件数不变）；骨骼剪辑净增 6 个剪辑（W6 的 `cast.quick`/`cast.heavy` 在主集、轻、重三组下各一，文件数含 `.meta` 为 12 个）。发布包体积随之增加。
 - **实验室**（本段合并后 `feellab` 实测，数字随脚本增删变化，以命令输出为准）：标准脚本 69 个（十一个旧脚本、二十九个手感脚本、二十九个空间脚本）；`suite` 530 格、`RESULT total=530 pass=530 diff=0 missing=0`；期望清单 `RESULT expectations total=484 pass=484 fail=0`；`invariants` `RESULT invariants total=741 pass=741 fail=0`。相比 1.95.0 的 258 格、98 条期望、379 条不变量，增量全部来自新增脚本（动态韧性、投射物到期与清场、空间扩展、空中战斗、地形与导航等）。发布包随附的实验室数据与夹具同步更新，消费方按 `dotnet toolchain/feellab/bin/FeelLab.dll suite` 应得与上面同口径的汇总行。
 
-### M4-W5/W6（假人姿势残余与命中对位，条目待合并后核对）
-
-- **假人姿势集残余与命中帧对齐（M4-W5、M4-W6）**：假人姿势集的躺平类姿势残余（手感设计/04 第 10 节第 3 条所记）与命中帧对齐（技能读条剪辑的 `release` 关键帧与技能时间线命中标记的时刻对位，度量见引擎宿主的命中帧对齐）正在合并；具体键、字节变化与数值待合并后核对再补，本条只记范围。
 
 ## [1.95.0] - 2026-10-02
 
