@@ -279,6 +279,53 @@ namespace Presentation.Render
                 sub.Dispose();
             }
             _subscriptions.Clear();
+            if (_airSource != null)
+            {
+                _airSource.ContextChanged -= OnAirContextChanged;
+                _airSource = null;
+            }
+        }
+
+        private IPoseContextSource? _airSource;
+
+        /// <summary>
+        /// ADR-0130 追加决定（空中姿势）：挂接空中阶段来源（通常是 <c>PoseSelector</c>，由 <c>AirPoseFeeder</c> 喂入阶段）。
+        /// 挂接后：①运动态（Idle/Move）的实体腾空（<see cref="AirPhase.Rise"/>/<see cref="AirPhase.Fall"/>）时进入 <see cref="AnimState.Jump"/>；
+        /// ②Jump 状态下空中阶段回到 <see cref="AirPhase.None"/>（落地保持窗口结束）时回落到运动态；
+        /// ③瞬态（Attack/Cast/Hit）结束时若实体仍在空中，回落到 Jump 而不是运动态。
+        /// 不挂接（缺省）时行为与改动前逐位一致——Jump 仍只经 <see cref="RequestOverride"/> 进入。重复挂接替换来源。
+        /// </summary>
+        public void AttachAirPhaseSource(IPoseContextSource source) => AttachAirPhaseSource(source, subscribe: true);
+
+        /// <summary>
+        /// 同 <see cref="AttachAirPhaseSource(IPoseContextSource)"/>，但可选择不订阅来源的 <c>ContextChanged</c>：<paramref name="subscribe"/> 为假时，
+        /// 空中阶段的变化由持有者显式调用 <see cref="ApplyAirPhase"/> 驱动（引擎侧由 <c>AnimClipResolver</c> 在它既有的那一个上下文订阅里先调本方法
+        /// 再重新解析剪辑——来源上只有一个订阅者，且"先进出 Jump、后解析剪辑"的顺序有保证）。
+        /// </summary>
+        public void AttachAirPhaseSource(IPoseContextSource source, bool subscribe)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (_airSource != null) _airSource.ContextChanged -= OnAirContextChanged;
+            _airSource = source;
+            if (subscribe) _airSource.ContextChanged += OnAirContextChanged;
+        }
+
+        /// <summary>按来源当前的空中阶段让实体进出 Jump（没有挂空中阶段来源时什么都不做）。</summary>
+        public void ApplyAirPhase(Id entityId) => OnAirContextChanged(entityId);
+
+        private void OnAirContextChanged(Id entityId)
+        {
+            if (_airSource == null) return;
+            var air = _airSource.GetContext(entityId).Air;
+            var state = GetState(entityId);
+            if ((air == AirPhase.Rise || air == AirPhase.Fall) && (state == AnimState.Idle || state == AnimState.Move))
+            {
+                TryEnter(entityId, AnimState.Jump);
+            }
+            else if (air == AirPhase.None && state == AnimState.Jump)
+            {
+                NotifyTransientStateFinished(entityId, AnimState.Jump);
+            }
         }
 
         // ------------------------------------------------------------------
@@ -377,7 +424,17 @@ namespace Presentation.Render
             }
         }
 
-        private void RevertToLocomotion(Id entityId, Entry entry) => SetState(entityId, entry, entry.Locomotion);
+        private void RevertToLocomotion(Id entityId, Entry entry)
+        {
+            // 空中姿势（AttachAirPhaseSource）：瞬态在空中结束时回落到 Jump（继续上升/下降姿势），不是运动态。
+            if (_airSource != null && entry.Current != AnimState.Jump && _airSource.GetContext(entityId).IsAirborne)
+            {
+                SetState(entityId, entry, AnimState.Jump);
+                return;
+            }
+
+            SetState(entityId, entry, entry.Locomotion);
+        }
 
         private void SetState(Id entityId, Entry entry, AnimState next, Id? triggerSkillId = null)
         {

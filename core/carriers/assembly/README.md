@@ -298,3 +298,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 ## 手感落地 M4-L：换装版本的单一失效源（2026-10-02）
 
 `CarriersFeelAssembly` 不再订阅 `item.equipped`/`item.unequipped` 对每次穿脱无差别 `Invalidate("equipment_changed")`。根因：换装链（`EquipmentFeelChain`）按"主手/副手武器引用与武器族是否变化"对账并自己失效（设计上换护甲、换饰品不影响手感解析，手感设计/08 第 1 节），装配里那两条订阅与它叠加——武器变化版本号 +2，穿胸甲也 +1（实验室换装场景改走生产装配后 `equip.feel_version_deltas` 暴露，见 `lab/README.md` 判断记录 21）。现在换装链是装备相关解析失效的唯一来源；光环层数变化、实体销毁等其它失效源不变。装备带来的光环（套装加成）经 `aura.applied` 照常失效。
+
+## 竖直轴能力包补完：装配接线（2026-10-03，M4-V）
+
+只做加法：`CarriersAssembly` 把竖直运动服务交给 `MovementTickHandler.VerticalAxis`（空中控制缩放、地形台阶阻挡经它读取；没有竖直轴时为 null，路径不变）；`CarriersFeelAssembly` 在 `VerticalMotion` 是 `IAirborneQuery` 时把它接到 `HitFeelHost.Airborne`（空中受击反应的判据）。`HeadlessWorldBuilder` 新增 `SkillOptions` 透传属性（缺省 null）。判断记录见 unit/combat/skill README 的同名补完节。

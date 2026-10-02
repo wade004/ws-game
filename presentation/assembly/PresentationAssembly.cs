@@ -336,6 +336,7 @@ namespace Presentation.Assembly
 
         private readonly EquipmentPoseBridge? _poseBridge;
         private readonly PoseGaitFeeder? _gaitFeeder;
+        private readonly AirPoseFeeder? _airFeeder;
         private readonly Id _playerId;
         private bool _disposed;
 
@@ -416,6 +417,12 @@ namespace Presentation.Assembly
                 _poseBridge = new EquipmentPoseBridge(bus, Pose);
                 // 手感落地 M2-B：步态由运动状态的速度比派生并喂给选择器（此前无人调用 Observe，移动姿势恒按 walk 解析）。
                 _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver);
+                // ADR-0130 追加决定（空中姿势）：世界装配了竖直运动服务时，空中阶段（rise/fall/land）由竖直速度派生并喂给选择器。
+                var verticalMotion = gameplay.Carriers.VerticalMotion;
+                if (verticalMotion != null)
+                {
+                    _airFeeder = new AirPoseFeeder(bus, verticalMotion, Pose);
+                }
                 (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
             }
 
@@ -991,6 +998,10 @@ namespace Presentation.Assembly
             if (_gaitFeeder != null)
             {
                 Release(nameof(PoseGaitFeeder), _gaitFeeder.Dispose);
+            }
+            if (_airFeeder != null)
+            {
+                Release(nameof(AirPoseFeeder), _airFeeder.Dispose);
             }
             Release(nameof(ViewBinder), ViewBinder.Dispose);
             Release(nameof(Stride), Stride.Dispose);

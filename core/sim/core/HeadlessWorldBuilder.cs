@@ -163,6 +163,12 @@ namespace Core.Sim
         /// 实验室借它打开命中形状的高度判定与三维距离。纯传参转发。ABI 只新增。
         /// </summary>
         public Core.Rules.Targeting.TargetingOptions? TargetingOptions { get; set; }
+
+        /// <summary>
+        /// 同 <see cref="TargetingOptions"/>：转发给 <c>GameplayAssembly</c> 既有的 <c>skillOptions</c> 参数。默认 <c>null</c> 时行为不变；
+        /// 实验室借它打开施法射程的三维口径（<c>SkillOptions.SpatialRange</c>，竖直轴能力包补完）。纯传参转发。ABI 只新增。
+        /// </summary>
+        public Core.Rules.Skill.SkillOptions? SkillOptions { get; set; }
     }
 
     /// <summary>
@@ -319,7 +325,7 @@ namespace Core.Sim
 
             // 动作时间线步长取本装配根的模拟步长（SkillOptions.ActionStepSeconds 从未显式设置，非离散时间模型下 GameplayAssembly 拿不到时钟宿主，
             // 所以这里先回填；离散时间模型下 GameplayAssembly 自己也会回填同一个值）。
-            var skillOptions = new Core.Rules.Skill.SkillOptions();
+            var skillOptions = options.SkillOptions ?? new Core.Rules.Skill.SkillOptions();
             skillOptions.ApplyHostStepSeconds(options.StepSeconds);
 
             // 走带全部参数的最长重载（只有它接受 feelOptions）；其余参数取与此前经可选参数重载时相同的缺省（全 null）。

@@ -1819,3 +1819,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 ## 手感落地 M4-L：`ActionStepSeconds` 由装配回填
 
 `SkillOptions.ActionStepSeconds` 现在在调用方没有显式赋值时由 `GameplayAssembly`/`HeadlessWorldBuilder` 按宿主时钟步长回填（`ApplyHostStepSeconds`，`ActionStepSecondsIsExplicit` 区分显式值）；T13 要求的"须与模拟固定步长一致"因此对装配路径自动成立，细节见 `core/gameplay/assembly/README.md`。
+
+## 手感落地 M4-V：三维施法射程（2026-10-03，ADR-0130 追加决定）
+
+`SkillOptions.SpatialRange`（缺省 false）：打开后步骤 7 的射程检查与地面坐标施法的射程检查（`ValidateGroundPoint`）按含高度差的三维距离（`CastPipeline.RangeDistance`：施法者与目标的脚下高度差经 `IUnitAccess.GetHeightOffset` 读取）；关闭时就是平面距离，与此前逐位一致。地面坐标施法的落点高度取 0（地面坐标没有高度，即使声明了地形能力）。只影响"目标已解析"之后的射程判定——带 `timeline` 的动作式结算由命中窗口几何决定命中，不做这一步，所以三维射程只对目标选择式结算有可观测差异。`HeadlessWorldOptions.SkillOptions` 新增透传（缺省 null，原路径不变）。测试：`tests/CastRangeSpatialTests.cs`（平面距离内/三维距离外失败于射程、关闭时不变、地面坐标施法、高度读口缺省）。

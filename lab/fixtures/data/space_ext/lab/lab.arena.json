@@ -1,0 +1,12 @@
+{
+  "table": "lab.arena",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.arena.lab_terrain",
+      "map_ref": "world.lab_terrain",
+      "blocks": [],
+      "note": "地形空地：没有平面阻挡，地图行带数据高度场（world.map.terrain）——x 3..6 是低矮平台（高 0.4、天花板 1.2），x 6..9 是斜坡（高 0.4 起、每单位升 0.25，到 9 处 1.15），x 9..12 是悬崖平台（高 3）。只被脚本 space.terrain 经 meta.spaceExt.arena 选用。"
+    }
+  ]
+}

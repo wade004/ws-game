@@ -725,8 +725,19 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 ## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
 
 1. **只是加法、缺省关闭**：`MovementOptions.Vertical`（`VerticalAxisOptions`：`Gravity` 缺省 30 世界单位/秒²、`JumpHeight` 缺省 1.5、`AllowAirJump` 缺省假）为空时不装配，行为与引入之前逐位一致；非空时装配 `VerticalMotionHost`（实现 `IVerticalMotion` 与 `Core.Rules.Common.ILaunchSink`）并在 `MovementAndNavigation` 阶段紧随 `MovementTickHandler` 挂 `VerticalMotionTickHandler`；`CarriersAssembly.VerticalMotion` 暴露服务。
-2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度恒为 0（地面就是 0，没有斜坡与台阶）。
+2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度回到地面高度（缺省地面恒为 0；声明了地形能力时是落点的地面高度，见"竖直轴能力包补完"一节）。
 3. **解析式积分**：每步按累计飞行时间代入 `h0 + v0·t − g·t²/2`（不做欧拉累加，帧长不均匀时没有积分漂移），`h ≤ 0` 落地、落地步写 0；每步按单位 Id 序数遍历，已销毁实体静默丢弃其飞行状态；离散步（回合制）不推进（竖直运动是连续时间模型的概念）。`LaunchToApex(h)` 的初速 = `sqrt(2·g·h)`，落地步数 = `ceil(2·v0/(g·dt))`（测试里按此公式算期望）。
 4. **二段跳**：`Jump` 在空中默认被拒绝（返回 false，调用方计数，不静默吞掉）；`AllowAirJump` 为真时从当前高度重新抛起（起点高度 = 当前高度，不叠加速度）。再次 `Launch` 同理。
 5. **读口**：`IUnitAccess.GetHeightOffset`（默认接口成员，恒 0；`WorldUnitAccess` 覆盖为读 `Unit.HeightOffset`，未知单位返回 0）。
-6. **已知局限**：不做空中控制（空中仍按普通移动处理，输入没有空中衰减）；不被地形阻挡竖直运动（没有天花板、斜坡、台阶）；没有空中攻击/空中受击的专属反应；击飞中再次击飞按"重新抛起"处理，不叠加速度；`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。
+6. **已知局限**：`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。
+
+## 判断记录（竖直轴能力包补完，2026-10-03，M4-V，ADR-0130 追加决定）
+
+全部是 `VerticalAxisOptions` 的可选字段，缺省值下行为与 1.95.0 逐位一致（既有测试与既有实验室基线不变）。
+
+1. **空中控制与多段跳**：`AirControl`（`double?`，缺省 null = 不限制，即 1.95.0 行为）为 0..1 的比例，空中的单位水平速度（方向移动、路径跟随、受控位移之外的普通移动）按该比例缩放（`MovementTickHandler.AirScaled`）；0 = 空中不接受移动输入。`MaxAirJumps`（`int?`，缺省 null）泛化 `AllowAirJump`：非空时空中最多再跳该次数（`IVerticalMotion.AirJumpsUsed` 读已用次数，落地清零，再次被击飞不清已用的空中次数），被拒绝的请求仍返回 false 由调用方计数。注意：任务口径"缺省 0 = 不接受空中输入"与 1.95.0 的"空中不受限"冲突，取后者保证缺省逐位一致，所以缺省是 null 而不是 0。
+2. **地形（地面与天花板高度）**：`Terrain`（`ITerrainHeight2D`，`engine_adapter/contracts`，缺省 null = 平地、没有天花板）。`VerticalMotionHost` 在落地判定里用落点地面高度（落地高度 = 地面高度，不是 0）；上升中碰到天花板，脚下高度夹到天花板、竖直速度清零；单位在地面上走动时贴着地面高度（斜坡贴地，只对被观测过的单位记账）；首次观测脚下低于地面时直接抬到地面。
+3. **台阶阻挡**：`StepHeight`（`double?`，缺省 null = 不阻挡）与 `StepSampleDistance`（缺省 0.1）。移动路径上相邻取样点的地面高度差超过台阶高度即视为阻挡；阻挡与导航阻挡、运动仲裁阻挡走**同一个出口**——`MovementTickHandler` 的所有 `Raycast` 经 `NavRaycast`/`NavRaycastWithNormal` 合并地形阻挡点（`VerticalMotionHost.TerrainBlockPoint`/`TerrainBlockNormal`），方向移动沿法线滑动、受控位移按阻挡策略结束、路径跟随以新增的 `MoveStopReason.TerrainBlocked`（枚举只追加）结束。走下悬崖（脚下地面突降）只有设置了 `StepHeight` 才触发下落。
+4. **击飞叠加**：`ILaunchSink.BeginLaunch(unit, apex, LaunchStackMode, cap)`（默认接口重载，缺省转调旧签名）；`Add` 模式下新初速 = 当前竖直速度 + `sqrt(2·g·H)`，有上限（`cap` > 0）时夹到 `sqrt(2·g·cap)`；`Restart`（缺省）仍是以新初速从当前高度重新起算。在下落中叠加可能比重启还低，这是叠加语义本身。
+5. **空中单位查询**：`VerticalMotionHost` 同时实现 `Core.Rules.Common.IAirborneQuery`（受击裁决判断"目标是否在空中"）与 `IVerticalMotion.AirborneUnits()`（按 Id 序的腾空单位，呈现层的空中阶段喂入器用）。
+6. **已知局限**：`FindPath` 不感知台阶——穿过台阶的路径被截断并以 `TerrainBlocked` 结束，不做绕行规划；`Revalidate`（仅导航的路径有效性复核）未改；路径段按弦近似；上升中的飞行落到不超过台阶高度的更高地面时直接落地；台阶阻挡点按取样距离逼近，停点离台阶脚最多差一个取样步；Unity 物理射线实现不区分地图 id（只能用掩码钩子区分）。测试：`tests/VerticalAxisCompletionTests.cs`（空中跳跃上限、空中控制缩放、地形落地/天花板/斜坡/悬崖下落、台阶阻挡（方向/路径/位移三条出口）、`TerrainBlockPoint`、击飞叠加与上限、`AirborneUnits`、默认接口成员、选项校验）。

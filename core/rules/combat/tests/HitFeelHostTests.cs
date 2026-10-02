@@ -70,9 +70,29 @@ namespace Tests.Rules.Combat
         {
             public readonly List<(long Tick, Id Unit, double Apex)> Calls = new List<(long, Id, double)>();
 
+            /// <summary>与 <see cref="Calls"/> 一一对应的叠加方式与上限（二参数重载记为 Restart/0）。</summary>
+            public readonly List<(LaunchStackMode Stack, double Cap)> Stacks = new List<(LaunchStackMode, double)>();
+
             public Func<long> Now = () => 0;
 
-            public void BeginLaunch(Id unitId, double apexHeightWorld) => Calls.Add((Now(), unitId, apexHeightWorld));
+            public void BeginLaunch(Id unitId, double apexHeightWorld)
+            {
+                Calls.Add((Now(), unitId, apexHeightWorld));
+                Stacks.Add((LaunchStackMode.Restart, 0.0));
+            }
+
+            public void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld)
+            {
+                Calls.Add((Now(), unitId, apexHeightWorld));
+                Stacks.Add((stack, stackCapApexWorld));
+            }
+        }
+
+        private sealed class FakeAirborne : IAirborneQuery
+        {
+            public readonly HashSet<Id> Air = new HashSet<Id>();
+
+            public bool IsAirborne(Id unitId) => Air.Contains(unitId);
         }
 
         private sealed class RecordingInterrupt : IStaggerInterruptSink
@@ -93,6 +113,7 @@ namespace Tests.Rules.Combat
             public FakeActions Actions = new FakeActions();
             public RecordingKnockback Knock = new RecordingKnockback();
             public RecordingLaunch Launch = new RecordingLaunch();
+            public FakeAirborne Airborne = new FakeAirborne();
             public RecordingInterrupt Interrupts = new RecordingInterrupt();
             public HitFeelOptions Options = new HitFeelOptions();
             public long TickNo;
@@ -251,6 +272,7 @@ namespace Tests.Rules.Combat
             fx.Sys.Host.Knockback = fx.Knock;
             fx.Launch.Now = () => fx.TickNo;
             fx.Sys.Host.Launch = fx.Launch;
+            fx.Sys.Host.Airborne = fx.Airborne;
 
             bus.Subscribe<FeelHitstopStartedEvent>(RulesEventKeys.FeelHitstopStarted, e => { fx.Started.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:started:{string.Join("+", e.UnitIds)}:{e.Ticks}"); });
             bus.Subscribe<FeelHitstopEndedEvent>(RulesEventKeys.FeelHitstopEnded, e => { fx.Ended.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:ended:{string.Join("+", e.UnitIds)}"); });
@@ -809,6 +831,163 @@ namespace Tests.Rules.Combat
             Assert.Empty(fx.Knock.Calls);
             Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight));
             Assert.Equal(baseHeight * fx.Options.KnockbackImpactMultipliers["heavy"], fx.Launch.Calls.Single().Apex, 9);
+        }
+
+        // ------------------------------------------------------------------ 腾空受击反应 air_hit_reaction（ADR-0130 追加决定）
+
+        private static HitReaction ReactionOf(Fx fx) => fx.Reactions.Last().E.Reaction;
+
+        [Fact]
+        public void AirHitReaction_ReplacesTheReactionOnlyWhileTheTargetIsAirborne()
+        {
+            // 复现：同一击（heavy → knockback）——地面仍是 knockback，空中按 air_hit_reaction 变成 flinch。
+            var ground = Build();
+            ground.Set(FeelFieldNames.ImpactClass, "heavy");
+            ground.Set(FeelFieldNames.AirHitReaction, "flinch");
+            ground.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            ground.Hit(Attacker, Target);
+            ground.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(ground));
+
+            var air = Build();
+            air.Set(FeelFieldNames.ImpactClass, "heavy");
+            air.Set(FeelFieldNames.AirHitReaction, "flinch");
+            air.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            air.Airborne.Air.Add(Target);
+            air.Hit(Attacker, Target);
+            air.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(air));
+        }
+
+        [Fact]
+        public void AirHitReaction_AbsentOrSame_IsIdenticalToTheGroundReaction_EvenInTheAir()
+        {
+            // 不变量：缺省（档案没声明）与 same 都与地面受击一致；没有腾空查询（平面世界）时声明了也不生效。
+            foreach (var declared in new string?[] { null, "same" })
+            {
+                var fx = Build();
+                fx.Set(FeelFieldNames.ImpactClass, "heavy");
+                if (declared != null) fx.Set(FeelFieldNames.AirHitReaction, declared);
+                fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+                fx.Airborne.Air.Add(Target);
+                fx.Hit(Attacker, Target);
+                fx.Run(3);
+                Assert.Equal(HitReaction.Knockback, ReactionOf(fx));
+            }
+
+            var flat = Build();
+            flat.Sys.Host.Airborne = null;
+            flat.Set(FeelFieldNames.ImpactClass, "heavy");
+            flat.Set(FeelFieldNames.AirHitReaction, "none");
+            flat.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            flat.Hit(Attacker, Target);
+            flat.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(flat));
+        }
+
+        [Fact]
+        public void AirHitReaction_CanRaiseTheReaction_AndReactionCapStillLimitsIt()
+        {
+            // medium → stagger；空中声明 knockdown → 升到 knockdown；再叠 reaction_cap=stagger → 被限回 stagger。
+            var raised = Build();
+            raised.Set(FeelFieldNames.ImpactClass, "medium");
+            raised.Set(FeelFieldNames.AirHitReaction, "knockdown");
+            raised.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            raised.Airborne.Air.Add(Target);
+            raised.Hit(Attacker, Target);
+            raised.Run(3);
+            Assert.Equal(HitReaction.Knockdown, ReactionOf(raised));
+
+            var capped = Build();
+            capped.Set(FeelFieldNames.ImpactClass, "medium");
+            capped.Set(FeelFieldNames.AirHitReaction, "knockdown");
+            capped.Set(FeelFieldNames.ReactionCap, "stagger");
+            capped.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            capped.Airborne.Air.Add(Target);
+            capped.Hit(Attacker, Target);
+            capped.Run(3);
+            Assert.Equal(HitReaction.Stagger, ReactionOf(capped));
+        }
+
+        [Fact]
+        public void AirHitReaction_DeathIsNeverReplaced()
+        {
+            var kill = Build();
+            kill.Set(FeelFieldNames.AirHitReaction, "none");
+            kill.Airborne.Air.Add(Target);
+            kill.Hit(Attacker, Target, kill: true);
+            kill.Run(3);
+            Assert.Equal(HitReaction.Death, ReactionOf(kill));
+        }
+
+        [Fact]
+        public void AirHitReaction_AirKnockback_RelaunchesWhenTheAttackerDeclaresLaunchHeight()
+        {
+            // 受击方空中声明 knockback → 与地面 knockback 同路径：声明了 launch_height 的攻击方击飞该目标。
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "medium");
+            fx.Set(FeelFieldNames.AirHitReaction, "knockback");
+            fx.Set(FeelFieldNames.LaunchHeight, 0.8);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Airborne.Air.Add(Target);
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+            Assert.Single(fx.Launch.Calls);
+        }
+
+        // ------------------------------------------------------------------ 击飞叠加 launch_stack（ADR-0130 追加决定）
+
+        [Fact]
+        public void LaunchStack_AddAndCapAreForwardedToTheSink_CalibratedToWorldUnits()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.Set(FeelFieldNames.LaunchStack, "add");
+            fx.Set(FeelFieldNames.LaunchStackCap, 2.5);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchStackCap, out var capWorld));
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+
+            Assert.Single(fx.Launch.Calls);
+            var (stack, cap) = fx.Launch.Stacks.Single();
+            Assert.Equal(LaunchStackMode.Add, stack);
+            Assert.Equal(capWorld, cap, 9);
+            Assert.NotEqual(2.5, cap); // 标定后的世界单位，不是档案里的体高倍数
+        }
+
+        [Fact]
+        public void LaunchStack_AddWithoutCap_ForwardsZeroCap()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.Set(FeelFieldNames.LaunchStack, "add");
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+            var (stack, cap) = fx.Launch.Stacks.Single();
+            Assert.Equal(LaunchStackMode.Add, stack);
+            Assert.Equal(0.0, cap);
+        }
+
+        [Fact]
+        public void LaunchStack_DefaultsToRestartWithNoCap_LikeNineteen95()
+        {
+            foreach (var declared in new string?[] { null, "restart" })
+            {
+                var fx = Build();
+                fx.Set(FeelFieldNames.ImpactClass, "heavy");
+                fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+                if (declared != null) fx.Set(FeelFieldNames.LaunchStack, declared);
+                fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+                fx.Hit(Attacker, Target);
+                fx.Run(30);
+                var (stack, cap) = fx.Launch.Stacks.Single();
+                Assert.Equal(LaunchStackMode.Restart, stack);
+                Assert.Equal(0.0, cap);
+            }
         }
 
         // ------------------------------------------------------------------ instant（目标选择式）适配：真实 CombatHost

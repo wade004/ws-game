@@ -56,7 +56,40 @@ namespace Core.Foundation.DisplayInfo
         public static PoseResolution Resolve(PoseRequest request, Func<string, bool> has, Func<string, bool>? isUsable = null)
         {
             if (has == null) throw new ArgumentNullException(nameof(has));
-            var chain = request.Chain();
+            return ResolveChain(request.Chain(), has, isUsable);
+        }
+
+        /// <summary>
+        /// 空中姿势入口（<see cref="AirPoseRequest"/> 的固定回落链）：规则同 <see cref="Resolve(PoseRequest, Func{string, bool}, Func{string, bool}?)"/>，
+        /// 链的末端键不咨询可用性探针。
+        /// </summary>
+        public static PoseResolution Resolve(AirPoseRequest request, Func<string, bool> has, Func<string, bool>? isUsable = null)
+        {
+            if (has == null) throw new ArgumentNullException(nameof(has));
+            return ResolveChain(request.Chain(), has, isUsable);
+        }
+
+        /// <summary>空中姿势的字典入口，语义同 <see cref="TryResolve{T}(PoseRequest, IReadOnlyDictionary{string, T}, out T, out PoseResolution, Func{string, bool}?)"/>。</summary>
+        public static bool TryResolve<T>(
+            AirPoseRequest request,
+            IReadOnlyDictionary<string, T> table,
+            out T value,
+            out PoseResolution resolution,
+            Func<string, bool>? isUsable = null)
+        {
+            if (table == null) throw new ArgumentNullException(nameof(table));
+            resolution = Resolve(request, table.ContainsKey, isUsable);
+            if (resolution.Found && table.TryGetValue(resolution.TableKey, out var found))
+            {
+                value = found;
+                return true;
+            }
+            value = default!;
+            return false;
+        }
+
+        private static PoseResolution ResolveChain(IReadOnlyList<string> chain, Func<string, bool> has, Func<string, bool>? isUsable)
+        {
             var tried = new List<string>(chain.Count);
             for (var i = 0; i < chain.Count; i++)
             {

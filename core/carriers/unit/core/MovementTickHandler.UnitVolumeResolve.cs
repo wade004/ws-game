@@ -344,7 +344,7 @@ namespace Core.Carriers.Unit
 
             return traj.Exact
                 ? _navigation.IsWalkable(b.Unit.MapId, p)
-                : !_navigation.Raycast(b.Unit.MapId, b.Start, p).HasValue && _navigation.IsWalkable(b.Unit.MapId, p);
+                : !NavRaycast(b.Unit, b.Start, p).HasValue && _navigation.IsWalkable(b.Unit.MapId, p);
         }
 
         // ------------------------------------------------------------------ 重叠分离
@@ -451,7 +451,7 @@ namespace Core.Carriers.Unit
                     var b = _volumes[i];
                     var from = pos[i];
                     var to = from + push[i];
-                    var hit = _navigation.Raycast(b.Unit!.MapId, from, to);
+                    var hit = NavRaycast(b.Unit!, from, to);
                     if (hit.HasValue)
                     {
                         var hitDistance = (hit.Value - from).Length;
@@ -460,7 +460,7 @@ namespace Core.Carriers.Unit
                         to = from + push[i];
                     }
 
-                    if (push[i].Length > ZeroLengthEpsilon && !_navigation.IsWalkable(b.Unit.MapId, to))
+                    if (push[i].Length > ZeroLengthEpsilon && !_navigation.IsWalkable(b.Unit!.MapId, to))
                     {
                         push[i] = Vec2.Zero;
                     }

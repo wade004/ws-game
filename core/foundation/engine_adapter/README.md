@@ -140,3 +140,7 @@ engine_adapter/
 2. **版本语义不变**：每次有效的增/删让 `GetBlockingVersion` **恰好**递增一次（等价于一次 `SetBlocking`）；移除不存在的矩形返回 `false` 且版本不变；`SetBlocking`/`Clear`/`BuildNavMesh` 语义不动。
 3. **默认实现**：经 `GetBlocking` 取当前集合，追加/移除后整批 `SetBlocking` 替换；实现若不暴露 `GetBlocking`（返回 `null`），默认实现抛 `NotSupportedException`——不静默退化成"只剩这一块"，那会悄悄丢掉其余阻挡。需要真增量的实现覆盖三个成员。
 4. **实现**：`StubNavigation2D` 与 `UnityNavigation2D`（同时重置该地图网格缓存）覆盖为真增量。测试：`tests/StubNavigation2DTests.cs`（追加/移除只动一块并恰好改一次版本、多重集合、等价于整批替换、默认成员的整批退化与不暴露时抛错）；一致性场景 `adapters/conformance` 新增一条（Unity PlayMode 才跑）。首个消费者：实验室可破坏障碍（`lab/README.md` 判断记录 42）。
+
+## `ITerrainHeight2D`：地面与天花板高度（2026-10-03，M4-V，ADR-0130 追加决定）
+
+新增接口 `ITerrainHeight2D { GetGroundHeight(mapId, point); GetCeilingHeight(mapId, point) }`（后者默认 +inf）与缺省实现 `FlatTerrainHeight2D.Instance`（地面 0、没有天花板）。核心层用它做落地高度、天花板夹取、斜坡贴地与台阶阻挡（`VerticalAxisOptions.Terrain`，缺省 null）。实现：核心层数据版 `MapTerrainHeights`（读 `world.map.terrain`，无头宿主/实验室用）、Unity 物理射线版 `UnityTerrainHeight2D`（可选启用）。接口是只读纯查询，同一输入同一输出。

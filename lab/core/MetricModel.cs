@@ -247,6 +247,7 @@ namespace Lab
                 .Register(new ProjectileMetricGroup())
                 .Register(new PoiseMetricGroup())
                 .Register(new PresentationTimelineMetricGroup())
-                .Register(new SpaceMetricGroup());
+                .Register(new SpaceMetricGroup())
+                .Register(new SpaceExtMetricGroup());
     }
 }

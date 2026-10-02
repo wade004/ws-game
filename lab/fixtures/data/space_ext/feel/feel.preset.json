@@ -1,0 +1,46 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.space_air_hit",
+      "description": "实验室空中受击预设：击飞预设（重击、击飞高度 1.2 身高）加空中受击反应 flinch——目标在空中再被打中时，反应被替换成 flinch（不再重新击飞）。只被脚本 space.air_hit 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 1.2,
+        "air_hit_reaction": "flinch"
+      }
+    },
+    {
+      "id": "feel.preset.space_launch_stack",
+      "description": "实验室击飞叠加预设：击飞预设加 launch_stack = add（空中被再次击飞时在当前竖直速度上叠加）与 launch_stack_cap = 2（叠加后顶点相对落点不超过 2 身高）。只被脚本 space.launch_stack 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 1.2,
+        "launch_stack": "add",
+        "launch_stack_cap": 2
+      }
+    },
+    {
+      "id": "feel.preset.space_launch_restart",
+      "description": "实验室击飞叠加的对照预设：与 space_launch_stack 同值，但 launch_stack = restart（缺省口径：空中再被击飞时按新的初速重新计算）。只作为 space.launch_stack 的预设变体对照。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "impact_class": "heavy",
+        "stagger_power": 3,
+        "launch_height": 1.2,
+        "launch_stack": "restart"
+      }
+    }
+  ]
+}

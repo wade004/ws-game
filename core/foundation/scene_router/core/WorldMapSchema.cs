@@ -78,6 +78,31 @@ namespace Core.Foundation.SceneRouter
                         "SceneDescriptor.FromRecord 构造期直接抛异常（非登记层校验，登记层不重复表达）"),
             }, description: "出生点/传送点共用条目结构：{id?, position?}，供 spawn_points/teleport_points 复用");
 
+        /// <summary><c>terrain</c> 元素结构（ADR-0130 追加决定"地面高度"）：轴对齐高度区域，见 <c>MapTerrainHeights</c>。</summary>
+        private static readonly FieldSchema TerrainItemSchema = new FieldSchema(
+            "<terrain_region>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("min", FieldKind.Object, required: true, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "区域左下角 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "区域左下角 y"),
+                }, description: "区域左下角（含）"),
+                new FieldSchema("max", FieldKind.Object, required: true, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "区域右上角 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "区域右上角 y"),
+                }, description: "区域右上角（含），不小于 min"),
+                new FieldSchema("ground", FieldKind.Number, required: false,
+                    description: "min 处的地面高度（世界单位，绝对脚下高度），缺省 0"),
+                new FieldSchema("slope", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "沿 x 方向每世界单位的地面高度增量"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "沿 y 方向每世界单位的地面高度增量"),
+                }, description: "斜面：地面高度 = ground + slope.x·(x−min.x) + slope.y·(y−min.y)；缺省 {0,0} 即平台"),
+                new FieldSchema("ceiling", FieldKind.Number, required: false,
+                    description: "天花板绝对高度（世界单位）；缺省没有天花板。上升中的单位碰到它竖直速度清零"),
+            }, description: "地形高度区域：{min, max, ground?, slope?, ceiling?}");
+
         public static readonly TableSchema Table = new TableSchema(
             name: "world.map",
             primaryKey: "id",
@@ -98,6 +123,10 @@ namespace Core.Foundation.SceneRouter
                 new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, referenceTable: "diff.tier",
                     description: "该地图允许应用的难度档位（见 08），引用 diff.tier（ADR-0022 补齐：diff.tier 现已登记进 IDataRegistry，此前类型判断记录"
                         + "\"08 难度档位未登记进 IDataRegistry\"的前提已不成立）"),
+                new FieldSchema("terrain", FieldKind.Array, required: false, item: TerrainItemSchema,
+                    description: "可选地形高度（ADR-0130 追加决定：地面高度）：高度区域清单 List<{min, max, ground?, slope?, ceiling?}>，后声明的盖住先声明的；"
+                        + "区域之外与未声明该字段的地图地面恒为 0、没有天花板。只在世界装配了竖直轴并声明地形能力（VerticalAxisOptions.Terrain）时被读取，"
+                        + "否则忽略（平面世界逐位不变）"),
                 new FieldSchema("image_transform", FieldKind.Object, required: false, fields: new[]
                 {
                     new FieldSchema("pixels_per_unit", FieldKind.Number, required: true,

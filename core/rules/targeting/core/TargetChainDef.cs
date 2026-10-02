@@ -71,6 +71,13 @@ namespace Core.Rules.Targeting
         /// </summary>
         public double? ShapeHeight { get; }
 
+        /// <summary>
+        /// 形状自身的竖直偏移（<c>shape.height_offset</c>，世界单位，可正可负，缺省 0）：命中高度窗口的中心 = 锚点（施法者）脚下高度 + 本偏移
+        /// （向上扫的挑击、向下的扫堂腿）。只在 <see cref="TargetingOptions.VerticalHit"/> 开启且链声明了 <see cref="ShapeHeight"/> 时生效；
+        /// 距离排序与"最近"仍按锚点脚下高度算，不受偏移影响。
+        /// </summary>
+        public double ShapeHeightOffset { get; }
+
         /// <summary>Expr 文本或内置过滤简写组成的列表，按声明顺序全部通过（AND）才保留候选
         /// （判断记录见 targeting/README.md：与 <c>SkillFilter.Matches</c> 三维度取 OR 不同——
         /// 这里的每一项都是调用方显式列出的独立条件，语义上是"同时满足"而不是"任一即可"）。</summary>
@@ -99,6 +106,7 @@ namespace Core.Rules.Targeting
             Source = record.GetString("source");
             Shape = record.TryGetObject("shape", out var shapeObj) ? (EngineShape?)ParseShape(record, shapeObj) : null;
             ShapeHeight = Shape.HasValue ? ParseShapeHeight(record, shapeObj) : null;
+            ShapeHeightOffset = Shape.HasValue ? ParseShapeHeightOffset(record, shapeObj) : 0.0;
             Filters = record.TryGetArray("filters", out var filtersArr) ? ParseFilters(record, filtersArr) : Array.Empty<string>();
             SortBy = record.TryGetObject("sort_by", out var sortObj) ? (TargetSortSpec?)ParseSortBy(record, sortObj) : null;
 
@@ -189,6 +197,21 @@ namespace Core.Rules.Targeting
             if (!(value is JsonNumber number) || !(number.Value > 0.0) || double.IsInfinity(number.Value))
             {
                 throw new DataFieldException(record.Table.Name, record.Key, "shape.height", "必须为正的有限数");
+            }
+
+            return number.Value;
+        }
+
+        private static double ParseShapeHeightOffset(DataRecord record, JsonObject obj)
+        {
+            if (!obj.TryGetValue("height_offset", out var value))
+            {
+                return 0.0;
+            }
+
+            if (!(value is JsonNumber number) || double.IsNaN(number.Value) || double.IsInfinity(number.Value))
+            {
+                throw new DataFieldException(record.Table.Name, record.Key, "shape.height_offset", "必须为有限数");
             }
 
             return number.Value;

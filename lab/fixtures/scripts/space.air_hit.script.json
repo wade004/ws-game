@@ -1,0 +1,169 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.air_hit",
+    "scriptVersion": 1,
+    "description": "空间扩展·空中受击与空中姿势（ADR-0130 追加决定）：预设 space_air_hit（重击、击飞高度 1.2 身高、空中受击反应 flinch）。玩家先起跳，在空中挥第一下打中木桩（木桩被击飞；玩家出手时在空中，请求 attack.air），木桩在空中时挥第二下（木桩空中受击，反应被替换为 flinch、请求 hit.air，不再被击飞）。姿势键表是合成的（有 jump.rise/hit.launch/attack.air，缺 jump.fall/jump.land/hit.air），验证命中的键直接取到、缺失的键沿固定链回落。平面格子没有竖直轴，两下都是普通击退。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_air_hit",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 140,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_slash"
+    },
+    "spaceExt": {
+      "poseKeys": [
+        "idle",
+        "jump",
+        "jump.rise",
+        "hit",
+        "hit.launch",
+        "attack",
+        "attack.air"
+      ]
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 6,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 7,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    },
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 38,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 39,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "air_hit_reaction_replaces",
+      "cells": [
+        "side_2d_targeted",
+        "volume_targeted"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:1;Knockback:1",
+      "note": "第二下打中空中的木桩，反应被替换为 flinch。"
+    },
+    {
+      "id": "air_attack_key_found",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "attack.air->attack.air@0",
+      "note": "玩家空中出手：attack.air 直接取到（链头命中，回落深度 0）。"
+    },
+    {
+      "id": "air_hit_falls_back_to_launch",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "hit.air->hit.launch@1",
+      "note": "hit.air 键缺失：回落到 hit.launch（深度 1）。"
+    },
+    {
+      "id": "jump_rise_key_found",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "jump.rise->jump.rise@0"
+    },
+    {
+      "id": "jump_fall_falls_back_to_jump",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "jump.fall->jump@1"
+    },
+    {
+      "id": "jump_land_falls_back_to_idle",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.air_pose_requests",
+      "op": "contains",
+      "value": "jump.land->idle@1"
+    },
+    {
+      "id": "plane_hits_are_plain_knockbacks",
+      "cells": [
+        "2d_targeted",
+        "2_5d_targeted",
+        "3d_targeted"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Knockback:2",
+      "note": "平面格子没有竖直轴：两下都是普通击退。"
+    }
+  ]
+}

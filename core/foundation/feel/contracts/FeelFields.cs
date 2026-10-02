@@ -80,6 +80,9 @@ namespace Core.Foundation.Feel
         public const string LaunchHeight = "launch_height";
         public const string DownedMs = "downed_ms";
         public const string ReactionCap = "reaction_cap";
+        public const string AirHitReaction = "air_hit_reaction";
+        public const string LaunchStack = "launch_stack";
+        public const string LaunchStackCap = "launch_stack_cap";
         public const string KillHitstopScale = "kill_hitstop_scale";
 
         // 镜头（呈现型；07 第 2 节，加 camera_ 前缀与输入组的 dead_zone 区分）
@@ -146,6 +149,8 @@ namespace Core.Foundation.Feel
         private const FeelOpSet SetOnly = FeelOpSet.Set;
 
         private static readonly IReadOnlyList<string> ImpactClassValues = new[] { "light", "medium", "heavy", "massive" };
+        private static readonly IReadOnlyList<string> AirHitReactionValues = new[] { "same", "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
+        private static readonly IReadOnlyList<string> LaunchStackValues = new[] { "restart", "add" };
         private static readonly IReadOnlyList<string> ReactionCapValues = new[] { "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
         private static readonly IReadOnlyList<string> ReversePolicyValues = new[] { "instant", "through_zero" };
 
@@ -170,8 +175,8 @@ namespace Core.Foundation.Feel
             => new FeelFieldDef(name, FeelFieldKind.Bool, new FeelFieldMeta(half, group, SetOnly, comp), desc, optional: optional);
 
         private static FeelFieldDef Enum(
-            string name, FeelGroup group, FeelHalf half, FeelComposition comp, IReadOnlyList<string> values, string desc)
-            => new FeelFieldDef(name, FeelFieldKind.Enum, new FeelFieldMeta(half, group, SetOnly, comp), desc, enumValues: values);
+            string name, FeelGroup group, FeelHalf half, FeelComposition comp, IReadOnlyList<string> values, string desc, bool optional = false)
+            => new FeelFieldDef(name, FeelFieldKind.Enum, new FeelFieldMeta(half, group, SetOnly, comp), desc, enumValues: values, optional: optional);
 
         private static FeelFieldDef Text(
             string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc, bool optional = false)
@@ -296,6 +301,14 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.LaunchHeight, Re, J, BodyH, W, 0, 10,
                     "击飞高度：knockback/knockdown 反应把目标抛起的顶点高度（目标脚下再升高多少）；只在世界有竖直轴（体积空间 / 横版二维能力包）时生效，" +
                     "平面世界忽略；缺省（无值）表示不击飞", optional: true),
+                Num(FeelFieldNames.LaunchStackCap, Re, J, BodyH, W, 0, 20,
+                    "击飞叠加上限：launch_stack=add 时叠加后的向上初速不超过升到该顶点高度所需的初速（目标脚下再升高多少）；缺省（无值）表示不设上限", optional: true),
+                Enum(FeelFieldNames.LaunchStack, Re, J, C, LaunchStackValues,
+                    "击飞叠加方式（攻击方档案）：restart 重新抛起（缺省，不叠加）；add 在已腾空的目标上把本次初速叠加到当前竖直速度；只在世界有竖直轴时生效",
+                    optional: true),
+                Enum(FeelFieldNames.AirHitReaction, Re, J, C, AirHitReactionValues,
+                    "腾空受击反应（受击方档案）：目标在空中被命中时，把（韧性与冲击等级映射得出的）反应替换为该值，之后仍受 reaction_cap 限制；" +
+                    "same 或缺省（无值）= 与地面受击一致；死亡与霸体不受影响；只在世界有竖直轴时生效", optional: true),
                 Num(FeelFieldNames.DownedMs, Re, J, Ms, C, 0, 10000, "倒地时长"),
                 Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
                 Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),
