@@ -187,7 +187,7 @@ input_map/
   动作时间线切片不用推送式，直接在取消窗口里调 `IInputBufferQuery.TryConsume`。
 
 **宽限窗口**（`core/GraceTracker.cs`，`IGraceQuery`）：每个模拟 tick 对登记的（行动者, 条件）求值并记最近为真的 tick；条件当前为真，或最近为真距今 `<= grace_ms`（手感档案输入组，
-换算为 tick）即满足。机制不预置条件；求值经 `IGraceConditionEvaluator`（宿主在行动者上下文里求 `found.grace_condition.expr`）。
+换算为 tick）即满足。机制本身不预置条件（框架内置的三条施法瞄点条件见 M4-G 节）；求值经 `IGraceConditionEvaluator`（宿主在行动者上下文里求 `found.grace_condition.expr`）。
 
 ### 判断记录
 
@@ -240,3 +240,16 @@ input_map/
 ## 手感落地 M3-B：行动者登记与宽限剩余量（2026-10-02）
 
 `InputBufferHost.RegisterActor(actorId)`（幂等，建立空缓冲，不产生任何缓冲记录）与 `IsActorRegistered`：非本地行动者不必等到第一次按键才进入宽限采样，生产装配对世界里的 `player`/`creature` 实体自动调用（`CarriersFeelOptions.AutoRegisterGraceActors`，缺省 true），"条件刚失效"的第一次按键同样有历史。`IGraceQuery.RemainingGraceTicks(actorId, conditionId)`（接口缺省成员）：条件当前为真返回 `int.MaxValue`，已失效但在窗口内返回剩余 tick 数（&gt;= 0），不满足返回 -1；`IsSatisfied` 恒等于"剩余量 &gt;= 0"，`IsInGrace` 恒等于"0 &lt;= 剩余量 &lt; `int.MaxValue`"；缺省实现只依赖旧成员（窗口内保守返回 0），旧的第三方查询对象不必改。施法管线用它给排队中的施法记宽限快照（见 `core/rules/skill/README.md` M3-B）。
+
+## 手感落地 M4-G：施法瞄点、内置宽限条件与惰性缓冲（2026-10-03）
+
+- **`GraceAim` / `IGraceAimSink`**（`contracts/GraceAim.cs`）：一次施法请求自己携带的瞄点（单位目标或地面落点，加该技能射程）。`IGraceConditionEvaluator` 新增三个接口缺省成员：三参 `Evaluate(actor, condition, aim)`（缺省转调两参，旧第三方实现不必改）、`UsesAim(condition)`（缺省 false）、`DefaultAimTarget(actor)`（缺省 null）。`GraceTracker` 同时实现 `IGraceAimSink`，由施法管线在带宽限条件的请求进入时 `NoteAim`。
+- **`InputBufferHost`** 新增 `ActorBuffersAllocated`（已分配的行动者缓冲数）、`GraceConditionsDeclared`（条件名集合由空变非空时触发的事件）、`ActionsWithGraceCondition(actorId)`（引用宽限条件的动作 id，升序）。
+
+判断记录（本节编号）：
+
+1. **瞄点只作用于依赖目标的条件**：`UsesAim` 为真的条件，历史按瞄点归属——瞄点换成另一个单位/另一个落点，该条件的历史清零并以新瞄点即刻探测一次；与瞄点无关的条件（如 `enemies.nearest_distance`）历史不受影响。理由：同一份"最近为真"历史混用不同目标会让"目标 A 刚在射程内"放行对目标 B 的施法，这是与设计相悖的误放行。
+2. **瞄点等于缺省目标（自动攻击目标）时不算换瞄点**：沿用此前以缺省目标采样积累的历史，缺省行为不变。瞄点的寿命取 `max(1, grace_ticks)` 个 tick，过期回落到缺省目标，所以历史只在窗口内有意义。
+3. **缓冲惰性分配**：`RegisterActor` 公开行为不变（显式调用仍分配）；生产装配只在已有动作声明宽限条件时才对世界里的单位登记，没有声明时一个缓冲都不建（单位数 N -> 分配 0）；之后条件被声明（热加载）时再补登记已有单位。
+
+用例：`core/foundation/input_map/tests/GraceAimTests.cs`（瞄点优先于缺省目标、历史归属瞄点、窗口边界随 `grace_ms`、旧求值器不受影响）、`core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（内置条件、缺省目标回落、缓冲分配数）。

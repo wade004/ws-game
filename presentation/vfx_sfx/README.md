@@ -386,11 +386,13 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     用例：`tests/SfxLayerIndexTests.cs`（精确命中、缺材质回落到同档通用、只向低档回落、全缺返回 false 且诊断去重、关闭层、重复行、非手感行不入索引、`FromRecord` 字段解析）。
 
 28. **顿帧期间按宿主单位暂停特效（2026-10-02，手感落地 M3-C；设计见 `architecture/手感设计/07` 第 5 节）**：
-    - **契约增量（ABI 只加法）**：`IVfxFreezable`（`SetOwnerFrozen(ownerEntityId, frozen)` / `IsOwnerFrozen`，框架自带 `VfxPlayer` 实现；独立成可选能力接口，不给 `IVfxPlayer` 加成员，探测写法 `vfx is IVfxFreezable`）与 `IParticleFreezer`（引擎适配层的 `IRenderer2D` 实现可选实现的 `SetParticlePaused(handle, paused)`，同 `IParticleRepositioner` 的做法；未实现的适配层含既有 `StubRenderer2D` 静默跳过）。`VfxPool.SetHeld` 内部加法。
+    - **契约增量（ABI 只加法）**：`IVfxFreezable`（`SetOwnerFrozen(ownerEntityId, frozen)` / `IsOwnerFrozen`，框架自带 `VfxPlayer` 实现；独立成可选能力接口，不给 `IVfxPlayer` 加成员，探测写法 `vfx is IVfxFreezable`）与 `IParticleFreezer`（引擎适配层的 `IRenderer2D` 实现可选实现的 `SetParticlePaused(handle, paused)`，同 `IParticleRepositioner` 的做法；未实现的适配层含既有 `StubRenderer2D` 只是没有视觉暂停，`lifetime` 倒计时照样停住，见第 29 条）。`VfxPool.SetHeld` 内部加法。
     - **"属于某单位"的判据**：特效以 `anchor`/`socket` 挂接到某实体才有宿主单位（`VfxAttach.EntityId`）；`world`/`screen` 挂接没有，永不随顿帧暂停。因此命中闪光这类以接触点/世界坐标播放的一次性特效天然不冻，挂在单位身上的持续特效（拖尾、光环、灼烧）才随单位冻结——**是否冻结由特效怎么挂接决定，不新增特效表字段**；整层开关由反馈包 `freeze_layers.particles` 决定（装配根只在其为真时才调用本接口，见 `presentation/assembly/README.md`）。取舍：不为"这个特效冻不冻"再加一套逐特效声明——07 的设计粒度是反馈包的 `freeze_layers`，逐特效例外靠挂接方式表达已足够。
     - **状态型，不是一次性快照**：冻结标记挂在宿主单位上（`_frozenOwners`）；冻结期间新播放的该单位特效、以及资源冷加载排队后在冻结期间补发的特效，都在登记宿主时按当前冻结状态从暂停起播——热路径与冷加载补发走同一个登记出口（`RegisterOwner`），不另写一套。socket 真挂接的子模型走 `IRenderer3D.SetAnimSpeed`（0 / 恢复为 1，特效子模型由本类新建、从不被设过别的速率）。
-    - **`lifetime` 倒计时随暂停停住**：被暂停实例在 `VfxPool` 里的剩余存活时间同时停住，恢复后从暂停点继续——否则冻结中途因 `lifetime` 到期被回收，"结束恢复"恢复的是一个已经消失的特效。引擎适配层没有暂停能力（`IParticleFreezer` 未实现）时 2D 粒子既不暂停也不冻结 `lifetime`（避免"没停住却永不过期"）。
-    - 复现/不变量：`tests/VfxPlayerFreezeTests.cs`（被冻结单位的特效暂停、旁观单位的不暂停、解冻恢复；world 挂接的命中闪光永不暂停；冻结幂等不计数；`lifetime` 倒计时随暂停停住、从冻结点继续；冻结期间新播放与冷加载补发从暂停起播；已停止的句柄不残留宿主登记；socket 3D 子模型速率 0 → 1；无暂停能力的适配层静默跳过且 `lifetime` 照常到期）；引擎侧见 `adapters/unity` 包 README"手感落地 M3-C"节。
+    - **`lifetime` 倒计时随暂停停住**：被暂停实例在 `VfxPool` 里的剩余存活时间同时停住，恢复后从暂停点继续——否则冻结中途因 `lifetime` 到期被回收，"结束恢复"恢复的是一个已经消失的特效。无论引擎适配层是否实现 `IParticleFreezer`，`lifetime` 倒计时都随暂停停住（见第 29 条）。
+    - 复现/不变量：`tests/VfxPlayerFreezeTests.cs`（被冻结单位的特效暂停、旁观单位的不暂停、解冻恢复；world 挂接的命中闪光永不暂停；冻结幂等不计数；`lifetime` 倒计时随暂停停住、从冻结点继续；冻结期间新播放与冷加载补发从暂停起播；已停止的句柄不残留宿主登记；socket 3D 子模型速率 0 → 1；无暂停能力的适配层 `lifetime` 同样停住、解冻后从冻结点继续）；引擎侧见 `adapters/unity` 包 README"手感落地 M3-C"节。
+
+29. **没有 `IParticleFreezer` 的适配层也停住特效的存活倒计时（2026-10-03，手感落地 M4-G）**：`freeze_layers.particles` 为真时，`VfxPlayer` 对被冻结单位的特效恒定停住 `lifetime` 时钟（`VfxPool.SetHeld`），不再取决于适配层是否实现 `IParticleFreezer`；实现了的适配层额外获得 `SetParticlePaused`，socket 子模型照旧走 `SetAnimSpeed`。**视觉上无法暂停的部分**：没有 `IParticleFreezer` 的适配层里，已发射的 2D 粒子仍按引擎自己的时间轴继续播放——框架没有"暂停一个在播粒子实例"的通用原语（`IRenderer2D` 只有发射与停止），所以画面上粒子会继续飘、只有"到期被回收的时刻"被推迟到解冻之后；要画面也停住，适配层需实现 `IParticleFreezer`。`freeze_layers.particles` 为假（缺省）时一切不变，装配根不调用 `IVfxFreezable`。用例：`tests/VfxPlayerFreezeTests.cs`（无暂停能力的适配层 `lifetime` 停住并从冻结点继续、旁观与未冻结单位照常到期、冻结期间新播放的特效从暂停起播）。
 
 ## 不负责什么
 

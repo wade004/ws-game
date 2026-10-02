@@ -49,8 +49,9 @@ namespace Core.Carriers.Assembly
         public IGraceConditionEvaluator? GraceEvaluator { get; set; }
 
         /// <summary>
-        /// 缺省 Expr 求值器的"行动者当前目标"解析（<c>target</c> 分组与 <c>self.distance_to_target</c> 的绑定对象）；缺省 null 取自动攻击的当前目标
-        /// （<c>AutoAttackHost.GetTarget</c>），没有则不绑定目标。只在没有覆盖 <see cref="GraceEvaluator"/> 时使用。
+        /// 缺省 Expr 求值器的"行动者当前目标"解析覆盖（<c>target</c> 分组与 <c>self.distance_to_target</c> 的绑定对象），优先级最高：给出非空目标即用。
+        /// 缺省 null：目标取<b>本次施法请求携带的目标</b>（单位目标；地面落点施法没有单位目标），没有时才回落到自动攻击的当前目标
+        /// （<c>AutoAttackHost.GetTarget</c>），都没有则不绑定目标（手感落地 M4-G）。提供了覆盖时不再回落到自动攻击目标。只在没有覆盖 <see cref="GraceEvaluator"/> 时使用。
         /// </summary>
         public Func<Id, Id?>? GraceTargetResolver { get; set; }
 
@@ -272,8 +273,16 @@ namespace Core.Carriers.Assembly
                 options.TargetAssist ?? new TargetChainAssistResolver(rules.Targeting, carriers.Units), carriers.Units);
 
             // 手感落地 M3-B：求值器缺省为框架的 Expr 求值（found.grace_condition 的 expr 在行动者上下文里求值），游戏不写代码；options.GraceEvaluator 仍可覆盖。
+            // 手感落地 M4-G：目标来源 = 游戏的 GraceTargetResolver 覆盖 → 本次施法请求携带的目标 → 自动攻击的当前目标；表达式还可读 event.aim_* 瞄点上下文（位置、视线、动作射程）。
+            var aimServices = new GraceAimServices
+            {
+                Position = id => world.GetEntity(id)?.Position,
+                LineOfSight = (from, to) => rules.Spatial.HasLineOfSight(from, to),
+                ConditionRange = (actor, condition) => GraceConditionRange(buffer, actionBinding, rules.Skill, actor, condition),
+            };
             var graceEvaluator = options.GraceEvaluator ?? new ExprGraceConditionEvaluator(
-                registry, rules.ExprHostFactory, rules.ExprSchema, options.GraceTargetResolver ?? (id => rules.AutoAttack.GetTarget(id)));
+                registry, rules.ExprHostFactory, rules.ExprSchema, options.GraceTargetResolver,
+                id => rules.AutoAttack.GetTarget(id), aimServices);
             var grace = new GraceTracker(graceEvaluator, resolver);
             InputBufferTickHandler.Register(world, buffer, sink, grace);
             // 手感落地 M2-B（手感设计/01 第 2.4 节）：施法管线步骤 7 经它判断"条件刚刚失效、仍在宽限内"。
@@ -294,17 +303,25 @@ namespace Core.Carriers.Assembly
             subscriptions.Add(bus.Subscribe<UnitDiedEvent>(
                 RulesEventKeys.UnitDied, e => buffer.Clear(e.UnitId)));
             // 手感落地 M3-B：单位从登记起就开始采样宽限条件（装配时已有的单位现在登记，之后出生的在 entity.created 派发时登记），第一次按键之前就有历史可查。
+            // 手感落地 M4-G：惰性分配——没有任何动作声明宽限条件时不为任何单位建缓冲（单位很多时省下每个单位一份空缓冲）；条件声明出现的那一刻
+            // （InputBufferHost.GraceConditionsDeclared）才为已有的单位补登记，之后出生的单位在出生时登记。
             if (options.AutoRegisterGraceActors)
             {
-                foreach (var entity in world.QueryEntities(default))
+                void RegisterExistingGraceActors()
                 {
-                    if (IsGraceActorKind(entity.Kind)) buffer.RegisterActor(entity.EntityId);
+                    foreach (var entity in world.QueryEntities(default))
+                    {
+                        if (IsGraceActorKind(entity.Kind)) buffer.RegisterActor(entity.EntityId);
+                    }
                 }
+
+                if (buffer.GraceConditionNames.Count > 0) RegisterExistingGraceActors();
+                buffer.GraceConditionsDeclared += RegisterExistingGraceActors;
 
                 subscriptions.Add(bus.Subscribe<EntityCreatedEvent>(
                     SimEventKeys.EntityCreated, e =>
                     {
-                        if (IsGraceActorKind(e.Kind)) buffer.RegisterActor(e.EntityId);
+                        if (IsGraceActorKind(e.Kind) && buffer.GraceConditionNames.Count > 0) buffer.RegisterActor(e.EntityId);
                     }));
             }
 
@@ -347,6 +364,31 @@ namespace Core.Carriers.Assembly
         }
 
         private static bool IsGraceActorKind(string kind) => kind == EntityKinds.Player || kind == EntityKinds.Creature;
+
+        /// <summary>
+        /// 框架内置宽限条件的射程来源（手感落地 M4-G）：引用条件 <paramref name="condition"/> 的输入动作绑定的技能的射程，多个动作引用同一条件取其中最小的正射程
+        /// （保守）；动作没有绑定技能或技能没有射程限制时不参与，全部没有则返回 0（没有射程限制）。
+        /// </summary>
+        private static double GraceConditionRange(
+            InputBufferHost buffer, IActionSkillBinding binding, SkillHost skill, Id actor, Id condition)
+        {
+            var min = 0.0;
+            var actions = buffer.ActionsWithGraceCondition(condition);
+            for (var i = 0; i < actions.Count; i++)
+            {
+                var definition = buffer.GetDefinition(actions[i]);
+                if (definition == null) continue;
+
+                var intent = new BufferedIntent(
+                    definition.ActionId, definition.Class ?? ActionClass.Menu, 0, 0, 0, null, BufferHoldState.Tap, 0, false);
+                if (!binding.TryResolveSkill(actor, intent, out var skillId)) continue;
+
+                var range = skill.GetSkillRange(skillId);
+                if (range > 0 && (min <= 0 || range < min)) min = range;
+            }
+
+            return min;
+        }
 
         private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)
         {

@@ -263,12 +263,40 @@ namespace Core.Rules.Skill
             _graceConditions = graceConditions != null && graceConditions.Count > 0 ? graceConditions : null;
             try
             {
+                // 手感落地 M4-G：请求自己携带的单位目标是这次施法的瞄点，宽限条件优先以它求值（没有携带目标的请求不记瞄点，目标由技能的选择链解析，行为不变）。
+                if (_graceConditions != null && targets.Count > 0)
+                {
+                    NoteGraceAim(casterId, skillId, targets[0], null);
+                }
+
                 return CastSkill(casterId, skillId, targets);
             }
             finally
             {
                 _pendingStart = null;
                 _graceConditions = null;
+            }
+        }
+
+        /// <summary>
+        /// 把本次施法请求携带的目标（单位目标或地面落点）连同技能射程交给宽限追踪（<see cref="IGraceAimSink"/>，手感落地 M4-G）：依赖瞄点的宽限条件
+        /// （<c>target</c> 分组、框架内置的 <c>event.aim_*</c> 上下文变量）据此求值。宽限查询对象不接收瞄点（第三方实现）或本次没有宽限条件时什么都不做。
+        /// </summary>
+        private void NoteGraceAim(Id casterId, Id skillId, Id? target, Vec2? point)
+        {
+            if (_graceConditions == null || !(_timeline?.Grace is IGraceAimSink sink))
+            {
+                return;
+            }
+
+            var range = _defs.TryGetSkillDef(skillId, out var def) ? def.Range : 0;
+            if (target.HasValue)
+            {
+                sink.NoteAim(casterId, GraceAim.OfTarget(target.Value, range));
+            }
+            else if (point.HasValue)
+            {
+                sink.NoteAim(casterId, GraceAim.OfPoint(point.Value, range));
             }
         }
 

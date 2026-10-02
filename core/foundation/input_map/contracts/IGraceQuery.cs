@@ -12,6 +12,25 @@ namespace Core.Foundation.InputMap
     {
         /// <summary>条件 <paramref name="conditionId"/> 对行动者 <paramref name="actorId"/> 此刻是否成立。</summary>
         bool Evaluate(Id actorId, Id conditionId);
+
+        /// <summary>
+        /// 带施法瞄点的求值（手感落地 M4-G，手感设计/01 第 2.4 节）：<paramref name="aim"/> 是行动者当前施法请求携带的目标/落点
+        /// （<see cref="GraceTracker.NoteAim"/>），求值应优先以它为准；没有瞄点（<see cref="GraceAim.IsNone"/>）时与两参数重载一致。
+        /// 默认实现忽略瞄点、转调两参数重载，因此只实现旧成员的第三方求值器不必改，行为不变。
+        /// </summary>
+        bool Evaluate(Id actorId, Id conditionId, GraceAim aim) => Evaluate(actorId, conditionId);
+
+        /// <summary>
+        /// 条件的结果是否依赖施法瞄点（引用了目标或瞄点上下文）。宽限追踪据此决定瞄点变化时哪些条件的历史作废——"目标刚才还够得着"的历史属于那个目标，
+        /// 换了瞄点就不能再拿旧目标的历史放行；不依赖瞄点的条件（如"最近的敌人在射程内"）历史不受影响。默认 false（不依赖）。
+        /// </summary>
+        bool UsesAim(Id conditionId) => false;
+
+        /// <summary>
+        /// 没有施法瞄点时求值所用的缺省目标（例如自动攻击的当前目标）；没有或不适用返回 null。宽限追踪用它判断"新瞄点的目标其实就是缺省目标"
+        /// （此时此前以缺省目标积累的历史仍然有效，不作废）。默认 null。
+        /// </summary>
+        Id? DefaultAimTarget(Id actorId) => null;
     }
 
     /// <summary>
