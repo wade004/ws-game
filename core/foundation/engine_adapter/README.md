@@ -133,3 +133,10 @@ engine_adapter/
   （circle 取位置；cone/line 方向取朝向；rect 旋转取朝向）。时间线 `continuous` 命中沿攻击方位姿移动形状时用。
 - `ClosestPoint(Shape shape, Vec2 point)`：形状区域内离 `point` 最近的点（点在形状内返回其自身；circle/rect/line/cone 四种）。时间线命中给接触点用；契约里取不到目标碰撞半径，目标按中心点处理。
 - 复现/不变量：`tests/ShapeGeometryPoseTests.cs`（重新锚定后的查询等于模板在局部坐标里的查询；`ClosestPoint` 在形状内、形状内点映射到自身、不存在更近的形状内采样点）。
+
+## `INavigation2D` 增量阻挡：`AddBlocking` / `RemoveBlocking` / `GetBlocking`（2026-10-02，手感落地 M4-L）
+
+1. **契约**（接口默认成员，ABI 只加不改，既有实现源码兼容）：`void AddBlocking(Id mapId, Rect rect)`、`bool RemoveBlocking(Id mapId, Rect rect)`、`IReadOnlyList<Rect>? GetBlocking(Id mapId)`。`AddBlocking` 追加一块动态阻挡；`RemoveBlocking` 按矩形值（`Rect.Equals`）移除登记顺序里**第一份**匹配项，返回是否真移除了（多重集合：重复登记同一矩形各算一份）；`GetBlocking` 返回当前登记快照，`null` 表示实现不暴露（默认）。
+2. **版本语义不变**：每次有效的增/删让 `GetBlockingVersion` **恰好**递增一次（等价于一次 `SetBlocking`）；移除不存在的矩形返回 `false` 且版本不变；`SetBlocking`/`Clear`/`BuildNavMesh` 语义不动。
+3. **默认实现**：经 `GetBlocking` 取当前集合，追加/移除后整批 `SetBlocking` 替换；实现若不暴露 `GetBlocking`（返回 `null`），默认实现抛 `NotSupportedException`——不静默退化成"只剩这一块"，那会悄悄丢掉其余阻挡。需要真增量的实现覆盖三个成员。
+4. **实现**：`StubNavigation2D` 与 `UnityNavigation2D`（同时重置该地图网格缓存）覆盖为真增量。测试：`tests/StubNavigation2DTests.cs`（追加/移除只动一块并恰好改一次版本、多重集合、等价于整批替换、默认成员的整批退化与不暴露时抛错）；一致性场景 `adapters/conformance` 新增一条（Unity PlayMode 才跑）。首个消费者：实验室可破坏障碍（`lab/README.md` 判断记录 42）。

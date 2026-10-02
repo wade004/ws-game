@@ -99,3 +99,16 @@ def test_runtime_families_follow_the_worn_weapon():
             continue
         item_id = "item.std_" + ref.removeprefix("feel.weapon.")
         assert family == family_of[item_id], (ref, family)
+
+
+def test_tick30_baseline_facts_equal_static_report_and_zero_metrics():
+    """非 60 tickRate 的换装脚本（equip_cycle_tick30）：事实与 60 Hz 版逐字相同（与步长无关），应恒为 0 的度量也恒为 0。"""
+    path = REPO / "lab" / "fixtures" / "baselines" / "equip_cycle_tick30.baseline.json"
+    cells30 = json.loads(path.read_text(encoding="utf-8"))["cells"]
+    assert len(cells30) == 6
+    reference = _baseline_cells()["2d_targeted"]["groups"]["equip"]["item_facts"]
+    for name, cell in cells30.items():
+        equip = cell["groups"]["equip"]
+        assert equip["item_facts"] == reference, name
+        for metric in ZERO_METRICS:
+            assert equip[metric] == 0, f"{name}.{metric}"

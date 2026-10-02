@@ -289,10 +289,9 @@ namespace Core.Carriers.Assembly
             rulesFeel.Timeline.Grace = grace;
 
             // ---- 失效与清理订阅。
-            subscriptions.Add(bus.Subscribe<ItemEquippedEvent>(
-                CarriersEventKeys.ItemEquipped, e => resolver.Invalidate(e.UnitId, "equipment_changed")));
-            subscriptions.Add(bus.Subscribe<ItemUnequippedEvent>(
-                CarriersEventKeys.ItemUnequipped, e => resolver.Invalidate(e.UnitId, "equipment_changed")));
+            // 装备变化不在这里无差别失效：换装链（EquipmentFeelChain）按"主手/副手武器引用与武器族是否变化"对账，只有武器相关状态变化才失效并重算
+            // （换护甲、换饰品不影响手感解析，手感设计/08 第 1 节）。此前这里对每次装备/卸下都失效一次，与链的失效叠加：武器变化版本号 +2，
+            // 换护甲也 +1（无谓重算，实验室 equip.stale_version_steps 指标证明）。
             subscriptions.Add(bus.Subscribe<AuraAppliedEvent>(
                 RulesEventKeys.AuraApplied, e => resolver.Invalidate(e.TargetId, "aura_changed")));
             subscriptions.Add(bus.Subscribe<AuraRemovedEvent>(

@@ -1,0 +1,613 @@
+{
+  "table": "feel.weapon",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.weapon.sword_1h",
+      "description": "单手剑（轻近战）试调起点（手感设计/05 第 9 节，俯视近战原型，不是已验证值）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "family": "1h",
+      "auto_attack_timeline_ref": "skill.lab_equip.attack_sword_1h",
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "light"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 35
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 45
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.15
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 1.5
+        },
+        {
+          "field": "cancel_window_scale",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "combo_window_scale",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "stop_distance",
+          "op": "set",
+          "value": 0.5
+        },
+        {
+          "field": "action_move_speed_ratio",
+          "op": "set",
+          "value": 0.3
+        },
+        {
+          "field": "action_turn_lock",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "camera_impulse_gain",
+          "op": "set",
+          "value": 0.008
+        },
+        {
+          "field": "trail_enabled",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "afterimage_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_swing_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_whiff_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_impact_tier",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_material",
+          "op": "set",
+          "value": "metal_light"
+        }
+      ],
+      "offhand_writes": [
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "add",
+          "value": 1
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "multiply",
+          "value": 1.1
+        }
+      ],
+      "timeline_reference": {
+        "startup_ms": 110,
+        "active_ms": 80,
+        "recovery_ms": 190,
+        "lunge_body_heights": 0.2,
+        "dodge_cancel_open_progress": 0.65,
+        "inflicted_hit_stun_ms": 150
+      },
+      "override": true
+    },
+    {
+      "id": "feel.weapon.greatsword",
+      "description": "巨剑（重近战，双手）试调起点（手感设计/05 第 9 节，不是已验证值）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "family": "2h",
+      "auto_attack_timeline_ref": "skill.lab_equip.attack_greatsword",
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "heavy"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 65
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 75
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.3
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 3
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "cancel_window_scale",
+          "op": "set",
+          "value": 0.8
+        },
+        {
+          "field": "combo_window_scale",
+          "op": "set",
+          "value": 0.7
+        },
+        {
+          "field": "stop_distance",
+          "op": "set",
+          "value": 0.6
+        },
+        {
+          "field": "action_move_speed_ratio",
+          "op": "set",
+          "value": 0.1
+        },
+        {
+          "field": "action_turn_lock",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "camera_impulse_gain",
+          "op": "set",
+          "value": 0.02
+        },
+        {
+          "field": "trail_enabled",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "afterimage_enabled",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "set",
+          "value": 1.5
+        },
+        {
+          "field": "sfx_swing_tier",
+          "op": "set",
+          "value": 3
+        },
+        {
+          "field": "sfx_whiff_tier",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "sfx_impact_tier",
+          "op": "set",
+          "value": 4
+        },
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "sfx_material",
+          "op": "set",
+          "value": "metal_heavy"
+        }
+      ],
+      "timeline_reference": {
+        "startup_ms": 170,
+        "active_ms": 100,
+        "recovery_ms": 290,
+        "lunge_body_heights": 0.3,
+        "dodge_cancel_open_progress": 0.75,
+        "inflicted_hit_stun_ms": 230
+      },
+      "override": true
+    },
+    {
+      "id": "feel.weapon.dagger",
+      "description": "匕首（轻近战，快速）占位试调起点，不是已验证值。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "family": "1h",
+      "auto_attack_timeline_ref": "skill.lab_equip.attack_dagger",
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "light"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 25
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 35
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.1
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 0.5
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 1.4
+        },
+        {
+          "field": "cancel_window_scale",
+          "op": "set",
+          "value": 1.1
+        },
+        {
+          "field": "combo_window_scale",
+          "op": "set",
+          "value": 1.2
+        },
+        {
+          "field": "stop_distance",
+          "op": "set",
+          "value": 0.4
+        },
+        {
+          "field": "action_move_speed_ratio",
+          "op": "set",
+          "value": 0.45
+        },
+        {
+          "field": "action_turn_lock",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "camera_impulse_gain",
+          "op": "set",
+          "value": 0.005
+        },
+        {
+          "field": "trail_enabled",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "afterimage_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "set",
+          "value": 0.8
+        },
+        {
+          "field": "sfx_swing_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_whiff_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_impact_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_material",
+          "op": "set",
+          "value": "metal_light"
+        }
+      ],
+      "timeline_reference": {
+        "startup_ms": 70,
+        "active_ms": 60,
+        "recovery_ms": 120,
+        "lunge_body_heights": 0.15,
+        "dodge_cancel_open_progress": 0.55,
+        "inflicted_hit_stun_ms": 110
+      },
+      "override": true
+    },
+    {
+      "id": "feel.weapon.bow",
+      "description": "弓（投射，双手）占位试调起点，不是已验证值。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "family": "2h",
+      "auto_attack_timeline_ref": "skill.lab_equip.attack_bow",
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "light"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 20
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 30
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.12
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 1.5
+        },
+        {
+          "field": "cancel_window_scale",
+          "op": "set",
+          "value": 1.0
+        },
+        {
+          "field": "combo_window_scale",
+          "op": "set",
+          "value": 1.0
+        },
+        {
+          "field": "stop_distance",
+          "op": "set",
+          "value": 0.0
+        },
+        {
+          "field": "action_move_speed_ratio",
+          "op": "set",
+          "value": 0.6
+        },
+        {
+          "field": "action_turn_lock",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "camera_impulse_gain",
+          "op": "set",
+          "value": 0.006
+        },
+        {
+          "field": "trail_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "afterimage_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "set",
+          "value": 0.9
+        },
+        {
+          "field": "sfx_swing_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_whiff_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_impact_tier",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_material",
+          "op": "set",
+          "value": "wood"
+        }
+      ],
+      "timeline_reference": {
+        "startup_ms": 160,
+        "active_ms": 40,
+        "recovery_ms": 180,
+        "lunge_body_heights": 0,
+        "dodge_cancel_open_progress": 0.7,
+        "inflicted_hit_stun_ms": 130
+      },
+      "override": true
+    },
+    {
+      "id": "feel.weapon.staff",
+      "description": "法杖（法器，双手）占位试调起点，不是已验证值。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "family": "2h",
+      "auto_attack_timeline_ref": "skill.lab_equip.attack_staff",
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "medium"
+        },
+        {
+          "field": "attacker_hitstop_ms",
+          "op": "set",
+          "value": 40
+        },
+        {
+          "field": "target_hitstop_ms",
+          "op": "set",
+          "value": 50
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.2
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "kill_hitstop_scale",
+          "op": "set",
+          "value": 1.6
+        },
+        {
+          "field": "cancel_window_scale",
+          "op": "set",
+          "value": 0.9
+        },
+        {
+          "field": "combo_window_scale",
+          "op": "set",
+          "value": 0.9
+        },
+        {
+          "field": "stop_distance",
+          "op": "set",
+          "value": 0.5
+        },
+        {
+          "field": "action_move_speed_ratio",
+          "op": "set",
+          "value": 0.2
+        },
+        {
+          "field": "action_turn_lock",
+          "op": "set",
+          "value": true
+        },
+        {
+          "field": "camera_impulse_gain",
+          "op": "set",
+          "value": 0.01
+        },
+        {
+          "field": "trail_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "afterimage_enabled",
+          "op": "set",
+          "value": false
+        },
+        {
+          "field": "impact_vfx_scale",
+          "op": "set",
+          "value": 1.2
+        },
+        {
+          "field": "sfx_swing_tier",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "sfx_whiff_tier",
+          "op": "set",
+          "value": 1
+        },
+        {
+          "field": "sfx_impact_tier",
+          "op": "set",
+          "value": 3
+        },
+        {
+          "field": "sfx_sweetener_tier",
+          "op": "set",
+          "value": 2
+        },
+        {
+          "field": "sfx_material",
+          "op": "set",
+          "value": "wood"
+        }
+      ],
+      "timeline_reference": {
+        "startup_ms": 140,
+        "active_ms": 90,
+        "recovery_ms": 240,
+        "lunge_body_heights": 0.1,
+        "dodge_cancel_open_progress": 0.7,
+        "inflicted_hit_stun_ms": 180
+      },
+      "override": true
+    }
+  ]
+}

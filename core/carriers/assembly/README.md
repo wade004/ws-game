@@ -294,3 +294,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 用例见 `core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（各项"量从 X 变到 Y"的复现与不变量）与 `core/foundation/input_map/tests/GraceAimTests.cs`。
 
 已知限制：链式解析出来的目标（连锁技能的后续目标）不记为瞄点；瞄点只对携带宽限条件的施法请求记录；`InputBufferHost.RegisterActor` 被游戏显式调用时仍按调用分配缓冲；无头世界的视线查询恒为畅通（`StubSpatialQuery`），真实障碍物下的视线只能在带真实空间服务的世界里验证。
+
+## 手感落地 M4-L：换装版本的单一失效源（2026-10-02）
+
+`CarriersFeelAssembly` 不再订阅 `item.equipped`/`item.unequipped` 对每次穿脱无差别 `Invalidate("equipment_changed")`。根因：换装链（`EquipmentFeelChain`）按"主手/副手武器引用与武器族是否变化"对账并自己失效（设计上换护甲、换饰品不影响手感解析，手感设计/08 第 1 节），装配里那两条订阅与它叠加——武器变化版本号 +2，穿胸甲也 +1（实验室换装场景改走生产装配后 `equip.feel_version_deltas` 暴露，见 `lab/README.md` 判断记录 21）。现在换装链是装备相关解析失效的唯一来源；光环层数变化、实体销毁等其它失效源不变。装备带来的光环（套装加成）经 `aura.applied` 照常失效。

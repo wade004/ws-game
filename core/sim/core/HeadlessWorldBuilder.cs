@@ -317,6 +317,11 @@ namespace Core.Sim
                 feelOptions = feelOptions.WithStepSeconds(options.StepSeconds);
             }
 
+            // 动作时间线步长取本装配根的模拟步长（SkillOptions.ActionStepSeconds 从未显式设置，非离散时间模型下 GameplayAssembly 拿不到时钟宿主，
+            // 所以这里先回填；离散时间模型下 GameplayAssembly 自己也会回填同一个值）。
+            var skillOptions = new Core.Rules.Skill.SkillOptions();
+            skillOptions.ApplyHostStepSeconds(options.StepSeconds);
+
             // 走带全部参数的最长重载（只有它接受 feelOptions）；其余参数取与此前经可选参数重载时相同的缺省（全 null）。
             var gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
@@ -327,7 +332,7 @@ namespace Core.Sim
                 sceneRouter: null,
                 statOptions: null,
                 combatOptions: options.CombatOptions,
-                skillOptions: null,
+                skillOptions: skillOptions,
                 targetingOptions: options.TargetingOptions,
                 aiOptions: null,
                 inventoryOptions: null,

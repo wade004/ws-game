@@ -110,6 +110,12 @@ namespace Core.Rules.Common
         /// <summary>一次命中的完整结论，见 <see cref="CombatHitConfirmedEvent"/>。</summary>
         public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
 
+        /// <summary>动态韧性被命中扣减，见 <see cref="CombatPoiseChangedEvent"/>。</summary>
+        public static readonly Id CombatPoiseChanged = new Id("combat.poise_changed");
+
+        /// <summary>动态韧性回满，见 <see cref="CombatPoiseRecoveredEvent"/>。</summary>
+        public static readonly Id CombatPoiseRecovered = new Id("combat.poise_recovered");
+
         /// <summary>受击裁决落地，见 <see cref="CombatReactionAppliedEvent"/>。</summary>
         public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
 

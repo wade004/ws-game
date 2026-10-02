@@ -1815,3 +1815,7 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 ## 手感落地 M4-G：施法瞄点上报与技能射程查询（2026-10-03）
 
 `CastPipeline` 对携带宽限条件的施法请求（对单位 `CastSkillWithContext` 的 `targets[0]`、地面 `CastSkillAtGround` 的落点）在步骤 7 之前向宽限查询对象（若实现 `IGraceAimSink`）报告瞄点与技能射程；没有携带宽限条件的请求不上报，行为不变。新增 `SkillHost.GetSkillRange(skillId)`（技能定义的射程，未知技能为 0）。装配与语义见 `core/carriers/assembly/README.md` M4-G 节。
+
+## 手感落地 M4-L：`ActionStepSeconds` 由装配回填
+
+`SkillOptions.ActionStepSeconds` 现在在调用方没有显式赋值时由 `GameplayAssembly`/`HeadlessWorldBuilder` 按宿主时钟步长回填（`ApplyHostStepSeconds`，`ActionStepSecondsIsExplicit` 区分显式值）；T13 要求的"须与模拟固定步长一致"因此对装配路径自动成立，细节见 `core/gameplay/assembly/README.md`。

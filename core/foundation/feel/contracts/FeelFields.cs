@@ -73,6 +73,9 @@ namespace Core.Foundation.Feel
         public const string AttackerHitstopCapMs = "attacker_hitstop_cap_ms";
         public const string HitStunMs = "hit_stun_ms";
         public const string StaggerPower = "stagger_power";
+        public const string PoiseDamage = "poise_damage";
+        public const string PoiseRecoverPerS = "poise_recover_per_s";
+        public const string PoiseRecoverDelayMs = "poise_recover_delay_ms";
         public const string KnockbackDistance = "knockback_distance";
         public const string LaunchHeight = "launch_height";
         public const string DownedMs = "downed_ms";
@@ -282,6 +285,13 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.AttackerHitstopCapMs, Re, J, Ms, C, 0, 1000, "攻击方顿帧上限（群体命中取最大后限幅）"),
                 Num(FeelFieldNames.HitStunMs, Re, J, Ms, C, 0, 3000, "硬直时长（受击方体型为主）"),
                 Num(FeelFieldNames.StaggerPower, Re, J, FeelUnit.None, W, 0, 1000, "硬直强度：与目标韧性比较，不高于韧性时只播受击动画不打断"),
+                Num(FeelFieldNames.PoiseDamage, Re, J, FeelUnit.None, W, 0, 1000,
+                    "韧性伤害（手感落地 M4-L，动态韧性）：命中从目标当前韧性池里扣掉的量；缺省（无值）表示该攻击不走动态韧性，沿用静态规则" +
+                    "（stagger_power 与目标韧性属性比较）", optional: true),
+                Num(FeelFieldNames.PoiseRecoverPerS, Re, J, FeelUnit.None, C, 0, 1000,
+                    "韧性回复速率（每秒，目标侧）：被动态韧性命中过的目标在 poise_recover_delay_ms 内没再受动态韧性伤害后，每秒回复这么多韧性直到满；缺省（无值）表示不回复", optional: true),
+                Num(FeelFieldNames.PoiseRecoverDelayMs, Re, J, Ms, C, 0, 10000,
+                    "韧性回复延迟（目标侧）：最近一次动态韧性伤害之后等待多久才开始回复；缺省（无值）按 0", optional: true),
                 Num(FeelFieldNames.KnockbackDistance, Re, J, BodyH, W, 0, 5, "击退距离"),
                 Num(FeelFieldNames.LaunchHeight, Re, J, BodyH, W, 0, 10,
                     "击飞高度：knockback/knockdown 反应把目标抛起的顶点高度（目标脚下再升高多少）；只在世界有竖直轴（体积空间 / 横版二维能力包）时生效，" +

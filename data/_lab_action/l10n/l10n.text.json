@@ -36,6 +36,11 @@
       "key": "l10n.stat.poise.name",
       "locale": "l10n.locale.zh_cn",
       "text": "韧性"
+    },
+    {
+      "key": "l10n.creature.tier.lab_a_resilient.name",
+      "locale": "l10n.locale.zh_cn",
+      "text": "动作式韧性档"
     }
   ]
 }

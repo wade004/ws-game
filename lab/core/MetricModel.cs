@@ -244,6 +244,8 @@ namespace Lab
                 .Register(new HitReactionMetricGroup())
                 .Register(new MotionMetricGroup())
                 .Register(new SpatialHitMetricGroup())
+                .Register(new ProjectileMetricGroup())
+                .Register(new PoiseMetricGroup())
                 .Register(new PresentationTimelineMetricGroup())
                 .Register(new SpaceMetricGroup());
     }

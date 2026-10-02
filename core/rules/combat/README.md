@@ -691,3 +691,11 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 2. **口径**：反应达到 `knockback`/`knockdown` 时，击飞顶点高度（世界单位）= 攻击方 `launch_height`（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一张倍率表、同一个抗性读数）；与击退同一提交时机（目标顿帧结束那个 tick）。击飞与击退互相独立：`knockback_distance` 为 0 也击飞，`launch_height` 缺省则只击退（`SubmitKnockback` 只在距离 > 0 时提交击退、顶点 > 0 时提交击飞，旧行为不变）。
 3. **提交口**：`rules/common` 新增 `ILaunchSink.BeginLaunch(unitId, apexHeightWorld)`；`HitFeelHost.Launch` 缺省 null（不接就不击飞）。实现是单位载体层的 `VerticalMotionHost`（见 unit README），由 `CarriersFeelAssembly` 在装配了竖直轴时接上。
 4. **已知局限**：击飞顶点不看目标体型（`launch_height` 已是体型倍数，标定参考身高统一换算）；击飞中的目标仍按硬直/倒地走既有流程，不因腾空改变反应时长；没有"空中受击"的专属反应与"落地事件"（落地只体现在高度回到 0，实验室以度量记录落地 tick）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
+
+## 判断记录（动态韧性：`poise_damage` 与韧性池，2026-10-02，M4-L，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)）
+
+1. **字段与事件**：手感档案新增三个可选判定型数值字段——攻击方 `poise_damage`（0..1000，武器为主）、目标侧 `poise_recover_per_s`（0..1000）与 `poise_recover_delay_ms`（0..10000，角色为主）；事件 `combat.poise_changed`（`targetId, sourceId, before, after, max, damage, broken`）与 `combat.poise_recovered`（`targetId, poise`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
+2. **口径**（`HitFeelHost.EvaluateDynamicPoise`）：命中的攻击方声明了 `poise_damage > 0` 且目标韧性属性 > 0 时走韧性池，否则走静态规则（`stagger_power ≤ 韧性属性` → Flinch，逐位不变）。池容量 = 韧性属性值，已损失量记在宿主里；击前有效韧性 `before = max(0, 容量 − 已损失)`，扣后 `after = max(0, before − poise_damage)`；`after > 0` 且 `stagger_power ≤ before` 才 Flinch，否则按冲击等级映射再受 `reaction_cap` 封顶；`before > 0` 且 `after = 0` 是破韧（`broken`），池子已空的后续命中同样不被挡。霸体（不碰池）与击杀（Death 优先，不碰池）排在韧性之前。
+3. **回复**：`AdvancePoiseRecovery` 在每个 tick 开头（先于全部阶段处理器）推进：先耗尽 `poise_recover_delay_ms`（每次动态命中重新计），再每 tick 回复 `poise_recover_per_s × 步长`；回满的那个 tick 发 `combat.poise_recovered` 并删档；没声明速率不回复；单位死亡/销毁/时间模型重标（`ReleaseUnit`/`ReleaseAll`）清档。回复速率与延迟在命中那一刻取目标当时的手感解析值（之后改档案对已建档的池不追溯）。
+4. **契约注释**：`IHitFeelArbiter.Evaluate` 原写"纯函数式"，现改为"仅动态韧性命中会写状态（扣池）"，每次真实命中恰好调用一次（时间线路径 `CastPipeline.TimelineHit` 与 instant 适配 `PublishInstantConfirmation` 各一处），仍满足。`HitFeelHost.CurrentPoise(unitId)` 提供只读查询。
+5. **已知局限**：回复口径只有"最近一次动态韧性伤害后的延迟 + 速率"一种，没有按战斗状态（脱战）回复；破韧后没有"一次破韧后池子自动回满"的重置策略（回复靠速率）；`poise_damage` 不随冲击等级缩放。测试：`tests/HitFeelHostTests.cs` 的 `DynamicPoise_*`（逐击扣减与反应、静态路径不被碰、没有韧性属性不建池、延迟与速率逐 tick 推演并只发一次回满、延迟内再挨一击重新计时、池恒在 [0, 容量] 且记账自洽、霸体/击杀/释放、字段可选）。

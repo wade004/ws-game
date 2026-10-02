@@ -1,0 +1,102 @@
+{
+  "table": "sfx.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "sfx.lab_swing_t1",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_swing_t1",
+      "feel_layer": "swing",
+      "feel_tier": 1,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_swing_t2",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_swing_t2",
+      "feel_layer": "swing",
+      "feel_tier": 2,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_swing_t3",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_swing_t3",
+      "feel_layer": "swing",
+      "feel_tier": 3,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_whiff_t1",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_whiff_t1",
+      "feel_layer": "whiff",
+      "feel_tier": 1,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_whiff_t2",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_whiff_t2",
+      "feel_layer": "whiff",
+      "feel_tier": 2,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_whiff_t3",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_whiff_t3",
+      "feel_layer": "whiff",
+      "feel_tier": 3,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_impact_t1",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_impact_t1",
+      "feel_layer": "impact",
+      "feel_tier": 1,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_impact_t2",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_impact_t2",
+      "feel_layer": "impact",
+      "feel_tier": 2,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_impact_t3",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_impact_t3",
+      "feel_layer": "impact",
+      "feel_tier": 3,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_sweetener_t1",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_sweetener_t1",
+      "feel_layer": "sweetener",
+      "feel_tier": 1,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_sweetener_t2",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_sweetener_t2",
+      "feel_layer": "sweetener",
+      "feel_tier": 2,
+      "feel_material": "generic"
+    },
+    {
+      "id": "sfx.lab_sweetener_t3",
+      "layer": "combat",
+      "resource_ref": "sfx.res.lab_sweetener_t3",
+      "feel_layer": "sweetener",
+      "feel_tier": 3,
+      "feel_material": "generic"
+    }
+  ]
+}

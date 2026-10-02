@@ -56,6 +56,128 @@ namespace Tests.Foundation.EngineAdapter
         }
 
         // -----------------------------------------------------------------
+        // 增量阻挡（M4-L）：AddBlocking / RemoveBlocking / GetBlocking。
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AddBlocking_AppendsOneRect_AndBumpsTheVersionExactlyOnce()
+        {
+            var nav = new StubNavigation2D();
+            var a = new Rect(new Vec2(0, 0), new Vec2(1, 1));
+            var b = new Rect(new Vec2(4, 0), new Vec2(5, 1));
+            nav.SetBlocking(MapId, new[] { a });
+            var before = nav.GetBlockingVersion(MapId);
+
+            nav.AddBlocking(MapId, b);
+
+            Assert.Equal(before + 1, nav.GetBlockingVersion(MapId));
+            Assert.Equal(new[] { a, b }, nav.GetBlocking(MapId));
+            Assert.False(nav.IsWalkable(MapId, new Vec2(0.5, 0.5)));
+            Assert.False(nav.IsWalkable(MapId, new Vec2(4.5, 0.5)));
+        }
+
+        [Fact]
+        public void RemoveBlocking_RemovesOnlyTheFirstMatch_ReturnsFalseAndKeepsVersionWhenAbsent()
+        {
+            var nav = new StubNavigation2D();
+            var a = new Rect(new Vec2(0, 0), new Vec2(1, 1));
+            var b = new Rect(new Vec2(4, 0), new Vec2(5, 1));
+            nav.SetBlocking(MapId, new[] { a, b, a });
+            var before = nav.GetBlockingVersion(MapId);
+
+            Assert.False(nav.RemoveBlocking(MapId, new Rect(new Vec2(8, 8), new Vec2(9, 9))));
+            Assert.Equal(before, nav.GetBlockingVersion(MapId));
+
+            Assert.True(nav.RemoveBlocking(MapId, a));
+            Assert.Equal(before + 1, nav.GetBlockingVersion(MapId));
+            // 多重集合：重复登记的 a 只移除了一份，位置仍被另一份阻挡。
+            Assert.Equal(new[] { b, a }, nav.GetBlocking(MapId));
+            Assert.False(nav.IsWalkable(MapId, new Vec2(0.5, 0.5)));
+
+            Assert.True(nav.RemoveBlocking(MapId, a));
+            Assert.True(nav.IsWalkable(MapId, new Vec2(0.5, 0.5)));
+        }
+
+        [Fact]
+        public void IncrementalBlocking_IsEquivalentToWholeBatchReplaceOfTheSameSet()
+        {
+            var incremental = new StubNavigation2D();
+            var batch = new StubNavigation2D();
+            var a = new Rect(new Vec2(0, 0), new Vec2(1, 1));
+            var b = new Rect(new Vec2(4, 0), new Vec2(5, 1));
+            var c = new Rect(new Vec2(2, 3), new Vec2(3, 4));
+            incremental.AddBlocking(MapId, a);
+            incremental.AddBlocking(MapId, b);
+            incremental.AddBlocking(MapId, c);
+            incremental.RemoveBlocking(MapId, b);
+            batch.SetBlocking(MapId, new[] { a, c });
+
+            foreach (var p in new[] { new Vec2(0.5, 0.5), new Vec2(4.5, 0.5), new Vec2(2.5, 3.5), new Vec2(9, 9) })
+            {
+                Assert.Equal(batch.IsWalkable(MapId, p), incremental.IsWalkable(MapId, p));
+            }
+
+            Assert.Equal(batch.Raycast(MapId, new Vec2(-1, 0.5), new Vec2(6, 0.5)), incremental.Raycast(MapId, new Vec2(-1, 0.5), new Vec2(6, 0.5)));
+        }
+
+        [Fact]
+        public void DefaultInterfaceMembers_FallBackToWholeBatchReplace_WhenOnlyGetBlockingIsExposed()
+        {
+            var inner = new StubNavigation2D();
+            INavigation2D nav = new BatchOnlyNav(inner);
+            var a = new Rect(new Vec2(0, 0), new Vec2(1, 1));
+            var b = new Rect(new Vec2(4, 0), new Vec2(5, 1));
+            nav.SetBlocking(MapId, new[] { a });
+            var before = nav.GetBlockingVersion(MapId);
+
+            nav.AddBlocking(MapId, b);
+            Assert.Equal(new[] { a, b }, inner.GetBlocking(MapId));
+            Assert.Equal(before + 1, nav.GetBlockingVersion(MapId));
+
+            Assert.True(nav.RemoveBlocking(MapId, a));
+            Assert.Equal(new[] { b }, inner.GetBlocking(MapId));
+            Assert.Equal(before + 2, nav.GetBlockingVersion(MapId));
+            Assert.False(nav.RemoveBlocking(MapId, a));
+            Assert.Equal(before + 2, nav.GetBlockingVersion(MapId));
+        }
+
+        [Fact]
+        public void DefaultInterfaceMembers_Throw_WhenTheImplementationExposesNoBlockingSet()
+        {
+            INavigation2D nav = new OpaqueNav();
+            Assert.Throws<System.NotSupportedException>(() => nav.AddBlocking(MapId, new Rect(new Vec2(0, 0), new Vec2(1, 1))));
+            Assert.Throws<System.NotSupportedException>(() => nav.RemoveBlocking(MapId, new Rect(new Vec2(0, 0), new Vec2(1, 1))));
+        }
+
+        /// <summary>只覆盖 SetBlocking/GetBlocking/GetBlockingVersion（委托给桩），增量成员走接口默认实现。</summary>
+        private sealed class BatchOnlyNav : INavigation2D
+        {
+            private readonly StubNavigation2D _inner;
+
+            public BatchOnlyNav(StubNavigation2D inner) { _inner = inner; }
+
+            public void BuildNavMesh(Id mapId) => _inner.BuildNavMesh(mapId);
+            public bool IsWalkable(Id mapId, Vec2 point) => _inner.IsWalkable(mapId, point);
+            public System.Collections.Generic.IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) => _inner.FindPath(mapId, from, to);
+            public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => _inner.Raycast(mapId, from, to);
+            public void SetBlocking(Id mapId, System.Collections.Generic.IReadOnlyList<Rect> rects) => _inner.SetBlocking(mapId, rects);
+            public void Clear(Id mapId) => _inner.Clear(mapId);
+            public System.Collections.Generic.IReadOnlyList<Rect>? GetBlocking(Id mapId) => _inner.GetBlocking(mapId);
+            public int GetBlockingVersion(Id mapId) => _inner.GetBlockingVersion(mapId);
+        }
+
+        /// <summary>不暴露登记集合、不覆盖增量成员的实现（只为触达默认实现的失败路径）。</summary>
+        private sealed class OpaqueNav : INavigation2D
+        {
+            public void BuildNavMesh(Id mapId) { }
+            public bool IsWalkable(Id mapId, Vec2 point) => true;
+            public System.Collections.Generic.IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) => null;
+            public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => null;
+            public void SetBlocking(Id mapId, System.Collections.Generic.IReadOnlyList<Rect> rects) { }
+            public void Clear(Id mapId) { }
+        }
+
+        // -----------------------------------------------------------------
         // FindPath 端点契约（02 第 1.8 节勘误）。
         // -----------------------------------------------------------------
 

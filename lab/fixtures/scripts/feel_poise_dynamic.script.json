@@ -1,0 +1,138 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_poise_dynamic",
+    "scriptVersion": 1,
+    "description": "动态韧性（M4-L）：木桩 stake_resilient 的韧性池容量 4，削韧击每击扣 2、强度取预设缺省 1；500 毫秒无韧性伤害后以每秒 4 点回复。五次挥击：第 1 击 4>2 被挡成 Flinch；第 2 击 2>0 破韧给出完整反应；第 3 击池子已空，同样给出完整反应；回复一段时间后第 4 击落在部分回复的池上（>0 且被打到 0，再次破韧）；回满之后第 5 击又被挡成 Flinch。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_resilient"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_poise_chip"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 29,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 30,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 53,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 54,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 94,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 95,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 224,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 225,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "poise_accounting_is_consistent",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.accounting_mismatch",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "poise_stays_in_bounds",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.out_of_range",
+      "op": "eq",
+      "value": 0
+    },
+    {
+      "id": "two_breaks_five_hits",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "poise.breaks",
+      "op": "eq",
+      "value": 2,
+      "note": "第 2 击把 2 打到 0（破韧）；第 4 击落在只回复了一点的池上，再次破韧；第 1、5 击被挡住，第 3 击池子已空。"
+    },
+    {
+      "id": "shelter_then_break_then_shelter",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "reaction.reaction_counts",
+      "op": "eq",
+      "value": "Flinch:2;Stagger:3",
+      "note": "池子 >0 的两击（首尾）被挡成 Flinch，破韧与池子已空的三击给出完整反应。"
+    }
+  ]
+}

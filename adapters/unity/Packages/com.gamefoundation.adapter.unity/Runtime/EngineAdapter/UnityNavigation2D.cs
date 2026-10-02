@@ -10,7 +10,8 @@
 // 记录）；本类型额外保留一个非契约便捷方法 RegisterBlockingFromTilemap，从一个 Unity Tilemap
 // 的实心格子批量算出矩形集合后同样经 SetBlocking 整批替换（不是增量追加——此前有一个逐格追加的
 // RegisterBlockingRect 方法，已随 ADR-0016 落地删除，其增量语义现由调用方自行收集矩形列表后
-// 一次性调用 SetBlocking 承担）。
+// 一次性调用 SetBlocking 承担）。M4-L 起契约另有增量成员 AddBlocking/RemoveBlocking/GetBlocking（INavigation2D 默认成员，
+// 本类型覆盖为真增量：只动一块矩形、重置该地图网格缓存、版本号恰好 +1），逐个出场/移除的可破坏物不必再整批重发。
 //
 // 网格判断记录：BuildNavMesh 时按已登记矩形的包围盒 + 边距生成网格，格子尺寸在
 // DefaultCellSize（0.25 世界单位）与"包围盒必须能装进 MaxGridDimension×MaxGridDimension
@@ -398,6 +399,57 @@ namespace Adapter.Unity.EngineAdapter
             _blockingRects[mapId] = list;
             _grids.Remove(mapId); // 阻挡数据变化后网格需要重建，下次 FindPath/BuildNavMesh 时重算。
             BumpVersion(mapId);
+        }
+
+        /// <summary>契约方法（增量阻挡，M4-L）：当前登记的动态阻挡快照（登记顺序）；从未登记过的地图返回空列表（不是 null——本实现支持增量）。</summary>
+        public IReadOnlyList<Core.Foundation.Common.Rect> GetBlocking(Id mapId)
+        {
+            var result = new List<Core.Foundation.Common.Rect>();
+            if (_blockingRects.TryGetValue(mapId, out var rects))
+            {
+                foreach (var rect in rects)
+                {
+                    result.Add(new Core.Foundation.Common.Rect(rect.Min, rect.Max));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>契约方法（增量阻挡）：追加一块动态阻挡，版本号恰好递增一次（同一次 <see cref="SetBlocking"/>）；不动其余登记。</summary>
+        public void AddBlocking(Id mapId, Core.Foundation.Common.Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                list = new List<BlockingRect>();
+                _blockingRects[mapId] = list;
+            }
+
+            list.Add(new BlockingRect(rect.Min, rect.Max));
+            _grids.Remove(mapId); // 同 SetBlocking：阻挡变化后网格重建。
+            BumpVersion(mapId);
+        }
+
+        /// <summary>契约方法（增量阻挡）：按矩形值移除登记顺序里第一份匹配项；没有匹配返回 false 且版本号不变。</summary>
+        public bool RemoveBlocking(Id mapId, Core.Foundation.Common.Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Min.Equals(rect.Min) && list[i].Max.Equals(rect.Max))
+                {
+                    list.RemoveAt(i);
+                    _grids.Remove(mapId);
+                    BumpVersion(mapId);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>契约方法：清空某地图的全部动态阻挡登记（场景卸载时调用）。</summary>

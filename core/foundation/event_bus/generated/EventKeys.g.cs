@@ -87,6 +87,12 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.left — 字段：unitId。脱离战斗（见 06 第 8 节）。</summary>
         public static readonly Id CombatLeft = new Id("combat.left");
 
+        /// <summary>combat.poise_changed — 字段：targetId, sourceId, before, after, max, damage, broken。手感设计/03 第 4 节（手感落地 M4-L，动态韧性）：声明了 poise_damage 的命中扣减了目标的韧性池；before/after 是该命中前后的有效韧性（韧性属性减已损失量，不低于 0），max 是韧性属性值，damage 是这一击声明的韧性伤害，broken 为真表示这一击把韧性从正数打到 0（破韧，该命中按冲击等级映射出完整受击反应）；不声明 poise_damage 的命中（静态韧性）不发本事件。</summary>
+        public static readonly Id CombatPoiseChanged = new Id("combat.poise_changed");
+
+        /// <summary>combat.poise_recovered — 字段：targetId, poise。手感设计/03 第 4 节（手感落地 M4-L，动态韧性）：目标的动态韧性经 poise_recover_per_s 回复到满，只在之前有损失、现在回满的那一 tick 发一次；poise 为回满后的有效韧性。</summary>
+        public static readonly Id CombatPoiseRecovered = new Id("combat.poise_recovered");
+
         /// <summary>combat.reaction_applied — 字段：targetId, reaction, sourceId, attackInstanceId, durationTicks。手感设计/03 第 4/7 节：受击裁决落地；reaction 为 flinch|stagger_light|stagger|knockback|knockdown|death（none 不发）；durationTicks 为硬直（倒地含 downed_ms）换算 tick 数。</summary>
         public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
 
@@ -380,6 +386,8 @@ namespace Core.Foundation.EventBus
             CombatHealDone,
             CombatHitConfirmed,
             CombatLeft,
+            CombatPoiseChanged,
+            CombatPoiseRecovered,
             CombatReactionApplied,
             CombatThreatChanged,
             CreatureDespawned,
