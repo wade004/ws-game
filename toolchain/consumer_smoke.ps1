@@ -645,7 +645,9 @@ Invoke-Step "首次批处理编译（包解析 + 0 编译错误）" {
         "-logFile", $log
     ) -TimeoutSeconds 900
     if ($proc.TimedOut) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "首次编译超过 900s 未完成（可能是包解析卡住），见 $log" }
+        # 超时被强杀（退出码 -1）时同样按签名留证：日志含 IPC 断流签名才抓，否则不留证、不改 Detail。
+        $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_01_compile"
+        return [PSCustomObject]@{ Ok = $false; Detail = "首次编译超过 900s 未完成（可能是包解析卡住），见 $log$upmNote" }
     }
     $errorLines = @()
     if (Test-Path $log) {
@@ -671,7 +673,9 @@ Invoke-Step "用场景构建器生成 Shell + Map 场景" {
         "-logFile", $log
     ) -TimeoutSeconds 300
     if ($proc.TimedOut) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "场景生成超过 300s 未完成，见 $log" }
+        # 超时被强杀（退出码 -1）时同样按签名留证：日志含 IPC 断流签名才抓，否则不留证、不改 Detail。
+        $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_02_scene_builder"
+        return [PSCustomObject]@{ Ok = $false; Detail = "场景生成超过 300s 未完成，见 $log$upmNote" }
     }
     $shellScene = Join-Path $ConsumerProjectDir "Assets\Framework\Scenes\GameTemplateShell.unity"
     $mapScene = Join-Path $ConsumerProjectDir "Assets\Framework\Scenes\GameTemplateMap.unity"
@@ -698,7 +702,9 @@ Invoke-Step "模板 PlayMode 测试（-testFilter Game.Template.Tests）" {
         "-logFile", $log
     ) -TimeoutSeconds 600
     if ($proc.TimedOut) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "PlayMode 测试超过 600s 未完成，见 $log" }
+        # 超时被强杀（退出码 -1）时同样按签名留证：日志含 IPC 断流签名才抓，否则不留证、不改 Detail。
+        $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_03_playmode"
+        return [PSCustomObject]@{ Ok = $false; Detail = "PlayMode 测试超过 600s 未完成，见 $log$upmNote" }
     }
     # 引擎非零退出且日志含包管理器 IPC 断流签名时留证（只追加 Detail 后缀，不改判定）。
     $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_03_playmode"
@@ -743,7 +749,9 @@ $buildOk = Invoke-Step "构建独立版" {
     }
     $proc = Invoke-NativeAndWait -Exe $ResolvedUnityExe -ArgList $buildArgList -TimeoutSeconds 600
     if ($proc.TimedOut) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "独立版构建超过 600s 未完成，见 $log" }
+        # 超时被强杀（退出码 -1）时同样按签名留证：日志含 IPC 断流签名才抓，否则不留证、不改 Detail。
+        $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_04_build"
+        return [PSCustomObject]@{ Ok = $false; Detail = "独立版构建超过 600s 未完成，见 $log$upmNote" }
     }
     $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $log -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_04_build"
     [PSCustomObject]@{
@@ -1008,7 +1016,9 @@ public static class AdditiveMaterialRegistryProbe
         "-logFile", $probeLog
     ) -TimeoutSeconds 600
     if ($proc.TimedOut) {
-        return [PSCustomObject]@{ Ok = $false; Detail = "registry 安装形态探针超过 600s 未完成，见 $probeLog" }
+        # 超时被强杀（退出码 -1）时同样按签名留证：日志含 IPC 断流签名才抓，否则不留证、不改 Detail。
+        $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $probeLog -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_05_registry_probe"
+        return [PSCustomObject]@{ Ok = $false; Detail = "registry 安装形态探针超过 600s 未完成，见 $probeLog$upmNote" }
     }
 
     $upmNote = Get-UpmEvidenceDetailSuffix -EngineLogPath $probeLog -EngineExitCode $proc.ExitCode -EvidenceRoot $UpmEvidenceRoot -Tag "consumer_05_registry_probe"

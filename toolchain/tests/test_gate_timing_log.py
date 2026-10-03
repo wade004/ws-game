@@ -329,6 +329,89 @@ def test_branch_slug_matches_python_implementation(helpers: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 非正常终止（未被 Invoke-CheckStep 接住的异常）也留记录：复现 + 不变量
+# ---------------------------------------------------------------------------
+
+_ABORT_DRIVER = r"""
+$Toolchain = %TOOLCHAIN%
+$RepoRoot = %REPO%
+$NoTiming = [System.Management.Automation.SwitchParameter]$false
+$TargetedMode = $false
+$TimingTask = "abort task"
+$script:TimingScriptStart = (Get-Date).AddSeconds(-2)
+$script:Results = New-Object System.Collections.Generic.List[Object]
+$script:GateFailed = $false
+$script:FailFastFlagPath = $null
+. (Join-Path $Toolchain "_gate_step_runner.ps1")
+. (Join-Path $Toolchain "_gate_timing.ps1")
+%TRAP%
+Invoke-CheckStep "步骤一（中文显示名）" -Id "step_one" { $true }
+Invoke-CheckStep "步骤二（中文显示名）" -Id "step_two" { $false }
+throw "synthetic abort outside Invoke-CheckStep"
+"""
+
+
+def _extract_check_trap() -> str:
+    text = CHECK_PS1.read_text(encoding="utf-8-sig")
+    m = re.search(r"^trap \{\n.*?^\}\n", text, re.S | re.M)
+    assert m, "check.ps1 里找不到顶层 trap 块"
+    return m.group(0)
+
+
+def test_abort_writes_partial_timing_with_total_marked_aborted(tmp_path: Path) -> None:
+    """复现：脚本被未接住的异常中断。期望：已完成步骤行照写，_total 为 FAIL 且 note 含 aborted 与异常消息。"""
+    repo = _init_repo(tmp_path / "repo", "feature/abort-sim_20261003")
+    body = (
+        _ABORT_DRIVER.replace("%TOOLCHAIN%", ps_quote(TOOLCHAIN_DIR))
+        .replace("%REPO%", ps_quote(repo))
+        .replace("%TRAP%", _extract_check_trap())
+    )
+    from _ps_harness import run_ps_script
+
+    proc = run_ps_script(tmp_path, body, name="abort")
+    assert proc.returncode != 0, "异常没有传出，用例前提不成立"
+    files = sorted((repo / "timing").glob("*abort-sim_20261003.jsonl"))
+    assert len(files) == 1, f"应恰好一个 timing 文件：{files}\nstdout={proc.stdout}\nstderr={proc.stderr}"
+    rows = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line]
+    steps = [r["step"] for r in rows]
+    assert steps == ["step_one", "step_two", "_total"], steps
+    total = rows[-1]
+    assert total["result"] == "FAIL" and total["phase"] == "全量门禁"
+    assert total["note"].startswith("aborted:") and "synthetic abort" in total["note"]
+    # 墙钟取到中断时刻：不小于起点之前人为回拨的 2 秒
+    assert total["seconds"] >= 2.0
+    assert [r["result"] for r in rows[:2]] == ["PASS", "FAIL"]
+
+
+def test_abort_record_written_once_and_skipped_after_normal_finish(tmp_path: Path) -> None:
+    """不变量：同一次运行只写一次——正常收尾已置标记后再触发中断补写，什么都不追加；连续两次中断补写也只写一次。"""
+    repo = _init_repo(tmp_path / "repo", "feature/abort-once_20261003")
+    body = r"""
+$Toolchain = %TOOLCHAIN%
+. (Join-Path $Toolchain "_gate_timing.ps1")
+$start = (Get-Date).AddSeconds(-1)
+$first = Write-GateTimingOnAbort -RepoRoot %REPO% -Results @() -Task "t" -Phase "全量门禁" -TotalStart $start -Reason "boom 1"
+$second = Write-GateTimingOnAbort -RepoRoot %REPO% -Results @() -Task "t" -Phase "全量门禁" -TotalStart $start -Reason "boom 2"
+$script:GateTimingWritten = $false
+$script:GateTimingWritten = $true   # 模拟正常收尾已写
+$third = Write-GateTimingOnAbort -RepoRoot %REPO% -Results @() -Task "t" -Phase "全量门禁" -TotalStart $start -Reason "boom 3"
+@{ First = $first; Second = $second; Third = $third } | ConvertTo-Json | Out-File -FilePath $ResultPath -Encoding utf8
+""".replace("%TOOLCHAIN%", ps_quote(TOOLCHAIN_DIR)).replace("%REPO%", ps_quote(repo))
+    info = run_ps_json(tmp_path, body, name="abort_once")
+    assert info["First"] is None and info["Second"] is None and info["Third"] is None
+    files = sorted((repo / "timing").glob("*abort-once_20261003.jsonl"))
+    assert len(files) == 1
+    rows = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line]
+    assert len(rows) == 1 and "boom 1" in rows[0]["note"]
+
+
+def test_check_ps1_sets_written_flag_before_normal_timing_write() -> None:
+    check = CHECK_PS1.read_text(encoding="utf-8-sig")
+    assert "$script:GateTimingWritten = $true" in check
+    assert check.index("$script:GateTimingWritten = $true") < check.index("Write-GateTimingFromRun -RepoRoot $RepoRoot")
+
+
+# ---------------------------------------------------------------------------
 # 静态：步骤调用点都带 -Id；-NoTiming 接线
 # ---------------------------------------------------------------------------
 

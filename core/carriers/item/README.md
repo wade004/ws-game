@@ -1047,3 +1047,9 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 - **未跟踪单位初值 = 空手无族**：首次穿武器会发事件，首次只穿护甲不会；链创建之前就有装备的单位靠 `knownUnits`/手动 `Sync` 覆盖。
 - **`WeaponActionBinding`（`IActionSkillBinding` 实现）**：只映射 attack 类；主手武器的 `auto_attack_timeline_ref`，否则空手普攻，都没有则不映射。每次读最新装备，不依赖换装链是否已对账。
 - **新增事件 `feel.weapon_changed`**（`found.event_catalog` 新行，规则层契约 `FeelWeaponChangedEvent`）；本模块没有改任何既有契约成员，也没有触碰 `GameplayAssembly`/`RulesAssembly`/`CarriersAssembly`——换装链的生产装配接线留给装配切片。
+
+## 判断记录（`item.slot_definition.has_appearance`，NF 非手感已知限制清扫，2026-10-03）
+
+- **新增可选 Bool 字段 `has_appearance`，缺省 `true`**：只在数据契约里登记（`ItemSchemas.SlotDefinition`，只增不改），运行期核心（`EquipmentHost` 等）不读取它。消费方是工具链的装备资产包校验（`toolchain/asset_import/equip_pack.py`）：槽位写 `false`（戒指/项链等不上身可见的槽位）时，该槽位的物品不要求 `display.equip_visual` 行、不报 `equip_visual_missing`。缺省或 `true` 与登记前行为逐位一致。
+- **取舍**：此前"所有装备类槽位都当有外观"，戒指类物品会被误报，游戏只能把它们挪到别的数据根或写空外观行。不选"按槽位名猜"（槽位名是游戏自己的约定），不选"让游戏补空外观行"（空行没有语义，反被当成真外观去校验层图）。显式字段是唯一不靠猜的表达。
+- **测试**：`ItemSchemaCoverageTests`（`SlotDefinition_HasAppearance_Bool_LoadsWithoutErrors` 两种取值加载零问题且无该字段的任何 issue；`SlotDefinition_HasAppearance_NotBool_ReportsFieldType` 非布尔值被 `field_type` 拦下）；校验侧行为用例在 `toolchain/tests/test_equip_pack.py`（`test_slot_without_appearance_does_not_require_equip_visual` 等三条）。

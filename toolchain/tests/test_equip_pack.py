@@ -289,6 +289,51 @@ def test_missing_equip_visual_row_is_error(real_tables, tmp_path):
     assert _checks(_run(t, _sword_assets(tmp_path)), "error") == [E.CHECK_VISUAL_MISSING]
 
 
+def _set_slot_flag(tables, item_id, value, *, present=True):
+    """把 item_id 所在槽位行的 has_appearance 改成 value（present=False 则删掉该键）。"""
+    slot_id = next(r["slot"] for r in tables["item.template"] if r["id"] == item_id)
+    for row in tables["item.slot_definition"]:
+        if row["id"] == slot_id:
+            if present:
+                row["has_appearance"] = value
+            else:
+                row.pop("has_appearance", None)
+    return tables
+
+
+def test_slot_without_appearance_does_not_require_equip_visual(real_tables, tmp_path):
+    """复现：槽位声明 has_appearance=false，物品没有 display.equip_visual 行 -> 不再报 equip_visual_missing。"""
+    t = _only_item(real_tables, SWORD)
+    t["display.equip_visual"] = []
+    assert _checks(_run(t, _sword_assets(tmp_path)), "error") == [E.CHECK_VISUAL_MISSING], "用例前提：缺省仍报"
+    _set_slot_flag(t, SWORD, False)
+    report = _run(t, _sword_assets(tmp_path))
+    assert E.CHECK_VISUAL_MISSING not in _checks(report)
+    assert _checks(report, "error") == []
+
+
+def test_has_appearance_default_and_non_false_values_keep_visual_required(real_tables, tmp_path):
+    """不变量：缺省、true、以及任何不是 JSON 布尔 false 的取值，行为与字段登记前逐位一致（缺外观行即报错）。"""
+    for present, value in ((False, None), (True, True), (True, "false"), (True, None), (True, 0)):
+        t = _only_item(real_tables, SWORD)
+        t["display.equip_visual"] = []
+        _set_slot_flag(t, SWORD, value, present=present)
+        assert _checks(_run(t, _sword_assets(tmp_path)), "error") == [E.CHECK_VISUAL_MISSING], (present, value)
+
+
+def test_slot_without_appearance_still_validates_visual_rows_that_exist(real_tables, tmp_path):
+    """不变量：声明无外观的槽位里，物品若写了外观行，外观行照常校验（缺静态层图仍是错误）；其余检查（图标）照常。"""
+    t = _only_item(real_tables, SWORD)
+    _set_slot_flag(t, SWORD, False)
+    assets = _sword_assets(tmp_path)
+    assert _checks(_run(t, assets), "error") == []
+    static = next((assets / "sprites" / "item_std_sword_1h").rglob("hand_main.png"))
+    static.unlink()
+    assert E.CHECK_LAYER_STATIC_MISSING in _checks(_run(t, assets), "error")
+    (assets / "icons" / "item" / "std_sword_1h.png").unlink()
+    assert E.CHECK_ICON_FILE_MISSING in _checks(_run(t, assets), "error")
+
+
 def test_weapon_style_and_feel_weapon_must_share_id(real_tables, tmp_path):
     t = _only_item(real_tables, SWORD)
     t["display.map"] = [dict(r, weapon_style_ref="display.weapon_style.dagger") if r["id"].endswith("sword_1h") else r

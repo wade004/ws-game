@@ -22,6 +22,10 @@
   HEAD 时，改写 `timing/_pending/<年月日>_main_<时分秒>.jsonl`（游离 HEAD 为 `<年月日>_detached_<时分秒>`），
   该目录被 .gitignore 覆盖、一次运行一个文件（文件名带时分秒，永不追加到已有文件）；由下一条分支用
   `toolchain/claim_pending_records.py` 领走并入库。feature/bugfix/release 等分支保持原行为。
+- **脚本被未接住的异常中断时也写记录**（`Write-GateTimingOnAbort`，由 `check.ps1` 的 `trap` 调用）：已完成的步骤行照写，
+  `_total` 行 result=`FAIL`、note 以 `aborted:` 开头带异常消息，墙钟取到中断时刻；用 `$script:GateTimingWritten` 标记保证
+  同一次运行只写一次（正常收尾已写过就不重复）。进程被强行结束（任务管理器、`Stop-Process`、断电）时任何脚本内代码
+  都来不及运行，物理上写不出记录，这一种不处理，也不用外部看门进程去补写（那只会再造一份要维护的机制）。
 - 写入失败（只读、磁盘满、git 取不到分支……）不影响门禁结论：Write-GateTimingFromRun 吞掉异常、
   返回错误文本，由调用方在汇总末尾打一行警告；成功返回 $null。
 - 行尾 LF、UTF-8 无 BOM；每行 JSON 由本文件手工拼装（字符串字段交给 ConvertTo-Json 转义，seconds 用
@@ -207,4 +211,24 @@ function Write-GateTimingFromRun {
     } catch {
         return $_.Exception.Message
     }
+}
+
+# 脚本被未接住的异常中断时补写一份"到中断为止"的记录（见文件头判断记录）。同一次运行只写一次：
+# `$script:GateTimingWritten` 为真（正常收尾或本函数已写过）就什么都不做。返回错误文本或 $null，不抛异常。
+function Write-GateTimingOnAbort {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()]$Results,
+        [Parameter(Mandatory = $true)][string]$Task,
+        [Parameter(Mandatory = $true)][string]$Phase,
+        [Parameter(Mandatory = $true)][datetime]$TotalStart,
+        [string]$Reason = ""
+    )
+    if ($script:GateTimingWritten) { return $null }
+    $script:GateTimingWritten = $true
+    $end = Get-Date
+    $seconds = [Math]::Round(($end - $TotalStart).TotalSeconds, 1)
+    $note = "aborted: " + (Get-GateTimingRowNote -Detail $Reason)
+    return (Write-GateTimingFromRun -RepoRoot $RepoRoot -Results $Results -Task $Task -Phase $Phase `
+        -TotalStart $TotalStart -TotalEnd $end -TotalSeconds $seconds -TotalResult "FAIL" -TotalNote $note)
 }

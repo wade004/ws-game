@@ -24,7 +24,9 @@
       2. 所有版本的 `ws-game-<ver>.lock` 与 `release-notes-<ver>.txt` 一律保留（很小，是发布记录）。
       3. 所有带 `-dryrun` 的目录与文件一律删除（包括当前版本的；门禁每次会重打）。
       4. 非保留版本的 `<ver>\`、`ws-game-<ver>.zip`、`ws-game-<ver>-samples.zip` 删除。
-      5. 认不出形态的条目不动，输出里单列"未识别，已保留"。
+      5. `tag-message-<ver>.txt`（`build.ps1 -Release` 打标签失败时残留的标签说明文件）：标签 `v<ver>` 已存在则删，
+         不存在则按"未识别"保留（可能是眼下失败的发布现场）。
+      6. 认不出形态的条目不动，输出里单列"未识别，已保留"。
 
     在任务书规则之外多保留两类（宁少删勿多删）：
 
@@ -145,6 +147,30 @@ function Measure-DistEntry {
     return $result
 }
 
+# 本仓库里标签 v<ver> 是否已存在（取不到 git、不是仓库一律当作"不存在"，宁可多留）。求值时临时摘掉预提交钩子
+# 注入的 GIT_* 变量，做法同 _abi_baseline_resolve.ps1 的 Get-MainWorktreeRoot（Env: 驱动器删除而非置空串）。
+function Test-ReleaseTagExists {
+    param([string]$RepoRoot, [string]$Version)
+    $hazardVars = @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX")
+    $saved = @{}
+    foreach ($name in $hazardVars) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+        Remove-Item -LiteralPath ("Env:\" + $name) -ErrorAction SilentlyContinue
+    }
+    try {
+        & git -C $RepoRoot rev-parse -q --verify ("refs/tags/v" + $Version) 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    } finally {
+        foreach ($name in $hazardVars) {
+            if ($null -ne $saved[$name]) {
+                Set-Item -LiteralPath ("Env:\" + $name) -Value $saved[$name]
+            }
+        }
+    }
+}
+
 function Remove-DistEntry {
     param([System.IO.FileSystemInfo]$Info)
     if ($Info.PSIsContainer) {
@@ -207,6 +233,7 @@ $reDir = '^(\d+\.\d+\.\d+)(-dryrun)?$'
 $reZip = '^ws-game-(\d+\.\d+\.\d+)(-dryrun)?(-samples)?\.zip$'
 $reLock = '^ws-game-(\d+\.\d+\.\d+)(-dryrun)?\.lock$'
 $reNotes = '^release-notes-(\d+\.\d+\.\d+)(-dryrun)?\.txt$'
+$reTagMsg = '^tag-message-(\d+\.\d+\.\d+)\.txt$'
 
 $entries = New-Object System.Collections.Generic.List[object]
 foreach ($item in (Get-ChildItem -LiteralPath $distDir -Force)) {
@@ -226,6 +253,8 @@ foreach ($item in (Get-ChildItem -LiteralPath $distDir -Force)) {
             $kind = "Lock"; $ver = [version]$Matches[1]; $isDry = [bool]$Matches[2]
         } elseif ($name -match $reNotes) {
             $kind = "Notes"; $ver = [version]$Matches[1]; $isDry = [bool]$Matches[2]
+        } elseif ($name -match $reTagMsg) {
+            $kind = "TagMessage"; $ver = [version]$Matches[1]
         }
     }
     $entries.Add([PSCustomObject]@{
@@ -252,6 +281,17 @@ foreach ($v in ($lowerVersions | Select-Object -First ($KeepVersions - 1))) {
 foreach ($e in $entries) {
     if ($e.Kind -eq "Unknown") {
         $e.Action = "Keep"; $e.Category = "未识别"; $e.Reason = "认不出形态，不动"
+        continue
+    }
+    if ($e.Kind -eq "TagMessage") {
+        # build.ps1 -Release 打标签前写 dist\tag-message-<ver>.txt、打成功后立刻删；留下来说明打标签失败过。
+        # 标签 v<ver> 已经存在 = 这份残留早已没用（重试发布会整份重写它）-> 删；标签不存在 = 可能是眼下
+        # 失败的发布现场 -> 按"未识别"保留，交人判断。
+        if (Test-ReleaseTagExists -RepoRoot $RepoRoot -Version $e.Version.ToString()) {
+            $e.Action = "Delete"; $e.Category = "打标签残留"; $e.Reason = "标签 v$($e.Version) 已存在，残留的标签说明文件无用"
+        } else {
+            $e.Action = "Keep"; $e.Category = "未识别"; $e.Reason = "标签 v$($e.Version) 不存在，可能是失败的发布现场，不动"
+        }
         continue
     }
     if ($e.DryRun) {
