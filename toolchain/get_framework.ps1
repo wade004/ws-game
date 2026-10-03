@@ -251,32 +251,42 @@ function Expand-ZipEntriesSafely {
     )
     New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    # 判断记录（解压性能，2026-10-03，CI 里 test_real_dist_package_regression 超时的根因处理）：
+    # 1.96.0 的发布 zip 已有 3.3 万个条目、约 413 MB，而此前每个条目要走约 6 次 PowerShell 命令
+    # 调用（Join-Path、带两次 GetFullPath 的 Test-IsStrictSubPath、Test-Path、New-Item 等），
+    # 命令调用的固定开销乘以条目数成了主要耗时。这里改为循环外一次性算好根目录规范化路径，
+    # 循环内只用 .NET 静态方法（GetFullPath + 序号比较前缀、CreateDirectory、ExtractToFile），
+    # 并用 HashSet 记住已建过的目录避免重复系统调用。校验语义与 Test-IsStrictSubPath 完全一致
+    # （规范化后的绝对路径必须以"根目录 + 分隔符"为前缀，OrdinalIgnoreCase），zip slip 仍在写入
+    # 任何后续条目之前整体拒绝；Test-IsStrictSubPath 函数本身保留给落地目录等其它调用点使用。
+    $destRootFull = [System.IO.Path]::GetFullPath($DestDir)
+    $destRootWithSep = $destRootFull.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $createdDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
         foreach ($zipEntry in $zipArchive.Entries) {
+            $entryFullName = $zipEntry.FullName
             # 判断记录：本仓库 `build.ps1` 打的 zip 里目录条目的 `FullName` 以 `\`（Windows 分隔符）
             # 结尾（例如 `ws-game-1.5.0\adapters\`），不是 zip 规范惯例的 `/`；.NET 的
             # `ZipArchiveEntry.Name` 只按 `/` 切分，遇到这类条目时 `Name` 不为空（等于整个
             # `FullName`），不能再用"`Name` 是否为空"判断是否为目录条目——改为直接看 `FullName`
             # 是否以 `/` 或 `\` 结尾，兼容两种分隔符约定的 zip 生产者。
-            $isDirEntry = $zipEntry.FullName.EndsWith("/") -or $zipEntry.FullName.EndsWith("\")
+            $isDirEntry = $entryFullName.EndsWith("/") -or $entryFullName.EndsWith("\")
+            $entryPathFull = [System.IO.Path]::GetFullPath($destRootWithSep + $entryFullName)
+            if (-not $entryPathFull.StartsWith($destRootWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "zip 条目路径越界（zip slip），已拒绝解压：'$entryFullName'"
+            }
             if ($isDirEntry) {
-                $entryDirPath = Join-Path $DestDir $zipEntry.FullName
-                if (-not (Test-IsStrictSubPath -CandidatePath $entryDirPath -RootPath $DestDir)) {
-                    throw "zip 条目路径越界（zip slip），已拒绝解压：'$($zipEntry.FullName)'"
+                if ($createdDirs.Add($entryPathFull.TrimEnd('\', '/'))) {
+                    [System.IO.Directory]::CreateDirectory($entryPathFull) | Out-Null
                 }
-                New-Item -ItemType Directory -Force -Path $entryDirPath | Out-Null
                 continue
             }
-            $entryDestPath = Join-Path $DestDir $zipEntry.FullName
-            if (-not (Test-IsStrictSubPath -CandidatePath $entryDestPath -RootPath $DestDir)) {
-                throw "zip 条目路径越界（zip slip），已拒绝解压：'$($zipEntry.FullName)'"
+            $entryDestDir = [System.IO.Path]::GetDirectoryName($entryPathFull)
+            if ($createdDirs.Add($entryDestDir)) {
+                [System.IO.Directory]::CreateDirectory($entryDestDir) | Out-Null
             }
-            $entryDestDir = [System.IO.Path]::GetDirectoryName($entryDestPath)
-            if (-not (Test-Path $entryDestDir)) {
-                New-Item -ItemType Directory -Force -Path $entryDestDir | Out-Null
-            }
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zipEntry, $entryDestPath, $true)
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zipEntry, $entryPathFull, $true)
         }
     } finally {
         $zipArchive.Dispose()

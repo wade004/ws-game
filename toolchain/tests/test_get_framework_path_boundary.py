@@ -13,7 +13,7 @@
      隔符/``..``/空白等字符）——本文件的恶意 version 用例本身就落在这一层被拦截，同时验证了两层
      防御中格式校验这一层确实生效。
   2. 落地目录规范化后必须仍是 ``-Target`` 的严格子目录，任何写入/删除前完成校验（``Test-IsStrictSubPath``
-     函数，同时也用于 zip 内条目路径的 zip slip 校验）。
+     函数；zip 内条目路径的 zip slip 校验在 ``Expand-ZipEntriesSafely`` 循环里为性能内联了同一判定）。
 
 覆盖场景：正常版本（回归，同时验证本机 ``dist/ws-game-<VERSION>.zip`` 真实产物可用）、合法版本
 不一致（``-AllowVersionMismatch`` 放行两个都合法的不同版本号）、锁文件 ``version`` 含路径分隔符
@@ -188,7 +188,33 @@ def _write_lock(
     lock_path.write_text(json.dumps(lock_obj, indent=2), encoding="utf-8")
 
 
-def _run_script(args: list[str], cwd: Path, powershell: str | None = None) -> subprocess.CompletedProcess:
+DEFAULT_SCRIPT_TIMEOUT_S = 120
+
+# 判断记录（2026-10-03，GitHub CI 上 test_real_dist_package_regression 两个宿主都超时）：真实 dist zip
+# 的解压耗时与 zip 体量（条目数、解压后字节数）成正比，而 1.95.0 到 1.96.0 之间 zip 从约 131 MiB
+# 涨到约 186 MiB（条目数 3.3 万、解压后约 413 MB），固定 120 秒的上限不再成立——同一次 CI 里
+# `dotnet test` 比上一次绿跑慢了约 3 倍，说明 CI 机器速度本身也有量级波动。根治分两层：
+#   1. get_framework.ps1 的 `Expand-ZipEntriesSafely` 去掉逐条目的 PowerShell 命令调用开销
+#      （本机 pwsh 约 60s -> 24s，Windows PowerShell 5.1 约 44s -> 29s）；
+#   2. 真实产物用例的上限改为随 zip 体量按规则推出：基础 60 秒 + 每 MiB 1 秒。以优化后本机实测
+#      约 0.15 秒/MiB 计，这是约 6 倍余量，也覆盖 CI 慢机约 3 倍的波动；zip 继续变大时上限自动跟着
+#      涨，不需要再手改这个数。固定小夹具 zip 的用例仍用 DEFAULT_SCRIPT_TIMEOUT_S，不放宽。
+REAL_DIST_TIMEOUT_BASE_S = 60
+REAL_DIST_TIMEOUT_PER_MIB_S = 1.0
+
+
+def real_dist_timeout_s(zip_size_bytes: int) -> int:
+    """真实产物用例的子进程超时（秒）：基础值 + 每 MiB zip 体量一份预算，向上取整。"""
+    mib = zip_size_bytes / (1024 * 1024)
+    return int(REAL_DIST_TIMEOUT_BASE_S + REAL_DIST_TIMEOUT_PER_MIB_S * mib) + 1
+
+
+def _run_script(
+    args: list[str],
+    cwd: Path,
+    powershell: str | None = None,
+    timeout: int = DEFAULT_SCRIPT_TIMEOUT_S,
+) -> subprocess.CompletedProcess:
     """根治点（第九轮审计工具链条目）：此前 `text=True` 不带 `encoding` 时，Python 用
     `locale.getpreferredencoding()` 解码子进程输出——本机 GBK 控制台下该值是 `cp936`，
     `get_framework.ps1` 打印的中文提示按 UTF-8 生成/console 混合编码时会撞上非法字节序列，
@@ -217,7 +243,7 @@ def _run_script(args: list[str], cwd: Path, powershell: str | None = None) -> su
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=120,
+        timeout=timeout,
         env=clean_powershell_env(powershell),
     )
 
@@ -279,11 +305,64 @@ def test_real_dist_package_regression(tmp_path: Path, shell: str) -> None:
         ["-Version", version, "-Target", str(target), "-FromLocalDist", str(zip_path)],
         cwd=workspace,
         powershell=shell,
+        timeout=real_dist_timeout_s(zip_path.stat().st_size),
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
     landed_dir = target / f"ws-game-{version}"
     assert landed_dir.is_dir()
+    assert (neighbor / "keep.txt").read_text(encoding="utf-8") == "must-survive"
+
+
+def test_real_dist_timeout_scales_with_zip_size() -> None:
+    """超时上限必须由 zip 体量按规则推出，而不是固定数：体量越大上限越高，且基础值之上每 MiB 都有预算。"""
+    mib = 1024 * 1024
+    assert real_dist_timeout_s(0) > REAL_DIST_TIMEOUT_BASE_S
+    small, large = real_dist_timeout_s(100 * mib), real_dist_timeout_s(200 * mib)
+    assert large - small >= int(REAL_DIST_TIMEOUT_PER_MIB_S * 100)
+    # 1.96.0 的 zip 约 186 MiB，上限必须明显高于固定小夹具用例的 120 秒。
+    assert real_dist_timeout_s(186 * mib) > DEFAULT_SCRIPT_TIMEOUT_S
+
+
+def test_many_entries_extract_completely(tmp_path: Path, shell: str) -> None:
+    """解压循环的不变量（性能改写后的语义护栏）：大量嵌套目录里的文件、显式的空目录条目、同一目录下
+    多个文件，都必须原样落地；解压循环里记住"已建目录"的缓存不能漏建目录。
+    关键用例，本机 powershell/pwsh 都在时两者都跑一遍（见 shell fixture 判断记录）。
+    """
+    workspace, target, neighbor = _make_sentinel_layout(tmp_path)
+    version = "9.9.8"
+    top = f"ws-game-{version}"
+    zip_path = tmp_path / f"ws-game-{version}.zip"
+    lock_path = tmp_path / f"ws-game-{version}.lock"
+    dll_hashes = _build_fixture_zip(zip_path, version)
+    expected_files: dict[str, str] = {}
+    with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as zf:
+        # 空目录条目、批量嵌套文件、"目录条目写在父目录已被文件隐式建出之后"几种情形都要覆盖。
+        zf.writestr(f"{top}/empty_dir/", "")
+        for d in range(12):
+            for sub in range(4):
+                for f in range(5):
+                    rel = f"bulk/d{d}/s{sub}/f{f}.txt"
+                    content = f"payload:{d}:{sub}:{f}"
+                    zf.writestr(f"{top}/{rel}", content)
+                    expected_files[rel] = content
+        zf.writestr(f"{top}/bulk/d0/", "")
+        zf.writestr(f"{top}/late_dir/", "")
+        zf.writestr(f"{top}/late_dir/inner.txt", "late")
+        expected_files["late_dir/inner.txt"] = "late"
+    _write_lock(lock_path, version, dll_hashes)
+
+    result = _run_script(
+        ["-Version", version, "-Target", str(target), "-FromLocalDist", str(zip_path)],
+        cwd=workspace,
+        powershell=shell,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    landed = target / top
+    assert (landed / "empty_dir").is_dir()
+    for rel, content in expected_files.items():
+        assert (landed / rel).read_text(encoding="utf-8") == content, f"{rel} 未按原样落地"
     assert (neighbor / "keep.txt").read_text(encoding="utf-8") == "must-survive"
 
 
