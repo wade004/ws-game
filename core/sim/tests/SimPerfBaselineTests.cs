@@ -28,11 +28,21 @@ namespace Tests.Sim
     /// 的 <c>Get-PerfDiagnosticLines</c> 正则（<c>perf \S+_WithinBaselineThreshold median=.*factor=.*reference=</c>）
     /// 一并收进门禁日志。
     /// </para>
+    /// <para>
+    /// 判断记录（2026-10-03，门禁连续三次被本用例偶发红挡住，纯测试缺陷、产品无回归）：此前参考负载在进程内一次性缓存，
+    /// 与"20 次 Build 取最小"不在同一时刻采样，负载起伏时系数不描述被测量值当时的机器状态；同进程里其它测试类并行
+    /// 运行也让 Build（分配密集）比纯计算的参考负载慢得更多。根治两处：① 参考负载与 Build <b>交错采样成相邻样本对</b>、逐对归一化取最佳一对
+    /// （纯函数在 <see cref="PerfNormalizedDecision"/>，原理与复现用例在 <c>SimPerfNormalizedDecisionTests</c>）；
+    /// ② 本类放进禁用并行化的 <c>Perf serial</c> 集合，xunit 在全部并行集合跑完之后才单独运行它，同进程内无别的用例争用。
+    /// 阈值、系数上限、基线文件均不变——真回归（耗时相对基线成倍增长而参考负载不变）仍然失败。
+    /// </para>
     /// </summary>
     [Trait("Category", "Perf")]
+    [Collection(PerfSerialCollection.Name)]
     public sealed class SimPerfBaselineTests
     {
-        private const int Iterations = 20;
+        /// <summary>交错采样轮数：每轮各采一次参考负载与一次 Build，组成一对。</summary>
+        private const int Rounds = 30;
         private const int WarmupIterations = 3;
 
         private readonly ITestOutputHelper _output;
@@ -75,28 +85,44 @@ namespace Tests.Sim
                 BuildOnce(dataSources, i);
             }
 
-            var minMs = double.MaxValue;
-            var sw = new Stopwatch();
-            for (var i = 0; i < Iterations; i++)
-            {
-                sw.Restart();
-                BuildOnce(dataSources, WarmupIterations + i);
-                sw.Stop();
-                minMs = Math.Min(minMs, sw.Elapsed.TotalMilliseconds);
-            }
+            // 预热参考负载（JIT），不计入采样。
+            PerfMachineCalibration.MeasureWorkloadOnceMs();
 
-            var referenceMs = PerfMachineCalibration.ReferenceMs;
-            var factor = Math.Clamp(referenceMs / baselineReferenceMs, 1.0, factorMax);
-            var effectiveThreshold = thresholdMs * factor;
+            var sw = new Stopwatch();
+            var seed = WarmupIterations;
+            var pairs = PerfNormalizedDecision.SampleInterleavedPairs(
+                Rounds,
+                PerfMachineCalibration.MeasureWorkloadOnceMs,
+                () =>
+                {
+                    sw.Restart();
+                    BuildOnce(dataSources, seed++);
+                    sw.Stop();
+                    return sw.Elapsed.TotalMilliseconds;
+                });
+
+            var decision = PerfNormalizedDecision.EvaluateBestPair(pairs, thresholdMs, baselineReferenceMs, factorMax);
+            var minMs = decision.MeasuredMs;
+            var referenceMs = decision.ReferenceMs;
+            var factor = decision.Factor;
+            var effectiveThreshold = decision.EffectiveThresholdMs;
 
             _output.WriteLine(
                 $"perf HeadlessBuild_MinTiming_WithinBaselineThreshold median={minMs:F4} threshold={thresholdMs:F4} " +
                 $"factor={factor:F2} effective_threshold={effectiveThreshold:F4} reference={referenceMs:F4}");
 
-            Assert.True(minMs <= effectiveThreshold,
+            Assert.True(decision.Passed,
                 $"HeadlessWorldBuilder.Build 最小耗时 {minMs:F4}ms 超过机器归一化后的阈值 {effectiveThreshold:F4}ms" +
                 $"（基线阈值 {thresholdMs:F4}ms × 机器系数 {factor:F2}，基线最小耗时 {baselineMinMs:F4}ms，" +
                 $"本机参考负载 {referenceMs:F4}ms，基线机参考负载 {baselineReferenceMs:F4}ms，见 perf_baseline.json）");
         }
+    }
+
+    /// <summary>禁用并行化的性能用例集合：集合内用例要等所有并行集合跑完才逐个运行，进程内没有别的测试与之争用
+    /// CPU/内存/GC（原因见 <see cref="SimPerfBaselineTests"/> 判断记录）。</summary>
+    [CollectionDefinition(Name, DisableParallelization = true)]
+    public sealed class PerfSerialCollection
+    {
+        public const string Name = "Perf serial";
     }
 }

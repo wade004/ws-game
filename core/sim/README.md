@@ -1542,3 +1542,9 @@ InvalidOperationException or ArgumentException or DirectoryNotFoundException)` �
 
 1. **`HeadlessWorldOptions.FeelOptions`**：新增可选的手感装配选项透传（缺省 `null` 即不启用，行为与新增本属性之前逐位一致）。启用时步长取本装配根的 `StepSeconds`（显式给了不同的 `CarriersFeelOptions.StepSeconds` 抛 `ArgumentException`），数据根必须含 `feel.*` 行（如 `data/_feel`）；标定行有多行（如框架缺省加游戏自带）必须在选项里给 `CalibrationId`。因为只有最长的 `GameplayAssembly` 构造重载接受 `feelOptions`，装配根改走该重载并把其余参数按此前经可选参数重载时的缺省全部显式传 `null`——这一改写不改变任何既有选项的行为。
 2. **端到端冒烟放在 `core/gameplay/assembly/tests/FeelWiringEndToEndTests.cs`**：用本装配根装一个世界（`data/_framework` + `data/_feel` + `data/_lab` + 测试内联覆盖层）。覆盖层（时间线技能、带 `class`/`buffer_ms`/`skill_slot` 的输入动作、一行 `rpg_classic` 标定）内联在测试里而不是落成磁盘数据目录，避免被数据校验与内容工具当作一份游戏数据集扫描。
+
+## 判断记录（门禁偶发红：Perf 基线交错采样，2026-10-03）
+
+1. **`SimPerfBaselineTests.HeadlessBuild_MinTiming_WithinBaselineThreshold` 负载下偶发超阈值是测试缺陷，产品无回归**：门禁连续三次被它挡住（188.5ms 对 173.4ms，系数 6.89；140.9ms 对 136.0ms，系数 5.41）。原因：参考负载由 `PerfMachineCalibration.ReferenceMs` 在进程内一次性缓存，与"20 次 `Build` 取最小"不在同一时刻采样，负载起伏时机器系数不描述被测量值当时的机器状态；同进程里其它测试类并行运行还让分配密集的 `Build` 比纯计算的参考负载慢得更多（一次加压实测同一台机器上 `Build` 最小值 ÷ 参考负载，单独跑约 0.19，全工程并行跑约 0.47）。
+2. **做法**：判定与采样抽成纯函数 `tests/PerfNormalizedDecision.cs`；参考负载与 `Build` 交错采样成 30 个相邻样本对（奇偶轮交换先后），逐对按原公式归一化（系数限幅 [1, `calibration_factor_max`]、阈值不变）后取余量最大的一对；用例放进禁用并行化的 `Perf serial` 集合，等所有并行集合跑完才单独运行。不选"参考与被测各取全局最小值"：两个最小值可能来自不同窗口，窄安静窗口下仍会错配。阈值、`perf_baseline.json`、`PerfBaselineTests`（Tests.Gameplay）口径均不动；`PerfMachineCalibration` 只新增 `MeasureWorkloadOnceMs()`（单次采样，不缓存）。
+3. **回归**：`tests/SimPerfNormalizedDecisionTests.cs` 用模拟耗时序列验证——整机同比变慢不报失败、真回归（只有被测量值变大）仍失败、系数上限外仍失败；并复现旧口径在"参考负载测于安静时刻、被测量值落在繁忙窗口"轨迹上误报。

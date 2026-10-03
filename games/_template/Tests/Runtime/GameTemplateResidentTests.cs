@@ -72,7 +72,11 @@ namespace Game.Template.Tests
             }
             if (_bootstrapGo != null)
             {
-                UnityEngine.Object.Destroy(_bootstrapGo);
+                // 清理次序（同 ContentSourceRootOverridePlayModeTests.DestroyBootstrapThenDeleteDirectory 判断记录）：
+                // 本 GameBootstrap 上的 DataHotReload 带子目录监视着含探针目录的内容根，必须在下面
+                // TryDeleteProbeDir 之前同步销毁（Destroy 要到帧末才生效，此时 FileSystemWatcher 还活着，
+                // Mono 后台扫描线程会扫到正在被删除的目录而抛 DirectoryNotFoundException）。
+                UnityEngine.Object.DestroyImmediate(_bootstrapGo);
                 _bootstrapGo = null;
             }
             GameBootstrap.GameDatasetRootOverride = null;
