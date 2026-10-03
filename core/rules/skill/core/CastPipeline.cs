@@ -922,6 +922,13 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, invalidReason.Value);
             }
 
+            // 手感落地 M5-S2a（手感设计/03 第 2.2 节）：声明了 timeline.hit_anchor 的地面落点技能进入时间线模式——命中形状以落点（或施法者）为锚点，
+            // 效果上下文携带落点；没有声明保持下面既有的读条/引导路径（timeline 被忽略）。离散步折叠为瞬发结算（走既有路径），不进入时间线。
+            if (def.Timeline != null && def.Timeline.HitAnchor != TimelineHitAnchor.None && !isDiscreteStep)
+            {
+                return EnterTimeline(casterId, skillId, def, Array.Empty<Id>(), modifiedCost, null, null, request.Point);
+            }
+
             // RC-04 同款时机：全部会失败的校验都已通过，行动点消耗放在进入读条/引导之前（同
             // TryStartCast 判断记录）。
             if (isDiscreteStep && def.ActionCost > 0)

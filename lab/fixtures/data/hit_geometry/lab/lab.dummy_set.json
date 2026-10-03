@@ -1,0 +1,31 @@
+{
+  "table": "lab.dummy_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.dummy_set.hit_geometry",
+      "entries": [
+        {
+          "name": "edge_near",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 1.5,
+            "y": 1.7
+          },
+          "group": "edge_near"
+        },
+        {
+          "name": "edge_far",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 1.0,
+            "y": -2.0
+          },
+          "group": "edge_far"
+        }
+      ]
+    }
+  ]
+}

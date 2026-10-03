@@ -84,6 +84,14 @@ namespace Core.Carriers.Assembly
         /// </summary>
         public ITargetAssistResolver? TargetAssist { get; set; }
 
+        /// <summary>
+        /// 命中几何是否使用受击半径（手感落地 M5-S2a，手感设计/03 第 2.2 节）：开启后目标命中半径 = <c>unit_body_radius</c>（标定后世界单位）× <c>hurt_radius_scale</c>（缺省 1），
+        /// 形状与目标圆相交即算命中、接触点取身体圆面上的点；没有声明 <c>unit_body_radius</c> 的单位半径为 0，仍按点判定。
+        /// <b>缺省 false</b>——开启会改变既有命中结果（擦边的单位多算命中、接触点移出体内），由游戏决定翻不翻；关闭时与本选项引入之前逐位一致。
+        /// 游戏已经自行配置了 <see cref="Core.Rules.Targeting.TargetingOptions.TargetRadius"/> 时，本选项不覆盖它。
+        /// </summary>
+        public bool HitRadiusFromFeel { get; set; }
+
         /// <summary>运动模式规则覆盖；缺省 null 取 <see cref="MotionModeRuleSet.FromProfiles"/>（框架数据 <c>feel.motion_mode_rules</c> 的消费结果）。</summary>
         public MotionModeRuleSet? ModeRules { get; set; }
 
@@ -248,6 +256,26 @@ namespace Core.Carriers.Assembly
             var resolver = new InvalidatingActionFeelResolver(feel.Resolver);
             var rulesFeel = RulesFeelAssembly.Attach(rules, resolver, options, stepSeconds);
 
+            // 受击半径（M5-S2a，缺省关闭）：形状查询与接触点共用同一个半径来源（TargetHost.Options 是装配根传入的同一个实例）。
+            if (options.HitRadiusFromFeel && rules.Targeting.Options.TargetRadius == null)
+            {
+                var targetingOptions = rules.Targeting.Options;
+                var units = carriers.Units;
+                targetingOptions.TargetRadius = id => HurtRadius(resolver, id);
+                targetingOptions.MaxTargetRadiusProvider = () =>
+                {
+                    var max = 0.0;
+                    var all = units.AllUnits;
+                    for (var i = 0; i < all.Count; i++)
+                    {
+                        var radius = HurtRadius(resolver, all[i]);
+                        if (radius > max) max = radius;
+                    }
+
+                    return max;
+                };
+            }
+
             var subscriptions = new List<SubscriptionHandle>();
 
             // ---- 输入缓冲：声明动作、映射、出口、tick 步骤 1、时间线拉取口。
@@ -384,6 +412,17 @@ namespace Core.Carriers.Assembly
             subscriptions.Add(bus.Subscribe<DataLoadCompletedEvent>(
                 DataRegistryEventKeys.LoadCompleted, _ => system.ApplyHotReload(registry, weaponCatalog, options.ModeRules == null)));
             return system;
+        }
+
+        /// <summary>单位的受击半径（世界单位）：<c>unit_body_radius</c>（标定后）× <c>hurt_radius_scale</c>（缺省 1）；没有体积半径恒为 0。</summary>
+        private static double HurtRadius(IFeelResolver resolver, Id unitId)
+        {
+            var view = resolver.ResolveJudging(unitId);
+            var body = view.GetAbsolute(FeelFieldNames.UnitBodyRadius);
+            if (body.Kind != FeelValueKind.Number || !(body.AsNumber() > 0.0)) return 0.0;
+
+            var scale = view.GetRaw(FeelFieldNames.HurtRadiusScale);
+            return body.AsNumber() * (scale.Kind == FeelValueKind.Number ? scale.AsNumber() : 1.0);
         }
 
         private static bool IsGraceActorKind(string kind) => kind == EntityKinds.Player || kind == EntityKinds.Creature;

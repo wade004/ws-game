@@ -177,7 +177,8 @@ namespace Tests.Foundation.Feel
         public void HalfSources_ExposeOnlyTheirOwnViewType_AndViewsHaveNoPathToTheFullResult()
         {
             // 规则层拿到的接口只返回判定型视图，表现层拿到的只返回呈现型视图。
-            Assert.Equal(typeof(JudgingFeelView), typeof(IFeelJudgingSource).GetMethods().Single().ReturnType);
+            // M5-S2a：判定型来源多了"指定动作层"重载，仍只返回判定型视图（断言口径从"恰好一个方法"放宽为"每个方法都只返回本半视图"）。
+            Assert.All(typeof(IFeelJudgingSource).GetMethods(), m => Assert.Equal(typeof(JudgingFeelView), m.ReturnType));
             Assert.Equal(typeof(PresentingFeelView), typeof(IFeelPresentingSource).GetMethods().Single().ReturnType);
 
             // 两个视图类型彼此没有继承关系，也不公开能取回完整结果（含另一半）的成员。

@@ -317,3 +317,9 @@ M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节�
    （原因 `player_class_reloaded`）。没有任何声明时不订阅副作用，不为玩家多递增版本号。测试 `FeelPlayerClassTests.SaveLoaded_RereadsPlayerClassRefs_WhenTheLoadedClassChanged`。
 3. **`CarriersFeelOptions.Fields`**（新增可选属性，缺省取框架默认登记）：游戏自有手感字段（`FeelFields.Extend`，`game.` 前缀）的登记经它进入装配；同一份登记还要交给 `FeelSchemas.RegisterAll(registry, set)` 做数据校验，见 `core/foundation/feel/README.md` 判断记录 19。
    **已知局限**：光环 `feel_modifiers`（第 7 层）按框架默认登记校验，游戏自有字段不能写在光环修饰里。
+
+## 判断记录（受击半径装配选项，2026-10-04，M5-S2a，ADR-0144）
+
+- **`CarriersFeelOptions.HitRadiusFromFeel`（缺省 false）**：为真且目标选择宿主没有配置 `TargetRadius` 时，把 `TargetRadius` 接成"单位的 `unit_body_radius`（标定后世界单位，必须 > 0）× `hurt_radius_scale`（缺省 1）"，`MaxTargetRadiusProvider` 接成全部单位里的最大值（每次查询重新取）。**缺省关闭的理由**：打开会让擦边的目标从没打中变成打中，改变既有命中结果；由游戏在装配根显式打开（主会话决定是否翻缺省）。游戏自己已配置 `TargetRadius` 时不覆盖。
+- 复现/不变量：实验室脚本 `feel_hit_geometry`（经生产装配跑全部六个格子，`lab/tests/HitGeometrySceneTests.cs`：每个靶子被命中当且仅当其中心到形状的最短距离不超过受击半径；选项关闭时与半径为 0 逐位一致）。
+- 已知限制：上界提供者每次查询遍历全部单位（只在打开时）。

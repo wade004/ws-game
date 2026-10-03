@@ -1,0 +1,71 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_hit_charge_scale",
+    "scriptVersion": 1,
+    "description": "蓄力手感缩放与分段手感覆盖（手感设计/03 第 2.4 节，M5-S2a）：技能声明 charge.feel_scale（顿帧 1～3 倍）与第 1 段 hit 标记的 args.feel_ref；按住 4/30/60 tick 三次出手（蓄力比例 0 / 中间 / 1），木桩在 2 个单位处——量每次命中的攻击方/受击方顿帧 tick。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.arpg_responsive",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 260,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_hs.charge": "skill.lab_hs_charge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/hit_scale"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_hs_charge",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_hs_charge",
+      "kind": "release"
+    },
+    {
+      "tick": 60,
+      "action": "input.action.lab_hs_charge",
+      "kind": "press"
+    },
+    {
+      "tick": 90,
+      "action": "input.action.lab_hs_charge",
+      "kind": "release"
+    },
+    {
+      "tick": 140,
+      "action": "input.action.lab_hs_charge",
+      "kind": "press"
+    },
+    {
+      "tick": 200,
+      "action": "input.action.lab_hs_charge",
+      "kind": "release"
+    }
+  ]
+}

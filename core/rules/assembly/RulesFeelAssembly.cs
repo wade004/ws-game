@@ -107,6 +107,13 @@ namespace Core.Rules.Assembly
                 hitOptions.IsTimelineSkill = skillId => skillId.HasValue && skill.IsTimelineSkill(skillId.Value);
             }
 
+            // 手感落地 M5-S2a：技能行声明的 feel_ref（无时间线的技能）经它进入 instant 命中的攻击方视图；时间线技能的手感引用走动作开始快照。
+            if (hitOptions.SkillFeelRef == null)
+            {
+                var skillForFeel = rules.Skill;
+                hitOptions.SkillFeelRef = skillId => skillId.HasValue ? skillForFeel.GetInstantSkillFeelRef(skillId.Value) : null;
+            }
+
             var hitFeel = HitFeelAssembly.Attach(
                 rules.Bus, rules.Units, resolver, rules.Stats, stepSeconds, hitOptions, rules.Powers,
                 rules.Skill.ActionStateQuery, rules.Skill.AuraQuery, rules.Skill);
@@ -159,6 +166,9 @@ namespace Core.Rules.Assembly
         public FeelCalibration Calibration => _inner.Calibration;
 
         public JudgingFeelView ResolveJudging(Id unitId) => _inner.ResolveJudging(unitId);
+
+        public JudgingFeelView ResolveJudgingWithAction(Id unitId, string? actionFeelRef, string? overlayFeelRef) =>
+            _inner.ResolveJudgingWithAction(unitId, actionFeelRef, overlayFeelRef);
 
         public PresentingFeelView ResolvePresenting(Id unitId) => _inner.ResolvePresenting(unitId);
 

@@ -108,5 +108,65 @@ namespace Tests.Rules.Targeting
             var result = Names(fx.Host.Resolve(new Id("target.chain.r_all"), Caster));
             Assert.DoesNotContain("graze_big", result);
         }
+
+        // ---------- M5-S2a：上界提供者（受击半径来自手感档案时单位半径会变化，静态上界不够用）----------
+
+        [Fact]
+        public void MaxTargetRadiusProvider_IsReadPerQuery_SoARadiusRaisedAfterAssemblyStillWidensTheBroadPhase()
+        {
+            var current = 0.5; // 装配时最大半径只有 0.5：擦边的大个子（半径 1.0）按此上界漏判
+            var options = new TargetingOptions
+            {
+                TargetRadius = id => Dummies.First(d => "unit." + d.Name == id.Value).Radius,
+                MaxTargetRadiusProvider = () => current,
+            };
+            var fx = Build(options);
+            Assert.DoesNotContain("graze_big", Names(fx.Host.Resolve(new Id("target.chain.r_all"), Caster)));
+
+            // 上界提供者每次查询重新读取：上界升到覆盖最大半径后同一个宿主立刻命中，不需要重建。
+            current = Dummies.Max(d => d.Radius);
+            var expected = Dummies.Where(d => Math.Max(0.0, d.Distance - ShapeRadius) <= d.Radius + 1e-12)
+                .OrderBy(d => d.Distance).Select(d => d.Name).ToArray();
+            Assert.Equal(expected, Names(fx.Host.Resolve(new Id("target.chain.r_all"), Caster)));
+        }
+
+        [Fact]
+        public void MaxTargetRadiusProvider_AloneEnablesTheOption_AndAProviderReturningZeroKeepsTheOldResult()
+        {
+            var plain = Names(Build(null).Host.Resolve(new Id("target.chain.r_all"), Caster));
+            var zero = Names(Build(new TargetingOptions
+            {
+                TargetRadius = id => Dummies.First(d => "unit." + d.Name == id.Value).Radius,
+                MaxTargetRadiusProvider = () => 0.0,
+            }).Host.Resolve(new Id("target.chain.r_all"), Caster));
+            Assert.Equal(plain, zero);
+
+            // 只给提供者、不给静态上界也启用（静态上界缺省 0）。
+            var enabled = Names(Build(new TargetingOptions
+            {
+                TargetRadius = id => Dummies.First(d => "unit." + d.Name == id.Value).Radius,
+                MaxTargetRadiusProvider = () => Dummies.Max(d => d.Radius),
+            }).Host.Resolve(new Id("target.chain.r_all"), Caster));
+            Assert.Contains("graze_big", enabled);
+        }
+
+        [Fact]
+        public void TargetHitRadius_ReportsTheConfiguredRadius_AndZeroWhenTheOptionIsOff()
+        {
+            var on = Build(WithRadius());
+            foreach (var d in Dummies)
+            {
+                Assert.Equal(d.Radius, on.Host.TargetHitRadius(new Id("unit." + d.Name)));
+            }
+
+            var off = Build(null);
+            foreach (var d in Dummies)
+            {
+                Assert.Equal(0.0, off.Host.TargetHitRadius(new Id("unit." + d.Name)));
+            }
+
+            // 来源给了但上界为 0（未启用）也恒为 0。
+            Assert.Equal(0.0, Build(WithRadius(max: 0.0)).Host.TargetHitRadius(new Id("unit.graze_big")));
+        }
     }
 }

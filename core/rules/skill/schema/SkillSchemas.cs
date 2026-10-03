@@ -809,6 +809,7 @@ namespace Core.Rules.Skill
         public static readonly string[] TimelineSourceValues = { "data", "clip" };
         public static readonly string[] TimelineHitPolicyValues = { "marker", "continuous" };
         public static readonly string[] TimelineHitModeValues = { "auto", "spatial", "instant" };
+        public static readonly string[] TimelineHitAnchorValues = { "caster", "ground_point" };
         public static readonly string[] TimelineAssistModeValues = { "face_only", "close_distance" };
         public static readonly string[] TimelineCostAtValues = { "commit", "active", "first_hit" };
         public static readonly string[] TimelineCooldownAtValues = { "commit", "active", "finish" };
@@ -858,8 +859,17 @@ namespace Core.Rules.Skill
                                 .WithRange(FieldRange.Range(min: 0)),
                         },
                         description: "效果值随蓄力比例线性缩放：倍率 = min + (max-min) × 蓄力比例；乘在伤害/治疗类效果值上（含投射物命中后效果）；缺省不缩放"),
+                    new FieldSchema("feel_scale", FieldKind.Object, required: false,
+                        fields: new[]
+                        {
+                            ChargeScaleField("attacker_hitstop_ms", "攻击方顿帧毫秒"),
+                            ChargeScaleField("target_hitstop_ms", "受击方顿帧毫秒"),
+                            ChargeScaleField("knockback_distance", "击退距离"),
+                            ChargeScaleField("launch_height", "击飞高度"),
+                        },
+                        description: "手感缩放（M5-S2a，手感设计/03 第 2.4 节）：四个可选字段各为 {min, max}，蓄力比例为 0/1 时的倍率，之间线性插值；乘在对应判定型字段的档案取值上（顿帧仍受 *_hitstop_cap_ms 限幅）；缺省不缩放"),
                 },
-                description: "蓄力声明（仅 hold 类动作）：{min_ms, max_ms[, value_scale]}；蓄力比例 (held-min)/(max-min) 随动作开始事件给出"),
+                description: "蓄力声明（仅 hold 类动作）：{min_ms, max_ms[, value_scale][, feel_scale]}；蓄力比例 (held-min)/(max-min) 随动作开始事件给出"),
             new FieldSchema("startup_ms", FieldKind.Number, required: true, description: "前摇（毫秒）")
                 .WithRange(FieldRange.Range(min: 0)),
             new FieldSchema("active_ms", FieldKind.Number, required: true, description: "判定相（毫秒）")
@@ -877,8 +887,11 @@ namespace Core.Rules.Skill
                         fields: new[]
                         {
                             new FieldSchema("segment", FieldKind.Int, required: false, description: "多段命中的段序号（hit 标记；未写按出现顺序 0、1、…）"),
+                            new FieldSchema("feel_ref", FieldKind.Id, required: false,
+                                    description: "该段的手感覆盖行 id（feel.action，M5-S2a，只在 hit/release 标记上有意义）：叠在动作层之上，覆盖该段命中的冲击等级、顿帧、击退等判定型字段")
+                                .WithSoftReference(table: "feel.action"),
                         },
-                        description: "标记参数；运行期只消费 segment（登记为固定子结构而非自由对象，元数据门禁 composite_without_substructure）"),
+                        description: "标记参数；运行期消费 segment 与 feel_ref（登记为固定子结构而非自由对象，元数据门禁 composite_without_substructure）"),
                 }, description: "{name: String, at_ms: Number, args: Object?}"),
                 description: "时间标记列表（手感设计/01 第 3.3 节）；combo_*/cancel_*/cost/charge_ready 由其它块派生，不单独写"),
             new FieldSchema("cancel_windows", FieldKind.Array, required: false,
@@ -937,7 +950,21 @@ namespace Core.Rules.Skill
             new FieldSchema("feel_ref", FieldKind.Id, required: false,
                     description: "当前动作层的手感覆盖行 id（feel.action，手感设计/05 第 3 节）")
                 .WithSoftReference(table: "feel.action"),
+            new FieldSchema("hit_anchor", FieldKind.Enum, required: false, enumValues: TimelineHitAnchorValues,
+                description: "caster|ground_point，缺省不声明（M5-S2a，手感设计/03 第 2.2 节）：只对 ground_target 技能有意义——声明后经 CastSkillAtGround 施放时时间线生效：caster = 命中形状以施法者位姿为锚点，ground_point = 以落点为锚点（朝向指向落点）；不声明时地面落点施放忽略 timeline（校验给警告）"),
         };
+
+        /// <summary>蓄力手感缩放的一个字段：<c>{min, max}</c> 两个非负倍率。</summary>
+        private static FieldSchema ChargeScaleField(string name, string label) =>
+            new FieldSchema(name, FieldKind.Object, required: false,
+                fields: new[]
+                {
+                    new FieldSchema("min", FieldKind.Number, required: true, description: "蓄力比例为 0 时的" + label + "倍率")
+                        .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("max", FieldKind.Number, required: true, description: "蓄力比例为 1 时的" + label + "倍率")
+                        .WithRange(FieldRange.Range(min: 0)),
+                },
+                description: label + "的蓄力倍率区间 {min, max}");
 
         public static TableSchema Def { get; } = new TableSchema(
             name: "skill.def",
@@ -1011,6 +1038,12 @@ namespace Core.Rules.Skill
                 // 落点施放，缺省 false（见 SkillDef.AllowGroundTarget 判断记录，保持既有技能行为不变）。
                 new FieldSchema("ground_target", FieldKind.Bool, required: false,
                     description: "是否允许地面坐标施法请求（ISkillHost.CastSkillAtGround），缺省 false"),
+                // 手感落地 M5-S2a（手感设计/03 第 2.3 节、05 第 3 节）：纯新增可选字段，不提 schema_version。
+                new FieldSchema("feel_ref", FieldKind.Id, required: false,
+                        description: "技能行的手感引用（feel.action 行 id，M5-S2a）：进入手感解析第 6 层（当前动作）；时间线技能与 timeline.feel_ref 等价（同时声明且不同为错误），没有时间线的技能命中时受击裁决据此重算攻击方手感；缺省保持按武器")
+                    .WithSoftReference(table: "feel.action"),
+                new FieldSchema("ignores_invulnerability", FieldKind.Bool, required: false,
+                    description: "是否无视无敌窗口（M5-S2a）：真时本技能的伤害类结算不经结算第 0 步的无敌前置检查（环境伤害、斩杀等），缺省 false"),
                 // 修订（2026-09-14，ADR-0031 决策 10；06 第 3.1 节 2026-09-14 修订段）：字段名
                 // 保留，语义由"是否受公共冷却影响"扩展为"是否受节拍锁约束"——开公共冷却的游戏里
                 // 节拍锁是公共冷却，关公共冷却（13 第 8 节口味配置项默认关闭）的游戏里节拍锁是当前

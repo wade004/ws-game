@@ -64,6 +64,20 @@ namespace Core.Rules.Combat
             public bool UntilLand;
         }
 
+        /// <summary>
+        /// 一次命中的"攻击方手感覆盖"（手感落地 M5-S2a）：<see cref="Evaluate"/> 记下、稍后派发的 <c>combat.hit_confirmed</c> 落地击退/击飞时取用。
+        /// 只在命中带分段/技能手感覆盖（<see cref="HitFeelInput.AttackerFeelOverrides"/>）或蓄力缩放（<see cref="HitFeelInput.Scale"/> 非全 1）时才建档，
+        /// 其余命中不进这张表，落地阶段仍读攻击方当前解析结果（逐位保持此前口径）。
+        /// </summary>
+        private sealed class AttackerHit
+        {
+            public JudgingFeelView? View;
+            public HitFeelScale Scale;
+        }
+
+        private readonly Dictionary<(Id AttackInstanceId, Id TargetId), AttackerHit> _attackerHits =
+            new Dictionary<(Id, Id), AttackerHit>();
+
         private readonly IEventBus _bus;
         private readonly IUnitAccess _units;
         private readonly IFeelJudgingSource _feel;
@@ -203,8 +217,19 @@ namespace Core.Rules.Combat
             var impact = atk.GetText(FeelFieldNames.ImpactClass);
             if (IsAvoided(input.HitResult)) return HitFeelOutcome.None(impact);
 
+            // M5-S2a：命中带分段/技能手感覆盖或蓄力缩放时记下，落地击退/击飞沿用同一份视图与缩放。
+            var scale = input.Scale;
+            if (input.AttackInstanceId.HasValue && (input.AttackerFeelOverrides || !scale.IsIdentity))
+            {
+                _attackerHits[(input.AttackInstanceId.Value, input.TargetId)] = new AttackerHit
+                {
+                    View = input.AttackerFeelOverrides ? atk : null,
+                    Scale = scale,
+                };
+            }
+
             // ---- 顿帧：攻击方时长取武器为主字段（击杀放大），受击方时长同；各自按所属单位的上限限幅。
-            var attackerMs = atk.GetNumber(FeelFieldNames.AttackerHitstopMs);
+            var attackerMs = atk.GetNumber(FeelFieldNames.AttackerHitstopMs) * scale.AttackerHitstop;
             if (input.IsKill) attackerMs *= atk.GetNumber(FeelFieldNames.KillHitstopScale);
             var attackerTicks = Math.Min(
                 Ticks(attackerMs),
@@ -214,7 +239,7 @@ namespace Core.Rules.Combat
             if (!input.IsKill)
             {
                 targetTicks = Math.Min(
-                    Ticks(atk.GetNumber(FeelFieldNames.TargetHitstopMs)),
+                    Ticks(atk.GetNumber(FeelFieldNames.TargetHitstopMs) * scale.TargetHitstop),
                     Ticks(tgt.GetNumber(FeelFieldNames.HitstopCapMs)));
             }
 
@@ -442,7 +467,16 @@ namespace Core.Rules.Combat
 
             var avoided = IsAvoided(hitResult);
             var isKill = !avoided && _killPending.Remove(targetId);
-            var outcome = Evaluate(new HitFeelInput(sourceId, targetId, hitResult, amount, isKill));
+
+            // 手感落地 M5-S2a：技能行声明了 feel_ref 的 instant 命中（法术等没有动作时间线的技能）以该行为动作层重算攻击方视图，不再只取武器；
+            // 没声明（缺省）、没有装配 SkillFeelRef、或解析来源不支持动作层覆盖时仍走攻击方当前解析结果，与此前逐位一致。
+            var instanceId = attackInstanceId ?? new Id("attack.instant." + (++_syntheticAttackCounter).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var skillFeelRef = skillId.HasValue ? _options.SkillFeelRef?.Invoke(skillId) : null;
+            var outcome = skillFeelRef != null
+                ? Evaluate(new HitFeelInput(
+                    sourceId, targetId, hitResult, amount, isKill, _feel.ResolveJudgingWithAction(sourceId, skillFeelRef, null),
+                    instanceId, true, HitFeelScale.Identity))
+                : Evaluate(new HitFeelInput(sourceId, targetId, hitResult, amount, isKill));
 
             var maxHealth = _powers != null ? SafeMaxHealth(targetId) : 0.0;
             var ratio = maxHealth > 0.0 ? amount / maxHealth : 0.0;
@@ -463,7 +497,6 @@ namespace Core.Rules.Combat
 
             // instant 没有接触几何：接触点取目标登记位置，接触法线取"从目标指向攻击方"的反方向（朝向攻击方的一面），
             // 世界方向取攻击方到目标（击退方向）——与 03 第 2.4 节"无接触几何时由适配层给出明确替代，不为空"一致。
-            var instanceId = attackInstanceId ?? new Id("attack.instant." + (++_syntheticAttackCounter).ToString(System.Globalization.CultureInfo.InvariantCulture));
             _bus.Enqueue(new CombatHitConfirmedEvent(
                 instanceId, 0, sourceId, targetId, skillId, hitResult, amount, ratio, isCrit, isKill,
                 to, -direction, direction, outcome.ImpactClass, outcome.AttackerHitStopTicks, outcome.TargetHitStopTicks, outcome.Reaction));
@@ -491,6 +524,8 @@ namespace Core.Rules.Combat
         {
             if (!Active || IsAvoided(e.HitResult)) return;
 
+            _attackerHits.Remove((e.AttackInstanceId, e.TargetId), out var hit);
+
             if (e.AttackerHitStopTicks > 0 || e.TargetHitStopTicks > 0)
             {
                 // 事件里的顿帧 tick 数可能来自不经 Evaluate 的发出方：落地前按所属单位的上限再限一次（幂等）。
@@ -504,7 +539,7 @@ namespace Core.Rules.Combat
                 });
             }
 
-            ApplyReaction(e);
+            ApplyReaction(e, hit);
         }
 
         private int CapTicks(Id unitId, string capField, int ticks)
@@ -514,7 +549,7 @@ namespace Core.Rules.Combat
             return ticks < cap ? ticks : cap;
         }
 
-        private void ApplyReaction(CombatHitConfirmedEvent e)
+        private void ApplyReaction(CombatHitConfirmedEvent e, AttackerHit? hit)
         {
             var reaction = e.Reaction;
             if (reaction == HitReaction.None) return;
@@ -562,7 +597,7 @@ namespace Core.Rules.Combat
 
             if ((reaction == HitReaction.Knockback || reaction == HitReaction.Knockdown) && Knockback != null)
             {
-                var distance = ComputeKnockbackDistance(e, tgt);
+                var distance = ComputeKnockbackDistance(e, tgt, hit);
                 var direction = KnockbackDirection(e);
                 if (distance > 0.0 && direction.Length > 1e-9)
                 {
@@ -575,13 +610,13 @@ namespace Core.Rules.Combat
             // 击飞（竖直轴能力包）：与击退同一触发条件、同一提交时机（顿帧结束后）；不依赖击退距离，只看 launch_height。
             if ((reaction == HitReaction.Knockback || reaction == HitReaction.Knockdown) && Launch != null)
             {
-                var apex = ComputeLaunchApex(e, tgt);
+                var apex = ComputeLaunchApex(e, tgt, hit);
                 if (apex > 0.0)
                 {
                     rec.KnockbackPending = true;
                     rec.LaunchApex = apex;
-                    ReadLaunchStack(e, out rec.LaunchStack, out rec.LaunchStackCap);
-                    rec.LaunchHeightCap = ReadLaunchHeightCap(e, tgt);
+                    ReadLaunchStack(e, hit, out rec.LaunchStack, out rec.LaunchStackCap);
+                    rec.LaunchHeightCap = ReadLaunchHeightCap(e, tgt, hit);
                 }
             }
 
@@ -595,22 +630,27 @@ namespace Core.Rules.Combat
             _bus.Enqueue(new CombatReactionAppliedEvent(e.TargetId, reaction, e.SourceId, e.AttackInstanceId, duration));
         }
 
-        private double ComputeKnockbackDistance(CombatHitConfirmedEvent e, JudgingFeelView target)
+        /// <summary>落地阶段读取的攻击方视图：命中带手感覆盖（<see cref="AttackerHit.View"/>）用它，否则读攻击方当前解析结果（此前口径）。</summary>
+        private JudgingFeelView AttackerViewFor(CombatHitConfirmedEvent e, AttackerHit? hit) =>
+            hit?.View ?? _feel.ResolveJudging(e.SourceId);
+
+        private double ComputeKnockbackDistance(CombatHitConfirmedEvent e, JudgingFeelView target, AttackerHit? hit)
         {
             if (!_units.Exists(e.SourceId)) return 0.0;
-            var atk = _feel.ResolveJudging(e.SourceId);
-            var baseDistance = atk.GetNumber(FeelFieldNames.KnockbackDistance);
+            var atk = AttackerViewFor(e, hit);
+            var baseDistance = atk.GetNumber(FeelFieldNames.KnockbackDistance) * (hit != null ? hit.Scale.KnockbackDistance : 1.0);
             var resistance = ReadKnockbackResistance(e.TargetId, target);
             var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
             return baseDistance * (1.0 - resistance) * multiplier;
         }
 
         /// <summary>击飞顶点高度（世界单位）= 攻击方 <c>launch_height</c>（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一套）；未声明为 0。</summary>
-        private double ComputeLaunchApex(CombatHitConfirmedEvent e, JudgingFeelView target)
+        private double ComputeLaunchApex(CombatHitConfirmedEvent e, JudgingFeelView target, AttackerHit? hit)
         {
             if (!_units.Exists(e.SourceId)) return 0.0;
-            var atk = _feel.ResolveJudging(e.SourceId);
+            var atk = AttackerViewFor(e, hit);
             if (!atk.TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight) || baseHeight <= 0.0) return 0.0;
+            if (hit != null) baseHeight *= hit.Scale.LaunchHeight;
             var resistance = ReadKnockbackResistance(e.TargetId, target);
             var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
             var apex = baseHeight * (1.0 - resistance) * multiplier;
@@ -622,12 +662,12 @@ namespace Core.Rules.Combat
         /// <summary>
         /// 击飞绝对高度上限（<c>launch_height_cap</c>，标定后世界高度）：攻击方与受击方档案都可声明，两侧都声明时取较小者；都没有为 0（不设）。
         /// </summary>
-        private double ReadLaunchHeightCap(CombatHitConfirmedEvent e, JudgingFeelView target)
+        private double ReadLaunchHeightCap(CombatHitConfirmedEvent e, JudgingFeelView target, AttackerHit? hit)
         {
             var cap = 0.0;
             if (_units.Exists(e.SourceId))
             {
-                var atk = _feel.ResolveJudging(e.SourceId);
+                var atk = AttackerViewFor(e, hit);
                 if (atk.TryGetNumber(FeelFieldNames.LaunchHeightCap, out var a) && a > 0.0) cap = a;
             }
 
@@ -636,12 +676,12 @@ namespace Core.Rules.Combat
         }
 
         /// <summary>击飞叠加方式与上限（攻击方档案 <c>launch_stack</c>/<c>launch_stack_cap</c>）；未声明为 restart、无上限。</summary>
-        private void ReadLaunchStack(CombatHitConfirmedEvent e, out LaunchStackMode mode, out double cap)
+        private void ReadLaunchStack(CombatHitConfirmedEvent e, AttackerHit? hit, out LaunchStackMode mode, out double cap)
         {
             mode = LaunchStackMode.Restart;
             cap = 0.0;
             if (!_units.Exists(e.SourceId)) return;
-            var atk = _feel.ResolveJudging(e.SourceId);
+            var atk = AttackerViewFor(e, hit);
             var m = atk.GetAbsolute(FeelFieldNames.LaunchStack);
             if (m.IsNone || m.AsText() != "add") return;
             mode = LaunchStackMode.Add;
@@ -683,6 +723,7 @@ namespace Core.Rules.Combat
         private void OnTickStarted()
         {
             _killPending.Clear();
+            _attackerHits.Clear();
             AdvancePoiseRecovery();
             if (_staggers.Count == 0) return;
             List<Id>? finished = null;

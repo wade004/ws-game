@@ -24,7 +24,7 @@ using Xunit;
 
 namespace Tests.Rules.Combat
 {
-    public class HitFeelHostTests
+    public partial class HitFeelHostTests
     {
         private static readonly Id Attacker = new Id("unit.hf_attacker");
         private static readonly Id Target = new Id("unit.hf_target");

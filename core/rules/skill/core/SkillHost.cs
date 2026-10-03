@@ -746,7 +746,34 @@ namespace Core.Rules.Skill
         /// 手感落地 S10 加法：生产的 <c>IFeelActionProvider</c> 经它按"进行中的动作"取动作层覆盖。
         /// </summary>
         public string? GetTimelineFeelRef(Id skillId) =>
-            _defs.TryGetSkillDef(skillId, out var def) ? def.Timeline?.FeelRef : null;
+            _defs.TryGetSkillDef(skillId, out var def) ? def.Timeline?.FeelRef ?? (def.Timeline != null ? def.FeelRef : null) : null;
+
+        /// <summary>
+        /// 技能行声明的手感引用（<c>skill.def.feel_ref</c>，手感落地 M5-S2a）：无时间线的技能（法术等）命中时受击裁决据此以该行为动作层重算攻击方视图。
+        /// 时间线技能返回 null（它们的手感引用走 <see cref="GetTimelineFeelRef"/>，动作开始即快照）；未声明或未知技能返回 null。
+        /// </summary>
+        public string? GetInstantSkillFeelRef(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) && def.Timeline == null ? def.FeelRef : null;
+
+        /// <summary>
+        /// 结算第 0 步的无敌前置门（手感落地 M5-S2a，手感设计/03 第 2.3 节）：该次伤害类结算是否因目标处于无敌窗口而被判为回避。
+        /// 不拦截：周期性结算（光环跳伤）、目标就是来源自己（自伤）、技能声明了 <c>ignores_invulnerability</c>；其余按目标 <see cref="IActionStateQuery.IsInvulnerable"/> 判定。
+        /// 装配根把它接给 <c>CombatHost.InvulnerabilityGate</c>。
+        /// </summary>
+        public bool BlocksHitByInvulnerability(EffectContext context)
+        {
+            if (context.IsPeriodic || context.AuraInstanceId.HasValue || context.SourceId.Equals(context.TargetId))
+            {
+                return false;
+            }
+
+            if (!_pipeline.IsInvulnerable(context.TargetId))
+            {
+                return false;
+            }
+
+            return !(_defs.TryGetSkillDef(context.SkillId, out var def) && def.IgnoresInvulnerability);
+        }
 
         /// <summary>
         /// 终止行动者进行中的时间线动作（受击硬直、死亡以外的外部终止入口，如受击裁决切片的 <c>stagger</c>）：

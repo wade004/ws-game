@@ -81,6 +81,19 @@ namespace Core.Rules.Skill
         /// </summary>
         public TimelineDef? Timeline { get; }
 
+        /// <summary>
+        /// 技能行声明的手感引用（<c>skill.def.feel_ref</c>，手感落地 M5-S2a，手感设计/05 第 3 节）：<c>feel.action</c> 行 id，进入第 6 层（当前动作）。
+        /// 时间线技能与 <c>timeline.feel_ref</c> 等价（两者同时声明且不同是校验错误）；没有时间线的技能（法术等）命中时受击裁决据此重算攻击方视图。
+        /// <c>null</c> 表示未声明，行为与本字段落地之前逐位一致。
+        /// </summary>
+        public string? FeelRef { get; private set; }
+
+        /// <summary>
+        /// 是否无视无敌窗口（<c>skill.def.ignores_invulnerability</c>，手感落地 M5-S2a，手感设计/03 第 2.3 节）：真时本技能的伤害类结算不经结算第 0 步的无敌前置检查
+        /// （环境伤害、斩杀、必中机制等），时间线动作与时间线投射物路径自己的命中前置检查同样读它。缺省 false。
+        /// </summary>
+        public bool IgnoresInvulnerability { get; private set; }
+
         public bool HasCharges => ChargesMax.HasValue;
 
         public SkillDef(
@@ -235,6 +248,25 @@ namespace Core.Rules.Skill
                 allowGroundTarget, useCondition, nameKey)
         {
             Timeline = timeline;
+        }
+
+        /// <summary>
+        /// 手感落地 M5-S2a 新增重载：携带 <see cref="FeelRef"/>/<see cref="IgnoresInvulnerability"/>。判断记录：同上方各重载一致的 ABI 兼容惯例
+        /// （新增重载，不改既有物理签名；二十三个参数全部不带默认值，与既有重载参数个数不重叠）。
+        /// </summary>
+        public SkillDef(
+            Id id, Id school, bool isPassive, double range, IReadOnlyList<Id> tags,
+            double castTime, double channelTime, IReadOnlyList<(Id, double)> cost,
+            Id? cooldownCategory, double cooldownDuration, int? chargesMax, double chargesRechargeTime,
+            bool respectsGcd, Id targetShapeRef, IReadOnlyList<EffectRef> effects, InterruptFlags interruptFlags,
+            double actionCost, bool allowGroundTarget, ExprNode? useCondition, Id? nameKey, TimelineDef? timeline,
+            string? feelRef, bool ignoresInvulnerability)
+            : this(id, school, isPassive, range, tags, castTime, channelTime, cost, cooldownCategory, cooldownDuration,
+                chargesMax, chargesRechargeTime, respectsGcd, targetShapeRef, effects, interruptFlags, actionCost,
+                allowGroundTarget, useCondition, nameKey, timeline)
+        {
+            FeelRef = string.IsNullOrEmpty(feelRef) ? null : feelRef;
+            IgnoresInvulnerability = ignoresInvulnerability;
         }
     }
 

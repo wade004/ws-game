@@ -169,9 +169,16 @@ namespace Lab
         /// </summary>
         public List<KeyValuePair<string, double>> PoiseImpactScale { get; } = new List<KeyValuePair<string, double>>();
 
+        /// <summary>
+        /// 命中形状按目标受击半径相交（<c>hitRadiusFromFeel</c>，手感落地 M5-S2a，格式版本 3；缺省 false = 命中把目标当点）：
+        /// 经 <c>CarriersFeelOptions.HitRadiusFromFeel</c> 打开，受击半径 = 预设 <c>unit_body_radius</c> × <c>hurt_radius_scale</c>。
+        /// </summary>
+        public bool HitRadiusFromFeel { get; set; }
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
         public bool UsesFeelFormat =>
-            Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0;
+            Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0
+            || HitRadiusFromFeel;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
@@ -398,6 +405,7 @@ namespace Lab
                 }
             }
 
+            meta.HitRadiusFromFeel = metaObj.TryGetValue("hitRadiusFromFeel", out var hitRadiusFlag) && hitRadiusFlag is JsonBool hitRadiusBool && hitRadiusBool.Value;
             meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
             ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
             if (metaObj.TryGetValue("skillSlots", out var slots) && slots is JsonObject slotsObj)
@@ -594,6 +602,11 @@ namespace Lab
                     if (ext.PoseKeys.Count > 0) extBuilder.Add("poseKeys", new JsonArray(ext.PoseKeys.ConvertAll(g => (JsonValue)LabJson.Str(g))));
                     if (ext.PoseFamily.Length > 0) extBuilder.Add("poseFamily", LabJson.Str(ext.PoseFamily));
                     meta.Add("spaceExt", extBuilder.Build());
+                }
+
+                if (Meta.HitRadiusFromFeel)
+                {
+                    meta.Add("hitRadiusFromFeel", LabJson.Bool(true));
                 }
 
                 if (Meta.PoiseImpactScale.Count > 0)

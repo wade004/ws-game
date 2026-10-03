@@ -12,6 +12,18 @@ namespace Core.Foundation.Feel
     {
         /// <summary>取单位当前的判定型视图（缓存命中直接返回）。</summary>
         JudgingFeelView ResolveJudging(Id unitId);
+
+        /// <summary>
+        /// 取单位在"指定动作层"下的判定型视图（手感落地 M5-S2a，手感设计/05 第 3 节）：把单位视为处于动作中，第 6 层（当前动作）取
+        /// <paramref name="actionFeelRef"/> 行，之后再叠 <paramref name="overlayFeelRef"/> 行（同层内后写的覆盖先写的；两者均可空）。
+        /// 技能行的 <c>feel_ref</c>（无动作时间线的法术命中）与时间线分段 <c>args.feel_ref</c> 经它得到该次命中用的攻击方视图；
+        /// 两者都为空等价于 <see cref="ResolveJudging"/> 的"在动作中"版本。结果按 (单位, 两个引用) 缓存，单位缓存失效时一并失效。
+        /// <para>
+        /// C# 8 默认接口成员：默认实现忽略两个引用、返回 <see cref="ResolveJudging"/>（"没有动作层覆盖"，等价于本成员引入之前）；
+        /// 生产实现 <c>FeelResolver</c> 显式覆盖，包装实现方必须显式转发（<c>InterfaceDefaultMemberForwardingTests</c> 门禁）。
+        /// </para>
+        /// </summary>
+        JudgingFeelView ResolveJudgingWithAction(Id unitId, string? actionFeelRef, string? overlayFeelRef) => ResolveJudging(unitId);
     }
 
     /// <summary>表现层的只读入口：只能取呈现型视图。</summary>

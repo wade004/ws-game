@@ -37,7 +37,65 @@ namespace Core.Rules.Common
             Amount = amount;
             IsKill = isKill;
             AttackerFeel = attackerFeel;
+            AttackInstanceId = null;
+            AttackerFeelOverrides = false;
+            Scale = HitFeelScale.Identity;
         }
+
+        /// <summary>
+        /// 本次命中的攻击实例 id（手感落地 M5-S2a）：与 <see cref="AttackerFeelOverrides"/>/<see cref="Scale"/> 一起让受击裁决宿主把"这一击用的攻击方视图与缩放"
+        /// 记下来，供稍后派发的 <c>combat.hit_confirmed</c> 落地击退/击飞时沿用。缺省 null（不记）。
+        /// </summary>
+        public Id? AttackInstanceId { get; }
+
+        /// <summary>
+        /// <see cref="AttackerFeel"/> 是否是"分段/技能手感覆盖"解析出的视图（M5-S2a）：为真时击退距离、击飞高度、击飞叠加读它，而不是攻击方当前的解析结果；
+        /// 为假（缺省，含时间线动作开始快照）保持此前口径——落地阶段读攻击方当前解析结果。
+        /// </summary>
+        public bool AttackerFeelOverrides { get; }
+
+        /// <summary>蓄力等对顿帧、击退、击飞的缩放（M5-S2a，缺省 <see cref="HitFeelScale.Identity"/> 不缩放）。</summary>
+        public HitFeelScale Scale { get; }
+
+        /// <summary>手感落地 M5-S2a 新增重载：携带攻击实例 id、攻击方视图覆盖标志与缩放（新增重载，不改既有物理签名）。</summary>
+        public HitFeelInput(
+            Id attackerId, Id targetId, HitResult hitResult, double amount, bool isKill, JudgingFeelView? attackerFeel,
+            Id? attackInstanceId, bool attackerFeelOverrides, HitFeelScale scale)
+            : this(attackerId, targetId, hitResult, amount, isKill, attackerFeel)
+        {
+            AttackInstanceId = attackInstanceId;
+            AttackerFeelOverrides = attackerFeelOverrides;
+            Scale = scale;
+        }
+    }
+
+    /// <summary>
+    /// 命中手感缩放（手感落地 M5-S2a）：对一次命中的攻击方顿帧、受击方顿帧、击退距离、击飞高度各乘一个倍率（来自蓄力 <c>charge.feel_scale</c>）。
+    /// 倍率 1 即不缩放；<see cref="Identity"/> 是全 1。作用在档案取值之后、限幅之前。
+    /// </summary>
+    public readonly struct HitFeelScale
+    {
+        public double AttackerHitstop { get; }
+
+        public double TargetHitstop { get; }
+
+        public double KnockbackDistance { get; }
+
+        public double LaunchHeight { get; }
+
+        public HitFeelScale(double attackerHitstop, double targetHitstop, double knockbackDistance, double launchHeight)
+        {
+            AttackerHitstop = attackerHitstop;
+            TargetHitstop = targetHitstop;
+            KnockbackDistance = knockbackDistance;
+            LaunchHeight = launchHeight;
+        }
+
+        /// <summary>全部倍率为 1（不缩放）。</summary>
+        public static HitFeelScale Identity => new HitFeelScale(1.0, 1.0, 1.0, 1.0);
+
+        /// <summary>是否全为 1（不缩放）。</summary>
+        public bool IsIdentity => AttackerHitstop == 1.0 && TargetHitstop == 1.0 && KnockbackDistance == 1.0 && LaunchHeight == 1.0;
     }
 
     /// <summary>受击裁决的结论：填进 <c>combat.hit_confirmed</c> 的冲击等级、两侧顿帧 tick 数、受击反应，外加反应时长。</summary>

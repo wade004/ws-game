@@ -100,10 +100,29 @@ namespace Core.Rules.Skill
                 issues.Add(Err("timeline_channel_time_exclusive", "声明了 timeline 的技能不能同时声明 channel_time", "channel_time"));
             }
 
+            var hasHitAnchor = tl.TryGetValue("hit_anchor", out var anchorVal) && anchorVal is JsonString anchorText && !string.IsNullOrEmpty(anchorText.Value);
             if (record.TryGetBool("ground_target", out var ground) && ground)
             {
-                issues.Add(Warn("timeline_ground_target_unsupported",
-                    "地面坐标施法请求（ground_target）不进入时间线模式，仍按 cast_time 读条结算；timeline 在该路径上被忽略", "ground_target"));
+                // M5-S2a：声明了 timeline.hit_anchor 的地面落点技能进入时间线（锚点见 03 第 2.2 节）；没有声明保持既有行为——timeline 被忽略。
+                if (!hasHitAnchor)
+                {
+                    issues.Add(Warn("timeline_ground_target_unsupported",
+                        "地面坐标施法请求（ground_target）不进入时间线模式，仍按 cast_time 读条结算；timeline 在该路径上被忽略（声明 timeline.hit_anchor 可让时间线在该路径上生效）", "ground_target"));
+                }
+            }
+            else if (hasHitAnchor)
+            {
+                issues.Add(Warn("timeline_hit_anchor_without_ground_target",
+                    "timeline.hit_anchor 只对声明了 ground_target 的技能有意义（经地面坐标施法请求施放时生效）；本技能没有声明 ground_target，该字段被忽略", "timeline.hit_anchor"));
+            }
+
+            // M5-S2a：技能行手感引用与时间线手感引用是同一个落点（第 6 层），同时声明且不同没有"谁覆盖谁"的合理读法，按错误拒绝。
+            if (record.TryGetString("feel_ref", out var skillFeelRef) && !string.IsNullOrEmpty(skillFeelRef)
+                && tl.TryGetValue("feel_ref", out var timelineFeelVal) && timelineFeelVal is JsonString timelineFeelRef
+                && !string.IsNullOrEmpty(timelineFeelRef.Value) && !string.Equals(skillFeelRef, timelineFeelRef.Value, StringComparison.Ordinal))
+            {
+                issues.Add(Err("skill_feel_ref_conflict",
+                    "skill.def.feel_ref（\"" + skillFeelRef + "\"）与 timeline.feel_ref（\"" + timelineFeelRef.Value + "\"）同时声明且不同：二者落在同一层，只写其中一个", "feel_ref"));
             }
 
             // charge
@@ -180,6 +199,13 @@ namespace Core.Rules.Skill
                     {
                         issues.Add(Err("timeline_marker_unknown", "未知的时间标记名 \"" + rawName + "\"", field));
                         continue;
+                    }
+
+                    if (name != "hit" && name != "release"
+                        && m.TryGetValue("args", out var feelArgs) && feelArgs is JsonObject feelArgsObject && feelArgsObject.ContainsKey("feel_ref"))
+                    {
+                        issues.Add(Warn("timeline_marker_feel_ref_ignored",
+                            "标记 \"" + name + "\" 声明了 args.feel_ref，但只有 hit/release 标记读取分段手感覆盖，该字段被忽略", field));
                     }
 
                     switch (name)

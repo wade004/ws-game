@@ -44,14 +44,64 @@ namespace Core.Rules.Skill
 
             public Shape Template { get; }
 
-            public HitGeometry(Vec2 position, double facing, bool useClosest, Shape template)
+            /// <summary>是否带命中形状模板（空间命中为真；instant 路径与投射物没有）。目标启用了命中半径（<see cref="ITargetHost.TargetHitRadius"/>）时，接触点按形状算需要它。</summary>
+            public bool HasShape { get; }
+
+            public HitGeometry(Vec2 position, double facing, bool useClosest, Shape template, bool hasShape = false)
             {
                 Position = position;
                 Facing = facing;
                 UseClosest = useClosest;
                 Template = template;
+                HasShape = hasShape;
             }
         }
+
+        /// <summary>
+        /// 一次命中交给受击裁决的攻击方手感来源（手感落地 M5-S2a）：<see cref="View"/> 为动作开始快照（缺省）或分段手感覆盖解析出的视图，
+        /// <see cref="Overrides"/> 为真表示它来自分段覆盖（落地阶段击退/击飞也读它），<see cref="Scale"/> 是蓄力对顿帧/击退/击飞的缩放。
+        /// </summary>
+        private sealed class AttackerFeelSource
+        {
+            public JudgingFeelView? View { get; }
+
+            public bool Overrides { get; }
+
+            public HitFeelScale Scale { get; }
+
+            public AttackerFeelSource(JudgingFeelView? view, bool overrides, HitFeelScale scale)
+            {
+                View = view;
+                Overrides = overrides;
+                Scale = scale;
+            }
+        }
+
+        /// <summary>
+        /// 取一次命中的攻击方手感来源：缺省是动作开始快照；该段的 <c>hit</c>/<c>release</c> 标记声明了 <c>args.feel_ref</c> 时，以"动作层引用 + 分段覆盖行"
+        /// 在命中那一刻重算攻击方视图（不是快照：与动作开始之后才变化的光环、热加载无关的部分仍随命中时刻的单位状态）；蓄力声明了 <c>feel_scale</c> 时带上按蓄力比例插值的缩放。
+        /// 两者都没有声明时与此前逐位一致（快照、不缩放）。
+        /// </summary>
+        private AttackerFeelSource AttackerFeelFor(Id casterId, ActionRun run, int segment)
+        {
+            var feel = _timeline?.Feel;
+            var scale = run.Timeline.Charge?.FeelScale != null ? run.Timeline.Charge.FeelScale.At(run.ChargeRatio) : HitFeelScale.Identity;
+            if (feel != null && run.Timeline.SegmentFeelRefs.TryGetValue(segment, out var segmentRef))
+            {
+                var view = feel.ResolveJudgingWithAction(casterId, run.Timeline.FeelRef ?? run.Def.FeelRef, segmentRef);
+                return new AttackerFeelSource(view, true, scale);
+            }
+
+            return new AttackerFeelSource(feel?.GetSnapshot(run.CastInstanceId)?.Judging, false, scale);
+        }
+
+        /// <summary>命中锚点位置：地面落点锚点（<see cref="TimelineHitAnchor.GroundPoint"/>）取落点，其余取施法者当前位置。</summary>
+        private Vec2 RunPosition(Id casterId, ActionRun run) =>
+            run.Anchor == TimelineHitAnchor.GroundPoint ? run.GroundPoint!.Value : _units.GetPosition(casterId);
+
+        /// <summary>命中锚点朝向：地面落点锚点取施法时落定的朝向，其余取施法者当前朝向。</summary>
+        private double RunFacing(Id casterId, ActionRun run) =>
+            run.Anchor == TimelineHitAnchor.GroundPoint ? run.AnchorFacing : _units.GetFacing(casterId);
 
         private HitGeometry PoseGeometry(Id casterId, bool closest) =>
             new HitGeometry(_units.GetPosition(casterId), _units.GetFacing(casterId), closest, default);
@@ -111,7 +161,7 @@ namespace Core.Rules.Skill
 
         private void SpatialMarkerHit(Id casterId, CastState state, ActionRun run, int segment)
         {
-            var geo = PoseGeometry(casterId, closest: false);
+            var geo = new HitGeometry(RunPosition(casterId, run), RunFacing(casterId, run), false, run.Template, hasShape: true);
             Id? currentTarget = state.Targets.Count > 0 ? state.Targets[0] : (Id?)null;
             var resolution = _targetHost.ResolveAtPose(run.Def.TargetShapeRef, casterId, geo.Position, geo.Facing, currentTarget);
             SettleSpatial(casterId, state, run, resolution, segment, geo, run.Elapsed, enforceInterval: true);
@@ -143,8 +193,8 @@ namespace Core.Rules.Skill
             }
 
             var span = toInclusive - fromExclusive;
-            var curPos = _units.GetPosition(casterId);
-            var curFacing = _units.GetFacing(casterId);
+            var curPos = RunPosition(casterId, run);
+            var curFacing = RunFacing(casterId, run);
             var turn = WrapAngle(curFacing - run.PrevFacing);
 
             var tickMs = _options.ActionStepSeconds * 1000.0;
@@ -205,7 +255,7 @@ namespace Core.Rules.Skill
 
                 Id? currentTarget = state.Targets.Count > 0 ? state.Targets[0] : (Id?)null;
                 var resolution = _targetHost.ResolveAtPose(run.Def.TargetShapeRef, casterId, pos, facing, currentTarget);
-                var geo = new HitGeometry(pos, facing, useClosest: true, run.Template);
+                var geo = new HitGeometry(pos, facing, useClosest: true, run.Template, hasShape: true);
                 SettleSpatial(casterId, state, run, resolution, segment, geo, (int)Math.Floor(t), enforceInterval: false);
                 if (!IsLive(casterId, state))
                 {
@@ -284,7 +334,8 @@ namespace Core.Rules.Skill
                     continue;
                 }
 
-                if (!WithinHitWindowRange(casterId, run.Def, geo.Position, target))
+                // 地面落点锚点的射程门仍以施法者为起点（落点本身已在施法请求时按射程校验过）。
+                if (!WithinHitWindowRange(casterId, run.Def, run.Anchor == TimelineHitAnchor.GroundPoint ? _units.GetPosition(casterId) : geo.Position, target))
                 {
                     continue;
                 }
@@ -411,7 +462,7 @@ namespace Core.Rules.Skill
         {
             var def = run.Def;
             var attack = HasAttackEffect(def, subset);
-            var attackerFeel = attack ? _timeline?.Feel?.GetSnapshot(run.CastInstanceId)?.Judging : null;
+            var attackerFeel = attack ? AttackerFeelFor(casterId, run, segment) : null;
             Id? attackInstanceId = null;
 
             List<Id> live;
@@ -420,7 +471,7 @@ namespace Core.Rules.Skill
                 live = new List<Id>(targets.Count);
                 foreach (var target in targets)
                 {
-                    if (IsInvulnerable(target))
+                    if (!def.IgnoresInvulnerability && IsInvulnerable(target))
                     {
                         attackInstanceId ??= NextCastInstanceId();
                         ContactFor(geo, casterId, target, out var contact, out var normal, out var worldDirection);
@@ -451,11 +502,11 @@ namespace Core.Rules.Skill
             IProjectileHitHook? projectileHook = null;
             if (subset == EffectSubset.All && HasProjectileEffect(def))
             {
-                projectileHook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment, run.ChargeValueScale);
+                projectileHook = new TimelineProjectileHook(this, casterId, run, segment);
             }
 
             var id = ExecuteEffectsOnly(
-                casterId, def, live, targetCoefficients: coefficients, presetAttackInstanceId: attackInstanceId,
+                casterId, def, live, groundPoint: run.GroundPoint, targetCoefficients: coefficients, presetAttackInstanceId: attackInstanceId,
                 subset: subset, outcomes: outcomes, projectileHook: projectileHook);
             if (outcomes == null)
             {
@@ -483,7 +534,12 @@ namespace Core.Rules.Skill
             }
         }
 
-        /// <summary>接触几何（手感设计/03 第 2.4 节）：几何字段永不为空——没有接触几何时由本方法给出明确替代值。</summary>
+        /// <summary>
+        /// 接触几何（手感设计/03 第 2.4 节）：几何字段永不为空——没有接触几何时由本方法给出明确替代值。
+        /// 目标没有命中半径（缺省，<see cref="ITargetHost.TargetHitRadius"/> 为 0）时逐位保持此前口径：<c>continuous</c> 取形状上离目标中心最近的点，
+        /// <c>marker</c>/<c>instant</c> 取目标登记位置。目标有命中半径（M5-S2a）且有命中形状时，接触点取目标身体圆面上朝向形状的点
+        /// （目标中心在形状内则朝向攻击方），不再落在体内；<c>contactNormal</c> 即从目标中心指向该点。
+        /// </summary>
         private void ContactFor(in HitGeometry geo, Id casterId, Id targetId, out Vec2 contact, out Vec2 normal, out Vec2 worldDirection)
         {
             var targetPosition = _units.GetPosition(targetId);
@@ -491,7 +547,19 @@ namespace Core.Rules.Skill
             var length = toTarget.Length;
             worldDirection = length > 1e-9 ? toTarget * (1.0 / length) : new Vec2(Math.Cos(geo.Facing), Math.Sin(geo.Facing));
 
+            var radius = geo.HasShape ? _targetHost.TargetHitRadius(targetId) : 0.0;
             contact = targetPosition;
+            if (radius > 0.0)
+            {
+                var closest = ShapeGeometry.ClosestPoint(ShapeGeometry.RebaseAt(geo.Template, geo.Position, geo.Facing), targetPosition);
+                var gap = closest - targetPosition;
+                var gapLength = gap.Length;
+                var facing = gapLength > 1e-9 ? gap * (1.0 / gapLength) : -worldDirection;
+                contact = targetPosition + facing * radius;
+                normal = facing;
+                return;
+            }
+
             if (geo.UseClosest)
             {
                 contact = ShapeGeometry.ClosestPoint(ShapeGeometry.RebaseAt(geo.Template, geo.Position, geo.Facing), targetPosition);
@@ -504,7 +572,7 @@ namespace Core.Rules.Skill
 
         private void PublishAvoided(
             Id attackInstanceId, Id? castInstanceId, int segment, Id casterId, Id targetId, SkillDef def, HitResult hitResult,
-            Vec2 contact, Vec2 normal, Vec2 worldDirection, JudgingFeelView? attackerFeel)
+            Vec2 contact, Vec2 normal, Vec2 worldDirection, AttackerFeelSource? attackerFeel)
         {
             _bus.Enqueue(new CombatAttackAvoidedEvent(casterId, targetId, def.School, hitResult, def.Id, attackInstanceId));
             PublishHitConfirmed(
@@ -515,7 +583,7 @@ namespace Core.Rules.Skill
         /// <summary>从一个目标的伤害类结算结果汇总成一条 <c>combat.hit_confirmed</c>：结局取第一个非回避结果（都回避则取第一个），伤害量求和。</summary>
         private void PublishConfirmation(
             Id attackInstanceId, Id? castInstanceId, int segment, Id casterId, Id targetId, Id skillId,
-            IReadOnlyList<ResolveResult> results, Vec2 contact, Vec2 normal, Vec2 worldDirection, JudgingFeelView? attackerFeel)
+            IReadOnlyList<ResolveResult> results, Vec2 contact, Vec2 normal, Vec2 worldDirection, AttackerFeelSource? attackerFeel)
         {
             var hitResult = results[0].Hit;
             for (var i = 0; i < results.Count; i++)
@@ -549,10 +617,15 @@ namespace Core.Rules.Skill
 
         private void PublishHitConfirmed(
             Id attackInstanceId, Id? castInstanceId, int segment, Id casterId, Id targetId, Id skillId, HitResult hitResult,
-            double amount, bool isCrit, bool isKill, Vec2 contact, Vec2 normal, Vec2 worldDirection, JudgingFeelView? attackerFeel)
+            double amount, bool isCrit, bool isKill, Vec2 contact, Vec2 normal, Vec2 worldDirection, AttackerFeelSource? attackerFeel)
         {
             var outcome = _timeline?.HitFeel != null
-                ? _timeline.HitFeel.Evaluate(new HitFeelInput(casterId, targetId, hitResult, amount, isKill, attackerFeel))
+                ? _timeline.HitFeel.Evaluate(
+                    attackerFeel == null
+                        ? new HitFeelInput(casterId, targetId, hitResult, amount, isKill)
+                        : new HitFeelInput(
+                            casterId, targetId, hitResult, amount, isKill, attackerFeel.View, attackInstanceId, attackerFeel.Overrides,
+                            attackerFeel.Scale))
                 : HitFeelOutcome.None();
             var maxHealth = SafeMaxHealth(targetId);
             var ratio = maxHealth > 0.0 ? amount / maxHealth : 0.0;
@@ -621,8 +694,8 @@ namespace Core.Rules.Skill
                 aim = run.AssistTarget.Value;
             }
 
-            var hook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment, run.ChargeValueScale);
-            ExecuteEffectsOnly(casterId, def, new[] { aim }, subset: EffectSubset.ProjectileOnly, projectileHook: hook);
+            var hook = new TimelineProjectileHook(this, casterId, run, segment);
+            ExecuteEffectsOnly(casterId, def, new[] { aim }, groundPoint: run.GroundPoint, subset: EffectSubset.ProjectileOnly, projectileHook: hook);
         }
 
         /// <summary>时间线投射物的命中钩子（见 <see cref="IProjectileHitHook"/>）：沿用发射动作的施法实例 id。</summary>
@@ -630,17 +703,19 @@ namespace Core.Rules.Skill
         {
             private readonly CastPipeline _owner;
             private readonly Id _casterId;
+            private readonly ActionRun _run;
             private readonly SkillDef _def;
             private readonly Id _castInstanceId;
             private readonly int _segment;
 
-            public TimelineProjectileHook(CastPipeline owner, Id casterId, SkillDef def, Id castInstanceId, int segment, double valueScale = 1.0)
+            public TimelineProjectileHook(CastPipeline owner, Id casterId, ActionRun run, int segment)
             {
-                ValueScale = valueScale;
+                ValueScale = run.ChargeValueScale;
                 _owner = owner;
                 _casterId = casterId;
-                _def = def;
-                _castInstanceId = castInstanceId;
+                _run = run;
+                _def = run.Def;
+                _castInstanceId = run.CastInstanceId;
                 _segment = segment;
             }
 
@@ -658,7 +733,7 @@ namespace Core.Rules.Skill
             public bool BeforeHit(in ProjectileHitInfo info, out Id attackInstanceId)
             {
                 attackInstanceId = _owner.NextCastInstanceId();
-                if (!_owner.IsInvulnerable(info.TargetId))
+                if (_def.IgnoresInvulnerability || !_owner.IsInvulnerable(info.TargetId))
                 {
                     return true;
                 }
@@ -692,7 +767,7 @@ namespace Core.Rules.Skill
                     contact, normal, info.FlightDirection, AttackerFeel());
             }
 
-            private JudgingFeelView? AttackerFeel() => _owner._timeline?.Feel?.GetSnapshot(_castInstanceId)?.Judging;
+            private AttackerFeelSource AttackerFeel() => _owner.AttackerFeelFor(_casterId, _run, _segment);
 
             private void Geometry(in ProjectileHitInfo info, out Vec2 contact, out Vec2 normal)
             {
