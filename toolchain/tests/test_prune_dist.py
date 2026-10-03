@@ -5,7 +5,8 @@
 1. 不传 ``-Apply`` 什么都不删（文件系统快照前后完全一致）；
 2. 传 ``-Apply`` 后留下/删掉的集合与规则推出的期望一致——期望集合在用例里由规则算出来，不写死清单：
    dryrun 形态一律删；非 dryrun 的 ``<ver>/``、主 zip、samples zip 只留"当前版本 + 紧邻其下的若干正式版本"
-   （合计 ``-KeepVersions`` 个）以及高于当前版本的；lock / release-notes 一律留；认不出的不动；
+   （合计 ``-KeepVersions`` 个）以及高于当前版本的；lock / release-notes / ``release-<ver>.state.json``（发布状态文件）一律留；
+   认不出的不动；
 3. ``toolchain/abi_probe_baseline.txt`` 记录的 ABI 基线版本的主 zip 额外保留（只留 zip），否则 ``build.ps1
    -Release`` 的 ``-AbiStrict`` 门禁会因基线缺失而失败；
 4. ``dist`` 本身是 junction、或待删条目内部含 junction 时拒绝（退出码 1）且不删任何东西。
@@ -83,6 +84,9 @@ def _build_fake_repo(tmp_path: Path, current: str, versions: list[str], dryrun_v
     meta: dict[str, tuple[str, str, bool]] = {}
     for ver in versions + higher:
         _make_version_entries(dist, ver)
+        # build.ps1 -Release 写的门禁通过记录（-Resume 的凭据）：无 -dryrun 形态，一律保留，与 lock / release-notes 同列发布记录。
+        (dist / f"release-{ver}.state.json").write_text('{"version": "' + ver + '"}', encoding="utf-8")
+        meta[f"release-{ver}.state.json"] = ("state", ver, False)
         meta[ver] = ("dir", ver, False)
         meta[f"ws-game-{ver}.zip"] = ("zip", ver, False)
         meta[f"ws-game-{ver}-samples.zip"] = ("samples", ver, False)
@@ -119,7 +123,7 @@ def _expected_deleted(meta: dict[str, tuple[str, str, bool]], current: str, keep
             continue
         if dry:
             deleted.add(name)
-        elif kind in ("lock", "notes"):
+        elif kind in ("lock", "notes", "state"):
             continue
         elif _vkey(ver) > _vkey(current):
             continue
@@ -160,6 +164,9 @@ def test_dry_run_deletes_nothing_then_apply_follows_rules(tmp_path: Path) -> Non
     assert _snapshot(dist) == before, "不传 -Apply 不得删除/改动任何内容"
     out = plan.stdout
     assert "未识别，已保留" in out and f"tag-message-{current}.txt" in out and "scratch" in out
+    # 发布状态文件是已识别的发布记录，不能落进"未识别"清单（否则每次发版瘦身都刷一屏噪声）。
+    unrecognized = [ln for ln in out.splitlines() if ln.strip().startswith("未识别，已保留  ")]
+    assert not any("state.json" in ln for ln in unrecognized), unrecognized
     for name in expected_deleted:
         assert name in out, f"清单里应列出待删条目 {name}"
 
