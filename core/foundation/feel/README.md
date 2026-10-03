@@ -4,8 +4,8 @@
 [ADR-0113](../../../architecture/adr/0113-手感体系纳入框架判定型与呈现型两半拆分.md)、
 [ADR-0118](../../../architecture/adr/0118-手感档案分层解析与字段登记.md)）。
 
-- **数据域 `feel`**：八张表——`feel.preset`、`feel.archetype`、`feel.weapon`、`feel.character`、`feel.action`、
-  `feel.calibration`、`feel.motion_mode_rules`、`feel.tag_map`（表结构见 `schema/FeelSchemas.cs`；总索引见
+- **数据域 `feel`**：九张表——`feel.preset`、`feel.archetype`、`feel.weapon`、`feel.character`、`feel.action`、
+  `feel.calibration`、`feel.motion_mode_rules`、`feel.tag_map`、`feel.validation`（成熟度验证记录，游戏自己的数据；表结构见 `schema/FeelSchemas.cs`；总索引见
   [04](../../../architecture/04_数据与内容管线.md) 第 1.1 节）。
 - **字段登记** `FeelFields.Default`：每个手感字段登记名字、类型、范围（限幅依据）、半属（判定型/呈现型）、
   分组、允许的覆盖操作、合成来源、单位、副手可叠加；元数据类型 `FeelFieldMeta` 落在 `data_registry`（见判断记录 1）。
@@ -14,8 +14,8 @@
   每个字段的溯源链，标定换算（相对量 → 绝对量，毫秒 → tick），动作开始快照，调试覆盖 API。
 - **两个只读视图**：`JudgingFeelView`（规则层、模拟层读）与 `PresentingFeelView`（表现层、实验室读），
   各自只能读到自己那一半字段，读另一半抛 `FeelHalfViolationException`。
-- **静态校验**：`FeelProfileChecker`（九项检查，数据校验规则与装配共用同一份实现）与三条注册表规则
-  （`FeelProfileValidationRule`、`FeelHalfIsolationRule`、`FeelCalibrationRule`）。
+- **静态校验**：`FeelProfileChecker`（九项检查，数据校验规则与装配共用同一份实现）与四条注册表规则
+  （`FeelProfileValidationRule`、`FeelHalfIsolationRule`、`FeelCalibrationRule`、`FeelMaturityRule`）。
 - **装配**：`FeelAssembly`（没有手感数据则不装配；有数据而无标定则装配失败，见判断记录 4）。
 
 依赖：`core/foundation/common`（`Id`）、`core/foundation/data_registry`（表登记、校验规则、字段元数据）、
@@ -35,8 +35,8 @@
 | 目录 | 内容 |
 |---|---|
 | `contracts/` | 字段登记（`FeelFieldDef`、`FeelFieldSet`、`FeelFields`、`FeelFieldNames`）、取值与写入（`FeelValue`、`FeelWrite`、`FeelLayer`、`FeelOp`）、标定（`FeelCalibration`）、解析结果与两个视图（`ResolvedFeel`、`JudgingFeelView`、`PresentingFeelView`）、解析器与提供者接口（`IFeelResolver`、`IFeelJudgingSource`、`IFeelPresentingSource`、`IFeelBodyProvider` 等） |
-| `core/` | `FeelProfileSet`（档案集合与数据行解析）、`FeelResolver`、`FeelProfileChecker`、`FeelDebugOverrides`、`FeelAssembly` |
-| `schema/` | `FeelSchemas`（八张表登记与规则注册）、`FeelValidationRules` |
+| `core/` | `FeelProfileSet`（档案集合与数据行解析）、`FeelResolver`、`FeelProfileChecker`、`FeelDebugOverrides`、`FeelAssembly`、`FeelMaturity`（成熟度取值、验证记录与账本）、`FeelFieldCatalogDoc`（字段登记表片段生成） |
+| `schema/` | `FeelSchemas`（九张表登记与规则注册）、`FeelValidationRules` |
 | `tests/` | 解析器、标定、快照、字段登记、校验、装配、框架数据、半属隔离与性质测试 |
 
 ## 契约（本切片新增，均为纯加法）
@@ -76,7 +76,7 @@
    `python toolchain/validate_data.py --strict --data-root data/_feel`（零错误零警告，门禁步骤 `validate_feel_data`）；
    本模块的测试用 `core/foundation/feel/tests/data` 的单行测试标定行覆盖"有手感数据而标定缺项/多行"等路径。该目录随分发包
    `dist/<version>/data/_feel/` 一起发出，与 `data/_framework` 并列作为框架根，游戏要用把它当作一个数据根合入即可。
-6. **相对量单位与标定**：身高倍数 × 参考身高；基础移速倍数与秒级基础移速 × 基础移速；画面高度比例 × 参考镜头高度；
+6. **相对量单位与标定**：身高倍数 × 参考身高；速度倍数 × 参考基础移速、秒级基础移速 × 参考基础移速（这两项只是绝对值视图，运动层读相对值乘单位的移动速度属性，见 17）；画面高度比例 × 参考镜头高度；
    毫秒按模拟步长换算 tick（四舍五入、远离零取整，非零至少 1，零保持 0）。步长来自装配参数而不是标定表（标定是游戏层
    常量，步长是模拟的固定步长，二者来源不同）。毫秒换算先做 9 位小数预舍入，避免 25 ms ÷ 16.667 ms 这类恰在 .5 边界上的
    浮点误差改变结果。
@@ -101,13 +101,38 @@
 14. **输入动作表的字段扩展不在本模块**：手感设计/01 第 2.1 节的 `class`/`buffer_ms` 等字段属于 `found.input_action`，
     本模块只落地 `ActionClass` 枚举与缓冲记录契约；字段与缓冲实现见 `core/foundation/input_map/README.md`。
 
+15. **字段落地状态（M5，ADR-0146）**：`FeelFieldDef.Status`（`Active`/`Planned`）与 `StatusNote`（planned 必带原因，active 不得带）是登记的一部分，
+    不进数据 schema（不影响任何数据行与指纹）。当前 planned 的 11 个字段集中在 `FeelFields.PlannedFields` 一个数组里：被实现后实现者从数组删除即回到 active。
+    扫描测试 `FeelFieldStatusTests` 对 `core`/`presentation`/`adapters` 的非测试 `.cs` 找 `FeelFieldNames.<常量>` 引用（登记文件自身除外），
+    引用数为零的字段必须 planned、有引用的不得 planned。判断：只认常量引用，不认字符串字面量，因为消费方一律经常量读字段（常量是字段名的唯一出处）；
+    实验室只引用不算消费（实验室是观察方，不改变行为）。
+16. **成熟度与账本（M5）**：`feel.validation` 的覆盖定义（`FeelValidationLedger.Covering`）= 记录指向该行 + 记录的 `profile_version` 等于该行当前版本 + 四个评分维度都在且都不低于
+    `FeelMaturity.ScoreThreshold`（4.0，按维度逐项、不取均值）+ 格子非空；`ValidatedCells`/`IsValidatedIn` 给出按格子的已验证状态。行上的 `maturity: validated`
+    表示"至少一个格子已验证"，所以加载期规则（`FeelMaturityRule`）只检查"有没有任一覆盖记录"，不要求每个格子都验证。框架数据根不含任何验证记录，
+    因此框架行标 validated 必然报错（`FeelMaturityTests` 同时守住"框架数据根没有 validated 行"）。评分摘要的维度是 `FeelMaturity.ScoreDimensions`
+    （移动、转向、命中重量、连招衔接）；明细不入数据。
+17. **标定基础移速的口径（M5，ADR-0146）**：运动层的目标速度是"解析出的相对倍数 × 单位移动速度属性"（`MotionProfile`），标定的 `base_speed` 只进 `FeelCalibration.ToAbsolute`
+    （速度倍数字段的绝对值视图）。保留不删：它是标定行的必填字段，参与数据指纹；也不让它成为速度基准：那会改变所有"移动速度属性不等于标定基础移速"的游戏的实际速度。
+    `FeelUnit.BaseSpeedSeconds` 标"不推荐"（枚举只加不改），当前没有字段使用。`FeelFieldStatusTests.CalibrationBaseSpeed_ChangesOnlyTheAbsoluteView…` 守住：
+    只差基础移速的两组标定解析出的相对值逐位相同。
+18. **字段登记表片段（M5）**：`FeelFieldCatalogDoc.Render(FeelFieldSet)` 是纯函数（LF 行尾、不变文化格式、分组与字段顺序取登记顺序），产出
+    `architecture/手感设计/05a_字段登记表.md`；用 `feellab fields` 重新生成（`--check` 只比较不写，不一致退出码 1）。测试 `CatalogDoc_ListsEveryField_AndMatchesTheCommittedFragmentByteForByte`
+    把渲染结果与入库文件逐字节比较。片段只写字段是什么、范围、半属、合成来源、单位与状态，不写推荐值（推荐值在预设行）。
+19. **游戏自有字段的扩展位（M5）**：`FeelFields.Extend` 在默认登记上追加 `game.` 前缀字段（要求前缀、不重名、状态 active）；`FeelSchemas.RegisterAll(registry, set)` 按该登记生成九张表
+    （预设 `values` 与五张分层表 `writes` 的变体分支都来自登记）并把它记在这份注册表上（内部 `FeelFieldExtensions`，`ConditionalWeakTable`，键为注册表对象）；校验规则
+    （`FeelProfileValidationRule`、`FeelHalfIsolationRule`）按"校验时这份注册表的字段集"取字段，因为规则按规则 id 去重、先注册者胜出，字段集若在构造时固化，
+    框架目录与游戏扩展谁先注册就会决定结果。注册顺序无关由 `GameField_IsRejectedWithoutExtension_AndAcceptedWithIt_InEitherRegistrationOrder` 覆盖。装配侧经
+    `FeelAssemblyOptions.Fields`/`CarriersFeelOptions.Fields` 传同一份登记。**已知局限**：第 7 层光环 `feel_modifiers` 读的是规则层 `skill.aura_def` 的 schema（按框架默认登记生成），
+    游戏自有字段不能写在光环修饰里；需要时由规则层的光环 schema 提供扩展位。
+20. **玩家入口在载体层（M5）**：本模块不读职业行；`CreatureTemplateFeelBodyProvider`（`core/carriers/assembly`）对玩家单位读 `arch.class` 的 `feel_archetype_ref`/`feel_ref`，见该模块 README。
+
 ## 基础架构提供 / 游戏层提供
 
 | 能力 | 基础架构提供 | 游戏层提供 |
 |---|---|---|
 | 字段登记、八层解析、两个视图、校验、装配、调试覆盖 | 是 | 需要新增手感字段时走变更流程（改字段登记，字段集合是框架契约） |
-| 预设、体型原型、武器原型、运动模式规则（试调起点） | 是（`data/_feel/`，实验性） | 自己的预设/原型/武器/角色/动作/标签映射行，以及试玩后把 `maturity` 升为 `validated` |
-| 标定行（参考身高、基础移速、基础预设、镜头参考高度等） | 否（结构与校验由框架给出） | 是，每款游戏一行；缺失则装配失败 |
+| 预设、体型原型、武器原型、运动模式规则（试调起点） | 是（`data/_feel/`，实验性） | 自己的预设/原型/武器/角色/动作/标签映射行，以及试玩后把 `maturity` 升为 `validated`（同时写一条 `feel.validation` 记录） |
+| 标定行（参考身高、参考基础移速、基础预设、镜头参考高度等） | 否（结构与校验由框架给出） | 是，每款游戏一行；缺失则装配失败 |
 | 提供者接口的实现（体型原型、标签、装备、动作状态、临时状态） | 否（只定义接口） | 上层装配方按自己的实体与装备模型实现 |
 
 ## 手感落地 M2-B：热加载入口与层数叠加（2026-10-02）

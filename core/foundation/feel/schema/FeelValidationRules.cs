@@ -12,11 +12,18 @@ namespace Core.Foundation.Feel
     /// </summary>
     public sealed class FeelProfileValidationRule : IValidationRule
     {
-        private readonly FeelFieldSet _fields;
+        private readonly Func<IDataRegistryView, FeelFieldSet> _fields;
 
         public FeelProfileValidationRule(FeelFieldSet fields)
         {
-            _fields = fields ?? throw new ArgumentNullException(nameof(fields));
+            if (fields == null) throw new ArgumentNullException(nameof(fields));
+            _fields = _ => fields;
+        }
+
+        /// <summary>字段登记在校验时才按注册表取（游戏自有字段的扩展位，见 <see cref="FeelSchemas.RegisterAll"/>）。</summary>
+        internal FeelProfileValidationRule(Func<IDataRegistryView, FeelFieldSet> fieldsForView)
+        {
+            _fields = fieldsForView ?? throw new ArgumentNullException(nameof(fieldsForView));
         }
 
         public string RuleId => nameof(FeelProfileValidationRule);
@@ -27,13 +34,14 @@ namespace Core.Foundation.Feel
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
-            var profiles = FeelProfileSet.FromRegistry(view, _fields);
+            var fields = _fields(view);
+            var profiles = FeelProfileSet.FromRegistry(view, fields);
             var sources = new List<FeelModifierSource>();
             if (view.TryGetAll(FeelTables.AuraDefTable, out var auras))
             {
                 for (var i = 0; i < auras.Count; i++)
                 {
-                    var writes = FeelWriteParser.ParseWrites(auras[i].Raw, FeelTables.AuraFeelModifiersField, _fields);
+                    var writes = FeelWriteParser.ParseWrites(auras[i].Raw, FeelTables.AuraFeelModifiersField, fields);
                     if (writes.Count > 0) sources.Add(new FeelModifierSource(FeelTables.AuraDefTable, auras[i].Key, writes));
                 }
             }
@@ -55,15 +63,19 @@ namespace Core.Foundation.Feel
     /// </summary>
     public sealed class FeelHalfIsolationRule : IValidationRule
     {
-        private readonly HashSet<string> _judging = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Func<IDataRegistryView, FeelFieldSet> _fields;
+        private HashSet<string> _judging = new HashSet<string>(StringComparer.Ordinal);
 
         public FeelHalfIsolationRule(FeelFieldSet fields)
         {
             if (fields == null) throw new ArgumentNullException(nameof(fields));
-            for (var i = 0; i < fields.Count; i++)
-            {
-                if (fields[i].Half == FeelHalf.Judging) _judging.Add(fields[i].Name);
-            }
+            _fields = _ => fields;
+        }
+
+        /// <summary>字段登记在校验时才按注册表取（游戏自有字段的扩展位，见 <see cref="FeelSchemas.RegisterAll"/>）。</summary>
+        internal FeelHalfIsolationRule(Func<IDataRegistryView, FeelFieldSet> fieldsForView)
+        {
+            _fields = fieldsForView ?? throw new ArgumentNullException(nameof(fieldsForView));
         }
 
         public string RuleId => nameof(FeelHalfIsolationRule);
@@ -74,6 +86,14 @@ namespace Core.Foundation.Feel
 
         public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
         {
+            var fields = _fields(view);
+            var judging = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < fields.Count; i++)
+            {
+                if (fields[i].Half == FeelHalf.Judging) judging.Add(fields[i].Name);
+            }
+            _judging = judging;
+
             var tables = view.Tables;
             for (var t = 0; t < tables.Count; t++)
             {
@@ -198,7 +218,7 @@ namespace Core.Foundation.Feel
             for (var i = 0; i < FeelTables.All.Count; i++)
             {
                 var table = FeelTables.All[i];
-                if (table == FeelTables.Calibration) continue;
+                if (table == FeelTables.Calibration || table == FeelTables.Validation) continue;
                 if (view.TryGetAll(table, out var rows)) others += rows.Count;
             }
             if (others == 0) yield break;
@@ -206,6 +226,95 @@ namespace Core.Foundation.Feel
             yield return new ValidationIssue(ValidationSeverity.Error, FeelTables.Calibration, FeelChecks.CalibrationMissing,
                 $"存在 {others} 行 feel.* 数据但 feel.calibration 没有任何行：标定表缺项会阻断装配（不用隐式缺省），请为这款游戏补一行标定")
                 .WithRuleId(RuleId);
+        }
+    }
+
+    /// <summary>
+    /// 成熟度校验（手感设计/05 第 8 节，ADR-0146）：档案行标 <c>maturity: validated</c> 必须在 <c>feel.validation</c> 里有覆盖它的记录
+    /// （指向该行、档案版本一致、评分各项不低于升级门槛、格子已写明），否则报错；验证记录自身的 <c>profile_ref</c> 必须指向存在的档案行、
+    /// <c>date</c> 必须是 yyyy-mm-dd。框架自带的档案行永远是 experimental，所以框架数据在没有验证记录时天然无法标 validated。
+    /// 没有任何档案行与验证记录时静默。
+    /// </summary>
+    public sealed class FeelMaturityRule : IValidationRule
+    {
+        public string RuleId => nameof(FeelMaturityRule);
+
+        public ValidationSeverity DefaultSeverity => ValidationSeverity.Error;
+
+        public bool NonEscalatable => false;
+
+        public IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            var ledger = FeelValidationLedger.FromRegistry(view);
+
+            // 档案行（含版本），按"表id"索引，供验证记录核对 profile_ref。
+            var profiles = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (var t = 0; t < FeelTables.Profiles.Count; t++)
+            {
+                var table = FeelTables.Profiles[t];
+                if (!view.TryGetAll(table, out var rows)) continue;
+                for (var i = 0; i < rows.Count; i++) profiles[rows[i].Key] = FeelMaturity.ProfileVersionOf(rows[i]);
+            }
+
+            for (var t = 0; t < FeelTables.Profiles.Count; t++)
+            {
+                var table = FeelTables.Profiles[t];
+                if (!view.TryGetAll(table, out var rows)) continue;
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    var row = rows[i];
+                    if (!FeelMaturity.IsMarkedValidated(row)) continue;
+                    var version = FeelMaturity.ProfileVersionOf(row);
+                    if (ledger.Covering(row.Key, version).Count > 0) continue;
+
+                    var near = new List<string>();
+                    for (var r = 0; r < ledger.Records.Count; r++)
+                    {
+                        var rec = ledger.Records[r];
+                        if (rec.ProfileRef != row.Key) continue;
+                        if (rec.ProfileVersion != version) near.Add(rec.Id + "（档案版本 " + rec.ProfileVersion + "，当前 " + version + "，已过期）");
+                        else if (!rec.MeetsThreshold) near.Add(rec.Id + "（评分未达升级门槛 " + FeelMaturity.ScoreThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture) + "）");
+                    }
+
+                    yield return new ValidationIssue(ValidationSeverity.Error, table, FeelChecks.ValidatedWithoutRecord,
+                        "档案行标了 validated，但 feel.validation 里没有覆盖它的记录（需要：profile_ref 指向本行、profile_version 等于本行当前版本 " + version
+                        + "、评分各项不低于升级门槛、格子已写明）；框架自带的档案行只能是 experimental"
+                        + (near.Count == 0 ? string.Empty : "。已有但不覆盖的记录：" + string.Join("；", near)),
+                        row.Key, "maturity").WithRuleId(RuleId);
+                }
+            }
+
+            if (!view.TryGetAll(FeelTables.Validation, out var records)) yield break;
+            for (var i = 0; i < records.Count; i++)
+            {
+                var rec = records[i];
+                if (rec.TryGetString("profile_ref", out var profileRef) && !profiles.ContainsKey(profileRef))
+                {
+                    yield return new ValidationIssue(ValidationSeverity.Error, FeelTables.Validation, FeelChecks.ValidationProfileMissing,
+                        "profile_ref \"" + profileRef + "\" 不是任何 feel.preset/archetype/weapon/character/action 行", rec.Key, "profile_ref")
+                        .WithRuleId(RuleId);
+                }
+
+                if (rec.TryGetString("date", out var date) && !IsIsoDate(date))
+                {
+                    yield return new ValidationIssue(ValidationSeverity.Error, FeelTables.Validation, FeelChecks.ValidationDateInvalid,
+                        "date \"" + date + "\" 不是 yyyy-mm-dd", rec.Key, "date").WithRuleId(RuleId);
+                }
+            }
+        }
+
+        private static bool IsIsoDate(string text)
+        {
+            if (text.Length != 10 || text[4] != '-' || text[7] != '-') return false;
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (i == 4 || i == 7) continue;
+                if (text[i] < '0' || text[i] > '9') return false;
+            }
+
+            var month = (text[5] - '0') * 10 + (text[6] - '0');
+            var day = (text[8] - '0') * 10 + (text[9] - '0');
+            return month >= 1 && month <= 12 && day >= 1 && day <= 31;
         }
     }
 }

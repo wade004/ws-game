@@ -9,6 +9,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
+using Core.Foundation.SaveSystem;
 using Core.Foundation.SimLoop;
 using Core.Rules.Assembly;
 using Core.Rules.Common;
@@ -25,6 +26,12 @@ namespace Core.Carriers.Assembly
     {
         /// <summary>要用的 <c>feel.calibration</c> 行 id；数据里恰有一行（如框架缺省标定）时可为空，多行（如游戏自带标定 + 框架缺省）必须指定。</summary>
         public string? CalibrationId { get; set; }
+
+        /// <summary>
+        /// 手感字段登记；缺省 null 取框架默认登记。游戏自有字段（<c>game.</c> 前缀，手感设计/05 第 4 节）经 <see cref="FeelFields.Extend"/> 得到扩展后的登记赋在这里，
+        /// 同一份登记还要交给 <see cref="FeelSchemas.RegisterAll"/>（数据校验），数据里才能合法地写这些字段。框架的判定与表现消费方不读取游戏自有字段。
+        /// </summary>
+        public FeelFieldSet? Fields { get; set; }
 
         /// <summary>主手武器槽位覆盖；<c>null</c> 取武器槽（<c>is_weapon</c>）按 id 序数的第 1 个。见 <see cref="EquippedWeaponFeelProvider"/> 判断记录。</summary>
         public Id? MainHandSlot { get; set; }
@@ -211,11 +218,12 @@ namespace Core.Carriers.Assembly
             if (options == null) throw new ArgumentNullException(nameof(options));
 
             var rules = carriers.Rules;
-            var fields = FeelFields.Default;
+            var fields = options.Fields ?? FeelFields.Default;
 
+            var bodyProvider = new CreatureTemplateFeelBodyProvider(world, registry);
             var providers = new FeelProviders
             {
-                Body = new CreatureTemplateFeelBodyProvider(world, registry),
+                Body = bodyProvider,
                 Tags = new UnitTagFeelProvider(carriers.Units),
                 Equipment = new EquippedWeaponFeelProvider(carriers.Equipment, registry, options.MainHandSlot, options.OffhandSlot),
                 Action = new ActionStateFeelProvider(rules.Skill),
@@ -301,6 +309,16 @@ namespace Core.Carriers.Assembly
                 RulesEventKeys.AuraStackChanged, e => resolver.Invalidate(e.TargetId, "aura_changed")));
             subscriptions.Add(bus.Subscribe<UnitDiedEvent>(
                 RulesEventKeys.UnitDied, e => buffer.Clear(e.UnitId)));
+            // 玩家的体型/角色引用来自职业行（ADR-0146），读档会改写 PlayerUnit.ArchetypeId 而不经任何手感事件：读档完成后让玩家单位缓存失效重算。
+            // 只在有职业行声明了手感引用时才做（没有声明就没有可能变化的东西，不为此多递增版本号，缺省行为与改动前逐位一致）。
+            subscriptions.Add(bus.Subscribe(SaveEventKeys.SaveLoaded, _ =>
+            {
+                if (!bodyProvider.AnyClassDeclaresFeel()) return;
+                foreach (var entity in world.QueryEntities(default))
+                {
+                    if (entity.Kind == EntityKinds.Player) resolver.Invalidate(entity.EntityId, "player_class_reloaded");
+                }
+            }));
             // 手感落地 M3-B：单位从登记起就开始采样宽限条件（装配时已有的单位现在登记，之后出生的在 entity.created 派发时登记），第一次按键之前就有历史可查。
             // 手感落地 M4-G：惰性分配——没有任何动作声明宽限条件时不为任何单位建缓冲（单位很多时省下每个单位一份空缓冲）；条件声明出现的那一刻
             // （InputBufferHost.GraceConditionsDeclared）才为已有的单位补登记，之后出生的单位在出生时登记。

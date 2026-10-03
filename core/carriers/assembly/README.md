@@ -308,3 +308,12 @@ M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节�
 3. **显式 `RegisterActor` 惰性分配**：见同一节第 3 条；生产装配的自动登记口径不变（`AutoRegisterGraceActors`、"没有声明就不登记"）。
 4. **无头世界的视线（可选，缺省关闭）**：`HeadlessWorldOptions.NavigationLineOfSight`（缺省 false）为真时，`StubSpatialQuery.HasLineOfSight` 取自 `Navigation` 的阻挡判定（`StubSpatialQuery.UseNavigationLineOfSight(navigation, mapId)`：`navigation.Raycast(...)` 非空即被遮挡，`INavigation2D.Raycast` 契约本就写明视线受阻即其返回值非空；静态地形阻挡与运行期动态阻挡 `SetBlocking`/`AddBlocking`/`RemoveBlocking` 都在每次查询时读取、立刻生效）。**缺省关闭的理由**：打开后隔墙施法会因步骤 7 的视线检查失败（`NoLineOfSight`），带阻挡的既有脚本与基线会因此变化；视线只是需要验证遮挡的测试/脚本按需打开的能力，同 `SpatialRange` 等空间能力的做法（核心层可选、缺省关）。为真而没有提供 `Navigation` 时装配抛 `ArgumentException`（没有阻挡数据可依据，不静默当作畅通）。测试用它验证内置视线条件（`FeelGraceBuiltinTests`：`NavigationLineOfSight_SeesTheWall_AndTheDefaultStaysUnblocked`、`BuiltinLineOfSight_GraceCoversAWallThatJustAppeared_OnlyInsideTheWindow`、`NavigationLineOfSight_WithoutANavigation_FailsLoudly`——墙刚出现时宽限在窗口内放行、窗口外按真实遮挡拒绝；缺省世界视线仍畅通）。实验室没有依赖视线的脚本，也不打开它（打开会让带竖墙/阻挡的既有脚本基线变化），所以实验室不使用；引擎侧 `UnitySpatialQuery.HasLineOfSight` 本来就接到导航遮挡判定（见其类型注释），无头与引擎的口径一致。
 5. **接线**：`RulesFeelAssembly` 把受击裁决宿主的战斗状态查询接到 `CombatHost.IsInCombat`（韧性回复模式 `out_of_combat` 用，见 combat README M4-W3 节）；`FeelWiringEndToEndTests.PoiseRecoverMode_OutOfCombatReadsTheCombatHostsStateThroughTheProductionWiring` 钉死生产装配的接线（被通知战斗事件后为真、战斗宿主判定脱战后为假）。
+
+## 手感落地 M5：玩家的手感入口（`CreatureTemplateFeelBodyProvider`，2026-10-04，ADR-0146）
+
+1. **玩家按职业行取体型原型与角色引用**：`CreatureTemplateFeelBodyProvider` 对 `PlayerUnit` 读 `arch.class`（行 id 取 `PlayerUnit.ArchetypeId`）的 `feel_archetype_ref`/`feel_ref`，其它实体仍读 `creature.template`；
+   两个字段与单位模板上的同名字段同名同义，解析路径（第 2、5 层）同一条。职业行没有声明、职业 id 为空、或不在注册表时返回无，与此前玩家恒无这两层逐位一致。
+2. **读档后失效**：读档会改写 `PlayerUnit.ArchetypeId` 而不经任何手感事件，所以装配订阅 `save.loaded`，在**有职业行声明了手感引用**（`AnyClassDeclaresFeel`）时让玩家单位缓存失效重算
+   （原因 `player_class_reloaded`）。没有任何声明时不订阅副作用，不为玩家多递增版本号。测试 `FeelPlayerClassTests.SaveLoaded_RereadsPlayerClassRefs_WhenTheLoadedClassChanged`。
+3. **`CarriersFeelOptions.Fields`**（新增可选属性，缺省取框架默认登记）：游戏自有手感字段（`FeelFields.Extend`，`game.` 前缀）的登记经它进入装配；同一份登记还要交给 `FeelSchemas.RegisterAll(registry, set)` 做数据校验，见 `core/foundation/feel/README.md` 判断记录 19。
+   **已知局限**：光环 `feel_modifiers`（第 7 层）按框架默认登记校验，游戏自有字段不能写在光环修饰里。

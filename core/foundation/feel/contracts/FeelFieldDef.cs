@@ -30,6 +30,20 @@ namespace Core.Foundation.Feel
     }
 
     /// <summary>
+    /// 字段的落地状态（手感设计/05 第 4 节，ADR-0146）：<see cref="Active"/> = 至少有一个生产消费方读取，改它会改变运行结果；
+    /// <see cref="Planned"/> = 已登记（预设可以写、数据可以校验）但尚无消费方，写了也不生效。
+    /// 约束由测试守住：每个 active 字段在非测试代码里都有消费方引用，每个没有消费方引用的字段必须标 planned。
+    /// </summary>
+    public enum FeelFieldStatus
+    {
+        /// <summary>已生效（缺省）。</summary>
+        Active = 0,
+
+        /// <summary>已登记、尚未生效：调参面板灰显并注明"尚未生效"。</summary>
+        Planned = 1,
+    }
+
+    /// <summary>
     /// 一个手感字段的登记（手感设计/05 第 4 节的"字段登记元数据"）：名称、类型、范围、半属、分组、允许操作、
     /// 合成来源、单位、副手可叠加、是否可选。一份 <see cref="FeelFieldSet"/> 同时驱动数据校验、解析器合成、
     /// 调参面板自动生成与测试自动枚举——新增一个手感字段只改登记表与消费方，工具与测试不动（00 第 4 节）。
@@ -64,6 +78,12 @@ namespace Core.Foundation.Feel
         /// （手感设计/05 第 6 节；校验错误 <c>feel_modifier_attribute_duplicate</c>）。值为说明文本。
         /// </summary>
         public string? AttributeBackedReason { get; }
+
+        /// <summary>落地状态：缺省 <see cref="FeelFieldStatus.Active"/>；<see cref="FeelFieldStatus.Planned"/> 表示已登记但尚无消费方（见 <see cref="FeelFieldStatus"/>）。</summary>
+        public FeelFieldStatus Status { get; private set; }
+
+        /// <summary><see cref="FeelFieldStatus.Planned"/> 字段的说明（缺什么才能生效），active 字段为 null。</summary>
+        public string? StatusNote { get; private set; }
 
         public FeelHalf Half => Meta.Half;
 
@@ -184,6 +204,23 @@ namespace Core.Foundation.Feel
             Optional = optional;
             SoftReferenceTable = softReferenceTable;
             AttributeBackedReason = attributeBackedReason;
+        }
+
+        /// <summary>
+        /// 返回带指定落地状态的副本（本对象不可变，不被修改）。<paramref name="note"/> 只对 <see cref="FeelFieldStatus.Planned"/>
+        /// 有意义：说明还缺什么消费方才能生效，调参面板灰显时展示。
+        /// </summary>
+        public FeelFieldDef WithStatus(FeelFieldStatus status, string? note = null)
+        {
+            if (status == FeelFieldStatus.Active && note != null)
+            {
+                throw new ArgumentException($"字段 \"{Name}\"：active 字段不带状态说明", nameof(note));
+            }
+
+            var copy = (FeelFieldDef)MemberwiseClone();
+            copy.Status = status;
+            copy.StatusNote = status == FeelFieldStatus.Planned ? note : null;
+            return copy;
         }
 
         /// <summary>某值类型允许登记的覆盖操作全集。</summary>

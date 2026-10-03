@@ -108,6 +108,14 @@ namespace Core.Numbers.Archetype
                     description: "Array<{stat:Reference(stat.definition), source:Reference(stat.definition), " +
                         "coefficient:Number}>，本职业覆盖的派生系数，可选（ADR-0030 决策 2，T-N1-4；" +
                         "纯新增可选字段，不升级 currentSchemaVersion，同 T-N1-3 saturation 字段先例）"),
+                // 手感体系（手感设计/05 第 2 节，ADR-0146）新增：玩家单位的体型原型与角色手感行引用，解析路径与
+                // creature.template 的同名字段一致（玩家按职业解析）。纯新增可选字段，不升 currentSchemaVersion；
+                // 缺省缺失即该职业不引用任何手感行，解析结果与没有这两个字段时逐位一致。arch 在 L1、feel 在 L0，
+                // 依赖方向允许静态 Reference（与 creature.template 同写法）。
+                new FieldSchema("feel_archetype_ref", FieldKind.Reference, required: false, referenceTable: "feel.archetype",
+                    description: "体型原型（手感解析第 2 层）：指向 feel.archetype 的行；玩家单位按职业取，缺省没有体型层差异"),
+                new FieldSchema("feel_ref", FieldKind.Reference, required: false, referenceTable: "feel.character",
+                    description: "角色手感覆盖（手感解析第 5 层）：指向 feel.character 的行；玩家单位按职业取，缺省没有角色层差异"),
             }).WithOwnership(SchemaLayer.Numbers, "archetype");
 
         public static readonly TableSchema Race = new TableSchema(

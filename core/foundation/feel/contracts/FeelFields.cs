@@ -162,8 +162,59 @@ namespace Core.Foundation.Feel
         private static readonly IReadOnlyList<string> ReactionCapValues = new[] { "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
         private static readonly IReadOnlyList<string> ReversePolicyValues = new[] { "instant", "through_zero" };
 
+        /// <summary>
+        /// 已登记但尚无消费方的字段（落地状态 <see cref="FeelFieldStatus.Planned"/>，手感设计/05 第 4 节、ADR-0146）。
+        /// 某个字段有了生产消费方之后，把它从下表删除即回到 active；测试 <c>FeelFieldStatusTests</c> 守住"active ⇔ 有消费方引用"。
+        /// </summary>
+        private static readonly (string Name, string Note)[] PlannedFields =
+        {
+            (FeelFieldNames.DeadZone, "输入映射宿主尚未对手柄轴做死区处理"),
+            (FeelFieldNames.ResponseCurve, "输入映射宿主尚未对手柄轴做响应曲线处理"),
+            (FeelFieldNames.SmoothingMs, "输入映射宿主尚未对手柄轴做幅值平滑"),
+            (FeelFieldNames.SprintSpeedRatio, "没有冲刺移动模式，目标速度不读该字段"),
+            (FeelFieldNames.StrideScale, "表现层尚未按实际地面速度匹配动画播放速率"),
+            (FeelFieldNames.StartBlendMs, "表现层尚未实现起步过渡"),
+            (FeelFieldNames.StopBlendMs, "表现层尚未实现急停过渡"),
+            (FeelFieldNames.LeanDegPerAccel, "表现层尚未实现按加速度的身体倾斜"),
+            (FeelFieldNames.TrailEnabled, "表现层缺省 sink 不渲染拖尾"),
+            (FeelFieldNames.AfterimageEnabled, "表现层缺省 sink 不渲染残影"),
+            (FeelFieldNames.TrailRef, "表现层缺省 sink 不渲染拖尾，没有读取拖尾定义的消费方"),
+        };
+
         /// <summary>框架默认登记（不可变，登记顺序即遍历顺序）。</summary>
         public static FeelFieldSet Default { get; } = Build();
+
+        /// <summary>游戏自有手感字段的名字前缀（手感设计/05 第 4 节）。</summary>
+        public const string GameFieldPrefix = "game.";
+
+        /// <summary>
+        /// 在框架默认登记之上追加游戏自有字段（手感设计/05 第 4 节"游戏自有字段"，ADR-0146）：游戏自己的字段（如招架窗口、冲刺次数）参与八层解析、
+        /// 溯源与调参面板，但框架的判定与表现消费方不读取它们（消费方是游戏自己的代码，经解析结果按名读取）。
+        /// 约束：名字必须以 <see cref="GameFieldPrefix"/> 开头（与框架字段永不重名）、不得与已登记字段重名、状态恒为 active（消费方在游戏里）；
+        /// 建议声明为可选字段（<c>optional: true</c>），否则框架预设与每个游戏预设都得给它取值。
+        /// 要让数据里能写这些字段，把返回的登记同时交给 <c>FeelSchemas.RegisterAll</c>（数据校验）与装配选项（<c>FeelAssemblyOptions.Fields</c> 或
+        /// <c>CarriersFeelOptions.Fields</c>）。
+        /// </summary>
+        public static FeelFieldSet Extend(IEnumerable<FeelFieldDef> gameFields)
+        {
+            if (gameFields == null) throw new System.ArgumentNullException(nameof(gameFields));
+            var all = new List<FeelFieldDef>(Default.Fields);
+            foreach (var field in gameFields)
+            {
+                if (field == null) throw new System.ArgumentException("游戏字段登记不能为 null", nameof(gameFields));
+                if (!field.Name.StartsWith(GameFieldPrefix, System.StringComparison.Ordinal))
+                {
+                    throw new System.ArgumentException($"游戏自有字段必须以 \"{GameFieldPrefix}\" 开头：{field.Name}", nameof(gameFields));
+                }
+                if (field.Status != FeelFieldStatus.Active)
+                {
+                    throw new System.ArgumentException($"游戏自有字段不能标 planned：{field.Name}", nameof(gameFields));
+                }
+                all.Add(field);
+            }
+
+            return new FeelFieldSet(all);
+        }
 
         private static FeelFieldDef Num(
             string name, FeelGroup group, FeelHalf half, FeelUnit unit, FeelComposition comp,
@@ -373,7 +424,18 @@ namespace Core.Foundation.Feel
                 IntF(FeelFieldNames.SfxMaxConcurrent, Au, P, FeelUnit.Count, C, 1, 32, "同时发声上限"),
             };
 
+            ApplyPlannedStatus(fields);
             return new FeelFieldSet(fields);
+        }
+
+        private static void ApplyPlannedStatus(List<FeelFieldDef> fields)
+        {
+            for (var p = 0; p < PlannedFields.Length; p++)
+            {
+                var index = fields.FindIndex(f => f.Name == PlannedFields[p].Name);
+                if (index < 0) throw new System.InvalidOperationException("planned 字段未登记：" + PlannedFields[p].Name);
+                fields[index] = fields[index].WithStatus(FeelFieldStatus.Planned, PlannedFields[p].Note);
+            }
         }
     }
 }

@@ -168,3 +168,9 @@ archetype/
   `PowerRegistrar`/`AuraApplier`/`DerivationCoefficientOverrideWriter` 五个具名委托与外界交互
   （见判断记录 2、7、8）。
 - 不处理天赋点消耗/学习流程，只提供 `GetTalentTree` 只读查询（见判断记录 5）。
+
+## 手感引用（M5，2026-10-04，ADR-0146）
+
+`arch.class` 新增两个可选引用字段：`feel_archetype_ref`（指向 `feel.archetype`）与 `feel_ref`（指向 `feel.character`），含义与 `creature.template` 上的同名字段一致，是玩家单位的体型原型与角色手感入口
+（玩家没有单位模板，职业才是它的模板；读取在 `core/carriers/assembly` 的 `CreatureTemplateFeelBodyProvider`）。判断：字段可选、表 schema 版本不升（ADR-0039 的只加不改），
+既有职业数据零改动合法；本模块只登记 schema，不读取这两个字段，也不依赖手感模块（引用以字符串登记，目标表由数据校验的引用检查负责）。

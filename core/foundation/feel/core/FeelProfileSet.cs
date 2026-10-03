@@ -5,7 +5,7 @@ using Core.Foundation.DataRegistry;
 
 namespace Core.Foundation.Feel
 {
-    /// <summary><c>feel</c> 数据域的八张表名与相关引用字段名。</summary>
+    /// <summary><c>feel</c> 数据域的九张表名与相关引用字段名。</summary>
     public static class FeelTables
     {
         public const string Preset = "feel.preset";
@@ -17,11 +17,17 @@ namespace Core.Foundation.Feel
         public const string MotionModeRules = "feel.motion_mode_rules";
         public const string TagMap = "feel.tag_map";
 
-        /// <summary>全部八张表，登记顺序。</summary>
+        /// <summary>成熟度验证记录表（游戏自己的数据，手感设计/05 第 8 节；框架不提供任何行）。</summary>
+        public const string Validation = "feel.validation";
+
+        /// <summary>全部九张表，登记顺序。</summary>
         public static readonly IReadOnlyList<string> All = new[]
         {
-            Preset, Archetype, Weapon, Character, Action, Calibration, MotionModeRules, TagMap,
+            Preset, Archetype, Weapon, Character, Action, Calibration, MotionModeRules, TagMap, Validation,
         };
+
+        /// <summary>携带 <c>maturity</c> 与 <c>profile_version</c> 的五张档案表（成熟度验证的对象）。</summary>
+        public static readonly IReadOnlyList<string> Profiles = new[] { Preset, Archetype, Weapon, Character, Action };
 
         /// <summary>光环定义上的手感修饰字段（第 7 层来源）。</summary>
         public const string AuraDefTable = "skill.aura_def";

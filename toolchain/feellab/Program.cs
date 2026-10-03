@@ -16,6 +16,8 @@ namespace Toolchain.FeelLab
     /// <item><c>list</c>：列出格子及其在无头宿主上的可运行状态；</item>
     /// <item><c>invariants</c>：跨格子不变量（ADR-0122 决定 4）：平面组合逻辑组一致、动作式（剥 timeline + 经典预设）= 目标选择式、
     /// 经典预设下手感装配透明；不比较基线，不改任何文件。</item>
+    /// <item><c>fields</c>：由字段登记生成手感设计的字段目录片段（<c>architecture/手感设计/05a_字段登记表.md</c>，ADR-0146）；
+    /// <c>--check</c> 只比较不写，不一致退出码 1。</item>
     /// </list>
     /// <para>
     /// 退出码：0 全部通过；1 至少一个格子基线比较有差异；2 命令行参数错误；3 缺基线（无差异但有格子没有基线）；
@@ -65,6 +67,7 @@ namespace Toolchain.FeelLab
                     case "export-test": return ExportTest(options);
                     case "list": return List(options);
                     case "invariants": return Invariants(options);
+                    case "fields": return Fields(options);
                     default:
                         Console.Error.WriteLine($"未知命令：{command}");
                         Console.Error.WriteLine(Usage());
@@ -376,6 +379,34 @@ namespace Toolchain.FeelLab
             return fail > 0 ? ExitDiff : ExitOk;
         }
 
+        /// <summary>
+        /// 字段目录片段：把字段登记渲染成设计文档引用的 markdown 片段（<see cref="Core.Foundation.Feel.FeelFieldCatalogDoc"/>），
+        /// 默认写到 <c>architecture/手感设计/05a_字段登记表.md</c>（相对当前目录，应在仓库根运行）；<c>--check</c> 只比较，不一致退出码 1。
+        /// </summary>
+        private static int Fields(Options o)
+        {
+            var text = Core.Foundation.Feel.FeelFieldCatalogDoc.Render(Core.Foundation.Feel.FeelFields.Default);
+            var path = o.Get("out") ?? Core.Foundation.Feel.FeelFieldCatalogDoc.RelativePath;
+            if (o.Has("check"))
+            {
+                var current = File.Exists(path) ? File.ReadAllText(path).Replace("\r\n", "\n") : null;
+                if (current == text)
+                {
+                    Console.WriteLine($"RESULT fields same={path}");
+                    return ExitOk;
+                }
+
+                Console.WriteLine($"RESULT fields differs={path}（用 feellab fields 重新生成）");
+                return ExitDiff;
+            }
+
+            var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            Console.WriteLine($"RESULT fields written={path}");
+            return ExitOk;
+        }
+
         private static int List(Options o)
         {
             var runner = CreateRunner(o);
@@ -402,7 +433,7 @@ namespace Toolchain.FeelLab
         {
             private static readonly HashSet<string> Flags = new HashSet<string>(StringComparer.Ordinal)
             {
-                "record", "update-baseline", "no-expect", "expect-realtime",
+                "record", "update-baseline", "no-expect", "expect-realtime", "check",
             };
 
             private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);
