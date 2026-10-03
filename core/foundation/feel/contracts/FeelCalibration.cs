@@ -22,7 +22,11 @@ namespace Core.Foundation.Feel
         /// <summary>参考身高（世界单位）：身高倍数单位的换算依据。</summary>
         public double ReferenceHeight { get; }
 
-        /// <summary>基础移速（世界单位/秒）：基础移速倍数与"基础移速下的秒数"两种单位的换算依据。</summary>
+        /// <summary>
+        /// 参考基础移速（世界单位/秒）：只用于速度倍数字段在 <see cref="ResolvedFeel"/> 绝对值视图里的换算（倍数 × 本值，调参面板与实验室展示参考速度用）。
+        /// <b>不是移动的速度基准</b>：运动层的目标速度 = 倍数（标定前的相对值）× 该单位的移动速度属性（<c>MotionProfile</c> 判断记录 2、ADR-0146），
+        /// 改本值不改任何单位的实际移动速度。
+        /// </summary>
         public double BaseSpeed { get; }
 
         /// <summary>动画帧率（帧/秒）：呈现侧换算动画帧用，解析器不参与。</summary>
@@ -85,7 +89,8 @@ namespace Core.Foundation.Feel
 
         /// <summary>
         /// 把相对值按字段单位换算为绝对值（手感设计/00 第 6 节表）：毫秒保持毫秒（tick 另算）；身高倍数 × 参考身高；
-        /// 基础移速倍数 × 基础移速；"基础移速下的秒数" × 基础移速（得到世界距离）；画面高度比例 × 参考镜头高度；
+        /// 速度倍数 × 参考基础移速（只是绝对值视图，运动层不用它，见 <see cref="BaseSpeed"/>）；"基础移速下的秒数" × 参考基础移速（得到世界距离，
+        /// 目前没有任何字段使用这个单位）；画面高度比例 × 参考镜头高度；
         /// 其余单位（倍率、角度、角速度、强度档、计数）无需换算。
         /// </summary>
         public double ToAbsolute(FeelUnit unit, double relative)

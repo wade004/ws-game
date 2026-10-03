@@ -25,13 +25,12 @@ namespace Core.Foundation.Feel
         private static readonly IReadOnlyList<string> MaturityValues = new[] { "experimental", "validated" };
         private static readonly IReadOnlyList<string> OpValues = new[] { "set", "multiply", "add", "remove" };
 
-        /// <summary>写入条目（<c>writes</c>/<c>offhand_writes</c>/<c>feel_modifiers</c> 数组元素）的结构。</summary>
-        public static FieldSchema WriteItem { get; } = BuildWriteItem();
+        /// <summary>写入条目（<c>writes</c>/<c>offhand_writes</c>/<c>feel_modifiers</c> 数组元素）的结构（框架默认登记）。</summary>
+        public static FieldSchema WriteItem { get; } = BuildWriteItem(FeelFields.Default);
 
-        private static FieldSchema BuildWriteItem()
+        private static FieldSchema BuildWriteItem(FeelFieldSet fields)
         {
             var cases = new Dictionary<string, IReadOnlyList<FieldSchema>>(StringComparer.Ordinal);
-            var fields = FeelFields.Default;
             for (var i = 0; i < fields.Count; i++)
             {
                 cases[fields[i].Name] = new[] { fields[i].ToWriteValueSchema() };
@@ -48,7 +47,10 @@ namespace Core.Foundation.Feel
 
         /// <summary>构造一个写入条目数组字段（每次新建，调用方可以再挂 <c>WithGroup</c> 等元数据）。</summary>
         public static FieldSchema WriteArray(string name, string description, bool required = false) =>
-            new FieldSchema(name, FieldKind.Array, required, item: WriteItem, description: description);
+            WriteArray(name, description, WriteItem, required);
+
+        private static FieldSchema WriteArray(string name, string description, FieldSchema item, bool required = false) =>
+            new FieldSchema(name, FieldKind.Array, required, item: item, description: description);
 
         private static FieldSchema Id(string description) =>
             new FieldSchema("id", FieldKind.Id, required: true, description: description);
@@ -67,16 +69,15 @@ namespace Core.Foundation.Feel
 
         private static TableSchema Own(TableSchema table) => table.WithOwnership(SchemaLayer.Foundation, "feel");
 
-        public static readonly TableSchema Preset = Own(new TableSchema(
+        private static TableSchema BuildPreset(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.Preset,
             primaryKey: "id",
             currentSchemaVersion: 1,
-            fields: BuildPresetFields()));
+            fields: BuildPresetFields(fields)));
 
-        private static IReadOnlyList<FieldSchema> BuildPresetFields()
+        private static IReadOnlyList<FieldSchema> BuildPresetFields(FeelFieldSet fields)
         {
             var valueFields = new List<FieldSchema>();
-            var fields = FeelFields.Default;
             for (var i = 0; i < fields.Count; i++) valueFields.Add(fields[i].ToFieldSchema());
             return new[]
             {
@@ -91,7 +92,7 @@ namespace Core.Foundation.Feel
             };
         }
 
-        public static readonly TableSchema Archetype = Own(new TableSchema(
+        private static TableSchema BuildArchetype(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.Archetype,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -109,10 +110,10 @@ namespace Core.Foundation.Feel
                     description: "敏捷轴（描述性）"),
                 new FieldSchema("attack_weight", FieldKind.Enum, required: false, enumValues: new[] { "light", "medium", "heavy" },
                     description: "攻击重量轴（描述性）"),
-                WriteArray("writes", "与基础预设的差异写入；武器为主字段只允许 multiply"),
+                WriteArray("writes", "与基础预设的差异写入；武器为主字段只允许 multiply", writeItem),
             }));
 
-        public static readonly TableSchema Weapon = Own(new TableSchema(
+        private static TableSchema BuildWeapon(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.Weapon,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -127,8 +128,8 @@ namespace Core.Foundation.Feel
                 new FieldSchema("auto_attack_timeline_ref", FieldKind.Id, required: false,
                     description: "普通攻击的时间线技能引用（手感设计/03 第 1 节），缺省保持既有挥击计时")
                     .WithSoftReference(table: "skill.def"),
-                WriteArray("writes", "主手写入：角色为主字段不得写；攻击期间临时覆盖字段只在动作中生效"),
-                WriteArray("offhand_writes", "作为副手装备时的写入：只允许 offhand_stackable 字段的 add/multiply"),
+                WriteArray("writes", "主手写入：角色为主字段不得写；攻击期间临时覆盖字段只在动作中生效", writeItem),
+                WriteArray("offhand_writes", "作为副手装备时的写入：只允许 offhand_stackable 字段的 add/multiply", writeItem),
                 new FieldSchema("timeline_reference", FieldKind.Object, required: false,
                     description: "试调起点参考数值（手感设计/05 第 9 节），不分层、不参与解析，供动作时间线作者起步与实验室对照",
                     fields: new[]
@@ -150,7 +151,7 @@ namespace Core.Foundation.Feel
                     }),
             }));
 
-        public static readonly TableSchema Character = Own(new TableSchema(
+        private static TableSchema BuildCharacter(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.Character,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -160,10 +161,10 @@ namespace Core.Foundation.Feel
                 Description("说明"),
                 Maturity(),
                 ProfileVersion(),
-                WriteArray("writes", "只写与前几层的差异"),
+                WriteArray("writes", "只写与前几层的差异", writeItem),
             }));
 
-        public static readonly TableSchema Action = Own(new TableSchema(
+        private static TableSchema BuildAction(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.Action,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -173,10 +174,10 @@ namespace Core.Foundation.Feel
                 Description("说明"),
                 Maturity(),
                 ProfileVersion(),
-                WriteArray("writes", "进行中动作的覆盖，动作结束即撤"),
+                WriteArray("writes", "进行中动作的覆盖，动作结束即撤", writeItem),
             }));
 
-        public static readonly TableSchema Calibration = Own(new TableSchema(
+        private static TableSchema BuildCalibration(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.Calibration,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -187,7 +188,7 @@ namespace Core.Foundation.Feel
                 new FieldSchema("base_preset", FieldKind.Reference, required: true, referenceTable: FeelTables.Preset,
                     description: "这款游戏的基础预设（覆盖顺序第 1 层）"),
                 Positive("reference_height", "参考身高（世界单位）：身高倍数单位的换算依据"),
-                Positive("base_speed", "基础移速（世界单位/秒）：基础移速倍数的换算依据"),
+                Positive("base_speed", "参考基础移速（世界单位/秒）：速度倍数字段在解析结果绝对值视图里的换算依据，只是参考值；移动的目标速度 = 倍数 × 单位的移动速度属性，不读本字段"),
                 Positive("animation_fps", "动画帧率（帧/秒）"),
                 Positive("reference_camera_height", "参考镜头高度（世界单位，画面纵向可见范围）：画面高度比例的换算依据"),
                 Positive("reference_zoom", "参考镜头缩放（倍率）"),
@@ -201,7 +202,7 @@ namespace Core.Foundation.Feel
             new FieldSchema(name, FieldKind.Number, required: true, description: description)
                 .WithRange(FieldRange.Range(min: 0.0001));
 
-        public static readonly TableSchema MotionModeRules = Own(new TableSchema(
+        private static TableSchema BuildMotionModeRules(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.MotionModeRules,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -219,7 +220,7 @@ namespace Core.Foundation.Feel
                     description: "退出时保留动量：none 不适用、yes/no、by_profile、restore_previous_mode（顿帧叠加态恢复原模式）"),
             }));
 
-        public static readonly TableSchema TagMap = Own(new TableSchema(
+        private static TableSchema BuildTagMap(FeelFieldSet fields, FieldSchema writeItem) => Own(new TableSchema(
             name: FeelTables.TagMap,
             primaryKey: "id",
             currentSchemaVersion: 1,
@@ -233,27 +234,122 @@ namespace Core.Foundation.Feel
                     description: "映射到的体型原型（其 writes 在第 3 层应用）"),
                 new FieldSchema("priority", FieldKind.Int, required: false,
                     description: "同层多个标签的应用顺序：(priority, id) 升序，后应用者的 set 胜出，缺省 0"),
-                WriteArray("writes", "标签直接携带的覆盖（与 archetype_ref 的 writes 同处第 3 层，不得重复写同一字段）"),
+                WriteArray("writes", "标签直接携带的覆盖（与 archetype_ref 的 writes 同处第 3 层，不得重复写同一字段）", writeItem),
             }));
 
-        /// <summary>八张表（登记顺序同 <see cref="FeelTables.All"/>）。</summary>
-        public static IReadOnlyList<TableSchema> All { get; } = new[]
+        // ---------- 成熟度验证记录表（手感设计/05 第 8 节、06 第 6 节；ADR-0146）----------
+
+        private static readonly string[] ScoreDimensions = { "move", "turn", "hit_weight", "combo" };
+
+        private static TableSchema BuildValidation(FeelFieldSet fields, FieldSchema writeItem)
         {
-            Preset, Archetype, Weapon, Character, Action, Calibration, MotionModeRules, TagMap,
-        };
+            var scoreFields = new List<FieldSchema>();
+            var labels = new[] { "移动", "转向", "命中重量", "连招衔接" };
+            for (var i = 0; i < ScoreDimensions.Length; i++)
+            {
+                scoreFields.Add(new FieldSchema(ScoreDimensions[i], FieldKind.Number, required: true,
+                    description: labels[i] + "维度的评分汇总（1～5）；升级门槛是各项不低于 " + FeelMaturity.ScoreThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    .WithRange(FieldRange.Range(min: 1, max: 5)));
+            }
+
+            return Own(new TableSchema(
+                name: FeelTables.Validation,
+                primaryKey: "id",
+                currentSchemaVersion: 1,
+                fields: new[]
+                {
+                    Id("验证记录行 id（游戏自己的数据，框架不提供任何行）"),
+                    Description("说明"),
+                    new FieldSchema("profile_ref", FieldKind.Id, required: true,
+                        description: "被验证的档案行 id（feel.preset / feel.archetype / feel.weapon / feel.character / feel.action 之一的行，前缀决定表）"),
+                    new FieldSchema("profile_version", FieldKind.Int, required: true,
+                        description: "验证时该档案行的 profile_version（行缺省为 1）；档案行之后改了版本，这条记录即过期、不再覆盖该行")
+                        .WithRange(FieldRange.Range(min: 1)),
+                    new FieldSchema("cell", FieldKind.String, required: true,
+                        description: "格子 id：实验室场景矩阵的格子（手感设计/06 第 1.1 节，如 2_5d_action）；一个档案行可以只在部分格子验证过"),
+                    new FieldSchema("data_root_version", FieldKind.String, required: true,
+                        description: "验证时的数据根版本（版本号或内容哈希）"),
+                    new FieldSchema("pose_set_version", FieldKind.String, required: true,
+                        description: "验证时的姿势集版本"),
+                    new FieldSchema("device", FieldKind.String, required: true,
+                        description: "设备条件：输入设备与设备类别的自由文本（如 pc_keyboard_mouse、pad、touch），不做枚举"),
+                    new FieldSchema("scores", FieldKind.Object, required: true, fields: scoreFields,
+                        description: "评分摘要：手感设计/06 第 6 节四个维度各自的汇总分；评分明细只留本地，不入库"),
+                    new FieldSchema("date", FieldKind.String, required: true,
+                        description: "验证日期，yyyy-mm-dd"),
+                    new FieldSchema("note", FieldKind.String, required: false,
+                        description: "备注（试玩者人数、已知遗留问题等）"),
+                }));
+        }
+
+        private sealed class TableSet
+        {
+            public readonly TableSchema[] Tables;
+
+            public TableSet(FeelFieldSet fields, FieldSchema writeItem)
+            {
+                Tables = new[]
+                {
+                    BuildPreset(fields, writeItem), BuildArchetype(fields, writeItem), BuildWeapon(fields, writeItem),
+                    BuildCharacter(fields, writeItem), BuildAction(fields, writeItem), BuildCalibration(fields, writeItem),
+                    BuildMotionModeRules(fields, writeItem), BuildTagMap(fields, writeItem), BuildValidation(fields, writeItem),
+                };
+            }
+        }
+
+        private static readonly TableSet DefaultTables = new TableSet(FeelFields.Default, WriteItem);
+
+        public static readonly TableSchema Preset = DefaultTables.Tables[0];
+        public static readonly TableSchema Archetype = DefaultTables.Tables[1];
+        public static readonly TableSchema Weapon = DefaultTables.Tables[2];
+        public static readonly TableSchema Character = DefaultTables.Tables[3];
+        public static readonly TableSchema Action = DefaultTables.Tables[4];
+        public static readonly TableSchema Calibration = DefaultTables.Tables[5];
+        public static readonly TableSchema MotionModeRules = DefaultTables.Tables[6];
+        public static readonly TableSchema TagMap = DefaultTables.Tables[7];
+
+        /// <summary>成熟度验证记录表 <c>feel.validation</c>（游戏自己的数据；框架不提供任何行）。</summary>
+        public static readonly TableSchema Validation = DefaultTables.Tables[8];
+
+        /// <summary>九张表（登记顺序同 <see cref="FeelTables.All"/>），按框架默认字段登记生成。</summary>
+        public static IReadOnlyList<TableSchema> All { get; } = DefaultTables.Tables;
 
         /// <summary>
-        /// 注册八张表与三条校验规则（<see cref="FeelProfileValidationRule"/>、<see cref="FeelHalfIsolationRule"/>、
-        /// <see cref="FeelCalibrationRule"/>）。没有任何 <c>feel.*</c> 行时规则全部静默，既有数据校验结果不变。
+        /// 按指定字段登记生成九张表（手感设计/05 第 4 节"游戏自有字段"的 schema 扩展位）：预设的 <c>values</c> 子字段与五张分层表的
+        /// <c>writes</c> 变体分支都来自 <paramref name="fields"/>，所以游戏登记了自有字段（<see cref="FeelFields.Extend"/>）后，
+        /// 数据里就能合法地写它。传框架默认登记得到与 <see cref="All"/> 等价的表。
+        /// </summary>
+        public static IReadOnlyList<TableSchema> BuildAll(FeelFieldSet fields)
+        {
+            if (fields == null) throw new ArgumentNullException(nameof(fields));
+            return ReferenceEquals(fields, FeelFields.Default) ? All : new TableSet(fields, BuildWriteItem(fields)).Tables;
+        }
+
+        /// <summary>
+        /// 注册九张表与四条校验规则（<see cref="FeelProfileValidationRule"/>、<see cref="FeelHalfIsolationRule"/>、
+        /// <see cref="FeelCalibrationRule"/>、<see cref="FeelMaturityRule"/>）。没有任何 <c>feel.*</c> 行时规则全部静默，既有数据校验结果不变。
+        /// <para>
+        /// 判断记录（游戏自有字段的注册顺序无关，ADR-0146）：传入游戏扩展后的登记（非框架默认）时，表按该登记生成并登记为这份注册表的字段集，
+        /// 之后规则按"这份注册表的字段集"取字段（规则本身按规则 id 去重、先注册者胜出，所以字段集必须在校验时才取）；传框架默认登记
+        /// （或缺省）而这份注册表已有扩展登记时，保留扩展登记的表，不被框架目录随后的默认注册覆盖。
+        /// </para>
         /// </summary>
         public static void RegisterAll(IDataRegistry registry, FeelFieldSet? fields = null)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
-            for (var i = 0; i < All.Count; i++) registry.RegisterSchema(All[i]);
             var set = fields ?? FeelFields.Default;
-            registry.RegisterValidationRule(new FeelProfileValidationRule(set));
-            registry.RegisterValidationRule(new FeelHalfIsolationRule(set));
+            var custom = !ReferenceEquals(set, FeelFields.Default);
+            if (custom) FeelFieldExtensions.Set(registry, set);
+            if (custom || !FeelFieldExtensions.Has(registry))
+            {
+                var tables = BuildAll(set);
+                for (var i = 0; i < tables.Count; i++) registry.RegisterSchema(tables[i]);
+            }
+
+            registry.RegisterValidationRule(new FeelProfileValidationRule(FeelFieldExtensions.Provider(FeelFields.Default)));
+            registry.RegisterValidationRule(new FeelHalfIsolationRule(FeelFieldExtensions.Provider(FeelFields.Default)));
             registry.RegisterValidationRule(new FeelCalibrationRule());
+            registry.RegisterValidationRule(new FeelMaturityRule());
         }
     }
 }

@@ -460,6 +460,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **玩家的手感入口与成熟度验证记录（[ADR-0146](architecture/adr/0146-玩家手感入口与成熟度验证记录.md)，手感落地 M5 档案与成熟度）**：①`arch.class` 新增可选 `feel_archetype_ref`/`feel_ref`，玩家按职业行取体型原型与角色手感（解析路径与生物模板同一条；未声明时行为与此前逐位一致；读档后在有职业行声明手感引用时玩家缓存重算；`CarriersFeelOptions.Fields` 新增可选属性）。②新增数据表 `feel.validation`（游戏自己的成熟度验证记录，框架不提供任何行）与加载期规则 `FeelMaturityRule`：档案行标 `validated` 而没有覆盖它的记录（指向该行、`profile_version` 一致、四个评分维度各不低于 4、格子非空）报错；新增 `FeelMaturity`/`FeelValidationRecord`/`FeelValidationLedger`（按格子的已验证状态）；框架自带档案行永远是 `experimental`。③字段登记新增落地状态 `FeelFieldStatus`（`active`/`planned`）与扫描测试：11 个无消费方的字段（`dead_zone`、`response_curve`、`smoothing_ms`、`sprint_speed_ratio`、`stride_scale`、`start_blend_ms`、`stop_blend_ms`、`lean_deg_per_accel`、`trail_enabled`、`afterimage_enabled`、`trail_ref`）标 `planned`，被实现后由实现者摘掉。④字段登记表由登记生成：`FeelFieldCatalogDoc` 与 `feellab fields [--check]` 生成 `architecture/手感设计/05a_字段登记表.md`，测试逐字节比较。⑤游戏自有手感字段的扩展位：`FeelFields.Extend`（`game.` 前缀）与 `FeelSchemas.RegisterAll(registry, fields)`/`FeelSchemas.BuildAll`，注册顺序无关。均为纯加法，数据缺省行为、既有基线与数据集哈希逐位不变。
+
+### 变更
+
+- **标定的基础移速只用于绝对值视图（ADR-0146）**：运动层的目标速度本来就是"相对倍数 × 单位移动速度属性"，标定的 `base_speed` 从不参与移动；文档、字段说明与 `FeelCalibration` 改写为"参考基础移速"，`FeelUnit.BaseSpeedSeconds` 标不推荐（当前无字段使用）。不改任何行为与数据。
+- **手感设计文档整理**：05 删去没有消费方的 `units`/`requires` 行字段规定、手写字段清单改为引用生成的字段登记表、操作语义与层号按实现订正；06 第 6 节把成熟度升级（各项不低于 4）与真机手测及格线（3）分开写；README 与 ADR-0113 范围边界改为现状；05_对象模型与世界 第 6.2 节 `MovementState` 补四个运动字段。
+
 ## [1.97.0] - 2026-10-04
 
 ### 工具链
