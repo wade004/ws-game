@@ -84,8 +84,8 @@ namespace Core.Foundation.EngineAdapter
 
         /// <summary>
         /// 形状区域内离 <paramref name="point"/> 最近的点（点在形状内返回其自身）。供时间线命中给接触点用
-        /// （手感设计/03 第 2.4 节：形状与目标碰撞体的最近交点；契约里取不到目标碰撞半径，半径按 0 处理，
-        /// 见 skill 模块 README 已知局限）。
+        /// （手感设计/03 第 2.4 节：形状与目标碰撞体的最近交点；缺省把目标半径按 0 处理；
+        /// 游戏经 <c>TargetingOptions.TargetRadius</c> 提供半径来源，见 skill 模块 README "手感落地 M4 清扫"一节）。
         /// </summary>
         public static Vec2 ClosestPoint(Shape shape, Vec2 point)
         {

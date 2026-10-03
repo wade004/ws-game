@@ -310,6 +310,7 @@ namespace Core.Rules.Common
             switch (name)
             {
                 case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "attackInstanceId": value = ExprValue.OfId(AttackInstanceId); return true;
                 case "targetId": value = ExprValue.OfId(TargetId); return true;
                 case "skillId" when SkillId.HasValue: value = ExprValue.OfId(SkillId.Value); return true;
                 case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;

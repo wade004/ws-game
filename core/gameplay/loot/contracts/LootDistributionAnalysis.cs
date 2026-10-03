@@ -106,14 +106,12 @@ namespace Core.Gameplay.Loot
     /// 与 <see cref="LootHost.ResolveCurrencyOutcome"/> 逐项对齐：概率 × 当量（<see
     /// cref="LootExpectedOutcome.ExpectedCount"/> 同款期望值口径）× 金币基数 × 分档倍率 × 难度倍率。
     /// <para>
-    /// 判断记录（已知与真实抽取的偏差：不建模最终四舍五入 + "换算结果 &lt;=0 时静默跳过"这两步
-    /// 非线性）：<see cref="LootHost.ResolveCurrencyOutcome"/> 最终把换算结果 <see
-    /// cref="System.Math.Round(double, System.MidpointRounding)"/> 到整数、且 &lt;=0 时整条跳过不产出；
-    /// 本类型给出的是不做这两步非线性处理的解析式期望值（线性期望，与 <see
-    /// cref="LootTableAnalyzer"/> 类型注释"精确/近似边界"一节的既有惯例一致：期望值运算本身可加，
-    /// 但"取整"“&gt;0 才产出"两步不是线性运算，无法解析式精确纳入）——当量/金币基数/倍率的乘积明显
-    /// 大于 1（游戏内容通常如此）时该偏差可忽略，见 README"限制"一节；调用方需要精确到"是否会被四舍五入
-    /// 到 0"这一位时，应改用 <see cref="LootHost.RollDetailed"/> 蒙特卡洛观测。
+    /// 判断记录（两个期望口径并存）：<see cref="LootHost.ResolveCurrencyOutcome"/> 最终把换算结果 <see
+    /// cref="System.Math.Round(double, System.MidpointRounding)"/> 到整数、且 &lt;=0 时整条跳过不产出。
+    /// <see cref="ExpectedAmount"/> 是不做这两步非线性处理的线性期望（既有语义，保持不变）；
+    /// <see cref="ExpectedRoundedAmount"/>（NF1 新增）是含这两步的精确期望——每次命中的当量在条目
+    /// <c>[count_min, count_max]</c> 上均匀分布，逐个当量取整后求平均，再乘期望命中次数（经嵌套/保底路径同样线性叠加），
+    /// 不再有"量级较小的货币理论值与观测均值有偏差"的限制。
     /// </para>
     /// </summary>
     public sealed class LootExpectedCurrencyOutcome
@@ -140,13 +138,27 @@ namespace Core.Gameplay.Loot
 
         public string? Reason { get; }
 
+        /// <summary>含取整与"结果 &lt;=0 不产出"两步非线性的期望产出数量（精确值）：每次命中按 <c>当量 × 金币基数 × 分档倍率 × 难度倍率</c>
+        /// 四舍五入（<see cref="System.MidpointRounding.AwayFromZero"/>）、&lt;=0 记 0，对条目当量的均匀分布逐个取值求平均，再乘期望命中次数。
+        /// 与 <see cref="LootHost.RollDetailed"/> 的货币均值（大量抽取下）对得上；<see cref="ExpectedAmount"/> 仍是不取整的线性期望（既有语义不变）。
+        /// <see cref="IsDegraded"/> 为真时恒为 0。</summary>
+        public double ExpectedRoundedAmount { get; }
+
         public LootExpectedCurrencyOutcome(
             Id currencyRef, double dropProbability, double expectedAmount, IReadOnlyList<string> sourcePaths,
             bool isApproximate, bool isDegraded, string? reason)
+            : this(currencyRef, dropProbability, expectedAmount, sourcePaths, isApproximate, isDegraded, reason, 0.0)
+        {
+        }
+
+        public LootExpectedCurrencyOutcome(
+            Id currencyRef, double dropProbability, double expectedAmount, IReadOnlyList<string> sourcePaths,
+            bool isApproximate, bool isDegraded, string? reason, double expectedRoundedAmount)
         {
             CurrencyRef = currencyRef;
             DropProbability = dropProbability;
             ExpectedAmount = expectedAmount;
+            ExpectedRoundedAmount = expectedRoundedAmount;
             SourcePaths = sourcePaths;
             IsApproximate = isApproximate;
             IsDegraded = isDegraded;

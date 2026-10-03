@@ -10,7 +10,7 @@ namespace Core.Carriers.Unit
 {
     /// <summary>
     /// <see cref="IVerticalMotion"/> 的唯一实现：为被抛起的单位积分抛体运动并写回 <see cref="Unit.HeightOffset"/>
-    /// （手感设计/06 第 10 节勘误 9；单位、公式与已知局限见 <see cref="VerticalAxisOptions"/>/<see cref="IVerticalMotion"/>
+    /// （手感设计/06 第 10 节勘误 9；单位、公式与设计决定见 <see cref="VerticalAxisOptions"/>/<see cref="IVerticalMotion"/>
     /// 与 unit README 判断记录）。
     /// <para>
     /// 判断记录（只积分"被抛起"的单位）：没有被 <see cref="Launch"/> 的单位 <see cref="Unit.HeightOffset"/> 保持原值不动——

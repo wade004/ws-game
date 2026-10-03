@@ -230,7 +230,23 @@ namespace Core.Gameplay.Loot
         /// </para>
         /// </summary>
         public static LootAffixInclusionResult ExpectedAffixInclusion(
-            Id templateId, Id qualityId, IDataRegistryView registry, int exactMaxEntries = 16)
+            Id templateId, Id qualityId, IDataRegistryView registry, int exactMaxEntries = 16) =>
+            ExpectedAffixInclusionCore(templateId, qualityId, registry, exactMaxEntries, 0.0);
+
+        /// <summary>
+        /// NF1：候选池超过 <paramref name="exactMaxEntries"/> 时不直接降级，而是按"抽取次数 k 有界"的精确算法求解：
+        /// 状态是"已抽出的 k 条以内的子集"（而不是"全池位掩码"），状态数 ≈ C(n,≤k)，抽取次数 <c>affix_count</c> 一般很小，
+        /// 池再大也能精确算。<paramref name="exactMaxWork"/> 是转移次数预算（约 Σ C(n,j)·(n−j)，j&lt;k）：估算超预算（或 k &gt; 5、池 &gt; 4096）
+        /// 才如实标记降级并建议用 <see cref="LootHost.RollDetailed"/>——这是计算量边界，不是算法近似；不超过 <paramref name="exactMaxEntries"/>
+        /// 的池仍走原位掩码算法，两种算法在重叠区间的结果一致（用例核对）。
+        /// 既有三参/四参入口不变（<c>exactMaxWork</c> 缺省视为 0 = 不启用）。
+        /// </summary>
+        public static LootAffixInclusionResult ExpectedAffixInclusion(
+            Id templateId, Id qualityId, IDataRegistryView registry, int exactMaxEntries, double exactMaxWork) =>
+            ExpectedAffixInclusionCore(templateId, qualityId, registry, exactMaxEntries, exactMaxWork);
+
+        private static LootAffixInclusionResult ExpectedAffixInclusionCore(
+            Id templateId, Id qualityId, IDataRegistryView registry, int exactMaxEntries, double exactMaxWork)
         {
             if (registry == null) throw new ArgumentNullException(nameof(registry));
 
@@ -295,22 +311,34 @@ namespace Core.Gameplay.Loot
                     EmptyAffixProbabilities, tolerant.IsDegraded, registryDegradedReason);
             }
 
-            if (poolSize > exactMaxEntries)
-            {
-                var reason = $"候选词缀池 {poolSize} 条超过精确阈值 {exactMaxEntries}" +
-                    "（子集动态规划状态数按候选池条目数指数增长），请改用 LootHost.RollDetailed 做蒙特卡洛模拟" +
-                    "观测该品质下的词缀分布" + (registryDegradedReason != null ? "；另外，" + registryDegradedReason : "。");
-                return new LootAffixInclusionResult(
-                    templateId, qualityId, poolSize, actualAffixCount, null, isDegraded: true, reason);
-            }
-
             var weights = new double[poolSize];
             for (var i = 0; i < poolSize; i++)
             {
                 weights[i] = candidates[i].Weight;
             }
 
-            var inclusion = InclusionProbabilitiesExact(weights, actualAffixCount);
+            double[]? inclusion = null;
+            if (poolSize > exactMaxEntries)
+            {
+                if (exactMaxWork > 0.0)
+                {
+                    inclusion = InclusionProbabilitiesBoundedDraws(weights, actualAffixCount, exactMaxWork);
+                }
+
+                if (inclusion == null)
+                {
+                    var reason = $"候选词缀池 {poolSize} 条超过精确阈值 {exactMaxEntries}" +
+                        "（子集动态规划状态数按候选池条目数指数增长），请改用 LootHost.RollDetailed 做蒙特卡洛模拟" +
+                        "观测该品质下的词缀分布" + (registryDegradedReason != null ? "；另外，" + registryDegradedReason : "。");
+                    return new LootAffixInclusionResult(
+                        templateId, qualityId, poolSize, actualAffixCount, null, isDegraded: true, reason);
+                }
+            }
+            else
+            {
+                inclusion = InclusionProbabilitiesExact(weights, actualAffixCount);
+            }
+
             var probabilities = new Dictionary<Id, double>(poolSize);
             for (var i = 0; i < poolSize; i++)
             {
@@ -333,8 +361,8 @@ namespace Core.Gameplay.Loot
         /// 记录）× <paramref name="context"/>.<see cref="LootAnalysisContext.Multiplier"/>（对应 <see
         /// cref="RollContext.Multiplier"/> 难度倍率，两者是同一个数值——本方法只接受
         /// <see cref="LootAnalysisContext"/> 一份倍率输入，不重复要求调用方在 <see cref="RollContext"/>
-        /// 与本方法之间填两遍，避免两个来源不一致）。已知与真实抽取的偏差见 <see
-        /// cref="LootExpectedCurrencyOutcome"/> 类型注释"不建模最终四舍五入"判断记录。
+        /// 与本方法之间填两遍，避免两个来源不一致）。含四舍五入的精确期望见 <see
+        /// cref="LootExpectedCurrencyOutcome.ExpectedRoundedAmount"/>（<c>ExpectedAmount</c> 是不取整的线性期望）。
         /// </summary>
         public static IReadOnlyList<LootExpectedCurrencyOutcome> ExpectedCurrency(
             LootTableDef def, LootAnalysisContext context, IEconomyHost economy,
@@ -350,11 +378,13 @@ namespace Core.Gameplay.Loot
             }
 
             var diagnostics = context.Diagnostics ?? new ExprDiagnosticsRecorder();
-            var accumulator = AnalyzeTableSingleRoll(def, context, context.ExprHost, diagnostics, depth: 0);
-
             var level = sourceLevel ?? 1;
             var goldBase = economy.TryGetGoldBaseAmount(level);
             var tierMultiplier = goldMultiplierProvider?.Invoke(tierId) ?? 1.0;
+            CurrencyScale? scale = goldBase.HasValue
+                ? new CurrencyScale(goldBase.Value, tierMultiplier, context.Multiplier)
+                : (CurrencyScale?)null;
+            var accumulator = AnalyzeTableSingleRoll(def, context, context.ExprHost, diagnostics, depth: 0, currencyScale: scale);
 
             var result = new List<LootExpectedCurrencyOutcome>();
             foreach (var kv in accumulator)
@@ -379,7 +409,8 @@ namespace Core.Gameplay.Loot
 
                 var expectedAmount = acc.ExpectedCount * goldBase.Value * tierMultiplier * context.Multiplier;
                 result.Add(new LootExpectedCurrencyOutcome(
-                    leaf, dropProbability, expectedAmount, acc.Paths, acc.IsApproximate, isDegraded: false, reason: null));
+                    leaf, dropProbability, expectedAmount, acc.Paths, acc.IsApproximate, isDegraded: false, reason: null,
+                    expectedRoundedAmount: acc.ExpectedRoundedAmount));
             }
 
             return result;
@@ -537,7 +568,7 @@ namespace Core.Gameplay.Loot
 
         private static Dictionary<Id, LeafAccumulator> AnalyzeTableSingleRoll(
             LootTableDef def, LootAnalysisContext context, IExprHost? exprHost, IExprDiagnostics diagnostics, int depth,
-            QualityAccum? qualityAccum = null)
+            QualityAccum? qualityAccum = null, CurrencyScale? currencyScale = null)
         {
             var accumulator = new Dictionary<Id, LeafAccumulator>();
 
@@ -579,7 +610,7 @@ namespace Core.Gameplay.Loot
                         naturalProbabilityByKey[(gi, ei)] = effectiveChance;
                         chanceEachFireProbabilities.Add(effectiveChance);
                         ResolveEntryContribution(entry, effectiveChance, isApproximate: false,
-                            $"groups[{gi}].entries[{ei}]", context, exprHost, diagnostics, depth, accumulator, qualityAccum);
+                            $"groups[{gi}].entries[{ei}]", context, exprHost, diagnostics, depth, accumulator, qualityAccum, currencyScale);
                     }
                 }
                 else
@@ -599,7 +630,7 @@ namespace Core.Gameplay.Loot
                     {
                         naturalProbabilityByKey[(gi, poolIndexed[pi].Index)] = inclusion.Probabilities[pi];
                         ResolveEntryContribution(poolIndexed[pi].Entry, inclusion.Probabilities[pi], inclusion.Approximate,
-                            $"groups[{gi}].entries[{poolIndexed[pi].Index}]", context, exprHost, diagnostics, depth, accumulator, qualityAccum);
+                            $"groups[{gi}].entries[{poolIndexed[pi].Index}]", context, exprHost, diagnostics, depth, accumulator, qualityAccum, currencyScale);
                     }
                 }
 
@@ -620,7 +651,7 @@ namespace Core.Gameplay.Loot
             if (def.GuaranteedMin.HasValue)
             {
                 ResolveGuaranteedMin(def, context, exprHost, diagnostics, depth, chanceEachFireProbabilities,
-                    chanceEachIndexByKey, deterministicWeightedTotal, candidatePool, accumulator, qualityAccum);
+                    chanceEachIndexByKey, deterministicWeightedTotal, candidatePool, accumulator, qualityAccum, currencyScale);
             }
 
             return accumulator;
@@ -648,7 +679,7 @@ namespace Core.Gameplay.Loot
             List<double> chanceEachFireProbabilities, Dictionary<(int GroupIndex, int EntryIndex), int> chanceEachIndexByKey,
             int deterministicWeightedTotal,
             List<(LootEntry Entry, int GroupIndex, int EntryIndex, double NaturalProbability)> candidatePool,
-            Dictionary<Id, LeafAccumulator> accumulator, QualityAccum? qualityAccum = null)
+            Dictionary<Id, LeafAccumulator> accumulator, QualityAccum? qualityAccum = null, CurrencyScale? currencyScale = null)
         {
             var guaranteedMin = def.GuaranteedMin!.Value;
             var poolSize = candidatePool.Count;
@@ -736,7 +767,8 @@ namespace Core.Gameplay.Loot
                     {
                         var expectedQty = marginalTopUpProbability[i] * LootRollCore.ExpectedCount(entry);
                         AddPath(accumulator, entry.Ref, topUpGivenNotFired, expectedQty, approximate,
-                            $"groups[{gi}].entries[{ei}](guaranteed_min top-up, exact)");
+                            $"groups[{gi}].entries[{ei}](guaranteed_min top-up, exact)",
+                            CurrencyAmountContribution(entry, marginalTopUpProbability[i], currencyScale));
 
                         // 反馈 48：保底补抽命中的仍是同一条 LootEntry，品质分布取决于该条目自身的
                         // QualityWeights，与"是自然命中还是补抽命中"无关（见 AccumulateEntryQuality 判断
@@ -755,7 +787,7 @@ namespace Core.Gameplay.Loot
                     // 精确阈值——才真正近似；对 loot.* 条目恒标注近似，见方法注释）。
                     var isNestedOrApproximate = entry.Ref.Domain == "loot" || marginalApproximate;
                     ResolveEntryContribution(entry, marginalTopUpProbability[i], isNestedOrApproximate,
-                        $"groups[{gi}].entries[{ei}](guaranteed_min top-up)", context, exprHost, diagnostics, depth, accumulator, qualityAccum);
+                        $"groups[{gi}].entries[{ei}](guaranteed_min top-up)", context, exprHost, diagnostics, depth, accumulator, qualityAccum, currencyScale);
                 }
             }
         }
@@ -769,7 +801,8 @@ namespace Core.Gameplay.Loot
         private static void ResolveEntryContribution(
             LootEntry entry, double fireProbability, bool isApproximate, string pathLabel,
             LootAnalysisContext context, IExprHost? exprHost, IExprDiagnostics diagnostics,
-            int depth, Dictionary<Id, LeafAccumulator> accumulator, QualityAccum? qualityAccum = null)
+            int depth, Dictionary<Id, LeafAccumulator> accumulator, QualityAccum? qualityAccum = null,
+            CurrencyScale? currencyScale = null)
         {
             if (fireProbability <= 0)
             {
@@ -797,7 +830,7 @@ namespace Core.Gameplay.Loot
                 // 复用外层 qualityAccum，否则嵌套表内部的期望数量（尚未乘上"count 次独立重抽"这个外层
                 // 系数）会被误当成最终贡献直接并入外层，见下方合并步骤。
                 var nestedQualityAccum = qualityAccum != null ? new QualityAccum(qualityAccum.Registry) : null;
-                var nestedAccumulator = AnalyzeTableSingleRoll(nestedDef, context, exprHost, diagnostics, depth + 1, nestedQualityAccum);
+                var nestedAccumulator = AnalyzeTableSingleRoll(nestedDef, context, exprHost, diagnostics, depth + 1, nestedQualityAccum, currencyScale);
                 if (nestedAccumulator.Count == 0)
                 {
                     return;
@@ -820,8 +853,10 @@ namespace Core.Gameplay.Loot
                     var pathExpectedQty = fireProbability * expectedCount * nestedAcc.ExpectedCount;
                     var approximate = isApproximate || nestedAcc.IsApproximate;
 
+                    // 货币叶子的含取整期望：嵌套表单次 Roll 里该叶子的期望产出数量，乘上"命中后独立重抽 count 次"的期望次数（同 pathExpectedQty 的推导）。
+                    var pathExpectedRounded = fireProbability * expectedCount * nestedAcc.ExpectedRoundedAmount;
                     AddPath(accumulator, leaf, pathProbability, pathExpectedQty, approximate,
-                        pathPrefix + JoinPaths(nestedAcc.Paths));
+                        pathPrefix + JoinPaths(nestedAcc.Paths), pathExpectedRounded);
                 }
 
                 if (qualityAccum != null && nestedQualityAccum != null)
@@ -849,7 +884,8 @@ namespace Core.Gameplay.Loot
             }
             else
             {
-                AddPath(accumulator, entry.Ref, fireProbability, fireProbability * expectedCount, isApproximate, pathLabel);
+                AddPath(accumulator, entry.Ref, fireProbability, fireProbability * expectedCount, isApproximate, pathLabel,
+                    CurrencyAmountContribution(entry, fireProbability, currencyScale));
                 AccumulateEntryQuality(entry, fireProbability * expectedCount, qualityAccum);
             }
         }
@@ -870,9 +906,13 @@ namespace Core.Gameplay.Loot
             return joined;
         }
 
+        /// <summary>货币叶子条目（<c>econ.*</c>）以 <paramref name="hitExpectation"/>（期望命中次数）命中时的含取整期望产出数量；不是货币叶子或没给换算参数时为 0。</summary>
+        private static double CurrencyAmountContribution(LootEntry entry, double hitExpectation, CurrencyScale? scale) =>
+            scale.HasValue && entry.Ref.Domain == "econ" ? hitExpectation * scale.Value.ExpectedAmountPerHit(entry) : 0.0;
+
         private static void AddPath(
             Dictionary<Id, LeafAccumulator> accumulator, Id leaf, double pathProbability, double pathExpectedQty,
-            bool approximate, string pathLabel)
+            bool approximate, string pathLabel, double pathExpectedRounded = 0.0)
         {
             if (pathProbability <= 0 && pathExpectedQty <= 0)
             {
@@ -887,6 +927,7 @@ namespace Core.Gameplay.Loot
 
             acc.ProbabilityNone *= 1 - LootRollCore.Clamp01(pathProbability);
             acc.ExpectedCount += pathExpectedQty;
+            acc.ExpectedRoundedAmount += pathExpectedRounded;
             acc.IsApproximate = acc.IsApproximate || approximate;
             acc.Paths.Add(pathLabel);
         }
@@ -1028,6 +1069,94 @@ namespace Core.Gameplay.Loot
         /// "抽不到就 break、后续步骤全部跳过"完全同构。跑完 <paramref name="k"/> 步后，条目 i 被抽中的
         /// 概率 = 全部终态里"bit i 已清除"的概率之和。
         /// </summary>
+        /// <summary>
+        /// 抽取次数有界的精确入选概率（权重均 &gt; 0）：逐步抽取、不放回，状态 = 已抽出的子集（升序、每个下标 12 位打包进 ulong，
+        /// 所以 k ≤ 5、池 ≤ 4096）。第 j 层子集 S 的概率 P(S) 向下一层转移：每个未抽出的条目 i 以 w_i / (剩余权重合计) 被抽中；
+        /// 最后一层所有子集按成员累加得到入选概率。与 <see cref="InclusionProbabilitiesExact"/> 数学上同一个分布，只是状态数按 C(n,≤k) 增长。
+        /// 估算转移次数 Σ C(n,j)·(n−j)（j &lt; k）超过 <paramref name="maxWork"/>、或 k/池超出打包范围时返回 null（调用方降级）。
+        /// 每层按键排序后处理，浮点累加顺序固定。
+        /// </summary>
+        private static double[]? InclusionProbabilitiesBoundedDraws(double[] weights, int k, double maxWork)
+        {
+            var n = weights.Length;
+            if (k < 1 || k > 5 || n > 4096) return null;
+
+            var work = 0.0;
+            var combos = 1.0; // C(n, j)
+            for (var j = 0; j < k; j++)
+            {
+                work += combos * (n - j);
+                combos = combos * (n - j) / (j + 1);
+            }
+
+            if (work > maxWork) return null;
+
+            var level = new Dictionary<ulong, double> { { 0UL, 1.0 } };
+            var picked = new int[k + 1];
+            var inSet = new bool[n];
+            for (var step = 0; step < k; step++)
+            {
+                var keys = new List<ulong>(level.Keys);
+                keys.Sort();
+                var next = new Dictionary<ulong, double>();
+                foreach (var key in keys)
+                {
+                    var probability = level[key];
+                    for (var t = 0; t < step; t++)
+                    {
+                        picked[t] = (int)((key >> (12 * t)) & 0xFFFUL);
+                        inSet[picked[t]] = true;
+                    }
+
+                    var remaining = 0.0;
+                    for (var i = 0; i < n; i++)
+                    {
+                        if (!inSet[i]) remaining += weights[i];
+                    }
+
+                    for (var i = 0; i < n; i++)
+                    {
+                        if (inSet[i]) continue;
+                        var newKey = 0UL;
+                        var inserted = false;
+                        var pos = 0;
+                        for (var t = 0; t < step; t++)
+                        {
+                            if (!inserted && i < picked[t])
+                            {
+                                newKey |= (ulong)i << (12 * pos++);
+                                inserted = true;
+                            }
+
+                            newKey |= (ulong)picked[t] << (12 * pos++);
+                        }
+
+                        if (!inserted) newKey |= (ulong)i << (12 * pos);
+                        var add = probability * weights[i] / remaining;
+                        next[newKey] = next.TryGetValue(newKey, out var existing) ? existing + add : add;
+                    }
+
+                    for (var t = 0; t < step; t++) inSet[picked[t]] = false;
+                }
+
+                level = next;
+            }
+
+            var included = new double[n];
+            var finalKeys = new List<ulong>(level.Keys);
+            finalKeys.Sort();
+            foreach (var key in finalKeys)
+            {
+                var probability = level[key];
+                for (var t = 0; t < k; t++)
+                {
+                    included[(int)((key >> (12 * t)) & 0xFFFUL)] += probability;
+                }
+            }
+
+            return included;
+        }
+
         private static double[] InclusionProbabilitiesExact(double[] weights, int k)
         {
             var n = weights.Length;
@@ -1187,10 +1316,40 @@ namespace Core.Gameplay.Loot
             return sum / (max - min + 1);
         }
 
+        /// <summary>货币换算参数（<see cref="LootHost.ResolveCurrencyOutcome"/> 的同一组乘数）：每次命中的数量 = 当量 × 金币基数 × 分档倍率 × 难度倍率，
+        /// 四舍五入到整数，结果 &lt;=0 时不产出。乘法顺序与运行期逐位一致（边界值的取整才一致）。</summary>
+        private readonly struct CurrencyScale
+        {
+            private readonly double _goldBase;
+            private readonly double _tierMultiplier;
+            private readonly double _multiplier;
+
+            public CurrencyScale(double goldBase, double tierMultiplier, double multiplier)
+            {
+                _goldBase = goldBase;
+                _tierMultiplier = tierMultiplier;
+                _multiplier = multiplier;
+            }
+
+            /// <summary>一次命中（当量 <paramref name="equivalents"/>）的实际产出数量（取整、&lt;=0 记 0）。</summary>
+            public double AmountFor(int equivalents)
+            {
+                var raw = equivalents * _goldBase * _tierMultiplier * _multiplier;
+                var amount = (int)Math.Round(raw, MidpointRounding.AwayFromZero);
+                return amount > 0 ? amount : 0;
+            }
+
+            /// <summary>条目每次命中的期望产出数量：count 在 [CountMin, CountMax] 闭区间均匀分布，逐个当量取整后求平均（精确值）。</summary>
+            public double ExpectedAmountPerHit(LootEntry entry) =>
+                AverageOverUniformCount(entry.CountMin, entry.CountMax, AmountFor);
+        }
+
         private sealed class LeafAccumulator
         {
             public double ProbabilityNone = 1.0;
             public double ExpectedCount;
+            /// <summary>货币叶子的"含四舍五入"期望产出数量（已换算为货币基础单位）；只在分析入口给了换算参数时累加（见 <see cref="CurrencyScale"/>）。</summary>
+            public double ExpectedRoundedAmount;
             public bool IsApproximate;
             public readonly List<string> Paths = new List<string>();
         }

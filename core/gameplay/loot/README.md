@@ -639,23 +639,29 @@ loot/
    同 `ResolveCurrencyOutcome` 判断记录）× `goldMultiplierProvider` 对 `tierId` 解析出的分档金币
    倍率（未注入或无法解析时恒 1）× `context.Multiplier`（对应 `RollContext.Multiplier`，本方法只
    接受 `LootAnalysisContext` 一份倍率输入，不要求调用方在 `RollContext` 与本方法之间填两遍）。
-   已知与真实抽取的偏差（**限制**，判断记录）：`ResolveCurrencyOutcome` 最终把换算结果四舍五入
-   （`MidpointRounding.AwayFromZero`）到整数、且结果 <=0 时整条跳过不产出——这两步都不是线性运算，
-   本方法给出的是不做这两步处理的解析式期望值（线性期望）。当量/金币基数/倍率的乘积明显大于 1（
-   游戏内容通常如此）时该偏差可忽略；调用方需要精确到"是否会被四舍五入到 0"这一位时，应改用
-   `LootHost.RollDetailed` 蒙特卡洛观测，不要把本方法的 `ExpectedAmount` 当作逐次抽取的精确对照。
+   判断记录（两个期望口径并存，NF1 取代原"限制"）：`ResolveCurrencyOutcome` 最终把换算结果四舍五入
+   （`MidpointRounding.AwayFromZero`）到整数、且结果 <=0 时整条跳过不产出。`ExpectedAmount` 仍是不做这两步
+   的线性期望（既有语义，逐位不变）；新增 `ExpectedRoundedAmount` 是含这两步的**精确**期望：每次命中的当量在
+   条目 `count_range` 上均匀分布，逐个当量按运行期同一公式（同样的乘法顺序）取整、<=0 记 0 后求平均，再乘期望命中次数，
+   经嵌套 `loot.*`（命中后独立重抽 count 次）与保底补抽路径同样线性叠加。量级较小的货币也能与 `RollDetailed` 的观测均值对上
+   （`E48_LootDistributionAnalysisTests.ExpectedCurrency_RoundedAmount_*`：当量 1/2/3 × 0.4 取整为 0/1/1，期望由规则算出，
+   20000 次抽取均值落在 5σ 内，线性期望则对不上）。编辑器"理论 vs 观测"面板应读 `ExpectedRoundedAmount`。
    `economy.TryGetGoldBaseAmount` 对给定等级返回 `null`（曲线未登记/读取失败）时该货币标记
    `IsDegraded=true`、`ExpectedAmount` 恒 0（不是"算出来的 0"），不抛异常。
 4. **测试证据**：`tests/E48_LootDistributionAnalysisTests.cs`——核心对账用真实内容数据集（
    `data/_sample/loot/loot.sample_beast`、`core/sim/tests/data/loot/loot.table.sim_wolf_l1`，不是
    本文件现造的最小夹具）分别跑 `LootHost.RollDetailed` 固定种子 N=20000 次，统计品质/货币/词缀
    命中频次，核对与解析式理论值的偏差在二项分布 3σ 容差内；另补子集动态规划 vs 独立暴力枚举实现
-   逐位相等（池 ≤ 6）、池 = 17 降级为 `null`、`item.template`/`item.affix` 读取失败（阻断态替身）
+   逐位相等（池 ≤ 6）、池 = 17 缺省入口降级为 `null`、`item.template`/`item.affix` 读取失败（阻断态替身）
    不抛异常且显式标记降级、嵌套 `loot.*` 引用与 `guaranteed_min` 补抽的品质分布合并、同一叶子经
    两条不同权重条目的加权混合等边界情形。
-5. **限制**（供编辑器"理论 vs 观测"面板使用者知悉）：词缀候选池 > 16 时理论列无解析值（`null`），
-   只能展示观测值；货币期望值不建模最终四舍五入与"结果 <=0 静默跳过"两步非线性，量级较小的货币
-   条目理论值与观测均值可能出现可感知偏差。
+5. **词缀大池与货币取整（NF1，取代原"限制"）**：候选池超过 `exactMaxEntries`（缺省 16）时，缺省入口行为不变（返回
+   `null`、标记降级）；新增重载 `ExpectedAffixInclusion(templateId, qualityId, registry, exactMaxEntries, exactMaxWork)`
+   在位掩码阈值之外按"抽取次数 k 有界"的精确算法求解——状态是"已抽出的 k 条以内的子集"（≈ C(n,≤k)，`affix_count`
+   一般很小，池再大也能精确算），转移次数预算 `exactMaxWork`（约 Σ C(n,j)·(n−j)，j&lt;k）。计算量边界：k &gt; 5、池 &gt; 4096 或估算
+   超预算才如实降级并建议 `RollDetailed`——这是计算量的边界而不是近似（不给"看起来精确、实际有偏"的数）。两种算法在重叠区间逐条一致
+   （用例 `AffixInclusion_BoundedDrawsExact_*`：池 17、k=2 与暴力枚举一致，池 9 与位掩码解 12 位小数一致，预算过小仍降级）。货币期望值见上条
+   `ExpectedRoundedAmount`。
 6. **本次收口顺带修复既有缺陷**（验收发现，反馈 35/1.24.0 遗留，1.39.0 修复）：`InclusionProbabilities`
    （不放回多抽的 `k>=n` 快速路径，`ExpectedProbabilities` 内部辅助方法）此前无条件把候选池全部
    条目的入选概率报 1.0，权重 <=0 的 `weighted_pick_one` 条目也不例外——但 `LootHost.PickWeighted`
