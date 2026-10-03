@@ -32,7 +32,7 @@ namespace Core.Rules.Combat
     /// （<see cref="HitFeelOptions.IsDiscreteMode"/>）下全部入口静默：既有战斗行为逐位不变。
     /// </para>
     /// </summary>
-    public sealed class HitFeelHost : IHitFeelArbiter, IHitReactionQuery, IDisposable
+    public sealed class HitFeelHost : IHitFeelArbiter, IHitReactionQuery, IDefenseArbiter, IDisposable
     {
         private sealed class BatchEntry
         {
@@ -62,6 +62,27 @@ namespace Core.Rules.Combat
 
             /// <summary>空中硬直持续到落地（目标侧 <c>air_stun_until_land</c> 在硬直登记时的取值）。</summary>
             public bool UntilLand;
+
+            /// <summary>击退时长（秒）：攻击方档案 <c>knockback_duration_ms</c> 声明时的取值；≤ 0 用 <see cref="HitFeelOptions.KnockbackDurationSeconds"/>。</summary>
+            public double KnockbackDurationSeconds;
+
+            /// <summary>本次硬直是 <c>knockdown</c>（有倒地段）。</summary>
+            public bool IsKnockdown;
+
+            /// <summary>倒地段 tick 数（硬直段之后）。</summary>
+            public int DownTicks;
+
+            /// <summary>起身段 tick 数（倒地段之后；0 即没有起身段）。</summary>
+            public int GetupTicks;
+
+            /// <summary>起身无敌 tick 数（起身段开头；已限制不超过起身段）。</summary>
+            public int GetupInvulnTicks;
+
+            public bool DownEmitted;
+            public bool GetupEmitted;
+
+            /// <summary>硬直结束后的保护期 tick 数（受击方 <c>stagger_grace_ms</c> 在登记/刷新硬直时的取值；0 即不设）。</summary>
+            public int GraceTicks;
         }
 
         /// <summary>
@@ -113,6 +134,9 @@ namespace Core.Rules.Combat
         // combat.damage_dealt，所以"已见 unit.died 再见伤害事件"才是击杀；同一 tick 内更早入队的非致死命中看到的是"还没见到 unit.died"。
         private readonly HashSet<Id> _killPending = new HashSet<Id>();
         private readonly SortedDictionary<Id, StaggerRec> _staggers = new SortedDictionary<Id, StaggerRec>();
+
+        // 硬直保护期（<c>stagger_grace_ms</c>，ADR-0145）：单位 → 硬直结束后剩余的保护 tick 数。
+        private readonly SortedDictionary<Id, int> _grace = new SortedDictionary<Id, int>();
         private long _syntheticAttackCounter;
         private bool _disposed;
 
@@ -129,6 +153,13 @@ namespace Core.Rules.Combat
         /// 腾空查询（竖直运动服务）。缺省 null——一律视为在地面，<c>air_hit_reaction</c> 不生效（与 1.95.0 一致）。
         /// </summary>
         public IAirborneQuery? Airborne { get; set; }
+
+        /// <summary>
+        /// 受击方防御（格挡）状态查询（ADR-0145，<see cref="IDefenseArbiter"/> 的输入）。输入侧的"按住维持型动作"合并后由它的实现接上；
+        /// 缺省 null 时回退到动作时间线的格挡窗口（<see cref="IActionStateQuery.IsGuarding"/>，<c>guard_start</c>～<c>guard_end</c> 标记）。
+        /// 两者都没有时没有任何单位处于格挡状态（防御裁决恒为 None，既有行为不变）。
+        /// </summary>
+        public IGuardStateQuery? Guard { get; set; }
 
         /// <summary>
         /// 战斗状态查询（手感落地 M4-W3，装配根接 <c>CombatHost.IsInCombat</c>）：目标侧 <c>poise_recover_mode = out_of_combat</c> 的韧性回复据此判断"脱战"。
@@ -199,10 +230,74 @@ namespace Core.Rules.Combat
 
         public bool IsStaggered(Id unitId) => _staggers.TryGetValue(unitId, out var rec) && rec.Active;
 
-        public bool IsDowned(Id unitId) => _staggers.TryGetValue(unitId, out var rec) && rec.Active && rec.Elapsed > rec.StunTicks;
+        public bool IsDowned(Id unitId) =>
+            _staggers.TryGetValue(unitId, out var rec) && rec.Active && rec.Elapsed > rec.StunTicks && rec.Elapsed <= rec.StunTicks + rec.DownTicks;
+
+        public bool IsGettingUp(Id unitId) =>
+            _staggers.TryGetValue(unitId, out var rec) && rec.Active && rec.GetupTicks > 0 && rec.Elapsed > rec.StunTicks + rec.DownTicks;
+
+        public bool IsGetupInvulnerable(Id unitId) =>
+            _staggers.TryGetValue(unitId, out var rec) && rec.Active && rec.GetupInvulnTicks > 0 && rec.GetupTicks > 0
+            && rec.Elapsed > rec.StunTicks + rec.DownTicks && rec.Elapsed <= rec.StunTicks + rec.DownTicks + rec.GetupInvulnTicks;
+
+        /// <summary>硬直保护期中（硬直进行中，或硬直结束后 <c>stagger_grace_ms</c> 还没走完）。供查询与测试。</summary>
+        public bool InStaggerProtection(Id unitId) => _staggers.ContainsKey(unitId) || _grace.ContainsKey(unitId);
 
         public int RemainingStaggerTicks(Id unitId) =>
             _staggers.TryGetValue(unitId, out var rec) ? (rec.Active ? rec.Remaining : rec.Duration) : 0;
+
+        // ================================================================== 防御裁决（结算管线在掷命中表之前问）
+
+        /// <inheritdoc />
+        public DefenseVerdict Judge(Id attackerId, Id targetId)
+        {
+            if (!Active) return DefenseVerdict.None;
+            if (IsGetupInvulnerable(targetId)) return new DefenseVerdict(DefenseKind.Invulnerable);
+            if (!TryGetGuardState(targetId, out var guard)) return DefenseVerdict.None;
+            if (!_units.Exists(targetId)) return DefenseVerdict.None;
+
+            var tgt = _feel.ResolveJudging(targetId);
+            if (!InGuardArc(attackerId, targetId, tgt)) return DefenseVerdict.None;
+
+            // 弹反窗口：格挡开始后的前 guard_parry_window_ms 内（窗口 tick 数不含边界，开始当 tick 经过数为 0）被命中判弹反。
+            if (tgt.TryGetNumber(FeelFieldNames.GuardParryWindowMs, out var windowMs) && windowMs > 0.0 && guard.ElapsedTicks < Ticks(windowMs))
+            {
+                return new DefenseVerdict(DefenseKind.Parry);
+            }
+
+            var scale = tgt.TryGetNumber(FeelFieldNames.GuardDamageScale, out var damageScale) ? damageScale : 1.0;
+            return new DefenseVerdict(DefenseKind.Block, scale);
+        }
+
+        private bool TryGetGuardState(Id unitId, out GuardState state)
+        {
+            if (Guard != null) return Guard.TryGetGuard(unitId, out state);
+            if (_actions != null && _actions.IsGuarding(unitId))
+            {
+                state = new GuardState(_actions.GuardElapsedTicks(unitId));
+                return true;
+            }
+
+            state = default;
+            return false;
+        }
+
+        /// <summary>
+        /// 格挡方向判定：攻击来向（受击方指向攻击方）与受击方朝向的夹角不超过 <c>guard_arc_deg</c> 的一半（缺省 180 = 朝向前方的半个平面；360 = 全向）；
+        /// 两者位置重合（没有来向）按在前方处理。
+        /// </summary>
+        private bool InGuardArc(Id attackerId, Id targetId, JudgingFeelView target)
+        {
+            var angle = target.TryGetNumber(FeelFieldNames.GuardArcDeg, out var a) ? a : 180.0;
+            if (angle >= 360.0) return true;
+            if (!_units.Exists(attackerId)) return true;
+            var toAttacker = _units.GetPosition(attackerId) - _units.GetPosition(targetId);
+            if (toAttacker.Length <= 1e-9) return true;
+            var facing = _units.GetFacing(targetId);
+            var cos = (Math.Cos(facing) * toAttacker.X + Math.Sin(facing) * toAttacker.Y) / toAttacker.Length;
+            var diff = Math.Acos(Math.Max(-1.0, Math.Min(1.0, cos)));
+            return diff <= angle * 0.5 * Math.PI / 180.0 + 1e-9;
+        }
 
         // ================================================================== 受击裁决
 
@@ -215,7 +310,13 @@ namespace Core.Rules.Combat
             var atk = input.AttackerFeel ?? _feel.ResolveJudging(input.AttackerId);
             var tgt = _feel.ResolveJudging(input.TargetId);
             var impact = atk.GetText(FeelFieldNames.ImpactClass);
-            if (IsAvoided(input.HitResult)) return HitFeelOutcome.None(impact);
+            var category = CategoryOf(input.HitResult);
+            if (IsAvoided(input.HitResult) && category != HitCategory.Parry) return HitFeelOutcome.None(impact);
+            if (category == HitCategory.Parry) return EvaluateParry(input, atk, tgt, impact);
+
+            // ---- 命中类别（ADR-0145）：暴击/格挡/偏斜可声明独立的冲击等级与顿帧倍率；未声明则与普通命中相同（既有行为）。
+            impact = ApplyCategoryImpact(category, impact, atk, tgt);
+            var hitstopScale = CategoryHitstopScale(category, atk, tgt);
 
             // M5-S2a：命中带分段/技能手感覆盖或蓄力缩放时记下，落地击退/击飞沿用同一份视图与缩放。
             var scale = input.Scale;
@@ -231,6 +332,7 @@ namespace Core.Rules.Combat
             // ---- 顿帧：攻击方时长取武器为主字段（击杀放大），受击方时长同；各自按所属单位的上限限幅。
             var attackerMs = atk.GetNumber(FeelFieldNames.AttackerHitstopMs) * scale.AttackerHitstop;
             if (input.IsKill) attackerMs *= atk.GetNumber(FeelFieldNames.KillHitstopScale);
+            if (hitstopScale.HasValue) attackerMs *= hitstopScale.Value;
             var attackerTicks = Math.Min(
                 Ticks(attackerMs),
                 Ticks(atk.GetNumber(FeelFieldNames.AttackerHitstopCapMs)));
@@ -238,12 +340,14 @@ namespace Core.Rules.Combat
             var targetTicks = 0;
             if (!input.IsKill)
             {
+                var targetMs = atk.GetNumber(FeelFieldNames.TargetHitstopMs) * scale.TargetHitstop;
+                if (hitstopScale.HasValue) targetMs *= hitstopScale.Value;
                 targetTicks = Math.Min(
-                    Ticks(atk.GetNumber(FeelFieldNames.TargetHitstopMs) * scale.TargetHitstop),
+                    Ticks(targetMs),
                     Ticks(tgt.GetNumber(FeelFieldNames.HitstopCapMs)));
             }
 
-            // ---- 受击反应：死亡 → 霸体 → 韧性 → 冲击等级映射 → reaction_cap。
+            // ---- 受击反应：死亡 → 霸体 → 韧性 → 冲击等级映射 → reaction_cap → 被格挡上限 → 硬直保护期。
             HitReaction reaction;
             if (input.IsKill)
             {
@@ -271,9 +375,198 @@ namespace Core.Rules.Combat
                 reaction = ApplyAirHit(reaction, input.TargetId, atk, tgt);
                 reaction = ApplyCap(reaction, tgt.GetText(FeelFieldNames.ReactionCap));
                 reaction = ApplyAirCap(reaction, input.TargetId, tgt);
+                if (category == HitCategory.Block) reaction = ApplyOptionalCap(reaction, tgt, FeelFieldNames.BlockReactionCap);
+                reaction = ApplyGrace(reaction, input.TargetId, tgt);
             }
 
-            return new HitFeelOutcome(impact, attackerTicks, targetTicks, reaction, ReactionDuration(reaction, tgt));
+            // ---- 攻击方被弹开（格挡类别声明；击杀不弹）。
+            var attackerReaction = HitReaction.None;
+            var attackerStun = 0;
+            if (category == HitCategory.Block && !input.IsKill)
+            {
+                attackerReaction = ResolveAttackerReaction(input.AttackerId, atk, tgt, FeelFieldNames.BlockAttackerReaction, out attackerStun);
+            }
+
+            var detail = BuildDetail(reaction, atk, tgt, attackerReaction, attackerStun);
+            return new HitFeelOutcome(impact, attackerTicks, targetTicks, reaction, DetailDuration(reaction, detail), detail);
+        }
+
+        private enum HitCategory
+        {
+            Normal,
+            Crit,
+            Block,
+            Glancing,
+            Parry,
+        }
+
+        private static HitCategory CategoryOf(HitResult result)
+        {
+            switch (result)
+            {
+                case HitResult.Crit: return HitCategory.Crit;
+                case HitResult.Block: return HitCategory.Block;
+                case HitResult.GlancingBlow: return HitCategory.Glancing;
+                case HitResult.Parry: return HitCategory.Parry;
+                default: return HitCategory.Normal;
+            }
+        }
+
+        /// <summary>命中类别声明的冲击等级（暴击读攻击方，格挡/偏斜/弹反读受击方）；未声明返回原值。</summary>
+        private static string ApplyCategoryImpact(HitCategory category, string impact, JudgingFeelView atk, JudgingFeelView tgt)
+        {
+            FeelValue v;
+            switch (category)
+            {
+                case HitCategory.Crit: v = atk.GetAbsolute(FeelFieldNames.CritImpactClass); break;
+                case HitCategory.Block: v = tgt.GetAbsolute(FeelFieldNames.BlockImpactClass); break;
+                case HitCategory.Glancing: v = tgt.GetAbsolute(FeelFieldNames.GlancingImpactClass); break;
+                case HitCategory.Parry: v = tgt.GetAbsolute(FeelFieldNames.ParryImpactClass); break;
+                default: return impact;
+            }
+
+            return v.IsNone ? impact : v.AsText();
+        }
+
+        /// <summary>命中类别声明的顿帧倍率（暴击读攻击方，格挡/偏斜/弹反读受击方）；未声明返回 null（不缩放）。</summary>
+        private static double? CategoryHitstopScale(HitCategory category, JudgingFeelView atk, JudgingFeelView tgt)
+        {
+            double scale;
+            switch (category)
+            {
+                case HitCategory.Crit:
+                    return atk.TryGetNumber(FeelFieldNames.CritHitstopScale, out scale) ? scale : (double?)null;
+                case HitCategory.Block:
+                    return tgt.TryGetNumber(FeelFieldNames.BlockHitstopScale, out scale) ? scale : (double?)null;
+                case HitCategory.Glancing:
+                    return tgt.TryGetNumber(FeelFieldNames.GlancingHitstopScale, out scale) ? scale : (double?)null;
+                case HitCategory.Parry:
+                    return tgt.TryGetNumber(FeelFieldNames.ParryHitstopScale, out scale) ? scale : (double?)null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// 弹反（<see cref="HitResult.Parry"/>，命中表的招架或格挡状态的弹反窗口）的裁决：目标不受伤、不反应；
+        /// 受击方声明了 <c>parry_hitstop_scale</c> 则两侧各按基础顿帧时长乘该倍率顿帧，声明了 <c>parry_attacker_reaction</c> 则攻击方被弹开。
+        /// 两者都没声明 = 此前行为（回避类，什么都不发生）。
+        /// </summary>
+        private HitFeelOutcome EvaluateParry(in HitFeelInput input, JudgingFeelView atk, JudgingFeelView tgt, string impact)
+        {
+            var scale = CategoryHitstopScale(HitCategory.Parry, atk, tgt);
+            var attackerReaction = ResolveAttackerReaction(input.AttackerId, atk, tgt, FeelFieldNames.ParryAttackerReaction, out var attackerStun);
+            if (!scale.HasValue && attackerReaction == HitReaction.None) return HitFeelOutcome.None(impact);
+
+            impact = ApplyCategoryImpact(HitCategory.Parry, impact, atk, tgt);
+            var attackerTicks = 0;
+            var targetTicks = 0;
+            if (scale.HasValue)
+            {
+                attackerTicks = Math.Min(
+                    Ticks(atk.GetNumber(FeelFieldNames.AttackerHitstopMs) * scale.Value),
+                    Ticks(atk.GetNumber(FeelFieldNames.AttackerHitstopCapMs)));
+                targetTicks = Math.Min(
+                    Ticks(atk.GetNumber(FeelFieldNames.TargetHitstopMs) * scale.Value),
+                    Ticks(tgt.GetNumber(FeelFieldNames.HitstopCapMs)));
+            }
+
+            var detail = BuildDetail(HitReaction.None, atk, tgt, attackerReaction, attackerStun);
+            return new HitFeelOutcome(impact, attackerTicks, targetTicks, HitReaction.None, 0, detail);
+        }
+
+        /// <summary>
+        /// 攻击方被弹开的反应（受击方声明的 <paramref name="field"/>）：<c>none</c>/未声明 → 无；攻击方处于霸体 → 无；其余先过攻击方自己的 <c>reaction_cap</c>
+        /// 与硬直保护期。<paramref name="stunTicks"/> 是攻击方硬直段 tick 数（攻击方自己的 <c>hit_stun_ms</c>，乘反应类型倍率）。
+        /// </summary>
+        private HitReaction ResolveAttackerReaction(Id attackerId, JudgingFeelView atk, JudgingFeelView tgt, string field, out int stunTicks)
+        {
+            stunTicks = 0;
+            var declared = tgt.GetAbsolute(field);
+            if (declared.IsNone) return HitReaction.None;
+            var reaction = ParseReaction(declared.AsText());
+            if (reaction == HitReaction.None) return HitReaction.None;
+            if (IsSuperArmor(attackerId)) return HitReaction.None;
+            reaction = ApplyCap(reaction, atk.GetText(FeelFieldNames.ReactionCap));
+            reaction = ApplyGrace(reaction, attackerId, atk);
+            if (reaction == HitReaction.None) return HitReaction.None;
+            var ms = atk.GetNumber(FeelFieldNames.HitStunMs);
+            if (_options.HitStunReactionMultipliers.TryGetValue(reaction, out var m)) ms *= m;
+            stunTicks = IsStaggerClass(reaction) ? Ticks(ms) : 0;
+            return reaction;
+        }
+
+        private static HitReaction ParseReaction(string text)
+        {
+            switch (text)
+            {
+                case "flinch": return HitReaction.Flinch;
+                case "stagger_light": return HitReaction.StaggerLight;
+                case "stagger": return HitReaction.Stagger;
+                case "knockback": return HitReaction.Knockback;
+                case "knockdown": return HitReaction.Knockdown;
+                default: return HitReaction.None;
+            }
+        }
+
+        /// <summary>声明了 <paramref name="field"/>（反应上限枚举）才再限制一次；未声明原样返回。</summary>
+        private static HitReaction ApplyOptionalCap(HitReaction reaction, JudgingFeelView view, string field)
+        {
+            var v = view.GetAbsolute(field);
+            return v.IsNone ? reaction : ApplyCap(reaction, v.AsText());
+        }
+
+        /// <summary>
+        /// 硬直保护期（受击方 <c>stagger_grace_ms</c>，ADR-0145）：单位正处于硬直、或硬直结束后保护期没走完时，新的硬直类反应被限制到
+        /// <c>stagger_grace_cap</c>（缺省 flinch）；没声明保护期、不在硬直/保护期、反应不是硬直类（含死亡）原样返回。
+        /// </summary>
+        private HitReaction ApplyGrace(HitReaction reaction, Id unitId, JudgingFeelView view)
+        {
+            if (!IsStaggerClass(reaction)) return reaction;
+            if (!view.TryGetNumber(FeelFieldNames.StaggerGraceMs, out var graceMs) || graceMs <= 0.0) return reaction;
+            if (!_staggers.ContainsKey(unitId) && !_grace.ContainsKey(unitId)) return reaction;
+            var cap = view.GetAbsolute(FeelFieldNames.StaggerGraceCap);
+            return ApplyCap(reaction, cap.IsNone ? "flinch" : cap.AsText());
+        }
+
+        /// <summary>
+        /// 反应时长与附带决定：硬直段 = 受击方 <c>hit_stun_ms</c> × 攻击方 <c>hit_stun_scale</c>（缺省 1）× 反应类型倍率表（缺省全 1）；
+        /// 倒地段 = <c>downed_ms</c>；起身段 = <c>getup_ms</c>（缺省 0）；击退时长 = 攻击方 <c>knockback_duration_ms</c>（缺省 0 = 游戏级选项）。
+        /// </summary>
+        private HitReactionDetail BuildDetail(HitReaction reaction, JudgingFeelView atk, JudgingFeelView tgt, HitReaction attackerReaction, int attackerStun)
+        {
+            var stun = 0;
+            var downed = 0;
+            var getup = 0;
+            var knockbackSeconds = 0.0;
+            if (IsStaggerClass(reaction))
+            {
+                stun = StunTicks(tgt, atk, reaction);
+                if (reaction == HitReaction.Knockdown)
+                {
+                    downed = Ticks(tgt.GetNumber(FeelFieldNames.DownedMs));
+                    getup = tgt.TryGetNumber(FeelFieldNames.GetupMs, out var getupMs) && getupMs > 0.0 ? Ticks(getupMs) : 0;
+                }
+
+                knockbackSeconds = KnockbackSeconds(atk);
+            }
+
+            return new HitReactionDetail(stun, downed, getup, knockbackSeconds, attackerReaction, attackerStun);
+        }
+
+        private static int DetailDuration(HitReaction reaction, in HitReactionDetail d) =>
+            IsStaggerClass(reaction) ? d.StunTicks + d.DownedTicks + d.GetupTicks : 0;
+
+        private static double KnockbackSeconds(JudgingFeelView attackerOrWeapon) =>
+            attackerOrWeapon.TryGetNumber(FeelFieldNames.KnockbackDurationMs, out var ms) && ms > 0.0 ? ms / 1000.0 : 0.0;
+
+        /// <summary>硬直段 tick 数：受击方 <c>hit_stun_ms</c> × 攻击方 <c>hit_stun_scale</c> × 反应类型倍率（两个倍率都缺省为 1，乘 1 不改变数值）。</summary>
+        private int StunTicks(JudgingFeelView target, JudgingFeelView attacker, HitReaction reaction)
+        {
+            var ms = target.GetNumber(FeelFieldNames.HitStunMs);
+            if (attacker.TryGetNumber(FeelFieldNames.HitStunScale, out var scale)) ms *= scale;
+            if (_options.HitStunReactionMultipliers.TryGetValue(reaction, out var m)) ms *= m;
+            return Ticks(ms);
         }
 
         /// <summary>
@@ -419,15 +712,6 @@ namespace Core.Rules.Combat
         private static bool IsStaggerClass(HitReaction r) =>
             r == HitReaction.StaggerLight || r == HitReaction.Stagger || r == HitReaction.Knockback || r == HitReaction.Knockdown;
 
-        private int StunTicks(JudgingFeelView target) => Ticks(target.GetNumber(FeelFieldNames.HitStunMs));
-
-        private int ReactionDuration(HitReaction reaction, JudgingFeelView target)
-        {
-            if (!IsStaggerClass(reaction)) return 0;
-            var duration = StunTicks(target);
-            if (reaction == HitReaction.Knockdown) duration += Ticks(target.GetNumber(FeelFieldNames.DownedMs));
-            return duration;
-        }
 
         // ================================================================== instant 适配：由结算事件合成 hit_confirmed
 
@@ -499,7 +783,8 @@ namespace Core.Rules.Combat
             // 世界方向取攻击方到目标（击退方向）——与 03 第 2.4 节"无接触几何时由适配层给出明确替代，不为空"一致。
             _bus.Enqueue(new CombatHitConfirmedEvent(
                 instanceId, 0, sourceId, targetId, skillId, hitResult, amount, ratio, isCrit, isKill,
-                to, -direction, direction, outcome.ImpactClass, outcome.AttackerHitStopTicks, outcome.TargetHitStopTicks, outcome.Reaction));
+                to, -direction, direction, outcome.ImpactClass, outcome.AttackerHitStopTicks, outcome.TargetHitStopTicks, outcome.Reaction,
+                null, outcome.Detail));
         }
 
         private double SafeMaxHealth(Id unitId)
@@ -522,7 +807,8 @@ namespace Core.Rules.Combat
 
         private void OnHitConfirmed(CombatHitConfirmedEvent e)
         {
-            if (!Active || IsAvoided(e.HitResult)) return;
+            // 回避类结局不落地；弹反（Parry）例外：声明了弹反顿帧/弹开攻击方时落地（两者都没声明时事件里全是零，等价于什么都不做）。
+            if (!Active || (IsAvoided(e.HitResult) && e.HitResult != HitResult.Parry)) return;
 
             _attackerHits.Remove((e.AttackInstanceId, e.TargetId), out var hit);
 
@@ -539,6 +825,7 @@ namespace Core.Rules.Combat
                 });
             }
 
+            ApplyBounce(e);
             ApplyReaction(e, hit);
         }
 
@@ -547,6 +834,22 @@ namespace Core.Rules.Combat
             if (ticks <= 0 || !_units.Exists(unitId)) return ticks;
             var cap = Ticks(_feel.ResolveJudging(unitId).GetNumber(capField));
             return ticks < cap ? ticks : cap;
+        }
+
+        /// <summary>
+        /// 攻击方被弹开（ADR-0145，格挡/弹反类别声明的反应）：把攻击方当作受击单位落地一次反应——同一套硬直/击退/倒地机制，
+        /// <c>combat.reaction_applied</c> 的 <c>targetId</c> 是攻击方、<c>sourceId</c> 是防御方；击退方向与距离取自防御方（弹开 = 防御方的武器把攻击方推回去），
+        /// 不击飞。反应已在裁决时过了攻击方的霸体、<c>reaction_cap</c> 与硬直保护期；这里只处理落地（攻击方此刻已死则不处理）。
+        /// </summary>
+        private void ApplyBounce(CombatHitConfirmedEvent e)
+        {
+            var reaction = e.AttackerReaction;
+            if (reaction == HitReaction.None || reaction == HitReaction.Death) return;
+            if (!_units.Exists(e.SourceId) || !_units.IsAlive(e.SourceId)) return;
+            var knockbackSeconds = _units.Exists(e.TargetId) ? KnockbackSeconds(_feel.ResolveJudging(e.TargetId)) : 0.0;
+            ApplyReactionTo(
+                e.SourceId, e.TargetId, reaction, e.AttackInstanceId, e.ImpactClass,
+                e.ReactionDetail.AttackerStunTicks, 0, 0, knockbackSeconds, -KnockbackDirection(e), e.TargetId, e, targetSide: false, null);
         }
 
         private void ApplyReaction(CombatHitConfirmedEvent e, AttackerHit? hit)
@@ -568,17 +871,73 @@ namespace Core.Rules.Combat
                 return;
             }
 
-            var tgt = _feel.ResolveJudging(e.TargetId);
-            var stun = StunTicks(tgt);
-            var duration = ReactionDuration(reaction, tgt);
+            // 反应时长与击退时长：裁决已算定的随事件带来（含攻击方 hit_stun_scale、knockback_duration_ms 的快照取值）；
+            // 不经裁决的发出方（旧调用点、测试替身）退回按受击方当前档案与攻击方当前档案现算（既有行为）。
+            int stun;
+            int downed;
+            int getup;
+            double knockbackSeconds;
+            if (e.ReactionDetail.IsSet)
+            {
+                stun = e.ReactionDetail.StunTicks;
+                downed = e.ReactionDetail.DownedTicks;
+                getup = e.ReactionDetail.GetupTicks;
+                knockbackSeconds = e.ReactionDetail.KnockbackDurationSeconds;
+            }
+            else
+            {
+                var target = _feel.ResolveJudging(e.TargetId);
+                var attacker = _units.Exists(e.SourceId) ? _feel.ResolveJudging(e.SourceId) : target;
+                stun = StunTicks(target, attacker, reaction);
+                downed = 0;
+                getup = 0;
+                if (reaction == HitReaction.Knockdown)
+                {
+                    downed = Ticks(target.GetNumber(FeelFieldNames.DownedMs));
+                    getup = target.TryGetNumber(FeelFieldNames.GetupMs, out var getupMs) && getupMs > 0.0 ? Ticks(getupMs) : 0;
+                }
 
-            for (var i = 0; i < _interruptSinks.Count; i++) _interruptSinks[i].InterruptByStagger(e.TargetId, e.SourceId);
+                knockbackSeconds = KnockbackSeconds(attacker);
+            }
 
-            _staggers.TryGetValue(e.TargetId, out var rec);
+            ApplyReactionTo(
+                e.TargetId, e.SourceId, reaction, e.AttackInstanceId, e.ImpactClass,
+                stun, downed, getup, knockbackSeconds, KnockbackDirection(e), e.SourceId, e, targetSide: true, hit);
+        }
+
+        /// <summary>
+        /// 把一个硬直类（或 Flinch）反应落到 <paramref name="unit"/> 身上：打断进行中的动作、登记/刷新硬直窗口（取剩余与新值之大者）、登记击退（与击飞，仅受击方）、
+        /// 记下硬直保护期，并发 <c>combat.reaction_applied</c>。受击方与"被弹开的攻击方"共用本方法。
+        /// </summary>
+        private void ApplyReactionTo(
+            Id unit, Id source, HitReaction reaction, Id attackInstanceId, string impactClass,
+            int stun, int downed, int getup, double knockbackSeconds, Vec2 direction, Id distanceFrom,
+            CombatHitConfirmedEvent e, bool targetSide, AttackerHit? hit)
+        {
+            if (!IsStaggerClass(reaction))
+            {
+                _bus.Enqueue(new CombatReactionAppliedEvent(unit, reaction, source, attackInstanceId, 0));
+                return;
+            }
+
+            var view = _feel.ResolveJudging(unit);
+            var duration = stun + downed + getup;
+            var knockdown = reaction == HitReaction.Knockdown;
+            var invulnTicks = 0;
+            if (knockdown && getup > 0 && view.TryGetNumber(FeelFieldNames.GetupInvulnMs, out var invulnMs) && invulnMs > 0.0)
+            {
+                invulnTicks = Math.Min(getup, Ticks(invulnMs));
+            }
+
+            for (var i = 0; i < _interruptSinks.Count; i++) _interruptSinks[i].InterruptByStagger(unit, source);
+
+            _staggers.TryGetValue(unit, out var rec);
             if (rec == null)
             {
                 rec = new StaggerRec { Duration = duration, StunTicks = stun };
-                _staggers[e.TargetId] = rec;
+                SetPhases(rec, knockdown, downed, getup, invulnTicks);
+                _staggers[unit] = rec;
+                _grace.Remove(unit);
             }
             else if (rec.Active)
             {
@@ -587,60 +946,79 @@ namespace Core.Rules.Combat
                     rec.Remaining = duration;
                     rec.StunTicks = stun;
                     rec.Elapsed = 0;
+                    SetPhases(rec, knockdown, downed, getup, invulnTicks);
                 }
             }
             else if (duration > rec.Duration)
             {
                 rec.Duration = duration;
                 rec.StunTicks = stun;
+                SetPhases(rec, knockdown, downed, getup, invulnTicks);
             }
+
+            // 硬直保护期（stagger_grace_ms）：每次登记/刷新硬直时按受击方当时的档案取值，硬直（含倒地与起身）结束后才开始走。
+            rec.GraceTicks = view.TryGetNumber(FeelFieldNames.StaggerGraceMs, out var graceMs) && graceMs > 0.0 ? Ticks(graceMs) : 0;
 
             if ((reaction == HitReaction.Knockback || reaction == HitReaction.Knockdown) && Knockback != null)
             {
-                var distance = ComputeKnockbackDistance(e, tgt, hit);
-                var direction = KnockbackDirection(e);
+                var distance = ComputeKnockbackDistance(distanceFrom, unit, view, impactClass, hit);
                 if (distance > 0.0 && direction.Length > 1e-9)
                 {
                     rec.KnockbackPending = true;
                     rec.KnockbackDirection = direction;
                     rec.KnockbackDistance = distance;
+                    rec.KnockbackDurationSeconds = knockbackSeconds;
                 }
             }
 
-            // 击飞（竖直轴能力包）：与击退同一触发条件、同一提交时机（顿帧结束后）；不依赖击退距离，只看 launch_height。
-            if ((reaction == HitReaction.Knockback || reaction == HitReaction.Knockdown) && Launch != null)
+            // 击飞（竖直轴能力包）：与击退同一触发条件、同一提交时机（顿帧结束后）；不依赖击退距离，只看 launch_height。被弹开的攻击方不击飞。
+            if (targetSide && (reaction == HitReaction.Knockback || reaction == HitReaction.Knockdown) && Launch != null)
             {
-                var apex = ComputeLaunchApex(e, tgt, hit);
+                var apex = ComputeLaunchApex(e, view, hit);
                 if (apex > 0.0)
                 {
                     rec.KnockbackPending = true;
                     rec.LaunchApex = apex;
                     ReadLaunchStack(e, hit, out rec.LaunchStack, out rec.LaunchStackCap);
-                    rec.LaunchHeightCap = ReadLaunchHeightCap(e, tgt, hit);
+                    rec.LaunchHeightCap = ReadLaunchHeightCap(e, view, hit);
                 }
             }
 
             // 空中硬直持续到落地（目标侧 air_stun_until_land）：硬直时长到点后目标仍在空中则保持到落地。每次登记/刷新硬直时按受击方当时的档案取值。
             if (Airborne != null)
             {
-                var untilLand = tgt.GetAbsolute(FeelFieldNames.AirStunUntilLand);
+                var untilLand = view.GetAbsolute(FeelFieldNames.AirStunUntilLand);
                 rec.UntilLand = !untilLand.IsNone && untilLand.AsBool();
             }
 
-            _bus.Enqueue(new CombatReactionAppliedEvent(e.TargetId, reaction, e.SourceId, e.AttackInstanceId, duration));
+            _bus.Enqueue(new CombatReactionAppliedEvent(unit, reaction, source, attackInstanceId, duration, stun, downed, getup));
+        }
+
+        private static void SetPhases(StaggerRec rec, bool knockdown, int downed, int getup, int invulnTicks)
+        {
+            rec.IsKnockdown = knockdown;
+            rec.DownTicks = downed;
+            rec.GetupTicks = getup;
+            rec.GetupInvulnTicks = invulnTicks;
+            rec.DownEmitted = false;
+            rec.GetupEmitted = false;
         }
 
         /// <summary>落地阶段读取的攻击方视图：命中带手感覆盖（<see cref="AttackerHit.View"/>）用它，否则读攻击方当前解析结果（此前口径）。</summary>
         private JudgingFeelView AttackerViewFor(CombatHitConfirmedEvent e, AttackerHit? hit) =>
             hit?.View ?? _feel.ResolveJudging(e.SourceId);
 
-        private double ComputeKnockbackDistance(CombatHitConfirmedEvent e, JudgingFeelView target, AttackerHit? hit)
+        /// <summary>
+        /// 击退距离 = <paramref name="from"/> 单位档案 <c>knockback_distance</c> ×(1 − 受击单位击退抗性)× 冲击等级倍率（受击方取攻击方；被弹开的攻击方取防御方）。
+        /// <paramref name="hit"/> 只在受击方一侧非空（M5-S2a 的攻击方手感覆盖与蓄力缩放）。
+        /// </summary>
+        private double ComputeKnockbackDistance(Id from, Id victim, JudgingFeelView victimView, string impactClass, AttackerHit? hit)
         {
-            if (!_units.Exists(e.SourceId)) return 0.0;
-            var atk = AttackerViewFor(e, hit);
-            var baseDistance = atk.GetNumber(FeelFieldNames.KnockbackDistance) * (hit != null ? hit.Scale.KnockbackDistance : 1.0);
-            var resistance = ReadKnockbackResistance(e.TargetId, target);
-            var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
+            if (!_units.Exists(from)) return 0.0;
+            var source = hit?.View ?? _feel.ResolveJudging(from);
+            var baseDistance = source.GetNumber(FeelFieldNames.KnockbackDistance) * (hit != null ? hit.Scale.KnockbackDistance : 1.0);
+            var resistance = ReadKnockbackResistance(victim, victimView);
+            var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(impactClass, out var m) ? m : 1.0;
             return baseDistance * (1.0 - resistance) * multiplier;
         }
 
@@ -725,6 +1103,7 @@ namespace Core.Rules.Combat
             _killPending.Clear();
             _attackerHits.Clear();
             AdvancePoiseRecovery();
+            AdvanceGrace();
             if (_staggers.Count == 0) return;
             List<Id>? finished = null;
             foreach (var pair in _staggers)
@@ -756,11 +1135,56 @@ namespace Core.Rules.Combat
 
                 rec.Remaining--;
                 rec.Elapsed++;
+                EmitPhaseEvents(unit, rec);
             }
 
             if (finished != null)
             {
-                for (var i = 0; i < finished.Count; i++) _staggers.Remove(finished[i]);
+                for (var i = 0; i < finished.Count; i++)
+                {
+                    var unit = finished[i];
+                    var rec = _staggers[unit];
+                    // 起身段结束：发 unit.getup_finished（只有发过 unit.getup_started 的才发）；随后硬直保护期（stagger_grace_ms）开始走。
+                    if (rec.GetupEmitted) _bus.Enqueue(new UnitGetupFinishedEvent(unit));
+                    if (rec.GraceTicks > 0) _grace[unit] = rec.GraceTicks;
+                    _staggers.Remove(unit);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 倒地/起身阶段事件（ADR-0145）：<c>knockdown</c> 反应的硬直段走完（已过硬直段 tick 数）发 <c>unit.knocked_down</c>；
+        /// 倒地段走完且声明了起身段发 <c>unit.getup_started</c>。每个阶段每次登记只发一次；硬直段与倒地段为零长度时同一 tick 连发。
+        /// </summary>
+        private void EmitPhaseEvents(Id unit, StaggerRec rec)
+        {
+            if (!rec.IsKnockdown) return;
+            if (!rec.DownEmitted && rec.Elapsed > rec.StunTicks)
+            {
+                rec.DownEmitted = true;
+                _bus.Enqueue(new UnitKnockedDownEvent(unit, rec.DownTicks, rec.GetupTicks));
+            }
+
+            if (rec.GetupTicks > 0 && !rec.GetupEmitted && rec.Elapsed > rec.StunTicks + rec.DownTicks)
+            {
+                rec.GetupEmitted = true;
+                _bus.Enqueue(new UnitGetupStartedEvent(unit, rec.GetupTicks, rec.GetupInvulnTicks));
+            }
+        }
+
+        /// <summary>
+        /// 硬直保护期推进：硬直结束的那个 tick（该 tick 的命中在阶段处理器里，晚于本方法）起算，共保护 <c>stagger_grace_ms</c> 折算的 tick 数——
+        /// 每 tick 开头减 1，减到 0 移除。保护期内新的硬直类反应被限制到 <c>stagger_grace_cap</c>（<see cref="ApplyGrace"/>）。
+        /// </summary>
+        private void AdvanceGrace()
+        {
+            if (_grace.Count == 0) return;
+            var keys = new List<Id>(_grace.Keys);
+            for (var i = 0; i < keys.Count; i++)
+            {
+                var left = _grace[keys[i]] - 1;
+                if (left <= 0) _grace.Remove(keys[i]);
+                else _grace[keys[i]] = left;
             }
         }
 
@@ -919,7 +1343,9 @@ namespace Core.Rules.Combat
             if (!_units.Exists(unit) || !_units.IsAlive(unit)) return;
             if (Knockback != null && rec.KnockbackDistance > 0.0)
             {
-                Knockback.BeginKnockback(unit, rec.KnockbackDirection, rec.KnockbackDistance, _options.KnockbackDurationSeconds);
+                // 攻击方档案 knockback_duration_ms 声明了就用它（ADR-0145），否则游戏级选项（≤ 0 再回落运动层缺省）。
+                var duration = rec.KnockbackDurationSeconds > 0.0 ? rec.KnockbackDurationSeconds : _options.KnockbackDurationSeconds;
+                Knockback.BeginKnockback(unit, rec.KnockbackDirection, rec.KnockbackDistance, duration);
             }
 
             if (Launch != null && apex > 0.0)
@@ -945,6 +1371,7 @@ namespace Core.Rules.Combat
         {
             _clock.ReleaseAll(unitId);
             _staggers.Remove(unitId);
+            _grace.Remove(unitId);
             _poise.Remove(unitId);
             if (_frozen.Remove(unitId)) _bus.Enqueue(new FeelHitstopEndedEvent(new[] { unitId }));
         }
@@ -954,6 +1381,7 @@ namespace Core.Rules.Combat
         {
             _clock.ReleaseAll();
             _staggers.Clear();
+            _grace.Clear();
             _poise.Clear();
             _batch.Clear();
             if (_frozen.Count == 0) return;

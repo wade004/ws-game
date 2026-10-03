@@ -735,3 +735,13 @@ M4-L 判断记录第 5 条留下的三项局限逐项实现，全部可选、缺
 3. **instant 路径的技能行 `feel_ref`**：`HitFeelOptions.SkillFeelRef`（`Func<Id?, string?>?`）；`PublishInstantConfirmation` 在技能声明了 `feel_ref` 时以该行为动作层调用 `ResolveJudgingWithAction` 重算攻击方视图并按"覆盖"处理；没有声明或没有装配时与此前逐位一致。
 4. **复现与不变量**：`tests/HitFeelHostGeometryTests.cs`（蓄力缩放逐倍率对 tick 的影响与上限、恒等缩放逐位一致、击退距离按同一倍数缩放、覆盖标志决定落地读哪份视图、instant 声明与未声明）。测试里调试覆盖（`fx.Set`）会盖住动作层的写入，需要观察动作层效果时先 `ClearGlobal`。
 5. **已知限制**：与 skill README 同名判断记录第 8 条一致；另有——第 0 步只拦经结算管线做伤害类结算的效果，光环施加、位移、召唤等不经命中表的效果不受它约束（沿用各自既有的免疫判定）；`HitFeelHost.cs` 与受击反应章节的并行切片会改同一个文件，合并时留意。
+
+## 判断记录（受击反应：硬直保护期、时长公式、命中类别、格挡裁决、倒地起身，2026-10-04，M5-S2b，[ADR-0145](../../../architecture/adr/0145-受击反应的硬直保护期时长公式命中类别与倒地起身阶段.md)）
+
+1. **硬直不是光环**：03 原稿的"硬直落地为内部控制光环、受控制递减约束"从未实现，已删；防"无限硬直锁"改为受击方可选字段 `stagger_grace_ms`（`HitFeelHost.ApplyGrace`/`AdvanceGrace`）：硬直登记起到硬直（含倒地、起身）结束后再过这么久，期间硬直类反应截到 `stagger_grace_cap`（缺省 flinch），击杀不受影响。**已知限制**：同一 tick 内裁决的两次命中在任一方登记硬直之前各自读到"无保护"，都得到完整反应；声明了保护期的单位在硬直进行中被打到的那一击也截到 cap（想允许追击升级成击倒把 cap 设为 knockdown）。
+2. **时长公式**：`StunTicks` = 受击方 `hit_stun_ms` × 攻击方 `hit_stun_scale`（缺省 1）× `HitFeelOptions.HitStunReactionMultipliers`（缺省空表）；倒地段 `downed_ms` 与起身段 `getup_ms` 不乘。裁决时算定，随 `combat.hit_confirmed.ReactionDetail` 带到落地；不经裁决的旧发出方（`ReactionDetail.IsSet = false`）退回按当前档案现算。`feel.weapon` 的 `inflicted_hit_stun_ms` 未删除、仍是不参与解析的参考数据。
+3. **击退时长**：攻击方 `knockback_duration_ms` > 0 才覆盖游戏级选项（`rec.KnockbackDurationSeconds`），缺省逐位不变。
+4. **命中类别**：`Evaluate` 按 `HitResult` 分 Normal/Crit/Block/Glancing/Parry，类别声明的冲击等级与顿帧倍率替换/缩放，`block_reaction_cap` 再封顶，`block_attacker_reaction`/`parry_attacker_reaction` 弹开攻击方（`ApplyBounce`，走攻击方自己的霸体、`reaction_cap`、保护期，不击飞）。未声明 = 与普通命中相同；Parry 未声明任何项仍是"什么都不发生"。
+5. **格挡裁决**：`CombatOptions.DefenseArbiter`（`RulesFeelAssembly` 接 `HitFeelHost`）在命中表之前问 `Judge`：起身无敌 → `Invulnerable`（不掷骰，对全部非周期伤害）；格挡中（`IGuardStateQuery`，缺省回退到 `IActionStateQuery.IsGuarding`，即时间线标记 `guard_start`/`guard_end`）且在 `guard_arc_deg` 内：`guard_parry_window_ms` 内 `Parry`，否则 `Block` 伤害乘 `guard_damage_scale`。只对 `CanMiss` 的非周期伤害生效；格挡命中不再掷弹反/偏斜/格挡/暴击（**偏差**：格挡中的命中不会暴击）。输入层的格挡状态由后续切片实现 `IGuardStateQuery` 接入（`HitFeelHost.Guard`）。
+6. **倒地 → 起身**：`StaggerRec` 记三段，`EmitPhaseEvents` 在硬直段走完发 `unit.knocked_down`、倒地段走完且声明起身段发 `unit.getup_started`、走完发 `unit.getup_finished`；**每次击倒都发事件**（倒地期间被刷新则重发）。`IsDowned` 只含倒地段，`IsStaggered` 含三段。`getup_invuln_ms` 窗口由 `IsGetupInvulnerable` 经防御裁决生效。
+7. **复现与不变量**：`tests/HitFeelHostReactionTests.cs`（`HitFeelHostTests` 的 partial）；时间线格挡标记在 `skill/tests/ActionTimelineTests.cs`、`ActionTimelineValidationTests.cs`；实验室脚本 `feel_react_knockdown`/`feel_react_grace`/`feel_react_guard`（见 `lab/README.md` 判断记录 60）。

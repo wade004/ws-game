@@ -1,0 +1,170 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_react_grace",
+    "scriptVersion": 1,
+    "description": "硬直保护期（M5-S2b）：并排两只木桩，stake_graced 声明硬直保护期 250 毫秒、stake_free 不声明，同样的硬直/倒地/起身时长；重击每 30 tick 一下，间隔远小于一次完整倒地。不设保护期的木桩每一击都刷新倒地（被连击锁住），设了保护期的木桩一次倒地之后（含起身与保护期）的命中只剩 Flinch，保护期过后才可能再次倒地。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "pair"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_reaction",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_react_massive_still"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/reaction"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 35,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 36,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 65,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 66,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 95,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 96,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 125,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 126,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 155,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 156,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 185,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 186,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 215,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 216,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "phase_events_are_paired",
+      "metric": "reactionext.phase_unpaired",
+      "op": "eq",
+      "value": 0,
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "only_the_free_stake_is_chained",
+      "metric": "reactionext.chained_targets",
+      "op": "eq",
+      "value": 1,
+      "note": "被连击锁住的只有一个单位。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "the_chained_one_is_the_free_stake",
+      "metric": "reactionext.chained",
+      "op": "contains",
+      "value": "stake_free=",
+      "note": "对照：不带保护期的木桩存在前一次倒地没走完就又被击倒；带保护期的 stake_graced 没有。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "grace_turns_the_hits_into_flinches",
+      "metric": "reaction.reaction_counts",
+      "op": "contains",
+      "value": "Flinch:",
+      "note": "保护期内的命中只剩 Flinch。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    }
+  ]
+}

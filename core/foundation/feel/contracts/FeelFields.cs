@@ -104,6 +104,26 @@ namespace Core.Foundation.Feel
         public const string AirReactionCap = "air_reaction_cap";
         public const string AirStunUntilLand = "air_stun_until_land";
         public const string KillHitstopScale = "kill_hitstop_scale";
+        public const string StaggerGraceMs = "stagger_grace_ms";
+        public const string StaggerGraceCap = "stagger_grace_cap";
+        public const string HitStunScale = "hit_stun_scale";
+        public const string KnockbackDurationMs = "knockback_duration_ms";
+        public const string GetupMs = "getup_ms";
+        public const string GetupInvulnMs = "getup_invuln_ms";
+        public const string CritImpactClass = "crit_impact_class";
+        public const string CritHitstopScale = "crit_hitstop_scale";
+        public const string BlockImpactClass = "block_impact_class";
+        public const string BlockHitstopScale = "block_hitstop_scale";
+        public const string BlockReactionCap = "block_reaction_cap";
+        public const string BlockAttackerReaction = "block_attacker_reaction";
+        public const string GlancingImpactClass = "glancing_impact_class";
+        public const string GlancingHitstopScale = "glancing_hitstop_scale";
+        public const string ParryImpactClass = "parry_impact_class";
+        public const string ParryHitstopScale = "parry_hitstop_scale";
+        public const string ParryAttackerReaction = "parry_attacker_reaction";
+        public const string GuardArcDeg = "guard_arc_deg";
+        public const string GuardDamageScale = "guard_damage_scale";
+        public const string GuardParryWindowMs = "guard_parry_window_ms";
 
         // 镜头（呈现型；07 第 2 节，加 camera_ 前缀与输入组的 dead_zone 区分）
         public const string CameraFollowLagMs = "camera_follow_lag_ms";
@@ -400,6 +420,68 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.DownedMs, Re, J, Ms, C, 0, 10000, "倒地时长"),
                 Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
                 Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),
+
+                // 受击反应（手感落地 M5-S2b，ADR-0145）：硬直保护、硬直时长缩放、击退时长、起身段、命中类别（暴击/格挡/偏斜/弹反）与格挡状态。全部可选，缺省 = 此前行为。
+                Num(FeelFieldNames.StaggerGraceMs, Re, J, Ms, C, 0, 5000,
+                    "硬直保护期（受击方）：从硬直开始、直到硬直（含倒地与起身）结束后再过这么久，期间新的硬直类反应一律被限制到 stagger_grace_cap（缺省 flinch，击杀不受影响），防止被高频攻击无限硬直锁；缺省（无值）= 0 即不设保护",
+                    optional: true),
+                Enum(FeelFieldNames.StaggerGraceCap, Re, J, C, ReactionCapValues,
+                    "硬直保护期内的反应上限（受击方）：期内硬直类反应被限制到该档；缺省（无值）= flinch；只在声明了 stagger_grace_ms 时有意义",
+                    optional: true),
+                Num(FeelFieldNames.HitStunScale, Re, J, Ratio, W, 0, 10,
+                    "硬直时长倍率（攻击方，武器/技能）：硬直时长 = 受击方 hit_stun_ms × 本字段 × 反应类型倍率表（HitFeelOptions.HitStunReactionMultipliers，缺省全 1）；缺省（无值）= 1",
+                    optional: true),
+                Num(FeelFieldNames.KnockbackDurationMs, Re, J, Ms, W, 0, 5000,
+                    "击退时长（攻击方，武器/技能）：击退位移在这么久内完成（ease_out 曲线），重击拖得更久、轻击瞬间弹开；缺省（无值）= 游戏级击退时长选项",
+                    optional: true),
+                Num(FeelFieldNames.GetupMs, Re, J, Ms, C, 0, 10000,
+                    "起身段时长（受击方）：knockdown 反应的倒地段（downed_ms）之后再接这么久的起身段，计入总倒地时长，期间发 unit.getup_started/unit.getup_finished；缺省（无值）= 0 即没有起身段",
+                    optional: true),
+                Num(FeelFieldNames.GetupInvulnMs, Re, J, Ms, C, 0, 10000,
+                    "起身无敌时长（受击方）：起身段开头的这么久内命中被判为 Invulnerable 回避；缺省（无值）= 0 即起身不无敌；只在声明了 getup_ms 时有意义",
+                    optional: true),
+                Enum(FeelFieldNames.CritImpactClass, Re, J, W, ImpactClassValues,
+                    "暴击时的冲击等级（攻击方）：暴击命中把 impact_class 替换为该值，同时决定反应映射、击退倍率与反馈包变体；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.CritHitstopScale, Re, J, Ratio, W, 0, 5,
+                    "暴击顿帧倍率（攻击方）：暴击命中时攻击方与受击方的顿帧时长都乘该值；缺省（无值）= 1",
+                    optional: true),
+                Enum(FeelFieldNames.BlockImpactClass, Re, J, C, ImpactClassValues,
+                    "被格挡时的冲击等级（受击方）：命中结局为 Block（命中表格挡或格挡状态）时 impact_class 替换为该值；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.BlockHitstopScale, Re, J, Ratio, C, 0, 5,
+                    "被格挡顿帧倍率（受击方）：命中结局为 Block 时攻击方与受击方的顿帧时长都乘该值；缺省（无值）= 1",
+                    optional: true),
+                Enum(FeelFieldNames.BlockReactionCap, Re, J, C, ReactionCapValues,
+                    "被格挡时的反应上限（受击方）：命中结局为 Block 时受击反应在 reaction_cap 之外再受它限制（取较低者）；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Enum(FeelFieldNames.BlockAttackerReaction, Re, J, C, ReactionCapValues,
+                    "被格挡时攻击方被弹开的反应（受击方）：命中结局为 Block 时攻击方吃这一档反应（仍受攻击方的霸体与 reaction_cap 限制）；缺省（无值）或 none = 攻击方不受影响",
+                    optional: true),
+                Enum(FeelFieldNames.GlancingImpactClass, Re, J, C, ImpactClassValues,
+                    "被偏斜时的冲击等级（受击方）：命中结局为 GlancingBlow 时 impact_class 替换为该值；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.GlancingHitstopScale, Re, J, Ratio, C, 0, 5,
+                    "被偏斜顿帧倍率（受击方）：命中结局为 GlancingBlow 时攻击方与受击方的顿帧时长都乘该值；缺省（无值）= 1",
+                    optional: true),
+                Enum(FeelFieldNames.ParryImpactClass, Re, J, C, ImpactClassValues,
+                    "被弹反时的冲击等级（受击方）：命中结局为 Parry 时 impact_class 替换为该值（决定反馈包变体与弹反顿帧）；缺省（无值）= 与普通命中相同",
+                    optional: true),
+                Num(FeelFieldNames.ParryHitstopScale, Re, J, Ratio, C, 0, 5,
+                    "弹反顿帧倍率（受击方）：命中结局为 Parry 时攻击方与受击方各按其基础顿帧时长乘该值；缺省（无值）= 弹反不顿帧（此前行为）",
+                    optional: true),
+                Enum(FeelFieldNames.ParryAttackerReaction, Re, J, C, ReactionCapValues,
+                    "被弹反时攻击方被弹开的反应（受击方）：命中结局为 Parry 时攻击方吃这一档反应（仍受攻击方的霸体与 reaction_cap 限制）；缺省（无值）或 none = 攻击方不受影响",
+                    optional: true),
+                Num(FeelFieldNames.GuardArcDeg, Re, J, FeelUnit.Degrees, C, 0, 360,
+                    "格挡正面角度（受击方）：格挡状态下，攻击来向落在受击方朝向两侧各一半角度（总宽度本字段）的扇形内才算被格挡；缺省（无值）= 180（朝向前方的半个平面）；360 = 全向",
+                    optional: true),
+                Num(FeelFieldNames.GuardDamageScale, Re, J, Ratio, C, 0, 1,
+                    "格挡伤害倍率（受击方）：格挡状态下被格挡的命中伤害 × 本字段（0 = 完全挡住）；缺省（无值）= 1 即格挡不减伤",
+                    optional: true),
+                Num(FeelFieldNames.GuardParryWindowMs, Re, J, Ms, C, 0, 2000,
+                    "弹反窗口（受击方）：格挡开始后的这么久内被命中判为 Parry（弹反/偏斜，目标不受伤）；缺省（无值）= 0 即没有弹反窗口",
+                    optional: true),
 
                 // ---------- 镜头（07 第 2 节，呈现型）----------
                 Num(FeelFieldNames.CameraFollowLagMs, Cam, P, Ms, C, 0, 2000, "镜头跟随滞后"),

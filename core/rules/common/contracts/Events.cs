@@ -119,6 +119,15 @@ namespace Core.Rules.Common
         /// <summary>受击裁决落地，见 <see cref="CombatReactionAppliedEvent"/>。</summary>
         public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
 
+        /// <summary>倒地段开始，见 <see cref="UnitKnockedDownEvent"/>。</summary>
+        public static readonly Id UnitKnockedDown = new Id("unit.knocked_down");
+
+        /// <summary>起身段开始，见 <see cref="UnitGetupStartedEvent"/>。</summary>
+        public static readonly Id UnitGetupStarted = new Id("unit.getup_started");
+
+        /// <summary>起身段结束，见 <see cref="UnitGetupFinishedEvent"/>。</summary>
+        public static readonly Id UnitGetupFinished = new Id("unit.getup_finished");
+
         /// <summary>局部顿帧施加，见 <see cref="FeelHitstopStartedEvent"/>。</summary>
         public static readonly Id FeelHitstopStarted = new Id("feel.hitstop_started");
 

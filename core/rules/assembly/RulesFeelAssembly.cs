@@ -122,6 +122,9 @@ namespace Core.Rules.Assembly
             var combatHost = rules.Combat;
             hitFeel.Host.InCombat = unitId => combatHost.IsInCombat(unitId);
 
+            // ADR-0145：受击方防御裁决（起身无敌 / 格挡 / 弹反）接进结算管线；没有任何单位处于这些状态时 Judge 恒返回 None，命中表逐位不变。
+            rules.CombatOptions.DefenseArbiter = hitFeel.Host;
+
             var timeline = new TimelineServices
             {
                 Clock = hitFeel.Clock,

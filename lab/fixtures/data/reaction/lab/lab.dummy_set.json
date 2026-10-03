@@ -1,0 +1,52 @@
+{
+  "table": "lab.dummy_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.dummy_set.lab_reaction",
+      "entries": [
+        {
+          "name": "stake_downable",
+          "kind": "stake",
+          "creature_ref": "creature.lab_react_downable",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake_downable"
+        },
+        {
+          "name": "stake_graced",
+          "kind": "stake",
+          "creature_ref": "creature.lab_react_graced",
+          "position": {
+            "x": 2,
+            "y": -0.5
+          },
+          "group": "pair"
+        },
+        {
+          "name": "stake_free",
+          "kind": "stake",
+          "creature_ref": "creature.lab_react_free",
+          "position": {
+            "x": 2,
+            "y": 0.5
+          },
+          "group": "pair"
+        },
+        {
+          "name": "guarder",
+          "kind": "elite",
+          "creature_ref": "creature.lab_react_guarder",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "guarder"
+        }
+      ],
+      "note": "受击反应扩展靶子集（M5-S2b）：可被击倒的木桩；并排的一对木桩（带硬直保护期的与不带的对照），都在近战扇形内；举盾的精英（面朝玩家，由脚本 cast 事件驱动格挡窗口）。"
+    }
+  ]
+}
