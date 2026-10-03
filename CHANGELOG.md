@@ -460,6 +460,8 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+## [1.96.1] - 2026-10-03
+
 ### 修复
 
 - **`toolchain/get_framework.ps1` 解压提速（zip 通道）**：1.96.0 发布 zip 已有约 3.3 万个条目、解压后约 413 MB，逐条目的 PowerShell 命令调用开销成了主要耗时。`Expand-ZipEntriesSafely` 改为循环外一次性算好根目录规范化路径、循环内只用 .NET 静态方法并缓存已建目录；zip slip 边界校验语义不变（仍在写入任何后续条目前整体拒绝）。本机实测解压并落地 1.96.0 的 zip：PowerShell 7 约 60 秒降到约 24 秒，Windows PowerShell 5.1 约 44 秒降到约 29 秒。对外参数与行为不变，消费方无需改动。
