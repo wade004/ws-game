@@ -55,6 +55,27 @@ namespace Game.Template.Tests
             }
         }
 
+        /// <summary>
+        /// 先同步销毁本用例的 <see cref="GameBootstrap"/>（连带其上的 <see cref="DataHotReload"/>，其 OnDestroy 会
+        /// 关闭并 Dispose 全部 <c>FileSystemWatcher</c>），再删除被监视的临时内容根——次序不能反。
+        /// 判断记录（清理次序，2026-10-03 门禁连续三次被偶发红挡住的根因）：DataHotReload 对覆盖后的内容根建了带
+        /// 子目录的 FileSystemWatcher；Unity 的 Mono 实现靠后台线程 DefaultWatcher 周期性扫描该目录，若用例在
+        /// finally 里先 Directory.Delete、等 TearDown 才销毁 GameObject，后台线程会扫到正在被删除的目录，抛
+        /// DirectoryNotFoundException，Unity 把它记成未处理 Error，用例随之失败（约 1/7 概率，与断言无关）。
+        /// 做成唯一入口，避免有人把两步写反；不靠重试、不靠 LogAssert.Ignore 掩盖。EditMode 同类用例
+        /// （DataHotReloadEditModeTests 等）一直是先 DestroyImmediate 再删目录，本方法让 PlayMode 与之一致。
+        /// </summary>
+        private void DestroyBootstrapThenDeleteDirectory(string directory)
+        {
+            if (_go != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_go);
+                _go = null;
+            }
+
+            try { Directory.Delete(directory, recursive: true); } catch { /* 尽力而为的清理 */ }
+        }
+
         private GameBootstrap BuildIsolatedBootstrap(Action<GameBootstrap>? configureBeforeAwake = null)
         {
             CleanupStaleGameBootstrap();
@@ -147,7 +168,7 @@ namespace Game.Template.Tests
             }
             finally
             {
-                try { Directory.Delete(overrideRoot, recursive: true); } catch { /* 尽力而为的清理 */ }
+                DestroyBootstrapThenDeleteDirectory(overrideRoot);
             }
 
             yield return null;
@@ -211,7 +232,7 @@ namespace Game.Template.Tests
             }
             finally
             {
-                try { Directory.Delete(overrideRoot, recursive: true); } catch { /* 尽力而为的清理 */ }
+                DestroyBootstrapThenDeleteDirectory(overrideRoot);
             }
         }
     }

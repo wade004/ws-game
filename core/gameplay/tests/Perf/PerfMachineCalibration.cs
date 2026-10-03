@@ -50,6 +50,17 @@ namespace Tests.Gameplay.Perf
         /// 用例共享同一个值。</summary>
         public static double ReferenceMs => Reference.Value;
 
+        /// <summary>只跑一次固定工作量并返回其耗时（毫秒），不缓存、不预热（调用方负责预热）。给需要把参考负载与
+        /// 被测代码在时间上交错采样的用例用（见 <c>Tests.Sim.SimPerfBaselineTests</c> 判断记录"交错采样"）：
+        /// 进程内一次性缓存的 <see cref="ReferenceMs"/> 与被测量值不在同一时刻采样，负载起伏时归一化失效。</summary>
+        public static double MeasureWorkloadOnceMs()
+        {
+            var sw = Stopwatch.StartNew();
+            RunWorkloadOnce();
+            sw.Stop();
+            return sw.Elapsed.TotalMilliseconds;
+        }
+
         private static double Measure()
         {
             // 预热一次，避免把首次 JIT 编译/类加载开销计入正式采样（与 PerfBaselineTests 其余四条
