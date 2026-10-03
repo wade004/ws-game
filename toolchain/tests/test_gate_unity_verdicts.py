@@ -51,6 +51,7 @@ REQUIRED = {
         "Tools~/feellab/bin/Lab.Kernel.dll",
         "Tools~/feellab/Directory.Build.props",
         "Tools~/feellab/labroot/data/_feel/feel/feel.calibration.json",
+        "Tools~/feellab/labroot/data/_feel_templates/feel/feel.preset.json",
         "Tools~/feellab/labroot/data/_lab/lab/lab.scenario.json",
         "Tools~/feellab/labroot/data/_equip/item/item.template.json",
         "Tools~/feellab/labroot/lab/fixtures/scripts/feel_kill.script.json",
@@ -60,6 +61,7 @@ REQUIRED = {
     DATA_PKG: [
         "Data~/data/_feel/feel/feel.calibration.json",
         "Data~/data/_feel/feel/feel.preset.json",
+        "Data~/data/_feel_templates/feel/feel.preset.json",
     ],
 }
 

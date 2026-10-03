@@ -413,7 +413,7 @@ def build_skeleton(tmp_path: Path, *, base_version: str = "1.2.0", release_versi
 
     for rel in (
         "assets/_placeholder/a.txt", "assets/_sample/a.txt",
-        "data/_framework/t.json", "data/_feel/t.json", "data/_lab/t.json", "data/_lab_action/t.json",
+        "data/_framework/t.json", "data/_feel/t.json", "data/_feel_templates/t.json", "data/_lab/t.json", "data/_lab_action/t.json",
         "data/_equip/t.json", "data/_sample/t.json", "lab/fixtures/f.json",
         "adapters/unity/Assets/TextMesh Pro/a.txt",
         "adapters/unity/Assets/Resources/GameFoundation/models/a.txt",

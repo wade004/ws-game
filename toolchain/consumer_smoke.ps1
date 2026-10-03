@@ -584,11 +584,13 @@ Invoke-Step "手感实验室（dist 内 feellab 预编译命令行）在消费�
     $copied = 0
     $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_framework") -DestDir (Join-Path $labRoot "data\_framework")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $streamingRoot "data\_feel") -DestDir (Join-Path $labRoot "data\_feel")
+    # 默认手感模板根（ADR-0142）：标准脚本 feel_tpl_* 把它声明为额外数据根，取自 dist 快照（不经 StreamingAssets）。
+    $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_feel_templates") -DestDir (Join-Path $labRoot "data\_feel_templates")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_lab") -DestDir (Join-Path $labRoot "data\_lab")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_lab_action") -DestDir (Join-Path $labRoot "data\_lab_action")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "data\_equip") -DestDir (Join-Path $labRoot "data\_equip")
     $copied += Copy-TreeMirror -SourceDir (Join-Path $DistRoot "lab\fixtures") -DestDir (Join-Path $labRoot "lab\fixtures")
-    foreach ($needed in @("data\_framework", "data\_feel", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures\scripts", "lab\fixtures\baselines")) {
+    foreach ($needed in @("data\_framework", "data\_feel", "data\_feel_templates", "data\_lab", "data\_lab_action", "data\_equip", "lab\fixtures\scripts", "lab\fixtures\baselines")) {
         if (-not (Test-Path (Join-Path $labRoot $needed))) {
             return [PSCustomObject]@{ Ok = $false; Detail = "实验室根缺少 $needed（分发包或消费方数据目录不完整）" }
         }

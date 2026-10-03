@@ -1020,6 +1020,36 @@ Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_f
 }
 
 # -----------------------------------------------------------------------------
+# 10d2. 默认手感模板数据根 data/_feel_templates 校验（ADR-0142）：叠加在框架手感根 data/_feel 之上
+#       （模板预设引用框架缺省标定/档案行，且与 data/_feel 的表跨根追加），validate_data.py --strict 须 0 error 0 warning。秒级步骤。
+# -----------------------------------------------------------------------------
+Invoke-CheckStep "python toolchain/validate_data.py --strict --data-root data/_feel --data-root data/_feel_templates（默认手感模板数据根，叠加 data/_feel，errors/warnings 须为 0）" -Id "validate_feel_templates_data" {
+    Push-Location $RepoRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $tplDataOutput = @(& python "toolchain/validate_data.py" "--strict" "--data-root" "data/_feel" "--data-root" "data/_feel_templates")
+        $tplDataExit = $LASTEXITCODE
+        $tplDataOutput | ForEach-Object { Write-Host $_ }
+    } finally {
+        Pop-Location
+    }
+    if ($tplDataExit -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "validate_data.py 退出码=$tplDataExit，见上方输出" }
+    }
+    $tplSummaryLines = @($tplDataOutput | Where-Object { $_ -match 'errors\s+(\d+),\s*warnings\s+(\d+)' })
+    if ($tplSummaryLines.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "未在输出里找到 'errors N, warnings M' 汇总行，无法确认 errors/warnings 为 0" }
+    }
+    [void]($tplSummaryLines[-1] -match 'errors\s+(\d+),\s*warnings\s+(\d+)')
+    $tplErrors = [int]$Matches[1]
+    $tplWarnings = [int]$Matches[2]
+    if ($tplErrors -ne 0 -or $tplWarnings -ne 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "默认手感模板数据根应为 0 error 0 warning，实际 errors=$tplErrors warnings=$tplWarnings" }
+    }
+    [PSCustomObject]@{ Ok = $true; Detail = "errors=0 warnings=0" }
+}
+
+# -----------------------------------------------------------------------------
 # 10e. 装备完整性检查（import_assets.py equip，手感设计/08 第 5 节）：装备资产包（图标、外观映射、纸娃娃层 ×
 #      必备/推荐姿势键 × 方向档、武器双表、音效材质）+ 界面皮肤包（槽位框/品质框/拖拽态/提示框/预览区/主题）。
 #      只比对文件与数据行是否存在，秒级。--strict-warnings：框架占位装备集是参照实现，必须零错误零警告
