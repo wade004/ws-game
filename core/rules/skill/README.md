@@ -1851,3 +1851,12 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
    - 分段行与动作行同在第 6 层：先 `set`、再 `multiply`、再 `add`，同一操作按"动作层先、分段行后"的顺序，所以分段行的 `set` 之后动作行的 `multiply` 仍会乘上去。
    - 投射物碰撞半径与目标受击半径是两条各自的路径，本切片不统一。
    - 地面落点技能进入时间线后，射程、视线与可行走校验只在施放请求时按落点做一次，动作期间不再校验。
+
+## 手感落地 M5-S1：输入层补全的时间线侧（2026-10-04，[ADR-0143](../../../architecture/adr/0143-输入层补全.md)）
+
+1. **窗口条件 `requires: any|hit|whiff`（评审 B4）**：取消窗口与连招窗口都可带；`ActionRun.HitCount` 在 `PublishHitConfirmed` 里按 `CastInstanceId` 与活动实例配对递增，`TimelineSchedule.IsCancelOpen(class, elapsed, anyHit, target)` / `IsComboOpen(elapsed, anyHit)` 据此判定。缺省 `any` 与改动前逐位一致。校验：`requires` 非 `any` 但技能没有任何可命中的内容给警告 `timeline_window_requires_without_hit`。
+2. **取消窗口 `into` 白名单**：只对取消窗口（连招的目标固定是 `next`）；名单外的记录对该窗口"永远接不了"，经 `IsNeverAcceptable` 的 `IntoNeverAllows` 路径剔出候选，不挡后面的可接受记录（与 M4 清扫第 4 条同口径）。
+3. **按住维持 `active_until_release{max_ms}`（评审 B3）**：判定相最后一个 tick（`StartupTicks + ActiveTicks − 1`）处，若 `TriggerAction` 仍按着就进入维持：`Elapsed` 冻结、`SustainTicks` 累加、发 `sustain_start` 标记；松键或满 `max_ms` 对应的 tick 数后发 `sustain_end{reason: release|max}` 再正常推进，动作结束时刻平移量等于两个标记的 tick 差；冻结点处键已松开则 `SustainDone`，不维持。`IActionStateQuery.IsSustained`（默认接口成员）可查。只对带 `trigger_action` 参数的施放生效：装配层的缓冲出口只对 `SkillHost.IsSustainSkill` 为真的技能加这个参数。校验：`timeline_sustain_max`（`max_ms` 必须为正）、`timeline_sustain_no_active`（`active_ms` 为 0 无意义）、`timeline_sustain_with_charge`（警告，与 `charge` 同时声明）。块只在输入动作触发的施放上生效；格挡的判定归受击裁决，不在本模块。
+4. **`charge.below_min: release|cancel`（评审 A4）**：缺省 `release` 即既有行为（按最低档释放）；`cancel` 在输入缓冲侧丢弃记录。`SkillHost.GetTimelineCharge(skillId)` 给装配层读蓄力规则。`charge_ready` 保留为不可手写的派生标记名（实际是缓冲侧的 `input.charge_ready` 事件，见 input_map README M5-S1 第 3 条）。
+5. **已知边界（设计决定，不是遗漏）**：维持期间不重复采样连续命中、不发新的命中标记；`requires: hit` 把被回避的接触也算命中确认（与挥空窗口同口径）；动作结束之后才落地的投射物命中不计入该动作实例的命中数；没有触发键的施放（AI 的、没有输入动作的技能）没有维持。
+6. **复现与不变量**：`tests/InputCompletionTimelineTests.cs`（`requires` 命中前后开关、`into` 白名单与"不挡路"、连招 `requires`、维持的松键/满上限/冻结点已松键三种结局与结束时刻平移量、校验检查名）；实验室脚本 `feel_cancel_requires_hit`/`feel_cancel_requires_whiff` 在六格里复现同一命中下 `hit`/`whiff` 两种窗口的相反结果。

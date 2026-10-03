@@ -54,6 +54,19 @@ namespace Core.Foundation.InputMap
 
             /// <summary>边沿记录用的"上一次求值时是否激活"（仅 <see cref="InputMapHost.SetEdgeSink"/> 登记后才使用）。</summary>
             public bool EdgeActive;
+
+            /// <summary>玩家设置对轴处理的覆盖（<see cref="InputMapHost.SetAxisProcessing"/>）；null 即用动作定义里的默认值。</summary>
+            public AxisProcessing? Override;
+
+            /// <summary>当前生效的自定义响应曲线（<see cref="AxisProcessing.TryGetCustomCurveId"/> 为真时解析出的曲线）。</summary>
+            public PiecewiseCurve? Curve;
+
+            /// <summary>平滑状态：上一步输出的幅值与方向（只在有平滑时使用）。</summary>
+            public double SmoothedMagnitude;
+
+            public Vec2 LastDirection;
+
+            public AxisProcessing? Effective => Override ?? Definition.AxisProcessing;
         }
 
         private IInputEdgeSink? _edgeSink;
@@ -106,6 +119,7 @@ namespace Core.Foundation.InputMap
                     CurrentActive = false,
                     CachedAxis = Vec2.Zero,
                     IsDirty = false,
+                    Curve = ResolveCurve(name, def.AxisProcessing),
                 };
                 _actions.Add(name, state);
                 _actionOrder.Add(name);
@@ -306,10 +320,21 @@ namespace Core.Foundation.InputMap
                         }
                         break;
                     case ActionKind.Axis1D:
-                        state.CachedAxis = new Vec2(EvaluateAxis1D(state.ParsedBindings, input), 0);
+                        var axis1d = EvaluateAxis1D(state.ParsedBindings, input, out var analog1d);
+                        state.CachedAxis = new Vec2(axis1d, 0);
+                        if (analog1d && state.Effective is AxisProcessing processing1d)
+                        {
+                            state.CachedAxis = ProcessAxis(state, processing1d, state.CachedAxis);
+                        }
+
                         break;
                     case ActionKind.Axis2D:
-                        state.CachedAxis = EvaluateAxis2D(state.ParsedBindings, input);
+                        state.CachedAxis = EvaluateAxis2D(state.ParsedBindings, input, out var analog2d);
+                        if (analog2d && state.Effective is AxisProcessing processing2d)
+                        {
+                            state.CachedAxis = ProcessAxis(state, processing2d, state.CachedAxis);
+                        }
+
                         if (state.Definition.ControlSpace == InputControlSpace.CameraRelative)
                         {
                             state.CachedAxis = RotateByCameraYaw(state.CachedAxis, _options.CameraOrientation!.YawRadians);
@@ -382,20 +407,23 @@ namespace Core.Foundation.InputMap
             return false;
         }
 
-        private double EvaluateAxis1D(List<ParsedBinding> bindings, IInput input)
+        private double EvaluateAxis1D(List<ParsedBinding> bindings, IInput input, out bool analog)
         {
+            analog = false;
             for (int i = 0; i < bindings.Count; i++)
             {
                 if (bindings[i].Kind == BindingKind.PadAxis)
                 {
+                    analog = true;
                     return input.GetGamepadAxis(_options.GamepadIndex, bindings[i].Name!);
                 }
             }
             return 0;
         }
 
-        private Vec2 EvaluateAxis2D(List<ParsedBinding> bindings, IInput input)
+        private Vec2 EvaluateAxis2D(List<ParsedBinding> bindings, IInput input, out bool analog)
         {
+            analog = false;
             for (int i = 0; i < bindings.Count; i++)
             {
                 var b = bindings[i];
@@ -404,10 +432,167 @@ namespace Core.Foundation.InputMap
                     case BindingKind.Composite2D:
                         return EvaluateComposite2D(b);
                     case BindingKind.PadStick:
+                        analog = true;
                         return EvaluatePadStick(b, input);
                 }
             }
             return Vec2.Zero;
+        }
+
+        // -----------------------------------------------------------------
+        // 模拟轴处理：死区、响应曲线、平滑（ADR-0143）
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// 对模拟轴原始值做死区 → 响应曲线 → 平滑（只下降沿）。恒等处理（<see cref="AxisProcessing.IsIdentity"/>）直接返回原始值，保证未声明时逐位等于原始值直通。
+        /// 1D 轴（<paramref name="raw"/>.Y 恒为 0）与 2D 轴同一套算法：幅值取向量长度，方向取符号/单位向量。
+        /// </summary>
+        private Vec2 ProcessAxis(ActionState state, AxisProcessing processing, Vec2 raw)
+        {
+            if (processing.IsIdentity) return raw;
+
+            var length = raw.Length;
+            var direction = length > 0.0 ? raw * (1.0 / length) : Vec2.Zero;
+
+            // 死区 + 重标度。幅值超过 1 的（驱动给出的越界值）夹到 1，保证曲线输入在 0～1。
+            double magnitude;
+            if (length <= processing.DeadZone)
+            {
+                magnitude = 0.0;
+            }
+            else
+            {
+                var clamped = Math.Min(length, 1.0);
+                magnitude = processing.DeadZone > 0.0 ? (clamped - processing.DeadZone) / (1.0 - processing.DeadZone) : clamped;
+            }
+
+            // 响应曲线（对 0～1 幅值逐点映射）。
+            if (processing.ResponseCurve == AxisProcessing.Expo)
+            {
+                magnitude *= magnitude;
+            }
+            else if (state.Curve != null && processing.ResponseCurve != AxisProcessing.Linear)
+            {
+                magnitude = Math.Min(1.0, Math.Max(0.0, state.Curve.Evaluate(magnitude)));
+            }
+
+            // 平滑：只作用于幅值的下降沿；上升与方向变化即时生效。无输入方向时沿用上一个有效方向让幅值回落。
+            if (processing.SmoothingMs > 0.0)
+            {
+                var step = _options.StepSeconds / (processing.SmoothingMs / 1000.0);
+                var previous = state.SmoothedMagnitude;
+                if (magnitude < previous)
+                {
+                    magnitude = Math.Max(magnitude, previous - step);
+                }
+
+                if (direction.SqrLength > 0.0)
+                {
+                    state.LastDirection = direction;
+                }
+                else
+                {
+                    direction = state.LastDirection;
+                }
+
+                state.SmoothedMagnitude = magnitude;
+            }
+
+            return magnitude > 0.0 ? direction * magnitude : Vec2.Zero;
+        }
+
+        private PiecewiseCurve? ResolveCurve(string actionName, AxisProcessing? processing)
+        {
+            if (processing == null || !processing.TryGetCustomCurveId(out var curveId)) return null;
+            var curve = _options.CurveResolver?.Invoke(curveId);
+            if (curve == null)
+            {
+                throw new InvalidOperationException(
+                    $"动作 \"{actionName}\" 的响应曲线 \"custom:{curveId}\" 解析不到（InputMapOptions.CurveResolver 未配置或不认识该曲线 id）；不静默当线性");
+            }
+
+            return curve;
+        }
+
+        /// <summary>
+        /// 玩家设置覆盖某个轴动作的处理参数（死区、响应曲线、平滑）；<paramref name="processing"/> 为 null 清除覆盖、回到动作定义里的默认值。
+        /// 只适用于轴动作；自定义曲线解析不到抛 <see cref="InvalidOperationException"/>。覆盖随 <see cref="ExportAxisSettings"/> 导出、
+        /// <see cref="ImportAxisSettings"/> 读回（设置文件，不进存档）。平滑状态被重置。
+        /// </summary>
+        public void SetAxisProcessing(string actionName, AxisProcessing? processing)
+        {
+            var state = RequireAction(actionName);
+            if (state.Definition.Kind == ActionKind.Button)
+            {
+                throw new InvalidOperationException($"动作 \"{actionName}\" 是 Button 类型，轴处理不适用");
+            }
+
+            var curve = ResolveCurve(actionName, processing ?? state.Definition.AxisProcessing);
+            state.Override = processing;
+            state.Curve = curve;
+            state.SmoothedMagnitude = 0.0;
+            state.LastDirection = Vec2.Zero;
+        }
+
+        /// <summary>某个轴动作当前生效的处理参数（玩家覆盖优先，其次动作定义默认值）；都没有为 null（原始值直通）。</summary>
+        public AxisProcessing? GetAxisProcessing(string actionName) => RequireAction(actionName).Effective;
+
+        /// <summary>导出玩家覆盖的轴处理参数（动作名 → 三项设置）；没有任何覆盖时为空对象。写入设置文件的 <c>input_axis_settings</c> 键。</summary>
+        public JsonObject ExportAxisSettings()
+        {
+            var builder = new JsonObjectBuilder();
+            foreach (var name in _actionOrder)
+            {
+                var state = _actions[name];
+                if (state.Override != null) builder.Add(name, state.Override.ToJson());
+            }
+
+            return builder.Build();
+        }
+
+        /// <summary>
+        /// 读回玩家覆盖的轴处理参数。同 <see cref="ImportBindings"/> 的"先全量校验、再统一落地"口径：动作不存在、不是轴动作、值格式非法、
+        /// 自定义曲线解析不到，任一条失败整批拒绝（抛异常）、现有覆盖保持不变；文件里没有出现的轴动作覆盖被清除。
+        /// </summary>
+        public void ImportAxisSettings(JsonObject settings)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+
+            var staged = new List<(ActionState State, AxisProcessing Processing, PiecewiseCurve? Curve)>(settings.Count);
+            foreach (var entry in settings)
+            {
+                var state = RequireAction(entry.Key);
+                if (state.Definition.Kind == ActionKind.Button)
+                {
+                    throw new ArgumentException($"动作 \"{entry.Key}\" 是 Button 类型，轴处理不适用", nameof(settings));
+                }
+
+                if (!(entry.Value is JsonObject obj))
+                {
+                    throw new ArgumentException($"动作 \"{entry.Key}\" 的轴处理值必须是对象", nameof(settings));
+                }
+
+                var processing = AxisProcessing.FromJson(obj);
+                staged.Add((state, processing, ResolveCurve(entry.Key, processing)));
+            }
+
+            foreach (var name in _actionOrder)
+            {
+                var state = _actions[name];
+                if (state.Override == null) continue;
+                state.Override = null;
+                state.Curve = ResolveCurve(name, state.Definition.AxisProcessing);
+                state.SmoothedMagnitude = 0.0;
+                state.LastDirection = Vec2.Zero;
+            }
+
+            foreach (var item in staged)
+            {
+                item.State.Override = item.Processing;
+                item.State.Curve = item.Curve;
+                item.State.SmoothedMagnitude = 0.0;
+                item.State.LastDirection = Vec2.Zero;
+            }
         }
 
         private Vec2 EvaluateComposite2D(ParsedBinding b)

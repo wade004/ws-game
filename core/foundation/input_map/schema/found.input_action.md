@@ -25,7 +25,7 @@
 | `default_bindings` | Array of String | 是 | 默认绑定字符串数组，语法见本模块 `README.md`"绑定字符串小语法"；数组内多条绑定之间是"或"关系 |
 | `rebind_group` | String | 否 | 重绑分组，缺省视为 `"default"`；同组内的绑定互相独占（见 03 第 7 节"冲突检测"） |
 | `description` | String | 否 | 说明文字 |
-| `class` | Enum（`move`\|`attack`\|`skill`\|`dodge`\|`interact`\|`item`\|`menu`） | 否 | 动作类别（手感设计/01 第 2.1 节）。**缺省 = 不进输入缓冲**（既有动作行为完全不变）；仅 `kind=button` 且声明了类别（非 `move`）的动作入缓冲。同类别的缓冲记录互相覆盖 |
+| `class` | Enum（`move`\|`attack`\|`skill`\|`dodge`\|`interact`\|`item`\|`menu`\|`jump`） | 否 | 动作类别（手感设计/01 第 2.1 节）。**缺省 = 不进输入缓冲**（既有动作行为完全不变）；仅 `kind=button` 且声明了类别（非 `move`）的动作入缓冲。同类别的缓冲记录互相覆盖 |
 | `buffer_ms` | Number（0..1000，毫秒） | 否 | 该动作自己的缓冲窗口；缺省取行动者手感档案输入组的 `buffer_ms`。0 = 只在按下当 tick 有效。毫秒经 `FeelCalibration` 按模拟步长换算为 tick |
 | `priority` | Int | 否 | 缓冲替换/取用优先级（大者优先）；缺省取类别缺省：dodge 40 > attack/skill 30 > item 20 > interact 10 > 其余 0 |
 | `hold_threshold_ms` | Number（>0，毫秒） | 否 | 按住阈值；声明后按下先成为"按住待定"（不可消费），抬起时按持续时长判点按/按住。缺省：attack/skill 类取档案的 `hold_threshold_ms`（若有），其余类别不区分按住 |
@@ -35,6 +35,13 @@
 
 | `skill_slot` | String | 否 | 缓冲接受后要施放的技能所在的技能绑定槽位名（与 `SkillBindingHost` 的 slot 同名，如 `slot_0`）。缺省 = 本动作不映射技能，生产装配的缓冲出口不对它发 `cast` 意图（手感落地 S10 新增） |
 | `control_space` | Enum（`world`\|`camera_relative`） | 否 | 轴动作的控制空间（仅 `axis2d`）：`world`（缺省）轴值原样当世界方向；`camera_relative` 轴值按当前相机偏航换算成世界方向（摇杆上 = 相机前方在地面上的投影，旋转不改模长）。要求宿主给输入映射配相机朝向查询（`ICameraOrientation`），没配则在声明动作集时报错，不静默当成偏航 0 |
+| `hold_skill_slot` | String | 否 | 点按/按住变体：按住释放（`hold_released`）时施放的技能所在的槽位名；点按走 `skill_slot`；缺省 = 与 `skill_slot` 同一技能（ADR-0143） |
+| `jump_cut_ratio` | Number（0～1，不含端点） | 否 | 仅 `class = jump`：可变跳高，起跳后松键（或起跳时已松键）若仍在上升，上升速度乘该比例；缺省不裁切（ADR-0143） |
+| `dead_zone` | Number（0～1，不含 1） | 否 | 仅轴动作、仅模拟绑定：径向死区，超出部分重标度到 0～1；缺省无死区。玩家设置可覆盖（`InputMapHost.SetAxisProcessing`，设置键 `input_axis_settings`）（ADR-0143） |
+| `response_curve` | String（`linear`\|`expo`\|`custom:<curve_id>`） | 否 | 仅轴动作：幅值响应曲线；缺省 `linear`（ADR-0143） |
+| `smoothing_ms` | Number | 否 | 仅轴动作：幅值下降沿从满幅回落到 0 的毫秒数，上升与方向变化即时；缺省不平滑（ADR-0143） |
+
+`class` 的取值在 ADR-0143 追加 `jump`（跳跃：接受时是对竖直轴能力包的起跳请求而不是施法；缺省优先级 35）。
 
 新增的 7 个字段（手感落地 S1）加 `skill_slot`（S10）均为可选加法字段：旧数据行不写它们时，`ActionDefinition` 的行为与此前逐项相同（`Class` 为空 ⇒ 不进缓冲）。
 

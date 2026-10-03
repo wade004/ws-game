@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_hit_charge_scale",
         "scriptVersion": 1,
-        "dataset": "a12013c51b237261",
+        "dataset": "09eeb0ac64e55740",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -150,7 +150,7 @@
       "key": {
         "script": "feel_hit_charge_scale",
         "scriptVersion": 1,
-        "dataset": "df19c7e6e293dd31",
+        "dataset": "a34daf734bad6cdb",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -202,39 +202,39 @@
         },
         "performance": {
           "ticks": 260,
-          "event_count_total": 621,
+          "event_count_total": 622,
           "frames": 260,
           "frame_ms_p50": 0.1,
-          "frame_ms_p95": 0.1,
+          "frame_ms_p95": 1,
           "alloc_bytes_per_frame_p95": 32768
         },
         "inputbuf": {
           "press_ticks": "5:lab_hs_charge;60:lab_hs_charge;140:lab_hs_charge",
           "slot_visible_ticks": "5:lab_a_charge;5:lab_hs_charge;60:lab_a_charge;60:lab_hs_charge;140:lab_a_charge;140:lab_hs_charge",
-          "consume_ticks": "9:skill.lab_hs_charge;90:skill.lab_hs_charge;200:skill.lab_hs_charge",
+          "consume_ticks": "9:skill.lab_hs_charge;90:skill.lab_hs_charge;191:skill.lab_hs_charge",
           "accept_latency_ticks": [
             4,
             30,
-            60
+            51
           ],
-          "accept_latency_max": 60,
-          "drop_events": "17:lab_a_charge:Expired;98:lab_a_charge:Expired;208:lab_a_charge:Expired",
+          "accept_latency_max": 51,
+          "drop_events": "17:lab_a_charge:Expired;98:lab_a_charge:Expired;220:lab_a_charge:Expired",
           "drop_counts": "Expired:3",
-          "expire_ticks": "17:lab_a_charge;98:lab_a_charge;208:lab_a_charge",
+          "expire_ticks": "17:lab_a_charge;98:lab_a_charge;220:lab_a_charge",
           "max_slot_occupancy": 2,
-          "slot_occupied_ticks": 118
+          "slot_occupied_ticks": 130
         },
         "actiontl": {
-          "starts": "player@9:skill.lab_hs_charge#0;player@90:skill.lab_hs_charge#0;player@200:skill.lab_hs_charge#0",
+          "starts": "player@9:skill.lab_hs_charge#0;player@90:skill.lab_hs_charge#0;player@191:skill.lab_hs_charge#0",
           "phase_ticks": "player:skill.lab_hs_charge:startup=9/active=18/recovery=18;player:skill.lab_hs_charge:startup=9/active=22/recovery=18;player:skill.lab_hs_charge:startup=9/active=24/recovery=18",
           "action_total_ticks": [
             45,
             49,
             51
           ],
-          "markers": "player@18:hit;player@26:hit;player@99:hit;player@109:hit;player@209:hit;player@221:hit",
+          "markers": "player@18:hit;player@26:hit;player@99:hit;player@109:hit;player@200:hit;player@212:hit",
           "cancels": "",
-          "finishes": "player@54;player@139;player@251",
+          "finishes": "player@54;player@139;player@242",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
@@ -246,7 +246,7 @@
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "18:player:2;18:stake:3;26:player:4;26:stake:5;99:player:4;99:stake:5;109:player:6;109:stake:7;209:player:6;209:stake:7;221:player:6;221:stake:7",
+          "started": "18:player:2;18:stake:3;26:player:4;26:stake:5;99:player:4;99:stake:5;109:player:6;109:stake:7;200:player:6;200:stake:7;212:player:6;212:stake:7",
           "started_ticks_player": 28,
           "frozen_ticks_player": 28,
           "frozen_ticks_targets": "stake=34",
@@ -257,13 +257,13 @@
         "reaction": {
           "hit_results": "Hit:6",
           "reaction_counts": "Stagger:6",
-          "reactions": "18:stake:Stagger:9;26:stake:Stagger:9;99:stake:Stagger:9;109:stake:Stagger:9;209:stake:Stagger:9;221:stake:Stagger:9",
+          "reactions": "18:stake:Stagger:9;26:stake:Stagger:9;99:stake:Stagger:9;109:stake:Stagger:9;200:stake:Stagger:9;212:stake:Stagger:9",
           "staggered_ticks": "stake=42",
           "kills": 0,
           "hit_classes": "medium,medium,medium,medium,medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex6,Frozen/Nonex4,Action/Nonex23,Grounded/Nonex36,Action/Nonex10,Frozen/Nonex4,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex61,Action/Nonex10,Frozen/Nonex6,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex9",
+          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex6,Frozen/Nonex4,Action/Nonex23,Grounded/Nonex36,Action/Nonex10,Frozen/Nonex4,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex52,Action/Nonex10,Frozen/Nonex6,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex18",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -277,15 +277,15 @@
           "hit_confirmed": 6,
           "avoided": 0,
           "hit_sets": "0.0=stake;0.1=stake;1.0=stake;1.1=stake;2.0=stake;2.1=stake",
-          "confirm_ticks": "18:player>stake;26:player>stake;99:player>stake;109:player>stake;209:player>stake;221:player>stake",
+          "confirm_ticks": "18:player>stake;26:player>stake;99:player>stake;109:player>stake;200:player>stake;212:player>stake",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "18:sfx.lab_impact_t2;26:sfx.lab_impact_t2;99:sfx.lab_impact_t2;109:sfx.lab_impact_t2;209:sfx.lab_impact_t2;221:sfx.lab_impact_t2",
+          "sfx_ids": "18:sfx.lab_impact_t2;26:sfx.lab_impact_t2;99:sfx.lab_impact_t2;109:sfx.lab_impact_t2;200:sfx.lab_impact_t2;212:sfx.lab_impact_t2",
           "sfx_count": 6,
-          "camera_cues": "18:1:;26:1:;99:1:;109:1:;209:1:;221:1:",
+          "camera_cues": "18:1:;26:1:;99:1:;109:1:;200:1:;212:1:",
           "camera_magnitudes": [
             0.01,
             0.01,
@@ -302,7 +302,7 @@
             120,
             120
           ],
-          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;26:freeze:player:4;26:freeze:stake:5;30:release:player:0;31:release:stake:0;99:freeze:player:4;99:freeze:stake:5;103:release:player:0;104:release:stake:0;109:freeze:player:6;109:freeze:stake:7;115:release:player:0;116:release:stake:0;209:freeze:player:6;209:freeze:stake:7;215:release:player:0;216:release:stake:0;221:freeze:player:6;221:freeze:stake:7;227:release:player:0;228:release:stake:0",
+          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;26:freeze:player:4;26:freeze:stake:5;30:release:player:0;31:release:stake:0;99:freeze:player:4;99:freeze:stake:5;103:release:player:0;104:release:stake:0;109:freeze:player:6;109:freeze:stake:7;115:release:player:0;116:release:stake:0;200:freeze:player:6;200:freeze:stake:7;206:release:player:0;207:release:stake:0;212:freeze:player:6;212:freeze:stake:7;218:release:player:0;219:release:stake:0",
           "first_feedback_lag_ticks": 0,
           "other_ops": ""
         }
@@ -312,7 +312,7 @@
       "key": {
         "script": "feel_hit_charge_scale",
         "scriptVersion": 1,
-        "dataset": "a12013c51b237261",
+        "dataset": "09eeb0ac64e55740",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -456,7 +456,7 @@
       "key": {
         "script": "feel_hit_charge_scale",
         "scriptVersion": 1,
-        "dataset": "df19c7e6e293dd31",
+        "dataset": "a34daf734bad6cdb",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -508,7 +508,7 @@
         },
         "performance": {
           "ticks": 260,
-          "event_count_total": 621,
+          "event_count_total": 622,
           "frames": 260,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -517,30 +517,30 @@
         "inputbuf": {
           "press_ticks": "5:lab_hs_charge;60:lab_hs_charge;140:lab_hs_charge",
           "slot_visible_ticks": "5:lab_a_charge;5:lab_hs_charge;60:lab_a_charge;60:lab_hs_charge;140:lab_a_charge;140:lab_hs_charge",
-          "consume_ticks": "9:skill.lab_hs_charge;90:skill.lab_hs_charge;200:skill.lab_hs_charge",
+          "consume_ticks": "9:skill.lab_hs_charge;90:skill.lab_hs_charge;191:skill.lab_hs_charge",
           "accept_latency_ticks": [
             4,
             30,
-            60
+            51
           ],
-          "accept_latency_max": 60,
-          "drop_events": "17:lab_a_charge:Expired;98:lab_a_charge:Expired;208:lab_a_charge:Expired",
+          "accept_latency_max": 51,
+          "drop_events": "17:lab_a_charge:Expired;98:lab_a_charge:Expired;220:lab_a_charge:Expired",
           "drop_counts": "Expired:3",
-          "expire_ticks": "17:lab_a_charge;98:lab_a_charge;208:lab_a_charge",
+          "expire_ticks": "17:lab_a_charge;98:lab_a_charge;220:lab_a_charge",
           "max_slot_occupancy": 2,
-          "slot_occupied_ticks": 118
+          "slot_occupied_ticks": 130
         },
         "actiontl": {
-          "starts": "player@9:skill.lab_hs_charge#0;player@90:skill.lab_hs_charge#0;player@200:skill.lab_hs_charge#0",
+          "starts": "player@9:skill.lab_hs_charge#0;player@90:skill.lab_hs_charge#0;player@191:skill.lab_hs_charge#0",
           "phase_ticks": "player:skill.lab_hs_charge:startup=9/active=18/recovery=18;player:skill.lab_hs_charge:startup=9/active=22/recovery=18;player:skill.lab_hs_charge:startup=9/active=24/recovery=18",
           "action_total_ticks": [
             45,
             49,
             51
           ],
-          "markers": "player@18:hit;player@26:hit;player@99:hit;player@109:hit;player@209:hit;player@221:hit",
+          "markers": "player@18:hit;player@26:hit;player@99:hit;player@109:hit;player@200:hit;player@212:hit",
           "cancels": "",
-          "finishes": "player@54;player@139;player@251",
+          "finishes": "player@54;player@139;player@242",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
@@ -552,7 +552,7 @@
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "18:player:2;18:stake:3;26:player:4;26:stake:5;99:player:4;99:stake:5;109:player:6;109:stake:7;209:player:6;209:stake:7;221:player:6;221:stake:7",
+          "started": "18:player:2;18:stake:3;26:player:4;26:stake:5;99:player:4;99:stake:5;109:player:6;109:stake:7;200:player:6;200:stake:7;212:player:6;212:stake:7",
           "started_ticks_player": 28,
           "frozen_ticks_player": 28,
           "frozen_ticks_targets": "stake=34",
@@ -563,13 +563,13 @@
         "reaction": {
           "hit_results": "Hit:6",
           "reaction_counts": "Stagger:6",
-          "reactions": "18:stake:Stagger:9;26:stake:Stagger:9;99:stake:Stagger:9;109:stake:Stagger:9;209:stake:Stagger:9;221:stake:Stagger:9",
+          "reactions": "18:stake:Stagger:9;26:stake:Stagger:9;99:stake:Stagger:9;109:stake:Stagger:9;200:stake:Stagger:9;212:stake:Stagger:9",
           "staggered_ticks": "stake=42",
           "kills": 0,
           "hit_classes": "medium,medium,medium,medium,medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex6,Frozen/Nonex4,Action/Nonex23,Grounded/Nonex36,Action/Nonex10,Frozen/Nonex4,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex61,Action/Nonex10,Frozen/Nonex6,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex9",
+          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex6,Frozen/Nonex4,Action/Nonex23,Grounded/Nonex36,Action/Nonex10,Frozen/Nonex4,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex52,Action/Nonex10,Frozen/Nonex6,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex18",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -583,15 +583,15 @@
           "hit_confirmed": 6,
           "avoided": 0,
           "hit_sets": "0.0=stake;0.1=stake;1.0=stake;1.1=stake;2.0=stake;2.1=stake",
-          "confirm_ticks": "18:player>stake;26:player>stake;99:player>stake;109:player>stake;209:player>stake;221:player>stake",
+          "confirm_ticks": "18:player>stake;26:player>stake;99:player>stake;109:player>stake;200:player>stake;212:player>stake",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "18:sfx.lab_impact_t2;26:sfx.lab_impact_t2;99:sfx.lab_impact_t2;109:sfx.lab_impact_t2;209:sfx.lab_impact_t2;221:sfx.lab_impact_t2",
+          "sfx_ids": "18:sfx.lab_impact_t2;26:sfx.lab_impact_t2;99:sfx.lab_impact_t2;109:sfx.lab_impact_t2;200:sfx.lab_impact_t2;212:sfx.lab_impact_t2",
           "sfx_count": 6,
-          "camera_cues": "18:1:;26:1:;99:1:;109:1:;209:1:;221:1:",
+          "camera_cues": "18:1:;26:1:;99:1:;109:1:;200:1:;212:1:",
           "camera_magnitudes": [
             0.01,
             0.01,
@@ -608,7 +608,7 @@
             120,
             120
           ],
-          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;26:freeze:player:4;26:freeze:stake:5;30:release:player:0;31:release:stake:0;99:freeze:player:4;99:freeze:stake:5;103:release:player:0;104:release:stake:0;109:freeze:player:6;109:freeze:stake:7;115:release:player:0;116:release:stake:0;209:freeze:player:6;209:freeze:stake:7;215:release:player:0;216:release:stake:0;221:freeze:player:6;221:freeze:stake:7;227:release:player:0;228:release:stake:0",
+          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;26:freeze:player:4;26:freeze:stake:5;30:release:player:0;31:release:stake:0;99:freeze:player:4;99:freeze:stake:5;103:release:player:0;104:release:stake:0;109:freeze:player:6;109:freeze:stake:7;115:release:player:0;116:release:stake:0;200:freeze:player:6;200:freeze:stake:7;206:release:player:0;207:release:stake:0;212:freeze:player:6;212:freeze:stake:7;218:release:player:0;219:release:stake:0",
           "first_feedback_lag_ticks": 0,
           "other_ops": ""
         }
@@ -618,7 +618,7 @@
       "key": {
         "script": "feel_hit_charge_scale",
         "scriptVersion": 1,
-        "dataset": "a12013c51b237261",
+        "dataset": "09eeb0ac64e55740",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -762,7 +762,7 @@
       "key": {
         "script": "feel_hit_charge_scale",
         "scriptVersion": 1,
-        "dataset": "df19c7e6e293dd31",
+        "dataset": "a34daf734bad6cdb",
         "preset": "feel.preset.arpg_responsive",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -814,7 +814,7 @@
         },
         "performance": {
           "ticks": 260,
-          "event_count_total": 621,
+          "event_count_total": 622,
           "frames": 260,
           "frame_ms_p50": 0.1,
           "frame_ms_p95": 0.1,
@@ -823,30 +823,30 @@
         "inputbuf": {
           "press_ticks": "5:lab_hs_charge;60:lab_hs_charge;140:lab_hs_charge",
           "slot_visible_ticks": "5:lab_a_charge;5:lab_hs_charge;60:lab_a_charge;60:lab_hs_charge;140:lab_a_charge;140:lab_hs_charge",
-          "consume_ticks": "9:skill.lab_hs_charge;90:skill.lab_hs_charge;200:skill.lab_hs_charge",
+          "consume_ticks": "9:skill.lab_hs_charge;90:skill.lab_hs_charge;191:skill.lab_hs_charge",
           "accept_latency_ticks": [
             4,
             30,
-            60
+            51
           ],
-          "accept_latency_max": 60,
-          "drop_events": "17:lab_a_charge:Expired;98:lab_a_charge:Expired;208:lab_a_charge:Expired",
+          "accept_latency_max": 51,
+          "drop_events": "17:lab_a_charge:Expired;98:lab_a_charge:Expired;220:lab_a_charge:Expired",
           "drop_counts": "Expired:3",
-          "expire_ticks": "17:lab_a_charge;98:lab_a_charge;208:lab_a_charge",
+          "expire_ticks": "17:lab_a_charge;98:lab_a_charge;220:lab_a_charge",
           "max_slot_occupancy": 2,
-          "slot_occupied_ticks": 118
+          "slot_occupied_ticks": 130
         },
         "actiontl": {
-          "starts": "player@9:skill.lab_hs_charge#0;player@90:skill.lab_hs_charge#0;player@200:skill.lab_hs_charge#0",
+          "starts": "player@9:skill.lab_hs_charge#0;player@90:skill.lab_hs_charge#0;player@191:skill.lab_hs_charge#0",
           "phase_ticks": "player:skill.lab_hs_charge:startup=9/active=18/recovery=18;player:skill.lab_hs_charge:startup=9/active=22/recovery=18;player:skill.lab_hs_charge:startup=9/active=24/recovery=18",
           "action_total_ticks": [
             45,
             49,
             51
           ],
-          "markers": "player@18:hit;player@26:hit;player@99:hit;player@109:hit;player@209:hit;player@221:hit",
+          "markers": "player@18:hit;player@26:hit;player@99:hit;player@109:hit;player@200:hit;player@212:hit",
           "cancels": "",
-          "finishes": "player@54;player@139;player@251",
+          "finishes": "player@54;player@139;player@242",
           "combo_chain": "",
           "combo_segments": 0,
           "charge_ratios": [
@@ -858,7 +858,7 @@
           "unfinished_at_end": 0
         },
         "hitstop": {
-          "started": "18:player:2;18:stake:3;26:player:4;26:stake:5;99:player:4;99:stake:5;109:player:6;109:stake:7;209:player:6;209:stake:7;221:player:6;221:stake:7",
+          "started": "18:player:2;18:stake:3;26:player:4;26:stake:5;99:player:4;99:stake:5;109:player:6;109:stake:7;200:player:6;200:stake:7;212:player:6;212:stake:7",
           "started_ticks_player": 28,
           "frozen_ticks_player": 28,
           "frozen_ticks_targets": "stake=34",
@@ -869,13 +869,13 @@
         "reaction": {
           "hit_results": "Hit:6",
           "reaction_counts": "Stagger:6",
-          "reactions": "18:stake:Stagger:9;26:stake:Stagger:9;99:stake:Stagger:9;109:stake:Stagger:9;209:stake:Stagger:9;221:stake:Stagger:9",
+          "reactions": "18:stake:Stagger:9;26:stake:Stagger:9;99:stake:Stagger:9;109:stake:Stagger:9;200:stake:Stagger:9;212:stake:Stagger:9",
           "staggered_ticks": "stake=42",
           "kills": 0,
           "hit_classes": "medium,medium,medium,medium,medium,medium"
         },
         "motion": {
-          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex6,Frozen/Nonex4,Action/Nonex23,Grounded/Nonex36,Action/Nonex10,Frozen/Nonex4,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex61,Action/Nonex10,Frozen/Nonex6,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex9",
+          "mode_sequence": "Grounded/Nonex9,Action/Nonex10,Frozen/Nonex2,Action/Nonex6,Frozen/Nonex4,Action/Nonex23,Grounded/Nonex36,Action/Nonex10,Frozen/Nonex4,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex52,Action/Nonex10,Frozen/Nonex6,Action/Nonex6,Frozen/Nonex6,Action/Nonex23,Grounded/Nonex18",
           "speed_max": 0,
           "ticks_to_full_speed": -1,
           "ticks_to_stop": -1,
@@ -889,15 +889,15 @@
           "hit_confirmed": 6,
           "avoided": 0,
           "hit_sets": "0.0=stake;0.1=stake;1.0=stake;1.1=stake;2.0=stake;2.1=stake",
-          "confirm_ticks": "18:player>stake;26:player>stake;99:player>stake;109:player>stake;209:player>stake;221:player>stake",
+          "confirm_ticks": "18:player>stake;26:player>stake;99:player>stake;109:player>stake;200:player>stake;212:player>stake",
           "duplicate_confirmations": 0,
           "unconfirmed_damage": 0,
           "confirmed_without_damage": 0
         },
         "presentation": {
-          "sfx_ids": "18:sfx.lab_impact_t2;26:sfx.lab_impact_t2;99:sfx.lab_impact_t2;109:sfx.lab_impact_t2;209:sfx.lab_impact_t2;221:sfx.lab_impact_t2",
+          "sfx_ids": "18:sfx.lab_impact_t2;26:sfx.lab_impact_t2;99:sfx.lab_impact_t2;109:sfx.lab_impact_t2;200:sfx.lab_impact_t2;212:sfx.lab_impact_t2",
           "sfx_count": 6,
-          "camera_cues": "18:1:;26:1:;99:1:;109:1:;209:1:;221:1:",
+          "camera_cues": "18:1:;26:1:;99:1:;109:1:;200:1:;212:1:",
           "camera_magnitudes": [
             0.01,
             0.01,
@@ -914,7 +914,7 @@
             120,
             120
           ],
-          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;26:freeze:player:4;26:freeze:stake:5;30:release:player:0;31:release:stake:0;99:freeze:player:4;99:freeze:stake:5;103:release:player:0;104:release:stake:0;109:freeze:player:6;109:freeze:stake:7;115:release:player:0;116:release:stake:0;209:freeze:player:6;209:freeze:stake:7;215:release:player:0;216:release:stake:0;221:freeze:player:6;221:freeze:stake:7;227:release:player:0;228:release:stake:0",
+          "freeze_ops": "18:freeze:player:2;18:freeze:stake:3;20:release:player:0;21:release:stake:0;26:freeze:player:4;26:freeze:stake:5;30:release:player:0;31:release:stake:0;99:freeze:player:4;99:freeze:stake:5;103:release:player:0;104:release:stake:0;109:freeze:player:6;109:freeze:stake:7;115:release:player:0;116:release:stake:0;200:freeze:player:6;200:freeze:stake:7;206:release:player:0;207:release:stake:0;212:freeze:player:6;212:freeze:stake:7;218:release:player:0;219:release:stake:0",
           "first_feedback_lag_ticks": 0,
           "other_ops": ""
         }

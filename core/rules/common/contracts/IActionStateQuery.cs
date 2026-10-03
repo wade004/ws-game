@@ -28,5 +28,11 @@ namespace Core.Rules.Common
         /// 动作时间线的实现方覆盖它。光环类霸体不经本成员，见 <c>HitFeelOptions.SuperArmorAuraDef</c>。
         /// </summary>
         bool IsSuperArmor(Id unitId) => false;
+
+        /// <summary>
+        /// 行动者当前的动作是否正在"按住维持"（<c>timeline.active_until_release</c>，ADR-0143）：判定相已走完、触发键仍按着、动作停在判定相末尾等待松键或到维持上限。
+        /// C# 默认接口成员（纯加法，缺省恒 false）；动作时间线的实现方覆盖它。
+        /// </summary>
+        bool IsSustained(Id unitId) => false;
     }
 }

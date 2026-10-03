@@ -776,6 +776,20 @@ namespace Core.Rules.Skill
         }
 
         /// <summary>
+        /// 时间线技能声明的蓄力块（<c>timeline.charge</c>，ADR-0143：装配层据此给输入缓冲注入蓄力规则——自动释放上限与下限门槛）；
+        /// 无时间线、没有蓄力块或未知技能返回 null。
+        /// </summary>
+        public TimelineCharge? GetTimelineCharge(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) ? def.Timeline?.Charge : null;
+
+        /// <summary>
+        /// 该技能是否声明了按住维持（<c>timeline.active_until_release</c>，ADR-0143）；装配层据此决定是否随施法意图带上 <c>trigger_action</c>
+        /// （没有声明的技能意图参数逐位不变）。无时间线或未知技能返回 false。
+        /// </summary>
+        public bool IsSustainSkill(Id skillId) =>
+            _defs.TryGetSkillDef(skillId, out var def) && def.Timeline?.ActiveUntilRelease != null;
+
+        /// <summary>
         /// 终止行动者进行中的时间线动作（受击硬直、死亡以外的外部终止入口，如受击裁决切片的 <c>stagger</c>）：
         /// 发 <c>action.cancelled{reason}</c> 与 <c>skill.cast_interrupted</c>；没有时间线动作时空操作。
         /// </summary>

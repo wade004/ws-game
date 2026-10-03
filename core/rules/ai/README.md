@@ -288,3 +288,5 @@ ADR-0125（D11；`AiHost` 迁移前同样如此）：构造完成后 `IDataRegis
     测试：`tests/AiTerrainStepNavigationTests.cs`（台阶墙前追击：带约束绕行进入攻击范围、不带约束停在墙前；第一个路点转向；
     不变量：缺省永不调带约束重载，约束不挡任何东西时位移逐位等于无约束）与 `core/gameplay/assembly/tests/AiTerrainStepNavigationAssemblyTests.cs`
     （生产装配：竖直轴 + 地形 + 台阶高度下生物绕墙追到玩家，清掉约束的旧行为顶在墙前；装配只在启用台阶阻挡时赋值）。
+
+12. **可选的施放路由 `IAiCastRouter`（手感落地 M5-S1，ADR-0143 决策 7）**：`AiHost.CastRouter`（缺省 `null`，行为与改动前逐位一致）。设置后 `RotationEvaluator` 在就绪判断之后先调 `TrySubmit(unit, skill, targets)`：返回真表示已交给路由（由载体装配的缓冲接管，见 `core/carriers/assembly/README.md` M5-S1 第 4 条），返回假则回落到原来的直接 `CastSkill`。有路由时只被动作锁或全局冷却挡住的条目也交给路由（缓冲会在窗口内等它），冷却与充能不足的仍跳过。本模块只定义契约与调用点，不知道缓冲；判断记录第 4 条所说"技能类意图是否改走 Intent"的集成点由此以可选方式落地。测试：`tests/RotationCastRouterTests.cs`。

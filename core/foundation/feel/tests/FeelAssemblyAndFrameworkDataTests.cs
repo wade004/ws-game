@@ -196,7 +196,6 @@ namespace Tests.Foundation.Feel
             Assert.Equal(0.0, r.GetRaw("stagger_power").AsNumber());
             Assert.Equal(0.0, r.GetRaw("cancel_window_scale").AsNumber());
             Assert.Equal(0.0, r.GetRaw("combo_window_scale").AsNumber());
-            Assert.Equal(0.0, r.GetRaw("dead_zone").AsNumber());
             Assert.False(r.GetRaw("wall_slide").AsBool());
             Assert.False(r.GetRaw("arrival_decel").AsBool());
             Assert.False(r.GetRaw("apply_to_path_following").AsBool());
@@ -213,7 +212,6 @@ namespace Tests.Foundation.Feel
             Assert.Equal(120.0, r.GetRaw("buffer_ms").AsNumber());
             Assert.Equal(2.0, r.GetRaw("buffer_slots").AsNumber());
             Assert.Equal(100.0, r.GetRaw("grace_ms").AsNumber());
-            Assert.Equal(0.15, r.GetRaw("dead_zone").AsNumber());
             Assert.Equal(720.0, r.GetRaw("turn_rate_deg_s").AsNumber());
             Assert.Equal(0.5, r.GetRaw("walk_speed_ratio").AsNumber());
             Assert.Equal(7, r.Judging.GetTicks("buffer_ms")); // 120 ms / 16.667 ms = 7.2 → 7
@@ -385,6 +383,33 @@ namespace Tests.Foundation.Feel
                 index += needle.Length;
             }
             return count;
+        }
+
+        /// <summary>ADR-0143：轴处理三字段（死区、响应曲线、平滑）归设备/玩家设置，已不在手感档案登记表里（复现：此前登记在输入组、整条链无消费者）。</summary>
+        [Fact]
+        public void AxisProcessingFields_AreNoLongerFeelProfileFields_AndPresetsNoLongerCarryThem()
+        {
+            var profiles = FrameworkProfiles();
+            foreach (var name in new[] { "dead_zone", "response_curve", "smoothing_ms" })
+            {
+                Assert.False(profiles.Fields.TryGet(name, out _), name + " 不应再登记为手感字段");
+            }
+
+            // 旧数据里残留的这三个键（迁移前写在预设里）被容错跳过，其余字段解析不受影响（迁移说明见 ADR-0143）。
+            var legacy = FrameworkFeelTables();
+            for (var i = 0; i < legacy.Count; i++)
+            {
+                if (legacy[i].Table != "feel.preset") continue;
+                legacy[i] = (legacy[i].Table, legacy[i].Json.Replace(
+                    "\"buffer_ms\": 120,", "\"dead_zone\": 0.15, \"response_curve\": \"expo\", \"smoothing_ms\": 40, \"buffer_ms\": 120,"));
+            }
+
+            legacy.Add(("feel.calibration", CalibrationJson));
+            var (registry, report) = Load(legacy);
+            Assert.Equal(0, report.ErrorCount);
+            var legacyProfiles = FeelProfileSet.FromRegistry(registry, FeelFields.Default);
+            var r = new FeelResolver(legacyProfiles, CalA(), 1.0 / 60.0).Resolve(Unit1);
+            Assert.Equal(120.0, r.GetRaw("buffer_ms").AsNumber());
         }
     }
 }

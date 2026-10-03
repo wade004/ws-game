@@ -777,3 +777,10 @@ M4-V 遗留的八条限制逐条解除（原文见上节第 6 条的旧版本，
 2. **`BeginLaunch` 的绝对高度上限**：`ILaunchSink` 默认接口成员 5 参数重载，`VerticalMotionHost` 覆盖（语义见 combat README 空战二期第 4 条）；`heightCap` 非正或无穷时与 4 参数重载完全一致。
 3. **受控位移的深度锁（原局限"横版深度锁只作用在移动输入，不限制被击退的方向"）**：`MovementOptions.DepthLockControlledMotion`（缺省 false，与 1.95.0 逐位一致：深度锁只在宿主输入层，受控位移按提交的方向走）。为真时 `MovementTickHandler.BeginDisplacement` 约束受控位移只沿横向：**击退**保持距离、方向取提交方向横向分量的符号（横向分量为 0，即攻击方恰在同一横坐标时没有横向可推，本次击退不位移）；**其它受控位移**（技能位移的冲锋/扑击/闪避位移）丢弃目标点的深度分量（落点横坐标不变、深度保持起点）。体积推人转移的位移沿撞人者的位移方向因此随之受约束；单位间重叠分离是穿插修正、不是受控位移，不受本选项约束。深度轴取平面的竖直分量（Y）。理由：深度锁是世界性质（横版二维没有深度），宿主应用它时受控位移也不该漂出平面；缺省关因为"深度锁"一直只是输入层约定，改成缺省开会改变既有横版基线。
 4. **复现与不变量**：`tests/VerticalAxisCompletionTests.cs`（落地事件载荷与空中时长累计、缺省不发、`BeginLaunch` 高度上限的地面/空中/叠加三种情形、深度锁下击退只走横向距离保持/横向分量为 0 不位移/技能位移丢深度、缺省不锁）；实验室 `space.dummy_air`（靶子起跳与空中移动，落地事件）、`space.depth_knockback` 与对照 `space.depth_knockback_free`。
+
+## 判断记录（输入层补全：边缘下落与可变跳高，2026-10-04，M5-S1，[ADR-0143](../../../architecture/adr/0143-输入层补全.md)）
+
+1. **契约（只加不改）**：`IVerticalMotion` 新增三个默认接口成员 `IsLedgeFall(unitId)`、`JumpFromLedge(unitId)`、`CutAscent(unitId, ratio)`，缺省实现分别返回假/假/假；`VerticalMotionHost` 覆盖实现。
+2. **边缘下落**：`FollowGround` 在单位走出支撑面起一段零速自然下落时给这段飞行打 `LedgeFall` 标记；起跳、击飞、`LaunchToApex` 等任何替换飞行的操作都清除它。`JumpFromLedge` 只在 `LedgeFall` 为真时成立：从当前高度以地面起跳速度起跳，不占空中跳跃次数，起跳后标记清除，所以不能连续宽限起跳。宽限窗口本身由输入层的 `grounded` 条件判定。
+3. **可变跳高**：`CutAscent(unitId, ratio)` 只在上升中（竖直速度 > 0）且 `0 < ratio < 1` 时把竖直速度乘 `ratio`，当前高度与空中跳跃次数不变；下降中、在地面、比例越界都拒绝并保持状态。已知边界：松键与起跳之间若这次上升已被别的运动（例如击飞）替换，裁切会作用在新的上升上；输入层只在"自己起的跳"上订阅松键，窗口很小，不额外追踪飞行来源。
+4. **复现与不变量**：`tests/VerticalAxisLedgeJumpTests.cs`（边缘下落可辨认、不开空中跳跃时普通跳起不来而 `JumpFromLedge` 成立、速度 `v = sqrt(2 g H)`、不占次数；地面/起跳飞行/被击飞后拒绝；裁切后速度 = `v × ratio` 且顶点高度按抛体公式、对照不裁切的同一跳更高）。

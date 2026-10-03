@@ -134,6 +134,27 @@ namespace Core.Rules.Skill
                 }
             }
 
+            // 按住维持（ADR-0143）
+            if (tl.TryGetValue("active_until_release", out var sustainVal) && sustainVal is JsonObject sustainObj)
+            {
+                if (Num(sustainObj, "max_ms") <= 0)
+                {
+                    issues.Add(Err("timeline_sustain_max", "active_until_release.max_ms 必须大于 0", "timeline.active_until_release"));
+                }
+
+                if (active <= 0)
+                {
+                    issues.Add(Err("timeline_sustain_no_active",
+                        "active_until_release 要求判定相 active_ms 大于 0（维持发生在判定相末尾）", "timeline.active_until_release"));
+                }
+
+                if (tl.TryGetValue("charge", out var chargeWithSustain) && chargeWithSustain is JsonObject)
+                {
+                    issues.Add(Warn("timeline_sustain_with_charge",
+                        "同一动作同时声明 charge 与 active_until_release：蓄力在动作开始前完成，维持在判定相末尾，两者各自独立生效", "timeline.active_until_release"));
+                }
+            }
+
             // markers
             var hasHit = false;
             var motionStart = (double?)null;
@@ -311,6 +332,13 @@ namespace Core.Rules.Skill
                     if (w.TryGetValue("close_ms", out var cv) && cv is JsonNumber cn && cn.Value < open)
                     {
                         issues.Add(Err("timeline_window_order", "取消窗口 close_ms 早于 open_ms", field));
+                    }
+
+                    if (w.TryGetValue("requires", out var wreq) && wreq is JsonString wreqs && wreqs.Value == "hit"
+                        && !hasHit && !(tl.TryGetValue("hit_policy", out var hpw) && hpw is JsonString hpws && hpws.Value == "continuous"))
+                    {
+                        issues.Add(Warn("timeline_window_requires_without_hit",
+                            "取消窗口声明了 requires=" + wreqs.Value + "，但时间线没有 hit 标记也不是 continuous 命中：命中确认可能永远不发生，窗口永不开启", field));
                     }
                 }
             }

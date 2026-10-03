@@ -100,9 +100,10 @@
     （性质由测试覆盖）。
 14. **输入动作表的字段扩展不在本模块**：手感设计/01 第 2.1 节的 `class`/`buffer_ms` 等字段属于 `found.input_action`，
     本模块只落地 `ActionClass` 枚举与缓冲记录契约；字段与缓冲实现见 `core/foundation/input_map/README.md`。
+15. **摇杆处理三字段从档案输入组删除（ADR-0143，ADR-0039 授权的破坏性变更）**：`dead_zone`、`response_curve`、`smoothing_ms` 此前在输入组登记却没有任何读取点（消费方是输入映射，输入映射读不到档案）；现登记在 `found.input_action`，归设备与玩家设置。登记集合与 `feel.preset` 里的这三个键一并删除；`FeelFieldNames.DeadZone`/`ResponseCurve`/`SmoothingMs` 常量保留并标 `[Obsolete]`（ABI 只增不删）；仍携带这些键的旧数据表照常加载（容错，不报错，值被忽略）。第 2 条里"镜头一侧改名以避免同名"的理由随之消失，`camera_` 前缀保留（已发布字段名不改）。
 
 15. **字段落地状态（M5，ADR-0146）**：`FeelFieldDef.Status`（`Active`/`Planned`）与 `StatusNote`（planned 必带原因，active 不得带）是登记的一部分，
-    不进数据 schema（不影响任何数据行与指纹）。当前 planned 的 11 个字段集中在 `FeelFields.PlannedFields` 一个数组里：被实现后实现者从数组删除即回到 active。
+    不进数据 schema（不影响任何数据行与指纹）。当前 planned 的 8 个字段集中在 `FeelFields.PlannedFields` 一个数组里：被实现后实现者从数组删除即回到 active。
     扫描测试 `FeelFieldStatusTests` 对 `core`/`presentation`/`adapters` 的非测试 `.cs` 找 `FeelFieldNames.<常量>` 引用（登记文件自身除外），
     引用数为零的字段必须 planned、有引用的不得 planned。判断：只认常量引用，不认字符串字面量，因为消费方一律经常量读字段（常量是字段名的唯一出处）；
     实验室只引用不算消费（实验室是观察方，不改变行为）。

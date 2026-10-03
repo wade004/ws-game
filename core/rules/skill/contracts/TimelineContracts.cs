@@ -30,10 +30,22 @@ namespace Core.Rules.Skill
         /// <summary>蓄力按住的 tick 数（非蓄力动作为 0）。</summary>
         public int HeldTicks { get; }
 
+        /// <summary>
+        /// 触发这次动作的输入动作 id（ADR-0143）：按住维持型动作（<c>timeline.active_until_release</c>）据此向输入缓冲查询"键是否仍按着"
+        /// （<see cref="IInputBufferQuery.IsHeld"/>）；不是由输入动作触发的施法（AI 直接施法、脚本）为 null，此时动作不维持。
+        /// </summary>
+        public Id? TriggerAction { get; }
+
         public ActionCastContext(Vec2? direction, int heldTicks)
+            : this(direction, heldTicks, null)
+        {
+        }
+
+        public ActionCastContext(Vec2? direction, int heldTicks, Id? triggerAction)
         {
             Direction = direction;
             HeldTicks = heldTicks;
+            TriggerAction = triggerAction;
         }
     }
 

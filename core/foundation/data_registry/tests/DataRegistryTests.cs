@@ -261,7 +261,8 @@ namespace Tests.Foundation.Data
             // 手感体系实验室修复（手感设计/03 第 2.5 节勘误）：新增 action.projectile_launched / action.projectile_ended 两条，112 -> 114。
             // 手感落地 M4-L（动态韧性）：新增 combat.poise_changed / combat.poise_recovered 两条，114 -> 116。
             // 手感落地 M4-W1b（空中战斗）：新增 unit.landed 一条，116 -> 117。
-            Assert.Equal(117, registry.GetAll("found.event_catalog").Count);
+            // 手感落地 M5-S1（输入层补全，ADR-0143）：新增 input.charge_ready 一条，117 -> 118。
+            Assert.Equal(118, registry.GetAll("found.event_catalog").Count);
             // H4 新增 input.action.end_turn（离散时间模型结束回合意图，见该表判断记录），13 -> 14。
             Assert.Equal(14, registry.GetAll("found.input_action").Count);
 

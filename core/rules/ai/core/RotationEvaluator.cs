@@ -6,6 +6,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.Expr;
 using Core.Rules.Common;
 using Core.Rules.ExprHost;
+using Core.Rules.Skill;
 
 namespace Core.Rules.Ai
 {
@@ -79,6 +80,12 @@ namespace Core.Rules.Ai
 
         public bool HasRotation(Id rotationId) => _rotations.ContainsKey(rotationId.Value);
 
+        /// <summary>
+        /// AI 施法路由（ADR-0143，可空）：非空时，就绪（或只被"动作锁/公共冷却"这类时间可解原因挡住）的条目改为交给路由提交进输入缓冲，
+        /// 路由接管即视为本次决策成功；路由不接管（返回 false）时回落到直接施法。缺省 null 即既有行为（逐位不变）。
+        /// </summary>
+        public IAiCastRouter? CastRouter { get; set; }
+
         public SkillCastRequest? Evaluate(Id unitId, Id rotationId, Id? targetId)
         {
             if (!_rotations.TryGetValue(rotationId.Value, out var entries))
@@ -95,9 +102,16 @@ namespace Core.Rules.Ai
                 }
 
                 // 就绪判定复用 ISkillHost.GetSkillReadiness，不自行推断，见类型判断记录"就绪判定"。
-                if (!_skillHost.GetSkillReadiness(unitId, entry.SkillId).IsReady)
+                var readiness = _skillHost.GetSkillReadiness(unitId, entry.SkillId);
+                var router = CastRouter;
+                if (!readiness.IsReady)
                 {
-                    continue;
+                    // 有路由时，只被动作锁/公共冷却挡住的条目照样提交（缓冲会等到能放为止，到期丢弃）；其余阻塞（冷却、充能不足）仍跳过。
+                    const SkillReadinessBlockers timeSolvable = SkillReadinessBlockers.ActionLocked | SkillReadinessBlockers.GlobalCooldown;
+                    if (router == null || (readiness.BlockingSources & ~timeSolvable) != SkillReadinessBlockers.None)
+                    {
+                        continue;
+                    }
                 }
 
                 // RC-10 收边同一判据（原 AiHost.Evaluate 判断记录）：只有"敌对单体"类技能才把调用方
@@ -106,6 +120,16 @@ namespace Core.Rules.Ai
                 var targets = entry.IsHostileSingleTarget && targetId.HasValue
                     ? new[] { targetId.Value }
                     : Array.Empty<Id>();
+
+                if (router != null && router.TrySubmit(unitId, entry.SkillId, targets))
+                {
+                    return new SkillCastRequest(unitId, entry.SkillId, targets);
+                }
+
+                if (!readiness.IsReady)
+                {
+                    continue;
+                }
 
                 var result = _skillHost.CastSkill(unitId, entry.SkillId, targets);
                 if (result.Success)

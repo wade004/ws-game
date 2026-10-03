@@ -1,0 +1,92 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_cancel_requires_hit",
+    "scriptVersion": 1,
+    "description": "取消窗口的命中条件（ADR-0143 requires）：挥击命中木桩后，窗口声明 requires=hit 才生效——取消窗口（250..500 毫秒）内按闪避，命中已确认，取消进闪避、挥击收招被切掉；into 白名单只含闪避技能。对照脚本 feel_cancel_requires_whiff（requires=whiff，同一命中下窗口不开）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_i_slash_hit",
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/input_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 25,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 26,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "hit_confirmed_once",
+      "metric": "spatialhit.hit_confirmed",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "cancel_into_dodge_in_action_cells",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "actiontl.cancels",
+      "op": "eq",
+      "value": "player@25:CancelInto>skill.lab_a_dodge",
+      "note": "命中确认后窗口（requires=hit）打开，闪避在按下的同一 tick 取消进入"
+    },
+    {
+      "id": "no_buffer_expiry_in_action_cells",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "inputbuf.expire_ticks",
+      "op": "eq",
+      "value": ""
+    }
+  ]
+}

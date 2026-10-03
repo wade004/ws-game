@@ -30,6 +30,21 @@ namespace Core.Rules.Skill
 
         public Vec2? Direction;
 
+        /// <summary>触发这次动作的输入动作 id（按住维持型动作用，ADR-0143）；非输入动作触发为 null。</summary>
+        public Id? TriggerAction;
+
+        /// <summary>本动作实例已有的命中确认次数（含被回避的接触，<c>combat.hit_confirmed</c> 按动作实例配对；取消/连招窗口的 <c>requires</c> 用，ADR-0143）。</summary>
+        public int HitCount;
+
+        /// <summary>已经按住维持的动作时钟 tick 数（<c>timeline.active_until_release</c>，判定相走完后键仍按着期间累计）。</summary>
+        public int SustainTicks;
+
+        /// <summary>当前正停在判定相末尾按住维持（对应 <see cref="IActionStateQuery.IsSustained"/>）。</summary>
+        public bool Sustaining;
+
+        /// <summary>按住维持已结束（松键或到上限）：此后不再进入维持。</summary>
+        public bool SustainDone;
+
         /// <summary>已经过的动作时钟 tick（顿帧暂停期间不增长）。</summary>
         public int Elapsed;
 
@@ -372,7 +387,13 @@ namespace Core.Rules.Skill
         public bool IsCancelOpen(Id unitId, ActionClass actionClass)
         {
             var run = RunOf(unitId);
-            return run != null && run.Schedule.IsCancelOpen(actionClass, run.Elapsed);
+            return run != null && run.Schedule.IsCancelOpen(actionClass, run.Elapsed, run.HitCount > 0, null);
+        }
+
+        public bool IsSustained(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.Sustaining;
         }
 
         public bool IsInvulnerable(Id unitId)
@@ -537,6 +558,7 @@ namespace Core.Rules.Skill
                 ChargeRatio = chargeRatio,
                 ChargeValueScale = tl.Charge != null ? tl.Charge.ValueScaleAt(chargeRatio) : 1.0,
                 Direction = context.Direction,
+                TriggerAction = context.TriggerAction,
                 LastClock = _timeline?.Clock != null ? _timeline.Clock.ActionTicks(casterId) : 0,
                 StartSeq = _inUpdate ? _updateSeq : _updateSeq + 1,
                 ComboResetTicks = comboResetTicks,
@@ -732,6 +754,44 @@ namespace Core.Rules.Skill
             }
 
             var previousElapsed = run.Elapsed;
+
+            // ADR-0143 按住维持（timeline.active_until_release）：判定相最后一个 tick 之后，触发键仍按着就把动作停在判定相末尾，
+            // 累计维持时长；松键或到 max_ms 才继续走后摇。冻结点取"判定相最后一个 tick"（StartupTicks + ActiveTicks - 1），
+            // 这样相位切换到后摇与判定相结束标记（invuln_end 等）都还没触发，维持期间动作仍处于判定相。
+            if (run.Timeline.ActiveUntilRelease != null && run.TriggerAction.HasValue && !run.SustainDone)
+            {
+                var holdTick = run.Schedule.StartupTicks + run.Schedule.ActiveTicks - 1;
+                var maxTicks = Math.Max(1, (int)Math.Ceiling(run.Timeline.ActiveUntilRelease.MaxMs / (_options.ActionStepSeconds * 1000.0) - 1e-9));
+                var held = _timeline?.Input != null && _timeline.Input.IsHeld(casterId, run.TriggerAction.Value);
+                if (run.Sustaining)
+                {
+                    if (held && run.SustainTicks < maxTicks)
+                    {
+                        run.SustainTicks += delta;
+                        TryPullIntent(casterId, state, run);
+                        return;
+                    }
+
+                    run.Sustaining = false;
+                    run.SustainDone = true;
+                    EnqueueSustainMarker(casterId, run, "sustain_end", held ? "max" : "release");
+                }
+                else if (run.Schedule.ActiveTicks > 0 && previousElapsed + delta > holdTick)
+                {
+                    if (held)
+                    {
+                        run.SustainTicks += previousElapsed + delta - holdTick;
+                        delta = Math.Max(0, holdTick - previousElapsed);
+                        run.Sustaining = true;
+                        EnqueueSustainMarker(casterId, run, "sustain_start", null);
+                    }
+                    else
+                    {
+                        run.SustainDone = true;
+                    }
+                }
+            }
+
             run.Elapsed += delta;
             state.Remaining = Math.Max(0, (run.Schedule.TotalTicks - run.Elapsed) * _options.ActionStepSeconds);
 
@@ -753,6 +813,14 @@ namespace Core.Rules.Skill
             }
 
             TryPullIntent(casterId, state, run);
+        }
+
+        private void EnqueueSustainMarker(Id casterId, ActionRun run, string name, string? reason)
+        {
+            IReadOnlyDictionary<string, string> args = reason == null
+                ? new Dictionary<string, string>()
+                : new Dictionary<string, string> { ["reason"] = reason };
+            _bus.Enqueue(new ActionMarkerEvent(casterId, run.CastInstanceId, name, args));
         }
 
         /// <summary>按时间顺序触发 <c>run.Elapsed</c> 及之前的全部调度事件（一次推进跨过多个标记时一个不漏）。返回动作是否仍在进行。</summary>
@@ -1106,7 +1174,7 @@ namespace Core.Rules.Skill
             }
 
             var run = state.Run;
-            if (IsActionClockPaused(unitId) || !run.Schedule.IsCancelOpen(ActionClass.Move, run.Elapsed))
+            if (IsActionClockPaused(unitId) || !run.Schedule.IsCancelOpen(ActionClass.Move, run.Elapsed, run.HitCount > 0, null))
             {
                 return;
             }
@@ -1140,15 +1208,16 @@ namespace Core.Rules.Skill
             var elapsed = run.Elapsed;
 
             // 窗口内连招：attack 类记录在连招窗口内启动 next（携带 comboIndex + 1），不需要输入动作→技能映射。
-            if (record.Class == ActionClass.Attack && run.Timeline.Combo != null && run.Schedule.IsComboOpen(elapsed))
+            var anyHit = run.HitCount > 0;
+            if (record.Class == ActionClass.Attack && run.Timeline.Combo != null && run.Schedule.IsComboOpen(elapsed, anyHit))
             {
                 return new CancelDecision(run.Timeline.Combo.Next, run.ComboIndex + 1, true);
             }
 
-            // 取消进入：该类别的取消窗口此刻打开，且输入动作能映射到技能。
-            if (run.Schedule.IsCancelOpen(record.Class, elapsed)
-                && _timeline?.Binding != null
-                && _timeline.Binding.TryResolveSkill(casterId, record, out var skillId))
+            // 取消进入：该类别的取消窗口此刻打开（含 requires 条件），且输入动作能映射到技能、技能在窗口的 into 白名单里（声明了的话）。
+            if (_timeline?.Binding != null
+                && _timeline.Binding.TryResolveSkill(casterId, record, out var skillId)
+                && run.Schedule.IsCancelOpen(record.Class, elapsed, anyHit, skillId))
             {
                 return new CancelDecision(skillId, 0, false);
             }
@@ -1159,6 +1228,7 @@ namespace Core.Rules.Skill
         /// <summary>
         /// 这条记录是否永远接不了（M4 清扫）：既不能走连招（只有带 <c>combo</c> 块的动作里的 attack 类记录不需要映射），也没有输入动作 → 技能映射能给出技能。
         /// 拉取时先把它们剔出候选，使一条永远接不了的记录不在过期前挡住次优先级候选；窗口此刻没开不算"永远"（窗口可能稍后打开），仍按最前候选处理。
+        /// ADR-0143：取消窗口的 <c>into</c> 白名单把目标技能排除在外同样算"永远"（白名单在动作内是静态的）。
         /// </summary>
         private bool IsNeverAcceptable(Id casterId, ActionRun run, BufferedIntent record)
         {
@@ -1167,7 +1237,13 @@ namespace Core.Rules.Skill
                 return false;
             }
 
-            return _timeline?.Binding == null || !_timeline.Binding.TryResolveSkill(casterId, record, out _);
+            if (_timeline?.Binding == null || !_timeline.Binding.TryResolveSkill(casterId, record, out var skillId))
+            {
+                return true;
+            }
+
+            // ADR-0143：该类别的取消窗口全部声明了 into 白名单、且白名单里都没有这条记录映射到的技能——在这个动作里它永远进不来，同样不挡次优先级候选。
+            return run.Schedule.IntoNeverAllows(record.Class, skillId);
         }
 
         private void TryPullIntent(Id casterId, CastState state, ActionRun run)
@@ -1192,7 +1268,7 @@ namespace Core.Rules.Skill
 
             var d = decision.Value;
             var context = new ActionCastContext(
-                record.DirectionSnapshot, record.HoldState == BufferHoldState.HoldReleased ? record.HeldTicks : 0);
+                record.DirectionSnapshot, record.HoldState == BufferHoldState.HoldReleased ? record.HeldTicks : 0, record.ActionId);
 
             // 先验证再取消：新动作能开始才终止当前动作（验证失败时当前动作原样继续，记录按原因分流）。
             _cancelIntoCaster = casterId;

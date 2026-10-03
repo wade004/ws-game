@@ -248,6 +248,19 @@ namespace Core.Rules.Ai
         /// <summary>供测试/调试观察当前追击/交战目标；未注册单位抛异常，无目标返回 null。</summary>
         public Id? GetTarget(Id unitId) => GetState(unitId).Target;
 
+        /// <summary>
+        /// AI 施法路由（ADR-0143，缺省 null）：非空时 AI 的施法决策经它提交进输入缓冲而不是直接施法，见 <see cref="IAiCastRouter"/>。
+        /// 只对内部的 <see cref="RotationEvaluator"/> 生效。
+        /// </summary>
+        public IAiCastRouter? CastRouter
+        {
+            get => (_rotationEvaluator as RotationEvaluator)?.CastRouter;
+            set
+            {
+                if (_rotationEvaluator is RotationEvaluator evaluator) evaluator.CastRouter = value;
+            }
+        }
+
         public SkillCastRequest? Evaluate(Id unitId)
         {
             var state = GetState(unitId);

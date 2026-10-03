@@ -23,5 +23,12 @@ namespace Core.Foundation.InputMap
         /// 次优先级记录照旧不让位（高优先级的闪避不被低优先级攻击旁路）。默认接口成员，缺省恒为 true（既有实现原样工作）。
         /// </summary>
         bool CanHandle(Id actorId, BufferedIntent record) => true;
+
+        /// <summary>
+        /// <see cref="TryAccept"/> 返回 true 时，这条记录是否产生一条要追加进意图列表的意图（ADR-0143）。缺省 true（既有实现原样工作）；
+        /// 返回 false 表示本出口在 <see cref="TryAccept"/> 里已经直接完成了动作（例如 <see cref="ActionClass.Jump"/> 类记录对竖直轴能力包的起跳请求，
+        /// 没有施法意图），处理器只把记录标记为已消费，不追加意图（此时 <c>TryAccept</c> 的 <c>intent</c> 输出被忽略）。
+        /// </summary>
+        bool ProducesIntent(Id actorId, BufferedIntent record) => true;
     }
 }

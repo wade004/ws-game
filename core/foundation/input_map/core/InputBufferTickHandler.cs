@@ -86,7 +86,7 @@ namespace Core.Foundation.InputMap
                 if (!_sink.TryAccept(actorId, top, out var intent)) continue;
 
                 // 候选在 TryPeek 与 TryConsume 之间没有变化，取用到的就是刚才询问过的那一条。
-                if (_host.TryConsume(actorId, null, _skipUnhandled, out _))
+                if (_host.TryConsume(actorId, null, _skipUnhandled, out _) && _sink.ProducesIntent(actorId, top))
                 {
                     world.AppendCurrentIntent(intent);
                 }

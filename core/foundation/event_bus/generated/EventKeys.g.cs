@@ -192,8 +192,11 @@ namespace Core.Foundation.EventBus
         /// <summary>input.action_triggered — 字段：actionName。物理输入经 InputMap 转译出的游戏动作被触发（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputActionTriggered = new Id("input.action_triggered");
 
-        /// <summary>input.buffer_dropped — 字段：actorId, actionId, reason, reasonCode。手感设计/01 第 2.2/3.7 节（ADR-0115）：输入缓冲记录未被执行即离开缓冲，每条记录至多一次；reason 取 replaced|full|expired|cleared|rejected，rejected 时 reasonCode 为管线拒绝原因码，其它原因为空。</summary>
+        /// <summary>input.buffer_dropped — 字段：actorId, actionId, reason, reasonCode。手感设计/01 第 2.2/3.7 节（ADR-0115）：输入缓冲记录未被执行即离开缓冲，每条记录至多一次；reason 取 replaced|full|expired|cleared|rejected|charge_below_min（ADR-0143：技能声明 charge.below_min=cancel 时蓄力不足被取消），rejected 时 reasonCode 为管线拒绝原因码，其它原因为空。</summary>
         public static readonly Id InputBufferDropped = new Id("input.buffer_dropped");
+
+        /// <summary>input.charge_ready — 字段：actorId, actionId, heldTicks。手感设计/01 第 3.3 节（ADR-0143）：蓄力类动作按住满上限（timeline.charge.max_ms，按行动者动作时钟计），输入缓冲把 hold_pending 记录自动转为 hold_released（heldTicks 恒等于上限）并发出本事件，表现层据此亮蓄满特效；是输入缓冲侧的信号，不是时间线标记（蓄力期间还没有动作实例）。</summary>
+        public static readonly Id InputChargeReady = new Id("input.charge_ready");
 
         /// <summary>input.rebind_conflict — 字段：actionName, binding。重绑定检测到冲突（见 01 模块表 input_map 行、03 第 7 节）；字段为建议值。</summary>
         public static readonly Id InputRebindConflict = new Id("input.rebind_conflict");
@@ -425,6 +428,7 @@ namespace Core.Foundation.EventBus
             HookInvoked,
             InputActionTriggered,
             InputBufferDropped,
+            InputChargeReady,
             InputRebindConflict,
             ItemAdded,
             ItemEquipped,

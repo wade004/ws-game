@@ -323,3 +323,12 @@ M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节�
 - **`CarriersFeelOptions.HitRadiusFromFeel`（缺省 false）**：为真且目标选择宿主没有配置 `TargetRadius` 时，把 `TargetRadius` 接成"单位的 `unit_body_radius`（标定后世界单位，必须 > 0）× `hurt_radius_scale`（缺省 1）"，`MaxTargetRadiusProvider` 接成全部单位里的最大值（每次查询重新取）。**缺省关闭的理由**：打开会让擦边的目标从没打中变成打中，改变既有命中结果；由游戏在装配根显式打开（主会话决定是否翻缺省）。游戏自己已配置 `TargetRadius` 时不覆盖。
 - 复现/不变量：实验室脚本 `feel_hit_geometry`（经生产装配跑全部六个格子，`lab/tests/HitGeometrySceneTests.cs`：每个靶子被命中当且仅当其中心到形状的最短距离不超过受击半径；选项关闭时与半径为 0 逐位一致）。
 - 已知限制：上界提供者每次查询遍历全部单位（只在打开时）。
+
+## 手感落地 M5-S1：输入层补全的装配接线（2026-10-04，[ADR-0143](../../../architecture/adr/0143-输入层补全.md)）
+
+1. **跳跃出口（评审 B2）**：`BufferedActionIntentSink` 对 `ActionClass.Jump` 直接驱动 `IVerticalMotion`（`ProducesIntent` 为假，不发施法意图）。普通起跳走 `Jump`；土狼：空中、`IsLedgeFall` 为真、动作的 `grace_conditions` 含 `input.grace.builtin_grounded` 且该条件的宽限窗口内，走 `JumpFromLedge`（不占空中跳跃次数）；起不了跳的记录留在缓冲里，这就是跳跃缓冲。可变跳高：动作写了 `jump_cut_ratio` 时，起跳后订阅 `ActionReleased`，松键（或起跳时已松键）若仍在上升就 `CutAscent`。
+2. **内置宽限条件 `grounded`**：`GraceAimContext` 新增 `grounded` 字段（新构造重载，旧重载保留），`ExprGraceConditionEvaluator.Inspect` 增加第三个输出 `usesAimEvent`，让 `event.grounded` 不被当成"瞄点相关"条件（历史不按瞄点归属）；`CarriersFeelAssembly` 把竖直轴的 `IsAirborne` 取反接为 `GraceAimServices.Grounded`，没有竖直轴时恒为真。
+3. **点按/按住变体与蓄力规则源**：`ActionSlotSkillBinding`（`UsesHoldSlot`/`TryResolveHoldSkill`/`SlotFor`）决定一条记录该用哪个槽位；`ActionChargeRuleSource` 把输入动作 → 技能 → `timeline.charge` 换算成缓冲的 `ChargeRule`（毫秒按动作步长换算为 tick），装配时赋给 `InputBufferHost.ChargeRules`。
+4. **AI 经缓冲（评审 A6，缺省关闭）**：`CarriersFeelOptions.AiIntentsThroughBuffer`。打开时装配 `BufferedAiCastRouter`（实现 `IAiCastRouter`）并注册合成动作 `input.action.ai_cast`（绑定占位 `key:ai_cast` 只为满足"绑定非空"校验，没有物理键），`rules.Ai.CastRouter` 指向它：`RotationEvaluator` 在就绪判断之后调用 `TrySubmit`，成功则经 `buffer.SubmitSkill` 入缓冲。有路由时只被 `ActionLocked`/`GlobalCooldown` 挡住的条目也提交（缓冲窗口内等待），冷却与充能不足仍跳过；路由拒绝时回落直接施放。**一个 tick 的延迟**且 AI 的提前量受缓冲窗口约束，所以缺省关闭——打开会改变既有 AI 基线。评审原文"自动攻击也不经缓冲"不成立的部分：自动攻击走直接施放，不在此项范围。
+5. **`trigger_action` 参数**：缓冲出口对维持型技能加 `trigger_action` 与 `ExtraArgs` 合并后的参数；`Dispose` 取消订阅。
+6. **复现与不变量**：`core/gameplay/assembly/tests/InputCompletionAssemblyTests.cs`（点按/按住分流、蓄力自动释放与 `below_min`、跳跃缓冲落地起跳、土狼窗口内外、可变跳高裁切、AI 经缓冲的一 tick 延迟与回落）。

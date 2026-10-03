@@ -325,6 +325,12 @@ namespace Presentation.Shell
                 _inputMap.ImportBindings(bindingsObj);
             }
 
+            // ADR-0143：玩家的摇杆处理覆盖（死区/曲线/平滑）与键位同一条设置通道；文件里没有这一项即不覆盖（保持动作定义的声明值）。
+            if (data.TryGetValue("input_axis_settings", out var axisVal) && axisVal is JsonObject axisObj)
+            {
+                _inputMap.ImportAxisSettings(axisObj);
+            }
+
             return data;
         }
 
@@ -338,6 +344,11 @@ namespace Presentation.Shell
                 builder.Add(entry.Key, entry.Value);
             }
             builder.Add("input_bindings", _inputMap.ExportBindings());
+            var axisSettings = _inputMap.ExportAxisSettings();
+            if (axisSettings.Count > 0 && !additionalFields.ContainsKey("input_axis_settings"))
+            {
+                builder.Add("input_axis_settings", axisSettings);
+            }
 
             return _settingsStore.Save(builder.Build());
         }

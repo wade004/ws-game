@@ -47,8 +47,9 @@ namespace Core.Foundation.InputMap
                 // 手感设计/01 第 2.1 节（手感落地第 1 波 S1）：以下七个字段全部可选、纯加法；既有数据一行不改仍然合法，
                 // 且缺省值保证既有输入行为逐位不变（未声明 class 的动作不经输入缓冲，见 ActionDefinition.Class 判断记录）。
                 new FieldSchema("class", FieldKind.Enum, required: false,
-                    enumValues: new[] { "move", "attack", "skill", "dodge", "interact", "item", "menu" },
-                    description: "动作类别（取消窗口、优先级、连招按类别工作）；缺省表示不经输入缓冲（既有行为）；move 为轴类，不入缓冲"),
+                    enumValues: new[] { "move", "attack", "skill", "dodge", "interact", "item", "menu", "jump" },
+                    description: "动作类别（取消窗口、优先级、连招按类别工作）；缺省表示不经输入缓冲（既有行为）；move 为轴类，不入缓冲；" +
+                        "jump 为跳跃（接受时是对竖直轴能力包的起跳请求而不是施法，装配了竖直轴才生效，优先级介于 dodge 与 attack 之间）"),
                 new FieldSchema("buffer_ms", FieldKind.Number, required: false,
                     description: "缓冲窗口（毫秒）；缺省取手感档案输入组 buffer_ms（无手感档案时为 0）；0 表示不缓冲，只在按下当 tick 有效")
                     .WithRange(FieldRange.Range(min: 0, max: 1000)),
@@ -74,6 +75,22 @@ namespace Core.Foundation.InputMap
                     enumValues: new[] { "world", "camera_relative" },
                     description: "轴动作的控制空间（仅 axis2d 有意义）：world 轴值原样当世界方向（缺省）；camera_relative 轴值按当前相机偏航换算成世界方向，" +
                         "要求宿主给输入映射配相机朝向查询（ICameraOrientation）"),
+                // ADR-0143（手感落地 M5-S1）：以下字段全部可选、纯加法，缺省行为逐位不变。
+                new FieldSchema("dead_zone", FieldKind.Number, required: false,
+                    description: "模拟轴死区（仅 axis 动作，仅手柄绑定）：摇杆向量长度不超过它时输出零，超过部分重标度到 0～1；缺省无死区（原始值直通）。" +
+                        "归设备/玩家设置：这里是默认值，玩家设置可覆盖（InputMapHost.SetAxisProcessing，随设置文件持久化）")
+                    .WithRange(FieldRange.Range(min: 0, max: 1, maxExclusive: true)),
+                new FieldSchema("response_curve", FieldKind.String, required: false,
+                    description: "模拟轴响应曲线（仅 axis 动作）：linear（缺省）| expo（幅值平方）| custom:<curve_id>（宿主提供的分段线性曲线，输入输出为 0～1 幅值）"),
+                new FieldSchema("smoothing_ms", FieldKind.Number, required: false,
+                    description: "模拟轴平滑（仅 axis 动作）：幅值下降时满幅回落到 0 的毫秒数；只作用于幅值的下降沿，上升与方向变化即时生效（一次按下至少一个 tick 满幅）；缺省不平滑")
+                    .WithRange(FieldRange.Range(min: 0, max: 5000)),
+                new FieldSchema("hold_skill_slot", FieldKind.String, required: false,
+                    description: "点按/按住变体：按住释放（holdState 为 hold_released）时施放的技能所在的技能绑定槽位名；点按走 skill_slot；缺省两者同一技能。" +
+                        "点按与按住的分界只有一个：hold_threshold_ms（attack/skill 类缺省取档案按住阈值）"),
+                new FieldSchema("jump_cut_ratio", FieldKind.Number, required: false,
+                    description: "可变跳高（仅 jump 类）：起跳后松键（或起跳时已松键）若仍在上升，上升速度乘以该比例；缺省不裁切")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true, max: 1, maxExclusive: true)),
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true)
