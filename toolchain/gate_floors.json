@@ -9,32 +9,32 @@
   ],
   "suites": {
     "dotnet_test": {
-      "min_passed": 8150,
+      "min_passed": 8680,
       "max_skipped": 0,
-      "measured_passed": 9056,
+      "measured_passed": 9654,
       "measured_skipped": 0,
-      "measured_at": "2026-10-02"
+      "measured_at": "2026-10-04"
     },
     "pytest": {
-      "min_passed": 1170,
+      "min_passed": 1320,
       "max_skipped": 0,
-      "measured_passed": 1310,
+      "measured_passed": 1472,
       "measured_skipped": 0,
-      "measured_at": "2026-10-02"
+      "measured_at": "2026-10-04"
     },
     "unity_editmode": {
-      "min_passed": 160,
+      "min_passed": 180,
       "max_skipped": 0,
-      "measured_passed": 188,
+      "measured_passed": 208,
       "measured_skipped": 0,
-      "measured_at": "2026-10-02"
+      "measured_at": "2026-10-04"
     },
     "unity_playmode": {
-      "min_passed": 400,
+      "min_passed": 480,
       "max_skipped": 0,
-      "measured_passed": 452,
+      "measured_passed": 538,
       "measured_skipped": 0,
-      "measured_at": "2026-10-02"
+      "measured_at": "2026-10-04"
     }
   }
 }
