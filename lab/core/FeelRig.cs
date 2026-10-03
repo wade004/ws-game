@@ -60,10 +60,24 @@ namespace Lab
 
             var recordingSink = new RecordingSink(this, tee);
             var profile = LabImpactProfile.Load(world.Registry);
+            var feelSource = new PresentingImpactFeelSource(feel.Resolver);
+
+            // 玩家的手感表声明了反馈包引用（impact_profile_ref，例如框架默认手感模板 feel.preset.tpl_*）时，
+            // 这一套反馈就是该包，而不是实验室缺省包；既有预设没有该字段，行为与此前逐位一致。
+            var profileId = LabImpactProfile.ProfileId;
+            var ownProfile = feelSource.Get(_playerId)?.ProfileRef;
+            ImpactProfile? ownLoaded = null;
+            if (ownProfile.HasValue && !ownProfile.Value.Equals(LabImpactProfile.ProfileId))
+            {
+                profileId = ownProfile.Value;
+                ownLoaded = LabImpactProfile.Load(world.Registry, profileId);
+            }
+
             var options = new ImpactOptions
             {
-                FeelSource = new PresentingImpactFeelSource(feel.Resolver),
-                ProfileResolver = id => id.Equals(LabImpactProfile.ProfileId) ? profile : null,
+                FeelSource = feelSource,
+                ProfileResolver = id =>
+                    id.Equals(LabImpactProfile.ProfileId) ? profile : (ownLoaded != null && id.Equals(profileId) ? ownLoaded : null),
                 SfxLayers = new SfxLayerIndex(LabImpactProfile.LoadSfxRows(world.Registry)),
                 CameraOwnerResolver = () => _playerId,
                 PositionResolver = id => world.World.GetEntity(id)?.Position,
@@ -75,7 +89,7 @@ namespace Lab
             {
                 new FeedbackRule(
                     new Id("feedback.lab_impact"), RulesEventKeys.CombatHitConfirmed, null,
-                    new FeedbackAction[] { new PlayImpactAction(LabImpactProfile.ProfileId) }),
+                    new FeedbackAction[] { new PlayImpactAction(profileId) }),
             };
             _binder = new FeedbackBinderCore(
                 world.Bus, world.Gameplay.ExprHostFactory, rules, recordingSink,
@@ -331,13 +345,16 @@ namespace Lab
         /// </summary>
         private static readonly ImpactFreezeLayers LabFreezeLayers = new ImpactFreezeLayers(true, false);
 
-        public static ImpactProfile Load(IDataRegistry registry)
+        public static ImpactProfile Load(IDataRegistry registry) => Load(registry, ProfileId);
+
+        /// <summary>按 id 读冲击档案行（实验室缺省包或手感表 <c>impact_profile_ref</c> 指到的包），同样覆写顿帧冻结层。</summary>
+        public static ImpactProfile Load(IDataRegistry registry, Id profileId)
         {
-            var record = registry.Get("feedback.impact_profile", ProfileId);
+            var record = registry.Get("feedback.impact_profile", profileId);
             if (record == null)
             {
                 throw new LabFormatException(
-                    "手感场景需要实验室冲击档案行 " + ProfileId.Value + "（表 feedback.impact_profile，随 data/_lab_action）；数据根里没有它。");
+                    "手感场景需要冲击档案行 " + profileId.Value + "（表 feedback.impact_profile，实验室缺省包随 data/_lab_action）；数据根里没有它。");
             }
 
             var loaded = ImpactProfile.FromRecord(record);

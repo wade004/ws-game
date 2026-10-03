@@ -1,0 +1,83 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_tpl_agile",
+    "scriptVersion": 1,
+    "description": "默认手感模板对照（ADR-0142）：预设钉死为 feel.preset.tpl_agile（敏捷动作），五个模板脚本共用同一份输入——t=5 按攻击（挥击，量相位 tick、命中顿帧、受击反应、镜头冲击）；t=8 在动作进行中再按一次攻击（缓冲探针，量缓冲过期 tick）；t=100 再次挥击、t=116 按闪避（取消探针，量取消窗口与缓冲决定的取消成败）。对照用例见 lab/tests/FeelTemplatesCompareTests.cs，期望由模板数据按规则算出。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.tpl_agile",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 240,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_slash",
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_feel_templates",
+      "data/_lab_action",
+      "lab/fixtures/data/feel_templates"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 100,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 101,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 116,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 117,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "table": "vfx.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "vfx.placeholder_hit_spark",
+      "category": "impact",
+      "attach_mode": "world",
+      "lifetime": 0.4,
+      "resource_ref": "vfx.placeholder_hit_spark"
+    }
+  ]
+}

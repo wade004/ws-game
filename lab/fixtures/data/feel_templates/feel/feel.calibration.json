@@ -1,0 +1,66 @@
+{
+  "table": "feel.calibration",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.calibration.lab_tpl_classic",
+      "description": "实验室默认手感模板标定：基础预设 feel.preset.tpl_classic；参考身高 1、基础移速 5，其余同动作式格子标定（data/_lab_action）。",
+      "base_preset": "feel.preset.tpl_classic",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_tpl_agile",
+      "description": "实验室默认手感模板标定：基础预设 feel.preset.tpl_agile；参考身高 1、基础移速 5，其余同动作式格子标定（data/_lab_action）。",
+      "base_preset": "feel.preset.tpl_agile",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_tpl_heavy",
+      "description": "实验室默认手感模板标定：基础预设 feel.preset.tpl_heavy；参考身高 1、基础移速 5，其余同动作式格子标定（data/_lab_action）。",
+      "base_preset": "feel.preset.tpl_heavy",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_tpl_horde",
+      "description": "实验室默认手感模板标定：基础预设 feel.preset.tpl_horde；参考身高 1、基础移速 5，其余同动作式格子标定（data/_lab_action）。",
+      "base_preset": "feel.preset.tpl_horde",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    },
+    {
+      "id": "feel.calibration.lab_tpl_precise",
+      "description": "实验室默认手感模板标定：基础预设 feel.preset.tpl_precise；参考身高 1、基础移速 5，其余同动作式格子标定（data/_lab_action）。",
+      "base_preset": "feel.preset.tpl_precise",
+      "reference_height": 1.0,
+      "base_speed": 5.0,
+      "animation_fps": 30.0,
+      "reference_camera_height": 10.0,
+      "reference_zoom": 1.0,
+      "pixels_per_unit": 32.0,
+      "marker_tolerance_ms": 50.0
+    }
+  ]
+}

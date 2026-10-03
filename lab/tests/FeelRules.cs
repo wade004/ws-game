@@ -26,7 +26,12 @@ namespace Tests.Lab
         /// <summary>预设（<c>feel.preset.*</c>）的字段表。</summary>
         public static FeelRules Preset(string presetId)
         {
-            var row = Row(Path.Combine("data", "_feel", "feel", "feel.preset.json"), presetId);
+            // 框架手感根 data/_feel 里没有时再找默认手感模板根 data/_feel_templates（feel.preset.tpl_*）。
+            var inFramework = Path.Combine("data", "_feel", "feel", "feel.preset.json");
+            var path = presetId.StartsWith("feel.preset.tpl_", StringComparison.Ordinal)
+                ? Path.Combine("data", "_feel_templates", "feel", "feel.preset.json")
+                : inFramework;
+            var row = Row(path, presetId);
             return new FeelRules((JsonObject)row["values"]);
         }
 
