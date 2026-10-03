@@ -366,6 +366,15 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 5. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`EngineLabHostCrossHostTests`（全部手感场景脚本逐字节比较引擎宿主与无头宿主的逻辑组指纹；格子由环境变量 `GF_LAB_CELLS` 选，缺省 `2d_action`，`*` 为全部；`GF_LAB_MAX_RUNS` 限制组合数）、`EngineLabHostMechanismTests`（命中帧对齐、镜头冲量曲线、顿帧冻结与旁观/对照、帧耗时分布、三个平面组合、`camera_relative` 三向检验、输入噪声记录回放、引擎失败、渲染隔离、冷热加载一致、期望清单在引擎宿主上判定、换装图标与逐层剪辑核对及其反例）。EditMode：`LabPanelModelTests`（覆盖存储的写入、校验、持久化、A/B 与源数据不变）。
 6. **手感相关边界（设计决定）**：手感相关的限制在 M4 全部解除或转为判断记录（见 `lab/README.md` 判断记录 54、60 与「范围与现状（设计决定）」）；真机手测是游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现，命中对齐已由姿势集数据对齐（手感设计/04 第 10 节第 10 条）。
 
+### 手感实验室人手试玩宿主（2026-10-04，ADR-0141）
+
+在实验室引擎宿主上加"真人实时玩"，口径与指南见 `lab/README.md` 判断记录 61 与「人手试玩指南」。
+
+1. **文件**（`Runtime/LabHost/`，同一程序集 `Adapter.Unity.LabHost`，新增对 `Unity.InputSystem` 的引用，用来读手柄）：`LabPlayground`（控制器 `MonoBehaviour` + 屏上叠层，IMGUI，只从视图模型绘制）、`LabLiveModel`（面板视图模型与滚动指标，不依赖引擎）、`LabLiveInput`（从真实输入适配器轮询键盘/摇杆、手柄按钮读 Input System，产出与脚本同种的事件）、`LabEffectFilter`（呈现通道开关与计数）；`Editor/LabHost/LabPlaygroundSceneBuilder`（生成三个薄场景，菜单 `GameFoundation/手感试玩`，命令行 `-executeMethod Adapter.Unity.LabHost.Editor.LabPlaygroundSceneBuilder.BuildAll`）。
+2. **舞台试玩模式**：`EngineLabOptions.Interactive`（缺省关；开启后舞台相机真正渲染并带音频监听、背景与地面网格、相机跟随玩家、震屏与闪白真实生效、呈现通道闸、视图创建后立即播待机）、`InteractiveZoom`（缺省 2.8）、`InteractiveFollowSmoothing`、`Effects`；`EngineLabHost` 新增接受基础数据根与额外根解析器的构造。缺省选项下脚本回放的行为逐位不变。
+3. **适配器侧新增（只增不改）**：`UnityViewFactory.PlayLocomotionClip(entityId)`（视图创建后默认只显示静态占位图，直到状态机第一次切换才播剪辑；试玩舞台创建视图后调用它，生产装配入口不调用）。
+4. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`LabPlaygroundTests`——移动距离、命中（伤害量有变化）、顿帧时长取自激活预设行、A/B 切换后下一次命中的顿帧按另一预设行折算且切换事件盖在生效 tick、关顿帧是录进脚本的覆盖、呈现开关不改逻辑、磁盘读回的录制脚本无头重放逻辑组指纹逐字节一致、三个场景载入后注入移动与攻击。
+
 ### NF2：表现层/适配层边界清扫（2026-10-03）
 
 1. **同一资源在途请求并入**：`UnityResourceLoader.LoadAsync(id, kind, cb)` 对同 id 同种类已有在途加载的后到请求并入在途请求——只读/解码一次，各回调完成时恰好一次（某个回调抛异常记日志、不影响其余）；完成后再请求是全新请求；种类不同、带精灵集提示的 `Effect` 重载仍各自独立（提示决定枢轴）。此前每个请求各自解码，后完成的覆盖先完成的缓存项（先建的纹理泄漏）。新增 `internal CoalescedLoadCount`。回归：`Tests/Runtime/UnityResourceLoaderInFlightCoalesceTests.cs`。

@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **手感实验室人手试玩宿主（[ADR-0141](architecture/adr/0141-手感实验室人手试玩宿主.md)，手感设计/06 第 1、4 节）**：真人可以在 Unity 里直接玩实验室的三个平面组合（`2d_action` 俯视精灵、`2_5d_action` 固定俯仰精灵、`3d_action` 固定俯仰模型各一个薄场景，`Assets/Framework/Scenes/LabPlayground_*.unity`，不进场景清单）。内核新增可单步推进的 `LabSession`（`LabHost.Start`/`LabRunner.StartLive`，脚本回放是同一份循环的特例）；输入脚本格式版本升到 5，新增事件种类 `spawn`、`clear_dummies`、`preset`、`loadout`、`override`、`clear_overrides`、`marker`（旧脚本逐字节不变）；面板每个影响逻辑的操作都落成事件，整局录成本地脚本（`lab/out/playground/`，被忽略规则覆盖），无头 `feellab run` 重放的逻辑组指纹逐字节一致（内核与引擎两侧各有用例）。引擎侧新增 `EngineLabStage` 试玩模式（缺省关）、`LabPlayground` 控制器与屏上面板（F1 开关：场景控制、预设与 A/B、三项响应指标与帧耗时、录制）、`LabLiveInput`/`LabLiveModel`/`LabEffectFilter`、`LabPlaygroundSceneBuilder`；`UnityViewFactory.PlayLocomotionClip`（只增，生产装配入口不调用）。指南见 `lab/README.md`「人手试玩指南」与判断记录 61；调参面板、帧数据时间轴、轨迹叠层、评分不在本期。
+
 ## [1.97.0] - 2026-10-04
 
 ### 工具链

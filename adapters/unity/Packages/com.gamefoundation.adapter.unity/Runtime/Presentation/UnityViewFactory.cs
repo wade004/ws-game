@@ -620,6 +620,13 @@ namespace Adapter.Unity.Presentation
             }
         }
 
+        /// <summary>
+        /// 把实体当前运动态（待机/移动）的剪辑立刻播出来。判断记录（试玩宿主，ADR-0141）：视图创建后默认只显示静态占位图，
+        /// 直到状态机第一次切换才播剪辑（<see cref="AnimClipResolver.Refresh"/> 在没有战斗姿态变体的外形上什么都不播——它假设视图静态显示的就是普通待机）；
+        /// 人手试玩的靶子一出场就该在待机动画上，所以宿主在视图创建后调用本方法。生产装配入口不调用它，行为不变。实体没有挂接动画或不在运动态时什么都不做。
+        /// </summary>
+        public void PlayLocomotionClip(Id entityId) => _animClipResolver?.ResetToLocomotionClip(entityId);
+
         /// <summary>本工厂迄今创建过的全部 View，只读快照（诊断/测试用）。</summary>
         public IReadOnlyList<IView> CreatedViews => _created;
 
