@@ -91,6 +91,15 @@ namespace Adapter.Unity.LabHost
         private GpuFrameProbe? _gpu;
         private double _gpuMs;
         private FallbackOrientation? _fallbackOrientation;
+        private LabEffectFilter? _effects;
+        private IFeedbackSink? _gate;
+        private readonly List<FlashFx> _flashFx = new List<FlashFx>();
+
+        private sealed class FlashFx
+        {
+            public UnitySpriteView View = null!;
+            public double Remaining;
+        }
 
         public EngineLabStage(EngineLabOptions? options = null)
         {
@@ -140,7 +149,7 @@ namespace Adapter.Unity.LabHost
         public override IViewFactory WrapViewFactory(IViewFactory inner, LabHostContext context) =>
             _broken ? inner : new TeeViewFactory(inner, this);
 
-        public override IFeedbackSink? FeedbackTee => _broken ? null : _sink;
+        public override IFeedbackSink? FeedbackTee => _broken ? null : (_gate ?? _sink);
 
         /// <summary>
         /// 相机朝向查询（框架原生相机相对控制空间的来源）：舞台相机装配成功时是真实的 <see cref="UnityCamera"/>（偏航来自它真正的相机朝向）；
@@ -308,7 +317,7 @@ namespace Adapter.Unity.LabHost
             _unityCamera.FieldOfViewDegrees = _options.CameraFieldOfViewDegrees;
             _unityCamera.ApplyPitch = _pitchDegrees > 1e-12;
             _unityCamera.Perspective = _options.CameraPerspective ?? honorCell;
-            if (_options.GpuTiming)
+            if (_options.GpuTiming && !_options.Interactive)
             {
                 _gpu = new GpuFrameProbe(_camera);
                 _rec.GpuAvailable = _gpu.Available;
@@ -316,7 +325,16 @@ namespace Adapter.Unity.LabHost
             }
             else
             {
-                _rec.GpuUnavailableReason = "选项 GpuTiming 关闭";
+                _rec.GpuUnavailableReason = _options.Interactive ? "试玩模式不测 GPU 帧耗时" : "选项 GpuTiming 关闭";
+            }
+
+            if (_options.Interactive)
+            {
+                // 人手试玩：舞台相机真正渲染到屏幕（缺省是关着、只在测 GPU 时离屏渲染一次）；带音频监听器；背景用深灰，地面网格在下面建。
+                _camera.enabled = true;
+                _camera.backgroundColor = new Color(0.09f, 0.10f, 0.12f);
+                _cameraGo.AddComponent<AudioListener>();
+                _unityCamera.SetZoom(_options.InteractiveZoom);
             }
 
             foreach (var other in Camera.allCameras)
@@ -376,10 +394,20 @@ namespace Adapter.Unity.LabHost
                 _r2d, _unityCamera, vfxCatalog, null, (e, a) => Resolve(e, a), e => Resolve(e, ProbeAnchorId), null, _loader, _r3d);
             _sfx = new SfxPlayer(_audio, new RngHost(1UL), sfxCatalog, null, null, _loader);
             _sink = new CompositeFeedbackSink(
-                _vfx, _sfx, (e, s, t) => { }, d => { }, p => { }, (e, p) => { }, e => Resolve(e, ProbeAnchorId));
+                _vfx, _sfx, (e, s, t) => { }, d => { }, p => OnShake(), (e, p) => OnFlash(e), e => Resolve(e, ProbeAnchorId));
             _sink.OnImpactCamera = OnImpactCamera;
             _sink.OnFreezePresentation = OnFreezePresentation;
             _sink.OnReleasePresentation = OnReleasePresentation;
+            _effects = _options.Effects;
+            if (_effects != null)
+            {
+                _gate = new GatedSink(_sink, _effects, () => _lastTick + 1);
+            }
+
+            if (_options.Interactive)
+            {
+                BuildGround(ctx);
+            }
 
             // 预加载：探针特效与手感音效用到的两份音频，避免第一次播放走"等待加载"的慢路径而改变观测窗口。
             _loader.LoadAsync(ProbeResourceId, ResourceKind.Effect, (id, ok) => { });
@@ -482,6 +510,12 @@ namespace Adapter.Unity.LabHost
             try
             {
                 var view = _unityFactory.CreateView(kind, displayId, entityId);
+                if (_options.Interactive)
+                {
+                    // 试玩：一出场就播待机（否则视图停在静态占位图，直到第一次状态切换才有动画；见 UnityViewFactory.PlayLocomotionClip）。
+                    _unityFactory.PlayLocomotionClip(entityId);
+                }
+
                 SetLayerRecursive();
                 PumpLoader();
                 var entry = new EngineEntry { Entity = entityId, View = view };
@@ -587,6 +621,206 @@ namespace Adapter.Unity.LabHost
             trace.Curve.Add(new KeyValuePair<double, double>(0.0, _unityCamera.CurrentImpulseOffset.magnitude));
             _rec.CameraImpulses.Add(trace);
             _activeImpulses.Add(new ActiveImpulse { Trace = trace });
+        }
+
+        /// <summary>试玩模式的震屏落地：缺省（非试玩）保持空实现；震屏通道关着时不落地（计数在反馈转发闸里）。</summary>
+        private void OnShake()
+        {
+            if (!_options.Interactive || _unityCamera == null || (_effects != null && !_effects.IsOn(LabEffectFilter.Shake)))
+            {
+                return;
+            }
+
+            // 实验室数据没有震屏档表，固定一个可感知的短震：幅度取取景半高的 3%、0.18 秒、30 Hz 抖动（与闪白同为"默认值"口径，见 FlashReceiver）。
+            _unityCamera.Shake(_unityCamera.VisibleHalfHeight * 0.03, 0.18, 30.0);
+        }
+
+        /// <summary>试玩模式的闪白落地：精灵型视图过曝 0.15 秒（与 FlashReceiver 同一默认值）；模型型视图没有闪白着色参数，只计数不落地。</summary>
+        private void OnFlash(Id entityId)
+        {
+            if (!_options.Interactive || !_entries.TryGetValue(entityId, out var entry) || !(entry.View is UnitySpriteView sprite))
+            {
+                return;
+            }
+
+            sprite.SetFlash(1.0);
+            _flashFx.Add(new FlashFx { View = sprite, Remaining = 0.15 });
+        }
+
+        /// <summary>
+        /// 地面网格与场地阻挡（只在试玩模式建）：一张程序生成的平铺网格精灵铺满场地，阻挡矩形画成深色块；全部放在隔离层、挂在舞台根下，随舞台销毁。
+        /// 只用程序生成的占位（无任何美术资源）。
+        /// </summary>
+        private void BuildGround(LabHostContext ctx)
+        {
+            if (_root == null)
+            {
+                return;
+            }
+
+            var tex = new Texture2D(64, 64, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
+            var fill = new Color32(34, 38, 46, 255);
+            var line = new Color32(52, 58, 70, 255);
+            var axis = new Color32(70, 80, 98, 255);
+            for (var y = 0; y < 64; y++)
+            {
+                for (var x = 0; x < 64; x++)
+                {
+                    var edge = x == 0 || y == 0;
+                    tex.SetPixel(x, y, edge ? line : fill);
+                }
+            }
+
+            tex.Apply(false);
+            var sprite = Sprite.Create(tex, new UnityEngine.Rect(0, 0, 64, 64), new Vector2(0.5f, 0.5f), 64f, 0, SpriteMeshType.FullRect);
+            var go = new GameObject("LabGround") { layer = _options.IsolationLayer };
+            go.transform.SetParent(_root.transform, false);
+            go.transform.position = new Vector3(0f, 0f, 0.05f);
+            var renderer = go.AddComponent<SpriteRenderer>();
+            renderer.sprite = sprite;
+            renderer.drawMode = SpriteDrawMode.Tiled;
+            renderer.size = new Vector2(60f, 60f);
+            renderer.sortingOrder = -10000;
+
+            // 世界原点十字（x 轴偏亮）：方便判断朝向与位移。
+            var tex2 = new Texture2D(1, 1, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+            tex2.SetPixel(0, 0, axis);
+            tex2.Apply(false);
+            var dot = Sprite.Create(tex2, new UnityEngine.Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f, 0, SpriteMeshType.FullRect);
+            AddBar(go.transform, dot, new Vector2(60f, 0.06f), -9999);
+            AddBar(go.transform, dot, new Vector2(0.06f, 60f), -9999);
+
+            try
+            {
+                var arena = new LabCatalog(ctx.World.Registry).GetArena(ctx.Cell.ArenaId);
+                var wall = new Texture2D(1, 1, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+                wall.SetPixel(0, 0, new Color32(18, 20, 26, 255));
+                wall.Apply(false);
+                var wallSprite = Sprite.Create(wall, new UnityEngine.Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f, 0, SpriteMeshType.FullRect);
+                foreach (var block in arena.Blocks)
+                {
+                    var size = new Vector2((float)(block.Max.X - block.Min.X), (float)(block.Max.Y - block.Min.Y));
+                    var center = new Vector2((float)((block.Max.X + block.Min.X) * 0.5), (float)((block.Max.Y + block.Min.Y) * 0.5));
+                    var bar = AddBar(go.transform, wallSprite, size, -9990);
+                    bar.transform.localPosition = new Vector3(center.x, center.y, -0.01f);
+                }
+            }
+            catch (Exception ex)
+            {
+                Fail("场地阻挡绘制失败：" + ex.Message);
+            }
+
+            SetLayerRecursive();
+        }
+
+        private GameObject AddBar(Transform parent, Sprite sprite, Vector2 size, int order)
+        {
+            var bar = new GameObject("LabGroundBar") { layer = _options.IsolationLayer };
+            bar.transform.SetParent(parent, false);
+            var r = bar.AddComponent<SpriteRenderer>();
+            r.sprite = sprite;
+            r.drawMode = SpriteDrawMode.Sliced;
+            r.size = size;
+            r.sortingOrder = order;
+            return bar;
+        }
+
+        /// <summary>
+        /// 反馈转发闸（只在传入了 <see cref="LabEffectFilter"/> 时存在）：记每个通道的提交次数，按开关放行或拦下音效、闪白、镜头冲击；
+        /// 震屏的开关在落地处（<see cref="OnShake"/>）判，因为打击反馈包里的震屏档随镜头冲击提示一起走。其余通道原样转发。
+        /// </summary>
+        private sealed class GatedSink : IFeedbackSink
+        {
+            private readonly IFeedbackSink _inner;
+            private readonly LabEffectFilter _filter;
+            private readonly Func<int> _tick;
+
+            public GatedSink(IFeedbackSink inner, LabEffectFilter filter, Func<int> tick)
+            {
+                _inner = inner;
+                _filter = filter;
+                _tick = tick;
+            }
+
+            public void FloatingText(Id entityId, Id styleId, string text) => _inner.FloatingText(entityId, styleId, text);
+
+            public void PlayVfx(Id vfxId, FeedbackAttachSpec attach)
+            {
+                _filter.Admit("vfx", _tick());
+                _inner.PlayVfx(vfxId, attach);
+            }
+
+            public void PlayVfx(Id vfxId, FeedbackAttachSpec attach, IReadOnlyDictionary<string, double>? parameters)
+            {
+                _filter.Admit("vfx", _tick());
+                _inner.PlayVfx(vfxId, attach, parameters);
+            }
+
+            public void StopVfx(Id vfxId, FeedbackAttachSpec attach) => _inner.StopVfx(vfxId, attach);
+
+            public void PlaySfx(Id sfxId, Vec2? at)
+            {
+                if (_filter.Admit(LabEffectFilter.Sfx, _tick()))
+                {
+                    _inner.PlaySfx(sfxId, at);
+                }
+            }
+
+            public void PlaySfx(Id sfxId, Vec2? at, FeedbackAttachSpec attach)
+            {
+                if (_filter.Admit(LabEffectFilter.Sfx, _tick()))
+                {
+                    _inner.PlaySfx(sfxId, at, attach);
+                }
+            }
+
+            public void StopSfx(Id sfxId, FeedbackAttachSpec attach) => _inner.StopSfx(sfxId, attach);
+
+            public void Freeze(double durationMs) => _inner.Freeze(durationMs);
+
+            public void ShakeCamera(Id profileId)
+            {
+                _filter.Admit(LabEffectFilter.Shake, _tick());
+                _inner.ShakeCamera(profileId);
+            }
+
+            public void Flash(Id entityId, Id profileId)
+            {
+                if (_filter.Admit(LabEffectFilter.Flash, _tick()))
+                {
+                    _inner.Flash(entityId, profileId);
+                }
+            }
+
+            public void ImpactCamera(ImpactCameraCue cue)
+            {
+                var on = _filter.Admit(LabEffectFilter.CameraImpulse, _tick());
+                if (cue.ShakeProfileId.HasValue)
+                {
+                    _filter.Admit(LabEffectFilter.Shake, _tick());
+                }
+
+                // 关着镜头冲击时把幅度置零再转发：组合器只在幅度为正时落地冲击，震屏档照常交给震屏通道判断。
+                _inner.ImpactCamera(on
+                    ? cue
+                    : new ImpactCameraCue(cue.Direction, 0.0, cue.UncappedMagnitude, cue.DecayMs, cue.DurationTicks, cue.ShakeProfileId, cue.HitCount));
+            }
+
+            public void FreezePresentation(IReadOnlyList<Id> unitIds, int ticks, ImpactFreezeLayers layers)
+            {
+                _filter.Admit("freeze", _tick());
+                _inner.FreezePresentation(unitIds, ticks, layers);
+            }
+
+            public void ReleasePresentation(IReadOnlyList<Id> unitIds) => _inner.ReleasePresentation(unitIds);
+
+            public bool HasPendingPlayback => _inner.HasPendingPlayback;
+
+            public event Action? PendingPlaybackChanged
+            {
+                add { _inner.PendingPlaybackChanged += value; }
+                remove { _inner.PendingPlaybackChanged -= value; }
+            }
         }
 
         private sealed class ActiveImpulse
@@ -843,6 +1077,33 @@ namespace Adapter.Unity.LabHost
             _audio?.Tick(dt);
             _r3d?.Tick();
             _loader?.Tick();
+
+            if (_options.Interactive)
+            {
+                for (var i = _flashFx.Count - 1; i >= 0; i--)
+                {
+                    var fx = _flashFx[i];
+                    fx.Remaining -= dt;
+                    if (fx.Remaining <= 0.0)
+                    {
+                        try
+                        {
+                            fx.View.ClearFlash();
+                        }
+                        catch (Exception)
+                        {
+                            // 视图可能已销毁（靶子被清掉）；闪白只是呈现，忽略。
+                        }
+
+                        _flashFx.RemoveAt(i);
+                    }
+                }
+
+                if (_ctx != null && _unityCamera != null)
+                {
+                    _unityCamera.Follow(_ctx.World.Player.Position, _options.InteractiveFollowSmoothing);
+                }
+            }
 
             // 镜头：推进并采样每条仍在衰减的冲量曲线。
             if (_unityCamera != null)

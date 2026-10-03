@@ -168,6 +168,17 @@ namespace Lab
             return LabHost.Run(dataset.HostOptions, dataset.Catalog.GetScenario(cell), script, dataset.Catalog, variant, extension);
         }
 
+        /// <summary>
+        /// 开一次实时会话（交互式试玩，ADR-0141）：数据集、格子、变体的解析与 <see cref="Record(InputScript, string, LabRunVariant?, LabHostExtension?)"/> 完全相同，
+        /// 只是不跑循环、由调用方逐帧推进并注入实时输入（见 <see cref="LabHost.Start"/>）。<paramref name="liveScript"/> 的事件清单必须是空的 <c>List&lt;ScriptEvent&gt;</c>。
+        /// </summary>
+        public LabSession StartLive(InputScript liveScript, string cell, LabRunVariant? variant, LabHostExtension? extension)
+        {
+            var scenario = ScenarioFor(liveScript, cell);
+            var dataset = DatasetFor(liveScript, scenario, variant);
+            return LabHost.Start(dataset.HostOptions, dataset.Catalog.GetScenario(cell), liveScript, dataset.Catalog, variant, extension, true);
+        }
+
         /// <summary>带宿主扩展点的指纹（用本运行器的注册表折算度量）。</summary>
         public Fingerprint Run(InputScript script, string cell, LabRunVariant? variant, LabHostExtension? extension)
         {
