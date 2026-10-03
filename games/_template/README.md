@@ -247,13 +247,14 @@ powershell -File path\to\toolchain\get_framework.ps1 -Version <ver> -Target pack
   `EnableDataHotReload`，双重保险。
 - **去抖**：同一张表 300ms 内的多次事件（例如编辑器/文本工具"截断再写入"两阶段保存，或改名前后
   两次登记恰好同名）只触发一次 `Reload`。
-- **失败语义（已知限制，务必了解）**：`Reload` 成功时会打印 `[DataHotReload] 热重载 <表名> 成功
+- **失败语义（设计决定，务必了解）**：`Reload` 成功时会打印 `[DataHotReload] 热重载 <表名> 成功
   （N 条记录）` 并经事件总线补发一次 `data.load_completed`（形状同首次 `LoadAll` 发出的事件，供
   表现层/编辑器联调监听）；失败（该表信封级错误如 JSON 解析失败/主键重复，或字段级校验错误）时
   打印完整问题清单并补发 `data.validation_failed`，**但 `DataRegistry` 的只读查询是全局阻断
   语义**——一张表改坏了会让**整个数据集**（不只是这一张表）在下一次成功的重载/加载之前都无法
   `Get`/`GetAll`/`Query`，不是"只冻结出问题的那一张表，其它表照常"。开发时改坏一张表会导致
-  全局报错，这是预期行为（与生产环境"不做静默降级"的既有原则一致），改对后保存即可自动恢复。
+  全局报错，这是预期行为（理由：与生产环境"不做静默降级"的既有原则一致——开发期让坏数据立刻、整体地暴露，比
+  "只冻结那一张表、其它表照常"掩盖掉依赖该表的跨表引用错误更安全），改对后保存即可自动恢复。
 - **落盘给外部工具消费（ADR-0047，可选）**：命令行参数 `-gfValidationReportPath <文件路径>` 或
   环境变量 `GF_VALIDATION_REPORT_PATH` 可以让 `GameBootstrap`/`DataHotReload` 把每次校验结果
   （启动首次加载、之后每次热重载，不论通过/阻断）原子落盘为一份结构化文档（见
@@ -422,7 +423,7 @@ FromOverrideRootOnly`/`..._Absent_DefaultRootNeverSeesOverrideProbeTable` 真正
 `Tests/`（`games/_template/` 与 `adapters/unity/`）下再无其它跨程序集引用 internal 成员却尚未
 暴露的同类隐患。
 
-## 已知限制（本模板"最小闭环"故意不覆盖的部分）
+## 范围与设计决定（本模板"最小闭环"故意不覆盖的部分）
 
 - 不含任何战斗/技能/物品/任务内容——`GameOptions` 声明了对应口味配置项字段（见该文件注释），但
   `data/game/` 只填了让 `LoadAll` 与 `ShellHost.NewGame` 跑通所需的最少表；本模板没有任何
@@ -435,8 +436,6 @@ FromOverrideRootOnly`/`..._Absent_DefaultRootNeverSeesOverrideProbeTable` 真正
   UI（`ShellHost`/`SaveSystem`/`IDifficultyHost` 等底层能力都已装配好，只是本模板没有把它们全部
   接出 UI）；需要更完整菜单可参照 `adapters/unity/Packages/com.gamefoundation.adapter.unity/
   Runtime/Shell/ShellRoot.cs` 的实现扩展。
-- `GameOptions.BuildMovementOptions()` 未暴露 `MovementOptions.PathFailurePolicy`/
-  `BlockingChangePolicy`（W9 导航与移动公共接口补齐新增的两个策略，见 `CHANGELOG.md`
-  `[1.10.0]`）为口味配置项——两个策略经 `MovementOptions` 在装配根（`GameBootstrap.cs`）直接
-  配置，默认值即框架推荐值（`KeepOldPath`/`Replan`），游戏层如需覆盖自行在装配根按需传入，不是
-  缺失能力。
+- `GameOptions` 暴露 `PathFailurePolicy`/`BlockingChangePolicy`（NF2；W9 导航与移动公共接口补齐新增的两个策略，
+  见 `CHANGELOG.md` `[1.10.0]`）两个口味配置项，经 `BuildMovementOptions()` 写入 `MovementOptions`；默认值即框架
+  默认（`KeepOldPath`/`Replan`），与此前装配根里不传时逐项一致。

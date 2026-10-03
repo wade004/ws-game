@@ -10,7 +10,7 @@
 // 在回调里遍历 Keyboard.current.allKeys，用 Input System 自带的 wasPressedThisFrame/
 // wasReleasedThisFrame 精确找出本帧真正按下/松开的具体键，逐个登记 KeyDown/KeyUp 事件——
 // 这样既满足"运行时用 InputAction 驱动"，又避免了逐键 AddBinding 的重复样板代码，且不会因为
-// "anyKey 本身是聚合控件、拿不到具体是哪个键"这一 Input System 已知限制而丢失按键信息。
+// "anyKey 本身是聚合控件、拿不到具体是哪个键"这一 Input System 特性而丢失按键信息。
 // 鼠标按钮与手柄按钮直接每个绑定一个具体控件（数量少，没有上述聚合问题）。
 //
 // 手柄连接/断开：订阅 InputSystem.onDeviceChange，只关心 Gamepad 类型设备的

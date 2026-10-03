@@ -146,8 +146,8 @@
 // 整张纹理生成的，同一图集上不同帧的相邻区域会互相"渗色"进对方的低级 mip，逐帧独立纹理是唯一能让
 // 每帧 mip 链正确反映自身内容而不掺杂集内其它帧像素的做法；帧矩形坐标与 <c>frames.json</c> 原有
 // 传给 <c>Sprite.Create</c> 的 <c>Rect</c> 同一套约定（原点左下），<c>GetPixels(x,y,w,h)</c> 同样
-// 原点左下，无需坐标翻转。已知限制：①只影响此后经本加载器解码的资源，不回溯已缓存的贴图（见
-// <see cref="TextureSamplingOptions"/> 类型顶部）；②逐帧动画开启独立纹理后，加载时多一次 CPU 端
+// 原点左下，无需坐标翻转。设计决定与开销说明：①只影响此后经本加载器解码的资源，不回溯已缓存的贴图（见
+// <see cref="TextureSamplingOptions"/> 类型顶部，理由在那里）；②逐帧动画开启独立纹理后，加载时多一次 CPU 端
 // 像素拷贝（<c>GetPixels</c> 逐帧读取），且帧与帧之间不再共享同一张图集的 GPU 纹理内存（显存
 // 占用随帧数增长，典型逐帧动画显存开销上升约 33%，即 mip 链本身在 RGBA32 上的固定开销，见
 // CHANGELOG 对应条目）；③关闭 <see cref="TextureSamplingOptions.MipChainForEffects"/> 时保持改动前
@@ -157,7 +157,7 @@
 // 阻塞——首次换向长帧）：ResourceKind.Image 与 ResourceKind.Effect 两条路径的 PNG 解码与逐帧动画按帧
 // 切块改到后台线程（托管 PNG 解码器 ManagedPngDecoder），主线程 <see cref="Tick"/> 只做"建纹理 + 灌字节 +
 // Apply + 建 Sprite"，受 <see cref="MainThreadBudgetMilliseconds"/> 预算约束并按工作单元续作；完整说明与
-// 逐条已知限制见 UnityResourceLoader.MainThreadBudget.cs 类型顶部注释与 ADR-0109。上文 ADR-0096 已知限制
+// 逐条边界与设计决定见 UnityResourceLoader.MainThreadBudget.cs 类型顶部注释与 ADR-0109。上文 ADR-0096 开销说明
 // ②"加载时多一次 CPU 端像素拷贝（GetPixels 逐帧读取）"现已改由后台线程按字节切块完成，主线程不再有
 // GetPixels/SetPixels；<see cref="TryDecodeImage"/>/<see cref="TryDecodeEffect"/> 保留为托管解码器不支持的
 // PNG 变体的主线程回退路径（逐字节保持 1.87.0 行为）。
@@ -235,6 +235,15 @@ namespace Adapter.Unity.EngineAdapter
             /// <summary>null 表示该地图没有 decal.png（可选层缺失，ADR-0080 决策 6），不是读取失败。</summary>
             public byte[]? DecalBytes;
             public LoadCallback Callback;
+
+            /// <summary>NF2：发起请求时（主线程）取的 <see cref="TextureSamplingOptions.MipChainForMapLayers"/> 快照，
+            /// 后台准备与主线程建纹理用同一份取值（同 <see cref="PendingCompletion.MipChain"/>）。</summary>
+            public bool MipChain;
+
+            /// <summary>NF2：后台托管解码的结果，<see cref="PreparedTextures.Units"/> 依次为 ground、overlay、
+            /// （存在时）decal；<see cref="PreparedTextures.FallbackReason"/> 非空表示某一层托管解码不支持，
+            /// 整个资源回退主线程 <c>LoadImage</c> 路径（此时 <see cref="GroundBytes"/> 等压缩字节仍保留）。</summary>
+            public PreparedTextures? Prepared;
         }
 
         /// <summary>一次 Font 种类的加载请求，排队等到下一次 <see cref="Tick"/> 在主线程调用
@@ -479,10 +488,88 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>NF2：同一资源（同 id、同种类）已有一次加载在途时，后到的 <see cref="LoadAsync(Id, ResourceKind, LoadCallback)"/>
+        /// 并入在途请求——不再各自读文件/解码一遍（旧行为：两份解码、后完成的覆盖先完成的缓存项，先建的纹理泄漏），
+        /// 完成时各自回调恰好一次。种类不同的同 id 请求、带精灵集提示的 Effect 重载（提示决定枢轴，不能并入无提示请求）
+        /// 仍各自独立。</summary>
+        private sealed class InFlightLoad
+        {
+            public ResourceKind Kind;
+            public readonly List<LoadCallback> Waiters = new List<LoadCallback>();
+        }
+
+        private readonly Dictionary<Id, InFlightLoad> _inFlight = new Dictionary<Id, InFlightLoad>();
+
+        /// <summary>被并入在途请求的后到请求累计次数（诊断/测试用）。</summary>
+        internal int CoalescedLoadCount { get; private set; }
+
         public void LoadAsync(Id resourceId, ResourceKind kind, LoadCallback callback)
         {
             if (callback == null) throw new ArgumentNullException(nameof(callback));
 
+            InFlightLoad? created = null;
+            if (_inFlight.TryGetValue(resourceId, out var flight))
+            {
+                if (flight.Kind == kind)
+                {
+                    flight.Waiters.Add(callback);
+                    CoalescedLoadCount++;
+                    return;
+                }
+            }
+            else
+            {
+                created = new InFlightLoad { Kind = kind };
+                var registered = created;
+                _inFlight[resourceId] = created;
+                var original = callback;
+                callback = (id, ok) =>
+                {
+                    // 先摘记账再回调：回调里立刻重新请求同一资源（重试）按全新请求处理。
+                    if (_inFlight.TryGetValue(id, out var current) && ReferenceEquals(current, registered))
+                    {
+                        _inFlight.Remove(id);
+                    }
+
+                    try
+                    {
+                        original(id, ok);
+                    }
+                    finally
+                    {
+                        for (var i = 0; i < registered.Waiters.Count; i++)
+                        {
+                            try
+                            {
+                                registered.Waiters[i](id, ok);
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.LogException(ex);
+                            }
+                        }
+                    }
+                };
+            }
+
+            try
+            {
+                LoadAsyncCore(resourceId, kind, callback);
+            }
+            catch
+            {
+                // 发起阶段同步抛异常（例如非法种类）：摘掉本次登记，否则同一资源此后的请求会并入一个永远不会完成的在途请求。
+                if (created != null && _inFlight.TryGetValue(resourceId, out var current) && ReferenceEquals(current, created))
+                {
+                    _inFlight.Remove(resourceId);
+                }
+
+                throw;
+            }
+        }
+
+        private void LoadAsyncCore(Id resourceId, ResourceKind kind, LoadCallback callback)
+        {
             _loading.Add(resourceId);
 
             if (kind == ResourceKind.Font)
@@ -541,7 +628,10 @@ namespace Adapter.Unity.EngineAdapter
                 var overlayPath = Path.Combine(RootDir, AssetRefConventions.MapOverlayFile(resourceId).Replace('/', Path.DirectorySeparatorChar));
                 var decalPath = Path.Combine(RootDir, AssetRefConventions.MapDecalFile(resourceId).Replace('/', Path.DirectorySeparatorChar));
 
-                Task.Run(() =>
+                // NF2：mip 链开关在发起请求时（主线程）取快照，随请求带到后台（同 Image 路径）。
+                var mapMipChain = TextureSampling.MipChainForMapLayers;
+
+                Task.Run(async () =>
                 {
                     byte[]? groundBytes = null;
                     byte[]? overlayBytes = null;
@@ -565,6 +655,21 @@ namespace Adapter.Unity.EngineAdapter
                         ok = false;
                     }
 
+                    // NF2（取代 ADR-0109 原"地图分层图不改"边界）：地图分层图同样在后台托管解码，主线程只做建纹理/灌字节/
+                    // 建精灵，一层一个工作单元（见 UnityResourceLoader.MainThreadBudget.cs）。
+                    PreparedTextures? preparedLayers = null;
+                    if (ok && groundBytes != null && overlayBytes != null)
+                    {
+                        preparedLayers = await PrepareMapLayerTexturesAsync(groundBytes, overlayBytes, decalBytes).ConfigureAwait(false);
+                        if (preparedLayers.FallbackReason == null)
+                        {
+                            // 已在后台解码成像素，压缩字节不再需要（回退路径才需要它们）。
+                            groundBytes = Array.Empty<byte>();
+                            overlayBytes = Array.Empty<byte>();
+                            decalBytes = decalBytes != null ? Array.Empty<byte>() : null;
+                        }
+                    }
+
                     _mapLayersCompletions.Enqueue(new PendingMapLayersCompletion
                     {
                         ResourceId = resourceId,
@@ -572,7 +677,9 @@ namespace Adapter.Unity.EngineAdapter
                         GroundBytes = groundBytes,
                         OverlayBytes = overlayBytes,
                         DecalBytes = decalBytes,
-                        Callback = callback
+                        Callback = callback,
+                        MipChain = mapMipChain,
+                        Prepared = preparedLayers
                     });
                 });
                 return;
@@ -654,10 +761,11 @@ namespace Adapter.Unity.EngineAdapter
         /// 记录的不同（含"此前无提示、这次有提示"或反之），说明同一个逐帧动画资源被两个不同归属的
         /// 调用方引用——这理论上不该发生（同一资源引用 id 应当只属于一个精灵集），但发生时不重新
         /// 解码、直接复用已缓存的 <see cref="_effects"/> 结果（沿用第一次解码时用的枢轴/像素密度），
-        /// 只按资源 id 去重记一条 Warn，不抛异常、不产生第二份不一致的解码结果。已知限制：这意味着
-        /// 若第一次解码时提示有误，本方法不会因为后续一次"正确"的请求而自我纠正，需要重新加载器实例
-        /// 生命周期（如重进场景）才会重新解码——与本加载器对其它全部资源种类"从不做增量失效检测，
-        /// 缓存只增不减"的既有惯例一致，不是本次新增的缺口。
+        /// 只按资源 id 去重记一条 Warn，不抛异常、不产生第二份不一致的解码结果。设计决定：资源 id 就是缓存键，
+        /// 一个资源 id 对应唯一一份解码结果（枢轴/像素密度由首次解码时的提示定下）；数据把同一个资源引用给两个精灵集，
+        /// 是数据错误，由 Warn 点名而不是让两个精灵集互相覆盖枢轴。要换提示重新解码，显式 <see cref="Unload"/>
+        /// 该资源（会清掉提示记录）后重新加载——与本加载器对其它全部资源种类"缓存按 id 命中、显式 Unload 才失效"的
+        /// 既有惯例一致。
         /// </para>
         /// </summary>
         private void LoadEffectAsync(Id resourceId, Id? spriteSetId, LoadCallback callback)
@@ -787,6 +895,7 @@ namespace Adapter.Unity.EngineAdapter
             _effectSpriteSetIdByResource.Remove(resourceId);
             _warnedEffectSpriteSetConflict.Remove(resourceId);
             _warnedManagedDecodeFallback.Remove(resourceId);
+            _warnedMapLayersFallback.Remove(resourceId);
 
             // [ADR-0096]：开启逐帧独立纹理时（MipChainForEffects），每帧纹理不再共享图集，需要随本
             // 资源一并显式销毁，否则 Sprite 被移出 _effects 缓存后其独立纹理仍然常驻显存，泄漏。
@@ -969,6 +1078,9 @@ namespace Adapter.Unity.EngineAdapter
                 return;
             }
 
+            // NF2：走到这里只有两种情形——后台托管解码器不支持某一层（回退，记一条按资源 id 去重的 Warn），
+            // 或读取失败之外的旧路径直接调用。整个资源是一个不可分工作单元，与 1.87.0 的主线程路径一致。
+            NoteMapLayersFallback(pending);
             var ground = DecodeMapLayerSprite(pending.GroundBytes);
             var overlay = DecodeMapLayerSprite(pending.OverlayBytes);
             if (ground == null || overlay == null)
@@ -1006,7 +1118,8 @@ namespace Adapter.Unity.EngineAdapter
             // （不声明各向异性），不是"关了 mip 但仍强行按声明值设置"这种没有实际效果的中间态。
             texture.anisoLevel = mipChain ? TextureSampling.MapLayerAnisoLevel : 1;
 
-            return Sprite.Create(
+            // NF2：与后台托管解码路径同一种整矩形网格（见 CreateFullRectSprite 判断记录）。
+            return CreateFullRectSprite(
                 texture,
                 new UnityEngine.Rect(0, 0, texture.width, texture.height),
                 new Vector2(0.5f, 0.5f),

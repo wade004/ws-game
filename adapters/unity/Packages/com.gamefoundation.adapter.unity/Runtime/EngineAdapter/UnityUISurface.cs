@@ -21,8 +21,8 @@
 // TMP_FontAsset；不存在（未导入该字体资产，或 fontId 是未知/占位测试值）则回退到包内默认占位
 // 字体（原有的单一路径，见下 ResolveDefaultFontAsset），仍找不到才最终回退 TMP 内置默认字体
 // （TMP_Settings.defaultFontAsset）；每一次回退都 Debug.LogWarning 一次诊断，不抛异常。这是
-// 一个已知限制（字体资产必须先被 Unity 资产管线导入，运行期无法从任意字节数组生成），已记录在
-// 包 README。
+// 设计决定（字体资产必须先被 Unity 资产管线导入，引擎没有从任意字节数组生成字体资产的 API，没有更好的替代路径），
+// 已记录在包 README。
 //
 // 判断记录（TMP 运行期依赖）：实测 TMP_FontAsset.CreateFontAsset 与 TMP_Settings.
 // defaultFontAsset 在"一个全新 Unity 工程从未打开过 TextMeshPro 相关窗口"的批处理环境下都会

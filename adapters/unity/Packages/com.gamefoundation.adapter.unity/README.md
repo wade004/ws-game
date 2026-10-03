@@ -349,7 +349,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 7. **设计决定（M4 清扫，由"已知限制"改写）**：`GameFoundationBootstrap` 自带的普攻技能 id 与输入动作 id 仍由其序列化字段和 `found.input_action` 决定；手感开启后要让普攻走缓冲，数据里给对应动作写 `class` 与 `skill_slot`（见 `architecture/13_新游戏接入指南.md` 第 9 节）。理由：输入动作 → 技能的映射是游戏数据（`found.input_action` 表），不在引导里写死另一份；引导只负责把序列化的普攻 id 交给装配，开手感与否由数据决定走缓冲还是直接施法。（原"粒子宿主的暂停不随顿帧冻结（只冻 rig）"的限制已在手感落地 M3-C 解除，见下节。）
 8. **复现/不变量（引擎 PlayMode，经 `-runTests` 门禁）**：`HitFrameSyncEndToEndTests.FeelEngine_*`（真实 `GameFoundationBootstrap`：按键 → 只施法一次；命中 → 攻击方 model rig 与被击方 sprite rig 冻结 tick 数等于顿帧档案换算值、旁观单位不冻结；命中 → 引擎相机冲量幅度来自档案；不开手感同场景走原直接施法路径、不冻结不冲量）、`UnityCameraTests.Impulse_*`、`UnityRenderer3DTests.SetAnimSpeed_Zero_*`。测试数据在每条用例里写临时目录经 `_extraDatasetRoot` 叠加，不新增仓库数据文件（Unity 导入范围内新文件需要 .meta）。
 
-### 手感落地 M3-C：引擎侧已知限制解除（2026-10-02）
+### 手感落地 M3-C：引擎侧补齐（2026-10-02）
 
 1. **粒子/特效随顿帧冻结**：`UnityRenderer2D` 新增实现 `Presentation.VfxSfx.Contracts.IParticleFreezer`（可选能力接口，同 `IParticleRepositioner` 的做法，不改 `IRenderer2D` 契约）：序列帧特效暂停其 `EffectSequencePlayer`（新增 `SetPaused`/`IsPaused`/`PlayedSeconds`，暂停时帧下标与帧内计时都保持，恢复后从暂停点继续，对象池复用不继承暂停状态），内建通用粒子回退路径暂停 `ParticleSystem`（`Pause(true)`，恢复时仅在确处于暂停态才 `Play(true)`）。`UnityRenderer2D` 另提供诊断/测试用 `IsParticlePaused(handle)` 与 `GetParticlePlayedSeconds(handle)`。哪些特效冻、冻哪个单位的、什么时候冻/解冻，由表现层 `VfxPlayer` 与装配根决定（`presentation/vfx_sfx/README.md` 判断记录 28、`presentation/assembly/README.md` M3-C 节），引擎侧只负责"按句柄暂停/恢复"。
 2. **包内两个引导的开发期数据热重载**：新增 `Adapter.Unity.Bootstrap.BootstrapDataHotReload`（`MonoBehaviour`，`UNITY_EDITOR || DEVELOPMENT_BUILD` 之外是空壳）；`GameFoundationBootstrap` 与 `FrameworkResidentHost` 各新增公开开关 `EnableDataHotReload`（缺省 `false` = 不挂组件，行为与此前逐位一致；同 `FeelOptions` 的惯例：在 `Awake`/`Ensure` 之前赋值或在 Inspector 勾选）与只读属性 `HotReload`（开启且数据加载成功后挂载的组件）。组件监视各数据根（框架根、开手感时的 `data/_feel`、示例数据根、`GameFoundationBootstrap` 的叠加根）下的 `*.json`，变更去抖 300 ms 后 `DataRegistry.Reload(表名)`，成功后补发 `data.load_completed`（失败补发 `data.validation_failed`，并按引导已解析的校验报告落盘路径落一份报告），核心装配里的手感热加载订阅据此换入新档案。**判断记录**：只用轮询（每 250 ms 比对每个 `*.json` 的写入时刻 + 长度），不建 `FileSystemWatcher`——游戏模板的 `DataHotReload` 为"事件 + 轮询兜底"两路，是因为 `FileSystemWatcher` 事件会延迟数百毫秒甚至静默丢失；包内组件没有"事件先到省一次扫描"的需求，单用轮询即可覆盖变更/新增/删除/改名，并且天然都在主线程、不需要锁。取舍：缺省关闭，开发期显式打开，避免常驻脚手架在发布构建里多一个每帧回调。
@@ -364,7 +364,17 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
 3. **适配器侧新增（只增不改，缺省行为不变）**：`UnityFrameAnimPlayer.AdvancedSeconds`（公开，累计推进量）、`UnityCamera.ApplyYawRotation`（公开可选开关，缺省关）、`Runtime/AssemblyInfo.cs` 对宿主程序集的 `InternalsVisibleTo`（宿主驱动资源加载器、音频、镜头、模型的内部 `Tick`）；M4-H 当时的内部推进入口已由 M4-W4 换成公开的可注入时间源，见下节。
 4. **引擎侧失败不改变逻辑**：舞台里的任何异常记入 `EngineRecording.Errors`（度量 `engine_errors`），引擎视图创建失败时该实体退回内核的假视图。
 5. **复现/不变量（PlayMode，`-testCategory module:lab`）**：`EngineLabHostCrossHostTests`（全部手感场景脚本逐字节比较引擎宿主与无头宿主的逻辑组指纹；格子由环境变量 `GF_LAB_CELLS` 选，缺省 `2d_action`，`*` 为全部；`GF_LAB_MAX_RUNS` 限制组合数）、`EngineLabHostMechanismTests`（命中帧对齐、镜头冲量曲线、顿帧冻结与旁观/对照、帧耗时分布、三个平面组合、`camera_relative` 三向检验、输入噪声记录回放、引擎失败、渲染隔离、冷热加载一致、期望清单在引擎宿主上判定、换装图标与逐层剪辑核对及其反例）。EditMode：`LabPanelModelTests`（覆盖存储的写入、校验、持久化、A/B 与源数据不变）。
-6. **已知局限**：已清零。手感相关的限制在 M4 全部解除或转为判断记录（见 `lab/README.md` 判断记录 54、60 与「范围与现状（设计决定）」）；真机手测是游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现，命中对齐已由姿势集数据对齐（手感设计/04 第 10 节第 10 条）。
+6. **手感相关边界（设计决定）**：手感相关的限制在 M4 全部解除或转为判断记录（见 `lab/README.md` 判断记录 54、60 与「范围与现状（设计决定）」）；真机手测是游戏团队的验收清单，帧耗时已补 GPU 度量，相机相对输入已由框架原生实现，命中对齐已由姿势集数据对齐（手感设计/04 第 10 节第 10 条）。
+
+### NF2：表现层/适配层边界清扫（2026-10-03）
+
+1. **同一资源在途请求并入**：`UnityResourceLoader.LoadAsync(id, kind, cb)` 对同 id 同种类已有在途加载的后到请求并入在途请求——只读/解码一次，各回调完成时恰好一次（某个回调抛异常记日志、不影响其余）；完成后再请求是全新请求；种类不同、带精灵集提示的 `Effect` 重载仍各自独立（提示决定枢轴）。此前每个请求各自解码，后完成的覆盖先完成的缓存项（先建的纹理泄漏）。新增 `internal CoalescedLoadCount`。回归：`Tests/Runtime/UnityResourceLoaderInFlightCoalesceTests.cs`。
+2. **`MapLayers` 后台解码**：ground/overlay/decal 的 PNG 在后台托管解码，主线程 `Tick` 一层一个工作单元（受 `MainThreadBudgetMilliseconds` 约束，最后一层做完才写缓存/回调，读取口读不到半成品）；某层是托管解码器不支持的变体时整个地图资源回退主线程 `LoadImage`（一个不可分工作单元，按资源 id 记一条 Warn）；地图分层精灵一律 `FullRect`。回归：`Tests/Runtime/UnityResourceLoaderMapLayersBackgroundTests.cs`（逐层像素与引擎 `LoadImage` 一致、每层一个工作单元）。
+3. **`ManagedPngDecoder` 校验 CRC-32 与 zlib Adler-32**：IHDR/IDAT/tRNS/IEND 的 CRC 与 zlib 尾部 Adler-32 不符整个资源判为损坏，走回退路径由引擎 `LoadImage` 给出最终结论并记 Warn（行数据在校验前已流式输出，校验失败时已写入的缓冲不被采用）；其余辅助块（色彩管理等）按引擎同样忽略，`AncillaryColorManagementChunks_*` 用例逐像素对照引擎。回归：`Tests/Editor/ManagedPngDecoderTests.cs`。
+4. **`UnityAudio.SetBusVolume(Sfx, v)` 作用于正在播放的音效**：每个音效槽记基础音量（`SfxSlot.BaseVolume`），总线音量改变时已在播放的 Sfx 立即按"基础音量 × 总线音量"重设；其它总线不碰在播的 Sfx。回归：`Tests/Runtime/UnityAudioTests.cs` 两例。
+5. **纯函数 `RenderInterpolationClock`（渲染帧插值系数）**：见 `presentation/common/README.md`"契约缺口"一节 alpha 条目。回归：`Tests/Editor/RenderInterpolationClockTests.cs`。
+6. **无后缀 `jump` 默认键**：`UnityViewFactory.AnimStateKeysFor` 在外形声明了 `jump` 时把它加进默认键表（空中姿势的 `jump.rise → jump → idle` 回退链第二级因此对只有 `jump` 的外形生效）；没声明 `jump` 的外形键表逐项不变。回归：`Tests/Runtime/AirPoseAnimPlayModeTests.cs`。
+7. **没有纸娃娃层的外形，初始方向的整身方向变体在挂接时探测**（`ProbeInitialDirectionWholeBody`，不计入换向重探测计数）。回归：`Tests/Runtime/DirectionAwareAnimClipTests.cs`。
 
 ## 判断记录索引
 
@@ -427,9 +437,10 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `TryDecodeEffect` 收到该提示时，按与 `ResolveImagePivot` 同样的公式与方向回退规则从所属精灵集
   `anchors.json`（复用同一份 `_spriteSetAnchorsCache`）解析枢轴，像素密度同理改用该精灵集声明值；
   `frames.json` 新增可选顶层字段 `pixels_per_unit`/`root`，声明时优先于精灵集提示。未提供提示、或
-  提示对应精灵集/锚点不存在时回退 `(0.5, 0.5)` 与全局 `PixelsPerUnit`，逐字节不变。已知限制：同一
+  提示对应精灵集/锚点不存在时回退 `(0.5, 0.5)` 与全局 `PixelsPerUnit`，逐字节不变。设计决定：同一
   动画资源标识若先后带不同精灵集提示加载，直接复用已解码结果并记一条去重 Warn，不重新解码（需卸载
-  该资源或重置加载器实例才能按新提示重新解码）。详见
+  该资源或重置加载器实例才能按新提示重新解码）——理由：资源标识就是缓存键，一个动画资源本就属于一个精灵集，
+  同标识带两套提示是内容错误，按第一次的结果保持一致并告警，比悄悄产生两份枢轴不同的解码结果更安全。详见
   [ADR-0095](../../../../architecture/adr/0095-逐帧动画枢轴与像素密度取自所属精灵集.md)。
   新增 `internal static UnityResourceLoader.RootDirOverrideForTests`（仅测试可见）供 PlayMode
   用例覆盖 `RootDir`，验证结构②解析逻辑不需要把测试夹具塞进真实 Unity 资产管线。**ADR-0080
@@ -448,7 +459,8 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   从图集切出独立纹理（新增 `_effectFrameTextures` 缓存，随 `Unload` 一并销毁，避免显存泄漏）——
   Unity 的 mip 链按整张纹理生成，继续共享图集纹理会让相邻帧像素"渗色"进彼此的低级 mip；关闭时
   保持全部帧共享同一张图集纹理、不生成 mip 的既有行为，逐字节不变。只影响此后新解码的资源，不
-  回溯已缓存的贴图（已知限制）。详见
+  回溯已缓存的贴图（设计决定：采样参数是解码期烘进纹理的，已解码资源要换参数就必须卸载重解，运行期改参数
+  只作用于此后新资源，行为可预期且不产生一半一半的纹理）。详见
   [ADR-0096](../../../../architecture/adr/0096-运行时解码贴图带多级渐远链.md)。
 - `UnityResourceLoader.MainThreadBudget.cs`/`ManagedPngDecoder.cs`（**ADR-0109，2026-09-29，消费方反馈第
   五十八批"首次换向长帧"**）：`ResourceKind.Image` 与 `ResourceKind.Effect` 的位图解码与逐帧动画按帧切块
@@ -460,8 +472,8 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `LastTickWorkUnitCount`/`PendingMainThreadCompletionCount` 与 `ResetTickDiagnostics()`。**行为变更**：
   同一帧发起的多个冷加载不再保证在下一帧全部完成。运行期解码的 Image/Effect 精灵一律用
   `SpriteMeshType.FullRect`（`Sprite.Create` 默认的贴合轮廓网格在主线程描轮廓，真实帧图每个 2～18 ms；`rect`/`pivot`/
-  `bounds`/渲染像素实测不变，`textureRect` 与顶点数据变为整矩形）。`MapLayers`、音频、数据表、字体、模型、动画剪辑不改。
-  已知限制逐条见 `UnityResourceLoader.MainThreadBudget.cs` 类型顶部注释与
+  `bounds`/渲染像素实测不变，`textureRect` 与顶点数据变为整矩形）。音频、数据表、字体、模型、动画剪辑不改（`MapLayers` 由 NF2 同样后台化，见下"NF2"小节）。
+  边界与设计决定逐条见 `UnityResourceLoader.MainThreadBudget.cs` 类型顶部注释与
   [ADR-0109](../../../../architecture/adr/0109-资源解码分帧与后台化.md)。
 - `UnityNavigation2D.cs`：网格 A* 选型理由、网格自适应策略、`SetBlocking`（契约方法，整批替换）
   与 `RegisterBlockingFromTilemap`（非契约便捷方法，从 Tilemap 批量算出矩形后同样整批替换）的分工
@@ -582,8 +594,8 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   未走构造期注入，固定内部 `new PresentationDiagnosticsRecorder()` 并公开只读属性）。因此本次改动
   只覆盖这一个可达诊断源（对应"资源加载失败保留占位方块"的原始场景，
   `SpriteCharacterRig.HandleResourceLoadCompleted`），其余诊断源需要 presentation/assembly 新增
-  可选注入点才能覆盖——那已超出"只落在引擎适配层"的声明范围，标注待设计层确认，本次未动
-  presentation/ 任何文件。
+  可选注入点才能覆盖——那已超出"只落在引擎适配层"的声明范围，本次未动
+  presentation/ 任何文件（其余诊断源此后由 `DiagnosticsHubComposition` 接上）。
   <br/>落地：新增 `Runtime/Presentation/PresentationDiagnosticsConsoleForwarding.cs`（纯逻辑，不
   引用 UnityEngine——`PresentationDiagnosticsConsoleGate` 去重 + LRU 上限淘汰 + 开关，
   `PresentationDiagnosticsConsoleForwarder`：`IPresentationDiagnostics` 装饰器，供未来
@@ -669,7 +681,7 @@ ResolveEffectDir`）同样按类别前缀分派：`vfx.*` -> `vfx/<name>/`，`sp
   `Tests/Editor/ADR0086_ExceptionAwareDiagnosticsForwardingEditorTests.cs`（EditMode，2 例，已在
   真实 Unity 跑过）覆盖“两个类型不同、消息相同的异常互不覆盖”与“重复出现的异常计数可见”两条
   验收标准。
-- `AnimClipResolver.cs` / `UnityViewFactory.cs` / `UnityFrameAnimPlayer.cs`：**ADR-0111（消费方反馈第六十一批，战斗待机）**——战斗姿态下状态 `<key>` 先查 `combat_<key>`、没有回落 `<key>`（优先级：武器风格/技能覆盖 > 变体键 > 基础键；循环跟随基础状态）。取舍：①解析层 `Refresh(entity)` 对运动态重新解析，与"最近实际播放的剪辑"相同则什么都不做；从未播放过任何剪辑时基线取"不考虑变体的基础键剪辑"，所以没有变体键的外形进出战零额外重播；瞬态不打断，回落时按当时姿态解析。②冷加载与热路径同一出口：变体剪辑就绪 = 播放器上已登记真实序列帧内容（`UnityFrameAnimPlayer.HasRealContent`，区别于单帧占位）且该 (实体, 剪辑) 没有逐层探测在途（`_stateProbesInFlight`，身体层+装备层都探测完才切，避免半切）；内容到位（`ClipContentRegistered`）或探测结束时调 `Refresh` 补切，期间已脱战则不切；已在播的变体在重探测期间不因就绪探针暂时为假而被踢回基础键。③接线点全部经同一张键表 `AnimStateKeysFor`（基础键 + 外形实际声明的变体键）：默认剪辑登记、逐层探测、换向重探测、换装/合成层变化重探测、逐层缓存重登记；视图创建时 `Track` + `Refresh`（创建时已在战中则初始即战斗待机）；复活时 `Track` + `AnimClipResolver.ResetToLocomotionClip`（internal，无条件按当前状态与姿态播放一次运动态剪辑再记账，不走带基线比较的 `Refresh`——复活那一刻视图停在死亡剪辑末帧，基线假设不成立；变体没就绪先播普通待机，就绪后 `Refresh` 补切）；销毁/重生/`DestroyAllCreatedViews` 清姿态与最近播放记账（`DestroyAllCreatedViews` 此前漏清状态机记账，顺带补齐）。model 型默认剪辑表就是 `anim_set` 全部键，变体键天然在表内，就绪恒真。④`UnityViewFactory.CombatProbe`（`Func<Id,bool>`）由三个生产装配入口（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` 的 `GameBootstrap`）接 `ICombatHost.IsInCombat`；游戏自己写装配入口的需要照抄，否则读档/重生/进入视野时已在战中的单位初始姿态为非战斗。已知限制见 `AnimClipResolver.cs` 顶部注释（变体美术永远不到位则维持当前显示、覆盖剪辑不感知姿态、`jump` 无默认登记）。测试：`Tests/Runtime/CombatStanceAnimReproTests.cs`（复现，1.89.0 上红）、`CombatStanceAnimInvariantTests.cs`（不变量，6 个分支 + 解析层）、夹具 `CombatStanceAnimFixture.cs`。 [ADR-0111](../../../../architecture/adr/0111-战斗姿态动画变体.md)。
+- `AnimClipResolver.cs` / `UnityViewFactory.cs` / `UnityFrameAnimPlayer.cs`：**ADR-0111（消费方反馈第六十一批，战斗待机）**——战斗姿态下状态 `<key>` 先查 `combat_<key>`、没有回落 `<key>`（优先级：武器风格/技能覆盖 > 变体键 > 基础键；循环跟随基础状态）。取舍：①解析层 `Refresh(entity)` 对运动态重新解析，与"最近实际播放的剪辑"相同则什么都不做；从未播放过任何剪辑时基线取"不考虑变体的基础键剪辑"，所以没有变体键的外形进出战零额外重播；瞬态不打断，回落时按当时姿态解析。②冷加载与热路径同一出口：变体剪辑就绪 = 播放器上已登记真实序列帧内容（`UnityFrameAnimPlayer.HasRealContent`，区别于单帧占位）且该 (实体, 剪辑) 没有逐层探测在途（`_stateProbesInFlight`，身体层+装备层都探测完才切，避免半切）；内容到位（`ClipContentRegistered`）或探测结束时调 `Refresh` 补切，期间已脱战则不切；已在播的变体在重探测期间不因就绪探针暂时为假而被踢回基础键。③接线点全部经同一张键表 `AnimStateKeysFor`（基础键 + 外形实际声明的变体键）：默认剪辑登记、逐层探测、换向重探测、换装/合成层变化重探测、逐层缓存重登记；视图创建时 `Track` + `Refresh`（创建时已在战中则初始即战斗待机）；复活时 `Track` + `AnimClipResolver.ResetToLocomotionClip`（internal，无条件按当前状态与姿态播放一次运动态剪辑再记账，不走带基线比较的 `Refresh`——复活那一刻视图停在死亡剪辑末帧，基线假设不成立；变体没就绪先播普通待机，就绪后 `Refresh` 补切）；销毁/重生/`DestroyAllCreatedViews` 清姿态与最近播放记账（`DestroyAllCreatedViews` 此前漏清状态机记账，顺带补齐）。model 型默认剪辑表就是 `anim_set` 全部键，变体键天然在表内，就绪恒真。④`UnityViewFactory.CombatProbe`（`Func<Id,bool>`）由三个生产装配入口（`GameFoundationBootstrap`/`FrameworkResidentHost`/`games/_template` 的 `GameBootstrap`）接 `ICombatHost.IsInCombat`；游戏自己写装配入口的需要照抄，否则读档/重生/进入视野时已在战中的单位初始姿态为非战斗。边界与设计决定见 `AnimClipResolver.cs` 顶部注释（变体美术永远不到位则维持当前显示、覆盖剪辑不感知姿态；声明了无后缀 `jump` 的外形默认登记它，NF2）。测试：`Tests/Runtime/CombatStanceAnimReproTests.cs`（复现，1.89.0 上红）、`CombatStanceAnimInvariantTests.cs`（不变量，6 个分支 + 解析层）、夹具 `CombatStanceAnimFixture.cs`。 [ADR-0111](../../../../architecture/adr/0111-战斗姿态动画变体.md)。
 
 ## U3：UI 套件默认皮肤、Shell 流程、灰盒竖切测试与独立版冒烟
 
@@ -938,9 +950,9 @@ Unity.exe -batchmode -nographics -quit -projectPath adapters\unity -buildWindows
 
 判断记录（为什么不加 `-nographics`，且这次冒烟真的能正常退出）：`SmokeRunner` 不依赖任何鼠标/
 键盘物理事件（全走程序化 API 调用），理论上可以带 `-nographics` 跑；但任务书明确要求命令行不加
-该参数（允许弹窗），故按原样执行，也因此不再触碰"已知限制"一节记录的"`-nographics` 强制
+该参数（允许弹窗），故按原样执行，也因此不涉及"`-nographics` 强制
 `NullGfxDevice` 时 `UiRoot`/`InputSystemUIInputModule` 依赖的渲染/输入子系统可能无法正确初始化"
-这个问题——那条限制描述的是 U3 阶段"不加脚本化驱动、单纯启动后干等"时 `-nographics` 场景下的
+这个问题——那是 U3 阶段"不加脚本化驱动、单纯启动后干等"时 `-nographics` 场景下的
 观察，不是本类型的实测结果。另外勘察 `UnityWindow.cs` 确认 `Application.Quit()`
 不会被 `Application.wantsToQuit`（`HandleWantsToQuit` 返回 `false` 阻止默认退出）拦截——该钩子
 只在 `IWindow.Create` 被调用过之后才会挂上，全仓库勘察确认 Shell 运行时路径从未调用过
@@ -1074,10 +1086,11 @@ idle/move/attack/cast/hit/death 状态切换的分类）的调用默认执行 `A
   加 `"override_clip."` 前缀区分默认六个状态）；非纸娃娃层外形/未装配上下文时保留改动前的整身
   唯一路径（`RequestWeaponClipUpgrade`）不变。`DirectionAwareAnimContext` 新增字段 `View`
   （持有 `UnitySpriteView` 引用，取 `LastComposedLayers`——此前判断记录"不重复持有 View 本身"
-  被本次需求突破，见该字段判断记录）。**已知限制（按 AGENTS.md 硬约束逐条登记）**：覆盖剪辑
-  逐层探测与整身方向变体探测是两条独立发起的异步候选链路，哪一条先异步返回不确定，已按"谁先
+  被本次需求突破，见该字段判断记录）。覆盖剪辑
+  逐层探测与整身方向变体探测是两条独立发起的异步候选链路，哪一条先异步返回不确定，按"谁先
   同步/异步命中谁生效、`player.HasClip` 守卫防止后到达的一方覆盖已注册内容"处理、不影响最终
-  正确性，但两条链路仍可能各自对同一份缺失资源发起一次确认性加载请求，不做跨链路去重。
+  正确性；两条链路对同一资源的重复请求由加载器的在途请求并入（NF2，见下"NF2"小节）统一去重，
+  探测链路本身不需要跨链路协调。
 - **判断记录（切到无逐层剪辑的状态时写回该层静态层图，消费方反馈第五十批）**：ADR-0072 决策 2
   原文契约"两级都探测不到时该层维持 `SetLayers` 落地的静态图"此前的实现只在"当前状态命中的层"上
   写帧，从未清理"上一次状态命中过、这一次状态不再命中"的层（如装备的 `mainhand` 层只在

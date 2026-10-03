@@ -263,11 +263,14 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `(sfxId, entityId) -> SfxHandle` 键（一次性音效退化为普通 `Play`，不建键、不影响既有行为）；
     同键已在播时 `PlayAttached` 幂等返回已登记句柄，不叠播第二个实例；`StopAttached` 查到即
     `Stop` 并摘除，查不到静默忽略、不写诊断（同判断记录 18"目标已经自然过期"/ADR-0075 `stop_vfx`
-    "没有在播实例是正常时序"同一惯例）。已知限制（不新建"实体销毁"监听机制）：`VfxPlayer` 对
-    `anchor`/降级 `socket` 跟随实例是靠每帧 `Update` 重新解析实体位置失败才顺带结束特效
-    （`UpdateFollowTargets`），本身不是显式销毁事件；`SfxPlayer` 没有等价的逐帧位置解析可镜像，
-    因此循环音效必须靠内容侧显式 `stop_sfx` 终止，实体在移除信号到达前被销毁的场景不在本次范围
-    内处理，详见该 ADR"后果"节。回归用例：`tests/SfxPlayerTests.cs`
+    "没有在播实例是正常时序"同一惯例）。实体销毁（NF2 补齐，取代原"循环音效必须靠内容侧显式 `stop_sfx` 终止"的边界）：
+    `SfxPlayer` 新增 7 参构造（末位 `EntityPositionResolver? entityPositionResolver`，原 6 参构造保留并等价传 null），
+    `PresentationAssembly` 把与 `VfxPlayer` 同一个解析器接进来；`Update(dt)` 每帧对仍登记着的
+    `(sfxId, entityId)` 键询问解析器——返回 null（实体已销毁）就走 `StopAttached` 同一出口停音并摘键。
+    没有注入解析器（null）时行为与此前逐字节相同（只靠显式 `stop_sfx`）。不新建"实体销毁"监听机制，
+    复用 `VfxPlayer.UpdateFollowTargets` 同一个存活信号。回归用例：
+    `tests/SfxAttachEntityLifetimeTests.cs`（实体销毁后循环音效在下一次 `Update` 停止、实体仍在时不停、
+    同 sfx 不同实体互不影响、无解析器时不变）；其余回归用例：`tests/SfxPlayerTests.cs`
     `Play_LoopDef_PassesLoopTrueToAudio`/`PlayAttached_LoopDef_RegistersKey_AndStopAttached_
     StopsIt`/`PlayAttached_LoopDef_SameKeyAlreadyPlaying_IsIdempotent_DoesNotStackNewInstance`/
     `PlayAttached_NonLoopDef_DoesNotRegisterKey_StopAttachedIsNoOp`、`tests/
@@ -293,7 +296,7 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     SfxAttachColdLoadPlayModeTests.cs`
     `PlayAttached_ColdLoopSfx_ThenStopAttached_StopsRealAudioSource`（PlayMode，真实
     `UnityResourceLoader`/`UnityAudio` 上验证，含阳性对照）。见
-    [ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)"后果/已知限制"节
+    [ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)"后果"节
     2026-09-26 追加。
 
 22. **[ADR-0105](../../architecture/adr/0105-一次性音效播完即释放同层并发名额.md)（消费方第五十四批）：
@@ -305,9 +308,11 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `MakeRoomIfNeeded` 计数前经唯一出口 `ReleaseFinishedOneShots` 对非循环记账逐个询问——false 释放、
     true 保留、null 才退回 `SfxOptions.OneShotLayerSlotHoldSeconds`（默认 2 秒，`Update(dt)` 累加的
     表现时钟，不读系统时间）；只摘记账、不调用 `StopSfx`；冷加载补播放与热路径同一套记账，
-    `StartedAt` 取真正 `PlaySfx` 那一刻；循环音效不释放。已知限制：仅后端回报 null 时有推定误差——
-    更长的一次性音效尾段不计数（上限变松、不会被提前停止），更短的音效播完后到期前仍占名额，
-    从不驱动 `Update` 时不会到期。回归：`presentation/assembly/tests/AutoAttackSwingSfxPreemptionTests.cs`
+    `StartedAt` 取真正 `PlaySfx` 那一刻；循环音效不释放。设计决定（后端回报 null 时的推定）：`IsSfxPlaying` 回报 null（后端
+    答不出"是否已播完"）时只能按 `OneShotLayerSlotHoldSeconds` 推定——更长的一次性音效尾段不计数
+    （上限变松、绝不会被提前停止），更短的音效播完后到期前仍占名额，从不驱动 `Update` 时不会到期；
+    理由：推定的误差方向是"宁松勿紧"，不会误停还在响的音效，而真正需要精确的后端（Unity、桩）都已回报
+    true/false，推定只是第三方后端的兜底，没有比"后端自己回报"更精确的来源可补。回归：`presentation/assembly/tests/AutoAttackSwingSfxPreemptionTests.cs`
     （生产装配级复现，引擎回报/回退两支，修复前均第 4 轮红）、`tests/SfxLayerSlotHoldTests.cs`（9 例：
     引擎回报 false 即释放且不等保留时长、回报 true 压过保留时长、N+1 超限仍抢占、回退到期不
     `StopSfx` 不计丢弃、循环不释放、`≤0` 关闭、冷加载三支）；引擎侧

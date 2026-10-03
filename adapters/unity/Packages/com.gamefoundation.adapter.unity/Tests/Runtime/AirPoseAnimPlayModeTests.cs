@@ -225,6 +225,47 @@ namespace Adapter.Unity.Tests.Runtime
             Assert.AreEqual(before, rig.Played.Count);
         }
 
+        // ---------- 三点五、NF2：无后缀 jump 键进默认键表 ----------
+
+        private static Core.Foundation.DisplayInfo.AnimSetDef AnimSet(params string[] keys)
+        {
+            var clips = new Dictionary<string, Core.Foundation.DisplayInfo.AnimClipDef>();
+            foreach (var key in keys)
+            {
+                clips[key] = new Core.Foundation.DisplayInfo.AnimClipDef(new Id("sprite_anim.nf2_" + key.Replace('.', '_')));
+            }
+
+            return new Core.Foundation.DisplayInfo.AnimSetDef(new Id("display.anim_set.nf2_jump"), clips);
+        }
+
+        [Test]
+        public void AnimStateKeysFor_PlainJumpDeclared_IsRegistered_RightAfterTheBaseKeys_AndAirFallbackChainReachesIt()
+        {
+            // 复现：外形声明了无后缀 jump 时，改动前键表里没有它（表现为 jump.rise 缺失的回落链一路掉到 idle）。
+            // 期望由规则算出：键表 = 基础六键 + jump（声明了才有）+ 其余维度键；回落链沿用既有固定链。
+            var withJump = UnityViewFactory.AnimStateKeysFor(AnimSet("idle", "move", "attack", "cast", "hit", "death", "jump"));
+            var baseKeys = new[] { "idle", "move", "attack", "cast", "hit", "death" };
+            CollectionAssert.AreEqual(new List<string>(baseKeys) { "jump" }, new List<string>(withJump));
+
+            // 经解析层：键表里有 jump，空中上升键缺失时回落到 jump（不再掉到 idle）。
+            using var rig = new Rig(new List<string>(withJump).ToArray());
+            rig.Selector.SetAirPhase(Entity, AirPhase.Rise);
+            Assert.AreEqual(new Id("clip.jump"), rig.Last);
+        }
+
+        [Test]
+        public void AnimStateKeysFor_NoJumpDeclared_IsExactlyTheOldBaseKeys_AndVariantKeysKeepTheirPlace()
+        {
+            // 不变量：没声明 jump 的外形键表与改动前逐项一致（基础六键，其后依次是战斗变体键、姿势维度键）。
+            var plain = UnityViewFactory.AnimStateKeysFor(AnimSet("idle", "move", "attack", "cast", "hit", "death"));
+            CollectionAssert.AreEqual(new[] { "idle", "move", "attack", "cast", "hit", "death" }, new List<string>(plain));
+
+            var variants = UnityViewFactory.AnimStateKeysFor(AnimSet("idle", "move", "attack", "cast", "hit", "death", "combat_idle", "jump.rise"));
+            CollectionAssert.AreEqual(new[] { "idle", "move", "attack", "cast", "hit", "death", "combat_idle", "jump.rise" }, new List<string>(variants));
+
+            CollectionAssert.AreEqual(new[] { "idle", "move", "attack", "cast", "hit", "death" }, new List<string>(UnityViewFactory.AnimStateKeysFor(null)));
+        }
+
         // ---------- 四、工厂接线 ----------
 
         [Test]

@@ -160,11 +160,12 @@
     （规则的 `Sync` 字段被忽略，全部动作立即派发），保证未升级的既有调用方/测试不受影响。
     `HitFrameSyncPolicy.PendingCount` 并入 `HasPendingPlayback`，`PendingChanged` 事件接入既有
     `TryPublishFinished` 完成信号链（同判断记录 11/13 的既有接线惯例，不新增一条独立的完成信号
-    通路）。**仍是契约缺口的部分（留给 W6-B/具体游戏装配代码）**：默认装配
+    通路）。**设计决定（框架提供机制，游戏层按需接线启用）**：默认装配
     （`presentation/assembly/PresentationAssembly`）当前不会自动把 View 创建期产生的
     `ICharacterRig` 注册进 `IHitFrameSource`、不会自动构造并注入 `hitFrameSource`、也不会默认把
-    `HitFrameSync` 切到 `AnimKeyframeDriven`——这是"框架提供机制，游戏层按需接线启用"的既有模式
-    （同 `flash_profile`/`FlashProfileResolver` 一类判断记录），不接线时行为等同本条修复之前。
+    `HitFrameSync` 切到 `AnimKeyframeDriven`——理由：把 View 的 `ICharacterRig` 登记进 `IHitFrameSource` 与切换同步策略会改变所有未选择该策略的游戏的
+    默认时序，是否启用只能由游戏按自己的动画数据决定（同 `flash_profile`/`FlashProfileResolver` 一类判断记录），
+    不接线时行为等同本条修复之前。
 
 15. **PR130-04 根治（第六轮文档—代码深度审计，`architecture/落地计划/audit-5c444f1-20260908/`）：
     同一逻辑事件命中多条 `sync: hit_frame` 规则时，此前每条规则各自调用一次
@@ -332,5 +333,6 @@
   实现方注入的委托，本模块只发指令；闪白（`Flash`）已由 `PresentationAssembly` 默认接到
   `presentation/render` 的 `ICharacterRig.ProceduralAnim.Flash` 原语（见拍板 6/09 第 4.1 节），
   不再是未接线的空回调——`OnFlash` 选项仍保留供调用方完全覆盖默认行为。09 未定义
-  `flash_profile` 登记表，`profileId → FlashParams`（强度/时长）的解析仍是契约缺口（默认恒返回
-  `FlashParams.Default`，见 `PresentationAssemblyOptions.FlashProfileResolver`）。
+  `flash_profile` 登记表，`profileId → FlashParams`（强度/时长）的解析由调用方经
+  `PresentationAssemblyOptions.FlashProfileResolver` 注入，缺省恒返回 `FlashParams.Default`（设计决定：闪白强度/
+  时长是游戏风格数据，框架没有数据表可读，只提供注入点）。

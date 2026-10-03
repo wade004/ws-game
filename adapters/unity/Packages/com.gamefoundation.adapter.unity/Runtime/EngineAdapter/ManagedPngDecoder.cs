@@ -18,10 +18,18 @@
 // 单个 Tick 顶到 45～105 ms；改为行流式并让逐帧动画的切块直接由行接收器完成后，堆上只剩最终要交给
 // 主线程的像素块。
 //
-// 已知限制（同步写进 ADR-0109 与汇报）：①不校验 PNG 各块 CRC 与 zlib 尾部 Adler-32（引擎解码器会
-// 校验，损坏文件在这里可能"解出"错误像素而不是失败）；②像素数上限 <see cref="MaxPixels"/>，超过
-// 时回退主线程解码；③只读取 IHDR/IDAT/tRNS/IEND，其余辅助块（gAMA/sRGB/iCCP 等）一律忽略——与
-// 引擎 LoadImage 对色彩管理块的处理一致（引擎不据此改像素），但本解码器没有据此做过逐块比对。
+// 完整性校验与边界（ADR-0109）：
+// ①校验：本解码器读取的每个数据块（IHDR/IDAT/tRNS/IEND）都核对 CRC-32，IDAT 拼接后的 zlib 流尾部
+//   Adler-32 与解压出的全部字节（含各行滤波类型字节）逐一核对；任一不符按"损坏"返回 false，调用方
+//   （UnityResourceLoader 后台解码）因此回退到引擎主线程解码，由引擎给出权威结论，不会"解出"错误像素。
+//   未读取的辅助块（gAMA/sRGB/iCCP/cHRM/tEXt 等）不校验 CRC——它们不影响像素，与引擎对辅助块损坏
+//   只告警不失败的处理一致。
+// ②像素数上限 <see cref="MaxPixels"/>（设计决定）：超过上限不做后台托管解码、回退引擎解码。理由：后台解码
+//   每行流式写出但一张图的像素块最终要驻留内存交给主线程，8192x8192 RGBA 已是 256 MB，再大的图让引擎
+//   一次性解码并由其内存策略兜底更稳，不值得为超大图扩大托管解码的内存足迹。
+// ③只读取 IHDR/IDAT/tRNS/IEND，其余辅助块一律忽略（设计决定，有引擎对照用例背书）：色彩管理块不改变
+//   LoadImage 输出的字节，ManagedPngDecoderTests.AncillaryColorManagementChunks_ManagedDecodeMatchesEngineLoadImage
+//   把带 gAMA/sRGB/iCCP/cHRM 块的 PNG 同时交给两个解码器逐像素比对。
 using System;
 using System.IO;
 using System.IO.Compression;
@@ -152,7 +160,18 @@ namespace Adapter.Unity.EngineAdapter
                 var t2 = png[pos + 6];
                 var t3 = png[pos + 7];
 
-                if (t0 == 'I' && t1 == 'H' && t2 == 'D' && t3 == 'R')
+                var isIhdr = t0 == 'I' && t1 == 'H' && t2 == 'D' && t3 == 'R';
+                var isIdat = t0 == 'I' && t1 == 'D' && t2 == 'A' && t3 == 'T';
+                var isTrns = t0 == 't' && t1 == 'R' && t2 == 'N' && t3 == 'S';
+                var isIend = t0 == 'I' && t1 == 'E' && t2 == 'N' && t3 == 'D';
+                if ((isIhdr || isIdat || isTrns || isIend) &&
+                    Crc32(png, pos + 4, len + 4) != ReadUInt32(png, dataPos + len))
+                {
+                    reason = "PNG 数据块 CRC 校验失败（" + (char)t0 + (char)t1 + (char)t2 + (char)t3 + "）";
+                    return false;
+                }
+
+                if (isIhdr)
                 {
                     if (len != 13)
                     {
@@ -183,16 +202,16 @@ namespace Adapter.Unity.EngineAdapter
 
                     haveHeader = true;
                 }
-                else if (t0 == 'I' && t1 == 'D' && t2 == 'A' && t3 == 'T')
+                else if (isIdat)
                 {
                     idat ??= new MemoryStream();
                     idat.Write(png, dataPos, len);
                 }
-                else if (t0 == 't' && t1 == 'R' && t2 == 'N' && t3 == 'S')
+                else if (isTrns)
                 {
                     hasTrns = true;
                 }
-                else if (t0 == 'I' && t1 == 'E' && t2 == 'N' && t3 == 'D')
+                else if (isIend)
                 {
                     break;
                 }
@@ -246,10 +265,16 @@ namespace Adapter.Unity.EngineAdapter
             var idatLength = (int)idat.Length;
 
             // zlib 头：CMF 低 4 位必须是 8（deflate），FLG 的 FDICT 位（0x20）不能置位；头两字节之后
-            // 直接是 deflate 数据（尾部 4 字节 Adler-32 不读取，见类型顶部已知限制①）。
+            // 直接是 deflate 数据；尾部 4 字节是 Adler-32，解压完成后与解压出的全部字节核对（见类型顶部①）。
             if ((idatBuffer[0] & 0x0F) != 8 || (idatBuffer[1] & 0x20) != 0)
             {
                 reason = "zlib 头不受支持";
+                return false;
+            }
+
+            if (idatLength < 6)
+            {
+                reason = "IDAT 不足以容纳 zlib 尾部校验和";
                 return false;
             }
 
@@ -267,6 +292,7 @@ namespace Adapter.Unity.EngineAdapter
             var prev = new byte[stride];
             var rgbaRow = bpp == 3 ? new byte[w * 4] : cur;
 
+            uint adlerA = 1, adlerB = 0;
             using (var source = new MemoryStream(idatBuffer, 2, idatLength - 2, writable: false))
             using (var inflate = new DeflateStream(source, CompressionMode.Decompress))
             {
@@ -278,6 +304,10 @@ namespace Adapter.Unity.EngineAdapter
                         reason = "IDAT 解压后数据不足";
                         return false;
                     }
+
+                    // Adler-32 按解压出的原始字节（滤波类型字节 + 滤波后的行字节）累加，必须在 Unfilter 原地改写之前。
+                    AdlerUpdate(ref adlerA, ref adlerB, (byte)filterByte);
+                    AdlerUpdate(ref adlerA, ref adlerB, cur, stride);
 
                     if (!Unfilter((byte)filterByte, cur, prev, stride, bpp))
                     {
@@ -313,7 +343,76 @@ namespace Adapter.Unity.EngineAdapter
                 }
             }
 
+            // zlib 流尾部 Adler-32（大端，位于 IDAT 拼接数据最后 4 字节）。
+            var expectedAdler = ReadUInt32(idatBuffer, idatLength - 4);
+            var actualAdler = (adlerB << 16) | adlerA;
+            if (expectedAdler != actualAdler)
+            {
+                reason = "zlib Adler-32 校验失败（像素数据损坏）";
+                return false;
+            }
+
             return true;
+        }
+
+        private static void AdlerUpdate(ref uint a, ref uint b, byte value)
+        {
+            a = (a + value) % 65521u;
+            b = (b + a) % 65521u;
+        }
+
+        /// <summary>对 <paramref name="data"/> 前 <paramref name="count"/> 字节累加 Adler-32。按不超过 5552 字节
+        /// 一段延迟取模（zlib 标准做法，段内 uint 不溢出）。</summary>
+        private static void AdlerUpdate(ref uint a, ref uint b, byte[] data, int count)
+        {
+            var offset = 0;
+            while (offset < count)
+            {
+                var n = Math.Min(5552, count - offset);
+                for (var i = 0; i < n; i++)
+                {
+                    a += data[offset + i];
+                    b += a;
+                }
+
+                a %= 65521u;
+                b %= 65521u;
+                offset += n;
+            }
+        }
+
+        private static uint[]? _crcTable;
+
+        /// <summary>CRC-32（PNG 规范，多项式 0xEDB88320）：对 <paramref name="data"/> 从 <paramref name="offset"/> 起
+        /// <paramref name="count"/> 字节（含块类型 4 字节 + 数据）。表惰性建立；并发首次建表产生的是同一份
+        /// 内容的两份拷贝，赋值是引用原子写，无害。</summary>
+        private static uint Crc32(byte[] data, int offset, int count)
+        {
+            var table = _crcTable;
+            if (table == null)
+            {
+                table = new uint[256];
+                for (uint n = 0; n < 256; n++)
+                {
+                    var c = n;
+                    for (var k = 0; k < 8; k++)
+                    {
+                        c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                    }
+
+                    table[n] = c;
+                }
+
+                _crcTable = table;
+            }
+
+            var crc = 0xFFFFFFFFu;
+            for (var i = 0; i < count; i++)
+            {
+                crc = table[(crc ^ data[offset + i]) & 0xFF] ^ (crc >> 8);
+            }
+
+            return crc ^ 0xFFFFFFFFu;
         }
 
         private static bool ReadExactly(Stream stream, byte[] buffer, int count)
