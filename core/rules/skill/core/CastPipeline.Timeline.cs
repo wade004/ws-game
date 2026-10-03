@@ -99,6 +99,17 @@ namespace Core.Rules.Skill
 
         /// <summary>声明了 <c>release</c> 标记：投射物效果在该标记处发射，<c>hit</c> 标记处只结算其余效果。</summary>
         public bool HasReleaseMarker;
+
+        // ---- 地面落点技能（timeline.hit_anchor，M5-S2a）----
+
+        /// <summary>地面坐标施法请求带来的落点（经 <c>CastSkillAtGround</c> 进入时间线才有值）；效果上下文的 <c>GroundPoint</c> 取它。</summary>
+        public Vec2? GroundPoint;
+
+        /// <summary>命中锚点（<see cref="TimelineHitAnchor.None"/> = 以施法者位姿为锚点，同单位目标的时间线动作）。</summary>
+        public TimelineHitAnchor Anchor;
+
+        /// <summary><see cref="Anchor"/> 为 <see cref="TimelineHitAnchor.GroundPoint"/> 时命中形状的朝向（弧度，施法时刻施法者指向落点的方向，重合时取施法者朝向）。</summary>
+        public double AnchorFacing;
     }
 
     /// <summary>每个行动者一条的连招链状态（见 <c>CastPipeline.ApplyComboRedirect</c>）。</summary>
@@ -437,7 +448,8 @@ namespace Core.Rules.Skill
 
         private CastResult EnterTimeline(
             Id casterId, Id skillId, SkillDef def, IReadOnlyList<Id> explicitTargets,
-            IReadOnlyList<(Id PowerType, double Amount)> modifiedCost, Id? presetCastInstanceId, ComboRedirect? redirect)
+            IReadOnlyList<(Id PowerType, double Amount)> modifiedCost, Id? presetCastInstanceId, ComboRedirect? redirect,
+            Vec2? groundPoint = null)
         {
             var tl = def.Timeline!;
             var step = _options.ActionStepSeconds;
@@ -460,7 +472,8 @@ namespace Core.Rules.Skill
             }
 
             // 动作开始快照（手感设计/05 第 8 节"正在进行的动作沿用其开始时的快照"）。
-            var feel = _timeline?.Feel?.BeginAction(casterId, castInstanceId, tl.FeelRef);
+            // M5-S2a：技能行的 feel_ref 与 timeline.feel_ref 落在同一层（同时声明且不同由校验拒绝），任一声明即为该动作的动作层引用。
+            var feel = _timeline?.Feel?.BeginAction(casterId, castInstanceId, tl.FeelRef ?? def.FeelRef);
             var scaling = TimelineScaling.Identity;
             var comboResetTicks = 0;
             if (feel != null)
@@ -497,8 +510,23 @@ namespace Core.Rules.Skill
             // 目标辅助（手感设计/02 第 5 节，缺省关闭）：动作被接受时解析一次，朝向修正当场落地，辅助目标与距离缩放交给位移段快照。
             var assist = ResolveTargetAssist(casterId, castInstanceId, def, tl, feel);
 
+            // 地面落点技能的命中锚点（M5-S2a）：落点锚点的形状朝向取施法时刻施法者指向落点的方向，重合时取施法者朝向。
+            var anchor = groundPoint.HasValue ? tl.HitAnchor : TimelineHitAnchor.None;
+            var anchorFacing = _units.GetFacing(casterId);
+            if (anchor == TimelineHitAnchor.GroundPoint)
+            {
+                var toPoint = groundPoint!.Value - _units.GetPosition(casterId);
+                if (toPoint.Length > 1e-9)
+                {
+                    anchorFacing = Math.Atan2(toPoint.Y, toPoint.X);
+                }
+            }
+
             var run = new ActionRun
             {
+                GroundPoint = groundPoint,
+                Anchor = anchor,
+                AnchorFacing = anchorFacing,
                 CastInstanceId = castInstanceId,
                 SkillId = skillId,
                 Def = def,
@@ -515,8 +543,8 @@ namespace Core.Rules.Skill
                 MotionState = tl.Motion.HasValue
                     ? BuildMotionState(casterId, tl.Motion.Value, schedule, feel, context, explicitTargets, assist)
                     : (ActionMotionState?)null,
-                PrevPosition = _units.GetPosition(casterId),
-                PrevFacing = _units.GetFacing(casterId),
+                PrevPosition = anchor == TimelineHitAnchor.GroundPoint ? groundPoint!.Value : _units.GetPosition(casterId),
+                PrevFacing = anchor == TimelineHitAnchor.GroundPoint ? anchorFacing : _units.GetFacing(casterId),
                 HasReleaseMarker = HasMarker(tl, "release"),
                 AssistTarget = assist.HasValue ? assist.Value.Outcome.TargetId : (Id?)null,
             };
@@ -715,8 +743,8 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            run.PrevPosition = _units.GetPosition(casterId);
-            run.PrevFacing = _units.GetFacing(casterId);
+            run.PrevPosition = RunPosition(casterId, run);
+            run.PrevFacing = RunFacing(casterId, run);
 
             if (run.Elapsed >= run.Schedule.TotalTicks)
             {
@@ -907,6 +935,13 @@ namespace Core.Rules.Skill
 
             public IReadOnlyList<Id> ResolveTargets()
             {
+                // 地面落点技能以落点为锚点（M5-S2a hit_anchor: ground_point）：按落点解析（与 CastSkillAtGround 的 instant 落地同一入口，不带分配系数）。
+                if (_run.Anchor == TimelineHitAnchor.GroundPoint)
+                {
+                    _coefficients = null;
+                    return _owner._targetHost.ResolveAtPoint(_def.TargetShapeRef, _casterId, _run.GroundPoint!.Value);
+                }
+
                 var resolution = _owner._targetHost.ResolveWithCoefficients(_def.TargetShapeRef, _casterId);
                 var ids = new List<Id>(resolution.Targets.Count);
                 Dictionary<Id, double>? coefficients = null;
@@ -951,7 +986,8 @@ namespace Core.Rules.Skill
                 // 手感落地：instant 路径的时间线结算同样发 combat.hit_confirmed、做无敌前置检查（手感设计/03 第 2.3/2.4 节，
                 // 两种结算路径统一）；不做命中集合去重（调用方——自定义钩子或 instant 缺省——自己决定何时结算）。
                 _owner.SettleTimelineBatch(
-                    _casterId, _run, live, _coefficients, _segment, _owner.PoseGeometry(_casterId, closest: false),
+                    _casterId, _run, live, _coefficients, _segment,
+                    new HitGeometry(_owner.RunPosition(_casterId, _run), _owner.RunFacing(_casterId, _run), false, default),
                     _owner.EffectSubsetFor(_run));
             }
 
@@ -1004,7 +1040,7 @@ namespace Core.Rules.Skill
             _bus.Enqueue(new ActionFinishedEvent(casterId, run.CastInstanceId));
             _bus.Enqueue(new SkillCastSuccessEvent(
                 casterId, state.SkillId, state.Targets, isInstant: false, castTimeSeconds: state.CastTimeSeconds,
-                castInstanceId: state.CastInstanceId));
+                castInstanceId: state.CastInstanceId, groundPoint: run.GroundPoint));
         }
 
         /// <summary>时间线动作未自然结束即终止（<see cref="TerminateCastWithReason"/> 调用）：收尾冷却/链/手感快照并发 <c>action.cancelled</c>。</summary>

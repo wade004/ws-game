@@ -95,6 +95,15 @@ namespace Core.Rules.Targeting
         /// 缺省 0 = 不启用目标半径；必须不小于 <see cref="TargetRadius"/> 实际返回的最大值，否则半径更大的单位可能漏判。
         /// </summary>
         public double MaxTargetRadius { get; set; }
+
+        /// <summary>
+        /// <see cref="MaxTargetRadius"/> 的动态来源（手感落地 M5-S2a）：非 null 时每次形状查询取它的返回值作为外扩上界（半径来自手感档案、随单位出生与档案热加载变化时，
+        /// 装配根提供"当前全部单位半径的最大值"）；<see cref="TargetRadius"/> 同时非 null 才启用。默认 null：只看 <see cref="MaxTargetRadius"/>，与引入本选项之前逐位一致。
+        /// </summary>
+        public Func<double>? MaxTargetRadiusProvider { get; set; }
+
+        /// <summary>目标半径是否启用：配了来源且（静态上界大于 0，或配了动态上界）。</summary>
+        internal bool TargetRadiusEnabled => TargetRadius != null && (MaxTargetRadius > 0.0 || MaxTargetRadiusProvider != null);
     }
 
     /// <summary>
@@ -196,6 +205,21 @@ namespace Core.Rules.Targeting
             }
 
             return resolution;
+        }
+
+        /// <summary>本主机使用的选项对象（与构造时传入的是同一个实例）：装配根在手感装配阶段补接 <see cref="TargetingOptions.TargetRadius"/>/<see cref="TargetingOptions.MaxTargetRadiusProvider"/> 用。</summary>
+        public TargetingOptions Options => _options;
+
+        /// <summary>见 <see cref="ITargetHost.TargetHitRadius"/>：目标半径未启用（缺省）恒为 0；启用时取来源返回值（非有限或负数按 0）。</summary>
+        public double TargetHitRadius(Id targetId)
+        {
+            if (!_options.TargetRadiusEnabled)
+            {
+                return 0.0;
+            }
+
+            var radius = _options.TargetRadius!(targetId);
+            return radius > 0.0 && !double.IsInfinity(radius) ? radius : 0.0;
         }
 
         /// <summary>见 <see cref="ITargetHost.TryGetChainShape"/>：直接读链的 <c>shape</c> 字段（形状模板）。</summary>
@@ -306,8 +330,8 @@ namespace Core.Rules.Targeting
             {
                 OriginHeight = anchorHeight,
                 SpatialDistance = _options.SpatialDistance,
-                TargetRadius = _options.MaxTargetRadius > 0.0 ? _options.TargetRadius : null,
-                MaxTargetRadius = _options.MaxTargetRadius,
+                TargetRadius = _options.TargetRadiusEnabled ? _options.TargetRadius : null,
+                MaxTargetRadius = _options.MaxTargetRadiusProvider != null ? _options.MaxTargetRadiusProvider() : _options.MaxTargetRadius,
             };
 
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();

@@ -308,3 +308,9 @@ M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节�
 3. **显式 `RegisterActor` 惰性分配**：见同一节第 3 条；生产装配的自动登记口径不变（`AutoRegisterGraceActors`、"没有声明就不登记"）。
 4. **无头世界的视线（可选，缺省关闭）**：`HeadlessWorldOptions.NavigationLineOfSight`（缺省 false）为真时，`StubSpatialQuery.HasLineOfSight` 取自 `Navigation` 的阻挡判定（`StubSpatialQuery.UseNavigationLineOfSight(navigation, mapId)`：`navigation.Raycast(...)` 非空即被遮挡，`INavigation2D.Raycast` 契约本就写明视线受阻即其返回值非空；静态地形阻挡与运行期动态阻挡 `SetBlocking`/`AddBlocking`/`RemoveBlocking` 都在每次查询时读取、立刻生效）。**缺省关闭的理由**：打开后隔墙施法会因步骤 7 的视线检查失败（`NoLineOfSight`），带阻挡的既有脚本与基线会因此变化；视线只是需要验证遮挡的测试/脚本按需打开的能力，同 `SpatialRange` 等空间能力的做法（核心层可选、缺省关）。为真而没有提供 `Navigation` 时装配抛 `ArgumentException`（没有阻挡数据可依据，不静默当作畅通）。测试用它验证内置视线条件（`FeelGraceBuiltinTests`：`NavigationLineOfSight_SeesTheWall_AndTheDefaultStaysUnblocked`、`BuiltinLineOfSight_GraceCoversAWallThatJustAppeared_OnlyInsideTheWindow`、`NavigationLineOfSight_WithoutANavigation_FailsLoudly`——墙刚出现时宽限在窗口内放行、窗口外按真实遮挡拒绝；缺省世界视线仍畅通）。实验室没有依赖视线的脚本，也不打开它（打开会让带竖墙/阻挡的既有脚本基线变化），所以实验室不使用；引擎侧 `UnitySpatialQuery.HasLineOfSight` 本来就接到导航遮挡判定（见其类型注释），无头与引擎的口径一致。
 5. **接线**：`RulesFeelAssembly` 把受击裁决宿主的战斗状态查询接到 `CombatHost.IsInCombat`（韧性回复模式 `out_of_combat` 用，见 combat README M4-W3 节）；`FeelWiringEndToEndTests.PoiseRecoverMode_OutOfCombatReadsTheCombatHostsStateThroughTheProductionWiring` 钉死生产装配的接线（被通知战斗事件后为真、战斗宿主判定脱战后为假）。
+
+## 判断记录（受击半径装配选项，2026-10-04，M5-S2a，ADR-0144）
+
+- **`CarriersFeelOptions.HitRadiusFromFeel`（缺省 false）**：为真且目标选择宿主没有配置 `TargetRadius` 时，把 `TargetRadius` 接成"单位的 `unit_body_radius`（标定后世界单位，必须 > 0）× `hurt_radius_scale`（缺省 1）"，`MaxTargetRadiusProvider` 接成全部单位里的最大值（每次查询重新取）。**缺省关闭的理由**：打开会让擦边的目标从没打中变成打中，改变既有命中结果；由游戏在装配根显式打开（主会话决定是否翻缺省）。游戏自己已配置 `TargetRadius` 时不覆盖。
+- 复现/不变量：实验室脚本 `feel_hit_geometry`（经生产装配跑全部六个格子，`lab/tests/HitGeometrySceneTests.cs`：每个靶子被命中当且仅当其中心到形状的最短距离不超过受击半径；选项关闭时与半径为 0 逐位一致）。
+- 已知限制：上界提供者每次查询遍历全部单位（只在打开时）。

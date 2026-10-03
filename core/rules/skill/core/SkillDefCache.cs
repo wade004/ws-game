@@ -471,11 +471,15 @@ namespace Core.Rules.Skill
             // 手感落地（ADR-0115）：可选 timeline 块——未声明为 null，技能与本字段落地之前逐位一致。
             TimelineDef? timeline = record.TryGetObject("timeline", out var timelineObj) ? TimelineDef.Parse(timelineObj) : null;
 
+            // 手感落地 M5-S2a：技能行手感引用与无视无敌——均为可选，缺省与本字段落地之前逐位一致。
+            var feelRef = record.TryGetString("feel_ref", out var feelRefText) && !string.IsNullOrEmpty(feelRefText) ? feelRefText : null;
+            var ignoresInvulnerability = record.TryGetBool("ignores_invulnerability", out var ignoresInvulnerabilityValue) && ignoresInvulnerabilityValue;
+
             return new SkillDef(
                 id, school, isPassive, range, tags, castTime, channelTime, cost,
                 cooldownCategory, cooldownDuration, chargesMax, chargesRecharge,
                 respectsGcd, targetShapeRef, effects, interruptFlags, actionCost, allowGroundTarget, useCondition,
-                nameKey, timeline);
+                nameKey, timeline, feelRef, ignoresInvulnerability);
         }
 
         internal static IReadOnlyList<EffectRef> ParseEffectRefs(JsonArray array)

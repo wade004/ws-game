@@ -727,3 +727,11 @@ M4-L 判断记录第 5 条留下的三项局限逐项实现，全部可选、缺
 6. **`air_stun_until_land`（空中硬直撑到落地）**：受击方声明为真时，硬直类反应时长到点后若目标仍在空中，硬直保持到落地之后的那一个 tick 才结束（不推进已过时长，免得把空中硬直误判成倒地）；每次登记/刷新硬直时按受击方当时的档案取值。缺省（假）与 1.95.0 一致：硬直按时长结束，与是否在空中无关——原局限"不因腾空改变反应时长"据此定案为缺省不改、可选开启。
 7. **落地事件 `unit.landed`（原局限"没有落地事件"）**：见 unit README 的同名节（事件由竖直运动服务发出，载荷 `unitId, height, airSeconds, impactSpeed`；`VerticalAxisOptions.EmitLandedEvent` 缺省关）。
 8. **复现与不变量**：`tests/HitFeelHostTests.cs` 的 `AirReactionCap_*`（目标侧封顶取较低、地面不受限、与攻击方替换组合）、`AirHitReaction_*` 两侧声明合成、`LaunchHeightCap_*`（顶点封在绝对高度、两侧取较小、与叠加上限同时生效、缺省不变）、`LaunchBodyScale_*`、`AirStunUntilLand_*`（硬直在落地后结束、缺省按时长结束）；实验室脚本 `space.air_combo`（三连击高度封顶 + 硬直撑到落地 + 一次落地事件）、`space.launch_body_scale`、`space.air_reaction`，期望由预设值与标定参考身高算出。
+
+## 判断记录（结算第 0 步无敌前置与攻击方手感覆盖，2026-10-04，M5-S2a，ADR-0144，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md) 第 2.3、2.6 节）
+
+1. **结算第 0 步**：`Resolver.InvulnerabilityGate`（`Func<EffectContext,bool>?`，`CombatHost.InvulnerabilityGate` 转发，缺省 null 不检查）在死亡目标预检之后、命中表之前调用：非治疗结算且门返回真时直接返回 `HitResult.Invulnerable`（金额 0），发布 `combat.attack_avoided`，不进命中表、不落地、不进战、不触发战斗通知。`RulesAssembly` 把技能模块的 `SkillHost.BlocksHitByInvulnerability` 接给它（周期性、光环来源、自伤、`ignores_invulnerability` 技能不拦）。对既有结果零影响：只有时间线动作才产生无敌窗口，没有这类动作时门恒为假；实验室 `suite` 全部既有基线逐字不变。复现/不变量：`tests/HitFeelHostGeometryTests.cs`（`InvulnerabilityGate_*`，含"门恒为假与不接门逐位一致"）。
+2. **攻击方手感覆盖与蓄力缩放**：`HitFeelInput` 新增 `AttackInstanceId`/`AttackerFeelOverrides`/`Scale`（9 参数构造重载，旧构造保留）。`HitFeelHost.Evaluate` 在带覆盖或非恒等缩放时按（攻击实例, 目标）暂存（`_attackerHits`），同一 tick 稍后派发的 `combat.hit_confirmed` 落地击退/击飞/击飞叠加时取走并读覆盖视图与缩放；暂存在每个 tick 开头清空（裁决与派发同一 tick 内完成，与击杀标记同口径）。没有覆盖与缩放的命中不进这张表，落地仍读攻击方当前解析结果，逐位不变。顿帧缩放在换算 tick 与上限限幅之前乘。
+3. **instant 路径的技能行 `feel_ref`**：`HitFeelOptions.SkillFeelRef`（`Func<Id?, string?>?`）；`PublishInstantConfirmation` 在技能声明了 `feel_ref` 时以该行为动作层调用 `ResolveJudgingWithAction` 重算攻击方视图并按"覆盖"处理；没有声明或没有装配时与此前逐位一致。
+4. **复现与不变量**：`tests/HitFeelHostGeometryTests.cs`（蓄力缩放逐倍率对 tick 的影响与上限、恒等缩放逐位一致、击退距离按同一倍数缩放、覆盖标志决定落地读哪份视图、instant 声明与未声明）。测试里调试覆盖（`fx.Set`）会盖住动作层的写入，需要观察动作层效果时先 `ClearGlobal`。
+5. **已知限制**：与 skill README 同名判断记录第 8 条一致；另有——第 0 步只拦经结算管线做伤害类结算的效果，光环施加、位移、召唤等不经命中表的效果不受它约束（沿用各自既有的免疫判定）；`HitFeelHost.cs` 与受击反应章节的并行切片会改同一个文件，合并时留意。

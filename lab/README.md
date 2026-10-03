@@ -13,6 +13,7 @@
 | `lab/out/` | 命令行默认输出（指纹、完整记录）；生成物，已被 `.gitignore` 忽略，不入库 |
 | `toolchain/feellab/` | 命令行入口（形态同 `toolchain/simrunner`） |
 | `data/_lab/` | 实验室数据集（框架级，占位命名，不含任何游戏内容） |
+| `lab/fixtures/data/hit_geometry/`、`lab/fixtures/data/hit_scale/` | 命中几何与蓄力手感缩放场景的独立数据根（只被脚本 `feel_hit_geometry`、`feel_hit_charge_scale` 经 `meta.extraDataRoots` 叠加；判断记录 61） |
 | `data/_lab_action/` | 实验室动作式数据（手感场景脚本经 `meta.extraDataRoots` 叠加：带 `timeline` 的技能、输入动作、靶子集、手感标定与覆盖行，以及实验室冲击档案 `feedback.impact_profile` 与手感音效 `sfx.def` 行；见判断记录 22～24、27） |
 | `core/sim/schema/LabSchemas.cs` | `lab.scenario`、`lab.arena`、`lab.dummy_set` 三张表的声明 |
 
@@ -212,6 +213,8 @@ dotnet run --project toolchain/feellab -- invariants [--script <id>] # 跨格子
 58. **整份基线比较不依赖墙钟（M4-W6）**：`SpaceSemanticsTests.SpaceBaselines_ArePresentForAllTenCells_AndMatch` 间歇变红的根因是基线比较把实时类度量（`frame_ms_p50`/`frame_ms_p95`/`alloc_bytes_per_frame_p95`，倍率上限，依赖真实时钟）也算进了"是否一致"，满载机器上帧耗时偶尔越过倍率上限，且失败消息对 `Diff` 格子是空的。修法：`FingerprintComparer.Compare` 新增 `includeRealTime` 重载、`LabSuite.Check` 同样，测试用 `LabTestSupport.CheckDeterministic` 排除实时类（逻辑类、表现类、键不一致照常判），失败时 `AssertAllPass` 带每个格子的差异明细；`FeelSceneTests`、`LabKernelTests`、`SpaceSemanticsTests`、`ExpectationTests` 的整份基线比较一并改走这条路径。实时上限仍由命令行 `suite` 与 `Comparer_RealTimeMetrics_AreCeilingChecksNotByteComparisons` 单独把关；新增用例 `Comparer_ExcludingRealTime_IgnoresOnlyRealTimeMetrics_SoLoadCannotFlipADeterministicComparison` 复现满载并锁住"排除的只有实时类"。
 59. **`auto_attack_anim` 是必填字段（M4-W6）**：`display.weapon_style` 行要求带 `auto_attack_anim`，而实验室技能全是读条技能（`cast_time > 0`）、走施放状态与覆盖表，普通攻击状态没有任何技能会进。实验室两行把它写成 `std_dummy_attack_unarmed`（假人的徒手攻击剪辑），在实验室里不会被播放，只是满足必填。
 60. **已知局限清扫（M4）的两条设计决定**：①位移穿过靶子：`feel_lunge` 的扑击位移 `blocking: stop` 只对地形阻挡生效，靶子默认不是阻挡，该脚本与既有预设不变；决定：单位间体积阻挡保持"预设声明 `unit_body_radius` 才开启"（脚本 `feel_unit_block`，判断记录 34），不改缺省。理由：缺省开启会改变所有未声明体积的既有预设与基线（缺省不变是手感体系的总约束），需要的游戏在自己的预设里声明一个字段即可。②挥空窗口按动作实例、不按段：多段技能（多个 `hit` 标记）与多发弹在反馈侧各合成一个窗口，窗口内任何一次接触都不算挥空；决定：保持。理由：手感设计/07 第 6 节把挥空定义为"本攻击实例命中数为零"，挥空反馈回答的是"这一挥是否完全打空"，按段拆会让命中了前两段的连击在第三段落空时报"打空"，与该定义不符。冲刺滑行、投射物挥空时机、非攻击动作挥空三条观察已在 S12 修复（判断记录 33），不再登记。
+
+61. **命中几何与手感缩放场景（M5-S2a，手感设计/03 第 2.2/2.6 节，ADR-0144）**：两个新脚本，数据放独立数据根（同判断记录 17/23/34 的先例，不改 `data/_lab`、`data/_lab_action`，既有脚本基线与数据集哈希逐字不变）。①`feel_hit_geometry`：新增脚本 meta 字段 `hitRadiusFromFeel`（只在为真时写出，既有脚本序列化文本不变；经 `CarriersFeelOptions.HitRadiusFromFeel` 打开受击半径），预设 `feel.preset.hit_geometry`（`unit_body_radius` 0.4，另有 `_wide` 倍数 1.5 与 `_point` 倍数 0 两个运行变体）；两个木桩：`edge_near` 中心在扇形外、与扇形边界的距离小于受击半径，`edge_far` 距离大于受击半径；`HitGeometrySceneTests` 对每个格子与变体按"中心到扇形最短距离 ≤ 受击半径"在用例里算出期望命中集合，并证明选项关闭时与半径为 0 逐位一致。②`feel_hit_charge_scale`：技能 `skill.lab_hs_charge` 声明 `charge.feel_scale`（攻击方/受击方顿帧 1～3 倍）与第 1 段 `hit` 标记的 `args.feel_ref`（`feel.action.lab_hs_finisher`，覆盖该段顿帧取值）；按住 4/30/60 tick 三次出手，量每次每段的顿帧 tick（期望 = 档案毫秒 × 缩放（覆盖段取覆盖行的毫秒）换算 tick 后取上限）。脚本钉死预设 `feel.preset.arpg_responsive`，因此不在"手感装配透明性"跨格子不变量范围内（该不变量比较的是旧路径的按钮直提交，与本场景无关）。**零影响证明**：新增能力（结算第 0 步无敌门、接触点、技能行/分段/蓄力手感）全部接入后、新增脚本入库之前，`suite` 对全部既有脚本的结果是 530 通过 / 0 差异 / 0 不可运行（缺基线 6 即新脚本）；新增脚本只用 `suite --script <id> --update-baseline` 写自己的基线。
 
 ### 真机手测验收清单（给游戏团队）
 

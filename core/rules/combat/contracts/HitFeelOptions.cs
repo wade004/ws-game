@@ -34,6 +34,13 @@ namespace Core.Rules.Combat
         public Func<Id?, bool>? IsTimelineSkill { get; set; }
 
         /// <summary>
+        /// 技能行声明的手感引用（<c>skill.def.feel_ref</c>，手感落地 M5-S2a）：目标选择式（instant）命中据此以该 <c>feel.action</c> 行为动作层重算攻击方视图，
+        /// 使法术等没有动作时间线的技能也能有自己的冲击等级、顿帧与击退。参数为命中事件携带的技能 id，返回 null 即没有声明（取攻击方当前解析结果，缺省口径）。
+        /// 缺省 null——全部按攻击方当前解析结果，与引入本选项之前逐位一致。时间线技能不经它（它们走动作时间线的手感引用）。
+        /// </summary>
+        public Func<Id?, string?>? SkillFeelRef { get; set; }
+
+        /// <summary>
         /// 是否处于离散（回合制）时间模型：为真时顿帧与硬直整体不生效（手感设计/00 第 7 节、03 第 6 节）。缺省 null 即连续模式。
         /// 装配根可传 <c>() =&gt; clockHost.Mode == TimeModelMode.Discrete</c>。
         /// </summary>

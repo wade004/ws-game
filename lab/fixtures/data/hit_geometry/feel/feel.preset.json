@@ -1,0 +1,36 @@
+{
+  "table": "feel.preset",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.preset.hit_geometry",
+      "description": "实验室命中几何预设：响应型动作预设（arpg_responsive）加单位体积半径 0.4 身高；受击半径 = 体积半径 × hurt_radius_scale（缺省 1）。只被脚本 feel_hit_geometry 经 extraDataRoots 叠加。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.arpg_responsive",
+      "values": {
+        "unit_body_radius": 0.4
+      }
+    },
+    {
+      "id": "feel.preset.hit_geometry_wide",
+      "description": "同 hit_geometry，受击半径倍数 1.5（体积半径 0.4 × 1.5 = 0.6）；供测试以运行变体选用，证明受击半径倍数独立于体积半径。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.hit_geometry",
+      "values": {
+        "hurt_radius_scale": 1.5
+      }
+    },
+    {
+      "id": "feel.preset.hit_geometry_point",
+      "description": "同 hit_geometry，受击半径倍数 0（受击半径为零：命中把目标当点）；供测试以运行变体选用。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "extends": "feel.preset.hit_geometry",
+      "values": {
+        "hurt_radius_scale": 0
+      }
+    }
+  ]
+}

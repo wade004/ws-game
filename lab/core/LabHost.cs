@@ -237,6 +237,7 @@ namespace Lab
                     CalibrationId = calibrationId,
                     LocalMoveActionName = options.MoveAction,
                     HitFeel = meta.PoiseImpactScale.Count > 0 ? PoiseImpactHitFeel(meta) : null,
+                    HitRadiusFromFeel = meta.HitRadiusFromFeel,
                 }
                 : equipScene
                     ? new CarriersFeelOptions

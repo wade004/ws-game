@@ -139,6 +139,13 @@ namespace Core.Rules.Combat
             _gearLevelOffsetProvider = gearLevelOffsetProvider ?? NullGearLevelOffsetProvider.Instance;
         }
 
+        /// <summary>
+        /// 无敌窗口前置门（手感落地 M5-S2a，手感设计/03 第 2.3 节）：结算第 0 步，在命中表之前调用；返回 <c>true</c> 表示本次伤害类结算的目标处于无敌窗口，
+        /// 直接判为 <see cref="HitResult.Invulnerable"/>（发布 <c>combat.attack_avoided</c>，不进命中表、不落地、不进战）。治疗类结算不经本门。
+        /// 默认 null：不检查，与引入本门之前逐位一致；生产装配根（<c>RulesAssembly</c>）接上技能模块的动作状态查询。
+        /// </summary>
+        public Func<EffectContext, bool>? InvulnerabilityGate { get; set; }
+
         public ResolveResult Resolve(EffectContext context)
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
@@ -155,6 +162,18 @@ namespace Core.Rules.Combat
                 var deadTargetResult = new ResolveResult(HitResult.Miss, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
                 InvokeResolveTrace(context, deadTargetResult);
                 return deadTargetResult;
+            }
+
+            // ---------------- 步骤 0：无敌窗口前置（所有命中路径共享，手感设计/03 第 2.3 节） ----------------
+            if (!isHeal && InvulnerabilityGate != null && InvulnerabilityGate(context))
+            {
+                steps.Add("precheck: target invulnerable -> Invulnerable，跳过步骤 1-8，FinalAmount=0");
+                _bus.Enqueue(new CombatAttackAvoidedEvent(
+                    context.SourceId, context.TargetId, context.School, HitResult.Invulnerable,
+                    ResolveEventSkillId(context), context.AttackInstanceId, context.TriggerChainDepth));
+                var invulnerableResult = new ResolveResult(HitResult.Invulnerable, 0.0, 0.0, 0.0, immune: false, isHeal, steps);
+                InvokeResolveTrace(context, invulnerableResult);
+                return invulnerableResult;
             }
 
             var hitTable = RequireHitTable();

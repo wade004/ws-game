@@ -88,6 +88,12 @@ namespace Core.Foundation.Feel
         public const string LaunchStackCap = "launch_stack_cap";
         public const string LaunchHeightCap = "launch_height_cap";
         public const string LaunchBodyScale = "launch_body_scale";
+
+        /// <summary>
+        /// 受击半径缩放（手感落地 M5-S2a，受击方档案，体型原型层可写）：目标命中半径 = <c>unit_body_radius</c>（标定后世界单位）× 本字段；
+        /// 缺省（无值）= 1。只在装配启用 <c>HitRadiusFromFeel</c> 时被命中几何读取，见手感设计/03 第 2.2 节。
+        /// </summary>
+        public const string HurtRadiusScale = "hurt_radius_scale";
         public const string AirReactionCap = "air_reaction_cap";
         public const string AirStunUntilLand = "air_stun_until_land";
         public const string KillHitstopScale = "kill_hitstop_scale";
@@ -330,6 +336,9 @@ namespace Core.Foundation.Feel
                     "与 launch_stack_cap 的区别：后者封叠加后的初速，本字段封世界高度，二者可同时声明）；缺省（无值）表示不设绝对上限", optional: true),
                 Num(FeelFieldNames.LaunchBodyScale, Re, J, Ratio, C, 0, 10,
                     "击飞体型缩放（手感落地 M4-W1b，受击方档案，体型原型层可写）：击飞顶点 × 本字段；缺省（无值）= 1 即不缩放，0 = 不可被击飞", optional: true),
+                Num(FeelFieldNames.HurtRadiusScale, Re, J, Ratio, C, 0, 4,
+                    "受击半径缩放（手感落地 M5-S2a，受击方档案，体型原型层可写）：目标命中半径 = unit_body_radius（标定后世界单位）× 本字段，命中形状与该圆相交即算命中；缺省（无值）= 1；" +
+                    "没有声明 unit_body_radius 的单位半径恒为 0（按点判定）；只在装配启用 HitRadiusFromFeel 时生效", ops: SetOnly, optional: true),
                 Enum(FeelFieldNames.AirReactionCap, Re, J, C, ReactionCapValues,
                     "空中受击反应上限（手感落地 M4-W1b，受击方档案）：目标在空中被命中时，反应在 reaction_cap 之外再受它限制（取两者较低）；缺省（无值）表示空中不另设上限",
                     optional: true),

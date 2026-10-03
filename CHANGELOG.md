@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 新增
+
+- **命中几何与时序（[ADR-0144](architecture/adr/0144-命中几何与时序.md)，手感设计/03 第 2.2～2.7 节，M5-S2a）**：全部可选、未声明时逐位不变，schema 版本不动。①**受击半径**：受击组新增可选字段 `hurt_radius_scale`（目标受击半径 = `unit_body_radius` × 它，命中形状与该圆相交即命中，接触点落在目标圆面上不再在体内）；装配选项 `CarriersFeelOptions.HitRadiusFromFeel`（缺省关闭，打开会改变既有命中结果）；`TargetingOptions.MaxTargetRadiusProvider`（动态上界）与默认接口成员 `ITargetHost.TargetHitRadius`。②**无敌窗口前置检查上移为结算第 0 步**：`Resolver.InvulnerabilityGate`/`CombatHost.InvulnerabilityGate`（生产装配根接上技能模块的 `SkillHost.BlocksHitByInvulnerability`），目标选择式、范围效果、投射物与时间线路径统一经过；技能行新增可选 `ignores_invulnerability` 豁免；实验室既有基线逐字不变。③**手感来源**：技能行新增可选 `feel_ref`（优先级 技能 > 武器 > 角色，落在 05 第 6 层，法术等非时间线技能命中时取用，`HitFeelOptions.SkillFeelRef`）；`hit`/`release` 标记 `args.feel_ref` 分段覆盖；`timeline.charge.feel_scale` 蓄力对顿帧/击退/击飞的缩放（`HitFeelInput` 新增 9 参数构造重载与 `HitFeelScale`；`IFeelJudgingSource.ResolveJudgingWithAction` 默认接口成员）。④**落点技能**：`timeline.hit_anchor`（`caster`｜`ground_point`）让 `ground_target` 技能经地面坐标施法请求进入时间线；不声明保持既有警告行为。⑤新增加载期校验 `skill_feel_ref_conflict`（错误）、`timeline_hit_anchor_without_ground_target`、`timeline_marker_feel_ref_ignored`（警告）。⑥文档整理：03 更正 2.2/2.3 节无敌矛盾、写明"不设 `supportsSweep`、一律子采样"、补命中路径与采样步长与空战字段索引。实验室新增脚本 `feel_hit_geometry`、`feel_hit_charge_scale`（独立数据根，判断记录 61）。
+
 ## [1.97.0] - 2026-10-04
 
 ### 工具链
