@@ -27,9 +27,9 @@ pwsh（PowerShell 7）其次——于是在装了两个宿主的机器上，这�
   `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_PREFIX`/`GIT_CONFIG_PARAMETERS` 会被注入，测试在临时目录里起的 git 命令
   不剥掉就会作用到真实仓库。确有用例需要这些变量时，必须在该用例里显式设置。
 - 会话开始记下真实仓库共享配置（`git rev-parse --git-common-dir` 下的 `config`）的 SHA-256 与全文，会话
-  结束再比一次；不一致让整个会话失败并打印差异，只报告、不自动还原。已知限制：如果别的会话在 pytest 运行期间
-  正当地改了同一仓库的共享配置（例如 `git branch --set-upstream-to`、`git remote add`），守卫会误报，
-  以打印出的差异为准人工判断。
+  结束再比一次；不一致让整个会话失败并打印差异，只报告、不自动还原。比较前先去掉 `[branch ...]`/`[remote ...]`
+  小节（别的会话正当地 `git branch --set-upstream-to`、`git push -u`、`git remote add` 只会改这些小节，
+  不算污染；`core`/`user`/`commit` 等其余小节的任何改动照常报错，见 `_git_env.normalize_config_bytes`）。
 """
 
 from __future__ import annotations

@@ -313,3 +313,36 @@ def test_invariant_config_fingerprint_detects_any_change(tmp_path: Path) -> None
     assert fp.diff_against_current() is None  # 改回去就一致
     cfg.unlink()
     assert fp.diff_against_current() is not None  # 删除也算改动
+
+
+def test_invariant_config_fingerprint_ignores_only_branch_and_remote_sections(tmp_path: Path) -> None:
+    """别的会话正当的 `branch --set-upstream-to`/`remote add`/`push -u` 只改 [branch]/[remote] 小节：不算污染；
+    同一次变化里夹带任何其它小节的改动（core/user/commit/...）仍然被报告。"""
+    base = b'[core]\n\tbare = false\n[remote "origin"]\n\turl = file:///x\n[branch "main"]\n\tremote = origin\n'
+    cfg = tmp_path / "config"
+    cfg.write_bytes(base)
+    fp = ConfigFingerprint(cfg)
+    # 复现：正当的登记簿写入（新增远端、新增分支上游、改已有分支键、带点号的旧式小节头）
+    legit = (
+        base
+        + b'[remote "backup"]\n\turl = file:///y\n\tfetch = +refs/heads/*:refs/remotes/backup/*\n'
+        + b'[branch "feature/x"]\n\tremote = origin\n\tmerge = refs/heads/feature/x\n'
+        + b"[branch.other]\n\tremote = origin\n"
+    )
+    cfg.write_bytes(legit)
+    assert fp.diff_against_current() is None
+    # 不变量：登记簿小节之外的任何改动照常报告，不论是否同时夹带登记簿写入
+    for polluted in (
+        legit.replace(b"bare = false", b"bare = true"),
+        legit + b"[user]\n\temail = t@example.invalid\n",
+        legit + b"[commit]\n\tgpgsign = false\n",
+        legit + b"[extensions]\n\tworktreeConfig = true\n",
+    ):
+        cfg.write_bytes(polluted)
+        report = fp.diff_against_current()
+        assert report is not None, polluted
+        assert "[remote" not in report.split("会话结束", 1)[1] and "[branch" not in report.split("会话结束", 1)[1], \
+            "报告里不应出现被忽略的登记簿小节行"
+    # 小节头与键行之间的顺序：登记簿小节之后紧跟的非登记簿小节不能被误吞
+    cfg.write_bytes(base + b'[branch "z"]\n\tremote = origin\n[user]\n\tname = t\n')
+    assert fp.diff_against_current() is not None

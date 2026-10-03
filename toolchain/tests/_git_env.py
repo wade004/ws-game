@@ -34,6 +34,7 @@ import atexit
 import difflib
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -182,23 +183,53 @@ def common_config_path(repo_root: Path) -> Path | None:
     return (common / "config").resolve()
 
 
+# 共享配置里属于"分支/远端登记簿"的小节：别的会话正当地 `git branch --set-upstream-to`、`git push -u`、
+# `git remote add` 只会改这些小节，守卫不把它们算作"测试污染了真实仓库配置"（2026-10-01 事故污染的是
+# core.bare、user.*、commit.gpgsign，都不在这里）。其余小节（core、user、commit、extensions、submodule、
+# include……）的任何改动照常算。
+_BOOKKEEPING_SECTIONS = frozenset({"branch", "remote"})
+_SECTION_HEADER = re.compile(r"^\s*\[\s*([A-Za-z0-9-]+)(?:[.\s][^\]]*)?\]")
+
+
+def normalize_config_bytes(data: bytes | None) -> str:
+    """把 git 配置文件内容规整成"守卫要比较的文本"：去掉 `[branch ...]`/`[remote ...]` 小节（含其下全部键行）。"""
+    if data is None:
+        return ""
+    kept: list[str] = []
+    skipping = False
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        m = _SECTION_HEADER.match(line)
+        if m:
+            skipping = m.group(1).lower() in _BOOKKEEPING_SECTIONS
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 class ConfigFingerprint:
-    """某个 git 配置文件在某一刻的字节快照（SHA-256 + 全文，缺文件记为 None）。"""
+    """某个 git 配置文件在某一刻的字节快照（缺文件记为 None）。比较与 SHA-256 都基于
+    :func:`normalize_config_bytes` 规整后的文本（分支/远端登记小节的正当变化不算改动）。"""
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self.data: bytes | None = path.read_bytes() if path.exists() else None
 
     @property
+    def normalized(self) -> str:
+        return normalize_config_bytes(self.data)
+
+    @property
     def sha256(self) -> str:
-        return "<缺失>" if self.data is None else hashlib.sha256(self.data).hexdigest()
+        if self.data is None:
+            return "<缺失>"
+        return hashlib.sha256(self.normalized.encode("utf-8")).hexdigest()
 
     def diff_against_current(self) -> str | None:
-        """当前文件与快照一致返回 None，否则返回含哈希与统一 diff 的说明文本。"""
+        """当前文件与快照一致（规整后）返回 None，否则返回含哈希与统一 diff 的说明文本；缺失与存在互转永远算改动。"""
         now = ConfigFingerprint(self.path)
-        if now.data == self.data:
+        if (now.data is None) == (self.data is None) and now.normalized == self.normalized:
             return None
-        before = (self.data or b"").decode("utf-8", errors="replace").splitlines()
-        after = (now.data or b"").decode("utf-8", errors="replace").splitlines()
+        before = self.normalized.splitlines()
+        after = now.normalized.splitlines()
         body = "\n".join(difflib.unified_diff(before, after, "会话开始", "会话结束", lineterm=""))
         return f"{self.path}\n  SHA-256 开始 {self.sha256}\n  SHA-256 结束 {now.sha256}\n{body}"

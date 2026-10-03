@@ -50,9 +50,12 @@ namespace Toolchain.SimRunner
                 // 惯例同 toolchain/validator/Program.cs。
             }
 
-            if (args.Length == 0 || !string.Equals(args[0], "run", StringComparison.Ordinal))
+            var isRun = args.Length > 0 && string.Equals(args[0], "run", StringComparison.Ordinal);
+            var isFight = args.Length > 0 && string.Equals(args[0], "fight", StringComparison.Ordinal);
+            if (!isRun && !isFight)
             {
                 Console.Error.WriteLine(UsageText());
+                Console.Error.WriteLine(FightCommand.UsageText());
                 return 2;
             }
 
@@ -67,6 +70,9 @@ namespace Toolchain.SimRunner
                 eventArgs.Cancel = true;
                 cts.Cancel();
             };
+
+            // fight 子命令：直接指定标准玩家与生物打一场（可选导出逐条战斗日志），见 FightCommand 类型判断记录。
+            if (isFight) return FightCommand.Run(args.Skip(1).ToArray(), cts.Token);
 
             return RunCommand(args.Skip(1).ToArray(), cts.Token);
         }
@@ -384,7 +390,7 @@ namespace Toolchain.SimRunner
             return id.Value.StartsWith(prefix, StringComparison.Ordinal) ? id.Value.Substring(prefix.Length) : id.Value;
         }
 
-        private static IDataSource BuildSource(DiskFileSystem fs, string root)
+        internal static IDataSource BuildSource(DiskFileSystem fs, string root)
         {
             var full = Path.IsPathRooted(root) ? root : Path.Combine(Directory.GetCurrentDirectory(), root);
             full = Path.GetFullPath(full).Replace('\\', '/');

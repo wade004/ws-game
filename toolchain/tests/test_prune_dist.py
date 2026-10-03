@@ -253,3 +253,40 @@ def test_refuses_reparse_points_and_deletes_nothing(tmp_path: Path) -> None:
     finally:
         os.rmdir(dist_link)
     del real_repo
+
+
+def test_tag_message_leftover_deleted_only_when_tag_exists(tmp_path: Path) -> None:
+    """打标签失败残留的 ``tag-message-<ver>.txt``：标签 v<ver> 已存在 -> 删；标签不存在 -> 按未识别保留。
+
+    期望由规则推出：有标签的版本集合里的残留文件被删，无标签的留下，其余条目不受影响。
+    """
+    from _git_env import init_temp_repo, run_git
+
+    current = "3.0.0"
+    repo, dist, _meta = _build_fake_repo(
+        tmp_path, current, versions=["2.0.0", "3.0.0"], dryrun_versions=[], higher=[],
+    )
+    init_temp_repo(repo)
+    run_git(repo, "add", "VERSION")
+    run_git(repo, "commit", "-q", "-m", "init")
+    tagged = ["2.0.0", current]  # current 的残留文件 _build_fake_repo 已造
+    untagged = ["9.9.9"]
+    for ver in tagged:
+        run_git(repo, "tag", "-a", f"v{ver}", "-m", f"v{ver}")
+        (dist / f"tag-message-{ver}.txt").write_text("leftover", encoding="utf-8")
+    for ver in untagged:
+        (dist / f"tag-message-{ver}.txt").write_text("leftover", encoding="utf-8")
+
+    plan = _run_prune(repo)
+    assert plan.returncode == 0, plan.stdout
+    for ver in tagged:
+        assert re.search(rf"删除\s+tag-message-{re.escape(ver)}\.txt", plan.stdout), "待删清单里应列出残留文件"
+    assert (dist / "tag-message-2.0.0.txt").exists(), "不传 -Apply 不得删除"
+
+    applied = _run_prune(repo, "-Apply")
+    assert applied.returncode == 0, applied.stdout
+    for ver in tagged:
+        assert not (dist / f"tag-message-{ver}.txt").exists(), f"标签 v{ver} 存在，残留应被删"
+    for ver in untagged:
+        assert (dist / f"tag-message-{ver}.txt").exists(), f"标签 v{ver} 不存在，残留应保留"
+    assert "未识别，已保留" in applied.stdout and "tag-message-9.9.9.txt" in applied.stdout

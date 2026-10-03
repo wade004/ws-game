@@ -38,8 +38,11 @@
 3. 同一 ``resource_ref`` 的别名键（如 ``attack`` → ``attack.unarmed``）按资源去重，取较高档位。
 4. 层剪辑路径与 ADR-0100 一致：``sprite_anim/<mesh 去前缀>__<剪辑去前缀>__<方向>__<层名>/`` 命中，不命中退一级
    去掉方向段；两级各要求 ``atlas.png`` + ``frames.json``。
-5. 已知限制：``item.slot_definition`` 没有"有无外观"字段，所有装备类槽位的物品都视为有外观（戒指/项链等无
-   外观槽位的物品会被报 ``equip_visual_missing``，游戏需把它们的数据放进另一数据根或给它们补空外观行）。
+5. 槽位有无外观由 ``item.slot_definition.has_appearance``（可选 Bool，缺省 ``true``）决定：缺省或 ``true`` 时装备类槽位的
+   物品必须有 ``display.equip_visual`` 行（与该字段登记前行为逐位一致）；显式 ``false``（戒指/项链等不上身可见的槽位）时
+   不要求外观行、不报 ``equip_visual_missing``，其余检查（图标、武器配对、音效/拖尾引用）照常。只认 JSON 布尔 ``false``，
+   其它取值（字符串、``null``、缺省）一律按有外观处理——类型错误由数据加载期的 ``field_type`` 校验拦，这里不重复判。
+   该槽位的物品若仍带了外观行，外观行照常校验（不因为槽位声明无外观就放过一份写了的外观）。
 """
 
 from __future__ import annotations
@@ -464,7 +467,7 @@ class EquipValidator:
 
         self._check_icon(ir, item, dm)
         visuals = [v for v in self.equip_visual if v.get("item_id") == item_id]
-        if not visuals:
+        if not visuals and slot.get("has_appearance") is not False:
             self._issue(ir, SEVERITY_ERROR, CHECK_VISUAL_MISSING,
                         "装备没有 display.equip_visual 行（外观映射缺失）", table=TABLE_EQUIP_VISUAL)
         ws_row = self._check_weapon(ir, item, ws_id, fw_id) if is_weapon else None
