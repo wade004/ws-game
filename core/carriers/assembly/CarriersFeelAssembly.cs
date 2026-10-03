@@ -62,6 +62,13 @@ namespace Core.Carriers.Assembly
         /// </summary>
         public bool AutoRegisterGraceActors { get; set; } = true;
 
+        /// <summary>
+        /// AI 施法是否经输入缓冲（ADR-0143，手感设计/01 第 2.3 节）。缺省 false：AI 仍直接施法（既有基线逐位不变）。
+        /// 打开后 AI 的施法决策提交进行动者的输入缓冲（合成动作 <see cref="BufferedAiCastRouter.ActionId"/>），与玩家共用优先级、过期与取消窗口规则，
+        /// 在后摇里"提前决定下一个技能"也能在动作一结束就接上。代价：AI 出手比直接施法晚一个 tick（步骤 2 决策、下一 tick 步骤 1 取用），所以缺省关闭。
+        /// </summary>
+        public bool AiIntentsThroughBuffer { get; set; }
+
         /// <summary>本地玩家的移动轴动作名（如 <c>input.action.move</c>）：<c>PresentationAssembly</c> 把本地输入映射接给缓冲时用来采集按下瞬间的方向快照；缺省 null 即不采集。</summary>
         public string? LocalMoveActionName { get; set; }
 
@@ -249,7 +256,7 @@ namespace Core.Carriers.Assembly
                 Feel = resolver,
                 ActionClock = rulesFeel.Clock,
             });
-            DeclareActions(buffer, registry, options.ExtraActions);
+            DeclareActions(buffer, registry, options.ExtraActions, options.AiIntentsThroughBuffer);
 
             // 输入动作 → 技能：普通攻击动作优先取当前主手武器的普攻技能（换装后自动切换），没有则回落到 skill_slot 槽位绑定；缓冲出口与时间线取消进入共用同一份。
             var slotBinding = new ActionSlotSkillBinding(buffer, carriers.SkillBindings);
@@ -260,6 +267,10 @@ namespace Core.Carriers.Assembly
                 buffer, actionBinding, rules.Skill, world, bus, rulesFeel.HitFeel.Host, stepSeconds);
             rulesFeel.Timeline.Input = buffer;
             rulesFeel.Timeline.Binding = actionBinding;
+            // ADR-0143：蓄力规则（技能 timeline.charge → 输入缓冲的自动释放上限与抬起门槛）、跳跃类输入动作的竖直运动。
+            buffer.ChargeRules = new ActionChargeRuleSource(slotBinding, rules.Skill, stepSeconds);
+            sink.Vertical = carriers.VerticalMotion;
+            if (options.AiIntentsThroughBuffer) rules.Ai.CastRouter = new BufferedAiCastRouter(buffer);
 
             // 换装链：装备变化时对账武器引用与武器族，变化则发布 feel.weapon_changed（表现层姿势族、反馈变体、界面订阅它）。读档在事件抑制作用域内重放装备，
             // 链额外订阅 save.loaded 对账；已知单位取世界里的全部实体（对账只读装备宿主，没有装备的实体对账结果等于初值，不发事件）。
@@ -279,11 +290,14 @@ namespace Core.Carriers.Assembly
                 Position = id => world.GetEntity(id)?.Position,
                 LineOfSight = (from, to) => rules.Spatial.HasLineOfSight(from, to),
                 ConditionRange = (actor, condition) => GraceConditionRange(buffer, actionBinding, rules.Skill, actor, condition),
+                // ADR-0143：event.grounded（框架内置 builtin_grounded，土狼时间）；没有竖直轴的世界恒在地面。
+                Grounded = carriers.VerticalMotion == null ? (Func<Id, bool>?)null : id => !carriers.VerticalMotion.IsAirborne(id),
             };
             var graceEvaluator = options.GraceEvaluator ?? new ExprGraceConditionEvaluator(
                 registry, rules.ExprHostFactory, rules.ExprSchema, options.GraceTargetResolver,
                 id => rules.AutoAttack.GetTarget(id), aimServices);
             var grace = new GraceTracker(graceEvaluator, resolver);
+            sink.Grace = grace;
             InputBufferTickHandler.Register(world, buffer, sink, grace);
             // 手感落地 M2-B（手感设计/01 第 2.4 节）：施法管线步骤 7 经它判断"条件刚刚失效、仍在宽限内"。
             rulesFeel.Timeline.Grace = grace;
@@ -395,7 +409,8 @@ namespace Core.Carriers.Assembly
             return min;
         }
 
-        private static void DeclareActions(InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra)
+        private static void DeclareActions(
+            InputBufferHost buffer, IDataRegistryView registry, IReadOnlyList<ActionDefinition>? extra, bool aiThroughBuffer)
         {
             var definitions = new List<ActionDefinition>();
             var tables = registry.Tables;
@@ -407,6 +422,7 @@ namespace Core.Carriers.Assembly
             }
 
             if (extra != null) definitions.AddRange(extra);
+            if (aiThroughBuffer) definitions.Add(BufferedAiCastRouter.CreateDefinition());
             buffer.DeclareActions(definitions);
         }
     }

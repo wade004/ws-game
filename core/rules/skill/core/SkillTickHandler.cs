@@ -101,14 +101,20 @@ namespace Core.Rules.Skill
                     }
                 }
 
+                // ADR-0143：意图可选携带发起它的输入动作 id（trigger_action），按住维持型动作据此向输入缓冲查询键是否仍按着。
+                Id? triggerAction = intent.Args.TryGetValue("trigger_action", out var triggerVal) && triggerVal is JsonString triggerStr
+                    ? new Id(triggerStr.Value)
+                    : (Id?)null;
+
                 if (graceConditions != null)
                 {
                     _host.CastSkillWithContext(
-                        intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks), graceConditions);
+                        intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks, triggerAction), graceConditions);
                 }
-                else if (direction.HasValue || heldTicks > 0)
+                else if (direction.HasValue || heldTicks > 0 || triggerAction.HasValue)
                 {
-                    _host.CastSkillWithContext(intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks));
+                    _host.CastSkillWithContext(
+                        intent.ActorId, skillId.Value, targets, new ActionCastContext(direction, heldTicks, triggerAction));
                 }
                 else
                 {

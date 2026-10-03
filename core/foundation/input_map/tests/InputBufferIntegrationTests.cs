@@ -441,7 +441,7 @@ namespace Tests.Foundation.InputMap
         {
             string Rows(string extra) => "[{\"key\":\"input.action.bad\",\"kind\":\"button\",\"default_bindings\":[\"key:b\"]," + extra + "}]";
 
-            var (_, badClass) = LoadRows(InputActionSchema.Table.Name, Rows("\"class\":\"jump\""), InputActionSchema.Table);
+            var (_, badClass) = LoadRows(InputActionSchema.Table.Name, Rows("\"class\":\"fly\""), InputActionSchema.Table);
             Assert.True(badClass.IsBlocking);
             Assert.Contains(badClass.Issues, i => i.Field == "class");
 

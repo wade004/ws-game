@@ -551,6 +551,13 @@ namespace Core.Rules.Skill
             Id attackInstanceId, Id? castInstanceId, int segment, Id casterId, Id targetId, Id skillId, HitResult hitResult,
             double amount, bool isCrit, bool isKill, Vec2 contact, Vec2 normal, Vec2 worldDirection, JudgingFeelView? attackerFeel)
         {
+            // ADR-0143：本动作实例的命中确认计数（取消/连招窗口的 requires 用；被回避的接触同样算接触）。
+            if (castInstanceId.HasValue && _casting.TryGetValue(casterId, out var liveCast) && liveCast.Run != null
+                && liveCast.Run.CastInstanceId.Equals(castInstanceId.Value))
+            {
+                liveCast.Run.HitCount++;
+            }
+
             var outcome = _timeline?.HitFeel != null
                 ? _timeline.HitFeel.Evaluate(new HitFeelInput(casterId, targetId, hitResult, amount, isKill, attackerFeel))
                 : HitFeelOutcome.None();

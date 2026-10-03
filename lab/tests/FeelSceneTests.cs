@@ -77,7 +77,7 @@ namespace Tests.Lab
         public void FeelScripts_AreVersion3_OrVersion4WhenTheyCarryExpectations_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(29, scripts.Count);
+            Assert.Equal(31, scripts.Count);
             foreach (var s in scripts)
             {
                 // 手感场景格式是版本 3；脚本带期望清单（06 第 3.1 节）时按"用到的最高特性"写版本 4。
@@ -576,6 +576,48 @@ namespace Tests.Lab
             Assert.Equal(2, fp.Items("actiontl.cancels").Count);
         }
 
+        // ---------- cancel window requires / into (ADR-0143) ----------
+
+        [Fact]
+        public void CancelRequiresHit_PressInsideTheWindowAfterAHit_CancelsIntoTheWhitelistedDodge()
+        {
+            const string slash = "skill.lab_i_slash_hit";
+            const string dodge = "skill.lab_a_dodge";
+            var fp = FeelFp.Of("feel_cancel_requires_hit", Action);
+            var slashTick = Press("feel_cancel_requires_hit", AttackAction);
+            var dodgeTick = Press("feel_cancel_requires_hit", DodgeAction);
+            var (open, close) = FeelRules.CancelWindowMs(slash, "dodge");
+
+            // 前提：挥击命中确认发生在闪避按下之前，闪避按下处在窗口（按动作时钟）之内。
+            Assert.Equal(1.0, fp.Num("spatialhit.hit_confirmed"));
+            Assert.True(FeelFp.TickOf(fp.Items("spatialhit.confirm_ticks")[0]) < dodgeTick);
+            Assert.True(dodgeTick - slashTick >= T(open) && dodgeTick - slashTick <= T(close));
+
+            // 命中已确认 → requires=hit 的窗口开着：同 tick 取消进闪避，没有缓冲过期。
+            Assert.Equal(new[] { $"player@{dodgeTick}:CancelInto>{dodge}" }, fp.Items("actiontl.cancels"));
+            Assert.Contains($"player@{dodgeTick}:{dodge}#0", fp.Items("actiontl.starts"));
+            Assert.Equal(string.Empty, fp.Text("inputbuf.expire_ticks"));
+        }
+
+        [Fact]
+        public void CancelRequiresWhiff_SameHitClosesTheWindow_DodgeStaysInTheBufferUntilItExpires()
+        {
+            const string slash = "skill.lab_i_slash_whiff";
+            var fp = FeelFp.Of("feel_cancel_requires_whiff", Action);
+            var p = FeelRules.ForCell(Action);
+            var slashTick = Press("feel_cancel_requires_whiff", AttackAction);
+            var dodgeTick = Press("feel_cancel_requires_whiff", DodgeAction);
+            var (open, close) = FeelRules.CancelWindowMs(slash, "dodge");
+
+            // 与上一条同一命中、同一按键时刻；窗口声明 requires=whiff，命中后不开：不取消，闪避留在缓冲里过期。
+            Assert.Equal(1.0, fp.Num("spatialhit.hit_confirmed"));
+            Assert.True(dodgeTick - slashTick >= T(open) && dodgeTick - slashTick <= T(close));
+            Assert.Equal(string.Empty, fp.Text("actiontl.cancels"));
+            Assert.DoesNotContain(fp.Items("actiontl.starts"), x => x.Contains("lab_a_dodge", StringComparison.Ordinal));
+            Assert.Equal(new[] { $"{dodgeTick + p.Ticks("buffer_ms") + 1}:lab_a_dodge" }, fp.Items("inputbuf.expire_ticks"));
+            Assert.Equal("Expired:1", fp.Text("inputbuf.drop_counts"));
+        }
+
         // ---------- charge ----------
 
         [Fact]
@@ -599,12 +641,18 @@ namespace Tests.Lab
 
             Assert.True(ratios[0] == 0.0 && ratios[1] > 0.0 && ratios[1] < 1.0 && ratios[2] == 1.0);
 
-            // 蓄力按钮松开才出手：动作开始 tick = 松开 tick（输入到动作开始的延迟 = 按住 tick 数）。
+            // 蓄力按钮松开才出手；按住达到最大蓄力时自动释放（ADR-0143）：动作开始 tick = 按下 tick + min(按住 tick 数, 最大蓄力 tick 数)。
+            var maxTicks = (int)Math.Ceiling(maxMs / (FeelRules.StepSeconds * 1000.0) - 1e-9);
             var starts = fp.Items("actiontl.starts");
             for (var i = 0; i < 3; i++)
             {
-                Assert.Equal($"player@{Release("feel_charge", ChargeAction, i)}:{skill}#0", starts[i]);
+                var held = Release("feel_charge", ChargeAction, i) - Press("feel_charge", ChargeAction, i);
+                var expectedStart = Press("feel_charge", ChargeAction, i) + Math.Min(held, maxTicks);
+                Assert.Equal($"player@{expectedStart}:{skill}#0", starts[i]);
             }
+
+            // 第三次按住超过最大蓄力：开始 tick 早于松开 tick（自动释放），其余两次仍等于松开 tick。
+            Assert.True(Release("feel_charge", ChargeAction, 2) - Press("feel_charge", ChargeAction, 2) > maxTicks);
 
             // 蓄力比例此刻只被记录，不改变命中结算（三次命中同形：同顿帧、同反应）。
             Assert.Equal(3.0, fp.Num("spatialhit.hit_confirmed"));

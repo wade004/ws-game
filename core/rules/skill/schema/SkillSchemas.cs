@@ -811,6 +811,8 @@ namespace Core.Rules.Skill
         public static readonly string[] TimelineHitModeValues = { "auto", "spatial", "instant" };
         public static readonly string[] TimelineAssistModeValues = { "face_only", "close_distance" };
         public static readonly string[] TimelineCostAtValues = { "commit", "active", "first_hit" };
+        public static readonly string[] TimelineChargeBelowMinValues = { "release", "cancel" };
+        public static readonly string[] TimelineWindowRequiresValues = { "any", "hit", "whiff" };
         public static readonly string[] TimelineCooldownAtValues = { "commit", "active", "finish" };
         public static readonly string[] TimelineActionClassValues = { "move", "attack", "skill", "dodge", "interact", "item", "menu" };
         public static readonly string[] MotionDriverValues = { "code", "root_motion" };
@@ -849,6 +851,9 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("max_ms", FieldKind.Number, required: true, description: "蓄力上限（毫秒），> min_ms")
                         .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("below_min", FieldKind.Enum, required: false, enumValues: TimelineChargeBelowMinValues,
+                        description: "蓄力不足（抬起时按住时长超过按住阈值但不足 min_ms）的处理：release（缺省）按最低档释放（蓄力比例 0，既有行为）；" +
+                            "cancel 取消该次输入（缓冲记录丢弃，input.buffer_dropped{reason: charge_below_min}，不进入动作）。ADR-0143"),
                     new FieldSchema("value_scale", FieldKind.Object, required: false,
                         fields: new[]
                         {
@@ -880,7 +885,7 @@ namespace Core.Rules.Skill
                         },
                         description: "标记参数；运行期只消费 segment（登记为固定子结构而非自由对象，元数据门禁 composite_without_substructure）"),
                 }, description: "{name: String, at_ms: Number, args: Object?}"),
-                description: "时间标记列表（手感设计/01 第 3.3 节）；combo_*/cancel_*/cost/charge_ready 由其它块派生，不单独写"),
+                description: "时间标记列表（手感设计/01 第 3.3 节）；combo_*/cancel_*/cost 由其它块派生，不单独写（charge_ready 是输入缓冲侧的 input.charge_ready 事件，不是时间线标记）"),
             new FieldSchema("cancel_windows", FieldKind.Array, required: false,
                 item: new FieldSchema("<cancel_window>", FieldKind.Object, required: true, fields: new[]
                 {
@@ -890,7 +895,12 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("close_ms", FieldKind.Number, required: false, description: "窗口关闭（毫秒），缺省为动作结束")
                         .WithRange(FieldRange.Range(min: 0)),
-                }, description: "{class, open_ms, close_ms?}"),
+                    new FieldSchema("requires", FieldKind.Enum, required: false, enumValues: TimelineWindowRequiresValues,
+                        description: "窗口生效条件（ADR-0143）：any（缺省，无条件，等于既有行为）| hit（本动作实例已有命中确认——含被回避的接触——才可取消，命中确认取消）| " +
+                            "whiff（本动作实例尚无命中确认才可取消，挥空取消）；判定依据是 combat.hit_confirmed 按动作实例的配对"),
+                    new FieldSchema("into", FieldKind.IdList, required: false, referenceTable: "skill.def",
+                        description: "窗口允许取消进入的目标技能白名单（ADR-0143）：只有输入动作映射到的技能在名单里才可取消进入；缺省不限（既有行为）"),
+                }, description: "{class, open_ms, close_ms?, requires?, into?}"),
                 description: "取消窗口列表（手感设计/01 第 3.4 节），每个窗口按目标类别独立声明"),
             new FieldSchema("combo", FieldKind.Object, required: false,
                 fields: new[]
@@ -901,8 +911,20 @@ namespace Core.Rules.Skill
                         .WithRange(FieldRange.Range(min: 0)),
                     new FieldSchema("close_ms", FieldKind.Number, required: true, description: "接续窗口关闭（毫秒）")
                         .WithRange(FieldRange.Range(min: 0)),
+                    new FieldSchema("requires", FieldKind.Enum, required: false, enumValues: TimelineWindowRequiresValues,
+                        description: "接续条件（ADR-0143）：any（缺省）| hit（命中确认后才可接续，典型的\"打中才能接下一段\"）| whiff（只在挥空时可接续）；" +
+                            "接续的目标固定是 next，所以连招块没有 into 白名单"),
                 },
-                description: "连招接续窗口：{next: Id, open_ms, close_ms}（手感设计/01 第 3.6 节）"),
+                description: "连招接续窗口：{next: Id, open_ms, close_ms, requires?}（手感设计/01 第 3.6 节）"),
+            new FieldSchema("active_until_release", FieldKind.Object, required: false,
+                fields: new[]
+                {
+                    new FieldSchema("max_ms", FieldKind.Number, required: true,
+                            description: "维持上限（毫秒）：判定相结束后最多再维持这么久（按键仍按着时），到上限强制进入后摇")
+                        .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                },
+                description: "按住维持型动作（格挡、按住冲刺、持续引导，ADR-0143）：判定相走完后，若触发该动作的输入键仍按着，动作停在判定相末尾继续维持（直到松键或到 max_ms），" +
+                    "之后进入后摇；松键早于判定相结束则 active_ms 即最短判定时长。只对由输入动作触发的动作生效；维持期间受击打断、取消窗口照常"),
             new FieldSchema("hit_policy", FieldKind.Enum, required: false, enumValues: TimelineHitPolicyValues,
                 description: "marker|continuous，缺省 marker：命中解析方式（手感设计/03 第 2.2 节）。marker 在每个 hit 标记解析一次；continuous 在判定相逐 tick 解析（两 tick 位姿之间插值采样，高速形状不漏目标）"),
             new FieldSchema("is_attack", FieldKind.Bool, required: false,

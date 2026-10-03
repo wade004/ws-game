@@ -1,0 +1,92 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_cancel_requires_whiff",
+    "scriptVersion": 1,
+    "description": "取消窗口的命中条件（ADR-0143 requires）：同一次命中木桩，窗口声明 requires=whiff（挥空才生效）——命中已确认，窗口不开，窗口内按闪避不取消（缓冲记录留到过期），挥击走完收招。对照脚本 feel_cancel_requires_hit。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 90,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_i_slash_whiff",
+      "lab_a.dodge": "skill.lab_a_dodge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/input_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 25,
+      "action": "input.action.lab_a_dodge",
+      "kind": "press"
+    },
+    {
+      "tick": 26,
+      "action": "input.action.lab_a_dodge",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "hit_confirmed_once",
+      "metric": "spatialhit.hit_confirmed",
+      "op": "eq",
+      "value": 1
+    },
+    {
+      "id": "no_cancel_in_action_cells",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "actiontl.cancels",
+      "op": "eq",
+      "value": "",
+      "note": "同一命中使 requires=whiff 的窗口不开：没有取消"
+    },
+    {
+      "id": "dodge_expires_in_buffer_in_action_cells",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ],
+      "metric": "inputbuf.expire_ticks",
+      "op": "eq",
+      "value": "33:lab_a_dodge"
+    }
+  ]
+}

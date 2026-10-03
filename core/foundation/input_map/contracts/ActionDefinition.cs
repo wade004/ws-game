@@ -68,6 +68,25 @@ namespace Core.Foundation.InputMap
         /// </summary>
         public string ControlSpace { get; }
 
+        /// <summary>
+        /// 模拟轴处理默认值（<c>dead_zone</c>/<c>response_curve</c>/<c>smoothing_ms</c>，仅 axis 动作，ADR-0143）；<c>null</c> 表示未声明，
+        /// 轴值与此前逐位一致（原始值直通）。玩家设置可经 <see cref="InputMapHost.SetAxisProcessing"/> 覆盖。
+        /// </summary>
+        public AxisProcessing? AxisProcessing { get; }
+
+        /// <summary>
+        /// 按住释放时施放的技能所在的技能绑定槽位名（<c>hold_skill_slot</c>，点按/按住变体，ADR-0143）：缓冲记录以 <see cref="BufferHoldState.HoldReleased"/>
+        /// 被接受时走本槽位，点按走 <see cref="SkillSlot"/>；<c>null</c> 表示点按与按住施放同一技能（既有行为）。
+        /// 分界只有一个：<see cref="HoldThresholdMs"/>（或档案缺省按住阈值，attack/skill 类）。
+        /// </summary>
+        public string? HoldSkillSlot { get; }
+
+        /// <summary>
+        /// 可变跳高的裁切比例（<c>jump_cut_ratio</c>，仅 <see cref="ActionClass.Jump"/>，ADR-0143）：起跳后松键（或起跳时已松键）若仍在上升，
+        /// 上升速度乘以该比例（0～1 开区间）；<c>null</c> 表示不裁切（既有行为）。
+        /// </summary>
+        public double? JumpCutRatio { get; }
+
         /// <summary>生效优先级：显式值，否则类别缺省；未声明类别的动作为 0。</summary>
         public int EffectivePriority => Priority ?? (Class.HasValue ? ActionClassDefaults.Priority(Class.Value) : 0);
 
@@ -154,6 +173,36 @@ namespace Core.Foundation.InputMap
             IReadOnlyList<Id>? graceConditions,
             string? skillSlot,
             string? controlSpace)
+            : this(actionId, kind, defaultBindings, rebindGroup, description, actionClass, bufferMs, priority,
+                holdThresholdMs, repeatPolicy, faceOnAccept, graceConditions, skillSlot, controlSpace,
+                axisProcessing: null, holdSkillSlot: null, jumpCutRatio: null)
+        {
+        }
+
+        /// <summary>
+        /// 带轴处理、按住变体槽位、可变跳高的构造（ADR-0143，纯加法重载；十四参数构造原样保留并转调本重载，三项取缺省）。
+        /// 校验：<paramref name="axisProcessing"/> 只能用于轴动作；<paramref name="holdSkillSlot"/> 只能用于按钮动作且要有按住阈值来源
+        /// （动作自己的 <c>hold_threshold_ms</c>，或 attack/skill 类走档案缺省阈值）；<paramref name="jumpCutRatio"/> 只能用于
+        /// <see cref="ActionClass.Jump"/> 且在 (0, 1) 内；jump 类不支持 <c>hold_threshold_ms</c>。不静默忽略，违反即抛 <see cref="ArgumentException"/>。
+        /// </summary>
+        public ActionDefinition(
+            Id actionId,
+            ActionKind kind,
+            IReadOnlyList<string> defaultBindings,
+            string rebindGroup,
+            string? description,
+            ActionClass? actionClass,
+            double? bufferMs,
+            int? priority,
+            double? holdThresholdMs,
+            InputRepeatPolicy repeatPolicy,
+            bool? faceOnAccept,
+            IReadOnlyList<Id>? graceConditions,
+            string? skillSlot,
+            string? controlSpace,
+            AxisProcessing? axisProcessing,
+            string? holdSkillSlot,
+            double? jumpCutRatio)
         {
             if (defaultBindings == null || defaultBindings.Count == 0)
             {
@@ -203,6 +252,47 @@ namespace Core.Foundation.InputMap
             }
 
             ControlSpace = space;
+
+            if (axisProcessing != null && kind == ActionKind.Button)
+            {
+                throw new ArgumentException(
+                    $"动作 \"{actionId}\" 声明了轴处理（dead_zone/response_curve/smoothing_ms），但类型是 {kind}：只适用于轴动作", nameof(axisProcessing));
+            }
+
+            if (jumpCutRatio.HasValue)
+            {
+                if (actionClass != ActionClass.Jump)
+                {
+                    throw new ArgumentException($"动作 \"{actionId}\" 声明了 jump_cut_ratio，但类别不是 jump", nameof(jumpCutRatio));
+                }
+
+                if (!(jumpCutRatio.Value > 0.0 && jumpCutRatio.Value < 1.0))
+                {
+                    throw new ArgumentException($"动作 \"{actionId}\" 的 jump_cut_ratio 必须在 (0, 1) 内", nameof(jumpCutRatio));
+                }
+            }
+
+            if (actionClass == ActionClass.Jump && holdThresholdMs.HasValue)
+            {
+                throw new ArgumentException(
+                    $"动作 \"{actionId}\" 是 jump 类，不支持 hold_threshold_ms（跳跃不区分点按与按住；可变跳高用 jump_cut_ratio）", nameof(holdThresholdMs));
+            }
+
+            var holdSlot = string.IsNullOrEmpty(holdSkillSlot) ? null : holdSkillSlot;
+            if (holdSlot != null)
+            {
+                var hasThreshold = holdThresholdMs.HasValue || actionClass == ActionClass.Attack || actionClass == ActionClass.Skill;
+                if (kind != ActionKind.Button || !actionClass.HasValue || actionClass == ActionClass.Move || actionClass == ActionClass.Jump || !hasThreshold)
+                {
+                    throw new ArgumentException(
+                        $"动作 \"{actionId}\" 声明了 hold_skill_slot：只适用于声明了类别的按钮动作，且需要按住阈值来源（hold_threshold_ms，或 attack/skill 类的档案缺省阈值）",
+                        nameof(holdSkillSlot));
+                }
+            }
+
+            AxisProcessing = axisProcessing;
+            HoldSkillSlot = holdSlot;
+            JumpCutRatio = jumpCutRatio;
         }
 
         /// <summary>
@@ -211,7 +301,7 @@ namespace Core.Foundation.InputMap
         /// </summary>
         public ActionDefinition WithControlSpace(string controlSpace) =>
             new ActionDefinition(ActionId, Kind, DefaultBindings, RebindGroup, Description, Class, BufferMs, Priority,
-                HoldThresholdMs, RepeatPolicy, FaceOnAccept, GraceConditions, SkillSlot, controlSpace);
+                HoldThresholdMs, RepeatPolicy, FaceOnAccept, GraceConditions, SkillSlot, controlSpace, AxisProcessing, HoldSkillSlot, JumpCutRatio);
 
         /// <summary>
         /// 从 <see cref="DataRecord"/>（<c>found.input_action</c> 表的一行）构造。
@@ -286,8 +376,37 @@ namespace Core.Foundation.InputMap
                 controlSpace = cs;
             }
 
+            AxisProcessing? axis = null;
+            var hasDz = record.TryGetNumber("dead_zone", out var dz);
+            var hasCurve = record.TryGetString("response_curve", out var curve);
+            var hasSmooth = record.TryGetNumber("smoothing_ms", out var smooth);
+            if (hasDz || hasCurve || hasSmooth)
+            {
+                if (hasCurve && !AxisProcessing.IsValidCurve(curve))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "response_curve",
+                        $"取值 \"{curve}\" 不是合法枚举（{AxisProcessing.Linear}|{AxisProcessing.Expo}|{AxisProcessing.CustomPrefix}<curve_id>）");
+                }
+
+                if (hasDz && !(dz >= 0.0 && dz < 1.0))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "dead_zone", "必须在 [0, 1) 内");
+                }
+
+                if (hasSmooth && !(smooth >= 0.0))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "smoothing_ms", "必须是非负数");
+                }
+
+                axis = new AxisProcessing(hasDz ? dz : 0.0, hasCurve ? curve : null, hasSmooth ? smooth : 0.0);
+            }
+
+            string? holdSkillSlot = record.TryGetString("hold_skill_slot", out var hs) ? hs : null;
+            double? jumpCut = record.TryGetNumber("jump_cut_ratio", out var jc) ? jc : (double?)null;
+
             return new ActionDefinition(actionId, kind, bindings, rebindGroup, description,
-                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions, skillSlot, controlSpace);
+                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions, skillSlot, controlSpace,
+                axis, holdSkillSlot, jumpCut);
         }
 
         private static ActionClass ParseClass(DataRecord record, string classText)
@@ -301,9 +420,10 @@ namespace Core.Foundation.InputMap
                 case "interact": return ActionClass.Interact;
                 case "item": return ActionClass.Item;
                 case "menu": return ActionClass.Menu;
+                case "jump": return ActionClass.Jump;
                 default:
                     throw new DataFieldException(record.Table.Name, record.Key, "class",
-                        $"取值 \"{classText}\" 不是合法枚举（move|attack|skill|dodge|interact|item|menu）");
+                        $"取值 \"{classText}\" 不是合法枚举（move|attack|skill|dodge|interact|item|menu|jump）");
             }
         }
 

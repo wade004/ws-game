@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common;
 using Core.Foundation.Feel;
 using Core.Foundation.InputMap;
 using Core.Rules.Common;
@@ -52,11 +53,24 @@ namespace Core.Rules.Skill
 
         public int CloseTick { get; }
 
+        /// <summary>窗口生效条件（<c>requires</c>，ADR-0143）。</summary>
+        public TimelineWindowRequires Requires { get; }
+
+        /// <summary>允许取消进入的目标技能白名单；null 即不限（<c>into</c>，ADR-0143）。</summary>
+        public IReadOnlyList<Id>? Into { get; }
+
         public TimelineWindow(ActionClass actionClass, int openTick, int closeTick)
+            : this(actionClass, openTick, closeTick, TimelineWindowRequires.Any, null)
+        {
+        }
+
+        public TimelineWindow(ActionClass actionClass, int openTick, int closeTick, TimelineWindowRequires requires, IReadOnlyList<Id>? into)
         {
             Class = actionClass;
             OpenTick = openTick;
             CloseTick = closeTick;
+            Requires = requires;
+            Into = into;
         }
 
         public bool Contains(int elapsedTicks) => elapsedTicks >= OpenTick && elapsedTicks < CloseTick;
@@ -222,7 +236,7 @@ namespace Core.Rules.Skill
                     close = Math.Min(total, open + (int)Math.Round((total - open) * scaling.CancelWindowScale, MidpointRounding.AwayFromZero));
                 }
 
-                cancelWindows.Add(new TimelineWindow(w.Class, open, close));
+                cancelWindows.Add(new TimelineWindow(w.Class, open, close, w.Requires, w.Into));
                 if (close > open)
                 {
                     var name = TimelineDef.ActionClassName(w.Class);
@@ -238,7 +252,7 @@ namespace Core.Rules.Skill
                 var close = scaling.ComboWindowScale <= 0
                     ? open
                     : Math.Min(total, open + FeelCalibration.MillisecondsToTicks(Math.Max(0, def.Combo.CloseMs - def.Combo.OpenMs) * scaling.ComboWindowScale, stepSeconds));
-                comboWindow = new TimelineWindow(ActionClass.Attack, open, close);
+                comboWindow = new TimelineWindow(ActionClass.Attack, open, close, def.Combo.Requires, null);
                 if (close > open)
                 {
                     events.Add((new TimelineEvent(open, TimelineEventKind.ComboOpen, ActionPhase.Startup, "combo_open", EmptyArgs, ActionClass.Attack), order++));
@@ -278,8 +292,63 @@ namespace Core.Rules.Skill
             return false;
         }
 
+        /// <summary>
+        /// 带条件的取消窗口判断（ADR-0143）：该类别有一个窗口在 <paramref name="elapsedTicks"/> 打开，且它的 <c>requires</c> 在"本动作实例是否已有命中确认"
+        /// （<paramref name="anyHit"/>）下满足，且 <c>into</c> 白名单（非空时）包含 <paramref name="target"/>（<paramref name="target"/> 为 null 表示目标技能未知，
+        /// 不核对白名单）。同一类别有多个窗口时任一满足即可。
+        /// </summary>
+        public bool IsCancelOpen(ActionClass actionClass, int elapsedTicks, bool anyHit, Id? target)
+        {
+            for (var i = 0; i < CancelWindows.Count; i++)
+            {
+                var w = CancelWindows[i];
+                if (w.Class != actionClass || !w.Contains(elapsedTicks) || !RequiresMet(w.Requires, anyHit)) continue;
+                if (w.Into != null && target.HasValue && !ContainsId(w.Into, target.Value)) continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 该类别有取消窗口、且它们全部声明了 <c>into</c> 白名单、白名单里都没有 <paramref name="target"/>（ADR-0143）：目标技能在本动作里永远不能经该类别取消进入。
+        /// 类别没有任何窗口（时间线从不接这个类别）或有任一窗口不限目标返回 false（"此刻没开"不等于"永远"，沿用既有拉取口径）。
+        /// </summary>
+        public bool IntoNeverAllows(ActionClass actionClass, Id target)
+        {
+            var any = false;
+            for (var i = 0; i < CancelWindows.Count; i++)
+            {
+                var w = CancelWindows[i];
+                if (w.Class != actionClass) continue;
+                if (w.Into == null || ContainsId(w.Into, target)) return false;
+                any = true;
+            }
+
+            return any;
+        }
+
         /// <summary>连招接续窗口在 <paramref name="elapsedTicks"/> 是否打开。</summary>
         public bool IsComboOpen(int elapsedTicks) => ComboWindow.HasValue && ComboWindow.Value.Contains(elapsedTicks);
+
+        /// <summary>带条件的连招窗口判断（ADR-0143）：窗口打开且 <c>requires</c> 在 <paramref name="anyHit"/> 下满足。</summary>
+        public bool IsComboOpen(int elapsedTicks, bool anyHit) =>
+            ComboWindow.HasValue && ComboWindow.Value.Contains(elapsedTicks) && RequiresMet(ComboWindow.Value.Requires, anyHit);
+
+        private static bool RequiresMet(TimelineWindowRequires requires, bool anyHit) =>
+            requires == TimelineWindowRequires.Any
+            || (requires == TimelineWindowRequires.Hit && anyHit)
+            || (requires == TimelineWindowRequires.Whiff && !anyHit);
+
+        private static bool ContainsId(IReadOnlyList<Id> list, Id id)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Equals(id)) return true;
+            }
+
+            return false;
+        }
 
         /// <summary>某标记名首次出现的 tick（不存在为 null）。</summary>
         public int? FirstTickOf(string markerName)

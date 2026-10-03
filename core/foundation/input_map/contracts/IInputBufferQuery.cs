@@ -78,5 +78,11 @@ namespace Core.Foundation.InputMap
         /// </summary>
         bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, Func<BufferedIntent, bool>? skip, out BufferedIntent consumed) =>
             TryConsume(actorId, accepts, out consumed);
+
+        /// <summary>
+        /// 该行动者的该输入动作此刻是否仍被按住（按下边沿已入缓冲处理、抬起边沿尚未处理；ADR-0143）。按住维持型动作（格挡、按住冲刺、持续引导）的
+        /// 动作层据此决定"继续维持还是退出"；与记录是否还在槽内无关（记录被消费、过期、替换后，按键仍可能按着）。默认实现恒为 false（没有缓冲）。
+        /// </summary>
+        bool IsHeld(Id actorId, Id actionId) => false;
     }
 }

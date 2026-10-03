@@ -4,6 +4,7 @@
   "rows": [
     { "key": "input.grace.builtin_aim_in_range", "expr": "event.aim_in_range", "description": "框架内置：施法瞄点（本次施法请求携带的目标或落点，没有时取缺省目标）在这次施法的射程内；配合宽限窗口即\"目标/落点在窗口内曾在射程内\"。射程取施法请求给的技能射程，输入动作路径下取引用本条件的动作绑定技能的射程（多个动作取最小正射程）。游戏在动作的 grace_conditions 里直接引用，不引用则无任何效果。" },
     { "key": "input.grace.builtin_aim_line_of_sight", "expr": "event.aim_line_of_sight", "description": "框架内置：行动者到施法瞄点之间视线畅通（世界没有视线查询时视为畅通）；配合宽限窗口即\"视线在窗口内曾通\"。游戏直接引用，不引用则无任何效果。" },
-    { "key": "input.grace.builtin_aim_reachable", "expr": "event.aim_in_range and event.aim_line_of_sight", "description": "框架内置：施法瞄点同时在射程内且视线畅通；配合宽限窗口放宽步骤 7（射程与视线）两项。游戏直接引用，不引用则无任何效果。" }
+    { "key": "input.grace.builtin_aim_reachable", "expr": "event.aim_in_range and event.aim_line_of_sight", "description": "框架内置：施法瞄点同时在射程内且视线畅通；配合宽限窗口放宽步骤 7（射程与视线）两项。游戏直接引用，不引用则无任何效果。"},
+    { "key": "input.grace.builtin_grounded", "expr": "event.grounded", "description": "框架内置（ADR-0143）：行动者此刻在地面（没有竖直运动的世界恒为真）；配合宽限窗口即\"刚离开地面仍在窗口内\"，供跳跃类输入动作做土狼时间（走出平台边缘后的宽限起跳）。它不依赖施法瞄点。游戏在跳跃动作的 grace_conditions 里直接引用，不引用则无任何效果。" }
   ]
 }

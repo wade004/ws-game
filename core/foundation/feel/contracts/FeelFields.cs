@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Core.Foundation.DataRegistry;
 
@@ -15,8 +16,14 @@ namespace Core.Foundation.Feel
         public const string BufferSlots = "buffer_slots";
         public const string GraceMs = "grace_ms";
         public const string HoldThresholdMs = "hold_threshold_ms";
+
+        // ADR-0143：轴处理三字段已从手感档案登记表移除（归设备/玩家设置，改在 found.input_action 声明，InputMapHost 消费）。
+        // 常量按 ABI 只新增的约束保留并标过时，不再登记、不再有任何消费方。
+        [Obsolete("ADR-0143：轴死区归 found.input_action.dead_zone 与玩家设置，不再是手感档案字段")]
         public const string DeadZone = "dead_zone";
+        [Obsolete("ADR-0143：轴响应曲线归 found.input_action.response_curve 与玩家设置，不再是手感档案字段")]
         public const string ResponseCurve = "response_curve";
+        [Obsolete("ADR-0143：轴平滑归 found.input_action.smoothing_ms 与玩家设置，不再是手感档案字段")]
         public const string SmoothingMs = "smoothing_ms";
 
         // 移动（判定型）
@@ -132,9 +139,9 @@ namespace Core.Foundation.Feel
     /// 判断记录：
     /// </para>
     /// <para>
-    /// 1) 镜头组字段全部加 <c>camera_</c> 前缀——07 第 2 节 <c>camera_profile</c> 的 <c>dead_zone</c>（呈现型，镜头）与
-    /// 01 第 4 节输入组的 <c>dead_zone</c>（判定型，手柄轴死区）同名，而同一张登记表里字段名必须全局唯一（一个字段只属于
-    /// 一边），因此镜头一侧改名；输入组沿用 01 的名字。
+    /// 1) 镜头组字段全部加 <c>camera_</c> 前缀——07 第 2 节 <c>camera_profile</c> 的 <c>dead_zone</c>（呈现型，镜头）曾与
+    /// 输入组的 <c>dead_zone</c>（判定型，手柄轴死区）同名，而同一张登记表里字段名必须全局唯一（一个字段只属于一边），因此镜头一侧改名。
+    /// 输入组的轴处理三字段后来按 ADR-0143 移出登记表（归设备/玩家设置），前缀沿用不改（改名是无谓的破坏性变更）。
     /// </para>
     /// <para>
     /// 2) 合成来源：05 第 3.4 节点名的字段按点名归类（加减速、转向、步幅、<c>hit_stun_ms</c>、脚步层 → 角色为主；
@@ -225,9 +232,6 @@ namespace Core.Foundation.Feel
                 IntF(FeelFieldNames.BufferSlots, In, J, FeelUnit.Count, C, 1, 8, "缓冲槽位数"),
                 Num(FeelFieldNames.GraceMs, In, J, Ms, C, 0, 500, "宽限窗口：前置条件刚失效后仍视为满足的时长"),
                 Num(FeelFieldNames.HoldThresholdMs, In, J, Ms, C, 0, 5000, "缺省按住阈值；缺省（无值）表示动作不区分点按与按住", optional: true),
-                Num(FeelFieldNames.DeadZone, In, J, Ratio, C, 0, 0.9, "轴死区（仅手柄；键盘数字输入无死区）"),
-                Text(FeelFieldNames.ResponseCurve, In, J, C, "轴响应曲线：linear、expo 或 custom:<curve_id>"),
-                Num(FeelFieldNames.SmoothingMs, In, J, Ms, C, 0, 500, "轴幅值平滑时长（只作用于幅值，方向变化即时生效）"),
 
                 // ---------- 移动（02 第 2 节，判定型）----------
                 Num(FeelFieldNames.AccelMs, Mv, J, Ms, C, 0, 3000, "从静止达到目标速度的时间；0 即瞬时达速"),

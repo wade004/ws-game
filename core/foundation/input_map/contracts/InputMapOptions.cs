@@ -20,5 +20,17 @@ namespace Core.Foundation.InputMap
         /// <see cref="System.InvalidOperationException"/>（不静默当偏航 0）。
         /// </summary>
         public Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation { get; set; }
+
+        /// <summary>
+        /// 每次 <see cref="IInputMapHost.Update"/> 对应的模拟时间（秒，缺省 1/60）：模拟轴平滑（<see cref="AxisProcessing.SmoothingMs"/>）按它计时。
+        /// 宿主应在每个模拟固定步调一次 <c>Update</c>（与输入缓冲同一节拍）；没有声明平滑的动作不读它。
+        /// </summary>
+        public double StepSeconds { get; set; } = 1.0 / 60.0;
+
+        /// <summary>
+        /// 自定义响应曲线解析（可选，<c>null</c> 缺省）：<c>response_curve = custom:&lt;id&gt;</c> 时按 <c>&lt;id&gt;</c> 取分段线性曲线
+        /// （输入为 0～1 的重标度幅值，输出为 0～1 的幅值）。声明或设置了自定义曲线但解析不到时抛 <see cref="System.InvalidOperationException"/>（不静默当线性）。
+        /// </summary>
+        public System.Func<string, Core.Foundation.Common.PiecewiseCurve?>? CurveResolver { get; set; }
     }
 }

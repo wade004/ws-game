@@ -460,6 +460,18 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 变更（破坏性，ADR-0039 授权）
+
+- **【破坏性】手感档案输入组的摇杆处理三字段 `dead_zone`、`response_curve`、`smoothing_ms` 删除，改登记在 `found.input_action`（[ADR-0143](architecture/adr/0143-输入层补全.md)）**：这三个字段此前在档案输入组登记，却没有任何读取点（消费方是输入映射，读不到档案），写了也不生效，所以迁移不会让行为变化，只需要删数据行。**迁移**：改前 `feel.preset`（及其它 `feel.*` 表）里写 `"dead_zone": 0.15` 之类 → 改后删去这些键；需要摇杆处理的游戏改在对应轴动作的 `found.input_action` 行上写 `dead_zone`/`response_curve`/`smoothing_ms`，玩家可经 `InputMapHost.SetAxisProcessing` 覆盖（设置文件键 `input_axis_settings`）。仍带这三个键的旧数据表照常加载（容错，值被忽略）；`FeelFieldNames.DeadZone`/`ResponseCurve`/`SmoothingMs` 常量保留并标 `[Obsolete]`。
+
+### 新增
+
+- **输入层补全（M5-S1，ADR-0143，手感设计/01、00 第 7 节）**：全部可选、缺省逐位不变，除下条"变更"外既有基线不动。①摇杆处理有了消费方：`InputMapHost` 按 `found.input_action` 的 `dead_zone`（径向死区重标度）、`response_curve`（`linear|expo|custom:<id>`）、`smoothing_ms`（只作用于下降沿，一次按下至少一个 tick 满幅）处理模拟绑定，玩家覆盖随设置文件持久化。②新输入类别 `jump`（缺省优先级 35）：跳跃缓冲就是输入缓冲；土狼时间走宽限机制，新增内置条件 `input.grace.builtin_grounded`，`IVerticalMotion` 新增默认成员 `IsLedgeFall`/`JumpFromLedge`（走出平台边缘的下落按地面起跳、不占空中跳跃次数）；可变跳高 `jump_cut_ratio` 与 `IVerticalMotion.CutAscent`。③蓄力补全：按住达到 `charge.max_ms` 自动释放并发 `input.charge_ready`（事件，不是时间线标记）；`charge.below_min: release|cancel`，取消时发 `input.buffer_dropped{reason: charge_below_min}`（`BufferDropReason.ChargeBelowMin`）。④点按/按住变体：`found.input_action.hold_skill_slot`。⑤取消窗口与连招窗口新增 `requires: any|hit|whiff`，取消窗口新增 `into` 目标白名单。⑥按住维持：`timeline.active_until_release{max_ms}`（`sustain_start`/`sustain_end` 标记，`IActionStateQuery.IsSustained`），格挡的判定仍归受击裁决。⑦AI 经缓冲提交：`CarriersFeelOptions.AiIntentsThroughBuffer`（缺省关闭，开启带一个 tick 延迟）与 `IAiCastRouter`/`AiHost.CastRouter`。契约一律加法：新的构造重载、默认接口成员、枚举值追加在末尾。新增事件登记 `input.charge_ready`。设计文档 `手感设计/01_输入与动作.md` 字段表与时间线块对齐实现，00 第 7 节土狼时间改为输入层原生支持。
+
+### 变更
+
+- **【缺省行为变化，单列】蓄力动作按住超过上限时在上限处自动释放（ADR-0143 决策 5）**：此前按住超过 `charge.max_ms` 要等到抬起才开始动作，现在在按下后 `ceil(max_ms / 步长)` 个 tick 就自动释放；只影响"按住时长超过蓄力上限"的输入，未超过上限的蓄力、没有蓄力声明的动作不受影响。唯一入库基线变化：`lab/fixtures/baselines/feel_charge.baseline.json`（三个动作式格，第三次按住的动作开始 tick 200 → 191，延迟 60 → 51，标记与顿帧随之平移）。
+
 ## [1.97.0] - 2026-10-04
 
 ### 工具链

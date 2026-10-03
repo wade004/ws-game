@@ -276,3 +276,14 @@ M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
 1. **契约（只加不改）**：`IBufferedIntentSink.CanHandle(actorId, record)`（默认接口成员，缺省真）、`IInputBufferQuery.TryPeek(actorId, skip, out)` 与 `TryConsume(actorId, accepts, skip, out)`（默认实现忽略 `skip`，退回无 `skip` 版本）；`InputBufferHost` 覆盖：候选排序前先把 `skip` 判真的记录剔除，`accepts` 只检查剔除后排在最前的那一条。
 2. **口径**：优先级语义不变（取最前一条、此刻不能接受就等到过期）；只有出口声明"永远接不了"（`CanHandle` 为假，例如动作没有映射到任何技能）的记录被剔出候选，它们不被消费也不被丢弃，留在缓冲里直到自己的窗口过期，供游戏自己的消费者用无 `skip` 的 `TryPeek`/`TryConsume` 取用。`InputBufferTickHandler` 对每个行动者把 `CanHandle` 当 `skip` 谓词传入。
 3. **理由**：此前一条未映射的高优先级记录会在过期前挡住优先级更低的可接受记录（例如绑了闪避键却没配闪避技能，攻击被挡住）；"此刻不能接受"（冷却、动作锁）与"永远接不了"是两回事，前者按设计等待、后者不该占着队首。测试：`tests/InputBufferUnhandledSkipTests.cs`。
+
+## 手感落地 M5-S1：输入层补全（2026-10-04，[ADR-0143](../../../architecture/adr/0143-输入层补全.md)）
+
+1. **摇杆处理有了消费方（评审 A1）**：`dead_zone`、`response_curve`、`smoothing_ms` 登记在 `found.input_action`，由 `InputMapHost` 消费（`AxisProcessing`）。径向死区把超出部分重标度到 0～1；`expo` 是幅值平方，`custom:<id>` 经 `InputMapOptions.CurveResolver` 取分段线性曲线（解析不到在声明动作集时抛出）；平滑只作用于**下降沿**（线性，每 tick 回落 `步长 / 平滑时间`），上升与方向变化即时，所以一次按下至少一个 tick 满幅；只作用于模拟绑定（`pad_stick`/`pad_axis`），键盘 `composite2d` 是数字输入不处理。未声明时输出与原始值逐位一致。玩家覆盖：`SetAxisProcessing`/`GetAxisProcessing`/`ExportAxisSettings`/`ImportAxisSettings`，整批校验、任一项非法整批拒绝并保留原覆盖；`ShellHost` 在设置文件里读写键 `input_axis_settings`（无覆盖不写出）。破坏性变更（ADR-0039 授权）：手感档案输入组的同名三字段删除，见 `core/foundation/feel/README.md` 判断记录 15。
+2. **`jump` 输入类别（评审 B2）**：`ActionClass.Jump`（追加在枚举末尾），缺省优先级 35，无按住阈值。接受不是施法：装配层的缓冲出口对 `jump` 动作直接驱动竖直轴；起不了跳的记录留在缓冲里到过期，这就是跳跃缓冲。`ActionDefinition` 新增 17 参数构造重载（旧重载保留，新增 `axisProcessing`、`holdSkillSlot`、`jumpCutRatio`），`jump_cut_ratio` 只对 `jump` 类合法。
+3. **蓄力补全（评审 A4、B5）**：新增 `IChargeRuleSource`/`ChargeRule(MinTicks, MaxTicks, CancelBelowMin)`，`InputBufferHost.ChargeRules` 为空时一切与改动前逐位一致。`HoldPending` 记录按行动者动作时钟存续满 `MaxTicks` 就自动转为 `HoldReleased`（`HeldTicks = MaxTicks`）并发 `input.charge_ready{actorId, actionId, heldTicks}`；释放时按住超过上限同样夹在上限；`CancelBelowMin` 为真时不足下限的释放以 `BufferDropReason.ChargeBelowMin`（追加在枚举末尾）丢弃。设计里"`charge_ready` 是时间线标记"与"蓄力期间没有动作实例"自相矛盾，按后者定稿：它是缓冲侧事件。
+4. **按住状态可查与释放通知**：`IInputBufferQuery.IsHeld(actorId, actionId)`（默认接口成员，缺省假）；`InputBufferHost` 在抬起时通知 `ActionReleased`（装配层据此做可变跳高与维持动作的松键判定）。`Clear` 会重置按住状态：被清缓冲的行动者此后的松键不再通知。
+5. **`BufferedIntent` 新增 `SkillOverride`/`ExtraArgs`**：合成动作（AI 经缓冲）与点按/按住变体借此携带技能与附加参数，不改既有字段；`IBufferedIntentSink.ProducesIntent`（默认真）让起跳这类不产生施法意图的出口声明自己，缓冲据此不对它做"一个 tick 至多一条动作类意图"的占位。
+6. **`BufferedActionIntentSink` 的点按/按住变体**：`HoldReleased` 记录用 `hold_skill_slot`，`Tap` 用 `skill_slot`；按住记录不被"武器的攻击技能"覆盖（`WeaponPreferredActionBinding` 对覆盖与按住槽位旁路）。分界只有 `hold_threshold_ms` 一个。
+7. **设计边界（不是遗漏）**：平滑不做上升沿加速度；`custom:<id>` 曲线的输入输出都是 0～1 幅值，方向不变；轴处理不覆盖键盘绑定。
+8. **复现与不变量**：`tests/AxisProcessingTests.cs`（恒等逐位一致、死区重标度、曲线、平滑下降沿与"不吞单 tick 按下"、玩家覆盖往返、整批拒绝）、`tests/InputBufferChargeAndHeldTests.cs`（自动释放 tick = 按下 tick + `MaxTicks`、`charge_ready` 恰好一次、夹上限、`below_min` 取消、无规则源时逐位不变、`Clear` 后状态）。

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Core.Foundation.Common;
+using Core.Foundation.Common.Json;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
 using Core.Foundation.SimLoop;
@@ -101,12 +102,16 @@ namespace Core.Foundation.InputMap
             public readonly EdgeKind Kind;
             public readonly Id ActionId;
             public readonly Vec2? Direction;
+            public readonly Id? SkillOverride;
+            public readonly JsonObject? ExtraArgs;
 
-            public PendingEdge(EdgeKind kind, Id actionId, Vec2? direction)
+            public PendingEdge(EdgeKind kind, Id actionId, Vec2? direction, Id? skillOverride = null, JsonObject? extraArgs = null)
             {
                 Kind = kind;
                 ActionId = actionId;
                 Direction = direction;
+                SkillOverride = skillOverride;
+                ExtraArgs = extraArgs;
             }
         }
 
@@ -123,16 +128,22 @@ namespace Core.Foundation.InputMap
             public long HoldStartAction;
             public int HoldThresholdTicks;
             public int BufferTicks;
+            public Id? SkillOverride;
+            public JsonObject? ExtraArgs;
 
             public BufferedIntent ToIntent() => new BufferedIntent(
                 Definition.ActionId, Definition.Class ?? ActionClass.Menu, SubmittedTick, ExpiresAt, Priority, Direction,
-                Hold, HeldTicks, Consumed, Definition.EffectiveFaceOnAccept);
+                Hold, HeldTicks, Consumed, Definition.EffectiveFaceOnAccept, SkillOverride, ExtraArgs);
         }
 
         private sealed class ActorBuffer
         {
             public readonly List<Record> Slots = new List<Record>();
             public readonly List<PendingEdge> Pending = new List<PendingEdge>();
+
+            /// <summary>此刻被按住的输入动作（按下边沿处理时加入、抬起边沿处理时移除；<see cref="IInputBufferQuery.IsHeld"/> 的数据来源）。</summary>
+            public readonly HashSet<Id> Held = new HashSet<Id>();
+
             public long LastAcceptTick = -1;
         }
 
@@ -292,6 +303,34 @@ namespace Core.Foundation.InputMap
         }
 
         /// <summary>
+        /// 提交一条带显式技能与额外参数的点按（ADR-0143）：AI 经输入缓冲提交 <c>cast</c> 意图时用——AI 决策的是"施放哪个技能、对谁"，没有输入动作 → 技能映射，
+        /// 所以记录直接携带 <paramref name="skillId"/> 与 <paramref name="extraArgs"/>（<c>targets</c>/<c>point</c> 等），接受时并入生成的意图。
+        /// 其余规则与 <see cref="Submit"/> 完全相同（同一条缓冲、同一套优先级与过期、同一个取消窗口）。不经缓冲的动作被忽略。
+        /// </summary>
+        public void SubmitSkill(Id actorId, Id actionId, Id skillId, JsonObject? extraArgs = null, Vec2? direction = null)
+        {
+            if (!_definitions.ContainsKey(actionId)) return;
+            var buffer = GetOrCreate(actorId);
+            buffer.Pending.Add(new PendingEdge(EdgeKind.Press, actionId, direction, skillId, extraArgs));
+            buffer.Pending.Add(new PendingEdge(EdgeKind.Release, actionId, null));
+        }
+
+        /// <summary>该行动者的该输入动作此刻是否仍被按住（<see cref="IInputBufferQuery.IsHeld"/>）。</summary>
+        public bool IsHeld(Id actorId, Id actionId) => _actors.TryGetValue(actorId, out var buffer) && buffer.Held.Contains(actionId);
+
+        /// <summary>
+        /// 蓄力规则来源（可空，ADR-0143）：非空时，声明了蓄力的动作在按住满上限时自动释放，抬起时按下限判门槛。缺省 null 即既有行为。
+        /// 生产装配在构造缓冲之后赋值（规则来自"输入动作 → 技能"映射与技能的 <c>timeline.charge</c>）。
+        /// </summary>
+        public IChargeRuleSource? ChargeRules { get; set; }
+
+        /// <summary>
+        /// 抬起边沿处理完时触发（<see cref="BeginTick"/> 内，每个抬起边沿一次；参数：行动者、动作）。动作层据此做"松键"类响应
+        /// （例如可变跳高裁切）。只对经缓冲的动作触发。
+        /// </summary>
+        public event Action<Id, Id>? ActionReleased;
+
+        /// <summary>
         /// 登记行动者（手感落地 M3-B）：使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已登记的行动者采样）。
         /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配在有动作声明宽限条件时对世界里的单位（出生与装配时已有的）自动调用本方法。
         /// <para>
@@ -365,10 +404,46 @@ namespace Core.Foundation.InputMap
                     buffer.Pending.Clear();
                     for (var e = 0; e < edges.Length; e++)
                     {
-                        if (edges[e].Kind == EdgeKind.Press) ApplyPress(actorId, buffer, edges[e], now);
-                        else ApplyRelease(buffer, edges[e].ActionId, now);
+                        if (edges[e].Kind == EdgeKind.Press)
+                        {
+                            buffer.Held.Add(edges[e].ActionId);
+                            ApplyPress(actorId, buffer, edges[e], now);
+                        }
+                        else
+                        {
+                            buffer.Held.Remove(edges[e].ActionId);
+                            ApplyRelease(actorId, buffer, edges[e].ActionId, now);
+                            ActionReleased?.Invoke(actorId, edges[e].ActionId);
+                        }
                     }
                 }
+
+                AutoReleaseCharges(actorId, buffer, now);
+            }
+        }
+
+        /// <summary>
+        /// 蓄力自动释放（ADR-0143，手感设计/01 第 3.3 节 <c>charge_ready</c>）：处于 <see cref="BufferHoldState.HoldPending"/> 且按住满蓄力上限
+        /// （按行动者动作时钟计，顿帧期间不流逝）的记录转为 <see cref="BufferHoldState.HoldReleased"/>（<see cref="BufferedIntent.HeldTicks"/> 恒等于上限）、
+        /// 开始计缓冲窗口，并发 <see cref="InputChargeReadyEvent"/>；按键此后仍按着也不会再次触发（记录已不是 HoldPending，抬起边沿只更新按住状态）。
+        /// 没有注入蓄力规则来源、动作不对应蓄力技能、规则上限为 0 的记录不受影响（既有行为）。
+        /// </summary>
+        private void AutoReleaseCharges(Id actorId, ActorBuffer buffer, long now)
+        {
+            var rules = ChargeRules;
+            if (rules == null) return;
+
+            for (var i = 0; i < buffer.Slots.Count; i++)
+            {
+                var r = buffer.Slots[i];
+                if (r.Hold != BufferHoldState.HoldPending) continue;
+                if (!rules.TryGetChargeRule(actorId, r.Definition.ActionId, out var rule) || rule.MaxTicks <= 0) continue;
+                if (now - r.HoldStartAction < rule.MaxTicks) continue;
+
+                r.Hold = BufferHoldState.HoldReleased;
+                r.HeldTicks = rule.MaxTicks;
+                r.ExpiresAt = now + r.BufferTicks;
+                _bus.Enqueue(new InputChargeReadyEvent(actorId, r.Definition.ActionId, rule.MaxTicks));
             }
         }
 
@@ -386,6 +461,8 @@ namespace Core.Foundation.InputMap
                 if (def.RepeatPolicy == InputRepeatPolicy.Ignore) return;
 
                 existing.Direction = edge.Direction;
+                existing.SkillOverride = edge.SkillOverride;
+                existing.ExtraArgs = edge.ExtraArgs;
                 existing.BufferTicks = bufferTicks;
                 if (holdTicks > 0)
                 {
@@ -415,6 +492,8 @@ namespace Core.Foundation.InputMap
                 HoldThresholdTicks = holdTicks,
                 BufferTicks = bufferTicks,
                 ExpiresAt = holdTicks > 0 ? NeverExpires : now + bufferTicks,
+                SkillOverride = edge.SkillOverride,
+                ExtraArgs = edge.ExtraArgs,
             };
 
             // 入槽规则 2：槽满时，新意图优先级高于槽内最低者则替换之，否则丢弃新意图。
@@ -448,7 +527,7 @@ namespace Core.Foundation.InputMap
             buffer.Slots.Add(record);
         }
 
-        private static void ApplyRelease(ActorBuffer buffer, Id actionId, long now)
+        private void ApplyRelease(Id actorId, ActorBuffer buffer, Id actionId, long now)
         {
             for (var i = 0; i < buffer.Slots.Count; i++)
             {
@@ -458,8 +537,18 @@ namespace Core.Foundation.InputMap
                 var held = (int)Math.Max(0, now - r.HoldStartAction);
                 if (held >= r.HoldThresholdTicks)
                 {
+                    var rule = default(ChargeRule);
+                    var hasRule = ChargeRules != null && ChargeRules.TryGetChargeRule(actorId, actionId, out rule);
+                    if (hasRule && rule.CancelBelowMin && held < rule.MinTicks)
+                    {
+                        // 蓄力不足且技能声明了 below_min: cancel：记录取消（ADR-0143）。
+                        buffer.Slots.RemoveAt(i);
+                        Drop(actorId, r, BufferDropReason.ChargeBelowMin, null);
+                        return;
+                    }
+
                     r.Hold = BufferHoldState.HoldReleased;
-                    r.HeldTicks = held;
+                    r.HeldTicks = hasRule && rule.MaxTicks > 0 ? Math.Min(held, rule.MaxTicks) : held;
                 }
                 else
                 {
@@ -611,6 +700,7 @@ namespace Core.Foundation.InputMap
         {
             if (!_actors.TryGetValue(actorId, out var buffer)) return;
             buffer.Pending.Clear();
+            buffer.Held.Clear();
             var records = buffer.Slots.ToArray();
             buffer.Slots.Clear();
             for (var i = 0; i < records.Length; i++) Drop(actorId, records[i], BufferDropReason.Cleared, null);
@@ -664,6 +754,7 @@ namespace Core.Foundation.InputMap
         /// </summary>
         private int HoldThresholdTicks(Id actorId, ActionDefinition def)
         {
+            if (def.Class == ActionClass.Jump) return 0; // 跳跃不区分点按与按住（可变跳高由 jump_cut_ratio 表达）
             if (def.HoldThresholdMs.HasValue) return FeelCalibration.MillisecondsToTicks(def.HoldThresholdMs.Value, _options.StepSeconds);
             if (_options.Feel != null && (def.Class == ActionClass.Attack || def.Class == ActionClass.Skill))
             {

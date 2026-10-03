@@ -100,6 +100,7 @@
     （性质由测试覆盖）。
 14. **输入动作表的字段扩展不在本模块**：手感设计/01 第 2.1 节的 `class`/`buffer_ms` 等字段属于 `found.input_action`，
     本模块只落地 `ActionClass` 枚举与缓冲记录契约；字段与缓冲实现见 `core/foundation/input_map/README.md`。
+15. **摇杆处理三字段从档案输入组删除（ADR-0143，ADR-0039 授权的破坏性变更）**：`dead_zone`、`response_curve`、`smoothing_ms` 此前在输入组登记却没有任何读取点（消费方是输入映射，输入映射读不到档案）；现登记在 `found.input_action`，归设备与玩家设置。登记集合与 `feel.preset` 里的这三个键一并删除；`FeelFieldNames.DeadZone`/`ResponseCurve`/`SmoothingMs` 常量保留并标 `[Obsolete]`（ABI 只增不删）；仍携带这些键的旧数据表照常加载（容错，不报错，值被忽略）。第 2 条里"镜头一侧改名以避免同名"的理由随之消失，`camera_` 前缀保留（已发布字段名不改）。
 
 ## 基础架构提供 / 游戏层提供
 

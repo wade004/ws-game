@@ -47,7 +47,13 @@ namespace Tests.Lab
 
         // ---------- 技能时间线 ----------
 
-        public static JsonObject Skill(string id) => Row(Path.Combine("data", "_lab_action", "skill", "skill.def.json"), id);
+        public static JsonObject Skill(string id)
+        {
+            // 输入补全（ADR-0143）的取消条件样例技能在独立数据根 lab/fixtures/data/input_ext 里，其余在手感动作数据根。
+            return id.StartsWith("skill.lab_i_", StringComparison.Ordinal)
+                ? Row(Path.Combine("lab", "fixtures", "data", "input_ext", "skill", "skill.def.json"), id)
+                : Row(Path.Combine("data", "_lab_action", "skill", "skill.def.json"), id);
+        }
 
         public static JsonObject Timeline(string skillId) => (JsonObject)Skill(skillId)["timeline"];
 

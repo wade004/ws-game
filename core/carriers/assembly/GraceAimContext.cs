@@ -33,6 +33,7 @@ namespace Core.Carriers.Assembly
         private readonly bool _isGround;
         private readonly Func<double> _range;
         private readonly Func<Vec2, Vec2, bool>? _lineOfSight;
+        private readonly Func<bool>? _grounded;
 
         private double? _rangeValue;
         private double? _distance;
@@ -45,7 +46,16 @@ namespace Core.Carriers.Assembly
         /// <param name="lineOfSight">视线查询（null 视为畅通）。</param>
         public GraceAimContext(
             Vec2? actorPosition, Vec2? aimPosition, bool isGround, Func<double> range, Func<Vec2, Vec2, bool>? lineOfSight)
+            : this(actorPosition, aimPosition, isGround, range, lineOfSight, null)
         {
+        }
+
+        /// <param name="grounded">行动者此刻是否在地面（ADR-0143，<c>event.grounded</c>；null = 没有竖直运动，恒视为在地面）。</param>
+        public GraceAimContext(
+            Vec2? actorPosition, Vec2? aimPosition, bool isGround, Func<double> range, Func<Vec2, Vec2, bool>? lineOfSight,
+            Func<bool>? grounded)
+        {
+            _grounded = grounded;
             _actorPosition = actorPosition;
             _aimPosition = aimPosition;
             _isGround = isGround;
@@ -54,6 +64,9 @@ namespace Core.Carriers.Assembly
         }
 
         public Id Key => EventKey;
+
+        /// <summary>行动者此刻在地面（没有竖直运动查询时恒为真）。</summary>
+        public bool Grounded => _grounded == null || _grounded();
 
         /// <summary>有瞄点（行动者与瞄点的位置都查得到）。</summary>
         public bool HasAim => _actorPosition.HasValue && _aimPosition.HasValue;
@@ -91,6 +104,9 @@ namespace Core.Carriers.Assembly
                 case "aimLineOfSight":
                     value = ExprValue.OfBool(AimLineOfSight);
                     return true;
+                case "grounded":
+                    value = ExprValue.OfBool(Grounded);
+                    return true;
                 case "aim_is_ground":
                 case "aimIsGround":
                     value = ExprValue.OfBool(_isGround);
@@ -116,5 +132,8 @@ namespace Core.Carriers.Assembly
 
         /// <summary>（行动者, 条件）对应的射程：引用该条件的输入动作所绑定技能的射程（取最小的正射程）；null 或返回 0 视为没有射程限制。</summary>
         public Func<Id, Id, double>? ConditionRange { get; set; }
+
+        /// <summary>行动者此刻是否在地面（ADR-0143，<c>event.grounded</c>）；null 视为恒在地面。生产装配在装了竖直轴时提供。</summary>
+        public Func<Id, bool>? Grounded { get; set; }
     }
 }

@@ -114,7 +114,7 @@ namespace Tests.Foundation.Feel
         {
             var constants = typeof(FeelFieldNames)
                 .GetFields(BindingFlags.Public | BindingFlags.Static)
-                .Where(f => f.IsLiteral)
+                .Where(f => f.IsLiteral && !f.IsDefined(typeof(System.ObsoleteAttribute), false)) // ADR-0143 删去的字段只留已过时常量，不再登记
                 .Select(f => (string)f.GetRawConstantValue()!)
                 .ToHashSet();
             var registered = FeelFields.Default.Fields.Select(f => f.Name).ToHashSet();
