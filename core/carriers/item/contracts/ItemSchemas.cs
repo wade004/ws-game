@@ -240,6 +240,12 @@ namespace Core.Carriers.Item
                         "有护甲值的槽位也会被写入护甲修正——本字段是随 T-N2-6 一并落地的设计层裁定：" +
                         "改为显式字段，EquipmentHost.IsArmorSlot 只看 has_armor == true，不再从" +
                         "is_weapon/is_equipment 推断，见该方法判断记录。"),
+                new FieldSchema("has_appearance", FieldKind.Bool, required: false,
+                    description: "该槽位的装备是否有可见外观（纸娃娃/模型），缺省 true（与登记前行为逐位一致：" +
+                        "所有装备类槽位的物品都按有外观校验）。false 表示戒指/项链这类不上身可见的槽位：" +
+                        "装备资产包校验（toolchain import_assets.py equip）对该槽位的物品不要求 display.equip_visual 行，" +
+                        "不再报 equip_visual_missing。运行期核心不读取本字段（只是数据契约上的登记，" +
+                        "消费方是工具链的资产包校验）；仅对 is_equipment 不为 false 的槽位有意义"),
             }).WithOwnership(SchemaLayer.Carriers, "item");
 
         /// <summary><c>item.quality_definition</c>：品质分档定义（07 第 1.1 节原文 + 本模块实现期

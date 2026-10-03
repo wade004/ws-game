@@ -78,6 +78,58 @@ namespace Core.Foundation.SceneRouter
                         "SceneDescriptor.FromRecord 构造期直接抛异常（非登记层校验，登记层不重复表达）"),
             }, description: "出生点/传送点共用条目结构：{id?, position?}，供 spawn_points/teleport_points 复用");
 
+        /// <summary>
+        /// <c>terrain</c> 元素结构（ADR-0130 追加决定"地面高度"与"地形形状"）：三种形状共用一个对象结构，由 <c>shape</c> 选择
+        /// （缺省 <c>rect</c>，即最初的矩形平台/斜面）。判断记录：登记层的 <see cref="VariantSchema"/> 要求判别字段必填，
+        /// 而既有的矩形条目没有 <c>shape</c>（必须继续有效），所以子字段全部登记为可选，"哪种形状必填哪些字段、凸性、网格行长"
+        /// 这类按形状而定的约束由 <see cref="WorldMapTerrainValidationRule"/> 补齐（同 <see cref="WorldMapSpawnPointsValidationRule"/> 的先例）。
+        /// </summary>
+        private static readonly FieldSchema TerrainItemSchema = new FieldSchema(
+            "<terrain_region>", FieldKind.Object, required: true, fields: new[]
+            {
+                new FieldSchema("shape", FieldKind.String, required: false,
+                    description: "形状：rect（轴对齐矩形，缺省）、polygon（凸多边形平面/斜面）、heightfield（规则网格高度场，双线性插值）"),
+                new FieldSchema("min", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "区域左下角 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "区域左下角 y"),
+                }, description: "rect：区域左下角（含，必填）；heightfield：结点 (0,0) 的位置（必填）"),
+                new FieldSchema("max", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "区域右上角 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "区域右上角 y"),
+                }, description: "rect：区域右上角（含，必填），不小于 min；其它形状不读"),
+                new FieldSchema("ground", FieldKind.Number, required: false,
+                    description: "rect：min 处的地面高度；polygon：origin 处的地面高度（世界单位，绝对脚下高度），缺省 0"),
+                new FieldSchema("slope", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "沿 x 方向每世界单位的地面高度增量"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "沿 y 方向每世界单位的地面高度增量"),
+                }, description: "rect/polygon 的斜面：地面高度 = ground + slope.x·(x−origin.x) + slope.y·(y−origin.y)（rect 的 origin 是 min）；缺省 {0,0} 即平台"),
+                new FieldSchema("ceiling", FieldKind.Number, required: false,
+                    description: "天花板绝对高度（世界单位）；缺省没有天花板。上升中的单位碰到它竖直速度清零"),
+                new FieldSchema("points", FieldKind.Array, required: false,
+                    item: new FieldSchema("<vertex>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("x", FieldKind.Number, required: true, description: "顶点 x"),
+                        new FieldSchema("y", FieldKind.Number, required: true, description: "顶点 y"),
+                    }, description: "多边形的一个顶点"),
+                    description: "polygon（必填）：凸多边形的顶点，任意绕向，至少 3 个，必须严格凸、面积不为零（凹区域拆成多个凸多边形）"),
+                new FieldSchema("origin", FieldKind.Object, required: false, fields: new[]
+                {
+                    new FieldSchema("x", FieldKind.Number, required: true, description: "斜面基准点 x"),
+                    new FieldSchema("y", FieldKind.Number, required: true, description: "斜面基准点 y"),
+                }, description: "polygon：斜面的基准点（ground 取值处），缺省取第一个顶点"),
+                new FieldSchema("cell", FieldKind.Number, required: false,
+                    description: "heightfield（必填）：结点间距（世界单位，正数）；结点位于 min + (i·cell, j·cell)")
+                    .WithRange(FieldRange.Range(min: 0, minExclusive: true)),
+                new FieldSchema("heights", FieldKind.Array, required: false,
+                    item: new FieldSchema("<row>", FieldKind.Array, required: true,
+                        item: new FieldSchema("<height>", FieldKind.Number, required: true, description: "一个结点的地面高度"),
+                        description: "一行结点高度（沿 x 方向，从 min 起）"),
+                    description: "heightfield（必填）：行数组（沿 y 方向，从 min 起），每行是等长的结点高度数组，至少 2 行 2 列；格内双线性插值"),
+            }, description: "地形高度区域：rect {min, max, ground?, slope?, ceiling?} | polygon {shape, points, ground?, slope?, origin?, ceiling?} | heightfield {shape, min, cell, heights, ceiling?}");
+
         public static readonly TableSchema Table = new TableSchema(
             name: "world.map",
             primaryKey: "id",
@@ -98,6 +150,10 @@ namespace Core.Foundation.SceneRouter
                 new FieldSchema("allowed_difficulties", FieldKind.IdList, required: false, referenceTable: "diff.tier",
                     description: "该地图允许应用的难度档位（见 08），引用 diff.tier（ADR-0022 补齐：diff.tier 现已登记进 IDataRegistry，此前类型判断记录"
                         + "\"08 难度档位未登记进 IDataRegistry\"的前提已不成立）"),
+                new FieldSchema("terrain", FieldKind.Array, required: false, item: TerrainItemSchema,
+                    description: "可选地形高度（ADR-0130 追加决定：地面高度、地形形状）：高度区域清单（rect/polygon/heightfield 三种形状，见 terrain 元素结构），后声明的盖住先声明的；"
+                        + "区域之外与未声明该字段的地图地面恒为 0、没有天花板。只在世界装配了竖直轴并声明地形能力（VerticalAxisOptions.Terrain）时被读取，"
+                        + "否则忽略（平面世界逐位不变）"),
                 new FieldSchema("image_transform", FieldKind.Object, required: false, fields: new[]
                 {
                     new FieldSchema("pixels_per_unit", FieldKind.Number, required: true,
@@ -254,5 +310,51 @@ namespace Core.Foundation.SceneRouter
             && posVal is Core.Foundation.Common.Json.JsonObject posObj
             && posObj.TryGetValue("x", out var xv) && xv is Core.Foundation.Common.Json.JsonNumber
             && posObj.TryGetValue("y", out var yv) && yv is Core.Foundation.Common.Json.JsonNumber;
+    }
+
+    /// <summary>
+    /// <c>terrain</c> 条目的按形状校验（ADR-0130 追加决定"地形形状"）：登记层把三种形状的子字段都登记为可选（见 <c>TerrainItemSchema</c>
+    /// 判断记录），这里逐条目走与运行期读取（<see cref="MapTerrainHeights.ReadItem"/>）<b>同一份</b>解析，把运行期会抛的形状错误提前到加载期报告：
+    /// 缺必填字段（rect 的 min/max、polygon 的 points、heightfield 的 min/cell/heights，检查项沿用 <c>required_field</c>）、未知形状、
+    /// rect 的 max 小于 min、多边形顶点不足/非凸/面积为零、高度场行长不齐/不足 2×2/cell 非正（检查项 <c>world_map_terrain_shape</c>）。
+    /// 类型不符（"期望 Number" 之类）由登记层的 <c>field_type</c> 负责，本规则跳过不重复报。一个条目有问题不挡住其余条目的检查。
+    /// </summary>
+    public sealed class WorldMapTerrainValidationRule : IValidationRule
+    {
+        private const string ShapeCheck = "world_map_terrain_shape";
+
+        public System.Collections.Generic.IEnumerable<ValidationIssue> Validate(IDataRegistryView view)
+        {
+            foreach (var record in view.GetAll(WorldMapSchema.Table.Name))
+            {
+                if (!record.TryGetArray("terrain", out var items))
+                {
+                    continue; // 缺失/类型不符属于登记层职责。
+                }
+
+                for (var i = 0; i < items.Count; i++)
+                {
+                    DataFieldException? failure = null;
+                    try
+                    {
+                        MapTerrainHeights.ReadItem(record, items[i], i);
+                    }
+                    catch (DataFieldException ex)
+                    {
+                        failure = ex;
+                    }
+
+                    if (failure == null || failure.Message.Contains("：期望 "))
+                    {
+                        continue;
+                    }
+
+                    var required = failure.Message.EndsWith("：必填", StringComparison.Ordinal);
+                    yield return new ValidationIssue(
+                        ValidationSeverity.Error, WorldMapSchema.Table.Name, required ? "required_field" : ShapeCheck,
+                        failure.Message, recordKey: record.Key, field: failure.Field);
+                }
+            }
+        }
     }
 }

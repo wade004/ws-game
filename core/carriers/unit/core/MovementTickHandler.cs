@@ -40,6 +40,18 @@ namespace Core.Carriers.Unit
         private readonly MovementOptions _options;
         private readonly IExprDiagnostics _diagnostics;
         private readonly ISpatialQuery? _spatial;
+        private VerticalMotionHost? _vertical;
+
+        /// <summary>
+        /// 竖直轴服务（装配期由 <c>CarriersAssembly</c> 在 <see cref="MovementOptions.Vertical"/> 非空时回填；缺省 null = 没有竖直轴）：
+        /// 提供空中横向控制倍率（<see cref="VerticalAxisOptions.AirControl"/>）与地形台阶/坡度阻挡（<see cref="VerticalAxisOptions.StepHeight"/>）。
+        /// 为 null 时本类型的全部行为与引入本属性之前逐位一致。
+        /// </summary>
+        public VerticalMotionHost? VerticalAxis
+        {
+            get => _vertical;
+            set => _vertical = value;
+        }
 
         public MovementTickHandler(
             IUnitAccess units,
@@ -57,8 +69,10 @@ namespace Core.Carriers.Unit
             _auras = auras ?? throw new ArgumentNullException(nameof(auras));
             _movementHost = movementHost ?? throw new ArgumentNullException(nameof(movementHost));
             _bus = bus ?? throw new ArgumentNullException(nameof(bus));
-            _navigation = navigation;
             _options = options ?? new MovementOptions();
+            // 竖直轴地形台阶阻挡（ADR-0130 追加决定）：声明了地形与台阶高度、却没有装配导航时，用"空旷场地"导航垫底，
+            // 让台阶阻挡与导航阻挡走同一套 Raycast 出口（空旷场地：处处可走、直线路径、没有阻挡，与没有导航时的直线兜底一致）。
+            _navigation = navigation ?? (_options.Vertical?.Terrain != null && _options.Vertical.StepHeight.HasValue ? new OpenFieldNavigation() : null);
             _diagnostics = diagnostics ?? new ExprDiagnosticsRecorder();
             // spatial 是新增可选依赖（加固任务：MovementOptions.UnitBlocking 落地）——放在参数列表
             // 末尾而不是插在 navigation 之前，是为了不破坏既有按位置传参的调用点（见本模块 tests）。
@@ -111,9 +125,16 @@ namespace Core.Carriers.Unit
         /// </summary>
         private static bool DisplacementOutranksIntent(Unit unit) => unit.MovementState.Displacement.HasValue;
 
-        public void Execute(SimStep step, IWorldSim world)
+        /// <summary>
+        /// 一遍完整的移动处理（本 tick 的全部意图与续推）。有声明了体积的单位时由 <see cref="Execute"/> 视情况重放若干遍（见 VolumePasses 文件头），
+        /// 其余情况恰好是一遍，与改动前的 <c>Execute</c> 一字不差。
+        /// </summary>
+        private void ExecutePass(SimStep step, IWorldSim world)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
+
+            _passOutcome.Reset();
+            _volSensitive = false;
 
             // 离散步下"移动与导航"按该行动者的每回合移动预算结算位移，而非按连续时间的速度积分
             // （见 03 第 4.2 节步骤 4、ADR-0013 决策 6）：复用同一套"速度 × 时间"位移公式，只是
@@ -141,6 +162,11 @@ namespace Core.Carriers.Unit
                     lastStopIndex[intents[i].ActorId] = i;
                 }
             }
+
+            // 单位体积阻挡：登记本 tick 的世界与意图，供 tick 开头预判"谁会动"读取（只读，处理顺序无关）。
+            _tickWorld = world;
+            _tickIntents = intents;
+            _tickLastStop = lastStopIndex;
 
             // 第一遍 A：处理 move_stop 意图（先于 move，同一单位同一 tick 内多条 move_stop 只需按其中
             // 一条处理一次——落地效果只取决于"处理时的当前状态"，重复处理是幂等的，这里用
@@ -399,7 +425,7 @@ namespace Core.Carriers.Unit
                 RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
             }
 
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+            EmitMoveStopped(unit.EntityId, unit.Position, reason);
         }
 
         /// <summary>寻路失败的统一处理（<see cref="BeginPathTo"/> 建路失败、<see cref="ReplanPath"/>
@@ -449,8 +475,8 @@ namespace Core.Carriers.Unit
         /// </summary>
         private bool HandlePathFailure(Unit unit, Vec2 from, Vec2 to, MoveFailReason reason)
         {
-            _movementHost.RaiseMoveFailed(unit.EntityId, from, to);
-            _movementHost.RaiseMoveFailedDetailed(unit.EntityId, from, to, reason);
+            EmitMoveFailed(unit.EntityId, from, to);
+            EmitMoveFailedDetailed(unit.EntityId, from, to, reason);
 
             if (_options.PathFailurePolicy == PathFailurePolicy.Stop)
             {
@@ -587,7 +613,7 @@ namespace Core.Carriers.Unit
             IReadOnlyList<Vec2>? path = snapping
                 ? FindPointTargetPath(unit, from, target)
                 : _navigation != null
-                    ? _navigation.FindPath(unit.MapId, from, target)
+                    ? PlanPath(unit, from, target)
                     : new List<Vec2> { from, target };
 
             if (path == null)
@@ -614,7 +640,7 @@ namespace Core.Carriers.Unit
 
             if (hadPath)
             {
-                _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
+                EmitMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
             }
 
             ContinuePathCore(unit, dt, isDiscrete);
@@ -652,13 +678,16 @@ namespace Core.Carriers.Unit
             var nav = _navigation!;
             var radius = _options.UnwalkableTargetSnapRadius;
 
-            if (!nav.TryFindNearestReachable(unit.MapId, from, requested, radius, out var reachable))
+            Vec2 reachable;
+            if (TerrainPlanning
+                ? !nav.TryFindNearestReachable(unit.MapId, from, requested, radius, _vertical, out reachable)
+                : !nav.TryFindNearestReachable(unit.MapId, from, requested, radius, out reachable))
             {
                 return null;
             }
 
             var resolved = reachable;
-            var path = nav.FindPath(unit.MapId, from, reachable);
+            var path = PlanPath(unit, from, reachable);
 
             if (path == null && _options.UnwalkableTargetCandidates > 1)
             {
@@ -674,7 +703,7 @@ namespace Core.Carriers.Unit
                         continue; // 已经试过。
                     }
 
-                    path = nav.FindPath(unit.MapId, from, candidates[i]);
+                    path = PlanPath(unit, from, candidates[i]);
                     if (path != null)
                     {
                         resolved = candidates[i];
@@ -684,7 +713,7 @@ namespace Core.Carriers.Unit
 
             if (path != null && !resolved.Equals(requested))
             {
-                _movementHost.RaiseMoveTargetAdjusted(unit.EntityId, requested, resolved);
+                EmitMoveTargetAdjusted(unit.EntityId, requested, resolved);
             }
 
             return path;
@@ -761,7 +790,7 @@ namespace Core.Carriers.Unit
 
             if (hadPrevious)
             {
-                _movementHost.RaiseMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
+                EmitMoveStopped(unit.EntityId, from, MoveStopReason.Replaced);
             }
 
             AdvanceChase(unit, world, dt, isDiscrete, priorModeOverride: oldState.Mode);
@@ -833,7 +862,8 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            var targetPos = target.Position;
+            // 有体积的追击者读目标 tick 起点的位置（顺序无关）；没有体积的追击者读目标此刻的位置（既有行为）。
+            var targetPos = ObservedTargetPosition(unit, target);
             var toTarget = targetPos - unit.Position;
             var distance = toTarget.Length;
             if (distance > ZeroLengthEpsilon)
@@ -900,7 +930,7 @@ namespace Core.Carriers.Unit
                 var standoffPoint = targetPos - toTarget * (stopRange / distance);
 
                 var newPath = _navigation != null
-                    ? _navigation.FindPath(unit.MapId, unit.Position, standoffPoint)
+                    ? PlanPath(unit, unit.Position, standoffPoint)
                     : new List<Vec2> { unit.Position, standoffPoint };
 
                 // ADR-0102（修订 ADR-0097 决策 5）：直接回退点失败时，先在目标周围的停止距离圆上
@@ -938,8 +968,8 @@ namespace Core.Carriers.Unit
                     // <see cref="BeginChase"/> 同样会先进入本方法评估）。事件的 <c>to</c> 参数用目标
                     // 单位的当前位置（不是内部计算出的停止点 <c>standoffPoint</c>）——对消费方而言，
                     // "追这个目标失败了"比"到某个内部计算出的坐标失败了"更有意义。
-                    _movementHost.RaiseMoveFailed(unit.EntityId, unit.Position, targetPos);
-                    _movementHost.RaiseMoveFailedDetailed(unit.EntityId, unit.Position, targetPos, MoveFailReason.NoPath);
+                    EmitMoveFailed(unit.EntityId, unit.Position, targetPos);
+                    EmitMoveFailedDetailed(unit.EntityId, unit.Position, targetPos, MoveFailReason.NoPath);
                     unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
                     RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
                     return;
@@ -959,9 +989,10 @@ namespace Core.Carriers.Unit
             }
 
             var integrated = false;
+            SpeedProfile? stepProfile = null;
             var budget = mt == null
-                ? ResolveSpeed(unit.EntityId) * dt
-                : MotionPathBudget(unit, mt, chase.Mode, path, pathIndex, dt, out integrated);
+                ? AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt
+                : MotionPathBudget(unit, mt, chase.Mode, path, pathIndex, dt, out integrated, out stepProfile);
             var remaining = budget;
             var pos = unit.Position;
             var startPos = pos;
@@ -972,6 +1003,9 @@ namespace Core.Carriers.Unit
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
+            var trail = volumeRadius > 0.0 ? new PathTrail(pos, path, index) : null; // 位移折线（成对撞停按折线逐段求接触）。
+            if (trail != null) trail.Profile = stepProfile;
+            var terrainPoly = trail != null ? trail.Points : (TerrainPlanning ? new List<Vec2> { pos } : null); // 台阶阻挡按实际走的折线逐段扫掠。
 
             while (remaining > 0 && index < path.Count)
             {
@@ -983,6 +1017,7 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     index++;
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                     continue;
                 }
 
@@ -995,8 +1030,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1009,6 +1046,7 @@ namespace Core.Carriers.Unit
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
                     index++;
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
                 else
                 {
@@ -1020,8 +1058,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1033,8 +1073,12 @@ namespace Core.Carriers.Unit
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
             }
+
+            // 地形台阶阻挡（同 ContinuePathCore）：追击不因台阶结束（目标可能走开、台阶可能被跳过），只把本 tick 位移截断在台阶前。
+            ClampPathMoveByTerrain(unit, terrainPoly, trail, ref pos);
 
             if (mt != null)
             {
@@ -1059,6 +1103,7 @@ namespace Core.Carriers.Unit
 
                 pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
                 _units.SetPosition(unit.EntityId, pos);
+                CommitPathTrail(unit, trail);
                 unit.Facing = mt == null ? lastFacing : MotionFacing(unit, lastFacing);
                 EnqueueMoved(unit.EntityId, pos);
             }
@@ -1093,7 +1138,7 @@ namespace Core.Carriers.Unit
 
             foreach (var candidatePoint in StandoffCandidates.Enumerate(targetPos, directionToApproacher, stopRange, candidates))
             {
-                var candidatePath = _navigation!.FindPath(unit.MapId, unit.Position, candidatePoint);
+                var candidatePath = PlanPath(unit, unit.Position, candidatePoint);
                 if (candidatePath != null)
                 {
                     path = candidatePath;
@@ -1114,7 +1159,7 @@ namespace Core.Carriers.Unit
         {
             unit.MovementState = new MovementState(null, MoveMode.Idle, unit.MovementState.MovementLocked, 0);
             RaiseStateChangedIfNeeded(unit.EntityId, priorMode, MoveMode.Idle);
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, MoveStopReason.ChaseTargetLost);
+            EmitMoveStopped(unit.EntityId, unit.Position, MoveStopReason.ChaseTargetLost);
         }
 
         /// <summary><see cref="MovementHost.Request"/>（<see cref="MoveRequest.ToUnit"/>）组装的
@@ -1191,6 +1236,22 @@ namespace Core.Carriers.Unit
                     $"MovementTickHandler: move_displace 意图参数不完整，单位 \"{unit.EntityId}\" " +
                     "本次意图被忽略");
                 return false;
+            }
+
+            if (_options.DepthLockControlledMotion)
+            {
+                // 深度锁（MovementOptions.DepthLockControlledMotion）：受控位移只沿横向。击退保持距离、沿提交方向横向分量的符号；
+                // 其它位移丢弃目标点的深度分量。处理在零距离判断之前，横向分量为 0 的击退因此落进下面的"零距离 no-op"。
+                var depthVector = target - origin;
+                if (IsKnockback(intent))
+                {
+                    var horizontal = Math.Abs(depthVector.X) > ZeroLengthEpsilon ? Math.Sign(depthVector.X) * depthVector.Length : 0.0;
+                    target = new Vec2(origin.X + horizontal, origin.Y);
+                }
+                else
+                {
+                    target = new Vec2(target.X, origin.Y);
+                }
             }
 
             if (speed <= 0 || (target - origin).Length <= ZeroLengthEpsilon)
@@ -1328,7 +1389,7 @@ namespace Core.Carriers.Unit
 
                 if (_navigation != null)
                 {
-                    var hit = _navigation.Raycast(unit.MapId, pos, candidate);
+                    var hit = NavRaycast(unit, pos, candidate);
                     if (hit.HasValue)
                     {
                         if (disp.Blocking == DisplacementBlockingPolicy.Revert)
@@ -1397,8 +1458,24 @@ namespace Core.Carriers.Unit
             var oldMode = state.Mode;
             unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0, 0, null);
             RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
-            _movementHost.RaiseMoveStopped(unit.EntityId, unit.Position, reason);
+            RaiseDisplacementStopped(unit, reason);
             MotionEndDisplacement(unit, reason);
+        }
+
+        /// <summary>
+        /// 受控位移结束的停止事件出口：有体积的单位的到达/受阻事件延后到 tick 末的成对裁决之后、带最终位置发出
+        /// （<see cref="FlushDeferredStops"/>，与 <c>unit.moved</c> 延后的口径一致）；其余情况立即发出，位置是当前位置。
+        /// </summary>
+        private void RaiseDisplacementStopped(Unit unit, MoveStopReason reason)
+        {
+            if (_motionOn && VolumeSnapshotCurrent && _volumeById.ContainsKey(unit.EntityId) &&
+                (reason == MoveStopReason.DisplacementArrived || reason == MoveStopReason.DisplacementBlocked))
+            {
+                _deferredStops.Add((unit.EntityId, reason));
+                return;
+            }
+
+            EmitMoveStopped(unit.EntityId, unit.Position, reason);
         }
 
         /// <summary>受控位移专用的位置写回帮助方法：位置未变化时不写、不发事件（同
@@ -1441,6 +1518,7 @@ namespace Core.Carriers.Unit
             }
 
             _units.SetPosition(unit.EntityId, newPos);
+            NoteTrail(unit.EntityId, from, newPos, -1);
             EnqueueMoved(unit.EntityId, newPos);
         }
 
@@ -1528,14 +1606,20 @@ namespace Core.Carriers.Unit
                 return;
             }
 
+            // 空中控制比例为 0：空中不接受方向输入（水平位置保持；运动层启用时上面的积分器已按目标速度 0 处理）。
+            if (AirMovementSuppressed(unit))
+            {
+                return;
+            }
+
             var normalized = new Vec2(direction.X / length, direction.Y / length);
-            var speed = ResolveSpeed(unit.EntityId);
+            var speed = AirScaled(unit, ResolveSpeed(unit.EntityId));
             var from = unit.Position;
             var newPos = from + normalized * (speed * dt);
 
             if (_navigation != null)
             {
-                var hit = _navigation.Raycast(unit.MapId, from, newPos);
+                var hit = NavRaycast(unit, from, newPos);
                 if (hit.HasValue)
                 {
                     var hitDistance = (hit.Value - from).Length;
@@ -1603,9 +1687,10 @@ namespace Core.Carriers.Unit
             }
 
             var integrated = false;
+            SpeedProfile? stepProfile = null;
             var budget = mt == null
-                ? ResolveSpeed(unit.EntityId) * dt
-                : MotionPathBudget(unit, mt, state.Mode, path, index, dt, out integrated);
+                ? AirScaled(unit, ResolveSpeed(unit.EntityId)) * dt
+                : MotionPathBudget(unit, mt, state.Mode, path, index, dt, out integrated, out stepProfile);
             var remaining = budget;
             var pos = unit.Position;
             var startPos = pos;
@@ -1615,6 +1700,9 @@ namespace Core.Carriers.Unit
             var volumeRadius = mt == null ? 0.0 : mt.Profile.UnitBodyRadius;
             var volumeSlide = mt != null && mt.Profile.WallSlide;
             var volumeAvoid = mt != null && mt.Profile.AvoidUnitsOnPaths;
+            var trail = volumeRadius > 0.0 ? new PathTrail(pos, path, index) : null; // 位移折线（成对撞停按折线逐段求接触）。
+            if (trail != null) trail.Profile = stepProfile;
+            var terrainPoly = trail != null ? trail.Points : (TerrainPlanning ? new List<Vec2> { pos } : null); // 台阶阻挡按实际走的折线逐段扫掠。
 
             while (remaining > 0 && index < path.Count)
             {
@@ -1626,6 +1714,7 @@ namespace Core.Carriers.Unit
                 {
                     pos = waypoint;
                     index++;
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                     continue;
                 }
 
@@ -1638,8 +1727,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1652,6 +1743,7 @@ namespace Core.Carriers.Unit
                     remaining -= dist;
                     lastFacing = SegmentFacing(path, index);
                     index++;
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
                 else
                 {
@@ -1663,8 +1755,10 @@ namespace Core.Carriers.Unit
                         {
                             var consumed = (volume.End - pos).Length;
                             pos = volume.End;
+                            NotePolyPoly(trail, terrainPoly, volume.Poly!, index);
                             if (volumeAvoid && TryAvoidUnits(unit, volumeRadius, pos, waypoint, remaining - consumed, volume, out var detour))
                             {
+                                NotePolyPoint(trail, terrainPoly, detour, index);
                                 pos = detour;
                             }
 
@@ -1676,8 +1770,13 @@ namespace Core.Carriers.Unit
                     pos = pos + dir * remaining;
                     lastFacing = SegmentFacing(path, index);
                     remaining = 0;
+                    NotePolyPoint(trail, terrainPoly, pos, index);
                 }
             }
+
+            // 地形台阶阻挡（ADR-0130 追加决定）：路径是导航算的、不知道台阶，这里把本 tick 的位移按台阶截断；被挡住后路径作废（台阶不会自己消失），
+            // 与方向移动的"贴着阻挡停住"同口径，只是路径跟随以 MoveStopReason.TerrainBlocked 结束。
+            var terrainBlocked = ClampPathMoveByTerrain(unit, terrainPoly, trail, ref pos);
 
             if (mt != null)
             {
@@ -1709,15 +1808,27 @@ namespace Core.Carriers.Unit
                 pos = ApplyGridSnapIfNeeded(pos, isDiscrete);
 
                 _units.SetPosition(unit.EntityId, pos);
+                CommitPathTrail(unit, trail);
                 unit.Facing = mt == null ? lastFacing : MotionFacing(unit, lastFacing);
                 EnqueueMoved(unit.EntityId, pos);
             }
 
             var oldMode = state.Mode;
-            if (index >= path.Count)
+            if (terrainBlocked)
             {
                 unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
                 RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle);
+                EmitMoveStopped(unit.EntityId, pos, MoveStopReason.TerrainBlocked);
+                return;
+            }
+
+            if (index >= path.Count)
+            {
+                // 有体积的单位：记下"未到达"状态模板与到达事件在发件箱里的位置——阶段 B 把这个 tick 的位移缩短（被别的单位拉回）时，
+                // 到达作废：状态退回仍沿原路径的"未到达"，撤销到达事件。
+                NoteArrival(unit, state, path);
+                unit.MovementState = new MovementState(null, MoveMode.Idle, state.MovementLocked, 0);
+                NoteArrivalEvent(unit.EntityId, RaiseStateChangedIfNeeded(unit.EntityId, oldMode, MoveMode.Idle));
             }
             else
             {
@@ -1781,7 +1892,8 @@ namespace Core.Carriers.Unit
         /// <paramref name="unit"/> 剩余路段（从当前实际位置到 <see cref="MovementState.PathIndex"/>
         /// 之后的每个路点依次相连）逐段调用 <see cref="Core.Foundation.EngineAdapter.INavigation2D.Raycast"/>
         /// ——与 <see cref="Core.Foundation.EngineAdapter.INavigation2D.FindPath"/> 共用同一套阻挡判定
-        /// （见该接口第 1.8 节勘误）。全程无阻挡：只把 <see cref="MovementState.NavVersion"/> 更新为
+        /// （见该接口第 1.8 节勘误）；声明了地形台阶阻挡时每段另外问地形约束（<see cref="VerticalMotionHost.FirstStepBlock"/>，
+        /// 与寻路、移动阻挡同一条滑窗规则），被台阶挡住的路段同样算受阻、触发重新规划。全程无阻挡：只把 <see cref="MovementState.NavVersion"/> 更新为
         /// <paramref name="currentVersion"/>（标记"已按这个版本验证过"），路径/索引不变——比
         /// <see cref="Core.Carriers.Unit.BlockingChangePolicy.Replan"/> 更省一次寻路开销。任意一段受阻：
         /// 委托 <see cref="ReplanPath"/> 对剩余目标重新整体寻路。</summary>
@@ -1795,7 +1907,8 @@ namespace Core.Carriers.Unit
             var segStart = unit.Position;
             for (var i = index; i < path.Count; i++)
             {
-                if (_navigation!.Raycast(unit.MapId, segStart, path[i]) != null)
+                if (_navigation!.Raycast(unit.MapId, segStart, path[i]) != null ||
+                    (TerrainPlanning && _vertical!.FirstStepBlock(unit.MapId, segStart, path[i]).HasValue))
                 {
                     blocked = true;
                     break;
@@ -1841,7 +1954,7 @@ namespace Core.Carriers.Unit
 
             var newPath = snapping
                 ? FindPointTargetPath(unit, from, target)
-                : _navigation!.FindPath(unit.MapId, from, target);
+                : PlanPath(unit, from, target);
             if (newPath == null)
             {
                 // 判断记录（不应重复触发失败回调；NavVersion 前移已收拢进 HandlePathFailure）：
@@ -1939,6 +2052,243 @@ namespace Core.Carriers.Unit
             return speed > 0 ? speed : _options.DefaultSpeed;
         }
 
+        /// <summary>
+        /// 空中横向控制（ADR-0130 追加决定，<see cref="VerticalAxisOptions.AirControl"/>）：单位在空中时把自愿移动的速度（或速度目标）乘以声明的倍率；
+        /// 没有竖直轴、没有声明倍率、单位在地面时原样返回（不做乘法，缺省路径逐位不变）。
+        /// </summary>
+        private double AirScaled(Unit unit, double speed)
+        {
+            if (_vertical == null)
+            {
+                return speed;
+            }
+
+            var factor = _vertical.GetAirControl(unit.EntityId);
+            return factor == 1.0 ? speed : speed * factor;
+        }
+
+        /// <summary>单位在空中且空中控制比例为 0（空中不接受移动输入）。</summary>
+        private bool AirMovementSuppressed(Unit unit) =>
+            _vertical != null && _vertical.GetAirControl(unit.EntityId) <= 0.0;
+
+        /// <summary>
+        /// 导航阻挡与地形台阶阻挡的合并出口（ADR-0130 追加决定）：先问导航 <c>Raycast</c>，再问竖直轴的台阶/坡度判定，取离起点近的那个；
+        /// 没有竖直轴或没有启用台阶阻挡时就是导航 <c>Raycast</c> 本身（逐位不变）。移动系统里所有"沿线段找第一个阻挡点"的调用都走本方法。
+        /// </summary>
+        private Vec2? NavRaycast(Unit unit, Vec2 from, Vec2 to)
+        {
+            var hit = _navigation!.Raycast(unit.MapId, from, to);
+            if (_vertical == null || !_vertical.StepBlockingActive)
+            {
+                return hit;
+            }
+
+            var terrain = _vertical.TerrainBlockPoint(unit, from, to);
+            if (!terrain.HasValue)
+            {
+                return hit;
+            }
+
+            if (hit.HasValue && (hit.Value - from).Length <= (terrain.Value - from).Length)
+            {
+                return hit;
+            }
+
+            return terrain;
+        }
+
+        /// <summary><see cref="NavRaycast"/> 的带法线版本（贴墙滑动用）；地形阻挡点的法线由 <see cref="VerticalMotionHost.TerrainBlockNormal"/> 给出。</summary>
+        private NavRayHit? NavRaycastWithNormal(Unit unit, Vec2 from, Vec2 to)
+        {
+            var hit = _navigation!.RaycastWithNormal(unit.MapId, from, to);
+            if (_vertical == null || !_vertical.StepBlockingActive)
+            {
+                return hit;
+            }
+
+            var terrain = _vertical.TerrainBlockPoint(unit, from, to);
+            if (!terrain.HasValue)
+            {
+                return hit;
+            }
+
+            if (hit.HasValue && (hit.Value.Point - from).Length <= (terrain.Value - from).Length)
+            {
+                return hit;
+            }
+
+            return new NavRayHit(terrain.Value, _vertical.TerrainBlockNormal(unit, terrain.Value, to - from));
+        }
+
+        /// <summary>声明了竖直轴地形台阶阻挡：寻路、路径校验按地形约束进行（<see cref="VerticalMotionHost"/> 即约束）。</summary>
+        private bool TerrainPlanning => _vertical != null && _vertical.StepBlockingActive;
+
+        /// <summary>
+        /// 单位的路径规划唯一入口：声明了地形台阶阻挡时带着地形约束走 <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>
+        /// （直线被台阶挡住就绕行，绕不过去返回 null，不再规划出穿台阶的路再被截断），否则就是 <c>FindPath(mapId, from, to)</c>（逐位不变）。
+        /// </summary>
+        private IReadOnlyList<Vec2>? PlanPath(Unit unit, Vec2 from, Vec2 to) =>
+            TerrainPlanning
+                ? _navigation!.FindPath(unit.MapId, from, to, _vertical)
+                : _navigation!.FindPath(unit.MapId, from, to);
+
+        /// <summary>折线上追加一个点：有体积轨迹时记进轨迹（<paramref name="poly"/> 就是轨迹的点表），否则只记进台阶扫掠用的折线。</summary>
+        private static void NotePolyPoint(PathTrail? trail, List<Vec2>? poly, Vec2 point, int indexAfter)
+        {
+            if (trail != null)
+            {
+                trail.Add(point, indexAfter);
+            }
+            else
+            {
+                poly?.Add(point);
+            }
+        }
+
+        /// <summary>折线上追加一段体积裁决给出的折线（首点是当前位置，不重复记）。</summary>
+        private static void NotePolyPoly(PathTrail? trail, List<Vec2>? poly, Vec2[] points, int indexAfter)
+        {
+            if (trail != null)
+            {
+                trail.AddPoly(points, indexAfter);
+            }
+            else if (poly != null)
+            {
+                for (var k = 1; k < points.Length; k++)
+                {
+                    poly.Add(points[k]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 路径跟随/追击一步的地形台阶裁决：把本 tick 单位<b>实际走的折线</b>（经过的每个路点、体积裁决的折线与绕行点，而不是起终点的弦）
+        /// 逐段按台阶阻挡扫掠，第一段被挡住的就把位移截断在那里（回退一个 <see cref="MovementOptions.ArrivalEpsilon"/>，与方向移动同口径），
+        /// 拐过路点的那一 tick 因此不会漏掉折线上的台阶、也不会把弦上的台阶误当成实际路线上的。有体积轨迹时同时把轨迹截到停点，
+        /// 阶段 B 的成对撞停看到的就是实际走的折线。返回是否被截断；没有启用台阶阻挡恒返回 false 且不改 <paramref name="pos"/>。
+        /// </summary>
+        private bool ClampPathMoveByTerrain(Unit unit, List<Vec2>? polyline, PathTrail? trail, ref Vec2 pos)
+        {
+            if (!TerrainPlanning || polyline == null || polyline.Count < 2)
+            {
+                return false;
+            }
+
+            for (var k = 1; k < polyline.Count; k++)
+            {
+                var a = polyline[k - 1];
+                var b = polyline[k];
+                if (a.Equals(b))
+                {
+                    continue;
+                }
+
+                var hit = _vertical!.TerrainBlockPoint(unit, a, b);
+                if (!hit.HasValue)
+                {
+                    continue;
+                }
+
+                var travel = b - a;
+                var travelLength = travel.Length;
+                var hitDistance = (hit.Value - a).Length;
+                var pullBack = Math.Min(hitDistance, _options.ArrivalEpsilon);
+                var keep = hitDistance - pullBack;
+                pos = travelLength <= 1e-12 ? a : a + travel * (keep / travelLength);
+                if (trail != null)
+                {
+                    var indexAfter = trail.Index[k - 1];
+                    trail.Points.RemoveRange(k, trail.Points.Count - k);
+                    trail.Index.RemoveRange(k - 1, trail.Index.Count - (k - 1));
+                    trail.Add(pos, indexAfter);
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>声明了竖直轴地形台阶阻挡却没有装配导航时垫底的空旷场地：处处可走、两点直线路径、没有阻挡。</summary>
+        private sealed class OpenFieldNavigation : INavigation2D
+        {
+            public void BuildNavMesh(Id mapId)
+            {
+            }
+
+            public bool IsWalkable(Id mapId, Vec2 point) => true;
+
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to) =>
+                (to - from).Length <= 1e-6 ? new List<Vec2> { from } : new List<Vec2> { from, to };
+
+            // 地形感知寻路（声明了台阶阻挡时）：空旷场地没有阻挡矩形，只有台阶；与测试桩、引擎网格共用同一个规划器。
+            public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+            {
+                if ((to - from).Length <= 1e-6) return new List<Vec2> { from };
+                if (terrain == null) return new List<Vec2> { from, to };
+                return TerrainStepPathPlanner.FindPath(null, mapId, from, to, _ => true, (a, b) => true, (a, b) => true, terrain);
+            }
+
+            public bool TryFindNearestReachable(
+                Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+            {
+                if (terrain == null)
+                {
+                    reachable = point;
+                    return true;
+                }
+
+                var layout = TerrainStepPathPlanner.ReachableLayoutFor(null, from, point, maxRadius);
+                return TerrainStepPathPlanner.TryFindNearestReachable(
+                    layout, from, point, maxRadius, _ => true, c => FindPath(mapId, from, c, terrain) != null, out reachable);
+            }
+
+            public Vec2? Raycast(Id mapId, Vec2 from, Vec2 to) => null;
+
+            public void SetBlocking(Id mapId, IReadOnlyList<Rect> rects)
+            {
+            }
+
+            public void Clear(Id mapId)
+            {
+            }
+
+            // 默认接口成员显式覆盖（处处可走、没有阻挡）：查询点本身就是最近可走点。
+            public NavRayHit? RaycastWithNormal(Id mapId, Vec2 from, Vec2 to) => null;
+
+            public int GetBlockingVersion(Id mapId) => 0;
+
+            // 增量阻挡（M4-L）同 SetBlocking：开阔场地不登记阻挡，增删都是空操作。
+            public IReadOnlyList<Rect>? GetBlocking(Id mapId) => Array.Empty<Rect>();
+
+            public void AddBlocking(Id mapId, Rect rect)
+            {
+            }
+
+            public bool RemoveBlocking(Id mapId, Rect rect) => false;
+
+            public bool TryFindNearestWalkable(Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, out Vec2 walkable)
+            {
+                walkable = point;
+                return true;
+            }
+
+            public int FindNearestWalkableCandidates(
+                Id mapId, Vec2 point, double maxRadius, Vec2 preferNear, int maxCount, List<Vec2> results)
+            {
+                results.Clear();
+                if (maxCount <= 0) return 0;
+                results.Add(point);
+                return 1;
+            }
+
+            public bool TryFindNearestReachable(Id mapId, Vec2 from, Vec2 point, double maxRadius, out Vec2 reachable)
+            {
+                reachable = point;
+                return true;
+            }
+        }
+
         private void EnqueueMoved(Id unitId, Vec2 position)
         {
             // 单位体积阻挡：本 tick 有体积的单位的位置要等 tick 末的成对裁决（UnitVolumeResolve）才定稿，
@@ -1949,17 +2299,19 @@ namespace Core.Carriers.Unit
                 return;
             }
 
-            _bus.Enqueue(new UnitMovedEvent(unitId, position));
+            EmitBus(new UnitMovedEvent(unitId, position));
         }
 
         /// <summary><c>unit.state_changed</c> 在 <see cref="MoveMode"/> 变化时发出（见任务书拍板，
         /// <c>OldState</c>/<c>NewState</c> 用 <see cref="MoveMode"/> 名称，见
         /// <c>Core.Carriers.Common.UnitStateChangedEvent</c> 顶部判断记录）。</summary>
-        private void RaiseStateChangedIfNeeded(Id unitId, MoveMode oldMode, MoveMode newMode)
+        private int RaiseStateChangedIfNeeded(Id unitId, MoveMode oldMode, MoveMode newMode)
         {
-            if (oldMode == newMode) return;
+            if (oldMode == newMode) return -1;
 
-            _bus.Enqueue(new UnitStateChangedEvent(unitId, oldMode.ToString(), newMode.ToString()));
+            var mark = OutboxMark();
+            EmitBus(new UnitStateChangedEvent(unitId, oldMode.ToString(), newMode.ToString()));
+            return mark;
         }
 
         private static bool TryReadTarget(JsonObject args, out Vec2 target)

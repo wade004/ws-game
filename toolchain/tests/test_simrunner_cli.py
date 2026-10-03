@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -378,3 +379,154 @@ def test_corrupt_baseline_file_should_exit_2_not_crash(dll, env, content):
 
     assert "Unhandled exception" not in proc.stderr
     assert proc.returncode == 2
+
+
+# ---------------------------------------------------------------- fight 子命令（单场战斗 + 逐条战斗日志）
+
+FIGHT_SUMMARY_RE = re.compile(
+    r"^fight outcome=(?P<outcome>\w+) ticks=(?P<ticks>\d+) duration_s=(?P<dur>\S+) player_damage=(?P<pd>\S+) "
+    r"creature_damage=(?P<cd>\S+) player_hit_rate=\S+ creature_hit_rate=\S+ "
+    r"log_entries=(?P<entries>\d+) log_truncated=(?P<trunc>true|false)$"
+)
+
+
+def _fight_args(*extra: str, level: int = 5, seed: int = 7) -> list[str]:
+    return [
+        "fight", "--framework-root", "data/_framework", "--data-root", "core/sim/tests/data",
+        "--class", "arch.class.sim_warrior", "--quality", "item.quality.sim_common",
+        "--creature", "creature.sim_wolf_l1", "--player-level", str(level), "--seed", str(seed), *extra,
+    ]
+
+
+def _fight_summary(stdout: str) -> re.Match:
+    first = stdout.splitlines()[0]
+    m = FIGHT_SUMMARY_RE.match(first)
+    assert m, f"首行不是 fight 摘要行：{first!r}"
+    return m
+
+
+def test_fight_writes_log_whose_damage_entries_sum_to_the_aggregate(dll, tmp_path):
+    """复现：--fight-log 落地逐条日志。不变量：日志里玩家来源的 damage 条目之和 == 摘要里玩家总伤害（聚合与明细同源）。"""
+    log = tmp_path / "log" / "fight.json"
+    proc = run_cli(dll, _fight_args("--fight-log", str(log)))
+    assert proc.returncode == 0, proc.stderr
+    summary = _fight_summary(proc.stdout)
+    doc = json.loads(log.read_text(encoding="utf-8"))
+    assert doc["schema_version"] == 1 and doc["truncated"] is False
+    entries = doc["entries"]
+    assert len(entries) == int(summary["entries"]) > 0
+    assert {"tick", "category", "source_id", "target_id", "skill_or_effect_id", "amount", "result_tag"} == set(entries[0])
+    ticks = [e["tick"] for e in entries]
+    assert ticks == sorted(ticks) and ticks[0] >= 1, "条目按 tick 升序"
+    # 玩家单位 id 取自 resource_changed 的 source（战斗开头玩家资源初始化），不写死
+    player = entries[0]["source_id"]
+    dmg_by_player = sum(e["amount"] for e in entries if e["category"] == "damage" and e["source_id"] == player)
+    dmg_by_other = sum(e["amount"] for e in entries if e["category"] == "damage" and e["source_id"] != player)
+    assert dmg_by_player == pytest.approx(float(summary["pd"]), rel=1e-3)
+    assert dmg_by_other == pytest.approx(float(summary["cd"]), rel=1e-3)
+    assert {e["category"] for e in entries} >= {"damage", "skill_cast_success", "unit_died"}
+
+
+def test_fight_is_deterministic_and_capture_does_not_change_aggregates(dll, tmp_path):
+    """不变量：同参数两次运行输出与日志文件逐字节相同；不传 --fight-log 时聚合结果与传了完全一致（采集零影响）。"""
+    log_a, log_b = tmp_path / "a.json", tmp_path / "b.json"
+    a = run_cli(dll, _fight_args("--fight-log", str(log_a), "--json"))
+    b = run_cli(dll, _fight_args("--fight-log", str(log_b), "--json"))
+    assert a.returncode == b.returncode == 0
+    assert a.stdout == b.stdout
+    assert log_a.read_bytes() == log_b.read_bytes()
+    plain = run_cli(dll, _fight_args("--json"))
+    assert plain.returncode == 0
+    with_log = json.loads(a.stdout.split("\n", 1)[1])
+    without_log = json.loads(plain.stdout.split("\n", 1)[1])
+    for key in with_log:
+        if key.startswith("log_"):
+            continue
+        assert with_log[key] == without_log[key], key
+    assert without_log["log_entries"] == 0 and with_log["log_entries"] > 0
+    assert _fight_summary(plain.stdout)["entries"] == "0"
+
+
+def test_fight_log_truncates_at_max_entries(dll, tmp_path):
+    full = tmp_path / "full.json"
+    cut = tmp_path / "cut.json"
+    assert run_cli(dll, _fight_args("--fight-log", str(full))).returncode == 0
+    limit = 5
+    proc = run_cli(dll, _fight_args("--fight-log", str(cut), "--max-log-entries", str(limit)))
+    assert proc.returncode == 0
+    all_entries = json.loads(full.read_text(encoding="utf-8"))["entries"]
+    doc = json.loads(cut.read_text(encoding="utf-8"))
+    assert len(all_entries) > limit
+    assert doc["truncated"] is True and doc["entries"] == all_entries[:limit]
+    assert _fight_summary(proc.stdout)["trunc"] == "true"
+
+
+@pytest.mark.parametrize(
+    "mutate, needle",
+    [
+        (lambda a: [x for x in a if x not in ("--class", "arch.class.sim_warrior")], "--class"),
+        (lambda a: [x for x in a if x not in ("--quality", "item.quality.sim_common")], "--quality"),
+        (lambda a: [x for x in a if x not in ("--creature", "creature.sim_wolf_l1")], "--creature"),
+        (lambda a: a + ["--max-log-entries", "3"], "--max-log-entries"),
+        (lambda a: a + ["--player-level", "0"], "--player-level"),
+        (lambda a: a + ["--bogus"], "--bogus"),
+    ],
+)
+def test_fight_bad_arguments_exit_2(dll, mutate, needle):
+    proc = run_cli(dll, mutate(_fight_args()))
+    assert proc.returncode == 2
+    assert "参数错误" in proc.stderr and needle in proc.stderr
+
+
+def test_fight_unknown_creature_exits_2_without_writing_log(dll, tmp_path):
+    log = tmp_path / "never.json"
+    args = _fight_args("--fight-log", str(log))
+    args[args.index("creature.sim_wolf_l1")] = "creature.no_such_creature"
+    proc = run_cli(dll, args)
+    assert proc.returncode == 2
+    assert not log.exists()
+
+
+# ------------------------------------------------ 探测职业时读不到 sim.scenario 表（DiscoverBootstrapPlayerClass）
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="用独占打开（共享模式 0）制造读取失败，仅 Windows")
+def test_unreadable_scenario_table_during_class_discovery_warns_and_exits_2_without_crash(dll, env):
+    """``DiscoverBootstrapPlayerClass`` 读 ``sim.scenario`` 表失败时：打 ``[警告]`` 跳过该候选，
+    最终以 2 退出（"未找到任何 sim.scenario 行"/数据装载阻断），不以未处理异常崩溃。
+
+    读失败用独占句柄制造（共享模式 0 的打开，别的进程再读就失败）。这条用例同时取代
+    ``core/sim/README.md`` 里"本次未新增测试覆盖它"的旧说明。
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    data_root = env["tmp"] / "locked_root"
+    shutil.copytree(REPO_ROOT / "core" / "sim" / "tests" / "data", data_root)
+    scenario_tables = list((data_root / "sim").glob("sim.scenario*.json"))
+    assert scenario_tables, "拷贝出来的数据根里没有 sim.scenario 表文件"
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    GENERIC_READ, OPEN_EXISTING = 0x80000000, 3
+    invalid = wintypes.HANDLE(-1).value
+    handles = []
+    try:
+        for table in scenario_tables:
+            h = kernel32.CreateFileW(str(table), GENERIC_READ, 0, None, OPEN_EXISTING, 0, None)
+            assert h != invalid, f"独占打开失败：{ctypes.get_last_error()}"
+            handles.append(h)
+        args = _common_args(env["out"])
+        args[args.index("core/sim/tests/data")] = str(data_root)
+        proc = run_cli(dll, args)
+    finally:
+        for h in handles:
+            kernel32.CloseHandle(h)
+
+    assert proc.returncode == 2, proc.stderr
+    assert "[警告]" in proc.stderr, proc.stderr
+    assert "Unhandled exception" not in proc.stderr, proc.stderr

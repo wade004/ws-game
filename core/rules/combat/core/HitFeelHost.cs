@@ -54,6 +54,14 @@ namespace Core.Rules.Combat
             public Vec2 KnockbackDirection;
             public double KnockbackDistance;
             public double LaunchApex;
+            public LaunchStackMode LaunchStack;
+            public double LaunchStackCap;
+
+            /// <summary>击飞绝对高度上限（世界高度，0 = 不设；<c>launch_height_cap</c>）。</summary>
+            public double LaunchHeightCap;
+
+            /// <summary>空中硬直持续到落地（目标侧 <c>air_stun_until_land</c> 在硬直登记时的取值）。</summary>
+            public bool UntilLand;
         }
 
         private readonly IEventBus _bus;
@@ -69,6 +77,21 @@ namespace Core.Rules.Combat
         private readonly List<IStaggerInterruptSink> _interruptSinks = new List<IStaggerInterruptSink>();
         private readonly List<SubscriptionHandle> _subscriptions = new List<SubscriptionHandle>();
 
+        /// <summary>动态韧性：目标已损失的韧性量与回复进度（只对被"声明了 poise_damage"的命中打过的目标建档）。</summary>
+        private sealed class PoiseRec
+        {
+            public double Lost;
+            public int DelayRemaining;
+            public double RecoverPerTick;
+
+            /// <summary>回复模式为 out_of_combat（目标侧 <c>poise_recover_mode</c>，命中那一刻取值）：处于战斗中时延迟计时与回复都暂停。</summary>
+            public bool OutOfCombatOnly;
+
+            /// <summary>破韧后自动回满的剩余 tick 数；&lt; 0 表示没有待执行的回满（<c>poise_break_reset_ms</c> 没声明，或还没破韧）。</summary>
+            public int BreakResetRemaining = -1;
+        }
+
+        private readonly SortedDictionary<Id, PoiseRec> _poise = new SortedDictionary<Id, PoiseRec>();
         private readonly List<BatchEntry> _batch = new List<BatchEntry>();
         private readonly SortedSet<Id> _frozen = new SortedSet<Id>();
 
@@ -87,6 +110,17 @@ namespace Core.Rules.Combat
         /// 只有攻击方档案声明了 <c>launch_height</c> 且大于 0、反应达到 <c>knockback</c>/<c>knockdown</c> 时才提交。
         /// </summary>
         public ILaunchSink? Launch { get; set; }
+
+        /// <summary>
+        /// 腾空查询（竖直运动服务）。缺省 null——一律视为在地面，<c>air_hit_reaction</c> 不生效（与 1.95.0 一致）。
+        /// </summary>
+        public IAirborneQuery? Airborne { get; set; }
+
+        /// <summary>
+        /// 战斗状态查询（手感落地 M4-W3，装配根接 <c>CombatHost.IsInCombat</c>）：目标侧 <c>poise_recover_mode = out_of_combat</c> 的韧性回复据此判断"脱战"。
+        /// 缺省 null——视为一直不在战斗中（等价于不暂停，回复口径同 <c>delay</c>），没有战斗宿主的装配不会因为声明了该模式而卡死。
+        /// </summary>
+        public Func<Id, bool>? InCombat { get; set; }
 
         /// <summary>总开关；假时全部入口静默。</summary>
         public bool Enabled { get; set; } = true;
@@ -198,11 +232,79 @@ namespace Core.Rules.Combat
             else
             {
                 var power = atk.GetNumber(FeelFieldNames.StaggerPower);
-                reaction = power <= ReadPoise(input.TargetId) ? HitReaction.Flinch : MapImpact(impact);
+                var maxPoise = ReadPoise(input.TargetId);
+                if (atk.TryGetNumber(FeelFieldNames.PoiseDamage, out var poiseDamage) && poiseDamage > 0.0 && maxPoise > 0.0)
+                {
+                    reaction = EvaluateDynamicPoise(input, tgt, impact, power, maxPoise, poiseDamage * PoiseImpactMultiplier(impact));
+                }
+                else
+                {
+                    // 静态韧性（缺省，既有行为逐位不变）：命中没声明 poise_damage、或目标没有韧性属性。
+                    reaction = power <= maxPoise ? HitReaction.Flinch : MapImpact(impact);
+                }
+
+                reaction = ApplyAirHit(reaction, input.TargetId, atk, tgt);
                 reaction = ApplyCap(reaction, tgt.GetText(FeelFieldNames.ReactionCap));
+                reaction = ApplyAirCap(reaction, input.TargetId, tgt);
             }
 
             return new HitFeelOutcome(impact, attackerTicks, targetTicks, reaction, ReactionDuration(reaction, tgt));
+        }
+
+        /// <summary>
+        /// 动态韧性（手感落地 M4-L）：目标有一个韧性池（容量 = 韧性属性，已损失量 <c>Lost</c>），命中声明的 <c>poise_damage</c> 从池里扣。
+        /// 有效韧性 <c>before = max(0, 容量 − Lost)</c>，扣后 <c>after = max(0, before − poise_damage)</c>。
+        /// 规则：<c>after &gt; 0</c> 且 <c>stagger_power ≤ before</c> 才被韧性挡成 Flinch（沿用静态规则的"硬直强度与韧性比较"，
+        /// 再加"这一击没把韧性打穿"）；否则按冲击等级映射出完整反应——其中 <c>before &gt; 0 &amp;&amp; after == 0</c> 是破韧（发
+        /// <c>combat.poise_changed</c> 带 <c>Broken</c>），<c>before == 0</c>（已破、尚未回复）的后续命中同样不被挡。
+        /// 本方法是 <see cref="Evaluate"/> 里唯一写状态的地方（每次真实命中恰好调用一次，见 <see cref="IHitFeelArbiter"/> 的约定说明）：
+        /// 记下新的损失量、重置回复延迟，并发 <c>combat.poise_changed</c>。
+        /// </summary>
+        private HitReaction EvaluateDynamicPoise(
+            in HitFeelInput input, JudgingFeelView target, string impact, double power, double maxPoise, double poiseDamage)
+        {
+            _poise.TryGetValue(input.TargetId, out var rec);
+            var lost = rec != null ? rec.Lost : 0.0;
+            var before = Math.Max(0.0, maxPoise - lost);
+            var after = Math.Max(0.0, before - poiseDamage);
+            var broken = before > 0.0 && after <= 0.0;
+            var sheltered = after > 0.0 && power <= before;
+
+            if (rec == null)
+            {
+                rec = new PoiseRec();
+                _poise[input.TargetId] = rec;
+            }
+
+            rec.Lost = maxPoise - after;
+            var delayMs = target.TryGetNumber(FeelFieldNames.PoiseRecoverDelayMs, out var d) ? d : 0.0;
+            rec.DelayRemaining = Ticks(delayMs);
+            var perSecond = target.TryGetNumber(FeelFieldNames.PoiseRecoverPerS, out var r) ? r : 0.0;
+            rec.RecoverPerTick = perSecond > 0.0 ? perSecond * _stepSeconds : 0.0;
+            var mode = target.GetAbsolute(FeelFieldNames.PoiseRecoverMode);
+            rec.OutOfCombatOnly = !mode.IsNone && mode.AsText() == "out_of_combat";
+            if (broken)
+            {
+                // 破韧才（重新）起算自动回满：已空池子上的后续命中不是新的破韧，不顺延计时。
+                rec.BreakResetRemaining = target.TryGetNumber(FeelFieldNames.PoiseBreakResetMs, out var resetMs) ? Ticks(resetMs) : -1;
+            }
+
+            _bus.Enqueue(new CombatPoiseChangedEvent(input.TargetId, input.AttackerId, before, after, maxPoise, poiseDamage, broken));
+            return sheltered ? HitReaction.Flinch : MapImpact(impact);
+        }
+
+        /// <summary>
+        /// 动态韧性的冲击等级倍率（手感落地 M4-W3，<see cref="HitFeelOptions.PoiseDamageImpactMultipliers"/>，口径同击退的冲击等级倍率表）：
+        /// 表里没有该等级（含空表，缺省）取 1，即不缩放。
+        /// </summary>
+        private double PoiseImpactMultiplier(string impactClass) =>
+            _options.PoiseDamageImpactMultipliers.TryGetValue(impactClass, out var m) ? m : 1.0;
+
+        /// <summary>目标此刻的有效韧性（动态韧性：容量减已损失量；没有动态损失记录等于容量）。供查询与测试。</summary>
+        public double CurrentPoise(Id targetId)
+        {
+            var max = ReadPoise(targetId);
+            return _poise.TryGetValue(targetId, out var rec) ? Math.Max(0.0, max - rec.Lost) : max;
         }
 
         private static bool IsAvoided(HitResult result) =>
@@ -235,6 +337,43 @@ namespace Core.Rules.Combat
 
         private HitReaction MapImpact(string impactClass) =>
             _options.ImpactReactions.TryGetValue(impactClass, out var reaction) ? reaction : _options.UnknownImpactReaction;
+
+        /// <summary>
+        /// 腾空受击：目标在空中、<c>air_hit_reaction</c> 有生效的声明（非 same）时，把已算出的反应整体替换为该值（之后仍过 <c>reaction_cap</c>
+        /// 与 <c>air_reaction_cap</c>）。<b>声明来源合成</b>（手感落地 M4-W1b）：攻击方档案声明了（非 same）就用攻击方的（"这一类攻击打中空中目标时的反应"），
+        /// 否则取受击方档案的声明（"该单位在空中被命中时的反应"）；两侧都没有声明、地面受击、没有腾空查询时原样返回。
+        /// </summary>
+        private HitReaction ApplyAirHit(HitReaction reaction, Id targetId, JudgingFeelView attacker, JudgingFeelView target)
+        {
+            if (Airborne == null) return reaction;
+            var v = attacker.GetAbsolute(FeelFieldNames.AirHitReaction);
+            if (v.IsNone || v.AsText() == "same") v = target.GetAbsolute(FeelFieldNames.AirHitReaction);
+            if (v.IsNone) return reaction;
+            if (!Airborne.IsAirborne(targetId)) return reaction;
+            switch (v.AsText())
+            {
+                case "none": return HitReaction.None;
+                case "flinch": return HitReaction.Flinch;
+                case "stagger_light": return HitReaction.StaggerLight;
+                case "stagger": return HitReaction.Stagger;
+                case "knockback": return HitReaction.Knockback;
+                case "knockdown": return HitReaction.Knockdown;
+                default: return reaction; // same
+            }
+        }
+
+        /// <summary>
+        /// 空中受击反应上限（手感落地 M4-W1b，受击方 <c>air_reaction_cap</c>）：只在目标此刻腾空且声明了该字段时，把反应再限制到该上限
+        /// （与 <c>reaction_cap</c> 叠加取较低者）；死亡不受影响（调用方已排除）。
+        /// </summary>
+        private HitReaction ApplyAirCap(HitReaction reaction, Id targetId, JudgingFeelView target)
+        {
+            if (Airborne == null) return reaction;
+            var v = target.GetAbsolute(FeelFieldNames.AirReactionCap);
+            if (v.IsNone) return reaction;
+            if (!Airborne.IsAirborne(targetId)) return reaction;
+            return ApplyCap(reaction, v.AsText());
+        }
 
         private static HitReaction ApplyCap(HitReaction reaction, string cap)
         {
@@ -441,7 +580,16 @@ namespace Core.Rules.Combat
                 {
                     rec.KnockbackPending = true;
                     rec.LaunchApex = apex;
+                    ReadLaunchStack(e, out rec.LaunchStack, out rec.LaunchStackCap);
+                    rec.LaunchHeightCap = ReadLaunchHeightCap(e, tgt);
                 }
+            }
+
+            // 空中硬直持续到落地（目标侧 air_stun_until_land）：硬直时长到点后目标仍在空中则保持到落地。每次登记/刷新硬直时按受击方当时的档案取值。
+            if (Airborne != null)
+            {
+                var untilLand = tgt.GetAbsolute(FeelFieldNames.AirStunUntilLand);
+                rec.UntilLand = !untilLand.IsNone && untilLand.AsBool();
             }
 
             _bus.Enqueue(new CombatReactionAppliedEvent(e.TargetId, reaction, e.SourceId, e.AttackInstanceId, duration));
@@ -465,7 +613,39 @@ namespace Core.Rules.Combat
             if (!atk.TryGetNumber(FeelFieldNames.LaunchHeight, out var baseHeight) || baseHeight <= 0.0) return 0.0;
             var resistance = ReadKnockbackResistance(e.TargetId, target);
             var multiplier = _options.KnockbackImpactMultipliers.TryGetValue(e.ImpactClass, out var m) ? m : 1.0;
-            return baseHeight * (1.0 - resistance) * multiplier;
+            var apex = baseHeight * (1.0 - resistance) * multiplier;
+            // 体型缩放（手感落地 M4-W1b，受击方 launch_body_scale）：声明了才乘；缺省不动（逐位不变）。
+            if (target.TryGetNumber(FeelFieldNames.LaunchBodyScale, out var bodyScale)) apex *= bodyScale;
+            return apex;
+        }
+
+        /// <summary>
+        /// 击飞绝对高度上限（<c>launch_height_cap</c>，标定后世界高度）：攻击方与受击方档案都可声明，两侧都声明时取较小者；都没有为 0（不设）。
+        /// </summary>
+        private double ReadLaunchHeightCap(CombatHitConfirmedEvent e, JudgingFeelView target)
+        {
+            var cap = 0.0;
+            if (_units.Exists(e.SourceId))
+            {
+                var atk = _feel.ResolveJudging(e.SourceId);
+                if (atk.TryGetNumber(FeelFieldNames.LaunchHeightCap, out var a) && a > 0.0) cap = a;
+            }
+
+            if (target.TryGetNumber(FeelFieldNames.LaunchHeightCap, out var t) && t > 0.0 && (cap <= 0.0 || t < cap)) cap = t;
+            return cap;
+        }
+
+        /// <summary>击飞叠加方式与上限（攻击方档案 <c>launch_stack</c>/<c>launch_stack_cap</c>）；未声明为 restart、无上限。</summary>
+        private void ReadLaunchStack(CombatHitConfirmedEvent e, out LaunchStackMode mode, out double cap)
+        {
+            mode = LaunchStackMode.Restart;
+            cap = 0.0;
+            if (!_units.Exists(e.SourceId)) return;
+            var atk = _feel.ResolveJudging(e.SourceId);
+            var m = atk.GetAbsolute(FeelFieldNames.LaunchStack);
+            if (m.IsNone || m.AsText() != "add") return;
+            mode = LaunchStackMode.Add;
+            if (atk.TryGetNumber(FeelFieldNames.LaunchStackCap, out var c) && c > 0.0) cap = c;
         }
 
         private double ReadKnockbackResistance(Id targetId, JudgingFeelView target)
@@ -503,6 +683,7 @@ namespace Core.Rules.Combat
         private void OnTickStarted()
         {
             _killPending.Clear();
+            AdvancePoiseRecovery();
             if (_staggers.Count == 0) return;
             List<Id>? finished = null;
             foreach (var pair in _staggers)
@@ -526,6 +707,8 @@ namespace Core.Rules.Combat
 
                 if (rec.Remaining <= 0)
                 {
+                    // 空中硬直持续到落地：时长到点仍在空中则保持（不再推进已过时长，免得把空中的硬直误判成倒地）；落地后的这个 tick 才结束。
+                    if (rec.UntilLand && Airborne != null && Airborne.IsAirborne(unit)) continue;
                     (finished ??= new List<Id>()).Add(unit);
                     continue;
                 }
@@ -537,6 +720,50 @@ namespace Core.Rules.Combat
             if (finished != null)
             {
                 for (var i = 0; i < finished.Count; i++) _staggers.Remove(finished[i]);
+            }
+        }
+
+        /// <summary>
+        /// 动态韧性回复：每 tick（先于全部阶段处理器）推进。
+        /// <list type="number">
+        /// <item>破韧后自动回满（<c>poise_break_reset_ms</c>）：破韧起算的计时到点，把已损失量一次清零并发 <c>combat.poise_recovered</c>，
+        /// 不看回复速率、回复模式，也不受期间再受击影响。</item>
+        /// <item>速率回复：先耗尽 <c>poise_recover_delay_ms</c>（每次动态命中重新计），再每 tick 回复 <c>poise_recover_per_s × 步长</c>；损失归零那一 tick 发
+        /// <c>combat.poise_recovered</c> 并删档。回复模式 <c>out_of_combat</c> 时，目标处于战斗中的 tick 延迟计时与回复都暂停（脱战后才开始计延迟）。
+        /// 没声明 <c>poise_recover_per_s</c> 的目标不做速率回复（档案一直留着，直到回满或单位释放）。</item>
+        /// </list>
+        /// </summary>
+        private void AdvancePoiseRecovery()
+        {
+            if (_poise.Count == 0) return;
+            List<Id>? recovered = null;
+            foreach (var pair in _poise)
+            {
+                var rec = pair.Value;
+                if (rec.BreakResetRemaining >= 0 && --rec.BreakResetRemaining <= 0)
+                {
+                    rec.Lost = 0.0;
+                    (recovered ??= new List<Id>()).Add(pair.Key);
+                    continue;
+                }
+
+                if (rec.Lost <= 0.0 || rec.RecoverPerTick <= 0.0) continue;
+                if (rec.OutOfCombatOnly && InCombat != null && InCombat(pair.Key)) continue;
+                if (rec.DelayRemaining > 0)
+                {
+                    rec.DelayRemaining--;
+                    continue;
+                }
+
+                rec.Lost -= rec.RecoverPerTick;
+                if (rec.Lost <= 1e-9) (recovered ??= new List<Id>()).Add(pair.Key);
+            }
+
+            if (recovered == null) return;
+            for (var i = 0; i < recovered.Count; i++)
+            {
+                _poise.Remove(recovered[i]);
+                _bus.Enqueue(new CombatPoiseRecoveredEvent(recovered[i], ReadPoise(recovered[i])));
             }
         }
 
@@ -641,7 +868,13 @@ namespace Core.Rules.Combat
         {
             rec.KnockbackPending = false;
             var apex = rec.LaunchApex;
+            var stack = rec.LaunchStack;
+            var stackCap = rec.LaunchStackCap;
+            var heightCap = rec.LaunchHeightCap;
             rec.LaunchApex = 0.0;
+            rec.LaunchStack = LaunchStackMode.Restart;
+            rec.LaunchStackCap = 0.0;
+            rec.LaunchHeightCap = 0.0;
             if (!_units.Exists(unit) || !_units.IsAlive(unit)) return;
             if (Knockback != null && rec.KnockbackDistance > 0.0)
             {
@@ -650,7 +883,14 @@ namespace Core.Rules.Combat
 
             if (Launch != null && apex > 0.0)
             {
-                Launch.BeginLaunch(unit, apex);
+                if (heightCap > 0.0)
+                {
+                    Launch.BeginLaunch(unit, apex, stack, stackCap, heightCap);
+                }
+                else
+                {
+                    Launch.BeginLaunch(unit, apex, stack, stackCap);
+                }
             }
         }
 
@@ -664,6 +904,7 @@ namespace Core.Rules.Combat
         {
             _clock.ReleaseAll(unitId);
             _staggers.Remove(unitId);
+            _poise.Remove(unitId);
             if (_frozen.Remove(unitId)) _bus.Enqueue(new FeelHitstopEndedEvent(new[] { unitId }));
         }
 
@@ -672,6 +913,7 @@ namespace Core.Rules.Combat
         {
             _clock.ReleaseAll();
             _staggers.Clear();
+            _poise.Clear();
             _batch.Clear();
             if (_frozen.Count == 0) return;
             var ended = new List<Id>(_frozen);

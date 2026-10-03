@@ -1,0 +1,30 @@
+{
+  "table": "display.weapon_style",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.weapon_style.lab_sprite",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_unarmed",
+      "cast_anim_override": {
+        "skill.lab_a_combo1": "sprite_anim.std_dummy_cast_quick",
+        "skill.lab_a_combo2": "sprite_anim.std_dummy_cast_quick",
+        "skill.lab_a_poise_chip": "sprite_anim.std_dummy_cast_quick",
+        "skill.lab_a_lunge": "sprite_anim.std_dummy_cast_quick",
+        "skill.lab_spx_jab": "sprite_anim.std_dummy_cast_quick",
+        "skill.lab_a_elite_swing": "sprite_anim.std_dummy_cast_heavy"
+      }
+    },
+    {
+      "id": "display.weapon_style.lab_model",
+      "auto_attack_anim": "anim.std_dummy_attack_unarmed",
+      "cast_anim_override": {
+        "skill.lab_a_combo1": "anim.std_dummy_cast_quick",
+        "skill.lab_a_combo2": "anim.std_dummy_cast_quick",
+        "skill.lab_a_poise_chip": "anim.std_dummy_cast_quick",
+        "skill.lab_a_lunge": "anim.std_dummy_cast_quick",
+        "skill.lab_spx_jab": "anim.std_dummy_cast_quick",
+        "skill.lab_a_elite_swing": "anim.std_dummy_cast_heavy"
+      }
+    }
+  ]
+}

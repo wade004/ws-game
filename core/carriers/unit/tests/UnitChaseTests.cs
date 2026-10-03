@@ -165,6 +165,43 @@ namespace Tests.Carriers.Unit
         }
 
         // ------------------------------------------------------------------
+        // NF1：追击过冲的上界（取代 unit README 原"可能走到与目标重合"的限制描述）：路径终点是规划时刻的站位点，
+        // 过冲只来自"目标朝追击者移动、尚未触发重规划"，上界 = FollowRepathDistance。
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ToUnit_HugeMoveBudget_StopsAtTheStandoffPoint_AndOvershootIsBoundedByFollowRepathDistance()
+        {
+            var options = new MovementOptions();
+            const double stopRange = 2.0;
+
+            // 复现：单 tick 预算（10 × 10 = 100）远大于距离：静止目标时停在站位点上，距离恰为 StopRange（不是 0）。
+            var still = Build(chaserSpeed: 100.0, targetStart: new Vec2(8, 0), options: options);
+            RequestChase(still, stopRange);
+            Tick(still, 0.1);
+            Assert.Equal(stopRange, DistanceChaserToTarget(still), 9);
+            Assert.True(DistanceChaserToTarget(still) > 0.5, "没有过冲到与目标重合");
+
+            // 不变量：目标每 tick 朝追击者走 0.3（小于重规划阈值；目标自己到达停止区间边缘后不再前进，距离只由追击者的移动决定）——
+            // 任意 tick 的距离都不小于 StopRange − FollowRepathDistance。
+            var moving = Build(chaserSpeed: 3.0, targetStart: new Vec2(8, 0), options: options);
+            RequestChase(moving, stopRange);
+            var minDistance = double.MaxValue;
+            for (var i = 0; i < 40; i++)
+            {
+                var chaserPos = moving.Units.GetPosition(ChaserId);
+                var targetPos = moving.Units.GetPosition(TargetId);
+                var toward = chaserPos - targetPos;
+                if (toward.Length > stopRange + 0.05) moving.Units.SetPosition(TargetId, targetPos + toward * (0.3 / toward.Length));
+                Tick(moving, 0.1);
+                minDistance = Math.Min(minDistance, DistanceChaserToTarget(moving));
+            }
+
+            Assert.True(minDistance >= stopRange - options.FollowRepathDistance - 1e-9,
+                $"最近距离 {minDistance} 不应小于 StopRange − FollowRepathDistance = {stopRange - options.FollowRepathDistance}");
+        }
+
+        // ------------------------------------------------------------------
         // 不变量①：目标在 StopRange 与 StopRange+FollowResumeSlack 之间来回微动——追击单位不动（滞回）。
         // ------------------------------------------------------------------
 

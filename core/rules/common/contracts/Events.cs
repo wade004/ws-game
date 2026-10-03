@@ -110,6 +110,12 @@ namespace Core.Rules.Common
         /// <summary>一次命中的完整结论，见 <see cref="CombatHitConfirmedEvent"/>。</summary>
         public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
 
+        /// <summary>动态韧性被命中扣减，见 <see cref="CombatPoiseChangedEvent"/>。</summary>
+        public static readonly Id CombatPoiseChanged = new Id("combat.poise_changed");
+
+        /// <summary>动态韧性回满，见 <see cref="CombatPoiseRecoveredEvent"/>。</summary>
+        public static readonly Id CombatPoiseRecovered = new Id("combat.poise_recovered");
+
         /// <summary>受击裁决落地，见 <see cref="CombatReactionAppliedEvent"/>。</summary>
         public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
 
@@ -615,9 +621,10 @@ namespace Core.Rules.Common
         public Id? SkillId { get; }
 
         /// <summary>同一次结算批次共用的攻击实例 id，语义与取值规则同
-        /// <see cref="CombatDamageDealtEvent.AttackInstanceId"/> 判断记录完全一致。未经
-        /// <see cref="IExprReadableEvent"/> 暴露（同 <see cref="CombatDamageDealtEvent"/> 的既有
-        /// 惯例：可空标识类字段只经强类型属性对外，不是 Expr 条件过滤的常见诉求）。</summary>
+        /// <see cref="CombatDamageDealtEvent.AttackInstanceId"/> 判断记录完全一致。
+        /// 经 <see cref="IExprReadableEvent"/> 暴露，同 <see cref="CombatDamageDealtEvent"/> 的
+        /// <c>attackInstanceId</c>：有值时 <c>TryGetField("attackInstanceId")</c> 返回该 Id（NF1：取代原"不经 Expr
+        /// 暴露"的限制，<c>feedback.binding</c> 等条件过滤可按攻击实例关联本事件）；为 null（不经施法管线的结算）时查不到。</summary>
         public Id? AttackInstanceId { get; }
 
         /// <summary>见 <see cref="CombatDamageDealtEvent.TriggerChainDepth"/> 判断记录（RC-01）：
@@ -651,6 +658,7 @@ namespace Core.Rules.Common
                 case "school": value = ExprValue.OfId(School); return true;
                 case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
                 case "skillId" when SkillId.HasValue: value = ExprValue.OfId(SkillId.Value); return true;
+                case "attackInstanceId" when AttackInstanceId.HasValue: value = ExprValue.OfId(AttackInstanceId.Value); return true;
                 default: value = default; return false;
             }
         }

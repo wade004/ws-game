@@ -44,7 +44,7 @@ namespace Adapter.Unity.Tests.Runtime
         // 夹具
         // ---------------------------------------------------------------------------------------
 
-        private enum PngKind
+        internal enum PngKind
         {
             Rgba8,
             Rgb8,
@@ -54,7 +54,7 @@ namespace Adapter.Unity.Tests.Runtime
         /// <summary>造一张带噪声的图（含 alpha=0 但 RGB 非零的像素，检验解码器不会顺手清零 RGB），按
         /// <paramref name="kind"/> 编码成 PNG 字节，并核对 IHDR 确实是预期的颜色类型/位深——否则夹具
         /// 没有测到想测的变体，直接失败而不是静默通过。</summary>
-        private static byte[] MakePng(int width, int height, PngKind kind, int seed)
+        internal static byte[] MakePng(int width, int height, PngKind kind, int seed)
         {
             var rng = new System.Random(seed);
             byte[] png;

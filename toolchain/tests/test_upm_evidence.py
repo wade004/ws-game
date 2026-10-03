@@ -281,3 +281,42 @@ $tokens = $null; $errors = $null
 """
     parsed = run_ps_json(tmp_path, body, name="parse_upm")
     assert _as_list(parsed["errors"]) == []
+
+
+def test_timeout_kill_exit_code_still_captures_when_signature_present(tmp_path: Path) -> None:
+    """超时被强杀（``Invoke-NativeAndWait`` 给的退出码 -1）与普通非零退出同口径：日志含签名才留证，不含则什么都不做。"""
+    hit = tmp_path / "hit.log"
+    hit.write_text(LOG_KILLED_TWICE, encoding="utf-8", newline="\n")
+    miss = tmp_path / "miss.log"
+    miss.write_text(LOG_NO_SIGNATURE, encoding="utf-8", newline="\n")
+    upm = tmp_path / "upm.log"
+    upm.write_text(UPM_LOG_CONTENT, encoding="utf-8", newline="\n")
+    body = f"""
+. {ps_quote(EVIDENCE_PS)}
+$timedOutExit = -1
+$out = [ordered]@{{}}
+$out.hit = Get-UpmEvidenceDetailSuffix -EngineLogPath {ps_quote(hit)} -EngineExitCode $timedOutExit `
+    -EvidenceRoot {ps_quote(tmp_path / "ev_hit")} -Tag consumer_01_compile -UpmLogCandidates @({ps_quote(upm)})
+$out.miss = Get-UpmEvidenceDetailSuffix -EngineLogPath {ps_quote(miss)} -EngineExitCode $timedOutExit `
+    -EvidenceRoot {ps_quote(tmp_path / "ev_miss")} -Tag consumer_01_compile -UpmLogCandidates @({ps_quote(upm)})
+$out.hit_dir_files = @(Get-ChildItem {ps_quote(tmp_path / "ev_hit")} -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Name }})
+$out.miss_dir_exists = (Test-Path {ps_quote(tmp_path / "ev_miss")})
+$out | ConvertTo-Json -Depth 4 | Out-File -LiteralPath $ResultPath -Encoding utf8
+"""
+    r = run_ps_json(tmp_path, body, name="timeout_capture")
+    assert r["hit"].startswith("；包管理器子进程退出码=-1,-1（")
+    assert "upm_candidate1.log" in _as_list(r["hit_dir_files"]) and "summary.txt" in _as_list(r["hit_dir_files"])
+    assert r["miss"] == "" and r["miss_dir_exists"] is False
+
+
+def test_consumer_smoke_editor_timeout_branches_capture_evidence() -> None:
+    """静态：消费方演练里每个 Editor 批处理步骤的超时分支都接了留证（同一 Tag 在超时分支与正常分支各出现一次）。"""
+    text = CONSUMER_SMOKE.read_text(encoding="utf-8-sig")
+    for tag in ("consumer_01_compile", "consumer_02_scene_builder", "consumer_03_playmode",
+                "consumer_04_build", "consumer_05_registry_probe"):
+        assert text.count(f'-Tag "{tag}"') == 2, f"{tag}：超时分支与正常分支都应调用留证"
+    # 超时分支里的摘要同样只进 Detail（上面的参数化静态用例已守住"不进 Ok"）。
+    for m in re.finditer(r"if \(\$proc\.TimedOut\) \{\n(.*?)\n\s*\}\n", text, re.S):
+        block = m.group(1)
+        if "超过" in block and "未退出" not in block:
+            assert "$upmNote" in block, f"Editor 步骤超时分支缺 $upmNote：{block.strip()[:80]}"

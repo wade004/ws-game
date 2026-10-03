@@ -1,0 +1,53 @@
+{
+  "table": "lab.dummy_set",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.dummy_set.lab_space_ext",
+      "entries": [
+        {
+          "name": "stake",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake"
+        },
+        {
+          "name": "ground",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": 0.4
+          },
+          "group": "ground"
+        },
+        {
+          "name": "high",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2,
+            "y": -0.4
+          },
+          "group": "high",
+          "height": 2
+        },
+        {
+          "name": "far_high",
+          "kind": "stake",
+          "creature_ref": "creature.lab_stake",
+          "position": {
+            "x": 2.5,
+            "y": 0
+          },
+          "group": "far_high",
+          "height": 2.5
+        }
+      ]
+    }
+  ]
+}

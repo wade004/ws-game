@@ -377,8 +377,8 @@ G1 新增，见缺口 4）；`ISaveSystem` 改由调用方在 `GameplayAssembly`
     `SpriteRigDiagnosticsPump` 路径覆盖（判断记录 10 已述，未走构造期注入模式）——不存在第七个
     未覆盖来源。`presentation/ui` 的 `IUiDiagnostics`（`UiDataSource` 持有）是另一套独立契约（自己的
     接口/默认实现，未实现 `IPresentationDiagnostics`，仿 `Core.Rules.Skill.ISkillDiagnostics`
-    惯例），不在本条转发基础设施的接线范围内，接入需要先决定是否要合并两套诊断契约，这是设计取舍、
-    不是同类小改动，留待设计层另行拍板，不在本次任务范围内顺手接上。
+    惯例），不在本条转发基础设施的接线范围内（`IUiDiagnostics` 由后述 `DiagnosticsHubComposition` 接上，
+    不合并两套诊断契约）。
 
 ## 验收测试（`tests/PresentationAssemblyTests.cs`）
 
@@ -651,7 +651,6 @@ ShakePresets` 里的条目 id），字段名与样例数据不改（schema 破�
 `PresentationAssembly` 在手感开启时（`opts.FeelResolver` 或 `gameplay.Feel.Resolver` 非空）装配 `PoseSelector`（属性 `Pose`）与 `EquipmentPoseBridge`；手感关闭时 `Pose` 为 null，不装配、行为与以前一致。
 
 - **视图工厂接收姿势上下文来源**：视图工厂先于 `PresentationAssembly` 构造，无法用构造参数传入姿势选择器，新增可选接口 `Presentation.Render.IPoseContextReceiver`（`SetPoseContextSource`）。工厂实现了它就在装配时收到来源；没实现则忽略，不改 `IViewFactory`。Unity 适配层的 `UnityViewFactory` 实现它，并在构建 `AnimClipResolver` 时把来源传入既有的姿势上下文重载；解析器已经构建后再设置会抛 `InvalidOperationException`（不静默忽略）。
-- **（已由 M2-B 解除，见下一节）** 原已知限制：生产装配不给 `PoseSelector.Observe` 喂步态，步态恒为空闲，移动解析为 `walk`（姿势集没有该键时回落基础键 `move`）；`PoseSelector` 不在单位销毁时清理其武器族记录。
 
 ## 手感落地 M2-B：步态喂入与单位销毁清理（2026-10-02）
 

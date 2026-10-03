@@ -109,6 +109,25 @@ namespace Tests.PresentationRender
         }
 
         [Fact]
+        public void Update_AccumulatedFrameStepsLandingExactlyOnAFrameBoundary_FireTheKeyframeOnThatStep()
+        {
+            // 复现：20 帧每秒的剪辑、60 帧每秒的宿主。1/60 秒累加 6 次是 0.09999999999999999（不是 0.1），直接截断时第 6 步仍停在第 1 帧，
+            // 落在第 2 帧的关键帧晚一个宿主帧才触发。规则：第 n 步的已播放时间 n/60 秒，帧下标 = floor(n/60 × 20 + 容差)；关键帧在帧下标到达它的那一步触发。
+            var player = CreatePlayer(frameCount: 12, frameRate: 20.0, keyframes: new Dictionary<string, int> { ["release"] = 2, ["late"] = 4 });
+            var fired = new List<(string Name, int Step)>();
+            var step = 0;
+            player.OnAnimEvent(name => fired.Add((name, step)));
+            player.Play(ClipId, false, 1.0);
+            const double dt = 1.0 / 60.0;
+            for (step = 1; step <= 12; step++)
+            {
+                player.Update(dt);
+            }
+
+            Assert.Equal(new[] { ("release", 6), ("late", 12) }, fired);
+        }
+
+        [Fact]
         public void Stop_ClearsCurrentClip_DoesNotFireOnComplete()
         {
             var player = CreatePlayer();

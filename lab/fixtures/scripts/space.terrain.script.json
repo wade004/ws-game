@@ -1,0 +1,160 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.terrain",
+    "scriptVersion": 1,
+    "description": "空间扩展·地形（ADR-0130 追加决定）：地形数据在 world.map.terrain（x 3..6 低平台高 0.4、天花板 1.2；x 6..9 斜坡高 0.4 起每单位升 0.25；x 9..12 悬崖平台高 3），台阶高度 0.5。玩家从 x=2.8 起持续向右走（第 10 tick 起跳）：走上低平台（台阶 0.4 不超过 0.5）、在天花板下起跳（竖直速度被清零）、落在斜坡上（落地高度是斜坡该点的地面高度，不是 0）、贴着斜坡爬升，最后被悬崖（台阶 1.85 超过 0.5）顶住。平面格子没有竖直轴，地形整体被忽略。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 200,
+    "playerStart": {
+      "x": 2.8,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_terrain"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 10,
+      "action": "input.action.lab_jump",
+      "kind": "press"
+    },
+    {
+      "tick": 11,
+      "action": "input.action.lab_jump",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "ceiling_zeroes_rising_speed",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ceiling_clamp_ticks",
+      "agg": "len",
+      "op": "ge",
+      "value": 1,
+      "note": "天花板下起跳：上升速度被清零至少一次。"
+    },
+    {
+      "id": "never_passes_the_ceiling",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.airborne_height_max",
+      "op": "approx",
+      "value": 1.2,
+      "tolerance": 1e-06,
+      "note": "腾空时脚下高度被天花板（1.2）封住。"
+    },
+    {
+      "id": "lands_on_ground_height_not_zero",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.landing_heights",
+      "at": 0,
+      "op": "gt",
+      "value": 0,
+      "note": "落地高度是该点的地面高度，不是 0。"
+    },
+    {
+      "id": "follows_the_slope_to_its_top",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.ground_height_max",
+      "op": "approx",
+      "value": 1.15,
+      "tolerance": 0.02,
+      "note": "贴着斜坡爬升到 x=9 处的高度 0.4 + 0.25×3（block 点取样精度内）。"
+    },
+    {
+      "id": "cliff_blocks_at_its_foot",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.final_x",
+      "op": "approx",
+      "value": 9,
+      "tolerance": 0.02,
+      "note": "悬崖（台阶 1.85 > 0.5）把玩家顶在 x=9。"
+    },
+    {
+      "id": "blocked_while_pushing",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.move_blocked_ticks",
+      "op": "ge",
+      "value": 1
+    },
+    {
+      "id": "plane_ignores_terrain",
+      "cells": [
+        "2d_targeted",
+        "2d_action",
+        "2_5d_targeted",
+        "2_5d_action",
+        "3d_targeted",
+        "3d_action"
+      ],
+      "metric": "space.jumps_started",
+      "op": "eq",
+      "value": 0,
+      "note": "平面格子没有竖直轴：地形被忽略，跳跃请求被拒绝。"
+    }
+  ]
+}

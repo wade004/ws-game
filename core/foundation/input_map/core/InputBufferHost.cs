@@ -67,9 +67,11 @@ namespace Core.Foundation.InputMap
         private readonly Dictionary<Id, ActionDefinition> _definitions = new Dictionary<Id, ActionDefinition>();
         private readonly Dictionary<Id, ActorBuffer> _actors = new Dictionary<Id, ActorBuffer>();
         private readonly List<Id> _actorOrder = new List<Id>();
+        private readonly HashSet<Id> _known = new HashSet<Id>();
 
         private readonly List<Id> _graceConditionNames = new List<Id>();
 
+        private long _actorBuffersAllocated;
         private long _tick = -1;
         private Id? _localActor;
         private Func<Vec2?>? _directionProbe;
@@ -161,14 +163,52 @@ namespace Core.Foundation.InputMap
                 }
             }
 
+            var hadGraceConditions = _graceConditionNames.Count > 0;
             RebuildGraceConditionNames();
+            if (!hadGraceConditions && _graceConditionNames.Count > 0) GraceConditionsDeclared?.Invoke();
         }
+
+        /// <summary>
+        /// 宽限条件名并集从"空"变为"非空"时触发（<see cref="DeclareActions"/> 之后）：此前没有任何动作声明宽限条件，上层按需登记行动者的代码（生产装配的单位自动登记）
+        /// 因此一直没有登记，此刻才需要为已有的行动者补登记（手感落地 M4-G：缓冲惰性分配，没有宽限条件时不为任何单位建缓冲）。
+        /// </summary>
+        public event Action? GraceConditionsDeclared;
+
+        /// <summary>
+        /// 已建立的行动者缓冲累计个数（含之后被 <see cref="RemoveActor"/> 清掉的）：度量缓冲分配用。缓冲只在行动者第一次真有边沿
+        /// （<see cref="Press"/>/<see cref="Release"/>/<see cref="Submit"/>）时才建——<see cref="RegisterActor"/>（含显式调用与生产装配的单位自动登记）只记 id、不建缓冲，
+        /// 所以登记再多的单位，没人按键时该数字保持不变（手感落地 M4-G、M4-W3）。
+        /// </summary>
+        public long ActorBuffersAllocated => _actorBuffersAllocated;
 
         /// <summary>
         /// 已声明的缓冲动作的宽限条件名并集（序数序、去重）：宽限追踪（<see cref="GraceTracker"/>）据此对每个有缓冲的行动者采样
         /// （手感落地 M2-B，手感设计/01 第 2.4 节）。没有动作声明宽限条件时为空。
         /// </summary>
         public IReadOnlyList<Id> GraceConditionNames => _graceConditionNames;
+
+        /// <summary>
+        /// 声明了宽限条件 <paramref name="conditionId"/> 的缓冲动作 id（序数序）：框架内置宽限条件据此找到"这个条件服务于哪些动作"，
+        /// 进而取动作绑定技能的射程（手感落地 M4-G）。没有动作引用该条件时为空。
+        /// </summary>
+        public IReadOnlyList<Id> ActionsWithGraceCondition(Id conditionId)
+        {
+            var result = new List<Id>();
+            foreach (var def in _definitions.Values)
+            {
+                for (var i = 0; i < def.GraceConditions.Count; i++)
+                {
+                    if (def.GraceConditions[i].Equals(conditionId))
+                    {
+                        result.Add(def.ActionId);
+                        break;
+                    }
+                }
+            }
+
+            result.Sort((a, b) => string.CompareOrdinal(a.Value, b.Value));
+            return result;
+        }
 
         /// <summary><see cref="BindLocalInput"/> 绑定的本地行动者；未绑定（或已销毁）为 null。宽限追踪据此在玩家第一次按键之前就开始采样。</summary>
         public Id? LocalActorId => _localActor;
@@ -252,27 +292,38 @@ namespace Core.Foundation.InputMap
         }
 
         /// <summary>
-        /// 登记行动者（手感落地 M3-B）：建立其（空）缓冲，使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已建缓冲的行动者采样）。
-        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配对世界里的单位（出生与装配时已有的）自动调用本方法。
+        /// 登记行动者（手感落地 M3-B）：使宽限追踪从登记起就按声明的条件逐 tick 采样（<see cref="InputBufferTickHandler"/> 对全部已登记的行动者采样）。
+        /// 不登记也能用——首次按下/提交时才建缓冲，但"条件刚失效"的第一次按键没有历史可查；生产装配在有动作声明宽限条件时对世界里的单位（出生与装配时已有的）自动调用本方法。
+        /// <para>
+        /// 判断记录（惰性分配，手感落地 M4-G、M4-W3）：登记只记下行动者 id（宽限采样不需要缓冲槽），缓冲对象（槽位与待入槽边沿）等到第一次真的有边沿到达
+        /// （<see cref="Press"/>/<see cref="Release"/>/<see cref="Submit"/>）才建，所以显式调用 N 次的代价是 N 个 id 记录、<see cref="ActorBuffersAllocated"/> 不动。
+        /// "显式登记即可采样"的语义不变：<see cref="IsActorRegistered"/> 为真、<see cref="ActorIds"/> 含该行动者（登记顺序与此前建缓冲的顺序一致）。
+        /// </para>
         /// 幂等；之后 <see cref="RemoveActor"/> 与销毁清理照旧。
         /// </summary>
-        public void RegisterActor(Id actorId) => GetOrCreate(actorId);
+        public void RegisterActor(Id actorId) => Know(actorId);
 
-        /// <summary>行动者是否已登记（或已因按键建立过缓冲）。</summary>
-        public bool IsActorRegistered(Id actorId) => _actors.ContainsKey(actorId);
+        /// <summary>行动者是否已登记（显式 <see cref="RegisterActor"/>，或已因按键建立过缓冲）。</summary>
+        public bool IsActorRegistered(Id actorId) => _known.Contains(actorId);
+
+        private void Know(Id actorId)
+        {
+            if (_known.Add(actorId)) _actorOrder.Add(actorId);
+        }
 
         private ActorBuffer GetOrCreate(Id actorId)
         {
+            Know(actorId);
             if (!_actors.TryGetValue(actorId, out var buffer))
             {
                 buffer = new ActorBuffer();
+                _actorBuffersAllocated++;
                 _actors.Add(actorId, buffer);
-                _actorOrder.Add(actorId);
             }
             return buffer;
         }
 
-        /// <summary>已建立过缓冲的行动者（按首次出现顺序的新快照）。</summary>
+        /// <summary>已登记的行动者（显式登记或已建立过缓冲；按首次出现顺序的新快照）。</summary>
         public IReadOnlyList<Id> ActorIds => _actorOrder.ToArray();
 
         // -----------------------------------------------------------------
@@ -289,7 +340,7 @@ namespace Core.Foundation.InputMap
             for (var a = 0; a < _actorOrder.Count; a++)
             {
                 var actorId = _actorOrder[a];
-                var buffer = _actors[actorId];
+                if (!_actors.TryGetValue(actorId, out var buffer)) continue;
                 var now = ActionNow(actorId);
 
                 buffer.Slots.RemoveAll(r => r.Consumed);
@@ -436,9 +487,11 @@ namespace Core.Foundation.InputMap
             return result;
         }
 
-        public bool TryPeek(Id actorId, out BufferedIntent intent)
+        public bool TryPeek(Id actorId, out BufferedIntent intent) => TryPeek(actorId, null, out intent);
+
+        public bool TryPeek(Id actorId, Func<BufferedIntent, bool>? skip, out BufferedIntent intent)
         {
-            var record = FindCandidate(actorId, out _);
+            var record = FindCandidate(actorId, skip, out _);
             if (record == null)
             {
                 intent = default;
@@ -448,9 +501,12 @@ namespace Core.Foundation.InputMap
             return true;
         }
 
-        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, out BufferedIntent consumed)
+        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, out BufferedIntent consumed) =>
+            TryConsume(actorId, accepts, null, out consumed);
+
+        public bool TryConsume(Id actorId, Func<BufferedIntent, bool>? accepts, Func<BufferedIntent, bool>? skip, out BufferedIntent consumed)
         {
-            var record = FindCandidate(actorId, out var buffer);
+            var record = FindCandidate(actorId, skip, out var buffer);
             if (record == null || buffer == null || (accepts != null && !accepts(record.ToIntent())))
             {
                 consumed = default;
@@ -463,7 +519,7 @@ namespace Core.Foundation.InputMap
             return true;
         }
 
-        private Record? FindCandidate(Id actorId, out ActorBuffer? buffer)
+        private Record? FindCandidate(Id actorId, Func<BufferedIntent, bool>? skip, out ActorBuffer? buffer)
         {
             buffer = null;
             if (!_actors.TryGetValue(actorId, out var found)) return null;
@@ -478,6 +534,7 @@ namespace Core.Foundation.InputMap
             {
                 var r = found.Slots[i];
                 if (r.Consumed || r.Hold == BufferHoldState.HoldPending || now > r.ExpiresAt) continue;
+                if (skip != null && skip(r.ToIntent())) continue; // 永远接不了的记录不参与排序（见 IBufferedIntentSink.CanHandle）
                 if (best == null || r.Priority > best.Priority || (r.Priority == best.Priority && r.SubmittedTick < best.SubmittedTick))
                 {
                     best = r;
@@ -569,7 +626,8 @@ namespace Core.Foundation.InputMap
         public void RemoveActor(Id actorId)
         {
             Clear(actorId);
-            if (_actors.Remove(actorId)) _actorOrder.Remove(actorId);
+            _actors.Remove(actorId);
+            if (_known.Remove(actorId)) _actorOrder.Remove(actorId);
             if (_localActor.HasValue && _localActor.Value.Equals(actorId)) _localActor = null;
         }
 

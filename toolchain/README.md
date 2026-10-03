@@ -291,6 +291,20 @@ workflows/ci.yml` 不需要改动）、随 `build.ps1 -Dist`/`-Release` 打包�
 对应位置）补齐 `Core.Sim.dll`/`Adapters.Stub.dll` 两个此前缺失的 DLL（判断记录 10 缺口消除）。
 详见 `build.ps1` 对应各节判断记录、`core/sim/README.md`"T-N6-7 判断记录"。
 
+**`fight` 子命令（单场战斗与逐条战斗日志，NF 清扫新增，补上消费方反馈第 49 条当时"命令行没有指定对手打一场的入口"的缺口）**：
+
+```
+dotnet <SimRunner.dll> fight --framework-root <dir> --data-root <dir> [--data-root <dir2> ...] \
+  --class <arch.class.id> --quality <item.quality.id> --creature <creature.id> \
+  [--player-level <n>=1] [--creature-level <n>=玩家等级] [--seed <n>=1] [--max-ticks <n>] \
+  [--fight-log <file>] [--max-log-entries <n>] [--json]
+```
+
+- 标准输出首行摘要 `fight outcome=… ticks=… duration_s=… player_damage=… creature_damage=… player_hit_rate=… creature_hit_rate=… log_entries=… log_truncated=…`；`--json` 时再打一份聚合结果 JSON（不含逐条日志，无穷大的 `ttd_estimate` 写 `null`）。
+- `--fight-log <file>`：开启 `FightRunnerOptions.CaptureEvents`，把 `FightResult.CapturedEvents` 写成 `{schema_version:1, truncated, entries:[{tick,category,source_id,target_id,skill_or_effect_id,amount,result_tag}]}`（UTF-8 无 BOM；`category` 取 `FightLogEventCategory` 枚举名的 snake_case）；超过 `--max-log-entries` 截断并置 `truncated`。不传 `--fight-log` 时不采集（零开销，聚合结果与采集时逐字段一致）。
+- 退出码：`0` 跑完（不论胜负——"玩家输了"不是命令失败）；`2` 参数错误或数据装载阻断（缺必填参数、未知生物/职业、`--max-log-entries` 缺 `--fight-log` 等），不写日志文件；`4` Ctrl+C 取消。与 `run` 子命令的 0/1/3 基线语义互不相干。
+- 判断记录：①独立子命令而不是给 `run` 加参数——一场自选对手的战斗没有基线可比，塞进 `run` 会搅乱它的参数组合与退出码语义；②`--quality` 必填（标准玩家装备品质没有天然缺省），其余四个参数有自然缺省；③同参数（含种子）两次运行的标准输出与日志文件逐字节相同。测试：`toolchain/tests/test_simrunner_cli.py`（`test_fight_*`：日志里玩家/生物来源的 damage 条目之和等于摘要里的聚合伤害、两次运行逐字节一致且开不开采集聚合不变、截断、参数错误与未知生物退出 2）。
+
 ## `toolchain/feellab`（手感实验室无头宿主命令行，手感落地 M2-D 起随发布产物分发）
 
 `toolchain/feellab/FeelLab.csproj`（`net8.0` 控制台项目，已加入 `Core.sln`）：命令（`run`/`suite`/`export-test`/`list`/
@@ -623,14 +637,14 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 
 程序绘制的几何人偶姿势集（sprite 型）：序列帧 + `display.anim_set.std_dummy_biped` 数据行 + 规格文件，
 自带只读自检（`--check`）与每键一格缩略拼图（`--sheet`，只留本地）。用法、参数、键清单、帧数规则、判断记录与
-自检 `--check`（需要图像库，缺库时按 `-Quick` 档跳过）登记在门禁步骤 `std_dummy_poses`，与 model 型步骤并列。键清单现为 103 键（含全部可选键与八个武器族），每个攻击剪辑带 `hit_frame` 事件。已知限制见 [`std_dummy_poses/README.md`](std_dummy_poses/README.md)；测试见 `tests/test_std_dummy_poses.py`。
+自检 `--check`（需要图像库，缺库时按 `-Quick` 档跳过）登记在门禁步骤 `std_dummy_poses`，与 model 型步骤并列。键清单现为 103 键（含全部可选键与八个武器族），每个攻击剪辑带 `hit_frame` 事件。范围与边界（设计决定）见 [`std_dummy_poses/README.md`](std_dummy_poses/README.md)；测试见 `tests/test_std_dummy_poses.py`。
 
 ## 框架级假人姿势集生成器 model 型（`gen_std_dummy_model_clips.py`，手感设计/04 第 6.2、10 节）
 
 同一姿势集的骨骼剪辑版：与 sprite 版共用键清单、事件与姿势函数（引用不复制），产出规格
 `assets/_placeholder/std_dummy_model_clips.json` 与 `display.anim_set.std_dummy_biped_model` 数据行；引擎侧
 预制体/控制器/剪辑资产由 `adapters/unity/Assets/Editor/GenerateStdDummyModelAssets.cs` 按规格生成。自检
-（`--check`，含引擎资产 YAML 核对与控制器确定性 fileID 核对）登记在门禁步骤 `std_dummy_model_clips`；另含轻/重体量组（`extends` 主集）。用法、判断记录与已知限制见
+（`--check`，含引擎资产 YAML 核对与控制器确定性 fileID 核对）登记在门禁步骤 `std_dummy_model_clips`；另含轻/重体量组（`extends` 主集）。用法、判断记录与范围与边界（设计决定）见
 [`std_dummy_model_clips/README.md`](std_dummy_model_clips/README.md)；测试见 `tests/test_std_dummy_model_clips.py`。
 
 ## 框架级占位装备集生成器（`gen_std_equip_set.py`，手感设计/06 第 2 节、08）
@@ -1006,10 +1020,12 @@ python toolchain/unity_test_triage.py --xml ... --log ... --max-lines 60
 4. `not_found`——以上都找不到时，如实说明，Warning/Error 摘要与异常扫描退化为整份日志范围
    （报告里会明确标注"可能混入其它用例的内容"）。
 
-已知限制：在本仓库真实产出的历史 `playmode.log`（PRES180 事发时那次，`TestFirstChanceExceptionLogger`
-尚未接入）上实测，`PRES180` 一类失败用例会一路退化到 `not_found`——这正是本工具单独存在时的
-准确性上限，也是仍要在测试程序集里补一份回调（复盘文档 C 部分）的原因：日志里没有任何可供
-第三方脚本识别的用例边界信号，唯一可靠的办法是从测试进程内部主动打点。
+**判断（定案）：没有用例边界打点的日志，诚实退化到 `not_found`，不靠猜测补边界。** 在本仓库真实产出的历史
+`playmode.log`（PRES180 事发时那次，`TestFirstChanceExceptionLogger` 尚未接入）上实测，`PRES180` 一类失败用例会一路退化到
+`not_found`：这类日志里没有任何可供第三方脚本识别的用例边界信号，硬猜只会把别的用例的内容算进来、给出看似精确实则错误的
+定位——所以本脚本在日志本身不带边界时就明说"定位不到，范围退化为整份日志"，这是对的行为，不是缺口。可靠的办法是从测试进程内部
+主动打点，这一步已在测试程序集里补上（`TestStarted`/`TestFinished` 边界 + `LogDuringTest` 行，见下一段判断记录与复盘文档 C 部分），
+此后产出的日志命中第 1 级定位；旧日志不追溯。
 
 **判断记录（`TestFirstChanceExceptionLogger` 最初设计与实测证伪，2026-09-15）**：该回调最初
 按 `AppDomain.FirstChanceException` 设计（异常刚抛出、尚未被任何代码捕获时就能拿到），但在本仓库
@@ -1476,7 +1492,12 @@ build/test 步骤）。
 - **Windows PowerShell 5.1 的两个坑（实测）**：`@($List[Object])` 抛 "Argument types do not match"（门禁的 `$script:Results` 就是这个类型），所以写入函数直接 `foreach`；`Sort-Object` 不保证稳定，按 start 排序改用 `[Array]::Sort` 配序数比较。
 - **main 与游离 HEAD 写待领目录，不写已跟踪文件**：在 main 上跑门禁（合并后全量）若追加到已入库的 `timing/<日期>_main.jsonl`，主检出就变脏，挡住 `build.ps1 -Release`（要求干净工作树）和下一次 `git merge --ff-only`。所以 `Get-GateTimingFilePath` 在分支名为 `main` 或 `detached` 时返回 `timing/_pending/<年月日>_main_<时分秒>.jsonl`（游离 HEAD 为 `_detached_`；一次运行一个文件，文件名带时分秒），该目录在 `.gitignore` 里；判定与 `version_label.py` 同口径（`Test-GateTimingUsesPending`，测试里有两边一致性用例）。feature/bugfix/release 分支保持原行为，`-NoTiming` 语义不变。
 - **领取脚本 `claim_pending_records.py` 的取舍**：在分支工作树里运行，`--from` 缺省取 `git worktree list` 里检出 main 的工作树；并入规则是"同一天的待领文件按时分秒顺序追加到 `timing/<日期>_main.jsonl`、丢弃逐字节重复行"（包括与目标文件已有行重复的行，所以"写入成功但删除失败"后重跑不会重复）；先写完目标文件再删待领文件；只删主检出 `timing/_pending/` 下未被 git 跟踪的普通文件（符号链接、已跟踪文件、文件名不合规的一律不动、打印警告）；在 main、游离 HEAD、与 `--from` 同一目录、与 `--from` 不同仓库的情形拒绝（退出码 1）；不 `git add`、不提交。领走即删除，所以重复运行第二次领 0 个文件。`REGRESSION_LOG.md` 的合并后行仍由人写（不自动化）。`timing_report.py` 默认把待领目录也算进统计（`--no-pending` 排除），领取后两处不会重复计数。
-- **已知限制**：脚本非正常终止（未被 `Invoke-CheckStep` 接住的异常、被强行结束）时不写记录；游离 HEAD 的待领文件也并入 `<日期>_main.jsonl`（行里的 `branch` 字段仍是 `detached`）；同一天同一分支多次运行追加到同一文件，靠 `task`/`start` 区分；待领文件只存在于主检出本机，换机器或删了主检出目录就丢（与此前"主检出里一份未跟踪文件"同等）；`release/X.Y.x` 等其它分支上的记录仍写已跟踪的 `timing/<日期>_<分支>.jsonl`（那些分支上没有"禁止直接提交"约束，也不挡发布）。
+- **脚本被未接住的异常中断时也写记录**（NF 清扫新增）：`check.ps1` 顶层 `trap` 调 `Write-GateTimingOnAbort`（`_gate_timing.ps1`）——已完成的步骤行照写，`_total` 行 `result=FAIL`、`note` 以 `aborted:` 开头带异常消息，墙钟取到中断时刻；`$script:GateTimingWritten` 标记保证同一次运行只写一次（正常收尾先置位，之后再触发就什么都不追加）。测试：`test_gate_timing_log.py` 的 `test_abort_*` 把 `check.ps1` 里真实的 `trap` 块原样抽出来，在一个"跑完两步后抛未接住异常"的脚本里执行，读回 jsonl 断言步骤行、`_total` 的 `FAIL`/`aborted:`/墙钟，并断言只写一次。
+- **进程被强行结束时不写记录，是物理限制，不处理**：任务管理器结束进程、`Stop-Process`、断电时脚本内任何代码都来不及运行；不另起外部看门进程去补写（那只会再造一份要维护的机制，而这种运行本来就没有可信的结论）。
+- **游离 HEAD 的待领文件也并入 `<日期>_main.jsonl`**（行里的 `branch` 字段仍是 `detached`，据此可区分）：游离 HEAD 同样不能写已跟踪文件（理由同 main），没有另设一份"detached 专用文件"的必要——统计脚本按 `branch` 字段过滤即可。
+- **同一天同一分支多次运行追加到同一文件，靠 `task`/`start` 区分**：文件名不带时分秒是为了让"一个分支一天一个文件"便于人看、便于入库；每行自带起止时间，不会混淆。
+- **待领文件只存在于主检出本机**：它是门禁自动产生的耗时原始数据，下一条分支合并前领走入库；换机器或删了主检出目录丢的只是尚未领走的耗时行，不影响任何门禁结论，与此前"主检出里一份未跟踪文件"同等。为这点数据引入跨机同步，成本远大于价值。
+- **`release/X.Y.x` 等其它分支上的记录仍写已跟踪的 `timing/<日期>_<分支>.jsonl`**：那些分支上没有"禁止直接提交"约束，也不挡发布，维持原行为最简单。
 
 ## 版本标签与分支名规范（`version_label.py`，ADR-0127）
 
@@ -1497,7 +1518,9 @@ build/test 步骤）。
 - **没有新增运行期公开接口**：仓库里没有对外暴露框架版本号的公开成员（现有"版本"成员都是存档/数据表版本），ABI 只新增原则下不为此加接口，只写程序集信息版本。
 - **`IncludeSourceRevisionInInformationalVersion` 关闭**：避免 SDK 在标签后再追加提交哈希，使读出的产品版本就是标签本身。
 - **分支名规范只判 `feature/`、`bugfix/`**：主干上的合并后全量门禁、发布维护分支与游离 HEAD 不应被它挡住；不合规名字的标签仍照推导，失败信息单独给出（非 ASCII 名字会同时给出转义形式，避免控制台代码页不一致时看不清）。
-- **已知限制**：①`build.ps1 -Release -DryRun` 不写发布说明文件（发布说明只在非 DryRun 的提交步骤里生成），首行格式由 `_release_notes.ps1` 的用例直接覆盖；②标签经环境变量传给构建，非 ASCII 分支名在非 UTF-8 代码页下可能被改写——这种名字本来就会被门禁判失败；③直接在命令行手工构建（不经 `check.ps1`/`build.ps1`）时信息版本是 `VERSION` 内容而非带后缀的标签。
+- **`build.ps1 -Release -DryRun` 不写发布说明文件（定案）**：发布说明与版本号提交同在非 DryRun 的第 6 步生成，DryRun 的定义就是"不碰源码、不提交、不留发布产物"；首行格式（`<版本>_release`）由 `_release_notes.ps1` 的用例直接对 `New-ReleaseNotesText` 覆盖，不需要靠 DryRun 再落一份文件来验证。
+- **标签经环境变量传给构建，非 ASCII 分支名在非 UTF-8 代码页下可能被改写——不处理（定案）**：这种分支名违反 §1b"名称只用英文"，会先被"分支名规范"步骤判失败（失败信息给出转义形式），走不到发布，改写发生在一个本来就被拦下的输入上。
+- **直接在命令行手工构建（不经 `check.ps1`/`build.ps1`）时信息版本是 `VERSION` 内容而非带后缀的标签（定案）**：标签是"由入口脚本按当前分支推导并经环境变量传入"的展示标识，手工构建没有这个入口环境，就不凭空造标签；`VERSION` 本身是语义化版本，作为信息版本是正确的兜底，不是缺陷。
 
 ## 包管理器子进程消失的失败现场抓取与演练工作目录隔离（`_upm_evidence.ps1`，2026-10-01）
 
@@ -1514,7 +1537,12 @@ build/test 步骤）。
 - **退出码格式**：日志行是 ``[Package Manager] Server process stopped with exit code `4294967295` ``（数字外有反引号，按无符号 32 位打印；`Stop-Process` 结束的 -1 即 4294967295），脚本折回有符号值；包管理器可能被拉起多次，每次一行，摘要按顺序全列。
 - **抓取不参与步骤判定**：只产生 Detail 后缀字符串，内部全部 try/catch，任何失败都只让摘要多一句"现场抓取部分失败"；`tests/test_upm_evidence.py` 里有静态用例保证 `$upmNote` 只出现在 Detail 里。
 - **建留证目录用 `[System.IO.Directory]::CreateDirectory`**：`New-Item -ItemType Directory -Force` 在父路径是同名文件时既不报错也建不出目录（实测），会让后面的写文件连环失败。
-- **已知限制**：①`upm.log` 只取 `%LOCALAPPDATA%\Unity\Editor\upm.log`（Windows 上 Unity 6 的实测位置，已核实存在）及其等价写法，其它平台/版本的位置未覆盖；②抓取发生在引擎进程退出之后，`upm.log` 若在这之前已被另一个 Unity 实例的新包管理器覆盖则抓到的是新的——`unity_processes.txt` 与 `summary.txt` 里的引擎日志片段是补充对证手段；③引擎超时被强杀（`TimedOut`）的路径不抓取；④只覆盖 Editor 批处理步骤，独立版冒烟（Player）不经包管理器；⑤`Get-UnityProcessSnapshotText` 查询 `Win32_Process`，拿不到时在文件里写失败原因，不重试；⑥PID 复用无法在测试里可控地制造，`test_pid_identity_kill.py` 用"同一 PID、身份不符"等价构造覆盖判定本身。
+- **超时被强杀（`TimedOut`）的路径同样抓取**（NF 清扫新增）：`consumer_smoke.ps1` 里首次编译/场景构建器/PlayMode/独立版构建/registry 探针五个 Editor 步骤的超时分支，也按同一签名调 `Get-UpmEvidenceDetailSuffix`（强杀的退出码是 -1，非零，走与普通非零退出同一口径：日志含 `IPC stream failed to read` 才留证，否则不留证、不改 Detail）。测试：`test_upm_evidence.py` 的 `test_timeout_kill_exit_code_still_captures_when_signature_present`（退出码 -1 + 含签名 → 留证目录有 `upm_candidate1.log`/`summary.txt` 且摘要含 `-1,-1`；不含签名 → 不建目录、摘要为空）与 `test_consumer_smoke_editor_timeout_branches_capture_evidence`（五个步骤的超时分支各接了留证）。`_gate_line_unity.ps1` 的 Editor 步骤没有超时机制，只有独立版冒烟有，见下一条。
+- **只覆盖 Windows 上 Unity 6 的 `%LOCALAPPDATA%\Unity\Editor\upm.log`（定案）**：本工具链的 Unity 批处理入口（`check.ps1`/`consumer_smoke.ps1`）本身只支持 Windows（进程快照查 `Win32_Process`、引擎路径解析都是 Windows 的），别的平台根本走不到这里；候选路径函数 `Get-UpmLogCandidatePaths` 是列表，将来真支持别的平台时在这里加一项即可，不为没有运行环境、无法验证的路径预写代码。
+- **`upm.log` 可能已被另一个 Unity 实例覆盖（定案）**：抓取发生在引擎进程退出之后，这是"事后抓"的固有性质；`unity_processes.txt` 与 `summary.txt` 里的引擎日志片段（取自本次引擎日志，不会被覆盖）就是为此留的补充对证手段，摘要里也只把 `upm.log` 当旁证。
+- **只覆盖 Editor 批处理步骤，独立版冒烟（Player）不经包管理器（定案）**：Player 运行时没有包管理器进程，签名不会出现，不需要抓。
+- **进程快照拿不到时在文件里写失败原因、不重试（定案）**：`Get-UnityProcessSnapshotText` 查询 `Win32_Process`，查不到只影响"是不是别的会话误杀"这条旁证；重试会拖慢失败路径，且失败原因（权限、WMI 不可用）重试通常不会变。
+- **PID 复用无法在测试里可控地制造**：`test_pid_identity_kill.py` 用"同一 PID、身份不符"等价构造覆盖判定本身。
 
 ## 测试里起 git 子进程的环境隔离（`toolchain/tests/_git_env.py`，2026-10-01 事故）
 
@@ -1563,12 +1591,12 @@ build/test 步骤）。
   28 处调用都直接传给 `env=`）。`_ps_harness.run_ps_script` 也剥。
 - **`init_temp_repo` 的落点校验是兜底，不是主防线**：万一有人绕开环境清理，`git init` 本身已经改过目标仓库的 `core.bare`，校验只拦住随后的 `config` 写入；真正的防线是
   环境清理（防线①②）。
-- **已知限制**：①守卫在别的会话于 pytest 运行期间正当修改同一仓库共享配置（`git branch --set-upstream-to`、`git remote add`、`git worktree` 相关写入等）时会误报，以打印的差异为准人工判断；
-  ②守卫只在真实仓库在 `git rev-parse --git-common-dir` 可解析时启用（发布 zip 解出的非 git 目录里静默跳过）；
-  ③`GIT_CONFIG_GLOBAL` 需要 git 2.32 及以上，更老的 git 会忽略它，全局配置仍会被读到（本机 git 2.55；不依赖全局配置的用例不受影响）；
-  ④防线只覆盖 `toolchain/tests` 下的 pytest 会话：`check.ps1` 其它步骤、`build.ps1`、dotnet/Unity 测试里起的 git 不在本次范围；
-  ⑤没有 conftest 的运行方式（`--noconftest`、把单个测试文件拷到别处跑）下，被测脚本自己起的只读 git 仍会继承调用方的 `GIT_*`（只读，不写；测试自己起的写操作仍走辅助函数，不受影响）；
-  ⑥`gate_floors.json` 的 pytest `min_passed` 未随本次新增的 30 条用例上调，留待合并前全量实测后按既有规则抬高。
+- **守卫只比"分支/远端登记簿"之外的配置（NF 清扫新增）**：别的会话在 pytest 运行期间正当执行 `git branch --set-upstream-to`、`git push -u`、`git remote add`，只会改共享 `config` 里的 `[branch …]`/`[remote …]` 小节，原先会让整个测试会话误报失败。现在 `_git_env.py` 的 `normalize_config_bytes` 在比较前去掉这两类小节（含其下的键行）；其余小节（`core`、`user`、`commit`、`extensions`、`include`……）的任何改动照常报告，也不会因为同一次变化里夹带了登记簿写入而被放过。2026-10-01 事故污染的 `core.bare`/`user.*`/`commit.gpgsign` 都不在被忽略之列。测试：`test_git_env_isolation.py` 的 `test_invariant_config_fingerprint_ignores_only_branch_and_remote_sections`（登记簿写入不报；夹带 `core.bare`/`[user]`/`[commit]`/`[extensions]` 任一仍报，且报告里不出现被忽略的小节行）。`git worktree add` 本身不写共享配置（只在启用 `extensions.worktreeConfig` 时才会），不需要另行处理。
+- **守卫只在真实仓库的 `git rev-parse --git-common-dir` 可解析时启用（定案）**：发布 zip 解出的目录不是 git 仓库，没有"真实仓库共享配置"可守，静默跳过是对的。
+- **`GIT_CONFIG_GLOBAL` 需要 git 2.32 及以上（定案）**：工具链别处已经要求 git 2.31 以上（`prune_dist.ps1`/`_abi_baseline_resolve.ps1` 用 `--path-format=absolute`），再抬到 2.32 不是新增负担；更老的 git 还读得到全局配置，但全局配置只影响"不依赖它"以外的假设，防线①②对 `GIT_*` 与身份的隔离不依赖它。
+- **防线只覆盖 `toolchain/tests` 下的 pytest 会话（定案）**：事故的根因是"测试里起 git 子进程继承钩子注入的 `GIT_*`"。仓库里没有任何 C# 代码起子进程（全仓 `.cs` 里没有 `Process.Start`/`ProcessStartInfo`），dotnet/Unity 测试不存在这条路径；`check.ps1`、`build.ps1` 自己调 git 本来就是要作用到真实仓库（钩子注入的 `GIT_*` 指向的正是这个仓库），隔离它们反而是错的。
+- **没有 conftest 的运行方式（`--noconftest`、把单个测试文件拷到别处跑）下，被测脚本自己起的只读 git 仍会继承调用方的 `GIT_*`（定案）**：只读，不写；测试自己起的写操作仍走辅助函数，不受影响。
+- **`gate_floors.json` 的 pytest `min_passed` 已随用例数增长按既有规则抬高（NF 清扫）**：四个套件的下限都按"最近一次全量实测 passed（full-20261001-33：dotnet 9056、pytest 1310、EditMode 188、PlayMode 452）× 0.9 向下取整到十位"重登记（8150 / 1170 / 160 / 400），`measured_*` 同步；该登记的取值规则有 `test_gate_floors_logic.py` 校验。
 
 ## `dist/` 瘦身与 ABI 基线回落（`prune_dist.ps1`、`_abi_baseline_resolve.ps1`，2026-10-02）
 
@@ -1614,9 +1642,9 @@ build/test 步骤）。
    `_latest_dist.resolve_dist_dir`/`locate_dist_file`，口径相同，链接工作树里不再因 `dist/` 缺失而 skip。
 6. **测试**：`tests/test_prune_dist.py`（先列清单后执行、`-KeepVersions` 与基线 zip 保留、重解析点拒绝且不删任何东西）、`tests/test_abi_baseline_fallback.py`
    （真实 git 仓库 + 真实链接工作树：回落命中、本地优先、两处都没有、主检出不回落、Python 侧同口径辅助函数）。
-7. **已知限制**：①回落只对 `git worktree add` 建出的链接工作树有效，独立克隆没有"主工作树"，缺基线仍按原有 SKIP/FAIL 处理；②`prune_dist.ps1` 只认上述文件名形态，
-   其它条目（例如打标签失败时残留的 `tag-message-<ver>.txt`）一律"未识别，已保留"，需要人工清理；③"当前版本"取自 `VERSION` 文件，在 `VERSION` 低于 `dist/` 中某些版本的维护分支上运行时，
-   高于当前版本的条目一律不动、不会被当作历史产物删除。
+7. **打标签失败残留的 `tag-message-<ver>.txt` 由瘦身脚本识别并清理（NF 清扫新增）**：`build.ps1 -Release` 打标签前写 `dist\tag-message-<ver>.txt`、打成功后立刻删，留下来说明打标签失败过。`prune_dist.ps1` 现在认这个形态：标签 `v<ver>` 已存在则删（重试发布会整份重写它，残留早已无用），标签不存在则按"未识别，已保留"处理（可能是眼下失败的发布现场，交人判断）。取不到 git 或不是仓库一律当作"标签不存在"，宁可多留。测试：`test_prune_dist.py::test_tag_message_leftover_deleted_only_when_tag_exists`（真实临时 git 仓库：有标签的版本集合里的残留被删、无标签的留下，不传 `-Apply` 不删）。除此之外仍认不出的条目照旧"未识别，已保留"（脚本不替人决定删陌生文件）。
+8. **基线回落只对 `git worktree add` 建出的链接工作树有效（定案）**：独立克隆没有"主工作树"，也就没有可回落的 `dist`，缺基线仍按原有 SKIP/FAIL 处理；为独立克隆编一个回落来源（例如去网络下载基线 zip）会引入网络依赖和第二份"基线真相"，与"基线 zip 由本机发布产生"相悖。
+9. **"当前版本"取自 `VERSION` 文件，高于当前版本的条目一律不动（定案）**：在 `VERSION` 低于 `dist/` 中某些版本的维护分支上运行时，那些更高版本的条目属于发布中途残留或 main 上的新版本，宁少删勿多删，不当作历史产物删除。
 
 ## CI / Release 工作流与本机环境口径对齐（2026-10-02）
 
@@ -1630,4 +1658,5 @@ build/test 步骤）。
 4. **CI：把运行器补成与本机同口径，不放宽 skip 上限**。浅克隆没有历史与标签 -> `test_ref_conventions.py` 三条（`git show e8b48aa1/97052ac6`）失败，`test_dist_immutability_guard.py` 两条无标签 skip：`ci.yml` checkout 改 `fetch-depth: 0` + `fetch-tags: true`。`dist/` 没有成对的 zip+lock（只下了 ABI 基线 zip，基线 1.12.0 是早期布局）-> 三条真实产物用例 skip：新增三步从 GitHub Release 取最新一个 zip+lock 齐全的发布包落到 `dist/`（`actions/cache` 按版本号缓存，下载失败只留 warning，用例 skip 由 pytest 步骤的 `max_skipped=0` 如实判 FAIL）。本机复现方法：对主检出做 `git clone --depth 1 --no-local file:///<主检出>`、删掉全部标签、`dist/` 只放基线 zip，跑 `pytest -rs` 得到与 CI 完全相同的 5 个跳过 + 3 个失败；补齐历史/标签/最新 zip+lock 后 0 跳过 0 失败。
 5. **CI：`test_unity_path_length_guard.py` 短根路径前提不依赖 pytest `tmp_path`**。托管运行器上 `tmp_path` 是 `C:\Users\runneradmin\AppData\Local\Temp\pytest-of-runneradmin\pytest-1\<用例名>0`，加 `\short` 共 108 字符，已超过"深根"下限 98，前提自己不成立。改为系统临时目录（不够短退到盘符根）下建 `gfpl_` 前缀短目录，长度由夹具核对，仍不够短明确失败。复现：把 `TEMP` 指到 80 字符深的目录，旧用例三条失败、新用例通过。
 6. **CI：并行性用例读"并行阶段墙钟"**。`test_two_lines_run_concurrently` 原先断言外层总墙钟 < 40s + 25s 固定余量；托管运行器上固定开销（两次子进程启动、前置步骤、doc-pytest 子集）约 29s（本机 8～9s），同一次运行里并行阶段自己只用 41.5s，外层 70.8s 被顶过阈值。固定余量吸收不了环境量；改读门禁汇总表 `（并行阶段墙钟：…）` 行（check.ps1 对并行阶段单独计的实际耗时），阈值与串行预期下限不变，外层总墙钟只作诊断输出。
-7. **已知限制**：①CI 现在依赖 GitHub Release 上存在 zip+lock 齐全的发布包；全新仓库或 Release 被清空时这三条用例会 skip 并让 pytest 步骤红灯（有意的，不悄悄放过）。②Release 工作流本次只修了比对与条目查找，未在 GitHub 上重跑验证（任务约束不触发远端工作流）；已用本机真实 1.92.0/1.93.0 zip 与 lock 逐项验证比对与条目查找，并解析了两个步骤的 `run:` 正文语法。
+7. **CI 依赖 GitHub Release 上存在 zip+lock 齐全的发布包（定案）**：全新仓库或 Release 被清空时那三条真实产物用例会 skip 并让 pytest 步骤红灯——这是有意的：把"没有可对照的发布产物"静默放过，等于让依赖真实产物的守卫形同虚设（`max_skipped=0` 的本意）。补救方式是先补传发布包（见第 3 条的 `gh release create` 指引），不是放宽下限。
+8. **Release 工作流的线上验证口径（验收方式，不是遗留缺口）**：工作流的比对与条目查找修复已用本机真实 1.92.0/1.93.0 的 zip 与 lock 逐项验证（`Test-WsGameCommitMatch`、`Get-WsGameZipEntry` 与桩 `gh` 模拟 tag 触发运行），两个步骤的 `run:` 正文语法已解析；GitHub 托管运行器上的真实运行只能由真实的 tag 推送或 `workflow_dispatch` 触发，开发会话不触发远端工作流（推送只由主会话按发布流程做）。因此线上验收 = 下一次发布推送标签之后查看该次 Release 运行结果：绿即验收通过；红则按其日志与第 1～3 条对照处理。

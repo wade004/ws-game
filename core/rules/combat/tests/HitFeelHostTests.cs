@@ -70,9 +70,41 @@ namespace Tests.Rules.Combat
         {
             public readonly List<(long Tick, Id Unit, double Apex)> Calls = new List<(long, Id, double)>();
 
+            /// <summary>与 <see cref="Calls"/> 一一对应的叠加方式与上限（二参数重载记为 Restart/0）。</summary>
+            public readonly List<(LaunchStackMode Stack, double Cap)> Stacks = new List<(LaunchStackMode, double)>();
+
             public Func<long> Now = () => 0;
 
-            public void BeginLaunch(Id unitId, double apexHeightWorld) => Calls.Add((Now(), unitId, apexHeightWorld));
+            public void BeginLaunch(Id unitId, double apexHeightWorld)
+            {
+                Calls.Add((Now(), unitId, apexHeightWorld));
+                Stacks.Add((LaunchStackMode.Restart, 0.0));
+                HeightCaps.Add(0.0);
+            }
+
+            public void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld)
+            {
+                Calls.Add((Now(), unitId, apexHeightWorld));
+                Stacks.Add((stack, stackCapApexWorld));
+                HeightCaps.Add(0.0);
+            }
+
+            /// <summary>与 <see cref="Calls"/> 一一对应的绝对高度上限（没带上限的重载记为 0）。</summary>
+            public readonly List<double> HeightCaps = new List<double>();
+
+            public void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld, double heightCapWorld)
+            {
+                Calls.Add((Now(), unitId, apexHeightWorld));
+                Stacks.Add((stack, stackCapApexWorld));
+                HeightCaps.Add(heightCapWorld);
+            }
+        }
+
+        private sealed class FakeAirborne : IAirborneQuery
+        {
+            public readonly HashSet<Id> Air = new HashSet<Id>();
+
+            public bool IsAirborne(Id unitId) => Air.Contains(unitId);
         }
 
         private sealed class RecordingInterrupt : IStaggerInterruptSink
@@ -93,6 +125,7 @@ namespace Tests.Rules.Combat
             public FakeActions Actions = new FakeActions();
             public RecordingKnockback Knock = new RecordingKnockback();
             public RecordingLaunch Launch = new RecordingLaunch();
+            public FakeAirborne Airborne = new FakeAirborne();
             public RecordingInterrupt Interrupts = new RecordingInterrupt();
             public HitFeelOptions Options = new HitFeelOptions();
             public long TickNo;
@@ -251,6 +284,7 @@ namespace Tests.Rules.Combat
             fx.Sys.Host.Knockback = fx.Knock;
             fx.Launch.Now = () => fx.TickNo;
             fx.Sys.Host.Launch = fx.Launch;
+            fx.Sys.Host.Airborne = fx.Airborne;
 
             bus.Subscribe<FeelHitstopStartedEvent>(RulesEventKeys.FeelHitstopStarted, e => { fx.Started.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:started:{string.Join("+", e.UnitIds)}:{e.Ticks}"); });
             bus.Subscribe<FeelHitstopEndedEvent>(RulesEventKeys.FeelHitstopEnded, e => { fx.Ended.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:ended:{string.Join("+", e.UnitIds)}"); });
@@ -501,6 +535,56 @@ namespace Tests.Rules.Combat
 
             // 霸体窗口结束后同样的命中恢复正常裁决。
             fx.Actions.SuperArmor = false;
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target) > 0);
+        }
+
+        [Fact]
+        public void SuperArmor_FromAura_NeverEntersStagger_ButStillTakesTheTargetHitstop_RemovalRestoresNormalRuling()
+        {
+            // 光环类霸体（HitFeelOptions.SuperArmorAuraDef 经 IAuraQuery.HasAura）：此前只由 IsSuperArmor 路径间接覆盖，没有独立用例。
+            var armorAura = new Id("aura.sample_super_armor");
+            var fx = Build(configure: o => o.SuperArmorAuraDef = armorAura);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0); // 韧性远低于强度：若不是霸体必破韧
+            var targetTicks = Ticks(Ms(fx, Target, FeelFieldNames.TargetHitstopMs));
+
+            // 没带光环：同样的命中照常破韧（对照，证明下面的霸体来自光环而不是夹具）。
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target) > 0);
+
+            // 带光环：不进硬直、不击退、不打断，但目标顿帧照吃（量由档案换算：targetTicks）。
+            fx = Build(configure: o => o.SuperArmorAuraDef = armorAura);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.C.Auras.SetAura(Target, armorAura);
+            fx.Hit(Attacker, Target);
+            fx.Tick();
+            Assert.Equal(targetTicks, fx.FrozenOver(Target, 40));
+            Assert.Equal(0, fx.StaggeredCount(Target));
+            Assert.Empty(fx.Reactions);
+            Assert.Empty(fx.Interrupts.Calls);
+            Assert.Empty(fx.Knock.Calls);
+
+            // 别的单位没带光环：不沾光（旁观对照）。
+            fx.Hit(Attacker, Target2);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target2) > 0);
+
+            // 光环移除后同样的命中恢复正常裁决。
+            fx.C.Auras.SetAura(Target, armorAura, present: false);
+            fx.Hit(Attacker, Target);
+            fx.Run(1 + targetTicks + 3);
+            Assert.True(fx.StaggeredCount(Target) > 0);
+        }
+
+        [Fact]
+        public void SuperArmor_AuraDefNotDeclaredInOptions_AuraPresenceIsIgnored()
+        {
+            var fx = Build();
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.C.Auras.SetAura(Target, new Id("aura.sample_super_armor"));
+            var targetTicks = Ticks(Ms(fx, Target, FeelFieldNames.TargetHitstopMs));
             fx.Hit(Attacker, Target);
             fx.Run(1 + targetTicks + 3);
             Assert.True(fx.StaggeredCount(Target) > 0);
@@ -811,6 +895,324 @@ namespace Tests.Rules.Combat
             Assert.Equal(baseHeight * fx.Options.KnockbackImpactMultipliers["heavy"], fx.Launch.Calls.Single().Apex, 9);
         }
 
+        // ------------------------------------------------------------------ 腾空受击反应 air_hit_reaction（ADR-0130 追加决定）
+
+        private static HitReaction ReactionOf(Fx fx) => fx.Reactions.Last().E.Reaction;
+
+        [Fact]
+        public void AirHitReaction_ReplacesTheReactionOnlyWhileTheTargetIsAirborne()
+        {
+            // 复现：同一击（heavy → knockback）——地面仍是 knockback，空中按 air_hit_reaction 变成 flinch。
+            var ground = Build();
+            ground.Set(FeelFieldNames.ImpactClass, "heavy");
+            ground.Set(FeelFieldNames.AirHitReaction, "flinch");
+            ground.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            ground.Hit(Attacker, Target);
+            ground.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(ground));
+
+            var air = Build();
+            air.Set(FeelFieldNames.ImpactClass, "heavy");
+            air.Set(FeelFieldNames.AirHitReaction, "flinch");
+            air.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            air.Airborne.Air.Add(Target);
+            air.Hit(Attacker, Target);
+            air.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(air));
+        }
+
+        [Fact]
+        public void AirHitReaction_AbsentOrSame_IsIdenticalToTheGroundReaction_EvenInTheAir()
+        {
+            // 不变量：缺省（档案没声明）与 same 都与地面受击一致；没有腾空查询（平面世界）时声明了也不生效。
+            foreach (var declared in new string?[] { null, "same" })
+            {
+                var fx = Build();
+                fx.Set(FeelFieldNames.ImpactClass, "heavy");
+                if (declared != null) fx.Set(FeelFieldNames.AirHitReaction, declared);
+                fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+                fx.Airborne.Air.Add(Target);
+                fx.Hit(Attacker, Target);
+                fx.Run(3);
+                Assert.Equal(HitReaction.Knockback, ReactionOf(fx));
+            }
+
+            var flat = Build();
+            flat.Sys.Host.Airborne = null;
+            flat.Set(FeelFieldNames.ImpactClass, "heavy");
+            flat.Set(FeelFieldNames.AirHitReaction, "none");
+            flat.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            flat.Hit(Attacker, Target);
+            flat.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(flat));
+        }
+
+        [Fact]
+        public void AirHitReaction_CanRaiseTheReaction_AndReactionCapStillLimitsIt()
+        {
+            // medium → stagger；空中声明 knockdown → 升到 knockdown；再叠 reaction_cap=stagger → 被限回 stagger。
+            var raised = Build();
+            raised.Set(FeelFieldNames.ImpactClass, "medium");
+            raised.Set(FeelFieldNames.AirHitReaction, "knockdown");
+            raised.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            raised.Airborne.Air.Add(Target);
+            raised.Hit(Attacker, Target);
+            raised.Run(3);
+            Assert.Equal(HitReaction.Knockdown, ReactionOf(raised));
+
+            var capped = Build();
+            capped.Set(FeelFieldNames.ImpactClass, "medium");
+            capped.Set(FeelFieldNames.AirHitReaction, "knockdown");
+            capped.Set(FeelFieldNames.ReactionCap, "stagger");
+            capped.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            capped.Airborne.Air.Add(Target);
+            capped.Hit(Attacker, Target);
+            capped.Run(3);
+            Assert.Equal(HitReaction.Stagger, ReactionOf(capped));
+        }
+
+        [Fact]
+        public void AirHitReaction_DeathIsNeverReplaced()
+        {
+            var kill = Build();
+            kill.Set(FeelFieldNames.AirHitReaction, "none");
+            kill.Airborne.Air.Add(Target);
+            kill.Hit(Attacker, Target, kill: true);
+            kill.Run(3);
+            Assert.Equal(HitReaction.Death, ReactionOf(kill));
+        }
+
+        [Fact]
+        public void AirHitReaction_AirKnockback_RelaunchesWhenTheAttackerDeclaresLaunchHeight()
+        {
+            // 受击方空中声明 knockback → 与地面 knockback 同路径：声明了 launch_height 的攻击方击飞该目标。
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "medium");
+            fx.Set(FeelFieldNames.AirHitReaction, "knockback");
+            fx.Set(FeelFieldNames.LaunchHeight, 0.8);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Airborne.Air.Add(Target);
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+            Assert.Single(fx.Launch.Calls);
+        }
+
+        // ------------------------------------------------------------------ 击飞叠加 launch_stack（ADR-0130 追加决定）
+
+        [Fact]
+        public void LaunchStack_AddAndCapAreForwardedToTheSink_CalibratedToWorldUnits()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.Set(FeelFieldNames.LaunchStack, "add");
+            fx.Set(FeelFieldNames.LaunchStackCap, 2.5);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchStackCap, out var capWorld));
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+
+            Assert.Single(fx.Launch.Calls);
+            var (stack, cap) = fx.Launch.Stacks.Single();
+            Assert.Equal(LaunchStackMode.Add, stack);
+            Assert.Equal(capWorld, cap, 9);
+            Assert.NotEqual(2.5, cap); // 标定后的世界单位，不是档案里的体高倍数
+        }
+
+        [Fact]
+        public void LaunchStack_AddWithoutCap_ForwardsZeroCap()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.Set(FeelFieldNames.LaunchStack, "add");
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+            var (stack, cap) = fx.Launch.Stacks.Single();
+            Assert.Equal(LaunchStackMode.Add, stack);
+            Assert.Equal(0.0, cap);
+        }
+
+        [Fact]
+        public void LaunchStack_DefaultsToRestartWithNoCap_LikeNineteen95()
+        {
+            foreach (var declared in new string?[] { null, "restart" })
+            {
+                var fx = Build();
+                fx.Set(FeelFieldNames.ImpactClass, "heavy");
+                fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+                if (declared != null) fx.Set(FeelFieldNames.LaunchStack, declared);
+                fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+                fx.Hit(Attacker, Target);
+                fx.Run(30);
+                var (stack, cap) = fx.Launch.Stacks.Single();
+                Assert.Equal(LaunchStackMode.Restart, stack);
+                Assert.Equal(0.0, cap);
+            }
+        }
+
+        // ------------------------------------------------------------------ 手感落地 M4-W1b：目标侧空中反应、高度上限、体型缩放、硬直持续到落地
+
+        private static Fx AirFx(string impact = "heavy")
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, impact);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            fx.Airborne.Air.Add(Target);
+            return fx;
+        }
+
+        private static void SetUnitField(Fx fx, Id unit, string field, string value) =>
+            fx.Feel.DebugOverrides!.SetUnit(unit, new FeelWrite(field, FeelOp.Set, FeelValue.Of(value)));
+
+        private static void SetUnitField(Fx fx, Id unit, string field, double value) =>
+            fx.Feel.DebugOverrides!.SetUnit(unit, new FeelWrite(field, FeelOp.Set, FeelValue.Of(value)));
+
+        [Fact]
+        public void AirHitReaction_TargetSideDeclaration_AppliesWhenTheAttackerDeclaresNothing()
+        {
+            // 复现：只有受击方档案声明 air_hit_reaction=flinch（攻击方没有）——空中受击也被替换；地面不受影响。
+            var air = AirFx();
+            SetUnitField(air, Target, FeelFieldNames.AirHitReaction, "flinch");
+            air.Hit(Attacker, Target);
+            air.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(air));
+
+            var ground = Build();
+            ground.Set(FeelFieldNames.ImpactClass, "heavy");
+            ground.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            SetUnitField(ground, Target, FeelFieldNames.AirHitReaction, "flinch");
+            ground.Hit(Attacker, Target);
+            ground.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(ground));
+        }
+
+        [Fact]
+        public void AirHitReaction_AttackerDeclarationWinsOverTheTargets_SameFallsThroughToTheTarget()
+        {
+            // 不变量：攻击方声明了非 same 的值就以它为准；攻击方 same/缺省才看受击方。
+            var win = AirFx();
+            SetUnitField(win, Attacker, FeelFieldNames.AirHitReaction, "none");
+            SetUnitField(win, Target, FeelFieldNames.AirHitReaction, "flinch");
+            win.Hit(Attacker, Target);
+            win.Run(3);
+            Assert.True(win.Reactions.Count == 0 || ReactionOf(win) == HitReaction.None); // 攻击方的 none 赢过受击方的 flinch
+
+            var fall = AirFx();
+            SetUnitField(fall, Attacker, FeelFieldNames.AirHitReaction, "same");
+            SetUnitField(fall, Target, FeelFieldNames.AirHitReaction, "flinch");
+            fall.Hit(Attacker, Target);
+            fall.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(fall));
+        }
+
+        [Fact]
+        public void AirReactionCap_LimitsOnlyAirborneHits_AndComposesWithReactionCap()
+        {
+            // 复现：reaction_cap=knockdown（不封顶）、air_reaction_cap=stagger：空中 heavy 被限成 stagger；地面仍是 knockback。
+            var air = AirFx();
+            air.Set(FeelFieldNames.AirReactionCap, "stagger");
+            air.Hit(Attacker, Target);
+            air.Run(3);
+            Assert.Equal(HitReaction.Stagger, ReactionOf(air));
+
+            var ground = Build();
+            ground.Set(FeelFieldNames.ImpactClass, "heavy");
+            ground.Set(FeelFieldNames.AirReactionCap, "stagger");
+            ground.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            ground.Hit(Attacker, Target);
+            ground.Run(3);
+            Assert.Equal(HitReaction.Knockback, ReactionOf(ground));
+
+            // 不变量：与 reaction_cap 叠加取较低者（reaction_cap=flinch 更低时以它为准）。
+            var both = AirFx();
+            both.Set(FeelFieldNames.ReactionCap, "flinch");
+            both.Set(FeelFieldNames.AirReactionCap, "stagger");
+            both.Hit(Attacker, Target);
+            both.Run(3);
+            Assert.Equal(HitReaction.Flinch, ReactionOf(both));
+
+            // 不变量：死亡不受它影响。
+            var kill = AirFx();
+            kill.Set(FeelFieldNames.AirReactionCap, "none");
+            kill.Hit(Attacker, Target, kill: true);
+            kill.Run(3);
+            Assert.Equal(HitReaction.Death, ReactionOf(kill));
+        }
+
+        [Fact]
+        public void LaunchHeightCap_IsForwardedCalibrated_MinOfAttackerAndTarget_AbsentMeansZero()
+        {
+            var fx = Build();
+            fx.Set(FeelFieldNames.ImpactClass, "heavy");
+            fx.Set(FeelFieldNames.LaunchHeight, 1.0);
+            fx.Set(FeelFieldNames.LaunchHeightCap, 2.0);
+            SetUnitField(fx, Target, FeelFieldNames.LaunchHeightCap, 1.5);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.LaunchHeightCap, out var targetWorld));
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.LaunchHeightCap, out var attackerWorld));
+            Assert.True(targetWorld < attackerWorld);
+            fx.Hit(Attacker, Target);
+            fx.Run(30);
+            Assert.Equal(targetWorld, fx.Launch.HeightCaps.Single(), 9); // 两侧都声明取较小者，且是标定后的世界单位
+
+            var none = Build();
+            none.Set(FeelFieldNames.ImpactClass, "heavy");
+            none.Set(FeelFieldNames.LaunchHeight, 1.0);
+            none.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            none.Hit(Attacker, Target);
+            none.Run(30);
+            Assert.Equal(0.0, none.Launch.HeightCaps.Single()); // 不变量：没声明 = 走 4 参数重载（与引入之前一致）
+        }
+
+        [Fact]
+        public void LaunchBodyScale_ScalesTheApexOnlyWhenDeclared()
+        {
+            var plain = Build();
+            plain.Set(FeelFieldNames.ImpactClass, "heavy");
+            plain.Set(FeelFieldNames.LaunchHeight, 1.0);
+            plain.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            plain.Hit(Attacker, Target);
+            plain.Run(30);
+            var baseApex = plain.Launch.Calls.Single().Apex;
+
+            var scaled = Build();
+            scaled.Set(FeelFieldNames.ImpactClass, "heavy");
+            scaled.Set(FeelFieldNames.LaunchHeight, 1.0);
+            SetUnitField(scaled, Target, FeelFieldNames.LaunchBodyScale, 0.5);
+            scaled.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            scaled.Hit(Attacker, Target);
+            scaled.Run(30);
+            Assert.Equal(baseApex * 0.5, scaled.Launch.Calls.Single().Apex, 9);
+        }
+
+        [Fact]
+        public void AirStunUntilLand_HoldsTheStaggerPastItsDuration_UntilTheTargetLands()
+        {
+            // 复现：空中受击 stagger（230ms 档）；声明 air_stun_until_land 后，时长到点仍在空中 → 一直硬直；落地后下一个 tick 结束。
+            var hold = Build();
+            hold.Set(FeelFieldNames.ImpactClass, "medium");
+            hold.Feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.AirStunUntilLand, FeelOp.Set, FeelValue.Of(true)));
+            hold.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            hold.Airborne.Air.Add(Target);
+            hold.Hit(Attacker, Target);
+            hold.Run(60);
+            Assert.True(hold.Host.IsStaggered(Target));
+            hold.Airborne.Air.Remove(Target);
+            hold.Run(2);
+            Assert.False(hold.Host.IsStaggered(Target));
+
+            // 不变量：缺省不声明时按时长结束，与是否在空中无关（与引入之前一致）。
+            var plain = Build();
+            plain.Set(FeelFieldNames.ImpactClass, "medium");
+            plain.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 0);
+            plain.Airborne.Air.Add(Target);
+            plain.Hit(Attacker, Target);
+            plain.Run(60);
+            Assert.False(plain.Host.IsStaggered(Target));
+        }
+
         // ------------------------------------------------------------------ instant（目标选择式）适配：真实 CombatHost
 
         private static void CastHit(Fx fx, double baseValue = 10)
@@ -1004,6 +1406,539 @@ namespace Tests.Rules.Combat
             Assert.Equal(first, Run());
         }
 
+        // ------------------------------------------------------------------ 动态韧性（手感落地 M4-L）
+
+        private sealed class PoiseProbe
+        {
+            public readonly List<(long Tick, CombatPoiseChangedEvent E)> Changed = new List<(long, CombatPoiseChangedEvent)>();
+            public readonly List<(long Tick, CombatPoiseRecoveredEvent E)> Recovered = new List<(long, CombatPoiseRecoveredEvent)>();
+        }
+
+        private static PoiseProbe WatchPoise(Fx fx)
+        {
+            var probe = new PoiseProbe();
+            fx.Bus.Subscribe<CombatPoiseChangedEvent>(RulesEventKeys.CombatPoiseChanged, e => probe.Changed.Add((fx.TickNo, e)));
+            fx.Bus.Subscribe<CombatPoiseRecoveredEvent>(RulesEventKeys.CombatPoiseRecovered, e => probe.Recovered.Add((fx.TickNo, e)));
+            return probe;
+        }
+
+        /// <summary>
+        /// 夹具：韧性容量 = 3 × 每击韧性伤害（至少够挡两击），强度不高于任何击前韧性（强度取档案值，每击伤害取强度与 1 之大者）。
+        /// 对照靶 Target2 的韧性属性为 0——动态韧性对没有韧性的目标不生效，走静态规则，用它拿"完整反应"的期望值。
+        /// </summary>
+        private static (Fx Fx, double Damage, double Max) BuildPoise()
+        {
+            var fx = Build();
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            var damage = Math.Max(power, 1.0);
+            var max = 3.0 * damage;
+            fx.Set(FeelFieldNames.PoiseDamage, damage);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, max);
+            fx.C.Stats.SetBase(Target2, CombatTestSupport.StatArmor, 0);
+            return (fx, damage, max);
+        }
+
+        private static HitReaction FullReaction(Fx fx) => fx.Host.Evaluate(new HitFeelInput(Attacker, Target2, HitResult.Hit, 10.0, false)).Reaction;
+
+        [Fact]
+        public void DynamicPoise_EachHitDrainsThePool_TheShelterEndsExactlyWhenThePoolReachesZero()
+        {
+            var (fx, damage, max) = BuildPoise();
+            var probe = WatchPoise(fx);
+            var full = FullReaction(fx);
+            Assert.NotEqual(HitReaction.Flinch, full);
+
+            var reactions = new List<HitReaction>();
+            var expectedPool = max;
+            for (var hit = 0; hit < 5; hit++)
+            {
+                var before = expectedPool;
+                expectedPool = Math.Max(0.0, expectedPool - damage);
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+                reactions.Add(fx.Reactions[fx.Reactions.Count - 1].E.Reaction);
+                Assert.Equal(expectedPool, fx.Host.CurrentPoise(Target), 9);
+                var changed = probe.Changed[probe.Changed.Count - 1].E;
+                Assert.Equal(before, changed.Before, 9);
+                Assert.Equal(expectedPool, changed.After, 9);
+                Assert.Equal(max, changed.Max, 9);
+                Assert.Equal(before > 0.0 && expectedPool <= 0.0, changed.Broken);
+            }
+
+            // 容量 = 3 次伤害：前两击被挡成 Flinch，第三击打穿（破韧）给出完整反应，之后池子是 0 的命中同样不被挡。
+            Assert.Equal(new[] { HitReaction.Flinch, HitReaction.Flinch, full, full, full }, reactions);
+            Assert.Equal(new[] { false, false, true, false, false }, probe.Changed.Select(c => c.E.Broken).ToArray());
+        }
+
+        [Fact]
+        public void DynamicPoise_AHitThatDoesNotDeclarePoiseDamage_IsStaticAndNeverTouchesThePool()
+        {
+            var fx = Build();
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, power); // 静态韧性 = 强度：不高于韧性 → Flinch
+            var probe = WatchPoise(fx);
+
+            for (var i = 0; i < 4; i++)
+            {
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            Assert.All(fx.Reactions, r => Assert.Equal(HitReaction.Flinch, r.E.Reaction));
+            Assert.Empty(probe.Changed);
+            Assert.Empty(probe.Recovered);
+            Assert.Equal(power, fx.Host.CurrentPoise(Target), 9);
+        }
+
+        [Fact]
+        public void DynamicPoise_NoPoiseAttributeMeansNoPool_TheStaticRuleApplies()
+        {
+            var (fx, _, _) = BuildPoise();
+            var probe = WatchPoise(fx);
+            fx.Hit(Attacker, Target2);
+            fx.Run(1);
+            Assert.Empty(probe.Changed);
+            Assert.Equal(FullReaction(fx), fx.Reactions.Single().E.Reaction);
+        }
+
+        [Fact]
+        public void DynamicPoise_RecoversAfterTheDelayAtTheDeclaredRate_AndAnnouncesTheRefillOnce()
+        {
+            var (fx, damage, max) = BuildPoise();
+            var probe = WatchPoise(fx);
+            const double delayMs = 300.0;
+            var perSecond = max; // 回满需要 1 秒
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, perSecond);
+            var delayTicks = Ticks(delayMs);
+            var perTick = perSecond * Dt;
+
+            long breakTick = 0;
+            for (var i = 0; i < 3; i++) // 打穿
+            {
+                breakTick = fx.TickNo; // 裁决发生在这一击之后的第一个 tick 开始之前
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            // 裁决之后经过的 tick 数 e：e 从 1 起（刚跑完的这个 tick 就是第 1 个）；延迟耗尽后每 tick 回复 perTick。
+            var refillAt = delayTicks + (int)Math.Ceiling(max / perTick - 1e-9);
+            for (var e = 1; e <= refillAt + 5; e++)
+            {
+                if (e > 1) fx.Run(1);
+                var expected = Math.Min(max, perTick * Math.Max(0, e - delayTicks));
+                Assert.Equal(expected, fx.Host.CurrentPoise(Target), 6);
+            }
+
+            // 回满那一 tick 发一次 poise_recovered，之后没有重复。
+            var recovered = probe.Recovered.Single();
+            Assert.Equal(breakTick + refillAt - 1, recovered.Tick);
+            Assert.Equal(max, recovered.E.Poise, 9);
+            // 回满之后重新能挡：下一击又是 Flinch。
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(HitReaction.Flinch, fx.Reactions[fx.Reactions.Count - 1].E.Reaction);
+            Assert.Equal(max - damage, fx.Host.CurrentPoise(Target), 9);
+        }
+
+        [Fact]
+        public void DynamicPoise_AHitInsideTheDelayRestartsTheDelay_AndWithoutARateThePoolNeverRecovers()
+        {
+            var (fx, _, max) = BuildPoise();
+            const double delayMs = 300.0;
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, max);
+            var delayTicks = Ticks(delayMs);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(delayTicks - 2);
+            fx.Hit(Attacker, Target); // 延迟结束前再挨一击：延迟重新计
+            fx.Run(1);
+            var afterSecond = fx.Host.CurrentPoise(Target);
+            fx.Run(delayTicks - 1);
+            Assert.Equal(afterSecond, fx.Host.CurrentPoise(Target), 9); // 重新计的延迟里没有回复
+            fx.Run(1);
+            Assert.True(fx.Host.CurrentPoise(Target) > afterSecond);
+
+            // 没声明回复速率的目标：永不回复。
+            var (fx2, damage, max2) = BuildPoise();
+            fx2.Hit(Attacker, Target);
+            fx2.Run(600);
+            Assert.Equal(max2 - damage, fx2.Host.CurrentPoise(Target), 9);
+        }
+
+        [Fact]
+        public void DynamicPoise_PoolStaysInsideZeroAndMax_AcrossArbitraryHitAndRecoverySequences()
+        {
+            foreach (var pattern in new[] { new[] { 1, 0, 0, 5, 40 }, new[] { 1, 1, 1, 1, 1, 1, 30 }, new[] { 3, 17, 2, 90, 1, 1 } })
+            {
+                var (fx, damage, max) = BuildPoise();
+                fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 100);
+                fx.Set(FeelFieldNames.PoiseRecoverPerS, damage);
+                var probe = WatchPoise(fx);
+                foreach (var gap in pattern)
+                {
+                    fx.Hit(Attacker, Target);
+                    fx.Run(gap);
+                    var pool = fx.Host.CurrentPoise(Target);
+                    Assert.InRange(pool, 0.0, max + 1e-9);
+                }
+
+                // 每条 changed 记录自洽：after = max(0, before − 伤害)；破韧恰好是 before > 0 且 after = 0。
+                foreach (var c in probe.Changed)
+                {
+                    Assert.Equal(Math.Max(0.0, c.E.Before - damage), c.E.After, 9);
+                    Assert.Equal(c.E.Before > 0.0 && c.E.After <= 0.0, c.E.Broken);
+                    Assert.InRange(c.E.Before, 0.0, max + 1e-9);
+                }
+            }
+        }
+
+        [Fact]
+        public void DynamicPoise_SuperArmorAndKillsNeverTouchThePool_AndReleasingTheUnitResetsIt()
+        {
+            var fx = Build(useActions: true);
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            var damage = Math.Max(power, 1.0);
+            fx.Set(FeelFieldNames.PoiseDamage, damage);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, 3.0 * damage);
+            var probe = WatchPoise(fx);
+
+            fx.Actions.SuperArmor = true; // 霸体：不走韧性（不扣池、不发事件）
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            fx.Actions.SuperArmor = false;
+            Assert.Empty(probe.Changed);
+            Assert.Equal(3.0 * damage, fx.Host.CurrentPoise(Target), 9);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Single(probe.Changed);
+            Assert.Equal(2.0 * damage, fx.Host.CurrentPoise(Target), 9);
+
+            fx.Hit(Attacker, Target, kill: true); // 击杀：Death 优先，不扣池
+            fx.Run(1);
+            Assert.Single(probe.Changed);
+            Assert.Equal(3.0 * damage, fx.Host.CurrentPoise(Target), 9); // 死亡释放了该单位的池
+        }
+
+        [Fact]
+        public void DynamicPoise_FieldsAreOptionalAndDefaultToTheOldBehavior()
+        {
+            var fx = Build();
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Attacker).TryGetNumber(FeelFieldNames.PoiseDamage, out _));
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.PoiseRecoverPerS, out _));
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.PoiseRecoverDelayMs, out _));
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseDamage).Optional);
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverPerS).Optional);
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverDelayMs).Optional);
+        }
+
+        // ------------------------------------------------------------------ 动态韧性的三项可选补充（手感落地 M4-W3）
+
+        private static (Fx Fx, double Damage, double Max) BuildPoise(Action<HitFeelOptions> configure)
+        {
+            var fx = Build(configure: configure);
+            var power = Ms(fx, Attacker, FeelFieldNames.StaggerPower);
+            var damage = Math.Max(power, 1.0);
+            var max = 3.0 * damage;
+            fx.Set(FeelFieldNames.PoiseDamage, damage);
+            fx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, max);
+            fx.C.Stats.SetBase(Target2, CombatTestSupport.StatArmor, 0);
+            return (fx, damage, max);
+        }
+
+        /// <summary>把目标打进"战斗中"：返回可变的战斗中单位集合，宿主据此判断脱战（装配根接的是 CombatHost.IsInCombat，这里用集合精确控制进出）。</summary>
+        private static HashSet<Id> WireCombatState(Fx fx)
+        {
+            var inCombat = new HashSet<Id>();
+            fx.Host.InCombat = id => inCombat.Contains(id);
+            return inCombat;
+        }
+
+        /// <summary>
+        /// 复现用例（脱战回复）：目标 <c>poise_recover_mode = out_of_combat</c>，被削掉一击后一直处于战斗中——此前口径（只有"延迟 + 速率"）下池子在延迟过后照常回复
+        /// （战斗中的有效韧性 X → X + 回复量）；现在战斗中延迟计时与回复都暂停（X → X，不论过去多久）；脱战之后才开始计延迟：脱战后第 n 个 tick 的有效韧性
+        /// = min(容量, X + 每 tick 回复量 × max(0, n − 延迟 tick 数))，逐 tick 由规则算出；回满那一 tick 恰好发一次 <c>combat.poise_recovered</c>。
+        /// </summary>
+        [Fact]
+        public void PoiseRecoverMode_OutOfCombat_SuspendsDelayAndRegenWhileInCombat_ThenCountsTheDelayFromTheLeaveTick()
+        {
+            var (fx, damage, max) = BuildPoise();
+            var inCombat = WireCombatState(fx);
+            const double delayMs = 200.0;
+            var perSecond = max; // 脱战后 1 秒回满
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, perSecond);
+            fx.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            var probe = WatchPoise(fx);
+            var delayTicks = Ticks(delayMs);
+            var perTick = perSecond * Dt;
+
+            inCombat.Add(Target);
+            fx.Hit(Attacker, Target);
+            var afterHit = max - damage;
+            Assert.Equal(afterHit, fx.Host.CurrentPoise(Target), 9);
+
+            // 战斗中：过去远超延迟的时间，池子纹丝不动。
+            fx.Run(delayTicks * 5 + 10);
+            Assert.Equal(afterHit, fx.Host.CurrentPoise(Target), 9);
+            Assert.Empty(probe.Recovered);
+
+            // 脱战：延迟从脱战那一刻起算（战斗中没有消耗过任何延迟）。
+            inCombat.Remove(Target);
+            long leaveTick = fx.TickNo;
+            var refillAfter = delayTicks + (int)Math.Ceiling((max - afterHit) / perTick - 1e-9);
+            for (var n = 1; n <= refillAfter + 3; n++)
+            {
+                fx.Run(1);
+                var expected = Math.Min(max, afterHit + perTick * Math.Max(0, n - delayTicks));
+                Assert.Equal(expected, fx.Host.CurrentPoise(Target), 6);
+            }
+
+            var recovered = probe.Recovered.Single();
+            Assert.Equal(leaveTick + refillAfter - 1, recovered.Tick);
+            Assert.Equal(max, recovered.E.Poise, 9);
+        }
+
+        /// <summary>
+        /// 不变量：回复模式缺省（delay）或显式 <c>delay</c> 时，战斗状态不参与——处于战斗中的目标照常在延迟后回复（与此前逐位一致）；
+        /// 声明了 <c>out_of_combat</c> 但没有接战斗状态查询时视为一直脱战（不会卡死）；战斗中又挨一击，脱战后重新计延迟（每次动态命中重新计）。
+        /// </summary>
+        [Fact]
+        public void PoiseRecoverMode_DelayAndNoCombatQuery_IgnoreCombatState_AndAHitRestartsTheDelayAfterLeaving()
+        {
+            foreach (var mode in new[] { string.Empty, "delay" })
+            {
+                var (fx, damage, max) = BuildPoise();
+                var inCombat = WireCombatState(fx);
+                fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 100);
+                fx.Set(FeelFieldNames.PoiseRecoverPerS, max);
+                if (mode.Length > 0) fx.Set(FeelFieldNames.PoiseRecoverMode, mode);
+                inCombat.Add(Target);
+                fx.Hit(Attacker, Target);
+                fx.Run(Ticks(100) + 3);
+                Assert.True(fx.Host.CurrentPoise(Target) > max - damage, $"mode='{mode}'：战斗中也应在延迟后回复");
+            }
+
+            var (fx2, damage2, max2) = BuildPoise();
+            fx2.Set(FeelFieldNames.PoiseRecoverDelayMs, 100);
+            fx2.Set(FeelFieldNames.PoiseRecoverPerS, max2);
+            fx2.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            Assert.Null(fx2.Host.InCombat);
+            fx2.Hit(Attacker, Target);
+            fx2.Run(Ticks(100) + 3);
+            Assert.True(fx2.Host.CurrentPoise(Target) > max2 - damage2, "没有战斗状态查询：视为一直脱战，口径同 delay");
+
+            // 脱战回复期间再挨一击：延迟重新计，已回复的部分保留（不是回到命中前）。
+            var (fx3, damage3, max3) = BuildPoise();
+            var combat3 = WireCombatState(fx3);
+            const double delayMs = 200.0;
+            fx3.Set(FeelFieldNames.PoiseRecoverDelayMs, delayMs);
+            fx3.Set(FeelFieldNames.PoiseRecoverPerS, max3);
+            fx3.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            var delayTicks = Ticks(delayMs);
+            fx3.Hit(Attacker, Target);
+            fx3.Run(delayTicks + 2); // 脱战（集合里没有它）：延迟过后已回复一点
+            var partial = fx3.Host.CurrentPoise(Target);
+            Assert.True(partial > max3 - damage3);
+            combat3.Add(Target);
+            fx3.Hit(Attacker, Target);
+            var afterSecond = fx3.Host.CurrentPoise(Target);
+            Assert.Equal(partial - damage3, afterSecond, 6);
+            combat3.Remove(Target);
+            fx3.Run(delayTicks);
+            Assert.Equal(afterSecond, fx3.Host.CurrentPoise(Target), 9); // 重新计的延迟里没有回复
+            fx3.Run(1);
+            Assert.True(fx3.Host.CurrentPoise(Target) > afterSecond);
+        }
+
+        /// <summary>
+        /// 复现用例（破韧后自动回满）：只有 <c>poise_break_reset_ms</c>、没有回复速率。此前破韧的池子永远是 0（有效韧性 0 → 0，后续命中同样不被挡）；
+        /// 现在破韧之后经过 <c>ceil(poise_break_reset_ms / 步长)</c> 个 tick 一次回满（0 → 容量），恰好发一次 <c>combat.poise_recovered</c>，回满前一直是 0；
+        /// 回满之后重新能挡（Flinch）。
+        /// </summary>
+        [Fact]
+        public void PoiseBreakReset_RefillsTheWholePoolOnceAfterTheDelay_AndTheShelterReturns()
+        {
+            var (fx, damage, max) = BuildPoise();
+            const double resetMs = 500.0;
+            fx.Set(FeelFieldNames.PoiseBreakResetMs, resetMs);
+            var probe = WatchPoise(fx);
+            var resetTicks = Ticks(resetMs);
+
+            long breakTick = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                breakTick = fx.TickNo;
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            Assert.True(probe.Changed.Last().E.Broken);
+            // 破韧后的第 e 个 tick（e 从 1 起）：e 未到 resetTicks 时池子是 0；到点的那个 tick 回满。
+            for (var e = 1; e <= resetTicks + 5; e++)
+            {
+                if (e > 1) fx.Run(1);
+                var expected = e >= resetTicks ? max : 0.0;
+                Assert.Equal(expected, fx.Host.CurrentPoise(Target), 9);
+            }
+
+            var recovered = probe.Recovered.Single();
+            Assert.Equal(breakTick + resetTicks - 1, recovered.Tick);
+            Assert.Equal(max, recovered.E.Poise, 9);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(HitReaction.Flinch, fx.Reactions[fx.Reactions.Count - 1].E.Reaction);
+            Assert.Equal(max - damage, fx.Host.CurrentPoise(Target), 9);
+        }
+
+        /// <summary>
+        /// 不变量：回满计时从"破韧"那一击起算，池子已空时的后续命中不顺延它；不受回复模式/战斗状态影响（战斗中照样回满）；
+        /// 回满后再次破韧重新起算；没声明 <c>poise_break_reset_ms</c> 时不自动回满（既有行为）。
+        /// </summary>
+        [Fact]
+        public void PoiseBreakReset_IsNotExtendedByLaterHits_IgnoresCombatState_AndRearmsOnTheNextBreak()
+        {
+            var (fx, _, max) = BuildPoise();
+            var inCombat = WireCombatState(fx);
+            const double resetMs = 400.0;
+            fx.Set(FeelFieldNames.PoiseBreakResetMs, resetMs);
+            fx.Set(FeelFieldNames.PoiseRecoverMode, "out_of_combat");
+            fx.Set(FeelFieldNames.PoiseRecoverPerS, 1.0); // 有速率但战斗中不回复：回满只能来自破韧回满
+            fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 0);
+            var probe = WatchPoise(fx);
+            var resetTicks = Ticks(resetMs);
+            inCombat.Add(Target);
+
+            long breakTick = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                breakTick = fx.TickNo;
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            // 池子已空，计时进行到一半时再挨一击：不顺延。
+            fx.Run(resetTicks / 2 - 3);
+            fx.Hit(Attacker, Target);
+            fx.Run(resetTicks - (int)(fx.TickNo - breakTick) + 1);
+            var first = probe.Recovered.Single();
+            Assert.Equal(breakTick + resetTicks - 1, first.Tick);
+            Assert.Equal(max, fx.Host.CurrentPoise(Target), 9);
+
+            // 回满后再次打穿：重新起算。
+            long secondBreak = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                secondBreak = fx.TickNo;
+                fx.Hit(Attacker, Target);
+                fx.Run(1);
+            }
+
+            Assert.Equal(0.0, fx.Host.CurrentPoise(Target), 9);
+            fx.Run(resetTicks);
+            Assert.Equal(2, probe.Recovered.Count);
+            Assert.Equal(secondBreak + resetTicks - 1, probe.Recovered[1].Tick);
+
+            // 没声明：不自动回满。
+            var (fx2, _, _) = BuildPoise();
+            fx2.Hit(Attacker, Target);
+            fx2.Hit(Attacker, Target);
+            fx2.Hit(Attacker, Target);
+            fx2.Run(1);
+            fx2.Run(600);
+            Assert.Equal(0.0, fx2.Host.CurrentPoise(Target), 9);
+        }
+
+        /// <summary>
+        /// 复现用例（冲击等级倍率）：攻击方 <c>impact_class = medium</c>、声明 <c>poise_damage = D</c>，游戏填了 <c>PoiseDamageImpactMultipliers[medium] = m</c>。
+        /// 此前（没有这张表）每击扣 D（池子 3D → 2D）；现在每击扣 D × m（3D → 3D − D·m），<c>combat.poise_changed</c> 的伤害字段报告乘后的有效值，
+        /// m = 1.5 时第二击就打穿（容量 3D：3D → 1.5D → 0）。表里没有的等级取 1；空表（缺省）与此前逐位一致；静态韧性（命中不声明 <c>poise_damage</c>）不读这张表。
+        /// </summary>
+        [Fact]
+        public void PoiseDamageImpactMultipliers_ScaleThePoolDrain_ByTheAttackersImpactClass()
+        {
+            const double multiplier = 1.5;
+            var (fx, damage, max) = BuildPoise(o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["medium"] = multiplier });
+            var probe = WatchPoise(fx);
+            var full = FullReaction(fx);
+
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(max - damage * multiplier, fx.Host.CurrentPoise(Target), 9);
+            Assert.Equal(damage * multiplier, probe.Changed.Single().E.Damage, 9);
+            fx.Hit(Attacker, Target);
+            fx.Run(1);
+            Assert.Equal(0.0, fx.Host.CurrentPoise(Target), 9); // 3D → 1.5D → 0：第二击破韧
+            Assert.True(probe.Changed[1].E.Broken);
+            Assert.Equal(new[] { HitReaction.Flinch, full }, fx.Reactions.Select(r => r.E.Reaction).ToArray());
+
+            // 对照：空表（缺省）每击扣 D，容量 3D 要三击才破。
+            var (plain, _, _) = BuildPoise();
+            var plainProbe = WatchPoise(plain);
+            plain.Hit(Attacker, Target);
+            plain.Run(1);
+            Assert.Equal(max - damage, plain.Host.CurrentPoise(Target), 9);
+            Assert.Equal(damage, plainProbe.Changed.Single().E.Damage, 9);
+
+            // 表里没有该等级：取 1。
+            var (other, _, _) = BuildPoise(o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["massive"] = 4.0 });
+            other.Hit(Attacker, Target);
+            other.Run(1);
+            Assert.Equal(max - damage, other.Host.CurrentPoise(Target), 9);
+
+            // 静态韧性：命中不声明 poise_damage，表不起作用（池不被碰、没有 poise_changed）。
+            var staticFx = Build(configure: o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["medium"] = 9.0 });
+            var power = Ms(staticFx, Attacker, FeelFieldNames.StaggerPower);
+            staticFx.C.Stats.SetBase(Target, CombatTestSupport.StatArmor, power);
+            var staticProbe = WatchPoise(staticFx);
+            staticFx.Hit(Attacker, Target);
+            staticFx.Run(1);
+            Assert.Empty(staticProbe.Changed);
+            Assert.Equal(power, staticFx.Host.CurrentPoise(Target), 9);
+            Assert.Equal(HitReaction.Flinch, staticFx.Reactions.Single().E.Reaction);
+        }
+
+        /// <summary>不变量：每击伤害乘倍率后池子仍恒在 [0, 容量]，每条 <c>poise_changed</c> 自洽（<c>after = max(0, before − 伤害)</c>，伤害即乘后的有效值）。</summary>
+        [Fact]
+        public void PoiseDamageImpactMultipliers_KeepTheAccountingConsistent_AcrossHitSequences()
+        {
+            foreach (var m in new[] { 0.5, 1.0, 2.5 })
+            {
+                var (fx, damage, max) = BuildPoise(o => o.PoiseDamageImpactMultipliers = new Dictionary<string, double> { ["medium"] = m });
+                fx.Set(FeelFieldNames.PoiseRecoverDelayMs, 50);
+                fx.Set(FeelFieldNames.PoiseRecoverPerS, damage);
+                var probe = WatchPoise(fx);
+                foreach (var gap in new[] { 1, 0, 4, 20, 1, 1, 1 })
+                {
+                    fx.Hit(Attacker, Target);
+                    fx.Run(gap);
+                    Assert.InRange(fx.Host.CurrentPoise(Target), 0.0, max + 1e-9);
+                }
+
+                foreach (var c in probe.Changed)
+                {
+                    Assert.Equal(damage * m, c.E.Damage, 9);
+                    Assert.Equal(Math.Max(0.0, c.E.Before - c.E.Damage), c.E.After, 9);
+                    Assert.Equal(c.E.Before > 0.0 && c.E.After <= 0.0, c.E.Broken);
+                }
+            }
+        }
+
+        [Fact]
+        public void PoiseDynamicsFields_AreOptional_AndTheModeVocabularyMatches()
+        {
+            var fx = Build();
+            Assert.True(fx.Feel.Resolver.ResolveJudging(Target).GetAbsolute(FeelFieldNames.PoiseRecoverMode).IsNone);
+            Assert.False(fx.Feel.Resolver.ResolveJudging(Target).TryGetNumber(FeelFieldNames.PoiseBreakResetMs, out _));
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseRecoverMode).Optional);
+            Assert.True(FeelFields.Default.Get(FeelFieldNames.PoiseBreakResetMs).Optional);
+            Assert.Equal(new[] { "delay", "out_of_combat" }, FeelFields.Default.Get(FeelFieldNames.PoiseRecoverMode).EnumValues!.ToArray());
+            Assert.Empty(new HitFeelOptions().PoiseDamageImpactMultipliers); // 缺省空表：不缩放
+        }
+
         [Fact]
         public void EventKeys_AreRegisteredInTheFrameworkCatalog()
         {
@@ -1012,6 +1947,7 @@ namespace Tests.Rules.Combat
             {
                 RulesEventKeys.CombatHitConfirmed, RulesEventKeys.CombatReactionApplied,
                 RulesEventKeys.FeelHitstopStarted, RulesEventKeys.FeelHitstopEnded,
+                RulesEventKeys.CombatPoiseChanged, RulesEventKeys.CombatPoiseRecovered,
             })
             {
                 Assert.Contains("\"" + key.Value + "\"", catalog);

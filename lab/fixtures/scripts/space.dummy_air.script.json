@@ -1,0 +1,135 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.dummy_air",
+    "scriptVersion": 1,
+    "description": "空间扩展·靶子的主动跳跃与空中移动（手感落地 M4-W1b）：脚本事件 move / jump 让靶子自己持续向 +x 移动、第 40 个 tick 起跳（玩家什么都不做）。空中控制比例 0.5：靶子在空中的水平步长是地面步长的一半（与玩家的空中控制同一份规则）；落地发一次 unit.landed。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.arpg_responsive",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 160,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "airControl": 0.5,
+      "airCombat": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "move",
+      "kind": "move",
+      "value": {
+        "x": 1,
+        "y": 0
+      },
+      "actor": "stake"
+    },
+    {
+      "tick": 40,
+      "action": "jump",
+      "kind": "jump",
+      "actor": "stake"
+    },
+    {
+      "tick": 130,
+      "action": "move",
+      "kind": "move",
+      "value": {
+        "x": 0,
+        "y": 0
+      },
+      "actor": "stake"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "dummy_jump_accepted",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_jumps",
+      "op": "eq",
+      "value": "stake=1/0;",
+      "note": "脚本要求靶子起跳一次，被竖直运动服务接受。"
+    },
+    {
+      "id": "dummy_air_move_is_half_speed",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_air_ground_step_ratio",
+      "op": "approx",
+      "value": 0.5,
+      "tolerance": 1e-06,
+      "note": "靶子空中水平步长是地面步长的一半（空中控制比例 0.5，与玩家同一规则）。"
+    },
+    {
+      "id": "dummy_apex_side",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action"
+      ],
+      "metric": "air_combat.dummy_peak_max",
+      "op": "approx",
+      "value": 1.5,
+      "tolerance": 0.005,
+      "note": "横版格子的跳跃高度 1.5。"
+    },
+    {
+      "id": "dummy_apex_volume",
+      "cells": [
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_peak_max",
+      "op": "approx",
+      "value": 2.0,
+      "tolerance": 0.005,
+      "note": "体积格子的跳跃高度 2。"
+    },
+    {
+      "id": "dummy_landing_event",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.landed_count",
+      "op": "eq",
+      "value": 1,
+      "note": "靶子落地发一次 unit.landed（不止玩家）。"
+    }
+  ]
+}

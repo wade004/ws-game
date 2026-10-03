@@ -38,8 +38,19 @@ LEGACY_KEYS = [
     "attack.1h.03", "attack.2h", "attack.2h.02", "attack", "hit", "hit.light", "hit.heavy", "hit.knockback",
     "hit.knockdown", "hit.getup", "death", "jump", "cast", "dodge",
 ]
-#: 既有 34 个键的规格条目（不含新增的 hit_frame 事件）的摘要，取自追加前的入库版本。
-LEGACY_ENTRIES_SHA256 = "e044cc9b56dbb855a9112f47b1d764bedfb4a4f1179ffd2588a6b2b69a9561e2"
+#: 既有 34 个键（M4-W5 起不含 cast：其时间轴为对齐实验室技能命中点已改，见 test_cast_*）的规格条目（不含新增的 hit_frame 事件）的摘要，取自追加前的入库版本。
+LEGACY_ENTRIES_SHA256 = "83a39dadef7c8a87233fa79243b3ddbc9fca704082c35f54ce4e78006058ef1f"
+#: 手感落地 M4-D 之前已入库的 103 个键的规格条目整体摘要（取自 1.95.0 入库版本）：M4-D 只追加新键，既有 103 个键的规格条目不变。
+LEGACY103_ENTRIES_SHA256 = "a8ca087faad778da537d56334f8ef466925f97622b7f7c8a0e1725826e549726"
+LEGACY103_COUNT = 103
+#: 手感落地 M4-D 追加的键（独立于 config 的字面清单）。
+AIR_KEYS = ("jump.rise", "jump.fall", "jump.land", "hit.air", "attack.air", "attack.air.unarmed", "attack.air.1h",
+            "attack.air.2h", "attack.air.polearm", "attack.air.bow", "attack.air.staff", "attack.air.dual",
+            "attack.air.shield")
+DETAIL_KEYS = ("hit.block", "hit.block.shield", "stunned.sway", "hit.launch.tumble", "hit.launch.land")
+WOUNDED_KEYS = ("idle.wounded", "idle.combat.wounded", "move.walk.wounded", "move.run.wounded", "move.walk.combat.wounded",
+                "move.run.combat.wounded", "move.sprint.wounded", "move.sprint.combat.wounded", "move.start.wounded",
+                "move.stop.wounded", "move.pivot.wounded")
 
 
 @pytest.fixture(scope="module")
@@ -85,7 +96,9 @@ def test_required_and_recommended_keys_times_all_directions(gen4):
             assert (clip_dir(assets, e["resource_ref"], slot) / "atlas.png").is_file()
     # 武器层出现在持械族剪辑与无族的状态剪辑（hit.*/death/jump/cast/dodge/stunned/block），徒手 idle/move/attack 没有
     state_keys = ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
-                  "death", "jump", "cast", "dodge", "hit.launch", "stunned", "block")
+                  "death", "jump", "cast", "cast.quick", "cast.heavy", "dodge", "hit.launch", "stunned", "block",
+                  "jump.rise", "jump.fall", "jump.land", "hit.air", "hit.block", "hit.block.shield", "stunned.sway",
+                  "hit.launch.tumble", "hit.launch.land")
     for key, e in clips.items():
         has = "hand_main" in e["layers"]
         assert has == (e["family"] in WEAPON_FAMILIES or key in state_keys), key
@@ -97,6 +110,20 @@ def test_all_keys_follow_pose_key_syntax():
         info = parse_key(c.key)
         assert info is not None, c.key
         assert info["state"] in {"idle", "move", "attack", "cast", "hit", "death", "jump", "dodge", "stunned", "block"}
+
+
+def test_m4d_key_syntax_parses_air_block_launch_and_wounded_transitions():
+    """回落链要靠键语法认得 air/sway/tumble/land 与启停过渡的 wounded：解析出的维度必须是预期的。"""
+    assert parse_key("attack.air.1h")["family"] == "1h" and parse_key("attack.air.1h")["air"] is True
+    assert parse_key("attack.air")["family"] is None and parse_key("attack.air")["air"] is True
+    assert parse_key("hit.air")["variant"] == "air" and parse_key("jump.rise")["variant"] == "rise"
+    assert parse_key("hit.block.shield")["family"] == "shield" and parse_key("hit.block")["variant"] == "block"
+    assert parse_key("hit.launch.tumble")["variant"] == "launch.tumble"
+    assert parse_key("stunned.sway")["variant"] == "sway"
+    assert parse_key("move.start.wounded")["wounded"] is True and parse_key("move.pivot")["variant"] == "pivot"
+    assert parse_key("move.sprint.combat.wounded")["variant"] == "wounded"
+    for bad in ("jump.rise.x", "attack.air.nope", "stunned.sway.x", "move.start.nope"):
+        assert parse_key(bad) is None, bad
 
 
 def test_phases_match_feel_05_section9_starting_points(gen4):
@@ -227,7 +254,9 @@ def test_check_flags_frame_count_mismatch(gen4, tmp_path):
 # --- 武器层逐层剪辑（遗留：hit/death/jump/cast/dodge 的武器层原是静态图）---
 
 STATE_KEYS = ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "hit.getup",
-              "death", "jump", "cast", "dodge", "hit.launch", "stunned", "block")
+              "death", "jump", "cast", "cast.quick", "cast.heavy", "dodge", "hit.launch", "stunned", "block",
+              "jump.rise", "jump.fall", "jump.land", "hit.air", "hit.block", "hit.block.shield", "stunned.sway",
+              "hit.launch.tumble", "hit.launch.land")
 
 
 def _frame_bytes(clip_dir_path):
@@ -296,6 +325,8 @@ def test_legacy_keys_are_append_only_and_entries_unchanged(gen4):
               "layers", "weapon_layer_family", "alias_of", "step_displacement_bh", "cycle_displacement_bh")
     rows = []
     for k in LEGACY_KEYS:
+        if k == "cast":
+            continue
         e = {f: clips[k][f] for f in fields if f in clips[k]}
         e["events"] = [x for x in e["events"] if x["name"] != "hit_frame"]
         rows.append([k, e])
@@ -378,7 +409,7 @@ def test_hit_frame_event_same_time_as_hit_on_every_attack_clip_and_data_row(gen4
         assert len(hits) == 1 and hf == hits, key
         assert [x for x in row["clips"][key]["events"] if x["name"] == "hit_frame"] == [{"name": "hit_frame", "time_pct": hits[0]}]
         n += 1
-    assert n == 17  # 徒手3 + 1h 3 + 2h 2 + 长柄2 + 弓1 + 法杖2 + 双持3 + 盾1
+    assert n == 25  # 地面 17（徒手3 + 1h 3 + 2h 2 + 长柄2 + 弓1 + 法杖2 + 双持3 + 盾1）+ 空中 8（每族一段）
 
 
 def test_check_flags_missing_hit_frame_and_missing_family_key(gen4, tmp_path):
@@ -395,3 +426,339 @@ def test_check_flags_missing_optional_key(gen4, tmp_path):
     a, d = _copy(gen4, tmp_path)
     _rewrite_spec(a, lambda s: s["clips"].pop("hit.launch"))
     assert any("可选键缺失" in e and "hit.launch" in e for e in _errors(a, d))
+
+
+# --- 手感落地 M4-D：既有键只追加 / 体量档覆盖全部键 / 带伤覆盖 / 空中键 / 格挡眩晕击飞细节 / 武器形体 ---
+
+def test_legacy_103_entries_unchanged_and_new_keys_only_appended(gen4):
+    """不变量：1.95.0 入库的 103 个键仍在最前、顺序与规格条目逐字段不变；M4-D 键只追加在其后。"""
+    clips = gen4[2]["clips"]
+    keys = list(clips)
+    old = [[k, clips[k]] for k in keys[:LEGACY103_COUNT] if k != "cast"]
+    assert hashlib.sha256(json.dumps(old, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == LEGACY103_ENTRIES_SHA256
+    assert set(keys[LEGACY103_COUNT:]) == (set(AIR_KEYS) | set(DETAIL_KEYS) | {"cast.quick", "cast.heavy"}
+                                           | {k for k in WOUNDED_KEYS if k not in keys[:LEGACY103_COUNT]})
+    assert len(keys) == 130
+
+
+def test_cast_clip_keeps_length_and_frames_but_release_moves_to_lab_skill_hit_time(gen4):
+    """M4-W5：cast 总时长与帧数不变（600 ms / 12 帧），仅 windup 与 recovery 重新分配，使 release 落在 150 ms。"""
+    c = gen4[2]["clips"]["cast"]
+    assert c["total_ms"] == 600 and c["frame_count"] == 12
+    assert [(p["name"], p["ms"]) for p in c["phases"]] == [("windup", 150), ("release", 100), ("recovery", 350)]
+    rel = [e for e in c["events"] if e["name"] == "release"]
+    assert len(rel) == 1 and abs(rel[0]["time_pct"] - 150 / 600) < 1e-3
+
+
+def test_cast_release_variants_keep_length_and_frames_with_release_at_the_declared_time(gen4):
+    """M4-W6：cast.quick（释放 100 ms）/ cast.heavy（释放 300 ms）总时长与帧数同 cast（600 ms / 12 帧）；
+    release 事件恰在前摇结束处；每个变体都带武器层（随武器族换层）。"""
+    clips = gen4[2]["clips"]
+    base = clips["cast"]
+    for key, want_ms in (("cast.quick", 100), ("cast.heavy", 300)):
+        c = clips[key]
+        assert c["total_ms"] == base["total_ms"] == 600 and c["frame_count"] == base["frame_count"] == 12, key
+        assert c["variant"] == key.split(".")[1] and c["tier"] == "optional"
+        assert [(p["name"], p["ms"]) for p in c["phases"]][0] == ("windup", want_ms)
+        rel = [e for e in c["events"] if e["name"] == "release"]
+        assert len(rel) == 1 and abs(rel[0]["time_pct"] - want_ms / 600) < 1e-3, key
+        assert c["layers"] == base["layers"] and c["weapon_layer_family"] == base["weapon_layer_family"], key
+
+
+def test_check_flags_cast_variant_release_off_the_declared_time(gen4, tmp_path):
+    """复现：把 cast.quick 的 release 事件挪离 100 ms，自检必须报错（防止数据与施放点声明脱节）。"""
+    a, d = _copy(gen4, tmp_path)
+    def bend(s):
+        for e in s["clips"]["cast.quick"]["events"]:
+            if e["name"] in ("release", "hit_frame"):
+                e["time_pct"] = 0.5
+    _rewrite_spec(a, bend)
+    assert any("cast.quick" in e and "release" in e for e in _errors(a, d))
+
+
+def test_wounded_variant_covers_every_idle_and_move_key_including_sprint_and_combat(gen4):
+    """复现：此前 wounded 只有待机与走/跑；不变量：徒手基础族每个待机/移动键（含冲刺、战斗走跑、启停过渡）都有 .wounded。"""
+    clips = gen4[2]["clips"]
+    for k in WOUNDED_KEYS:
+        assert k in clips, k
+        assert clips[k]["variant"] == "wounded"
+    base_keys = [k for k, e in clips.items() if e["family"] is None and parse_key(k)["state"] in ("idle", "move")
+                 and parse_key(k)["variant"] in (None, "start", "stop", "pivot") and not k.endswith(".wounded")]
+    assert len(base_keys) == len(WOUNDED_KEYS)
+    for k in base_keys:
+        assert f"{k}.wounded" in clips, k
+    # 带伤冲刺：步幅倍率 < 1，每步位移 = 标称 x 倍率；战斗冲刺别名到和平冲刺
+    sp = clips["move.sprint.wounded"]
+    assert sp["stride_factor"] < 1.0
+    assert clips["move.sprint.combat.wounded"]["alias_of"] == "move.sprint.wounded"
+    # 过渡：带伤的起步/急停/急转的端点接带伤的待机/奔跑
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.verify import pose_diff
+    ck = C.clip_by_key
+    for k, a, b in (("move.start.wounded", "idle.wounded", "move.run.wounded"),
+                    ("move.stop.wounded", "move.run.wounded", "idle.wounded")):
+        c = ck(k)
+        assert pose_diff(pose_at(c, 0.0), pose_at(ck(a), 0.0)) < 1e-9
+        assert pose_diff(pose_at(c, float(c.total_ms)), pose_at(ck(b), 0.0)) < 1e-9
+
+
+def test_air_keys_resolve_to_declared_fallback_and_follow_ground_attack_phases(gen4):
+    clips = gen4[2]["clips"]
+    for k in AIR_KEYS + DETAIL_KEYS:
+        assert k in clips, k
+    assert clips["attack.air"]["alias_of"] == "attack.air.unarmed"
+    assert clips["jump.rise"]["loop"] and clips["jump.fall"]["loop"] and not clips["jump.land"]["loop"]
+    for fam in ("unarmed", "1h", "2h", "polearm", "bow", "staff", "dual", "shield"):
+        air, ground = clips[f"attack.air.{fam}"], clips[f"attack.{fam}"]
+        assert air["phases"] == ground["phases"], fam
+        names = {x["name"] for x in air["events"]}
+        assert {"active_start", "hit", "active_end", "hit_frame"} <= names
+        assert not any(n.startswith(("combo_", "cancel_open")) for n in names), fam   # 空中没有连招段与地面闪避取消
+    # 空中攻击不带抬升：高度归逻辑竖直轴
+    from std_dummy_poses.poses import pose_at
+    for fam in ("1h", "bow"):
+        c = C.clip_by_key(f"attack.air.{fam}")
+        assert max(abs(pose_at(c, c.total_ms * i / 10)["lift"]) for i in range(11)) == 0.0
+
+
+def test_air_clip_endpoints_chain_into_jump_fall_loop():
+    """不变量：jump.land 起点 = jump.fall 起点、hit.air 首尾 = jump.fall 起点（接下落循环）。"""
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.verify import pose_diff
+    fall0 = pose_at(C.clip_by_key("jump.fall"), 0.0)
+    assert pose_diff(pose_at(C.clip_by_key("jump.land"), 0.0), fall0) < 1e-9
+    ha = C.clip_by_key("hit.air")
+    assert pose_diff(pose_at(ha, 0.0), fall0) < 1e-9 and pose_diff(pose_at(ha, float(ha.total_ms)), fall0) < 1e-9
+
+
+def test_block_hit_shake_returns_to_block_hold_and_stun_sway_is_wide():
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.verify import pose_diff
+    for hk, bk in (("hit.block", "block"), ("hit.block.shield", "block.shield")):
+        h, b = C.clip_by_key(hk), C.clip_by_key(bk)
+        assert pose_diff(pose_at(h, 0.0), pose_at(b, 0.0)) < 1e-9
+        assert pose_diff(pose_at(h, float(h.total_ms)), pose_at(b, 0.0)) < 1e-9
+        mid = pose_at(h, 80.0)           # 冲击相终点：与持握有明显差异（抖动真的发生）
+        assert pose_diff(mid, pose_at(b, 0.0)) > 5.0
+    sw = C.clip_by_key("stunned.sway")
+    rolls = [pose_at(sw, sw.total_ms * i / 32)["t_roll"] for i in range(32)]
+    assert max(rolls) - min(rolls) >= 15.0
+    plain = C.clip_by_key("stunned")
+    assert max(rolls) - min(rolls) > 1.3 * (max(pose_at(plain, plain.total_ms * i / 32)["t_roll"] for i in range(32))
+                                          - min(pose_at(plain, plain.total_ms * i / 32)["t_roll"] for i in range(32)))
+
+
+def test_launch_tumble_flips_a_full_turn_without_penetrating_ground_and_lands_into_getup():
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.skeleton import build_parts, solve_ground
+    from std_dummy_poses.verify import pose_diff
+    tb, ld, gu = C.clip_by_key("hit.launch.tumble"), C.clip_by_key("hit.launch.land"), C.clip_by_key("hit.getup")
+    bps = [pose_at(tb, tb.total_ms * i / 40)["bp"] for i in range(40)]
+    assert bps[0] == 0.0 and all(b2 < b1 for b1, b2 in zip(bps, bps[1:])) and bps[-1] < -350.0   # 单调翻一整圈
+    for c in (tb, ld):
+        for i in range(41):
+            p = pose_at(c, c.total_ms * i / 40)
+            parts, _j = build_parts(p, None)
+            low = min(q[1] for pp in parts if pp.layer == "body" for q in pp.corners) + solve_ground(p, parts)
+            assert low >= -1e-6, (c.key, i, low)          # 不穿地
+    assert pose_diff(pose_at(ld, 0.0), pose_at(tb, float(tb.total_ms))) < 1e-9
+    assert pose_diff(pose_at(ld, float(ld.total_ms)), pose_at(gu, 0.0)) < 1e-9
+
+
+def test_mass_tiers_cover_all_keys_and_inherit_main_set(gen4):
+    """复现：此前体量组只覆盖待机与移动站姿。不变量：每档覆盖主集全部键（含别名键）、数据行 extends 主集、中体量为空覆盖行、
+    非受击/抬升类键与主集只差静态站姿偏移。"""
+    assets, data, spec = gen4
+    main = spec["clips"]
+    assert list(spec["mass_tiers"]["tiers"]) == list(C.MASS_TIERS) == ["light", "heavy"]
+    assert spec["mass_tiers"]["main"] == "medium"
+    doc = json.loads((data / "display" / "display.anim_set.json").read_text(encoding="utf-8"))
+    rows = {r["id"]: r for r in doc["rows"]}
+    mid = rows["display.anim_set.std_dummy_biped_medium"]
+    assert mid["extends"] == "display.anim_set.std_dummy_biped" and mid["clips"] == {}
+    from std_dummy_poses.poses import pose_at
+    for g in spec["mass_groups"]:
+        assert set(g["clips"]) == set(main)
+        row = rows[g["id"]]
+        assert row["extends"] == "display.anim_set.std_dummy_biped" and set(row["clips"]) == set(main)
+        for k, e in g["clips"].items():
+            assert e["resource_ref"].startswith(f"sprite_anim.std_dummy_{g['mass']}_")
+            assert e["events"] == main[k]["events"] and e["total_ms"] == main[k]["total_ms"]
+        prof = C.MASS_TIERS[g["mass"]]
+        for c in C.mass_clip_defs(g["mass"]):
+            if c.alias_of or c.pose_id in ("hit", "hit.light", "hit.heavy", "hit.knockback", "hit.knockdown", "death",
+                                           "hit.launch", "jump", "hit_air", "hit_block"):
+                continue
+            pg, pm = pose_at(c, 0.0), pose_at(C.clip_by_key(c.key), 0.0)
+            for kk in pg:
+                want = {"t_pitch": prof["t_pitch"], "h_pitch": prof["h_pitch"], "m_sa": prof["sa"], "o_sa": prof["sa"],
+                        "m_ha": prof["ha"], "o_ha": prof["ha"]}.get(kk, 0.0)
+                assert pg[kk] - pm[kk] == pytest.approx(want, abs=1e-9), (g["mass"], c.key, kk)
+    # 受击类键的体量差异体现在反应幅度（相对各自站姿的后仰量）：轻 > 中 > 重
+    hv = C.clip_by_key("hit.heavy")
+    t = hv.phases[0][1]
+
+    def react(c):
+        return abs(pose_at(c, t)["t_pitch"] - pose_at(c, 0.0)["t_pitch"])
+    assert react(dataclasses_replace(hv, "light")) > react(hv) > react(dataclasses_replace(hv, "heavy"))
+
+
+def dataclasses_replace(clip, mass):
+    import dataclasses
+    return dataclasses.replace(clip, mass=mass)
+
+
+def test_mass_tiers_are_data_declared_adding_a_tier_adds_a_group_and_row(monkeypatch):
+    """可数据声明的多档：在 MASS_TIERS 里加一档，规格与数据行就多出对应的组与行，不改任何代码。"""
+    monkeypatch.setitem(C.MASS_TIERS, "xheavy", {"t_pitch": 9.0, "h_pitch": -6.0, "sa": 11.0, "ha": 7.0, "react": 0.7, "air": 0.8})
+    spec = build_spec(8, 20, True)
+    assert [g["mass"] for g in spec["mass_groups"]] == ["light", "heavy", "xheavy"]
+    from std_dummy_poses.build import build_mass_data_rows
+    ids = [r["id"] for r in build_mass_data_rows(spec)]
+    assert ids == ["display.anim_set.std_dummy_biped_medium", "display.anim_set.std_dummy_biped_light",
+                   "display.anim_set.std_dummy_biped_heavy", "display.anim_set.std_dummy_biped_xheavy"]
+    assert all(len(g["clips"]) == len(spec["clips"]) for g in spec["mass_groups"])
+    assert next(g for g in spec["mass_groups"] if g["mass"] == "xheavy")["clips"]["idle"]["resource_ref"] == \
+        "sprite_anim.std_dummy_xheavy_idle"
+
+
+def test_check_flags_mass_group_missing_key_and_missing_tier(gen4, tmp_path):
+    a, d = _copy(gen4, tmp_path)
+    _rewrite_spec(a, lambda s: s["mass_groups"][1]["clips"].pop("attack.1h"))
+    assert any("覆盖全部键" in e and "heavy" in e for e in _errors(a, d))
+    b, d2 = _copy(gen4, tmp_path / "b")
+    _rewrite_spec(b, lambda s: (s["mass_tiers"]["tiers"].pop("heavy"), s["mass_groups"].pop(1)))
+    assert any("体量档缺 heavy" in e for e in _errors(b, d2))
+
+
+def test_check_flags_missing_m4d_key_and_uncovered_wounded_key(gen4, tmp_path):
+    a, d = _copy(gen4, tmp_path)
+    _rewrite_spec(a, lambda s: s["clips"].pop("jump.rise"))
+    assert any("M4-D 键缺失" in e and "jump.rise" in e for e in _errors(a, d))
+    b, d2 = _copy(gen4, tmp_path / "b")
+    _rewrite_spec(b, lambda s: s["clips"].pop("move.sprint.wounded"))
+    assert any("带伤变体未覆盖 move.sprint" in e for e in _errors(b, d2))
+
+
+def test_five_new_weapon_shapes_are_low_poly_not_boxes_and_stay_within_canvas():
+    """复现：M3-D 的新族武器是方块占位（1-4 个盒子）。不变量：零件数不低于下限、总长可辨认、零件名与登记一致；
+    画布不裁切由逐帧自检保证（generated tree 自检 0 错误）。"""
+    from std_dummy_poses import weapons
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.skeleton import build_parts
+    floor = {"polearm": 5, "bow": 9, "staff": 6, "dual": 5, "shield": 5}
+    for fam, n in floor.items():
+        parts, _j = build_parts(pose_at(C.clip_by_key(f"idle.combat.{fam}"), 0.0), fam)
+        wp = [p for p in parts if p.layer == "weapon"]
+        assert len(wp) >= n and [p.name for p in wp] == list(weapons.part_names(fam)), fam
+        assert len({p.name for p in wp}) == len(wp)
+    # 武器形体仍是占位：装备美术覆盖（ADR-0100）——形体由 hand_main 层承载，身体层不含武器
+    parts, _j = build_parts(pose_at(C.clip_by_key("idle.combat.polearm"), 0.0), "polearm")
+    assert {p.layer for p in parts} == {"body", "weapon"}
+
+
+def test_weapon_shape_change_leaves_body_layers_and_non_weapon_families_untouched():
+    """不变量：武器形体改动只影响五个新族的武器层（含整身合成），身体层与 1h/2h 的像素不变——渲染同一姿势，徒手与 1h 完全一致。"""
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.skeleton import render
+    c = C.clip_by_key("idle.combat.bow")
+    p = pose_at(c, 0.0)
+    body = render(p, 0.0, "bow", "body")
+    assert body.tobytes() == render(p, 0.0, None, "body").tobytes()
+
+
+LYING_KEYS = ("hit.launch", "hit.knockdown", "hit.getup", "death")
+BP_KEYS = LYING_KEYS + ("hit.launch.tumble", "hit.launch.land", "hit.heavy", "hit.knockback")
+
+
+def test_m4w5_bp_only_on_lying_and_tumble_keys_and_lying_poses_lie_flat_without_penetrating_ground():
+    """复现：M4-D 的躺姿用肩/髋大角度硬掰出来（肩 > 190、髋 < -50，超出人体范围）。不变量：躺姿键改用骨盆整身俯仰 bp 放平，
+    bp 只出现在躺姿 + 翻滚 + 重受击/击退（M4-W6）键；躺姿键的肩/髋/躯干源角度落在收紧后的人体范围内；任何一帧不穿地。"""
+    from std_dummy_poses.poses import pose_at
+    from std_dummy_poses.skeleton import build_parts, solve_ground
+    for mass in (None, "light", "heavy"):
+        defs = C.mass_clip_defs(mass) if mass else C.build_clip_defs()
+        for c in defs:
+            if c.alias_of:
+                continue
+            bps = [abs(pose_at(c, c.total_ms * i / 40)["bp"]) for i in range(41)]
+            if c.key not in BP_KEYS:
+                assert max(bps) == 0.0, (mass, c.key)
+            elif c.key in LYING_KEYS:
+                assert max(bps) >= 85.0, (mass, c.key)
+            for i in range(41):
+                p = pose_at(c, c.total_ms * i / 40)
+                if c.key in LYING_KEYS:
+                    for name, lo, hi in (("m_sf", -65, 185), ("o_sf", -65, 185), ("m_hf", -46, 100), ("o_hf", -46, 100),
+                                         ("t_pitch", -50, 60)):
+                        assert lo - 1e-6 <= p[name] <= hi + 1e-6, (mass, c.key, i, name, p[name])
+                parts, _j = build_parts(p, None)
+                low = min(q[1] for pp in parts if pp.layer == "body" for q in pp.corners) + solve_ground(p, parts)
+                assert low >= -1e-6, (mass, c.key, i, low)
+
+
+def test_m4w5_lying_poses_are_supine_and_prone_by_bp_sign_and_getup_starts_from_the_knockdown_end():
+    """击倒落在仰卧（bp < 0，后倒），死亡落在俯卧（bp > 0，前扑）；起身从击倒终点出发、回到站姿。"""
+    from std_dummy_poses.poses import pose_at
+    kd, gu, dt = (C.clip_by_key(k) for k in ("hit.knockdown", "hit.getup", "death"))
+    assert pose_at(kd, float(kd.total_ms))["bp"] <= -85.0 and pose_at(dt, float(dt.total_ms))["bp"] >= 85.0
+    assert abs(pose_at(gu, float(gu.total_ms))["bp"]) < 1e-9
+    assert pose_at(gu, 0.0)["bp"] == pose_at(kd, float(kd.total_ms))["bp"]
+
+
+def test_m4w6_every_lab_skill_hit_marker_equals_the_release_of_the_cast_clip_it_plays(gen4):
+    """复现（M4-H 实测、M4-W5 判定）：起手 100 ms 的技能动画晚 50 ms、起手 300 ms 的精英重击动画早 150 ms（单一 cast 剪辑只有一个释放点）。
+    不变量：每个有命中标记且用施放动画（cast_time > 0）的实验室技能（动作式技能库 + space_ext 的 jab），其命中标记等于它实际播放的施放剪辑的 release 时刻：
+    没声明覆盖的用 cast（150 ms），声明了 weapon_style.cast_anim_override 的用覆盖的变体；精灵与模型两份武器风格行的覆盖完全一致，且回退链
+    cast.<变体> -> cast 的目标都存在；每个变体都被至少一个技能用到（没有死条目）。"""
+    clips = gen4[2]["clips"]
+
+    def release_ms(key):
+        t = 0
+        for ph in clips[key]["phases"]:
+            if ph["name"] == "release":
+                return t
+            t += ph["ms"]
+        raise AssertionError(key)
+
+    rows = json.loads((REPO_ROOT / "data" / "_lab_action" / "display" / "display.weapon_style.json").read_text(encoding="utf-8"))["rows"]
+    by_id = {r["id"]: r for r in rows}
+    sprite, model = by_id["display.weapon_style.lab_sprite"]["cast_anim_override"], by_id["display.weapon_style.lab_model"]["cast_anim_override"]
+    assert set(sprite) == set(model)
+    key_of = lambda ref, prefix: ref[len(prefix):].replace("std_dummy_", "").replace("_", ".", 1)  # noqa: E731
+    for skill in sprite:
+        assert key_of(sprite[skill], "sprite_anim.") == key_of(model[skill], "anim."), skill
+        assert key_of(sprite[skill], "sprite_anim.") in clips, skill
+        assert key_of(sprite[skill], "sprite_anim.") in ("cast.quick", "cast.heavy"), skill
+
+    used, checked = set(), []
+    for rel in ("data/_lab_action/skill/skill.def.json", "lab/fixtures/data/space_ext/skill/skill.def.json"):
+        for r in json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))["rows"]:
+            hits = [m["at_ms"] for m in r.get("timeline", {}).get("markers", []) if m["name"] == "hit"]
+            if not hits or r.get("cast_time", 0) <= 0:
+                continue
+            key = key_of(sprite[r["id"]], "sprite_anim.") if r["id"] in sprite else "cast"
+            used.add(key)
+            checked.append(r["id"])
+            for h in hits:
+                assert h == release_ms(key), (r["id"], h, key, release_ms(key))
+    assert {"skill.lab_a_slash", "skill.lab_a_combo3", "skill.lab_a_elite_swing", "skill.lab_spx_jab"} <= set(checked)
+    assert used == {"cast", "cast.quick", "cast.heavy"}
+
+
+def test_m4w5_mass_groups_carry_whole_body_direction_variants_and_flag_agrees(gen4):
+    """复现：此前体量组只有主方向（front/back/side_r），分段/8 向切到别的朝向时重/轻体量回落到中体量图。不变量：规格里的标记与
+    参数一致，体量组的整身剪辑目录集合与主集一致（每键每方向一份）。"""
+    assets, data, spec = gen4
+    assert spec["mass_tiers"]["composite_direction_variants"] is True
+    assert spec["params"]["composite_direction_variants"] is True
+    slots = ("front", "back", "side_r")
+    for g in spec["mass_groups"]:
+        for k, e in g["clips"].items():
+            if "alias_of" in e:
+                continue
+            main_ref = spec["clips"][k]["resource_ref"]
+            for slot in slots:
+                md = clip_dir(assets, e["resource_ref"], slot)
+                assert md.is_dir(), (g["mass"], k, slot)
+                assert len(list(md.glob("*.png"))) == len(list(clip_dir(assets, main_ref, slot).glob("*.png"))), (g["mass"], k, slot)

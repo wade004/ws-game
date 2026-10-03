@@ -337,5 +337,36 @@ namespace Adapter.Unity.Tests.Runtime
             }
             Assert.AreEqual(1, factory.DirectionAwareReprobeCountForTests, "同一方向档位内重复 SyncPose 不应该重复触发重探测");
         }
+
+        /// <summary>NF2：没有纸娃娃层的外形，初始方向（挂接期默认朝向的槽位）自己的整身方向变体资源在挂接时就生效，
+        /// 不必等第一次换向。复现：改动前挂接只登记无方向段的 resource_ref，Walk 时播放的是无方向段资源
+        /// （帧贴图是它的而不是变体的）；期望值由规则算出——初始方向裸档位名由约定宿主按默认朝向解析，变体资源 id =
+        /// <c>MoveResourceRef + "__" + 裸档位名</c>，播放的帧必须取自变体资源。不变量：不计入重探测次数（这不是一次换向）。</summary>
+        [UnityTest]
+        public IEnumerator Attach_InitialDirectionWholeBodyVariant_IsUsedWithoutAnyTurn_AndIsNotCountedAsAReprobe()
+        {
+            var sprite = new SpriteInfo(spriteSetId: "sprite.creature.test_hero_0093", directionCount: 8);
+            var (initialSlotId, _) = new RenderConventionHost().ResolveDirectionSlot(Direction.FromQuantized(0.0, 8), sprite);
+            var dirBare = DirectionSlots.StripPrefix(initialSlotId);
+            var variantRef = new Id(MoveResourceRefValue + "__" + dirBare);
+            var plainRef = new Id(MoveResourceRefValue);
+            WriteEffectResource(variantRef, Color.red, Color.green);
+            WriteEffectResource(plainRef, Color.white, Color.black);
+            yield return WarmEffectCache(variantRef);
+            yield return WarmEffectCache(plainRef);
+            _resourceLoader.TryGetEffect(variantRef, out var variantEffect);
+            _resourceLoader.TryGetEffect(plainRef, out var plainEffect);
+
+            var (bus, factory, view, entityId, player, moveClipId) = BuildFixture();
+            bus.PublishImmediate(new Core.Carriers.Common.UnitStateChangedEvent(entityId, "Idle", "Walk"));
+            yield return null;
+
+            Assert.AreEqual(moveClipId, player.CurrentClipId!.Value);
+            Assert.AreEqual(
+                variantEffect.Frames[player.CurrentFrame].Sprite, player.SpriteRenderer.sprite,
+                "初始方向自己的整身方向变体资源应在挂接时就生效（改动前停在无方向段资源）");
+            Assert.AreNotEqual(plainEffect.Frames[player.CurrentFrame].Sprite, player.SpriteRenderer.sprite);
+            Assert.AreEqual(0, factory.DirectionAwareReprobeCountForTests, "挂接期的初始方向探测不是一次换向，不计入重探测次数");
+        }
     }
 }

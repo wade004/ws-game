@@ -24,7 +24,7 @@ namespace Core.Rules.Targeting
         /// <c>GetNumber</c> 对缺失字段一律返回 0（不抛异常），四个数值子字段均登记为非必填。</summary>
         public static readonly FieldSchema ShapeSchema = new FieldSchema(
             "shape", FieldKind.Object, required: false, variants: BuildShapeVariants(),
-            description: "{kind: circle|cone|line|rect, radius?, angle?, length?, width?, height?}；" +
+            description: "{kind: circle|cone|line|rect, radius?, angle?, length?, width?, height?, height_offset?}；" +
                 "origin/direction/rotation 不在数据里声明，由 TargetHost 在解析时按施法者当前坐标/朝向" +
                 "重新锚定（见 schema/README.md 判断记录）。");
 
@@ -40,14 +40,18 @@ namespace Core.Rules.Targeting
                     "只在 TargetingOptions.VerticalHit 开启时生效（体积空间 / 横版二维能力包），平面世界忽略；缺省不设限")
                 .WithRange(FieldRange.Range(min: 0, minExclusive: true));
 
+            var heightOffset = new FieldSchema("height_offset", FieldKind.Number, required: false,
+                description: "形状自身的竖直偏移（世界单位，可正可负，缺省 0）：命中高度窗口的中心 = 施法者脚下高度 + 偏移（挑击向上、扫堂腿向下）；" +
+                    "只在 TargetingOptions.VerticalHit 开启且声明了 height 时生效，平面世界忽略");
+
             var cases = new Dictionary<string, IReadOnlyList<FieldSchema>>(System.StringComparer.Ordinal)
             {
-                ["circle"] = new[] { radius, height },
-                ["cone"] = new[] { angle, radius, height },
-                ["line"] = new[] { length, width, height },
+                ["circle"] = new[] { radius, height, heightOffset },
+                ["cone"] = new[] { angle, radius, height, heightOffset },
+                ["line"] = new[] { length, width, height, heightOffset },
                 // 判断记录：rect 复用 line 的 length/width 命名（换算成 halfExtents，见
                 // TargetChainDef.ParseShape 该分支注释），不是独立字段集。
-                ["rect"] = new[] { length, width, height },
+                ["rect"] = new[] { length, width, height, heightOffset },
             };
             return new VariantSchema("kind", cases);
         }

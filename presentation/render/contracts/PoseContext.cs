@@ -16,6 +16,24 @@ namespace Presentation.Render
     }
 
     /// <summary>
+    /// 空中阶段（呈现型派生，ADR-0130 追加决定"空中姿势"）：表现层按竖直运动服务的竖直速度与腾空/落地派生，只用于姿势解析，
+    /// 逻辑层没有这个概念，也不回写判定。<see cref="None"/> = 在地面（缺省，与未启用空中姿势时逐位一致）。
+    /// </summary>
+    public enum AirPhase
+    {
+        None = 0,
+
+        /// <summary>腾空且向上运动。</summary>
+        Rise = 1,
+
+        /// <summary>腾空且向下运动（含顶点）。</summary>
+        Fall = 2,
+
+        /// <summary>刚落地的保持窗口（只持续数个 tick，供落地姿势播放）。</summary>
+        Land = 3,
+    }
+
+    /// <summary>
     /// 姿势解析的呈现侧上下文（手感设计/04 第 2 节的步态、武器族、变体三个维度；状态与姿态由动画状态机给）。
     /// 纯值对象。缺省值（<c>default</c>）= 没有任何额外维度，解析结果恒为改动前的"状态 + 战斗姿态"两维。
     /// </summary>
@@ -29,11 +47,89 @@ namespace Presentation.Render
         /// <summary>游戏层变体（<c>wounded/carrying/mounted …</c>）；null 表示未指定。</summary>
         public string? Variant { get; }
 
+        /// <summary>空中阶段；缺省 <see cref="AirPhase.None"/>。</summary>
+        public AirPhase Air { get; }
+
         public PoseContext(LocomotionGait gait, string? family = null, string? variant = null)
         {
             Gait = gait;
             Family = string.IsNullOrEmpty(family) ? null : family;
             Variant = string.IsNullOrEmpty(variant) ? null : variant;
+            Air = AirPhase.None;
+        }
+
+        public PoseContext(LocomotionGait gait, string? family, string? variant, AirPhase air)
+        {
+            Gait = gait;
+            Family = string.IsNullOrEmpty(family) ? null : family;
+            Variant = string.IsNullOrEmpty(variant) ? null : variant;
+            Air = air;
+        }
+
+        /// <summary>此刻是否在空中（上升或下降；落地保持窗口不算）。</summary>
+        public bool IsAirborne => Air == AirPhase.Rise || Air == AirPhase.Fall;
+
+        /// <summary>
+        /// 空中姿势请求（ADR-0130 追加决定）：<paramref name="stateKey"/> 为 <c>jump</c> 且有空中阶段（含落地保持）时取跳跃阶段键；
+        /// 为 <c>hit</c>/<c>attack</c> 且此刻在空中时取 <c>hit.air</c>/<c>attack.air[.&lt;family&gt;]</c>；其它情形返回 false，
+        /// 调用方走 <see cref="ToRequest"/> 的地面解析（与改动前逐位一致）。
+        /// </summary>
+        public bool TryGetAirRequest(string stateKey, out AirPoseRequest request)
+        {
+            request = default;
+            if (Air == AirPhase.None) return false;
+            switch (stateKey)
+            {
+                case "jump":
+                    request = AirPoseRequest.Jump(
+                        Air == AirPhase.Rise ? AirPoseRequest.PhaseRise
+                        : Air == AirPhase.Fall ? AirPoseRequest.PhaseFall
+                        : AirPoseRequest.PhaseLand);
+                    return true;
+                case "hit":
+                    if (!IsAirborne) return false;
+                    request = AirPoseRequest.HitAir();
+                    return true;
+                case "attack":
+                    if (!IsAirborne) return false;
+                    request = AirPoseRequest.AttackAir(Family);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// 带变体维度的空中姿势请求（手感落地 M4-W1b）：规则同 <see cref="TryGetAirRequest(string, out AirPoseRequest)"/>，
+        /// 但请求额外带姿态（<paramref name="inCombat"/> 为真生成 <c>.combat</c>）、武器族与变体（<c>jump.rise.combat</c>、<c>hit.air.wounded</c>、
+        /// <c>attack.air.combat.sword</c>），回落链按 <see cref="AirPoseRequest.Chain"/>（先去变体，再去武器族，再去姿态，最后固定尾链）。
+        /// 武器族在本重载里对跳跃与受击同样生效（两参数重载只对攻击生效，保持旧行为）。
+        /// </summary>
+        public bool TryGetAirRequest(string stateKey, bool inCombat, out AirPoseRequest request)
+        {
+            request = default;
+            if (Air == AirPhase.None) return false;
+            var stance = inCombat ? PoseKeys.StanceCombat : null;
+            switch (stateKey)
+            {
+                case "jump":
+                    request = AirPoseRequest.Jump(
+                        Air == AirPhase.Rise ? AirPoseRequest.PhaseRise
+                        : Air == AirPhase.Fall ? AirPoseRequest.PhaseFall
+                        : AirPoseRequest.PhaseLand,
+                        stance, Family, Variant);
+                    return true;
+                case "hit":
+                    if (!IsAirborne) return false;
+                    request = AirPoseRequest.HitAir(stance, Family, Variant);
+                    return true;
+                case "attack":
+                    if (!IsAirborne) return false;
+                    request = AirPoseRequest.AttackAir(Family, stance, Variant);
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         /// <summary>无任何额外维度。</summary>
@@ -62,7 +158,7 @@ namespace Presentation.Render
 
         public bool Equals(PoseContext other) =>
             Gait == other.Gait && string.Equals(Family, other.Family, StringComparison.Ordinal)
-            && string.Equals(Variant, other.Variant, StringComparison.Ordinal);
+            && string.Equals(Variant, other.Variant, StringComparison.Ordinal) && Air == other.Air;
 
         public override bool Equals(object? obj) => obj is PoseContext other && Equals(other);
 
@@ -73,10 +169,11 @@ namespace Presentation.Render
                 var h = (int)Gait;
                 h = (h * 397) ^ (Family == null ? 0 : StringComparer.Ordinal.GetHashCode(Family));
                 h = (h * 397) ^ (Variant == null ? 0 : StringComparer.Ordinal.GetHashCode(Variant));
+                h = (h * 397) ^ (int)Air;
                 return h;
             }
         }
 
-        public override string ToString() => $"{Gait}/{Family ?? "-"}/{Variant ?? "-"}";
+        public override string ToString() => $"{Gait}/{Family ?? "-"}/{Variant ?? "-"}" + (Air == AirPhase.None ? string.Empty : "/" + Air);
     }
 }

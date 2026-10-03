@@ -29,7 +29,7 @@ namespace Core.Rules.Skill
     /// </summary>
     public sealed partial class CastPipeline
     {
-        /// <summary>单个时间区间内最多采样次数（防止形状极小而位移极大时的采样爆炸；超出按上限均匀采样，见 skill README 已知局限）。</summary>
+        /// <summary>单个时间区间内最多采样次数（防止形状极小而位移极大时的采样爆炸；超出按上限均匀采样，设计决定见 skill README "手感落地 M4 清扫"）。</summary>
         private const int MaxSamplesPerSpan = 256;
 
         /// <summary>命中几何：攻击方位姿与（可选）形状，用来算接触点/法线/世界方向。</summary>
@@ -274,9 +274,17 @@ namespace Core.Rules.Skill
             Dictionary<Id, double>? coefficients = null;
             var rehitTicks = enforceInterval ? RehitTicks(run) : 0;
 
-            foreach (var (target, coefficient) in resolution.Targets)
+            foreach (var (targetBase, coefficientBase) in resolution.Targets)
             {
+                var target = targetBase;
+                // 蓄力效果值倍率（charge.value_scale）与群体分配系数相乘；倍率为 1 时逐位不变。
+                var coefficient = coefficientBase * run.ChargeValueScale;
                 if (!_units.Exists(target) || !_units.IsAlive(target))
+                {
+                    continue;
+                }
+
+                if (!WithinHitWindowRange(casterId, run.Def, geo.Position, target))
                 {
                     continue;
                 }
@@ -313,6 +321,19 @@ namespace Core.Rules.Skill
 
         private static readonly IReadOnlyDictionary<string, string> EmptyArgs = new Dictionary<string, string>();
 
+        /// <summary>
+        /// 命中窗口的射程门（<see cref="SkillOptions.SpatialRangeHitWindow"/>）：选项关闭（缺省）或技能 <c>range</c> 为 0（不限）恒通过；
+        /// 否则要求施法者在 <paramref name="casterPos"/> 时到目标的距离（<see cref="SkillOptions.SpatialRange"/> 决定含不含高度差）不超过技能射程。
+        /// </summary>
+        private bool WithinHitWindowRange(Id casterId, SkillDef def, Vec2 casterPos, Id target)
+        {
+            if (!_options.SpatialRangeHitWindow || def.Range <= 0)
+            {
+                return true;
+            }
+
+            return RangeDistance(casterId, casterPos, _units.GetPosition(target), target) <= def.Range;
+        }
         private static bool IsAttackKind(EffectKind kind) => kind == EffectKind.SchoolDamage || kind == EffectKind.WeaponDamagePct;
 
         private static bool IsAvoidedResult(HitResult result) =>
@@ -335,9 +356,15 @@ namespace Core.Rules.Skill
         /// <summary>
         /// 动作是否带攻击（<c>action.started.isAttack</c>）：含伤害类或投射物效果，或声明了 <c>hit</c>/<c>release</c> 标记。
         /// 反馈侧只为带攻击的动作开挥空窗口——闪避、位移、纯增益动作没有"打空"（手感设计/07 第 6 节）。
+        /// 时间线显式声明 <c>is_attack</c> 时以声明为准（覆盖按内容的推断）。
         /// </summary>
         private static bool IsAttackAction(SkillDef def, TimelineDef tl)
         {
+            if (tl.IsAttack.HasValue)
+            {
+                return tl.IsAttack.Value;
+            }
+
             if (HasAttackEffect(def, EffectSubset.All) || HasProjectileEffect(def))
             {
                 return true;
@@ -424,7 +451,7 @@ namespace Core.Rules.Skill
             IProjectileHitHook? projectileHook = null;
             if (subset == EffectSubset.All && HasProjectileEffect(def))
             {
-                projectileHook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment);
+                projectileHook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment, run.ChargeValueScale);
             }
 
             var id = ExecuteEffectsOnly(
@@ -594,7 +621,7 @@ namespace Core.Rules.Skill
                 aim = run.AssistTarget.Value;
             }
 
-            var hook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment);
+            var hook = new TimelineProjectileHook(this, casterId, def, run.CastInstanceId, segment, run.ChargeValueScale);
             ExecuteEffectsOnly(casterId, def, new[] { aim }, subset: EffectSubset.ProjectileOnly, projectileHook: hook);
         }
 
@@ -607,14 +634,18 @@ namespace Core.Rules.Skill
             private readonly Id _castInstanceId;
             private readonly int _segment;
 
-            public TimelineProjectileHook(CastPipeline owner, Id casterId, SkillDef def, Id castInstanceId, int segment)
+            public TimelineProjectileHook(CastPipeline owner, Id casterId, SkillDef def, Id castInstanceId, int segment, double valueScale = 1.0)
             {
+                ValueScale = valueScale;
                 _owner = owner;
                 _casterId = casterId;
                 _def = def;
                 _castInstanceId = castInstanceId;
                 _segment = segment;
             }
+
+            /// <summary>蓄力效果值倍率（见 <see cref="IProjectileHitHook.ValueScale"/>）。</summary>
+            public double ValueScale { get; }
 
             /// <summary>投射物生成：发 <c>action.projectile_launched</c>（反馈侧据此把挥空判定推迟到投射物结局）。</summary>
             public void OnLaunched() =>

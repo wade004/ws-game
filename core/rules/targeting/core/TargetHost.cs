@@ -78,9 +78,23 @@ namespace Core.Rules.Targeting
         /// <summary>
         /// 距离是否含高度差：为 <c>true</c> 时 <c>sort_by.distance</c> 与 <c>nearest_in_shape</c> 的"最近"按三维欧氏距离判定
         /// （体积空间）；默认 <c>false</c>，只算平面距离（平面世界与横版二维——横版里深度轴不存在）。
-        /// 不影响施法射程检查（射程由技能管线判定，仍是平面距离，见 targeting README 已知局限）。
+        /// 不影响施法射程检查（射程由技能管线判定，仍是平面距离，设计决定见 targeting README 判断记录第 5 条）。
         /// </summary>
         public bool SpatialDistance { get; set; }
+
+        /// <summary>
+        /// 目标命中半径的来源（手感落地 M4 清扫，手感设计/03 第 2.4 节"形状与目标碰撞半径"）：返回单位的命中半径（世界单位，≤ 0 视为点）。
+        /// 非 null 且 <see cref="MaxTargetRadius"/> &gt; 0 时，<c>nearest_in_shape</c>/<c>all_in_shape</c> 的形状查询除了"目标中心落在形状内"，
+        /// 也命中"形状到目标中心的最近距离不超过该目标半径"的单位（半径内擦到身体算命中）；<c>continuous</c> 命中的接触点仍取形状上离目标中心最近的点（命中时它必然落在目标身体内，即形状与碰撞半径的交点）。
+        /// 默认 null：只按目标中心判定，行为与引入本选项之前逐位一致。来源由游戏供给（例如按体型数据或手感档案的 <c>unit_body_radius</c> 换算）。
+        /// </summary>
+        public Func<Id, double>? TargetRadius { get; set; }
+
+        /// <summary>
+        /// <see cref="TargetRadius"/> 的上界（世界单位）：形状查询按它外扩一圈做"宁可多、不可少"的广相位，再对每个候选按自己的半径精确重判。
+        /// 缺省 0 = 不启用目标半径；必须不小于 <see cref="TargetRadius"/> 实际返回的最大值，否则半径更大的单位可能漏判。
+        /// </summary>
+        public double MaxTargetRadius { get; set; }
     }
 
     /// <summary>
@@ -248,7 +262,10 @@ namespace Core.Rules.Targeting
         /// 避免消费方误将其与既有 <c>Resolve</c> 调用一次一事件的既有惯例混淆。
         /// </summary>
         public IReadOnlyList<Id> ResolveAtPoint(Id chainId, Id casterId, Vec2 point) =>
-            ProjectTargets(ResolveChainWithCoefficients(chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0, originHeight: 0.0));
+            ProjectTargets(ResolveChainWithCoefficients(
+                chainId, casterId, currentTarget: null, origin: point, facing: 0, depth: 0,
+                // 落点高度 = 落点的地面高度（M4-W1b：有地形高度能力时不再恒为 0；没有地形能力时 GetGroundHeightAt 恒 0，逐位不变）。
+                originHeight: _units.GetGroundHeightAt(casterId, point)));
 
         /// <summary>
         /// T-N3-8 判断记录：本方法取代改动前的 <c>ResolveChain</c>，是 <see cref="Resolve(Id, Id, Id?)"/>/
@@ -289,6 +306,8 @@ namespace Core.Rules.Targeting
             {
                 OriginHeight = anchorHeight,
                 SpatialDistance = _options.SpatialDistance,
+                TargetRadius = _options.MaxTargetRadius > 0.0 ? _options.TargetRadius : null,
+                MaxTargetRadius = _options.MaxTargetRadius,
             };
 
             IReadOnlyList<Id> candidates = strategy.Collect(ctx) ?? Array.Empty<Id>();
@@ -405,10 +424,12 @@ namespace Core.Rules.Targeting
             }
 
             var limit = chain.ShapeHeight.Value;
+            // 窗口中心 = 锚点脚下高度 + 形状自身的竖直偏移（缺省 0，与此前"以锚点为中心"逐位一致：x + 0.0 == x）。
+            var center = anchorHeight + chain.ShapeHeightOffset;
             var kept = new List<Id>(candidates.Count);
             foreach (var id in candidates)
             {
-                if (Math.Abs(_units.GetHeightOffset(id) - anchorHeight) <= limit)
+                if (Math.Abs(_units.GetHeightOffset(id) - center) <= limit)
                 {
                     kept.Add(id);
                 }

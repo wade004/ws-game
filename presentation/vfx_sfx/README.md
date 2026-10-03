@@ -263,11 +263,14 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `(sfxId, entityId) -> SfxHandle` 键（一次性音效退化为普通 `Play`，不建键、不影响既有行为）；
     同键已在播时 `PlayAttached` 幂等返回已登记句柄，不叠播第二个实例；`StopAttached` 查到即
     `Stop` 并摘除，查不到静默忽略、不写诊断（同判断记录 18"目标已经自然过期"/ADR-0075 `stop_vfx`
-    "没有在播实例是正常时序"同一惯例）。已知限制（不新建"实体销毁"监听机制）：`VfxPlayer` 对
-    `anchor`/降级 `socket` 跟随实例是靠每帧 `Update` 重新解析实体位置失败才顺带结束特效
-    （`UpdateFollowTargets`），本身不是显式销毁事件；`SfxPlayer` 没有等价的逐帧位置解析可镜像，
-    因此循环音效必须靠内容侧显式 `stop_sfx` 终止，实体在移除信号到达前被销毁的场景不在本次范围
-    内处理，详见该 ADR"后果"节。回归用例：`tests/SfxPlayerTests.cs`
+    "没有在播实例是正常时序"同一惯例）。实体销毁（NF2 补齐，取代原"循环音效必须靠内容侧显式 `stop_sfx` 终止"的边界）：
+    `SfxPlayer` 新增 7 参构造（末位 `EntityPositionResolver? entityPositionResolver`，原 6 参构造保留并等价传 null），
+    `PresentationAssembly` 把与 `VfxPlayer` 同一个解析器接进来；`Update(dt)` 每帧对仍登记着的
+    `(sfxId, entityId)` 键询问解析器——返回 null（实体已销毁）就走 `StopAttached` 同一出口停音并摘键。
+    没有注入解析器（null）时行为与此前逐字节相同（只靠显式 `stop_sfx`）。不新建"实体销毁"监听机制，
+    复用 `VfxPlayer.UpdateFollowTargets` 同一个存活信号。回归用例：
+    `tests/SfxAttachEntityLifetimeTests.cs`（实体销毁后循环音效在下一次 `Update` 停止、实体仍在时不停、
+    同 sfx 不同实体互不影响、无解析器时不变）；其余回归用例：`tests/SfxPlayerTests.cs`
     `Play_LoopDef_PassesLoopTrueToAudio`/`PlayAttached_LoopDef_RegistersKey_AndStopAttached_
     StopsIt`/`PlayAttached_LoopDef_SameKeyAlreadyPlaying_IsIdempotent_DoesNotStackNewInstance`/
     `PlayAttached_NonLoopDef_DoesNotRegisterKey_StopAttachedIsNoOp`、`tests/
@@ -293,7 +296,7 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     SfxAttachColdLoadPlayModeTests.cs`
     `PlayAttached_ColdLoopSfx_ThenStopAttached_StopsRealAudioSource`（PlayMode，真实
     `UnityResourceLoader`/`UnityAudio` 上验证，含阳性对照）。见
-    [ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)"后果/已知限制"节
+    [ADR-0089](../../architecture/adr/0089-循环音效与stop_sfx动作.md)"后果"节
     2026-09-26 追加。
 
 22. **[ADR-0105](../../architecture/adr/0105-一次性音效播完即释放同层并发名额.md)（消费方第五十四批）：
@@ -305,9 +308,11 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
     `MakeRoomIfNeeded` 计数前经唯一出口 `ReleaseFinishedOneShots` 对非循环记账逐个询问——false 释放、
     true 保留、null 才退回 `SfxOptions.OneShotLayerSlotHoldSeconds`（默认 2 秒，`Update(dt)` 累加的
     表现时钟，不读系统时间）；只摘记账、不调用 `StopSfx`；冷加载补播放与热路径同一套记账，
-    `StartedAt` 取真正 `PlaySfx` 那一刻；循环音效不释放。已知限制：仅后端回报 null 时有推定误差——
-    更长的一次性音效尾段不计数（上限变松、不会被提前停止），更短的音效播完后到期前仍占名额，
-    从不驱动 `Update` 时不会到期。回归：`presentation/assembly/tests/AutoAttackSwingSfxPreemptionTests.cs`
+    `StartedAt` 取真正 `PlaySfx` 那一刻；循环音效不释放。设计决定（后端回报 null 时的推定）：`IsSfxPlaying` 回报 null（后端
+    答不出"是否已播完"）时只能按 `OneShotLayerSlotHoldSeconds` 推定——更长的一次性音效尾段不计数
+    （上限变松、绝不会被提前停止），更短的音效播完后到期前仍占名额，从不驱动 `Update` 时不会到期；
+    理由：推定的误差方向是"宁松勿紧"，不会误停还在响的音效，而真正需要精确的后端（Unity、桩）都已回报
+    true/false，推定只是第三方后端的兜底，没有比"后端自己回报"更精确的来源可补。回归：`presentation/assembly/tests/AutoAttackSwingSfxPreemptionTests.cs`
     （生产装配级复现，引擎回报/回退两支，修复前均第 4 轮红）、`tests/SfxLayerSlotHoldTests.cs`（9 例：
     引擎回报 false 即释放且不等保留时长、回报 true 压过保留时长、N+1 超限仍抢占、回退到期不
     `StopSfx` 不计丢弃、循环不释放、`≤0` 关闭、冷加载三支）；引擎侧
@@ -355,14 +360,15 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       复现/不变量：`tests/AudioLayerVolumeHostTests.cs`、`tests/SfxPlayerTests.cs` 的 NaN/Infinity、裁剪 Theory、
       未知层无残留键、`Save` 失败诊断各例。
 
-25. **测试覆盖剩余项第四批（2026-10-01）：生产工程文件加 `InternalsVisibleTo`，只向测试程序集开放；冷加载 3D socket 路径与"排队期间位置冻结"口径如实登记**：
+25. **测试覆盖剩余项第四批（2026-10-01）：生产工程文件加 `InternalsVisibleTo`，只向测试程序集开放；冷加载 3D socket 路径如实登记；冷加载排队 VFX 的发射位置口径见本条第三项（M4 清扫改为与热路径同位）**：
     - `presentation/Presentation.Common.csproj` 新增 `<InternalsVisibleTo Include="Tests.PresentationCommon" />`，
       原因：`VfxPool`（`internal sealed`）的"超容量淘汰剩余时间最短者、并列取插入最早、永久项视为无穷、容量 ≤ 0 不限、
       剩余 ≤ 0 到期"这些规则此前只能经 `VfxPlayer` 间接覆盖，无法对池本身做边界断言（T-M34）。没有任何公开签名变化，
       不进 ABI 探针；复现/不变量：`tests/VfxPoolTests.cs`。
-    - **已知限制（已钉住）**：冷加载排队的 VFX 在加载完成那一刻按 `Spawn` 时刻的位置发射（冷 = `Spawn` 时刻位置，热 = 当前位置），
-      到下一次 `Update` 才由 anchor/entity 跟随重新定位，即最多滞后一帧；排队期间 `Stop(占位句柄)` 取消排队、从不发射、不登记跟随。
-      复现/不变量：`tests/VfxPlayerColdLoadFollowTests.cs`（socket 降级路径、Screen 路径、anchor/socket × 热/同步冷/异步冷收敛 Theory）。
+    - **冷加载与热路径同位发射（M4 清扫，取代"冷加载排队的 VFX 最多滞后一帧"这条已知限制）**：冷加载排队的 VFX 在加载完成那一刻重新取 anchor/socket 宿主的**当前**位置发射，与热路径（资源已缓存、`Spawn` 当场发射）同一口径；
+      宿主已不在（单位销毁、锚点缺失）时回落到 `Spawn` 时刻的位置；没有 `IParticleRepositioner` 的适配层不登记跟随，行为不变；排队期间 `Stop(占位句柄)` 取消排队、从不发射、不登记跟随。
+      理由：此前冷路径用 `Spawn` 时刻位置、热路径用当前位置，加载耗时越长两者差越大，要到下一次 `Update` 才追上；`VfxPlayer` 的冷/热两条路径必须逐位同口径（AGENTS 硬约束）。
+      复现/不变量：`tests/VfxPlayerColdLoadFollowTests.cs`（宿主在排队期间移动：发射位置由 `Spawn` 时刻位置变为加载完成时的宿主位置；宿主已销毁回落 `Spawn` 位置；socket 降级路径、Screen 路径、anchor/socket × 热/同步冷/异步冷收敛 Theory）。
     - `SfxPlayer` 变体选择走 `options.RngStream`（默认 `presentation.sfx`），不碰模拟流；`min==max` 不消耗随机数、不创建流
       （`tests/SfxVariantSelectionTests.cs`）。
 
@@ -382,15 +388,17 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
       `sfx.def` 表新增三个可选字段（缺省不影响旧数据，`FromRecord` 缺字段时仍走旧构造）；未知 `feel_layer` 名抛 `DataFieldException`。`feel_layer`（手感层）与既有 `layer`（混音分组，自由文本）正交。
     - **`SfxLayerIndex`**：把声明了 `feel_layer` 的行按 `(层, 档, 材质)` 建索引；反馈包只引用"层 + 档"，材质来自武器的 `sfx_material`。回落顺序：请求档 t 从高到低，每一档先材质精确行、再同档 `generic` 行，第一个命中即返回；全部落空返回 false 并记一条去重诊断（同一 `(层, 档, 材质)` 只记一次），不抛、不静音前先找近似；请求档 <= 0 表示该层关闭，无诊断。
       判断记录：先降材质、后降档——材质只是音色差异，档位决定"这一下打得多重"；不向高档回落，避免资产缺失时反而放大动静。同一 `(层, 档, 材质)` 多行时取 id 序第一行并记诊断。
-    - **已知局限**：样例数据（`data/_sample`）尚无带 `feel_*` 字段的 `sfx.def` 行；`sfx_max_concurrent` 由反馈包流水线按批限制（见 `feedback_binder/README.md` 判断记录 23），不在本索引内处理。
+    - **样例数据与并发限制的归属（M4 清扫，设计决定）**：带 `feel_*` 字段的 `sfx.def` 样例行与手感反馈包样例集中在实验室样例根 `data/_lab_action`（与场景脚本、基线成套核对），通用样例根 `data/_sample` 保持不带手感字段——不开手感的消费方看到的样例与手感无关；`sfx_max_concurrent` 由反馈包流水线按批限制（见 `feedback_binder/README.md` 判断记录 23），不在本索引内处理，因为索引只回答"层 + 档 + 材质 → 哪一行"，并发是出批时的运行态量。
     用例：`tests/SfxLayerIndexTests.cs`（精确命中、缺材质回落到同档通用、只向低档回落、全缺返回 false 且诊断去重、关闭层、重复行、非手感行不入索引、`FromRecord` 字段解析）。
 
 28. **顿帧期间按宿主单位暂停特效（2026-10-02，手感落地 M3-C；设计见 `architecture/手感设计/07` 第 5 节）**：
-    - **契约增量（ABI 只加法）**：`IVfxFreezable`（`SetOwnerFrozen(ownerEntityId, frozen)` / `IsOwnerFrozen`，框架自带 `VfxPlayer` 实现；独立成可选能力接口，不给 `IVfxPlayer` 加成员，探测写法 `vfx is IVfxFreezable`）与 `IParticleFreezer`（引擎适配层的 `IRenderer2D` 实现可选实现的 `SetParticlePaused(handle, paused)`，同 `IParticleRepositioner` 的做法；未实现的适配层含既有 `StubRenderer2D` 静默跳过）。`VfxPool.SetHeld` 内部加法。
+    - **契约增量（ABI 只加法）**：`IVfxFreezable`（`SetOwnerFrozen(ownerEntityId, frozen)` / `IsOwnerFrozen`，框架自带 `VfxPlayer` 实现；独立成可选能力接口，不给 `IVfxPlayer` 加成员，探测写法 `vfx is IVfxFreezable`）与 `IParticleFreezer`（引擎适配层的 `IRenderer2D` 实现可选实现的 `SetParticlePaused(handle, paused)`，同 `IParticleRepositioner` 的做法；未实现的适配层含既有 `StubRenderer2D` 只是没有视觉暂停，`lifetime` 倒计时照样停住，见第 29 条）。`VfxPool.SetHeld` 内部加法。
     - **"属于某单位"的判据**：特效以 `anchor`/`socket` 挂接到某实体才有宿主单位（`VfxAttach.EntityId`）；`world`/`screen` 挂接没有，永不随顿帧暂停。因此命中闪光这类以接触点/世界坐标播放的一次性特效天然不冻，挂在单位身上的持续特效（拖尾、光环、灼烧）才随单位冻结——**是否冻结由特效怎么挂接决定，不新增特效表字段**；整层开关由反馈包 `freeze_layers.particles` 决定（装配根只在其为真时才调用本接口，见 `presentation/assembly/README.md`）。取舍：不为"这个特效冻不冻"再加一套逐特效声明——07 的设计粒度是反馈包的 `freeze_layers`，逐特效例外靠挂接方式表达已足够。
     - **状态型，不是一次性快照**：冻结标记挂在宿主单位上（`_frozenOwners`）；冻结期间新播放的该单位特效、以及资源冷加载排队后在冻结期间补发的特效，都在登记宿主时按当前冻结状态从暂停起播——热路径与冷加载补发走同一个登记出口（`RegisterOwner`），不另写一套。socket 真挂接的子模型走 `IRenderer3D.SetAnimSpeed`（0 / 恢复为 1，特效子模型由本类新建、从不被设过别的速率）。
-    - **`lifetime` 倒计时随暂停停住**：被暂停实例在 `VfxPool` 里的剩余存活时间同时停住，恢复后从暂停点继续——否则冻结中途因 `lifetime` 到期被回收，"结束恢复"恢复的是一个已经消失的特效。引擎适配层没有暂停能力（`IParticleFreezer` 未实现）时 2D 粒子既不暂停也不冻结 `lifetime`（避免"没停住却永不过期"）。
-    - 复现/不变量：`tests/VfxPlayerFreezeTests.cs`（被冻结单位的特效暂停、旁观单位的不暂停、解冻恢复；world 挂接的命中闪光永不暂停；冻结幂等不计数；`lifetime` 倒计时随暂停停住、从冻结点继续；冻结期间新播放与冷加载补发从暂停起播；已停止的句柄不残留宿主登记；socket 3D 子模型速率 0 → 1；无暂停能力的适配层静默跳过且 `lifetime` 照常到期）；引擎侧见 `adapters/unity` 包 README"手感落地 M3-C"节。
+    - **`lifetime` 倒计时随暂停停住**：被暂停实例在 `VfxPool` 里的剩余存活时间同时停住，恢复后从暂停点继续——否则冻结中途因 `lifetime` 到期被回收，"结束恢复"恢复的是一个已经消失的特效。无论引擎适配层是否实现 `IParticleFreezer`，`lifetime` 倒计时都随暂停停住（见第 29 条）。
+    - 复现/不变量：`tests/VfxPlayerFreezeTests.cs`（被冻结单位的特效暂停、旁观单位的不暂停、解冻恢复；world 挂接的命中闪光永不暂停；冻结幂等不计数；`lifetime` 倒计时随暂停停住、从冻结点继续；冻结期间新播放与冷加载补发从暂停起播；已停止的句柄不残留宿主登记；socket 3D 子模型速率 0 → 1；无暂停能力的适配层 `lifetime` 同样停住、解冻后从冻结点继续）；引擎侧见 `adapters/unity` 包 README"手感落地 M3-C"节。
+
+29. **没有 `IParticleFreezer` 的适配层也停住特效的存活倒计时（2026-10-03，手感落地 M4-G）**：`freeze_layers.particles` 为真时，`VfxPlayer` 对被冻结单位的特效恒定停住 `lifetime` 时钟（`VfxPool.SetHeld`），不再取决于适配层是否实现 `IParticleFreezer`；实现了的适配层额外获得 `SetParticlePaused`，socket 子模型照旧走 `SetAnimSpeed`。**视觉上无法暂停的部分**：没有 `IParticleFreezer` 的适配层里，已发射的 2D 粒子仍按引擎自己的时间轴继续播放——框架没有"暂停一个在播粒子实例"的通用原语（`IRenderer2D` 只有发射与停止），所以画面上粒子会继续飘、只有"到期被回收的时刻"被推迟到解冻之后；要画面也停住，适配层需实现 `IParticleFreezer`，或经第 30 条的通用兜底装饰器获得（M4-W3）。`freeze_layers.particles` 为假（缺省）时一切不变，装配根不调用 `IVfxFreezable`。用例：`tests/VfxPlayerFreezeTests.cs`（无暂停能力的适配层 `lifetime` 停住并从冻结点继续、旁观与未冻结单位照常到期、冻结期间新播放的特效从暂停起播）。
 
 ## 不负责什么
 
@@ -405,3 +413,10 @@ L-1 播放"的无状态服务，事件订阅与"哪个事件触发哪个播放"�
 - 不实现 `presentation/common`（`IView`/`PresentationEventKeys` 等）——若集成时该模块已提供
   `AnchorResolver` 或等价类型，以 `presentation/common` 为准，本模块的 `AnchorResolver`/
   `EntityPositionResolver` 委托类型可直接替换为对其类型的适配。
+
+30. **没有 `IParticleFreezer` 的适配层的通用兜底：`ParticleFreezeFallbackRenderer2D`（2026-10-03，手感落地 M4-W3，ADR-0129 增补）**：第 28/29 条留下的"视觉上无法暂停"不再是实现缺口，而是只剩一条由契约原语集合决定的边界（见下）。
+    - **随附适配层**：Unity 适配层 `UnityRenderer2D` 实现 `IParticleFreezer`（M3-C）。无头桩 `StubRenderer2D` 在 `adapters/stub`，该程序集对 `presentation` 层零依赖，不能直接实现表现层的可选接口（层次约束，不是遗漏）；无头/测试组合改用 `ParticleFreezeFallbackRenderer2D.Wrap(new StubRenderer2D())`，得到的就是一个实现了 `IParticleFreezer` 的无头渲染器。
+    - **兜底装饰器**：`ParticleFreezeFallbackRenderer2D`（`Presentation.VfxSfx.Core`）是一个 `IRenderer2D` 装饰器，只用契约里已有的 `EmitParticle`/`StopParticle`，自己实现 `IParticleFreezer`。`ParticleFreezeFallbackRenderer2D.Wrap(inner)` 返回：`inner` 已实现 `IParticleFreezer` 时原样返回（不叠第二层）；否则返回装饰器，`inner` 实现 `IParticleRepositioner` 时返回同时实现它的子类 `RepositioningParticleFreezeFallbackRenderer2D`（位置更新透传，暂停期间只记录、恢复时按最新位置重发），使 `VfxPlayer` 对"可选能力"的探测结果与不包装时一致。装饰器给 `VfxPlayer` 的是它自己分配的虚拟句柄（暂停再恢复会换真实句柄，虚拟句柄不变；对不认识的句柄静默忽略，不转发给被包装者）。
+    - **两种暂停方式**：宿主在 `ParticleFreezeFallbackOptions.SetTimeScale`（暂停以 0、恢复以 1 调用，参数是被包装适配层自己的句柄）里接上自己的时间缩放口（例如引擎粒子系统的模拟速度）时优先用它——粒子留在画面上、停在原处，恢复后从停住的那一帧继续，不消失、不重播；没有给出时用"停止并在恢复时按原特效、原参数、原混合模式在最近已知位置重新发射"。
+    - **兜底暂停的精度边界（设计决定，M4 清扫由"已知限制"改写）**：兜底装饰器不追求画面精确停在原处——没有时间缩放口时，暂停 = 停止真实粒子（画面上消失），恢复 = 重新发射。循环类特效（拖尾、光环、灼烧：挂在单位身上的持续特效，这正是冻结的主要对象）恢复后无缝接上，只是顿帧期间看不见；非循环特效恢复后从头重播一遍（存活计时仍从冻结点继续，所以只播剩余时长）。理由：契约原语（发射/停止）里没有"读出已播进度"，为一个只服务无头/无冻结口适配层的兜底去扩 `IRenderer2D` 契约不划算；要画面精确停在原处，适配层实现 `IParticleFreezer`（Unity 适配层已实现），或给 `SetTimeScale`。
+    - 用例：`tests/ParticleFreezeFallbackRenderer2DTests.cs`——复现：既有 `StubRenderer2D` 上冻结单位的特效对画面毫无影响（冻结期间画面上粒子数 1 -> 1），包一层之后冻结期间 1 -> 0、解冻后 0 -> 1（同特效、同参数、同位置）；时间缩放口路径粒子不消失（1 -> 1，口收到 0 与 1）；虚拟句柄跨暂停稳定、存活计时仍从冻结点继续；已实现 `IParticleFreezer` 的适配层不叠第二层；`IParticleRepositioner` 探测结果与不包装时一致、暂停期间的位置更新在恢复时生效；已停止/未知句柄静默忽略且不误停其它粒子。

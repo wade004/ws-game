@@ -276,3 +276,15 @@ ADR-0125（D11；`AiHost` 迁移前同样如此）：构造完成后 `IDataRegis
     `combat_to_return` 判定接管（威胁表"为空"与"只剩非敌对来源"在这条护栏下等价）。不复用
     `IThreatTable.GetTopThreat` 加事后判空重取的写法，是因为威胁值次高但仍敌对的来源可能排在
     非敌对的最高来源之后，必须完整遍历一遍全部条目而不是只看第一名。
+
+11. **AI 转向感知地形台阶（手感落地 M4-W1a 补丁，ADR-0130 追加决定）**：`AiHost.ComputeDirection` 取"下一路点方向"原先只调无地形的
+    `FindPath(mapId, from, to)`，世界装了竖直轴且启用台阶阻挡时，AI 单位会朝着穿过台阶的直线冲、被移动层的台阶阻挡顶在台阶前。
+    新增可写属性 `AiHost.TerrainStepConstraint`（`ITerrainStepConstraint?`，缺省 `null`）：非空时改用带约束的
+    `FindPath(mapId, from, to, ITerrainStepConstraint?)` 重载，与移动层 `MovementTickHandler.PlanPath` 同一口径（直线被台阶挡住就绕行，
+    第一个路点已经是绕行方向；目标被台阶整个隔开时寻路失败，回退到朝目标直走的转向提示，由移动层的台阶阻挡兜底）。
+    `CarriersAssembly` 只在竖直运动服务的 `StepBlockingActive` 为真（有地形高度与台阶高度）时把它赋给 AI，其余情形保持 `null`，
+    AI 的寻路调用与路点序列与引入之前逐位一致。理由：AI 层不依赖竖直轴（`Core.Rules` 在 `Core.Carriers` 之下），所以用基础层已有的
+    `ITerrainStepConstraint` 契约做晚绑定属性注入（同 `Skill.DisplacementSink` 的装配手法），不新增跨层引用，也不另造 AI 专用的寻路机制。
+    测试：`tests/AiTerrainStepNavigationTests.cs`（台阶墙前追击：带约束绕行进入攻击范围、不带约束停在墙前；第一个路点转向；
+    不变量：缺省永不调带约束重载，约束不挡任何东西时位移逐位等于无约束）与 `core/gameplay/assembly/tests/AiTerrainStepNavigationAssemblyTests.cs`
+    （生产装配：竖直轴 + 地形 + 台阶高度下生物绕墙追到玩家，清掉约束的旧行为顶在墙前；装配只在启用台阶阻挡时赋值）。

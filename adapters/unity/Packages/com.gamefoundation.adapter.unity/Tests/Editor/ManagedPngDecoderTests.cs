@@ -626,7 +626,24 @@ namespace Adapter.Unity.Tests.Editor
             copy[heightPos + 1] = (byte)(newHeight >> 16);
             copy[heightPos + 2] = (byte)(newHeight >> 8);
             copy[heightPos + 3] = (byte)newHeight;
-            return copy;   // 解码器不校验 CRC（类型头已知限制①），补丁后无需重算
+
+            // 解码器校验 IHDR 的 CRC：补丁后必须按新数据重算，否则会先以 CRC 失败被拒绝而测不到想测的"行数不足"。
+            var typeAndData = new byte[4 + 13];
+            Buffer.BlockCopy(copy, Signature.Length + 4, typeAndData, 0, typeAndData.Length);
+            var crc = Crc32(new[] { typeAndData[0], typeAndData[1], typeAndData[2], typeAndData[3] }, SliceFrom(typeAndData, 4));
+            var crcPos = ihdrDataPos + 13;
+            copy[crcPos] = (byte)(crc >> 24);
+            copy[crcPos + 1] = (byte)(crc >> 16);
+            copy[crcPos + 2] = (byte)(crc >> 8);
+            copy[crcPos + 3] = (byte)crc;
+            return copy;
+        }
+
+        private static byte[] SliceFrom(byte[] data, int start)
+        {
+            var o = new byte[data.Length - start];
+            Buffer.BlockCopy(data, start, o, 0, o.Length);
+            return o;
         }
 
         [Test]
@@ -663,6 +680,118 @@ namespace Adapter.Unity.Tests.Editor
             Assert.DoesNotThrow(() => ManagedPngDecoder.TryDecode(ms.ToArray(), out _, out _, out _, out _));
             Assert.IsFalse(ManagedPngDecoder.TryDecode(ms.ToArray(), out _, out _, out _, out var reason));
             Assert.IsNotEmpty(reason);
+        }
+
+
+        // ------------------------------------------------------------------
+        // NF2：完整性校验（CRC-32 / Adler-32）与辅助块对照
+        // ------------------------------------------------------------------
+
+        /// <summary>找到第一个指定类型块的起始偏移（块长度字段处）；找不到返回 -1。</summary>
+        private static int FindChunk(byte[] png, string type)
+        {
+            var pos = Signature.Length;
+            while (pos + 12 <= png.Length)
+            {
+                var len = (int)(((uint)png[pos] << 24) | ((uint)png[pos + 1] << 16) | ((uint)png[pos + 2] << 8) | png[pos + 3]);
+                if (png[pos + 4] == type[0] && png[pos + 5] == type[1] && png[pos + 6] == type[2] && png[pos + 7] == type[3])
+                {
+                    return pos;
+                }
+
+                pos += 12 + len;
+            }
+
+            return -1;
+        }
+
+        [Test]
+        public void IdatPixelByteCorrupted_CrcMismatch_Rejected_WhileTheUntouchedFileDecodes()
+        {
+            // 复现：改一个 IDAT 数据字节而不重算 CRC。改动前解码器不校验 CRC，会"解出"错误像素返回 true；
+            // 现在必须返回 false 且原因点名 CRC。对照：未改动的同一份文件解码成功。
+            const int w = 6, h = 5;
+            var png = BuildPng(w, h, ColorRgba, y => y % 5);
+            Assert.IsTrue(ManagedPngDecoder.TryDecode(png, out _, out _, out _, out var okReason), okReason);
+
+            var idat = FindChunk(png, "IDAT");
+            Assert.GreaterOrEqual(idat, 0);
+            var corrupted = (byte[])png.Clone();
+            corrupted[idat + 8 + 4] ^= 0x01;   // IDAT 数据区内部（越过 2 字节 zlib 头）
+
+            AssertRejected(corrupted, "CRC", "IDAT 数据字节被改而 CRC 未重算");
+        }
+
+        [Test]
+        public void IhdrAndIendAndTrnsChunks_CrcMismatch_EachRejected()
+        {
+            const int w = 4, h = 3;
+            var withTrns = BuildPng(w, h, ColorRgba, _ => 0, addTrns: true);
+            foreach (var type in new[] { "IHDR", "tRNS", "IEND" })
+            {
+                var pos = FindChunk(withTrns, type);
+                Assert.GreaterOrEqual(pos, 0, type);
+                var len = (int)(((uint)withTrns[pos] << 24) | ((uint)withTrns[pos + 1] << 16) | ((uint)withTrns[pos + 2] << 8) | withTrns[pos + 3]);
+                var broken = (byte[])withTrns.Clone();
+                broken[pos + 8 + len] ^= 0xFF;   // 该块的 CRC 首字节
+                AssertRejected(broken, "CRC", type + " 块 CRC 被破坏");
+            }
+        }
+
+        [Test]
+        public void ZlibAdlerTrailerWrong_Rejected_AndEveryRowStillStreamedBeforeTheVerdict()
+        {
+            // 不变量：像素数据没坏但 Adler-32 尾部错（CRC 因重算而通过）时同样判为损坏；
+            // 返回 false 时调用方必须丢弃已收到的行（接收器语义：false = 整张作废）。
+            const int w = 5, h = 4;
+            var raw = new byte[h * (w * 4 + 1)];
+            using var ms = new MemoryStream();
+            ms.Write(Signature, 0, Signature.Length);
+            WriteChunk(ms, "IHDR", IhdrData(w, h, 8, ColorRgba));
+            var z = Zlib(raw);
+            z[z.Length - 1] ^= 0x5A;   // Adler-32 末字节
+            WriteChunk(ms, "IDAT", z);
+            WriteChunk(ms, "IEND", Array.Empty<byte>());
+
+            var sink = new RecordingSink();
+            var ok = ManagedPngDecoder.TryDecode(ms.ToArray(), sink, out var reason);
+
+            Assert.IsFalse(ok);
+            StringAssert.Contains("Adler", reason);
+            Assert.AreEqual(h, sink.RowNumbers.Count, "行在判决前已流式交付，所以 false 必须被调用方当作整张作废");
+        }
+
+        [Test]
+        public void AncillaryColorManagementChunks_ManagedDecodeMatchesEngineLoadImage()
+        {
+            // ③ 的引擎对照：gAMA/sRGB/iCCP/cHRM 辅助块不改变 LoadImage 输出，托管解码忽略它们也得到同样的像素。
+            const int w = 7, h = 5;
+            var png = BuildPng(w, h, ColorRgba, y => y % 5);
+            using var ms = new MemoryStream();
+            ms.Write(png, 0, Signature.Length);
+            var ihdrLen = 13 + 12;
+            ms.Write(png, Signature.Length, ihdrLen);
+            WriteChunk(ms, "gAMA", new byte[] { 0, 0, 0x4E, 0x20 });                 // gamma 0.2（与 sRGB 默认差异很大）
+            WriteChunk(ms, "cHRM", new byte[32]);
+            WriteChunk(ms, "sRGB", new byte[] { 0 });
+            ms.Write(png, Signature.Length + ihdrLen, png.Length - Signature.Length - ihdrLen);
+            var withChunks = ms.ToArray();
+
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            var plain = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            try
+            {
+                Assert.IsTrue(tex.LoadImage(withChunks), "引擎应能解码带色彩管理块的 PNG");
+                Assert.IsTrue(plain.LoadImage(png));
+                Assert.IsTrue(ManagedPngDecoder.TryDecode(withChunks, out _, out _, out var managed, out var reason), reason);
+                CollectionAssert.AreEqual(EnginePixels(tex), managed, "托管解码应与引擎 LoadImage 逐像素一致");
+                CollectionAssert.AreEqual(EnginePixels(plain), EnginePixels(tex), "辅助块不改变引擎输出");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tex);
+                UnityEngine.Object.DestroyImmediate(plain);
+            }
         }
 
         // ------------------------------------------------------------------

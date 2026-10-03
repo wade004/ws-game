@@ -310,6 +310,7 @@ namespace Core.Rules.Common
             switch (name)
             {
                 case "sourceId": value = ExprValue.OfId(SourceId); return true;
+                case "attackInstanceId": value = ExprValue.OfId(AttackInstanceId); return true;
                 case "targetId": value = ExprValue.OfId(TargetId); return true;
                 case "skillId" when SkillId.HasValue: value = ExprValue.OfId(SkillId.Value); return true;
                 case "hitResult": value = ExprValue.OfString(HitResult.ToString()); return true;
@@ -321,6 +322,62 @@ namespace Core.Rules.Common
                 case "reaction": value = ExprValue.OfString(Reaction.ToString()); return true;
                 default: value = default; return false;
             }
+        }
+    }
+
+    /// <summary>
+    /// <c>combat.poise_changed</c>（手感落地 M4-L，动态韧性）：一次声明了 <c>poise_damage</c> 的命中扣减了目标的韧性池。
+    /// <see cref="Before"/>/<see cref="After"/> 是该命中前后的有效韧性（目标韧性属性减去已损失量，不低于 0），<see cref="Max"/> 是韧性属性值，<see cref="Damage"/> 是这一击声明的韧性伤害；
+    /// <see cref="Broken"/> 为真表示这一击把韧性从正数打到 0（破韧：该命中按冲击等级映射出完整受击反应，不再被韧性挡成 Flinch）。
+    /// 不声明 <c>poise_damage</c> 的命中（静态韧性）不发本事件。
+    /// </summary>
+    public sealed class CombatPoiseChangedEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatPoiseChanged;
+
+        public Id TargetId { get; }
+
+        public Id SourceId { get; }
+
+        public double Before { get; }
+
+        public double After { get; }
+
+        public double Max { get; }
+
+        /// <summary>这一击声明的韧性伤害（<c>poise_damage</c>，标定后）；实际扣掉的量是 <c>Before − After</c>（池子不够时更少）。</summary>
+        public double Damage { get; }
+
+        public bool Broken { get; }
+
+        public CombatPoiseChangedEvent(Id targetId, Id sourceId, double before, double after, double max, double damage, bool broken)
+        {
+            TargetId = targetId;
+            SourceId = sourceId;
+            Before = before;
+            After = after;
+            Max = max;
+            Damage = damage;
+            Broken = broken;
+        }
+    }
+
+    /// <summary>
+    /// <c>combat.poise_recovered</c>（手感落地 M4-L）：目标的动态韧性经 <c>poise_recover_per_s</c> 回复到满（<see cref="Poise"/> 为回满后的有效韧性）。
+    /// 只在"之前有损失、现在回满"的那一 tick 发一次。
+    /// </summary>
+    public sealed class CombatPoiseRecoveredEvent : IEvent
+    {
+        public Id Key => RulesEventKeys.CombatPoiseRecovered;
+
+        public Id TargetId { get; }
+
+        public double Poise { get; }
+
+        public CombatPoiseRecoveredEvent(Id targetId, double poise)
+        {
+            TargetId = targetId;
+            Poise = poise;
         }
     }
 

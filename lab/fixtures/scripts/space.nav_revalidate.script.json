@@ -1,0 +1,110 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.nav_revalidate",
+    "scriptVersion": 1,
+    "description": "空间扩展·路径校验看见地形（M4-W1a）：玩家在 (2,0) 平地上点击移动到 (22,0)，路径按平地规划成直线；第 20 tick 地形热切换（terrain_swap）成 x 10..14、y -3..3 多一块高 2 的平台并重建导航——在途路径被重新校验、发现穿过台阶，重新规划绕过去。全程没有被台阶截断。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 500,
+    "playerStart": {
+      "x": 2,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "stepHeight": 0.5,
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_flat"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.lab_move_to",
+      "kind": "move_to",
+      "value": {
+        "x": 22,
+        "y": 0
+      }
+    },
+    {
+      "tick": 20,
+      "action": "world.lab_nav_walled",
+      "kind": "terrain_swap"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "swapped_once",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.terrain_swaps",
+      "op": "eq",
+      "value": 1,
+      "note": "地形热切换一次。"
+    },
+    {
+      "id": "revalidation_replans_around_it",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.max_abs_y",
+      "op": "gt",
+      "value": 3,
+      "note": "校验发现路径穿台阶，重新规划绕到平台侧面之外。"
+    },
+    {
+      "id": "arrives",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.arrived",
+      "op": "eq",
+      "value": 1,
+      "note": "最终到达目标。"
+    },
+    {
+      "id": "not_stopped_by_the_step",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_nav.terrain_blocked_stops",
+      "op": "eq",
+      "value": 0,
+      "note": "没有走到台阶前被截断。"
+    }
+  ]
+}

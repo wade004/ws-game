@@ -438,6 +438,46 @@ namespace Tests.Carriers.Item
         }
 
         // -----------------------------------------------------------------
+        // NF 清扫：item.slot_definition.has_appearance（可选 Bool，缺省 true）
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData("true")]
+        [InlineData("false")]
+        public void SlotDefinition_HasAppearance_Bool_LoadsWithoutErrors(string literal)
+        {
+            var slotRows = "[{\"id\":\"item.slot.cov_app_ok\",\"name_key\":\"l10n.slot.cov_app_ok\"," +
+                "\"has_appearance\":" + literal + "}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition", slotRows))
+                .Add("item.quality_definition", Envelope("item.quality_definition",
+                    "[{\"id\":\"item.quality.cov_sample\",\"name_key\":\"l10n.quality.cov_sample\"}]"));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.False(report.IsBlocking, string.Join("; ", report.Issues));
+            Assert.DoesNotContain(report.Issues, i => i.Field == "has_appearance");
+        }
+
+        [Fact]
+        public void SlotDefinition_HasAppearance_NotBool_ReportsFieldType()
+        {
+            var slotRows = "[{\"id\":\"item.slot.cov_app_bad\",\"name_key\":\"l10n.slot.cov_app_bad\"," +
+                "\"has_appearance\":\"no\"}]";
+
+            var source = new InMemoryDataSource()
+                .Add("item.slot_definition", Envelope("item.slot_definition", slotRows))
+                .Add("item.quality_definition", Envelope("item.quality_definition",
+                    "[{\"id\":\"item.quality.cov_sample\",\"name_key\":\"l10n.quality.cov_sample\"}]"));
+            var registry = NewRegistry(source);
+            var report = registry.LoadAll();
+
+            Assert.True(report.IsBlocking);
+            Assert.Contains(report.Issues, i => i.Check == "field_type" && i.Field == "has_appearance");
+        }
+
+        // -----------------------------------------------------------------
         // T-N2-1（ADR-0032 决策 2）：item.quality_definition.affix_count/grant_budget_share/
         // price_multiplier
         // -----------------------------------------------------------------

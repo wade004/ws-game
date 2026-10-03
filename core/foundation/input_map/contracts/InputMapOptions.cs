@@ -12,5 +12,13 @@ namespace Core.Foundation.InputMap
         /// 多手柄/多玩家分配留待后续按需扩展绑定语法（如 <c>pad0:</c>/<c>pad1:</c>）。
         /// </summary>
         public int GamepadIndex { get; set; }
+
+        /// <summary>
+        /// 相机朝向查询（可选，<c>null</c> 缺省）：声明了 <c>camera_relative</c> 控制空间的轴动作（见 <see cref="InputControlSpace"/>）每次
+        /// <see cref="IInputMapHost.Update"/> 时据此取偏航，把轴值换算成世界方向。缺省 <c>null</c> 时输入映射的行为与此前逐位一致；
+        /// 在 <c>null</c> 的情况下声明 <c>camera_relative</c> 动作，<see cref="IInputMapHost.DeclareActionSet"/> 抛
+        /// <see cref="System.InvalidOperationException"/>（不静默当偏航 0）。
+        /// </summary>
+        public Core.Foundation.EngineAdapter.ICameraOrientation? CameraOrientation { get; set; }
     }
 }

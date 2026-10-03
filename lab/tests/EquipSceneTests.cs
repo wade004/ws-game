@@ -38,7 +38,8 @@ namespace Tests.Lab
             {
                 if (s.WeaponChanged)
                 {
-                    Assert.True(s.FeelVersionDelta > 0);
+                    // 恰好一次（换装链是唯一的失效源）：生产装配此前对每次装备/卸下另外无差别失效一次，武器变化会 +2、换护甲 +1。
+                    Assert.Equal(1, s.FeelVersionDelta);
                     Assert.Equal(1, s.WeaponChangedEvents);
                 }
                 else
@@ -131,13 +132,28 @@ namespace Tests.Lab
         }
 
         [Fact]
-        public void EquipScene_RequiresTickRate60_FailsLoudlyOtherwise()
+        public void EquipScene_NonSixtyTickRate_PhaseTicksFollowHostStep()
         {
-            var script = LabTestSupport.Script("equip_cycle");
-            var text = script.ToJson();
-            Assert.Contains("\"tickRate\": 60", text);
-            var wrong = InputScript.Parse(text.Replace("\"tickRate\": 60", "\"tickRate\": 50"));
-            Assert.Throws<LabFormatException>(() => LabTestSupport.Runner.Record(wrong, "2d_targeted"));
+            // 30 Hz 变体：动作时间线的毫秒到 tick 换算跟宿主步长走（生产装配回填 SkillOptions.ActionStepSeconds），不再写死 1/60。
+            var at60 = RecordEquip("2d_targeted").Equip!;
+            var script30 = LabTestSupport.Script("equip_cycle_tick30");
+            Assert.Equal(30, script30.Meta.TickRate);
+            var at30 = LabTestSupport.Runner.Record(script30, "2d_targeted").Equip!;
+
+            Assert.Equal(1.0 / 30.0, at30.StepSeconds, 12);
+            Assert.Equal(at60.Actions.Count, at30.Actions.Count);
+            for (var i = 0; i < at30.Actions.Count; i++)
+            {
+                var a = at30.Actions[i];
+                var b = at60.Actions[i];
+                Assert.Equal(b.Skill, a.Skill);
+                // 实测相位 tick 等于规则算出的期望值（期望按 30 Hz 换算），且与 60 Hz 的换算值不同（同一时间线毫秒在 30 Hz 下 tick 数减半）。
+                Assert.Equal(a.ExpectedStartup, a.ActiveAt);
+                Assert.Equal(a.ExpectedStartup + a.ExpectedActive, a.RecoveryAt);
+                Assert.Equal(a.ExpectedStartup + a.ExpectedActive + a.ExpectedRecovery, a.FinishedAt);
+                Assert.Equal(a.FinishedAt, a.DurationTicks);
+                Assert.True(a.FinishedAt < b.FinishedAt, $"第 {i} 次普攻在 30 Hz 下的总 tick 数应少于 60 Hz（{a.FinishedAt} vs {b.FinishedAt}）");
+            }
         }
 
         [Fact]
@@ -157,7 +173,7 @@ namespace Tests.Lab
             Assert.Contains("\"formatVersion\": 2", LabTestSupport.Script("equip_cycle").ToJson());
             foreach (var s in LabTestSupport.StandardScripts())
             {
-                if (s.Meta.ScriptId != "equip_cycle")
+                if (s.Meta.Scene != "equip")
                 {
                     Assert.Equal(InputScript.FormatVersion, s.EffectiveFormatVersion);
                     Assert.Contains("\"formatVersion\": 1", s.ToJson());

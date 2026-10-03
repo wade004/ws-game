@@ -507,6 +507,8 @@ namespace Core.Rules.Skill
             _graceConditions = request.GraceConditions.Count > 0 ? request.GraceConditions : null;
             try
             {
+                // 手感落地 M4-G：地面落点是这次施法的瞄点，宽限条件优先以它求值（框架内置的"落点够得着"条件据此工作）。
+                NoteGraceAim(casterId, skillId, null, request.Point);
                 return TryStartCastAtGround(casterId, skillId, request);
             }
             finally
@@ -680,6 +682,14 @@ namespace Core.Rules.Skill
                 return Fail(casterId, skillId, CastFailureReason.NoValidTarget, presetCastInstanceId);
             }
 
+            // 手感落地 M4-W3：请求没有携带目标、由技能自己的目标链解析出目标时，链解析出的首个目标同样是这次施法的瞄点——与请求携带目标
+            // （CastSkillWithContext 在入口记瞄点）同一个记录出口、同一套归属规则：换了瞄点依赖目标的宽限条件历史作废，等于缺省目标/上一个瞄点则历史保留。
+            // 必须在步骤 7 的宽限判定之前记，使条件历史与本次施法对齐；没有携带宽限条件的请求（含全部既有调用方）不记，行为不变。
+            if (_graceConditions != null && targets.Count == 0)
+            {
+                NoteGraceAim(casterId, skillId, resolvedTargets[0], null);
+            }
+
             // 步骤 7：距离与视线（Range == 0 表示无限制/作用于自身，见 06 第 3.1 节）
             if (def.Range > 0)
             {
@@ -691,7 +701,7 @@ namespace Core.Rules.Skill
                 {
                     foreach (var targetId in resolvedTargets)
                     {
-                        if (Vec2.Distance(casterPos, _units.GetPosition(targetId)) > def.Range)
+                        if (RangeDistance(casterId, casterPos, _units.GetPosition(targetId), targetId) > def.Range)
                         {
                             return Fail(casterId, skillId, CastFailureReason.OutOfRange, presetCastInstanceId);
                         }
@@ -926,6 +936,23 @@ namespace Core.Rules.Skill
         }
 
         /// <summary>
+        /// 射程检查用的距离：缺省（<see cref="SkillOptions.SpatialRange"/> 关）就是平面距离，与此前逐位一致；开启时含高度差
+        /// （目标为 null 表示地面坐标，落点高度取落点的地面高度——没有地形高度能力时为 0）。
+        /// </summary>
+        private double RangeDistance(Id casterId, Vec2 casterPos, Vec2 targetPos, Id? targetId)
+        {
+            var planar = Vec2.Distance(casterPos, targetPos);
+            if (!_options.SpatialRange)
+            {
+                return planar;
+            }
+
+            // 地面坐标（targetId 为 null）的落点高度取落点的地面高度（M4-W1b：有地形高度能力时不再恒为 0；没有地形能力时 GetGroundHeightAt 恒 0，逐位不变）。
+            var dh = (targetId.HasValue ? _units.GetHeightOffset(targetId.Value) : _units.GetGroundHeightAt(casterId, targetPos)) - _units.GetHeightOffset(casterId);
+            return Math.Sqrt(planar * planar + dh * dh);
+        }
+
+        /// <summary>
         /// 地面坐标专属校验：射程/视线仅当 <c>def.Range &gt; 0</c> 时生效（<c>0</c> 表示无限制，见
         /// 06 第 3.1 节、<see cref="TryStartCast"/> 步骤 7 同一惯例）；可行走校验与射程无关，只要
         /// 注入了 <see cref="_navigation"/> 且该施法者能取得地图 id（<see cref="IUnitAccess.GetMapId"/>）
@@ -940,7 +967,7 @@ namespace Core.Rules.Skill
             if (def.Range > 0 && !graceCovered)
             {
                 var casterPos = _units.GetPosition(casterId);
-                if (Vec2.Distance(casterPos, point) > def.Range)
+                if (RangeDistance(casterId, casterPos, point, null) > def.Range)
                 {
                     return CastFailureReason.OutOfRange;
                 }

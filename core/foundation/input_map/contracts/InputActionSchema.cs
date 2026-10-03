@@ -69,6 +69,11 @@ namespace Core.Foundation.InputMap
                 new FieldSchema("skill_slot", FieldKind.String, required: false,
                     description: "缓冲接受后要施放的技能所在的技能绑定槽位名（与 SkillBindingHost 的 slot 同名，如 slot_0）；" +
                         "缺省表示该动作不映射技能（装配层的缓冲出口对它不发 cast 意图）"),
+                // 控制空间（相机相对输入，第三人称/俯角镜头）：可选加法字段，缺省 world = 轴值原样当世界方向（既有行为逐位不变）。
+                new FieldSchema("control_space", FieldKind.Enum, required: false,
+                    enumValues: new[] { "world", "camera_relative" },
+                    description: "轴动作的控制空间（仅 axis2d 有意义）：world 轴值原样当世界方向（缺省）；camera_relative 轴值按当前相机偏航换算成世界方向，" +
+                        "要求宿主给输入映射配相机朝向查询（ICameraOrientation）"),
             },
             migrations: Array.Empty<TableMigration>(),
             isRegistryTable: true)

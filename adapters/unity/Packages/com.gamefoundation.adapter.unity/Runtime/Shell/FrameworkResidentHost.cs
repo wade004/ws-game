@@ -247,6 +247,10 @@ namespace Adapter.Unity.Shell
         /// <summary>见文件顶部判断记录：固定步/帧回调改经 IClock 注册，本类型持有返回的句柄，
         /// <see cref="OnDestroy"/> 里显式退订。</summary>
         private Core.Foundation.Common.SubscriptionHandle? _fixedStepHandle;
+
+        // NF2：渲染帧插值系数（见 RenderInterpolationClock 判断记录）。_simClockHost 只用来读 Mode。
+        private Core.Foundation.SimLoop.ISimClockHost? _simClockHost;
+        private readonly RenderInterpolationClock _renderAlpha = new RenderInterpolationClock();
         private Core.Foundation.Common.SubscriptionHandle? _frameHandle;
 
         /// <summary>H4 新增（独立版无人值守冒烟"-gf-smoke-discrete"分支，见
@@ -417,6 +421,7 @@ namespace Adapter.Unity.Shell
             // combatParticipantsResolver 不传（缺省 null，真实解析）——见文件顶部判断记录。
             var clockHost = new Core.Foundation.SimLoop.SimClockHost(
                 world, new Core.Foundation.SimLoop.SimLoopOptions { StepSeconds = Time.fixedDeltaTime });
+            _simClockHost = clockHost;
             IPacingPolicy pacingPolicy = PacingWaitForPlayback
                 ? new WaitForPlaybackPacingPolicy()
                 : new ImmediatePacingPolicy();
@@ -920,6 +925,7 @@ namespace Adapter.Unity.Shell
             Presentation.InputMap.Update(_host.Input);
             HandleFixedInput();
             Gameplay.Advance(stepSeconds);
+            _renderAlpha.NoteAdvance(Time.timeAsDouble);
         }
 
         private void HandleFixedInput()
@@ -1040,7 +1046,7 @@ namespace Adapter.Unity.Shell
             // Gameplay.NotifyPlaybackFinished() 解除——这是"确有回放内容"时唯一的解除路径。
             //
             // 根治修复（W5c，第三轮审计"离散回放门‘零事件步骤’无自动通知"仍保留项收口）：此前这里
-            // 记录的"已知局限"——某个离散步在 Sequential 队列模式下一个反馈动作都没有入队时，
+            // 记录的缺口——某个离散步在 Sequential 队列模式下一个反馈动作都没有入队时，
             // PlaybackQueue.Finished 永远不会触发（"由非空变空"的边沿事件，队列若从未变过非空则
             // 不会触发），playing_back 因此永久卡住——已在 core/gameplay/assembly 侧结构性根治：
             // Core.Foundation.SimLoop.WaitForPlaybackPacingPolicy 新增可选 HasPendingPlayback 探针，
@@ -1061,18 +1067,19 @@ namespace Adapter.Unity.Shell
             // 现已落地（由 Advance 内部的 ISimClockHost.Advance 返回值驱动），取代本类型此前自行
             // 用 _interpAccumulator/Time.fixedDeltaTime 重新实现的同一套"距上次固定步过去了多久"
             // 累加器——两者语义一致（都是"0~1 之间，供渲染插值"的系数），改用核心侧权威值后不再需要
-            // 本类型自己维护累加器状态。已知局限（供 W5 参考）：InterpolationAlpha 只在
-            // OnFixedStep→Gameplay.Advance 调用时更新（固定步节奏），本类型 OnFrameTick 按渲染帧
-            // 节奏读取，两者节奏不同——渲染帧率高于物理帧率时，同一个固定步区间内的多个渲染帧会读到
-            // 同一个 alpha 值直到下一次固定步更新它，不是逐渲染帧连续增长，插值平滑度弱于此前的
-            // 逐帧累加实现；这是 core/gameplay/assembly 的既有行为，不在 adapters/unity 写入范围内
-            // 调整。
-            var alpha = Mathf.Clamp01((float)Gameplay.InterpolationAlpha);
+            // 本类型自己维护累加器状态。NF2 修订：宿主每次 FixedUpdate 恰好整步喂入 Advance，核心累积器每次
+            // 被整步耗尽，InterpolationAlpha 恒接近 0 且只在固定步更新，渲染帧率高于物理帧率时位置按固定步频
+            // 一格一格跳——连续模式下改由 RenderInterpolationClock 按引擎时间逐渲染帧计算（见其判断记录），
+            // 离散模式（核心给 1.0）与未推进过时仍沿用核心值。
+            var alpha = Mathf.Clamp01((float)_renderAlpha.Evaluate(
+                Time.timeAsDouble, Time.fixedDeltaTime,
+                _simClockHost != null && _simClockHost.Mode == Core.Foundation.SimLoop.TimeModelMode.Continuous,
+                Gameplay.InterpolationAlpha));
 
             if (!Freeze.IsFrozen)
             {
                 RunPresentationStep(() => Presentation.ViewBinder.SyncAll(alpha));
-                RunPresentationStep(() => Presentation.Camera.Update(alpha));
+                RunPresentationStep(() => Presentation.Camera.Update(alpha, unscaledDelta));
             }
 
             // W3b 新增（拍板 6，八个程序动画原语可视化）：推进每个仍存活的 sprite 型 View 持有的

@@ -439,13 +439,17 @@ stopRange, mode)`。
   新增原因值），随后直接结束本次追击（清空 `Chase`、状态收回 `Idle`）——不接入
   `MovementOptions.PathFailurePolicy` 的 `KeepOldPath`/`Stop` 二选一：那是"移动到固定点"场景的
   口味开关，追击场景的失败处理语义固定为"结束"，不做可配置。
-- **已知限制**：① 移动请求（含追击）目前不参与存档序列化——本次改动之前就是如此，首次在此明确
-  记录：读档后追击请求不自动恢复，需消费方读档完成后重新下达。② 追击单位靠近目标的移动预算足够
-  大时，本 tick 可能一路走到与目标重合（比声明的 `StopRange` 更近），下一 tick 的距离判断才会把它
-  收回停止状态，是逐 tick 结算的固有粒度问题。③ 离散模式下，目标死亡/消失只有在本单位下一次收到
-  新的 `move_to_unit` 意图时才会被检测到并结束请求，与既有路径跟随/受控位移在离散模式下"仅在
-  行动者自己回合处理"的惯例一致，不会在其它单位的回合中主动探测。④ 追击单位自身站在不可走格时
-  （见下方独立小节"设计决定，见 ADR-0125"）不特殊处理，仍按"到不了"结束。
+- **设计决定（原"已知限制"四项，NF1 逐条定案）**：
+  ① 移动请求（含追击、受控位移、进行中的路径）不参与存档序列化，读档后由 AI/玩家输入重新下达。理由：存档只存 10 第 2.3 节的稳定事实
+  （地图、位置等）；运行期单位读档后由地图加载重新生成，追击请求引用的目标单位 id 读档后不一定还存在，恢复一条指向不存在目标的请求没有意义；
+  读档本身会清空待处理意图，行为一致。
+  ② 追击靠近目标不会走到与目标重合：规划终点是"沿本单位→目标方向回退 `StopRange` 的站位点"（见上文），移动预算再大也只走到站位点；
+  剩余偏差只来自"目标朝追击者移动、尚未触发重规划"，上界是 `MovementOptions.FollowRepathDistance`（需要更严就调小它，代价是重规划更频繁）。
+  理由：重规划频率与停位精度的取舍旋钮，已经存在，不另设机制。用例 `UnitChaseTests.ToUnit_HugeMoveBudget_StopsAtTheStandoffPoint_AndOvershootIsBoundedByFollowRepathDistance`
+  （静止目标时距离 = `StopRange`；运动目标下最近距离 ≥ `StopRange − FollowRepathDistance`）。
+  ③ 离散模式下，目标死亡/消失只在本单位下一次收到新的 `move_to_unit` 意图时被检测并结束请求，与路径跟随/受控位移在离散模式下"仅在行动者自己回合处理"的惯例一致，
+  不在其它单位的回合中主动探测。理由：回合制里单位只在自己的回合推进（03 离散时间模型），在别人的回合里改写它的状态会破坏"行动顺序即因果顺序"。
+  ④ 追击单位自身站在不可走格时不特殊处理，仍按"到不了"结束（见下方独立小节"设计决定，见 ADR-0125"）。
 
 ## ADR-0102《追击规划点不可达时采样候选站位点》：候选站位点采样（修订 ADR-0097 决策 5）
 
@@ -654,9 +658,12 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 4. **斜墙/墙角/擦角的运行时冒烟**（`ConvexNavigation` 测试替身：凸多边形半平面交集，Cyrus-Beck 裁剪）：45° 斜墙上每 tick 沿切向位移 = `速度·dt·(方向·切向)`，
    法向位移为零、贴墙距离恒定、速度法向分量为零；锐角内角停在角点、不进入阻挡、不抖动、速度归零；菱形（旋转 45° 的方块）擦角沿斜面爬到顶点后恢复直行；
    只有默认实现的导航在斜墙上整体停下。
-5. **已知局限**：Tilemap/网格实现的阻挡是矩形并集，斜线墙在其上是阶梯形，法线逐级交替（轴向法线），不会比阶梯更平滑——需要平滑法线的游戏在阻挡数据侧处理；
-   单位恰好落在斜墙的边界线上（边界相切不算受阻，上一 tick 终点正好落在线上）时，滑动目标点可能因浮点误差落入内部，被 `IsWalkable` 拒绝而该 tick 不位移，
-   下一 tick 的位置仍在原处（不会陷进去）；一般情形下命中前总有到达容差的回退，不会落在线上。
+5. **设计决定（原"已知局限"，NF1 定案）**：①Tilemap/网格实现的阻挡是矩形并集，斜线墙在其上就是阶梯形，法线逐级交替（轴向法线）。理由：这是网格语义本身——格子的阻挡就是轴对齐方块，
+   核心层不替网格实现"猜"一个平滑法线（猜出来的法线与它实际会阻挡的几何不一致，会让单位沿一条不存在的墙滑动并穿进格子）；需要平滑斜墙的游戏提供带真实法线的导航实现
+   （`INavigation2D.RaycastWithNormal`，上面第 4 条的凸多边形替身即该形态），或在阻挡数据侧用凸多边形声明斜墙。②滑动终点被 `IsWalkable` 拒绝（单位恰好落在斜墙边界线上，
+   滑动目标点因浮点误差落入内部）时，位移退回"撞墙停住"——截断在撞击点前的回退点（与没有 `wall_slide` 的单位撞墙同口径、速度归零），而不是整个 tick 不位移；
+   回退点同样不可走或与起点重合（本来就贴在墙上）才整 tick 不位移。用例 `MotionArbiterTests.SlideBoundary`（滑动终点被拒绝时位置从撞前位置推进到撞击点 = 斜墙交点回退一个到达容差，
+   不穿墙；终点可走时仍沿切向滑开，行为不变）。
 6. **（缺省路径修复，记录 11）** 复现用例 `C10a_ControlledDisplacementTests.MoveIntentEveryTick_DoesNotStallAControlledDisplacement`（方向/目标点/追击三种意图各一例）：
    修复前第 2 个 tick 位移停在 1，修复后逐 tick 走 `速度·dt`、第 4 个 tick 到达并以 `DisplacementArrived` 结束。被控制（`IsLocked`）的单位同理：意图被忽略后位移交给
    `AdvanceDisplacement` 按它自己的控制规则处理，与"没有意图"时一致（此前持续输入会让它永远不结束）。
@@ -690,39 +697,83 @@ root_motion；规则表与档案读取；目标辅助、步态与击退距离的
 - `WorldUnitAccess` 实现 `IUnitFacingWriter.SetFacing`：只写朝向（不经空间索引同步、不发事件），供时间线把目标辅助的朝向修正落地。该方法不在 `IUnitAccess` 上（与 `SetLevel`/`SetFaction` 同一约定：非契约的单位写操作走窄接口）。
 - 复现/不变量：`tests/ActionTargetAssistTests.cs`（候选筛选、朝向修正 `min(方位角, 档案上限)` 不越界、`close_distance` 缩放、无候选静默、`SetFacing`）。
 
-## 判断记录（单位间体积阻挡，2026-10-02，M2-C 起步、M3-A 补完，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 3.5 节、[ADR-0128](../../../architecture/adr/0128-单位间体积阻挡.md)；手感设计未写清的规则由切片拍板）
+## 判断记录（单位间体积阻挡，2026-10-02，M2-C 起步、M3-A 补完、M4-B 精确化、M4-W2 三期，[手感设计/02](../../../architecture/手感设计/02_移动与运动仲裁.md) 第 3.5 节、[ADR-0128](../../../architecture/adr/0128-单位间体积阻挡.md)；手感设计未写清的规则由切片拍板）
 
 `core/MovementTickHandler.UnitVolume.cs`（快照、扫掠、折线扫掠、局部绕行）与 `core/MovementTickHandler.UnitVolumeResolve.cs`（tick 末的成对裁决、分离、强制位移推人、`unit.moved` 延后发出）是 `MovementTickHandler` 的两个 partial。运动档案可选字段：`unit_body_radius`、`dodge_through_units`（总开关）、`pass_through_motion_kinds`、`unit_separation_speed_ratio`、`path_avoid_units`、`forced_push_units`、`forced_push_ratio`（`FeelFields.cs` / `MotionProfile.cs`；`MotionProfile` 现有 18 与 23 参数两个构造函数，旧构造函数保留并转发，ABI 只加）。
 
 1. **开关**：只有运动层启用且**本单位**档案 `unit_body_radius > 0` 才进入任何体积分支；既有预设、`LegacyEquivalent`、未声明的单位逐位不变（`MotionArbiterTests.UnitVolume` 里"未声明 = 对方在别处"一条按逐位相等断言）。旧的全局 `MovementOptions.UnitBlocking`（终点判定、`unit_block` 标签、固定半径）一字未动，二者独立。
 2. **成对语义**：半径取各自的档案；两方都 > 0 才互相阻挡，只有一方声明则穿过。
-3. **快照 + 顺序无关**：tick 内第一个有体积的单位创建运动 tick 时，按单位 id 排序拍一份快照（id、半径、起点位置、分离比例）；单位自己的扫掠与守卫只读快照里别人的起点位置，所以处理顺序不影响结果。位置写入仍然即时（`SetPosition`），`unit.moved` 对有体积的单位延后到 tick 末按 id 顺序、带最终位置发出，运动学写入同样延后到 `WriteDeferredKin`。
-4. **tick 末成对裁决**（`ResolveUnitVolumes`，`FinishMotionTick` 末尾）：先对"本 tick 都动过的"成对单位用相对运动二次方程求接触比例，取各单位涉及的最小缩放，Jacobi 迭代 16 次，仍不收敛则归零；缩短后的位移必须仍过地形，否则回到起点（回到起点的单位速度清零，路径下标只在路径对象未变时恢复）。然后做分离：权重 = `unit_separation_speed_ratio`（缺省 0.5）× 基础移速，被冻结/定身/死亡/处于受控位移中的单位权重为 0，每个单位的推出量不超过权重 × 步长，先过地形裁决再过同一个成对接触求解；最后处理待执行的强制推人，再按 id 顺序发出延后的 `unit.moved`。穿过式动作位移（幽灵）本 tick 不参与成对接触与分离。
+3. **快照 + 顺序无关**：tick 内第一个有体积的单位创建运动 tick 时，按单位 id 排序拍一份快照（id、半径、起点位置、分离比例；`_unitStart` 另记所有单位的起点位置），并按 tick 起点状态与本 tick 意图预判每个单位"会不会动"（只是加速提示，结果不依赖它，见 11）。单位自己的扫掠与守卫只读快照里别人的起点位置，所以处理顺序不影响结果。位置写入仍然即时（`SetPosition`），`unit.moved` 与位移到达/受阻事件对有体积的单位延后到 tick 末按 id 顺序、带最终位置发出，运动学写入同样延后到 `WriteDeferredKin`。
+4. **tick 末成对裁决**（`ResolveUnitVolumes`，`FinishMotionTick` 末尾）：先对成对单位（一方本 tick 实际动过即可）按各自实际走的折线（阶段 A 在每个写位置处记下，见 12）求首次接触，会动与会动、会动与不会动的单位都参与；谁让路见 13。Jacobi 迭代 16 次（每个单位取各对要求的最小缩放），仍不收敛则把仍冲突的单位归零；缩短后的位移必须仍过地形，否则回到起点（回到起点的单位速度清零，路径下标退回实际走过的位置或起点；被成对裁决缩短的单位见 16）。然后做分离：权重 = `unit_separation_speed_ratio`（缺省 0.5）× 基础移速，被冻结/定身/死亡/处于受控位移中的单位权重为 0，每个单位的推出量不超过权重 × 步长，先过地形裁决再过同一个成对接触求解；最后处理待执行的强制推人（同 tick 生效，见 18），再按 id 顺序发出延后的 `unit.moved` 与位移到达/受阻事件。穿过式动作位移（幽灵）在窗口内不被撞停、不参与分离，但别的单位的成对裁决看得到它的最终位置，窗口最后一个 tick 它的终点按就近可行位置修正（见 15）。
 5. **连续扫掠 + 回退**：线段（折线则逐段）对圆求首次进入，回退一个 `ArrivalEpsilon`（与墙体同约定，保证下一 tick 不从圆里起步，所以撞停后不蠕动）；撞停位置 = 对方位置 − 半径之和 − 回退量之内。起点已在体积内时只拦"让距离变近"，允许走开；末尾守卫保证结果不比起点更深。
 6. **来源覆盖**：`regular`（输入位移，`wall_slide` 决定停下或沿切向滑一段）、`action`（`blocking: slide` 滑开 / `stop` 停下；穿过 = `dodge_through_units` 总开关 AND 位移种类在 `pass_through_motion_kinds` 里，缺省 `dash,step_back`，名字不认识在读档案时抛 `InvalidOperationException` 并带字段名）、`forced`（被挡 `DisplacementBlocked` 收场，不滑；`forced_push_units` 为真时见 8）、路径跟随与追击（`path_avoid_units` 缺省真，局部绕行见 7；追击有效停步距离取声明值与"半径之和 + 2 个到达容差"的较大者）。
 7. **局部绕行**（`TryAvoidUnits`）：被体积挡住后，沿"目标方向去掉沿（被撞单位中心 → 本单位）法向分量"的切向以本 tick 剩余预算走；正对着撞上（切向分量为零）取法向逆时针垂线，这时才再试另一侧，否则目标方向偏向的一侧被挡死就停（换侧会在窄道里来回弹，测试钉住）。目标点落在挡路单位的体积里（加 2 个到达容差）不绕。绕行步仍过别的单位的扫掠和地形裁决。选局部绕行而不是重规划：导航契约已冻结，确定且便宜。
-8. **强制位移推人**（`QueueForcedPush` / `ApplyPendingPushes`）：被推单位档案 `forced_push_units` 为真，策略不是回退，位移是停下类，则记下一条待推：向量 = 剩余距离 × `forced_push_ratio` ×（1 − 被推单位击退抗性，`MotionKnockback.ReadResistance`）沿"停下位置 → 被推单位中心"。tick 末按（目标 id、推人者 id）排序、同目标向量相加；已在受控位移中的目标跳过；被推单位从下一 tick 起得到一个新的强制位移，沿用推人者的曲线（时长按比例缩放）或速度。
-9. **折线精确扫掠**（`ClipPathByUnitVolumes(unit, r, from, to, via, slide)`）：先撞墙再滑动的位移按"起点 → 拐点（起点 + 方向 × (撞墙距离 − 回退量)）→ 终点"逐段扫掠，不再用起终点直线近似。
+8. **强制位移推人**（`QueueForcedPush` / `ApplyPendingPushes`）：被推单位档案 `forced_push_units` 为真，策略不是回退，位移是停下类，则记下一条待推：向量 = 剩余距离 × `forced_push_ratio` ×（1 − 被推单位击退抗性，`MotionKnockback.ReadResistance`）沿"停下位置 → 被推单位中心"。tick 末按（目标 id、推人者 id）排序、同目标向量相加；已在受控位移中的目标跳过；被推单位得到一个新的强制位移，沿用推人者的曲线（时长按比例缩放）或速度，**同一 tick 内**就开始位移（见 18）。
+9. **折线精确扫掠**（`ClipPathByUnitVolumes(unit, r, from, to, via, slide)`）：先撞墙再滑动的位移按"起点 → 拐点（起点 + 方向 × (撞墙距离 − 回退量)）→ 终点"逐段扫掠，不再用起终点直线近似；对会动的单位，tick 末的成对求解同样按这条折线（见 12）。
 10. **为什么穿过只给冲刺/后撤、不给扑击**：闪避的语义是无敌位移穿过敌人，扑击是追击型位移；种类集合由数据声明，游戏自己决定。
 
-**已知限制（如实记录）**：
-- 成对阻挡看到的是别人 tick 起点的位置，所以跟在另一个单位后面走的单位最多滞后一个 tick。
-- 成对裁决对滑动或折线位移用起点到终点的弦，保守，可能略微多缩短一点，并经地形校验。
-- 某个单位在同一 tick 到达路径终点或受控位移结束、同时又与别的单位成对碰撞时，停下/到达事件里的位置是成对裁决之前的位置，到达状态已经记录。
-- 被成对裁决拉回的单位速度清零；路径下标只有在路径对象未变时才恢复。
-- 追击与扑向目标读取目标的当前位置，这是体积裁决之外既有的顺序依赖。
-- 成对检测每 tick `O(n log n + k)`。
-- 被推单位的位移从下一 tick 起。
-- 未知的 `pass_through_motion_kinds` 名字在读档案时抛异常。
-- 死亡单位不阻挡；离散步（回合制）不受影响；体积半径随运动档案走，全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
-- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）与 `tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、36）。
+11. **M4-B / M4-W2：会动 / 不会动的分类（`Free`）与可重放求解遍**：每个有体积的单位按它**实际是否移动**分类，不依赖预判。`PredictMayMove`（读 tick 起点状态与本 tick 意图：死亡/顿帧、受控位移、击晕定身、动作位移窗口、`move`/`move_to_unit`/路径、追击停步区间含滞回、制动滑行）降级为"起点假设"，只决定第一遍从哪里开始，不影响结果。机制是**可重放的 tick 事务**（`MovementTickHandler.VolumePasses.cs`）：运动 tick 开始时抓取全部单位的 tick 状态（位置、速度、路径、受控位移、动作位移窗口、待发事件与回调等），每遍按当前的"会动"集合 `Free` 跑整个 tick（阶段 A 扫掠 + 阶段 B 求解），事件与回调进出口缓冲（outbox），只在最后一遍提交；一遍之后取"实际位移超过零长度容差"的单位集合 `Movers`，若 `Free` 里有实际没动的单位则收缩 `Free ← Free ∩ Movers` 并从抓取的状态重来（只收缩、不扩张，所以单调收敛；上限 `MaxVolumePasses` = 12，超出时取最后一遍的结果并保持"不重叠"守卫）。规范起点是"本 tick 有尝试位移的单位都被当作会动"（`F0` = Attempted）：最终结果是 `Free` 的不动点，即"只有实际移动的单位被当作会动"那一次的结果，与预判从哪里起步无关。**不变量**（`MotionArbiterTests.UnitVolumePhase3.cs`）：对同一场景，把 `VolumeStartClassifier`（公开测试钩子）设成"全部会动""全部不动""随机""取反预判"，位置、速度、事件流逐位一致；预判全对的 tick 只跑一遍（`LastVolumePassCount` = 1，没有任何单位 `Free` 时更是直接走旧的连续扫掠），既有脚本的基线因此不变。没有意图的静止单位（实验室木桩、测试假人）永远是静态障碍。预判错的代价只是多跑一两遍，不再是"退化成旧语义"。
+12. **M4-B / M4-W2：折线与速度剖面（接触时刻）**：每个单位本 tick 实际走的折线（`VolumeBody.Trail`：输入位移的撞墙拐点、体积裁决后的折线、路径跟随/追击逐路点、绕行步、受控位移与动作位移）是位置的几何；**时间**取运动仲裁给出的真实速度剖面（`MovementTickHandler.SpeedProfile.cs`）：时刻 `t ∈ [0,1]` 对应沿折线走过的弧长占比 `u(t)`。输入位移的加速/减速在 tick 内速度从 v0 变到 v1，剖面是 Ramp，`u(t) = (2·v0·t + (v1−v0)·t²) / (v0 + v1)`（闭式；匀速 v0 = v1 时即 `u = t`）；动作位移与受控位移按它们的曲线表（64 个节点，Simpson 或曲线求值）；瞬时加减速（`accel_ms`/`decel_ms` 为 0）与根运动没有 tick 内形状，剖面为空 = 匀速。接触时刻求解：剖面为空的两条折线仍是分段线性，每个区间解一个二次方程取最早命中——算式与旧的"起点 + 位移向量 × 比例"逐位相同（既有基线逐位不变）；任一方有剖面时用保守推进 + 二分（`FirstContactProfiled`）求首次接触，缩短比例按"单位被缩短到 `scale` 时实际走了剖面在 `scale` 处的弧长"换算（`scale * U(τ)`）。折线与实际写入不连续（如被丢弃的写入）时该单位退回用起终点的弦。路径下标：缩短后按实际走到的弧长恢复到对应路点下标（`IndexAtScale`，从轨迹开头吃掉的零长度路点之后算起）。
+13. **M4-B：谁让路（不对称让路）**：接触点上沿连线方向的速度分量决定"谁在靠近"。相向或擦过（两方都在靠近或都不是）时对称：两个单位按同一比例（首次接触时刻减一个到达容差的占比）缩短；只有一方靠近时只有这一方让路：二分求它能放慢到的最大比例，使它与对方整个 tick 的轨迹都不再接触（阈值半径之和 + 一个到达容差）。所以快的跟随者追上慢的单位时停在对方**最终**位置的体积边界外一个容差处，前面的单位不被拖慢（轨迹与独自行走逐位一致），同速跟随时双方都不用让。靠近一方的让路比例按剖面换算（见 12），被拉回的单位保留沿接触面的切向速度（见 16）。强制位移推人由阶段 A 的撞停触发，被推单位同 tick 位移（见 18）。
+14. **M4-B：事件与目标读取**：受控位移的 `DisplacementArrived`/`DisplacementBlocked` 事件（`OnMoveStopped`）对有体积的单位在 `EndDisplacement` 处只记下（单位、原因），tick 末在 `unit.moved` 之后按（单位 id，记下先后）排序发出，位置是拉回之后的最终位置（原因值不变）；没有体积的单位立即发出，既有行为不变。追击与朝目标的动作位移，有体积的单位读目标的 tick 起点快照（`ObservedTargetPosition`），没有体积的单位读目标此刻位置（既有行为）。路径跟随的"到达"没有对外事件，只有位移事件需要延后。
+
+15. **M4-W2：幽灵（穿过式动作位移）**：幽灵在位移窗口内仍可穿过别的单位（阶段 A 不拦、阶段 B 不撞停、不参与重叠分离），但：（a）别的非幽灵单位的成对裁决把幽灵的**最终位置**当作静止的体积（幽灵在阶段 B 以终点为圆心的静止圆参与），所以别人会避让幽灵的终点；（b）窗口的最后一个 tick（`MotionTick.PassThroughEnds` = 下一 tick 窗口不再有效）幽灵不得终止在别人的体积里：终点按**就近可行位置**修正——候选点是各个压着终点的体积圆（半径之和 + 一个到达容差）上离终点最近的径向投影、圆周上均分的 24 个采样点（径向投影落进墙时找别的可走位置）、两个体积圆的交点（夹在两个单位之间），取不落进任何单位体积（含另一个幽灵的终点）、可走且离原终点最近的候选；修正与别人的成对裁决迭代到不变（`GhostRounds` = 4 封顶，封顶仍重叠或周围被地形围死的由随后的分离兜底）；（c）被中断的窗口（被击飞、死亡、击晕打断）没有"最后一个 tick"，落在体积里的由分离推出。
+16. **M4-W2：被拉回的单位保留切向速度与路径进度**：成对裁决把单位位移缩短时，记下接触法线（接触时刻两个单位中心连线方向，`NotePull`）；单位的速度保留**沿接触面的切向分量**，沿法线进入对方的分量去掉（不再整体清零），所以贴着对方滑行的单位不会"粘住"。路径跟随的路径进度也保留：缩短后的路径下标按实际走过的弧长恢复（`RestorePathProgress`，用 tick 开头抓取的路径对象与轨迹记下的路径下标，路径对象在本 tick 内被新请求替换时仍回到旧路径上的正确点）；已记下的"到达"被撤销（到达事件在 outbox 里一并取消，单位继续沿路径走），受控位移的受阻原因不变。回到起点（地形守卫失败）的单位速度仍清零。
+17. **M4-W2：宽相网格**：两处宽相都是均匀网格，只缩小候选集、不改任何判定式。阶段 A 的扫掠：快照里的单位按 tick 起点位置装进网格（格边长 = 2 × 最大半径），线段只枚举"包围盒按（半径之和 + 余量）膨胀"覆盖的格子里的单位（候选升序、无重复；格子数超过单位数或单位数不超过 8 时直接取全部）。阶段 B 的成对检测（`CollectNearPairs`）：位移包络半径不大于"中位数的两倍"的单位走网格取 3×3 邻格（格边长 = 该上限的两倍），包络特别大的少数单位（冲刺、位移很远）逐个与全部参与者比较；两条路径用同一个判定式 `delta·delta ≤ lim²`，结果集合与暴力两两比较完全相同，再按 (i, j) 排序，顺序也相同。所以结果与暴力成对**逐位一致**（不变量：`VolumeBroadPhaseBruteForce` 公开钩子打开时走暴力，两种口径下随机人群的位置、速度、事件流逐位相同）；参与者不超过 16 个时不建网格。复杂度每 tick `O(n + k)`（k 为候选对数）。n = 200 的人群（互相靠近走动，整个运动 tick 含扫掠、求解、分离）实测（20 个 tick，三轮最小值，开着其它进程的开发机）：Release 暴力 106.8 ms、网格 90.2 ms（1.18 倍），Debug 暴力 350.8 ms、网格 206.3 ms（1.70 倍）；n = 400（10 个 tick）Release 1.19 倍、Debug 2.20 倍；n = 100 时网格没有收益（Release 0.83 倍，建网格的开销与省下的比较相当）。整个 tick 里扫掠与求解之外的部分（求解遍、轨迹、事件）不随宽相变化，所以整体倍数小于宽相本身的倍数。`MotionArbiterTests.UnitVolumePhase3` 的计时用例只打印、不断言耗时（墙钟断言在并行负载下不稳），断言的是逐位一致。
+18. **M4-W2：同 tick 推人**：阶段 A 撞停触发的推人在同一 tick 内生效：同一目标的多个推人先按（目标 id、推人者 id）排序向量求和，被推单位开一段受控位移后立即用真实的受控位移推进（`AdvanceDisplacement`，地形、体积、事件与下一 tick 起的推进同一套代码）走完这一 tick 的位移。一轮里所有被推单位互为"会动"，对别的单位按它们裁决完的最终位置扫掠（`_microPhase`），所以一轮的结果与处理顺序无关；被推单位之间在一轮结束后按它们这个 tick 的位移弦做一次成对接触求解（与阶段 B 同一个求解器），互相撞上的缩短位移、位移以受阻收场；被推单位自己的位移又被体积挡住并触发推人时进入下一轮（连锁，`PushRounds` = 8 封顶，余下的退回下一 tick 起推进）。已在受控位移中的目标跳过。顺序无关由打乱创建顺序的不变量用例钉住。
+19. **判断记录（不属于上面机制的取舍，决定 + 理由）**：
+    - **未知的 `pass_through_motion_kinds` 名字在读档案时抛 `InvalidOperationException` 并带字段名**：这是正确的数据校验——静默忽略一个拼错的种类名会让"以为穿过实际被挡"，故障离配置处越远越难查；与 ADR-0125 的"意图参数只认枚举名"同一口径。
+    - **根运动与多来源 tick 用匀速剖面**：根运动的位移由引擎动画给出，核心没有 tick 内的形状；一个 tick 里同时有多种位移来源（如输入位移 + 动作位移）时剖面不能合成，按匀速处理（`ProfileMixed`）。理由：两种都没有可信的 tick 内速度信息，宁可匀速也不编造；结果仍保证不重叠，只是接触位置与"真实时刻"相差不到一个 tick 的位移。
+    - **剖面按单位"实际走过的折线"归一化**：撞墙被缩短的位移，剖面在被缩短的折线上归一化，而不是在原计划的位移上。理由：成对求解只需要"这条折线上走到弧长 s 的时刻"。
+    - **剖面接触求解的步数上限**：保守推进在极端擦边的接触上最多推进 4096 步（最小步长 1/4096 个 tick），之后按"不接触"处理（缩短后位移的离散守卫和分离兜底保证不重叠）；自定义曲线表有尖峰时同理。理由：常规速度剖面是单调的，求解几步收敛，上限只防病态数据把 tick 拖死。
+    - **幽灵落点用 24 个圆周采样点而不是解析最近点**：被地形截去一段的圆周上"最近的可走点"没有闭式解，24 个采样（15°）加圆交点已经够用；采样点贴着体积圆，与最优点的差只在圆周弧长的量级。理由：确定、便宜、结果不依赖遍历顺序（候选按固定顺序，距离相等取先者）。
+    - **幽灵落点只在窗口最后一个 tick 修正**：窗口内每个 tick 幽灵的位置都可以在别人体积里（穿过就是这个意思），只有"停下来的那一刻"不得在别人体积里；中途被打断的窗口没有"终点"，交给分离。理由：穿过过程中逐 tick 修正会把幽灵从别人身上弹出去，破坏穿过的语义。
+    - **推人连锁封顶 8 轮、被推单位之间在一轮结束后按弦求解**：超出 8 轮的连锁退回"下一 tick 起推进"。理由：现实里连锁几乎只有一两轮，封顶保证 tick 耗时有界。
+    - **互相推的不一致配置（A 推 B 且 B 推 A）按静态处理**：同一轮里对象互推没有确定的先后，退回静态障碍语义（被挡即停，不再互推）。理由：这种配置是数据矛盾，保证确定性即可。
+    - **成对裁决不看地图**：两个体积不在同一张地图（`MapId` 不同）时是否互相影响沿用 M2-C 起的口径，不为此新增规则；跨图单位之间没有位置意义。
+    - **求解遍数上限 12**：`MaxVolumePasses` 封顶，超出取最后一遍结果并保持不重叠守卫；集合只缩不涨，理论上最多 n+1 遍，常见场景一两遍收敛，封顶只防病态输入。
+    - **死亡单位不阻挡；离散步（回合制）不受影响；体积半径随运动档案走**，全局预设下所有单位同半径，需要不同半径靠角色/单位覆盖行。
+- 公开的新增（只加不改，ABI 兼容）：`MovementTickHandler.VolumeStartClassifier`（预判钩子，测试用）、`LastVolumePassCount`（上一 tick 的求解遍数）、`VolumeBroadPhaseBruteForce`（强制暴力成对，测试用）、`MotionMath.ApproachSpeedAt`（趋近速度的 tick 内取值）。
+- 复现与不变量：`tests/MotionArbiterTests.UnitVolume.cs`（M2-C：边界停止、"从不重叠"、冲刺高速不隧穿、穿过、滑开、追击、击退、死亡不阻挡）`tests/MotionArbiterTests.UnitVolumeLimits.cs`（M3-A：推开速率与上限、权重为 0 不被推、不穿墙、绕行与窄道停下不摆动、推人转移量与抗性、顺序无关的打乱不变量、种类声明、折线扫掠）`tests/MotionArbiterTests.UnitVolumePhase3.cs`（M4-W2：预判与否不影响结果的不变量与收敛遍数、加减速剖面接触时刻、幽灵落点（体积外、夹在两个单位之间、墙边）与别人避让幽灵终点、切向速度与路径进度保留、同 tick 推人与顺序无关、网格与暴力逐位一致及 n = 100/200/400 计时）与 `tests/MotionArbiterTests.UnitVolumeExact.cs`（M4-B：跟随者同速轨迹与独自行走逐位一致、更快的跟随者贴最终位置且不拖慢领头者、折线对走动单位只拦第二段不拦弦、位移事件携带最终位置且按 id 排序、追击与冲锋读起点快照、含追击/折线/击退/冲锋的人群打乱顺序位置与事件流逐位一致）；实验室脚本 `feel_unit_block`、`feel_unit_separate`（`lab/README.md` 判断记录 34、36）。
 - **需要在有引擎的环境里跑**：运动层核心逻辑改了，按 AGENTS.md 跑引擎侧 `MovementStopAndBlockingPlayModeTests` 一组。
 
 ## 判断记录（竖直轴：重力下的跳跃/击飞/落地，2026-10-02，M3-E1，[手感设计/06](../../../architecture/手感设计/06_手感实验室与验收.md) 第 10 节勘误 9）
 
 1. **只是加法、缺省关闭**：`MovementOptions.Vertical`（`VerticalAxisOptions`：`Gravity` 缺省 30 世界单位/秒²、`JumpHeight` 缺省 1.5、`AllowAirJump` 缺省假）为空时不装配，行为与引入之前逐位一致；非空时装配 `VerticalMotionHost`（实现 `IVerticalMotion` 与 `Core.Rules.Common.ILaunchSink`）并在 `MovementAndNavigation` 阶段紧随 `MovementTickHandler` 挂 `VerticalMotionTickHandler`；`CarriersAssembly.VerticalMotion` 暴露服务。
-2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度恒为 0（地面就是 0，没有斜坡与台阶）。
+2. **只积分被抛起的单位**：没被 `Launch`/`LaunchToApex`/`Jump` 的单位 `Unit.HeightOffset` 保持原值不动——飘浮怪、悬空靶是"静态高度"，不受重力；落地后高度回到地面高度（缺省地面恒为 0；声明了地形能力时是落点的地面高度，见"竖直轴能力包补完"一节）。
 3. **解析式积分**：每步按累计飞行时间代入 `h0 + v0·t − g·t²/2`（不做欧拉累加，帧长不均匀时没有积分漂移），`h ≤ 0` 落地、落地步写 0；每步按单位 Id 序数遍历，已销毁实体静默丢弃其飞行状态；离散步（回合制）不推进（竖直运动是连续时间模型的概念）。`LaunchToApex(h)` 的初速 = `sqrt(2·g·h)`，落地步数 = `ceil(2·v0/(g·dt))`（测试里按此公式算期望）。
 4. **二段跳**：`Jump` 在空中默认被拒绝（返回 false，调用方计数，不静默吞掉）；`AllowAirJump` 为真时从当前高度重新抛起（起点高度 = 当前高度，不叠加速度）。再次 `Launch` 同理。
 5. **读口**：`IUnitAccess.GetHeightOffset`（默认接口成员，恒 0；`WorldUnitAccess` 覆盖为读 `Unit.HeightOffset`，未知单位返回 0）。
-6. **已知局限**：不做空中控制（空中仍按普通移动处理，输入没有空中衰减）；不被地形阻挡竖直运动（没有天花板、斜坡、台阶）；没有空中攻击/空中受击的专属反应；击飞中再次击飞按"重新抛起"处理，不叠加速度；`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。
+6. **设计决定（M4 清扫，由"已知局限"改写；"没有落地事件"一项 M4-W1b 已解除，见本文「判断记录（空战二期…）」节）**：`HeightOffset` 仍是 05 第 3.3 节的表现参数，竖直轴装配后逻辑层才读它（命中形状高度窗口、三维距离，见 targeting README）。理由：缺省空间模型是平面世界（05 第 3 节），不装配竖直轴的游戏逻辑层不该因为一个表现参数改变命中与距离结果；打开竖直轴就是游戏对"高度参与逻辑"的显式声明。测试：`tests/VerticalMotionHostTests.cs`（抛体曲线与落地步数、顶点、速度线性下降、二段跳开关、静态高度不被扰动、销毁实体、离散步、非法参数）。
+
+## 判断记录（竖直轴能力包补完，2026-10-03，M4-V，ADR-0130 追加决定）
+
+全部是 `VerticalAxisOptions` 的可选字段，缺省值下行为与 1.95.0 逐位一致（既有测试与既有实验室基线不变）。
+
+1. **空中控制与多段跳**：`AirControl`（`double?`，缺省 null = 不限制，即 1.95.0 行为）为 0..1 的比例，空中的单位水平速度（方向移动、路径跟随、受控位移之外的普通移动）按该比例缩放（`MovementTickHandler.AirScaled`）；0 = 空中不接受移动输入。`MaxAirJumps`（`int?`，缺省 null）泛化 `AllowAirJump`：非空时空中最多再跳该次数（`IVerticalMotion.AirJumpsUsed` 读已用次数，落地清零，再次被击飞不清已用的空中次数），被拒绝的请求仍返回 false 由调用方计数。注意：任务口径"缺省 0 = 不接受空中输入"与 1.95.0 的"空中不受限"冲突，取后者保证缺省逐位一致，所以缺省是 null 而不是 0。
+2. **地形（地面与天花板高度）**：`Terrain`（`ITerrainHeight2D`，`engine_adapter/contracts`，缺省 null = 平地、没有天花板）。`VerticalMotionHost` 在落地判定里用落点地面高度（落地高度 = 地面高度，不是 0）；上升中碰到天花板，脚下高度夹到天花板、竖直速度清零；单位在地面上走动时贴着地面高度（斜坡贴地，只对被观测过的单位记账）；首次观测脚下低于地面时直接抬到地面。
+3. **台阶阻挡**：`StepHeight`（`double?`，缺省 null = 不阻挡）与 `StepSampleDistance`（缺省 0.1）。移动路径上相邻取样点的地面高度差超过台阶高度即视为阻挡；阻挡与导航阻挡、运动仲裁阻挡走**同一个出口**——`MovementTickHandler` 的所有 `Raycast` 经 `NavRaycast`/`NavRaycastWithNormal` 合并地形阻挡点（`VerticalMotionHost.TerrainBlockPoint`/`TerrainBlockNormal`），方向移动沿法线滑动、受控位移按阻挡策略结束、路径跟随以新增的 `MoveStopReason.TerrainBlocked`（枚举只追加）结束。走下悬崖（脚下地面突降）的下落规则见下节（M4-W1a：与是否设置 `StepHeight` 无关）。台阶判定已由 M4-W1a 改为滑窗规则（见下节第 1 条）。
+4. **击飞叠加**：`ILaunchSink.BeginLaunch(unit, apex, LaunchStackMode, cap)`（默认接口重载，缺省转调旧签名）；`Add` 模式下新初速 = 当前竖直速度 + `sqrt(2·g·H)`，有上限（`cap` > 0）时夹到 `sqrt(2·g·cap)`；`Restart`（缺省）仍是以新初速从当前高度重新起算。在下落中叠加可能比重启还低，这是叠加语义本身。
+5. **空中单位查询**：`VerticalMotionHost` 同时实现 `Core.Rules.Common.IAirborneQuery`（受击裁决判断"目标是否在空中"）与 `IVerticalMotion.AirborneUnits()`（按 Id 序的腾空单位，呈现层的空中阶段喂入器用）。
+6. **M4-V 遗留的八条限制已在 M4-W1a 全部处理**（见下节；原限制：寻路不感知台阶、路径校验不看地形、路径段按弦近似、上升中落地、走下台地依赖 `StepHeight`、停点按采样步近似、Unity 射线不区分地图、地形只有矩形斜坡）。测试：`tests/VerticalAxisCompletionTests.cs`（空中跳跃上限、空中控制缩放、地形落地/天花板/斜坡/悬崖下落、台阶阻挡（方向/路径/位移三条出口）、`TerrainBlockPoint`、击飞叠加与上限、`AirborneUnits`、默认接口成员、选项校验）。
+
+## 判断记录（地形与导航二期，2026-10-03，M4-W1a，ADR-0130 追加决定）
+
+M4-V 遗留的八条限制逐条解除（原文见上节第 6 条的旧版本，用 git 历史找回）。全部是可选能力：没有地形、或没有 `StepHeight` 时，寻路、移动、落地与 1.95.0 逐位一致（`Default_WithoutStepHeightOrTerrain_NeverUsesTheTerrainAwarePlanner` 数着"带地形约束的寻路"被调用了 0 次）。复现与不变量在 `tests/TerrainAwareMovementTests.cs`（核心层）、`core/foundation/engine_adapter/tests/TerrainAwareNavigationTests.cs`（滑窗规则、规划器、桩与默认接口）、实验室九个 `space.nav_*`/`space.terrain_*`/`space.rise_landing`/`space.walk_off`/`space.exact_stop` 脚本（`lab/tests/SpaceNavTests.cs`）。
+
+1. **台阶规则改为"滑窗"，停点二分到 1e-10（限制 6）**：沿线段按弧长 `s` 记地面高度 `g(s)`，窗口长度 `W = StepSampleDistance`（缺省 0.1）。贴地行走者在 `s` 处被挡，当且仅当 `g(s) − g(max(0, s − W)) > StepHeight`——高于台阶的悬崖边缘立刻成立，陡于 `StepHeight / W` 的斜面在坡脚之后 `StepHeight / 坡度` 处成立；判定与线段从哪里出发、采样格怎么对齐**无关**（同一面坡从任何起点走出的停点相同，替代此前"以线段起点为锚的相邻采样点差"）。扫描点取 `W/2` 间隔，成立的那一段在前后扫描点之间二分到 `TerrainStepMath.RefineTolerance`（1e-10 世界单位），所以阻挡点精确，不再近似到采样间隔（验收误差 ≤ 1e-6）。空中单位的参照是当前脚下高度：前方地面比脚下高出超过 `StepHeight` 才挡。判断记录（扫描分辨率）：比扫描间隔（`W/2`）更窄的凸起可能漏检——`W` 就是地形台阶特征的分辨率（`StepSampleDistance` 的含义），不是另一个口味开关；扫描点之间只有一次"成立/不成立"转换时二分给出转换点，不受扫描间隔限制。数学在 `engine_adapter/contracts/TerrainStepMath.cs`，移动阻挡、寻路、路径校验共用这一份。
+2. **寻路感知台阶（限制 1）**：`INavigation2D` 追加两个默认接口成员（ABI 只加不改）`FindPath(mapId, from, to, ITerrainStepConstraint?)` 与 `TryFindNearestReachable(..., ITerrainStepConstraint?, out reachable)`；`ITerrainStepConstraint.FirstStepBlock(mapId, from, to)` 是"贴地行走者沿 from→to 第一个被台阶挡住的点"（有向：上台阶被挡不等于下台阶被挡），`VerticalMotionHost` 实现它。声明了台阶阻挡（`VerticalMotionHost.StepBlockingActive`：有 `Terrain` 且有 `StepHeight`）时，`MovementTickHandler.PlanPath`（点目标建路、追击、站位候选、阻挡变化重规划）带着约束规划，直线被台阶挡住就**绕行**，目标被台阶整个隔开则寻路失败（`NoPath`），不再规划出穿台阶的路再被截断；否则仍走旧 `FindPath(mapId, from, to)`。规划器 `TerrainStepPathPlanner`（`engine_adapter/contracts`）：在导航网格（`NavGridLayout`）上八邻接 A*，被台阶挡住的有向边不可通行、不切角、开放表按 `(f, 节点序号)` 排序（确定性）、直线通畅时直接返回 `[from, to]`、视线剪枝（string pulling）；起终点用所在格与 8 邻格里"与端点直连不受阻"的格心做多源入口/多汇出口，所以端点所在格心被阻挡盖住也能接合。测试桩、核心层开阔场地导航（`MovementTickHandler` 的私有 `OpenFieldNavigation`，未装配导航时垫底）与 Unity 导航三者共用这一份规划器，各自只提供"点可走/线段不穿阻挡"两个谓词。默认接口实现（第三方导航，没有网格）：对旧 `FindPath` 的结果逐段验证约束，有一段被挡就返回 `null`——不静默忽略地形，也不假装能绕行。判断记录（绕行搜索窗口）：规划器不知道地形范围，只在"两端点包围盒外扩 `max(4, 距离/2)`（再加网格边距 2）"里找绕路；绕行超出窗口判无路（数据把目标放在可达一侧，或拆成途经点）。最近可达点（`TryFindNearestReachable` 的地形版）同口径：候选枚举与排序仍是 `NearestWalkableSearch.CollectOnGrid`，连通 = 地形感知 `FindPath` 能走通。AI 层（`AiHost.ComputeDirection`，取"下一路点方向"做转向提示）同口径：`CarriersAssembly` 在启用台阶阻挡时把竖直运动服务赋给 `AiHost.TerrainStepConstraint`，AI 取路点改用带约束的 `FindPath`，台阶墙前的追击绕行到达、不再顶在台阶前（见 `core/rules/ai/README.md` 判断记录 11）；没有台阶阻挡时 AI 的寻路调用不变。
+3. **路径校验看地形（限制 2）**：`RevalidateRemainingSegments` 对每一段除 `Raycast` 外再问 `FirstStepBlock`，被台阶挡住的段同样算受阻，按 `BlockingChangePolicy` 重新规划（规划本身已感知地形）或失败（`BlockingChanged`）。触发条件仍是导航阻挡版本变化——地形热切换由宿主重建导航网格（版本 +1）通知（实验室 `terrain_swap` 事件就是这样）。
+4. **路径分段按折线精确检测（限制 3）**：`ClampPathMoveByTerrain` 不再取本 tick 起终点的弦，而是把本 tick **实际走的折线**（经过的每个路点、体积裁决的折线、绕行点；有体积轨迹时就是 `PathTrail` 本身）逐段按台阶阻挡扫掠，第一段被挡住的就把位移截断在那里（回退一个 `ArrivalEpsilon`，与方向移动同口径），并把体积轨迹截到停点——拐过路点的那一 tick 既不会漏掉折线上的台阶，也不会把弦上的台阶误当成实际路线上的；与 M4-B"折线精确扫掠"同一口径。
+5. **落地只在下落时发生（限制 4）**：声明了 `Terrain` 时，落地条件 = 脚下高度 ≤ 地面高度 **且** 竖直速度 ≤ 0。上升中水平进入更高地面（高出不超过台阶高度，水平进入已被台阶规则允许）不落地，继续上升、越过顶点后下落时才落在该地面上；平台边缘按这条规则统一处理：上升中的单位可以从平台侧面进入并穿过平台面继续向上（单向平台语义），天花板仍然碰撞；没有 `Terrain` 时落地条件不变（逐位）。
+6. **走下台地与 `FallHeight`（限制 5）**：`StepHeight` 只管能否走上去；是否下落由新选项 `FallHeight`（`double?`，缺省 = `StepHeight ?? StepSampleDistance`）决定：贴地单位本步水平位移里地面在一个窗口长度内下降超过 `FallHeight`（`TerrainStepMath.FirstDrop`，与第 1 条同一套滑窗/二分，对称规则）才从脚下原高度开始零速度下落，否则贴地跟随（小台阶、缓坡、斜坡）。因此**无论是否设置 `StepHeight`**，走出台地边缘都会下落（此前没设 `StepHeight` 时瞬间贴地）；缺省（没有 `StepHeight`）阈值取窗口长度 0.1：落差超过 0.1 的悬崖下落，每窗口降 ≤ 0.1（坡度 ≤ 1）的缓坡仍贴地，更陡的下坡需要把 `FallHeight` 设大或把坡改成台阶。没有 `Terrain` 时整套逻辑不触发（逐位不变）。
+7. **地形形状（限制 8）**：`world.map.terrain` 条目新增 `shape`（`rect` 缺省 | `polygon` | `heightfield`），同表同序、后声明覆盖先声明。`TerrainPolygon`：任意**凸**多边形（顶点任意绕向，内部统一逆时针；非凸/面积为零/顶点少于 3 个/含非有限数在构造与数据校验时拒绝），地面 `ground + slope·(p − origin)`（`origin` 缺省第一个顶点），含边界；凹区域拆成多个凸多边形（后声明盖住先声明）。`TerrainHeightField`：规则网格，`min`、`cell`、`heights[行][列]`（行沿 y、列沿 x，至少 2×2、行等长），格内双线性插值，结点处恰为结点高度、相邻格共享结点处处连续；区域是结点包围的矩形（含边界）；高度场只回答各处多高，不推断台阶（悬崖用矩形/多边形平台盖在上面，或用相邻结点的高度差表达陡坡）。`ITerrainShape`（`Contains`/`GroundAt`/`Ceiling`）统一三种形状；`MapTerrainHeights.SetShapes`/`ShapesFromRecord` 是新入口，旧 `SetRegions`/`RegionsFromRecord`（矩形）保留（读到非矩形条目抛 `DataFieldException`，不静默丢弃）。数据校验由 `WorldMapTerrainValidationRule`（`RulesSchemaCatalog` 注册）覆盖：必填缺失报 `required_field`、几何非法报 `world_map_terrain_shape`，消息带 `terrain[i].…` 路径；`terrain` 条目的 schema 是各形状字段的并集（`min`/`max` 不再整体必填，改由该规则按形状校验）。
+8. **Unity 物理射线按地图隔离（限制 7）**：见引擎适配层 README（`UnityTerrainHeight2D.BindMap`/`BindMapRoot`/`StrictMaps`，PlayMode 用例证明两张地图完全重叠也互不串）。
+9. **更动的既有测试**：`Terrain_WalkingOffALedgeWithoutStepHeight_SnapsToTheGround` 依赖被取消的限制（改为 `…_StartsAZeroSpeedFall`）；`StepBlocking_PathFollow_EndsWithTerrainBlockedAndClearsThePath` 的"直线穿台阶"路径现在在规划时就判无路，改为"规划之后地形才变"的兜底场景（`TerrainBlocked` 仍是移动阻挡对过期路径的最后一道防线）。实验室 `space.terrain` 在 `side_2d_targeted`/`volume_targeted` 两格的指纹有 3e-9 量级漂移（停点从 9.000000003 变精确的 9，限制 6 的直接后果），已按基线更新流程重写。
+
+## 判断记录（空战二期：落地事件、击飞高度上限、受控位移深度锁，2026-10-03，M4-W1b，ADR-0130 追加决定）
+
+1. **落地事件 `unit.landed`**：`VerticalMotionHost` 一次飞行结束（跳跃、击飞、离开平台下落）时发 `UnitLandedEvent`（`unitId, height, airSeconds, impactSpeed`；`height` = 落点的地面高度，`airSeconds` = 本次离地以来的累计空中时间——再次击飞、空中跳跃、天花板反弹不清零，`impactSpeed` = 落地瞬间下落速度、非负）。`VerticalAxisOptions.EmitLandedEvent` 缺省 false：事件流与引入之前逐位一致（既有重放、事件计数类基线不受影响）；`CarriersAssembly` 把总线传给竖直运动服务。理由：落地事件是新增事件，若缺省发出会改变所有带竖直轴的既有运行的事件总数——可选开启比让所有基线重生成稳妥。事件目录行 `unit.landed` 与 `EventKeys.g.cs` 已登记（目录总数 117）。
+2. **`BeginLaunch` 的绝对高度上限**：`ILaunchSink` 默认接口成员 5 参数重载，`VerticalMotionHost` 覆盖（语义见 combat README 空战二期第 4 条）；`heightCap` 非正或无穷时与 4 参数重载完全一致。
+3. **受控位移的深度锁（原局限"横版深度锁只作用在移动输入，不限制被击退的方向"）**：`MovementOptions.DepthLockControlledMotion`（缺省 false，与 1.95.0 逐位一致：深度锁只在宿主输入层，受控位移按提交的方向走）。为真时 `MovementTickHandler.BeginDisplacement` 约束受控位移只沿横向：**击退**保持距离、方向取提交方向横向分量的符号（横向分量为 0，即攻击方恰在同一横坐标时没有横向可推，本次击退不位移）；**其它受控位移**（技能位移的冲锋/扑击/闪避位移）丢弃目标点的深度分量（落点横坐标不变、深度保持起点）。体积推人转移的位移沿撞人者的位移方向因此随之受约束；单位间重叠分离是穿插修正、不是受控位移，不受本选项约束。深度轴取平面的竖直分量（Y）。理由：深度锁是世界性质（横版二维没有深度），宿主应用它时受控位移也不该漂出平面；缺省关因为"深度锁"一直只是输入层约定，改成缺省开会改变既有横版基线。
+4. **复现与不变量**：`tests/VerticalAxisCompletionTests.cs`（落地事件载荷与空中时长累计、缺省不发、`BeginLaunch` 高度上限的地面/空中/叠加三种情形、深度锁下击退只走横向距离保持/横向分量为 0 不位移/技能位移丢深度、缺省不锁）；实验室 `space.dummy_air`（靶子起跳与空中移动，落地事件）、`space.depth_knockback` 与对照 `space.depth_knockback_free`。

@@ -229,6 +229,55 @@ namespace Adapters.Stub
             BumpBlockingVersion(mapId);
         }
 
+        /// <summary>契约方法（增量阻挡，M4-L）：当前登记的动态阻挡快照（登记顺序）；从未登记过的地图返回空列表（不是 null——本桩支持增量）。</summary>
+        public IReadOnlyList<Rect> GetBlocking(Id mapId)
+        {
+            var result = new List<Rect>();
+            if (_blockingRects.TryGetValue(mapId, out var rects))
+            {
+                foreach (var rect in rects)
+                {
+                    result.Add(new Rect(rect.Min, rect.Max));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>契约方法（增量阻挡）：追加一块动态阻挡，版本号恰好递增一次（同一次 <see cref="SetBlocking"/>）；不动其余登记。</summary>
+        public void AddBlocking(Id mapId, Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                list = new List<BlockingRect>();
+                _blockingRects[mapId] = list;
+            }
+
+            list.Add(new BlockingRect(rect.Min, rect.Max));
+            BumpBlockingVersion(mapId);
+        }
+
+        /// <summary>契约方法（增量阻挡）：按矩形值移除登记顺序里第一份匹配项；没有匹配返回 false 且版本号不变。</summary>
+        public bool RemoveBlocking(Id mapId, Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Min.Equals(rect.Min) && list[i].Max.Equals(rect.Max))
+                {
+                    list.RemoveAt(i);
+                    BumpBlockingVersion(mapId);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>契约方法：清空某地图的全部动态阻挡登记。</summary>
         public void Clear(Id mapId)
         {
@@ -319,6 +368,73 @@ namespace Adapters.Stub
 
             reachable = default;
             return false;
+        }
+
+        /// <summary>
+        /// ADR-0130 追加决定"寻路感知台阶"：地形感知寻路（契约方法，见 <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>）。
+        /// 端点契约同 <see cref="FindPath(Id, Vec2, Vec2)"/>；<paramref name="terrain"/> 为 null 即它本身。否则在与 <see cref="FindNearestWalkableCandidates"/>
+        /// 同一份虚拟格子上用 <see cref="TerrainStepPathPlanner"/> 规划（不穿阻挡矩形、不穿地形台阶），本桩因此对地形也能绕行；
+        /// 直线通畅（阻挡与地形都不挡）时仍是 <c>[from, to]</c>。
+        /// </summary>
+        public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+        {
+            if (terrain == null)
+            {
+                return FindPath(mapId, from, to);
+            }
+
+            if (!IsWalkable(mapId, from) || !IsWalkable(mapId, to))
+            {
+                return null;
+            }
+
+            if ((to - from).Length <= ZeroLengthEpsilon)
+            {
+                return new List<Vec2> { from };
+            }
+
+            _blockingRects.TryGetValue(mapId, out var rects);
+            var rectList = ToRects(rects);
+            return TerrainStepPathPlanner.FindPath(
+                rectList, mapId, from, to,
+                p => IsWalkable(mapId, p),
+                (a, b) => !SegmentBlocked(mapId, a, b),
+                (a, b) => !SegmentBlocked(mapId, a, b),
+                terrain);
+        }
+
+        /// <summary>地形感知的最近连通可走点（契约方法）：候选与排序同无地形版本，连通 = 地形感知的 <see cref="FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/> 能走通。</summary>
+        public bool TryFindNearestReachable(
+            Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+        {
+            if (terrain == null)
+            {
+                return TryFindNearestReachable(mapId, from, point, maxRadius, out reachable);
+            }
+
+            _blockingRects.TryGetValue(mapId, out var rects);
+            var layout = TerrainStepPathPlanner.ReachableLayoutFor(ToRects(rects), from, point, maxRadius);
+            return TerrainStepPathPlanner.TryFindNearestReachable(
+                layout, from, point, maxRadius,
+                p => IsWalkable(mapId, p),
+                p => FindPath(mapId, from, p, terrain) != null,
+                out reachable);
+        }
+
+        private static IReadOnlyList<Rect>? ToRects(List<BlockingRect>? rects)
+        {
+            if (rects == null)
+            {
+                return null;
+            }
+
+            var list = new List<Rect>(rects.Count);
+            foreach (var r in rects)
+            {
+                list.Add(new Rect(r.Min, r.Max));
+            }
+
+            return list;
         }
 
         private void BumpBlockingVersion(Id mapId) =>

@@ -130,31 +130,32 @@ namespace Tests.Carriers.Unit
         }
 
         [Fact]
-        public void Separation_TheBodiesLeftByAPassThroughDash_ArePushedOutAfterTheWindow_NotDuring()
+        public void Separation_TheBodiesLeftByAnInterruptedPassThroughDash_ArePushedOutAfterTheWindow_NotDuring()
         {
-            // 冲刺 6.5，假人在 6.0（半径之和 2）：落点在假人体积里，深度 1.5。
+            // 冲刺 6.5 分 4 个 tick（每 tick 1.625），假人在 6.0（半径之和 2）：第 3 个 tick 之后英雄在 4.875，落在假人体积里，深度 0.875。
+            // 窗口被打断（第 4 个 tick 起没有动作）时落点没有经过"窗口最后一个 tick 的落点修正"，由重叠分离接管：窗口内不分离、窗口后才推出。
             var fx = BuildVolumes(new Vec2(6.0, 0));
             fx.Set(FeelFieldNames.DodgeThroughUnits, true);
             SetUnitField(fx, DummyId, FeelFieldNames.UnitSeparationSpeedRatio, FeelValue.Of(0.0)); // 假人不被推，英雄一个人出来
-            var motion = Lunge(6.5, 0, 2, new Vec2(1, 0), kind: ActionMotionKind.Dash);
+            var motion = Lunge(6.5, 0, 4, new Vec2(1, 0), kind: ActionMotionKind.Dash);
             var dummyAt = fx.Units.GetPosition(DummyId);
             var gaps = new List<double>();
             for (var i = 0; i < 20; i++)
             {
-                fx.Actions.State = i < 4 ? Act(i, motion) : (ActionState?)null;
+                fx.Actions.State = i < 3 ? Act(i, motion) : (ActionState?)null;
                 fx.Tick();
                 gaps.Add(GapToDummy(fx));
                 Assert.Equal(dummyAt, fx.Units.GetPosition(DummyId));
             }
 
-            // 窗口内（前两个 tick）幽灵穿过、没有被分离干扰：窗口结束时中心距就是穿过后的落点距离，之后才被推开。
-            Near(0.5, gaps[1], 1e-9);
-            var firstOutside = gaps.FindIndex(2, g => g >= SumRadius - 1e-9);
-            Assert.True(firstOutside > 2, "窗口之后才开始被推出体积（落在体积里的那几个 tick 里中心距逐步变大）");
-            Assert.True(gaps[2] > gaps[1] + 1e-9, "窗口结束后的第一个 tick 就开始分离");
+            // 窗口内（前三个 tick）幽灵穿过、没有被分离干扰：窗口中断时中心距就是穿过后的落点距离，之后才被推开。
+            Near(6.0 - 6.5 * 3.0 / 4.0, gaps[2], 1e-9);
+            var firstOutside = gaps.FindIndex(3, g => g >= SumRadius - 1e-9);
+            Assert.True(firstOutside > 3, "窗口之后才开始被推出体积（落在体积里的那几个 tick 里中心距逐步变大）");
+            Assert.True(gaps[3] > gaps[2] + 1e-9, "窗口结束后的第一个 tick 就开始分离");
             Assert.True(gaps[gaps.Count - 1] >= SumRadius - 1e-9, $"最终分开：{gaps[gaps.Count - 1]:R}");
-            for (var k = 3; k < gaps.Count; k++) Assert.True(gaps[k] >= gaps[k - 1] - 1e-9);
-            Assert.True(fx.Pos.X > 6.0, "英雄从假人另一侧出来（沿连线方向被推出）");
+            for (var k = 4; k < gaps.Count; k++) Assert.True(gaps[k] >= gaps[k - 1] - 1e-9);
+            Assert.True(fx.Pos.X < 6.0, "英雄从假人这一侧被推出（沿连线方向，本来就在这一侧）");
         }
 
         // ================================================================== 2 路径跟随与追击绕行
@@ -382,10 +383,16 @@ namespace Tests.Carriers.Unit
             public WorldSim World = null!;
             public WorldUnitAccess Units = null!;
             public MovementHost Host = null!;
+            public FakeActions Actions = null!;
             public List<string> Names = null!;
+            public MovementTickHandler Handler = null!;
+            public EventBus Bus = null!;
+            public FeelSystem Feel = null!;
         }
 
-        private static Crowd BuildCrowd(IReadOnlyList<string> creationOrder, IReadOnlyDictionary<string, Vec2> start)
+        private static Crowd BuildCrowd(
+            IReadOnlyList<string> creationOrder, IReadOnlyDictionary<string, Vec2> start, Core.Foundation.EngineAdapter.INavigation2D? nav = null,
+            Action<FeelSystem>? configureFeel = null)
         {
             var bus = new EventBus(
                 EventCatalog.FromDefinitions(Array.Empty<EventDefinition>()), new EventBusOptions { StrictCatalog = false });
@@ -404,17 +411,28 @@ namespace Tests.Carriers.Unit
             var feel = AssembleFeel();
             feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.UnitBodyRadius, FeelOp.Set, FeelValue.Of(BodyRel)));
             feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.ForcedPushUnits, FeelOp.Set, FeelValue.Of(true)));
+            if (nav != null)
+            {
+                feel.DebugOverrides!.SetGlobal(new FeelWrite(FeelFieldNames.WallSlide, FeelOp.Set, FeelValue.Of(true)));
+            }
+
+            configureFeel?.Invoke(feel);
+            var actions = new FakeActions();
             host.Motion = new MotionServices
             {
                 Feel = feel.Resolver,
-                Actions = new FakeActions(),
+                Actions = actions,
                 ActionClock = new FakeClock(),
                 Stagger = new FakeStagger(),
                 RootMotion = new FakeRootMotion(),
             };
-            world.RegisterPhaseHandler(
-                TickPhase.MovementAndNavigation, new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, null, opts));
-            return new Crowd { World = world, Units = units, Host = host, Names = creationOrder.ToList() };
+            var handler = new MovementTickHandler(units, stats, new FakeAuraQuery(), host, bus, nav, opts);
+            world.RegisterPhaseHandler(TickPhase.MovementAndNavigation, handler);
+            return new Crowd
+            {
+                World = world, Units = units, Host = host, Actions = actions, Names = creationOrder.ToList(), Handler = handler, Bus = bus,
+                Feel = feel,
+            };
         }
 
         private static uint Hash(string name, int k)
@@ -466,10 +484,26 @@ namespace Tests.Carriers.Unit
         /// 跑一遍人群场景：六个单位聚在一起（出生重叠）、有的随机转向、有的走向远点、第 15 tick 两个单位被击退；
         /// <paramref name="permSeed"/> 决定"创建单位的顺序"与"每个 tick 提交意图的顺序"（0 = 原顺序）。返回每 tick 每个单位位置的逐位表示。
         /// </summary>
-        private static (List<long[]> Track, double MinGapAfterFirstSeparation, int Contacts) RunCrowd(uint permSeed)
+        private static (List<long[]> Track, double MinGapAfterFirstSeparation, int Contacts, List<string> Events, int MaxPasses) RunCrowd(
+            uint permSeed, Action<Crowd>? configure = null)
         {
             var order = permSeed == 0 ? CrowdNames.ToList() : Shuffled(CrowdNames, permSeed);
             var crowd = BuildCrowd(order, CrowdStart());
+            configure?.Invoke(crowd);
+            var events = new List<string>();
+            var maxPasses = 0;
+            crowd.Bus.Subscribe(CarriersEventKeys.UnitMoved, ev =>
+            {
+                var m = (UnitMovedEvent)ev;
+                events.Add($"moved {m.UnitId} {BitConverter.DoubleToInt64Bits(m.Position.X)} {BitConverter.DoubleToInt64Bits(m.Position.Y)}");
+            });
+            crowd.Bus.Subscribe(CarriersEventKeys.UnitStateChanged, ev =>
+            {
+                var m = (UnitStateChangedEvent)ev;
+                events.Add($"state {m.UnitId} {m.OldState}>{m.NewState}");
+            });
+            crowd.Host.OnMoveStopped += (id, pos, reason) =>
+                events.Add($"stop {id} {reason} {BitConverter.DoubleToInt64Bits(pos.X)} {BitConverter.DoubleToInt64Bits(pos.Y)}");
             var ids = CrowdNames.ToDictionary(n => n, n => new Id(n));
             var track = new List<long[]>();
             var prevGaps = new Dictionary<(string, string), double>();
@@ -508,6 +542,8 @@ namespace Tests.Carriers.Unit
                 }
 
                 crowd.World.Tick(SimStep.Continuous(Dt));
+                maxPasses = Math.Max(maxPasses, crowd.Handler.LastVolumePassCount);
+                events.Add($"-- tick {tick}");
 
                 var row = new long[CrowdNames.Length * 2];
                 for (var k = 0; k < CrowdNames.Length; k++)
@@ -539,7 +575,7 @@ namespace Tests.Carriers.Unit
                 }
             }
 
-            return (track, minGap, contacts);
+            return (track, minGap, contacts, events, maxPasses);
         }
 
         [Fact]

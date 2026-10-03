@@ -1,6 +1,6 @@
 // VfxPlayerFreezeTests：手感落地 M3-C——局部顿帧期间，属于被冻结单位的粒子/特效暂停、结束恢复，其它单位的不受影响
 // （手感设计/07 第 5 节、IVfxFreezable 判断记录）。复现用例（被冻结单位的特效暂停、旁观单位的不暂停）与不变量用例（幂等、lifetime
-// 倒计时随暂停停住、world 挂接永不冻、冷加载补发与热路径同一出口、没有暂停能力的引擎适配层静默跳过）各自成组；
+// 倒计时随暂停停住、world 挂接永不冻、冷加载补发与热路径同一出口、没有暂停能力的引擎适配层视觉上不暂停但逻辑侧仍停表，手感落地 M4-G）各自成组；
 // 期望值全部由规则算出（暂停期间推进的时间 vs 剩余 lifetime），不写死裸数。
 using System.Collections.Generic;
 using Adapters.Stub;
@@ -202,17 +202,75 @@ namespace Tests.Presentation.VfxSfx
             player.Stop(handle);
         }
 
+        // ---- 手感落地 M4-G：没有粒子暂停能力的适配层，逻辑侧仍停表 ----
+
+        /// <summary>
+        /// 复现用例：既有 <c>StubRenderer2D</c> 不实现 <see cref="IParticleFreezer"/>。M3-C 时这类适配层上冻结既不暂停也不停表（lifetime 照常到期，被冻结单位的特效在顿帧里走完存活被回收：
+        /// 冻结期间存活 true → false）；M4-G 起存活计时随冻结停住，无论适配层是否能暂停：冻结期间无论过去多久都存活，解冻后从冻结点继续倒计时。视觉上无法暂停（适配层没有原语）不抛异常。
+        /// </summary>
         [Fact]
-        public void RendererWithoutPauseCapability_SilentlySkips_LifetimeStillExpires()
+        public void RendererWithoutPauseCapability_StillStopsTheLifetimeClock_AndResumesFromTheFreezePoint()
         {
-            // 既有 StubRenderer2D 不实现 IParticleFreezer：不抛异常；因为没有真正暂停，lifetime 也不冻结（避免"没停住却永不过期"）。
             var renderer = new StubRenderer2D();
+            Assert.False((object)renderer is IParticleFreezer);
             var player = NewPlayer(renderer);
             var handle = SpawnAnchor(player, TimedVfx, HitUnit);
+
+            const double beforeFreeze = 0.4;
+            player.Update(beforeFreeze);
+            player.SetOwnerFrozen(HitUnit, true);
+            player.Update(10 * TimedLifetime);
+            Assert.True(renderer.IsParticleAlive(handle), "冻结期间存活计时应停住，与适配层能否暂停无关");
+
+            player.SetOwnerFrozen(HitUnit, false);
+            var remaining = TimedLifetime - beforeFreeze;
+            player.Update(remaining - 0.05);
+            Assert.True(renderer.IsParticleAlive(handle), "解冻后从冻结点继续倒计时");
+            player.Update(0.1);
+            Assert.False(renderer.IsParticleAlive(handle), "剩余存活走完后正常回收");
+        }
+
+        /// <summary>
+        /// 不变量：没有粒子暂停能力的适配层上，没被冻结的特效（旁观单位、world 挂接的命中闪光）存活计时照常——冻结只影响被冻结单位名下的特效；
+        /// 从未冻结过（反馈包 <c>freeze_layers.particles</c> 缺省为假，装配根不调用冻结）时与此前逐位一致：lifetime 走完即回收。
+        /// </summary>
+        [Fact]
+        public void RendererWithoutPauseCapability_NeverFrozen_OrBystanders_KeepExpiringOnSchedule()
+        {
+            var renderer = new StubRenderer2D();
+            var player = NewPlayer(renderer);
+            var onHit = SpawnAnchor(player, TimedVfx, HitUnit);
+            var onBystander = SpawnAnchor(player, TimedVfx, Bystander);
 
             player.SetOwnerFrozen(HitUnit, true);
             player.Update(TimedLifetime + 0.1);
 
+            Assert.True(renderer.IsParticleAlive(onHit), "被冻结单位名下的特效停表");
+            Assert.False(renderer.IsParticleAlive(onBystander), "旁观单位的特效照常到期回收");
+
+            var neverFrozen = new StubRenderer2D();
+            var other = NewPlayer(neverFrozen);
+            var handle = SpawnAnchor(other, TimedVfx, HitUnit);
+            other.Update(TimedLifetime - 0.05);
+            Assert.True(neverFrozen.IsParticleAlive(handle));
+            other.Update(0.1);
+            Assert.False(neverFrozen.IsParticleAlive(handle));
+        }
+
+        /// <summary>不变量：没有粒子暂停能力的适配层上，冻结期间新播放的该单位特效（热路径）同样从停表状态起播——存活计时不流逝，解冻后才开始倒计时。</summary>
+        [Fact]
+        public void RendererWithoutPauseCapability_SpawnWhileOwnerFrozen_StartsHeld()
+        {
+            var renderer = new StubRenderer2D();
+            var player = NewPlayer(renderer);
+            player.SetOwnerFrozen(HitUnit, true);
+            var handle = SpawnAnchor(player, TimedVfx, HitUnit);
+
+            player.Update(10 * TimedLifetime);
+            Assert.True(renderer.IsParticleAlive(handle));
+
+            player.SetOwnerFrozen(HitUnit, false);
+            player.Update(TimedLifetime + 0.01);
             Assert.False(renderer.IsParticleAlive(handle));
         }
     }

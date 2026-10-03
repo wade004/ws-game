@@ -60,6 +60,14 @@ namespace Core.Foundation.InputMap
         /// <summary>缓冲接受后施放的技能所在的技能绑定槽位名（S10 加法字段）；<c>null</c> 表示本动作不映射技能。</summary>
         public string? SkillSlot { get; }
 
+        /// <summary>
+        /// 控制空间（<see cref="InputControlSpace"/>）：<c>world</c>（缺省，轴值原样当世界方向）或 <c>camera_relative</c>（轴值按
+        /// 当前相机偏航换算成世界方向，第三人称/俯角镜头用）。只对 <see cref="ActionKind.Axis2D"/> 动作有意义；
+        /// 声明 <c>camera_relative</c> 的动作要求输入映射宿主配了相机朝向查询（<see cref="InputMapOptions.CameraOrientation"/>）。
+        /// 未声明时恒为 <see cref="InputControlSpace.World"/>，轴值与此前逐位一致。
+        /// </summary>
+        public string ControlSpace { get; }
+
         /// <summary>生效优先级：显式值，否则类别缺省；未声明类别的动作为 0。</summary>
         public int EffectivePriority => Priority ?? (Class.HasValue ? ActionClassDefaults.Priority(Class.Value) : 0);
 
@@ -120,6 +128,32 @@ namespace Core.Foundation.InputMap
             bool? faceOnAccept,
             IReadOnlyList<Id>? graceConditions,
             string? skillSlot)
+            : this(actionId, kind, defaultBindings, rebindGroup, description, actionClass, bufferMs, priority,
+                holdThresholdMs, repeatPolicy, faceOnAccept, graceConditions, skillSlot, controlSpace: null)
+        {
+        }
+
+        /// <summary>
+        /// 带控制空间的构造（纯加法重载，十三参数构造原样保留并转调本重载，<paramref name="controlSpace"/> 取缺省）。
+        /// <paramref name="controlSpace"/> 为 <c>null</c> 或空串视为 <see cref="InputControlSpace.World"/>；取值不在
+        /// <see cref="InputControlSpace"/> 里、或在非 <see cref="ActionKind.Axis2D"/> 动作上声明 <c>camera_relative</c> 都抛
+        /// <see cref="ArgumentException"/>（不静默忽略）。
+        /// </summary>
+        public ActionDefinition(
+            Id actionId,
+            ActionKind kind,
+            IReadOnlyList<string> defaultBindings,
+            string rebindGroup,
+            string? description,
+            ActionClass? actionClass,
+            double? bufferMs,
+            int? priority,
+            double? holdThresholdMs,
+            InputRepeatPolicy repeatPolicy,
+            bool? faceOnAccept,
+            IReadOnlyList<Id>? graceConditions,
+            string? skillSlot,
+            string? controlSpace)
         {
             if (defaultBindings == null || defaultBindings.Count == 0)
             {
@@ -152,7 +186,32 @@ namespace Core.Foundation.InputMap
             FaceOnAccept = faceOnAccept;
             GraceConditions = graceConditions ?? Array.Empty<Id>();
             SkillSlot = string.IsNullOrEmpty(skillSlot) ? null : skillSlot;
+
+            var space = string.IsNullOrEmpty(controlSpace) ? InputControlSpace.World : controlSpace!;
+            if (!InputControlSpace.IsValid(space))
+            {
+                throw new ArgumentException(
+                    $"动作 \"{actionId}\" 的 ControlSpace 取值 \"{space}\" 不合法（{InputControlSpace.World}|{InputControlSpace.CameraRelative}）",
+                    nameof(controlSpace));
+            }
+
+            if (space == InputControlSpace.CameraRelative && kind != ActionKind.Axis2D)
+            {
+                throw new ArgumentException(
+                    $"动作 \"{actionId}\" 声明了 {InputControlSpace.CameraRelative}，但类型是 {kind}：控制空间只适用于 Axis2D 动作",
+                    nameof(controlSpace));
+            }
+
+            ControlSpace = space;
         }
+
+        /// <summary>
+        /// 返回一份与本动作完全相同、只有 <see cref="ControlSpace"/> 换成 <paramref name="controlSpace"/> 的新定义
+        /// （宿主按场景/设置把某个轴动作切成相机相对时用；数据行不必为此改写）。校验同构造函数。
+        /// </summary>
+        public ActionDefinition WithControlSpace(string controlSpace) =>
+            new ActionDefinition(ActionId, Kind, DefaultBindings, RebindGroup, Description, Class, BufferMs, Priority,
+                HoldThresholdMs, RepeatPolicy, FaceOnAccept, GraceConditions, SkillSlot, controlSpace);
 
         /// <summary>
         /// 从 <see cref="DataRecord"/>（<c>found.input_action</c> 表的一行）构造。
@@ -215,8 +274,20 @@ namespace Core.Foundation.InputMap
 
             string? skillSlot = record.TryGetString("skill_slot", out var ss) ? ss : null;
 
+            string? controlSpace = null;
+            if (record.TryGetString("control_space", out var cs))
+            {
+                if (!InputControlSpace.IsValid(cs))
+                {
+                    throw new DataFieldException(record.Table.Name, record.Key, "control_space",
+                        $"取值 \"{cs}\" 不是合法枚举（{InputControlSpace.World}|{InputControlSpace.CameraRelative}）");
+                }
+
+                controlSpace = cs;
+            }
+
             return new ActionDefinition(actionId, kind, bindings, rebindGroup, description,
-                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions, skillSlot);
+                actionClass, bufferMs, priority, holdMs, repeat, faceOnAccept, graceConditions, skillSlot, controlSpace);
         }
 
         private static ActionClass ParseClass(DataRecord record, string classText)

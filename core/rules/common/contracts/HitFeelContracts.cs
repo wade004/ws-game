@@ -74,7 +74,9 @@ namespace Core.Rules.Common
     }
 
     /// <summary>
-    /// 受击裁决入口（手感设计/03 第 4 节）：纯函数式（读手感表与目标韧性属性、霸体状态，不写任何状态）。
+    /// 受击裁决入口（手感设计/03 第 4 节）：读手感表与目标韧性属性、霸体状态；除一处例外外不写状态——例外是动态韧性
+    /// （手感落地 M4-L）：命中的攻击方档案声明了 <c>poise_damage</c> 时，裁决会扣减目标的韧性池（因此每次真实命中只应调用一次，
+    /// 两条调用路径都满足）；不声明 <c>poise_damage</c> 的命中仍是纯读取。
     /// 空间命中切片发 <c>combat.hit_confirmed</c> 前经它取 <see cref="HitFeelOutcome"/>；目标选择式（instant）命中由
     /// 受击裁决宿主自己接 <c>combat.damage_dealt</c> 调用它。
     /// </summary>
@@ -123,6 +125,44 @@ namespace Core.Rules.Common
     {
         /// <summary>把单位抛起，使其升到脚下起再升高 <paramref name="apexHeightWorld"/>（世界单位，正数）的顶点后落回地面。</summary>
         void BeginLaunch(Id unitId, double apexHeightWorld);
+
+        /// <summary>
+        /// 带叠加语义的击飞（ADR-0130 追加决定"击飞叠加"，手感档案 <c>launch_stack</c>/<c>launch_stack_cap</c>）：
+        /// <paramref name="stack"/> 为 <see cref="LaunchStackMode.Restart"/> 与 <see cref="BeginLaunch(Id, double)"/> 完全一致（缺省）；
+        /// 为 <see cref="LaunchStackMode.Add"/> 且单位已在空中时，把这次击飞的初速<b>叠加到当前竖直速度上</b>（下落中被击飞先抵消下落速度），
+        /// <paramref name="stackCapApexWorld"/>（&gt; 0 时）把叠加后的向上初速限制在"升到该顶点高度所需的初速"以内。
+        /// 默认接口成员：忽略叠加语义，退化为 <see cref="BeginLaunch(Id, double)"/>（既有实现无需改动）。
+        /// </summary>
+        void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld) =>
+            BeginLaunch(unitId, apexHeightWorld);
+
+        /// <summary>
+        /// 带绝对高度上限的击飞（手感落地 M4-W1b，手感档案 <c>launch_height_cap</c>）：<paramref name="heightCapWorld"/>（&gt; 0 时）是击飞（含叠加）之后
+        /// 单位脚下高度的最高点上限（世界高度，与 <see cref="Core.Rules.Common.IUnitAccess.GetHeightOffset"/> 同一坐标），在叠加上限之外再封一道；
+        /// 0 表示不设。默认接口成员：忽略高度上限，退化为 4 参数重载（既有实现无需改动）。
+        /// </summary>
+        void BeginLaunch(Id unitId, double apexHeightWorld, LaunchStackMode stack, double stackCapApexWorld, double heightCapWorld) =>
+            BeginLaunch(unitId, apexHeightWorld, stack, stackCapApexWorld);
+    }
+
+    /// <summary>
+    /// 腾空查询（竖直运动服务实现；ADR-0130 追加决定"腾空受击"）：受击裁决据此决定是否应用 <c>air_hit_reaction</c>。
+    /// 缺省不接——一律视为在地面，行为与 1.95.0 一致。
+    /// </summary>
+    public interface IAirborneQuery
+    {
+        /// <summary>该单位此刻是否在空中。</summary>
+        bool IsAirborne(Id unitId);
+    }
+
+    /// <summary>击飞叠加方式（手感档案 <c>launch_stack</c>）。</summary>
+    public enum LaunchStackMode
+    {
+        /// <summary>重新抛起：起点为当前高度、初速由本次顶点高度重算，不叠加速度（缺省，1.95.0 行为）。</summary>
+        Restart = 0,
+
+        /// <summary>叠加：本次击飞的初速加在当前竖直速度上，可选上限。</summary>
+        Add = 1,
     }
 
     /// <summary>

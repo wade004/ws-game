@@ -1,0 +1,96 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.launch_body_scale",
+    "scriptVersion": 1,
+    "description": "空间扩展·击飞体型缩放（手感落地 M4-W1b）：预设 space_launch_scale（击飞 1.2 身高、受击方 launch_body_scale = 0.5），玩家刺一下木桩——木桩的击飞顶点是 1.2 × 0.5 = 0.6 身高（参考身高 1，世界单位 0.6）；缺省不声明该字段时不缩放（核心层单测覆盖）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "feel.preset.space_launch_scale",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 100,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_jab"
+    },
+    "spaceExt": {
+      "airCombat": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 8,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 9,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "apex_scaled_by_body",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_peak_max",
+      "op": "approx",
+      "value": 0.6,
+      "tolerance": 0.005,
+      "note": "launch_body_scale = 0.5：顶点 = 1.2 × 0.5 = 0.6 身高。"
+    },
+    {
+      "id": "apex_below_unscaled",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_peak_max",
+      "op": "lt",
+      "value": 1.2,
+      "note": "不声明该字段（缺省不缩放）时顶点是 1.2：缩放后明显更低。"
+    },
+    {
+      "id": "still_launched",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "air_combat.dummy_launches_max",
+      "op": "eq",
+      "value": 1,
+      "note": "缩放只改高度，不改反应：仍被抛起一次。"
+    }
+  ]
+}

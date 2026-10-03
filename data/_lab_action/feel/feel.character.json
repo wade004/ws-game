@@ -14,6 +14,24 @@
           "value": "flinch"
         }
       ]
+    },
+    {
+      "id": "feel.character.lab_a_resilient",
+      "description": "动态韧性木桩（M4-L）：最近一次韧性伤害之后等 500 毫秒，再以每秒 4 点回复韧性。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "poise_recover_delay_ms",
+          "op": "set",
+          "value": 500
+        },
+        {
+          "field": "poise_recover_per_s",
+          "op": "set",
+          "value": 4
+        }
+      ]
     }
   ]
 }

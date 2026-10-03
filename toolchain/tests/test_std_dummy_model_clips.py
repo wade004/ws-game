@@ -26,14 +26,33 @@ if str(TOOLCHAIN_DIR) not in sys.path:
 
 from std_dummy_model_clips import config as C  # noqa: E402
 from std_dummy_model_clips import rig  # noqa: E402
-from std_dummy_model_clips.build import build_spec, dumps_spec, effective_pose, generate, key_times_ms  # noqa: E402
+from std_dummy_model_clips.build import build_spec, dumps_spec, effective_pose, generate, key_times_ms, mass_clip_defs  # noqa: E402
 from std_dummy_model_clips.verify import REQUIRED_KEYS, RECOMMENDED_KEYS, verify  # noqa: E402
 from std_dummy_poses import config as SC  # noqa: E402
 
 REPO_ROOT = TOOLCHAIN_DIR.parent
 #: 手感落地 M3-D 之前已入库的 34 个键的模型剪辑条目（时间、轨迹、内嵌事件等）摘要：既有键逐字节不变（只追加）。
-LEGACY_CLIPS_SHA256 = "5748f15e2e32037104db8ceabeeb83caf536484983cd0af491f9c73a0127e423"
+LEGACY_CLIPS_SHA256 = "3f5fdde92c6a18f4887a29324349bb2597dfa2d38c920fc667398171fb365181"
 LEGACY_CLIP_COUNT = 34
+#: 手感落地 M4-D 之前已入库的 103 个键（主集）与 16 条体量组条目（轻/重各 8 键）的模型剪辑摘要（取自 1.95.0 入库版本）：只追加不改。
+LEGACY103_CLIPS_SHA256 = "d5c481f5cffe55fa45b0eaa0b4cdf01793c6f4ae8d0a75aa0a101a70e764133c"
+LEGACY103_COUNT = 103
+LEGACY_MASS_ENTRIES_SHA256 = "7b4a4308cde5b6c9d1ff452b3058cf5951c5d24f600b6f4ebf9c19bd3d91f457"
+#: M4-W5 起不在上述两个逐字节摘要里的 6 个键：四个躺姿键（hit.launch / hit.knockdown / hit.getup / death）与击飞落地（hit.launch.land，
+#: 与 hit.getup 起点同一躺姿）的轨迹重绘；cast 的时间轴与内嵌事件为对齐实验室技能命中点而改。它们的结构（时间、时长、帧数、内嵌事件）
+#: 由 LEGACY_POSTURE_STRUCT_SHA256 逐字节锁定（cast 的结构另见 test_cast_*）。
+M4W5_CHANGED_KEYS = frozenset({"cast", "death", "hit.getup", "hit.knockdown", "hit.launch", "hit.launch.land"})
+M4W5_POSTURE_KEYS = M4W5_CHANGED_KEYS - {"cast"}
+#: M4-W6 起再放开字节锁的两个键：重受击与击退的极值帧重绘到人体范围（后仰改用整身俯仰 bp）；结构（键名、时间、事件、帧数）同样由
+#: LEGACY_POSTURE_STRUCT_SHA256 逐字节锁定（该摘要取自放开字节锁之前的入库版本，重绘后逐位相同）。
+M4W6_RECOIL_KEYS = frozenset({"hit.heavy", "hit.knockback"})
+M4W6_UNLOCKED_KEYS = M4W5_CHANGED_KEYS | M4W6_RECOIL_KEYS
+M4W6_POSTURE_KEYS = M4W5_POSTURE_KEYS | M4W6_RECOIL_KEYS
+_STRUCT_FIELDS = ("key", "resource_ref", "state", "alias_of", "times_ms", "total_ms", "frame_count", "loop", "phases", "tier",
+                  "family", "anim_events")
+LEGACY_POSTURE_STRUCT_SHA256 = "8a21fcbe56bce6a4252ddfbc09f7745aff1aa54f9cd793a7041167d6f281a632"
+_CLIP_FIELDS = ("resource_ref", "state", "alias_of", "times_ms", "tracks", "anim_events", "total_ms", "frame_count", "loop",
+                "phases", "tier", "family")
 #: 既有动画控制器 .meta 的 guid：重新生成必须沿用。
 CONTROLLER_GUID = "da377b4a4ff6d3649a389b3bdb6b5e5b"
 SPEC_REL = Path("assets") / "_placeholder" / C.SPEC_FILE
@@ -83,7 +102,9 @@ def test_committed_tree_passes_self_check_including_engine_assets():
     rep = verify(REPO_ROOT / "assets" / "_placeholder", REPO_ROOT / "data" / "_framework", REPO_ROOT / "adapters" / "unity")
     assert rep.errors == []
     assert rep.warnings == []
-    assert rep.counts.get("引擎资产核对", 0) == 108   # 主集 94 份 + 轻/重体量组各 7 份
+    spec = _repo_spec()
+    n_real = sum(1 for c in spec["clips"] if "alias_of" not in c)
+    assert rep.counts.get("引擎资产核对", 0) == n_real * (1 + len(SC.MASS_TIERS))   # 主集 + 每个体量档各一份全键剪辑
     assert rep.counts.get("预制体路径核对", 0) == 1
 
 
@@ -184,7 +205,11 @@ def test_hit_marker_has_engine_alias_at_same_time_in_baked_events():
                 assert baked["hit_frame"] == baked["hit"], c["key"]
                 # 数据行事件自带 hit_frame（sprite 版同源）时不重复烘：每个攻击剪辑恰一条
                 assert len(baked["hit_frame"]) == 1, c["key"]
-        assert ("hit_frame" in baked) == ("hit" in baked)
+        # 命中类标记（hit、读条施法的施放点 release）旁恒有同刻 hit_frame；没有命中类标记的剪辑不带 hit_frame
+        assert ("hit_frame" in baked) == ("hit" in baked or "release" in baked), c["key"]
+        if "release" in baked:
+            assert baked["hit_frame"] == baked["release"], c["key"]
+            assert len(baked["hit_frame"]) == 1, c["key"]
 
 
 @pytest.mark.parametrize("fps", [20, 30, 60])
@@ -218,7 +243,8 @@ def test_walk_run_have_footsteps_and_displacement_and_loop_is_seamless():
             for t in c["tracks"]:
                 v = t.get("rot") or t["pos"]
                 w = 4 if "rot" in t else 3
-                assert v[:w] == v[-w:], (c["key"], t["path"])
+                # 四元数 q 与 -q 是同一旋转：整身翻滚一整圈后髋的末帧是 -q（保持半球连续），按至多差一个符号比较
+                assert v[:w] == v[-w:] or ("rot" in t and v[:w] == [-x + 0.0 for x in v[-w:]]), (c["key"], t["path"])
 
 
 # --------------------------------------------------------------------------
@@ -488,7 +514,8 @@ def test_legacy_clips_unchanged_and_appended_only():
     assert len(clips) > LEGACY_CLIP_COUNT
     fields = ("resource_ref", "state", "alias_of", "times_ms", "tracks", "anim_events", "total_ms", "frame_count", "loop",
               "phases", "tier", "family")
-    rows = [[c["key"], {k: c[k] for k in fields if k in c}] for c in clips[:LEGACY_CLIP_COUNT]]
+    rows = [[c["key"], {k: c[k] for k in fields if k in c}] for c in clips[:LEGACY_CLIP_COUNT]
+            if c["key"] not in M4W6_UNLOCKED_KEYS]
     blob = json.dumps(rows, sort_keys=True, ensure_ascii=False)
     assert hashlib.sha256(blob.encode()).hexdigest() == LEGACY_CLIPS_SHA256
 
@@ -527,14 +554,15 @@ def test_sprint_start_stop_launch_stunned_block_and_wounded_motion_is_recognizab
     assert _clip(spec, "stunned")["loop"] and _clip(spec, "block")["loop"]
 
 
-def test_mass_groups_light_and_heavy_extend_main_set_and_only_change_posture():
+def test_mass_groups_cover_all_keys_extend_main_set_and_only_change_posture():
     spec = _repo_spec()
     groups = {g["mass"]: g for g in spec["mass_groups"]}
-    assert list(groups) == ["light", "heavy"]
+    assert list(groups) == list(SC.MASS_TIERS) == ["light", "heavy"]
     main = {c["key"]: c for c in spec["clips"]}
     for mass, g in groups.items():
         assert g["id"] == f"{C.ANIM_SET_ID}_{mass}" and g["extends"] == C.ANIM_SET_ID
-        assert {e["key"] for e in g["clips"]} == set(C.MASS_KEYS)
+        assert {e["key"] for e in g["clips"]} == set(main)         # 覆盖主集全部键（含别名键）
+        entries = {e["key"]: e for e in g["clips"]}
         for e in g["clips"]:
             m = main[e["key"]]
             # 步幅轴不出资产：时长、帧数、事件、每步位移与中体量一致；只有站姿（轨迹）不同
@@ -542,31 +570,55 @@ def test_mass_groups_light_and_heavy_extend_main_set_and_only_change_posture():
                 assert e[f] == m[f], (mass, e["key"], f)
             assert e["resource_ref"] != m["resource_ref"]
             if "alias_of" in e:
-                assert e["alias_of"] == m["alias_of"] == "move.sprint"
-                assert e["resource_ref"] == next(x for x in g["clips"] if x["key"] == "move.sprint")["resource_ref"]
+                assert e["alias_of"] == m["alias_of"]
+                assert e["resource_ref"] == entries[e["alias_of"]]["resource_ref"]
             else:
                 assert e["state"] == f"std_dummy_{mass}_{e['key'].replace('.', '_')}"
-                assert e["tracks"] != m["tracks"]
-    # 躯干前倾：重 > 中 > 轻（绕 +X 正向旋转 = 四元数 x 分量）
+                assert e["tracks"] != m["tracks"], (mass, e["key"])   # 每个键都真的有体量偏移
+    # 躯干前倾：重 > 中 > 轻（绕 +X 正向旋转 = 四元数 x 分量；取静态站姿键）
     def spine_x(c):
         return next(t for t in c["tracks"] if t["path"].endswith("/spine"))["rot"][0]
-    for key in ("idle", "move.walk", "move.run"):
+    for key in ("idle", "move.walk", "move.run", "attack.1h", "cast"):
         light = next(e for e in groups["light"]["clips"] if e["key"] == key)
         heavy = next(e for e in groups["heavy"]["clips"] if e["key"] == key)
         assert spine_x(heavy) > spine_x(main[key]) > spine_x(light), key
 
 
-def test_mass_group_rows_in_shared_data_file_are_small_extends_rows():
+def test_legacy_mass_group_entries_unchanged():
+    """不变量：M3-D 的 8 个体量键（轻/重各 8 条）剪辑逐字节不变：全键覆盖只追加新键，不改既有体量组条目。"""
+    spec = _repo_spec()
+    rows = []
+    for g in spec["mass_groups"]:
+        by = {c["key"]: c for c in g["clips"]}
+        for k in C.LEGACY_MASS_KEYS:
+            rows.append([g["mass"] + "/" + k, {f: by[k][f] for f in _CLIP_FIELDS if f in by[k]}])
+    assert hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == LEGACY_MASS_ENTRIES_SHA256
+
+
+def test_legacy_103_main_clips_unchanged_and_appended_only():
+    spec = _repo_spec()
+    clips = spec["clips"]
+    assert len(clips) == 130
+    rows = [[c["key"], {f: c[f] for f in _CLIP_FIELDS if f in c}] for c in clips[:LEGACY103_COUNT]
+            if c["key"] not in M4W6_UNLOCKED_KEYS]
+    assert hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == LEGACY103_CLIPS_SHA256
+
+
+def test_mass_group_rows_in_shared_data_file_extend_main_and_medium_row_is_empty():
     doc = json.loads((REPO_ROOT / "data" / "_framework" / "display" / "display.anim_set.json").read_text(encoding="utf-8"))
     rows = {r["id"]: r for r in doc["rows"]}
     main = rows[C.ANIM_SET_ID]
     assert "extends" not in main
+    mid = rows[f"{C.ANIM_SET_ID}_medium"]
+    assert mid["extends"] == C.ANIM_SET_ID and mid["clips"] == {}
     for mass in ("light", "heavy"):
         row = rows[f"{C.ANIM_SET_ID}_{mass}"]
         assert row["extends"] == C.ANIM_SET_ID
-        assert set(row["clips"]) == set(C.MASS_KEYS) and len(row["clips"]) < len(main["clips"]) / 5
+        assert set(row["clips"]) == set(main["clips"])
         for k, v in row["clips"].items():
-            assert v["resource_ref"].startswith(f"anim.std_dummy_{mass}_") or v["resource_ref"] == row["clips"]["move.sprint"]["resource_ref"]
+            assert v["resource_ref"].startswith(f"anim.std_dummy_{mass}_"), k
+            assert "blend_ms" not in v, k            # 混合时长只在主集行声明，体量组按键继承
+        assert "blends" not in row
 
 
 def test_check_flags_mass_group_defects(tree):
@@ -601,7 +653,8 @@ def test_controller_is_deterministic_state_ids_and_guid_is_stable(unity_copy):
     text = ctrl.read_text(encoding="utf-8")
     ids = dict((name.strip(), int(fid)) for fid, name in re.findall(
         r"^--- !u!1102 &(-?\d+)[^\n]*\n(?:(?!^---).*\n)*?\s+m_Name:\s*(.*)$", text, flags=re.M))
-    assert len(ids) == 108
+    spec = _repo_spec()
+    assert len(ids) == sum(1 for c in spec["clips"] if "alias_of" not in c) * (1 + len(SC.MASS_TIERS))
     for name, fid in ids.items():
         assert fid == C.controller_state_file_id(name), name
     assert len(set(ids.values())) == len(ids)
@@ -618,3 +671,204 @@ def test_check_flags_non_deterministic_controller_state_id(tree, unity_copy):
     ctrl.write_text(text.replace(f"&{fid}\n", "&1234567890123\n").replace(f"fileID: {fid}}}", "fileID: 1234567890123}"),
                     encoding="utf-8", newline="\n")
     assert _has(_engine_errors(tree, unity_copy), "std_dummy_idle 的 fileID 不是确定性公式的值")
+
+
+# --------------------------------------------------------------------------
+# 手感落地 M4-D：新键、翻滚、过渡混合时长（blend_ms / blends）、体量档数据声明
+# --------------------------------------------------------------------------
+
+M4D_KEYS = ("jump.rise", "jump.fall", "jump.land", "hit.air", "attack.air", "attack.air.unarmed", "attack.air.1h",
+            "attack.air.2h", "attack.air.polearm", "attack.air.bow", "attack.air.staff", "attack.air.dual",
+            "attack.air.shield", "hit.block", "hit.block.shield", "stunned.sway", "hit.launch.tumble", "hit.launch.land",
+            "move.sprint.wounded", "move.sprint.combat.wounded", "move.walk.combat.wounded", "move.run.combat.wounded",
+            "move.start.wounded", "move.stop.wounded", "move.pivot.wounded")
+
+
+def _hips_angles(clip: dict) -> list[float]:
+    t = next(t for t in clip["tracks"] if t["path"] == C.bone_path("hips") and "rot" in t)
+    return [rig.quat_angle_deg(tuple(t["rot"][i:i + 4])) for i in range(0, len(t["rot"]), 4)]
+
+
+def test_m4d_keys_present_with_tracks_and_every_non_tumble_key_keeps_hips_within_five_degrees():
+    """复现：整身翻滚需要髋大角度。不变量：只有翻滚类两个键的髋旋转可大于 5 度，其余键（含全部体量组）不变。"""
+    spec = _repo_spec()
+    keys = {c["key"] for c in spec["clips"]}
+    assert set(M4D_KEYS) <= keys and len(keys) == 130
+    allc = list(spec["clips"]) + [c for g in spec["mass_groups"] for c in g["clips"]]
+    for c in allc:
+        if "alias_of" in c:
+            continue
+        mx = max(_hips_angles(c))
+        if c["key"] in C.BONE_ROT_HIPS_TUMBLE_KEYS:
+            continue
+        if c["key"] in C.BP_LYING_KEYS:   # M4-W5：躺姿四键整身放平，髋旋转不超过躺姿上限
+            assert mx <= C.HIPS_LYING_LIMIT_DEG + 1e-3, (c["key"], mx)
+            continue
+        if c["key"] in C.BP_RECOIL_KEYS:  # M4-W6：重受击/击退的后仰由骨盆整身俯仰表达，髋旋转不超过后仰上限
+            assert mx <= C.BP_RECOIL_LIMIT_DEG + 1e-3, (c["key"], mx)
+            continue
+        assert mx <= C.HIPS_ROT_LIMIT_DEG + 1e-3, (c["key"], mx)
+    tb = _clip(spec, "hit.launch.tumble")
+    ang = _hips_angles(tb)
+    assert max(ang) > 170.0 and min(ang) < 1.0          # 翻到身体倒置，起止回到直立
+    assert tb["loop"] is True
+
+
+def test_tumble_hips_quaternion_loop_is_sign_insensitive_and_hemisphere_continuous():
+    """翻滚一整圈的髋四元数回到 -q（同一旋转）：自检按至多差一个符号比较首尾，半球连续仍须逐帧成立。"""
+    spec = _repo_spec()
+    t = next(t for t in _clip(spec, "hit.launch.tumble")["tracks"] if t["path"] == C.bone_path("hips") and "rot" in t)
+    q = [tuple(t["rot"][i:i + 4]) for i in range(0, len(t["rot"]), 4)]
+    assert all(rig.quat_dot(a, b) > 0 for a, b in zip(q, q[1:]))
+    first, last = q[0], q[-1]
+    assert max(abs(a + b) for a, b in zip(first, last)) < 1e-5 or max(abs(a - b) for a, b in zip(first, last)) < 1e-5
+
+
+def _row():
+    doc = json.loads((REPO_ROOT / "data" / "_framework" / "display" / "display.anim_set.json").read_text(encoding="utf-8"))
+    return next(r for r in doc["rows"] if r["id"] == C.ANIM_SET_ID)
+
+
+def test_data_row_declares_blend_ms_per_key_and_blend_pairs():
+    row = _row()
+    spec = _repo_spec()
+    assert set(row["clips"]) == {c["key"] for c in spec["clips"]}
+    for k, v in row["clips"].items():
+        assert isinstance(v["blend_ms"], int) and 0 <= v["blend_ms"] <= 2000, k
+        assert v["blend_ms"] == SC.blend_ms_for(SC.clip_by_key(k)), k
+    # 别名键与目标键同混合时长（同一资源）
+    for c in spec["clips"]:
+        if "alias_of" in c:
+            assert row["clips"][c["key"]]["blend_ms"] == row["clips"][c["alias_of"]]["blend_ms"], c["key"]
+    pairs = [(b["from"], b["to"]) for b in row["blends"]]
+    assert len(pairs) == len(set(pairs)) and len(pairs) == len(SC.BLEND_PAIRS)
+    assert all(a in row["clips"] and b in row["clips"] for a, b in pairs)
+    # 每对覆盖值与逐键值不同的才有意义：至少有一对显式覆盖了逐键默认（hit.getup -> idle 180 vs idle 120）
+    by = {(b["from"], b["to"]): b["blend_ms"] for b in row["blends"]}
+    assert by[("hit.getup", "idle")] != row["clips"]["idle"]["blend_ms"]
+
+
+def test_blend_is_data_only_on_model_rows_and_sprite_row_has_none():
+    doc = json.loads((REPO_ROOT / "data" / "_framework" / "display" / "display.anim_set.json").read_text(encoding="utf-8"))
+    spr = next(r for r in doc["rows"] if r["id"] == "display.anim_set.std_dummy_biped")
+    assert "blends" not in spr and all("blend_ms" not in v for v in spr["clips"].values())
+
+
+def test_check_flags_missing_blend_ms_and_bad_blend_pair(tree):
+    assets, data = tree
+    path = data / "display" / "display.anim_set.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    row = next(r for r in doc["rows"] if r["id"] == C.ANIM_SET_ID)
+    del row["clips"]["idle"]["blend_ms"]
+    row["blends"][0]["to"] = "no.such.key"
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    errs = _errors(*tree)
+    assert _has(errs, "数据行 idle 缺 blend_ms")
+    assert _has(errs, "数据行 blends")
+
+
+def test_check_flags_mass_group_that_repeats_blend_or_misses_a_key(tree):
+    assets, data = tree
+    path = data / "display" / "display.anim_set.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    row = next(r for r in doc["rows"] if r["id"] == f"{C.ANIM_SET_ID}_heavy")
+    row["clips"]["idle"]["blend_ms"] = 10
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    assert _has(_errors(*tree), "不应重复声明 blend_ms")
+    _mutate_spec(assets, lambda s: next(g for g in s["mass_groups"] if g["mass"] == "light")["clips"].pop(0))
+    assert _has(_errors(*tree), "体量组 light 应覆盖主集全部键")
+
+
+def test_mass_tiers_are_data_declared_model_side_follows(monkeypatch):
+    """在 SC.MASS_TIERS 里加一档，model 规格就多出对应的全键组与数据行（不改代码）。"""
+    monkeypatch.setitem(SC.MASS_TIERS, "xheavy", {"t_pitch": 9.0, "h_pitch": -6.0, "sa": 11.0, "ha": 7.0, "react": 0.7, "air": 0.8})
+    spec = build_spec(20)
+    assert [g["mass"] for g in spec["mass_groups"]] == ["light", "heavy", "xheavy"]
+    xg = next(g for g in spec["mass_groups"] if g["mass"] == "xheavy")
+    assert len(xg["clips"]) == len(spec["clips"]) and xg["id"] == f"{C.ANIM_SET_ID}_xheavy"
+    from std_dummy_model_clips.build import build_mass_data_rows
+    assert [r["id"] for r in build_mass_data_rows(spec)][-1] == f"{C.ANIM_SET_ID}_xheavy"
+
+
+def test_m4w5_lying_pose_keys_keep_names_times_events_and_frame_counts_in_main_and_mass_groups():
+    """M4-W5/W6 不变量：躺姿四键 + 击飞落地（W5）与重受击/击退（W6）只重绘轨迹：键名、时间轴、时长、帧数、内嵌事件在主集与轻/重体量组里逐字节不变。"""
+    spec = _repo_spec()
+    rows = []
+    for c in spec["clips"]:
+        if c["key"] in M4W6_POSTURE_KEYS:
+            rows.append([c["key"], {f: c[f] for f in _STRUCT_FIELDS if f in c}])
+    for g in spec["mass_groups"]:
+        for c in g["clips"]:
+            if c["key"] in M4W6_POSTURE_KEYS:
+                rows.append([g["mass"] + "/" + c["key"], {f: c[f] for f in _STRUCT_FIELDS if f in c}])
+    assert len(rows) == len(M4W6_POSTURE_KEYS) * 3
+    assert hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == LEGACY_POSTURE_STRUCT_SHA256
+
+
+def test_m4w5_bp_is_used_only_by_lying_tumble_and_recoil_keys_and_lying_poses_are_laid_down():
+    """M4-W5/W6 不变量：整身俯仰 bp 只出现在 C.BP_KEYS（躺姿 + 翻滚 + 重受击/击退），其余键（含各体量组）恒为 0；躺姿四键的躺平段确实放平（|bp| >= 85 度）。"""
+    assert set(C.BP_KEYS) == set(C.BP_LYING_KEYS) | set(C.BP_TUMBLE_KEYS) | set(C.BP_RECOIL_KEYS)
+    for mass in (None, "light", "heavy"):
+        defs = mass_clip_defs(mass) if mass else SC.build_clip_defs()
+        for c in defs:
+            bps = [abs(effective_pose(c, t)["bp"]) for t in key_times_ms(c, SC.FPS)]
+            if c.key not in C.BP_KEYS:
+                assert max(bps) < 1e-9, (mass, c.key)
+            elif c.key in C.BP_LYING_KEYS:
+                assert max(bps) >= 85.0, (mass, c.key)
+
+
+def test_m4w5_lying_pose_limits_are_human_range_and_no_per_key_exemption_exists():
+    """M4-W5/W6 不变量：肩/髋/躯干源角度上限收紧到人体范围；每键豁免表已删除（W6 起 hit.heavy/hit.knockback 也在全局限内），
+    任何键的角限都是同一张全局表。"""
+    base = C.SOURCE_ANGLE_LIMITS
+    assert base["m_sf"][0] >= -70 and base["m_sf"][1] <= 190
+    assert base["m_hf"][0] >= -50 and base["m_hf"][1] <= 105
+    assert base["t_pitch"][0] >= -55 and base["t_pitch"][1] <= 65
+    assert not hasattr(C, "SOURCE_ANGLE_EXEMPT") and not hasattr(C, "source_angle_limits")
+    assert base["bp"] == (-400.0, 400.0)      # 整身俯仰另受 BP_KEYS 约束，不是每键放宽
+
+
+def test_m4w6_recoil_keys_are_repainted_inside_human_range_with_a_pelvis_lean_in_main_and_mass_groups():
+    """复现：此前 hit.heavy / hit.knockback 靠 2.2 倍外推表达后仰，肩后伸到 -125 度、髋后伸 -51 度（登记在每键豁免表里）。
+    不变量：全部体量里两个键的每一帧肩/髋/躯干在全局限内（不借豁免）；后仰由整身俯仰 bp 表达：只后仰（bp <= 0），主集击退 >= 20 度、重受击 >= 10 度，
+    量随体量反应倍率变（轻 > 中 > 重），且不超过 BP_RECOIL_LIMIT_DEG；髋骨骼旋转不超过该上限。"""
+    base = C.SOURCE_ANGLE_LIMITS
+    peak = {}
+    for mass in (None, "light", "heavy"):
+        defs = mass_clip_defs(mass) if mass else SC.build_clip_defs()
+        for c in defs:
+            if c.key not in C.BP_RECOIL_KEYS:
+                continue
+            worst = 0.0
+            for t in key_times_ms(c, SC.FPS):
+                pose = effective_pose(c, t)
+                for name, (lo, hi) in base.items():
+                    assert lo - 1e-6 <= pose[name] <= hi + 1e-6, (mass, c.key, t, name, pose[name])
+                assert -C.BP_RECOIL_LIMIT_DEG - 1e-6 <= pose["bp"] <= 1e-9, (mass, c.key, t, pose["bp"])
+                worst = max(worst, -pose["bp"])
+            peak[(mass, c.key)] = worst
+    assert peak[(None, "hit.heavy")] >= 10.0 and peak[(None, "hit.knockback")] >= 20.0
+    for key in C.BP_RECOIL_KEYS:
+        assert peak[("light", key)] > peak[(None, key)] > peak[("heavy", key)], key
+    spec = _repo_spec()
+    for key in C.BP_RECOIL_KEYS:
+        assert max(_hips_angles(_clip(spec, key))) <= C.BP_RECOIL_LIMIT_DEG + 1e-3
+
+
+def test_m4w6_cast_release_variants_exist_in_main_and_mass_groups_with_release_at_the_declared_time():
+    """M4-W6：cast.quick（释放 100 ms）、cast.heavy（释放 300 ms）：总时长 600 ms、帧数 12 与 cast 相同；内嵌事件 release 与别名 hit_frame 同刻、
+    且恰在前摇结束处；轻/重体量组各自带同名键（资产不同、事件相同）。"""
+    spec = _repo_spec()
+    cast = _clip(spec, "cast")
+    for key, want_ms in (("cast", 150.0), ("cast.quick", 100.0), ("cast.heavy", 300.0)):
+        c = _clip(spec, key)
+        assert c["total_ms"] == cast["total_ms"] == 600 and c["frame_count"] == cast["frame_count"] == 12, key
+        assert c["state"] == "std_dummy_" + key.replace(".", "_") and c["tier"] == ("recommended" if key == "cast" else "optional")
+        assert c["phases"][0]["ms"] == want_ms
+        for owner in [c] + [next(x for x in g["clips"] if x["key"] == key) for g in spec["mass_groups"]]:
+            assert owner["total_ms"] == 600 and owner["frame_count"] == 12
+            rel = [e for e in owner["anim_events"] if e["name"] == "release"]
+            hit = [e for e in owner["anim_events"] if e["name"] == "hit_frame"]
+            assert len(rel) == 1 and len(hit) == 1 and rel[0]["time_pct"] == hit[0]["time_pct"], (key, rel, hit)
+            assert abs(rel[0]["time_pct"] * 600 - want_ms) < 0.05, (key, rel)

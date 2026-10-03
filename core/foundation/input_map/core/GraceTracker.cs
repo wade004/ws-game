@@ -17,18 +17,37 @@ namespace Core.Foundation.InputMap
     /// 判断记录（没有手感档案）：没有 <see cref="IFeelJudgingSource"/> 时 <c>grace_ms</c> 视为 0，即只有"当前为真"才满足，等价于没有宽限。
     /// </para>
     /// <para>
+    /// 判断记录（施法瞄点，手感落地 M4-G）：施法请求自己携带的目标/落点（<see cref="GraceAim"/>，经 <see cref="NoteAim"/>）优先于求值器的缺省目标，
+    /// 依赖瞄点的条件（<see cref="IGraceConditionEvaluator.UsesAim"/>）以它求值。历史属于瞄点：瞄点变化（另一个目标、另一个落点、另一个射程）时这些条件的"最近一次为真"
+    /// 作废——不拿旧目标刚才够得着的记录放行另一个目标；新瞄点的目标恰好就是缺省目标（<see cref="IGraceConditionEvaluator.DefaultAimTarget"/>）时此前积累的历史仍然有效。
+    /// 不依赖瞄点的条件、没有任何瞄点记录的行动者，行为与引入瞄点之前逐位一致。瞄点保持一个宽限窗口长度（至少 1 tick），没有新记录就作废、回落到缺省目标。
+    /// </para>
+    /// <para>
     /// 判断记录（宽限只放宽接受）：本类型只回答"条件算不算满足"。随后结算的几何（例如目标已离开范围，时间线模式的空间命中仍可能打空）
     /// 不受影响——这是消费方（施法管线步骤 7）的职责，不在此处改写。
     /// </para>
     /// </summary>
-    public sealed class GraceTracker : IGraceQuery
+    public sealed class GraceTracker : IGraceQuery, IGraceAimSink
     {
         private readonly IGraceConditionEvaluator _evaluator;
         private readonly IFeelJudgingSource? _feel;
         private readonly List<Id> _actorOrder = new List<Id>();
         private readonly Dictionary<Id, List<Id>> _conditionsByActor = new Dictionary<Id, List<Id>>();
         private readonly Dictionary<(Id Actor, Id Condition), long> _lastTrue = new Dictionary<(Id, Id), long>();
+        private readonly Dictionary<Id, AimRecord> _aims = new Dictionary<Id, AimRecord>();
         private long _now = -1;
+
+        private readonly struct AimRecord
+        {
+            public readonly GraceAim Aim;
+            public readonly long NotedTick;
+
+            public AimRecord(GraceAim aim, long notedTick)
+            {
+                Aim = aim;
+                NotedTick = notedTick;
+            }
+        }
 
         public GraceTracker(IGraceConditionEvaluator evaluator, IFeelJudgingSource? feel = null)
         {
@@ -70,6 +89,68 @@ namespace Core.Foundation.InputMap
             for (var i = 0; i < list.Count; i++) _lastTrue.Remove((actorId, list[i]));
             _conditionsByActor.Remove(actorId);
             _actorOrder.Remove(actorId);
+            _aims.Remove(actorId);
+        }
+
+        /// <summary>行动者当前仍有效的施法瞄点；没有（从未记录或已作废）返回 <see cref="GraceAim.None"/>。</summary>
+        public GraceAim CurrentAim(Id actorId) =>
+            _aims.TryGetValue(actorId, out var record) && !IsAimExpired(actorId, record, _now) ? record.Aim : GraceAim.None;
+
+        /// <inheritdoc />
+        public void NoteAim(Id actorId, GraceAim aim)
+        {
+            if (aim.IsNone)
+            {
+                ClearAim(actorId);
+                return;
+            }
+
+            var keep = _aims.TryGetValue(actorId, out var previous) && !IsAimExpired(actorId, previous, _now)
+                ? previous.Aim.SameAim(aim)
+                : IsDefaultTarget(actorId, aim);
+            if (!keep) ResetAimDependent(actorId);
+
+            _aims[actorId] = new AimRecord(aim, _now);
+
+            // 立即按新瞄点重新求值依赖瞄点的条件：施法管线在同一 tick 的步骤 3 才记下瞄点，本 tick 步骤 1 的采样用的还是旧瞄点。
+            if (_now < 0 || !_conditionsByActor.TryGetValue(actorId, out var list)) return;
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (_evaluator.UsesAim(list[i]) && _evaluator.Evaluate(actorId, list[i], aim))
+                {
+                    _lastTrue[(actorId, list[i])] = _now;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public void ClearAim(Id actorId)
+        {
+            if (!_aims.TryGetValue(actorId, out var record)) return;
+            _aims.Remove(actorId);
+            // 撤销后回落到缺省目标：被撤销的瞄点其实就是缺省目标时历史仍然有效，否则作废。
+            if (!IsDefaultTarget(actorId, record.Aim)) ResetAimDependent(actorId);
+        }
+
+        private bool IsDefaultTarget(Id actorId, GraceAim aim)
+        {
+            if (!aim.TargetId.HasValue) return false;
+            var fallback = _evaluator.DefaultAimTarget(actorId);
+            return fallback.HasValue && fallback.Value.Equals(aim.TargetId.Value);
+        }
+
+        private bool IsAimExpired(Id actorId, AimRecord record, long now) => now - record.NotedTick > AimLifeTicks(actorId);
+
+        /// <summary>瞄点保持的 tick 数：一个宽限窗口的长度，至少 1（没有手感档案时窗口为 0，瞄点仍保持到下一个 tick）。</summary>
+        private int AimLifeTicks(Id actorId) => Math.Max(1, GraceTicks(actorId));
+
+        private void ResetAimDependent(Id actorId)
+        {
+            if (!_conditionsByActor.TryGetValue(actorId, out var list)) return;
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (_evaluator.UsesAim(list[i])) _lastTrue.Remove((actorId, list[i]));
+            }
         }
 
         /// <summary>
@@ -83,9 +164,16 @@ namespace Core.Foundation.InputMap
             {
                 var actorId = _actorOrder[a];
                 var list = _conditionsByActor[actorId];
+                var aim = GraceAim.None;
+                if (_aims.TryGetValue(actorId, out var record))
+                {
+                    if (IsAimExpired(actorId, record, tick)) ClearAim(actorId);
+                    else aim = record.Aim;
+                }
+
                 for (var i = 0; i < list.Count; i++)
                 {
-                    if (_evaluator.Evaluate(actorId, list[i]))
+                    if (_evaluator.Evaluate(actorId, list[i], aim))
                     {
                         _lastTrue[(actorId, list[i])] = tick;
                     }

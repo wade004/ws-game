@@ -15,7 +15,8 @@ from pathlib import Path
 
 from std_dummy_poses import config as SC
 from std_dummy_poses.skeleton import build_parts
-from std_dummy_poses.verify import RECOMMENDED_KEYS, REQUIRED_KEYS, Report, parse_key, print_report  # noqa: F401
+from std_dummy_poses.verify import (AIR_KEYS, DETAIL_KEYS, MASS_SCALED_POSE_IDS, RECOMMENDED_KEYS, REQUIRED_KEYS,  # noqa: F401
+                                    REQUIRED_MASS_TIERS, WOUNDED_KEYS, Report, parse_key, print_report)
 
 from . import config as C
 from . import rig
@@ -69,6 +70,9 @@ def verify(assets_out: Path, data_out: Path, unity_dir: Path | None = None, spri
     for k in RECOMMENDED_KEYS:
         if k not in clips:
             r.warn(f"推荐键缺失：{k}")
+    for k in AIR_KEYS + DETAIL_KEYS + WOUNDED_KEYS:
+        if k not in clips:
+            r.err(f"M4-D 键缺失（本集声明出齐）：{k}")
     for k in clips:
         if parse_key(k) is None:
             r.err(f"键不符合 04 §2.1 语法：{k}")
@@ -183,8 +187,11 @@ def _verify_entry(r: Report, key: str, e: dict, c: SC.ClipDef | None, fps: int, 
 def _verify_mass_groups(r: Report, spec: dict, clips: dict, fps: int, expected_rot: set, bone_by_path: dict) -> None:
     """体量组（04 §7 extends）：只覆盖 MASS_KEYS，时长/帧数/事件与主集一致（只改站姿），站姿方向符合轻/重定义。"""
     groups = spec.get("mass_groups", [])
-    if [g.get("mass") for g in groups] != list(C.MASS_GROUPS):
-        r.err(f"体量组清单应为 {list(C.MASS_GROUPS)}，规格里是 {[g.get('mass') for g in groups]}")
+    for t in REQUIRED_MASS_TIERS:
+        if t not in [g.get("mass") for g in groups]:
+            r.err(f"体量档缺 {t}（至少轻/中/重三档）")
+    if [g.get("mass") for g in groups] != list(SC.MASS_TIERS):
+        r.err(f"体量组清单应为 {list(SC.MASS_TIERS)}，规格里是 {[g.get('mass') for g in groups]}")
     n = 0
     for g in groups:
         mass = g.get("mass")
@@ -193,8 +200,9 @@ def _verify_mass_groups(r: Report, spec: dict, clips: dict, fps: int, expected_r
         if not str(g.get("id", "")).startswith("display.anim_set.std_"):
             r.err(f"体量组 {mass} 的 id 前缀不是 display.anim_set.std_（ADR-0119）")
         entries = {e["key"]: e for e in g["clips"]}
-        if set(entries) != set(C.MASS_KEYS):
-            r.err(f"体量组 {mass} 键集合不是 MASS_KEYS：差 {sorted(set(entries) ^ set(C.MASS_KEYS))}")
+        if set(entries) != set(clips):
+            r.err(f"体量组 {mass} 应覆盖主集全部键（含别名键）：差 {sorted(set(entries) ^ set(clips))}")
+        prof = SC.MASS_TIERS[mass]
         defs_m = {c.key: c for c in mass_clip_defs(mass)}
         for key, e in entries.items():
             main = clips.get(key)
@@ -207,7 +215,7 @@ def _verify_mass_groups(r: Report, spec: dict, clips: dict, fps: int, expected_r
             if e["resource_ref"] == main["resource_ref"]:
                 r.err(f"体量组 {mass}/{key} 没有自己的剪辑资源")
             _verify_entry(r, key, e, defs_m.get(key), fps, entries, expected_rot, bone_by_path)
-            if "tracks" in e and "tracks" in main:
+            if "tracks" in e and "tracks" in main and key in C.LEGACY_MASS_KEYS:
                 ta = next((t for t in e["tracks"] if t["path"].endswith("/spine")), None)
                 tb = next((t for t in main["tracks"] if t["path"].endswith("/spine")), None)
                 if ta is None or tb is None:
@@ -216,8 +224,29 @@ def _verify_mass_groups(r: Report, spec: dict, clips: dict, fps: int, expected_r
                 # 躯干前倾 = 绕 +X 正向旋转（四元数 x 分量增大）：重 > 中 > 轻
                 if (mass == "heavy" and not a[0] > b[0]) or (mass == "light" and not a[0] < b[0]):
                     r.err(f"体量组 {mass}/{key} 起始帧躯干前倾方向不符合{'重' if mass == 'heavy' else '轻'}体量定义")
+            if "tracks" in e and key not in C.LEGACY_MASS_KEYS:
+                _verify_mass_offsets(r, mass, key, defs_m[key], prof, SC.clip_by_key(key), fps)
             n += 1
     r.tick("体量组核对", n)
+
+
+def _verify_mass_offsets(r: Report, mass: str, key: str, gc: SC.ClipDef, prof: dict, mc: SC.ClipDef, fps: int) -> None:
+    """体量组的每个键都真的带体量偏移：非受击/抬升类键与主集只差静态站姿偏移；受击/抬升类键只要求与主集不同。"""
+    differs = False
+    for t in key_times_ms(gc, fps):
+        pg, pm = effective_pose(gc, t), effective_pose(mc, t)
+        if any(abs(pg[k] - pm[k]) > 1e-9 for k in pg):
+            differs = True
+        if gc.pose_id in MASS_SCALED_POSE_IDS:
+            continue
+        for k in pg:
+            want = {"t_pitch": prof["t_pitch"], "h_pitch": prof["h_pitch"], "m_sa": prof["sa"], "o_sa": prof["sa"],
+                    "m_ha": prof["ha"], "o_ha": prof["ha"]}.get(k, 0.0)
+            if abs((pg[k] - pm[k]) - want) > 1e-9:
+                r.err(f"体量组 {mass}/{key} t={t}ms 姿势 {k} 与主集差 {pg[k] - pm[k]:.4f}，应只差体量偏移 {want}")
+                return
+    if not differs:
+        r.err(f"体量组 {mass}/{key} 与主集姿势完全相同（体量偏移没有生效）")
 
 
 def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expected_rot: set, bone_by_path: dict) -> None:
@@ -263,6 +292,8 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
     # 四元数：单位长、半球连续；关节角限
     for b, seq in rots.items():
         limit = C.BONE_ROT_LIMITS_DEG.get(b)
+        if b == "hips":
+            limit = C.hips_rot_limit_deg(key)  # 髋大角度只给整身俯仰类键（翻滚一整圈、躺平放平到 88 度），其余键髋只绕竖轴转几度
         for i, q in enumerate(seq):
             norm = math.sqrt(sum(x * x for x in q))
             if abs(norm - 1.0) > 1e-4:
@@ -275,7 +306,9 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
 
     # 循环首尾连续
     if e["loop"]:
-        d = max(max(abs(a - b) for a, b in zip(seq[0], seq[-1])) for seq in rots.values())
+        # 四元数 q 与 -q 是同一旋转（翻滚一整圈后髋四元数回到 -q，半球连续要求保留这个符号）：首尾按"至多差一个符号"比较
+        d = max(min(max(abs(a - b) for a, b in zip(seq[0], seq[-1])), max(abs(a + b) for a, b in zip(seq[0], seq[-1])))
+                for seq in rots.values())
         dp = max(abs(a - b) for a, b in zip(pos[0], pos[-1]))
         if d > 1e-5 or dp > 1e-4:
             r.err(f"{tag} 循环首尾姿势不连续（四元数最大差 {d:.6f}，位置最大差 {dp:.6f}）")
@@ -288,6 +321,10 @@ def _verify_tracks(r: Report, key: str, e: dict, c: SC.ClipDef, fps: int, expect
         for name, (lo, hi) in C.SOURCE_ANGLE_LIMITS.items():
             if not (lo - 1e-6 <= pose[name] <= hi + 1e-6):
                 r.err(f"{tag} t={t}ms 源关节角 {name}={pose[name]:.1f} 超出范围 [{lo}, {hi}]")
+        if key not in C.BP_KEYS and abs(pose["bp"]) > 1e-9:
+            r.err(f"{tag} t={t}ms 整身俯仰 bp={pose['bp']:.1f} 只允许翻滚类、躺平类与重受击/击退键使用（{', '.join(C.BP_KEYS)}）")
+        if key in C.BP_RECOIL_KEYS and not (-C.BP_RECOIL_LIMIT_DEG - 1e-6 <= pose["bp"] <= 1e-9):
+            r.err(f"{tag} t={t}ms 重受击/击退的整身俯仰 bp={pose['bp']:.1f} 应在 [-{C.BP_RECOIL_LIMIT_DEG}, 0]（只后仰、不前翻）")
         parts, joints = build_parts(pose, None)
         rot_i = {b: seq[i] for b, seq in rots.items()}
         hips = (pose["px"], SC.REST_HIP_Y + pose["py"], pose["pz"])
@@ -340,13 +377,28 @@ def _verify_data_row(r: Report, spec: dict, clips: dict, data_out: Path) -> None
     if set(row["clips"]) != set(clips):
         r.err(f"数据行键集合与规格不一致：差 {sorted(set(row['clips']) ^ set(clips))}")
     for k, v in row["clips"].items():
-        if k in clips and (v["resource_ref"] != clips[k]["resource_ref"] or v["events"] != clips[k]["events"]):
+        if k in clips and (v["resource_ref"] != clips[k]["resource_ref"] or v["events"] != clips[k]["events"]
+                           or v.get("blend_ms") != clips[k].get("blend_ms")):
             r.err(f"数据行与规格不一致：{k}")
+        if not isinstance(v.get("blend_ms"), int) or not (0 <= v["blend_ms"] <= 2000):
+            r.err(f"数据行 {k} 缺 blend_ms 或越界（0..2000 ms）：{v.get('blend_ms')!r}")
         if not v["resource_ref"].startswith(C.REF_CATEGORY + "."):
             r.err(f"数据行 {k} 的资源引用类别应为 {C.REF_CATEGORY}.（model 型动画剪辑）：{v['resource_ref']}")
     r.tick("数据行核对", len(row["clips"]))
     if row.get("extends"):
         r.err("主集数据行不应有 extends")
+    if row.get("blends") != spec.get("blends"):
+        r.err("数据行 blends 与规格不一致")
+    for b in row.get("blends", []):
+        if b["from"] not in clips or b["to"] not in clips or not (0 <= b["blend_ms"] <= 2000):
+            r.err(f"数据行 blends 条目非法（键不存在或时长越界）：{b}")
+    pairs = [(b["from"], b["to"]) for b in row.get("blends", [])]
+    if len(set(pairs)) != len(pairs):
+        r.err("数据行 blends 有重复的（from, to）对")
+    r.tick("过渡混合核对", len(pairs))
+    med = [x for x in doc.get("rows", []) if x.get("id") == f"{spec['anim_set_id']}_{spec['params']['mass_tiers']['main']}"]
+    if len(med) != 1 or med[0].get("extends") != spec["anim_set_id"] or med[0].get("clips"):
+        r.err("中体量数据行应为 extends 主集的空覆盖行")
     for g in spec.get("mass_groups", []):
         grows = [x for x in doc.get("rows", []) if x.get("id") == g["id"]]
         if len(grows) != 1:
@@ -361,6 +413,10 @@ def _verify_data_row(r: Report, spec: dict, clips: dict, data_out: Path) -> None
         for k, v in grow["clips"].items():
             if k in want and (v["resource_ref"] != want[k]["resource_ref"] or v["events"] != want[k]["events"]):
                 r.err(f"体量组行 {g['id']} 与规格不一致：{k}")
+            if "blend_ms" in v:
+                r.err(f"体量组行 {g['id']} 的 {k} 不应重复声明 blend_ms（按键继承主集）")
+        if grow.get("blends"):
+            r.err(f"体量组行 {g['id']} 不应声明 blends（继承主集）")
         r.tick("体量组数据行核对", len(grow["clips"]))
 
 

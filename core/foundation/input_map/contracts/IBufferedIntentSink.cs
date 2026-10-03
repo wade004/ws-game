@@ -15,5 +15,13 @@ namespace Core.Foundation.InputMap
         /// 能则返回 true 并给出要提交的意图（通常是 <c>cast</c>），调用方随后把记录标记为已消费并把意图追加进本 tick 的意图列表。
         /// </summary>
         bool TryAccept(Id actorId, BufferedIntent record, out Intent intent);
+
+        /// <summary>
+        /// 本出口是否可能接受这条记录（手感落地 M4 清扫）。与 <see cref="TryAccept"/> 的"此刻能否接受"不同：只有<b>永远接不了</b>
+        /// （例如输入动作没有映射到任何技能）才返回 false，处理器据此跳过它、改问下一条候选，使一条永远接不了的记录不会在过期前
+        /// 挡住优先级更低的候选；"此刻不能接受"（动作锁、硬直、冷却）仍然返回 true 并由 <see cref="TryAccept"/> 返回 false，
+        /// 次优先级记录照旧不让位（高优先级的闪避不被低优先级攻击旁路）。默认接口成员，缺省恒为 true（既有实现原样工作）。
+        /// </summary>
+        bool CanHandle(Id actorId, BufferedIntent record) => true;
     }
 }

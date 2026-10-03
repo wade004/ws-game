@@ -64,6 +64,9 @@ namespace Tests.Lab
         private static double ShapeHeight(string chainId) =>
             FixtureRow("target/target.chain_def.json", chainId).GetProperty("shape").GetProperty("height").GetDouble();
 
+        /// <summary>适用十个格子的空间脚本数（脚本总数断言；其它处按动态数量）：6 个空间语义（M3-E1）+ 6 个空间扩展（ADR-0130 追加决定）+ 8 个空中战斗（M4-W1b）+ 9 个地形与导航（M4-W1a）。</summary>
+        private const int SpaceScriptCount = 29;
+
         // ---------- 格子与脚本适用性 ----------
 
         [Fact]
@@ -71,7 +74,7 @@ namespace Tests.Lab
         {
             var runner = LabTestSupport.Runner;
             var spaceScripts = LabTestSupport.SpaceScripts();
-            Assert.Equal(6, spaceScripts.Count);
+            Assert.Equal(SpaceScriptCount, spaceScripts.Count); // 六个空间语义脚本（M3-E1）+ 六个空间扩展脚本（ADR-0130 追加决定）+ 八个空中战斗脚本（M4-W1b）+ 九个地形与导航脚本（M4-W1a）
             foreach (var script in spaceScripts)
             {
                 var cells = runner.ApplicableCells(script);
@@ -373,8 +376,8 @@ namespace Tests.Lab
 
             var results = LabInvariants.Check(runner, LabTestSupport.SpaceScripts());
             Assert.All(results, r => Assert.True(r.Ok, r.ToString()));
-            // 6 个空间脚本 × 4 个竖直格子各一次"按平面运行"；无刺激对照脚本再各一次"除 space 组外一致"。
-            Assert.Equal(6 * 4 + 4, results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
+            // 全部空间脚本 × 4 个竖直格子各一次"按平面运行"；无刺激对照脚本再各一次"除 space 组外一致"。
+            Assert.Equal(LabTestSupport.SpaceScripts().Count * 4 + 4, results.Count(r => r.Invariant == LabInvariants.SpaceSemanticsOnly));
         }
 
         [Fact]
@@ -383,11 +386,11 @@ namespace Tests.Lab
             var results = new List<CellResult>();
             foreach (var script in LabTestSupport.SpaceScripts())
             {
-                results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
+                results.AddRange(LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
-            Assert.Equal(6 * 10, results.Count);
-            Assert.All(results, r => Assert.True(r.Status == CellStatus.Pass, r.Script + " @ " + r.Cell + " " + r.Message));
+            Assert.Equal(LabTestSupport.SpaceScripts().Count * 10, results.Count);
+            LabTestSupport.AssertAllPass(results, "空间脚本基线比较失败");
         }
     }
 }

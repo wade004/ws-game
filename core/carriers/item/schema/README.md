@@ -84,6 +84,7 @@ T-N2-3/T-N2-4。
 | `budget_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1/3）：槽位预算系数，预算上限 = 预算曲线(item_level) × 品质预算倍率 × 本系数；范围 `> 0`；消费实现见下 `item.budget_curve`（T-N2-3，`ItemBudgetValidationRule` 已接入）；武器槽位系数同一个字段（T-N2-6，`EquipmentHost.GetWeaponDps`：曲线(item_level) × 品质预算倍率 × 本系数，`is_weapon` 槽位读取） |
 | `price_coefficient` | Number | 否 | `1` | T-N2-1 新增（ADR-0032 决策 1；ADR-0034）：槽位价格系数，买价 = 基准价值 × 品质价格倍率 × 本系数；范围 `> 0`；消费实现随 ADR-0034 落地任务接入 |
 | `has_armor` | Bool | 否 | `false` | T-N2-6 新增（设计层裁定，取代 T-N2-5 的"非武器位且真正装备位"推断）：该槽位的装备是否提供护甲值（ADR-0032 决策 4 的护甲位）；`EquipmentHost.IsArmorSlot` 只看本字段，不再从 `is_weapon`/`is_equipment` 推断——游戏层需要给每个防具位（头/胸/腿/手/脚等）显式登记 `true`，戒指/饰品/武器位缺省 `false` 即不写护甲 |
+| `has_appearance` | Bool | 否 | `true` | NF 清扫新增（只增不改）：该槽位的装备是否有可见外观（纸娃娃/模型）；缺省 `true` 与登记前行为逐位一致（所有装备类槽位的物品按有外观校验）。`false`（戒指/项链等不上身可见的槽位）时装备资产包校验（`toolchain/asset_import/equip_pack.py`）不要求 `display.equip_visual` 行、不报 `equip_visual_missing`。运行期核心不读取本字段，只是数据契约登记 |
 
 ## `item.quality_definition`
 

@@ -66,7 +66,7 @@ namespace Core.Foundation.EventBus
         /// <summary>aura.stack_changed — 字段：targetId, auraDefId, oldStacks, newStacks。叠加层数变化（见 06 第 8 节）。</summary>
         public static readonly Id AuraStackChanged = new Id("aura.stack_changed");
 
-        /// <summary>combat.attack_avoided — 字段：sourceId, targetId, school, hitResult, skillId, attackInstanceId。ADR-0098（消费方第四十三批反馈2根治，阻塞）：结算管线的“回避类”结局统一发布——命中表判定为 miss/dodge/parry（步骤 1，Resolver 既有终止分支）或免疫吸收判定为免疫（步骤 7）时触发；hitResult 只会是 Miss/Dodge/Parry/Immune/Invulnerable 之一（Invulnerable：手感设计/03 第 2.3 节，目标处于无敌窗口时在九步之前前置判为回避，ADR-0114）；skillId 语义同 combat.damage_dealt 行（可空，光环周期效果截断为空）；attackInstanceId 同 combat.damage_dealt 行（可空，但不经 Expr 暴露，同 unit.died 行 position 字段惯例）。不改动 combat.damage_dealt/combat.heal_done 的既有发布条件与字段——回避与落地在同一次结算里互斥，不以 amount=0 冒充回避。</summary>
+        /// <summary>combat.attack_avoided — 字段：sourceId, targetId, school, hitResult, skillId, attackInstanceId。ADR-0098（消费方第四十三批反馈2根治，阻塞）：结算管线的“回避类”结局统一发布——命中表判定为 miss/dodge/parry（步骤 1，Resolver 既有终止分支）或免疫吸收判定为免疫（步骤 7）时触发；hitResult 只会是 Miss/Dodge/Parry/Immune/Invulnerable 之一（Invulnerable：手感设计/03 第 2.3 节，目标处于无敌窗口时在九步之前前置判为回避，ADR-0114）；skillId 语义同 combat.damage_dealt 行（可空，光环周期效果截断为空）；attackInstanceId 同 combat.damage_dealt 行（可空；有值时经 Expr 暴露，可按攻击实例关联同批次事件）。不改动 combat.damage_dealt/combat.heal_done 的既有发布条件与字段——回避与落地在同一次结算里互斥，不以 amount=0 冒充回避。</summary>
         public static readonly Id CombatAttackAvoided = new Id("combat.attack_avoided");
 
         /// <summary>combat.auto_attack_swing — 字段：sourceId, targetId。ADR-0070：普通攻击（AutoAttackHost）每结算一次挥击时触发，只表达“挥出了一次普通攻击”本身，不携带学派/伤害值（已由随后发出的 combat.damage_dealt 承载）；在 IEffectSink.ApplyEffect 之前发布，恒先于该次结算对应的 combat.damage_dealt；被跳过的挥击（超射程/被 NoAttack 拦截/未到挥击点/没有攻击周期）不发本事件。</summary>
@@ -81,11 +81,17 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit, attackInstanceId。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId，同 combat.damage_dealt 一致，见该行说明。</summary>
         public static readonly Id CombatHealDone = new Id("combat.heal_done");
 
-        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction, castInstanceId。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；2026-10-02 勘误补充 castInstanceId（发起本次命中的动作/施法实例 id，与 action.started.castInstanceId 同值；时间线空间命中填入，instant 命中为空——同一动作实例的多段多目标命中共用它，attackInstanceId 仍是每次结算一个；打击反馈的挥空窗口据此按动作实例配对，可空字段不经 Expr 暴露）；Expr 暴露 sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。</summary>
+        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction, castInstanceId。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；2026-10-02 勘误补充 castInstanceId（发起本次命中的动作/施法实例 id，与 action.started.castInstanceId 同值；时间线空间命中填入，instant 命中为空——同一动作实例的多段多目标命中共用它，attackInstanceId 仍是每次结算一个；打击反馈的挥空窗口据此按动作实例配对，可空字段不经 Expr 暴露）；Expr 暴露 attackInstanceId/sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。</summary>
         public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
 
         /// <summary>combat.left — 字段：unitId。脱离战斗（见 06 第 8 节）。</summary>
         public static readonly Id CombatLeft = new Id("combat.left");
+
+        /// <summary>combat.poise_changed — 字段：targetId, sourceId, before, after, max, damage, broken。手感设计/03 第 4 节（手感落地 M4-L，动态韧性）：声明了 poise_damage 的命中扣减了目标的韧性池；before/after 是该命中前后的有效韧性（韧性属性减已损失量，不低于 0），max 是韧性属性值，damage 是这一击声明的韧性伤害，broken 为真表示这一击把韧性从正数打到 0（破韧，该命中按冲击等级映射出完整受击反应）；不声明 poise_damage 的命中（静态韧性）不发本事件。</summary>
+        public static readonly Id CombatPoiseChanged = new Id("combat.poise_changed");
+
+        /// <summary>combat.poise_recovered — 字段：targetId, poise。手感设计/03 第 4 节（手感落地 M4-L，动态韧性）：目标的动态韧性经 poise_recover_per_s 回复到满，只在之前有损失、现在回满的那一 tick 发一次；poise 为回满后的有效韧性。</summary>
+        public static readonly Id CombatPoiseRecovered = new Id("combat.poise_recovered");
 
         /// <summary>combat.reaction_applied — 字段：targetId, reaction, sourceId, attackInstanceId, durationTicks。手感设计/03 第 4/7 节：受击裁决落地；reaction 为 flinch|stagger_light|stagger|knockback|knockdown|death（none 不发）；durationTicks 为硬直（倒地含 downed_ms）换算 tick 数。</summary>
         public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
@@ -333,6 +339,9 @@ namespace Core.Foundation.EventBus
         /// <summary>unit.faction_changed — 字段：unitId, oldFactionId, newFactionId。ADR-0088（消费方第三十三批反馈2）：运行期改变单位阵营的框架入口（core/carriers/unit.WorldUnitAccess.SetFaction）写入新阵营后触发（旧值与新值相同不触发）；仇恨系统订阅本事件清理不再敌对的仇恨表条目，不做缓存、现场用 IFactionMatrix 判定。</summary>
         public static readonly Id UnitFactionChanged = new Id("unit.faction_changed");
 
+        /// <summary>unit.landed — 字段：unitId, height, airSeconds, impactSpeed。手感设计/03 第 4 节（手感落地 M4-W1b，竖直轴能力包）：单位的一次飞行（跳跃、击飞、离开平台下落）结束、落回地面时由竖直运动服务发出；height 是落地后的脚下高度（落点的地面高度，平地为 0），airSeconds 是本次离地以来的累计空中时间（秒，空中被再次抛起不清零），impactSpeed 是落地瞬间的下落速度（世界单位/秒，非负）；没有装配竖直轴、或竖直轴选项 EmitLandedEvent 缺省（假）时不发本事件。</summary>
+        public static readonly Id UnitLanded = new Id("unit.landed");
+
         /// <summary>unit.moved — 字段：unitId, position。单位逻辑位置变化时触发，供表现层 View 同步（见 01 L5 模块表 render 行订阅示例、03 第 5 节同步小节原文列举）；字段为建议值。</summary>
         public static readonly Id UnitMoved = new Id("unit.moved");
 
@@ -380,6 +389,8 @@ namespace Core.Foundation.EventBus
             CombatHealDone,
             CombatHitConfirmed,
             CombatLeft,
+            CombatPoiseChanged,
+            CombatPoiseRecovered,
             CombatReactionApplied,
             CombatThreatChanged,
             CreatureDespawned,
@@ -462,6 +473,7 @@ namespace Core.Foundation.EventBus
             UiPanelOpened,
             UnitDied,
             UnitFactionChanged,
+            UnitLanded,
             UnitMoved,
             UnitRespawned,
             UnitSkillBindingChanged,

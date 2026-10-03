@@ -32,7 +32,7 @@ python toolchain/gen_std_dummy_poses.py --check [--sheet <缩略拼图.png>]    
 所有可调数与来源都集中在 [`config.py`](config.py)（身高像素、画布、帧率、参考时长、三相、位移、方向档、事件规则），
 改完重新生成即可，没有第二处副本。
 
-## 键清单（103 个键，94 份资源）
+## 键清单（128 个键，117 份资源）
 
 键名按 04 第 2.1 节语法 `<状态>[.<步态>][.<姿态>][.<武器族>][.<变体>]`。
 
@@ -45,10 +45,13 @@ python toolchain/gen_std_dummy_poses.py --check [--sheet <缩略拼图.png>]    
 | 其它 | `death`、`jump`、`cast`、`dodge` |
 | 可选键 | 冲刺 `move.sprint`（及 `.combat`、各族）、启停过渡 `move.start`／`move.stop`／`move.pivot`、击飞 `hit.launch`、眩晕 `stunned`（循环）、格挡 `block`（循环）、带伤变体 `idle.wounded`／`idle.combat.wounded`／`move.walk.wounded`／`move.run.wounded` |
 | 新武器族 | `polearm`、`bow`、`staff`、`dual`、`shield` 各一套待机（`idle.<族>`、`idle.combat.<族>`）、走/跑/战斗走/战斗跑/冲刺（`move.*.<族>`）与攻击（`attack.<族>`；长柄、法杖、双持有 `.02`，双持另有 `.03`；弓只一段并带 `release` 事件；盾牌另有 `block.shield`）；`1h`/`2h` 族补 `move.walk.combat.<族>`、`move.sprint.<族>`、`move.sprint.combat.<族>` |
+| 空中键（M4-D） | `jump.rise`、`jump.fall`、`jump.land`、`hit.air`、`attack.air.<族>`（八族，别名 `attack.air` 到 `attack.air.unarmed`）；空中攻击不带离地量、不带连招与闪避取消窗口 |
+| 细节键（M4-D） | 格挡受击抖动 `hit.block`、`hit.block.shield`；眩晕摇晃 `stunned.sway`（循环）；击飞翻滚 `hit.launch.tumble`（整个身体绕骨盆翻转）与落地缓冲 `hit.launch.land`（末姿势 = `hit.getup` 起姿势） |
+| 带伤全覆盖（M4-D） | `move.sprint.wounded`、`move.sprint.combat.wounded`（别名）、`move.walk.combat.wounded`、`move.run.combat.wounded`、`move.start.wounded`、`move.stop.wounded`、`move.pivot.wounded` |
 | 战斗/冲刺别名 | `move.walk.combat`（别名到 `move.walk`）、各族战斗冲刺 `move.sprint.combat.*`（别名到对应族冲刺）：键回落链先去变体、族、站姿、步态，最后冲刺才退回奔跑，所以每个族的冲刺键必须登记 |
 
 04 第 3 节必备键（`idle`、`move.walk`、`move.run`、`attack`、`hit`、`death`，及每族一段攻击）与推荐键（上表其余键）全覆盖；
-可选键全部出齐（见上表），其中 `wounded` 变体只覆盖待机与走/跑（04 第 3 节只要求这几个）。每个攻击剪辑的事件表末尾追加一条与 `hit` 同时刻的 `hit_frame` 事件（既有事件不动），运行期按事件时间百分比换算出关键帧下标，序列帧播放器据此触发 `hit_frame`，与 model 型的命中帧事件同名同时刻。
+可选键全部出齐（见上表）；`wounded` 变体覆盖全部移动与战斗移动键（M4-D）。每个攻击剪辑的事件表末尾追加一条与 `hit` 同时刻的 `hit_frame` 事件（既有事件不动），运行期按事件时间百分比换算出关键帧下标，序列帧播放器据此触发 `hit_frame`，与 model 型的命中帧事件同名同时刻。
 徒手是基础键本身（`idle`/`move.*` 无武器族后缀即徒手），不另出 `idle.unarmed`。
 
 方向档：每个键 × 全部 canonical 档（8 方向 = `front`、`front_side_r`、`side_r`、`back_side_r`、`back`），
@@ -62,8 +65,9 @@ assets/_placeholder/sprite_anim/
   std_dummy_<键>__<方向档>/            整身合成的方向变体（ADR-0093）
   std_dummy_<键>__<方向档>__body/      身体层逐层剪辑（ADR-0072 第一级：方向 + 层名）
   std_dummy_<键>__<方向档>__hand_main/ 武器层逐层剪辑（1h/2h 族剪辑，加无族的 hit.*/death/jump/cast/dodge；层名沿用占位英雄的主手层 hand_main）
+  std_dummy_<体量>_<键>/ 及其 __<方向档>__body、__<方向档>__hand_main  体量组（`light`、`heavy`）的同名剪辑，只写正面整身与身体/武器层，不写整身方向变体（见判断记录 11）
 assets/_placeholder/std_dummy_poses.json   规格：参数、每键相位/帧数/事件/位移、方向档
-data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_biped
+data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_biped 及体量行 _medium（空 extends）、_light、_heavy（extends 主集、覆盖全部键）
 ```
 
 每个目录是固定的 `atlas.png` + `frames.json`（ADR-0054 结构：`frame_w/frame_h/fps/frame_duration/loop/frames[]`）。
@@ -102,8 +106,10 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
    （构建把该目录整棵拷进发布包，不在构建期重新生成），假人姿势集同样是随版本发布的框架资产，故生成产物入库（约 980 个文件、2.8 MB；
    同样的输入产出逐字节一致，有测试）。唯一不入库的是缩略拼图（审阅证据，属"生成物不进 git"）。规格文件 `std_dummy_poses.json`
    与 MANIFEST 分开：`gen_placeholder_assets.py --check` 只核对它自己的清单，不会误认这批文件为残留。
-2. **一行而不是按体量三行**：05 第 9 节"姿势集"一行写的是"标准骨骼三组（对应三体量）、假人集一组"；04 第 7 节把体量差异表达为"选哪套姿势集"，
-   而中性块人偶没有体量可表达，故只出一行 `display.anim_set.std_dummy_biped`。体量差异留给 `model` 型标准骨骼剪辑库。
+2. **体量三档按数据声明、覆盖全部键**（M4-D 取代此前"只出一行"的判定）：`config.MASS_TIERS` 给出轻、重两档的关节角偏移与受击反应、腾空两个幅度系数
+   （受击反应系数上限 `MASS_REACT_CAP`），中档 `MASS_MAIN_TIER` 就是主集，对应空 `extends` 行 `_medium`；两版都读这一张表。体量行 `_light`／`_heavy`
+   用 `extends` 继承主集并覆盖主集的**全部键**（含别名），每个键指向 `std_dummy_<体量>_<键>` 自己的剪辑。体量偏移在姿势函数的出口按体量叠加（`poses.apply_mass`），
+   主集（不带体量）的姿势计算路径不变，所以既有键字节不变。
 3. **程序化伪三维而不是逐方向手绘**：关节角姿势 → 三维块体 → 按偏航角正交投影，方向档数（4/8/16）与任意键的方向一致性自动得到，
    参数改动（帧率、时长、位移）重新生成即可；代价是造型僵硬，只作"可读"的占位，美术按 04 第 4 节逐键替换。
 4. **画布 144×144**：2h 巨剑侧面前伸（肩到剑尖约 0.95 身高）与上举要不被裁切，自检断言任何帧不触碰边缘；更小的画布（128）实测裁切了巨剑攻击帧。
@@ -116,16 +122,41 @@ data/_framework/display/display.anim_set.json   行 display.anim_set.std_dummy_b
    且武器层随身体帧变化（身体帧不同而武器层逐帧完全相同视为"没有随身体帧走"，报错）。
    ADR-0100 的"装备层候选"命名（带装备资源集引用段）仍不在这里生成：那是装备美术自己的命名空间，由 `toolchain/std_equip_set` 按物品生成。
 7. **整身方向变体也生成**（ADR-0093）：没有声明纸娃娃层的外形用整身剪辑时也能随朝向换图；代价是多约 1/3 文件，可用 `--no-composite-dirs` 关闭。
+   体量组同样生成（M4-W5，见判断记录 11）。
 8. **别名键 `attack`**：04 第 3 节必备键 `attack` 复用 `attack.unarmed` 第一段的资源与事件（同一个 `resource_ref`），不重复出图。
 9. **`hit` 的 `segment` 不写**：现有 `events` 条目只有 `name/time_pct`，没有 `segment`，每个剪辑只放一个 `hit`，多段攻击用多个键表达（见 14 第 2.3 节）。
 
-## 已知限制
+10. **新武器族的武器层改画低多边形形体**（M4-D，`weapons.py`）：长柄（杆加枪头）、弓（弓身、弓弦）、法杖（杆加杖头宝珠）、双持（两把短刃）、盾（多边形盾面加盾边）都由凸块拼成，
+    与骨骼版无关（骨骼版没有武器几何，武器是挂在挂点上的装备）。长柄与法杖尖端不超出旧方块占位的触及范围，否则 144 像素画布会裁切攻击帧。它们仍是占位，装备美术按 ADR-0100 覆盖。
+    五个族既有键的武器层与整身合成图字节因此改变，身体层与元数据不变。
+11. **体量组也写整身方向变体**（M4-W5，取代此前"体量组不写"的体积取舍）：体量组每个键同样按每个方向槽位写整身合成图（`composite_dirs`，规格 `mass_tiers.composite_direction_variants` 与 `params.composite_direction_variants` 同值，自检核对），
+    用整身剪辑（没有纸娃娃层）的外形在轻/重体量下也随朝向换图。**体积判定**：先估算全部键的增量（轻、重各 117 份剪辑 × 每份 3 个方向槽位的整身目录），实测新增 2340 个文件、约 8.2 MB（轻约 4.0 MB、重约 4.2 MB），
+    低于 20 MB 的上限，所以全部键都出，不退化为"只出移动/待机键"。装备集的占位剪辑仍只跟主集走。
+12. **空中键与细节键用新键、不改既有键**：`hit.block`、`stunned.sway`、`hit.launch.tumble`、`hit.launch.land` 与空中键全是追加的新键，`block`、`stunned`、`hit.launch` 等既有键字节不变
+    （既有键已被下游引用）。翻滚用整体俯仰关键 `bp`（骨盆为轴，度，缺省 0 走旧计算路径，逐位一致），整个身体绕骨盆翻转，翻滚全程不穿地。空中攻击不带离地量、不带连招与闪避取消窗口。
+13. **不做布娃娃、不做根运动**：位移由逻辑驱动（ADR-0116），翻滚与落地缓冲是关键帧动画；动画不携带根位移（04 第 10 节第 10 条）。
 
-- `frames.json` 没有原点/锚点字段（04 第 8 节要求 `sprite` 型校验"原点"）：约定脚点 `(72,140)`（画布水平居中、距底边 4 像素）只写在规格文件里，运行期不校验。
-- 无族状态剪辑（`hit.*`/`death`/`jump`/`cast`/`dodge`）的武器层统一画占位单手剑、固定持握俯仰角，不随 2h 等族改形；装备美术按 ADR-0100 用自己的逐层剪辑覆盖（`toolchain/std_equip_set` 给每件占位装备按其族出这些键的武器层）。
-- 闪避是低身冲刺姿势，不是翻滚；受击/倒地/起身/死亡是关键姿势插值的占位，不含布娃娃物理。
-- 假人的 `idle`/`move` 手臂与武器姿势是手调关键姿势，未保证"双手握持时副手恰好落在剑柄上"（2h 族副手只是靠近）。
-- 每循环位移依赖自拟的参考基础移速 2.0 身高/秒（见上）；未做"脚是否打滑"的像素级验证，只验证接触姿势两脚间距。
-- 左侧档位不落盘，依赖运行期水平翻转（14 第 2.1 节镜像规则）；主手因此在镜像档位出现在另一侧。
-- 体量轴（轻/重）与步幅轴不出序列帧版：步幅是运行期播放速率，体量只改站姿，由骨骼版的两组偏移姿势集表达（见 model 型生成器说明），序列帧版的体量差异靠换姿势集。
-- 新增五个族的武器层统一画占位形体（长柄、弓、法杖、双持、盾牌），不随族做细节，装备美术按 ADR-0100 覆盖。
+14. **躺姿五键用整身俯仰 `bp` 重绘**（M4-W5，04 第 10 节第 3 条）：`hit.launch`、`hit.knockdown`、`hit.getup`、`death`、`hit.launch.land` 的躺平段此前靠"腿绕髋整体后摆"、肩/髋被迫超出人体范围；
+    现在用 M4-D 已有的 `bp`（整身绕骨盆俯仰，仰卧 -88、俯卧 +88，后倒起手按体量反应缩放）放平，肩/髋/躯干回到人体范围（`LYING_BACK`/`LYING_FRONT` 及其落稳姿势在 `poses.py`）。
+    `hit.launch.land` 与 `hit.getup` 共用躺姿（落地末姿势 = 起身起姿势），所以随之重绘：改的是五个键而不是四个。键名、时长、事件（名与时刻）、帧数不变，其余键（除 M4-W6 重绘的 `hit.heavy`、`hit.knockback`）的规格条目与图像字节不变
+    （含体量组，缺省 `bp = 0` 走旧计算路径，逐位一致）。`hit.heavy`、`hit.knockback` 在 M4-W6 重绘到人体范围（判断记录 16），不再有任何角限豁免。
+15. **`cast` 的 `release` 在 150 ms**（M4-W5）：`cast` 总时长 600 ms、12 帧不变，相位改为 windup 150 / release 100 / recovery 350（原 250/100/250），`release` 事件 `time_pct` 0.4167 → 0.25。
+    理由：实验室技能（`data/_lab_action`）命中标记最常见是 150 ms（slash、combo3、slam、charge、bolt、projectile），改一个 `cast` 剪辑比改十多个技能时间线（技能时间线是 feellab 基线的输入）影响面小得多，
+    且 `cast` 只被表现层读。起手 150 ms 的技能动画命中点与逻辑命中标记逐毫秒相等；起手 100 ms 与 300 ms 的技能由判断记录 17 的施放点变体对齐（武器风格 `cast_anim_override`）。
+16. **重受击、击退的极值帧重绘到人体范围**（M4-W6）：`hit.heavy`、`hit.knockback` 此前用 2.2 倍外推表达强后仰（肩后伸 -125 度），靠骨骼版每键豁免表保留旧限。M4-W6 放开这两个键的字节锁：
+    限肢外推倍率降为 1.3 / 1.4（`RECOIL_LIMB_STRENGTH`，并受 `FALL_REACT_CAP` 约束），后仰由骨盆整身俯仰 `bp` 补足（`RECOIL_PELVIS_TILT`：重受击 -12 度、击退 -24 度，乘体量反应倍率，轻体量更大、重体量更小）。
+    键名、时长、事件、帧数不变；轻/重体量组、装备层与方向变体随生成器同步重出；豁免表与取限函数一并删除（骨骼版判断记录 18、21）。
+17. **施放点变体 `cast.quick`、`cast.heavy`**（M4-W6）：总时长 600 ms、12 帧与 `cast` 相同，相位 windup 100 / release 100 / recovery 400 与 windup 300 / release 100 / recovery 200，`release` 事件落在前摇结束处
+    （100 ms、300 ms），可选档（`optional`），带武器层（随装备族换层），轻/重体量组各带同名键。游戏把技能指到变体的方式是武器风格 `display.weapon_style.cast_anim_override`（技能 id 到剪辑资源引用），
+    回退链 `cast.<变体>` → `cast`，没声明覆盖的游戏逐位不变；实验室用 `data/_lab_action/display/display.weapon_style.json` 把起手 100 ms 的 combo1/combo2/poise_chip/lunge/spx_jab 指向 `cast.quick`、起手 300 ms 的 elite_swing 指向 `cast.heavy`。
+    自检检查两个变体的 `release` 时刻（容差 0.05 ms）、总时长与帧数同 `cast`。
+
+## 范围与边界（设计决定，M4 清扫由"已知限制"改写）
+
+- `frames.json` 没有原点/锚点字段：约定脚点 `(72,140)`（画布水平居中、距底边 4 像素）写在规格文件里，由本工具的一致性检查（`verify`）对账内容，运行期不校验。理由：加字段要改序列帧资产的格式契约，占位美术不为此改格式；04 第 8 节 `sprite` 型的原点校验面向游戏自己导入的美术，由游戏的美术管线提供原点。
+- 无族状态剪辑（`hit.*`/`death`/`jump`/`cast`/`dodge`）的武器层统一画占位单手剑、固定持握俯仰角，不随 2h 等族改形。理由：这些键没有族维度；装备美术按 ADR-0100 用自己的逐层剪辑覆盖（`toolchain/std_equip_set` 给每件占位装备按其族出这些键的武器层）。
+- 闪避是低身冲刺姿势，不是翻滚；受击/倒地/起身/死亡/击飞翻滚是关键姿势插值的占位，不含布娃娃物理。理由：位移由逻辑驱动（ADR-0116），动画不反向驱动单位位置（04 第 10 节第 10 条）。
+- 假人的 `idle`/`move` 手臂与武器姿势是手调关键姿势，不保证"双手握持时副手恰好落在剑柄上"（2h 族副手只是靠近）。理由：占位只证明契约接线；握持精度属于装备美术（ADR-0100），框架不出最终美术。
+- 每循环位移依赖自拟的参考基础移速 2.0 身高/秒（见上），不做"脚是否打滑"的像素级验证，只验证接触姿势两脚间距。理由：步幅是运行期参数，播放速率会按单位真实移速缩放，参考移速只是占位的出图约定。
+- 左侧档位不落盘，依赖运行期水平翻转（14 第 2.1 节镜像规则）；主手因此在镜像档位出现在另一侧。理由：镜像规则是框架统一约定，落盘左侧档位会让资产体积翻倍，持握侧不对称由装备美术需要时自行覆盖。
+- 步幅不出独立资产（运行期播放速率，同上）。

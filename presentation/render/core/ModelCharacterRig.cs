@@ -77,6 +77,16 @@ namespace Presentation.Render
         /// <see cref="IRenderer3D.PlayAnim"/>，不经本方法。</summary>
         public const double DefaultBlendSeconds = 0.15;
 
+        /// <summary>手感落地 M4-D（手感设计/04 第 10 节）：切换剪辑时的交叉淡入时长来源（数据行 <c>display.anim_set</c> 的
+        /// <c>blend_ms</c>/<c>blends</c>，由 <see cref="Core.Foundation.DisplayInfo.AnimSetDef"/> 实现）。缺省 null = 不查表，
+        /// 一律 <see cref="DefaultBlendSeconds"/>（与此前逐位一致）；挂上之后 <see cref="PlayClip"/> 按"每对键 &gt; 目标剪辑逐键
+        /// &gt; <see cref="DefaultBlendSeconds"/>"取值，显式声明 0 = 硬切。装配层（<c>UnityViewFactory.AttachDefaultModelAnimation</c>）
+        /// 在挂接默认动画时按该实体的姿势集设置。</summary>
+        public IAnimBlendSource? AnimBlendSource { get; set; }
+
+        // 最近一次 PlayClip 的剪辑（每对键混合时长的"起点"）；从未播放 = null。
+        private Id? _lastClipId;
+
         private readonly IRenderer3D _renderer;
         private readonly ModelHandle _handle;
         private readonly DisplayInfo _displayInfo;
@@ -148,7 +158,13 @@ namespace Presentation.Render
         {
             // 手感落地 M2-A：顿帧冻结期间换剪辑照常换，但播放速率保持 0（冻结），记下请求速率供解冻时恢复。
             _requestedClipSpeed = speed;
-            _renderer.PlayAnim(_handle, clipId, loop, _frozen ? 0.0 : speed, DefaultBlendSeconds);
+            var blendSeconds = DefaultBlendSeconds;
+            if (AnimBlendSource != null && AnimBlendSource.TryGetBlendSeconds(_lastClipId, clipId, out var declared))
+            {
+                blendSeconds = declared;
+            }
+            _lastClipId = clipId;
+            _renderer.PlayAnim(_handle, clipId, loop, _frozen ? 0.0 : speed, blendSeconds);
         }
 
         // --------------------------------------------------------------

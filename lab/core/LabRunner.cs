@@ -134,6 +134,17 @@ namespace Lab
         private LabScenario ScenarioFor(InputScript script, string cell) =>
             Dataset.Catalog.HasScenario(cell) ? Dataset.Catalog.GetScenario(cell) : DatasetFor(script).Catalog.GetScenario(cell);
 
+        /// <summary>
+        /// 公开的格子解析（手感落地 M4-W1b，修 <c>feellab run</c> 不支持竖直格）：规则同内部解析——先基础数据集，再脚本自己的派生数据集
+        /// （空间格子 <c>side_2d_*</c>/<c>volume_*</c> 的行在脚本声明的额外数据根里）。命令行与期望判定里"按格子短名取格子"一律经它，
+        /// 不再直接读 <see cref="Dataset"/> 的目录。
+        /// </summary>
+        public LabScenario ResolveScenario(InputScript script, string cell) => ScenarioFor(script, cell);
+
+        /// <summary>用一份已有的记录建指纹（数据集哈希取该脚本在该格子上实际运行的数据集）；命令行 <c>run</c> 要同时出记录与指纹时用。</summary>
+        public Fingerprint FingerprintOf(InputScript script, string cell, LabRecording recording, LabRunVariant? variant = null) =>
+            Fingerprint.Build(recording, Registry, DatasetFor(script, ScenarioFor(script, cell), variant).Hash);
+
         public LabRecording Record(InputScript script, string cell, LabRunVariant? variant = null)
         {
             var scenario = ScenarioFor(script, cell);
@@ -146,6 +157,27 @@ namespace Lab
             var scenario = ScenarioFor(script, cell);
             return Fingerprint.Build(Record(script, cell, variant), Registry, DatasetFor(script, scenario, variant).Hash);
         }
+
+        /// <summary>
+        /// 带宿主扩展点的记录（引擎宿主、调试覆盖；见 <see cref="LabHostExtension"/>）；<paramref name="extension"/> 为 null 等同无扩展版本。
+        /// </summary>
+        public LabRecording Record(InputScript script, string cell, LabRunVariant? variant, LabHostExtension? extension)
+        {
+            var scenario = ScenarioFor(script, cell);
+            var dataset = DatasetFor(script, scenario, variant);
+            return LabHost.Run(dataset.HostOptions, dataset.Catalog.GetScenario(cell), script, dataset.Catalog, variant, extension);
+        }
+
+        /// <summary>带宿主扩展点的指纹（用本运行器的注册表折算度量）。</summary>
+        public Fingerprint Run(InputScript script, string cell, LabRunVariant? variant, LabHostExtension? extension)
+        {
+            var scenario = ScenarioFor(script, cell);
+            return Fingerprint.Build(Record(script, cell, variant, extension), Registry, DatasetFor(script, scenario, variant).Hash);
+        }
+
+        /// <summary>数据集内容哈希（该脚本在该格子/变体下实际运行的数据集）。</summary>
+        public string DatasetHashFor(InputScript script, string cell, LabRunVariant? variant = null) =>
+            DatasetFor(script, ScenarioFor(script, cell), variant).Hash;
 
         /// <summary>该脚本适用的格子：格子的脚本子集为空表示适用全部，否则脚本 id 必须在子集里。</summary>
         public IReadOnlyList<LabScenario> ApplicableCells(InputScript script)
@@ -312,7 +344,15 @@ namespace Lab
     /// <summary>套件：全部标准脚本 × 其适用格子，逐个与基线比较；也提供更新基线与"导出为测试"。</summary>
     public static class LabSuite
     {
-        public static List<CellResult> Check(LabRunner runner, string fixturesDir, string? onlyScript = null, string? onlyCell = null)
+        public static List<CellResult> Check(LabRunner runner, string fixturesDir, string? onlyScript = null, string? onlyCell = null) =>
+            Check(runner, fixturesDir, onlyScript, onlyCell, includeRealTime: true);
+
+        /// <summary>
+        /// 同上，另可把实时类度量（帧耗时、每帧分配）排除出基线比较（<paramref name="includeRealTime"/> 为 false，见
+        /// <see cref="FingerprintComparer.Compare(Fingerprint, Fingerprint, MetricRegistry, bool)"/>）：用于只关心确定性结果的自动化用例，
+        /// 满载机器上的墙钟抖动不应让它们变红；命令行 <c>suite</c> 保持默认（含实时上限）。
+        /// </summary>
+        public static List<CellResult> Check(LabRunner runner, string fixturesDir, string? onlyScript, string? onlyCell, bool includeRealTime)
         {
             var results = new List<CellResult>();
             foreach (var script in LabFixtures.LoadScripts(fixturesDir))
@@ -355,7 +395,7 @@ namespace Lab
                         continue;
                     }
 
-                    var diff = FingerprintComparer.Compare(baseline, actual, runner.Registry);
+                    var diff = FingerprintComparer.Compare(baseline, actual, runner.Registry, includeRealTime);
                     var failed = false;
                     foreach (var e in expectations)
                     {
@@ -403,7 +443,16 @@ namespace Lab
         /// 期望引用的度量组/度量/格子不存在时，同样逐条给出"无法判定"，不抛异常。
         /// </summary>
         public static List<ExpectationResult> EvaluateExpectations(
-            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache)
+            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache) =>
+            EvaluateExpectations(runner, script, cell, actual, cache, null);
+
+        /// <summary>
+        /// 同上，另允许调用方给出"相对关系引用的另一个格子怎么跑"（<paramref name="runOther"/>，引擎宿主用它在引擎宿主上跑对照格子）；
+        /// 为 null 时用 <paramref name="runner"/> 的无头宿主。可运行性检查不变。
+        /// </summary>
+        public static List<ExpectationResult> EvaluateExpectations(
+            LabRunner runner, InputScript script, string cell, Fingerprint actual, Dictionary<string, Fingerprint> cache,
+            Func<string, Fingerprint>? runOther)
         {
             if (script.Expectations.Count == 0)
             {
@@ -418,14 +467,14 @@ namespace Lab
                     return cached;
                 }
 
-                var scenario = runner.Dataset.Catalog.GetScenario(other);
+                var scenario = runner.ResolveScenario(script, other);
                 var runnability = scenario.CheckRunnable(LabHost.AvailableCapabilities);
                 if (!runnability.Runnable)
                 {
                     throw new LabFormatException(runnability.ToString());
                 }
 
-                var fingerprint = runner.Run(script, other);
+                var fingerprint = runOther != null ? runOther(other) : runner.Run(script, other);
                 cache[other] = fingerprint;
                 return fingerprint;
             }

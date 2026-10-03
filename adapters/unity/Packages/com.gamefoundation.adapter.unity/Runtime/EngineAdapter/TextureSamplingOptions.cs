@@ -8,8 +8,9 @@
 // 观察角色等常见场景）未生成 mip 链会导致纹理欠采样锯齿与相机/物体移动时的贴图闪烁，属于普适的
 // 图形正确性问题，不是某个具体资源的可选特性，因此默认对三条路径全部开启，不要求调用方逐资源
 // 显式声明；仍保留公开开关，供极端场景（内存吃紧的低端设备等）按引擎实现整体关闭。只影响此后经
-// UnityResourceLoader 解码的资源，不回溯已经解码并缓存的贴图（已知限制，见 UnityResourceLoader
-// 类型顶部判断记录）。
+// UnityResourceLoader 解码的资源，不回溯已经解码并缓存的贴图（设计决定：mip 链是创建纹理时的属性，已有纹理
+// 无法追加；要让已缓存资源按新取值重新解码，对其 Unload 后重新加载。采样参数应在加载器构造后、首次发起加载前设定，
+// 见 UnityResourceLoader 类型顶部判断记录）。
 using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter

@@ -51,6 +51,7 @@ namespace Core.Foundation.Feel
         public const string GaitHysteresisRatio = "gait_hysteresis_ratio";
         public const string StrideScale = "stride_scale";
         public const string StartBlendMs = "start_blend_ms";
+        public const string LandHoldMs = "land_hold_ms";
         public const string StopBlendMs = "stop_blend_ms";
         public const string LeanDegPerAccel = "lean_deg_per_accel";
 
@@ -73,10 +74,22 @@ namespace Core.Foundation.Feel
         public const string AttackerHitstopCapMs = "attacker_hitstop_cap_ms";
         public const string HitStunMs = "hit_stun_ms";
         public const string StaggerPower = "stagger_power";
+        public const string PoiseDamage = "poise_damage";
+        public const string PoiseRecoverPerS = "poise_recover_per_s";
+        public const string PoiseRecoverDelayMs = "poise_recover_delay_ms";
+        public const string PoiseRecoverMode = "poise_recover_mode";
+        public const string PoiseBreakResetMs = "poise_break_reset_ms";
         public const string KnockbackDistance = "knockback_distance";
         public const string LaunchHeight = "launch_height";
         public const string DownedMs = "downed_ms";
         public const string ReactionCap = "reaction_cap";
+        public const string AirHitReaction = "air_hit_reaction";
+        public const string LaunchStack = "launch_stack";
+        public const string LaunchStackCap = "launch_stack_cap";
+        public const string LaunchHeightCap = "launch_height_cap";
+        public const string LaunchBodyScale = "launch_body_scale";
+        public const string AirReactionCap = "air_reaction_cap";
+        public const string AirStunUntilLand = "air_stun_until_land";
         public const string KillHitstopScale = "kill_hitstop_scale";
 
         // 镜头（呈现型；07 第 2 节，加 camera_ 前缀与输入组的 dead_zone 区分）
@@ -143,6 +156,9 @@ namespace Core.Foundation.Feel
         private const FeelOpSet SetOnly = FeelOpSet.Set;
 
         private static readonly IReadOnlyList<string> ImpactClassValues = new[] { "light", "medium", "heavy", "massive" };
+        private static readonly IReadOnlyList<string> AirHitReactionValues = new[] { "same", "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
+        private static readonly IReadOnlyList<string> LaunchStackValues = new[] { "restart", "add" };
+        private static readonly IReadOnlyList<string> PoiseRecoverModeValues = new[] { "delay", "out_of_combat" };
         private static readonly IReadOnlyList<string> ReactionCapValues = new[] { "none", "flinch", "stagger_light", "stagger", "knockback", "knockdown" };
         private static readonly IReadOnlyList<string> ReversePolicyValues = new[] { "instant", "through_zero" };
 
@@ -167,8 +183,8 @@ namespace Core.Foundation.Feel
             => new FeelFieldDef(name, FeelFieldKind.Bool, new FeelFieldMeta(half, group, SetOnly, comp), desc, optional: optional);
 
         private static FeelFieldDef Enum(
-            string name, FeelGroup group, FeelHalf half, FeelComposition comp, IReadOnlyList<string> values, string desc)
-            => new FeelFieldDef(name, FeelFieldKind.Enum, new FeelFieldMeta(half, group, SetOnly, comp), desc, enumValues: values);
+            string name, FeelGroup group, FeelHalf half, FeelComposition comp, IReadOnlyList<string> values, string desc, bool optional = false)
+            => new FeelFieldDef(name, FeelFieldKind.Enum, new FeelFieldMeta(half, group, SetOnly, comp), desc, enumValues: values, optional: optional);
 
         private static FeelFieldDef Text(
             string name, FeelGroup group, FeelHalf half, FeelComposition comp, string desc, bool optional = false)
@@ -259,6 +275,8 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.SprintMinRatio, Mv, P, SpeedRatio, C, 1, 4, "步态 sprint 下界（声明了冲刺时）；缺省（无值）表示无 sprint 步态", optional: true),
                 Num(FeelFieldNames.GaitHysteresisRatio, Mv, P, SpeedRatio, C, 0, 0.5, "步态阈值滞回，避免在阈值附近抖动"),
                 Num(FeelFieldNames.StrideScale, Mv, P, Ratio, C, 0.1, 4, "步幅缩放：动画播放速率匹配实际地面速度时的倍率"),
+                Num(FeelFieldNames.LandHoldMs, Mv, P, Ms, C, 0, 2000,
+                    "落地姿势保持时长（手感落地 M4-W1b）：单位落地后空中阶段的落地相（jump.land）保持多久；缺省（无值）取呈现层默认 8 个 tick，0 = 不播落地姿势", optional: true),
                 Num(FeelFieldNames.StartBlendMs, Mv, P, Ms, C, 0, 1000, "起步混合时长"),
                 Num(FeelFieldNames.StopBlendMs, Mv, P, Ms, C, 0, 1000, "急停混合时长"),
                 Num(FeelFieldNames.LeanDegPerAccel, Mv, P, FeelUnit.Degrees, C, 0, 45, "身体倾斜：每单位加速度对应的倾斜角度上限（度）"),
@@ -282,10 +300,42 @@ namespace Core.Foundation.Feel
                 Num(FeelFieldNames.AttackerHitstopCapMs, Re, J, Ms, C, 0, 1000, "攻击方顿帧上限（群体命中取最大后限幅）"),
                 Num(FeelFieldNames.HitStunMs, Re, J, Ms, C, 0, 3000, "硬直时长（受击方体型为主）"),
                 Num(FeelFieldNames.StaggerPower, Re, J, FeelUnit.None, W, 0, 1000, "硬直强度：与目标韧性比较，不高于韧性时只播受击动画不打断"),
+                Num(FeelFieldNames.PoiseDamage, Re, J, FeelUnit.None, W, 0, 1000,
+                    "韧性伤害（手感落地 M4-L，动态韧性）：命中从目标当前韧性池里扣掉的量；缺省（无值）表示该攻击不走动态韧性，沿用静态规则" +
+                    "（stagger_power 与目标韧性属性比较）", optional: true),
+                Num(FeelFieldNames.PoiseRecoverPerS, Re, J, FeelUnit.None, C, 0, 1000,
+                    "韧性回复速率（每秒，目标侧）：被动态韧性命中过的目标在 poise_recover_delay_ms 内没再受动态韧性伤害后，每秒回复这么多韧性直到满；缺省（无值）表示不回复", optional: true),
+                Num(FeelFieldNames.PoiseRecoverDelayMs, Re, J, Ms, C, 0, 10000,
+                    "韧性回复延迟（目标侧）：最近一次动态韧性伤害之后等待多久才开始回复；缺省（无值）按 0", optional: true),
+                Enum(FeelFieldNames.PoiseRecoverMode, Re, J, C, PoiseRecoverModeValues,
+                    "韧性回复模式（手感落地 M4-W3，目标侧）：delay（缺省）= 最近一次动态韧性伤害后等 poise_recover_delay_ms 再回复；" +
+                    "out_of_combat = 目标处于战斗中时回复与延迟计时都暂停，脱战后才开始延迟计时并回复（脱战判定取战斗宿主的进出战状态）；缺省（无值）= delay",
+                    optional: true),
+                Num(FeelFieldNames.PoiseBreakResetMs, Re, J, Ms, C, 0, 60000,
+                    "破韧后自动回满延迟（手感落地 M4-W3，目标侧）：韧性被打到 0（破韧）之后过这么久把韧性池一次回满，不受回复速率、回复模式与期间再受击影响；缺省（无值）= 不自动回满", optional: true),
                 Num(FeelFieldNames.KnockbackDistance, Re, J, BodyH, W, 0, 5, "击退距离"),
                 Num(FeelFieldNames.LaunchHeight, Re, J, BodyH, W, 0, 10,
                     "击飞高度：knockback/knockdown 反应把目标抛起的顶点高度（目标脚下再升高多少）；只在世界有竖直轴（体积空间 / 横版二维能力包）时生效，" +
                     "平面世界忽略；缺省（无值）表示不击飞", optional: true),
+                Num(FeelFieldNames.LaunchStackCap, Re, J, BodyH, W, 0, 20,
+                    "击飞叠加上限：launch_stack=add 时叠加后的向上初速不超过升到该顶点高度所需的初速（目标脚下再升高多少）；缺省（无值）表示不设上限", optional: true),
+                Enum(FeelFieldNames.LaunchStack, Re, J, C, LaunchStackValues,
+                    "击飞叠加方式（攻击方档案）：restart 重新抛起（缺省，不叠加）；add 在已腾空的目标上把本次初速叠加到当前竖直速度；只在世界有竖直轴时生效",
+                    optional: true),
+                Enum(FeelFieldNames.AirHitReaction, Re, J, C, AirHitReactionValues,
+                    "腾空受击反应（受击方档案）：目标在空中被命中时，把（韧性与冲击等级映射得出的）反应替换为该值，之后仍受 reaction_cap 限制；" +
+                    "same 或缺省（无值）= 与地面受击一致；死亡与霸体不受影响；只在世界有竖直轴时生效", optional: true),
+                Num(FeelFieldNames.LaunchHeightCap, Re, J, BodyH, C, 0, 20,
+                    "击飞绝对高度上限（手感落地 M4-W1b，攻击方与受击方档案都可声明，取较小者）：击飞（含叠加）之后脚下高度的最高点不超过该值（身高倍数，标定后是世界单位；" +
+                    "与 launch_stack_cap 的区别：后者封叠加后的初速，本字段封世界高度，二者可同时声明）；缺省（无值）表示不设绝对上限", optional: true),
+                Num(FeelFieldNames.LaunchBodyScale, Re, J, Ratio, C, 0, 10,
+                    "击飞体型缩放（手感落地 M4-W1b，受击方档案，体型原型层可写）：击飞顶点 × 本字段；缺省（无值）= 1 即不缩放，0 = 不可被击飞", optional: true),
+                Enum(FeelFieldNames.AirReactionCap, Re, J, C, ReactionCapValues,
+                    "空中受击反应上限（手感落地 M4-W1b，受击方档案）：目标在空中被命中时，反应在 reaction_cap 之外再受它限制（取两者较低）；缺省（无值）表示空中不另设上限",
+                    optional: true),
+                Bool(FeelFieldNames.AirStunUntilLand, Re, J, C,
+                    "空中硬直持续到落地（手感落地 M4-W1b，受击方档案）：真时，硬直类反应的时长到点后若目标仍在空中，则硬直保持到落地那一刻才结束；缺省（无值）视为假（硬直按时长结束，与是否在空中无关）",
+                    optional: true),
                 Num(FeelFieldNames.DownedMs, Re, J, Ms, C, 0, 10000, "倒地时长"),
                 Enum(FeelFieldNames.ReactionCap, Re, J, C, ReactionCapValues, "受击反应上限（none 最低、knockdown 即不封顶）"),
                 Num(FeelFieldNames.KillHitstopScale, Re, J, Ratio, W, 1, 5, "击杀时顿帧放大倍数"),

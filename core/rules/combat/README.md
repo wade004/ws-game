@@ -617,10 +617,11 @@ combat/
 戳入 `EffectContext.TriggerChainDepth`，不经 Expr 暴露）：避免新事件类型被声明为
 `skill.proc_def.trigger_event` 时重现 N04 收边补齐（外部审计 68c9bed）此前在 `AuraRemovedEvent`
 上修复过的"事件驱动 Proc 自循环预算旁路"缺口，此项超出消费方反馈字面诉求，属顺带的一致性修正。
-`TryGetField` 只暴露 `sourceId`/`targetId`/`school`/`hitResult`/`skillId` 五个字段，
-`attackInstanceId` 不经 Expr 暴露（同 `CombatDamageDealtEvent` 既有惯例，`AttackInstanceId` 只经
-强类型属性对外）——已知限制：需要按攻击实例关联本事件做 Expr 条件过滤（如 `feedback.binding`
-按批次去重）暂不支持，需要时经宿主代码读取强类型属性。`presentation/feedback_binder` 按
+`TryGetField` 暴露 `sourceId`/`targetId`/`school`/`hitResult`/`skillId` 与 `attackInstanceId`（NF1：
+取代原"不经 Expr 暴露"的限制；与 `combat.damage_dealt` 的同名字段同口径，有值才可读，不经施法管线的结算为 null 时查不到）。
+`combat.hit_confirmed` 同样新增 `attackInstanceId`（恒有值）的 Expr 读取。于是同一批次的三类命中事件
+（落地/回避/确认）可按同一个攻击实例 id 做 Expr 条件过滤与关联（如 `feedback.binding` 按批次去重）。
+用例 `EventsTests.CombatAttackAvoidedEvent_CarriesKeyAndFields`、`CombatHitConfirmedEvent_ExposesAttackInstanceIdToExpr`。`presentation/feedback_binder` 按
 `feedback.binding` 声明的事件 key 泛化订阅、`FeedbackRuleValidator` 按 `EventKeys.All` 校验，新
 事件登记后自动可用，不需要代码改动。ABI：`Events.cs` 新增类型与常量、`HitResult` 新增枚举成员，
 均不改动任何既有公开签名。
@@ -675,8 +676,7 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 10. **离散时间模型**：`HitFeelOptions.IsDiscreteMode` 为真时 `Evaluate` 返回无结果、事件全部忽略（顿帧与硬直在回合制下不生效，手感设计/00 第 7 节）。
 11. **契约新增（只加不改）**：`rules/common` 的 `HitFeelInput`/`HitFeelOutcome`/`IHitFeelArbiter`/`IHitReactionQuery`/`IKnockbackSink`/`IStaggerInterruptSink`；
     `IActionStateQuery.IsSuperArmor(Id)` 默认接口成员（缺省 false，时间线实现方覆盖）；`HitFeelOptions`；`HitFeelHost`；`core/rules/assembly` 的 `HitFeelSystem`/`HitFeelAssembly`/`SkillHostStaggerInterruptSink`。
-12. **已知局限**：① 光环类霸体（`SuperArmorAuraDef` 经 `IAuraQuery.HasAura`）没有独立用例，只由 `IsSuperArmor` 路径覆盖；② instant 适配对同一技能内多个伤害效果各算一次命中（嵌套取大不累加，
-    结果等价，但 `combat.reaction_applied` 会多发）；③ 空间命中、`combat.hit_confirmed` 的几何字段与动作时间线的霸体窗口由后续切片（S3b/S3a）提供，本切片的测试用替身发射器。
+12. **原已知局限的处理（M4 清扫）**：① 光环类霸体（`SuperArmorAuraDef` 经 `IAuraQuery.HasAura`）的独立用例已补：`HitFeelHostTests.SuperArmor_FromAura_NeverEntersStagger_ButStillTakesTheTargetHitstop_RemovalRestoresNormalRuling`（光环在 → 不进硬直但照常吃目标顿帧，光环移除 → 恢复正常裁决）与 `SuperArmor_AuraDefNotDeclaredInOptions_AuraPresenceIsIgnored`（选项没声明光环定义时光环存在被忽略）；② 设计决定：instant 适配对同一技能内多个伤害效果各算一次命中（顿帧批次嵌套取大不累加，结果等价，但 `combat.reaction_applied` 会按伤害事件多发，同一攻击实例的多条共享 `attackInstanceId`）——理由：instant 路径是目标选择式战斗的旧结算，"命中"的单位就是一个伤害事件，把同一实例的多个伤害效果并成一次命中要先定"命中"的口径（周期跳、扩展伤害是否算），那是时间线路径（每个目标每个标记一条确认）负责的设计问题，不在 instant 适配里另造一套；需要按实例去重的消费方用 `attackInstanceId` 去重；③ 空间命中、`combat.hit_confirmed` 的几何字段与动作时间线的霸体窗口已由 S3b/S3a 提供，不再是缺口。
 
 测试：`tests/HitFeelHostTests.cs`（46 例，全部以档案毫秒与 `FeelCalibration.MillisecondsToTicks` 算期望：双方冻结 tick 数、三目标取大并限幅、嵌套取大不累加、破韧/未破韧、硬直从顿帧结束起算、
 霸体、致死、`reaction_cap` 矩阵、倒地、回避类、击退距离与提交时刻、真实 `CombatHost` 的 instant 适配、缺省档案无副作用、离散模式、释放保证、确定性、事件键登记）。
@@ -690,4 +690,40 @@ AttackRange` 默认 2 是近战攻击距离量级，太小；`ai.behavior_profil
 1. **字段**：手感档案新增可选判定型数值字段 `launch_height`（体型倍数，0..10，缺省无值 = 不击飞；`FeelFieldNames.LaunchHeight`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
 2. **口径**：反应达到 `knockback`/`knockdown` 时，击飞顶点高度（世界单位）= 攻击方 `launch_height`（标定后）×(1 − 目标击退抗性)×冲击等级倍率（与击退距离同一张倍率表、同一个抗性读数）；与击退同一提交时机（目标顿帧结束那个 tick）。击飞与击退互相独立：`knockback_distance` 为 0 也击飞，`launch_height` 缺省则只击退（`SubmitKnockback` 只在距离 > 0 时提交击退、顶点 > 0 时提交击飞，旧行为不变）。
 3. **提交口**：`rules/common` 新增 `ILaunchSink.BeginLaunch(unitId, apexHeightWorld)`；`HitFeelHost.Launch` 缺省 null（不接就不击飞）。实现是单位载体层的 `VerticalMotionHost`（见 unit README），由 `CarriersFeelAssembly` 在装配了竖直轴时接上。
-4. **已知局限**：击飞顶点不看目标体型（`launch_height` 已是体型倍数，标定参考身高统一换算）；击飞中的目标仍按硬直/倒地走既有流程，不因腾空改变反应时长；没有"空中受击"的专属反应与"落地事件"（落地只体现在高度回到 0，实验室以度量记录落地 tick）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
+4. **原已知局限的处理（M4-W1b 全部解除或定案，见本文「判断记录（空战二期…）」节）**：击飞顶点不看目标体型 → 新增受击方可选字段 `launch_body_scale`（第 5 条）；击飞中的目标不因腾空改变反应时长 → 定案为缺省不改，要"撑到落地"由可选字段 `air_stun_until_land` 开启（第 6 条）；没有落地事件 → 新增 `unit.landed`（第 7 条）。测试：`tests/HitFeelHostTests.cs` 的 `Launch_*`（顶点由字段 × 抗性 × 倍率算出并与击退同 tick 提交、缺省与低反应不击飞且击退不变、与击退距离互相独立）。
+
+## 判断记录（动态韧性：`poise_damage` 与韧性池，2026-10-02，M4-L，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)）
+
+1. **字段与事件**：手感档案新增三个可选判定型数值字段——攻击方 `poise_damage`（0..1000，武器为主）、目标侧 `poise_recover_per_s`（0..1000）与 `poise_recover_delay_ms`（0..10000，角色为主）；事件 `combat.poise_changed`（`targetId, sourceId, before, after, max, damage, broken`）与 `combat.poise_recovered`（`targetId, poise`）。可选字段没写时 `TryGetNumber` 返回假，既有档案与既有测试不受影响。
+2. **口径**（`HitFeelHost.EvaluateDynamicPoise`）：命中的攻击方声明了 `poise_damage > 0` 且目标韧性属性 > 0 时走韧性池，否则走静态规则（`stagger_power ≤ 韧性属性` → Flinch，逐位不变）。池容量 = 韧性属性值，已损失量记在宿主里；击前有效韧性 `before = max(0, 容量 − 已损失)`，扣后 `after = max(0, before − poise_damage)`；`after > 0` 且 `stagger_power ≤ before` 才 Flinch，否则按冲击等级映射再受 `reaction_cap` 封顶；`before > 0` 且 `after = 0` 是破韧（`broken`），池子已空的后续命中同样不被挡。霸体（不碰池）与击杀（Death 优先，不碰池）排在韧性之前。
+3. **回复**：`AdvancePoiseRecovery` 在每个 tick 开头（先于全部阶段处理器）推进：先耗尽 `poise_recover_delay_ms`（每次动态命中重新计），再每 tick 回复 `poise_recover_per_s × 步长`；回满的那个 tick 发 `combat.poise_recovered` 并删档；没声明速率不回复；单位死亡/销毁/时间模型重标（`ReleaseUnit`/`ReleaseAll`）清档。回复速率与延迟在命中那一刻取目标当时的手感解析值（之后改档案对已建档的池不追溯）。
+4. **契约注释**：`IHitFeelArbiter.Evaluate` 原写"纯函数式"，现改为"仅动态韧性命中会写状态（扣池）"，每次真实命中恰好调用一次（时间线路径 `CastPipeline.TimelineHit` 与 instant 适配 `PublishInstantConfirmation` 各一处），仍满足。`HitFeelHost.CurrentPoise(unitId)` 提供只读查询。
+5. **三项扩展已在 M4-W3 实现（见本文件末尾的 M4-W3 节），本条没有遗留局限**：回复模式（脱战才回复）、破韧后定时回满、`poise_damage` 按冲击等级缩放，都是可选扩展，缺省全部等价此前行为。测试：`tests/HitFeelHostTests.cs` 的 `DynamicPoise_*`（逐击扣减与反应、静态路径不被碰、没有韧性属性不建池、延迟与速率逐 tick 推演并只发一次回满、延迟内再挨一击重新计时、池恒在 [0, 容量] 且记账自洽、霸体/击杀/释放、字段可选）。
+
+## 判断记录（空中受击反应与击飞叠加，2026-10-03，M4-V，ADR-0130 追加决定）
+
+1. **字段（均为可选判定型字段，缺省无值 = 与改动前逐位一致）**：`air_hit_reaction`（枚举 `same|none|flinch|stagger_light|stagger|knockback|knockdown`，攻击方档案）、`launch_stack`（`restart|add`）、`launch_stack_cap`（体型倍数，0..20，缺省无上限）；注册在 `FeelFields`。
+2. **空中受击反应**：目标此刻在空中（`HitFeelHost.Airborne`，`IAirborneQuery`，`CarriersFeelAssembly` 在竖直运动服务是 `IAirborneQuery` 时接线）且攻击方声明了 `air_hit_reaction`（非 `same`）时，在韧性/冲击等级映射之后、`reaction_cap` 封顶之前把反应替换成该值；不改 `Death`。没有竖直轴时没有空中单位，字段被忽略。
+3. **击飞叠加**：`launch_stack = add` 时 `SubmitKnockback` 以 `LaunchStackMode.Add` 与上限调 `BeginLaunch`；缺省仍是重新起算。
+4. **原已知局限的处理（M4-W1b，见「判断记录（空战二期…）」节）**：目标侧没有"空中受击抗性" → 新增受击方可选字段 `air_reaction_cap`（第 3 条），并让 `air_hit_reaction` 的声明来源合成攻击方与受击方（第 2 条）；叠加上限只封初速、不封绝对高度 → 新增可选字段 `launch_height_cap`（第 4 条，与 `launch_stack_cap` 可同时声明）。测试：`tests/HitFeelHostTests.cs` 的 `AirHitReaction_*`、`LaunchStack_*`。
+
+## 判断记录（动态韧性的三项可选扩展，2026-10-03，M4-W3，[手感设计/03](../../../architecture/手感设计/03_攻击受击与命中.md)）
+
+M4-L 判断记录第 5 条留下的三项局限逐项实现，全部可选、缺省等价此前行为（逐位一致：不声明新字段、不填新选项，裁决与回复的每个 tick 都与此前相同）：
+
+1. **回复模式 `poise_recover_mode`（目标侧，`delay`｜`out_of_combat`，缺省 `delay`）**：`out_of_combat` 时目标处于战斗中的 tick，延迟计时与速率回复都暂停；脱战之后才开始计 `poise_recover_delay_ms`、再按速率回复，所以延迟从脱战那一刻起算（战斗中没有消耗过延迟）。"战斗中"复用框架已有的战斗状态：`HitFeelHost.InCombat`（`Func<Id,bool>`）由 `RulesFeelAssembly` 接到 `CombatHost.IsInCombat`（进战由战斗事件通知，脱战沿用 `CombatOptions.LeaveCombatDelay` 与交战范围判定，不另造一套）。没有接战斗状态查询时（`InCombat` 为 null）视为一直脱战，回复口径同 `delay`，不会因为声明了该模式而永不回复。模式取命中那一刻目标侧的值（同回复延迟与速率的口径）。
+2. **破韧后定时回满 `poise_break_reset_ms`（目标侧，毫秒，0..60000，缺省不声明 = 不重置）**：声明后，目标被打破韧（正数打到 0）起算，到点把已损失量一次清零并发 `combat.poise_recovered`，不看速率回复与回复模式，也不受期间再受击影响；已空池子上的后续命中不是新的破韧，不顺延计时。可与速率回复并存（先到点者生效，回满即删档）。
+3. **`poise_damage` 按冲击等级缩放 `HitFeelOptions.PoiseDamageImpactMultipliers`**：冲击等级 → 倍率，口径同 `KnockbackImpactMultipliers`（表里没有的等级取 1，**缺省空表不缩放**）。命中声明的 `poise_damage` 乘以攻击方 `impact_class` 的倍率后才从池里扣，`combat.poise_changed` 的 `Damage` 报告乘后的有效值（所以记账不变量 `after = max(0, before - damage)` 仍成立）。只作用于动态韧性，静态韧性规则不读它；倍率表的数值由游戏填（试调起点，未经试玩）。
+4. **字段**：`FeelFieldNames.PoiseRecoverMode`、`PoiseBreakResetMs` 是手感字段表里新增的可选字段（判定型，目标侧），不改既有字段。
+5. **测试**：`tests/HitFeelHostTests.cs` 七条（每项一条复现加不变量）：`PoiseRecoverMode_OutOfCombat_SuspendsDelayAndRegenWhileInCombat_ThenCountsTheDelayFromTheLeaveTick`（战斗中过去远超延迟的时间池子不动；脱战后第 n 个 tick 的有效韧性 = min(容量, 损失后 + 每 tick 回复 × max(0, n - 延迟 tick))，逐 tick 由规则算出，回满那一 tick 恰发一次回满事件）、`PoiseRecoverMode_DelayAndNoCombatQuery_IgnoreCombatState_AndAHitRestartsTheDelayAfterLeaving`（`delay` 模式与没有战斗状态查询时口径不变；脱战回复中再挨一击延迟重新计、已回复部分保留）、`PoiseBreakReset_RefillsTheWholePoolOnceAfterTheDelay_AndTheShelterReturns`（到点恰在破韧后 `poise_break_reset_ms` 的 tick 数一次回满，回满后重新被挡）、`PoiseBreakReset_IsNotExtendedByLaterHits_IgnoresCombatState_AndRearmsOnTheNextBreak`（已空池子上的命中不顺延、不受战斗状态影响、下一次破韧重新起算）、`PoiseDamageImpactMultipliers_ScaleThePoolDrain_ByTheAttackersImpactClass`（有效伤害 = 声明伤害 × 倍率逐击由规则算出，空表/未列等级不缩放）、`PoiseDamageImpactMultipliers_KeepTheAccountingConsistent_AcrossHitSequences`（记账 `after = max(0, before - damage)` 恒成立、池恒在 [0, 容量]）、`PoiseDynamicsFields_AreOptional_AndTheModeVocabularyMatches`（字段可选、模式取值表与规则一致）。装配接线见 `core/gameplay/assembly/tests/FeelWiringEndToEndTests.cs`。实验室：`feel_poise_ooc`、`feel_poise_break_reset`、`feel_poise_impact_scale` 三个脚本（见 `lab/README.md` 判断记录 47）。
+
+## 判断记录（空战二期：空中反应上限、击飞高度上限、体型缩放、空中硬直撑到落地，2026-10-03，M4-W1b，ADR-0130 追加决定）
+
+1. **字段（全部可选，缺省无值 = 与改动前逐位一致；注册在 `FeelFields`）**：`air_reaction_cap`（枚举，同 `reaction_cap` 的取值，受击方判定型）、`launch_height_cap`（数值 0..20，体型倍数 → 标定后世界高度，攻击方与受击方档案都可声明）、`launch_body_scale`（数值 0..10，比例，受击方）、`air_stun_until_land`（布尔，受击方）、`land_hold_ms`（数值 0..2000，毫秒，呈现型，见 presentation README）。`feel` README 里"均为攻击方判定型字段"的旧表述已订正：`air_hit_reaction` 两侧都可声明，其余新字段按上面标注的方。
+2. **`air_hit_reaction` 的声明来源合成（原局限"目标侧没有对应抗性"）**：目标在空中时，攻击方档案声明了（非 `same`）就用攻击方的（"这一类攻击打中空中目标时的反应"），否则取受击方档案的声明（"该单位在空中被命中时的反应"）；两侧都没有声明原样不变。理由：攻击方声明是武器/技能的语义（挑空追击类），受击方声明是体型原型的语义（巨型怪空中也不怕击飞），两者都有真实需求，攻击方优先因为它更具体。无竖直轴时没有空中单位，两个字段都被忽略。
+3. **`air_reaction_cap`（目标侧空中抗性）**：目标此刻腾空且声明了该字段时，反应在 `reaction_cap` 之外再受它封顶，取两者较低；排在 `air_hit_reaction` 替换与 `reaction_cap` 之后，`Death` 不受影响。与攻击方 `air_hit_reaction` 的组合：先替换再封顶（替换成 `knockdown` 而目标 `air_reaction_cap = flinch` 则落到 `flinch`）。
+4. **`launch_height_cap`（绝对高度上限，原局限"叠加上限不封绝对高度"）**：击飞（含叠加）之后脚下高度的最高点不超过该值（世界高度，与 `launch_stack_cap` 的区别：后者封叠加后的初速、即相对起算高度的顶点，本字段封绝对高度，二者同时声明时两道都生效）。两侧都声明取较小者。接口：`ILaunchSink` 新增默认接口成员 `BeginLaunch(unitId, apex, stack, stackCap, heightCap)`（默认实现忽略上限、退化为 4 参数重载，既有实现不改）；`VerticalMotionHost` 覆盖它：初速限制为"从当前脚下高度升到上限所需的初速"，脚下已不低于上限时初速限制为 0——地面单位不被抛起，空中单位停止上升后下落。宿主只在上限有效（> 0）时才走 5 参数重载，缺省路径与 4 参数调用逐位一致。
+5. **`launch_body_scale`（击飞体型缩放，原局限"击飞顶点不看目标体型"）**：受击方声明了才乘到击飞顶点上（击飞顶点 = 攻击方 `launch_height` × (1 − 击退抗性) × 冲击等级倍率 × 本字段）；缺省不缩放，0 = 不可被击飞。理由：体型差异本来就能写在受击方档案里，不新增体型属性；缺省不缩放因为 `launch_height` 已是身高倍数、标定统一换算，大多数单位不需要二次缩放。
+6. **`air_stun_until_land`（空中硬直撑到落地）**：受击方声明为真时，硬直类反应时长到点后若目标仍在空中，硬直保持到落地之后的那一个 tick 才结束（不推进已过时长，免得把空中硬直误判成倒地）；每次登记/刷新硬直时按受击方当时的档案取值。缺省（假）与 1.95.0 一致：硬直按时长结束，与是否在空中无关——原局限"不因腾空改变反应时长"据此定案为缺省不改、可选开启。
+7. **落地事件 `unit.landed`（原局限"没有落地事件"）**：见 unit README 的同名节（事件由竖直运动服务发出，载荷 `unitId, height, airSeconds, impactSpeed`；`VerticalAxisOptions.EmitLandedEvent` 缺省关）。
+8. **复现与不变量**：`tests/HitFeelHostTests.cs` 的 `AirReactionCap_*`（目标侧封顶取较低、地面不受限、与攻击方替换组合）、`AirHitReaction_*` 两侧声明合成、`LaunchHeightCap_*`（顶点封在绝对高度、两侧取较小、与叠加上限同时生效、缺省不变）、`LaunchBodyScale_*`、`AirStunUntilLand_*`（硬直在落地后结束、缺省按时长结束）；实验室脚本 `space.air_combo`（三连击高度封顶 + 硬直撑到落地 + 一次落地事件）、`space.launch_body_scale`、`space.air_reaction`，期望由预设值与标定参考身高算出。

@@ -82,6 +82,11 @@ DUR_WOUNDED_IDLE = 1400
 DUR_WOUNDED_IDLE_COMBAT = 1200
 #: 带伤变体（wounded）的每步位移相对标称值的倍率（自拟）：蹒跚的步幅更短，腿摆幅按此反推。
 WOUNDED_STRIDE_FACTOR = 0.7
+#: 手感落地 M4-D 追加（自拟，experimental）：空中姿势（jump.rise/fall/land、hit.air）、格挡受击、眩晕摇晃、击飞翻滚与落地缓冲。
+DUR_JUMP_RISE = 500
+DUR_JUMP_FALL = 600
+DUR_STUNNED_SWAY = 1600
+DUR_LAUNCH_TUMBLE = 800
 
 #: 三相（windup, active, recovery）起点。1h/2h 第一段取自 05 §9（110/80/190 与 170/100/290）；
 #: 无 05 来源的取值全部自拟（unarmed = 1h × 0.85 取整到 5 ms；后续段见 attack_phases）。
@@ -115,10 +120,24 @@ PHASES_OTHER = {
     "hit.getup": (("rise", 600),),
     "death": (("fall", 400), ("lie", 500)),
     "jump": (("takeoff", 120), ("air", 360), ("land", 120)),
-    "cast": (("windup", 250), ("release", 100), ("recovery", 250)),
+    # 施法：前摇取 150 ms（M4-W5 起；此前 250）。理由：手感实验室的动作式技能经读条剪辑 cast 播放，其时间线 hit 标记典型值为 150 ms
+    # （100 ms 的连段技能也在 150 之前出手），引擎侧命中帧事件不能早于逻辑命中，所以施放点 release 取 150 ms 而不是 250；
+    # 总时长 600 ms 与帧数 12 不变（前摇/后摇的帧数 3/2/7 与此前 5/2/5 之和相同）。
+    "cast": (("windup", 150), ("release", 100), ("recovery", 350)),
+    # 施法释放点变体（M4-W6）：手感实验室的技能命中标记有 100 / 150 / 300 ms 三档，默认 cast 对齐 150；100 ms 的连段/突进技能用 cast.quick，
+    # 300 ms 的重击（精英重挥）用 cast.heavy，由 display.weapon_style 的 cast_anim_override 把技能指到对应剪辑。总时长 600 ms、帧数 12 与 cast 相同
+    # （quick 2/2/8 帧、heavy 6/2/4 帧），释放点 release = 前摇结束时刻 = 100 / 300 ms，都落在 20 fps 的帧边界上（量化误差 0）。
+    "cast.quick": (("windup", 100), ("release", 100), ("recovery", 400)),
+    "cast.heavy": (("windup", 300), ("release", 100), ("recovery", 200)),
     "dodge": (("start", 60), ("motion", 240), ("recover", 100)),
     # 手感落地 M3-D 追加（自拟）：抛飞 = 冲击 + 滞空（抬升弧线）+ 落地（滑入躺姿，之后接 hit.getup）。
     "hit.launch": (("impact", 100), ("air", 450), ("land", 250)),
+    # 手感落地 M4-D 追加（自拟）：落地瞬态 = 吸收冲击 + 起身回到站姿；空中受击 = 冲击 + 回到下落姿势；
+    # 格挡受击 = 冲击后仰 + 阻尼抖动回到格挡持握；击飞落地缓冲 = 触地 + 弹起 + 滑入躺姿。
+    "jump.land": (("impact", 90), ("recover", 210)),
+    "hit.air": (("impact", 100), ("recover", 300)),
+    "hit.block": (("impact", 80), ("recover", 320)),
+    "hit.launch.land": (("impact", 120), ("bounce", 180), ("settle", 300)),
 }
 #: 启停过渡剪辑（04 §3 可选）的相（自拟）：起步 = 前倾 + 迈出第一步，进入 move.run 的循环起点；急停 = 刹车 + 站稳，
 #: 回到 idle 起点；急转 = 滑步 + 拧身，回到 move.run 的循环起点。
@@ -213,16 +232,19 @@ class ClipDef:
     variant: str | None = None       # 04 §2 变体维度（wounded 等）；攻击段号与 hit 后缀不算变体
     transition: str | None = None    # 启停过渡剪辑（start/stop/pivot，04 §3），非循环、不是状态
     stride_factor: float = 1.0       # 每步位移相对该步态标称值的倍率（带伤蹒跚 < 1）
-    mass: str | None = None          # 体量组（model 型 light/heavy 组剪辑；sprite 版恒为 None，姿势函数不读它）
+    mass: str | None = None          # 体量档（MASS_TIERS 的档名；主集恒为 None。手感落地 M4-D 起 sprite 与 model 两版共用）
+    # 手感落地 M4-D 追加字段
+    air: bool = False                # 空中动作（attack.air.* 等）：不带连招/闪避取消事件
 
     @property
     def stem(self) -> str:
-        return STEM_PREFIX + self.key.replace(".", "_")
+        return STEM_PREFIX + (f"{self.mass}_" if self.mass else "") + self.key.replace(".", "_")
 
     @property
     def resource_ref(self) -> str:
         target = self.alias_of or self.key
-        return "sprite_anim." + STEM_PREFIX + target.replace(".", "_")
+        # 体量组（手感落地 M4-D）：在 std_dummy_ 后插 <档>_（与 model 版 clip_state_name 同规则）；主集不带。
+        return "sprite_anim." + STEM_PREFIX + (f"{self.mass}_" if self.mass else "") + target.replace(".", "_")
 
     @property
     def has_weapon(self) -> bool:
@@ -260,6 +282,11 @@ def attack_key(family: str, segment: int) -> str:
     return f"attack.{family}" if segment == 1 else f"attack.{family}.{segment:02d}"
 
 
+def air_attack_key(family: str) -> str:
+    """空中攻击键（手感落地 M4-D）：``attack.air.<族>``，回落链 attack.air.<族> -> attack.<族>；徒手族 ``unarmed`` 另有别名 ``attack.air``。"""
+    return f"attack.air.{family}"
+
+
 def build_clip_defs() -> list[ClipDef]:
     clips: list[ClipDef] = []
     for fam in (None, "1h", "2h"):
@@ -292,6 +319,10 @@ def build_clip_defs() -> list[ClipDef]:
     clips.append(ClipDef("dodge", "attack", "dodge", None, False, PHASES_OTHER["dodge"], "recommended"))
     # ---- 手感落地 M3-D 追加：以下条目只追加在末尾，既有键的位置与内容不变 ----
     clips += _m3d_clips()
+    # ---- 手感落地 M4-D 追加：同样只追加在末尾 ----
+    clips += _m4d_clips()
+    # ---- 手感落地 M4-W6 追加：施法释放点变体 ----
+    clips += _m6_clips()
     return clips
 
 
@@ -363,6 +394,53 @@ def _m3d_clips() -> list[ClipDef]:
     return out
 
 
+def _m6_clips() -> list[ClipDef]:
+    """手感落地 M4-W6 追加：施法释放点变体 ``cast.quick``（释放 100 ms）、``cast.heavy``（释放 300 ms）。optional 档；回落链去掉变体段后落到 ``cast``。
+    与 ``cast`` 同一姿势函数（pose_id cast），只是相位分配不同；既有键一个字节都不动。"""
+    return [ClipDef("cast.quick", "cast", "cast", None, False, PHASES_OTHER["cast.quick"], "optional", variant="quick"),
+            ClipDef("cast.heavy", "cast", "cast", None, False, PHASES_OTHER["cast.heavy"], "optional", variant="heavy")]
+
+
+def _m4d_clips() -> list[ClipDef]:
+    """手感落地 M4-D 追加的键（全部 optional 档，自拟 experimental）。
+
+    - 空中键（键名与回落链见 04 §2.2 / M4 共用约定）：``jump.rise``、``jump.fall``（循环保持姿势，滞空时长由逻辑竖直轴决定）、
+      ``jump.land``（瞬态）、``hit.air``（空中受击，瞬态，结束姿势 = jump.fall 起点）、``attack.air.<族>``（每族一段，下肢收起；
+      徒手另有别名 ``attack.air``）。这些剪辑**不带抬升曲线**（lift）：离地高度归逻辑竖直轴，剪辑只表达姿势。
+    - 带伤变体补全：冲刺、战斗走/跑、启停过渡的 wounded 版（徒手基础族；持械族的带伤变体仍由游戏按需用 extends 补）。
+    - 格挡受击 ``hit.block``（盾族 ``hit.block.shield``）：从格挡持握后仰、阻尼抖动回到持握；
+      眩晕摇晃循环 ``stunned.sway``；击飞翻滚循环 ``hit.launch.tumble`` 与落地缓冲 ``hit.launch.land``（触地、弹起、滑入躺姿，之后接 hit.getup）。
+    既有键一个字节都不动：这些细节全部以新键追加（04 §10 第 9 条）。"""
+    out: list[ClipDef] = []
+    out.append(ClipDef("jump.rise", "jump", "jump_rise", None, True, (("loop", DUR_JUMP_RISE),), "optional"))
+    out.append(ClipDef("jump.fall", "jump", "jump_fall", None, True, (("loop", DUR_JUMP_FALL),), "optional"))
+    out.append(ClipDef("jump.land", "jump", "jump_land", None, False, PHASES_OTHER["jump.land"], "optional"))
+    out.append(ClipDef("hit.air", "hit", "hit_air", None, False, PHASES_OTHER["hit.air"], "optional"))
+    for fam in ("unarmed", "1h", "2h") + EXTRA_FAMILIES:
+        w, a, r = PHASES_SEG1[fam]
+        out.append(ClipDef(air_attack_key(fam), "attack", "attack_air", fam, False,
+                           (("windup", w), ("active", a), ("recovery", r)), "optional", segment=1, air=True))
+    out.append(_alias(next(c for c in out if c.key == "attack.air.unarmed"), "attack.air"))
+    # 带伤变体补全（徒手基础族）
+    spr_w = ClipDef("move.sprint.wounded", "move", "sprint", None, True, (("loop", DUR_SPRINT),), "optional",
+                    gait="sprint", variant="wounded", stride_factor=WOUNDED_STRIDE_FACTOR)
+    out.append(spr_w)
+    out.append(_alias(spr_w, "move.sprint.combat.wounded", combat=True))
+    out.append(ClipDef("move.walk.combat.wounded", "move", "walk", None, True, (("loop", DUR_WALK),), "optional",
+                       gait="walk", combat=True, variant="wounded", stride_factor=WOUNDED_STRIDE_FACTOR))
+    out.append(ClipDef("move.run.combat.wounded", "move", "run", None, True, (("loop", DUR_RUN),), "optional",
+                       gait="run", combat=True, variant="wounded", stride_factor=WOUNDED_STRIDE_FACTOR))
+    for name, transition in (("move.start", "start"), ("move.stop", "stop"), ("move.pivot", "pivot")):
+        out.append(ClipDef(name + ".wounded", "move", "move_" + transition, None, False, TRANSITION_PHASES[name], "optional",
+                           transition=transition, variant="wounded"))
+    out.append(ClipDef("hit.block", "hit", "hit_block", None, False, PHASES_OTHER["hit.block"], "optional"))
+    out.append(ClipDef("hit.block.shield", "hit", "hit_block", "shield", False, PHASES_OTHER["hit.block"], "optional"))
+    out.append(ClipDef("stunned.sway", "stunned", "stunned_sway", None, True, (("loop", DUR_STUNNED_SWAY),), "optional"))
+    out.append(ClipDef("hit.launch.tumble", "hit", "launch_tumble", None, True, (("loop", DUR_LAUNCH_TUMBLE),), "optional"))
+    out.append(ClipDef("hit.launch.land", "hit", "launch_land", None, False, PHASES_OTHER["hit.launch.land"], "optional"))
+    return out
+
+
 # --------------------------------------------------------------------------
 # 时间标记（04 §5）：返回 [(事件名, 毫秒偏移)]
 # --------------------------------------------------------------------------
@@ -376,29 +454,35 @@ def events_for(clip: ClipDef) -> list[tuple[str, float]]:
     elif clip.state == "move":
         # 走/跑/冲刺：两次脚触地，接触姿势是循环起点，另一脚在半周期。
         ev += [("footstep", 0.0), ("footstep", total / 2.0)]
-    elif clip.pose_id == "attack":
+    elif clip.pose_id in ("attack", "attack_air"):
         w, a, _r = (ms for _, ms in clip.phases)
         ev += [("active_start", float(w)), ("hit", w + a / 2.0), ("active_end", float(w + a)),
                ("trail_start", float(w)), ("trail_end", float(w + a))]
-        if clip.segment < ATTACK_SEGMENTS[clip.family]:
+        if not clip.air and clip.segment < ATTACK_SEGMENTS[clip.family]:
             r = clip.phases[2][1]
             ev += [("combo_open", float(w + a)), ("combo_close", w + a + 0.8 * r)]
-        ev.append(("cancel_open:dodge", CANCEL_DODGE_PROGRESS[clip.family] * total))
+        if not clip.air:
+            # 空中攻击每族只有一段，也不接闪避取消（空中没有地面闪避）：不带 combo_* 与 cancel_open:dodge
+            ev.append(("cancel_open:dodge", CANCEL_DODGE_PROGRESS[clip.family] * total))
         if clip.family == "bow":
             # 弓的放箭点（04 §5 `release`：远程类投射物发射）= 判定相中点，与 hit 同刻（弓的命中点就是放箭点）。
             ev.append(("release", w + a / 2.0))
         # 命中帧别名（手感落地 M3-D）：角色外壳（sprite 型与 model 型）识别的命中帧事件名是 hit_frame（ADR-0017），
         # 04 §5 的 hit 是判定侧标记名；两者同刻同源，追加在该剪辑事件表末尾（既有事件的内容与顺序不变）。
         ev.append(("hit_frame", w + a / 2.0))
-    elif clip.key == "cast":
+    elif clip.state == "cast":      # cast 与它的释放点变体 cast.quick / cast.heavy：release = 前摇结束
         ev.append(("release", float(clip.phases[0][1])))
     elif clip.key == "dodge":
         start = clip.phases[0][1]
         motion = clip.phases[1][1]
         ev += [("motion_start", float(start)), ("invuln_start", float(start)),
                ("invuln_end", float(start + DODGE_INVULN_MS)), ("motion_end", float(start + motion))]
-    elif clip.state == "hit" and clip.key != "hit.getup":
-        ev.append(("impact", 0.0))
+    elif clip.key == "jump.land":
+        ev.append(("footstep", 0.0))        # 落地触地
+    elif clip.key == "stunned.sway":
+        ev += [("footstep", 0.0), ("footstep", total / 2.0)]   # 眩晕踉跄的两次落脚
+    elif clip.state == "hit" and clip.key != "hit.getup" and not clip.loop:
+        ev.append(("impact", 0.0))          # 循环的击飞翻滚（hit.launch.tumble）没有冲击点
     return ev
 
 
@@ -421,3 +505,91 @@ def step_displacement_bh(gait: str, factor: float = 1.0) -> float:
     ratio = GAIT_SPEED_RATIO[gait]
     dur = GAIT_DURATION_MS[gait] / 1000.0
     return REFERENCE_BASE_SPEED_BH_PER_S * ratio * dur / 2.0 * factor
+
+
+# --------------------------------------------------------------------------
+# 体量档（04 §6.1 / §7、05 §9"标准骨骼三组（对应三体量）"）——手感落地 M4-D：数据声明的多档，覆盖全部键
+# --------------------------------------------------------------------------
+
+#: 主集（无偏移）就是"中"体量：数据行 display.anim_set.<主集>（及 _medium 空覆盖行）。其余档逐档声明偏移，加一档 = 在
+#: MASS_TIERS 里加一项并重新生成（两版生成器、自检、数据行都读这一张表，没有第二份副本）。
+MASS_MAIN_TIER = "medium"
+#: 档 -> 偏移（度，自拟 experimental）。静态站姿偏移叠加在主集同一姿势上（任何键）：躯干前倾/后仰（t_pitch）、头反向补偿
+#: 保持视线（h_pitch）、肩/髋外展（sa/ha，正 = 向外，左右同号即对称）。重：前倾、宽站姿、手臂离身；轻：微后仰、窄站姿、贴身。
+#: react = 受击类反应幅度倍率（hit*/death/击飞的受击姿势强度）：轻的更夸张、重的更稳；air = 跳跃/击飞抬升高度倍率。
+#: 时长、帧数、事件、每步位移不随体量变（步幅轴是运行期播放速率，02 §7）。
+MASS_TIERS: dict[str, dict[str, float]] = {
+    "light": {"t_pitch": -2.0, "h_pitch": 1.5, "sa": -3.0, "ha": -1.5, "react": 1.15, "air": 1.12},
+    "heavy": {"t_pitch": 6.0, "h_pitch": -4.0, "sa": 8.0, "ha": 5.0, "react": 0.8, "air": 0.88},
+}
+#: 受击强度上限（倍率 × 档倍率后夹到它；主集最大值 2.4 = 击飞，肩角在 SOURCE_ANGLE_LIMITS 内的上界）。
+MASS_REACT_CAP = 2.4
+#: 体量组资源与数据行命名：sprite/model 两版同一规则。
+MASS_SET_SUFFIX_ID = "_"
+
+
+def mass_react(clip: "ClipDef") -> float:
+    """受击强度倍率；主集 1.0。"""
+    return MASS_TIERS[clip.mass]["react"] if clip.mass else 1.0
+
+
+def mass_air(clip: "ClipDef") -> float:
+    return MASS_TIERS[clip.mass]["air"] if clip.mass else 1.0
+
+
+def mass_clip_defs(mass: str) -> list["ClipDef"]:
+    """体量档的剪辑定义：主集**全部**键（含别名键，别名目标指向组内同键）各加体量标记。顺序 = 主集顺序。"""
+    return [dataclasses.replace(c, mass=mass) for c in build_clip_defs()]
+
+
+def mass_anim_set_id(base_id: str, mass: str) -> str:
+    return f"{base_id}_{mass}"
+
+
+# --------------------------------------------------------------------------
+# 过渡混合时长（手感落地 M4-D，04 §10 第 10 条）：model 型数据行 display.anim_set 的可选 blend_ms / blends
+# --------------------------------------------------------------------------
+
+def blend_ms_for(clip: "ClipDef") -> int:
+    """切入该键时的交叉淡入时长（ms，自拟 experimental）。按状态/步态/过渡种类定，别名键与目标同值（只看 state/pose）。"""
+    key = clip.key
+    if clip.transition:
+        return 60                      # 启停过渡
+    if key == "hit.getup":
+        return 120
+    if key == "hit.air":
+        return 30
+    if key in ("hit.launch.tumble", "hit.launch.land", "hit.launch"):
+        return 40
+    if key.startswith("hit.block"):
+        return 20
+    if key.startswith("hit"):
+        return 30                      # 受击反应要"打到身上"，淡入极短
+    if key == "jump.rise":
+        return 60
+    if key == "jump.land":
+        return 30
+    if clip.state == "jump":
+        return 100
+    if clip.state == "attack":
+        return 30 if clip.air else 40  # 含 dodge
+    return {"idle": 120, "move": 100, "cast": 60, "death": 80, "stunned": 100, "block": 80}[clip.state]
+
+
+#: 每对（从某键切到某键）覆盖：(from, to, ms)。键都在主集里；体量组行继承。族相关的空中攻击逐族展开。
+BLEND_PAIRS: tuple[tuple[str, str, int], ...] = (
+    ("jump.rise", "jump.fall", 60),
+    ("jump.fall", "jump.land", 20),
+    ("jump.land", "idle", 160),
+    ("hit.air", "jump.fall", 60),
+    ("hit.launch", "hit.air", 40),
+    ("hit.launch.tumble", "hit.launch.land", 40),
+    ("hit.launch.land", "hit.getup", 120),
+    ("hit.knockdown", "hit.getup", 150),
+    ("hit.getup", "idle", 180),
+    ("hit.block", "block", 30),
+    ("block", "hit.block", 15),
+    ("move.stop", "idle", 80),
+    ("move.start", "move.run", 70),
+    ("move.pivot", "move.run", 70),
+) + tuple((air_attack_key(f), "jump.fall", 60) for f in ("unarmed", "1h", "2h") + EXTRA_FAMILIES)

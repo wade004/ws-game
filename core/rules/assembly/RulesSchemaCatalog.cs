@@ -129,6 +129,9 @@ namespace Core.Rules.Assembly
             // spawn_points/teleport_points 的世界坐标落在图片范围外即告警，见
             // WorldMapPointOutsideImageValidationRule 判断记录。
             registry.RegisterValidationRule(new WorldMapPointOutsideImageValidationRule());
+            // ADR-0130 追加决定"地形形状"：terrain 条目（rect/polygon/heightfield）按形状的必填字段与几何合法性，
+            // 与运行期读取同一份解析，见 WorldMapTerrainValidationRule 判断记录。
+            registry.RegisterValidationRule(new WorldMapTerrainValidationRule());
 
             // ADR-0013 落地：found.time_model（见 core/foundation/sim_loop/schema/TimeModelSchema.cs）。
             registry.RegisterSchema(TimeModelSchema.Table);

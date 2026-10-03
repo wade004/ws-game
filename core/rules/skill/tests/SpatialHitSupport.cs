@@ -243,7 +243,7 @@ namespace Tests.Rules.Skill
             string id, double startupMs, double activeMs, double recoveryMs, IEnumerable<JsonValue> markers,
             string? hitPolicy = null, double rehitMs = 0, double sampleStepMs = 0, string? hitMode = null,
             JsonObject? targetAssist = null, JsonObject? motion = null, IEnumerable<JsonValue>? effects = null,
-            string? costAt = null, double cost = 0, string chain = "target.chain.sample")
+            string? costAt = null, double cost = 0, string chain = "target.chain.sample", double range = 0, JsonObject? charge = null, bool? isAttack = null)
         {
             var timeline = new List<(string, JsonValue)>
             {
@@ -257,13 +257,15 @@ namespace Tests.Rules.Skill
             if (targetAssist != null) timeline.Add(("target_assist", targetAssist));
             if (motion != null) timeline.Add(("motion", motion));
             if (costAt != null) timeline.Add(("cost_at", J.S(costAt)));
+            if (charge != null) timeline.Add(("charge", charge));
+            if (isAttack.HasValue) timeline.Add(("is_attack", J.B(isAttack.Value)));
 
             var fields = new List<(string, JsonValue)>
             {
                 ("id", J.S(id)),
                 ("school", J.S("skill.school_sample")),
                 ("kind", J.S("active")),
-                ("range", J.N(0)),
+                ("range", J.N(range)),
                 ("cast_time", J.N((startupMs + activeMs + recoveryMs) / 1000.0)),
                 ("respects_gcd", J.B(true)),
                 ("cooldown_duration", J.N(0)),
@@ -290,8 +292,8 @@ namespace Tests.Rules.Skill
         public static JsonValue HitAt(double atMs, int? segment = null) =>
             TimelineHarness.Hit(atMs, segment.HasValue ? "hit:" + segment.Value : null);
 
-        public static JsonObject SelfSkill(string id, double startupMs, double activeMs, double recoveryMs, IEnumerable<JsonValue> markers) =>
-            SpSkill(id, startupMs, activeMs, recoveryMs, markers, chain: SelfChain.Value,
+        public static JsonObject SelfSkill(string id, double startupMs, double activeMs, double recoveryMs, IEnumerable<JsonValue> markers, bool? isAttack = null) =>
+            SpSkill(id, startupMs, activeMs, recoveryMs, markers, chain: SelfChain.Value, isAttack: isAttack,
                 effects: new[] { (JsonValue)J.O(("kind", J.S("heal")), ("params", J.O(("base_value", J.N(1)), ("coefficient", J.N(0))))) });
     }
 }

@@ -1,0 +1,94 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.walk_off",
+    "scriptVersion": 1,
+    "description": "空间扩展·走下台地（M4-W1a）：x -5..5 有一块高 3 的台地，没有设置台阶高度（step_height 只决定能否走上去）。玩家在台地上从 (0,0) 持续向右走出边缘：无论是否设置台阶高度都从台地高度开始下落，落在地面（高 0）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 240,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {},
+    "spaceExt": {
+      "terrain": true,
+      "arena": "lab.arena.lab_nav_ledge"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "falls_from_the_ledge_height",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.airborne_height_max",
+      "op": "approx",
+      "value": 3,
+      "tolerance": 1e-06,
+      "note": "从台地高度（3）开始下落。"
+    },
+    {
+      "id": "lands_on_the_ground",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.landing_heights",
+      "at": 0,
+      "op": "approx",
+      "value": 0,
+      "tolerance": 1e-06,
+      "note": "落到地面。"
+    },
+    {
+      "id": "was_airborne",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space_ext.airborne_ticks",
+      "op": "ge",
+      "value": 1,
+      "note": "走出边缘腾空了（不是瞬间贴地）。"
+    }
+  ]
+}

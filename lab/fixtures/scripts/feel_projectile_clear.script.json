@@ -1,0 +1,63 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_projectile_clear",
+    "scriptVersion": 1,
+    "description": "投射物被清场（M4-L，补 S12 已知限制）：第一发投射物在飞行途中（飞向竞技场直墙的路上）被清场，结局原因 Cleared——清场不算挥空，反馈侧只放弃等待，没有挥空提示；之后第二次施放的投射物照常飞到墙前被挡住，挥空提示仍落在被挡住那一刻（证明清场没有留下脏的在飞登记）。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_projectile"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 24,
+      "action": "projectiles",
+      "kind": "clear_projectiles"
+    },
+    {
+      "tick": 80,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 81,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

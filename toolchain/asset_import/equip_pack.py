@@ -38,8 +38,11 @@
 3. 同一 ``resource_ref`` 的别名键（如 ``attack`` → ``attack.unarmed``）按资源去重，取较高档位。
 4. 层剪辑路径与 ADR-0100 一致：``sprite_anim/<mesh 去前缀>__<剪辑去前缀>__<方向>__<层名>/`` 命中，不命中退一级
    去掉方向段；两级各要求 ``atlas.png`` + ``frames.json``。
-5. 已知限制：``item.slot_definition`` 没有"有无外观"字段，所有装备类槽位的物品都视为有外观（戒指/项链等无
-   外观槽位的物品会被报 ``equip_visual_missing``，游戏需把它们的数据放进另一数据根或给它们补空外观行）。
+5. 槽位有无外观由 ``item.slot_definition.has_appearance``（可选 Bool，缺省 ``true``）决定：缺省或 ``true`` 时装备类槽位的
+   物品必须有 ``display.equip_visual`` 行（与该字段登记前行为逐位一致）；显式 ``false``（戒指/项链等不上身可见的槽位）时
+   不要求外观行、不报 ``equip_visual_missing``，其余检查（图标、武器配对、音效/拖尾引用）照常。只认 JSON 布尔 ``false``，
+   其它取值（字符串、``null``、缺省）一律按有外观处理——类型错误由数据加载期的 ``field_type`` 校验拦，这里不重复判。
+   该槽位的物品若仍带了外观行，外观行照常校验（不因为槽位声明无外观就放过一份写了的外观）。
 """
 
 from __future__ import annotations
@@ -161,10 +164,11 @@ class PoseKey:
     stance: Optional[str]
     family: Optional[str]
     variant: Optional[str]
+    air: bool = False   # 空中攻击子状态 ``attack.air[.<族>]``（手感落地 M4-D）：``air`` 不是武器族，也不是变体
 
     def base(self) -> tuple:
-        """去掉武器族维度后的键：(状态, 步态, 姿态, 变体)。"""
-        return (self.state, self.gait, self.stance, self.variant)
+        """去掉武器族维度后的键：(状态, 步态, 姿态, 变体, 是否空中)。"""
+        return (self.state, self.gait, self.stance, self.variant, self.air)
 
 
 def parse_pose_key(key: str) -> PoseKey:
@@ -176,24 +180,35 @@ def parse_pose_key(key: str) -> PoseKey:
     state = segs[0]
     i = 1
     gait = stance = family = variant = None
+    air = False
+    if state == "attack" and i < len(segs) and segs[i] == "air":
+        air = True
+        i += 1
     if state == "move" and i < len(segs) and segs[i] in GAITS:
         gait = segs[i]
         i += 1
     if i < len(segs) and segs[i] in STANCES:
         stance = segs[i]
         i += 1
+    if state == "hit" and i + 1 < len(segs) and segs[i] == "block":
+        # 格挡受击 ``hit.block[.<族>]``（M4-D）：``block`` 是变体，其后的族段仍是武器族（盾族有自己的剪辑）
+        variant = "block"
+        i += 1
+        if i < len(segs):
+            family = segs[i]
+            i += 1
     if state in FAMILY_STATES and i < len(segs) and not segs[i].isdigit():
         family = segs[i]
         i += 1
     if i < len(segs):
         variant = ".".join(segs[i:])
-    return PoseKey(state, gait, stance, family, variant)
+    return PoseKey(state, gait, stance, family, variant, air)
 
 
 def pose_key_tier(key: str) -> str:
     """04 第 3 节：必备 = ``idle/move.walk/move.run/attack(每族一段)/hit/death``，其余推荐。"""
     pk = parse_pose_key(key)
-    if pk.variant is not None:
+    if pk.variant is not None or pk.air:
         return TIER_RECOMMENDED
     base = ".".join(x for x in (pk.state, pk.gait, pk.stance) if x)
     return TIER_REQUIRED if base in REQUIRED_BASES else TIER_RECOMMENDED
@@ -452,7 +467,7 @@ class EquipValidator:
 
         self._check_icon(ir, item, dm)
         visuals = [v for v in self.equip_visual if v.get("item_id") == item_id]
-        if not visuals:
+        if not visuals and slot.get("has_appearance") is not False:
             self._issue(ir, SEVERITY_ERROR, CHECK_VISUAL_MISSING,
                         "装备没有 display.equip_visual 行（外观映射缺失）", table=TABLE_EQUIP_VISUAL)
         ws_row = self._check_weapon(ir, item, ws_id, fw_id) if is_weapon else None

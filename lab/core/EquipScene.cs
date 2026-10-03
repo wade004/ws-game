@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Core.Carriers.Assembly;
 using Core.Carriers.Common;
 using Core.Carriers.Item;
 using Core.Foundation.Common;
@@ -8,6 +9,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
 using Core.Foundation.Feel;
+using Core.Foundation.InputMap;
 using Core.Rules.Common;
 using Core.Rules.Skill;
 using Core.Sim;
@@ -131,30 +133,36 @@ namespace Lab
     }
 
     /// <summary>
-    /// 换装场景装置（手感设计/06 第 3.6 节、08 第 1 节）：在无头世界上装出换装链的全部生产部件——手感解析器 + 装备提供者、
-    /// 换装链、武器普攻映射（挂进动作时间线）、姿势选择器 + 换装姿势桥、外观/武器表现档案来源、装备面板视图模型——
-    /// 并在每个脚本换装步骤之后采集运行期事实。
+    /// 换装场景装置（手感设计/06 第 3.6 节、08 第 1 节）：手感解析器、换装链（<c>EquipmentFeelChain</c>）、武器优先的普攻映射
+    /// （<c>WeaponPreferredActionBinding</c>）、挂进动作时间线的协作者全部取自<b>生产装配</b>（宿主以
+    /// <c>HeadlessWorldOptions.FeelOptions</c> 开启，装置只读 <c>world.Gameplay.Feel</c>，不再自装一套）；
+    /// 装置自己只装生产装配里属于表现层的几件（姿势选择器 + 换装姿势桥，与 <c>PresentationAssembly</c> 同一组构造调用；
+    /// 外观/武器表现档案来源、装备面板视图模型），并在每个脚本换装步骤之后采集运行期事实。
     /// <para>
-    /// 判断记录（装置不装受击顿帧与命中解析）：换装场景度量的是"换装之后解析出的值与动作节奏"，不打靶子；顿帧只记录
-    /// 解析出的 tick 值，不跑受击裁决（那是 <c>HitFeelAssembly</c> 与顿帧基线的事）。
+    /// 判断记录（装置不装受击顿帧与命中解析的结论）：换装场景度量的是"换装之后解析出的值与动作节奏"，不打靶子；顿帧只记录
+    /// 解析出的 tick 值，不跑受击裁决（那是 <c>HitFeelAssembly</c> 与顿帧基线的事）。生产装配在这个世界里同样装了受击裁决，
+    /// 只是脚本里没有命中事件，它不产生行为。
     /// </para>
     /// <para>
-    /// 判断记录（动作步长）：动作时间线用 <c>SkillOptions.ActionStepSeconds</c>（缺省 1/60）换算毫秒到 tick，而
-    /// <c>GameplayAssembly</c> 目前不回填它（见 <c>core/rules/skill</c> README 判断记录），所以换装脚本的 tick 率必须是 60；
-    /// 不一致时装置显式抛错，不静默按错的步长算。
+    /// 判断记录（不实例化 <c>PresentationAssembly</c>）：整份表现装配还会装镜头、反馈绑定、界面、存档 UI 等订阅与事件，
+    /// 会改变换装场景指纹里的事件总数等度量，而它们与"换装链"无关；表现层的真实装配与渲染由引擎侧宿主验证。姿势选择器与桥
+    /// 的构造调用与 <c>PresentationAssembly</c> 逐行一致，不是另一套实现。
+    /// </para>
+    /// <para>
+    /// 判断记录（动作步长）：动作时间线用 <c>SkillOptions.ActionStepSeconds</c> 换算毫秒到 tick，生产装配把它回填成宿主模拟步长，
+    /// 所以换装脚本不再要求 tickRate 为 60（<c>equip_cycle_tick30</c> 用 30 证明）。
     /// </para>
     /// </summary>
     internal sealed class EquipRig : IDisposable
     {
-        private const double ActionStepSeconds = 1.0 / 60.0;
-
         private readonly HeadlessWorld _world;
         private readonly Id _player;
         private readonly EquipRecording _record;
         private readonly FeelSystem _feel;
-        private readonly EquipmentFeelProvider _provider;
+        private readonly IFeelEquipmentProvider _provider;
         private readonly EquipmentFeelChain _chain;
-        private readonly WeaponActionBinding _binding;
+        private readonly IActionSkillBinding _binding;
+        private readonly Id? _unarmed;
         private readonly PoseSelector _pose;
         private readonly EquipmentPoseBridge _bridge;
         private readonly EquipmentVisualSource _visual;
@@ -178,32 +186,20 @@ namespace Lab
             _record = record;
             _displayInfo = displayInfo;
             record.StepSeconds = stepSeconds;
-            if (Math.Abs(stepSeconds - ActionStepSeconds) > 1e-9)
-            {
-                throw new LabFormatException(
-                    $"换装场景脚本 {meta.ScriptId} 的 tickRate 必须是 60（动作时间线按 1/60 秒换算毫秒，当前 {meta.TickRate}）");
-            }
 
             var registry = world.Registry;
             var equipment = world.Gameplay.Carriers.Equipment;
-            _provider = new EquipmentFeelProvider(equipment, registry);
-            var assembled = FeelAssembly.Assemble(registry, new FeelAssemblyOptions
-            {
-                StepSeconds = stepSeconds,
-                CalibrationId = meta.FeelCalibrationId.Length > 0 ? meta.FeelCalibrationId : null,
-                Providers = new FeelProviders { Equipment = _provider },
-            });
-            if (!assembled.IsAssembled)
-            {
-                throw new LabFormatException($"换装场景 {meta.ScriptId} 没有装出手感系统：{assembled.Reason}");
-            }
+            var production = world.Gameplay.Feel
+                ?? throw new LabFormatException($"换装场景 {meta.ScriptId} 需要生产装配的手感系统（宿主应以 HeadlessWorldOptions.FeelOptions 开启）");
+            // 读主手/副手武器引用用与生产装配同一实现、同一缺省选项的提供者（生产实例不对外暴露，实现是无状态读取）。
+            _provider = new EquippedWeaponFeelProvider(equipment, registry);
+            _feel = production.Feel;
+            _chain = production.WeaponChain;
+            _binding = production.ActionBinding;
 
-            _feel = assembled.System!;
+            _unarmed = meta.UnarmedAttackSkill.Length > 0 ? new Id(meta.UnarmedAttackSkill) : (Id?)null;
+
             var catalog = new FeelWeaponCatalog(registry);
-            _chain = new EquipmentFeelChain(world.Bus, _provider, catalog, _feel.Resolver, () => new[] { _player });
-            Id? unarmed = meta.UnarmedAttackSkill.Length > 0 ? new Id(meta.UnarmedAttackSkill) : (Id?)null;
-            _binding = new WeaponActionBinding(_provider, catalog, unarmed);
-            world.Gameplay.Carriers.Rules.Skill.AttachTimelineServices(new TimelineServices { Feel = _feel.Resolver, Binding = _binding });
 
             _pose = new PoseSelector();
             _bridge = new EquipmentPoseBridge(world.Bus, _pose);
@@ -251,15 +247,19 @@ namespace Lab
                 }
             }
 
+            // 玩家学会数据里每把武器声明的普攻时间线技能（auto_attack_timeline_ref，去重，数据行序）与空手普攻。
             var learned = new List<Id>();
-            foreach (var pair in meta.WeaponAttackSkills)
+            foreach (var row in registry.GetAll("feel.weapon"))
             {
-                learned.Add(new Id(pair.Value));
+                if (row.TryGetId("auto_attack_timeline_ref", out var attackRef) && !learned.Contains(attackRef))
+                {
+                    learned.Add(attackRef);
+                }
             }
 
-            if (unarmed.HasValue)
+            if (_unarmed.HasValue)
             {
-                learned.Add(unarmed.Value);
+                learned.Add(_unarmed.Value);
             }
 
             foreach (var skill in learned)
@@ -312,8 +312,31 @@ namespace Lab
             return identities[weaponSlots[0]].TemplateId;
         }
 
-        /// <summary>主手武器对应的普攻技能（挂在 <see cref="WeaponActionBinding"/> 上，数据契约字段 → 空手技能）。</summary>
-        public bool TryResolveAttackSkill(out Id skillId) => _binding.TryResolveAttackSkill(_player, out skillId);
+        /// <summary>
+        /// 普攻输入对应的技能：经生产装配的武器优先映射（主手武器的 <c>auto_attack_timeline_ref</c>）；武器没有声明（空手）且映射的槽位回落
+        /// 也没有绑定时，取脚本声明的空手普攻技能。宿主仍按脚本的按下沿直接提交施放意图（不经输入缓冲，保持换装场景的响应度量口径）。
+        /// <para>
+        /// 判断记录（空手普攻不绑槽位）：生产装配的空手回落是"普攻动作的 <c>skill_slot</c> 槽位绑定"，绑定会发 <c>unit.skill_binding_changed</c>，
+        /// 让换装指纹的事件总数多一条，而它与换装链无关；因此空手普攻由脚本声明、在映射给不出技能时取用（实验室装置里的最后一级回落）。
+        /// </para>
+        /// </summary>
+        public bool TryResolveAttackSkill(string actionId, int tick, out Id skillId)
+        {
+            var intent = new BufferedIntent(new Id(actionId), ActionClass.Attack, tick, tick, 0, null, BufferHoldState.Tap, 0, false);
+            if (_binding.TryResolveSkill(_player, intent, out skillId))
+            {
+                return true;
+            }
+
+            if (_unarmed.HasValue)
+            {
+                skillId = _unarmed.Value;
+                return true;
+            }
+
+            skillId = default;
+            return false;
+        }
 
         /// <summary>穿上物品：背包加一件再穿到物品模板声明的槽位，登记一步待快照记录。</summary>
         public void Equip(int tick, string itemTemplateId)
@@ -371,9 +394,20 @@ namespace Lab
                 case ActionFinishedEvent finished when finished.ActorId.Equals(_player) && _action != null:
                     _action.FinishedAt = tick - _action.StartTick;
                     _action = null;
+                    RebaseVersionAfterAction();
+                    break;
+                case ActionCancelledEvent cancelled when cancelled.ActorId.Equals(_player):
+                    _action = null;
+                    RebaseVersionAfterAction();
                     break;
             }
         }
+
+        /// <summary>
+        /// 生产装配的手感解析器在动作开始与结束时各使缓存失效一次（动作层，<c>InvalidatingActionFeelResolver</c>），版本号随之递增；
+        /// 这不是换装链的重算，所以动作结束后把版本基线重新取到当前值，换装步骤上的"版本增量"只剩装备变化引起的那部分。
+        /// </summary>
+        private void RebaseVersionAfterAction() => _lastVersion = _feel.Resolver.GetVersion(_player);
 
         private void BeginActionRecord(ActionStartedEvent started, int tick)
         {
@@ -528,7 +562,6 @@ namespace Lab
             _weaponStyle.Dispose();
             _visual.Dispose();
             _bridge.Dispose();
-            _chain.Dispose();
         }
     }
 }

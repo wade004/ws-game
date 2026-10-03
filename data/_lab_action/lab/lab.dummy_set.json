@@ -27,6 +27,16 @@
           "poise": 1
         },
         {
+          "name": "stake_resilient",
+          "kind": "stake",
+          "creature_ref": "creature.lab_a_resilient",
+          "position": {
+            "x": 2,
+            "y": 0
+          },
+          "group": "stake_resilient"
+        },
+        {
           "name": "mob",
           "kind": "mob",
           "creature_ref": "creature.lab_mob",

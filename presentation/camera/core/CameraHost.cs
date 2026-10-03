@@ -62,7 +62,8 @@ namespace Presentation.Camera
         /// <summary>未显式给出 dt 的 <see cref="Update(double)"/> 用的帧间隔（秒）。判断记录：<see cref="ICameraHost.Update"/>
         /// 既有签名只有插值系数 alpha、没有 dt，且为 ABI 只加法不改它；手感镜头需要 dt 时由调用方改用
         /// <see cref="Update(double, double)"/>，旧调用点（三个生产装配入口）保持不变时按固定 1/60 秒推进——
-        /// 对固定步长的宿主这就是准确值，对变帧率宿主是近似（已知局限，写在 camera/README.md）。</summary>
+        /// 对固定步长的宿主这就是准确值；三个生产装配入口改调带 dt 的重载，按真实帧间隔推进（见 camera/README.md 判断记录 8 帧间隔口径），
+        /// 本默认值只服务仍调用旧签名的宿主（设计决定：旧签名没有 dt 来源，按固定 1/60 秒推进）。</summary>
         public double FeelFrameSeconds { get; set; } = 1.0 / 60.0;
 
         /// <summary>退化为 <see cref="ICamera.Shake"/> 时使用的震屏频率（Hz）。</summary>

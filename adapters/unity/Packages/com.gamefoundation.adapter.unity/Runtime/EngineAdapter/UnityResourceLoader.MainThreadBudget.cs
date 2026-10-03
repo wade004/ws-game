@@ -29,25 +29,27 @@
 //      随请求带到后台——同一请求的后台切块与主线程建纹理使用同一份取值；过滤模式/各向异性仍在建
 //      纹理时（<see cref="ApplyTextureSampling"/>）读取。
 //
-// 已知限制（同步写进 ADR-0109 与汇报，逐条）：
-//   1) <see cref="ResourceKind.MapLayers"/> 本次不改：仍在主线程一个完成项一次做完 LoadImage（计为
-//      一个工作单元，共用同一份预算），单张地图分层图的解码不可分。
-//   2) 单个工作单元不可再分：预算只能在工作单元之间生效，单张最终纹理（含 Apply 与 Sprite.Create）
-//      本身耗时超过预算时，该 Tick 仍会完整做完它；回退路径（不支持的 PNG 变体）整个图集是一个工作
-//      单元，长度与 1.87.0 相同。
-//   3) 同一帧发起的多个冷加载不再保证在下一帧全部完成（行为变更）：完成时长 ≈ 总主线程工作量 ÷
-//      预算占空比，调用方需要更快可调大 <see cref="MainThreadBudgetMilliseconds"/>（<= 0 表示不限，
-//      即 1.87.0 的一帧排空）。
-//   4) 后台背压的软上限只约束"已解码未消费"的字节，不含引擎侧已建好的纹理；纹理显存随资源数增长
-//      的规律不变。
-//   5) 开 mip 链的逐帧动画在切块时某帧矩形越界/尺寸非法，整个资源判定加载失败并记一条 Error（1.87.0
-//      在此处由引擎 GetPixels 抛异常，异常会逸出 Tick；本次不再逸出）。
-//   6) 后台线程读到的 TextureSampling 只有 mip 链开关；FilterMode/MapLayerAnisoLevel 等在建纹理
-//      时读取当时取值。
-//   7) 运行期解码出的 Image/Effect 精灵网格是整矩形（4 个顶点）而不是贴合轮廓：sprite.rect/pivot/
-//      pixelsPerUnit/bounds 与 SpriteRenderer.bounds 与旧网格逐项相等、渲染像素逐字节相同（实测），
-//      但 sprite.textureRect、顶点/三角形数据不同；透明区域也会被光栅化（GPU 填充率略增，不改变
-//      画面）。依赖精灵网格形状的消费方代码（自定义网格遮罩/阴影投射/物理形状）不会得到"贴合轮廓"。
+// 边界与设计决定（逐条；理由同步写进 ADR-0109）：
+//   1) ResourceKind.MapLayers 同样走后台托管解码（NF2 补齐）：ground/overlay/decal 三层在后台各自解码成
+//      像素块，主线程一层一个工作单元（建纹理 + 灌字节 + Apply + 整矩形精灵），全部层做完才写
+//      _mapLayers、才 _loaded.Add、才回调；某一层托管解码不支持（16 位、调色板、隔行等）时整个地图资源
+//      回退到 1.87.0 的主线程 LoadImage 路径（一个不可分单元）并记一条 Warn。
+//   2) 单个工作单元不可再分（设计决定）：预算只能在工作单元之间生效；Texture2D 的创建、Apply、Sprite.Create
+//      只能在主线程、且引擎不提供可中断的版本，单张最终纹理是引擎允许的最小粒度。回退路径整个图集是一个
+//      工作单元，长度与 1.87.0 相同——回退本身就是"托管解码器不支持"的诊断出口，由 Warn 提示改资源格式。
+//   3) 同一帧发起的多个冷加载不保证下一帧全部完成（设计决定）：把主线程总工作量摊到多帧正是本机制的目的，
+//      完成时长 ≈ 总主线程工作量 ÷ 预算占空比；需要更快调大 MainThreadBudgetMilliseconds
+//      （<= 0 即 1.87.0 的一帧排空）。
+//   4) 后台背压软上限只约束"已解码未消费"的字节（设计决定）：引擎侧已建好的纹理显存由资源生命周期
+//      （Unload）管理，不属于解码背压的范围。
+//   5) 开 mip 链的逐帧动画某帧矩形越界/尺寸非法判定整个资源加载失败并记一条 Error（设计决定）：这是数据错误，
+//      不应静默降级；1.87.0 在此处由引擎 GetPixels 抛异常逸出 Tick，本机制把它收敛成"加载失败回调"。
+//   6) 后台线程读到的 TextureSampling 只有 mip 链开关（设计决定）：FilterMode/各向异性只作用于 Texture2D
+//      对象，后台没有纹理对象可设，主线程建纹理时读取当时取值。
+//   7) 运行期解码出的 Image/Effect/地图分层图精灵网格是整矩形（4 个顶点）而不是贴合轮廓（设计决定）：
+//      sprite.rect/pivot/pixelsPerUnit/bounds 与 SpriteRenderer.bounds 与旧网格逐项相等、渲染像素逐字节相同
+//      （实测），差别只在 sprite.textureRect 与顶点/三角形数据；贴合轮廓要在主线程扫 alpha，是单元耗时里
+//      最大的一项。依赖精灵网格形状的消费方代码（自定义网格遮罩/阴影投射/物理形状）应自备形状数据。
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -89,7 +91,8 @@ namespace Adapter.Unity.EngineAdapter
         /// <summary>[ADR-0109] 诊断：当前已就绪、等待主线程处理的完成项数（完成队列中的项，加上
         /// 正在分帧处理、尚未做完的那一项）。</summary>
         public int PendingMainThreadCompletionCount =>
-            _completions.Count + _mapLayersCompletions.Count + (_activeCompletion != null ? 1 : 0);
+            _completions.Count + _mapLayersCompletions.Count + (_activeCompletion != null ? 1 : 0) +
+            (_activeMapLayersJob != null ? 1 : 0);
 
         /// <summary>[ADR-0109] 清零 <see cref="PeakTickDecodeMilliseconds"/> 与
         /// <see cref="MaxWorkUnitMilliseconds"/>，供调用方在某个观察窗口开始时重置。</summary>
@@ -173,6 +176,25 @@ namespace Adapter.Unity.EngineAdapter
                 Pending = pending;
             }
         }
+
+        /// <summary>NF2：地图分层图在主线程的续作状态——一层一个工作单元，全部层做完才整体写缓存并回调。</summary>
+        private sealed class MapLayersJob
+        {
+            public readonly PendingMapLayersCompletion Pending;
+            public int NextUnit;
+            public readonly List<Sprite> Sprites = new List<Sprite>(3);
+
+            public MapLayersJob(PendingMapLayersCompletion pending)
+            {
+                Pending = pending;
+            }
+        }
+
+        /// <summary>正在分层处理、尚未做完的地图分层图资源（下个 Tick 续作）。</summary>
+        private MapLayersJob? _activeMapLayersJob;
+
+        /// <summary>地图分层图托管解码回退 Warn 的按资源 id 去重集合。</summary>
+        private readonly HashSet<Id> _warnedMapLayersFallback = new HashSet<Id>();
 
         // -------------------------------------------------------------------------------------
         // 后台：准备纹理像素
@@ -262,6 +284,78 @@ namespace Adapter.Unity.EngineAdapter
             {
                 result.Units = Array.Empty<PreparedTexture>();
                 result.Failed = false;
+                result.FallbackReason = "后台准备抛出异常：" + e.GetType().Name + " " + e.Message;
+                return result;
+            }
+        }
+
+        /// <summary>NF2：后台准备一个地图分层图资源的各层像素：ground、overlay、（存在时）decal 依次托管解码成
+        /// 一块块 RGBA32（<see cref="PreparedTextures.Units"/> 同序）。任一层不支持/抛异常整体记入
+        /// <see cref="PreparedTextures.FallbackReason"/>，已解码的层立即归还像素池，主线程走 1.87.0 路径。
+        /// 与 <see cref="PrepareTexturesAsync"/> 共用并发闸门与背压；永不抛异常。</summary>
+        private async Task<PreparedTextures> PrepareMapLayerTexturesAsync(byte[] ground, byte[] overlay, byte[]? decal)
+        {
+            var result = new PreparedTextures();
+            var units = new List<PreparedTexture>(3);
+            try
+            {
+                await DecodeGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    while (System.Threading.Interlocked.Read(ref _preparedBytes) >= PreparedBytesSoftCap)
+                    {
+                        await Task.Delay(4).ConfigureAwait(false);
+                    }
+
+                    var sources = decal != null ? new[] { ground, overlay, decal } : new[] { ground, overlay };
+                    for (var i = 0; i < sources.Length; i++)
+                    {
+                        var sink = new SingleTextureSink();
+                        if (!ManagedPngDecoder.TryDecode(sources[i], sink, out var reason))
+                        {
+                            if (sink.Pixels != null)
+                            {
+                                PixelBufferPool.Return(sink.Pixels);
+                            }
+
+                            for (var u = 0; u < units.Count; u++)
+                            {
+                                PixelBufferPool.Return(units[u].Rgba!);
+                            }
+
+                            result.FallbackReason = (i == 0 ? "ground" : i == 1 ? "overlay" : "decal") + " 层：" + reason;
+                            return result;
+                        }
+
+                        units.Add(new PreparedTexture(sink.Width, sink.Height, sink.Pixels!));
+                    }
+
+                    long total = 0;
+                    for (var i = 0; i < units.Count; i++)
+                    {
+                        total += units[i].Rgba!.Length;
+                    }
+
+                    System.Threading.Interlocked.Add(ref _preparedBytes, total);
+                    result.Units = units.ToArray();
+                    return result;
+                }
+                finally
+                {
+                    DecodeGate.Release();
+                }
+            }
+            catch (Exception e)
+            {
+                for (var u = 0; u < units.Count; u++)
+                {
+                    if (units[u].Rgba != null)
+                    {
+                        PixelBufferPool.Return(units[u].Rgba!);
+                    }
+                }
+
+                result.Units = Array.Empty<PreparedTexture>();
                 result.FallbackReason = "后台准备抛出异常：" + e.GetType().Name + " " + e.Message;
                 return result;
             }
@@ -461,14 +555,31 @@ namespace Adapter.Unity.EngineAdapter
             var job = _activeCompletion;
             if (job == null)
             {
+                if (_activeMapLayersJob != null)
+                {
+                    AdvanceMapLayersJob(_activeMapLayersJob);
+                    return true;
+                }
+
                 if (_completions.TryDequeue(out var pending))
                 {
                     job = new CompletionJob(pending);
                 }
                 else if (_mapLayersCompletions.TryDequeue(out var mapPending))
                 {
-                    // 地图分层图本次不改（见类型顶部已知限制 1），一个完成项算一个工作单元。
-                    FinishMapLayersLoad(mapPending);
+                    // NF2：后台已托管解码的地图分层图一层一个工作单元；不支持的变体（或读取失败）一个完成项
+                    // 作为一个不可分工作单元走 1.87.0 的主线程路径。
+                    if (mapPending.ReadSuccess && mapPending.Prepared != null && mapPending.Prepared.FallbackReason == null)
+                    {
+                        var mapJob = new MapLayersJob(mapPending);
+                        _activeMapLayersJob = mapJob;
+                        AdvanceMapLayersJob(mapJob);
+                    }
+                    else
+                    {
+                        FinishMapLayersLoad(mapPending);
+                    }
+
                     return true;
                 }
                 else
@@ -595,13 +706,91 @@ namespace Adapter.Unity.EngineAdapter
             }
         }
 
+        /// <summary>NF2：推进一个地图分层图资源的一个工作单元（一层：建纹理 + 灌字节 + Apply + 整矩形精灵）。
+        /// 判断记录：像素换算比取全局 <see cref="PixelsPerUnit"/>、枢轴取中心、各向异性等级取
+        /// <see cref="TextureSamplingOptions.MapLayerAnisoLevel"/>（无 mip 链回落 1）——与 1.87.0 的
+        /// <see cref="DecodeMapLayerSprite"/> 同一组取值；最后一层做完才整体写入 <c>_mapLayers</c>、记已加载并回调，
+        /// 任何读取口永远看不到半成品。建纹理失败：销毁已建好的层、归还剩余像素块、按"加载失败"回调。</summary>
+        private void AdvanceMapLayersJob(MapLayersJob job)
+        {
+            var pending = job.Pending;
+            var prepared = pending.Prepared!;
+            if (job.NextUnit == 0)
+            {
+                ManagedDecodeCount++;
+            }
+
+            try
+            {
+                var unit = prepared.Units[job.NextUnit];
+                var texture = BuildTexture(unit, pending.MipChain);
+                ApplyTextureSampling(texture, pending.MipChain, "地图分层图");
+                texture.anisoLevel = pending.MipChain ? TextureSampling.MapLayerAnisoLevel : 1;
+                var sprite = CreateFullRectSprite(
+                    texture,
+                    new UnityEngine.Rect(0, 0, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f),
+                    PixelsPerUnit);
+                ReleaseUnit(prepared, unit);
+                job.Sprites.Add(sprite);
+                job.NextUnit++;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[UnityResourceLoader] 地图分层图 \"{pending.ResourceId.Value}\" 建纹理失败：{e}（NF2）。");
+                _activeMapLayersJob = null;
+                for (var i = 0; i < job.Sprites.Count; i++)
+                {
+                    if (job.Sprites[i] != null)
+                    {
+                        UnityEngine.Object.Destroy(job.Sprites[i].texture);
+                        UnityEngine.Object.Destroy(job.Sprites[i]);
+                    }
+                }
+
+                ReleasePrepared(prepared);
+                _loading.Remove(pending.ResourceId);
+                pending.Callback(pending.ResourceId, false);
+                return;
+            }
+
+            if (job.NextUnit < prepared.Units.Length)
+            {
+                return;
+            }
+
+            _activeMapLayersJob = null;
+            _mapLayers[pending.ResourceId] = new MapLayerAsset(
+                job.Sprites[0], job.Sprites[1], job.Sprites.Count > 2 ? job.Sprites[2] : null);
+            _loading.Remove(pending.ResourceId);
+            _loaded.Add(pending.ResourceId);
+            pending.Callback(pending.ResourceId, true);
+        }
+
+        private void NoteMapLayersFallback(in PendingMapLayersCompletion pending)
+        {
+            var reason = pending.Prepared?.FallbackReason;
+            if (reason == null)
+            {
+                return;
+            }
+
+            MainThreadFallbackDecodeCount++;
+            if (_warnedMapLayersFallback.Add(pending.ResourceId))
+            {
+                Debug.LogWarning(
+                    $"[UnityResourceLoader] 地图分层图 \"{pending.ResourceId.Value}\" 无法后台解码（{reason}），" +
+                    "回退到主线程 Texture2D.LoadImage；该地图的解码会整块占用主线程，存在长帧风险（NF2）。");
+            }
+        }
+
         /// <summary>ADR-0109 决策 4：运行期解码出的图像 / 逐帧动画精灵一律用整矩形网格。<c>Sprite.Create</c>
         /// 的默认网格类型是"贴合轮廓"，引擎要在主线程扫描 alpha 描出轮廓再三角化（实测消费方真实
         /// 帧图 640x576 约 2～5 ms，832x1088 约 18 ms，是主线程单元里最大的一项）；整矩形网格只是四个顶点、
         /// 约 0.02 ms。<c>extrude</c> 取该重载的原默认值 0，其余参数不变；<c>sprite.rect / pivot /
         /// pixelsPerUnit / bounds</c> 与 <c>SpriteRenderer.bounds</c> 与贴合轮廓时逐项相等（实测），渲染像素
-        /// 逐字节相同；差别只在 <c>textureRect</c> 与顶点/三角形数据，见 ADR-0109 已知限制 8。
-        /// 回退路径（<c>TryDecodeImage / TryDecodeEffect</c>）同样经此方法建精灵。地图分层图不经此处。</summary>
+        /// 逐字节相同；差别只在 <c>textureRect</c> 与顶点/三角形数据，见本文件类型顶部边界 7。
+        /// 回退路径（<c>TryDecodeImage / TryDecodeEffect / DecodeMapLayerSprite</c>）与地图分层图后台路径同样经此方法建精灵。</summary>
         internal static Sprite CreateFullRectSprite(Texture2D texture, UnityEngine.Rect rect, Vector2 pivot, float pixelsPerUnit)
         {
             return Sprite.Create(texture, rect, pivot, pixelsPerUnit, 0u, SpriteMeshType.FullRect);

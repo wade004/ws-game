@@ -242,7 +242,8 @@ sim_loop/
    收口：`fixed_order` 分支此前在追加进 `_order` 后直接 `return`，跳过了这一步，导致战斗中途
    加入的单位本轮 `GetActionPointsRemaining` 恒为 0、`TryConsumeActionPoints`——供移动预算等
    系统使用——恒返回 false，见外部审核 `code-review.md` FND-05）。`combat.left`
-   （个体脱战，非死亡）不触发移除，是已知限制，见交付报告"做不了的事"。
+   （个体脱战，非死亡）同样触发移除（`TimeModelSwitch.OnCombatLeft` 走同一套 `RemoveParticipant`，脱战单位不再被轮到；
+   整场战斗最后一个活跃单位脱战时随后整体 `EndCombat`；用例 `TimeModelSwitchParticipantTests.CombatLeft_MidDiscreteFight_RemovesFromCurrentTurnOrder`）。
 3. **全局计时器换算 `SimTimers.RescaleAll` 不是 `ISimTimers` 契约的一部分**：03/09 未给"时间
    单位换算"定义独立接口原语，本方法是承载该文档要求行为（第 3.3 节步骤 2）的具体类型便利
    成员，惯例同 `WorldSim.DiagnosticsWarnings`。

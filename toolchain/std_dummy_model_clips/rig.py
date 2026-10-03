@@ -118,7 +118,8 @@ def quat_dot(a: Quat, b: Quat) -> float:
 def bone_matrices(g: dict) -> dict[str, Mat]:
     """sprite 版 Pose（度）→ 每根旋转骨骼相对父骨骼的局部旋转矩阵（关节链与 sprite 版 ``skeleton.build_parts`` 一一对应）。"""
     out: dict[str, Mat] = {}
-    out["hips"] = ry(g["yaw"])
+    # 髋：Ry(yaw)；整身俯仰 bp（手感落地 M4-D，击飞翻滚）非零时 Ry(yaw)·Rx(bp)，bp = 0 走此前的写法（既有剪辑逐位不变）
+    out["hips"] = ry(g["yaw"]) if g.get("bp", 0.0) == 0.0 else mul(ry(g["yaw"]), rx(g["bp"]))
     # 躯干：sprite 版 Rt = Ry(yaw + t_yaw) · Rz(t_roll) · Rx(t_pitch)，相对髋（Ry(yaw)）的局部量
     out["spine"] = mul3(ry(g["t_yaw"]), rz(g["t_roll"]), rx(g["t_pitch"]))
     # 头：Rh = Rt · Ry(h_yaw) · Rx(h_pitch)

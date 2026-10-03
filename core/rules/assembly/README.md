@@ -377,7 +377,7 @@ ABI 探针复核：`toolchain/abi_probe.ps1 -BaselineZip ws-game-1.33.0.zip` bre
 4. **`HitFeelOptions.IsTimelineSkill` 的接线**：已由 S11 改为无条件接 `SkillHost.IsTimelineSkill`（见本文件 S11 节，S10 原先的条件接线随 S3b 空间命中入库而过时）。
 5. **`TimelineMoveIntentTickHandler` 的"移动输入"口径**：挂在 `SkillPipeline` 阶段、紧随 `SkillTickHandler`；`move` 意图带目标点（`x`/`y`）或非零方向（`dx`/`dy` 不全 0）、以及 `move_to_unit` 算移动输入；零方向 `move`（松开摇杆）与 `move_stop` 不算；离散步一律跳过。没有时间线动作时 `SkillHost.NotifyMoveIntent` 立刻返回，行为不变。
 
-已知限制：数据热加载（`FeelResolver.Reload`）不接线；`SkillOptions.ActionStepSeconds` 只在启用手感时被写成手感步长（调用方传入的对象会被写入）。
+设计决定（M4 清扫，由"已知限制"改写）：`SkillOptions.ActionStepSeconds` 只在启用手感时被写成手感步长（调用方传入的对象会被写入）。理由：动作时间线按 tick 计时，动作步长必须与手感/时钟步长是同一个数，两处各存一份会静默错位；写进调用方传入的选项对象是让装配根成为唯一来源的最小办法，经 `GameplayAssembly` 装配时显式给了不同值直接抛异常（见 `core/carriers/assembly/README.md` S10 第 11 条）。数据热加载（`FeelResolver.Reload`）已在载体层装配接线（`core/carriers/assembly/README.md` M2-B 第 2 条），本层不接。
 
 ## 手感落地 S11：空间命中与受击裁决接进生产装配（2026-10-02）
 

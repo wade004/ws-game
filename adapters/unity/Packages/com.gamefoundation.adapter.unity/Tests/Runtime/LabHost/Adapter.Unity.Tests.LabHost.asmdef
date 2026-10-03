@@ -1,0 +1,32 @@
+{
+    "name": "Adapter.Unity.Tests.LabHost",
+    "rootNamespace": "Adapter.Unity.Tests.LabHost",
+    "references": [
+        "Adapter.Unity",
+        "Adapter.Unity.LabHost",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "Core.Foundation.dll",
+        "Core.Numbers.dll",
+        "Core.Rules.dll",
+        "Core.Carriers.dll",
+        "Core.Gameplay.dll",
+        "Presentation.Common.dll",
+        "Adapters.Stub.dll",
+        "Core.Sim.dll",
+        "Lab.Kernel.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

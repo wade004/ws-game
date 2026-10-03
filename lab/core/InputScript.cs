@@ -10,7 +10,16 @@ namespace Lab
     /// 换装场景（<see cref="ScriptMeta.Scene"/> = <c>equip</c>，格式版本 2）另有穿上物品与卸下槽位：
     /// <see cref="Equip"/> 的 <see cref="ScriptEvent.Action"/> 是物品模板 id，<see cref="Unequip"/> 的是装备槽位 id；
     /// 手感场景（<see cref="ScriptMeta.Feel"/>，格式版本 3）另有 <see cref="Cast"/>：<see cref="ScriptEvent.Actor"/> 指明的靶子
-    /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）。
+    /// （出场标签）施放 <see cref="ScriptEvent.Action"/> 技能（精英挥击等"靶子出手"）；<see cref="ClearProjectiles"/>（同为格式版本 3）
+    /// 是"清场"：所有在飞的投射物以 Cleared 结局收场（<see cref="ScriptEvent.Action"/> 只作标签，惯例写 <c>projectiles</c>）。
+    /// 空中战斗（手感落地 M4-W1b，同为格式版本 3）另有靶子的主动行为：<see cref="Jump"/>（<see cref="ScriptEvent.Actor"/> 指明的靶子起跳，
+    /// 走与玩家同一个竖直运动服务的 <c>Jump</c>）与 <see cref="Move"/>（该靶子按 <see cref="ScriptEvent.Value"/> 方向持续提交移动请求，
+    /// 与轴事件同口径"设一次并保持"，零向量即停；腾空时受空中控制比例约束，被击飞中的靶子因此也能做空中位移）。
+    /// 两者的 <see cref="ScriptEvent.Action"/> 只作标签，必须带 <see cref="ScriptEvent.Actor"/>。
+    /// 空间语义脚本（<see cref="ScriptMeta.SpaceExt"/>，M4-W1a）另有 <see cref="MoveTo"/>（玩家点击移动：<see cref="ScriptEvent.Value"/> 是目标点，
+    /// 与跳跃一样是宿主级请求，直接提交 <c>MoveRequest.ToTarget</c>，不经输入映射——点击移动在引擎侧本来就是点目标意图而不是输入动作）与
+    /// <see cref="TerrainSwap"/>（地形热切换：<see cref="ScriptEvent.Action"/> 是 <c>world.map</c> 行 id，把本次运行地图的地形整体换成该行的 <c>terrain</c>，
+    /// 并像关卡流送那样重建导航网格——导航阻挡版本 +1，触发移动系统对在途路径的重新校验）。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -20,6 +29,11 @@ namespace Lab
         Equip,
         Unequip,
         Cast,
+        ClearProjectiles,
+        Jump,
+        Move,
+        MoveTo,
+        TerrainSwap,
     }
 
     /// <summary>
@@ -120,13 +134,10 @@ namespace Lab
         public string FeelCalibrationId { get; set; } = string.Empty;
 
         /// <summary>
-        /// 武器手感行 id → 普通攻击时间线技能 id（格式版本 2）。运行入口把它在内存里写成各武器行的
-        /// <c>auto_attack_timeline_ref</c>（占位装备集的武器行没有声明该字段，实验室不改共享数据），
-        /// 运行时普攻映射读的仍是数据契约字段本身。保持声明顺序。
+        /// 空手（主手没有武器行或武器行没声明普攻时间线）时的普通攻击技能 id（格式版本 2）：宿主把它绑到普攻输入动作声明的技能槽位
+        /// （<c>found.input_action.skill_slot</c>），生产装配的武器优先映射在武器没有声明 <c>auto_attack_timeline_ref</c> 时回落到这个槽位绑定。
+        /// 武器 → 普攻时间线的映射本身是数据（<c>feel.weapon.auto_attack_timeline_ref</c>），脚本不再声明。
         /// </summary>
-        public List<KeyValuePair<string, string>> WeaponAttackSkills { get; } = new List<KeyValuePair<string, string>>();
-
-        /// <summary>空手（主手没有武器行或武器行没声明普攻时间线）时的普通攻击技能 id。</summary>
         public string UnarmedAttackSkill { get; set; } = string.Empty;
 
         /// <summary>
@@ -146,14 +157,93 @@ namespace Lab
         /// <summary>覆盖格子缺省的靶子集 id（<c>lab.dummy_set</c>，手感场景，格式版本 3）；空取格子的靶子集。</summary>
         public string DummySetId { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 竖直轴能力包补完的运行选项（<c>spaceExt</c> 块，格式版本 3；空间语义脚本用，缺省 null = 全部取 1.95.0 的缺省行为）。
+        /// 只对装配竖直轴的格子生效（<c>side_2d</c>/<c>volume</c>）；平面格子忽略它，因此跨格子不变量不受影响。
+        /// </summary>
+        public ScriptSpaceOptions? SpaceExt { get; set; }
+
+        /// <summary>
+        /// 动态韧性伤害的冲击等级倍率表（<c>poiseImpactScale</c>，手感落地 M4-W3，格式版本 3；缺省空 = 不缩放）：
+        /// 经 <c>HitFeelOptions.PoiseDamageImpactMultipliers</c> 传给手感装配，核心层的可选能力，实验室只是按脚本声明打开它。
+        /// </summary>
+        public List<KeyValuePair<string, double>> PoiseImpactScale { get; } = new List<KeyValuePair<string, double>>();
+
         /// <summary>是否用到了手感场景的格式版本 3 字段。</summary>
-        public bool UsesFeelFormat => Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0;
+        public bool UsesFeelFormat =>
+            Feel || SkillSlots.Count > 0 || LearnSkills.Count > 0 || DummySetId.Length > 0 || SpaceExt != null || PoiseImpactScale.Count > 0;
 
         /// <summary>是否用到了格式版本 2 的字段（决定序列化时写的 <c>formatVersion</c>）。</summary>
         public bool UsesExtendedFormat =>
             Scene.Length > 0 || ExtraDataRoots.Count > 0 || ExtraDataExcludeTables.Count > 0 || ExtraDataExcludeRows.Count > 0
             || FeelCalibrationId.Length > 0
-            || WeaponAttackSkills.Count > 0 || UnarmedAttackSkill.Length > 0;
+            || UnarmedAttackSkill.Length > 0;
+    }
+
+    /// <summary>
+    /// 脚本的竖直轴能力包补完选项（<c>meta.spaceExt</c>，ADR-0130 追加决定）：这些都是核心层的可选能力，实验室只是按脚本声明打开它们，
+    /// 不自建平行机制。击飞叠加（<c>launch_stack</c>/<c>launch_stack_cap</c>）、空中受击反应（<c>air_hit_reaction</c>）、目标链形状竖直偏移
+    /// （<c>height_offset</c>）本来就在数据里（预设/目标链），不需要宿主选项；这里只放必须由宿主装配期传入的东西。
+    /// </summary>
+    public sealed class ScriptSpaceOptions
+    {
+        /// <summary>空中水平控制比例（<c>VerticalAxisOptions.AirControl</c>）；null = 不限制（1.95.0 行为）。</summary>
+        public double? AirControl { get; set; }
+
+        /// <summary>空中跳跃次数上限（<c>VerticalAxisOptions.MaxAirJumps</c>）；null = 沿用 <c>AllowAirJump</c>。</summary>
+        public int? MaxAirJumps { get; set; }
+
+        /// <summary>台阶高度（<c>VerticalAxisOptions.StepHeight</c>）；null = 不做台阶阻挡。</summary>
+        public double? StepHeight { get; set; }
+
+        /// <summary>下落落差阈值（<c>VerticalAxisOptions.FallHeight</c>，M4-W1a）；null = 取台阶高度（再缺省取台阶采样间隔）。</summary>
+        public double? FallHeight { get; set; }
+
+        /// <summary>是否装配场景数据的高度场（<c>world.map.terrain</c>，经 <c>MapTerrainHeights</c> 读取）。</summary>
+        public bool Terrain { get; set; }
+
+        /// <summary>施法射程是否取三维距离（<c>SkillOptions.SpatialRange</c>）。</summary>
+        public bool SpatialRange { get; set; }
+
+        /// <summary>覆盖格子缺省的地形 id（<c>lab.arena</c>）；空取格子的地形。</summary>
+        public string ArenaId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 合成姿势集的键表（非空时宿主装出空中姿势装置：姿势选择器 + 空中阶段喂入器，并按固定回落链解析 <c>jump.*</c>/<c>hit.air</c>/<c>attack.air</c>
+        /// 请求）；空 = 不装。
+        /// </summary>
+        public List<string> PoseKeys { get; } = new List<string>();
+
+        /// <summary>合成姿势里玩家的武器族（空 = 不指定）。</summary>
+        public string PoseFamily { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 命中窗口的射程门（<c>SkillOptions.SpatialRangeHitWindow</c>，M4-W1b）：带 timeline 的动作式结算在命中窗口每次结算时再校验射程
+        /// （口径随 <see cref="SpatialRange"/>）；缺省假。
+        /// </summary>
+        public bool SpatialRangeHitWindow { get; set; }
+
+        /// <summary>受控位移（击退、扑击）也锁深度（<c>MovementOptions.DepthLockControlledMotion</c>，M4-W1b）；缺省假。</summary>
+        public bool DepthLockControlledMotion { get; set; }
+
+        /// <summary>
+        /// 空中战斗记录开关（M4-W1b）：真时装配竖直轴的 <c>EmitLandedEvent</c>、并给本次运行记<c>air_combat</c> 度量组需要的逐步采样
+        /// （靶子的竖直速度/硬直、落地事件、靶子的主动跳跃与空中移动）；缺省假——既有脚本的度量集合与指纹逐字不变。
+        /// </summary>
+        public bool AirCombat { get; set; }
+
+        /// <summary>
+        /// 空中姿势装置改读真实姿势集数据（<c>display.anim_set.*</c> 行，含 <c>extends</c> 继承链合并）而不是合成键表；非空时 <see cref="PoseKeys"/> 被忽略。
+        /// 数据里还没有空中键（<c>jump.rise/fall/land</c>、<c>hit.air</c>、<c>attack.air*</c>）时请求沿固定回落链落到既有的通用键，
+        /// 空中键资产合入后请求直接命中（结果在 <c>space_ext.air_pose_requests</c> 里体现）。
+        /// </summary>
+        public string PoseAnimSet { get; set; } = string.Empty;
+
+        /// <summary>合成/真实姿势里玩家的游戏层变体（<c>wounded</c> 等；空 = 不指定），进空中键的变体维度。</summary>
+        public string PoseVariant { get; set; } = string.Empty;
+
+        /// <summary>姿势请求按战斗姿态解析（空中键带 <c>.combat</c> 段）。</summary>
+        public bool PoseCombat { get; set; }
     }
 
     /// <summary>
@@ -203,7 +293,7 @@ namespace Lab
 
                 foreach (var e in Events)
                 {
-                    if (e.Kind == ScriptEventKind.Cast || e.Actor.Length > 0)
+                    if (e.Kind == ScriptEventKind.Cast || e.Kind == ScriptEventKind.ClearProjectiles || e.Actor.Length > 0)
                     {
                         return FeelFormatVersion;
                     }
@@ -293,6 +383,21 @@ namespace Lab
             meta.FeelCalibrationId = LabJson.OptionalString(metaObj, "feelCalibrationId", what + ".meta") ?? string.Empty;
             meta.UnarmedAttackSkill = LabJson.OptionalString(metaObj, "unarmedAttackSkill", what + ".meta") ?? string.Empty;
             meta.DummySetId = LabJson.OptionalString(metaObj, "dummySet", what + ".meta") ?? string.Empty;
+            if (metaObj.TryGetValue("spaceExt", out var spaceExtValue) && spaceExtValue is JsonObject spaceExtObj)
+            {
+                meta.SpaceExt = ReadSpaceExt(spaceExtObj, what + ".meta.spaceExt");
+            }
+
+            if (metaObj.TryGetValue("poiseImpactScale", out var scaleValue) && scaleValue is JsonObject scaleObj)
+            {
+                for (var i = 0; i < scaleObj.Count; i++)
+                {
+                    meta.PoiseImpactScale.Add(new KeyValuePair<string, double>(
+                        scaleObj[i].Key,
+                        scaleObj[i].Value is JsonNumber scaleNum ? scaleNum.Value : throw new LabFormatException($"{what}.meta.poiseImpactScale.{scaleObj[i].Key} 必须是数值")));
+                }
+            }
+
             meta.Feel = metaObj.TryGetValue("feel", out var feelFlag) && feelFlag is JsonBool feelBool && feelBool.Value;
             ReadStrings(metaObj, "learnSkills", meta.LearnSkills, what + ".meta");
             if (metaObj.TryGetValue("skillSlots", out var slots) && slots is JsonObject slotsObj)
@@ -310,16 +415,11 @@ namespace Lab
             ReadStrings(metaObj, "extraDataRoots", meta.ExtraDataRoots, what + ".meta");
             ReadStrings(metaObj, "extraDataExcludeTables", meta.ExtraDataExcludeTables, what + ".meta");
             ReadStrings(metaObj, "extraDataExcludeRows", meta.ExtraDataExcludeRows, what + ".meta");
-            if (metaObj.TryGetValue("weaponAttackSkills", out var was) && was is JsonObject wasObj)
+            if (metaObj.TryGetValue("weaponAttackSkills", out var was) && was is JsonObject wasObj && wasObj.Count > 0)
             {
-                for (var i = 0; i < wasObj.Count; i++)
-                {
-                    meta.WeaponAttackSkills.Add(new KeyValuePair<string, string>(
-                        wasObj[i].Key,
-                        wasObj[i].Value is JsonString ws
-                            ? ws.Value
-                            : throw new LabFormatException($"{what}.meta.weaponAttackSkills.{wasObj[i].Key} 必须是字符串")));
-                }
+                // 旧版本脚本用它在内存里改写武器行；现在武器 → 普攻时间线是数据（feel.weapon.auto_attack_timeline_ref），不再接受脚本声明。
+                throw new LabFormatException(
+                    $"{what}.meta.weaponAttackSkills 已移除：武器的普攻时间线请写进 feel.weapon 行的 auto_attack_timeline_ref（数据根里用 override 行覆盖占位武器行）");
             }
 
             if (meta.TickRate <= 0 || meta.FrameRateCap <= 0 || meta.DurationTicks <= 0)
@@ -347,11 +447,16 @@ namespace Lab
                     case "equip": kind = ScriptEventKind.Equip; break;
                     case "unequip": kind = ScriptEventKind.Unequip; break;
                     case "cast": kind = ScriptEventKind.Cast; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast）");
+                    case "clear_projectiles": kind = ScriptEventKind.ClearProjectiles; break;
+                    case "jump": kind = ScriptEventKind.Jump; break;
+                    case "move": kind = ScriptEventKind.Move; break;
+                    case "move_to": kind = ScriptEventKind.MoveTo; break;
+                    case "terrain_swap": kind = ScriptEventKind.TerrainSwap; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|jump|move|move_to|terrain_swap）");
                 }
 
                 var value = Vec2.Zero;
-                if (kind == ScriptEventKind.Axis)
+                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.Move || kind == ScriptEventKind.MoveTo)
                 {
                     value = LabJson.ReadVec(
                         eo.TryGetValue("value", out var v) ? v : JsonNull.Instance, what + ".events[].value");
@@ -359,6 +464,11 @@ namespace Lab
 
                 double? ts = eo.TryGetValue("realTs", out var t) && t is JsonNumber tn ? tn.Value : (double?)null;
                 var actor = LabJson.OptionalString(eo, "actor", what + ".events[]") ?? string.Empty;
+                if ((kind == ScriptEventKind.Jump || kind == ScriptEventKind.Move) && actor.Length == 0)
+                {
+                    throw new LabFormatException($"{what}.events[] 的 {kindText} 事件必须带 actor（靶子的出场标签；玩家的跳跃用动作 input.action.lab_jump 的按下事件）");
+                }
+
                 events.Add(new ScriptEvent(tick, action, kind, value, ts, actor));
             }
 
@@ -390,8 +500,50 @@ namespace Lab
                 case ScriptEventKind.Axis: return "axis";
                 case ScriptEventKind.Equip: return "equip";
                 case ScriptEventKind.Cast: return "cast";
+                case ScriptEventKind.ClearProjectiles: return "clear_projectiles";
+                case ScriptEventKind.Jump: return "jump";
+                case ScriptEventKind.Move: return "move";
+                case ScriptEventKind.MoveTo: return "move_to";
+                case ScriptEventKind.TerrainSwap: return "terrain_swap";
                 default: return "unequip";
             }
+        }
+
+        private static ScriptSpaceOptions ReadSpaceExt(JsonObject obj, string what)
+        {
+            var ext = new ScriptSpaceOptions();
+            if (obj.TryGetValue("airControl", out var ac) && !(ac is JsonNull))
+            {
+                ext.AirControl = ac is JsonNumber acn ? acn.Value : throw new LabFormatException($"{what}.airControl 必须是数值");
+            }
+
+            if (obj.TryGetValue("maxAirJumps", out var mj) && !(mj is JsonNull))
+            {
+                ext.MaxAirJumps = mj is JsonNumber mjn && mjn.TryGetInt64(out var mjl) ? (int)mjl : throw new LabFormatException($"{what}.maxAirJumps 必须是整数");
+            }
+
+            if (obj.TryGetValue("stepHeight", out var sh) && !(sh is JsonNull))
+            {
+                ext.StepHeight = sh is JsonNumber shn ? shn.Value : throw new LabFormatException($"{what}.stepHeight 必须是数值");
+            }
+
+            if (obj.TryGetValue("fallHeight", out var fh) && !(fh is JsonNull))
+            {
+                ext.FallHeight = fh is JsonNumber fhn ? fhn.Value : throw new LabFormatException($"{what}.fallHeight 必须是数值");
+            }
+
+            ext.Terrain = obj.TryGetValue("terrain", out var tr) && tr is JsonBool trb && trb.Value;
+            ext.SpatialRange = obj.TryGetValue("spatialRange", out var sr) && sr is JsonBool srb && srb.Value;
+            ext.SpatialRangeHitWindow = obj.TryGetValue("spatialRangeHitWindow", out var srw) && srw is JsonBool srwb && srwb.Value;
+            ext.DepthLockControlledMotion = obj.TryGetValue("depthLockControlledMotion", out var dlc) && dlc is JsonBool dlcb && dlcb.Value;
+            ext.AirCombat = obj.TryGetValue("airCombat", out var ac2) && ac2 is JsonBool ac2b && ac2b.Value;
+            ext.PoseAnimSet = LabJson.OptionalString(obj, "poseAnimSet", what) ?? string.Empty;
+            ext.PoseVariant = LabJson.OptionalString(obj, "poseVariant", what) ?? string.Empty;
+            ext.PoseCombat = obj.TryGetValue("poseCombat", out var pc) && pc is JsonBool pcb && pcb.Value;
+            ext.ArenaId = LabJson.OptionalString(obj, "arena", what) ?? string.Empty;
+            ext.PoseFamily = LabJson.OptionalString(obj, "poseFamily", what) ?? string.Empty;
+            ReadStrings(obj, "poseKeys", ext.PoseKeys, what);
+            return ext;
         }
 
         public string ToJson()
@@ -422,6 +574,38 @@ namespace Lab
                 }
 
                 meta.Add("skillSlots", slotBuilder.Build());
+                if (Meta.SpaceExt != null)
+                {
+                    var ext = Meta.SpaceExt;
+                    var extBuilder = new JsonObjectBuilder();
+                    if (ext.AirControl.HasValue) extBuilder.Add("airControl", LabJson.Num(ext.AirControl.Value));
+                    if (ext.MaxAirJumps.HasValue) extBuilder.Add("maxAirJumps", LabJson.Num(ext.MaxAirJumps.Value));
+                    if (ext.StepHeight.HasValue) extBuilder.Add("stepHeight", LabJson.Num(ext.StepHeight.Value));
+                    if (ext.FallHeight.HasValue) extBuilder.Add("fallHeight", LabJson.Num(ext.FallHeight.Value));
+                    if (ext.Terrain) extBuilder.Add("terrain", LabJson.Bool(true));
+                    if (ext.SpatialRange) extBuilder.Add("spatialRange", LabJson.Bool(true));
+                    if (ext.SpatialRangeHitWindow) extBuilder.Add("spatialRangeHitWindow", LabJson.Bool(true));
+                    if (ext.DepthLockControlledMotion) extBuilder.Add("depthLockControlledMotion", LabJson.Bool(true));
+                    if (ext.AirCombat) extBuilder.Add("airCombat", LabJson.Bool(true));
+                    if (ext.PoseAnimSet.Length > 0) extBuilder.Add("poseAnimSet", LabJson.Str(ext.PoseAnimSet));
+                    if (ext.PoseVariant.Length > 0) extBuilder.Add("poseVariant", LabJson.Str(ext.PoseVariant));
+                    if (ext.PoseCombat) extBuilder.Add("poseCombat", LabJson.Bool(true));
+                    if (ext.ArenaId.Length > 0) extBuilder.Add("arena", LabJson.Str(ext.ArenaId));
+                    if (ext.PoseKeys.Count > 0) extBuilder.Add("poseKeys", new JsonArray(ext.PoseKeys.ConvertAll(g => (JsonValue)LabJson.Str(g))));
+                    if (ext.PoseFamily.Length > 0) extBuilder.Add("poseFamily", LabJson.Str(ext.PoseFamily));
+                    meta.Add("spaceExt", extBuilder.Build());
+                }
+
+                if (Meta.PoiseImpactScale.Count > 0)
+                {
+                    var scaleBuilder = new JsonObjectBuilder();
+                    foreach (var pair in Meta.PoiseImpactScale)
+                    {
+                        scaleBuilder.Add(pair.Key, LabJson.Num(pair.Value));
+                    }
+
+                    meta.Add("poiseImpactScale", scaleBuilder.Build());
+                }
             }
 
             if (Meta.UsesExtendedFormat)
@@ -432,14 +616,7 @@ namespace Lab
                     .Add("extraDataRoots", new JsonArray(Meta.ExtraDataRoots.ConvertAll(g => (JsonValue)LabJson.Str(g))))
                     .Add("extraDataExcludeTables", new JsonArray(Meta.ExtraDataExcludeTables.ConvertAll(g => (JsonValue)LabJson.Str(g))))
                     .Add("extraDataExcludeRows", new JsonArray(Meta.ExtraDataExcludeRows.ConvertAll(g => (JsonValue)LabJson.Str(g))));
-                var attackSkills = new JsonObjectBuilder();
-                foreach (var pair in Meta.WeaponAttackSkills)
-                {
-                    attackSkills.Add(pair.Key, LabJson.Str(pair.Value));
-                }
-
-                meta.Add("weaponAttackSkills", attackSkills.Build())
-                    .Add("unarmedAttackSkill", LabJson.Str(Meta.UnarmedAttackSkill));
+                meta.Add("unarmedAttackSkill", LabJson.Str(Meta.UnarmedAttackSkill));
             }
 
             var metaValue = meta.Build();
@@ -451,7 +628,7 @@ namespace Lab
                     .Add("tick", LabJson.Num(e.Tick))
                     .Add("action", LabJson.Str(e.Action))
                     .Add("kind", LabJson.Str(KindText(e.Kind)));
-                if (e.Kind == ScriptEventKind.Axis)
+                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.Move || e.Kind == ScriptEventKind.MoveTo)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
                 }

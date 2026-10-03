@@ -10,7 +10,8 @@
 // 记录）；本类型额外保留一个非契约便捷方法 RegisterBlockingFromTilemap，从一个 Unity Tilemap
 // 的实心格子批量算出矩形集合后同样经 SetBlocking 整批替换（不是增量追加——此前有一个逐格追加的
 // RegisterBlockingRect 方法，已随 ADR-0016 落地删除，其增量语义现由调用方自行收集矩形列表后
-// 一次性调用 SetBlocking 承担）。
+// 一次性调用 SetBlocking 承担）。M4-L 起契约另有增量成员 AddBlocking/RemoveBlocking/GetBlocking（INavigation2D 默认成员，
+// 本类型覆盖为真增量：只动一块矩形、重置该地图网格缓存、版本号恰好 +1），逐个出场/移除的可破坏物不必再整批重发。
 //
 // 网格判断记录：BuildNavMesh 时按已登记矩形的包围盒 + 边距生成网格，格子尺寸在
 // DefaultCellSize（0.25 世界单位）与"包围盒必须能装进 MaxGridDimension×MaxGridDimension
@@ -400,6 +401,57 @@ namespace Adapter.Unity.EngineAdapter
             BumpVersion(mapId);
         }
 
+        /// <summary>契约方法（增量阻挡，M4-L）：当前登记的动态阻挡快照（登记顺序）；从未登记过的地图返回空列表（不是 null——本实现支持增量）。</summary>
+        public IReadOnlyList<Core.Foundation.Common.Rect> GetBlocking(Id mapId)
+        {
+            var result = new List<Core.Foundation.Common.Rect>();
+            if (_blockingRects.TryGetValue(mapId, out var rects))
+            {
+                foreach (var rect in rects)
+                {
+                    result.Add(new Core.Foundation.Common.Rect(rect.Min, rect.Max));
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>契约方法（增量阻挡）：追加一块动态阻挡，版本号恰好递增一次（同一次 <see cref="SetBlocking"/>）；不动其余登记。</summary>
+        public void AddBlocking(Id mapId, Core.Foundation.Common.Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                list = new List<BlockingRect>();
+                _blockingRects[mapId] = list;
+            }
+
+            list.Add(new BlockingRect(rect.Min, rect.Max));
+            _grids.Remove(mapId); // 同 SetBlocking：阻挡变化后网格重建。
+            BumpVersion(mapId);
+        }
+
+        /// <summary>契约方法（增量阻挡）：按矩形值移除登记顺序里第一份匹配项；没有匹配返回 false 且版本号不变。</summary>
+        public bool RemoveBlocking(Id mapId, Core.Foundation.Common.Rect rect)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var list))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Min.Equals(rect.Min) && list[i].Max.Equals(rect.Max))
+                {
+                    list.RemoveAt(i);
+                    _grids.Remove(mapId);
+                    BumpVersion(mapId);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>契约方法：清空某地图的全部动态阻挡登记（场景卸载时调用）。</summary>
         public void Clear(Id mapId)
         {
@@ -547,6 +599,75 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// 地形感知寻路（M4-W1a，ADR-0130 追加决定"寻路感知台阶"；契约见
+        /// <see cref="INavigation2D.FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>）。端点契约同 <see cref="FindPath(Id, Vec2, Vec2)"/>；
+        /// <paramref name="terrain"/> 为 null 即它本身（逐位不变）。声明了地形约束时在 <see cref="TerrainStepPathPlanner"/>（与测试桩同一个规划器）
+        /// 的网格上规划：线段不穿阻挡矩形内部（与 <see cref="Raycast"/> 同一判定）、也不被地形台阶挡住；视线剪枝用更严格的"连擦角也算接触"判定。
+        /// 判断记录：地形规划不复用本类型缓存的阻挡主网格（地形台阶让"同一格相邻"不再等于"可通行"，连通分量标号失效），
+        /// 每次请求按端点包围盒 + 绕行余量现算一张局部网格，开销与一次 A* 同量级；没有地形约束的请求仍走原有的缓存网格路径。
+        /// </summary>
+        public IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+        {
+            if (terrain == null)
+            {
+                return FindPath(mapId, from, to);
+            }
+
+            if (!IsWalkable(mapId, from) || !IsWalkable(mapId, to))
+            {
+                return null;
+            }
+
+            var dx = to.X - from.X;
+            var dy = to.Y - from.Y;
+            if (dx * dx + dy * dy <= ZeroLengthThreshold * ZeroLengthThreshold)
+            {
+                return new List<Vec2> { from };
+            }
+
+            return TerrainStepPathPlanner.FindPath(
+                BlockingList(mapId), mapId, from, to,
+                p => IsWalkable(mapId, p),
+                (a, b) => !SegmentBlocked(mapId, a, b),
+                (a, b) => SegmentHasClearContact(mapId, a, b),
+                terrain,
+                SmoothPaths);
+        }
+
+        /// <summary>地形感知的最近连通可走点（契约方法）：候选与排序同无地形版本（同一个 <see cref="NearestWalkableSearch.CollectOnGrid"/>），连通 = 地形感知 <see cref="FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/> 能走通。</summary>
+        public bool TryFindNearestReachable(
+            Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+        {
+            if (terrain == null)
+            {
+                return TryFindNearestReachable(mapId, from, point, maxRadius, out reachable);
+            }
+
+            var layout = TerrainStepPathPlanner.ReachableLayoutFor(BlockingList(mapId), from, point, maxRadius);
+            return TerrainStepPathPlanner.TryFindNearestReachable(
+                layout, from, point, maxRadius,
+                p => IsWalkable(mapId, p),
+                p => FindPath(mapId, from, p, terrain) != null,
+                out reachable);
+        }
+
+        private IReadOnlyList<Core.Foundation.Common.Rect>? BlockingList(Id mapId)
+        {
+            if (!_blockingRects.TryGetValue(mapId, out var rects))
+            {
+                return null;
+            }
+
+            var list = new List<Core.Foundation.Common.Rect>(rects.Count);
+            foreach (var r in rects)
+            {
+                list.Add(new Core.Foundation.Common.Rect(r.Min, r.Max));
+            }
+
+            return list;
         }
 
         /// <summary><see cref="TryFindNearestReachable"/> 里"标号预筛通过但 <see cref="FindPath"/> 不认"的候选最多排除

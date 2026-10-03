@@ -215,7 +215,7 @@ namespace Presentation.Render
 
             _rig = new SpriteCharacterRig(default, Renderer, Handle, Conventions, DisplayInfo, _resourceTracker, frameAnimPlayer, Options);
 
-            // ADR-0099 决策 2 收口（已知限制 1 根治，见 OnLayersComposed 判断记录）：订阅 SpriteCharacterRig
+            // ADR-0099 决策 2 收口（冷加载回填遗漏通知钩子的根治，见 OnLayersComposed 判断记录）：订阅 SpriteCharacterRig
             // 唯一的渲染器写入出口，使"方向槽位变化/装备变化"（本类型自己调用 _rig.ApplyLayers）与
             // "首次引用的纸娃娃层资源异步加载完成后的迟到回填"（_rig.HandleResourceLoadCompleted 内部
             // 调用 _rig.ApplyLayers，本类型不直接参与）两条路径共用同一个通知出口，不需要分别接线；
@@ -580,7 +580,7 @@ namespace Presentation.Render
         /// （装备变化）、<see cref="SetPaperdollLayers"/>（方向变化，<c>UnitySpriteView.SyncPose</c> 在
         /// 方向槽位真的变化时调用，见 ADR-0099 决策 1）与 <see cref="SpriteCharacterRig.HandleResourceLoadCompleted"/>
         /// （首次引用的纸娃娃层资源异步加载完成后的迟到回填）三条路径，是"任何一次写入渲染器的重合成"
-        /// 唯一的落点——冷加载回填此前遗漏本钩子（ADR-0099 定稿时的已知限制 1），因为它由
+        /// 唯一的落点——冷加载回填此前遗漏本钩子（ADR-0099 定稿时遗漏），因为它由
         /// <see cref="SpriteCharacterRig"/> 内部直接调用 <see cref="SpriteCharacterRig.ApplyLayers"/>，
         /// 不经过本类型代码；现改为在 <see cref="SpriteCharacterRig.ApplyLayers"/> 内部统一触发通知，
         /// 不要求调用方各自记得转发，两条既有路径与这一条冷加载路径此后天然待遇一致，不需要再分别接线。

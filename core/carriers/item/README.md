@@ -1047,3 +1047,15 @@ QualityId, AffixIds)` 与框架 `StandardPlayer.EquippedInstances`（槽位→�
 - **未跟踪单位初值 = 空手无族**：首次穿武器会发事件，首次只穿护甲不会；链创建之前就有装备的单位靠 `knownUnits`/手动 `Sync` 覆盖。
 - **`WeaponActionBinding`（`IActionSkillBinding` 实现）**：只映射 attack 类；主手武器的 `auto_attack_timeline_ref`，否则空手普攻，都没有则不映射。每次读最新装备，不依赖换装链是否已对账。
 - **新增事件 `feel.weapon_changed`**（`found.event_catalog` 新行，规则层契约 `FeelWeaponChangedEvent`）；本模块没有改任何既有契约成员，也没有触碰 `GameplayAssembly`/`RulesAssembly`/`CarriersAssembly`——换装链的生产装配接线留给装配切片。
+
+## 判断记录（套装门槛在 `item.set` 数据重载时立即对账，2026-10-03，NF1）
+
+- **决定**：`EquipmentHost` 订阅 `data.load_completed` 后，除重读槽位定义与套装表之外，对"当前有装备件的单位 × 这些件所属的套装"与已记录施加过门槛的 (单位, 套装) 全部走一遍 `RecomputeSetBonuses`（遍历按单位 id、套装 id 的序数排序，光环施加/释放顺序确定）。取代此前"孤儿门槛要等到下一次装备变化才被清理"的限制：重载删除/改高的门槛在重载那一刻释放，新增或改低且已满足件数的门槛在重载那一刻施加；定义没变时对账不碰任何已施加的句柄。
+- **理由**：套装表重载是"数据变了"的事实，光环生效与否应当立刻与新定义一致；`EquipmentHost` 本来就持有 `_equipped` 与 `_appliedSetBonuses`，不需要额外的全局单位索引。模板在重载后已不存在的单位整体跳过（装备数据已不一致，由引用完整性校验报告，对账不在事件回调里抛异常打断其它订阅方）。
+- **测试**：`tests/CORE114_EquipmentSetBonusReloadOrphanTests.cs` 的 `SetBonusThresholdRemovedByReload_IsReleasedAtReloadTime_WithoutAnyEquipmentChange`（重载后不做任何装备操作，光环从有到无、属性从基础值 + 光环加成回到基础值）、`SetBonusReconcileAfterReload_UnchangedDefinitionKeepsHandle_LoweredThresholdAppliesImmediately`（定义不变不动句柄、门槛改低立即施加、再次原样重载不叠加第二份）。
+
+## 判断记录（`item.slot_definition.has_appearance`，NF 非手感已知限制清扫，2026-10-03）
+
+- **新增可选 Bool 字段 `has_appearance`，缺省 `true`**：只在数据契约里登记（`ItemSchemas.SlotDefinition`，只增不改），运行期核心（`EquipmentHost` 等）不读取它。消费方是工具链的装备资产包校验（`toolchain/asset_import/equip_pack.py`）：槽位写 `false`（戒指/项链等不上身可见的槽位）时，该槽位的物品不要求 `display.equip_visual` 行、不报 `equip_visual_missing`。缺省或 `true` 与登记前行为逐位一致。
+- **取舍**：此前"所有装备类槽位都当有外观"，戒指类物品会被误报，游戏只能把它们挪到别的数据根或写空外观行。不选"按槽位名猜"（槽位名是游戏自己的约定），不选"让游戏补空外观行"（空行没有语义，反被当成真外观去校验层图）。显式字段是唯一不靠猜的表达。
+- **测试**：`ItemSchemaCoverageTests`（`SlotDefinition_HasAppearance_Bool_LoadsWithoutErrors` 两种取值加载零问题且无该字段的任何 issue；`SlotDefinition_HasAppearance_NotBool_ReportsFieldType` 非布尔值被 `field_type` 拦下）；校验侧行为用例在 `toolchain/tests/test_equip_pack.py`（`test_slot_without_appearance_does_not_require_equip_visual` 等三条）。

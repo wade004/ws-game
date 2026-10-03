@@ -390,7 +390,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 
 25. **ADR-0093（消费方反馈第三十九批）：默认挂接的动画剪辑随朝向变化重新探测，取代判断记录（见
     [ADR-0072](../../architecture/adr/0072-纸娃娃层逐层播放剪辑.md)）里"只在实体挂接时刻按当时
-    朝向探测一次，运行期朝向改变不会重新探测"这条已知限制**——`SpriteViewBase.SyncPose` 解析出的
+    朝向探测一次，运行期朝向改变不会重新探测"这条边界**——`SpriteViewBase.SyncPose` 解析出的
     方向槽位与上一次不同时，新增受保护可覆写方法 `OnDirectionSlotChanged(Id newSlotId)`（默认空
     实现，ABI 加法，早于本次改动的子类不受影响）同步触发一次；引擎适配层的具体视图实现把它转发为
     对外事件，供负责挂接默认动画的一方订阅并按新方向裸档位名重新走一遍 ADR-0072 决策 1 既有的候选
@@ -409,7 +409,7 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
     ABI 加法）。引擎适配层的具体视图实现把它转发为对外事件，供负责逐层动画写回的一方订阅：命中
     逐层动画的层立即按播放器当前帧号重新写回一次，不必等下一次自然推进——修复"重合成把当前播放
     帧临时覆盖成静态图，要等下一帧才纠正回来"的可见闪回，覆盖方向变化、装备变化、首次引用的
-    资源异步加载完成三条路径（定稿时遗漏第三条，已在同分支的后续提交收口，不再是已知限制）。
+    资源异步加载完成三条路径。
     完整推导见 [ADR-0099](../../architecture/adr/0099-纸娃娃层只在方向槽位变化时重合成.md)。
 
 27. **ADR-0104（消费方反馈第五十二批）：`TieBreakComparer` 由"建议"改为规则，`IRenderer2D` 新增
@@ -467,3 +467,6 @@ public (Id SlotId, bool FlipX) ResolveDirectionSlot(Direction direction, SpriteI
 - **换装姿势桥 `EquipmentPoseBridge`（2026-10-02，手感设计/08 第 1 节）**：订阅 `feel.weapon_changed`，把事件携带的武器族设进 `PoseSelector.SetFamily`（空手事件携带 null 即清除）。桥而不是让 `PoseSelector` 自己订阅：`PoseSelector` 的契约是"不订阅事件、不持有逻辑层写入能力"，事件到武器族这一步单独放在装配层可选择性接入的小类里；桥只读事件，不回头查装备宿主或手感表。`PresentationAssembly` 目前没有装出 `PoseSelector`/`EquipmentPoseBridge`（生产装配接线留给后续装配切片，实验室装置自己装）。
 
 - **步态喂入 `PoseGaitFeeder` 与单位销毁清理（M2-B，2026-10-02）**：见 `presentation/assembly/README.md` M2-B 节。上文"`PresentationAssembly` 目前没有装出 `PoseSelector`/`EquipmentPoseBridge`"在 M1 收口时已不成立（`PresentationAssembly.Pose` 在手感启用时装配）；`EquipmentPoseBridge` 现在也订阅 `entity.destroyed` 清理选择器记账。
+
+- **空中姿势 `AirPhase` 与 `AirPoseFeeder`（M4-V，2026-10-03，ADR-0130 追加决定）**：`PoseContext` 新增 `Air`（`AirPhase`：None/Rise/Fall/Land，缺省 None 时相等性、哈希、`ToString` 与改动前一致）、`IsAirborne` 与 `TryGetAirRequest(stateKey, out AirPoseRequest)`（`jump` 状态取阶段键，`hit`/`attack` 状态在空中时取 `hit.air`/`attack.air[.<family>]`）；`PoseSelector.SetAirPhase` 发布阶段。`AirPoseFeeder`（纯呈现，只读 `IVerticalMotion.AirborneUnits()`）每个 tick 结束时发布：腾空且向上 = Rise，向下或顶点 = Fall，刚落地保持 8 个 tick 的 Land（呈现常量，不进手感档案），之后清回 None。`AnimStateMachine.AttachAirPhaseSource`：腾空时 Idle/Move 进 Jump，阶段清除时 Jump 回运动态，临时状态（受击/攻击）结束时若仍在空中回到 Jump。`PresentationAssembly` 在手感开启且世界装配了竖直轴时创建喂入器（否则空中阶段恒 None）。原已知局限（空中姿势不带步态/变体维度；落地保持窗口不可配）已由 M4-W1b 解除，见下一条。测试：`tests/AirPoseTests.cs`、`presentation/assembly/tests/AirPoseProductionTests.cs`。
+- **空中姿势的变体维度与可配落地保持（M4-W1b，2026-10-03，ADR-0130 追加决定）**：(1) **变体维度**：`AirPoseRequest` 增加姿态（只有 `combat` 生成段）、武器族、变体三个可选维度，键形如 `jump.rise.combat`、`hit.air.wounded`、`attack.air.combat.sword`；回落链 = 空中键的维度前缀逐段去尾（先去变体、再去武器族、再去姿态，规则同 `PoseRequest.Chain`）后接固定尾链（`jump`→`idle`、`hit.launch`→`hit`、`attack.<族>`→`attack`）；不带维度的请求链与改动前逐位一致。`PoseContext.TryGetAirRequest(stateKey, inCombat, out)` 新重载对跳跃与受击同样带武器族（两参数重载保持旧行为）；`AnimClipResolver`（Unity）改用新重载并以 `AnimStateMachine.IsInCombatStance` 供姿态。判断：空中专用剪辑缺失时落到既有的通用键，这些通用键自己的战斗姿态/变体细分由地面解析负责，不在空中链里重复。(2) **落地保持可配**：呈现型可选字段 `land_hold_ms`（0..2000 毫秒，缺省无值 = 沿用 8 个 tick，0 = 不播落地姿势）；`AirPoseFeeder` 新构造（带 `IFeelPresentingSource` 与步长秒）按单位解析并经 `FeelCalibration.MillisecondsToTicks` 换算，`PresentationAssembly` 在手感开启且步长可得时接线。测试：`tests/AirPoseTests.cs`（带维度的上下文请求、无维度与两参数重载一致）、`presentation/assembly/tests/AirPoseProductionTests.cs`、`core/foundation/display_info/tests/AirPoseKeyTests.cs`、Unity `AirPoseAnimPlayModeTests`（带维度剪辑的解析）；实验室 `space.air_pose_real`（读真实姿势集行 `display.anim_set.std_dummy_biped`）。

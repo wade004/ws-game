@@ -75,6 +75,19 @@ namespace Tests.Lab
             File.Copy(LabFixtures.BaselinePath(LabTestSupport.FixturesDir, scriptId), target);
         }
 
+        /// <summary>
+        /// 把基线副本里实时类度量（帧耗时、每帧分配）的上限放到远超任何真实值：本文件的套件用例验证的是"期望判定如何影响格子状态"，
+        /// 不是性能上限；实时类度量依赖真实时钟，在满载机器上偶发越过 50 毫秒下限会让格子无关地变成有差异。
+        /// 实时上限本身的行为由 LabKernelTests.Comparer_RealTimeMetrics_AreCeilingChecksNotByteComparisons 单独覆盖。
+        /// </summary>
+        private static void RelaxRealTimeCeilings(string baselinePath)
+        {
+            var text = File.ReadAllText(baselinePath);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "\"(frame_ms_p50|frame_ms_p95)\": [0-9.eE+-]+", "\"$1\": 1000000");
+            text = System.Text.RegularExpressions.Regex.Replace(text, "\"alloc_bytes_per_frame_p95\": [0-9.eE+-]+", "\"alloc_bytes_per_frame_p95\": 1000000000");
+            File.WriteAllText(baselinePath, text, new UTF8Encoding(false));
+        }
+
         private static void WriteScript(InputScript script, string fixtures)
         {
             var path = LabFixtures.ScriptPath(fixtures, script.Meta.ScriptId);
@@ -363,12 +376,13 @@ namespace Tests.Lab
             var fixtures = Fixtures("suite_fail");
             var kill = LabTestSupport.Script("feel_kill");
             CopyBaseline("feel_kill", fixtures);
+            RelaxRealTimeCeilings(LabFixtures.BaselinePath(fixtures, "feel_kill"));
 
             // 通过的期望：格子仍是 Pass，且结果里带着期望判定。
             WriteScript(kill.WithExpectations(new[] { Op("kills", "attack.kills", ExpectOp.Eq, 1) }), fixtures);
             var ok = LabSuite.Check(LabTestSupport.Runner, fixtures, "feel_kill", "2d_action");
             Assert.Single(ok);
-            Assert.Equal(CellStatus.Pass, ok[0].Status);
+            Assert.True(ok[0].Status == CellStatus.Pass, "期望：Pass；实际：" + ok[0].Status + "\n" + (ok[0].Diff?.Format() ?? "<无差异对象>"));
             Assert.Single(ok[0].Expectations);
             Assert.Equal(0, ok[0].ExpectationFailures);
 
@@ -403,11 +417,11 @@ namespace Tests.Lab
             Assert.Contains(withExpectations, s => s.Expectations.Any(e => e.Subject.At.HasValue || e.Subject.Agg.Length > 0));
             foreach (var script in withExpectations)
             {
-                var results = LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId);
-                Assert.Equal(6, results.Count);
+                var results = LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId);
+                Assert.Equal(LabTestSupport.Runner.ApplicableCells(script).Count, results.Count); // 空间脚本适用十个格子，其余六个
                 foreach (var r in results)
                 {
-                    Assert.True(r.Status == CellStatus.Pass, $"{r.Script} @ {r.Cell}：{string.Join("；", r.Expectations.Where(e => !e.Ok).Select(e => e.ToString()))}");
+                    LabTestSupport.AssertAllPass(new[] { r }, "期望与基线比较失败");
                     Assert.True(r.Expectations.Count > 0 || script.Expectations.All(e => e.Cells.Count > 0 && !e.Cells.Contains(r.Cell)));
                 }
             }
@@ -528,9 +542,9 @@ namespace Tests.Lab
             Assert.NotEmpty(exported.Expectations);
 
             // 导出的夹具（脚本带期望 + 基线）在套件里全部通过，期望清单逐格判定过。
-            var results = LabSuite.Check(runner, fixtures, "feel_melee");
+            var results = LabSuite.Check(runner, fixtures, "feel_melee", null, includeRealTime: false);
             Assert.Equal(6, results.Count);
-            Assert.All(results, r => Assert.Equal(CellStatus.Pass, r.Status));
+            LabTestSupport.AssertAllPass(results, "导出的夹具应全部通过");
             Assert.All(results, r => Assert.True(r.Expectations.Count > 0));
 
             // 可编辑：改动一条导出的期望（把精确值改错），套件就以清晰诊断指出这一条。

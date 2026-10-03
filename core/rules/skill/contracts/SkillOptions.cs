@@ -212,7 +212,56 @@ namespace Core.Rules.Skill
         /// 手感落地（ADR-0115）：动作时间线毫秒→tick 换算用的固定步长（秒），必须与模拟固定步长一致（通常取
         /// <c>SimLoopOptions.StepSeconds</c>，<c>GameplayAssembly</c> 装配时回填同一个值）。默认 1/60。只影响声明了
         /// <c>skill.def.timeline</c> 的技能，不影响任何既有技能。
+        /// <para>
+        /// 显式赋值过（<see cref="ActionStepSecondsIsExplicit"/> 为真）的值装配根不会改写；从未赋值时 <c>GameplayAssembly</c> 经
+        /// <see cref="ApplyHostStepSeconds"/> 把时钟宿主步长回填进来（不再要求调用方手动把两个值写成一致）。
+        /// </para>
         /// </summary>
-        public double ActionStepSeconds { get; set; } = 1.0 / 60.0;
+        public double ActionStepSeconds
+        {
+            get => _actionStepSeconds;
+            set
+            {
+                _actionStepSeconds = value;
+                ActionStepSecondsIsExplicit = true;
+            }
+        }
+
+        private double _actionStepSeconds = 1.0 / 60.0;
+
+        /// <summary><see cref="ActionStepSeconds"/> 是否被显式赋值过（装配根回填不算显式）。</summary>
+        public bool ActionStepSecondsIsExplicit { get; private set; }
+
+        /// <summary>
+        /// 装配根回填：<see cref="ActionStepSeconds"/> 从未显式赋值时取宿主模拟固定步长，返回是否发生了回填；显式赋值过或步长非法时不改动。
+        /// 回填不把它标成显式（同一个选项对象被多套装配先后使用时，每套都按各自的宿主步长回填）。
+        /// </summary>
+        public bool ApplyHostStepSeconds(double hostStepSeconds)
+        {
+            if (ActionStepSecondsIsExplicit || !double.IsFinite(hostStepSeconds) || hostStepSeconds <= 0)
+            {
+                return false;
+            }
+
+            _actionStepSeconds = hostStepSeconds;
+            return true;
+        }
+
+        /// <summary>
+        /// 施法射程是否用含高度差的三维距离（体积空间，ADR-0130 追加决定"三维射程"）：<c>false</c>（缺省）= 射程检查只比平面距离
+        /// （与 1.95.0 逐位一致）；<c>true</c> = 射程检查用 <c>sqrt(平面距离² + 高度差²)</c>，高度差取施法者与目标脚下高度
+        /// （<c>IUnitAccess.GetHeightOffset</c>）之差，地面坐标施法的落点高度取地面 0。只影响 <c>range &gt; 0</c> 的技能的射程检查，
+        /// 不影响视线、目标选择的"最近"排序（那是 <c>TargetingOptions.SpatialDistance</c>）。
+        /// </summary>
+        public bool SpatialRange { get; set; }
+
+        /// <summary>
+        /// 命中窗口的射程门（手感落地 M4-W1b，ADR-0130 追加决定"动作式三维射程"）：<c>false</c>（缺省）= 带 <c>timeline</c> 的动作式结算只由命中窗口几何
+        /// （目标链形状加高度窗口）决定谁被命中，不看技能的 <c>range</c>（与 1.95.0 逐位一致）；<c>true</c> = 命中窗口每次结算时，
+        /// <c>range &gt; 0</c> 的技能额外要求"施法者当时位置到目标的距离不超过 <c>range</c>"才算命中，不满足的候选被排除（不是施法失败——动作已经出手）。
+        /// 距离口径同 <see cref="SpatialRange"/>：它为真时含高度差的三维距离，为假时平面距离。作用于空间命中（<c>hit</c> 标记与 <c>continuous</c> 逐 tick 采样）
+        /// 和 instant 结算的时间线命中；投射物按自己的射程飞行，不受本选项影响。
+        /// </summary>
+        public bool SpatialRangeHitWindow { get; set; }
     }
 }

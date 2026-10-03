@@ -140,6 +140,48 @@ namespace Core.Carriers.Unit
         }
 
         /// <summary>
+        /// <see cref="ApproachSpeed"/> 在一个 tick 内走过 <paramref name="fraction"/>（0..1）时的速率：同一套曲线与进度，只是本 tick 的进度增量
+        /// 乘以 <paramref name="fraction"/>。<paramref name="fraction"/> 大于等于 1 时就是 <see cref="ApproachSpeed"/> 本身；瞬时达速/停止
+        /// （<c>accel_ms</c>/<c>decel_ms</c> 为零）时任何正的 <paramref name="fraction"/> 都返回目标速度。给体积阻挡的成对接触按 tick 内的速度剖面
+        /// 求时刻用（只读，不改积分）。
+        /// </summary>
+        public static double ApproachSpeedAt(
+            double speed, double target, double baseSpeed, in MotionProfile profile, double stepSeconds, IMotionCurveSource? curves,
+            double fraction)
+        {
+            if (fraction >= 1.0) return ApproachSpeed(speed, target, baseSpeed, profile, stepSeconds, curves);
+            if (speed < Epsilon) speed = 0.0;
+            if (fraction <= 0.0) return speed;
+            if (Math.Abs(speed - target) <= 1e-9 * Math.Max(1.0, Math.Abs(target))) return target;
+            if (target > speed)
+            {
+                var accelTicks = ToTicks(profile.AccelMs, stepSeconds);
+                if (accelTicks <= 0.0) return target;
+                var s = speed / target;
+                var p1 = InvertCurve(profile.AccelCurve, s, curves) + fraction / accelTicks;
+                if (p1 >= 1.0 - ProgressSnap) return target;
+                var v = target * EvalCurve(profile.AccelCurve, p1, curves);
+                return v < speed ? speed : (v > target ? target : v);
+            }
+
+            if (target < speed)
+            {
+                var decelTicks = ToTicks(profile.DecelMs, stepSeconds);
+                if (decelTicks <= 0.0) return target;
+                var reference = speed > baseSpeed ? speed : baseSpeed;
+                var range = reference - target;
+                if (range <= Epsilon) return target;
+                var f = (speed - target) / range;
+                var q1 = InvertCurve(profile.BrakeCurve, 1.0 - f, curves) + fraction / decelTicks;
+                if (q1 >= 1.0 - ProgressSnap) return target;
+                var v = target + range * (1.0 - EvalCurve(profile.BrakeCurve, q1, curves));
+                return v > speed ? speed : (v < target ? target : v);
+            }
+
+            return speed;
+        }
+
+        /// <summary>
         /// 一个 tick 的常规（<c>regular</c>）速度积分：给定当前速度向量与本 tick 期望方向（单位向量或零向量）及目标速率，
         /// 返回新的方向（单位向量）与速率。无期望方向时沿原方向制动到零；<c>through_zero</c> 策略下反向输入（夹角大于 90°）先沿
         /// 原方向制动到零、再沿新方向加速；<c>instant</c> 策略方向立即对齐期望方向、速率沿加速/制动曲线趋近目标（保留速率）。

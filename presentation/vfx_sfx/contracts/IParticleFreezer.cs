@@ -8,7 +8,7 @@ namespace Presentation.VfxSfx.Contracts
     /// 同 <see cref="IParticleRepositioner"/> 的做法，不改 <see cref="IRenderer2D"/>，而是表现层按需探测的可选能力：引擎适配层的
     /// <see cref="IRenderer2D"/> 实现若能暂停（Unity 侧暂停 <c>ParticleSystem</c>/序列帧播放器），让该实现类同时实现本接口；
     /// <see cref="Presentation.VfxSfx.Core.VfxPlayer"/> 构造期以 <c>(_renderer2D as IParticleFreezer)</c> 探测，未实现的适配层（含既有 <c>StubRenderer2D</c>）
-    /// 保持"顿帧不暂停粒子"的改动前行为，不抛异常。
+    /// 不抛异常；此时视觉上无法暂停已发射的 2D 粒子，但 <see cref="Presentation.VfxSfx.Core.VfxPlayer"/> 仍停住这些特效的存活倒计时（不依赖本接口），解冻后从冻结点继续。
     /// </summary>
     public interface IParticleFreezer
     {

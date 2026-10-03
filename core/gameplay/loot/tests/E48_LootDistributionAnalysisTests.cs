@@ -800,6 +800,149 @@ namespace Tests.Gameplay.Loot
             Assert.Equal(30, outcome.Count);
         }
 
+        // -----------------------------------------------------------------
+        // NF1：货币期望含取整（ExpectedRoundedAmount）与词缀入选概率的"抽取次数有界"精确解
+        // -----------------------------------------------------------------
+
+        private static double RoundedAmountPerHit(int countMin, int countMax, double goldBase, double tier, double multiplier)
+        {
+            // 期望由规则算出：每个当量按运行期同一公式取整，<=0 记 0，对均匀分布求平均。
+            var sum = 0.0;
+            for (var c = countMin; c <= countMax; c++)
+            {
+                var amount = (int)Math.Round(c * goldBase * tier * multiplier, MidpointRounding.AwayFromZero);
+                sum += amount > 0 ? amount : 0;
+            }
+
+            return sum / (countMax - countMin + 1);
+        }
+
+        [Fact]
+        public void ExpectedCurrency_RoundedAmount_ModelsRoundingAndSkipOfNonPositive_AndMatchesObservedRolls()
+        {
+            var bus = LootTestSupport.NewEventBus();
+            const double chance = 0.6;
+            const double goldBase = 0.4; // 当量 1 → 0.4 取整为 0（整条跳过）、当量 2 → 0.8 → 1、当量 3 → 1.2 → 1：线性期望与取整期望明显不同。
+            const double multiplier = 1.0;
+            var tableRowsJson =
+                "[{\"id\": \"loot.e48_rounding\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"econ.currency.e48_coin\", \"weight_or_chance\": 0.6, \"count_range\": {\"min\": 1, \"max\": 3}}]}]}]";
+
+            var registry = BuildEconRegistry(bus, tableRowsJson, goldBaseAtLevelOne: goldBase);
+            var def = LoadTableDef(registry, new Id("loot.e48_rounding"));
+            var economy = new EconomyHost(registry, bus, new FakeInventoryHost(), new FakeNumericExprHostFactory());
+
+            var context = new LootAnalysisContext { Multiplier = multiplier };
+            var coin = Assert.Single(LootTableAnalyzer.ExpectedCurrency(def, context, economy, sourceLevel: 1));
+
+            var expectedRounded = chance * RoundedAmountPerHit(1, 3, goldBase, 1.0, multiplier);
+            var expectedLinear = chance * 2.0 * goldBase * multiplier;
+            Assert.Equal(expectedRounded, coin.ExpectedRoundedAmount, 9);
+            Assert.Equal(expectedLinear, coin.ExpectedAmount, 9); // 既有线性口径不变
+            Assert.True(Math.Abs(coin.ExpectedRoundedAmount - coin.ExpectedAmount) > 0.05, "夹具应让取整改变期望");
+
+            // 与真实 RollDetailed 的货币均值对账（量级小的货币：此前理论值与观测均值有可感知偏差，现在对得上）。
+            var world = LootTestSupport.NewWorld(bus);
+            var units = new Core.Carriers.Unit.WorldUnitAccess(world);
+            var host = new LootHost(
+                registry, new RngHost(48101), bus, world, units, new FakeInventoryHost(), new FakeExprHostFactory(), () => 0.0,
+                options: null, diagnostics: null, conditionSchema: null, economyHost: economy, goldMultiplierProvider: null);
+            var rollContext = new RollContext(new Id("unit.e48_round"), killerId: null, multiplier: multiplier, contextId: null);
+            const int rolls = 20000;
+            var total = 0.0;
+            for (var i = 0; i < rolls; i++)
+            {
+                foreach (var outcome in host.RollDetailed(new Id("loot.e48_rounding"), rollContext))
+                {
+                    total += outcome.Count;
+                }
+            }
+
+            var observedMean = total / rolls;
+            // 单次产出只取 0/1：方差 ≤ 0.25，均值的 5σ 容差。
+            var tolerance = 5.0 * Math.Sqrt(0.25 / rolls);
+            Assert.True(Math.Abs(observedMean - expectedRounded) <= tolerance,
+                $"观测均值 {observedMean} 应落在含取整期望 {expectedRounded} 的 5σ({tolerance}) 内");
+            Assert.True(Math.Abs(observedMean - expectedLinear) > tolerance, "线性期望不应与观测对得上（否则夹具没有区分力）");
+        }
+
+        [Fact]
+        public void ExpectedCurrency_RoundedAmount_NestedTable_ScalesByNestedRepeatCount_AndDegradedStaysZero()
+        {
+            var bus = LootTestSupport.NewEventBus();
+            // 外层：恒命中嵌套表，count 2..2 次独立重抽；嵌套表：恒命中货币，当量 1。当量 1 × 0.6 = 0.6 → 取整 1。
+            const string tableRowsJson =
+                "[{\"id\": \"loot.e48_round_inner\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"econ.currency.e48_coin\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\": 1, \"max\": 1}}]}]}," +
+                "{\"id\": \"loot.e48_round_outer\", \"groups\": [{\"roll_mode\": \"chance_each\", \"entries\": [" +
+                "{\"ref\": \"loot.e48_round_inner\", \"weight_or_chance\": 1.0, \"count_range\": {\"min\": 2, \"max\": 2}}]}]}]";
+
+            var registry = BuildEconRegistry(bus, tableRowsJson, goldBaseAtLevelOne: 0.6);
+            var inner = LoadTableDef(registry, new Id("loot.e48_round_inner"));
+            var outer = LoadTableDef(registry, new Id("loot.e48_round_outer"));
+            var economy = new EconomyHost(registry, bus, new FakeInventoryHost(), new FakeNumericExprHostFactory());
+            var context = new LootAnalysisContext
+            {
+                Tables = new Dictionary<Id, LootTableDef> { { inner.Id, inner } },
+            };
+
+            var coin = Assert.Single(LootTableAnalyzer.ExpectedCurrency(outer, context, economy, sourceLevel: 1));
+            var perHit = RoundedAmountPerHit(1, 1, 0.6, 1.0, 1.0);
+            Assert.Equal(2.0 * perHit, coin.ExpectedRoundedAmount, 9); // 两次独立重抽，每次产出 1
+            Assert.Equal(2.0 * 0.6, coin.ExpectedAmount, 9); // 线性期望仍是 1.2
+        }
+
+        [Fact]
+        public void AffixInclusion_BoundedDrawsExact_ReplacesTheDegradeForLargePools_AndAgreesWithTheBitmaskSolverWhereBothApply()
+        {
+            var bus = LootTestSupport.NewEventBus();
+
+            // 17 条（原来直接降级）：有界解给出与暴力枚举一致的精确值，且各条入选概率之和 = 抽取次数 2。
+            var big = Enumerable.Range(0, 17).Select(i => ($"item.affix.e48_b{i}", (double)(i % 5 + 1))).ToList();
+            var bigRegistry = BuildAffixOnlyRegistry(bus, big);
+            var degraded = LootTableAnalyzer.ExpectedAffixInclusion(
+                new Id("item.e48_affix_target"), new Id("item.quality.e48_common"), bigRegistry);
+            Assert.True(degraded.IsDegraded); // 缺省入口行为不变
+
+            var exact = LootTableAnalyzer.ExpectedAffixInclusion(
+                new Id("item.e48_affix_target"), new Id("item.quality.e48_common"), bigRegistry,
+                exactMaxEntries: 16, exactMaxWork: 1e7);
+            Assert.False(exact.IsDegraded);
+            Assert.Equal(17, exact.CandidatePoolSize);
+            Assert.Equal(2.0, exact.InclusionProbabilities!.Values.Sum(), 9);
+            var ordered = big.OrderBy(c => c.Item1, StringComparer.Ordinal).ToList();
+            var brute = BruteForceInclusion(ordered.Select(c => c.Item2).ToArray(), 2);
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                Assert.Equal(brute[i], exact.InclusionProbabilities[new Id(ordered[i].Item1)], 9);
+            }
+
+            // 重叠区间（池 9 条、affix_count=2）：有界解（把位掩码阈值压到 3 强制走它）与位掩码解逐条一致。
+            var small = Enumerable.Range(0, 9).Select(i => ($"item.affix.e48_s{i}", (double)(i + 1))).ToList();
+            var smallRegistry = BuildAffixOnlyRegistry(bus, small);
+            var viaBitmask = LootTableAnalyzer.ExpectedAffixInclusion(
+                new Id("item.e48_affix_target"), new Id("item.quality.e48_common"), smallRegistry);
+            var viaBounded = LootTableAnalyzer.ExpectedAffixInclusion(
+                new Id("item.e48_affix_target"), new Id("item.quality.e48_common"), smallRegistry,
+                exactMaxEntries: 3, exactMaxWork: 1e7);
+            Assert.False(viaBitmask.IsDegraded);
+            Assert.False(viaBounded.IsDegraded);
+            foreach (var candidate in small)
+            {
+                Assert.Equal(
+                    viaBitmask.InclusionProbabilities![new Id(candidate.Item1)],
+                    viaBounded.InclusionProbabilities![new Id(candidate.Item1)], 12);
+            }
+
+            // 计算量边界：预算太小仍如实降级并给出原因，不返回近似值。
+            var tooSmallBudget = LootTableAnalyzer.ExpectedAffixInclusion(
+                new Id("item.e48_affix_target"), new Id("item.quality.e48_common"), bigRegistry,
+                exactMaxEntries: 16, exactMaxWork: 10.0);
+            Assert.True(tooSmallBudget.IsDegraded);
+            Assert.Null(tooSmallBudget.InclusionProbabilities);
+            Assert.Contains("RollDetailed", tooSmallBudget.Reason);
+        }
+
         [Fact]
         public void ExpectedCurrency_GoldBaseCurveMissing_MarksDegraded_NotThrow()
         {

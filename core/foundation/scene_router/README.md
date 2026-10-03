@@ -209,3 +209,11 @@ scene_router/
 接口本身不暴露这个引用，不同实例时 `ScenePostLoad` 钩子（跨图读档完成通知的补发点）永远不会触发，
 读档一直挂起且没有任何异常/诊断。新增这个属性纯粹是为了让 `AttachSceneRouter` 能在装配期做一次
 `ReferenceEquals` 比对；本模块自身的加载流程、事件时序不受影响。
+
+## 判断记录（`world.map.terrain` 与 `MapTerrainHeights`，2026-10-03，M4-V，ADR-0130 追加决定）
+
+`world.map` 新增可选字段 `terrain`：高度区域清单 `{min, max, ground?, slope?, ceiling?}`（轴对齐矩形；地面高度 = `ground + slope.x·(x−min.x) + slope.y·(y−min.y)`；`ceiling` 为绝对高度），后声明的盖住先声明的；区域之外与未声明该字段的地图地面 0、没有天花板。`MapTerrainHeights`（`ITerrainHeight2D` 的数据实现，`scene_router/contracts`）读登记表里全部 `world.map` 行的 `terrain`，查询是 O(区域数) 的纯函数，确定性成立；`VerticalAxisOptions.Terrain` 指向它才生效（否则字段被忽略）。更复杂的地形用引擎侧物理射线实现同一接口。测试：`tests/MapTerrainHeightsTests.cs`。
+
+## 判断记录（地形形状扩展，2026-10-03，M4-W1a，ADR-0130 追加决定）
+
+`terrain` 条目新增可选 `shape`：`rect`（缺省，即上节的矩形斜坡，既有数据逐字兼容）、`polygon`（`points` 凸多边形顶点表加 `ground`/`slope`/`origin?`/`ceiling?`，面积为零、少于 3 个顶点、非凸、含非有限数在数据校验时报 `world_map_terrain_shape`）与 `heightfield`（`min`、`cell`、`heights[行][列]` 至少 2×2、行等长；格内双线性插值，结点处恰为结点高度，覆盖结点包围的矩形，含边界；只回答各处多高，不推断台阶）。三种形状同一张表、同序、**后声明覆盖先声明**。类型 `ITerrainShape`/`TerrainPolygon`/`TerrainHeightField`（`contracts/TerrainShapes.cs`），`MapTerrainHeights.SetShapes`/`ShapesFromRecord` 是新入口；旧 `SetRegions`/`RegionsFromRecord`（只认矩形）保留，读到非矩形条目抛 `DataFieldException`（不静默丢弃）。校验由 `WorldMapTerrainValidationRule` 承担（`RulesSchemaCatalog` 注册；缺字段 `required_field`，几何非法 `world_map_terrain_shape`，消息带 `terrain[i].…` 路径）；`WorldMapSchema` 里 `terrain` 条目 schema 是各形状字段的并集，`min`/`max` 不再整体必填、由规则按形状校验，所以**只用 schema 不挂规则**的消费方不会拿到缺字段报错——`MapTerrainHeights.Load` 路径要求先注册规则（`RulesSchemaCatalog` 已注册）。测试：`tests/TerrainShapesTests.cs`、`tests/MapTerrainHeightsTests.cs`。

@@ -111,11 +111,29 @@ namespace Core.Rules.Skill
 
         public double MaxMs { get; }
 
+        /// <summary>
+        /// 蓄力比例为 0 / 1 时的效果值倍率（手感设计/01 第 3.3 节"效果值可按蓄力比例缩放"；M4 清扫）。
+        /// 缺省两端都是 1（不缩放，与未声明等价）。倍率随蓄力比例线性插值：<c>min + (max − min) × 比例</c>。
+        /// </summary>
+        public double ValueScaleMin { get; }
+
+        public double ValueScaleMax { get; }
+
         public TimelineCharge(double minMs, double maxMs)
+            : this(minMs, maxMs, 1.0, 1.0)
+        {
+        }
+
+        public TimelineCharge(double minMs, double maxMs, double valueScaleMin, double valueScaleMax)
         {
             MinMs = minMs;
             MaxMs = maxMs;
+            ValueScaleMin = valueScaleMin;
+            ValueScaleMax = valueScaleMax;
         }
+
+        /// <summary>给定蓄力比例（0～1）的效果值倍率。</summary>
+        public double ValueScaleAt(double ratio) => ValueScaleMin + (ValueScaleMax - ValueScaleMin) * ratio;
     }
 
     /// <summary>一个时间标记（手感设计/01 第 3.3 节）：<c>hit:&lt;段&gt;</c> 写法在解析时归一为名 <c>hit</c> + 参数 <c>segment</c>。</summary>
@@ -223,6 +241,12 @@ namespace Core.Rules.Skill
         /// <summary>目标辅助声明；null 即没有目标辅助。</summary>
         public TimelineTargetAssist? TargetAssist { get; }
 
+        /// <summary>
+        /// 显式的"这个动作带攻击"声明（<c>is_attack</c>，M4 清扫）：null 取按技能内容的推断（含伤害类/投射物效果，或有 hit/release 标记），
+        /// 真/假直接覆盖推断——例如发射治疗投射物的动作写 false，使反馈侧不为它开挥空窗口。
+        /// </summary>
+        public bool? IsAttack { get; }
+
         /// <summary>三相之和（毫秒，不含蓄力）。</summary>
         public double TotalMs => StartupMs + ActiveMs + RecoveryMs;
 
@@ -264,7 +288,33 @@ namespace Core.Rules.Skill
             double sampleStepMs,
             double rehitIntervalMs,
             TimelineTargetAssist? targetAssist)
+            : this(
+                source, charge, startupMs, activeMs, recoveryMs, markers, cancelWindows, combo, hitPolicy, costAt, cooldownAt,
+                motion, feelRef, hitMode, sampleStepMs, rehitIntervalMs, targetAssist, null)
         {
+        }
+
+        public TimelineDef(
+            TimelineSource source,
+            TimelineCharge? charge,
+            double startupMs,
+            double activeMs,
+            double recoveryMs,
+            IReadOnlyList<TimelineMarker> markers,
+            IReadOnlyList<TimelineCancelWindow> cancelWindows,
+            TimelineCombo? combo,
+            TimelineHitPolicy hitPolicy,
+            TimelineCostAt costAt,
+            TimelineCooldownAt cooldownAt,
+            ActionMotion? motion,
+            string? feelRef,
+            TimelineHitMode hitMode,
+            double sampleStepMs,
+            double rehitIntervalMs,
+            TimelineTargetAssist? targetAssist,
+            bool? isAttack)
+        {
+            IsAttack = isAttack;
             HitMode = hitMode;
             SampleStepMs = sampleStepMs;
             RehitIntervalMs = rehitIntervalMs;
@@ -297,7 +347,15 @@ namespace Core.Rules.Skill
             TimelineCharge? charge = null;
             if (obj.TryGetValue("charge", out var chargeVal) && chargeVal is JsonObject chargeObj)
             {
-                charge = new TimelineCharge(Num(chargeObj, "min_ms"), Num(chargeObj, "max_ms"));
+                var scaleMin = 1.0;
+                var scaleMax = 1.0;
+                if (chargeObj.TryGetValue("value_scale", out var scaleVal) && scaleVal is JsonObject scaleObj)
+                {
+                    scaleMin = Num(scaleObj, "min");
+                    scaleMax = Num(scaleObj, "max");
+                }
+
+                charge = new TimelineCharge(Num(chargeObj, "min_ms"), Num(chargeObj, "max_ms"), scaleMin, scaleMax);
             }
 
             var markers = new List<TimelineMarker>();
@@ -398,7 +456,8 @@ namespace Core.Rules.Skill
             return new TimelineDef(
                 source, charge, Num(obj, "startup_ms"), Num(obj, "active_ms"), Num(obj, "recovery_ms"),
                 markers, windows, combo, hitPolicy, costAt, cooldownAt, motion, string.IsNullOrEmpty(feelRef) ? null : feelRef,
-                hitMode, Num(obj, "sample_step_ms"), Num(obj, "rehit_interval_ms"), assist);
+                hitMode, Num(obj, "sample_step_ms"), Num(obj, "rehit_interval_ms"), assist,
+                obj.TryGetValue("is_attack", out var isAttackVal) && isAttackVal is JsonBool isAttackBool ? isAttackBool.Value : (bool?)null);
         }
 
         private static ActionMotion ParseMotion(JsonObject m)

@@ -103,5 +103,12 @@ namespace Core.Rules.Common
         /// 行为等价于引入之前（没人读它）。真正接入的实现（<c>core/carriers/unit.WorldUnitAccess</c>）override 返回真实值。
         /// </summary>
         double GetHeightOffset(Id unitId) => 0.0;
+
+        /// <summary>
+        /// 平面点 <paramref name="point"/> 处的地面高度（世界单位，绝对脚下高度；手感落地 M4-W1b，ADR-0130 追加决定"地面坐标施法的落点高度"）：
+        /// 以 <paramref name="referenceUnitId"/> 所在地图为准。地面坐标施法没有"目标单位"，落点高度读它——三维射程与命中高度窗口的锚点都用它。
+        /// 默认接口成员恒返回 0（没有地形能力的实现、既有测试假实现行为不变）；<c>core/carriers/unit.WorldUnitAccess</c> 在声明了地形高度能力时 override 返回落点的地面高度。
+        /// </summary>
+        double GetGroundHeightAt(Id referenceUnitId, Vec2 point) => 0.0;
     }
 }

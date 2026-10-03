@@ -5,9 +5,8 @@
 // AudioMixer 需要一份预先在编辑器里手工创建、提交进版本库的 .mixer 资产，与本框架"L-1 引擎
 // 实现不依赖任何手工编辑的场景/预制体资产"的一贯做法不符；简单乘算（最终音量 = 调用方传入的
 // volume × 对应总线的当前音量）在代码里就能完整表达 02 第 1.4 节"总线音量分别控制音量"的语义，
-// 且更容易被 EditMode/PlayMode 测试直接断言。已知限制：SFX 是一次性播放，播放期间总线音量变化
-// 不会更新"已经在播的那次"音量（只影响之后新播放的），与 StubAudio 记录调用参数、不做进一步
-// 混音的最小实现精神一致；音乐总线音量变化会实时生效（见 Tick）。
+// 且更容易被 EditMode/PlayMode 测试直接断言。总线音量变化对已经在播的 SFX（含循环音效）与音乐都
+// 实时生效：SFX 在 SetBusVolume 里按池位记下的"调用方音量"重算，音乐在 Tick 里重算。
 //
 // 对象池：SFX 用 AudioSource 对象池（父物体下的子 GameObject，用完不销毁、下次复用），
 // 音乐用两个专用 AudioSource（用于 fadeIn/fadeOut 交叉淡入淡出）。
@@ -26,6 +25,10 @@ namespace Adapter.Unity.EngineAdapter
             public AudioSource Source = null!;
             public int Handle;
             public bool Active;
+
+            /// <summary>调用方传入的音量（未乘总线音量），<see cref="SetBusVolume"/> 据此对仍在播的音效
+            /// 重算最终音量（总线变化实时生效，循环音效尤其需要）。</summary>
+            public double BaseVolume;
         }
 
         private readonly Transform _root;
@@ -116,6 +119,7 @@ namespace Adapter.Unity.EngineAdapter
                 slot.Source.spatialBlend = 0f;
             }
 
+            slot.BaseVolume = volume;
             slot.Source.volume = (float)(volume * _busVolumes[AudioBus.Sfx]);
             slot.Source.pitch = (float)pitch;
             slot.Source.loop = loop;
@@ -222,9 +226,26 @@ namespace Adapter.Unity.EngineAdapter
             _musicFadeTo = 0;
         }
 
+        /// <summary>设置总线音量。判断记录（NF2）：Sfx 总线音量
+        /// 变化立即对仍在播的音效池位重算最终音量（<c>调用方音量 × 新总线音量</c>），不再等到下一次播放——
+        /// 循环音效（ADR-0089）会持续数秒到数分钟，设置面板拖音量条时必须听得到变化；一次性音效同理。
+        /// 只写仍标记 <c>Active</c> 的池位（已回收的池位下次 <see cref="PlaySfx"/> 会重新赋值）。</summary>
         public void SetBusVolume(AudioBus bus, double volume)
         {
             _busVolumes[bus] = volume;
+            if (bus != AudioBus.Sfx)
+            {
+                return;
+            }
+
+            for (var i = 0; i < _sfxPool.Count; i++)
+            {
+                var slot = _sfxPool[i];
+                if (slot.Active && slot.Source != null)
+                {
+                    slot.Source.volume = (float)(slot.BaseVolume * volume);
+                }
+            }
         }
 
         /// <summary>U3 新增：非契约诊断读取（同 <see cref="PlaySfxCallCount"/> 一类"引擎实现之间的
@@ -244,7 +265,7 @@ namespace Adapter.Unity.EngineAdapter
         internal AudioSource InactiveMusicSource => _musicUsingA ? _musicSourceB : _musicSourceA;
 
         /// <summary>由 UnityEngineHost.Update 每帧调用：推进音乐淡入淡出、把总线音量实时应用到正在
-        /// 播放的音乐（SFX 总线音量只影响新播放，见类型顶部判断记录），并回收自然播放结束的 SFX 池位
+        /// 播放的音乐（SFX 总线音量在 SetBusVolume 里直接应用到在播池位，见该方法判断记录），并回收自然播放结束的 SFX 池位
         /// （R10 根治，见 <see cref="ReclaimFinishedSfxSlots"/>）。</summary>
         internal void Tick(double deltaSeconds)
         {

@@ -1,0 +1,133 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.range_action",
+    "scriptVersion": 1,
+    "description": "空间扩展·动作式结算的三维射程（手感落地 M4-W1b）：同 space.range_3d 的场景（悬空的远靶、取最近的目标链、射程 3），再打开命中窗口的射程门（spatialRangeHitWindow）；第二次出手前先等第一个动作收招再走近（动作期间移动被锁，所以走近安排在动作结束之后）。目标选择式格子在施法时校验三维射程；动作式（时间线）格子里命中窗口每次结算时校验同一条规则——远处出手时三维距离 sqrt(2.5² + 2.5²) = 3.54 超过射程 3，命中窗口不选它；走近之后进了射程，选中。两种结算方式在\"谁被命中\"上一致。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 150,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "far_high"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_pick"
+    },
+    "spaceExt": {
+      "spatialRange": true,
+      "spatialRangeHitWindow": true
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 40,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "tick": 70,
+      "action": "input.action.move",
+      "kind": "axis",
+      "value": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "tick": 95,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 96,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "one_hit_in_every_cell",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "attack.damage_events",
+      "op": "eq",
+      "value": 1,
+      "note": "两种结算方式在\"谁被命中\"上一致：出手时超射程的那下不命中，走近后的那下命中，合计一次伤害。"
+    },
+    {
+      "id": "targeted_far_cast_rejected",
+      "cells": [
+        "side_2d_targeted",
+        "volume_targeted"
+      ],
+      "metric": "attack.cast_failed_reasons",
+      "op": "eq",
+      "value": "OutOfRange:1",
+      "note": "目标选择式：施法时三维射程校验，远处出手被拒绝。"
+    },
+    {
+      "id": "action_far_swing_misses_not_fails",
+      "cells": [
+        "side_2d_action",
+        "volume_action"
+      ],
+      "metric": "attack.cast_success",
+      "op": "eq",
+      "value": 2,
+      "note": "动作式：两次出手都成功起手，第一次的命中窗口因超射程没选中目标（不是施法失败）。"
+    },
+    {
+      "id": "hit_after_walking_in",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "spatialhit.confirm_ticks",
+      "op": "contains",
+      "value": "player>far_high",
+      "note": "走近后的那下命中悬空的远靶。"
+    }
+  ]
+}

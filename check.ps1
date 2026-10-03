@@ -526,6 +526,13 @@ if ($LogFile -ne "") {
     }
 }
 trap {
+    # 非正常终止也留耗时记录（toolchain/_gate_timing.ps1 Write-GateTimingOnAbort；同一次运行只写一次）。
+    if ((-not $NoTiming) -and (Get-Command Write-GateTimingOnAbort -ErrorAction SilentlyContinue)) {
+        $abortPhase = if ($TargetedMode) { "定向门禁" } else { "全量门禁" }
+        $abortResults = if ($null -ne $script:Results) { $script:Results } else { @() }
+        [void](Write-GateTimingOnAbort -RepoRoot $RepoRoot -Results $abortResults -Task $TimingTask `
+            -Phase $abortPhase -TotalStart $script:TimingScriptStart -Reason ([string]$_))
+    }
     if ($script:TranscriptStarted) {
         try { Stop-Transcript | Out-Null } catch {}
         $script:TranscriptStarted = $false
@@ -1287,6 +1294,7 @@ if ($VersionLabel -ne "") {
 
 # 耗时自动记录（判断记录 10)）：通过/失败都写；写入失败不影响门禁结论，只在汇总末尾打一行警告。
 if (-not $NoTiming) {
+    $script:GateTimingWritten = $true
     $timingPhase = if ($TargetedMode) { "定向门禁" } else { "全量门禁" }
     $timingResult = if ($exitCode -eq 0) { "PASS" } else { "FAIL" }
     $timingError = Write-GateTimingFromRun -RepoRoot $RepoRoot -Results $script:Results -Task $TimingTask `

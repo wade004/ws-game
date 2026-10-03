@@ -63,9 +63,26 @@ namespace Tests.Rules.Common
             Assert.Equal(skillId, value.AsId);
         }
 
+        /// <summary>NF1：combat.hit_confirmed 的 attackInstanceId 经 Expr 暴露（与 combat.damage_dealt/attack_avoided 的同名字段可互相关联）。</summary>
+        [Fact]
+        public void CombatHitConfirmedEvent_ExposesAttackInstanceIdToExpr()
+        {
+            var attackInstanceId = new Id("attack_instance.7");
+            var evt = new CombatHitConfirmedEvent(
+                attackInstanceId, 0, new Id("unit.hero"), new Id("unit.wolf"), null, HitResult.Hit,
+                10.0, 0.1, false, false, new Vec2(1, 0), new Vec2(-1, 0), new Vec2(1, 0), "light", 0, 0, HitReaction.None);
+
+            Assert.True(evt.TryGetField("attackInstanceId", out var value));
+            Assert.Equal(attackInstanceId, value.AsId);
+            // 同一批次的三类命中事件取到同一个 Id，才能按批次关联。
+            var avoided = new CombatAttackAvoidedEvent(new Id("unit.hero"), new Id("unit.wolf"), new Id("school.fire"), HitResult.Dodge, null, attackInstanceId);
+            Assert.True(avoided.TryGetField("attackInstanceId", out var avoidedValue));
+            Assert.Equal(value.AsId, avoidedValue.AsId);
+        }
+
         /// <summary>ADR-0098：直接构造级校验（Resolver 侧的发布点覆盖见
         /// core/rules/combat/tests/ResolverHitTableTests.cs）——Key、五个 Expr 可读字段、可空
-        /// attackInstanceId 不经 Expr 暴露。</summary>
+        /// attackInstanceId 经 Expr 暴露（NF1）。</summary>
         [Fact]
         public void CombatAttackAvoidedEvent_CarriesKeyAndFields()
         {
@@ -95,8 +112,13 @@ namespace Tests.Rules.Common
             Assert.True(evt.TryGetField("skillId", out var skillValue));
             Assert.Equal(skill, skillValue.AsId);
 
-            // attackInstanceId 不经 IExprReadableEvent 暴露（同 CombatDamageDealtEvent 既有惯例）。
-            Assert.False(evt.TryGetField("attackInstanceId", out _));
+            // NF1：attackInstanceId 经 IExprReadableEvent 暴露（同 CombatDamageDealtEvent），可按攻击实例做 Expr 条件过滤。
+            Assert.True(evt.TryGetField("attackInstanceId", out var instanceValue));
+            Assert.Equal(attackInstanceId, instanceValue.AsId);
+
+            // 不变量：没有攻击实例（不经施法管线的结算）时仍查不到，不返回占位值。
+            var withoutInstance = new CombatAttackAvoidedEvent(source, target, school, HitResult.Dodge, skill);
+            Assert.False(withoutInstance.TryGetField("attackInstanceId", out _));
         }
 
         /// <summary>可空 skillId 未提供时，TryGetField("skillId") 查不到（同

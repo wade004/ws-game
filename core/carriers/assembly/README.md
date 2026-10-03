@@ -228,7 +228,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 10. **运动层的 `MotionServices.Actions` 取技能宿主的 `ActionStateQuery`**：时间线动作进行中运动模式为 `Action`。
 11. **`SkillOptions.ActionStepSeconds` 绑定**：启用手感时被写成手感步长（`CarriersFeelOptions.StepSeconds`，缺省取传入的 `SkillOptions` 值）；经 `GameplayAssembly` 装配时步长取时钟宿主 `StepSeconds`，显式给了不同值抛异常。
 
-已知限制（逐条交代）：未映射 `skill_slot` 的已声明类别动作会留在缓冲里直到过期，若恰为最前候选会挡住优先级更低的候选；时间线自己在取消窗口里拉取的记录不经出口，不做接受时朝向对齐；没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`；本地玩家绑定在 `PresentationAssembly` 构造时固定。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
+M4 清扫（取代本段原"已知限制"四项）：①未映射 `skill_slot` 的已声明类别动作不再挡路：`BufferedActionIntentSink` 实现 `IBufferedIntentSink.CanHandle`（没有技能映射的记录为假），缓冲出口与时间线取消窗口的拉取都先把这类记录剔出候选，它们留在缓冲里直到自己的窗口过期（供游戏自己的消费者取用，不被丢弃）；②时间线在取消窗口里拉取的记录同样做接受时朝向对齐（记录要求对齐且带按下瞬间方向快照时，在取消进入被接受的那一刻对齐，与缓冲出口同口径）；③设计决定：没有生产的"剪辑标记来源"（clip marker），时间线标记只来自数据里 `timeline.markers`——理由：运行时判定只读 `skill.def.timeline`（手感设计/01 第 3.2 节、04 第 5 节），剪辑事件只在创作期由导入工具拷进数据，让动画剪辑事件进入判定会让判定依赖引擎动画时序；④设计决定：本地玩家绑定在 `PresentationAssembly` 构造时固定——理由：HUD、动作栏、任务、对话、技能书、相机与输入绑定共用同一个构造期玩家 id（`PlayerUnitProvider` 构造时取一次），只让手感部分跟着换会与这些视图不一致，切换被控角色 = 重建表现装配。Unity 宿主引导（`GameFoundationBootstrap`/`FrameworkResidentHost`）已走 `GameplayAssembly` 的最长构造重载并透传 `FeelOptions`（缺省为空即不开手感，行为不变）；已被输入缓冲声明类别的动作不再由引擎直接提交 `cast` 意图、改经施法出口提交，未声明类别的动作仍直接提交（见 `adapters/unity/Packages/com.gamefoundation.adapter.unity/README.md` "手感落地 M2-A：引擎侧手感生产接线"一节）。
 
 ## 手感落地 S11：时间线目标辅助接进生产装配（2026-10-02）
 
@@ -245,8 +245,6 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 2. **"普攻"的识别（设计层待确认）**：缺省所有类别为 `attack` 的动作都跟随武器；游戏另有自带 `skill_slot` 的攻击类动作（重击、蓄力等）时会被武器抢走，须用新增选项 `CarriersFeelOptions.AutoAttackActions` 点名真正的普攻动作，其余攻击类动作始终走槽位绑定。理由：框架无法从数据区分"普攻"与"另一个攻击键"，缺省取最常见情形（一个攻击键）并留出显式开关。
 3. **换装链在生产装配里构造**：已知单位集合取世界全部实体（`save.loaded` 时按此对账）；`CarriersFeelSystem.WeaponChain` 暴露它，`Dispose` 一并释放。此前生产装配从不构造这条链，`feel.weapon_changed` 只在实验室里发布。
 4. **向后兼容**：旧构造函数、`Binding`（槽位绑定）属性与 `BufferedActionIntentSink` 的旧构造重载均保留；不启用手感时一行不装配。
-5. **已知限制**：同上文既有限制（手感数据热重载已在 M2-B 接线，标定热换在 M3-B 接入）。
-
 用例见 `presentation/assembly/tests/FeelProductionWeaponChainTests.cs`（经真实 `PresentationAssembly` 与输入映射：单手剑、双手剑、空手的相位 tick 数与武器族均由数据与标定规则算出）。
 
 ## 手感落地 M2-B：手感核心侧缺口（2026-10-02）
@@ -258,7 +256,7 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 3. **光环层数叠乘**：见 `core/rules/assembly/README.md` M2-B 节（`AuraSnapshot.InstanceId` 与 `FeelTemporaryEntry.Stacks`）；`AuraFeelTemporaryProvider` 条目键改为光环实例 id，并订阅 `aura.stack_changed` 使缓存失效。
 4. **换装链的单位状态口径**：`EquipmentFeelChain` 订阅 `entity.destroyed`（忘掉对账状态）与 `entity.created`（对账一次，没有武器的未跟踪单位不建记录也不发事件）。与表现侧 `EquipmentPoseBridge` 在销毁时清理姿势选择器配对：同 id 重建的单位（如换图重建的玩家）重新对账并重发 `feel.weapon_changed`，武器族补回；`save.loaded` 对账抽成公开的 `ReconcileAll(reason)`，路径不变。
 
-已知限制（逐条交代）：热加载依赖宿主发布 `data.load_completed`（M2-B 起的约定，M3-B 后宽限条件表与标定行变化同样走这一条）。其余 M2-B 时代的限制已在 M3-B 全部解除，见下节。
+设计决定（M4 清扫，由"已知限制"改写）：热加载依赖宿主发布 `data.load_completed`（M2-B 起的约定，M3-B 后宽限条件表与标定行变化同样走这一条）。理由：数据注册表的重载入口不属于手感模块，由重载它的宿主在成功后补发完成事件是全仓开发期热加载的统一惯例（订阅方不轮询文件）。其余 M2-B 时代的限制已在 M3-B 全部解除，见下节。
 
 ## 手感落地 M3-B：宽限窗口与手感热重载的已知限制全部解除（2026-10-02）
 
@@ -272,8 +270,41 @@ false)`——不依赖三参重载的默认值，装备授予的临时语义不�
 
 用例见 `core/gameplay/assembly/tests/FeelGraceCompleteTests.cs`（五项各带"量从 X 变到 Y"的复现与不变量，边界由 `grace_ms` 换算规则算出）、`core/foundation/input_map/tests/GraceRemainingAndRegistrationTests.cs`、`core/foundation/feel/tests/FeelCalibrationHotSwapTests.cs`，以及 `presentation/camera/tests/CameraFeelTests.cs`、`presentation/feedback_binder/tests/ImpactPipelineTests.cs` 里的实时参考高度用例。
 
-已知限制：地面施法的宽限条件须由游戏声明得能表达"落点/目标刚才还够得着"（框架不为地面坐标自动推导可达条件）；缺省 Expr 求值器的目标来源取自动攻击目标（游戏有自己的目标概念时经 `GraceTargetResolver` 提供）；单位很多时自动登记会给每个单位建一份空缓冲（可经 `AutoRegisterGraceActors = false` 关闭）。
+地面施法的宽限条件："落点/目标刚才还够得着"由框架内置条件直接表达（`input.grace.builtin_aim_in_range` / `..._line_of_sight` / `..._reachable`，见 M4-G 节），游戏在动作的 `grace_conditions` 里引用即可，不需要自己声明（M4-W3 起这不再算限制）。
 
 ## 手感落地 M3-E1：竖直轴装配与击飞接线（2026-10-02）
 
 只做加法：`CarriersAssembly` 在 `MovementOptions.Vertical` 非空时创建 `VerticalMotionHost`、挂 `VerticalMotionTickHandler`（紧随 `MovementTickHandler`，同在 `MovementAndNavigation` 阶段）并暴露只读属性 `VerticalMotion`；`CarriersFeelAssembly` 在打通受击裁决与运动层之后，`VerticalMotion` 是 `ILaunchSink` 时把它接到 `HitFeelHost.Launch`（没有竖直轴时不接，档案里的 `launch_height` 被忽略）。`HeadlessWorldBuilder` 新增 `MovementOptions`/`TargetingOptions` 透传属性（缺省 null，原路径不变）。判断记录与已知局限见 unit README、targeting README、combat README 的 M3-E1 节。
+
+## 手感落地 M4-G：宽限的施法瞄点、框架内置条件与惰性登记（2026-10-03）
+
+1. **框架内置宽限条件**：`data/_framework/found/found.grace_condition.json` 三行（`input.grace.builtin_aim_in_range` / `..._line_of_sight` / `..._reachable`），表达式读 `event.aim_*`（`GraceAimContext`：`has_aim`、`aim_distance`、`aim_range`、`aim_in_range`、`aim_line_of_sight`、`aim_is_ground`，字段惰性计算）。游戏在动作的 `grace_conditions` 里直接引用；不引用则不采样，行为与引入前逐位一致。
+2. **缺省求值器优先用施法携带的目标**：`target` 分组的来源优先级为：`CarriersFeelOptions.GraceTargetResolver`（给出非空即用，且游戏提供了覆盖后不再回落到自动攻击目标）-> 本次施法请求携带的单位目标 -> 自动攻击的当前目标。地面施法的瞄点是落点（`aim_is_ground`），`target` 不绑定。新增构造重载 `ExprGraceConditionEvaluator(registry, hosts, schema, targetResolver, fallbackTarget, aimServices)`，旧构造原样保留并转调。
+3. **射程来源**：请求自己带的技能射程优先（`SkillHost.GetSkillRange` 新增）；输入动作路径下取引用该条件的动作绑定技能的射程，多个动作共用一条条件时取最小正射程。
+4. **缓冲惰性分配**：没有任何动作声明宽限条件时，生产装配不给世界里的单位建缓冲；条件由空变非空（`InputBufferHost.GraceConditionsDeclared`，含数据热加载）时才补登记已有单位，之后出生的单位在 `entity.created`（下一个 tick 派发）时登记。`AutoRegisterGraceActors = false` 仍整体关闭。
+
+判断记录（本节编号）：
+
+1. **瞄点只改变"依赖目标"的条件的归属**：见 `core/foundation/input_map/README.md` M4-G 节。
+2. **用 `event` 分组承载瞄点上下文而不新增分组**：Expr 分组固定为九个，`event` 本就是"触发事件字段"的分组，`FullExprSchema` 对 `event.*` 宽松放行，不改 schema、不增加接口。
+3. **共用条件取最小正射程**：宁严勿松，避免一个射程短的动作借用另一个射程长的动作的历史。
+
+用例见 `core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（各项"量从 X 变到 Y"的复现与不变量）与 `core/foundation/input_map/tests/GraceAimTests.cs`。
+
+M4-G 留下的四条限制已在 M4-W3 逐条收口（见下一节）；本节没有遗留限制。
+
+## 手感落地 M4-L：换装版本的单一失效源（2026-10-02）
+
+`CarriersFeelAssembly` 不再订阅 `item.equipped`/`item.unequipped` 对每次穿脱无差别 `Invalidate("equipment_changed")`。根因：换装链（`EquipmentFeelChain`）按"主手/副手武器引用与武器族是否变化"对账并自己失效（设计上换护甲、换饰品不影响手感解析，手感设计/08 第 1 节），装配里那两条订阅与它叠加——武器变化版本号 +2，穿胸甲也 +1（实验室换装场景改走生产装配后 `equip.feel_version_deltas` 暴露，见 `lab/README.md` 判断记录 21）。现在换装链是装备相关解析失效的唯一来源；光环层数变化、实体销毁等其它失效源不变。装备带来的光环（套装加成）经 `aura.applied` 照常失效。
+
+## 竖直轴能力包补完：装配接线（2026-10-03，M4-V）
+
+只做加法：`CarriersAssembly` 把竖直运动服务交给 `MovementTickHandler.VerticalAxis`（空中控制缩放、地形台阶阻挡经它读取；没有竖直轴时为 null，路径不变）；`CarriersFeelAssembly` 在 `VerticalMotion` 是 `IAirborneQuery` 时把它接到 `HitFeelHost.Airborne`（空中受击反应的判据）。`HeadlessWorldBuilder` 新增 `SkillOptions` 透传属性（缺省 null）。判断记录见 unit/combat/skill README 的同名补完节。
+
+## 手感落地 M4-W3：宽限的链式瞄点、无头世界视线与惰性登记收口（2026-10-03）
+
+1. **链式解析的目标记为瞄点**：见 `core/foundation/input_map/README.md` M4-W3 节第 1 条（`CastPipeline` 在目标链解析之后经同一个 `NoteGraceAim` 出口上报）。
+2. **瞄点只对携带宽限条件的请求记录是设计决定**：见同一节第 2 条（宽限是声明式的，不声明就不产生副作用）。
+3. **显式 `RegisterActor` 惰性分配**：见同一节第 3 条；生产装配的自动登记口径不变（`AutoRegisterGraceActors`、"没有声明就不登记"）。
+4. **无头世界的视线（可选，缺省关闭）**：`HeadlessWorldOptions.NavigationLineOfSight`（缺省 false）为真时，`StubSpatialQuery.HasLineOfSight` 取自 `Navigation` 的阻挡判定（`StubSpatialQuery.UseNavigationLineOfSight(navigation, mapId)`：`navigation.Raycast(...)` 非空即被遮挡，`INavigation2D.Raycast` 契约本就写明视线受阻即其返回值非空；静态地形阻挡与运行期动态阻挡 `SetBlocking`/`AddBlocking`/`RemoveBlocking` 都在每次查询时读取、立刻生效）。**缺省关闭的理由**：打开后隔墙施法会因步骤 7 的视线检查失败（`NoLineOfSight`），带阻挡的既有脚本与基线会因此变化；视线只是需要验证遮挡的测试/脚本按需打开的能力，同 `SpatialRange` 等空间能力的做法（核心层可选、缺省关）。为真而没有提供 `Navigation` 时装配抛 `ArgumentException`（没有阻挡数据可依据，不静默当作畅通）。测试用它验证内置视线条件（`FeelGraceBuiltinTests`：`NavigationLineOfSight_SeesTheWall_AndTheDefaultStaysUnblocked`、`BuiltinLineOfSight_GraceCoversAWallThatJustAppeared_OnlyInsideTheWindow`、`NavigationLineOfSight_WithoutANavigation_FailsLoudly`——墙刚出现时宽限在窗口内放行、窗口外按真实遮挡拒绝；缺省世界视线仍畅通）。实验室没有依赖视线的脚本，也不打开它（打开会让带竖墙/阻挡的既有脚本基线变化），所以实验室不使用；引擎侧 `UnitySpatialQuery.HasLineOfSight` 本来就接到导航遮挡判定（见其类型注释），无头与引擎的口径一致。
+5. **接线**：`RulesFeelAssembly` 把受击裁决宿主的战斗状态查询接到 `CombatHost.IsInCombat`（韧性回复模式 `out_of_combat` 用，见 combat README M4-W3 节）；`FeelWiringEndToEndTests.PoiseRecoverMode_OutOfCombatReadsTheCombatHostsStateThroughTheProductionWiring` 钉死生产装配的接线（被通知战斗事件后为真、战斗宿主判定脱战后为假）。

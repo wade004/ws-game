@@ -6,7 +6,7 @@
 // DOC-111-04 更新：此前本记录声称"ViewBinder/CameraHost 不支持退订"，已过期，见下）：
 // presentation/view_binding/core/ViewBinder.cs 现已实现 IDisposable（构造期保存全部订阅句柄，
 // Dispose 时统一退订，见该类型判断记录），GameFoundationBootstrap.OnDestroy 也会先调用
-// Presentation.Dispose() 完成退订；"ViewBinder 不支持退订"已不是 presentation/ 的已知缺口，
+// Presentation.Dispose() 完成退订；"ViewBinder 不支持退订"不再是缺口，
 // 这部分不再需要引擎侧代为兜底。DestroyAllCreatedViews 仍然保留，因为它解决的是另一件事——
 // 事件退订（停止继续响应）与销毁已创建的 View 实体（回收其占用的引擎资源）是两个独立职责：
 // ViewBinder.Dispose 退订后，此前已经创建好的 View（其 Sprite 实例挂在 DontDestroyOnLoad 的
@@ -74,8 +74,12 @@ namespace Adapter.Unity.Presentation
         /// <see cref="AnimClipResolver"/> 查表查不到变体键时自然回落普通键。所有按默认键遍历的接线点（默认
         /// 剪辑登记、逐层探测、换向重探测、换装/合成层变化重探测、逐层缓存重登记）一律经本方法取键表，
         /// 键表定义只有这一处；没有变体键的外形返回的恰好就是 <see cref="DefaultAnimStateKeys"/>，与改动前
-        /// 逐项一致。<paramref name="animSet"/> 为 null（该外形没有 anim_set 行）同样只返回基础键。</summary>
-        private static IReadOnlyList<string> AnimStateKeysFor(Core.Foundation.DisplayInfo.AnimSetDef? animSet)
+        /// 逐项一致。<paramref name="animSet"/> 为 null（该外形没有 anim_set 行）同样只返回基础键。
+        /// <para>NF2：外形声明了无后缀的 <c>jump</c> 键时它也进键表（紧跟基础键之后）。此前只有带后缀的 <c>jump.*</c> 与
+        /// <c>combat_jump</c> 能进键表，无后缀的 <c>jump</c> 永远不登记——空中阶段键 <c>jump.rise|fall</c> 缺失时回落链的
+        /// 下一站 <c>jump</c> 在表里查不到，直接掉到 <c>idle</c>（<c>jump.land</c> 本就回落 <c>idle</c>）；游戏自己
+        /// <c>RequestOverride(Jump)</c> 也什么都不播。没声明 <c>jump</c> 的外形得到的键表与改动前逐项一致。</para></summary>
+        internal static IReadOnlyList<string> AnimStateKeysFor(Core.Foundation.DisplayInfo.AnimSetDef? animSet)
         {
             if (animSet == null)
             {
@@ -83,6 +87,12 @@ namespace Adapter.Unity.Presentation
             }
 
             List<string>? keys = null;
+            var plainJump = AnimClipResolver.StateKey(AnimState.Jump);
+            if (animSet.Clips.ContainsKey(plainJump))
+            {
+                keys = new List<string>(DefaultAnimStateKeys) { plainJump };
+            }
+
             var states = (AnimState[])Enum.GetValues(typeof(AnimState));
             for (var i = 0; i < states.Length; i++)
             {
@@ -489,7 +499,8 @@ namespace Adapter.Unity.Presentation
         // _pendingWeaponClipWaiters 登记同一 clipId 被多个实体的播放器共同引用时的全部等待方（同
         // _pendingAnimClipWaiters 一贯惯例，避免只升级最早发起加载的那一个播放器）。
         private readonly HashSet<Id> _pendingWeaponClipResourceLoads = new HashSet<Id>();
-        private readonly Dictionary<Id, List<UnityFrameAnimPlayer>> _pendingWeaponClipWaiters = new Dictionary<Id, List<UnityFrameAnimPlayer>>();
+        private readonly Dictionary<Id, List<(UnityFrameAnimPlayer Player, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> Events)>> _pendingWeaponClipWaiters =
+            new Dictionary<Id, List<(UnityFrameAnimPlayer, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>)>>();
 
         private static Sprite? _fallbackFrame;
 
@@ -850,6 +861,11 @@ namespace Adapter.Unity.Presentation
             // ADR-0112：方向准备闸门——期望方向的槽位相对已显示方向变化时，视图每帧询问该方向是否已经准备
             // 完成（只加载、不改显示），有结论才当帧提交，见 UnityViewFactory.DirectionPrepare.cs 顶部判断记录。
             view.DirectionPreparer = (facing, slotId, flipX) => PrepareDirectionForView(entityId, facing, slotId);
+
+            // NF2：没有纸娃娃层的外形，初始方向（挂接期默认朝向的槽位）的整身方向变体在挂接时就探测一次——此前只有
+            // 方向发生变化才探测，初始方向永远只用无方向段的 resource_ref，随外形带 "<ref>__<初始方向>" 美术时要等
+            // 第一次换向（换走再换回）才生效。
+            ProbeInitialDirectionWholeBody(entityId);
 
             // GP-02 根治（architecture/落地计划/audit-b3b91ee-20260907/code-review.md）：此前默认
             // 工厂只接了 StateChanged -> Play 这一半（见 AnimClipResolver），播放完成后从不回头通知
@@ -1404,6 +1420,36 @@ namespace Adapter.Unity.Presentation
             });
         }
 
+        /// <summary>NF2：挂接时对初始方向做一次整身方向变体探测（候选规则、缓存、登记与 <see cref="ReprobeWholeBodyClipForDirection"/>
+        /// 完全一致，换向重探测命中同一份 (实体, 方向) 缓存）。判断记录：只对没有纸娃娃层的外形生效
+        /// （<c>ActivePerLayerByState == null</c>，整身路线是唯一的视觉内容）；纸娃娃层外形的初始方向由挂接期逐层探测
+        /// 负责，逐层全部耗尽时的整身方向变体沿用既有路径。不改 <c>LastDirBareName</c>、不计入
+        /// <see cref="DirectionAwareReprobeCountForTests"/>——这不是一次"方向变化"。没有 anim_set、加载器不是真实
+        /// <c>UnityResourceLoader</c> 时静默跳过（与 <see cref="ReprobeDirectionAwareAnimation"/> 同一惯例）。</summary>
+        private void ProbeInitialDirectionWholeBody(Id entityId)
+        {
+            if (!_directionAwareAnimByEntity.TryGetValue(entityId, out var ctx)
+                || ctx.AnimSet == null || ctx.ActivePerLayerByState != null || ctx.Info.Sprite == null
+                || !(_resourceLoader is Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader))
+            {
+                return;
+            }
+
+            var dirBareName = InitialDirBareName(ctx.Info.Sprite);
+            var spriteSetId = Id.Parse(ctx.Info.Sprite.SpriteSetId);
+            var stateKeys = AnimStateKeysFor(ctx.AnimSet);
+            for (var i = 0; i < stateKeys.Count; i++)
+            {
+                var stateKey = stateKeys[i];
+                if (!ctx.AnimSet.Clips.TryGetValue(stateKey, out var clipDef) || !ctx.StateClipIds.TryGetValue(stateKey, out var stateClipId))
+                {
+                    continue;
+                }
+
+                ReprobeWholeBodyClipForDirection(entityId, dirBareName, stateKey, stateClipId, clipDef, ctx.Player, unityLoader, spriteSetId);
+            }
+        }
+
         /// <summary>
         /// ADR-0093 决策 1/3/5：<see cref="UnitySpriteView.DirectionSlotChanged"/> 钩子的处理方——
         /// <paramref name="newSlotId"/> 是 <see cref="IRenderConventionHost.ResolveDirectionSlot"/> 已经
@@ -1761,7 +1807,7 @@ namespace Adapter.Unity.Presentation
                 {
                     var strippedClip = AssetRefConventions.StripCategoryPrefix(clipId.Value);
                     var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
-                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedClip, dirBareName, clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId,
+                    ProbeComposedLayersSequential(unityLoader, ctx.Player, composedLayers, 0, strippedClip, dirBareName, clipId, OverrideClipEvents(entityId, clipId), layerMap, spriteSetId,
                         mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
                     ctx.ActivePerLayerByState[clipId] = layerMap;
                 }
@@ -2070,7 +2116,7 @@ namespace Adapter.Unity.Presentation
                 // 非纸娃娃层外形（或未装配 IEventBus 等既有静默跳过分支）：保留改动前的整身唯一路径。
                 if (unityLoader != null && unityLoader.TryGetEffect(clipId, out var effect))
                 {
-                    player.RegisterClipFromEffect(clipId, effect);
+                    player.RegisterClipFromEffect(clipId, effect, ComputeKeyframes(OverrideClipEvents(entityId, clipId), effect.Frames.Length));
                     return;
                 }
 
@@ -2085,7 +2131,7 @@ namespace Adapter.Unity.Presentation
                 if (unityLoader != null)
                 {
                     var spriteSetId = _spriteSetIdsByEntity.TryGetValue(entityId, out var ssid) ? ssid : null;
-                    RequestWeaponClipUpgrade(unityLoader, clipId, player, spriteSetId);
+                    RequestWeaponClipUpgrade(unityLoader, clipId, player, spriteSetId, OverrideClipEvents(entityId, clipId));
                 }
                 return;
             }
@@ -2185,7 +2231,7 @@ namespace Adapter.Unity.Presentation
             var key = (clipId, dirBareName);
             if (byKey.TryGetValue(key, out var cached))
             {
-                ReregisterOverrideClipPerLayerCacheHit(ctx.Player, clipId, cached);
+                ReregisterOverrideClipPerLayerCacheHit(ctx.Player, clipId, cached, OverrideClipEvents(entityId, clipId));
                 return cached;
             }
 
@@ -2193,7 +2239,7 @@ namespace Adapter.Unity.Presentation
             var layerMap = new Dictionary<string, PerLayerCacheEntry>(StringComparer.Ordinal);
             ProbeComposedLayersSequential(
                 unityLoader, ctx.Player, CurrentComposedLayersOrInitial(ctx), 0, strippedClip, dirBareName,
-                clipId, Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>(), layerMap, spriteSetId,
+                clipId, OverrideClipEvents(entityId, clipId), layerMap, spriteSetId,
                 mayRegister: () => IsDisplayedDirection(entityId, dirBareName));
             byKey[key] = layerMap;
             return layerMap;
@@ -2207,7 +2253,8 @@ namespace Adapter.Unity.Presentation
         /// 与 <see cref="TryResolveOverrideClipForCurrentComposition"/> 首次探测路径传
         /// <see cref="Array.Empty{T}"/> 同一结果）。</summary>
         private static void ReregisterOverrideClipPerLayerCacheHit(
-            UnityFrameAnimPlayer player, Id clipId, Dictionary<string, PerLayerCacheEntry> cached)
+            UnityFrameAnimPlayer player, Id clipId, Dictionary<string, PerLayerCacheEntry> cached,
+            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events)
         {
             foreach (var kv in cached)
             {
@@ -2220,7 +2267,7 @@ namespace Adapter.Unity.Presentation
                 player.RegisterClipFromEffect(entry.ClipId, entry.Effect, null, entry.ContentDir);
                 if (entry.IsFirstForState)
                 {
-                    player.RegisterClipFromEffect(clipId, entry.Effect, null, entry.ContentDir);
+                    player.RegisterClipFromEffect(clipId, entry.Effect, ComputeKeyframes(events, entry.Effect.Frames.Length), entry.ContentDir);
                 }
             }
         }
@@ -2269,7 +2316,7 @@ namespace Adapter.Unity.Presentation
             {
                 if (cachedEntry.Effect != null)
                 {
-                    player.RegisterClipFromEffect(clipId, cachedEntry.Effect, null, cachedEntry.ContentDir);
+                    player.RegisterClipFromEffect(clipId, cachedEntry.Effect, ComputeKeyframes(OverrideClipEvents(entityId, clipId), cachedEntry.Effect.Frames.Length), cachedEntry.ContentDir);
                     return true;
                 }
                 return false;
@@ -2291,7 +2338,7 @@ namespace Adapter.Unity.Presentation
                     byState[syntheticStateKey] = new WholeBodyCacheEntry(effect, contentDir);
                     if (IsDisplayedDirection(entityId, dirBareName))
                     {
-                        player.RegisterClipFromEffect(clipId, effect, null, contentDir);
+                        player.RegisterClipFromEffect(clipId, effect, ComputeKeyframes(OverrideClipEvents(entityId, clipId), effect.Frames.Length), contentDir);
                     }
                     resolvedSync = true;
                 },
@@ -2325,14 +2372,16 @@ namespace Adapter.Unity.Presentation
         /// <see cref="Core.Foundation.EngineAdapter.ResourceLoadHints"/> 传给加载器，取值/回退规则与
         /// <see cref="RequestAnimClipUpgrade"/> 完全一致——两者是同一份 <c>sprite_anim</c> 资源体系上
         /// 的同一套接线，缺其一就是半个修复。</summary>
-        private void RequestWeaponClipUpgrade(Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id clipId, UnityFrameAnimPlayer player, Id? spriteSetId)
+        private void RequestWeaponClipUpgrade(
+            Adapter.Unity.EngineAdapter.UnityResourceLoader unityLoader, Id clipId, UnityFrameAnimPlayer player, Id? spriteSetId,
+            IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> events)
         {
             if (!_pendingWeaponClipWaiters.TryGetValue(clipId, out var waiters))
             {
-                waiters = new List<UnityFrameAnimPlayer>();
+                waiters = new List<(UnityFrameAnimPlayer, IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec>)>();
                 _pendingWeaponClipWaiters[clipId] = waiters;
             }
-            waiters.Add(player);
+            waiters.Add((player, events));
 
             if (!_pendingWeaponClipResourceLoads.Add(clipId))
             {
@@ -2356,12 +2405,12 @@ namespace Adapter.Unity.Presentation
 
                 for (var i = 0; i < pendingWaiters.Count; i++)
                 {
-                    var waitingPlayer = pendingWaiters[i];
+                    var (waitingPlayer, waitingEvents) = pendingWaiters[i];
                     if (waitingPlayer == null)
                     {
                         continue;
                     }
-                    waitingPlayer.RegisterClipFromEffect(loadedId, loadedEffect);
+                    waitingPlayer.RegisterClipFromEffect(loadedId, loadedEffect, ComputeKeyframes(waitingEvents, loadedEffect.Frames.Length));
                 }
             };
 
@@ -2373,6 +2422,32 @@ namespace Adapter.Unity.Presentation
             {
                 unityLoader.LoadAsync(clipId, ResourceKind.Effect, onLoaded);
             }
+        }
+
+        /// <summary>武器风格/技能覆盖剪辑（<see cref="Presentation.VfxSfx.Contracts.WeaponStyleDef.CastAnimOverride"/>）的关键帧事件：
+        /// 覆盖剪辑的 clipId 就是资源引用本身，不在默认状态键表里，登记时没有 <c>AnimClipDef</c> 可取事件表；这里反查该实体所用
+        /// <c>display.anim_set</c>（合并继承链后）里 <c>resource_ref</c> 等于 <paramref name="clipId"/> 的剪辑，取它声明的事件
+        /// （如 <c>cast.quick</c> 的 <c>release</c>），换算成关键帧后与默认剪辑一样触发 <c>release</c>/<c>hit_frame</c>。
+        /// 此前覆盖剪辑一律登记空事件表，覆盖剪辑播放时引擎侧没有任何命中/释放事件。查不到（没有 anim_set、或 anim_set 里没有声明
+        /// 这份资源）时返回空表，与此前行为逐位一致。冷加载（异步升级）与热路径（缓存命中）都经本方法取事件，出口一致。</summary>
+        private IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> OverrideClipEvents(Id entityId, Id clipId) =>
+            _directionAwareAnimByEntity.TryGetValue(entityId, out var ctx) ? OverrideClipEvents(ctx.AnimSet, clipId) : Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>();
+
+        internal static IReadOnlyList<Core.Foundation.DisplayInfo.AnimClipEventSpec> OverrideClipEvents(
+            Core.Foundation.DisplayInfo.AnimSetDef? animSet, Id clipId)
+        {
+            if (animSet != null)
+            {
+                foreach (var clip in animSet.Clips.Values)
+                {
+                    if (clip.ResourceRef.Equals(clipId) && clip.Events.Count > 0)
+                    {
+                        return clip.Events;
+                    }
+                }
+            }
+
+            return Array.Empty<Core.Foundation.DisplayInfo.AnimClipEventSpec>();
         }
 
         /// <summary>ADR-0017 决策 c：把 <c>display.anim_set.clips[*].events</c>（时间轴百分比 + 裸
@@ -2433,6 +2508,11 @@ namespace Adapter.Unity.Presentation
 
             // ADR-0111：探针以闭包传入、每次调用读取 CombatProbe 当前值（未赋值时恒为非战斗）。
             _animStateMachine = new AnimStateMachine(_bus!, entityId => CombatProbe?.Invoke(entityId) ?? false);
+            // ADR-0130 追加决定（空中姿势）：姿势上下文带空中阶段时，状态机据此进出 Jump（没有 AirPoseFeeder 喂阶段时无任何影响）。
+            if (_poseContext != null)
+            {
+                _animStateMachine.AttachAirPhaseSource(_poseContext, subscribe: false); // 来源上只留解析器那一个订阅，由它驱动 ApplyAirPhase
+            }
             _animClipResolver = new AnimClipResolver(
                 _animStateMachine,
                 defaultClipsForEntity: entityId => _animClipsByEntity.TryGetValue(entityId, out var clips) ? clips : null,
@@ -2635,7 +2715,12 @@ namespace Adapter.Unity.Presentation
                 return;
             }
 
-            var clips = RegisterDefaultModelClips(info, view.EngineHandle);
+            var clips = RegisterDefaultModelClips(info, view.EngineHandle, out var animSet);
+            // 手感落地 M4-D（04 第 10 节）：切换剪辑的交叉淡入时长按该实体姿势集的 blend_ms/blends 取值（没有声明的剪辑仍取默认 0.15 秒）。
+            if (animSet != null && view.Rig is ModelCharacterRig modelRig)
+            {
+                modelRig.AnimBlendSource = animSet;
+            }
             _modelViewsByEntity[entityId] = view;
             _animClipsByEntity[entityId] = clips;
 
@@ -2669,8 +2754,14 @@ namespace Adapter.Unity.Presentation
         /// <see cref="RegisterModelClipEvents"/>）。数据集没有该 <c>_dataRegistry</c>、查不到该行，或
         /// 该行没有声明 <c>clips</c> 字段时返回空表——不抛异常，同表现层一贯宽容策略；查不到某个具体
         /// 状态时 <see cref="AnimClipResolver"/> 自然跳过那一次状态切换的播放，不特殊处理。</summary>
-        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle)
+        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle) =>
+            RegisterDefaultModelClips(info, handle, out _);
+
+        /// <summary>同上，另经 <paramref name="animSet"/> 返回合并继承链后的姿势集（M4-D：供挂接混合时长来源；查不到数据时为 null）。</summary>
+        private IReadOnlyDictionary<string, Id> RegisterDefaultModelClips(
+            Core.Foundation.DisplayInfo.DisplayInfo info, ModelHandle handle, out Core.Foundation.DisplayInfo.AnimSetDef? animSet)
         {
+            animSet = null;
             var result = new Dictionary<string, Id>(StringComparer.Ordinal);
             if (_dataRegistry == null || info.Model == null)
             {
@@ -2683,7 +2774,7 @@ namespace Adapter.Unity.Presentation
                 return result;
             }
 
-            var animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, _dataRegistry);
+            animSet = Core.Foundation.DisplayInfo.AnimSetDef.FromRecord(record, _dataRegistry);
             foreach (var kv in animSet.Clips)
             {
                 result[kv.Key] = kv.Value.ResourceRef;

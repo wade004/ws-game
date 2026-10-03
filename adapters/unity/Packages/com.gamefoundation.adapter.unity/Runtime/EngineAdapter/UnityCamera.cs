@@ -7,12 +7,22 @@
 // 借用 SetShaderParam 的 height_offset_px 工作绕）转换成纯视觉像素偏移，不是真正的第三根世界
 // 坐标轴（IRenderer3D 本迭代整体声明降级，见该类型注释，因此也不存在"3D 模型摆放需要真实高度
 // 轴"的真实需求）。据此，本相机保持正交投影、镜头朝向固定沿 -Z 轴看向 XY 平面：
-// Configure 的 pitchDegrees/yawDegrees 只记录配置值（供未来若干接口方法演进为真正透视投影时使用，
-// 当前渲染管线选型是 URP 2D Renderer，2D Renderer 不支持真正的透视俯角），不据此旋转相机，
-// 避免在 2D 渲染管线上做一个"看起来歪但不产生正确透视效果"的假动作；WorldToScreen 的
+// Configure 的 pitchDegrees/yawDegrees 缺省只记录配置值，不据此旋转相机（缺省行为与引入俯仰与透视之前逐位一致）；
+// 偏航、俯仰与透视都是显式打开的可选能力（ApplyYawRotation / ApplyPitch / Perspective，见各属性的判断记录）：
+// 声明了才生效，没声明就是原来的正交俯视。WorldToScreen 的
 // height 参数按与 IRenderer2D.SetTransform 一致的换算方向，直接作为世界 Y 方向的附加偏移量
 // （等效于"抬高的物体在画面上更靠上"）。
-// zoom 直接映射为正交相机的 orthographicSize（世界单位可视半高），zoomRange 即其合法区间。
+// zoom 直接映射为正交相机的 orthographicSize（世界单位可视半高），zoomRange 即其合法区间；透视模式下 zoom 仍是"焦点处地面的可视半高"
+// （相机距离 = zoom / tan(视场角/2)），所以按画面高度比例计的镜头冲击幅度在两种投影下语义一致。
+//
+// 判断记录（俯仰与透视，M4-W4；取代此前"2D 渲染管线不支持透视俯角、fixed_pitch 未实现"的缺口）：
+//   - 约定：俯仰角 pitchDegrees 以"正俯视 = 0"为基准（视线沿 +Z 垂直看向世界平面 XY），增大则相机向后倾（相机在焦点的 -Y 侧上方，
+//     视线朝 +Y 方向压低），范围夹在 [0, 89]；俯仰只改相机姿态与位置，偏航仍是绕世界 Z 轴的逆时针角度，最终姿态 = Rz(偏航) * Rx(-俯仰)。
+//     相机右轴恒在世界平面上（(cos yaw, sin yaw)，俯仰绕右轴转）；"屏幕上方"在世界平面上的投影方向恒为 (-sin yaw, cos yaw)，
+//     所以相机相对输入只需要偏航（见 ICameraOrientation），俯仰只把世界平面在屏幕上沿"上"方向压扁 cos(俯仰) 倍。
+//   - 渲染物仍然躺在世界平面（XY，Z = 0）上：精灵、特效是平面四边形，俯仰相机看到的是它们在地面上的透视投影（近大远小、纵向压扁），
+//     不做 billboard（让精灵朝向相机站起来）——那是渲染层的取舍，不在相机里偷偷做。
+//   - ScreenToWorld 对任意姿态都是"射线与 Z = 0 平面求交"；射线与平面平行（指向天空）或在相机身后返回 null，与契约一致。
 //
 // 判断记录（镜头冲击 ICameraImpulse，手感落地 M2-A，手感设计/07 第 2 节、05 第 7 节）：本类型同时实现可选能力接口
 // ICameraImpulse 且恒声明支持，表现层 CameraHost.Impulse 因此直接转发，不再退化为 Shake。
@@ -32,7 +42,7 @@ using UnityEngine;
 
 namespace Adapter.Unity.EngineAdapter
 {
-    public sealed class UnityCamera : ICamera, ICameraImpulse
+    public sealed class UnityCamera : ICamera, ICameraImpulse, ICameraOrientation
     {
         private struct ImpulseState
         {
@@ -103,6 +113,142 @@ namespace Adapter.Unity.EngineAdapter
             _yawDegrees = yawDegrees;
             _zoomRange = zoomRange;
             SetZoom(_zoom); // 重新夹紧到新的 zoomRange
+            if (_applyPitch || _perspective)
+            {
+                RefreshOrientation();
+            }
+        }
+
+        private bool _applyYawRotation;
+        private bool _applyPitch;
+        private bool _perspective;
+        private double _fieldOfViewDegrees = 40.0;
+
+        /// <summary>透视模式视场角（垂直，度）的合法范围；超出夹紧。</summary>
+        private const double MinFieldOfView = 10.0;
+        private const double MaxFieldOfView = 120.0;
+
+        /// <summary>俯仰角合法范围上限（度）：0 = 正俯视，上限留出余量避免视线与世界平面平行。</summary>
+        private const double MaxPitchDegrees = 89.0;
+
+        /// <summary>
+        /// 可选能力（默认关闭，关闭时行为与引入前逐位一致）：打开后 <see cref="Configure"/> 记下的 <c>yawDegrees</c> 会真正作用到相机朝向——
+        /// 相机绕视线轴（世界 Z 轴）逆时针转过该角度，使相机的右轴在世界平面上是 (cos yaw, sin yaw)、上轴是 (−sin yaw, cos yaw)。
+        /// 相机相对输入（第三人称）只依赖相机在世界平面上的朝向（见 <see cref="YawRadians"/>）。
+        /// </summary>
+        public bool ApplyYawRotation
+        {
+            get => _applyYawRotation;
+            set
+            {
+                if (_applyYawRotation == value)
+                {
+                    return;
+                }
+
+                _applyYawRotation = value;
+                RefreshOrientation();
+            }
+        }
+
+        /// <summary>
+        /// 可选能力（默认关闭，关闭时行为与引入前逐位一致）：打开后 <see cref="Configure"/> 记下的 <c>pitchDegrees</c> 真正作用到相机姿态
+        /// （固定俯角，约定与范围见类型顶部判断记录：0 = 正俯视、夹在 [0, 89]）。相机相对输入不受影响（仍只用偏航），
+        /// 世界平面在屏幕上沿"上"方向被压扁 cos(俯仰) 倍。
+        /// </summary>
+        public bool ApplyPitch
+        {
+            get => _applyPitch;
+            set
+            {
+                if (_applyPitch == value)
+                {
+                    return;
+                }
+
+                _applyPitch = value;
+                RefreshOrientation();
+            }
+        }
+
+        /// <summary>
+        /// 可选能力（默认关闭 = 正交投影，与引入前逐位一致）：打开后改用透视投影，视场角见 <see cref="FieldOfViewDegrees"/>；缩放 <see cref="SetZoom"/>
+        /// 仍表示"焦点处地面的可视半高"（相机距离 = zoom / tan(视场角/2)）。可以与 <see cref="ApplyPitch"/> 独立打开（正俯视透视、俯角正交都合法）。
+        /// </summary>
+        public bool Perspective
+        {
+            get => _perspective;
+            set
+            {
+                if (_perspective == value)
+                {
+                    return;
+                }
+
+                _perspective = value;
+                _camera.orthographic = !value;
+                if (value)
+                {
+                    _camera.fieldOfView = (float)_fieldOfViewDegrees;
+                }
+
+                RefreshOrientation();
+            }
+        }
+
+        /// <summary>透视模式的垂直视场角（度，缺省 40，夹在 [10, 120]）。</summary>
+        public double FieldOfViewDegrees
+        {
+            get => _fieldOfViewDegrees;
+            set
+            {
+                _fieldOfViewDegrees = Math.Max(MinFieldOfView, Math.Min(MaxFieldOfView, value));
+                if (_perspective)
+                {
+                    _camera.fieldOfView = (float)_fieldOfViewDegrees;
+                    RefreshOrientation();
+                }
+            }
+        }
+
+        /// <summary>当前生效的俯仰角（度）：没有打开 <see cref="ApplyPitch"/> 为 0，否则是配置值夹进 [0, 89]。</summary>
+        public double EffectivePitchDegrees => _applyPitch ? Math.Max(0.0, Math.Min(MaxPitchDegrees, _pitchDegrees)) : 0.0;
+
+        /// <summary>
+        /// <see cref="ICameraOrientation.YawRadians"/>：相机在世界平面上的实际偏航（弧度，逆时针为正）。<see cref="ApplyYawRotation"/> 没打开时相机
+        /// 物理上没有转，如实报 0（配置的偏航只是记录，不是相机的真实朝向）。
+        /// </summary>
+        public double YawRadians => _applyYawRotation ? _yawDegrees * Math.PI / 180.0 : 0.0;
+
+        /// <summary>
+        /// 焦点处地面的可视半高（世界单位）：正交为 orthographicSize，透视为 <see cref="SetZoom"/> 的缩放值（相机距离按它与视场角算出）。
+        /// 镜头冲击的"画面高度比例"幅度按它换算。
+        /// </summary>
+        public float VisibleHalfHeight => _perspective ? (float)_zoom : _camera.orthographicSize;
+
+        /// <summary>相机到焦点的距离：透视由缩放与视场角决定，正交固定 <see cref="CameraDistanceFromGroundPlane"/>。</summary>
+        private double CameraDistance =>
+            _perspective ? _zoom / Math.Tan(_fieldOfViewDegrees * Math.PI / 360.0) : CameraDistanceFromGroundPlane;
+
+        /// <summary>
+        /// 按当前开关写相机姿态与位置。俯仰与透视开关都没开时只处理偏航（与引入俯仰之前的行为逐位一致：偏航开关关闭恢复恒等朝向，
+        /// 位置按基准位置叠加震屏与冲击偏移）；任一开关打开后按"焦点 − 视线 × 距离"重算位置。
+        /// </summary>
+        private void RefreshOrientation()
+        {
+            if (!_applyPitch && !_perspective)
+            {
+                _camera.transform.rotation = _applyYawRotation ? Quaternion.Euler(0f, 0f, (float)_yawDegrees) : Quaternion.identity;
+                return;
+            }
+
+            var yaw = _applyYawRotation ? (float)_yawDegrees : 0f;
+            var rotation = Quaternion.Euler(0f, 0f, yaw) * Quaternion.Euler(-(float)EffectivePitchDegrees, 0f, 0f);
+            _camera.transform.rotation = rotation;
+            var forward = rotation * Vector3.forward;
+            var focus = new Vector3(
+                _basePosition.x + _shakeOffset.x + _impulseOffset.x, _basePosition.y + _shakeOffset.y + _impulseOffset.y, 0f);
+            _camera.transform.position = focus - forward * (float)CameraDistance;
         }
 
         public void Follow(Vec2 planePos, double smoothing)
@@ -116,6 +262,10 @@ namespace Adapter.Unity.EngineAdapter
         {
             _zoom = Math.Max(_zoomRange.Min, Math.Min(_zoomRange.Max, zoom));
             _camera.orthographicSize = (float)_zoom;
+            if (_perspective)
+            {
+                RefreshOrientation(); // 透视下缩放 = 改相机距离
+            }
         }
 
         public Vec2 WorldToScreen(Vec2 planePos, double height)
@@ -185,7 +335,7 @@ namespace Adapter.Unity.EngineAdapter
             var isotropic = !(sqr > 1e-12);
             var dir = isotropic ? Vector2.zero : new Vector2((float)(direction.X / Math.Sqrt(sqr)), (float)(direction.Y / Math.Sqrt(sqr)));
             // 画面可视高度 = 2 × 正交半高（世界单位）；按触发时刻的缩放换算。
-            var peakWorld = (float)(magnitude * 2.0 * _camera.orthographicSize);
+            var peakWorld = (float)(magnitude * 2.0 * VisibleHalfHeight);
             _impulses.Add(new ImpulseState
             {
                 Direction = dir,
@@ -260,6 +410,17 @@ namespace Adapter.Unity.EngineAdapter
             }
 
             _impulseOffset = impulseSum;
+            if (_applyPitch || _perspective)
+            {
+                RefreshOrientation();
+                return;
+            }
+
+            if (_applyYawRotation)
+            {
+                _camera.transform.rotation = Quaternion.Euler(0f, 0f, (float)_yawDegrees);
+            }
+
             _camera.transform.position = _basePosition + _shakeOffset + _impulseOffset;
         }
 

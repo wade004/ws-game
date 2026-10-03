@@ -648,6 +648,14 @@ namespace Core.Gameplay.Assembly
             Core.Foundation.SimLoop.TurnScheduler? scheduler = null;
             var resolvedSkillOptions = skillOptions ?? new SkillOptions();
 
+            // 动作时间线步长回填（手感落地 M4-L）：调用方从未显式设置 SkillOptions.ActionStepSeconds 时，取时钟宿主的模拟固定步长
+            // （此前只有启用手感时才被 CarriersAssembly 写成手感步长，未启用手感而步长不是 1/60 的宿主，时间线毫秒会按错的步长换算）。
+            // 步长恰为 1/60 的宿主取值不变；显式设置过的值一律尊重。
+            if (clockHost != null)
+            {
+                resolvedSkillOptions.ApplyHostStepSeconds(clockHost.StepSeconds);
+            }
+
             // 格子吸附落地（ADR-0013 决策 6、04 第 3.1 节 grid_snap，codex 第十八轮）：resolvedTargetingOptions
             // 必须在这里就地 new 出来，同 resolvedSkillOptions/resolvedGobjOptions 判断记录——
             // CarriersAssembly 构造期就要把它转给 RulesAssembly/TargetHost 持有同一份引用，本方法

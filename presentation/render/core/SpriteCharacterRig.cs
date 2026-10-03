@@ -229,7 +229,7 @@ namespace Presentation.Render
         }
 
         /// <summary>
-        /// ADR-0099 决策 2 收口（消费方反馈第四十四批，已知限制 1 根治）：本类型对渲染器的写入只有
+        /// ADR-0099 决策 2 收口（消费方反馈第四十四批，冷加载回填遗漏通知钩子的根治）：本类型对渲染器的写入只有
         /// <see cref="ApplyLayers"/> 这一处（<see cref="ComposeAndApplyLayers"/> 与
         /// <see cref="HandleResourceLoadCompleted"/> 的迟到回填都委托本方法），本事件在写入之后立即
         /// 触发一次，因此两条路径天然共用同一个通知出口，不需要分别接线。<see cref="SpriteViewBase"/>

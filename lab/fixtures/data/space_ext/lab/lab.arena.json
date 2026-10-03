@@ -1,0 +1,54 @@
+{
+  "table": "lab.arena",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "lab.arena.lab_terrain",
+      "map_ref": "world.lab_terrain",
+      "blocks": [],
+      "note": "地形空地：没有平面阻挡，地图行带数据高度场（world.map.terrain）——x 3..6 是低矮平台（高 0.4、天花板 1.2），x 6..9 是斜坡（高 0.4 起、每单位升 0.25，到 9 处 1.15），x 9..12 是悬崖平台（高 3）。只被脚本 space.terrain 经 meta.spaceExt.arena 选用。"
+    },
+    {
+      "id": "lab.arena.lab_nav_steps",
+      "map_ref": "world.lab_nav_steps",
+      "blocks": [],
+      "note": "台阶绕行：x 6..10、y -3..3 一块高 2 的平台（高于台阶 0.5，爬不上去），其余是地面。点击移动（move_to）必须绕过去。"
+    },
+    {
+      "id": "lab.arena.lab_nav_flat",
+      "map_ref": "world.lab_nav_flat",
+      "blocks": [],
+      "note": "地形热切换前的平地（地形全平）：脚本 space.nav_revalidate 先在这里规划直线路径，行走途中用 terrain_swap 换成带台阶的地形。"
+    },
+    {
+      "id": "lab.arena.lab_nav_rise",
+      "map_ref": "world.lab_nav_rise",
+      "blocks": [],
+      "note": "上升中进入更高地面：x 3..8、y -5..5 一块高 0.3（不高于台阶 0.5）的平台。"
+    },
+    {
+      "id": "lab.arena.lab_nav_ledge",
+      "map_ref": "world.lab_nav_ledge",
+      "blocks": [],
+      "note": "台地边缘：x -5..5、y -5..5 一块高 3 的台地，玩家从台地上走出边缘。"
+    },
+    {
+      "id": "lab.arena.lab_nav_wall",
+      "map_ref": "world.lab_nav_wall",
+      "blocks": [],
+      "note": "精确停点：x ≥ 10.03 的高 2 的墙，边缘位置故意不与 0.1 的采样间隔对齐；墙前 x 5..7 另有一级高 0.3 的矮台阶（让脚本有离地的空间刺激，跨格子不变量按「空间语义被触发过」口径比较）。"
+    },
+    {
+      "id": "lab.arena.lab_nav_hills",
+      "map_ref": "world.lab_nav_hills",
+      "blocks": [],
+      "note": "高度场：x 4..9、y -2..2 的规则网格高度场（格宽 1，沿 y=0 的一行是 0、0.3、0.6、0.3、0.6、0.2）。"
+    },
+    {
+      "id": "lab.arena.lab_nav_polys",
+      "map_ref": "world.lab_nav_polys",
+      "blocks": [],
+      "note": "凸多边形平面/斜面（x 10..18 的七边形，高 0.4、沿 x 每单位升 0.1）与其上后声明的小方块平台（高 1.0，盖住七边形）。"
+    }
+  ]
+}

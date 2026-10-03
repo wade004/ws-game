@@ -24,6 +24,10 @@ namespace Core.Rules.Skill
 
         public int ComboIndex;
         public double ChargeRatio;
+
+        /// <summary>本动作的效果值倍率（<c>charge.value_scale</c> 按蓄力比例插值；未声明恒为 1）。</summary>
+        public double ChargeValueScale = 1.0;
+
         public Vec2? Direction;
 
         /// <summary>已经过的动作时钟 tick（顿帧暂停期间不增长）。</summary>
@@ -263,12 +267,40 @@ namespace Core.Rules.Skill
             _graceConditions = graceConditions != null && graceConditions.Count > 0 ? graceConditions : null;
             try
             {
+                // 手感落地 M4-G：请求自己携带的单位目标是这次施法的瞄点，宽限条件优先以它求值（没有携带目标的请求不记瞄点，目标由技能的选择链解析，行为不变）。
+                if (_graceConditions != null && targets.Count > 0)
+                {
+                    NoteGraceAim(casterId, skillId, targets[0], null);
+                }
+
                 return CastSkill(casterId, skillId, targets);
             }
             finally
             {
                 _pendingStart = null;
                 _graceConditions = null;
+            }
+        }
+
+        /// <summary>
+        /// 把本次施法请求携带的目标（单位目标或地面落点）连同技能射程交给宽限追踪（<see cref="IGraceAimSink"/>，手感落地 M4-G）：依赖瞄点的宽限条件
+        /// （<c>target</c> 分组、框架内置的 <c>event.aim_*</c> 上下文变量）据此求值。宽限查询对象不接收瞄点（第三方实现）或本次没有宽限条件时什么都不做。
+        /// </summary>
+        private void NoteGraceAim(Id casterId, Id skillId, Id? target, Vec2? point)
+        {
+            if (_graceConditions == null || !(_timeline?.Grace is IGraceAimSink sink))
+            {
+                return;
+            }
+
+            var range = _defs.TryGetSkillDef(skillId, out var def) ? def.Range : 0;
+            if (target.HasValue)
+            {
+                sink.NoteAim(casterId, GraceAim.OfTarget(target.Value, range));
+            }
+            else if (point.HasValue)
+            {
+                sink.NoteAim(casterId, GraceAim.OfPoint(point.Value, range));
             }
         }
 
@@ -475,6 +507,7 @@ namespace Core.Rules.Skill
                 ChainRoot = chainRoot,
                 ComboIndex = comboIndex,
                 ChargeRatio = chargeRatio,
+                ChargeValueScale = tl.Charge != null ? tl.Charge.ValueScaleAt(chargeRatio) : 1.0,
                 Direction = context.Direction,
                 LastClock = _timeline?.Clock != null ? _timeline.Clock.ActionTicks(casterId) : 0,
                 StartSeq = _inUpdate ? _updateSeq : _updateSeq + 1,
@@ -894,6 +927,22 @@ namespace Core.Rules.Skill
             public void SettleOn(IReadOnlyList<Id> targets)
             {
                 var live = _owner.FilterDestroyedTargets(targets);
+                if (live.Count > 0 && _owner._options.SpatialRangeHitWindow && _def.Range > 0)
+                {
+                    // 命中窗口的射程门（SkillOptions.SpatialRangeHitWindow）：instant 结算与自定义命中钩子的结算同样受它约束。
+                    var casterPos = _owner._units.GetPosition(_casterId);
+                    var inRange = new List<Id>(live.Count);
+                    for (var i = 0; i < live.Count; i++)
+                    {
+                        if (_owner.WithinHitWindowRange(_casterId, _def, casterPos, live[i]))
+                        {
+                            inRange.Add(live[i]);
+                        }
+                    }
+
+                    live = inRange;
+                }
+
                 if (live.Count == 0)
                 {
                     return;
@@ -1071,6 +1120,20 @@ namespace Core.Rules.Skill
             return null;
         }
 
+        /// <summary>
+        /// 这条记录是否永远接不了（M4 清扫）：既不能走连招（只有带 <c>combo</c> 块的动作里的 attack 类记录不需要映射），也没有输入动作 → 技能映射能给出技能。
+        /// 拉取时先把它们剔出候选，使一条永远接不了的记录不在过期前挡住次优先级候选；窗口此刻没开不算"永远"（窗口可能稍后打开），仍按最前候选处理。
+        /// </summary>
+        private bool IsNeverAcceptable(Id casterId, ActionRun run, BufferedIntent record)
+        {
+            if (record.Class == ActionClass.Attack && run.Timeline.Combo != null)
+            {
+                return false;
+            }
+
+            return _timeline?.Binding == null || !_timeline.Binding.TryResolveSkill(casterId, record, out _);
+        }
+
         private void TryPullIntent(Id casterId, CastState state, ActionRun run)
         {
             var input = _timeline?.Input;
@@ -1079,7 +1142,7 @@ namespace Core.Rules.Skill
                 return;
             }
 
-            if (!input.TryConsume(casterId, rec => Classify(casterId, run, rec).HasValue, out var record))
+            if (!input.TryConsume(casterId, rec => Classify(casterId, run, rec).HasValue, rec => IsNeverAcceptable(casterId, run, rec), out var record))
             {
                 return;
             }
@@ -1119,6 +1182,10 @@ namespace Core.Rules.Skill
             TerminateCastWithReason(
                 casterId, state, casterId, null, 0, ActionCancelReason.CancelInto, d.SkillId, "CANCELLED");
 
+            // 接受时朝向对齐（M4 清扫，手感设计/01 第 2.3 节 face_on_accept）：与缓冲出口（BufferedActionIntentSink）同一口径——
+            // 记录要求对齐且带按下瞬间方向快照时，在取消进入被接受的那一刻把朝向瞬时对齐到该方向，新动作的位姿快照据此取朝向。
+            AlignFacingOnAccept(casterId, record);
+
             _pendingStart = new PendingStart(true, d.ComboIndex, run.ChainRoot, context);
             try
             {
@@ -1133,6 +1200,25 @@ namespace Core.Rules.Skill
             {
                 _pendingStart = null;
                 _cancelIntoCaster = null;
+            }
+        }
+
+        private void AlignFacingOnAccept(Id casterId, BufferedIntent record)
+        {
+            if (!record.FaceOnAccept || !record.DirectionSnapshot.HasValue)
+            {
+                return;
+            }
+
+            if (_units is IUnitFacingWriter writer)
+            {
+                var d = record.DirectionSnapshot.Value;
+                writer.SetFacing(casterId, Math.Atan2(d.Y, d.X));
+            }
+            else
+            {
+                _diagnostics.Warn(
+                    $"取消进入要求接受时朝向对齐（actor=\"{casterId}\"），但 IUnitAccess 实现没有提供 IUnitFacingWriter，朝向未改动");
             }
         }
 

@@ -187,7 +187,7 @@ input_map/
   动作时间线切片不用推送式，直接在取消窗口里调 `IInputBufferQuery.TryConsume`。
 
 **宽限窗口**（`core/GraceTracker.cs`，`IGraceQuery`）：每个模拟 tick 对登记的（行动者, 条件）求值并记最近为真的 tick；条件当前为真，或最近为真距今 `<= grace_ms`（手感档案输入组，
-换算为 tick）即满足。机制不预置条件；求值经 `IGraceConditionEvaluator`（宿主在行动者上下文里求 `found.grace_condition.expr`）。
+换算为 tick）即满足。机制本身不预置条件（框架内置的三条施法瞄点条件见 M4-G 节）；求值经 `IGraceConditionEvaluator`（宿主在行动者上下文里求 `found.grace_condition.expr`）。
 
 ### 判断记录
 
@@ -196,12 +196,12 @@ input_map/
 3. **`class` 缺省为空 ⇒ 不缓冲**：保证不写新字段的既有数据、既有游戏输入行为完全不变；打开缓冲是数据层逐动作的显式选择。
 4. **点按/按住判定的 tick 精度**：阈值换算为 tick 后比较"按下到抬起的动作时钟差"；同批次内按下又抬起视为 0 tick 点按。
 
-### 已知限制（逐条交代给设计层）
+### 范围与边界（设计决定，M4 清扫由"已知限制"改写）
 
-- 缓冲与宽限的 tick 处理器只在**连续步**工作；离散步清空缓冲（离散模式的"输入缓冲"语义留给后续切片，01 第 6 节未定义）。
-- `GraceTracker` 不内置 Expr 求值（L0 不依赖表达式层）：`IGraceConditionEvaluator` 由上层提供，生产装配缺省用 `ExprGraceConditionEvaluator`（`core/carriers/assembly/`，M3-B），游戏可经 `CarriersFeelOptions.GraceEvaluator` 覆盖。
-- `face_on_accept`（转向）只在记录里携带并经 `BufferedIntent.FaceOnAccept` 暴露，实际转向由取用方（动作层）执行。
-- 网络/回放来源的缓冲同步与回滚不在本切片范围。
+- 缓冲与宽限的 tick 处理器只在**连续步**工作；离散步清空缓冲。理由：缓冲窗口以毫秒计、依赖动作时钟的连续推进，手感设计/01 第 3 节的清空规则明文规定"切到离散模式"缓冲整体清空；回合制没有"提前输入"的概念，输入在该回合被取走。
+- `GraceTracker` 不内置 Expr 求值：`IGraceConditionEvaluator` 由上层提供，生产装配缺省用 `ExprGraceConditionEvaluator`（`core/carriers/assembly/`，M3-B），游戏可经 `CarriersFeelOptions.GraceEvaluator` 覆盖。理由：L0 不能依赖表达式层（层次约束）。
+- `face_on_accept`（转向）只在记录里携带并经 `BufferedIntent.FaceOnAccept` 暴露，实际转向由取用方（动作层）执行：缓冲出口 `BufferedActionIntentSink` 与时间线在取消窗口里的拉取（M4 清扫补齐）都在接受那一刻对齐朝向。理由：转向要写单位朝向，是规则/载体层的职责，L0 不持有单位。
+- 缓冲不单独做网络同步与回滚：框架不含网络层；回放走"记录输入再重放"（实验室的输入记录与回放），缓冲状态由重放的输入序列重新算出，不作为独立状态同步。联机游戏的预测与回滚由游戏自己的网络层在输入层之上处理。
 
 ## 判断记录（诊断契约统一转发机制，2026-09-19，architecture/adr/0042-诊断契约统一转发到宿主控制台.md）
 
@@ -240,3 +240,39 @@ input_map/
 ## 手感落地 M3-B：行动者登记与宽限剩余量（2026-10-02）
 
 `InputBufferHost.RegisterActor(actorId)`（幂等，建立空缓冲，不产生任何缓冲记录）与 `IsActorRegistered`：非本地行动者不必等到第一次按键才进入宽限采样，生产装配对世界里的 `player`/`creature` 实体自动调用（`CarriersFeelOptions.AutoRegisterGraceActors`，缺省 true），"条件刚失效"的第一次按键同样有历史。`IGraceQuery.RemainingGraceTicks(actorId, conditionId)`（接口缺省成员）：条件当前为真返回 `int.MaxValue`，已失效但在窗口内返回剩余 tick 数（&gt;= 0），不满足返回 -1；`IsSatisfied` 恒等于"剩余量 &gt;= 0"，`IsInGrace` 恒等于"0 &lt;= 剩余量 &lt; `int.MaxValue`"；缺省实现只依赖旧成员（窗口内保守返回 0），旧的第三方查询对象不必改。施法管线用它给排队中的施法记宽限快照（见 `core/rules/skill/README.md` M3-B）。
+
+## 手感落地 M4-G：施法瞄点、内置宽限条件与惰性缓冲（2026-10-03）
+
+- **`GraceAim` / `IGraceAimSink`**（`contracts/GraceAim.cs`）：一次施法请求自己携带的瞄点（单位目标或地面落点，加该技能射程）。`IGraceConditionEvaluator` 新增三个接口缺省成员：三参 `Evaluate(actor, condition, aim)`（缺省转调两参，旧第三方实现不必改）、`UsesAim(condition)`（缺省 false）、`DefaultAimTarget(actor)`（缺省 null）。`GraceTracker` 同时实现 `IGraceAimSink`，由施法管线在带宽限条件的请求进入时 `NoteAim`。
+- **`InputBufferHost`** 新增 `ActorBuffersAllocated`（已分配的行动者缓冲数）、`GraceConditionsDeclared`（条件名集合由空变非空时触发的事件）、`ActionsWithGraceCondition(actorId)`（引用宽限条件的动作 id，升序）。
+
+判断记录（本节编号）：
+
+1. **瞄点只作用于依赖目标的条件**：`UsesAim` 为真的条件，历史按瞄点归属——瞄点换成另一个单位/另一个落点，该条件的历史清零并以新瞄点即刻探测一次；与瞄点无关的条件（如 `enemies.nearest_distance`）历史不受影响。理由：同一份"最近为真"历史混用不同目标会让"目标 A 刚在射程内"放行对目标 B 的施法，这是与设计相悖的误放行。
+2. **瞄点等于缺省目标（自动攻击目标）时不算换瞄点**：沿用此前以缺省目标采样积累的历史，缺省行为不变。瞄点的寿命取 `max(1, grace_ticks)` 个 tick，过期回落到缺省目标，所以历史只在窗口内有意义。
+3. **缓冲惰性分配**：生产装配只在已有动作声明宽限条件时才对世界里的单位登记，没有声明时一个单位都不登记（单位数 N -> 登记 0、缓冲 0）；之后条件被声明（热加载）时再补登记已有单位。显式 `RegisterActor` 的惰性语义见下方 M4-W3 节第 3 条。
+
+用例：`core/foundation/input_map/tests/GraceAimTests.cs`（瞄点优先于缺省目标、历史归属瞄点、窗口边界随 `grace_ms`、旧求值器不受影响）、`core/gameplay/assembly/tests/FeelGraceBuiltinTests.cs`（内置条件、缺省目标回落、缓冲分配数）。
+
+## 手感落地 M4-W3：宽限瞄点与登记的收口（2026-10-03）
+
+M4-G 留下的四条限制逐条收口，没有一条留作"已知限制"：
+
+1. **链式解析出来的目标也记为瞄点（实现）**：`CastPipeline` 在目标链解析出目标之后（请求没带目标、步骤 7 之前）按同一个记录出口 `NoteGraceAim` 报告 `resolvedTargets[0]`——与带显式目标的请求同一套归属规则（换了瞄点依赖目标的条件历史作废，等于缺省目标或上一个瞄点则历史保留）。此前连锁技能/自动选敌的施法只能用缺省目标的历史。复现与不变量：`FeelGraceBuiltinTests.AChainResolvedTarget_IsRecordedAsTheAim_AndGivesTheWindowForThatTarget`（窗口边界 1..grace_ticks 由 `grace_ms` 换算规则算出）、`AChainResolvedTargetThatChanges_DropsTheOldTargetsHistory`。
+2. **瞄点只对携带宽限条件的请求记录（设计决定，不是遗漏）**：瞄点是"这次施法请求自己的目标"，只被宽限条件的求值读取；不携带宽限条件的请求没有任何读取方，记录它只会让一次无关的普通施法（例如对另一个单位的普攻）改写行动者的瞄点、作废依赖目标的条件历史，让"没有声明宽限的游戏"的行为与引入宽限前不再逐位一致。理由与"没有声明就不采样"同一条原则：宽限是声明式的，不声明就不产生任何副作用。不变量：`FeelGraceBuiltinTests.ACastWithoutGraceConditions_NeverTouchesTheAimOrTheHistory`（对 A 的带条件施法之后，对 B 的无条件施法前后瞄点与最近为真 tick 都不变）。
+3. **显式 `RegisterActor` 同样惰性分配（实现）**：`RegisterActor` 只把行动者 id 记入"已登记"集合（`IsActorRegistered`、`ActorIds` 的口径不变，顺序仍是登记顺序），缓冲对象等到该行动者第一次真有边沿（`Press`/`Release`/`Submit`）才建；`BeginTick` 对没有缓冲的已登记行动者跳过。"显式登记即可采样"语义不变（宽限追踪按已登记行动者采样，不依赖缓冲槽）。因此显式登记 N 个单位 `ActorBuffersAllocated` 仍为 0。`RemoveActor` 同时清登记与缓冲。用例：`GraceRemainingAndRegistrationTests` 的两条惰性登记用例、`FeelGraceBuiltinTests` 的分配数用例（重写为新语义：登记的 id 都在记录里、缓冲只在首个边沿分配）。
+4. **无头世界视线（实现，可选）**：见 `core/carriers/assembly/README.md` M4-W3 节（`HeadlessWorldOptions.NavigationLineOfSight`）。
+
+## 手感落地 M4-W4：相机相对控制空间（2026-10-03）
+
+- **`InputControlSpace`**（`contracts/InputControlSpace.cs`）：`World`（缺省）与 `CameraRelative` 两个取值常量与 `IsValid`。`ActionDefinition` 新增可选字段 `ControlSpace`（`found.input_action` 字段 `control_space`，缺省 `world`；新增 14 参构造与 `WithControlSpace`，旧构造保留），只对 `Axis2D` 动作有意义。
+- **`InputMapOptions.CameraOrientation`**（`ICameraOrientation`，`core/foundation/engine_adapter/contracts`）：可选相机朝向查询，只有 `YawRadians`（逆时针为正，0 = 屏幕上方是世界 +Y）。声明了 `camera_relative` 动作却没配朝向查询，`DeclareActionSet` 抛 `InvalidOperationException`（不静默当成偏航 0）。
+- **换算**：每次 `Update`，`camera_relative` 的 `Axis2D` 动作的轴值 `(x, y)` 旋转成世界方向 `x·右 + y·上`（右 = (cos, sin)，上 = (−sin, cos)），模长不变；偏航恰为 0 时逐位恒等。不声明控制空间的动作、没有配朝向查询的宿主与引入前逐位一致。
+- **判断记录**：①朝向走独立的可选接口，不往必选的 `ICamera` 加成员（同 `ICameraImpulse`）；`StubCamera`、`UnityCamera` 都实现它，`PresentationAssembly` 只在相机实现了该接口时给输入映射配朝向。②相机相对输入只依赖偏航：相机俯仰绕右轴转，右轴恒在世界平面上，"屏幕上方"的世界平面投影恒为 (−sin, cos)，所以不需要俯仰。③第三人称游戏的俯仰角、透视由相机适配器自己提供（`UnityCamera` 的 `ApplyPitch`/`Perspective`），输入映射不感知。
+- **用例**：`core/foundation/input_map/tests/CameraRelativeControlSpaceTests.cs`（复现：按偏航旋转与期望公式一致；不变量：缺省 world 逐位不变、偏航 0 逐位恒等、没配朝向查询声明期报错、每次更新取样偏航而非声明时取样、取值非法与非 Axis2D 动作声明相机相对被拒绝、`WithControlSpace` 复制其余全部字段、登记表字段往返）。
+
+## 判断记录（永远接不了的记录不挡路，2026-10-03，M4 清扫）
+
+1. **契约（只加不改）**：`IBufferedIntentSink.CanHandle(actorId, record)`（默认接口成员，缺省真）、`IInputBufferQuery.TryPeek(actorId, skip, out)` 与 `TryConsume(actorId, accepts, skip, out)`（默认实现忽略 `skip`，退回无 `skip` 版本）；`InputBufferHost` 覆盖：候选排序前先把 `skip` 判真的记录剔除，`accepts` 只检查剔除后排在最前的那一条。
+2. **口径**：优先级语义不变（取最前一条、此刻不能接受就等到过期）；只有出口声明"永远接不了"（`CanHandle` 为假，例如动作没有映射到任何技能）的记录被剔出候选，它们不被消费也不被丢弃，留在缓冲里直到自己的窗口过期，供游戏自己的消费者用无 `skip` 的 `TryPeek`/`TryConsume` 取用。`InputBufferTickHandler` 对每个行动者把 `CanHandle` 当 `skip` 谓词传入。
+3. **理由**：此前一条未映射的高优先级记录会在过期前挡住优先级更低的可接受记录（例如绑了闪避键却没配闪避技能，攻击被挡住）；"此刻不能接受"（冷却、动作锁）与"永远接不了"是两回事，前者按设计等待、后者不该占着队首。测试：`tests/InputBufferUnhandledSkipTests.cs`。

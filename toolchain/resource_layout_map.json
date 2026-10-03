@@ -6,6 +6,7 @@
     { "source": "vfx", "target": "vfx" },
     { "source": "sprite_anim", "target": "sprite_anim" },
     { "source": "paperdoll", "target": "paperdoll" },
-    { "source": "maps", "target": "maps" }
+    { "source": "maps", "target": "maps" },
+    { "source": "icons", "target": "icons" }
   ]
 }

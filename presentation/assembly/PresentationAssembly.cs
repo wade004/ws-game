@@ -336,6 +336,7 @@ namespace Presentation.Assembly
 
         private readonly EquipmentPoseBridge? _poseBridge;
         private readonly PoseGaitFeeder? _gaitFeeder;
+        private readonly AirPoseFeeder? _airFeeder;
         private readonly Id _playerId;
         private bool _disposed;
 
@@ -416,6 +417,16 @@ namespace Presentation.Assembly
                 _poseBridge = new EquipmentPoseBridge(bus, Pose);
                 // 手感落地 M2-B：步态由运动状态的速度比派生并喂给选择器（此前无人调用 Observe，移动姿势恒按 walk 解析）。
                 _gaitFeeder = new PoseGaitFeeder(bus, world, Pose, feelResolver);
+                // ADR-0130 追加决定（空中姿势）：世界装配了竖直运动服务时，空中阶段（rise/fall/land）由竖直速度派生并喂给选择器。
+                var verticalMotion = gameplay.Carriers.VerticalMotion;
+                if (verticalMotion != null)
+                {
+                    // 落地保持时长读单位的 land_hold_ms（手感落地 M4-W1b）；固定步长取手感系统的（显式注入的解析器是 FeelResolver 时取它自己的），都拿不到就保持缺省 8 个 tick。
+                    var stepSeconds = (feelResolver as FeelResolver)?.StepSeconds ?? gameplay.Feel?.Feel.StepSeconds ?? 0.0;
+                    _airFeeder = stepSeconds > 0.0
+                        ? new AirPoseFeeder(bus, verticalMotion, Pose, feelResolver, stepSeconds)
+                        : new AirPoseFeeder(bus, verticalMotion, Pose);
+                }
                 (viewFactory as IPoseContextReceiver)?.SetPoseContextSource(Pose);
             }
 
@@ -526,7 +537,7 @@ namespace Presentation.Assembly
                 renderer2D, camera, vfxCatalog, opts.VfxOptions, anchorResolver: ViewBinder.GetAnchorWorldPosition,
                 entityPositionResolver: entityPositionResolver, resourceLoader: resourceLoader,
                 renderer3D: renderer3D, modelHandleResolver: modelHandleResolver);
-            var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, resourceLoader: resourceLoader);
+            var sfxPlayer = new SfxPlayer(audio, rng, sfxCatalog, opts.SfxOptions, null, resourceLoader, entityPositionResolver);
             Vfx = vfxPlayer;
             Sfx = sfxPlayer;
             // 诊断转发到引擎控制台跟进（判断记录 10）：见 VfxDiagnostics/SfxDiagnostics 属性注释——
@@ -698,7 +709,12 @@ namespace Presentation.Assembly
             //    L4 宿主，见 README 判断记录；L10nHost 已提前到上一步构造，见缺口 7 判断记录）；
             //    UiDataSource 接三个路径 provider；十个视图模型逐一构造。
             // ---------------------------------------------------------
-            var inputMapHost = new Core.Foundation.InputMap.InputMapHost(bus);
+            // 相机相对控制空间（found.input_action.control_space = camera_relative）：相机实现了可选的 ICameraOrientation 时把它交给输入映射，
+            // 否则不配（null，输入映射与此前逐位一致；此时声明 camera_relative 的动作在声明动作集时报错）。
+            var inputMapOptions = camera is ICameraOrientation cameraOrientation
+                ? new Core.Foundation.InputMap.InputMapOptions { CameraOrientation = cameraOrientation }
+                : null;
+            var inputMapHost = new Core.Foundation.InputMap.InputMapHost(bus, inputMapOptions);
             InputMap = inputMapHost;
             // 手感落地 S10：手感系统已装配时，把本地输入的按钮边沿接给输入缓冲（本地玩家单位为行动者，按下瞬间以
             // CarriersFeelOptions.LocalMoveActionName 指定的轴采方向快照）；未装配手感时不接，输入行为逐位不变。
@@ -991,6 +1007,10 @@ namespace Presentation.Assembly
             if (_gaitFeeder != null)
             {
                 Release(nameof(PoseGaitFeeder), _gaitFeeder.Dispose);
+            }
+            if (_airFeeder != null)
+            {
+                Release(nameof(AirPoseFeeder), _airFeeder.Dispose);
             }
             Release(nameof(ViewBinder), ViewBinder.Dispose);
             Release(nameof(Stride), Stride.Dispose);

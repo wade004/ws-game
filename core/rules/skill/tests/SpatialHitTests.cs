@@ -676,6 +676,44 @@ namespace Tests.Rules.Skill
             Assert.False(started.Single(e => e.SkillId.Equals(new Id("skill.sample_dodge"))).IsAttack);
         }
 
+        [Fact]
+        public void ActionStarted_IsAttack_ExplicitDeclarationOverridesTheContentInference()
+        {
+            // 复现：治疗投射物动作按内容推断为"带攻击"（有投射物效果），反馈侧会为它开挥空窗口；写 is_attack:false 后量从 true 变 false。
+            // 不变量：不声明时行为不变（仍按内容）；显式 true 可强制把无攻击内容的动作标成带攻击。
+            var rig = Create(
+                new[]
+                {
+                    SpSkill("skill.sample_heal_bolt", 50, 100, 50, new[] { Marker("release", 50) }, effects: new[] { Projectile() }),
+                    SpSkill("skill.sample_heal_bolt_off", 50, 100, 50, new[] { Marker("release", 50) }, effects: new[] { Projectile() }, isAttack: false),
+                    SelfSkill("skill.sample_dodge_on", 0, 500, 0, new[] { Marker("invuln_start", 0), Marker("invuln_end", 500) }),
+                },
+                Shape.Cone(Vec2.Zero, 0, Math.PI / 2, 2.0));
+
+            foreach (var skill in new[] { "skill.sample_heal_bolt", "skill.sample_heal_bolt_off", "skill.sample_dodge_on" })
+            {
+                rig.H.CastInTick(skill);
+                rig.RunToEnd();
+            }
+
+            var started = rig.H.Of<ActionStartedEvent>().Select(e => e.Event).ToList();
+            Assert.True(started.Single(e => e.SkillId.Equals(new Id("skill.sample_heal_bolt"))).IsAttack);
+            Assert.False(started.Single(e => e.SkillId.Equals(new Id("skill.sample_heal_bolt_off"))).IsAttack);
+            Assert.False(started.Single(e => e.SkillId.Equals(new Id("skill.sample_dodge_on"))).IsAttack); // 无声明：仍按内容
+        }
+
+        [Fact]
+        public void ActionStarted_IsAttack_ExplicitTrueForcesTheFlag_OnAContentWithoutAttack()
+        {
+            var rig = Create(
+                new[] { SelfSkill("skill.sample_dodge_on", 0, 500, 0, new[] { Marker("invuln_start", 0), Marker("invuln_end", 500) }, isAttack: true) },
+                Shape.Cone(Vec2.Zero, 0, Math.PI / 2, 2.0));
+            rig.H.CastInTick("skill.sample_dodge_on");
+            rig.RunToEnd();
+
+            Assert.True(rig.H.Of<ActionStartedEvent>().Single().Event.IsAttack);
+        }
+
         // ------------------------------------------------------------------ 目标辅助
 
         private static Core.Foundation.Common.Json.JsonObject AssistBlock(string mode = "face_only") =>

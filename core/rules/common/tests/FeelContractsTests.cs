@@ -57,6 +57,8 @@ namespace Tests.Rules.Common
             yield return new object[] { new ActionFinishedEvent(Actor, Cast), "action.finished" };
             yield return new object[] { new ActionTargetAssistedEvent(Actor, Cast, Target, 5, 0), "action.target_assisted" };
             yield return new object[] { hit, "combat.hit_confirmed" };
+            yield return new object[] { new CombatPoiseChangedEvent(Target, Actor, 4, 2, 4, 2, false), "combat.poise_changed" };
+            yield return new object[] { new CombatPoiseRecoveredEvent(Target, 4), "combat.poise_recovered" };
             yield return new object[] { new CombatReactionAppliedEvent(Target, HitReaction.Stagger, Actor, Cast, 9), "combat.reaction_applied" };
             yield return new object[] { new FeelHitstopStartedEvent(new[] { Actor, Target }, 3, Cast), "feel.hitstop_started" };
             yield return new object[] { new FeelHitstopEndedEvent(new[] { Actor, Target }), "feel.hitstop_ended" };

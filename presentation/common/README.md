@@ -115,9 +115,9 @@ common/
      用占位表现并记诊断，追踪器不持有结果）。一个 id 失败不影响其它 id。
    - `IResourceLoader.LoadAsync` 同步抛异常时，异常向调用方原样传播，**该 id 已记为已请求**（`Add` 先于调用），
      之后不再重试。调用方如需重试必须换 id 或重建追踪器。
-   - 已知缺口（待设计层确认，本条不改）：构造函数未对 `loader` 做空参守卫（`null` 会推迟到首次 `EnsureLoading` 才抛
-     `NullReferenceException`）。
-   用例：`tests/ResourceReferenceTrackerTests.cs` 的 D22 三例。
+   - 构造函数对 `loader` 做空参守卫：`null` 立即抛 `ArgumentNullException`（参数名 `loader`），不推迟到首次
+     `EnsureLoading`（NF2 以用例钉住）。
+   用例：`tests/ResourceReferenceTrackerTests.cs` 的 D22 三例与 `Constructor_NullLoader_ThrowsArgumentNullExceptionImmediately`。
    **T-M15 空参守卫清单**：`tests/NullGuardTests.cs` 用反射枚举 `Presentation` 命名空间下全部公共构造器的非可空
    引用形参，逐形参断言传 `null` 抛 `ArgumentNullException` 且 `ParamName` 一致（字符串形参的"不能为空白"守卫断言
    `ArgumentException`）；源码确实没有守卫的形参登记在 `KnownUnguardedConstructorParameters`（8 项，含上面的
@@ -139,8 +139,11 @@ common/
   `GameplayAssembly` 新增只读属性 `InterpolationAlpha`（连续模式下等于本次 `Advance` 内部调用
   `ISimClockHost.Advance` 返回的 alpha；离散模式/未装配 `clockHost` 时恒为 `1.0`，见该属性判断
   记录），`Adapter.Unity.Bootstrap.GameFoundationBootstrap`/`Adapter.Unity.Shell.
-  FrameworkResidentHost` 两处生产帧循环都已读取 `Gameplay.InterpolationAlpha` 传给
-  `ViewBinder.SyncAll(alpha)`/`CameraHost.Update(alpha)`（拍板 9）。`ViewBinder.SyncAll`/
+  FrameworkResidentHost` 两处生产帧循环把 alpha 传给 `ViewBinder.SyncAll(alpha)`/`CameraHost.Update(alpha)`
+  （拍板 9）。NF2 修订：Unity 宿主每个 FixedUpdate 恰好整步喂入 `Advance`，核心累积器每次被耗尽、alpha 恒近 0
+  且只在固定步更新，渲染帧率高于物理帧率时位置按固定步频一格一格跳；两处生产帧循环因此在连续模式下改由适配层
+  `RenderInterpolationClock` 按引擎时间逐渲染帧计算（`(now - 最近一次推进时刻) / 步长`，夹到 [0,1]，节奏门
+  跳过推进时扫到 1 后停住），离散模式（核心 `1.0`）与从未推进过时仍沿用核心值；核心属性语义不变。`ViewBinder.SyncAll`/
   `CameraHost.Update` 本身接受 alpha 参数这一部分判断记录 5 描述依然成立，不变的只是"产出方
   是否暴露给消费方"这一点。
 （原"裸档位名与 `Id` 格式的前缀不一致"契约缺口已由设计层拍板并落地为 14 第 2.1 节 2026-09-05 勘误：

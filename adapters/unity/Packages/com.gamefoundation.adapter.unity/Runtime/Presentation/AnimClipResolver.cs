@@ -26,16 +26,19 @@
 // 实际播放的剪辑"不同才切换、从头播；相同（该状态没有变体键）什么都不做，不重播。瞬态状态
 // （Attack/Cast/Hit/Jump）期间姿态变化不打断，回落到运动态时按当时姿态解析；Death 终态不受影响。
 //
-// 已知限制（ADR-0111）：
-//   1) 变体剪辑内容永远不会到位（声明了 combat_<key> 却没有对应美术）时，一直维持当前显示，没有超时回落、
-//      没有诊断——与"缺表现资源不阻断游戏"的既有宽容口径一致，美术缺失由数据/资源校验负责发现。
-//   2) 武器风格/技能覆盖剪辑（AutoAttackAnim/CastAnimOverride）优先级高于变体键，原样播放，不感知战斗
-//      姿态；要战斗/非战斗两套请拆成两个武器风格或不用覆盖、改用 combat_attack/combat_cast 变体键。
-//   3) jump 不在默认登记的六个状态键里（既有行为，非本次引入），combat_jump 只有在外形声明了它且外部
-//      登记了对应剪辑时才可能被解析到；默认装配下 Jump 状态没有默认剪辑表项，本类型对它什么都不播。
-//   4) 战斗中移动只查 combat_move，没有就回落普通 move（不会借用 combat_idle）；姿态变化不重播正在播的
-//      同一剪辑，因此没有任何 combat_* 键的外形进出战与 1.89.0 逐帧一致。
-//   5) model 型（没有序列帧播放器）没有异步内容登记这一步，变体剪辑恒视为就绪，切换即时生效；
+// 边界与设计决定（ADR-0111）：
+//   1) 变体剪辑内容永远不会到位（声明了 combat_<key> 却没有对应美术）时，一直维持当前显示，没有超时回落、没有诊断
+//      （设计决定）：与"缺表现资源不阻断游戏"的既有宽容口径一致——变体加载失败同样结束探测、不会无限等待，
+//      美术缺失由数据/资源校验负责发现，不在运行期每次进出战刷诊断。
+//   2) 武器风格/技能覆盖剪辑（AutoAttackAnim/CastAnimOverride）优先级高于变体键，原样播放，不感知战斗姿态
+//      （设计决定）：覆盖剪辑是作者显式指定的"这一下就播这个"，姿态变体不应反过来改写它；要战斗/非战斗两套请拆成
+//      两个武器风格或不用覆盖、改用 combat_attack/combat_cast 变体键。
+//   3) 无后缀的 jump 键：外形声明了它就进默认键表（NF2 补齐，见 UnityViewFactory.AnimStateKeysFor）；combat_jump
+//      只有外形声明了才登记。没声明 jump 的外形 Jump 状态没有默认剪辑，本类型对它什么都不播。
+//   4) 战斗中移动只查 combat_move，没有就回落普通 move，不会借用 combat_idle（设计决定）：待机剪辑表达"站着"，借给
+//      移动会让角色在移动时原地踏空；姿态变化不重播正在播的同一剪辑，因此没有任何 combat_* 键的外形进出战
+//      与 1.89.0 逐帧一致。
+//   5) model 型（没有序列帧播放器）没有异步内容登记这一步，变体剪辑恒视为就绪，切换即时生效（设计决定）：
 //      由 rig 播放器按剪辑名现查现用，找不到该名字的剪辑时的表现由 rig 决定，本类型不介入。
 //
 // 手感设计/04（ADR-0119）：姿势维度。默认剪辑的解析从"战斗变体键 -> 普通键"两级扩成姿势回落链
@@ -171,7 +174,12 @@ namespace Adapter.Unity.Presentation
             }
         }
 
-        private void OnPoseContextChanged(Id entityId) => Refresh(entityId);
+        private void OnPoseContextChanged(Id entityId)
+        {
+            // 空中阶段：先让状态机进出 Jump（状态机没挂空中阶段来源时无操作），再按当前状态重新解析剪辑。
+            _stateMachine.ApplyAirPhase(entityId);
+            Refresh(entityId);
+        }
 
         private void OnStateChangedWithSkill(Id entityId, AnimState from, AnimState to, Id? triggerSkillId) =>
             PlayResolvedClip(entityId, to, triggerSkillId);
@@ -192,7 +200,9 @@ namespace Adapter.Unity.Presentation
         public void Refresh(Id entityId)
         {
             var state = _stateMachine.GetState(entityId);
-            if (state != AnimState.Idle && state != AnimState.Move)
+            // ADR-0130 追加决定（空中姿势）：Jump 状态下空中阶段（rise/fall/land）变化时也重新解析——每个阶段是不同剪辑。
+            var airJump = state == AnimState.Jump && _poseContext != null && _poseContext.GetContext(entityId).Air != AirPhase.None;
+            if (state != AnimState.Idle && state != AnimState.Move && !airJump)
             {
                 return;
             }
@@ -243,9 +253,9 @@ namespace Adapter.Unity.Presentation
         /// 死亡末帧等加载。走与状态切换相同的播放出口（<c>playClip</c> 委托），逐层帧、装备层、model 型 rig 随之复位。
         /// 状态不是 Idle/Move（复活前已 <see cref="AnimStateMachine.Forget"/> 并 <see cref="AnimStateMachine.Track"/>，
         /// 正常恒为 Idle）或表里没有该状态的剪辑时什么都不播。
-        /// <para>已知限制：①无条件播放——对从未死亡的实体误调也会把当前待机从头重播一次（唯一调用点是复活事件处理，
-        /// 不做基线比较正是本方法的语义）；②只复位运动态剪辑，不处理复活瞬间的武器风格覆盖/瞬态（复活时状态已清空，
-        /// 没有进行中的瞬态）；③变体永远不就绪则一直播普通待机（同 <see cref="Refresh"/> 的限制）。</para>
+        /// <para>语义边界（设计决定）：①无条件播放——对从未死亡的实体误调也会把当前待机从头重播一次，唯一调用点是复活事件
+        /// 处理，不做基线比较正是本方法存在的理由；②只复位运动态剪辑，不处理复活瞬间的武器风格覆盖/瞬态（复活时状态已清空，
+        /// 没有进行中的瞬态）；③变体永远不就绪则一直播普通待机（同 <see cref="Refresh"/> 的边界 1）。</para>
         /// </summary>
         internal void ResetToLocomotionClip(Id entityId)
         {
@@ -315,6 +325,28 @@ namespace Adapter.Unity.Presentation
         {
             var stateKey = StateKey(state);
             PoseRequest request;
+
+            // ADR-0130 追加决定（空中姿势）：有空中阶段时 jump/hit/attack 走空中回落链
+            // （jump.rise|fall|land -> jump -> idle；hit.air -> hit.launch -> hit；attack.air[.族] -> attack.air -> attack[.族] -> attack），
+            // M4-W1b 起空中键带姿态/武器族/变体维度（jump.rise.combat、hit.air.wounded …，先去变体、再去武器族、再去姿态）。
+            // 没有空中阶段（没接 AirPoseFeeder 或在地面）时不进本分支，解析与改动前逐位一致。
+            if (allowVariant && _poseContext != null
+                && _poseContext.GetContext(entityId).TryGetAirRequest(stateKey, _stateMachine.IsInCombatStance(entityId), out var airRequest))
+            {
+                Func<string, bool>? airUsable = null;
+                if (_isClipReady != null)
+                {
+                    airUsable = tableKey =>
+                    {
+                        var clip = table[tableKey];
+                        return (_lastPlayedClip.TryGetValue(entityId, out var playing) && playing.Equals(clip))
+                            || _isClipReady(entityId, clip);
+                    };
+                }
+
+                return PoseResolver.TryResolve(airRequest, table, out var airResolved, out _, airUsable) ? airResolved : (Id?)null;
+            }
+
             if (!allowVariant)
             {
                 request = PoseRequest.Base(stateKey);

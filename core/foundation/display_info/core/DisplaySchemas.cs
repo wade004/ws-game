@@ -158,7 +158,22 @@ namespace Core.Foundation.DisplayInfo
                                         description: "事件在剪辑时间轴上的相对位置，建议 [0,1]；越界由 AnimSetEventsShapeRule 报 Warning，不在此登记 Range（见判断记录）"),
                                 }, description: "单条关键帧事件"),
                                 description: "缺省空列表；未声明 events 字段时 AnimSetDef.FromRecord 视为无关键帧事件"),
-                        }, description: "{resource_ref: Id, events?: [{name, time_pct}]}，见 AnimSetDef.ParseClip"))),
+                            // 手感落地 M4-D（04 第 10 节，加法字段）：切入本剪辑的交叉淡入时长。缺省 = 调用方默认（ModelCharacterRig 取 0.15 秒）；
+                            // 0 = 硬切。只对 model 型骨骼剪辑生效（sprite 型帧序列播放器不做交叉淡入）。
+                            new FieldSchema("blend_ms", FieldKind.Number, required: false,
+                                description: "切入本剪辑的交叉淡入时长（毫秒，0..2000）；缺省 = 调用方默认（0.15 秒），0 = 硬切；只对 model 型骨骼剪辑生效；子集覆盖同名键时未声明则沿用被覆盖键的值")
+                                .WithRange(FieldRange.Range(min: 0, max: 2000)),
+                        }, description: "{resource_ref: Id, events?: [{name, time_pct}], blend_ms?: Number}，见 AnimSetDef.ParseClip"))),
+                // 手感落地 M4-D（加法字段）：每对键的切入混合时长，优先级高于逐键 blend_ms；from/to 是本行（合并继承链后）clips 里的剪辑键。
+                new FieldSchema("blends", FieldKind.Array, required: false,
+                    item: new FieldSchema("<blend>", FieldKind.Object, required: true, fields: new[]
+                    {
+                        new FieldSchema("from", FieldKind.String, required: true, description: "起点剪辑键（clips 里的键；悬空键由 AnimSetBlendRule 报警告）"),
+                        new FieldSchema("to", FieldKind.String, required: true, description: "目标剪辑键"),
+                        new FieldSchema("blend_ms", FieldKind.Number, required: true, description: "从 from 切到 to 的交叉淡入时长（毫秒，0..2000）")
+                            .WithRange(FieldRange.Range(min: 0, max: 2000)),
+                    }, description: "一对键的混合时长声明"),
+                    description: "每对键（from -> to）的切入混合时长声明，见 AnimSetDef.Blends；有 extends 时沿链合并（子集同一对覆盖父集）；缺省空列表"),
             },
             migrations: Array.Empty<TableMigration>())
             .WithOwnership(SchemaLayer.Foundation, "display");

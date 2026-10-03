@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using Adapters.Stub;
 using Core.Carriers.Assembly;
+using Core.Carriers.Common;
 using Core.Carriers.Unit;
 using Core.Foundation.Common;
 using Core.Foundation.Common.Json;
@@ -10,6 +11,7 @@ using Core.Foundation.DataRegistry;
 using Core.Foundation.DisplayInfo;
 using Core.Foundation.EventBus;
 using Core.Foundation.InputMap;
+using Core.Foundation.SceneRouter;
 using Core.Foundation.SimLoop;
 using Core.Rules.Common;
 using Core.Sim;
@@ -69,7 +71,7 @@ namespace Lab
     /// 输入映射的按钮边沿经 <c>InputBufferHost.BindLocalInput</c> 进输入缓冲，由生产装配的 tick 步骤 1 处理器消费并施放
     /// （宿主不再自己提交施放意图）；每步末尾（事件派发之后）采缓冲槽与运动层状态并让反馈流水线兜底出批；
     /// 靶子（含 AI 巡逻靶）的位置每步同步进空间索引（引擎侧由物理空间查询适配器做）。可破坏障碍是真正的动态阻挡：
-    /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.SetBlocking</c> 批量替换去掉，
+    /// 出场时在地形阻挡之外追加其占位矩形（半边长 0.5），被打死后经 <c>INavigation2D.RemoveBlocking</c> 增量移除，
     /// 阻挡版本号随之递增（06 第 10 节勘误 4 的收口）。动态阻挡由靶子数据声明（<c>block_half_extent</c>，<c>breakable</c> 缺省 0.5），
     /// 不限手感场景：基础靶子集里的可破坏障碍同样是真阻挡；阻挡变更另记一条 <c>blocking_changed</c> 逻辑事件。
     /// 靶子可选声明韧性（<c>poise</c>）：出场后写进韧性属性，受击裁决读它。
@@ -129,7 +131,8 @@ namespace Lab
         private static HeadlessWorldOptions CreateWorldOptions(
             LabHostOptions options, Id mapId, Vec2 start, double stepSeconds, StubNavigation2D? navigation,
             CarriersFeelOptions? feelOptions = null, MovementOptions? movementOptions = null,
-            Core.Rules.Targeting.TargetingOptions? targetingOptions = null)
+            Core.Rules.Targeting.TargetingOptions? targetingOptions = null,
+            Core.Rules.Skill.SkillOptions? skillOptions = null)
         {
             return new HeadlessWorldOptions
             {
@@ -148,7 +151,20 @@ namespace Lab
                 FeelOptions = feelOptions,
                 MovementOptions = movementOptions,
                 TargetingOptions = targetingOptions,
+                SkillOptions = skillOptions,
             };
+        }
+
+        /// <summary>脚本声明了 <c>poiseImpactScale</c> 时的受击裁决选项：只填动态韧性的冲击等级倍率表，其余取缺省（手感落地 M4-W3）。</summary>
+        private static Core.Rules.Combat.HitFeelOptions PoiseImpactHitFeel(ScriptMeta meta)
+        {
+            var table = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var pair in meta.PoiseImpactScale)
+            {
+                table[pair.Key] = pair.Value;
+            }
+
+            return new Core.Rules.Combat.HitFeelOptions { PoiseDamageImpactMultipliers = table };
         }
 
         /// <summary>
@@ -173,7 +189,16 @@ namespace Lab
 
         /// <summary>跑一份脚本在一个格子上的完整过程并返回三条时间线的记录。</summary>
         public static LabRecording Run(
-            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog = null, LabRunVariant? variant = null)
+            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog = null, LabRunVariant? variant = null) =>
+            Run(options, cell, script, catalog, variant, null);
+
+        /// <summary>
+        /// 同 <see cref="Run(LabHostOptions, LabScenario, InputScript, LabCatalog?, LabRunVariant?)"/>，另带宿主扩展点（引擎宿主、调试覆盖应用等，
+        /// 见 <see cref="LabHostExtension"/>）；<paramref name="extension"/> 为 null 时与无扩展版本逐位一致。
+        /// </summary>
+        public static LabRecording Run(
+            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog, LabRunVariant? variant,
+            LabHostExtension? extension)
         {
             variant ??= LabRunVariant.Default;
             if (options == null) throw new ArgumentNullException(nameof(options));
@@ -192,7 +217,9 @@ namespace Lab
 
             // 先用探针世界读出格子关联的地形与靶子集（它们在数据里，格子才知道地图 id）。
             catalog ??= new LabCatalog(BuildProbe(options).Registry);
-            var arena = catalog.GetArena(cell.ArenaId);
+            // 脚本可覆盖格子缺省的地形（竖直轴能力包补完的地形脚本带数据高度场；平面格子同样用它，保证跨格子不变量的比较口径一致）。
+            var spaceExt = meta.SpaceExt;
+            var arena = catalog.GetArena(spaceExt != null && spaceExt.ArenaId.Length > 0 ? new Id(spaceExt.ArenaId) : cell.ArenaId);
             var dummySet = catalog.GetDummySet(meta.DummySetId.Length > 0 ? new Id(meta.DummySetId) : cell.DummySetId);
 
             // 手感场景：预设与标定；FeelOff 变体让同一脚本在旧路径上跑（不装手感系统）。
@@ -200,9 +227,24 @@ namespace Lab
             var feelOn = feelScene && !variant.FeelOff;
             var effectivePreset = variant.PresetId ?? (string.IsNullOrEmpty(meta.PresetId) ? cell.DefaultPreset : meta.PresetId);
             var calibrationId = feelScene ? CalibrationFor(meta, effectivePreset) : string.Empty;
+
+            // 换装场景（meta.scene = equip）也经生产装配开启手感系统（换装链、武器优先的普攻映射、时间线协作者都取生产实例），
+            // 但不走输入缓冲与反馈流水线（没有 FeelRecording，指纹里不出现手感条件度量组，既有换装基线不变）。
+            var equipScene = string.Equals(meta.Scene, "equip", StringComparison.Ordinal);
             var feelOptions = feelOn
-                ? new CarriersFeelOptions { CalibrationId = calibrationId, LocalMoveActionName = options.MoveAction }
-                : null;
+                ? new CarriersFeelOptions
+                {
+                    CalibrationId = calibrationId,
+                    LocalMoveActionName = options.MoveAction,
+                    HitFeel = meta.PoiseImpactScale.Count > 0 ? PoiseImpactHitFeel(meta) : null,
+                }
+                : equipScene
+                    ? new CarriersFeelOptions
+                    {
+                        CalibrationId = meta.FeelCalibrationId.Length > 0 ? meta.FeelCalibrationId : null,
+                        LocalMoveActionName = options.MoveAction,
+                    }
+                    : null;
 
             // 空间语义（06 第 10 节勘误 9）：plane 不装配任何空间能力（行为与引入前逐位一致）；side_2d/volume 装配竖直轴（重力下的跳跃/击飞/落地）
             // 并打开命中形状的高度窗口；volume 另外把"最近"改成含高度差的三维距离；side_2d 额外锁深度（输入的竖直分量不是深度）。
@@ -211,8 +253,10 @@ namespace Lab
             var depthLocked = string.Equals(spaceModel, "side_2d", StringComparison.Ordinal);
             MovementOptions? movementOptions = null;
             Core.Rules.Targeting.TargetingOptions? targetingOptions = null;
+            Core.Rules.Skill.SkillOptions? skillOptions = null;
             var gravity = 0.0;
             var jumpHeight = 0.0;
+            MapTerrainHeights? mapTerrain = null;
             if (vertical)
             {
                 var verticalOptions = new VerticalAxisOptions();
@@ -226,9 +270,39 @@ namespace Lab
                     verticalOptions.JumpHeight = cell.JumpHeight.Value;
                 }
 
+                if (spaceExt != null)
+                {
+                    // 竖直轴能力包补完（ADR-0130 追加决定）：核心层的可选能力，缺省全关；脚本声明了才打开。
+                    verticalOptions.AirControl = spaceExt.AirControl;
+                    verticalOptions.MaxAirJumps = spaceExt.MaxAirJumps;
+                    verticalOptions.StepHeight = spaceExt.StepHeight;
+                    verticalOptions.FallHeight = spaceExt.FallHeight;
+                    if (spaceExt.Terrain)
+                    {
+                        mapTerrain = new MapTerrainHeights(BuildProbe(options).Registry);
+                        verticalOptions.Terrain = mapTerrain;
+                    }
+
+                    if (spaceExt.SpatialRange || spaceExt.SpatialRangeHitWindow)
+                    {
+                        skillOptions = new Core.Rules.Skill.SkillOptions
+                        {
+                            SpatialRange = spaceExt.SpatialRange,
+                            SpatialRangeHitWindow = spaceExt.SpatialRangeHitWindow,
+                        };
+                    }
+
+                    // 空中战斗（M4-W1b）：落地事件只在脚本声明 airCombat 时打开（缺省关，既有脚本的事件流逐位不变）。
+                    verticalOptions.EmitLandedEvent = spaceExt.AirCombat;
+                }
+
                 gravity = verticalOptions.Gravity;
                 jumpHeight = verticalOptions.JumpHeight;
-                movementOptions = new MovementOptions { Vertical = verticalOptions };
+                movementOptions = new MovementOptions
+                {
+                    Vertical = verticalOptions,
+                    DepthLockControlledMotion = spaceExt != null && spaceExt.DepthLockControlledMotion && depthLocked,
+                };
                 targetingOptions = new Core.Rules.Targeting.TargetingOptions
                 {
                     VerticalHit = true,
@@ -246,7 +320,7 @@ namespace Lab
 
             var dynamicBlocks = new List<KeyValuePair<Id, Rect>>();
             var world = HeadlessWorldBuilder.Build(CreateWorldOptions(
-                options, arena.MapId, meta.PlayerStart, step, nav, feelOptions, movementOptions, targetingOptions));
+                options, arena.MapId, meta.PlayerStart, step, nav, feelOptions, movementOptions, targetingOptions, skillOptions));
             var playerId = world.Player.EntityId;
             var recording = new LabRecording(script, cell, step) { StartPosition = meta.PlayerStart };
 
@@ -309,6 +383,23 @@ namespace Lab
             {
                 space = new SpaceRecording(spaceModel, vertical, gravity, jumpHeight, depthLocked);
                 recording.Space = space;
+                if (vertical && spaceExt != null)
+                {
+                    space.Ext = new SpaceExtRecording(spaceExt);
+                    if (spaceExt.AirCombat)
+                    {
+                        space.AirCombat = new AirCombatRecording();
+                    }
+
+                    foreach (var scripted in script.Events)
+                    {
+                        if (scripted.Kind == ScriptEventKind.MoveTo || scripted.Kind == ScriptEventKind.TerrainSwap)
+                        {
+                            space.Ext.Nav = new SpaceNavRecording();
+                            break;
+                        }
+                    }
+                }
             }
 
             foreach (var dummy in dummySet.Entries)
@@ -342,6 +433,7 @@ namespace Lab
 
                     if (space != null)
                     {
+                        space.AirCombat?.Register(label);
                         space.DummyHeights[label] = new List<double>();
                         if (dummy.Height > 0.0)
                         {
@@ -389,24 +481,63 @@ namespace Lab
                 }
             }
 
-            if (dynamicBlocks.Count > 0)
+            // 可破坏障碍的占位矩形经增量接口逐块登记（INavigation2D.AddBlocking，M4-L；此前整批重发全部矩形）。
+            foreach (var block in dynamicBlocks)
             {
-                var all = new List<Rect>(rects);
-                foreach (var block in dynamicBlocks)
-                {
-                    all.Add(block.Value);
-                }
+                nav.AddBlocking(arena.MapId, block.Value);
+            }
 
-                nav.SetBlocking(arena.MapId, all);
+            // 空中姿势装置（脚本声明了合成姿势键表且格子带竖直轴时）。
+            AirPoseRig? airPose = null;
+            if (space?.Ext != null && (spaceExt!.PoseKeys.Count > 0 || spaceExt.PoseAnimSet.Length > 0))
+            {
+                airPose = new AirPoseRig(
+                    world.Bus, world.Gameplay.Carriers.VerticalMotion!, spaceExt, space.Ext, playerId,
+                    id => labels.TryGetValue(id, out var l) ? l : id.Value, world.Registry,
+                    world.Gameplay.Feel?.Resolver, world.Gameplay.Feel?.Feel.StepSeconds ?? 0.0);
+            }
+
+            // 表现：ViewBinder + 记录型假 View，只关心玩家那一个 View 的位姿。
+            var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
+            var factory = new RecordingViewFactory();
+            var displayInfo = new DisplayInfoRegistry(world.Registry, world.Bus);
+            var frameDt = 1.0 / meta.FrameRateCap;
+            LabHostContext? hostContext = null;
+            IViewFactory viewFactory = factory;
+            if (extension != null)
+            {
+                // 扩展点接入（引擎宿主）：此时世界、靶子、外形登记与出场标签都已就绪，视图工厂尚未创建。
+                hostContext = new LabHostContext(
+                    world, cell, script, recording, step, frameDt, playerId, labels, dummyUnits, displayInfo, feelOn);
+                extension.OnAttach(hostContext);
+                viewFactory = extension.WrapViewFactory(factory, hostContext);
             }
 
             // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
+            // 控制空间（06 第 4 节第 3 点）：格子（或扩展的覆盖）声明 camera_relative 且扩展提供了相机朝向查询时，移动动作按框架原生的
+            // camera_relative 控制空间声明，轴值由输入映射按相机偏航换算成世界方向（不再有宿主层自己的换算）；没有相机朝向查询的宿主
+            // （无头宿主）不证明这条路径，按 world 跑，行为与此前逐位一致。扩展显式覆盖了控制空间却不提供朝向查询是装配错误，直接报错。
+            var controlSpace = extension?.ControlSpaceOverride ?? cell.ControlSpace;
+            var orientation = extension?.CameraOrientation;
+            var cameraRelative = string.Equals(controlSpace, ControlSpace.CameraRelative, StringComparison.Ordinal);
+            if (cameraRelative && orientation == null && extension?.ControlSpaceOverride != null)
+            {
+                throw new LabFormatException("宿主扩展要求 camera_relative 控制空间，但没有提供相机朝向查询（LabHostExtension.CameraOrientation）");
+            }
+
+            var nativeCameraRelative = cameraRelative && orientation != null;
             var input = new StubInput();
-            var inputMap = new InputMapHost(world.Bus);
+            var inputMap = new InputMapHost(world.Bus, nativeCameraRelative ? new InputMapOptions { CameraOrientation = orientation } : null);
             var definitions = new List<ActionDefinition>();
             foreach (var record in world.Registry.GetAll("found.input_action"))
             {
-                definitions.Add(ActionDefinition.FromRecord(record));
+                var definition = ActionDefinition.FromRecord(record);
+                if (nativeCameraRelative && string.Equals(definition.ActionId.Value, options.MoveAction, StringComparison.Ordinal))
+                {
+                    definition = definition.WithControlSpace(InputControlSpace.CameraRelative);
+                }
+
+                definitions.Add(definition);
             }
 
             inputMap.DeclareActionSet(new Id("actionset.lab_input_action"), definitions);
@@ -416,20 +547,19 @@ namespace Lab
             }
 
             // 手感场景：本地输入的按钮边沿接给输入缓冲（与 PresentationAssembly 的接线同一个调用）。
-            world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
+            if (feelOn)
+            {
+                world.Gameplay.Feel?.InputBuffer.BindLocalInput(inputMap, playerId, options.MoveAction);
+            }
 
-            // 表现：ViewBinder + 记录型假 View，只关心玩家那一个 View 的位姿。
-            var directionCount = string.Equals(cell.Facing, "flip", StringComparison.Ordinal) ? 2 : 8;
-            var factory = new RecordingViewFactory();
-            var displayInfo = new DisplayInfoRegistry(world.Registry, world.Bus);
             var binder = new ViewBinder(
-                world.Bus, factory, new WorldSimSnapshot(world.World), displayInfo,
+                world.Bus, viewFactory, new WorldSimSnapshot(world.World), displayInfo,
                 new ViewBinderOptions(null, directionCount));
             binder.OnEntityCreated(playerId, world.Player.Kind, world.Player.TemplateId ?? playerId);
 
             // 换装场景（脚本 meta.scene = equip）：装出换装链的全部生产部件，脚本里的 equip/unequip 事件经它执行。
             EquipRig? rig = null;
-            if (string.Equals(meta.Scene, "equip", StringComparison.Ordinal))
+            if (equipScene)
             {
                 rig = EquipRig.Create(world, meta, step, recording, displayInfo);
             }
@@ -502,14 +632,36 @@ namespace Lab
 
                     return n;
                 };
-                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits);
+                feelRig = new FeelRig(world, recording.Feel!, labels, ordinalOf, step, dummyUnits, extension?.FeedbackTee);
             }
 
+            var dummyMoves = new Dictionary<string, Vec2>(StringComparer.Ordinal);
             var eventCursor = 0;
             var tick = 0;
+            var navRecording = space?.Ext?.Nav;
+            if (navRecording != null)
+            {
+                var movementHost = world.Gameplay.Carriers.Movement;
+                movementHost.OnMoveFailedDetailed += (u, _, _, reason) =>
+                {
+                    if (u.Equals(playerId))
+                    {
+                        navRecording.Failures.Add(tick.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + reason);
+                    }
+                };
+                movementHost.OnMoveStopped += (u, _, reason) =>
+                {
+                    if (u.Equals(playerId))
+                    {
+                        navRecording.Stops.Add(tick.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + reason);
+                    }
+                };
+            }
+
             var duration = meta.DurationTicks;
-            var frameDt = 1.0 / meta.FrameRateCap;
             var frame = 0;
+            var axisEventTick = -1;
+            var injectedStick = Vec2.Zero;
 
             void ApplyScriptEvent(ScriptEvent e)
             {
@@ -519,16 +671,82 @@ namespace Lab
                     if (e.Kind == ScriptEventKind.Press)
                     {
                         space!.JumpRequests++;
+                        var wasAirborne = vertical && world.Gameplay.Carriers.VerticalMotion!.IsAirborne(playerId);
                         if (vertical && world.Gameplay.Carriers.VerticalMotion!.Jump(playerId))
                         {
                             space.JumpStartTicks.Add(tick);
+                            if (wasAirborne && space.Ext != null)
+                            {
+                                space.Ext.AirJumpStarts++;
+                            }
+                        }
+                        else if (wasAirborne && space.Ext != null)
+                        {
+                            space.Ext.AirJumpRefusals++;
                         }
                     }
 
                     return;
                 }
 
+                if (e.Kind == ScriptEventKind.MoveTo)
+                {
+                    // 点击移动：宿主级请求（见 ScriptEventKind.MoveTo），直接提交点目标移动请求；
+                    // 带竖直轴的空间语义脚本另记录请求（度量组 space_nav），平面格子照常移动、没有记录。
+                    navRecording?.Targets.Add(e.Value);
+                    navRecording?.TargetTicks.Add(tick);
+                    world.Gameplay.Carriers.Movement.Request(MoveRequest.ToTarget(playerId, e.Value));
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.TerrainSwap)
+                {
+                    // 地形热切换：把本次运行地图的地形整体换成指定 world.map 行的 terrain，再重建导航网格（阻挡版本 +1）。
+                    if (spaceExt == null || !spaceExt.Terrain)
+                    {
+                        throw new LabFormatException("脚本事件 terrain_swap 需要空间语义脚本声明 spaceExt.terrain");
+                    }
+
+                    if (mapTerrain == null || navRecording == null)
+                    {
+                        return; // 平面格子没有竖直轴：地形被忽略（与 space.terrain 同口径）。
+                    }
+
+                    var swapRecord = BuildProbe(options).Registry.Get("world.map", e.Action)
+                        ?? throw new LabFormatException($"脚本 terrain_swap 的 world.map 行不存在：{e.Action}");
+                    mapTerrain.SetShapes(arena.MapId, MapTerrainHeights.ShapesFromRecord(swapRecord) ?? Array.Empty<ITerrainShape>());
+                    nav.BuildNavMesh(arena.MapId);
+                    navRecording.TerrainSwaps++;
+                    return;
+                }
+
                 recording.InjectedInputs.Add(e);
+                if (e.Kind == ScriptEventKind.Jump || e.Kind == ScriptEventKind.Move)
+                {
+                    // 靶子的主动行为（M4-W1b）：起跳走与玩家同一个竖直运动服务；移动设一次并保持（零向量即停），每步提交移动请求。
+                    if (!dummyByLabel.TryGetValue(e.Actor, out var actor))
+                    {
+                        throw new LabFormatException($"脚本 {e.Kind} 事件的行动者 {e.Actor} 不在本次出场的靶子里");
+                    }
+
+                    if (e.Kind == ScriptEventKind.Jump)
+                    {
+                        var accepted = vertical && world.Gameplay.Carriers.VerticalMotion!.Jump(actor);
+                        var counts = accepted ? space?.AirCombat?.DummyJumpsAccepted : space?.AirCombat?.DummyJumpsRefused;
+                        if (counts != null)
+                        {
+                            counts[e.Actor] = counts.TryGetValue(e.Actor, out var n) ? n + 1 : 1;
+                        }
+                    }
+                    else
+                    {
+                        // 横版二维：与玩家的轴输入同一规则，深度被锁死，丢掉竖直分量。
+                        dummyMoves[e.Actor] = new Vec2(e.Value.X, depthLocked ? 0.0 : e.Value.Y);
+                    }
+
+                    return;
+                }
+
                 if (e.Kind == ScriptEventKind.Equip || e.Kind == ScriptEventKind.Unequip)
                 {
                     if (rig == null)
@@ -543,6 +761,18 @@ namespace Lab
                     else
                     {
                         rig.Unequip(tick, e.Action);
+                    }
+
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.ClearProjectiles)
+                {
+                    // 清场（地图切换/场景重置的投射物收尾）：先让簿记以 Cleared 结局通知钩子，再把世界里的投射物实体清掉。
+                    world.Gameplay.Carriers.Projectiles.ClearAll();
+                    foreach (var entity in world.World.QueryEntities(new EntityFilter(kind: EntityKinds.Projectile)))
+                    {
+                        world.World.MarkForDestruction(entity.EntityId);
                     }
 
                     return;
@@ -572,14 +802,18 @@ namespace Lab
                         }
 
                         var stick = first.Substring("pad_stick:".Length);
-                        input.SetAxis(0, stick + "x", e.Value.X);
+                        // 设备轴原样注入桩摇杆；相机相对的换算由输入映射按控制空间原生完成（见上方输入装配）。
+                        var axisValue = e.Value;
+                        axisEventTick = tick;
+                        injectedStick = new Vec2(axisValue.X, depthLocked ? 0.0 : axisValue.Y);
+                        input.SetAxis(0, stick + "x", axisValue.X);
                         // 横版二维：控制空间把摇杆竖直分量留给"向上/向下"，不是深度——深度轴被锁死，丢掉该分量并计数（不静默）。
-                        if (depthLocked && Math.Abs(e.Value.Y) > 0.0)
+                        if (depthLocked && Math.Abs(axisValue.Y) > 0.0)
                         {
                             space!.DepthInputsDropped++;
                         }
 
-                        input.SetAxis(0, stick + "y", depthLocked ? 0.0 : e.Value.Y);
+                        input.SetAxis(0, stick + "y", depthLocked ? 0.0 : axisValue.Y);
                         break;
                     case ScriptEventKind.Press:
                         input.Press(KeyOf(first, e.Action));
@@ -609,10 +843,24 @@ namespace Lab
                 inputMap.Update(input);
 
                 var axis = inputMap.GetActionAxis(options.MoveAction);
+                if (axisEventTick == tick)
+                {
+                    // 本步有脚本轴事件：把"设备轴 → 输入映射给出的移动轴"交给扩展观测（相机相对输入的核对点）；只读。
+                    extension?.OnMoveAxis(tick, injectedStick, axis);
+                }
+
                 var moveRequested = axis.SqrLength > 0.0001;
                 if (moveRequested)
                 {
                     world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(playerId, axis));
+                }
+
+                foreach (var move in dummyMoves)
+                {
+                    if (move.Value.SqrLength > 0.0001 && dummyByLabel.TryGetValue(move.Key, out var mover))
+                    {
+                        world.Gameplay.Carriers.Movement.Request(MoveRequest.InDirection(mover, move.Value));
+                    }
                 }
 
                 foreach (var binding in bindings)
@@ -625,7 +873,7 @@ namespace Lab
                         // 换装场景里普攻动作不走格子的固定绑定，而是按主手武器的 auto_attack_timeline_ref（空手回落空手普攻）解析。
                         var castSkill = binding.Value;
                         if (rig != null && string.Equals(binding.Key, "input.action.attack", StringComparison.Ordinal)
-                            && !rig.TryResolveAttackSkill(out castSkill))
+                            && !rig.TryResolveAttackSkill(binding.Key, tick, out castSkill))
                         {
                             continue;
                         }
@@ -658,6 +906,30 @@ namespace Lab
                     {
                         space.DummyHeights[pair.Key].Add(world.World.GetEntity(pair.Value) is Unit sampled ? sampled.HeightOffset : 0.0);
                     }
+
+                    if (space.Ext != null)
+                    {
+                        var motion = world.Gameplay.Carriers.VerticalMotion!;
+                        space.Ext.PlayerAirborne.Add(motion.IsAirborne(playerId));
+                        space.Ext.PlayerVerticalSpeeds.Add(motion.GetVerticalSpeed(playerId));
+                        space.Ext.PlayerMoveRequested.Add(moveRequested);
+                    }
+
+                    if (space.AirCombat != null)
+                    {
+                        var motion = world.Gameplay.Carriers.VerticalMotion!;
+                        var hitFeel = world.Gameplay.Feel?.Rules.HitFeel.Host;
+                        foreach (var pair in dummyUnits)
+                        {
+                            var sampled = world.World.GetEntity(pair.Value) as Unit;
+                            space.AirCombat.DummyAirborne[pair.Key].Add(motion.IsAirborne(pair.Value));
+                            space.AirCombat.DummySpeeds[pair.Key].Add(motion.GetVerticalSpeed(pair.Value));
+                            space.AirCombat.DummyStaggered[pair.Key].Add(hitFeel != null && hitFeel.IsStaggered(pair.Value));
+                            space.AirCombat.DummyPositions[pair.Key].Add(sampled != null ? sampled.Position : Vec2.Zero);
+                            space.AirCombat.DummyMoveActive[pair.Key].Add(
+                                dummyMoves.TryGetValue(pair.Key, out var activeMove) && activeMove.SqrLength > 0.0001);
+                        }
+                    }
                 }
 
                 recording.Ticks.Add(new TickSample(
@@ -668,27 +940,36 @@ namespace Lab
                 {
                     var dispatched = world.Events[eventCursor++];
                     rig?.OnEvent(dispatched, tick);
+                    airPose?.OnEvent(dispatched, tick);
                     feelRig?.OnEvent(dispatched, tick);
                     RecordEvent(dispatched, tick, labels, instanceOrdinals, recording);
+                    if (dispatched is UnitLandedEvent landed && space?.AirCombat != null)
+                    {
+                        space.AirCombat.Landed.Add(new LandedRecord(
+                            tick, labels.TryGetValue(landed.UnitId, out var landedLabel) ? landedLabel : landed.UnitId.Value,
+                            landed.Height, landed.AirSeconds, landed.ImpactSpeed));
+                    }
+
                     if (dispatched is UnitDiedEvent died && dynamicBlocks.Count > 0)
                     {
                         for (var b = 0; b < dynamicBlocks.Count; b++)
                         {
                             if (dynamicBlocks[b].Key.Equals(died.UnitId))
                             {
+                                var removedRect = dynamicBlocks[b].Value;
                                 dynamicBlocks.RemoveAt(b);
-                                var remaining = new List<Rect>(rects);
-                                foreach (var block in dynamicBlocks)
+                                // 增量移除：只拿掉这一块，其余登记原样保留（INavigation2D.RemoveBlocking，M4-L）。
+                                if (!nav.RemoveBlocking(arena.MapId, removedRect))
                                 {
-                                    remaining.Add(block.Value);
+                                    throw new InvalidOperationException($"可破坏障碍 {labels[died.UnitId]} 的阻挡矩形不在导航登记里，增量移除失败");
                                 }
 
-                                nav.SetBlocking(arena.MapId, remaining);
+                                var remainingCount = rects.Count + dynamicBlocks.Count;
                                 var blockingVersion = nav.GetBlockingVersion(arena.MapId);
                                 recording.Events.Add(new LogicEventRecord(
-                                    tick, "blocking_changed", string.Empty, labels[died.UnitId], string.Empty, 0, remaining.Count,
+                                    tick, "blocking_changed", string.Empty, labels[died.UnitId], string.Empty, 0, remainingCount,
                                     "v" + blockingVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remaining.Count, blockingVersion);
+                                feelRig?.NoteBlockingChanged(tick, labels[died.UnitId], remainingCount, blockingVersion);
                                 break;
                             }
                         }
@@ -696,7 +977,9 @@ namespace Lab
                 }
 
                 rig?.EndTick();
+                airPose?.EndTick(tick, dummyByLabel.Values);
                 feelRig?.EndTick(tick);
+                extension?.OnFixedStepEnd(tick);
 
                 tick++;
             }
@@ -712,12 +995,14 @@ namespace Lab
                     : new FrameSample(
                         frame, frame * frameDt, tick, alpha, true, view.Position, view.Facing.RawRadians,
                         continuous ? 0 : view.Facing.Index, continuous ? 0 : view.Facing.DirectionCount));
+                extension?.OnFrame(frame, alpha, dt);
                 frame++;
             }
 
             var clock = new StubClock();
             clock.RequestFixedStep(step, OnFixedStep);
             clock.OnFrame(OnFrame);
+            extension?.OnReady(hostContext!);
 
             // 真实时间采样：每次帧推进（含其中触发的全部固定步与表现同步）一个样本。
             var watch = new Stopwatch();
@@ -739,7 +1024,9 @@ namespace Lab
             }
 
             recording.TotalEventCount = world.Events.Count;
+            extension?.OnFinished(recording);
             feelRig?.Dispose();
+            airPose?.Dispose();
             rig?.Dispose();
             binder.Dispose();
             return recording;

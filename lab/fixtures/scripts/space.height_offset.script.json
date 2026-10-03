@@ -1,0 +1,98 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "space.height_offset",
+    "scriptVersion": 1,
+    "description": "空间扩展·命中形状竖直偏移（ADR-0130 追加决定）：上挑技能的目标链锥形高度窗口 1，height_offset = 2（窗口整体上移到脚下高度之上 2..3）。地面木桩（高 0）与悬空木桩（高 2）平面位置都在锥内；玩家站在地面挥一次——竖直格子只打中悬空木桩，平面格子忽略高度窗口，两个都打中。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 60,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "ground",
+      "high"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_space_ext",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_spx_up"
+    },
+    "spaceExt": {},
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/space_ext"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "vertical_hits_only_the_offset_target",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "attack.targets_hit",
+      "op": "eq",
+      "value": 1,
+      "note": "窗口上移 2：只打中悬空木桩。"
+    },
+    {
+      "id": "hit_target_is_at_the_offset",
+      "cells": [
+        "side_2d_targeted",
+        "side_2d_action",
+        "volume_targeted",
+        "volume_action"
+      ],
+      "metric": "space.hit_height_gaps",
+      "at": 0,
+      "op": "approx",
+      "value": 2,
+      "tolerance": 1e-06,
+      "note": "被打中的靶子与玩家的高度差 = 偏移 2。"
+    },
+    {
+      "id": "plane_ignores_the_window",
+      "cells": [
+        "2d_targeted",
+        "2d_action",
+        "2_5d_targeted",
+        "2_5d_action",
+        "3d_targeted",
+        "3d_action"
+      ],
+      "metric": "attack.targets_hit",
+      "op": "eq",
+      "value": 2,
+      "note": "平面格子忽略高度窗口，两个靶子都打中。"
+    }
+  ]
+}

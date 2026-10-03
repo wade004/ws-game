@@ -80,6 +80,81 @@ namespace Tests.PresentationRender
             Assert.Equal(1.5, playback.Speed);
         }
 
+        // ------------------------------------------------------------------
+        // 手感落地 M4-D：切剪辑的交叉淡入时长（blend_ms / 每对键 blends）
+        // ------------------------------------------------------------------
+
+        private static AnimSetDef BlendSet(out Id idle, out Id attack, out Id hit, out Id run)
+        {
+            idle = new Id("anim.b_idle");
+            attack = new Id("anim.b_atk");
+            hit = new Id("anim.b_hit");
+            run = new Id("anim.b_run");
+            var clips = new Dictionary<string, AnimClipDef>
+            {
+                ["idle"] = new AnimClipDef(idle, null, 120.0),
+                ["attack"] = new AnimClipDef(attack, null, 0.0),
+                ["hit"] = new AnimClipDef(hit, null, null),
+                ["move.run"] = new AnimClipDef(run, null, null),
+            };
+            return new AnimSetDef(new Id("display.anim_set.b"), clips, null,
+                new[] { new AnimBlendPair("attack", "idle", 250.0) });
+        }
+
+        [Fact]
+        public void PlayClip_WithoutBlendSource_UsesDefaultBlendSecondsForEveryClip()
+        {
+            var (renderer, handle, rig) = NewRig();
+
+            rig.PlayClip(new Id("anim.a"), loop: false, speed: 1.0);
+            Assert.Equal(ModelCharacterRig.DefaultBlendSeconds, renderer.CurrentAnims[handle.Value].BlendSeconds);
+            rig.PlayClip(new Id("anim.b"), loop: false, speed: 1.0);
+            Assert.Equal(ModelCharacterRig.DefaultBlendSeconds, renderer.CurrentAnims[handle.Value].BlendSeconds);
+        }
+
+        [Fact]
+        public void PlayClip_WithBlendSource_PairBeatsPerKeyBeatsDefault_AndZeroIsHardCut()
+        {
+            var (renderer, handle, rig) = NewRig();
+            var set = BlendSet(out var idle, out var attack, out var hit, out var run);
+            rig.AnimBlendSource = set;
+
+            // 第一次播放没有"上一个剪辑"：取目标剪辑的逐键值（idle 120 毫秒）
+            rig.PlayClip(idle, loop: true, speed: 1.0);
+            Assert.Equal(set.Clips["idle"].BlendMs!.Value / 1000.0, renderer.CurrentAnims[handle.Value].BlendSeconds);
+
+            // 切到 attack：逐键值显式 0 = 硬切
+            rig.PlayClip(attack, loop: false, speed: 1.0);
+            Assert.Equal(0.0, renderer.CurrentAnims[handle.Value].BlendSeconds);
+
+            // attack -> idle：每对键声明压过 idle 的逐键值
+            rig.PlayClip(idle, loop: true, speed: 1.0);
+            Assert.Equal(set.Blends[0].BlendMs / 1000.0, renderer.CurrentAnims[handle.Value].BlendSeconds);
+
+            // 没有任何声明的键：回到默认
+            rig.PlayClip(hit, loop: false, speed: 1.0);
+            Assert.Equal(ModelCharacterRig.DefaultBlendSeconds, renderer.CurrentAnims[handle.Value].BlendSeconds);
+            rig.PlayClip(run, loop: true, speed: 1.0);
+            Assert.Equal(ModelCharacterRig.DefaultBlendSeconds, renderer.CurrentAnims[handle.Value].BlendSeconds);
+        }
+
+        [Fact]
+        public void PlayClip_BlendSourceWithNoDeclarations_KeepsDefault_ColdAndHotPathAgree()
+        {
+            var (renderer, handle, rig) = NewRig();
+            var plain = new AnimSetDef(new Id("display.anim_set.p"),
+                new Dictionary<string, AnimClipDef> { ["idle"] = new AnimClipDef(new Id("anim.p_idle")) });
+            rig.AnimBlendSource = plain;
+
+            rig.PlayClip(new Id("anim.p_idle"), loop: true, speed: 1.0);   // 冷启动第一次播放
+            var cold = renderer.CurrentAnims[handle.Value].BlendSeconds;
+            rig.PlayClip(new Id("anim.p_idle"), loop: true, speed: 1.0);   // 同键重触发（热路径）
+            var hot = renderer.CurrentAnims[handle.Value].BlendSeconds;
+
+            Assert.Equal(ModelCharacterRig.DefaultBlendSeconds, cold);
+            Assert.Equal(cold, hot);
+        }
+
         [Fact]
         public void TryGetModelHandle_ReturnsConstructorHandle()
         {

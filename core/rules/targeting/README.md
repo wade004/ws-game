@@ -187,4 +187,16 @@ T-N3-8（ADR-0031 决策 6、拍板 7）补充：`TargetOverflowPolicy` 枚举�
 2. **两个选项，缺省都关**：`TargetingOptions.VerticalHit` 打开后，链声明了高度才过滤——候选脚下高度与锚点高度之差的绝对值 ≤ `height` 才保留（边缘含）；过滤发生在来源收集之后、过滤器之前，空间查询本身仍是平面的。`TargetingOptions.SpatialDistance` 打开后 `sort_by.distance` 与 `nearest_in_shape` 的"最近"按三维欧氏距离（`TargetContext.DistanceTo`）。两者都关时路径与改动之前逐位一致（不读高度）。
 3. **锚点高度**：普通解析取施法者当前脚下高度；`ResolveAtPoint`（地面坐标施法）取地面 0，不取施法者高度。`ResolveAtPose` 同普通解析（施法者高度）。
 4. **读口**：`IUnitAccess.GetHeightOffset`（默认接口成员，见 unit README）；既有测试假实现不必改。
-5. **已知局限**：施法射程检查仍是平面距离（射程由技能管线判定，竖直方向不参与）；锚点恒在施法者脚下，形状没有向上/向下偏置；`GridSnap` 吸附仍只按平面格子中心判定；没有 `shape` 的链没有高度窗口（`shape.height` 是形状的属性）。测试：`tests/TargetHostVerticalTests.cs`（窗口复现与施法者高度跟随、`ResolveAtPoint` 锚点、缺省关闭与链未声明高度的不变量、三维距离最近与排序、`shape.height` 解析与非法值）。
+5. **设计决定（M4 清扫，取代原"已知局限"两项）**：①`GridSnap` 吸附只按平面格子中心判定、不看高度——它是格子（二维网格）语义的吸附，竖直范围不是格子的属性；需要竖直限制的链用形状的 `height`/`height_offset`。②没有 `shape` 的链没有高度窗口——高度是形状的属性（`shape.height`），没有空间查询的链（自身、显式目标、全体友方等）不存在"锚点周围的窗口"，对它们套高度过滤没有意义。测试：`tests/TargetHostVerticalTests.cs`（窗口复现与施法者高度跟随、`ResolveAtPoint` 锚点、缺省关闭与链未声明高度的不变量、三维距离最近与排序、`shape.height` 解析与非法值）。
+
+## 判断记录（形状竖直偏移，2026-10-03，M4-V，ADR-0130 追加决定）
+
+1. **数据**：四种形状（circle/cone/line/rect）都可选 `height_offset`（有限数，可为负，世界单位；`TargetChainDef.ShapeHeightOffset`，缺省 0）；窗口中心 = 锚点高度 + 偏移，容差仍是 `height`，所以 `height_offset: 2`、`height: 1` 的窗口覆盖锚点之上高度差 1..3 的候选。非数值抛 `DataFieldException`，schema 同步声明。
+2. **缺省不变**：偏移为 0 时路径与改动前逐位一致；只在 `VerticalHit` 打开且链声明了 `height` 时参与。
+3. **取舍**：偏移同样作用于"施法者自己在候选里"的情形（窗口以施法者脚下为锚，偏移后施法者自己不一定在窗口内）。测试：`tests/TargetHostHeightOffsetTests.cs`（窗口上下偏移、负偏移、缺省 0 不变、与 `ResolveAtPoint` 锚点组合、解析与非法值）。
+
+## 判断记录（目标命中半径，2026-10-03，M4 清扫，手感设计/03 第 2.4 节）
+
+1. **选项**：`TargetingOptions.TargetRadius`（`Func<Id, double>?`，单位命中半径，世界单位，≤ 0 视为点）与 `MaxTargetRadius`（广相位上界）。缺省 null/0 时形状查询只按目标中心判定，路径与改动前逐位一致。
+2. **口径**：`nearest_in_shape`/`all_in_shape` 在"中心落在形状内"的原始结果之后，追加"形状到目标中心的最近距离（`ShapeGeometry.ClosestPoint`）不超过该目标半径"的单位：先用外扩 `MaxTargetRadius` 的形状（`Shape.Expand`）取宁多勿少的候选，再按各自半径精确重判；追加项按 Id 序排在原始结果之后（确定性）；施法者自己不经半径追加。格子吸附（离散步 `grid_snap`）路径不参与（格子中心采样本来就以格为单位）。时间线空间命中的 marker 与 continuous 逐 tick 采样都经同一条形状查询。
+3. **取舍**：半径来源由游戏供给（按体型数据，或把手感档案的 `unit_body_radius` 换算成世界单位），框架不替游戏选；`MaxTargetRadius` 必须不小于实际最大半径，否则半径更大的单位在广相位被漏掉（文档约束，测试里有反例）。接触点口径不变：marker/instant 取目标登记位置，continuous 取形状上离目标中心最近的点（命中时它必落在目标身体内）。测试：`tests/TargetHostBodyRadiusTests.cs`。

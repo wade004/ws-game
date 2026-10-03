@@ -79,6 +79,72 @@ namespace Core.Foundation.EngineAdapter
         /// </summary>
         void SetBlocking(Id mapId, IReadOnlyList<Rect> rects);
 
+        /// <summary>
+        /// 当前登记的动态阻挡矩形快照（<see cref="SetBlocking"/>/<see cref="AddBlocking"/> 之后的结果，按登记顺序）；返回 <c>null</c> 表示该实现
+        /// 不暴露（默认实现）。它是增量阻挡两个默认成员（<see cref="AddBlocking"/>/<see cref="RemoveBlocking"/>）退化为"整批替换"的数据来源：
+        /// 能暴露登记集合的实现覆盖本成员，即使不覆盖增量成员也能被增量调用（代价是每次整批替换）。
+        /// </summary>
+        IReadOnlyList<Rect>? GetBlocking(Id mapId) => null;
+
+        /// <summary>
+        /// 增量登记一块动态阻挡（手感落地 M4-L：可破坏障碍逐个出场/移除，不必每次重发全部矩形）。结果等价于
+        /// <c>SetBlocking(mapId, 当前登记集合 + rect)</c>，且<b>恰好</b>让 <see cref="GetBlockingVersion"/> 递增一次（语义同一次 <see cref="SetBlocking"/>）；
+        /// 允许重复登记同一矩形（按多重集合处理，<see cref="RemoveBlocking"/> 每次只移除一份）。
+        /// <para>
+        /// 默认实现（ABI 只加不改）：经 <see cref="GetBlocking"/> 取当前集合，追加后走 <see cref="SetBlocking"/> 整批替换；
+        /// 实现若连 <see cref="GetBlocking"/> 也不暴露，默认实现无从知道"当前集合"，抛 <see cref="System.NotSupportedException"/>
+        /// （不静默退化成"只剩这一块"，那会悄悄丢掉其余阻挡）——这种实现要么覆盖 <see cref="GetBlocking"/>，要么覆盖本成员。
+        /// </para>
+        /// </summary>
+        void AddBlocking(Id mapId, Rect rect)
+        {
+            var current = GetBlocking(mapId)
+                ?? throw new System.NotSupportedException(
+                    "INavigation2D 的这个实现既没有覆盖 AddBlocking，也没有通过 GetBlocking 暴露当前阻挡集合，无法增量登记；请覆盖其一，或改用 SetBlocking 整批替换。");
+            var next = new List<Rect>(current.Count + 1);
+            next.AddRange(current);
+            next.Add(rect);
+            SetBlocking(mapId, next);
+        }
+
+        /// <summary>
+        /// 增量移除一块动态阻挡：按矩形值（<see cref="Rect.Equals(Rect)"/>）移除登记顺序里第一份匹配项，返回是否真的移除了；
+        /// 没有匹配项返回 <c>false</c> 且<b>不</b>改变版本号。移除成功时恰好让 <see cref="GetBlockingVersion"/> 递增一次。
+        /// 默认实现同 <see cref="AddBlocking"/>：经 <see cref="GetBlocking"/> 取集合、整批替换，不暴露集合则抛 <see cref="System.NotSupportedException"/>。
+        /// </summary>
+        bool RemoveBlocking(Id mapId, Rect rect)
+        {
+            var current = GetBlocking(mapId)
+                ?? throw new System.NotSupportedException(
+                    "INavigation2D 的这个实现既没有覆盖 RemoveBlocking，也没有通过 GetBlocking 暴露当前阻挡集合，无法增量移除；请覆盖其一，或改用 SetBlocking 整批替换。");
+            var index = -1;
+            for (var i = 0; i < current.Count; i++)
+            {
+                if (current[i].Equals(rect))
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            if (index < 0)
+            {
+                return false;
+            }
+
+            var next = new List<Rect>(current.Count - 1);
+            for (var i = 0; i < current.Count; i++)
+            {
+                if (i != index)
+                {
+                    next.Add(current[i]);
+                }
+            }
+
+            SetBlocking(mapId, next);
+            return true;
+        }
+
         /// <summary>清空某地图的全部动态阻挡登记，供场景卸载时重置。</summary>
         void Clear(Id mapId);
 
@@ -176,6 +242,66 @@ namespace Core.Foundation.EngineAdapter
             for (var i = 0; i < candidates.Count; i++)
             {
                 if (FindPath(mapId, from, candidates[i]) != null)
+                {
+                    reachable = candidates[i];
+                    return true;
+                }
+            }
+
+            reachable = default;
+            return false;
+        }
+
+        /// <summary>
+        /// 地形感知的寻路（ADR-0130 追加决定"寻路感知台阶"，可选能力）：在 <see cref="FindPath(Id, Vec2, Vec2)"/> 的全部契约之上，
+        /// 再要求返回路径的每一段都不被地形台阶/陡坡挡住（<see cref="ITerrainStepConstraint.FirstStepBlock"/> 对每段返回 <c>null</c>），
+        /// 并且<b>在台阶之间规划绕行</b>：直线被台阶挡住时绕过去，不是截断；绕不过去（台阶把目标整个隔开）返回 <c>null</c>。
+        /// <paramref name="terrain"/> 为 <c>null</c> 时就是 <see cref="FindPath(Id, Vec2, Vec2)"/>（逐位不变）。
+        /// <para>
+        /// 默认实现（ABI 只加不改，没有覆盖本成员的实现无需改动）：对 <see cref="FindPath(Id, Vec2, Vec2)"/> 的结果逐段验证约束，
+        /// 有一段被台阶挡住就返回 <c>null</c>——不静默忽略地形，也不假装能绕行（默认实现没有网格，无从规划）。
+        /// 能规划绕行的实现（测试桩、网格实现）覆盖本成员，可直接用 <see cref="TerrainStepPathPlanner"/>。
+        /// </para>
+        /// </summary>
+        IReadOnlyList<Vec2>? FindPath(Id mapId, Vec2 from, Vec2 to, ITerrainStepConstraint? terrain)
+        {
+            var path = FindPath(mapId, from, to);
+            if (path == null || terrain == null)
+            {
+                return path;
+            }
+
+            for (var i = 0; i + 1 < path.Count; i++)
+            {
+                if (terrain.FirstStepBlock(mapId, path[i], path[i + 1]).HasValue)
+                {
+                    return null;
+                }
+            }
+
+            return path;
+        }
+
+        /// <summary>
+        /// 地形感知的 <see cref="TryFindNearestReachable(Id, Vec2, Vec2, double, out Vec2)"/>：返回点必满足
+        /// <c>FindPath(mapId, from, reachable, terrain) != null</c>。<paramref name="terrain"/> 为 <c>null</c> 时就是无地形版本（逐位不变）。
+        /// 默认实现同无地形版本的近似（取最近的 <see cref="NearestWalkableSearch.ReachableProbeLimit"/> 个可走候选逐个试探地形感知的 <see cref="FindPath(Id, Vec2, Vec2, ITerrainStepConstraint?)"/>）；
+        /// 网格实现应按自己的格子精确搜索。
+        /// </summary>
+        bool TryFindNearestReachable(
+            Id mapId, Vec2 from, Vec2 point, double maxRadius, ITerrainStepConstraint? terrain, out Vec2 reachable)
+        {
+            if (terrain == null)
+            {
+                return TryFindNearestReachable(mapId, from, point, maxRadius, out reachable);
+            }
+
+            var candidates = new List<Vec2>();
+            FindNearestWalkableCandidates(
+                mapId, point, maxRadius, from, NearestWalkableSearch.ReachableProbeLimit, candidates);
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                if (FindPath(mapId, from, candidates[i], terrain) != null)
                 {
                     reachable = candidates[i];
                     return true;

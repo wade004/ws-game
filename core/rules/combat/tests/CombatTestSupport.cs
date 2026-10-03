@@ -134,7 +134,17 @@ namespace Tests.Rules.Combat
 
         public double RemainingAbsorb(Id unitId) => _absorb.TryGetValue(unitId, out var v) ? v : 0.0;
 
-        public bool HasAura(Id unitId, Id auraDefId) => false;
+        private readonly HashSet<(Id unit, Id aura)> _granted = new HashSet<(Id, Id)>();
+
+        /// <summary>手感落地 M4 清扫：让 <see cref="HasAura"/> 能为真（光环类霸体用例需要"单位带着某个光环定义"）。</summary>
+        public FakeAuraQuery SetAura(Id unitId, Id auraDefId, bool present = true)
+        {
+            if (present) _granted.Add((unitId, auraDefId));
+            else _granted.Remove((unitId, auraDefId));
+            return this;
+        }
+
+        public bool HasAura(Id unitId, Id auraDefId) => _granted.Contains((unitId, auraDefId));
 
         public int GetStacks(Id unitId, Id auraDefId) => 0;
 

@@ -61,7 +61,8 @@ namespace Tests.Rules.Ai
             double maxHealth = 100,
             ulong rngSeed = 12345,
             string? skillDefJson = null,
-            string? targetChainDefJson = null)
+            string? targetChainDefJson = null,
+            Core.Foundation.EngineAdapter.INavigation2D? navigation = null)
         {
             var bus = AiTestSupport.CreateBus();
             var registry = skillDefJson != null || targetChainDefJson != null
@@ -78,7 +79,7 @@ namespace Tests.Rules.Ai
             var opts = options ?? new AiOptions();
 
             var host = new AiHost(registry, units, factions, powers, spatial, skills, threat, exprFactory, bus, rng,
-                navigation: null, options: opts);
+                navigation: navigation, options: opts);
 
             return new AiTestHarness(units, skills, threat, exprFactory, powers, factions, rng, bus, spatial, opts, host);
         }

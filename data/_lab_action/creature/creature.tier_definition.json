@@ -25,6 +25,14 @@
       "control_immune": true,
       "sort_weight": 8,
       "xp_multiplier": 1.0
+    },
+    {
+      "id": "creature.tier.lab_a_resilient",
+      "name_key": "l10n.creature.tier.lab_a_resilient.name",
+      "stat_multiplier": 1.0,
+      "control_immune": false,
+      "sort_weight": 9,
+      "xp_multiplier": 1.0
     }
   ]
 }

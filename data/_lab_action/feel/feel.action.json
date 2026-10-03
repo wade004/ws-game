@@ -47,6 +47,19 @@
           "value": 2.0
         }
       ]
+    },
+    {
+      "id": "feel.action.lab_a_poise_chip",
+      "description": "动态韧性削韧击（M4-L）：每击从目标韧性池扣 2；强度取预设缺省（不高于任何击前韧性时才被挡成 Flinch）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "poise_damage",
+          "op": "set",
+          "value": 2
+        }
+      ]
     }
   ]
 }

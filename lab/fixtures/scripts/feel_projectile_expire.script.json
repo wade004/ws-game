@@ -1,0 +1,58 @@
+{
+  "formatVersion": 3,
+  "meta": {
+    "scriptId": "feel_projectile_expire",
+    "scriptVersion": 1,
+    "description": "投射物到期（M4-L，补 S12 已知限制）：短射程投射物（射程 6，竞技场直墙在 x=12）没有命中任何单位也没有碰到墙，飞满射程到期。挥空提示必须落在到期那一刻（发射 tick + 飞满射程的 tick 数），结局原因记为 Expired；两次施放各一发。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 300,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_action",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_a_projectile_short"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 150,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 151,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ]
+}

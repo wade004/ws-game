@@ -77,7 +77,7 @@ namespace Tests.Lab
         public void FeelScripts_AreVersion3_OrVersion4WhenTheyCarryExpectations_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(23, scripts.Count);
+            Assert.Equal(29, scripts.Count);
             foreach (var s in scripts)
             {
                 // 手感场景格式是版本 3；脚本带期望清单（06 第 3.1 节）时按"用到的最高特性"写版本 4。
@@ -97,24 +97,11 @@ namespace Tests.Lab
             var results = new List<CellResult>();
             foreach (var script in LabTestSupport.FeelScripts())
             {
-                results.AddRange(LabSuite.Check(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
+                results.AddRange(LabTestSupport.CheckDeterministic(LabTestSupport.Runner, LabTestSupport.FixturesDir, script.Meta.ScriptId));
             }
 
             Assert.Equal(LabTestSupport.FeelScripts().Count * 6, results.Count);
-            var failures = new StringBuilder();
-            foreach (var r in results)
-            {
-                if (r.Status != CellStatus.Pass)
-                {
-                    failures.Append(r.Script).Append(" @ ").Append(r.Cell).Append(' ').Append(r.Status).Append('\n');
-                    if (r.Diff != null)
-                    {
-                        failures.Append(r.Diff.Format());
-                    }
-                }
-            }
-
-            Assert.True(failures.Length == 0, "基线比较失败：\n" + failures);
+            LabTestSupport.AssertAllPass(results, "基线比较失败");
         }
 
         [Fact]
@@ -389,6 +376,76 @@ namespace Tests.Lab
 
             // 对照：只有 hit 标记的 bolt 在没有目标时根本没有发射投射物，没有东西在飞，挥空照旧在判定相结束时判定。
             Assert.Equal(activeEndB, whiffTicks[1]);
+        }
+
+        [Fact]
+        public void Projectile_Expiry_WhiffsWhenTheShotRunsOutOfRange_NotBeforeAndNotAtTheWall()
+        {
+            const string skill = "skill.lab_a_projectile_short";
+            var effect = (JsonObject)((JsonObject)((JsonArray)FeelRules.Skill(skill)["effects"])[0])["params"];
+            var speed = ((JsonNumber)effect["speed"]).Value;
+            var maxRange = ((JsonNumber)effect["max_range"]).Value;
+            var wallX = ((JsonNumber)((JsonObject)ArenaBlock("straight_wall")["min"])["x"]).Value;
+            // 前提由数据推出：射程在直墙之前耗尽，所以结局只可能是到期，不可能是被挡住。
+            Assert.True(maxRange < wallX, "短射程投射物的射程必须小于墙距，否则结局会是被挡住");
+            var flightTicks = (int)Math.Ceiling(maxRange / (speed * FeelRules.StepSeconds));
+
+            var fp = FeelFp.Of("feel_projectile_expire", Action);
+            var presses = Events("feel_projectile_expire", AttackAction, ScriptEventKind.Press);
+            Assert.Equal(2, presses.Count);
+            var endTicks = new List<int>();
+            foreach (var press in presses)
+            {
+                endTicks.Add(press.Tick + T(FeelRules.MarkerMs(skill, "release")) + flightTicks);
+            }
+
+            Assert.Equal(2.0, fp.Num("projectile.launched"));
+            Assert.Equal(2.0, fp.Num("projectile.ended"));
+            Assert.Equal(0.0, fp.Num("projectile.unpaired"));
+            Assert.Equal("Expired:2", fp.Text("projectile.reason_counts"));
+            var ends = fp.Items("projectile.ends");
+            var whiffTicks = fp.Items("presentation.sfx_ids")
+                .Where(i => i.Contains("whiff", StringComparison.Ordinal)).Select(FeelFp.TickOf).ToList();
+            Assert.Equal(2, whiffTicks.Count);
+            for (var i = 0; i < 2; i++)
+            {
+                Assert.InRange(FeelFp.TickOf(ends[i]), endTicks[i] - 1, endTicks[i] + 1);
+                // 挥空落在到期那一刻（同 tick 或下一 tick 出批），不在判定相结束时。
+                Assert.InRange(whiffTicks[i], FeelFp.TickOf(ends[i]), FeelFp.TickOf(ends[i]) + 1);
+                var activeEnd = presses[i].Tick + T(FeelRules.TimelineMs(skill, "startup_ms") + FeelRules.TimelineMs(skill, "active_ms"));
+                Assert.True(whiffTicks[i] > activeEnd + 1, $"挥空提示 {whiffTicks[i]} 不应在判定相结束（{activeEnd}）附近出");
+            }
+        }
+
+        [Fact]
+        public void Projectile_Clear_EndsTheShotAsCleared_WithoutAWhiff_AndLeavesNoStaleInFlightState()
+        {
+            const string skill = "skill.lab_a_projectile";
+            var effect = (JsonObject)((JsonObject)((JsonArray)FeelRules.Skill(skill)["effects"])[0])["params"];
+            var speed = ((JsonNumber)effect["speed"]).Value;
+            var wallX = ((JsonNumber)((JsonObject)ArenaBlock("straight_wall")["min"])["x"]).Value;
+            var flightTicks = (int)Math.Ceiling(wallX / (speed * FeelRules.StepSeconds));
+            var presses = Events("feel_projectile_clear", AttackAction, ScriptEventKind.Press);
+            var clearTick = LabTestSupport.Script("feel_projectile_clear").Events.First(e => e.Kind == ScriptEventKind.ClearProjectiles).Tick;
+            var firstRelease = presses[0].Tick + T(FeelRules.MarkerMs(skill, "release"));
+            // 前提：清场发生在第一发发射之后、飞到墙之前（否则结局就不是被清场）。
+            Assert.InRange(clearTick, firstRelease + 1, firstRelease + flightTicks - 1);
+
+            var fp = FeelFp.Of("feel_projectile_clear", Action);
+            Assert.Equal(2.0, fp.Num("projectile.launched"));
+            Assert.Equal(0.0, fp.Num("projectile.unpaired"));
+            Assert.Equal("Blocked:1;Cleared:1", fp.Text("projectile.reason_counts"));
+            var ends = fp.Items("projectile.ends");
+            Assert.Equal(clearTick, FeelFp.TickOf(ends[0]));
+            Assert.EndsWith(":Cleared", ends[0], StringComparison.Ordinal);
+
+            // 被清场只放弃等待，不挥空：整段里只有第二发（被挡住）出了一次挥空，且落在它被挡住的那一刻。
+            var whiffTicks = fp.Items("presentation.sfx_ids")
+                .Where(i => i.Contains("whiff", StringComparison.Ordinal)).Select(FeelFp.TickOf).ToList();
+            Assert.Single(whiffTicks);
+            Assert.InRange(whiffTicks[0], FeelFp.TickOf(ends[1]), FeelFp.TickOf(ends[1]) + 1);
+            var secondRelease = presses[1].Tick + T(FeelRules.MarkerMs(skill, "release"));
+            Assert.InRange(FeelFp.TickOf(ends[1]), secondRelease + flightTicks - 1, secondRelease + flightTicks + 1);
         }
 
         /// <summary>竞技场地形里按名字取一块阻挡。</summary>

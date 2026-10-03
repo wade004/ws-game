@@ -91,6 +91,12 @@ namespace Core.Carriers.Unit
         /// <see cref="MovementHost.OnMoveStopped"/> 出口，不新增事件类型（同 ADR-0026 决策 3 惯例）。
         /// </summary>
         ChaseTargetLost,
+
+        /// <summary>
+        /// ADR-0130 追加决定（竖直轴地形台阶阻挡）：路径跟随推进时被地形台阶/坡度挡住（<c>VerticalAxisOptions.StepHeight</c>），
+        /// 位移截断在台阶前、路径作废。方向移动与受控位移被台阶挡住时走各自既有的阻挡出口（贴着阻挡停住 / <see cref="DisplacementBlocked"/>），不触发本原因。
+        /// </summary>
+        TerrainBlocked,
     }
 
     /// <summary>供 <see cref="MovementHost.OnMoveStopped"/> 使用的具名委托：<paramref name="position"/>

@@ -55,9 +55,11 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | Id | 是 | `display.anim_set.<名字>` |
-| `clips` | Map\<Id, {resource_ref: Id, events: List\<{name: String, time_pct: Number}\>}\> | 是 | 剪辑 id 到资源引用与关键帧事件列表的映射；`time_pct` 为剪辑内时间百分比（0~1），`name` 为事件名，经 `IRenderer3D.onAnimEvent` 回调。本模块登记为 `FieldKind.Object`，不逐层展开嵌套结构做类型校验，只检查"存在且是对象" |
+| `clips` | Map\<Id, {resource_ref: Id, events: List\<{name: String, time_pct: Number}\>, blend_ms?: Number}\> | 是 | 剪辑 id 到资源引用与关键帧事件列表的映射；`time_pct` 为剪辑内时间百分比（0~1），`name` 为事件名，经 `IRenderer3D.onAnimEvent` 回调。本模块登记为 `FieldKind.Object`，不逐层展开嵌套结构做类型校验，只检查"存在且是对象" |
 | `extends` | Id | 否 | 父姿势集（手感设计/04 第 7 节）；登记为 `FieldKind.Reference` 指向本表，成环由 `AnimSetPoseRule` 报错 |
 | `pose_standard` | Bool | 否 | 缺省 false；为 true 或 id 以 `display.anim_set.std_` 开头时按标准姿势清单校验（必备键缺失为错误、推荐键缺失为警告） |
+| `clips.<键>.blend_ms` | Number（0..2000） | 否 | 切入本剪辑的交叉淡入时长（毫秒）；缺省 = 调用方默认（`ModelCharacterRig` 取 0.15 秒），显式 0 = 硬切；只对 `model` 型骨骼剪辑生效；有 `extends` 时子集覆盖同名键未声明则沿用被覆盖键的值（模块 README 判断记录 9） |
+| `blends` | List\<{from: String, to: String, blend_ms: Number（0..2000）}\> | 否 | 每对键（`from` -> `to`，均为本行合并后 `clips` 里的剪辑键）的切入混合时长，优先级高于逐键 `blend_ms`；沿 `extends` 合并，子集同一对覆盖父集；悬空键与重复对由 `AnimSetBlendRule` 报警告 |
 
 ## `display.equip_visual`（04 第 7.1.2 节）
 

@@ -163,6 +163,55 @@ namespace Tests.PresentationCamera
             Assert.True(camera.FollowPositions[20].X > camera.FollowPositions[10].X);
         }
 
+        [Theory]
+        [InlineData(30)]
+        [InlineData(60)]
+        [InlineData(120)]
+        [InlineData(144)]
+        public void Damping_WithTheTrueFrameSeconds_ConvergenceDoesNotDependOnTheFrameRate(int fps)
+        {
+            // 变帧率宿主的口径：引擎引导每帧把真实帧间隔交给 Update(alpha, dt)。期望值由一阶滞后公式按墙钟时长算出：
+            // 阶跃 10 之后经过 T 秒，关注点 = 10 × (1 − exp(−T/τ))，与帧率无关（逐帧系数连乘恰好等于 exp(−ΣΔt/τ)）。
+            const double dampMs = 200.0;
+            const double seconds = 0.5;
+            var (host, camera, target) = MakeHost(NonNeutral(Set(FeelFieldNames.CameraDampingXMs, dampMs)));
+            target.Position = new Vec2(0, 0);
+            host.Update(0.5, 1.0 / fps); // 首帧对齐
+
+            target.Position = new Vec2(10, 0);
+            var frames = (int)Math.Round(seconds * fps);
+            for (var n = 0; n < frames; n++) host.Update(0.5, 1.0 / fps);
+
+            var expected = 10.0 * (1.0 - Math.Exp(-seconds / (dampMs / 1000.0)));
+            Assert.Equal(expected, camera.FollowPositions[camera.FollowPositions.Count - 1].X, 9);
+        }
+
+        [Fact]
+        public void LegacyUpdateWithoutFrameSeconds_AtA120FpsHost_ConvergesTwiceAsFastAsTheWallClockSays()
+        {
+            // 复现（M4 清扫之前引擎引导的口径）：旧入口 Update(alpha) 恒按 1/60 秒推进，120 帧率的宿主跑 0.5 秒 = 60 帧 = 1 秒的滞后进度。
+            const double dampMs = 200.0;
+            var (legacyHost, legacyCamera, legacyTarget) = MakeHost(NonNeutral(Set(FeelFieldNames.CameraDampingXMs, dampMs)));
+            var (host, camera, target) = MakeHost(NonNeutral(Set(FeelFieldNames.CameraDampingXMs, dampMs)));
+            legacyTarget.Position = new Vec2(0, 0);
+            target.Position = new Vec2(0, 0);
+            legacyHost.Update(0.5);
+            host.Update(0.5, 1.0 / 120.0);
+            legacyTarget.Position = new Vec2(10, 0);
+            target.Position = new Vec2(10, 0);
+            for (var n = 0; n < 60; n++)
+            {
+                legacyHost.Update(0.5);
+                host.Update(0.5, 1.0 / 120.0);
+            }
+
+            var wallClock = 10.0 * (1.0 - Math.Exp(-0.5 / (dampMs / 1000.0)));
+            var legacy = 10.0 * (1.0 - Math.Exp(-1.0 / (dampMs / 1000.0)));
+            Assert.Equal(wallClock, camera.FollowPositions[camera.FollowPositions.Count - 1].X, 9);
+            Assert.Equal(legacy, legacyCamera.FollowPositions[legacyCamera.FollowPositions.Count - 1].X, 9);
+            Assert.NotEqual(wallClock, legacy, 3);
+        }
+
         [Fact]
         public void FollowLag_ConvertsToFollowSmoothingTimeConstantInSeconds()
         {

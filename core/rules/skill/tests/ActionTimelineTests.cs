@@ -771,6 +771,86 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
+        public void UnmappedHigherPriorityRecord_DoesNotBlockMappedLowerPriorityRecord_InsideCancelWindow()
+        {
+            // 手感落地 M4 清扫：永远接不了（没有映射到技能）的缓冲记录不在过期前挡住窗口里次优先级的可接受记录。
+            var h = MakeCancel();
+            var c = h.CastInTick("skill.sample_slash");
+            var open = Ticks(100);
+            while (h.TickIndex - c < open - 2) h.Tick();
+            h.Tick(() =>
+            {
+                h.Input.Push(Actor, new Id("input.unmapped_dodge"), ActionClass.Dodge, priority: 90);
+                h.Input.Push(Actor, new Id("input.dodge"), ActionClass.Dodge, priority: 10);
+            });
+            while (h.Query.Current(Actor)?.SkillId == new Id("skill.sample_slash") && h.TickIndex - c < open + 3) h.Tick();
+
+            // 量：取消事件 0 → 1；进入的是已映射的闪避；未映射的记录仍留在缓冲里（Pending 2 → 1），没有被丢弃。
+            var cancelled = Assert.Single(h.Of<ActionCancelledEvent>());
+            Assert.Equal(new Id("skill.sample_dodge"), cancelled.Event.NextSkillId);
+            Assert.Equal(c + open, cancelled.Tick);
+            Assert.Equal(1, h.Input.Pending);
+            Assert.Equal(new Id("input.unmapped_dodge"), Assert.Single(h.Input.PendingActions));
+        }
+
+        [Fact]
+        public void MappedHigherPriorityRecord_StillWinsOverLowerPriority_PriorityOrderUnchanged()
+        {
+            // 不变量：两条记录都映射得到时，仍按优先级取最前的一条（跳过只针对"永远接不了"的记录）。
+            var h = Make(CancelSkills());
+            h.Binding.Map("input.dodge", "skill.sample_dodge");
+            h.Binding.Map("input.dodge_high", "skill.sample_dodge");
+            var c = h.CastInTick("skill.sample_slash");
+            var open = Ticks(100);
+            while (h.TickIndex - c < open - 2) h.Tick();
+            h.Tick(() =>
+            {
+                h.Input.Push(Actor, new Id("input.dodge"), ActionClass.Dodge, priority: 10);
+                h.Input.Push(Actor, new Id("input.dodge_high"), ActionClass.Dodge, priority: 90);
+            });
+            while (h.Query.Current(Actor)?.SkillId == new Id("skill.sample_slash") && h.TickIndex - c < open + 3) h.Tick();
+
+            Assert.Single(h.Of<ActionCancelledEvent>());
+            var left = Assert.Single(h.Input.PendingActions);
+            Assert.Equal(new Id("input.dodge"), left); // 低优先级那条没被消费，高优先级那条被取走
+        }
+
+        [Fact]
+        public void CancelInto_WithDirectionSnapshot_AlignsFacingToItAtAcceptance()
+        {
+            // 取消进入与缓冲出口同口径：闪避类记录带按下瞬间方向快照时，接受那一刻朝向 = atan2(方向)。
+            var h = MakeCancel();
+            var dir = new Vec2(0, 1);
+            var expected = Math.Atan2(dir.Y, dir.X);
+            Assert.NotEqual(expected, h.World.Units.GetFacing(Actor)); // 起点：朝向 ≠ 目标朝向
+
+            var c = h.CastInTick("skill.sample_slash");
+            var open = Ticks(100);
+            while (h.TickIndex - c < open - 2) h.Tick();
+            h.Tick(() => h.Input.Push(Actor, new Id("input.dodge"), ActionClass.Dodge, direction: dir));
+            while (h.Query.Current(Actor)?.SkillId == new Id("skill.sample_slash") && h.TickIndex - c < open + 3) h.Tick();
+
+            Assert.Single(h.Of<ActionCancelledEvent>());
+            Assert.Equal(expected, h.World.Units.GetFacing(Actor), 9);
+        }
+
+        [Fact]
+        public void CancelInto_WithoutDirectionSnapshot_LeavesFacingUntouched()
+        {
+            // 不变量：没有方向快照（或记录不要求对齐）时朝向不变，与改动前一致。
+            var h = MakeCancel();
+            var before = h.World.Units.GetFacing(Actor);
+            var c = h.CastInTick("skill.sample_slash");
+            var open = Ticks(100);
+            while (h.TickIndex - c < open - 2) h.Tick();
+            h.Tick(() => h.Input.Push(Actor, new Id("input.dodge"), ActionClass.Dodge));
+            while (h.Query.Current(Actor)?.SkillId == new Id("skill.sample_slash") && h.TickIndex - c < open + 3) h.Tick();
+
+            Assert.Single(h.Of<ActionCancelledEvent>());
+            Assert.Equal(before, h.World.Units.GetFacing(Actor));
+        }
+
+        [Fact]
         public void ReplayingTheSameScript_ProducesIdenticalEventStream()
         {
             string Run()

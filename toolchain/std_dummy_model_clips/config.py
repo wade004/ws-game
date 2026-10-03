@@ -127,38 +127,70 @@ VISUALS: list[tuple[str, str, tuple[float, float, float], tuple[float, float, fl
 HINGE_CLAMP = {"m_el": (0.0, 150.0), "o_el": (0.0, 150.0), "m_kn": (0.0, 150.0), "o_kn": (0.0, 150.0)}
 
 #: 取样后姿势参数（sprite 版 Pose 关节角，经铰链夹紧）的范围：(下限, 上限)。自检对每个关键帧时刻重新取样并检查，
-#: 防止姿势函数被改出越界动作。肘/膝是解剖硬限；其余按"假人全部姿势的包络再留余量"拍——肩/髋的后伸下限比人体范围宽，
-#: 因为受击后飞 / 倒地姿势用"腿绕髋整体后摆"表达躺平（骨盆没有俯仰自由度），见 README 已知限制。
+#: 防止姿势函数被改出越界动作。M4-W5 起肩、髋、躯干收紧到人体范围（带运动幅度的风格化余量）：肩前屈 -65..185（人体后伸约 60、
+#: 前屈至头顶约 180）、髋 -46..100（人体后伸约 30，奔跑冲刺的蹬地后伸加骨盆倾斜到 45）、躯干俯仰 -50..60。躺平不再靠
+#: "腿绕髋整体后摆 + 躯干俯仰 ±88" 表达，改用整身俯仰 bp（见 sprite 版 poses.LYING_BACK），所以这些限不必为躺平留余量。
 SOURCE_ANGLE_LIMITS = {
-    "m_sf": (-130.0, 185.0), "o_sf": (-130.0, 185.0),     # 肩前屈（躯干系，向前上举为正；击飞姿势双臂后甩到 -125）
+    "m_sf": (-65.0, 185.0), "o_sf": (-65.0, 185.0),       # 肩前屈（躯干系，向前上举为正）
     "m_sa": (-30.0, 70.0), "o_sa": (-45.0, 70.0),         # 肩外展
     "m_el": (0.0, 150.0), "o_el": (0.0, 150.0),           # 肘屈：不允许反向过伸
-    "m_hf": (-95.0, 100.0), "o_hf": (-95.0, 100.0),       # 髋前屈
+    "m_hf": (-46.0, 100.0), "o_hf": (-46.0, 100.0),       # 髋前屈
     "m_ha": (-30.0, 30.0), "o_ha": (-30.0, 30.0),         # 髋外展
     "m_kn": (0.0, 150.0), "o_kn": (0.0, 150.0),           # 膝屈：不允许反向过伸
-    "t_pitch": (-95.0, 95.0), "t_roll": (-30.0, 30.0), "t_yaw": (-60.0, 60.0),   # 躯干
+    "t_pitch": (-50.0, 60.0), "t_roll": (-30.0, 30.0), "t_yaw": (-60.0, 60.0),   # 躯干
     "h_pitch": (-60.0, 60.0), "h_yaw": (-60.0, 60.0),     # 头
     "wp": (0.0, 230.0), "wy": (-90.0, 90.0), "wz": (-60.0, 60.0),  # 武器相对躯干
+    "bp": (-400.0, 400.0),                                # 整身俯仰（击飞翻滚一整圈 + 余量；只有 BP_KEYS 里的键可非零，重受击/击退另限 [-BP_RECOIL_LIMIT_DEG, 0]）
 }
 
+#: 允许非零整身俯仰 bp 的键：击飞翻滚类（一整圈）与躺平类（仰卧 -88 / 俯卧 +88，击飞起手后仰）。其余键 bp 恒为 0。
+BP_TUMBLE_KEYS = ("hit.launch.tumble", "hit.launch.land")
+BP_LYING_KEYS = ("hit.launch", "hit.knockdown", "hit.getup", "death")
+#: 重受击/击退（M4-W6）：肩、髋、躯干全在人体范围内，"往后一仰"的幅度由整身后仰 bp 表达（绕骨盆，度，只后仰不前翻）。
+BP_RECOIL_KEYS = ("hit.heavy", "hit.knockback")
+BP_RECOIL_LIMIT_DEG = 35.0
+BP_KEYS = BP_TUMBLE_KEYS + BP_LYING_KEYS + BP_RECOIL_KEYS
+
+
 #: 规格里实际写出的骨骼局部旋转量（四元数转轴角后的旋转角，度）上限：对每根旋转骨骼的每个关键帧检查。
-#: 肘/膝是单轴铰链，旋转角恒等于屈曲角，故上限同 SOURCE_ANGLE_LIMITS；其它骨骼取包络加余量。
+#: 肘/膝是单轴铰链，旋转角恒等于屈曲角，故上限同 SOURCE_ANGLE_LIMITS；肩（上臂）、髋（大腿）、躯干、头按人体范围加风格化余量
+#: （M4-W5 收紧：上臂 195 -> 175，大腿 105 -> 90，躯干 100 -> 55，头 60 -> 45）；其它骨骼取包络加余量。
 BONE_ROT_LIMITS_DEG = {
-    "hips": 5.0,
-    "spine": 100.0,
-    "head": 60.0,
-    "upper_arm_r": 195.0, "upper_arm_l": 195.0,
+    "hips": 180.0,       # 只有整身俯仰键（BONE_ROT_HIPS_PITCH_KEYS）允许髋大角度（整身 bp）；其它键 <= HIPS_ROT_LIMIT_DEG
+    "spine": 55.0,
+    "head": 45.0,
+    "upper_arm_r": 175.0, "upper_arm_l": 175.0,
     "forearm_r": 150.0, "forearm_l": 150.0,
-    "thigh_r": 105.0, "thigh_l": 105.0,
+    "thigh_r": 90.0, "thigh_l": 90.0,
     "shin_r": 150.0, "shin_l": 150.0,
     "foot_r": 150.0, "foot_l": 150.0,
     "socket.main_hand": 200.0,
 }
 
+#: 髋旋转（绕竖轴的 yaw，度）在非整身俯仰键里的上限（原 5 度）；翻滚类键（一整圈）受 BONE_ROT_LIMITS_DEG["hips"]，躺平类键（放平到 ±88 度）受下面的躺平上限。
+HIPS_ROT_LIMIT_DEG = 5.0
+HIPS_LYING_LIMIT_DEG = 100.0
+BONE_ROT_HIPS_TUMBLE_KEYS = BP_TUMBLE_KEYS
+BONE_ROT_HIPS_PITCH_KEYS = BP_KEYS
+
+
+def hips_rot_limit_deg(key: str) -> float:
+    """某个键髋骨骼旋转角的上限：翻滚类键整圈、躺平类键放平到 ±88 度、其余键只绕竖轴转几度。"""
+    if key in BP_TUMBLE_KEYS:
+        return BONE_ROT_LIMITS_DEG["hips"]
+    if key in BP_LYING_KEYS:
+        return HIPS_LYING_LIMIT_DEG
+    if key in BP_RECOIL_KEYS:
+        return BP_RECOIL_LIMIT_DEG
+    return HIPS_ROT_LIMIT_DEG
+
+
 #: 引擎侧事件别名：04 §5 的命中标记叫 ``hit``，而 model 型角色外壳（ModelCharacterRig）识别的命中帧事件名是 ``hit_frame``
 #: （ADR-0017）。数据行只写 04 的名字（与 sprite 版同源）；烘进 .anim 的事件在每条 ``hit`` 旁边同时刻再放一条别名事件，
-#: 让 model 型单位的命中帧回调（HitFrameReached）真的在 04 规定的时刻触发。规格里的 ``anim_events`` = 事件 + 别名事件。
-ENGINE_EVENT_ALIASES = {"hit": "hit_frame"}
+#: 让 model 型单位的命中帧回调（HitFrameReached）真的在 04 规定的时刻触发。读条施法剪辑 ``cast`` 没有 ``hit`` 而是施放点 ``release``
+#: （M4-W5 起 ``release`` 也烘出同刻 ``hit_frame``：手感场景的技能走 cast 剪辑，没有它 model 平面的命中对齐恒为缺失）；
+#: 弓攻击的 ``release`` 与 ``hit`` 同刻且数据行已带 ``hit_frame``，按"同名同时刻已存在则不重复"去重。规格里的 ``anim_events`` = 事件 + 别名事件。
+ENGINE_EVENT_ALIASES = {"hit": "hit_frame", "release": "hit_frame"}
 
 #: 数据行事件与 sprite 版同源，不在这里声明；这里只声明 model 型对帧数/时长的核对容差。
 TIME_TOLERANCE_MS = 1e-3
@@ -169,21 +201,18 @@ FK_TOLERANCE_BH = 1e-4   # 正向运动学还原出的关节位置与 sprite 版
 # 体量组（04 §6.1 / §7、05 §9"标准骨骼三组（对应三体量）"）
 # --------------------------------------------------------------------------
 
-#: 轻/重两组：继承中体量主集（``extends``，04 §7），只覆盖"体量会让站姿变形"的键——待机与徒手/战斗姿态的走、跑、冲刺；
-#: 其余键（受击、攻击、各武器族移动、变体……）沿用主集，所以数据行很小、资产增量只有这几份剪辑。
+#: 体量档（手感落地 M4-D 起声明在 sprite 版 ``std_dummy_poses.config.MASS_TIERS``，两版同源，本模块不持有副本）：
+#: 非主档（轻/重……）各一组，覆盖**全部**键（含别名键），``extends`` 主集（中体量，04 §7）；数据行 ``_medium`` 为空覆盖行。
 #: 步幅轴（短/中/长）**不出资产**：02 §7 的播放速率 = 实际速度 ÷ (剪辑每循环位移 ÷ 时长)，步幅由运行期 ``stride_scale`` 匹配，
-#: 与体量正交；因此本组剪辑的时长、帧数、每步位移与中体量完全一致（只改站姿），步幅核对沿用同一条判据。
-MASS_GROUPS = ("light", "heavy")
-#: 体量组覆盖的键（均在主集里存在；``move.sprint.combat`` 在组内是 ``move.sprint`` 的别名，同主集口径）。
-MASS_KEYS = ("idle", "idle.combat", "move.walk", "move.run", "move.sprint", "move.walk.combat", "move.run.combat",
-             "move.sprint.combat")
-#: 站姿偏移（度，自拟 experimental）：躯干前倾/后仰、头反向补偿保持视线、肩/髋外展（正=向外，左右同号即对称）。
-#: 重：前倾、肩髋外展（宽站姿、手臂离身）；轻：微后仰、肩髋内收（窄站姿、手臂贴身）。只改静态站姿，不改摆动幅度，
-#: 所以接触姿势脚间距（= 每步位移）不变，步幅核对原样通过。
-MASS_PROFILES = {
-    "light": {"t_pitch": -2.0, "h_pitch": 1.5, "sa": -3.0, "ha": -1.5},
-    "heavy": {"t_pitch": 6.0, "h_pitch": -4.0, "sa": 8.0, "ha": 5.0},
-}
+#: 与体量正交；因此各档剪辑的时长、帧数、每步位移与主集完全一致（只改站姿与受击反应幅度）。
+#: M3-D 时期体量组覆盖的 8 个键（均在主集里存在）：它们在两档里的剪辑字节必须与 M3-D 逐字节一致（只追加不改既有，测试固定其哈希）。
+LEGACY_MASS_KEYS = ("idle", "idle.combat", "move.walk", "move.run", "move.sprint", "move.walk.combat", "move.run.combat",
+                    "move.sprint.combat")
+
+
+def mass_profiles() -> dict:
+    """静态站姿偏移的四个量（度；M3-D 的口径，规格 params.mass_profiles_deg 仍按这四个量写出）。完整档表（含 react/air）见 SC.MASS_TIERS。"""
+    return {m: {k: v[k] for k in ("t_pitch", "h_pitch", "sa", "ha")} for m, v in SC.MASS_TIERS.items()}
 
 
 def mass_anim_set_id(mass: str) -> str:

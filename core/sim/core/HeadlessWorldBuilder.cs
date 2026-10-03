@@ -145,6 +145,15 @@ namespace Core.Sim
         public Core.Foundation.EngineAdapter.INavigation2D? Navigation { get; set; }
 
         /// <summary>
+        /// 手感落地 M4-W3 新增：为真时无头世界的视线查询（<c>StubSpatialQuery.HasLineOfSight</c>）取自 <see cref="Navigation"/> 的阻挡判定
+        /// （静态地形阻挡 + 运行期动态阻挡，两点连线与阻挡矩形内部相交即无视线），施法管线步骤 7 的视线检查与宽限的视线条件
+        /// （框架内置 <c>input.grace.builtin_aim_line_of_sight</c>）因此能在无头世界里验证真实遮挡。缺省 false——视线恒畅通，与新增本属性之前逐位一致
+        /// （理由：打开后隔墙施法会因视线被挡而失败，既有带阻挡的脚本基线会变；所以只给需要验证遮挡的测试/脚本按需打开）。
+        /// 为真而 <see cref="Navigation"/> 为空时装配抛 <see cref="System.ArgumentException"/>（没有阻挡数据可依据，不静默当作畅通）。ABI 只新增。
+        /// </summary>
+        public bool NavigationLineOfSight { get; set; }
+
+        /// <summary>
         /// 手感落地 S10 新增：转发给 <c>GameplayAssembly</c> 的手感装配选项。默认 <c>null</c> 即不启用手感系统，行为与新增本属性之前逐位一致。
         /// 启用时步长取 <see cref="StepSeconds"/>（显式给了不同的 <c>CarriersFeelOptions.StepSeconds</c> 抛异常）；数据根必须含 <c>feel.*</c> 行
         /// （如 <c>data/_feel</c>）。ABI 只新增（新增可写属性，不动任何既有签名）。
@@ -163,6 +172,12 @@ namespace Core.Sim
         /// 实验室借它打开命中形状的高度判定与三维距离。纯传参转发。ABI 只新增。
         /// </summary>
         public Core.Rules.Targeting.TargetingOptions? TargetingOptions { get; set; }
+
+        /// <summary>
+        /// 同 <see cref="TargetingOptions"/>：转发给 <c>GameplayAssembly</c> 既有的 <c>skillOptions</c> 参数。默认 <c>null</c> 时行为不变；
+        /// 实验室借它打开施法射程的三维口径（<c>SkillOptions.SpatialRange</c>，竖直轴能力包补完）。纯传参转发。ABI 只新增。
+        /// </summary>
+        public Core.Rules.Skill.SkillOptions? SkillOptions { get; set; }
     }
 
     /// <summary>
@@ -296,6 +311,15 @@ namespace Core.Sim
             var rng = new RngHost(options.Seed);
             var world = new WorldSim(bus);
             var spatial = new StubSpatialQuery();
+            if (options.NavigationLineOfSight)
+            {
+                if (options.Navigation == null)
+                {
+                    throw new ArgumentException("NavigationLineOfSight 为真时必须提供 Navigation（视线遮挡取自导航阻挡）", nameof(options));
+                }
+
+                spatial.UseNavigationLineOfSight(options.Navigation, options.MapId);
+            }
             // 判断记录（缺口 16 沿用，随本次上提搬迁）：ISaveSystem 归 GameplayAssembly 持有——
             // 这里就地构造唯一一份 RealSaveSystem 并直接传给 GameplayAssembly 构造函数，
             // HeadlessWorld.SaveSystem 字段下方复用同一个实例（不再另建一份）。
@@ -317,6 +341,11 @@ namespace Core.Sim
                 feelOptions = feelOptions.WithStepSeconds(options.StepSeconds);
             }
 
+            // 动作时间线步长取本装配根的模拟步长（SkillOptions.ActionStepSeconds 从未显式设置，非离散时间模型下 GameplayAssembly 拿不到时钟宿主，
+            // 所以这里先回填；离散时间模型下 GameplayAssembly 自己也会回填同一个值）。
+            var skillOptions = options.SkillOptions ?? new Core.Rules.Skill.SkillOptions();
+            skillOptions.ApplyHostStepSeconds(options.StepSeconds);
+
             // 走带全部参数的最长重载（只有它接受 feelOptions）；其余参数取与此前经可选参数重载时相同的缺省（全 null）。
             var gameplay = new GameplayAssembly(
                 bus, registry, rng, world, spatial, saveSystem,
@@ -327,7 +356,7 @@ namespace Core.Sim
                 sceneRouter: null,
                 statOptions: null,
                 combatOptions: options.CombatOptions,
-                skillOptions: null,
+                skillOptions: skillOptions,
                 targetingOptions: options.TargetingOptions,
                 aiOptions: null,
                 inventoryOptions: null,
