@@ -464,6 +464,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 - **`build.ps1 -Release <版本> -Resume`：发布提交之后失败可续跑，不再重跑全量门禁**：1.96.1 发布三次失败（全量门禁已通过，打包阶段 `dotnet test` 偶发红、docfx 崩溃），当时唯一的恢复路径是 `git reset --soft`、手工还原五个版本文件、整条 `-Release` 重跑，约 50 分钟的全量门禁白跑。现在第 5 步通过时写门禁通过记录 `dist/release-<版本>.state.json`（被 `.gitignore` 覆盖，`prune_dist.ps1` 保留），第 6 步写入发布提交，其后每个阶段（打包、自检、标签、私服 ×4、推送、GitHub Release）各写完成标记；发布提交之后任一阶段失败（`throw` 与 `exit` 两条路径）都打印 `-Resume` 续跑命令，`git reset --soft` 只保留为"放弃本次发布"的回退路径。`-Resume` 只在六项前置校验全部满足时执行（状态文件在且版本一致、`HEAD` 即记录的发布提交、其父提交即记录的发布前提交、发布提交只含五个版本文件、工作树干净、`VERSION` 等于目标版本；拒绝码 `NoState`/`StateUnreadable`/`VersionMismatch`/`NoReleaseCommit`/`HeadMismatch`/`ParentMismatch`/`CommitFiles`/`DirtyTree`/`LocalVersionMismatch`，逐项给出下一步），跳过第 1～6 步，从第一个未完成的阶段起按序执行，各阶段幂等：标签已在 `HEAD` 则跳过（指向别处则拒绝）；私服已有同版本包则比对 `integrity`（一致跳过、不一致拒绝、绝不覆盖，非 404 的查询错误中止）；远端已有标签且分支在 `HEAD` 则跳过推送；GitHub Release 已存在则只补传缺失附件（不带 `--clobber`，同名附件大小不符则拒绝）；打包重跑跳过 `dotnet test`（门禁已对同一棵代码树跑过），允许覆盖未打标签的产物（标签已存在由"发布不可变"守卫拒绝）。第 5 步及更早的失败不在续跑范围（没有门禁通过记录），修好后重跑 `-Release`。判断记录见 `toolchain/_release_resume.ps1` 文件头、`build.ps1` `.PARAMETER Resume`、`toolchain/README.md`"发布续跑"一节；测试 `toolchain/tests/test_release_resume.py`（库函数单元 + 真实 `build.ps1` 跑在最小仓库骨架里，外部命令用桩，不触及真实私服/GitHub）。`AGENTS.md` §5 的半途恢复条款同步改为"首选续跑"。
 
+### 新增
+
+- **标准骨骼蒙皮预渲染为序列帧（[ADR-0140](architecture/adr/0140-标准骨骼蒙皮预渲染为序列帧.md)，手感设计/04 第 6.2 节"后续项"落地）**：离线工具链能力，运行期契约不变。`toolchain/run_prerender_skin.py` + `toolchain/prerender_skin/` 驱动器读一份渲染配置（姿势集 id、方向档、分辨率与脚点、固定相机俯角、光照模式、体量组、装备层选择器），经引擎批处理（包内新增编辑器程序集 `Adapter.Unity.SkinPrerender.Editor`）把"骨名符合标准骨骼的蒙皮"逐键逐方向渲染成透明背景图像，组装成序列帧资源与 `display.anim_set` 数据行；动画复用标准骨骼剪辑库（含体量组），帧数/帧时长/事件时刻取自假人姿势集同一套函数，释放点与命中对齐保持。自检（键与帧数、非空、枢轴不漂移、层对齐、画布裁切）失败即错误；缺骨骼、未知方向档、找不到装备层对象的选择器一律拒绝并列出清单。同机同输入逐字节一致。预渲染产物是生成物不入库。`toolchain/std_dummy_poses/build.py` 的数据行写入器加法支持行级 `pose_standard`，打包函数加可选画布参数，假人姿势集产物逐字节不变。测试：`toolchain/tests/test_prerender_skin.py`（驱动器全链路，桩后端）、引擎侧 `SkinPrerenderPlayModeTests`（真实渲染、对齐、确定性、拒绝路径、现有序列帧播放路径下 release/hit 时刻与假人姿势集逐位相同）。
+
 ## [1.96.1] - 2026-10-03
 
 ### 修复

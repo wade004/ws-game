@@ -53,8 +53,9 @@ def frame_times(clip: C.ClipDef, fps: int) -> list[tuple[float, float, float]]:
     return out
 
 
-def _pack_frames(frames: list[Image.Image]):
-    fw, fh = C.CANVAS
+def _pack_frames(frames: list[Image.Image], canvas: tuple | None = None):
+    """画布缺省取假人集的 C.CANVAS；蒙皮预渲染工具（prerender_skin）传入自己的画布尺寸，打包规则共用同一份。"""
+    fw, fh = canvas or C.CANVAS
     cols = max(1, ATLAS_MAX_WIDTH // fw)
     rows = (len(frames) + cols - 1) // cols
     atlas = Image.new("RGBA", (min(len(frames), cols) * fw, rows * fh), (0, 0, 0, 0))
@@ -71,11 +72,12 @@ def _write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
 
 
-def _write_clip(out_dir: Path, frames: list[Image.Image], durations_s: list[float], loop: bool, fps: int) -> None:
+def _write_clip(out_dir: Path, frames: list[Image.Image], durations_s: list[float], loop: bool, fps: int,
+                canvas: tuple | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    atlas, rects = _pack_frames(frames)
+    atlas, rects = _pack_frames(frames, canvas)
     atlas.save(out_dir / "atlas.png", format="PNG", optimize=True)
-    fw, fh = C.CANVAS
+    fw, fh = canvas or C.CANVAS
     doc = {
         "frame_w": fw,
         "frame_h": fh,
@@ -193,12 +195,14 @@ def build_mass_data_rows(spec: dict) -> list[dict]:
 
 
 def _render_anim_set_file(rows: list[dict]) -> str:
-    """display.anim_set.json：外层 2 空格缩进，每个剪辑一行（与 data/_sample 同风格，字段顺序按 schema：id, [extends], clips）。"""
+    """display.anim_set.json：外层 2 空格缩进，每个剪辑一行（与 data/_sample 同风格，字段顺序按 schema：id, [extends], [pose_standard], clips）。"""
     lines = ['{', '  "table": "display.anim_set",', '  "schema_version": 1,', '  "rows": [']
     for r, row in enumerate(rows):
         lines += ['    {', f'      "id": {json.dumps(row["id"])},']
         if row.get("extends"):
             lines.append(f'      "extends": {json.dumps(row["extends"])},')
+        if row.get("pose_standard") is True:
+            lines.append('      "pose_standard": true,')
         lines.append('      "clips": {')
         items = list(row["clips"].items())
         for i, (key, val) in enumerate(items):
@@ -226,13 +230,13 @@ def _render_anim_set_file(rows: list[dict]) -> str:
 def write_anim_set_rows(data_out: Path, new_rows: list[dict]) -> Path:
     """把 ``new_rows`` 并入 display.anim_set.json：同 id 的行替换，别的行原样保留，按 id 排序输出（确定性）。
 
-    sprite 型与 model 型两个生成器各写自己的一行到同一个文件，互不覆盖对方；已有行若带 id/extends/clips/blends 之外的字段则拒绝改写
+    sprite 型与 model 型两个生成器各写自己的一行到同一个文件，互不覆盖对方；已有行若带 id/extends/pose_standard/clips/blends 之外的字段则拒绝改写
     （本写法不认识那些字段，改写会丢数据）。"""
     path = data_out / "display" / "display.anim_set.json"
     rows: dict[str, dict] = {}
     if path.is_file():
         for row in json.loads(path.read_text(encoding="utf-8")).get("rows", []):
-            extra = set(row) - {"id", "extends", "clips", "blends"}
+            extra = set(row) - {"id", "extends", "clips", "blends", "pose_standard"}
             if extra:
                 raise ValueError(f"{path} 里的行 {row.get('id')} 带有本写法不认识的字段 {sorted(extra)}，拒绝改写")
             rows[row["id"]] = row

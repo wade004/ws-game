@@ -647,6 +647,15 @@ asset_import/common.py` 的 `flatten_id_segment`），与表现层已在用的"�
 （`--check`，含引擎资产 YAML 核对与控制器确定性 fileID 核对）登记在门禁步骤 `std_dummy_model_clips`；另含轻/重体量组（`extends` 主集）。用法、判断记录与范围与边界（设计决定）见
 [`std_dummy_model_clips/README.md`](std_dummy_model_clips/README.md)；测试见 `tests/test_std_dummy_model_clips.py`。
 
+## 标准骨骼蒙皮预渲染（`run_prerender_skin.py`，手感设计/04 第 6.2 节、ADR-0140）
+
+序列帧型游戏做一套蒙皮（骨名符合标准骨骼的模型，可带装备层），得到全部姿势键 × 全部方向档 × 体量组的序列帧与
+`display.anim_set.<名>` 数据行。离线工具链能力，运行期契约不变，产物与假人姿势集同形；帧数、帧时长、事件时刻与假人姿势集取自同一套函数。
+驱动器（`prerender_skin/`，Python）写作业、调引擎批处理渲染、组装图集与数据行、自检（键与帧数、非空、枢轴不漂移、层对齐、
+画布裁切）、再过 `validate_data --strict` 与 `import_assets check`。缺骨骼、未知方向档、找不到装备层对象一律拒绝并列出清单。
+同机同输入两次渲染逐字节一致；跨机器只承诺结构与像素容差。用法、渲染配置字段、蒙皮输入约定与判断记录见
+[`prerender_skin/README.md`](prerender_skin/README.md)；测试见 `tests/test_prerender_skin.py` 与引擎侧 `SkinPrerenderPlayModeTests`。
+
 ## 框架级占位装备集生成器（`gen_std_equip_set.py`，手感设计/06 第 2 节、08）
 
 单手剑/双手巨剑/匕首/弓/法杖/胸甲各一个完整装备资产包（图标 + 纸娃娃静态层图 + 逐层剪辑 + 外观/武器表现/手感/音效材质数据行
