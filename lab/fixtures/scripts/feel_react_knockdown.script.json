@@ -1,0 +1,121 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_react_knockdown",
+    "scriptVersion": 1,
+    "description": "倒地与起身（M5-S2b）：木桩 stake_downable（硬直 200、倒地 400、起身 300 毫秒，起身开头 150 毫秒无敌）被重击（硬直倍率 1.5、击退距离 0.2 个身高拖 300 毫秒）。第 1 击击倒（硬直段 = 200 x 1.5 毫秒、倒地段 400、起身段 300，依次发 knocked_down / getup_started / getup_finished）；第 2 击落在起身无敌窗口里被判 Invulnerable；第 3 击在起身结束之后重新击倒。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 200,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "stake_downable"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_reaction",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_react_massive"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/reaction"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 52,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 53,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 110,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 111,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "phase_events_are_paired",
+      "metric": "reactionext.phase_unpaired",
+      "op": "eq",
+      "value": 0,
+      "note": "每个 getup_started 之前都有 knocked_down、每个 getup_finished 之前都有 getup_started。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "getup_invulnerability_never_leaks",
+      "metric": "reactionext.invuln_leaks",
+      "op": "eq",
+      "value": 0,
+      "note": "起身无敌窗口里落地的命中一律是 Invulnerable（不扣血、不起反应）。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "second_hit_is_avoided",
+      "metric": "reactionext.invuln_hits",
+      "op": "eq",
+      "value": 1,
+      "note": "第 2 击落在起身无敌窗口里。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "two_knockdowns",
+      "metric": "reactionext.knockdown_count",
+      "op": "eq",
+      "value": 2,
+      "note": "第 1、3 击各击倒一次。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    }
+  ]
+}

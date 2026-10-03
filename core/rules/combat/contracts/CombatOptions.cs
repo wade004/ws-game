@@ -156,6 +156,15 @@ namespace Core.Rules.Combat
         public Action<EffectContext, ResolveResult>? ResolveTrace { get; set; }
 
         /// <summary>
+        /// 受击方防御裁决（手感设计/03 第 4 节，ADR-0145）：<see cref="Resolver.Resolve"/> 对非治疗、非周期效果在掷命中表之前问一次——受击方处于
+        /// 起身无敌（判 <see cref="HitResult.Invulnerable"/>）、格挡（判 <see cref="HitResult.Block"/>，伤害按档案倍率）、弹反窗口
+        /// （判 <see cref="HitResult.Parry"/>）时直接给出结局，不消耗命中表的随机数。<b>缺省 null——不问，既有结算逐位不变</b>；
+        /// 手感装配（<c>RulesFeelAssembly</c>）把 <c>HitFeelHost</c> 挂到这里。格挡与弹反只对本可被闪避（<c>CanMiss</c>）的效果生效，
+        /// 起身无敌对全部伤害效果生效。
+        /// </summary>
+        public IDefenseArbiter? DefenseArbiter { get; set; }
+
+        /// <summary>
         /// T-N4-9（[ADR-0034](../../../../architecture/adr/0034-单一货币与价格挂物品等级.md)
         /// 决策 7；数值设计分阶段落地计划拍板 9"'进入战斗时移除坐骑光环'归 CombatOptions"）：
         /// 进入战斗（<see cref="CombatHost.NotifyCombatEvent"/> 由"不在战"转"在战"那一刻，见该

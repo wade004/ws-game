@@ -28,5 +28,14 @@ namespace Core.Rules.Common
         /// 动作时间线的实现方覆盖它。光环类霸体不经本成员，见 <c>HitFeelOptions.SuperArmorAuraDef</c>。
         /// </summary>
         bool IsSuperArmor(Id unitId) => false;
+
+        /// <summary>
+        /// 行动者当前是否处于格挡窗口（时间线标记 <c>guard_start</c>～<c>guard_end</c>，手感设计/03 第 4 节，ADR-0145）。受击裁决的
+        /// 防御判定读它（经 <c>HitFeelHost</c> 的默认防御状态适配）。C# 默认接口成员（纯加法，缺省恒 false）。
+        /// </summary>
+        bool IsGuarding(Id unitId) => false;
+
+        /// <summary>格挡窗口开始后经过的动作时钟 tick 数（顿帧期间不增长；不在格挡中为 0）。默认接口成员。</summary>
+        int GuardElapsedTicks(Id unitId) => 0;
     }
 }

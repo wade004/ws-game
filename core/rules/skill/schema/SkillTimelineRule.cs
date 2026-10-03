@@ -26,7 +26,7 @@ namespace Core.Rules.Skill
 
         private static readonly HashSet<string> AuthorableMarkers = new HashSet<string>(StringComparer.Ordinal)
         {
-            "hit", "invuln_start", "invuln_end", "armor_start", "armor_end", "motion_start", "motion_end", "release",
+            "hit", "invuln_start", "invuln_end", "armor_start", "armor_end", "guard_start", "guard_end", "motion_start", "motion_end", "release",
         };
 
         private static readonly HashSet<string> DerivedMarkers = new HashSet<string>(StringComparer.Ordinal)
@@ -123,6 +123,8 @@ namespace Core.Rules.Skill
             var invulnEnd = (double?)null;
             var armorStart = (double?)null;
             var armorEnd = (double?)null;
+            var guardStart = (double?)null;
+            var guardEnd = (double?)null;
             var hitSegments = new HashSet<string>(StringComparer.Ordinal);
             if (tl.TryGetValue("markers", out var markersVal) && markersVal is JsonArray markers)
             {
@@ -198,6 +200,8 @@ namespace Core.Rules.Skill
                         case "invuln_end": invulnEnd = at; break;
                         case "armor_start": armorStart = at; break;
                         case "armor_end": armorEnd = at; break;
+                        case "guard_start": guardStart = at; break;
+                        case "guard_end": guardEnd = at; break;
                     }
                 }
             }
@@ -228,6 +232,20 @@ namespace Core.Rules.Skill
             else if (armorStart.HasValue && armorEnd.HasValue && armorEnd.Value < armorStart.Value)
             {
                 issues.Add(Err("timeline_armor_order", "armor_end 早于 armor_start", "timeline.markers"));
+            }
+
+            // 格挡窗口（与霸体窗口同级别，手感设计/03 第 4 节，ADR-0145）
+            if (guardEnd.HasValue && !guardStart.HasValue)
+            {
+                issues.Add(Err("timeline_guard_unpaired", "声明了 guard_end 但没有 guard_start", "timeline.markers"));
+            }
+            else if (guardStart.HasValue && !guardEnd.HasValue)
+            {
+                issues.Add(Warn("timeline_guard_unterminated", "声明了 guard_start 但没有 guard_end，格挡将持续到动作结束", "timeline.markers"));
+            }
+            else if (guardStart.HasValue && guardEnd.HasValue && guardEnd.Value < guardStart.Value)
+            {
+                issues.Add(Err("timeline_guard_order", "guard_end 早于 guard_start", "timeline.markers"));
             }
 
             // 位移块与 motion_start/motion_end

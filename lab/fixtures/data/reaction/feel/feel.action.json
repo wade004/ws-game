@@ -1,0 +1,67 @@
+{
+  "table": "feel.action",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "feel.action.lab_react_massive",
+      "description": "受击反应扩展（M5-S2b）的重击：冲击等级 massive（knockdown）、强度压过任何韧性、击退距离 0.2 个身高、击退拖 300 毫秒完成、硬直时长倍率 1.5。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "massive"
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 10
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0.2
+        },
+        {
+          "field": "knockback_duration_ms",
+          "op": "set",
+          "value": 300
+        },
+        {
+          "field": "hit_stun_scale",
+          "op": "set",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "feel.action.lab_react_still",
+      "description": "受击反应扩展（M5-S2b）的不击退重击：与 lab_react_massive 同样的冲击等级、强度与硬直倍率，击退距离 0（靶子不被推出近战扇形，连打多次仍在范围内）。",
+      "maturity": "experimental",
+      "profile_version": 1,
+      "writes": [
+        {
+          "field": "impact_class",
+          "op": "set",
+          "value": "massive"
+        },
+        {
+          "field": "stagger_power",
+          "op": "set",
+          "value": 10
+        },
+        {
+          "field": "knockback_distance",
+          "op": "set",
+          "value": 0
+        },
+        {
+          "field": "hit_stun_scale",
+          "op": "set",
+          "value": 1.5
+        }
+      ]
+    }
+  ]
+}

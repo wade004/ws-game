@@ -125,6 +125,7 @@
     `FeelAssemblyOptions.Fields`/`CarriersFeelOptions.Fields` 传同一份登记。**已知局限**：第 7 层光环 `feel_modifiers` 读的是规则层 `skill.aura_def` 的 schema（按框架默认登记生成），
     游戏自有字段不能写在光环修饰里；需要时由规则层的光环 schema 提供扩展位。
 20. **玩家入口在载体层（M5）**：本模块不读职业行；`CreatureTemplateFeelBodyProvider`（`core/carriers/assembly`）对玩家单位读 `arch.class` 的 `feel_archetype_ref`/`feel_ref`，见该模块 README。
+21. **受击反应扩展字段（M5-S2b，[ADR-0145](../../../architecture/adr/0145-受击反应的硬直保护期时长公式命中类别与倒地起身阶段.md)）**：登记新增 20 个可选字段（缺省无值 = 与此前逐位一致），Reaction 组：`stagger_grace_ms`/`stagger_grace_cap`（受击方）、`hit_stun_scale`/`knockback_duration_ms`（攻击方）、`getup_ms`/`getup_invuln_ms`（受击方）、`crit_impact_class`/`crit_hitstop_scale`（攻击方）、`block_impact_class`/`block_hitstop_scale`/`block_reaction_cap`/`block_attacker_reaction`、`glancing_impact_class`/`glancing_hitstop_scale`、`parry_impact_class`/`parry_hitstop_scale`/`parry_attacker_reaction`、`guard_arc_deg`/`guard_damage_scale`/`guard_parry_window_ms`（受击方）；全部在 `HitFeelHost` 有生产消费方，状态 active。生成的 `05a_字段登记表.md` 已重生成。
 
 ## 基础架构提供 / 游戏层提供
 

@@ -77,7 +77,7 @@ namespace Tests.Lab
         public void FeelScripts_AreVersion3_OrVersion4WhenTheyCarryExpectations_RoundTrip_AndRunAt60Hz()
         {
             var scripts = LabTestSupport.FeelScripts();
-            Assert.Equal(29, scripts.Count);
+            Assert.Equal(32, scripts.Count);
             foreach (var s in scripts)
             {
                 // 手感场景格式是版本 3；脚本带期望清单（06 第 3.1 节）时按"用到的最高特性"写版本 4。

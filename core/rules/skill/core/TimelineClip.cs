@@ -48,13 +48,13 @@ namespace Core.Rules.Skill
     /// 把剪辑标记时间抄写进 <c>skill.def.timeline</c>；本类是这一步的纯函数实现。事件命名约定（取自
     /// <c>display.anim_set.clips[*].events</c>）：<c>active_start</c>/<c>active_end</c> 界定判定相，<c>hit</c> 或 <c>hit:&lt;段&gt;</c>
     /// 为命中，<c>combo_open</c>/<c>combo_close</c> 为连招窗口，<c>cancel_open:&lt;类别&gt;</c>（可选 <c>cancel_close:&lt;类别&gt;</c>）为取消窗口，
-    /// <c>invuln_start/end</c>、<c>armor_start/end</c>、<c>motion_start/end</c>、<c>release</c> 原样抄写；表现类事件（<c>trail_*</c>、<c>footstep</c>、<c>fx</c>）不抄。
+    /// <c>invuln_start/end</c>、<c>armor_start/end</c>、<c>guard_start/end</c>、<c>motion_start/end</c>、<c>release</c> 原样抄写；表现类事件（<c>trail_*</c>、<c>footstep</c>、<c>fx</c>）不抄。
     /// </summary>
     public static class TimelineClipImporter
     {
         private static readonly HashSet<string> CopiedMarkers = new HashSet<string>(StringComparer.Ordinal)
         {
-            "invuln_start", "invuln_end", "armor_start", "armor_end", "motion_start", "motion_end", "release",
+            "invuln_start", "invuln_end", "armor_start", "armor_end", "guard_start", "guard_end", "motion_start", "motion_end", "release",
         };
 
         public static ClipTimeline Import(ClipMarkerSet clip)

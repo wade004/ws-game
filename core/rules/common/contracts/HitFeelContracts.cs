@@ -40,10 +40,51 @@ namespace Core.Rules.Common
         }
     }
 
+    /// <summary>
+    /// 受击反应的时长与附带决定（手感设计/03 第 4 节、ADR-0145）：由裁决一次算定，随 <c>combat.hit_confirmed</c> 带给落地方，
+    /// 使攻击方档案的 <c>hit_stun_scale</c>、<c>knockback_duration_ms</c> 与攻击方快照在落地时不必重算。
+    /// 不经裁决的发出方（测试替身、旧调用点）事件里没有它（<see cref="IsSet"/> 为假），落地方退回按受击方当前档案计算（既有行为）。
+    /// </summary>
+    public readonly struct HitReactionDetail
+    {
+        /// <summary>是否由裁决填写。</summary>
+        public bool IsSet { get; }
+
+        /// <summary>硬直段 tick 数（受击方 <c>hit_stun_ms</c> × 攻击方 <c>hit_stun_scale</c> × 反应类型倍率，换算后）。</summary>
+        public int StunTicks { get; }
+
+        /// <summary>倒地段 tick 数（<c>knockdown</c> 才非零，受击方 <c>downed_ms</c>）。</summary>
+        public int DownedTicks { get; }
+
+        /// <summary>起身段 tick 数（<c>knockdown</c> 才可能非零，受击方 <c>getup_ms</c>；缺省 0）。</summary>
+        public int GetupTicks { get; }
+
+        /// <summary>击退总时长（秒）：攻击方 <c>knockback_duration_ms</c> 声明时为其换算值，否则 0（用游戏级缺省）。</summary>
+        public double KnockbackDurationSeconds { get; }
+
+        /// <summary>攻击方被反弹的反应（格挡/弹反类别声明，已过攻击方的霸体与 <c>reaction_cap</c>）；<see cref="HitReaction.None"/> 即无。</summary>
+        public HitReaction AttackerReaction { get; }
+
+        /// <summary>攻击方硬直段 tick 数（攻击方被反弹成硬直类反应时，用攻击方自己的 <c>hit_stun_ms</c>）。</summary>
+        public int AttackerStunTicks { get; }
+
+        public HitReactionDetail(
+            int stunTicks, int downedTicks, int getupTicks, double knockbackDurationSeconds, HitReaction attackerReaction, int attackerStunTicks)
+        {
+            IsSet = true;
+            StunTicks = stunTicks;
+            DownedTicks = downedTicks;
+            GetupTicks = getupTicks;
+            KnockbackDurationSeconds = knockbackDurationSeconds;
+            AttackerReaction = attackerReaction;
+            AttackerStunTicks = attackerStunTicks;
+        }
+    }
+
     /// <summary>受击裁决的结论：填进 <c>combat.hit_confirmed</c> 的冲击等级、两侧顿帧 tick 数、受击反应，外加反应时长。</summary>
     public readonly struct HitFeelOutcome
     {
-        /// <summary>冲击等级（来自攻击方手感表受击组 <c>impact_class</c>）。</summary>
+        /// <summary>冲击等级（来自攻击方手感表受击组 <c>impact_class</c>；暴击/格挡/偏斜/弹反类别可声明替换，见 ADR-0145）。</summary>
         public string ImpactClass { get; }
 
         /// <summary>攻击方顿帧 tick 数（已限幅、击杀已放大）；0 即不顿帧。</summary>
@@ -55,18 +96,32 @@ namespace Core.Rules.Common
         public HitReaction Reaction { get; }
 
         /// <summary>
-        /// 反应持续 tick 数：硬直类为 <c>hit_stun_ms</c> 换算值，倒地再加 <c>downed_ms</c> 换算值；
+        /// 反应持续 tick 数：硬直类为硬直段（含 <c>hit_stun_scale</c> 与反应类型倍率），倒地再加倒地段与起身段；
         /// 受击反应不是硬直类（None/Flinch/Death）为 0。与顿帧分别计时，硬直从受击方顿帧结束后起算。
         /// </summary>
         public int ReactionDurationTicks { get; }
 
+        /// <summary>反应时长与附带决定（硬直/倒地/起身分段、击退时长、攻击方被反弹）；总是由裁决填写。</summary>
+        public HitReactionDetail Detail { get; }
+
+        /// <summary>攻击方被反弹的反应（<see cref="HitReactionDetail.AttackerReaction"/> 的便捷读取）。</summary>
+        public HitReaction AttackerReaction => Detail.AttackerReaction;
+
         public HitFeelOutcome(string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction, int reactionDurationTicks)
+            : this(impactClass, attackerHitStopTicks, targetHitStopTicks, reaction, reactionDurationTicks, default)
+        {
+        }
+
+        public HitFeelOutcome(
+            string impactClass, int attackerHitStopTicks, int targetHitStopTicks, HitReaction reaction, int reactionDurationTicks,
+            HitReactionDetail detail)
         {
             ImpactClass = impactClass;
             AttackerHitStopTicks = attackerHitStopTicks;
             TargetHitStopTicks = targetHitStopTicks;
             Reaction = reaction;
             ReactionDurationTicks = reactionDurationTicks;
+            Detail = detail;
         }
 
         /// <summary>无任何顿帧与反应（手感系统未装配、离散模式、回避类结局共用）。</summary>
@@ -95,11 +150,89 @@ namespace Core.Rules.Common
         /// <summary>硬直中（含倒地）。硬直从受击方顿帧结束后起算，顿帧期间尚未处于硬直。</summary>
         bool IsStaggered(Id unitId);
 
-        /// <summary>倒地中（<c>knockdown</c> 反应硬直之后的 <c>downed_ms</c> 段；仍属于 <see cref="IsStaggered"/>）。</summary>
+        /// <summary>倒地中（<c>knockdown</c> 反应硬直之后的 <c>downed_ms</c> 段，不含起身段；仍属于 <see cref="IsStaggered"/>）。</summary>
         bool IsDowned(Id unitId);
+
+        /// <summary>
+        /// 起身中（倒地段之后的 <c>getup_ms</c> 段；仍属于 <see cref="IsStaggered"/>，ADR-0145）。C# 默认接口成员：既有实现不受影响，缺省恒假。
+        /// </summary>
+        bool IsGettingUp(Id unitId) => false;
+
+        /// <summary>
+        /// 起身无敌中（<c>getup_invuln_ms</c> 声明且起身段内，ADR-0145）：此刻打向该单位的命中被判为 <see cref="HitResult.Invulnerable"/> 回避。
+        /// 默认接口成员，缺省恒假。
+        /// </summary>
+        bool IsGetupInvulnerable(Id unitId) => false;
 
         /// <summary>硬直剩余 tick 数（不含当前 tick；未处于硬直为 0；顿帧结束前尚未起算时为整段时长）。</summary>
         int RemainingStaggerTicks(Id unitId);
+    }
+
+    /// <summary>受击方防御裁决的类别（<see cref="IDefenseArbiter"/>）。</summary>
+    public enum DefenseKind
+    {
+        /// <summary>无防御介入（走命中表）。</summary>
+        None = 0,
+
+        /// <summary>起身无敌：命中判为 <see cref="HitResult.Invulnerable"/> 回避。</summary>
+        Invulnerable = 1,
+
+        /// <summary>格挡：命中判为 <see cref="HitResult.Block"/>，伤害按 <see cref="DefenseVerdict.DamageScale"/> 缩放。</summary>
+        Block = 2,
+
+        /// <summary>弹反（格挡开始后的短窗口内）：命中判为 <see cref="HitResult.Parry"/> 回避，目标不受伤。</summary>
+        Parry = 3,
+    }
+
+    /// <summary>受击方防御裁决的结论。</summary>
+    public readonly struct DefenseVerdict
+    {
+        public DefenseKind Kind { get; }
+
+        /// <summary>格挡的伤害倍率（<see cref="DefenseKind.Block"/> 才有意义，缺省声明为 1）。</summary>
+        public double DamageScale { get; }
+
+        public DefenseVerdict(DefenseKind kind, double damageScale = 1.0)
+        {
+            Kind = kind;
+            DamageScale = damageScale;
+        }
+
+        public static DefenseVerdict None => new DefenseVerdict(DefenseKind.None);
+    }
+
+    /// <summary>
+    /// 受击方防御裁决入口（手感设计/03 第 4 节，ADR-0145）：结算管线（<c>Resolver</c>）在掷命中表之前问一次——
+    /// 受击方处于起身无敌、格挡（含方向判定）、弹反窗口时由它直接给出结局，不消耗命中表的随机数；
+    /// 没有防御状态时返回 <see cref="DefenseVerdict.None"/>，命中表照旧（既有行为逐位不变）。
+    /// 实现是 <c>HitFeelHost</c>；装配根把它挂到 <c>CombatOptions.DefenseArbiter</c>。
+    /// </summary>
+    public interface IDefenseArbiter
+    {
+        DefenseVerdict Judge(Id attackerId, Id targetId);
+    }
+
+    /// <summary>一个单位的防御（格挡）状态快照。</summary>
+    public readonly struct GuardState
+    {
+        /// <summary>自本次格挡开始经过的动作时钟 tick 数（顿帧期间不增长）；弹反窗口按它判。</summary>
+        public int ElapsedTicks { get; }
+
+        public GuardState(int elapsedTicks)
+        {
+            ElapsedTicks = elapsedTicks;
+        }
+    }
+
+    /// <summary>
+    /// 受击方"防御状态"只读查询（手感设计/03 第 4 节，ADR-0145）：单位此刻是否在格挡。输入侧的"按住维持型动作"（手感设计/01）合并后
+    /// 由它的实现接上（<c>HitFeelHost.Guard</c>）；在那之前由动作时间线的 <c>guard_start</c>～<c>guard_end</c> 标记驱动
+    /// （<see cref="IActionStateQuery.IsGuarding"/> 的适配，<c>HitFeelHost</c> 在 <c>Guard</c> 未设置时自动使用）。
+    /// </summary>
+    public interface IGuardStateQuery
+    {
+        /// <summary>该单位正在格挡则返回真并给出状态；否则假。</summary>
+        bool TryGetGuard(Id unitId, out GuardState state);
     }
 
     /// <summary>

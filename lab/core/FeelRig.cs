@@ -139,8 +139,26 @@ namespace Lab
                     break;
                 case CombatReactionAppliedEvent r:
                     _record.Events.Add(new FeelEventRecord(
-                        tick, "reaction", Label(r.SourceId), Label(r.TargetId), string.Empty, r.Reaction.ToString(), string.Empty,
+                        tick, "reaction", Label(r.SourceId), Label(r.TargetId), string.Empty, r.Reaction.ToString(),
+                        // 硬直/倒地/起身分段只在有倒地段或起身段时才记（既有脚本的记录文本不变）。
+                        r.DownedTicks > 0 || r.GetupTicks > 0
+                            ? "stun=" + r.StunTicks + ";down=" + r.DownedTicks + ";getup=" + r.GetupTicks
+                            : string.Empty,
                         r.DurationTicks));
+                    break;
+                case UnitKnockedDownEvent kd:
+                    _record.Events.Add(new FeelEventRecord(
+                        tick, "knocked_down", string.Empty, Label(kd.UnitId), string.Empty, string.Empty, string.Empty,
+                        kd.DownedTicks, kd.GetupTicks));
+                    break;
+                case UnitGetupStartedEvent gs:
+                    _record.Events.Add(new FeelEventRecord(
+                        tick, "getup_started", string.Empty, Label(gs.UnitId), string.Empty, string.Empty, string.Empty,
+                        gs.GetupTicks, gs.InvulnerableTicks));
+                    break;
+                case UnitGetupFinishedEvent gf:
+                    _record.Events.Add(new FeelEventRecord(
+                        tick, "getup_finished", string.Empty, Label(gf.UnitId), string.Empty, string.Empty, string.Empty));
                     break;
                 case FeelHitstopStartedEvent hs:
                     _record.Events.Add(new FeelEventRecord(

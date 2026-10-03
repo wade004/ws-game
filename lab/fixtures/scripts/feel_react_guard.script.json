@@ -1,0 +1,115 @@
+{
+  "formatVersion": 4,
+  "meta": {
+    "scriptId": "feel_react_guard",
+    "scriptVersion": 1,
+    "description": "格挡与弹反（M5-S2b）：精英 guarder 由脚本 cast 举盾（整个动作 2100 毫秒，前 2000 毫秒是格挡窗口），玩家重击 3 次。第 1 击落在格挡开始后 300 毫秒的弹反窗口里（精英不受伤、不反应，玩家被弹开成 stagger_light）；第 2 击在窗口之后被格挡（伤害 x 0.25、反应封顶 flinch、玩家被弹开）；第 3 击落在格挡窗口结束之后，按普通命中结算。",
+    "datasetRoot": "data/_lab",
+    "presetId": "",
+    "calibrationVersion": "none",
+    "poseSet": "none",
+    "tickRate": 60,
+    "frameRateCap": 60,
+    "durationTicks": 170,
+    "playerStart": {
+      "x": 0,
+      "y": 0
+    },
+    "dummyGroups": [
+      "guarder"
+    ],
+    "feel": true,
+    "dummySet": "lab.dummy_set.lab_reaction",
+    "learnSkills": [],
+    "skillSlots": {
+      "lab_a.attack": "skill.lab_react_massive"
+    },
+    "scene": "",
+    "feelCalibrationId": "",
+    "extraDataRoots": [
+      "data/_feel",
+      "data/_lab_action",
+      "lab/fixtures/data/reaction"
+    ],
+    "extraDataExcludeTables": [],
+    "extraDataExcludeRows": [],
+    "weaponAttackSkills": {},
+    "unarmedAttackSkill": ""
+  },
+  "events": [
+    {
+      "tick": 0,
+      "action": "skill.lab_react_guard",
+      "kind": "cast",
+      "actor": "guarder"
+    },
+    {
+      "tick": 5,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 6,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 45,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 46,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    },
+    {
+      "tick": 130,
+      "action": "input.action.lab_a_attack",
+      "kind": "press"
+    },
+    {
+      "tick": 131,
+      "action": "input.action.lab_a_attack",
+      "kind": "release"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "parry_then_block_then_plain_hit",
+      "metric": "reaction.hit_results",
+      "op": "eq",
+      "value": "Block:1;Hit:1;Parry:1",
+      "note": "弹反窗口内一次 Parry、窗口后一次 Block、格挡结束后一次普通 Hit。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "parry_and_block_bounce_the_attacker",
+      "metric": "reactionext.player_reactions",
+      "op": "eq",
+      "value": "11:StaggerLight;51:StaggerLight",
+      "note": "弹反与格挡各把玩家（攻击方）弹开成 stagger_light，普通命中不弹。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    },
+    {
+      "id": "guard_results_in_order",
+      "metric": "reactionext.guard_results",
+      "op": "eq",
+      "value": "11:guarder:Parry:0;51:guarder:Block:5;136:guarder:Hit:20",
+      "note": "弹反不受伤；格挡伤害 = 普通命中 20 x 格挡伤害倍率 0.25 = 5。",
+      "cells": [
+        "2d_action",
+        "2_5d_action",
+        "3d_action"
+      ]
+    }
+  ]
+}

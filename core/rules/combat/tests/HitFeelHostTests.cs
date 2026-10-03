@@ -24,7 +24,7 @@ using Xunit;
 
 namespace Tests.Rules.Combat
 {
-    public class HitFeelHostTests
+    public partial class HitFeelHostTests
     {
         private static readonly Id Attacker = new Id("unit.hf_attacker");
         private static readonly Id Target = new Id("unit.hf_target");
@@ -114,8 +114,28 @@ namespace Tests.Rules.Combat
             public void InterruptByStagger(Id unitId, Id sourceId) => Calls.Add((unitId, sourceId));
         }
 
+        private sealed class FakeGuard : IGuardStateQuery
+        {
+            /// <summary>处于格挡状态的单位 → 自格挡开始经过的动作时钟 tick 数。</summary>
+            public readonly Dictionary<Id, int> Elapsed = new Dictionary<Id, int>();
+
+            public bool TryGetGuard(Id unitId, out GuardState state)
+            {
+                if (Elapsed.TryGetValue(unitId, out var e))
+                {
+                    state = new GuardState(e);
+                    return true;
+                }
+
+                state = default;
+                return false;
+            }
+        }
+
         private sealed class Fx
         {
+            public CombatOptions CombatOptions = null!;
+            public FakeGuard GuardState = new FakeGuard();
             public EventBus Bus = null!;
             public WorldSim World = null!;
             public FeelSystem Feel = null!;
@@ -176,7 +196,7 @@ namespace Tests.Rules.Combat
                 return new CombatHitConfirmedEvent(
                     new Id(attackId ?? "attack.hf." + TickNo + "." + target.Value), 0, attacker, target, Skill, result,
                     kill ? 1000.0 : 10.0, 0.01, false, kill, to, -direction, direction,
-                    outcome.ImpactClass, outcome.AttackerHitStopTicks, outcome.TargetHitStopTicks, outcome.Reaction);
+                    outcome.ImpactClass, outcome.AttackerHitStopTicks, outcome.TargetHitStopTicks, outcome.Reaction, null, outcome.Detail);
             }
 
             public void Hit(Id attacker, Id target, bool kill = false, HitResult result = HitResult.Hit)
@@ -273,7 +293,7 @@ namespace Tests.Rules.Combat
             units.SetPosition(Bystander, new Vec2(5, 5));
 
             var feel = AssembleFeel();
-            var fx = new Fx { Bus = bus, World = world, Feel = feel, C = fixture, Combat = combat };
+            var fx = new Fx { Bus = bus, World = world, Feel = feel, C = fixture, Combat = combat, CombatOptions = combatOptions };
             var options = new HitFeelOptions { PoiseStat = CombatTestSupport.StatArmor };
             configure?.Invoke(options);
             fx.Options = options;
@@ -285,6 +305,8 @@ namespace Tests.Rules.Combat
             fx.Launch.Now = () => fx.TickNo;
             fx.Sys.Host.Launch = fx.Launch;
             fx.Sys.Host.Airborne = fx.Airborne;
+            fx.Sys.Host.Guard = fx.GuardState;
+            combatOptions.DefenseArbiter = fx.Sys.Host; // 与 RulesFeelAssembly 同一接线；没有格挡/起身无敌状态时恒为 None。
 
             bus.Subscribe<FeelHitstopStartedEvent>(RulesEventKeys.FeelHitstopStarted, e => { fx.Started.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:started:{string.Join("+", e.UnitIds)}:{e.Ticks}"); });
             bus.Subscribe<FeelHitstopEndedEvent>(RulesEventKeys.FeelHitstopEnded, e => { fx.Ended.Add((fx.TickNo, e)); fx.Trace.Add($"{fx.TickNo}:ended:{string.Join("+", e.UnitIds)}"); });

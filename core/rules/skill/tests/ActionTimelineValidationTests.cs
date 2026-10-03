@@ -86,6 +86,22 @@ namespace Tests.Rules.Skill
         }
 
         [Fact]
+        public void GuardWindowMarkers_FollowTheSameRulesAsArmor()
+        {
+            var unpaired = Validate(TlSkill("skill.sample_g1", 200, 100, 300, markers: new[] { Marker("guard_end", 150) }));
+            Assert.Contains(unpaired.Issues, i => i.Check == "timeline_guard_unpaired" && i.Severity == ValidationSeverity.Error);
+
+            var unterminated = Validate(TlSkill("skill.sample_g2", 200, 100, 300, markers: new[] { Marker("guard_start", 50) }));
+            Assert.Contains(unterminated.Issues, i => i.Check == "timeline_guard_unterminated" && i.Severity == ValidationSeverity.Warning);
+
+            var reversed = Validate(TlSkill("skill.sample_g3", 200, 100, 300, markers: new[] { Marker("guard_start", 150), Marker("guard_end", 50) }));
+            Assert.Contains(reversed.Issues, i => i.Check == "timeline_guard_order" && i.Severity == ValidationSeverity.Error);
+
+            var ok = Validate(TlSkill("skill.sample_g4", 200, 100, 300, markers: new[] { Marker("guard_start", 50), Marker("guard_end", 150) }));
+            Assert.DoesNotContain(ok.Issues, i => i.Check.StartsWith("timeline_guard") || i.Check == "timeline_marker_unknown");
+        }
+
+        [Fact]
         public void ComboNext_MustExistAndDeclareATimeline()
         {
             var missing = Validate(TlSkill("skill.sample_a", 200, 100, 300, combo: ComboBlock("skill.sample_nowhere", 300, 600)));

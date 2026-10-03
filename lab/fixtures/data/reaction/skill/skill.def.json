@@ -1,0 +1,117 @@
+{
+  "table": "skill.def",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "skill.lab_react_massive",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.4,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 200,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ],
+        "feel_ref": "feel.action.lab_react_massive"
+      },
+      "note": "重击（M5-S2b）：与 skill.lab_a_poise_chip 同一时间线，手感行换成 massive 冲击、击退拖 300 毫秒、硬直倍率 1.5。"
+    },
+    {
+      "id": "skill.lab_react_massive_still",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 0.4,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 10,
+            "scaling": [
+              {
+                "stat": "stat.attack_power",
+                "coefficient": 1.0
+              }
+            ],
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 200,
+        "markers": [
+          {
+            "name": "hit",
+            "at_ms": 100
+          }
+        ],
+        "feel_ref": "feel.action.lab_react_still"
+      },
+      "note": "不击退的重击（M5-S2b）：同 skill.lab_react_massive 的时间线，手感行的击退距离为 0，用于需要连打多次的场景。"
+    },
+    {
+      "id": "skill.lab_react_guard",
+      "school": "school.physical",
+      "kind": "active",
+      "range": 3,
+      "cast_time": 2.1,
+      "cooldown_duration": 0,
+      "respects_gcd": false,
+      "target_shape_ref": "target.chain.lab_a_arc",
+      "effects": [
+        {
+          "kind": "school_damage",
+          "params": {
+            "base_value": 0,
+            "school": "school.physical"
+          }
+        }
+      ],
+      "timeline": {
+        "startup_ms": 100,
+        "active_ms": 100,
+        "recovery_ms": 1900,
+        "markers": [
+          {
+            "name": "guard_start",
+            "at_ms": 0
+          },
+          {
+            "name": "guard_end",
+            "at_ms": 2000
+          }
+        ]
+      },
+      "note": "举盾（M5-S2b）：整个动作 2100 毫秒，前 2000 毫秒处于格挡窗口（guard_start..guard_end），没有 hit 标记，不出伤害。"
+    }
+  ]
+}

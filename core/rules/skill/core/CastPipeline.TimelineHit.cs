@@ -559,7 +559,7 @@ namespace Core.Rules.Skill
             _bus.Enqueue(new CombatHitConfirmedEvent(
                 attackInstanceId, segment, casterId, targetId, skillId, hitResult, amount, ratio, isCrit, isKill,
                 contact, normal, worldDirection, outcome.ImpactClass, outcome.AttackerHitStopTicks, outcome.TargetHitStopTicks,
-                outcome.Reaction, castInstanceId));
+                outcome.Reaction, castInstanceId, outcome.Detail));
         }
 
         private double SafeMaxHealth(Id unitId)

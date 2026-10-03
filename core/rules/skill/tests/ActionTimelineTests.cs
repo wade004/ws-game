@@ -698,6 +698,59 @@ namespace Tests.Rules.Skill
             Assert.False(h.Query.IsSuperArmor(Actor));
         }
 
+        // ------------------------------------------------------------------ 格挡窗口（guard_start/guard_end，手感设计/03 第 4 节，ADR-0145）
+
+        [Fact]
+        public void GuardWindow_FollowsMarkers_AndElapsedCountsFromGuardStart_ArmorAndInvulnAreUntouched()
+        {
+            // 复现 + 不变量：窗口 [guard_start, guard_end) 内为真，之外为假；格挡经过的 tick 数 = 动作时钟 − guard_start 触发时的动作时钟；
+            // 格挡窗口不带出霸体/无敌。
+            var h = Make(new[] { TlSkill("skill.sample_guard_swing", 50, 150, 100, markers: new[] { Marker("guard_start", 50), Marker("guard_end", 150) }) });
+            Assert.False(h.Query.IsGuarding(Actor));
+            h.CastInTick("skill.sample_guard_swing");
+            var start = Ticks(50);
+            var end = Ticks(150);
+            var total = Ticks(50) + Ticks(150) + Ticks(100);
+            var insideSeen = 0;
+            for (var i = 1; i <= total + 2; i++)
+            {
+                h.Tick();
+                var e = h.ElapsedTicks;
+                if (e < 0) continue;
+                var inside = e >= start && e < end;
+                Assert.Equal(inside, h.Query.IsGuarding(Actor));
+                if (inside)
+                {
+                    insideSeen++;
+                    Assert.Equal(e - start, h.Query.GuardElapsedTicks(Actor));
+                }
+                else
+                {
+                    Assert.Equal(0, h.Query.GuardElapsedTicks(Actor));
+                }
+
+                Assert.False(h.Query.IsSuperArmor(Actor));
+                Assert.False(h.Query.IsInvulnerable(Actor));
+            }
+
+            Assert.Equal(end - start, insideSeen);
+            Assert.False(h.Query.IsGuarding(Actor));
+            Assert.Equal(2, h.Of<ActionMarkerEvent>().Count(m => m.Event.Name.StartsWith("guard_", StringComparison.Ordinal)));
+        }
+
+        [Fact]
+        public void GuardWindow_ResetsWhenActionIsCancelledInsideTheWindow()
+        {
+            var h = Make(new[] { TlSkill("skill.sample_guard_swing", 50, 150, 100, markers: new[] { Marker("guard_start", 50), Marker("guard_end", 150) }) });
+            h.CastInTick("skill.sample_guard_swing");
+            while (h.ElapsedTicks < Ticks(50) + 1) h.Tick();
+            Assert.True(h.Query.IsGuarding(Actor));
+
+            h.World.Host.CancelAction(Actor, ActionCancelReason.Stagger);
+            h.World.Flush();
+            Assert.False(h.Query.IsGuarding(Actor));
+        }
+
         [Fact]
         public void ActionState_Motion_IsFilledFromDeclaredMotionBlock_WithCalibratedDistanceAndWindowTicks()
         {

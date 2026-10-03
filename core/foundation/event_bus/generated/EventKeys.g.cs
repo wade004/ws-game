@@ -81,7 +81,7 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.heal_done — 字段：sourceId, targetId, amount, isCrit, attackInstanceId。结算管线"落地"步骤，治疗类效果（见 06 第 8 节）；2026-09-08 勘误补充 attackInstanceId，同 combat.damage_dealt 一致，见该行说明。</summary>
         public static readonly Id CombatHealDone = new Id("combat.heal_done");
 
-        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction, castInstanceId。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；2026-10-02 勘误补充 castInstanceId（发起本次命中的动作/施法实例 id，与 action.started.castInstanceId 同值；时间线空间命中填入，instant 命中为空——同一动作实例的多段多目标命中共用它，attackInstanceId 仍是每次结算一个；打击反馈的挥空窗口据此按动作实例配对，可空字段不经 Expr 暴露）；Expr 暴露 attackInstanceId/sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。</summary>
+        /// <summary>combat.hit_confirmed — 字段：attackInstanceId, segment, sourceId, targetId, skillId, hitResult, amount, amountRatio, isCrit, isKill, contactPoint, contactNormal, worldDirection, impactClass, attackerHitStopTicks, targetHitStopTicks, reaction, castInstanceId, reactionDetail, attackerReaction。手感设计/03 第 2.4 节（ADR-0114）：一次命中的完整结论，instant 与 timeline 两种结算模式统一发出，紧随同一批次的 combat.damage_dealt/combat.attack_avoided 之后；回避类结局也发（amount=0、reaction=none）；几何字段永不为空；2026-10-02 勘误补充 castInstanceId（发起本次命中的动作/施法实例 id，与 action.started.castInstanceId 同值；时间线空间命中填入，instant 命中为空——同一动作实例的多段多目标命中共用它，attackInstanceId 仍是每次结算一个；打击反馈的挥空窗口据此按动作实例配对，可空字段不经 Expr 暴露）；Expr 暴露 attackInstanceId/sourceId/targetId/skillId/hitResult/amount/amountRatio/isCrit/isKill/impactClass/reaction。ADR-0145 追加 reactionDetail（受击裁决算定的硬直/倒地/起身分段、击退时长与攻击方被反弹的反应，不经裁决的发出方为未设置）与 attackerReaction（攻击方被格挡/弹反反弹的反应，无为 none）；hitResult 为暴击/格挡/偏斜/弹反时 impactClass 与顿帧可被对应类别声明替换。</summary>
         public static readonly Id CombatHitConfirmed = new Id("combat.hit_confirmed");
 
         /// <summary>combat.left — 字段：unitId。脱离战斗（见 06 第 8 节）。</summary>
@@ -93,7 +93,7 @@ namespace Core.Foundation.EventBus
         /// <summary>combat.poise_recovered — 字段：targetId, poise。手感设计/03 第 4 节（手感落地 M4-L，动态韧性）：目标的动态韧性经 poise_recover_per_s 回复到满，只在之前有损失、现在回满的那一 tick 发一次；poise 为回满后的有效韧性。</summary>
         public static readonly Id CombatPoiseRecovered = new Id("combat.poise_recovered");
 
-        /// <summary>combat.reaction_applied — 字段：targetId, reaction, sourceId, attackInstanceId, durationTicks。手感设计/03 第 4/7 节：受击裁决落地；reaction 为 flinch|stagger_light|stagger|knockback|knockdown|death（none 不发）；durationTicks 为硬直（倒地含 downed_ms）换算 tick 数。</summary>
+        /// <summary>combat.reaction_applied — 字段：targetId, reaction, sourceId, attackInstanceId, durationTicks, stunTicks, downedTicks, getupTicks。手感设计/03 第 4/7 节：受击裁决落地；reaction 为 flinch|stagger_light|stagger|knockback|knockdown|death（none 不发；格挡/弹反反弹攻击方时 targetId 即攻击方）；durationTicks 为硬直段 + 倒地段 + 起身段之和，stunTicks/downedTicks/getupTicks 为分段（ADR-0145，表现层据此在硬直→倒地→起身之间切姿势）。</summary>
         public static readonly Id CombatReactionApplied = new Id("combat.reaction_applied");
 
         /// <summary>combat.threat_changed — 字段：unitId, sourceId, oldValue, newValue。仇恨表更新（见 06 第 8 节）。</summary>
@@ -339,6 +339,15 @@ namespace Core.Foundation.EventBus
         /// <summary>unit.faction_changed — 字段：unitId, oldFactionId, newFactionId。ADR-0088（消费方第三十三批反馈2）：运行期改变单位阵营的框架入口（core/carriers/unit.WorldUnitAccess.SetFaction）写入新阵营后触发（旧值与新值相同不触发）；仇恨系统订阅本事件清理不再敌对的仇恨表条目，不做缓存、现场用 IFactionMatrix 判定。</summary>
         public static readonly Id UnitFactionChanged = new Id("unit.faction_changed");
 
+        /// <summary>unit.getup_finished — 字段：unitId。手感设计/03 第 4 节（ADR-0145）：起身段结束、硬直状态解除，单位恢复可操控；只有发过 unit.getup_started 的单位才发。</summary>
+        public static readonly Id UnitGetupFinished = new Id("unit.getup_finished");
+
+        /// <summary>unit.getup_started — 字段：unitId, getupTicks, invulnerableTicks。手感设计/03 第 4 节（ADR-0145）：knockdown 反应的倒地段结束、起身段开始（受击方声明了 getup_ms 才发）；invulnerableTicks 为起身无敌时长（getup_invuln_ms，缺省 0）。</summary>
+        public static readonly Id UnitGetupStarted = new Id("unit.getup_started");
+
+        /// <summary>unit.knocked_down — 字段：unitId, downedTicks, getupTicks。手感设计/03 第 4 节（ADR-0145）：knockdown 反应的硬直段结束、倒地段开始；downedTicks 为倒地段时长，getupTicks 为随后的起身段时长（缺省 0 即无起身段）。</summary>
+        public static readonly Id UnitKnockedDown = new Id("unit.knocked_down");
+
         /// <summary>unit.landed — 字段：unitId, height, airSeconds, impactSpeed。手感设计/03 第 4 节（手感落地 M4-W1b，竖直轴能力包）：单位的一次飞行（跳跃、击飞、离开平台下落）结束、落回地面时由竖直运动服务发出；height 是落地后的脚下高度（落点的地面高度，平地为 0），airSeconds 是本次离地以来的累计空中时间（秒，空中被再次抛起不清零），impactSpeed 是落地瞬间的下落速度（世界单位/秒，非负）；没有装配竖直轴、或竖直轴选项 EmitLandedEvent 缺省（假）时不发本事件。</summary>
         public static readonly Id UnitLanded = new Id("unit.landed");
 
@@ -473,6 +482,9 @@ namespace Core.Foundation.EventBus
             UiPanelOpened,
             UnitDied,
             UnitFactionChanged,
+            UnitGetupFinished,
+            UnitGetupStarted,
+            UnitKnockedDown,
             UnitLanded,
             UnitMoved,
             UnitRespawned,

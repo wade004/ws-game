@@ -50,6 +50,13 @@ namespace Core.Rules.Skill
         public bool FirstHitSeen;
         public bool Invulnerable;
         public bool SuperArmor;
+
+        /// <summary>格挡窗口（<c>guard_start</c>～<c>guard_end</c>，手感设计/03 第 4 节，ADR-0145）。</summary>
+        public bool Guarding;
+
+        /// <summary><c>guard_start</c> 触发时的 <see cref="Elapsed"/>；弹反窗口按 <c>Elapsed - GuardStartedAt</c> 判。</summary>
+        public int GuardStartedAt;
+
         public bool MotionOpen;
 
         /// <summary>动作被接受时落定的位移段快照（声明了 <c>motion</c> 块才有；运动仲裁器经 <see cref="ActionState.Motion"/> 读取）。</summary>
@@ -375,6 +382,20 @@ namespace Core.Rules.Skill
         {
             var run = RunOf(unitId);
             return run != null && run.SuperArmor;
+        }
+
+        /// <summary>格挡窗口（<c>guard_start</c>～<c>guard_end</c>）：受击方防御裁决经它读取（手感设计/03 第 4 节，ADR-0145）。</summary>
+        public bool IsGuarding(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.Guarding;
+        }
+
+        /// <summary>格挡开始后经过的动作时钟 tick 数（顿帧期间不增长）；不在格挡中为 0。</summary>
+        public int GuardElapsedTicks(Id unitId)
+        {
+            var run = RunOf(unitId);
+            return run != null && run.Guarding ? Math.Max(0, run.Elapsed - run.GuardStartedAt) : 0;
         }
 
         public bool IsActionClockPaused(Id unitId) => _timeline?.Clock != null && _timeline.Clock.IsPaused(unitId);
@@ -817,6 +838,13 @@ namespace Core.Rules.Skill
                 case "armor_end":
                     run.SuperArmor = false;
                     break;
+                case "guard_start":
+                    run.Guarding = true;
+                    run.GuardStartedAt = run.Elapsed;
+                    break;
+                case "guard_end":
+                    run.Guarding = false;
+                    break;
                 case "motion_start":
                     run.MotionOpen = true;
                     break;
@@ -1013,6 +1041,7 @@ namespace Core.Rules.Skill
             var run = state.Run!;
             run.Invulnerable = false;
             run.SuperArmor = false;
+            run.Guarding = false;
             run.MotionOpen = false;
 
             // cooldown_at: finish 的动作被取消/打断时在终止那一刻起算（不让"取消"成为绕开冷却的手段）；清空（场景/模式切换）不起算。
