@@ -456,12 +456,15 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
   改读落盘 JSON 的 `table` 字段。详见下方"[Unreleased]"正文与
   [ADR-0055](architecture/adr/0055-运行期校验报告落盘出口补表名字段.md)。
 - **手感落地 M4（[Unreleased]）**：数据表字段只增不改，编辑器按需跟进——手感档案新增 `poise_damage`、`poise_recover_per_s`、`poise_recover_delay_ms`、`poise_recover_mode`、`poise_break_reset_ms`、`air_reaction_cap`、`launch_height_cap`、`launch_body_scale`、`air_stun_until_land`、`land_hold_ms`；`found.input_action` 新增 `control_space`；`found.grace_condition` 新增三行框架内置条件；`display.anim_set` 新增 `blend_ms`/`blends`；`world.map` 新增 `terrain`（矩形、凸多边形、高度场）；目标链形状新增 `height_offset`；新事件 `combat.poise_changed`、`combat.poise_recovered`、`unit.landed`；表达式新增 `event.aim_*` 上下文；技能时间线新增 `charge.value_scale{min, max}`（蓄力效果值倍率）与 `is_attack`（显式声明动作是否带攻击）；标准假人姿势集新增可选键 `cast.quick`、`cast.heavy`（施放点变体，经 `display.weapon_style.cast_anim_override` 指到）；新增默认接口成员 `IBufferedIntentSink.CanHandle`、`IInputBufferQuery.TryPeek`/`TryConsume` 的跳过谓词重载、`IProjectileHitHook.ValueScale`，以及目标选项 `TargetingOptions.TargetRadius`/`MaxTargetRadius`（缺省关闭）。详见下方 `[Unreleased]` 正文。
+- **非手感已知限制清扫（[Unreleased]，[ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）**：数据与契约只增不改，编辑器按需跟进——`item.slot_definition` 新增可选布尔字段 `has_appearance`（缺省 `true`，写 `false` 的槽位物品不要求 `display.equip_visual` 行）；表达式可读事件 `combat.attack_avoided`、`combat.hit_confirmed` 的 `attackInstanceId` 现在可经表达式读取（为空时查不到）；`LootExpectedCurrencyOutcome.ExpectedRoundedAmount`（含取整与非正值跳过的精确货币期望，线性的 `ExpectedAmount` 保留，"理论与观测"面板应读前者）与 `LootTableAnalyzer.ExpectedAffixInclusion` 的 5 参数重载（大词缀池精确解，计算量预算 `exactMaxWork`）；`item.set` 数据重载后套装门槛立即对账（热重载后不必再等装备变化才见效果）；`simrunner fight` 子命令与 `--fight-log` 日志文件（`{schema_version, truncated, entries}`）；游戏模板 `GameOptions.PathFailurePolicy`/`BlockingChangePolicy`。详见下方 `[Unreleased]`"非手感已知限制清扫"。
 
 ## [Unreleased]
 
 本段汇集手感落地 M4（1.95.0 之后）：体积阻挡精确化与三期、宽限瞄点与冻结兜底、实验室无头补完与动态韧性、竖直轴能力包补完与二期（地形、导航、空中战斗）、实验室引擎宿主与引擎侧残余、框架级假人姿势集三期与残余收尾（躺姿重绘、施放点变体与命中对位）、手感相关已知限制的最终清扫。**不开手感、不声明 `unit_body_radius`、不配置 `MovementOptions.Vertical`、不声明本段新增的任何可选字段时，行为与 1.95.0 逐位一致**；有行为变化的几处见下方"变更"与"接入与迁移说明（M4）"。公开签名只增不改（新增的是默认接口成员、可选属性、重载与新类型，旧签名物理保留）。
 
 **1.95.0 条目与 `lab/README.md` 里登记的手感相关已知限制，到本段为止已全部解除或转为判断记录**：真能力缺口在 M4 各切片与最终清扫里落地为能力（见下方新增与变更），合理的边界改写为各模块 README 与 [ADR-0138](architecture/adr/0138-手感已知限制清扫的数据与契约决定.md) 里的设计决定（决定 + 理由）；历史版本条目按惯例原样保留、不回头改写。
+
+**非手感模块（核心、表现、适配、工具链、文档）里登记的已知限制，到本段为止同样已全部解除或转为判断记录**（见下方"非手感已知限制清扫"与 [ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)）；历史版本条目保持原样。
 
 ### 新增
 
@@ -528,6 +531,50 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 - **资产体积**（按 M4 收口后的文件系统重新统计，`assets/` 与 Unity 适配内 `anim_clips/` 均为入库文件）：框架 `assets/` 合计由 5165 个文件、30.85 MB 增至 13831 个文件、58.40 MB（序列帧占位美术 `assets/_placeholder/sprite_anim/` 由 4898 个文件、12.45 MB 增至 13564 个文件、37.21 MB；Unity 适配内的骨骼剪辑资源 `anim_clips/` 由 226 个文件、9.37 MB 增至 724 个文件、30.56 MB）。序列帧占位美术净增 8666 个文件：M4-D 新增 6014 个、约 15.78 MB（轻体量组 6.33 MB、重体量组 6.59 MB、主集新键 1.68 MB、装备集派生约 1.17 MB），M4-W5 体量组整身方向变体新增 2340 个、约 8.2 MB（轻约 4.0 MB、重约 4.2 MB），M4-W6 施放点变体新增 312 个；M4-D 既有文件改写 495 个、约 2.13 MB（五个新武器族的武器层与合成图），M4-W5/W6 另改写躺姿与重受击、击退键的图像字节（文件数不变）；骨骼剪辑净增 6 个剪辑（W6 的 `cast.quick`/`cast.heavy` 在主集、轻、重三组下各一，文件数含 `.meta` 为 12 个）。发布包体积随之增加。
 - **实验室**（本段合并后 `feellab` 实测，数字随脚本增删变化，以命令输出为准）：标准脚本 69 个（十一个旧脚本、二十九个手感脚本、二十九个空间脚本）；`suite` 530 格、`RESULT total=530 pass=530 diff=0 missing=0`；期望清单 `RESULT expectations total=484 pass=484 fail=0`；`invariants` `RESULT invariants total=741 pass=741 fail=0`。相比 1.95.0 的 258 格、98 条期望、379 条不变量，增量全部来自新增脚本（动态韧性、投射物到期与清场、空间扩展、空中战斗、地形与导航等）。发布包随附的实验室数据与夹具同步更新，消费方按 `dotnet toolchain/feellab/bin/FeelLab.dll suite` 应得与上面同口径的汇总行。
 
+### 非手感已知限制清扫
+
+核心层、表现层、适配层、工具链与文档里非手感模块登记过的已知限制，到本段为止同样已全部解除或转为判断记录：真能力缺口落地为能力并带复现用例，合理边界改写为各模块 README 的"设计决定"（决定 + 理由），汇总取舍见 [ADR-0139](architecture/adr/0139-非手感已知限制清扫的契约与行为决定.md)。公开签名只增不改；不声明新能力时行为与清扫前逐位一致，唯一的行为改进见下方"迁移说明"。
+
+**核心层（NF1）**
+
+- **攻击实例标识经表达式暴露**：`combat.attack_avoided` 与 `combat.hit_confirmed` 事件的 `attackInstanceId` 现在可被表达式读取（`IExprReadableEvent.TryGetField("attackInstanceId")`，为空即不经施法管线的结算时查不到），`feedback.binding` 等条件过滤可按攻击实例关联多个事件；事件目录描述同步，`EventKeys.g.cs` 重新生成。
+- **套装门槛在 `item.set` 数据重载后立即对账**：`EquipmentHost` 在 `data.load_completed` 之后对"有装备件的单位 × 所属套装"与已记录施加过门槛的 (单位, 套装) 全部重算（遍历按单位 id、套装 id 的序数序，确定）。重载删除或改高的门槛当场释放，新增或改低且已满足件数的门槛当场施加；定义没变时不动已施加的句柄。取代此前"孤儿门槛要等下一次装备变化才清理"。
+- **滑动终点被拒绝时停在撞击点**：`wall_slide` 的滑动终点被可走性判定拒绝（单位恰好落在斜墙边界线上、终点因浮点误差落入内部）时，位移退回撞击点前的回退点并速度归零，不再整个 tick 不位移。
+- **货币期望新增精确取整口径**：`LootExpectedCurrencyOutcome.ExpectedRoundedAmount` 含运行期同样的四舍五入与非正值跳过，经嵌套掉落与保底补抽路径线性叠加；`ExpectedAmount`（线性期望）语义不变，两个字段并存。编辑器"理论与观测"面板应读 `ExpectedRoundedAmount`。
+- **词缀入选概率的大池精确解**：新增 5 参数重载 `LootTableAnalyzer.ExpectedAffixInclusion(templateId, qualityId, registry, exactMaxEntries, exactMaxWork)`，以抽取次数有界的精确算法求解，`exactMaxWork` 是转移次数预算；既有三参、四参入口不变（预算缺省 0 = 不启用，池超过阈值仍降级并标记）。抽取次数大于 5、池大于 4096 或估算超预算才如实降级。
+- **增长仿真可在种子中途取消**：`GrowthSimulation` 的取消检查点下探到每一场击杀战斗之前，取消延迟从"一个种子的完整成长轨迹"缩短到"一场战斗"；单场战斗内部不检查，不取消时结果逐位不变。
+- **改写为设计决定**：移动请求不入存档、追击过冲上界为重规划距离、离散模式追击目标丢失检测时机、网格斜墙阶梯法线（要平滑斜墙提供带真实法线的导航实现）、旧布局备份计入配额；已解决的陈旧条目删除。
+
+**表现层、适配层与游戏模板（NF2）**
+
+- **`SfxPlayer` 新增 7 参数构造**（末位 `EntityPositionResolver?`）：挂在实体上的循环音效在实体被销毁后于下一次更新停止；原 6 参数构造保留并转调，装配接入同一解析器。
+- **总线音量作用于已在播放的声音**：`UnityAudio.SetBusVolume(Sfx, v)` 对正在播放的音效立即按"基础音量 × 总线音量"重设，不碰其它总线。
+- **图片解码完整性校验**：`ManagedPngDecoder` 校验 IHDR/IDAT/tRNS/IEND 的 CRC-32 与 zlib 尾部 Adler-32，不符整份资源判为损坏，回落引擎解码并记警告。
+- **`MapLayers` 背景解码**：地图分层（地面/覆盖/贴花）的图片在后台托管解码，主线程每层一个工作单元；某层是内置解码器不支持的变体时整份资源回退主线程解码。
+- **加载器并入在途请求**：`UnityResourceLoader` 对同一标识、同一种类的后到请求并入在途请求，只读取与解码一次，各回调恰好一次；种类不同或带精灵集提示的重载仍各自独立。
+- **无后缀 `jump` 跳转与初始朝向整身变体**：外形声明了无后缀 `jump` 时默认登记它，空中姿势回退链第二级对只有 `jump` 的外形生效；没有纸娃娃层的外形在挂接时探测初始方向的整身变体。
+- **渲染插值系数按引擎时间计算**：新增适配层纯函数 `RenderInterpolationClock`，连续模式下按引擎时间逐渲染帧计算插值系数（宿主整步喂入使核心系数恒近零），两处生产帧循环接入；核心语义不变。
+- **`GameOptions.PathFailurePolicy` / `GameOptions.BlockingChangePolicy`**：游戏模板暴露移动选项里的两个策略，默认值即框架默认（`KeepOldPath`、`Replan`）。
+- **`lab/README.md` 真机手测清单补第 6 项**：高刷屏插值平滑、分层图加载卡顿、音量滑条即时生效、销毁时循环音效停止四项引擎侧专项观察。
+
+**工具链与文档（NF3）**
+
+- **`item.slot_definition.has_appearance`**：可选布尔字段，缺省 `true`；写 `false`（戒指、项链等不上身可见的槽位）时，装备资产包校验不要求该槽位物品有 `display.equip_visual` 行、不报 `equip_visual_missing`。运行期核心不读取它。
+- **`simrunner fight` 子命令**：直接指定标准玩家（职业、等级、品质）对一只生物打一场，`--fight-log <file>` 把逐条战斗日志写成 `{schema_version, truncated, entries}` 的 UTF-8 JSON，`--max-log-entries` 限制条数；退出码 0（跑完，不论胜负）、2（参数或数据装载错误）、4（取消），与 `run` 的退出码语义互不相干。补上消费方反馈第 49 条当时"命令行没有单场战斗入口"的缺口。
+- **`gate_floors.json` 下限上调**：dotnet、pytest、EditMode、PlayMode 四个套件的 `min_passed` 按 full-20261001-33 实测上调为 8150、1170、160、400。
+- **门禁中途被中断时补写耗时记录**：`check.ps1` 被未接住的异常中断时，已完成的步骤行照写，`_total` 行 `result=FAIL`、`note` 以 `aborted:` 开头。
+- **`prune_dist` 清理发布标签说明文件**：`dist\tag-message-<ver>.txt` 在标签 `v<ver>` 已存在时识别并清理，标签不存在时仍按"未识别，已保留"处理。
+- **UPM 证据覆盖超时分支**：`consumer_smoke.ps1` 的五个 Editor 步骤在超时被强杀时同样按签名抓取包管理器证据。
+- **版本控制配置守卫豁免分支与远端小节**：测试会话期间别的会话正当修改 `[branch …]`、`[remote …]` 小节不再导致整个会话误报；其余小节仍受守卫。
+- **改写为设计决定**：引擎适配层包不进 API 手册、持续集成依赖发布产物（缺失即红灯，有意）、开发期热重载改坏一张表时整个数据集阻断、`playmode` 日志无边界时诚实退化到 `not_found` 等；Release 工作流的线上验证登记为 `lab/README.md` 验收清单第 8 项。
+
+**迁移说明**
+
+- **不声明新能力：什么都不用做，行为与清扫前逐位一致。**新增的都是构造重载（`SfxPlayer` 7 参数）、方法重载（`ExpectedAffixInclusion` 5 参数）、只读属性（`ExpectedRoundedAmount`）、可选数据字段（`has_appearance`）、`GameOptions` 的默认成员与新的 `simrunner` 子命令；旧签名物理保留，旧编译的消费方不必重编。
+- **唯一的行为改进**：`wall_slide` 的滑动终点被可走性判定拒绝时，单位现在停在撞击点，此前整个 tick 不位移。只在原本就会卡住的情形生效，其余路径不变。
+- **自写 `SfxPlayer` 装配的游戏**：要让实体销毁后循环音效停止，改用 7 参数构造并传入实体位置解析器；生产装配已接入。
+- **依赖线性货币期望的编辑器面板**：`ExpectedAmount` 不变；要与 `RollDetailed` 观测均值对得上的小额货币，改读 `ExpectedRoundedAmount`。
+- **槽位不上身可见的游戏**：在 `item.slot_definition` 里写 `has_appearance: false`，不再需要补空外观行。
 
 ## [1.95.0] - 2026-10-02
 

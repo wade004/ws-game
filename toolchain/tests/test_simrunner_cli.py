@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -484,3 +485,48 @@ def test_fight_unknown_creature_exits_2_without_writing_log(dll, tmp_path):
     proc = run_cli(dll, args)
     assert proc.returncode == 2
     assert not log.exists()
+
+
+# ------------------------------------------------ 探测职业时读不到 sim.scenario 表（DiscoverBootstrapPlayerClass）
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="用独占打开（共享模式 0）制造读取失败，仅 Windows")
+def test_unreadable_scenario_table_during_class_discovery_warns_and_exits_2_without_crash(dll, env):
+    """``DiscoverBootstrapPlayerClass`` 读 ``sim.scenario`` 表失败时：打 ``[警告]`` 跳过该候选，
+    最终以 2 退出（"未找到任何 sim.scenario 行"/数据装载阻断），不以未处理异常崩溃。
+
+    读失败用独占句柄制造（共享模式 0 的打开，别的进程再读就失败）。这条用例同时取代
+    ``core/sim/README.md`` 里"本次未新增测试覆盖它"的旧说明。
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    data_root = env["tmp"] / "locked_root"
+    shutil.copytree(REPO_ROOT / "core" / "sim" / "tests" / "data", data_root)
+    scenario_tables = list((data_root / "sim").glob("sim.scenario*.json"))
+    assert scenario_tables, "拷贝出来的数据根里没有 sim.scenario 表文件"
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    GENERIC_READ, OPEN_EXISTING = 0x80000000, 3
+    invalid = wintypes.HANDLE(-1).value
+    handles = []
+    try:
+        for table in scenario_tables:
+            h = kernel32.CreateFileW(str(table), GENERIC_READ, 0, None, OPEN_EXISTING, 0, None)
+            assert h != invalid, f"独占打开失败：{ctypes.get_last_error()}"
+            handles.append(h)
+        args = _common_args(env["out"])
+        args[args.index("core/sim/tests/data")] = str(data_root)
+        proc = run_cli(dll, args)
+    finally:
+        for h in handles:
+            kernel32.CloseHandle(h)
+
+    assert proc.returncode == 2, proc.stderr
+    assert "[警告]" in proc.stderr, proc.stderr
+    assert "Unhandled exception" not in proc.stderr, proc.stderr

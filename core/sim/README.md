@@ -1260,12 +1260,7 @@ DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用，断言不
     新增事件总线契约、不改变任何事件类型的既有字段。<br/>**聚合结果不受开关影响**：捕获逻辑挂在
     既有事件消费循环上做"顺带记一笔"，不改变任何聚合统计量的计算路径，`CaptureEvents` 开/关两次
     跑同一战斗，`FightResult` 除 `CapturedEvents`/`CapturedEventsTruncated` 外逐字段一致（已测试
-    断言）。<br/>**已知限制（按反馈原文口径处理）**：`toolchain/simrunner` 目前没有单场战斗命令
-    行模式（`run` 子命令只支持"跑一个/全部 `sim.scenario` 场景"，场景内部是否含单场战斗由场景
-    类型决定，命令行层面不存在"直接指定两个模板打一场"的入口），因此 `--fight-log <path>` 未落
-    地为命令行选项——反馈原文明确"若 CLI 没有对应模式可仅提供 API 并如实标注"，本条能力目前
-    仅能通过直接引用 `core/sim` 类库、构造 `FightRunnerOptions { CaptureEvents = true }` 后调用
-    `FightRunner.Run` 使用。<br/>**测试**：关闭时 `CapturedEvents` 为空非 `null`、开启时产生条目
+    断言）。<br/>**命令行入口（NF 清扫已落地）**：`toolchain/simrunner` 的 `fight` 子命令直接指定"标准玩家（职业/等级/品质）对一只生物（模板/等级）打一场"，`--fight-log <file>` 开启 `CaptureEvents` 并把 `CapturedEvents` 写成 `{schema_version, truncated, entries}` 的 UTF-8 JSON（超过 `--max-log-entries` 截断并置 `truncated`）；不传 `--fight-log` 时不采集。它是独立子命令而不是给 `run` 加参数：一场自选对手的战斗没有基线可比，塞进 `run` 会搅乱其参数组合与 0/1/3 退出码语义；`fight` 的退出码只有 0（跑完，不论胜负）/2（参数或数据装载错误）/4（取消）。参数、输出口径与测试见 `toolchain/README.md`"`fight` 子命令"一节与 `toolchain/tests/test_simrunner_cli.py`（`test_fight_*`）。<br/>**测试**：关闭时 `CapturedEvents` 为空非 `null`、开启时产生条目
     且聚合结果不变、超过 `MaxCapturedEvents` 时截断并置位标志三类用例（`FightRunnerTests`）。
 
 54. **`core/sim/README.md`"线程安全与并发"章节与并发回归测试（第 51 条）**：见本文件上方
@@ -1434,12 +1429,7 @@ DoesNotThrow_AndTableListIsStable`（16 线程 × 50 次并发调用，断言不
 `data_source_unavailable`/`envelope` 问题，`Build` 抛出的 `InvalidOperationException` 被
 `toolchain/simrunner/Program.cs` `Main` 顶层既有 `catch (Exception ex) when (ex is
 InvalidOperationException or ArgumentException or DirectoryNotFoundException)` 分支接住转成
-"数据装载阻断：..."，同样不会以 `Unhandled exception` 崩溃退出。**验证方式的局限（如实说明）**：
-`toolchain/simrunner` 是纯控制台可执行工程，无既有测试工程、`DiscoverBootstrapPlayerClass` 是
-`private static` 方法，本次未新增测试工程去覆盖它（避免为一处"顺带"的小修复扩大工程/门禁面）——
-验证仅为 `dotnet build` 0 警告 0 错误（已过）与代码审查（改法与上面已有回归测试/反向确认/进程级
-验证三重验证过的主修复逐段同构），未做独立的回归测试/进程级验证；若后续该工具新增测试工程，建议
-补一条等价断言。
+"数据装载阻断：..."，同样不会以 `Unhandled exception` 崩溃退出。**验证方式（NF 清扫补齐）**：`toolchain/simrunner` 虽无独立测试工程，但进程级契约测试 `toolchain/tests/test_simrunner_cli.py` 把它当黑盒跑，其中 `test_unreadable_scenario_table_during_class_discovery_warns_and_exits_2_without_crash` 用独占句柄让 `sim.scenario` 表读取失败，断言打出 `[警告]`、以退出码 2 结束、不出现未处理异常（Windows 专用，工具链的 Unity 批处理入口本就只支持 Windows）。不为一个私有方法另建 C# 测试工程：该进程级用例经真实入口覆盖同一路径，且不扩大工程/门禁面。
 
 ### 全仓外部调用点清单（本条要求的系统性收尾扫描，范围扩到全仓）
 
