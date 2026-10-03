@@ -714,6 +714,38 @@ namespace Core.Rules.Skill
         public IActionStateQuery ActionStateQuery => _pipeline;
 
         /// <summary>
+        /// 受击方防御状态查询（<see cref="IGuardStateQuery"/>，手感设计/03 第 4.4 节）：时间线的 <c>guard_start</c>～<c>guard_end</c> 窗口，
+        /// 或带 <see cref="CastPipeline.GuardSkillTag"/> 标签的技能处于按住维持（<c>active_until_release</c>）期间，都算在格挡。
+        /// 装配层把它接给受击裁决宿主的 <c>Guard</c>。
+        /// </summary>
+        public IGuardStateQuery GuardStateQuery => new SustainedGuardStateQuery(_pipeline);
+
+        private sealed class SustainedGuardStateQuery : IGuardStateQuery
+        {
+            private readonly CastPipeline _pipeline;
+
+            public SustainedGuardStateQuery(CastPipeline pipeline) => _pipeline = pipeline;
+
+            public bool TryGetGuard(Id unitId, out GuardState state)
+            {
+                if (_pipeline.IsGuarding(unitId))
+                {
+                    state = new GuardState(_pipeline.GuardElapsedTicks(unitId));
+                    return true;
+                }
+
+                if (_pipeline.TryGetSustainedGuard(unitId, out var elapsed))
+                {
+                    state = new GuardState(elapsed);
+                    return true;
+                }
+
+                state = default;
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 注入动作时间线的协作者（动作时钟、手感解析器、输入缓冲、输入动作→技能映射、命中解析钩子），见 <see cref="TimelineServices"/>。
         /// 判断记录：沿用 <see cref="DisplacementSink"/> 的组装期属性赋值惯例，不改任何构造函数的物理签名；未调用时时间线技能仍可用，
         /// 各协作者按 <see cref="TimelineServices"/> 各成员说明的缺省降级。

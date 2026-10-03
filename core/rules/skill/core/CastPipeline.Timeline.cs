@@ -430,6 +430,31 @@ namespace Core.Rules.Skill
             return run != null && run.Guarding ? Math.Max(0, run.Elapsed - run.GuardStartedAt) : 0;
         }
 
+        /// <summary>带这个标签的技能，其按住维持（<c>timeline.active_until_release</c>）期间视为在格挡（ADR-0143 的按住维持与 ADR-0145 的防御裁决的接缝）。</summary>
+        public static readonly Id GuardSkillTag = new Id("skill.tag.guard");
+
+        /// <summary>
+        /// 行动者是否正处在"按住维持的格挡动作"里：当前动作停在判定相末尾按住维持、且技能行带 <see cref="GuardSkillTag"/> 标签。
+        /// <paramref name="elapsedTicks"/> 是本次维持已累计的动作时钟 tick 数（顿帧期间不增长），弹反窗口按它判。
+        /// </summary>
+        public bool TryGetSustainedGuard(Id unitId, out int elapsedTicks)
+        {
+            elapsedTicks = 0;
+            var run = RunOf(unitId);
+            if (run == null || !run.Sustaining) return false;
+            if (!_defs.TryGetSkillDef(run.SkillId, out var def)) return false;
+            for (var i = 0; i < def.Tags.Count; i++)
+            {
+                if (def.Tags[i].Equals(GuardSkillTag))
+                {
+                    elapsedTicks = Math.Max(0, run.SustainTicks);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public bool IsActionClockPaused(Id unitId) => _timeline?.Clock != null && _timeline.Clock.IsPaused(unitId);
 
         /// <summary>

@@ -125,6 +125,9 @@ namespace Core.Rules.Assembly
             // ADR-0145：受击方防御裁决（起身无敌 / 格挡 / 弹反）接进结算管线；没有任何单位处于这些状态时 Judge 恒返回 None，命中表逐位不变。
             rules.CombatOptions.DefenseArbiter = hitFeel.Host;
 
+            // 格挡状态：时间线格挡窗口，或带 skill.tag.guard 标签的按住维持动作（M5-S1 的按住维持 × S2b 的防御裁决）。
+            hitFeel.Host.Guard = rules.Skill.GuardStateQuery;
+
             var timeline = new TimelineServices
             {
                 Clock = hitFeel.Clock,

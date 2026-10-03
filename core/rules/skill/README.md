@@ -1860,3 +1860,9 @@ buff-debuff 极性字段）**：消费方原始反馈第 4 条"期望行为"一�
 4. **`charge.below_min: release|cancel`（评审 A4）**：缺省 `release` 即既有行为（按最低档释放）；`cancel` 在输入缓冲侧丢弃记录。`SkillHost.GetTimelineCharge(skillId)` 给装配层读蓄力规则。`charge_ready` 保留为不可手写的派生标记名（实际是缓冲侧的 `input.charge_ready` 事件，见 input_map README M5-S1 第 3 条）。
 5. **已知边界（设计决定，不是遗漏）**：维持期间不重复采样连续命中、不发新的命中标记；`requires: hit` 把被回避的接触也算命中确认（与挥空窗口同口径）；动作结束之后才落地的投射物命中不计入该动作实例的命中数；没有触发键的施放（AI 的、没有输入动作的技能）没有维持。
 6. **复现与不变量**：`tests/InputCompletionTimelineTests.cs`（`requires` 命中前后开关、`into` 白名单与"不挡路"、连招 `requires`、维持的松键/满上限/冻结点已松键三种结局与结束时刻平移量、校验检查名）；实验室脚本 `feel_cancel_requires_hit`/`feel_cancel_requires_whiff` 在六格里复现同一命中下 `hit`/`whiff` 两种窗口的相反结果。
+
+## 判断记录（按住维持的格挡动作，2026-10-04，M5 合并后接缝，ADR-0143 × ADR-0145）
+
+1. **标签 `skill.tag.guard`**：技能行带该标签且声明了 `timeline.active_until_release`，按住维持期间（`IsSustained` 为真）算在格挡；`SkillHost.GuardStateQuery`（`IGuardStateQuery`）返回"时间线 `guard_start`～`guard_end` 窗口，或带标签的维持动作"，`GuardState.ElapsedTicks` 对维持动作取已累计的维持 tick 数（顿帧期间不增长），弹反窗口 `guard_parry_window_ms` 因此从按住进入维持那一刻起算。`RulesFeelAssembly` 把它接给受击裁决宿主的 `Guard`。没有带标签的技能时与此前逐位一致。
+2. **复现与不变量**：`core/gameplay/assembly/tests/GuardSustainAssemblyTests.cs`——按住带标签的维持动作后正面命中伤害 = 未格挡伤害 × `guard_damage_scale`、松键后恢复；没有标签的维持动作不算格挡。
+3. **已知边界**：前摇与判定相走完之前（尚未进入维持）不算格挡；要在前摇里就格挡的动作用 `guard_start` 标记。
