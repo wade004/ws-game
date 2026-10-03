@@ -210,8 +210,8 @@ namespace Core.Rules.Skill
 
     /// <summary>
     /// 技能对应剪辑标记的读取口（手感设计/01 第 3.2 节 <c>source: clip</c>）：只用于作者态校验与导入，运行期永远只读
-    /// <c>skill.def.timeline</c>。生产实现需要"技能 → 动画集 → 剪辑"的对应关系，当前数据里没有这条链接（见 skill 模块 README
-    /// 已知局限），所以本切片只提供接口与内存替身（<see cref="InMemoryClipMarkerSource"/>）。
+    /// <c>skill.def.timeline</c>。生产实现需要"技能 → 动画集 → 剪辑"的对应关系，当前数据里没有这条链接（设计决定见 skill 模块 README T9
+    /// 与 carriers/assembly README "手感落地 M4 清扫"③），所以本切片只提供接口与内存替身（<see cref="InMemoryClipMarkerSource"/>）。
     /// </summary>
     public interface IClipMarkerSource
     {

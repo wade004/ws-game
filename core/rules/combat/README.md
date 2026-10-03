@@ -617,10 +617,11 @@ combat/
 戳入 `EffectContext.TriggerChainDepth`，不经 Expr 暴露）：避免新事件类型被声明为
 `skill.proc_def.trigger_event` 时重现 N04 收边补齐（外部审计 68c9bed）此前在 `AuraRemovedEvent`
 上修复过的"事件驱动 Proc 自循环预算旁路"缺口，此项超出消费方反馈字面诉求，属顺带的一致性修正。
-`TryGetField` 只暴露 `sourceId`/`targetId`/`school`/`hitResult`/`skillId` 五个字段，
-`attackInstanceId` 不经 Expr 暴露（同 `CombatDamageDealtEvent` 既有惯例，`AttackInstanceId` 只经
-强类型属性对外）——已知限制：需要按攻击实例关联本事件做 Expr 条件过滤（如 `feedback.binding`
-按批次去重）暂不支持，需要时经宿主代码读取强类型属性。`presentation/feedback_binder` 按
+`TryGetField` 暴露 `sourceId`/`targetId`/`school`/`hitResult`/`skillId` 与 `attackInstanceId`（NF1：
+取代原"不经 Expr 暴露"的限制；与 `combat.damage_dealt` 的同名字段同口径，有值才可读，不经施法管线的结算为 null 时查不到）。
+`combat.hit_confirmed` 同样新增 `attackInstanceId`（恒有值）的 Expr 读取。于是同一批次的三类命中事件
+（落地/回避/确认）可按同一个攻击实例 id 做 Expr 条件过滤与关联（如 `feedback.binding` 按批次去重）。
+用例 `EventsTests.CombatAttackAvoidedEvent_CarriesKeyAndFields`、`CombatHitConfirmedEvent_ExposesAttackInstanceIdToExpr`。`presentation/feedback_binder` 按
 `feedback.binding` 声明的事件 key 泛化订阅、`FeedbackRuleValidator` 按 `EventKeys.All` 校验，新
 事件登记后自动可用，不需要代码改动。ABI：`Events.cs` 新增类型与常量、`HitResult` 新增枚举成员，
 均不改动任何既有公开签名。

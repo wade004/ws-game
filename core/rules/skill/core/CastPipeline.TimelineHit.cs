@@ -29,7 +29,7 @@ namespace Core.Rules.Skill
     /// </summary>
     public sealed partial class CastPipeline
     {
-        /// <summary>单个时间区间内最多采样次数（防止形状极小而位移极大时的采样爆炸；超出按上限均匀采样，见 skill README 已知局限）。</summary>
+        /// <summary>单个时间区间内最多采样次数（防止形状极小而位移极大时的采样爆炸；超出按上限均匀采样，设计决定见 skill README "手感落地 M4 清扫"）。</summary>
         private const int MaxSamplesPerSpan = 256;
 
         /// <summary>命中几何：攻击方位姿与（可选）形状，用来算接触点/法线/世界方向。</summary>

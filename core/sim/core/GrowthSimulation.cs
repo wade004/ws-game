@@ -357,13 +357,11 @@ namespace Core.Sim
         /// <see cref="IProgress{SimProgress}"/>——ABI 只新增，旧的四参数 <see cref="Run(ScenarioDef,AnchorTable,IReadOnlyList{IDataSource},bool)"/>
         /// 保留、内部转调本重载并传 <c>default</c>/<c>null</c>，行为完全不变。取消检查点/进度上报点均
         /// 落在唯一的外层迭代边界——种子循环（<c>runIndex</c>，与 <see cref="ArenaSimulation"/> 的
-        /// "矩阵格子"、<see cref="CoverageSimulation"/> 的"技能/装备/生物遍历项"同一颗粒度），不下探到
-        /// <see cref="RunOnce"/> 内部的等级/击杀循环或 <see cref="FightRunner.RunWithinWorld"/> 的 tick
-        /// 循环——本次改动范围明确限定在 <see cref="Run"/> 入口与其种子循环本身（<see cref="RunOnce"/>
-        /// 未改动一行，避免与同期改动 <see cref="ResolveCreatureFamily"/>/<see
-        /// cref="ResolveCreatureTemplateForLevel"/> 的另一条并行任务产生合并冲突），取消延迟因此以
-        /// "一个种子的完整成长轨迹耗时"计——比 <see cref="ArenaSimulation"/>/<see cref="FightRunner"/>
-        /// 粗一个数量级，是本次拍板明确接受的已知限制，非缺陷。</summary>
+        /// "矩阵格子"、<see cref="CoverageSimulation"/> 的"技能/装备/生物遍历项"同一颗粒度）。
+        /// NF1：取消检查点下探到 <see cref="RunOnce"/> 内的每一场击杀战斗之前（<see cref="Run"/> 把同一个令牌传进去），
+        /// 取消延迟因此从"一个种子的完整成长轨迹耗时"缩短到"一场战斗的耗时"（与 <see cref="ArenaSimulation"/>/
+        /// <see cref="FightRunner"/> 同一量级）；单场战斗内部的 tick 循环不检查（一场战斗是原子的，中途丢弃没有可用的部分结果）。
+        /// 进度仍只在种子边界上报。不取消时结果与此前逐位一致。</summary>
         public static GrowthReport Run(
             ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
             bool failOnUnknownTable, CancellationToken cancellationToken, IProgress<SimProgress>? progress = null)
@@ -401,7 +399,7 @@ namespace Core.Sim
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var seed = ArenaSimulation.DeriveSeed(scenario.BaseSeed, levelFrom, runIndex, 0);
-                var run = RunOnce(scenario, anchors, dataSources, seed, failOnUnknownTable);
+                var run = RunOnce(scenario, anchors, dataSources, seed, failOnUnknownTable, cancellationToken);
                 perRunSamples.Add(run.Levels);
                 xpViaApi.Add(run.CumulativeXpGrantedViaApi);
                 xpViaEvents.Add(run.CumulativeXpGrantedViaEvents);
@@ -433,7 +431,7 @@ namespace Core.Sim
         /// <see cref="GrowthRunResult"/> 判断记录）。</summary>
         internal static GrowthRunResult RunOnce(
             ScenarioDef scenario, AnchorTable anchors, IReadOnlyList<IDataSource> dataSources,
-            ulong seed, bool failOnUnknownTable)
+            ulong seed, bool failOnUnknownTable, CancellationToken cancellationToken = default)
         {
             var levelFrom = scenario.LevelFrom!.Value;
             var levelTo = scenario.LevelTo!.Value;
@@ -505,6 +503,7 @@ namespace Core.Sim
 
                 while (currentLevel == level && kills < MaxKillsPerLevelSafety)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var spawnPos = Vec2.Zero + CreatureSpawnOffset;
                     var creatureId = world.Gameplay.Carriers.Creatures.Spawn(
                         creatureTemplateId, MapId, spawnPos, facing: Math.PI, ownerId: null, level);

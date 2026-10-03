@@ -256,6 +256,47 @@ namespace Tests.Sim
                 () => GrowthSimulation.Run(scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, cts.Token, progress));
         }
 
+        /// <summary>NF1：取消令牌在单个种子的运行途中（装配世界读数据源时）被取消——此前要跑完整个种子的成长轨迹才会看到取消，
+        /// 现在在下一场击杀战斗之前就抛出，不上报任何进度、不产出任何结果。</summary>
+        [Fact]
+        public void Run_CancelledDuringASingleSeed_StopsBeforeTheNextFight_NotAfterTheWholeSeed()
+        {
+            var (world, scenario, dataSources) = BuildSmallScenario(runs: 1);
+            using var cts = new CancellationTokenSource();
+            var cancelling = new List<Core.Foundation.DataRegistry.IDataSource>();
+            foreach (var source in dataSources) cancelling.Add(new CancelOnListSource(source, cts));
+            var reports = new List<SimProgress>();
+
+            Assert.Throws<OperationCanceledException>(
+                () => GrowthSimulation.Run(
+                    scenario, world.AnchorTable!, cancelling, failOnUnknownTable: false, cts.Token, new RecordingProgress(reports.Add)));
+            Assert.Empty(reports); // 种子没有跑完：没有进度、没有结果
+
+            // 不变量：同一场景不取消时仍跑完并上报，结果与旧入口一致。
+            var legacy = GrowthSimulation.Run(scenario, world.AnchorTable!, dataSources);
+            var viaToken = GrowthSimulation.Run(
+                scenario, world.AnchorTable!, dataSources, failOnUnknownTable: false, CancellationToken.None, progress: null);
+            Assert.Equal(legacy.ToJson(), viaToken.ToJson());
+        }
+
+        private sealed class CancelOnListSource : Core.Foundation.DataRegistry.IDataSource
+        {
+            private readonly Core.Foundation.DataRegistry.IDataSource _inner;
+            private readonly CancellationTokenSource _cts;
+
+            public CancelOnListSource(Core.Foundation.DataRegistry.IDataSource inner, CancellationTokenSource cts)
+            {
+                _inner = inner;
+                _cts = cts;
+            }
+
+            public IReadOnlyList<Core.Foundation.DataRegistry.DataTableSource> ListTables()
+            {
+                _cts.Cancel();
+                return _inner.ListTables();
+            }
+        }
+
         [Fact]
         public void Run_NotCancelled_MatchesOldOverload_SameSeed()
         {

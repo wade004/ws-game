@@ -78,7 +78,7 @@ namespace Core.Rules.Targeting
         /// <summary>
         /// 距离是否含高度差：为 <c>true</c> 时 <c>sort_by.distance</c> 与 <c>nearest_in_shape</c> 的"最近"按三维欧氏距离判定
         /// （体积空间）；默认 <c>false</c>，只算平面距离（平面世界与横版二维——横版里深度轴不存在）。
-        /// 不影响施法射程检查（射程由技能管线判定，仍是平面距离，见 targeting README 已知局限）。
+        /// 不影响施法射程检查（射程由技能管线判定，仍是平面距离，设计决定见 targeting README 判断记录第 5 条）。
         /// </summary>
         public bool SpatialDistance { get; set; }
 

@@ -184,7 +184,11 @@ namespace Core.Carriers.Item
             // P2-05 关联根治（外部审计 audit-c9ff301-20260909，见 InventoryHost 同一类判断记录）：
             // _slotDefinitions/_sets 此前只在构造期从 registry 读取一次、永久常驻。本类型本就持有
             // registry 引用，直接内部订阅、自行重新查询。
-            _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ => ReloadSlotDefinitionsAndSets());
+            _bus.Subscribe<DataLoadCompletedEvent>(DataRegistryEventKeys.LoadCompleted, _ =>
+            {
+                ReloadSlotDefinitionsAndSets();
+                ReconcileSetBonusesAfterReload();
+            });
 
             // C08 收口（外部审计 7e63d66 第四轮）：可选注入，未提供时（null，惯例同本类型其它可选
             // 依赖）行为与本次改动之前完全一致——只是重新暴露了 C08 描述的那个缺口，不会抛异常或
@@ -210,6 +214,73 @@ namespace Core.Carriers.Item
             foreach (var record in _registry.GetAll("item.set"))
             {
                 _sets[record.GetId("id")] = record;
+            }
+        }
+
+        /// <summary>
+        /// 数据重载后的套装对账（NF1）：<c>data.load_completed</c> 时对"当前有装备件的单位 × 这些件所属的套装"与
+        /// <see cref="_appliedSetBonuses"/> 里已记录的 (单位, 套装) 全部走一遍 <see cref="RecomputeSetBonuses"/>——
+        /// 新定义里已删除/改高的门槛立即释放，新增或改低且已满足件数的门槛立即施加，不需要等任何装备操作。
+        /// 遍历顺序按单位 id、套装 id 的序数排序（不依赖字典枚举顺序，光环施加/释放顺序因此确定）。
+        /// 模板在重载后已不存在的单位整个跳过（装备数据已不一致，由引用完整性校验报告；本方法不在事件回调里抛异常
+        /// 打断其它订阅方，该单位下一次装备操作仍会按既有路径报错）。
+        /// </summary>
+        private void ReconcileSetBonusesAfterReload()
+        {
+            var pairs = new List<(Id UnitId, Id SetId)>();
+            var seen = new HashSet<(Id, Id)>();
+            foreach (var key in _appliedSetBonuses.Keys)
+            {
+                if (seen.Add(key)) pairs.Add(key);
+            }
+
+            foreach (var unitEntry in _equipped)
+            {
+                var intact = true;
+                var setsOfUnit = new List<Id>();
+                foreach (var instance in unitEntry.Value.Values)
+                {
+                    var template = _inventory.GetTemplate(instance.TemplateId);
+                    if (template == null)
+                    {
+                        intact = false;
+                        break;
+                    }
+
+                    if (TryGetSetId(template, out var setId)) setsOfUnit.Add(setId);
+                }
+
+                if (!intact) continue;
+                foreach (var setId in setsOfUnit)
+                {
+                    if (seen.Add((unitEntry.Key, setId))) pairs.Add((unitEntry.Key, setId));
+                }
+            }
+
+            pairs.Sort((a, b) =>
+            {
+                var c = string.CompareOrdinal(a.UnitId.Value, b.UnitId.Value);
+                return c != 0 ? c : string.CompareOrdinal(a.SetId.Value, b.SetId.Value);
+            });
+
+            foreach (var (unitId, setId) in pairs)
+            {
+                if (_equipped.TryGetValue(unitId, out var slots))
+                {
+                    var consistent = true;
+                    foreach (var instance in slots.Values)
+                    {
+                        if (_inventory.GetTemplate(instance.TemplateId) == null)
+                        {
+                            consistent = false;
+                            break;
+                        }
+                    }
+
+                    if (!consistent) continue;
+                }
+
+                RecomputeSetBonuses(unitId, setId);
             }
         }
 
@@ -1325,12 +1396,9 @@ namespace Core.Carriers.Item
         /// "光环系统内已失效但记录还在"，这里是"记录仍然有效存活、但定义已经不再承认这个门槛"，两者
         /// 都必须在遍历新定义之前先行清理，否则新定义的遍历范围本就覆盖不到它们。
         /// <para>
-        /// 已知局限（未在本次根治范围内）：孤儿门槛的清理只在本方法被调用时发生（装备/卸下变化，或
-        /// <see cref="ReapplySetBonuses"/> 跨图重放）——<c>item.set</c> reload 那一刻本身不会主动为
-        /// 全部已注册单位重算，如果 reload 后玩家迟迟不做任何装备操作，孤儿光环会一直生效到下一次
-        /// 装备变化才被发现并释放。这与 <c>EconomyHost</c>/<c>StatHost</c> 等"reload 时立即对账"的
-        /// 处理时机不同，是否需要 reload 时主动扫描全部单位属于另一个更大的设计决策（需要遍历全部
-        /// 已知单位 × 已知套装，本类型当前不持有"全部已注册单位"的索引），不在本次候选验收范围内。
+        /// 对账时机：装备/卸下变化、<see cref="ReapplySetBonuses"/> 跨图重放，以及 <c>data.load_completed</c>
+        /// 之后的 <see cref="ReconcileSetBonusesAfterReload"/>（对全部有装备件或有已施加记录的单位逐套装重算，
+        /// 孤儿门槛在重载那一刻就被释放，不再等下一次装备变化）。
         /// </para>
         /// </summary>
         private void RecomputeSetBonuses(Id unitId, Id setId)

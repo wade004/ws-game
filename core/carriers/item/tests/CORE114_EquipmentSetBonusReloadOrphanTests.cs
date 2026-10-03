@@ -233,5 +233,59 @@ namespace Tests.Carriers.Item
             Assert.False(assembly.Rules.Skill.AuraQuery.HasAura(playerId, BonusAuraDefId),
                 "旧门槛 2 在新定义里已不存在，卸下一件套装件触发重算后光环应当被释放。");
         }
+
+        /// <summary>NF1 复现：reload 删除门槛后不做任何装备操作，孤儿光环在重载那一刻就被释放（此前要等下一次装备变化）。</summary>
+        [Fact]
+        public void SetBonusThresholdRemovedByReload_IsReleasedAtReloadTime_WithoutAnyEquipmentChange()
+        {
+            var assembly = BuildAssembly(out var playerId, out var registry, out var bus, out var source);
+
+            EquipFreshInstance(assembly, playerId, TemplateSetOne, SlotSetOne);
+            EquipFreshInstance(assembly, playerId, TemplateSetTwo, SlotSetTwo);
+            var before = assembly.Rules.Stats.GetStat(playerId, StatPower);
+            Assert.True(assembly.Rules.Skill.AuraQuery.HasAura(playerId, BonusAuraDefId));
+
+            source.Replace("item.set", Envelope("item.set", ItemSetRow(NoBonus)));
+            var reload = registry.Reload("item.set");
+            Assert.False(reload.IsBlocking, string.Join("; ", reload.Issues));
+            bus.PublishImmediate(new DataLoadCompletedEvent(registry.Tables.Count, 1, reload.ErrorCount, reload.WarningCount));
+
+            Assert.False(assembly.Rules.Skill.AuraQuery.HasAura(playerId, BonusAuraDefId),
+                "门槛已被 reload 删除：不做任何装备操作，重载完成时孤儿光环就应释放。");
+            // 量从 (1 + 光环加成) 变到基础值 1：期望由数据算出（基础 1，光环 flat 100）。
+            Assert.Equal(1 + 100, before);
+            Assert.Equal(1, assembly.Rules.Stats.GetStat(playerId, StatPower));
+        }
+
+        /// <summary>NF1 不变量：reload 没改套装定义时对账不碰已施加的句柄（光环仍在、属性不变、不重复施加）；改低门槛后立即施加。</summary>
+        [Fact]
+        public void SetBonusReconcileAfterReload_UnchangedDefinitionKeepsHandle_LoweredThresholdAppliesImmediately()
+        {
+            var assembly = BuildAssembly(out var playerId, out var registry, out var bus, out var source);
+
+            EquipFreshInstance(assembly, playerId, TemplateSetOne, SlotSetOne);
+            Assert.False(assembly.Rules.Skill.AuraQuery.HasAura(playerId, BonusAuraDefId));
+
+            // 同一定义原样重载：件数 1 < 门槛 2，什么都不该发生。
+            var reload = registry.Reload("item.set");
+            Assert.False(reload.IsBlocking, string.Join("; ", reload.Issues));
+            bus.PublishImmediate(new DataLoadCompletedEvent(registry.Tables.Count, 1, reload.ErrorCount, reload.WarningCount));
+            Assert.False(assembly.Rules.Skill.AuraQuery.HasAura(playerId, BonusAuraDefId));
+            Assert.Equal(1, assembly.Rules.Stats.GetStat(playerId, StatPower));
+
+            // 门槛从 2 改到 1：当前已装 1 件，重载完成即满足。
+            const string loweredBonus = "[{\"count\": 1, \"aura_ref\": \"skill.aura_def.core114_set_bonus\"}]";
+            source.Replace("item.set", Envelope("item.set", ItemSetRow(loweredBonus)));
+            reload = registry.Reload("item.set");
+            Assert.False(reload.IsBlocking, string.Join("; ", reload.Issues));
+            bus.PublishImmediate(new DataLoadCompletedEvent(registry.Tables.Count, 1, reload.ErrorCount, reload.WarningCount));
+            Assert.True(assembly.Rules.Skill.AuraQuery.HasAura(playerId, BonusAuraDefId));
+            Assert.Equal(1 + 100, assembly.Rules.Stats.GetStat(playerId, StatPower));
+
+            // 再原样重载一次：不得叠加第二份光环（属性仍是 1 + 100）。
+            reload = registry.Reload("item.set");
+            bus.PublishImmediate(new DataLoadCompletedEvent(registry.Tables.Count, 1, reload.ErrorCount, reload.WarningCount));
+            Assert.Equal(1 + 100, assembly.Rules.Stats.GetStat(playerId, StatPower));
+        }
     }
 }

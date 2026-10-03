@@ -58,8 +58,7 @@ namespace Core.Gameplay.Assembly
     /// <c>GameplayAssembly.TurnScheduler</c> 属性判断记录）。<c>combat.left</c>（个体脱战，非死亡）
     /// 补齐后同样触发移除（见 <see cref="OnCombatLeft"/>）：离散模式下收到某单位的
     /// <c>combat.left</c> 时，先把该单位从当前轮的行动顺序里 <c>RemoveParticipant</c>，再判断整场
-    /// 战斗是否清空——脱战单位不应继续占据行动顺序被轮到（此前版本只在死亡时移除，脱战不移除，
-    /// 属已知限制，本次任务补齐，与 <see cref="OnUnitDied"/> 走同一套移除路径）。
+    /// 战斗是否清空——脱战单位不应继续占据行动顺序被轮到（与 <see cref="OnUnitDied"/> 走同一套移除路径）。
     /// </para>
     /// </summary>
     public sealed class TimeModelSwitch

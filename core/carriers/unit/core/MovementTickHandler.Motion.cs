@@ -375,7 +375,24 @@ namespace Core.Carriers.Unit
                     }
                     else if (!_navigation.IsWalkable(unit.MapId, newPos))
                     {
-                        candidate = false;
+                        // 滑动终点被可走性判定拒绝（沿斜墙边界线滑动时浮点误差把终点推进阻挡内部一类的边界情形）：
+                        // 退回"撞墙停住"——位移截断在撞击点前的回退点（与没有 wall_slide 的单位撞墙同一口径），而不是整 tick 不位移。
+                        // 回退点同样不可走、或与起点重合（本来就贴在墙上）时才整 tick 不位移。
+                        if (slid && wallVia.HasValue &&
+                            (wallVia.Value - from).Length > ZeroLengthEpsilon &&
+                            _navigation.IsWalkable(unit.MapId, wallVia.Value))
+                        {
+                            newPos = wallVia.Value;
+                            slid = false;
+                            slideNormal = Vec2.Zero;
+                            slideSecondBlocked = false;
+                            slideSecondNormal = Vec2.Zero;
+                            wallVia = null;
+                        }
+                        else
+                        {
+                            candidate = false;
+                        }
                     }
                 }
 

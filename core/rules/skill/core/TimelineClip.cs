@@ -263,7 +263,7 @@ namespace Core.Rules.Skill
     /// 取不到剪辑时：<c>source: clip</c> 为 Error（权威来源缺失），<c>source: data</c> 跳过。
     /// <para>
     /// 判断记录（为什么不在 <c>RulesSchemaCatalog</c> 登记）：生产用 <see cref="IClipMarkerSource"/> 需要"技能 → 动画集 → 剪辑"的对应，
-    /// 当前数据没有这条链接（见 skill 模块 README 已知局限），装配层不应登记一个永远取不到剪辑的规则；有生产实现后由装配方
+    /// 当前数据没有这条链接（设计决定见 skill 模块 README T9 与 carriers/assembly README "手感落地 M4 清扫"③），装配层不应登记一个永远取不到剪辑的规则；有生产实现后由装配方
     /// <c>RegisterValidationRule</c> 即可。
     /// </para>
     /// </summary>

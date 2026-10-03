@@ -133,7 +133,7 @@ BNF 没有规定词法细节与"点分标识符到底是 reference 还是 Id"的
    `quest.deliver_letter`）第一段恰好和分组名 `world`/`quest` 同名——04 第 2.2 节域名清单里
    `world`、`quest`、`target`、`combat` 同时也是内容 id 的合法 `domain`。旧实现按"第一段是
    九个分组之一 → reference"逐字判定、不为参数位置开特例，导致这两个例子被误判成零参引用
-   而不是文档原意的 Id 字面量——这是本条曾经记录的已知限制。
+   而不是文档原意的 Id 字面量（该冲突由下面的 ADR-0015 规则解决）。
 
    ADR-0015 拍板：**点分标识符的归类以宿主引用登记表 `IExprSchema` 为准，而不是"第一段是不是
    九个分组之一"**——`<first>.<rest>` 若在 `schema.TryGetSignature(first, rest)` 里有登记的
