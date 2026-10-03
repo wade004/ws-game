@@ -255,7 +255,7 @@ namespace Adapter.Unity.EngineAdapter
                 return false;
             }
 
-            if (idat == null || idat.Length < 6)
+            if (idat == null || idat.Length < 3)
             {
                 reason = "缺少 IDAT 数据";
                 return false;
@@ -269,6 +269,12 @@ namespace Adapter.Unity.EngineAdapter
             if ((idatBuffer[0] & 0x0F) != 8 || (idatBuffer[1] & 0x20) != 0)
             {
                 reason = "zlib 头不受支持";
+                return false;
+            }
+
+            if (idatLength < 6)
+            {
+                reason = "IDAT 不足以容纳 zlib 尾部校验和";
                 return false;
             }
 
