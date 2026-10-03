@@ -1,0 +1,10 @@
+{
+  "anim_set_id": "display.anim_set.skin_sample",
+  "skin": "Assets/Resources/GameFoundation/models/std_dummy_biped.prefab",
+  "direction_count": 8,
+  "slots": ["front", "side_r"],
+  "keys": ["idle", "move.walk", "cast", "cast.quick", "attack.air", "hit.launch"],
+  "mass_groups": ["light"],
+  "layers": { "hand_main": ["hips/spine/upper_arm_r/forearm_r/hand_r"] },
+  "lighting": "unlit"
+}
