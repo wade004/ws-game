@@ -143,6 +143,21 @@ namespace Lab
         public virtual void OnFinished(LabRecording recording)
         {
         }
+
+        /// <summary>运行中出了一只靶子（脚本 <c>spawn</c> 事件，交互式试玩）：此时它已经在世界里、出场标签已进标签表；只读观测点。</summary>
+        public virtual void OnDummySpawned(string label, Id entityId)
+        {
+        }
+
+        /// <summary>运行中清掉了全部靶子（脚本 <c>clear_dummies</c> 事件）；此时实体已被标记销毁（视图随销毁事件移除）。</summary>
+        public virtual void OnDummiesCleared()
+        {
+        }
+
+        /// <summary>脚本里的呈现标记事件（<see cref="ScriptEventKind.Marker"/>：时间尺度、暂停/单步、效果开关、角落闪块）；宿主逻辑不读它，只转给扩展。</summary>
+        public virtual void OnMarker(ScriptEvent marker)
+        {
+        }
     }
 
     /// <summary>把多个扩展按顺序串起来：视图工厂依次包装，反馈转发给全部非空转发目标，其余回调按顺序逐个调用；轴转换依次作用。</summary>
@@ -257,6 +272,21 @@ namespace Lab
         public override void OnFinished(LabRecording recording)
         {
             foreach (var item in _items) item.OnFinished(recording);
+        }
+
+        public override void OnDummySpawned(string label, Id entityId)
+        {
+            foreach (var item in _items) item.OnDummySpawned(label, entityId);
+        }
+
+        public override void OnDummiesCleared()
+        {
+            foreach (var item in _items) item.OnDummiesCleared();
+        }
+
+        public override void OnMarker(ScriptEvent marker)
+        {
+            foreach (var item in _items) item.OnMarker(marker);
         }
 
         private sealed class FanOutFeedbackSink : IFeedbackSink

@@ -198,9 +198,31 @@ namespace Lab
         /// </summary>
         public static LabRecording Run(
             LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog, LabRunVariant? variant,
-            LabHostExtension? extension)
+            LabHostExtension? extension) =>
+            Start(options, cell, script, catalog, variant, extension, false).RunToEnd();
+
+        /// <summary>
+        /// 开一次可单步推进的运行（交互式试玩宿主用，ADR-0141）：装配与 <see cref="Run(LabHostOptions, LabScenario, InputScript, LabCatalog?, LabRunVariant?, LabHostExtension?)"/>
+        /// 是同一段代码，只是不自己跑循环——调用方按真实帧推进 <see cref="LabSession.Advance"/>，人手输入经 <see cref="LabSession.Inject"/> 打上当前 tick 戳。
+        /// <para>
+        /// 判断记录（实时宿主与脚本回放同一条路径）：实时输入不直接碰世界，只变成"盖当前 tick 戳的脚本事件"进入与脚本相同的按 tick 分桶队列，
+        /// 在该 tick 的"意图采集"之前注入；同时按序追加到会话日志——日志就是 <paramref name="script"/> 的事件清单（<see cref="InputScript"/> 持有同一个列表），
+        /// 所以试玩一局结束后 <see cref="LabSession.RecordedScript"/> 经无头宿主逐 tick 重放，逻辑组逐字节一致（宿主逐步顺序没有第二份）。
+        /// <paramref name="live"/> 为真时：脚本时长不设限（<c>duration = int.MaxValue</c>，由调用方决定何时停），脚本事件分桶取用后即丢（不累积）；
+        /// <paramref name="script"/> 的初始事件必须为空且事件清单必须是可追加的 <see cref="List{ScriptEvent}"/>。
+        /// </para>
+        /// </summary>
+        public static LabSession Start(
+            LabHostOptions options, LabScenario cell, InputScript script, LabCatalog? catalog, LabRunVariant? variant,
+            LabHostExtension? extension, bool live)
         {
             variant ??= LabRunVariant.Default;
+            var liveLog = live ? script.Events as List<ScriptEvent> : null;
+            if (live && (liveLog == null || liveLog.Count > 0))
+            {
+                throw new LabFormatException("实时会话的脚本事件清单必须是空的 List<ScriptEvent>（它同时是会话日志）");
+            }
+
             if (options == null) throw new ArgumentNullException(nameof(options));
             if (cell == null) throw new ArgumentNullException(nameof(cell));
             if (script == null) throw new ArgumentNullException(nameof(script));
@@ -402,6 +424,74 @@ namespace Lab
                 }
             }
 
+            Id SpawnOne(LabDummy dummy, Vec2 pos, string label)
+            {
+                var id = world.Gameplay.Carriers.Creatures.Spawn(dummy.CreatureId, arena.MapId, pos, Math.PI, null, 1);
+                world.Spatial.Register(id, pos, 0.5);
+                if (!dummy.KeepAi)
+                {
+                    var ai = world.Gameplay.Carriers.Rules.Ai;
+                    foreach (var registered in new List<Id>(ai.RegisteredUnitIds))
+                    {
+                        if (registered.Equals(id))
+                        {
+                            ai.UnregisterUnit(id);
+                            break;
+                        }
+                    }
+                }
+
+                if (space != null)
+                {
+                    space.AirCombat?.Register(label);
+                    space.DummyHeights[label] = new List<double>();
+                    if (dummy.Height > 0.0)
+                    {
+                        space.DeclaredDummyHeights.Add(new KeyValuePair<string, double>(label, dummy.Height));
+                        if (vertical && world.World.GetEntity(id) is Unit floating)
+                        {
+                            // 飘浮怪/悬空靶：静态出生高度，不受重力（只有被抛起的单位才进入竖直积分）。平面世界忽略。
+                            floating.HeightOffset = dummy.Height;
+                        }
+                    }
+                }
+
+                labels[id] = label;
+                recording.Dummies.Add(new KeyValuePair<string, Vec2>(label, pos));
+                dummyUnits.Add(new KeyValuePair<string, Id>(label, id));
+                dummyByLabel[label] = id;
+                if (dummy.BlockHalfExtent is double half)
+                {
+                    // 可破坏障碍（数据声明 block_half_extent，或 kind = breakable 取缺省）是动态阻挡：占位矩形随地形阻挡一起生效，
+                    // 被打死后移除（见类型判断记录）；任何场景都生效，不限手感场景。
+                    dynamicBlocks.Add(new KeyValuePair<Id, Rect>(
+                        id, new Rect(new Vec2(pos.X - half, pos.Y - half), new Vec2(pos.X + half, pos.Y + half))));
+                }
+
+                if (dummy.Poise is double poise)
+                {
+                    // 靶子声明的韧性值写进该单位的韧性属性（受击裁决读它；缺省不声明即韧性 0，行为与不支持韧性时一致）。
+                    var stats = world.Gameplay.Carriers.Rules.Stats;
+                    var poiseStat = new Id(PoiseStatId);
+                    if (!stats.IsRegistered(id))
+                    {
+                        throw new LabFormatException($"靶子 {dummy.Name} 声明了 poise，但单位未注册属性（无法写韧性）");
+                    }
+
+                    try
+                    {
+                        stats.SetBase(id, poiseStat, poise);
+                    }
+                    catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
+                    {
+                        throw new LabFormatException(
+                            $"靶子 {dummy.Name} 声明了 poise，但数据集里没有属性 {PoiseStatId} 的定义（{ex.Message}）；手感场景请叠加声明它的数据根（如 data/_lab_action）");
+                    }
+                }
+
+                return id;
+            }
+
             foreach (var dummy in dummySet.Entries)
             {
                 if (!wanted.Contains(dummy.Group))
@@ -416,68 +506,7 @@ namespace Lab
                         ? new Vec2(dummy.Position.X + (i - (count - 1) / 2.0) * dummy.Spacing, dummy.Position.Y)
                         : dummy.Position;
                     var label = count > 1 ? $"{dummy.Name}#{i + 1}" : dummy.Name;
-                    var id = world.Gameplay.Carriers.Creatures.Spawn(dummy.CreatureId, arena.MapId, pos, Math.PI, null, 1);
-                    world.Spatial.Register(id, pos, 0.5);
-                    if (!dummy.KeepAi)
-                    {
-                        var ai = world.Gameplay.Carriers.Rules.Ai;
-                        foreach (var registered in new List<Id>(ai.RegisteredUnitIds))
-                        {
-                            if (registered.Equals(id))
-                            {
-                                ai.UnregisterUnit(id);
-                                break;
-                            }
-                        }
-                    }
-
-                    if (space != null)
-                    {
-                        space.AirCombat?.Register(label);
-                        space.DummyHeights[label] = new List<double>();
-                        if (dummy.Height > 0.0)
-                        {
-                            space.DeclaredDummyHeights.Add(new KeyValuePair<string, double>(label, dummy.Height));
-                            if (vertical && world.World.GetEntity(id) is Unit floating)
-                            {
-                                // 飘浮怪/悬空靶：静态出生高度，不受重力（只有被抛起的单位才进入竖直积分）。平面世界忽略。
-                                floating.HeightOffset = dummy.Height;
-                            }
-                        }
-                    }
-
-                    labels[id] = label;
-                    recording.Dummies.Add(new KeyValuePair<string, Vec2>(label, pos));
-                    dummyUnits.Add(new KeyValuePair<string, Id>(label, id));
-                    dummyByLabel[label] = id;
-                    if (dummy.BlockHalfExtent is double half)
-                    {
-                        // 可破坏障碍（数据声明 block_half_extent，或 kind = breakable 取缺省）是动态阻挡：占位矩形随地形阻挡一起生效，
-                        // 被打死后移除（见类型判断记录）；任何场景都生效，不限手感场景。
-                        dynamicBlocks.Add(new KeyValuePair<Id, Rect>(
-                            id, new Rect(new Vec2(pos.X - half, pos.Y - half), new Vec2(pos.X + half, pos.Y + half))));
-                    }
-
-                    if (dummy.Poise is double poise)
-                    {
-                        // 靶子声明的韧性值写进该单位的韧性属性（受击裁决读它；缺省不声明即韧性 0，行为与不支持韧性时一致）。
-                        var stats = world.Gameplay.Carriers.Rules.Stats;
-                        var poiseStat = new Id(PoiseStatId);
-                        if (!stats.IsRegistered(id))
-                        {
-                            throw new LabFormatException($"靶子 {dummy.Name} 声明了 poise，但单位未注册属性（无法写韧性）");
-                        }
-
-                        try
-                        {
-                            stats.SetBase(id, poiseStat, poise);
-                        }
-                        catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
-                        {
-                            throw new LabFormatException(
-                                $"靶子 {dummy.Name} 声明了 poise，但数据集里没有属性 {PoiseStatId} 的定义（{ex.Message}）；手感场景请叠加声明它的数据根（如 data/_lab_action）");
-                        }
-                    }
+                    SpawnOne(dummy, pos, label);
                 }
             }
 
@@ -504,13 +533,18 @@ namespace Lab
             var frameDt = 1.0 / meta.FrameRateCap;
             LabHostContext? hostContext = null;
             IViewFactory viewFactory = factory;
-            if (extension != null)
+            if (extension != null || live)
             {
                 // 扩展点接入（引擎宿主）：此时世界、靶子、外形登记与出场标签都已就绪，视图工厂尚未创建。
+                // 实时会话即使没有扩展也建上下文（会话的 Context 供调用方读世界、出场标签与手感档案）。
                 hostContext = new LabHostContext(
                     world, cell, script, recording, step, frameDt, playerId, labels, dummyUnits, displayInfo, feelOn);
-                extension.OnAttach(hostContext);
-                viewFactory = extension.WrapViewFactory(factory, hostContext);
+            }
+
+            if (extension != null)
+            {
+                extension.OnAttach(hostContext!);
+                viewFactory = extension.WrapViewFactory(factory, hostContext!);
             }
 
             // 输入：声明 found.input_action 全部动作，移动重绑到左摇杆。
@@ -636,6 +670,10 @@ namespace Lab
             }
 
             var dummyMoves = new Dictionary<string, Vec2>(StringComparer.Ordinal);
+            var spawnSerial = 0;
+            Core.Foundation.Feel.FeelRow? loadoutArchetype = null;
+            Core.Foundation.Feel.FeelRow? loadoutWeapon = null;
+            var overrideLog = new List<ScriptEvent>();
             var eventCursor = 0;
             var tick = 0;
             var navRecording = space?.Ext?.Nav;
@@ -658,10 +696,40 @@ namespace Lab
                 };
             }
 
-            var duration = meta.DurationTicks;
+            var duration = live ? int.MaxValue : meta.DurationTicks;
             var frame = 0;
             var axisEventTick = -1;
             var injectedStick = Vec2.Zero;
+
+            void ReapplyPlayerOverrides(Core.Foundation.Feel.FeelDebugOverrides overrides)
+            {
+                // 玩家单位的第 8 层覆盖 = 体型行写入、武器行写入（同字段后写覆盖先写，与手感解析的层序一致）、再加 override 事件里作用单位为玩家的写入。
+                // 每次变化整体重算，所以三者互不覆盖遗漏。
+                overrides.ClearUnit(playerId);
+                foreach (var layer in new[] { loadoutArchetype, loadoutWeapon })
+                {
+                    if (layer == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (var write in layer.Writes)
+                    {
+                        overrides.SetUnit(playerId, write);
+                    }
+                }
+
+                foreach (var logged in overrideLog)
+                {
+                    if (!string.Equals(logged.Actor, "player", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var op = logged.Value.Y < 0.5 ? Core.Foundation.Feel.FeelOp.Set : logged.Value.Y < 1.5 ? Core.Foundation.Feel.FeelOp.Multiply : Core.Foundation.Feel.FeelOp.Add;
+                    overrides.SetUnit(playerId, new Core.Foundation.Feel.FeelWrite(logged.Action, op, Core.Foundation.Feel.FeelValue.Of(logged.Value.X)));
+                }
+            }
 
             void ApplyScriptEvent(ScriptEvent e)
             {
@@ -717,6 +785,194 @@ namespace Lab
                     mapTerrain.SetShapes(arena.MapId, MapTerrainHeights.ShapesFromRecord(swapRecord) ?? Array.Empty<ITerrainShape>());
                     nav.BuildNavMesh(arena.MapId);
                     navRecording.TerrainSwaps++;
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.Spawn)
+                {
+                    // 交互式试玩：按靶子集条目名在给定位置出一只靶子（见 ScriptEventKind.Spawn）；一律单只（"群"由调用方连发多条事件）。
+                    LabDummy? entry = null;
+                    foreach (var candidate in dummySet.Entries)
+                    {
+                        if (string.Equals(candidate.Name, e.Action, StringComparison.Ordinal))
+                        {
+                            entry = candidate;
+                            break;
+                        }
+                    }
+
+                    if (entry == null)
+                    {
+                        throw new LabFormatException($"脚本 spawn 事件的靶子集条目 {e.Action} 不存在（靶子集 {dummySet.Id.Value}）");
+                    }
+
+                    var spawnLabel = e.Actor.Length > 0 ? e.Actor : e.Action + "@" + (++spawnSerial).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    if (dummyByLabel.ContainsKey(spawnLabel))
+                    {
+                        throw new LabFormatException($"脚本 spawn 事件的出场标签 {spawnLabel} 已被在场靶子占用");
+                    }
+
+                    var blocksBefore = dynamicBlocks.Count;
+                    var spawnedId = SpawnOne(entry, e.Value, spawnLabel);
+                    for (var b = blocksBefore; b < dynamicBlocks.Count; b++)
+                    {
+                        nav.AddBlocking(arena.MapId, dynamicBlocks[b].Value);
+                    }
+
+                    recording.InjectedInputs.Add(new ScriptEvent(e.Tick, e.Action, e.Kind, e.Value, e.RealTimestamp, spawnLabel));
+                    extension?.OnDummySpawned(spawnLabel, spawnedId);
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.ClearDummies)
+                {
+                    // 清掉全部在场靶子（含可破坏障碍的动态阻挡）；出场标签保留在标签表里（之后到达的事件仍能按标签记录）。
+                    var cleared = new List<KeyValuePair<string, Id>>(dummyUnits);
+                    foreach (var pair in cleared)
+                    {
+                        for (var b = dynamicBlocks.Count - 1; b >= 0; b--)
+                        {
+                            if (dynamicBlocks[b].Key.Equals(pair.Value))
+                            {
+                                nav.RemoveBlocking(arena.MapId, dynamicBlocks[b].Value);
+                                dynamicBlocks.RemoveAt(b);
+                            }
+                        }
+
+                        world.Spatial.Unregister(pair.Value);
+                        world.Gameplay.Carriers.Creatures.Despawn(pair.Value, "lab_clear");
+                        dummyByLabel.Remove(pair.Key);
+                        dummyMoves.Remove(pair.Key);
+                    }
+
+                    dummyUnits.Clear();
+                    recording.InjectedInputs.Add(e);
+                    extension?.OnDummiesCleared();
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.Preset)
+                {
+                    // 运行中切基础预设：标定热换（解析器清缓存；进行中的动作沿用开始时的快照，下一个动作按新预设）。
+                    var feelSystem = world.Gameplay.Feel?.Feel
+                        ?? throw new LabFormatException("脚本 preset 事件需要手感装配（脚本须是手感场景）");
+                    if (feelSystem.Profiles.GetPreset(e.Action) == null)
+                    {
+                        throw new LabFormatException($"脚本 preset 事件的预设 {e.Action} 不存在");
+                    }
+
+                    var current = feelSystem.Resolver.Calibration;
+                    feelSystem.Resolver.Reload(
+                        feelSystem.Profiles,
+                        new Core.Foundation.Feel.FeelCalibration(
+                            current.Id, e.Action, current.ReferenceHeight, current.BaseSpeed, current.AnimationFps,
+                            current.ReferenceCameraHeight, current.ReferenceZoom, current.PixelsPerUnit, current.MarkerToleranceMs));
+                    recording.InjectedInputs.Add(e);
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.Loadout)
+                {
+                    var feelSystem = world.Gameplay.Feel?.Feel
+                        ?? throw new LabFormatException("脚本 loadout 事件需要手感装配（脚本须是手感场景）");
+                    var overrides = feelSystem.DebugOverrides
+                        ?? throw new LabFormatException("脚本 loadout 事件需要装配根自带的调试覆盖层");
+                    if (e.Action.Length == 0)
+                    {
+                        loadoutArchetype = null;
+                        loadoutWeapon = null;
+                    }
+                    else
+                    {
+                        var found = false;
+                        foreach (var weapon in feelSystem.Profiles.Weapons)
+                        {
+                            if (string.Equals(weapon.Id, e.Action, StringComparison.Ordinal))
+                            {
+                                loadoutWeapon = weapon;
+                                found = true;
+                            }
+                        }
+
+                        foreach (var archetype in feelSystem.Profiles.Archetypes)
+                        {
+                            if (string.Equals(archetype.Id, e.Action, StringComparison.Ordinal))
+                            {
+                                loadoutArchetype = archetype;
+                                found = true;
+                            }
+                        }
+
+                        if (!found)
+                        {
+                            throw new LabFormatException($"脚本 loadout 事件的行 {e.Action} 不是 feel.weapon/feel.archetype 行");
+                        }
+                    }
+
+                    ReapplyPlayerOverrides(overrides);
+                    recording.InjectedInputs.Add(e);
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.Override)
+                {
+                    var overrides = world.Gameplay.Feel?.Feel.DebugOverrides
+                        ?? throw new LabFormatException("脚本 override 事件需要手感装配（脚本须是手感场景）");
+                    var op = e.Value.Y < 0.5 ? Core.Foundation.Feel.FeelOp.Set : e.Value.Y < 1.5 ? Core.Foundation.Feel.FeelOp.Multiply : Core.Foundation.Feel.FeelOp.Add;
+                    var write = new Core.Foundation.Feel.FeelWrite(e.Action, op, Core.Foundation.Feel.FeelValue.Of(e.Value.X));
+                    if (e.Actor.Length == 0)
+                    {
+                        overrides.SetGlobal(write);
+                    }
+                    else if (string.Equals(e.Actor, "player", StringComparison.Ordinal))
+                    {
+                        overrideLog.Add(e);
+                        ReapplyPlayerOverrides(overrides);
+                    }
+                    else if (dummyByLabel.TryGetValue(e.Actor, out var target))
+                    {
+                        overrides.SetUnit(target, write);
+                    }
+                    else
+                    {
+                        throw new LabFormatException($"脚本 override 事件的作用单位 {e.Actor} 不在本次出场的靶子里");
+                    }
+
+                    if (!overrideLog.Contains(e))
+                    {
+                        overrideLog.Add(e);
+                    }
+
+                    recording.InjectedInputs.Add(e);
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.ClearOverrides)
+                {
+                    var overrides = world.Gameplay.Feel?.Feel.DebugOverrides
+                        ?? throw new LabFormatException("脚本 clear_overrides 事件需要手感装配（脚本须是手感场景）");
+                    foreach (var logged in overrideLog)
+                    {
+                        if (logged.Actor.Length == 0)
+                        {
+                            overrides.ClearGlobal(logged.Action);
+                        }
+                        else if (dummyByLabel.TryGetValue(logged.Actor, out var cleared))
+                        {
+                            overrides.ClearUnit(cleared, logged.Action);
+                        }
+                    }
+
+                    overrideLog.Clear();
+                    ReapplyPlayerOverrides(overrides);
+                    recording.InjectedInputs.Add(e);
+                    return;
+                }
+
+                if (e.Kind == ScriptEventKind.Marker)
+                {
+                    // 纯呈现标记：宿主逻辑不读，只转给扩展（重放引擎宿主时让视图复现）。
+                    extension?.OnMarker(e);
                     return;
                 }
 
@@ -837,6 +1093,11 @@ namespace Lab
                     foreach (var e in events)
                     {
                         ApplyScriptEvent(e);
+                    }
+
+                    if (live)
+                    {
+                        byTick.Remove(tick);
                     }
                 }
 
@@ -1006,30 +1267,50 @@ namespace Lab
 
             // 真实时间采样：每次帧推进（含其中触发的全部固定步与表现同步）一个样本。
             var watch = new Stopwatch();
-            var guard = 0;
-            var maxFrames = (int)Math.Ceiling(duration * step / frameDt) + 10 + duration;
-            while (tick < duration)
-            {
-                if (++guard > maxFrames)
-                {
-                    throw new InvalidOperationException("实验室宿主在预期帧数内没有推进完全部固定步（时钟累加异常）");
-                }
 
+            void AdvanceFrame(double dt)
+            {
                 var allocBefore = GC.GetAllocatedBytesForCurrentThread();
                 watch.Restart();
-                clock.Advance(frameDt);
+                clock.Advance(dt);
                 watch.Stop();
                 recording.Real.FrameMilliseconds.Add(watch.Elapsed.TotalMilliseconds);
                 recording.Real.FrameAllocatedBytes.Add(GC.GetAllocatedBytesForCurrentThread() - allocBefore);
             }
 
-            recording.TotalEventCount = world.Events.Count;
-            extension?.OnFinished(recording);
-            feelRig?.Dispose();
-            airPose?.Dispose();
-            rig?.Dispose();
-            binder.Dispose();
-            return recording;
+            void InjectLive(ScriptEvent e)
+            {
+                // 实时输入：盖上"下一个将要执行的固定步"的戳，进入与脚本相同的分桶队列，并按序追加到会话日志（= 脚本事件清单）。
+                var stamped = new ScriptEvent(tick, e.Action, e.Kind, e.Value, null, e.Actor);
+                if (!byTick.TryGetValue(tick, out var list))
+                {
+                    list = new List<ScriptEvent>();
+                    byTick[tick] = list;
+                }
+
+                list.Add(stamped);
+                liveLog!.Add(stamped);
+            }
+
+            LabRecording Finish()
+            {
+                if (live)
+                {
+                    // 实时会话结束：脚本时长定为实际跑过的步数，使它作为普通脚本经无头宿主重放时跑同样多的步。
+                    meta.DurationTicks = Math.Max(1, tick);
+                }
+
+                recording.TotalEventCount = world.Events.Count;
+                extension?.OnFinished(recording);
+                feelRig?.Dispose();
+                airPose?.Dispose();
+                rig?.Dispose();
+                binder.Dispose();
+                return recording;
+            }
+
+            return new LabSession(
+                script, recording, hostContext, live, duration, step, frameDt, () => tick, AdvanceFrame, InjectLive, Finish);
         }
 
         private static string FirstBinding(InputMapHost inputMap, string action)

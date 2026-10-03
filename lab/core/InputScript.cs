@@ -20,6 +20,18 @@ namespace Lab
     /// 与跳跃一样是宿主级请求，直接提交 <c>MoveRequest.ToTarget</c>，不经输入映射——点击移动在引擎侧本来就是点目标意图而不是输入动作）与
     /// <see cref="TerrainSwap"/>（地形热切换：<see cref="ScriptEvent.Action"/> 是 <c>world.map</c> 行 id，把本次运行地图的地形整体换成该行的 <c>terrain</c>，
     /// 并像关卡流送那样重建导航网格——导航阻挡版本 +1，触发移动系统对在途路径的重新校验）。
+    /// 交互式试玩（手感实验室的人手试玩宿主，格式版本 5，ADR-0141）另有四类宿主级事件，让"人手实时输入"落成可无头回放的脚本：
+    /// <see cref="Spawn"/>（<see cref="ScriptEvent.Action"/> 是靶子集条目名，<see cref="ScriptEvent.Value"/> 是出场位置，
+    /// <see cref="ScriptEvent.Actor"/> 是出场标签，空则按"条目名@序号"自动生成；序号按出场先后递增，回放与试玩一致）、
+    /// <see cref="ClearDummies"/>（清掉全部靶子；<see cref="ScriptEvent.Action"/> 只作标签）、
+    /// <see cref="Preset"/>（运行中切基础预设：<see cref="ScriptEvent.Action"/> 是 <c>feel.preset.*</c> 行 id，经标定热换，进行中的动作沿用开始时的快照）、
+    /// <see cref="Loadout"/>（运行中叠加一行装备/体型档案：<see cref="ScriptEvent.Action"/> 是 <c>feel.weapon.*</c> 或 <c>feel.archetype.*</c> 行 id，
+    /// 其 writes 作为玩家单位的第 8 层覆盖；空串 = 清掉全部装备/体型覆盖）、
+    /// <see cref="Override"/>（运行中写一条第 8 层调试覆盖：<see cref="ScriptEvent.Action"/> 是手感字段名，<see cref="ScriptEvent.Actor"/> 是作用单位的出场标签
+    /// （空 = 全局，<c>player</c> = 玩家），<see cref="ScriptEvent.Value"/> 的 X 是数值、Y 是操作码 0 = set / 1 = multiply / 2 = add；只支持数值字段）、
+    /// <see cref="ClearOverrides"/>（清掉全部由 <see cref="Override"/> 写入的覆盖；<see cref="ScriptEvent.Action"/> 只作标签）、
+    /// <see cref="Marker"/>（纯呈现标记：时间尺度、暂停/单步、单项效果开关、角落闪块——<see cref="ScriptEvent.Action"/> 是标记名，<see cref="ScriptEvent.Value"/> 的 X 是参数；
+    /// 宿主逻辑完全不读，只在重放引擎宿主时让视图复现，所以带标记与不带标记的脚本逻辑组逐字节一致）。
     /// </summary>
     public enum ScriptEventKind
     {
@@ -34,6 +46,13 @@ namespace Lab
         Move,
         MoveTo,
         TerrainSwap,
+        Spawn,
+        ClearDummies,
+        Preset,
+        Loadout,
+        Override,
+        ClearOverrides,
+        Marker,
     }
 
     /// <summary>
@@ -273,14 +292,31 @@ namespace Lab
         /// </summary>
         public const int ExpectFormatVersion = 4;
 
+        /// <summary>
+        /// 交互式试玩格式版本：在期望清单格式之上再加 <c>spawn</c>/<c>clear_dummies</c>/<c>preset</c>/<c>loadout</c>/<c>override</c>/<c>clear_overrides</c>/<c>marker</c> 七类宿主级事件。
+        /// 只有脚本含这些事件才写本版本，其余脚本的序列化文本逐字不变；版本 1～4 的旧脚本照常读取。
+        /// </summary>
+        public const int InteractiveFormatVersion = 5;
+
         /// <summary>本内核读取的最高格式版本。</summary>
-        public const int MaxSupportedFormatVersion = ExpectFormatVersion;
+        public const int MaxSupportedFormatVersion = InteractiveFormatVersion;
 
         /// <summary>该脚本序列化时写的格式版本。</summary>
         public int EffectiveFormatVersion
         {
             get
             {
+                foreach (var e in Events)
+                {
+                    if (e.Kind == ScriptEventKind.Spawn || e.Kind == ScriptEventKind.ClearDummies
+                        || e.Kind == ScriptEventKind.Preset || e.Kind == ScriptEventKind.Loadout
+                        || e.Kind == ScriptEventKind.Override || e.Kind == ScriptEventKind.ClearOverrides
+                        || e.Kind == ScriptEventKind.Marker)
+                    {
+                        return InteractiveFormatVersion;
+                    }
+                }
+
                 if (Expectations.Count > 0)
                 {
                     return ExpectFormatVersion;
@@ -452,11 +488,19 @@ namespace Lab
                     case "move": kind = ScriptEventKind.Move; break;
                     case "move_to": kind = ScriptEventKind.MoveTo; break;
                     case "terrain_swap": kind = ScriptEventKind.TerrainSwap; break;
-                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|jump|move|move_to|terrain_swap）");
+                    case "spawn": kind = ScriptEventKind.Spawn; break;
+                    case "clear_dummies": kind = ScriptEventKind.ClearDummies; break;
+                    case "preset": kind = ScriptEventKind.Preset; break;
+                    case "loadout": kind = ScriptEventKind.Loadout; break;
+                    case "override": kind = ScriptEventKind.Override; break;
+                    case "clear_overrides": kind = ScriptEventKind.ClearOverrides; break;
+                    case "marker": kind = ScriptEventKind.Marker; break;
+                    default: throw new LabFormatException($"{what}.events[] 的 kind 未知：{kindText}（press|release|axis|equip|unequip|cast|clear_projectiles|jump|move|move_to|terrain_swap|spawn|clear_dummies|preset|loadout|override|clear_overrides|marker）");
                 }
 
                 var value = Vec2.Zero;
-                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.Move || kind == ScriptEventKind.MoveTo)
+                if (kind == ScriptEventKind.Axis || kind == ScriptEventKind.Move || kind == ScriptEventKind.MoveTo || kind == ScriptEventKind.Spawn
+                    || kind == ScriptEventKind.Override || kind == ScriptEventKind.Marker)
                 {
                     value = LabJson.ReadVec(
                         eo.TryGetValue("value", out var v) ? v : JsonNull.Instance, what + ".events[].value");
@@ -505,6 +549,13 @@ namespace Lab
                 case ScriptEventKind.Move: return "move";
                 case ScriptEventKind.MoveTo: return "move_to";
                 case ScriptEventKind.TerrainSwap: return "terrain_swap";
+                case ScriptEventKind.Spawn: return "spawn";
+                case ScriptEventKind.ClearDummies: return "clear_dummies";
+                case ScriptEventKind.Preset: return "preset";
+                case ScriptEventKind.Loadout: return "loadout";
+                case ScriptEventKind.Override: return "override";
+                case ScriptEventKind.ClearOverrides: return "clear_overrides";
+                case ScriptEventKind.Marker: return "marker";
                 default: return "unequip";
             }
         }
@@ -628,7 +679,8 @@ namespace Lab
                     .Add("tick", LabJson.Num(e.Tick))
                     .Add("action", LabJson.Str(e.Action))
                     .Add("kind", LabJson.Str(KindText(e.Kind)));
-                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.Move || e.Kind == ScriptEventKind.MoveTo)
+                if (e.Kind == ScriptEventKind.Axis || e.Kind == ScriptEventKind.Move || e.Kind == ScriptEventKind.MoveTo || e.Kind == ScriptEventKind.Spawn
+                    || e.Kind == ScriptEventKind.Override || e.Kind == ScriptEventKind.Marker)
                 {
                     b.Add("value", LabJson.Vec(e.Value));
                 }
