@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 工具链
+
+- **`build.ps1 -Release <版本> -Resume`：发布提交之后失败可续跑，不再重跑全量门禁**：1.96.1 发布三次失败（全量门禁已通过，打包阶段 `dotnet test` 偶发红、docfx 崩溃），当时唯一的恢复路径是 `git reset --soft`、手工还原五个版本文件、整条 `-Release` 重跑，约 50 分钟的全量门禁白跑。现在第 5 步通过时写门禁通过记录 `dist/release-<版本>.state.json`（被 `.gitignore` 覆盖，`prune_dist.ps1` 保留），第 6 步写入发布提交，其后每个阶段（打包、自检、标签、私服 ×4、推送、GitHub Release）各写完成标记；发布提交之后任一阶段失败（`throw` 与 `exit` 两条路径）都打印 `-Resume` 续跑命令，`git reset --soft` 只保留为"放弃本次发布"的回退路径。`-Resume` 只在六项前置校验全部满足时执行（状态文件在且版本一致、`HEAD` 即记录的发布提交、其父提交即记录的发布前提交、发布提交只含五个版本文件、工作树干净、`VERSION` 等于目标版本；拒绝码 `NoState`/`StateUnreadable`/`VersionMismatch`/`NoReleaseCommit`/`HeadMismatch`/`ParentMismatch`/`CommitFiles`/`DirtyTree`/`LocalVersionMismatch`，逐项给出下一步），跳过第 1～6 步，从第一个未完成的阶段起按序执行，各阶段幂等：标签已在 `HEAD` 则跳过（指向别处则拒绝）；私服已有同版本包则比对 `integrity`（一致跳过、不一致拒绝、绝不覆盖，非 404 的查询错误中止）；远端已有标签且分支在 `HEAD` 则跳过推送；GitHub Release 已存在则只补传缺失附件（不带 `--clobber`，同名附件大小不符则拒绝）；打包重跑跳过 `dotnet test`（门禁已对同一棵代码树跑过），允许覆盖未打标签的产物（标签已存在由"发布不可变"守卫拒绝）。第 5 步及更早的失败不在续跑范围（没有门禁通过记录），修好后重跑 `-Release`。判断记录见 `toolchain/_release_resume.ps1` 文件头、`build.ps1` `.PARAMETER Resume`、`toolchain/README.md`"发布续跑"一节；测试 `toolchain/tests/test_release_resume.py`（库函数单元 + 真实 `build.ps1` 跑在最小仓库骨架里，外部命令用桩，不触及真实私服/GitHub）。`AGENTS.md` §5 的半途恢复条款同步改为"首选续跑"。
+
 ## [1.96.1] - 2026-10-03
 
 ### 修复

@@ -197,8 +197,8 @@
 - 成功的唯一标记：日志末尾出现提示行 `git push origin main refs/tags/vX`。
 - 失败标记：出现"门禁失败"/"发布流程终止"/"自检失败"字样。
 - 一旦被拦截或失败，立刻停下汇报，不自行回退、不自行重试、不自行改动版本文件。
-- 半途恢复流程（`git restore --staged --worktree` 四个版本文件 + 删 `dist/X`、`dist/release-notes-X.txt`）只能由主会话决定是否执行，执行 agent 不擅自做。
-- 半途状态若"发布提交已产生但无标签"，恢复用 `git reset --soft <发布前提交>` 再按路径 `git restore --staged --worktree` 四个版本文件并删 `dist/X` 产物，不是只还原文件。
+- 半途恢复流程（`git restore --staged --worktree` 五个版本文件 + 删 `dist/X`、`dist/release-notes-X.txt`）只能由主会话决定是否执行，执行 agent 不擅自做。
+- 半途状态若"发布提交已产生但无标签"（或标签之后的私服/推送/GitHub Release 阶段失败），首选主会话修好原因后用 `build.ps1 -Release X -Resume [同样的 -PublishRegistry/-Publish]` 续跑（不重跑全量门禁、不改写历史；前置校验不满足会拒绝并说明原因）。第 5 步（全量门禁）或更早失败不在续跑范围，修好后重跑 `-Release`。仅当决定放弃本次发布时才回退：`git reset --soft <发布前提交>` 再按路径 `git restore --staged --worktree` 五个版本文件并删 `dist/X` 产物，不是只还原文件。
 - Unity PlayMode 测试失败先用 `python toolchain/unity_test_triage.py` 分诊，不要直接改测试或改断言；
   分诊后核对断言是否在给"已知即将修复的旧错误行为"拍照（修复生效后断言过期是测试侧问题，不是
   回归），排除测试侧问题后才怀疑产品代码，详见
