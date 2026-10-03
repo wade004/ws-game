@@ -34,7 +34,7 @@ namespace Adapter.Unity.LabHost
         // ───────── 可序列化配置（场景里按格子填，缺省即实验室动作式数据根）─────────
         [SerializeField] private string cell = "2d_action";
         [SerializeField] private string[] baseDataRoots = { "data/_framework", "data/_lab" };
-        [SerializeField] private string[] extraDataRoots = { "data/_feel", "data/_lab_action" };
+        [SerializeField] private string[] extraDataRoots = { "data/_feel", "data/_feel_templates", "data/_lab_action", "lab/fixtures/data/feel_templates" };
         [SerializeField] private string dummySet = LabLive.DefaultDummySet;
         [SerializeField] private string repoRoot = string.Empty;
         [SerializeField] private bool autoStart = true;

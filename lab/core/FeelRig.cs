@@ -64,20 +64,38 @@ namespace Lab
 
             // 玩家的手感表声明了反馈包引用（impact_profile_ref，例如框架默认手感模板 feel.preset.tpl_*）时，
             // 这一套反馈就是该包，而不是实验室缺省包；既有预设没有该字段，行为与此前逐位一致。
+            // 运行中切预设（脚本 preset 事件、试玩宿主的 A/B）后，这一套反馈随新预设的 impact_profile_ref 换：规则里的包 id 固定为开局那一个，
+            // 解析时再看玩家当前的手感表取实际的包（装载过的缓存起来）；没有切换时与此前逐位一致。
             var profileId = LabImpactProfile.ProfileId;
             var ownProfile = feelSource.Get(_playerId)?.ProfileRef;
-            ImpactProfile? ownLoaded = null;
             if (ownProfile.HasValue && !ownProfile.Value.Equals(LabImpactProfile.ProfileId))
             {
                 profileId = ownProfile.Value;
-                ownLoaded = LabImpactProfile.Load(world.Registry, profileId);
+            }
+
+            var loadedProfiles = new Dictionary<Id, ImpactProfile>();
+            ImpactProfile CurrentProfile()
+            {
+                var current = feelSource.Get(_playerId)?.ProfileRef;
+                if (!current.HasValue || current.Value.Equals(LabImpactProfile.ProfileId))
+                {
+                    return profile;
+                }
+
+                if (!loadedProfiles.TryGetValue(current.Value, out var loaded))
+                {
+                    loaded = LabImpactProfile.Load(world.Registry, current.Value);
+                    loadedProfiles[current.Value] = loaded;
+                }
+
+                return loaded;
             }
 
             var options = new ImpactOptions
             {
                 FeelSource = feelSource,
                 ProfileResolver = id =>
-                    id.Equals(LabImpactProfile.ProfileId) ? profile : (ownLoaded != null && id.Equals(profileId) ? ownLoaded : null),
+                    id.Equals(profileId) ? CurrentProfile() : (id.Equals(LabImpactProfile.ProfileId) ? profile : null),
                 SfxLayers = new SfxLayerIndex(LabImpactProfile.LoadSfxRows(world.Registry)),
                 CameraOwnerResolver = () => _playerId,
                 PositionResolver = id => world.World.GetEntity(id)?.Position,

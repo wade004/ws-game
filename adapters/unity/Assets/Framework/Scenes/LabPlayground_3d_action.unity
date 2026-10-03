@@ -154,7 +154,9 @@ MonoBehaviour:
   - data/_lab
   extraDataRoots:
   - data/_feel
+  - data/_feel_templates
   - data/_lab_action
+  - lab/fixtures/data/feel_templates
   dummySet: lab.dummy_set.lab_action
   repoRoot: 
   autoStart: 1

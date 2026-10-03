@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "cc8c0eef600efe8f",
+        "dataset": "e73f090484c1ad02",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -129,7 +129,7 @@
         "presentation": {
           "sfx_ids": "5:sfx.lab_impact_t3;9:sfx.lab_impact_t3;100:sfx.lab_impact_t3",
           "sfx_count": 3,
-          "camera_cues": "5:1:;100:1:",
+          "camera_cues": "5:1:feedback.shake.tpl_heavy_hit;100:1:feedback.shake.tpl_heavy_hit",
           "camera_magnitudes": [
             0.02,
             0.02
@@ -148,7 +148,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "d1fbe6cc320f46cc",
+        "dataset": "e32dcbcc7376e337",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -283,7 +283,7 @@
         "presentation": {
           "sfx_ids": "19:sfx.lab_impact_t3;114:sfx.lab_impact_t3",
           "sfx_count": 2,
-          "camera_cues": "19:1:;114:1:",
+          "camera_cues": "19:1:feedback.shake.tpl_heavy_hit;114:1:feedback.shake.tpl_heavy_hit",
           "camera_magnitudes": [
             0.02,
             0.02
@@ -302,7 +302,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "cc8c0eef600efe8f",
+        "dataset": "e73f090484c1ad02",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -425,7 +425,7 @@
         "presentation": {
           "sfx_ids": "5:sfx.lab_impact_t3;9:sfx.lab_impact_t3;100:sfx.lab_impact_t3",
           "sfx_count": 3,
-          "camera_cues": "5:1:;100:1:",
+          "camera_cues": "5:1:feedback.shake.tpl_heavy_hit;100:1:feedback.shake.tpl_heavy_hit",
           "camera_magnitudes": [
             0.02,
             0.02
@@ -444,7 +444,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "d1fbe6cc320f46cc",
+        "dataset": "e32dcbcc7376e337",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -579,7 +579,7 @@
         "presentation": {
           "sfx_ids": "19:sfx.lab_impact_t3;114:sfx.lab_impact_t3",
           "sfx_count": 2,
-          "camera_cues": "19:1:;114:1:",
+          "camera_cues": "19:1:feedback.shake.tpl_heavy_hit;114:1:feedback.shake.tpl_heavy_hit",
           "camera_magnitudes": [
             0.02,
             0.02
@@ -598,7 +598,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "cc8c0eef600efe8f",
+        "dataset": "e73f090484c1ad02",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -721,7 +721,7 @@
         "presentation": {
           "sfx_ids": "5:sfx.lab_impact_t3;9:sfx.lab_impact_t3;100:sfx.lab_impact_t3",
           "sfx_count": 3,
-          "camera_cues": "5:1:;100:1:",
+          "camera_cues": "5:1:feedback.shake.tpl_heavy_hit;100:1:feedback.shake.tpl_heavy_hit",
           "camera_magnitudes": [
             0.02,
             0.02
@@ -740,7 +740,7 @@
       "key": {
         "script": "feel_tpl_heavy",
         "scriptVersion": 1,
-        "dataset": "d1fbe6cc320f46cc",
+        "dataset": "e32dcbcc7376e337",
         "preset": "feel.preset.tpl_heavy",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -875,7 +875,7 @@
         "presentation": {
           "sfx_ids": "19:sfx.lab_impact_t3;114:sfx.lab_impact_t3",
           "sfx_count": 2,
-          "camera_cues": "19:1:;114:1:",
+          "camera_cues": "19:1:feedback.shake.tpl_heavy_hit;114:1:feedback.shake.tpl_heavy_hit",
           "camera_magnitudes": [
             0.02,
             0.02

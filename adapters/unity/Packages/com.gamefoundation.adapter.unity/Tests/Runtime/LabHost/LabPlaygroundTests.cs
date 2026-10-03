@@ -212,6 +212,49 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.LessOrEqual(switchEvent.Tick, tickBeforeSwitch + 1);
         }
 
+        // ───────── 默认手感模板（ADR-0142）进试玩：预设列表带模板，切模板顿帧随模板数据变 ─────────
+
+        private int FirstHitAttackerTicksAfterSwitchingTo(string preset)
+        {
+            var pg = NewPlayground();
+            pg.SetPreset(preset);
+            pg.SpawnDummy("stake");
+            Frames(4);
+            Tap(AttackKey);
+            Frames(60);
+            var hits = PlayerHits();
+            Assert.GreaterOrEqual(hits.Count, 1, preset);
+            var ticks = hits[0].B;
+            Assert.AreEqual(ExpectedAttackerTicks(preset), ticks, preset + "：顿帧取自模板数据行");
+            return ticks;
+        }
+
+        [Test]
+        public void TemplatePresets_AreListed_DefaultPresetUnchanged_AndHeavyVsAgileHitStopDiffer()
+        {
+            var pg = NewPlayground();
+            var ids = pg.Model.Presets.Select(p => p.Id).ToList();
+            foreach (var style in new[] { "classic", "agile", "heavy", "horde", "precise" })
+            {
+                Assert.Contains("feel.preset.tpl_" + style, ids);
+            }
+
+            Assert.AreEqual(pg.Session!.Context!.Cell.DefaultPreset, pg.Model.PresetA, "缺省预设不因加入模板而改变");
+            pg.End();
+            UnityEngine.Object.DestroyImmediate(_go);
+            _go = null;
+            _pg = null;
+
+            var heavy = FirstHitAttackerTicksAfterSwitchingTo("feel.preset.tpl_heavy");
+            _pg!.End();
+            UnityEngine.Object.DestroyImmediate(_go);
+            _go = null;
+            _pg = null;
+            var agile = FirstHitAttackerTicksAfterSwitchingTo("feel.preset.tpl_agile");
+            Debug.Log("[LabPlaygroundTests] templates: heavy=" + heavy + " agile=" + agile);
+            Assert.AreNotEqual(heavy, agile, "重型与敏捷模板的攻击方顿帧不同");
+        }
+
         // ───────── 顿帧开关 = 录进脚本的覆盖 ─────────
 
         [Test]

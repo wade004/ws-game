@@ -228,6 +228,7 @@
           ],
           "camera": {
             "impulse_gain": 0.6,
+            "shake_profile": "feedback.shake.tpl_agile_hit",
             "decay_ms": 90
           },
           "trail": {
@@ -260,6 +261,7 @@
           ],
           "camera": {
             "impulse_gain": 0.6,
+            "shake_profile": "feedback.shake.tpl_agile_hit",
             "decay_ms": 130
           },
           "trail": {
@@ -290,6 +292,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_agile_hit",
             "decay_ms": 90
           },
           "trail": {
@@ -322,6 +325,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_agile_hit",
             "decay_ms": 130
           },
           "trail": {
@@ -355,6 +359,7 @@
           ],
           "camera": {
             "impulse_gain": 1.5,
+            "shake_profile": "feedback.shake.tpl_agile_heavy",
             "decay_ms": 90
           },
           "trail": {
@@ -387,6 +392,7 @@
           ],
           "camera": {
             "impulse_gain": 1.5,
+            "shake_profile": "feedback.shake.tpl_agile_heavy",
             "decay_ms": 130
           },
           "trail": {
@@ -420,6 +426,7 @@
           ],
           "camera": {
             "impulse_gain": 2.0,
+            "shake_profile": "feedback.shake.tpl_agile_heavy",
             "decay_ms": 90
           },
           "trail": {
@@ -452,6 +459,7 @@
           ],
           "camera": {
             "impulse_gain": 2.0,
+            "shake_profile": "feedback.shake.tpl_agile_heavy",
             "decay_ms": 130
           },
           "trail": {
@@ -500,6 +508,7 @@
           ],
           "camera": {
             "impulse_gain": 0.8,
+            "shake_profile": "feedback.shake.tpl_heavy_hit",
             "decay_ms": 220
           },
           "trail": {
@@ -532,6 +541,7 @@
           ],
           "camera": {
             "impulse_gain": 0.8,
+            "shake_profile": "feedback.shake.tpl_heavy_hit",
             "decay_ms": 260
           },
           "trail": {
@@ -562,6 +572,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_heavy_hit",
             "decay_ms": 220
           },
           "trail": {
@@ -594,6 +605,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_heavy_hit",
             "decay_ms": 260
           },
           "trail": {
@@ -627,6 +639,7 @@
           ],
           "camera": {
             "impulse_gain": 1.6,
+            "shake_profile": "feedback.shake.tpl_heavy_heavy",
             "decay_ms": 220
           },
           "trail": {
@@ -659,6 +672,7 @@
           ],
           "camera": {
             "impulse_gain": 1.6,
+            "shake_profile": "feedback.shake.tpl_heavy_heavy",
             "decay_ms": 260
           },
           "trail": {
@@ -692,6 +706,7 @@
           ],
           "camera": {
             "impulse_gain": 2.4,
+            "shake_profile": "feedback.shake.tpl_heavy_heavy",
             "decay_ms": 220
           },
           "trail": {
@@ -724,6 +739,7 @@
           ],
           "camera": {
             "impulse_gain": 2.4,
+            "shake_profile": "feedback.shake.tpl_heavy_heavy",
             "decay_ms": 260
           },
           "trail": {
@@ -772,6 +788,7 @@
           ],
           "camera": {
             "impulse_gain": 0.5,
+            "shake_profile": "feedback.shake.tpl_horde_hit",
             "decay_ms": 70
           },
           "trail": {
@@ -804,6 +821,7 @@
           ],
           "camera": {
             "impulse_gain": 0.5,
+            "shake_profile": "feedback.shake.tpl_horde_hit",
             "decay_ms": 110
           },
           "trail": {
@@ -834,6 +852,7 @@
           ],
           "camera": {
             "impulse_gain": 0.7,
+            "shake_profile": "feedback.shake.tpl_horde_hit",
             "decay_ms": 70
           },
           "trail": {
@@ -866,6 +885,7 @@
           ],
           "camera": {
             "impulse_gain": 0.7,
+            "shake_profile": "feedback.shake.tpl_horde_hit",
             "decay_ms": 110
           },
           "trail": {
@@ -899,6 +919,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_horde_heavy",
             "decay_ms": 70
           },
           "trail": {
@@ -931,6 +952,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_horde_heavy",
             "decay_ms": 110
           },
           "trail": {
@@ -964,6 +986,7 @@
           ],
           "camera": {
             "impulse_gain": 1.4,
+            "shake_profile": "feedback.shake.tpl_horde_heavy",
             "decay_ms": 70
           },
           "trail": {
@@ -996,6 +1019,7 @@
           ],
           "camera": {
             "impulse_gain": 1.4,
+            "shake_profile": "feedback.shake.tpl_horde_heavy",
             "decay_ms": 110
           },
           "trail": {
@@ -1044,6 +1068,7 @@
           ],
           "camera": {
             "impulse_gain": 0.8,
+            "shake_profile": "feedback.shake.tpl_precise_hit",
             "decay_ms": 60
           },
           "trail": {
@@ -1076,6 +1101,7 @@
           ],
           "camera": {
             "impulse_gain": 0.8,
+            "shake_profile": "feedback.shake.tpl_precise_hit",
             "decay_ms": 100
           },
           "trail": {
@@ -1106,6 +1132,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_precise_hit",
             "decay_ms": 60
           },
           "trail": {
@@ -1138,6 +1165,7 @@
           ],
           "camera": {
             "impulse_gain": 1.0,
+            "shake_profile": "feedback.shake.tpl_precise_hit",
             "decay_ms": 100
           },
           "trail": {
@@ -1171,6 +1199,7 @@
           ],
           "camera": {
             "impulse_gain": 1.4,
+            "shake_profile": "feedback.shake.tpl_precise_heavy",
             "decay_ms": 60
           },
           "trail": {
@@ -1203,6 +1232,7 @@
           ],
           "camera": {
             "impulse_gain": 1.4,
+            "shake_profile": "feedback.shake.tpl_precise_heavy",
             "decay_ms": 100
           },
           "trail": {
@@ -1236,6 +1266,7 @@
           ],
           "camera": {
             "impulse_gain": 1.8,
+            "shake_profile": "feedback.shake.tpl_precise_heavy",
             "decay_ms": 60
           },
           "trail": {
@@ -1268,6 +1299,7 @@
           ],
           "camera": {
             "impulse_gain": 1.8,
+            "shake_profile": "feedback.shake.tpl_precise_heavy",
             "decay_ms": 100
           },
           "trail": {
