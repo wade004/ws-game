@@ -1,0 +1,138 @@
+{
+  "table": "display.weapon_style",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "display.weapon_style.polearm",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_polearm"
+    },
+    {
+      "id": "display.weapon_style.ranged",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_bow"
+    },
+    {
+      "id": "display.weapon_style.catalyst",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_staff"
+    },
+    {
+      "id": "display.weapon_style.tpl_classic_dagger",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_classic_sword_1h",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_classic_greatsword",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.tpl_classic_polearm",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_polearm"
+    },
+    {
+      "id": "display.weapon_style.tpl_classic_ranged",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_bow"
+    },
+    {
+      "id": "display.weapon_style.tpl_classic_catalyst",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_staff"
+    },
+    {
+      "id": "display.weapon_style.tpl_agile_dagger",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_agile_sword_1h",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_agile_greatsword",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.tpl_agile_polearm",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_polearm"
+    },
+    {
+      "id": "display.weapon_style.tpl_agile_ranged",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_bow"
+    },
+    {
+      "id": "display.weapon_style.tpl_agile_catalyst",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_staff"
+    },
+    {
+      "id": "display.weapon_style.tpl_heavy_dagger",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_heavy_sword_1h",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_heavy_greatsword",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.tpl_heavy_polearm",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_polearm"
+    },
+    {
+      "id": "display.weapon_style.tpl_heavy_ranged",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_bow"
+    },
+    {
+      "id": "display.weapon_style.tpl_heavy_catalyst",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_staff"
+    },
+    {
+      "id": "display.weapon_style.tpl_horde_dagger",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_horde_sword_1h",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_horde_greatsword",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.tpl_horde_polearm",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_polearm"
+    },
+    {
+      "id": "display.weapon_style.tpl_horde_ranged",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_bow"
+    },
+    {
+      "id": "display.weapon_style.tpl_horde_catalyst",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_staff"
+    },
+    {
+      "id": "display.weapon_style.tpl_precise_dagger",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_precise_sword_1h",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_1h"
+    },
+    {
+      "id": "display.weapon_style.tpl_precise_greatsword",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_2h"
+    },
+    {
+      "id": "display.weapon_style.tpl_precise_polearm",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_polearm"
+    },
+    {
+      "id": "display.weapon_style.tpl_precise_ranged",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_bow"
+    },
+    {
+      "id": "display.weapon_style.tpl_precise_catalyst",
+      "auto_attack_anim": "sprite_anim.std_dummy_attack_staff"
+    }
+  ]
+}

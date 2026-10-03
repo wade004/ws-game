@@ -1,0 +1,107 @@
+{
+  "table": "camera_profile",
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "camera_profile.tpl_classic",
+      "pitch_degrees": 45,
+      "yaw_degrees": 0,
+      "zoom_min": 6.0,
+      "zoom_max": 16.0,
+      "zoom_default": 10,
+      "follow_lerp": 0.1535
+    },
+    {
+      "id": "camera_profile.tpl_agile",
+      "pitch_degrees": 50,
+      "yaw_degrees": 0,
+      "zoom_min": 5.4,
+      "zoom_max": 14.4,
+      "zoom_default": 9,
+      "follow_lerp": 0.169,
+      "shake_presets": [
+        {
+          "id": "feedback.shake.tpl_agile_hit",
+          "amplitude": 0.05,
+          "duration": 0.09,
+          "frequency": 30
+        },
+        {
+          "id": "feedback.shake.tpl_agile_heavy",
+          "amplitude": 0.15,
+          "duration": 0.13,
+          "frequency": 20
+        }
+      ]
+    },
+    {
+      "id": "camera_profile.tpl_heavy",
+      "pitch_degrees": 40,
+      "yaw_degrees": 0,
+      "zoom_min": 6.6,
+      "zoom_max": 17.6,
+      "zoom_default": 11,
+      "follow_lerp": 0.0989,
+      "shake_presets": [
+        {
+          "id": "feedback.shake.tpl_heavy_hit",
+          "amplitude": 0.2,
+          "duration": 0.22,
+          "frequency": 30
+        },
+        {
+          "id": "feedback.shake.tpl_heavy_heavy",
+          "amplitude": 0.4,
+          "duration": 0.26,
+          "frequency": 20
+        }
+      ]
+    },
+    {
+      "id": "camera_profile.tpl_horde",
+      "pitch_degrees": 55,
+      "yaw_degrees": 0,
+      "zoom_min": 7.8,
+      "zoom_max": 20.8,
+      "zoom_default": 13,
+      "follow_lerp": 0.1406,
+      "shake_presets": [
+        {
+          "id": "feedback.shake.tpl_horde_hit",
+          "amplitude": 0.06,
+          "duration": 0.07,
+          "frequency": 30
+        },
+        {
+          "id": "feedback.shake.tpl_horde_heavy",
+          "amplitude": 0.25,
+          "duration": 0.11,
+          "frequency": 20
+        }
+      ]
+    },
+    {
+      "id": "camera_profile.tpl_precise",
+      "pitch_degrees": 45,
+      "yaw_degrees": 0,
+      "zoom_min": 5.4,
+      "zoom_max": 14.4,
+      "zoom_default": 9,
+      "follow_lerp": 0.1297,
+      "shake_presets": [
+        {
+          "id": "feedback.shake.tpl_precise_hit",
+          "amplitude": 0.12,
+          "duration": 0.06,
+          "frequency": 30
+        },
+        {
+          "id": "feedback.shake.tpl_precise_heavy",
+          "amplitude": 0.25,
+          "duration": 0.1,
+          "frequency": 20
+        }
+      ]
+    }
+  ]
+}

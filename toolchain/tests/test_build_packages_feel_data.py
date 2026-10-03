@@ -28,7 +28,8 @@ def test_framework_data_package_carries_the_feel_dataset() -> None:
 
 def test_manifest_lists_feel_file_count_and_table_versions() -> None:
     assert '"data/_feel: $dataFeelFileCount files"' in BUILD
-    assert '@("_framework", "_feel")' in BUILD  # data_schemas 遍历两个框架级数据根
+    assert '@("_framework", "_feel", "_feel_templates")' in BUILD  # data_schemas 遍历三个框架级数据根
+    assert '"data/_feel_templates: $dataFeelTemplatesFileCount files"' in BUILD
 
 
 def test_workbench_and_consumer_sync_mirror_the_feel_dataset_into_streaming_assets() -> None:
@@ -74,7 +75,7 @@ def test_feellab_prebuilt_output_and_lib_are_packaged_like_simrunner() -> None:
 
 def test_toolchain_package_carries_a_self_contained_lab_root() -> None:
     assert 'Join-Path $pkgToolDir "Tools~\\feellab\\labroot"' in BUILD
-    for part in ("data\\_framework", "data\\_feel", "data\\_lab", "data\\_lab_action", "data\\_equip", "lab\\fixtures"):
+    for part in ("data\\_framework", "data\\_feel", "data\\_feel_templates", "data\\_lab", "data\\_lab_action", "data\\_equip", "lab\\fixtures"):
         assert f'"{part}"' in BUILD.split("$pkgFeelLabRoot = ")[1].split("Write-Host")[0], part
 
 
@@ -94,3 +95,11 @@ def test_feellab_csproj_lib_fallback_lists_exactly_the_dlls_build_ps1_ships() ->
 def test_consumer_smoke_runs_the_dist_feellab_suite() -> None:
     assert "feellab\\bin\\FeelLab.dll" in CONSUMER_SMOKE
     assert re.search(r"Invoke-Step\s+\"[^\"]*feellab", CONSUMER_SMOKE)
+
+
+def test_dist_and_packages_carry_the_default_feel_templates_root_but_streaming_assets_does_not() -> None:
+    # 默认手感模板根（ADR-0142）：进 dist、framework-data 包 Data~/、实验室根；不镜像进 StreamingAssets（引导程序只装 data/_feel）。
+    assert re.search(r'Copy-DistDir\s+-SourceRelative\s+"data\\_feel_templates"\s+-DestName\s+"data\\_feel_templates"', BUILD)
+    assert re.search(
+        r'Join-Path \$DistRoot "data\\_feel_templates"\)\s+-Destination \(Join-Path \$pkgDataDataTilde "data\\_feel_templates"\)', BUILD)
+    assert not re.search(r"Sync-ContentTree .*data\\_feel_templates", BUILD)
