@@ -460,6 +460,10 @@ ADR-0018 决策 4 要求：本仓库对"编辑器项目（独立仓库，随具�
 
 ## [Unreleased]
 
+### 手感
+
+- **默认手感模板（[ADR-0142](architecture/adr/0142-默认手感模板.md)，纯加法）**：新增可选框架数据根 `data/_feel_templates/`，出厂五套完整预设模板 `feel.preset.tpl_classic`（经典目标选择）、`tpl_agile`（敏捷动作）、`tpl_heavy`（厚重动作）、`tpl_horde`（爽快割草）、`tpl_precise`（精准硬核），成熟度 `experimental`、带 `description`，数值取自 05 第 9 节试调起点与字段范围；每套配反馈档案 `feedback.impact_profile.tpl_*`（`light/medium/heavy/massive` 四档 × 命中/击杀，加回避与挥空）、镜头档案 `camera_profile.tpl_*`，资产全是占位引用（`vfx.placeholder_hit_spark`），游戏只换美术/界面/音频；武器原型补齐长柄、投射、法器三个类行（`feel.weapon.polearm/ranged/catalyst`）与每套模板对匕首/单手剑/巨剑/长柄/投射/法器的 30 行 `feel.weapon.tpl_*` 及显示档案。既有预设、武器行、基线与数据集哈希不变；该根随 dist、framework-data 包与实验室根发出，不同步进游戏的 StreamingAssets，游戏需显式装载。新增门禁步骤 `validate_feel_templates_data`；实验室新增五个标准脚本 `feel_tpl_*`（各六格基线，`suite` 530 → 560 格，`invariants` 741 → 776），台架改为按玩家手感表的 `impact_profile_ref` 取反馈包（既有预设无该字段，行为不变）。已知限制见 ADR-0142。
+
 ## [1.97.0] - 2026-10-04
 
 ### 工具链

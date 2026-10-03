@@ -76,6 +76,10 @@
    `python toolchain/validate_data.py --strict --data-root data/_feel`（零错误零警告，门禁步骤 `validate_feel_data`）；
    本模块的测试用 `core/foundation/feel/tests/data` 的单行测试标定行覆盖"有手感数据而标定缺项/多行"等路径。该目录随分发包
    `dist/<version>/data/_feel/` 一起发出，与 `data/_framework` 并列作为框架根，游戏要用把它当作一个数据根合入即可。
+   **默认手感模板（ADR-0142）**：五套 `experimental` 预设模板及其武器六类行、反馈档案、镜头档案放在另一个可选数据根
+   `data/_feel_templates/`（叠加在 `data/_feel` 之上，不并入 `data/_feel`，既有基线与数据集哈希因此不变）；风格与数值对照表
+   见 `architecture/手感设计/05_手感档案与解析.md` 第 9 节。本模块的测试 `tests/FeelTemplatesDataTests.cs` 载入两个根，断言
+   五套预设字段完整、含全部原型的武器行、带完整溯源解析，以及风格间的排序关系（顿帧、缓冲、相位、镜头、击退）。
 6. **相对量单位与标定**：身高倍数 × 参考身高；基础移速倍数与秒级基础移速 × 基础移速；画面高度比例 × 参考镜头高度；
    毫秒按模拟步长换算 tick（四舍五入、远离零取整，非零至少 1，零保持 0）。步长来自装配参数而不是标定表（标定是游戏层
    常量，步长是模拟的固定步长，二者来源不同）。毫秒换算先做 9 位小数预舍入，避免 25 ms ÷ 16.667 ms 这类恰在 .5 边界上的
