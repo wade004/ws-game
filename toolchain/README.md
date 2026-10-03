@@ -1613,11 +1613,11 @@ build/test 步骤）。
   （实现是 `_abi_baseline_resolve.ps1` 的 `Resolve-AbiBaselineZip`/`Get-MainWorktreeRoot`），回落命中时输出标"（来自主工作树）"。
 
 **保留规则**（`prune_dist.ps1` 文件头为准，按序判定；只在 `<RepoRoot>\dist` 这一层、按下列形态操作：目录 `<ver>\`，文件 `ws-game-<ver>.zip`、
-`ws-game-<ver>-samples.zip`、`ws-game-<ver>.lock`、`release-notes-<ver>.txt`，以及它们带 `-dryrun` 后缀的形态）：
+`ws-game-<ver>-samples.zip`、`ws-game-<ver>.lock`、`release-notes-<ver>.txt`、`release-<ver>.state.json`（发布续跑的门禁通过记录），以及它们带 `-dryrun` 后缀的形态）：
 
 1. 保留版本 = `VERSION` 里的当前版本 + `dist/` 里按语义化版本排序紧邻其下的正式版本，合计 `-KeepVersions` 个；保留版本的 `<ver>\`、主 zip、samples zip 全留。
    "正式版本"指有非 dryrun 的 `<ver>\` 目录或 `ws-game-<ver>.zip` 的版本。
-2. 所有版本的 `.lock` 与 `release-notes-*.txt` 一律保留（体积很小，是发布记录）。
+2. 所有版本的 `.lock`、`release-notes-*.txt` 与 `release-*.state.json` 一律保留（体积很小，是发布记录）。
 3. 所有带 `-dryrun` 的目录与文件一律删除（含当前版本的，门禁每次会重打）。
 4. 非保留版本的 `<ver>\`、主 zip、samples zip 删除，但有两类例外一并保留：ABI 基线版本（`toolchain/abi_probe_baseline.txt`，当前 1.12.0）的**主 zip**（只留 zip，不留目录与
    samples 包），以及版本号高于当前 `VERSION` 的条目。
@@ -1645,6 +1645,49 @@ build/test 步骤）。
 7. **打标签失败残留的 `tag-message-<ver>.txt` 由瘦身脚本识别并清理（NF 清扫新增）**：`build.ps1 -Release` 打标签前写 `dist\tag-message-<ver>.txt`、打成功后立刻删，留下来说明打标签失败过。`prune_dist.ps1` 现在认这个形态：标签 `v<ver>` 已存在则删（重试发布会整份重写它，残留早已无用），标签不存在则按"未识别，已保留"处理（可能是眼下失败的发布现场，交人判断）。取不到 git 或不是仓库一律当作"标签不存在"，宁可多留。测试：`test_prune_dist.py::test_tag_message_leftover_deleted_only_when_tag_exists`（真实临时 git 仓库：有标签的版本集合里的残留被删、无标签的留下，不传 `-Apply` 不删）。除此之外仍认不出的条目照旧"未识别，已保留"（脚本不替人决定删陌生文件）。
 8. **基线回落只对 `git worktree add` 建出的链接工作树有效（定案）**：独立克隆没有"主工作树"，也就没有可回落的 `dist`，缺基线仍按原有 SKIP/FAIL 处理；为独立克隆编一个回落来源（例如去网络下载基线 zip）会引入网络依赖和第二份"基线真相"，与"基线 zip 由本机发布产生"相悖。
 9. **"当前版本"取自 `VERSION` 文件，高于当前版本的条目一律不动（定案）**：在 `VERSION` 低于 `dist/` 中某些版本的维护分支上运行时，那些更高版本的条目属于发布中途残留或 main 上的新版本，宁少删勿多删，不当作历史产物删除。
+
+## 发布续跑（`build.ps1 -Release <版本> -Resume`、`_release_resume.ps1`，2026-10-04）
+
+背景：1.96.1 发布三次失败——全量门禁（`-Release` 第 5 步，约 50 分钟）已通过，第 7 步打包阶段先后因 `dotnet test` 偶发红、docfx 崩溃而失败；
+当时唯一的恢复路径是 `git reset --soft <发布前提交>`、手工还原五个版本文件、整条 `-Release` 重跑，全量门禁白跑一遍。
+
+**入口**：`powershell -File build.ps1 -Release <ver> -Resume [同样的 -PublishRegistry/-Publish/-SkipManual]`。第 6 步产生发布提交之后任一阶段失败，
+脚本末尾（无论 `throw` 还是 `exit`）打印这条命令；`git reset --soft` 只保留为"放弃本次发布"的回退路径。
+
+**门禁通过记录（状态文件）**：第 5 步通过时写 `dist/release-<ver>.state.json`（被 `.gitignore` 覆盖；`prune_dist.ps1` 当发布记录保留），
+字段 `schema`、`version`、`previousVersion`、`parentCommit`（门禁测过的提交）、`releaseCommit`（第 6 步写入）、`gateConclusion`（取自 check.ps1 的"门禁通过"行）、
+`createdAt`/`updatedAt`（带时区偏移的 ISO 8601 字符串）、`stages`（`gate`、`commit`、`packaging`、`selfCheck`、`tag`、`registry:<包名>`×4、`push`、`githubRelease`，
+各含 `done`/`at`/`detail`）。每个阶段完成时写一笔完成标记；进入第 5 步前先作废同版本的旧状态文件，门禁失败不会留着上一次尝试的凭据。
+
+**前置校验（六项缺一不可，任一不满足即拒绝并打印原因与下一步，拒绝时不改任何东西）**：状态文件在且 `version` 等于 `<ver>`；`HEAD` 等于记录的发布提交；
+发布提交的父提交等于记录的 `parentCommit`；`git diff --name-only HEAD~1 HEAD` 只含第 6 步 `git add` 的五个版本文件；工作树干净；本地 `VERSION` 等于 `<ver>`。
+拒绝码：`NoState`、`StateUnreadable`、`VersionMismatch`、`NoReleaseCommit`、`HeadMismatch`、`ParentMismatch`、`CommitFiles`、`DirtyTree`、`LocalVersionMismatch`（多项同时不满足时全部列出）。
+`-Resume` 不能与 `-DryRun`、`-AllowOverwriteDist` 同传，且必须同传 `-Release`。
+
+**续跑行为**：跳过第 1～6 步，从第一个未完成的阶段起按序执行；必需阶段 = `gate`/`commit`/`packaging`/`selfCheck`/`tag` 恒必需，`registry:*` 仅传 `-PublishRegistry`，
+`push`/`githubRelease` 仅传 `-Publish`。各阶段：
+
+| 阶段 | 续跑时的幂等行为 |
+| --- | --- |
+| 打包 + 自检 | 成组判断（自检未完成则打包也重跑）；重跑 `dotnet build`、DLL/内容同步、打包、zip/lock，跳过 `dotnet test`；允许覆盖未打标签的 `dist/<ver>/`（沿用"发布不可变"守卫，标签已存在则拒绝） |
+| 标签 | 本地已有且指向 `HEAD` 则跳过；指向别处则拒绝（不移动、不删除） |
+| 私服 | 状态已记完成则跳过；否则 `npm view` 查：404 才发布；已有则比对本地 `.tgz` 与私服的 `integrity`，一致跳过、不一致拒绝（绝不覆盖）；非 404 的查询错误中止 |
+| 推送 | 远端已有标签且指向 `HEAD`、远端分支在 `HEAD` 则跳过；远端标签指向别处则拒绝；其余照常 `git push origin <分支> refs/tags/<标签>` |
+| GitHub Release | 不存在则 `gh release create`；已存在则附件齐全跳过、有缺只 `gh release upload` 缺的（不带 `--clobber`）、同名附件大小不符则拒绝 |
+
+**判断记录（决定 + 理由）**
+
+1. **状态文件放 `dist/` 不进 git**：它是"这台机器上这一次发布尝试"的运行记录，不是源码；进 git 会让发布提交之后的工作树变脏，打包自检（带 `-dirty`）直接失败；生成物不进 git 是仓库硬规则。
+2. **前置校验宁严勿松**：门禁通过记录只对"门禁测过的那个提交 + 只改版本文件的发布提交"成立；`HEAD` 动过、发布提交夹带别的文件、工作树有未提交改动，都意味着要发布的东西不是门禁测过的东西，继续等于给未验证的内容盖章。
+3. **不在续跑范围：第 5 步（全量门禁）或更早、以及第 6 步提交之前的失败**：此时没有门禁通过记录或没有发布提交，`-Resume` 被拒绝（`NoState`/`NoReleaseCommit`），修好问题后重跑 `-Release`（重跑全量门禁）。续跑只覆盖"发布提交之后"：打包、自检、打标签、私服发布、推送、GitHub Release。
+4. **打包与自检成组**：自检失败说明打包时工作树不干净（lock/MANIFEST 记 `-dirty`），那份产物不可信，必须整段重打；状态自相矛盾（打包/自检未完成但后续阶段已标记完成）直接拒绝。
+5. **续跑的打包阶段跳过 `dotnet test`，保留 `dotnet build`**：门禁已对同一棵代码树（发布提交只改版本文件）跑过完整测试，1.96.1 的失败之一正是这里的偶发红；`dotnet build` 保留是因为打包读默认输出路径下的 DLL。
+6. **私服比对用 `integrity` 而不是"版本号已存在就当成功"**：`npm pack` 产物确定性（同输入同字节，与 `npm publish` 给出的 `integrity` 逐位相同），内容一致才可以安全跳过；不一致说明私服上是另一份东西，覆盖违反"发布不可变"，所以拒绝并交人。查询失败（非 404）不当作"没发布过"，否则会把网络故障误判成可以发布。
+7. **阶段执行器正常路径与续跑共用一份代码**：区别只在 `-Resume` 开关（多出"先检测是否已做过"）；正常 `-Release` 的阶段顺序、输出与改动前一致，只多写状态标记。
+8. **失败提示改在脚本末尾的 `try/finally` 里统一打印**（不缩进 1500 行）：`throw` 与各处 `exit 1` 都会经过它；成功完成不打印。
+
+测试：`tests/test_release_resume.py`（库函数单元、前置校验每一种拒绝、真实 `build.ps1` 跑在 `tests/_release_skeleton.py` 搭的最小仓库骨架里：`dotnet`/`npm`/`gh` 是 PATH 上的桩，私服与 GitHub Release 是 JSON 文件，`git push` 推到本地裸仓库，绝不触及真实私服/GitHub）、
+`tests/test_prune_dist.py`（状态文件被瘦身保留）。
 
 ## CI / Release 工作流与本机环境口径对齐（2026-10-02）
 

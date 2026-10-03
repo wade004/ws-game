@@ -13,7 +13,8 @@
 
       目录   `<ver>\`、`<ver>-dryrun\`
       文件   `ws-game-<ver>.zip`、`ws-game-<ver>-samples.zip`、`ws-game-<ver>.lock`、
-             `release-notes-<ver>.txt`，以及它们的 `-dryrun` 形态
+             `release-notes-<ver>.txt`，以及它们的 `-dryrun` 形态；另有 `release-<ver>.state.json`
+             （没有 `-dryrun` 形态：DryRun 不写门禁通过记录）
 
     保留规则（按序判定）：
 
@@ -21,7 +22,8 @@
          合计 `-KeepVersions` 个（默认 2）。保留版本的 `<ver>\`、`ws-game-<ver>.zip`、
          `ws-game-<ver>-samples.zip` 全留。"正式版本"指 `dist/` 里有非 dryrun 的 `<ver>\` 目录或
          `ws-game-<ver>.zip` 的版本。
-      2. 所有版本的 `ws-game-<ver>.lock` 与 `release-notes-<ver>.txt` 一律保留（很小，是发布记录）。
+      2. 所有版本的 `ws-game-<ver>.lock`、`release-notes-<ver>.txt` 与 `release-<ver>.state.json`（`build.ps1 -Release`
+         写下的门禁通过记录，`-Resume` 续跑的凭据）一律保留（很小，是发布记录）。
       3. 所有带 `-dryrun` 的目录与文件一律删除（包括当前版本的；门禁每次会重打）。
       4. 非保留版本的 `<ver>\`、`ws-game-<ver>.zip`、`ws-game-<ver>-samples.zip` 删除。
       5. `tag-message-<ver>.txt`（`build.ps1 -Release` 打标签失败时残留的标签说明文件）：标签 `v<ver>` 已存在则删，
@@ -234,6 +236,7 @@ $reZip = '^ws-game-(\d+\.\d+\.\d+)(-dryrun)?(-samples)?\.zip$'
 $reLock = '^ws-game-(\d+\.\d+\.\d+)(-dryrun)?\.lock$'
 $reNotes = '^release-notes-(\d+\.\d+\.\d+)(-dryrun)?\.txt$'
 $reTagMsg = '^tag-message-(\d+\.\d+\.\d+)\.txt$'
+$reState = '^release-(\d+\.\d+\.\d+)\.state\.json$'
 
 $entries = New-Object System.Collections.Generic.List[object]
 foreach ($item in (Get-ChildItem -LiteralPath $distDir -Force)) {
@@ -255,6 +258,8 @@ foreach ($item in (Get-ChildItem -LiteralPath $distDir -Force)) {
             $kind = "Notes"; $ver = [version]$Matches[1]; $isDry = [bool]$Matches[2]
         } elseif ($name -match $reTagMsg) {
             $kind = "TagMessage"; $ver = [version]$Matches[1]
+        } elseif ($name -match $reState) {
+            $kind = "State"; $ver = [version]$Matches[1]
         }
     }
     $entries.Add([PSCustomObject]@{
@@ -298,8 +303,8 @@ foreach ($e in $entries) {
         $e.Action = "Delete"; $e.Category = "dryrun 产物"; $e.Reason = "-dryrun 验证产物，门禁每次重打"
         continue
     }
-    if ($e.Kind -eq "Lock" -or $e.Kind -eq "Notes") {
-        $e.Action = "Keep"; $e.Category = "发布记录"; $e.Reason = "lock / release-notes 一律保留"
+    if ($e.Kind -eq "Lock" -or $e.Kind -eq "Notes" -or $e.Kind -eq "State") {
+        $e.Action = "Keep"; $e.Category = "发布记录"; $e.Reason = "lock / release-notes / 发布状态文件（release-<ver>.state.json，build.ps1 -Resume 的门禁通过记录）一律保留"
         continue
     }
     # Dir / Zip / SamplesZip，非 dryrun

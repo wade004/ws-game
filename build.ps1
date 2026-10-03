@@ -71,6 +71,10 @@
          三步仍为显式开关，发布门禁不强制，原因：构建机缺 Visual Studio C++ 工作负载与 Windows SDK，
          装好后再启用；复盘 I-6 的 2026-10-01 回退）。发布门禁没有"跳过 Unity"的开关（原先跳过 Unity 的发布开关已于测试覆盖第四批删除，
          复盘 I-13）。
+      5b. 非 `-DryRun` 时：门禁一通过就写"门禁通过记录"（状态文件 `dist/release-<ver>.state.json`，被
+         .gitignore 覆盖，格式与阶段见 `toolchain/_release_resume.ps1` 与下面 `.PARAMETER Resume`），之后
+         每个阶段（提交、打包、自检、打标签、逐个私服包发布、推送、创建 GitHub Release）完成时各写一笔
+         完成标记，供 `-Resume` 从失败处续跑。
       6. 非 `-DryRun` 时：门禁通过后立即提交 VERSION/两个 package.json/packages-lock.json/
          CHANGELOG.md 的改动（提交信息 `发布 <ver>`），并在 `dist/release-notes-<ver>.txt` 落一份
          CHANGELOG.md 该版本条目正文（供 `gh release create --notes-file` 使用；首行写版本标签
@@ -82,8 +86,9 @@
          zip 内顶层目录为 `ws-game-<ver>/`）与 `dist/ws-game-<ver>.lock`（版本号、git_commit、
          六个核心 DLL 的 sha256，供游戏仓库复制为自己的 `ws-game.lock`）；非 `-DryRun` 时打包完成
          后自检 lock/MANIFEST 的 `git_commit` 必须等于上一步的发布提交且不带 `-dirty` 后缀，不满足
-         则报错退出（此时提交已产生但未打标签，按脚本打印的提示 `git reset --soft` 回退后修复重跑）；
-         自检通过后打带注释标签 `v<ver>`（标签信息取 CHANGELOG.md 该版本条目正文）。
+         则报错退出（此时提交已产生但未打标签：修复原因后用 `-Resume` 续跑，不重跑门禁；只有"放弃本次
+         发布"才用脚本打印的 `git reset --soft` 回退）；自检通过后打带注释标签 `v<ver>`（标签信息取
+         CHANGELOG.md 该版本条目正文）。
       8. 打印后续需要人工/设计层执行的两条命令（`git push origin <当前分支> refs/tags/v<ver>`——
          当前分支取自 `git rev-parse --abbrev-ref HEAD`，本步骤全程不切换分支，因此就是打标签
          所在的那个分支；只推本次新建的这一个标签，不带 `--tags` 全量推送，见 P05 根治判断记录，
@@ -105,6 +110,52 @@
     打印的两条命令（`git push origin <当前分支> refs/tags/v<ver>`、`gh release create ...`），
     不再需要人工另行复制粘贴执行。省略时（默认）只打印这两条命令，不自动执行，由人工/设计层
     确认后自行运行。
+
+.PARAMETER Resume
+    仅与 `-Release <ver>` 同传有效，不能与 `-DryRun`、`-AllowOverwriteDist` 同传。续跑一次"发布提交之后"
+    失败的发布：不重跑第 1～6 步（含约 50 分钟的全量门禁），不改写 git 历史，从状态文件
+    `dist/release-<ver>.state.json`（第 5 步通过时写下的门禁通过记录）里第一个未完成的阶段起，按序执行
+    打包、自检、打标签，以及本次命令行传了的 `-PublishRegistry`（私服发布）、`-Publish`（推送 +
+    GitHub Release）。续跑时传的 `-PublishRegistry`/`-Publish` 可以与首次不同（例如首次没传，现在补发）。
+
+    状态文件内容：版本号、发布前提交（父提交）、发布提交、门禁结论行、时间戳，以及每个阶段
+    （`gate`/`commit`/`packaging`/`selfCheck`/`tag`/`registry:<包名>`×4/`push`/`githubRelease`）的
+    完成标记、完成时间与说明。
+
+    严格前置校验，任一不满足即拒绝并打印原因与下一步（拒绝时不改动任何东西）：
+      1. 状态文件存在且其中版本号等于 `<ver>`；
+      2. HEAD 等于状态文件记录的发布提交；
+      3. 发布提交的父提交等于记录的发布前提交；
+      4. 发布提交的改动文件（`git diff --name-only <发布提交>^ <发布提交>`）只含第 6 步 `git add` 的版本文件
+         （清单单一来源 `toolchain/_precommit_tiering_guard.ps1` 的 `$script:ReleaseWritebackFiles`）；
+      5. 工作树干净；
+      6. 本地 VERSION 等于 `<ver>`。
+
+    各阶段幂等（正常 `-Release` 不做这些检测，行为不变）：
+      - 打包 + 自检：视为一组，自检未完成就整段重跑打包（`dist/<ver>/` 与 zip/lock 此时尚未打标签、未发布，
+        允许覆盖，沿用"发布不可变"守卫，不需要 `-AllowOverwriteDist`）；重跑时跳过 `dotnet test`（门禁已对
+        同一棵代码树完整跑过），保留 `dotnet build` 与 DLL/内容同步；
+      - 标签：本地已有且指向 HEAD 则跳过；指向别处则拒绝；
+      - 私服：同版本号的包已在私服时比对本地 `.tgz` 的 integrity：一致则跳过，不一致则拒绝，绝不覆盖；
+        私服连不上或报 E404 以外的错误则中止；
+      - 推送：远端已有标签且分支已在 HEAD 则跳过；远端标签指向别处则拒绝；
+      - GitHub Release：不存在则创建；已存在则附件齐全跳过、缺哪个补传哪个（不带 --clobber）、
+        同名附件大小不符则拒绝。
+
+    不在续跑范围：第 5 步（全量门禁）或更早、或第 6 步提交之前的失败——此时没有门禁通过记录或没有发布提交，
+    修好问题后重跑 `-Release`（重跑全量门禁）。`git reset --soft <发布前提交>` 只保留为"放弃本次发布"的
+    回退路径。
+
+    判断记录（不另开 ADR，只在此处与 toolchain/README.md"发布"一节登记决定与理由；各阶段幂等检测的
+    细节判断记录见 `toolchain/_release_resume.ps1` 文件头）：
+      - 决定：门禁通过记录落在被 .gitignore 覆盖的 `dist/`，不进 git。理由：它是"这台机器上这次发布
+        尝试"的运行记录；进 git 会让发布提交之后的工作树变脏，打包自检（-dirty 后缀）直接失败。
+      - 决定：续跑前置校验宁严勿松，六项缺一不可。理由：门禁通过记录只对"门禁测过的提交 + 只改版本文件
+        的发布提交"成立，HEAD 动过/发布提交夹带别的文件/工作树有改动，都意味着要发布的不是门禁测过的。
+      - 决定：续跑跳过第 3b 步（回归记录核对）与第 1 步的"版本须大于当前 VERSION"。理由：前者核对的是发布
+        提交之前的开发提交（已由状态文件的门禁记录取代），后者在发布提交之后必然不成立（VERSION 已是目标值）。
+      - 决定：续跑不支持 `-AllowOverwriteDist`。理由：续跑自己有"标签不存在才允许覆盖未发布产物"的规则，
+        那个开关会绕过"已发布不可变"，与续跑的严格语义冲突。
 
 .PARAMETER Zip
     独立于 `-Release` 使用：与 `-Dist`/`-Dist auto` 同传时，额外打一份 `dist/ws-game-<ver>.zip`
@@ -165,7 +216,8 @@ param(
     [switch]$PublishRegistry,
     [string]$RegistryUrl = "",
     [switch]$AllowOverwriteDist,
-    [switch]$SkipManual
+    [switch]$SkipManual,
+    [switch]$Resume
 )
 
 $ErrorActionPreference = "Stop"
@@ -200,6 +252,13 @@ $VersionFormatPattern = '^\d+\.\d+\.\d+$'
 . (Join-Path $RepoRoot "toolchain\_release_regression_guard.ps1")
 # 判断记录（版本标签，ADR-0127）：发布说明首行写 `<新版本>_release`，构造函数独立成文件供测试直接调用。
 . (Join-Path $RepoRoot "toolchain\_release_notes.ps1")
+# 判断记录（发布续跑，2026-10-04，完整判断记录见 toolchain/_release_resume.ps1 文件头与上面 .PARAMETER Resume）：
+# 门禁通过记录（状态文件）、续跑前置校验、续跑起点、标签/私服/推送/GitHub Release 的幂等检测与执行器独立成文件，
+# 供本脚本与 toolchain/tests/test_release_resume.py 共用。`_precommit_tiering_guard.ps1` 提供
+# `$script:ReleaseWritebackFiles`——第 6 步 git add 的五个版本文件清单的单一来源（预提交钩子的 ReleaseSkip 档
+# 与续跑的"发布提交只含版本文件"校验共用同一份，第 6 步的 git add 也直接用它，三处不会漂移）。
+. (Join-Path $RepoRoot "toolchain\_precommit_tiering_guard.ps1")
+. (Join-Path $RepoRoot "toolchain\_release_resume.ps1")
 
 # 版本标签（ADR-0127，AGENTS.md §1b）：由 toolchain/version_label.py 按当前分支自动推导，经环境变量
 # WsGameVersionLabel 传给本脚本启动的 dotnet 构建（Directory.Build.props 据此写程序集信息版本）。
@@ -285,6 +344,18 @@ if ($DryRun -and $PublishRegistry) {
     Write-Host "-DryRun 下不会真正发布到注册表（只 npm pack 不 publish），-PublishRegistry 无意义，请去掉其中一个" -ForegroundColor Red
     exit 1
 }
+if ($Resume -and (-not $ReleaseRequested)) {
+    Write-Host "-Resume 仅在同传 -Release <版本号> 时有效（续跑一次发布提交之后失败的发布）" -ForegroundColor Red
+    exit 1
+}
+if ($Resume -and $DryRun) {
+    Write-Host "-Resume 与 -DryRun 不能同传（-DryRun 不写门禁通过记录、不产生发布提交，没有可续跑的东西）" -ForegroundColor Red
+    exit 1
+}
+if ($Resume -and $AllowOverwriteDist) {
+    Write-Host "-Resume 与 -AllowOverwriteDist 不能同传（续跑自己只在标签尚未创建时才重打未发布的产物；该开关会绕过'已发布不可变'守卫）" -ForegroundColor Red
+    exit 1
+}
 if ($Zip -and (-not $DistRequested) -and (-not $ReleaseRequested)) {
     Write-Host "-Zip 需要同传 -Dist/-Dist auto（或 -Release，其本身已隐含 -Zip 的效果）——没有 dist/<ver>/ 目录可打包" -ForegroundColor Red
     exit 1
@@ -317,48 +388,209 @@ $ReleaseBumpIsMajorOrMinor = $false
 $ReleaseChangelogSection = ""
 $ReleaseCurrentVersion = ""
 
-if ($ReleaseRequested) {
-    Write-Step "-Release $Release：发布流程前置校验"
+# 失败恢复提示里推荐的续跑命令：保留本次传的 -PublishRegistry/-RegistryUrl/-Publish/-SkipManual（"同样的开关"）。
+function Get-ReleaseResumeCommandText {
+    $cmd = "powershell -File build.ps1 -Release $Release -Resume"
+    if ($PublishRegistry) { $cmd += " -PublishRegistry" }
+    if ($RegistryUrl -ne "") { $cmd += " -RegistryUrl $RegistryUrl" }
+    if ($Publish) { $cmd += " -Publish" }
+    if ($SkipManual) { $cmd += " -SkipManual" }
+    return $cmd
+}
 
-    # 第 1 步：版本号格式 + 严格大于当前 VERSION。
+# 发布流程在"发布提交已产生（或续跑已通过前置校验）"之后未完成时打印的恢复提示；由脚本末尾的 finally 与
+# 续跑直入标签阶段处的 finally 调用（`exit 1` 与 throw 都会经过 finally）。成功完成（$ReleaseFlowCompleted）不打印。
+function Write-ReleaseResumeHintIfNeeded {
+    if ((-not $script:ReleaseResumeHintArmed) -or $script:ReleaseFlowCompleted) { return }
+    $script:ReleaseResumeHintArmed = $false
+    Write-Host ""
+    Write-Host "==== 发布流程未完成（$Release）：发布提交与门禁通过记录已保留 ====" -ForegroundColor Yellow
+    Write-Host "  门禁通过记录：$script:ReleaseStatePath" -ForegroundColor Yellow
+    Write-Host "  续跑（从失败的阶段起，不重跑全量门禁、不改写历史；先修好上面报错的原因）：" -ForegroundColor Yellow
+    Write-Host "    $(Get-ReleaseResumeCommandText)" -ForegroundColor Yellow
+    Write-Host "  放弃本次发布（回退发布提交）：$(Get-ReleaseAbandonHint -ParentCommit $script:ReleaseParentCommitHash)" -ForegroundColor Yellow
+}
+
+# -Release 自检通过之后的各阶段：打标签 -> 私服发布 -> 打印后续命令 -> 推送 + GitHub Release -> dist 瘦身。
+# 正常路径与 -Resume 共用本函数（-Resume 只多出"各阶段先检测是否已经做过"，见 toolchain/_release_resume.ps1），
+# 阶段顺序、输出文案与此前内联在打包节里的代码一致；每个阶段完成时由执行器写状态文件里的完成标记。
+function Invoke-ReleaseFinalStages {
+    $artifactPaths = Get-ReleaseArtifactPaths -RepoRoot $RepoRoot -Version $Release
+    $tagName = "v$Release"
+    $zipPath = $artifactPaths.ZipPath
+    $lockPath = $artifactPaths.LockPath
+    $samplesZipPath = $artifactPaths.SamplesZipPath
+    $releaseNotesPath = $artifactPaths.NotesPath
+
+    Invoke-ReleaseTagStage -RepoRoot $RepoRoot -Version $Release -ChangelogSection $ReleaseChangelogSection `
+        -StatePath $ReleaseStatePath -Resume:$Resume
+
+    # -PublishRegistry：私服交付通道新增，独立于 -Publish 单独控制（见 .PARAMETER
+    # PublishRegistry 说明）。npm publish 对已存在的版本号本身会失败，天然满足"发布不
+    # 可变"，不需要本脚本额外加校验；-Resume 时另有"已在私服则比对内容"的检测（见执行器）。
+    if ($PublishRegistry) {
+        Write-Step "-PublishRegistry：npm publish 四个包到私服"
+        Invoke-ReleaseRegistryStage -RepoRoot $RepoRoot -Version $Release -PackageDirs $artifactPaths.PackageDirs `
+            -RegistryUrl $RegistryUrl -StatePath $ReleaseStatePath -Resume:$Resume
+    }
+
+    # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
+    # 判断记录（P05 根治，2026-09-07，审计 audit-7e63d66-20260907/
+    # project-review.md P05）：此前硬编码 `git push origin main --tags`——无论 -Release
+    # 实际在哪个分支上执行（例如维护分支 release/1.0.x 上打 PATCH 版本），都固定推 main，
+    # 且 `--tags` 会把本地全部标签一起推送，不是"只推本次新建的这一个标签"。改为取当前
+    # 实际检出的分支（`git rev-parse --abbrev-ref HEAD`，-Release 全程不切换分支，此时
+    # 就是打标签所在的那个分支）+ 只推本次创建的这一个标签的完整 ref（`refs/tags/<tag>`，
+    # 避免裸标签名在极端情况下与分支名同名产生的歧义），维护分支场景下 main 不会被隐式
+    # 推进；main 分支上按正常发布，效果与改动前的"推 main"完全一致（当前分支就是 main）。
+    $currentBranchForPush = (& git -C $RepoRoot rev-parse --abbrev-ref HEAD).Trim()
+    if ([string]::IsNullOrEmpty($currentBranchForPush) -or $currentBranchForPush -eq "HEAD") {
+        throw "无法确定当前分支（detached HEAD 或 git rev-parse 失败），-Release/-Publish 要求在一个具名分支（main 或维护分支 release/X.Y.x）上执行"
+    }
+    # 判断记录（消费方反馈 E2 根治，2026-09-10，见
+    # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2）：Release 附件集合新增
+    # toolchain/get_framework.ps1（自包含后，游戏侧只下载这一个文件即可用，见该脚本文件头
+    # 判断记录）；继续一并附上 toolchain/_hash.ps1，兼容消费方现有"下载 get_framework.ps1 +
+    # _hash.ps1 两个文件"的还原脚本（本脚本自身不再读取它，纯粹是向后兼容附件，见
+    # .github/workflows/release.yml 同步的必需附件集合判断）。两个文件都取自源码仓库
+    # toolchain/ 下当前提交的版本（与本次发布提交内容一致，不是从 $DistRoot 里再拷一份）。
+    $getFrameworkAttachPath = $artifactPaths.GetFrameworkPath
+    $hashPsAttachPath = $artifactPaths.HashPsPath
+    # 消费方反馈 E4 根治新增附件：dist/ws-game-<ver>-samples.zip（打包节 5.65 已生成）。
+    $pushCmd = "git push origin $currentBranchForPush refs/tags/$tagName"
+    $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" `"$samplesZipPath`" `"$getFrameworkAttachPath`" `"$hashPsAttachPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
+
+    Write-Host ""
+    $resumeNote = ""
+    if ($Resume) { $resumeNote = "（续跑）" }
+    Write-Host "==== -Release 完成${resumeNote}：$ReleaseCurrentVersion -> $Release（已提交 + 已打标签 $tagName） ====" -ForegroundColor Green
+    Write-Host "后续需要人工/设计层执行（-Publish 可自动执行，本次未传则仅打印）：" -ForegroundColor Cyan
+    Write-Host "  1) $pushCmd"
+    Write-Host "  2) $releaseCmd"
+
+    if ($ReleaseBumpIsMajorOrMinor) {
+        $branchName = "release/" + $newParts.Major + "." + $newParts.Minor + ".x"
+        $branchPoint = "v" + $newParts.Major + "." + $newParts.Minor + ".0"
+        Write-Host ""
+        Write-Host "本次版本号 MAJOR 或 MINOR 段发生了变化，建议开一条维护分支（见根 README.md" -ForegroundColor Cyan
+        Write-Host "'维护分支与 PATCH 发布流程'一节）：" -ForegroundColor Cyan
+        Write-Host "  git branch $branchName $branchPoint"
+    }
+
+    if ($Publish) {
+        Write-Step "-Publish：自动执行上面两条命令"
+        Invoke-ReleasePushStage -RepoRoot $RepoRoot -Version $Release -Branch $currentBranchForPush `
+            -StatePath $ReleaseStatePath -Resume:$Resume
+
+        Invoke-ReleaseGitHubStage -RepoRoot $RepoRoot -Version $Release `
+            -AssetPaths @($zipPath, $lockPath, $samplesZipPath, $getFrameworkAttachPath, $hashPsAttachPath) `
+            -NotesPath $releaseNotesPath -StatePath $ReleaseStatePath -Resume:$Resume
+        Write-Host "  -Publish 完成：已推送并创建 GitHub Release $tagName"
+    }
+
+    # 发版后自动瘦身 dist/（尽力而为）：发布已全部成功（门禁、打包、标签、可选的私服/GitHub
+    # 发布都已完成），此时清掉历史版本的大产物，只留当前版本与上一版本（默认 -KeepVersions 2）
+    # 以及 ABI 基线 zip、所有 lock/release-notes，规则见 toolchain/prune_dist.ps1 文件头。
+    # 判断记录：整体包在 try/catch 里、失败只警告——瘦身是磁盘卫生，不是发布的一部分，绝不能
+    # 让已经打好标签的发布因此失败或改变退出码（本脚本末尾固定 exit 0）；用子进程 powershell
+    # 调用，脚本内部的 exit 1 / 未捕获异常都只影响子进程。-DryRun 发布不走到这里。
+    try {
+        Write-Step "-Release：发版后 dist/ 瘦身（toolchain/prune_dist.ps1 -Apply，尽力而为）"
+        $pruneScript = Join-Path $RepoRoot "toolchain\prune_dist.ps1"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $pruneScript -RepoRoot $RepoRoot -Apply
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "dist 瘦身未完全成功（prune_dist.ps1 退出码 $LASTEXITCODE），不影响本次发布；可稍后手动运行 pwsh toolchain\prune_dist.ps1 -Apply"
+        }
+    } catch {
+        Write-Warning "dist 瘦身出错（不影响本次发布）：$($_.Exception.Message)"
+    }
+    $script:ReleaseFlowCompleted = $true
+}
+
+# 续跑状态（-Resume 时由下面前置校验填充；正常 -Release 在第 5 步通过后创建状态文件）。
+$ReleaseStatePath = ""
+$ResumeState = $null
+$ReleaseFlowCompleted = $false
+$ReleaseResumeHintArmed = $false
+
+if ($ReleaseRequested) {
+    if ($Resume) {
+        Write-Step "-Release $Release -Resume：续跑前置校验（跳过第 1～6 步，不重跑全量门禁）"
+    } else {
+        Write-Step "-Release $Release：发布流程前置校验"
+    }
+    $ReleaseStatePath = Get-ReleaseStatePath -RepoRoot $RepoRoot -Version $Release
+
+    # 第 1 步：版本号格式 + 严格大于当前 VERSION。续跑时没有"严格大于"这一条（VERSION 在发布提交里已经是
+    # 目标版本，必然不成立），改由下面的续跑前置校验（状态文件 + HEAD + 父提交 + 提交内容 + 工作树 + VERSION）取代。
     if ($Release -notmatch $VersionFormatPattern) {
         Write-Host "-Release 版本号格式非法：'$Release'（需形如 X.Y.Z）" -ForegroundColor Red
         exit 1
     }
-    $ReleaseCurrentVersion = Get-FrameworkVersionFromFile
-    $cmp = Compare-SemVer -VersionA $Release -VersionB $ReleaseCurrentVersion
-    if ($cmp -le 0) {
-        Write-Host "目标版本 $Release 必须严格大于当前版本 $ReleaseCurrentVersion（语义化版本数值比较）" -ForegroundColor Red
-        exit 1
+    if (-not $Resume) {
+        $ReleaseCurrentVersion = Get-FrameworkVersionFromFile
+        $cmp = Compare-SemVer -VersionA $Release -VersionB $ReleaseCurrentVersion
+        if ($cmp -le 0) {
+            Write-Host "目标版本 $Release 必须严格大于当前版本 $ReleaseCurrentVersion（语义化版本数值比较）" -ForegroundColor Red
+            exit 1
+        }
+        $oldParts = ConvertTo-SemVerParts -Version $ReleaseCurrentVersion
+        $newParts = ConvertTo-SemVerParts -Version $Release
+        if (($newParts.Major -ne $oldParts.Major) -or ($newParts.Minor -ne $oldParts.Minor)) {
+            $ReleaseBumpIsMajorOrMinor = $true
+        }
+        Write-Host "  版本号校验通过：$ReleaseCurrentVersion -> $Release"
     }
-    $oldParts = ConvertTo-SemVerParts -Version $ReleaseCurrentVersion
-    $newParts = ConvertTo-SemVerParts -Version $Release
-    if (($newParts.Major -ne $oldParts.Major) -or ($newParts.Minor -ne $oldParts.Minor)) {
-        $ReleaseBumpIsMajorOrMinor = $true
-    }
-    Write-Host "  版本号校验通过：$ReleaseCurrentVersion -> $Release"
     # 版本标签（ADR-0127）：发布后的版本号格式是 `<新版本>_release`，本次发布构建的程序集信息版本与发布说明首行都用它。
+    # 续跑重新构建时同样要带这个标签，否则重编的 DLL 的程序集信息版本与门禁/首次打包的不同。
     $env:WsGameVersionLabel = "${Release}_release"
     Write-Host "  版本标签：${Release}_release（程序集信息版本与发布说明首行；VERSION、包版本、发布标签仍是纯 $Release）"
 
-    # 第 2 步：工作树必须干净（发布快照不能夹带未提交的改动）。DryRun 同样校验——DryRun 的目的是
-    # 验证"整条发布流水线打完收工时工作树会是什么状态"，跳过这一步校验会让 DryRun 失去意义。
-    Push-Location $RepoRoot
-    try {
-        $releaseGitStatus = & git status --porcelain
-        $releaseGitDirty = $false
-        if ($null -ne $releaseGitStatus) {
-            $releaseGitStatusJoined = ($releaseGitStatus -join "`n").Trim()
-            if ($releaseGitStatusJoined -ne "") { $releaseGitDirty = $true }
+    if ($Resume) {
+        # 续跑前置校验（见 .PARAMETER Resume 与 toolchain/_release_resume.ps1 判断记录 2）：六项缺一不可，
+        # 任一不满足即拒绝并打印原因与下一步，拒绝时没有改动任何东西。
+        $resumeCheck = Test-ReleaseResumePreconditions -RepoRoot $RepoRoot -Version $Release -AllowedCommitFiles $script:ReleaseWritebackFiles
+        if (-not $resumeCheck.Ok) {
+            Write-Host "续跑被拒绝（-Release $Release -Resume）：前置校验未通过，未改动任何东西。" -ForegroundColor Red
+            $resumeFailIndex = 0
+            foreach ($resumeFail in $resumeCheck.Failures) {
+                $resumeFailIndex++
+                Write-Host ("  [{0}] {1}：{2}" -f $resumeFailIndex, $resumeFail.Code, $resumeFail.Message) -ForegroundColor Red
+                Write-Host ("      下一步：{0}" -f $resumeFail.Next) -ForegroundColor Yellow
+            }
+            exit 1
         }
-    } finally {
-        Pop-Location
+        $ResumeState = $resumeCheck.State
+        $ReleaseCurrentVersion = "$($ResumeState['previousVersion'])"
+        if ($ReleaseCurrentVersion -notmatch $VersionFormatPattern) { $ReleaseCurrentVersion = $Release }
+        $oldParts = ConvertTo-SemVerParts -Version $ReleaseCurrentVersion
+        $newParts = ConvertTo-SemVerParts -Version $Release
+        if (($newParts.Major -ne $oldParts.Major) -or ($newParts.Minor -ne $oldParts.Minor)) {
+            $ReleaseBumpIsMajorOrMinor = $true
+        }
+        Write-Host "  续跑前置校验通过：状态文件版本 $Release、HEAD 即发布提交 $($ResumeState['releaseCommit'])、父提交与记录一致、发布提交只含版本文件、工作树干净、VERSION=$Release"
+        Write-Host "  门禁通过记录：$($ResumeState['gateConclusion'])（记录于 $($ResumeState['stages']['gate']['at'])）"
+    } else {
+        # 第 2 步：工作树必须干净（发布快照不能夹带未提交的改动）。DryRun 同样校验——DryRun 的目的是
+        # 验证"整条发布流水线打完收工时工作树会是什么状态"，跳过这一步校验会让 DryRun 失去意义。
+        # （续跑的同一条校验在上面的 Test-ReleaseResumePreconditions 里。）
+        Push-Location $RepoRoot
+        try {
+            $releaseGitStatus = & git status --porcelain
+            $releaseGitDirty = $false
+            if ($null -ne $releaseGitStatus) {
+                $releaseGitStatusJoined = ($releaseGitStatus -join "`n").Trim()
+                if ($releaseGitStatusJoined -ne "") { $releaseGitDirty = $true }
+            }
+        } finally {
+            Pop-Location
+        }
+        if ($releaseGitDirty) {
+            Write-Host "工作树不干净（git status --porcelain 非空），发布前请先提交或清理改动" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  git 工作树干净：校验通过"
     }
-    if ($releaseGitDirty) {
-        Write-Host "工作树不干净（git status --porcelain 非空），发布前请先提交或清理改动" -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "  git 工作树干净：校验通过"
 
     # 第 3 步：CHANGELOG.md 必须已有该版本的条目（形如 "## [X.Y.Z]"，允许行尾附日期等其余文本）。
     $changelogPath = Join-Path $RepoRoot "CHANGELOG.md"
@@ -386,14 +618,21 @@ if ($ReleaseRequested) {
     # 第 3b 步（复盘 I-13）：必须有对应当前 HEAD 的"含 Unity 全量通过"回归记录才允许真正发布。
     # 放在写回版本号（第 4 步）之前——此时 HEAD 仍是待发布的开发提交，拒绝时工作树没有被任何改动
     # 污染；DryRun 只警告不拦（见 toolchain/_release_regression_guard.ps1 判断记录 5)）。
-    $regressionVerdict = Test-ReleaseRegressionRecord -RepoRoot $RepoRoot
-    if ($regressionVerdict.Ok) {
-        Write-Host "  含 Unity 全量回归记录：校验通过（$($regressionVerdict.Reason)）"
-    } elseif ($DryRun) {
-        Write-Host "  警告（-DryRun 不拦）：$($regressionVerdict.Reason)" -ForegroundColor Yellow
+    # 续跑跳过本步：它核对的是"发布提交之前的开发提交"有没有含 Unity 全量记录，续跑时这件事已由状态文件
+    # 里的门禁通过记录（第 5 步的结论，绑定到父提交）取代；而 HEAD 已是发布提交（改了版本文件），
+    # 按"记录之后只改文档"的规则必然不满足。
+    if ($Resume) {
+        Write-Host "  续跑：跳过含 Unity 全量回归记录核对（由状态文件的门禁通过记录取代）"
     } else {
-        Write-Host "拒绝发布：$($regressionVerdict.Reason)" -ForegroundColor Red
-        exit 1
+        $regressionVerdict = Test-ReleaseRegressionRecord -RepoRoot $RepoRoot
+        if ($regressionVerdict.Ok) {
+            Write-Host "  含 Unity 全量回归记录：校验通过（$($regressionVerdict.Reason)）"
+        } elseif ($DryRun) {
+            Write-Host "  警告（-DryRun 不拦）：$($regressionVerdict.Reason)" -ForegroundColor Yellow
+        } else {
+            Write-Host "拒绝发布：$($regressionVerdict.Reason)" -ForegroundColor Red
+            exit 1
+        }
     }
 
     # -Dist 与 -Release 二选一：-Release 内部转译为一次 -Dist 请求，复用下方既有打包逻辑；
@@ -411,8 +650,8 @@ if ($ReleaseRequested) {
     }
 
     # 第 4 步：写回源码版本号（VERSION + 两个 package.json，含模板对适配层包的依赖版本号）。
-    # DryRun 时跳过——这是本次发布"成为新的当前版本"的唯一写入点。
-    if (-not $DryRun) {
+    # DryRun 时跳过——这是本次发布"成为新的当前版本"的唯一写入点。续跑也跳过（发布提交里已经写回过）。
+    if ((-not $DryRun) -and (-not $Resume)) {
         Write-Step "写回版本号 $Release -> VERSION、两个 package.json"
 
         # 判断记录：写回逻辑（含 2026-09-10 CRLF 根治）已抽成 toolchain/_version_writeback.ps1
@@ -456,15 +695,45 @@ if ($ReleaseRequested) {
     # 流程本身就要终止（见下面 `exit $LASTEXITCODE`），没有必要为了"看全部结果"而白跑完剩余步骤
     # 多耗几分钟；日常开发者手工跑 `check.ps1`（不带 `-FailFast`）仍然保留"跑完全部、一次看全"
     # 的原行为，两者场景不同、开关默认值分开定，互不影响。
-    Write-Step "check.ps1 门禁（-Release 第 5 步）"
-    $checkScript = Join-Path $RepoRoot "check.ps1"
-    $checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "check.ps1 未通过（退出码 $LASTEXITCODE），发布流程终止" -ForegroundColor Red
-        exit $LASTEXITCODE
+    #
+    # 判断记录（门禁通过记录，发布续跑 2026-10-04，见 .PARAMETER Resume）：非 DryRun 时，进入本步之前先作废同版本号
+    # 的旧状态文件（保证"状态文件在 = 最近一次门禁通过过"，门禁失败不会留着上一次尝试的凭据）；门禁通过后立即写新的
+    # 状态文件（版本号、发布前提交、结论行）。结论行从 check.ps1 的输出里摘（"门禁通过：…"一行）；子进程输出经管道
+    # 逐行回显到本进程输出，退出码仍取子进程的（$LASTEXITCODE 是管道内原生命令的退出码）。
+    # 续跑不进入本步（门禁通过记录就是跳过它的凭据）。
+    if (-not $Resume) {
+        if ((-not $DryRun) -and (Test-Path -LiteralPath $ReleaseStatePath)) {
+            Remove-Item -LiteralPath $ReleaseStatePath -Force
+        }
+        Write-Step "check.ps1 门禁（-Release 第 5 步）"
+        $checkScript = Join-Path $RepoRoot "check.ps1"
+        $checkArgs = @("-AbiStrict", "-FailFast", "-NoTiming")
+        $gateConclusion = ""
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript @checkArgs | ForEach-Object {
+            Write-Host $_
+            if ("$_" -match '^\s*门禁通过') { $gateConclusion = ("$_").Trim() }
+        }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "check.ps1 未通过（退出码 $LASTEXITCODE），发布流程终止" -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+        Write-Host "  check.ps1 通过"
+        if ($gateConclusion -eq "") { $gateConclusion = "check.ps1 退出码 0（输出里未捕获到'门禁通过'结论行）" }
+
+        if (-not $DryRun) {
+            Push-Location $RepoRoot
+            try {
+                $ReleaseParentCommitHash = (& git rev-parse HEAD).Trim()
+            } finally {
+                Pop-Location
+            }
+            $newReleaseState = New-ReleaseState -Version $Release -ParentCommit $ReleaseParentCommitHash `
+                -PreviousVersion $ReleaseCurrentVersion -GateConclusion $gateConclusion `
+                -PackageNames (Get-ReleasePackageNames -RepoRoot $RepoRoot)
+            Save-ReleaseState -Path $ReleaseStatePath -State $newReleaseState
+            Write-Host "  已写门禁通过记录：$ReleaseStatePath（失败后可用 -Resume 从发布提交之后续跑，不重跑门禁）"
+        }
     }
-    Write-Host "  check.ps1 通过"
 
     # 第 6 步（时序缺陷根治，2026-09-07）：门禁通过后立即提交版本号改动，先于下面的打包步骤。
     # DryRun 时跳过——这与第 4 步写回是同一个"不碰源码"的边界。
@@ -483,15 +752,12 @@ if ($ReleaseRequested) {
     # `npm pack` 失败、zip 压缩中途出错），这时不应该已经存在一个指向"产物不完整"的提交的标签——
     # 保留提交、不打标签，让操作者能看清"提交已产生但发布未完成"这一中间状态，按下面打印的提示
     # 用 `git reset --soft` 回退再重跑，而不是留下一个名不副实的标签还需要额外 `git tag -d` 清理。
-    if (-not $DryRun) {
+    # （发布续跑 2026-10-04 起：失败后的首选恢复是 `-Resume` 续跑——发布提交与门禁通过记录原样保留、不重跑全量
+    # 门禁；`git reset --soft` 只保留为"放弃本次发布"的回退路径。续跑不进入本步，见 .PARAMETER Resume。）
+    if ((-not $DryRun) -and (-not $Resume)) {
         Write-Step "-Release 第 6 步：门禁通过，提交版本号改动（先于打包）"
 
-        Push-Location $RepoRoot
-        try {
-            $ReleaseParentCommitHash = (& git rev-parse HEAD).Trim()
-        } finally {
-            Pop-Location
-        }
+        # $ReleaseParentCommitHash 已在第 5 步门禁通过后取过（发布前提交 = 门禁测过的提交，同一值写进了状态文件）。
 
         New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot "dist") | Out-Null
         $releaseNotesPath = Join-Path $RepoRoot ("dist\release-notes-" + $Release + ".txt")
@@ -500,7 +766,10 @@ if ($ReleaseRequested) {
 
         Push-Location $RepoRoot
         try {
-            & git add "VERSION" "adapters/unity/Packages/com.gamefoundation.adapter.unity/package.json" "games/_template/package.json" "adapters/unity/Packages/packages-lock.json" "CHANGELOG.md"
+            # 清单取自 $script:ReleaseWritebackFiles（toolchain/_precommit_tiering_guard.ps1，五个版本文件的单一
+            # 来源；续跑的"发布提交只含这些文件"校验与预提交钩子的 ReleaseSkip 档判定共用同一份）。
+            $releaseCommitFiles = @($script:ReleaseWritebackFiles)
+            & git add @releaseCommitFiles
             if ($LASTEXITCODE -ne 0) { throw "git add 失败，退出码 $LASTEXITCODE" }
 
             $commitMessage = "发布 $Release"
@@ -526,9 +795,80 @@ if ($ReleaseRequested) {
             Pop-Location
         }
 
-        Write-Host "  提示：若接下来的打包步骤失败，提交 $ReleaseCommitHash 已产生但未打标签；请先修复失败原因，再执行 'git reset --soft $ReleaseParentCommitHash' 回退这次半途的发布提交后重新运行 -Release。" -ForegroundColor Yellow
+        Set-ReleaseCommitRecorded -StatePath $ReleaseStatePath -ReleaseCommit $ReleaseCommitHash
+
+        # 失败恢复提示在脚本末尾的 finally 里统一打印（见 Write-ReleaseResumeHintIfNeeded）；这里先"上膛"，之后任一阶段
+        # 失败（含 exit 1）都会打印 `-Resume` 续跑命令。
+        $ReleaseResumeHintArmed = $true
+        Write-Host "  提示：若接下来的打包/自检/打标签/发布步骤失败，发布提交 $ReleaseCommitHash 与门禁通过记录已保留；请先修复失败原因，再用 '$(Get-ReleaseResumeCommandText)' 续跑（不重跑全量门禁）。" -ForegroundColor Yellow
+    }
+
+    # 续跑：不进入第 4～6 步；由状态文件还原本脚本后面各节用到的变量，并决定从哪个阶段起跑。
+    if ($Resume) {
+        $ReleaseParentCommitHash = "$($ResumeState['parentCommit'])"
+        $ReleaseCommitHash = "$($ResumeState['releaseCommit'])"
+        Push-Location $RepoRoot
+        try {
+            $ReleaseCommitShort = (& git rev-parse --short HEAD).Trim()
+        } finally {
+            Pop-Location
+        }
+        $releaseNotesPath = Join-Path $RepoRoot ("dist\release-notes-" + $Release + ".txt")
+        New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot "dist") | Out-Null
+        # 发布说明是 CHANGELOG 条目的纯函数，续跑时按同一份内容重写（幂等），不依赖上次留下的文件是否完整。
+        [System.IO.File]::WriteAllText($releaseNotesPath, (New-ReleaseNotesText -Version $Release -ChangelogSection $ReleaseChangelogSection), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  已重写 $releaseNotesPath（发布说明，CHANGELOG.md [$Release] 条目的纯函数）"
+
+        $ReleaseResumeHintArmed = $true
+        $resumePackageNames = Get-ReleasePackageNames -RepoRoot $RepoRoot
+        $resumePlan = Get-ReleaseResumePlan -State $ResumeState -PackageNames $resumePackageNames -PublishRegistry:$PublishRegistry -Publish:$Publish
+        if ($resumePlan.Inconsistent -ne "") {
+            Write-Host "续跑被拒绝：$($resumePlan.Inconsistent)。" -ForegroundColor Red
+            Write-Host "      下一步：状态文件被改动或来自不一致的运行，不能作为续跑凭据；$(Get-ReleaseAbandonHint -ParentCommit $ReleaseParentCommitHash)" -ForegroundColor Yellow
+            $ReleaseResumeHintArmed = $false
+            exit 1
+        }
+        Write-Host "  各阶段状态（* = 本次命令行要求执行的阶段）："
+        foreach ($planRow in $resumePlan.Stages) {
+            $mark = if ($planRow.Done) { "已完成" } else { "未完成" }
+            $req = if ($planRow.Required) { "*" } else { " " }
+            Write-Host ("    {0} {1,-52} {2}" -f $req, $planRow.Id, $mark)
+        }
+        if ($null -eq $resumePlan.FirstUnfinished) {
+            Write-Host ""
+            Write-Host "==== -Resume：本次命令行要求的阶段已全部完成，无事可做（$Release） ====" -ForegroundColor Green
+            $ReleaseFlowCompleted = $true
+            exit 0
+        }
+        Write-Host "  将从阶段 '$($resumePlan.FirstUnfinished)' 起续跑（不重跑第 1～6 步，不改写历史）。" -ForegroundColor Cyan
+        if ($resumePlan.NeedPackaging) {
+            # 打包与自检视为一组：重新打包前先把 packaging 标回未完成，崩在打包中途也不会留下"已完成"的假记录。
+            Set-ReleaseStage -StatePath $ReleaseStatePath -Stage "packaging" -Done $false
+            Set-ReleaseStage -StatePath $ReleaseStatePath -Stage "selfCheck" -Done $false
+            # 门禁已对同一棵代码树完整跑过 dotnet test（见 toolchain/_release_resume.ps1 判断记录 5），续跑的打包阶段不再跑，
+            # 仍保留 dotnet build（打包读默认输出路径下的 DLL）与 DLL/内容同步。
+            $SkipTests = $true
+            Write-Host "  续跑的打包阶段：跳过 dotnet test（全量门禁已对同一棵代码树跑过），保留 dotnet build 与同步。"
+        } else {
+            # 打包与自检都已完成：直接从打标签起续跑，不再进入下面的构建/打包节。
+            Write-Step "-Release -Resume：从打标签起续跑（打包与自检已在记录里完成）"
+            try {
+                Invoke-ReleaseFinalStages
+            } finally {
+                Write-ReleaseResumeHintIfNeeded
+            }
+            Write-Host ""
+            Write-Host "build.ps1 完成。" -ForegroundColor Green
+            exit 0
+        }
     }
 }
+
+# 从这里到脚本末尾包在一个 try/finally 里（不缩进，避免动 1500 行的缩进）：发布提交产生（或续跑通过前置校验）之后，
+# 任一后续阶段失败——无论是 throw 还是各处的 `exit 1`（两者都会执行 finally）——都打印 `-Resume` 续跑提示，
+# 而不是只提示 `git reset --soft`。正常成功时 $ReleaseFlowCompleted 为真，不打印；非 -Release 调用没有"上膛"，
+# finally 什么都不做。
+try {
 
 # 六个需要发布给 Unity 端的核心 DLL；不拷贝 Adapters.Stub、不拷贝任何测试或 xunit 相关程序集。
 $CoreAssemblies = @(
@@ -1946,6 +2286,12 @@ if ($DistRequested) {
         Write-WsGameLockFile -Path $lockPath -LockObject $lockObj
         Write-Host "  已生成 $lockPath"
 
+        # 状态文件：打包（含 zip/lock/samples zip）完成标记（-Release 非 DryRun；续跑重打包后同样写）。
+        # 自检通过之前它不算"可信完成"——续跑按 packaging+selfCheck 成组判断（见 toolchain/_release_resume.ps1 判断记录 4）。
+        if ($ReleaseRequested -and (-not $DryRun)) {
+            Set-ReleaseStage -StatePath $ReleaseStatePath -Stage "packaging" -Detail "dist/$DistDirVersion、zip、samples zip、lock、四个 .tgz 已生成"
+        }
+
         # -------------------------------------------------------------------
         # 5.7 版本管理方案新增：-Release 第 7 步——非 DryRun 时打包完成自检 + 打标签（提交已经在
         #     第 6 步、打包之前完成，见该步骤判断记录）；DryRun 到此为止（本步骤生成的 zip/lock
@@ -1964,130 +2310,17 @@ if ($DistRequested) {
             # git_commit 对不上的提交上，就是一句关于"这份产物对应哪个提交"的谎言。
             if ($gitDirty -or ($gitCommitShort -ne $ReleaseCommitShort)) {
                 Write-Host "打包完成自检失败：lock/MANIFEST 记录的 git_commit=$gitCommit，期望的发布提交=$ReleaseCommitShort（干净、不带 -dirty）" -ForegroundColor Red
-                Write-Host "提交 $ReleaseCommitHash（发布 $Release）已产生但未打标签。请先排查是谁改动了已入库文件并修复/清理，然后执行：" -ForegroundColor Red
-                Write-Host "  git reset --soft $ReleaseParentCommitHash" -ForegroundColor Red
-                Write-Host "回退这次半途的发布提交，再重新运行 -Release。" -ForegroundColor Red
+                Write-Host "提交 $ReleaseCommitHash（发布 $Release）已产生但未打标签。请先排查是谁改动了已入库文件并修复/清理（工作树恢复干净、HEAD 仍是发布提交），然后用下面的命令续跑（不重跑全量门禁；重新打包后会再自检）：" -ForegroundColor Red
+                Write-Host "  $(Get-ReleaseResumeCommandText)" -ForegroundColor Red
+                Write-Host "仅当要放弃本次发布时才回退：git reset --soft $ReleaseParentCommitHash，再按 AGENTS.md §5 还原版本文件并删 dist 产物。" -ForegroundColor Red
                 exit 1
             }
             Write-Host "  自检通过：git_commit=$gitCommit 即发布提交 $ReleaseCommitHash，打包时工作树干净"
+            Set-ReleaseStage -StatePath $ReleaseStatePath -Stage "selfCheck" -Detail "git_commit=$gitCommit"
 
-            Push-Location $RepoRoot
-            try {
-                $tagName = "v$Release"
-                $tagMessageFile = Join-Path $RepoRoot ("dist\tag-message-" + $Release + ".txt")
-                $tagMessageContent = "$tagName`n`n$ReleaseChangelogSection"
-                [System.IO.File]::WriteAllText($tagMessageFile, $tagMessageContent, (New-Object System.Text.UTF8Encoding($false)))
-                & git tag -a $tagName -F $tagMessageFile
-                if ($LASTEXITCODE -ne 0) { throw "git tag 失败，退出码 $LASTEXITCODE" }
-                Remove-Item -Path $tagMessageFile -Force -ErrorAction SilentlyContinue
-                Write-Host "  已打标签：$tagName"
-            } finally {
-                Pop-Location
-            }
-
-            # -PublishRegistry：私服交付通道新增，独立于 -Publish 单独控制（见 .PARAMETER
-            # PublishRegistry 说明）。npm publish 对已存在的版本号本身会失败，天然满足"发布不
-            # 可变"，不需要本脚本额外加校验。
-            if ($PublishRegistry) {
-                Write-Step "-PublishRegistry：npm publish 四个包到私服"
-
-                $resolvedRegistryUrl = $RegistryUrl
-                if ($resolvedRegistryUrl -eq "") {
-                    $registryJsonPath = Join-Path $RepoRoot "toolchain\registry\registry.json"
-                    if (-not (Test-Path $registryJsonPath)) {
-                        throw "找不到 $registryJsonPath，且未显式传 -RegistryUrl"
-                    }
-                    $resolvedRegistryUrl = ((Get-Content -Path $registryJsonPath -Raw -Encoding UTF8) | ConvertFrom-Json).url
-                }
-                $registryNpmrcPath = Join-Path $RepoRoot "toolchain\registry\.npmrc"
-                if (-not (Test-Path $registryNpmrcPath)) {
-                    throw "找不到 $registryNpmrcPath（先跑 toolchain/registry/init_publisher.ps1 无人值守生成发布账号令牌）"
-                }
-
-                foreach ($pkgDirForPublish in @($pkgAdapterDir, $pkgDataDir, $pkgToolDir, $pkgHeadlessDir)) {
-                    Write-Host "  npm publish $pkgDirForPublish --registry $resolvedRegistryUrl"
-                    & npm publish $pkgDirForPublish --registry $resolvedRegistryUrl --userconfig $registryNpmrcPath
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "npm publish 失败：$pkgDirForPublish（退出码 $LASTEXITCODE；若原因是版本号已存在，说明该版本已经发布过，符合'发布不可变'，请发新版本号而不是覆盖）"
-                    }
-                }
-                Write-Host "  已发布四个包 version=$Release 到 $resolvedRegistryUrl" -ForegroundColor Green
-            }
-
-            # 第 8 步：打印后续需要人工/设计层执行的两条命令；-Publish 时自动执行。
-            # 判断记录（P05 根治，2026-09-07，审计 audit-7e63d66-20260907/
-            # project-review.md P05）：此前硬编码 `git push origin main --tags`——无论 -Release
-            # 实际在哪个分支上执行（例如维护分支 release/1.0.x 上打 PATCH 版本），都固定推 main，
-            # 且 `--tags` 会把本地全部标签一起推送，不是"只推本次新建的这一个标签"。改为取当前
-            # 实际检出的分支（`git rev-parse --abbrev-ref HEAD`，-Release 全程不切换分支，此时
-            # 就是打标签所在的那个分支）+ 只推本次创建的这一个标签的完整 ref（`refs/tags/<tag>`，
-            # 避免裸标签名在极端情况下与分支名同名产生的歧义），维护分支场景下 main 不会被隐式
-            # 推进；main 分支上按正常发布，效果与改动前的"推 main"完全一致（当前分支就是 main）。
-            $currentBranchForPush = (& git rev-parse --abbrev-ref HEAD).Trim()
-            if ([string]::IsNullOrEmpty($currentBranchForPush) -or $currentBranchForPush -eq "HEAD") {
-                throw "无法确定当前分支（detached HEAD 或 git rev-parse 失败），-Release/-Publish 要求在一个具名分支（main 或维护分支 release/X.Y.x）上执行"
-            }
-            # 判断记录（消费方反馈 E2 根治，2026-09-10，见
-            # docs/消费方反馈/消费方反馈-2026-09-10-编辑器.md E2）：Release 附件集合新增
-            # toolchain/get_framework.ps1（自包含后，游戏侧只下载这一个文件即可用，见该脚本文件头
-            # 判断记录）；继续一并附上 toolchain/_hash.ps1，兼容消费方现有"下载 get_framework.ps1 +
-            # _hash.ps1 两个文件"的还原脚本（本脚本自身不再读取它，纯粹是向后兼容附件，见
-            # .github/workflows/release.yml 同步的必需附件集合判断）。两个文件都取自源码仓库
-            # toolchain/ 下当前提交的版本（与本次发布提交内容一致，不是从 $DistRoot 里再拷一份）。
-            $getFrameworkAttachPath = Join-Path $RepoRoot "toolchain\get_framework.ps1"
-            $hashPsAttachPath = Join-Path $RepoRoot "toolchain\_hash.ps1"
-            # 消费方反馈 E4 根治新增附件：dist/ws-game-<ver>-samples.zip（上面 5.65 节已生成）。
-            $pushCmd = "git push origin $currentBranchForPush refs/tags/$tagName"
-            $releaseCmd = "gh release create $tagName `"$zipPath`" `"$lockPath`" `"$samplesZipPath`" `"$getFrameworkAttachPath`" `"$hashPsAttachPath`" --title `"$tagName`" --notes-file `"$releaseNotesPath`""
-
-            Write-Host ""
-            Write-Host "==== -Release 完成：$ReleaseCurrentVersion -> $Release（已提交 + 已打标签 $tagName） ====" -ForegroundColor Green
-            Write-Host "后续需要人工/设计层执行（-Publish 可自动执行，本次未传则仅打印）：" -ForegroundColor Cyan
-            Write-Host "  1) $pushCmd"
-            Write-Host "  2) $releaseCmd"
-
-            if ($ReleaseBumpIsMajorOrMinor) {
-                $branchName = "release/" + $newParts.Major + "." + $newParts.Minor + ".x"
-                $branchPoint = "v" + $newParts.Major + "." + $newParts.Minor + ".0"
-                Write-Host ""
-                Write-Host "本次版本号 MAJOR 或 MINOR 段发生了变化，建议开一条维护分支（见根 README.md" -ForegroundColor Cyan
-                Write-Host "'维护分支与 PATCH 发布流程'一节）：" -ForegroundColor Cyan
-                Write-Host "  git branch $branchName $branchPoint"
-            }
-
-            if ($Publish) {
-                Write-Step "-Publish：自动执行上面两条命令"
-                Push-Location $RepoRoot
-                try {
-                    Write-Host "  执行：$pushCmd"
-                    & git push origin $currentBranchForPush "refs/tags/$tagName"
-                    if ($LASTEXITCODE -ne 0) { throw "git push 失败，退出码 $LASTEXITCODE" }
-
-                    Write-Host "  执行：$releaseCmd"
-                    & gh release create $tagName $zipPath $lockPath $samplesZipPath $getFrameworkAttachPath $hashPsAttachPath --title $tagName --notes-file $releaseNotesPath
-                    if ($LASTEXITCODE -ne 0) { throw "gh release create 失败，退出码 $LASTEXITCODE" }
-                } finally {
-                    Pop-Location
-                }
-                Write-Host "  -Publish 完成：已推送并创建 GitHub Release $tagName"
-            }
-
-            # 发版后自动瘦身 dist/（尽力而为）：发布已全部成功（门禁、打包、标签、可选的私服/GitHub
-            # 发布都已完成），此时清掉历史版本的大产物，只留当前版本与上一版本（默认 -KeepVersions 2）
-            # 以及 ABI 基线 zip、所有 lock/release-notes，规则见 toolchain/prune_dist.ps1 文件头。
-            # 判断记录：整体包在 try/catch 里、失败只警告——瘦身是磁盘卫生，不是发布的一部分，绝不能
-            # 让已经打好标签的发布因此失败或改变退出码（本脚本末尾固定 exit 0）；用子进程 powershell
-            # 调用，脚本内部的 exit 1 / 未捕获异常都只影响子进程。-DryRun 发布不走到这里。
-            try {
-                Write-Step "-Release：发版后 dist/ 瘦身（toolchain/prune_dist.ps1 -Apply，尽力而为）"
-                $pruneScript = Join-Path $RepoRoot "toolchain\prune_dist.ps1"
-                & powershell -NoProfile -ExecutionPolicy Bypass -File $pruneScript -RepoRoot $RepoRoot -Apply
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Warning "dist 瘦身未完全成功（prune_dist.ps1 退出码 $LASTEXITCODE），不影响本次发布；可稍后手动运行 pwsh toolchain\prune_dist.ps1 -Apply"
-                }
-            } catch {
-                Write-Warning "dist 瘦身出错（不影响本次发布）：$($_.Exception.Message)"
-            }
+            # 之后的阶段（打标签 -> 私服发布 -> 打印后续命令 -> 推送 + GitHub Release -> dist 瘦身）正常路径与 -Resume
+            # 共用 Invoke-ReleaseFinalStages（上方定义；原先内联在这里的代码原样搬过去，顺序与输出不变）。
+            Invoke-ReleaseFinalStages
         } elseif ($ReleaseRequested -and $DryRun) {
             Write-Host ""
             Write-Host "==== -DryRun 完成：$Release 的发布流水线全流程校验 + 打包已跑通，未改写任何源码文件、未提交、未打标签 ====" -ForegroundColor Green
@@ -2105,3 +2338,6 @@ if ($DistRequested) {
 Write-Host ""
 Write-Host "build.ps1 完成。" -ForegroundColor Green
 exit 0
+} finally {
+    Write-ReleaseResumeHintIfNeeded
+}
