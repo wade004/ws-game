@@ -6,7 +6,7 @@
       "key": {
         "script": "feel_tpl_agile",
         "scriptVersion": 1,
-        "dataset": "e73f090484c1ad02",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_agile",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -140,7 +140,7 @@
           ],
           "freeze_ops": "5:freeze:player+stake:2;7:release:stake+player:0;8:freeze:player+stake:2;10:release:stake+player:0;100:freeze:player+stake:2;102:release:stake+player:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;8:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;8:flash:stake;8:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -148,7 +148,7 @@
       "key": {
         "script": "feel_tpl_agile",
         "scriptVersion": 1,
-        "dataset": "e32dcbcc7376e337",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_agile",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -294,7 +294,7 @@
           ],
           "freeze_ops": "11:freeze:player+stake:2;13:release:stake+player:0;106:freeze:player+stake:2;108:release:stake+player:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "11:vfx:vfx.placeholder_hit_spark;106:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "11:flash:stake;11:vfx:vfx.placeholder_hit_spark;106:flash:stake;106:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -302,7 +302,7 @@
       "key": {
         "script": "feel_tpl_agile",
         "scriptVersion": 1,
-        "dataset": "e73f090484c1ad02",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_agile",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -436,7 +436,7 @@
           ],
           "freeze_ops": "5:freeze:player+stake:2;7:release:stake+player:0;8:freeze:player+stake:2;10:release:stake+player:0;100:freeze:player+stake:2;102:release:stake+player:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;8:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;8:flash:stake;8:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -444,7 +444,7 @@
       "key": {
         "script": "feel_tpl_agile",
         "scriptVersion": 1,
-        "dataset": "e32dcbcc7376e337",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_agile",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -590,7 +590,7 @@
           ],
           "freeze_ops": "11:freeze:player+stake:2;13:release:stake+player:0;106:freeze:player+stake:2;108:release:stake+player:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "11:vfx:vfx.placeholder_hit_spark;106:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "11:flash:stake;11:vfx:vfx.placeholder_hit_spark;106:flash:stake;106:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -598,7 +598,7 @@
       "key": {
         "script": "feel_tpl_agile",
         "scriptVersion": 1,
-        "dataset": "e73f090484c1ad02",
+        "dataset": "a7edac1c8626ae8a",
         "preset": "feel.preset.tpl_agile",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -732,7 +732,7 @@
           ],
           "freeze_ops": "5:freeze:player+stake:2;7:release:stake+player:0;8:freeze:player+stake:2;10:release:stake+player:0;100:freeze:player+stake:2;102:release:stake+player:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "5:vfx:vfx.placeholder_hit_spark;8:vfx:vfx.placeholder_hit_spark;100:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "5:flash:stake;5:vfx:vfx.placeholder_hit_spark;8:flash:stake;8:vfx:vfx.placeholder_hit_spark;100:flash:stake;100:vfx:vfx.placeholder_hit_spark"
         }
       }
     },
@@ -740,7 +740,7 @@
       "key": {
         "script": "feel_tpl_agile",
         "scriptVersion": 1,
-        "dataset": "e32dcbcc7376e337",
+        "dataset": "2bb2e388196eadd9",
         "preset": "feel.preset.tpl_agile",
         "calibrationVersion": "none",
         "poseSet": "none",
@@ -886,7 +886,7 @@
           ],
           "freeze_ops": "11:freeze:player+stake:2;13:release:stake+player:0;106:freeze:player+stake:2;108:release:stake+player:0",
           "first_feedback_lag_ticks": 0,
-          "other_ops": "11:vfx:vfx.placeholder_hit_spark;106:vfx:vfx.placeholder_hit_spark"
+          "other_ops": "11:flash:stake;11:vfx:vfx.placeholder_hit_spark;106:flash:stake;106:vfx:vfx.placeholder_hit_spark"
         }
       }
     }

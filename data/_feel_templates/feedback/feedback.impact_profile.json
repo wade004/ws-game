@@ -8,6 +8,10 @@
         {
           "class": "light",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -29,6 +33,10 @@
         {
           "class": "light",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -54,6 +62,10 @@
         {
           "class": "medium",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -75,6 +87,10 @@
         {
           "class": "medium",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -100,6 +116,10 @@
         {
           "class": "heavy",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -124,6 +144,10 @@
         {
           "class": "heavy",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -149,6 +173,10 @@
         {
           "class": "massive",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -173,6 +201,10 @@
         {
           "class": "massive",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -216,6 +248,10 @@
         {
           "class": "light",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -246,6 +282,10 @@
         {
           "class": "light",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -280,6 +320,10 @@
         {
           "class": "medium",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -310,6 +354,10 @@
         {
           "class": "medium",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -344,6 +392,10 @@
         {
           "class": "heavy",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -377,6 +429,10 @@
         {
           "class": "heavy",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -411,6 +467,10 @@
         {
           "class": "massive",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -444,6 +504,10 @@
         {
           "class": "massive",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -496,6 +560,10 @@
         {
           "class": "light",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -526,6 +594,10 @@
         {
           "class": "light",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -560,6 +632,10 @@
         {
           "class": "medium",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -590,6 +666,10 @@
         {
           "class": "medium",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -624,6 +704,10 @@
         {
           "class": "heavy",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -657,6 +741,10 @@
         {
           "class": "heavy",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -691,6 +779,10 @@
         {
           "class": "massive",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -724,6 +816,10 @@
         {
           "class": "massive",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -776,6 +872,10 @@
         {
           "class": "light",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -806,6 +906,10 @@
         {
           "class": "light",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -840,6 +944,10 @@
         {
           "class": "medium",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -870,6 +978,10 @@
         {
           "class": "medium",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -904,6 +1016,10 @@
         {
           "class": "heavy",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -937,6 +1053,10 @@
         {
           "class": "heavy",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -971,6 +1091,10 @@
         {
           "class": "massive",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1004,6 +1128,10 @@
         {
           "class": "massive",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1056,6 +1184,10 @@
         {
           "class": "light",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1086,6 +1218,10 @@
         {
           "class": "light",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1120,6 +1256,10 @@
         {
           "class": "medium",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1150,6 +1290,10 @@
         {
           "class": "medium",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1184,6 +1328,10 @@
         {
           "class": "heavy",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1217,6 +1365,10 @@
         {
           "class": "heavy",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1251,6 +1403,10 @@
         {
           "class": "massive",
           "outcome": "hit",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",
@@ -1284,6 +1440,10 @@
         {
           "class": "massive",
           "outcome": "kill",
+          "flash": {
+            "profile_id": "vfx.placeholder_hit_flash",
+            "target": "target"
+          },
           "vfx": {
             "vfx_id": "vfx.placeholder_hit_spark",
             "attach": "contact",

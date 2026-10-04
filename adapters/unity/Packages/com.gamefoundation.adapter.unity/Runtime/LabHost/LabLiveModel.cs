@@ -107,8 +107,45 @@ namespace Adapter.Unity.LabHost
         }
     }
 
+    /// <summary>试玩面板的分页（ADR-0150：场景控制 | 调参 | 时间轴 | 轨迹 | 评分）。</summary>
+    public enum LabTab
+    {
+        Scene,
+        Tuning,
+        Timeline,
+        Trajectory,
+        Rating,
+    }
+
     public sealed class LabLiveModel
     {
+        // ───────── 分页与叠层开关（调参 / 时间轴 / 轨迹 / 评分；ADR-0150）─────────
+        public LabTab Tab { get; set; } = LabTab.Scene;
+
+        /// <summary>轨迹叠层：移动路径（玩家与靶子）。</summary>
+        public bool OverlayPath { get; set; } = true;
+
+        /// <summary>轨迹叠层：速度矢量。</summary>
+        public bool OverlayVelocity { get; set; } = true;
+
+        /// <summary>轨迹叠层：判定形状。</summary>
+        public bool OverlayShapes { get; set; } = true;
+
+        /// <summary>轨迹叠层：判定相内的扫掠体。</summary>
+        public bool OverlaySweep { get; set; }
+
+        /// <summary>轨迹叠层：接触点与法线。</summary>
+        public bool OverlayContacts { get; set; } = true;
+
+        /// <summary>轨迹叠层：目标辅助转角。</summary>
+        public bool OverlayAssist { get; set; } = true;
+
+        /// <summary>叠层回看的 tick 数。</summary>
+        public int OverlayWindowTicks { get; set; } = 180;
+
+        /// <summary>时间轴一屏显示的 tick 数。</summary>
+        public int TimelineWindowTicks { get; set; } = 240;
+
         // ───────── 总览 ─────────
         public string Cell { get; set; } = string.Empty;
 

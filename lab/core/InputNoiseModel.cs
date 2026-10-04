@@ -170,7 +170,7 @@ namespace Lab
                 var e = script.Events[i];
                 var tick = Math.Max(0, e.Tick + offsets[i]);
                 shifted.Add(new KeyValuePair<int, ScriptEvent>(
-                    i, tick == e.Tick ? e : new ScriptEvent(tick, e.Action, e.Kind, e.Value, e.RealTimestamp, e.Actor)));
+                    i, tick == e.Tick ? e : new ScriptEvent(tick, e.Action, e.Kind, e.Value, e.RealTimestamp, e.Actor, e.Text)));
             }
 
             // 稳定排序：同 tick 保持原先后（先按 tick、再按原下标）。

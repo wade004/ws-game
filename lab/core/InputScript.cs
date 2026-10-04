@@ -28,8 +28,8 @@ namespace Lab
     /// <see cref="Loadout"/>（运行中叠加一行装备/体型档案：<see cref="ScriptEvent.Action"/> 是 <c>feel.weapon.*</c> 或 <c>feel.archetype.*</c> 行 id，
     /// 其 writes 作为玩家单位的第 8 层覆盖；空串 = 清掉全部装备/体型覆盖）、
     /// <see cref="Override"/>（运行中写一条第 8 层调试覆盖：<see cref="ScriptEvent.Action"/> 是手感字段名，<see cref="ScriptEvent.Actor"/> 是作用单位的出场标签
-    /// （空 = 全局，<c>player</c> = 玩家），<see cref="ScriptEvent.Value"/> 的 X 是数值、Y 是操作码 0 = set / 1 = multiply / 2 = add；只支持数值字段）、
-    /// <see cref="ClearOverrides"/>（清掉全部由 <see cref="Override"/> 写入的覆盖；<see cref="ScriptEvent.Action"/> 只作标签）、
+    /// （空 = 全局，<c>player</c> = 玩家），<see cref="ScriptEvent.Value"/> 的 X 是数值（布尔字段 0/1）、Y 是操作码 0 = set / 1 = multiply / 2 = add / 3 = remove（列表字段），枚举、引用、文本与列表字段的取值在 <see cref="ScriptEvent.Text"/>，见 <see cref="LabOverrideCodec"/>）、
+    /// <see cref="ClearOverrides"/>（<see cref="ScriptEvent.Action"/> 不是已登记手感字段名时清掉全部由 <see cref="Override"/> 写入的覆盖，是字段名时只清该字段在 <see cref="ScriptEvent.Actor"/> 作用域里的覆盖）、
     /// <see cref="Marker"/>（纯呈现标记：时间尺度、暂停/单步、单项效果开关、角落闪块——<see cref="ScriptEvent.Action"/> 是标记名，<see cref="ScriptEvent.Value"/> 的 X 是参数；
     /// 宿主逻辑完全不读，只在重放引擎宿主时让视图复现，所以带标记与不带标记的脚本逻辑组逐字节一致）。
     /// </summary>
@@ -77,7 +77,18 @@ namespace Lab
         /// <summary>事件的行动者：空表示玩家（所有既有事件）；<see cref="ScriptEventKind.Cast"/> 里是靶子的出场标签。</summary>
         public string Actor { get; }
 
+        /// <summary>
+        /// 事件的文本载荷（手感实验室调参面板，ADR-0150）：<see cref="ScriptEventKind.Override"/> 事件里，枚举、引用、文本类字段的取值（列表字段是逗号分隔的元素）
+        /// 放在这里，布尔与数值字段仍用 <see cref="Value"/> 的 X；空表示没有文本载荷（既有全部事件，序列化文本因此不变）。
+        /// </summary>
+        public string Text { get; }
+
         public ScriptEvent(int tick, string action, ScriptEventKind kind, Vec2 value = default, double? realTimestamp = null, string actor = "")
+            : this(tick, action, kind, value, realTimestamp, actor, string.Empty)
+        {
+        }
+
+        public ScriptEvent(int tick, string action, ScriptEventKind kind, Vec2 value, double? realTimestamp, string actor, string text)
         {
             if (tick < 0)
             {
@@ -90,6 +101,7 @@ namespace Lab
             Value = value;
             RealTimestamp = realTimestamp;
             Actor = actor ?? string.Empty;
+            Text = text ?? string.Empty;
         }
     }
 
@@ -549,7 +561,8 @@ namespace Lab
                     throw new LabFormatException($"{what}.events[] 的 {kindText} 事件必须带 actor（靶子的出场标签；玩家的跳跃用动作 input.action.lab_jump 的按下事件）");
                 }
 
-                events.Add(new ScriptEvent(tick, action, kind, value, ts, actor));
+                var payload = LabJson.OptionalString(eo, "text", what + ".events[]") ?? string.Empty;
+                events.Add(new ScriptEvent(tick, action, kind, value, ts, actor, payload));
             }
 
             var expectations = root.TryGetValue("expectations", out var ex) && !(ex is JsonNull)
@@ -736,6 +749,11 @@ namespace Lab
                 if (e.Actor.Length > 0)
                 {
                     b.Add("actor", LabJson.Str(e.Actor));
+                }
+
+                if (e.Text.Length > 0)
+                {
+                    b.Add("text", LabJson.Str(e.Text));
                 }
 
                 if (e.RealTimestamp.HasValue)

@@ -286,7 +286,7 @@ namespace Lab
             }
         }
 
-        private static JsonValue ValueToJson(FeelValue value)
+        internal static JsonValue ValueToJson(FeelValue value)
         {
             switch (value.Kind)
             {

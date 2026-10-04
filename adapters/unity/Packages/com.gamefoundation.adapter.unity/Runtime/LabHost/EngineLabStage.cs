@@ -114,6 +114,51 @@ namespace Adapter.Unity.LabHost
 
         public UnityCamera? StageUnityCamera => _unityCamera;
 
+        /// <summary>当前生效的模板取景（基础预设是 <c>feel.preset.tpl_*</c> 时取同名 <c>camera_profile.tpl_*</c> 行；否则 <see cref="CameraFraming.None"/>）。试玩模式才会更新。</summary>
+        public CameraFraming TemplateFraming { get; private set; } = CameraFraming.None;
+
+        /// <summary>试玩模式当前的相机跟随平滑时间常数（秒）：缺省取选项；模板取景生效时由模板的 follow_lerp 折算。</summary>
+        public double FollowSmoothingSeconds => _followSmoothing;
+
+        private double _followSmoothing;
+        private string? _framingPreset;
+
+        /// <summary>
+        /// 试玩模式的模板取景（ADR-0150，修复"试玩相机不随模板变"的已知限制）：每帧读当前基础预设，变化时按它对应的相机配置行重设取景——
+        /// 缩放 = 试玩缺省缩放 × zoom_default / 参照缩放（占位精灵无关模板，只保留模板间的相对取景差）；跟随平滑 = 把每个 60 Hz 帧的 follow_lerp
+        /// 折成等价的时间常数 −(1/60)/ln(1−lerp)；俯仰只在舞台相机本来就带俯仰（格子相机模式 fixed_pitch）时取模板值。
+        /// 非模板预设恢复舞台缺省。只改引擎侧相机，不回流逻辑。
+        /// </summary>
+        private void ApplyTemplateFraming()
+        {
+            if (_ctx == null || _unityCamera == null)
+            {
+                return;
+            }
+
+            var preset = _ctx.World.Gameplay.Feel?.Feel.Resolver.Calibration.BasePresetId ?? string.Empty;
+            if (string.Equals(preset, _framingPreset, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _framingPreset = preset;
+            var framing = CameraFraming.For(_ctx.World.Registry, preset);
+            TemplateFraming = framing;
+            _unityCamera.SetZoom(_options.InteractiveZoom * framing.ZoomRatio);
+            _followSmoothing = _options.InteractiveFollowSmoothing;
+            if (framing.Found && framing.FollowLerp > 1e-9 && framing.FollowLerp < 1.0)
+            {
+                _followSmoothing = -(1.0 / 60.0) / Math.Log(1.0 - framing.FollowLerp);
+            }
+
+            if (_unityCamera.ApplyPitch)
+            {
+                var pitch = framing.Found ? framing.PitchDegrees : _pitchDegrees;
+                _unityCamera.Configure(pitch, _options.CameraYawDegrees, _unityCamera.ZoomRangeValue);
+            }
+        }
+
         // ───────── 接入点 ─────────
 
         public override void OnAttach(LabHostContext context)
@@ -335,6 +380,7 @@ namespace Adapter.Unity.LabHost
                 _camera.backgroundColor = new Color(0.09f, 0.10f, 0.12f);
                 _cameraGo.AddComponent<AudioListener>();
                 _unityCamera.SetZoom(_options.InteractiveZoom);
+                _followSmoothing = _options.InteractiveFollowSmoothing;
             }
 
             foreach (var other in Camera.allCameras)
@@ -1101,7 +1147,8 @@ namespace Adapter.Unity.LabHost
 
                 if (_ctx != null && _unityCamera != null)
                 {
-                    _unityCamera.Follow(_ctx.World.Player.Position, _options.InteractiveFollowSmoothing);
+                    ApplyTemplateFraming();
+                    _unityCamera.Follow(_ctx.World.Player.Position, _followSmoothing);
                 }
             }
 

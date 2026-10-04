@@ -35,11 +35,13 @@ namespace Lab
         private readonly Func<Id?, int> _ordinal;
         private readonly Id _playerId;
         private readonly double _step;
-        private readonly List<KeyValuePair<string, Id>> _targets = new List<KeyValuePair<string, Id>>();
+        /// <summary>靶子清单（宿主传入的在场靶子表本身，不复制：交互式试玩运行中出的靶子也进每 tick 的位置样本；脚本开局就有的靶子行为不变）。</summary>
+        private readonly IEnumerable<KeyValuePair<string, Id>> _targets;
         private readonly FeedbackBinderCore? _binder;
         private readonly ImpactPipeline? _pipeline;
         private readonly PoseRig? _poseRig;
         private int _tick;
+        private readonly Dictionary<Id, Id> _castSkills = new Dictionary<Id, Id>();
 
         public FeelRig(
             HeadlessWorld world, FeelRecording record, Dictionary<Id, string> labels, Func<Id?, int> ordinal, double step,
@@ -51,7 +53,7 @@ namespace Lab
             _ordinal = ordinal;
             _step = step;
             _playerId = world.Player.EntityId;
-            _targets.AddRange(targets);
+            _targets = targets;
 
             var feel = world.Gameplay.Feel;
             if (feel == null)
@@ -141,6 +143,7 @@ namespace Lab
             switch (evt)
             {
                 case ActionStartedEvent s:
+                    _castSkills[s.CastInstanceId] = s.SkillId;
                     _record.Events.Add(new FeelEventRecord(
                         tick, "action_started", Label(s.ActorId), string.Empty, s.SkillId.Value, string.Empty, string.Empty,
                         s.ComboIndex, s.DurationTicks, 0, s.ChargeRatio));
@@ -152,6 +155,11 @@ namespace Lab
                 case ActionMarkerEvent m:
                     _record.Events.Add(new FeelEventRecord(
                         tick, "action_marker", Label(m.ActorId), string.Empty, string.Empty, m.Name, string.Empty));
+                    if (string.Equals(m.Name, "hit", StringComparison.Ordinal))
+                    {
+                        NoteHitShape(tick, m);
+                    }
+
                     break;
                 case ActionCancelledEvent c:
                     _record.Events.Add(new FeelEventRecord(
@@ -173,7 +181,12 @@ namespace Lab
                         h.HitResult.ToString(),
                         "reaction=" + h.Reaction + ";class=" + h.ImpactClass + ";kill=" + (h.IsKill ? 1 : 0) + ";crit=" + (h.IsCrit ? 1 : 0)
                         + ";inst=" + _ordinal(h.AttackInstanceId) + ";cast=" + _ordinal(h.CastInstanceId),
-                        h.Segment, h.AttackerHitStopTicks, h.TargetHitStopTicks, h.Amount));
+                        h.Segment, h.AttackerHitStopTicks, h.TargetHitStopTicks, h.Amount)
+                    {
+                        Contact = h.ContactPoint,
+                        Normal = h.ContactNormal,
+                        HasGeometry = true,
+                    });
                     break;
                 case CombatReactionAppliedEvent r:
                     _record.Events.Add(new FeelEventRecord(
@@ -232,6 +245,43 @@ namespace Lab
                         tick, "buffer_dropped", Label(d.ActorId), string.Empty, string.Empty, d.ActionId.Value, d.Reason.ToString()));
                     break;
             }
+        }
+
+        /// <summary>
+        /// 判定标记到达：按"施法实例 → 技能 → 目标选择链形状"取判定形状并按施法者此刻的位姿锚定，记成 <see cref="HitShapeRecord"/>（只供面板叠层读）。
+        /// 技能没有目标选择链形状（目标选择式结算）、查不到技能或施法者时什么都不记；这是面板的只读辅助记录，不得影响宿主逻辑，所以数据缺口在此静默跳过。
+        /// </summary>
+        private void NoteHitShape(int tick, ActionMarkerEvent marker)
+        {
+            if (!_castSkills.TryGetValue(marker.CastInstanceId, out var skillId))
+            {
+                return;
+            }
+
+            var record = _world.Registry.Get("skill.def", skillId);
+            if (record == null || !record.TryGetId("target_shape_ref", out var chainId))
+            {
+                return;
+            }
+
+            if (!_world.Gameplay.Carriers.Rules.Targeting.TryGetChainShape(chainId, out var template))
+            {
+                return;
+            }
+
+            if (!(_world.World.GetEntity(marker.ActorId) is Unit unit))
+            {
+                return;
+            }
+
+            var segment = 0;
+            if (marker.Args.TryGetValue("segment", out var segText))
+            {
+                int.TryParse(segText, NumberStyles.Integer, CultureInfo.InvariantCulture, out segment);
+            }
+
+            var shape = Core.Foundation.EngineAdapter.ShapeGeometry.RebaseAt(template, unit.Position, unit.Facing);
+            _record.HitShapes.Add(new HitShapeRecord(tick, Label(marker.ActorId), skillId.Value, segment, unit.Position, unit.Facing, shape, template));
         }
 
         /// <summary>阻挡变更（可破坏障碍被打掉后宿主经导航契约的批量替换更新阻挡）。</summary>
