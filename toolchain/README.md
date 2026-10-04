@@ -499,9 +499,11 @@ python toolchain/import_assets.py <子命令> ...
   数据根取 `data/_framework` + `data/_feel` + `data/<--dataset>`，资产取 `assets/_placeholder`；实现与下面的 `equip`
   子命令共用 `equip_cmd.run_equip`。与其余域不同，装备域有警告级问题（回落记录，不阻断），所以 `check` 的返回码
   现在按"有错误级问题才为 1"判定（既有域的问题全是错误级，行为不变）。
+- `skin-checklist`：按界面资源契约清单（`skin_manifest.json`）与数据展开的槽位/品质输出人读的逐文件清单（Markdown，`--out` 写文件，`--json` 只输出元素数统计），交给出图与美术；出图工具与导入校验读同一份清单。
 - `equip`：装备资产包 + 界面皮肤包校验，输出**装备完整性报告**（`toolchain/asset_import/equip_pack.py`、
   `skin_pack.py`，规则与检查名清单见两个文件的 docstring 与
-  [手感设计/08](../architecture/手感设计/08_装备与UI资产契约.md) 第 5 节）。默认读 `data/_framework`、`data/_feel`、
+  [手感设计/08](../architecture/手感设计/08_装备与UI资产契约.md) 第 5 节；皮肤包、图标、纸娃娃图层的全部规则读同一份机器可读契约清单
+  `toolchain/asset_import/skin_manifest.json`，每条规则一个具名诊断，ADR-0149）。默认读 `data/_framework`、`data/_feel`、
   `data/_equip` 与 `assets/_placeholder`（`--data-root`/`--assets-dir`/`--anim-set`/`--direction-count`/
   `--skin-ref` 可覆盖）。错误级：图标缺失/尺寸不合规/贴边、装备缺 `display.equip_visual`、纸娃娃静态层图或必备姿势键
   逐层剪辑（ADR-0100 两级探测）缺失、`model` 型槽位/挂点命名不在 model 型 `display.map.slots/sockets` 里、武器缺

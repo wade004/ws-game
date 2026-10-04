@@ -57,6 +57,11 @@
       "id": "ui_layout_definition.sample_shop",
       "panel": "shop",
       "fields": { "anchor": "center" }
+    },
+    {
+      "id": "ui_layout_definition.sample_equipment",
+      "panel": "equipment",
+      "fields": { "anchor": "left_center", "columns": 2, "preview_body_set": "placeholder_hero" }
     }
   ]
 }

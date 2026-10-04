@@ -85,6 +85,9 @@ namespace Adapter.Unity.Ui
 
         public static Color ButtonHoverColor => _active?.ButtonHoverColor ?? DefaultButtonHoverColor;
 
+        /// <summary>当前皮肤的按钮九宫格状态图（ADR-0149）；未安装覆盖或覆盖没有提供时为 <c>null</c>——按钮沿用上面的纯色着色外观（逐位不变）。</summary>
+        public static UiButtonSprites? ButtonSprites => _active?.ButtonSprites;
+
         private static TMP_FontAsset? _defaultFont;
 
         /// <summary>套件默认字体：Noto Sans CJK（见包 README"已知契约缺口 4"——运行期只能用
@@ -233,8 +236,21 @@ namespace Adapter.Unity.Ui
         /// 占位精灵。</summary>
         public Sprite? FlatSprite { get; set; }
 
+        /// <summary>覆盖按钮外观：提供时 <see cref="UiWidgets.CreateButton"/> 用这些九宫格状态图（悬停/按下/禁用/选中）替换纯色着色；未赋值时按钮外观与改动前逐位一致。</summary>
+        public UiButtonSprites? ButtonSprites { get; set; }
+
         /// <summary>覆盖套件字体；未赋值时 <see cref="UiSkin.Font"/> 回退框架默认字体生成/回退
         /// 逻辑（见该属性判断记录）。</summary>
         public TMP_FontAsset? Font { get; set; }
+    }
+
+    /// <summary>按钮九宫格状态图（皮肤包 <c>button/*.png</c>）；常态必有，其它状态为空时取常态。</summary>
+    public sealed class UiButtonSprites
+    {
+        public Sprite Normal { get; set; } = null!;
+        public Sprite? Hover { get; set; }
+        public Sprite? Pressed { get; set; }
+        public Sprite? Disabled { get; set; }
+        public Sprite? Selected { get; set; }
     }
 }

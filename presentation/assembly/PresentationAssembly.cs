@@ -312,6 +312,10 @@ namespace Presentation.Assembly
 
         public InventoryViewModel Inventory { get; }
 
+        /// <summary>装备面板视图模型（手感设计/08 第 3 节、ADR-0149）：槽位清单与纸娃娃预览图层全部取自数据，
+        /// 不依赖 <see cref="PresentationAssemblyOptions.EquipmentSlotIds"/>（见 <see cref="Presentation.Ui.EquipmentViewModel"/> 类型注释）。</summary>
+        public EquipmentViewModel Equipment { get; }
+
         public QuestLogViewModel QuestLog { get; }
 
         public DialogViewModel DialogView { get; }
@@ -919,6 +923,7 @@ namespace Presentation.Assembly
             // 复用同一实例——本模块唯一的诊断出口，取不到完整就绪数据时经它告警，不新增第二套诊断。
             ActionBar = new ActionBarViewModel(UiData, _playerId, actionBarSlots, gameplay.Carriers.SkillBindings, skillBookQuery, UiDiagnostics);
             Inventory = new InventoryViewModel(UiData, opts.EquipmentSlotIds);
+            Equipment = new EquipmentViewModel(UiData, registry, DisplayInfo);
             QuestLog = new QuestLogViewModel(UiData, gameplay.Quest, _playerId);
             DialogView = new DialogViewModel(UiData, gameplay.Dialog, _playerId);
             SkillBook = new SkillBookViewModel(UiData, skillBookQuery, _playerId);
@@ -1202,6 +1207,7 @@ namespace Presentation.Assembly
             Release(nameof(Hud), Hud.Dispose);
             Release(nameof(ActionBar), ActionBar.Dispose);
             Release(nameof(Inventory), Inventory.Dispose);
+            Release(nameof(Equipment), Equipment.Dispose);
             Release(nameof(QuestLog), QuestLog.Dispose);
             Release(nameof(DialogView), DialogView.Dispose);
             Release(nameof(SkillBook), SkillBook.Dispose);

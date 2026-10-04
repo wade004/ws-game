@@ -327,6 +327,10 @@ namespace Adapter.Unity.EngineAdapter
 
         private static string RootDir => RootDirOverrideForTests ?? DefaultRootDir;
 
+        /// <summary>资源内容根目录（<c>StreamingAssets/GameFoundation</c>；测试可经 <see cref="RootDirOverrideForTests"/> 换根）。
+        /// 界面皮肤包（<c>ui/skin/&lt;名&gt;/</c>，ADR-0149）与加载器共用同一个根，皮肤包文件不是资源引用 id，不经 <see cref="ResolvePath"/>。</summary>
+        internal static string ContentRoot => RootDir;
+
         /// <summary>仅 <see cref="ResourceKind.Font"/> 使用：主线程专用队列（见类型顶部"Font 资源
         /// 种类"判断记录），不与 <see cref="_completions"/> 共用——后者由后台线程写入，前者只在
         /// 主线程内部排队等到下一次 <see cref="Tick"/> 处理，不需要并发安全的队列类型。</summary>

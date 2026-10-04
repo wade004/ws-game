@@ -51,12 +51,12 @@ unit.<id>.stat.<statId>
 路径语法非法/引用了格式非法的 Id/首段没有注册 Provider 时返回 `null` 并记一条诊断；路径语法
 合法但当前无值（未选中目标、槽位为空、下标越界）同样返回 `null`，但不记诊断。
 
-## 十一个视图模型
+## 十二个视图模型
 
 `HudViewModel`、`ActionBarViewModel`、`InventoryViewModel`、`QuestLogViewModel`、
 `DialogViewModel`、`SkillBookViewModel`、`CharacterStatsViewModel`、`SettingsViewModel`、
-`SaveSlotsViewModel`、`PauseMenuViewModel`、`ShopViewModel`（`core/ViewModels/`），与
-`schema/UiLayoutSchema.cs` 的 `UiPanel` 十一个枚举值一一对应（拍板 7 补 `Shop`，见该类型注释）。
+`SaveSlotsViewModel`、`PauseMenuViewModel`、`ShopViewModel`、`EquipmentViewModel`（`core/ViewModels/`），与
+`schema/UiLayoutSchema.cs` 的 `UiPanel` 十二个枚举值一一对应（拍板 7 补 `Shop`，见该类型注释；ADR-0149 补 `Equipment`：装备槽位清单、已装备物品的图标与品质、纸娃娃图层与各类外观计数，全部由数据与装备状态算出）。
 均实现 `IDisposable`，构造期完成一次 `Refresh()`（`ShopViewModel` 例外——未 `OpenVendor` 前没有
 货架可刷新，见其类型注释）并订阅相关事件触发后续自动刷新。
 
@@ -87,7 +87,7 @@ unit.<id>.stat.<statId>
 同图 `RestoreFromSlot` 读档时这四个业务事件本身的派发被 `SaveSystem.Load` 的抑制作用域连带压住，
 `InventoryViewModel` 因此错过刷新时机，`Slots`/`EquippedSlots` 停留在读档前的 A 快照，与已经是 B
 的 `IUiDataSource` 实时查询结果不一致（手动调用 `Refresh()` 才会恢复正确）。根治：逐个核对全部
-十一个视图模型，凡是维护"经事件订阅增量更新的派生展示状态"（不是每次都重新 `Query`/查询宿主）
+十二个视图模型，凡是维护"经事件订阅增量更新的派生展示状态"（不是每次都重新 `Query`/查询宿主）
 的，一律额外订阅 `SaveEventKeys.SaveLoaded` 并整体重建——`InventoryViewModel`、
 `ActionBarViewModel`、`CharacterStatsViewModel`、`DialogViewModel`、`HudViewModel`、
 `QuestLogViewModel`、`ShopViewModel`、`SkillBookViewModel` 八个补齐了这个订阅；`SaveSlotsViewModel`
@@ -690,7 +690,7 @@ UI 意图方法名语义，不新建第二套词汇表。
 
 **T-M31 补测（无行为变更）**：`tests/ShopViewModelTests.cs`（真实 `EconomyHost`：货架快照、未知商人退化空货架、
 购买成功刷新、四种购买失败路径后视图与余额不变且不产生事件、读档抑制作用域内购买由 `save.loaded` 重建、Dispose 退订）；
-`tests/ViewModelDisposeTests.cs`（全部 11 个 `IDisposable` 视图模型：Dispose 后其构造期订阅的全部句柄 `IsDisposed`、
+`tests/ViewModelDisposeTests.cs`（全部 12 个 `IDisposable` 视图模型：Dispose 后其构造期订阅的全部句柄 `IsDisposed`、
 重复 Dispose 不抛，外加"清单覆盖全部视图模型类型"的反射守护；`InMemoryUiDiagnostics` 直接用例）；
 `tests/UiLayoutSchemaTests.cs`（`ui_layout_definition` schema 正反例与 `FromRecord` 错误路径）；
 `tests/UiIntentsFailurePathTests.cs`（用真实经济/技能绑定/应用状态宿主观察失败路径：失败结果原样透传、宿主异常原样传播、
@@ -705,4 +705,4 @@ UI 意图方法名语义，不新建第二套词汇表。
 ③ 段正则结尾 `$` 会匹配末尾换行之前，`"player.level
 "` 曾被静默当合法路径，现改 `\z`。下标最大值 `int.MaxValue` 与前导零
 （`[007]` = 7）仍合法。同批补测（仅测试）：`tests/UiIntentsCoverageTests.cs`（T-M37，18 个带 `panelId` 的重载逐个、失败结果、
-无事件总线降级）、`tests/ViewModelEventTriggerTests.cs`（T-M38，11 个视图模型的订阅键集合与逐键刷新）。
+无事件总线降级）、`tests/ViewModelEventTriggerTests.cs`（T-M38，12 个视图模型的订阅键集合与逐键刷新）。

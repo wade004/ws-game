@@ -7,8 +7,8 @@ namespace Presentation.Ui
 {
     /// <summary>
     /// 面板类别（见 01_分层与依赖.md L5 模块表 <c>ui</c> 行"主要数据表：ui_layout_definition"、
-    /// 09_表现层.md 第 7.1 节 UI 组成清单）。本模块把十一个值定为与 <c>core/ViewModels</c> 下十一个
-    /// 视图模型一一对应（09 §7.1 清单里的"状态栏"并入 Hud、"目标框"同样并入 Hud——两者都由
+    /// 09_表现层.md 第 7.1 节 UI 组成清单）。本模块把十二个值定为与 <c>core/ViewModels</c> 下十二个
+    /// 视图模型一一对应（第 12 个 <see cref="Equipment"/> 与 <see cref="EquipmentViewModel"/>，ADR-0149）（09 §7.1 清单里的"状态栏"并入 Hud、"目标框"同样并入 Hud——两者都由
     /// <see cref="HudViewModel"/> 一并承载；"按键绑定面板"并入 Settings，因为
     /// <see cref="SettingsViewModel"/> 已经承载绑定列表——见本目录 README 判断记录），保证"面板类别"
     /// 与"落地计划要求的视图模型"严格对齐，不产生"有面板无视图模型"或反之的孤儿。
@@ -35,6 +35,8 @@ namespace Presentation.Ui
         SaveSlots,
         PauseMenu,
         Shop,
+        /// <summary>装备面板（手感设计/08 第 3 节、ADR-0149）：槽位网格 + 纸娃娃预览，视图模型 <see cref="EquipmentViewModel"/>。纯新增枚举值（ADR-0039 加法政策）。</summary>
+        Equipment,
     }
 
     /// <summary>界面面板种类的线格式名称集合，供布局数据校验引用。</summary>
@@ -44,6 +46,7 @@ namespace Presentation.Ui
         {
             "hud", "action_bar", "inventory", "quest_log", "dialog",
             "skill_book", "character_stats", "settings", "save_slots", "pause_menu", "shop",
+            "equipment",
         };
 
         public static bool TryParse(string text, out UiPanel value)
@@ -61,6 +64,7 @@ namespace Presentation.Ui
                 case "save_slots": value = UiPanel.SaveSlots; return true;
                 case "pause_menu": value = UiPanel.PauseMenu; return true;
                 case "shop": value = UiPanel.Shop; return true;
+                case "equipment": value = UiPanel.Equipment; return true;
                 default: value = default; return false;
             }
         }
