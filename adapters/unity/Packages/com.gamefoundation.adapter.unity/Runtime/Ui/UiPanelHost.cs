@@ -47,6 +47,13 @@ namespace Adapter.Unity.Ui
         private bool _ownsVisuals;
         private bool _installedSkin;
 
+        /// <summary>
+        /// 悬停提示框与拖放穿脱（ADR-0152）：背包与装备面板共用；穿脱动作转发 <see cref="UiIntents"/>。<see cref="Initialize"/> 之后可用。
+        /// 判断记录：运行期换皮肤走 <see cref="UiVisuals.SwitchSkin"/>，背包、装备、提示框、拖拽订阅 <see cref="UiVisuals.SkinChanged"/> 自行重建；
+        /// 其余面板（HUD、动作条等）不订阅，保持建出来时的外观（ADR-0082"不回溯重建"的取舍沿用）。
+        /// </summary>
+        public UiInteraction? Interaction { get; private set; }
+
         /// <summary>八个"游戏内"面板（Hud/ActionBar/Inventory/QuestLog/Dialog/SkillBook/
         /// CharacterStats/Settings）的公共父节点；<see cref="SaveSlots"/>/<see cref="PauseMenu"/>
         /// 不挂在本节点下——两者同时被 <c>Adapter.Unity.Shell.ShellRoot</c> 的主菜单存档槽页/
@@ -80,6 +87,8 @@ namespace Adapter.Unity.Ui
                 Visuals = UiVisuals.Create(registry, presentation.DisplayInfo);
                 _ownsVisuals = true;
             }
+
+            Visuals.L10n ??= presentation.L10n;
 
             // 非缺省皮肤包把主题配色/面板底图/字体装成 UiSkin 覆盖；缺省皮肤不装任何覆盖（逐位不变）。调用方自己装过覆盖时以调用方的为准。
             if (!UiSkin.IsOverrideInstalled && Visuals.Pack.CreateOverride() is { } skinOverride)
@@ -128,6 +137,15 @@ namespace Adapter.Unity.Ui
             Equipment.Construct((RectTransform)Equipment.transform, presentation.Equipment, Visuals, presentation.UiIntents);
             Equipment.Hide();
             _panels[UiPanel.Equipment] = Equipment;
+
+            // 悬停提示框与拖放穿脱（ADR-0152）：画在内容节点最上层，穿脱转发 UiIntents。
+            var intents = presentation.UiIntents;
+            Interaction = new UiInteraction(
+                content,
+                Visuals,
+                new UiEquipActions((instance, slot) => intents.Equip(instance, slot), slot => intents.Unequip(slot) != null));
+            Inventory.AttachInteraction(Interaction);
+            Equipment.AttachInteraction(Interaction);
 
             QuestLog = CreatePanel<QuestLogPanel>("QuestLog", GameplayGroup);
             // 消费方反馈第六批（阻塞）：改走 QuestLogPanel.Construct 新增的携带 IL10nHost 的加性重载
@@ -209,6 +227,9 @@ namespace Adapter.Unity.Ui
                 UiSkin.Reset();
                 _installedSkin = false;
             }
+
+            Interaction?.Dispose();
+            Interaction = null;
 
             if (_ownsVisuals && Visuals != null)
             {

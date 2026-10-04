@@ -339,16 +339,45 @@ namespace Adapter.Unity.Ui.Panels
     /// 图标（物品模板 → <c>display.map.icon_id</c> → 适配器资源加载器的 icon 路径）、品质框（皮肤包 <c>quality_frame/&lt;品质名&gt;.png</c>）与右下角数量；
     /// 格子边长、锚点取 <c>ui_layout_definition</c> 的 inventory 行（<c>cell_size</c>、<c>anchor</c>），缺省 32 像素与右上角（与改动前的矩形逐位一致）。
     /// 既有三参数 <see cref="Construct(RectTransform, InventoryViewModel, UiIntents)"/> 保持不变（没有物品格，行为与改动前一致）；文本标签与"使用"按钮两种形态都保留。
+    /// </para>
+    /// <para>
+    /// 判断记录（面板尺寸由内容决定，ADR-0152）：行高、"使用"按钮宽度、名称标签宽度都显式设定（此前行高与按钮宽取矩形缺省 100，带皮肤时格子再宽也撑出面板），
+    /// 面板宽 = max(缺省 260, 内边距 + 一行内容宽度)、高 = max(缺省 260, 内边距 + 全部行高)——内容放得下缺省尺寸时与改动前逐位一致，放不下才变大，
+    /// 所以带皮肤/不带皮肤、任意 cell_size 与任意长度的物品名，所有子控件都落在面板矩形内；物品数量变化时随 <see cref="RefreshUi"/> 重新量。
+    /// 没有滚动：物品多到超出屏幕高度时面板跟着变高（背包容量由数据决定，滚动列表是后续任务）。
+    /// </para>
+    /// <para>
+    /// 判断记录（物品名，ADR-0152）：行标签显示 <see cref="UiVisuals.ItemName"/>（<c>item.template.name_key</c> 本地化）；没有给 <see cref="UiVisuals"/>（三参数重载）或取不到文案时退回模板 id 短名（如 <c>std_bow</c>）。
+    /// </para>
+    /// <para>
+    /// 判断记录（交互，ADR-0152）：<see cref="AttachInteraction"/> 之后每个物品格有悬停提示框并可拖到装备槽位穿上；整块面板底板是"拖回来卸下"的落点（只接受从装备槽位拖出的物品）。
+    /// 没有物品格（三参数重载）时不提供交互。
     /// </para></summary>
     public sealed class InventoryPanel : UiPanelBehaviour
     {
         private const float DefaultCellSize = 32f;
         private const float MinRowHeight = 24f;
 
+        /// <summary>缺省面板尺寸（内容放得下时保持；与改动前的 260 x 260 一致）。</summary>
+        public static readonly Vector2 DefaultPanelSize = new Vector2(260f, 260f);
+
+        private const float PanelPadding = 8f;
+        private const float RowSpacing = 6f;
+        private const float ListSpacing = 2f;
+        private const float DefaultLabelWidth = 140f;
+        private const float LabelHeight = 22f;
+        private const float ButtonWidth = 60f;
+        private const float TextRowHeight = 28f;      // 没有物品格的文字行高
+
+        private RectTransform _parent = null!;
         private InventoryViewModel _vm = null!;
         private UiIntents _intents = null!;
         private RectTransform _list = null!;
         private UiVisuals? _visuals;
+        private UiInteraction? _interaction;
+        private UiDropTarget? _bagTarget;
+        private UiPanelLayout _layout;
+        private bool _hasLayout;
         private float _cellSize = DefaultCellSize;
         private readonly List<GameObject> _rows = new List<GameObject>();
 
@@ -372,35 +401,187 @@ namespace Adapter.Unity.Ui.Panels
         /// <summary>面板底板（九宫格背景）。</summary>
         public RectTransform Background { get; private set; } = null!;
 
+        /// <summary>每行的名称标签文本（行序同 <see cref="InventoryViewModel.Slots"/>）。</summary>
+        public IReadOnlyList<string> LabelTexts
+        {
+            get
+            {
+                var texts = new List<string>();
+                foreach (var row in _rows)
+                {
+                    texts.Add(row.transform.Find("Label").GetComponent<TextMeshProUGUI>().text);
+                }
+
+                return texts;
+            }
+        }
+
+        /// <summary>落点：整块面板底板（只接受从装备槽位拖出的物品，落下即卸下）；没有挂交互时为 null。</summary>
+        public UiDropTarget? BagDropTarget => _bagTarget;
+
         public void Construct(RectTransform parent, InventoryViewModel vm, UiIntents intents)
         {
+            _parent = parent;
             _vm = vm;
             _intents = intents;
-            var root = UiWidgets.CreatePanelBackground("InventoryPanel", parent, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(260f, 260f), new Vector2(-140f, -140f));
-            Background = root;
-            _list = UiWidgets.CreateVerticalList("List", root, 2f);
-            UiWidgets.SetRect(_list, Vector2.zero, Vector2.one, new Vector2(8, 8), new Vector2(-8, -8));
+            Build();
         }
 
         /// <summary>带皮肤包与资源的重载（ADR-0149）：行首多一个物品格（槽位框 + 图标 + 品质框 + 数量），布局取数据行。</summary>
         public void Construct(RectTransform parent, InventoryViewModel vm, UiIntents intents, UiVisuals? visuals)
         {
-            Construct(parent, vm, intents);
-            if (visuals == null)
+            _parent = parent;
+            _vm = vm;
+            _intents = intents;
+            _visuals = visuals;
+            if (visuals != null)
+            {
+                visuals.SkinChanged -= OnSkinChanged;
+                visuals.SkinChanged += OnSkinChanged;
+            }
+
+            Build();
+        }
+
+        /// <summary>挂上悬停提示框与拖放（需要带 <see cref="UiVisuals"/> 构造；换皮肤重建后自动重新挂上）。</summary>
+        public void AttachInteraction(UiInteraction interaction)
+        {
+            DetachInteraction();
+            _interaction = interaction;
+            HookInteraction();
+        }
+
+        private void Build()
+        {
+            _rows.Clear();
+            _cells.Clear();
+            Background = UiWidgets.CreatePanelBackground("InventoryPanel", _parent, new Vector2(1f, 1f), new Vector2(1f, 1f), DefaultPanelSize, new Vector2(-140f, -140f));
+            _list = UiWidgets.CreateVerticalList("List", Background, ListSpacing);
+            // 列表贴着面板上缘、宽度随面板、高度由内容决定（ContentSizeFitter）：不再拉伸铺满面板（拉伸 + 内容定高会让行整体偏离上缘）。
+            _list.anchorMin = new Vector2(0f, 1f);
+            _list.anchorMax = new Vector2(1f, 1f);
+            _list.pivot = new Vector2(0.5f, 1f);
+            _list.offsetMin = new Vector2(PanelPadding, 0f);
+            _list.offsetMax = new Vector2(-PanelPadding, -PanelPadding);
+
+            _hasLayout = false;
+            if (_visuals != null)
+            {
+                _layout = _visuals.LayoutOf(UiPanel.Inventory, new UiPanelLayout("top_right", 1, DefaultCellSize, 1f, string.Empty, "front"));
+                _hasLayout = true;
+                // 布局的 cell_size 为 0 = 取皮肤包槽位框原生宽度（UiPanelLayout.CellSize 契约，与装备面板一致）；没有布局行时取缺省 32。
+                _cellSize = UiPanelLayout.ResolveCellSize(_layout.CellSize, _visuals.Pack.SlotFrameDefault());
+                _layout.ApplyAnchor(Background, DefaultPanelSize);
+            }
+
+            if (_interaction != null)
+            {
+                HookInteraction();
+            }
+        }
+
+        private void OnSkinChanged()
+        {
+            if (this == null)
             {
                 return;
             }
 
-            _visuals = visuals;
-            var layout = visuals.LayoutOf(UiPanel.Inventory, new UiPanelLayout("top_right", 1, DefaultCellSize, 1f, string.Empty, "front"));
-            // 布局的 cell_size 为 0 = 取皮肤包槽位框原生宽度（UiPanelLayout.CellSize 契约，与装备面板一致）；没有布局行时取缺省 32。
-            _cellSize = UiPanelLayout.ResolveCellSize(layout.CellSize, visuals.Pack.SlotFrameDefault());
-            layout.ApplyAnchor(Background, new Vector2(260f, 260f));
+            var old = Background;
+            DetachTargetOnly();
+            if (old != null)
+            {
+                old.gameObject.SetActive(false);
+                Destroy(old.gameObject);
+            }
+
+            Build();
+        }
+
+        private void OnDestroy()
+        {
+            if (_visuals != null)
+            {
+                _visuals.SkinChanged -= OnSkinChanged;
+            }
+
+            DetachInteraction();
+        }
+
+        private void DetachTargetOnly()
+        {
+            if (_bagTarget != null && _interaction != null)
+            {
+                _interaction.Drag.Unregister(_bagTarget);
+            }
+
+            _bagTarget = null;
+        }
+
+        private void DetachInteraction()
+        {
+            DetachTargetOnly();
+            _interaction = null;
+        }
+
+        private void HookInteraction()
+        {
+            if (_interaction == null || _visuals == null || Background == null)
+            {
+                return;
+            }
+
+            DetachTargetOnly();
+            var interaction = _interaction;
+            _bagTarget = new UiDropTarget(
+                "bag",
+                Background,
+                payload => payload.Origin == UiDragOrigin.Equipment ? UiDropState.Ok : UiDropState.None,
+                payload =>
+                {
+                    if (payload.SourceSlot == null || interaction.Actions == null)
+                    {
+                        return UiDropResult.Rejected("unequip", "NoAction");
+                    }
+
+                    return interaction.Actions.Unequip(payload.SourceSlot.Value)
+                        ? new UiDropResult(true, "unequip", string.Empty)
+                        : UiDropResult.Rejected("unequip", "UnequipFailed");
+                });
+            interaction.Drag.Register(_bagTarget);
+            for (var i = 0; i < _cells.Count; i++)
+            {
+                HookCell(_cells[i]);
+            }
+        }
+
+        private void HookCell(ItemCell cell)
+        {
+            if (_interaction == null)
+            {
+                return;
+            }
+
+            var handler = cell.Frame.GetComponent<UiItemCell>() ?? cell.Frame.gameObject.AddComponent<UiItemCell>();
+            handler.Interaction = _interaction;
+            handler.Resolve = () =>
+            {
+                var index = _cells.IndexOf(cell);
+                if (index < 0 || index >= _vm.Slots.Count)
+                {
+                    return null;
+                }
+
+                var slot = _vm.Slots[index];
+                return new UiDragPayload(UiDragOrigin.Bag, slot.InstanceId, slot.TemplateId, null, cell.Icon.enabled ? cell.Icon.sprite : null);
+            };
+            cell.Frame.raycastTarget = true;
         }
 
         /// <summary>逻辑格子数与已渲染行数不一致时才重建行（避免每帧都销毁重建 GameObject）。</summary>
         public override void RefreshUi()
         {
+            var changed = false;
             while (_rows.Count < _vm.Slots.Count)
             {
                 var rowIndex = _rows.Count;
@@ -408,20 +589,24 @@ namespace Adapter.Unity.Ui.Panels
                 var rect = (RectTransform)row.transform;
                 rect.SetParent(_list, false);
                 var hl = row.AddComponent<UnityEngine.UI.HorizontalLayoutGroup>();
-                hl.spacing = 6f; hl.childControlWidth = false; hl.childControlHeight = true; hl.childForceExpandWidth = false;
+                hl.spacing = RowSpacing; hl.childControlWidth = false; hl.childControlHeight = true; hl.childForceExpandWidth = false;
+                // 竖直列表不控制子项高度（childControlHeight=false），行高取行自己的矩形（缺省 100）、横向布局也不控宽：
+                // 不显式设定，格子/按钮会按 100 画出，面板放不下（带皮肤时 cell_size 形同虚设，不带皮肤时行高与按钮宽都是 100）。
+                rect.sizeDelta = new Vector2(rect.sizeDelta.x, _visuals != null ? Mathf.Max(_cellSize, MinRowHeight) : TextRowHeight);
                 if (_visuals != null)
                 {
-                    // 竖直列表不控制子项高度（childControlHeight=false），行高取行自己的矩形（缺省 100）、横向布局也不控宽：
-                    // 不显式设定，格子会按 100 x 100 画出，cell_size 形同虚设。只在带皮肤的重载里设（无皮肤的文字行保持原样）。
-                    rect.sizeDelta = new Vector2(rect.sizeDelta.x, Mathf.Max(_cellSize, MinRowHeight));
-                    _cells.Add(CreateItemCell(rect));
+                    var cell = CreateItemCell(rect);
+                    _cells.Add(cell);
+                    HookCell(cell);
                 }
 
                 var label = UiWidgets.CreateLabel("Label", rect, "-", 16);
-                label.rectTransform.sizeDelta = new Vector2(140f, 22f);
+                label.rectTransform.sizeDelta = new Vector2(DefaultLabelWidth, LabelHeight);
                 var capturedIndex = rowIndex;
-                UiWidgets.CreateButton("Use", rect, "使用", () => OnUseClicked(capturedIndex));
+                var use = UiWidgets.CreateButton("Use", rect, "使用", () => OnUseClicked(capturedIndex));
+                use.Root.sizeDelta = new Vector2(ButtonWidth, use.Root.sizeDelta.y);
                 _rows.Add(row);
+                changed = true;
             }
             while (_rows.Count > _vm.Slots.Count)
             {
@@ -433,19 +618,66 @@ namespace Adapter.Unity.Ui.Panels
                 }
 
                 Destroy(last);
+                changed = true;
             }
 
+            var labelWidth = DefaultLabelWidth;
             for (var i = 0; i < _vm.Slots.Count; i++)
             {
                 var slot = _vm.Slots[i];
                 var label = _rows[i].transform.Find("Label").GetComponent<TextMeshProUGUI>();
-                label.text = $"{ShortId(slot.TemplateId)} x{slot.Count}";
+                var text = $"{ItemLabel(slot.TemplateId)} x{slot.Count}";
+                if (label.text != text)
+                {
+                    label.text = text;
+                    changed = true;
+                }
+
+                labelWidth = Mathf.Max(labelWidth, Mathf.Ceil(label.GetPreferredValues(text).x) + 4f);
                 if (_visuals != null && i < _cells.Count)
                 {
                     RefreshItemCell(_cells[i], slot.TemplateId, slot.Count);
                 }
             }
+
+            if (changed || !Mathf.Approximately(_lastLabelWidth, labelWidth))
+            {
+                _lastLabelWidth = labelWidth;
+                for (var i = 0; i < _rows.Count; i++)
+                {
+                    var label = _rows[i].transform.Find("Label").GetComponent<TextMeshProUGUI>();
+                    label.rectTransform.sizeDelta = new Vector2(labelWidth, label.rectTransform.sizeDelta.y);
+                }
+
+                ApplyPanelSize(labelWidth);
+            }
         }
+
+        private float _lastLabelWidth;
+
+        /// <summary>面板尺寸 = max(缺省, 内容)；贴边的锚点下面板向屏幕内侧长大（带皮肤按布局锚点，不带皮肤保持右上角与改动前同一位置）。</summary>
+        private void ApplyPanelSize(float labelWidth)
+        {
+            var rowWidth = (_visuals != null ? _cellSize + RowSpacing : 0f) + labelWidth + RowSpacing + ButtonWidth;
+            var rowHeight = _visuals != null ? Mathf.Max(_cellSize, MinRowHeight) : TextRowHeight;
+            var rows = _vm.Slots.Count;
+            var contentHeight = rows > 0 ? rows * rowHeight + (rows - 1) * ListSpacing : 0f;
+            var size = new Vector2(
+                Mathf.Max(DefaultPanelSize.x, 2f * PanelPadding + rowWidth),
+                Mathf.Max(DefaultPanelSize.y, 2f * PanelPadding + contentHeight));
+            if (_hasLayout)
+            {
+                _layout.ApplyAnchor(Background, size);
+            }
+            else
+            {
+                // 没有布局：与改动前同一位置——中心在右上角内侧 (-140,-140)，即右/上缘离屏幕边 10 像素；变大时保持右/上缘不动。
+                Background.sizeDelta = size;
+                Background.anchoredPosition = new Vector2(-10f - size.x * 0.5f, -10f - size.y * 0.5f);
+            }
+        }
+
+        private string ItemLabel(Id template) => _visuals != null ? _visuals.ItemName(template) : ShortId(template);
 
         private ItemCell CreateItemCell(RectTransform row)
         {

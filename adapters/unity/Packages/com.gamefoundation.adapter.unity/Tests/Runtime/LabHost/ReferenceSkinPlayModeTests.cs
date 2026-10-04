@@ -461,7 +461,7 @@ namespace Adapter.Unity.Tests.LabHost
 
             panel.Preview.SetDirection("front_side_r");
             Settle(panel, loader);
-            yield return Shot(root, "02_equipment_panel.png", 900, 560);
+            yield return Shot(root, "v2_equipment_panel.png", 900, 560);
         }
 
         [UnityTest]
@@ -519,7 +519,7 @@ namespace Adapter.Unity.Tests.LabHost
 
             Assert.AreEqual(0, visuals.FailedCount);
             Assert.AreEqual(32f, panel.CellSize, "没有布局行时背包格子取缺省 32 px（缺省行为不变）");
-            yield return Shot(root, "03_inventory_panel.png", 900, 560);
+            yield return Shot(root, "v2_inventory_panel.png", 900, 560);
         }
 
         // ───────── 画廊（拖拽态、提示框三件、状态变体、九宫格各尺寸） ─────────
@@ -680,7 +680,224 @@ namespace Adapter.Unity.Tests.LabHost
             Assert.AreEqual(items.Count * directions.Length, previews.Count);
             Assert.Greater(checkedLayers, 0);
             TestContext.Out.WriteLine($"[reference-montage] items={items.Count} directions={directions.Length} static-layers={checkedLayers}");
-            yield return Shot(root, "04_wardrobe_montage.png", (int)(16 + directions.Length * (cellW + 6f)), (int)(16 + items.Count * (cellH + 6f)));
+            yield return Shot(root, "v2_wardrobe_montage.png", (int)(16 + directions.Length * (cellW + 6f)), (int)(16 + items.Count * (cellH + 6f)));
+        }
+
+        // ───────── 逐方向层序与静态层锚点对齐（ADR-0152 第 2 轮） ─────────
+
+        private (PaperdollPreview Preview, UiVisuals Visuals, UnityResourceLoader Loader) NewPreview(WardrobeStage stage, UiRoot root, string direction)
+        {
+            var pack = LoadPack(PackName);
+            var loader = new UnityResourceLoader();
+            var visuals = new UiVisuals(pack, stage.Registry, stage.DisplayInfo, loader);
+            _disposables.Add(visuals);
+            return (new PaperdollPreview(root.Content, visuals, "placeholder_hero", 0.58f, direction), visuals, loader);
+        }
+
+        private static void SettlePreview(PaperdollPreview preview, IReadOnlyList<EquipmentPaperdollLayer> layers, UnityResourceLoader loader)
+        {
+            preview.Refresh(layers);
+            Pump(loader);
+            preview.Refresh(layers);
+        }
+
+        [Test]
+        public void Paperdoll_BackDirectionWeapon_IsDrawnBelowTheBody_OnlyInTheDeclaredDirections()
+        {
+            var stage = NewStage();
+            var root = NewUiRoot();
+            var (preview, _, loader) = NewPreview(stage, root, "front");
+            var declaredItems = 0;
+            var undeclaredItems = 0;
+            foreach (var entry in stage.Entries.Where(e => e.IsPaperdoll))
+            {
+                stage.UnequipAll();
+                Assert.IsTrue(stage.Equip(entry.ItemId));
+                var layers = stage.Panel.PaperdollLayers.ToList();
+                var layer = layers.Single();
+                var behind = layer.BehindDirections;
+                if (behind.Count > 0) declaredItems++; else undeclaredItems++;
+                foreach (var direction in PaperdollPreview.Directions)
+                {
+                    preview.SetDirection(direction);
+                    SettlePreview(preview, layers, loader);
+                    var expectBehind = behind.Contains(new Id("dir." + direction));
+                    var layerImage = preview.EquipmentLayers.Single().Image;
+                    var layerIndex = layerImage.transform.GetSiblingIndex();
+                    var bodyIndex = preview.BodyImage!.transform.GetSiblingIndex();
+                    // 复现的现象：背面列武器盖在身体前面（兄弟序在身体之后）；声明了逐方向层序的方向，武器必须在身体之下。
+                    Assert.AreEqual(expectBehind, layerIndex < bodyIndex, $"{entry.ItemId}/{direction}: 武器兄弟序 {layerIndex} 身体 {bodyIndex}，声明 behind={expectBehind}");
+                    Assert.AreEqual(expectBehind, preview.IsLayerBehindBody(layer.Layer), $"{entry.ItemId}/{direction}");
+                }
+            }
+
+            Assert.Greater(declaredItems, 0, "参考数据里至少有一件武器声明了背面层序");
+            Assert.Greater(undeclaredItems, 0, "也要有一件没声明的（胸甲），证明缺省方向层序不变");
+            // 具体到用户看到的现象：参考包的武器在 back 方向在身体后面，在 front 方向仍在前面。
+            stage.UnequipAll();
+            var sword = stage.Entries.First(e => e.IsPaperdoll && e.ItemId.Contains("sword_1h")).ItemId;
+            Assert.IsTrue(stage.Equip(sword));
+            var swordLayers = stage.Panel.PaperdollLayers.ToList();
+            preview.SetDirection("back");
+            SettlePreview(preview, swordLayers, loader);
+            Assert.Less(preview.EquipmentLayers.Single().Image.transform.GetSiblingIndex(), preview.BodyImage!.transform.GetSiblingIndex(), "back 方向武器应在身体之下");
+            preview.SetDirection("front");
+            SettlePreview(preview, swordLayers, loader);
+            Assert.Greater(preview.EquipmentLayers.Single().Image.transform.GetSiblingIndex(), preview.BodyImage.transform.GetSiblingIndex(), "front 方向武器仍在身体之上");
+        }
+
+        [Test]
+        public void Paperdoll_LayersWithoutDeclaredOrder_KeepTheLegacyBodyFirstOrder_InEveryDirection()
+        {
+            var stage = NewStage();
+            var root = NewUiRoot();
+            var (preview, _, loader) = NewPreview(stage, root, "front");
+            // 手工构造一个没有任何逐方向层序声明的图层（缺省空列表）：所有方向都是 身体 -> 装备层。
+            var layers = new List<EquipmentPaperdollLayer>
+            {
+                new EquipmentPaperdollLayer("hand_main", new Id("paperdoll.item.std_sword_1h"), new Id("item.std_sword_1h"), new Id("slot.hand_main"), null),
+            };
+            foreach (var direction in PaperdollPreview.Directions)
+            {
+                preview.SetDirection(direction);
+                SettlePreview(preview, layers, loader);
+                Assert.AreEqual(0, preview.BodyImage!.transform.GetSiblingIndex(), direction);
+                Assert.AreEqual(1, preview.EquipmentLayers.Single().Image.transform.GetSiblingIndex(), direction);
+                Assert.IsFalse(preview.IsLayerBehindBody("hand_main"), direction);
+            }
+        }
+
+        private static readonly Vector2 NoShift = Vector2.zero;
+
+        /// <summary>在内容根里造一个只有锚点声明的探针精灵集（item_anchor_probe）：画布 100 x 120 的纯色层图，front 方向声明 grip，其余方向不声明。</summary>
+        private void WriteAnchorProbe(string anchorsJson)
+        {
+            foreach (var direction in PaperdollPreview.Directions)
+            {
+                var dir = Path.Combine(_root, "sprites", "item_anchor_probe", direction);
+                Directory.CreateDirectory(dir);
+                var texture = new Texture2D(100, 120, TextureFormat.RGBA32, false);
+                var pixels = new Color32[100 * 120];
+                for (var i = 0; i < pixels.Length; i++)
+                {
+                    pixels[i] = new Color32(200, 40, 40, 255);
+                }
+
+                texture.SetPixels32(pixels);
+                texture.Apply();
+                File.WriteAllBytes(Path.Combine(dir, "hand_main.png"), ImageConversion.EncodeToPNG(texture));
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+
+            File.WriteAllText(Path.Combine(_root, "sprites", "item_anchor_probe", "anchors.json"), anchorsJson);
+        }
+
+        private static List<EquipmentPaperdollLayer> ProbeLayers() => new List<EquipmentPaperdollLayer>
+        {
+            new EquipmentPaperdollLayer("hand_main", new Id("paperdoll.item.anchor_probe"), new Id("item.anchor_probe"), new Id("slot.hand_main"), null),
+        };
+
+        [Test]
+        public void Paperdoll_DeclaredGrip_AlignsTheLayerToTheBodyAttachPoint_UndeclaredStaysCentered()
+        {
+            const float gripX = 10f;
+            const float gripY = 20f;
+            WriteAnchorProbe("{\"canvas\":{\"width\":100,\"height\":120},\"directions\":{\"front\":{\"grip\":[" + gripX + "," + gripY + "]}}}");
+            var stage = NewStage();
+            var root = NewUiRoot();
+            var (preview, _, loader) = NewPreview(stage, root, "front");
+            var bodyAnchors = (Core.Foundation.Common.Json.JsonObject)Core.Foundation.Common.Json.JsonReader.Parse(File.ReadAllText(Path.Combine(_root, "sprites", "placeholder_hero", "anchors.json")));
+            var directions = (Core.Foundation.Common.Json.JsonObject)bodyAnchors["directions"];
+
+            foreach (var direction in PaperdollPreview.Directions)
+            {
+                preview.SetDirection(direction);
+                SettlePreview(preview, ProbeLayers(), loader);
+                var layerRect = (RectTransform)preview.EquipmentLayers.Single().Image.transform;
+                var body = preview.BodyImage!.sprite;
+                Assert.IsNotNull(body);
+                var k = preview.Root.sizeDelta.y * 0.9f / body.rect.height;
+                if (direction == "front")
+                {
+                    // 期望值由规则算出：层的握点（左上原点像素）对到身体 hand_main 锚点上，本地坐标原点取各自画布中心、y 向上。
+                    var attach = (Core.Foundation.Common.Json.JsonArray)((Core.Foundation.Common.Json.JsonObject)directions["front"])["hand_main"];
+                    var ax = (float)((Core.Foundation.Common.Json.JsonNumber)attach[0]).Value;
+                    var ay = (float)((Core.Foundation.Common.Json.JsonNumber)attach[1]).Value;
+                    var expected = new Vector2(
+                        (ax - body.rect.width * 0.5f) * k - (gripX - 50f) * k,
+                        (body.rect.height * 0.5f - ay) * k - (60f - gripY) * k);
+                    Assert.AreEqual(expected.x, layerRect.anchoredPosition.x, 0.01f, "front x");
+                    Assert.AreEqual(expected.y, layerRect.anchoredPosition.y, 0.01f, "front y");
+                    Assert.Greater(layerRect.anchoredPosition.magnitude, 1f, "探针的握点不在画布中心：对齐必须产生可见位移");
+                }
+                else
+                {
+                    // 不变量：没有声明 grip 的方向保持画布居中叠放（位移恰好为零）。
+                    Assert.AreEqual(NoShift, layerRect.anchoredPosition, direction + " 未声明锚点应居中");
+                }
+            }
+        }
+
+        [Test]
+        public void Paperdoll_NoAnchorsFile_OrBodyHasNoMatchingAttach_StaysCentered()
+        {
+            // 没有 anchors.json：居中。
+            WriteAnchorProbe("{}");
+            File.Delete(Path.Combine(_root, "sprites", "item_anchor_probe", "anchors.json"));
+            var stage = NewStage();
+            var root = NewUiRoot();
+            var (preview, _, loader) = NewPreview(stage, root, "front");
+            SettlePreview(preview, ProbeLayers(), loader);
+            Assert.AreEqual(NoShift, ((RectTransform)preview.EquipmentLayers.Single().Image.transform).anchoredPosition, "没有锚点文件");
+
+            // 层声明了 grip，但身体该层名没有挂接点（探针层名 neck_probe 不在身体锚点里）：居中。
+            var neckDir = Path.Combine(_root, "sprites", "item_anchor_probe", "front");
+            File.Copy(Path.Combine(neckDir, "hand_main.png"), Path.Combine(neckDir, "neck_probe.png"), true);
+            File.WriteAllText(Path.Combine(_root, "sprites", "item_anchor_probe", "anchors.json"), "{\"directions\":{\"front\":{\"grip\":[10,20]}}}");
+            var layers = new List<EquipmentPaperdollLayer>
+            {
+                new EquipmentPaperdollLayer("neck_probe", new Id("paperdoll.item.anchor_probe"), new Id("item.anchor_probe"), new Id("slot.neck_probe"), null),
+            };
+            var (preview2, _, loader2) = NewPreview(stage, root, "front");
+            SettlePreview(preview2, layers, loader2);
+            Assert.IsTrue(preview2.EquipmentLayers.Single().Image.enabled);
+            Assert.AreEqual(NoShift, ((RectTransform)preview2.EquipmentLayers.Single().Image.transform).anchoredPosition, "身体没有同名挂接点");
+        }
+
+        [Test]
+        public void Paperdoll_ReferenceWeapons_DeclareGripsThatAreConsistentWithTheirPrePositionedCanvases()
+        {
+            var stage = NewStage();
+            var root = NewUiRoot();
+            var (preview, visuals, loader) = NewPreview(stage, root, "front");
+            var aligned = 0;
+            foreach (var entry in stage.Entries.Where(e => e.IsPaperdoll))
+            {
+                stage.UnequipAll();
+                Assert.IsTrue(stage.Equip(entry.ItemId));
+                var layers = stage.Panel.PaperdollLayers.ToList();
+                foreach (var direction in PaperdollPreview.Directions)
+                {
+                    preview.SetDirection(direction);
+                    SettlePreview(preview, layers, loader);
+                    var (layer, set, image) = preview.EquipmentLayers.Single();
+                    var hasGrip = visuals.TryGetAnchor(set, direction, "grip", out _);
+                    var hasAttach = visuals.TryGetAnchor("placeholder_hero", direction, layer, out _);
+                    if (!hasGrip)
+                    {
+                        // 没有声明握点的物品（胸甲）：居中叠放。
+                        Assert.AreEqual(NoShift, ((RectTransform)image.transform).anchoredPosition, entry.ItemId + "/" + direction);
+                        continue;
+                    }
+
+                    Assert.IsTrue(hasAttach, "身体 " + direction + " 没有 " + layer + " 挂接点");
+                    // 参考层图在制作时已把握点画在"身体 hand_main + 画布偏移"处：按锚点对齐的结果与居中叠放一致（位移为零）。
+                    Assert.AreEqual(0f, ((RectTransform)image.transform).anchoredPosition.magnitude, 0.01f, entry.ItemId + "/" + direction + " 参考层与身体挂接点不一致");
+                    aligned++;
+                }
+            }
+
+            Assert.Greater(aligned, 0, "至少有一件参考武器走了锚点对齐路径");
         }
     }
 

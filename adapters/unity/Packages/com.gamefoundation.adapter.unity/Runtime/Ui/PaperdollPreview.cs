@@ -8,10 +8,15 @@
 //
 // 判断记录（图像对象数 = 图层数，与加载是否完成无关）：每个装备层固定对应一个 Image 子物体，精灵到位前它是隐藏的；
 // 因此"预览里的装备层数 = 视图模型的纸娃娃图层数 = 有 sprite 外观的已装备槽位数"随时可核对，不依赖异步加载的进度。
+// 判断记录（逐方向层序，ADR-0152）：装备外观行可选声明 behind_directions（方向槽位 id 列表），命中当前方向的装备层画在身体层之前的最底层（身体后面），
+// 其余层与身体保持原顺序；缺省空 = 所有方向都是上面的现行叠放次序。运行期合成（SpriteViewBase）用同一份声明，预览与游戏里的前后关系一致。
+// 判断记录（静态层锚点对齐，ADR-0152）：层精灵集的 anchors.json 可选声明 directions.<方向>.grip（层图自己的像素坐标，原点左上），身体层精灵集的 anchors.json 里同层名的锚点
+// （如 hand_main）是挂接点；两者都声明时把层的 grip 对到身体的挂接点上，任一缺失就按画布居中叠放（与未声明时逐位一致）。身体层本身始终居中。
 // 判断记录（尺寸由资源算出）：预览框尺寸 = 皮肤包预览区背景精灵的原生尺寸 × preview_scale；层精灵按"身体层精灵高度 → 预览框高度 90%"的统一比例缩放
 // （没有身体层时按各层自己的高度），不写死像素。预览框用矩形遮罩裁掉超出部分（占位装备层画布比身体层大）。
 using System;
 using System.Collections.Generic;
+using Core.Foundation.Common;
 using Presentation.Ui;
 using UnityEngine;
 using UnityEngine.UI;
@@ -35,6 +40,7 @@ namespace Adapter.Unity.Ui
             public string SpriteSet = string.Empty;
             public string Layer = string.Empty;
             public string AppliedDirection = string.Empty;
+            public IReadOnlyList<Id> BehindDirections = Array.Empty<Id>();
         }
 
         /// <summary>预览框根节点（背景 + 遮罩）。</summary>
@@ -168,6 +174,11 @@ namespace Adapter.Unity.Ui
                 }
             }
 
+            for (var i = 0; i < layers.Count; i++)
+            {
+                _layers[i].BehindDirections = layers[i].BehindDirections;
+            }
+
             Apply();
         }
 
@@ -187,17 +198,90 @@ namespace Adapter.Unity.Ui
                 }
             }
 
+            var bodySprite = _body != null ? _body.sprite : null;
             foreach (var l in _layers)
             {
                 var sprite = _visuals.Layer(l.SpriteSet, direction, l.Layer);
                 l.Image.sprite = sprite;
                 l.Image.enabled = sprite != null;
                 l.AppliedDirection = direction;
+                var layerRect = (RectTransform)l.Image.transform;
+                layerRect.anchoredPosition = Vector2.zero;
                 if (sprite != null)
                 {
-                    SetSize(l.Image, sprite, k > 0f ? k : Root.sizeDelta.y * 0.9f / sprite.rect.height);
+                    var scale = k > 0f ? k : Root.sizeDelta.y * 0.9f / sprite.rect.height;
+                    SetSize(l.Image, sprite, scale);
+                    if (bodySprite != null && k > 0f
+                        && _visuals.TryGetAnchor(l.SpriteSet, direction, "grip", out var grip)
+                        && _visuals.TryGetAnchor(_bodySet, direction, l.Layer, out var attach))
+                    {
+                        // 像素坐标原点在左上；本地坐标以各自画布中心为原点、y 向上。
+                        var bodyPoint = new Vector2((attach.x - bodySprite.rect.width * 0.5f) * k, (bodySprite.rect.height * 0.5f - attach.y) * k);
+                        var layerPoint = new Vector2((grip.x - sprite.rect.width * 0.5f) * k, (sprite.rect.height * 0.5f - grip.y) * k);
+                        layerRect.anchoredPosition = bodyPoint - layerPoint;
+                    }
                 }
             }
+
+            ApplyDrawOrder(direction);
+        }
+
+        /// <summary>
+        /// 叠放次序：命中当前方向 behind_directions 的装备层最先（最底层），然后是身体层，再是其余装备层（按视图模型顺序）。没有任何命中时与改动前的
+        /// "身体在下、装备层依次在上"完全一致。
+        /// </summary>
+        private void ApplyDrawOrder(string direction)
+        {
+            var directionId = new Id("dir." + direction);
+            var index = 0;
+            foreach (var l in _layers)
+            {
+                if (ContainsDirection(l.BehindDirections, directionId))
+                {
+                    l.Image.transform.SetSiblingIndex(index++);
+                }
+            }
+
+            if (_body != null)
+            {
+                _body.transform.SetSiblingIndex(index++);
+            }
+
+            foreach (var l in _layers)
+            {
+                if (!ContainsDirection(l.BehindDirections, directionId))
+                {
+                    l.Image.transform.SetSiblingIndex(index++);
+                }
+            }
+        }
+
+        private static bool ContainsDirection(IReadOnlyList<Id> list, Id id)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (list[i].Equals(id))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>当前方向下该装备层是否画在身体后面（层序声明命中；供测试与实验室读取）。</summary>
+        public bool IsLayerBehindBody(string layer)
+        {
+            var directionId = new Id("dir." + Direction);
+            foreach (var l in _layers)
+            {
+                if (string.Equals(l.Layer, layer, StringComparison.Ordinal))
+                {
+                    return ContainsDirection(l.BehindDirections, directionId);
+                }
+            }
+
+            return false;
         }
 
         private static void SetSize(Image image, Sprite sprite, float k)

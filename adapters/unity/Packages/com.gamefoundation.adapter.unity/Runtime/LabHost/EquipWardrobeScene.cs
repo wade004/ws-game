@@ -41,6 +41,8 @@ namespace Adapter.Unity.LabHost
         private int _stepIndex;
         private bool _ended;
         private bool _skinInstalled;
+        private RectTransform? _controls;
+        private readonly HashSet<Id> _carouselIds = new HashSet<Id>();
 
         /// <summary>
         /// 界面皮肤包引用（如 <c>skin.reference_fantasy</c>，包在资源内容根的 <c>ui/skin/&lt;名&gt;/</c>）；空 = 占位皮肤。必须在 <see cref="Begin"/> 之前设定。
@@ -62,6 +64,9 @@ namespace Adapter.Unity.LabHost
         public UiVisuals? Visuals { get; private set; }
 
         public WardrobeCarouselModel? Carousel { get; private set; }
+
+        /// <summary>悬停提示框与拖放（装备面板的槽位；ADR-0152）。</summary>
+        public UiInteraction? Interaction { get; private set; }
 
         /// <summary>最近一次"跑完整报告"的结果（没跑过为 null）。</summary>
         public WardrobeEngineResult? Result { get; private set; }
@@ -125,6 +130,22 @@ namespace Adapter.Unity.LabHost
             Panel.Construct(panelGo, Stage.Panel, Visuals, null, layout);
             Panel.SlotClicked += slot => Stage.Unequip(slot.Value);
 
+            try
+            {
+                Visuals.L10n = Stage.L10n;        // 物品名/品质名/槽位名；数据里没有 l10n 表的舞台（极少）退回短名
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[EquipWardrobeScene] 本地化宿主不可用，提示框用短名：" + ex.Message);
+            }
+
+            var stage = Stage;
+            Interaction = new UiInteraction(
+                _ui.Content,
+                Visuals,
+                new UiEquipActions((instance, slot) => stage.EquipInstance(instance, slot), slot => stage.Unequip(slot.Value)));
+            Panel.AttachInteraction(Interaction);
+
             BuildControls();
             if (runReport)
             {
@@ -134,11 +155,40 @@ namespace Adapter.Unity.LabHost
             Panel.RefreshUi();
         }
 
+        /// <summary>
+        /// 运行期切换界面皮肤（空 = 占位皮肤，ADR-0152）：图标/层图缓存与皮肤包由 <see cref="UiVisuals.SwitchSkin"/> 作废并重装，装备面板订阅它自行重建，
+        /// 本场景再重建底部控制条（它在旧皮肤下建出来的底板与按钮）并卸掉自己加载过的轮播剪辑缓存。此前换皮肤需要手工 Unload 缓存的图标才能看到新皮肤的图。
+        /// </summary>
+        public void SwitchSkin(string newSkinRef)
+        {
+            var visuals = Visuals ?? throw new InvalidOperationException("场景还没有 Begin");
+            newSkinRef ??= string.Empty;
+            var loader = UnityEngineHost.Ensure().ResourceLoader;
+            foreach (var id in _carouselIds)
+            {
+                loader.Unload(id);
+            }
+
+            _carouselIds.Clear();
+            visuals.SwitchSkin(newSkinRef.Length > 0 ? newSkinRef : null);
+            skinRef = newSkinRef;
+            _skinInstalled = UiSkin.IsOverrideInstalled;
+            if (_controls != null)
+            {
+                _controls.gameObject.SetActive(false);
+                Destroy(_controls.gameObject);
+            }
+
+            BuildControls();
+            Panel?.RefreshUi();
+        }
+
         private void BuildControls()
         {
             var bar = UiWidgets.CreatePanelBackground("Controls", _ui!.Content, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(560f, 150f), new Vector2(0f, 90f));
             var row = new GameObject("Buttons", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             var rowRect = (RectTransform)row.transform;
+            _controls = bar;
             rowRect.SetParent(bar, false);
             UiWidgets.SetRect(rowRect, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(8f, -38f), new Vector2(-8f, -8f));
             var group = row.GetComponent<HorizontalLayoutGroup>();
@@ -274,6 +324,7 @@ namespace Adapter.Unity.LabHost
         {
             var loader = UnityEngineHost.Ensure().ResourceLoader;
             var id = new Id(resource);
+            _carouselIds.Add(id);
             if (!loader.TryGetEffect(id, out var asset))
             {
                 loader.LoadAsync(id, ResourceKind.Effect, (rid, ok) => { });
@@ -314,6 +365,8 @@ namespace Adapter.Unity.LabHost
         private void OnDestroy()
         {
             _ended = true;
+            Interaction?.Dispose();
+            Interaction = null;
             Stage?.Dispose();
             Visuals?.Dispose();
             if (_skinInstalled)

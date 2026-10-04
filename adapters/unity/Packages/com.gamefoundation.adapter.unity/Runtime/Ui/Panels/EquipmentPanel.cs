@@ -7,6 +7,9 @@
 //
 // 判断记录（缺省布局）：没有 equipment 行时锚点 left_center、2 列、格子取皮肤包槽位框原生尺寸、预览取预览区背景原生尺寸，保证只有框架数据也画得出来。
 // 判断记录（点击槽位 = 卸下）：与背包"点击使用"对称，点击已装备的槽位经 UiIntents.Unequip 卸下；空槽点击无操作。
+// 判断记录（交互与换皮肤，ADR-0152）：AttachInteraction 之后每个槽位有悬停提示框（已装备时）、可把已装备的物品拖回背包卸下，并是"从背包拖来穿上"的落点
+// （槽位合法 = 物品模板的槽位等于本槽位，非法显示 target_blocked，落下被拒绝且装备不变）；UiVisuals.SwitchSkin 之后面板整体重建（保持当前预览方向），
+// 交互自动重新挂上。重建后 Cells/Preview/Background 都是新对象，持有旧引用的调用方需重新取。
 using System.Collections.Generic;
 using Core.Foundation.Common;
 using Presentation.Ui;
@@ -39,9 +42,12 @@ namespace Adapter.Unity.Ui.Panels
             public TextMeshProUGUI Label = null!;
         }
 
+        private RectTransform _parent = null!;
         private EquipmentViewModel _vm = null!;
         private UiVisuals _visuals = null!;
         private UiIntents? _intents;
+        private UiInteraction? _interaction;
+        private readonly List<UiDropTarget> _targets = new List<UiDropTarget>();
         private readonly List<SlotCell> _cells = new List<SlotCell>();
         private TextMeshProUGUI _directionLabel = null!;
 
@@ -66,9 +72,149 @@ namespace Adapter.Unity.Ui.Panels
         /// <summary>显式给布局的重载（宿主没有 equipment 数据行又想指定身体层精灵集等布局参数时用，如实验室换装场景）。</summary>
         public void Construct(RectTransform parent, EquipmentViewModel vm, UiVisuals visuals, UiIntents? intents, UiPanelLayout layout)
         {
+            _parent = parent;
             _vm = vm;
             _visuals = visuals;
             _intents = intents;
+            visuals.SkinChanged -= OnSkinChanged;
+            visuals.SkinChanged += OnSkinChanged;
+            Build(layout);
+        }
+
+        /// <summary>挂上悬停提示框与拖放（换皮肤重建后自动重新挂上）。</summary>
+        public void AttachInteraction(UiInteraction interaction)
+        {
+            ClearTargets();
+            _interaction = interaction;
+            HookInteraction();
+        }
+
+        /// <summary>每个槽位的落点（槽位序同 <see cref="Cells"/>；没有挂交互时为空）。</summary>
+        public IReadOnlyList<UiDropTarget> DropTargets => _targets;
+
+        private void OnSkinChanged()
+        {
+            if (this == null)
+            {
+                return;
+            }
+
+            var old = Background;
+            var direction = Preview != null ? Preview.Direction : Layout.PreviewDirection;
+            ClearTargets();
+            if (old != null)
+            {
+                old.gameObject.SetActive(false);
+                Destroy(old.gameObject);
+            }
+
+            Build(new UiPanelLayout(Layout.Anchor, Layout.Columns, Layout.CellSize, Layout.PreviewScale, Layout.PreviewBodySet, direction));
+            RefreshUi();
+        }
+
+        private void OnDestroy()
+        {
+            if (_visuals != null)
+            {
+                _visuals.SkinChanged -= OnSkinChanged;
+            }
+
+            ClearTargets();
+        }
+
+        private void ClearTargets()
+        {
+            if (_interaction != null)
+            {
+                foreach (var target in _targets)
+                {
+                    _interaction.Drag.Unregister(target);
+                }
+            }
+
+            _targets.Clear();
+        }
+
+        private void HookInteraction()
+        {
+            if (_interaction == null)
+            {
+                return;
+            }
+
+            var interaction = _interaction;
+            ClearTargets();
+            var registry = _visuals.Registry;
+            for (var i = 0; i < _cells.Count; i++)
+            {
+                var cell = _cells[i];
+                var handler = cell.Root.GetComponent<UiItemCell>() ?? cell.Root.gameObject.AddComponent<UiItemCell>();
+                handler.Interaction = interaction;
+                handler.Resolve = () =>
+                {
+                    var snapshot = FindSlot(cell.SlotId);
+                    return snapshot is { Occupied: true } slot
+                        ? new UiDragPayload(UiDragOrigin.Equipment, slot.InstanceId!.Value, slot.TemplateId!.Value, slot.SlotId, cell.Icon.enabled ? cell.Icon.sprite : null)
+                        : null;
+                };
+
+                var slotId = cell.SlotId;
+                var target = new UiDropTarget(
+                    "slot:" + cell.SlotName,
+                    cell.Root,
+                    payload =>
+                    {
+                        if (payload.Origin == UiDragOrigin.Bag)
+                        {
+                            return registry != null && ItemTooltipBuilder.FitsSlot(registry, payload.TemplateId, slotId) ? UiDropState.Ok : UiDropState.Blocked;
+                        }
+
+                        return payload.SourceSlot.HasValue && payload.SourceSlot.Value.Equals(slotId) ? UiDropState.None : UiDropState.Blocked;
+                    },
+                    payload =>
+                    {
+                        if (payload.Origin != UiDragOrigin.Bag)
+                        {
+                            return UiDropResult.Rejected("equip", "Blocked");
+                        }
+
+                        if (registry == null || !ItemTooltipBuilder.FitsSlot(registry, payload.TemplateId, slotId))
+                        {
+                            return UiDropResult.Rejected("equip", Core.Carriers.Common.EquipFailureReason.SlotMismatch.ToString());
+                        }
+
+                        if (interaction.Actions == null)
+                        {
+                            return UiDropResult.Rejected("equip", "NoAction");
+                        }
+
+                        var result = interaction.Actions.Equip(payload.InstanceId, slotId);
+                        return result.Success ? new UiDropResult(true, "equip", string.Empty) : UiDropResult.Rejected("equip", result.Reason.ToString());
+                    });
+                interaction.Drag.Register(target);
+                _targets.Add(target);
+            }
+        }
+
+        private EquipmentSlotSnapshot? FindSlot(Id slotId)
+        {
+            foreach (var slot in _vm.Slots)
+            {
+                if (slot.SlotId.Equals(slotId))
+                {
+                    return slot;
+                }
+            }
+
+            return null;
+        }
+
+        private void Build(UiPanelLayout layout)
+        {
+            var visuals = _visuals;
+            var parent = _parent;
+            var vm = _vm;
+            _cells.Clear();
             Layout = layout;
 
             var defaultFrame = visuals.Pack.SlotFrameDefault();
@@ -118,6 +264,10 @@ namespace Adapter.Unity.Ui.Panels
                 _directionLabel.rectTransform,
                 new Vector2(-(Padding + ButtonWidth), buttonY),
                 new Vector2(Mathf.Max(10f, previewW - 2f * ButtonWidth), ButtonHeight));
+            if (_interaction != null)
+            {
+                HookInteraction();
+            }
         }
 
         private static void PlaceTopRight(RectTransform rect, Vector2 anchoredPosition, Vector2 size)
