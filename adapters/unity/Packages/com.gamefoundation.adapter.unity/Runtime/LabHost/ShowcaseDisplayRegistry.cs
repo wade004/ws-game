@@ -101,10 +101,12 @@ namespace Adapter.Unity.LabHost
                 };
             }
 
+            // 不声明纸娃娃层：整身动画剪辑（AnimRoot）是唯一画面。若声明 "body" 静态层，它会作为"站立姿态"一直垫在
+            // 剪辑下面，倒地/受击等非站立姿态就会出现"一个站着、一个趴着"的双影（ADR-0154 决策 10）。
             return new DisplayInfo(
                 new Id("display.map.show_" + look), DisplayCategory.Creature, logicalId, DisplayKind.Sprite, null, null, null, 1.0,
                 Core.Foundation.DisplayInfo.ShadowMode.Blob, 0.0, null,
-                new SpriteInfo("sprite.creature.show_" + look, 8, mirrors, new[] { "body" }), null);
+                new SpriteInfo("sprite.creature.show_" + look, 8, mirrors, System.Array.Empty<string>()), null);
         }
 
         public IReadOnlyList<DisplayInfo> LookupByCategory(DisplayCategory category) => _inner.LookupByCategory(category);

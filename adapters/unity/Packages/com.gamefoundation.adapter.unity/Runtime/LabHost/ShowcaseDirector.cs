@@ -19,6 +19,7 @@ using Core.Foundation.EventBus;
 using Core.Foundation.Localization;
 using Core.Rules.Common;
 using Lab;
+using Presentation.Common;
 using UnityEngine;
 
 namespace Adapter.Unity.LabHost
@@ -389,6 +390,61 @@ namespace Adapter.Unity.LabHost
             }
         }
 
+        // ───────── 敌人朝向（只是表现）─────────
+        // 判断记录：站着不动的靶子在逻辑里朝向恒定（朝右），AI 单位的逻辑朝向本来就朝向目标；演示场景要让所有敌人面朝玩家，
+        // 被打的敌人面朝攻击者（被打飞时身体向后飞、脸仍对着攻击者）。只改交给引擎视图的朝向（录制视图仍拿逻辑朝向，
+        // 所以逻辑指纹与全部录制度量不变）；方向视图与镜像仍由既有的方向解析按这个朝向选，不在表现层另算一套选图规则。
+        private const double FacingAttackerSeconds = 3.0;
+        private double _facingClock;
+        private readonly Dictionary<Id, KeyValuePair<Id, double>> _lastAttacker = new Dictionary<Id, KeyValuePair<Id, double>>();
+        private readonly Dictionary<Id, Direction> _forwardedFacing = new Dictionary<Id, Direction>();
+
+        /// <summary>最近一次交给引擎视图的朝向（测试用）。</summary>
+        public bool TryGetForwardedFacing(Id entity, out Direction facing) => _forwardedFacing.TryGetValue(entity, out facing);
+
+        /// <summary>某个敌人此刻应面朝的世界坐标：最近三秒内打过它的单位，否则玩家；没有可用坐标时为 null。</summary>
+        public Vec2? FacingFocusOf(Id entity)
+        {
+            var focus = _ctx.PlayerId;
+            if (_lastAttacker.TryGetValue(entity, out var last) && _facingClock - last.Value <= FacingAttackerSeconds)
+            {
+                focus = last.Key;
+            }
+
+            var e = _ctx.World.World.GetEntity(focus);
+            return e?.Position;
+        }
+
+        /// <summary>
+        /// 引擎视图用的朝向：玩家保持逻辑朝向，其余单位朝向焦点；再按框架朝向约定做半圈偏移。
+        /// 判断记录：框架的方向档位约定假定 +Y 朝观察者（<c>presentation/render/README.md</c> "朝向约定"，对应
+        /// <c>RenderOptions.FacingAngleOffsetRadians</c> 配 π 的用法）；试玩宿主把逻辑坐标原样写成引擎坐标（+Y 朝屏幕上方），
+        /// 差半圈——不偏移时朝右的角色会取到"朝左"的镜像档（占位美术左右对称所以一直没人发现）。实验室内核的视图绑定
+        /// 不带这个口味项，所以在这里交给引擎视图之前补上；量化档位数沿用逻辑朝向的。
+        /// </summary>
+        internal Direction FacingFor(Id entity, Vec2 pos, Direction logical)
+        {
+            var angle = logical.RawRadians;
+            if (!entity.Equals(_ctx.PlayerId))
+            {
+                var focus = FacingFocusOf(entity);
+                if (focus.HasValue)
+                {
+                    var dx = focus.Value.X - pos.X;
+                    var dy = focus.Value.Y - pos.Y;
+                    if (dx * dx + dy * dy > 1e-6)
+                    {
+                        angle = Math.Atan2(dy, dx);
+                    }
+                }
+            }
+
+            var engineAngle = angle + Math.PI;
+            var result = logical.DirectionCount > 0 ? Direction.FromQuantized(engineAngle, logical.DirectionCount) : Direction.Continuous(engineAngle);
+            _forwardedFacing[entity] = result;
+            return result;
+        }
+
         private int LiveNumbersOf(Id target)
         {
             var count = 0;
@@ -405,6 +461,7 @@ namespace Adapter.Unity.LabHost
 
         private void OnHit(CombatHitConfirmedEvent hit, int tick)
         {
+            _lastAttacker[hit.TargetId] = new KeyValuePair<Id, double>(hit.SourceId, _facingClock);
             var targetPos = PositionOf(hit.TargetId, new Vector2((float)hit.ContactPoint.X, (float)hit.ContactPoint.Y));
             var head = targetPos + new Vector2(0f, HeadHeight(hit.TargetId));
             var number = new ShowcaseDamageNumber
@@ -541,6 +598,7 @@ namespace Adapter.Unity.LabHost
 
         internal void Update(double dt)
         {
+            _facingClock += dt;
             if (_disposed)
             {
                 return;

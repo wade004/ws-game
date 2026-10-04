@@ -770,6 +770,52 @@ namespace Adapter.Unity.LabHost
             return list;
         }
 
+        /// <summary>某个精灵单位已显示方向的槽位与镜像（测试/诊断用）；不是精灵视图时为 null。</summary>
+        public (string Slot, bool FlipX)? DisplayedDirectionOf(Id entity)
+        {
+            if (_entries.TryGetValue(entity, out var entry) && entry.View is UnitySpriteView sv)
+            {
+                var d = sv.DisplayedDirection;
+                return (d.SlotId.Value, d.FlipX);
+            }
+
+            return null;
+        }
+
+        /// <summary>每个精灵单位当前渲染的精灵名与水平翻转（测试用：核对敌人选用的方向视图与镜像）。</summary>
+        public List<(Id Entity, string Sprite, bool FlipX)> RenderedSpriteFlips()
+        {
+            var list = new List<(Id Entity, string Sprite, bool FlipX)>();
+            if (_r2d == null)
+            {
+                return list;
+            }
+
+            foreach (var pair in _entries)
+            {
+                if (!(pair.Value.View is UnitySpriteView sv))
+                {
+                    continue;
+                }
+
+                var layers = _r2d.GetLayersRoot(sv.EngineHandle);
+                if (layers == null)
+                {
+                    continue;
+                }
+
+                foreach (var r in layers.GetComponentsInChildren<SpriteRenderer>(false))
+                {
+                    if (r.enabled && r.sprite != null)
+                    {
+                        list.Add((pair.Key, r.sprite.name, r.flipX));
+                    }
+                }
+            }
+
+            return list;
+        }
+
         /// <summary>演示场景导演的受击闪白：同样受试玩面板的"闪白"效果开关管（关 = 不闪）。</summary>
         private void ShowcaseFlash(Id entityId)
         {
@@ -1506,7 +1552,8 @@ namespace Adapter.Unity.LabHost
             public void SyncPose(Vec2 pos, Direction facing, double height)
             {
                 _recording.SyncPose(pos, facing, height);
-                Guard("SyncPose", () => _engine.SyncPose(pos, facing, height));
+                var engineFacing = _stage._showcase != null ? _stage._showcase.FacingFor(_recording.EntityId, pos, facing) : facing;
+                Guard("SyncPose", () => _engine.SyncPose(pos, engineFacing, height));
             }
 
             public void Destroy()

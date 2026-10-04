@@ -390,7 +390,7 @@ namespace Adapter.Unity.Tests.LabHost
                 yield return Shot(dir!, name);
                 if (kd != null)
                 {
-                    var spr = pg.Stage!.RenderedSprites().FirstOrDefault(r => r.Key.Equals(kd.Target)).Value;
+                    var spr = string.Join(" + ", pg.Stage!.RenderedSprites().Where(r => r.Key.Equals(kd.Target)).Select(r => r.Value));
                     var at = director.PositionOf(kd.Target);
                     Debug.Log("[ShowcaseTests] " + name + " target sprite=" + spr + " pos=" + (at.HasValue ? at.Value.ToString() : "gone"));
                 }
@@ -496,6 +496,138 @@ namespace Adapter.Unity.Tests.LabHost
             var live = director.Model.Numbers.Where(n => n.Target.Equals(director.HitLog.Last().Target)).OrderBy(n => n.Tick).ToList();
             Assert.GreaterOrEqual(live.Count, 2, "三连击间隔内应有多条同目标飘字同时在场");
             Assert.AreEqual(live.Select(n => n.Lane).Distinct().Count(), live.Count, "同时在场的同目标飘字道次互不相同");
+        }
+
+        // ───────── 敌人面朝玩家（表现层）：玩家分别在敌人左/右/上/下时，引擎视图的朝向与镜像由位置算出 ─────────
+
+        private void AssertFacesPlayer(LabPlayground pg, Id enemy, string where)
+        {
+            var ctx = pg.Session!.Context!;
+            var director = pg.Stage!.Showcase!;
+            var ep = ctx.World.World.GetEntity(enemy)!.Position;
+            var pp = ctx.World.World.GetEntity(ctx.PlayerId)!.Position;
+            var angle = Math.Atan2(pp.Y - ep.Y, pp.X - ep.X);
+            Assert.IsTrue(director.TryGetForwardedFacing(enemy, out var facing), where + "：应有交给引擎视图的朝向");
+            var count = facing.DirectionCount;
+            // 期望：指向玩家的角度，加框架朝向约定的半圈偏移（见 ShowcaseDirector.FacingFor），按逻辑朝向的档位数量化。
+            var expected = count > 0 ? global::Presentation.Common.Direction.FromQuantized(angle + Math.PI, count) : global::Presentation.Common.Direction.Continuous(angle + Math.PI);
+            Assert.AreEqual(expected.Index, facing.Index, where + "：朝向档位 = 由敌人与玩家位置算出的档位（玩家在 " + pp + "，敌人在 " + ep + "）");
+            Assert.AreEqual(expected.RawRadians, facing.RawRadians, 1e-6, where + "：朝向角度 = 指向玩家的角度（含约定偏移）");
+
+            // 选用的方向视图与镜像：左右为侧面视图（玩家在敌人左侧时水平翻转，右侧不翻），上下为背面/正面（+Y 朝屏幕上方：玩家在上方 → 背面）。
+            var shown = pg.Stage.DisplayedDirectionOf(enemy);
+            Assert.IsTrue(shown.HasValue, where + "：敌人应是精灵视图");
+            var dx = pp.X - ep.X;
+            var dy = pp.Y - ep.Y;
+            if (Math.Abs(dx) > 2.0 * Math.Abs(dy))
+            {
+                Assert.AreEqual("dir.side_r", shown!.Value.Slot, where + "：左右两侧取同一套侧面视图（镜像复用）");
+                Assert.AreEqual(dx < 0, shown.Value.FlipX, where + "：玩家在左侧时水平翻转、在右侧时不翻");
+                var views = pg.Stage.RenderedSpriteFlips().Where(v => v.Entity.Equals(enemy) && v.Sprite.StartsWith("sprite_anim.", StringComparison.Ordinal)).ToList();
+                Assert.Greater(views.Count, 0, where + "：敌人应有动画剪辑精灵");
+                Assert.IsTrue(views.All(v => v.FlipX == (dx < 0)), where + "：渲染出来的翻转应为 " + (dx < 0) + "；实际 " + string.Join(",", views.Select(v => v.Sprite + ":" + v.FlipX)));
+                // 默认朝向（侧面）的剪辑走无方向入口（它是侧面视图的逐字节拷贝，框架只在方向槽位变化时才换入带方向后缀的剪辑），所以这里不要求名字带 __side_r。
+            }
+            else if (Math.Abs(dy) > 2.0 * Math.Abs(dx))
+            {
+                Assert.AreEqual(dy > 0 ? "dir.back" : "dir.front", shown!.Value.Slot, where + "：玩家在上方取背面、下方取正面");
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Enemies_FacePlayer_FromLeftRightUpAndDown_ViewDirectionAndMirrorFollowPositions()
+        {
+            var pg = NewPlayground(true);
+            pg.SpawnDummy("frail");
+            yield return Frames(120);
+            var ctx = pg.Session!.Context!;
+            var first = ctx.Dummies.First(d => d.Key.StartsWith("frail", StringComparison.Ordinal)).Value;
+            // 玩家在敌人左边（初始布置：靶子在玩家前方右侧）。
+            AssertFacesPlayer(pg, first, "玩家在敌人左侧");
+
+            // 向上走：玩家移到敌人上方（y 方向）。
+            _input!.Press("w");
+            yield return Frames(60);
+            _input.Release("w");
+            yield return Frames(10);
+            AssertFacesPlayer(pg, first, "玩家向上走后");
+            var up = ctx.World.World.GetEntity(ctx.PlayerId)!.Position.Y;
+
+            // 向下走过头：玩家移到敌人下方。
+            _input.Press("s");
+            yield return Frames(140);
+            _input.Release("s");
+            yield return Frames(10);
+            AssertFacesPlayer(pg, first, "玩家向下走后");
+            var down = ctx.World.World.GetEntity(ctx.PlayerId)!.Position.Y;
+            Assert.AreNotEqual(up, down, "玩家确实上下移动过（上、下两次位置不同）");
+
+            // 向左走并朝左：再在左边出一只靶子，则玩家在这只靶子的右边。
+            _input.Press("a");
+            yield return Frames(30);
+            _input.Release("a");
+            pg.SpawnDummy("frail");
+            yield return Frames(40);
+            var second = ctx.Dummies.Where(d => d.Key.StartsWith("frail", StringComparison.Ordinal)).Select(d => d.Value).First(v => !v.Equals(first));
+            AssertFacesPlayer(pg, second, "玩家在敌人右侧");
+        }
+
+        [UnityTest]
+        public IEnumerator HitEnemy_FacesAttacker_WhileBeingKnockedBack()
+        {
+            var pg = NewPlayground(true);
+            pg.SetWeapon("feel.weapon.tpl_heavy_greatsword");
+            pg.SetArchetype("feel.archetype.heavy");
+            pg.SpawnDummy("mob", 3);
+            yield return Frames(40);
+            var director = pg.Stage!.Showcase!;
+            var seen = director.HitLog.Count;
+            _input!.Press("u");
+            yield return Frames(70);
+            _input.Release("u");
+            for (var i = 0; i < 150 && !director.HitLog.Skip(seen).Any(h => h.Reaction == "Knockback" || h.Reaction == "Knockdown"); i++)
+            {
+                yield return Frames(1);
+            }
+
+            var knock = director.HitLog.Skip(seen).First(h => h.Reaction == "Knockback" || h.Reaction == "Knockdown");
+            yield return Frames(20);
+            AssertFacesPlayer(pg, knock.Target, "被击退/击倒的敌人");
+            Assert.IsTrue(director.FacingFocusOf(knock.Target).HasValue, "被打的敌人有朝向焦点");
+        }
+
+        /// <summary>双影回归（ADR-0154 决策 10）：任何实体任何时刻只渲染一张整身动画图，不得再垫一张站姿静态层
+        /// （此前 body 静态层垫在倒地剪辑下面，画面里一个站着、一个趴着）。</summary>
+        [UnityTest]
+        public IEnumerator EveryEntity_RendersExactlyOneBodySprite_AlsoWhileKnockedDown()
+        {
+            var pg = NewPlayground(true);
+            pg.SetWeapon("feel.weapon.tpl_heavy_greatsword");
+            pg.SetArchetype("feel.archetype.heavy");
+            pg.SpawnDummy("mob", 3);
+            pg.SpawnDummy("stake");
+            yield return Frames(40);
+            var director = pg.Stage!.Showcase!;
+            var seen = director.HitLog.Count;
+            _input!.Press("u");
+            yield return Frames(70);
+            _input.Release("u");
+            var sawKnockClip = false;
+            for (var i = 0; i < 220; i++)
+            {
+                yield return Frames(1);
+                var perEntity = pg.Stage!.RenderedSprites().GroupBy(kv => kv.Key.Value).ToList();
+                Assert.Greater(perEntity.Count, 0, "有可见实体");
+                foreach (var g in perEntity)
+                {
+                    var names = string.Join(" + ", g.Select(kv => kv.Value));
+                    Assert.AreEqual(1, g.Count(), "实体 " + g.Key + " 同时渲染了多张图（双影）: " + names);
+                    Assert.IsFalse(names.StartsWith("layer."), "实体 " + g.Key + " 渲染了静态层而不是动画帧: " + names);
+                    if (names.Contains("knock")) sawKnockClip = true;
+                }
+            }
+
+            Assert.IsTrue(sawKnockClip || director.HitLog.Skip(seen).Any(), "重击后应出现击退/击倒剪辑或命中");
         }
 
         // ───────── 舞台相机不被宿主相机盖掉（顺带修复）─────────
